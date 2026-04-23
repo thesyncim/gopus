@@ -25,27 +25,47 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 //   - Code 2: 2 different-sized frames
 //   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
-	d.clearDREDPayloadState()
+	if data != nil && len(data) > 0 && d.dredCachedPayloadActive() {
+		d.invalidateDREDPayloadState()
+	}
 
 	if data == nil || len(data) == 0 {
 		frameSize := d.lastFrameSize
-		n, err := d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
-			packetFrameSize:    d.lastFrameSize,
-			mode:               d.prevMode,
-			bandwidth:          d.lastBandwidth,
-			packetStereo:       d.prevPacketStereo,
-			useDecoderPLCState: true,
-		})
+		neuralReady := d.dredNeuralConcealmentAvailable()
+		n := frameSize
+		usedNeuralConcealment := false
+		var err error
+		if neuralReady && d.sampleRate == 16000 && d.channels == 1 {
+			if len(pcm) < frameSize*d.channels {
+				return 0, ErrBufferTooSmall
+			}
+			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
+		}
+		if !usedNeuralConcealment {
+			n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
+				packetFrameSize:    d.lastFrameSize,
+				mode:               d.prevMode,
+				bandwidth:          d.lastBandwidth,
+				packetStereo:       d.prevPacketStereo,
+				useDecoderPLCState: true,
+				queueCachedDRED:    true,
+			})
+		}
 		if err != nil {
 			return 0, err
 		}
 		frameSize = n
+		if neuralReady && !usedNeuralConcealment {
+			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
+		}
 		d.applyOutputGain(pcm[:frameSize*d.channels])
 
 		d.lastFrameSize = frameSize
 		d.lastPacketDuration = frameSize
 		d.lastDataLen = 0
-		d.dredPLC.MarkConcealed()
+		if !usedNeuralConcealment && d.dredSidecarActive() {
+			d.markDREDConcealed()
+		}
 		return frameSize, nil
 	}
 
@@ -251,9 +271,14 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		d.hasFEC = false
 	}
 
-	d.applyOutputGain(pcm[:totalSamples*d.channels])
 	d.maybeCacheDREDPayload(data)
-	d.dredPLC.MarkUpdated()
+	if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
+		r.dredRecovery = 0
+	}
+	if d.dredSidecarActive() {
+		d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples)
+	}
+	d.applyOutputGain(pcm[:totalSamples*d.channels])
 	return totalSamples, nil
 }
 
@@ -263,10 +288,12 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 // uses in-band LBRR data if present and otherwise falls back to packet loss
 // concealment instead of returning a missing-FEC error.
 func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, error) {
-	d.clearDREDPayloadState()
-
 	if !fec {
 		return d.Decode(data, pcm)
+	}
+
+	if data != nil && len(data) > 0 && d.dredCachedPayloadActive() {
+		d.invalidateDREDPayloadState()
 	}
 
 	if data != nil && len(data) > 0 {

@@ -11,36 +11,13 @@ import (
 // extension paths. A nil blob clears the retained main-decoder model state.
 func (d *Decoder) SetDNNBlob(blob *dnnblob.Blob) {
 	d.dnnBlob = blob
-	var (
-		models    dnnblob.DecoderModelState
-		analysis  lpcnetplc.Analysis
-		predictor lpcnetplc.Predictor
-		fargan    lpcnetplc.FARGAN
-	)
+	var models dnnblob.DecoderModelState
 	if blob != nil {
 		models = blob.DecoderModels()
-		if models.PitchDNN {
-			_ = analysis.SetModel(blob)
-		}
-		if models.PLC {
-			_ = predictor.SetModel(blob)
-		}
-		if models.FARGAN {
-			_ = fargan.SetModel(blob)
-		}
 	}
-	for i := range d.dredAnalysis {
-		d.dredAnalysis[i] = analysis
-	}
-	for i := range d.dredPredictor {
-		d.dredPredictor[i] = predictor
-	}
-	for i := range d.dredFARGAN {
-		d.dredFARGAN[i] = fargan
-	}
-	d.pitchDNNLoaded = models.PitchDNN && analysis.Loaded()
-	d.plcModelLoaded = models.PLC && predictor.Loaded()
-	d.farganModelLoaded = models.FARGAN && fargan.Loaded()
+	d.pitchDNNLoaded = models.PitchDNN
+	d.plcModelLoaded = models.PLC
+	d.farganModelLoaded = models.FARGAN
 	d.osceModelsLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
 }
@@ -63,7 +40,36 @@ func (d *Decoder) setDREDDecoderBlob(blob *dnnblob.Blob) {
 		for i := range d.dredPLC {
 			d.dredPLC[i].Reset()
 		}
+		d.releaseDREDSidecar()
 	}
+}
+
+func (d *Decoder) ensureDREDSidecar() {
+	if d == nil || len(d.dredCache) != 0 {
+		return
+	}
+	streams := len(d.decoders)
+	if streams <= 0 {
+		return
+	}
+	d.dredDecoded = make([]internaldred.Decoded, streams)
+	d.dredProcesses = make([]rdovae.Processor, streams)
+	d.dredPLC = make([]lpcnetplc.State, streams)
+	d.dredBlend = make([]int, streams)
+	d.dredData = makeDREDBuffers(streams)
+	d.dredCache = make([]internaldred.Cache, streams)
+}
+
+func (d *Decoder) releaseDREDSidecar() {
+	if d == nil {
+		return
+	}
+	d.dredDecoded = nil
+	d.dredProcesses = nil
+	d.dredPLC = nil
+	d.dredBlend = nil
+	d.dredData = nil
+	d.dredCache = nil
 }
 
 // DNNBlobLoaded reports whether a validated model blob is retained.
@@ -98,7 +104,20 @@ func makeDREDBuffers(streams int) [][]byte {
 	return bufs
 }
 
+func (d *Decoder) dredSidecarActive() bool {
+	if d == nil {
+		return false
+	}
+	// Multistream has standalone DRED caching today, but no per-stream neural
+	// concealment consumer yet, so keep the sidecar dormant until we actually
+	// cache a payload.
+	return len(d.dredCache) != 0
+}
+
 func (d *Decoder) clearDREDPayloadState() {
+	if !d.dredSidecarActive() {
+		return
+	}
 	for i := range d.dredCache {
 		d.dredCache[i].Clear()
 		d.dredDecoded[i].Clear()
@@ -107,26 +126,57 @@ func (d *Decoder) clearDREDPayloadState() {
 	}
 }
 
+func (d *Decoder) invalidateDREDPayloadState() {
+	if !d.dredSidecarActive() {
+		return
+	}
+	for i := range d.dredCache {
+		d.dredCache[i].Invalidate()
+		d.dredDecoded[i].Invalidate()
+		d.dredBlend[i] = d.dredPLC[i].Blend()
+	}
+}
+
 func (d *Decoder) maybeCacheDREDPayload(stream int, packet []byte) {
-	if !d.dredModelLoaded || d.ignoreExtensions || stream < 0 || stream >= len(d.dredData) || len(packet) == 0 {
+	if !d.dredModelLoaded || d.ignoreExtensions || stream < 0 || len(packet) == 0 {
+		return
+	}
+	payload, frameOffset, ok, err := findDREDPayload(packet)
+	if err != nil || !ok {
+		return
+	}
+	d.ensureDREDSidecar()
+	if stream >= len(d.dredData) || len(payload) > len(d.dredData[stream]) {
 		return
 	}
 	d.dredBlend[stream] = d.dredPLC[stream].Blend()
-	payload, frameOffset, ok, err := findDREDPayload(packet)
-	if err != nil || !ok || len(payload) > len(d.dredData[stream]) {
-		return
-	}
 	if err := d.dredCache[stream].Store(d.dredData[stream], payload, frameOffset); err != nil {
 		return
 	}
 	minFeatureFrames := 2 * internaldred.NumRedundancyFrames
 	if _, err := d.dredDecoded[stream].Decode(payload, frameOffset, minFeatureFrames); err != nil {
-		d.dredCache[stream].Clear()
-		d.dredDecoded[stream].Clear()
+		d.dredCache[stream].Invalidate()
+		d.dredDecoded[stream].Invalidate()
 		d.dredPLC[stream].FECClear()
 		return
 	}
 	d.dredModel.DecodeAllWithProcessor(&d.dredProcesses[stream], d.dredDecoded[stream].Features[:], d.dredDecoded[stream].State[:], d.dredDecoded[stream].Latents[:], d.dredDecoded[stream].NbLatents)
+}
+
+func (d *Decoder) markDREDUpdated(stream int) {
+	if !d.dredSidecarActive() || stream < 0 || stream >= len(d.dredPLC) {
+		return
+	}
+	d.dredPLC[stream].MarkUpdated()
+}
+
+func (d *Decoder) markDREDConcealedAll() {
+	if !d.dredSidecarActive() {
+		return
+	}
+	for i := range d.dredPLC {
+		d.dredPLC[i].MarkConcealed()
+	}
 }
 
 func (d *Decoder) cachedDREDMaxAvailableSamples(stream, maxDredSamples int) int {

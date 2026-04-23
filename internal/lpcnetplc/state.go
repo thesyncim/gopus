@@ -98,6 +98,17 @@ func (s *State) MarkUpdated() {
 	s.blend = 0
 }
 
+// ClearBlend mirrors the libopus good-packet handoff when PLC updates are
+// skipped: a successful packet exits concealment by clearing only the blend
+// flag, leaving queued/history state intact.
+func (s *State) ClearBlend() {
+	if s == nil {
+		return
+	}
+	s.ensureRuntimeInit()
+	s.blend = 0
+}
+
 // MarkConcealed mirrors lpcnet_plc_conceal()'s post-blend state.
 func (s *State) MarkConcealed() {
 	if s == nil {
@@ -407,9 +418,9 @@ func (s *State) PrimeFirstLossWithAnalysis(a *Analysis, p *Predictor, f *FARGAN)
 	return true
 }
 
-func (s *State) concealFrameFloatAfterPriming(p *Predictor, f *FARGAN, frame []float32) bool {
+func (s *State) concealFrameFloatAfterPrimingStatus(p *Predictor, f *FARGAN, frame []float32) (bool, bool) {
 	if s == nil || p == nil || f == nil || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
-		return false
+		return false, false
 	}
 	s.ensureRuntimeInit()
 	gotFEC := s.StepFECOrPredict(p, s.features[:NumFeatures])
@@ -424,18 +435,19 @@ func (s *State) concealFrameFloatAfterPriming(p *Predictor, f *FARGAN, frame []f
 		s.features[0] = maxF32(-15, s.features[0]+concealmentAttTable[s.lossCount])
 	}
 	if n := f.Synthesize(frame[:FrameSize], s.features[:NumFeatures]); n != FrameSize {
-		return false
+		return false, gotFEC
 	}
 	quantizePCMInt16LikeInPlace(frame[:FrameSize])
 	s.QueueFeatures(s.features[:NumFeatures])
 	s.FinishConcealedFrameFloat(frame[:FrameSize])
-	return gotFEC
+	return true, gotFEC
 }
 
 // ConcealFrameFloat mirrors the bounded post-analysis branch of
 // lpcnet_plc_conceal(). When blend is zero it assumes the caller already has
 // the continuity features and PCM tail the history-analysis branch would have
-// produced, then synthesizes one concealed frame.
+// produced, then synthesizes one concealed frame. It reports whether the step
+// consumed queued FEC, not whether concealment succeeded.
 func (s *State) ConcealFrameFloat(p *Predictor, f *FARGAN, frame []float32) bool {
 	if s == nil || p == nil || f == nil || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
 		return false
@@ -449,12 +461,17 @@ func (s *State) ConcealFrameFloat(p *Predictor, f *FARGAN, frame []float32) bool
 			return false
 		}
 	}
-	return s.concealFrameFloatAfterPriming(p, f, frame)
+	ok, gotFEC := s.concealFrameFloatAfterPrimingStatus(p, f, frame)
+	if !ok {
+		return false
+	}
+	return gotFEC
 }
 
 // ConcealFrameFloatWithAnalysis mirrors the full lpcnet_plc_conceal() float
 // path, including the first-loss history replay through Burg/LPCNet analysis
-// before the final predictor/FARGAN synthesis step.
+// before the final predictor/FARGAN synthesis step. It reports whether the step
+// consumed queued FEC, not whether concealment succeeded.
 func (s *State) ConcealFrameFloatWithAnalysis(a *Analysis, p *Predictor, f *FARGAN, frame []float32) bool {
 	if s == nil || a == nil || p == nil || f == nil || !a.Loaded() || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
 		return false
@@ -465,7 +482,80 @@ func (s *State) ConcealFrameFloatWithAnalysis(a *Analysis, p *Predictor, f *FARG
 			return false
 		}
 	}
-	return s.concealFrameFloatAfterPriming(p, f, frame)
+	ok, gotFEC := s.concealFrameFloatAfterPrimingStatus(p, f, frame)
+	if !ok {
+		return false
+	}
+	return gotFEC
+}
+
+// GenerateConcealedFrameFloat mirrors the bounded post-analysis branch of
+// lpcnet_plc_conceal() and reports whether concealment succeeded.
+func (s *State) GenerateConcealedFrameFloat(p *Predictor, f *FARGAN, frame []float32) bool {
+	if s == nil || p == nil || f == nil || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
+		return false
+	}
+	s.ensureRuntimeInit()
+	if s.blend == 0 {
+		if s.PrimeFirstLossPrefill(p) != 2 {
+			return false
+		}
+		if s.PrimeFirstLossContinuity(f) != FARGANContSamples {
+			return false
+		}
+	}
+	ok, _ := s.concealFrameFloatAfterPrimingStatus(p, f, frame)
+	return ok
+}
+
+// GenerateConcealedFrameFloatWithAnalysis mirrors the full lpcnet_plc_conceal()
+// float path and reports whether concealment succeeded.
+func (s *State) GenerateConcealedFrameFloatWithAnalysis(a *Analysis, p *Predictor, f *FARGAN, frame []float32) bool {
+	if s == nil || a == nil || p == nil || f == nil || !a.Loaded() || !p.Loaded() || !f.Loaded() || len(frame) < FrameSize {
+		return false
+	}
+	s.ensureRuntimeInit()
+	if s.blend == 0 {
+		if !s.PrimeFirstLossWithAnalysis(a, p, f) {
+			return false
+		}
+	}
+	ok, _ := s.concealFrameFloatAfterPrimingStatus(p, f, frame)
+	return ok
+}
+
+// ReplaceHistoryFromFramesFloat replaces the retained PCM-history window with a
+// fresh run of decoded 10 ms frames without disturbing queued FEC or predictor
+// state. This mirrors libopus update_plc_state() semantics at the lpcnet state
+// level when neural PLC is entered from CELT decode history.
+func (s *State) ReplaceHistoryFromFramesFloat(frames []float32) int {
+	if s == nil || len(frames) < FrameSize {
+		return 0
+	}
+	s.ensureRuntimeInit()
+	frameCount := len(frames) / FrameSize
+	if frameCount <= 0 {
+		return 0
+	}
+	if frameCount*FrameSize > PLCBufSize {
+		frameCount = PLCBufSize / FrameSize
+		frames = frames[len(frames)-frameCount*FrameSize:]
+	} else {
+		frames = frames[:frameCount*FrameSize]
+	}
+
+	clear(s.pcm[:])
+	s.analysisGap = 1
+	s.analysisPos = PLCBufSize
+	s.predictPos = PLCBufSize
+	s.lossCount = 0
+	s.blend = 0
+
+	total := 0
+	for offset := 0; offset+FrameSize <= len(frames); offset += FrameSize {
+		total += s.MarkUpdatedFrameFloat(frames[offset : offset+FrameSize])
+	}
+	return total
 }
 
 // MarkUpdatedFrameFloat mirrors the PCM-history and cursor maintenance in
@@ -484,7 +574,9 @@ func (s *State) MarkUpdatedFrameFloat(frame []float32) int {
 		s.predictPos -= FrameSize
 	}
 	copy(s.pcm[:PLCBufSize-FrameSize], s.pcm[FrameSize:])
-	copy(s.pcm[PLCBufSize-FrameSize:], frame[:FrameSize])
+	for i := 0; i < FrameSize; i++ {
+		s.pcm[PLCBufSize-FrameSize+i] = quantizePCMInt16Like(frame[i])
+	}
 	s.lossCount = 0
 	s.blend = 0
 	return FrameSize
@@ -518,14 +610,18 @@ func maxF32(a, b float32) float32 {
 
 func quantizePCMInt16LikeInPlace(frame []float32) {
 	for i := range frame {
-		sample := float64(frame[i]) * 32768
-		if sample < -32767 {
-			sample = -32767
-		}
-		if sample > 32767 {
-			sample = 32767
-		}
-		sample = math.Floor(0.5 + sample)
-		frame[i] = float32(sample * (1.0 / 32768.0))
+		frame[i] = quantizePCMInt16Like(frame[i])
 	}
+}
+
+func quantizePCMInt16Like(sample float32) float32 {
+	v := float64(sample) * 32768
+	if v < -32767 {
+		v = -32767
+	}
+	if v > 32767 {
+		v = 32767
+	}
+	v = math.Floor(0.5 + v)
+	return float32(v * (1.0 / 32768.0))
 }

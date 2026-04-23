@@ -152,13 +152,17 @@ func buildLibopusDREDHelper(sourceFile, outputBase string, includeInternal bool)
 	args := []string{
 		"-std=c99",
 		"-O2",
+		"-DHAVE_CONFIG_H",
+		"-I", buildDir,
 		"-I", filepath.Join(sourceDir, "include"),
 	}
 	if includeInternal {
 		args = append(args,
 			"-I", sourceDir,
+			"-I", filepath.Join(sourceDir, "src"),
 			"-I", filepath.Join(sourceDir, "celt"),
 			"-I", filepath.Join(sourceDir, "dnn"),
+			"-I", filepath.Join(sourceDir, "silk"),
 		)
 	}
 	args = append(args, srcPath, libopusStatic, "-lm", "-o", outPath)

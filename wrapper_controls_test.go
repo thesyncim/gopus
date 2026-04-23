@@ -332,6 +332,43 @@ func TestEncoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 }
 
 func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
+	dec := mustNewTestDecoder(t, 16000, 1)
+
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if dec.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob=nil want non-nil")
+	}
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder retained DNN model flags not armed from validated blob")
+	}
+	if dec.dredState() != nil {
+		t.Fatalf("decoder eagerly allocated DRED sidecar on SetDNNBlob: %+v", dec.dredState())
+	}
+	if !dec.dredNeuralConcealmentReady() {
+		t.Fatal("decoder failed to lazily materialize neural concealment runtime")
+	}
+	if !requireDecoderDREDState(t, dec).dredAnalysis.Loaded() || !requireDecoderDREDState(t, dec).dredPredictor.Loaded() || !requireDecoderDREDState(t, dec).dredFARGAN.Loaded() {
+		t.Fatal("decoder runtime models not loaded after lazy materialization")
+	}
+
+	dec.Reset()
+	if dec.dnnBlob == nil {
+		t.Fatal("wrapper dnnBlob cleared by Reset")
+	}
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder retained DNN model flags cleared by Reset")
+	}
+	if !dec.dredNeuralConcealmentReady() {
+		t.Fatal("decoder failed to rematerialize neural concealment runtime after Reset")
+	}
+	if !requireDecoderDREDState(t, dec).dredAnalysis.Loaded() || !requireDecoderDREDState(t, dec).dredPredictor.Loaded() || !requireDecoderDREDState(t, dec).dredFARGAN.Loaded() {
+		t.Fatal("decoder runtime models cleared by Reset")
+	}
+}
+
+func TestDecoderSetDNNBlobUnsupportedConfigStaysDormant(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 2)
 
 	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
@@ -340,16 +377,16 @@ func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob=nil want non-nil")
 	}
-	if !dec.dredAnalysis.Loaded() || !dec.dredPredictor.Loaded() || !dec.dredFARGAN.Loaded() {
-		t.Fatal("decoder runtime models not loaded from retained DNN blob")
+	if dec.dredState() != nil {
+		t.Fatalf("unsupported stereo config eagerly allocated DRED sidecar: %+v", dec.dredState())
 	}
 
 	dec.Reset()
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob cleared by Reset")
 	}
-	if !dec.dredAnalysis.Loaded() || !dec.dredPredictor.Loaded() || !dec.dredFARGAN.Loaded() {
-		t.Fatal("decoder runtime models cleared by Reset")
+	if dec.dredState() != nil {
+		t.Fatalf("unsupported stereo config awakened DRED sidecar after Reset: %+v", dec.dredState())
 	}
 }
 

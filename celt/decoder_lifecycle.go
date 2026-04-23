@@ -87,6 +87,9 @@ func (d *Decoder) Reset() {
 	d.plcPrevLossWasPeriodic = false
 	d.plcPrefilterAndFoldPending = false
 	d.plcLossDuration = 0
+	d.plcDuration = 0
+	d.plcLastFrameType = frameNone
+	d.plcSkip = true
 
 	// Clear range decoder reference
 	d.rangeDecoder = nil

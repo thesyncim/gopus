@@ -17,6 +17,7 @@ func (d *Decoder) prepareDecodeFrame(data []byte, frameSize int) (preparedDecode
 		return preparedDecodeFrame{}, ErrInvalidFrameSize
 	}
 
+	d.beginDecodedPacketPLCState()
 	d.prepareMonoEnergyFromStereo()
 
 	rd := &d.rangeDecoderScratch

@@ -41,6 +41,11 @@ type DecoderModelState struct {
 }
 
 var (
+	requiredDecoderControlCoreRecordNames = sortedRecordNames(
+		pitchDNNRequiredRecordNames,
+		plcRequiredRecordNames,
+		farganRequiredRecordNames,
+	)
 	requiredDecoderControlRecordNames = sortedRecordNames(
 		pitchDNNRequiredRecordNames,
 		plcRequiredRecordNames,
@@ -219,14 +224,15 @@ func (b *Blob) ValidateEncoderControl() error {
 	return nil
 }
 
-// ValidateDecoderControl mirrors the libopus decoder DNN-blob surface by
-// requiring the model families needed for PLC/FARGAN and OSCE loading.
+// ValidateDecoderControl mirrors the default-build libopus decoder DNN-blob
+// surface by requiring the core deep-PLC model families and, when requested,
+// the optional OSCE/OSCE_BWE families.
 func (b *Blob) ValidateDecoderControl(requireOSCEBWE bool) error {
 	models := b.DecoderModels()
-	if !models.PLC || !models.PitchDNN || !models.FARGAN || !models.OSCE {
+	if !models.PLC || !models.PitchDNN || !models.FARGAN {
 		return errInvalidBlob
 	}
-	if requireOSCEBWE && !models.OSCEBWE {
+	if requireOSCEBWE && (!models.OSCE || !models.OSCEBWE) {
 		return errInvalidBlob
 	}
 	return nil
@@ -242,13 +248,14 @@ func (b *Blob) ValidateDREDDecoderControl() error {
 }
 
 // RequiredDecoderControlRecordNames returns a read-only view of the
-// loader-derived record names the libopus main decoder path expects from
-// OPUS_SET_DNN_BLOB.
+// loader-derived record names the default-build libopus main decoder path
+// expects from OPUS_SET_DNN_BLOB. When requireOSCEBWE is true, the returned
+// view also includes the optional OSCE and OSCE_BWE families.
 func RequiredDecoderControlRecordNames(requireOSCEBWE bool) []string {
 	if requireOSCEBWE {
 		return requiredDecoderControlWithBWERecordNames
 	}
-	return requiredDecoderControlRecordNames
+	return requiredDecoderControlCoreRecordNames
 }
 
 // RequiredEncoderControlRecordNames returns a read-only view of the

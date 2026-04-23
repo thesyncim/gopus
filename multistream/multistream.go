@@ -86,15 +86,15 @@ func (d *Decoder) decodeStream(stream int, packet []byte, frameSize int) ([]floa
 // All elementary streams within the packet must have the same frame duration.
 // If durations differ, ErrDurationMismatch is returned.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
-	d.clearDREDPayloadState()
+	if data != nil && len(data) > 0 && d.dredSidecarActive() {
+		d.invalidateDREDPayloadState()
+	}
 
 	// Handle PLC for nil data (lost packet)
 	if data == nil {
 		output, err := d.decodePLC(frameSize)
 		if err == nil {
-			for i := range d.dredPLC {
-				d.dredPLC[i].MarkConcealed()
-			}
+			d.markDREDConcealedAll()
 		}
 		return output, err
 	}
@@ -122,7 +122,7 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	}
 	for i := 0; i < d.streams; i++ {
 		d.maybeCacheDREDPayload(i, packets[i])
-		d.dredPLC[i].MarkUpdated()
+		d.markDREDUpdated(i)
 	}
 
 	// Apply channel mapping to produce final output

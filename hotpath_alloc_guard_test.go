@@ -154,6 +154,50 @@ func TestHotPathAllocsDecodePLC(t *testing.T) {
 	}
 }
 
+func TestHotPathAllocsDecodePLCDNNReadyAtMostBaseline(t *testing.T) {
+	baseline, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	armed, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	if err := armed.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob: %v", err)
+	}
+	packet := makeValidMono16kPacketForDREDTest(t)
+	baselinePCM := make([]float32, 960)
+	armedPCM := make([]float32, 960)
+
+	if _, err := baseline.Decode(packet, baselinePCM); err != nil {
+		t.Fatalf("baseline warmup Decode: %v", err)
+	}
+	if _, err := baseline.Decode(nil, baselinePCM); err != nil {
+		t.Fatalf("baseline warmup Decode PLC: %v", err)
+	}
+	if _, err := armed.Decode(packet, armedPCM); err != nil {
+		t.Fatalf("armed warmup Decode: %v", err)
+	}
+	if _, err := armed.Decode(nil, armedPCM); err != nil {
+		t.Fatalf("armed warmup Decode PLC: %v", err)
+	}
+
+	baselineAllocs := testing.AllocsPerRun(100, func() {
+		if _, err := baseline.Decode(nil, baselinePCM); err != nil {
+			t.Fatalf("baseline Decode PLC: %v", err)
+		}
+	})
+	armedAllocs := testing.AllocsPerRun(100, func() {
+		if _, err := armed.Decode(nil, armedPCM); err != nil {
+			t.Fatalf("armed Decode PLC: %v", err)
+		}
+	})
+	if armedAllocs > baselineAllocs {
+		t.Fatalf("Decode(PLC, DNN ready) allocs/op = %.2f, want at most baseline %.2f", armedAllocs, baselineAllocs)
+	}
+}
+
 func TestHotPathAllocsDecodeStereo(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
 	if err != nil {

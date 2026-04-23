@@ -15,6 +15,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 
 	// Keep transition/state behavior aligned with DecodeFrame().
 	d.handleChannelTransition(d.channels)
+	d.beginDecodedPacketPLCState()
 	d.prepareMonoEnergyFromStereo()
 	d.SetRangeDecoder(rd)
 
@@ -109,6 +110,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		return nil, ErrInvalidFrameSize
 	}
 
+	d.beginDecodedPacketPLCState()
 	d.SetRangeDecoder(rd)
 	d.prepareMonoEnergyFromStereo()
 

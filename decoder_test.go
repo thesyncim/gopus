@@ -13,9 +13,15 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/lpcnetplc"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/types"
 )
+
+func lpcnetplcTestQuantizePCMInt16Like(sample float32) float32 {
+	v := math.Floor(0.5 + math.Max(-32767, math.Min(32767, float64(sample)*32768)))
+	return float32(v * (1.0 / 32768.0))
+}
 
 func makeExperimentalDREDPayloadBodyForTest(t *testing.T, dredFrameOffset, dredOffset int) []byte {
 	t.Helper()
@@ -149,6 +155,109 @@ func makeValidCELTPacketForDREDTest(t *testing.T) []byte {
 	return packet
 }
 
+func makeValidMonoCELTPacketForDREDTest(t *testing.T) []byte {
+	return makeValidMonoCELTPacketForFrameSizeForDREDTest(t, 960)
+}
+
+func makeValidMonoCELTPacketForFrameSizeForDREDTest(t *testing.T, frameSize int) []byte {
+	t.Helper()
+
+	enc := internalenc.NewEncoder(48000, 1)
+	enc.SetMode(internalenc.ModeCELT)
+	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetBitrate(128000)
+
+	pcm := make([]float64, frameSize)
+	for i := range pcm {
+		phase := 2 * math.Pi * 823 * float64(i) / 48000.0
+		pcm[i] = 0.41 * math.Sin(phase)
+	}
+
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode(mono CELT): %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode(mono CELT) returned empty packet")
+	}
+	return packet
+}
+
+func makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frameSize int, bandwidth Bandwidth) []byte {
+	t.Helper()
+
+	if frameSize != 480 && frameSize != 960 {
+		t.Fatalf("hybrid DRED test packet requires 10ms/20ms frame size, got %d", frameSize)
+	}
+	if bandwidth != BandwidthSuperwideband && bandwidth != BandwidthFullband {
+		t.Fatalf("hybrid DRED test packet requires SWB/FB bandwidth, got %v", bandwidth)
+	}
+
+	enc := internalenc.NewEncoder(48000, 1)
+	enc.SetMode(internalenc.ModeHybrid)
+	enc.SetBandwidth(types.Bandwidth(bandwidth))
+	enc.SetBitrate(48000)
+
+	pcm := make([]float64, frameSize)
+	for i := range pcm {
+		tm := float64(i) / 48000.0
+		pcm[i] = 0.28*math.Sin(2*math.Pi*173*tm) +
+			0.17*math.Sin(2*math.Pi*347*tm+0.13) +
+			0.09*math.Sin(2*math.Pi*521*tm+0.29)
+	}
+
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode(mono Hybrid): %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode(mono Hybrid) returned empty packet")
+	}
+	toc := ParseTOC(packet[0])
+	if toc.Mode != ModeHybrid || toc.Bandwidth != bandwidth || toc.FrameSize != frameSize {
+		t.Fatalf("Encode(mono Hybrid) produced mode=%v bandwidth=%v frame=%d, want mode=%v bandwidth=%v frame=%d", toc.Mode, toc.Bandwidth, toc.FrameSize, ModeHybrid, bandwidth, frameSize)
+	}
+	return packet
+}
+
+func makeValidMonoPacketForModeBandwidthFrameSizeForDREDTest(t *testing.T, mode Mode, bandwidth Bandwidth, frameSize int) []byte {
+	t.Helper()
+
+	switch mode {
+	case ModeCELT:
+		return makeValidMonoCELTPacketForFrameSizeForDREDTest(t, frameSize)
+	case ModeHybrid:
+		return makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, frameSize, bandwidth)
+	default:
+		t.Fatalf("unsupported DRED test packet mode %v", mode)
+		return nil
+	}
+}
+
+func makeValidMono16kPacketForDREDTest(t *testing.T) []byte {
+	t.Helper()
+
+	enc := internalenc.NewEncoder(16000, 1)
+	enc.SetMode(internalenc.ModeSILK)
+	enc.SetBandwidth(types.BandwidthWideband)
+	enc.SetBitrate(24000)
+
+	pcm := make([]float64, 960)
+	for i := range pcm {
+		phase := 2 * math.Pi * 613 * float64(i) / 48000.0
+		pcm[i] = 0.42 * math.Sin(phase)
+	}
+
+	packet, err := enc.Encode(pcm, 960)
+	if err != nil {
+		t.Fatalf("Encode(16k mono): %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode(16k mono) returned empty packet")
+	}
+	return packet
+}
+
 func buildSingleFramePacketWithExtensionsForDREDTest(t *testing.T, packet []byte, extensions []packetExtensionData) []byte {
 	t.Helper()
 
@@ -197,6 +306,211 @@ func TestNewDecoder_ValidParams(t *testing.T) {
 				t.Errorf("Channels() = %d, want %d", dec.Channels(), tt.channels)
 			}
 		})
+	}
+}
+
+func TestNewDecoderLeavesDREDPayloadBufferDormant(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if s := dec.dredState(); s != nil && len(s.dredData) != 0 {
+		t.Fatalf("len(dredData)=%d want 0 before standalone DRED arm", len(s.dredData))
+	}
+
+	setValidDREDDecoderBlobForTest(t, dec)
+	if got := len(requireDecoderDREDState(t, dec).dredData); got != 0 {
+		t.Fatalf("len(dredData)=%d want 0 after standalone DRED arm before any cached payload", got)
+	}
+
+	dec.setDREDDecoderBlob(nil)
+	if s := dec.dredState(); s != nil && len(s.dredData) != 0 {
+		t.Fatalf("len(dredData)=%d want 0 after standalone DRED clear", len(s.dredData))
+	}
+}
+
+func TestStandaloneDREDArmKeepsRecoveryNeuralAnd48kBridgeDormant(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	setValidDREDDecoderBlobForTest(t, dec)
+
+	state := requireDecoderDREDState(t, dec)
+	if state.decoderDREDPayloadState == nil {
+		t.Fatal("standalone DRED arm did not retain payload state")
+	}
+	if state.decoderDREDRecoveryState != nil {
+		t.Fatalf("standalone DRED arm eagerly allocated recovery state: %+v", state.decoderDREDRecoveryState)
+	}
+	if state.decoderDREDNeuralState != nil {
+		t.Fatalf("standalone DRED arm eagerly allocated neural state: %+v", state.decoderDREDNeuralState)
+	}
+	if state.decoderDRED48kBridgeState != nil {
+		t.Fatalf("standalone DRED arm eagerly allocated 48k bridge state: %+v", state.decoderDRED48kBridgeState)
+	}
+}
+
+func TestMainDecoderDNNBlobKeepsRecoveryAndPayloadDormant(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	if !dec.dredNeuralModelsLoaded() {
+		t.Fatal("main decoder DNN blob did not retain neural model readiness")
+	}
+	if dec.dredNeuralRuntimeLoaded() {
+		t.Fatal("main decoder DNN blob eagerly loaded neural runtime")
+	}
+	if state := dec.dredState(); state != nil {
+		if state.decoderDREDPayloadState != nil {
+			t.Fatalf("main decoder DNN blob eagerly allocated payload state: %+v", state.decoderDREDPayloadState)
+		}
+		if state.decoderDREDRecoveryState != nil {
+			t.Fatalf("main decoder DNN blob eagerly allocated neural recovery state: %+v", state.decoderDREDRecoveryState)
+		}
+		if state.decoderDREDNeuralState != nil {
+			t.Fatalf("main decoder DNN blob eagerly allocated neural runtime state: %+v", state.decoderDREDNeuralState)
+		}
+		if state.decoderDRED48kBridgeState != nil {
+			t.Fatalf("16 kHz decoder eagerly allocated 48k bridge state: %+v", state.decoderDRED48kBridgeState)
+		}
+	}
+}
+
+func TestMainDecoder48kDNNBlobKeepsRecoveryAndBridgeDormant(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	if !dec.dredNeuralModelsLoaded() {
+		t.Fatal("48 kHz decoder DNN blob did not retain neural model readiness")
+	}
+	if dec.dredNeuralRuntimeLoaded() {
+		t.Fatal("48 kHz decoder DNN blob eagerly loaded neural runtime")
+	}
+	if state := dec.dredState(); state != nil {
+		if state.decoderDREDPayloadState != nil {
+			t.Fatalf("48 kHz decoder DNN blob eagerly allocated payload state: %+v", state.decoderDREDPayloadState)
+		}
+		if state.decoderDREDRecoveryState != nil {
+			t.Fatalf("48 kHz decoder DNN blob eagerly allocated neural recovery state: %+v", state.decoderDREDRecoveryState)
+		}
+		if state.decoderDREDNeuralState != nil {
+			t.Fatalf("48 kHz decoder DNN blob eagerly allocated neural runtime state: %+v", state.decoderDREDNeuralState)
+		}
+		if state.decoderDRED48kBridgeState != nil {
+			t.Fatalf("48 kHz decoder DNN blob eagerly allocated bridge state: %+v", state.decoderDRED48kBridgeState)
+		}
+	}
+}
+
+func TestMainDecoder16kDNNBlobGoodDecodeKeepsRecoveryDormantUntilLoss(t *testing.T) {
+	packet := makeValidMonoCELTPacketForDREDTest(t)
+
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+
+	if state := dec.dredState(); state != nil {
+		if state.decoderDREDPayloadState != nil {
+			t.Fatalf("good decode eagerly allocated payload state: %+v", state.decoderDREDPayloadState)
+		}
+		if state.decoderDREDRecoveryState != nil {
+			t.Fatalf("good decode eagerly allocated recovery state: %+v", state.decoderDREDRecoveryState)
+		}
+		if state.decoderDREDNeuralState != nil {
+			t.Fatalf("good decode eagerly allocated neural runtime state: %+v", state.decoderDREDNeuralState)
+		}
+		if state.decoderDRED48kBridgeState != nil {
+			t.Fatalf("good decode eagerly allocated 48k bridge state: %+v", state.decoderDRED48kBridgeState)
+		}
+	}
+}
+
+func TestMainDecoder48kDNNBlobGoodDecodeKeepsRecoveryDormantUntilLoss(t *testing.T) {
+	packet := makeValidMonoCELTPacketForDREDTest(t)
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+
+	if state := dec.dredState(); state != nil {
+		if state.decoderDREDPayloadState != nil {
+			t.Fatalf("48 kHz good decode eagerly allocated payload state: %+v", state.decoderDREDPayloadState)
+		}
+		if state.decoderDREDRecoveryState != nil {
+			t.Fatalf("48 kHz good decode eagerly allocated recovery state: %+v", state.decoderDREDRecoveryState)
+		}
+		if state.decoderDREDNeuralState != nil {
+			t.Fatalf("48 kHz good decode eagerly allocated neural runtime state: %+v", state.decoderDREDNeuralState)
+		}
+		if state.decoderDRED48kBridgeState != nil {
+			t.Fatalf("48 kHz good decode eagerly allocated bridge state: %+v", state.decoderDRED48kBridgeState)
+		}
+	}
+}
+
+func TestClearingStandaloneDREDPreservesMainNeuralState(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	var pcm [2 * lpcnetplc.FrameSize]float32
+	for i := range pcm {
+		pcm[i] = float32((i%23)-11) / 23
+	}
+	dec.ensureDREDRecoveryState()
+	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
+	before := requireDecoderDREDState(t, dec).dredPLC.Snapshot()
+
+	setValidDREDDecoderBlobForTest(t, dec)
+	dec.setDREDDecoderBlob(nil)
+
+	state := requireDecoderDREDState(t, dec)
+	if state.decoderDREDPayloadState != nil {
+		t.Fatalf("clearing standalone DRED left payload state behind: %+v", state.decoderDREDPayloadState)
+	}
+	if !dec.dredNeuralModelsLoaded() {
+		t.Fatal("clearing standalone DRED dropped main neural model readiness")
+	}
+	if state.decoderDREDRecoveryState == nil {
+		t.Fatalf("clearing standalone DRED dropped retained recovery state: %+v", state)
+	}
+	after := state.dredPLC.Snapshot()
+	if after.AnalysisPos != before.AnalysisPos || after.PredictPos != before.PredictPos || after.Blend != before.Blend {
+		t.Fatalf("clearing standalone DRED reset neural PLC history: before=%+v after=%+v", before, after)
 	}
 }
 
@@ -269,17 +583,21 @@ func TestDecoderCachesDREDPayloadWhenDREDModelLoaded(t *testing.T) {
 	if n == 0 {
 		t.Fatal("Decode returned zero samples")
 	}
-	if dec.dredCache.Len != len(body) {
-		t.Fatalf("dredCache.Len=%d want %d", dec.dredCache.Len, len(body))
+	state := requireDecoderDREDState(t, dec)
+	if state.decoderDREDRecoveryState == nil {
+		t.Fatal("Decode with cached DRED payload did not activate recovery state")
 	}
-	if dec.dredCache.Parsed.Header.DredOffset != 4 {
-		t.Fatalf("dredCache.Parsed.Header.DredOffset=%d want 4", dec.dredCache.Parsed.Header.DredOffset)
+	if state.dredCache.Len != len(body) {
+		t.Fatalf("dredCache.Len=%d want %d", state.dredCache.Len, len(body))
 	}
-	if dec.dredCache.Parsed.Header.DredFrameOffset != 0 || dec.dredCache.Parsed.Header.Q0 != 6 || dec.dredCache.Parsed.Header.DQ != 3 || dec.dredCache.Parsed.Header.QMax != 15 {
-		t.Fatalf("dredCache.Parsed.Header=(frame=%d q0=%d dq=%d qmax=%d) want (0,6,3,15)", dec.dredCache.Parsed.Header.DredFrameOffset, dec.dredCache.Parsed.Header.Q0, dec.dredCache.Parsed.Header.DQ, dec.dredCache.Parsed.Header.QMax)
+	if state.dredCache.Parsed.Header.DredOffset != 4 {
+		t.Fatalf("dredCache.Parsed.Header.DredOffset=%d want 4", state.dredCache.Parsed.Header.DredOffset)
 	}
-	if !bytes.Equal(dec.dredData[:dec.dredCache.Len], body) {
-		t.Fatalf("cached dred payload=%x want %x", dec.dredData[:dec.dredCache.Len], body)
+	if state.dredCache.Parsed.Header.DredFrameOffset != 0 || state.dredCache.Parsed.Header.Q0 != 6 || state.dredCache.Parsed.Header.DQ != 3 || state.dredCache.Parsed.Header.QMax != 15 {
+		t.Fatalf("dredCache.Parsed.Header=(frame=%d q0=%d dq=%d qmax=%d) want (0,6,3,15)", state.dredCache.Parsed.Header.DredFrameOffset, state.dredCache.Parsed.Header.Q0, state.dredCache.Parsed.Header.DQ, state.dredCache.Parsed.Header.QMax)
+	}
+	if !bytes.Equal(state.dredData[:state.dredCache.Len], body) {
+		t.Fatalf("cached dred payload=%x want %x", state.dredData[:state.dredCache.Len], body)
 	}
 	result := dec.cachedDREDResult(960)
 	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 0 || result.Availability.OffsetSamples != 480 || result.Availability.EndSamples != 0 || result.Availability.AvailableSamples != 0 {
@@ -301,8 +619,8 @@ func TestDecoderCachesDREDPayloadWhenDREDModelLoaded(t *testing.T) {
 	}
 
 	dec.Reset()
-	if dec.dredCache != (internaldred.Cache{}) {
-		t.Fatalf("Reset left DRED cache=%+v want zero state", dec.dredCache)
+	if got := requireDecoderDREDState(t, dec).dredCache; got != (internaldred.Cache{}) {
+		t.Fatalf("Reset left DRED cache=%+v want zero state", got)
 	}
 	if got := dec.cachedDREDMaxAvailableSamples(960); got != 0 {
 		t.Fatalf("cachedDREDMaxAvailableSamples after Reset=%d want 0", got)
@@ -326,10 +644,11 @@ func TestDecoderDREDRecoveryBlendFollowsLifecycle(t *testing.T) {
 	if _, err := dec.Decode(packet, pcm); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
-	if dec.dredCache.Empty() {
+	state := requireDecoderDREDState(t, dec)
+	if state.dredCache.Empty() {
 		t.Fatal("expected cached DRED payload after successful decode")
 	}
-	if got := dec.dredPLC.Blend(); got != 0 {
+	if got := state.dredPLC.Blend(); got != 0 {
 		t.Fatalf("Blend after good decode=%d want 0", got)
 	}
 	window := dec.cachedDREDRecoveryWindow(960, 960, 960)
@@ -340,25 +659,27 @@ func TestDecoderDREDRecoveryBlendFollowsLifecycle(t *testing.T) {
 	if queued != window {
 		t.Fatalf("queueCachedDREDRecovery=%+v want %+v", queued, window)
 	}
-	if dec.dredPLC.FECFillPos() != 0 || dec.dredPLC.FECSkip() != 4 {
-		t.Fatalf("queued plc state=(fill=%d skip=%d) want (0,4)", dec.dredPLC.FECFillPos(), dec.dredPLC.FECSkip())
+	if state.dredPLC.FECFillPos() != 0 || state.dredPLC.FECSkip() != 4 {
+		t.Fatalf("queued plc state=(fill=%d skip=%d) want (0,4)", state.dredPLC.FECFillPos(), state.dredPLC.FECSkip())
 	}
 
 	plcPCM := make([]float32, 960*2)
 	if _, err := dec.Decode(nil, plcPCM); err != nil {
 		t.Fatalf("Decode(nil) error: %v", err)
 	}
-	if !dec.dredCache.Empty() {
-		t.Fatal("Decode(nil) retained cached DRED payload")
+	state = requireDecoderDREDState(t, dec)
+	if state.dredCache.Empty() {
+		t.Fatal("Decode(nil) dropped cached DRED payload before recovery scheduling")
 	}
-	if got := dec.dredPLC.Blend(); got != 1 {
-		t.Fatalf("Blend after PLC=%d want 1", got)
+	if got := state.dredPLC.Blend(); got != 0 {
+		t.Fatalf("Blend after PLC=%d want 0", got)
 	}
 
 	if _, err := dec.Decode(packet, pcm); err != nil {
 		t.Fatalf("Decode after PLC error: %v", err)
 	}
-	if dec.dredCache.Empty() {
+	state = requireDecoderDREDState(t, dec)
+	if state.dredCache.Empty() {
 		t.Fatal("expected cached DRED payload after re-decoding packet")
 	}
 	window = dec.cachedDREDRecoveryWindow(960, 960, 960)
@@ -369,8 +690,247 @@ func TestDecoderDREDRecoveryBlendFollowsLifecycle(t *testing.T) {
 	if queued != window {
 		t.Fatalf("queueCachedDREDRecovery after PLC and re-decode=%+v want %+v", queued, window)
 	}
-	if dec.dredPLC.FECFillPos() != 0 || dec.dredPLC.FECSkip() != 2 {
-		t.Fatalf("queued plc state after PLC and re-decode=(fill=%d skip=%d) want (0,2)", dec.dredPLC.FECFillPos(), dec.dredPLC.FECSkip())
+	if state.dredPLC.FECFillPos() != 0 || state.dredPLC.FECSkip() != 2 {
+		t.Fatalf("queued plc state after PLC and re-decode=(fill=%d skip=%d) want (0,2)", state.dredPLC.FECFillPos(), state.dredPLC.FECSkip())
+	}
+}
+
+func TestDecoderMarkDREDUpdatedPCMClearsBlendWithoutRewritingHistory(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	var pcm [2 * lpcnetplc.FrameSize]float32
+	for i := range pcm {
+		pcm[i] = float32((i%19)-9) / 19
+	}
+	dec.ensureDREDRecoveryState()
+	state := requireDecoderDREDState(t, dec)
+	if got := state.dredPLC.MarkUpdatedFrameFloat(pcm[:lpcnetplc.FrameSize]); got != lpcnetplc.FrameSize {
+		t.Fatalf("MarkUpdatedFrameFloat()=%d want %d", got, lpcnetplc.FrameSize)
+	}
+	state.dredPLC.MarkConcealed()
+	var beforeHistory [lpcnetplc.PLCBufSize]float32
+	if n := state.dredPLC.FillPCMHistory(beforeHistory[:]); n != lpcnetplc.PLCBufSize {
+		t.Fatalf("FillPCMHistory(before)=%d want %d", n, lpcnetplc.PLCBufSize)
+	}
+	before := state.dredPLC.Snapshot()
+	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
+	after := state.dredPLC.Snapshot()
+	if after.Blend != 0 {
+		t.Fatalf("Blend=%d want 0", after.Blend)
+	}
+	if after.AnalysisPos != before.AnalysisPos {
+		t.Fatalf("AnalysisPos=%d want %d", after.AnalysisPos, before.AnalysisPos)
+	}
+	if after.PredictPos != before.PredictPos {
+		t.Fatalf("PredictPos=%d want %d", after.PredictPos, before.PredictPos)
+	}
+	if after.LossCount != before.LossCount {
+		t.Fatalf("LossCount=%d want %d", after.LossCount, before.LossCount)
+	}
+	var history [lpcnetplc.PLCBufSize]float32
+	if n := state.dredPLC.FillPCMHistory(history[:]); n != lpcnetplc.PLCBufSize {
+		t.Fatalf("FillPCMHistory()=%d want %d", n, lpcnetplc.PLCBufSize)
+	}
+	for i := range history {
+		if history[i] != beforeHistory[i] {
+			t.Fatalf("history[%d]=%v want %v", i, history[i], beforeHistory[i])
+		}
+	}
+}
+
+func TestDecoderMarkDREDUpdatedPCMDormantWithoutSidecar(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	var pcm [2 * lpcnetplc.FrameSize]float32
+	for i := range pcm {
+		pcm[i] = float32((i%13)-6) / 13
+	}
+	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
+	if dec.dredState() != nil {
+		t.Fatalf("dred sidecar awakened without sidecar request: %+v", dec.dredState())
+	}
+}
+
+func TestDecoderMarkDREDUpdatedPCMDoesNotTrackHistoryWithoutNeuralConcealment(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	setValidDREDDecoderBlobForTest(t, dec)
+
+	var pcm [2 * lpcnetplc.FrameSize]float32
+	for i := range pcm {
+		pcm[i] = float32((i%17)-8) / 17
+	}
+	dec.markDREDUpdatedPCM(pcm[:], len(pcm))
+
+	state := requireDecoderDREDState(t, dec)
+	if state.decoderDREDRecoveryState != nil {
+		t.Fatalf("standalone DRED arm eagerly allocated recovery state after markDREDUpdatedPCM: %+v", state.decoderDREDRecoveryState)
+	}
+}
+
+func TestDecoderResetDropsActivatedDREDRuntimeBackToDormant(t *testing.T) {
+	packet := makeValidMonoCELTPacketForDREDTest(t)
+
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if !dec.dredNeuralConcealmentReady() {
+		t.Fatal("decoder failed to materialize neural concealment runtime")
+	}
+	if dec.dredRecoveryState() == nil || dec.dredNeuralState() == nil {
+		t.Fatalf("decoder runtime did not materialize fully: %+v", dec.dredState())
+	}
+
+	dec.Reset()
+	if dec.dnnBlob == nil || !dec.dredNeuralModelsLoaded() {
+		t.Fatal("Reset cleared retained decoder DNN control state")
+	}
+	if dec.dredRecoveryState() != nil {
+		t.Fatalf("Reset left DRED recovery runtime live: %+v", dec.dredState())
+	}
+	if dec.dredNeuralState() != nil {
+		t.Fatalf("Reset left DRED neural runtime live: %+v", dec.dredState())
+	}
+	if dec.dred48kBridgeState() != nil {
+		t.Fatalf("Reset left DRED 48k bridge runtime live: %+v", dec.dredState())
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("Decode(good packet) after Reset error: %v", err)
+	}
+	if dec.dredState() != nil {
+		t.Fatalf("good decode after Reset eagerly reawakened DRED sidecar: %+v", dec.dredState())
+	}
+}
+
+func TestDecoderPrimeDREDCELTEntryHistoryUsesCELTBridge(t *testing.T) {
+	packet := makeValidMonoCELTPacketForDREDTest(t)
+
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	n, err := dec.Decode(packet, pcm)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if n <= 0 {
+		t.Fatal("Decode returned no audio")
+	}
+
+	var want [4 * lpcnetplc.FrameSize]float32
+	if got := dec.celtDecoder.FillPLCUpdate16kMono(want[:]); got != len(want) {
+		t.Fatalf("FillPLCUpdate16kMono()=%d want %d", got, len(want))
+	}
+
+	beforeAnalysis := lpcnetplc.PLCBufSize
+	beforePredict := lpcnetplc.PLCBufSize
+	if state := dec.dredState(); state != nil && state.decoderDREDRecoveryState != nil {
+		beforeAnalysis = state.dredPLC.AnalysisPos()
+		beforePredict = state.dredPLC.PredictPos()
+	}
+	if got := dec.primeDREDCELTEntryHistory(ModeCELT); got != len(want) {
+		t.Fatalf("primeDREDCELTEntryHistory()=%d want %d", got, len(want))
+	}
+	state := requireDecoderDREDState(t, dec)
+	if got := state.dredPLC.AnalysisPos(); got != max(0, beforeAnalysis-len(want)) {
+		t.Fatalf("AnalysisPos=%d want %d", got, max(0, beforeAnalysis-len(want)))
+	}
+	if got := state.dredPLC.PredictPos(); got != max(0, beforePredict-len(want)) {
+		t.Fatalf("PredictPos=%d want %d", got, max(0, beforePredict-len(want)))
+	}
+
+	var history [lpcnetplc.PLCBufSize]float32
+	if n := state.dredPLC.FillPCMHistory(history[:]); n != lpcnetplc.PLCBufSize {
+		t.Fatalf("FillPCMHistory()=%d want %d", n, lpcnetplc.PLCBufSize)
+	}
+	for i := range want {
+		if history[lpcnetplc.PLCBufSize-len(want)+i] != want[i] {
+			t.Fatalf("history tail[%d]=%v want %v", i, history[lpcnetplc.PLCBufSize-len(want)+i], want[i])
+		}
+	}
+}
+
+func TestDecoderPrimeDREDCELTEntryHistoryStaysDormantWithoutNeuralConcealment(t *testing.T) {
+	packet := makeValidMonoCELTPacketForDREDTest(t)
+
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if got := dec.primeDREDCELTEntryHistory(ModeCELT); got != 0 {
+		t.Fatalf("primeDREDCELTEntryHistory()=%d want 0", got)
+	}
+	if dec.dredState() != nil {
+		t.Fatalf("dred sidecar awakened without neural concealment readiness: %+v", dec.dredState())
+	}
+}
+
+func TestDecoderDecodePLCAppliesNeuralConcealmentWhenReady(t *testing.T) {
+	packet := makeValidMono16kPacketForDREDTest(t)
+
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+
+	pcm := make([]float32, 960)
+	n, err := dec.Decode(packet, pcm)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if n != 960 {
+		t.Fatalf("Decode()=%d want 960", n)
+	}
+	if state := dec.dredState(); state != nil {
+		if state.decoderDREDRecoveryState != nil {
+			t.Fatalf("good decode eagerly allocated recovery state: %+v", state.decoderDREDRecoveryState)
+		}
+		if state.decoderDREDNeuralState != nil {
+			t.Fatalf("good decode eagerly allocated neural runtime state: %+v", state.decoderDREDNeuralState)
+		}
+	}
+
+	n, err = dec.Decode(nil, pcm)
+	if err != nil {
+		t.Fatalf("Decode(nil) error: %v", err)
+	}
+	if n != 960 {
+		t.Fatalf("Decode(nil)=%d want 960", n)
+	}
+	state := requireDecoderDREDState(t, dec)
+	if got := state.dredPLC.Blend(); got != 1 {
+		t.Fatalf("Blend after neural PLC=%d want 1", got)
+	}
+	if got := state.dredPLC.PredictPos(); got != lpcnetplc.PLCBufSize {
+		t.Fatalf("PredictPos after neural PLC=%d want %d", got, lpcnetplc.PLCBufSize)
 	}
 }
 
@@ -402,14 +962,15 @@ func TestDecoderCachesDREDSampleTimingForLaterFrame(t *testing.T) {
 	if got != 1920 {
 		t.Fatalf("Decode samples=%d want 1920", got)
 	}
-	if dec.dredCache.Parsed.Header.DredOffset != -4 {
-		t.Fatalf("dredCache.Parsed.Header.DredOffset=%d want -4", dec.dredCache.Parsed.Header.DredOffset)
+	state := requireDecoderDREDState(t, dec)
+	if state.dredCache.Parsed.Header.DredOffset != -4 {
+		t.Fatalf("dredCache.Parsed.Header.DredOffset=%d want -4", state.dredCache.Parsed.Header.DredOffset)
 	}
-	if dec.dredCache.Parsed.Header.DredFrameOffset != 8 {
-		t.Fatalf("dredCache.Parsed.Header.DredFrameOffset=%d want 8", dec.dredCache.Parsed.Header.DredFrameOffset)
+	if state.dredCache.Parsed.Header.DredFrameOffset != 8 {
+		t.Fatalf("dredCache.Parsed.Header.DredFrameOffset=%d want 8", state.dredCache.Parsed.Header.DredFrameOffset)
 	}
-	if dec.dredCache.Parsed.Header.QMax != 15 {
-		t.Fatalf("dredCache.Parsed.Header.QMax=%d want 15", dec.dredCache.Parsed.Header.QMax)
+	if state.dredCache.Parsed.Header.QMax != 15 {
+		t.Fatalf("dredCache.Parsed.Header.QMax=%d want 15", state.dredCache.Parsed.Header.QMax)
 	}
 	result := dec.cachedDREDResult(960)
 	if result.Availability.FeatureFrames != 4 || result.Availability.MaxLatents != 0 || result.Availability.OffsetSamples != -480 || result.Availability.EndSamples != 480 || result.Availability.AvailableSamples != 480 {
@@ -447,11 +1008,47 @@ func TestDecoderLeavesDREDPayloadDormantWithoutDREDModel(t *testing.T) {
 	if n == 0 {
 		t.Fatal("Decode returned zero samples")
 	}
-	if dec.dredCache != (internaldred.Cache{}) {
-		t.Fatalf("decoder cached dormant DRED cache=%+v want zero state", dec.dredCache)
+	if dec.dredState() != nil {
+		t.Fatalf("decoder cached dormant DRED sidecar=%+v want nil", dec.dredState())
 	}
 	if got := dec.cachedDREDMaxAvailableSamples(960); got != 0 {
 		t.Fatalf("cachedDREDMaxAvailableSamples without model=%d want 0", got)
+	}
+}
+
+func TestDecoderLeavesDREDStateDormantWithoutAnySidecar(t *testing.T) {
+	base := makeValidCELTPacketForDREDTest(t)
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	extended := buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
+		{ID: internaldred.ExtensionID, Frame: 0, Data: append([]byte{'D', internaldred.ExperimentalVersion}, body...)},
+	})
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	pcm := make([]float32, 960*2)
+	n, err := dec.Decode(extended, pcm)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("Decode returned zero samples")
+	}
+	if dec.dredState() != nil {
+		t.Fatalf("decoder awakened dormant DRED sidecar=%+v want nil", dec.dredState())
+	}
+
+	n, err = dec.Decode(nil, pcm)
+	if err != nil {
+		t.Fatalf("Decode(nil) error: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("Decode(nil) returned zero samples")
+	}
+	if dec.dredState() != nil {
+		t.Fatalf("decoder awakened dormant DRED sidecar after PLC=%+v want nil", dec.dredState())
 	}
 }
 
@@ -469,7 +1066,7 @@ func TestDecoderPublicSetDNNBlobDoesNotArmStandaloneDREDDecoder(t *testing.T) {
 	if err := dec.SetDNNBlob(makeValidDecoderControlWithDREDDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
-	if dec.dredModelLoaded {
+	if s := dec.dredState(); s != nil && s.dredModelLoaded {
 		t.Fatal("public decoder SetDNNBlob armed standalone DRED decoder")
 	}
 
@@ -477,8 +1074,8 @@ func TestDecoderPublicSetDNNBlobDoesNotArmStandaloneDREDDecoder(t *testing.T) {
 	if _, err := dec.Decode(extended, pcm); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
-	if dec.dredCache != (internaldred.Cache{}) {
-		t.Fatalf("public SetDNNBlob cached DRED payload=%+v want zero state", dec.dredCache)
+	if s := dec.dredState(); s != nil && s.dredCache != (internaldred.Cache{}) {
+		t.Fatalf("public SetDNNBlob cached DRED payload=%+v want zero state", s.dredCache)
 	}
 }
 
@@ -504,8 +1101,8 @@ func TestDecoderLeavesDREDPayloadDormantWhenIgnoringExtensions(t *testing.T) {
 	if n == 0 {
 		t.Fatal("Decode returned zero samples")
 	}
-	if dec.dredCache != (internaldred.Cache{}) {
-		t.Fatalf("decoder cached ignored DRED cache=%+v want zero state", dec.dredCache)
+	if got := requireDecoderDREDState(t, dec).dredCache; got != (internaldred.Cache{}) {
+		t.Fatalf("decoder cached ignored DRED cache=%+v want zero state", got)
 	}
 	if got := dec.cachedDREDMaxAvailableSamples(960); got != 0 {
 		t.Fatalf("cachedDREDMaxAvailableSamples while ignoring=%d want 0", got)
@@ -529,34 +1126,40 @@ func TestDecoderDREDCacheFollowsStandaloneModelAndIgnoreExtensions(t *testing.T)
 	if _, err := dec.Decode(extended, pcm); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
-	if dec.dredCache.Empty() {
+	state := requireDecoderDREDState(t, dec)
+	if state.dredCache.Empty() {
 		t.Fatal("expected cached DRED payload before main blob change")
 	}
 
 	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob(non_dred) error: %v", err)
 	}
-	if !dec.dredModelLoaded {
+	state = requireDecoderDREDState(t, dec)
+	if !state.dredModelLoaded {
 		t.Fatal("main decoder SetDNNBlob cleared standalone DRED model state")
 	}
-	if dec.dredCache.Empty() {
+	if state.dredCache.Empty() {
 		t.Fatal("main decoder SetDNNBlob cleared cached DRED payload")
 	}
 	dec.setDREDDecoderBlob(nil)
-	if dec.dredCache != (internaldred.Cache{}) {
-		t.Fatalf("clearing standalone DRED model left cache=%+v want zero state", dec.dredCache)
+	if state := dec.dredState(); state != nil && state.decoderDREDPayloadState != nil {
+		t.Fatalf("clearing standalone DRED model left payload sidecar=%+v", state.decoderDREDPayloadState)
+	}
+	if dec.dredCachedPayloadActive() {
+		t.Fatal("clearing standalone DRED model left cached payload active")
 	}
 
 	setValidDREDDecoderBlobForTest(t, dec)
 	if _, err := dec.Decode(extended, pcm); err != nil {
 		t.Fatalf("Decode after standalone rearm error: %v", err)
 	}
-	if dec.dredCache.Empty() {
+	state = requireDecoderDREDState(t, dec)
+	if state.dredCache.Empty() {
 		t.Fatal("expected cached DRED payload before ignore toggle")
 	}
 	dec.SetIgnoreExtensions(true)
-	if dec.dredCache != (internaldred.Cache{}) {
-		t.Fatalf("SetIgnoreExtensions(true) left DRED cache=%+v want zero state", dec.dredCache)
+	if got := requireDecoderDREDState(t, dec).dredCache; got != (internaldred.Cache{}) {
+		t.Fatalf("SetIgnoreExtensions(true) left DRED cache=%+v want zero state", got)
 	}
 }
 

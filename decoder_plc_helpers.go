@@ -1,11 +1,33 @@
 package gopus
 
+import "github.com/thesyncim/gopus/internal/lpcnetplc"
+
 type plcDecodeState struct {
 	packetFrameSize    int
 	mode               Mode
 	bandwidth          Bandwidth
 	packetStereo       bool
 	useDecoderPLCState bool
+	queueCachedDRED    bool
+}
+
+func nextPLCChunkSamples(sampleRate int, mode Mode, remaining int) int {
+	if sampleRate <= 0 || remaining <= 0 {
+		return 0
+	}
+	f20 := sampleRate / 50
+	f10 := f20 / 2
+	f5 := f10 / 2
+	if remaining >= f20 {
+		return f20
+	}
+	if remaining > f10 {
+		return f10
+	}
+	if mode != ModeSILK && remaining > f5 && remaining < f10 {
+		return f5
+	}
+	return remaining
 }
 
 func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDecodeState) (int, error) {
@@ -27,7 +49,14 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 	remaining := frameSize
 	offset := 0
 	for remaining > 0 {
-		chunk := min(remaining, 48000/50)
+		// The packet/frame-size plumbing in the decoder core is still tracked in
+		// Opus's 48 kHz sample domain, even when the public decoder was created
+		// for a lower output rate. Chunk PLC in that same domain so CELT/Hybrid
+		// PLC continues to see valid 120/240/480/960 frame sizes.
+		chunk := nextPLCChunkSamples(48000, state.mode, remaining)
+		if chunk <= 0 {
+			break
+		}
 		n, err := d.decodeOpusFrameIntoWithStatePolicy(
 			out[offset*d.channels:],
 			nil,
@@ -49,4 +78,85 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 	}
 
 	return frameSize, nil
+}
+
+func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
+	if d.dredNeuralConcealmentAvailable() {
+		d.prepareDRED48kNeuralEntry(frameSize, state.mode)
+	}
+	n, err := d.decodePLCChunksInto(out, frameSize, state)
+	if err != nil {
+		return 0, false, err
+	}
+	if !d.dredNeuralConcealmentAvailable() || n <= 0 || n%3 != 0 {
+		return n, false, nil
+	}
+	r := d.dredRecoveryState()
+	neural := d.dredNeuralState()
+	b := d.dred48kBridgeState()
+	if r == nil || neural == nil || b == nil || d.celtDecoder == nil {
+		return n, false, nil
+	}
+	if !d.celtDecoder.ConcealDRED48kMonoStateOnly(
+		n,
+		&b.dredLastNeural,
+		b.dredPLCPCM[:],
+		&b.dredPLCFill,
+		&b.dredPLCPreemphMem,
+		func(frame []float32) bool {
+			if len(frame) < lpcnetplc.FrameSize {
+				return false
+			}
+			if r.dredPLC.Blend() == 0 {
+				return r.dredPLC.GenerateConcealedFrameFloatWithAnalysis(&neural.dredAnalysis, &neural.dredPredictor, &neural.dredFARGAN, frame[:lpcnetplc.FrameSize])
+			}
+			return r.dredPLC.GenerateConcealedFrameFloat(&neural.dredPredictor, &neural.dredFARGAN, frame[:lpcnetplc.FrameSize])
+		},
+	) {
+		return n, false, nil
+	}
+	if state.queueCachedDRED {
+		p := d.dredPayloadState()
+		if p != nil && r != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty() {
+			r.dredRecovery += n
+		}
+	}
+	return n, true, nil
+}
+
+func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
+	if d == nil {
+		return 0, false, ErrInvalidArgument
+	}
+	if frameSize <= 0 {
+		frameSize = state.packetFrameSize
+	}
+	if frameSize <= 0 {
+		frameSize = 960
+	}
+	if frameSize > d.maxPacketSamples {
+		return 0, false, ErrPacketTooLarge
+	}
+
+	needed := frameSize * d.channels
+	if len(out) < needed {
+		return 0, false, ErrBufferTooSmall
+	}
+	if !d.dredNeuralConcealmentAvailable() {
+		n, err := d.decodePLCChunksInto(out, frameSize, state)
+		return n, false, err
+	}
+	if d.sampleRate != 48000 || d.channels != 1 || (state.mode != ModeCELT && state.mode != ModeHybrid) {
+		n, err := d.decodePLCChunksInto(out, frameSize, state)
+		return n, false, err
+	}
+	if state.mode == ModeHybrid {
+		return d.decodeHybridDRED48kInto(out, frameSize, state)
+	}
+	d.prepareDRED48kNeuralEntry(frameSize, state.mode)
+	if !d.applyDREDNeuralConcealment(out[:needed], frameSize) {
+		n, err := d.decodePLCChunksInto(out, frameSize, state)
+		return n, false, err
+	}
+	return frameSize, true, nil
 }

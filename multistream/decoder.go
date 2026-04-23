@@ -458,9 +458,6 @@ type Decoder struct {
 	dredDecoded        []internaldred.Decoded
 	dredProcesses      []rdovae.Processor
 	dredPLC            []lpcnetplc.State
-	dredAnalysis       []lpcnetplc.Analysis
-	dredPredictor      []lpcnetplc.Predictor
-	dredFARGAN         []lpcnetplc.FARGAN
 	dredBlend          []int
 }
 
@@ -538,15 +535,6 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		mapping:        mappingCopy,
 		decoders:       decoders,
 		plcState:       plc.NewState(),
-		dredDecoded:    make([]internaldred.Decoded, streams),
-		dredProcesses:  make([]rdovae.Processor, streams),
-		dredPLC:        make([]lpcnetplc.State, streams),
-		dredAnalysis:   make([]lpcnetplc.Analysis, streams),
-		dredPredictor:  make([]lpcnetplc.Predictor, streams),
-		dredFARGAN:     make([]lpcnetplc.FARGAN, streams),
-		dredBlend:      make([]int, streams),
-		dredData:       makeDREDBuffers(streams),
-		dredCache:      make([]internaldred.Cache, streams),
 	}, nil
 }
 
@@ -564,9 +552,6 @@ func (d *Decoder) Reset() {
 	d.clearDREDPayloadState()
 	for i := range d.dredPLC {
 		d.dredPLC[i].Reset()
-		d.dredAnalysis[i].Reset()
-		d.dredPredictor[i].Reset()
-		d.dredFARGAN[i].Reset()
 	}
 }
 
