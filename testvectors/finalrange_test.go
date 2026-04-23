@@ -42,6 +42,11 @@ var finalRangeVectors = []finalRangeVector{
 // the expected FinalRange stored in the test vector packets.
 // This is a critical compliance test per RFC 6716.
 func TestFinalRangeVerification(t *testing.T) {
+	if err := ensureTestVectors(t); err != nil {
+		t.Skipf("Skipping FinalRange verification: %v", err)
+		return
+	}
+
 	testVectorDir := "testdata/opus_testvectors"
 
 	// Check if test vectors exist
