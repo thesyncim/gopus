@@ -57,13 +57,8 @@ func ensureLibopusDREDBuild(repoRoot string) (sourceDir, buildDir string, err er
 
 	if _, err := os.Stat(filepath.Join(sourceDir, "configure")); err != nil {
 		libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{repoRoot})
-		if _, refErr := os.Stat(filepath.Join(referenceDir, "configure")); refErr == nil {
-			sourceDir = referenceDir
-		} else {
-			tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
-			if _, err := os.Stat(tarball); err != nil {
-				return "", "", fmt.Errorf("libopus tarball not found and no prepared source tree present: %w", err)
-			}
+		tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
+		if _, err := os.Stat(tarball); err == nil {
 			if err := os.RemoveAll(sourceDir); err != nil {
 				return "", "", fmt.Errorf("remove stale dred source dir: %w", err)
 			}
@@ -74,6 +69,13 @@ func ensureLibopusDREDBuild(repoRoot string) (sourceDir, buildDir string, err er
 			if output, err := cmd.CombinedOutput(); err != nil {
 				return "", "", fmt.Errorf("extract dred libopus source: %w (%s)", err, bytes.TrimSpace(output))
 			}
+		} else if _, refErr := os.Stat(filepath.Join(referenceDir, "configure")); refErr == nil {
+			if _, cfgErr := os.Stat(filepath.Join(referenceDir, "Makefile")); cfgErr == nil {
+				return "", "", fmt.Errorf("clean dred source tree unavailable: %s is already configured", referenceDir)
+			}
+			sourceDir = referenceDir
+		} else {
+			return "", "", fmt.Errorf("libopus tarball not found and no prepared source tree present: %w", err)
 		}
 	}
 

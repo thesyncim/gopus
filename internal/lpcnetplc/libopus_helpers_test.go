@@ -99,14 +99,8 @@ func ensureLibopusPLCBuild() (sourceDir, buildDir string, err error) {
 
 		if _, err := os.Stat(filepath.Join(sourceDir, "configure")); err != nil {
 			libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{repoRoot})
-			if _, refErr := os.Stat(filepath.Join(referenceDir, "configure")); refErr == nil {
-				sourceDir = referenceDir
-			} else {
-				tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
-				if _, err := os.Stat(tarball); err != nil {
-					libopusPLCBuildErr = fmt.Errorf("libopus tarball not found and no prepared source tree present: %w", err)
-					return
-				}
+			tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
+			if _, err := os.Stat(tarball); err == nil {
 				if err := os.RemoveAll(sourceDir); err != nil {
 					libopusPLCBuildErr = fmt.Errorf("remove stale libopus source dir: %w", err)
 					return
@@ -120,6 +114,15 @@ func ensureLibopusPLCBuild() (sourceDir, buildDir string, err error) {
 					libopusPLCBuildErr = fmt.Errorf("extract libopus source: %w (%s)", err, bytes.TrimSpace(output))
 					return
 				}
+			} else if _, refErr := os.Stat(filepath.Join(referenceDir, "configure")); refErr == nil {
+				if _, cfgErr := os.Stat(filepath.Join(referenceDir, "Makefile")); cfgErr == nil {
+					libopusPLCBuildErr = fmt.Errorf("clean libopus source tree unavailable: %s is already configured", referenceDir)
+					return
+				}
+				sourceDir = referenceDir
+			} else {
+				libopusPLCBuildErr = fmt.Errorf("libopus tarball not found and no prepared source tree present: %w", err)
+				return
 			}
 		}
 		if err := os.MkdirAll(buildDir, 0o755); err != nil {
