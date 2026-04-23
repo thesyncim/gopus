@@ -20,9 +20,15 @@ func (m dredEncoderModels) loaded() bool {
 
 type dredEncoderRuntime struct {
 	generator     internaldred.LatentGenerator
+	resampleMem   [internaldred.ResamplingOrder + 1]float32
 	scaledPCM16k  [maxDREDPCM16k]float32
+	latentsBuffer [internaldred.MaxFrames * rdovae.LatentDim]float32
+	stateBuffer   [internaldred.MaxFrames * rdovae.StateDim]float32
 	latestLatents [rdovae.LatentDim]float32
 	latestState   [rdovae.StateDim]float32
+	latentsFill   int
+	dredOffset    int
+	latentOffset  int
 	emitted       int
 }
 
@@ -98,7 +104,7 @@ func (e *Encoder) ensureActiveDREDRuntime() *dredEncoderRuntime {
 	if e.dnnBlob == nil || e.dred == nil || e.dred.duration <= 0 || !e.dred.models.loaded() {
 		return nil
 	}
-	if e.sampleRate != 16000 || (e.channels != 1 && e.channels != 2) {
+	if e.channels != 1 && e.channels != 2 {
 		return nil
 	}
 	if e.dred.runtime != nil {
@@ -117,25 +123,24 @@ func (e *Encoder) processDREDLatents(framePCM []float64, extraDelay int) int {
 	if runtime == nil || len(framePCM) == 0 || len(framePCM)%e.channels != 0 {
 		return 0
 	}
-	samplesPerChannel := len(framePCM) / e.channels
-	if samplesPerChannel > len(runtime.scaledPCM16k) {
+	samples16k := internaldred.ConvertTo16kMonoFloat64(runtime.scaledPCM16k[:], &runtime.resampleMem, framePCM, e.sampleRate, e.channels)
+	if samples16k == 0 {
 		return 0
 	}
-	switch e.channels {
-	case 1:
-		for i, v := range framePCM {
-			runtime.scaledPCM16k[i] = 32768 * float32(v)
-		}
-	case 2:
-		for i := 0; i < samplesPerChannel; i++ {
-			runtime.scaledPCM16k[i] = 16384 * float32(framePCM[2*i]+framePCM[2*i+1])
-		}
-	default:
-		return 0
-	}
-	return runtime.generator.Process16k(e.dred.models.encoder, runtime.scaledPCM16k[:samplesPerChannel], extraDelay, func(latents, state []float32) {
+	extraDelay16k := extraDelay * 16000 / e.sampleRate
+	emitted := runtime.generator.Process16k(e.dred.models.encoder, runtime.scaledPCM16k[:samples16k], extraDelay16k, func(latents, state []float32) {
+		copy(runtime.latentsBuffer[rdovae.LatentDim:], runtime.latentsBuffer[:(internaldred.MaxFrames-1)*rdovae.LatentDim])
+		copy(runtime.stateBuffer[rdovae.StateDim:], runtime.stateBuffer[:(internaldred.MaxFrames-1)*rdovae.StateDim])
+		copy(runtime.latentsBuffer[:rdovae.LatentDim], latents[:rdovae.LatentDim])
+		copy(runtime.stateBuffer[:rdovae.StateDim], state[:rdovae.StateDim])
 		copy(runtime.latestLatents[:], latents[:rdovae.LatentDim])
 		copy(runtime.latestState[:], state[:rdovae.StateDim])
+		if runtime.latentsFill < internaldred.NumRedundancyFrames {
+			runtime.latentsFill++
+		}
 		runtime.emitted++
 	})
+	runtime.dredOffset = runtime.generator.DREDOffset()
+	runtime.latentOffset = runtime.generator.LatentOffset()
+	return emitted
 }
