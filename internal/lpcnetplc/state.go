@@ -582,6 +582,27 @@ func (s *State) MarkUpdatedFrameFloat(frame []float32) int {
 	return FrameSize
 }
 
+// MarkUpdatedFrameWithAnalysis mirrors the good-packet lpcnet_plc_update()
+// cadence for one 10 ms frame while also advancing the retained LPCNet
+// analysis frontend and continuity vectors.
+func (s *State) MarkUpdatedFrameWithAnalysis(a *Analysis, frame []float32) int {
+	if s == nil || len(frame) < FrameSize {
+		return 0
+	}
+	if s.MarkUpdatedFrameFloat(frame) != FrameSize {
+		return 0
+	}
+	if a == nil || !a.Loaded() {
+		return FrameSize
+	}
+	if n := a.ComputeSingleFrameFeaturesFloat(s.features[:], frame[:FrameSize]); n != NumTotalFeatures {
+		return FrameSize
+	}
+	s.QueueFeatures(s.features[:NumFeatures])
+	s.analysisGap = 0
+	return FrameSize
+}
+
 // FinishConcealedFrameFloat mirrors the retained PCM-history tail and cursor
 // maintenance that lpcnet_plc_conceal() performs after feature synthesis.
 func (s *State) FinishConcealedFrameFloat(frame []float32) int {

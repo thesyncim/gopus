@@ -145,3 +145,19 @@ func (d *Decoder) SetSLPCQ14HistoryQ14(history []int32) {
 func (d *Decoder) GetOutBufHistoryQ0() []int16 {
 	return outBufHistoryFromState(&d.state[0])
 }
+
+func (d *Decoder) FillMonoOutBufTailFloat(dst []float32, samples int) int {
+	if d == nil || samples <= 0 || len(dst) < samples {
+		return 0
+	}
+	history := outBufHistoryFromState(&d.state[0])
+	if len(history) < samples {
+		return 0
+	}
+	history = history[len(history)-samples:]
+	const scale = float32(1.0 / 32768.0)
+	for i := 0; i < samples; i++ {
+		dst[i] = float32(history[i]) * scale
+	}
+	return samples
+}

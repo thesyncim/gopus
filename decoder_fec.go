@@ -227,7 +227,7 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 		r.dredRecovery = 0
 	}
 	if d.dredSidecarActive() {
-		d.markDREDUpdatedPCM(pcm[:n*d.channels], n)
+		d.markDREDUpdatedPCM(pcm[:n*d.channels], n, d.fecMode)
 	}
 	d.applyOutputGain(pcm[:n*d.channels])
 

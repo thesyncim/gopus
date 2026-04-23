@@ -1,6 +1,9 @@
 package gopus
 
-import "github.com/thesyncim/gopus/internal/lpcnetplc"
+import (
+	"github.com/thesyncim/gopus/internal/lpcnetplc"
+	"github.com/thesyncim/gopus/silk"
+)
 
 type plcDecodeState struct {
 	packetFrameSize    int
@@ -82,46 +85,53 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 
 func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
 	useDRED := d.dredCachedPayloadActive()
-	if d.dredNeuralConcealmentAvailable() {
-		d.prepareDRED48kNeuralEntry(frameSize, state.mode, false)
+	var lowbandSnapshot *silk.DeepPLCLowbandSnapshot
+	if useDRED && d.dredNeuralConcealmentAvailable() && d.silkDecoder != nil {
+		lowbandSnapshot = d.silkDecoder.SnapshotDeepPLCLowbandMono()
 	}
 	n, err := d.decodePLCChunksInto(out, frameSize, state)
 	if err != nil {
 		return 0, false, err
 	}
-	if !d.dredNeuralConcealmentAvailable() || n <= 0 || n%3 != 0 {
-		return n, false, nil
-	}
-	r := d.dredRecoveryState()
-	neural := d.dredNeuralState()
-	b := d.dred48kBridgeState()
-	if r == nil || neural == nil || b == nil || d.celtDecoder == nil {
-		return n, false, nil
-	}
-	generate := func(frame []float32) bool {
-		if len(frame) < lpcnetplc.FrameSize {
-			return false
+	if !useDRED {
+		if d.dredNeuralConcealmentAvailable() {
+			d.prepareDRED48kNeuralEntry(frameSize, state.mode, false)
 		}
-		if r.dredPLC.Blend() == 0 {
-			return r.dredPLC.GenerateConcealedFrameFloatWithAnalysis(&neural.dredAnalysis, &neural.dredPredictor, &neural.dredFARGAN, frame[:lpcnetplc.FrameSize])
+		if !d.dredNeuralConcealmentAvailable() || n <= 0 || n%3 != 0 {
+			return n, false, nil
 		}
-		return r.dredPLC.GenerateConcealedFrameFloat(&neural.dredPredictor, &neural.dredFARGAN, frame[:lpcnetplc.FrameSize])
+		r := d.dredRecoveryState()
+		neural := d.dredNeuralState()
+		b := d.dred48kBridgeState()
+		if r == nil || neural == nil || b == nil || d.celtDecoder == nil {
+			return n, false, nil
+		}
+		generate := func(frame []float32) bool {
+			if len(frame) < lpcnetplc.FrameSize {
+				return false
+			}
+			if r.dredPLC.Blend() == 0 {
+				return r.dredPLC.GenerateConcealedFrameFloatWithAnalysis(&neural.dredAnalysis, &neural.dredPredictor, &neural.dredFARGAN, frame[:lpcnetplc.FrameSize])
+			}
+			return r.dredPLC.GenerateConcealedFrameFloat(&neural.dredPredictor, &neural.dredFARGAN, frame[:lpcnetplc.FrameSize])
+		}
+		ok := d.celtDecoder.ConcealPLCNeural48kMonoStateOnly(
+			n,
+			&b.dredLastNeural,
+			b.dredPLCPCM[:],
+			&b.dredPLCFill,
+			&b.dredPLCPreemphMem,
+			generate,
+		)
+		if !ok {
+			return n, false, nil
+		}
+		return n, true, nil
 	}
-	var ok bool
-	ok = d.celtDecoder.ConcealPLCNeural48kMonoStateOnly(
-		n,
-		&b.dredLastNeural,
-		b.dredPLCPCM[:],
-		&b.dredPLCFill,
-		&b.dredPLCPreemphMem,
-		generate,
-	)
-	if !ok {
-		return n, false, nil
-	}
-	if useDRED {
-		r.dredBlend = max(r.dredBlend, r.dredPLC.Blend())
-		r.dredRecovery += n
+	if d.queueActiveDREDRecovery(n).NeededFeatureFrames > 0 || d.dredRecoveryState() != nil {
+		if d.advanceHybridDREDLowbandState(n, lowbandSnapshot) {
+			return n, true, nil
+		}
 	}
 	return n, true, nil
 }

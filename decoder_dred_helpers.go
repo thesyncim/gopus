@@ -5,6 +5,7 @@ import (
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
+	"github.com/thesyncim/gopus/silk"
 )
 
 func (d *Decoder) dredState() *decoderDREDState {
@@ -116,6 +117,7 @@ func (d *Decoder) resetDREDNeuralRuntime() {
 	if n == nil {
 		return
 	}
+	n.dredRawHistoryUpdated = false
 	n.pitchDNNLoaded = false
 	n.plcModelLoaded = false
 	n.farganModelLoaded = false
@@ -605,6 +607,107 @@ func (d *Decoder) markDREDConcealed() {
 	r.dredBlend = max(r.dredBlend, r.dredPLC.Blend())
 }
 
+func (d *Decoder) updateDREDPCMHistory(frames []float32) {
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return
+	}
+	r := d.dredRecoveryState()
+	n := d.dredNeuralState()
+	if r == nil || n == nil || len(frames) < lpcnetplc.FrameSize {
+		return
+	}
+	for offset := 0; offset+lpcnetplc.FrameSize <= len(frames); offset += lpcnetplc.FrameSize {
+		r.dredPLC.MarkUpdatedFrameWithAnalysis(&n.dredAnalysis, frames[offset:offset+lpcnetplc.FrameSize])
+	}
+}
+
+func (d *Decoder) updateDREDPCMHistoryInt16(frames []int16) {
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return
+	}
+	r := d.dredRecoveryState()
+	n := d.dredNeuralState()
+	if r == nil || n == nil || len(frames) < lpcnetplc.FrameSize {
+		return
+	}
+	const scale = float32(1.0 / 32768.0)
+	for offset := 0; offset+lpcnetplc.FrameSize <= len(frames); offset += lpcnetplc.FrameSize {
+		frame := n.dredPLCUpdate[:lpcnetplc.FrameSize]
+		for i := 0; i < lpcnetplc.FrameSize; i++ {
+			frame[i] = float32(frames[offset+i]) * scale
+		}
+		r.dredPLC.MarkUpdatedFrameWithAnalysis(&n.dredAnalysis, frame)
+		n.dredRawHistoryUpdated = true
+	}
+}
+
+func (d *Decoder) primeDREDPCMHistoryInt16(frames []int16) {
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return
+	}
+	r := d.dredRecoveryState()
+	n := d.dredNeuralState()
+	if r == nil || n == nil || len(frames) < lpcnetplc.FrameSize {
+		return
+	}
+	const scale = float32(1.0 / 32768.0)
+	for offset := 0; offset+lpcnetplc.FrameSize <= len(frames); offset += lpcnetplc.FrameSize {
+		frame := n.dredPLCUpdate[:lpcnetplc.FrameSize]
+		for i := 0; i < lpcnetplc.FrameSize; i++ {
+			frame[i] = float32(frames[offset+i]) * scale
+		}
+		r.dredPLC.MarkUpdatedFrameFloat(frame)
+		n.dredRawHistoryUpdated = true
+	}
+}
+
+func (d *Decoder) recordDREDRawMonoGoodFrame(samples []int16) {
+	if d == nil || len(samples) < lpcnetplc.FrameSize {
+		return
+	}
+	d.primeDREDPCMHistoryInt16(samples)
+}
+
+func (d *Decoder) beginDREDRawMonoGoodFrameCapture(mode Mode) func() {
+	if d == nil || d.silkDecoder == nil || d.sampleRate != 48000 || d.channels != 1 {
+		return func() {}
+	}
+	if mode != ModeHybrid && mode != ModeSILK {
+		return func() {}
+	}
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return func() {}
+	}
+	if n := d.dredNeuralState(); n != nil {
+		n.dredRawHistoryUpdated = false
+	}
+	d.silkDecoder.SetRawMonoFrameHook(d.recordDREDRawMonoGoodFrame)
+	return func() {
+		d.silkDecoder.SetRawMonoFrameHook(nil)
+	}
+}
+
+func (d *Decoder) refreshDREDHistoryFromHybridDecoder(samplesPerChannel int) {
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return
+	}
+	if d == nil || d.silkDecoder == nil || d.sampleRate != 48000 || d.channels != 1 || samplesPerChannel <= 0 || samplesPerChannel%3 != 0 {
+		return
+	}
+	n := d.dredNeuralState()
+	if n == nil {
+		return
+	}
+	nativeSamples := samplesPerChannel / 3
+	if nativeSamples < lpcnetplc.FrameSize || nativeSamples > len(n.dredPLCUpdate) || nativeSamples%lpcnetplc.FrameSize != 0 {
+		return
+	}
+	if got := d.silkDecoder.FillMonoOutBufTailFloat(n.dredPLCUpdate[:nativeSamples], nativeSamples); got != nativeSamples {
+		return
+	}
+	d.updateDREDPCMHistory(n.dredPLCUpdate[:nativeSamples])
+}
+
 func (d *Decoder) primeDREDCELTEntryHistory(mode Mode, primeAnalysis bool) int {
 	if !d.ensureDREDNeuralConcealmentRuntime() {
 		return 0
@@ -730,16 +833,58 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 	return false
 }
 
-func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int) {
+func (d *Decoder) advanceHybridDREDLowbandState(frameSizeSamples int, lowbandSnapshot *silk.DeepPLCLowbandSnapshot) bool {
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return false
+	}
+	r := d.dredRecoveryState()
+	n := d.dredNeuralState()
+	if d == nil || d.silkDecoder == nil || r == nil || n == nil || d.sampleRate != 48000 || d.channels != 1 || frameSizeSamples <= 0 || frameSizeSamples%3 != 0 {
+		return false
+	}
+	nativeSamples := frameSizeSamples / 3
+	if nativeSamples < lpcnetplc.FrameSize || nativeSamples > len(n.dredPLCUpdate) || nativeSamples%lpcnetplc.FrameSize != 0 {
+		return false
+	}
+	if !d.generateDREDNeuralFrames16k(n.dredPLCUpdate[:nativeSamples], nativeSamples) {
+		return false
+	}
+	if lowbandSnapshot != nil {
+		d.silkDecoder.RestoreDeepPLCLowbandMono(lowbandSnapshot)
+	}
+	rendered := n.dredPLCRender[:nativeSamples]
+	if d.silkDecoder.ApplyDeepPLCLossMono(n.dredPLCUpdate[:nativeSamples], rendered, n.dredFARGAN.LastPeriod()) != nativeSamples {
+		return false
+	}
+	if lowbandSnapshot != nil {
+		d.silkDecoder.AdvanceDeepPLCLowbandMono(rendered)
+	}
+	r.dredBlend = max(r.dredBlend, r.dredPLC.Blend())
+	r.dredRecovery += frameSizeSamples
+	return true
+}
+
+func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int, mode Mode) {
 	if !d.dredSidecarActive() {
 		return
 	}
 	if b := d.dred48kBridgeState(); b != nil {
 		b.dredLastNeural = false
 	}
-	r := d.dredRecoveryState()
+	if !d.dredNeuralConcealmentAvailable() {
+		r := d.dredRecoveryState()
+		if r != nil {
+			r.dredPLC.ClearBlend()
+		}
+		return
+	}
+	r := d.ensureDREDRecoveryState()
 	if r == nil {
 		return
 	}
 	r.dredPLC.ClearBlend()
+	switch {
+	case d.sampleRate == 16000 && d.channels == 1 && samplesPerChannel >= lpcnetplc.FrameSize && samplesPerChannel%lpcnetplc.FrameSize == 0 && len(pcm) >= samplesPerChannel:
+		d.updateDREDPCMHistory(pcm[:samplesPerChannel])
+	}
 }

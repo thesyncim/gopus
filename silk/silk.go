@@ -812,6 +812,69 @@ func (d *Decoder) recordPLCLossForState(st *decoderState, concealed []float32) {
 	}
 }
 
+func (d *Decoder) applyDeepPLCHistoryMono(st *decoderState, concealed []float32) {
+	if st == nil || len(concealed) == 0 {
+		return
+	}
+	order := st.lpcOrder
+	if order <= 0 {
+		return
+	}
+	if order > maxLPCOrder {
+		order = maxLPCOrder
+	}
+	prevGainQ16 := st.prevGainQ16
+	if plcState := d.ensureSILKPLCState(0); plcState != nil && plcState.PrevGainQ16[1] > 0 {
+		prevGainQ16 = plcState.PrevGainQ16[1]
+	}
+	prevGainQ10 := prevGainQ16 >> 6
+	if prevGainQ10 <= 0 {
+		return
+	}
+	var history [maxLPCOrder]int32
+	start := len(concealed) - order
+	if start < 0 {
+		start = 0
+	}
+	historyIdx := 0
+	for i := start; i < len(concealed) && historyIdx < order; i++ {
+		sampleQ0 := int32(float32ToInt16(concealed[i]))
+		scaled := (float64(sampleQ0) * (1 << 24)) / float64(prevGainQ10)
+		history[historyIdx] = int32(math.Floor(0.5 + scaled))
+		historyIdx++
+	}
+	if historyIdx == 0 {
+		return
+	}
+	setSLPCQ14HistoryQ14(st, history[:historyIdx])
+}
+
+func (d *Decoder) ApplyDeepPLCLossMono(concealed, rendered []float32, lagPrev int) int {
+	if d == nil || len(concealed) == 0 || len(rendered) < len(concealed) {
+		return 0
+	}
+	st := &d.state[0]
+	var plcLagPrev int
+	if plcState := d.ensureSILKPLCState(0); plcState != nil && st.nbSubfr > 0 {
+		if view := d.plcDecoderView(0); view != nil {
+			_ = plc.ConcealSILKWithLTP(view, plcState, max(0, st.lossCnt), len(concealed))
+			plcLagPrev = int((plcState.PitchLQ8 + 128) >> 8)
+		}
+	}
+	tmp := rendered[:len(concealed)]
+	copy(tmp, concealed)
+	d.recordPLCLossForState(st, tmp)
+	switch {
+	case plcLagPrev > 0:
+		st.lagPrev = plcLagPrev
+	case lagPrev > 0:
+		st.lagPrev = lagPrev
+	}
+	st.lastGainIndex = 10
+	d.applyDeepPLCHistoryMono(st, concealed)
+	return len(tmp)
+}
+
 // syncLegacyPLCState aligns legacy PLC helper fields from libopus-style decoder state.
 // ConcealSILK() still reads these legacy fields, so keep them synchronized after
 // successful frame decodes (including LBRR/FEC decodes).
