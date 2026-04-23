@@ -82,6 +82,7 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		d.lastDataLen = 0
 		return frameSizeSamples, nil
 	}
+	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
 	d.prepareDRED48kNeuralEntry(frameSizeSamples, d.prevMode, primeAnalysis)
 	if !d.applyDREDNeuralConcealment48kMono(pcm[:needed], frameSizeSamples) {
 		return 0, ErrInvalidPacket

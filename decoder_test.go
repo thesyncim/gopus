@@ -750,6 +750,48 @@ func TestDecoderMarkDREDUpdatedPCMRefreshesNeuralHistory(t *testing.T) {
 	}
 }
 
+func TestDecoderMarkDREDUpdatedPCMCELTKeepsBridgeOwnedHistory(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	var pcm [2 * lpcnetplc.FrameSize]float32
+	for i := range pcm {
+		pcm[i] = float32((i%23)-11) / 23
+	}
+	dec.ensureDREDRecoveryState()
+	state := requireDecoderDREDState(t, dec)
+	if got := state.dredPLC.MarkUpdatedFrameFloat(pcm[:lpcnetplc.FrameSize]); got != lpcnetplc.FrameSize {
+		t.Fatalf("MarkUpdatedFrameFloat()=%d want %d", got, lpcnetplc.FrameSize)
+	}
+	state.dredPLC.MarkConcealed()
+	before := state.dredPLC.Snapshot()
+	var beforeHistory [lpcnetplc.PLCBufSize]float32
+	if n := state.dredPLC.FillPCMHistory(beforeHistory[:]); n != lpcnetplc.PLCBufSize {
+		t.Fatalf("FillPCMHistory(before)=%d want %d", n, lpcnetplc.PLCBufSize)
+	}
+
+	dec.markDREDUpdatedPCM(pcm[:], len(pcm), ModeCELT)
+
+	after := state.dredPLC.Snapshot()
+	if after.Blend != 0 {
+		t.Fatalf("Blend=%d want 0", after.Blend)
+	}
+	if after.AnalysisPos != before.AnalysisPos || after.PredictPos != before.PredictPos || after.LossCount != before.LossCount {
+		t.Fatalf("unexpected CELT history cursor update: before=%+v after=%+v", before, after)
+	}
+	var history [lpcnetplc.PLCBufSize]float32
+	if n := state.dredPLC.FillPCMHistory(history[:]); n != lpcnetplc.PLCBufSize {
+		t.Fatalf("FillPCMHistory(after)=%d want %d", n, lpcnetplc.PLCBufSize)
+	}
+	if !slices.Equal(history[:], beforeHistory[:]) {
+		t.Fatal("CELT good-frame mark unexpectedly rewrote DRED PCM history")
+	}
+}
+
 func TestDecoderMarkDREDUpdatedPCMDormantWithoutSidecar(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
 	if err != nil {
