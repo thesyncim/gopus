@@ -11,6 +11,7 @@ import (
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
+	"github.com/thesyncim/gopus/types"
 )
 
 func TestEncoderDREDRuntimeStaysDormantUntilReady(t *testing.T) {
@@ -256,6 +257,129 @@ func TestEncoderProcessDREDLatentsDoesNotAllocate48k(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("processDREDLatents allocs=%v want 0", allocs)
+	}
+}
+
+func TestEncoderBuildDREDExperimentalPayloadUsesRuntimeHistory(t *testing.T) {
+	enc := NewEncoder(16000, 1)
+	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+
+	runtime := enc.ensureActiveDREDRuntime()
+	if runtime == nil {
+		t.Fatal("ensureActiveDREDRuntime() returned nil")
+	}
+	for i := 0; i < internaldred.StateDim; i++ {
+		runtime.stateBuffer[i] = 0.02 * float32((i%7)-3)
+	}
+	for i := 0; i < 4*internaldred.LatentDim; i++ {
+		runtime.latentsBuffer[i] = 0.03 * float32((i%9)-4)
+	}
+	for i := 0; i < 24; i++ {
+		runtime.activity[i] = 1
+	}
+	runtime.latentsFill = 4
+	runtime.dredOffset = 12
+	runtime.latentOffset = 0
+
+	var payload [internaldred.MaxDataSize]byte
+	n := enc.buildDREDExperimentalPayload(payload[:], 2, 6, 3, 15)
+	if n <= internaldred.ExperimentalHeaderBytes {
+		t.Fatalf("buildDREDExperimentalPayload()=%d want > %d", n, internaldred.ExperimentalHeaderBytes)
+	}
+	if payload[0] != 'D' || payload[1] != internaldred.ExperimentalVersion {
+		t.Fatalf("payload prefix=%q,%d want D,%d", payload[0], payload[1], internaldred.ExperimentalVersion)
+	}
+}
+
+func TestEncoderBuildDREDExperimentalPayloadDoesNotAllocate(t *testing.T) {
+	enc := NewEncoder(16000, 1)
+	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+
+	runtime := enc.ensureActiveDREDRuntime()
+	if runtime == nil {
+		t.Fatal("ensureActiveDREDRuntime() returned nil")
+	}
+	for i := 0; i < internaldred.StateDim; i++ {
+		runtime.stateBuffer[i] = 0.015 * float32((i%5)-2)
+	}
+	for i := 0; i < 4*internaldred.LatentDim; i++ {
+		runtime.latentsBuffer[i] = 0.025 * float32((i%11)-5)
+	}
+	for i := 0; i < 24; i++ {
+		runtime.activity[i] = 1
+	}
+	runtime.latentsFill = 4
+	runtime.dredOffset = 12
+	runtime.latentOffset = 0
+
+	var payload [internaldred.MaxDataSize]byte
+	if n := enc.buildDREDExperimentalPayload(payload[:], 2, 6, 3, 15); n == 0 {
+		t.Fatal("warm buildDREDExperimentalPayload() returned 0")
+	}
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		runtime.lastExtraDREDOffset = 0
+		if n := enc.buildDREDExperimentalPayload(payload[:], 2, 6, 3, 15); n == 0 {
+			t.Fatal("buildDREDExperimentalPayload() returned 0")
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("buildDREDExperimentalPayload allocs=%v want 0", allocs)
+	}
+}
+
+func TestMaybeBuildSingleFrameDREDPacketCarriesExtension(t *testing.T) {
+	enc := NewEncoder(16000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetBitrate(64000)
+	enc.SetPacketLoss(20)
+	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+	if err := enc.SetDREDDuration(8); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+
+	runtime := enc.ensureActiveDREDRuntime()
+	if runtime == nil {
+		t.Fatal("ensureActiveDREDRuntime() returned nil")
+	}
+	for i := 0; i < internaldred.StateDim; i++ {
+		runtime.stateBuffer[i] = 0.02 * float32((i%7)-3)
+	}
+	for i := 0; i < 6*internaldred.LatentDim; i++ {
+		runtime.latentsBuffer[i] = 0.03 * float32((i%9)-4)
+	}
+	for i := 0; i < 48; i++ {
+		runtime.activity[i] = 1
+	}
+	runtime.latentsFill = 6
+	runtime.dredOffset = 12
+	runtime.latentOffset = 0
+
+	frameData := make([]byte, 40)
+	packet, ok, err := enc.maybeBuildSingleFrameDREDPacket(frameData, ModeSILK, types.BandwidthWideband, 320, false)
+	if err != nil {
+		t.Fatalf("maybeBuildSingleFrameDREDPacket() error: %v", err)
+	}
+	if !ok {
+		t.Fatal("maybeBuildSingleFrameDREDPacket()=false want true")
+	}
+	if len(packet) == 0 {
+		t.Fatal("packet is empty")
+	}
+	if packet[0]&0x03 != 0x03 {
+		t.Fatalf("toc code=%d want 3", packet[0]&0x03)
+	}
+	if packet[1]&0x40 == 0 {
+		t.Fatalf("count byte=0x%02x missing padding flag", packet[1])
+	}
+	if packet[len(packet)-1] != internaldred.ExperimentalVersion {
+		t.Fatalf("packet tail version=%d want %d", packet[len(packet)-1], internaldred.ExperimentalVersion)
 	}
 }
 

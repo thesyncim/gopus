@@ -19,17 +19,20 @@ func (m dredEncoderModels) loaded() bool {
 }
 
 type dredEncoderRuntime struct {
-	generator     internaldred.LatentGenerator
-	resampleMem   [internaldred.ResamplingOrder + 1]float32
-	scaledPCM16k  [maxDREDPCM16k]float32
-	latentsBuffer [internaldred.MaxFrames * rdovae.LatentDim]float32
-	stateBuffer   [internaldred.MaxFrames * rdovae.StateDim]float32
-	latestLatents [rdovae.LatentDim]float32
-	latestState   [rdovae.StateDim]float32
-	latentsFill   int
-	dredOffset    int
-	latentOffset  int
-	emitted       int
+	generator           internaldred.LatentGenerator
+	resampleMem         [internaldred.ResamplingOrder + 1]float32
+	scaledPCM16k        [maxDREDPCM16k]float32
+	latentsBuffer       [internaldred.MaxFrames * rdovae.LatentDim]float32
+	stateBuffer         [internaldred.MaxFrames * rdovae.StateDim]float32
+	activity            [internaldred.ActivityHistorySize]byte
+	latestLatents       [rdovae.LatentDim]float32
+	latestState         [rdovae.StateDim]float32
+	latentsFill         int
+	dredOffset          int
+	latentOffset        int
+	lastExtraDREDOffset int
+	payload             [internaldred.MaxDataSize]byte
+	emitted             int
 }
 
 type dredEncoderExtras struct {
@@ -142,5 +145,6 @@ func (e *Encoder) processDREDLatents(framePCM []float64, extraDelay int) int {
 	})
 	runtime.dredOffset = runtime.generator.DREDOffset()
 	runtime.latentOffset = runtime.generator.LatentOffset()
+	internaldred.UpdateActivityHistory(&runtime.activity, len(framePCM)/e.channels, e.sampleRate, e.currentDREDActivity(framePCM))
 	return emitted
 }

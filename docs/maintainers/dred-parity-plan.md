@@ -97,7 +97,9 @@ Implemented or in progress:
 - encoder optional-extra ownership is now tighter too: DRED controls/runtime sit behind a lazy sidecar, `SetDNNBlob(...)` only binds model families, the runtime materializes only when model+duration+eligible mono 16 kHz use actually arm it, and disabling/resetting DRED drops that sidecar back to a dormant state
 - the internal encoder path now advances the exercised 16 kHz latent generator before DTX on armed mono and stereo frames, which is closer to libopus `opus_encoder.c` ordering
 - the pure-Go encoder path now also ports the libopus `dred_convert_to_16k()` front-end for `8/12/24/48 kHz` mono/stereo input with retained DF2T filter memory inside the lazy DRED sidecar instead of hard-rejecting every non-16 kHz input, and the new converter has dedicated libopus-backed parity coverage plus unsupported-controls gate coverage
-- the lazy encoder DRED runtime now retains libopus-shaped latent/state history plus `dred_offset` / `latent_offset` bookkeeping for later emission instead of throwing away every emitted latent after the latest frame, so the next remaining encoder gap is payload coding/packing rather than missing retained history
+- the lazy encoder DRED runtime now retains libopus-shaped latent/state history plus `dred_offset` / `latent_offset` bookkeeping for later emission instead of throwing away every emitted latent after the latest frame
+- the lazy encoder DRED runtime now also retains the 2.5 ms activity window plus `last_extra_dred_offset` bookkeeping that libopus uses to delay or suppress payloads around silence transitions
+- the pure-Go encoder side now has a byte-for-byte libopus-backed experimental DRED payload builder for the `dred_encode_silk_frame()` seam, including header coding, quantizer signalling, offset bookkeeping, Laplace-coded state/latent chunks, and the same delayed-out-of-silence suppression rules
 
 Recent closed seams to avoid re-debugging:
 
@@ -117,7 +119,7 @@ Still missing for full parity:
 - decoder-level parity beyond the current mono seams after CELT + Hybrid 48 kHz mono and the exercised 16 kHz mono seam, especially stereo/multistream coverage, broader packet coverage, and the final supported-surface decisions for what graduates from quarantine
 - model-backed `opus_decoder_dred_decode*()` parity, including the remaining `LPCNetEncState`-shaped analysis/runtime mirror and decoder-owned integration that explicit decode depends on
 - broader live-oracle adoption beyond the covered mono cached seams; some cached/live tests still compare against the explicit `opus_decoder_dred_decode_float()` helper, and stereo/multistream paths plus wider packet matrices still need migration to live-sequence coverage where those surfaces become supported
-- encoder-side DRED beyond the current exercised 16 kHz latent-generation seam: broader latent/state buffering breadth and payload emission
+- encoder-side DRED beyond the current exercised 16 kHz latent-generation seam: wiring the new payload builder into real packet emission and broadening rate / packet-shape coverage around that path
 - clean runtime re-verification after the current macOS launcher issue: newly linked local Go binaries are intermittently stalling before Go runtime with `com.apple.provenance` present, so compile-only checks may pass while runtime parity remains blocked locally
 
 ## Workstreams
@@ -211,7 +213,7 @@ Subtasks:
 
 Important note:
 - `DFrameSize = 2 * FrameSize` now has a matching pure-Go staging helper for encoder buffering and rollover
-- the current pure-Go encoder seam now covers retained `8/12/16/24/48 kHz` mono and stereo-downmix conversion into the 16 kHz latent/state path, but broader latent buffering breadth and payload emission are still not implemented
+- the current pure-Go encoder seam now covers retained `8/12/16/24/48 kHz` mono and stereo-downmix conversion into the 16 kHz latent/state path plus the libopus `dred_encode_silk_frame()` payload-coding seam, but full packet emission / bitrate-budget integration is still not implemented
 
 Reference files:
 - `tmp_check/opus-1.6.1/dnn/dred_config.h`
@@ -221,7 +223,7 @@ Reference files:
 - `tmp_check/opus-1.6.1/src/opus_encoder.c`
 
 Acceptance:
-- Go-generated DRED extension payloads round-trip against libopus parser expectations
+- Go-generated DRED extension payloads round-trip against libopus parser expectations and the encoder-side payload bytes match libopus on focused history/activity fixtures
 - encoder-side packet fixtures match libopus on chosen parity cases before public support claims
 
 ### 5. Decoder Recovery Integration

@@ -754,17 +754,24 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if actualMode == ModeCELT && e.celtEncoder != nil {
 		qextPayload = e.celtEncoder.LastQEXTPayload()
 	}
+	dredPacketBuilt := false
 	if packet == nil {
 		stereo := e.channels == 2
 		packetBW := e.effectiveBandwidth()
 		if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 			packetBW = types.BandwidthWideband
 		}
+		if dredPacket, ok, dredErr := e.maybeBuildSingleFrameDREDPacket(frameData, actualMode, packetBW, frameSize, stereo); dredErr != nil {
+			return nil, dredErr
+		} else if ok {
+			packet = dredPacket
+			dredPacketBuilt = true
+		}
 		var (
 			packetLen int
 			pktErr    error
 		)
-		if len(qextPayload) > 0 {
+		if packet == nil && len(qextPayload) > 0 {
 			packetLen, pktErr = buildPacketWithSingleExtensionInto(
 				e.scratchPacket,
 				frameData,
@@ -777,13 +784,15 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 				0,
 				false,
 			)
-		} else {
+		} else if packet == nil {
 			packetLen, pktErr = BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
 		}
-		if pktErr != nil {
+		if packet == nil && pktErr != nil {
 			return nil, pktErr
 		}
-		packet = e.scratchPacket[:packetLen]
+		if packet == nil {
+			packet = e.scratchPacket[:packetLen]
+		}
 	}
 	if isConcreteMode(actualMode) {
 		e.prevPacketMode = actualMode
@@ -796,6 +805,9 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	switch e.bitrateMode {
 	case ModeCBR:
+		if dredPacketBuilt {
+			break
+		}
 		targetSize := targetBytesForBitrate(e.bitrate, frameSize)
 		if len(qextPayload) > 0 && len(packet) < targetSize {
 			stereo := e.channels == 2
@@ -822,7 +834,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			packet = padToSize(packet, targetSize)
 		}
 	case ModeCVBR:
-		if len(qextPayload) == 0 {
+		if !dredPacketBuilt && len(qextPayload) == 0 {
 			packet = constrainSize(packet, targetBytesForBitrate(e.bitrate, frameSize), CVBRTolerance)
 		}
 	}
