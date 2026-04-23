@@ -898,14 +898,13 @@ func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int, mode 
 	if b := d.dred48kBridgeState(); b != nil {
 		b.dredLastNeural = false
 	}
+	r := d.dredRecoveryState()
 	if !d.dredNeuralConcealmentAvailable() {
-		r := d.dredRecoveryState()
 		if r != nil {
 			r.dredPLC.ClearBlend()
 		}
 		return
 	}
-	r := d.ensureDREDRecoveryState()
 	if r == nil {
 		return
 	}
