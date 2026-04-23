@@ -1,6 +1,6 @@
 # DRED Parity Plan
 
-Last updated: 2026-04-22
+Last updated: 2026-04-23
 
 ## Goal
 
@@ -47,7 +47,7 @@ Implemented or in progress:
 - the single-stream decoder also now has an explicit processed-DRED PCM recovery helper for the targeted 48 kHz mono CELT seam, with parity coverage against the cached `Decode(nil)` path across first and second losses, against libopus `opus_decoder_dred_decode_float()` on a real packet, across feature-window offset boundaries, across the first resumed good packet after loss, and across a 48 kHz mono CELT frame-size matrix (`2.5 ms`, `5 ms`, `10 ms`, `20 ms`), including retained PLC/FARGAN runtime state after explicit decode
 - the same 48 kHz mono decoder DRED runtime now also has Hybrid SWB/FB carrier coverage on the explicit and live cached paths, and the current pure-Go Hybrid recovery now follows the libopus-shaped Hybrid PLC base instead of the earlier CELT-only replacement path; decoder-side cadence sync after a DRED-tagged Hybrid loss is now closer to libopus too, but the integrated Hybrid audio path is still incomplete, so the remaining Hybrid delta is still real across `10 ms` and `20 ms`, especially on resumed good-packet handoff
 - the current 16 kHz mono decoder seam now keeps CELT PLC chunking in the same 48 kHz internal frame-size domain as the rest of the decoder core, so low-rate cached recovery no longer feeds invalid `320`-sample CELT PLC requests into first-loss decode
-- the current 16 kHz mono decoder seam has libopus-backed live coverage for first loss and second loss plus explicit/cached shared runtime coverage, and the decoder now explicitly primes the CELT-to-LPCNet entry bridge on first neural/DRED concealment for both cached-live and explicit 16 kHz paths; clean re-verification of that latest entry-state fix is still pending, and the 16 kHz PCM parity claim remains open until those libopus-backed decoder tests are green again
+- the current 16 kHz mono decoder seam has libopus-backed live coverage for first loss and second loss plus explicit/cached shared runtime coverage, and the decoder now explicitly primes the CELT-to-LPCNet entry bridge on first neural/DRED concealment for both cached-live and explicit 16 kHz paths; that entry-state fix is now exercised by green branch CI instead of being an unverified local-only claim
 - the current 16 kHz mono decoder entry bridge now follows libopus `update_plc_state()` more closely by reseeding retained PLC history without pre-replaying LPCNet analysis before first-loss concealment
 - the current 16 kHz mono cached/live sequence seam now also has libopus-backed frame-size matrix coverage for first loss, second loss, and both resumed-good-packet handoffs across the exercised `10 ms` and `20 ms` carrier sizes, instead of relying on a single default carrier size
 - the 16 kHz explicit decoder matrix now also treats retained CELT `FRAME_DRED` bridge state as first-class parity surface across explicit/libopus, explicit/cached, second-loss, follow-up packet, and frame-size coverage instead of only checking PCM/PLC/FARGAN state
@@ -91,6 +91,8 @@ Implemented or in progress:
 - the required unsupported-controls gate now includes Hybrid SWB/FB `10 ms`/`20 ms` decoder parity on both the explicit and live cached paths, alongside explicit 48 kHz warmup-state parity, first-loss and second-loss CELT bridge-state parity, first resumed good-packet handoff parity, and the 48 kHz mono CELT frame-size matrix
 - fallback-loss bookkeeping no longer forces the pure-Go LPCNet blend state forward when neural concealment did not actually run, but cached recovery scheduling still preserves the libopus-shaped post-loss recovery phase across recache boundaries
 - encoder-side `DFrameSize` staging / rollover groundwork exists in pure Go
+- encoder-side DNN admission is now stricter than simple manifest booleans: the retained encoder DNN blob must bind both the pure-Go RDOVAE encoder model family and the shared pure-Go PitchDNN analysis model family before `DREDModelLoaded()` reports ready, which gives the encoder path a real model-contract seam before latent generation and bitstream emission land
+- branch CI is now the runtime oracle for the exercised decoder parity matrix again: run `24807296187` completed green across unsupported-controls, parity, race, macOS, and Windows, so the remaining decoder gaps should be treated as broader unsupported-surface coverage work rather than “still awaiting first runtime confirmation”
 
 Recent closed seams to avoid re-debugging:
 
@@ -111,8 +113,6 @@ Still missing for full parity:
 - encoder-side DRED latent generation and bitstream emission
 - broader live-oracle adoption beyond the covered mono cached seams; some cached/live tests still compare against the explicit `opus_decoder_dred_decode_float()` helper and should not be treated as final live-oracle coverage
 - broader adoption of the new decoder-sequence oracle beyond the covered mono seams; stereo/multistream paths and wider packet matrices still need to be migrated off the explicit-oracle fallback where those surfaces become supported
-- the new live-sequence tests still need runtime signal from CI before we can treat those seams as green; until then they should be treated as stronger oracles in flight, not closed parity claims, and the current Hybrid state-only path specifically still needed a `preemph_memD` carry fix to avoid resumed-good-packet drift
-- the broader runtime gates still need another clean pass after the lazy-sidecar test expectation update; the last red `test-linux-race` run was stale lifecycle coverage, not a confirmed new data race
 - clean runtime re-verification after the current macOS launcher issue: newly linked local Go binaries are intermittently stalling before Go runtime with `com.apple.provenance` present, so compile-only checks may pass while runtime parity remains blocked locally
 
 ## Workstreams

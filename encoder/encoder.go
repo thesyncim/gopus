@@ -12,6 +12,8 @@ import (
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/lpcnetplc"
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
 )
@@ -139,8 +141,13 @@ type Encoder struct {
 	// dnnBlob retains a validated USE_WEIGHTS_FILE blob for future optional
 	// extension paths (DRED/OSCE). Keeping it here mirrors libopus ctl lifetime.
 	dnnBlob *dnnblob.Blob
+	// dredEncoderModel and dredPitchModel retain the successfully bound pure-Go
+	// model families needed for future encoder-side DRED work.
+	dredEncoderModel *rdovae.EncoderModel
+	dredPitchModel   *lpcnetplc.PitchDNNModel
 	// dredModelLoaded tracks whether the retained blob contains the DRED encoder
-	// model families libopus requires before it can emit DRED payloads.
+	// model families libopus requires before it can emit DRED payloads and those
+	// families successfully bind into the pure-Go encoder runtime.
 	dredModelLoaded bool
 
 	// dredDuration mirrors libopus OPUS_SET_DRED_DURATION in 2.5 ms units.
@@ -341,7 +348,23 @@ func (e *Encoder) QEXT() bool {
 // paths. A nil blob clears the retained model.
 func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
 	e.dnnBlob = blob
-	e.dredModelLoaded = blob != nil && blob.SupportsDREDEncoder() && blob.SupportsPitchDNN()
+	e.dredEncoderModel = nil
+	e.dredPitchModel = nil
+	e.dredModelLoaded = false
+	if blob == nil {
+		return
+	}
+	encModel, err := rdovae.LoadEncoder(blob)
+	if err != nil {
+		return
+	}
+	pitchModel, err := lpcnetplc.LoadPitchDNNModel(blob)
+	if err != nil {
+		return
+	}
+	e.dredEncoderModel = encModel
+	e.dredPitchModel = pitchModel
+	e.dredModelLoaded = true
 }
 
 // DNNBlobLoaded reports whether a validated model blob is retained.
