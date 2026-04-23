@@ -593,6 +593,33 @@ func (d *Decoder) finishActiveDREDRecovery(frameSizeSamples int) {
 	r.dredRecovery += frameSizeSamples
 }
 
+func (d *Decoder) beginHybridDREDLowbandHook() (cleanup func(), used func() bool) {
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return func() {}, func() bool { return false }
+	}
+	r := d.dredRecoveryState()
+	n := d.dredNeuralState()
+	if d == nil || d.silkDecoder == nil || r == nil || n == nil || d.sampleRate != 48000 || d.channels != 1 {
+		return func() {}, func() bool { return false }
+	}
+	directUsed := false
+	d.silkDecoder.SetDeepPLCLossMonoHook(func(concealed []float32) (bool, int) {
+		if len(concealed) < lpcnetplc.FrameSize || len(concealed)%lpcnetplc.FrameSize != 0 {
+			return false, 0
+		}
+		if !d.generateDREDNeuralFrames16k(concealed, len(concealed)) {
+			return false, 0
+		}
+		directUsed = true
+		return true, 0
+	})
+	return func() {
+			d.silkDecoder.SetDeepPLCLossMonoHook(nil)
+		}, func() bool {
+			return directUsed
+		}
+}
+
 func (d *Decoder) shouldTrackDREDPCMHistory() bool {
 	return d.dredNeuralModelsLoaded() && d.sampleRate == 16000 && d.dredNeuralConfigEligible()
 }

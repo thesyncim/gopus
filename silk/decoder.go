@@ -115,6 +115,10 @@ type Decoder struct {
 	// before CNG/glue mutates the frame buffer.
 	rawMonoFrameHook RawMonoFrameHook
 
+	// Optional hook fired on mono PLC concealment at 16 kHz before SILK records
+	// the lost-frame state. Used by optional deep-PLC/DRED paths.
+	deepPLCLossMonoHook DeepPLCLossMonoHook
+
 	// Scratch buffers for applyMonoDelay
 	monoResamplerIn []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
 	monoOutput      []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
@@ -613,6 +617,12 @@ type FrameParamsHook func(channel, frame int, params DebugFrameParams)
 // be consumed synchronously.
 type RawMonoFrameHook func(samples []int16)
 
+// DeepPLCLossMonoHook fires during mono 16 kHz PLC before SILK updates its
+// retained loss/output history. The hook fills concealed with one lost lowband
+// frame in normalized float32 units and may optionally return a lagPrev value
+// to retain for the next good packet.
+type DeepPLCLossMonoHook func(concealed []float32) (ok bool, lagPrev int)
+
 // SetFrameParamsHook installs a callback fired after each internal frame is
 // decoded. Pass nil to disable.
 func (d *Decoder) SetFrameParamsHook(hook FrameParamsHook) {
@@ -623,6 +633,12 @@ func (d *Decoder) SetFrameParamsHook(hook FrameParamsHook) {
 // before CNG/glue. Pass nil to disable.
 func (d *Decoder) SetRawMonoFrameHook(hook RawMonoFrameHook) {
 	d.rawMonoFrameHook = hook
+}
+
+// SetDeepPLCLossMonoHook installs a mono 16 kHz PLC concealment hook used by
+// optional deep-PLC/DRED experiments. Pass nil to disable.
+func (d *Decoder) SetDeepPLCLossMonoHook(hook DeepPLCLossMonoHook) {
+	d.deepPLCLossMonoHook = hook
 }
 
 func (d *Decoder) fireFrameParamsHook(channel, frame int) {

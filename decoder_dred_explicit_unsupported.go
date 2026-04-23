@@ -97,10 +97,15 @@ func (d *Decoder) decodeExplicitHybridDREDFloat(dred *DRED, dredOffsetSamples in
 	if d == nil {
 		return 0, ErrInvalidArgument
 	}
+	queued := d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
 	var lowbandSnapshot *silk.DeepPLCLowbandSnapshot
+	cleanupHook := func() {}
+	usedHook := func() bool { return false }
 	if d.dredNeuralConcealmentAvailable() && d.silkDecoder != nil {
 		lowbandSnapshot = d.silkDecoder.SnapshotDeepPLCLowbandMono()
+		cleanupHook, usedHook = d.beginHybridDREDLowbandHook()
 	}
+	defer cleanupHook()
 	n, err := d.decodePLCChunksInto(pcm, frameSizeSamples, plcDecodeState{
 		packetFrameSize:    frameSizeSamples,
 		mode:               d.prevMode,
@@ -111,8 +116,11 @@ func (d *Decoder) decodeExplicitHybridDREDFloat(dred *DRED, dredOffsetSamples in
 	if err != nil {
 		return 0, err
 	}
-	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, n)
-	d.advanceHybridDREDLowbandState(n, lowbandSnapshot)
+	if usedHook() {
+		d.finishActiveDREDRecovery(n)
+	} else if queued.NeededFeatureFrames > 0 || d.dredRecoveryState() != nil {
+		d.advanceHybridDREDLowbandState(n, lowbandSnapshot)
+	}
 	d.applyOutputGain(pcm[:n*d.channels])
 	d.lastFrameSize = n
 	d.lastPacketDuration = n

@@ -1,6 +1,7 @@
 package gopus
 
 import (
+	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 	"github.com/thesyncim/gopus/silk"
 )
@@ -86,9 +87,17 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
 	useDRED := d.dredCachedPayloadActive()
 	var lowbandSnapshot *silk.DeepPLCLowbandSnapshot
+	cleanupHook := func() {}
+	usedHook := func() bool { return false }
+	queued := internaldred.FeatureWindow{}
+	if useDRED {
+		queued = d.queueActiveDREDRecovery(frameSize)
+	}
 	if useDRED && d.dredNeuralConcealmentAvailable() && d.silkDecoder != nil {
 		lowbandSnapshot = d.silkDecoder.SnapshotDeepPLCLowbandMono()
+		cleanupHook, usedHook = d.beginHybridDREDLowbandHook()
 	}
+	defer cleanupHook()
 	n, err := d.decodePLCChunksInto(out, frameSize, state)
 	if err != nil {
 		return 0, false, err
@@ -128,7 +137,11 @@ func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state pl
 		}
 		return n, true, nil
 	}
-	if d.queueActiveDREDRecovery(n).NeededFeatureFrames > 0 || d.dredRecoveryState() != nil {
+	if usedHook() {
+		d.finishActiveDREDRecovery(n)
+		return n, true, nil
+	}
+	if queued.NeededFeatureFrames > 0 || d.dredRecoveryState() != nil {
 		if d.advanceHybridDREDLowbandState(n, lowbandSnapshot) {
 			return n, true, nil
 		}

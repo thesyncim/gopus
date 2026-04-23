@@ -704,28 +704,53 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	// Use LTP-aware concealment whenever per-channel SILK PLC state is valid.
 	// Fall back to legacy concealment only when required state is unavailable.
 	var concealed []float32
-	if state := d.ensureSILKPLCState(0); state != nil && d.state[0].nbSubfr > 0 {
-		concealedQ0 := plc.ConcealSILKWithLTP(d, state, lossCnt, nativeSamples)
+	hookLagPrev := 0
+	if d.deepPLCLossMonoHook != nil {
 		if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
 			concealed = d.scratchOutput[:nativeSamples]
 		} else {
 			concealed = make([]float32, nativeSamples)
 		}
-		// ConcealSILKWithLTP already applies libopus PLC attenuation cadence.
-		// Keep only Q0 -> float scaling here (no extra external fade).
-		scale := float32(1.0 / 32768.0)
-		for i := 0; i < nativeSamples && i < len(concealedQ0); i++ {
-			concealed[i] = float32(concealedQ0[i]) * scale
+		ok, lagPrev := d.deepPLCLossMonoHook(concealed)
+		if ok {
+			hookLagPrev = lagPrev
+		} else {
+			concealed = nil
 		}
+	}
+	if concealed == nil {
+		if state := d.ensureSILKPLCState(0); state != nil && d.state[0].nbSubfr > 0 {
+			concealedQ0 := plc.ConcealSILKWithLTP(d, state, lossCnt, nativeSamples)
+			if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
+				concealed = d.scratchOutput[:nativeSamples]
+			} else {
+				concealed = make([]float32, nativeSamples)
+			}
+			// ConcealSILKWithLTP already applies libopus PLC attenuation cadence.
+			// Keep only Q0 -> float scaling here (no extra external fade).
+			scale := float32(1.0 / 32768.0)
+			for i := 0; i < nativeSamples && i < len(concealedQ0); i++ {
+				concealed[i] = float32(concealedQ0[i]) * scale
+			}
+			if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
+				d.state[0].lagPrev = lag
+			}
+		} else {
+			concealed = plc.ConcealSILK(d, nativeSamples, fadeFactor)
+		}
+	} else if hookLagPrev > 0 {
+		d.state[0].lagPrev = hookLagPrev
+	} else if state := d.ensureSILKPLCState(0); state != nil {
 		if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
 			d.state[0].lagPrev = lag
 		}
-	} else {
-		concealed = plc.ConcealSILK(d, nativeSamples, fadeFactor)
 	}
 
 	// Update decoder state for PLC gluing and outBuf cadence.
 	d.recordPLCLossForState(&d.state[0], concealed)
+	if d.deepPLCLossMonoHook != nil {
+		d.applyDeepPLCHistoryMono(&d.state[0], concealed)
+	}
 	// Match libopus dec_API.c: on FLAG_PACKET_LOST, reset gain index
 	// to avoid gain-bounce on subsequent good frames.
 	d.state[0].lastGainIndex = 10
@@ -743,19 +768,26 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	}
 
 	resampler := d.GetResampler(bandwidth)
-	output := make([]float32, 0, frameSizeSamples)
+	output := make([]float32, frameSizeSamples)
+	outputOffset := 0
 	for f := 0; f < framesPerPacket; f++ {
 		start := f * frameLength
 		end := start + frameLength
 		if start < 0 || end > len(concealed) || frameLength == 0 {
 			break
 		}
+		if d.deepPLCLossMonoHook != nil && len(d.scratchOutInt16) >= end {
+			frameQ0 := d.scratchOutInt16[start:end]
+			resamplerInput := d.BuildMonoResamplerInputInt16(frameQ0)
+			outputOffset += resampler.ProcessInt16Into(resamplerInput, output[outputOffset:])
+			continue
+		}
 		frame := concealed[start:end]
 		resamplerInput := d.BuildMonoResamplerInput(frame)
-		output = append(output, resampler.Process(resamplerInput)...)
+		outputOffset += resampler.ProcessInto(resamplerInput, output[outputOffset:])
 	}
 
-	return output, nil
+	return output[:outputOffset], nil
 }
 
 // RecordPLCLossMono records a mono SILK PLC loss event for glue-frame tracking.
@@ -779,7 +811,6 @@ func (d *Decoder) recordPLCLossForState(st *decoderState, concealed []float32) {
 	if st == &d.state[1] {
 		channel = 1
 	}
-
 	st.lossCnt++
 	if len(concealed) == 0 {
 		st.plcConcEnergy = 0
