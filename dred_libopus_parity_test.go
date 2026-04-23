@@ -54,12 +54,11 @@ func ensureLibopusDREDBuild(repoRoot string) (sourceDir, buildDir string, err er
 		return sourceDir, buildDir, nil
 	}
 
-	tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
-	if _, err := os.Stat(tarball); err != nil {
-		return "", "", fmt.Errorf("libopus tarball not found: %w", err)
-	}
-
 	if _, err := os.Stat(filepath.Join(sourceDir, "configure")); err != nil {
+		tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
+		if _, err := os.Stat(tarball); err != nil {
+			return "", "", fmt.Errorf("libopus tarball not found and no prepared dred source tree present: %w", err)
+		}
 		if err := os.RemoveAll(sourceDir); err != nil {
 			return "", "", fmt.Errorf("remove stale dred source dir: %w", err)
 		}
