@@ -47,6 +47,22 @@ func (g *LatentGenerator) Reset() {
 	g.input = [2 * NumFeatures]float32{}
 }
 
+// DREDOffset reports the current libopus-shaped DRED offset in 2.5 ms units.
+func (g *LatentGenerator) DREDOffset() int {
+	if g == nil {
+		return 0
+	}
+	return g.buffer.DREDOffset()
+}
+
+// LatentOffset reports the current libopus-shaped latent offset.
+func (g *LatentGenerator) LatentOffset() int {
+	if g == nil {
+		return 0
+	}
+	return g.buffer.LatentOffset()
+}
+
 // Process16k mirrors the libopus encoder-side dred_compute_latents() inner
 // 16 kHz mono d-frame path. The callback, when non-nil, is invoked once per
 // emitted latent/state pair with slices that alias internal storage and remain

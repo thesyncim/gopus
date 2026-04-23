@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
@@ -44,6 +45,9 @@ func TestEncoderDREDRuntimeStaysDormantUntilReady(t *testing.T) {
 	}
 	if enc.dred.runtime.emitted != 1 {
 		t.Fatalf("runtime emitted=%d want 1", enc.dred.runtime.emitted)
+	}
+	if enc.dred.runtime.latentsFill != 1 {
+		t.Fatalf("runtime latentsFill=%d want 1", enc.dred.runtime.latentsFill)
 	}
 
 	if err := enc.SetDREDDuration(0); err != nil {
@@ -171,8 +175,66 @@ func TestEncoderProcessDREDLatentsBuffers48k10msFrames(t *testing.T) {
 	if got := enc.processDREDLatents(frame, 0); got != 0 {
 		t.Fatalf("first processDREDLatents()=%d want 0 for 10 ms buffered input", got)
 	}
+	if enc.dred.runtime == nil {
+		t.Fatal("10 ms DRED path did not materialize runtime")
+	}
+	if enc.dred.runtime.latentsFill != 0 {
+		t.Fatalf("latentsFill after first 10 ms frame=%d want 0", enc.dred.runtime.latentsFill)
+	}
 	if got := enc.processDREDLatents(frame, 0); got != 1 {
 		t.Fatalf("second processDREDLatents()=%d want 1 after buffering two 10 ms frames", got)
+	}
+	if enc.dred.runtime.latentsFill != 1 {
+		t.Fatalf("latentsFill after second 10 ms frame=%d want 1", enc.dred.runtime.latentsFill)
+	}
+}
+
+func TestEncoderProcessDREDLatentsTracksHistoryWindow(t *testing.T) {
+	enc := NewEncoder(16000, 1)
+	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+
+	frame := make([]float64, 320)
+	for i := 0; i < internaldred.NumRedundancyFrames+4; i++ {
+		if got := enc.processDREDLatents(frame, 0); got != 1 {
+			t.Fatalf("iteration %d processDREDLatents()=%d want 1", i, got)
+		}
+	}
+	if enc.dred.runtime.latentsFill != internaldred.NumRedundancyFrames {
+		t.Fatalf("latentsFill=%d want %d", enc.dred.runtime.latentsFill, internaldred.NumRedundancyFrames)
+	}
+	if enc.dred.runtime.emitted != internaldred.NumRedundancyFrames+4 {
+		t.Fatalf("emitted=%d want %d", enc.dred.runtime.emitted, internaldred.NumRedundancyFrames+4)
+	}
+}
+
+func TestEncoderProcessDREDLatentsTracksOffsets(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+
+	frame := make([]float64, 480)
+	if got := enc.processDREDLatents(frame, 0); got != 0 {
+		t.Fatalf("first processDREDLatents()=%d want 0", got)
+	}
+	if enc.dred.runtime.dredOffset != 4 {
+		t.Fatalf("dredOffset after first 10 ms frame=%d want 4", enc.dred.runtime.dredOffset)
+	}
+	if enc.dred.runtime.latentOffset != 0 {
+		t.Fatalf("latentOffset after first 10 ms frame=%d want 0", enc.dred.runtime.latentOffset)
+	}
+	if got := enc.processDREDLatents(frame, 0); got != 1 {
+		t.Fatalf("second processDREDLatents()=%d want 1", got)
+	}
+	if enc.dred.runtime.dredOffset != 12 {
+		t.Fatalf("dredOffset after second 10 ms frame=%d want 12", enc.dred.runtime.dredOffset)
+	}
+	if enc.dred.runtime.latentOffset != 0 {
+		t.Fatalf("latentOffset after second 10 ms frame=%d want 0", enc.dred.runtime.latentOffset)
 	}
 }
 

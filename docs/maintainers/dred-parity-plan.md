@@ -97,6 +97,7 @@ Implemented or in progress:
 - encoder optional-extra ownership is now tighter too: DRED controls/runtime sit behind a lazy sidecar, `SetDNNBlob(...)` only binds model families, the runtime materializes only when model+duration+eligible mono 16 kHz use actually arm it, and disabling/resetting DRED drops that sidecar back to a dormant state
 - the internal encoder path now advances the exercised 16 kHz latent generator before DTX on armed mono and stereo frames, which is closer to libopus `opus_encoder.c` ordering
 - the pure-Go encoder path now also ports the libopus `dred_convert_to_16k()` front-end for `8/12/24/48 kHz` mono/stereo input with retained DF2T filter memory inside the lazy DRED sidecar instead of hard-rejecting every non-16 kHz input, and the new converter has dedicated libopus-backed parity coverage plus unsupported-controls gate coverage
+- the lazy encoder DRED runtime now retains libopus-shaped latent/state history plus `dred_offset` / `latent_offset` bookkeeping for later emission instead of throwing away every emitted latent after the latest frame, so the next remaining encoder gap is payload coding/packing rather than missing retained history
 
 Recent closed seams to avoid re-debugging:
 

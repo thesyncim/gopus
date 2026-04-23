@@ -22,8 +22,13 @@ type dredEncoderRuntime struct {
 	generator     internaldred.LatentGenerator
 	resampleMem   [internaldred.ResamplingOrder + 1]float32
 	scaledPCM16k  [maxDREDPCM16k]float32
+	latentsBuffer [internaldred.MaxFrames * rdovae.LatentDim]float32
+	stateBuffer   [internaldred.MaxFrames * rdovae.StateDim]float32
 	latestLatents [rdovae.LatentDim]float32
 	latestState   [rdovae.StateDim]float32
+	latentsFill   int
+	dredOffset    int
+	latentOffset  int
 	emitted       int
 }
 
@@ -123,9 +128,19 @@ func (e *Encoder) processDREDLatents(framePCM []float64, extraDelay int) int {
 		return 0
 	}
 	extraDelay16k := extraDelay * 16000 / e.sampleRate
-	return runtime.generator.Process16k(e.dred.models.encoder, runtime.scaledPCM16k[:samples16k], extraDelay16k, func(latents, state []float32) {
+	emitted := runtime.generator.Process16k(e.dred.models.encoder, runtime.scaledPCM16k[:samples16k], extraDelay16k, func(latents, state []float32) {
+		copy(runtime.latentsBuffer[rdovae.LatentDim:], runtime.latentsBuffer[:(internaldred.MaxFrames-1)*rdovae.LatentDim])
+		copy(runtime.stateBuffer[rdovae.StateDim:], runtime.stateBuffer[:(internaldred.MaxFrames-1)*rdovae.StateDim])
+		copy(runtime.latentsBuffer[:rdovae.LatentDim], latents[:rdovae.LatentDim])
+		copy(runtime.stateBuffer[:rdovae.StateDim], state[:rdovae.StateDim])
 		copy(runtime.latestLatents[:], latents[:rdovae.LatentDim])
 		copy(runtime.latestState[:], state[:rdovae.StateDim])
+		if runtime.latentsFill < internaldred.NumRedundancyFrames {
+			runtime.latentsFill++
+		}
 		runtime.emitted++
 	})
+	runtime.dredOffset = runtime.generator.DREDOffset()
+	runtime.latentOffset = runtime.generator.LatentOffset()
+	return emitted
 }
