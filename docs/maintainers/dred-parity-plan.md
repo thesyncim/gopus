@@ -102,6 +102,7 @@ Implemented or in progress:
 - the pure-Go encoder side now has a byte-for-byte libopus-backed experimental DRED payload builder for the `dred_encode_silk_frame()` seam, including header coding, quantizer signalling, offset bookkeeping, Laplace-coded state/latent chunks, and the same delayed-out-of-silence suppression rules
 - the non-CELT encoder path now has bounded pure-Go DRED extension carriers for both the single-frame seam and the repacketized SILK long-packet seam, and the carry path now follows libopus more closely by only padding those extension packets in CBR instead of padding VBR/CVBR packets unconditionally
 - the unsupported-controls gate now includes real-model libopus packet-parity checks for carried SILK WB 20 ms, Hybrid FB 20 ms, SILK WB 40 ms, Hybrid FB 40 ms, SILK WB 60 ms, plus stereo-carrier SILK WB 20 ms and Hybrid FB 20 ms DRED extension payloads
+- the unsupported-controls gate and libopus-backed DRED/PLC helper tests now explicitly bootstrap the pinned libopus source snapshot through `tools/ensure_libopus.sh` instead of assuming a preseeded tarball/cache
 
 Recent closed seams to avoid re-debugging:
 
@@ -122,7 +123,7 @@ Still missing for full parity:
 - model-backed `opus_decoder_dred_decode*()` parity, including the remaining `LPCNetEncState`-shaped analysis/runtime mirror and decoder-owned integration that explicit decode depends on
 - broader live-oracle adoption beyond the covered mono cached seams; some cached/live tests still compare against the explicit `opus_decoder_dred_decode_float()` helper, and stereo/multistream paths plus wider packet matrices still need migration to live-sequence coverage where those surfaces become supported
 - encoder-side DRED beyond the current exercised 16 kHz latent-generation seam: wiring the new payload builder into real packet emission and broadening rate / packet-shape coverage around that path
-- clean runtime re-verification after the current macOS launcher issue: newly linked local Go binaries are intermittently stalling before Go runtime with `com.apple.provenance` present, so compile-only checks may pass while runtime parity remains blocked locally
+- clean runtime re-verification after the current macOS AppleSystemPolicy issue: freshly built local Go test binaries on this machine are being rejected by Gatekeeper (`spctl --assess --type execute` rejects them, `syspolicyd` logs repeated `Unable to initialize qtn_proc: 3`, and the processes stall at `_dyld_start`), so CI remains the reliable runtime oracle while that host-policy issue is open
 
 ## Workstreams
 
