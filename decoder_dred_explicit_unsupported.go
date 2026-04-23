@@ -5,7 +5,6 @@ package gopus
 
 import (
 	internaldred "github.com/thesyncim/gopus/internal/dred"
-	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
 func (d *Decoder) explicitDREDResultForDecode(dred *DRED) internaldred.Result {
@@ -95,20 +94,8 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 			d.primeDREDCELTEntryHistory(d.prevMode)
 		}
 	}
-	for offset := 0; offset+lpcnetplc.FrameSize <= frameSizeSamples; offset += lpcnetplc.FrameSize {
-		frame := pcm[offset : offset+lpcnetplc.FrameSize]
-		if r.dredPLC.Blend() == 0 {
-			if !r.dredPLC.GenerateConcealedFrameFloatWithAnalysis(&n.dredAnalysis, &n.dredPredictor, &n.dredFARGAN, frame) {
-				return 0, ErrInvalidPacket
-			}
-		} else {
-			if !r.dredPLC.GenerateConcealedFrameFloat(&n.dredPredictor, &n.dredFARGAN, frame) {
-				return 0, ErrInvalidPacket
-			}
-		}
-	}
-	if d.celtDecoder != nil {
-		d.celtDecoder.SyncAfterDREDLoss()
+	if !d.applyDREDNeuralConcealment48kMono(pcm[:needed], frameSizeSamples) {
+		return 0, ErrInvalidPacket
 	}
 	d.applyOutputGain(pcm[:needed])
 	d.lastFrameSize = frameSizeSamples

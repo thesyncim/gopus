@@ -375,26 +375,35 @@ func assertDecoderDREDCELT48kBridgeApproxEqual(t *testing.T, dec *Decoder, want 
 	t.Helper()
 	var plcState celt.PLCStateSnapshot
 	var preemphMem [2]float32
+	var plcFill int
+	var plcPreemphasisMem float32
+	var lastNeural bool
+	var plcPCM [4 * lpcnetplc.FrameSize]float32
 	if dec.celtDecoder != nil {
 		plcState = dec.celtDecoder.SnapshotPLCState()
 		preemphMem = dec.celtDecoder.SnapshotPreemphasisState()
+	}
+	if bridge := dec.dred48kBridgeState(); bridge != nil {
+		plcFill = bridge.dredPLCFill
+		plcPreemphasisMem = bridge.dredPLCPreemphMem
+		lastNeural = bridge.dredLastNeural
+		plcPCM = bridge.dredPLCPCM
 	}
 	if plcState.LastFrameType != want.LastFrameType || plcState.PLCDuration != want.PLCDuration || plcState.SkipPLC != (want.SkipPLC != 0) {
 		t.Fatalf("%s celt plc state=%+v want {LastFrameType:%d PLCDuration:%d SkipPLC:%t}", label, plcState, want.LastFrameType, want.PLCDuration, want.SkipPLC != 0)
 	}
 	assertFloat32ApproxEqual(t, preemphMem[:], want.PreemphMem[:], label+" celt preemph_memD", 1e-4)
-	state := requireDecoderDREDState(t, dec)
-	if state.dredPLCFill != want.PLCFill {
-		t.Fatalf("%s fill=%d want %d (lastFrameType=%d plcDuration=%d skipPLC=%d preemph=%f)", label, state.dredPLCFill, want.PLCFill, want.LastFrameType, want.PLCDuration, want.SkipPLC, want.PLCPreemphasisMem)
+	if plcFill != want.PLCFill {
+		t.Fatalf("%s fill=%d want %d (lastFrameType=%d plcDuration=%d skipPLC=%d preemph=%f)", label, plcFill, want.PLCFill, want.LastFrameType, want.PLCDuration, want.SkipPLC, want.PLCPreemphasisMem)
 	}
-	if math.Abs(float64(state.dredPLCPreemphMem-want.PLCPreemphasisMem)) > 1e-4 {
-		t.Fatalf("%s preemph=%f want %f", label, state.dredPLCPreemphMem, want.PLCPreemphasisMem)
+	if math.Abs(float64(plcPreemphasisMem-want.PLCPreemphasisMem)) > 1e-4 {
+		t.Fatalf("%s preemph=%f want %f", label, plcPreemphasisMem, want.PLCPreemphasisMem)
 	}
 	wantNeural := want.LastFrameType == libopusCELTFramePLCNeural || want.LastFrameType == libopusCELTFrameDRED
-	if state.dredLastNeural != wantNeural {
-		t.Fatalf("%s lastNeural=%v want %v (lastFrameType=%d)", label, state.dredLastNeural, wantNeural, want.LastFrameType)
+	if lastNeural != wantNeural {
+		t.Fatalf("%s lastNeural=%v want %v (lastFrameType=%d)", label, lastNeural, wantNeural, want.LastFrameType)
 	}
-	assertFloat32ApproxEqual(t, state.dredPLCPCM[:], want.PLCPCM[:], label+" plc pcm", 1e-4)
+	assertFloat32ApproxEqual(t, plcPCM[:], want.PLCPCM[:], label+" plc pcm", 1e-4)
 }
 
 func snapshotDecoderDREDCELT48kForTest(t *testing.T, dec *Decoder) libopusDecoderDREDCELTSnapshot {
@@ -411,10 +420,10 @@ func snapshotDecoderDREDCELT48kForTest(t *testing.T, dec *Decoder) libopusDecode
 		snap.SkipPLC = 1
 	}
 	snap.PreemphMem = preemphMem
-	if state := requireDecoderDREDState(t, dec); state != nil {
-		snap.PLCFill = state.dredPLCFill
-		snap.PLCPreemphasisMem = state.dredPLCPreemphMem
-		snap.PLCPCM = state.dredPLCPCM
+	if bridge := dec.dred48kBridgeState(); bridge != nil {
+		snap.PLCFill = bridge.dredPLCFill
+		snap.PLCPreemphasisMem = bridge.dredPLCPreemphMem
+		snap.PLCPCM = bridge.dredPLCPCM
 	}
 	return snap
 }

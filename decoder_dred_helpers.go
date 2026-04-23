@@ -418,7 +418,7 @@ func (d *Decoder) dredCachedPayloadActive() bool {
 }
 
 func (d *Decoder) dredNeedsCELTFloatPath() bool {
-	if d == nil || d.sampleRate != 48000 || d.channels != 1 {
+	if d == nil || d.channels != 1 || !d.dredNeuralConfigEligible() {
 		return false
 	}
 	b := d.dred48kBridgeState()
@@ -453,7 +453,7 @@ func (d *Decoder) ensureDREDNeuralConcealmentRuntime() bool {
 	if r == nil {
 		return false
 	}
-	if d.sampleRate == 48000 && d.ensureDRED48kBridgeState() == nil {
+	if (d.sampleRate == 48000 || d.sampleRate == 16000) && d.ensureDRED48kBridgeState() == nil {
 		return false
 	}
 	return true
@@ -590,14 +590,11 @@ func (d *Decoder) primeDREDCELTEntryHistory(mode Mode) int {
 	if mode != ModeCELT && mode != ModeHybrid {
 		return 0
 	}
-	var samples int
-	if d.sampleRate == 48000 {
-		b := d.ensureDRED48kBridgeState()
-		var preemphMem float32
-		samples, preemphMem = d.celtDecoder.FillPLCUpdate16kMonoWithPreemphasisMem(neural.dredPLCUpdate[:])
+	b := d.ensureDRED48kBridgeState()
+	var preemphMem float32
+	samples, preemphMem := d.celtDecoder.FillPLCUpdate16kMonoWithPreemphasisMem(neural.dredPLCUpdate[:])
+	if b != nil {
 		b.dredPLCPreemphMem = preemphMem
-	} else {
-		samples = d.celtDecoder.FillPLCUpdate16kMono(neural.dredPLCUpdate[:])
 	}
 	if samples == 0 {
 		return 0
@@ -616,7 +613,10 @@ func (d *Decoder) prepareDRED48kNeuralEntry(frameSize int, mode Mode) {
 	p := d.dredPayloadState()
 	r := d.dredRecoveryState()
 	b := d.dred48kBridgeState()
-	if d == nil || r == nil || b == nil || d.sampleRate != 48000 || d.channels != 1 || (mode != ModeCELT && mode != ModeHybrid) {
+	if d == nil || r == nil || b == nil || d.channels != 1 || (d.sampleRate != 48000 && d.sampleRate != 16000) || (mode != ModeCELT && mode != ModeHybrid) {
+		return
+	}
+	if d.sampleRate != 48000 && mode != ModeCELT {
 		return
 	}
 	if p != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty() {
@@ -691,35 +691,22 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 	if len(pcm) < samplesPerChannel {
 		return false
 	}
-	if d.sampleRate == 48000 {
-		if b == nil {
-			return false
-		}
-		if !b.dredLastNeural && b.dredPLCFill == 0 && r.dredPLC.FECFillPos() == 0 && r.dredPLC.FECSkip() == 0 {
-			d.prepareCachedDREDNeuralConcealment(samplesPerChannel)
-		}
-		if !d.applyDREDNeuralConcealment48kMono(pcm, samplesPerChannel) {
-			return false
-		}
-		if p != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty() {
-			r.dredRecovery += samplesPerChannel
-		}
-		return true
+	if b == nil {
+		return false
 	}
-	d.prepareCachedDREDNeuralConcealment(samplesPerChannel)
+	if !b.dredLastNeural && b.dredPLCFill == 0 && r.dredPLC.FECFillPos() == 0 && r.dredPLC.FECSkip() == 0 {
+		d.prepareCachedDREDNeuralConcealment(samplesPerChannel)
+	}
 	if d.celtDecoder != nil && !d.celtDecoder.LastPLCFrameWasNeural() {
 		if r := d.dredRecoveryState(); r != nil && r.dredPLC.Blend() == 0 {
 			d.primeDREDCELTEntryHistory(d.prevMode)
 		}
 	}
-	if !d.generateDREDNeuralFrames16k(pcm, samplesPerChannel) {
+	if !d.applyDREDNeuralConcealment48kMono(pcm, samplesPerChannel) {
 		return false
 	}
 	if p != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty() {
 		r.dredRecovery += samplesPerChannel
-	}
-	if d.celtDecoder != nil {
-		d.celtDecoder.SyncAfterDREDLoss()
 	}
 	return true
 }
