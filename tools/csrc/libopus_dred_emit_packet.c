@@ -132,8 +132,8 @@ static float voiced_sample(int frame_idx, int sample_idx, int frame_size, int sa
 
 int main(void) {
   const int sample_rate = 48000;
-  const int channels = 1;
   const int max_frames_to_try = 640;
+  int channels = 1;
   int frame_size = 960;
   int force_mode = MODE_CELT_ONLY;
   int force_mode_enabled = 1;
@@ -141,7 +141,7 @@ int main(void) {
   int bitrate = 40000;
   const int max_packet = 1500;
   const int max_dred_samples = 960;
-  float pcm[2880];
+  float pcm[2880 * 2];
   unsigned char packet[1500];
   OpusEncoder *enc = NULL;
   OpusDREDDecoder *dred_dec = NULL;
@@ -149,6 +149,7 @@ int main(void) {
   int err = OPUS_OK;
   int frame_idx;
   const char *frame_size_env = getenv("GOPUS_DRED_FRAME_SIZE");
+  const char *channels_env = getenv("GOPUS_DRED_CHANNELS");
   const char *force_mode_env = getenv("GOPUS_DRED_FORCE_MODE");
   const char *bandwidth_env = getenv("GOPUS_DRED_BANDWIDTH");
 
@@ -160,6 +161,16 @@ int main(void) {
       return 1;
     }
     frame_size = (int)parsed;
+  }
+
+  if (channels_env != NULL && channels_env[0] != '\0') {
+    char *end = NULL;
+    long parsed = strtol(channels_env, &end, 10);
+    if (end == NULL || *end != '\0' || (parsed != 1 && parsed != 2)) {
+      fprintf(stderr, "invalid GOPUS_DRED_CHANNELS=%s\n", channels_env);
+      return 1;
+    }
+    channels = (int)parsed;
   }
 
   if (!parse_force_mode_env(force_mode_env, &force_mode, &force_mode_enabled)) {
@@ -221,7 +232,11 @@ int main(void) {
     int i;
     memset(dred, 0, sizeof(*dred));
     for (i = 0; i < frame_size; i++) {
-      pcm[i] = voiced_sample(frame_idx, i, frame_size, sample_rate);
+      float sample = voiced_sample(frame_idx, i, frame_size, sample_rate);
+      int ch;
+      for (ch = 0; ch < channels; ch++) {
+        pcm[i * channels + ch] = sample;
+      }
     }
     packet_len = opus_encode_float(enc, pcm, frame_size, packet, max_packet);
     if (packet_len < 0) {

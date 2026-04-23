@@ -116,12 +116,12 @@ func encoderModeToPublic(mode encpkg.Mode) (Mode, error) {
 	}
 }
 
-func encodeUntilDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, frameSize int) ([]byte, []byte, int) {
+func encodeUntilDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, frameSize, channels int) ([]byte, []byte, int) {
 	t.Helper()
 
 	cfg := EncoderConfig{
 		SampleRate:  48000,
-		Channels:    1,
+		Channels:    channels,
 		Application: ApplicationAudio,
 	}
 	enc, err := NewEncoder(cfg)
@@ -197,7 +197,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms(t *testing.T) {
 		t.Fatal("libopus silk packet missing DRED payload")
 	}
 
-	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 960)
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 960, 1)
 	if ParseTOC(gotPacket[0]).Mode != ModeSILK {
 		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
 	}
@@ -229,7 +229,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T)
 		t.Fatal("libopus hybrid packet missing DRED payload")
 	}
 
-	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 960)
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 960, 1)
 	if ParseTOC(gotPacket[0]).Mode != ModeHybrid {
 		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeHybrid)
 	}
@@ -261,7 +261,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms(t *testing.T) {
 		t.Fatal("libopus 40 ms silk packet missing DRED payload")
 	}
 
-	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 1920)
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 1920, 1)
 	if ParseTOC(gotPacket[0]).Mode != ModeSILK {
 		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
 	}
@@ -293,7 +293,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms(t *testing.T)
 		t.Fatal("libopus 40 ms hybrid packet missing DRED payload")
 	}
 
-	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 1920)
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 1920, 1)
 	if ParseTOC(gotPacket[0]).Mode != ModeHybrid {
 		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeHybrid)
 	}
@@ -325,9 +325,77 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms(t *testing.T) {
 		t.Fatal("libopus 60 ms silk packet missing DRED payload")
 	}
 
-	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 2880)
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 2880, 1)
 	if ParseTOC(gotPacket[0]).Mode != ModeSILK {
 		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+		Channels:  2,
+	})
+	if err != nil {
+		t.Skipf("libopus stereo silk DRED packet helper unavailable: %v", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 960, 2)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeSILK || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want silk stereo", toc)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthFullband,
+		Channels:  2,
+	})
+	if err != nil {
+		t.Skipf("libopus stereo hybrid DRED packet helper unavailable: %v", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus stereo hybrid packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 960, 2)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeHybrid || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want hybrid stereo", toc)
 	}
 	if len(gotPacket) != len(packetInfo.packet) {
 		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
