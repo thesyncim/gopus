@@ -201,6 +201,9 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms(t *testing.T) {
 	if ParseTOC(gotPacket[0]).Mode != ModeSILK {
 		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
 	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
 	if gotOffset != wantOffset {
 		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
 	}
@@ -229,6 +232,41 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T)
 	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 960)
 	if ParseTOC(gotPacket[0]).Mode != ModeHybrid {
 		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeHybrid)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 1920,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+	})
+	if err != nil {
+		t.Skipf("libopus 40 ms DRED packet helper unavailable: %v", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus 40 ms silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 1920)
+	if ParseTOC(gotPacket[0]).Mode != ModeSILK {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
 	}
 	if gotOffset != wantOffset {
 		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)

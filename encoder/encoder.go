@@ -2316,14 +2316,13 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	}
 	e.analysisReadBakSet = false
 
-	return BuildMultiFramePacket(
-		frames,
-		types.ModeHybrid,
-		e.effectiveBandwidth(),
-		960,
-		e.channels == 2,
-		!sameSize,
-	)
+	packetBW := e.effectiveBandwidth()
+	if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeHybrid, packetBW, frameSize, 960, e.channels == 2, !sameSize); err != nil {
+		return nil, err
+	} else if ok {
+		return dredPacket, nil
+	}
+	return BuildMultiFramePacket(frames, types.ModeHybrid, packetBW, 960, e.channels == 2, !sameSize)
 }
 
 // encodeSILKMultiFramePacket encodes 80/100/120ms SILK packets by splitting
@@ -2370,14 +2369,12 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int) ([]by
 	if packetBW > types.BandwidthWideband {
 		packetBW = types.BandwidthWideband
 	}
-	return BuildMultiFramePacket(
-		frames,
-		types.ModeSILK,
-		packetBW,
-		encFrameSize,
-		e.channels == 2,
-		!sameSize,
-	)
+	if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeSILK, packetBW, frameSize, encFrameSize, e.channels == 2, !sameSize); err != nil {
+		return nil, err
+	} else if ok {
+		return dredPacket, nil
+	}
+	return BuildMultiFramePacket(frames, types.ModeSILK, packetBW, encFrameSize, e.channels == 2, !sameSize)
 }
 
 // ensureSILKEncoder creates the SILK encoder if it doesn't exist.

@@ -100,7 +100,8 @@ Implemented or in progress:
 - the lazy encoder DRED runtime now retains libopus-shaped latent/state history plus `dred_offset` / `latent_offset` bookkeeping for later emission instead of throwing away every emitted latent after the latest frame
 - the lazy encoder DRED runtime now also retains the 2.5 ms activity window plus `last_extra_dred_offset` bookkeeping that libopus uses to delay or suppress payloads around silence transitions
 - the pure-Go encoder side now has a byte-for-byte libopus-backed experimental DRED payload builder for the `dred_encode_silk_frame()` seam, including header coding, quantizer signalling, offset bookkeeping, Laplace-coded state/latent chunks, and the same delayed-out-of-silence suppression rules
-- the single-frame non-CELT encoder path now has a bounded pure-Go DRED extension carrier wired through the existing packet-extension builder, and the unsupported-controls gate now includes real-model libopus packet-parity checks for carried SILK WB 20 ms and Hybrid FB 20 ms DRED extension payloads
+- the non-CELT encoder path now has bounded pure-Go DRED extension carriers for both the single-frame seam and the repacketized SILK long-packet seam, and the carry path now follows libopus more closely by only padding those extension packets in CBR instead of padding VBR/CVBR packets unconditionally
+- the unsupported-controls gate now includes real-model libopus packet-parity checks for carried SILK WB 20 ms, Hybrid FB 20 ms, and SILK WB 40 ms DRED extension payloads
 
 Recent closed seams to avoid re-debugging:
 
@@ -214,7 +215,7 @@ Subtasks:
 
 Important note:
 - `DFrameSize = 2 * FrameSize` now has a matching pure-Go staging helper for encoder buffering and rollover
-- the current pure-Go encoder seam now covers retained `8/12/16/24/48 kHz` mono and stereo-downmix conversion into the 16 kHz latent/state path, the libopus `dred_encode_silk_frame()` payload-coding seam, and a bounded single-frame carried-extension path, but broader packet-shape coverage and full bitrate-budget integration are still not implemented
+- the current pure-Go encoder seam now covers retained `8/12/16/24/48 kHz` mono and stereo-downmix conversion into the 16 kHz latent/state path, the libopus `dred_encode_silk_frame()` payload-coding seam, bounded single-frame carried extensions, and the exercised SILK long-packet carried-extension seam, but broader packet-shape coverage and full bitrate-budget integration are still not implemented
 
 Reference files:
 - `tmp_check/opus-1.6.1/dnn/dred_config.h`

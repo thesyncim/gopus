@@ -127,6 +127,7 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 	if targetSize < baseLen+1 {
 		return nil, false, nil
 	}
+	withPadding := e.bitrateMode == ModeCBR
 
 	dredBytesLeft := targetSize - baseLen - 3
 	if dredBytesLeft > internaldred.MaxDataSize {
@@ -171,7 +172,83 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 		internaldred.ExtensionID,
 		runtime.payload[:n],
 		targetSize,
-		true,
+		withPadding,
+	)
+	if err != nil {
+		return nil, false, err
+	}
+	return e.scratchPacket[:packetLen], true, nil
+}
+
+func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mode, packetBW types.Bandwidth, packetFrameSize, packetTOCFrameSize int, stereo bool, vbr bool) ([]byte, bool, error) {
+	if actualMode == ModeCELT {
+		return nil, false, nil
+	}
+	plan, ok := e.computeDREDEmissionPlan(packetFrameSize)
+	if !ok {
+		return nil, false, nil
+	}
+
+	targetSize := targetBytesForBitrate(e.bitrate, packetFrameSize)
+	baseLen := 2
+	if vbr {
+		for i := 0; i < len(frames)-1; i++ {
+			baseLen += frameLengthBytes(len(frames[i]))
+		}
+	}
+	for _, frame := range frames {
+		baseLen += len(frame)
+	}
+	if targetSize < baseLen+1 {
+		return nil, false, nil
+	}
+	withPadding := e.bitrateMode == ModeCBR
+
+	dredBytesLeft := targetSize - baseLen - 3
+	if dredBytesLeft > internaldred.MaxDataSize {
+		dredBytesLeft = internaldred.MaxDataSize
+	}
+	dredBytesLeft -= (dredBytesLeft + 1 + internaldred.ExperimentalHeaderBytes) / 255
+	if plan.targetBytes > 0 && dredBytesLeft > plan.targetBytes {
+		dredBytesLeft = plan.targetBytes
+	}
+	if dredBytesLeft < internaldred.MinBytes+internaldred.ExperimentalHeaderBytes {
+		return nil, false, nil
+	}
+
+	runtime := e.ensureActiveDREDRuntime()
+	if runtime == nil {
+		return nil, false, nil
+	}
+
+	maxChunks := (e.dred.duration + 5) / 4
+	if maxChunks > internaldred.NumRedundancyFrames/2 {
+		maxChunks = internaldred.NumRedundancyFrames / 2
+	}
+	if maxChunks > plan.targetChunks {
+		maxChunks = plan.targetChunks
+	}
+	if maxChunks < 1 {
+		return nil, false, nil
+	}
+
+	n := e.buildDREDExperimentalPayload(runtime.payload[:dredBytesLeft], maxChunks, plan.q0, plan.dQ, plan.qmax)
+	if n == 0 {
+		return nil, false, nil
+	}
+
+	packetLen, err := buildMultiFramePacketWithSingleFrame0ExtensionInto(
+		e.scratchPacket,
+		frames,
+		modeToTypes(actualMode),
+		packetBW,
+		packetTOCFrameSize,
+		stereo,
+		vbr,
+		internaldred.ExtensionID,
+		runtime.payload[:n],
+		targetSize,
+		withPadding,
 	)
 	if err != nil {
 		return nil, false, err

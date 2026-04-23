@@ -124,6 +124,104 @@ func buildPacketWithSingleExtensionInto(dst, frameData []byte, mode types.Mode, 
 	return buildPacketWithExtensionsInto(dst, frameData, mode, bandwidth, frameSize, stereo, []packetExtension{{ID: extID, Data: extData}}, targetLen, withPadding)
 }
 
+func buildMultiFramePacketWithSingleFrame0ExtensionInto(dst []byte, frames [][]byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool, vbr bool, extID int, extData []byte, targetLen int, withPadding bool) (int, error) {
+	if len(frames) == 0 || len(frames) > 48 {
+		return 0, ErrInvalidFrameCount
+	}
+
+	config := configFromParams(mode, bandwidth, frameSize)
+	if config < 0 {
+		return 0, ErrInvalidConfig
+	}
+	if extID < 3 || extID > 127 {
+		return 0, ErrInvalidConfig
+	}
+
+	baseLen := 2
+	if vbr {
+		for i := 0; i < len(frames)-1; i++ {
+			baseLen += frameLengthBytes(len(frames[i]))
+		}
+	}
+	for _, frame := range frames {
+		baseLen += len(frame)
+	}
+
+	need := baseLen
+	maxLen := len(dst)
+	if withPadding {
+		if targetLen < baseLen+1 {
+			return 0, ErrInvalidConfig
+		}
+		maxLen = targetLen
+	}
+
+	extLen := packetExtensionLength(extID, extData, true)
+	paddingAmount := 0
+	extBegin := 0
+	onesBegin := 0
+	onesEnd := 0
+
+	if extLen > 0 && !withPadding {
+		paddingAmount = extLen + (extLen+253)/254
+	}
+	if withPadding {
+		paddingAmount = targetLen - baseLen
+	}
+	if paddingAmount != 0 {
+		padFieldBytes := paddingLengthBytes(paddingAmount)
+		if baseLen+extLen+padFieldBytes > maxLen {
+			return 0, ErrInvalidConfig
+		}
+		need = baseLen + paddingAmount
+		extBegin = baseLen + paddingAmount - extLen
+		onesBegin = baseLen + padFieldBytes
+		onesEnd = baseLen + paddingAmount - extLen
+	}
+	if len(dst) < need {
+		return 0, ErrInvalidConfig
+	}
+
+	offset := 0
+	dst[offset] = generateTOC(uint8(config), stereo, 3)
+	offset++
+
+	countByte := byte(len(frames) & 0x3F)
+	if vbr {
+		countByte |= 0x80
+	}
+	if paddingAmount != 0 {
+		countByte |= 0x40
+	}
+	dst[offset] = countByte
+	offset++
+
+	if paddingAmount != 0 {
+		offset += writePaddingLength(dst[offset:], paddingAmount)
+	}
+	if vbr {
+		for i := 0; i < len(frames)-1; i++ {
+			offset += writeFrameLength(dst[offset:], len(frames[i]))
+		}
+	}
+	for _, frame := range frames {
+		copy(dst[offset:], frame)
+		offset += len(frame)
+	}
+	if extLen > 0 {
+		var err error
+		_, err = writePacketExtension(dst, extBegin, extID, extData, true)
+		if err != nil {
+			return 0, err
+		}
+	}
+	for i := onesBegin; i < onesEnd; i++ {
+		dst[i] = 0x01
+	}
+
+	return need, nil
+}
+
 func buildPacketWithExtensionsInto(dst, frameData []byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool, extensions []packetExtension, targetLen int, withPadding bool) (int, error) {
 	config := configFromParams(mode, bandwidth, frameSize)
 	if config < 0 {
