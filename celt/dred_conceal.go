@@ -17,6 +17,29 @@ var dred48kSincFilter = [...]float32{
 	4.2931e-05,
 }
 
+// ConcealPLCNeural48kMonoToFloat32 mirrors the libopus FRAME_PLC_NEURAL
+// lost-frame path for the current mono 48 kHz seam. The caller owns the
+// queued 16 kHz neural history and provides a frame generator that fills one
+// 10 ms concealed frame in normalized float32 units whenever more queued
+// samples are needed.
+func (d *Decoder) ConcealPLCNeural48kMonoToFloat32(
+	out []float32,
+	frameSize int,
+	lastNeural *bool,
+	plcPCM []float32,
+	plcFill *int,
+	plcPreemphMem *float32,
+	generate func([]float32) bool,
+) bool {
+	if d == nil || d.channels != 1 || frameSize <= 0 || len(out) < frameSize || lastNeural == nil || plcFill == nil || plcPreemphMem == nil || generate == nil {
+		return false
+	}
+	if d.chooseLostFrameType(0, true, false) != framePLCNeural {
+		return false
+	}
+	return d.concealNeural48kMono(out[:frameSize], frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, framePLCNeural)
+}
+
 // ConcealDRED48kMonoToFloat32 mirrors the libopus FRAME_DRED lost-frame path
 // for the current mono 48 kHz seam. The caller owns the queued 16 kHz neural
 // history and provides a frame generator that fills one 10 ms concealed frame
@@ -36,7 +59,24 @@ func (d *Decoder) ConcealDRED48kMonoToFloat32(
 	if d.chooseLostFrameType(0, true, true) != frameDRED {
 		return false
 	}
-	return d.concealDRED48kMono(out[:frameSize], frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true)
+	return d.concealNeural48kMono(out[:frameSize], frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, frameDRED)
+}
+
+// ConcealPLCNeural48kMonoStateOnly updates retained CELT 48 kHz mono neural
+// PLC state without producing caller-visible PCM or recording another loss
+// event.
+func (d *Decoder) ConcealPLCNeural48kMonoStateOnly(
+	frameSize int,
+	lastNeural *bool,
+	plcPCM []float32,
+	plcFill *int,
+	plcPreemphMem *float32,
+	generate func([]float32) bool,
+) bool {
+	if d == nil || d.channels != 1 || frameSize <= 0 || lastNeural == nil || plcFill == nil || plcPreemphMem == nil || generate == nil {
+		return false
+	}
+	return d.concealNeural48kMono(nil, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, false, framePLCNeural)
 }
 
 // ConcealDRED48kMonoStateOnly updates retained CELT 48 kHz mono DRED state
@@ -55,10 +95,10 @@ func (d *Decoder) ConcealDRED48kMonoStateOnly(
 	if d == nil || d.channels != 1 || frameSize <= 0 || lastNeural == nil || plcFill == nil || plcPreemphMem == nil || generate == nil {
 		return false
 	}
-	return d.concealDRED48kMono(nil, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, false)
+	return d.concealNeural48kMono(nil, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, false, frameDRED)
 }
 
-func (d *Decoder) concealDRED48kMono(
+func (d *Decoder) concealNeural48kMono(
 	out []float32,
 	frameSize int,
 	lastNeural *bool,
@@ -67,6 +107,7 @@ func (d *Decoder) concealDRED48kMono(
 	plcPreemphMem *float32,
 	generate func([]float32) bool,
 	recordLoss bool,
+	frameType int,
 ) bool {
 	if d == nil || d.channels != 1 || frameSize <= 0 || lastNeural == nil || plcFill == nil || plcPreemphMem == nil || generate == nil {
 		return false
@@ -101,9 +142,6 @@ func (d *Decoder) concealDRED48kMono(
 		frame := plcPCM[*plcFill : *plcFill+160]
 		if !generate(frame) {
 			return false
-		}
-		for i := range frame {
-			frame[i] = quantizedPCM16GridSample(frame[i])
 		}
 		*plcFill += 160
 	}
@@ -170,11 +208,16 @@ func (d *Decoder) concealDRED48kMono(
 	}
 
 	if recordLoss {
-		d.finishLostFrame(frameDRED, frameSize)
+		d.finishLostFrame(frameType, frameSize)
 	} else {
-		d.plcDuration = 0
+		switch frameType {
+		case frameDRED:
+			d.plcDuration = 0
+		case framePLCNeural:
+			d.accumulatePLCLossDuration(frameSize)
+		}
 		d.plcSkip = false
-		d.plcLastFrameType = frameDRED
+		d.plcLastFrameType = frameType
 		d.plcPrevLossWasPeriodic = false
 	}
 	d.plcPrefilterAndFoldPending = true

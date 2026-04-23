@@ -147,10 +147,7 @@ func (a *Analysis) PrimeHistoryFramesFloat(history []float32) int {
 	total := 0
 	for offset := 0; offset+FrameSize <= len(history); offset += FrameSize {
 		frame := history[offset : offset+FrameSize]
-		for i := 0; i < FrameSize; i++ {
-			a.scratch.frame[i] = 32768 * frame[i]
-		}
-		if n := a.ComputeSingleFrameFeaturesFloat(features[:], a.scratch.frame[:]); n != NumTotalFeatures {
+		if n := a.ComputeSingleFrameFeaturesFloat(features[:], frame); n != NumTotalFeatures {
 			return total
 		}
 		total += FrameSize

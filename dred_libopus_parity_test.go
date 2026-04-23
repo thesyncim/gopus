@@ -49,7 +49,7 @@ var (
 func ensureLibopusDREDBuild(repoRoot string) (sourceDir, buildDir string, err error) {
 	referenceDir := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion)
 	sourceDir = filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+"-dredsrc-clean")
-	buildDir = filepath.Join(repoRoot, "tmp_check", "build-opus-dred")
+	buildDir = filepath.Join(repoRoot, "tmp_check", fmt.Sprintf("build-opus-dred-%s-%s", runtime.GOOS, runtime.GOARCH))
 	libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
 	if _, err := os.Stat(libopusStatic); err == nil {
 		return sourceDir, buildDir, nil

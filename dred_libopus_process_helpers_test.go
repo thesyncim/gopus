@@ -23,6 +23,25 @@ type libopusDREDPacket struct {
 	packet         []byte
 }
 
+func scaleDREDSampleCount(samples, fromRate, toRate int) int {
+	if samples <= 0 || fromRate <= 0 || toRate <= 0 || fromRate == toRate {
+		return samples
+	}
+	return samples * toRate / fromRate
+}
+
+func libopusDREDRequestForDecoder(packetInfo libopusDREDPacket, decoderSampleRate int) (maxDREDSamples, sampleRate int) {
+	sampleRate = decoderSampleRate
+	if sampleRate <= 0 {
+		sampleRate = packetInfo.sampleRate
+	}
+	maxDREDSamples = packetInfo.maxDREDSamples
+	if packetInfo.sampleRate > 0 && sampleRate > 0 {
+		maxDREDSamples = scaleDREDSampleCount(maxDREDSamples, packetInfo.sampleRate, sampleRate)
+	}
+	return maxDREDSamples, sampleRate
+}
+
 type libopusDREDPacketConfig struct {
 	FrameSize int
 	ForceMode Mode

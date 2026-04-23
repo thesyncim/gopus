@@ -83,19 +83,19 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 		uint32(len(decoderModelBlob)),
 		uint32(len(dredModelBlob)),
 		uint32(step0Source),
-		uint32(step1Source),
 	} {
 		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
 			return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper header: %w", err)
 		}
 	}
-	for _, v := range []int32{
-		int32(step0OffsetSamples),
-		int32(step1OffsetSamples),
-	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper offset: %w", err)
-		}
+	if err := binary.Write(&payload, binary.LittleEndian, int32(step0OffsetSamples)); err != nil {
+		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper step0 offset: %w", err)
+	}
+	if err := binary.Write(&payload, binary.LittleEndian, uint32(step1Source)); err != nil {
+		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper step1 source: %w", err)
+	}
+	if err := binary.Write(&payload, binary.LittleEndian, int32(step1OffsetSamples)); err != nil {
+		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper step1 offset: %w", err)
 	}
 	var nextFlag uint32
 	if decodeNextPacket {

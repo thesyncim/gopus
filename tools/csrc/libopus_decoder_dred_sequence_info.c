@@ -268,7 +268,11 @@ static int write_snapshot(const GopusSequenceSnapshot *snap) {
 }
 
 static int run_step(OpusDecoder *dec, const OpusDRED *dred, int dred_offset, int frame_size, float *out_pcm) {
-  return opus_decode_native(dec, NULL, 0, (opus_res *)out_pcm, frame_size, 0, 0, NULL, 1, dred, dred_offset);
+  return opus_decoder_dred_decode_float(dec, dred, dred_offset, out_pcm, frame_size);
+}
+
+static int run_lost_step(OpusDecoder *dec, int frame_size, float *out_pcm) {
+  return opus_decode_float(dec, NULL, 0, out_pcm, frame_size, 0);
 }
 
 int main(void) {
@@ -553,8 +557,7 @@ int main(void) {
       if (carrier_parse_ret < 0) {
         step0_ret = carrier_parse_ret;
       } else {
-        step_dred = carrier_dred;
-        step0_ret = run_step(dec, step_dred, step0_dred_offset, (int)frame_size, step0_pcm);
+        step0_ret = run_lost_step(dec, (int)frame_size, step0_pcm);
       }
       break;
     case 2:
@@ -579,7 +582,7 @@ int main(void) {
       if (carrier_parse_ret < 0) {
         step1_ret = carrier_parse_ret;
       } else {
-        step1_ret = run_step(dec, carrier_dred, step1_dred_offset, (int)frame_size, step1_pcm);
+        step1_ret = run_lost_step(dec, (int)frame_size, step1_pcm);
       }
       break;
     case 2:

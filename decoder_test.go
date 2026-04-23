@@ -848,7 +848,7 @@ func TestDecoderPrimeDREDCELTEntryHistoryUsesCELTBridge(t *testing.T) {
 		beforeAnalysis = state.dredPLC.AnalysisPos()
 		beforePredict = state.dredPLC.PredictPos()
 	}
-	if got := dec.primeDREDCELTEntryHistory(ModeCELT); got != len(want) {
+	if got := dec.primeDREDCELTEntryHistory(ModeCELT, false); got != len(want) {
 		t.Fatalf("primeDREDCELTEntryHistory()=%d want %d", got, len(want))
 	}
 	state := requireDecoderDREDState(t, dec)
@@ -882,7 +882,7 @@ func TestDecoderPrimeDREDCELTEntryHistoryStaysDormantWithoutNeuralConcealment(t 
 	if _, err := dec.Decode(packet, pcm); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
-	if got := dec.primeDREDCELTEntryHistory(ModeCELT); got != 0 {
+	if got := dec.primeDREDCELTEntryHistory(ModeCELT, false); got != 0 {
 		t.Fatalf("primeDREDCELTEntryHistory()=%d want 0", got)
 	}
 	if dec.dredState() != nil {

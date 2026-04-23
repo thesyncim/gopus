@@ -5,7 +5,6 @@ package gopus
 
 import (
 	internaldred "github.com/thesyncim/gopus/internal/dred"
-	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
 func (d *Decoder) explicitDREDResultForDecode(dred *DRED) internaldred.Result {
@@ -66,50 +65,22 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		return 0, ErrBufferTooSmall
 	}
 
+	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
+	primeAnalysis := d.sampleRate == 16000
 	if d.sampleRate == 48000 {
-		d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
-	}
-	if d.sampleRate == 48000 {
-		n, usedNeuralConcealment, err := d.decodeDRED48kNeuralPLCInto(pcm[:needed], frameSizeSamples, plcDecodeState{
-			packetFrameSize:    d.lastFrameSize,
-			mode:               d.prevMode,
-			bandwidth:          d.lastBandwidth,
-			packetStereo:       d.prevPacketStereo,
-			useDecoderPLCState: true,
-		})
-		if err != nil {
-			return 0, err
+		d.prepareDRED48kNeuralEntry(frameSizeSamples, d.prevMode, primeAnalysis)
+		if !d.applyDREDNeuralConcealment48kMono(pcm[:needed], frameSizeSamples) {
+			return 0, ErrInvalidPacket
 		}
-		frameSizeSamples = n
-		d.applyOutputGain(pcm[:frameSizeSamples])
+		d.applyOutputGain(pcm[:needed])
 		d.lastFrameSize = frameSizeSamples
 		d.lastPacketDuration = frameSizeSamples
 		d.lastDataLen = 0
-		if !usedNeuralConcealment && d.dredSidecarActive() {
-			d.markDREDConcealed()
-		}
 		return frameSizeSamples, nil
 	}
-	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
-	if d.celtDecoder != nil && !d.celtDecoder.LastPLCFrameWasNeural() {
-		if r := d.dredRecoveryState(); r != nil && r.dredPLC.Blend() == 0 {
-			d.primeDREDCELTEntryHistory(d.prevMode)
-		}
-	}
-	for offset := 0; offset+lpcnetplc.FrameSize <= frameSizeSamples; offset += lpcnetplc.FrameSize {
-		frame := pcm[offset : offset+lpcnetplc.FrameSize]
-		if r.dredPLC.Blend() == 0 {
-			if !r.dredPLC.GenerateConcealedFrameFloatWithAnalysis(&n.dredAnalysis, &n.dredPredictor, &n.dredFARGAN, frame) {
-				return 0, ErrInvalidPacket
-			}
-		} else {
-			if !r.dredPLC.GenerateConcealedFrameFloat(&n.dredPredictor, &n.dredFARGAN, frame) {
-				return 0, ErrInvalidPacket
-			}
-		}
-	}
-	if d.celtDecoder != nil {
-		d.celtDecoder.SyncAfterDREDLoss()
+	d.prepareDRED48kNeuralEntry(frameSizeSamples, d.prevMode, primeAnalysis)
+	if !d.applyDREDNeuralConcealment48kMono(pcm[:needed], frameSizeSamples) {
+		return 0, ErrInvalidPacket
 	}
 	d.applyOutputGain(pcm[:needed])
 	d.lastFrameSize = frameSizeSamples
