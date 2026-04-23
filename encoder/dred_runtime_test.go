@@ -110,6 +110,93 @@ func TestEncoderProcessDREDLatentsDownmixesStereo16k(t *testing.T) {
 	}
 }
 
+func TestEncoderProcessDREDLatentsSupportsRateConversion(t *testing.T) {
+	tests := []struct {
+		name              string
+		sampleRate        int
+		channels          int
+		frameSamplesPerCh int
+	}{
+		{name: "8k mono", sampleRate: 8000, channels: 1, frameSamplesPerCh: 160},
+		{name: "12k mono", sampleRate: 12000, channels: 1, frameSamplesPerCh: 240},
+		{name: "24k mono", sampleRate: 24000, channels: 1, frameSamplesPerCh: 480},
+		{name: "48k mono", sampleRate: 48000, channels: 1, frameSamplesPerCh: 960},
+		{name: "48k stereo", sampleRate: 48000, channels: 2, frameSamplesPerCh: 960},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			enc := NewEncoder(tc.sampleRate, tc.channels)
+			enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+			if err := enc.SetDREDDuration(4); err != nil {
+				t.Fatalf("SetDREDDuration error: %v", err)
+			}
+
+			frame := make([]float64, tc.frameSamplesPerCh*tc.channels)
+			if tc.channels == 1 {
+				for i := range frame {
+					frame[i] = 0.1
+				}
+			} else {
+				for i := 0; i < len(frame); i += 2 {
+					frame[i] = 0.25
+					frame[i+1] = -0.25
+				}
+			}
+
+			if got := enc.processDREDLatents(frame, 0); got != 1 {
+				t.Fatalf("processDREDLatents()=%d want 1", got)
+			}
+			if enc.dred == nil || enc.dred.runtime == nil {
+				t.Fatal("DRED runtime did not materialize on supported sample-rate conversion path")
+			}
+			if enc.dred.runtime.emitted != 1 {
+				t.Fatalf("runtime emitted=%d want 1", enc.dred.runtime.emitted)
+			}
+		})
+	}
+}
+
+func TestEncoderProcessDREDLatentsBuffers48k10msFrames(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+
+	frame := make([]float64, 480)
+	for i := range frame {
+		frame[i] = 0.05
+	}
+	if got := enc.processDREDLatents(frame, 0); got != 0 {
+		t.Fatalf("first processDREDLatents()=%d want 0 for 10 ms buffered input", got)
+	}
+	if got := enc.processDREDLatents(frame, 0); got != 1 {
+		t.Fatalf("second processDREDLatents()=%d want 1 after buffering two 10 ms frames", got)
+	}
+}
+
+func TestEncoderProcessDREDLatentsDoesNotAllocate48k(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+
+	frame := make([]float64, 960)
+	if got := enc.processDREDLatents(frame, 0); got != 1 {
+		t.Fatalf("warm processDREDLatents()=%d want 1", got)
+	}
+	allocs := testing.AllocsPerRun(1000, func() {
+		if got := enc.processDREDLatents(frame, 0); got != 1 {
+			t.Fatalf("processDREDLatents()=%d want 1", got)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("processDREDLatents allocs=%v want 0", allocs)
+	}
+}
+
 func mustMakeLoadableDREDEncoderBlob(t *testing.T) *dnnblob.Blob {
 	t.Helper()
 	var raw []byte
