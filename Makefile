@@ -98,6 +98,7 @@ test-unsupported-controls-tag:
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./encoder ./multistream -run 'Test(UnsupportedControlsBuildExposesQuarantinedControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/dred -run 'Test(ConvertTo16kMonoFloat64MatchesLibopus|ConvertTo16kMonoFloat64MatchesLibopusAcrossCalls)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/dred -run 'Test(EncodeExperimentalPayloadMatchesLibopus|EncodeExperimentalPayloadMatchesLibopusDelayedOffset)' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/lpcnetplc -run 'Test(PredictorMatchesLibopusOnRealModel|FARGANConditionerMatchesLibopusOnRealModel|FARGANPrimeContinuityMatchesLibopusOnRealModel|FARGANSynthesizeMatchesLibopusOnRealModel|MarkUpdatedFrameFloatMatchesLibopus|PrefillAndConcealmentFeatureStepMatchLibopus|BoundedConcealFrameFloatMatchesLibopus|ConcealFrameFloatWithAnalysisMatchesLibopusColdStart)' -count=1
 
 # Primary libopus-facing focused gate.
