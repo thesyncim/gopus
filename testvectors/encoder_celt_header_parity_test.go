@@ -3,6 +3,7 @@ package testvectors
 import (
 	"fmt"
 	"math"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/celt"
@@ -26,13 +27,18 @@ func TestEncoderVariantCELTHeaderParityAgainstFixture(t *testing.T) {
 		t.Fatalf("load encoder variants fixture: %v", err)
 	}
 
-	// These cases still expose pitch/postfilter rounding gaps, so keep them out
-	// of the exact header ratchet until that path is green.
+	// This case still exposes a pitch-search/remove-doubling gap, so keep it
+	// out of the exact header ratchet until that path is green.
 	knownHeaderGaps := map[string]struct{}{
-		"CELT-FB-10ms-mono-64k-chirp_sweep_v1":  {},
-		"CELT-FB-2.5ms-mono-64k-chirp_sweep_v1": {},
 		"CELT-FB-2.5ms-mono-64k-speech_like_v1": {},
-		"CELT-FB-5ms-mono-64k-chirp_sweep_v1":   {},
+	}
+	expectedCoverage := 27
+	if runtime.GOARCH == "amd64" {
+		// These tone-path chirp cases remain excluded on amd64 until the x86
+		// CELT tone analysis path is matched to its libopus fixture.
+		knownHeaderGaps["CELT-FB-10ms-mono-64k-chirp_sweep_v1"] = struct{}{}
+		knownHeaderGaps["CELT-FB-2.5ms-mono-64k-chirp_sweep_v1"] = struct{}{}
+		expectedCoverage = 25
 	}
 
 	covered := 0
@@ -50,8 +56,8 @@ func TestEncoderVariantCELTHeaderParityAgainstFixture(t *testing.T) {
 		})
 		covered++
 	}
-	if covered != 24 {
-		t.Fatalf("CELT header fixture coverage mismatch: got=%d want=24", covered)
+	if covered != expectedCoverage {
+		t.Fatalf("CELT header fixture coverage mismatch: got=%d want=%d", covered, expectedCoverage)
 	}
 }
 
