@@ -136,6 +136,15 @@ func (s *State) FECFillPos() int {
 	return s.fecFillPos
 }
 
+// FECReadPos reports the next queued feature vector read position.
+func (s *State) FECReadPos() int {
+	if s == nil {
+		return 0
+	}
+	s.ensureRuntimeInit()
+	return s.fecReadPos
+}
+
 // FECSkip reports how many positive feature offsets were recorded as missing.
 func (s *State) FECSkip() int {
 	if s == nil {
@@ -636,13 +645,13 @@ func quantizePCMInt16LikeInPlace(frame []float32) {
 }
 
 func quantizePCMInt16Like(sample float32) float32 {
-	v := float64(sample) * 32768
+	v := sample * 32768
 	if v < -32767 {
 		v = -32767
 	}
 	if v > 32767 {
 		v = 32767
 	}
-	v = math.Floor(0.5 + v)
-	return float32(v * (1.0 / 32768.0))
+	v = float32(math.Floor(0.5 + float64(v)))
+	return v * (1.0 / 32768.0)
 }

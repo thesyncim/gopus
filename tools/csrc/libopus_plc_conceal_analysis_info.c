@@ -15,6 +15,7 @@
 #include "lpcnet_private.h"
 #include "plc_data.h"
 #include "fargan.h"
+#include "cpu_support.h"
 
 #undef HAVE_CONFIG_H
 #ifdef USE_WEIGHTS_FILE
@@ -80,44 +81,22 @@ static int write_complex_array(const kiss_fft_cpx *src, int count) {
   return 1;
 }
 
-static void compute_generic_dense_c(const LinearLayer *layer, float *output, const float *input, int activation) {
-  compute_linear_c(layer, output, input);
-  compute_activation_c(output, output, layer->nb_outputs, activation);
+static void compute_generic_dense_info(const LinearLayer *layer, float *output, const float *input, int activation, int arch) {
+  compute_generic_dense(layer, output, input, activation, arch);
 }
 
-static void compute_generic_gru_c(const LinearLayer *input_weights, const LinearLayer *recurrent_weights, float *state, const float *in) {
-  int i;
-  int n;
-  float zrh[3*PLC_GRU1_STATE_SIZE];
-  float recur[3*PLC_GRU1_STATE_SIZE];
-  float *z;
-  float *r;
-  float *h;
-
-  n = recurrent_weights->nb_inputs;
-  z = zrh;
-  r = &zrh[n];
-  h = &zrh[2*n];
-  compute_linear_c(input_weights, zrh, in);
-  compute_linear_c(recurrent_weights, recur, state);
-  for (i = 0; i < 2*n; i++) zrh[i] += recur[i];
-  compute_activation_c(zrh, zrh, 2*n, ACTIVATION_SIGMOID);
-  for (i = 0; i < n; i++) h[i] += recur[2*n+i]*r[i];
-  compute_activation_c(h, h, n, ACTIVATION_TANH);
-  for (i = 0; i < n; i++) {
-    h[i] = z[i]*state[i] + (1-z[i])*h[i];
-    state[i] = h[i];
-  }
+static void compute_generic_gru_info(const LinearLayer *input_weights, const LinearLayer *recurrent_weights, float *state, const float *in, int arch) {
+  compute_generic_gru(input_weights, recurrent_weights, state, in, arch);
 }
 
 static void compute_plc_pred_info(LPCNetPLCState *st, float *out, const float *in) {
   float tmp[PLC_DENSE_IN_OUT_SIZE];
   PLCModel *model = &st->model;
   PLCNetState *net = &st->plc_net;
-  compute_generic_dense_c(&model->plc_dense_in, tmp, in, ACTIVATION_TANH);
-  compute_generic_gru_c(&model->plc_gru1_input, &model->plc_gru1_recurrent, net->gru1_state, tmp);
-  compute_generic_gru_c(&model->plc_gru2_input, &model->plc_gru2_recurrent, net->gru2_state, net->gru1_state);
-  compute_generic_dense_c(&model->plc_dense_out, out, net->gru2_state, ACTIVATION_LINEAR);
+  compute_generic_dense_info(&model->plc_dense_in, tmp, in, ACTIVATION_TANH, st->arch);
+  compute_generic_gru_info(&model->plc_gru1_input, &model->plc_gru1_recurrent, net->gru1_state, tmp, st->arch);
+  compute_generic_gru_info(&model->plc_gru2_input, &model->plc_gru2_recurrent, net->gru2_state, net->gru1_state, st->arch);
+  compute_generic_dense_info(&model->plc_dense_out, out, net->gru2_state, ACTIVATION_LINEAR, st->arch);
 }
 
 static int get_fec_or_pred_info(LPCNetPLCState *st, float *out) {
@@ -198,6 +177,7 @@ int main(void) {
   fargan_init(&st.fargan);
   lpcnet_encoder_init(&st.enc);
   st.loaded = 1;
+  st.arch = opus_select_arch();
   st.blend = blend;
   st.loss_count = loss_count;
   st.analysis_gap = analysis_gap;
@@ -270,7 +250,7 @@ int main(void) {
       celt_assert(st.analysis_pos >= 0);
       for (i = 0; i < FRAME_SIZE; i++) x[i] = 32768.f * st.pcm[st.analysis_pos + i];
       burg_cepstral_analysis(plc_features, x);
-      lpcnet_compute_single_frame_features_float(&st.enc, x, st.features, 0);
+      lpcnet_compute_single_frame_features_float(&st.enc, x, st.features, st.arch);
       if ((!st.analysis_gap || count > 0) && st.analysis_pos >= st.predict_pos) {
         queue_features_info(&st, st.features);
         memcpy(&plc_features[2*NB_BANDS], st.features, NB_FEATURES * sizeof(float));

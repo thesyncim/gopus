@@ -178,10 +178,13 @@ func buildLibopusPLCHelper(sourceFile, outputBase string) (string, error) {
 	args := []string{
 		"-std=c99",
 		"-O2",
+		"-DHAVE_CONFIG_H",
+		"-I", buildDir,
 		"-I", filepath.Join(sourceDir, "include"),
 		"-I", sourceDir,
 		"-I", filepath.Join(sourceDir, "celt"),
 		"-I", filepath.Join(sourceDir, "dnn"),
+		"-I", filepath.Join(sourceDir, "silk"),
 		srcPath,
 		libopusStatic,
 		"-lm",
@@ -625,7 +628,7 @@ func probeLibopusPLCConceal(state State, farganState FARGANState, fec0, fec1 []f
 
 	var payload bytes.Buffer
 	payload.WriteString(libopusPLCConcealInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
+	if err := binary.Write(&payload, binary.LittleEndian, uint32(2)); err != nil {
 		return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal version: %w", err)
 	}
 	for _, v := range []int32{
@@ -675,6 +678,9 @@ func probeLibopusPLCConceal(state State, farganState FARGANState, fec0, fec1 []f
 	if err := binary.Write(&payload, binary.LittleEndian, int32(farganState.lastPeriod)); err != nil {
 		return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal fargan last period: %w", err)
 	}
+	if err := binary.Write(&payload, binary.LittleEndian, int32(2)); err != nil {
+		return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal queue count: %w", err)
+	}
 	for _, values := range [][]float32{
 		{farganState.deemphMem},
 		farganState.pitchBuf[:],
@@ -683,11 +689,17 @@ func probeLibopusPLCConceal(state State, farganState FARGANState, fec0, fec1 []f
 		farganState.gru1State[:],
 		farganState.gru2State[:],
 		farganState.gru3State[:],
+	} {
+		if err := writeBits(values); err != nil {
+			return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal fargan payload: %w", err)
+		}
+	}
+	for _, values := range [][]float32{
 		fec0,
 		fec1,
 	} {
 		if err := writeBits(values); err != nil {
-			return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal fargan payload: %w", err)
+			return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal queue payload: %w", err)
 		}
 	}
 

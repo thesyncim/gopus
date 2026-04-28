@@ -217,7 +217,7 @@ func PeriodFromFeatures(features []float32) int {
 	if len(features) <= NumBands {
 		return PitchMaxPeriod
 	}
-	period := int(math.Floor(.5 + float64(PitchMaxPeriod)/math.Pow(2, (1./60.)*float64((features[NumBands]+1.5)*60))))
+	period := int(math.Floor(.5 + float64(PitchMaxPeriod)/math.Pow(2, (1./60.)*((float64(features[NumBands])+1.5)*60))))
 	return period
 }
 

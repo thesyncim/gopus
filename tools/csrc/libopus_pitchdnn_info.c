@@ -13,6 +13,7 @@
 
 #include "pitchdnn.h"
 #include "nnet.h"
+#include "cpu_support.h"
 
 #undef HAVE_CONFIG_H
 #ifdef USE_WEIGHTS_FILE
@@ -68,6 +69,7 @@ int main(void) {
   float xcorr_features[NB_XCORR_FEATURES];
   float pitch;
   PitchDNNState st;
+  int arch;
 
   if (!set_binary_stdio()) {
     fprintf(stderr, "failed to set binary stdio mode\n");
@@ -112,7 +114,8 @@ int main(void) {
     fprintf(stderr, "failed to init pitchdnn model\n");
     return 1;
   }
-  pitch = compute_pitchdnn(&st, if_features, xcorr_features, 0);
+  arch = opus_select_arch();
+  pitch = compute_pitchdnn(&st, if_features, xcorr_features, arch);
 
   if (!write_exact(OUTPUT_MAGIC, 4) || !write_exact(&version, sizeof(version))) {
     fprintf(stderr, "failed to write header\n");

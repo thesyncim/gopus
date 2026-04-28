@@ -82,7 +82,7 @@ func quantizePCM16LikeInt16(sample float32) int16 {
 	if v > 32767 {
 		v = 32767
 	}
-	return int16(math.Floor(0.5 + float64(v)))
+	return int16(math.RoundToEven(float64(v)))
 }
 
 func quantizedPCM16GridSample(sample float32) float32 {

@@ -14,6 +14,7 @@
 
 #include "lpcnet.h"
 #include "lpcnet_private.h"
+#include "cpu_support.h"
 
 #define INPUT_MAGIC "GLFI"
 #define OUTPUT_MAGIC "GLFO"
@@ -69,6 +70,7 @@ int main(void) {
   float *all_features = NULL;
   LPCNetEncState st;
   float frame[FRAME_SIZE];
+  int arch;
   uint32_t i;
 
   if (!set_binary_stdio()) {
@@ -99,13 +101,14 @@ int main(void) {
   }
 
   lpcnet_encoder_init(&st);
+  arch = opus_select_arch();
   for (i = 0; i < frame_count; i++) {
     if (!read_bits_array(frame, FRAME_SIZE)) {
       fprintf(stderr, "failed to read frame data\n");
       free(all_features);
       return 1;
     }
-    lpcnet_compute_single_frame_features_float(&st, frame, &all_features[i * NB_TOTAL_FEATURES], 0);
+    lpcnet_compute_single_frame_features_float(&st, frame, &all_features[i * NB_TOTAL_FEATURES], arch);
   }
 
   if (!write_exact(OUTPUT_MAGIC, 4) ||
