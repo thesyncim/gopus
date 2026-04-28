@@ -268,13 +268,13 @@ func (a *Analysis) frameAnalysis(spectrum []complex64, ex, in []float32) {
 	copy(a.scratch.window[analysisOverlapSize:], in[:FrameSize])
 	copy(a.analysisMem[:], in[FrameSize-analysisOverlapSize:])
 	applyAnalysisWindow(a.scratch.window[:])
+	scale := float32(1.0 / analysisWindowSize)
 	for i := 0; i < analysisWindowSize; i++ {
-		a.scratch.fftIn[i] = complex(a.scratch.window[i], 0)
+		a.scratch.fftIn[i] = complex(a.scratch.window[i]*scale, 0)
 	}
 	celt.KissFFT32ToWithScratch(a.scratch.fftOut[:], a.scratch.fftIn[:], a.scratch.fftScratch[:])
-	scale := float32(1.0 / analysisWindowSize)
 	for i := 0; i < analysisFreqSize; i++ {
-		spectrum[i] = a.scratch.fftOut[i] * complex(scale, 0)
+		spectrum[i] = a.scratch.fftOut[i]
 	}
 	computeBandEnergy(ex, spectrum)
 }
@@ -378,9 +378,9 @@ func lpcFromBands(lpc, ex []float32, scratch *analysisScratch) float32 {
 	inverseTransform(scratch.inverseReal[:], scratch.inverseSpec[:], scratch)
 	var ac [analysisLPCOrder + 1]float32
 	copy(ac[:], scratch.inverseReal[:analysisLPCOrder+1])
-	ac[0] += ac[0]*1e-4 + float32(320/12)/38
+	ac[0] = float32(float64(ac[0]) + float64(ac[0])*1e-4 + 26.0/38.0)
 	for i := 1; i <= analysisLPCOrder; i++ {
-		ac[i] *= 1 - 6e-5*float32(i*i)
+		ac[i] = float32(float64(ac[i]) * (1 - 6e-5*float64(i*i)))
 	}
 	return lpcnLPC(lpc, ac[:], analysisLPCOrder)
 }
@@ -391,21 +391,31 @@ func interpBandGain(dst, bandE []float32) {
 		bandSize := (analysisBandEdges[i+1] - analysisBandEdges[i]) * analysisWindow5ms
 		for j := 0; j < bandSize; j++ {
 			frac := float32(j) / float32(bandSize)
-			dst[analysisBandEdges[i]*analysisWindow5ms+j] = (1-frac)*bandE[i] + frac*bandE[i+1]
+			v := (1-frac)*bandE[i] + frac*bandE[i+1]
+			if useNEONAnalysisKernels {
+				// Match libopus arm64 contraction for the source-order interpolation expression.
+				v = fma32(1-frac, bandE[i], float32(float64(frac)*float64(bandE[i+1])))
+			}
+			dst[analysisBandEdges[i]*analysisWindow5ms+j] = v
 		}
 	}
 }
 
 func inverseTransform(out []float32, in []complex64, scratch *analysisScratch) {
+	scale := float32(1.0 / analysisWindowSize)
 	copy(scratch.fftIn[:analysisFreqSize], in[:analysisFreqSize])
+	for i := 0; i < analysisFreqSize; i++ {
+		scratch.fftIn[i] *= complex(scale, 0)
+	}
 	for i := analysisFreqSize; i < analysisWindowSize; i++ {
 		v := scratch.fftIn[analysisWindowSize-i]
 		scratch.fftIn[i] = complex(real(v), -imag(v))
 	}
 	celt.KissFFT32ToWithScratch(scratch.fftOut[:], scratch.fftIn[:], scratch.fftScratch[:])
-	out[0] = real(scratch.fftOut[0])
+	outputScale := float32(analysisWindowSize)
+	out[0] = outputScale * real(scratch.fftOut[0])
 	for i := 1; i < analysisWindowSize; i++ {
-		out[i] = real(scratch.fftOut[analysisWindowSize-i])
+		out[i] = outputScale * real(scratch.fftOut[analysisWindowSize-i])
 	}
 }
 
