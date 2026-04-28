@@ -26,6 +26,7 @@ const (
 	pitchConv2OutChannels    = 1
 	pitchConv1MemSize        = (pitchConvKernelTime - 1) * pitchConv1InChannels * pitchConvPaddedStride
 	pitchConv2MemSize        = (pitchConvKernelTime - 1) * pitchConv2InChannels * pitchConvPaddedStride
+	pitchConv2StateSize      = (pitchXcorrFeatures + 2) * 2 * 8
 	pitchConv2DMaxInputs     = pitchConvKernelTime * pitchConv2InChannels * pitchConvPaddedStride
 	pitchConvScratchWidth    = pitchConvPaddedStride * 8
 	pitchPitchClassCount     = 180
@@ -66,8 +67,8 @@ type PitchDNNModel struct {
 type pitchDNNState struct {
 	gruState  [pitchGRUStateSize]float32
 	xcorrMem1 [pitchConv1MemSize]float32
-	xcorrMem2 [pitchConv2MemSize]float32
-	xcorrMem3 [pitchConv2MemSize]float32
+	xcorrMem2 [pitchConv2StateSize]float32
+	xcorrMem3 [pitchConv2StateSize]float32
 }
 
 type pitchDNNScratch struct {
@@ -293,8 +294,8 @@ func (p *PitchDNN) Compute(ifFeatures, xcorrFeatures []float32) float32 {
 	computeGenericDense(&p.model.DenseFinal, p.scratch.output[:], p.state.gruState[:], activationLinear, &p.scratch.base)
 
 	pos := 0
-	maxVal := p.scratch.output[0]
-	for i := 1; i < pitchPitchClassCount; i++ {
+	maxVal := float32(-1)
+	for i := 0; i < pitchPitchClassCount; i++ {
 		if p.scratch.output[i] > maxVal {
 			pos = i
 			maxVal = p.scratch.output[i]
@@ -302,17 +303,17 @@ func (p *PitchDNN) Compute(ifFeatures, xcorrFeatures []float32) float32 {
 	}
 	start := maxInt(0, pos-2)
 	end := minInt(pitchPitchClassCount-1, pos+2)
-	var sum float64
-	var count float64
+	var sum float32
+	var count float32
 	for i := start; i <= end; i++ {
-		v := math.Exp(float64(p.scratch.output[i]))
-		sum += v * float64(i)
+		v := float32(math.Exp(float64(p.scratch.output[i])))
+		sum += v * float32(i)
 		count += v
 	}
 	if count == 0 {
 		return 0
 	}
-	return float32((1.0/60.0)*(sum/count) - 1.5)
+	return (float32(1.0)/60)*(sum/count) - 1.5
 }
 
 func loadConv2DLayer(blob *dnnblob.Blob, spec Conv2DLayerSpec) (Conv2DLayer, error) {

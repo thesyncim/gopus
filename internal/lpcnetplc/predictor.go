@@ -5,10 +5,12 @@ import (
 	"runtime"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/dnnmath"
 )
 
-// Match the pinned local libopus build on arm64, where NEON integer-matrix
-// quantization uses vcvtnq_s32_f32() rather than the generic floor(.5+x) path.
+// Match the pinned local libopus build on arm64, where DNN integer-matrix
+// kernels use DOTPROD-style int accumulation and vcvtnq_s32_f32()
+// quantization rather than the generic floor(.5+x) path.
 var useNearestEvenQuant = runtime.GOARCH == "arm64"
 var useSUBias = false
 
@@ -180,6 +182,36 @@ func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View
 	for i := 0; i < cols; i++ {
 		q[i] = quantizeInput(x[i])
 	}
+	if useNearestEvenQuant {
+		for row := 0; row < rows; row += 8 {
+			var acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7 int
+			wOffset := row * cols
+			for col := 0; col < cols; col += 4 {
+				x0 := int(q[col])
+				x1 := int(q[col+1])
+				x2 := int(q[col+2])
+				x3 := int(q[col+3])
+				acc0 += int(weights.At(wOffset+0))*x0 + int(weights.At(wOffset+1))*x1 + int(weights.At(wOffset+2))*x2 + int(weights.At(wOffset+3))*x3
+				acc1 += int(weights.At(wOffset+4))*x0 + int(weights.At(wOffset+5))*x1 + int(weights.At(wOffset+6))*x2 + int(weights.At(wOffset+7))*x3
+				acc2 += int(weights.At(wOffset+8))*x0 + int(weights.At(wOffset+9))*x1 + int(weights.At(wOffset+10))*x2 + int(weights.At(wOffset+11))*x3
+				acc3 += int(weights.At(wOffset+12))*x0 + int(weights.At(wOffset+13))*x1 + int(weights.At(wOffset+14))*x2 + int(weights.At(wOffset+15))*x3
+				acc4 += int(weights.At(wOffset+16))*x0 + int(weights.At(wOffset+17))*x1 + int(weights.At(wOffset+18))*x2 + int(weights.At(wOffset+19))*x3
+				acc5 += int(weights.At(wOffset+20))*x0 + int(weights.At(wOffset+21))*x1 + int(weights.At(wOffset+22))*x2 + int(weights.At(wOffset+23))*x3
+				acc6 += int(weights.At(wOffset+24))*x0 + int(weights.At(wOffset+25))*x1 + int(weights.At(wOffset+26))*x2 + int(weights.At(wOffset+27))*x3
+				acc7 += int(weights.At(wOffset+28))*x0 + int(weights.At(wOffset+29))*x1 + int(weights.At(wOffset+30))*x2 + int(weights.At(wOffset+31))*x3
+				wOffset += 32
+			}
+			out[row+0] = float32(acc0) * scale.At(row+0)
+			out[row+1] = float32(acc1) * scale.At(row+1)
+			out[row+2] = float32(acc2) * scale.At(row+2)
+			out[row+3] = float32(acc3) * scale.At(row+3)
+			out[row+4] = float32(acc4) * scale.At(row+4)
+			out[row+5] = float32(acc5) * scale.At(row+5)
+			out[row+6] = float32(acc6) * scale.At(row+6)
+			out[row+7] = float32(acc7) * scale.At(row+7)
+		}
+		return
+	}
 	clear(out[:rows])
 	wOffset := 0
 	for row := 0; row < rows; row += 8 {
@@ -223,29 +255,11 @@ func computeActivation(output, input []float32, n, activation int) {
 }
 
 func sigmoidApprox(x float32) float32 {
-	return 0.5 + 0.5*tanhApprox(0.5*x)
+	return dnnmath.SigmoidApprox(x)
 }
 
 func tanhApprox(x float32) float32 {
-	const (
-		n0 = 952.52801514
-		n1 = 96.39235687
-		n2 = 0.60863042
-		d0 = 952.72399902
-		d1 = 413.36801147
-		d2 = 11.88600922
-	)
-	x2 := x * x
-	num := ((n2*x2 + n1) * x2) + n0
-	den := ((d2*x2 + d1) * x2) + d0
-	y := num * x / den
-	if y < -1 {
-		return -1
-	}
-	if y > 1 {
-		return 1
-	}
-	return y
+	return dnnmath.TanhApprox(x)
 }
 
 func quantizeInput(x float32) int16 {
@@ -259,5 +273,5 @@ func quantizeInput(x float32) int16 {
 	if useSUBias {
 		return 127 + q
 	}
-	return q
+	return int16(int8(q))
 }

@@ -136,6 +136,15 @@ func (s *State) FECFillPos() int {
 	return s.fecFillPos
 }
 
+// FECReadPos reports the next queued feature vector read position.
+func (s *State) FECReadPos() int {
+	if s == nil {
+		return 0
+	}
+	s.ensureRuntimeInit()
+	return s.fecReadPos
+}
+
 // FECSkip reports how many positive feature offsets were recorded as missing.
 func (s *State) FECSkip() int {
 	if s == nil {

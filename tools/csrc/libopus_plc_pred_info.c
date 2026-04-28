@@ -13,6 +13,7 @@
 
 #include "nnet.h"
 #include "plc_data.h"
+#include "cpu_support.h"
 
 #undef HAVE_CONFIG_H
 #ifdef USE_WEIGHTS_FILE
@@ -67,42 +68,20 @@ static int write_bits_array(const float *src, int count) {
   return 1;
 }
 
-static void compute_generic_dense_c(const LinearLayer *layer, float *output, const float *input, int activation) {
-  compute_linear_c(layer, output, input);
-  compute_activation_c(output, output, layer->nb_outputs, activation);
+static void compute_generic_dense_info(const LinearLayer *layer, float *output, const float *input, int activation, int arch) {
+  compute_generic_dense(layer, output, input, activation, arch);
 }
 
-static void compute_generic_gru_c(const LinearLayer *input_weights, const LinearLayer *recurrent_weights, float *state, const float *in) {
-  int i;
-  int n;
-  float zrh[3*PLC_GRU1_STATE_SIZE];
-  float recur[3*PLC_GRU1_STATE_SIZE];
-  float *z;
-  float *r;
-  float *h;
-
-  n = recurrent_weights->nb_inputs;
-  z = zrh;
-  r = &zrh[n];
-  h = &zrh[2*n];
-  compute_linear_c(input_weights, zrh, in);
-  compute_linear_c(recurrent_weights, recur, state);
-  for (i = 0; i < 2*n; i++) zrh[i] += recur[i];
-  compute_activation_c(zrh, zrh, 2*n, ACTIVATION_SIGMOID);
-  for (i = 0; i < n; i++) h[i] += recur[2*n+i]*r[i];
-  compute_activation_c(h, h, n, ACTIVATION_TANH);
-  for (i = 0; i < n; i++) {
-    h[i] = z[i]*state[i] + (1-z[i])*h[i];
-    state[i] = h[i];
-  }
+static void compute_generic_gru_info(const LinearLayer *input_weights, const LinearLayer *recurrent_weights, float *state, const float *in, int arch) {
+  compute_generic_gru(input_weights, recurrent_weights, state, in, arch);
 }
 
-static void compute_plc_pred_info(PLCModel *model, PLCNetState *net, float *out, const float *in) {
+static void compute_plc_pred_info(PLCModel *model, PLCNetState *net, float *out, const float *in, int arch) {
   float tmp[PLC_DENSE_IN_OUT_SIZE];
-  compute_generic_dense_c(&model->plc_dense_in, tmp, in, ACTIVATION_TANH);
-  compute_generic_gru_c(&model->plc_gru1_input, &model->plc_gru1_recurrent, net->gru1_state, tmp);
-  compute_generic_gru_c(&model->plc_gru2_input, &model->plc_gru2_recurrent, net->gru2_state, net->gru1_state);
-  compute_generic_dense_c(&model->plc_dense_out, out, net->gru2_state, ACTIVATION_LINEAR);
+  compute_generic_dense_info(&model->plc_dense_in, tmp, in, ACTIVATION_TANH, arch);
+  compute_generic_gru_info(&model->plc_gru1_input, &model->plc_gru1_recurrent, net->gru1_state, tmp, arch);
+  compute_generic_gru_info(&model->plc_gru2_input, &model->plc_gru2_recurrent, net->gru2_state, net->gru1_state, arch);
+  compute_generic_dense_info(&model->plc_dense_out, out, net->gru2_state, ACTIVATION_LINEAR, arch);
 }
 
 int main(void) {
@@ -112,6 +91,7 @@ int main(void) {
   float output[NB_FEATURES];
   PLCModel model;
   PLCNetState net;
+  int arch;
 
   if (!set_binary_stdio()) {
     fprintf(stderr, "failed to set binary stdio mode\n");
@@ -142,7 +122,8 @@ int main(void) {
     return 1;
   }
 
-  compute_plc_pred_info(&model, &net, output, input);
+  arch = opus_select_arch();
+  compute_plc_pred_info(&model, &net, output, input, arch);
 
   if (!write_exact(OUTPUT_MAGIC, 4) || !write_exact(&version, sizeof(version))) {
     fprintf(stderr, "failed to write header\n");

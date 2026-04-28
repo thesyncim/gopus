@@ -2,6 +2,7 @@ package lpcnetplc
 
 import (
 	"math"
+	"runtime"
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -17,6 +18,8 @@ const (
 	analysisFreqSize     = analysisWindowSize/2 + 1
 	analysisPitchBufSize = PitchMaxPeriod + 2*FrameSize
 )
+
+var useNEONAnalysisKernels = runtime.GOARCH == "arm64"
 
 type analysisScratch struct {
 	frame       [FrameSize]float32
@@ -203,12 +206,12 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 	buf := a.excBuf[:]
 	pitchXCorrFloat(a.scratch.pitchXCorr[:], buf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], buf[:PitchMaxPeriod+FrameSize], FrameSize, pitchXcorrFeatures)
 	ener0 := innerProdFloat(buf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], buf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], FrameSize)
-	ener1 := innerProdFloat(buf[:FrameSize], buf[:FrameSize], FrameSize)
+	ener1 := float64(innerProdFloat(buf[:FrameSize], buf[:FrameSize], FrameSize))
 	for i := 0; i < pitchXcorrFeatures; i++ {
-		ener := 1 + ener0 + ener1
+		ener := float32(1 + float64(ener0) + ener1)
 		a.xcorrFeatures[i] = 2 * a.scratch.pitchXCorr[i]
 		a.scratch.pitchEner[i] = ener
-		ener1 += buf[i+FrameSize]*buf[i+FrameSize] - buf[i]*buf[i]
+		ener1 += float64(buf[i+FrameSize])*float64(buf[i+FrameSize]) - float64(buf[i])*float64(buf[i])
 	}
 	for i := 0; i < pitchXcorrFeatures; i++ {
 		a.xcorrFeatures[i] /= a.scratch.pitchEner[i]
@@ -375,7 +378,7 @@ func lpcFromBands(lpc, ex []float32, scratch *analysisScratch) float32 {
 	inverseTransform(scratch.inverseReal[:], scratch.inverseSpec[:], scratch)
 	var ac [analysisLPCOrder + 1]float32
 	copy(ac[:], scratch.inverseReal[:analysisLPCOrder+1])
-	ac[0] += ac[0]*1e-4 + float32(320.0/12.0/38.0)
+	ac[0] += ac[0]*1e-4 + float32(320/12)/38
 	for i := 1; i <= analysisLPCOrder; i++ {
 		ac[i] *= 1 - 6e-5*float32(i*i)
 	}
@@ -614,6 +617,10 @@ func biquadInPlace(y, mem []float32) {
 }
 
 func pitchXCorrFloat(dst, x, y []float32, length, maxPitch int) {
+	if useNEONAnalysisKernels {
+		pitchXCorrFloatNEON(dst, x, y, length, maxPitch)
+		return
+	}
 	for i := 0; i < maxPitch; i++ {
 		var sum float32
 		for j := 0; j < length; j++ {
@@ -624,11 +631,67 @@ func pitchXCorrFloat(dst, x, y []float32, length, maxPitch int) {
 }
 
 func innerProdFloat(x, y []float32, length int) float32 {
+	if useNEONAnalysisKernels {
+		return innerProdFloatNEON(x, y, length)
+	}
 	var sum float32
 	for i := 0; i < length; i++ {
 		sum += x[i] * y[i]
 	}
 	return sum
+}
+
+func pitchXCorrFloatNEON(dst, x, y []float32, length, maxPitch int) {
+	i := 0
+	for ; i < maxPitch-3; i += 4 {
+		var sum0, sum1, sum2, sum3 float32
+		for j := 0; j < length; j++ {
+			xj := x[j]
+			base := i + j
+			sum0 = fma32(xj, y[base], sum0)
+			sum1 = fma32(xj, y[base+1], sum1)
+			sum2 = fma32(xj, y[base+2], sum2)
+			sum3 = fma32(xj, y[base+3], sum3)
+		}
+		dst[i] = sum0
+		dst[i+1] = sum1
+		dst[i+2] = sum2
+		dst[i+3] = sum3
+	}
+	for ; i < maxPitch; i++ {
+		dst[i] = innerProdFloatNEON(x, y[i:], length)
+	}
+}
+
+func innerProdFloatNEON(x, y []float32, length int) float32 {
+	var s0, s1, s2, s3 float32
+	i := 0
+	for ; i < length-7; i += 8 {
+		s0 = fma32(x[i], y[i], s0)
+		s1 = fma32(x[i+1], y[i+1], s1)
+		s2 = fma32(x[i+2], y[i+2], s2)
+		s3 = fma32(x[i+3], y[i+3], s3)
+		s0 = fma32(x[i+4], y[i+4], s0)
+		s1 = fma32(x[i+5], y[i+5], s1)
+		s2 = fma32(x[i+6], y[i+6], s2)
+		s3 = fma32(x[i+7], y[i+7], s3)
+	}
+	if length-i >= 4 {
+		s0 = fma32(x[i], y[i], s0)
+		s1 = fma32(x[i+1], y[i+1], s1)
+		s2 = fma32(x[i+2], y[i+2], s2)
+		s3 = fma32(x[i+3], y[i+3], s3)
+		i += 4
+	}
+	sum := (s0 + s2) + (s1 + s3)
+	for ; i < length; i++ {
+		sum = fma32(x[i], y[i], sum)
+	}
+	return sum
+}
+
+func fma32(a, b, c float32) float32 {
+	return float32(math.FMA(float64(a), float64(b), float64(c)))
 }
 
 func log10f(x float32) float32 {
