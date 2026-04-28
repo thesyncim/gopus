@@ -253,7 +253,7 @@ func (a *Analysis) computeBurgCepstrum(dst, pcm []float32, length, order int) {
 	gainScale := .45 * g * (1.0 / float32(analysisWindowSize*analysisWindowSize*analysisWindowSize))
 	for i := 0; i < NumBands; i++ {
 		a.scratch.burgBands[i] *= gainScale
-		v := log10f(1e-2 + a.scratch.burgBands[i])
+		v := float32(math.Log10(float64(1e-2 + a.scratch.burgBands[i])))
 		v = maxF32(logMax-8, maxF32(follow-2.5, v))
 		a.scratch.burgLog[i] = v
 		logMax = maxF32(logMax, v)
