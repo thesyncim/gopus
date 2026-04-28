@@ -639,12 +639,11 @@ func (d *Decoder) updateDREDPCMHistory(frames []float32) {
 		return
 	}
 	r := d.dredRecoveryState()
-	n := d.dredNeuralState()
-	if r == nil || n == nil || len(frames) < lpcnetplc.FrameSize {
+	if r == nil || len(frames) < lpcnetplc.FrameSize {
 		return
 	}
 	for offset := 0; offset+lpcnetplc.FrameSize <= len(frames); offset += lpcnetplc.FrameSize {
-		r.dredPLC.MarkUpdatedFrameWithAnalysis(&n.dredAnalysis, frames[offset:offset+lpcnetplc.FrameSize])
+		r.dredPLC.MarkUpdatedFrameFloat(frames[offset : offset+lpcnetplc.FrameSize])
 	}
 }
 
@@ -663,7 +662,7 @@ func (d *Decoder) updateDREDPCMHistoryInt16(frames []int16) {
 		for i := 0; i < lpcnetplc.FrameSize; i++ {
 			frame[i] = float32(frames[offset+i]) * scale
 		}
-		r.dredPLC.MarkUpdatedFrameWithAnalysis(&n.dredAnalysis, frame)
+		r.dredPLC.MarkUpdatedFrameFloat(frame)
 		n.dredRawHistoryUpdated = true
 	}
 }
@@ -795,6 +794,10 @@ func (d *Decoder) prepareCachedDREDNeuralConcealment(frameSizeSamples int) {
 	if r == nil || frameSizeSamples <= 0 {
 		return
 	}
+	if d.dredCachedPayloadActive() {
+		d.queueActiveDREDRecovery(frameSizeSamples)
+		return
+	}
 	r.dredPLC.FECClear()
 }
 
@@ -848,12 +851,15 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 		if !b.dredLastNeural && b.dredPLCFill == 0 && r.dredPLC.FECFillPos() == 0 && r.dredPLC.FECSkip() == 0 {
 			d.prepareCachedDREDNeuralConcealment(samplesPerChannel)
 		}
-		if !d.applyPLCNeuralConcealment48kMono(pcm, samplesPerChannel) {
+		apply := d.applyPLCNeuralConcealment48kMono
+		if useDRED {
+			apply = d.applyDREDNeuralConcealment48kMono
+		}
+		if !apply(pcm, samplesPerChannel) {
 			return false
 		}
 		if useDRED {
-			r.dredBlend = max(r.dredBlend, r.dredPLC.Blend())
-			r.dredRecovery += samplesPerChannel
+			d.finishActiveDREDRecovery(samplesPerChannel)
 		}
 		return true
 	}

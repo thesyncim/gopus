@@ -218,12 +218,12 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 	}
 
 	a.dnnPitch = a.pitch.Compute(a.ifFeatures[:], a.xcorrFeatures[:])
-	pitch := int(math.Floor(.5 + float64(PitchMaxPeriod)/math.Pow(2, (1.0/60.0)*float64((a.dnnPitch+1.5)*60))))
+	pitch := int(math.Floor(.5 + float64(PitchMaxPeriod)/math.Pow(2, (1.0/60.0)*((float64(a.dnnPitch)+1.5)*60))))
 	xx := innerProdFloat(a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], FrameSize)
 	yy := innerProdFloat(a.lpBuf[PitchMaxPeriod-pitch:PitchMaxPeriod-pitch+FrameSize], a.lpBuf[PitchMaxPeriod-pitch:PitchMaxPeriod-pitch+FrameSize], FrameSize)
 	xy := innerProdFloat(a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], a.lpBuf[PitchMaxPeriod-pitch:PitchMaxPeriod-pitch+FrameSize], FrameSize)
-	frameCorr := xy / float32(math.Sqrt(float64(1+xx*yy)))
-	frameCorr = float32(math.Log(float64(1+float32(math.Exp(float64(5*frameCorr))))) / math.Log(1+math.Exp(5)))
+	frameCorr := float32(float64(xy) / math.Sqrt(float64(1+xx*yy)))
+	frameCorr = float32(math.Log(1+math.Exp(float64(5*frameCorr))) / math.Log(1+math.Exp(5)))
 	a.features[NumBands] = a.dnnPitch
 	a.features[NumBands+1] = frameCorr - .5
 }
@@ -344,7 +344,7 @@ func dctTransform(out, in []float32) {
 		for j := 0; j < NumBands; j++ {
 			sum += in[j] * analysisDCTTable[j*NumBands+i]
 		}
-		out[i] = sum * scale
+		out[i] = float32(float64(sum) * scale)
 	}
 }
 
@@ -355,7 +355,7 @@ func idctTransform(out, in []float32) {
 		for j := 0; j < NumBands; j++ {
 			sum += in[j] * analysisDCTTable[i*NumBands+j]
 		}
-		out[i] = sum * scale
+		out[i] = float32(float64(sum) * scale)
 	}
 }
 
