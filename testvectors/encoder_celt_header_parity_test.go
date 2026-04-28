@@ -9,7 +9,6 @@ import (
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/testsignal"
 	"github.com/thesyncim/gopus/rangecoding"
-	"github.com/thesyncim/gopus/types"
 )
 
 type celtPostfilterHeader struct {
@@ -19,17 +18,45 @@ type celtPostfilterHeader struct {
 }
 
 func TestEncoderVariantCELTHeaderParityAgainstFixture(t *testing.T) {
-	fixtureCase, ok := findEncoderVariantsFixtureCase(
-		encoder.ModeCELT,
-		types.BandwidthFullband,
-		960,
-		1,
-		64000,
-		testsignal.EncoderVariantAMMultisineV1,
-	)
-	if !ok {
-		t.Fatal("missing CELT variants fixture case")
+	requireTestTier(t, testTierParity)
+	requireStrictLibopusReference(t)
+
+	fixture, err := loadEncoderComplianceVariantsFixture()
+	if err != nil {
+		t.Fatalf("load encoder variants fixture: %v", err)
 	}
+
+	// These cases still expose pitch/postfilter rounding gaps, so keep them out
+	// of the exact header ratchet until that path is green.
+	knownHeaderGaps := map[string]struct{}{
+		"CELT-FB-10ms-mono-64k-chirp_sweep_v1":  {},
+		"CELT-FB-2.5ms-mono-64k-chirp_sweep_v1": {},
+		"CELT-FB-2.5ms-mono-64k-speech_like_v1": {},
+		"CELT-FB-5ms-mono-64k-chirp_sweep_v1":   {},
+	}
+
+	covered := 0
+	for _, c := range fixture.Cases {
+		if c.Mode != fixtureModeName(encoder.ModeCELT) {
+			continue
+		}
+		testName := fmt.Sprintf("%s-%s", c.Name, c.Variant)
+		if _, ok := knownHeaderGaps[testName]; ok {
+			continue
+		}
+		c := c
+		t.Run(testName, func(t *testing.T) {
+			assertCELTVariantPostfilterHeaderParityForCase(t, c)
+		})
+		covered++
+	}
+	if covered != 24 {
+		t.Fatalf("CELT header fixture coverage mismatch: got=%d want=24", covered)
+	}
+}
+
+func assertCELTVariantPostfilterHeaderParityForCase(t *testing.T, fixtureCase encoderComplianceVariantsFixtureCase) {
+	t.Helper()
 
 	totalSamples := fixtureCase.SignalFrames * fixtureCase.FrameSize * fixtureCase.Channels
 	signal, err := testsignal.GenerateEncoderSignalVariant(
