@@ -390,6 +390,7 @@ func DynallocAnalysis(
 	if effectiveBytes >= minBytes && !lfe {
 		// Compute follower (smoothed band energies for dynamic allocation)
 		follower := make([]float32, channels*nbBands)
+		last := 0
 
 		for c := 0; c < channels; c++ {
 			// Use bandLogE2 (secondary MDCT for transients) or fallback to bandLogE
@@ -422,7 +423,6 @@ func DynallocAnalysis(
 			}
 
 			// Forward pass: find last band at least 3dB higher than previous
-			last := 0
 			for i := 1; i < end; i++ {
 				if bandLogE3[i] > bandLogE3[i-1]+0.5 {
 					last = i
@@ -1011,6 +1011,7 @@ func DynallocAnalysisWithScratch(
 		for i := range follower {
 			follower[i] = 0
 		}
+		last := 0
 
 		for c := 0; c < channels; c++ {
 			bandLogE3 := scratch.BandLogE3[:end]
@@ -1041,7 +1042,6 @@ func DynallocAnalysisWithScratch(
 				f[0] = bandLogE3[0]
 			}
 
-			last := 0
 			for i := 1; i < end; i++ {
 				if bandLogE3[i] > bandLogE3[i-1]+0.5 {
 					last = i
