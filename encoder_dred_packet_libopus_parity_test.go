@@ -212,6 +212,45 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms(t *testing.T) {
 	}
 }
 
+func TestEncoderCarriedDREDPrimaryBudgetMatchesLibopusSilkWideband20ms(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+	})
+	if err != nil {
+		t.Skipf("libopus DRED packet helper unavailable: %v", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 960, 1)
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if len(gotPacket) <= len(gotPayload)+4 || len(packetInfo.packet) <= len(wantPayload)+4 {
+		t.Fatalf("packet too short for primary budget check: got=%d/%d want=%d/%d", len(gotPacket), len(gotPayload), len(packetInfo.packet), len(wantPayload))
+	}
+	if gotPacket[0] != packetInfo.packet[0] || gotPacket[1] != packetInfo.packet[1] {
+		t.Fatalf("packet header=%x want %x", gotPacket[:2], packetInfo.packet[:2])
+	}
+	gotExtID := gotPacket[len(gotPacket)-len(gotPayload)-1]
+	wantExtID := packetInfo.packet[len(packetInfo.packet)-len(wantPayload)-1]
+	if gotExtID != wantExtID {
+		t.Fatalf("extension id=%02x want %02x", gotExtID, wantExtID)
+	}
+	gotPrimary := gotPacket[3 : len(gotPacket)-len(gotPayload)-1]
+	wantPrimary := packetInfo.packet[3 : len(packetInfo.packet)-len(wantPayload)-1]
+	if !bytes.Equal(gotPrimary, wantPrimary) {
+		t.Fatalf("primary packet bytes mismatch\n got=%x\nwant=%x", gotPrimary, wantPrimary)
+	}
+}
+
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,

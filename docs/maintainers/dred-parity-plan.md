@@ -1,6 +1,6 @@
 # DRED Parity Plan
 
-Last updated: 2026-04-23
+Last updated: 2026-04-29
 
 ## Goal
 
@@ -109,6 +109,7 @@ Implemented or in progress:
 - the lazy encoder DRED runtime now also retains the 2.5 ms activity window plus `last_extra_dred_offset` bookkeeping that libopus uses to delay or suppress payloads around silence transitions
 - the pure-Go encoder side now has a byte-for-byte libopus-backed experimental DRED payload builder for the `dred_encode_silk_frame()` seam, including header coding, quantizer signalling, offset bookkeeping, Laplace-coded state/latent chunks, and the same delayed-out-of-silence suppression rules
 - the non-CELT encoder path now has bounded pure-Go DRED extension carriers for both the single-frame seam and the repacketized SILK long-packet seam, and the carry path now follows libopus more closely by only padding those extension packets in CBR instead of padding VBR/CVBR packets unconditionally
+- encoder carried DRED now reserves the libopus-shaped DRED bitrate from the primary single-frame SILK/short-Hybrid budget, and the 20 ms SILK primary packet bytes are pinned against libopus while DRED payload latent/state bytes remain open
 - the carried SILK/Hybrid encoder packet-parity matrix now stays in the experimental DRED lane while the remaining payload-size / emission deltas are still open on the exercised `20/40/60 ms` mono and `20 ms` stereo seams
 - the unsupported-controls gate and libopus-backed DRED/PLC helper tests now explicitly bootstrap the pinned libopus source snapshot through `tools/ensure_libopus.sh` instead of assuming a preseeded tarball/cache
 - the libopus-backed DRED/PLC helper builds now use OS/arch-specific `build-opus-dred-*` directories, so local Docker/Linux runtime validation no longer reuses a host macOS libopus archive by accident

@@ -705,6 +705,16 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		}
 	}
 
+	encodingBitrate := e.bitrate
+	if actualMode != ModeCELT {
+		if dredPlan, ok := e.computeDREDEmissionPlan(frameSize); ok {
+			encodingBitrate -= dredPlan.bitrate
+			if encodingBitrate < 1 {
+				encodingBitrate = 1
+			}
+		}
+	}
+
 	var frameData []byte
 	var packet []byte
 	var err error
@@ -714,7 +724,14 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		if frameSize > 2880 {
 			packet, err = e.encodeSILKMultiFramePacket(framePCM, frameSize)
 		} else {
+			originalBitrate := e.bitrate
+			if encodingBitrate != originalBitrate {
+				e.bitrate = encodingBitrate
+			}
 			frameData, err = e.encodeSILKFrame(framePCM, lookaheadSlice, frameSize)
+			if encodingBitrate != originalBitrate {
+				e.bitrate = originalBitrate
+			}
 			if err == nil {
 				// Match libopus opus_encoder.c SILK-only behavior:
 				// strip trailing zero bytes after range coder finalization.
@@ -731,7 +748,14 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		} else {
 			e.maybePrefillSILKOnModeTransition(actualMode)
 			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
+			originalBitrate := e.bitrate
+			if encodingBitrate != originalBitrate {
+				e.bitrate = encodingBitrate
+			}
 			frameData, err = e.encodeHybridFrameWithMaxPacketAndTransition(framePCM, celtPCM, lookaheadSlice, frameSize, 0, true, transitionToCELT, false)
+			if encodingBitrate != originalBitrate {
+				e.bitrate = originalBitrate
+			}
 		}
 	case ModeCELT:
 		celtPCM := e.prepareCELTPCM(framePCM, frameSize)
