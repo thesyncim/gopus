@@ -123,7 +123,7 @@ func readPCMFile(filename string) ([]int16, error) {
 }
 
 // ensureTestVectors downloads and extracts test vectors if needed.
-func ensureTestVectors(t *testing.T) error {
+func ensureTestVectors(t testing.TB) error {
 	// Check if test vectors already exist and are complete
 	if ok, err := testVectorsComplete(); err != nil {
 		return err

@@ -136,6 +136,8 @@ type Decoder struct {
 	scratchQEXTEnergies   []float64
 	scratchQEXTSpectrumL  []float64
 	scratchQEXTSpectrumR  []float64
+	scratchQEXTDecode     preparedQEXTDecode
+	scratchQEXTBands      bandDecodeScratch
 	scratchShortCoeffs    []float64
 	scratchMonoToStereoR  []float64 // For coeffsR in decodeMonoPacketToStereo (must not alias scratchSynthR used by SynthesizeStereo)
 	scratchMonoMix        []float64 // For coeffsMono in decodeStereoPacketToMono (must not alias scratchShortCoeffs used by Synthesize)

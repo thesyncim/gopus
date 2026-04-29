@@ -279,17 +279,23 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 				silkUpsampled[i] = float64(scratchF32L[i])
 			}
 		} else {
-			silkOutputL, silkOutputR, err := d.silkDecoder.DecodeStereoFrame(
+			silkOutputL, silkOutputR, ok := d.silkDecoder.GetStereoInt16Scratch(silkSamples)
+			if !ok {
+				return nil, ErrDecodeFailed
+			}
+			nNative, err := d.silkDecoder.DecodeStereoFrameInt16Into(
 				rd,
 				silk.BandwidthWideband, // Always WB for hybrid
 				silkDuration,
 				true,
+				silkOutputL,
+				silkOutputR,
 			)
 			if err != nil {
 				return nil, err
 			}
-			nL := leftResampler.ProcessInto(silkOutputL, scratchF32L)
-			nR := rightResampler.ProcessInto(silkOutputR, scratchF32R)
+			nL := leftResampler.ProcessInt16Into(silkOutputL[:nNative], scratchF32L)
+			nR := rightResampler.ProcessInt16Into(silkOutputR[:nNative], scratchF32R)
 			n := nL
 			if nR < n {
 				n = nR

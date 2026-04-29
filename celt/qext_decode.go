@@ -131,7 +131,8 @@ func (d *Decoder) prepareQEXTDecode(payload []byte, mainRD *rangecoding.Decoder,
 	extDec.Init(payload)
 	hdr := decodeQEXTHeader(extDec, d.channels, len(payload))
 
-	qext := &preparedQEXTDecode{
+	qext := &d.scratchQEXTDecode
+	*qext = preparedQEXTDecode{
 		dec:         extDec,
 		totalBitsQ3: len(payload) * (8 << bitRes),
 		extraPulses: ensureIntSlice(&d.scratchQEXTPulses, MaxBands+nbQEXTBands),
@@ -219,7 +220,7 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 		qext.end,
 		disableInv,
 		&d.rng,
-		nil,
+		&d.scratchQEXTBands,
 		&dummyDec,
 		zeros[:qext.end],
 		0,

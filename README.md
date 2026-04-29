@@ -32,6 +32,17 @@ Requirements:
 - Go 1.25+
 - No cgo or external C toolchain for normal builds
 
+## Performance Snapshot
+
+Official RFC 8251 test-vector decode benchmarks compare `gopus` with the pinned C reference, libopus 1.6.1, using the same preloaded packets, reset cadence, and 48 kHz stereo output. Current checked-in results were measured on Apple M4 Max.
+
+| Path | gopus ns/sample | libopus ns/sample | gopus/libopus | gopus allocs/op |
+| --- | ---: | ---: | ---: | ---: |
+| Float32 decode | 27.42 | 19.20 | 1.43x | 0 |
+| Int16 decode | 30.28 | 19.47 | 1.56x | 0 |
+
+See the full Markdown report in [Official Test Vector Decode Performance](docs/testvector-benchmarks.md). Reproduce it with `make bench-testvectors-compare`.
+
 ## Quick Start
 
 Use caller-owned buffers in real-time paths.
@@ -120,6 +131,8 @@ If you want to evaluate or contribute to the codec, these are the main entry poi
 - `go test ./...`
 - `make test-quality`
 - `make bench-guard`
+- `make bench-testvectors`
+- `make bench-testvectors-compare`
 - `make verify-production`
 
 `make ensure-libopus` bootstraps the pinned libopus 1.6.1 reference used by parity and quality checks. Some verification paths also expect `ffmpeg` and `opusdec` to be available.
@@ -127,6 +140,7 @@ If you want to evaluate or contribute to the codec, these are the main entry poi
 ## Docs and Project Hygiene
 
 - [Go package docs](https://pkg.go.dev/github.com/thesyncim/gopus)
+- [Official test-vector performance](docs/testvector-benchmarks.md)
 - [Optional extension policy](docs/optional-extensions.md)
 - [Examples guide](examples/README.md)
 - [Release notes](docs/releases/README.md)
