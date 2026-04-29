@@ -1,3 +1,5 @@
+//go:build arm64 && gopus_neon_tone_lpc_corr
+
 #include "textflag.h"
 
 // func toneLPCCorr(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32)
