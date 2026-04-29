@@ -178,7 +178,6 @@ func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state
 	if state.mode == ModeHybrid {
 		return d.decodeHybridDRED48kInto(out, frameSize, state)
 	}
-	d.prepareDRED48kNeuralEntry(frameSize, state.mode, false)
 	if !d.applyDREDNeuralConcealment(out[:needed], frameSize) {
 		n, err := d.decodePLCChunksInto(out, frameSize, state)
 		return n, false, err
