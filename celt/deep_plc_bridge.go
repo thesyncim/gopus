@@ -34,18 +34,17 @@ func (d *Decoder) FillPLCUpdate16kMonoWithPreemphasisMem(dst []float32) (int, fl
 		return 0, 0
 	}
 
-	const rawDecodeScale = 1.0 / 32768.0
 	buf48k := ensureFloat32Slice(&d.scratchPLCUpdate48k, plcDecodeBufferSize)
 	if d.channels == 1 {
 		hist := d.plcDecodeMem[:plcDecodeBufferSize]
 		for i := 0; i < plcDecodeBufferSize; i++ {
-			buf48k[i] = float32(hist[i] * rawDecodeScale)
+			buf48k[i] = float32(hist[i])
 		}
 	} else {
 		histL := d.plcDecodeMem[:plcDecodeBufferSize]
 		histR := d.plcDecodeMem[plcDecodeBufferSize : 2*plcDecodeBufferSize]
 		for i := 0; i < plcDecodeBufferSize; i++ {
-			buf48k[i] = float32(0.5 * (histL[i] + histR[i]) * rawDecodeScale)
+			buf48k[i] = float32(0.5 * (histL[i] + histR[i]))
 		}
 	}
 
@@ -61,9 +60,9 @@ func (d *Decoder) FillPLCUpdate16kMonoWithPreemphasisMem(dst []float32) (int, fl
 		for j := 0; j <= plcUpdateSincOrder; j++ {
 			sum += buf48k[base+j] * plcUpdateSincFilter[j]
 		}
-		dst[i] = quantizedPCM16GridSample(sum)
+		dst[i] = quantizedRawPCM16GridSample(sum)
 	}
-	return plcUpdateSamples, preemphMem
+	return plcUpdateSamples, preemphMem * (1.0 / 32768.0)
 }
 
 // FillPLCUpdate16kMono mirrors the 48 kHz -> 16 kHz history downsample libopus
@@ -74,17 +73,16 @@ func (d *Decoder) FillPLCUpdate16kMono(dst []float32) int {
 	return n
 }
 
-func quantizePCM16LikeInt16(sample float32) int16 {
-	v := sample * 32768
-	if v < -32767 {
-		v = -32767
+func quantizeRawPCM16LikeInt16(sample float32) int16 {
+	if sample < -32767 {
+		sample = -32767
 	}
-	if v > 32767 {
-		v = 32767
+	if sample > 32767 {
+		sample = 32767
 	}
-	return int16(math.RoundToEven(float64(v)))
+	return int16(math.RoundToEven(float64(sample)))
 }
 
-func quantizedPCM16GridSample(sample float32) float32 {
-	return float32(quantizePCM16LikeInt16(sample)) * (1.0 / 32768.0)
+func quantizedRawPCM16GridSample(sample float32) float32 {
+	return float32(quantizeRawPCM16LikeInt16(sample)) * (1.0 / 32768.0)
 }

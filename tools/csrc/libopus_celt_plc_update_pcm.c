@@ -69,15 +69,10 @@ static int write_f32(float v) {
   return write_exact(&bits, sizeof(bits));
 }
 
-static int16_t quantize_pcm16_like(float x) {
-  float scaled = x * 32768.f;
-  if (scaled < -32767.f) scaled = -32767.f;
-  if (scaled > 32767.f) scaled = 32767.f;
-  return (int16_t)lrintf(scaled);
-}
-
-static float raw_decode_sample_to_float(float x) {
-  return x * (1.0f / 32768.0f);
+static int16_t quantize_raw_pcm16_like(float x) {
+  if (x < -32767.f) x = -32767.f;
+  if (x > 32767.f) x = 32767.f;
+  return (int16_t)lrintf(x);
 }
 
 int main(void) {
@@ -113,18 +108,18 @@ int main(void) {
 
   if (channels == 1) {
     for (i = 0; i < DECODE_BUFFER_SIZE; i++) {
-      buf48k[i] = raw_decode_sample_to_float(history[i]);
+      buf48k[i] = history[i];
     }
   } else {
     for (i = 0; i < DECODE_BUFFER_SIZE; i++) {
-      buf48k[i] = raw_decode_sample_to_float(.5f * (history[i] + history[DECODE_BUFFER_SIZE + i]));
+      buf48k[i] = .5f * (history[i] + history[DECODE_BUFFER_SIZE + i]);
     }
   }
 
   for (i = 1; i < DECODE_BUFFER_SIZE; i++) {
     buf48k[i] += PREEMPHASIS * buf48k[i - 1];
   }
-  preemph_mem = buf48k[DECODE_BUFFER_SIZE - 1];
+  preemph_mem = (1.0f / 32768.0f) * buf48k[DECODE_BUFFER_SIZE - 1];
   for (i = 0; i < PLC_UPDATE_SAMPLES; i++) {
     int j;
     float sum = 0;
@@ -132,7 +127,7 @@ int main(void) {
     for (j = 0; j < SINC_ORDER + 1; j++) {
       sum += buf48k[base + j] * sinc_filter[j];
     }
-    out[i] = quantize_pcm16_like(sum);
+    out[i] = quantize_raw_pcm16_like(sum);
   }
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) ||
