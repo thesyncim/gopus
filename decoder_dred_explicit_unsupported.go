@@ -66,13 +66,14 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		return 0, ErrBufferTooSmall
 	}
 
-	primeAnalysis := d.sampleRate == 16000
+	// Explicit DRED queues FEC features before concealment; analysis priming is
+	// only for non-FEC neural PLC entry history.
 	if d.sampleRate == 48000 {
 		if d.prevMode == ModeHybrid {
 			return d.decodeExplicitHybridDREDFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
 		}
 		d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
-		d.prepareDRED48kNeuralEntry(frameSizeSamples, d.prevMode, primeAnalysis)
+		d.prepareDRED48kNeuralEntry(frameSizeSamples, d.prevMode, false)
 		if !d.applyDREDNeuralConcealment48kMono(pcm[:needed], frameSizeSamples) {
 			return 0, ErrInvalidPacket
 		}
@@ -83,7 +84,7 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		return frameSizeSamples, nil
 	}
 	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
-	d.prepareDRED48kNeuralEntry(frameSizeSamples, d.prevMode, primeAnalysis)
+	d.prepareDRED48kNeuralEntry(frameSizeSamples, d.prevMode, false)
 	if !d.applyDREDNeuralConcealment48kMono(pcm[:needed], frameSizeSamples) {
 		return 0, ErrInvalidPacket
 	}
