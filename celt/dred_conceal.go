@@ -169,7 +169,7 @@ func (d *Decoder) concealNeural48kMono(
 	copy(plcPCM[:], plcPCM[consumed16k:*plcFill])
 	*plcFill -= consumed16k
 
-	preemph := float32(PreemphCoef)
+	preemph := deepPLCPreemphCoef
 	preemphMem := *plcPreemphMem * 32768
 	for i := 0; i < frameSize; i++ {
 		tmp := neural[i]

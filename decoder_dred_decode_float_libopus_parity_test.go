@@ -362,7 +362,7 @@ func assertDecoderDREDPLCStateApproxEqual(t *testing.T, got, want lpcnetplc.Stat
 		got.FECSkip != want.FECSkip {
 		t.Fatalf("%s header=%+v want %+v", label, got, want)
 	}
-	assertFloat32ApproxEqual(t, got.Features[:], want.Features[:], label+" features", 1e-4)
+	assertFloat32ApproxEqual(t, got.Features[:lpcnetplc.NumFeatures], want.Features[:lpcnetplc.NumFeatures], label+" features", 1e-4)
 	assertFloat32ApproxEqual(t, got.Cont[:], want.Cont[:], label+" continuity", 1e-4)
 	assertFloat32ApproxEqual(t, got.PCM[:], want.PCM[:], label+" pcm history", 1e-4)
 	assertFloat32ApproxEqual(t, got.PLCNet.GRU1[:], want.PLCNet.GRU1[:], label+" plc net gru1", 1e-4)

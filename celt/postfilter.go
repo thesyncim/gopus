@@ -504,40 +504,41 @@ func combFilterWithSquare(buf []float64, start int, t0, t1, n int, g0, g1 float6
 		tapset1 = 0
 	}
 
-	g00 := g0 * combFilterGains[tapset0][0]
-	g01 := g0 * combFilterGains[tapset0][1]
-	g02 := g0 * combFilterGains[tapset0][2]
-	g10 := g1 * combFilterGains[tapset1][0]
-	g11 := g1 * combFilterGains[tapset1][1]
-	g12 := g1 * combFilterGains[tapset1][2]
+	g00 := float32(g0 * combFilterGains[tapset0][0])
+	g01 := float32(g0 * combFilterGains[tapset0][1])
+	g02 := float32(g0 * combFilterGains[tapset0][2])
+	g10 := float32(g1 * combFilterGains[tapset1][0])
+	g11 := float32(g1 * combFilterGains[tapset1][1])
+	g12 := float32(g1 * combFilterGains[tapset1][2])
 
-	x1 := buf[start-t1+1]
-	x2 := buf[start-t1]
-	x3 := buf[start-t1-1]
-	x4 := buf[start-t1-2]
+	x1 := float32(buf[start-t1+1])
+	x2 := float32(buf[start-t1])
+	x3 := float32(buf[start-t1-1])
+	x4 := float32(buf[start-t1-2])
 
 	if g0 == g1 && t0 == t1 && tapset0 == tapset1 {
 		overlap = 0
 	}
 
 	for i := 0; i < overlap; i++ {
-		var f float64
+		var f float32
 		if windowSq != nil {
-			f = windowSq[i]
+			f = float32(windowSq[i])
 		} else {
-			w := window[i]
+			w := float32(window[i])
 			f = w * w
 		}
-		oneMinus := 1.0 - f
+		oneMinus := float32(1.0) - f
 		idx := start + i
-		x0 := buf[idx-t1+2]
-		res := (oneMinus*g00)*buf[idx-t0] +
-			(oneMinus*g01)*(buf[idx-t0-1]+buf[idx-t0+1]) +
-			(oneMinus*g02)*(buf[idx-t0-2]+buf[idx-t0+2]) +
+		x0 := float32(buf[idx-t1+2])
+		sum := float32(buf[idx]) +
+			(oneMinus*g00)*float32(buf[idx-t0]) +
+			(oneMinus*g01)*(float32(buf[idx-t0-1])+float32(buf[idx-t0+1])) +
+			(oneMinus*g02)*(float32(buf[idx-t0-2])+float32(buf[idx-t0+2])) +
 			(f*g10)*x2 +
 			(f*g11)*(x3+x1) +
 			(f*g12)*(x4+x0)
-		buf[idx] += res
+		buf[idx] = float64(sum)
 		x4 = x3
 		x3 = x2
 		x2 = x1
@@ -549,15 +550,15 @@ func combFilterWithSquare(buf []float64, start int, t0, t1, n int, g0, g1 float6
 	}
 
 	i := overlap
-	x4 = buf[start+i-t1-2]
-	x3 = buf[start+i-t1-1]
-	x2 = buf[start+i-t1]
-	x1 = buf[start+i-t1+1]
+	x4 = float32(buf[start+i-t1-2])
+	x3 = float32(buf[start+i-t1-1])
+	x2 = float32(buf[start+i-t1])
+	x1 = float32(buf[start+i-t1+1])
 	for ; i < n; i++ {
 		idx := start + i
-		x0 := buf[idx-t1+2]
-		res := g10*x2 + g11*(x3+x1) + g12*(x4+x0)
-		buf[idx] += res
+		x0 := float32(buf[idx-t1+2])
+		sum := float32(buf[idx]) + g10*x2 + g11*(x3+x1) + g12*(x4+x0)
+		buf[idx] = float64(sum)
 		x4 = x3
 		x3 = x2
 		x2 = x1

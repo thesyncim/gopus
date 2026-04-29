@@ -8,6 +8,9 @@ const (
 	plcUpdateSamples   = plcUpdateFrames * plcUpdateFrameSize
 	plcUpdateSincOrder = 48
 	plcUpdateOffset    = plcDecodeBufferSize - plcUpdateSincOrder - 1 - 3*(plcUpdateSamples-1)
+	// Matches libopus dnn/freq.h PREEMPHASIS used by deep PLC, distinct
+	// from CELT's mode preemphasis coefficient.
+	deepPLCPreemphCoef = float32(0.85)
 )
 
 // Matches libopus celt_decoder.c update_plc_state() sinc_filter.
@@ -48,7 +51,7 @@ func (d *Decoder) FillPLCUpdate16kMonoWithPreemphasisMem(dst []float32) (int, fl
 		}
 	}
 
-	preemph := float32(PreemphCoef)
+	preemph := deepPLCPreemphCoef
 	for i := 1; i < plcDecodeBufferSize; i++ {
 		buf48k[i] += preemph * buf48k[i-1]
 	}
