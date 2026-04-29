@@ -64,6 +64,58 @@ func generateStereoEnergies(nbBands int, leftPattern, rightPattern []float64) []
 	return energies
 }
 
+func TestDynallocStereoCarriesLastAcrossChannels(t *testing.T) {
+	const (
+		nbBands  = MaxBands
+		channels = 2
+		lm       = 1
+	)
+	bandLogE := make([]float64, channels*nbBands)
+	bandLogE2 := make([]float64, channels*nbBands)
+	oldBandE := make([]float64, channels*nbBands)
+	logN := make([]int16, nbBands)
+	for i := range logN {
+		logN[i] = int16(LogN[i])
+	}
+
+	// libopus declares dynalloc_analysis()'s "last" index outside the channel
+	// loop. Channel 0 leaves it at band 10; channel 1 then uses that backward
+	// smoothing point for a steep low-band envelope.
+	bandLogE2[10] = 1
+	bandLogE[nbBands] = 10
+	bandLogE2[nbBands] = 10
+
+	got := DynallocAnalysis(
+		bandLogE, bandLogE2, oldBandE,
+		nbBands, 0, nbBands, channels, 24, lm,
+		logN,
+		80,
+		false, true, false, false,
+		-1, 0,
+		nil,
+		false, nil,
+	)
+	if got.Offsets[0] != 4 {
+		t.Fatalf("offset[0]=%d want 4; stereo dynalloc must carry last across channels like libopus", got.Offsets[0])
+	}
+
+	var scratch DynallocScratch
+	gotScratch := DynallocAnalysisWithScratch(
+		bandLogE, bandLogE2, oldBandE,
+		nbBands, 0, nbBands, channels, 24, lm,
+		logN,
+		80,
+		false, true, false, false,
+		-1, 0,
+		nil,
+		false, nil,
+		&scratch,
+	)
+	if gotScratch.Offsets[0] != got.Offsets[0] {
+		t.Fatalf("scratch offset[0]=%d want %d", gotScratch.Offsets[0], got.Offsets[0])
+	}
+}
+
 // =============================================================================
 // Test 1: Noise Floor Computation
 // =============================================================================
