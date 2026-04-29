@@ -26,8 +26,8 @@ const BitRes = bitRes
 // PreemphCoef is the de-emphasis filter coefficient.
 // The encoder applies pre-emphasis; decoder applies inverse de-emphasis:
 // y[n] = x[n] + PreemphCoef * y[n-1]
-// Value matches libopus static_modes_float.h: 0.85000610f
-const PreemphCoef = 0.85000610
+// Value matches libopus static_modes_float.h: 0.8500061035f
+const PreemphCoef = 0.8500061035
 
 // SilkCELTDelay is the delay compensation in samples at 48kHz for hybrid mode.
 // SILK needs to be delayed relative to CELT for proper time alignment.

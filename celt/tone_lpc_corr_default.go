@@ -1,4 +1,4 @@
-//go:build !arm64 && !amd64
+//go:build !amd64 && !(arm64 && gopus_neon_tone_lpc_corr)
 
 package celt
 
