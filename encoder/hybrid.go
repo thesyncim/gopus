@@ -1677,7 +1677,8 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
-		for j := 0; tellFracDynalloc+(dynallocLoopLogp<<celt.BitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < caps[i]; j++ {
+		j := 0
+		for ; tellFracDynalloc+(dynallocLoopLogp<<celt.BitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < caps[i]; j++ {
 			flag := 0
 			if j < offsets[i] {
 				flag = 1
@@ -1691,7 +1692,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 			totalBoost += quanta
 			dynallocLoopLogp = 1
 		}
-		if boost > 0 && dynallocLogp > 2 {
+		if j > 0 && dynallocLogp > 2 {
 			dynallocLogp--
 		}
 		offsets[i] = boost
