@@ -165,7 +165,11 @@ func encodeUntilDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, 
 		}
 		gotPacket := append([]byte(nil), packet[:n]...)
 		toc := ParseTOC(gotPacket[0])
-		if toc.Mode != wantMode || toc.Bandwidth != bandwidth || toc.FrameSize != frameSize {
+		packetDuration, err := opusPacketDurationSamples(gotPacket)
+		if err != nil {
+			t.Fatalf("parse packet duration frame=%d: %v", frameIdx, err)
+		}
+		if toc.Mode != wantMode || toc.Bandwidth != bandwidth || packetDuration != frameSize {
 			continue
 		}
 		payload, frameOffset, ok, err := findDREDPayload(gotPacket)
@@ -267,7 +271,6 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T)
 	if !ok {
 		t.Fatal("libopus hybrid packet missing DRED payload")
 	}
-
 	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 960, 1)
 	if ParseTOC(gotPacket[0]).Mode != ModeHybrid {
 		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeHybrid)

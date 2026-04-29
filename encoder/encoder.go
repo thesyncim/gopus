@@ -710,8 +710,14 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	encodingBitrate := e.bitrate
+	dredBitrate := 0
+	var dredPlan dredEmissionPlan
+	dredPlanOK := false
 	if actualMode != ModeCELT {
-		if dredPlan, ok := e.computeDREDEmissionPlan(frameSize); ok {
+		if plan, ok := e.computeDREDEmissionPlan(frameSize); ok {
+			dredPlan = plan
+			dredPlanOK = true
+			dredBitrate = dredPlan.bitrate
 			encodingBitrate -= dredPlan.bitrate
 			if encodingBitrate < 1 {
 				encodingBitrate = 1
@@ -748,15 +754,19 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			delayState := e.ensureDelayState(len(e.delayBuffer))
 			copy(delayState, e.delayBuffer)
 			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
-			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, rawPCM, lookaheadSlice, delayState, frameSize, transitionToCELT)
+			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, rawPCM, lookaheadSlice, delayState, frameSize, transitionToCELT, e.bitrate, encodingBitrate, dredBitrate)
 		} else {
 			e.maybePrefillSILKOnModeTransition(actualMode)
 			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
 			originalBitrate := e.bitrate
+			maxPacketBytes := 0
 			if encodingBitrate != originalBitrate {
+				if dredPlanOK && e.bitrateMode != ModeCBR {
+					maxPacketBytes = e.hybridDREDPrimaryBudget(originalBitrate, frameSize, dredPlan)
+				}
 				e.bitrate = encodingBitrate
 			}
-			frameData, err = e.encodeHybridFrameWithMaxPacketAndTransition(framePCM, celtPCM, lookaheadSlice, frameSize, 0, true, transitionToCELT, false)
+			frameData, err = e.encodeHybridFrameWithMaxPacketAndTransition(framePCM, celtPCM, lookaheadSlice, frameSize, maxPacketBytes, dredBitrate, false, true, transitionToCELT, false)
 			if encodingBitrate != originalBitrate {
 				e.bitrate = originalBitrate
 			}
@@ -2239,7 +2249,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 
 // encodeHybridMultiFramePacket encodes long hybrid packets by splitting into
 // 20ms hybrid frames and packing them using code-3 framing.
-func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, rawPCM []float64, lookahead []float64, delayState []float64, frameSize int, transitionToCELT bool) ([]byte, error) {
+func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, rawPCM []float64, lookahead []float64, delayState []float64, frameSize int, transitionToCELT bool, originalBitrate, encodingBitrate, dredBitrate int) ([]byte, error) {
 	if frameSize <= 960 || frameSize%960 != 0 {
 		return nil, ErrInvalidFrameSize
 	}
@@ -2267,7 +2277,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	frames := make([][]byte, frameCount)
 	sameSize := true
 	prevSize := -1
-	packetTargetBytes := targetBytesForBitrate(e.bitrate, frameSize)
+	packetTargetBytes := targetBytesForBitrate(originalBitrate, frameSize)
 	if packetTargetBytes < 1 {
 		packetTargetBytes = 1
 	}
@@ -2279,12 +2289,30 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	if maxLenSum < frameCount {
 		maxLenSum = frameCount
 	}
-	currMaxByRate := e.bitrate * 960 / 48000 / 8
+	subframeBitrate := e.bitrate
+	if encodingBitrate > 0 {
+		subframeBitrate = encodingBitrate
+	}
+	currMaxByRate := subframeBitrate * 960 / 48000 / 8
 	if currMaxByRate < 2 {
 		currMaxByRate = 2
 	}
+	dredBytes := 0
+	if dredBitrate > 0 {
+		dredBytes = bitrateToBits(dredBitrate, frameSize) / 8
+	}
+	dredSubframeBytes := 0
+	if dredBitrate > 0 {
+		// Libopus gives the first 20 ms subpacket room for a rounded DRED byte
+		// budget before repacketizing. This path attaches DRED after subframe
+		// encoding, so only that first-subpacket allowance is added back here.
+		dredSubframeBytes = (bitrateToBits(dredBitrate, 960) + 7) / 8
+		dredSubframeBytes += frameLengthBytes(dredSubframeBytes)
+	}
 	totSize := 0
 	packetPrefillFromCELT := e.shouldPrefillSILKOnModeTransition(ModeHybrid)
+	savedBitrate := e.bitrate
+	e.bitrate = subframeBitrate
 	for i := 0; i < frameCount; i++ {
 		e.primeSubframeAnalysis(960)
 		start := i * frameStride
@@ -2314,6 +2342,18 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		if currMax > capPerFrame {
 			currMax = capPerFrame
 		}
+		if dredBytes > 0 {
+			dredCap := (maxLenSum - dredBytes) / frameCount
+			if dredCap < 2 {
+				dredCap = 2
+			}
+			if currMax > dredCap {
+				currMax = dredCap
+			}
+			if i == 0 {
+				currMax += dredSubframeBytes
+			}
+		}
 		remainingCap := maxLenSum - totSize
 		if currMax > remainingCap {
 			currMax = remainingCap
@@ -2321,13 +2361,13 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		if currMax < 2 {
 			currMax = 2
 		}
-
 		allowTransitionRedundancy := (!transitionToCELT && i == 0) || (transitionToCELT && i == frameCount-1)
 		prevPacketMode := e.prevPacketMode
 		runCELTTransitionPrefill := i == 0 && !e.lowDelay && isConcreteMode(prevPacketMode) && prevPacketMode != ModeHybrid
 		subframeToCELT := transitionToCELT && i == frameCount-1
-		frameData, err := e.encodeHybridFrameWithMaxPacketAndTransition(subPCM, subCELTPCM, subLookahead, 960, currMax, allowTransitionRedundancy, subframeToCELT, runCELTTransitionPrefill)
+		frameData, err := e.encodeHybridFrameWithMaxPacketAndTransition(subPCM, subCELTPCM, subLookahead, 960, currMax, dredBitrate, true, allowTransitionRedundancy, subframeToCELT, runCELTTransitionPrefill)
 		if err != nil {
+			e.bitrate = savedBitrate
 			return nil, err
 		}
 		// Keep a stable copy because encoder scratch buffers are reused.
@@ -2342,6 +2382,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		}
 		prevSize = len(frameCopy)
 	}
+	e.bitrate = savedBitrate
 	e.analysisReadBakSet = false
 
 	packetBW := e.effectiveBandwidth()
