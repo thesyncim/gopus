@@ -777,9 +777,7 @@ func (d *Decoder) prepareDRED48kNeuralEntry(frameSize int, mode Mode, primeAnaly
 	if d == nil || r == nil || b == nil || (d.sampleRate != 48000 && d.sampleRate != 16000) || d.channels != 1 || (mode != ModeCELT && mode != ModeHybrid) {
 		return
 	}
-	if d.dredCachedPayloadActive() {
-		d.prepareCachedDREDNeuralConcealment(frameSize)
-	} else if !b.dredLastNeural && b.dredPLCFill == 0 && r.dredPLC.FECFillPos() == 0 && r.dredPLC.FECSkip() == 0 {
+	if !b.dredLastNeural && b.dredPLCFill == 0 && r.dredPLC.FECFillPos() == 0 && r.dredPLC.FECSkip() == 0 {
 		d.prepareCachedDREDNeuralConcealment(frameSize)
 	}
 	if d.celtDecoder == nil || d.celtDecoder.LastPLCFrameWasNeural() {
@@ -797,10 +795,6 @@ func (d *Decoder) prepareCachedDREDNeuralConcealment(frameSizeSamples int) {
 	}
 	r := d.dredRecoveryState()
 	if r == nil || frameSizeSamples <= 0 {
-		return
-	}
-	if d.dredCachedPayloadActive() {
-		d.queueActiveDREDRecovery(frameSizeSamples)
 		return
 	}
 	r.dredPLC.FECClear()
@@ -851,16 +845,12 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 		return false
 	}
 	if b != nil && (d.sampleRate == 48000 || d.sampleRate == 16000) {
-		useDRED := d.dredCachedPayloadActive()
-		d.prepareDRED48kNeuralEntry(samplesPerChannel, d.prevMode, true)
-		apply := d.applyPLCNeuralConcealment48kMono
-		if useDRED {
-			apply = d.applyDREDNeuralConcealment48kMono
-		}
-		if !apply(pcm, samplesPerChannel) {
+		cachedDRED := d.dredCachedPayloadActive()
+		d.prepareDRED48kNeuralEntry(samplesPerChannel, d.prevMode, false)
+		if !d.applyPLCNeuralConcealment48kMono(pcm, samplesPerChannel) {
 			return false
 		}
-		if useDRED {
+		if cachedDRED {
 			d.finishActiveDREDRecovery(samplesPerChannel)
 		}
 		return true

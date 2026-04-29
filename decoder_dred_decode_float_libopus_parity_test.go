@@ -667,7 +667,11 @@ func assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracle(t *testing.T, la
 	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.step1.celt48k, label+" second-loss live-sequence celt")
 }
 
-func TestDecoderCachedDREDDecodeMatrixMatchesExplicitDREDOracle(t *testing.T) {
+// Ordinary cached Decode(nil) follows libopus FRAME_PLC_NEURAL, while the
+// explicit DRED API follows FRAME_DRED. Keep this old explicit-oracle cached
+// scaffold disabled so future work can reuse the matrix without claiming the
+// two libopus entrypoints are equivalent.
+func disabledDecoderCachedDREDDecodeMatrixMatchesExplicitDREDOracle(t *testing.T) {
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -730,7 +734,7 @@ func TestDecoderCachedDREDDecodeMatrixMatchesLiveSequenceOracle(t *testing.T) {
 	}
 }
 
-func TestDecoderCachedDREDThenNextPacketMatchesExplicitDREDOracle(t *testing.T) {
+func disabledDecoderCachedDREDThenNextPacketMatchesExplicitDREDOracle(t *testing.T) {
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -860,7 +864,7 @@ func TestDecoderCachedDREDSecondLossMatchesLiveSequenceOracle(t *testing.T) {
 	}
 }
 
-func TestDecoderCachedDREDSecondLossMatchesExplicitDREDOracle(t *testing.T) {
+func disabledDecoderCachedDREDSecondLossMatchesExplicitDREDOracle(t *testing.T) {
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -913,7 +917,7 @@ func TestDecoderCachedDREDSecondLossMatchesExplicitDREDOracle(t *testing.T) {
 	}
 }
 
-func TestDecoderCachedDREDSecondLossThenNextPacketMatchesExplicitDREDOracle(t *testing.T) {
+func disabledDecoderCachedDREDSecondLossThenNextPacketMatchesExplicitDREDOracle(t *testing.T) {
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
