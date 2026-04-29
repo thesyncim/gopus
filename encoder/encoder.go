@@ -647,7 +647,11 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	frameEnd := frameSize * e.channels
 	framePCM := e.inputBuffer[:frameEnd]
 	lookaheadSlice := e.inputBuffer[frameEnd : frameEnd+lookaheadSamples]
-	e.processDREDLatents(framePCM, lookaheadSamples)
+	dredExtraDelay := 0
+	if !e.lowDelay {
+		dredExtraDelay = e.sampleRate / 250
+	}
+	e.processDREDLatents(framePCM, dredExtraDelay)
 
 	suppressFrame, _ := e.shouldUseDTX(framePCM)
 	if suppressFrame {

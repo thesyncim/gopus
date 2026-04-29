@@ -3,6 +3,7 @@ package dred
 import (
 	"math"
 
+	"github.com/thesyncim/gopus/internal/dnnmath"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -94,25 +95,7 @@ func encodeLaplaceP0(enc *rangecoding.Encoder, value int, p0, decay uint16) {
 }
 
 func tanhApprox(x float32) float32 {
-	const (
-		n0 = 952.52801514
-		n1 = 96.39235687
-		n2 = 0.60863042
-		d0 = 952.72399902
-		d1 = 413.36801147
-		d2 = 11.88600922
-	)
-	x2 := x * x
-	num := ((n2*x2 + n1) * x2) + n0
-	den := ((d2*x2 + d1) * x2) + d0
-	y := num * x / den
-	if y < -1 {
-		return -1
-	}
-	if y > 1 {
-		return 1
-	}
-	return y
+	return dnnmath.TanhApprox(x)
 }
 
 func encodeDREDLatents(enc *rangecoding.Encoder, x []float32, scale, dzone, rTable, p0Table []uint8) {
@@ -124,7 +107,7 @@ func encodeDREDLatents(enc *rangecoding.Encoder, x []float32, scale, dzone, rTab
 		xq := x[i] * float32(scale[i]) * (1.0 / 256.0)
 		deadzone := tanhApprox(xq / (delta + 0.1))
 		xq -= delta * deadzone
-		q := int(math.Floor(0.5 + float64(xq)))
+		q := int(math.Floor(float64(float32(0.5) + xq)))
 		encodeLaplaceP0(enc, q, uint16(p0Table[i])<<7, uint16(rTable[i])<<7)
 	}
 }

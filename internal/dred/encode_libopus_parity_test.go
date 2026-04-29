@@ -102,3 +102,47 @@ func TestEncodeExperimentalPayloadMatchesLibopusDelayedOffset(t *testing.T) {
 		t.Fatalf("lastExtraDREDOffset=%d want %d", lastExtra, want.LastExtraDREDOffset)
 	}
 }
+
+func TestEncodeExperimentalPayloadMatchesLibopusLargeLaplaceContinuation(t *testing.T) {
+	var state [MaxFrames * StateDim]float32
+	var latents [MaxFrames * LatentDim]float32
+	var activity [ActivityHistorySize]byte
+
+	// Exercises ec_laplace_encode_p0() values that use the final ICDF symbol as
+	// a continuation marker. Clamping that symbol corrupts real DRED payloads.
+	state[5] = 41.417286
+	state[15] = 51.2
+	latents[2] = -49.05866
+	for i := 0; i < 16; i++ {
+		activity[i] = 1
+	}
+
+	const (
+		q0          = 6
+		dQ          = 5
+		qmax        = 15
+		maxChunks   = 14
+		maxBytes    = 46
+		latentsFill = 2
+		dredOffset  = 10
+		latentOff   = 0
+	)
+
+	want, err := probeLibopusDREDEncodePayload(q0, dQ, qmax, maxChunks, maxBytes, latentsFill, dredOffset, latentOff, 0, state[:], latents[:], activity)
+	if err != nil {
+		t.Fatalf("probeLibopusDREDEncodePayload() error: %v", err)
+	}
+
+	var payload [MaxDataSize]byte
+	lastExtra := 0
+	n := EncodeExperimentalPayload(payload[:maxBytes+ExperimentalHeaderBytes], maxChunks, q0, dQ, qmax, state[:], latents[:], latentsFill, dredOffset, latentOff, &lastExtra, activity[:])
+	if n != ExperimentalHeaderBytes+len(want.Payload) {
+		t.Fatalf("EncodeExperimentalPayload()=%d want %d", n, ExperimentalHeaderBytes+len(want.Payload))
+	}
+	if !bytes.Equal(payload[ExperimentalHeaderBytes:n], want.Payload) {
+		t.Fatalf("payload mismatch\ngot=%x\nwant=%x", payload[ExperimentalHeaderBytes:n], want.Payload)
+	}
+	if lastExtra != want.LastExtraDREDOffset {
+		t.Fatalf("lastExtraDREDOffset=%d want %d", lastExtra, want.LastExtraDREDOffset)
+	}
+}
