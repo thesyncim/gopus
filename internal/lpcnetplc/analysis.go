@@ -393,8 +393,9 @@ func interpBandGain(dst, bandE []float32) {
 			frac := float32(j) / float32(bandSize)
 			v := (1-frac)*bandE[i] + frac*bandE[i+1]
 			if useNEONAnalysisKernels {
-				// Match libopus arm64 contraction for the source-order interpolation expression.
-				v = fma32(1-frac, bandE[i], float32(float64(frac)*float64(bandE[i+1])))
+				// Avoid routing this through fma32: the double FMA shim drifts from
+				// the pinned arm64 libopus output on FARGAN-sensitive histories.
+				v = float32(float64(1-frac)*float64(bandE[i]) + float64(frac)*float64(bandE[i+1]))
 			}
 			dst[analysisBandEdges[i]*analysisWindow5ms+j] = v
 		}
