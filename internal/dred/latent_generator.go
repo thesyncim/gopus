@@ -15,6 +15,8 @@ type LatentGenerator struct {
 	processor     rdovae.EncoderProcessor
 	featureFrames [2 * lpcnetplc.NumTotalFeatures]float32
 	input         [2 * NumFeatures]float32
+	latents       [rdovae.LatentDim]float32
+	initialState  [rdovae.StateDim]float32
 }
 
 // SetDNNBlob binds the shared pitch model family needed by the encoder-side
@@ -45,6 +47,8 @@ func (g *LatentGenerator) Reset() {
 	g.processor.Reset()
 	g.featureFrames = [2 * lpcnetplc.NumTotalFeatures]float32{}
 	g.input = [2 * NumFeatures]float32{}
+	g.latents = [rdovae.LatentDim]float32{}
+	g.initialState = [rdovae.StateDim]float32{}
 }
 
 // DREDOffset reports the current libopus-shaped DRED offset in 2.5 ms units.
@@ -72,9 +76,6 @@ func (g *LatentGenerator) Process16k(model *rdovae.EncoderModel, pcm []float32, 
 		return 0
 	}
 
-	var latents [rdovae.LatentDim]float32
-	var initialState [rdovae.StateDim]float32
-
 	return g.buffer.Append16k(pcm, extraDelay, func(frame []float32) {
 		first := g.featureFrames[:lpcnetplc.NumTotalFeatures]
 		second := g.featureFrames[lpcnetplc.NumTotalFeatures:]
@@ -86,11 +87,11 @@ func (g *LatentGenerator) Process16k(model *rdovae.EncoderModel, pcm []float32, 
 		}
 		copy(g.input[:NumFeatures], first[:NumFeatures])
 		copy(g.input[NumFeatures:2*NumFeatures], second[:NumFeatures])
-		if !model.EncodeDFrameWithProcessor(&g.processor, latents[:], initialState[:], g.input[:]) {
+		if !model.EncodeDFrameWithProcessor(&g.processor, g.latents[:], g.initialState[:], g.input[:]) {
 			return
 		}
 		if emit != nil {
-			emit(latents[:], initialState[:])
+			emit(g.latents[:], g.initialState[:])
 		}
 	})
 }

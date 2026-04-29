@@ -15,7 +15,6 @@ type dredEmissionPlan struct {
 	dQ           int
 	qmax         int
 	targetChunks int
-	targetBytes  int
 	bitrate      int
 }
 
@@ -110,7 +109,6 @@ func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool
 		dQ:           dQ,
 		qmax:         qmax,
 		targetChunks: targetChunks,
-		targetBytes:  bitrateToBits(dredBitrate, frameSize) / 8,
 		bitrate:      dredBitrate,
 	}, true
 }
@@ -209,16 +207,13 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 	withPadding := e.bitrateMode == ModeCBR
 
 	dredBytesLeft := targetSize - baseLen - 3
-	if !withPadding && actualMode == ModeHybrid {
+	if !withPadding {
 		dredBytesLeft = len(e.scratchPacket) - baseLen - 3
 	}
 	if dredBytesLeft > internaldred.MaxDataSize {
 		dredBytesLeft = internaldred.MaxDataSize
 	}
 	dredBytesLeft -= (dredBytesLeft + 1 + internaldred.ExperimentalHeaderBytes) / 255
-	if plan.targetBytes > 0 && dredBytesLeft > plan.targetBytes {
-		dredBytesLeft = plan.targetBytes
-	}
 	if dredBytesLeft < internaldred.MinBytes+internaldred.ExperimentalHeaderBytes {
 		return nil, false, nil
 	}
@@ -281,13 +276,13 @@ func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mod
 	withPadding := e.bitrateMode == ModeCBR
 
 	dredBytesLeft := targetSize - baseLen - 3
+	if !withPadding {
+		dredBytesLeft = len(e.scratchPacket) - baseLen - 3
+	}
 	if dredBytesLeft > internaldred.MaxDataSize {
 		dredBytesLeft = internaldred.MaxDataSize
 	}
 	dredBytesLeft -= (dredBytesLeft + 1 + internaldred.ExperimentalHeaderBytes) / 255
-	if plan.targetBytes > 0 && dredBytesLeft > plan.targetBytes {
-		dredBytesLeft = plan.targetBytes
-	}
 	if dredBytesLeft < internaldred.MinBytes+internaldred.ExperimentalHeaderBytes {
 		return nil, false, nil
 	}

@@ -225,8 +225,10 @@ func TestEncoderProcessDREDLatentsTracksOffsets(t *testing.T) {
 	if got := enc.processDREDLatents(frame, 0); got != 0 {
 		t.Fatalf("first processDREDLatents()=%d want 0", got)
 	}
-	if enc.dred.runtime.dredOffset != 4 {
-		t.Fatalf("dredOffset after first 10 ms frame=%d want 4", enc.dred.runtime.dredOffset)
+	// Mirrors libopus dred_compute_latents() with extra_delay=0 and the
+	// reset DRED_SILK_ENCODER_DELAY fill.
+	if enc.dred.runtime.dredOffset != 1 {
+		t.Fatalf("dredOffset after first 10 ms frame=%d want 1", enc.dred.runtime.dredOffset)
 	}
 	if enc.dred.runtime.latentOffset != 0 {
 		t.Fatalf("latentOffset after first 10 ms frame=%d want 0", enc.dred.runtime.latentOffset)
@@ -234,8 +236,8 @@ func TestEncoderProcessDREDLatentsTracksOffsets(t *testing.T) {
 	if got := enc.processDREDLatents(frame, 0); got != 1 {
 		t.Fatalf("second processDREDLatents()=%d want 1", got)
 	}
-	if enc.dred.runtime.dredOffset != 12 {
-		t.Fatalf("dredOffset after second 10 ms frame=%d want 12", enc.dred.runtime.dredOffset)
+	if enc.dred.runtime.dredOffset != 5 {
+		t.Fatalf("dredOffset after second 10 ms frame=%d want 5", enc.dred.runtime.dredOffset)
 	}
 	if enc.dred.runtime.latentOffset != 0 {
 		t.Fatalf("latentOffset after second 10 ms frame=%d want 0", enc.dred.runtime.latentOffset)
@@ -338,7 +340,7 @@ func TestEncoderBuildDREDExperimentalPayloadDoesNotAllocate(t *testing.T) {
 }
 
 func TestMaybeBuildSingleFrameDREDPacketCarriesExtension(t *testing.T) {
-	enc := NewEncoder(16000, 1)
+	enc := NewEncoder(48000, 1)
 	enc.SetMode(ModeSILK)
 	enc.SetBitrate(64000)
 	enc.SetPacketLoss(20)
@@ -365,7 +367,7 @@ func TestMaybeBuildSingleFrameDREDPacketCarriesExtension(t *testing.T) {
 	runtime.latentOffset = 0
 
 	frameData := make([]byte, 40)
-	packet, ok, err := enc.maybeBuildSingleFrameDREDPacket(frameData, ModeSILK, types.BandwidthWideband, 320, false)
+	packet, ok, err := enc.maybeBuildSingleFrameDREDPacket(frameData, ModeSILK, types.BandwidthWideband, 960, false)
 	if err != nil {
 		t.Fatalf("maybeBuildSingleFrameDREDPacket() error: %v", err)
 	}
@@ -381,8 +383,15 @@ func TestMaybeBuildSingleFrameDREDPacketCarriesExtension(t *testing.T) {
 	if packet[1]&0x40 == 0 {
 		t.Fatalf("count byte=0x%02x missing padding flag", packet[1])
 	}
-	if packet[len(packet)-1] != internaldred.ExperimentalVersion {
-		t.Fatalf("packet tail version=%d want %d", packet[len(packet)-1], internaldred.ExperimentalVersion)
+	foundDREDHeader := false
+	for i := 0; i+2 < len(packet); i++ {
+		if packet[i] == byte(internaldred.ExtensionID<<1) && packet[i+1] == 'D' && packet[i+2] == internaldred.ExperimentalVersion {
+			foundDREDHeader = true
+			break
+		}
+	}
+	if !foundDREDHeader {
+		t.Fatalf("packet does not contain DRED experimental extension header: %x", packet)
 	}
 }
 
