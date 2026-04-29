@@ -429,8 +429,25 @@ func lpcnLPC(lpc, ac []float32, order int) float32 {
 	}
 	for i := 0; i < order; i++ {
 		var rr float32
-		for j := 0; j < i; j++ {
-			rr += lpc[j] * ac[i-j]
+		if useNEONAnalysisKernels {
+			j := 0
+			for ; j+3 < i; j += 4 {
+				p0 := float32(lpc[j+0] * ac[i-(j+0)])
+				p1 := float32(lpc[j+1] * ac[i-(j+1)])
+				p2 := float32(lpc[j+2] * ac[i-(j+2)])
+				p3 := float32(lpc[j+3] * ac[i-(j+3)])
+				rr += p0
+				rr += p1
+				rr += p2
+				rr += p3
+			}
+			for ; j < i; j++ {
+				rr = fma32(lpc[j], ac[i-j], rr)
+			}
+		} else {
+			for j := 0; j < i; j++ {
+				rr += lpc[j] * ac[i-j]
+			}
 		}
 		rr += ac[i+1]
 		r := -rr / err
@@ -439,10 +456,19 @@ func lpcnLPC(lpc, ac []float32, order int) float32 {
 		for j := 0; j < (i+1)>>1; j++ {
 			tmp1 := lpc[j]
 			tmp2 := lpc[i-1-j]
+			if useNEONAnalysisKernels {
+				lpc[j] = fma32(r, tmp2, tmp1)
+				lpc[i-1-j] = fma32(r, tmp1, tmp2)
+				continue
+			}
 			lpc[j] = tmp1 + r*tmp2
 			lpc[i-1-j] = tmp2 + r*tmp1
 		}
-		err -= (r * r) * err
+		if useNEONAnalysisKernels {
+			err = fma32(-(r * r), err, err)
+		} else {
+			err -= (r * r) * err
+		}
 		if err < .001*ac[0] {
 			break
 		}
