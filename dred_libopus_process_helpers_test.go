@@ -231,10 +231,22 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 	if toc.Bandwidth != cfg.Bandwidth {
 		return libopusDREDPacket{}, fmt.Errorf("dred emit helper bandwidth=%v want %v", toc.Bandwidth, cfg.Bandwidth)
 	}
-	if toc.FrameSize != cfg.FrameSize {
-		return libopusDREDPacket{}, fmt.Errorf("dred emit helper frame size=%d want %d", toc.FrameSize, cfg.FrameSize)
+	packetDuration, err := opusPacketDurationSamples(info.packet)
+	if err != nil {
+		return libopusDREDPacket{}, fmt.Errorf("parse dred emit helper packet duration: %w", err)
+	}
+	if packetDuration != cfg.FrameSize {
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper packet duration=%d want %d", packetDuration, cfg.FrameSize)
 	}
 	return info, nil
+}
+
+func opusPacketDurationSamples(packet []byte) (int, error) {
+	info, err := ParsePacket(packet)
+	if err != nil {
+		return 0, err
+	}
+	return info.TOC.FrameSize * info.FrameCount, nil
 }
 
 func libopusDREDForceModeEnv(mode Mode) (string, error) {

@@ -121,12 +121,15 @@ func TestEncoderProcessDREDLatentsSupportsRateConversion(t *testing.T) {
 		sampleRate        int
 		channels          int
 		frameSamplesPerCh int
+		wantEmitted       int
 	}{
-		{name: "8k mono", sampleRate: 8000, channels: 1, frameSamplesPerCh: 160},
-		{name: "12k mono", sampleRate: 12000, channels: 1, frameSamplesPerCh: 240},
-		{name: "24k mono", sampleRate: 24000, channels: 1, frameSamplesPerCh: 480},
-		{name: "48k mono", sampleRate: 48000, channels: 1, frameSamplesPerCh: 960},
-		{name: "48k stereo", sampleRate: 48000, channels: 2, frameSamplesPerCh: 960},
+		{name: "8k mono", sampleRate: 8000, channels: 1, frameSamplesPerCh: 160, wantEmitted: 1},
+		{name: "12k mono", sampleRate: 12000, channels: 1, frameSamplesPerCh: 240, wantEmitted: 1},
+		{name: "24k mono", sampleRate: 24000, channels: 1, frameSamplesPerCh: 480, wantEmitted: 1},
+		{name: "48k mono", sampleRate: 48000, channels: 1, frameSamplesPerCh: 960, wantEmitted: 1},
+		{name: "48k stereo", sampleRate: 48000, channels: 2, frameSamplesPerCh: 960, wantEmitted: 1},
+		{name: "48k mono 60ms", sampleRate: 48000, channels: 1, frameSamplesPerCh: 2880, wantEmitted: 3},
+		{name: "48k stereo 60ms", sampleRate: 48000, channels: 2, frameSamplesPerCh: 2880, wantEmitted: 3},
 	}
 
 	for _, tc := range tests {
@@ -149,14 +152,14 @@ func TestEncoderProcessDREDLatentsSupportsRateConversion(t *testing.T) {
 				}
 			}
 
-			if got := enc.processDREDLatents(frame, 0); got != 1 {
-				t.Fatalf("processDREDLatents()=%d want 1", got)
+			if got := enc.processDREDLatents(frame, 0); got != tc.wantEmitted {
+				t.Fatalf("processDREDLatents()=%d want %d", got, tc.wantEmitted)
 			}
 			if enc.dred == nil || enc.dred.runtime == nil {
 				t.Fatal("DRED runtime did not materialize on supported sample-rate conversion path")
 			}
-			if enc.dred.runtime.emitted != 1 {
-				t.Fatalf("runtime emitted=%d want 1", enc.dred.runtime.emitted)
+			if enc.dred.runtime.emitted != tc.wantEmitted {
+				t.Fatalf("runtime emitted=%d want %d", enc.dred.runtime.emitted, tc.wantEmitted)
 			}
 		})
 	}

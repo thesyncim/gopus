@@ -105,7 +105,7 @@ type HybridState struct {
 // encodeHybridFrameWithMaxPacketAndTransition allows callers assembling long packets
 // to gate CELT transition redundancy/prefill to the correct 20ms subframe,
 // matching libopus multi-frame cadence.
-func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int, maxPacketBytes int, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) ([]byte, error) {
+func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int, maxPacketBytes int, dredBitrate int, hardMaxPacketBytes bool, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) ([]byte, error) {
 	// Validate: only 480 (10ms) or 960 (20ms) for hybrid
 	if frameSize != 480 && frameSize != 960 {
 		return nil, ErrInvalidHybridFrameSize
@@ -145,7 +145,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	// Compute target buffer size based on bitrate mode.
 	// baseTargetBytes includes the TOC byte; payloadTarget is the shared range payload.
 	baseTargetBytes := targetBytesForBitrate(e.bitrate, frameSize)
-	if maxPacketBytes > 0 && baseTargetBytes > maxPacketBytes {
+	if maxPacketBytes > 0 {
 		baseTargetBytes = maxPacketBytes
 	}
 	if baseTargetBytes < 2 {
@@ -202,16 +202,22 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	case ModeCBR:
 		maxTargetBytes = payloadTargetMain
 	case ModeCVBR, ModeVBR:
-		// Allow up to 2x target for both VBR and CVBR. In libopus, the
-		// range encoder buffer is large (up to 1275 bytes) regardless of
-		// CVBR mode. The CELT encoder's internal CVBR reservoir tracking
-		// constrains actual byte usage per frame.
-		maxAllowed := int(float64(baseTargetBytes) * 2.0)
-		if maxAllowed < 2 {
-			maxAllowed = 2
+		if hardMaxPacketBytes {
+			// Long-packet callers pass libopus-style curr_max values, which are
+			// hard per-subframe range limits rather than soft VBR targets.
+			maxTargetBytes = payloadTargetMain
+		} else {
+			// Allow up to 2x target for both VBR and CVBR. In libopus, the
+			// range encoder buffer is large (up to 1275 bytes) regardless of
+			// CVBR mode. The CELT encoder's internal CVBR reservoir tracking
+			// constrains actual byte usage per frame.
+			maxAllowed := int(float64(baseTargetBytes) * 2.0)
+			if maxAllowed < 2 {
+				maxAllowed = 2
+			}
+			// Reserve one extra byte to account for range coder end bits.
+			maxTargetBytes = maxAllowed - 2
 		}
-		// Reserve one extra byte to account for range coder end bits.
-		maxTargetBytes = maxAllowed - 2
 	}
 	if redundancyBytes > 0 {
 		maxTargetBytes -= redundancyBytes
@@ -220,6 +226,9 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 		maxTargetBytes = payloadTargetMain
 	}
 	if maxTargetBytes > maxHybridPacketSize-1 {
+		maxTargetBytes = maxHybridPacketSize - 1
+	}
+	if dredBitrate > 0 && e.bitrateMode != ModeCBR && maxPacketBytes == 0 {
 		maxTargetBytes = maxHybridPacketSize - 1
 	}
 
@@ -381,6 +390,24 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 			re.EncodeUniform(uint32(redundancyBytes-2), 256) // redundancy length
 		} else {
 			re.EncodeBit(0, 12)
+		}
+	}
+	if dredBitrate > 0 {
+		dredBytes := bitrateToBits(dredBitrate, frameSize) / 8
+		if dredBytes > 0 {
+			maxCELTBytes := maxTargetBytes - dredBytes*3/4
+			minCELTBytes := (re.Tell()+7)/8 + 5
+			if maxCELTBytes < minCELTBytes {
+				maxCELTBytes = minCELTBytes
+			}
+			if maxCELTBytes < maxTargetBytes {
+				maxTargetBytes = maxCELTBytes
+				if e.bitrateMode == ModeCBR {
+					re.Shrink(uint32(maxTargetBytes))
+				} else {
+					re.Limit(uint32(maxTargetBytes))
+				}
+			}
 		}
 	}
 

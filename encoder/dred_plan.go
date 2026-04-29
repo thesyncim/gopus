@@ -115,6 +115,83 @@ func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool
 	}, true
 }
 
+func maxDREDChunks(duration, targetChunks int) int {
+	maxChunks := (duration + 5) / 4
+	if maxChunks > internaldred.NumRedundancyFrames/2 {
+		maxChunks = internaldred.NumRedundancyFrames / 2
+	}
+	if targetChunks > 0 && maxChunks > targetChunks {
+		maxChunks = targetChunks
+	}
+	return maxChunks
+}
+
+func packetExtensionPaddingAmount(extID, extDataLen int) int {
+	if extDataLen <= 0 {
+		return 0
+	}
+	extLen := 0
+	if extID >= 3 && extID <= 127 {
+		if extID < 32 {
+			if extDataLen <= 1 {
+				extLen = 1 + extDataLen
+			}
+		} else {
+			extLen = 1 + extDataLen
+		}
+	}
+	if extLen <= 0 {
+		return 0
+	}
+	return extLen + (extLen+253)/254
+}
+
+func (e *Encoder) previewDREDExperimentalPayloadLength(maxChunks, q0, dQ, qmax int) int {
+	runtime := e.ensureActiveDREDRuntime()
+	if runtime == nil || runtime.latentsFill <= 0 {
+		return 0
+	}
+	lastExtra := runtime.lastExtraDREDOffset
+	return internaldred.EncodeExperimentalPayload(
+		runtime.payload[:],
+		maxChunks,
+		q0,
+		dQ,
+		qmax,
+		runtime.stateBuffer[:],
+		runtime.latentsBuffer[:],
+		runtime.latentsFill,
+		runtime.dredOffset,
+		runtime.latentOffset,
+		&lastExtra,
+		runtime.activity[:],
+	)
+}
+
+func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan dredEmissionPlan) int {
+	if e.dred == nil || e.dred.duration <= 0 || plan.targetChunks < 1 {
+		return 0
+	}
+	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks)
+	if maxChunks < 1 {
+		return 0
+	}
+	payloadLen := e.previewDREDExperimentalPayloadLength(maxChunks, plan.q0, plan.dQ, plan.qmax)
+	if payloadLen == 0 {
+		return 0
+	}
+	targetSize := targetBytesForBitrate(originalBitrate, frameSize)
+	paddingAmount := packetExtensionPaddingAmount(internaldred.ExtensionID, payloadLen)
+	budget := targetSize - paddingAmount - 3
+	if e.channels > 1 {
+		budget -= 4 * (e.channels - 1)
+	}
+	if budget < 2 {
+		return 2
+	}
+	return budget
+}
+
 func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode Mode, packetBW types.Bandwidth, frameSize int, stereo bool) ([]byte, bool, error) {
 	if actualMode == ModeCELT {
 		return nil, false, nil
@@ -132,6 +209,9 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 	withPadding := e.bitrateMode == ModeCBR
 
 	dredBytesLeft := targetSize - baseLen - 3
+	if !withPadding && actualMode == ModeHybrid {
+		dredBytesLeft = len(e.scratchPacket) - baseLen - 3
+	}
 	if dredBytesLeft > internaldred.MaxDataSize {
 		dredBytesLeft = internaldred.MaxDataSize
 	}
@@ -148,13 +228,7 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 		return nil, false, nil
 	}
 
-	maxChunks := (e.dred.duration + 5) / 4
-	if maxChunks > internaldred.NumRedundancyFrames/2 {
-		maxChunks = internaldred.NumRedundancyFrames / 2
-	}
-	if maxChunks > plan.targetChunks {
-		maxChunks = plan.targetChunks
-	}
+	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks)
 	if maxChunks < 1 {
 		return nil, false, nil
 	}
