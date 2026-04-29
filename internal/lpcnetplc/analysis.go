@@ -364,7 +364,7 @@ func lpcFromCepstrum(lpc, cepstrum []float32, scratch *analysisScratch) float32 
 	scratch.lpcTmp[0] += 4
 	idctTransform(scratch.lpcEx[:], scratch.lpcTmp[:])
 	for i := 0; i < NumBands; i++ {
-		scratch.lpcEx[i] = float32(math.Pow(10, float64(scratch.lpcEx[i]))) * analysisCompensation[i]
+		scratch.lpcEx[i] = float32(math.Pow(10, float64(scratch.lpcEx[i])) * float64(analysisCompensation[i]))
 	}
 	return lpcFromBands(lpc, scratch.lpcEx[:], scratch)
 }
