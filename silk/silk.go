@@ -705,6 +705,7 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	// Fall back to legacy concealment only when required state is unavailable.
 	var concealed []float32
 	hookLagPrev := 0
+	usedDeepPLCHook := false
 	if d.deepPLCLossMonoHook != nil {
 		if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
 			concealed = d.scratchOutput[:nativeSamples]
@@ -713,7 +714,14 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 		}
 		ok, lagPrev := d.deepPLCLossMonoHook(concealed)
 		if ok {
+			usedDeepPLCHook = true
 			hookLagPrev = lagPrev
+			if state := d.ensureSILKPLCState(0); state != nil && d.state[0].nbSubfr > 0 {
+				_ = plc.ConcealSILKWithLTP(d, state, lossCnt, nativeSamples)
+				if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
+					hookLagPrev = lag
+				}
+			}
 		} else {
 			concealed = nil
 		}
@@ -747,9 +755,12 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	}
 
 	// Update decoder state for PLC gluing and outBuf cadence.
-	d.recordPLCLossForState(&d.state[0], concealed)
-	if d.deepPLCLossMonoHook != nil {
+	if usedDeepPLCHook {
 		d.applyDeepPLCHistoryMono(&d.state[0], concealed)
+	}
+	d.recordPLCLossForState(&d.state[0], concealed)
+	if usedDeepPLCHook {
+		d.state[0].plcSkipRecoveryGlue = true
 	}
 	// Match libopus dec_API.c: on FLAG_PACKET_LOST, reset gain index
 	// to avoid gain-bounce on subsequent good frames.
