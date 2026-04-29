@@ -22,6 +22,7 @@ func silkPLCGlueFrames(st *decoderState, frame []int16, length int) {
 	}
 
 	applyPLCRecoveryGlue(st, frame, length)
+	st.plcSkipRecoveryGlue = false
 	st.plcLastFrameLost = false
 }
 
@@ -60,6 +61,9 @@ func applyPLCRecoveryGlue(st *decoderState, frame []int16, length int) {
 	slopeQ16 := silkDiv32_16((1<<16)-gainQ16, int32(length))
 	slopeQ16 = slopeQ16 << 2
 
+	if st.plcSkipRecoveryGlue {
+		return
+	}
 	applyPLCGainRamp(frame, length, gainQ16, slopeQ16)
 }
 

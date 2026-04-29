@@ -1,11 +1,5 @@
 package gopus
 
-import (
-	internaldred "github.com/thesyncim/gopus/internal/dred"
-	"github.com/thesyncim/gopus/internal/lpcnetplc"
-	"github.com/thesyncim/gopus/silk"
-)
-
 type plcDecodeState struct {
 	packetFrameSize    int
 	mode               Mode
@@ -85,68 +79,16 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 }
 
 func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
-	useDRED := d.dredCachedPayloadActive()
-	var lowbandSnapshot *silk.DeepPLCLowbandSnapshot
-	cleanupHook := func() {}
-	usedHook := func() bool { return false }
-	queued := internaldred.FeatureWindow{}
-	if useDRED {
-		queued = d.queueActiveDREDRecovery(frameSize)
-	}
-	if useDRED && d.dredNeuralConcealmentAvailable() && d.silkDecoder != nil {
-		lowbandSnapshot = d.silkDecoder.SnapshotDeepPLCLowbandMono()
-		cleanupHook, usedHook = d.beginHybridDREDLowbandHook()
-	}
+	cleanupHook, usedHook := d.beginHybridDREDLowbandHook()
 	defer cleanupHook()
 	n, err := d.decodePLCChunksInto(out, frameSize, state)
 	if err != nil {
 		return 0, false, err
 	}
-	if !useDRED {
-		if d.dredNeuralConcealmentAvailable() {
-			d.prepareDRED48kNeuralEntry(frameSize, state.mode, false)
-		}
-		if !d.dredNeuralConcealmentAvailable() || n <= 0 || n%3 != 0 {
-			return n, false, nil
-		}
-		r := d.dredRecoveryState()
-		neural := d.dredNeuralState()
-		b := d.dred48kBridgeState()
-		if r == nil || neural == nil || b == nil || d.celtDecoder == nil {
-			return n, false, nil
-		}
-		generate := func(frame []float32) bool {
-			if len(frame) < lpcnetplc.FrameSize {
-				return false
-			}
-			if r.dredPLC.Blend() == 0 {
-				return r.dredPLC.GenerateConcealedFrameFloatWithAnalysis(&neural.dredAnalysis, &neural.dredPredictor, &neural.dredFARGAN, frame[:lpcnetplc.FrameSize])
-			}
-			return r.dredPLC.GenerateConcealedFrameFloat(&neural.dredPredictor, &neural.dredFARGAN, frame[:lpcnetplc.FrameSize])
-		}
-		ok := d.celtDecoder.ConcealPLCNeural48kMonoStateOnly(
-			n,
-			&b.dredLastNeural,
-			b.dredPLCPCM[:],
-			&b.dredPLCFill,
-			&b.dredPLCPreemphMem,
-			generate,
-		)
-		if !ok {
-			return n, false, nil
-		}
-		return n, true, nil
-	}
 	if usedHook() {
-		d.finishActiveDREDRecovery(n)
 		return n, true, nil
 	}
-	if queued.NeededFeatureFrames > 0 || d.dredRecoveryState() != nil {
-		if d.advanceHybridDREDLowbandState(n, lowbandSnapshot) {
-			return n, true, nil
-		}
-	}
-	return n, true, nil
+	return n, false, nil
 }
 
 func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
