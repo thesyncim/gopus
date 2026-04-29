@@ -1,6 +1,7 @@
 package testvectors
 
 import (
+	"flag"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -235,6 +236,9 @@ func decodeBenchmarkVectorInt16(dec *gopus.Decoder, packets []Packet, pcm []int1
 
 func assertBenchmarkZeroAllocs(b *testing.B, name string, expectedSamples int64, decode func() (int64, error)) {
 	b.Helper()
+	if benchmarkCPUProfileEnabled() {
+		return
+	}
 	var decodeErr error
 	allocs := testing.AllocsPerRun(3, func() {
 		if decodeErr != nil {
@@ -255,6 +259,11 @@ func assertBenchmarkZeroAllocs(b *testing.B, name string, expectedSamples int64,
 	if allocs != 0 {
 		b.Fatalf("%s allocation guard: got %.2f allocs/op, want 0", name, allocs)
 	}
+}
+
+func benchmarkCPUProfileEnabled() bool {
+	profile := flag.Lookup("test.cpuprofile")
+	return profile != nil && profile.Value.String() != ""
 }
 
 func reportDecodeBenchmarkMetrics(b *testing.B, samples, packets int64) {

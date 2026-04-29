@@ -2,6 +2,8 @@
 // of the Opus codec as specified in RFC 6716 Section 4.3.
 package celt
 
+import "unsafe"
+
 // CWRS (Combinatorial Radix-based With Signs) implements combinatorial indexing
 // for PVQ (Pyramid Vector Quantization) decoding. This is the core algorithm
 // for decoding normalized band vectors from compact indices.
@@ -224,6 +226,14 @@ var pvqUDense = func() [15][177]uint32 {
 	return dense
 }()
 
+const pvqUDenseCols = 177
+
+var pvqUDenseBase = unsafe.Pointer(&pvqUDense[0][0])
+
+func pvqUDenseUnchecked(row, col int) uint32 {
+	return *(*uint32)(unsafe.Add(pvqUDenseBase, uintptr(row*pvqUDenseCols+col)*unsafe.Sizeof(pvqUDense[0][0])))
+}
+
 // pvqUTableLookup performs a direct table lookup for U(n, k).
 // Returns (value, ok) where ok is true if the lookup succeeded.
 // If the lookup fails (n or k out of range), falls back to computation.
@@ -386,7 +396,7 @@ func pvqUTableLookupFast(n, k int) uint32 {
 	if n > k {
 		n, k = k, n
 	}
-	return pvqUDense[n][k]
+	return pvqUDenseUnchecked(n, k)
 }
 
 // unext computes the next row/column of any recurrence that obeys the relation
@@ -490,25 +500,27 @@ func ncwrsUrow(n, k int, u []uint32) uint32 {
 // For small n where table lookup is available, it uses O(1) lookups.
 // For larger n, it falls back to the row-based algorithm.
 func cwrsiFast(n, k int, i uint32, y []int) uint32 {
-	if n <= 0 || k <= 0 || len(y) < n {
+	if n < 2 || k <= 0 || len(y) < n {
 		return 0
 	}
+	n0 := n
+	y = y[:n0:n0]
+	_ = y[n0-1]
 
 	// For n >= 2 and k where table lookup works, use the fast path
 	// matching libopus cwrs.c lines 484-558
 	var yy uint32
-	j := 0
 
-	for n > 2 {
+	for j := 0; j < n0-2; j++ {
+		nCur := n0 - j
 		var p, q uint32
 		var s int
 		var k0, yj int
 
 		// Lots of pulses case (k >= n)
-		if k >= n {
-			rowN := &pvqUDense[n]
+		if k >= nCur {
 			// Are the pulses in this dimension negative?
-			p = rowN[k+1]
+			p = pvqUDenseUnchecked(nCur, k+1)
 			if i >= p {
 				s = -1
 				i -= p
@@ -516,13 +528,13 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 
 			// Count how many pulses were placed in this dimension
 			k0 = k
-			q = rowN[n]
+			q = pvqUDenseUnchecked(nCur, nCur)
 
 			if q > i {
-				k = n
+				k = nCur
 				for {
 					k--
-					p = pvqUDense[k][n]
+					p = pvqUDenseUnchecked(k, nCur)
 					if p <= i {
 						break
 					}
@@ -530,18 +542,18 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 			} else {
 				// rowN[k] is monotonic in k for fixed n, so we can locate the
 				// largest k <= current k with value <= i via binary search.
-				lo := n
+				lo := nCur
 				hi := k
 				for lo < hi {
 					mid := (lo + hi + 1) >> 1
-					if rowN[mid] <= i {
+					if pvqUDenseUnchecked(nCur, mid) <= i {
 						lo = mid
 					} else {
 						hi = mid - 1
 					}
 				}
 				k = lo
-				p = rowN[lo]
+				p = pvqUDenseUnchecked(nCur, lo)
 			}
 			i -= p
 			yj = k0 - k
@@ -552,11 +564,9 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 			yy += uint32(yj * yj)
 		} else {
 			// Lots of dimensions case (k < n)
-			rowK := &pvqUDense[k]
-			rowK1 := &pvqUDense[k+1]
 			// Are there any pulses in this dimension at all?
-			p = rowK[n]
-			q = rowK1[n]
+			p = pvqUDenseUnchecked(k, nCur)
+			q = pvqUDenseUnchecked(k+1, nCur)
 
 			if p <= i && i < q {
 				i -= p
@@ -571,7 +581,7 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 				k0 = k
 				for {
 					k--
-					p = pvqUDense[k][n]
+					p = pvqUDenseUnchecked(k, nCur)
 					if p <= i {
 						break
 					}
@@ -585,11 +595,10 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 				yy += uint32(yj * yj)
 			}
 		}
-		n--
-		j++
 	}
 
 	// n == 2
+	j := n0 - 2
 	p := uint32(2*k + 1)
 	s := 0
 	if i >= p {

@@ -137,6 +137,21 @@ var silkResamplerFracFIR12 = [12][4]int16{
 	{-46, 425, -1375, 2996},
 }
 
+var silkResamplerFracFIR12Flat = [48]int16{
+	189, -600, 617, 30567,
+	117, -159, -1070, 29704,
+	52, 221, -2392, 28276,
+	-4, 529, -3350, 26341,
+	-48, 758, -3956, 23973,
+	-80, 905, -4235, 21254,
+	-99, 972, -4222, 18278,
+	-107, 967, -3957, 15143,
+	-103, 896, -3487, 11950,
+	-91, 773, -2865, 8798,
+	-71, 611, -2143, 5784,
+	-46, 425, -1375, 2996,
+}
+
 // Delay matrix for decoder (from resampler.c)
 // in \ out  8  12  16  24  48
 var delayMatrixDec = [3][5]int8{
@@ -469,7 +484,7 @@ func (r *LibopusResampler) up2HQ(out []int16, in []int16) {
 		s2 = out32_2 + X
 
 		// Convert back to int16 and store even sample
-		out[outPos] = int16(sat16(rshiftRound(out32_1, 10)))
+		out[outPos] = sat16RShiftRound10(out32_1)
 
 		// First all-pass section for odd output sample
 		Y = in32 - s3
@@ -490,7 +505,7 @@ func (r *LibopusResampler) up2HQ(out []int16, in []int16) {
 		s5 = out32_2 + X
 
 		// Convert back to int16 and store odd sample
-		out[outPos+1] = int16(sat16(rshiftRound(out32_1, 10)))
+		out[outPos+1] = sat16RShiftRound10(out32_1)
 		outPos += 2
 	}
 
@@ -522,29 +537,33 @@ func (r *LibopusResampler) firInterpol(out []int16, outIdx int, buf []int16, max
 	lastIndexQ16 := int32(nOut-1) * indexIncrQ16
 	_ = buf[int(lastIndexQ16>>16)+7]
 
-	outPos := outIdx
+	dst := out[outIdx : outIdx+nOut]
+	_ = dst[nOut-1]
 	for indexQ16, n := int32(0), 0; n < nOut; n, indexQ16 = n+1, indexQ16+indexIncrQ16 {
 		// Fractional position for table lookup (0..11), matching libopus smulwb(indexQ16&0xFFFF, 12).
 		tableIndex := int((uint32(indexQ16&0xFFFF) * 12) >> 16)
 		bufIdx := int(indexQ16 >> 16)
 
 		// 8-tap symmetric FIR filter.
-		c0 := silkResamplerFracFIR12[tableIndex]
-		c1 := silkResamplerFracFIR12[11-tableIndex]
-		resQ15 := int32(buf[bufIdx+0]) * int32(c0[0])
-		resQ15 += int32(buf[bufIdx+1]) * int32(c0[1])
-		resQ15 += int32(buf[bufIdx+2]) * int32(c0[2])
-		resQ15 += int32(buf[bufIdx+3]) * int32(c0[3])
-		resQ15 += int32(buf[bufIdx+4]) * int32(c1[3])
-		resQ15 += int32(buf[bufIdx+5]) * int32(c1[2])
-		resQ15 += int32(buf[bufIdx+6]) * int32(c1[1])
-		resQ15 += int32(buf[bufIdx+7]) * int32(c1[0])
+		coeffBase := tableIndex << 2
+		mirrorBase := (11 - tableIndex) << 2
+		_ = silkResamplerFracFIR12Flat[coeffBase+3]
+		_ = silkResamplerFracFIR12Flat[mirrorBase+3]
+		buf8 := buf[bufIdx : bufIdx+8]
+		_ = buf8[7]
+		resQ15 := int32(buf8[0]) * int32(silkResamplerFracFIR12Flat[coeffBase+0])
+		resQ15 += int32(buf8[1]) * int32(silkResamplerFracFIR12Flat[coeffBase+1])
+		resQ15 += int32(buf8[2]) * int32(silkResamplerFracFIR12Flat[coeffBase+2])
+		resQ15 += int32(buf8[3]) * int32(silkResamplerFracFIR12Flat[coeffBase+3])
+		resQ15 += int32(buf8[4]) * int32(silkResamplerFracFIR12Flat[mirrorBase+3])
+		resQ15 += int32(buf8[5]) * int32(silkResamplerFracFIR12Flat[mirrorBase+2])
+		resQ15 += int32(buf8[6]) * int32(silkResamplerFracFIR12Flat[mirrorBase+1])
+		resQ15 += int32(buf8[7]) * int32(silkResamplerFracFIR12Flat[mirrorBase+0])
 
-		out[outPos] = int16(silkSAT16(silkRSHIFT_ROUND(resQ15, 15)))
-		outPos++
+		dst[n] = sat16RShiftRound15(resQ15)
 	}
 
-	return outPos
+	return outIdx + nOut
 }
 
 // Fixed-point arithmetic helpers matching libopus SigProc_FIX.h
@@ -582,6 +601,28 @@ func sat16(x int32) int16 {
 // rshiftRound: (x + (1 << (shift-1))) >> shift with rounding.
 func rshiftRound(x int32, shift int) int32 {
 	return silkRSHIFT_ROUND(x, shift)
+}
+
+func sat16RShiftRound10(x int32) int16 {
+	y := ((x >> 9) + 1) >> 1
+	if y > 32767 {
+		return 32767
+	}
+	if y < -32768 {
+		return -32768
+	}
+	return int16(y)
+}
+
+func sat16RShiftRound15(x int32) int16 {
+	y := ((x >> 14) + 1) >> 1
+	if y > 32767 {
+		return 32767
+	}
+	if y < -32768 {
+		return -32768
+	}
+	return int16(y)
 }
 
 // min32 returns the minimum of two int32 values.

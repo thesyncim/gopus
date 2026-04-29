@@ -148,3 +148,75 @@ bwd_scalar:
 
 done:
 	RET
+
+// func expRotation1Stride1(x []float64, length int, c, s float64)
+//
+// Scalar arm64 implementation for the stride-1 expRotation1 path. The
+// recurrence is dependency-heavy, so the main win over Go is removing per-step
+// bounds checks while preserving the compiler's FMA contraction order.
+TEXT ·expRotation1Stride1(SB), NOSPLIT, $0-48
+	MOVD  x_base+0(FP), R0
+	MOVD  length+24(FP), R1
+	FMOVD c+32(FP), F0
+	FMOVD s+40(FP), F1
+	FNEGD F1, F2                  // F2 = ms = -s
+
+	CMP   $2, R1
+	BLT   stride1_done
+
+	// ===== FORWARD PASS =====
+	// i from 0 while i < length-1.
+	MOVD  ZR, R2
+	SUB   $1, R1, R3
+
+stride1_fwd:
+	CMP   R3, R2
+	BGE   stride1_bwd_init
+
+	LSL   $3, R2, R4
+	ADD   R0, R4, R4              // R4 = &x[i]
+	FMOVD (R4), F3                // x[i]
+	FMOVD 8(R4), F4               // x[i+1]
+
+	// x[i+1] = c*x[i+1] + s*x[i]
+	FMULD  F1, F3, F5
+	FMADDD F4, F5, F0, F5
+	FMOVD  F5, 8(R4)
+
+	// x[i] = c*x[i] + ms*x[i+1]
+	FMULD  F2, F4, F6
+	FMADDD F3, F6, F0, F6
+	FMOVD  F6, (R4)
+
+	ADD   $1, R2
+	B     stride1_fwd
+
+stride1_bwd_init:
+	// ===== BACKWARD PASS =====
+	// i from length-3 down to 0.
+	SUB   $3, R1, R2
+
+stride1_bwd:
+	CMP   $0, R2
+	BLT   stride1_done
+
+	LSL   $3, R2, R4
+	ADD   R0, R4, R4              // R4 = &x[i]
+	FMOVD (R4), F3                // x[i]
+	FMOVD 8(R4), F4               // x[i+1]
+
+	// x[i+1] = c*x[i+1] + s*x[i]
+	FMULD  F1, F3, F5
+	FMADDD F4, F5, F0, F5
+	FMOVD  F5, 8(R4)
+
+	// x[i] = c*x[i] + ms*x[i+1]
+	FMULD  F2, F4, F6
+	FMADDD F3, F6, F0, F6
+	FMOVD  F6, (R4)
+
+	SUB   $1, R2
+	B     stride1_bwd
+
+stride1_done:
+	RET

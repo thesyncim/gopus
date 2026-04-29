@@ -684,43 +684,7 @@ func expRotation1(x []float64, length, stride int, c, s float64) {
 	// Hot-path specializations for common strides reduce index arithmetic while
 	// preserving the same operation order as the generic implementation.
 	if stride == 1 {
-		end := length - 1
-		i := 0
-		for ; i+1 < end; i += 2 {
-			x1 := x[i]
-			x2 := x[i+1]
-			x[i+1] = c*x2 + s*x1
-			x[i] = c*x1 + ms*x2
-
-			x3 := x[i+1]
-			x4 := x[i+2]
-			x[i+2] = c*x4 + s*x3
-			x[i+1] = c*x3 + ms*x4
-		}
-		for ; i < end; i++ {
-			x1 := x[i]
-			x2 := x[i+1]
-			x[i+1] = c*x2 + s*x1
-			x[i] = c*x1 + ms*x2
-		}
-		i = length - 3
-		for ; i-1 >= 0; i -= 2 {
-			x1 := x[i]
-			x2 := x[i+1]
-			x[i+1] = c*x2 + s*x1
-			x[i] = c*x1 + ms*x2
-
-			x3 := x[i-1]
-			x4 := x[i]
-			x[i] = c*x4 + s*x3
-			x[i-1] = c*x3 + ms*x4
-		}
-		for ; i >= 0; i-- {
-			x1 := x[i]
-			x2 := x[i+1]
-			x[i+1] = c*x2 + s*x1
-			x[i] = c*x1 + ms*x2
-		}
+		expRotation1Stride1(x, length, c, s)
 		return
 	}
 
