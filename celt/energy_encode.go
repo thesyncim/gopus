@@ -15,9 +15,8 @@ import (
 //
 // The energy computation extracts loudness per frequency band:
 // 1. For each band, sum squares of MDCT coefficients
-// 2. Divide by band width to get average power
-// 3. Convert to log2 scale: energy = 0.5 * log2(sumSq)
-// 4. Subtract eMeans to make values mean-relative (like libopus amp2Log2)
+// 2. Convert to log2 scale: energy = 0.5 * log2(sumSq)
+// 3. Subtract eMeans to make values mean-relative (like libopus amp2Log2)
 //
 // The decoder adds eMeans back during denormalization, recovering the original.
 // This ensures encoder and decoder use matching gain values.
@@ -117,17 +116,13 @@ func computeBandRMS(coeffs []float64, start, end int) float64 {
 		return 0.5 * math.Log2(1e-27)
 	}
 
-	// Compute sum of squares with libopus epsilon.
-	// BCE hint: we verified end <= len(coeffs) above.
+	// Compute sum of squares with the same accumulation order libopus uses
+	// for celt_inner_prod() on the active architecture.
 	c := coeffs[start:end:end]
-	sumSq := float32(1e-27)
-	for _, cv := range c {
-		v := float32(cv)
-		sumSq += noFMA32Mul(v, v)
-	}
+	sumSq := float32(1e-27) + float32(sumOfSquaresF64toF32(c, len(c)))
 
-	// log2(sqrt(sumSq)) = 0.5 * log2(sumSq).
-	// Use the identity to eliminate math.Sqrt (~10ns/call × 42 bands/frame).
+	// Keep the existing float32 shortcut: strict libopus-backed quality
+	// fixtures regress on this tree when using sqrt(sumSq) before celtLog2.
 	return 0.5 * float64(celtLog2(sumSq))
 }
 
