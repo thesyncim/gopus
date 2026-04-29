@@ -16,6 +16,7 @@ type dredEmissionPlan struct {
 	qmax         int
 	targetChunks int
 	targetBytes  int
+	bitrate      int
 }
 
 func dredBitsToBitrate(bitCount, frameSize int) int {
@@ -110,6 +111,7 @@ func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool
 		qmax:         qmax,
 		targetChunks: targetChunks,
 		targetBytes:  bitrateToBits(dredBitrate, frameSize) / 8,
+		bitrate:      dredBitrate,
 	}, true
 }
 
