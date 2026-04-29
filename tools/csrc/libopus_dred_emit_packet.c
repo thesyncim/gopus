@@ -120,14 +120,14 @@ static int write_u32(uint32_t v) {
 
 static float voiced_sample(int frame_idx, int sample_idx, int frame_size, int sample_rate) {
   int n = frame_idx * frame_size + sample_idx;
-  float t = (float)n / (float)sample_rate;
-  float env = 0.82f + 0.18f * sinf(2.f * 3.14159265358979323846f * 1.3f * t);
-  float s = 0.0f;
-  s += 0.28f * sinf(2.f * 3.14159265358979323846f * 110.f * t);
-  s += 0.17f * sinf(2.f * 3.14159265358979323846f * 220.f * t + 0.11f);
-  s += 0.09f * sinf(2.f * 3.14159265358979323846f * 330.f * t + 0.23f);
-  s += 0.05f * sinf(2.f * 3.14159265358979323846f * 440.f * t + 0.37f);
-  return env * s;
+  double t = (double)n / (double)sample_rate;
+  double env = 0.82 + 0.18 * sin(2.0 * 3.14159265358979323846 * 1.3 * t);
+  double s = 0.0;
+  s += 0.28 * sin(2.0 * 3.14159265358979323846 * 110.0 * t);
+  s += 0.17 * sin(2.0 * 3.14159265358979323846 * 220.0 * t + 0.11);
+  s += 0.09 * sin(2.0 * 3.14159265358979323846 * 330.0 * t + 0.23);
+  s += 0.05 * sin(2.0 * 3.14159265358979323846 * 440.0 * t + 0.37);
+  return (float)(env * s);
 }
 
 int main(void) {

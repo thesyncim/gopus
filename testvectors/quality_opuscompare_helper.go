@@ -28,7 +28,24 @@ type opusCompareHelperProcess struct {
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	stdout io.ReadCloser
-	stderr bytes.Buffer
+	stderr lockedBuffer
+}
+
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) trimmedBytes() []byte {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return bytes.TrimSpace(append([]byte(nil), b.buf.Bytes()...))
 }
 
 var (
@@ -141,7 +158,7 @@ func closeOpusCompareHelperProcess(proc *opusCompareHelperProcess) {
 }
 
 func opusCompareHelperError(proc *opusCompareHelperProcess, err error) error {
-	stderr := bytes.TrimSpace(proc.stderr.Bytes())
+	stderr := proc.stderr.trimmedBytes()
 	if len(stderr) == 0 {
 		return err
 	}

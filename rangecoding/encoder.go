@@ -179,7 +179,7 @@ func (e *Encoder) EncodeBin(fl, fh uint32, bits uint) {
 }
 
 // EncodeICDF8 encodes a symbol using a uint8 ICDF table.
-// s is the symbol to encode (0 to len(icdf)-2).
+// s is the symbol to encode (0 to len(icdf)-1).
 // icdf is the inverse cumulative distribution function table (decreasing values).
 // ftb is the number of bits of precision (total = 1 << ftb).
 //
@@ -189,7 +189,7 @@ func (e *Encoder) EncodeICDF8(s int, icdf []uint8, ftb uint) {
 }
 
 // EncodeICDF encodes a symbol using an inverse CDF table.
-// s is the symbol to encode (0 to len(icdf)-2).
+// s is the symbol to encode (0 to len(icdf)-1).
 // icdf is the inverse cumulative distribution function table (decreasing values).
 // ftb is the number of bits of precision (total = 1 << ftb).
 //
@@ -211,11 +211,10 @@ func (e *Encoder) EncodeICDF(s int, icdf []uint8, ftb uint) {
 //
 // This is the uint16 variant of EncodeICDF, matching libopus ec_enc_icdf.
 func (e *Encoder) EncodeICDF16(s int, icdf []uint16, ftb uint) {
-	// Clamp symbol to valid range
 	if s < 0 {
 		s = 0
 	}
-	maxSymbol := len(icdf) - 2 // Last entry is always 0, not a valid symbol
+	maxSymbol := len(icdf) - 1
 	if s > maxSymbol {
 		s = maxSymbol
 	}

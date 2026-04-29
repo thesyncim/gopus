@@ -9,6 +9,7 @@
 #endif
 
 #include "dred_encoder.h"
+#include "cpu_support.h"
 
 #define INPUT_MAGIC "GDPI"
 #define OUTPUT_MAGIC "GDPO"
@@ -92,7 +93,7 @@ int main(void) {
     return 1;
   }
 
-  payload_bytes = (uint32_t)dred_encode_silk_frame(&enc, output, (int)max_chunks, (int)max_bytes, (int)q0, (int)dQ, (int)qmax, activity_mem, 0);
+  payload_bytes = (uint32_t)dred_encode_silk_frame(&enc, output, (int)max_chunks, (int)max_bytes, (int)q0, (int)dQ, (int)qmax, activity_mem, opus_select_arch());
 
   if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32((uint32_t)enc.last_extra_dred_offset) ||
       !write_u32(payload_bytes) || !write_exact(output, payload_bytes)) {
