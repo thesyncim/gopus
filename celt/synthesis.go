@@ -288,6 +288,35 @@ func (d *Decoder) synthesizeStereoPlanar(coeffsL, coeffsR []float64, transient b
 	return outL, outR
 }
 
+func (d *Decoder) synthesizeStereoPlanarFromMonoLong(coeffs []float64) (outL, outR []float64) {
+	if len(coeffs) == 0 {
+		return nil, nil
+	}
+	if len(d.overlapBuffer) < Overlap*2 {
+		d.overlapBuffer = make([]float64, Overlap*2)
+	}
+	overlapL := d.overlapBuffer[:Overlap]
+	overlapR := d.overlapBuffer[Overlap : Overlap*2]
+
+	imdct := imdctCoreScratchF32(coeffs, &d.scratchIMDCTF32)
+	if len(imdct) == 0 {
+		return nil, nil
+	}
+
+	bufL := ensureFloat64Slice(&d.scratchSynth, len(coeffs)+Overlap)
+	bufR := ensureFloat64Slice(&d.scratchSynthR, len(coeffs)+Overlap)
+	overlapIMDCTF32WithPrevToFloat64(bufL, imdct, overlapL, Overlap)
+	overlapIMDCTF32WithPrevToFloat64(bufR, imdct, overlapR, Overlap)
+
+	if Overlap > 0 && len(bufL) >= len(coeffs)+Overlap {
+		copy(d.overlapBuffer[:Overlap], bufL[len(coeffs):len(coeffs)+Overlap])
+	}
+	if Overlap > 0 && len(bufR) >= len(coeffs)+Overlap {
+		copy(d.overlapBuffer[Overlap:Overlap*2], bufR[len(coeffs):len(coeffs)+Overlap])
+	}
+	return bufL[:len(coeffs)], bufR[:len(coeffs)]
+}
+
 // SynthesizeStereo performs synthesis for stereo frames.
 // Handles both channels with proper interleaving.
 //

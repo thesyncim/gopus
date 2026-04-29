@@ -152,6 +152,44 @@ var silkResamplerFracFIR12Flat = [48]int16{
 	-46, 425, -1375, 2996,
 }
 
+const (
+	fir0c0 int32 = 189
+	fir0c1 int32 = -600
+	fir0c2 int32 = 617
+	fir0c3 int32 = 30567
+	fir0c4 int32 = 2996
+	fir0c5 int32 = -1375
+	fir0c6 int32 = 425
+	fir0c7 int32 = -46
+
+	fir4c0 int32 = -48
+	fir4c1 int32 = 758
+	fir4c2 int32 = -3956
+	fir4c3 int32 = 23973
+	fir4c4 int32 = 15143
+	fir4c5 int32 = -3957
+	fir4c6 int32 = 967
+	fir4c7 int32 = -107
+
+	fir6c0 int32 = -99
+	fir6c1 int32 = 972
+	fir6c2 int32 = -4222
+	fir6c3 int32 = 18278
+	fir6c4 int32 = 21254
+	fir6c5 int32 = -4235
+	fir6c6 int32 = 905
+	fir6c7 int32 = -80
+
+	fir8c0 int32 = -103
+	fir8c1 int32 = 896
+	fir8c2 int32 = -3487
+	fir8c3 int32 = 11950
+	fir8c4 int32 = 26341
+	fir8c5 int32 = -3350
+	fir8c6 int32 = 529
+	fir8c7 int32 = -4
+)
+
 // Delay matrix for decoder (from resampler.c)
 // in \ out  8  12  16  24  48
 var delayMatrixDec = [3][5]int8{
@@ -532,6 +570,17 @@ func (r *LibopusResampler) firInterpol(out []int16, outIdx int, buf []int16, max
 		return outIdx
 	}
 
+	switch indexIncrQ16 {
+	case 21846: // 8 kHz -> 48 kHz: phases 0, 4, 8 per input step.
+		return r.firInterpol21846(out, outIdx, buf, nOut)
+	case 32768: // 12 kHz -> 48 kHz: phases 0, 6 per input step.
+		return r.firInterpol32768(out, outIdx, buf, nOut)
+	case 43691: // 16 kHz -> 48 kHz: phases 0, 8, 4 over two input steps.
+		return r.firInterpol43691(out, outIdx, buf, nOut)
+	case 65536: // 24 kHz -> 48 kHz: phase 0 only.
+		return r.firInterpol65536(out, outIdx, buf, nOut)
+	}
+
 	// BCE hints for hot inner-loop accesses.
 	_ = out[outIdx+nOut-1]
 	lastIndexQ16 := int32(nOut-1) * indexIncrQ16
@@ -561,6 +610,226 @@ func (r *LibopusResampler) firInterpol(out []int16, outIdx int, buf []int16, max
 		resQ15 += int32(buf8[7]) * int32(silkResamplerFracFIR12Flat[mirrorBase+0])
 
 		dst[n] = sat16RShiftRound15(resQ15)
+	}
+
+	return outIdx + nOut
+}
+
+func (r *LibopusResampler) firInterpol21846(out []int16, outIdx int, buf []int16, nOut int) int {
+	dst := out[outIdx : outIdx+nOut]
+	_ = dst[nOut-1]
+	lastBufIdx := (nOut - 1) / 3
+	_ = buf[lastBufIdx+7]
+
+	groups := nOut / 3
+	j := 0
+	for idx := 0; idx < groups; idx++ {
+		_ = buf[idx+7]
+
+		resQ15 := int32(buf[idx+0])*fir0c0 +
+			int32(buf[idx+1])*fir0c1 +
+			int32(buf[idx+2])*fir0c2 +
+			int32(buf[idx+3])*fir0c3 +
+			int32(buf[idx+4])*fir0c4 +
+			int32(buf[idx+5])*fir0c5 +
+			int32(buf[idx+6])*fir0c6 +
+			int32(buf[idx+7])*fir0c7
+		dst[j] = sat16RShiftRound15(resQ15)
+
+		resQ15 = int32(buf[idx+0])*fir4c0 +
+			int32(buf[idx+1])*fir4c1 +
+			int32(buf[idx+2])*fir4c2 +
+			int32(buf[idx+3])*fir4c3 +
+			int32(buf[idx+4])*fir4c4 +
+			int32(buf[idx+5])*fir4c5 +
+			int32(buf[idx+6])*fir4c6 +
+			int32(buf[idx+7])*fir4c7
+		dst[j+1] = sat16RShiftRound15(resQ15)
+
+		resQ15 = int32(buf[idx+0])*fir8c0 +
+			int32(buf[idx+1])*fir8c1 +
+			int32(buf[idx+2])*fir8c2 +
+			int32(buf[idx+3])*fir8c3 +
+			int32(buf[idx+4])*fir8c4 +
+			int32(buf[idx+5])*fir8c5 +
+			int32(buf[idx+6])*fir8c6 +
+			int32(buf[idx+7])*fir8c7
+		dst[j+2] = sat16RShiftRound15(resQ15)
+
+		j += 3
+	}
+
+	if j < nOut {
+		idx := groups
+		_ = buf[idx+7]
+		resQ15 := int32(buf[idx+0])*fir0c0 +
+			int32(buf[idx+1])*fir0c1 +
+			int32(buf[idx+2])*fir0c2 +
+			int32(buf[idx+3])*fir0c3 +
+			int32(buf[idx+4])*fir0c4 +
+			int32(buf[idx+5])*fir0c5 +
+			int32(buf[idx+6])*fir0c6 +
+			int32(buf[idx+7])*fir0c7
+		dst[j] = sat16RShiftRound15(resQ15)
+		j++
+		if j < nOut {
+			resQ15 = int32(buf[idx+0])*fir4c0 +
+				int32(buf[idx+1])*fir4c1 +
+				int32(buf[idx+2])*fir4c2 +
+				int32(buf[idx+3])*fir4c3 +
+				int32(buf[idx+4])*fir4c4 +
+				int32(buf[idx+5])*fir4c5 +
+				int32(buf[idx+6])*fir4c6 +
+				int32(buf[idx+7])*fir4c7
+			dst[j] = sat16RShiftRound15(resQ15)
+		}
+	}
+
+	return outIdx + nOut
+}
+
+func (r *LibopusResampler) firInterpol32768(out []int16, outIdx int, buf []int16, nOut int) int {
+	dst := out[outIdx : outIdx+nOut]
+	_ = dst[nOut-1]
+	lastBufIdx := (nOut - 1) >> 1
+	_ = buf[lastBufIdx+7]
+
+	groups := nOut >> 1
+	j := 0
+	for idx := 0; idx < groups; idx++ {
+		_ = buf[idx+7]
+
+		resQ15 := int32(buf[idx+0])*fir0c0 +
+			int32(buf[idx+1])*fir0c1 +
+			int32(buf[idx+2])*fir0c2 +
+			int32(buf[idx+3])*fir0c3 +
+			int32(buf[idx+4])*fir0c4 +
+			int32(buf[idx+5])*fir0c5 +
+			int32(buf[idx+6])*fir0c6 +
+			int32(buf[idx+7])*fir0c7
+		dst[j] = sat16RShiftRound15(resQ15)
+
+		resQ15 = int32(buf[idx+0])*fir6c0 +
+			int32(buf[idx+1])*fir6c1 +
+			int32(buf[idx+2])*fir6c2 +
+			int32(buf[idx+3])*fir6c3 +
+			int32(buf[idx+4])*fir6c4 +
+			int32(buf[idx+5])*fir6c5 +
+			int32(buf[idx+6])*fir6c6 +
+			int32(buf[idx+7])*fir6c7
+		dst[j+1] = sat16RShiftRound15(resQ15)
+
+		j += 2
+	}
+
+	if j < nOut {
+		idx := groups
+		_ = buf[idx+7]
+		resQ15 := int32(buf[idx+0])*fir0c0 +
+			int32(buf[idx+1])*fir0c1 +
+			int32(buf[idx+2])*fir0c2 +
+			int32(buf[idx+3])*fir0c3 +
+			int32(buf[idx+4])*fir0c4 +
+			int32(buf[idx+5])*fir0c5 +
+			int32(buf[idx+6])*fir0c6 +
+			int32(buf[idx+7])*fir0c7
+		dst[j] = sat16RShiftRound15(resQ15)
+	}
+
+	return outIdx + nOut
+}
+
+func (r *LibopusResampler) firInterpol43691(out []int16, outIdx int, buf []int16, nOut int) int {
+	dst := out[outIdx : outIdx+nOut]
+	_ = dst[nOut-1]
+	lastBufIdx := (2 * (nOut - 1)) / 3
+	_ = buf[lastBufIdx+7]
+
+	groups := nOut / 3
+	j := 0
+	for g := 0; g < groups; g++ {
+		idx := g << 1
+		_ = buf[idx+8]
+
+		resQ15 := int32(buf[idx+0])*fir0c0 +
+			int32(buf[idx+1])*fir0c1 +
+			int32(buf[idx+2])*fir0c2 +
+			int32(buf[idx+3])*fir0c3 +
+			int32(buf[idx+4])*fir0c4 +
+			int32(buf[idx+5])*fir0c5 +
+			int32(buf[idx+6])*fir0c6 +
+			int32(buf[idx+7])*fir0c7
+		dst[j] = sat16RShiftRound15(resQ15)
+
+		resQ15 = int32(buf[idx+0])*fir8c0 +
+			int32(buf[idx+1])*fir8c1 +
+			int32(buf[idx+2])*fir8c2 +
+			int32(buf[idx+3])*fir8c3 +
+			int32(buf[idx+4])*fir8c4 +
+			int32(buf[idx+5])*fir8c5 +
+			int32(buf[idx+6])*fir8c6 +
+			int32(buf[idx+7])*fir8c7
+		dst[j+1] = sat16RShiftRound15(resQ15)
+
+		idx++
+		resQ15 = int32(buf[idx+0])*fir4c0 +
+			int32(buf[idx+1])*fir4c1 +
+			int32(buf[idx+2])*fir4c2 +
+			int32(buf[idx+3])*fir4c3 +
+			int32(buf[idx+4])*fir4c4 +
+			int32(buf[idx+5])*fir4c5 +
+			int32(buf[idx+6])*fir4c6 +
+			int32(buf[idx+7])*fir4c7
+		dst[j+2] = sat16RShiftRound15(resQ15)
+
+		j += 3
+	}
+
+	if j < nOut {
+		idx := groups << 1
+		_ = buf[idx+7]
+		resQ15 := int32(buf[idx+0])*fir0c0 +
+			int32(buf[idx+1])*fir0c1 +
+			int32(buf[idx+2])*fir0c2 +
+			int32(buf[idx+3])*fir0c3 +
+			int32(buf[idx+4])*fir0c4 +
+			int32(buf[idx+5])*fir0c5 +
+			int32(buf[idx+6])*fir0c6 +
+			int32(buf[idx+7])*fir0c7
+		dst[j] = sat16RShiftRound15(resQ15)
+		j++
+		if j < nOut {
+			resQ15 = int32(buf[idx+0])*fir8c0 +
+				int32(buf[idx+1])*fir8c1 +
+				int32(buf[idx+2])*fir8c2 +
+				int32(buf[idx+3])*fir8c3 +
+				int32(buf[idx+4])*fir8c4 +
+				int32(buf[idx+5])*fir8c5 +
+				int32(buf[idx+6])*fir8c6 +
+				int32(buf[idx+7])*fir8c7
+			dst[j] = sat16RShiftRound15(resQ15)
+		}
+	}
+
+	return outIdx + nOut
+}
+
+func (r *LibopusResampler) firInterpol65536(out []int16, outIdx int, buf []int16, nOut int) int {
+	dst := out[outIdx : outIdx+nOut]
+	_ = dst[nOut-1]
+	_ = buf[nOut+6]
+
+	for idx := 0; idx < nOut; idx++ {
+		_ = buf[idx+7]
+		resQ15 := int32(buf[idx+0])*fir0c0 +
+			int32(buf[idx+1])*fir0c1 +
+			int32(buf[idx+2])*fir0c2 +
+			int32(buf[idx+3])*fir0c3 +
+			int32(buf[idx+4])*fir0c4 +
+			int32(buf[idx+5])*fir0c5 +
+			int32(buf[idx+6])*fir0c6 +
+			int32(buf[idx+7])*fir0c7
+		dst[idx] = sat16RShiftRound15(resQ15)
 	}
 
 	return outIdx + nOut

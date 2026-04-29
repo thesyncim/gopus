@@ -385,11 +385,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				return nil
 			}
 
-			samples, err := d.hybridDecoder.DecodeWithDecoderHook(rd, frameSize, packetStereoLocal, afterSilk)
-			if err != nil {
+			if err := d.hybridDecoder.DecodeWithDecoderHookToFloat32(rd, frameSize, packetStereoLocal, afterSilk, out); err != nil {
 				return 0, err
 			}
-			copyFloat64ToFloat32(out, samples)
 			// Capture the main decode's FinalRange before any redundancy post-processing
 			d.mainDecodeRng = d.hybridDecoder.FinalRange()
 		}

@@ -873,6 +873,13 @@ func normalizeResidualIntoAndCollapse(out []float64, pulses []int, gain float64,
 		}
 		return 0
 	}
+	return normalizeResidualKnownEnergyIntoAndCollapse(out, pulses, gain, energy, b)
+}
+
+func normalizeResidualKnownEnergyIntoAndCollapse(out []float64, pulses []int, gain float64, energy float64, b int) int {
+	n := len(pulses)
+	out = out[:n:n]
+	pulses = pulses[:n:n]
 	scale := gain / math.Sqrt(energy)
 
 	if b <= 1 {
@@ -1251,7 +1258,7 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 	}
 	// CWRS decode already computes pulse energy (sum of squares), so reuse it
 	// and compute collapse mask during normalization to avoid an extra pass.
-	cm := normalizeResidualIntoAndCollapse(shape, pulses, gain, yy, b)
+	cm := normalizeResidualKnownEnergyIntoAndCollapse(shape, pulses, gain, yy, b)
 	expRotation(shape, n, -1, b, k, spread)
 	return cm
 }

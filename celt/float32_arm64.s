@@ -55,3 +55,43 @@ rf_tail_loop:
 
 rf_done:
 	RET
+
+// func widenFloat32ToFloat64(dst []float64, src []float32, n int)
+//
+// Copies src to dst while widening float32 → float64.
+// Processes 4 elements per iteration using NEON FCVTL/FCVTL2.
+TEXT ·widenFloat32ToFloat64(SB), NOSPLIT, $0-56
+	MOVD dst_base+0(FP), R0
+	MOVD src_base+24(FP), R1
+	MOVD n+48(FP), R2
+
+	CBZ R2, wf_done
+
+	LSR $2, R2, R3
+	CBZ R3, wf_tail
+
+wf_loop4:
+	VLD1 (R1), [V0.S4]
+	WORD $0x0E617802              // FCVTL  V2.2D, V0.2S
+	WORD $0x4E617803              // FCVTL2 V3.2D, V0.4S
+	VST1 [V2.D2, V3.D2], (R0)
+	ADD  $16, R1
+	ADD  $32, R0
+	SUBS $1, R3
+	BNE  wf_loop4
+
+wf_tail:
+	AND $3, R2, R3
+	CBZ R3, wf_done
+
+wf_tail_loop:
+	FMOVS  (R1), F0
+	FCVTSD F0, F0
+	FMOVD  F0, (R0)
+	ADD    $4, R1
+	ADD    $8, R0
+	SUBS   $1, R3
+	BNE    wf_tail_loop
+
+wf_done:
+	RET

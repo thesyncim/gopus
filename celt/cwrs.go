@@ -2,8 +2,6 @@
 // of the Opus codec as specified in RFC 6716 Section 4.3.
 package celt
 
-import "unsafe"
-
 // CWRS (Combinatorial Radix-based With Signs) implements combinatorial indexing
 // for PVQ (Pyramid Vector Quantization) decoding. This is the core algorithm
 // for decoding normalized band vectors from compact indices.
@@ -226,12 +224,9 @@ var pvqUDense = func() [15][177]uint32 {
 	return dense
 }()
 
-const pvqUDenseCols = 177
-
-var pvqUDenseBase = unsafe.Pointer(&pvqUDense[0][0])
-
+//go:nosplit
 func pvqUDenseUnchecked(row, col int) uint32 {
-	return *(*uint32)(unsafe.Add(pvqUDenseBase, uintptr(row*pvqUDenseCols+col)*unsafe.Sizeof(pvqUDense[0][0])))
+	return pvqUDense[row][col]
 }
 
 // pvqUTableLookup performs a direct table lookup for U(n, k).
@@ -273,7 +268,13 @@ func pvqUHasLookup(n, k int) bool {
 
 // canUseCWRSFast reports whether cwrsiFast can decode (n,k) using only table lookups.
 func canUseCWRSFast(n, k int) bool {
-	if n <= 2 || k <= 0 {
+	if k <= 0 {
+		return false
+	}
+	if n == 2 {
+		return true
+	}
+	if n < 2 {
 		return false
 	}
 	maxRows := len(pvqURowLen)
@@ -301,7 +302,16 @@ func canUseICWRSLookupFast(n, k int) bool {
 	if n < 2 || k <= 0 {
 		return false
 	}
-	return pvqUHasLookup(n, k) && pvqUHasLookup(n, k+1)
+	if n <= k {
+		if n < 0 || n >= len(pvqURowLen) {
+			return false
+		}
+		return k+1-n < pvqURowLen[n]
+	}
+	if k+1 >= len(pvqURowLen) {
+		return false
+	}
+	return n-k < pvqURowLen[k] && n-k-1 < pvqURowLen[k+1]
 }
 
 // PVQ_V computes V(N,K), the total number of PVQ codewords with N dimensions
@@ -327,8 +337,13 @@ func PVQ_V(n, k int) uint32 {
 		return 2 // Only +K and -K
 	}
 
-	if canUseICWRSLookupFast(n, k) {
-		return pvqUTableLookupFast(n, k) + pvqUTableLookupFast(n, k+1)
+	if n <= k {
+		if n >= 0 && n < len(pvqURowLen) && k+1-n < pvqURowLen[n] {
+			row := pvqUDense[n][:]
+			return row[k] + row[k+1]
+		}
+	} else if k+1 < len(pvqURowLen) && n-k < pvqURowLen[k] && n-k-1 < pvqURowLen[k+1] {
+		return pvqUDense[k][n] + pvqUDense[k+1][n]
 	}
 
 	// Try table lookup: V(n,k) = U(n,k) + U(n,k+1)
@@ -499,6 +514,66 @@ func ncwrsUrow(n, k int, u []uint32) uint32 {
 // cwrsiFast is the optimized decoder using the precomputed table.
 // For small n where table lookup is available, it uses O(1) lookups.
 // For larger n, it falls back to the row-based algorithm.
+func setCWRSOnePulse(y []int, start, end int, index uint32) {
+	n := end - start
+	idx := int(index)
+	if idx < n {
+		y[start+idx] = 1
+	} else {
+		y[start+(n<<1)-1-idx] = -1
+	}
+}
+
+func finishCWRSOnePulse(y []int, start, end int, index uint32) {
+	clear(y[start:end])
+	setCWRSOnePulse(y, start, end, index)
+}
+
+func finishCWRSTwoPulses(y []int, n int, index uint32) uint32 {
+	clear(y[:n])
+	start := 0
+	rem := n
+	idx := int(index)
+	for {
+		if rem == 1 {
+			if idx&1 == 1 {
+				y[start] = -2
+			} else {
+				y[start] = 2
+			}
+			return 4
+		}
+		if idx == 0 {
+			y[start] = 2
+			return 4
+		}
+		idx--
+		oneCount := (rem - 1) << 1
+		if idx < oneCount {
+			y[start] = 1
+			setCWRSOnePulse(y, start+1, n, uint32(idx))
+			return 2
+		}
+		idx -= oneCount
+		zeroCount := ((rem - 1) * (rem - 1)) << 1
+		if idx < zeroCount {
+			start++
+			rem--
+			continue
+		}
+		idx -= zeroCount
+		if idx == 0 {
+			y[start] = -2
+			return 4
+		}
+		idx--
+		y[start] = -1
+		setCWRSOnePulse(y, start+1, n, uint32(idx))
+		return 2
+	}
+}
+
+//go:nosplit
 func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 	if n < 2 || k <= 0 || len(y) < n {
 		return 0
@@ -540,20 +615,29 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 					}
 				}
 			} else {
-				// rowN[k] is monotonic in k for fixed n, so we can locate the
-				// largest k <= current k with value <= i via binary search.
-				lo := nCur
-				hi := k
-				for lo < hi {
-					mid := (lo + hi + 1) >> 1
-					if pvqUDenseUnchecked(nCur, mid) <= i {
-						lo = mid
+				p = pvqUDenseUnchecked(nCur, k)
+				if p > i {
+					hi := k - 1
+					p = pvqUDenseUnchecked(nCur, hi)
+					if p <= i {
+						k = hi
 					} else {
-						hi = mid - 1
+						// row nCur is monotonic in k, so locate the largest
+						// k <= current k with value <= i by binary search.
+						lo := nCur
+						hi--
+						for lo < hi {
+							mid := (lo + hi + 1) >> 1
+							if pvqUDenseUnchecked(nCur, mid) <= i {
+								lo = mid
+							} else {
+								hi = mid - 1
+							}
+						}
+						k = lo
+						p = pvqUDenseUnchecked(nCur, lo)
 					}
 				}
-				k = lo
-				p = pvqUDenseUnchecked(nCur, lo)
 			}
 			i -= p
 			yj = k0 - k
@@ -766,6 +850,14 @@ func DecodePulses(index uint32, n, k int) []int {
 		}
 		return y
 	}
+	if k == 1 {
+		finishCWRSOnePulse(y, 0, n, index)
+		return y
+	}
+	if k == 2 {
+		_ = finishCWRSTwoPulses(y, n, index)
+		return y
+	}
 
 	if canUseCWRSFast(n, k) {
 		_ = cwrsiFast(n, k, index, y)
@@ -807,6 +899,13 @@ func decodePulsesInto(index uint32, n, k int, y []int, scratch *bandDecodeScratc
 			y[0] = k
 		}
 		return uint32(k * k)
+	}
+	if k == 1 {
+		finishCWRSOnePulse(y, 0, n, index)
+		return 1
+	}
+	if k == 2 {
+		return finishCWRSTwoPulses(y, n, index)
 	}
 
 	if canUseCWRSFast(n, k) {

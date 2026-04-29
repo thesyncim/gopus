@@ -61,29 +61,29 @@ func silkDecoderSetFs(st *decoderState, fsKHz int) {
 func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, condCoding int) {
 	var ix int
 	if vadFlag {
-		ix = rd.DecodeICDF(silk_type_offset_VAD_iCDF, 8) + 2
+		ix = rd.DecodeICDF8Unchecked(silk_type_offset_VAD_iCDF) + 2
 	} else {
-		ix = rd.DecodeICDF(silk_type_offset_no_VAD_iCDF, 8)
+		ix = rd.DecodeICDF2_8(230)
 	}
 	st.indices.signalType = int8(ix >> 1)
 	st.indices.quantOffsetType = int8(ix & 1)
 
 	if condCoding == codeConditionally {
-		st.indices.GainsIndices[0] = int8(rd.DecodeICDF(silk_delta_gain_iCDF, 8))
+		st.indices.GainsIndices[0] = int8(rd.DecodeICDF8Unchecked(silk_delta_gain_iCDF))
 	} else {
-		msb := rd.DecodeICDF(silk_gain_iCDF[int(st.indices.signalType)], 8)
-		lsb := rd.DecodeICDF(silk_uniform8_iCDF, 8)
+		msb := rd.DecodeICDF8Unchecked(silk_gain_iCDF[int(st.indices.signalType)])
+		lsb := rd.DecodeICDF8Unchecked(silk_uniform8_iCDF)
 		st.indices.GainsIndices[0] = int8((msb << 3) + lsb)
 	}
 
 	for i := 1; i < st.nbSubfr; i++ {
-		st.indices.GainsIndices[i] = int8(rd.DecodeICDF(silk_delta_gain_iCDF, 8))
+		st.indices.GainsIndices[i] = int8(rd.DecodeICDF8Unchecked(silk_delta_gain_iCDF))
 	}
 
 	cb := st.nlsfCB
 	stypeBand := int(st.indices.signalType) >> 1
 	cb1Offset := stypeBand * cb.nVectors
-	st.indices.NLSFIndices[0] = int8(rd.DecodeICDF(cb.cb1ICDF[cb1Offset:], 8))
+	st.indices.NLSFIndices[0] = int8(rd.DecodeICDF8Unchecked(cb.cb1ICDF[cb1Offset:]))
 
 	// Use pre-allocated scratch buffers if available
 	var ecIx []int16
@@ -101,17 +101,17 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 	silkNLSFUnpack(ecIx, predQ8, cb, int(st.indices.NLSFIndices[0]))
 
 	for i := 0; i < cb.order; i++ {
-		idx := rd.DecodeICDF(cb.ecICDF[int(ecIx[i]):], 8)
+		idx := rd.DecodeICDF8Unchecked(cb.ecICDF[int(ecIx[i]):])
 		if idx == 0 {
-			idx -= rd.DecodeICDF(silk_NLSF_EXT_iCDF, 8)
+			idx -= rd.DecodeICDF8Unchecked(silk_NLSF_EXT_iCDF)
 		} else if idx == 2*nlsfQuantMaxAmplitude {
-			idx += rd.DecodeICDF(silk_NLSF_EXT_iCDF, 8)
+			idx += rd.DecodeICDF8Unchecked(silk_NLSF_EXT_iCDF)
 		}
 		st.indices.NLSFIndices[i+1] = int8(idx - nlsfQuantMaxAmplitude)
 	}
 
 	if st.nbSubfr == maxNbSubfr {
-		st.indices.NLSFInterpCoefQ2 = int8(rd.DecodeICDF(silk_NLSF_interpolation_factor_iCDF, 8))
+		st.indices.NLSFInterpCoefQ2 = int8(rd.DecodeICDF8Unchecked(silk_NLSF_interpolation_factor_iCDF))
 	} else {
 		st.indices.NLSFInterpCoefQ2 = 4
 	}
@@ -119,7 +119,7 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 	if st.indices.signalType == typeVoiced {
 		decodeAbsolute := true
 		if condCoding == codeConditionally && st.ecPrevSignalType == typeVoiced {
-			deltaLag := rd.DecodeICDF(silk_pitch_delta_iCDF, 8)
+			deltaLag := rd.DecodeICDF8Unchecked(silk_pitch_delta_iCDF)
 			if deltaLag > 0 {
 				deltaLag -= 9
 				st.indices.lagIndex = int16(st.ecPrevLagIndex + deltaLag)
@@ -127,25 +127,25 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 			}
 		}
 		if decodeAbsolute {
-			st.indices.lagIndex = int16(rd.DecodeICDF(silk_pitch_lag_iCDF, 8) * (st.fsKHz >> 1))
-			st.indices.lagIndex += int16(rd.DecodeICDF(st.pitchLagLowBitsICDF, 8))
+			st.indices.lagIndex = int16(rd.DecodeICDF8Unchecked(silk_pitch_lag_iCDF) * (st.fsKHz >> 1))
+			st.indices.lagIndex += int16(rd.DecodeICDF8Unchecked(st.pitchLagLowBitsICDF))
 		}
 		st.ecPrevLagIndex = int(st.indices.lagIndex)
-		st.indices.contourIndex = int8(rd.DecodeICDF(st.pitchContourICDF, 8))
+		st.indices.contourIndex = int8(rd.DecodeICDF8Unchecked(st.pitchContourICDF))
 
-		st.indices.PERIndex = int8(rd.DecodeICDF(silk_LTP_per_index_iCDF, 8))
+		st.indices.PERIndex = int8(rd.DecodeICDF8Unchecked(silk_LTP_per_index_iCDF))
 		for k := 0; k < st.nbSubfr; k++ {
-			st.indices.LTPIndex[k] = int8(rd.DecodeICDF(silk_LTP_gain_iCDF_ptrs[int(st.indices.PERIndex)], 8))
+			st.indices.LTPIndex[k] = int8(rd.DecodeICDF8Unchecked(silk_LTP_gain_iCDF_ptrs[int(st.indices.PERIndex)]))
 		}
 		if condCoding == codeIndependently {
-			st.indices.LTPScaleIndex = int8(rd.DecodeICDF(silk_LTPscale_iCDF, 8))
+			st.indices.LTPScaleIndex = int8(rd.DecodeICDF8Unchecked(silk_LTPscale_iCDF))
 		} else {
 			st.indices.LTPScaleIndex = 0
 		}
 	}
 	st.ecPrevSignalType = int(st.indices.signalType)
 
-	st.indices.Seed = int8(rd.DecodeICDF(silk_uniform4_iCDF, 8))
+	st.indices.Seed = int8(rd.DecodeICDF8Unchecked(silk_uniform4_iCDF))
 }
 
 func silkShellDecoder(pulses []int16, rd *rangecoding.Decoder, pulses4 int) {
@@ -156,7 +156,7 @@ func silkShellDecoder(pulses []int16, rd *rangecoding.Decoder, pulses4 int) {
 
 	decodeSplit := func(c1, c2 *int16, p int, table []uint8) {
 		if p > 0 {
-			*c1 = int16(rd.DecodeICDF(table[silk_shell_code_table_offsets[p]:], 8))
+			*c1 = int16(rd.DecodeICDF8Unchecked(table[silk_shell_code_table_offsets[p]:]))
 			*c2 = int16(p - int(*c1))
 		} else {
 			*c1 = 0
@@ -197,7 +197,7 @@ func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signal
 			icdf0 := icdfPtr[silkMinInt(p&0x1F, 6)]
 			for j := 0; j < shellCodecFrameLength; j++ {
 				if pulses[qPtr+j] > 0 {
-					sign := rd.DecodeICDF2(icdf0, 8)
+					sign := rd.DecodeICDF2_8(icdf0)
 					if sign == 0 {
 						pulses[qPtr+j] = -pulses[qPtr+j]
 					}
@@ -214,7 +214,7 @@ func silkDecodePulses(rd *rangecoding.Decoder, pulses []int16, signalType int, q
 
 // silkDecodePulsesWithScratch is like silkDecodePulses but uses pre-allocated scratch buffers.
 func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signalType int, quantOffsetType int, frameLength int, scratchSumPulses, scratchNLshifts []int) {
-	rateLevel := rd.DecodeICDF(silk_rate_levels_iCDF[signalType>>1], 8)
+	rateLevel := rd.DecodeICDF8Unchecked(silk_rate_levels_iCDF[signalType>>1])
 	iter := frameLength >> log2ShellCodecFrameLength
 	if iter*shellCodecFrameLength < frameLength {
 		iter++
@@ -236,14 +236,14 @@ func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signal
 	cdfPtr := silk_pulses_per_block_iCDF[rateLevel]
 	for i := 0; i < iter; i++ {
 		nLshifts[i] = 0
-		sumPulses[i] = rd.DecodeICDF(cdfPtr, 8)
+		sumPulses[i] = rd.DecodeICDF8Unchecked(cdfPtr)
 		for sumPulses[i] == silkMaxPulses+1 {
 			nLshifts[i]++
 			table := silk_pulses_per_block_iCDF[nRateLevels-1]
 			if nLshifts[i] == 10 {
 				table = table[1:]
 			}
-			sumPulses[i] = rd.DecodeICDF(table, 8)
+			sumPulses[i] = rd.DecodeICDF8Unchecked(table)
 		}
 	}
 
@@ -266,7 +266,7 @@ func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signal
 				absQ := int32(pulses[off+k])
 				for j := 0; j < nLS; j++ {
 					absQ <<= 1
-					absQ += int32(rd.DecodeICDF(silk_lsb_iCDF, 8))
+					absQ += int32(rd.DecodeICDF2_8(120))
 				}
 				pulses[off+k] = int16(absQ)
 			}

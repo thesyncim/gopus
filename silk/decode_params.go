@@ -36,10 +36,10 @@ func (d *Decoder) DecodeFrameType(vadFlag bool) (signalType, quantOffset int) {
 	if vadFlag {
 		// ICDFFrameTypeVADActive encodes 4 outcomes:
 		// 0: unvoiced low, 1: unvoiced high, 2: voiced low, 3: voiced high
-		idx = d.rangeDecoder.DecodeICDF16(ICDFFrameTypeVADActive, 8) + 2
+		idx = d.rangeDecoder.DecodeICDF16_8Unchecked(ICDFFrameTypeVADActive) + 2
 	} else {
 		// VAD inactive uses a 2-outcome table (typeOffset 0 or 1).
-		idx = d.rangeDecoder.DecodeICDF16(ICDFFrameTypeVADInactive, 8)
+		idx = d.rangeDecoder.DecodeICDF16_8Unchecked(ICDFFrameTypeVADInactive)
 	}
 	signalType = idx >> 1
 	quantOffset = idx & 1

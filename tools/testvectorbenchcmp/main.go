@@ -43,6 +43,7 @@ type benchmarkResult struct {
 	Implementation string
 	Path           string
 	Vector         string
+	MinDuration    time.Duration
 	Count          int
 	Iterations     int64
 	ElapsedNS      int64
@@ -59,6 +60,7 @@ type runConfig struct {
 	cases       string
 	paths       string
 	minDuration time.Duration
+	benchtimes  string
 	count       int
 	vectorDir   string
 	libopusRoot string
@@ -71,6 +73,7 @@ func main() {
 	flag.StringVar(&cfg.cases, "cases", "all", "benchmark cases: aggregate, per-vector, or all")
 	flag.StringVar(&cfg.paths, "paths", "all", "decode paths: float32, int16, or all")
 	flag.DurationVar(&cfg.minDuration, "benchtime", 200*time.Millisecond, "minimum measurement time per run")
+	flag.StringVar(&cfg.benchtimes, "benchtimes", "", "comma-separated minimum measurement times; bare numbers are milliseconds")
 	flag.IntVar(&cfg.count, "count", 3, "measurement runs per case; median ns/sample is reported")
 	flag.StringVar(&cfg.vectorDir, "vectors", filepath.Join("testvectors", "testdata", "opus_testvectors"), "official test-vector directory")
 	flag.StringVar(&cfg.libopusRoot, "libopus-root", filepath.Join("tmp_check", "opus-"+libopusVersion), "pinned libopus source/build directory")
@@ -85,8 +88,9 @@ func main() {
 }
 
 func run(cfg runConfig) error {
-	if cfg.minDuration <= 0 {
-		return errors.New("benchtime must be positive")
+	durations, err := measurementDurations(cfg)
+	if err != nil {
+		return err
 	}
 	if cfg.count < 1 {
 		return errors.New("count must be positive")
@@ -115,20 +119,26 @@ func run(cfg runConfig) error {
 	cases := makeCases(vectors, cfg.cases)
 	paths := makePaths(cfg.paths)
 
-	gopusResults, err := runGopusBenchmarks(paths, cases, cfg)
-	if err != nil {
-		return err
-	}
 	helper, err := buildLibopusHelper(root, libopusRoot)
 	if err != nil {
 		return err
 	}
-	libopusResults, err := runLibopusBenchmarks(helper, vectors, cfg)
-	if err != nil {
-		return err
-	}
 
-	results := append(gopusResults, libopusResults...)
+	var results []benchmarkResult
+	for _, duration := range durations {
+		runCfg := cfg
+		runCfg.minDuration = duration
+		gopusResults, err := runGopusBenchmarks(paths, cases, runCfg)
+		if err != nil {
+			return err
+		}
+		libopusResults, err := runLibopusBenchmarks(helper, vectors, runCfg)
+		if err != nil {
+			return err
+		}
+		results = append(results, gopusResults...)
+		results = append(results, libopusResults...)
+	}
 	sortResults(results)
 
 	var out string
@@ -153,6 +163,61 @@ func run(cfg runConfig) error {
 
 	fmt.Print(out)
 	return nil
+}
+
+func measurementDurations(cfg runConfig) ([]time.Duration, error) {
+	if strings.TrimSpace(cfg.benchtimes) == "" {
+		if cfg.minDuration <= 0 {
+			return nil, errors.New("benchtime must be positive")
+		}
+		return []time.Duration{cfg.minDuration}, nil
+	}
+
+	parts := strings.Split(cfg.benchtimes, ",")
+	durations := make([]time.Duration, 0, len(parts))
+	seen := make(map[time.Duration]bool, len(parts))
+	for _, part := range parts {
+		duration, err := parseBenchmarkDuration(part)
+		if err != nil {
+			return nil, err
+		}
+		if !seen[duration] {
+			durations = append(durations, duration)
+			seen[duration] = true
+		}
+	}
+	if len(durations) == 0 {
+		return nil, errors.New("benchtimes must include at least one duration")
+	}
+	return durations, nil
+}
+
+func parseBenchmarkDuration(raw string) (time.Duration, error) {
+	token := strings.TrimSpace(raw)
+	if token == "" {
+		return 0, errors.New("empty benchtime")
+	}
+
+	duration, err := time.ParseDuration(token)
+	if err != nil {
+		allDigits := true
+		for _, r := range token {
+			if r < '0' || r > '9' {
+				allDigits = false
+				break
+			}
+		}
+		if allDigits {
+			duration, err = time.ParseDuration(token + "ms")
+		}
+	}
+	if err != nil {
+		return 0, fmt.Errorf("invalid benchtime %q: %w", raw, err)
+	}
+	if duration <= 0 {
+		return 0, fmt.Errorf("benchtime %q must be positive", raw)
+	}
+	return duration, nil
 }
 
 func repoRoot() (string, error) {
@@ -295,7 +360,7 @@ func runGopusCase(path string, benchCase benchmarkCase, cfg runConfig) (benchmar
 		if err != nil {
 			return benchmarkResult{}, err
 		}
-		runs[i] = makeResult("gopus", path, benchCase.name, cfg.count, iter, elapsed, packetBytes, packetCount, expectedSamples, &allocs)
+		runs[i] = makeResult("gopus", path, benchCase.name, cfg.minDuration, cfg.count, iter, elapsed, packetBytes, packetCount, expectedSamples, &allocs)
 	}
 	sort.Slice(runs, func(i, j int) bool {
 		return runs[i].NsPerSample < runs[j].NsPerSample
@@ -312,6 +377,11 @@ func timeGopusCase(path string, vectors []benchmarkVector, expectedSamples int64
 	switch path {
 	case "Float32":
 		pcm := make([]float32, cfgDec.MaxPacketSamples*cfgDec.Channels)
+		if got, err := decodeGopusFloat(dec, vectors, pcm); err != nil {
+			return 0, 0, err
+		} else if got != expectedSamples {
+			return 0, 0, fmt.Errorf("%s warmup decoded samples=%d want=%d", path, got, expectedSamples)
+		}
 		start := time.Now()
 		var iterations int64
 		for {
@@ -329,6 +399,11 @@ func timeGopusCase(path string, vectors []benchmarkVector, expectedSamples int64
 		}
 	case "Int16":
 		pcm := make([]int16, cfgDec.MaxPacketSamples*cfgDec.Channels)
+		if got, err := decodeGopusInt16(dec, vectors, pcm); err != nil {
+			return 0, 0, err
+		} else if got != expectedSamples {
+			return 0, 0, fmt.Errorf("%s warmup decoded samples=%d want=%d", path, got, expectedSamples)
+		}
 		start := time.Now()
 		var iterations int64
 		for {
@@ -430,7 +505,7 @@ func gopusAllocsPerRun(path string, vectors []benchmarkVector, expectedSamples i
 	}
 }
 
-func makeResult(implementation, path, vector string, count int, iterations int64, elapsed time.Duration, bytesPerOp, packetsPerOp, samplesPerOp int64, allocs *float64) benchmarkResult {
+func makeResult(implementation, path, vector string, minDuration time.Duration, count int, iterations int64, elapsed time.Duration, bytesPerOp, packetsPerOp, samplesPerOp int64, allocs *float64) benchmarkResult {
 	elapsedNS := elapsed.Nanoseconds()
 	totalSamples := float64(samplesPerOp) * float64(iterations)
 	totalPackets := float64(packetsPerOp) * float64(iterations)
@@ -439,6 +514,7 @@ func makeResult(implementation, path, vector string, count int, iterations int64
 		Implementation: implementation,
 		Path:           path,
 		Vector:         vector,
+		MinDuration:    minDuration,
 		Count:          count,
 		Iterations:     iterations,
 		ElapsedNS:      elapsedNS,
@@ -505,7 +581,14 @@ func runLibopusBenchmarks(helper string, vectors []benchmarkVector, cfg runConfi
 	if err != nil {
 		return nil, fmt.Errorf("run libopus benchmark helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
 	}
-	return parseLibopusTSV(output)
+	results, err := parseLibopusTSV(output)
+	if err != nil {
+		return nil, err
+	}
+	for i := range results {
+		results[i].MinDuration = cfg.minDuration
+	}
+	return results, nil
 }
 
 func parseLibopusTSV(data []byte) ([]benchmarkResult, error) {
@@ -575,6 +658,9 @@ func parseLibopusTSV(data []byte) ([]benchmarkResult, error) {
 
 func sortResults(results []benchmarkResult) {
 	sort.Slice(results, func(i, j int) bool {
+		if results[i].MinDuration != results[j].MinDuration {
+			return results[i].MinDuration < results[j].MinDuration
+		}
 		if results[i].Path != results[j].Path {
 			return results[i].Path < results[j].Path
 		}
@@ -598,71 +684,166 @@ func vectorRank(vector string) int {
 func resultMap(results []benchmarkResult) map[string]benchmarkResult {
 	m := make(map[string]benchmarkResult, len(results))
 	for _, result := range results {
-		m[result.Implementation+"/"+result.Path+"/"+result.Vector] = result
+		m[resultKey(result.MinDuration, result.Implementation, result.Path, result.Vector)] = result
 	}
 	return m
 }
 
+func resultKey(minDuration time.Duration, implementation, path, vector string) string {
+	return minDuration.String() + "/" + implementation + "/" + path + "/" + vector
+}
+
+func resultDurations(results []benchmarkResult) []time.Duration {
+	seen := make(map[time.Duration]bool)
+	var durations []time.Duration
+	for _, result := range results {
+		if !seen[result.MinDuration] {
+			durations = append(durations, result.MinDuration)
+			seen[result.MinDuration] = true
+		}
+	}
+	sort.Slice(durations, func(i, j int) bool {
+		return durations[i] < durations[j]
+	})
+	return durations
+}
+
+func formatDurationList(durations []time.Duration) string {
+	parts := make([]string, len(durations))
+	for i, duration := range durations {
+		parts[i] = "`" + duration.String() + "`"
+	}
+	return strings.Join(parts, ", ")
+}
+
+func durationStrings(durations []time.Duration) []string {
+	parts := make([]string, len(durations))
+	for i, duration := range durations {
+		parts[i] = duration.String()
+	}
+	return parts
+}
+
 func formatMarkdown(results []benchmarkResult, cfg runConfig) string {
 	m := resultMap(results)
+	durations := resultDurations(results)
+	multiDuration := len(durations) > 1
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Official Test Vector Decode Performance\n\n")
-	fmt.Fprintf(&b, "This report compares `gopus` with the pinned C reference, libopus %s, on the same RFC 8251 `.bit` vectors.\n\n", libopusVersion)
-	fmt.Fprintf(&b, "Methodology: vectors are preloaded, decoder construction and helper startup are excluded, both decoders reset once per vector stream, output is 48 kHz stereo, and each row reports the median run by `ns/sample` across `%d` runs of at least `%s` each.\n\n", cfg.count, cfg.minDuration)
-	fmt.Fprintf(&b, "Environment: `%s/%s`, `%s`", runtime.GOOS, runtime.GOARCH, runtime.Version())
+	fmt.Fprintf(&b, "Baseline: pinned libopus %s. This report measures `gopus` against that baseline on the same RFC 8251 `.bit` vectors.\n\n", libopusVersion)
+	if multiDuration {
+		fmt.Fprintf(&b, "Methodology: vectors are preloaded, decoder construction and helper startup are excluded, both decoders reset once per vector stream, output is 48 kHz stereo, and each row reports the median run by `ns/sample` across `%d` runs for each minimum run time: %s. `gopus/libopus` is the speed ratio against the libopus baseline; values above `1.00x` mean `gopus` is slower.\n\n", cfg.count, formatDurationList(durations))
+	} else {
+		fmt.Fprintf(&b, "Methodology: vectors are preloaded, decoder construction and helper startup are excluded, both decoders reset once per vector stream, output is 48 kHz stereo, and each row reports the median run by `ns/sample` across `%d` runs of at least `%s` each. `gopus/libopus` is the speed ratio against the libopus baseline; values above `1.00x` mean `gopus` is slower.\n\n", cfg.count, cfg.minDuration)
+	}
+	fmt.Fprintf(&b, "Measured on `%s/%s` with `%s`", runtime.GOOS, runtime.GOARCH, runtime.Version())
 	if cpu := hostCPU(); cpu != "" {
-		fmt.Fprintf(&b, ", CPU `%s`", cpu)
+		fmt.Fprintf(&b, " on `%s`", cpu)
 	}
 	fmt.Fprintf(&b, ".\n\n")
 
 	fmt.Fprintf(&b, "## Summary\n\n")
-	fmt.Fprintf(&b, "| Path | gopus ns/sample | libopus ns/sample | gopus/libopus | gopus realtime | libopus realtime | gopus allocs/op |\n")
-	fmt.Fprintf(&b, "| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n")
-	for _, path := range []string{"Float32", "Int16"} {
-		goResult, okGo := m["gopus/"+path+"/all"]
-		cResult, okC := m["libopus/"+path+"/all"]
-		if !okGo || !okC {
-			continue
+	if multiDuration {
+		fmt.Fprintf(&b, "| Run time | Path | gopus ns/sample | libopus ns/sample | gopus/libopus | gopus realtime | libopus realtime | gopus allocs/op |\n")
+		fmt.Fprintf(&b, "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |\n")
+	} else {
+		fmt.Fprintf(&b, "| Path | gopus ns/sample | libopus ns/sample | gopus/libopus | gopus realtime | libopus realtime | gopus allocs/op |\n")
+		fmt.Fprintf(&b, "| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n")
+	}
+	for _, duration := range durations {
+		for _, path := range []string{"Float32", "Int16"} {
+			goResult, okGo := m[resultKey(duration, "gopus", path, "all")]
+			cResult, okC := m[resultKey(duration, "libopus", path, "all")]
+			if !okGo || !okC {
+				continue
+			}
+			if multiDuration {
+				fmt.Fprintf(&b, "| %s | %s | %.2f | %.2f | %.2fx | %.1fx | %.1fx | %s |\n",
+					duration,
+					path,
+					goResult.NsPerSample,
+					cResult.NsPerSample,
+					goResult.NsPerSample/cResult.NsPerSample,
+					goResult.XRealtime,
+					cResult.XRealtime,
+					formatAllocs(goResult.Allocations),
+				)
+			} else {
+				fmt.Fprintf(&b, "| %s | %.2f | %.2f | %.2fx | %.1fx | %.1fx | %s |\n",
+					path,
+					goResult.NsPerSample,
+					cResult.NsPerSample,
+					goResult.NsPerSample/cResult.NsPerSample,
+					goResult.XRealtime,
+					cResult.XRealtime,
+					formatAllocs(goResult.Allocations),
+				)
+			}
 		}
-		fmt.Fprintf(&b, "| %s | %.2f | %.2f | %.2fx | %.1fx | %.1fx | %s |\n",
-			path,
-			goResult.NsPerSample,
-			cResult.NsPerSample,
-			goResult.NsPerSample/cResult.NsPerSample,
-			goResult.XRealtime,
-			cResult.XRealtime,
-			formatAllocs(goResult.Allocations),
-		)
 	}
 
-	fmt.Fprintf(&b, "\n## Per-Vector Detail\n\n")
-	fmt.Fprintf(&b, "| Path | Vector | gopus ns/sample | libopus ns/sample | gopus/libopus | gopus ns/packet | libopus ns/packet | gopus realtime | libopus realtime | gopus allocs/op |\n")
-	fmt.Fprintf(&b, "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n")
+	hasPerVector := false
 	for _, result := range results {
-		if result.Implementation != "gopus" || result.Vector == "all" {
-			continue
+		if result.Implementation == "gopus" && result.Vector != "all" {
+			hasPerVector = true
+			break
 		}
-		cResult, ok := m["libopus/"+result.Path+"/"+result.Vector]
-		if !ok {
-			continue
+	}
+	if hasPerVector {
+		fmt.Fprintf(&b, "\n## Per-Vector Detail\n\n")
+		if multiDuration {
+			fmt.Fprintf(&b, "| Run time | Path | Vector | gopus ns/sample | libopus ns/sample | gopus/libopus | gopus ns/packet | libopus ns/packet | gopus realtime | libopus realtime | gopus allocs/op |\n")
+			fmt.Fprintf(&b, "| --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n")
+		} else {
+			fmt.Fprintf(&b, "| Path | Vector | gopus ns/sample | libopus ns/sample | gopus/libopus | gopus ns/packet | libopus ns/packet | gopus realtime | libopus realtime | gopus allocs/op |\n")
+			fmt.Fprintf(&b, "| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |\n")
 		}
-		fmt.Fprintf(&b, "| %s | %s | %.2f | %.2f | %.2fx | %.0f | %.0f | %.1fx | %.1fx | %s |\n",
-			result.Path,
-			result.Vector,
-			result.NsPerSample,
-			cResult.NsPerSample,
-			result.NsPerSample/cResult.NsPerSample,
-			result.NsPerPacket,
-			cResult.NsPerPacket,
-			result.XRealtime,
-			cResult.XRealtime,
-			formatAllocs(result.Allocations),
-		)
+		for _, result := range results {
+			if result.Implementation != "gopus" || result.Vector == "all" {
+				continue
+			}
+			cResult, ok := m[resultKey(result.MinDuration, "libopus", result.Path, result.Vector)]
+			if !ok {
+				continue
+			}
+			if multiDuration {
+				fmt.Fprintf(&b, "| %s | %s | %s | %.2f | %.2f | %.2fx | %.0f | %.0f | %.1fx | %.1fx | %s |\n",
+					result.MinDuration,
+					result.Path,
+					result.Vector,
+					result.NsPerSample,
+					cResult.NsPerSample,
+					result.NsPerSample/cResult.NsPerSample,
+					result.NsPerPacket,
+					cResult.NsPerPacket,
+					result.XRealtime,
+					cResult.XRealtime,
+					formatAllocs(result.Allocations),
+				)
+			} else {
+				fmt.Fprintf(&b, "| %s | %s | %.2f | %.2f | %.2fx | %.0f | %.0f | %.1fx | %.1fx | %s |\n",
+					result.Path,
+					result.Vector,
+					result.NsPerSample,
+					cResult.NsPerSample,
+					result.NsPerSample/cResult.NsPerSample,
+					result.NsPerPacket,
+					cResult.NsPerPacket,
+					result.XRealtime,
+					cResult.XRealtime,
+					formatAllocs(result.Allocations),
+				)
+			}
+		}
 	}
 
 	fmt.Fprintf(&b, "\n## Reproduce\n\n")
 	fmt.Fprintf(&b, "```sh\n")
-	fmt.Fprintf(&b, "make bench-testvectors-compare\n")
+	if multiDuration {
+		fmt.Fprintf(&b, "GOWORK=off go run ./tools/testvectorbenchcmp -cases=%s -paths=%s -benchtimes=%s -count=%d -format=markdown\n", cfg.cases, cfg.paths, strings.Join(durationStrings(durations), ","), cfg.count)
+	} else {
+		fmt.Fprintf(&b, "make bench-testvectors-compare\n")
+	}
 	fmt.Fprintf(&b, "```\n\n")
 	fmt.Fprintf(&b, "For raw Go benchmark rows, run:\n\n")
 	fmt.Fprintf(&b, "```sh\n")
@@ -673,12 +854,13 @@ func formatMarkdown(results []benchmarkResult, cfg runConfig) string {
 
 func formatTSV(results []benchmarkResult) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "implementation\tpath\tvector\tcount\titerations\telapsed_ns\tbytes_per_op\tpackets_per_op\tsamples_per_op\tns_per_sample\tns_per_packet\tx_realtime\tallocs_per_op\n")
+	fmt.Fprintf(&b, "implementation\tpath\tvector\tbenchtime\tcount\titerations\telapsed_ns\tbytes_per_op\tpackets_per_op\tsamples_per_op\tns_per_sample\tns_per_packet\tx_realtime\tallocs_per_op\n")
 	for _, result := range results {
-		fmt.Fprintf(&b, "%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%.6f\t%.6f\t%.6f\t%s\n",
+		fmt.Fprintf(&b, "%s\t%s\t%s\t%s\t%d\t%d\t%d\t%d\t%d\t%d\t%.6f\t%.6f\t%.6f\t%s\n",
 			result.Implementation,
 			result.Path,
 			result.Vector,
+			result.MinDuration,
 			result.Count,
 			result.Iterations,
 			result.ElapsedNS,

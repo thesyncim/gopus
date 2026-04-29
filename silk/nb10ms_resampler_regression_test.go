@@ -160,7 +160,7 @@ func TestNB10msNativeDecodePathRegression(t *testing.T) {
 			rd := &rangecoding.Decoder{}
 			rd.Init(packet)
 			headerICDF := []uint16{uint16(256 - (256 >> 2)), 0}
-			header := rd.DecodeICDF16(headerICDF, 8)
+			header := rd.DecodeICDF16_8Unchecked(headerICDF)
 			vadFlag := (header>>1)&1 != 0
 			duration := FrameDurationFromTOC(frameSizeAt48k)
 

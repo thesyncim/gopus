@@ -600,14 +600,5 @@ func copyFloat32ToFloat64(dst []float64, src []float32) {
 	if len(src) < n {
 		n = len(src)
 	}
-	i := 0
-	for ; i+3 < n; i += 4 {
-		dst[i] = float64(src[i])
-		dst[i+1] = float64(src[i+1])
-		dst[i+2] = float64(src[i+2])
-		dst[i+3] = float64(src[i+3])
-	}
-	for ; i < n; i++ {
-		dst[i] = float64(src[i])
-	}
+	widenFloat32ToFloat64(dst, src, n)
 }

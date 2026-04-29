@@ -194,6 +194,9 @@ func softClipAndFloat32ToInt16(dst []int16, src []float32, n, channels int, decl
 				goto fallback
 			}
 		}
+		if convertFloat32ToInt16Unit(dst, src, total) {
+			return
+		}
 		_ = src[total-1]
 		_ = dst[total-1]
 		for i := 0; i < total; i++ {
