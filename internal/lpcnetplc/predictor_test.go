@@ -2,6 +2,7 @@ package lpcnetplc
 
 import (
 	"encoding/binary"
+	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -65,6 +66,33 @@ func TestPredictorDoesNotAllocate(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("Predict allocs/run=%v want 0", allocs)
+	}
+}
+
+func TestQuantizeInputNearestEvenUsesFloat32Product(t *testing.T) {
+	oldNearestEven := useNearestEvenQuant
+	oldSUBias := useSUBias
+	t.Cleanup(func() {
+		useNearestEvenQuant = oldNearestEven
+		useSUBias = oldSUBias
+	})
+
+	x := math.Float32frombits(0x3e870e1c)
+	legacy := int16(math.RoundToEven(127 * float64(x)))
+	want := int16(math.RoundToEven(float64(float32(127 * x))))
+	if legacy != 33 || want != 34 {
+		t.Fatalf("test input no longer straddles the arm64 quantizer boundary: legacy=%d want=%d", legacy, want)
+	}
+
+	useNearestEvenQuant = true
+	useSUBias = false
+	if got := quantizeInput(x); got != want {
+		t.Fatalf("quantizeInput(%v)=%d want %d", x, got, want)
+	}
+
+	useSUBias = true
+	if got, want := quantizeInput(x), int16(127)+want; got != want {
+		t.Fatalf("quantizeInput(%v) with subias=%d want %d", x, got, want)
 	}
 }
 
