@@ -23,17 +23,17 @@ Current external assessment:
 - OSCE BWE remains quarantine-only behind `gopus_unsupported_controls`, and that quarantine tag does not make `SupportsOptionalExtension(...)` report support.
 - README, package docs, release notes, and optional-extension docs should stay aligned as new seams graduate.
 
-3. Static analysis is not a meaningful gate yet.
-- `.golangci.yml` currently enables only `unused`.
-- CI does not run a required lint/static-analysis lane.
+3. Static-analysis enforcement needs release protection, not first-time setup.
+- `.golangci.yml` now enables the baseline `govet`, `staticcheck`, `errcheck`, `ineffassign`, `gosimple`, `revive`, and `gocritic` lanes with scoped allowlists.
+- CI now runs `lint-static-analysis`; branch protection still needs to require the documented check before release.
 
 4. New-user documentation still reads like an engineering project more than a consumable library.
 - README is strong technically, but stability boundaries and support promises need to be easier to scan.
 - Maintainer/process material should keep moving out of the landing path.
 
-5. Public project hygiene is incomplete.
-- Missing `SECURITY.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md`.
-- Issue templates/support policy need to be explicit.
+5. Public project hygiene needs release review.
+- `SECURITY.md`, `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, and issue templates now exist.
+- Before tagging, confirm GitHub renders the security, contribution, conduct, issue, and support paths in the expected UI locations.
 
 6. Consumer-proofing is incomplete.
 - The repo should prove that an external module can import and use `gopus`.
@@ -80,9 +80,9 @@ Acceptance signals:
 ### 3. Static Analysis And CI Enforcement
 
 Deliverables:
-- Expand `.golangci.yml` to meaningful baseline checks.
-- Add a CI lint/static-analysis job.
-- Document the required-check name in `docs/maintainers/CI_GUARDRAILS.md`.
+- Maintain the `.golangci.yml` baseline and shrink allowlists as unrelated cleanup lands.
+- Keep the CI lint/static-analysis job required.
+- Keep the required-check name documented in `docs/maintainers/CI_GUARDRAILS.md`.
 
 Acceptance signals:
 - `make lint` becomes a useful gate locally.
@@ -101,11 +101,9 @@ Acceptance signals:
 ### 5. Public Project Hygiene
 
 Deliverables:
-- Add `SECURITY.md`.
-- Add `CONTRIBUTING.md`.
-- Add `CODE_OF_CONDUCT.md`.
-- Add issue templates for bug reports and feature requests.
-- Add a short support/triage policy if it does not fit naturally inside `CONTRIBUTING.md`.
+- Keep `SECURITY.md`, `CONTRIBUTING.md`, and `CODE_OF_CONDUCT.md` current with the release contract.
+- Keep issue templates for bug reports, feature requests, and support questions current.
+- Keep the support/triage policy visible from the root docs and GitHub UI.
 
 Acceptance signals:
 - Security disclosure, contribution workflow, and community expectations are visible without reading code.

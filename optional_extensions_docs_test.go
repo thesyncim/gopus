@@ -39,7 +39,8 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"[Optional Extensions](docs/optional-extensions.md)",
 		"Supported default controls are `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()`",
-		"DRED control and standalone surfaces are compiled explicitly with `-tags gopus_dred`",
+		"DRED control and standalone surfaces are supported with `-tags gopus_dred`",
+		"may also expose DRED controls/helpers for parity work",
 		"OSCE BWE remains quarantine-only under `-tags gopus_unsupported_controls`",
 		"that quarantine tag does not itself make `SupportsOptionalExtension(...)` report support",
 	} {
@@ -54,6 +55,8 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"// optional controls in the default build currently include SetDNNBlob plus",
 		"// SetQEXT/QEXT. DRED control and standalone surfaces are supported only in",
 		"// builds using `-tags gopus_dred`.",
+		"// `-tags gopus_unsupported_controls` may also expose DRED controls/helpers for",
+		"// parity work, but they do not report DRED support.",
 		"// OSCE BWE remains quarantined from the default API surface.",
 		"// `-tags gopus_unsupported_controls`, and that tag does not itself report",
 	} {
@@ -70,6 +73,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"DRED control and standalone surfaces are supported only when built with `-tags gopus_dred`",
 		"`SetOSCEBWE(...)` / `OSCEBWE()` are absent unless built with `-tags gopus_unsupported_controls`",
 		"The `gopus_unsupported_controls` build remains a parity/quarantine umbrella",
+		"may expose DRED controls and standalone",
 	} {
 		if !strings.Contains(releaseNotes, needle) {
 			t.Fatalf("docs/releases/v0.1.0.md missing %q", needle)
@@ -83,6 +87,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 
 	for _, needle := range []string{
 		"Build DRED support explicitly when you need the verified DRED control",
+		"expose DRED controls/standalone helpers",
 		"does not, by itself, change `SupportsOptionalExtension(...)`",
 		"release support comes from `gopus_dred`",
 	} {
