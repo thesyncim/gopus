@@ -6,7 +6,6 @@ import (
 	"sort"
 	"testing"
 
-	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/testsignal"
 )
 
@@ -21,47 +20,7 @@ type variantProvenanceAuditRow struct {
 }
 
 func encodeGopusForVariantsCaseWithProvenance(c encoderComplianceVariantsFixtureCase, signal []float32) ([][]byte, error) {
-	mode, err := parseFixtureMode(c.Mode)
-	if err != nil {
-		return nil, err
-	}
-	bandwidth, err := parseFixtureBandwidth(c.Bandwidth)
-	if err != nil {
-		return nil, err
-	}
-
-	enc := encoder.NewEncoder(48000, c.Channels)
-	// Fixture rows tagged as "hybrid" are generated with opus_demo "audio"
-	// application, which allows adaptive SILK/CELT mode selection.
-	encMode := mode
-	if mode == encoder.ModeHybrid {
-		encMode = encoder.ModeAuto
-	}
-	enc.SetMode(encMode)
-	enc.SetLowDelay(mode == encoder.ModeCELT)
-	enc.SetBandwidth(bandwidth)
-	enc.SetBitrate(c.Bitrate)
-	enc.SetBitrateMode(encoder.ModeCBR)
-	// Match fixture generation provenance: do not force signal-type hints.
-
-	packets := make([][]byte, c.SignalFrames)
-	samplesPerFrame := c.FrameSize * c.Channels
-	for i := 0; i < c.SignalFrames; i++ {
-		start := i * samplesPerFrame
-		end := start + samplesPerFrame
-		frame := float32ToFloat64OpusDemoF32(signal[start:end])
-		pkt, err := enc.Encode(frame, c.FrameSize)
-		if err != nil {
-			return nil, fmt.Errorf("encode frame %d: %w", i, err)
-		}
-		if len(pkt) == 0 {
-			return nil, fmt.Errorf("empty packet at frame %d", i)
-		}
-		pktCopy := make([]byte, len(pkt))
-		copy(pktCopy, pkt)
-		packets[i] = pktCopy
-	}
-	return packets, nil
+	return encodeGopusForVariantsCase(c, signal)
 }
 
 func provenanceGapFloorQ(mode string) float64 {
