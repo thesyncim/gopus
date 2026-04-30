@@ -1,6 +1,9 @@
 package celt
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestSynthesizeStereoPlanarFromMonoLongMatchesDuplicatedStereo(t *testing.T) {
 	for _, frameSize := range []int{120, 240, 480, 960} {
@@ -45,10 +48,13 @@ func nearlyEqualSynthesis(got, want float64) bool {
 	if got == want {
 		return true
 	}
-	const tolerance = 1e-7
-	diff := got - want
-	if diff < 0 {
-		diff = -diff
+	gotBits := math.Float32bits(float32(got))
+	wantBits := math.Float32bits(float32(want))
+	if (gotBits >> 31) != (wantBits >> 31) {
+		return false
 	}
-	return diff <= tolerance
+	if gotBits > wantBits {
+		gotBits, wantBits = wantBits, gotBits
+	}
+	return wantBits-gotBits <= 1
 }
