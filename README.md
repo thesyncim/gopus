@@ -38,8 +38,8 @@ Official RFC 8251 test-vector decode benchmarks use pinned libopus 1.6.1 as the 
 
 | Path | gopus ns/sample | libopus ns/sample | gopus/libopus | gopus allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Float32 decode | 23.67 | 18.44 | 1.28x | 0 |
-| Int16 decode | 24.44 | 18.53 | 1.32x | 0 |
+| Float32 decode | 24.69 | 19.08 | 1.29x | 0 |
+| Int16 decode | 25.69 | 19.26 | 1.33x | 0 |
 
 See the full Markdown report in [Official Test Vector Decode Performance](docs/testvector-benchmarks.md). Reproduce it with `BENCH_TESTVECTORS_COMPARE_CASES=aggregate BENCH_TESTVECTORS_COMPARE_TIMES=200,1000,5000 make bench-testvectors-compare`.
 
