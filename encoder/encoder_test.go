@@ -775,6 +775,7 @@ func TestTargetBytesForBitrate(t *testing.T) {
 	}{
 		{64000, 960, 160},  // 64kbps, 20ms = 160 bytes
 		{64000, 480, 80},   // 64kbps, 10ms = 80 bytes
+		{64000, 120, 20},   // 64kbps, 2.5ms = 20 bytes
 		{128000, 960, 320}, // 128kbps, 20ms = 320 bytes
 		{6000, 960, 15},    // 6kbps (min), 20ms = 15 bytes
 	}
