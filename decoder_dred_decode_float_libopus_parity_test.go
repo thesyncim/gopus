@@ -1826,8 +1826,16 @@ func TestDecoderExplicitDREDThreeConcealFramesMixedHelpers48kRuntime(t *testing.
 		t.Fatal("ConcealFrameFloatWithAnalysis(first) returned false")
 	}
 	for i := 1; i < 3; i++ {
-		if !requireDecoderDREDState(t, dec).dredPLC.ConcealFrameFloat(&requireDecoderDREDState(t, dec).dredPredictor, &requireDecoderDREDState(t, dec).dredFARGAN, frame[:]) {
-			t.Fatalf("ConcealFrameFloat returned false at frame %d (plc=%+v fargan=%+v)", i, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), requireDecoderDREDState(t, dec).dredFARGAN.Snapshot())
+		st := requireDecoderDREDState(t, dec)
+		before := st.dredPLC.Snapshot()
+		gotFEC := st.dredPLC.ConcealFrameFloat(&st.dredPredictor, &st.dredFARGAN, frame[:])
+		wantFEC := before.FECReadPos != before.FECFillPos && before.FECSkip == 0
+		if gotFEC != wantFEC {
+			t.Fatalf("ConcealFrameFloat gotFEC=%v want %v at frame %d (fecRead=%d fecFill=%d fecSkip=%d)", gotFEC, wantFEC, i, before.FECReadPos, before.FECFillPos, before.FECSkip)
+		}
+		after := st.dredPLC.Snapshot()
+		if after.AnalysisPos >= before.AnalysisPos {
+			t.Fatalf("ConcealFrameFloat did not advance at frame %d (analysisPos=%d want <%d)", i, after.AnalysisPos, before.AnalysisPos)
 		}
 	}
 }
