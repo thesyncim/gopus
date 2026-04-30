@@ -4,6 +4,7 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
@@ -42,6 +43,9 @@ type dredEncoderExtras struct {
 }
 
 func (e *Encoder) ensureDREDExtras() *dredEncoderExtras {
+	if !extsupport.DREDRuntime {
+		return nil
+	}
 	if e.dred == nil {
 		e.dred = &dredEncoderExtras{}
 	}
@@ -58,11 +62,11 @@ func (e *Encoder) pruneDREDExtrasIfDormant() {
 }
 
 func (e *Encoder) dredModelsLoaded() bool {
-	return e.dred != nil && e.dred.models.loaded()
+	return extsupport.DREDRuntime && e.dred != nil && e.dred.models.loaded()
 }
 
 func (e *Encoder) resetDREDControls() {
-	if e.dred == nil {
+	if !extsupport.DREDRuntime || e.dred == nil {
 		return
 	}
 	e.dred.duration = 0
@@ -71,7 +75,7 @@ func (e *Encoder) resetDREDControls() {
 }
 
 func (e *Encoder) clearDREDRuntime() {
-	if e.dred != nil {
+	if extsupport.DREDRuntime && e.dred != nil {
 		e.dred.runtime = nil
 	}
 }
@@ -83,6 +87,10 @@ func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
 	if e.dred != nil {
 		e.dred.models = dredEncoderModels{}
 		e.dred.runtime = nil
+	}
+	if !extsupport.DREDRuntime {
+		e.pruneDREDExtrasIfDormant()
+		return
 	}
 	if blob == nil {
 		e.pruneDREDExtrasIfDormant()
@@ -99,12 +107,15 @@ func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
 		return
 	}
 	extra := e.ensureDREDExtras()
+	if extra == nil {
+		return
+	}
 	extra.models.encoder = encModel
 	extra.models.pitch = pitchModel
 }
 
 func (e *Encoder) ensureActiveDREDRuntime() *dredEncoderRuntime {
-	if e.dnnBlob == nil || e.dred == nil || e.dred.duration <= 0 || !e.dred.models.loaded() {
+	if !extsupport.DREDRuntime || e.dnnBlob == nil || e.dred == nil || e.dred.duration <= 0 || !e.dred.models.loaded() {
 		return nil
 	}
 	if e.channels != 1 && e.channels != 2 {
@@ -122,6 +133,9 @@ func (e *Encoder) ensureActiveDREDRuntime() *dredEncoderRuntime {
 }
 
 func (e *Encoder) processDREDLatents(framePCM []float64, extraDelay int) int {
+	if !extsupport.DREDRuntime {
+		return 0
+	}
 	runtime := e.ensureActiveDREDRuntime()
 	if runtime == nil || len(framePCM) == 0 || len(framePCM)%e.channels != 0 {
 		return 0
@@ -150,6 +164,9 @@ func (e *Encoder) processDREDLatents(framePCM []float64, extraDelay int) int {
 }
 
 func (e *Encoder) convertDREDFrameTo16k(runtime *dredEncoderRuntime, framePCM []float64) int {
+	if !extsupport.DREDRuntime {
+		return 0
+	}
 	if runtime == nil || len(framePCM) == 0 || len(framePCM)%e.channels != 0 {
 		return 0
 	}

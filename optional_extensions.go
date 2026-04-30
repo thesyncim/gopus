@@ -6,9 +6,8 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 type OptionalExtension string
 
 const (
-	// OptionalExtensionDRED identifies encoder-side DRED controls, which remain
-	// unsupported in the default build and are absent unless built with
-	// -tags gopus_unsupported_controls.
+	// OptionalExtensionDRED identifies DRED controls and standalone DRED packet
+	// helpers, which are supported only when built with -tags gopus_dred.
 	OptionalExtensionDRED OptionalExtension = "dred"
 
 	// OptionalExtensionDNNBlob identifies supported weights-file model blob loading.
@@ -18,15 +17,13 @@ const (
 	OptionalExtensionQEXT OptionalExtension = "qext"
 
 	// OptionalExtensionOSCEBWE identifies decoder-side OSCE BWE controls, which
-	// remain unsupported in the default build and are absent unless built with
-	// -tags gopus_unsupported_controls.
+	// remain unsupported in the default build and quarantine builds.
 	OptionalExtensionOSCEBWE OptionalExtension = "osce_bwe"
 )
 
 // SupportsOptionalExtension reports whether the current build makes ext part of
-// the supported default-build surface. Unsupported controls may be completely
-// absent from the default public API even though the extension name is
-// recognized here.
+// the supported release surface for this build. Experimental/quarantine
+// controls may be compiled for parity work while still reporting false here.
 func SupportsOptionalExtension(ext OptionalExtension) bool {
 	switch ext {
 	case OptionalExtensionDRED:

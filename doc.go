@@ -73,17 +73,18 @@
 //
 // Some libopus build-time extension hooks are build dependent. Supported
 // optional controls in the default build currently include SetDNNBlob plus
-// SetQEXT/QEXT. Use SupportsOptionalExtension to probe whether an
-// extension-backed surface is enabled in the current build before relying on
-// it.
+// SetQEXT/QEXT. DRED is supported only in builds using `-tags gopus_dred`.
+// Use SupportsOptionalExtension to probe whether an extension-backed surface is
+// enabled in the current build before relying on it.
 //
 //	if SupportsOptionalExtension(OptionalExtensionQEXT) {
 //	    _ = enc.SetQEXT(true)
 //	}
 //
-// Unsupported extension wrappers such as SetDREDDuration and SetOSCEBWE are
-// intentionally quarantined from the default API surface. They are only
-// exposed when building with `-tags gopus_unsupported_controls`.
+// OSCE BWE remains quarantined from the default API surface. Experimental
+// quarantine helpers are exposed only when building with
+// `-tags gopus_unsupported_controls`, and that tag does not itself report
+// supported feature availability.
 //
 // # Thread Safety
 //

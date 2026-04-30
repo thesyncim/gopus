@@ -334,6 +334,34 @@ jobs:
       - name: Run unsupported-controls quarantine gate
         run: make test-unsupported-controls-tag
 
+  test-linux-dred-tag:
+    name: test-linux-dred-tag
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Run supported DRED feature-tag gate
+        run: make test-dred-tag
+
   test-linux-unsupported-controls-parity-experimental:
     name: test-linux-unsupported-controls-parity-experimental
     needs:
@@ -370,6 +398,7 @@ jobs:
       - test-linux-flake
       - test-linux-fuzz-smoke
       - test-linux-consumer-smoke
+      - test-linux-dred-tag
       - test-linux-unsupported-controls
     runs-on: ubuntu-latest
     steps:
@@ -386,6 +415,7 @@ jobs:
           echo "test-linux-flake: ${{ needs.test-linux-flake.result }}"
           echo "test-linux-fuzz-smoke: ${{ needs.test-linux-fuzz-smoke.result }}"
           echo "test-linux-consumer-smoke: ${{ needs.test-linux-consumer-smoke.result }}"
+          echo "test-linux-dred-tag: ${{ needs.test-linux-dred-tag.result }}"
           echo "test-linux-unsupported-controls: ${{ needs.test-linux-unsupported-controls.result }}"
           if [ "${{ needs.test-linux-parity.result }}" != "success" ]; then
             exit 1
@@ -403,6 +433,9 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-consumer-smoke.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-dred-tag.result }}" != "success" ]; then
             exit 1
           fi
           if [ "${{ needs.test-linux-unsupported-controls.result }}" != "success" ]; then

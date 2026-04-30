@@ -12,6 +12,7 @@ import (
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
 )
@@ -409,7 +410,9 @@ func (e *Encoder) Reset() {
 	e.lbrrCoded = false
 	e.widthMem = StereoWidthMem{}
 	e.toMono = 0
-	e.resetDREDControls()
+	if extsupport.DREDRuntime {
+		e.resetDREDControls()
+	}
 }
 
 // SetFEC enables or disables in-band Forward Error Correction.
@@ -651,7 +654,9 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if !e.lowDelay {
 		dredExtraDelay = e.sampleRate / 250
 	}
-	e.processDREDLatents(framePCM, dredExtraDelay)
+	if extsupport.DREDRuntime {
+		e.processDREDLatents(framePCM, dredExtraDelay)
+	}
 
 	suppressFrame, _ := e.shouldUseDTX(framePCM)
 	if suppressFrame {
@@ -713,7 +718,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	dredBitrate := 0
 	var dredPlan dredEmissionPlan
 	dredPlanOK := false
-	if actualMode != ModeCELT {
+	if extsupport.DREDRuntime && actualMode != ModeCELT {
 		if plan, ok := e.computeDREDEmissionPlan(frameSize); ok {
 			dredPlan = plan
 			dredPlanOK = true
@@ -799,11 +804,13 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 			packetBW = types.BandwidthWideband
 		}
-		if dredPacket, ok, dredErr := e.maybeBuildSingleFrameDREDPacket(frameData, actualMode, packetBW, frameSize, stereo); dredErr != nil {
-			return nil, dredErr
-		} else if ok {
-			packet = dredPacket
-			dredPacketBuilt = true
+		if extsupport.DREDRuntime {
+			if dredPacket, ok, dredErr := e.maybeBuildSingleFrameDREDPacket(frameData, actualMode, packetBW, frameSize, stereo); dredErr != nil {
+				return nil, dredErr
+			} else if ok {
+				packet = dredPacket
+				dredPacketBuilt = true
+			}
 		}
 		var (
 			packetLen int
@@ -2386,10 +2393,12 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	e.analysisReadBakSet = false
 
 	packetBW := e.effectiveBandwidth()
-	if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeHybrid, packetBW, frameSize, 960, e.channels == 2, !sameSize); err != nil {
-		return nil, err
-	} else if ok {
-		return dredPacket, nil
+	if extsupport.DREDRuntime {
+		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeHybrid, packetBW, frameSize, 960, e.channels == 2, !sameSize); err != nil {
+			return nil, err
+		} else if ok {
+			return dredPacket, nil
+		}
 	}
 	return BuildMultiFramePacket(frames, types.ModeHybrid, packetBW, 960, e.channels == 2, !sameSize)
 }
@@ -2438,10 +2447,12 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int) ([]by
 	if packetBW > types.BandwidthWideband {
 		packetBW = types.BandwidthWideband
 	}
-	if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeSILK, packetBW, frameSize, encFrameSize, e.channels == 2, !sameSize); err != nil {
-		return nil, err
-	} else if ok {
-		return dredPacket, nil
+	if extsupport.DREDRuntime {
+		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeSILK, packetBW, frameSize, encFrameSize, e.channels == 2, !sameSize); err != nil {
+			return nil, err
+		} else if ok {
+			return dredPacket, nil
+		}
 	}
 	return BuildMultiFramePacket(frames, types.ModeSILK, packetBW, encFrameSize, e.channels == 2, !sameSize)
 }

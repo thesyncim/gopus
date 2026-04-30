@@ -2,6 +2,7 @@ package gopus
 
 import (
 	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/silk"
 )
 
@@ -16,14 +17,27 @@ func (d *Decoder) decodePLCForFECWithState(
 	bandwidth Bandwidth,
 	packetStereo bool,
 ) (int, error) {
-	neuralReady := d.dredNeuralConcealmentAvailable()
-	n, usedNeuralConcealment, err := d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
-		packetFrameSize:    frameSize,
-		mode:               mode,
-		bandwidth:          bandwidth,
-		packetStereo:       packetStereo,
-		useDecoderPLCState: false,
-	})
+	neuralReady := extsupport.DREDRuntime && d.dredNeuralConcealmentAvailable()
+	usedNeuralConcealment := false
+	var n int
+	var err error
+	if extsupport.DREDRuntime {
+		n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
+			packetFrameSize:    frameSize,
+			mode:               mode,
+			bandwidth:          bandwidth,
+			packetStereo:       packetStereo,
+			useDecoderPLCState: false,
+		})
+	} else {
+		n, err = d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
+			packetFrameSize:    frameSize,
+			mode:               mode,
+			bandwidth:          bandwidth,
+			packetStereo:       packetStereo,
+			useDecoderPLCState: false,
+		})
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -36,7 +50,7 @@ func (d *Decoder) decodePLCForFECWithState(
 	d.lastFrameSize = frameSize
 	d.lastPacketDuration = frameSize
 	d.lastDataLen = 0
-	if !usedNeuralConcealment && d.dredSidecarActive() {
+	if extsupport.DREDRuntime && !usedNeuralConcealment && d.dredSidecarActive() {
 		d.markDREDConcealed()
 	}
 	return frameSize, nil
@@ -223,11 +237,13 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
-		r.dredRecovery = 0
-	}
-	if d.dredSidecarActive() {
-		d.markDREDUpdatedPCM(pcm[:n*d.channels], n, d.fecMode)
+	if extsupport.DREDRuntime {
+		if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
+			r.dredRecovery = 0
+		}
+		if d.dredSidecarActive() {
+			d.markDREDUpdatedPCM(pcm[:n*d.channels], n, d.fecMode)
+		}
 	}
 	d.applyOutputGain(pcm[:n*d.channels])
 

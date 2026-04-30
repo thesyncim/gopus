@@ -13,6 +13,7 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/types"
@@ -21,6 +22,13 @@ import (
 func lpcnetplcTestQuantizePCMInt16Like(sample float32) float32 {
 	v := math.Floor(0.5 + math.Max(-32767, math.Min(32767, float64(sample)*32768)))
 	return float32(v * (1.0 / 32768.0))
+}
+
+func requireDREDRuntimeForTest(t *testing.T) {
+	t.Helper()
+	if !extsupport.DREDRuntime {
+		t.Skip("DRED runtime disabled in this build")
+	}
 }
 
 func makeExperimentalDREDPayloadBodyForTest(t *testing.T, dredFrameOffset, dredOffset int) []byte {
@@ -563,6 +571,8 @@ func TestNewDecoder_DefaultMaxPacketLimits(t *testing.T) {
 }
 
 func TestDecoderCachesDREDPayloadWhenDREDModelLoaded(t *testing.T) {
+	requireDREDRuntimeForTest(t)
+
 	base := makeValidCELTPacketForDREDTest(t)
 	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
 	extended := buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
@@ -628,6 +638,8 @@ func TestDecoderCachesDREDPayloadWhenDREDModelLoaded(t *testing.T) {
 }
 
 func TestDecoderDREDRecoveryBlendFollowsLifecycle(t *testing.T) {
+	requireDREDRuntimeForTest(t)
+
 	base := makeValidCELTPacketForDREDTest(t)
 	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
 	packet := buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
@@ -940,6 +952,8 @@ func TestDecoderPrimeDREDCELTEntryHistoryStaysDormantWithoutNeuralConcealment(t 
 }
 
 func TestDecoderDecodePLCAppliesNeuralConcealmentWhenReady(t *testing.T) {
+	requireDREDRuntimeForTest(t)
+
 	packet := makeValidMono16kPacketForDREDTest(t)
 
 	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
@@ -984,6 +998,8 @@ func TestDecoderDecodePLCAppliesNeuralConcealmentWhenReady(t *testing.T) {
 }
 
 func TestDecoderCachesDREDSampleTimingForLaterFrame(t *testing.T) {
+	requireDREDRuntimeForTest(t)
+
 	base := makeValidCELTPacketForDREDTest(t)
 	if len(base) < 2 {
 		t.Fatal("base packet too short")
@@ -1159,6 +1175,8 @@ func TestDecoderLeavesDREDPayloadDormantWhenIgnoringExtensions(t *testing.T) {
 }
 
 func TestDecoderDREDCacheFollowsStandaloneModelAndIgnoreExtensions(t *testing.T) {
+	requireDREDRuntimeForTest(t)
+
 	base := makeValidCELTPacketForDREDTest(t)
 	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
 	extended := buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{

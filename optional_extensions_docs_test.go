@@ -23,9 +23,9 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		ext    OptionalExtension
 		status string
 	}{
-		{name: "DNN blob loading", ext: OptionalExtensionDNNBlob, status: "Supported"},
-		{name: "QEXT", ext: OptionalExtensionQEXT, status: "Supported"},
-		{name: "DRED", ext: OptionalExtensionDRED, status: "Unsupported and quarantined"},
+		{name: "DNN blob loading", ext: OptionalExtensionDNNBlob, status: "Supported by default"},
+		{name: "QEXT", ext: OptionalExtensionQEXT, status: "Supported by default"},
+		{name: "DRED", ext: OptionalExtensionDRED, status: "Supported with `gopus_dred` tag"},
 		{name: "OSCE BWE", ext: OptionalExtensionOSCEBWE, status: "Unsupported and quarantined"},
 	} {
 		wantLine := fmt.Sprintf("| %s | %s |", tc.name, tc.status)
@@ -37,10 +37,10 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	readme := mustReadDocForTest(t, "README.md")
 	for _, needle := range []string{
 		"[Optional Extensions](docs/optional-extensions.md)",
-		"`SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()` are supported",
-		"Decoder-side `SetDNNBlob(...)` currently provides validated model admission and retained control state; full model-backed PLC/OSCE runtime behavior remains incomplete.",
-		"`SetDREDDuration(...)` and `SetOSCEBWE(...)` are absent unless you build with `-tags gopus_unsupported_controls`",
-		"experimental standalone `DREDDecoder` / `DRED` metadata wrappers",
+		"Supported default controls are `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()`",
+		"DRED support is compiled explicitly with `-tags gopus_dred`",
+		"OSCE BWE remains quarantine-only under `-tags gopus_unsupported_controls`",
+		"that quarantine tag does not itself make `SupportsOptionalExtension(...)` report support",
 	} {
 		if !strings.Contains(readme, needle) {
 			t.Fatalf("README.md missing %q", needle)
@@ -52,9 +52,9 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"## Optional Extension Contract",
 		"`SetDNNBlob(...)` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`",
 		"Decoder-side `SetDNNBlob(...)` currently covers loader-derived validation and retained control state.",
-		"`SetDREDDuration(...)` / `DREDDuration()` are absent unless built with `-tags gopus_unsupported_controls`",
+		"DRED is supported only when built with `-tags gopus_dred`",
 		"`SetOSCEBWE(...)` / `OSCEBWE()` are absent unless built with `-tags gopus_unsupported_controls`",
-		"experimental standalone `DREDDecoder` / `DRED` metadata parsing wrappers",
+		"The `gopus_unsupported_controls` build remains a parity/quarantine umbrella",
 	} {
 		if !strings.Contains(releaseNotes, needle) {
 			t.Fatalf("docs/releases/v0.1.0.md missing %q", needle)
@@ -67,9 +67,9 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	}
 
 	for _, needle := range []string{
-		"It does not change `SupportsOptionalExtension(...)`, and it does not turn DRED or OSCE BWE into supported release features.",
-		"Some control state is retained and observable, but full model-backed DRED encode/decode and OSCE BWE runtime behavior remain incomplete.",
-		"experimental standalone `DREDDecoder` / `DRED` metadata parsing wrappers",
+		"Build DRED support explicitly when you need the libopus DRED surface",
+		"does not, by itself, change `SupportsOptionalExtension(...)`",
+		"release support comes from `gopus_dred`",
 	} {
 		if !strings.Contains(optionalDoc, needle) {
 			t.Fatalf("docs/optional-extensions.md missing %q", needle)
@@ -77,7 +77,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	}
 
 	examples := mustReadDocForTest(t, "examples/README.md")
-	if !strings.Contains(examples, "These examples target the supported default build and intentionally do not demonstrate tag-gated unsupported controls such as DRED or OSCE BWE.") {
+	if !strings.Contains(examples, "These examples target the supported default build. DRED examples require `-tags gopus_dred`; OSCE BWE remains quarantine-only.") {
 		t.Fatal("examples/README.md missing default-build note")
 	}
 }

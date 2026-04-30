@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-unsupported-controls-tag test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-dred-tag test-unsupported-controls-tag test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -100,6 +100,13 @@ test-consumer-smoke:
 test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run 'TestOptionalExtensionDocsContract|TestSupportsOptionalExtension|ExampleSupportsOptionalExtension' -count=1
 
+# Supported DRED feature-tag smoke. The unsupported-controls tag remains a
+# quarantine umbrella; this target verifies the supported DRED surface by itself.
+test-dred-tag: ensure-libopus
+	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(SupportsOptionalExtension|DREDBuildTagExposesSupportedTopLevelControls|DREDBuildPublicAPIContract|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls)|ExampleSupportsOptionalExtension' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./encoder -run 'Test(UnsupportedControlsBuildExposesQuarantinedControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDRuntimeStaysDormantUntilReady|EncoderProcessDREDLatentsDoesNotAllocate|EncoderProcessDREDLatentsDoesNotAllocate48k|MaybeBuildSingleFrameDREDPacketCarriesExtension)' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./multistream -run 'TestDREDBuildTagExposesEncoderControlsOnly' -count=1
+
 # Quarantine build smoke for unsupported controls that should never leak into the default surface.
 test-unsupported-controls-tag: ensure-libopus
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_CORE_ROOT_RUN) -count=1
@@ -159,6 +166,7 @@ bench-testvectors-report: ensure-libopus
 verify-production: ensure-libopus
 	$(RUNNABLE_PARITY) -count=1 -timeout=25m
 	$(MAKE) test-consumer-smoke
+	$(MAKE) test-dred-tag
 	$(MAKE) test-unsupported-controls-tag
 	$(MAKE) bench-guard
 	$(MAKE) test-race

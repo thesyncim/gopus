@@ -1,6 +1,9 @@
 # Optional Extensions
 
-`gopus` tracks a small set of libopus build-time extension surfaces. Before `v0.1.0`, the default build is the supported public contract.
+`gopus` tracks a small set of libopus build-time extension surfaces. Optional
+features have separate support and parity gates: a feature tag makes a surface
+supported, while `gopus_unsupported_controls` only compiles quarantine helpers
+for parity work.
 
 Use `SupportsOptionalExtension(...)` before relying on an extension-backed control:
 
@@ -10,27 +13,44 @@ if gopus.SupportsOptionalExtension(gopus.OptionalExtensionQEXT) {
 }
 ```
 
-## Default-Build Matrix
+## Feature Matrix
 
-| Extension | Default build | Probe | Notes |
+| Extension | Support status | Probe | Notes |
 | --- | --- | --- | --- |
-| DNN blob loading | Supported | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; decoder-side support currently covers loader-derived validation and retained control state, not full model-backed PLC/OSCE runtime behavior |
-| QEXT | Supported | `OptionalExtensionQEXT` | Available through `SetQEXT` / `QEXT` on `Encoder` and `MultistreamEncoder` |
-| DRED | Unsupported and quarantined | `OptionalExtensionDRED` | `SetDREDDuration(...)` / `DREDDuration()` are absent from the default public API surface, including the low-level `encoder` and `multistream` packages |
-| OSCE BWE | Unsupported and quarantined | `OptionalExtensionOSCEBWE` | `SetOSCEBWE(...)` / `OSCEBWE()` are absent from the default public API surface, and low-level OSCE model helpers stay tag-gated |
+| DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; decoder-side support currently covers loader-derived validation and retained control state, not full model-backed PLC/OSCE runtime behavior |
+| QEXT | Supported by default | `OptionalExtensionQEXT` | Available through `SetQEXT` / `QEXT` on `Encoder` and `MultistreamEncoder` |
+| DRED | Supported with `gopus_dred` tag | `OptionalExtensionDRED` | Build with `-tags gopus_dred` to expose `SetDREDDuration(...)` / `DREDDuration()` on `Encoder` and `MultistreamEncoder`, plus standalone `DREDDecoder` / `DRED`; default builds keep DRED absent and runtime hooks dormant |
+| OSCE BWE | Unsupported and quarantined | `OptionalExtensionOSCEBWE` | `SetOSCEBWE(...)` / `OSCEBWE()` are absent from the default public API surface, and low-level OSCE model helpers stay quarantine-gated |
+
+## Supported Feature Tags
+
+Build DRED support explicitly when you need the libopus DRED surface:
+
+```bash
+go test -tags gopus_dred ./...
+```
+
+`SupportsOptionalExtension(gopus.OptionalExtensionDRED)` reports `true` only in
+that supported DRED build. In default builds, DRED controls are absent and
+encode/decode hot paths do not enter DRED runtime hooks.
 
 ## Quarantine Build Tag
 
-The unsupported DRED and OSCE BWE wrappers are only compiled when you build with:
+Experimental wrappers and parity hooks can still be compiled with:
 
 ```bash
 go test -tags gopus_unsupported_controls ./...
 ```
 
-That build tag exists to make the quarantine explicit and testable. It does not change `SupportsOptionalExtension(...)`, and it does not turn DRED or OSCE BWE into supported release features.
+That build tag exists to make quarantine work explicit and testable. It does not, by itself, change `SupportsOptionalExtension(...)`, and it does not turn OSCE BWE into a supported release feature. DRED parity helpers may also compile there for legacy parity sweeps; release support comes from `gopus_dred`.
 
-In quarantine builds, the tag-gated wrappers and low-level helper methods are available for parity work and explicit experiments. That now includes experimental standalone `DREDDecoder` / `DRED` metadata parsing wrappers for packet-level DRED discovery and retained low-cost parse state. Some control state is retained and observable, but full model-backed DRED encode/decode and OSCE BWE runtime behavior remain incomplete.
+In quarantine builds, tag-gated wrappers and low-level helper methods are
+available for parity work and explicit experiments. Some OSCE control state is
+retained and observable, but full model-backed OSCE BWE runtime behavior remains
+incomplete.
 
 ## Release Contract
 
-For `v0.1.0`, rely on the default build plus `SupportsOptionalExtension(...)` as the source of truth. If a control is quarantined or reports `false`, treat it as unsupported.
+For `v0.1.0`, rely on `SupportsOptionalExtension(...)` in the current build as
+the source of truth. If a control is quarantined or reports `false`, treat it as
+unsupported.

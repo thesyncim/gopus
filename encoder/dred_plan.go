@@ -5,6 +5,7 @@ import (
 	"math/bits"
 
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -47,7 +48,7 @@ func estimateDREDBits(q0, dQ, qmax, duration, targetBits int) (int, int) {
 }
 
 func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool) {
-	if e.dred == nil || e.dred.duration <= 0 || !e.dredModelsLoaded() || e.bitrate <= 0 {
+	if !extsupport.DREDRuntime || e.dred == nil || e.dred.duration <= 0 || !e.dredModelsLoaded() || e.bitrate <= 0 {
 		return dredEmissionPlan{}, false
 	}
 
@@ -145,6 +146,9 @@ func packetExtensionPaddingAmount(extID, extDataLen int) int {
 }
 
 func (e *Encoder) previewDREDExperimentalPayloadLength(maxChunks, q0, dQ, qmax int) int {
+	if !extsupport.DREDRuntime {
+		return 0
+	}
 	runtime := e.ensureActiveDREDRuntime()
 	if runtime == nil || runtime.latentsFill <= 0 {
 		return 0
@@ -167,7 +171,7 @@ func (e *Encoder) previewDREDExperimentalPayloadLength(maxChunks, q0, dQ, qmax i
 }
 
 func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan dredEmissionPlan) int {
-	if e.dred == nil || e.dred.duration <= 0 || plan.targetChunks < 1 {
+	if !extsupport.DREDRuntime || e.dred == nil || e.dred.duration <= 0 || plan.targetChunks < 1 {
 		return 0
 	}
 	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks)
@@ -191,7 +195,7 @@ func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan d
 }
 
 func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode Mode, packetBW types.Bandwidth, frameSize int, stereo bool) ([]byte, bool, error) {
-	if actualMode == ModeCELT {
+	if !extsupport.DREDRuntime || actualMode == ModeCELT {
 		return nil, false, nil
 	}
 	plan, ok := e.computeDREDEmissionPlan(frameSize)
@@ -252,7 +256,7 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 }
 
 func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mode, packetBW types.Bandwidth, packetFrameSize, packetTOCFrameSize int, stereo bool, vbr bool) ([]byte, bool, error) {
-	if actualMode == ModeCELT {
+	if !extsupport.DREDRuntime || actualMode == ModeCELT {
 		return nil, false, nil
 	}
 	plan, ok := e.computeDREDEmissionPlan(packetFrameSize)

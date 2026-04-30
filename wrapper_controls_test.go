@@ -10,6 +10,7 @@ import (
 	encodercore "github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
@@ -185,7 +186,7 @@ func TestSupportsOptionalExtension(t *testing.T) {
 		ext  OptionalExtension
 		want bool
 	}{
-		{name: "dred", ext: OptionalExtensionDRED, want: false},
+		{name: "dred", ext: OptionalExtensionDRED, want: extsupport.DRED},
 		{name: "dnn_blob", ext: OptionalExtensionDNNBlob, want: true},
 		{name: "qext", ext: OptionalExtensionQEXT, want: true},
 		{name: "osce_bwe", ext: OptionalExtensionOSCEBWE, want: false},
