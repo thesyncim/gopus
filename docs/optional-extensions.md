@@ -34,8 +34,10 @@ go test -tags gopus_dred ./...
 `SupportsOptionalExtension(gopus.OptionalExtensionDRED)` reports `true` only in
 that tagged DRED build. Current release support is scoped to exposed controls,
 the standalone DRED wrapper, and the selected green non-decoder-audio parity
-seams. In default builds, DRED controls are absent and encode/decode hot paths
-do not enter DRED runtime hooks.
+seams enforced by `make test-unsupported-controls-parity`, including the narrow
+SILK wideband 20 ms carried-payload/primary-budget seam plus bootstrap and
+bookkeeping coverage. In default builds, DRED controls are absent and
+encode/decode hot paths do not enter DRED runtime hooks.
 
 ## Quarantine Build Tag
 
