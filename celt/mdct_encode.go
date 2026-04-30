@@ -49,12 +49,12 @@ func mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix bool, a, b, c, d f
 }
 
 func mdctMulSubMixWith(useNativeMul, useF64Mix, useFMALikeMix bool, a, b, c, d float32) float32 {
-	if useNativeMul {
-		return a*c - b*d
-	}
 	if useFMALikeMix {
 		t := mdctMulWith(useNativeMul, b, d)
 		return float32(float64(a)*float64(c) - float64(t))
+	}
+	if useNativeMul {
+		return a*c - b*d
 	}
 	if useF64Mix {
 		return float32(float64(a)*float64(c) - float64(b)*float64(d))

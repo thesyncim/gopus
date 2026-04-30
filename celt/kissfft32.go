@@ -531,6 +531,10 @@ func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 		kfBfly3M1(fout, st.w, fstride, N, mm)
 		return
 	}
+	if kissFFTCOrder120Enabled && st.nfft == 120 {
+		kfBfly3InnerCOrder(fout, st.w, m, N, mm, fstride)
+		return
+	}
 	kfBfly3Inner(fout, st.w, m, N, mm, fstride)
 }
 
@@ -544,6 +548,10 @@ func kfBfly5(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 	}
 	if N == 1 && mm == 1 && useKfBfly5N1(fstride) {
 		kfBfly5N1(fout, st.w, m, fstride)
+		return
+	}
+	if kissFFTCOrder120Enabled && st.nfft == 120 {
+		kfBfly5InnerCOrder(fout, st.w, m, N, mm, fstride)
 		return
 	}
 	kfBfly5Inner(fout, st.w, m, N, mm, fstride)
@@ -580,7 +588,6 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 	if shift < 0 {
 		shift = 0
 	}
-	stageIdx := 0
 	for i := L - 1; i >= 0; i-- {
 		m2 := 1
 		if i != 0 {
@@ -599,7 +606,6 @@ func (st *kissFFTState) fftImpl(fout []kissCpx) {
 			kfBfly5(fout, twFstride, st, m, N, m2)
 		}
 		m = m2
-		stageIdx++
 	}
 }
 
