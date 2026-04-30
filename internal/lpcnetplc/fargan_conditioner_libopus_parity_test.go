@@ -43,10 +43,10 @@ func TestFARGANConditionerMatchesLibopusOnRealModel(t *testing.T) {
 	if n := conditioner.Compute(cond[:], features1[:]); n != FARGANCondDense2Size {
 		t.Fatalf("Compute(features1)=%d want %d", n, FARGANCondDense2Size)
 	}
-	assertFloat32Close(t, cond[:], want1, 1e-2, "fargan cond 1")
+	assertFloat32Close(t, cond[:], want1, 2e-4, "fargan cond 1")
 	var gotState1 [FARGANCondConv1State]float32
 	conditioner.FillCondConv1State(gotState1[:])
-	assertFloat32Close(t, gotState1[:], wantState1, 1e-2, "fargan cond state 1")
+	assertFloat32Close(t, gotState1[:], wantState1, 2e-4, "fargan cond state 1")
 
 	want2, wantState2, err := probeLibopusFARGANCond(features2[:], period2, wantState1)
 	if err != nil {
@@ -55,8 +55,8 @@ func TestFARGANConditionerMatchesLibopusOnRealModel(t *testing.T) {
 	if n := conditioner.Compute(cond[:], features2[:]); n != FARGANCondDense2Size {
 		t.Fatalf("Compute(features2)=%d want %d", n, FARGANCondDense2Size)
 	}
-	assertFloat32Close(t, cond[:], want2, 1e-2, "fargan cond 2")
+	assertFloat32Close(t, cond[:], want2, 2e-4, "fargan cond 2")
 	var gotState2 [FARGANCondConv1State]float32
 	conditioner.FillCondConv1State(gotState2[:])
-	assertFloat32Close(t, gotState2[:], wantState2, 1e-2, "fargan cond state 2")
+	assertFloat32Close(t, gotState2[:], wantState2, 2e-4, "fargan cond state 2")
 }

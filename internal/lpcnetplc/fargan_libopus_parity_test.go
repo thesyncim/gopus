@@ -9,6 +9,15 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 )
 
+const (
+	// Retained recurrent FARGAN state varies slightly across libopus DNN
+	// backends; keep synthesized PCM tight and pin private state to the same
+	// recurrent-state band used by the neighboring predictor/analysis seams.
+	farganPrimeStateLibopusTol = 6e-2
+	farganSynthPCMLibopusTol   = 1e-3
+	farganSynthStateLibopusTol = 6e-2
+)
+
 func TestFARGANPrimeContinuityMatchesLibopusOnRealModel(t *testing.T) {
 	modelBlob, err := probeLibopusFARGANModelBlob()
 	if err != nil {
@@ -34,7 +43,7 @@ func TestFARGANPrimeContinuityMatchesLibopusOnRealModel(t *testing.T) {
 	if n := runtime.PrimeContinuity(pcm0[:], contFeatures[:]); n != FARGANContSamples {
 		t.Fatalf("PrimeContinuity()=%d want %d", n, FARGANContSamples)
 	}
-	assertFARGANStateClose(t, runtime.state, want, 6e-2, "prime continuity")
+	assertFARGANStateClose(t, runtime.state, want, farganPrimeStateLibopusTol, "prime continuity")
 }
 
 func TestFARGANSynthesizeMatchesLibopusOnRealModel(t *testing.T) {
@@ -72,8 +81,8 @@ func TestFARGANSynthesizeMatchesLibopusOnRealModel(t *testing.T) {
 	if n := runtime.Synthesize(out[:], frameFeatures[:]); n != FARGANFrameSize {
 		t.Fatalf("Synthesize()=%d want %d", n, FARGANFrameSize)
 	}
-	assertFloat32Close(t, out[:], wantSynth.PCM, 5e-2, "synthesize pcm")
-	assertFARGANStateClose(t, runtime.state, wantSynth, 5e-2, "synthesize state")
+	assertFloat32Close(t, out[:], wantSynth.PCM, farganSynthPCMLibopusTol, "synthesize pcm")
+	assertFARGANStateClose(t, runtime.state, wantSynth, farganSynthStateLibopusTol, "synthesize state")
 }
 
 func farganStateFromLibopusResult(result libopusFARGANRuntimeResult) FARGANState {

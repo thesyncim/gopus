@@ -699,7 +699,7 @@ func decoderDREDLiveSequenceTolerances(frameSize int) (pcmTol, plcTol, farganTol
 		// consecutive 16 kHz FARGAN frames. Keep the seam pinned by PCM, PLC
 		// lifecycle, CELT bridge, and FARGAN headers; the private recurrent
 		// vectors are numerically sensitive after repeated synthesis.
-		return 1e-2, 1e-2, 1e-1, 1e-2
+		return 5e-3, 1e-2, 9e-2, 5e-3
 	}
 	return pcmTol, plcTol, farganTol, celtTol
 }
@@ -981,15 +981,8 @@ func TestDecoderExplicitHybridDREDDecodeThenNextPacketMatchesLibopus(t *testing.
 	}
 }
 
-func cachedHybridLiveSequenceTolerances(bandwidth Bandwidth, frameSize int) (pcmTol, plcTol, farganTol, celtTol float64) {
+func cachedHybridLiveSequenceTolerances(_ Bandwidth, frameSize int) (pcmTol, plcTol, farganTol, celtTol float64) {
 	pcmTol, plcTol, farganTol, celtTol = decoderDREDLiveSequenceTolerances(frameSize)
-	if bandwidth == BandwidthFullband && frameSize == 480 {
-		// The FB 10 ms Hybrid live path remains PCM-close to libopus, but the
-		// private FARGAN recurrent vectors are numerically sensitive after the
-		// lowband hook. Keep this seam pinned by PCM, PLC lifecycle, and CELT
-		// state instead of treating those private vectors as the oracle.
-		return 2e-4, 1e-4, 1e-2, 1e-4
-	}
 	return pcmTol, plcTol, farganTol, celtTol
 }
 
