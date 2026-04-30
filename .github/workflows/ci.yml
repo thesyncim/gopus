@@ -362,8 +362,8 @@ jobs:
       - name: Run supported DRED feature-tag gate
         run: make test-dred-tag
 
-  test-linux-unsupported-controls-parity-experimental:
-    name: test-linux-unsupported-controls-parity-experimental
+  test-linux-unsupported-controls-parity:
+    name: test-linux-unsupported-controls-parity
     needs:
       - changes
     if: ${{ needs.changes.outputs.docs_only != 'true' }}
@@ -379,13 +379,12 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Run experimental unsupported-controls parity sweep
-        continue-on-error: true
-        run: make test-unsupported-controls-parity-experimental
+      - name: Run unsupported-controls parity sweep
+        run: make test-unsupported-controls-parity
 
-      - name: Note experimental parity status
+      - name: Note parity status
         if: always()
-        run: echo "Experimental DRED decoder parity remains visible but non-blocking while the numerical libopus matrix is still open."
+        run: echo "Required DRED unsupported-controls parity seams are part of the aggregate Linux correctness gate."
 
   test-linux:
     name: test-linux
@@ -400,6 +399,7 @@ jobs:
       - test-linux-consumer-smoke
       - test-linux-dred-tag
       - test-linux-unsupported-controls
+      - test-linux-unsupported-controls-parity
     runs-on: ubuntu-latest
     steps:
       - name: Validate Linux gates
@@ -417,6 +417,7 @@ jobs:
           echo "test-linux-consumer-smoke: ${{ needs.test-linux-consumer-smoke.result }}"
           echo "test-linux-dred-tag: ${{ needs.test-linux-dred-tag.result }}"
           echo "test-linux-unsupported-controls: ${{ needs.test-linux-unsupported-controls.result }}"
+          echo "test-linux-unsupported-controls-parity: ${{ needs.test-linux-unsupported-controls-parity.result }}"
           if [ "${{ needs.test-linux-parity.result }}" != "success" ]; then
             exit 1
           fi
@@ -439,6 +440,9 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-unsupported-controls.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-unsupported-controls-parity.result }}" != "success" ]; then
             exit 1
           fi
 

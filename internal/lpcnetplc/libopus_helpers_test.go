@@ -89,7 +89,7 @@ func ensureLibopusPLCBuild() (sourceDir, buildDir string, err error) {
 		libopusPLCRepoRoot = repoRoot
 		referenceDir := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion)
 		sourceDir = filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+"-dredsrc-clean")
-		buildDir = filepath.Join(repoRoot, "tmp_check", fmt.Sprintf("build-opus-dred-%s-%s", runtime.GOOS, runtime.GOARCH))
+		buildDir = filepath.Join(repoRoot, "tmp_check", fmt.Sprintf("build-opus-dred-scalar-%s-%s", runtime.GOOS, runtime.GOARCH))
 		libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
 		if _, err := os.Stat(libopusStatic); err == nil {
 			libopusPLCSourceDir = sourceDir
@@ -135,6 +135,9 @@ func ensureLibopusPLCBuild() (sourceDir, buildDir string, err error) {
 				"--disable-shared",
 				"--disable-extra-programs",
 				"--enable-dred",
+				"--disable-asm",
+				"--disable-rtcd",
+				"--disable-intrinsics",
 			)
 			cmd.Dir = buildDir
 			if output, err := cmd.CombinedOutput(); err != nil {

@@ -33,8 +33,9 @@ go test -tags gopus_dred ./...
 
 `SupportsOptionalExtension(gopus.OptionalExtensionDRED)` reports `true` only in
 that tagged DRED build. Current release support is scoped to exposed controls,
-the standalone DRED wrapper, and the green parity seams. In default builds, DRED
-controls are absent and encode/decode hot paths do not enter DRED runtime hooks.
+the standalone DRED wrapper, and the selected green non-decoder-audio parity
+seams. In default builds, DRED controls are absent and encode/decode hot paths
+do not enter DRED runtime hooks.
 
 ## Quarantine Build Tag
 
@@ -44,7 +45,7 @@ Experimental wrappers and parity hooks can still be compiled with:
 go test -tags gopus_unsupported_controls ./...
 ```
 
-That build tag exists to make quarantine work explicit and testable. It does not, by itself, change `SupportsOptionalExtension(...)`, and it does not turn OSCE BWE into a supported release feature. DRED parity helpers may also compile there for legacy parity sweeps; release support comes from `gopus_dred`.
+That build tag exists to make quarantine work explicit and testable. It does not, by itself, change `SupportsOptionalExtension(...)`, and it does not turn OSCE BWE into a supported release feature. DRED parity helpers may also compile there for libopus-backed parity sweeps; release support comes from `gopus_dred`.
 
 In quarantine builds, tag-gated wrappers and low-level helper methods are
 available for parity work and explicit experiments. Some OSCE control state is

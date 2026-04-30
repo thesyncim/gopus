@@ -1,6 +1,6 @@
 # Public Release Readiness Plan
 
-Last updated: 2026-04-21
+Last updated: 2026-04-30
 
 ## Goal
 
@@ -18,9 +18,10 @@ Current external assessment:
 - No published GitHub release.
 - Release evidence exists, but the public release flow has not been exercised.
 
-2. The public API contract is too broad and currently blurs supported vs unsupported features.
-- Unsupported optional-extension controls such as DRED and OSCE BWE appear in the public package docs.
-- README guidance and pkg.go.dev surface are not aligned tightly enough.
+2. The public API contract must keep supported vs unsupported features explicit.
+- DRED control and standalone surfaces are now build-tag gated behind `gopus_dred`; default builds keep those controls absent and DRED runtime hooks dormant.
+- OSCE BWE remains quarantine-only behind `gopus_unsupported_controls`, and that quarantine tag does not make `SupportsOptionalExtension(...)` report support.
+- README, package docs, release notes, and optional-extension docs should stay aligned as new seams graduate.
 
 3. Static analysis is not a meaningful gate yet.
 - `.golangci.yml` currently enables only `unused`.
@@ -68,9 +69,9 @@ Notes:
 ### 2. Public Contract And API Fencing
 
 Deliverables:
-- Audit exported APIs that represent unsupported optional extensions.
-- Either remove them from the default public surface, clearly gate them, or move them behind an explicitly experimental contract.
-- Align README, package docs, and examples with the actual supported default build.
+- Keep auditing exported APIs that represent optional libopus extensions.
+- Keep default-build unsupported controls absent, clearly build-tag gate supported optional surfaces, and keep quarantine helpers behind an explicitly experimental contract.
+- Keep README, package docs, release notes, and examples aligned with the actual supported default build.
 
 Acceptance signals:
 - pkg.go.dev no longer implies support for intentionally unsupported default-build features.
@@ -193,7 +194,7 @@ Run before calling the work merge-ready:
 ## Open Decisions
 
 1. Unsupported default-build extension controls:
-- Preferred direction: remove or clearly quarantine them before `v0.1.0` rather than relying on "returns unsupported" alone.
+- Current direction: DRED is explicitly supported only with `-tags gopus_dred`; OSCE BWE remains quarantined behind `-tags gopus_unsupported_controls`; default builds should keep unsupported controls absent rather than relying on "returns unsupported" alone.
 
 2. First public release scope:
 - Preferred direction: tag `v0.1.0` only after the stable-core contract is written down and reflected in pkg.go.dev output.

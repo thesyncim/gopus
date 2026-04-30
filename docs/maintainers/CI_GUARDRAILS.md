@@ -1,6 +1,6 @@
 # CI Guardrails
 
-Last updated: 2026-04-21
+Last updated: 2026-04-30
 
 ## Goal
 
@@ -24,8 +24,10 @@ Block correctness and hot-path performance regressions before merge.
 - `test-linux-consumer-smoke`: `make test-consumer-smoke`
 - `test-linux-dred-tag`: `make test-dred-tag`
 - `test-linux-unsupported-controls`: `make test-unsupported-controls-tag`
-- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`, `test-linux-flake`, `test-linux-fuzz-smoke`, `test-linux-consumer-smoke`, `test-linux-dred-tag`, `test-linux-unsupported-controls`) and aggregated by `test-linux`.
+- `test-linux-unsupported-controls-parity`: `make test-unsupported-controls-parity`
+- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`, `test-linux-flake`, `test-linux-fuzz-smoke`, `test-linux-consumer-smoke`, `test-linux-dred-tag`, `test-linux-unsupported-controls`, `test-linux-unsupported-controls-parity`) and aggregated by `test-linux`.
 - This keeps parity/race/provenance/fuzz coverage intact while removing serialized Linux checks from a single job.
+- The unsupported-controls smoke and required DRED parity sweep stay separate so quarantine API exposure remains a small gate while selected green non-decoder-audio DRED seams still block the aggregate correctness check. The DRED decoder audio numerical matrix, wider carried-payload matrix, and real-model RDOVAE/PitchDNN/conceal-analysis oracles remain in `make test-unsupported-controls-parity-experimental` until their Linux matrix is green.
 
 3. Performance gate (`perf-linux`)
 - `make bench-guard`
