@@ -1,8 +1,14 @@
 package encoder
 
-import internaldred "github.com/thesyncim/gopus/internal/dred"
+import (
+	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/extsupport"
+)
 
 func (e *Encoder) currentDREDActivity(pcm []float64) bool {
+	if !extsupport.DREDRuntime {
+		return false
+	}
 	if len(pcm) == 0 {
 		return true
 	}
@@ -30,6 +36,9 @@ func (e *Encoder) currentDREDActivity(pcm []float64) bool {
 }
 
 func (e *Encoder) buildDREDExperimentalPayload(dst []byte, maxChunks, q0, dQ, qmax int) int {
+	if !extsupport.DREDRuntime {
+		return 0
+	}
 	runtime := e.ensureActiveDREDRuntime()
 	if runtime == nil || runtime.latentsFill <= 0 {
 		return 0

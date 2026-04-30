@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	encodercore "github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/extsupport"
 )
 
 // generateSurroundTestSignal generates a multi-channel test signal with unique frequency per channel.
@@ -940,7 +941,13 @@ func TestMultistreamEncoder_OptionalExtensionControls(t *testing.T) {
 	enc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
 
 	assertOptionalEncoderControls(t, enc)
-	if _, ok := any(enc).(unsupportedDREDControl); ok {
+	dred, ok := any(enc).(unsupportedDREDControl)
+	if extsupport.DRED {
+		if !ok {
+			t.Fatal("gopus_dred build does not expose DRED control")
+		}
+		assertWorkingDREDControl(t, dred)
+	} else if ok {
 		t.Fatal("default build unexpectedly exposes DRED control")
 	}
 	assertSupportedQEXTControl(t, enc)

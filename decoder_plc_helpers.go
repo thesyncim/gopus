@@ -1,5 +1,7 @@
 package gopus
 
+import "github.com/thesyncim/gopus/internal/extsupport"
+
 type plcDecodeState struct {
 	packetFrameSize    int
 	mode               Mode
@@ -79,6 +81,10 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 }
 
 func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
+	if !extsupport.DREDRuntime {
+		n, err := d.decodePLCChunksInto(out, frameSize, state)
+		return n, false, err
+	}
 	cleanupHook, usedHook := d.beginHybridDREDLowbandHook()
 	defer cleanupHook()
 	n, err := d.decodePLCChunksInto(out, frameSize, state)
@@ -94,6 +100,10 @@ func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state pl
 func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
 	if d == nil {
 		return 0, false, ErrInvalidArgument
+	}
+	if !extsupport.DREDRuntime {
+		n, err := d.decodePLCChunksInto(out, frameSize, state)
+		return n, false, err
 	}
 	if frameSize <= 0 {
 		frameSize = state.packetFrameSize

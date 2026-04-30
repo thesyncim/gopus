@@ -1,5 +1,5 @@
-//go:build gopus_unsupported_controls
-// +build gopus_unsupported_controls
+//go:build gopus_unsupported_controls || gopus_dred
+// +build gopus_unsupported_controls gopus_dred
 
 package gopus
 
@@ -62,7 +62,7 @@ func NewDREDDecoder() *DREDDecoder {
 }
 
 // SetDNNBlob loads and validates a standalone DRED decoder model blob, matching
-// the quarantined libopus OpusDREDDecoder DNN-blob control lifetime.
+// the libopus OpusDREDDecoder DNN-blob control lifetime.
 func (d *DREDDecoder) SetDNNBlob(data []byte) error {
 	if d == nil {
 		return ErrInvalidArgument

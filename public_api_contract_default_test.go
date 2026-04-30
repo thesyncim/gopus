@@ -1,5 +1,5 @@
-//go:build !gopus_unsupported_controls
-// +build !gopus_unsupported_controls
+//go:build !gopus_unsupported_controls && !gopus_dred
+// +build !gopus_unsupported_controls,!gopus_dred
 
 package gopus
 

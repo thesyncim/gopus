@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/extsupport"
 )
 
 func TestNewEncoder_ValidParams(t *testing.T) {
@@ -819,7 +821,13 @@ func TestEncoder_OptionalExtensionControls(t *testing.T) {
 			}
 
 			assertOptionalEncoderControls(t, enc)
-			if _, ok := any(enc).(unsupportedDREDControl); ok {
+			dred, ok := any(enc).(unsupportedDREDControl)
+			if extsupport.DRED {
+				if !ok {
+					t.Fatal("gopus_dred build does not expose DRED control")
+				}
+				assertWorkingDREDControl(t, dred)
+			} else if ok {
 				t.Fatal("default build unexpectedly exposes DRED control")
 			}
 			assertSupportedQEXTControl(t, enc)

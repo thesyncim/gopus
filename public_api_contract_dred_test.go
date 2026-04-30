@@ -1,5 +1,5 @@
-//go:build gopus_unsupported_controls
-// +build gopus_unsupported_controls
+//go:build gopus_dred && !gopus_unsupported_controls
+// +build gopus_dred,!gopus_unsupported_controls
 
 package gopus
 
@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func exportedMethodNamesUnsupported(v any) []string {
+func exportedMethodNames(v any) []string {
 	t := reflect.TypeOf(v)
 	names := make([]string, 0, t.NumMethod())
 	for i := 0; i < t.NumMethod(); i++ {
@@ -19,7 +19,7 @@ func exportedMethodNamesUnsupported(v any) []string {
 	return names
 }
 
-func TestUnsupportedControlsBuildPublicAPIContract(t *testing.T) {
+func TestDREDBuildPublicAPIContract(t *testing.T) {
 	tests := []struct {
 		name string
 		got  any
@@ -47,9 +47,8 @@ func TestUnsupportedControlsBuildPublicAPIContract(t *testing.T) {
 			got:  &Decoder{},
 			want: []string{
 				"Bandwidth", "Channels", "Decode", "DecodeInt16", "DecodeWithFEC", "FinalRange",
-				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "OSCEBWE",
-				"Pitch", "Reset", "SampleRate", "SetDNNBlob", "SetGain", "SetIgnoreExtensions",
-				"SetOSCEBWE",
+				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "Pitch", "Reset",
+				"SampleRate", "SetDNNBlob", "SetGain", "SetIgnoreExtensions",
 			},
 		},
 		{
@@ -74,30 +73,29 @@ func TestUnsupportedControlsBuildPublicAPIContract(t *testing.T) {
 			got:  &MultistreamDecoder{},
 			want: []string{
 				"Channels", "CoupledStreams", "Decode", "DecodeInt16", "IgnoreExtensions",
-				"OSCEBWE", "Reset", "SampleRate", "SetDNNBlob", "SetIgnoreExtensions",
-				"SetOSCEBWE", "Streams",
+				"Reset", "SampleRate", "SetDNNBlob", "SetIgnoreExtensions", "Streams",
 			},
 		},
 		{
-			name: "Reader",
-			got:  &Reader{},
-			want: []string{
-				"Channels", "LastGranulePos", "Read", "Reset", "SampleRate",
-			},
+			name: "DREDDecoder",
+			got:  &DREDDecoder{},
+			want: []string{"ModelLoaded", "Parse", "Process", "SetDNNBlob"},
 		},
 		{
-			name: "Writer",
-			got:  &Writer{},
+			name: "DRED",
+			got:  &DRED{},
 			want: []string{
-				"Channels", "Close", "Flush", "Reset", "SampleRate", "SetBitrate",
-				"SetComplexity", "SetDTX", "SetFEC", "Write",
+				"Availability", "Clear", "Empty", "FeatureCount", "FeatureWindow",
+				"FillFeatures", "FillLatents", "FillQuantizerLevels", "FillState",
+				"LatentCount", "Len", "MaxAvailableSamples", "NeedsProcessing", "Parsed",
+				"ProcessStage", "Processed", "RawProcessStage", "Result",
 			},
 		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := exportedMethodNamesUnsupported(tc.got)
+			got := exportedMethodNames(tc.got)
 			if !slices.Equal(got, tc.want) {
 				t.Fatalf("%s methods mismatch\n got: %v\nwant: %v", tc.name, got, tc.want)
 			}

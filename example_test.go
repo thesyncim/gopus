@@ -119,18 +119,6 @@ func ExampleDecoder_Decode_packetLoss() {
 	// Output: PLC generated 960 samples per channel
 }
 
-func ExampleSupportsOptionalExtension() {
-	fmt.Printf("dnn_blob: %v\n", gopus.SupportsOptionalExtension(gopus.OptionalExtensionDNNBlob))
-	fmt.Printf("dred: %v\n", gopus.SupportsOptionalExtension(gopus.OptionalExtensionDRED))
-	fmt.Printf("osce_bwe: %v\n", gopus.SupportsOptionalExtension(gopus.OptionalExtensionOSCEBWE))
-	fmt.Printf("qext: %v\n", gopus.SupportsOptionalExtension(gopus.OptionalExtensionQEXT))
-	// Output:
-	// dnn_blob: true
-	// dred: false
-	// osce_bwe: false
-	// qext: true
-}
-
 func Example_roundTrip() {
 	// Complete encode-decode round trip
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 1, Application: gopus.ApplicationVoIP})

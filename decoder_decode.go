@@ -25,13 +25,13 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 //   - Code 2: 2 different-sized frames
 //   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
-	if data != nil && len(data) > 0 && d.dredCachedPayloadActive() {
+	if extsupport.DREDRuntime && data != nil && len(data) > 0 && d.dredCachedPayloadActive() {
 		d.invalidateDREDPayloadState()
 	}
 
 	if data == nil || len(data) == 0 {
 		frameSize := d.lastFrameSize
-		neuralReady := d.dredNeuralConcealmentAvailable()
+		neuralReady := extsupport.DREDRuntime && d.dredNeuralConcealmentAvailable()
 		n := frameSize
 		usedNeuralConcealment := false
 		var err error
@@ -41,7 +41,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 			}
 			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
 		}
-		if !usedNeuralConcealment {
+		if !usedNeuralConcealment && extsupport.DREDRuntime {
 			n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
 				packetFrameSize:    d.lastFrameSize,
 				mode:               d.prevMode,
@@ -49,6 +49,14 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 				packetStereo:       d.prevPacketStereo,
 				useDecoderPLCState: true,
 				queueCachedDRED:    true,
+			})
+		} else if !usedNeuralConcealment {
+			n, err = d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
+				packetFrameSize:    d.lastFrameSize,
+				mode:               d.prevMode,
+				bandwidth:          d.lastBandwidth,
+				packetStereo:       d.prevPacketStereo,
+				useDecoderPLCState: true,
 			})
 		}
 		if err != nil {
@@ -63,7 +71,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		d.lastFrameSize = frameSize
 		d.lastPacketDuration = frameSize
 		d.lastDataLen = 0
-		if !usedNeuralConcealment && d.dredSidecarActive() {
+		if extsupport.DREDRuntime && !usedNeuralConcealment && d.dredSidecarActive() {
 			d.markDREDConcealed()
 		}
 		return frameSize, nil
@@ -90,7 +98,10 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 
 	offsetSamples := 0
 	var qextPayloads [maxRepacketizerFrames][]byte
-	endRawDREDCapture := d.beginDREDRawMonoGoodFrameCapture(toc.Mode)
+	endRawDREDCapture := func() {}
+	if extsupport.DREDRuntime {
+		endRawDREDCapture = d.beginDREDRawMonoGoodFrameCapture(toc.Mode)
+	}
 	defer endRawDREDCapture()
 	decodeFrame := func(frameIndex int, frameData []byte) error {
 		var qextPayload []byte
@@ -273,12 +284,14 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		d.hasFEC = false
 	}
 
-	d.maybeCacheDREDPayload(data)
-	if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
-		r.dredRecovery = 0
-	}
-	if d.dredSidecarActive() {
-		d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples, toc.Mode)
+	if extsupport.DREDRuntime {
+		d.maybeCacheDREDPayload(data)
+		if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
+			r.dredRecovery = 0
+		}
+		if d.dredSidecarActive() {
+			d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples, toc.Mode)
+		}
 	}
 	d.applyOutputGain(pcm[:totalSamples*d.channels])
 	return totalSamples, nil
@@ -294,7 +307,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		return d.Decode(data, pcm)
 	}
 
-	if data != nil && len(data) > 0 && d.dredCachedPayloadActive() {
+	if extsupport.DREDRuntime && data != nil && len(data) > 0 && d.dredCachedPayloadActive() {
 		d.invalidateDREDPayloadState()
 	}
 
