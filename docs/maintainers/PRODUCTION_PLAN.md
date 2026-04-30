@@ -1,6 +1,6 @@
 # Gopus Production Plan
 
-Last updated: 2026-04-21
+Last updated: 2026-04-30
 
 ## Objective
 
@@ -13,7 +13,7 @@ Ship `gopus` as a dependable production codec library with:
 
 - Decoder feature-complete and stable across SILK/CELT/Hybrid.
 - Encoder compliance summary and broad libopus-relative quality validation are green.
-- Core parity/fixture coverage exists and the remaining live quality deltas are tiny.
+- Core parity/fixture coverage is green, and tag-gated DRED parity is guarded by seam-specific libopus-backed tests before any broader support claims.
 - Core CI is cross-platform, but production-readiness now depends more on fail-closed gates and public API hardening than on codec-gap hunting.
 
 ## Production Success Criteria
@@ -34,6 +34,7 @@ Ship `gopus` as a dependable production codec library with:
 - CI fails closed on package load/build issues.
 - PR CI matches local production parity semantics closely enough that green means the same thing in both places.
 - CI covers race, parity, provenance, and fuzz smoke in addition to the existing test suite.
+- CI and `make verify-production` include selected green non-decoder-audio unsupported-controls DRED parity seams as a required gate.
 
 4. Public contract clarity
 - Streaming and container constructors fail fast on misuse instead of panicking later.
@@ -70,6 +71,7 @@ Ship `gopus` as a dependable production codec library with:
   - `make test-race`
   - `make test-quality`
   - `make test-fuzz-smoke`
+  - `make test-unsupported-controls-parity`
   - `make verify-production`
   - `make verify-production-exhaustive`
   - `make bench-guard`
