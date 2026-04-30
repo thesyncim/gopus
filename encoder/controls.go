@@ -68,9 +68,13 @@ func frameDurationMs(frameSize int) int {
 
 // targetBytesForBitrate computes target packet size in bytes.
 func targetBytesForBitrate(bitrate, frameSize int) int {
-	durationMs := frameDurationMs(frameSize)
-	// bitrate is bits/second, convert to bytes/frame
-	return (bitrate * durationMs) / 8000
+	const sampleRate = 48000
+	unitsPerFrame := 6 * sampleRate / frameSize
+	if unitsPerFrame <= 0 {
+		return 0
+	}
+	bits := bitrate * 6 / unitsPerFrame
+	return (bits + 4) / 8
 }
 
 // silkPayloadMaxBits mirrors libopus SILK maxBits budgeting:
