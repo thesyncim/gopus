@@ -263,11 +263,13 @@ func tanhApprox(x float32) float32 {
 }
 
 func quantizeInput(x float32) int16 {
-	scaled := 127 * float64(x)
 	var q int16
 	if useNearestEvenQuant {
+		// Match libopus NEON: multiply in float32, then round to nearest-even.
+		scaled := float64(float32(127 * x))
 		q = int16(math.RoundToEven(scaled))
 	} else {
+		scaled := 127 * float64(x)
 		q = int16(math.Floor(0.5 + scaled))
 	}
 	if useSUBias {

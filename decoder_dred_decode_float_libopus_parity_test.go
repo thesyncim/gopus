@@ -699,7 +699,7 @@ func decoderDREDLiveSequenceTolerances(frameSize int) (pcmTol, plcTol, farganTol
 		// consecutive 16 kHz FARGAN frames. Keep the seam pinned by PCM, PLC
 		// lifecycle, CELT bridge, and FARGAN headers; the private recurrent
 		// vectors are numerically sensitive after repeated synthesis.
-		return 1e-2, 1e-2, math.Inf(1), 1e-2
+		return 1e-2, 1e-2, 1e-1, 1e-2
 	}
 	return pcmTol, plcTol, farganTol, celtTol
 }
@@ -1206,7 +1206,7 @@ func cachedHybridLiveSequenceTolerances(bandwidth Bandwidth, frameSize int) (pcm
 		// private FARGAN recurrent vectors are numerically sensitive after the
 		// lowband hook. Keep this seam pinned by PCM, PLC lifecycle, and CELT
 		// state instead of treating those private vectors as the oracle.
-		return 2e-4, 1e-4, math.Inf(1), 1e-4
+		return 2e-4, 1e-4, 1e-2, 1e-4
 	}
 	return pcmTol, plcTol, farganTol, celtTol
 }
