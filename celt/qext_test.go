@@ -371,6 +371,22 @@ func TestEnsureScratchSkipsQEXTBuffersWhenDisabled(t *testing.T) {
 	}
 }
 
+func TestCELTDecoderQEXTStateStaysDormantUntilPayload(t *testing.T) {
+	dec := NewDecoder(1)
+	if len(dec.qextOldBandE) != 0 {
+		t.Fatalf("NewDecoder allocated qextOldBandE=%d want dormant", len(dec.qextOldBandE))
+	}
+
+	var mainRD rangecoding.Decoder
+	mainRD.Init([]byte{0xff})
+	if qext := dec.prepareQEXTDecode(nil, &mainRD, MaxBands, 0, 120); qext != nil {
+		t.Fatal("prepareQEXTDecode(nil) returned QEXT state")
+	}
+	if len(dec.qextOldBandE) != 0 {
+		t.Fatalf("empty QEXT payload allocated qextOldBandE=%d want dormant", len(dec.qextOldBandE))
+	}
+}
+
 func TestComputeQEXTExtraAllocationEncodeZeroBudget(t *testing.T) {
 	cfg, ok := computeQEXTModeConfig(48000, 120)
 	if !ok {

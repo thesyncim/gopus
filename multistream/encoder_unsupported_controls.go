@@ -13,7 +13,12 @@ func (e *Encoder) DREDModelLoaded() bool {
 	if len(e.encoders) == 0 {
 		return false
 	}
-	return e.encoders[0].DREDModelLoaded()
+	for _, enc := range e.encoders {
+		if !enc.DREDModelLoaded() {
+			return false
+		}
+	}
+	return true
 }
 
 // DREDReady reports whether all stream encoders are ready to emit DRED.
@@ -21,7 +26,12 @@ func (e *Encoder) DREDReady() bool {
 	if len(e.encoders) == 0 {
 		return false
 	}
-	return e.encoders[0].DREDReady()
+	for _, enc := range e.encoders {
+		if !enc.DREDReady() {
+			return false
+		}
+	}
+	return true
 }
 
 // SetDREDDuration propagates libopus-style DRED duration to all stream encoders.

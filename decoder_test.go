@@ -266,6 +266,35 @@ func makeValidMono16kPacketForDREDTest(t *testing.T) []byte {
 	return packet
 }
 
+func makeValidMono48kSILKPacketForDREDTest(t *testing.T) []byte {
+	t.Helper()
+
+	enc := internalenc.NewEncoder(48000, 1)
+	enc.SetMode(internalenc.ModeSILK)
+	enc.SetBandwidth(types.BandwidthWideband)
+	enc.SetBitrate(32000)
+
+	const frameSize = 960
+	pcm := make([]float64, frameSize)
+	for i := range pcm {
+		tm := float64(i) / 48000.0
+		pcm[i] = 0.31*math.Sin(2*math.Pi*197*tm) + 0.12*math.Sin(2*math.Pi*389*tm+0.23)
+	}
+
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode(48k SILK): %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode(48k SILK) returned empty packet")
+	}
+	toc := ParseTOC(packet[0])
+	if toc.Mode != ModeSILK || toc.Bandwidth != BandwidthWideband || toc.FrameSize != frameSize {
+		t.Fatalf("Encode(48k SILK) produced mode=%v bandwidth=%v frame=%d, want mode=%v bandwidth=%v frame=%d", toc.Mode, toc.Bandwidth, toc.FrameSize, ModeSILK, BandwidthWideband, frameSize)
+	}
+	return packet
+}
+
 func buildSingleFramePacketWithExtensionsForDREDTest(t *testing.T, packet []byte, extensions []packetExtensionData) []byte {
 	t.Helper()
 
@@ -483,6 +512,38 @@ func TestMainDecoder48kDNNBlobGoodDecodeKeepsRecoveryDormantUntilLoss(t *testing
 		if state.decoderDRED48kBridgeState != nil {
 			t.Fatalf("48 kHz good decode eagerly allocated bridge state: %+v", state.decoderDRED48kBridgeState)
 		}
+	}
+}
+
+func TestMainDecoder48kDNNBlobGoodSILKHybridDecodeKeepsRecoveryDormantUntilLoss(t *testing.T) {
+	tests := []struct {
+		name   string
+		packet func(*testing.T) []byte
+	}{
+		{name: "silk", packet: makeValidMono48kSILKPacketForDREDTest},
+		{name: "hybrid", packet: func(t *testing.T) []byte {
+			return makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, 960, BandwidthFullband)
+		}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+			if err != nil {
+				t.Fatalf("NewDecoder error: %v", err)
+			}
+			if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+				t.Fatalf("SetDNNBlob error: %v", err)
+			}
+
+			pcm := make([]float32, dec.maxPacketSamples)
+			if _, err := dec.Decode(tt.packet(t), pcm); err != nil {
+				t.Fatalf("Decode error: %v", err)
+			}
+			if state := dec.dredState(); state != nil {
+				t.Fatalf("48 kHz %s good decode eagerly allocated DRED sidecar: %+v", tt.name, state)
+			}
+		})
 	}
 }
 

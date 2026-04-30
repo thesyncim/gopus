@@ -23,7 +23,6 @@ func NewDecoder(channels int) *Decoder {
 		prevLogE:         make([]float64, MaxBands*channels),
 		prevLogE2:        make([]float64, MaxBands*channels),
 		backgroundEnergy: make([]float64, MaxBands*channels),
-		qextOldBandE:     make([]float64, MaxBands*channels),
 
 		// Overlap buffer for CELT (full overlap per channel)
 		overlapBuffer: make([]float64, Overlap*channels),
