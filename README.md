@@ -16,7 +16,7 @@ Pure Go Opus codec for Go applications.
 - The main API target is the zero-allocation caller-owned path:
   - `func (d *Decoder) Decode(data []byte, pcm []float32) (int, error)`
   - `func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)`
-- The default build intentionally does not support every optional libopus build-time extension. Supported default controls are `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()`. DRED support is compiled explicitly with `-tags gopus_dred`; default builds keep DRED controls absent and DRED runtime hooks dormant. OSCE BWE remains quarantine-only under `-tags gopus_unsupported_controls`, and that quarantine tag does not itself make `SupportsOptionalExtension(...)` report support. See [Optional Extensions](docs/optional-extensions.md) for the release-contract matrix.
+- The default build intentionally does not support every optional libopus build-time extension. Supported default controls are `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()`. DRED control and standalone surfaces are compiled explicitly with `-tags gopus_dred`; default builds keep DRED controls absent and DRED runtime hooks dormant. OSCE BWE remains quarantine-only under `-tags gopus_unsupported_controls`, and that quarantine tag does not itself make `SupportsOptionalExtension(...)` report support. See [Optional Extensions](docs/optional-extensions.md) for the release-contract matrix.
 - Low-level packages such as `celt`, `silk`, `hybrid`, `rangecoding`, and `plc` are implementation detail, not a stable public contract yet.
 - Validation and parity work is pinned against libopus 1.6.1.
 - No tagged release has been published yet. If you adopt `gopus` before `v0.1.0`, pin the exact version you validate.
@@ -109,7 +109,7 @@ Packet loss concealment uses `dec.Decode(nil, pcmOut)`. If you prefer convenienc
 | Streaming facade | Supported | `Reader` / `Writer` |
 | Allocating convenience helpers | Supported | Simpler to use, but not zero-allocation |
 | Low-level codec packages | Experimental | May change before `v1` |
-| Optional libopus build-time extensions | Mixed | `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()` are supported in the default build. DRED is supported with `-tags gopus_dred`, which exposes `SetDREDDuration(...)` / `DREDDuration()` and standalone `DREDDecoder` / `DRED` helpers. OSCE BWE remains quarantine-only under `-tags gopus_unsupported_controls`. See [Optional Extensions](docs/optional-extensions.md) |
+| Optional libopus build-time extensions | Mixed | `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()` are supported in the default build. DRED control and standalone surfaces are supported with `-tags gopus_dred`, which exposes `SetDREDDuration(...)` / `DREDDuration()` and standalone `DREDDecoder` / `DRED` helpers. Broader DRED audio-path parity remains seam-specific. OSCE BWE remains quarantine-only under `-tags gopus_unsupported_controls`. See [Optional Extensions](docs/optional-extensions.md) |
 
 Environment and codec expectations:
 

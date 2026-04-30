@@ -11,8 +11,8 @@ import (
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
 )
 
-// ErrDREDModelNotLoaded reports that the tag-gated standalone DRED decoder
-// metadata path has not been armed with a DRED decoder model blob yet.
+// ErrDREDModelNotLoaded reports that the tag-gated standalone DRED
+// parse/process path has not been armed with a DRED decoder model blob yet.
 var ErrDREDModelNotLoaded = errors.New("gopus: DRED decoder model not loaded")
 
 // DREDRequest mirrors the low-cost opus_dred_parse() request parameters that
@@ -34,7 +34,7 @@ type DREDParsed = internaldred.Parsed
 type DREDResult = internaldred.Result
 
 // DREDProcessStage reports how far a retained DRED packet has progressed through
-// the standalone experimental DRED wrapper.
+// the standalone DRED wrapper.
 type DREDProcessStage int
 
 const (
@@ -48,7 +48,7 @@ const (
 )
 
 // DREDDecoder mirrors libopus's standalone OpusDREDDecoder control lifetime for
-// the tag-gated DRED metadata surface.
+// the tag-gated DRED parse/process surface.
 type DREDDecoder struct {
 	dnnBlob     *dnnblob.Blob
 	model       *rdovae.Decoder
@@ -94,7 +94,7 @@ func (d *DREDDecoder) ModelLoaded() bool {
 }
 
 // DRED mirrors the retained standalone OpusDRED packet state used by the
-// experimental DRED metadata wrapper.
+// tag-gated DRED parse/process wrapper.
 type DRED struct {
 	data         [internaldred.MaxDataSize]byte
 	cache        internaldred.Cache
@@ -254,9 +254,9 @@ func (d *DRED) FeatureWindow(maxDredSamples, sampleRate, decodeOffsetSamples, fr
 // Parse finds and retains the temporary DRED packet extension from packet and
 // returns the request-bounded available and trailing-silence sample counts.
 //
-// This tag-gated wrapper currently covers payload discovery plus low-cost
-// metadata retention. It does not yet expose full model-backed DRED audio
-// decode, but it matches libopus's standalone DRED control lifetime.
+// This tag-gated wrapper covers the supported standalone parse, deferred
+// process, and feature-retention surface. It does not claim broad DRED
+// audio-path parity beyond the green seams documented for the current release.
 func (d *DREDDecoder) Parse(dst *DRED, packet []byte, maxDredSamples, sampleRate int, deferProcessing bool) (availableSamples, dredEnd int, err error) {
 	if d == nil || dst == nil || sampleRate <= 0 || maxDredSamples < 0 {
 		return 0, 0, ErrInvalidArgument

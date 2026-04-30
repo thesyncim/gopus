@@ -4,15 +4,22 @@ import (
 	"math"
 	"runtime"
 
+	"github.com/thesyncim/gopus/internal/cpufeat"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dnnmath"
 )
 
-// Match the pinned local libopus build on arm64, where DNN integer-matrix
-// kernels use DOTPROD-style int accumulation and vcvtnq_s32_f32()
-// quantization rather than the generic floor(.5+x) path.
-var useNearestEvenQuant = runtime.GOARCH == "arm64"
-var useSUBias = false
+// Match the pinned libopus DNN vector kernels selected by the helper build.
+// Keep the architecture-wide switches constant so unused variants fold away
+// when they cannot apply to the target build.
+const (
+	useArm64DNNVectorKernels = runtime.GOARCH == "arm64"
+	useX86DNNVectorKernels   = runtime.GOARCH == "amd64"
+	useSUBias                = useX86DNNVectorKernels
+	useIntegerInt8Accum      = useArm64DNNVectorKernels || useX86DNNVectorKernels
+)
+
+var useX86AVX2FMA = useX86DNNVectorKernels && cpufeat.AMD64.HasAVX2 && cpufeat.AMD64.HasFMA
 
 type predictorState struct {
 	gru1 [GRU1Size]float32
@@ -168,11 +175,32 @@ func computeLinear(layer *LinearLayer, out, in []float32, scratch *predictorScra
 }
 
 func sgemv(out []float32, weights dnnblob.Float32View, rows, cols, colStride int, x []float32) {
+	if useFusedFloatDense() {
+		sgemvFused(out, weights, rows, cols, colStride, x)
+		return
+	}
+	sgemvSplit(out, weights, rows, cols, colStride, x)
+}
+
+func sgemvFused(out []float32, weights dnnblob.Float32View, rows, cols, colStride int, x []float32) {
 	clear(out[:rows])
 	for i := 0; i < rows; i++ {
 		var sum float32
 		for j := 0; j < cols; j++ {
-			sum += weights.At(j*colStride+i) * x[j]
+			w := weights.At(j*colStride + i)
+			sum = float32(math.FMA(float64(w), float64(x[j]), float64(sum)))
+		}
+		out[i] = sum
+	}
+}
+
+func sgemvSplit(out []float32, weights dnnblob.Float32View, rows, cols, colStride int, x []float32) {
+	clear(out[:rows])
+	for i := 0; i < rows; i++ {
+		var sum float32
+		for j := 0; j < cols; j++ {
+			w := weights.At(j*colStride + i)
+			sum = float32(sum + math.Float32frombits(math.Float32bits(w*x[j])))
 		}
 		out[i] = sum
 	}
@@ -182,36 +210,44 @@ func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View
 	for i := 0; i < cols; i++ {
 		q[i] = quantizeInput(x[i])
 	}
-	if useNearestEvenQuant {
-		for row := 0; row < rows; row += 8 {
-			var acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7 int
-			wOffset := row * cols
-			for col := 0; col < cols; col += 4 {
-				x0 := int(q[col])
-				x1 := int(q[col+1])
-				x2 := int(q[col+2])
-				x3 := int(q[col+3])
-				acc0 += int(weights.At(wOffset+0))*x0 + int(weights.At(wOffset+1))*x1 + int(weights.At(wOffset+2))*x2 + int(weights.At(wOffset+3))*x3
-				acc1 += int(weights.At(wOffset+4))*x0 + int(weights.At(wOffset+5))*x1 + int(weights.At(wOffset+6))*x2 + int(weights.At(wOffset+7))*x3
-				acc2 += int(weights.At(wOffset+8))*x0 + int(weights.At(wOffset+9))*x1 + int(weights.At(wOffset+10))*x2 + int(weights.At(wOffset+11))*x3
-				acc3 += int(weights.At(wOffset+12))*x0 + int(weights.At(wOffset+13))*x1 + int(weights.At(wOffset+14))*x2 + int(weights.At(wOffset+15))*x3
-				acc4 += int(weights.At(wOffset+16))*x0 + int(weights.At(wOffset+17))*x1 + int(weights.At(wOffset+18))*x2 + int(weights.At(wOffset+19))*x3
-				acc5 += int(weights.At(wOffset+20))*x0 + int(weights.At(wOffset+21))*x1 + int(weights.At(wOffset+22))*x2 + int(weights.At(wOffset+23))*x3
-				acc6 += int(weights.At(wOffset+24))*x0 + int(weights.At(wOffset+25))*x1 + int(weights.At(wOffset+26))*x2 + int(weights.At(wOffset+27))*x3
-				acc7 += int(weights.At(wOffset+28))*x0 + int(weights.At(wOffset+29))*x1 + int(weights.At(wOffset+30))*x2 + int(weights.At(wOffset+31))*x3
-				wOffset += 32
-			}
-			out[row+0] = float32(acc0) * scale.At(row+0)
-			out[row+1] = float32(acc1) * scale.At(row+1)
-			out[row+2] = float32(acc2) * scale.At(row+2)
-			out[row+3] = float32(acc3) * scale.At(row+3)
-			out[row+4] = float32(acc4) * scale.At(row+4)
-			out[row+5] = float32(acc5) * scale.At(row+5)
-			out[row+6] = float32(acc6) * scale.At(row+6)
-			out[row+7] = float32(acc7) * scale.At(row+7)
-		}
+	if useIntegerInt8Accum {
+		cgemv8x4IntAccum(out, weights, scale, rows, cols, q)
 		return
 	}
+	cgemv8x4FloatAccum(out, weights, scale, rows, cols, q)
+}
+
+func cgemv8x4IntAccum(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View, rows, cols int, q []int16) {
+	for row := 0; row < rows; row += 8 {
+		var acc0, acc1, acc2, acc3, acc4, acc5, acc6, acc7 int
+		wOffset := row * cols
+		for col := 0; col < cols; col += 4 {
+			x0 := int(q[col])
+			x1 := int(q[col+1])
+			x2 := int(q[col+2])
+			x3 := int(q[col+3])
+			acc0 += int(weights.At(wOffset+0))*x0 + int(weights.At(wOffset+1))*x1 + int(weights.At(wOffset+2))*x2 + int(weights.At(wOffset+3))*x3
+			acc1 += int(weights.At(wOffset+4))*x0 + int(weights.At(wOffset+5))*x1 + int(weights.At(wOffset+6))*x2 + int(weights.At(wOffset+7))*x3
+			acc2 += int(weights.At(wOffset+8))*x0 + int(weights.At(wOffset+9))*x1 + int(weights.At(wOffset+10))*x2 + int(weights.At(wOffset+11))*x3
+			acc3 += int(weights.At(wOffset+12))*x0 + int(weights.At(wOffset+13))*x1 + int(weights.At(wOffset+14))*x2 + int(weights.At(wOffset+15))*x3
+			acc4 += int(weights.At(wOffset+16))*x0 + int(weights.At(wOffset+17))*x1 + int(weights.At(wOffset+18))*x2 + int(weights.At(wOffset+19))*x3
+			acc5 += int(weights.At(wOffset+20))*x0 + int(weights.At(wOffset+21))*x1 + int(weights.At(wOffset+22))*x2 + int(weights.At(wOffset+23))*x3
+			acc6 += int(weights.At(wOffset+24))*x0 + int(weights.At(wOffset+25))*x1 + int(weights.At(wOffset+26))*x2 + int(weights.At(wOffset+27))*x3
+			acc7 += int(weights.At(wOffset+28))*x0 + int(weights.At(wOffset+29))*x1 + int(weights.At(wOffset+30))*x2 + int(weights.At(wOffset+31))*x3
+			wOffset += 32
+		}
+		out[row+0] = float32(acc0) * scale.At(row+0)
+		out[row+1] = float32(acc1) * scale.At(row+1)
+		out[row+2] = float32(acc2) * scale.At(row+2)
+		out[row+3] = float32(acc3) * scale.At(row+3)
+		out[row+4] = float32(acc4) * scale.At(row+4)
+		out[row+5] = float32(acc5) * scale.At(row+5)
+		out[row+6] = float32(acc6) * scale.At(row+6)
+		out[row+7] = float32(acc7) * scale.At(row+7)
+	}
+}
+
+func cgemv8x4FloatAccum(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View, rows, cols int, q []int16) {
 	clear(out[:rows])
 	wOffset := 0
 	for row := 0; row < rows; row += 8 {
@@ -263,17 +299,33 @@ func tanhApprox(x float32) float32 {
 }
 
 func quantizeInput(x float32) int16 {
-	var q int16
-	if useNearestEvenQuant {
+	return quantizeInputWithOptions(x, useNearestEvenQuant(), useSUBias)
+}
+
+func quantizeInputWithOptions(x float32, nearestEven, suBias bool) int16 {
+	if nearestEven {
+		if suBias {
+			// Match libopus AVX2: fused single-precision 127*x+127, then cvtps_epi32.
+			scaled := float64(float32(math.FMA(float64(x), 127, 127)))
+			return int16(math.RoundToEven(scaled))
+		}
 		// Match libopus NEON: multiply in float32, then round to nearest-even.
 		scaled := float64(float32(127 * x))
-		q = int16(math.RoundToEven(scaled))
-	} else {
-		scaled := 127 * float64(x)
-		q = int16(math.Floor(0.5 + scaled))
+		q := int16(math.RoundToEven(scaled))
+		return int16(int8(q))
 	}
-	if useSUBias {
+	scaled := 127 * float64(x)
+	q := int16(math.Floor(0.5 + scaled))
+	if suBias {
 		return 127 + q
 	}
 	return int16(int8(q))
+}
+
+func useNearestEvenQuant() bool {
+	return useArm64DNNVectorKernels || useX86AVX2FMA
+}
+
+func useFusedFloatDense() bool {
+	return useArm64DNNVectorKernels || useX86AVX2FMA
 }

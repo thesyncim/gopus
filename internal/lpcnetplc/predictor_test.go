@@ -70,13 +70,6 @@ func TestPredictorDoesNotAllocate(t *testing.T) {
 }
 
 func TestQuantizeInputNearestEvenUsesFloat32Product(t *testing.T) {
-	oldNearestEven := useNearestEvenQuant
-	oldSUBias := useSUBias
-	t.Cleanup(func() {
-		useNearestEvenQuant = oldNearestEven
-		useSUBias = oldSUBias
-	})
-
 	x := math.Float32frombits(0x3e870e1c)
 	legacy := int16(math.RoundToEven(127 * float64(x)))
 	want := int16(math.RoundToEven(float64(float32(127 * x))))
@@ -84,15 +77,51 @@ func TestQuantizeInputNearestEvenUsesFloat32Product(t *testing.T) {
 		t.Fatalf("test input no longer straddles the arm64 quantizer boundary: legacy=%d want=%d", legacy, want)
 	}
 
-	useNearestEvenQuant = true
-	useSUBias = false
-	if got := quantizeInput(x); got != want {
+	if got := quantizeInputWithOptions(x, true, false); got != want {
 		t.Fatalf("quantizeInput(%v)=%d want %d", x, got, want)
 	}
 
-	useSUBias = true
-	if got, want := quantizeInput(x), int16(127)+want; got != want {
-		t.Fatalf("quantizeInput(%v) with subias=%d want %d", x, got, want)
+	x86AVX2Want := int16(math.RoundToEven(float64(float32(math.FMA(float64(x), 127, 127)))))
+	if got := quantizeInputWithOptions(x, true, true); got != x86AVX2Want {
+		t.Fatalf("quantizeInput(%v) with avx2 subias=%d want %d", x, got, x86AVX2Want)
+	}
+
+	x86SSEWant := int16(127 + math.Floor(0.5+127*float64(x)))
+	if got := quantizeInputWithOptions(x, false, true); got != x86SSEWant {
+		t.Fatalf("quantizeInput(%v) with sse subias=%d want %d", x, got, x86SSEWant)
+	}
+}
+
+func TestSGEMVUsesFusedFloatDenseWhenEnabled(t *testing.T) {
+	values := []float32{
+		1,
+		math.Float32frombits(0x3f800001),
+	}
+	payload := make([]byte, 4*len(values))
+	for i, v := range values {
+		binary.LittleEndian.PutUint32(payload[4*i:4*i+4], math.Float32bits(v))
+	}
+	weights, err := dnnblob.Float32ViewFromBytes(payload, int32(len(payload)))
+	if err != nil {
+		t.Fatalf("Float32ViewFromBytes error: %v", err)
+	}
+	x := []float32{
+		1,
+		math.Float32frombits(0x337fffff),
+	}
+	var out [1]float32
+
+	sgemvSplit(out[:], weights, 1, 2, 1, x)
+	split := out[0]
+
+	sgemvFused(out[:], weights, 1, 2, 1, x)
+	fused := out[0]
+
+	if split != 1 {
+		t.Fatalf("split sgemv=%g want 1", split)
+	}
+	if want := math.Float32frombits(0x3f800001); fused != want {
+		t.Fatalf("fused sgemv=%g want %g", fused, want)
 	}
 }
 

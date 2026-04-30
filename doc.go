@@ -73,7 +73,8 @@
 //
 // Some libopus build-time extension hooks are build dependent. Supported
 // optional controls in the default build currently include SetDNNBlob plus
-// SetQEXT/QEXT. DRED is supported only in builds using `-tags gopus_dred`.
+// SetQEXT/QEXT. DRED control and standalone surfaces are supported only in
+// builds using `-tags gopus_dred`.
 // Use SupportsOptionalExtension to probe whether an extension-backed surface is
 // enabled in the current build before relying on it.
 //

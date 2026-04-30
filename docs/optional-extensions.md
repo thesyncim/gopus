@@ -19,20 +19,22 @@ if gopus.SupportsOptionalExtension(gopus.OptionalExtensionQEXT) {
 | --- | --- | --- | --- |
 | DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; decoder-side support currently covers loader-derived validation and retained control state, not full model-backed PLC/OSCE runtime behavior |
 | QEXT | Supported by default | `OptionalExtensionQEXT` | Available through `SetQEXT` / `QEXT` on `Encoder` and `MultistreamEncoder` |
-| DRED | Supported with `gopus_dred` tag | `OptionalExtensionDRED` | Build with `-tags gopus_dred` to expose `SetDREDDuration(...)` / `DREDDuration()` on `Encoder` and `MultistreamEncoder`, plus standalone `DREDDecoder` / `DRED`; default builds keep DRED absent and runtime hooks dormant |
+| DRED | Tagged control/standalone support | `OptionalExtensionDRED` | Build with `-tags gopus_dred` to expose `SetDREDDuration(...)` / `DREDDuration()` on `Encoder` and `MultistreamEncoder`, plus standalone `DREDDecoder` / `DRED`; this does not claim broad DRED audio-path parity, and default builds keep DRED absent with runtime hooks dormant |
 | OSCE BWE | Unsupported and quarantined | `OptionalExtensionOSCEBWE` | `SetOSCEBWE(...)` / `OSCEBWE()` are absent from the default public API surface, and low-level OSCE model helpers stay quarantine-gated |
 
 ## Supported Feature Tags
 
-Build DRED support explicitly when you need the libopus DRED surface:
+Build DRED support explicitly when you need the verified DRED control and
+standalone surfaces:
 
 ```bash
 go test -tags gopus_dred ./...
 ```
 
 `SupportsOptionalExtension(gopus.OptionalExtensionDRED)` reports `true` only in
-that supported DRED build. In default builds, DRED controls are absent and
-encode/decode hot paths do not enter DRED runtime hooks.
+that tagged DRED build. Current release support is scoped to exposed controls,
+the standalone DRED wrapper, and the green parity seams. In default builds, DRED
+controls are absent and encode/decode hot paths do not enter DRED runtime hooks.
 
 ## Quarantine Build Tag
 
