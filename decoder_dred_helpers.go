@@ -701,6 +701,10 @@ func (d *Decoder) beginDREDRawMonoGoodFrameCapture(mode Mode) func() {
 	if mode != ModeHybrid && mode != ModeSILK {
 		return func() {}
 	}
+	p := d.dredPayloadState()
+	if d.dredRecoveryState() == nil && (p == nil || !p.dredModelLoaded) {
+		return func() {}
+	}
 	if !d.ensureDREDNeuralConcealmentRuntime() {
 		return func() {}
 	}

@@ -112,12 +112,13 @@ func (d *Decoder) storeQEXTEnergyState(energies []float64, nbBands int) {
 	if nbBands <= 0 || len(energies) < nbBands*d.channels {
 		return
 	}
+	oldBandE := d.ensureQEXTOldBandE()
 	for c := 0; c < d.channels; c++ {
 		base := c * MaxBands
 		src := energies[c*nbBands : c*nbBands+nbBands]
-		copy(d.qextOldBandE[base:base+nbBands], src)
+		copy(oldBandE[base:base+nbBands], src)
 		for band := nbBands; band < MaxBands; band++ {
-			d.qextOldBandE[base+band] = 0
+			oldBandE[base+band] = 0
 		}
 	}
 }
@@ -160,7 +161,7 @@ func (d *Decoder) prepareQEXTDecode(payload []byte, mainRD *rangecoding.Decoder,
 				qext.energies = ensureFloat64Slice(&d.scratchQEXTEnergies, qext.end*d.channels)
 				qext.energies = qext.energies[:qext.end*d.channels]
 				intra := extDec.Tell()+3 <= extDec.StorageBits() && extDec.DecodeBit(3) == 1
-				qext.energies = d.decodeCoarseEnergyIntoWithPrevState(qext.energies, qext.end, intra, lm, d.qextOldBandE, MaxBands, extDec)
+				qext.energies = d.decodeCoarseEnergyIntoWithPrevState(qext.energies, qext.end, intra, lm, d.ensureQEXTOldBandE(), MaxBands, extDec)
 				qextMode = &qext.cfg
 			}
 		}

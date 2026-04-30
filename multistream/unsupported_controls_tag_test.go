@@ -71,6 +71,43 @@ func TestEncoderDREDDuration(t *testing.T) {
 	}
 }
 
+func TestEncoderDREDReadyRequiresModelAndDurationOnEveryStream(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 3)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+	if len(enc.encoders) < 2 {
+		t.Fatalf("test requires multiple stream encoders, got %d", len(enc.encoders))
+	}
+	blob := makeLoadableDREDEncoderTestBlob(t)
+	enc.SetDNNBlob(blob)
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+	if !enc.DREDModelLoaded() || !enc.DREDReady() {
+		t.Fatal("multistream encoder did not report ready after propagating model and duration")
+	}
+
+	enc.encoders[1].SetDNNBlob(nil)
+	if enc.DREDModelLoaded() {
+		t.Fatal("DREDModelLoaded()=true with one stream missing a DRED model")
+	}
+	if enc.DREDReady() {
+		t.Fatal("DREDReady()=true with one stream missing a DRED model")
+	}
+
+	enc.encoders[1].SetDNNBlob(blob)
+	if err := enc.encoders[1].SetDREDDuration(0); err != nil {
+		t.Fatalf("child SetDREDDuration(0) error: %v", err)
+	}
+	if !enc.DREDModelLoaded() {
+		t.Fatal("DREDModelLoaded()=false after restoring every stream model")
+	}
+	if enc.DREDReady() {
+		t.Fatal("DREDReady()=true with one stream duration cleared")
+	}
+}
+
 func TestDecoderOSCEBWEState(t *testing.T) {
 	dec, err := NewDecoderDefault(48000, 2)
 	if err != nil {
