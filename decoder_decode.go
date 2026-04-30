@@ -373,10 +373,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		opusPCMSoftClip(d.scratchPCM[:n*d.channels], n, d.channels, d.softClipMem[:])
-		for i := 0; i < n*d.channels; i++ {
-			pcm[i] = float32ToInt16(d.scratchPCM[i])
-		}
+		softClipAndFloat32ToInt16(pcm, d.scratchPCM, n, d.channels, d.softClipMem[:])
 		return n, nil
 	}
 
@@ -401,9 +398,6 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	opusPCMSoftClip(d.scratchPCM[:n*d.channels], n, d.channels, d.softClipMem[:])
-	for i := 0; i < n*d.channels; i++ {
-		pcm[i] = float32ToInt16(d.scratchPCM[i])
-	}
+	softClipAndFloat32ToInt16(pcm, d.scratchPCM, n, d.channels, d.softClipMem[:])
 	return n, nil
 }

@@ -33,6 +33,15 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize in
 	}
 
 	packetChannels := packetChannelsFromStereoFlag(packetStereo)
+	if data != nil && len(data) != 0 && packetChannels == 1 && d.channels == 2 {
+		d.directOutPCM = out[:outLen]
+		defer func() {
+			d.directOutPCM = nil
+		}()
+		_, err := d.decodeMonoPacketToStereo(data, frameSize)
+		return err
+	}
+
 	if data == nil || len(data) == 0 || packetChannels != d.channels {
 		samples, err := d.DecodeFrameWithPacketStereo(data, frameSize, packetStereo)
 		if err != nil {
@@ -231,22 +240,44 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		denormalizeCoeffs(coeffsMono, monoEnergies, end, frameSize)
 	}
 
-	coeffsL := coeffsMono
-	coeffsR := ensureFloat64Slice(&d.scratchMonoToStereoR, len(coeffsMono))
-	copy(coeffsR, coeffsMono)
-
 	d.channels = origChannels
 	d.prevEnergy = origPrevEnergy
 	d.applyPendingPLCPrefilterAndFold()
 
-	samples := d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
+	var samples []float64
+	directPlanar := false
+	if !transient {
+		outL, outR := d.synthesizeStereoPlanarFromMonoLong(coeffsMono)
+		if len(d.directOutPCM) >= frameSize*2 {
+			left := outL[:frameSize]
+			right := outR[:frameSize]
+			d.applyPostfilterStereoPlanar(left, right, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+			d.applyDeemphasisAndScaleStereoPlanarToFloat32(d.directOutPCM[:frameSize*2], left, right, 1.0/32768.0)
+			directPlanar = true
+		} else {
+			samples = ensureFloat64Slice(&d.scratchStereo, frameSize*2)
+			InterleaveStereoInto(outL[:frameSize], outR[:frameSize], samples[:frameSize*2])
+			samples = samples[:frameSize*2]
+		}
+	} else {
+		coeffsL := coeffsMono
+		coeffsR := ensureFloat64Slice(&d.scratchMonoToStereoR, len(coeffsMono))
+		copy(coeffsR, coeffsMono)
+		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
+	}
 	traceLen := len(samples)
 	if traceLen > 16 {
 		traceLen = 16
 	}
 
-	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+	if !directPlanar {
+		d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+		if len(d.directOutPCM) >= len(samples) {
+			d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:len(samples)], samples, 1.0/32768.0)
+		} else {
+			d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+		}
+	}
 
 	var stereoEnergiesArr [MaxBands * 2]float64
 	stereoEnergies := stereoEnergiesArr[:]
@@ -626,15 +657,22 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 
 	denormalizeCoeffs(coeffsMono, monoEnergies, end, frameSize)
 
-	coeffsL := coeffsMono
-	coeffsR := ensureFloat64Slice(&d.scratchMonoToStereoR, len(coeffsMono))
-	copy(coeffsR, coeffsMono)
-
 	d.channels = origChannels
 	d.prevEnergy = origPrevEnergy
 	d.applyPendingPLCPrefilterAndFold()
 
-	samples := d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
+	var samples []float64
+	if !transient {
+		outL, outR := d.synthesizeStereoPlanarFromMonoLong(coeffsMono)
+		samples = ensureFloat64Slice(&d.scratchStereo, frameSize*2)
+		InterleaveStereoInto(outL[:frameSize], outR[:frameSize], samples[:frameSize*2])
+		samples = samples[:frameSize*2]
+	} else {
+		coeffsL := coeffsMono
+		coeffsR := ensureFloat64Slice(&d.scratchMonoToStereoR, len(coeffsMono))
+		copy(coeffsR, coeffsMono)
+		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
+	}
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 

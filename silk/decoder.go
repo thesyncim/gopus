@@ -125,6 +125,12 @@ type Decoder struct {
 
 	// Scratch buffer for BuildMonoResamplerInput
 	buildMonoInputScratch []float32 // Size: maxFramesPerPacket * maxFrameLength = 960
+
+	// Scratch buffers for stereo SILK decode paths.
+	stereoLeftNative  []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
+	stereoRightNative []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
+	stereoMidFrame    []int16 // Size: maxFrameLength + 2
+	stereoSideFrame   []int16 // Size: maxFrameLength + 2
 }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
@@ -183,6 +189,10 @@ func NewDecoder() *Decoder {
 		monoResamplerIn:        make([]int16, maxOutInt16Size),
 		monoOutput:             make([]int16, maxOutInt16Size),
 		buildMonoInputScratch:  make([]float32, maxOutInt16Size),
+		stereoLeftNative:       make([]int16, maxOutInt16Size),
+		stereoRightNative:      make([]int16, maxOutInt16Size),
+		stereoMidFrame:         make([]int16, maxFrameLength+2),
+		stereoSideFrame:        make([]int16, maxFrameLength+2),
 		plcState:               plc.NewState(),
 	}
 	resetDecoderState(&d.state[0])
@@ -340,6 +350,18 @@ func (d *Decoder) Reset() {
 	}
 	for i := range d.buildMonoInputScratch {
 		d.buildMonoInputScratch[i] = 0
+	}
+	for i := range d.stereoLeftNative {
+		d.stereoLeftNative[i] = 0
+	}
+	for i := range d.stereoRightNative {
+		d.stereoRightNative[i] = 0
+	}
+	for i := range d.stereoMidFrame {
+		d.stereoMidFrame[i] = 0
+	}
+	for i := range d.stereoSideFrame {
+		d.stereoSideFrame[i] = 0
 	}
 
 	// Re-wire scratch buffers after resetDecoderState cleared them
@@ -916,12 +938,33 @@ func (d *Decoder) BuildMonoResamplerInputInt16(samples []int16) []int16 {
 	return resamplerInput
 }
 
+// GetStereoInt16Scratch returns decoder-owned native-rate stereo scratch
+// buffers. The returned slices are invalidated by the next decode call.
+func (d *Decoder) GetStereoInt16Scratch(samples int) (left, right []int16, ok bool) {
+	if samples <= 0 {
+		return nil, nil, false
+	}
+	if cap(d.stereoLeftNative) < samples || cap(d.stereoRightNative) < samples {
+		return nil, nil, false
+	}
+	return d.stereoLeftNative[:samples], d.stereoRightNative[:samples], true
+}
+
+func (d *Decoder) stereoFrameScratch(frameLength int) (mid, side []int16, ok bool) {
+	needed := frameLength + 2
+	if frameLength <= 0 || cap(d.stereoMidFrame) < needed || cap(d.stereoSideFrame) < needed {
+		return nil, nil, false
+	}
+	return d.stereoMidFrame[:needed], d.stereoSideFrame[:needed], true
+}
+
 // ResetSideChannel resets the mono->stereo bitstream transition state.
 // This mirrors libopus silk/dec_API.c for nChannelsInternal 1 -> 2:
 // re-init the side decoder, clear the stereo side/predictor history, and
 // reset the right-channel resampler before copying left-channel history over.
 func (d *Decoder) ResetSideChannel() {
 	resetDecoderState(&d.state[1])
+	d.setupScratchBuffers()
 	d.stereo.predPrevQ13 = [2]int32{}
 	d.stereo.sSide = [2]int16{}
 	if d.resamplers == nil {

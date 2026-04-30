@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-unsupported-controls-tag test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-unsupported-controls-tag test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -40,6 +40,12 @@ GOPUS_SAFETY_SOAK_REPORT_INTERVAL ?= 10s
 GOPUS_SAFETY_SOAK_MAX_RSS_GROWTH_MIB ?= 256
 GOPUS_SAFETY_SOAK_MAX_GOROUTINE_GROWTH ?= 16
 GOPUS_SAFETY_SOAK_MAX_ALLOCS ?= 0.0
+BENCH_TESTVECTORS_COMPARE_TIME ?= 200ms
+BENCH_TESTVECTORS_COMPARE_TIMES ?=
+BENCH_TESTVECTORS_COMPARE_COUNT ?= 3
+BENCH_TESTVECTORS_COMPARE_CASES ?= all
+BENCH_TESTVECTORS_COMPARE_PATHS ?= all
+BENCH_TESTVECTORS_COMPARE_TIME_FLAG = $(if $(BENCH_TESTVECTORS_COMPARE_TIMES),-benchtimes=$(BENCH_TESTVECTORS_COMPARE_TIMES),-benchtime=$(BENCH_TESTVECTORS_COMPARE_TIME))
 GO_TEST_FAST = GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test
 GO_TEST_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test
 GO_TEST_PARITY_EXACT = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test
@@ -134,6 +140,18 @@ test-soak-safety:
 # Hot-path performance guardrail checks (median benchmark thresholds + alloc bounds).
 bench-guard:
 	$(GO_WORK_ENV) $(GO) run ./tools/benchguard -config tools/bench_guardrails.json
+
+# Decode the official RFC 8251 bitstreams with benchmark metrics per vector.
+bench-testvectors:
+	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -bench='^BenchmarkDecodeOfficialTestVectors$$' -benchmem -count=1
+
+# Compare the same official bitstreams against pinned libopus and emit Markdown.
+bench-testvectors-compare: ensure-libopus
+	$(GO_WORK_ENV) $(GO) run ./tools/testvectorbenchcmp -cases=$(BENCH_TESTVECTORS_COMPARE_CASES) -paths=$(BENCH_TESTVECTORS_COMPARE_PATHS) $(BENCH_TESTVECTORS_COMPARE_TIME_FLAG) -count=$(BENCH_TESTVECTORS_COMPARE_COUNT) -format=markdown
+
+# Refresh the checked-in Markdown benchmark report.
+bench-testvectors-report: ensure-libopus
+	$(GO_WORK_ENV) $(GO) run ./tools/testvectorbenchcmp -cases=$(BENCH_TESTVECTORS_COMPARE_CASES) -paths=$(BENCH_TESTVECTORS_COMPARE_PATHS) $(BENCH_TESTVECTORS_COMPARE_TIME_FLAG) -count=$(BENCH_TESTVECTORS_COMPARE_COUNT) -format=markdown -out docs/testvector-benchmarks.md
 
 # Default production verification gate.
 verify-production: ensure-libopus

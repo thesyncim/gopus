@@ -13,19 +13,33 @@ func opusPCMSoftClip(x []float32, n, channels int, declipMem []float32) {
 		total = len(x)
 	}
 
-	// Clamp to [-2, 2]. The generic libopus C path does not provide
-	// a fast-path hint for all samples within [-1, 1], so we keep
-	// allWithinNeg1Pos1=false to mirror that behavior.
-	allWithinNeg1Pos1 := false
+	// Clamp to [-2, 2] while detecting the common no-op case. When all samples
+	// are already within [-1, 1] and no declip curve carries over from the
+	// previous frame, the libopus soft-clip algorithm leaves the buffer
+	// unchanged and clears the memory to zero.
+	allWithinNeg1Pos1 := true
 	for i := 0; i < total; i++ {
 		v := x[i]
 		if v > 2 {
 			x[i] = 2
+			allWithinNeg1Pos1 = false
 		} else if v < -2 {
 			x[i] = -2
+			allWithinNeg1Pos1 = false
+		} else if v > 1 || v < -1 {
+			allWithinNeg1Pos1 = false
 		}
 	}
+	if allWithinNeg1Pos1 {
+		for c := 0; c < channels; c++ {
+			if declipMem[c] != 0 {
+				goto applySoftClip
+			}
+		}
+		return
+	}
 
+applySoftClip:
 	for c := 0; c < channels; c++ {
 		a := declipMem[c]
 
@@ -156,6 +170,49 @@ func opusPCMSoftClip(x []float32, n, channels int, declipMem []float32) {
 		}
 
 		declipMem[c] = a
+	}
+}
+
+func softClipAndFloat32ToInt16(dst []int16, src []float32, n, channels int, declipMem []float32) {
+	if channels < 1 || n < 1 || len(src) == 0 || len(dst) == 0 {
+		return
+	}
+	total := n * channels
+	if total > len(src) {
+		total = len(src)
+	}
+	if total > len(dst) {
+		total = len(dst)
+	}
+	if total <= 0 {
+		return
+	}
+
+	if len(declipMem) >= channels {
+		for c := 0; c < channels; c++ {
+			if declipMem[c] != 0 {
+				goto fallback
+			}
+		}
+		if convertFloat32ToInt16Unit(dst, src, total) {
+			return
+		}
+		_ = src[total-1]
+		_ = dst[total-1]
+		for i := 0; i < total; i++ {
+			v := src[i]
+			if v > 1 || v < -1 {
+				goto fallback
+			}
+			dst[i] = float32ToInt16(v)
+		}
+		return
+	}
+
+fallback:
+	opusPCMSoftClip(src[:total], n, channels, declipMem)
+	for i := 0; i < total; i++ {
+		dst[i] = float32ToInt16(src[i])
 	}
 }
 

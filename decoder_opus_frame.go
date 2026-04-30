@@ -385,11 +385,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				return nil
 			}
 
-			samples, err := d.hybridDecoder.DecodeWithDecoderHook(rd, frameSize, packetStereoLocal, afterSilk)
-			if err != nil {
+			if err := d.hybridDecoder.DecodeWithDecoderHookToFloat32(rd, frameSize, packetStereoLocal, afterSilk, out); err != nil {
 				return 0, err
 			}
-			copyFloat64ToFloat32(out, samples)
 			// Capture the main decode's FinalRange before any redundancy post-processing
 			d.mainDecodeRng = d.hybridDecoder.FinalRange()
 		}
@@ -415,14 +413,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			d.prepareStereoTransition(packetStereoLocal, silkBW)
 			switch {
 			case packetStereoLocal && d.channels == 2:
-				var silkOut []float32
-				silkOut, err = d.silkDecoder.DecodeStereoWithDecoder(rd, silkBW, silkDecodeSize, true)
+				silkSamples, err = d.silkDecoder.DecodeStereoWithDecoderInto(rd, silkBW, silkDecodeSize, true, out)
 				if err == nil {
-					silkSamples = len(silkOut) / d.channels
 					if frameSize < silkDecodeSize {
 						silkSamples = frameSize
 					}
-					copyFloat32(out, silkOut[:silkSamples*d.channels])
 				}
 			case packetStereoLocal && d.channels == 1:
 				var silkOut []float32
@@ -435,14 +430,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					copyFloat32(out, silkOut[:silkSamples*d.channels])
 				}
 			case !packetStereoLocal && d.channels == 2:
-				var silkOut []float32
-				silkOut, err = d.silkDecoder.DecodeMonoToStereoWithDecoder(rd, silkBW, silkDecodeSize, true, d.prevPacketStereo)
+				silkSamples, err = d.silkDecoder.DecodeMonoToStereoWithDecoderInto(rd, silkBW, silkDecodeSize, true, d.prevPacketStereo, out)
 				if err == nil {
-					silkSamples = len(silkOut) / d.channels
 					if frameSize < silkDecodeSize {
 						silkSamples = frameSize
 					}
-					copyFloat32(out, silkOut[:silkSamples*d.channels])
 				}
 			default:
 				// Zero-allocation path for mono SILK decode

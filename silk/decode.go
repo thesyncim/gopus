@@ -267,6 +267,70 @@ func (d *Decoder) DecodeStereoFrame(
 	return left, right, nil
 }
 
+// DecodeStereoFrameInt16Into decodes a SILK stereo frame at native rate into
+// caller-provided planar int16 buffers.
+func (d *Decoder) DecodeStereoFrameInt16Into(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	duration FrameDuration,
+	vadFlag bool,
+	leftNative, rightNative []int16,
+) (int, error) {
+	_ = vadFlag
+	stMid, stSide, framesPerPacket, frameLength, fsKHz, err := d.prepareStereoFramePacket(rd, bandwidth, duration)
+	if err != nil {
+		return 0, err
+	}
+	totalLen := framesPerPacket * frameLength
+	if frameLength <= 0 || frameLength > maxFrameLength || len(leftNative) < totalLen || len(rightNative) < totalLen {
+		return 0, ErrDecodeFailed
+	}
+
+	var predQ13 [2]int32
+	decodeOnlyMiddle := 0
+
+	for i := 0; i < framesPerPacket; i++ {
+		frameIndex := stMid.nFramesDecoded
+		silkStereoDecodePred(rd, predQ13[:])
+		if stSide.VADFlags[frameIndex] == 0 {
+			decodeOnlyMiddle = silkStereoDecodeMidOnly(rd)
+		} else {
+			decodeOnlyMiddle = 0
+		}
+		d.maybeResetStereoSideChannel(decodeOnlyMiddle, stSide)
+
+		hasSide := decodeOnlyMiddle == 0
+		midFrame, sideFrame, ok := d.stereoFrameScratch(frameLength)
+		if !ok {
+			return 0, ErrDecodeFailed
+		}
+		midOut := midFrame[2:]
+		sideOut := sideFrame[2:]
+
+		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0, i, nil)
+		d.finalizeDecodedChannelFrame(0, stMid, &ctrlMid, midOut, false)
+		d.fireFrameParamsHook(0, frameIndex)
+
+		if hasSide {
+			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0, i, nil)
+			d.finalizeDecodedChannelFrame(1, stSide, &ctrlSide, sideOut, false)
+			d.fireFrameParamsHook(1, frameIndex)
+		} else {
+			clear(sideOut)
+			stSide.nFramesDecoded++
+		}
+
+		silkStereoMSToLR(&d.stereo, midFrame, sideFrame, predQ13[:], fsKHz, frameLength)
+		copy(leftNative[i*frameLength:(i+1)*frameLength], midFrame[1:frameLength+1])
+		copy(rightNative[i*frameLength:(i+1)*frameLength], sideFrame[1:frameLength+1])
+
+		d.prevDecodeOnlyMiddle = decodeOnlyMiddle
+	}
+
+	d.haveDecoded = true
+	return totalLen, nil
+}
+
 // decodeStereoMidNative decodes a stereo SILK frame but returns only the mid channel
 // at native sample rate. It still decodes the side channel to keep the bitstream aligned.
 func (d *Decoder) decodeStereoMidNative(

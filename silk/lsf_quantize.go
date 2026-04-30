@@ -318,7 +318,7 @@ func (e *Encoder) encodeLSF(stage1Idx int, residuals []int, interpIdx int, bandw
 	}
 
 	// Encode stage 1 index using cb.cb1ICDF[stypeBand*nVectors:]
-	// This matches decoder: rd.DecodeICDF(cb.cb1ICDF[cb1Offset:], 8)
+	// This matches decoder: rd.DecodeICDF8Unchecked(cb.cb1ICDF[cb1Offset:])
 	cb1Offset := stypeBand * cb.nVectors
 	e.rangeEncoder.EncodeICDF(stage1Idx, cb.cb1ICDF[cb1Offset:], 8)
 

@@ -431,6 +431,68 @@ func (d *Decoder) DecodeWithDecoderInto(
 	return outputOffset, nil
 }
 
+// DecodeStereoWithDecoderInto decodes a SILK stereo frame into a caller-owned
+// interleaved stereo buffer.
+func (d *Decoder) DecodeStereoWithDecoderInto(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	frameSizeSamples int,
+	vadFlag bool,
+	output []float32,
+) (int, error) {
+	if bandwidth > BandwidthWideband {
+		return 0, ErrInvalidBandwidth
+	}
+	if rd == nil {
+		return 0, ErrDecodeFailed
+	}
+	if len(output) < frameSizeSamples*2 {
+		return 0, ErrDecodeFailed
+	}
+
+	d.handleBandwidthChange(bandwidth)
+
+	duration := FrameDurationFromTOC(frameSizeSamples)
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return 0, err
+	}
+	config := GetBandwidthConfig(bandwidth)
+	nativeSamples := framesPerPacket * nbSubfr * subFrameLengthMs * config.SampleRate / 1000
+	leftNative, rightNative, ok := d.GetStereoInt16Scratch(nativeSamples)
+	if !ok {
+		return 0, ErrDecodeFailed
+	}
+
+	nativeSamples, err = d.DecodeStereoFrameInt16Into(rd, bandwidth, duration, vadFlag, leftNative, rightNative)
+	if err != nil {
+		return 0, err
+	}
+	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
+	leftScratch, rightScratch, ok := d.stereoFloat32Scratch(frameSizeSamples)
+	if !ok {
+		return 0, ErrDecodeFailed
+	}
+
+	nLeft := leftResampler.ProcessInt16Into(leftNative[:nativeSamples], leftScratch)
+	nRight := rightResampler.ProcessInt16Into(rightNative[:nativeSamples], rightScratch)
+	n := nLeft
+	if nRight < n {
+		n = nRight
+	}
+	if n < 0 || n*2 > len(output) {
+		return 0, ErrDecodeFailed
+	}
+	for i := 0; i < n; i++ {
+		output[i*2] = leftScratch[i]
+		output[i*2+1] = rightScratch[i]
+	}
+
+	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
+	return n, nil
+}
+
 // DecodeStereoWithDecoder decodes a SILK stereo frame using a pre-initialized range decoder.
 func (d *Decoder) DecodeStereoWithDecoder(
 	rd *rangecoding.Decoder,
@@ -610,6 +672,105 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
 
 	return out, nil
+}
+
+// DecodeMonoToStereoWithDecoderInto decodes a mono SILK frame into a
+// caller-owned interleaved stereo buffer.
+func (d *Decoder) DecodeMonoToStereoWithDecoderInto(
+	rd *rangecoding.Decoder,
+	bandwidth Bandwidth,
+	frameSizeSamples int,
+	vadFlag bool,
+	stereoToMono bool,
+	output []float32,
+) (int, error) {
+	if bandwidth > BandwidthWideband {
+		return 0, ErrInvalidBandwidth
+	}
+	if rd == nil {
+		return 0, ErrDecodeFailed
+	}
+	if len(output) < frameSizeSamples*2 {
+		return 0, ErrDecodeFailed
+	}
+	useStereoHistory := d.ShouldUseStereoToMonoHistory(bandwidth, stereoToMono)
+
+	d.handleBandwidthChange(bandwidth)
+
+	duration := FrameDurationFromTOC(frameSizeSamples)
+	nativeSamples, err := d.decodeFrameRawInt16(rd, bandwidth, duration, vadFlag)
+	if err != nil {
+		return 0, err
+	}
+
+	d.HandleBandwidthChange(bandwidth)
+
+	config := GetBandwidthConfig(bandwidth)
+	framesPerPacket, nbSubfr, err := frameParams(duration)
+	if err != nil {
+		return 0, err
+	}
+	fsKHz := config.SampleRate / 1000
+	frameLength := nbSubfr * subFrameLengthMs * fsKHz
+	if framesPerPacket > 0 && frameLength*framesPerPacket != len(nativeSamples) {
+		frameLength = len(nativeSamples) / framesPerPacket
+	}
+	if frameLength <= 0 {
+		return 0, ErrDecodeFailed
+	}
+
+	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
+	leftScratch, rightScratch, ok := d.stereoFloat32Scratch(frameSizeSamples)
+	if !ok {
+		return 0, ErrDecodeFailed
+	}
+
+	outputOffset := 0
+	for f := 0; f < framesPerPacket; f++ {
+		start := f * frameLength
+		end := start + frameLength
+		if start < 0 || end > len(nativeSamples) {
+			return 0, ErrDecodeFailed
+		}
+		resamplerInput := d.BuildMonoResamplerInputInt16(nativeSamples[start:end])
+		nLeft := leftResampler.ProcessInt16Into(resamplerInput, leftScratch)
+		n := nLeft
+		if useStereoHistory {
+			nRight := rightResampler.ProcessInt16Into(resamplerInput, rightScratch)
+			if nRight < n {
+				n = nRight
+			}
+		}
+		if n < 0 || (outputOffset+n)*2 > len(output) {
+			return 0, ErrDecodeFailed
+		}
+		for i := 0; i < n; i++ {
+			left := leftScratch[i]
+			output[(outputOffset+i)*2] = left
+			if useStereoHistory {
+				output[(outputOffset+i)*2+1] = rightScratch[i]
+			} else {
+				output[(outputOffset+i)*2+1] = left
+			}
+		}
+		outputOffset += n
+	}
+
+	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
+	return outputOffset, nil
+}
+
+func (d *Decoder) stereoFloat32Scratch(frameSizeSamples int) (left, right []float32, ok bool) {
+	if frameSizeSamples <= 0 {
+		return nil, nil, false
+	}
+	needed := frameSizeSamples * 2
+	if cap(d.upsampleScratch) < needed {
+		return nil, nil, false
+	}
+	scratch := d.upsampleScratch[:needed]
+	return scratch[:frameSizeSamples], scratch[frameSizeSamples:needed], true
 }
 
 // DecodeToInt16 decodes and converts to int16 PCM.

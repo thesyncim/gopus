@@ -2,6 +2,8 @@ package rangecoding
 
 import "math/bits"
 
+var tellFracCorrection = [8]uint32{35733, 38967, 42495, 46340, 50535, 55109, 60097, 65535}
+
 // Decoder implements the range decoder per RFC 6716 Section 4.1.
 // This is a bit-exact port of libopus entdec.c.
 type Decoder struct {
@@ -49,6 +51,8 @@ func (d *Decoder) Init(buf []byte) {
 
 // readByte reads the next byte from the buffer.
 // Returns 0 if reading past end (per spec).
+//
+//go:nosplit
 func (d *Decoder) readByte() byte {
 	if d.offs < d.storage {
 		b := d.buf[d.offs]
@@ -60,6 +64,8 @@ func (d *Decoder) readByte() byte {
 
 // normalize ensures rng > EC_CODE_BOT by reading more bytes.
 // This is the core renormalization loop from RFC 6716 Section 4.1.1.
+//
+//go:nosplit
 func (d *Decoder) normalize() {
 	for d.rng <= EC_CODE_BOT {
 		d.nbitsTotal += EC_SYM_BITS
@@ -79,15 +85,16 @@ func (d *Decoder) normalize() {
 // The icdf table contains values in decreasing order from 256 down to 0.
 // ftb is the number of bits of precision in the table (typically 8).
 // Returns the decoded symbol index.
+//
+//go:nosplit
 func (d *Decoder) DecodeICDF(icdf []uint8, ftb uint) int {
+	_ = icdf[0]
 	s := d.rng
 	dval := d.val
 	r := s >> ftb
-	ret := -1
-	for {
+	for ret, prob := range icdf {
 		t := s
-		ret++
-		s = r * uint32(icdf[ret])
+		s = r * uint32(prob)
 		if dval >= s {
 			d.val = dval - s
 			d.rng = t - s
@@ -95,13 +102,65 @@ func (d *Decoder) DecodeICDF(icdf []uint8, ftb uint) int {
 			return ret
 		}
 	}
+	return len(icdf) - 1
+}
+
+// DecodeICDF8 decodes a symbol using an 8-bit ICDF table.
+// This is the hot SILK/CELT entropy path and matches DecodeICDF(icdf, 8).
+//
+//go:nosplit
+func (d *Decoder) DecodeICDF8(icdf []uint8) int {
+	_ = icdf[0]
+	return d.DecodeICDF8Unchecked(icdf)
+}
+
+// DecodeICDF8Unchecked decodes using a non-empty 8-bit ICDF table.
+// Codec hot paths pass static tables. Callers must not pass an empty slice.
+//
+//go:nosplit
+func (d *Decoder) DecodeICDF8Unchecked(icdf []uint8) int {
+	_ = icdf[0]
+	s := d.rng
+	dval := d.val
+	r := s >> 8
+	for ret, prob := range icdf {
+		t := s
+		s = r * uint32(prob)
+		if dval >= s {
+			d.val = dval - s
+			d.rng = t - s
+			d.normalize()
+			return ret
+		}
+	}
+	return len(icdf) - 1
 }
 
 // DecodeICDF2 decodes a 2-symbol ICDF with entries [icdf0, 0].
 // This avoids generic loop/slice overhead in hot binary-symbol call sites.
+//
+//go:nosplit
 func (d *Decoder) DecodeICDF2(icdf0 uint8, ftb uint) int {
 	t := d.rng
 	r := t >> ftb
+	s := r * uint32(icdf0)
+	if d.val >= s {
+		d.val -= s
+		d.rng = t - s
+		d.normalize()
+		return 0
+	}
+	d.rng = s
+	d.normalize()
+	return 1
+}
+
+// DecodeICDF2_8 decodes a 2-symbol 8-bit ICDF with entries [icdf0, 0].
+//
+//go:nosplit
+func (d *Decoder) DecodeICDF2_8(icdf0 uint8) int {
+	t := d.rng
+	r := t >> 8
 	s := r * uint32(icdf0)
 	if d.val >= s {
 		d.val -= s
@@ -120,15 +179,16 @@ func (d *Decoder) DecodeICDF2(icdf0 uint8, ftb uint) int {
 // The icdf table contains values in decreasing order from 256 down to 0.
 // ftb is the number of bits of precision in the table (typically 8).
 // Returns the decoded symbol index.
+//
+//go:nosplit
 func (d *Decoder) DecodeICDF16(icdf []uint16, ftb uint) int {
+	_ = icdf[0]
 	s := d.rng
 	dval := d.val
 	r := s >> ftb
-	ret := -1
-	for {
+	for ret, prob := range icdf {
 		t := s
-		ret++
-		s = r * uint32(icdf[ret])
+		s = r * uint32(prob)
 		if dval >= s {
 			d.val = dval - s
 			d.rng = t - s
@@ -136,6 +196,37 @@ func (d *Decoder) DecodeICDF16(icdf []uint16, ftb uint) int {
 			return ret
 		}
 	}
+	return len(icdf) - 1
+}
+
+// DecodeICDF16_8 decodes a symbol using a uint16 ICDF table with 8-bit precision.
+//
+//go:nosplit
+func (d *Decoder) DecodeICDF16_8(icdf []uint16) int {
+	_ = icdf[0]
+	return d.DecodeICDF16_8Unchecked(icdf)
+}
+
+// DecodeICDF16_8Unchecked decodes using a non-empty uint16 ICDF table with
+// 8-bit precision. Callers must not pass an empty slice.
+//
+//go:nosplit
+func (d *Decoder) DecodeICDF16_8Unchecked(icdf []uint16) int {
+	_ = icdf[0]
+	s := d.rng
+	dval := d.val
+	r := s >> 8
+	for ret, prob := range icdf {
+		t := s
+		s = r * uint32(prob)
+		if dval >= s {
+			d.val = dval - s
+			d.rng = t - s
+			d.normalize()
+			return ret
+		}
+	}
+	return len(icdf) - 1
 }
 
 // DecodeBit decodes a single bit with the given log probability.
@@ -148,6 +239,8 @@ func (d *Decoder) DecodeICDF16(icdf []uint16, ftb uint) int {
 // - [s, rng): bit = 0, probability = (2^logp - 1) / 2^logp
 //
 // For silence flag (logp=15): P(silence=1) = 1/32768, which is very rare.
+//
+//go:nosplit
 func (d *Decoder) DecodeBit(logp uint) int {
 	r := d.rng
 	dval := d.val
@@ -179,13 +272,11 @@ func (d *Decoder) Tell() int {
 // TellFrac returns the number of bits consumed with 1/8 bit precision.
 // The value is in 1/8 bits, so divide by 8 to compare with Tell().
 func (d *Decoder) TellFrac() int {
-	correction := [8]uint32{35733, 38967, 42495, 46340, 50535, 55109, 60097, 65535}
-
 	nbits := d.nbitsTotal << 3
 	l := ilog(d.rng)
 	r := d.rng >> (l - 16)
 	b := int((r >> 12) - 8)
-	if r > correction[b] {
+	if r > tellFracCorrection[b] {
 		b++
 	}
 	return nbits - ((l << 3) + b)

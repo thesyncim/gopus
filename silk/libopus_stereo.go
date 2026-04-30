@@ -4,12 +4,12 @@ import "github.com/thesyncim/gopus/rangecoding"
 
 func silkStereoDecodePred(rd *rangecoding.Decoder, predQ13 []int32) {
 	ix := [2][3]int{}
-	n := rd.DecodeICDF(silk_stereo_pred_joint_iCDF, 8)
+	n := rd.DecodeICDF8Unchecked(silk_stereo_pred_joint_iCDF)
 	ix[0][2] = n / 5
 	ix[1][2] = n - 5*ix[0][2]
 	for i := 0; i < 2; i++ {
-		ix[i][0] = rd.DecodeICDF(silk_uniform3_iCDF, 8)
-		ix[i][1] = rd.DecodeICDF(silk_uniform5_iCDF, 8)
+		ix[i][0] = rd.DecodeICDF8Unchecked(silk_uniform3_iCDF)
+		ix[i][1] = rd.DecodeICDF8Unchecked(silk_uniform5_iCDF)
 	}
 
 	for i := 0; i < 2; i++ {
@@ -22,7 +22,7 @@ func silkStereoDecodePred(rd *rangecoding.Decoder, predQ13 []int32) {
 }
 
 func silkStereoDecodeMidOnly(rd *rangecoding.Decoder) int {
-	return rd.DecodeICDF(silk_stereo_only_code_mid_iCDF, 8)
+	return rd.DecodeICDF2_8(64)
 }
 
 func silkStereoMSToLR(state *stereoDecState, mid []int16, side []int16, predQ13 []int32, fsKHz int, frameLength int) {

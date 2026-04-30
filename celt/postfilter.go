@@ -1,8 +1,6 @@
 package celt
 
-import (
-	"math"
-)
+import "math"
 
 const (
 	combFilterMinPeriod = 15
@@ -504,41 +502,68 @@ func combFilterWithSquare(buf []float64, start int, t0, t1, n int, g0, g1 float6
 		tapset1 = 0
 	}
 
-	g00 := float32(g0 * combFilterGains[tapset0][0])
-	g01 := float32(g0 * combFilterGains[tapset0][1])
-	g02 := float32(g0 * combFilterGains[tapset0][2])
-	g10 := float32(g1 * combFilterGains[tapset1][0])
-	g11 := float32(g1 * combFilterGains[tapset1][1])
-	g12 := float32(g1 * combFilterGains[tapset1][2])
+	gain0 := combFilterGains[0]
+	switch tapset0 {
+	case 1:
+		gain0 = combFilterGains[1]
+	case 2:
+		gain0 = combFilterGains[2]
+	}
+	gain1 := combFilterGains[0]
+	switch tapset1 {
+	case 1:
+		gain1 = combFilterGains[1]
+	case 2:
+		gain1 = combFilterGains[2]
+	}
 
-	x1 := float32(buf[start-t1+1])
-	x2 := float32(buf[start-t1])
-	x3 := float32(buf[start-t1-1])
-	x4 := float32(buf[start-t1-2])
+	g00 := float32(g0 * gain0[0])
+	g01 := float32(g0 * gain0[1])
+	g02 := float32(g0 * gain0[2])
+	g10 := float32(g1 * gain1[0])
+	g11 := float32(g1 * gain1[1])
+	g12 := float32(g1 * gain1[2])
+
+	frame := buf[start : start+n]
+	delay1 := buf[start-t1-2 : start-t1+n+2]
+	x1 := float32(delay1[3])
+	x2 := float32(delay1[2])
+	x3 := float32(delay1[1])
+	x4 := float32(delay1[0])
 
 	if g0 == g1 && t0 == t1 && tapset0 == tapset1 {
 		overlap = 0
 	}
 
-	for i := 0; i < overlap; i++ {
+	windowView := window[:overlap]
+	var windowSqView []float64
+	var delay0 []float64
+	if overlap > 0 {
+		if windowSq != nil {
+			windowSqView = windowSq[:overlap]
+		}
+		delay0 = buf[start-t0-2 : start-t0+overlap+2]
+	}
+
+	i := 0
+	for ; i < overlap; i++ {
 		var f float32
 		if windowSq != nil {
-			f = float32(windowSq[i])
+			f = float32(windowSqView[i])
 		} else {
-			w := float32(window[i])
+			w := float32(windowView[i])
 			f = w * w
 		}
 		oneMinus := float32(1.0) - f
-		idx := start + i
-		x0 := float32(buf[idx-t1+2])
-		sum := float32(buf[idx]) +
-			(oneMinus*g00)*float32(buf[idx-t0]) +
-			(oneMinus*g01)*(float32(buf[idx-t0-1])+float32(buf[idx-t0+1])) +
-			(oneMinus*g02)*(float32(buf[idx-t0-2])+float32(buf[idx-t0+2])) +
+		x0 := float32(delay1[i+4])
+		sum := float32(frame[i]) +
+			(oneMinus*g00)*float32(delay0[i+2]) +
+			(oneMinus*g01)*(float32(delay0[i+1])+float32(delay0[i+3])) +
+			(oneMinus*g02)*(float32(delay0[i])+float32(delay0[i+4])) +
 			(f*g10)*x2 +
 			(f*g11)*(x3+x1) +
 			(f*g12)*(x4+x0)
-		buf[idx] = float64(sum)
+		frame[i] = float64(sum)
 		x4 = x3
 		x3 = x2
 		x2 = x1
@@ -549,16 +574,14 @@ func combFilterWithSquare(buf []float64, start int, t0, t1, n int, g0, g1 float6
 		return
 	}
 
-	i := overlap
-	x4 = float32(buf[start+i-t1-2])
-	x3 = float32(buf[start+i-t1-1])
-	x2 = float32(buf[start+i-t1])
-	x1 = float32(buf[start+i-t1+1])
+	x4 = float32(delay1[i])
+	x3 = float32(delay1[i+1])
+	x2 = float32(delay1[i+2])
+	x1 = float32(delay1[i+3])
 	for ; i < n; i++ {
-		idx := start + i
-		x0 := float32(buf[idx-t1+2])
-		sum := float32(buf[idx]) + g10*x2 + g11*(x3+x1) + g12*(x4+x0)
-		buf[idx] = float64(sum)
+		x0 := float32(delay1[i+4])
+		sum := float32(frame[i]) + g10*x2 + g11*(x3+x1) + g12*(x4+x0)
+		frame[i] = float64(sum)
 		x4 = x3
 		x3 = x2
 		x2 = x1

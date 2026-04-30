@@ -224,6 +224,11 @@ var pvqUDense = func() [15][177]uint32 {
 	return dense
 }()
 
+//go:nosplit
+func pvqUDenseUnchecked(row, col int) uint32 {
+	return pvqUDense[row][col]
+}
+
 // pvqUTableLookup performs a direct table lookup for U(n, k).
 // Returns (value, ok) where ok is true if the lookup succeeded.
 // If the lookup fails (n or k out of range), falls back to computation.
@@ -263,7 +268,13 @@ func pvqUHasLookup(n, k int) bool {
 
 // canUseCWRSFast reports whether cwrsiFast can decode (n,k) using only table lookups.
 func canUseCWRSFast(n, k int) bool {
-	if n <= 2 || k <= 0 {
+	if k <= 0 {
+		return false
+	}
+	if n == 2 {
+		return true
+	}
+	if n < 2 {
 		return false
 	}
 	maxRows := len(pvqURowLen)
@@ -291,7 +302,16 @@ func canUseICWRSLookupFast(n, k int) bool {
 	if n < 2 || k <= 0 {
 		return false
 	}
-	return pvqUHasLookup(n, k) && pvqUHasLookup(n, k+1)
+	if n <= k {
+		if n < 0 || n >= len(pvqURowLen) {
+			return false
+		}
+		return k+1-n < pvqURowLen[n]
+	}
+	if k+1 >= len(pvqURowLen) {
+		return false
+	}
+	return n-k < pvqURowLen[k] && n-k-1 < pvqURowLen[k+1]
 }
 
 // PVQ_V computes V(N,K), the total number of PVQ codewords with N dimensions
@@ -317,8 +337,13 @@ func PVQ_V(n, k int) uint32 {
 		return 2 // Only +K and -K
 	}
 
-	if canUseICWRSLookupFast(n, k) {
-		return pvqUTableLookupFast(n, k) + pvqUTableLookupFast(n, k+1)
+	if n <= k {
+		if n >= 0 && n < len(pvqURowLen) && k+1-n < pvqURowLen[n] {
+			row := pvqUDense[n][:]
+			return row[k] + row[k+1]
+		}
+	} else if k+1 < len(pvqURowLen) && n-k < pvqURowLen[k] && n-k-1 < pvqURowLen[k+1] {
+		return pvqUDense[k][n] + pvqUDense[k+1][n]
 	}
 
 	// Try table lookup: V(n,k) = U(n,k) + U(n,k+1)
@@ -386,7 +411,7 @@ func pvqUTableLookupFast(n, k int) uint32 {
 	if n > k {
 		n, k = k, n
 	}
-	return pvqUDense[n][k]
+	return pvqUDenseUnchecked(n, k)
 }
 
 // unext computes the next row/column of any recurrence that obeys the relation
@@ -489,26 +514,88 @@ func ncwrsUrow(n, k int, u []uint32) uint32 {
 // cwrsiFast is the optimized decoder using the precomputed table.
 // For small n where table lookup is available, it uses O(1) lookups.
 // For larger n, it falls back to the row-based algorithm.
+func setCWRSOnePulse(y []int, start, end int, index uint32) {
+	n := end - start
+	idx := int(index)
+	if idx < n {
+		y[start+idx] = 1
+	} else {
+		y[start+(n<<1)-1-idx] = -1
+	}
+}
+
+func finishCWRSOnePulse(y []int, start, end int, index uint32) {
+	clear(y[start:end])
+	setCWRSOnePulse(y, start, end, index)
+}
+
+func finishCWRSTwoPulses(y []int, n int, index uint32) uint32 {
+	clear(y[:n])
+	start := 0
+	rem := n
+	idx := int(index)
+	for {
+		if rem == 1 {
+			if idx&1 == 1 {
+				y[start] = -2
+			} else {
+				y[start] = 2
+			}
+			return 4
+		}
+		if idx == 0 {
+			y[start] = 2
+			return 4
+		}
+		idx--
+		oneCount := (rem - 1) << 1
+		if idx < oneCount {
+			y[start] = 1
+			setCWRSOnePulse(y, start+1, n, uint32(idx))
+			return 2
+		}
+		idx -= oneCount
+		zeroCount := ((rem - 1) * (rem - 1)) << 1
+		if idx < zeroCount {
+			start++
+			rem--
+			continue
+		}
+		idx -= zeroCount
+		if idx == 0 {
+			y[start] = -2
+			return 4
+		}
+		idx--
+		y[start] = -1
+		setCWRSOnePulse(y, start+1, n, uint32(idx))
+		return 2
+	}
+}
+
+//go:nosplit
 func cwrsiFast(n, k int, i uint32, y []int) uint32 {
-	if n <= 0 || k <= 0 || len(y) < n {
+	if n < 2 || k <= 0 || len(y) < n {
 		return 0
 	}
+	n0 := n
+	y = y[:n0:n0]
+	_ = y[n0-1]
 
 	// For n >= 2 and k where table lookup works, use the fast path
 	// matching libopus cwrs.c lines 484-558
 	var yy uint32
-	j := 0
 
-	for n > 2 {
+	for j := 0; j < n0-2; j++ {
+		nCur := n0 - j
 		var p, q uint32
 		var s int
 		var k0, yj int
 
 		// Lots of pulses case (k >= n)
-		if k >= n {
-			rowN := &pvqUDense[n]
+		if k >= nCur {
 			// Are the pulses in this dimension negative?
-			p = rowN[k+1]
+			p = pvqUDenseUnchecked(nCur, k+1)
 			if i >= p {
 				s = -1
 				i -= p
@@ -516,32 +603,41 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 
 			// Count how many pulses were placed in this dimension
 			k0 = k
-			q = rowN[n]
+			q = pvqUDenseUnchecked(nCur, nCur)
 
 			if q > i {
-				k = n
+				k = nCur
 				for {
 					k--
-					p = pvqUDense[k][n]
+					p = pvqUDenseUnchecked(k, nCur)
 					if p <= i {
 						break
 					}
 				}
 			} else {
-				// rowN[k] is monotonic in k for fixed n, so we can locate the
-				// largest k <= current k with value <= i via binary search.
-				lo := n
-				hi := k
-				for lo < hi {
-					mid := (lo + hi + 1) >> 1
-					if rowN[mid] <= i {
-						lo = mid
+				p = pvqUDenseUnchecked(nCur, k)
+				if p > i {
+					hi := k - 1
+					p = pvqUDenseUnchecked(nCur, hi)
+					if p <= i {
+						k = hi
 					} else {
-						hi = mid - 1
+						// row nCur is monotonic in k, so locate the largest
+						// k <= current k with value <= i by binary search.
+						lo := nCur
+						hi--
+						for lo < hi {
+							mid := (lo + hi + 1) >> 1
+							if pvqUDenseUnchecked(nCur, mid) <= i {
+								lo = mid
+							} else {
+								hi = mid - 1
+							}
+						}
+						k = lo
+						p = pvqUDenseUnchecked(nCur, lo)
 					}
 				}
-				k = lo
-				p = rowN[lo]
 			}
 			i -= p
 			yj = k0 - k
@@ -552,11 +648,9 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 			yy += uint32(yj * yj)
 		} else {
 			// Lots of dimensions case (k < n)
-			rowK := &pvqUDense[k]
-			rowK1 := &pvqUDense[k+1]
 			// Are there any pulses in this dimension at all?
-			p = rowK[n]
-			q = rowK1[n]
+			p = pvqUDenseUnchecked(k, nCur)
+			q = pvqUDenseUnchecked(k+1, nCur)
 
 			if p <= i && i < q {
 				i -= p
@@ -571,7 +665,7 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 				k0 = k
 				for {
 					k--
-					p = pvqUDense[k][n]
+					p = pvqUDenseUnchecked(k, nCur)
 					if p <= i {
 						break
 					}
@@ -585,11 +679,10 @@ func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 				yy += uint32(yj * yj)
 			}
 		}
-		n--
-		j++
 	}
 
 	// n == 2
+	j := n0 - 2
 	p := uint32(2*k + 1)
 	s := 0
 	if i >= p {
@@ -757,6 +850,14 @@ func DecodePulses(index uint32, n, k int) []int {
 		}
 		return y
 	}
+	if k == 1 {
+		finishCWRSOnePulse(y, 0, n, index)
+		return y
+	}
+	if k == 2 {
+		_ = finishCWRSTwoPulses(y, n, index)
+		return y
+	}
 
 	if canUseCWRSFast(n, k) {
 		_ = cwrsiFast(n, k, index, y)
@@ -798,6 +899,13 @@ func decodePulsesInto(index uint32, n, k int, y []int, scratch *bandDecodeScratc
 			y[0] = k
 		}
 		return uint32(k * k)
+	}
+	if k == 1 {
+		finishCWRSOnePulse(y, 0, n, index)
+		return 1
+	}
+	if k == 2 {
+		return finishCWRSTwoPulses(y, n, index)
 	}
 
 	if canUseCWRSFast(n, k) {

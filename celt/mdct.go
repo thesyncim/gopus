@@ -441,6 +441,98 @@ func imdctOverlapWithPrevScratchF32Output(spectrum []float64, prevOverlap []floa
 	return outF32
 }
 
+func imdctCoreScratchF32(spectrum []float64, scratch *imdctScratchF32) []float32 {
+	n2 := len(spectrum)
+	if n2 == 0 {
+		return nil
+	}
+	n := n2 * 2
+	n4 := n2 / 2
+	trig := getMDCTTrigF32(n)
+
+	var fftIn []complex64
+	var fftTmp []kissCpx
+	var buf []float32
+	if scratch == nil {
+		fftIn = make([]complex64, n4)
+		fftTmp = make([]kissCpx, n4)
+		buf = make([]float32, n2)
+	} else {
+		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
+		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
+		buf = ensureFloat32Slice(&scratch.buf, n2)
+	}
+
+	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
+	kissFFT32ToInterleaved(buf, fftIn, fftTmp)
+	imdctPostRotateF32(buf, trig, n2, n4)
+	return buf[:n2:n2]
+}
+
+func overlapIMDCTF32WithPrevToFloat64(out []float64, imdct []float32, prevOverlap []float64, overlap int) {
+	n2 := len(imdct)
+	if n2 == 0 || overlap < 0 {
+		return
+	}
+	needed := n2 + overlap
+	if len(out) < needed {
+		return
+	}
+	start := overlap / 2
+	if start > 0 {
+		copyLen := min(len(prevOverlap), start)
+		for i := 0; i < copyLen; i++ {
+			out[i] = prevOverlap[i]
+		}
+		if copyLen < start {
+			clear(out[copyLen:start])
+		}
+	}
+	copyFloat32ToFloat64(out[start:start+n2], imdct)
+	if start+n2 < needed {
+		clear(out[start+n2 : needed])
+	}
+
+	if overlap > 0 {
+		windowF32 := GetWindowBufferF32(overlap)
+		xp1 := overlap - 1
+		yp1 := 0
+		wp1 := 0
+		wp2 := overlap - 1
+		limit := overlap / 2
+		i := 0
+		for ; i+1 < limit; i += 2 {
+			x1 := float32(out[xp1])
+			x2 := float32(out[yp1])
+			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
+			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+
+			x1 = float32(out[xp1])
+			x2 = float32(out[yp1])
+			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
+			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+		for ; i < limit; i++ {
+			x1 := float32(out[xp1])
+			x2 := float32(out[yp1])
+			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
+			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+	}
+}
+
 // imdctOverlapWithPrevScratchF32 performs IMDCT using float32 precision to match libopus.
 // This is used for long (non-transient) blocks.
 func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverlap []float64, overlap int, scratch *imdctScratchF32) {
@@ -461,17 +553,7 @@ func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverl
 	if len(outF32) == 0 {
 		return
 	}
-	_ = outF32[needed-1]
-	i := 0
-	for ; i+3 < needed; i += 4 {
-		out[i] = float64(outF32[i])
-		out[i+1] = float64(outF32[i+1])
-		out[i+2] = float64(outF32[i+2])
-		out[i+3] = float64(outF32[i+3])
-	}
-	for ; i < needed; i++ {
-		out[i] = float64(outF32[i])
-	}
+	copyFloat32ToFloat64(out[:needed], outF32[:needed])
 }
 
 // imdctInPlace performs IMDCT directly into a shared output buffer at the given offset.

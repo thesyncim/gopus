@@ -77,11 +77,13 @@ func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
 	testCases := []struct {
 		name     string
 		channels int
+		packetStereo bool
 		packets  func() [][]byte
 	}{
 		{
 			name:     "mono",
 			channels: 1,
+			packetStereo: false,
 			packets: func() [][]byte {
 				enc := NewEncoder(1)
 				frames := [][]float64{
@@ -103,6 +105,7 @@ func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
 		{
 			name:     "stereo",
 			channels: 2,
+			packetStereo: true,
 			packets: func() [][]byte {
 				enc := NewEncoder(2)
 				frames := [][]float64{
@@ -121,22 +124,43 @@ func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
 				return packets
 			},
 		},
+		{
+			name:     "mono_packet_to_stereo",
+			channels: 2,
+			packetStereo: false,
+			packets: func() [][]byte {
+				enc := NewEncoder(1)
+				frames := [][]float64{
+					generateSineWave(440.0, frameSize),
+					generateTransientSignal(660.0, frameSize),
+				}
+				packets := make([][]byte, 0, len(frames)+1)
+				for _, frame := range frames {
+					packet, err := enc.EncodeFrame(frame, frameSize)
+					if err != nil {
+						t.Fatalf("EncodeFrame mono-to-stereo failed: %v", err)
+					}
+					packets = append(packets, append([]byte(nil), packet...))
+				}
+				packets = append(packets, []byte{0xFF, 0xFF})
+				return packets
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			reference := NewDecoder(tc.channels)
 			direct := NewDecoder(tc.channels)
-			packetStereo := tc.channels == 2
 
 			for frameIdx, packet := range tc.packets() {
-				expected, err := reference.DecodeFrameWithPacketStereo(packet, frameSize, packetStereo)
+				expected, err := reference.DecodeFrameWithPacketStereo(packet, frameSize, tc.packetStereo)
 				if err != nil {
 					t.Fatalf("reference decode frame %d failed: %v", frameIdx, err)
 				}
 
 				got := make([]float32, frameSize*tc.channels)
-				if err := direct.DecodeFrameWithPacketStereoToFloat32(packet, frameSize, packetStereo, got); err != nil {
+				if err := direct.DecodeFrameWithPacketStereoToFloat32(packet, frameSize, tc.packetStereo, got); err != nil {
 					t.Fatalf("direct decode frame %d failed: %v", frameIdx, err)
 				}
 

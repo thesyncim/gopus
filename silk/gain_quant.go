@@ -59,7 +59,7 @@ func silkGainsQuantInto(ind []int8, gainQ16 []int32, prevInd int8, conditional b
 			// Double the quantization step size for large gain increases
 			doubleStepThreshold := 2*maxDeltaGainQuant - nLevelsQGain + currentPrevInd
 			if delta > doubleStepThreshold {
-				delta = doubleStepThreshold + ((delta-doubleStepThreshold+1)>>1)
+				delta = doubleStepThreshold + ((delta - doubleStepThreshold + 1) >> 1)
 			}
 
 			delta = silkLimitInt(delta, minDeltaGainQuant, maxDeltaGainQuant)

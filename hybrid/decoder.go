@@ -206,6 +206,20 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetSter
 
 // decodeFrameWithHook decodes a single hybrid frame and allows a hook after SILK decode.
 func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float64, error) {
+	return d.decodeFrameWithHookToFloat32(rd, frameSize, packetStereo, afterSilk, nil)
+}
+
+// DecodeWithDecoderHookToFloat32 decodes a hybrid frame and writes the final
+// 48 kHz output directly into out.
+func (d *Decoder) DecodeWithDecoderHookToFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error, out []float32) error {
+	if len(out) < frameSize*d.channels {
+		return ErrDecodeFailed
+	}
+	_, err := d.decodeFrameWithHookToFloat32(rd, frameSize, packetStereo, afterSilk, out[:frameSize*d.channels])
+	return err
+}
+
+func (d *Decoder) decodeFrameWithHookToFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error, out []float32) ([]float64, error) {
 	if rd == nil {
 		return nil, ErrNilDecoder
 	}
@@ -279,17 +293,23 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 				silkUpsampled[i] = float64(scratchF32L[i])
 			}
 		} else {
-			silkOutputL, silkOutputR, err := d.silkDecoder.DecodeStereoFrame(
+			silkOutputL, silkOutputR, ok := d.silkDecoder.GetStereoInt16Scratch(silkSamples)
+			if !ok {
+				return nil, ErrDecodeFailed
+			}
+			nNative, err := d.silkDecoder.DecodeStereoFrameInt16Into(
 				rd,
 				silk.BandwidthWideband, // Always WB for hybrid
 				silkDuration,
 				true,
+				silkOutputL,
+				silkOutputR,
 			)
 			if err != nil {
 				return nil, err
 			}
-			nL := leftResampler.ProcessInto(silkOutputL, scratchF32L)
-			nR := rightResampler.ProcessInto(silkOutputR, scratchF32R)
+			nL := leftResampler.ProcessInt16Into(silkOutputL[:nNative], scratchF32L)
+			nR := rightResampler.ProcessInt16Into(silkOutputR[:nNative], scratchF32R)
 			n := nL
 			if nR < n {
 				n = nR
@@ -355,6 +375,27 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 	// matching libopus behavior where SILK outputs at API rate with proper alignment.
 
 	// Step 4: Sum SILK and CELT outputs into scratch buffer
+	if len(out) >= totalSamples {
+		out = out[:totalSamples]
+		for i := 0; i < totalSamples; i++ {
+			silkSample := float64(0)
+			celtSample := float64(0)
+
+			if i < len(silkUpsampled) {
+				silkSample = silkUpsampled[i]
+			}
+			if i < len(celtOutput) {
+				celtSample = celtOutput[i]
+			}
+
+			out[i] = float32(silkSample + celtSample)
+		}
+
+		_ = silkSamples
+		d.prevPacketStereo = packetStereo
+		return nil, nil
+	}
+
 	output := d.ensureOutput(totalSamples)
 
 	for i := 0; i < totalSamples; i++ {
