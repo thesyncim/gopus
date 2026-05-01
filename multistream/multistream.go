@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"math"
 
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/plc"
 )
 
@@ -86,14 +87,14 @@ func (d *Decoder) decodeStream(stream int, packet []byte, frameSize int) ([]floa
 // All elementary streams within the packet must have the same frame duration.
 // If durations differ, ErrDurationMismatch is returned.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
-	if data != nil && len(data) > 0 && d.dredSidecarActive() {
+	if extsupport.DREDRuntime && data != nil && len(data) > 0 && d.dredSidecarActive() {
 		d.invalidateDREDPayloadState()
 	}
 
 	// Handle PLC for nil data (lost packet)
 	if data == nil {
 		output, err := d.decodePLC(frameSize)
-		if err == nil {
+		if err == nil && extsupport.DREDRuntime {
 			d.markDREDConcealedAll()
 		}
 		return output, err
@@ -120,9 +121,11 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 		}
 		decodedStreams[i] = decoded
 	}
-	for i := 0; i < d.streams; i++ {
-		d.maybeCacheDREDPayload(i, packets[i])
-		d.markDREDUpdated(i)
+	if extsupport.DREDRuntime {
+		for i := 0; i < d.streams; i++ {
+			d.maybeCacheDREDPayload(i, packets[i])
+			d.markDREDUpdated(i)
+		}
 	}
 
 	// Apply channel mapping to produce final output
