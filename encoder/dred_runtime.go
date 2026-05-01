@@ -68,6 +68,10 @@ func (e *Encoder) dredModelsLoaded() bool {
 	return extsupport.DREDRuntime && e.dred != nil && e.dred.models.loaded()
 }
 
+func (e *Encoder) dredEncodingActive() bool {
+	return extsupport.DREDRuntime && e.dnnBlob != nil && e.dred != nil && e.dred.duration > 0 && e.dred.models.loaded()
+}
+
 func (e *Encoder) resetDREDControls() {
 	if !extsupport.DREDRuntime || e.dred == nil {
 		return
@@ -118,7 +122,7 @@ func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
 }
 
 func (e *Encoder) ensureActiveDREDRuntime() *dredEncoderRuntime {
-	if !extsupport.DREDRuntime || e.dnnBlob == nil || e.dred == nil || e.dred.duration <= 0 || !e.dred.models.loaded() {
+	if !e.dredEncodingActive() {
 		return nil
 	}
 	if e.channels != 1 && e.channels != 2 {

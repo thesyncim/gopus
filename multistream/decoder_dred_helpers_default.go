@@ -11,6 +11,10 @@ func (d *Decoder) dredSidecarActive() bool {
 	return false
 }
 
+func (d *Decoder) dredPayloadScannerActive() bool {
+	return false
+}
+
 func (d *Decoder) clearDREDPayloadState() {}
 
 func (d *Decoder) invalidateDREDPayloadState() {}
