@@ -57,10 +57,6 @@ var (
 	libopusDecoderDREDDecodeFloatHelperPath string
 	libopusDecoderDREDDecodeFloatHelperErr  error
 
-	libopusPitchDNNModelBlobHelperOnce sync.Once
-	libopusPitchDNNModelBlobHelperPath string
-	libopusPitchDNNModelBlobHelperErr  error
-
 	libopusPLCModelBlobHelperOnce sync.Once
 	libopusPLCModelBlobHelperPath string
 	libopusPLCModelBlobHelperErr  error
@@ -78,16 +74,6 @@ func getLibopusDecoderDREDDecodeFloatHelperPath() (string, error) {
 		return "", libopusDecoderDREDDecodeFloatHelperErr
 	}
 	return libopusDecoderDREDDecodeFloatHelperPath, nil
-}
-
-func getLibopusPitchDNNModelBlobHelperPath() (string, error) {
-	libopusPitchDNNModelBlobHelperOnce.Do(func() {
-		libopusPitchDNNModelBlobHelperPath, libopusPitchDNNModelBlobHelperErr = buildLibopusDREDHelper("libopus_pitchdnn_model_blob.c", "gopus_libopus_pitchdnn_model_blob", true)
-	})
-	if libopusPitchDNNModelBlobHelperErr != nil {
-		return "", libopusPitchDNNModelBlobHelperErr
-	}
-	return libopusPitchDNNModelBlobHelperPath, nil
 }
 
 func getLibopusPLCModelBlobHelperPath() (string, error) {
@@ -108,18 +94,6 @@ func getLibopusFARGANModelBlobHelperPath() (string, error) {
 		return "", libopusFARGANModelBlobHelperErr
 	}
 	return libopusFARGANModelBlobHelperPath, nil
-}
-
-func runModelBlobHelper(binPath string) ([]byte, error) {
-	cmd := exec.Command(binPath)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run model blob helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-	return stdout.Bytes(), nil
 }
 
 func probeLibopusDecoderNeuralModelBlob() ([]byte, error) {
