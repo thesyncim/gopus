@@ -25,7 +25,7 @@ coverage is skipped.
 | --- | --- | --- | --- |
 | DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; `make test-dnn-blob-parity` validates the default control surface against libopus USE_WEIGHTS_FILE model blobs and fails on skipped helper coverage; decoder-side support currently covers loader-derived validation and retained control state, not full model-backed PLC/OSCE runtime behavior. Tagged DRED/quarantine builds may bind DRED-capable model families on this control path, but normal encode/decode runtime work remains dormant until a DRED duration, payload, or recovery path is explicitly armed; model-only public caller-buffer encode/decode paths stay zero-allocation and skip unarmed DRED helper work |
 | QEXT | Tagged support | `OptionalExtensionQEXT` | Build with `-tags gopus_qext` to support `SetQEXT` / `QEXT` on `Encoder` and `MultistreamEncoder`; default builds keep those controls absent and compile the packet-extension payload scan/encode plumbing behind a constant false gate |
-| DRED | Tagged control/standalone support | `OptionalExtensionDRED` | Build with `-tags gopus_dred` to support `SetDREDDuration(...)` / `DREDDuration()` on `Encoder` and `MultistreamEncoder`, plus standalone `DREDDecoder` / `DRED`; quarantine builds may expose the same controls/helpers under `gopus_unsupported_controls` for parity work without reporting DRED support; this does not claim broad DRED audio-path parity, and default builds keep DRED absent with runtime hooks dormant |
+| DRED | Tagged control/standalone support | `OptionalExtensionDRED` | Build with `-tags gopus_dred` to support `SetDREDDuration(...)` / `DREDDuration()` on `Encoder` and `MultistreamEncoder`, plus standalone `DREDDecoder` / `DRED`; quarantine builds may expose the same controls/helpers under `gopus_unsupported_controls` for parity work without reporting DRED support; this does not claim stereo, multistream, or broad DRED audio-path parity beyond the current mono explicit/live decoder matrix, and default builds keep DRED absent with runtime hooks dormant |
 | OSCE BWE | Unsupported and quarantined | `OptionalExtensionOSCEBWE` | `SetOSCEBWE(...)` / `OSCEBWE()` are absent from the default public API surface, and low-level OSCE model helpers stay quarantine-gated |
 
 ## Supported Feature Tags
@@ -55,8 +55,8 @@ go test -tags gopus_dred ./...
 
 `SupportsOptionalExtension(gopus.OptionalExtensionDRED)` reports `true` only in
 that tagged DRED build. Current release support is scoped to exposed controls,
-the standalone DRED wrapper, and the selected green non-decoder-audio parity
-seams. `make test-dred-tag` exercises standalone DRED wrapper lifecycle,
+the standalone DRED wrapper, and the selected green parity seams.
+`make test-dred-tag` exercises standalone DRED wrapper lifecycle,
 zero-allocation, libopus parse/decode/process metadata coverage, and real-packet
 standalone process state/feature parity, standalone recovery scheduling parity,
 and decoder cached recovery bookkeeping parity plus the supported-tag SILK
@@ -68,8 +68,9 @@ dormant-runtime checks without changing support probes.
 `make test-unsupported-controls-parity` mirrors the supported encoder seams and
 adds parser availability, internal converter/payload/basic-analysis coverage,
 real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle,
-and 48 kHz bootstrap coverage. Required DRED parity gates fail on skipped
-libopus-helper tests instead of treating missing helpers as green. In
+48 kHz bootstrap coverage, and the current mono decoder explicit/live numerical
+matrix. Required DRED parity gates fail on skipped libopus-helper tests instead
+of treating missing helpers as green. In
 default builds, DRED controls are absent and
 encode/decode hot paths do not enter DRED runtime hooks. The internal encoder
 DRED runtime, top-level decoder DRED internals, and multistream decoder DRED
@@ -80,9 +81,11 @@ LPCNet runtime packages. Tagged DRED builds also pin the inactive encoder case:
 zero-allocation and leaves the encoder DRED runtime dormant while
 `SetDREDDuration(...)` is unset. The public caller-buffer `Encoder` and
 `Decoder` paths also keep DRED model-only control state from arming the encoder
-latent path, decoder payload scan, or decoder good-packet marker work. Decoder audio-path parity, Hybrid packet-length
-parity, and Hybrid primary-frame byte exactness remain seam-specific and
-experimental unless covered by green libopus-backed parity tests.
+latent path, decoder payload scan, or decoder good-packet marker work. The
+current mono decoder explicit/live numerical matrix is parity-gated in
+quarantine; stereo/multistream decoder coverage, broader decoder packet
+coverage, and Hybrid primary-frame byte exactness remain seam-specific and
+unsupported unless covered by green libopus-backed parity tests.
 
 Supported feature tags can be combined when both surfaces are needed. A
 `-tags "gopus_dred gopus_qext"` build reports both DRED and QEXT support and
