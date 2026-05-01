@@ -216,6 +216,70 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms(t *testing.T) {
 	}
 }
 
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 1920,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+	})
+	if err != nil {
+		t.Skipf("libopus 40 ms DRED packet helper unavailable: %v", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus 40 ms silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 1920, 1)
+	if ParseTOC(gotPacket[0]).Mode != ModeSILK {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 2880,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+	})
+	if err != nil {
+		t.Skipf("libopus 60 ms DRED packet helper unavailable: %v", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus 60 ms silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 2880, 1)
+	if ParseTOC(gotPacket[0]).Mode != ModeSILK {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+}
+
 func TestEncoderCarriedDREDPrimaryBudgetMatchesLibopusSilkWideband20ms(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
