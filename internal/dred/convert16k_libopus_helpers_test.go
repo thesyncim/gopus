@@ -47,7 +47,7 @@ func ensureLibopusDREDBuild() (sourceDir, buildDir string, err error) {
 		sourceDir = filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+"-dredsrc-clean")
 		buildDir = filepath.Join(repoRoot, "tmp_check", fmt.Sprintf("build-opus-dred-scalar-%s-%s", runtime.GOOS, runtime.GOARCH))
 		libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
-		if _, err := os.Stat(libopusStatic); err == nil {
+		if _, err := os.Stat(libopusStatic); err == nil && libopustooling.ScalarDNNBuildIsCurrent(buildDir) {
 			libopusDREDSourceDir = sourceDir
 			libopusDREDBuildDir = buildDir
 			return
@@ -81,6 +81,10 @@ func ensureLibopusDREDBuild() (sourceDir, buildDir string, err error) {
 				return
 			}
 		}
+		if err := libopustooling.ResetScalarDNNBuildIfStale(buildDir); err != nil {
+			libopusDREDBuildErr = fmt.Errorf("reset stale libopus scalar build dir: %w", err)
+			return
+		}
 		if err := os.MkdirAll(buildDir, 0o755); err != nil {
 			libopusDREDBuildErr = fmt.Errorf("mkdir libopus build dir: %w", err)
 			return
@@ -96,6 +100,7 @@ func ensureLibopusDREDBuild() (sourceDir, buildDir string, err error) {
 				"--disable-intrinsics",
 			)
 			cmd.Dir = buildDir
+			cmd.Env = libopustooling.ScalarDNNBuildEnv()
 			if output, err := cmd.CombinedOutput(); err != nil {
 				libopusDREDBuildErr = fmt.Errorf("configure libopus build: %w (%s)", err, bytes.TrimSpace(output))
 				return
@@ -103,8 +108,13 @@ func ensureLibopusDREDBuild() (sourceDir, buildDir string, err error) {
 		}
 		makeCmd := exec.Command("make", fmt.Sprintf("-j%d", max(1, runtime.NumCPU())))
 		makeCmd.Dir = buildDir
+		makeCmd.Env = libopustooling.ScalarDNNBuildEnv()
 		if output, err := makeCmd.CombinedOutput(); err != nil {
 			libopusDREDBuildErr = fmt.Errorf("build libopus: %w (%s)", err, bytes.TrimSpace(output))
+			return
+		}
+		if err := libopustooling.WriteScalarDNNBuildStamp(buildDir); err != nil {
+			libopusDREDBuildErr = fmt.Errorf("write libopus scalar build stamp: %w", err)
 			return
 		}
 		libopusDREDSourceDir = sourceDir
@@ -137,6 +147,8 @@ func buildLibopusDREDHelper(sourceFile, outputBase string) (string, error) {
 	args := []string{
 		"-std=c99",
 		"-O2",
+		"-DHAVE_CONFIG_H",
+		"-I", buildDir,
 		"-I", filepath.Join(sourceDir, "include"),
 		"-I", sourceDir,
 		"-I", filepath.Join(sourceDir, "celt"),

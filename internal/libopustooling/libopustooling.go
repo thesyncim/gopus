@@ -12,6 +12,15 @@ import (
 const (
 	// DefaultVersion is the pinned libopus reference used by fixture tooling.
 	DefaultVersion = "1.6.1"
+
+	// ScalarDNNBuildCFLAGS keeps x86 libopus helper builds on the generic DNN
+	// path. --disable-intrinsics disables libopus RTCD feature selection, but
+	// x86 compilers still predefine __SSE2__, which makes dnn/vec.h include
+	// vec_avx.h unless the helper build explicitly undefines those macros.
+	ScalarDNNBuildCFLAGS = "-g -O2 -fvisibility=hidden -U__AVX__ -U__AVX2__ -U__FMA__ -U__SSE__ -U__SSE2__ -U__SSE3__ -U__SSSE3__ -U__SSE4_1__ -U__SSE4_2__"
+
+	scalarDNNBuildStampFile = ".gopus-scalar-dnn-build"
+	scalarDNNBuildStamp     = "gopus scalar libopus DNN helper build v2\nCFLAGS=" + ScalarDNNBuildCFLAGS + "\n"
 )
 
 // DefaultSearchRoots covers common invocation locations:
@@ -132,4 +141,46 @@ func FindCCompiler() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("no supported C compiler found in PATH (tried: cc, gcc, clang)")
+}
+
+// ScalarDNNBuildEnv returns a controlled environment for libopus helper builds.
+func ScalarDNNBuildEnv() []string {
+	env := os.Environ()
+	dst := env[:0]
+	for _, kv := range env {
+		name, _, ok := strings.Cut(kv, "=")
+		if ok && (name == "CFLAGS" || name == "CPPFLAGS") {
+			continue
+		}
+		dst = append(dst, kv)
+	}
+	return append(dst, "CFLAGS="+ScalarDNNBuildCFLAGS, "CPPFLAGS=")
+}
+
+// ScalarDNNBuildIsCurrent reports whether buildDir was produced with the
+// current scalar-DNN helper contract.
+func ScalarDNNBuildIsCurrent(buildDir string) bool {
+	data, err := os.ReadFile(filepath.Join(buildDir, scalarDNNBuildStampFile))
+	return err == nil && string(data) == scalarDNNBuildStamp
+}
+
+// ResetScalarDNNBuildIfStale removes buildDir when it was produced before the
+// current scalar-DNN helper contract. This avoids silently reusing x86-vector
+// DNN reference oracles from older local or CI caches.
+func ResetScalarDNNBuildIfStale(buildDir string) error {
+	if _, err := os.Stat(buildDir); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if ScalarDNNBuildIsCurrent(buildDir) {
+		return nil
+	}
+	return os.RemoveAll(buildDir)
+}
+
+// WriteScalarDNNBuildStamp records that buildDir satisfies the current
+// scalar-DNN helper contract.
+func WriteScalarDNNBuildStamp(buildDir string) error {
+	return os.WriteFile(filepath.Join(buildDir, scalarDNNBuildStampFile), []byte(scalarDNNBuildStamp), 0o644)
 }
