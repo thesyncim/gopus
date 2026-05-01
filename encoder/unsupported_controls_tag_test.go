@@ -156,11 +156,11 @@ func exportedMethodNames(v any) map[string]struct{} {
 	return names
 }
 
-func TestUnsupportedControlsBuildExposesQuarantinedControls(t *testing.T) {
+func TestDREDRuntimeBuildExposesEncoderControls(t *testing.T) {
 	methods := exportedMethodNames(encoder.NewEncoder(48000, 1))
 	for _, name := range []string{"DREDDuration", "DREDModelLoaded", "DREDReady", "SetDREDDuration"} {
 		if _, ok := methods[name]; !ok {
-			t.Fatalf("unsupported-controls build does not expose %s", name)
+			t.Fatalf("DRED runtime build does not expose %s", name)
 		}
 	}
 }

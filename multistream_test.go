@@ -947,8 +947,13 @@ func TestMultistreamEncoder_OptionalExtensionControls(t *testing.T) {
 			t.Fatal("gopus_dred build does not expose DRED control")
 		}
 		assertWorkingDREDControl(t, dred)
+	} else if extsupport.DREDRuntime {
+		if !ok {
+			t.Fatal("DRED runtime build does not expose DRED control")
+		}
+		assertWorkingDREDControl(t, dred)
 	} else if ok {
-		t.Fatal("default build unexpectedly exposes DRED control")
+		t.Fatal("non-DRED-runtime build unexpectedly exposes DRED control")
 	}
 	assertSupportedQEXTControl(t, enc)
 }
@@ -957,8 +962,14 @@ func TestMultistreamDecoder_OptionalExtensionControls(t *testing.T) {
 	dec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
 
 	assertOptionalDecoderControls(t, dec)
-	if _, ok := any(dec).(unsupportedOSCEBWEControl); ok {
-		t.Fatal("default build unexpectedly exposes OSCE BWE control")
+	if osce, ok := any(dec).(unsupportedOSCEBWEControl); ok {
+		if extsupport.OSCEBWERuntime {
+			assertWorkingOSCEBWEControl(t, osce)
+		} else {
+			t.Fatal("non-OSCE-runtime build unexpectedly exposes OSCE BWE control")
+		}
+	} else if extsupport.OSCEBWERuntime {
+		t.Fatal("OSCE runtime build does not expose OSCE BWE control")
 	}
 }
 
