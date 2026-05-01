@@ -40,6 +40,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"[Optional Extensions](docs/optional-extensions.md)",
 		"Supported default controls are `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()`",
 		"DRED control and standalone surfaces are supported with `-tags gopus_dred`",
+		"this is not broad DRED decoder audio-path support",
 		"may also expose DRED controls/helpers for parity work",
 		"OSCE BWE remains quarantine-only under `-tags gopus_unsupported_controls`",
 		"that quarantine tag does not itself make `SupportsOptionalExtension(...)` report support",
@@ -86,7 +87,8 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	}
 
 	for _, needle := range []string{
-		"Build DRED support explicitly when you need the verified DRED control",
+		"Build tag-gated DRED control/standalone support explicitly",
+		"top-level decoder DRED internals",
 		"expose DRED controls/standalone helpers",
 		"does not, by itself, change `SupportsOptionalExtension(...)`",
 		"release support comes from `gopus_dred`",
@@ -135,7 +137,7 @@ func assertOptionalExtensionDocsMatchSupport(t *testing.T, optionalDoc string) {
 		}
 		return
 	}
-	if !strings.Contains(optionalDoc, "Build DRED support explicitly when you need the verified DRED control") {
+	if !strings.Contains(optionalDoc, "Build tag-gated DRED control/standalone support explicitly") {
 		t.Fatal("docs/optional-extensions.md missing explicit DRED build-tag guidance")
 	}
 }

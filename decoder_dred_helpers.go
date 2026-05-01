@@ -1,3 +1,6 @@
+//go:build gopus_dred || gopus_unsupported_controls
+// +build gopus_dred gopus_unsupported_controls
+
 package gopus
 
 import (
@@ -233,6 +236,19 @@ func (d *Decoder) maybeDropDREDState() {
 		d.dred.decoderDREDNeuralState == nil &&
 		d.dred.decoderDRED48kBridgeState == nil {
 		d.dred = nil
+	}
+}
+
+func (d *Decoder) resetDREDRuntimeState() {
+	if s := d.dredState(); s != nil {
+		if p := s.decoderDREDPayloadState; p != nil {
+			p.dredData = nil
+			p.dredProcess = rdovae.Processor{}
+		}
+		s.decoderDREDRecoveryState = nil
+		s.decoderDREDNeuralState = nil
+		s.decoderDRED48kBridgeState = nil
+		d.maybeDropDREDState()
 	}
 }
 

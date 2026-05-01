@@ -155,18 +155,18 @@ func TestHotPathAllocsDecodePLC(t *testing.T) {
 }
 
 func TestHotPathAllocsDecodePLCDNNReadyAtMostBaseline(t *testing.T) {
-	baseline, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	baseline, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatalf("NewDecoder: %v", err)
 	}
-	armed, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	armed, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatalf("NewDecoder: %v", err)
 	}
 	if err := armed.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob: %v", err)
 	}
-	packet := makeValidMono16kPacketForDREDTest(t)
+	packet := testCELTPacket()
 	baselinePCM := make([]float32, 960)
 	armedPCM := make([]float32, 960)
 
