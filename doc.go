@@ -74,12 +74,18 @@
 // Some libopus build-time extension hooks are build dependent. Supported
 // optional controls in the default build currently include SetDNNBlob only.
 // That default control surface is parity-gated by make test-dnn-blob-parity
-// against pinned libopus USE_WEIGHTS_FILE model blobs.
+// against pinned libopus USE_WEIGHTS_FILE model blobs and fails on skipped
+// helper coverage.
 // QEXT controls are supported only in builds using `-tags gopus_qext`.
+// That tag-gated surface is parity-gated by make test-qext-parity, which fails
+// on skipped libopus-helper coverage.
 // DRED control and standalone surfaces are supported only in builds using
 // `-tags gopus_dred`. Quarantine builds using
 // `-tags gopus_unsupported_controls` may also expose DRED controls/helpers for
 // parity work, but they do not report DRED support.
+// The supported DRED gate uses make test-dred-tag, and the quarantine parity
+// lane uses make test-unsupported-controls-parity; required DRED parity gates
+// fail on skipped libopus-helper coverage.
 // Supported feature tags may be combined; quarantine combinations still report
 // only the explicitly supported tagged surfaces.
 // Use SupportsOptionalExtension to probe whether an extension-backed surface is
