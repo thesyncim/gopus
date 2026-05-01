@@ -59,6 +59,51 @@ func TestEncoderDREDRuntimeStaysDormantUntilReady(t *testing.T) {
 	}
 }
 
+func TestEncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetBitrate(40000)
+	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+	if !enc.DREDModelLoaded() {
+		t.Fatal("encoder did not retain loadable DRED models")
+	}
+	if enc.DREDReady() {
+		t.Fatal("DREDReady()=true before SetDREDDuration")
+	}
+
+	frame := make([]float64, 960)
+	for i := range frame {
+		frame[i] = 0.1
+	}
+	for i := 0; i < 5; i++ {
+		if packet, err := enc.Encode(frame, 960); err != nil {
+			t.Fatalf("warm Encode error: %v", err)
+		} else if len(packet) == 0 {
+			t.Fatal("warm Encode returned empty packet")
+		}
+	}
+	if enc.dred == nil {
+		t.Fatal("encoder dropped retained DRED model state")
+	}
+	if enc.dred.runtime != nil {
+		t.Fatalf("Encode woke DRED runtime before duration was armed: %+v", enc.dred.runtime)
+	}
+
+	allocs := testing.AllocsPerRun(200, func() {
+		if packet, err := enc.Encode(frame, 960); err != nil {
+			t.Fatalf("Encode error: %v", err)
+		} else if len(packet) == 0 {
+			t.Fatal("Encode returned empty packet")
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("Encode with dormant DRED allocs/op = %.2f, want 0", allocs)
+	}
+	if enc.dred.runtime != nil {
+		t.Fatalf("allocation guard woke DRED runtime before duration was armed: %+v", enc.dred.runtime)
+	}
+}
+
 func TestEncoderProcessDREDLatentsDoesNotAllocate(t *testing.T) {
 	enc := NewEncoder(16000, 1)
 	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
