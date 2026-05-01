@@ -79,6 +79,21 @@ func TestUnsupportedControlsBuildPublicAPIContract(t *testing.T) {
 			},
 		},
 		{
+			name: "DREDDecoder",
+			got:  &DREDDecoder{},
+			want: []string{"ModelLoaded", "Parse", "Process", "SetDNNBlob"},
+		},
+		{
+			name: "DRED",
+			got:  &DRED{},
+			want: []string{
+				"Availability", "Clear", "Empty", "FeatureCount", "FeatureWindow",
+				"FillFeatures", "FillLatents", "FillQuantizerLevels", "FillState",
+				"LatentCount", "Len", "MaxAvailableSamples", "NeedsProcessing", "Parsed",
+				"ProcessStage", "Processed", "RawProcessStage", "Result",
+			},
+		},
+		{
 			name: "Reader",
 			got:  &Reader{},
 			want: []string{
