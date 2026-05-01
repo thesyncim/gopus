@@ -4,22 +4,23 @@ import (
 	"math"
 	"runtime"
 
-	"github.com/thesyncim/gopus/internal/cpufeat"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dnnmath"
 )
 
-// Match the pinned libopus DNN vector kernels selected by the helper build.
+// Match the pinned libopus DNN kernels selected by the helper build. Linux
+// parity helpers explicitly disable x86 intrinsics, so amd64 stays on the
+// scalar path instead of simulating libopus' optional vector kernels.
 // Keep the architecture-wide switches constant so unused variants fold away
 // when they cannot apply to the target build.
 const (
 	useArm64DNNVectorKernels = runtime.GOARCH == "arm64"
-	useX86DNNVectorKernels   = runtime.GOARCH == "amd64"
+	useX86DNNVectorKernels   = false
 	useSUBias                = useX86DNNVectorKernels
 	useIntegerInt8Accum      = useArm64DNNVectorKernels || useX86DNNVectorKernels
 )
 
-var useX86AVX2FMA = useX86DNNVectorKernels && cpufeat.AMD64.HasAVX2 && cpufeat.AMD64.HasFMA
+var useX86AVX2FMA = false
 
 type predictorState struct {
 	gru1 [GRU1Size]float32
