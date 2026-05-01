@@ -1,4 +1,4 @@
-//go:build arm64 && !race
+//go:build arm64 && !race && !purego
 
 package celt
 

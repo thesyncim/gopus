@@ -1,3 +1,4 @@
+//go:build arm64 && !purego
 #include "textflag.h"
 
 // WORD-encoded instructions not supported by Go assembler:

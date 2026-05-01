@@ -1,3 +1,4 @@
+//go:build amd64 && !purego
 #include "textflag.h"
 
 // func imdctPreRotateF32(fftIn []complex64, spectrum []float64, trig []float32, n2, n4 int)

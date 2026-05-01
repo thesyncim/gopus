@@ -1,3 +1,4 @@
+//go:build arm64 && !purego
 #include "textflag.h"
 
 // func deinterleaveStereoIntoImpl(interleaved, left, right []float64, n int)

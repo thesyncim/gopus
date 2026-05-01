@@ -1,3 +1,4 @@
+//go:build arm64 && !purego
 #include "textflag.h"
 
 // func kfBfly5N1(fout []kissCpx, tw []kissCpx, m, fstride int)

@@ -41,6 +41,7 @@ Block correctness and hot-path performance regressions before merge.
 4. Cross-platform sanity
 - `test-macos`: `go test ./... -count=1`
 - `test-windows`: `go test ./... -count=1`
+- `verify-safety` and the macOS arm64 assembly lane run `make test-assembly-safety`, which now validates native ASM, the `-tags=purego` scalar fallback build, focused differential tests, fuzz smoke, and official-vector parity for both native and purego paths.
 
 5. Markdown-only behavior
 - Keep the CI workflow trigger active for markdown/docs-only pull requests so required checks still report status.
