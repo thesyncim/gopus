@@ -74,11 +74,31 @@ func (d *Decoder) updateHistory(samples []float32) {
 
 // updateHistoryInt16 is an int16-native variant used by decode hot paths.
 func (d *Decoder) updateHistoryInt16(samples []int16) {
-	historyLen := len(d.outputHistory)
-	for _, s := range samples {
-		d.outputHistory[d.historyIndex] = float32(s) * (1.0 / 32768.0)
-		d.historyIndex = (d.historyIndex + 1) % historyLen
+	hist := d.outputHistory
+	historyLen := len(hist)
+	if historyLen == 0 {
+		return
 	}
+	idx := d.historyIndex
+	pos := 0
+	const inv32768 = 1.0 / 32768.0
+	for pos < len(samples) {
+		n := historyLen - idx
+		if remain := len(samples) - pos; n > remain {
+			n = remain
+		}
+		dst := hist[idx : idx+n]
+		src := samples[pos : pos+n]
+		for i, s := range src {
+			dst[i] = float32(s) * inv32768
+		}
+		pos += n
+		idx += n
+		if idx == historyLen {
+			idx = 0
+		}
+	}
+	d.historyIndex = idx
 }
 
 // getHistorySample retrieves a sample from the output history buffer.

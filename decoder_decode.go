@@ -25,13 +25,17 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 //   - Code 2: 2 different-sized frames
 //   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
-	if extsupport.DREDRuntime && data != nil && len(data) > 0 && d.dredCachedPayloadActive() {
-		d.invalidateDREDPayloadState()
+	dredPossible := false
+	if extsupport.DREDRuntime {
+		dredPossible = d.dredDecodeSidecarPossible()
+		if data != nil && len(data) > 0 && dredPossible && d.dredCachedPayloadActive() {
+			d.invalidateDREDPayloadState()
+		}
 	}
 
 	if data == nil || len(data) == 0 {
 		frameSize := d.lastFrameSize
-		neuralReady := extsupport.DREDRuntime && d.dredNeuralConcealmentAvailable()
+		neuralReady := dredPossible && d.dredNeuralConcealmentAvailable()
 		n := frameSize
 		usedNeuralConcealment := false
 		var err error
@@ -41,7 +45,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 			}
 			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
 		}
-		if !usedNeuralConcealment && extsupport.DREDRuntime {
+		if !usedNeuralConcealment && dredPossible {
 			n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
 				packetFrameSize:    d.lastFrameSize,
 				mode:               d.prevMode,
@@ -71,7 +75,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		d.lastFrameSize = frameSize
 		d.lastPacketDuration = frameSize
 		d.lastDataLen = 0
-		if extsupport.DREDRuntime && !usedNeuralConcealment && d.dredSidecarActive() {
+		if dredPossible && !usedNeuralConcealment && d.dredSidecarActive() {
 			d.markDREDConcealed()
 		}
 		return frameSize, nil
@@ -81,9 +85,24 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		return 0, ErrPacketTooLarge
 	}
 
-	toc, frameCount, err := packetFrameCount(data)
-	if err != nil {
-		return 0, err
+	toc := &tocTable[data[0]]
+	frameCode := data[0] & 0x03
+	frameCount := 1
+	switch frameCode {
+	case 0:
+	case 1, 2:
+		frameCount = 2
+	case 3:
+		if len(data) < 2 {
+			return 0, ErrPacketTooShort
+		}
+		m := int(data[1] & 0x3F)
+		if m == 0 || m > 48 {
+			return 0, ErrInvalidFrameCount
+		}
+		frameCount = m
+	default:
+		return 0, ErrInvalidPacket
 	}
 	frameSize := toc.FrameSize
 	totalSamples := frameSize * frameCount
@@ -97,173 +116,188 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	}
 
 	offsetSamples := 0
-	var qextPayloads [maxRepacketizerFrames][]byte
-	endRawDREDCapture := func() {}
-	if extsupport.DREDRuntime {
-		endRawDREDCapture = d.beginDREDRawMonoGoodFrameCapture(toc.Mode)
-	}
-	defer endRawDREDCapture()
-	decodeFrame := func(frameIndex int, frameData []byte) error {
-		var qextPayload []byte
-		if extsupport.QEXT && toc.Mode == ModeCELT && !d.ignoreExtensions && frameIndex >= 0 && frameIndex < len(qextPayloads) {
-			qextPayload = qextPayloads[frameIndex]
+	if dredPossible {
+		if endRawDREDCapture := d.beginDREDRawMonoGoodFrameCapture(toc.Mode); endRawDREDCapture != nil {
+			defer endRawDREDCapture()
 		}
+	}
+
+	if frameCode == 0 {
 		n, err := d.decodeOpusFrameIntoWithQEXT(
-			pcm[offsetSamples*d.channels:],
-			frameData,
+			pcm,
+			data[1:],
 			frameSize,
 			frameSize,
 			toc.Mode,
 			toc.Bandwidth,
 			toc.Stereo,
-			qextPayload,
+			nil,
 		)
 		if err != nil {
-			return err
+			return 0, err
 		}
 		offsetSamples += n
 		d.prevPacketStereo = toc.Stereo
-		return nil
-	}
-
-	switch toc.FrameCode {
-	case 0:
-		if err := decodeFrame(0, data[1:]); err != nil {
-			return 0, err
-		}
-	case 1:
-		frameDataLen := len(data) - 1
-		if frameDataLen%2 != 0 {
-			return 0, ErrInvalidPacket
-		}
-		frameLen := frameDataLen / 2
-		offset := 1
-		for i := 0; i < 2; i++ {
-			if offset+frameLen > len(data) {
-				return 0, ErrInvalidPacket
+	} else {
+		var qextPayloads [maxRepacketizerFrames][]byte
+		decodeFrame := func(frameIndex int, frameData []byte) error {
+			var qextPayload []byte
+			if extsupport.QEXT && toc.Mode == ModeCELT && !d.ignoreExtensions && frameIndex >= 0 && frameIndex < len(qextPayloads) {
+				qextPayload = qextPayloads[frameIndex]
 			}
-			if err := decodeFrame(i, data[offset:offset+frameLen]); err != nil {
-				return 0, err
+			n, err := d.decodeOpusFrameIntoWithQEXT(
+				pcm[offsetSamples*d.channels:],
+				frameData,
+				frameSize,
+				frameSize,
+				toc.Mode,
+				toc.Bandwidth,
+				toc.Stereo,
+				qextPayload,
+			)
+			if err != nil {
+				return err
 			}
-			offset += frameLen
-		}
-	case 2:
-		if len(data) < 2 {
-			return 0, ErrPacketTooShort
-		}
-		frame1Len, bytesRead, err := parseFrameLength(data, 1)
-		if err != nil {
-			return 0, err
-		}
-		headerLen := 1 + bytesRead
-		frame2Len := len(data) - headerLen - frame1Len
-		if frame2Len < 0 {
-			return 0, ErrInvalidPacket
-		}
-		if headerLen+frame1Len > len(data) {
-			return 0, ErrInvalidPacket
-		}
-		if err := decodeFrame(0, data[headerLen:headerLen+frame1Len]); err != nil {
-			return 0, err
-		}
-		offset := headerLen + frame1Len
-		if offset+frame2Len > len(data) {
-			return 0, ErrInvalidPacket
-		}
-		if err := decodeFrame(1, data[offset:offset+frame2Len]); err != nil {
-			return 0, err
-		}
-	case 3:
-		if len(data) < 2 {
-			return 0, ErrPacketTooShort
-		}
-		frameCountByte := data[1]
-		vbr := (frameCountByte & 0x80) != 0
-		hasPadding := (frameCountByte & 0x40) != 0
-		m := int(frameCountByte & 0x3F)
-		if m == 0 || m > 48 {
-			return 0, ErrInvalidFrameCount
+			offsetSamples += n
+			d.prevPacketStereo = toc.Stereo
+			return nil
 		}
 
-		offset := 2
-		padding := 0
-
-		if hasPadding {
-			for {
-				if offset >= len(data) {
-					return 0, ErrPacketTooShort
-				}
-				padByte := int(data[offset])
-				offset++
-				if padByte == 255 {
-					padding += 254
-				} else {
-					padding += padByte
-				}
-				if padByte < 255 {
-					break
-				}
-			}
-			if extsupport.QEXT && !d.ignoreExtensions && toc.Mode == ModeCELT {
-				if padding > len(data) {
-					return 0, ErrInvalidPacket
-				}
-				if err := collectPacketExtensionPayloadsByFrame(data[len(data)-padding:], m, qextPacketExtensionID, &qextPayloads); err != nil {
-					for i := range qextPayloads {
-						qextPayloads[i] = nil
-					}
-				}
-			}
-		}
-
-		if vbr {
-			var frameLens [48]int
-			for i := 0; i < m-1; i++ {
-				frameLen, bytesRead, err := parseFrameLength(data, offset)
-				if err != nil {
-					return 0, err
-				}
-				offset += bytesRead
-				frameLens[i] = frameLen
-			}
-			frameDataOffset := offset
-			for i := 0; i < m-1; i++ {
-				frameLen := frameLens[i]
-				if frameDataOffset+frameLen > len(data)-padding {
-					return 0, ErrInvalidPacket
-				}
-				if err := decodeFrame(i, data[frameDataOffset:frameDataOffset+frameLen]); err != nil {
-					return 0, err
-				}
-				frameDataOffset += frameLen
-			}
-			lastFrameLen := len(data) - frameDataOffset - padding
-			if lastFrameLen < 0 {
+		switch frameCode {
+		case 1:
+			frameDataLen := len(data) - 1
+			if frameDataLen%2 != 0 {
 				return 0, ErrInvalidPacket
 			}
-			if frameDataOffset+lastFrameLen > len(data)-padding {
-				return 0, ErrInvalidPacket
-			}
-			if err := decodeFrame(m-1, data[frameDataOffset:frameDataOffset+lastFrameLen]); err != nil {
-				return 0, err
-			}
-		} else {
-			frameDataLen := len(data) - offset - padding
-			if frameDataLen < 0 {
-				return 0, ErrInvalidPacket
-			}
-			if frameDataLen%m != 0 {
-				return 0, ErrInvalidPacket
-			}
-			frameLen := frameDataLen / m
-			for i := 0; i < m; i++ {
-				if offset+frameLen > len(data)-padding {
+			frameLen := frameDataLen / 2
+			offset := 1
+			for i := 0; i < 2; i++ {
+				if offset+frameLen > len(data) {
 					return 0, ErrInvalidPacket
 				}
 				if err := decodeFrame(i, data[offset:offset+frameLen]); err != nil {
 					return 0, err
 				}
 				offset += frameLen
+			}
+		case 2:
+			if len(data) < 2 {
+				return 0, ErrPacketTooShort
+			}
+			frame1Len, bytesRead, err := parseFrameLength(data, 1)
+			if err != nil {
+				return 0, err
+			}
+			headerLen := 1 + bytesRead
+			frame2Len := len(data) - headerLen - frame1Len
+			if frame2Len < 0 {
+				return 0, ErrInvalidPacket
+			}
+			if headerLen+frame1Len > len(data) {
+				return 0, ErrInvalidPacket
+			}
+			if err := decodeFrame(0, data[headerLen:headerLen+frame1Len]); err != nil {
+				return 0, err
+			}
+			offset := headerLen + frame1Len
+			if offset+frame2Len > len(data) {
+				return 0, ErrInvalidPacket
+			}
+			if err := decodeFrame(1, data[offset:offset+frame2Len]); err != nil {
+				return 0, err
+			}
+		case 3:
+			if len(data) < 2 {
+				return 0, ErrPacketTooShort
+			}
+			frameCountByte := data[1]
+			vbr := (frameCountByte & 0x80) != 0
+			hasPadding := (frameCountByte & 0x40) != 0
+			m := int(frameCountByte & 0x3F)
+			if m == 0 || m > 48 {
+				return 0, ErrInvalidFrameCount
+			}
+
+			offset := 2
+			padding := 0
+
+			if hasPadding {
+				for {
+					if offset >= len(data) {
+						return 0, ErrPacketTooShort
+					}
+					padByte := int(data[offset])
+					offset++
+					if padByte == 255 {
+						padding += 254
+					} else {
+						padding += padByte
+					}
+					if padByte < 255 {
+						break
+					}
+				}
+				if extsupport.QEXT && !d.ignoreExtensions && toc.Mode == ModeCELT {
+					if padding > len(data) {
+						return 0, ErrInvalidPacket
+					}
+					if err := collectPacketExtensionPayloadsByFrame(data[len(data)-padding:], m, qextPacketExtensionID, &qextPayloads); err != nil {
+						for i := range qextPayloads {
+							qextPayloads[i] = nil
+						}
+					}
+				}
+			}
+
+			if vbr {
+				var frameLens [48]int
+				for i := 0; i < m-1; i++ {
+					frameLen, bytesRead, err := parseFrameLength(data, offset)
+					if err != nil {
+						return 0, err
+					}
+					offset += bytesRead
+					frameLens[i] = frameLen
+				}
+				frameDataOffset := offset
+				for i := 0; i < m-1; i++ {
+					frameLen := frameLens[i]
+					if frameDataOffset+frameLen > len(data)-padding {
+						return 0, ErrInvalidPacket
+					}
+					if err := decodeFrame(i, data[frameDataOffset:frameDataOffset+frameLen]); err != nil {
+						return 0, err
+					}
+					frameDataOffset += frameLen
+				}
+				lastFrameLen := len(data) - frameDataOffset - padding
+				if lastFrameLen < 0 {
+					return 0, ErrInvalidPacket
+				}
+				if frameDataOffset+lastFrameLen > len(data)-padding {
+					return 0, ErrInvalidPacket
+				}
+				if err := decodeFrame(m-1, data[frameDataOffset:frameDataOffset+lastFrameLen]); err != nil {
+					return 0, err
+				}
+			} else {
+				frameDataLen := len(data) - offset - padding
+				if frameDataLen < 0 {
+					return 0, ErrInvalidPacket
+				}
+				if frameDataLen%m != 0 {
+					return 0, ErrInvalidPacket
+				}
+				frameLen := frameDataLen / m
+				for i := 0; i < m; i++ {
+					if offset+frameLen > len(data)-padding {
+						return 0, ErrInvalidPacket
+					}
+					if err := decodeFrame(i, data[offset:offset+frameLen]); err != nil {
+						return 0, err
+					}
+					offset += frameLen
+				}
 			}
 		}
 	}
@@ -275,16 +309,16 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	d.lastDataLen = len(data)
 
 	if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
-		firstFrameData, err := extractFirstFramePayload(data, toc)
+		firstFrameData, err := extractFirstFramePayload(data, *toc)
 		if err != nil {
 			return 0, err
 		}
-		d.storeFECData(firstFrameData, toc, frameCount, frameSize)
+		d.storeFECData(firstFrameData, *toc, frameCount, frameSize)
 	} else {
 		d.hasFEC = false
 	}
 
-	if extsupport.DREDRuntime {
+	if dredPossible {
 		d.maybeCacheDREDPayload(data)
 		if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
 			r.dredRecovery = 0
@@ -392,6 +426,15 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 
 	if len(data) > d.maxPacketBytes {
 		return 0, ErrPacketTooLarge
+	}
+
+	if len(pcm) >= d.maxPacketSamples*d.channels {
+		n, err := d.Decode(data, d.scratchPCM)
+		if err != nil {
+			return 0, err
+		}
+		softClipAndFloat32ToInt16(pcm, d.scratchPCM, n, d.channels, d.softClipMem[:])
+		return n, nil
 	}
 
 	toc, frameCount, err := packetFrameCount(data)

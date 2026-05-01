@@ -73,6 +73,10 @@ func (d *Decoder) Reset() {
 	for i := range d.plcDecodeMem {
 		d.plcDecodeMem[i] = 0
 	}
+	d.postfilterMemFromPLC = false
+	d.postfilterMemPLCBacked = false
+	d.plcDecodeMemRingActive = false
+	d.plcDecodeMemRingStart = 0
 	for i := range d.plcLPC {
 		d.plcLPC[i] = 0
 	}

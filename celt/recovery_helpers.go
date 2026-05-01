@@ -94,6 +94,7 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 	if len(d.plcDecodeMem) < plcDecodeBufferSize*d.channels {
 		return
 	}
+	d.materializePLCDecodeHistory()
 	if len(d.overlapBuffer) < Overlap*d.channels {
 		return
 	}
@@ -467,6 +468,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 	if len(d.plcDecodeMem) < plcDecodeBufferSize*d.channels {
 		return false
 	}
+	d.materializePLCDecodeHistory()
 	if len(d.plcLPC) < celtPLCLPCOrder*d.channels {
 		return false
 	}
@@ -883,6 +885,7 @@ func (d *Decoder) searchPLCPitchPeriod() int {
 	if len(d.plcDecodeMem) < plcDecodeBufferSize*channels {
 		return 0
 	}
+	d.materializePLCDecodeHistory()
 
 	const (
 		plcPitchLagMax = 720

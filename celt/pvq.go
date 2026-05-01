@@ -1,6 +1,17 @@
 package celt
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/rangecoding"
+)
+
+func decodeUniformPVQIndex(rd *rangecoding.Decoder, ft uint32) uint32 {
+	if ft <= 1<<rangecoding.EC_UINT_BITS {
+		return rd.DecodeUniformSmall(ft)
+	}
+	return rd.DecodeUniform(ft)
+}
 
 // PVQ (Pyramid Vector Quantization) decoding for CELT band shapes.
 // PVQ encodes normalized vectors where the L1 norm (sum of absolute values)
@@ -28,7 +39,7 @@ func (d *Decoder) DecodePVQ(n, k int) []float64 {
 		return make([]float64, n)
 	}
 
-	index := d.rangeDecoder.DecodeUniform(vSize)
+	index := decodeUniformPVQIndex(d.rangeDecoder, vSize)
 
 	// Convert index to pulse vector using CWRS
 	pulses := DecodePulses(index, n, k)
@@ -57,7 +68,7 @@ func (d *Decoder) DecodePVQWithTrace(band, n, k int) []float64 {
 		return make([]float64, n)
 	}
 
-	index := d.rangeDecoder.DecodeUniform(vSize)
+	index := decodeUniformPVQIndex(d.rangeDecoder, vSize)
 
 	// Convert index to pulse vector using CWRS
 	pulses := DecodePulses(index, n, k)
@@ -120,7 +131,13 @@ func (d *Decoder) DecodeTheta(n int) float64 {
 	}
 
 	// Decode itheta as uniform value in [0, n]
-	itheta := d.rangeDecoder.DecodeUniform(uint32(n + 1))
+	ft := uint32(n + 1)
+	itheta := uint32(0)
+	if ft <= 1<<8 {
+		itheta = d.rangeDecoder.DecodeUniformSmall(ft)
+	} else {
+		itheta = d.rangeDecoder.DecodeUniform(ft)
+	}
 
 	// Convert to angle in [0, pi/2]
 	// itheta=0 -> theta=0, itheta=n -> theta=pi/2
@@ -140,7 +157,13 @@ func (d *Decoder) DecodeStereoTheta(qn int) int {
 	}
 
 	// Decode as uniform value
-	itheta := int(d.rangeDecoder.DecodeUniform(uint32(qn + 1)))
+	ft := uint32(qn + 1)
+	itheta := 0
+	if ft <= 1<<8 {
+		itheta = int(d.rangeDecoder.DecodeUniformSmall(ft))
+	} else {
+		itheta = int(d.rangeDecoder.DecodeUniform(ft))
+	}
 
 	return itheta
 }
@@ -244,7 +267,7 @@ func (d *Decoder) decodePVQInto(band, n, k int, dst []float64) {
 		return
 	}
 
-	index := d.rangeDecoder.DecodeUniform(vSize)
+	index := decodeUniformPVQIndex(d.rangeDecoder, vSize)
 
 	// Convert index to pulse vector using CWRS with pre-allocated buffer
 	pulses := d.scratchBands.ensurePVQPulses(n)

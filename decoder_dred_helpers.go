@@ -107,6 +107,10 @@ func (d *Decoder) dredNeuralModelsLoaded() bool {
 	return d.pitchDNNLoaded || d.plcModelLoaded || d.farganModelLoaded
 }
 
+func (d *Decoder) dredDecodeSidecarPossible() bool {
+	return d != nil && (d.dred != nil || d.dredNeuralModelsLoaded())
+}
+
 func (d *Decoder) dredNeuralRuntimeLoaded() bool {
 	n := d.dredNeuralState()
 	return n != nil &&
@@ -712,17 +716,17 @@ func (d *Decoder) recordDREDRawMonoGoodFrame(samples []int16) {
 
 func (d *Decoder) beginDREDRawMonoGoodFrameCapture(mode Mode) func() {
 	if d == nil || d.silkDecoder == nil || d.sampleRate != 48000 || d.channels != 1 {
-		return func() {}
+		return nil
 	}
 	if mode != ModeHybrid && mode != ModeSILK {
-		return func() {}
+		return nil
 	}
 	p := d.dredPayloadState()
 	if d.dredRecoveryState() == nil && (p == nil || !p.dredModelLoaded) {
 		return func() {}
 	}
 	if !d.ensureDREDNeuralConcealmentRuntime() {
-		return func() {}
+		return nil
 	}
 	if n := d.dredNeuralState(); n != nil {
 		n.dredRawHistoryUpdated = false

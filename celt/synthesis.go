@@ -262,6 +262,28 @@ func (d *Decoder) synthesizeMonoLongToFloat32(coeffs []float64) []float32 {
 	return outF32[:len(coeffs)]
 }
 
+func (d *Decoder) synthesizeStereoPlanarLongToFloat32(coeffsL, coeffsR []float64) (outL, outR []float32) {
+	if len(coeffsL) == 0 || len(coeffsR) == 0 {
+		return nil, nil
+	}
+	if len(d.overlapBuffer) < Overlap*2 {
+		d.overlapBuffer = make([]float64, Overlap*2)
+	}
+	overlapL := d.overlapBuffer[:Overlap]
+	overlapR := d.overlapBuffer[Overlap : Overlap*2]
+
+	outLFull := imdctOverlapWithPrevScratchF32Output(coeffsL, overlapL, Overlap, &d.scratchIMDCTF32)
+	outRFull := imdctOverlapWithPrevScratchF32Output(coeffsR, overlapR, Overlap, &d.scratchIMDCTF32R)
+	if len(outLFull) < len(coeffsL)+Overlap || len(outRFull) < len(coeffsR)+Overlap {
+		return nil, nil
+	}
+	if Overlap > 0 {
+		copyFloat32ToFloat64(overlapL, outLFull[len(coeffsL):len(coeffsL)+Overlap])
+		copyFloat32ToFloat64(overlapR, outRFull[len(coeffsR):len(coeffsR)+Overlap])
+	}
+	return outLFull[:len(coeffsL)], outRFull[:len(coeffsR)]
+}
+
 func (d *Decoder) synthesizeStereoPlanar(coeffsL, coeffsR []float64, transient bool, shortBlocks int) (outL, outR []float64) {
 	if len(coeffsL) == 0 && len(coeffsR) == 0 {
 		return nil, nil

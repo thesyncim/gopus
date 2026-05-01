@@ -352,7 +352,7 @@ func ecDecRefine(dec *rangecoding.Decoder, up int, extraBits int, useEntropy boo
 	}
 	large := dec.DecodeBit(logp)
 	if large != 0 {
-		sign := int(dec.DecodeRawBits(1))
+		sign := int(dec.DecodeRawBit())
 		refine := int(dec.DecodeRawBits(uint(extraBits-1))) + up/2 + 1
 		if sign != 0 {
 			refine = -refine

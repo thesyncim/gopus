@@ -86,6 +86,7 @@ func TestStereoHistoryHelpersMatchLegacy(t *testing.T) {
 				} else {
 					current.updatePLCDecodeHistory(samples, frameSize, history)
 					updateStereoHistoryLegacy(legacy.plcDecodeMem, samples, frameSize, history)
+					current.materializePLCDecodeHistory()
 					requireFloat64BitsEqual(t, current.plcDecodeMem, legacy.plcDecodeMem)
 				}
 			})
@@ -145,6 +146,10 @@ func TestApplyPostfilterStereoPlanarMatchesInterleaved(t *testing.T) {
 
 	got := make([]float64, frameSize*2)
 	InterleaveStereoInto(gotL, gotR, got)
+	current.materializePLCDecodeHistory()
+	legacy.materializePLCDecodeHistory()
+	current.materializePostfilterHistoryFromPLC()
+	legacy.materializePostfilterHistoryFromPLC()
 	requireFloat64BitsEqual(t, got, want)
 	requireFloat64BitsEqual(t, current.postfilterMem, legacy.postfilterMem)
 	requireFloat64BitsEqual(t, current.plcDecodeMem, legacy.plcDecodeMem)

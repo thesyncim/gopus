@@ -144,7 +144,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	postfilterTapset := 0
 	if start == 0 && tell+16 <= totalBits {
 		if rd.DecodeBit(1) == 1 {
-			octave := int(rd.DecodeUniform(6))
+			octave := int(rd.DecodeUniformSmall(6))
 			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
 			qg := int(rd.DecodeRawBits(3))
 			if rd.Tell()+2 <= totalBits {
@@ -191,31 +191,24 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		d.decodeFineEnergyWithDecoderPrev(qext.dec, monoEnergies, end, fineQuant, qext.extraQuant[:end])
 	}
 
+	var extDec *rangecoding.Decoder
+	var extPulses []int
+	extTotalBitsQ3 := 0
+	if qext != nil {
+		extDec = qext.dec
+		extPulses = qext.extraPulses[:end]
+		extTotalBitsQ3 = qext.totalBitsQ3
+	}
 	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands,
-		func() *rangecoding.Decoder {
-			if qext == nil {
-				return nil
-			}
-			return qext.dec
-		}(), func() []int {
-			if qext == nil {
-				return nil
-			}
-			return qext.extraPulses[:end]
-		}(), func() int {
-			if qext == nil {
-				return 0
-			}
-			return qext.totalBitsQ3
-		}())
+		extDec, extPulses, extTotalBitsQ3)
 	if qext != nil {
 		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, false, qext)
 	}
 
 	antiCollapseOn := false
 	if antiCollapseRsv > 0 {
-		antiCollapseOn = rd.DecodeRawBits(1) == 1
+		antiCollapseOn = rd.DecodeRawBit() == 1
 	}
 
 	bitsLeft := totalBits - rd.Tell()
@@ -301,10 +294,6 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
 		return nil, ErrInvalidFrame
 	}
-	var extDec *rangecoding.Decoder
-	if qext != nil {
-		extDec = qext.dec
-	}
 	d.rng = combineFinalRange(rd, extDec)
 	d.resetPLCCadence(frameSize, origChannels)
 
@@ -379,7 +368,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	postfilterTapset := 0
 	if start == 0 && tell+16 <= totalBits {
 		if rd.DecodeBit(1) == 1 {
-			octave := int(rd.DecodeUniform(6))
+			octave := int(rd.DecodeUniformSmall(6))
 			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
 			qg := int(rd.DecodeRawBits(3))
 			if rd.Tell()+2 <= totalBits {
@@ -426,31 +415,24 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		d.decodeFineEnergyWithDecoderPrev(qext.dec, energies, end, fineQuant, qext.extraQuant[:end])
 	}
 
+	var extDec *rangecoding.Decoder
+	var extPulses []int
+	extTotalBitsQ3 := 0
+	if qext != nil {
+		extDec = qext.dec
+		extPulses = qext.extraPulses[:end]
+		extTotalBitsQ3 = qext.totalBitsQ3
+	}
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands,
-		func() *rangecoding.Decoder {
-			if qext == nil {
-				return nil
-			}
-			return qext.dec
-		}(), func() []int {
-			if qext == nil {
-				return nil
-			}
-			return qext.extraPulses[:end]
-		}(), func() int {
-			if qext == nil {
-				return 0
-			}
-			return qext.totalBitsQ3
-		}())
+		extDec, extPulses, extTotalBitsQ3)
 	if qext != nil {
 		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, origChannels == 1, qext)
 	}
 
 	antiCollapseOn := false
 	if antiCollapseRsv > 0 {
-		antiCollapseOn = rd.DecodeRawBits(1) == 1
+		antiCollapseOn = rd.DecodeRawBit() == 1
 	}
 
 	bitsLeft := totalBits - rd.Tell()
@@ -495,10 +477,6 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
 		return nil, ErrInvalidFrame
 	}
-	var extDec *rangecoding.Decoder
-	if qext != nil {
-		extDec = qext.dec
-	}
 	d.rng = combineFinalRange(rd, extDec)
 
 	d.channels = origChannels
@@ -528,6 +506,27 @@ func (d *Decoder) DecodeFrameHybridWithPacketStereo(rd *rangecoding.Decoder, fra
 		return d.decodeMonoPacketToStereoHybrid(rd, frameSize)
 	}
 	return d.decodeStereoPacketToMonoHybrid(rd, frameSize)
+}
+
+func (d *Decoder) DecodeFrameHybridWithPacketStereoToFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, out []float32) error {
+	outLen := frameSize * d.channels
+	if len(out) < outLen {
+		return ErrOutputTooSmall
+	}
+
+	d.directOutPCM = out[:outLen]
+	defer func() {
+		d.directOutPCM = nil
+	}()
+
+	samples, err := d.DecodeFrameHybridWithPacketStereo(rd, frameSize, packetStereo)
+	if err != nil {
+		return err
+	}
+	if len(samples) != 0 {
+		copyFloat64ToFloat32(out[:outLen], samples)
+	}
+	return nil
 }
 
 // decodeMonoPacketToStereoHybrid decodes a mono hybrid frame and duplicates to stereo output.
@@ -608,7 +607,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	postfilterTapset := 0
 	if start == 0 && tell+16 <= totalBits {
 		if rd.DecodeBit(1) == 1 {
-			octave := int(rd.DecodeUniform(6))
+			octave := int(rd.DecodeUniformSmall(6))
 			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
 			qg := int(rd.DecodeRawBits(3))
 			if rd.Tell()+2 <= totalBits {
@@ -662,19 +661,30 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	d.applyPendingPLCPrefilterAndFold()
 
 	var samples []float64
+	directPlanar := false
 	if !transient {
 		outL, outR := d.synthesizeStereoPlanarFromMonoLong(coeffsMono)
-		samples = ensureFloat64Slice(&d.scratchStereo, frameSize*2)
-		InterleaveStereoInto(outL[:frameSize], outR[:frameSize], samples[:frameSize*2])
-		samples = samples[:frameSize*2]
+		if len(d.directOutPCM) >= frameSize*2 {
+			left := outL[:frameSize]
+			right := outR[:frameSize]
+			d.applyPostfilterStereoPlanar(left, right, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+			d.applyDeemphasisAndScaleStereoPlanarToFloat32(d.directOutPCM[:frameSize*2], left, right, 1.0/32768.0)
+			directPlanar = true
+		} else {
+			samples = ensureFloat64Slice(&d.scratchStereo, frameSize*2)
+			InterleaveStereoInto(outL[:frameSize], outR[:frameSize], samples[:frameSize*2])
+			samples = samples[:frameSize*2]
+		}
 	} else {
 		coeffsL := coeffsMono
 		coeffsR := ensureFloat64Slice(&d.scratchMonoToStereoR, len(coeffsMono))
 		copy(coeffsR, coeffsMono)
 		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 	}
-	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
-	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+	if !directPlanar {
+		d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
+		d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+	}
 
 	var stereoEnergiesArr [MaxBands * 2]float64
 	stereoEnergies := stereoEnergiesArr[:]
@@ -764,7 +774,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	postfilterTapset := 0
 	if start == 0 && tell+16 <= totalBits {
 		if rd.DecodeBit(1) == 1 {
-			octave := int(rd.DecodeUniform(6))
+			octave := int(rd.DecodeUniformSmall(6))
 			postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
 			qg := int(rd.DecodeRawBits(3))
 			if rd.Tell()+2 <= totalBits {

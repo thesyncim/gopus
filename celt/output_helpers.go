@@ -206,9 +206,13 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarToFloat32(dst []float32, le
 	if n == 0 {
 		return
 	}
-	dst = dst[:n*2]
-	left = left[:n]
-	right = right[:n]
+	n2 := n * 2
+	dst = dst[:n2:n2]
+	left = left[:n:n]
+	right = right[:n:n]
+	_ = dst[n2-1]
+	_ = left[n-1]
+	_ = right[n-1]
 
 	if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
 		allZero := true
@@ -230,53 +234,7 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarToFloat32(dst []float32, le
 
 	stateL := float32(d.preemphState[0])
 	stateR := float32(d.preemphState[1])
-	_ = left[n-1]
-	_ = right[n-1]
-	_ = dst[n*2-1]
-	i := 0
-	j := 0
-	for ; i+3 < n; i, j = i+4, j+8 {
-		tmpL0 := float32(left[i]) + verySmall + stateL
-		stateL = coef * tmpL0
-		dst[j] = tmpL0 * scale32
-
-		tmpR0 := float32(right[i]) + verySmall + stateR
-		stateR = coef * tmpR0
-		dst[j+1] = tmpR0 * scale32
-
-		tmpL1 := float32(left[i+1]) + verySmall + stateL
-		stateL = coef * tmpL1
-		dst[j+2] = tmpL1 * scale32
-
-		tmpR1 := float32(right[i+1]) + verySmall + stateR
-		stateR = coef * tmpR1
-		dst[j+3] = tmpR1 * scale32
-
-		tmpL2 := float32(left[i+2]) + verySmall + stateL
-		stateL = coef * tmpL2
-		dst[j+4] = tmpL2 * scale32
-
-		tmpR2 := float32(right[i+2]) + verySmall + stateR
-		stateR = coef * tmpR2
-		dst[j+5] = tmpR2 * scale32
-
-		tmpL3 := float32(left[i+3]) + verySmall + stateL
-		stateL = coef * tmpL3
-		dst[j+6] = tmpL3 * scale32
-
-		tmpR3 := float32(right[i+3]) + verySmall + stateR
-		stateR = coef * tmpR3
-		dst[j+7] = tmpR3 * scale32
-	}
-	for ; i < n; i, j = i+1, j+2 {
-		tmpL := float32(left[i]) + verySmall + stateL
-		stateL = coef * tmpL
-		dst[j] = tmpL * scale32
-
-		tmpR := float32(right[i]) + verySmall + stateR
-		stateR = coef * tmpR
-		dst[j+1] = tmpR * scale32
-	}
+	stateL, stateR = deemphasisStereoPlanarF64ToF32Core(dst, left, right, n, scale32, stateL, stateR, coef, verySmall)
 
 	d.preemphState[0] = float64(stateL)
 	d.preemphState[1] = float64(stateR)
@@ -374,6 +332,53 @@ func (d *Decoder) applyDeemphasisAndScaleMonoFloat32ToFloat32(dst []float32, sam
 		dst[i] = tmp * scale32
 	}
 	d.preemphState[0] = float64(state)
+}
+
+func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(dst []float32, left, right []float32, scale float64) {
+	n := len(left)
+	if len(right) < n {
+		n = len(right)
+	}
+	if n == 0 {
+		return
+	}
+	if len(dst) < n*2 {
+		n = len(dst) >> 1
+	}
+	if n == 0 {
+		return
+	}
+	n2 := n * 2
+	dst = dst[:n2:n2]
+	left = left[:n:n]
+	right = right[:n:n]
+	_ = dst[n2-1]
+	_ = left[n-1]
+	_ = right[n-1]
+
+	if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
+		allZero := true
+		for i := 0; i < n; i++ {
+			if left[i] != 0 || right[i] != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero {
+			clear(dst)
+			return
+		}
+	}
+
+	const verySmall float32 = 1e-30
+	const coef float32 = float32(PreemphCoef)
+	scale32 := float32(scale)
+	stateL := float32(d.preemphState[0])
+	stateR := float32(d.preemphState[1])
+	stateL, stateR = deemphasisStereoPlanarF32Core(dst, left, right, n, scale32, stateL, stateR, coef, verySmall)
+
+	d.preemphState[0] = float64(stateL)
+	d.preemphState[1] = float64(stateR)
 }
 
 func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []float64, scale float64) {

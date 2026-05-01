@@ -329,38 +329,7 @@ func kfBfly4M1(fout []kissCpx, n int) {
 	if n <= 0 {
 		return
 	}
-	total := n << 2
-	_ = fout[total-1] // BCE hint for base+0..3 accesses.
-	for i := 0; i < total; i += 4 {
-		a0r, a0i := fout[i].r, fout[i].i
-		a1r, a1i := fout[i+1].r, fout[i+1].i
-		a2r, a2i := fout[i+2].r, fout[i+2].i
-		a3r, a3i := fout[i+3].r, fout[i+3].i
-
-		s0r := a0r - a2r
-		s0i := a0i - a2i
-		f0r := a0r + a2r
-		f0i := a0i + a2i
-
-		s1r := a1r + a3r
-		s1i := a1i + a3i
-		f2r := f0r - s1r
-		f2i := f0i - s1i
-		f0r += s1r
-		f0i += s1i
-
-		s1r = a1r - a3r
-		s1i = a1i - a3i
-		f1r := s0r + s1i
-		f1i := s0i - s1r
-		f3r := s0r - s1i
-		f3i := s0i + s1r
-
-		fout[i].r, fout[i].i = f0r, f0i
-		fout[i+1].r, fout[i+1].i = f1r, f1i
-		fout[i+2].r, fout[i+2].i = f2r, f2i
-		fout[i+3].r, fout[i+3].i = f3r, f3i
-	}
+	kfBfly4M1Core(fout, n)
 }
 
 // kfBfly3M1 handles the radix-3 m==1 path.
@@ -643,6 +612,47 @@ func KissFFT32ToWithScratch(out []complex64, x []complex64, scratch []KissCpx) {
 	kissFFT32To(out, x, scratch)
 }
 
+func kissFFT32ToScratch(x []complex64, scratch []kissCpx) []kissCpx {
+	n := len(x)
+	if n == 0 {
+		return nil
+	}
+
+	st := getKissFFTState(n)
+	if st == nil || len(st.bitrev) != n {
+		tmp := make([]complex64, n)
+		dft32FallbackTo(tmp, x)
+		if len(scratch) < n {
+			scratch = make([]kissCpx, n)
+		}
+		_ = scratch[n-1]
+		for i := 0; i < n; i++ {
+			v := tmp[i]
+			scratch[i].r = real(v)
+			scratch[i].i = imag(v)
+		}
+		return scratch[:n]
+	}
+
+	if len(scratch) < n {
+		scratch = make([]kissCpx, n)
+	}
+
+	bitrev := st.bitrev
+	_ = x[n-1]
+	_ = bitrev[n-1]
+	_ = scratch[n-1]
+	for i := 0; i < n; i++ {
+		v := x[i]
+		idx := bitrev[i]
+		scratch[idx].r = real(v)
+		scratch[idx].i = imag(v)
+	}
+
+	st.fftImpl(scratch[:n])
+	return scratch[:n]
+}
+
 // kissFFT32To performs the Kiss FFT into a caller-provided output buffer.
 // scratch must be at least len(x) to avoid allocations.
 func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
@@ -655,31 +665,10 @@ func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
 		return
 	}
 
-	st := getKissFFTState(n)
-	if st == nil || len(st.bitrev) != n {
-		// Fallback to direct DFT
-		dft32FallbackTo(out, x)
+	scratch = kissFFT32ToScratch(x, scratch)
+	if len(scratch) < n {
 		return
 	}
-
-	if len(scratch) < n {
-		scratch = make([]kissCpx, n)
-	}
-
-	// Convert to kissCpx and apply bit-reversal
-	bitrev := st.bitrev
-	_ = x[n-1]       // BCE hint
-	_ = bitrev[n-1]  // BCE hint
-	_ = scratch[n-1] // BCE hint
-	for i := 0; i < n; i++ {
-		v := x[i]
-		idx := bitrev[i]
-		scratch[idx].r = real(v)
-		scratch[idx].i = imag(v)
-	}
-
-	// Apply butterfly stages
-	st.fftImpl(scratch[:n])
 
 	// Convert back to complex64
 	_ = out[n-1] // BCE hint
@@ -697,39 +686,10 @@ func kissFFT32ToInterleaved(outRI []float32, x []complex64, scratch []kissCpx) {
 		return
 	}
 
-	st := getKissFFTState(n)
-	if st == nil || len(st.bitrev) != n {
-		// Fallback to direct DFT and interleave.
-		tmp := make([]complex64, n)
-		dft32FallbackTo(tmp, x)
-		j := 0
-		for i := 0; i < n; i++ {
-			v := tmp[i]
-			outRI[j] = real(v)
-			outRI[j+1] = imag(v)
-			j += 2
-		}
+	scratch = kissFFT32ToScratch(x, scratch)
+	if len(scratch) < n {
 		return
 	}
-
-	if len(scratch) < n {
-		scratch = make([]kissCpx, n)
-	}
-
-	// Convert to kissCpx and apply bit-reversal.
-	bitrev := st.bitrev
-	_ = x[n-1]       // BCE hint
-	_ = bitrev[n-1]  // BCE hint
-	_ = scratch[n-1] // BCE hint
-	for i := 0; i < n; i++ {
-		v := x[i]
-		idx := bitrev[i]
-		scratch[idx].r = real(v)
-		scratch[idx].i = imag(v)
-	}
-
-	// Apply butterfly stages.
-	st.fftImpl(scratch[:n])
 
 	// Interleave output directly into float32 buffer.
 	_ = outRI[2*n-1] // BCE hint

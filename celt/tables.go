@@ -49,6 +49,11 @@ var EBands = [22]int{
 	78, 100,
 }
 
+var eBandWidths = [MaxBands]int{
+	1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2,
+	2, 4, 4, 4, 6, 6, 8, 12, 18, 22,
+}
+
 // AlphaCoef contains inter-frame energy prediction coefficients by LM (log mode).
 // Used for coarse energy decoding in inter-frame mode.
 // Index corresponds to LM: 0=2.5ms, 1=5ms, 2=10ms, 3=20ms
@@ -298,7 +303,7 @@ func BandWidth(band int) int {
 	if band < 0 || band >= MaxBands {
 		return 0
 	}
-	return EBands[band+1] - EBands[band]
+	return eBandWidths[band]
 }
 
 // ScaledBandStart returns the scaled MDCT bin index for the start of a band.
@@ -326,5 +331,5 @@ func ScaledBandWidth(band, frameSize int) int {
 		return 0
 	}
 	scale := frameSize / Overlap
-	return (EBands[band+1] - EBands[band]) * scale
+	return eBandWidths[band] * scale
 }

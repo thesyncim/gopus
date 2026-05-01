@@ -69,7 +69,7 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 	st.indices.quantOffsetType = int8(ix & 1)
 
 	if condCoding == codeConditionally {
-		st.indices.GainsIndices[0] = int8(rd.DecodeICDF8Unchecked(silk_delta_gain_iCDF))
+		st.indices.GainsIndices[0] = int8(rd.DecodeICDF8Linear(silk_delta_gain_iCDF))
 	} else {
 		msb := rd.DecodeICDF8Unchecked(silk_gain_iCDF[int(st.indices.signalType)])
 		lsb := rd.DecodeICDF8Unchecked(silk_uniform8_iCDF)
@@ -77,13 +77,13 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 	}
 
 	for i := 1; i < st.nbSubfr; i++ {
-		st.indices.GainsIndices[i] = int8(rd.DecodeICDF8Unchecked(silk_delta_gain_iCDF))
+		st.indices.GainsIndices[i] = int8(rd.DecodeICDF8Linear(silk_delta_gain_iCDF))
 	}
 
 	cb := st.nlsfCB
 	stypeBand := int(st.indices.signalType) >> 1
 	cb1Offset := stypeBand * cb.nVectors
-	st.indices.NLSFIndices[0] = int8(rd.DecodeICDF8Unchecked(cb.cb1ICDF[cb1Offset:]))
+	st.indices.NLSFIndices[0] = int8(rd.DecodeICDF8Linear(cb.cb1ICDF[cb1Offset:]))
 
 	// Use pre-allocated scratch buffers if available
 	var ecIx []int16
@@ -101,11 +101,11 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 	silkNLSFUnpack(ecIx, predQ8, cb, int(st.indices.NLSFIndices[0]))
 
 	for i := 0; i < cb.order; i++ {
-		idx := rd.DecodeICDF8Unchecked(cb.ecICDF[int(ecIx[i]):])
+		idx := rd.DecodeICDF9_8Slice(cb.ecICDF[int(ecIx[i]):])
 		if idx == 0 {
-			idx -= rd.DecodeICDF8Unchecked(silk_NLSF_EXT_iCDF)
+			idx -= rd.DecodeICDF7_8Slice(silk_NLSF_EXT_iCDF)
 		} else if idx == 2*nlsfQuantMaxAmplitude {
-			idx += rd.DecodeICDF8Unchecked(silk_NLSF_EXT_iCDF)
+			idx += rd.DecodeICDF7_8Slice(silk_NLSF_EXT_iCDF)
 		}
 		st.indices.NLSFIndices[i+1] = int8(idx - nlsfQuantMaxAmplitude)
 	}
@@ -119,7 +119,7 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 	if st.indices.signalType == typeVoiced {
 		decodeAbsolute := true
 		if condCoding == codeConditionally && st.ecPrevSignalType == typeVoiced {
-			deltaLag := rd.DecodeICDF8Unchecked(silk_pitch_delta_iCDF)
+			deltaLag := rd.DecodeICDF8Linear(silk_pitch_delta_iCDF)
 			if deltaLag > 0 {
 				deltaLag -= 9
 				st.indices.lagIndex = int16(st.ecPrevLagIndex + deltaLag)
@@ -127,15 +127,24 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 			}
 		}
 		if decodeAbsolute {
-			st.indices.lagIndex = int16(rd.DecodeICDF8Unchecked(silk_pitch_lag_iCDF) * (st.fsKHz >> 1))
+			st.indices.lagIndex = int16(rd.DecodeICDF8Linear(silk_pitch_lag_iCDF) * (st.fsKHz >> 1))
 			st.indices.lagIndex += int16(rd.DecodeICDF8Unchecked(st.pitchLagLowBitsICDF))
 		}
 		st.ecPrevLagIndex = int(st.indices.lagIndex)
-		st.indices.contourIndex = int8(rd.DecodeICDF8Unchecked(st.pitchContourICDF))
+		if len(st.pitchContourICDF) > 8 {
+			st.indices.contourIndex = int8(rd.DecodeICDF8Linear(st.pitchContourICDF))
+		} else {
+			st.indices.contourIndex = int8(rd.DecodeICDF8Unchecked(st.pitchContourICDF))
+		}
 
 		st.indices.PERIndex = int8(rd.DecodeICDF8Unchecked(silk_LTP_per_index_iCDF))
 		for k := 0; k < st.nbSubfr; k++ {
-			st.indices.LTPIndex[k] = int8(rd.DecodeICDF8Unchecked(silk_LTP_gain_iCDF_ptrs[int(st.indices.PERIndex)]))
+			ltpICDF := silk_LTP_gain_iCDF_ptrs[int(st.indices.PERIndex)]
+			if st.indices.PERIndex == 0 {
+				st.indices.LTPIndex[k] = int8(rd.DecodeICDF8Unchecked(ltpICDF))
+			} else {
+				st.indices.LTPIndex[k] = int8(rd.DecodeICDF8Linear(ltpICDF))
+			}
 		}
 		if condCoding == codeIndependently {
 			st.indices.LTPScaleIndex = int8(rd.DecodeICDF8Unchecked(silk_LTPscale_iCDF))
@@ -154,36 +163,50 @@ func silkShellDecoder(pulses []int16, rd *rangecoding.Decoder, pulses4 int) {
 	var pulses2 [4]int16
 	var pulses1 [8]int16
 
-	decodeSplit := func(c1, c2 *int16, p int, table []uint8) {
+	decodeSplit := func(c1, c2 *int16, p int, rows *[17][]uint8) {
 		if p > 0 {
-			*c1 = int16(rd.DecodeICDF8Unchecked(table[silk_shell_code_table_offsets[p]:]))
-			*c2 = int16(p - int(*c1))
+			row := rows[p]
+			var split int
+			switch p {
+			case 1:
+				split = rd.DecodeICDF2_8(row[0])
+			case 2:
+				split = rd.DecodeICDF3_8(row[0], row[1])
+			case 3:
+				split = rd.DecodeICDF4_8(row[0], row[1], row[2])
+			case 4:
+				split = rd.DecodeICDF5_8(row[0], row[1], row[2], row[3])
+			default:
+				split = rd.DecodeICDF8Unchecked(row)
+			}
+			*c1 = int16(split)
+			*c2 = int16(p - split)
 		} else {
 			*c1 = 0
 			*c2 = 0
 		}
 	}
 
-	decodeSplit(&pulses3[0], &pulses3[1], pulses4, silk_shell_code_table3)
-	decodeSplit(&pulses2[0], &pulses2[1], int(pulses3[0]), silk_shell_code_table2)
+	decodeSplit(&pulses3[0], &pulses3[1], pulses4, &silk_shell_code_table3_rows)
+	decodeSplit(&pulses2[0], &pulses2[1], int(pulses3[0]), &silk_shell_code_table2_rows)
 
-	decodeSplit(&pulses1[0], &pulses1[1], int(pulses2[0]), silk_shell_code_table1)
-	decodeSplit(&pulses[0], &pulses[1], int(pulses1[0]), silk_shell_code_table0)
-	decodeSplit(&pulses[2], &pulses[3], int(pulses1[1]), silk_shell_code_table0)
+	decodeSplit(&pulses1[0], &pulses1[1], int(pulses2[0]), &silk_shell_code_table1_rows)
+	decodeSplit(&pulses[0], &pulses[1], int(pulses1[0]), &silk_shell_code_table0_rows)
+	decodeSplit(&pulses[2], &pulses[3], int(pulses1[1]), &silk_shell_code_table0_rows)
 
-	decodeSplit(&pulses1[2], &pulses1[3], int(pulses2[1]), silk_shell_code_table1)
-	decodeSplit(&pulses[4], &pulses[5], int(pulses1[2]), silk_shell_code_table0)
-	decodeSplit(&pulses[6], &pulses[7], int(pulses1[3]), silk_shell_code_table0)
+	decodeSplit(&pulses1[2], &pulses1[3], int(pulses2[1]), &silk_shell_code_table1_rows)
+	decodeSplit(&pulses[4], &pulses[5], int(pulses1[2]), &silk_shell_code_table0_rows)
+	decodeSplit(&pulses[6], &pulses[7], int(pulses1[3]), &silk_shell_code_table0_rows)
 
-	decodeSplit(&pulses2[2], &pulses2[3], int(pulses3[1]), silk_shell_code_table2)
+	decodeSplit(&pulses2[2], &pulses2[3], int(pulses3[1]), &silk_shell_code_table2_rows)
 
-	decodeSplit(&pulses1[4], &pulses1[5], int(pulses2[2]), silk_shell_code_table1)
-	decodeSplit(&pulses[8], &pulses[9], int(pulses1[4]), silk_shell_code_table0)
-	decodeSplit(&pulses[10], &pulses[11], int(pulses1[5]), silk_shell_code_table0)
+	decodeSplit(&pulses1[4], &pulses1[5], int(pulses2[2]), &silk_shell_code_table1_rows)
+	decodeSplit(&pulses[8], &pulses[9], int(pulses1[4]), &silk_shell_code_table0_rows)
+	decodeSplit(&pulses[10], &pulses[11], int(pulses1[5]), &silk_shell_code_table0_rows)
 
-	decodeSplit(&pulses1[6], &pulses1[7], int(pulses2[3]), silk_shell_code_table1)
-	decodeSplit(&pulses[12], &pulses[13], int(pulses1[6]), silk_shell_code_table0)
-	decodeSplit(&pulses[14], &pulses[15], int(pulses1[7]), silk_shell_code_table0)
+	decodeSplit(&pulses1[6], &pulses1[7], int(pulses2[3]), &silk_shell_code_table1_rows)
+	decodeSplit(&pulses[12], &pulses[13], int(pulses1[6]), &silk_shell_code_table0_rows)
+	decodeSplit(&pulses[14], &pulses[15], int(pulses1[7]), &silk_shell_code_table0_rows)
 }
 
 func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signalType int, quantOffsetType int, sumPulses []int) {
@@ -195,14 +218,12 @@ func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signal
 		p := sumPulses[i]
 		if p > 0 {
 			icdf0 := icdfPtr[silkMinInt(p&0x1F, 6)]
-			for j := 0; j < shellCodecFrameLength; j++ {
-				if pulses[qPtr+j] > 0 {
-					sign := rd.DecodeICDF2_8(icdf0)
-					if sign == 0 {
-						pulses[qPtr+j] = -pulses[qPtr+j]
-					}
-				}
+			block := pulses[qPtr : qPtr+shellCodecFrameLength]
+			pulseSum := 0
+			if p>>5 == 0 {
+				pulseSum = p
 			}
+			rd.DecodeICDF2_8SignBlock(icdf0, block, pulseSum)
 		}
 		qPtr += shellCodecFrameLength
 	}
@@ -214,7 +235,7 @@ func silkDecodePulses(rd *rangecoding.Decoder, pulses []int16, signalType int, q
 
 // silkDecodePulsesWithScratch is like silkDecodePulses but uses pre-allocated scratch buffers.
 func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signalType int, quantOffsetType int, frameLength int, scratchSumPulses, scratchNLshifts []int) {
-	rateLevel := rd.DecodeICDF8Unchecked(silk_rate_levels_iCDF[signalType>>1])
+	rateLevel := rd.DecodeICDF9_8Slice(silk_rate_levels_iCDF[signalType>>1])
 	iter := frameLength >> log2ShellCodecFrameLength
 	if iter*shellCodecFrameLength < frameLength {
 		iter++
@@ -236,14 +257,14 @@ func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signal
 	cdfPtr := silk_pulses_per_block_iCDF[rateLevel]
 	for i := 0; i < iter; i++ {
 		nLshifts[i] = 0
-		sumPulses[i] = rd.DecodeICDF8Unchecked(cdfPtr)
+		sumPulses[i] = rd.DecodeICDF8Linear(cdfPtr)
 		for sumPulses[i] == silkMaxPulses+1 {
 			nLshifts[i]++
 			table := silk_pulses_per_block_iCDF[nRateLevels-1]
 			if nLshifts[i] == 10 {
 				table = table[1:]
 			}
-			sumPulses[i] = rd.DecodeICDF8Unchecked(table)
+			sumPulses[i] = rd.DecodeICDF8Linear(table)
 		}
 	}
 
@@ -564,83 +585,7 @@ func synthesizeLPCOrder10(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []in
 // synthesizeLPCOrder16 computes LPC synthesis for WB (order 16).
 // This is a decode-core hot path and keeps the exact operation order.
 func synthesizeLPCOrder16(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength int) {
-	c0 := int32(A_Q12[0])
-	c1 := int32(A_Q12[1])
-	c2 := int32(A_Q12[2])
-	c3 := int32(A_Q12[3])
-	c4 := int32(A_Q12[4])
-	c5 := int32(A_Q12[5])
-	c6 := int32(A_Q12[6])
-	c7 := int32(A_Q12[7])
-	c8 := int32(A_Q12[8])
-	c9 := int32(A_Q12[9])
-	c10 := int32(A_Q12[10])
-	c11 := int32(A_Q12[11])
-	c12 := int32(A_Q12[12])
-	c13 := int32(A_Q12[13])
-	c14 := int32(A_Q12[14])
-	c15 := int32(A_Q12[15])
-
-	// Keep the last 16 samples in locals and slide every iteration.
-	v0 := sLPC[maxLPCOrder-1]
-	v1 := sLPC[maxLPCOrder-2]
-	v2 := sLPC[maxLPCOrder-3]
-	v3 := sLPC[maxLPCOrder-4]
-	v4 := sLPC[maxLPCOrder-5]
-	v5 := sLPC[maxLPCOrder-6]
-	v6 := sLPC[maxLPCOrder-7]
-	v7 := sLPC[maxLPCOrder-8]
-	v8 := sLPC[maxLPCOrder-9]
-	v9 := sLPC[maxLPCOrder-10]
-	v10 := sLPC[maxLPCOrder-11]
-	v11 := sLPC[maxLPCOrder-12]
-	v12 := sLPC[maxLPCOrder-13]
-	v13 := sLPC[maxLPCOrder-14]
-	v14 := sLPC[maxLPCOrder-15]
-	v15 := sLPC[maxLPCOrder-16]
-
-	sIdx := maxLPCOrder
-	for i := 0; i < subfrLength; i++ {
-		lpcPredQ10 := int32(maxLPCOrder >> 1)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v0, c0)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v1, c1)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v2, c2)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v3, c3)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v4, c4)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v5, c5)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v6, c6)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v7, c7)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v8, c8)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v9, c9)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v10, c10)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v11, c11)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v12, c12)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v13, c13)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v14, c14)
-		lpcPredQ10 = silkSMLAWB(lpcPredQ10, v15, c15)
-
-		s := silkAddSat32(presQ14[i], lShiftSAT32By4(lpcPredQ10))
-		sLPC[sIdx] = s
-		pxq[i] = silkSAT16(silkRSHIFT_ROUND(silkSMULWW(s, gainQ10), 8))
-		sIdx++
-
-		v15 = v14
-		v14 = v13
-		v13 = v12
-		v12 = v11
-		v11 = v10
-		v10 = v9
-		v9 = v8
-		v8 = v7
-		v7 = v6
-		v6 = v5
-		v5 = v4
-		v4 = v3
-		v3 = v2
-		v2 = v1
-		v1 = v0
-		v0 = s
-	}
+	synthesizeLPCOrder16Core(sLPC, A_Q12, presQ14, pxq, gainQ10, subfrLength)
 }
 
 func synthesizeLPCGeneric(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []int16, gainQ10 int32, subfrLength, order int) {
@@ -660,20 +605,20 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 	interpFlag := st.indices.NLSFInterpCoefQ2 < 4
 
 	randSeed := int32(st.indices.Seed)
+	offsetQ14 := int32(offsetQ10) << 4
+	quantAdjustQ14 := int32(quantLevelAdjustQ10 << 4)
 	for i := 0; i < st.frameLength; i++ {
 		randSeed = silkRand(randSeed)
-		exc := int32(pulses[i]) << 14
-		if exc > 0 {
-			exc -= quantLevelAdjustQ10 << 4
-		} else if exc < 0 {
-			exc += quantLevelAdjustQ10 << 4
-		}
-		exc += int32(offsetQ10) << 4
-		if randSeed < 0 {
-			exc = -exc
-		}
+		pulse := int32(pulses[i])
+		exc := pulse << 14
+		negPulseMask := pulse >> 31
+		posPulseMask := (-pulse) >> 31
+		exc += (negPulseMask & quantAdjustQ14) - (posPulseMask & quantAdjustQ14)
+		exc += offsetQ14
+		seedMask := randSeed >> 31
+		exc = (exc ^ seedMask) - seedMask
 		st.excQ14[i] = exc
-		randSeed += int32(pulses[i])
+		randSeed += pulse
 	}
 
 	bufs := initDecodeCoreBuffers(st)

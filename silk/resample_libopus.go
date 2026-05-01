@@ -420,12 +420,7 @@ func writeInt16AsFloat32(dst []float32, src []int16) int {
 		written = len(dst)
 	}
 	if written > 0 {
-		_ = dst[written-1] // BCE hint
-		_ = src[written-1] // BCE hint
-		const inv32768 = 1.0 / 32768.0
-		for i := 0; i < written; i++ {
-			dst[i] = float32(src[i]) * inv32768
-		}
+		writeInt16AsFloat32Core(dst[:written:written], src[:written:written], written)
 	}
 	return written
 }
@@ -621,39 +616,44 @@ func (r *LibopusResampler) firInterpol21846(out []int16, outIdx int, buf []int16
 	lastBufIdx := (nOut - 1) / 3
 	_ = buf[lastBufIdx+7]
 
+	firInterpol21846Core(dst, buf, nOut)
+	return outIdx + nOut
+}
+
+func firInterpol21846CoreGo(dst []int16, buf []int16, nOut int) {
 	groups := nOut / 3
 	j := 0
 	for idx := 0; idx < groups; idx++ {
-		_ = buf[idx+7]
+		buf8 := buf[idx : idx+8]
 
-		resQ15 := int32(buf[idx+0])*fir0c0 +
-			int32(buf[idx+1])*fir0c1 +
-			int32(buf[idx+2])*fir0c2 +
-			int32(buf[idx+3])*fir0c3 +
-			int32(buf[idx+4])*fir0c4 +
-			int32(buf[idx+5])*fir0c5 +
-			int32(buf[idx+6])*fir0c6 +
-			int32(buf[idx+7])*fir0c7
+		resQ15 := int32(buf8[0])*fir0c0 +
+			int32(buf8[1])*fir0c1 +
+			int32(buf8[2])*fir0c2 +
+			int32(buf8[3])*fir0c3 +
+			int32(buf8[4])*fir0c4 +
+			int32(buf8[5])*fir0c5 +
+			int32(buf8[6])*fir0c6 +
+			int32(buf8[7])*fir0c7
 		dst[j] = sat16RShiftRound15(resQ15)
 
-		resQ15 = int32(buf[idx+0])*fir4c0 +
-			int32(buf[idx+1])*fir4c1 +
-			int32(buf[idx+2])*fir4c2 +
-			int32(buf[idx+3])*fir4c3 +
-			int32(buf[idx+4])*fir4c4 +
-			int32(buf[idx+5])*fir4c5 +
-			int32(buf[idx+6])*fir4c6 +
-			int32(buf[idx+7])*fir4c7
+		resQ15 = int32(buf8[0])*fir4c0 +
+			int32(buf8[1])*fir4c1 +
+			int32(buf8[2])*fir4c2 +
+			int32(buf8[3])*fir4c3 +
+			int32(buf8[4])*fir4c4 +
+			int32(buf8[5])*fir4c5 +
+			int32(buf8[6])*fir4c6 +
+			int32(buf8[7])*fir4c7
 		dst[j+1] = sat16RShiftRound15(resQ15)
 
-		resQ15 = int32(buf[idx+0])*fir8c0 +
-			int32(buf[idx+1])*fir8c1 +
-			int32(buf[idx+2])*fir8c2 +
-			int32(buf[idx+3])*fir8c3 +
-			int32(buf[idx+4])*fir8c4 +
-			int32(buf[idx+5])*fir8c5 +
-			int32(buf[idx+6])*fir8c6 +
-			int32(buf[idx+7])*fir8c7
+		resQ15 = int32(buf8[0])*fir8c0 +
+			int32(buf8[1])*fir8c1 +
+			int32(buf8[2])*fir8c2 +
+			int32(buf8[3])*fir8c3 +
+			int32(buf8[4])*fir8c4 +
+			int32(buf8[5])*fir8c5 +
+			int32(buf8[6])*fir8c6 +
+			int32(buf8[7])*fir8c7
 		dst[j+2] = sat16RShiftRound15(resQ15)
 
 		j += 3
@@ -661,31 +661,29 @@ func (r *LibopusResampler) firInterpol21846(out []int16, outIdx int, buf []int16
 
 	if j < nOut {
 		idx := groups
-		_ = buf[idx+7]
-		resQ15 := int32(buf[idx+0])*fir0c0 +
-			int32(buf[idx+1])*fir0c1 +
-			int32(buf[idx+2])*fir0c2 +
-			int32(buf[idx+3])*fir0c3 +
-			int32(buf[idx+4])*fir0c4 +
-			int32(buf[idx+5])*fir0c5 +
-			int32(buf[idx+6])*fir0c6 +
-			int32(buf[idx+7])*fir0c7
+		buf8 := buf[idx : idx+8]
+		resQ15 := int32(buf8[0])*fir0c0 +
+			int32(buf8[1])*fir0c1 +
+			int32(buf8[2])*fir0c2 +
+			int32(buf8[3])*fir0c3 +
+			int32(buf8[4])*fir0c4 +
+			int32(buf8[5])*fir0c5 +
+			int32(buf8[6])*fir0c6 +
+			int32(buf8[7])*fir0c7
 		dst[j] = sat16RShiftRound15(resQ15)
 		j++
 		if j < nOut {
-			resQ15 = int32(buf[idx+0])*fir4c0 +
-				int32(buf[idx+1])*fir4c1 +
-				int32(buf[idx+2])*fir4c2 +
-				int32(buf[idx+3])*fir4c3 +
-				int32(buf[idx+4])*fir4c4 +
-				int32(buf[idx+5])*fir4c5 +
-				int32(buf[idx+6])*fir4c6 +
-				int32(buf[idx+7])*fir4c7
+			resQ15 = int32(buf8[0])*fir4c0 +
+				int32(buf8[1])*fir4c1 +
+				int32(buf8[2])*fir4c2 +
+				int32(buf8[3])*fir4c3 +
+				int32(buf8[4])*fir4c4 +
+				int32(buf8[5])*fir4c5 +
+				int32(buf8[6])*fir4c6 +
+				int32(buf8[7])*fir4c7
 			dst[j] = sat16RShiftRound15(resQ15)
 		}
 	}
-
-	return outIdx + nOut
 }
 
 func (r *LibopusResampler) firInterpol32768(out []int16, outIdx int, buf []int16, nOut int) int {
@@ -694,29 +692,34 @@ func (r *LibopusResampler) firInterpol32768(out []int16, outIdx int, buf []int16
 	lastBufIdx := (nOut - 1) >> 1
 	_ = buf[lastBufIdx+7]
 
+	firInterpol32768Core(dst, buf, nOut)
+	return outIdx + nOut
+}
+
+func firInterpol32768CoreGo(dst []int16, buf []int16, nOut int) {
 	groups := nOut >> 1
 	j := 0
 	for idx := 0; idx < groups; idx++ {
-		_ = buf[idx+7]
+		buf8 := buf[idx : idx+8]
 
-		resQ15 := int32(buf[idx+0])*fir0c0 +
-			int32(buf[idx+1])*fir0c1 +
-			int32(buf[idx+2])*fir0c2 +
-			int32(buf[idx+3])*fir0c3 +
-			int32(buf[idx+4])*fir0c4 +
-			int32(buf[idx+5])*fir0c5 +
-			int32(buf[idx+6])*fir0c6 +
-			int32(buf[idx+7])*fir0c7
+		resQ15 := int32(buf8[0])*fir0c0 +
+			int32(buf8[1])*fir0c1 +
+			int32(buf8[2])*fir0c2 +
+			int32(buf8[3])*fir0c3 +
+			int32(buf8[4])*fir0c4 +
+			int32(buf8[5])*fir0c5 +
+			int32(buf8[6])*fir0c6 +
+			int32(buf8[7])*fir0c7
 		dst[j] = sat16RShiftRound15(resQ15)
 
-		resQ15 = int32(buf[idx+0])*fir6c0 +
-			int32(buf[idx+1])*fir6c1 +
-			int32(buf[idx+2])*fir6c2 +
-			int32(buf[idx+3])*fir6c3 +
-			int32(buf[idx+4])*fir6c4 +
-			int32(buf[idx+5])*fir6c5 +
-			int32(buf[idx+6])*fir6c6 +
-			int32(buf[idx+7])*fir6c7
+		resQ15 = int32(buf8[0])*fir6c0 +
+			int32(buf8[1])*fir6c1 +
+			int32(buf8[2])*fir6c2 +
+			int32(buf8[3])*fir6c3 +
+			int32(buf8[4])*fir6c4 +
+			int32(buf8[5])*fir6c5 +
+			int32(buf8[6])*fir6c6 +
+			int32(buf8[7])*fir6c7
 		dst[j+1] = sat16RShiftRound15(resQ15)
 
 		j += 2
@@ -724,19 +727,17 @@ func (r *LibopusResampler) firInterpol32768(out []int16, outIdx int, buf []int16
 
 	if j < nOut {
 		idx := groups
-		_ = buf[idx+7]
-		resQ15 := int32(buf[idx+0])*fir0c0 +
-			int32(buf[idx+1])*fir0c1 +
-			int32(buf[idx+2])*fir0c2 +
-			int32(buf[idx+3])*fir0c3 +
-			int32(buf[idx+4])*fir0c4 +
-			int32(buf[idx+5])*fir0c5 +
-			int32(buf[idx+6])*fir0c6 +
-			int32(buf[idx+7])*fir0c7
+		buf8 := buf[idx : idx+8]
+		resQ15 := int32(buf8[0])*fir0c0 +
+			int32(buf8[1])*fir0c1 +
+			int32(buf8[2])*fir0c2 +
+			int32(buf8[3])*fir0c3 +
+			int32(buf8[4])*fir0c4 +
+			int32(buf8[5])*fir0c5 +
+			int32(buf8[6])*fir0c6 +
+			int32(buf8[7])*fir0c7
 		dst[j] = sat16RShiftRound15(resQ15)
 	}
-
-	return outIdx + nOut
 }
 
 func (r *LibopusResampler) firInterpol43691(out []int16, outIdx int, buf []int16, nOut int) int {
@@ -745,41 +746,47 @@ func (r *LibopusResampler) firInterpol43691(out []int16, outIdx int, buf []int16
 	lastBufIdx := (2 * (nOut - 1)) / 3
 	_ = buf[lastBufIdx+7]
 
+	firInterpol43691Core(dst, buf, nOut)
+	return outIdx + nOut
+}
+
+func firInterpol43691CoreGo(dst []int16, buf []int16, nOut int) {
 	groups := nOut / 3
 	j := 0
 	for g := 0; g < groups; g++ {
 		idx := g << 1
-		_ = buf[idx+8]
+		buf8 := buf[idx : idx+8]
 
-		resQ15 := int32(buf[idx+0])*fir0c0 +
-			int32(buf[idx+1])*fir0c1 +
-			int32(buf[idx+2])*fir0c2 +
-			int32(buf[idx+3])*fir0c3 +
-			int32(buf[idx+4])*fir0c4 +
-			int32(buf[idx+5])*fir0c5 +
-			int32(buf[idx+6])*fir0c6 +
-			int32(buf[idx+7])*fir0c7
+		resQ15 := int32(buf8[0])*fir0c0 +
+			int32(buf8[1])*fir0c1 +
+			int32(buf8[2])*fir0c2 +
+			int32(buf8[3])*fir0c3 +
+			int32(buf8[4])*fir0c4 +
+			int32(buf8[5])*fir0c5 +
+			int32(buf8[6])*fir0c6 +
+			int32(buf8[7])*fir0c7
 		dst[j] = sat16RShiftRound15(resQ15)
 
-		resQ15 = int32(buf[idx+0])*fir8c0 +
-			int32(buf[idx+1])*fir8c1 +
-			int32(buf[idx+2])*fir8c2 +
-			int32(buf[idx+3])*fir8c3 +
-			int32(buf[idx+4])*fir8c4 +
-			int32(buf[idx+5])*fir8c5 +
-			int32(buf[idx+6])*fir8c6 +
-			int32(buf[idx+7])*fir8c7
+		resQ15 = int32(buf8[0])*fir8c0 +
+			int32(buf8[1])*fir8c1 +
+			int32(buf8[2])*fir8c2 +
+			int32(buf8[3])*fir8c3 +
+			int32(buf8[4])*fir8c4 +
+			int32(buf8[5])*fir8c5 +
+			int32(buf8[6])*fir8c6 +
+			int32(buf8[7])*fir8c7
 		dst[j+1] = sat16RShiftRound15(resQ15)
 
 		idx++
-		resQ15 = int32(buf[idx+0])*fir4c0 +
-			int32(buf[idx+1])*fir4c1 +
-			int32(buf[idx+2])*fir4c2 +
-			int32(buf[idx+3])*fir4c3 +
-			int32(buf[idx+4])*fir4c4 +
-			int32(buf[idx+5])*fir4c5 +
-			int32(buf[idx+6])*fir4c6 +
-			int32(buf[idx+7])*fir4c7
+		buf8 = buf[idx : idx+8]
+		resQ15 = int32(buf8[0])*fir4c0 +
+			int32(buf8[1])*fir4c1 +
+			int32(buf8[2])*fir4c2 +
+			int32(buf8[3])*fir4c3 +
+			int32(buf8[4])*fir4c4 +
+			int32(buf8[5])*fir4c5 +
+			int32(buf8[6])*fir4c6 +
+			int32(buf8[7])*fir4c7
 		dst[j+2] = sat16RShiftRound15(resQ15)
 
 		j += 3
@@ -787,31 +794,29 @@ func (r *LibopusResampler) firInterpol43691(out []int16, outIdx int, buf []int16
 
 	if j < nOut {
 		idx := groups << 1
-		_ = buf[idx+7]
-		resQ15 := int32(buf[idx+0])*fir0c0 +
-			int32(buf[idx+1])*fir0c1 +
-			int32(buf[idx+2])*fir0c2 +
-			int32(buf[idx+3])*fir0c3 +
-			int32(buf[idx+4])*fir0c4 +
-			int32(buf[idx+5])*fir0c5 +
-			int32(buf[idx+6])*fir0c6 +
-			int32(buf[idx+7])*fir0c7
+		buf8 := buf[idx : idx+8]
+		resQ15 := int32(buf8[0])*fir0c0 +
+			int32(buf8[1])*fir0c1 +
+			int32(buf8[2])*fir0c2 +
+			int32(buf8[3])*fir0c3 +
+			int32(buf8[4])*fir0c4 +
+			int32(buf8[5])*fir0c5 +
+			int32(buf8[6])*fir0c6 +
+			int32(buf8[7])*fir0c7
 		dst[j] = sat16RShiftRound15(resQ15)
 		j++
 		if j < nOut {
-			resQ15 = int32(buf[idx+0])*fir8c0 +
-				int32(buf[idx+1])*fir8c1 +
-				int32(buf[idx+2])*fir8c2 +
-				int32(buf[idx+3])*fir8c3 +
-				int32(buf[idx+4])*fir8c4 +
-				int32(buf[idx+5])*fir8c5 +
-				int32(buf[idx+6])*fir8c6 +
-				int32(buf[idx+7])*fir8c7
+			resQ15 = int32(buf8[0])*fir8c0 +
+				int32(buf8[1])*fir8c1 +
+				int32(buf8[2])*fir8c2 +
+				int32(buf8[3])*fir8c3 +
+				int32(buf8[4])*fir8c4 +
+				int32(buf8[5])*fir8c5 +
+				int32(buf8[6])*fir8c6 +
+				int32(buf8[7])*fir8c7
 			dst[j] = sat16RShiftRound15(resQ15)
 		}
 	}
-
-	return outIdx + nOut
 }
 
 func (r *LibopusResampler) firInterpol65536(out []int16, outIdx int, buf []int16, nOut int) int {
@@ -820,15 +825,15 @@ func (r *LibopusResampler) firInterpol65536(out []int16, outIdx int, buf []int16
 	_ = buf[nOut+6]
 
 	for idx := 0; idx < nOut; idx++ {
-		_ = buf[idx+7]
-		resQ15 := int32(buf[idx+0])*fir0c0 +
-			int32(buf[idx+1])*fir0c1 +
-			int32(buf[idx+2])*fir0c2 +
-			int32(buf[idx+3])*fir0c3 +
-			int32(buf[idx+4])*fir0c4 +
-			int32(buf[idx+5])*fir0c5 +
-			int32(buf[idx+6])*fir0c6 +
-			int32(buf[idx+7])*fir0c7
+		buf8 := buf[idx : idx+8]
+		resQ15 := int32(buf8[0])*fir0c0 +
+			int32(buf8[1])*fir0c1 +
+			int32(buf8[2])*fir0c2 +
+			int32(buf8[3])*fir0c3 +
+			int32(buf8[4])*fir0c4 +
+			int32(buf8[5])*fir0c5 +
+			int32(buf8[6])*fir0c6 +
+			int32(buf8[7])*fir0c7
 		dst[idx] = sat16RShiftRound15(resQ15)
 	}
 

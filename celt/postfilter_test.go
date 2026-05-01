@@ -486,6 +486,7 @@ func TestApplyPostfilterNoGainBypassMono(t *testing.T) {
 	}
 	histBefore := make([]float64, len(d.postfilterMem))
 	copy(histBefore, d.postfilterMem)
+	copy(d.plcDecodeMem[plcDecodeBufferSize-combFilterHistory:], histBefore)
 
 	d.postfilterPeriod = 0
 	d.postfilterGain = 0
@@ -506,6 +507,10 @@ func TestApplyPostfilterNoGainBypassMono(t *testing.T) {
 	expectedHist := make([]float64, history)
 	copy(expectedHist, histBefore[frameSize:])
 	copy(expectedHist[history-frameSize:], samplesBefore)
+	if !d.postfilterMemFromPLC {
+		t.Fatal("postfilter history should be lazy-backed by PLC history")
+	}
+	d.materializePostfilterHistoryFromPLC()
 	for i := 0; i < history; i++ {
 		if d.postfilterMem[i] != expectedHist[i] {
 			t.Fatalf("history[%d] mismatch: got=%v want=%v", i, d.postfilterMem[i], expectedHist[i])
@@ -536,6 +541,12 @@ func TestApplyPostfilterNoGainBypassStereo(t *testing.T) {
 	}
 	histBefore := make([]float64, len(d.postfilterMem))
 	copy(histBefore, d.postfilterMem)
+	for ch := 0; ch < 2; ch++ {
+		copy(
+			d.plcDecodeMem[ch*plcDecodeBufferSize+plcDecodeBufferSize-combFilterHistory:(ch+1)*plcDecodeBufferSize],
+			histBefore[ch*combFilterHistory:(ch+1)*combFilterHistory],
+		)
+	}
 
 	d.postfilterPeriod = 0
 	d.postfilterGain = 0
@@ -565,6 +576,10 @@ func TestApplyPostfilterNoGainBypassStereo(t *testing.T) {
 			src += 2
 		}
 	}
+	if !d.postfilterMemFromPLC {
+		t.Fatal("postfilter history should be lazy-backed by PLC history")
+	}
+	d.materializePostfilterHistoryFromPLC()
 	for i := range expected {
 		if d.postfilterMem[i] != expected[i] {
 			t.Fatalf("history[%d] mismatch: got=%v want=%v", i, d.postfilterMem[i], expected[i])

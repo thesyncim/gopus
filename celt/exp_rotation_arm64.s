@@ -165,119 +165,68 @@ TEXT ·expRotation1Stride1(SB), NOSPLIT, $0-48
 	BLT   stride1_done
 
 	// ===== FORWARD PASS =====
-	// i from 0 while i+1 < length-1, step 2.
-	MOVD  ZR, R2
-	SUB   $2, R1, R3
-
-stride1_fwd_unroll:
-	CMP   R3, R2
-	BGE   stride1_fwd_scalar_init
-
-	LSL   $3, R2, R4
-	ADD   R0, R4, R4              // R4 = &x[i]
-	FMOVD (R4), F3                // x[i]
-	FMOVD 8(R4), F4               // x[i+1]
-
-	// x[i+1] = c*x[i+1] + s*x[i]
-	FMULD  F1, F3, F5
-	FMADDD F4, F5, F0, F5
-
-	// x[i] = c*x[i] + ms*x[i+1]
-	FMULD  F2, F4, F6
-	FMADDD F3, F6, F0, F6
-	FMOVD  F6, (R4)
-
-	// Second dependent step uses the newly-written x[i+1].
-	FMOVD 16(R4), F7              // x[i+2]
-	FMULD  F1, F5, F8
-	FMADDD F7, F8, F0, F8
-	FMOVD  F8, 16(R4)
-
-	FMULD  F2, F7, F9
-	FMADDD F5, F9, F0, F9
-	FMOVD  F9, 8(R4)
-
-	ADD   $2, R2
-	B     stride1_fwd_unroll
-
-stride1_fwd_scalar_init:
+	// Carry the intermediate x[i+1] in F3 instead of storing and reloading it.
 	SUB   $1, R1, R3
+	LSL   $3, R3, R3
+	ADD   R0, R3, R3              // R3 = &x[length-1]
+	MOVD  R0, R4
+	FMOVD (R4), F3                // carried x[i]
+	ADD   $8, R4
 
-stride1_fwd_scalar:
-	CMP   R3, R2
-	BGE   stride1_bwd_init
+stride1_fwd_carry:
+	CMP   R3, R4
+	BGT   stride1_fwd_store_last
 
-	LSL   $3, R2, R4
-	ADD   R0, R4, R4              // R4 = &x[i]
-	FMOVD (R4), F3                // x[i]
-	FMOVD 8(R4), F4               // x[i+1]
+	FMOVD (R4), F4                // original x[i+1]
 
+	// carried x[i+1] = c*x[i+1] + s*x[i]
 	FMULD  F1, F3, F5
 	FMADDD F4, F5, F0, F5
-	FMOVD  F5, 8(R4)
 
+	// final x[i] = c*x[i] + ms*x[i+1]
 	FMULD  F2, F4, F6
 	FMADDD F3, F6, F0, F6
-	FMOVD  F6, (R4)
+	FMOVD  F6, -8(R4)
 
-	ADD   $1, R2
-	B     stride1_fwd_scalar
+	FMOVD F5, F3
+	ADD   $8, R4
+	B     stride1_fwd_carry
 
-stride1_bwd_init:
-	// ===== BACKWARD PASS =====
-	// i from length-3 down to 1, step -2.
-	SUB   $3, R1, R2
+stride1_fwd_store_last:
+	FMOVD F3, (R3)
 
-stride1_bwd_unroll:
-	CMP   $0, R2
-	BLE   stride1_bwd_scalar
-
-	LSL   $3, R2, R4
-	ADD   R0, R4, R4              // R4 = &x[i]
-	FMOVD (R4), F3                // x[i]
-	FMOVD 8(R4), F4               // x[i+1]
-
-	// x[i+1] = c*x[i+1] + s*x[i]
-	FMULD  F1, F3, F5
-	FMADDD F4, F5, F0, F5
-	FMOVD  F5, 8(R4)
-
-	// x[i] = c*x[i] + ms*x[i+1]
-	FMULD  F2, F4, F6
-	FMADDD F3, F6, F0, F6
-
-	// Second dependent step updates x[i-1], x[i] using the new x[i].
-	FMOVD -8(R4), F7              // x[i-1]
-	FMULD  F1, F7, F8
-	FMADDD F6, F8, F0, F8
-	FMOVD  F8, (R4)
-
-	FMULD  F2, F6, F9
-	FMADDD F7, F9, F0, F9
-	FMOVD  F9, -8(R4)
-
-	SUB   $2, R2
-	B     stride1_bwd_unroll
-
-stride1_bwd_scalar:
-	CMP   $0, R2
+	CMP   $3, R1
 	BLT   stride1_done
 
-	LSL   $3, R2, R4
-	ADD   R0, R4, R4              // R4 = &x[i]
-	FMOVD (R4), F3                // x[i]
-	FMOVD 8(R4), F4               // x[i+1]
+	// ===== BACKWARD PASS =====
+	// Walk down with the updated x[i+1] carried in F4.
+	SUB   $2, R1, R3
+	LSL   $3, R3, R3
+	ADD   R0, R3, R3              // R3 = &x[length-2]
+	FMOVD (R3), F4                // carried x[i+1]
+	SUB   $8, R3, R4              // R4 = &x[length-3]
 
+stride1_bwd_carry:
+	CMP   R0, R4
+	BLT   stride1_bwd_store_first
+
+	FMOVD (R4), F3                // x[i]
+
+	// final x[i+1] = c*x[i+1] + s*x[i]
 	FMULD  F1, F3, F5
 	FMADDD F4, F5, F0, F5
 	FMOVD  F5, 8(R4)
 
+	// carried x[i] = c*x[i] + ms*x[i+1]
 	FMULD  F2, F4, F6
 	FMADDD F3, F6, F0, F6
-	FMOVD  F6, (R4)
 
-	SUB   $1, R2
-	B     stride1_bwd_scalar
+	FMOVD F6, F4
+	SUB   $8, R4
+	B     stride1_bwd_carry
+
+stride1_bwd_store_first:
+	FMOVD F4, (R0)
 
 stride1_done:
 	RET
