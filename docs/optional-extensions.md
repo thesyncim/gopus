@@ -24,8 +24,8 @@ if gopus.SupportsOptionalExtension(gopus.OptionalExtensionQEXT) {
 
 ## Supported Feature Tags
 
-Build DRED support explicitly when you need the verified DRED control and
-standalone surfaces:
+Build tag-gated DRED control/standalone support explicitly when you need the
+verified DRED control and standalone surfaces:
 
 ```bash
 go test -tags gopus_dred ./...
@@ -38,12 +38,11 @@ seams enforced by `make test-unsupported-controls-parity`, including the narrow
 SILK wideband 20 ms carried-payload/primary-budget seam plus bootstrap and
 bookkeeping coverage. In default builds, DRED controls are absent and
 encode/decode hot paths do not enter DRED runtime hooks. The internal encoder
-DRED runtime and multistream decoder DRED cache/runtime helpers are also
-build-tag split, so `./encoder` and `./multistream` default builds use no-op
-stubs instead of importing the DRED/LPCNet runtime packages. The broader
-top-level decoder DRED compile-footprint split remains unsupported cleanup work;
-that path is dormant unless explicitly armed and must not be treated as broad
-DRED support.
+DRED runtime, top-level decoder DRED internals, and multistream decoder DRED
+cache/runtime helpers are build-tag split, so default `./encoder`, `.`, and
+`./multistream` builds use no-op stubs instead of importing the DRED/RDOVAE or
+LPCNet runtime packages. Decoder audio-path parity remains seam-specific and
+experimental unless covered by green libopus-backed parity tests.
 
 ## Quarantine Build Tag
 

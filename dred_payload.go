@@ -1,3 +1,6 @@
+//go:build gopus_dred || gopus_unsupported_controls
+// +build gopus_dred gopus_unsupported_controls
+
 package gopus
 
 import internaldred "github.com/thesyncim/gopus/internal/dred"

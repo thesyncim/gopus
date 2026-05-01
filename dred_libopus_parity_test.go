@@ -1,3 +1,6 @@
+//go:build gopus_unsupported_controls
+// +build gopus_unsupported_controls
+
 package gopus
 
 import (

@@ -28,9 +28,9 @@ func TestDefaultBuildQuarantinesUnsupportedControls(t *testing.T) {
 }
 
 func TestDefaultBuildDNNBlobKeepsDREDRuntimeDormant(t *testing.T) {
-	baseline := mustNewTestDecoder(t, 16000, 1)
-	armed := mustNewTestDecoder(t, 16000, 1)
-	if err := armed.SetDNNBlob(makeValidDecoderControlWithDREDDecoderTestDNNBlob()); err != nil {
+	baseline := mustNewTestDecoder(t, 48000, 1)
+	armed := mustNewTestDecoder(t, 48000, 1)
+	if err := armed.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
 	if !armed.dredNeuralModelsLoaded() {
@@ -40,7 +40,7 @@ func TestDefaultBuildDNNBlobKeepsDREDRuntimeDormant(t *testing.T) {
 		t.Fatalf("SetDNNBlob eagerly allocated DRED sidecar in default build: %+v", armed.dredState())
 	}
 
-	packet := makeValidMono16kPacketForDREDTest(t)
+	packet := testCELTPacket()
 	baselinePCM := make([]float32, baseline.maxPacketSamples)
 	armedPCM := make([]float32, armed.maxPacketSamples)
 	if _, err := baseline.Decode(packet, baselinePCM); err != nil {
