@@ -94,7 +94,7 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	// Handle PLC for nil data (lost packet)
 	if data == nil {
 		output, err := d.decodePLC(frameSize)
-		if err == nil && extsupport.DREDRuntime {
+		if err == nil && extsupport.DREDRuntime && d.dredSidecarActive() {
 			d.markDREDConcealedAll()
 		}
 		return output, err
@@ -121,9 +121,13 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 		}
 		decodedStreams[i] = decoded
 	}
-	if extsupport.DREDRuntime {
+	if extsupport.DREDRuntime && d.dredPayloadScannerActive() {
 		for i := 0; i < d.streams; i++ {
 			d.maybeCacheDREDPayload(i, packets[i])
+		}
+	}
+	if extsupport.DREDRuntime && d.dredSidecarActive() {
+		for i := 0; i < d.streams; i++ {
 			d.markDREDUpdated(i)
 		}
 	}

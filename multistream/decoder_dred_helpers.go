@@ -138,6 +138,11 @@ func (d *Decoder) dredSidecarActive() bool {
 	return len(s.dredCache) != 0
 }
 
+func (d *Decoder) dredPayloadScannerActive() bool {
+	s := d.dredState()
+	return s != nil && s.dredModelLoaded && !d.ignoreExtensions
+}
+
 func (d *Decoder) clearDREDPayloadState() {
 	s := d.dredState()
 	if s == nil || len(s.dredCache) == 0 {

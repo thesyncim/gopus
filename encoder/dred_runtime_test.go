@@ -59,6 +59,29 @@ func TestEncoderDREDRuntimeStaysDormantUntilReady(t *testing.T) {
 	}
 }
 
+func TestEncoderDREDEncodingActiveRequiresModelAndDuration(t *testing.T) {
+	enc := NewEncoder(16000, 1)
+	if enc.dredEncodingActive() {
+		t.Fatal("fresh encoder unexpectedly reports active DRED encoding")
+	}
+	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+	if enc.dredEncodingActive() {
+		t.Fatal("DRED encoding active with model loaded but duration unset")
+	}
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+	if !enc.dredEncodingActive() {
+		t.Fatal("DRED encoding inactive after model and duration are armed")
+	}
+	if err := enc.SetDREDDuration(0); err != nil {
+		t.Fatalf("SetDREDDuration(0) error: %v", err)
+	}
+	if enc.dredEncodingActive() {
+		t.Fatal("DRED encoding active after duration cleared")
+	}
+}
+
 func TestEncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed(t *testing.T) {
 	enc := NewEncoder(48000, 1)
 	enc.SetMode(ModeSILK)

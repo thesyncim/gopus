@@ -23,6 +23,10 @@ func (e *Encoder) dredModelsLoaded() bool {
 	return false
 }
 
+func (e *Encoder) dredEncodingActive() bool {
+	return false
+}
+
 func (e *Encoder) resetDREDControls() {
 	e.dred = nil
 }

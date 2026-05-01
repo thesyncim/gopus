@@ -60,7 +60,15 @@ func (d *Decoder) dredCachedPayloadActive() bool {
 	return false
 }
 
+func (d *Decoder) dredPayloadScannerActive() bool {
+	return false
+}
+
 func (d *Decoder) dredSidecarActive() bool {
+	return false
+}
+
+func (d *Decoder) dredGoodPacketMarkerActive() bool {
 	return false
 }
 

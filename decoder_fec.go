@@ -50,7 +50,7 @@ func (d *Decoder) decodePLCForFECWithState(
 	d.lastFrameSize = frameSize
 	d.lastPacketDuration = frameSize
 	d.lastDataLen = 0
-	if extsupport.DREDRuntime && !usedNeuralConcealment && d.dredSidecarActive() {
+	if extsupport.DREDRuntime && !usedNeuralConcealment && d.dredGoodPacketMarkerActive() {
 		d.markDREDConcealed()
 	}
 	return frameSize, nil
@@ -238,10 +238,10 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 		return 0, err
 	}
 	if extsupport.DREDRuntime {
-		if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
-			r.dredRecovery = 0
-		}
-		if d.dredSidecarActive() {
+		if d.dredGoodPacketMarkerActive() {
+			if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
+				r.dredRecovery = 0
+			}
 			d.markDREDUpdatedPCM(pcm[:n*d.channels], n, d.fecMode)
 		}
 	}
