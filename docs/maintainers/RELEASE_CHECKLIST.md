@@ -1,6 +1,7 @@
 # Release Checklist
 
-Use this checklist before cutting and publishing a release tag.
+Use this checklist before cutting and publishing a release tag. A release does
+not exist until both the version tag and matching GitHub Release are published.
 
 ## Release Metadata
 
@@ -17,14 +18,31 @@ Use this checklist before cutting and publishing a release tag.
 
 ## Required Verification Gates
 
-Run from repository root and keep command output for release evidence.
+Run from repository root. Publishing is blocked unless `make release-evidence`
+produces a passing summary and the GitHub Release attaches that summary plus the
+evidence archive.
 
+- [ ] `go test ./...`
+- [ ] `make test-doc-contract`
+- [ ] `make lint`
+- [ ] `make test-consumer-smoke`
 - [ ] `make verify-production`
 - [ ] `make verify-production-exhaustive`
 - [ ] `make release-evidence` (captures a timestamped evidence bundle in `reports/release/` by default)
 
 ## Required Evidence to Attach
 
+- [ ] Release evidence summary Markdown (`release-evidence-<timestamp>.md`).
+- [ ] Release evidence archive (`release-evidence-<tag>.tar.gz`) containing command logs and inventories.
+- [ ] Commit SHA.
+- [ ] Go version.
+- [ ] OS/platform.
+- [ ] libopus reference version and SHA256.
+- [ ] Commands run with pass/fail summaries.
+- [ ] Benchmark guardrail result.
+- [ ] Fuzz/safety summary.
+- [ ] Parity summary.
+- [ ] Consumer-smoke result.
 - [ ] `TestEncoderComplianceSummary` output (pass/fail summary).
 - [ ] `TestSILKParamTraceAgainstLibopus` output.
 - [ ] Hot-path allocation guard output:
@@ -47,8 +65,9 @@ Run from repository root and keep command output for release evidence.
 
 ## Post-Release
 
-- [ ] Tag pushed and release published.
+- [ ] Tag pushed.
+- [ ] GitHub Release published for the same tag.
 - [ ] Release notes link verification evidence.
-- [ ] GitHub release attaches or links the evidence bundle from `reports/release/`.
+- [ ] GitHub Release attaches the evidence summary and archive generated from `reports/release/`.
 - [ ] GitHub `Release` workflow completed successfully for the tag.
 - [ ] Next iteration TODOs captured in `docs/maintainers/PRODUCTION_TODO.md`.

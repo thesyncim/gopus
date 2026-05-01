@@ -49,7 +49,7 @@ jobs:
           fi
 
           notes_path="docs/releases/${tag}.md"
-          if [[ ! -f "${notes_path}" ]]; then
+          if [[ ! -s "${notes_path}" ]]; then
             echo "missing release notes: ${notes_path}" >&2
             exit 1
           fi
@@ -80,25 +80,41 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
 
-      - name: Run full release verification
-        run: |
-          make verify-production-exhaustive
-          make release-evidence
+      - name: Run full release verification and evidence capture
+        run: make release-evidence
 
       - name: Archive release evidence
         id: evidence
         shell: bash
         run: |
           set -euo pipefail
+          summary="$(find reports/release -maxdepth 1 -type f -name 'release-evidence-*.md' | sort | tail -n 1)"
+          if [[ -z "${summary}" || ! -s "${summary}" ]]; then
+            echo "release evidence summary is missing" >&2
+            exit 1
+          fi
+          if ! grep -q 'Overall result: PASS' "${summary}"; then
+            echo "release evidence summary did not record a passing run: ${summary}" >&2
+            exit 1
+          fi
+
           archive="release-evidence-${{ steps.meta.outputs.tag }}.tar.gz"
+          tagged_summary="release-evidence-${{ steps.meta.outputs.tag }}.md"
+          cp "${summary}" "${tagged_summary}"
           tar -C reports -czf "${archive}" release
+          test -s "${archive}" || { echo "release evidence archive is empty" >&2; exit 1; }
+          test -s "${tagged_summary}" || { echo "tagged release evidence summary is empty" >&2; exit 1; }
+
           echo "archive=${archive}" >> "$GITHUB_OUTPUT"
+          echo "summary=${tagged_summary}" >> "$GITHUB_OUTPUT"
 
       - name: Upload release evidence artifact
         uses: actions/upload-artifact@v4
         with:
           name: release-evidence-${{ steps.meta.outputs.tag }}
-          path: ${{ steps.evidence.outputs.archive }}
+          path: |
+            ${{ steps.evidence.outputs.archive }}
+            ${{ steps.evidence.outputs.summary }}
           if-no-files-found: error
 
       - name: Publish GitHub release
@@ -111,17 +127,18 @@ jobs:
           tag="${{ steps.meta.outputs.tag }}"
           notes_path="${{ steps.meta.outputs.notes_path }}"
           archive="${{ steps.evidence.outputs.archive }}"
+          summary="${{ steps.evidence.outputs.summary }}"
 
           if gh release view "${tag}" --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
             gh release edit "${tag}" \
               --repo "${GITHUB_REPOSITORY}" \
               --title "gopus ${tag}" \
               --notes-file "${notes_path}"
-            gh release upload "${tag}" "${archive}" \
+            gh release upload "${tag}" "${archive}" "${summary}" \
               --repo "${GITHUB_REPOSITORY}" \
               --clobber
           else
-            gh release create "${tag}" "${archive}" \
+            gh release create "${tag}" "${archive}" "${summary}" \
               --repo "${GITHUB_REPOSITORY}" \
               --title "gopus ${tag}" \
               --notes-file "${notes_path}" \
