@@ -37,7 +37,12 @@ the standalone DRED wrapper, and the selected green non-decoder-audio parity
 seams enforced by `make test-unsupported-controls-parity`, including the narrow
 SILK wideband 20 ms carried-payload/primary-budget seam plus bootstrap and
 bookkeeping coverage. In default builds, DRED controls are absent and
-encode/decode hot paths do not enter DRED runtime hooks.
+encode/decode hot paths do not enter DRED runtime hooks. The internal encoder
+DRED runtime is also build-tag split, so `./encoder` default builds use no-op
+stubs instead of importing the DRED/LPCNet runtime packages. The broader
+top-level decoder and multistream DRED compile-footprint split remains
+unsupported cleanup work; those paths are dormant unless explicitly armed and
+must not be treated as broad DRED support.
 
 ## Quarantine Build Tag
 
