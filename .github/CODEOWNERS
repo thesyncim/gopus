@@ -1,0 +1,9 @@
+# Trust-sensitive release, CI, security, and support-surface files require owner review.
+.github/workflows/* @thesyncim
+SECURITY.md @thesyncim
+README.md @thesyncim
+docs/optional-extensions.md @thesyncim
+docs/maintainers/** @thesyncim
+docs/releases/** @thesyncim
+tools/ensure_libopus.sh @thesyncim
+Makefile @thesyncim

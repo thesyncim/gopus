@@ -38,6 +38,7 @@ examples/*/*.exe
 results.tsv
 run.log
 reports/autoresearch/
+reports/release/
 
 # OS files
 .DS_Store

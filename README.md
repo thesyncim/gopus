@@ -16,10 +16,20 @@ Pure Go Opus codec for Go applications.
 - The main API target is the zero-allocation caller-owned path:
   - `func (d *Decoder) Decode(data []byte, pcm []float32) (int, error)`
   - `func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)`
-- The default build intentionally does not support every optional libopus build-time extension. Supported default controls are `SetDNNBlob(...)` only, and `make test-dnn-blob-parity` validates that control surface against pinned libopus USE_WEIGHTS_FILE model blobs with no skipped helper coverage. QEXT controls are supported with `-tags gopus_qext`, and `make test-qext-parity` fails on skipped libopus-helper coverage. DRED control and standalone surfaces are supported with `-tags gopus_dred`; `make test-dred-tag` and `make test-unsupported-controls-parity` fail on skipped libopus-helper coverage, and the required unsupported-controls parity gate now covers the current mono DRED decoder explicit/live matrix without claiming stereo, multistream, or broad decoder audio-path support. Supported tags may be combined, while quarantine combinations such as `-tags "gopus_unsupported_controls gopus_qext"` still report only the supported tagged surfaces. Quarantine builds with `-tags gopus_unsupported_controls` may also expose DRED controls/helpers for parity work, but that tag does not report DRED support. Default builds keep QEXT and DRED controls absent, and QEXT/DRED runtime hooks dormant behind compile-time gates. Tagged DRED/quarantine builds may bind DRED-capable model families on the `SetDNNBlob(...)` control path, but normal encode/decode runtime work remains dormant until a DRED duration, payload, or recovery path is explicitly armed; model-only public caller-buffer encode/decode paths stay zero-allocation and skip unarmed DRED helper work. OSCE BWE remains quarantine-only under `-tags gopus_unsupported_controls`, and that quarantine tag does not itself make `SupportsOptionalExtension(...)` report support. See [Optional Extensions](docs/optional-extensions.md) for the release-contract matrix.
+- The default build intentionally does not support every optional libopus build-time extension. It supports `SetDNNBlob(...)`; QEXT and DRED are tag-gated, and OSCE BWE remains quarantine-only. See [Optional Extensions](docs/optional-extensions.md) for the supported, tag-gated, and unsupported matrix.
 - Low-level packages such as `celt`, `silk`, `hybrid`, `rangecoding`, and `plc` are implementation detail, not a stable public contract yet.
 - Validation and parity work is pinned against libopus 1.6.1.
 - No tagged release has been published yet. If you adopt `gopus` before `v0.1.0`, pin the exact version you validate.
+
+## Trust And Verification
+
+- Released version: none yet. `docs/releases/v0.1.0.md` is prepared release notes, but `v0.1.0` is not a release until the tag and GitHub Release are both published.
+- Latest release evidence: after publication, inspect the `release-evidence-v0.1.0.md` summary and `release-evidence-v0.1.0.tar.gz` bundle attached to the [GitHub Release](https://github.com/thesyncim/gopus/releases); before then, run `make release-evidence` locally.
+- CI guardrails: [required checks and branch protection](docs/maintainers/CI_GUARDRAILS.md).
+- Security policy: [private reporting and supported versions](SECURITY.md).
+- Release process: [release checklist](docs/maintainers/RELEASE_CHECKLIST.md).
+- Supply chain: [Dependabot, Scorecard, action review, and release provenance plan](docs/maintainers/SUPPLY_CHAIN.md).
+- Downstream import check: [external consumer smoke test](examples/external-consumer-smoke/smoke_test.go), run by `make test-consumer-smoke`.
 
 ## Installation
 
@@ -109,7 +119,7 @@ Packet loss concealment uses `dec.Decode(nil, pcmOut)`. If you prefer convenienc
 | Streaming facade | Supported | `Reader` / `Writer` |
 | Allocating convenience helpers | Supported | Simpler to use, but not zero-allocation |
 | Low-level codec packages | Experimental | May change before `v1` |
-| Optional libopus build-time extensions | Mixed | `SetDNNBlob(...)` is supported in the default build and backed by `make test-dnn-blob-parity` against pinned libopus USE_WEIGHTS_FILE model blobs with no skipped helper coverage. QEXT controls are supported with `-tags gopus_qext`, which exposes `SetQEXT(...)` / `QEXT()` and runs `make test-qext-parity` against a QEXT-enabled pinned libopus build with skipped libopus-helper coverage treated as failure. DRED control and standalone surfaces are supported with `-tags gopus_dred`, which exposes `SetDREDDuration(...)` / `DREDDuration()` and standalone `DREDDecoder` / `DRED` helpers; `gopus_unsupported_controls` may expose the same DRED surfaces for parity work without reporting support. `make test-dred-tag` and `make test-unsupported-controls-parity` treat skipped libopus-helper coverage as failure. DRED decoder audio support remains seam-specific: the current mono explicit/live matrix is required in the quarantine parity gate, while stereo/multistream coverage and Hybrid primary-frame byte exactness remain unsupported/open. OSCE BWE remains quarantine-only under `-tags gopus_unsupported_controls`. See [Optional Extensions](docs/optional-extensions.md) |
+| Optional libopus build-time extensions | Mixed | Default builds support `SetDNNBlob(...)` only. QEXT requires `-tags gopus_qext`; DRED control/standalone surfaces require `-tags gopus_dred`; OSCE BWE remains unsupported outside quarantine builds. See [Optional Extensions](docs/optional-extensions.md) |
 
 Environment and codec expectations:
 

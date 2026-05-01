@@ -102,7 +102,7 @@ test-consumer-smoke:
 
 # Lightweight docs contract that keeps release-surface claims aligned.
 test-doc-contract:
-	$(GO_WORK_ENV) $(GO) test . -run 'TestOptionalExtensionDocsContract|TestSupportsOptionalExtension|ExampleSupportsOptionalExtension' -count=1
+	$(GO_WORK_ENV) $(GO) test . -run 'Test(OptionalExtensionDocsContract|TrustDocsContract|TrustSensitiveFilesHaveCodeOwners|ReleaseNotesExistForTags|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
 
 # Default-supported DNN blob control parity against libopus USE_WEIGHTS_FILE
 # model blobs. The target fails if the required libopus-backed test is skipped.
@@ -345,6 +345,8 @@ release-preflight:
 	$(MAKE) lint
 	$(MAKE) verify-production-exhaustive
 	$(MAKE) release-evidence
+	@test -n "$$(find "$(RELEASE_EVIDENCE_DIR)" -maxdepth 1 -type f -name 'release-evidence-*.md' -print -quit)" || { echo "missing generated release evidence summary in $(RELEASE_EVIDENCE_DIR)"; exit 1; }
+	@grep -q 'Overall result: PASS' "$$(find "$(RELEASE_EVIDENCE_DIR)" -maxdepth 1 -type f -name 'release-evidence-*.md' | sort | tail -n 1)" || { echo "latest release evidence summary did not pass"; exit 1; }
 
 # Ensure tmp_check/opus-$(LIBOPUS_VERSION)/opus_demo exists (fetch + build if missing).
 ensure-libopus:

@@ -37,21 +37,11 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 
 	readme := mustReadDocForTest(t, "README.md")
 	for _, needle := range []string{
+		"Default builds support `SetDNNBlob(...)` only.",
+		"QEXT requires `-tags gopus_qext`",
+		"DRED control/standalone surfaces require `-tags gopus_dred`",
+		"OSCE BWE remains unsupported outside quarantine builds",
 		"[Optional Extensions](docs/optional-extensions.md)",
-		"Supported default controls are `SetDNNBlob(...)` only",
-		"`make test-dnn-blob-parity` validates that control surface against pinned libopus USE_WEIGHTS_FILE model blobs",
-		"with no skipped helper coverage",
-		"QEXT controls are supported with `-tags gopus_qext`, and `make test-qext-parity` fails on skipped libopus-helper coverage",
-		"DRED control and standalone surfaces are supported with `-tags gopus_dred`",
-		"`make test-dred-tag` and `make test-unsupported-controls-parity` fail on skipped libopus-helper coverage",
-		"current mono DRED decoder explicit/live matrix",
-		"stereo/multistream coverage and Hybrid primary-frame byte exactness remain unsupported/open",
-		"Default builds keep QEXT and DRED controls absent",
-		"normal encode/decode runtime work remains dormant until a DRED duration, payload, or recovery path is explicitly armed",
-		"model-only public caller-buffer encode/decode paths stay zero-allocation and skip unarmed DRED helper work",
-		"may also expose DRED controls/helpers for parity work",
-		"OSCE BWE remains quarantine-only under `-tags gopus_unsupported_controls`",
-		"that quarantine tag does not itself make `SupportsOptionalExtension(...)` report support",
 	} {
 		if !strings.Contains(readme, needle) {
 			t.Fatalf("README.md missing %q", needle)
@@ -87,6 +77,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	releaseNotes := mustReadDocForTest(t, "docs/releases/v0.1.0.md")
 	for _, needle := range []string{
 		"## Optional Extension Contract",
+		"Draft status: this is not a published release until the `v0.1.0` tag and the",
 		"`SetDNNBlob(...)` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`",
 		"`make test-dnn-blob-parity` validates the default `SetDNNBlob(...)` control surface",
 		"Decoder-side `SetDNNBlob(...)` currently covers loader-derived validation and retained control state.",
@@ -108,6 +99,8 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"`SetOSCEBWE(...)` / `OSCEBWE()` are absent unless built with `-tags gopus_unsupported_controls`",
 		"The `gopus_unsupported_controls` build remains a parity/quarantine umbrella",
 		"may expose DRED controls and standalone",
+		"commit SHA",
+		"consumer-smoke result",
 	} {
 		if !strings.Contains(releaseNotes, needle) {
 			t.Fatalf("docs/releases/v0.1.0.md missing %q", needle)

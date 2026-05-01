@@ -77,12 +77,25 @@ Never raise thresholds just to hide regressions.
 Enable branch protection for `master` with:
 - Require pull request before merging.
 - Require status checks to pass before merging.
+- Require branches to be up to date before merging.
+- Require code owner review for trust-sensitive files covered by `.github/CODEOWNERS`.
 - Required checks:
+<!-- required-checks:start -->
   - `lint-static-analysis`
   - `test-linux`
   - `perf-linux`
   - `test-macos`
   - `test-windows`
-- Require branches to be up to date before merging.
+<!-- required-checks:end -->
+
+Trust-sensitive files that must require owner review:
+- `.github/workflows/*`
+- `SECURITY.md`
+- `README.md`
+- `docs/optional-extensions.md`
+- `docs/maintainers/**`
+- `docs/releases/**`
+- `tools/ensure_libopus.sh`
+- `Makefile`
 
 Without these settings, CI cannot fully prevent regressions from being merged.

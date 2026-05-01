@@ -7,6 +7,7 @@ These documents are for release, CI, and repo-maintenance workflows rather than 
 - [ASSEMBLY_VALIDATION.md](ASSEMBLY_VALIDATION.md)
 - [CI_GUARDRAILS.md](CI_GUARDRAILS.md)
 - [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
+- [SUPPLY_CHAIN.md](SUPPLY_CHAIN.md)
 - [PRODUCTION_PLAN.md](PRODUCTION_PLAN.md)
 - [PRODUCTION_TODO.md](PRODUCTION_TODO.md)
 - [public-release-readiness-plan.md](public-release-readiness-plan.md)
