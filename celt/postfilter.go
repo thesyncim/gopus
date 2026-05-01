@@ -223,6 +223,7 @@ func slidePlanarHistoryPrefix(hist []float64, frameSize, history int) {
 	if keep <= 128 {
 		_ = hist[frameSize+keep-1]
 		_ = hist[keep-1]
+		//nolint:gosimple // Keep the benchmarked tiny-slide loop instead of routing through generic copy.
 		for i := 0; i < keep; i++ {
 			hist[i] = hist[frameSize+i]
 		}

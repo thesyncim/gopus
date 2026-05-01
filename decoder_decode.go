@@ -115,7 +115,6 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		return 0, ErrBufferTooSmall
 	}
 
-	offsetSamples := 0
 	if dredPossible {
 		if endRawDREDCapture := d.beginDREDRawMonoGoodFrameCapture(toc.Mode); endRawDREDCapture != nil {
 			defer endRawDREDCapture()
@@ -123,7 +122,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	}
 
 	if frameCode == 0 {
-		n, err := d.decodeOpusFrameIntoWithQEXT(
+		_, err := d.decodeOpusFrameIntoWithQEXT(
 			pcm,
 			data[1:],
 			frameSize,
@@ -136,14 +135,12 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		offsetSamples += n
 		d.prevPacketStereo = toc.Stereo
 	} else {
-		n, err := d.decodeMultiFrameFloat32(pcm, data, toc, frameCode, frameSize)
+		_, err := d.decodeMultiFrameFloat32(pcm, data, toc, frameCode, frameSize)
 		if err != nil {
 			return 0, err
 		}
-		offsetSamples += n
 	}
 
 	d.lastFrameSize = frameSize
