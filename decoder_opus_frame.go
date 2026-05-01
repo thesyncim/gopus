@@ -538,7 +538,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			}
 		}
 		if extsupport.QEXT {
-			d.celtDecoder.SetQEXTPayload(qextPayload)
+			d.setCELTQEXTPayload(qextPayload)
 		}
 		if extsupport.DREDRuntime && d.dredNeedsCELTFloatPath() {
 			samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, min(F20, frameSize), packetStereoLocal)

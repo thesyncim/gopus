@@ -41,7 +41,8 @@ go test -tags gopus_qext ./...
 that tagged QEXT build. Current release support is scoped to encoder controls,
 packet extension carriage, and decoder-side QEXT parity covered by
 `make test-qext-parity`, which uses a separate pinned
-`tmp_check/opus-1.6.1-qext` reference build configured with `--enable-qext`.
+`tmp_check/opus-1.6.1-qext` reference build configured with `--enable-qext`
+and fails on skipped libopus-helper coverage.
 Default builds keep QEXT controls absent and do not scan, arm, or encode QEXT
 packet extensions in the public encode/decode hot paths.
 

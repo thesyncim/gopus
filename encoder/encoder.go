@@ -378,7 +378,7 @@ func (e *Encoder) Reset() {
 	if e.celtEncoder != nil {
 		e.celtEncoder.Reset()
 		e.celtEncoder.SetPrediction(e.celtPredictionMode())
-		e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
+		e.syncQEXTToCELT()
 	}
 	if len(e.celtEnergyMask) > 0 {
 		clear(e.celtEnergyMask)
@@ -792,7 +792,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	e.inputBuffer = e.inputBuffer[:remaining]
 	qextPayload := []byte(nil)
 	if extsupport.QEXT && actualMode == ModeCELT && e.celtEncoder != nil {
-		qextPayload = e.celtEncoder.LastQEXTPayload()
+		qextPayload = e.lastQEXTPayload()
 	}
 	dredPacketBuilt := false
 	if packet == nil {
@@ -2134,7 +2134,7 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 
 func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSize int, bitrate int, maxPayloadBytes int) ([]byte, error) {
 	e.ensureCELTEncoder()
-	e.celtEncoder.SetQEXTEnabled(extsupport.QEXT && e.qextEnabled)
+	e.syncQEXTToCELT()
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetBitrate(bitrate)
 	e.celtEncoder.SetMaxPayloadBytes(maxPayloadBytes)
@@ -2804,7 +2804,7 @@ func (e *Encoder) ensureCELTEncoder() {
 		// Opus encoder already applies CELT delay compensation at the top level.
 		e.celtEncoder.SetDelayCompensationEnabled(false)
 	}
-	e.celtEncoder.SetQEXTEnabled(extsupport.QEXT && e.qextEnabled)
+	e.syncQEXTToCELT()
 	e.celtEncoder.SetPrediction(e.celtPredictionMode())
 	e.celtEncoder.SetLFE(e.lfe)
 	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)

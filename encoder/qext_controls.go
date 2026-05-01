@@ -18,3 +18,16 @@ func (e *Encoder) SetQEXT(enabled bool) {
 func (e *Encoder) QEXT() bool {
 	return e.qextEnabled
 }
+
+func (e *Encoder) syncQEXTToCELT() {
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
+	}
+}
+
+func (e *Encoder) lastQEXTPayload() []byte {
+	if e.celtEncoder == nil {
+		return nil
+	}
+	return e.celtEncoder.LastQEXTPayload()
+}

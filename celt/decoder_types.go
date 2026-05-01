@@ -110,8 +110,7 @@ type Decoder struct {
 	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
 	prevStreamChannels int // Previous packet's channel count (0 = uninitialized)
 	directOutPCM       []float32
-	pendingQEXTPayload []byte
-	qextOldBandE       []float64
+	qext               *decoderQEXTState
 
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
 	scratchPrevEnergy     []float64
@@ -133,11 +132,6 @@ type Decoder struct {
 	scratchSynth          []float64
 	scratchSynthR         []float64
 	scratchStereo         []float64
-	scratchQEXTEnergies   []float64
-	scratchQEXTSpectrumL  []float64
-	scratchQEXTSpectrumR  []float64
-	scratchQEXTDecode     preparedQEXTDecode
-	scratchQEXTBands      bandDecodeScratch
 	scratchShortCoeffs    []float64
 	scratchMonoToStereoR  []float64 // For coeffsR in decodeMonoPacketToStereo (must not alias scratchSynthR used by SynthesizeStereo)
 	scratchMonoMix        []float64 // For coeffsMono in decodeStereoPacketToMono (must not alias scratchShortCoeffs used by Synthesize)
@@ -150,15 +144,9 @@ type Decoder struct {
 	scratchPLCIIRMem      []float64
 	scratchPLCBuf         []float64
 	scratchPLCExc         []float64
-	scratchPLCUpdate48k   []float32
-	scratchPLCDREDNeural  []float32
-	scratchPLCDREDBase    []float64
+	decoderDREDState
 	scratchPLCFoldSrc     []float64
 	scratchPLCFoldDst     []float64
 	scratchPLCHybridNormL []float64
 	scratchPLCHybridNormR []float64
-	scratchQEXTPulses     []int
-	scratchQEXTFineQuant  []int
-
-	qextRangeDecoderScratch rangecoding.Decoder
 }

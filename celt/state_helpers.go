@@ -160,21 +160,22 @@ func (d *Decoder) ensureEnergyState(channels int) {
 		}
 		d.backgroundEnergy = prev
 	}
-	if len(d.qextOldBandE) > 0 && len(d.qextOldBandE) < needed {
+	if d.qext != nil && len(d.qext.oldBandE) > 0 && len(d.qext.oldBandE) < needed {
 		prev := make([]float64, needed)
-		copy(prev, d.qextOldBandE)
-		d.qextOldBandE = prev
+		copy(prev, d.qext.oldBandE)
+		d.qext.oldBandE = prev
 	}
 }
 
 func (d *Decoder) ensureQEXTOldBandE() []float64 {
 	needed := MaxBands * d.channels
-	if len(d.qextOldBandE) < needed {
+	qextState := d.ensureQEXTState()
+	if len(qextState.oldBandE) < needed {
 		prev := make([]float64, needed)
-		copy(prev, d.qextOldBandE)
-		d.qextOldBandE = prev
+		copy(prev, qextState.oldBandE)
+		qextState.oldBandE = prev
 	}
-	return d.qextOldBandE
+	return qextState.oldBandE
 }
 
 func (d *Decoder) allocationScratch() []int {

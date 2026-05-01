@@ -236,7 +236,8 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 
 	if qext != nil && qext.end > 0 {
-		specMono := ensureFloat64Slice(&d.scratchQEXTSpectrumL, len(coeffsMono))
+		qextState := d.ensureQEXTState()
+		specMono := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsMono))
 		denormalizeBandsPackedInto(specMono, coeffsMono, monoEnergies, 0, end, lm, EBands[:])
 		if qext.coeffsL != nil {
 			denormalizeBandsPackedInto(specMono, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
@@ -476,8 +477,9 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	energiesL := energies[:end]
 	energiesR := energies[end:]
 	if qext != nil && qext.end > 0 {
-		specL := ensureFloat64Slice(&d.scratchQEXTSpectrumL, len(coeffsL))
-		specR := ensureFloat64Slice(&d.scratchQEXTSpectrumR, len(coeffsR))
+		qextState := d.ensureQEXTState()
+		specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
+		specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
 		denormalizeBandsPackedInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:])
 		denormalizeBandsPackedInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:])
 		if qext.coeffsL != nil {

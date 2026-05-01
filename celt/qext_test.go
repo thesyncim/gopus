@@ -350,34 +350,31 @@ func TestEnsureScratchSkipsQEXTBuffersWhenDisabled(t *testing.T) {
 	enc := NewEncoder(2)
 	enc.EnsureScratch(960)
 
-	if got := len(enc.scratch.qextBuf); got != 0 {
-		t.Fatalf("qextBuf len=%d want 0 when disabled", got)
-	}
-	if got := len(enc.scratch.qextNormL); got != 0 {
-		t.Fatalf("qextNormL len=%d want 0 when disabled", got)
-	}
-	if got := len(enc.scratch.qextExtraBits); got != 0 {
-		t.Fatalf("qextExtraBits len=%d want 0 when disabled", got)
+	if enc.scratch.qext != nil {
+		t.Fatalf("qext scratch allocated while disabled: %+v", enc.scratch.qext)
 	}
 
 	enc.SetQEXTEnabled(true)
 	enc.EnsureScratch(960)
 
-	if got := len(enc.scratch.qextBuf); got == 0 {
+	if enc.scratch.qext == nil {
+		t.Fatal("qext scratch not allocated when enabled")
+	}
+	if got := len(enc.scratch.qext.buf); got == 0 {
 		t.Fatal("qextBuf not allocated when enabled")
 	}
-	if got := len(enc.scratch.qextNormL); got == 0 {
+	if got := len(enc.scratch.qext.normL); got == 0 {
 		t.Fatal("qextNormL not allocated when enabled")
 	}
-	if got := len(enc.scratch.qextExtraBits); got == 0 {
+	if got := len(enc.scratch.qext.extraBits); got == 0 {
 		t.Fatal("qextExtraBits not allocated when enabled")
 	}
 }
 
 func TestCELTDecoderQEXTStateStaysDormantUntilPayload(t *testing.T) {
 	dec := NewDecoder(1)
-	if len(dec.qextOldBandE) != 0 {
-		t.Fatalf("NewDecoder allocated qextOldBandE=%d want dormant", len(dec.qextOldBandE))
+	if dec.qext != nil && len(dec.qext.oldBandE) != 0 {
+		t.Fatalf("NewDecoder allocated qextOldBandE=%d want dormant", len(dec.qext.oldBandE))
 	}
 
 	var mainRD rangecoding.Decoder
@@ -385,8 +382,8 @@ func TestCELTDecoderQEXTStateStaysDormantUntilPayload(t *testing.T) {
 	if qext := dec.prepareQEXTDecode(nil, &mainRD, MaxBands, 0, 120); qext != nil {
 		t.Fatal("prepareQEXTDecode(nil) returned QEXT state")
 	}
-	if len(dec.qextOldBandE) != 0 {
-		t.Fatalf("empty QEXT payload allocated qextOldBandE=%d want dormant", len(dec.qextOldBandE))
+	if dec.qext != nil && len(dec.qext.oldBandE) != 0 {
+		t.Fatalf("empty QEXT payload allocated qextOldBandE=%d want dormant", len(dec.qext.oldBandE))
 	}
 }
 
@@ -560,7 +557,7 @@ func TestEncodeFrameRetainsQEXTPayload(t *testing.T) {
 	pcm := generateSineWave(440.0, 960)
 
 	encA := NewEncoder(1)
-	encA.qextEnabled = true
+	encA.SetQEXTEnabled(true)
 	encA.SetBitrate(256000)
 
 	packetA, err := encA.EncodeFrame(pcm, 960)
@@ -570,12 +567,13 @@ func TestEncodeFrameRetainsQEXTPayload(t *testing.T) {
 	if len(packetA) == 0 {
 		t.Fatal("EncodeFrame(qext A) returned empty packet")
 	}
-	if len(encA.lastQEXTPayload) == 0 {
+	payloadA := encA.LastQEXTPayload()
+	if len(payloadA) == 0 {
 		t.Fatal("EncodeFrame(qext A) produced empty retained payload")
 	}
 
 	encB := NewEncoder(1)
-	encB.qextEnabled = true
+	encB.SetQEXTEnabled(true)
 	encB.SetBitrate(256000)
 
 	packetB, err := encB.EncodeFrame(pcm, 960)
@@ -585,8 +583,9 @@ func TestEncodeFrameRetainsQEXTPayload(t *testing.T) {
 	if !bytes.Equal(packetA, packetB) {
 		t.Fatalf("main packet mismatch:\nA=%x\nB=%x", packetA, packetB)
 	}
-	if !bytes.Equal(encA.lastQEXTPayload, encB.lastQEXTPayload) {
-		t.Fatalf("retained qext payload mismatch:\nA=%x\nB=%x", encA.lastQEXTPayload, encB.lastQEXTPayload)
+	payloadB := encB.LastQEXTPayload()
+	if !bytes.Equal(payloadA, payloadB) {
+		t.Fatalf("retained qext payload mismatch:\nA=%x\nB=%x", payloadA, payloadB)
 	}
 }
 
@@ -603,19 +602,20 @@ func TestEncodeFrameRetainedQEXTPayloadCarriesHeader(t *testing.T) {
 			}
 
 			enc := NewEncoder(channels)
-			enc.qextEnabled = true
+			enc.SetQEXTEnabled(true)
 			enc.SetBitrate(256000)
 
 			if _, err := enc.EncodeFrame(pcm, 960); err != nil {
 				t.Fatalf("EncodeFrame(qext) failed: %v", err)
 			}
-			if len(enc.lastQEXTPayload) == 0 {
+			payload := enc.LastQEXTPayload()
+			if len(payload) == 0 {
 				t.Fatal("EncodeFrame(qext) produced empty retained payload")
 			}
 
 			var dec rangecoding.Decoder
-			dec.Init(enc.lastQEXTPayload)
-			hdr := decodeQEXTHeader(&dec, channels, len(enc.lastQEXTPayload))
+			dec.Init(payload)
+			hdr := decodeQEXTHeader(&dec, channels, len(payload))
 			if hdr.EndBands != 2 {
 				t.Fatalf("EndBands=%d want 2", hdr.EndBands)
 			}
@@ -630,22 +630,22 @@ func TestEncodeFrameClearsQEXTPayloadWhenDisabled(t *testing.T) {
 	pcm := generateSineWave(440.0, 960)
 
 	enc := NewEncoder(1)
-	enc.qextEnabled = true
+	enc.SetQEXTEnabled(true)
 	enc.SetBitrate(256000)
 
 	if _, err := enc.EncodeFrame(pcm, 960); err != nil {
 		t.Fatalf("EncodeFrame(qext on) failed: %v", err)
 	}
-	if len(enc.lastQEXTPayload) == 0 {
+	if len(enc.LastQEXTPayload()) == 0 {
 		t.Fatal("EncodeFrame(qext on) produced empty retained payload")
 	}
 
-	enc.qextEnabled = false
+	enc.SetQEXTEnabled(false)
 	if _, err := enc.EncodeFrame(pcm, 960); err != nil {
 		t.Fatalf("EncodeFrame(qext off) failed: %v", err)
 	}
-	if len(enc.lastQEXTPayload) != 0 {
-		t.Fatalf("EncodeFrame(qext off) retained stale payload: %x", enc.lastQEXTPayload)
+	if payload := enc.LastQEXTPayload(); len(payload) != 0 {
+		t.Fatalf("EncodeFrame(qext off) retained stale payload: %x", payload)
 	}
 }
 

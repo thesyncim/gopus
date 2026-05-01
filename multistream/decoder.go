@@ -315,7 +315,7 @@ func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc stream
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(toc.bandwidth))
 		if extsupport.QEXT {
-			d.celtDec.SetQEXTPayload(qextPayload)
+			d.setCELTQEXTPayload(qextPayload)
 		}
 		out, err = d.celtDec.DecodeFrameWithPacketStereo(frame, frameSize, toc.stereo)
 	default:
