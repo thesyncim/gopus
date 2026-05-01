@@ -103,7 +103,8 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"and decoder cached recovery bookkeeping parity plus the supported-tag SILK",
 		"wideband 20/40/60 ms encoder carried-payload seams and 20 ms primary-budget",
 		"`make test-unsupported-controls-parity` mirrors those encoder",
-		"seams, the real-model PitchDNN and RDOVAE encoder oracles, plus bootstrap and",
+		"seams, the real-model PitchDNN and RDOVAE encoder oracles, the",
+		"conceal-analysis oracle, plus bootstrap and",
 		"bookkeeping coverage",
 	} {
 		if !strings.Contains(optionalDoc, needle) {
