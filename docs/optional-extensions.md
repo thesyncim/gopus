@@ -17,7 +17,7 @@ if gopus.SupportsOptionalExtension(gopus.OptionalExtensionQEXT) {
 
 | Extension | Support status | Probe | Notes |
 | --- | --- | --- | --- |
-| DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; decoder-side support currently covers loader-derived validation and retained control state, not full model-backed PLC/OSCE runtime behavior |
+| DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; decoder-side support currently covers loader-derived validation and retained control state, not full model-backed PLC/OSCE runtime behavior. Tagged DRED/quarantine builds may bind DRED-capable model families on this control path, but normal encode/decode runtime work remains dormant until a DRED duration, payload, or recovery path is explicitly armed |
 | QEXT | Supported by default | `OptionalExtensionQEXT` | Available through `SetQEXT` / `QEXT` on `Encoder` and `MultistreamEncoder` |
 | DRED | Tagged control/standalone support | `OptionalExtensionDRED` | Build with `-tags gopus_dred` to support `SetDREDDuration(...)` / `DREDDuration()` on `Encoder` and `MultistreamEncoder`, plus standalone `DREDDecoder` / `DRED`; quarantine builds may expose the same controls/helpers under `gopus_unsupported_controls` for parity work without reporting DRED support; this does not claim broad DRED audio-path parity, and default builds keep DRED absent with runtime hooks dormant |
 | OSCE BWE | Unsupported and quarantined | `OptionalExtensionOSCEBWE` | `SetOSCEBWE(...)` / `OSCEBWE()` are absent from the default public API surface, and low-level OSCE model helpers stay quarantine-gated |
@@ -50,9 +50,12 @@ encode/decode hot paths do not enter DRED runtime hooks. The internal encoder
 DRED runtime, top-level decoder DRED internals, and multistream decoder DRED
 cache/runtime helpers are build-tag split, so default `./encoder`, `.`, and
 `./multistream` builds use no-op stubs instead of importing the DRED/RDOVAE or
-LPCNet runtime packages. Decoder audio-path parity, Hybrid packet-length parity,
-and Hybrid primary-frame byte exactness remain seam-specific and experimental
-unless covered by green libopus-backed parity tests.
+LPCNet runtime packages. Tagged DRED builds also pin the inactive encoder case:
+`SetDNNBlob(...)` may retain DRED-capable model families, but `Encode` remains
+zero-allocation and leaves the encoder DRED runtime dormant while
+`SetDREDDuration(...)` is unset. Decoder audio-path parity, Hybrid packet-length
+parity, and Hybrid primary-frame byte exactness remain seam-specific and
+experimental unless covered by green libopus-backed parity tests.
 
 ## Quarantine Build Tag
 
