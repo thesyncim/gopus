@@ -104,23 +104,54 @@ test-doc-contract:
 # Supported DRED feature-tag smoke. The unsupported-controls tag remains a
 # quarantine umbrella; this target verifies the supported DRED surface by itself.
 test-dred-tag: ensure-libopus
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(OptionalExtensionDocsContract|SupportsOptionalExtension|DREDBuildTagExposesSupportedTopLevelControls|DREDBuildPublicAPIContract|PublicDRED|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls)|ExampleSupportsOptionalExtension' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DREDDecoderParseRequiresModel|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderProcessRejectsEmptyState|DREDDecoderProcessDoesNotAllocate|DREDDecoderParseAndProcessDoesNotAllocate|DREDDecoderParseClearsStateOnMalformedPacket)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DREDDecoderParseAndProcessRetainsMetadata|StandaloneDREDParseMatchesLibopus)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(StandaloneDREDProcessMatchesLibopusOnRealPacket|StandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(StandaloneDREDRecoveryWindowMatchesLibopus|StandaloneDREDRecoveryQueueMatchesLibopus)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DecoderCachedDREDRecoveryMatchesLibopusLifecycle|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELT|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kHybrid|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELT|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msPayloadOnly|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo|EncoderCarriedDREDPrimaryBudgetMatchesLibopusSilkWideband20ms)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./encoder -run 'Test(DREDRuntimeBuildExposesEncoderControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDRuntimeStaysDormantUntilReady|EncoderDREDEncodingActiveRequiresModelAndDuration|EncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed|EncoderProcessDREDLatentsDoesNotAllocate|EncoderProcessDREDLatentsDoesNotAllocate48k|MaybeBuildSingleFrameDREDPacketCarriesExtension)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./multistream -run 'TestDREDBuildTagExposesEncoderControlsOnly' -count=1
+	@json_out="$$(mktemp)"; \
+	json_part="$$json_out.part"; \
+	trap 'rm -f "$$json_out" "$$json_part"' EXIT; \
+	run_json() { \
+		if ! "$$@" -json > "$$json_part"; then \
+			cat "$$json_part"; \
+			cat "$$json_part" >> "$$json_out"; \
+			exit 1; \
+		fi; \
+		cat "$$json_part"; \
+		cat "$$json_part" >> "$$json_out"; \
+		: > "$$json_part"; \
+	}; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(OptionalExtensionDocsContract|SupportsOptionalExtension|DREDBuildTagExposesSupportedTopLevelControls|DREDBuildPublicAPIContract|PublicDRED|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls)|ExampleSupportsOptionalExtension' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DREDDecoderParseRequiresModel|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderProcessRejectsEmptyState|DREDDecoderProcessDoesNotAllocate|DREDDecoderParseAndProcessDoesNotAllocate|DREDDecoderParseClearsStateOnMalformedPacket)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DREDDecoderParseAndProcessRetainsMetadata|StandaloneDREDParseMatchesLibopus)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(StandaloneDREDProcessMatchesLibopusOnRealPacket|StandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(StandaloneDREDRecoveryWindowMatchesLibopus|StandaloneDREDRecoveryQueueMatchesLibopus)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DecoderCachedDREDRecoveryMatchesLibopusLifecycle|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELT|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kHybrid|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELT|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msPayloadOnly|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo|EncoderCarriedDREDPrimaryBudgetMatchesLibopusSilkWideband20ms)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred ./encoder -run 'Test(DREDRuntimeBuildExposesEncoderControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDRuntimeStaysDormantUntilReady|EncoderDREDEncodingActiveRequiresModelAndDuration|EncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed|EncoderProcessDREDLatentsDoesNotAllocate|EncoderProcessDREDLatentsDoesNotAllocate48k|MaybeBuildSingleFrameDREDPacketCarriesExtension)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred ./multistream -run 'TestDREDBuildTagExposesEncoderControlsOnly' -count=1; \
+	if grep -q '"Action":"skip"' "$$json_out"; then \
+		echo "Unexpected skip detected in required DRED tag gate:"; \
+		grep '"Action":"skip"' "$$json_out"; \
+		exit 1; \
+	fi
 
 # Supported QEXT feature-tag parity. The default build keeps QEXT controls
 # absent and leaves packet-extension payload plumbing behind compile-time gates.
 test-qext-parity: ensure-libopus-qext
 	@json_out="$$(mktemp)"; \
-	trap 'rm -f "$$json_out"' EXIT; \
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_qext . -run 'Test(OptionalExtensionDocsContract|SupportsOptionalExtension|QEXTBuildPublicAPIContract|QEXTBuildTagExposesSupportedTopLevelControls|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls|DecodeGopusQEXTPacketMatchesLibopus|DecodeLibopusQEXTPacketMatchesLibopus|DecodeLibopusQEXTPacketCELTFloat32FastPathMatchesFloat64|DecodeLibopusQEXTPacketWrapperMatchesDirectCELT|DecodeStereoLibopusQEXTPacketToMonoMatchesLibopus)|ExampleSupportsOptionalExtension' -count=1 -json | tee "$$json_out"; \
-	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_qext ./encoder ./celt -run 'QEXT' -count=1 -json | tee -a "$$json_out"; \
+	json_part="$$json_out.part"; \
+	trap 'rm -f "$$json_out" "$$json_part"' EXIT; \
+	run_json() { \
+		if ! "$$@" -json > "$$json_part"; then \
+			cat "$$json_part"; \
+			cat "$$json_part" >> "$$json_out"; \
+			exit 1; \
+		fi; \
+		cat "$$json_part"; \
+		cat "$$json_part" >> "$$json_out"; \
+		: > "$$json_part"; \
+	}; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_qext . -run 'Test(OptionalExtensionDocsContract|SupportsOptionalExtension|QEXTBuildPublicAPIContract|QEXTBuildTagExposesSupportedTopLevelControls|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls|DecodeGopusQEXTPacketMatchesLibopus|DecodeLibopusQEXTPacketMatchesLibopus|DecodeLibopusQEXTPacketCELTFloat32FastPathMatchesFloat64|DecodeLibopusQEXTPacketWrapperMatchesDirectCELT|DecodeStereoLibopusQEXTPacketToMonoMatchesLibopus)|ExampleSupportsOptionalExtension' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_qext ./encoder ./celt -run 'QEXT' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags 'gopus_dred gopus_qext' . -run 'Test(CombinedDREDQEXTBuildOptionalExtensionContract|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags 'gopus_unsupported_controls gopus_qext' . -run 'Test(QEXTUnsupportedControlsBuildOptionalExtensionContract|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1; \
 	if grep -q '"Action":"skip"' "$$json_out"; then \
 		echo "Unexpected skip detected in required QEXT parity gate:"; \
 		grep '"Action":"skip"' "$$json_out"; \
@@ -137,11 +168,29 @@ test-unsupported-controls-tag: ensure-libopus
 # Required tag-gated DRED parity sweep. Keep it separate from the quarantine API
 # smoke so support claims stay seam-scoped.
 test-unsupported-controls-parity: ensure-libopus
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_PARITY_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/dred -run 'Test(ConvertTo16kMonoFloat64MatchesLibopus|ConvertTo16kMonoFloat64MatchesLibopusAcrossCalls|EncodeExperimentalPayloadMatchesLibopusLargeLaplaceContinuation|RDOVAEEncoderMatchesLibopusOnRealModel)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/lpcnetplc -run 'Test(LPCNetSingleFrameFeaturesFloatMatchesLibopusColdStart|LPCNetSingleFrameFeaturesFloatMatchesLibopusStatefulSequence|BurgCepstralAnalysisMatchesLibopus|PitchDNNMatchesLibopusOnRealModel|ConcealFrameFloatWithAnalysisMatchesLibopus)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msPayloadOnly|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo|EncoderCarriedDREDPrimaryBudgetMatchesLibopusSilkWideband20ms)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(DecoderExplicitDREDFirstConcealFrameBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesManualStep48kRuntime|DecoderExplicitDREDThreeConcealFramesMixedHelpers48kRuntime)' -count=1
+	@json_out="$$(mktemp)"; \
+	json_part="$$json_out.part"; \
+	trap 'rm -f "$$json_out" "$$json_part"' EXIT; \
+	run_json() { \
+		if ! "$$@" -json > "$$json_part"; then \
+			cat "$$json_part"; \
+			cat "$$json_part" >> "$$json_out"; \
+			exit 1; \
+		fi; \
+		cat "$$json_part"; \
+		cat "$$json_part" >> "$$json_out"; \
+		: > "$$json_part"; \
+	}; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_PARITY_ROOT_RUN) -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/dred -run 'Test(ConvertTo16kMonoFloat64MatchesLibopus|ConvertTo16kMonoFloat64MatchesLibopusAcrossCalls|EncodeExperimentalPayloadMatchesLibopusLargeLaplaceContinuation|RDOVAEEncoderMatchesLibopusOnRealModel)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/lpcnetplc -run 'Test(LPCNetSingleFrameFeaturesFloatMatchesLibopusColdStart|LPCNetSingleFrameFeaturesFloatMatchesLibopusStatefulSequence|BurgCepstralAnalysisMatchesLibopus|PitchDNNMatchesLibopusOnRealModel|ConcealFrameFloatWithAnalysisMatchesLibopus)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msPayloadOnly|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo|EncoderCarriedDREDPrimaryBudgetMatchesLibopusSilkWideband20ms)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(DecoderExplicitDREDFirstConcealFrameBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesManualStep48kRuntime|DecoderExplicitDREDThreeConcealFramesMixedHelpers48kRuntime)' -count=1; \
+	if grep -q '"Action":"skip"' "$$json_out"; then \
+		echo "Unexpected skip detected in required unsupported-controls parity gate:"; \
+		grep '"Action":"skip"' "$$json_out"; \
+		exit 1; \
+	fi
 
 # Broader DRED parity sweep. It intentionally stays outside the production gate
 # until the Linux encoder packet-shape and decoder audio numerical matrices are green.

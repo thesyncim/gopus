@@ -78,6 +78,8 @@
 // `-tags gopus_dred`. Quarantine builds using
 // `-tags gopus_unsupported_controls` may also expose DRED controls/helpers for
 // parity work, but they do not report DRED support.
+// Supported feature tags may be combined; quarantine combinations still report
+// only the explicitly supported tagged surfaces.
 // Use SupportsOptionalExtension to probe whether an extension-backed surface is
 // enabled in the current build before relying on it.
 //

@@ -64,6 +64,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"// `-tags gopus_dred`.",
 		"// `-tags gopus_unsupported_controls` may also expose DRED controls/helpers for",
 		"// parity work, but they do not report DRED support.",
+		"// Supported feature tags may be combined; quarantine combinations still report",
 		"// OSCE BWE remains quarantined from the default API surface.",
 		"// `-tags gopus_unsupported_controls`, and that tag does not itself report",
 	} {
@@ -134,6 +135,12 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"adds parser availability, internal converter/payload/basic-analysis coverage,",
 		"real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle,",
 		"and 48 kHz bootstrap coverage",
+		"Required DRED parity gates fail on skipped",
+		"libopus-helper tests instead of treating missing helpers as green",
+		"Supported feature tags can be combined",
+		"`-tags \"gopus_dred gopus_qext\"` build reports both DRED and QEXT support",
+		"`-tags \"gopus_unsupported_controls gopus_qext\"`",
+		"still reports DRED and OSCE BWE as unsupported",
 	} {
 		if !strings.Contains(optionalDoc, needle) {
 			t.Fatalf("docs/optional-extensions.md missing %q", needle)

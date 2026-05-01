@@ -1,0 +1,20 @@
+//go:build gopus_qext
+// +build gopus_qext
+
+package encoder
+
+// SetQEXT toggles the internal libopus-style CELT QEXT encoder path.
+func (e *Encoder) SetQEXT(enabled bool) {
+	e.qextEnabled = enabled
+	if e.qextEnabled {
+		e.ensureExtensionPacketScratch()
+	}
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
+	}
+}
+
+// QEXT reports whether the internal CELT QEXT path is enabled.
+func (e *Encoder) QEXT() bool {
+	return e.qextEnabled
+}

@@ -40,8 +40,8 @@ func TestFindLibopusToolForOSPrefersWindowsExe(t *testing.T) {
 
 func TestFindQEXTLibopusToolForOSUsesSeparateSourceTree(t *testing.T) {
 	root := t.TempDir()
-	defaultPath := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion, "opus_demo")
-	qextPath := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion+"-qext", "opus_demo")
+	defaultPath := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion, "opus_demo.exe")
+	qextPath := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion+"-qext", "opus_demo.exe")
 	if err := os.MkdirAll(filepath.Dir(defaultPath), 0o755); err != nil {
 		t.Fatalf("mkdir default tool dir: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestFindQEXTLibopusToolForOSUsesSeparateSourceTree(t *testing.T) {
 		t.Fatalf("write qext tool: %v", err)
 	}
 
-	got, ok := findQEXTLibopusToolForOS(DefaultVersion, []string{root}, "opus_demo", "linux")
+	got, ok := findQEXTLibopusToolForOS(DefaultVersion, []string{root}, "opus_demo", "windows")
 	if !ok {
 		t.Fatal("expected qext tool lookup to find separate QEXT tree")
 	}

@@ -61,7 +61,8 @@ dormant-runtime checks without changing support probes.
 `make test-unsupported-controls-parity` mirrors the supported encoder seams and
 adds parser availability, internal converter/payload/basic-analysis coverage,
 real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle,
-and 48 kHz bootstrap coverage. In
+and 48 kHz bootstrap coverage. Required DRED parity gates fail on skipped
+libopus-helper tests instead of treating missing helpers as green. In
 default builds, DRED controls are absent and
 encode/decode hot paths do not enter DRED runtime hooks. The internal encoder
 DRED runtime, top-level decoder DRED internals, and multistream decoder DRED
@@ -75,6 +76,12 @@ zero-allocation and leaves the encoder DRED runtime dormant while
 latent path, decoder payload scan, or decoder good-packet marker work. Decoder audio-path parity, Hybrid packet-length
 parity, and Hybrid primary-frame byte exactness remain seam-specific and
 experimental unless covered by green libopus-backed parity tests.
+
+Supported feature tags can be combined when both surfaces are needed. A
+`-tags "gopus_dred gopus_qext"` build reports both DRED and QEXT support and
+exposes both control families. A `-tags "gopus_unsupported_controls gopus_qext"`
+build reports QEXT support, exposes the quarantine DRED/OSCE controls for
+parity work, and still reports DRED and OSCE BWE as unsupported.
 
 ## Quarantine Build Tag
 

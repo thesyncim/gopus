@@ -1,5 +1,5 @@
-//go:build !gopus_unsupported_controls && !gopus_dred
-// +build !gopus_unsupported_controls,!gopus_dred
+//go:build !gopus_unsupported_controls && !gopus_dred && !gopus_qext
+// +build !gopus_unsupported_controls,!gopus_dred,!gopus_qext
 
 package multistream
 
@@ -27,7 +27,7 @@ func TestDefaultBuildQuarantinesUnsupportedControls(t *testing.T) {
 		t.Fatalf("NewDecoderDefault error: %v", err)
 	}
 
-	for _, name := range []string{"DREDDuration", "DREDModelLoaded", "DREDReady", "SetDREDDuration"} {
+	for _, name := range []string{"DREDDuration", "DREDModelLoaded", "DREDReady", "QEXT", "SetDREDDuration", "SetQEXT"} {
 		if _, ok := exportedMethodNames(enc)[name]; ok {
 			t.Fatalf("default build unexpectedly exposes encoder %s", name)
 		}

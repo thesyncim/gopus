@@ -52,7 +52,10 @@ var (
 	ErrInvalidDREDDuration = errors.New("encoder: invalid DRED duration")
 )
 
-const maxPacketSizeWithQEXT = 3826
+const (
+	defaultScratchPacketBytes   = maxSilkPacketBytes
+	extensionScratchPacketBytes = 3826
+)
 
 // Encoder is the unified Opus encoder that orchestrates SILK and CELT sub-encoders.
 type Encoder struct {
@@ -261,7 +264,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchLeft:            make([]float32, maxSamples),
 		scratchRight:           make([]float32, maxSamples),
 		scratchMono:            make([]float32, maxSamples),
-		scratchPacket:          make([]byte, maxPacketSizeWithQEXT),
+		scratchPacket:          make([]byte, defaultScratchPacketBytes),
 		prevMode:               ModeAuto,
 		prevPacketMode:         ModeAuto,
 		prevAutoMode:           ModeAuto,
@@ -321,20 +324,11 @@ func (e *Encoder) Bandwidth() types.Bandwidth {
 	return e.bandwidth
 }
 
-// SetQEXT toggles the internal libopus-style CELT QEXT encoder path.
-func (e *Encoder) SetQEXT(enabled bool) {
-	if !extsupport.QEXT {
-		enabled = false
+func (e *Encoder) ensureExtensionPacketScratch() {
+	if len(e.scratchPacket) >= extensionScratchPacketBytes {
+		return
 	}
-	e.qextEnabled = enabled
-	if e.celtEncoder != nil {
-		e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
-	}
-}
-
-// QEXT reports whether the internal CELT QEXT path is enabled.
-func (e *Encoder) QEXT() bool {
-	return extsupport.QEXT && e.qextEnabled
+	e.scratchPacket = make([]byte, extensionScratchPacketBytes)
 }
 
 // DNNBlobLoaded reports whether a validated model blob is retained.
