@@ -7,6 +7,7 @@ import (
 	"errors"
 	"math"
 
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -1092,7 +1093,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	var qextExtraBits []int
 	var qextFineBits []int
 	qextPayloadBytes := 0
-	if e.qextEnabled && !e.IsHybrid() {
+	if extsupport.QEXT && e.qextEnabled && !e.IsHybrid() {
 		minAllowed := ((re.TellFrac() + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
 		mainBytes, payloadBytes, _ := computeQEXTReservation(targetBytes, minAllowed, frameSize, e.channels, toneishness)
 		qextPayloadBytes = payloadBytes
@@ -1901,7 +1902,7 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 		nbCompressed = 2
 	}
 	packetSizeCap := 1275
-	if e.qextEnabled && !e.hybrid {
+	if extsupport.QEXT && e.qextEnabled && !e.hybrid {
 		packetSizeCap = qextPacketSizeCap
 	}
 	if nbCompressed > packetSizeCap {
@@ -1954,7 +1955,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	// In libopus VBR mode, nbCompressedBytes is the buffer cap (not bitrate-derived).
 	// The per-bitrate constraint comes from CVBR reservoir tracking.
 	packetSizeCap := 1275
-	if e.qextEnabled && !e.hybrid {
+	if extsupport.QEXT && e.qextEnabled && !e.hybrid {
 		packetSizeCap = qextPacketSizeCap
 	}
 	vbrMaxBytes := (packetSizeCap >> (3 - lm)) - 1
@@ -2198,7 +2199,7 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	// floor_depth limit from maxDepth.
 	maxDepth := e.lastDynalloc.MaxDepth
 	bins := 0
-	if e.qextEnabled && !e.hybrid {
+	if extsupport.QEXT && e.qextEnabled && !e.hybrid {
 		bins = qextShortMDCTSize(frameSize) << lm
 	} else if nbBands >= 2 {
 		bins = EBands[nbBands-2] << lm

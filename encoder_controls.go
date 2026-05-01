@@ -149,17 +149,6 @@ func (e *Encoder) SetDNNBlob(data []byte) error {
 	return nil
 }
 
-// SetQEXT toggles the libopus ENABLE_QEXT encoder extension.
-func (e *Encoder) SetQEXT(enabled bool) error {
-	e.enc.SetQEXT(enabled)
-	return nil
-}
-
-// QEXT reports whether the optional extended-precision theta path is enabled.
-func (e *Encoder) QEXT() (bool, error) {
-	return e.enc.QEXT(), nil
-}
-
 // SetExpertFrameDuration sets the preferred frame duration policy.
 //
 // `ExpertFrameDurationArg` keeps using the current `FrameSize()` value.

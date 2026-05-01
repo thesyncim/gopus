@@ -14,6 +14,7 @@ import (
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -470,6 +471,9 @@ func (e *Encoder) SetMode(mode encoder.Mode) {
 
 // SetQEXT toggles the optional CELT QEXT path for all stream encoders.
 func (e *Encoder) SetQEXT(enabled bool) {
+	if !extsupport.QEXT {
+		enabled = false
+	}
 	for _, enc := range e.encoders {
 		enc.SetQEXT(enabled)
 	}
@@ -477,7 +481,7 @@ func (e *Encoder) SetQEXT(enabled bool) {
 
 // QEXT reports whether the optional CELT QEXT path is enabled.
 func (e *Encoder) QEXT() bool {
-	if len(e.encoders) > 0 {
+	if extsupport.QEXT && len(e.encoders) > 0 {
 		return e.encoders[0].QEXT()
 	}
 	return false

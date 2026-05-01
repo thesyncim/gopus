@@ -24,7 +24,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		status string
 	}{
 		{name: "DNN blob loading", ext: OptionalExtensionDNNBlob, status: "Supported by default"},
-		{name: "QEXT", ext: OptionalExtensionQEXT, status: "Supported by default"},
+		{name: "QEXT", ext: OptionalExtensionQEXT, status: "Tagged support"},
 		{name: "DRED", ext: OptionalExtensionDRED, status: "Tagged control/standalone support"},
 		{name: "OSCE BWE", ext: OptionalExtensionOSCEBWE, status: "Unsupported and quarantined"},
 	} {
@@ -38,10 +38,12 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	readme := mustReadDocForTest(t, "README.md")
 	for _, needle := range []string{
 		"[Optional Extensions](docs/optional-extensions.md)",
-		"Supported default controls are `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()`",
+		"Supported default controls are `SetDNNBlob(...)` only",
+		"QEXT controls are supported with `-tags gopus_qext`",
 		"DRED control and standalone surfaces are supported with `-tags gopus_dred`",
 		"this is not broad DRED decoder audio-path support",
 		"Broader DRED audio-path and Hybrid primary-frame byte exactness remain seam-specific",
+		"Default builds keep QEXT and DRED controls absent",
 		"normal encode/decode runtime work remains dormant until a DRED duration, payload, or recovery path is explicitly armed",
 		"model-only public caller-buffer encode/decode paths stay zero-allocation and skip unarmed DRED helper work",
 		"may also expose DRED controls/helpers for parity work",
@@ -56,9 +58,10 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	docGo := mustReadDocForTest(t, "doc.go")
 	for _, needle := range []string{
 		"// # Supported Default Build",
-		"// optional controls in the default build currently include SetDNNBlob plus",
-		"// SetQEXT/QEXT. DRED control and standalone surfaces are supported only in",
-		"// builds using `-tags gopus_dred`.",
+		"// optional controls in the default build currently include SetDNNBlob only.",
+		"// QEXT controls are supported only in builds using `-tags gopus_qext`.",
+		"// DRED control and standalone surfaces are supported only in builds using",
+		"// `-tags gopus_dred`.",
 		"// `-tags gopus_unsupported_controls` may also expose DRED controls/helpers for",
 		"// parity work, but they do not report DRED support.",
 		"// OSCE BWE remains quarantined from the default API surface.",
@@ -74,6 +77,9 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"## Optional Extension Contract",
 		"`SetDNNBlob(...)` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`",
 		"Decoder-side `SetDNNBlob(...)` currently covers loader-derived validation and retained control state.",
+		"QEXT controls are supported only when built with `-tags gopus_qext`",
+		"`make test-qext-parity` enforces the supported QEXT packet-extension seams",
+		"default builds keep QEXT controls absent",
 		"normal encode/decode runtime work remains dormant until a DRED duration, payload, or recovery path is explicitly armed",
 		"Model-only public caller-buffer encode/decode paths stay zero-allocation and skip unarmed DRED helper work.",
 		"DRED control and standalone surfaces are supported only when built with `-tags gopus_dred`",
@@ -100,6 +106,10 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	}
 
 	for _, needle := range []string{
+		"Build tag-gated QEXT support explicitly",
+		"`SupportsOptionalExtension(gopus.OptionalExtensionQEXT)` reports `true` only in",
+		"`make test-qext-parity`",
+		"Default builds keep QEXT controls absent",
 		"Build tag-gated DRED control/standalone support explicitly",
 		"top-level decoder DRED internals",
 		"expose DRED controls/standalone helpers",
@@ -131,7 +141,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	}
 
 	examples := mustReadDocForTest(t, "examples/README.md")
-	if !strings.Contains(examples, "These examples target the supported default build. DRED examples require `-tags gopus_dred`; OSCE BWE remains quarantine-only.") {
+	if !strings.Contains(examples, "These examples target the supported default build. QEXT examples require `-tags gopus_qext`; DRED examples require `-tags gopus_dred`; OSCE BWE remains quarantine-only.") {
 		t.Fatal("examples/README.md missing default-build note")
 	}
 }
@@ -154,13 +164,19 @@ func optionalExtensionDocSymbol(ext OptionalExtension) string {
 func assertOptionalExtensionDocsMatchSupport(t *testing.T, optionalDoc string) {
 	t.Helper()
 
-	for _, ext := range []OptionalExtension{OptionalExtensionDNNBlob, OptionalExtensionQEXT} {
-		if !SupportsOptionalExtension(ext) {
-			t.Fatalf("%s documented as default-supported but current build reports unsupported", optionalExtensionDocSymbol(ext))
-		}
+	if !SupportsOptionalExtension(OptionalExtensionDNNBlob) {
+		t.Fatalf("%s documented as default-supported but current build reports unsupported", optionalExtensionDocSymbol(OptionalExtensionDNNBlob))
 	}
 	if SupportsOptionalExtension(OptionalExtensionOSCEBWE) {
 		t.Fatal("OptionalExtensionOSCEBWE documented as unsupported but current build reports supported")
+	}
+
+	if SupportsOptionalExtension(OptionalExtensionQEXT) {
+		if !strings.Contains(optionalDoc, "`SupportsOptionalExtension(gopus.OptionalExtensionQEXT)` reports `true` only in\nthat tagged QEXT build") {
+			t.Fatal("docs/optional-extensions.md missing gopus_qext-only QEXT support probe wording")
+		}
+	} else if !strings.Contains(optionalDoc, "Build tag-gated QEXT support explicitly") {
+		t.Fatal("docs/optional-extensions.md missing explicit QEXT build-tag guidance")
 	}
 
 	if SupportsOptionalExtension(OptionalExtensionDRED) {

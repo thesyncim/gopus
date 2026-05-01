@@ -1,5 +1,5 @@
-//go:build !gopus_unsupported_controls && !gopus_dred && !gopus_qext
-// +build !gopus_unsupported_controls,!gopus_dred,!gopus_qext
+//go:build gopus_qext && !gopus_dred && !gopus_unsupported_controls
+// +build gopus_qext,!gopus_dred,!gopus_unsupported_controls
 
 package gopus
 
@@ -19,7 +19,7 @@ func exportedMethodNames(v any) []string {
 	return names
 }
 
-func TestDefaultBuildPublicAPIContract(t *testing.T) {
+func TestQEXTBuildPublicAPIContract(t *testing.T) {
 	tests := []struct {
 		name string
 		got  any
@@ -34,10 +34,10 @@ func TestDefaultBuildPublicAPIContract(t *testing.T) {
 				"EncodeInt24", "EncodeInt24Slice", "ExpertFrameDuration", "FECEnabled",
 				"FinalRange", "ForceChannels", "FrameSize", "InDTX", "LSBDepth", "Lookahead",
 				"MaxBandwidth", "PacketLoss", "PhaseInversionDisabled", "PredictionDisabled",
-				"Reset", "SampleRate", "SetApplication", "SetBandwidth", "SetBitrate",
+				"QEXT", "Reset", "SampleRate", "SetApplication", "SetBandwidth", "SetBitrate",
 				"SetBitrateMode", "SetComplexity", "SetDNNBlob", "SetDTX", "SetExpertFrameDuration",
 				"SetFEC", "SetForceChannels", "SetFrameSize", "SetLSBDepth", "SetMaxBandwidth",
-				"SetPacketLoss", "SetPhaseInversionDisabled", "SetPredictionDisabled",
+				"SetPacketLoss", "SetPhaseInversionDisabled", "SetPredictionDisabled", "SetQEXT",
 				"SetSignal", "SetVBR", "SetVBRConstraint", "Signal", "VADActivity", "VBR", "VBRConstraint",
 			},
 		},
@@ -59,10 +59,10 @@ func TestDefaultBuildPublicAPIContract(t *testing.T) {
 				"EncodeInt16Slice", "EncodeInt24", "EncodeInt24Slice", "ExpertFrameDuration",
 				"FECEnabled", "FinalRange", "ForceChannels", "FrameSize", "GetFinalRange", "LSBDepth",
 				"Lookahead", "MaxBandwidth", "PacketLoss", "PhaseInversionDisabled", "PredictionDisabled",
-				"Reset", "SampleRate", "SetApplication", "SetBandwidth", "SetBitrate",
+				"QEXT", "Reset", "SampleRate", "SetApplication", "SetBandwidth", "SetBitrate",
 				"SetBitrateMode", "SetComplexity", "SetDNNBlob", "SetDTX", "SetExpertFrameDuration",
 				"SetFEC", "SetForceChannels", "SetFrameSize", "SetLSBDepth", "SetMaxBandwidth",
-				"SetPacketLoss", "SetPhaseInversionDisabled", "SetPredictionDisabled",
+				"SetPacketLoss", "SetPhaseInversionDisabled", "SetPredictionDisabled", "SetQEXT",
 				"SetSignal", "SetVBR", "SetVBRConstraint", "Signal", "Streams", "VBR", "VBRConstraint",
 			},
 		},

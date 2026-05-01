@@ -18,11 +18,26 @@ if gopus.SupportsOptionalExtension(gopus.OptionalExtensionQEXT) {
 | Extension | Support status | Probe | Notes |
 | --- | --- | --- | --- |
 | DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; decoder-side support currently covers loader-derived validation and retained control state, not full model-backed PLC/OSCE runtime behavior. Tagged DRED/quarantine builds may bind DRED-capable model families on this control path, but normal encode/decode runtime work remains dormant until a DRED duration, payload, or recovery path is explicitly armed; model-only public caller-buffer encode/decode paths stay zero-allocation and skip unarmed DRED helper work |
-| QEXT | Supported by default | `OptionalExtensionQEXT` | Available through `SetQEXT` / `QEXT` on `Encoder` and `MultistreamEncoder` |
+| QEXT | Tagged support | `OptionalExtensionQEXT` | Build with `-tags gopus_qext` to support `SetQEXT` / `QEXT` on `Encoder` and `MultistreamEncoder`; default builds keep those controls absent and compile the packet-extension payload scan/encode plumbing behind a constant false gate |
 | DRED | Tagged control/standalone support | `OptionalExtensionDRED` | Build with `-tags gopus_dred` to support `SetDREDDuration(...)` / `DREDDuration()` on `Encoder` and `MultistreamEncoder`, plus standalone `DREDDecoder` / `DRED`; quarantine builds may expose the same controls/helpers under `gopus_unsupported_controls` for parity work without reporting DRED support; this does not claim broad DRED audio-path parity, and default builds keep DRED absent with runtime hooks dormant |
 | OSCE BWE | Unsupported and quarantined | `OptionalExtensionOSCEBWE` | `SetOSCEBWE(...)` / `OSCEBWE()` are absent from the default public API surface, and low-level OSCE model helpers stay quarantine-gated |
 
 ## Supported Feature Tags
+
+Build tag-gated QEXT support explicitly when you need the libopus
+ENABLE_QEXT-compatible extended-precision theta path:
+
+```bash
+go test -tags gopus_qext ./...
+```
+
+`SupportsOptionalExtension(gopus.OptionalExtensionQEXT)` reports `true` only in
+that tagged QEXT build. Current release support is scoped to encoder controls,
+packet extension carriage, and decoder-side QEXT parity covered by
+`make test-qext-parity`, which uses a separate pinned
+`tmp_check/opus-1.6.1-qext` reference build configured with `--enable-qext`.
+Default builds keep QEXT controls absent and do not scan, arm, or encode QEXT
+packet extensions in the public encode/decode hot paths.
 
 Build tag-gated DRED control/standalone support explicitly when you need the
 verified DRED control and standalone surfaces:

@@ -323,6 +323,9 @@ func (e *Encoder) Bandwidth() types.Bandwidth {
 
 // SetQEXT toggles the internal libopus-style CELT QEXT encoder path.
 func (e *Encoder) SetQEXT(enabled bool) {
+	if !extsupport.QEXT {
+		enabled = false
+	}
 	e.qextEnabled = enabled
 	if e.celtEncoder != nil {
 		e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
@@ -331,7 +334,7 @@ func (e *Encoder) SetQEXT(enabled bool) {
 
 // QEXT reports whether the internal CELT QEXT path is enabled.
 func (e *Encoder) QEXT() bool {
-	return e.qextEnabled
+	return extsupport.QEXT && e.qextEnabled
 }
 
 // DNNBlobLoaded reports whether a validated model blob is retained.
@@ -794,7 +797,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
 	e.inputBuffer = e.inputBuffer[:remaining]
 	qextPayload := []byte(nil)
-	if actualMode == ModeCELT && e.celtEncoder != nil {
+	if extsupport.QEXT && actualMode == ModeCELT && e.celtEncoder != nil {
 		qextPayload = e.celtEncoder.LastQEXTPayload()
 	}
 	dredPacketBuilt := false
@@ -2137,7 +2140,7 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 
 func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSize int, bitrate int, maxPayloadBytes int) ([]byte, error) {
 	e.ensureCELTEncoder()
-	e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
+	e.celtEncoder.SetQEXTEnabled(extsupport.QEXT && e.qextEnabled)
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetBitrate(bitrate)
 	e.celtEncoder.SetMaxPayloadBytes(maxPayloadBytes)
@@ -2807,7 +2810,7 @@ func (e *Encoder) ensureCELTEncoder() {
 		// Opus encoder already applies CELT delay compensation at the top level.
 		e.celtEncoder.SetDelayCompensationEnabled(false)
 	}
-	e.celtEncoder.SetQEXTEnabled(e.qextEnabled)
+	e.celtEncoder.SetQEXTEnabled(extsupport.QEXT && e.qextEnabled)
 	e.celtEncoder.SetPrediction(e.celtPredictionMode())
 	e.celtEncoder.SetLFE(e.lfe)
 	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)

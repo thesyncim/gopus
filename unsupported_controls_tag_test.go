@@ -3,12 +3,24 @@
 
 package gopus
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/gopus/internal/extsupport"
+)
 
 func TestUnsupportedControlsBuildExposesQuarantinedTopLevelControls(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
 	assertOptionalEncoderControls(t, enc)
-	assertSupportedQEXTControl(t, enc)
+	qext, qextOK := any(enc).(qextEncoderControl)
+	if extsupport.QEXT {
+		if !qextOK {
+			t.Fatal("QEXT build does not expose encoder QEXT control")
+		}
+		assertSupportedQEXTControl(t, qext)
+	} else if qextOK {
+		t.Fatal("non-QEXT build unexpectedly exposes encoder QEXT control")
+	}
 	dred, ok := any(enc).(unsupportedDREDControl)
 	if !ok {
 		t.Fatal("unsupported-controls build does not expose encoder DRED control")
@@ -41,7 +53,15 @@ func TestUnsupportedControlsBuildExposesQuarantinedTopLevelControls(t *testing.T
 
 	msEnc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
 	assertOptionalEncoderControls(t, msEnc)
-	assertSupportedQEXTControl(t, msEnc)
+	msQEXT, msQEXTOK := any(msEnc).(qextEncoderControl)
+	if extsupport.QEXT {
+		if !msQEXTOK {
+			t.Fatal("QEXT build does not expose multistream encoder QEXT control")
+		}
+		assertSupportedQEXTControl(t, msQEXT)
+	} else if msQEXTOK {
+		t.Fatal("non-QEXT build unexpectedly exposes multistream encoder QEXT control")
+	}
 	msDred, ok := any(msEnc).(unsupportedDREDControl)
 	if !ok {
 		t.Fatal("unsupported-controls build does not expose multistream encoder DRED control")

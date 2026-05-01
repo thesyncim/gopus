@@ -32,17 +32,6 @@ func (e *MultistreamEncoder) SetDNNBlob(data []byte) error {
 	return nil
 }
 
-// SetQEXT toggles the libopus ENABLE_QEXT encoder extension.
-func (e *MultistreamEncoder) SetQEXT(enabled bool) error {
-	e.enc.SetQEXT(enabled)
-	return nil
-}
-
-// QEXT reports whether the optional extended-precision theta path is enabled.
-func (e *MultistreamEncoder) QEXT() (bool, error) {
-	return e.enc.QEXT(), nil
-}
-
 // SetExpertFrameDuration sets the preferred frame duration policy for multistream encoding.
 func (e *MultistreamEncoder) SetExpertFrameDuration(duration ExpertFrameDuration) error {
 	return setExpertFrameDuration(duration, &e.expertFrameDuration, e.SetFrameSize)

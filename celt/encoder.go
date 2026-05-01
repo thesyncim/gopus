@@ -4,7 +4,10 @@
 
 package celt
 
-import "github.com/thesyncim/gopus/rangecoding"
+import (
+	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/rangecoding"
+)
 
 // Encoder encodes audio frames using CELT transform coding.
 // It maintains state across frames for proper audio continuity via energy
@@ -665,6 +668,9 @@ func (e *Encoder) SetTopLevelDelayCompensatedInput(alreadyCompensated bool) {
 
 // SetQEXTEnabled toggles the internal extended-precision side payload path.
 func (e *Encoder) SetQEXTEnabled(enabled bool) {
+	if !extsupport.QEXT {
+		enabled = false
+	}
 	e.qextEnabled = enabled
 	if !enabled {
 		e.lastQEXTPayload = e.lastQEXTPayload[:0]
@@ -673,7 +679,7 @@ func (e *Encoder) SetQEXTEnabled(enabled bool) {
 
 // QEXTEnabled reports whether the internal QEXT side path is enabled.
 func (e *Encoder) QEXTEnabled() bool {
-	return e.qextEnabled
+	return extsupport.QEXT && e.qextEnabled
 }
 
 // Complexity returns the current complexity setting.
@@ -1282,7 +1288,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	if len(s.reBuf) < bufSize {
 		s.reBuf = make([]byte, bufSize)
 	}
-	if e.qextEnabled {
+	if extsupport.QEXT && e.qextEnabled {
 		s.qextBuf = ensureByteSlice(&s.qextBuf, qextPacketSizeCap)
 	}
 
@@ -1356,7 +1362,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.allocFinePrio = ensureIntSlice(&s.allocFinePrio, MaxBands)
 	s.allocThresh = ensureIntSlice(&s.allocThresh, MaxBands)
 	s.allocTrim = ensureIntSlice(&s.allocTrim, MaxBands)
-	if e.qextEnabled {
+	if extsupport.QEXT && e.qextEnabled {
 		s.qextExtraBits = ensureIntSlice(&s.qextExtraBits, MaxBands+nbQEXTBands)
 		s.qextFineBits = ensureIntSlice(&s.qextFineBits, MaxBands+nbQEXTBands)
 		s.qextBandE = ensureFloat64Slice(&s.qextBandE, nbQEXTBands*channels)

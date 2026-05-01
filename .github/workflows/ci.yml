@@ -362,6 +362,34 @@ jobs:
       - name: Run supported DRED feature-tag gate
         run: make test-dred-tag
 
+  test-linux-qext-parity:
+    name: test-linux-qext-parity
+    needs:
+      - changes
+    if: ${{ needs.changes.outputs.docs_only != 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned QEXT libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-qext
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-qext-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Run supported QEXT feature-tag parity gate
+        run: make test-qext-parity
+
   test-linux-unsupported-controls-parity:
     name: test-linux-unsupported-controls-parity
     needs:
@@ -398,6 +426,7 @@ jobs:
       - test-linux-fuzz-smoke
       - test-linux-consumer-smoke
       - test-linux-dred-tag
+      - test-linux-qext-parity
       - test-linux-unsupported-controls
       - test-linux-unsupported-controls-parity
     runs-on: ubuntu-latest
@@ -416,6 +445,7 @@ jobs:
           echo "test-linux-fuzz-smoke: ${{ needs.test-linux-fuzz-smoke.result }}"
           echo "test-linux-consumer-smoke: ${{ needs.test-linux-consumer-smoke.result }}"
           echo "test-linux-dred-tag: ${{ needs.test-linux-dred-tag.result }}"
+          echo "test-linux-qext-parity: ${{ needs.test-linux-qext-parity.result }}"
           echo "test-linux-unsupported-controls: ${{ needs.test-linux-unsupported-controls.result }}"
           echo "test-linux-unsupported-controls-parity: ${{ needs.test-linux-unsupported-controls-parity.result }}"
           if [ "${{ needs.test-linux-parity.result }}" != "success" ]; then
@@ -437,6 +467,9 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-dred-tag.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-qext-parity.result }}" != "success" ]; then
             exit 1
           fi
           if [ "${{ needs.test-linux-unsupported-controls.result }}" != "success" ]; then

@@ -537,7 +537,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				d.celtDecoder.SetBandwidth(celtBW)
 			}
 		}
-		if extsupport.QEXT || len(qextPayload) != 0 {
+		if extsupport.QEXT {
 			d.celtDecoder.SetQEXTPayload(qextPayload)
 		}
 		if extsupport.DREDRuntime && d.dredNeedsCELTFloatPath() {

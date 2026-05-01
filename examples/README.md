@@ -2,7 +2,7 @@
 
 Practical examples demonstrating gopus usage patterns for real-world applications.
 
-These examples target the supported default build. DRED examples require `-tags gopus_dred`; OSCE BWE remains quarantine-only.
+These examples target the supported default build. QEXT examples require `-tags gopus_qext`; DRED examples require `-tags gopus_dred`; OSCE BWE remains quarantine-only.
 
 ## Prerequisites
 

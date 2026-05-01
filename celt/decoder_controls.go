@@ -1,6 +1,9 @@
 package celt
 
-import "github.com/thesyncim/gopus/rangecoding"
+import (
+	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/rangecoding"
+)
 
 // SetRangeDecoder sets the range decoder for the current frame.
 // This must be called before decoding each frame.
@@ -27,10 +30,17 @@ func (d *Decoder) FinalRange() uint32 {
 // CELT decode call. It is used by the outer Opus decoder to forward optional
 // packet extensions without allocating.
 func (d *Decoder) SetQEXTPayload(payload []byte) {
+	if !extsupport.QEXT {
+		payload = nil
+	}
 	d.pendingQEXTPayload = payload
 }
 
 func (d *Decoder) takeQEXTPayload() []byte {
+	if !extsupport.QEXT {
+		d.pendingQEXTPayload = nil
+		return nil
+	}
 	payload := d.pendingQEXTPayload
 	d.pendingQEXTPayload = nil
 	return payload

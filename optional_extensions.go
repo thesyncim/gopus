@@ -13,7 +13,8 @@ const (
 	// OptionalExtensionDNNBlob identifies supported weights-file model blob loading.
 	OptionalExtensionDNNBlob OptionalExtension = "dnn_blob"
 
-	// OptionalExtensionQEXT identifies the supported optional extended-precision theta path.
+	// OptionalExtensionQEXT identifies the optional extended-precision theta path,
+	// which is supported only when built with -tags gopus_qext.
 	OptionalExtensionQEXT OptionalExtension = "qext"
 
 	// OptionalExtensionOSCEBWE identifies decoder-side OSCE BWE controls, which

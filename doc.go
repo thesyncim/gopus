@@ -72,9 +72,10 @@
 // bandwidth, FEC, DTX, gain, packet parsing, and multistream helpers.
 //
 // Some libopus build-time extension hooks are build dependent. Supported
-// optional controls in the default build currently include SetDNNBlob plus
-// SetQEXT/QEXT. DRED control and standalone surfaces are supported only in
-// builds using `-tags gopus_dred`. Quarantine builds using
+// optional controls in the default build currently include SetDNNBlob only.
+// QEXT controls are supported only in builds using `-tags gopus_qext`.
+// DRED control and standalone surfaces are supported only in builds using
+// `-tags gopus_dred`. Quarantine builds using
 // `-tags gopus_unsupported_controls` may also expose DRED controls/helpers for
 // parity work, but they do not report DRED support.
 // Use SupportsOptionalExtension to probe whether an extension-backed surface is

@@ -1,3 +1,6 @@
+//go:build gopus_qext
+// +build gopus_qext
+
 package celt
 
 import (
