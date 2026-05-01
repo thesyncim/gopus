@@ -72,7 +72,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"`SetDNNBlob(...)` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`",
 		"Decoder-side `SetDNNBlob(...)` currently covers loader-derived validation and retained control state.",
 		"DRED control and standalone surfaces are supported only when built with `-tags gopus_dred`",
-		"standalone DRED wrapper lifecycle/no-allocation, libopus parse/decode/process metadata checks, real-packet standalone process state/feature parity",
+		"standalone DRED wrapper lifecycle/no-allocation, libopus parse/decode/process metadata checks, real-packet standalone process state/feature and recovery scheduling parity",
 		"`make test-dred-tag`",
 		"mirrored by `make test-unsupported-controls-parity`",
 		"`SetOSCEBWE(...)` / `OSCEBWE()` are absent unless built with `-tags gopus_unsupported_controls`",
@@ -98,7 +98,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"standalone DRED wrapper lifecycle,",
 		"`make test-dred-tag` exercises standalone DRED wrapper lifecycle",
 		"zero-allocation, libopus parse/decode/process metadata coverage, and real-packet",
-		"standalone process state/feature parity plus the supported-tag narrow",
+		"standalone process state/feature and recovery scheduling parity plus the",
 		"`make test-unsupported-controls-parity` also enforces that carried-payload seam",
 	} {
 		if !strings.Contains(optionalDoc, needle) {
