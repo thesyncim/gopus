@@ -19,7 +19,7 @@ Current external assessment:
 - Release evidence exists, but the public release flow has not been exercised.
 
 2. The public API contract must keep supported vs unsupported features explicit.
-- DRED control and standalone surfaces are now build-tag gated behind `gopus_dred`; default builds keep those controls absent and DRED runtime hooks dormant.
+- DRED control and standalone surfaces are now supported behind `gopus_dred`; quarantine builds may expose the same controls/helpers under `gopus_unsupported_controls` for parity work without reporting support, while default builds keep those controls absent and DRED runtime hooks dormant.
 - OSCE BWE remains quarantine-only behind `gopus_unsupported_controls`, and that quarantine tag does not make `SupportsOptionalExtension(...)` report support.
 - README, package docs, release notes, and optional-extension docs should stay aligned as new seams graduate.
 
