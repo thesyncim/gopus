@@ -1,3 +1,4 @@
+//go:build arm64 && !purego
 #include "textflag.h"
 
 // All three butterfly inner loops for ARM64.

@@ -1,3 +1,4 @@
+//go:build arm64 && !purego
 #include "textflag.h"
 
 // func innerProductF32(a, b []float32, length int) float64

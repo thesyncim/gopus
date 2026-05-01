@@ -1,3 +1,4 @@
+//go:build arm64 && !purego
 #include "textflag.h"
 
 TEXT ·reciprocalEstimate32(SB), NOSPLIT, $0-12

@@ -1,3 +1,4 @@
+//go:build arm64 && !purego
 #include "textflag.h"
 
 // func convertFloat32ToInt16Unit(dst []int16, src []float32, n int) bool

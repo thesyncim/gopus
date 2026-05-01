@@ -1,3 +1,4 @@
+//go:build amd64 && !purego
 #include "textflag.h"
 
 // All three butterfly inner loops for AMD64.
