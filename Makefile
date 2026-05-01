@@ -106,7 +106,7 @@ test-doc-contract:
 test-dred-tag: ensure-libopus
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(OptionalExtensionDocsContract|SupportsOptionalExtension|DREDBuildTagExposesSupportedTopLevelControls|DREDBuildPublicAPIContract|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls)|ExampleSupportsOptionalExtension' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DREDDecoderParseRequiresModel|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderProcessRejectsEmptyState|DREDDecoderProcessDoesNotAllocate|DREDDecoderParseAndProcessDoesNotAllocate|DREDDecoderParseClearsStateOnMalformedPacket)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'TestStandaloneDREDParseMatchesLibopus' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DREDDecoderParseAndProcessRetainsMetadata|StandaloneDREDParseMatchesLibopus)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPrimaryBudgetMatchesLibopusSilkWideband20ms)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./encoder -run 'Test(UnsupportedControlsBuildExposesQuarantinedControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDRuntimeStaysDormantUntilReady|EncoderProcessDREDLatentsDoesNotAllocate|EncoderProcessDREDLatentsDoesNotAllocate48k|MaybeBuildSingleFrameDREDPacketCarriesExtension)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./multistream -run 'TestDREDBuildTagExposesEncoderControlsOnly' -count=1
