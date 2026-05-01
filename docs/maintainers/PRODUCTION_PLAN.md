@@ -34,7 +34,7 @@ Ship `gopus` as a dependable production codec library with:
 - CI fails closed on package load/build issues.
 - PR CI matches local production parity semantics closely enough that green means the same thing in both places.
 - CI covers race, parity, provenance, and fuzz smoke in addition to the existing test suite.
-- CI and `make verify-production` include the supported DRED tag gate plus the unsupported-controls DRED parity sweep as required gates, covering standalone DRED wrapper lifecycle/no-allocation and libopus parse/decode/process metadata checks, the narrow SILK wideband 20 ms carried-payload, bootstrap, and bookkeeping seams.
+- CI and `make verify-production` include the supported DRED tag gate plus the unsupported-controls DRED parity sweep as required gates, covering standalone DRED wrapper lifecycle/no-allocation, libopus parse/decode/process metadata checks, real-packet standalone process state/feature parity, the narrow SILK wideband 20 ms carried-payload, bootstrap, and bookkeeping seams.
 
 4. Public contract clarity
 - Streaming and container constructors fail fast on misuse instead of panicking later.
