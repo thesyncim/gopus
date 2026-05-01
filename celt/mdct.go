@@ -391,9 +391,8 @@ func imdctOverlapWithPrevScratchF32Output(spectrum []float64, prevOverlap []floa
 	buf := outF32[start : start+n2]
 	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
 
-	kissFFT32ToInterleaved(buf, fftIn, fftTmp)
-
-	imdctPostRotateF32(buf, trig, n2, n4)
+	fftOut := kissFFT32ToScratch(fftIn, fftTmp)
+	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
 
 	// TDAC windowing blends outF32[0:overlap] using float32
 	if overlap > 0 {
@@ -464,8 +463,8 @@ func imdctCoreScratchF32(spectrum []float64, scratch *imdctScratchF32) []float32
 	}
 
 	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
-	kissFFT32ToInterleaved(buf, fftIn, fftTmp)
-	imdctPostRotateF32(buf, trig, n2, n4)
+	fftOut := kissFFT32ToScratch(fftIn, fftTmp)
+	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
 	return buf[:n2:n2]
 }
 
@@ -719,9 +718,8 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
 
 	// FFT using float32 kiss_fft implementation
-	kissFFT32ToInterleaved(buf, fftIn, fftTmp)
-
-	imdctPostRotateF32(buf, trig, n2, n4)
+	fftOut := kissFFT32ToScratch(fftIn, fftTmp)
+	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
 
 	start := blockStart + overlap/2
 	if start >= len(out) {

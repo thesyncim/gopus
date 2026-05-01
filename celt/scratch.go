@@ -26,6 +26,18 @@ func ensureIntSlice(buf *[]int, n int) []int {
 	return *buf
 }
 
+func ensureInt32Slice(buf *[]int32, n int) []int32 {
+	if n < 0 {
+		n = 0
+	}
+	if cap(*buf) < n {
+		*buf = make([]int32, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
 func ensureByteSlice(buf *[]byte, n int) []byte {
 	if n < 0 {
 		n = 0
@@ -118,11 +130,12 @@ type bandDecodeScratch struct {
 	bandStorageR [MaxBands][]float64 // Right channel band storage
 
 	// Scratch buffers for PVQ/folding operations
-	pvqPulses  []int     // Pulse vector from CWRS decode
-	pvqRefine  []int     // QEXT PVQ refinement values
-	pvqNorm    []float64 // Normalized PVQ vector
-	foldResult []float64 // Folded band result
-	cwrsU      []uint32  // CWRS u-row scratch buffer
+	pvqPulses   []int     // Pulse vector from CWRS decode
+	pvqPulses32 []int32   // Decode-only pulse vector from CWRS decode
+	pvqRefine   []int     // QEXT PVQ refinement values
+	pvqNorm     []float64 // Normalized PVQ vector
+	foldResult  []float64 // Folded band result
+	cwrsU       []uint32  // CWRS u-row scratch buffer
 
 	// Scratch buffers for Hadamard interleave/deinterleave (eliminates per-call allocations)
 	hadamardTmp []float64 // Temporary buffer for Hadamard transforms
@@ -310,6 +323,11 @@ func (s *bandDecodeScratch) getBandStorageR(band, n int) []float64 {
 // ensurePVQPulses returns a pre-allocated buffer for PVQ pulse vector.
 func (s *bandDecodeScratch) ensurePVQPulses(n int) []int {
 	return ensureIntSlice(&s.pvqPulses, n)
+}
+
+// ensurePVQPulses32 returns a pre-allocated int32 buffer for decode-only PVQ pulses.
+func (s *bandDecodeScratch) ensurePVQPulses32(n int) []int32 {
+	return ensureInt32Slice(&s.pvqPulses32, n)
 }
 
 // ensurePVQRefine returns a pre-allocated buffer for QEXT PVQ refinement values.

@@ -135,19 +135,22 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 			}
 		}
 	}
-	if len(scratch) < lenBands*4 {
-		scratch = make([]int, lenBands*4)
+	if len(scratch) < lenBands*5 {
+		scratch = make([]int, lenBands*5)
 	}
 	bits1 := scratch[:lenBands]
 	bits2 := scratch[lenBands : 2*lenBands]
 	thresh := scratch[2*lenBands : 3*lenBands]
 	trimOffset := scratch[3*lenBands : 4*lenBands]
+	bandScale := scratch[4*lenBands : 5*lenBands]
 
 	for j := start; j < end; j++ {
-		width := EBands[j+1] - EBands[j]
-		thresh[j] = max(channels<<bitRes, (3*(width<<lm)<<bitRes)>>4)
+		width := eBandWidths[j]
+		widthLM := width << lm
+		bandScale[j] = channels * widthLM
+		thresh[j] = max(channels<<bitRes, (3*widthLM<<bitRes)>>4)
 		trimOffset[j] = int(int64(channels*width*(allocTrim-5-lm)*(end-j-1)*(1<<(lm+bitRes))) >> 6)
-		if (width << lm) == 1 {
+		if widthLM == 1 {
 			trimOffset[j] -= channels << bitRes
 		}
 	}
@@ -160,8 +163,7 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 		mid := (lo + hi) >> 1
 		for j := end; j > start; j-- {
 			idx := j - 1
-			width := EBands[idx+1] - EBands[idx]
-			bitsj := (channels * width * BandAlloc[mid][idx] << lm) >> 2
+			bitsj := (bandScale[idx] * BandAlloc[mid][idx]) >> 2
 			if bitsj > 0 {
 				bitsj = max(0, bitsj+trimOffset[idx])
 			}
@@ -189,11 +191,10 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 	}
 
 	for j := start; j < end; j++ {
-		width := EBands[j+1] - EBands[j]
-		bits1j := (channels * width * BandAlloc[lo][j] << lm) >> 2
+		bits1j := (bandScale[j] * BandAlloc[lo][j]) >> 2
 		bits2j := cap[j]
 		if hi < len(BandAlloc) {
-			bits2j = (channels * width * BandAlloc[hi][j] << lm) >> 2
+			bits2j = (bandScale[j] * BandAlloc[hi][j]) >> 2
 		}
 		if bits1j > 0 {
 			bits1j = max(0, bits1j+trimOffset[j])
@@ -229,18 +230,22 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 		stereo = 1
 	}
 	logM := lm << bitRes
+	bits1Band := bits1[start:end]
+	bits2Band := bits2[start:end]
+	threshBand := thresh[start:end]
+	capBand := cap[start:end]
+	bitsBand := bits[start:end]
 	lo := 0
 	hi := 1 << allocSteps
 	for i := 0; i < allocSteps; i++ {
 		mid := (lo + hi) >> 1
 		psum := 0
 		done := 0
-		for j := end; j > start; j-- {
-			idx := j - 1
-			tmp := bits1[idx] + int((int64(mid)*int64(bits2[idx]))>>allocSteps)
-			if tmp >= thresh[idx] || done != 0 {
+		for idx := len(bits1Band) - 1; idx >= 0; idx-- {
+			tmp := bits1Band[idx] + ((mid * bits2Band[idx]) >> allocSteps)
+			if tmp >= threshBand[idx] || done != 0 {
 				done = 1
-				psum += min(tmp, cap[idx])
+				psum += min(tmp, capBand[idx])
 			} else if tmp >= allocFloor {
 				psum += allocFloor
 			}
@@ -253,10 +258,9 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 	}
 	psum := 0
 	done := 0
-	for j := end; j > start; j-- {
-		idx := j - 1
-		tmp := bits1[idx] + int((int64(lo)*int64(bits2[idx]))>>allocSteps)
-		if tmp < thresh[idx] && done == 0 {
+	for idx := len(bits1Band) - 1; idx >= 0; idx-- {
+		tmp := bits1Band[idx] + ((lo * bits2Band[idx]) >> allocSteps)
+		if tmp < threshBand[idx] && done == 0 {
 			if tmp >= allocFloor {
 				tmp = allocFloor
 			} else {
@@ -265,8 +269,8 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 		} else {
 			done = 1
 		}
-		tmp = min(tmp, cap[idx])
-		bits[idx] = tmp
+		tmp = min(tmp, capBand[idx])
+		bitsBand[idx] = tmp
 		psum += tmp
 	}
 
@@ -313,7 +317,7 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 
 	if intensityRsv > 0 {
 		if rd != nil {
-			*intensity = start + int(rd.DecodeUniform(uint32(codedBands+1-start)))
+			*intensity = start + int(rd.DecodeUniformSmall(uint32(codedBands+1-start)))
 		} else {
 			if *intensity > codedBands {
 				*intensity = codedBands
@@ -341,17 +345,17 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 	percoeff := celtUdiv(left, EBands[codedBands]-EBands[start])
 	left -= (EBands[codedBands] - EBands[start]) * percoeff
 	for j := start; j < codedBands; j++ {
-		bits[j] += percoeff * (EBands[j+1] - EBands[j])
+		bits[j] += percoeff * eBandWidths[j]
 	}
 	for j := start; j < codedBands; j++ {
-		tmp := min(left, EBands[j+1]-EBands[j])
+		tmp := min(left, eBandWidths[j])
 		bits[j] += tmp
 		left -= tmp
 	}
 
 	bal := 0
 	for j := start; j < codedBands; j++ {
-		N0 := EBands[j+1] - EBands[j]
+		N0 := eBandWidths[j]
 		N := N0 << lm
 		bit := bits[j] + bal
 		excess := 0
@@ -441,7 +445,7 @@ func initCapsInto(caps []int, nbBands, lm, channels int) {
 	}
 	row := 2*lm + (channels - 1)
 	for i := 0; i < nbBands; i++ {
-		N := (EBands[i+1] - EBands[i]) << lm
+		N := eBandWidths[i] << lm
 		idx := MaxBands*row + i
 		cap := int(cacheCaps[idx])
 		caps[i] = (cap + 64) * channels * N >> 2
@@ -645,7 +649,7 @@ func cltComputeAllocationEncode(re *rangecoding.Encoder, start, end int, offsets
 	trimOffset := make([]int, lenBands)
 
 	for j := start; j < end; j++ {
-		width := EBands[j+1] - EBands[j]
+		width := eBandWidths[j]
 		thresh[j] = max(channels<<bitRes, (3*(width<<lm)<<bitRes)>>4)
 		trimOffset[j] = int(int64(channels*width*(allocTrim-5-lm)*(end-j-1)*(1<<(lm+bitRes))) >> 6)
 		if (width << lm) == 1 {
@@ -661,7 +665,7 @@ func cltComputeAllocationEncode(re *rangecoding.Encoder, start, end int, offsets
 		mid := (lo + hi) >> 1
 		for j := end; j > start; j-- {
 			idx := j - 1
-			width := EBands[idx+1] - EBands[idx]
+			width := eBandWidths[idx]
 			bitsj := (channels * width * BandAlloc[mid][idx] << lm) >> 2
 			if bitsj > 0 {
 				bitsj = max(0, bitsj+trimOffset[idx])
@@ -690,7 +694,7 @@ func cltComputeAllocationEncode(re *rangecoding.Encoder, start, end int, offsets
 	}
 
 	for j := start; j < end; j++ {
-		width := EBands[j+1] - EBands[j]
+		width := eBandWidths[j]
 		bits1j := (channels * width * BandAlloc[lo][j] << lm) >> 2
 		bits2j := cap[j]
 		if hi < len(BandAlloc) {
@@ -877,17 +881,17 @@ func interpBits2PulsesEncode(re *rangecoding.Encoder, start, end, skipStart int,
 	percoeff := celtUdiv(left, EBands[codedBands]-EBands[start])
 	left -= (EBands[codedBands] - EBands[start]) * percoeff
 	for j := start; j < codedBands; j++ {
-		bits[j] += percoeff * (EBands[j+1] - EBands[j])
+		bits[j] += percoeff * eBandWidths[j]
 	}
 	for j := start; j < codedBands; j++ {
-		tmp := min(left, EBands[j+1]-EBands[j])
+		tmp := min(left, eBandWidths[j])
 		bits[j] += tmp
 		left -= tmp
 	}
 
 	bal := 0
 	for j := start; j < codedBands; j++ {
-		N0 := EBands[j+1] - EBands[j]
+		N0 := eBandWidths[j]
 		N := N0 << lm
 		bit := bits[j] + bal
 		excess := 0

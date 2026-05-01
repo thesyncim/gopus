@@ -75,7 +75,7 @@ func (d *Decoder) ProbeRawPacketDecision(data []byte, frameSize int) (DebugPacke
 		allocation.dualStereo, allocation.intensity, allocation.tfRes, (totalBits<<bitRes)-allocation.antiCollapseRsv, allocation.balance, allocation.codedBands, d.channels == 1, &d.rng, &d.scratchBands, nil, nil, 0)
 	rangeAfterPVQ := rd.Range()
 	if allocation.antiCollapseRsv > 0 {
-		spectrum.antiCollapseOn = rd.DecodeRawBits(1) == 1
+		spectrum.antiCollapseOn = rd.DecodeRawBit() == 1
 	}
 	rangeAfterAC := rd.Range()
 	bitsLeft := totalBits - rd.Tell()

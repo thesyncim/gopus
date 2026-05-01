@@ -40,6 +40,10 @@ func (d *Decoder) dredNeuralModelsLoaded() bool {
 	return d != nil && (d.pitchDNNLoaded || d.plcModelLoaded || d.farganModelLoaded)
 }
 
+func (d *Decoder) dredDecodeSidecarPossible() bool {
+	return false
+}
+
 func (d *Decoder) dredNeuralRuntimeLoaded() bool {
 	return false
 }

@@ -372,6 +372,22 @@ var silk_shell_code_table_offsets = []uint8{
 	0, 0, 2, 5, 9, 14, 20, 27, 35, 44, 54, 65, 77, 90, 104, 119, 135,
 }
 
+var (
+	silk_shell_code_table0_rows = makeSilkShellCodeRows(silk_shell_code_table0)
+	silk_shell_code_table1_rows = makeSilkShellCodeRows(silk_shell_code_table1)
+	silk_shell_code_table2_rows = makeSilkShellCodeRows(silk_shell_code_table2)
+	silk_shell_code_table3_rows = makeSilkShellCodeRows(silk_shell_code_table3)
+)
+
+func makeSilkShellCodeRows(table []uint8) [17][]uint8 {
+	var rows [17][]uint8
+	for p := 1; p < len(rows); p++ {
+		off := int(silk_shell_code_table_offsets[p])
+		rows[p] = table[off : off+p+1 : off+p+1]
+	}
+	return rows
+}
+
 var silk_sign_iCDF = []uint8{
 	254, 49, 67, 77, 82, 93, 99, 198, 11, 18, 24, 31, 36, 45, 255, 46, 66, 78, 87, 94, 104, 208, 14, 21, 32, 42, 51,
 	66, 255, 94, 104, 109, 112, 115, 118, 248, 53, 69, 80, 88, 95, 102,

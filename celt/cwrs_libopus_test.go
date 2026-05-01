@@ -406,6 +406,58 @@ func TestCWRS32LargerDimensions(t *testing.T) {
 	}
 }
 
+func TestDecodePulsesInto32MatchesIntPath(t *testing.T) {
+	testCases := []struct {
+		name    string
+		n, k    int
+		indices []uint32
+	}{
+		{"N4K5", 4, 5, []uint32{0, 1, 6, 16, 32, 63, 127}},
+		{"N5K8", 5, 8, nil},
+		{"N6K88", 6, 88, nil},
+		{"N8K8", 8, 8, nil},
+		{"N9K26", 9, 26, nil},
+		{"N11K18", 11, 18, nil},
+	}
+
+	var yi [256]int
+	var y32 [256]int32
+	for _, tc := range testCases {
+		nc := PVQ_V(tc.n, tc.k)
+		if nc == 0 {
+			continue
+		}
+		indices := tc.indices
+		if len(indices) == 0 {
+			indices = []uint32{0, 1, 2, nc / 4, nc / 2, nc - 3, nc - 2, nc - 1}
+		}
+		t.Run(tc.name, func(t *testing.T) {
+			for _, idx := range indices {
+				if idx >= nc {
+					continue
+				}
+				for i := range yi {
+					yi[i] = 777
+				}
+				for i := range y32 {
+					y32[i] = 777
+				}
+
+				yy := decodePulsesInto(idx, tc.n, tc.k, yi[:], nil)
+				yy32 := decodePulsesInto32(idx, tc.n, tc.k, y32[:], nil)
+				if yy != yy32 {
+					t.Fatalf("energy mismatch idx=%d: int=%d int32=%d y=%v y32=%v", idx, yy, yy32, yi[:tc.n], y32[:tc.n])
+				}
+				for i := 0; i < tc.n; i++ {
+					if yi[i] != int(y32[i]) {
+						t.Fatalf("pulse mismatch idx=%d pos=%d: int=%v int32=%v", idx, i, yi[:tc.n], y32[:tc.n])
+					}
+				}
+			}
+		})
+	}
+}
+
 // TestCWRS32EdgeCases tests edge cases in CWRS encoding/decoding.
 func TestCWRS32EdgeCases(t *testing.T) {
 	// Test N=1 special case
@@ -513,6 +565,38 @@ func BenchmarkCWRS32Decode(b *testing.B) {
 		b.Run(tc.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
 				_ = DecodePulses(testIndex, tc.n, tc.k)
+			}
+		})
+	}
+}
+
+func BenchmarkDecodePulsesInto32Hot(b *testing.B) {
+	testCases := []struct {
+		name string
+		n, k int
+	}{
+		{"N4_K4", 4, 4},
+		{"N4_K32", 4, 32},
+		{"N6_K88", 6, 88},
+		{"N8_K8", 8, 8},
+		{"N9_K26", 9, 26},
+		{"N11_K18", 11, 18},
+		{"N12_K8", 12, 8},
+		{"N16_K8", 16, 8},
+		{"N24_K6", 24, 6},
+	}
+
+	var y [64]int32
+	for _, tc := range testCases {
+		nc := PVQ_V(tc.n, tc.k)
+		if nc == 0 {
+			continue
+		}
+		testIndex := nc / 2
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_ = decodePulsesInto32(testIndex, tc.n, tc.k, y[:], nil)
 			}
 		})
 	}

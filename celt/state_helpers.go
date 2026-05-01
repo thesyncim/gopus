@@ -179,7 +179,7 @@ func (d *Decoder) ensureQEXTOldBandE() []float64 {
 }
 
 func (d *Decoder) allocationScratch() []int {
-	return ensureIntSlice(&d.scratchAllocWork, MaxBands*4)
+	return ensureIntSlice(&d.scratchAllocWork, MaxBands*5)
 }
 
 func (d *Decoder) snapshotDecodeHistory() ([]float64, []float64, []float64) {

@@ -83,6 +83,22 @@ func imdctPostRotateF32Ref(buf []float32, trig []float32, n2, n4 int) {
 	}
 }
 
+func imdctPostRotateF32FromKissRef(buf []float32, fft []kissCpx, trig []float32, n2, n4 int) {
+	if len(buf) < n2 || len(fft) < n4 {
+		return
+	}
+	_ = buf[n2-1]
+	_ = fft[n4-1]
+	j := 0
+	for i := 0; i < n4; i++ {
+		v := fft[i]
+		buf[j] = v.r
+		buf[j+1] = v.i
+		j += 2
+	}
+	imdctPostRotateF32Ref(buf, trig, n2, n4)
+}
+
 func TestIMDCTRotateDispatchMatchesReference(t *testing.T) {
 	n2 := 120
 	n4 := n2 / 2
@@ -111,6 +127,31 @@ func TestIMDCTRotateDispatchMatchesReference(t *testing.T) {
 	imdctPostRotateF32Ref(wantBuf, trig, n2, n4)
 	if !reflect.DeepEqual(gotBuf, wantBuf) {
 		t.Fatalf("imdctPostRotateF32 mismatch")
+	}
+}
+
+func TestIMDCTPostRotateF32FromKissMatchesReference(t *testing.T) {
+	for _, n2 := range []int{10, 120} {
+		n4 := n2 / 2
+		trig := make([]float32, n2)
+		fft := make([]kissCpx, n4)
+		for i := range trig {
+			trig[i] = float32((i%19)-9) * 0.03125
+		}
+		for i := range fft {
+			fft[i] = kissCpx{
+				r: float32((i%17)-8) * 0.0625,
+				i: float32((i%23)-11) * -0.03125,
+			}
+		}
+
+		got := make([]float32, n2)
+		want := make([]float32, n2)
+		imdctPostRotateF32FromKiss(got, fft, trig, n2, n4)
+		imdctPostRotateF32FromKissRef(want, fft, trig, n2, n4)
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("n2=%d imdctPostRotateF32FromKiss mismatch", n2)
+		}
 	}
 }
 

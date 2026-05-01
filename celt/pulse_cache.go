@@ -9,8 +9,9 @@ const (
 )
 
 type pulseCacheLookup50Data struct {
-	lut   [len(cacheBits50)][pulseCacheLookupBits]uint8
-	valid [len(cacheBits50)]bool
+	lut     [len(cacheBits50)][pulseCacheLookupBits]uint8
+	maxBits [len(cacheBits50)]uint8
+	valid   [len(cacheBits50)]bool
 }
 
 var (
@@ -112,6 +113,10 @@ func buildPulseCacheLookup50() pulseCacheLookup50Data {
 		}
 		data.valid[start] = true
 		cache := cacheBits50[start:]
+		maxPseudo := int(cache[0])
+		if maxPseudo > 0 && maxPseudo < len(cache) {
+			data.maxBits[start] = cache[maxPseudo]
+		}
 		for bitsQ3 := 1; bitsQ3 <= pulseCacheLookupBits; bitsQ3++ {
 			data.lut[start][bitsQ3-1] = uint8(bitsToPulsesCachedBinarySearch(cache, bitsQ3))
 		}

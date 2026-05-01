@@ -81,7 +81,7 @@ func kfBfly5InnerCOrder(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	}
 }
 
-func kfBfly3InnerCOrder(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
+func kfBfly3InnerCOrderGeneric(fout []kissCpx, w []kissCpx, m, N, mm, fstride int) {
 	m2 := 2 * m
 	epi3i := w[fstride*m].i
 	fstride2 := fstride * 2

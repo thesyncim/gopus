@@ -19,7 +19,7 @@ func (d *Decoder) decodeFrameHeader(rd *rangecoding.Decoder, totalBits, frameSiz
 	tell := rd.Tell()
 	if start == 0 && tell+16 <= totalBits {
 		if rd.DecodeBit(1) == 1 {
-			octave := int(rd.DecodeUniform(6))
+			octave := int(rd.DecodeUniformSmall(6))
 			header.postfilterPeriod = (16 << octave) + int(rd.DecodeRawBits(uint(4+octave))) - 1
 			qg := int(rd.DecodeRawBits(3))
 			if rd.Tell()+2 <= totalBits {

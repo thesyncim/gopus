@@ -7,8 +7,11 @@ GOLANGCI_LINT_VERSION ?= v1.64.8
 GO_RUNNABLE_TEST ?= bash ./tools/run_go_test_runnable.sh
 ASSEMBLY_SAFETY_MATRIX ?= bash ./tools/run_assembly_safety_matrix.sh
 PGO_FILE ?= default.pgo
-PGO_BENCH ?= ^Benchmark(DecoderDecode|EncoderEncode)_(CELT|Hybrid|SILK|Stereo|MultiFrame|VoIP|LowDelay)$
-PGO_PKG ?= .
+PGO_FLAG ?= -pgo=$(PGO_FILE)
+PGO_GENERATE_FLAG ?= -pgo=off
+PGO_REPORT_PROFILE ?= $(PGO_FILE)
+PGO_BENCH ?= ^BenchmarkDecodeOfficialTestVectors/(Float32|Int16)/all$
+PGO_PKG ?= ./testvectors
 PGO_BENCHTIME ?= 20s
 PGO_COUNT ?= 1
 LIBOPUS_VERSION ?= 1.6.1
@@ -286,15 +289,15 @@ bench-guard:
 
 # Decode the official RFC 8251 bitstreams with benchmark metrics per vector.
 bench-testvectors:
-	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -bench='^BenchmarkDecodeOfficialTestVectors$$' -benchmem -count=1
+	$(GO_WORK_ENV) $(GO) test $(PGO_FLAG) ./testvectors -run='^$$' -bench='^BenchmarkDecodeOfficialTestVectors$$' -benchmem -count=1
 
 # Compare the same official bitstreams against pinned libopus and emit Markdown.
 bench-testvectors-compare: ensure-libopus
-	$(GO_WORK_ENV) $(GO) run ./tools/testvectorbenchcmp -cases=$(BENCH_TESTVECTORS_COMPARE_CASES) -paths=$(BENCH_TESTVECTORS_COMPARE_PATHS) $(BENCH_TESTVECTORS_COMPARE_TIME_FLAG) -count=$(BENCH_TESTVECTORS_COMPARE_COUNT) -format=markdown
+	$(GO_WORK_ENV) $(GO) run $(PGO_FLAG) ./tools/testvectorbenchcmp -cases=$(BENCH_TESTVECTORS_COMPARE_CASES) -paths=$(BENCH_TESTVECTORS_COMPARE_PATHS) $(BENCH_TESTVECTORS_COMPARE_TIME_FLAG) -count=$(BENCH_TESTVECTORS_COMPARE_COUNT) -gopus-pgo=$(PGO_REPORT_PROFILE) -format=markdown
 
 # Refresh the checked-in Markdown benchmark report.
 bench-testvectors-report: ensure-libopus
-	$(GO_WORK_ENV) $(GO) run ./tools/testvectorbenchcmp -cases=$(BENCH_TESTVECTORS_COMPARE_CASES) -paths=$(BENCH_TESTVECTORS_COMPARE_PATHS) $(BENCH_TESTVECTORS_COMPARE_TIME_FLAG) -count=$(BENCH_TESTVECTORS_COMPARE_COUNT) -format=markdown -out docs/testvector-benchmarks.md
+	$(GO_WORK_ENV) $(GO) run $(PGO_FLAG) ./tools/testvectorbenchcmp -cases=$(BENCH_TESTVECTORS_COMPARE_CASES) -paths=$(BENCH_TESTVECTORS_COMPARE_PATHS) $(BENCH_TESTVECTORS_COMPARE_TIME_FLAG) -count=$(BENCH_TESTVECTORS_COMPARE_COUNT) -gopus-pgo=$(PGO_REPORT_PROFILE) -format=markdown -out docs/testvector-benchmarks.md
 
 # Default production verification gate.
 verify-production: ensure-libopus
@@ -454,9 +457,9 @@ fixtures-gen-amd64: docker-build-exhaustive
 			GOPUS_ENCODER_VARIANTS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_variants_fixture_amd64.json go run tools/gen_libopus_encoder_variants_fixture.go && \
 			GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT=celt/testdata/opusdec_crossval_fixture_amd64.json go run tools/gen_opusdec_crossval_fixture.go"
 
-# Build with profile-guided optimization (default.pgo auto-discovered by Go toolchain)
+# Build with profile-guided optimization.
 build:
-	$(GO_WORK_ENV) $(GO) build -pgo=auto ./...
+	$(GO_WORK_ENV) $(GO) build $(PGO_FLAG) ./...
 
 # Build without profile-guided optimization
 build-nopgo:
@@ -464,7 +467,7 @@ build-nopgo:
 
 # Regenerate default.pgo from decode hot-path benchmarks
 pgo-generate:
-	$(GO_WORK_ENV) $(GO) test -run='^$$' -bench='$(PGO_BENCH)' -benchtime=$(PGO_BENCHTIME) -count=$(PGO_COUNT) -cpuprofile $(PGO_FILE) $(PGO_PKG)
+	$(GO_WORK_ENV) $(GO) test $(PGO_GENERATE_FLAG) -run='^$$' -bench='$(PGO_BENCH)' -benchtime=$(PGO_BENCHTIME) -count=$(PGO_COUNT) -cpuprofile $(PGO_FILE) $(PGO_PKG)
 
 # Refresh default.pgo then build with PGO enabled
 pgo-build: pgo-generate build

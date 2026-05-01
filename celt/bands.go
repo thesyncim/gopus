@@ -485,8 +485,9 @@ func denormalizeCoeffsInto(dst, src []float64, energies []float64, nbBands, fram
 	src = src[:coeffsLen:coeffsLen]
 	_ = dst[coeffsLen-1]
 	offset := 0
+	scaleWidth := frameSize / Overlap
 	for band := 0; band < nbBands; band++ {
-		width := ScaledBandWidth(band, frameSize)
+		width := eBandWidths[band] * scaleWidth
 		if width <= 0 {
 			continue
 		}
@@ -503,18 +504,8 @@ func denormalizeCoeffsInto(dst, src []float64, energies []float64, nbBands, fram
 		if end > coeffsLen {
 			end = coeffsLen
 		}
-		i := offset
-		for ; i+3 < end; i += 4 {
-			dst[i] = src[i] * gain
-			dst[i+1] = src[i+1] * gain
-			dst[i+2] = src[i+2] * gain
-			dst[i+3] = src[i+3] * gain
-		}
-		for ; i < end; i++ {
-			dst[i] = src[i] * gain
-		}
-		traceEnd := end
-		if traceEnd > offset {
+		if end > offset {
+			scaleFloat64Into(dst[offset:end], src[offset:end], gain, end-offset)
 		}
 		offset += width
 	}

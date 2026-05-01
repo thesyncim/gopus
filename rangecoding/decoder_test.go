@@ -206,6 +206,84 @@ func TestDecodeICDF2MatchesDecodeICDF(t *testing.T) {
 	}
 }
 
+func TestDecodeSmallICDF8MatchesDecodeICDF(t *testing.T) {
+	tables := [][]uint8{
+		{128, 0},
+		{214, 42, 0},
+		{235, 128, 21, 0},
+		{242, 188, 95, 31, 0},
+	}
+	r := rand.New(rand.NewSource(2))
+	for tc := 0; tc < 200; tc++ {
+		buf := make([]byte, 64)
+		for i := range buf {
+			buf[i] = byte(r.Uint32())
+		}
+		for _, icdf := range tables {
+			var d1, d2 Decoder
+			d1.Init(buf)
+			d2.Init(buf)
+
+			for i := 0; i < 128; i++ {
+				sym1 := d1.DecodeICDF(icdf, 8)
+				var sym2 int
+				switch len(icdf) {
+				case 2:
+					sym2 = d2.DecodeICDF2_8(icdf[0])
+				case 3:
+					sym2 = d2.DecodeICDF3_8(icdf[0], icdf[1])
+				case 4:
+					sym2 = d2.DecodeICDF4_8(icdf[0], icdf[1], icdf[2])
+				case 5:
+					sym2 = d2.DecodeICDF5_8(icdf[0], icdf[1], icdf[2], icdf[3])
+				default:
+					t.Fatalf("unexpected test table length %d", len(icdf))
+				}
+				if sym1 != sym2 {
+					t.Fatalf("symbol mismatch tc=%d len=%d i=%d: generic=%d fast=%d", tc, len(icdf), i, sym1, sym2)
+				}
+				if d1.rng != d2.rng || d1.val != d2.val || d1.offs != d2.offs || d1.nbitsTotal != d2.nbitsTotal || d1.rem != d2.rem {
+					t.Fatalf("state mismatch tc=%d len=%d i=%d", tc, len(icdf), i)
+				}
+			}
+		}
+	}
+}
+
+func TestDecodeICDF8UncheckedSmallTablesMatchDecodeICDF(t *testing.T) {
+	tables := [][]uint8{
+		{128, 0},
+		{214, 42, 0},
+		{235, 128, 21, 0},
+		{242, 188, 95, 31, 0},
+		{248, 210, 140, 85, 29, 0},
+		{224, 192, 160, 128, 96, 64, 32, 0},
+	}
+	r := rand.New(rand.NewSource(3))
+	for tc := 0; tc < 200; tc++ {
+		buf := make([]byte, 64)
+		for i := range buf {
+			buf[i] = byte(r.Uint32())
+		}
+		for _, icdf := range tables {
+			var d1, d2 Decoder
+			d1.Init(buf)
+			d2.Init(buf)
+
+			for i := 0; i < 128; i++ {
+				sym1 := d1.DecodeICDF(icdf, 8)
+				sym2 := d2.DecodeICDF8Unchecked(icdf)
+				if sym1 != sym2 {
+					t.Fatalf("symbol mismatch tc=%d len=%d i=%d: generic=%d fast=%d", tc, len(icdf), i, sym1, sym2)
+				}
+				if d1.rng != d2.rng || d1.val != d2.val || d1.offs != d2.offs || d1.nbitsTotal != d2.nbitsTotal || d1.rem != d2.rem {
+					t.Fatalf("state mismatch tc=%d len=%d i=%d", tc, len(icdf), i)
+				}
+			}
+		}
+	}
+}
+
 // TestTell tests bit consumption tracking.
 func TestTell(t *testing.T) {
 	var d Decoder

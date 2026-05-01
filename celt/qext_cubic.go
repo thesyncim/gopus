@@ -80,7 +80,7 @@ func cubicQuantPartition(ctx *bandCtx, x []float64, n, b, B, lm int, gain float6
 			return 0
 		}
 		ithetaQ30 = stereoIthetaQ30(x, y, false)
-		qtheta := (ithetaQ30 + (1 << (29-thetaRes))) >> (30 - thetaRes)
+		qtheta := (ithetaQ30 + (1 << (29 - thetaRes))) >> (30 - thetaRes)
 		ctx.re.EncodeUniform(uint32(qtheta), uint32((1<<thetaRes)+1))
 	} else {
 		if ctx.rd == nil {
@@ -248,7 +248,7 @@ func cubicUnquant(x []float64, n, res, B int, dec *rangecoding.Decoder, gain flo
 	}
 
 	face := int(dec.DecodeUniform(uint32(n)))
-	sign := int(dec.DecodeRawBits(1))
+	sign := int(dec.DecodeRawBit())
 	for i := 0; i < n; i++ {
 		if i == face {
 			continue

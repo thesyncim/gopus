@@ -73,7 +73,7 @@ type Decoder struct {
 
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
 	// Max frame size is 960 samples at 48kHz (20ms), stereo needs 960*2 = 1920 samples.
-	scratchSilkUpsampled []float64 // SILK upsampled output (max 960*2 for stereo 20ms)
+	scratchSilkUpsampled []float32 // SILK upsampled output (max 960*2 for stereo 20ms)
 	scratchOutput        []float64 // Final output buffer (max 960*2 for stereo 20ms)
 }
 
@@ -106,7 +106,7 @@ func NewDecoder(channels int) *Decoder {
 		plcState: plc.NewState(),
 
 		// Pre-allocate scratch buffers for zero-alloc decode path
-		scratchSilkUpsampled: make([]float64, maxSamples),
+		scratchSilkUpsampled: make([]float32, maxSamples),
 		scratchOutput:        make([]float64, maxSamples),
 	}
 }
@@ -266,6 +266,7 @@ func (d *Decoder) decodeFrameWithHookToFloat32(rd *rangecoding.Decoder, frameSiz
 	scratchF32L := d.silkDecoder.GetResamplerScratch(frameSize)
 	scratchF32R := d.silkDecoder.GetResamplerScratchR(frameSize)
 
+	filledSilkSamples := 0
 	if packetStereo {
 		if d.channels == 1 {
 			mid, err := d.silkDecoder.DecodeStereoFrameToMono(
@@ -280,8 +281,9 @@ func (d *Decoder) decodeFrameWithHookToFloat32(rd *rangecoding.Decoder, frameSiz
 			resamplerInput := d.silkDecoder.BuildMonoResamplerInput(mid)
 			nL := leftResampler.ProcessInto(resamplerInput, scratchF32L)
 			for i := 0; i < nL && i < totalSamples; i++ {
-				silkUpsampled[i] = float64(scratchF32L[i])
+				silkUpsampled[i] = scratchF32L[i]
 			}
+			filledSilkSamples = min(nL, totalSamples)
 		} else {
 			silkOutputL, silkOutputR, ok := d.silkDecoder.GetStereoInt16Scratch(silkSamples)
 			if !ok {
@@ -305,9 +307,10 @@ func (d *Decoder) decodeFrameWithHookToFloat32(rd *rangecoding.Decoder, frameSiz
 				n = nR
 			}
 			for i := 0; i < n && i*2+1 < totalSamples; i++ {
-				silkUpsampled[i*2] = float64(scratchF32L[i])
-				silkUpsampled[i*2+1] = float64(scratchF32R[i])
+				silkUpsampled[i*2] = scratchF32L[i]
+				silkUpsampled[i*2+1] = scratchF32R[i]
 			}
+			filledSilkSamples = min(n*2, totalSamples)
 		}
 	} else {
 		// Use int16-native SILK decode/resampler path for hot hybrid decode.
@@ -330,34 +333,33 @@ func (d *Decoder) decodeFrameWithHookToFloat32(rd *rangecoding.Decoder, frameSiz
 					n = nR
 				}
 				for i := 0; i < n && i*2+1 < totalSamples; i++ {
-					silkUpsampled[i*2] = float64(scratchF32L[i])
-					silkUpsampled[i*2+1] = float64(scratchF32R[i])
+					silkUpsampled[i*2] = scratchF32L[i]
+					silkUpsampled[i*2+1] = scratchF32R[i]
 				}
+				filledSilkSamples = min(n*2, totalSamples)
 			} else {
 				for i := 0; i < nL && i*2+1 < totalSamples; i++ {
-					val := float64(scratchF32L[i])
+					val := scratchF32L[i]
 					silkUpsampled[i*2] = val
 					silkUpsampled[i*2+1] = val
 				}
+				filledSilkSamples = min(nL*2, totalSamples)
 			}
 		} else {
 			for i := 0; i < nL && i < totalSamples; i++ {
-				silkUpsampled[i] = float64(scratchF32L[i])
+				silkUpsampled[i] = scratchF32L[i]
 			}
+			filledSilkSamples = min(nL, totalSamples)
 		}
+	}
+	if filledSilkSamples < totalSamples {
+		clear(silkUpsampled[filledSilkSamples:totalSamples])
 	}
 
 	if afterSilk != nil {
 		if err := afterSilk(rd); err != nil {
 			return nil, err
 		}
-	}
-
-	// Step 2: Decode CELT layer (8-20kHz, bands 17-21 only)
-	// CELT reads from the same range decoder (SILK already consumed its portion)
-	celtOutput, err := d.celtDecoder.DecodeFrameHybridWithPacketStereo(rd, frameSize, packetStereo)
-	if err != nil {
-		return nil, err
 	}
 
 	// Step 3: Use SILK output directly
@@ -367,23 +369,32 @@ func (d *Decoder) decodeFrameWithHookToFloat32(rd *rangecoding.Decoder, frameSiz
 	// Step 4: Sum SILK and CELT outputs into scratch buffer
 	if len(out) >= totalSamples {
 		out = out[:totalSamples]
-		for i := 0; i < totalSamples; i++ {
-			silkSample := float64(0)
-			celtSample := float64(0)
-
-			if i < len(silkUpsampled) {
-				silkSample = silkUpsampled[i]
-			}
-			if i < len(celtOutput) {
-				celtSample = celtOutput[i]
-			}
-
-			out[i] = float32(silkSample + celtSample)
+		// Step 2: Decode CELT layer (8-20kHz, bands 17-21 only)
+		// CELT reads from the same range decoder (SILK already consumed its portion).
+		if err := d.celtDecoder.DecodeFrameHybridWithPacketStereoToFloat32(rd, frameSize, packetStereo, out); err != nil {
+			return nil, err
+		}
+		i := 0
+		for ; i+3 < totalSamples; i += 4 {
+			out[i] += silkUpsampled[i]
+			out[i+1] += silkUpsampled[i+1]
+			out[i+2] += silkUpsampled[i+2]
+			out[i+3] += silkUpsampled[i+3]
+		}
+		for ; i < totalSamples; i++ {
+			out[i] += silkUpsampled[i]
 		}
 
 		_ = silkSamples
 		d.prevPacketStereo = packetStereo
 		return nil, nil
+	}
+
+	// Step 2: Decode CELT layer (8-20kHz, bands 17-21 only)
+	// CELT reads from the same range decoder (SILK already consumed its portion).
+	celtOutput, err := d.celtDecoder.DecodeFrameHybridWithPacketStereo(rd, frameSize, packetStereo)
+	if err != nil {
+		return nil, err
 	}
 
 	output := d.ensureOutput(totalSamples)
@@ -392,9 +403,7 @@ func (d *Decoder) decodeFrameWithHookToFloat32(rd *rangecoding.Decoder, frameSiz
 		silkSample := float64(0)
 		celtSample := float64(0)
 
-		if i < len(silkUpsampled) {
-			silkSample = silkUpsampled[i]
-		}
+		silkSample = float64(silkUpsampled[i])
 		if i < len(celtOutput) {
 			celtSample = celtOutput[i]
 		}
@@ -410,15 +419,11 @@ func (d *Decoder) decodeFrameWithHookToFloat32(rd *rangecoding.Decoder, frameSiz
 }
 
 // ensureSilkUpsampled returns a pre-allocated buffer for SILK upsampled output.
-func (d *Decoder) ensureSilkUpsampled(n int) []float64 {
+func (d *Decoder) ensureSilkUpsampled(n int) []float32 {
 	if cap(d.scratchSilkUpsampled) < n {
-		d.scratchSilkUpsampled = make([]float64, n)
+		d.scratchSilkUpsampled = make([]float32, n)
 	} else {
 		d.scratchSilkUpsampled = d.scratchSilkUpsampled[:n]
-	}
-	// Clear the buffer
-	for i := range d.scratchSilkUpsampled {
-		d.scratchSilkUpsampled[i] = 0
 	}
 	return d.scratchSilkUpsampled
 }

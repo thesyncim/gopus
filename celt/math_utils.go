@@ -1,6 +1,9 @@
 package celt
 
-import "math/bits"
+import (
+	"math"
+	"math/bits"
+)
 
 const bitexactThetaMax = 16384
 
@@ -73,22 +76,14 @@ func bitexactLog2tanTheta(itheta int) int {
 
 // isqrt32 computes floor(sqrt(val)) with exact arithmetic.
 func isqrt32(val uint32) uint32 {
-	g := uint32(0)
-	bshift := (ilog32(val) - 1) >> 1
-	b := uint32(1) << bshift
-	for bshift >= 0 {
-		t := (((g << 1) + b) << bshift)
-		if t <= val {
-			g += b
-			val -= t
-		}
-		b >>= 1
-		bshift--
-		if bshift < 0 {
-			break
-		}
+	r := uint32(math.Sqrt(float64(val)))
+	for uint64(r+1)*uint64(r+1) <= uint64(val) {
+		r++
 	}
-	return g
+	for uint64(r)*uint64(r) > uint64(val) {
+		r--
+	}
+	return r
 }
 
 func ilog32(x uint32) int {

@@ -6,21 +6,23 @@ Methodology: vectors are preloaded, decoder construction and helper startup are 
 
 Measured on `darwin/arm64` with `go1.26.0` on `Apple M4 Max`.
 
+The `gopus` rows are built with Go PGO profile `default.pgo`.
+
 ## Summary
 
 | Run time | Path | gopus ns/sample | libopus ns/sample | gopus/libopus | gopus realtime | libopus realtime | gopus allocs/op |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| 200ms | Float32 | 25.18 | 19.02 | 1.32x | 827.5x | 1095.4x | 0 |
-| 200ms | Int16 | 25.83 | 19.22 | 1.34x | 806.6x | 1083.8x | 0 |
-| 1s | Float32 | 24.72 | 19.14 | 1.29x | 842.6x | 1088.3x | 0 |
-| 1s | Int16 | 25.82 | 19.30 | 1.34x | 806.9x | 1079.7x | 0 |
-| 5s | Float32 | 24.69 | 19.08 | 1.29x | 843.9x | 1091.8x | 0 |
-| 5s | Int16 | 25.69 | 19.26 | 1.33x | 811.1x | 1081.8x | 0 |
+| 200ms | Float32 | 19.46 | 19.44 | 1.00x | 1070.6x | 1071.4x | 0 |
+| 200ms | Int16 | 20.04 | 19.57 | 1.02x | 1039.7x | 1064.5x | 0 |
+| 1s | Float32 | 19.69 | 19.27 | 1.02x | 1058.1x | 1081.1x | 0 |
+| 1s | Int16 | 20.08 | 19.48 | 1.03x | 1037.5x | 1069.3x | 0 |
+| 5s | Float32 | 19.78 | 19.36 | 1.02x | 1053.2x | 1076.2x | 0 |
+| 5s | Int16 | 20.07 | 19.52 | 1.03x | 1037.9x | 1067.5x | 0 |
 
 ## Reproduce
 
 ```sh
-GOWORK=off go run ./tools/testvectorbenchcmp -cases=aggregate -paths=all -benchtimes=200ms,1s,5s -count=3 -format=markdown
+GOWORK=off go run -pgo=default.pgo ./tools/testvectorbenchcmp -cases=aggregate -paths=all -benchtimes=200ms,1s,5s -count=3 -gopus-pgo=default.pgo -format=markdown
 ```
 
 For raw Go benchmark rows, run:

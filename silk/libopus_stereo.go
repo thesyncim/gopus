@@ -4,7 +4,7 @@ import "github.com/thesyncim/gopus/rangecoding"
 
 func silkStereoDecodePred(rd *rangecoding.Decoder, predQ13 []int32) {
 	ix := [2][3]int{}
-	n := rd.DecodeICDF8Unchecked(silk_stereo_pred_joint_iCDF)
+	n := rd.DecodeICDF8Linear(silk_stereo_pred_joint_iCDF)
 	ix[0][2] = n / 5
 	ix[1][2] = n - 5*ix[0][2]
 	for i := 0; i < 2; i++ {

@@ -238,7 +238,7 @@ func ulpDiffFloat32(a, b float32) uint32 {
 	if ab == bb {
 		return 0
 	}
-	if (ab>>31) != (bb>>31) {
+	if (ab >> 31) != (bb >> 31) {
 		return ^uint32(0)
 	}
 	if ab > bb {

@@ -347,7 +347,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					redundancy = rd.DecodeBit(12) == 1
 					if redundancy {
 						celtToSilk = rd.DecodeBit(1) == 1
-						redundancyBytes = int(rd.DecodeUniform(256)) + 2
+						redundancyBytes = int(rd.DecodeUniformSmall(256)) + 2
 						mainLen = len(data) - redundancyBytes
 						if mainLen*8 < rd.Tell() {
 							mainLen = 0

@@ -75,14 +75,14 @@ func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
 	const frameSize = 960
 
 	testCases := []struct {
-		name     string
-		channels int
+		name         string
+		channels     int
 		packetStereo bool
-		packets  func() [][]byte
+		packets      func() [][]byte
 	}{
 		{
-			name:     "mono",
-			channels: 1,
+			name:         "mono",
+			channels:     1,
 			packetStereo: false,
 			packets: func() [][]byte {
 				enc := NewEncoder(1)
@@ -103,8 +103,8 @@ func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
 			},
 		},
 		{
-			name:     "stereo",
-			channels: 2,
+			name:         "stereo",
+			channels:     2,
 			packetStereo: true,
 			packets: func() [][]byte {
 				enc := NewEncoder(2)
@@ -125,8 +125,8 @@ func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
 			},
 		},
 		{
-			name:     "mono_packet_to_stereo",
-			channels: 2,
+			name:         "mono_packet_to_stereo",
+			channels:     2,
 			packetStereo: false,
 			packets: func() [][]byte {
 				enc := NewEncoder(1)
@@ -223,6 +223,43 @@ func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesFloat64(t *testing.T)
 	}
 	if math.Float64bits(current.preemphState[0]) != math.Float64bits(legacy.preemphState[0]) {
 		t.Fatalf("state mismatch: got=%016x want=%016x", math.Float64bits(current.preemphState[0]), math.Float64bits(legacy.preemphState[0]))
+	}
+}
+
+func TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesFloat64(t *testing.T) {
+	legacy := NewDecoder(2)
+	current := NewDecoder(2)
+	legacy.preemphState[0] = 0.1875
+	legacy.preemphState[1] = -0.09375
+	current.preemphState[0] = legacy.preemphState[0]
+	current.preemphState[1] = legacy.preemphState[1]
+
+	leftF32 := make([]float32, 960)
+	rightF32 := make([]float32, 960)
+	for i := range leftF32 {
+		leftF32[i] = float32(0.65*math.Sin(float64(i+3)*0.041) + 0.2*math.Cos(float64(i+7)*0.017))
+		rightF32[i] = float32(0.35*math.Sin(float64(i+11)*0.037) - 0.3*math.Cos(float64(i+5)*0.023))
+	}
+	leftF64 := make([]float64, len(leftF32))
+	rightF64 := make([]float64, len(rightF32))
+	copyFloat32ToFloat64(leftF64, leftF32)
+	copyFloat32ToFloat64(rightF64, rightF32)
+
+	got := make([]float32, len(leftF32)*2)
+	want := make([]float32, len(leftF32)*2)
+	current.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(got, leftF32, rightF32, 1.0/32768.0)
+	legacy.applyDeemphasisAndScaleStereoPlanarToFloat32(want, leftF64, rightF64, 1.0/32768.0)
+
+	for i := range want {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("sample %d mismatch: got=%08x want=%08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+		}
+	}
+	if math.Float64bits(current.preemphState[0]) != math.Float64bits(legacy.preemphState[0]) ||
+		math.Float64bits(current.preemphState[1]) != math.Float64bits(legacy.preemphState[1]) {
+		t.Fatalf("state mismatch: got=(%016x,%016x) want=(%016x,%016x)",
+			math.Float64bits(current.preemphState[0]), math.Float64bits(current.preemphState[1]),
+			math.Float64bits(legacy.preemphState[0]), math.Float64bits(legacy.preemphState[1]))
 	}
 }
 

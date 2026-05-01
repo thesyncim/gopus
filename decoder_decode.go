@@ -25,13 +25,17 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 //   - Code 2: 2 different-sized frames
 //   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
-	if extsupport.DREDRuntime && data != nil && len(data) > 0 && d.dredCachedPayloadActive() {
-		d.invalidateDREDPayloadState()
+	dredPossible := false
+	if extsupport.DREDRuntime {
+		dredPossible = d.dredDecodeSidecarPossible()
+		if data != nil && len(data) > 0 && dredPossible && d.dredCachedPayloadActive() {
+			d.invalidateDREDPayloadState()
+		}
 	}
 
 	if data == nil || len(data) == 0 {
 		frameSize := d.lastFrameSize
-		neuralReady := extsupport.DREDRuntime && d.dredNeuralConcealmentAvailable()
+		neuralReady := dredPossible && d.dredNeuralConcealmentAvailable()
 		n := frameSize
 		usedNeuralConcealment := false
 		var err error
@@ -41,7 +45,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 			}
 			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
 		}
-		if !usedNeuralConcealment && extsupport.DREDRuntime {
+		if !usedNeuralConcealment && dredPossible {
 			n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
 				packetFrameSize:    d.lastFrameSize,
 				mode:               d.prevMode,
@@ -71,7 +75,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		d.lastFrameSize = frameSize
 		d.lastPacketDuration = frameSize
 		d.lastDataLen = 0
-		if extsupport.DREDRuntime && !usedNeuralConcealment && d.dredGoodPacketMarkerActive() {
+		if dredPossible && !usedNeuralConcealment && d.dredGoodPacketMarkerActive() {
 			d.markDREDConcealed()
 		}
 		return frameSize, nil
@@ -81,9 +85,24 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		return 0, ErrPacketTooLarge
 	}
 
-	toc, frameCount, err := packetFrameCount(data)
-	if err != nil {
-		return 0, err
+	toc := &tocTable[data[0]]
+	frameCode := data[0] & 0x03
+	frameCount := 1
+	switch frameCode {
+	case 0:
+	case 1, 2:
+		frameCount = 2
+	case 3:
+		if len(data) < 2 {
+			return 0, ErrPacketTooShort
+		}
+		m := int(data[1] & 0x3F)
+		if m == 0 || m > 48 {
+			return 0, ErrInvalidFrameCount
+		}
+		frameCount = m
+	default:
+		return 0, ErrInvalidPacket
 	}
 	frameSize := toc.FrameSize
 	totalSamples := frameSize * frameCount
@@ -96,13 +115,68 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		return 0, ErrBufferTooSmall
 	}
 
+	if dredPossible {
+		if endRawDREDCapture := d.beginDREDRawMonoGoodFrameCapture(toc.Mode); endRawDREDCapture != nil {
+			defer endRawDREDCapture()
+		}
+	}
+
+	if frameCode == 0 {
+		_, err := d.decodeOpusFrameIntoWithQEXT(
+			pcm,
+			data[1:],
+			frameSize,
+			frameSize,
+			toc.Mode,
+			toc.Bandwidth,
+			toc.Stereo,
+			nil,
+		)
+		if err != nil {
+			return 0, err
+		}
+		d.prevPacketStereo = toc.Stereo
+	} else {
+		_, err := d.decodeMultiFrameFloat32(pcm, data, toc, frameCode, frameSize)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	d.lastFrameSize = frameSize
+	d.lastPacketDuration = totalSamples
+	d.lastBandwidth = toc.Bandwidth
+	d.lastPacketMode = toc.Mode
+	d.lastDataLen = len(data)
+
+	if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
+		firstFrameData, err := extractFirstFramePayload(data, *toc)
+		if err != nil {
+			return 0, err
+		}
+		d.storeFECData(firstFrameData, *toc, frameCount, frameSize)
+	} else {
+		d.hasFEC = false
+	}
+
+	if dredPossible {
+		if d.dredPayloadScannerActive() {
+			d.maybeCacheDREDPayload(data)
+		}
+		if d.dredGoodPacketMarkerActive() {
+			if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
+				r.dredRecovery = 0
+			}
+			d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples, toc.Mode)
+		}
+	}
+	d.applyOutputGain(pcm[:totalSamples*d.channels])
+	return totalSamples, nil
+}
+
+func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, frameCode byte, frameSize int) (int, error) {
 	offsetSamples := 0
 	var qextPayloads [maxRepacketizerFrames][]byte
-	endRawDREDCapture := func() {}
-	if extsupport.DREDRuntime {
-		endRawDREDCapture = d.beginDREDRawMonoGoodFrameCapture(toc.Mode)
-	}
-	defer endRawDREDCapture()
 	decodeFrame := func(frameIndex int, frameData []byte) error {
 		var qextPayload []byte
 		if extsupport.QEXT && toc.Mode == ModeCELT && !d.ignoreExtensions && frameIndex >= 0 && frameIndex < len(qextPayloads) {
@@ -126,11 +200,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		return nil
 	}
 
-	switch toc.FrameCode {
-	case 0:
-		if err := decodeFrame(0, data[1:]); err != nil {
-			return 0, err
-		}
+	switch frameCode {
 	case 1:
 		frameDataLen := len(data) - 1
 		if frameDataLen%2 != 0 {
@@ -268,35 +338,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		}
 	}
 
-	d.lastFrameSize = frameSize
-	d.lastPacketDuration = totalSamples
-	d.lastBandwidth = toc.Bandwidth
-	d.lastPacketMode = toc.Mode
-	d.lastDataLen = len(data)
-
-	if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
-		firstFrameData, err := extractFirstFramePayload(data, toc)
-		if err != nil {
-			return 0, err
-		}
-		d.storeFECData(firstFrameData, toc, frameCount, frameSize)
-	} else {
-		d.hasFEC = false
-	}
-
-	if extsupport.DREDRuntime {
-		if d.dredPayloadScannerActive() {
-			d.maybeCacheDREDPayload(data)
-		}
-		if d.dredGoodPacketMarkerActive() {
-			if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
-				r.dredRecovery = 0
-			}
-			d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples, toc.Mode)
-		}
-	}
-	d.applyOutputGain(pcm[:totalSamples*d.channels])
-	return totalSamples, nil
+	return offsetSamples, nil
 }
 
 // DecodeWithFEC decodes an Opus packet, optionally recovering a lost frame using FEC.
@@ -394,6 +436,15 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 
 	if len(data) > d.maxPacketBytes {
 		return 0, ErrPacketTooLarge
+	}
+
+	if len(pcm) >= d.maxPacketSamples*d.channels {
+		n, err := d.Decode(data, d.scratchPCM)
+		if err != nil {
+			return 0, err
+		}
+		softClipAndFloat32ToInt16(pcm, d.scratchPCM, n, d.channels, d.softClipMem[:])
+		return n, nil
 	}
 
 	toc, frameCount, err := packetFrameCount(data)

@@ -76,9 +76,17 @@ type Decoder struct {
 	postfilterTapsetOld int
 	// Postfilter history buffer (per-channel)
 	postfilterMem []float64
+	// On no-gain frames, postfilter history can be lazily reconstructed from
+	// the longer PLC decode history, avoiding a duplicate history shift.
+	postfilterMemFromPLC   bool
+	postfilterMemPLCBacked bool
 	// PLC decode history buffer (per-channel), sized to match libopus
 	// DECODE_BUFFER_SIZE cadence used by celt_plc_pitch_search().
 	plcDecodeMem []float64
+	// Stereo planar decode keeps PLC history as a ring during good packets and
+	// materializes it only before PLC consumers need contiguous libopus layout.
+	plcDecodeMemRingActive bool
+	plcDecodeMemRingStart  int
 
 	// Error recovery / deterministic randomness
 	rng uint32 // RNG state for PLC and folding
@@ -129,6 +137,7 @@ type Decoder struct {
 	scratchBands          bandDecodeScratch
 	scratchIMDCT          imdctScratch
 	scratchIMDCTF32       imdctScratchF32
+	scratchIMDCTF32R      imdctScratchF32
 	scratchSynth          []float64
 	scratchSynthR         []float64
 	scratchStereo         []float64

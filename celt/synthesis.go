@@ -194,19 +194,31 @@ func synthesizeChannelWithOverlapScratch(coeffs []float64, prevOverlap []float64
 
 		// Process each short block and write into the shared buffer.
 		// Use float32 IMDCT to match libopus precision for transient frames.
-		for b := 0; b < shortBlocks; b++ {
-			// Extract interleaved coefficients for this short block
-			for i := 0; i < shortSize; i++ {
-				idx := b + i*shortBlocks
-				if idx < frameSize {
+		if shortSize*shortBlocks == frameSize {
+			for b := 0; b < shortBlocks; b++ {
+				idx := b
+				for i := 0; i < shortSize; i++ {
 					shortCoeffs[i] = coeffs[idx]
-				} else {
-					shortCoeffs[i] = 0
+					idx += shortBlocks
 				}
-			}
 
-			blockStart := b * shortSize
-			imdctInPlaceScratchF32(shortCoeffs[:shortSize], out, blockStart, overlap, scratchF32)
+				blockStart := b * shortSize
+				imdctInPlaceScratchF32(shortCoeffs[:shortSize], out, blockStart, overlap, scratchF32)
+			}
+		} else {
+			for b := 0; b < shortBlocks; b++ {
+				for i := 0; i < shortSize; i++ {
+					idx := b + i*shortBlocks
+					if idx < frameSize {
+						shortCoeffs[i] = coeffs[idx]
+					} else {
+						shortCoeffs[i] = 0
+					}
+				}
+
+				blockStart := b * shortSize
+				imdctInPlaceScratchF32(shortCoeffs[:shortSize], out, blockStart, overlap, scratchF32)
+			}
 		}
 
 		return out[:frameSize]
@@ -260,6 +272,28 @@ func (d *Decoder) synthesizeMonoLongToFloat32(coeffs []float64) []float32 {
 		copyFloat32ToFloat64(d.overlapBuffer[:Overlap], outF32[len(coeffs):len(coeffs)+Overlap])
 	}
 	return outF32[:len(coeffs)]
+}
+
+func (d *Decoder) synthesizeStereoPlanarLongToFloat32(coeffsL, coeffsR []float64) (outL, outR []float32) {
+	if len(coeffsL) == 0 || len(coeffsR) == 0 {
+		return nil, nil
+	}
+	if len(d.overlapBuffer) < Overlap*2 {
+		d.overlapBuffer = make([]float64, Overlap*2)
+	}
+	overlapL := d.overlapBuffer[:Overlap]
+	overlapR := d.overlapBuffer[Overlap : Overlap*2]
+
+	outLFull := imdctOverlapWithPrevScratchF32Output(coeffsL, overlapL, Overlap, &d.scratchIMDCTF32)
+	outRFull := imdctOverlapWithPrevScratchF32Output(coeffsR, overlapR, Overlap, &d.scratchIMDCTF32R)
+	if len(outLFull) < len(coeffsL)+Overlap || len(outRFull) < len(coeffsR)+Overlap {
+		return nil, nil
+	}
+	if Overlap > 0 {
+		copyFloat32ToFloat64(overlapL, outLFull[len(coeffsL):len(coeffsL)+Overlap])
+		copyFloat32ToFloat64(overlapR, outRFull[len(coeffsR):len(coeffsR)+Overlap])
+	}
+	return outLFull[:len(coeffsL)], outRFull[:len(coeffsR)]
 }
 
 func (d *Decoder) synthesizeStereoPlanar(coeffsL, coeffsR []float64, transient bool, shortBlocks int) (outL, outR []float64) {

@@ -573,145 +573,131 @@ func finishCWRSTwoPulses(y []int, n int, index uint32) uint32 {
 	}
 }
 
+func setCWRSOnePulse32(y []int32, start, end int, index uint32) {
+	n := end - start
+	idx := int(index)
+	if idx < n {
+		y[start+idx] = 1
+	} else {
+		y[start+(n<<1)-1-idx] = -1
+	}
+}
+
+func finishCWRSOnePulse32(y []int32, start, end int, index uint32) {
+	clear(y[start:end])
+	setCWRSOnePulse32(y, start, end, index)
+}
+
+func finishCWRSTwoPulses32(y []int32, n int, index uint32) uint32 {
+	clear(y[:n])
+	return finishCWRSTwoPulses32NoClear(y, n, index)
+}
+
+func finishCWRSTwoPulses32NoClear(y []int32, n int, index uint32) uint32 {
+	start := 0
+	rem := n
+	idx := int(index)
+	for {
+		if rem == 1 {
+			if idx&1 == 1 {
+				y[start] = -2
+			} else {
+				y[start] = 2
+			}
+			return 4
+		}
+		if idx == 0 {
+			y[start] = 2
+			return 4
+		}
+		idx--
+		oneCount := (rem - 1) << 1
+		if idx < oneCount {
+			y[start] = 1
+			setCWRSOnePulse32(y, start+1, n, uint32(idx))
+			return 2
+		}
+		idx -= oneCount
+		zeroCount := ((rem - 1) * (rem - 1)) << 1
+		if idx < zeroCount {
+			start++
+			rem--
+			continue
+		}
+		idx -= zeroCount
+		if idx == 0 {
+			y[start] = -2
+			return 4
+		}
+		idx--
+		y[start] = -1
+		setCWRSOnePulse32(y, start+1, n, uint32(idx))
+		return 2
+	}
+}
+
+func finishCWRSThreePulses32(y []int32, n int, index uint32) uint32 {
+	clear(y[:n])
+	start := 0
+	rem := n
+	idx := index
+
+	for {
+		if rem <= 3 {
+			return cwrsiFastCore32(rem, 3, idx, y[start:n:n])
+		}
+
+		p := pvqUDenseUnchecked(3, rem)
+		q := pvqUDenseUnchecked(4, rem)
+		if p <= idx && idx < q {
+			idx -= p
+			start++
+			rem--
+			continue
+		}
+
+		neg := false
+		if idx >= q {
+			neg = true
+			idx -= q
+		}
+
+		u2 := uint32((rem << 1) - 1)
+		yj := 3
+		kLeft := 0
+		if idx >= u2 {
+			idx -= u2
+			yj = 1
+			kLeft = 2
+		} else if idx >= 1 {
+			idx--
+			yj = 2
+			kLeft = 1
+		}
+		if neg {
+			yj = -yj
+		}
+		y[start] = int32(yj)
+
+		switch kLeft {
+		case 2:
+			return uint32(yj*yj) + finishCWRSTwoPulses32NoClear(y[start+1:n], rem-1, idx)
+		case 1:
+			setCWRSOnePulse32(y, start+1, n, idx)
+			return uint32(yj*yj + 1)
+		default:
+			return uint32(yj * yj)
+		}
+	}
+}
+
 //go:nosplit
 func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 	if n < 2 || k <= 0 || len(y) < n {
 		return 0
 	}
-	n0 := n
-	y = y[:n0:n0]
-	_ = y[n0-1]
-
-	// For n >= 2 and k where table lookup works, use the fast path
-	// matching libopus cwrs.c lines 484-558
-	var yy uint32
-
-	for j := 0; j < n0-2; j++ {
-		nCur := n0 - j
-		var p, q uint32
-		var s int
-		var k0, yj int
-
-		// Lots of pulses case (k >= n)
-		if k >= nCur {
-			// Are the pulses in this dimension negative?
-			p = pvqUDenseUnchecked(nCur, k+1)
-			if i >= p {
-				s = -1
-				i -= p
-			}
-
-			// Count how many pulses were placed in this dimension
-			k0 = k
-			q = pvqUDenseUnchecked(nCur, nCur)
-
-			if q > i {
-				k = nCur
-				for {
-					k--
-					p = pvqUDenseUnchecked(k, nCur)
-					if p <= i {
-						break
-					}
-				}
-			} else {
-				p = pvqUDenseUnchecked(nCur, k)
-				if p > i {
-					hi := k - 1
-					p = pvqUDenseUnchecked(nCur, hi)
-					if p <= i {
-						k = hi
-					} else {
-						// row nCur is monotonic in k, so locate the largest
-						// k <= current k with value <= i by binary search.
-						lo := nCur
-						hi--
-						for lo < hi {
-							mid := (lo + hi + 1) >> 1
-							if pvqUDenseUnchecked(nCur, mid) <= i {
-								lo = mid
-							} else {
-								hi = mid - 1
-							}
-						}
-						k = lo
-						p = pvqUDenseUnchecked(nCur, lo)
-					}
-				}
-			}
-			i -= p
-			yj = k0 - k
-			if s != 0 {
-				yj = -yj
-			}
-			y[j] = yj
-			yy += uint32(yj * yj)
-		} else {
-			// Lots of dimensions case (k < n)
-			// Are there any pulses in this dimension at all?
-			p = pvqUDenseUnchecked(k, nCur)
-			q = pvqUDenseUnchecked(k+1, nCur)
-
-			if p <= i && i < q {
-				i -= p
-				y[j] = 0
-			} else {
-				// Are the pulses in this dimension negative?
-				if i >= q {
-					s = -1
-					i -= q
-				}
-				// Count how many pulses were placed in this dimension
-				k0 = k
-				for {
-					k--
-					p = pvqUDenseUnchecked(k, nCur)
-					if p <= i {
-						break
-					}
-				}
-				i -= p
-				yj = k0 - k
-				if s != 0 {
-					yj = -yj
-				}
-				y[j] = yj
-				yy += uint32(yj * yj)
-			}
-		}
-	}
-
-	// n == 2
-	j := n0 - 2
-	p := uint32(2*k + 1)
-	s := 0
-	if i >= p {
-		s = -1
-		i -= p
-	}
-	k0 := k
-	k = int((i + 1) >> 1)
-	if k != 0 {
-		i -= uint32(2*k - 1)
-	}
-	yj := k0 - k
-	if s != 0 {
-		yj = -yj
-	}
-	y[j] = yj
-	yy += uint32(yj * yj)
-	j++
-
-	// n == 1
-	s = -int(i)
-	yj = k
-	if s != 0 {
-		yj = -k
-	}
-	y[j] = yj
-	yy += uint32(yj * yj)
-
-	return yy
+	y = y[:n:n]
+	return cwrsiFastCore(n, k, i, y)
 }
 
 // cwrsi is the fallback decoder using dynamic row computation.
@@ -907,9 +893,86 @@ func decodePulsesInto(index uint32, n, k int, y []int, scratch *bandDecodeScratc
 	if k == 2 {
 		return finishCWRSTwoPulses(y, n, index)
 	}
+	if n == 2 {
+		_ = y[1]
+		p := uint32(2*k + 1)
+		neg0 := false
+		if index >= p {
+			neg0 = true
+			index -= p
+		}
+		k1 := int((index + 1) >> 1)
+		if k1 != 0 {
+			index -= uint32(2*k1 - 1)
+		}
+		y0 := k - k1
+		if neg0 {
+			y0 = -y0
+		}
+		y1 := k1
+		if index != 0 {
+			y1 = -y1
+		}
+		y[0] = y0
+		y[1] = y1
+		return uint32(y0*y0 + y1*y1)
+	}
 
 	if canUseCWRSFast(n, k) {
-		return cwrsiFast(n, k, index, y)
+		if n == 3 {
+			p := pvqUDenseUnchecked(3, k+1)
+			neg0 := false
+			if index >= p {
+				neg0 = true
+				index -= p
+			}
+
+			k0 := k
+			q := pvqUDenseUnchecked(3, 3)
+			if q > index {
+				k = 3
+				for {
+					k--
+					p = pvqUDenseUnchecked(k, 3)
+					if p <= index {
+						break
+					}
+				}
+			} else {
+				for p = pvqUDenseUnchecked(3, k); p > index; p = pvqUDenseUnchecked(3, k) {
+					k--
+				}
+			}
+			index -= p
+			y0 := k0 - k
+			if neg0 {
+				y0 = -y0
+			}
+
+			p = uint32(2*k + 1)
+			neg1 := false
+			if index >= p {
+				neg1 = true
+				index -= p
+			}
+			k2 := int((index + 1) >> 1)
+			if k2 != 0 {
+				index -= uint32(2*k2 - 1)
+			}
+			y1 := k - k2
+			if neg1 {
+				y1 = -y1
+			}
+			y2 := k2
+			if index != 0 {
+				y2 = -y2
+			}
+			y[0] = y0
+			y[1] = y1
+			y[2] = y2
+			return uint32(y0*y0 + y1*y1 + y2*y2)
+		}
+		return cwrsiFastCore(n, k, index, y[:n:n])
 	} else {
 		// Use scratch buffer for u row if available, otherwise allocate
 		var u []uint32
@@ -921,6 +984,98 @@ func decodePulsesInto(index uint32, n, k int, y []int, scratch *bandDecodeScratc
 		ncwrsUrow(n, k, u)
 		return cwrsi(n, k, index, y, u)
 	}
+}
+
+func decodePulsesInto32(index uint32, n, k int, y []int32, scratch *bandDecodeScratch) uint32 {
+	if n <= 0 || k < 0 || len(y) < n {
+		return 0
+	}
+	if k == 0 {
+		clear(y[:n])
+		return 0
+	}
+
+	if n == 1 {
+		if index&1 == 1 {
+			y[0] = int32(-k)
+		} else {
+			y[0] = int32(k)
+		}
+		return uint32(k * k)
+	}
+	if k == 1 {
+		finishCWRSOnePulse32(y, 0, n, index)
+		return 1
+	}
+	if k == 2 {
+		return finishCWRSTwoPulses32(y, n, index)
+	}
+	if n == 2 {
+		_ = y[1]
+		p := uint32(2*k + 1)
+		neg0 := false
+		if index >= p {
+			neg0 = true
+			index -= p
+		}
+		k1 := int((index + 1) >> 1)
+		if k1 != 0 {
+			index -= uint32(2*k1 - 1)
+		}
+		y0 := k - k1
+		if neg0 {
+			y0 = -y0
+		}
+		y1 := k1
+		if index != 0 {
+			y1 = -y1
+		}
+		y[0] = int32(y0)
+		y[1] = int32(y1)
+		return uint32(y0*y0 + y1*y1)
+	}
+	if k == 3 && canUseCWRSFast(n, k) {
+		return finishCWRSThreePulses32(y, n, index)
+	}
+	if canUseCWRSFast(n, k) {
+		if n == 3 {
+			return cwrsiFastCore32N3(k, index, y[:3:3])
+		}
+		if n == 8 {
+			return cwrsiFastCore32N8(k, index, y[:8:8])
+		}
+		if n == 4 {
+			return cwrsiFastCore32N4(k, index, y[:4:4])
+		}
+		if n == 5 {
+			return cwrsiFastCore32N5(k, index, y[:5:5])
+		}
+		if n == 6 {
+			return cwrsiFastCore32N6(k, index, y[:6:6])
+		}
+		if n == 9 {
+			return cwrsiFastCore32N9(k, index, y[:9:9])
+		}
+		if n == 11 {
+			return cwrsiFastCore32N11(k, index, y[:11:11])
+		}
+		if n == 12 {
+			return cwrsiFastCore32N12(k, index, y[:12:12])
+		}
+		return cwrsiFastCore32(n, k, index, y[:n:n])
+	}
+
+	var pulses []int
+	if scratch != nil {
+		pulses = scratch.ensurePVQPulses(n)
+	} else {
+		pulses = make([]int, n)
+	}
+	yy := decodePulsesInto(index, n, k, pulses, scratch)
+	for i, v := range pulses[:n] {
+		y[i] = int32(v)
+	}
+	return yy
 }
 
 // EncodePulses converts a pulse vector to a CWRS index.
