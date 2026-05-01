@@ -73,6 +73,8 @@
 //
 // Some libopus build-time extension hooks are build dependent. Supported
 // optional controls in the default build currently include SetDNNBlob only.
+// That default control surface is parity-gated by make test-dnn-blob-parity
+// against pinned libopus USE_WEIGHTS_FILE model blobs.
 // QEXT controls are supported only in builds using `-tags gopus_qext`.
 // DRED control and standalone surfaces are supported only in builds using
 // `-tags gopus_dred`. Quarantine builds using

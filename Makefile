@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-dred-tag test-qext-parity test-unsupported-controls-tag test-unsupported-controls-parity test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-dnn-blob-parity test-dred-tag test-qext-parity test-unsupported-controls-tag test-unsupported-controls-parity test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -101,6 +101,29 @@ test-consumer-smoke:
 test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run 'TestOptionalExtensionDocsContract|TestSupportsOptionalExtension|ExampleSupportsOptionalExtension' -count=1
 
+# Default-supported DNN blob control parity against libopus USE_WEIGHTS_FILE
+# model blobs. The target fails if the required libopus-backed test is skipped.
+test-dnn-blob-parity: ensure-libopus
+	@json_out="$$(mktemp)"; \
+	json_part="$$json_out.part"; \
+	trap 'rm -f "$$json_out" "$$json_part"' EXIT; \
+	run_json() { \
+		if ! "$$@" -json > "$$json_part"; then \
+			cat "$$json_part"; \
+			cat "$$json_part" >> "$$json_out"; \
+			exit 1; \
+		fi; \
+		cat "$$json_part"; \
+		cat "$$json_part" >> "$$json_out"; \
+		: > "$$json_part"; \
+	}; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test . -run 'Test(DNNBlobControlAcceptsLibopusModelBlobs|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1; \
+	if grep -q '"Action":"skip"' "$$json_out"; then \
+		echo "Unexpected skip detected in required DNN blob parity gate:"; \
+		grep '"Action":"skip"' "$$json_out"; \
+		exit 1; \
+	fi
+
 # Supported DRED feature-tag smoke. The unsupported-controls tag remains a
 # quarantine umbrella; this target verifies the supported DRED surface by itself.
 test-dred-tag: ensure-libopus
@@ -160,10 +183,28 @@ test-qext-parity: ensure-libopus-qext
 
 # Quarantine build smoke for unsupported controls that should never leak into the default surface.
 test-unsupported-controls-tag: ensure-libopus
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_CORE_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./encoder ./multistream -run 'Test(DREDRuntimeBuildExposesEncoderControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDEncodingActiveRequiresModelAndDuration|EncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/dred -run 'Test(EncodeExperimentalPayloadMatchesLibopus|EncodeExperimentalPayloadMatchesLibopusDelayedOffset)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/lpcnetplc -run 'Test(PredictorMatchesLibopusOnRealModel|FARGANConditionerMatchesLibopusOnRealModel|FARGANPrimeContinuityMatchesLibopusOnRealModel|FARGANSynthesizeMatchesLibopusOnRealModel|MarkUpdatedFrameFloatMatchesLibopus|PrefillAndConcealmentFeatureStepMatchLibopus|BoundedConcealFrameFloatMatchesLibopus|ConcealFrameFloatWithAnalysisMatchesLibopusColdStart)' -count=1
+	@json_out="$$(mktemp)"; \
+	json_part="$$json_out.part"; \
+	trap 'rm -f "$$json_out" "$$json_part"' EXIT; \
+	run_json() { \
+		if ! "$$@" -json > "$$json_part"; then \
+			cat "$$json_part"; \
+			cat "$$json_part" >> "$$json_out"; \
+			exit 1; \
+		fi; \
+		cat "$$json_part"; \
+		cat "$$json_part" >> "$$json_out"; \
+		: > "$$json_part"; \
+	}; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_CORE_ROOT_RUN) -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./encoder ./multistream -run 'Test(DREDRuntimeBuildExposesEncoderControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDEncodingActiveRequiresModelAndDuration|EncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/dred -run 'Test(EncodeExperimentalPayloadMatchesLibopus|EncodeExperimentalPayloadMatchesLibopusDelayedOffset)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/lpcnetplc -run 'Test(PredictorMatchesLibopusOnRealModel|FARGANConditionerMatchesLibopusOnRealModel|FARGANPrimeContinuityMatchesLibopusOnRealModel|FARGANSynthesizeMatchesLibopusOnRealModel|MarkUpdatedFrameFloatMatchesLibopus|PrefillAndConcealmentFeatureStepMatchLibopus|BoundedConcealFrameFloatMatchesLibopus|ConcealFrameFloatWithAnalysisMatchesLibopusColdStart)' -count=1; \
+	if grep -q '"Action":"skip"' "$$json_out"; then \
+		echo "Unexpected skip detected in required unsupported-controls tag gate:"; \
+		grep '"Action":"skip"' "$$json_out"; \
+		exit 1; \
+	fi
 
 # Required tag-gated DRED parity sweep. Keep it separate from the quarantine API
 # smoke so support claims stay seam-scoped.
@@ -195,8 +236,26 @@ test-unsupported-controls-parity: ensure-libopus
 # Broader DRED parity sweep. It intentionally stays outside the production gate
 # until the Linux encoder packet-shape and decoder audio numerical matrices are green.
 test-unsupported-controls-parity-experimental: test-unsupported-controls-parity
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_PARITY_EXPERIMENTAL_ROOT_RUN) -count=1
+	@json_out="$$(mktemp)"; \
+	json_part="$$json_out.part"; \
+	trap 'rm -f "$$json_out" "$$json_part"' EXIT; \
+	run_json() { \
+		if ! "$$@" -json > "$$json_part"; then \
+			cat "$$json_part"; \
+			cat "$$json_part" >> "$$json_out"; \
+			exit 1; \
+		fi; \
+		cat "$$json_part"; \
+		cat "$$json_part" >> "$$json_out"; \
+		: > "$$json_part"; \
+	}; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo)' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_PARITY_EXPERIMENTAL_ROOT_RUN) -count=1; \
+	if grep -q '"Action":"skip"' "$$json_out"; then \
+		echo "Unexpected skip detected in experimental unsupported-controls parity gate:"; \
+		grep '"Action":"skip"' "$$json_out"; \
+		exit 1; \
+	fi
 
 # Primary libopus-facing focused gate.
 test-quality:
@@ -241,6 +300,7 @@ bench-testvectors-report: ensure-libopus
 verify-production: ensure-libopus
 	$(RUNNABLE_PARITY) -count=1 -timeout=25m
 	$(MAKE) test-consumer-smoke
+	$(MAKE) test-dnn-blob-parity
 	$(MAKE) test-dred-tag
 	$(MAKE) test-qext-parity
 	$(MAKE) test-unsupported-controls-tag

@@ -13,11 +13,17 @@ if gopus.SupportsOptionalExtension(gopus.OptionalExtensionQEXT) {
 }
 ```
 
+The default `SetDNNBlob(...)` control surface is also a parity-gated optional
+extension surface: `make test-dnn-blob-parity` builds the pinned libopus
+USE_WEIGHTS_FILE model-blob helpers, checks the top-level and multistream
+encoder/decoder controls against those blobs, and fails if required helper
+coverage is skipped.
+
 ## Feature Matrix
 
 | Extension | Support status | Probe | Notes |
 | --- | --- | --- | --- |
-| DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; decoder-side support currently covers loader-derived validation and retained control state, not full model-backed PLC/OSCE runtime behavior. Tagged DRED/quarantine builds may bind DRED-capable model families on this control path, but normal encode/decode runtime work remains dormant until a DRED duration, payload, or recovery path is explicitly armed; model-only public caller-buffer encode/decode paths stay zero-allocation and skip unarmed DRED helper work |
+| DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; `make test-dnn-blob-parity` validates the default control surface against libopus USE_WEIGHTS_FILE model blobs and fails on skipped helper coverage; decoder-side support currently covers loader-derived validation and retained control state, not full model-backed PLC/OSCE runtime behavior. Tagged DRED/quarantine builds may bind DRED-capable model families on this control path, but normal encode/decode runtime work remains dormant until a DRED duration, payload, or recovery path is explicitly armed; model-only public caller-buffer encode/decode paths stay zero-allocation and skip unarmed DRED helper work |
 | QEXT | Tagged support | `OptionalExtensionQEXT` | Build with `-tags gopus_qext` to support `SetQEXT` / `QEXT` on `Encoder` and `MultistreamEncoder`; default builds keep those controls absent and compile the packet-extension payload scan/encode plumbing behind a constant false gate |
 | DRED | Tagged control/standalone support | `OptionalExtensionDRED` | Build with `-tags gopus_dred` to support `SetDREDDuration(...)` / `DREDDuration()` on `Encoder` and `MultistreamEncoder`, plus standalone `DREDDecoder` / `DRED`; quarantine builds may expose the same controls/helpers under `gopus_unsupported_controls` for parity work without reporting DRED support; this does not claim broad DRED audio-path parity, and default builds keep DRED absent with runtime hooks dormant |
 | OSCE BWE | Unsupported and quarantined | `OptionalExtensionOSCEBWE` | `SetOSCEBWE(...)` / `OSCEBWE()` are absent from the default public API surface, and low-level OSCE model helpers stay quarantine-gated |

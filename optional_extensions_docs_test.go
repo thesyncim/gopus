@@ -39,6 +39,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"[Optional Extensions](docs/optional-extensions.md)",
 		"Supported default controls are `SetDNNBlob(...)` only",
+		"`make test-dnn-blob-parity` validates that control surface against pinned libopus USE_WEIGHTS_FILE model blobs",
 		"QEXT controls are supported with `-tags gopus_qext`",
 		"DRED control and standalone surfaces are supported with `-tags gopus_dred`",
 		"this is not broad DRED decoder audio-path support",
@@ -59,6 +60,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"// # Supported Default Build",
 		"// optional controls in the default build currently include SetDNNBlob only.",
+		"// That default control surface is parity-gated by make test-dnn-blob-parity",
 		"// QEXT controls are supported only in builds using `-tags gopus_qext`.",
 		"// DRED control and standalone surfaces are supported only in builds using",
 		"// `-tags gopus_dred`.",
@@ -77,6 +79,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"## Optional Extension Contract",
 		"`SetDNNBlob(...)` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`",
+		"`make test-dnn-blob-parity` validates the default `SetDNNBlob(...)` control surface",
 		"Decoder-side `SetDNNBlob(...)` currently covers loader-derived validation and retained control state.",
 		"QEXT controls are supported only when built with `-tags gopus_qext`",
 		"`make test-qext-parity` enforces the supported QEXT packet-extension seams",
@@ -108,6 +111,8 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 
 	for _, needle := range []string{
 		"Build tag-gated QEXT support explicitly",
+		"`make test-dnn-blob-parity` builds the pinned libopus",
+		"fails if required helper",
 		"`SupportsOptionalExtension(gopus.OptionalExtensionQEXT)` reports `true` only in",
 		"`make test-qext-parity`",
 		"Default builds keep QEXT controls absent",

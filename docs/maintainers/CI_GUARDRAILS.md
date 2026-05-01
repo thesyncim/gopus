@@ -12,7 +12,7 @@ Block correctness and hot-path performance regressions before merge.
 - `make test-doc-contract`
 - `make lint`
 - Runs the pinned `golangci-lint` baseline from `.golangci.yml`.
-- Still validates the optional-extension docs contract on markdown-only PRs before skipping `golangci-lint`.
+- Runs on markdown-only PRs too, so optional-extension docs changes still pass through the same static/docs contract checks.
 - Intended to catch actionable vet/static-analysis issues without forcing broad codec-style churn.
 
 2. Correctness gate (`test-linux`)
@@ -22,13 +22,15 @@ Block correctness and hot-path performance regressions before merge.
 - `test-linux-flake`: critical parity subset under shuffle/repeat with strict libopus reference enforcement and go-test JSON skip enforcement
 - `test-linux-fuzz-smoke`: `make test-fuzz-smoke`
 - `test-linux-consumer-smoke`: `make test-consumer-smoke`
+- `test-linux-dnn-blob-parity`: `make test-dnn-blob-parity`
 - `test-linux-dred-tag`: `make test-dred-tag`
 - `test-linux-qext-parity`: `make test-qext-parity`
 - `test-linux-unsupported-controls`: `make test-unsupported-controls-tag`
 - `test-linux-unsupported-controls-parity`: `make test-unsupported-controls-parity`
-- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`, `test-linux-flake`, `test-linux-fuzz-smoke`, `test-linux-consumer-smoke`, `test-linux-dred-tag`, `test-linux-qext-parity`, `test-linux-unsupported-controls`, `test-linux-unsupported-controls-parity`) and aggregated by `test-linux`.
+- Internally split into parallel jobs (`test-linux-parity`, `test-linux-race`, `test-linux-provenance`, `test-linux-flake`, `test-linux-fuzz-smoke`, `test-linux-consumer-smoke`, `test-linux-dnn-blob-parity`, `test-linux-dred-tag`, `test-linux-qext-parity`, `test-linux-unsupported-controls`, `test-linux-unsupported-controls-parity`) and aggregated by `test-linux`.
 - This keeps parity/race/provenance/fuzz coverage intact while removing serialized Linux checks from a single job.
-- The supported DRED tag gate carries standalone DRED wrapper lifecycle/no-allocation coverage, standalone libopus parse/decode/process metadata proofs, real-packet standalone process state/feature parity, standalone recovery scheduling parity, decoder cached recovery bookkeeping parity, the libopus-backed SILK wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload/primary-frame proofs plus 20 ms primary-budget proof, and the Hybrid fullband 20 ms payload-only proof directly under `gopus_dred`; the unsupported-controls smoke and required DRED parity sweep stay separate so quarantine API exposure remains a small gate while bootstrap, the real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle, and selected bookkeeping seams also block the aggregate correctness check. Required DRED parity gates run through JSON no-skip enforcement so missing libopus helpers cannot silently pass. Hybrid packet-length parity and primary-frame byte exactness remain open, and decoder audio numerical matrices remain in `make test-unsupported-controls-parity-experimental` until their Linux matrix is green.
+- The default DNN blob gate validates top-level and multistream `SetDNNBlob(...)` controls against pinned libopus USE_WEIGHTS_FILE encoder/decoder model blobs and fails on skipped helper coverage.
+- The supported DRED tag gate carries standalone DRED wrapper lifecycle/no-allocation coverage, standalone libopus parse/decode/process metadata proofs, real-packet standalone process state/feature parity, standalone recovery scheduling parity, decoder cached recovery bookkeeping parity, the libopus-backed SILK wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload/primary-frame proofs plus 20 ms primary-budget proof, and the Hybrid fullband 20 ms payload-only proof directly under `gopus_dred`; the unsupported-controls smoke and required DRED parity sweep stay separate so quarantine API exposure remains a small gate while bootstrap, the real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle, and selected bookkeeping seams also block the aggregate correctness check. Required DRED and unsupported-controls parity gates run through JSON no-skip enforcement so missing libopus helpers cannot silently pass. Hybrid packet-length parity and primary-frame byte exactness remain open, and decoder audio numerical matrices remain in `make test-unsupported-controls-parity-experimental` until their Linux matrix is green; that experimental target also fails on skipped libopus-helper coverage.
 - The supported QEXT tag gate builds a separate `tmp_check/opus-1.6.1-qext` libopus tree with `--enable-qext`, runs no-skip packet-extension parity under `gopus_qext`, and keeps default-build QEXT controls absent with packet-extension plumbing compile-time dormant unless the tag is set.
 
 3. Performance gate (`perf-linux`)
@@ -40,10 +42,10 @@ Block correctness and hot-path performance regressions before merge.
 - `test-macos`: `go test ./... -count=1`
 - `test-windows`: `go test ./... -count=1`
 
-5. Markdown-only optimization (without blocking merges)
+5. Markdown-only behavior
 - Keep the CI workflow trigger active for markdown/docs-only pull requests so required checks still report status.
-- Use in-workflow docs-only detection to skip heavy lint/test/perf jobs for markdown-only changes.
-- Do not use top-level workflow filters that suppress all required checks and leave PRs in "Expected" state.
+- Run the same lint, parity, performance, and platform gates for markdown-only changes; optional-extension documentation changes can otherwise drift from the gated release surface.
+- Do not use top-level workflow filters that suppress required checks or in-workflow markdown-only exits that convert skipped parity into green aggregate jobs.
 
 ## Benchmark Guardrails
 
