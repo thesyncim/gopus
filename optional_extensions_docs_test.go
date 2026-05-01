@@ -72,6 +72,9 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"`SetDNNBlob(...)` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`",
 		"Decoder-side `SetDNNBlob(...)` currently covers loader-derived validation and retained control state.",
 		"DRED control and standalone surfaces are supported only when built with `-tags gopus_dred`",
+		"standalone DRED wrapper lifecycle/no-allocation checks",
+		"`make test-dred-tag`",
+		"mirrored by `make test-unsupported-controls-parity`",
 		"`SetOSCEBWE(...)` / `OSCEBWE()` are absent unless built with `-tags gopus_unsupported_controls`",
 		"The `gopus_unsupported_controls` build remains a parity/quarantine umbrella",
 		"may expose DRED controls and standalone",
@@ -92,6 +95,10 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"expose DRED controls/standalone helpers",
 		"does not, by itself, change `SupportsOptionalExtension(...)`",
 		"release support comes from `gopus_dred`",
+		"standalone DRED wrapper lifecycle and",
+		"`make test-dred-tag` exercises standalone DRED wrapper lifecycle",
+		"zero-allocation coverage plus the supported-tag narrow SILK wideband",
+		"`make test-unsupported-controls-parity` also enforces that seam",
 	} {
 		if !strings.Contains(optionalDoc, needle) {
 			t.Fatalf("docs/optional-extensions.md missing %q", needle)

@@ -104,7 +104,9 @@ test-doc-contract:
 # Supported DRED feature-tag smoke. The unsupported-controls tag remains a
 # quarantine umbrella; this target verifies the supported DRED surface by itself.
 test-dred-tag: ensure-libopus
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(SupportsOptionalExtension|DREDBuildTagExposesSupportedTopLevelControls|DREDBuildPublicAPIContract|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls)|ExampleSupportsOptionalExtension' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(OptionalExtensionDocsContract|SupportsOptionalExtension|DREDBuildTagExposesSupportedTopLevelControls|DREDBuildPublicAPIContract|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls)|ExampleSupportsOptionalExtension' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DREDDecoderParseRequiresModel|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderProcessRejectsEmptyState|DREDDecoderProcessDoesNotAllocate|DREDDecoderParseAndProcessDoesNotAllocate|DREDDecoderParseClearsStateOnMalformedPacket)' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPrimaryBudgetMatchesLibopusSilkWideband20ms)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./encoder -run 'Test(UnsupportedControlsBuildExposesQuarantinedControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDRuntimeStaysDormantUntilReady|EncoderProcessDREDLatentsDoesNotAllocate|EncoderProcessDREDLatentsDoesNotAllocate48k|MaybeBuildSingleFrameDREDPacketCarriesExtension)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./multistream -run 'TestDREDBuildTagExposesEncoderControlsOnly' -count=1
 

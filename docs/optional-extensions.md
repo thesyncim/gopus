@@ -34,9 +34,11 @@ go test -tags gopus_dred ./...
 `SupportsOptionalExtension(gopus.OptionalExtensionDRED)` reports `true` only in
 that tagged DRED build. Current release support is scoped to exposed controls,
 the standalone DRED wrapper, and the selected green non-decoder-audio parity
-seams enforced by `make test-unsupported-controls-parity`, including the narrow
-SILK wideband 20 ms carried-payload/primary-budget seam plus bootstrap and
-bookkeeping coverage. In default builds, DRED controls are absent and
+seams. `make test-dred-tag` exercises standalone DRED wrapper lifecycle and
+zero-allocation coverage plus the supported-tag narrow SILK wideband
+20 ms encoder carried-payload/primary-budget seam, while
+`make test-unsupported-controls-parity` also enforces that seam plus bootstrap
+and bookkeeping coverage. In default builds, DRED controls are absent and
 encode/decode hot paths do not enter DRED runtime hooks. The internal encoder
 DRED runtime, top-level decoder DRED internals, and multistream decoder DRED
 cache/runtime helpers are build-tag split, so default `./encoder`, `.`, and
