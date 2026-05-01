@@ -38,8 +38,9 @@ seams. `make test-dred-tag` exercises standalone DRED wrapper lifecycle,
 zero-allocation, libopus parse/decode/process metadata coverage, and real-packet
 standalone process state/feature parity, standalone recovery scheduling parity,
 and decoder cached recovery bookkeeping parity plus the supported-tag SILK
-wideband 20/40/60 ms encoder carried-payload seams, the Hybrid fullband 20 ms
-payload-only seam, and the SILK 20 ms primary-budget seam, while
+wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload/primary-frame
+seams, the Hybrid fullband 20 ms payload-only seam, and the SILK 20 ms
+primary-budget seam, while
 `make test-unsupported-controls-parity` mirrors those encoder seams, the
 real-model PitchDNN and RDOVAE encoder oracles, the
 conceal-analysis oracle, plus bootstrap and
@@ -49,8 +50,9 @@ encode/decode hot paths do not enter DRED runtime hooks. The internal encoder
 DRED runtime, top-level decoder DRED internals, and multistream decoder DRED
 cache/runtime helpers are build-tag split, so default `./encoder`, `.`, and
 `./multistream` builds use no-op stubs instead of importing the DRED/RDOVAE or
-LPCNet runtime packages. Decoder audio-path parity remains seam-specific and
-experimental unless covered by green libopus-backed parity tests.
+LPCNet runtime packages. Decoder audio-path parity, Hybrid packet-length parity,
+and Hybrid primary-frame byte exactness remain seam-specific and experimental
+unless covered by green libopus-backed parity tests.
 
 ## Quarantine Build Tag
 

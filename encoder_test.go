@@ -827,8 +827,13 @@ func TestEncoder_OptionalExtensionControls(t *testing.T) {
 					t.Fatal("gopus_dred build does not expose DRED control")
 				}
 				assertWorkingDREDControl(t, dred)
+			} else if extsupport.DREDRuntime {
+				if !ok {
+					t.Fatal("DRED runtime build does not expose DRED control")
+				}
+				assertWorkingDREDControl(t, dred)
 			} else if ok {
-				t.Fatal("default build unexpectedly exposes DRED control")
+				t.Fatal("non-DRED-runtime build unexpectedly exposes DRED control")
 			}
 			assertSupportedQEXTControl(t, enc)
 		})
