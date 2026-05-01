@@ -5,5 +5,5 @@ package multistream
 
 // DREDModelLoaded reports whether the retained blob contains the DRED decoder model family.
 func (d *Decoder) DREDModelLoaded() bool {
-	return d.dredModelLoaded
+	return d != nil && d.dred != nil && d.dred.dredModelLoaded
 }

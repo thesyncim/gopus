@@ -1,3 +1,6 @@
+//go:build gopus_dred || gopus_unsupported_controls
+// +build gopus_dred gopus_unsupported_controls
+
 package multistream
 
 import (
@@ -7,90 +10,110 @@ import (
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
-// SetDNNBlob retains a validated USE_WEIGHTS_FILE blob for future optional
-// extension paths. A nil blob clears the retained main-decoder model state.
-func (d *Decoder) SetDNNBlob(blob *dnnblob.Blob) {
-	d.dnnBlob = blob
-	var models dnnblob.DecoderModelState
-	if blob != nil {
-		models = blob.DecoderModels()
+type decoderDREDState struct {
+	dredDNNBlob     *dnnblob.Blob
+	dredModel       *rdovae.Decoder
+	dredModelLoaded bool
+	dredData        [][]byte
+	dredCache       []internaldred.Cache
+	dredDecoded     []internaldred.Decoded
+	dredProcesses   []rdovae.Processor
+	dredPLC         []lpcnetplc.State
+	dredBlend       []int
+}
+
+func (d *Decoder) dredState() *decoderDREDState {
+	if d == nil {
+		return nil
 	}
-	d.pitchDNNLoaded = models.PitchDNN
-	d.plcModelLoaded = models.PLC
-	d.farganModelLoaded = models.FARGAN
-	d.osceModelsLoaded = models.OSCE
-	d.osceBWEModelLoaded = models.OSCEBWE
+	return d.dred
+}
+
+func (d *Decoder) ensureDREDState() *decoderDREDState {
+	if d == nil {
+		return nil
+	}
+	if d.dred == nil {
+		d.dred = &decoderDREDState{}
+	}
+	return d.dred
+}
+
+func (d *Decoder) maybeDropDREDState() {
+	if d == nil || d.dred == nil {
+		return
+	}
+	s := d.dred
+	if s.dredDNNBlob == nil && !s.dredModelLoaded && len(s.dredCache) == 0 {
+		d.dred = nil
+	}
 }
 
 // setDREDDecoderBlob mirrors the standalone libopus OpusDREDDecoder
 // OPUS_SET_DNN_BLOB path.
 func (d *Decoder) setDREDDecoderBlob(blob *dnnblob.Blob) {
-	d.dredDNNBlob = blob
-	d.dredModel = nil
-	d.dredModelLoaded = false
+	s := d.ensureDREDState()
+	if s == nil {
+		return
+	}
+	s.dredDNNBlob = blob
+	s.dredModel = nil
+	s.dredModelLoaded = false
 	if blob != nil && blob.SupportsDREDDecoder() {
 		if model, err := rdovae.LoadDecoder(blob); err == nil {
-			d.dredModel = model
-			d.dredModelLoaded = true
+			s.dredModel = model
+			s.dredModelLoaded = true
 		}
 	}
-	if !d.dredModelLoaded {
+	if !s.dredModelLoaded {
 		d.clearDREDPayloadState()
-		clear(d.dredProcesses)
-		for i := range d.dredPLC {
-			d.dredPLC[i].Reset()
+		clear(s.dredProcesses)
+		for i := range s.dredPLC {
+			s.dredPLC[i].Reset()
 		}
 		d.releaseDREDSidecar()
+		d.maybeDropDREDState()
 	}
 }
 
 func (d *Decoder) ensureDREDSidecar() {
-	if d == nil || len(d.dredCache) != 0 {
+	s := d.ensureDREDState()
+	if s == nil || len(s.dredCache) != 0 {
 		return
 	}
 	streams := len(d.decoders)
 	if streams <= 0 {
 		return
 	}
-	d.dredDecoded = make([]internaldred.Decoded, streams)
-	d.dredProcesses = make([]rdovae.Processor, streams)
-	d.dredPLC = make([]lpcnetplc.State, streams)
-	d.dredBlend = make([]int, streams)
-	d.dredData = makeDREDBuffers(streams)
-	d.dredCache = make([]internaldred.Cache, streams)
+	s.dredDecoded = make([]internaldred.Decoded, streams)
+	s.dredProcesses = make([]rdovae.Processor, streams)
+	s.dredPLC = make([]lpcnetplc.State, streams)
+	s.dredBlend = make([]int, streams)
+	s.dredData = makeDREDBuffers(streams)
+	s.dredCache = make([]internaldred.Cache, streams)
 }
 
 func (d *Decoder) releaseDREDSidecar() {
-	if d == nil {
+	s := d.dredState()
+	if s == nil {
 		return
 	}
-	d.dredDecoded = nil
-	d.dredProcesses = nil
-	d.dredPLC = nil
-	d.dredBlend = nil
-	d.dredData = nil
-	d.dredCache = nil
+	s.dredDecoded = nil
+	s.dredProcesses = nil
+	s.dredPLC = nil
+	s.dredBlend = nil
+	s.dredData = nil
+	s.dredCache = nil
 }
 
-// DNNBlobLoaded reports whether a validated model blob is retained.
-func (d *Decoder) DNNBlobLoaded() bool {
-	return d.dnnBlob != nil
-}
-
-// PitchDNNLoaded reports whether the retained blob contains libopus's shared
-// decoder pitch model family.
-func (d *Decoder) PitchDNNLoaded() bool {
-	return d.pitchDNNLoaded
-}
-
-// PLCModelLoaded reports whether the retained blob contains the PLC model family.
-func (d *Decoder) PLCModelLoaded() bool {
-	return d.plcModelLoaded
-}
-
-// FARGANModelLoaded reports whether the retained blob contains the FARGAN model family.
-func (d *Decoder) FARGANModelLoaded() bool {
-	return d.farganModelLoaded
+func (d *Decoder) resetDREDRuntimeState() {
+	s := d.dredState()
+	if s == nil {
+		return
+	}
+	for i := range s.dredPLC {
+		s.dredPLC[i].Reset()
+	}
 }
 
 func makeDREDBuffers(streams int) [][]byte {
@@ -105,40 +128,44 @@ func makeDREDBuffers(streams int) [][]byte {
 }
 
 func (d *Decoder) dredSidecarActive() bool {
-	if d == nil {
+	s := d.dredState()
+	if s == nil {
 		return false
 	}
 	// Multistream has standalone DRED caching today, but no per-stream neural
 	// concealment consumer yet, so keep the sidecar dormant until we actually
 	// cache a payload.
-	return len(d.dredCache) != 0
+	return len(s.dredCache) != 0
 }
 
 func (d *Decoder) clearDREDPayloadState() {
-	if !d.dredSidecarActive() {
+	s := d.dredState()
+	if s == nil || len(s.dredCache) == 0 {
 		return
 	}
-	for i := range d.dredCache {
-		d.dredCache[i].Clear()
-		d.dredDecoded[i].Clear()
-		d.dredPLC[i].FECClear()
-		d.dredBlend[i] = d.dredPLC[i].Blend()
+	for i := range s.dredCache {
+		s.dredCache[i].Clear()
+		s.dredDecoded[i].Clear()
+		s.dredPLC[i].FECClear()
+		s.dredBlend[i] = s.dredPLC[i].Blend()
 	}
 }
 
 func (d *Decoder) invalidateDREDPayloadState() {
-	if !d.dredSidecarActive() {
+	s := d.dredState()
+	if s == nil || len(s.dredCache) == 0 {
 		return
 	}
-	for i := range d.dredCache {
-		d.dredCache[i].Invalidate()
-		d.dredDecoded[i].Invalidate()
-		d.dredBlend[i] = d.dredPLC[i].Blend()
+	for i := range s.dredCache {
+		s.dredCache[i].Invalidate()
+		s.dredDecoded[i].Invalidate()
+		s.dredBlend[i] = s.dredPLC[i].Blend()
 	}
 }
 
 func (d *Decoder) maybeCacheDREDPayload(stream int, packet []byte) {
-	if !d.dredModelLoaded || d.ignoreExtensions || stream < 0 || len(packet) == 0 {
+	s := d.dredState()
+	if s == nil || !s.dredModelLoaded || d.ignoreExtensions || stream < 0 || len(packet) == 0 {
 		return
 	}
 	payload, frameOffset, ok, err := findDREDPayload(packet)
@@ -146,36 +173,39 @@ func (d *Decoder) maybeCacheDREDPayload(stream int, packet []byte) {
 		return
 	}
 	d.ensureDREDSidecar()
-	if stream >= len(d.dredData) || len(payload) > len(d.dredData[stream]) {
+	s = d.dredState()
+	if s == nil || stream >= len(s.dredData) || len(payload) > len(s.dredData[stream]) {
 		return
 	}
-	d.dredBlend[stream] = d.dredPLC[stream].Blend()
-	if err := d.dredCache[stream].Store(d.dredData[stream], payload, frameOffset); err != nil {
+	s.dredBlend[stream] = s.dredPLC[stream].Blend()
+	if err := s.dredCache[stream].Store(s.dredData[stream], payload, frameOffset); err != nil {
 		return
 	}
 	minFeatureFrames := 2 * internaldred.NumRedundancyFrames
-	if _, err := d.dredDecoded[stream].Decode(payload, frameOffset, minFeatureFrames); err != nil {
-		d.dredCache[stream].Invalidate()
-		d.dredDecoded[stream].Invalidate()
-		d.dredPLC[stream].FECClear()
+	if _, err := s.dredDecoded[stream].Decode(payload, frameOffset, minFeatureFrames); err != nil {
+		s.dredCache[stream].Invalidate()
+		s.dredDecoded[stream].Invalidate()
+		s.dredPLC[stream].FECClear()
 		return
 	}
-	d.dredModel.DecodeAllWithProcessor(&d.dredProcesses[stream], d.dredDecoded[stream].Features[:], d.dredDecoded[stream].State[:], d.dredDecoded[stream].Latents[:], d.dredDecoded[stream].NbLatents)
+	s.dredModel.DecodeAllWithProcessor(&s.dredProcesses[stream], s.dredDecoded[stream].Features[:], s.dredDecoded[stream].State[:], s.dredDecoded[stream].Latents[:], s.dredDecoded[stream].NbLatents)
 }
 
 func (d *Decoder) markDREDUpdated(stream int) {
-	if !d.dredSidecarActive() || stream < 0 || stream >= len(d.dredPLC) {
+	s := d.dredState()
+	if s == nil || len(s.dredPLC) == 0 || stream < 0 || stream >= len(s.dredPLC) {
 		return
 	}
-	d.dredPLC[stream].MarkUpdated()
+	s.dredPLC[stream].MarkUpdated()
 }
 
 func (d *Decoder) markDREDConcealedAll() {
-	if !d.dredSidecarActive() {
+	s := d.dredState()
+	if s == nil || len(s.dredPLC) == 0 {
 		return
 	}
-	for i := range d.dredPLC {
-		d.dredPLC[i].MarkConcealed()
+	for i := range s.dredPLC {
+		s.dredPLC[i].MarkConcealed()
 	}
 }
 
@@ -192,41 +222,45 @@ func (d *Decoder) fillCachedDREDQuantizerLevels(stream int, dst []int, maxDredSa
 }
 
 func (d *Decoder) cachedDREDResult(stream, maxDredSamples int) internaldred.Result {
-	if stream < 0 || stream >= len(d.dredCache) || d.dredCache[stream].Empty() || !d.dredModelLoaded || d.ignoreExtensions {
+	s := d.dredState()
+	if s == nil || stream < 0 || stream >= len(s.dredCache) || s.dredCache[stream].Empty() || !s.dredModelLoaded || d.ignoreExtensions {
 		return internaldred.Result{}
 	}
-	return d.dredCache[stream].Result(internaldred.Request{
+	return s.dredCache[stream].Result(internaldred.Request{
 		MaxDREDSamples: maxDredSamples,
 		SampleRate:     d.sampleRate,
 	})
 }
 
 func (d *Decoder) cachedDREDFeatureWindow(stream, maxDredSamples, decodeOffsetSamples, frameSizeSamples, initFrames int) internaldred.FeatureWindow {
-	if stream < 0 || stream >= len(d.dredDecoded) {
+	s := d.dredState()
+	if s == nil || stream < 0 || stream >= len(s.dredDecoded) {
 		return internaldred.FeatureWindow{}
 	}
 	result := d.cachedDREDResult(stream, maxDredSamples)
-	return internaldred.ProcessedFeatureWindow(result, &d.dredDecoded[stream], decodeOffsetSamples, frameSizeSamples, initFrames)
+	return internaldred.ProcessedFeatureWindow(result, &s.dredDecoded[stream], decodeOffsetSamples, frameSizeSamples, initFrames)
 }
 
 func (d *Decoder) cachedDREDRecoveryWindow(stream, maxDredSamples, decodeOffsetSamples, frameSizeSamples int) internaldred.FeatureWindow {
-	if stream < 0 || stream >= len(d.dredPLC) {
+	s := d.dredState()
+	if s == nil || stream < 0 || stream >= len(s.dredPLC) {
 		return internaldred.FeatureWindow{}
 	}
 	initFrames := 0
-	if d.dredBlend[stream] == 0 {
+	if s.dredBlend[stream] == 0 {
 		initFrames = 2
 	}
 	return d.cachedDREDFeatureWindow(stream, maxDredSamples, decodeOffsetSamples, frameSizeSamples, initFrames)
 }
 
 func (d *Decoder) queueCachedDREDRecovery(stream, maxDredSamples, decodeOffsetSamples, frameSizeSamples int) internaldred.FeatureWindow {
-	if stream < 0 || stream >= len(d.dredDecoded) || stream >= len(d.dredPLC) {
+	s := d.dredState()
+	if s == nil || stream < 0 || stream >= len(s.dredDecoded) || stream >= len(s.dredPLC) {
 		return internaldred.FeatureWindow{}
 	}
 	initFrames := 0
-	if d.dredBlend[stream] == 0 {
+	if s.dredBlend[stream] == 0 {
 		initFrames = 2
 	}
-	return internaldred.QueueProcessedFeaturesWithInitFrames(&d.dredPLC[stream], d.cachedDREDResult(stream, maxDredSamples), &d.dredDecoded[stream], decodeOffsetSamples, frameSizeSamples, initFrames)
+	return internaldred.QueueProcessedFeaturesWithInitFrames(&s.dredPLC[stream], d.cachedDREDResult(stream, maxDredSamples), &s.dredDecoded[stream], decodeOffsetSamples, frameSizeSamples, initFrames)
 }

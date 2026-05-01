@@ -38,3 +38,18 @@ func TestDefaultBuildQuarantinesUnsupportedControls(t *testing.T) {
 		}
 	}
 }
+
+func TestNewDecoderLeavesDREDSidecarDormant(t *testing.T) {
+	dec, err := NewDecoderDefault(48000, 3)
+	if err != nil {
+		t.Fatalf("NewDecoderDefault error: %v", err)
+	}
+	if dec.dred != nil {
+		t.Fatalf("default build allocated multistream DRED sidecar: %+v", dec.dred)
+	}
+
+	dec.SetDNNBlob(nil)
+	if dec.dred != nil {
+		t.Fatalf("default SetDNNBlob allocated multistream DRED sidecar: %+v", dec.dred)
+	}
+}
