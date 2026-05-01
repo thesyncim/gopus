@@ -1,6 +1,6 @@
 # DRED Parity Plan
 
-Last updated: 2026-04-30
+Last updated: 2026-05-01
 
 ## Goal
 
@@ -129,6 +129,7 @@ Recent closed seams to avoid re-debugging:
 - good packets after DRED/neural concealment on libopus builds with `PLC_SKIP_UPDATES` clear only `blend`; treating those packets as full PLC history updates makes the cached and explicit paths look internally consistent while both still drift from libopus on the resumed-good-packet handoff
 - fallback loss entry still has to mark the real retained PLC blend state, not only the shadow `dredBlend` bookkeeping; otherwise cached recovery-window math may look armed while the underlying PLC lifecycle remains in the good-packet state and cross-platform decoder tests fail
 - Hybrid resumed-packet parity depends on CELT-side `FRAME_DRED` cadence/state retention, not just on advancing the DRED feature queue; treating Hybrid loss as ordinary PLC plus hidden neural-state advancement leaves the next good packet far from libopus
+- explicit Hybrid DRED entry must lazily seed LPCNet/DRED PCM history from the retained SILK lowband tail when no raw Hybrid history hook has already run; waking the sidecar on ordinary good packets just because a DNN blob is loaded violates the zero-cost optional-feature contract, while skipping this lazy seed leaves FARGAN continuity and the next good packet far from libopus
 
 Still missing for full parity:
 

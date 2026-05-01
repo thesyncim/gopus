@@ -733,25 +733,27 @@ func (d *Decoder) beginDREDRawMonoGoodFrameCapture(mode Mode) func() {
 	}
 }
 
-func (d *Decoder) refreshDREDHistoryFromHybridDecoder(samplesPerChannel int) {
+func (d *Decoder) refreshDREDHistoryFromHybridDecoder(samplesPerChannel int) bool {
 	if !d.ensureDREDNeuralConcealmentRuntime() {
-		return
+		return false
 	}
 	if d == nil || d.silkDecoder == nil || d.sampleRate != 48000 || d.channels != 1 || samplesPerChannel <= 0 || samplesPerChannel%3 != 0 {
-		return
+		return false
 	}
 	n := d.dredNeuralState()
 	if n == nil {
-		return
+		return false
 	}
 	nativeSamples := samplesPerChannel / 3
 	if nativeSamples < lpcnetplc.FrameSize || nativeSamples > len(n.dredPLCUpdate) || nativeSamples%lpcnetplc.FrameSize != 0 {
-		return
+		return false
 	}
 	if got := d.silkDecoder.FillMonoOutBufTailFloat(n.dredPLCUpdate[:nativeSamples], nativeSamples); got != nativeSamples {
-		return
+		return false
 	}
 	d.updateDREDPCMHistory(n.dredPLCUpdate[:nativeSamples])
+	n.dredRawHistoryUpdated = true
+	return true
 }
 
 func (d *Decoder) primeDREDCELTEntryHistory(mode Mode, primeAnalysis bool) int {
