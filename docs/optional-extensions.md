@@ -39,8 +39,10 @@ zero-allocation, libopus parse/decode/process metadata coverage, and real-packet
 standalone process state/feature parity, standalone recovery scheduling parity,
 and decoder cached recovery bookkeeping parity plus the supported-tag narrow
 SILK wideband 20 ms encoder carried-payload/primary-budget seam, while
-`make test-unsupported-controls-parity` also enforces that carried-payload seam
-plus bootstrap and bookkeeping coverage. In default builds, DRED controls are absent and
+`make test-unsupported-controls-parity` also enforces that carried-payload seam,
+the real-model PitchDNN and RDOVAE encoder oracles, plus bootstrap and
+bookkeeping coverage. In
+default builds, DRED controls are absent and
 encode/decode hot paths do not enter DRED runtime hooks. The internal encoder
 DRED runtime, top-level decoder DRED internals, and multistream decoder DRED
 cache/runtime helpers are build-tag split, so default `./encoder`, `.`, and

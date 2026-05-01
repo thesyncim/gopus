@@ -16,10 +16,15 @@ const (
 
 const maxInputs = 2048
 
-// Match the pinned local libopus build on arm64, where DNN integer-matrix
-// kernels use DOTPROD-style int accumulation and vcvtnq_s32_f32()
-// quantization rather than the generic floor(.5+x) path.
-var useNearestEvenQuant = runtime.GOARCH == "arm64"
+// Match the pinned libopus DNN kernels selected by the helper build. Linux
+// parity helpers explicitly disable x86 intrinsics, so amd64 stays on the
+// scalar path instead of simulating libopus' optional vector kernels. Keep
+// these as constants so the unused arch branch folds away.
+const (
+	useArm64DNNVectorKernels = runtime.GOARCH == "arm64"
+	useX86DNNVectorKernels   = false
+	useNearestEvenQuant      = useArm64DNNVectorKernels || useX86DNNVectorKernels
+)
 
 type decoderState struct {
 	initialized bool
@@ -442,10 +447,11 @@ func computeActivation(output, input []float32, n, activation int) {
 }
 
 func quantizeInput(x float32) int8 {
-	scaled := 127 * float64(x)
 	if useNearestEvenQuant {
+		scaled := float64(float32(127 * x))
 		return int8(math.RoundToEven(scaled))
 	}
+	scaled := 127 * float64(x)
 	return int8(math.Floor(0.5 + scaled))
 }
 
