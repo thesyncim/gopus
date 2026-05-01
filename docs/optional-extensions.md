@@ -38,9 +38,10 @@ seams. `make test-dred-tag` exercises standalone DRED wrapper lifecycle,
 zero-allocation, libopus parse/decode/process metadata coverage, and real-packet
 standalone process state/feature parity, standalone recovery scheduling parity,
 and decoder cached recovery bookkeeping parity plus the supported-tag SILK
-wideband 20/40/60 ms encoder carried-payload seams and 20 ms primary-budget
-seam, while `make test-unsupported-controls-parity` mirrors those encoder
-seams, the real-model PitchDNN and RDOVAE encoder oracles, the
+wideband 20/40/60 ms encoder carried-payload seams, the Hybrid fullband 20 ms
+payload-only seam, and the SILK 20 ms primary-budget seam, while
+`make test-unsupported-controls-parity` mirrors those encoder seams, the
+real-model PitchDNN and RDOVAE encoder oracles, the
 conceal-analysis oracle, plus bootstrap and
 bookkeeping coverage. In
 default builds, DRED controls are absent and
