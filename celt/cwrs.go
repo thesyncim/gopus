@@ -590,6 +590,10 @@ func finishCWRSOnePulse32(y []int32, start, end int, index uint32) {
 
 func finishCWRSTwoPulses32(y []int32, n int, index uint32) uint32 {
 	clear(y[:n])
+	return finishCWRSTwoPulses32NoClear(y, n, index)
+}
+
+func finishCWRSTwoPulses32NoClear(y []int32, n int, index uint32) uint32 {
 	start := 0
 	rem := n
 	idx := int(index)
@@ -677,7 +681,7 @@ func finishCWRSThreePulses32(y []int32, n int, index uint32) uint32 {
 
 		switch kLeft {
 		case 2:
-			return uint32(yj*yj) + finishCWRSTwoPulses32(y[start+1:n], rem-1, idx)
+			return uint32(yj*yj) + finishCWRSTwoPulses32NoClear(y[start+1:n], rem-1, idx)
 		case 1:
 			setCWRSOnePulse32(y, start+1, n, idx)
 			return uint32(yj*yj + 1)
@@ -1035,60 +1039,13 @@ func decodePulsesInto32(index uint32, n, k int, y []int32, scratch *bandDecodeSc
 	}
 	if canUseCWRSFast(n, k) {
 		if n == 3 {
-			p := pvqUDenseUnchecked(3, k+1)
-			neg0 := false
-			if index >= p {
-				neg0 = true
-				index -= p
-			}
-
-			k0 := k
-			q := pvqUDenseUnchecked(3, 3)
-			if q > index {
-				k = 3
-				for {
-					k--
-					p = pvqUDenseUnchecked(k, 3)
-					if p <= index {
-						break
-					}
-				}
-			} else {
-				for p = pvqUDenseUnchecked(3, k); p > index; p = pvqUDenseUnchecked(3, k) {
-					k--
-				}
-			}
-			index -= p
-			y0 := k0 - k
-			if neg0 {
-				y0 = -y0
-			}
-
-			p = uint32(2*k + 1)
-			neg1 := false
-			if index >= p {
-				neg1 = true
-				index -= p
-			}
-			k2 := int((index + 1) >> 1)
-			if k2 != 0 {
-				index -= uint32(2*k2 - 1)
-			}
-			y1 := k - k2
-			if neg1 {
-				y1 = -y1
-			}
-			y2 := k2
-			if index != 0 {
-				y2 = -y2
-			}
-			y[0] = int32(y0)
-			y[1] = int32(y1)
-			y[2] = int32(y2)
-			return uint32(y0*y0 + y1*y1 + y2*y2)
+			return cwrsiFastCore32N3(k, index, y[:3:3])
 		}
 		if n == 8 {
 			return cwrsiFastCore32N8(k, index, y[:8:8])
+		}
+		if n == 4 {
+			return cwrsiFastCore32N4(k, index, y[:4:4])
 		}
 		if n == 5 {
 			return cwrsiFastCore32N5(k, index, y[:5:5])
@@ -1101,6 +1058,9 @@ func decodePulsesInto32(index uint32, n, k int, y []int32, scratch *bandDecodeSc
 		}
 		if n == 11 {
 			return cwrsiFastCore32N11(k, index, y[:11:11])
+		}
+		if n == 12 {
+			return cwrsiFastCore32N12(k, index, y[:12:12])
 		}
 		return cwrsiFastCore32(n, k, index, y[:n:n])
 	}

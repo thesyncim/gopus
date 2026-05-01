@@ -784,6 +784,15 @@ func (d *Decoder) DecodeICDF9_8Slice(icdf []uint8) int {
 //go:nosplit
 func (d *Decoder) DecodeICDF2_8SignBlock(icdf0 uint8, block []int16, pulseSum int) {
 	_ = block[15]
+	d.DecodeICDF2_8SignBlock16(icdf0, (*[16]int16)(block[:16]), pulseSum)
+}
+
+// DecodeICDF2_8SignBlock16 applies binary 8-bit ICDF sign decoding to one
+// fixed SILK shell block. The array form lets hot SILK callers avoid carrying
+// slice bounds through the unrolled sign loop.
+//
+//go:nosplit
+func (d *Decoder) DecodeICDF2_8SignBlock16(icdf0 uint8, block *[16]int16, pulseSum int) {
 	icdf := uint32(icdf0)
 	remaining := pulseSum
 	buf := d.buf
@@ -1115,6 +1124,8 @@ func (d *Decoder) Offs() uint32 {
 // DecodeUniform decodes a uniformly distributed value in the range [0, ft).
 // This is used for fine energy bits and PVQ indices.
 // Reference: libopus celt/entdec.c ec_dec_uint()
+//
+//go:nosplit
 func (d *Decoder) DecodeUniform(ft uint32) uint32 {
 	if ft <= 1 {
 		return 0
@@ -1133,7 +1144,7 @@ func (d *Decoder) DecodeUniform(ft uint32) uint32 {
 			s = ft1 - 1
 		}
 		ret := ft1 - (s + 1)
-		scale := ext * (ft1 - ret - 1)
+		scale := ext * s
 		val -= scale
 		if ret > 0 {
 			rng = ext
@@ -1210,7 +1221,7 @@ func (d *Decoder) DecodeUniform(ft uint32) uint32 {
 		s = ft - 1
 	}
 	ret := ft - (s + 1)
-	scale := ext * (ft - ret - 1)
+	scale := ext * s
 	val -= scale
 	if ret > 0 {
 		rng = ext
@@ -1253,6 +1264,8 @@ func (d *Decoder) DecodeUniform(ft uint32) uint32 {
 
 // DecodeUniformSmall decodes a uniform value for totals that fit entirely in
 // the range coder path. Callers must only use this for ft <= 1<<EC_UINT_BITS.
+//
+//go:nosplit
 func (d *Decoder) DecodeUniformSmall(ft uint32) uint32 {
 	if ft <= 1 {
 		return 0
@@ -1265,7 +1278,7 @@ func (d *Decoder) DecodeUniformSmall(ft uint32) uint32 {
 		s = ft - 1
 	}
 	ret := ft - (s + 1)
-	scale := ext * (ft - ret - 1)
+	scale := ext * s
 	val -= scale
 	if ret > 0 {
 		rng = ext
@@ -1323,6 +1336,8 @@ func (d *Decoder) Decode(ft uint32) uint32 {
 
 // DecodeBin decodes a symbol when the total frequency is 1<<bits.
 // This mirrors libopus ec_decode_bin.
+//
+//go:nosplit
 func (d *Decoder) DecodeBin(bits uint) uint32 {
 	if bits == 0 {
 		return 0
@@ -1336,6 +1351,7 @@ func (d *Decoder) DecodeBin(bits uint) uint32 {
 	return ft - (s + 1)
 }
 
+//go:nosplit
 func (d *Decoder) update(fl, fh, ft uint32) {
 	s := d.ext * (ft - fh)
 	d.val -= s
@@ -1349,6 +1365,8 @@ func (d *Decoder) update(fl, fh, ft uint32) {
 
 // Update applies the range update using the provided cumulative frequencies.
 // This mirrors libopus ec_dec_update().
+//
+//go:nosplit
 func (d *Decoder) Update(fl, fh, ft uint32) {
 	d.update(fl, fh, ft)
 }

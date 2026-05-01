@@ -34,12 +34,12 @@ Requirements:
 
 ## Performance Snapshot
 
-Official RFC 8251 test-vector decode benchmarks use pinned libopus 1.6.1 as the baseline, with the same preloaded packets, reset cadence, and 48 kHz stereo output. Current checked-in results were measured on Apple M4 Max with Go 1.26.0; the full report uses median-of-3 runs at 200ms, 1s, and 5s minimum run times. The table below highlights the 5s row. Ratios above `1.00x` mean `gopus` is slower than libopus.
+Official RFC 8251 test-vector decode benchmarks use pinned libopus 1.6.1 as the baseline, with the same preloaded packets, reset cadence, and 48 kHz stereo output. Current checked-in results were measured on Apple M4 Max with Go 1.26.0 and Go PGO profile `default.pgo`; the full report uses median-of-3 runs at 200ms, 1s, and 5s minimum run times. The table below highlights the 5s row. Ratios above `1.00x` mean `gopus` is slower than libopus.
 
 | Path | gopus ns/sample | libopus ns/sample | gopus/libopus | gopus allocs/op |
 | --- | ---: | ---: | ---: | ---: |
-| Float32 decode | 19.98 | 18.30 | 1.09x | 0 |
-| Int16 decode | 20.30 | 18.55 | 1.09x | 0 |
+| Float32 decode | 19.78 | 19.36 | 1.02x | 0 |
+| Int16 decode | 20.07 | 19.52 | 1.03x | 0 |
 
 See the full Markdown report in [Official Test Vector Decode Performance](docs/testvector-benchmarks.md). Reproduce it with `BENCH_TESTVECTORS_COMPARE_CASES=aggregate BENCH_TESTVECTORS_COMPARE_PATHS=all BENCH_TESTVECTORS_COMPARE_TIMES=200,1000,5000 BENCH_TESTVECTORS_COMPARE_COUNT=3 make bench-testvectors-compare`.
 

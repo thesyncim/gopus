@@ -66,6 +66,7 @@ type runConfig struct {
 	libopusRoot string
 	format      string
 	outPath     string
+	gopusPGO    string
 }
 
 func main() {
@@ -77,6 +78,7 @@ func main() {
 	flag.IntVar(&cfg.count, "count", 3, "measurement runs per case; median ns/sample is reported")
 	flag.StringVar(&cfg.vectorDir, "vectors", filepath.Join("testvectors", "testdata", "opus_testvectors"), "official test-vector directory")
 	flag.StringVar(&cfg.libopusRoot, "libopus-root", filepath.Join("tmp_check", "opus-"+libopusVersion), "pinned libopus source/build directory")
+	flag.StringVar(&cfg.gopusPGO, "gopus-pgo", "", "optional gopus PGO profile label to include in Markdown output")
 	flag.StringVar(&cfg.format, "format", "markdown", "output format: markdown or tsv")
 	flag.StringVar(&cfg.outPath, "out", "", "optional output path")
 	flag.Parse()
@@ -734,13 +736,20 @@ func formatMarkdown(results []benchmarkResult, cfg runConfig) string {
 	if multiDuration {
 		fmt.Fprintf(&b, "Methodology: vectors are preloaded, decoder construction and helper startup are excluded, both decoders reset once per vector stream, output is 48 kHz stereo, and each row reports the median run by `ns/sample` across `%d` runs for each minimum run time: %s. `gopus/libopus` is the speed ratio against the libopus baseline; values above `1.00x` mean `gopus` is slower.\n\n", cfg.count, formatDurationList(durations))
 	} else {
-		fmt.Fprintf(&b, "Methodology: vectors are preloaded, decoder construction and helper startup are excluded, both decoders reset once per vector stream, output is 48 kHz stereo, and each row reports the median run by `ns/sample` across `%d` runs of at least `%s` each. `gopus/libopus` is the speed ratio against the libopus baseline; values above `1.00x` mean `gopus` is slower.\n\n", cfg.count, cfg.minDuration)
+		duration := cfg.minDuration
+		if len(durations) == 1 {
+			duration = durations[0]
+		}
+		fmt.Fprintf(&b, "Methodology: vectors are preloaded, decoder construction and helper startup are excluded, both decoders reset once per vector stream, output is 48 kHz stereo, and each row reports the median run by `ns/sample` across `%d` runs of at least `%s` each. `gopus/libopus` is the speed ratio against the libopus baseline; values above `1.00x` mean `gopus` is slower.\n\n", cfg.count, duration)
 	}
 	fmt.Fprintf(&b, "Measured on `%s/%s` with `%s`", runtime.GOOS, runtime.GOARCH, runtime.Version())
 	if cpu := hostCPU(); cpu != "" {
 		fmt.Fprintf(&b, " on `%s`", cpu)
 	}
 	fmt.Fprintf(&b, ".\n\n")
+	if cfg.gopusPGO != "" && cfg.gopusPGO != "off" {
+		fmt.Fprintf(&b, "The `gopus` rows are built with Go PGO profile `%s`.\n\n", cfg.gopusPGO)
+	}
 
 	fmt.Fprintf(&b, "## Summary\n\n")
 	if multiDuration {
@@ -839,10 +848,20 @@ func formatMarkdown(results []benchmarkResult, cfg runConfig) string {
 
 	fmt.Fprintf(&b, "\n## Reproduce\n\n")
 	fmt.Fprintf(&b, "```sh\n")
-	if multiDuration {
-		fmt.Fprintf(&b, "GOWORK=off go run ./tools/testvectorbenchcmp -cases=%s -paths=%s -benchtimes=%s -count=%d -format=markdown\n", cfg.cases, cfg.paths, strings.Join(durationStrings(durations), ","), cfg.count)
+	pgoRunFlag := ""
+	pgoReportFlag := ""
+	if cfg.gopusPGO != "" && cfg.gopusPGO != "off" {
+		pgoRunFlag = " -pgo=" + cfg.gopusPGO
+		pgoReportFlag = " -gopus-pgo=" + cfg.gopusPGO
+	}
+	if len(durations) > 1 || cfg.benchtimes != "" {
+		fmt.Fprintf(&b, "GOWORK=off go run%s ./tools/testvectorbenchcmp -cases=%s -paths=%s -benchtimes=%s -count=%d%s -format=markdown\n", pgoRunFlag, cfg.cases, cfg.paths, strings.Join(durationStrings(durations), ","), cfg.count, pgoReportFlag)
 	} else {
-		fmt.Fprintf(&b, "make bench-testvectors-compare\n")
+		duration := cfg.minDuration
+		if len(durations) == 1 {
+			duration = durations[0]
+		}
+		fmt.Fprintf(&b, "GOWORK=off go run%s ./tools/testvectorbenchcmp -cases=%s -paths=%s -benchtime=%s -count=%d%s -format=markdown\n", pgoRunFlag, cfg.cases, cfg.paths, duration, cfg.count, pgoReportFlag)
 	}
 	fmt.Fprintf(&b, "```\n\n")
 	fmt.Fprintf(&b, "For raw Go benchmark rows, run:\n\n")

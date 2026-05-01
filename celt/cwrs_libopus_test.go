@@ -575,6 +575,8 @@ func BenchmarkDecodePulsesInto32Hot(b *testing.B) {
 		name string
 		n, k int
 	}{
+		{"N4_K4", 4, 4},
+		{"N4_K32", 4, 32},
 		{"N6_K88", 6, 88},
 		{"N8_K8", 8, 8},
 		{"N9_K26", 9, 26},

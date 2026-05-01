@@ -745,20 +745,51 @@ func (d *Decoder) DecodeMonoToStereoWithDecoderInto(
 		if n < 0 || (outputOffset+n)*2 > len(output) {
 			return 0, ErrDecodeFailed
 		}
-		for i := 0; i < n; i++ {
-			left := leftScratch[i]
-			output[(outputOffset+i)*2] = left
-			if useStereoHistory {
+		if useStereoHistory {
+			for i := 0; i < n; i++ {
+				left := leftScratch[i]
+				output[(outputOffset+i)*2] = left
 				output[(outputOffset+i)*2+1] = rightScratch[i]
-			} else {
-				output[(outputOffset+i)*2+1] = left
 			}
+		} else {
+			duplicateMonoFloat32ToStereo(output[outputOffset*2:], leftScratch, n)
 		}
 		outputOffset += n
 	}
 
 	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
 	return outputOffset, nil
+}
+
+func duplicateMonoFloat32ToStereo(dst, src []float32, n int) {
+	if n <= 0 {
+		return
+	}
+	dst = dst[: n*2 : n*2]
+	src = src[:n:n]
+	i := 0
+	j := 0
+	for ; i+3 < n; i += 4 {
+		v0 := src[i]
+		v1 := src[i+1]
+		v2 := src[i+2]
+		v3 := src[i+3]
+		dst[j] = v0
+		dst[j+1] = v0
+		dst[j+2] = v1
+		dst[j+3] = v1
+		dst[j+4] = v2
+		dst[j+5] = v2
+		dst[j+6] = v3
+		dst[j+7] = v3
+		j += 8
+	}
+	for ; i < n; i++ {
+		v := src[i]
+		dst[j] = v
+		dst[j+1] = v
+		j += 2
+	}
 }
 
 func (d *Decoder) stereoFloat32Scratch(frameSizeSamples int) (left, right []float32, ok bool) {

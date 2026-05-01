@@ -169,3 +169,72 @@ stride2_tail:
 
 stride2_done:
 	RET
+
+// func haar1Stride4Asm(x []float64, n0 int)
+//
+// Applies the float32-precision Haar butterfly to stride-4 blocks
+// [x0..x3 y0..y3] -> [a0+b0..a3+b3 a0-b0..a3-b3].
+TEXT ·haar1Stride4Asm(SB), NOSPLIT, $0-32
+	MOVD x_base+0(FP), R0
+	MOVD n0+24(FP), R1
+
+	CBZ R1, stride4_done
+
+	MOVD $0x3f3504f3, R2
+	FMOVS R2, F31
+
+stride4_loop:
+	FMOVD (R0), F0
+	FCVTDS F0, F0
+	FMULS F31, F0, F0
+	FMOVD 32(R0), F1
+	FCVTDS F1, F2
+	FMADDS F2, F0, F31, F3
+	FMSUBS F2, F0, F31, F4
+	FCVTSD F3, F3
+	FCVTSD F4, F4
+	FMOVD F3, (R0)
+	FMOVD F4, 32(R0)
+
+	FMOVD 8(R0), F5
+	FCVTDS F5, F5
+	FMULS F31, F5, F5
+	FMOVD 40(R0), F6
+	FCVTDS F6, F7
+	FMADDS F7, F5, F31, F8
+	FMSUBS F7, F5, F31, F9
+	FCVTSD F8, F8
+	FCVTSD F9, F9
+	FMOVD F8, 8(R0)
+	FMOVD F9, 40(R0)
+
+	FMOVD 16(R0), F10
+	FCVTDS F10, F10
+	FMULS F31, F10, F10
+	FMOVD 48(R0), F11
+	FCVTDS F11, F12
+	FMADDS F12, F10, F31, F13
+	FMSUBS F12, F10, F31, F14
+	FCVTSD F13, F13
+	FCVTSD F14, F14
+	FMOVD F13, 16(R0)
+	FMOVD F14, 48(R0)
+
+	FMOVD 24(R0), F15
+	FCVTDS F15, F15
+	FMULS F31, F15, F15
+	FMOVD 56(R0), F16
+	FCVTDS F16, F17
+	FMADDS F17, F15, F31, F18
+	FMSUBS F17, F15, F31, F19
+	FCVTSD F18, F18
+	FCVTSD F19, F19
+	FMOVD F18, 24(R0)
+	FMOVD F19, 56(R0)
+
+	ADD  $64, R0
+	SUBS $1, R1, R1
+	BNE  stride4_loop
+
+stride4_done:
+	RET

@@ -219,6 +219,14 @@ func cwrsiFastCore32N8(k int, i uint32, y []int32) uint32 {
 	return cwrsiFastCore32(8, k, i, y)
 }
 
+func cwrsiFastCore32N3(k int, i uint32, y []int32) uint32 {
+	return cwrsiFastCore32(3, k, i, y)
+}
+
+func cwrsiFastCore32N4(k int, i uint32, y []int32) uint32 {
+	return cwrsiFastCore32(4, k, i, y)
+}
+
 func cwrsiFastCore32N5(k int, i uint32, y []int32) uint32 {
 	return cwrsiFastCore32(5, k, i, y)
 }
@@ -233,4 +241,8 @@ func cwrsiFastCore32N9(k int, i uint32, y []int32) uint32 {
 
 func cwrsiFastCore32N11(k int, i uint32, y []int32) uint32 {
 	return cwrsiFastCore32(11, k, i, y)
+}
+
+func cwrsiFastCore32N12(k int, i uint32, y []int32) uint32 {
+	return cwrsiFastCore32(12, k, i, y)
 }

@@ -48,7 +48,10 @@ TEXT ·imdctPostRotateF32FromKiss(SB), NOSPLIT, $0-88
 
 	MOVD R4, R11
 
-post_kiss_loop:
+	CMP  $2, R11
+	BLT  post_kiss_tail_check
+
+post_kiss_loop2:
 	// --- Forward rotation from fft[i] ---
 	ADD  R0, R5, R12
 	FMOVS 4(R15), F0
@@ -91,8 +94,85 @@ post_kiss_loop:
 	ADD  $8, R15, R15
 	SUB  $8, R16, R16
 
-	SUBS $1, R11, R11
-	BNE  post_kiss_loop
+	// --- Unrolled i+1 ---
+	ADD  R0, R5, R12
+	FMOVS 4(R15), F0
+	FMOVS (R15), F1
+	FMOVS (R7), F2
+	FMOVS (R8), F3
+
+	FMULS F2, F0, F4
+	FMADDS F3, F4, F1, F4
+
+	FMULS F3, F0, F5
+	FMSUBS F2, F5, F1, F5
+
+	ADD  R0, R6, R13
+	FMOVS 4(R16), F6
+	FMOVS (R16), F7
+
+	FMOVS F4, (R12)
+	FMOVS F5, 4(R13)
+
+	FMOVS (R9), F2
+	FMOVS (R10), F3
+
+	FMULS F2, F6, F4
+	FMADDS F3, F4, F7, F4
+
+	FMULS F3, F6, F5
+	FMSUBS F2, F5, F7, F5
+
+	FMOVS F4, (R13)
+	FMOVS F5, 4(R12)
+
+	ADD  $8, R5, R5
+	SUB  $8, R6, R6
+	ADD  $4, R7, R7
+	ADD  $4, R8, R8
+	SUB  $4, R9, R9
+	SUB  $4, R10, R10
+	ADD  $8, R15, R15
+	SUB  $8, R16, R16
+
+	SUBS $2, R11, R11
+	CMP  $2, R11
+	BGE  post_kiss_loop2
+
+post_kiss_tail_check:
+	CBZ  R11, post_kiss_done
+
+	// Tail iteration for an odd limit.
+	ADD  R0, R5, R12
+	FMOVS 4(R15), F0
+	FMOVS (R15), F1
+	FMOVS (R7), F2
+	FMOVS (R8), F3
+
+	FMULS F2, F0, F4
+	FMADDS F3, F4, F1, F4
+
+	FMULS F3, F0, F5
+	FMSUBS F2, F5, F1, F5
+
+	ADD  R0, R6, R13
+	FMOVS 4(R16), F6
+	FMOVS (R16), F7
+
+	FMOVS F4, (R12)
+	FMOVS F5, 4(R13)
+
+	FMOVS (R9), F2
+	FMOVS (R10), F3
+
+	FMULS F2, F6, F4
+	FMADDS F3, F4, F7, F4
+
+	FMULS F3, F6, F5
+	FMSUBS F2, F5, F7, F5
+
+	FMOVS F4, (R13)
+	FMOVS F5, 4(R12)
 
 post_kiss_done:
 	RET

@@ -38,7 +38,10 @@ TEXT ·imdctPreRotateF32(SB), NOSPLIT, $0-88
 
 	MOVD R4, R12             // loop counter = n4
 
-pre_loop:
+	CMP  $2, R12
+	BLT  pre_tail_check
+
+pre_loop2:
 	// Load spectrum[2*i] as float64, convert to float32
 	FMOVD (R8), F0
 	FCVTDS F0, F0            // x1 = float32(spectrum[2*i])
@@ -63,15 +66,51 @@ pre_loop:
 	FMOVS F4, (R7)
 	FMOVS F5, 4(R7)
 
-	// Advance pointers
-	ADD  $8, R7, R7          // out_ptr += 2*sizeof(float32)
-	ADD  $16, R8, R8         // fwd spectrum += 2*sizeof(float64)
-	SUB  $16, R9, R9         // rev spectrum -= 2*sizeof(float64)
-	ADD  $4, R10, R10        // trig[i]++
-	ADD  $4, R11, R11        // trig[n4+i]++
+	// Unrolled i+1.
+	FMOVD 16(R8), F0
+	FCVTDS F0, F0
+	FMOVD -16(R9), F1
+	FCVTDS F1, F1
+	FMOVS 4(R10), F2
+	FMOVS 4(R11), F3
 
-	SUBS $1, R12, R12
-	BNE  pre_loop
+	FMULS F2, F0, F4
+	FMSUBS F3, F4, F1, F4
+	FMULS F2, F1, F5
+	FMADDS F3, F5, F0, F5
+
+	FMOVS F4, 8(R7)
+	FMOVS F5, 12(R7)
+
+	// Advance pointers
+	ADD  $16, R7, R7         // out_ptr += 4*sizeof(float32)
+	ADD  $32, R8, R8         // fwd spectrum += 4*sizeof(float64)
+	SUB  $32, R9, R9         // rev spectrum -= 4*sizeof(float64)
+	ADD  $8, R10, R10        // trig[i] += 2
+	ADD  $8, R11, R11        // trig[n4+i] += 2
+
+	SUBS $2, R12, R12
+	CMP  $2, R12
+	BGE  pre_loop2
+
+pre_tail_check:
+	CBZ  R12, pre_done
+
+	// Tail iteration for odd n4.
+	FMOVD (R8), F0
+	FCVTDS F0, F0
+	FMOVD (R9), F1
+	FCVTDS F1, F1
+	FMOVS (R10), F2
+	FMOVS (R11), F3
+
+	FMULS F2, F0, F4
+	FMSUBS F3, F4, F1, F4
+	FMULS F2, F1, F5
+	FMADDS F3, F5, F0, F5
+
+	FMOVS F4, (R7)
+	FMOVS F5, 4(R7)
 
 pre_done:
 	RET

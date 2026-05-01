@@ -211,8 +211,26 @@ func updatePlanarHistory(hist, samples []float64, frameSize, history int) {
 		copy(hist, samples[frameSize-history:frameSize])
 		return
 	}
-	copy(hist, hist[frameSize:])
+	slidePlanarHistoryPrefix(hist, frameSize, history)
 	copy(hist[history-frameSize:], samples[:frameSize])
+}
+
+func slidePlanarHistoryPrefix(hist []float64, frameSize, history int) {
+	keep := history - frameSize
+	if keep <= 0 {
+		return
+	}
+	if keep <= 128 {
+		_ = hist[frameSize+keep-1]
+		_ = hist[keep-1]
+		for i := 0; i < keep; i++ {
+			hist[i] = hist[frameSize+i]
+		}
+		return
+	}
+	_ = hist[frameSize+keep-1]
+	_ = hist[keep-1]
+	slidePlanarHistoryPrefixLarge(hist, frameSize, keep)
 }
 
 func reverseFloat64InPlace(x []float64) {
@@ -430,7 +448,7 @@ func updateMonoHistoryFromFloat32(hist []float64, samples []float32, frameSize, 
 		copyFloat32ToFloat64(hist[:history], samples[frameSize-history:frameSize])
 		return
 	}
-	copy(hist, hist[frameSize:])
+	slidePlanarHistoryPrefix(hist, frameSize, history)
 	copyFloat32ToFloat64(hist[history-frameSize:history], samples[:frameSize])
 }
 
@@ -442,7 +460,7 @@ func updatePlanarHistoryFromFloat32(hist []float64, samples []float32, frameSize
 		copyFloat32ToFloat64(hist[:history], samples[frameSize-history:frameSize])
 		return
 	}
-	copy(hist, hist[frameSize:])
+	slidePlanarHistoryPrefix(hist, frameSize, history)
 	copyFloat32ToFloat64(hist[history-frameSize:history], samples[:frameSize])
 }
 
@@ -703,8 +721,8 @@ func (d *Decoder) applyPostfilterStereoPlanar(left, right []float64, frameSize, 
 	applyPostfilterChannelInPlace(left, histL, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq)
 	applyPostfilterChannelInPlace(right, histR, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq)
 
-	d.updatePostfilterHistoryStereoPlanar(left, right, frameSize, history)
 	d.updatePLCDecodeHistoryStereoPlanar(left, right, frameSize, plcDecodeBufferSize)
+	d.markPostfilterHistoryFromPLC()
 	d.postfilterPeriodOld = d.postfilterPeriod
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
@@ -757,8 +775,8 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 	applyPostfilterChannelInPlaceFloat32(left, histL, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq)
 	applyPostfilterChannelInPlaceFloat32(right, histR, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq)
 
-	d.updatePostfilterHistoryStereoPlanarFromFloat32(left, right, frameSize, history)
 	d.updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right, frameSize, plcDecodeBufferSize)
+	d.markPostfilterHistoryFromPLC()
 	d.postfilterPeriodOld = d.postfilterPeriod
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
@@ -886,8 +904,8 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 		}
 	}
 
-	d.updatePostfilterHistory(samples, frameSize, history)
 	d.updatePLCDecodeHistory(samples, frameSize, plcDecodeBufferSize)
+	d.markPostfilterHistoryFromPLC()
 	d.postfilterPeriodOld = d.postfilterPeriod
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset

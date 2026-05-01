@@ -479,40 +479,44 @@ func (r *LibopusResampler) up2HQ(out []int16, in []int16) {
 	if n == 0 {
 		return
 	}
+	out = out[: 2*n : 2*n]
+	up2HQCore(out, in[:n:n], &r.sIIR)
+}
 
+func up2HQCoreGo(out []int16, in []int16, sIIR *[6]int32) {
 	// Keep allpass filter state in locals during the hot loop.
-	s0, s1, s2 := r.sIIR[0], r.sIIR[1], r.sIIR[2]
-	s3, s4, s5 := r.sIIR[3], r.sIIR[4], r.sIIR[5]
+	s0, s1, s2 := sIIR[0], sIIR[1], sIIR[2]
+	s3, s4, s5 := sIIR[3], sIIR[4], sIIR[5]
 
-	c00 := int32(silkResamplerUp2HQ0[0])
-	c01 := int32(silkResamplerUp2HQ0[1])
-	c02 := int32(silkResamplerUp2HQ0[2])
-	c10 := int32(silkResamplerUp2HQ1[0])
-	c11 := int32(silkResamplerUp2HQ1[1])
-	c12 := int32(silkResamplerUp2HQ1[2])
+	c00 := int64(silkResamplerUp2HQ0[0])
+	c01 := int64(silkResamplerUp2HQ0[1])
+	c02 := int64(silkResamplerUp2HQ0[2])
+	c10 := int64(silkResamplerUp2HQ1[0])
+	c11 := int64(silkResamplerUp2HQ1[1])
+	c12 := int64(silkResamplerUp2HQ1[2])
 
-	_ = out[2*n-1]
+	_ = out[2*len(in)-1]
 
 	outPos := 0
-	for k := 0; k < n; k++ {
+	for k := 0; k < len(in); k++ {
 		// Convert to Q10
 		in32 := int32(in[k]) << 10
 
 		// First all-pass section for even output sample
 		Y := in32 - s0
-		X := smulwb(Y, c00)
+		X := int32((int64(Y) * c00) >> 16)
 		out32_1 := s0 + X
 		s0 = in32 + X
 
 		// Second all-pass section for even output sample
 		Y = out32_1 - s1
-		X = smulwb(Y, c01)
+		X = int32((int64(Y) * c01) >> 16)
 		out32_2 := s1 + X
 		s1 = out32_1 + X
 
 		// Third all-pass section for even output sample
 		Y = out32_2 - s2
-		X = smlawb(Y, Y, c02)
+		X = Y + int32((int64(Y)*c02)>>16)
 		out32_1 = s2 + X
 		s2 = out32_2 + X
 
@@ -521,19 +525,19 @@ func (r *LibopusResampler) up2HQ(out []int16, in []int16) {
 
 		// First all-pass section for odd output sample
 		Y = in32 - s3
-		X = smulwb(Y, c10)
+		X = int32((int64(Y) * c10) >> 16)
 		out32_1 = s3 + X
 		s3 = in32 + X
 
 		// Second all-pass section for odd output sample
 		Y = out32_1 - s4
-		X = smulwb(Y, c11)
+		X = int32((int64(Y) * c11) >> 16)
 		out32_2 = s4 + X
 		s4 = out32_1 + X
 
 		// Third all-pass section for odd output sample
 		Y = out32_2 - s5
-		X = smlawb(Y, Y, c12)
+		X = Y + int32((int64(Y)*c12)>>16)
 		out32_1 = s5 + X
 		s5 = out32_2 + X
 
@@ -542,8 +546,8 @@ func (r *LibopusResampler) up2HQ(out []int16, in []int16) {
 		outPos += 2
 	}
 
-	r.sIIR[0], r.sIIR[1], r.sIIR[2] = s0, s1, s2
-	r.sIIR[3], r.sIIR[4], r.sIIR[5] = s3, s4, s5
+	sIIR[0], sIIR[1], sIIR[2] = s0, s1, s2
+	sIIR[3], sIIR[4], sIIR[5] = s3, s4, s5
 }
 
 // firInterpol implements silk_resampler_private_IIR_FIR_INTERPOL.
@@ -879,24 +883,24 @@ func rshiftRound(x int32, shift int) int32 {
 
 func sat16RShiftRound10(x int32) int16 {
 	y := ((x >> 9) + 1) >> 1
-	if y > 32767 {
-		return 32767
+	if uint32(y+32768) <= 65535 {
+		return int16(y)
 	}
-	if y < -32768 {
+	if y < 0 {
 		return -32768
 	}
-	return int16(y)
+	return 32767
 }
 
 func sat16RShiftRound15(x int32) int16 {
 	y := ((x >> 14) + 1) >> 1
-	if y > 32767 {
-		return 32767
+	if uint32(y+32768) <= 65535 {
+		return int16(y)
 	}
-	if y < -32768 {
+	if y < 0 {
 		return -32768
 	}
-	return int16(y)
+	return 32767
 }
 
 // min32 returns the minimum of two int32 values.

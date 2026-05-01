@@ -638,7 +638,7 @@ func haar1(x []float64, n0, stride int) {
 			return
 		}
 		if stride == 4 {
-			haar1Stride4(x, n0)
+			haar1Stride4Asm(x, n0)
 			return
 		}
 		if stride == 8 {
@@ -955,7 +955,19 @@ func normalizeResidualKnownEnergyIntoAndCollapse32(out []float64, pulses []int32
 	for blk := 0; blk < b; blk++ {
 		tmp := int32(0)
 		end := base + n0
-		for i := base; i < end; i++ {
+		i := base
+		for ; i+3 < end; i += 4 {
+			v0 := pulses[i]
+			v1 := pulses[i+1]
+			v2 := pulses[i+2]
+			v3 := pulses[i+3]
+			out[i] = float64(v0) * scale
+			out[i+1] = float64(v1) * scale
+			out[i+2] = float64(v2) * scale
+			out[i+3] = float64(v3) * scale
+			tmp |= v0 | v1 | v2 | v3
+		}
+		for ; i < end; i++ {
 			v := pulses[i]
 			out[i] = float64(v) * scale
 			tmp |= v
@@ -965,7 +977,14 @@ func normalizeResidualKnownEnergyIntoAndCollapse32(out []float64, pulses []int32
 		}
 		base = end
 	}
-	for i := base; i < n; i++ {
+	i := base
+	for ; i+3 < n; i += 4 {
+		out[i] = float64(pulses[i]) * scale
+		out[i+1] = float64(pulses[i+1]) * scale
+		out[i+2] = float64(pulses[i+2]) * scale
+		out[i+3] = float64(pulses[i+3]) * scale
+	}
+	for ; i < n; i++ {
 		out[i] = float64(pulses[i]) * scale
 	}
 	return mask
@@ -1217,7 +1236,12 @@ func algUnquantNoExtInto(shape []float64, rd *rangecoding.Decoder, n, k, spread,
 		clear(shape)
 		return 0
 	}
-	idx := decodeUniformPVQIndex(rd, vSize)
+	var idx uint32
+	if vSize <= 1<<rangecoding.EC_UINT_BITS {
+		idx = rd.DecodeUniformSmall(vSize)
+	} else {
+		idx = rd.DecodeUniform(vSize)
+	}
 
 	var pulses []int32
 	if scratch != nil {
@@ -1255,7 +1279,12 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 		clear(shape)
 		return 0
 	}
-	idx := decodeUniformPVQIndex(rd, vSize)
+	var idx uint32
+	if vSize <= 1<<rangecoding.EC_UINT_BITS {
+		idx = rd.DecodeUniformSmall(vSize)
+	} else {
+		idx = rd.DecodeUniform(vSize)
+	}
 
 	var pulses []int
 	if scratch != nil {
@@ -1861,12 +1890,14 @@ func computeThetaDecode(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *
 		qn = 1
 	}
 
-	tell := ctx.rd.TellFrac()
-
 	itheta := 0
 	ithetaQ30 := 0
 	inv := 0
+	tell := 0
+	measureQalloc := false
 	if qn != 1 {
+		tell = ctx.rd.TellFrac()
+		measureQalloc = true
 		if stereo && n > 2 {
 			p0 := 3
 			x0 := qn / 2
@@ -1911,6 +1942,8 @@ func computeThetaDecode(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *
 		ithetaQ30 = itheta << 16
 	} else if stereo {
 		if *b > 2<<bitRes && ctx.remainingBits > 2<<bitRes {
+			tell = ctx.rd.TellFrac()
+			measureQalloc = true
 			inv = ctx.rd.DecodeBit(2)
 		}
 		if ctx.disableInv {
@@ -1920,10 +1953,12 @@ func computeThetaDecode(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *
 		ithetaQ30 = 0
 	}
 
-	qalloc := ctx.rd.TellFrac() - tell
-	if qalloc != 0 {
-		*b -= qalloc
-		sctx.qalloc = qalloc
+	if measureQalloc {
+		qalloc := ctx.rd.TellFrac() - tell
+		if qalloc != 0 {
+			*b -= qalloc
+			sctx.qalloc = qalloc
+		}
 	}
 
 	imid := 0
@@ -2069,7 +2104,12 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int
 					ctx.re.EncodeUniform(uint32(itheta), uint32(qn+1))
 				}
 			} else if ctx.rd != nil {
-				itheta = int(ctx.rd.DecodeUniform(uint32(qn + 1)))
+				ft := uint32(qn + 1)
+				if ft <= 1<<8 {
+					itheta = int(ctx.rd.DecodeUniformSmall(ft))
+				} else {
+					itheta = int(ctx.rd.DecodeUniform(ft))
+				}
 			}
 		} else {
 			ft := ((qn >> 1) + 1) * ((qn >> 1) + 1)
@@ -2489,15 +2529,10 @@ func quantPartitionDecodeNoExt(ctx *bandCtx, x []float64, n, b, B int, lowband [
 				start := int(cacheIndex50[idx])
 				if start >= 0 && start < len(cacheBits50) && pulseCacheLookup50.valid[start] {
 					cache = cacheBits50[start:]
-					if len(cache) != 0 {
-						maxPseudo := int(cache[0])
-						if maxPseudo > 0 && maxPseudo < len(cache) {
-							hasCache = true
-							cacheStart = start
-							if lm != -1 {
-								maxBits = int(cache[maxPseudo])
-							}
-						}
+					hasCache = true
+					cacheStart = start
+					if lm != -1 {
+						maxBits = int(pulseCacheLookup50.maxBits[start])
 					}
 				}
 			}
@@ -2933,6 +2968,15 @@ func quantBandN1DecodeStereo(ctx *bandCtx, x, y []float64, b int, lowbandOut []f
 	return 1
 }
 
+func copyLowbandScratch(dst, src []float64, n int) []float64 {
+	if n > 0 && len(dst) >= n && len(src) >= n {
+		copy(dst[:n], src[:n])
+		return dst[:n:n]
+	}
+	copy(dst, src)
+	return dst
+}
+
 func quantBand(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int) int {
 	return quantBandWithExtBudget(ctx, x, n, b, B, lowband, lm, lowbandOut, gain, lowbandScratch, fill, ctx.extBudget)
 }
@@ -2965,8 +3009,7 @@ func quantBandPreparedLowbandWithExtBudget(ctx *bandCtx, x []float64, n, b, B in
 	}
 
 	if !lowbandPrepared && lowbandScratch != nil && lowband != nil && (recombine != 0 || ((N_B&1) == 0 && tfChange < 0) || B > 1) {
-		copy(lowbandScratch, lowband)
-		lowband = lowbandScratch
+		lowband = copyLowbandScratch(lowbandScratch, lowband, n)
 	}
 
 	if recombine != 0 {
@@ -3084,7 +3127,105 @@ func prepareQuantBandLowband(dst, src []float64, n, B, tfChange int, scratch *ba
 }
 
 func quantBandDecode(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int) int {
+	if ctx.extBudget == 0 && ctx.extDec == nil && !ctx.extraBands {
+		return quantBandDecodeNoExtFast(ctx, x, n, b, B, lowband, lm, lowbandOut, gain, lowbandScratch, fill)
+	}
 	return quantBandDecodeWithExtBudget(ctx, x, n, b, B, lowband, lm, lowbandOut, gain, lowbandScratch, fill, ctx.extBudget)
+}
+
+func quantBandDecodeNoExtFast(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int) int {
+	if n == 1 {
+		return quantBandN1Decode(ctx, x, nil, b, lowbandOut)
+	}
+	if n > 0 {
+		x = x[:n:n]
+		_ = x[n-1]
+	}
+
+	N0 := n
+	N_B := celtUdiv(n, B)
+	longBlocks := B == 1
+
+	recombine := 0
+	tfChange := ctx.tfChange
+	if tfChange > 0 {
+		recombine = tfChange
+	}
+
+	if lowbandScratch != nil && lowband != nil && (recombine != 0 || ((N_B&1) == 0 && tfChange < 0) || B > 1) {
+		lowband = copyLowbandScratch(lowbandScratch, lowband, n)
+	}
+
+	if recombine != 0 {
+		for k := 0; k < recombine; k++ {
+			if lowband != nil {
+				haar1(lowband, n>>k, 1<<k)
+			}
+			fill = bitInterleaveTable[fill&0xF] | (bitInterleaveTable[fill>>4] << 2)
+		}
+	}
+	B >>= recombine
+	N_B <<= recombine
+
+	timeDivide := 0
+	for (N_B&1) == 0 && tfChange < 0 {
+		if lowband != nil {
+			haar1(lowband, N_B, B)
+		}
+		fill |= fill << B
+		B <<= 1
+		N_B >>= 1
+		timeDivide++
+		tfChange++
+	}
+	B0 := B
+	N_B0 := N_B
+	xOrig := x
+
+	if B0 > 1 {
+		if ctx.scratch != nil {
+			x = ctx.scratch.ensureQuantWork(n)
+			deinterleaveHadamardInto(x, xOrig, N_B>>recombine, B0<<recombine, longBlocks)
+		} else {
+			deinterleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
+		}
+		if lowband != nil {
+			deinterleaveHadamardScratchBuf(lowband, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
+		}
+	}
+
+	cm := quantPartitionDecodeNoExt(ctx, x, n, b, B, lowband, lm, gain, fill)
+
+	if ctx.resynth {
+		if B0 > 1 {
+			if ctx.scratch != nil {
+				interleaveHadamardInto(xOrig, x, N_B>>recombine, B0<<recombine, longBlocks)
+				x = xOrig
+			} else {
+				interleaveHadamardScratchBuf(x, N_B>>recombine, B0<<recombine, longBlocks, ctx.scratch, ctx.encScratch)
+			}
+		}
+		N_B = N_B0
+		B = B0
+		for k := 0; k < timeDivide; k++ {
+			B >>= 1
+			N_B <<= 1
+			cm |= cm >> B
+			haar1(x, N_B, B)
+		}
+		for k := 0; k < recombine; k++ {
+			cm = bitDeinterleaveTable[cm&0xF]
+			haar1(x, N0>>k, 1<<k)
+		}
+		B <<= recombine
+
+		if lowbandOut != nil && len(lowbandOut) >= N0 {
+			norm := math.Sqrt(float64(N0))
+			scaleFloat64Into(lowbandOut, x, norm, N0)
+		}
+		cm &= (1 << B) - 1
+	}
+	return cm
 }
 
 func quantBandDecodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, gain float64, lowbandScratch []float64, fill int, extBudget int) int {
@@ -3107,8 +3248,7 @@ func quantBandDecodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, lowban
 	}
 
 	if lowbandScratch != nil && lowband != nil && (recombine != 0 || ((N_B&1) == 0 && tfChange < 0) || B > 1) {
-		copy(lowbandScratch, lowband)
-		lowband = lowbandScratch
+		lowband = copyLowbandScratch(lowbandScratch, lowband, n)
 	}
 
 	if recombine != 0 {
@@ -3342,7 +3482,109 @@ func quantBandStereoPreparedLowbandWithExtBudget(ctx *bandCtx, x, y []float64, n
 }
 
 func quantBandStereoDecode(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, lowbandScratch []float64, fill int) int {
+	if ctx.extBudget == 0 && ctx.extDec == nil && !ctx.extraBands {
+		return quantBandStereoDecodeNoExtFast(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill)
+	}
 	return quantBandStereoDecodeWithExtBudget(ctx, x, y, n, b, B, lowband, lm, lowbandOut, lowbandScratch, fill, ctx.extBudget)
+}
+
+func quantBandStereoDecodeNoExtFast(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, lowbandScratch []float64, fill int) int {
+	if n == 1 {
+		return quantBandN1Decode(ctx, x, y, b, lowbandOut)
+	}
+	if n > 0 {
+		x = x[:n:n]
+		_ = x[n-1]
+		if y != nil {
+			y = y[:n:n]
+			_ = y[n-1]
+		}
+	}
+
+	origFill := fill
+
+	sctx := splitCtx{}
+	computeThetaWithExtBudget(ctx, &sctx, x, y, n, &b, nil, B, B, lm, true, &fill)
+	mid, side := thetaSplitGains(&sctx, false)
+
+	if n == 2 {
+		mbits := b
+		sbits := 0
+		if sctx.itheta != 0 && sctx.itheta != 16384 {
+			sbits = 1 << bitRes
+		}
+		mbits -= sbits
+		c := sctx.itheta > 8192
+		ctx.remainingBits -= sctx.qalloc + sbits
+
+		x2 := x
+		y2 := y
+		if c {
+			x2 = y
+			y2 = x
+		}
+		sign := 1
+		if sbits > 0 && ctx.rd != nil {
+			if ctx.rd.DecodeRawBit() == 1 {
+				sign = -1
+			}
+		}
+		cm := quantBandDecodeNoExtFast(ctx, x2, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, origFill)
+		y2[0] = float64(sign) * (-x2[1])
+		y2[1] = float64(sign) * x2[0]
+		if ctx.resynth {
+			x[0] *= mid
+			x[1] *= mid
+			y[0] *= side
+			y[1] *= side
+			tmp := x[0]
+			x[0] = tmp - y[0]
+			y[0] = tmp + y[0]
+			tmp = x[1]
+			x[1] = tmp - y[1]
+			y[1] = tmp + y[1]
+			if sctx.inv != 0 {
+				y[0] = -y[0]
+				y[1] = -y[1]
+			}
+		}
+		return cm
+	}
+
+	delta := sctx.delta
+	mbits := max(0, min(b, (b-delta)/2))
+	sbits := b - mbits
+	ctx.remainingBits -= sctx.qalloc
+
+	rebalance := ctx.remainingBits
+	cm := 0
+	if mbits >= sbits {
+		cm = quantBandDecodeNoExtFast(ctx, x, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, fill)
+		rebalance = mbits - (rebalance - ctx.remainingBits)
+		if rebalance > 3<<bitRes && sctx.itheta != 0 {
+			sbits += rebalance - (3 << bitRes)
+		}
+		cm |= quantBandDecodeNoExtFast(ctx, y, n, sbits, B, nil, lm, nil, side, nil, fill>>B)
+	} else {
+		cm = quantBandDecodeNoExtFast(ctx, y, n, sbits, B, nil, lm, nil, side, nil, fill>>B)
+		rebalance = sbits - (rebalance - ctx.remainingBits)
+		if rebalance > 3<<bitRes && sctx.itheta != 16384 {
+			mbits += rebalance - (3 << bitRes)
+		}
+		cm |= quantBandDecodeNoExtFast(ctx, x, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, fill)
+	}
+
+	if ctx.resynth {
+		if n != 2 {
+			stereoMerge(x, y, mid)
+		}
+		if sctx.inv != 0 {
+			for i := 0; i < n; i++ {
+				y[i] = -y[i]
+			}
+		}
+	}
+	return cm
 }
 
 func quantBandStereoDecodeWithExtBudget(ctx *bandCtx, x, y []float64, n, b, B int, lowband []float64, lm int, lowbandOut []float64, lowbandScratch []float64, fill int, extBudget int) int {
@@ -3470,6 +3712,23 @@ func quantAllBandsDecodeWithScratch(rd *rangecoding.Decoder, channels, frameSize
 		nil, nil, nil, nil)
 }
 
+func clearDecodedBandEdges(buf []float64, frameSize, start, end int) {
+	if start < 0 {
+		start = 0
+	}
+	if start > frameSize {
+		start = frameSize
+	}
+	if end < start {
+		end = start
+	}
+	if end > frameSize {
+		end = frameSize
+	}
+	clear(buf[:start])
+	clear(buf[end:frameSize])
+}
+
 func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, frameSize, lm int, start, end int,
 	pulses []int, shortBlocks int, spread int, dualStereo, intensity int,
 	tfRes []int, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32,
@@ -3506,14 +3765,10 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		collapse = make([]byte, channels*maxBands)
 	} else {
 		left = ensureFloat64Slice(&scratch.left, N)
-		for i := range left {
-			left[i] = 0
-		}
+		clearDecodedBandEdges(left, N, M*edges[start], M*edges[end])
 		if channels == 2 {
 			right = ensureFloat64Slice(&scratch.right, N)
-			for i := range right {
-				right[i] = 0
-			}
+			clearDecodedBandEdges(right, N, M*edges[start], M*edges[end])
 		} else if cap(scratch.right) > 0 {
 			scratch.right = scratch.right[:0]
 			right = nil
@@ -3534,9 +3789,6 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 		norm = make([]float64, channels*normLen)
 	} else {
 		norm = ensureFloat64Slice(&scratch.norm, channels*normLen)
-		for i := range norm {
-			norm[i] = 0
-		}
 	}
 	var norm2 []float64
 	if channels == 2 {

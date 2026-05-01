@@ -139,167 +139,11 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		offsetSamples += n
 		d.prevPacketStereo = toc.Stereo
 	} else {
-		var qextPayloads [maxRepacketizerFrames][]byte
-		decodeFrame := func(frameIndex int, frameData []byte) error {
-			var qextPayload []byte
-			if extsupport.QEXT && toc.Mode == ModeCELT && !d.ignoreExtensions && frameIndex >= 0 && frameIndex < len(qextPayloads) {
-				qextPayload = qextPayloads[frameIndex]
-			}
-			n, err := d.decodeOpusFrameIntoWithQEXT(
-				pcm[offsetSamples*d.channels:],
-				frameData,
-				frameSize,
-				frameSize,
-				toc.Mode,
-				toc.Bandwidth,
-				toc.Stereo,
-				qextPayload,
-			)
-			if err != nil {
-				return err
-			}
-			offsetSamples += n
-			d.prevPacketStereo = toc.Stereo
-			return nil
+		n, err := d.decodeMultiFrameFloat32(pcm, data, toc, frameCode, frameSize)
+		if err != nil {
+			return 0, err
 		}
-
-		switch frameCode {
-		case 1:
-			frameDataLen := len(data) - 1
-			if frameDataLen%2 != 0 {
-				return 0, ErrInvalidPacket
-			}
-			frameLen := frameDataLen / 2
-			offset := 1
-			for i := 0; i < 2; i++ {
-				if offset+frameLen > len(data) {
-					return 0, ErrInvalidPacket
-				}
-				if err := decodeFrame(i, data[offset:offset+frameLen]); err != nil {
-					return 0, err
-				}
-				offset += frameLen
-			}
-		case 2:
-			if len(data) < 2 {
-				return 0, ErrPacketTooShort
-			}
-			frame1Len, bytesRead, err := parseFrameLength(data, 1)
-			if err != nil {
-				return 0, err
-			}
-			headerLen := 1 + bytesRead
-			frame2Len := len(data) - headerLen - frame1Len
-			if frame2Len < 0 {
-				return 0, ErrInvalidPacket
-			}
-			if headerLen+frame1Len > len(data) {
-				return 0, ErrInvalidPacket
-			}
-			if err := decodeFrame(0, data[headerLen:headerLen+frame1Len]); err != nil {
-				return 0, err
-			}
-			offset := headerLen + frame1Len
-			if offset+frame2Len > len(data) {
-				return 0, ErrInvalidPacket
-			}
-			if err := decodeFrame(1, data[offset:offset+frame2Len]); err != nil {
-				return 0, err
-			}
-		case 3:
-			if len(data) < 2 {
-				return 0, ErrPacketTooShort
-			}
-			frameCountByte := data[1]
-			vbr := (frameCountByte & 0x80) != 0
-			hasPadding := (frameCountByte & 0x40) != 0
-			m := int(frameCountByte & 0x3F)
-			if m == 0 || m > 48 {
-				return 0, ErrInvalidFrameCount
-			}
-
-			offset := 2
-			padding := 0
-
-			if hasPadding {
-				for {
-					if offset >= len(data) {
-						return 0, ErrPacketTooShort
-					}
-					padByte := int(data[offset])
-					offset++
-					if padByte == 255 {
-						padding += 254
-					} else {
-						padding += padByte
-					}
-					if padByte < 255 {
-						break
-					}
-				}
-				if extsupport.QEXT && !d.ignoreExtensions && toc.Mode == ModeCELT {
-					if padding > len(data) {
-						return 0, ErrInvalidPacket
-					}
-					if err := collectPacketExtensionPayloadsByFrame(data[len(data)-padding:], m, qextPacketExtensionID, &qextPayloads); err != nil {
-						for i := range qextPayloads {
-							qextPayloads[i] = nil
-						}
-					}
-				}
-			}
-
-			if vbr {
-				var frameLens [48]int
-				for i := 0; i < m-1; i++ {
-					frameLen, bytesRead, err := parseFrameLength(data, offset)
-					if err != nil {
-						return 0, err
-					}
-					offset += bytesRead
-					frameLens[i] = frameLen
-				}
-				frameDataOffset := offset
-				for i := 0; i < m-1; i++ {
-					frameLen := frameLens[i]
-					if frameDataOffset+frameLen > len(data)-padding {
-						return 0, ErrInvalidPacket
-					}
-					if err := decodeFrame(i, data[frameDataOffset:frameDataOffset+frameLen]); err != nil {
-						return 0, err
-					}
-					frameDataOffset += frameLen
-				}
-				lastFrameLen := len(data) - frameDataOffset - padding
-				if lastFrameLen < 0 {
-					return 0, ErrInvalidPacket
-				}
-				if frameDataOffset+lastFrameLen > len(data)-padding {
-					return 0, ErrInvalidPacket
-				}
-				if err := decodeFrame(m-1, data[frameDataOffset:frameDataOffset+lastFrameLen]); err != nil {
-					return 0, err
-				}
-			} else {
-				frameDataLen := len(data) - offset - padding
-				if frameDataLen < 0 {
-					return 0, ErrInvalidPacket
-				}
-				if frameDataLen%m != 0 {
-					return 0, ErrInvalidPacket
-				}
-				frameLen := frameDataLen / m
-				for i := 0; i < m; i++ {
-					if offset+frameLen > len(data)-padding {
-						return 0, ErrInvalidPacket
-					}
-					if err := decodeFrame(i, data[offset:offset+frameLen]); err != nil {
-						return 0, err
-					}
-					offset += frameLen
-				}
-			}
-		}
+		offsetSamples += n
 	}
 
 	d.lastFrameSize = frameSize
@@ -331,6 +175,173 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	}
 	d.applyOutputGain(pcm[:totalSamples*d.channels])
 	return totalSamples, nil
+}
+
+func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, frameCode byte, frameSize int) (int, error) {
+	offsetSamples := 0
+	var qextPayloads [maxRepacketizerFrames][]byte
+	decodeFrame := func(frameIndex int, frameData []byte) error {
+		var qextPayload []byte
+		if extsupport.QEXT && toc.Mode == ModeCELT && !d.ignoreExtensions && frameIndex >= 0 && frameIndex < len(qextPayloads) {
+			qextPayload = qextPayloads[frameIndex]
+		}
+		n, err := d.decodeOpusFrameIntoWithQEXT(
+			pcm[offsetSamples*d.channels:],
+			frameData,
+			frameSize,
+			frameSize,
+			toc.Mode,
+			toc.Bandwidth,
+			toc.Stereo,
+			qextPayload,
+		)
+		if err != nil {
+			return err
+		}
+		offsetSamples += n
+		d.prevPacketStereo = toc.Stereo
+		return nil
+	}
+
+	switch frameCode {
+	case 1:
+		frameDataLen := len(data) - 1
+		if frameDataLen%2 != 0 {
+			return 0, ErrInvalidPacket
+		}
+		frameLen := frameDataLen / 2
+		offset := 1
+		for i := 0; i < 2; i++ {
+			if offset+frameLen > len(data) {
+				return 0, ErrInvalidPacket
+			}
+			if err := decodeFrame(i, data[offset:offset+frameLen]); err != nil {
+				return 0, err
+			}
+			offset += frameLen
+		}
+	case 2:
+		if len(data) < 2 {
+			return 0, ErrPacketTooShort
+		}
+		frame1Len, bytesRead, err := parseFrameLength(data, 1)
+		if err != nil {
+			return 0, err
+		}
+		headerLen := 1 + bytesRead
+		frame2Len := len(data) - headerLen - frame1Len
+		if frame2Len < 0 {
+			return 0, ErrInvalidPacket
+		}
+		if headerLen+frame1Len > len(data) {
+			return 0, ErrInvalidPacket
+		}
+		if err := decodeFrame(0, data[headerLen:headerLen+frame1Len]); err != nil {
+			return 0, err
+		}
+		offset := headerLen + frame1Len
+		if offset+frame2Len > len(data) {
+			return 0, ErrInvalidPacket
+		}
+		if err := decodeFrame(1, data[offset:offset+frame2Len]); err != nil {
+			return 0, err
+		}
+	case 3:
+		if len(data) < 2 {
+			return 0, ErrPacketTooShort
+		}
+		frameCountByte := data[1]
+		vbr := (frameCountByte & 0x80) != 0
+		hasPadding := (frameCountByte & 0x40) != 0
+		m := int(frameCountByte & 0x3F)
+		if m == 0 || m > 48 {
+			return 0, ErrInvalidFrameCount
+		}
+
+		offset := 2
+		padding := 0
+
+		if hasPadding {
+			for {
+				if offset >= len(data) {
+					return 0, ErrPacketTooShort
+				}
+				padByte := int(data[offset])
+				offset++
+				if padByte == 255 {
+					padding += 254
+				} else {
+					padding += padByte
+				}
+				if padByte < 255 {
+					break
+				}
+			}
+			if extsupport.QEXT && !d.ignoreExtensions && toc.Mode == ModeCELT {
+				if padding > len(data) {
+					return 0, ErrInvalidPacket
+				}
+				if err := collectPacketExtensionPayloadsByFrame(data[len(data)-padding:], m, qextPacketExtensionID, &qextPayloads); err != nil {
+					for i := range qextPayloads {
+						qextPayloads[i] = nil
+					}
+				}
+			}
+		}
+
+		if vbr {
+			var frameLens [48]int
+			for i := 0; i < m-1; i++ {
+				frameLen, bytesRead, err := parseFrameLength(data, offset)
+				if err != nil {
+					return 0, err
+				}
+				offset += bytesRead
+				frameLens[i] = frameLen
+			}
+			frameDataOffset := offset
+			for i := 0; i < m-1; i++ {
+				frameLen := frameLens[i]
+				if frameDataOffset+frameLen > len(data)-padding {
+					return 0, ErrInvalidPacket
+				}
+				if err := decodeFrame(i, data[frameDataOffset:frameDataOffset+frameLen]); err != nil {
+					return 0, err
+				}
+				frameDataOffset += frameLen
+			}
+			lastFrameLen := len(data) - frameDataOffset - padding
+			if lastFrameLen < 0 {
+				return 0, ErrInvalidPacket
+			}
+			if frameDataOffset+lastFrameLen > len(data)-padding {
+				return 0, ErrInvalidPacket
+			}
+			if err := decodeFrame(m-1, data[frameDataOffset:frameDataOffset+lastFrameLen]); err != nil {
+				return 0, err
+			}
+		} else {
+			frameDataLen := len(data) - offset - padding
+			if frameDataLen < 0 {
+				return 0, ErrInvalidPacket
+			}
+			if frameDataLen%m != 0 {
+				return 0, ErrInvalidPacket
+			}
+			frameLen := frameDataLen / m
+			for i := 0; i < m; i++ {
+				if offset+frameLen > len(data)-padding {
+					return 0, ErrInvalidPacket
+				}
+				if err := decodeFrame(i, data[offset:offset+frameLen]); err != nil {
+					return 0, err
+				}
+				offset += frameLen
+			}
+		}
+	}
+
+	return offsetSamples, nil
 }
 
 // DecodeWithFEC decodes an Opus packet, optionally recovering a lost frame using FEC.

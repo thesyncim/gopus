@@ -135,19 +135,22 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 			}
 		}
 	}
-	if len(scratch) < lenBands*4 {
-		scratch = make([]int, lenBands*4)
+	if len(scratch) < lenBands*5 {
+		scratch = make([]int, lenBands*5)
 	}
 	bits1 := scratch[:lenBands]
 	bits2 := scratch[lenBands : 2*lenBands]
 	thresh := scratch[2*lenBands : 3*lenBands]
 	trimOffset := scratch[3*lenBands : 4*lenBands]
+	bandScale := scratch[4*lenBands : 5*lenBands]
 
 	for j := start; j < end; j++ {
 		width := eBandWidths[j]
-		thresh[j] = max(channels<<bitRes, (3*(width<<lm)<<bitRes)>>4)
+		widthLM := width << lm
+		bandScale[j] = channels * widthLM
+		thresh[j] = max(channels<<bitRes, (3*widthLM<<bitRes)>>4)
 		trimOffset[j] = int(int64(channels*width*(allocTrim-5-lm)*(end-j-1)*(1<<(lm+bitRes))) >> 6)
-		if (width << lm) == 1 {
+		if widthLM == 1 {
 			trimOffset[j] -= channels << bitRes
 		}
 	}
@@ -160,8 +163,7 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 		mid := (lo + hi) >> 1
 		for j := end; j > start; j-- {
 			idx := j - 1
-			width := eBandWidths[idx]
-			bitsj := (channels * width * BandAlloc[mid][idx] << lm) >> 2
+			bitsj := (bandScale[idx] * BandAlloc[mid][idx]) >> 2
 			if bitsj > 0 {
 				bitsj = max(0, bitsj+trimOffset[idx])
 			}
@@ -189,11 +191,10 @@ func cltComputeAllocationWithScratch(start, end int, offsets, cap []int, allocTr
 	}
 
 	for j := start; j < end; j++ {
-		width := eBandWidths[j]
-		bits1j := (channels * width * BandAlloc[lo][j] << lm) >> 2
+		bits1j := (bandScale[j] * BandAlloc[lo][j]) >> 2
 		bits2j := cap[j]
 		if hi < len(BandAlloc) {
-			bits2j = (channels * width * BandAlloc[hi][j] << lm) >> 2
+			bits2j = (bandScale[j] * BandAlloc[hi][j]) >> 2
 		}
 		if bits1j > 0 {
 			bits1j = max(0, bits1j+trimOffset[j])
@@ -229,18 +230,22 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 		stereo = 1
 	}
 	logM := lm << bitRes
+	bits1Band := bits1[start:end]
+	bits2Band := bits2[start:end]
+	threshBand := thresh[start:end]
+	capBand := cap[start:end]
+	bitsBand := bits[start:end]
 	lo := 0
 	hi := 1 << allocSteps
 	for i := 0; i < allocSteps; i++ {
 		mid := (lo + hi) >> 1
 		psum := 0
 		done := 0
-		for j := end; j > start; j-- {
-			idx := j - 1
-			tmp := bits1[idx] + int((int64(mid)*int64(bits2[idx]))>>allocSteps)
-			if tmp >= thresh[idx] || done != 0 {
+		for idx := len(bits1Band) - 1; idx >= 0; idx-- {
+			tmp := bits1Band[idx] + ((mid * bits2Band[idx]) >> allocSteps)
+			if tmp >= threshBand[idx] || done != 0 {
 				done = 1
-				psum += min(tmp, cap[idx])
+				psum += min(tmp, capBand[idx])
 			} else if tmp >= allocFloor {
 				psum += allocFloor
 			}
@@ -253,10 +258,9 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 	}
 	psum := 0
 	done := 0
-	for j := end; j > start; j-- {
-		idx := j - 1
-		tmp := bits1[idx] + int((int64(lo)*int64(bits2[idx]))>>allocSteps)
-		if tmp < thresh[idx] && done == 0 {
+	for idx := len(bits1Band) - 1; idx >= 0; idx-- {
+		tmp := bits1Band[idx] + ((lo * bits2Band[idx]) >> allocSteps)
+		if tmp < threshBand[idx] && done == 0 {
 			if tmp >= allocFloor {
 				tmp = allocFloor
 			} else {
@@ -265,8 +269,8 @@ func interpBits2Pulses(start, end, skipStart int, bits1, bits2, thresh, cap []in
 		} else {
 			done = 1
 		}
-		tmp = min(tmp, cap[idx])
-		bits[idx] = tmp
+		tmp = min(tmp, capBand[idx])
+		bitsBand[idx] = tmp
 		psum += tmp
 	}
 

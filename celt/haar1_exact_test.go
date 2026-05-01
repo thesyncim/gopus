@@ -66,6 +66,7 @@ func TestHaar1StrideFastPathsMatchGenericExact(t *testing.T) {
 	}{
 		{name: "stride1", n0: 64, stride: 1},
 		{name: "stride2", n0: 64, stride: 2},
+		{name: "stride4", n0: 64, stride: 4},
 	}
 
 	for _, tc := range testCases {
@@ -97,6 +98,9 @@ func TestHaar1StrideFastPathsMatchGenericExact(t *testing.T) {
 			case 2:
 				haar1Stride2Asm(got, tc.n0)
 				haar1Stride2Generic(want, tc.n0)
+			case 4:
+				haar1Stride4Asm(got, tc.n0)
+				haar1Stride4(want, tc.n0)
 			}
 
 			if !reflect.DeepEqual(got, want) {

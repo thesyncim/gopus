@@ -131,13 +131,13 @@ lpc16_pair_loop:
 
 lpc16_pair0_add_pres:
 	MOVW.P 4(R2), R24
-	ADD    R25, R24, R26
+	ADDSW  R25, R24, R26
+	BVC    lpc16_pair0_add_done
 	MOVD   $2147483647, R7
-	CMP    R7, R26
-	CSEL   GT, R7, R26, R26
-	MOVD   $-2147483648, R7
-	CMP    R7, R26
-	CSEL   LT, R7, R26, R26
+	MOVD   $-2147483648, R26
+	CSEL   MI, R7, R26, R26
+lpc16_pair0_add_done:
+	SXTW   R26, R26
 
 lpc16_pair0_store_s:
 	MOVW.P R26, 4(R0)
@@ -253,13 +253,13 @@ lpc16_pair0_store_out:
 
 lpc16_pair1_add_pres:
 	MOVW.P 4(R2), R24
-	ADD    R25, R24, R27
+	ADDSW  R25, R24, R27
+	BVC    lpc16_pair1_add_done
 	MOVD   $2147483647, R7
-	CMP    R7, R27
-	CSEL   GT, R7, R27, R27
-	MOVD   $-2147483648, R7
-	CMP    R7, R27
-	CSEL   LT, R7, R27, R27
+	MOVD   $-2147483648, R27
+	CSEL   MI, R7, R27, R27
+lpc16_pair1_add_done:
+	SXTW   R27, R27
 
 lpc16_pair1_store_s:
 	MOVW.P R27, 4(R0)
@@ -400,13 +400,13 @@ lpc16_tail:
 
 lpc16_tail_add_pres:
 	MOVW.P 4(R2), R24
-	ADD    R25, R24, R26
+	ADDSW  R25, R24, R26
+	BVC    lpc16_tail_add_done
 	MOVD   $2147483647, R7
-	CMP    R7, R26
-	CSEL   GT, R7, R26, R26
-	MOVD   $-2147483648, R7
-	CMP    R7, R26
-	CSEL   LT, R7, R26, R26
+	MOVD   $-2147483648, R26
+	CSEL   MI, R7, R26, R26
+lpc16_tail_add_done:
+	SXTW   R26, R26
 
 lpc16_tail_store_s:
 	MOVW.P R26, 4(R0)

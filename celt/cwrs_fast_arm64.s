@@ -783,3 +783,86 @@ cwrs32n8_tail_n2_store:
 
 	MOVW R4, ret+40(FP)
 	RET
+
+// func cwrsiFastCore32N3(k int, i uint32, y []int32) uint32
+TEXT ·cwrsiFastCore32N3(SB), NOSPLIT, $0-48
+	MOVD  k+0(FP), R2
+	MOVWU i+8(FP), R3
+	MOVD  y_base+16(FP), R7
+
+	MOVD $·pvqUDense(SB), R5
+	MOVD $708, R6
+	MOVD ZR, R4
+	MOVD $3, R1
+
+	MADD  R6, R5, R1, R8
+	ADD   $1, R2, R9
+	MOVWU (R8)(R9<<2), R10
+	SUB   R10, R3, R11
+	CMPW  R10, R3
+	CSETM HS, R12
+	CSEL  HS, R11, R3, R3
+
+	MOVD  R2, R13
+	CMPW  $13, R3
+	BCS   cwrs32n3_linear
+
+	MOVD R1, R2
+	MOVD R8, R15
+cwrs32n3_rows:
+	SUB   $1, R2, R2
+	SUB   $708, R15, R15
+	MOVWU (R15)(R1<<2), R10
+	CMPW  R10, R3
+	BCC   cwrs32n3_rows
+	B     cwrs32n3_store0
+
+cwrs32n3_linear:
+	MOVD R8, R15
+cwrs32n3_linear_loop:
+	MOVWU (R15)(R2<<2), R10
+	CMPW  R10, R3
+	BCS   cwrs32n3_store0
+	SUB   $1, R2, R2
+	B     cwrs32n3_linear_loop
+
+cwrs32n3_store0:
+	SUB  R10, R3, R3
+	SUB  R2, R13, R14
+	ADD  R12, R14, R14
+	EOR  R12, R14, R14
+	MOVW R14, (R7)
+	ADD  $4, R7, R7
+	MADD R14, R4, R14, R4
+
+	ADD  R2, R2, R8
+	ADD  $1, R8, R8
+	SUB  R8, R3, R9
+	CMPW R8, R3
+	CSETM HS, R12
+	CSEL HS, R9, R3, R3
+
+	MOVD R2, R13
+	ADD  $1, R3, R2
+	LSR  $1, R2, R2
+	CBZ  R2, cwrs32n3_tail_store1
+	ADD  R2, R2, R8
+	SUB  $1, R8, R8
+	SUB  R8, R3, R3
+
+cwrs32n3_tail_store1:
+	SUB  R2, R13, R14
+	ADD  R12, R14, R14
+	EOR  R12, R14, R14
+	MOVW R14, (R7)
+	ADD  $4, R7, R7
+	MADD R14, R4, R14, R4
+
+	NEG  R3, R12
+	ADD  R12, R2, R14
+	EOR  R12, R14, R14
+	MOVW R14, (R7)
+	MADD R14, R4, R14, R4
+
+	MOVW R4, ret+40(FP)
+	RET

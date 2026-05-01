@@ -74,3 +74,11 @@ func BenchmarkHaar1Stride2Current(b *testing.B) {
 func BenchmarkHaar1Stride2Generic(b *testing.B) {
 	benchmarkHaar1Direct(b, 2, haar1Stride2Generic)
 }
+
+func BenchmarkHaar1Stride4Current(b *testing.B) {
+	benchmarkHaar1Direct(b, 4, haar1Stride4Asm)
+}
+
+func BenchmarkHaar1Stride4Generic(b *testing.B) {
+	benchmarkHaar1Direct(b, 4, haar1Stride4)
+}

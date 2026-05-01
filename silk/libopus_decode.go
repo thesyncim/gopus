@@ -157,56 +157,54 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 	st.indices.Seed = int8(rd.DecodeICDF8Unchecked(silk_uniform4_iCDF))
 }
 
+//go:nosplit
+func silkDecodeShellSplit(rd *rangecoding.Decoder, p int, rows *[17][]uint8) (int16, int16) {
+	if p > 0 {
+		row := rows[p]
+		var split int
+		switch p {
+		case 1:
+			split = rd.DecodeICDF2_8(row[0])
+		case 2:
+			split = rd.DecodeICDF3_8(row[0], row[1])
+		case 3:
+			split = rd.DecodeICDF4_8(row[0], row[1], row[2])
+		case 4:
+			split = rd.DecodeICDF5_8(row[0], row[1], row[2], row[3])
+		default:
+			split = rd.DecodeICDF8Unchecked(row)
+		}
+		return int16(split), int16(p - split)
+	}
+	return 0, 0
+}
+
 func silkShellDecoder(pulses []int16, rd *rangecoding.Decoder, pulses4 int) {
 	// These are small fixed-size arrays, using stack allocation via array
 	var pulses3 [2]int16
 	var pulses2 [4]int16
 	var pulses1 [8]int16
 
-	decodeSplit := func(c1, c2 *int16, p int, rows *[17][]uint8) {
-		if p > 0 {
-			row := rows[p]
-			var split int
-			switch p {
-			case 1:
-				split = rd.DecodeICDF2_8(row[0])
-			case 2:
-				split = rd.DecodeICDF3_8(row[0], row[1])
-			case 3:
-				split = rd.DecodeICDF4_8(row[0], row[1], row[2])
-			case 4:
-				split = rd.DecodeICDF5_8(row[0], row[1], row[2], row[3])
-			default:
-				split = rd.DecodeICDF8Unchecked(row)
-			}
-			*c1 = int16(split)
-			*c2 = int16(p - split)
-		} else {
-			*c1 = 0
-			*c2 = 0
-		}
-	}
+	pulses3[0], pulses3[1] = silkDecodeShellSplit(rd, pulses4, &silk_shell_code_table3_rows)
+	pulses2[0], pulses2[1] = silkDecodeShellSplit(rd, int(pulses3[0]), &silk_shell_code_table2_rows)
 
-	decodeSplit(&pulses3[0], &pulses3[1], pulses4, &silk_shell_code_table3_rows)
-	decodeSplit(&pulses2[0], &pulses2[1], int(pulses3[0]), &silk_shell_code_table2_rows)
+	pulses1[0], pulses1[1] = silkDecodeShellSplit(rd, int(pulses2[0]), &silk_shell_code_table1_rows)
+	pulses[0], pulses[1] = silkDecodeShellSplit(rd, int(pulses1[0]), &silk_shell_code_table0_rows)
+	pulses[2], pulses[3] = silkDecodeShellSplit(rd, int(pulses1[1]), &silk_shell_code_table0_rows)
 
-	decodeSplit(&pulses1[0], &pulses1[1], int(pulses2[0]), &silk_shell_code_table1_rows)
-	decodeSplit(&pulses[0], &pulses[1], int(pulses1[0]), &silk_shell_code_table0_rows)
-	decodeSplit(&pulses[2], &pulses[3], int(pulses1[1]), &silk_shell_code_table0_rows)
+	pulses1[2], pulses1[3] = silkDecodeShellSplit(rd, int(pulses2[1]), &silk_shell_code_table1_rows)
+	pulses[4], pulses[5] = silkDecodeShellSplit(rd, int(pulses1[2]), &silk_shell_code_table0_rows)
+	pulses[6], pulses[7] = silkDecodeShellSplit(rd, int(pulses1[3]), &silk_shell_code_table0_rows)
 
-	decodeSplit(&pulses1[2], &pulses1[3], int(pulses2[1]), &silk_shell_code_table1_rows)
-	decodeSplit(&pulses[4], &pulses[5], int(pulses1[2]), &silk_shell_code_table0_rows)
-	decodeSplit(&pulses[6], &pulses[7], int(pulses1[3]), &silk_shell_code_table0_rows)
+	pulses2[2], pulses2[3] = silkDecodeShellSplit(rd, int(pulses3[1]), &silk_shell_code_table2_rows)
 
-	decodeSplit(&pulses2[2], &pulses2[3], int(pulses3[1]), &silk_shell_code_table2_rows)
+	pulses1[4], pulses1[5] = silkDecodeShellSplit(rd, int(pulses2[2]), &silk_shell_code_table1_rows)
+	pulses[8], pulses[9] = silkDecodeShellSplit(rd, int(pulses1[4]), &silk_shell_code_table0_rows)
+	pulses[10], pulses[11] = silkDecodeShellSplit(rd, int(pulses1[5]), &silk_shell_code_table0_rows)
 
-	decodeSplit(&pulses1[4], &pulses1[5], int(pulses2[2]), &silk_shell_code_table1_rows)
-	decodeSplit(&pulses[8], &pulses[9], int(pulses1[4]), &silk_shell_code_table0_rows)
-	decodeSplit(&pulses[10], &pulses[11], int(pulses1[5]), &silk_shell_code_table0_rows)
-
-	decodeSplit(&pulses1[6], &pulses1[7], int(pulses2[3]), &silk_shell_code_table1_rows)
-	decodeSplit(&pulses[12], &pulses[13], int(pulses1[6]), &silk_shell_code_table0_rows)
-	decodeSplit(&pulses[14], &pulses[15], int(pulses1[7]), &silk_shell_code_table0_rows)
+	pulses1[6], pulses1[7] = silkDecodeShellSplit(rd, int(pulses2[3]), &silk_shell_code_table1_rows)
+	pulses[12], pulses[13] = silkDecodeShellSplit(rd, int(pulses1[6]), &silk_shell_code_table0_rows)
+	pulses[14], pulses[15] = silkDecodeShellSplit(rd, int(pulses1[7]), &silk_shell_code_table0_rows)
 }
 
 func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signalType int, quantOffsetType int, sumPulses []int) {
@@ -223,7 +221,7 @@ func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signal
 			if p>>5 == 0 {
 				pulseSum = p
 			}
-			rd.DecodeICDF2_8SignBlock(icdf0, block, pulseSum)
+			rd.DecodeICDF2_8SignBlock16(icdf0, (*[shellCodecFrameLength]int16)(block), pulseSum)
 		}
 		qPtr += shellCodecFrameLength
 	}
@@ -404,6 +402,10 @@ func silkDecodeParameters(st *decoderState, ctrl *decoderControl, condCoding int
 }
 
 func silkLPCAnalysisFilter(out []int16, in []int16, B []int16, length int, order int) {
+	if order == 16 && length >= 16 {
+		silkLPCAnalysisFilterOrder16(out, in, B, length)
+		return
+	}
 	for i := 0; i < order; i++ {
 		out[i] = 0
 	}
@@ -415,6 +417,52 @@ func silkLPCAnalysisFilter(out []int16, in []int16, B []int16, length int, order
 		outQ12 = silkLSHIFT(int32(in[ix]), 12) - outQ12
 		out32 := silkRSHIFT_ROUND(outQ12, 12)
 		out[ix] = silkSAT16(out32)
+	}
+}
+
+func silkLPCAnalysisFilterOrder16(out []int16, in []int16, B []int16, length int) {
+	_ = out[length-1]
+	_ = in[length-1]
+	_ = B[15]
+
+	clear(out[:16])
+
+	b0 := int32(B[0])
+	b1 := int32(B[1])
+	b2 := int32(B[2])
+	b3 := int32(B[3])
+	b4 := int32(B[4])
+	b5 := int32(B[5])
+	b6 := int32(B[6])
+	b7 := int32(B[7])
+	b8 := int32(B[8])
+	b9 := int32(B[9])
+	b10 := int32(B[10])
+	b11 := int32(B[11])
+	b12 := int32(B[12])
+	b13 := int32(B[13])
+	b14 := int32(B[14])
+	b15 := int32(B[15])
+
+	for ix := 16; ix < length; ix++ {
+		outQ12 := int32(in[ix-1]) * b0
+		outQ12 += int32(in[ix-2]) * b1
+		outQ12 += int32(in[ix-3]) * b2
+		outQ12 += int32(in[ix-4]) * b3
+		outQ12 += int32(in[ix-5]) * b4
+		outQ12 += int32(in[ix-6]) * b5
+		outQ12 += int32(in[ix-7]) * b6
+		outQ12 += int32(in[ix-8]) * b7
+		outQ12 += int32(in[ix-9]) * b8
+		outQ12 += int32(in[ix-10]) * b9
+		outQ12 += int32(in[ix-11]) * b10
+		outQ12 += int32(in[ix-12]) * b11
+		outQ12 += int32(in[ix-13]) * b12
+		outQ12 += int32(in[ix-14]) * b13
+		outQ12 += int32(in[ix-15]) * b14
+		outQ12 += int32(in[ix-16]) * b15
+		outQ12 = (int32(in[ix]) << 12) - outQ12
+		out[ix] = silkSAT16(silkRSHIFT_ROUND(outQ12, 12))
 	}
 }
 

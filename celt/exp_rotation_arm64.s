@@ -173,9 +173,10 @@ TEXT ·expRotation1Stride1(SB), NOSPLIT, $0-48
 	FMOVD (R4), F3                // carried x[i]
 	ADD   $8, R4
 
-stride1_fwd_carry:
-	CMP   R3, R4
-	BGT   stride1_fwd_store_last
+stride1_fwd_pair_check:
+	ADD   $8, R4, R7
+	CMP   R3, R7
+	BGT   stride1_fwd_single_check
 
 	FMOVD (R4), F4                // original x[i+1]
 
@@ -188,9 +189,32 @@ stride1_fwd_carry:
 	FMADDD F3, F6, F0, F6
 	FMOVD  F6, -8(R4)
 
-	FMOVD F5, F3
-	ADD   $8, R4
-	B     stride1_fwd_carry
+	FMOVD 8(R4), F7              // original x[i+2]
+
+	// carried x[i+2] = c*x[i+2] + s*x[i+1]
+	FMULD  F1, F5, F8
+	FMADDD F7, F8, F0, F8
+
+	// final x[i+1] = c*x[i+1] + ms*x[i+2]
+	FMULD  F2, F7, F9
+	FMADDD F5, F9, F0, F9
+	FMOVD  F9, (R4)
+
+	FMOVD F8, F3
+	ADD   $16, R4
+	B     stride1_fwd_pair_check
+
+stride1_fwd_single_check:
+	CMP   R3, R4
+	BGT   stride1_fwd_store_last
+
+	FMOVD (R4), F4
+	FMULD  F1, F3, F5
+	FMADDD F4, F5, F0, F5
+	FMULD  F2, F4, F6
+	FMADDD F3, F6, F0, F6
+	FMOVD  F6, -8(R4)
+	FMOVD  F5, F3
 
 stride1_fwd_store_last:
 	FMOVD F3, (R3)
@@ -206,9 +230,10 @@ stride1_fwd_store_last:
 	FMOVD (R3), F4                // carried x[i+1]
 	SUB   $8, R3, R4              // R4 = &x[length-3]
 
-stride1_bwd_carry:
-	CMP   R0, R4
-	BLT   stride1_bwd_store_first
+stride1_bwd_pair_check:
+	SUB   $8, R4, R7
+	CMP   R0, R7
+	BLT   stride1_bwd_single_check
 
 	FMOVD (R4), F3                // x[i]
 
@@ -221,9 +246,32 @@ stride1_bwd_carry:
 	FMULD  F2, F4, F6
 	FMADDD F3, F6, F0, F6
 
-	FMOVD F6, F4
-	SUB   $8, R4
-	B     stride1_bwd_carry
+	FMOVD -8(R4), F7             // x[i-1]
+
+	// final x[i] = c*x[i] + s*x[i-1]
+	FMULD  F1, F7, F8
+	FMADDD F6, F8, F0, F8
+	FMOVD  F8, (R4)
+
+	// carried x[i-1] = c*x[i-1] + ms*x[i]
+	FMULD  F2, F6, F9
+	FMADDD F7, F9, F0, F9
+
+	FMOVD F9, F4
+	SUB   $16, R4
+	B     stride1_bwd_pair_check
+
+stride1_bwd_single_check:
+	CMP   R0, R4
+	BLT   stride1_bwd_store_first
+
+	FMOVD (R4), F3
+	FMULD  F1, F3, F5
+	FMADDD F4, F5, F0, F5
+	FMOVD  F5, 8(R4)
+	FMULD  F2, F4, F6
+	FMADDD F3, F6, F0, F6
+	FMOVD  F6, F4
 
 stride1_bwd_store_first:
 	FMOVD F4, (R0)

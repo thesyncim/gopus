@@ -194,19 +194,31 @@ func synthesizeChannelWithOverlapScratch(coeffs []float64, prevOverlap []float64
 
 		// Process each short block and write into the shared buffer.
 		// Use float32 IMDCT to match libopus precision for transient frames.
-		for b := 0; b < shortBlocks; b++ {
-			// Extract interleaved coefficients for this short block
-			for i := 0; i < shortSize; i++ {
-				idx := b + i*shortBlocks
-				if idx < frameSize {
+		if shortSize*shortBlocks == frameSize {
+			for b := 0; b < shortBlocks; b++ {
+				idx := b
+				for i := 0; i < shortSize; i++ {
 					shortCoeffs[i] = coeffs[idx]
-				} else {
-					shortCoeffs[i] = 0
+					idx += shortBlocks
 				}
-			}
 
-			blockStart := b * shortSize
-			imdctInPlaceScratchF32(shortCoeffs[:shortSize], out, blockStart, overlap, scratchF32)
+				blockStart := b * shortSize
+				imdctInPlaceScratchF32(shortCoeffs[:shortSize], out, blockStart, overlap, scratchF32)
+			}
+		} else {
+			for b := 0; b < shortBlocks; b++ {
+				for i := 0; i < shortSize; i++ {
+					idx := b + i*shortBlocks
+					if idx < frameSize {
+						shortCoeffs[i] = coeffs[idx]
+					} else {
+						shortCoeffs[i] = 0
+					}
+				}
+
+				blockStart := b * shortSize
+				imdctInPlaceScratchF32(shortCoeffs[:shortSize], out, blockStart, overlap, scratchF32)
+			}
 		}
 
 		return out[:frameSize]

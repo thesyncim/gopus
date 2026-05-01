@@ -39,37 +39,40 @@ func (d *Decoder) decodeLaplace(fs int, decay int) int {
 	if rd == nil {
 		return 0
 	}
+	return decodeLaplaceWithRangeDecoder(rd, fs, decay)
+}
 
-	fm := int(d.decodeBin(laplaceFTBits))
-	val := 0
-	fl := 0
-	if fm >= fs {
-		val++
-		fl = fs
-		fs = ec_laplace_get_freq1(fs, decay) + laplaceMinP
-		for fs > laplaceMinP && fm >= fl+2*fs {
-			fs *= 2
-			fl += fs
-			fs = ((fs - 2*laplaceMinP) * decay >> 15) + laplaceMinP
-			val++
-		}
-		if fs <= laplaceMinP {
-			di := (fm - fl) >> (laplaceLogMinP + 1)
-			val += di
-			fl += 2 * di * laplaceMinP
-		}
-		if fm < fl+fs {
-			val = -val
-		} else {
-			fl += fs
-		}
+func decodeLaplaceWithRangeDecoder(rd *rangecoding.Decoder, fs int, decay int) int {
+	fm := int(rd.DecodeBin(laplaceFTBits))
+	if fm < fs {
+		rd.Update(0, uint32(fs), uint32(laplaceFS))
+		return 0
 	}
 
+	val := 1
+	fl := fs
+	fs = ec_laplace_get_freq1(fs, decay) + laplaceMinP
+	for fs > laplaceMinP && fm >= fl+2*fs {
+		fs *= 2
+		fl += fs
+		fs = ((fs - 2*laplaceMinP) * decay >> 15) + laplaceMinP
+		val++
+	}
+	if fs <= laplaceMinP {
+		di := (fm - fl) >> (laplaceLogMinP + 1)
+		val += di
+		fl += 2 * di * laplaceMinP
+	}
+	if fm < fl+fs {
+		val = -val
+	} else {
+		fl += fs
+	}
 	fh := fl + fs
 	if fh > laplaceFS {
 		fh = laplaceFS
 	}
-	d.updateRange(uint32(fl), uint32(fh), uint32(laplaceFS))
+	rd.Update(uint32(fl), uint32(fh), uint32(laplaceFS))
 	return val
 }
 
@@ -178,7 +181,7 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 				}
 				fs := int(prob[pi]) << 7
 				decay := int(prob[pi+1]) << 6
-				qi = d.decodeLaplace(fs, decay)
+				qi = decodeLaplaceWithRangeDecoder(rd, fs, decay)
 			} else if remaining >= 2 {
 				qi = rd.DecodeICDF(smallEnergyICDF, 2)
 				qi = (qi >> 1) ^ -(qi & 1)
