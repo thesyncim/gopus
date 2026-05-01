@@ -1,5 +1,5 @@
-//go:build !gopus_dred
-// +build !gopus_dred
+//go:build !gopus_dred && !gopus_qext
+// +build !gopus_dred,!gopus_qext
 
 package gopus_test
 
@@ -18,5 +18,5 @@ func ExampleSupportsOptionalExtension() {
 	// dnn_blob: true
 	// dred: false
 	// osce_bwe: false
-	// qext: true
+	// qext: false
 }

@@ -17,8 +17,9 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 		energiesL := energies[:end]
 		energiesR := energies[end:]
 		if qext != nil && qext.end > 0 {
-			specL := ensureFloat64Slice(&d.scratchQEXTSpectrumL, len(coeffsL))
-			specR := ensureFloat64Slice(&d.scratchQEXTSpectrumR, len(coeffsR))
+			qextState := d.ensureQEXTState()
+			specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
+			specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
 			denormalizeBandsPackedInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:])
 			denormalizeBandsPackedInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:])
 			if qext.coeffsL != nil {
@@ -42,7 +43,8 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 		}
 	} else {
 		if qext != nil && qext.end > 0 {
-			specL := ensureFloat64Slice(&d.scratchQEXTSpectrumL, len(coeffsL))
+			qextState := d.ensureQEXTState()
+			specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
 			denormalizeBandsPackedInto(specL, coeffsL, energies, 0, end, lm, EBands[:])
 			if qext.coeffsL != nil {
 				denormalizeBandsPackedInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)

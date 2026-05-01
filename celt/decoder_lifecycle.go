@@ -92,9 +92,11 @@ func (d *Decoder) Reset() {
 
 	// Clear range decoder reference
 	d.rangeDecoder = nil
-	d.pendingQEXTPayload = nil
-	for i := range d.qextOldBandE {
-		d.qextOldBandE[i] = 0
+	if d.qext != nil {
+		d.qext.pendingPayload = nil
+		for i := range d.qext.oldBandE {
+			d.qext.oldBandE[i] = 0
+		}
 	}
 
 	// Reset bandwidth to fullband

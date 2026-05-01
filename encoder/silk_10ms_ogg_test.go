@@ -269,6 +269,10 @@ func findOpusdec() string {
 
 func decodeOggWithOpusdec(t *testing.T, opusdec string, oggData []byte) []float32 {
 	t.Helper()
+	if raceEnabled {
+		t.Log("race detector active; using internal SILK decode fallback instead of opusdec")
+		return decodeOggWithInternalSILK(t, oggData)
+	}
 	if opusdec == "" {
 		return decodeOggWithInternalSILK(t, oggData)
 	}

@@ -6,6 +6,5 @@ package extsupport
 // default builds and hot paths do not pay to probe them dynamically.
 const (
 	DNNBlob = true
-	QEXT    = true
 	OSCEBWE = false
 )

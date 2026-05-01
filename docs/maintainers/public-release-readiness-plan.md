@@ -1,6 +1,6 @@
 # Public Release Readiness Plan
 
-Last updated: 2026-04-30
+Last updated: 2026-05-01
 
 ## Goal
 
@@ -20,6 +20,7 @@ Current external assessment:
 
 2. The public API contract must keep supported vs unsupported features explicit.
 - DRED control and standalone surfaces are now supported behind `gopus_dred`; quarantine builds may expose the same controls/helpers under `gopus_unsupported_controls` for parity work without reporting support, while default builds keep those controls absent and DRED runtime hooks dormant.
+- QEXT control and packet-extension surfaces are now supported behind `gopus_qext`; `make test-qext-parity` builds against a QEXT-enabled libopus reference, while default builds keep QEXT controls absent and packet-extension plumbing dormant.
 - OSCE BWE remains quarantine-only behind `gopus_unsupported_controls`, and that quarantine tag does not make `SupportsOptionalExtension(...)` report support.
 - README, package docs, release notes, and optional-extension docs should stay aligned as new seams graduate.
 
@@ -183,6 +184,7 @@ Owned centrally:
 
 Run focused checks per workstream while iterating:
 - Public contract: targeted package tests covering the affected exported controls and docs examples
+- Optional extension parity: `make test-dred-tag` and `make test-qext-parity`
 - Static analysis: `make lint`
 - Consumer proofing: targeted example tests and the external-module smoke path
 
@@ -192,7 +194,7 @@ Run before calling the work merge-ready:
 ## Open Decisions
 
 1. Unsupported default-build extension controls:
-- Current direction: DRED is explicitly supported only with `-tags gopus_dred`; OSCE BWE remains quarantined behind `-tags gopus_unsupported_controls`; default builds should keep unsupported controls absent rather than relying on "returns unsupported" alone.
+- Current direction: DRED is explicitly supported only with `-tags gopus_dred`, QEXT is explicitly supported only with `-tags gopus_qext`, OSCE BWE remains quarantined behind `-tags gopus_unsupported_controls`, and default builds should keep unsupported controls absent rather than relying on "returns unsupported" alone.
 
 2. First public release scope:
 - Preferred direction: tag `v0.1.0` only after the stable-core contract is written down and reflected in pkg.go.dev output.

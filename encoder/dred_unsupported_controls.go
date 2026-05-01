@@ -23,6 +23,9 @@ func (e *Encoder) SetDREDDuration(duration int) error {
 	if duration == 0 && e.dred == nil {
 		return nil
 	}
+	if duration > 0 {
+		e.ensureExtensionPacketScratch()
+	}
 	extra := e.ensureDREDExtras()
 	extra.duration = duration
 	if duration == 0 {

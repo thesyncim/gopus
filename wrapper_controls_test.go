@@ -188,7 +188,7 @@ func TestSupportsOptionalExtension(t *testing.T) {
 	}{
 		{name: "dred", ext: OptionalExtensionDRED, want: extsupport.DRED},
 		{name: "dnn_blob", ext: OptionalExtensionDNNBlob, want: true},
-		{name: "qext", ext: OptionalExtensionQEXT, want: true},
+		{name: "qext", ext: OptionalExtensionQEXT, want: extsupport.QEXT},
 		{name: "osce_bwe", ext: OptionalExtensionOSCEBWE, want: false},
 		{name: "unknown", ext: OptionalExtension("future_ext"), want: false},
 	}

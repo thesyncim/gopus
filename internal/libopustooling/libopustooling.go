@@ -30,10 +30,22 @@ func DefaultSearchRoots() []string {
 }
 
 func findLibopusTool(version string, roots []string, tool string) (string, bool) {
-	return findLibopusToolForOS(version, roots, tool, runtime.GOOS)
+	return findLibopusToolInSourceForOS(version, roots, "", tool, runtime.GOOS)
 }
 
 func findLibopusToolForOS(version string, roots []string, tool, goos string) (string, bool) {
+	return findLibopusToolInSourceForOS(version, roots, "", tool, goos)
+}
+
+func findQEXTLibopusTool(version string, roots []string, tool string) (string, bool) {
+	return findLibopusToolInSourceForOS(version, roots, "-qext", tool, runtime.GOOS)
+}
+
+func findQEXTLibopusToolForOS(version string, roots []string, tool, goos string) (string, bool) {
+	return findLibopusToolInSourceForOS(version, roots, "-qext", tool, goos)
+}
+
+func findLibopusToolInSourceForOS(version string, roots []string, sourceSuffix string, tool, goos string) (string, bool) {
 	if version == "" {
 		version = DefaultVersion
 	}
@@ -44,7 +56,7 @@ func findLibopusToolForOS(version string, roots []string, tool, goos string) (st
 	seen := make(map[string]struct{}, len(roots)*2)
 	for _, root := range roots {
 		for _, candidate := range libopusToolCandidates(tool, goos) {
-			p := filepath.Clean(filepath.Join(root, "tmp_check", "opus-"+version, candidate))
+			p := filepath.Clean(filepath.Join(root, "tmp_check", "opus-"+version+sourceSuffix, candidate))
 			if _, ok := seen[p]; ok {
 				continue
 			}
@@ -79,6 +91,12 @@ func FindOpusDemo(version string, roots []string) (string, bool) {
 	return findLibopusTool(version, roots, "opus_demo")
 }
 
+// FindQEXTOpusDemo returns the first executable QEXT-enabled opus_demo build
+// found under tmp_check.
+func FindQEXTOpusDemo(version string, roots []string) (string, bool) {
+	return findQEXTLibopusTool(version, roots, "opus_demo")
+}
+
 // FindOpusCompare returns the first executable opus_compare found under tmp_check.
 func FindOpusCompare(version string, roots []string) (string, bool) {
 	return findLibopusTool(version, roots, "opus_compare")
@@ -86,6 +104,16 @@ func FindOpusCompare(version string, roots []string) (string, bool) {
 
 // EnsureLibopus invokes tools/ensure_libopus.sh from the first matching root.
 func EnsureLibopus(version string, roots []string) {
+	ensureLibopus(version, roots, false)
+}
+
+// EnsureLibopusQEXT invokes tools/ensure_libopus.sh with ENABLE_QEXT enabled
+// from the first matching root.
+func EnsureLibopusQEXT(version string, roots []string) {
+	ensureLibopus(version, roots, true)
+}
+
+func ensureLibopus(version string, roots []string, qext bool) {
 	if version == "" {
 		version = DefaultVersion
 	}
@@ -109,7 +137,11 @@ func EnsureLibopus(version string, roots []string) {
 			shell = "sh"
 		}
 		cmd := exec.Command(shell, script)
-		cmd.Env = append(os.Environ(), "LIBOPUS_VERSION="+version)
+		env := append(os.Environ(), "LIBOPUS_VERSION="+version)
+		if qext {
+			env = append(env, "LIBOPUS_ENABLE_QEXT=1")
+		}
+		cmd.Env = env
 		_, _ = cmd.CombinedOutput()
 		return
 	}
@@ -122,6 +154,16 @@ func FindOrEnsureOpusDemo(version string, roots []string) (string, bool) {
 	}
 	EnsureLibopus(version, roots)
 	return FindOpusDemo(version, roots)
+}
+
+// FindOrEnsureQEXTOpusDemo tries to locate a QEXT-enabled opus_demo and
+// auto-bootstraps once if missing.
+func FindOrEnsureQEXTOpusDemo(version string, roots []string) (string, bool) {
+	if p, ok := FindQEXTOpusDemo(version, roots); ok {
+		return p, true
+	}
+	EnsureLibopusQEXT(version, roots)
+	return FindQEXTOpusDemo(version, roots)
 }
 
 // FindOrEnsureOpusCompare tries to locate opus_compare and auto-bootstraps once if missing.

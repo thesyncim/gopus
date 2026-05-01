@@ -15,7 +15,7 @@ import (
 // OpusDemoPath resolves the pinned libopus reference binary used by parity tooling.
 func OpusDemoPath() (string, error) {
 	if p := os.Getenv("OPUS_DEMO_PATH"); p != "" {
-		if info, err := os.Stat(p); err == nil && !info.IsDir() && info.Mode()&0o111 != 0 {
+		if opusDemoIsExecutable(p) {
 			return p, nil
 		}
 		return "", fmt.Errorf("OPUS_DEMO_PATH=%q is not an executable file", p)
@@ -24,6 +24,11 @@ func OpusDemoPath() (string, error) {
 		return p, nil
 	}
 	return "", fmt.Errorf("opus_demo not found under tmp_check/opus-%s (run: make ensure-libopus)", libopustooling.DefaultVersion)
+}
+
+func opusDemoIsExecutable(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 }
 
 // OpusDemoSupportsQEXT reports whether the selected opus_demo binary was built
@@ -44,18 +49,37 @@ func OpusDemoSupportsQEXT(path string) (bool, error) {
 // The default pinned tmp_check build does not guarantee ENABLE_QEXT, so callers
 // should use this helper for QEXT-specific parity tests.
 func QEXTOpusDemoPath() (string, error) {
-	p, err := OpusDemoPath()
-	if err != nil {
-		return "", err
+	if p := os.Getenv("GOPUS_QEXT_OPUS_DEMO_PATH"); p != "" {
+		return requireQEXTOpusDemo("GOPUS_QEXT_OPUS_DEMO_PATH", p)
 	}
-	ok, err := OpusDemoSupportsQEXT(p)
+
+	if p := os.Getenv("OPUS_DEMO_PATH"); p != "" && opusDemoIsExecutable(p) {
+		if ok, err := OpusDemoSupportsQEXT(p); err != nil {
+			return "", err
+		} else if ok {
+			return p, nil
+		}
+	}
+
+	if p, ok := libopustooling.FindOrEnsureQEXTOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); ok {
+		return requireQEXTOpusDemo("QEXT pinned libopus", p)
+	}
+
+	return "", fmt.Errorf("QEXT-enabled opus_demo not found; run: make ensure-libopus-qext")
+}
+
+func requireQEXTOpusDemo(label, path string) (string, error) {
+	if !opusDemoIsExecutable(path) {
+		return "", fmt.Errorf("%s=%q is not an executable file", label, path)
+	}
+	ok, err := OpusDemoSupportsQEXT(path)
 	if err != nil {
 		return "", err
 	}
 	if !ok {
-		return "", fmt.Errorf("opus_demo at %q was built without ENABLE_QEXT; set OPUS_DEMO_PATH to a QEXT-enabled build", p)
+		return "", fmt.Errorf("opus_demo at %q was built without ENABLE_QEXT; run: make ensure-libopus-qext", path)
 	}
-	return p, nil
+	return path, nil
 }
 
 // FrameSizeArg converts a frame size in samples at 48 kHz to the opus_demo CLI value.

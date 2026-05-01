@@ -175,16 +175,6 @@ func (d *Decoder) FinalRange() uint32 {
 	return d.celtDecoder.FinalRange()
 }
 
-// SyncCELTAfterDREDLoss aligns the retained inner CELT cadence with a
-// DRED/neural loss so the next hybrid packet follows the same loss-history
-// branch libopus would use.
-func (d *Decoder) SyncCELTAfterDREDLoss() {
-	if d == nil || d.celtDecoder == nil {
-		return
-	}
-	d.celtDecoder.SyncAfterDREDLoss()
-}
-
 // ValidHybridFrameSize returns true if the frame size is valid for hybrid mode.
 // Hybrid only supports 10ms (480 samples) and 20ms (960 samples) at 48kHz.
 func ValidHybridFrameSize(frameSize int) bool {

@@ -1,6 +1,9 @@
 package celt
 
-import "github.com/thesyncim/gopus/rangecoding"
+import (
+	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/rangecoding"
+)
 
 func packetChannelsFromStereoFlag(packetStereo bool) int {
 	if packetStereo {
@@ -186,7 +189,10 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	codedBands := allocation.codedBands
 
 	d.DecodeFineEnergy(monoEnergies, end, fineQuant)
-	qext := d.prepareQEXTDecode(qextPayload, rd, end, lm, frameSize)
+	var qext *preparedQEXTDecode
+	if extsupport.QEXT {
+		qext = d.prepareQEXTDecode(qextPayload, rd, end, lm, frameSize)
+	}
 	if qext != nil {
 		d.decodeFineEnergyWithDecoderPrev(qext.dec, monoEnergies, end, fineQuant, qext.extraQuant[:end])
 	}
@@ -219,7 +225,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 
 	bitsLeft := totalBits - rd.Tell()
-	if len(qextPayload) != 0 {
+	if extsupport.QEXT && len(qextPayload) != 0 {
 		d.DecodeEnergyFinaliseRange(start, end, nil, fineQuant, finePriority, bitsLeft)
 	} else {
 		d.DecodeEnergyFinalise(monoEnergies, end, fineQuant, finePriority, bitsLeft)
@@ -230,7 +236,8 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 
 	if qext != nil && qext.end > 0 {
-		specMono := ensureFloat64Slice(&d.scratchQEXTSpectrumL, len(coeffsMono))
+		qextState := d.ensureQEXTState()
+		specMono := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsMono))
 		denormalizeBandsPackedInto(specMono, coeffsMono, monoEnergies, 0, end, lm, EBands[:])
 		if qext.coeffsL != nil {
 			denormalizeBandsPackedInto(specMono, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
@@ -421,7 +428,10 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	codedBands := allocation.codedBands
 
 	d.DecodeFineEnergy(energies, end, fineQuant)
-	qext := d.prepareQEXTDecode(qextPayload, rd, end, lm, frameSize)
+	var qext *preparedQEXTDecode
+	if extsupport.QEXT {
+		qext = d.prepareQEXTDecode(qextPayload, rd, end, lm, frameSize)
+	}
 	if qext != nil {
 		d.decodeFineEnergyWithDecoderPrev(qext.dec, energies, end, fineQuant, qext.extraQuant[:end])
 	}
@@ -454,7 +464,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	}
 
 	bitsLeft := totalBits - rd.Tell()
-	if len(qextPayload) != 0 {
+	if extsupport.QEXT && len(qextPayload) != 0 {
 		d.DecodeEnergyFinaliseRange(start, end, nil, fineQuant, finePriority, bitsLeft)
 	} else {
 		d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)
@@ -467,8 +477,9 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	energiesL := energies[:end]
 	energiesR := energies[end:]
 	if qext != nil && qext.end > 0 {
-		specL := ensureFloat64Slice(&d.scratchQEXTSpectrumL, len(coeffsL))
-		specR := ensureFloat64Slice(&d.scratchQEXTSpectrumR, len(coeffsR))
+		qextState := d.ensureQEXTState()
+		specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
+		specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
 		denormalizeBandsPackedInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:])
 		denormalizeBandsPackedInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:])
 		if qext.coeffsL != nil {

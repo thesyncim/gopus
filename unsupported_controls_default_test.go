@@ -1,5 +1,5 @@
-//go:build !gopus_unsupported_controls && !gopus_dred
-// +build !gopus_unsupported_controls,!gopus_dred
+//go:build !gopus_unsupported_controls && !gopus_dred && !gopus_qext
+// +build !gopus_unsupported_controls,!gopus_dred,!gopus_qext
 
 package gopus
 
@@ -10,6 +10,9 @@ func TestDefaultBuildQuarantinesUnsupportedControls(t *testing.T) {
 	if _, ok := any(enc).(unsupportedDREDControl); ok {
 		t.Fatal("Encoder unexpectedly exposes DRED control in the default build")
 	}
+	if _, ok := any(enc).(qextEncoderControl); ok {
+		t.Fatal("Encoder unexpectedly exposes QEXT control in the default build")
+	}
 
 	dec := newMonoTestDecoder(t)
 	if _, ok := any(dec).(unsupportedOSCEBWEControl); ok {
@@ -19,6 +22,9 @@ func TestDefaultBuildQuarantinesUnsupportedControls(t *testing.T) {
 	msEnc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
 	if _, ok := any(msEnc).(unsupportedDREDControl); ok {
 		t.Fatal("MultistreamEncoder unexpectedly exposes DRED control in the default build")
+	}
+	if _, ok := any(msEnc).(qextEncoderControl); ok {
+		t.Fatal("MultistreamEncoder unexpectedly exposes QEXT control in the default build")
 	}
 
 	msDec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
