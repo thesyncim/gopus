@@ -109,7 +109,7 @@ Packet loss concealment uses `dec.Decode(nil, pcmOut)`. If you prefer convenienc
 | Streaming facade | Supported | `Reader` / `Writer` |
 | Allocating convenience helpers | Supported | Simpler to use, but not zero-allocation |
 | Low-level codec packages | Experimental | May change before `v1` |
-| Optional libopus build-time extensions | Mixed | `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()` are supported in the default build. DRED control and standalone surfaces are supported with `-tags gopus_dred`, which exposes `SetDREDDuration(...)` / `DREDDuration()` and standalone `DREDDecoder` / `DRED` helpers. Broader DRED audio-path parity remains seam-specific. OSCE BWE remains quarantine-only under `-tags gopus_unsupported_controls`. See [Optional Extensions](docs/optional-extensions.md) |
+| Optional libopus build-time extensions | Mixed | `SetDNNBlob(...)` plus `SetQEXT(...)` / `QEXT()` are supported in the default build. DRED control and standalone surfaces are supported with `-tags gopus_dred`, which exposes `SetDREDDuration(...)` / `DREDDuration()` and standalone `DREDDecoder` / `DRED` helpers; `gopus_unsupported_controls` may expose the same DRED surfaces for parity work without reporting support. Broader DRED audio-path parity remains seam-specific. OSCE BWE remains quarantine-only under `-tags gopus_unsupported_controls`. See [Optional Extensions](docs/optional-extensions.md) |
 
 Environment and codec expectations:
 
