@@ -32,6 +32,39 @@ func requireDREDRuntimeForTest(t *testing.T) {
 	}
 }
 
+func TestDecoderDNNBlobOnlyDoesNotArmGoodPacketDREDWork(t *testing.T) {
+	requireDREDRuntimeForTest(t)
+
+	dec := mustNewTestDecoder(t, 48000, 1)
+	if err := dec.SetDNNBlob(makeValidDecoderControlWithDREDDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if !dec.dredNeuralModelsLoaded() {
+		t.Fatal("decoder did not retain neural model readiness")
+	}
+	if dec.dredPayloadScannerActive() {
+		t.Fatal("main decoder SetDNNBlob armed standalone DRED payload scanning")
+	}
+	if dec.dredGoodPacketMarkerActive() {
+		t.Fatal("main decoder SetDNNBlob armed good-packet DRED marker work")
+	}
+
+	packet := testCELTPacket()
+	pcm := make([]float32, 960)
+	if _, err := dec.Decode(packet, pcm); err != nil {
+		t.Fatalf("Decode(good packet) error: %v", err)
+	}
+	if dec.dredPayloadScannerActive() {
+		t.Fatal("good packet armed standalone DRED payload scanning")
+	}
+	if dec.dredGoodPacketMarkerActive() {
+		t.Fatal("good packet armed DRED marker work without payload/recovery state")
+	}
+	if state := dec.dredState(); state != nil {
+		t.Fatalf("good packet with control-only DNN blob woke DRED sidecar: %+v", state)
+	}
+}
+
 func makeExperimentalDREDPayloadBodyForTest(t *testing.T, dredFrameOffset, dredOffset int) []byte {
 	t.Helper()
 

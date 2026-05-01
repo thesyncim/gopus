@@ -443,9 +443,18 @@ func (d *Decoder) dredSidecarActive() bool {
 	return (p != nil && p.dredModelLoaded) || d.dredNeuralModelsLoaded()
 }
 
+func (d *Decoder) dredPayloadScannerActive() bool {
+	p := d.dredPayloadState()
+	return p != nil && p.dredModelLoaded && !d.ignoreExtensions
+}
+
 func (d *Decoder) dredCachedPayloadActive() bool {
 	p := d.dredPayloadState()
 	return p != nil && p.dredModelLoaded && !d.ignoreExtensions && !p.dredCache.Empty()
+}
+
+func (d *Decoder) dredGoodPacketMarkerActive() bool {
+	return d.dredRecoveryState() != nil || d.dred48kBridgeState() != nil
 }
 
 func (d *Decoder) dredNeedsCELTFloatPath() bool {

@@ -71,7 +71,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		d.lastFrameSize = frameSize
 		d.lastPacketDuration = frameSize
 		d.lastDataLen = 0
-		if extsupport.DREDRuntime && !usedNeuralConcealment && d.dredSidecarActive() {
+		if extsupport.DREDRuntime && !usedNeuralConcealment && d.dredGoodPacketMarkerActive() {
 			d.markDREDConcealed()
 		}
 		return frameSize, nil
@@ -285,11 +285,13 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	}
 
 	if extsupport.DREDRuntime {
-		d.maybeCacheDREDPayload(data)
-		if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
-			r.dredRecovery = 0
+		if d.dredPayloadScannerActive() {
+			d.maybeCacheDREDPayload(data)
 		}
-		if d.dredSidecarActive() {
+		if d.dredGoodPacketMarkerActive() {
+			if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
+				r.dredRecovery = 0
+			}
 			d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples, toc.Mode)
 		}
 	}

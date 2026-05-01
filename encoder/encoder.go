@@ -654,7 +654,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if !e.lowDelay {
 		dredExtraDelay = e.sampleRate / 250
 	}
-	if extsupport.DREDRuntime {
+	if e.dredEncodingActive() {
 		e.processDREDLatents(framePCM, dredExtraDelay)
 	}
 
@@ -718,7 +718,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	dredBitrate := 0
 	var dredPlan dredEmissionPlan
 	dredPlanOK := false
-	if extsupport.DREDRuntime && actualMode != ModeCELT {
+	if e.dredEncodingActive() && actualMode != ModeCELT {
 		if plan, ok := e.computeDREDEmissionPlan(frameSize); ok {
 			dredPlan = plan
 			dredPlanOK = true
@@ -804,7 +804,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 			packetBW = types.BandwidthWideband
 		}
-		if extsupport.DREDRuntime {
+		if e.dredEncodingActive() {
 			if dredPacket, ok, dredErr := e.maybeBuildSingleFrameDREDPacket(frameData, actualMode, packetBW, frameSize, stereo); dredErr != nil {
 				return nil, dredErr
 			} else if ok {
@@ -2393,7 +2393,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	e.analysisReadBakSet = false
 
 	packetBW := e.effectiveBandwidth()
-	if extsupport.DREDRuntime {
+	if e.dredEncodingActive() {
 		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeHybrid, packetBW, frameSize, 960, e.channels == 2, !sameSize); err != nil {
 			return nil, err
 		} else if ok {
@@ -2447,7 +2447,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int) ([]by
 	if packetBW > types.BandwidthWideband {
 		packetBW = types.BandwidthWideband
 	}
-	if extsupport.DREDRuntime {
+	if e.dredEncodingActive() {
 		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeSILK, packetBW, frameSize, encFrameSize, e.channels == 2, !sameSize); err != nil {
 			return nil, err
 		} else if ok {
