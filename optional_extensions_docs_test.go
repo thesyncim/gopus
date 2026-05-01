@@ -83,6 +83,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"Hybrid packet-length parity",
 		"Hybrid primary-frame byte exactness",
 		"`make test-dred-tag`",
+		"pinned by `make test-unsupported-controls-tag`",
 		"mirrored by `make test-unsupported-controls-parity`",
 		"`SetOSCEBWE(...)` / `OSCEBWE()` are absent unless built with `-tags gopus_unsupported_controls`",
 		"The `gopus_unsupported_controls` build remains a parity/quarantine umbrella",
@@ -116,10 +117,13 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"zero-allocation and leaves the encoder DRED runtime dormant while",
 		"The public caller-buffer `Encoder` and",
 		"`Decoder` paths also keep DRED model-only control state from arming the encoder",
-		"`make test-unsupported-controls-parity` mirrors those encoder seams, the",
-		"real-model PitchDNN and RDOVAE encoder oracles, the",
-		"conceal-analysis oracle, plus bootstrap and",
-		"bookkeeping coverage",
+		"`make test-unsupported-controls-tag` pins the quarantine",
+		"API exposure, standalone/control smoke, cached DRED recovery bookkeeping, and",
+		"dormant-runtime checks",
+		"`make test-unsupported-controls-parity` mirrors the supported encoder seams and",
+		"adds parser availability, internal converter/payload/basic-analysis coverage,",
+		"real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle,",
+		"and 48 kHz bootstrap coverage",
 	} {
 		if !strings.Contains(optionalDoc, needle) {
 			t.Fatalf("docs/optional-extensions.md missing %q", needle)

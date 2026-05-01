@@ -40,11 +40,13 @@ standalone process state/feature parity, standalone recovery scheduling parity,
 and decoder cached recovery bookkeeping parity plus the supported-tag SILK
 wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload/primary-frame
 seams, the Hybrid fullband 20 ms payload-only seam, and the SILK 20 ms
-primary-budget seam, while
-`make test-unsupported-controls-parity` mirrors those encoder seams, the
-real-model PitchDNN and RDOVAE encoder oracles, the
-conceal-analysis oracle, plus bootstrap and
-bookkeeping coverage. In
+primary-budget seam. `make test-unsupported-controls-tag` pins the quarantine
+API exposure, standalone/control smoke, cached DRED recovery bookkeeping, and
+dormant-runtime checks without changing support probes.
+`make test-unsupported-controls-parity` mirrors the supported encoder seams and
+adds parser availability, internal converter/payload/basic-analysis coverage,
+real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle,
+and 48 kHz bootstrap coverage. In
 default builds, DRED controls are absent and
 encode/decode hot paths do not enter DRED runtime hooks. The internal encoder
 DRED runtime, top-level decoder DRED internals, and multistream decoder DRED
