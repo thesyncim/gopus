@@ -91,7 +91,7 @@ func ensureLibopusPLCBuild() (sourceDir, buildDir string, err error) {
 		sourceDir = filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+"-dredsrc-clean")
 		buildDir = filepath.Join(repoRoot, "tmp_check", fmt.Sprintf("build-opus-dred-scalar-%s-%s", runtime.GOOS, runtime.GOARCH))
 		libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
-		if _, err := os.Stat(libopusStatic); err == nil {
+		if _, err := os.Stat(libopusStatic); err == nil && libopustooling.ScalarDNNBuildIsCurrent(buildDir) {
 			libopusPLCSourceDir = sourceDir
 			libopusPLCBuildDir = buildDir
 			return
@@ -125,6 +125,10 @@ func ensureLibopusPLCBuild() (sourceDir, buildDir string, err error) {
 				return
 			}
 		}
+		if err := libopustooling.ResetScalarDNNBuildIfStale(buildDir); err != nil {
+			libopusPLCBuildErr = fmt.Errorf("reset stale libopus scalar build dir: %w", err)
+			return
+		}
 		if err := os.MkdirAll(buildDir, 0o755); err != nil {
 			libopusPLCBuildErr = fmt.Errorf("mkdir libopus build dir: %w", err)
 			return
@@ -140,6 +144,7 @@ func ensureLibopusPLCBuild() (sourceDir, buildDir string, err error) {
 				"--disable-intrinsics",
 			)
 			cmd.Dir = buildDir
+			cmd.Env = libopustooling.ScalarDNNBuildEnv()
 			if output, err := cmd.CombinedOutput(); err != nil {
 				libopusPLCBuildErr = fmt.Errorf("configure libopus build: %w (%s)", err, bytes.TrimSpace(output))
 				return
@@ -147,8 +152,13 @@ func ensureLibopusPLCBuild() (sourceDir, buildDir string, err error) {
 		}
 		makeCmd := exec.Command("make", fmt.Sprintf("-j%d", max(1, runtime.NumCPU())))
 		makeCmd.Dir = buildDir
+		makeCmd.Env = libopustooling.ScalarDNNBuildEnv()
 		if output, err := makeCmd.CombinedOutput(); err != nil {
 			libopusPLCBuildErr = fmt.Errorf("build libopus: %w (%s)", err, bytes.TrimSpace(output))
+			return
+		}
+		if err := libopustooling.WriteScalarDNNBuildStamp(buildDir); err != nil {
+			libopusPLCBuildErr = fmt.Errorf("write libopus scalar build stamp: %w", err)
 			return
 		}
 		libopusPLCSourceDir = sourceDir
