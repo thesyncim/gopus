@@ -13,7 +13,7 @@ Ship `gopus` as a dependable production codec library with:
 
 - Decoder feature-complete and stable across SILK/CELT/Hybrid.
 - Encoder compliance summary and broad libopus-relative quality validation are green.
-- Core parity/fixture coverage is green, and tag-gated DRED parity is guarded by seam-specific libopus-backed tests before any broader support claims.
+- Core parity/fixture coverage is green, and tag-gated DRED and QEXT parity are guarded by seam-specific libopus-backed tests before any broader support claims.
 - Core CI is cross-platform, but production-readiness now depends more on fail-closed gates and public API hardening than on codec-gap hunting.
 
 ## Production Success Criteria
@@ -34,7 +34,7 @@ Ship `gopus` as a dependable production codec library with:
 - CI fails closed on package load/build issues.
 - PR CI matches local production parity semantics closely enough that green means the same thing in both places.
 - CI covers race, parity, provenance, and fuzz smoke in addition to the existing test suite.
-- CI and `make verify-production` include the supported DRED tag gate plus the unsupported-controls DRED parity sweep as required gates, covering standalone DRED wrapper lifecycle/no-allocation, libopus parse/decode/process metadata checks, real-packet standalone process state/feature parity, standalone recovery scheduling parity, decoder cached recovery bookkeeping parity, the SILK wideband 20/40/60 ms mono and 20 ms stereo carried-payload/primary-frame proofs plus 20 ms primary-budget proof, the Hybrid fullband 20 ms payload-only proof, parser availability, internal converter/payload/basic-analysis seams, the real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle, and 48 kHz runtime bootstrap checks. Broader decoder audio numerical, Hybrid packet-length parity, and Hybrid primary-frame byte-exactness seams remain outside the production gate until their Linux matrix is green.
+- CI and `make verify-production` include the supported DRED and QEXT tag gates plus the unsupported-controls DRED parity sweep as required gates. The DRED gates cover standalone wrapper lifecycle/no-allocation, libopus parse/decode/process metadata checks, real-packet standalone process state/feature parity, standalone recovery scheduling parity, decoder cached recovery bookkeeping parity, the SILK wideband 20/40/60 ms mono and 20 ms stereo carried-payload/primary-frame proofs plus 20 ms primary-budget proof, the Hybrid fullband 20 ms payload-only proof, parser availability, internal converter/payload/basic-analysis seams, the real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle, and 48 kHz runtime bootstrap checks. The QEXT gate builds a separate QEXT-enabled libopus reference tree and runs no-skip packet-extension parity under `gopus_qext` while default builds keep QEXT controls absent and packet-extension plumbing dormant. Broader decoder audio numerical, Hybrid packet-length parity, and Hybrid primary-frame byte-exactness seams remain outside the production gate until their Linux matrix is green.
 
 4. Public contract clarity
 - Streaming and container constructors fail fast on misuse instead of panicking later.
@@ -72,6 +72,7 @@ Ship `gopus` as a dependable production codec library with:
   - `make test-quality`
   - `make test-fuzz-smoke`
   - `make test-dred-tag`
+  - `make test-qext-parity`
   - `make test-unsupported-controls-parity`
   - `make verify-production`
   - `make verify-production-exhaustive`

@@ -30,7 +30,6 @@ type kissFFTState struct {
 
 var (
 	// Common CELT FFT sizes are prebuilt once and reused lock-free.
-	kissFFTState320 = newKissFFTState(320)
 	kissFFTState60  = newKissFFTState(60)
 	kissFFTState120 = newKissFFTState(120)
 	kissFFTState240 = newKissFFTState(240)
@@ -91,7 +90,7 @@ func kissSub(a, b float32) float32 {
 func getKissFFTState(nfft int) *kissFFTState {
 	switch nfft {
 	case 320:
-		return kissFFTState320
+		return getKissFFTState320()
 	case 60:
 		return kissFFTState60
 	case 120:
@@ -115,13 +114,8 @@ func newKissFFTState(nfft int) *kissFFTState {
 	if !ok {
 		return &kissFFTState{nfft: nfft}
 	}
-	var bitrev []int
-	if nfft == 320 {
-		bitrev = fftBitrevLPCNet320Static[:]
-	} else {
-		bitrev = make([]int, nfft)
-		computeBitrevTableRecursive(0, bitrev, 0, 1, 1, factors)
-	}
+	bitrev := make([]int, nfft)
+	computeBitrevTableRecursive(0, bitrev, 0, 1, 1, factors)
 	w := computeTwiddles(nfft)
 
 	// Pre-compute fstride array for fftImpl (eliminates per-call allocation)
@@ -138,9 +132,16 @@ func newKissFFTState(nfft int) *kissFFTState {
 
 func newStaticKissFFTState(nfft int) *kissFFTState {
 	var factors []int
+	var bitrev []int
+	var twiddles []kissCpx
 	shift := 0
 	switch nfft {
 	case 320:
+		bitrev = staticKissFFT320Bitrev()
+		twiddles = staticKissFFT320Twiddles()
+		if bitrev == nil || twiddles == nil {
+			return nil
+		}
 		factors = []int{5, 64, 4, 16, 4, 4, 4, 1}
 		shift = -1
 	case 480:
@@ -159,8 +160,13 @@ func newStaticKissFFTState(nfft int) *kissFFTState {
 		return nil
 	}
 
-	bitrev := make([]int, nfft)
-	computeBitrevTableRecursive(0, bitrev, 0, 1, 1, factors)
+	if bitrev == nil {
+		bitrev = make([]int, nfft)
+		computeBitrevTableRecursive(0, bitrev, 0, 1, 1, factors)
+	}
+	if twiddles == nil {
+		twiddles = fftTwiddles48000_960Static[:]
+	}
 
 	maxFactors := len(factors) / 2
 	fstride := make([]int, maxFactors+1)
@@ -175,12 +181,7 @@ func newStaticKissFFTState(nfft int) *kissFFTState {
 		shift:   shift,
 		factors: factors,
 		bitrev:  bitrev,
-		w: func() []kissCpx {
-			if nfft == 320 {
-				return fftTwiddlesLPCNet320Static[:]
-			}
-			return fftTwiddles48000_960Static[:]
-		}(),
+		w:       twiddles,
 		fstride: fstride,
 	}
 }

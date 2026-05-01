@@ -1,3 +1,6 @@
+//go:build gopus_dred || gopus_unsupported_controls
+// +build gopus_dred gopus_unsupported_controls
+
 package celt
 
 // Code generated from tmp_check/opus-1.6.1/dnn/lpcnet_tables.c; DO NOT EDIT.

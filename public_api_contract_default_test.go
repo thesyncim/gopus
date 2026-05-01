@@ -1,5 +1,5 @@
-//go:build !gopus_unsupported_controls && !gopus_dred
-// +build !gopus_unsupported_controls,!gopus_dred
+//go:build !gopus_unsupported_controls && !gopus_dred && !gopus_qext
+// +build !gopus_unsupported_controls,!gopus_dred,!gopus_qext
 
 package gopus
 
@@ -34,10 +34,10 @@ func TestDefaultBuildPublicAPIContract(t *testing.T) {
 				"EncodeInt24", "EncodeInt24Slice", "ExpertFrameDuration", "FECEnabled",
 				"FinalRange", "ForceChannels", "FrameSize", "InDTX", "LSBDepth", "Lookahead",
 				"MaxBandwidth", "PacketLoss", "PhaseInversionDisabled", "PredictionDisabled",
-				"QEXT", "Reset", "SampleRate", "SetApplication", "SetBandwidth", "SetBitrate",
+				"Reset", "SampleRate", "SetApplication", "SetBandwidth", "SetBitrate",
 				"SetBitrateMode", "SetComplexity", "SetDNNBlob", "SetDTX", "SetExpertFrameDuration",
 				"SetFEC", "SetForceChannels", "SetFrameSize", "SetLSBDepth", "SetMaxBandwidth",
-				"SetPacketLoss", "SetPhaseInversionDisabled", "SetPredictionDisabled", "SetQEXT",
+				"SetPacketLoss", "SetPhaseInversionDisabled", "SetPredictionDisabled",
 				"SetSignal", "SetVBR", "SetVBRConstraint", "Signal", "VADActivity", "VBR", "VBRConstraint",
 			},
 		},
@@ -59,10 +59,10 @@ func TestDefaultBuildPublicAPIContract(t *testing.T) {
 				"EncodeInt16Slice", "EncodeInt24", "EncodeInt24Slice", "ExpertFrameDuration",
 				"FECEnabled", "FinalRange", "ForceChannels", "FrameSize", "GetFinalRange", "LSBDepth",
 				"Lookahead", "MaxBandwidth", "PacketLoss", "PhaseInversionDisabled", "PredictionDisabled",
-				"QEXT", "Reset", "SampleRate", "SetApplication", "SetBandwidth", "SetBitrate",
+				"Reset", "SampleRate", "SetApplication", "SetBandwidth", "SetBitrate",
 				"SetBitrateMode", "SetComplexity", "SetDNNBlob", "SetDTX", "SetExpertFrameDuration",
 				"SetFEC", "SetForceChannels", "SetFrameSize", "SetLSBDepth", "SetMaxBandwidth",
-				"SetPacketLoss", "SetPhaseInversionDisabled", "SetPredictionDisabled", "SetQEXT",
+				"SetPacketLoss", "SetPhaseInversionDisabled", "SetPredictionDisabled",
 				"SetSignal", "SetVBR", "SetVBRConstraint", "Signal", "Streams", "VBR", "VBRConstraint",
 			},
 		},

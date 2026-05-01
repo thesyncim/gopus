@@ -1,6 +1,9 @@
 package celt
 
-import "github.com/thesyncim/gopus/rangecoding"
+import (
+	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/rangecoding"
+)
 
 // SetRangeDecoder sets the range decoder for the current frame.
 // This must be called before decoding each frame.
@@ -23,16 +26,18 @@ func (d *Decoder) FinalRange() uint32 {
 	return 0
 }
 
-// SetQEXTPayload configures a one-shot packet-extension payload for the next
-// CELT decode call. It is used by the outer Opus decoder to forward optional
-// packet extensions without allocating.
-func (d *Decoder) SetQEXTPayload(payload []byte) {
-	d.pendingQEXTPayload = payload
-}
-
 func (d *Decoder) takeQEXTPayload() []byte {
-	payload := d.pendingQEXTPayload
-	d.pendingQEXTPayload = nil
+	if !extsupport.QEXT {
+		if d.qext != nil {
+			d.qext.pendingPayload = nil
+		}
+		return nil
+	}
+	if d.qext == nil {
+		return nil
+	}
+	payload := d.qext.pendingPayload
+	d.qext.pendingPayload = nil
 	return payload
 }
 
@@ -40,12 +45,13 @@ func (d *Decoder) prepareMainBandQEXTDecode(payload []byte, mainRD *rangecoding.
 	if len(payload) == 0 || mainRD == nil || end <= 0 {
 		return nil, nil, nil, 0
 	}
-	extDec := &d.qextRangeDecoderScratch
+	qextState := d.ensureQEXTState()
+	extDec := &qextState.rangeDecoderScratch
 	extDec.Init(payload)
 	_ = decodeQEXTHeader(extDec, d.channels, len(payload))
 
-	extraPulses := ensureIntSlice(&d.scratchQEXTPulses, end)
-	extraQuant := ensureIntSlice(&d.scratchQEXTFineQuant, end)
+	extraPulses := ensureIntSlice(&qextState.scratchPulses, end)
+	extraQuant := ensureIntSlice(&qextState.scratchFineQuant, end)
 	totalBitsQ3 := (len(payload) * 8 << bitRes) - mainRD.TellFrac() - 1
 	computeQEXTExtraAllocationDecode(0, end, totalBitsQ3, d.channels, lm, extDec, extraPulses, extraQuant)
 	return extDec, extraPulses, extraQuant, len(payload) * 8 << bitRes

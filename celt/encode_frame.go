@@ -342,7 +342,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	targetBits := targetBytes * 8
 	e.frameBits = targetBits
 	defer func() { e.frameBits = 0 }()
-	e.lastQEXTPayload = e.lastQEXTPayload[:0]
+	e.clearLastQEXTPayload()
 
 	bufSize := targetBytes
 	if bufSize < 256 {
@@ -1092,11 +1092,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	var qextExtraBits []int
 	var qextFineBits []int
 	qextPayloadBytes := 0
-	if e.qextEnabled && !e.IsHybrid() {
+	if e.qextActive() && !e.IsHybrid() {
 		minAllowed := ((re.TellFrac() + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
 		mainBytes, payloadBytes, _ := computeQEXTReservation(targetBytes, minAllowed, frameSize, e.channels, toneishness)
 		qextPayloadBytes = payloadBytes
 		if qextPayloadBytes > 0 && mainBytes > 0 {
+			qs := e.scratch.ensureQEXTScratch()
 			re.Shrink(uint32(mainBytes))
 			if re.Error() != 0 {
 				return nil, ErrEncodingFailed
@@ -1105,13 +1106,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			targetBytes = mainBytes
 			targetBits = mainBytes * 8
 
-			qextBuf := e.scratch.qextBuf[:qextPayloadBytes]
+			qextBuf := qs.buf[:qextPayloadBytes]
 			clear(qextBuf)
-			e.scratch.qextEncoder.Init(qextBuf)
-			qextEnc = &e.scratch.qextEncoder
+			qs.encoder.Init(qextBuf)
+			qextEnc = &qs.encoder
 
-			qextExtraBits = e.scratch.qextExtraBits[:MaxBands+nbQEXTBands]
-			qextFineBits = e.scratch.qextFineBits[:MaxBands+nbQEXTBands]
+			qextExtraBits = qs.extraBits[:MaxBands+nbQEXTBands]
+			qextFineBits = qs.fineBits[:MaxBands+nbQEXTBands]
 			clear(qextExtraBits)
 			clear(qextFineBits)
 		}
@@ -1217,19 +1218,20 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			qextActive = qextEnd > 0
 		}
 		if qextActive {
-			qextBandLogE = e.scratch.qextBandLogE[:qextEnd*e.channels]
-			qextBandE = e.scratch.qextBandE[:qextEnd*e.channels]
+			qs := e.scratch.ensureQEXTScratch()
+			qextBandLogE = qs.bandLogE[:qextEnd*e.channels]
+			qextBandE = qs.bandE[:qextEnd*e.channels]
 			clear(qextBandLogE)
 			clear(qextBandE)
 			if e.channels == 1 {
 				computeQEXTBandLogEInto(mdctCoeffs, &qextCfg, qextEnd, lm, qextBandE, qextBandLogE)
-				qextNormL = e.scratch.qextNormL[:frameSize]
+				qextNormL = qs.normL[:frameSize]
 				normalizeQEXTBandsInto(mdctCoeffs, &qextCfg, qextEnd, lm, qextBandE, qextNormL)
 			} else {
 				computeQEXTBandLogEInto(mdctLeft, &qextCfg, qextEnd, lm, qextBandE[:qextEnd], qextBandLogE[:qextEnd])
 				computeQEXTBandLogEInto(mdctRight, &qextCfg, qextEnd, lm, qextBandE[qextEnd:], qextBandLogE[qextEnd:])
-				qextNormL = e.scratch.qextNormL[:frameSize]
-				qextNormR = e.scratch.qextNormR[:frameSize]
+				qextNormL = qs.normL[:frameSize]
+				qextNormR = qs.normR[:frameSize]
 				normalizeQEXTBandsInto(mdctLeft, &qextCfg, qextEnd, lm, qextBandE[:qextEnd], qextNormL)
 				normalizeQEXTBandsInto(mdctRight, &qextCfg, qextEnd, lm, qextBandE[qextEnd:], qextNormR)
 			}
@@ -1243,9 +1245,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			}
 			encodeQEXTHeader(qextEnc, e.channels, hdr)
 
-			qextQuantized = e.scratch.qextQuantized[:qextEnd*e.channels]
-			qextError = e.scratch.qextError[:qextEnd*e.channels]
-			qextOldBandE := e.scratch.qextOldBandE[:MaxBands*e.channels]
+			qextQuantized = qs.quantized[:qextEnd*e.channels]
+			qextError = qs.qerr[:qextEnd*e.channels]
+			qextOldBandE := qs.oldBandE[:MaxBands*e.channels]
 			clear(qextQuantized)
 			clear(qextError)
 			clear(qextOldBandE)
@@ -1458,8 +1460,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	bytes := re.Done()
 	if qextEnc != nil {
 		qextEnc.Done()
-		e.lastQEXTPayload = qextEnc.Buffer()[:qextEnc.Storage()]
-		if len(e.lastQEXTPayload) > 0 {
+		e.setLastQEXTPayload(qextEnc.Buffer()[:qextEnc.Storage()])
+		if e.qext != nil && len(e.qext.lastPayload) > 0 {
 			e.rng ^= qextEnc.Range()
 		}
 	}
@@ -1901,7 +1903,7 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 		nbCompressed = 2
 	}
 	packetSizeCap := 1275
-	if e.qextEnabled && !e.hybrid {
+	if e.qextActive() && !e.hybrid {
 		packetSizeCap = qextPacketSizeCap
 	}
 	if nbCompressed > packetSizeCap {
@@ -1954,7 +1956,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	// In libopus VBR mode, nbCompressedBytes is the buffer cap (not bitrate-derived).
 	// The per-bitrate constraint comes from CVBR reservoir tracking.
 	packetSizeCap := 1275
-	if e.qextEnabled && !e.hybrid {
+	if e.qextActive() && !e.hybrid {
 		packetSizeCap = qextPacketSizeCap
 	}
 	vbrMaxBytes := (packetSizeCap >> (3 - lm)) - 1
@@ -2198,7 +2200,7 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	// floor_depth limit from maxDepth.
 	maxDepth := e.lastDynalloc.MaxDepth
 	bins := 0
-	if e.qextEnabled && !e.hybrid {
+	if e.qextActive() && !e.hybrid {
 		bins = qextShortMDCTSize(frameSize) << lm
 	} else if nbBands >= 2 {
 		bins = EBands[nbBands-2] << lm

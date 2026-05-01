@@ -835,7 +835,15 @@ func TestEncoder_OptionalExtensionControls(t *testing.T) {
 			} else if ok {
 				t.Fatal("non-DRED-runtime build unexpectedly exposes DRED control")
 			}
-			assertSupportedQEXTControl(t, enc)
+			qext, ok := any(enc).(qextEncoderControl)
+			if extsupport.QEXT {
+				if !ok {
+					t.Fatal("QEXT build does not expose encoder QEXT control")
+				}
+				assertSupportedQEXTControl(t, qext)
+			} else if ok {
+				t.Fatal("non-QEXT build unexpectedly exposes encoder QEXT control")
+			}
 		})
 	}
 }

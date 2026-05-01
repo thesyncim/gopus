@@ -468,21 +468,6 @@ func (e *Encoder) SetMode(mode encoder.Mode) {
 	}
 }
 
-// SetQEXT toggles the optional CELT QEXT path for all stream encoders.
-func (e *Encoder) SetQEXT(enabled bool) {
-	for _, enc := range e.encoders {
-		enc.SetQEXT(enabled)
-	}
-}
-
-// QEXT reports whether the optional CELT QEXT path is enabled.
-func (e *Encoder) QEXT() bool {
-	if len(e.encoders) > 0 {
-		return e.encoders[0].QEXT()
-	}
-	return false
-}
-
 // SetDNNBlob retains a validated USE_WEIGHTS_FILE blob and propagates it to all
 // child stream encoders. A nil blob clears the retained model.
 func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {

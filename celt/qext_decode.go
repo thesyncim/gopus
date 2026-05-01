@@ -128,16 +128,17 @@ func (d *Decoder) prepareQEXTDecode(payload []byte, mainRD *rangecoding.Decoder,
 		return nil
 	}
 
-	extDec := &d.qextRangeDecoderScratch
+	qextState := d.ensureQEXTState()
+	extDec := &qextState.rangeDecoderScratch
 	extDec.Init(payload)
 	hdr := decodeQEXTHeader(extDec, d.channels, len(payload))
 
-	qext := &d.scratchQEXTDecode
+	qext := &qextState.scratchDecode
 	*qext = preparedQEXTDecode{
 		dec:         extDec,
 		totalBitsQ3: len(payload) * (8 << bitRes),
-		extraPulses: ensureIntSlice(&d.scratchQEXTPulses, MaxBands+nbQEXTBands),
-		extraQuant:  ensureIntSlice(&d.scratchQEXTFineQuant, MaxBands+nbQEXTBands),
+		extraPulses: ensureIntSlice(&qextState.scratchPulses, MaxBands+nbQEXTBands),
+		extraQuant:  ensureIntSlice(&qextState.scratchFineQuant, MaxBands+nbQEXTBands),
 	}
 
 	var qextMode *qextModeConfig
@@ -158,7 +159,7 @@ func (d *Decoder) prepareQEXTDecode(payload []byte, mainRD *rangecoding.Decoder,
 					qext.dualStereo = 1
 				}
 
-				qext.energies = ensureFloat64Slice(&d.scratchQEXTEnergies, qext.end*d.channels)
+				qext.energies = ensureFloat64Slice(&qextState.scratchEnergies, qext.end*d.channels)
 				qext.energies = qext.energies[:qext.end*d.channels]
 				intra := extDec.Tell()+3 <= extDec.StorageBits() && extDec.DecodeBit(3) == 1
 				qext.energies = d.decodeCoarseEnergyIntoWithPrevState(qext.energies, qext.end, intra, lm, d.ensureQEXTOldBandE(), MaxBands, extDec)
@@ -200,6 +201,7 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 	for i := 0; i < qext.end; i++ {
 		zeros[i] = 0
 	}
+	qextState := d.ensureQEXTState()
 	var dummyDec rangecoding.Decoder
 	dummyDec.Init(nil)
 
@@ -221,7 +223,7 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 		qext.end,
 		disableInv,
 		&d.rng,
-		&d.scratchQEXTBands,
+		&qextState.scratchBands,
 		&dummyDec,
 		zeros[:qext.end],
 		0,
