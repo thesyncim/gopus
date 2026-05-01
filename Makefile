@@ -110,7 +110,7 @@ test-dred-tag: ensure-libopus
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(StandaloneDREDProcessMatchesLibopusOnRealPacket|StandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(StandaloneDREDRecoveryWindowMatchesLibopus|StandaloneDREDRecoveryQueueMatchesLibopus)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DecoderCachedDREDRecoveryMatchesLibopusLifecycle|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELT|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kHybrid|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELT|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPrimaryBudgetMatchesLibopusSilkWideband20ms)' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms|EncoderCarriedDREDPrimaryBudgetMatchesLibopusSilkWideband20ms)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./encoder -run 'Test(UnsupportedControlsBuildExposesQuarantinedControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDRuntimeStaysDormantUntilReady|EncoderProcessDREDLatentsDoesNotAllocate|EncoderProcessDREDLatentsDoesNotAllocate48k|MaybeBuildSingleFrameDREDPacketCarriesExtension)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./multistream -run 'TestDREDBuildTagExposesEncoderControlsOnly' -count=1
 
@@ -127,14 +127,14 @@ test-unsupported-controls-parity: ensure-libopus
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_PARITY_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/dred -run 'Test(ConvertTo16kMonoFloat64MatchesLibopus|ConvertTo16kMonoFloat64MatchesLibopusAcrossCalls|EncodeExperimentalPayloadMatchesLibopusLargeLaplaceContinuation|RDOVAEEncoderMatchesLibopusOnRealModel)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/lpcnetplc -run 'Test(LPCNetSingleFrameFeaturesFloatMatchesLibopusColdStart|LPCNetSingleFrameFeaturesFloatMatchesLibopusStatefulSequence|BurgCepstralAnalysisMatchesLibopus|PitchDNNMatchesLibopusOnRealModel)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPrimaryBudgetMatchesLibopusSilkWideband20ms)' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms|EncoderCarriedDREDPrimaryBudgetMatchesLibopusSilkWideband20ms)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(DecoderExplicitDREDFirstConcealFrameBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesManualStep48kRuntime|DecoderExplicitDREDThreeConcealFramesMixedHelpers48kRuntime)' -count=1
 
 # Broader decoder audio DRED parity sweep. It intentionally stays outside the
 # production gate until the Linux explicit/live numerical matrix is green.
 test-unsupported-controls-parity-experimental: test-unsupported-controls-parity
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/lpcnetplc -run 'Test(ConcealFrameFloatWithAnalysisMatchesLibopus)' -count=1
-	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo)' -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo)' -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_PARITY_EXPERIMENTAL_ROOT_RUN) -count=1
 
 # Primary libopus-facing focused gate.

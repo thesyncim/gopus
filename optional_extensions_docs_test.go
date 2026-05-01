@@ -100,9 +100,10 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"`make test-dred-tag` exercises standalone DRED wrapper lifecycle",
 		"zero-allocation, libopus parse/decode/process metadata coverage, and real-packet",
 		"standalone process state/feature parity, standalone recovery scheduling parity,",
-		"and decoder cached recovery bookkeeping parity plus the supported-tag narrow",
-		"`make test-unsupported-controls-parity` also enforces that carried-payload seam,",
-		"the real-model PitchDNN and RDOVAE encoder oracles, plus bootstrap and",
+		"and decoder cached recovery bookkeeping parity plus the supported-tag SILK",
+		"wideband 20/40/60 ms encoder carried-payload seams and 20 ms primary-budget",
+		"`make test-unsupported-controls-parity` mirrors those encoder",
+		"seams, the real-model PitchDNN and RDOVAE encoder oracles, plus bootstrap and",
 		"bookkeeping coverage",
 	} {
 		if !strings.Contains(optionalDoc, needle) {
