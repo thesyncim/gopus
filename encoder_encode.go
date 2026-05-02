@@ -16,7 +16,6 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 		return 0, ErrInvalidFrameSize
 	}
 	e.enc.SetFloatInputFrame(pcm)
-	defer e.enc.ClearFloatInputFrame()
 
 	pcm64 := e.scratchPCM64[:len(pcm)]
 	for i, v := range pcm {
@@ -24,6 +23,7 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	}
 
 	packet, err := e.enc.Encode(pcm64, e.frameSize)
+	e.enc.ClearFloatInputFrame()
 	if err != nil {
 		return 0, err
 	}
