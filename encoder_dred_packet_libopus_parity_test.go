@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	encpkg "github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/silk"
 )
 
 var (
@@ -122,6 +123,10 @@ func encodeUntilDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, 
 }
 
 func encodeUntilDREDPacketWithFrameIndex(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, frameSize, channels int) ([]byte, []byte, int, int) {
+	return encodeUntilDREDPacketWithFrameIndexAndTrace(t, mode, bandwidth, frameSize, channels, nil)
+}
+
+func encodeUntilDREDPacketWithFrameIndexAndTrace(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, frameSize, channels int, trace *silk.EncoderTrace) ([]byte, []byte, int, int) {
 	t.Helper()
 
 	cfg := EncoderConfig{
@@ -159,6 +164,9 @@ func encodeUntilDREDPacketWithFrameIndex(t *testing.T, mode encpkg.Mode, bandwid
 	wantMode, err := encoderModeToPublic(mode)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if trace != nil {
+		enc.enc.SetSilkTrace(trace)
 	}
 
 	packet := make([]byte, maxPacketBytesPerStream)
@@ -219,6 +227,33 @@ func assertDREDPacketFrameIndexMatchesLibopus(t *testing.T, got int, packetInfo 
 	t.Helper()
 	if got != packetInfo.frameIndex {
 		t.Fatalf("DRED packet frame index=%d want %d", got, packetInfo.frameIndex)
+	}
+}
+
+func TestEncoderCarriedDREDHybridSilkVBRMaxBitsMatchesLibopus(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthFullband,
+	})
+	if err != nil {
+		t.Skipf("libopus hybrid DRED packet helper unavailable: %v", err)
+	}
+	trace := &silk.EncoderTrace{
+		Frame:    &silk.FrameStateTrace{},
+		GainLoop: &silk.GainLoopTrace{},
+	}
+	_, _, _, gotFrameIndex := encodeUntilDREDPacketWithFrameIndexAndTrace(t, encpkg.ModeHybrid, BandwidthFullband, 960, 1, trace)
+	assertDREDPacketFrameIndexMatchesLibopus(t, gotFrameIndex, packetInfo)
+	// Libopus computes these after subtracting the DRED bitrate from the
+	// 40 kb/s user target, while keeping SILK's VBR maxBits tied to its
+	// 1276-byte opus_encode_frame_native() cap rather than the DRED extension
+	// fit budget.
+	if got := trace.Frame.InputRateBps; got != 15125 {
+		t.Fatalf("hybrid DRED SILK bitrate=%d want 15125", got)
+	}
+	if got := trace.GainLoop.MaxBits; got != 5220 {
+		t.Fatalf("hybrid DRED SILK maxBits=%d want 5220", got)
 	}
 }
 

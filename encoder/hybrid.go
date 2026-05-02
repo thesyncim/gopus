@@ -331,7 +331,14 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	// portion of the available bits.
 	// Start from max_data_bytes-1 (payload excluding TOC), then subtract transition
 	// redundancy reservation (bytes plus signaling bits) when active.
-	silkMaxBits := payloadTarget * 8
+	silkMaxBitsPayload := payloadTarget
+	if dredBitrate > 0 && e.bitrateMode != ModeCBR && maxPacketBytes > 0 && !hardMaxPacketBytes {
+		// The DRED primary budget is an extension-fit target, not libopus's
+		// max_data_bytes. Keep SILK's constrained-VBR cap aligned with the
+		// large caller buffer that libopus exposes to opus_encode_frame_native().
+		silkMaxBitsPayload = maxHybridPacketSize
+	}
+	silkMaxBits := silkMaxBitsPayload * 8
 	if redundancyBytes >= 2 {
 		// 1 bit redundancy position + 20 bits flag+size for hybrid.
 		silkMaxBits -= redundancyBytes*8 + 1 + 20
