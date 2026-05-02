@@ -26,7 +26,8 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T)
 	if !ok {
 		t.Fatal("libopus hybrid packet missing DRED payload")
 	}
-	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 960, 1)
+	gotPacket, gotPayload, gotOffset, gotFrameIndex := encodeUntilDREDPacketWithFrameIndex(t, encpkg.ModeHybrid, BandwidthFullband, 960, 1)
+	assertDREDPacketFrameIndexMatchesLibopus(t, gotFrameIndex, packetInfo)
 	if ParseTOC(gotPacket[0]).Mode != ModeHybrid {
 		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeHybrid)
 	}
@@ -58,7 +59,8 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms(t *testing.T)
 		t.Fatal("libopus 40 ms hybrid packet missing DRED payload")
 	}
 
-	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 1920, 1)
+	gotPacket, gotPayload, gotOffset, gotFrameIndex := encodeUntilDREDPacketWithFrameIndex(t, encpkg.ModeHybrid, BandwidthFullband, 1920, 1)
+	assertDREDPacketFrameIndexMatchesLibopus(t, gotFrameIndex, packetInfo)
 	if ParseTOC(gotPacket[0]).Mode != ModeHybrid {
 		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeHybrid)
 	}
@@ -91,7 +93,8 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo(t *test
 		t.Fatal("libopus stereo hybrid packet missing DRED payload")
 	}
 
-	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 960, 2)
+	gotPacket, gotPayload, gotOffset, gotFrameIndex := encodeUntilDREDPacketWithFrameIndex(t, encpkg.ModeHybrid, BandwidthFullband, 960, 2)
+	assertDREDPacketFrameIndexMatchesLibopus(t, gotFrameIndex, packetInfo)
 	toc := ParseTOC(gotPacket[0])
 	if toc.Mode != ModeHybrid || !toc.Stereo {
 		t.Fatalf("got packet toc=%+v want hybrid stereo", toc)

@@ -17,6 +17,7 @@ const libopusDREDPacketOutputMagic = "GODP"
 type libopusDREDPacket struct {
 	sampleRate     int
 	maxDREDSamples int
+	frameIndex     int
 	packet         []byte
 }
 
@@ -116,14 +117,22 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 	if len(out) < 20 || string(out[:4]) != libopusDREDPacketOutputMagic {
 		return libopusDREDPacket{}, fmt.Errorf("unexpected dred emit helper output")
 	}
+	version := binary.LittleEndian.Uint32(out[4:8])
+	headerLen := 20
+	if version >= 2 {
+		headerLen = 24
+	}
 	packetLen := int(binary.LittleEndian.Uint32(out[16:20]))
-	if len(out) != 20+packetLen {
+	if len(out) != headerLen+packetLen {
 		return libopusDREDPacket{}, fmt.Errorf("truncated dred packet output")
 	}
 	info := libopusDREDPacket{
 		sampleRate:     int(binary.LittleEndian.Uint32(out[8:12])),
 		maxDREDSamples: int(binary.LittleEndian.Uint32(out[12:16])),
-		packet:         append([]byte(nil), out[20:]...),
+		packet:         append([]byte(nil), out[headerLen:]...),
+	}
+	if version >= 2 {
+		info.frameIndex = int(binary.LittleEndian.Uint32(out[20:24]))
 	}
 	toc := ParseTOC(info.packet[0])
 	if toc.Mode != cfg.ForceMode {

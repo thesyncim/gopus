@@ -257,8 +257,9 @@ int main(void) {
     }
     ret = opus_dred_parse(dred_dec, dred, packet, packet_len, max_dred_samples, sample_rate, &dred_end, 1);
     if (ret >= 0 && dred->process_stage == 1 && dred->nb_latents > 0) {
-      if (!write_exact(GODO_MAGIC, 4) || !write_u32(1) || !write_u32((uint32_t)sample_rate) ||
+      if (!write_exact(GODO_MAGIC, 4) || !write_u32(2) || !write_u32((uint32_t)sample_rate) ||
           !write_u32((uint32_t)max_dred_samples) || !write_u32((uint32_t)packet_len) ||
+          !write_u32((uint32_t)frame_idx) ||
           !write_exact(packet, (size_t)packet_len)) {
         fprintf(stderr, "failed to write packet output\n");
         opus_dred_free(dred);

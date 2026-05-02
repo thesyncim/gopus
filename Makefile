@@ -237,8 +237,9 @@ test-unsupported-controls-parity: ensure-libopus
 		exit 1; \
 	fi
 
-# Hybrid DRED packet-shape smoke outside the production gate. Primary-frame
-# byte exactness remains a separate unsupported encoder parity gap.
+# Hybrid DRED packet length/frame-index/payload smoke outside the production
+# gate. Primary-frame byte exactness remains a separate unsupported encoder
+# parity gap.
 test-unsupported-controls-parity-experimental: test-unsupported-controls-parity
 	@json_out="$$(mktemp)"; \
 	json_part="$$json_out.part"; \
