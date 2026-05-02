@@ -76,11 +76,6 @@ func TestHybridBitAllocation(t *testing.T) {
 					silkBitrate, celtBitrateHBGain, silkBitrate+celtBitrateHBGain, expectedHBTotal)
 			}
 
-			// Verify CELT gets at least minimum bitrate
-			minCelt := 2000 * tc.channels
-			if celtBitrate < minCelt {
-				t.Errorf("CELT bitrate %d below minimum %d", celtBitrate, minCelt)
-			}
 		})
 	}
 }

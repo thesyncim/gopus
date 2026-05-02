@@ -207,16 +207,10 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 			// hard per-subframe range limits rather than soft VBR targets.
 			maxTargetBytes = payloadTargetMain
 		} else {
-			// Allow up to 2x target for both VBR and CVBR. In libopus, the
-			// range encoder buffer is large (up to 1275 bytes) regardless of
-			// CVBR mode. The CELT encoder's internal CVBR reservoir tracking
-			// constrains actual byte usage per frame.
-			maxAllowed := int(float64(baseTargetBytes) * 2.0)
-			if maxAllowed < 2 {
-				maxAllowed = 2
-			}
-			// Reserve one extra byte to account for range coder end bits.
-			maxTargetBytes = maxAllowed - 2
+			// In libopus VBR/CVBR, opus_encode_frame_native() exposes the
+			// large payload cap to the shared range coder and lets CELT's VBR
+			// target shrink the frame later.
+			maxTargetBytes = maxHybridPacketSize - 1
 		}
 	}
 	if redundancyBytes > 0 {
@@ -226,9 +220,6 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 		maxTargetBytes = payloadTargetMain
 	}
 	if maxTargetBytes > maxHybridPacketSize-1 {
-		maxTargetBytes = maxHybridPacketSize - 1
-	}
-	if dredBitrate > 0 && e.bitrateMode != ModeCBR && maxPacketBytes == 0 {
 		maxTargetBytes = maxHybridPacketSize - 1
 	}
 
@@ -332,7 +323,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	// Start from max_data_bytes-1 (payload excluding TOC), then subtract transition
 	// redundancy reservation (bytes plus signaling bits) when active.
 	silkMaxBitsPayload := payloadTarget
-	if dredBitrate > 0 && e.bitrateMode != ModeCBR && maxPacketBytes > 0 && !hardMaxPacketBytes {
+	if dredBitrate > 0 && e.bitrateMode != ModeCBR && !hardMaxPacketBytes {
 		// The DRED primary budget is an extension-fit target, not libopus's
 		// max_data_bytes. Keep SILK's constrained-VBR cap aligned with the
 		// large caller buffer that libopus exposes to opus_encode_frame_native().
@@ -457,7 +448,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 		e.celtEncoder.SetBitrate(celtBitrate)
 	}
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
-	e.encodeCELTHybridImproved(celtInput, frameSize, payloadTargetMain, silkSignalType, silkOffset)
+	e.encodeCELTHybridImproved(celtInput, frameSize, maxTargetBytes, silkSignalType, silkOffset)
 
 	// Update state for next frame
 	e.hybridState.prevHBGain = hbGain
@@ -752,14 +743,6 @@ func (e *Encoder) computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 
 
 	celtBitrateHBGain = totalRate - silkBitrate
 	celtBitrate = e.bitrate - silkBitrate
-
-	// Ensure minimum CELT bitrate for acceptable quality.
-	minCeltBitrate := 2000 * channels
-	if celtBitrate < minCeltBitrate {
-		celtBitrate = minCeltBitrate
-		silkBitrate = e.bitrate - celtBitrate
-		celtBitrateHBGain = totalRate - silkBitrate
-	}
 	return silkBitrate, celtBitrate, celtBitrateHBGain
 }
 
@@ -1130,8 +1113,8 @@ func (e *Encoder) encodeSILKHybridMono(pcm []float32, lookahead []float32, silkS
 		e.silkEncoder.SetBitrate(totalRateBps)
 	}
 	inputSamples := pcm[:min(len(pcm), silkSamples)]
-	// Match standalone SILK mono buffering: encoder consumes inputBuf+1 with
-	// a 1-sample handoff across frames.
+	// Match libopus mono buffering: both SILK VAD and frame analysis consume
+	// inputBuf+1, carrying one sample from the previous frame.
 	inputSamples = e.alignSilkMonoInput(inputSamples)
 	quantizeFloat32ToInt16LibopusInPlace(inputSamples)
 	vadFlag := e.computeSilkVAD(inputSamples, len(inputSamples), 16)
@@ -1159,7 +1142,6 @@ func (e *Encoder) encodeSILKHybridMono(pcm []float32, lookahead []float32, silkS
 	// instead of corrupting the frame payload.
 	e.silkEncoder.EncodeLBRRData(re, 1, true)
 
-	// Encode the frame (EncodeFrame in hybrid mode skips its own VAD/LBRR)
 	_ = e.silkEncoder.EncodeFrame(inputSamples, lookahead, vadFlag)
 
 	// Patch initial bits with actual VAD+LBRR flags
@@ -1391,17 +1373,15 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		// Ensure we don't end up with negative budgets if SILK used more bits.
 		totalBits = used + 8
 	}
-	// Match libopus quant_coarse_energy() nbAvailableBytes for hybrid CBR:
-	// bytes available to CELT at entry (after already-coded SILK/range bits).
-	e.celtEncoder.SetCoarseEnergyAvailableBytes(0)
-	if e.bitrateMode == ModeCBR {
-		nbFilledBytes := (re.Tell() + 4) >> 3
-		nbAvailableBytes := targetPayloadBytes - nbFilledBytes
-		if nbAvailableBytes < 0 {
-			nbAvailableBytes = 0
-		}
-		e.celtEncoder.SetCoarseEnergyAvailableBytes(nbAvailableBytes)
+	tell0Frac := re.TellFrac()
+	nbFilledBytes := (re.Tell() + 4) >> 3
+	nbAvailableBytes := targetPayloadBytes - nbFilledBytes
+	if nbAvailableBytes < 0 {
+		nbAvailableBytes = 0
 	}
+	// Match libopus quant_coarse_energy() nbAvailableBytes for hybrid:
+	// bytes available to CELT at entry (after already-coded SILK/range bits).
+	e.celtEncoder.SetCoarseEnergyAvailableBytes(nbAvailableBytes)
 	defer e.celtEncoder.SetCoarseEnergyAvailableBytes(0)
 
 	// Mirror libopus effectiveBytes staging for hybrid before transient analysis.
@@ -1453,44 +1433,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		preemph, frameSize, nbBands, lm, allowWeakTransients,
 	)
 
-	// Apply hybrid CELT VBR target adjustment based on SILK signal info.
-	// Per libopus celt_encoder.c line 2463-2475:
-	// - Tonal frames (offset < 100) get more bits
-	// - Noisy frames (offset > 100) get fewer bits
-	// - tf_estimate-based transient boost
-	// The shift (3-LM) scales the adjustment to the frame size.
-	if e.bitrateMode != ModeCBR {
-		shift := 3 - lm
-		if shift < 0 {
-			shift = 0
-		}
-		if silkOffset < 100 {
-			totalBits += 12 >> shift // Tonal boost: +12 bits for 20ms, +6 for 10ms
-		}
-		if silkOffset > 100 {
-			totalBits -= 18 >> shift // Noise reduction: -18 bits for 20ms, -9 for 10ms
-		}
-		// Transient/vowel temporal spike boost (libopus line 2470).
-		// (tf_estimate - 0.25) * 50 bits, where tf_estimate is [0, 1].
-		tfAdj := int((tfEstimate - 0.25) * 50.0)
-		totalBits += tfAdj
-		// Minimum target for strong transients (libopus line 2473).
-		// Ensure at least 50 bits for CELT when tf_estimate > 0.7.
-		silkUsedBits := re.Tell()
-		if tfEstimate > 0.7 && totalBits-silkUsedBits < 50 {
-			totalBits = silkUsedBits + 50
-		}
-		// Don't let adjustment make totalBits negative or below SILK usage.
-		if totalBits < silkUsedBits+8 {
-			totalBits = silkUsedBits + 8
-		}
-	}
-
-	nbFilledBytes := (re.Tell() + 4) >> 3
-	nbAvailableBytes := targetPayloadBytes - nbFilledBytes
-	if nbAvailableBytes < 0 {
-		nbAvailableBytes = 0
-	}
 	e.celtEncoder.ApplyHybridPrefilter(preemph, frameSize, tfEstimate, nbAvailableBytes, toneFreq, toneishness)
 
 	// Compute MDCT with overlap history using the selected block size.
@@ -1710,6 +1652,60 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		// In hybrid mode start>0, so libopus keeps alloc_trim fixed at 5 and
 		// does not run alloc_trim_analysis().
 		re.EncodeICDF(allocTrim, celt.TrimICDF, 7)
+	}
+
+	if e.celtEncoder.VBR() && e.celtEncoder.Bitrate() != MaxBitrate {
+		vbrRateQ3 := e.celtEncoder.BitrateToBits(frameSize) << celt.BitRes
+		lmDiff := 3 - lm
+		if lmDiff < 0 {
+			lmDiff = 0
+		}
+		packetCap := (maxHybridPacketSize - 1) >> lmDiff
+		if packetCap < 2 {
+			packetCap = 2
+		}
+		nbCompressedBytes := targetPayloadBytes
+		if nbCompressedBytes > packetCap {
+			nbCompressedBytes = packetCap
+		}
+		baseTargetQ3 := vbrRateQ3 - ((9*e.channels + 4) << celt.BitRes)
+		if baseTargetQ3 < 0 {
+			baseTargetQ3 = 0
+		}
+		targetQ3 := baseTargetQ3
+		shift := 3 - lm
+		if shift < 0 {
+			shift = 0
+		}
+		if silkOffset < 100 {
+			targetQ3 += (12 << celt.BitRes) >> shift
+		}
+		if silkOffset > 100 {
+			targetQ3 -= (18 << celt.BitRes) >> shift
+		}
+		targetQ3 += int((tfEstimate - 0.25) * float64(50<<celt.BitRes))
+		if tfEstimate > 0.7 && targetQ3 < 50<<celt.BitRes {
+			targetQ3 = 50 << celt.BitRes
+		}
+		tellQ3 := re.TellFrac()
+		targetQ3 += tellQ3
+		nbAvailableBytes := (targetQ3 + (1 << (celt.BitRes + 2))) >> (celt.BitRes + 3)
+		minAllowed := ((tellQ3 + totalBoost + (1 << (celt.BitRes + 3)) - 1) >> (celt.BitRes + 3)) + 2
+		hybridMin := (tell0Frac + (37 << celt.BitRes) + totalBoost + (1 << (celt.BitRes + 3)) - 1) >> (celt.BitRes + 3)
+		if minAllowed < hybridMin {
+			minAllowed = hybridMin
+		}
+		if nbAvailableBytes < minAllowed {
+			nbAvailableBytes = minAllowed
+		}
+		if nbAvailableBytes > nbCompressedBytes {
+			nbAvailableBytes = nbCompressedBytes
+		}
+		nbCompressedBytes = nbAvailableBytes
+		if nbCompressedBytes < targetPayloadBytes {
+			re.Shrink(uint32(nbCompressedBytes))
+		}
+		totalBits = nbCompressedBytes * 8
 	}
 
 	// Compute bit allocation (hybrid bands only).

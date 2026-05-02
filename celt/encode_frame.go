@@ -1871,9 +1871,6 @@ func (e *Encoder) bitrateToBits(frameSize int) int {
 			bitrate = 64000
 		}
 	}
-	if bitrate < 6000 {
-		bitrate = 6000
-	}
 	if bitrate > 510000 {
 		bitrate = 510000
 	}
