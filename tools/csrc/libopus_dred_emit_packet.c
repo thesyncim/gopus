@@ -215,6 +215,7 @@ int main(void) {
   }
 
   opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate));
+  opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(10));
   opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
   opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(bandwidth));
   if (force_mode_enabled) {

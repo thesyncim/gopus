@@ -299,9 +299,8 @@ func TestEncoderRangeInvariant(t *testing.T) {
 	}
 }
 
-// TestEncodeICDF16 tests that EncodeICDF16 can encode symbols without panicking
-// and produces non-empty output. Full round-trip verification is deferred pending
-// encoder-decoder byte format alignment (tracked in STATE.md as known gap).
+// TestEncodeICDF16 tests that EncodeICDF16 round-trips symbols through the
+// matching uint16 ICDF decoder.
 //
 // Note: Symbol 0 in SILK tables starting with 256 has effectively zero probability
 // (icdf[0]=256 means fh=ft-256=0), so we test symbols 1+ which have valid ranges.
@@ -328,6 +327,16 @@ func TestEncodeICDF16(t *testing.T) {
 			// Verify range invariant maintained
 			if enc.Range() <= EC_CODE_BOT {
 				t.Errorf("symbol %d: range invariant violated after encode", sym)
+			}
+
+			dec := &Decoder{}
+			dec.Init(encoded)
+			decoded := dec.DecodeICDF16(icdf, 8)
+			if decoded != sym {
+				t.Fatalf("decoded symbol = %d, want %d (packet=%x)", decoded, sym, encoded)
+			}
+			if dec.Error() != 0 {
+				t.Fatalf("decoder error = %d", dec.Error())
 			}
 		})
 	}
