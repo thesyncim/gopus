@@ -3,7 +3,7 @@ package celt
 import "github.com/thesyncim/gopus/rangecoding"
 
 func (d *Decoder) decodeHybridSpectrum(rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels int, disableInv bool, energies, prev1LogE, prev2LogE []float64, pulses, fineQuant, finePriority, tfRes []int, intensity, dualStereo, balance, codedBands int) (coeffsL, coeffsR []float64) {
-	d.DecodeFineEnergy(energies, end, fineQuant)
+	d.DecodeFineEnergyRange(start, end, energies, end, fineQuant)
 
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, disableInv, &d.rng, &d.scratchBands, nil, nil, 0)
