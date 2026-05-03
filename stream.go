@@ -6,7 +6,17 @@ import (
 	"encoding/binary"
 	"io"
 	"math"
+	"unsafe"
 )
+
+// hostIsLittleEndian reports whether the running host stores multibyte values
+// little-endian. Detected once at init via a uint16 byte view; on LE hosts the
+// streaming Reader can copy decoded PCM straight to its output buffer instead
+// of re-encoding each sample.
+var hostIsLittleEndian = func() bool {
+	var x uint16 = 1
+	return *(*byte)(unsafe.Pointer(&x)) == 1
+}()
 
 // Streaming API
 //
@@ -210,27 +220,41 @@ func (r *Reader) Read(p []byte) (int, error) {
 			if decErr != nil {
 				return 0, decErr
 			}
-			byteLen := nSamples * r.dec.channels * 4
+			nTotal := nSamples * r.dec.channels
+			byteLen := nTotal * 4
 			if cap(r.byteBuf) < byteLen {
 				r.byteBuf = make([]byte, byteLen)
 			}
 			r.byteBuf = r.byteBuf[:byteLen]
-			for i := 0; i < nSamples*r.dec.channels; i++ {
-				bits := math.Float32bits(r.pcmFloat[i])
-				binary.LittleEndian.PutUint32(r.byteBuf[i*4:], bits)
+			if hostIsLittleEndian && nTotal > 0 {
+				// On LE hosts the in-memory float32 layout already matches
+				// FormatFloat32LE on the wire; copy the bytes directly.
+				raw := unsafe.Slice((*byte)(unsafe.Pointer(&r.pcmFloat[0])), nTotal*4)
+				copy(r.byteBuf, raw)
+			} else {
+				for i := range nTotal {
+					bits := math.Float32bits(r.pcmFloat[i])
+					binary.LittleEndian.PutUint32(r.byteBuf[i*4:], bits)
+				}
 			}
 		case FormatInt16LE:
 			nSamples, decErr := r.dec.DecodeInt16(packet, r.pcmInt16)
 			if decErr != nil {
 				return 0, decErr
 			}
-			byteLen := nSamples * r.dec.channels * 2
+			nTotal := nSamples * r.dec.channels
+			byteLen := nTotal * 2
 			if cap(r.byteBuf) < byteLen {
 				r.byteBuf = make([]byte, byteLen)
 			}
 			r.byteBuf = r.byteBuf[:byteLen]
-			for i := 0; i < nSamples*r.dec.channels; i++ {
-				binary.LittleEndian.PutUint16(r.byteBuf[i*2:], uint16(r.pcmInt16[i]))
+			if hostIsLittleEndian && nTotal > 0 {
+				raw := unsafe.Slice((*byte)(unsafe.Pointer(&r.pcmInt16[0])), nTotal*2)
+				copy(r.byteBuf, raw)
+			} else {
+				for i := range nTotal {
+					binary.LittleEndian.PutUint16(r.byteBuf[i*2:], uint16(r.pcmInt16[i]))
+				}
 			}
 		default:
 			return 0, ErrInvalidSampleFormat
