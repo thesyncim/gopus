@@ -264,13 +264,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		samplesForFrame = e.ApplyDelayCompensationScratchHybrid(samplesForFrame, frameSize)
 	}
 
-	// Step 3c: Apply pre-emphasis with signal scaling (before transient analysis)
-	// This matches libopus order: celt_preemphasis() is called before transient_analysis()
-	// Reference: libopus celt_encoder.c lines 2015-2030
-	// Input samples in float range [-1.0, 1.0] are scaled to signal scale (x32768)
-	// This matches libopus CELT_SIG_SCALE. The decoder later divides back by the same scale.
-	preemph := e.applyPreemphasisWithScalingScratch(samplesForFrame)
-
 	// Step 4: Detect transient and compute tf_estimate using PRE-EMPHASIZED signal
 	// libopus calls transient_analysis(in, N+overlap, ...) where 'in' contains:
 	// - Previous frame's pre-emphasized overlap samples (indices 0 to overlap-1)
@@ -298,7 +291,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	transientInput = transientInput[:transientLen]
 	e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
-	copy(transientInput[preemphBufSize:], preemph)
+	// Match libopus celt_preemphasis() ordering, but write the current frame
+	// directly after the overlap history so transient analysis needs no copy.
+	preemph := transientInput[preemphBufSize:]
+	e.applyPreemphasisWithScalingCore(samplesForFrame, preemph)
 
 	allowWeakTransients := false
 	if e.hybrid {
