@@ -461,6 +461,15 @@ func noiseShapeQuantizerDelDec(
 		rdoOffset = int32(lambdaQ10/2 - 512)
 	}
 
+	var arShpQ13Order24 *[24]int16
+	var arShpQ13Order16 *[16]int16
+	switch shapingLPCOrder {
+	case 24:
+		arShpQ13Order24 = (*[24]int16)(arShpQ13)
+	case 16:
+		arShpQ13Order16 = (*[16]int16)(arShpQ13)
+	}
+
 	for i := 0; i < length; i++ {
 		var ltpPredQ14 int32
 		if signalType == typeVoiced {
@@ -525,9 +534,9 @@ func noiseShapeQuantizerDelDec(
 			var nARQ14 int32
 			switch shapingLPCOrder {
 			case 24:
-				nARQ14 = warpedARFeedback24(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13, warpQ16i16)
+				nARQ14 = warpedARFeedback24(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13Order24, warpQ16i16)
 			case 16:
-				nARQ14 = warpedARFeedback16(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13, warpQ16i16)
+				nARQ14 = warpedARFeedback16(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13Order16, warpQ16i16)
 			default:
 				nARQ14 = warpedARFeedbackGeneric(psDD.sAR2Q14[:], psDD.diffQ14, arShpQ13, warpQ16i16, shapingLPCOrder)
 			}

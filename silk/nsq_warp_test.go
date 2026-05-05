@@ -31,7 +31,7 @@ func TestWarpedARFeedback24(t *testing.T) {
 	for trial := 0; trial < 1000; trial++ {
 		var sAR [maxShapeLpcOrder]int32
 		var sARRef [maxShapeLpcOrder]int32
-		arShpQ13 := make([]int16, 24)
+		var arShpQ13 [24]int16
 		for i := 0; i < 24; i++ {
 			v := rng.Int31n(1<<20) - (1 << 19)
 			sAR[i] = v
@@ -43,8 +43,8 @@ func TestWarpedARFeedback24(t *testing.T) {
 		diffQ14 := rng.Int31n(1<<20) - (1 << 19)
 		warpQ16 := rng.Int31n(1<<15) - (1 << 14) // typical range
 
-		got := warpedARFeedback24(&sAR, diffQ14, arShpQ13, warpQ16)
-		want := refWarpedARFeedback(sARRef[:], diffQ14, arShpQ13, warpQ16, 24)
+		got := warpedARFeedback24(&sAR, diffQ14, &arShpQ13, warpQ16)
+		want := refWarpedARFeedback(sARRef[:], diffQ14, arShpQ13[:], warpQ16, 24)
 
 		if got != want {
 			t.Fatalf("trial %d: warpedARFeedback24 mismatch: got %d, want %d", trial, got, want)
@@ -62,7 +62,7 @@ func TestWarpedARFeedback16(t *testing.T) {
 	for trial := 0; trial < 1000; trial++ {
 		var sAR [maxShapeLpcOrder]int32
 		var sARRef [maxShapeLpcOrder]int32
-		arShpQ13 := make([]int16, 16)
+		var arShpQ13 [16]int16
 		for i := 0; i < 24; i++ {
 			v := rng.Int31n(1<<20) - (1 << 19)
 			sAR[i] = v
@@ -74,8 +74,8 @@ func TestWarpedARFeedback16(t *testing.T) {
 		diffQ14 := rng.Int31n(1<<20) - (1 << 19)
 		warpQ16 := rng.Int31n(1<<15) - (1 << 14)
 
-		got := warpedARFeedback16(&sAR, diffQ14, arShpQ13, warpQ16)
-		want := refWarpedARFeedback(sARRef[:], diffQ14, arShpQ13, warpQ16, 16)
+		got := warpedARFeedback16(&sAR, diffQ14, &arShpQ13, warpQ16)
+		want := refWarpedARFeedback(sARRef[:], diffQ14, arShpQ13[:], warpQ16, 16)
 
 		if got != want {
 			t.Fatalf("trial %d: warpedARFeedback16 mismatch: got %d, want %d", trial, got, want)
@@ -92,14 +92,14 @@ func TestWarpedARFeedback24EdgeCases(t *testing.T) {
 	// Zero warping
 	var sAR [maxShapeLpcOrder]int32
 	var sARRef [maxShapeLpcOrder]int32
-	arShpQ13 := make([]int16, 24)
+	var arShpQ13 [24]int16
 	for i := 0; i < 24; i++ {
 		sAR[i] = int32(i * 1000)
 		sARRef[i] = sAR[i]
 		arShpQ13[i] = int16(100 + i)
 	}
-	got := warpedARFeedback24(&sAR, 500, arShpQ13, 0)
-	want := refWarpedARFeedback(sARRef[:], 500, arShpQ13, 0, 24)
+	got := warpedARFeedback24(&sAR, 500, &arShpQ13, 0)
+	want := refWarpedARFeedback(sARRef[:], 500, arShpQ13[:], 0, 24)
 	if got != want {
 		t.Fatalf("zero warp: got %d, want %d", got, want)
 	}
@@ -110,8 +110,8 @@ func TestWarpedARFeedback24EdgeCases(t *testing.T) {
 		sARRef[i] = sAR[i]
 		arShpQ13[i] = 0x7FFF
 	}
-	got = warpedARFeedback24(&sAR, 0x7FFFF, arShpQ13, 0x7FFF)
-	want = refWarpedARFeedback(sARRef[:], 0x7FFFF, arShpQ13, 0x7FFF, 24)
+	got = warpedARFeedback24(&sAR, 0x7FFFF, &arShpQ13, 0x7FFF)
+	want = refWarpedARFeedback(sARRef[:], 0x7FFFF, arShpQ13[:], 0x7FFF, 24)
 	if got != want {
 		t.Fatalf("max values: got %d, want %d", got, want)
 	}
@@ -122,8 +122,8 @@ func TestWarpedARFeedback24EdgeCases(t *testing.T) {
 		sARRef[i] = sAR[i]
 		arShpQ13[i] = -0x7FFF
 	}
-	got = warpedARFeedback24(&sAR, -0x7FFFF, arShpQ13, -0x7FFF)
-	want = refWarpedARFeedback(sARRef[:], -0x7FFFF, arShpQ13, -0x7FFF, 24)
+	got = warpedARFeedback24(&sAR, -0x7FFFF, &arShpQ13, -0x7FFF)
+	want = refWarpedARFeedback(sARRef[:], -0x7FFFF, arShpQ13[:], -0x7FFF, 24)
 	if got != want {
 		t.Fatalf("negative values: got %d, want %d", got, want)
 	}
@@ -132,7 +132,7 @@ func TestWarpedARFeedback24EdgeCases(t *testing.T) {
 func BenchmarkWarpedARFeedback24(b *testing.B) {
 	rng := rand.New(rand.NewSource(1))
 	var sAR [maxShapeLpcOrder]int32
-	arShpQ13 := make([]int16, 24)
+	var arShpQ13 [24]int16
 	for i := range sAR {
 		sAR[i] = rng.Int31()
 	}
@@ -143,14 +143,14 @@ func BenchmarkWarpedARFeedback24(b *testing.B) {
 	warpQ16 := int32(rng.Int31n(1 << 15))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		warpedARFeedback24(&sAR, diffQ14, arShpQ13, warpQ16)
+		warpedARFeedback24(&sAR, diffQ14, &arShpQ13, warpQ16)
 	}
 }
 
 func BenchmarkWarpedARFeedback16(b *testing.B) {
 	rng := rand.New(rand.NewSource(1))
 	var sAR [maxShapeLpcOrder]int32
-	arShpQ13 := make([]int16, 16)
+	var arShpQ13 [16]int16
 	for i := range sAR {
 		sAR[i] = rng.Int31()
 	}
@@ -161,6 +161,6 @@ func BenchmarkWarpedARFeedback16(b *testing.B) {
 	warpQ16 := int32(rng.Int31n(1 << 15))
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		warpedARFeedback16(&sAR, diffQ14, arShpQ13, warpQ16)
+		warpedARFeedback16(&sAR, diffQ14, &arShpQ13, warpQ16)
 	}
 }
