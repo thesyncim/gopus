@@ -272,8 +272,17 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 		}
 	}
 
-	delay := 1
 	lane4Corr := channels == 2 && toneLPCStereoLane4
+	return toneDetectFloat32Mono(x, sampleRate, lane4Corr)
+}
+
+func toneDetectFloat32Mono(x []float32, sampleRate int, lane4Corr bool) (float64, float64) {
+	n := len(x)
+	if n < 4 {
+		return -1, 0
+	}
+
+	delay := 1
 	lpc0, lpc1, success := toneLPCDelay1(x, lane4Corr)
 
 	// If LPC resonates too close to DC, retry with downsampling
@@ -360,12 +369,18 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		return result
 	}
 
-	// Detect pure tones before transient analysis
-	// This is used to prevent false transient detection on low-frequency tones
-	// Reference: libopus celt/celt_encoder.c tone_detect() called before transient_analysis()
-	toneFreq, toneishness := toneDetectScratch(pcm, channels, 48000, toneBuf)
-	result.ToneFreq = toneFreq
-	result.Toneishness = toneishness
+	// Detect pure tones before transient analysis. Mono can fill the tone
+	// buffer while computing pair energies below; stereo keeps the standalone
+	// path because toneBuf is reused for right-channel energy.
+	deferMonoToneDetect := channels == 1 && len(toneBuf) >= samplesPerChannel
+	var monoToneX []float32
+	if deferMonoToneDetect {
+		monoToneX = toneBuf[:samplesPerChannel]
+	} else {
+		toneFreq, toneishness := toneDetectScratch(pcm, channels, 48000, toneBuf)
+		result.ToneFreq = toneFreq
+		result.Toneishness = toneishness
+	}
 
 	// Forward masking decay: 6.7 dB/ms (default) or 3.3 dB/ms (weak transients)
 	// At 48kHz, we process pairs of samples, so decay per pair:
@@ -536,13 +551,21 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			for i := 0; i < len2; i++ {
 				j := i << 1
 
-				x0 := float32(src[j])
+				v0 := src[j]
+				x0 := float32(v0)
+				if deferMonoToneDetect {
+					monoToneX[j] = x0
+				}
 				y0 := hp0 + x0
 				hp00 := hp0
 				hp0 = hp0 - x0 + hpFeedback*hp1
 				hp1 = x0 - hp00
 
-				x1 := float32(src[j+1])
+				v1 := src[j+1]
+				x1 := float32(v1)
+				if deferMonoToneDetect {
+					monoToneX[j+1] = x1
+				}
 				y1 := hp0 + x1
 				hp00 = hp0
 				hp0 = hp0 - x1 + hpFeedback*hp1
@@ -557,6 +580,9 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 				mean += pair
 				mask = pair + forwardRetain*mask
 				energy[i] = forwardDecay * mask
+			}
+			if deferMonoToneDetect && samplesPerChannel > 2*len2 {
+				monoToneX[samplesPerChannel-1] = float32(src[samplesPerChannel-1])
 			}
 		} else {
 			stride := channels
@@ -636,6 +662,12 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			tfChannel = c
 			maxMaskMetric = maskMetric
 		}
+	}
+
+	if deferMonoToneDetect {
+		toneFreq, toneishness := toneDetectFloat32Mono(monoToneX, 48000, false)
+		result.ToneFreq = toneFreq
+		result.Toneishness = toneishness
 	}
 
 transientMetricsDone:
