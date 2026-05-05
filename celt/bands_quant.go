@@ -2358,7 +2358,11 @@ func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, l
 		B = (B + 1) >> 1
 
 		sctx := splitCtx{}
-		computeThetaWithExtBudget(ctx, &sctx, x[:nHalf], y, nHalf, &b, &extBudget, B, B0, lm, false, &fill)
+		var extB *int
+		if extBudget != 0 && ctx.extEnc != nil {
+			extB = &extBudget
+		}
+		computeThetaWithExtBudget(ctx, &sctx, x[:nHalf], y, nHalf, &b, extB, B, B0, lm, false, &fill)
 		mid, side := thetaSplitGains(&sctx, thetaUsesQEXT(ctx))
 		if B0 > 1 && (sctx.itheta&0x3fff) != 0 {
 			if sctx.itheta > 8192 {
@@ -2440,7 +2444,10 @@ func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, l
 	if q != 0 {
 		k := getPulses(q)
 		if ctx.encode {
-			pvqExtraBits := computeQEXTPVQRefineBits(ctx, extBudget, n)
+			pvqExtraBits := 0
+			if extBudget > 0 && ctx.extEnc != nil {
+				pvqExtraBits = computeQEXTPVQRefineBits(ctx, extBudget, n)
+			}
 			cm := algQuantScratch(ctx.re, ctx.band, x, n, k, ctx.spread, B, gain, ctx.resynth, ctx.extEnc, pvqExtraBits, ctx.encScratch)
 			return cm, x
 		}
@@ -3370,7 +3377,11 @@ func quantBandStereoPreparedLowbandWithExtBudget(ctx *bandCtx, x, y []float64, n
 	}
 
 	sctx := splitCtx{}
-	computeThetaWithExtBudget(ctx, &sctx, x, y, n, &b, &extBudget, B, B, lm, true, &fill)
+	var extB *int
+	if extBudget != 0 && (ctx.extEnc != nil || ctx.extDec != nil) {
+		extB = &extBudget
+	}
+	computeThetaWithExtBudget(ctx, &sctx, x, y, n, &b, extB, B, B, lm, true, &fill)
 	mid, side := thetaSplitGains(&sctx, thetaUsesQEXT(ctx))
 
 	if n == 2 {
