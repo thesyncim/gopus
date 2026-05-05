@@ -12,6 +12,7 @@ var amd64UseAVX2FMA = cpufeat.AMD64.HasAVX2 && cpufeat.AMD64.HasFMA
 // amd64 fixtures.
 var amd64UsePrefilterAVX2FMA = false
 var amd64UsePitchAutocorrAVX2FMA = false
+var amd64UseToneLPCCorrAVX2FMA = false
 
 //go:noescape
 func absSumAVX(x []float64) float64
@@ -128,7 +129,7 @@ func pitchAutocorr5(lp []float64, length int, ac *[5]float64) {
 func toneLPCCorrAVXFMA(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32)
 
 func toneLPCCorr(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32) {
-	if amd64UseAVX2FMA {
+	if amd64UseToneLPCCorrAVX2FMA && amd64UseAVX2FMA {
 		return toneLPCCorrAVXFMA(x, cnt, delay, delay2)
 	}
 	return toneLPCCorrGeneric(x, cnt, delay, delay2)

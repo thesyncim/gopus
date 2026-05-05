@@ -60,8 +60,8 @@ Current known CELT header gaps:
 
 - None. The strict libopus-backed ratchet covers all 28 CELT variant fixtures on the generic/arm64 and amd64 fixture families.
 
-On amd64, CELT prefilter pitch, prefilter inner-product, and pitch-autocorr
-helpers intentionally use the deterministic scalar float32 path for
+On amd64, CELT prefilter pitch, prefilter inner-product, pitch-autocorr,
+and tone-LPC correlation helpers intentionally use the deterministic scalar float32 path for
 encoded-header decisions. AVX/FMA reassociation can flip tied postfilter pitch
 choices by one sample against the pinned amd64 fixture family, which is a
 bitstream divergence even when the quality report remains green.
