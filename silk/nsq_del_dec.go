@@ -441,6 +441,12 @@ func noiseShapeQuantizerDelDec(
 	// NOTE: We intentionally use len(sLTPQ15) and len(nsq.sLTPShpQ14) inline
 	// in guard checks rather than caching them in local variables. This lets
 	// the compiler prove bounds and eliminate bounds checks on the guarded accesses.
+	fastVoicedLTP := signalType == typeVoiced && length > 0 &&
+		predLagPtrIdx >= ltpOrderConst-1 &&
+		predLagPtrIdx+length-1 < len(sLTPQ15)
+	fastShapingLTP := lag > 0 && length > 0 &&
+		shpLagPtrIdx >= harmShapeFirTaps-1 &&
+		shpLagPtrIdx+length-1 < len(nsq.sLTPShpQ14)
 
 	tiltQ14i32 := int32(tiltQ14)
 	lfShpQ14i32 := int32(lfShpQ14)
@@ -475,7 +481,13 @@ func noiseShapeQuantizerDelDec(
 		if signalType == typeVoiced {
 			// Unrolled 5-tap LTP filter (ltpOrderConst == 5)
 			ltpPredQ14 = 2
-			if predLagPtrIdx >= 4 && predLagPtrIdx < len(sLTPQ15) {
+			if fastVoicedLTP {
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-0], int32(bQ14[0]))
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-1], int32(bQ14[1]))
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-2], int32(bQ14[2]))
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-3], int32(bQ14[3]))
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-4], int32(bQ14[4]))
+			} else if predLagPtrIdx >= 4 && predLagPtrIdx < len(sLTPQ15) {
 				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-0], int32(bQ14[0]))
 				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-1], int32(bQ14[1]))
 				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-2], int32(bQ14[2]))
@@ -496,14 +508,20 @@ func noiseShapeQuantizerDelDec(
 		var nLTPQ14 int32
 		if lag > 0 {
 			shp0, shp1, shp2 := int32(0), int32(0), int32(0)
-			if shpLagPtrIdx >= 0 && shpLagPtrIdx < len(nsq.sLTPShpQ14) {
+			if fastShapingLTP {
 				shp0 = nsq.sLTPShpQ14[shpLagPtrIdx]
-			}
-			if shpLagPtrIdx >= 1 && shpLagPtrIdx-1 < len(nsq.sLTPShpQ14) {
 				shp1 = nsq.sLTPShpQ14[shpLagPtrIdx-1]
-			}
-			if shpLagPtrIdx >= 2 && shpLagPtrIdx-2 < len(nsq.sLTPShpQ14) {
 				shp2 = nsq.sLTPShpQ14[shpLagPtrIdx-2]
+			} else {
+				if shpLagPtrIdx >= 0 && shpLagPtrIdx < len(nsq.sLTPShpQ14) {
+					shp0 = nsq.sLTPShpQ14[shpLagPtrIdx]
+				}
+				if shpLagPtrIdx >= 1 && shpLagPtrIdx-1 < len(nsq.sLTPShpQ14) {
+					shp1 = nsq.sLTPShpQ14[shpLagPtrIdx-1]
+				}
+				if shpLagPtrIdx >= 2 && shpLagPtrIdx-2 < len(nsq.sLTPShpQ14) {
+					shp2 = nsq.sLTPShpQ14[shpLagPtrIdx-2]
+				}
 			}
 			nLTPQ14 = silk_SMULWB(silk_ADD_SAT32(shp0, shp2), harmShapeFIRPackedQ14)
 			nLTPQ14 = silk_SMLAWT(nLTPQ14, shp1, harmShapeFIRPackedQ14)
