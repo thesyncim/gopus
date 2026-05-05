@@ -6,10 +6,12 @@ import "github.com/thesyncim/gopus/internal/cpufeat"
 
 var amd64UseAVX2FMA = cpufeat.AMD64.HasAVX2 && cpufeat.AMD64.HasFMA
 
-// Keep CELT prefilter decisions independent of host AVX/FMA exposure. These
-// helpers feed encoded postfilter headers, and SIMD reassociation can flip tied
-// pitch choices by one sample against the pinned amd64 fixtures.
+// Keep CELT prefilter/header-analysis decisions independent of host AVX/FMA
+// exposure. These helpers feed encoded postfilter headers, and SIMD
+// reassociation can flip tied pitch choices by one sample against the pinned
+// amd64 fixtures.
 var amd64UsePrefilterAVX2FMA = false
+var amd64UsePitchAutocorrAVX2FMA = false
 
 //go:noescape
 func absSumAVX(x []float64) float64
@@ -115,7 +117,7 @@ func transientEnergyPairs(tmp []float64, x2out []float32, len2 int) float64 {
 func pitchAutocorr5AVXFMA(lp []float64, length int, ac *[5]float64)
 
 func pitchAutocorr5(lp []float64, length int, ac *[5]float64) {
-	if amd64UseAVX2FMA {
+	if amd64UsePitchAutocorrAVX2FMA && amd64UseAVX2FMA {
 		pitchAutocorr5AVXFMA(lp, length, ac)
 		return
 	}
