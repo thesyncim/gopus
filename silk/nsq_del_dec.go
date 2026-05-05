@@ -519,6 +519,22 @@ func noiseShapeQuantizerDelDec(
 		_ = psDelDec[0].shapeQ14[localSmplBufIdx]
 
 		psLPCIdx := nsqLpcBufLength - 1 + i
+		var nARQ14ByState [maxDelDecStates]int32
+		precomputedNARQ14 := true
+		switch shapingLPCOrder {
+		case 24:
+			for k := 0; k < nStatesDelayedDecision; k++ {
+				psDD := &psDelDec[k]
+				nARQ14ByState[k] = warpedARFeedback24(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13Order24, warpQ16i16)
+			}
+		case 16:
+			for k := 0; k < nStatesDelayedDecision; k++ {
+				psDD := &psDelDec[k]
+				nARQ14ByState[k] = warpedARFeedback16(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13Order16, warpQ16i16)
+			}
+		default:
+			precomputedNARQ14 = false
+		}
 		for k := 0; k < nStatesDelayedDecision; k++ {
 			psDD := &psDelDec[k]
 			psSS := &psSampleState[k]
@@ -530,14 +546,10 @@ func noiseShapeQuantizerDelDec(
 			lpcPredQ14 := shortTermPrediction(psDD.sLPCQ14[:], psLPCIdx, aQ12, predictLPCOrder)
 			lpcPredQ14 <<= 4
 
-			// Warped AR noise shaping filter — dispatched to assembly.
 			var nARQ14 int32
-			switch shapingLPCOrder {
-			case 24:
-				nARQ14 = warpedARFeedback24(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13Order24, warpQ16i16)
-			case 16:
-				nARQ14 = warpedARFeedback16(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13Order16, warpQ16i16)
-			default:
+			if precomputedNARQ14 {
+				nARQ14 = nARQ14ByState[k]
+			} else {
 				nARQ14 = warpedARFeedbackGeneric(psDD.sAR2Q14[:], psDD.diffQ14, arShpQ13, warpQ16i16, shapingLPCOrder)
 			}
 			nARQ14 <<= 1
