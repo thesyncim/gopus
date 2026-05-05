@@ -31,16 +31,7 @@ func TestEncodeFrameUsesAnalysisMaxPitchRatioWhenValid(t *testing.T) {
 	enc := NewEncoder(1)
 	enc.SetBitrate(64000)
 
-	var (
-		called bool
-		stats  PrefilterDebugStats
-	)
-	enc.SetPrefilterDebugHook(func(s PrefilterDebugStats) {
-		called = true
-		stats = s
-	})
-
-	enc.SetAnalysisInfo(20, [leakBands]uint8{}, 0, 0, 0.25, true)
+	enc.SetAnalysisInfo(20, [leakBands]uint8{}, 0, 0, 0, true)
 
 	const frameSize = 960
 	pcm := make([]float64, frameSize)
@@ -55,10 +46,7 @@ func TestEncodeFrameUsesAnalysisMaxPitchRatioWhenValid(t *testing.T) {
 	if len(packet) == 0 {
 		t.Fatal("expected non-empty packet")
 	}
-	if !called {
-		t.Fatal("expected prefilter debug hook to be called")
-	}
-	if got := stats.MaxPitchRatio; math.Abs(got-0.25) > 1e-9 {
-		t.Fatalf("prefilter max_pitch_ratio source mismatch: got %.6f want 0.250000", got)
+	if enc.prefilterGain != 0 {
+		t.Fatalf("analysis max pitch ratio should suppress prefilter gain: got %.6f", enc.prefilterGain)
 	}
 }

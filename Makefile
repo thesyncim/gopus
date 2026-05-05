@@ -268,8 +268,7 @@ test-quality:
 # of the default production gate so math optimizations can move while quality
 # and interoperability stay enforced.
 test-exactness:
-	$(GO_TEST_PARITY_EXACT) ./testvectors -run 'TestLibopusTraceSILKWB|TestSILKParamTraceAgainstLibopus' -count=1
-	GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test ./encoder -run 'TestModeTraceFixtureParityWithLibopus|TestAnalysisTraceFixtureParityWithLibopus' -count=1
+	GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test ./encoder -run 'TestModeFixtureParityWithLibopus|TestAnalysisFixtureParityWithLibopus' -count=1
 
 # Compact markdown summary for the quality + compatibility gates.
 quality-report: ensure-libopus

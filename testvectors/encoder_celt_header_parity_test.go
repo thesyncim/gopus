@@ -87,15 +87,12 @@ func assertCELTVariantPostfilterHeaderParityForCase(t *testing.T, fixtureCase en
 	if err != nil {
 		t.Fatalf("decode fixture packets: %v", err)
 	}
-	goPackets, goStats, err := encodeGopusForVariantsCaseWithPrefilterStats(fixtureCase, signal)
+	goPackets, err := encodeGopusForVariantsCase(fixtureCase, signal)
 	if err != nil {
-		t.Fatalf("encode gopus packets with stats: %v", err)
+		t.Fatalf("encode gopus packets: %v", err)
 	}
 	if len(goPackets) != len(libPackets) {
 		t.Fatalf("packet count mismatch: got=%d want=%d", len(goPackets), len(libPackets))
-	}
-	if len(goStats) != len(goPackets) {
-		t.Fatalf("prefilter stats count mismatch: got=%d want=%d", len(goStats), len(goPackets))
 	}
 
 	libDec := celt.NewDecoder(fixtureCase.Channels)
@@ -114,23 +111,6 @@ func assertCELTVariantPostfilterHeaderParityForCase(t *testing.T, fixtureCase en
 		if got != want {
 			mismatches = append(mismatches, fmt.Sprintf("frame %d: got pitch=%d qg=%d tap=%d, want pitch=%d qg=%d tap=%d",
 				i, got.period, got.qg, got.tapset, want.period, want.qg, want.tapset))
-			stats := goStats[i]
-			t.Logf("frame %d stats: enabled=%v tonePath=%v pitchPath=%v tf=%.6f toneFreq=%.6f toneish=%.6f maxPitchRatio=%.6f search=%d beforeRD=%d afterRD=%d pfOn=%v qg=%d gain=%.6f",
-				i,
-				stats.Enabled,
-				stats.UsedTonePath,
-				stats.UsedPitchPath,
-				stats.TFEstimate,
-				stats.ToneFreq,
-				stats.Toneishness,
-				stats.MaxPitchRatio,
-				stats.PitchSearchOut,
-				stats.PitchBeforeRD,
-				stats.PitchAfterRD,
-				stats.PFOn,
-				stats.QG,
-				stats.Gain,
-			)
 		}
 	}
 
@@ -167,67 +147,4 @@ func qgFromPostfilterGain(gain float64) int {
 		return 0
 	}
 	return int(math.Round(gain/0.09375)) - 1
-}
-
-func encodeGopusForVariantsCaseWithPrefilterStats(c encoderComplianceVariantsFixtureCase, signal []float32) ([][]byte, []celt.PrefilterDebugStats, error) {
-	mode, err := parseFixtureMode(c.Mode)
-	if err != nil {
-		return nil, nil, err
-	}
-	bandwidth, err := parseFixtureBandwidth(c.Bandwidth)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	enc := encoder.NewEncoder(48000, c.Channels)
-	encMode := mode
-	if mode == encoder.ModeHybrid {
-		encMode = encoder.ModeAuto
-	}
-	enc.SetLowDelay(mode == encoder.ModeCELT)
-	enc.SetMode(encMode)
-	enc.SetBandwidth(bandwidth)
-	enc.SetBitrate(c.Bitrate)
-	enc.SetBitrateMode(encoder.ModeCBR)
-
-	stats := make([]celt.PrefilterDebugStats, 0, c.Frames)
-	enc.SetCELTPrefilterDebugHook(func(s celt.PrefilterDebugStats) {
-		stats = append(stats, s)
-	})
-
-	packets := make([][]byte, 0, c.Frames)
-	samplesPerFrame := c.FrameSize * c.Channels
-	for i := 0; i < c.SignalFrames; i++ {
-		start := i * samplesPerFrame
-		end := start + samplesPerFrame
-		frame := float32ToFloat64OpusDemoF32(signal[start:end])
-		pkt, err := enc.Encode(frame, c.FrameSize)
-		if err != nil {
-			return nil, nil, fmt.Errorf("encode frame %d: %w", i, err)
-		}
-		if len(pkt) == 0 {
-			return nil, nil, fmt.Errorf("empty packet at frame %d", i)
-		}
-		pktCopy := make([]byte, len(pkt))
-		copy(pktCopy, pkt)
-		packets = append(packets, pktCopy)
-	}
-
-	if len(packets) < c.Frames {
-		flushLimit := c.Frames + 4
-		silence := make([]float64, samplesPerFrame)
-		for len(packets) < c.Frames && len(packets) < flushLimit {
-			pkt, err := enc.Encode(silence, c.FrameSize)
-			if err != nil {
-				return nil, nil, fmt.Errorf("flush frame %d: %w", len(packets), err)
-			}
-			if len(pkt) == 0 {
-				continue
-			}
-			pktCopy := make([]byte, len(pkt))
-			copy(pktCopy, pkt)
-			packets = append(packets, pktCopy)
-		}
-	}
-	return packets, stats, nil
 }

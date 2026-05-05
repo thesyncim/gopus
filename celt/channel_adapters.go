@@ -265,11 +265,6 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		copy(coeffsR, coeffsMono)
 		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 	}
-	traceLen := len(samples)
-	if traceLen > 16 {
-		traceLen = 16
-	}
-
 	if !directPlanar {
 		d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 		if len(d.directOutPCM) >= len(samples) {
@@ -494,11 +489,6 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	d.applyPendingPLCPrefilterAndFold()
 
 	samples := d.Synthesize(coeffsMono, transient, shortBlocks)
-	traceLen := len(samples)
-	if traceLen > 16 {
-		traceLen = 16
-	}
-
 	d.applyPostfilter(samples, frameSize, mode.LM, postfilterPeriod, postfilterGain, postfilterTapset)
 	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 	d.resetPLCCadence(frameSize, origChannels)

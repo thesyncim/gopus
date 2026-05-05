@@ -1,6 +1,6 @@
 # Repo Cleanup TODO
 
-Last updated: 2026-02-11
+Last updated: 2026-05-05
 
 ## Completed
 - [x] Remove redundant/diagnostic test suites and temporary debug tests (49 files removed).
@@ -23,6 +23,8 @@ Last updated: 2026-02-11
   - `silk/lpc_helpers_regression_test.go`
   - `decoder_test.go` (`TestNewDecoder_DefaultMaxPacketLimits`)
 - [x] Preserve coverage baseline after cleanup (`63.3%`).
+- [x] Remove remaining runtime debug hooks, trace-style test scaffolding, and
+      non-gating diagnostic tests from codec packages.
 
 ## In Progress
 - [x] Remove temporary command package:
@@ -37,8 +39,6 @@ Last updated: 2026-02-11
   - from `testvectors/testdata/` to `testvectors/testdata/opus_testvectors/`.
 
 ## Remaining Cleanup Candidates
-- [ ] Optional: decide whether to keep `testvectors/libopus_trace_test.go` always-on or gate under an env/tier flag due runtime cost.
-- [ ] Optional: decide whether to keep `testvectors/silk_trace_fixture_test.go` always-on or gate under targeted runs.
 - [ ] Confirm whether `CLAUDE.md` and `CODEX.md` should remain as lightweight pointers or be consolidated into a single agent-context shim.
 
 ## Notes
@@ -54,7 +54,7 @@ Last updated: 2026-02-11
    - `docs/maintainers/CLEANUP_TODO.md`
 
 2. `test(cleanup): remove low-value diagnostic suites`
-   - all deleted diagnostic/trace/debug tests in `celt/`, `encoder/`, `silk/`, root, and `testvectors/`
+   - all deleted low-value instrumentation tests in `celt/`, `encoder/`, `silk`, root, and `testvectors/`
 
 3. `test(regression): add focused replacements and benchmark re-home`
    - `decoder_test.go`

@@ -387,10 +387,10 @@ func BenchmarkTFDecode(b *testing.B) {
 	}
 }
 
-// TestTFDecodeRealPacket tests TF decode with a real CELT packet from celt_trace_harness.c.
+// TestTFDecodeRealPacket tests TF decode with a real CELT packet from the libopus harness.
 // This packet is from libopus test infrastructure.
 func TestTFDecodeRealPacket(t *testing.T) {
-	// This is frame_data0 from celt_trace_harness.c
+	// This is frame_data0 from the libopus harness.
 	// It's a real mono CELT 20ms (960 sample) frame
 	frameData := []byte{
 		0x8a, 0x6b, 0x06, 0xf1, 0x21, 0x93, 0x3c, 0x6c, 0x10, 0x4b, 0xc5, 0x29,

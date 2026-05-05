@@ -107,10 +107,6 @@ type Decoder struct {
 	// Scratch buffer for upsampleTo48k
 	upsampleScratch []float32 // Size: maxFramesPerPacket * maxFrameLength * 6 = 5760
 
-	// Optional hook fired after each internal SILK frame is decoded.
-	// Used by parity diagnostics to capture per-frame indices.
-	frameParamsHook FrameParamsHook
-
 	// Optional hook fired on mono/mid 10 ms raw good-frame chunks at 16 kHz
 	// before CNG/glue mutates the frame buffer.
 	rawMonoFrameHook RawMonoFrameHook
@@ -581,59 +577,6 @@ func (d *Decoder) GetLagPrev() int {
 	return d.state[0].lagPrev
 }
 
-// DebugFrameParams contains decoded frame parameters for debugging.
-type DebugFrameParams struct {
-	SignalType       int
-	NLSFInterpCoefQ2 int
-	LTPScaleIndex    int
-	LagPrev          int
-	QuantOffset      int
-	GainIndices      []int
-	PERIndex         int
-	LTPIndices       []int
-	LagIndex         int
-	ContourIndex     int
-	Seed             int
-	NLSFIndices      []int
-}
-
-// GetLastFrameParams returns the parameters from the last decoded frame.
-func (d *Decoder) GetLastFrameParams() DebugFrameParams {
-	st := &d.state[0]
-	gains := make([]int, st.nbSubfr)
-	for i := 0; i < st.nbSubfr; i++ {
-		gains[i] = int(st.indices.GainsIndices[i])
-	}
-	ltpIdx := make([]int, st.nbSubfr)
-	for i := 0; i < st.nbSubfr; i++ {
-		ltpIdx[i] = int(st.indices.LTPIndex[i])
-	}
-	nlsf := make([]int, st.lpcOrder+1)
-	for i := 0; i <= st.lpcOrder; i++ {
-		nlsf[i] = int(st.indices.NLSFIndices[i])
-	}
-	return DebugFrameParams{
-		SignalType:       int(st.indices.signalType),
-		NLSFInterpCoefQ2: int(st.indices.NLSFInterpCoefQ2),
-		LTPScaleIndex:    int(st.indices.LTPScaleIndex),
-		LagPrev:          st.lagPrev,
-		QuantOffset:      int(st.indices.quantOffsetType),
-		GainIndices:      gains,
-		PERIndex:         int(st.indices.PERIndex),
-		LTPIndices:       ltpIdx,
-		LagIndex:         int(st.indices.lagIndex),
-		ContourIndex:     int(st.indices.contourIndex),
-		Seed:             int(st.indices.Seed),
-		NLSFIndices:      nlsf,
-	}
-}
-
-// FrameParamsHook fires after each internal SILK frame is decoded.
-// It receives the channel index (0 = mono/mid, 1 = side) and the decoded
-// frame's indices. Useful for capturing per-internal-frame state on
-// 40/60 ms packets (where GetLastFrameParams only sees the last frame).
-type FrameParamsHook func(channel, frame int, params DebugFrameParams)
-
 // RawMonoFrameHook fires on raw mono/mid 10 ms chunks before CNG/glue mutates
 // the decoded frame buffer. The slice aliases decoder scratch memory and must
 // be consumed synchronously.
@@ -645,12 +588,6 @@ type RawMonoFrameHook func(samples []int16)
 // to retain for the next good packet.
 type DeepPLCLossMonoHook func(concealed []float32) (ok bool, lagPrev int)
 
-// SetFrameParamsHook installs a callback fired after each internal frame is
-// decoded. Pass nil to disable.
-func (d *Decoder) SetFrameParamsHook(hook FrameParamsHook) {
-	d.frameParamsHook = hook
-}
-
 // SetRawMonoFrameHook installs a callback fired on raw mono/mid 10 ms chunks
 // before CNG/glue. Pass nil to disable.
 func (d *Decoder) SetRawMonoFrameHook(hook RawMonoFrameHook) {
@@ -661,39 +598,6 @@ func (d *Decoder) SetRawMonoFrameHook(hook RawMonoFrameHook) {
 // optional deep-PLC/DRED experiments. Pass nil to disable.
 func (d *Decoder) SetDeepPLCLossMonoHook(hook DeepPLCLossMonoHook) {
 	d.deepPLCLossMonoHook = hook
-}
-
-func (d *Decoder) fireFrameParamsHook(channel, frame int) {
-	if d.frameParamsHook == nil {
-		return
-	}
-	st := &d.state[channel]
-	gains := make([]int, st.nbSubfr)
-	for i := 0; i < st.nbSubfr; i++ {
-		gains[i] = int(st.indices.GainsIndices[i])
-	}
-	ltpIdx := make([]int, st.nbSubfr)
-	for i := 0; i < st.nbSubfr; i++ {
-		ltpIdx[i] = int(st.indices.LTPIndex[i])
-	}
-	nlsf := make([]int, st.lpcOrder+1)
-	for i := 0; i <= st.lpcOrder; i++ {
-		nlsf[i] = int(st.indices.NLSFIndices[i])
-	}
-	d.frameParamsHook(channel, frame, DebugFrameParams{
-		SignalType:       int(st.indices.signalType),
-		NLSFInterpCoefQ2: int(st.indices.NLSFInterpCoefQ2),
-		LTPScaleIndex:    int(st.indices.LTPScaleIndex),
-		LagPrev:          st.lagPrev,
-		QuantOffset:      int(st.indices.quantOffsetType),
-		GainIndices:      gains,
-		PERIndex:         int(st.indices.PERIndex),
-		LTPIndices:       ltpIdx,
-		LagIndex:         int(st.indices.lagIndex),
-		ContourIndex:     int(st.indices.contourIndex),
-		Seed:             int(st.indices.Seed),
-		NLSFIndices:      nlsf,
-	})
 }
 
 func (d *Decoder) fireRawMonoFrameHook(channel int, st *decoderState, frameOut []int16) {
@@ -1017,37 +921,6 @@ func (d *Decoder) handleBandwidthChange(bandwidth Bandwidth) {
 	d.prevBandwidth = bandwidth
 	d.hasPrevBandwidth = true
 }
-
-// traceInfo contains information about a subframe during decoding.
-// Used for debugging to trace LTP parameters.
-type traceInfo struct {
-	SignalType   int // 0=inactive, 1=unvoiced, 2=voiced
-	PitchLag     int // Pitch lag for this subframe (voiced only)
-	LtpMemLength int // LTP memory length
-	LpcOrder     int // LPC order
-
-	// Detailed values for debugging (only populated at k=0 or k=2 with interp)
-	InvGainQ31    int32    // Inverse gain used for sLTP_Q15 population
-	GainQ10       int32    // Gain for output scaling
-	LTPCoefQ14    [5]int16 // LTP coefficients for this subframe
-	FirstSLTPQ15  int32    // First sLTP_Q15 value used for LTP prediction
-	FirstPresQ14  int32    // First presQ14 value (excitation + LTP prediction)
-	FirstOutputQ0 int16    // First output sample value (after LPC synthesis)
-
-	// Additional values for detailed debugging
-	FirstLpcPredQ10 int32     // First lpcPredQ10 value
-	FirstSLPC       int32     // First sLPC value (before output scaling)
-	SLPCHistory     [16]int32 // sLPC history at start of subframe
-	A_Q12           [16]int16 // LPC coefficients used for this subframe
-	FirstExcQ14     int32     // First excitation value
-
-	// LTP prediction trace values
-	SLTPQ15Used     [5]int32 // sLTP_Q15 values used for first LTP prediction (indices: predLagPtr+0, -1, -2, -3, -4)
-	FirstLTPPredQ13 int32    // First ltpPredQ13 value (before shifting to Q14)
-}
-
-// traceCallback is called for each subframe during tracing.
-type traceCallback func(frame, k int, info traceInfo)
 
 // NotifyBandwidthChange updates bandwidth tracking and resets the resampler if needed.
 // This should be called by the Hybrid decoder before using SILK to ensure proper

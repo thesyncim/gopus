@@ -1288,13 +1288,12 @@ func TestStream_RoundTrip_Float32(t *testing.T) {
 	t.Logf("Round-trip float32: %d input samples, %d output samples, energy=%.6f",
 		frameSize*numFrames*channels, numSamples, energy)
 
-	// Verify the streaming API worked correctly (samples decoded)
-	// Note: Signal quality depends on underlying decoder; energy may be low
 	if numSamples == 0 {
 		t.Error("No samples decoded")
 	}
-	// Log energy for diagnostic purposes but don't fail on low energy
-	// (known decoder issue documented in STATE.md)
+	if energy == 0 {
+		t.Error("Decoded stream has zero energy")
+	}
 }
 
 // TestStream_RoundTrip_Int16 tests round-trip encode/decode with int16 format.

@@ -411,9 +411,6 @@ func (d *Decoder) decodeFrameWithHookToFloat32(rd *rangecoding.Decoder, frameSiz
 		output[i] = silkSample + celtSample
 	}
 
-	// Ensure we used the correct number of SILK samples
-	_ = silkSamples // Used for documentation/debugging
-
 	d.prevPacketStereo = packetStereo
 	return output, nil
 }

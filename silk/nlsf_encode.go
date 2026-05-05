@@ -350,12 +350,6 @@ func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int
 	}
 	var tempIndices1 [32]int
 	silkInsertionSortIncreasing(errQ24[:cb.nVectors], tempIndices1[:nSurvivors], cb.nVectors, nSurvivors)
-	if e.trace != nil && e.trace.NLSF != nil {
-		tr := e.trace.NLSF
-		tr.MuQ20 = muQ20
-		tr.CandidateStage1 = append(tr.CandidateStage1[:0], tempIndices1[:nSurvivors]...)
-		tr.CandidateRDQ25 = tr.CandidateRDQ25[:0]
-	}
 
 	var resQ10 [maxLPCOrder]int16
 	var wAdjQ5 [maxLPCOrder]int16
@@ -395,9 +389,6 @@ func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int
 		rdValQ25 = silkSMLABB(rdValQ25, bitsQ7, muQ20>>2)
 		rdQ25[s] = rdValQ25
 		copy(tempIndices2[s][:order], tmpIndices[:order])
-		if e.trace != nil && e.trace.NLSF != nil {
-			e.trace.NLSF.CandidateRDQ25 = append(e.trace.NLSF.CandidateRDQ25, rdValQ25)
-		}
 	}
 
 	var bestIndex [1]int

@@ -29,31 +29,6 @@ type nsqSampleState struct {
 
 type nsqSamplePair [2]nsqSampleState
 
-var (
-	nsqDelDecDebugSLTPQ15     []int32
-	nsqDelDecDebugSLTP        []int16
-	nsqDelDecDebugXScQ10      []int32
-	nsqDelDecDebugXScSubfrLen int
-	nsqDelDecDebugDelayedGain []int32
-)
-
-func setNSQDelDecDebugSLTP(sltpQ15 []int32) {
-	nsqDelDecDebugSLTPQ15 = sltpQ15
-}
-
-func setNSQDelDecDebugSLTPRaw(sltp []int16) {
-	nsqDelDecDebugSLTP = sltp
-}
-
-func setNSQDelDecDebugXSc(xsc []int32, subfrLen int) {
-	nsqDelDecDebugXScQ10 = xsc
-	nsqDelDecDebugXScSubfrLen = subfrLen
-}
-
-func setNSQDelDecDebugDelayedGain(gainQ10 []int32) {
-	nsqDelDecDebugDelayedGain = gainQ10
-}
-
 // NoiseShapeQuantizeDelDec performs delayed-decision noise shaping quantization.
 // Returns pulses, reconstructed samples, and the seed to encode.
 func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) ([]int8, []int16, int) {
@@ -298,16 +273,6 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 	copy(nsq.xq[:ltpMemLength], nsq.xq[frameLength:frameLength+ltpMemLength])
 	copy(nsq.sLTPShpQ14[:ltpMemLength], nsq.sLTPShpQ14[frameLength:frameLength+ltpMemLength])
 
-	if nsqDelDecDebugSLTPQ15 != nil {
-		copy(nsqDelDecDebugSLTPQ15, sLTPQ15)
-	}
-	if nsqDelDecDebugSLTP != nil {
-		copy(nsqDelDecDebugSLTP, sLTP)
-	}
-	if nsqDelDecDebugDelayedGain != nil {
-		copy(nsqDelDecDebugDelayedGain, delayedGainQ10[:])
-	}
-
 	return pulses, outXQ, seedOut
 }
 
@@ -333,23 +298,6 @@ func nsqDelDecScaleStates(
 	for i := 0; i < len(xScQ10) && i < len(x16); i++ {
 		xScQ10[i] = silk_SMULWW(int32(x16[i]), invGainQ26)
 	}
-	if nsqDelDecDebugXScQ10 != nil && nsqDelDecDebugXScSubfrLen > 0 {
-		start := subfr * nsqDelDecDebugXScSubfrLen
-		end := start + nsqDelDecDebugXScSubfrLen
-		if start >= 0 && start < len(nsqDelDecDebugXScQ10) {
-			if end > len(nsqDelDecDebugXScQ10) {
-				end = len(nsqDelDecDebugXScQ10)
-			}
-			n := end - start
-			if n > len(xScQ10) {
-				n = len(xScQ10)
-			}
-			if n > 0 {
-				copy(nsqDelDecDebugXScQ10[start:start+n], xScQ10[:n])
-			}
-		}
-	}
-
 	if nsq.rewhiteFlag != 0 {
 		if subfr == 0 {
 			invGainQ31 = silk_LSHIFT32(silk_SMULWB(invGainQ31, int32(ltpScaleQ14)), 2)

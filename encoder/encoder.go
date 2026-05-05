@@ -60,12 +60,9 @@ const (
 // Encoder is the unified Opus encoder that orchestrates SILK and CELT sub-encoders.
 type Encoder struct {
 	// Sub-encoders (created lazily)
-	silkEncoder       *silk.Encoder
-	silkSideEncoder   *silk.Encoder // For stereo side channel in hybrid mode
-	silkTrace         *silk.EncoderTrace
-	celtEncoder       *celt.Encoder
-	celtStatsHook     func(celt.CeltTargetStats)
-	celtPrefilterHook func(celt.PrefilterDebugStats)
+	silkEncoder     *silk.Encoder
+	silkSideEncoder *silk.Encoder // For stereo side channel in hybrid mode
+	celtEncoder     *celt.Encoder
 
 	// Configuration
 	mode       Mode
@@ -1392,7 +1389,6 @@ func (e *Encoder) runSilkTransitionPrefill(prefill []float64, preserveLP bool, c
 		e.silkEncoder.SetLPState(savedMainLP)
 	}
 	e.silkEncoder.SetComplexity(e.complexity)
-	e.silkEncoder.SetTrace(e.silkTrace)
 	e.silkEncoder.SetReducedDependency(e.predictionDisabled)
 	if e.channels == 2 {
 		e.ensureSILKSideEncoder()
@@ -2463,7 +2459,6 @@ func (e *Encoder) ensureSILKEncoder() {
 	}
 	e.silkEncoder = silk.NewEncoder(bw)
 	e.silkEncoder.SetComplexity(e.complexity)
-	e.silkEncoder.SetTrace(e.silkTrace)
 	e.silkEncoder.SetReducedDependency(e.predictionDisabled)
 	// Mono SILK handoff state tracks the two-sample sMid history across frames.
 	// Reset whenever the SILK core bandwidth/sample-rate changes.
@@ -2795,8 +2790,6 @@ func (e *Encoder) ensureCELTEncoder() {
 	if e.celtEncoder == nil {
 		e.celtEncoder = celt.NewEncoder(e.channels)
 		e.celtEncoder.SetComplexity(e.complexity)
-		e.celtEncoder.SetTargetStatsHook(e.celtStatsHook)
-		e.celtEncoder.SetPrefilterDebugHook(e.celtPrefilterHook)
 		// Opus encoder already rounds input to the configured LSB depth.
 		e.celtEncoder.SetLSBQuantizationEnabled(false)
 		// Opus encoder already applies dc_reject at the top level.

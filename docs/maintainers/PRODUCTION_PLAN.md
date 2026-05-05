@@ -20,7 +20,7 @@ Ship `gopus` as a dependable production codec library with:
 
 1. Correctness
 - `TestEncoderComplianceSummary` remains green on pinned fixtures.
-- `TestSILKParamTraceAgainstLibopus` remains exact parity for canonical WB fixture.
+- Encoder mode and analysis fixture parity remain green against pinned libopus data.
 - Exhaustive fixture honesty/provenance checks remain green on pinned libopus.
 
 2. Real-time performance

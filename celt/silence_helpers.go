@@ -134,12 +134,6 @@ func (d *Decoder) handleDecodedSilenceFrame(frameSize, lm int, prev1Energy []flo
 	d.updateLogE(silenceE, MaxBands, false)
 	d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
 	d.updateBackgroundEnergy(lm)
-	traceLen := len(samples)
-	if traceLen > 16 {
-		traceLen = 16
-	}
-	if traceLen > 0 {
-	}
 	d.resetPLCCadence(frameSize, d.channels)
 	d.rng = rd.Range()
 	return samples

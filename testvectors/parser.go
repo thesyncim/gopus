@@ -129,7 +129,7 @@ type BitstreamInfo struct {
 }
 
 // GetBitstreamInfo returns summary information about a parsed bitstream.
-// This is useful for logging and debugging test vector processing.
+// This is useful for test vector processing reports.
 func GetBitstreamInfo(packets []Packet) BitstreamInfo {
 	info := BitstreamInfo{
 		PacketCount: len(packets),

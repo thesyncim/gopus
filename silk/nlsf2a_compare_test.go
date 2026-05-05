@@ -82,37 +82,6 @@ func TestSilkNLSF2AInterpolated(t *testing.T) {
 	}
 }
 
-// TestLsfToLPCDirect tests the fallback LSF to LPC conversion.
-func TestLsfToLPCDirect(t *testing.T) {
-	// Test with same NLSF values
-	nlsfFrame0 := []int16{2676, 3684, 7247, 12558, 14555, 16405, 18875, 19753, 26306, 27425}
-
-	// Expected LPC from libopus NLSF2A
-	expectedLPC := []int16{3952, -3489, 3995, -1295, 1307, -2683, 2277, -3438, 2634, -1010}
-
-	// Call lsfToLPCDirect (the fallback)
-	directLPC := lsfToLPCDirect(nlsfFrame0)
-
-	t.Logf("Input NLSF: %v", nlsfFrame0)
-	t.Logf("Expected LPC (libopus): %v", expectedLPC)
-	t.Logf("lsfToLPCDirect output:  %v", directLPC)
-
-	// Compare
-	match := true
-	for i := 0; i < 10; i++ {
-		if directLPC[i] != expectedLPC[i] {
-			t.Logf("  Mismatch at [%d]: direct=%d, expected=%d", i, directLPC[i], expectedLPC[i])
-			match = false
-		}
-	}
-
-	if !match {
-		t.Log("lsfToLPCDirect produces DIFFERENT values than libopus NLSF2A")
-	} else {
-		t.Log("lsfToLPCDirect matches libopus NLSF2A")
-	}
-}
-
 // TestDecodeParametersLPCOutput tests that silkDecodeParameters produces correct LPC.
 func TestDecodeParametersLPCOutput(t *testing.T) {
 	// Simulate decoding packet 15
@@ -210,40 +179,6 @@ func TestDecodeParametersLPCOutput(t *testing.T) {
 	}
 }
 
-// TestActualPacketDecode traces the actual NLSF and LPC values during packet decode.
-func TestActualPacketDecode(t *testing.T) {
-	// This test loads packet 15 and traces the NLSF/LPC values
-	// We'll compare with the expected values from libopus
-
-	// Expected frame 1 values from libopus:
-	// PredCoef_Q12[0] (interpolated): [4154 -3412 3853 -1287 1521 -3076 2502 -3664 2710 -823]
-	// But gopus trace showed: [8397 -12882 16921 -17527 17241]
-
-	// The trace captures A_Q12 which comes from ctrl.PredCoefQ12[k>>1]
-	// For k=0 (subframe 0), this is ctrl.PredCoefQ12[0]
-	// For k=2 (subframe 2), this is ctrl.PredCoefQ12[1]
-
-	// Let's verify what silkNLSFDecode produces for the NLSF indices
-	// from packet 15
-
-	// NLSF indices from libopus decode for frame 0:
-	// These are the raw indices that come from the bitstream
-
-	t.Log("Testing NLSF decode path...")
-
-	// Expected NLSF values after decode:
-	// Frame 0: [2676 3684 7247 12558 14555 16405 18875 19753 26306 27425]
-	// Frame 1: [2701 3363 5756 13031 13464 15353 18521 20697 26950 26953]
-
-	// The question is: what NLSF indices produce these values?
-	// Let's test silkNLSFDecode with known inputs
-
-	// For NB/MB, we use silk_NLSF_CB_NB_MB codebook
-	// The indices are [NLSFIndices[0]] for stage 1, then [NLSFIndices[1:11]] for stage 2
-
-	t.Log("NLSF2A is verified correct - the issue must be in NLSF decode or index decode")
-}
-
 // TestSilkNLSFDecodeComparison compares gopus silkNLSFDecode with libopus output.
 func TestSilkNLSFDecodeComparison(t *testing.T) {
 	// Test data from packet 15 - verified against libopus
@@ -295,91 +230,18 @@ func TestSilkNLSFDecodeComparison(t *testing.T) {
 	}
 }
 
-// TestNLSFDecodeStepByStep traces through silkNLSFDecode step by step.
-func TestNLSFDecodeStepByStep(t *testing.T) {
-	// Frame 1 indices that produce wrong output
-	indices := []int8{23, 0, 0, -1, 1, -1, -1, -1, -2, 1, -2}
-
+// TestNLSFStabilizeMatchesLibopusCase verifies the stabilization result for a
+// libopus-derived NB/MB NLSF case.
+func TestNLSFStabilizeMatchesLibopusCase(t *testing.T) {
 	cb := &silk_NLSF_CB_NB_MB
 
-	// Step 1: silkNLSFUnpack
-	ecIx := make([]int16, maxLPCOrder)
-	predQ8 := make([]uint8, maxLPCOrder)
-	silkNLSFUnpack(ecIx, predQ8, cb, int(indices[0]))
-	t.Logf("Stage 1 index: %d", indices[0])
-	t.Logf("ecIx: %v", ecIx[:cb.order])
-	t.Logf("predQ8: %v", predQ8[:cb.order])
-
-	// Step 2: silkNLSFResidualDequant
-	resQ10 := make([]int16, maxLPCOrder)
-	silkNLSFResidualDequant(resQ10, indices[1:], predQ8, cb.quantStepSizeQ16, cb.order)
-	t.Logf("Residual indices: %v", indices[1:11])
-	t.Logf("resQ10: %v", resQ10[:cb.order])
-
-	// Step 3: Base codebook lookup
-	baseIdx := int(indices[0]) * cb.order
-	cbBase := cb.cb1NLSFQ8[baseIdx:]
-	cbWght := cb.cb1WghtQ9[baseIdx:]
-	t.Logf("Base codebook (cb1NLSFQ8): %v", cbBase[:cb.order])
-	t.Logf("Weight codebook (cb1WghtQ9): %v", cbWght[:cb.order])
-
-	// Step 4: Combine base and residual
-	t.Log("Computing NLSF values:")
-	nlsfQ15 := make([]int16, maxLPCOrder)
-	for i := 0; i < cb.order; i++ {
-		resQ10Val := int32(resQ10[i])
-		wght := int32(cbWght[i])
-		if wght == 0 {
-			wght = 1
-		}
-		val := silkADD_LSHIFT32(int32(resQ10Val<<14)/wght, int32(cbBase[i]), 7)
-		if val < 0 {
-			val = 0
-		}
-		if val > 32767 {
-			val = 32767
-		}
-		nlsfQ15[i] = int16(val)
-		t.Logf("  [%d]: resQ10=%d, wght=%d, base=%d, val=%d", i, resQ10Val, wght, cbBase[i], val)
-	}
-
-	t.Logf("Before stabilize: %v", nlsfQ15[:cb.order])
-
-	// Step 5: Stabilize
-	silkNLSFStabilize(nlsfQ15[:cb.order], cb.deltaMinQ15, cb.order)
-	t.Logf("After stabilize: %v", nlsfQ15[:cb.order])
-
-	// Expected from libopus
-	expected := []int16{2701, 3363, 5756, 13031, 13464, 15353, 18521, 20697, 26950, 26953}
-	t.Logf("Expected:       %v", expected)
-}
-
-// TestNLSFStabilizeDebug debugs the stabilization algorithm.
-func TestNLSFStabilizeDebug(t *testing.T) {
-	cb := &silk_NLSF_CB_NB_MB
-
-	// Values before stabilize (from the step-by-step test)
 	nlsfQ15 := []int16{2701, 3363, 5756, 13031, 13464, 15353, 18521, 20697, 27019, 26883, 0, 0, 0, 0, 0, 0}
-
-	t.Logf("deltaMinQ15: %v", cb.deltaMinQ15[:cb.order+1])
-	t.Logf("Before stabilize: %v", nlsfQ15[:cb.order])
-
-	// Check minimum differences
-	t.Log("Checking minimum differences:")
-	t.Logf("  [0]: NLSF=%d, min=%d, diff=%d", nlsfQ15[0], cb.deltaMinQ15[0], int32(nlsfQ15[0])-int32(cb.deltaMinQ15[0]))
-	for i := 1; i < cb.order; i++ {
-		minVal := int32(nlsfQ15[i-1]) + int32(cb.deltaMinQ15[i])
-		diff := int32(nlsfQ15[i]) - minVal
-		t.Logf("  [%d]: NLSF=%d, prev+min=%d, diff=%d (violation=%v)", i, nlsfQ15[i], minVal, diff, diff < 0)
-	}
-	lastMax := int32(1<<15) - int32(cb.deltaMinQ15[cb.order])
-	t.Logf("  Last: NLSF[9]=%d, max=%d, diff=%d (violation=%v)", nlsfQ15[cb.order-1], lastMax, lastMax-int32(nlsfQ15[cb.order-1]), int32(nlsfQ15[cb.order-1]) > lastMax)
-
-	// Now run stabilize
-	silkNLSFStabilize(nlsfQ15[:cb.order], cb.deltaMinQ15, cb.order)
-	t.Logf("After stabilize: %v", nlsfQ15[:cb.order])
-
-	// Expected
 	expected := []int16{2701, 3363, 5756, 13031, 13464, 15353, 18521, 20697, 26950, 26953}
-	t.Logf("Expected:        %v", expected)
+
+	silkNLSFStabilize(nlsfQ15[:cb.order], cb.deltaMinQ15, cb.order)
+	for i := range expected {
+		if nlsfQ15[i] != expected[i] {
+			t.Fatalf("nlsfQ15[%d]=%d want %d", i, nlsfQ15[i], expected[i])
+		}
+	}
 }

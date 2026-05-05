@@ -338,7 +338,6 @@ func TestLaplaceDecodeEntropyConsumption(t *testing.T) {
 		t.Errorf("Laplace decode consumed %d bits, expected non-negative", consumedBits)
 	}
 
-	// Log the consumption for diagnostics
 	t.Logf("Laplace decode consumed %d bits", consumedBits)
 }
 

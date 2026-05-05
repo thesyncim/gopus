@@ -242,15 +242,6 @@ func (e *Encoder) computeShapingARAndGains(
 			xBuf[i] = 0
 		}
 	}
-	if e.trace != nil && e.trace.GainLoop != nil {
-		tr := e.trace.GainLoop
-		tr.NoiseShapeXLen = len(xBuf)
-		tr.NoiseShapeXHash = hashFloat32Slice(xBuf)
-		if tr.CaptureNoiseShapeX {
-			tr.NoiseShapeX = append(tr.NoiseShapeX[:0], xBuf...)
-		}
-	}
-
 	// Bandwidth expansion and warping in float32 precision to mirror libopus FLP behavior.
 	strengthF32 := float32(findPitchWhiteNoiseFraction) * float32(lpcPredGain)
 	BWExp := float32(bandwidthExpansion) / (1.0 + strengthF32*strengthF32)
@@ -323,16 +314,6 @@ func (e *Encoder) computeShapingARAndGains(
 	// Match libopus: gain_mult = (silk_float)pow(2.0f, -0.16f * SNR_adj_dB)
 	gainMult := float32(math.Exp2(float64(-0.16 * SNRAdjDB)))
 	gainAdd := float32(math.Exp2(float64(0.16 * float32(minQGainDb))))
-
-	// Capture pre-gain values in trace before applying gain_mult/gain_add
-	if e.trace != nil && e.trace.GainLoop != nil {
-		for k := 0; k < numSubframes && k < len(e.trace.GainLoop.GainsPre); k++ {
-			e.trace.GainLoop.GainsPre[k] = gains[k]
-		}
-		e.trace.GainLoop.GainMult = gainMult
-		e.trace.GainLoop.GainAdd = gainAdd
-		e.trace.GainLoop.SNRAdjDB = SNRAdjDB
-	}
 
 	for k := 0; k < numSubframes; k++ {
 		// Match libopus two-step operation:

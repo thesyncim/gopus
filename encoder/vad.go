@@ -177,8 +177,7 @@ func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) 
 }
 
 // getSpeechActivityFast is the hot path used by normal VAD callers.
-// It keeps the fixed-point math identical to getSpeechActivity while
-// avoiding trace bookkeeping branches in the inner loops.
+// It keeps the fixed-point math identical to getSpeechActivity.
 func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz int) (int, bool) {
 	// Safety checks
 	if frameLength == 0 || len(pcm) < frameLength {
