@@ -428,6 +428,7 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 	findBestPitch(xcorr, yLP4, quarterLen, quarterPitch, &bestPitch)
 
 	ranges := pitchSearchFineRanges(bestPitch, halfPitch)
+	clear(xcorr[:halfPitch])
 	Syy := float32(1)
 	for j := 0; j < halfLen; j++ {
 		yj := float32(y[j])

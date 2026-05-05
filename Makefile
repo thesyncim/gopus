@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-dnn-blob-parity test-dred-tag test-qext-parity test-unsupported-controls-tag test-unsupported-controls-parity test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-dnn-blob-parity test-dred-tag test-qext-parity test-unsupported-controls-tag test-unsupported-controls-parity test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -49,6 +49,13 @@ BENCH_TESTVECTORS_COMPARE_COUNT ?= 3
 BENCH_TESTVECTORS_COMPARE_CASES ?= all
 BENCH_TESTVECTORS_COMPARE_PATHS ?= all
 BENCH_TESTVECTORS_COMPARE_TIME_FLAG = $(if $(BENCH_TESTVECTORS_COMPARE_TIMES),-benchtimes=$(BENCH_TESTVECTORS_COMPARE_TIMES),-benchtime=$(BENCH_TESTVECTORS_COMPARE_TIME))
+BENCH_LIBOPUS_GUARD_TIME ?= 200ms
+BENCH_LIBOPUS_GUARD_COUNT ?= 3
+BENCH_LIBOPUS_GUARD_RATIO ?= 1.25
+BENCH_LIBOPUS_GUARD_ALLOCS ?= 0
+BENCH_ENCODER_LIBOPUS_GUARD_RATIO ?= 2.50
+BENCH_ENCODER_LIBOPUS_GUARD_ALLOCS ?= -1
+BENCH_ENCODER_LIBOPUS_GUARD_CASES ?= all
 GO_TEST_FAST = GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test
 GO_TEST_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test
 GO_TEST_PARITY_EXACT = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test
@@ -286,6 +293,17 @@ test-soak-safety:
 bench-guard:
 	$(GO_WORK_ENV) $(GO) run ./tools/benchguard -config tools/bench_guardrails.json
 
+# Libopus-relative codec performance guardrails against the pinned reference.
+bench-libopus-guard: bench-decoder-libopus-guard bench-encoder-libopus-guard
+
+# Libopus-relative decode performance guardrail on the official RFC 8251 bitstreams.
+bench-decoder-libopus-guard: ensure-libopus
+	$(GO_WORK_ENV) $(GO) run $(PGO_FLAG) ./tools/testvectorbenchcmp -cases=aggregate -paths=all -benchtime=$(BENCH_LIBOPUS_GUARD_TIME) -count=$(BENCH_LIBOPUS_GUARD_COUNT) -format=tsv -max-gopus-libopus-ratio=$(BENCH_LIBOPUS_GUARD_RATIO) -max-gopus-allocs-per-op=$(BENCH_LIBOPUS_GUARD_ALLOCS)
+
+# Libopus-relative encoder performance guardrail across CELT, SILK, and Hybrid workloads.
+bench-encoder-libopus-guard: ensure-libopus
+	$(GO_WORK_ENV) $(GO) run $(PGO_FLAG) ./tools/encoderbenchcmp -cases=$(BENCH_ENCODER_LIBOPUS_GUARD_CASES) -benchtime=$(BENCH_LIBOPUS_GUARD_TIME) -count=$(BENCH_LIBOPUS_GUARD_COUNT) -format=tsv -max-gopus-libopus-ratio=$(BENCH_ENCODER_LIBOPUS_GUARD_RATIO) -max-gopus-allocs-per-op=$(BENCH_ENCODER_LIBOPUS_GUARD_ALLOCS)
+
 # Decode the official RFC 8251 bitstreams with benchmark metrics per vector.
 bench-testvectors:
 	$(GO_WORK_ENV) $(GO) test $(PGO_FLAG) ./testvectors -run='^$$' -bench='^BenchmarkDecodeOfficialTestVectors$$' -benchmem -count=1
@@ -308,6 +326,7 @@ verify-production: ensure-libopus
 	$(MAKE) test-unsupported-controls-tag
 	$(MAKE) test-unsupported-controls-parity
 	$(MAKE) bench-guard
+	$(MAKE) bench-libopus-guard
 	$(MAKE) test-race
 
 # Extended production gate (includes fuzz + exhaustive fixture honesty).
@@ -322,6 +341,7 @@ verify-safety: ensure-libopus
 	$(MAKE) test-quality
 	$(MAKE) test-exhaustive
 	$(MAKE) bench-guard
+	$(MAKE) bench-libopus-guard
 	$(MAKE) test-assembly-safety
 	$(MAKE) test-fuzz-safety
 	$(MAKE) test-soak-safety

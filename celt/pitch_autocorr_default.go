@@ -14,9 +14,12 @@ func pitchAutocorr5(lp []float64, length int, ac *[5]float64) {
 		for i := 0; i < fastN; i++ {
 			sum += float32(lp[i]) * float32(lp[i+lag])
 		}
+		// libopus accumulates the non-xcorr tail into a separate d term and
+		// adds it once to ac[lag].
+		tail := float32(0)
 		for i := lag + fastN; i < length; i++ {
-			sum += float32(lp[i]) * float32(lp[i-lag])
+			tail += float32(lp[i]) * float32(lp[i-lag])
 		}
-		ac[lag] = float64(sum)
+		ac[lag] = float64(sum + tail)
 	}
 }

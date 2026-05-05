@@ -2,8 +2,8 @@
 
 package celt
 
-// prefilterPitchXcorrFast uses the existing float64 vector kernel for the
-// coarse quarter-rate search where tiny accumulation differences are tolerated.
+// prefilterPitchXcorrFast keeps CELT prefilter pitch search on the same
+// float32 accumulation path libopus uses for opus_val16 pitch buffers.
 func prefilterPitchXcorrFast(x, y, xcorr []float64, length, maxPitch int) {
-	celtPitchXcorr(x, y, xcorr, length, maxPitch)
+	prefilterPitchXcorr(x, y, xcorr, length, maxPitch)
 }

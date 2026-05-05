@@ -1,6 +1,6 @@
 # Gopus Production Plan
 
-Last updated: 2026-05-01
+Last updated: 2026-05-05
 
 ## Objective
 
@@ -26,6 +26,7 @@ Ship `gopus` as a dependable production codec library with:
 2. Real-time performance
 - Hot-path `Encode`/`Decode` and int16 variants stay at `0 allocs/op`.
 - Benchmark guardrails stay within CI thresholds (`make bench-guard`).
+- Decoder and encoder throughput stay within pinned libopus-relative CI thresholds (`make bench-libopus-guard`).
 - No race detector failures on fast-tier full package sweep.
 - Optional deeper parity-tier race sweep remains available.
 
@@ -77,6 +78,7 @@ Ship `gopus` as a dependable production codec library with:
   - `make verify-production`
   - `make verify-production-exhaustive`
   - `make bench-guard`
+  - `make bench-libopus-guard`
   - `make release-evidence`
 - Added scheduled exhaustive CI with release-evidence artifact upload.
-- Added dedicated CI performance gate (`perf-linux`) using deterministic benchmark guardrails (`tools/bench_guardrails.json`).
+- Added dedicated CI performance gate (`perf-linux`) using deterministic benchmark guardrails (`tools/bench_guardrails.json`) plus pinned-libopus relative decoder and encoder guardrails.
