@@ -274,7 +274,7 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 
 	delay := 1
 	lane4Corr := channels == 2 && toneLPCStereoLane4
-	lpc0, lpc1, success := toneLPC(x, delay, lane4Corr)
+	lpc0, lpc1, success := toneLPCDelay1(x, lane4Corr)
 
 	// If LPC resonates too close to DC, retry with downsampling
 	// (delay <= sampleRate/3000 corresponds to frequencies > ~1500 Hz)
