@@ -74,10 +74,16 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf
 		absX = make([]float32, n)
 	}
 
+	highPulseSearch := k > (n >> 1)
+
 	// Initialize buffers: extract abs values and signs from float64 input.
 	if idxBias == 0 {
-		// Fast path: SIMD-accelerated extraction (assembly on arm64/amd64)
-		pvqExtractAbsSign(x, absX, y, signx, iy, n)
+		if highPulseSearch {
+			pvqExtractAbsSignOnly(x, absX, signx, n)
+		} else {
+			// Fast path: SIMD-accelerated extraction (assembly on arm64/amd64)
+			pvqExtractAbsSign(x, absX, y, signx, iy, n)
+		}
 	} else {
 		// Slow path with optional idx bias.
 		_ = iy[n-1]
@@ -109,7 +115,7 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf
 
 	// Pre-search by projecting on the pyramid for large K.
 	// Reference: libopus vq.c lines 241-282
-	if k > (n >> 1) {
+	if highPulseSearch {
 		var sum float32
 		for j := 0; j < n; j++ {
 			sum += absX[j]
@@ -177,6 +183,22 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf
 	}
 
 	return iy, float64(yy)
+}
+
+func pvqExtractAbsSignOnly(x []float64, absX []float32, signx []byte, n int) {
+	_ = x[n-1]
+	_ = absX[n-1]
+	_ = signx[n-1]
+	for j := 0; j < n; j++ {
+		signx[j] = 0
+		xj := x[j]
+		if xj < 0 {
+			signx[j] = 1
+			absX[j] = float32(-xj)
+		} else {
+			absX[j] = float32(xj)
+		}
+	}
 }
 
 func opPVQSearchN2(x []float64, k, up int) (iy []int, upIy []int, refine int) {
