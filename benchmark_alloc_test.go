@@ -540,6 +540,61 @@ func BenchmarkEncoderEncode_RestrictedCELTCBRStreamAfterReset(b *testing.B) {
 	}
 }
 
+// BenchmarkEncoderEncode_RestrictedCELT5msCBRStreamAfterReset matches the
+// short-frame CELT per-case operation in tools/encoderbenchcmp.
+// Target: 0 allocs/op
+func BenchmarkEncoderEncode_RestrictedCELT5msCBRStreamAfterReset(b *testing.B) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationRestrictedCelt})
+	if err != nil {
+		b.Fatalf("NewEncoder: %v", err)
+	}
+	if err := enc.SetFrameSize(240); err != nil {
+		b.Fatalf("SetFrameSize: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+		b.Fatalf("SetBandwidth: %v", err)
+	}
+	if err := enc.SetBitrate(64000); err != nil {
+		b.Fatalf("SetBitrate: %v", err)
+	}
+	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+		b.Fatalf("SetBitrateMode: %v", err)
+	}
+	if err := enc.SetComplexity(10); err != nil {
+		b.Fatalf("SetComplexity: %v", err)
+	}
+	if err := enc.SetSignal(SignalMusic); err != nil {
+		b.Fatalf("SetSignal: %v", err)
+	}
+
+	frames := 200
+	pcm := generateBenchSineWave(240 * frames)
+	packet := make([]byte, 4000)
+
+	for i := 0; i < 5; i++ {
+		enc.Reset()
+		for frame := 0; frame < frames; frame++ {
+			start := frame * 240
+			if _, err := enc.Encode(pcm[start:start+240], packet); err != nil {
+				b.Fatalf("Encode warmup frame %d: %v", frame, err)
+			}
+		}
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		enc.Reset()
+		for frame := 0; frame < frames; frame++ {
+			start := frame * 240
+			if _, err := enc.Encode(pcm[start:start+240], packet); err != nil {
+				b.Fatalf("Encode frame %d: %v", frame, err)
+			}
+		}
+	}
+}
+
 // BenchmarkEncoderEncode_RestrictedSILKCBRStreamAfterReset matches the SILK
 // per-case operation in tools/encoderbenchcmp.
 // Target: 0 allocs/op

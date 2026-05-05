@@ -1110,20 +1110,36 @@ func PatchTransientDecisionWithScratch(newE, oldE []float64, nbEBands, start, en
 	if channels == 1 {
 		spreadOld[start] = oldE[start]
 		for i := start + 1; i < end; i++ {
-			spreadOld[i] = math.Max(spreadOld[i-1]-1.0, oldE[i])
+			v := spreadOld[i-1] - 1.0
+			if oldE[i] > v {
+				v = oldE[i]
+			}
+			spreadOld[i] = v
 		}
 	} else {
 		// Stereo: use max of left and right channel
-		spreadOld[start] = math.Max(oldE[start], oldE[start+nbEBands])
+		v := oldE[start]
+		if oldE[start+nbEBands] > v {
+			v = oldE[start+nbEBands]
+		}
+		spreadOld[start] = v
 		for i := start + 1; i < end; i++ {
-			spreadOld[i] = math.Max(spreadOld[i-1]-1.0,
-				math.Max(oldE[i], oldE[i+nbEBands]))
+			v = oldE[i]
+			if oldE[i+nbEBands] > v {
+				v = oldE[i+nbEBands]
+			}
+			if prev := spreadOld[i-1] - 1.0; prev > v {
+				v = prev
+			}
+			spreadOld[i] = v
 		}
 	}
 
 	// Backward pass: spread from high to low frequencies
 	for i := end - 2; i >= start; i-- {
-		spreadOld[i] = math.Max(spreadOld[i], spreadOld[i+1]-1.0)
+		if v := spreadOld[i+1] - 1.0; v > spreadOld[i] {
+			spreadOld[i] = v
+		}
 	}
 
 	// Compute mean increase
@@ -1135,9 +1151,17 @@ func PatchTransientDecisionWithScratch(newE, oldE []float64, nbEBands, start, en
 
 	for c := 0; c < channels; c++ {
 		for i := startBand; i < end-1; i++ {
-			x1 := math.Max(0, newE[i+c*nbEBands])
-			x2 := math.Max(0, spreadOld[i])
-			meanDiff += math.Max(0, x1-x2)
+			x1 := newE[i+c*nbEBands]
+			if x1 < 0 {
+				x1 = 0
+			}
+			x2 := spreadOld[i]
+			if x2 < 0 {
+				x2 = 0
+			}
+			if diff := x1 - x2; diff > 0 {
+				meanDiff += diff
+			}
 		}
 	}
 
