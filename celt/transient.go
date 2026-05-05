@@ -373,10 +373,11 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	// buffer while computing pair energies below; stereo keeps the standalone
 	// path because toneBuf is reused for right-channel energy.
 	deferMonoToneDetect := channels == 1 && len(toneBuf) >= samplesPerChannel
+	deferStereoToneDetect := channels == 2 && len(toneBuf) >= samplesPerChannel && len(e.scratch.transientEnergyR) >= samplesPerChannel/2
 	var monoToneX []float32
 	if deferMonoToneDetect {
 		monoToneX = toneBuf[:samplesPerChannel]
-	} else {
+	} else if !deferStereoToneDetect {
 		toneFreq, toneishness := toneDetectScratch(pcm, channels, 48000, toneBuf)
 		result.ToneFreq = toneFreq
 		result.Toneishness = toneishness
@@ -409,7 +410,9 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	// while preserving each channel's exact arithmetic order.
 	if channels == 2 {
 		var energyR []float32
-		if len(toneBuf) >= len2 {
+		if deferStereoToneDetect {
+			energyR = e.scratch.transientEnergyR[:len2]
+		} else if len(toneBuf) >= len2 {
 			energyR = toneBuf[:len2]
 		} else {
 			energyR = make([]float32, len2)
@@ -433,6 +436,10 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			xR0 := float32(pcm[idx+1])
 			xL1 := float32(pcm[idx+2])
 			xR1 := float32(pcm[idx+3])
+			if deferStereoToneDetect {
+				toneBuf[i<<1] = xL0 + xR0
+				toneBuf[(i<<1)+1] = xL1 + xR1
+			}
 			idx += 4
 
 			yL0 := hp0L + xL0
@@ -527,6 +534,11 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		if maskMetricR > maxMaskMetric {
 			tfChannel = 1
 			maxMaskMetric = maskMetricR
+		}
+		if deferStereoToneDetect {
+			toneFreq, toneishness := toneDetectFloat32Mono(toneBuf[:samplesPerChannel], 48000, toneLPCStereoLane4)
+			result.ToneFreq = toneFreq
+			result.Toneishness = toneishness
 		}
 		goto transientMetricsDone
 	}

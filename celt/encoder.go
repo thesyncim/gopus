@@ -1113,6 +1113,7 @@ type encoderScratch struct {
 
 	// Transient analysis scratch
 	transientEnergy    []float32
+	transientEnergyR   []float32
 	transientX         []float32
 	transientSpreadOld []float64
 
@@ -1298,6 +1299,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Transient analysis scratch
 	samplesPerChannel := frameSize + overlap
 	s.transientEnergy = ensureFloat32Slice(&s.transientEnergy, samplesPerChannel/2)
+	s.transientEnergyR = ensureFloat32Slice(&s.transientEnergyR, samplesPerChannel/2)
 	s.transientX = ensureFloat32Slice(&s.transientX, samplesPerChannel)
 
 	// CWRS encoding scratch (k can be up to ~128 for typical encoding)
