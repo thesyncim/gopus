@@ -328,7 +328,7 @@ func (d *Decoder) DecodeCoarseEnergyWithDecoder(rd *rangecoding.Decoder, nbBands
 // fineBits[band] specifies bits allocated for refinement (0 = no refinement).
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c unquant_fine_energy()
 func (d *Decoder) DecodeFineEnergy(energies []float64, nbBands int, fineBits []int) {
-	d.decodeFineEnergy(energies, nbBands, nil, fineBits)
+	d.decodeFineEnergyRange(energies, 0, nbBands, nil, fineBits)
 }
 
 // DecodeFineEnergyWithDecoder adds fine energy precision using an explicit range decoder.
@@ -337,27 +337,43 @@ func (d *Decoder) DecodeFineEnergyWithDecoder(rd *rangecoding.Decoder, energies 
 	d.rangeDecoder = rd
 	defer func() { d.rangeDecoder = oldRD }()
 
-	d.decodeFineEnergy(energies, nbBands, nil, fineBits)
+	d.decodeFineEnergyRange(energies, 0, nbBands, nil, fineBits)
+}
+
+// DecodeFineEnergyRange adds fine energy precision for bands in [start, end).
+// For hybrid mode, start should be HybridCELTStartBand (17), matching libopus
+// unquant_fine_energy().
+func (d *Decoder) DecodeFineEnergyRange(energies []float64, start, end int, fineBits []int) {
+	d.decodeFineEnergyRange(energies, start, end, nil, fineBits)
 }
 
 // decodeFineEnergy mirrors libopus unquant_fine_energy() for float builds.
 // prevQuant may be nil; extraQuant provides per-band refinement bits.
 func (d *Decoder) decodeFineEnergy(energies []float64, nbBands int, prevQuant, extraQuant []int) {
+	d.decodeFineEnergyRange(energies, 0, nbBands, prevQuant, extraQuant)
+}
+
+// decodeFineEnergyRange mirrors libopus unquant_fine_energy() for float builds
+// over the supplied band range.
+func (d *Decoder) decodeFineEnergyRange(energies []float64, start, end int, prevQuant, extraQuant []int) {
 	if d.rangeDecoder == nil {
 		return
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if start < 0 {
+		start = 0
 	}
-	if nbBands > len(extraQuant) {
-		nbBands = len(extraQuant)
+	if end > MaxBands {
+		end = MaxBands
 	}
-	if nbBands <= 0 {
+	if end > len(extraQuant) {
+		end = len(extraQuant)
+	}
+	if end <= start {
 		return
 	}
 
 	rd := d.rangeDecoder
-	for band := 0; band < nbBands; band++ {
+	for band := start; band < end; band++ {
 		extra := extraQuant[band]
 		if extra <= 0 {
 			continue
@@ -379,7 +395,7 @@ func (d *Decoder) decodeFineEnergy(energies []float64, nbBands int, prevQuant, e
 				offset /= float64(uint(1) << prev)
 			}
 
-			idx := c*nbBands + band
+			idx := c*end + band
 			if idx < len(energies) {
 				energies[idx] += offset * DB6
 			}

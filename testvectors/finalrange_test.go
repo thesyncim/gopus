@@ -33,9 +33,9 @@ var finalRangeVectors = []finalRangeVector{
 	{"testvector07.bit", false, 4186, 4186}, // Hybrid SWB mono
 	{"testvector08.bit", true, 1247, 1247},  // Hybrid SWB stereo
 	{"testvector09.bit", false, 1337, 1337}, // CELT NB mono
-	{"testvector10.bit", false, 1912, 1598}, // CELT WB mono, with hybrid transition drift
+	{"testvector10.bit", false, 1912, 1912}, // CELT WB mono
 	{"testvector11.bit", true, 553, 553},    // CELT NB stereo
-	{"testvector12.bit", true, 1332, 1290},  // CELT WB stereo, with hybrid transition drift
+	{"testvector12.bit", true, 1332, 1332},  // CELT WB stereo
 }
 
 // TestFinalRangeVerification verifies that the decoder's FinalRange matches
