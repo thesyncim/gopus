@@ -294,7 +294,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Match libopus celt_preemphasis() ordering, but write the current frame
 	// directly after the overlap history so transient analysis needs no copy.
 	preemph := transientInput[preemphBufSize:]
-	e.applyPreemphasisWithScalingCore(samplesForFrame, preemph)
+	isSilence := e.applyPreemphasisWithScalingAndSilenceCore(samplesForFrame, preemph, frameSize, overlap)
 
 	allowWeakTransients := false
 	if e.hybrid {
@@ -356,7 +356,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	e.SetRangeEncoder(re)
 
 	tell := re.Tell()
-	isSilence := e.computeSilenceFlag(samplesForFrame, frameSize, overlap)
 	if tell == 1 {
 		if isSilence {
 			re.EncodeBit(1, 15)

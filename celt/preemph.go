@@ -3,6 +3,8 @@
 
 package celt
 
+import "math"
+
 // DCRejectCutoffHz is the cutoff frequency for the DC rejection high-pass filter.
 // libopus uses 3 Hz at the Opus encoder level.
 // Reference: libopus src/opus_encoder.c line 2008
@@ -18,6 +20,19 @@ const DelayCompensation = 192
 // Input samples in float range [-1.0, 1.0] are scaled up by this factor
 // for internal processing, matching libopus CELT_SIG_SCALE.
 const CELTSigScale = 32768.0
+
+const (
+	maxAbsSignBit = uint64(1) << 63
+	maxAbsInfBits = uint64(0x7ff0000000000000)
+)
+
+func updateMaxAbsBits(maxBits uint64, v float64) uint64 {
+	bits := math.Float64bits(v) &^ maxAbsSignBit
+	if bits <= maxAbsInfBits && bits > maxBits {
+		return bits
+	}
+	return maxBits
+}
 
 // noFMA32Mul forces float32 multiplication with an intermediate rounding step.
 // This matches libopus float paths that perform mul and add/sub as separate ops.
@@ -161,6 +176,109 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 		e.preemphState[0] = float64(stateL)
 		e.preemphState[1] = float64(stateR)
 	}
+}
+
+func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm, output []float64, frameSize, overlap int) bool {
+	if frameSize <= 0 || e.channels <= 0 || len(pcm) == 0 {
+		e.overlapMax = 0
+		return true
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+	if overlap > frameSize {
+		overlap = frameSize
+	}
+
+	channels := e.channels
+	total := frameSize * channels
+	if total > len(pcm) {
+		total = len(pcm)
+	}
+	if total > len(output) {
+		total = len(output)
+	}
+	if total <= 0 {
+		e.overlapMax = 0
+		return true
+	}
+
+	split := (frameSize - overlap) * channels
+	if split < 0 {
+		split = 0
+	}
+	if split > total {
+		split = total
+	}
+
+	coef := float32(PreemphCoef)
+	var firstMaxBits, overlapMaxBits uint64
+	if channels == 1 {
+		state := float32(e.preemphState[0])
+		for i := 0; i < split; i++ {
+			v := pcm[i]
+			firstMaxBits = updateMaxAbsBits(firstMaxBits, v)
+			scaled := float32(v) * float32(CELTSigScale)
+			output[i] = float64(scaled - state)
+			state = coef * scaled
+		}
+		for i := split; i < total; i++ {
+			v := pcm[i]
+			overlapMaxBits = updateMaxAbsBits(overlapMaxBits, v)
+			scaled := float32(v) * float32(CELTSigScale)
+			output[i] = float64(scaled - state)
+			state = coef * scaled
+		}
+		e.preemphState[0] = float64(state)
+	} else {
+		stateL := float32(e.preemphState[0])
+		stateR := float32(e.preemphState[1])
+		i := 0
+		for ; i+1 < split; i += 2 {
+			vL := pcm[i]
+			vR := pcm[i+1]
+			firstMaxBits = updateMaxAbsBits(firstMaxBits, vL)
+			firstMaxBits = updateMaxAbsBits(firstMaxBits, vR)
+
+			scaledL := float32(vL) * float32(CELTSigScale)
+			output[i] = float64(scaledL - stateL)
+			stateL = coef * scaledL
+
+			scaledR := float32(vR) * float32(CELTSigScale)
+			output[i+1] = float64(scaledR - stateR)
+			stateR = coef * scaledR
+		}
+		for ; i+1 < total; i += 2 {
+			vL := pcm[i]
+			vR := pcm[i+1]
+			overlapMaxBits = updateMaxAbsBits(overlapMaxBits, vL)
+			overlapMaxBits = updateMaxAbsBits(overlapMaxBits, vR)
+
+			scaledL := float32(vL) * float32(CELTSigScale)
+			output[i] = float64(scaledL - stateL)
+			stateL = coef * scaledL
+
+			scaledR := float32(vR) * float32(CELTSigScale)
+			output[i+1] = float64(scaledR - stateR)
+			stateR = coef * scaledR
+		}
+		e.preemphState[0] = float64(stateL)
+		e.preemphState[1] = float64(stateR)
+	}
+
+	sampleMax := e.overlapMax
+	firstMax := math.Float64frombits(firstMaxBits)
+	if firstMax > sampleMax {
+		sampleMax = firstMax
+	}
+	newOverlapMax := math.Float64frombits(overlapMaxBits)
+	e.overlapMax = newOverlapMax
+	if newOverlapMax > sampleMax {
+		sampleMax = newOverlapMax
+	}
+
+	silenceThreshold := math.Ldexp(1.0, -e.lsbDepth)
+	return sampleMax <= silenceThreshold
 }
 
 // ApplyPreemphasisWithScaling applies pre-emphasis with signal scaling.
