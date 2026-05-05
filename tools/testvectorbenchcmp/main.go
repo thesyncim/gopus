@@ -295,7 +295,7 @@ func loadVectors(vectorDir string) ([]benchmarkVector, error) {
 		path := filepath.Join(vectorDir, name+".bit")
 		packets, err := testvectors.ReadBitstreamFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w (run make bench-testvectors once to fetch vectors)", path, err)
+			return nil, fmt.Errorf("read %s: %w (run make ensure-testvectors once to fetch vectors)", path, err)
 		}
 		if len(packets) == 0 {
 			return nil, fmt.Errorf("%s has no packets", path)
@@ -915,6 +915,7 @@ func formatMarkdown(results []benchmarkResult, cfg runConfig) string {
 
 	fmt.Fprintf(&b, "\n## Reproduce\n\n")
 	fmt.Fprintf(&b, "```sh\n")
+	fmt.Fprintf(&b, "make ensure-testvectors\n")
 	pgoRunFlag := ""
 	pgoReportFlag := ""
 	if cfg.gopusPGO != "" && cfg.gopusPGO != "off" {

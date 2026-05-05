@@ -67,7 +67,7 @@ Guardrail thresholds live in `tools/bench_guardrails.json`.
 
 Libopus-relative decode checks are orchestrated by `tools/testvectorbenchcmp` through `make bench-libopus-guard`:
 - Baseline: pinned libopus 1.6.1 from `tmp_check/opus-1.6.1/`
-- Inputs: official RFC 8251 bitstreams under `testvectors/testdata/opus_testvectors/`
+- Inputs: official RFC 8251 bitstreams under `testvectors/testdata/opus_testvectors/`; the Make target runs `ensure-testvectors` first so CI fetches and verifies the cache before benchmarking.
 - Cases: aggregate official-vector decode
 - Paths: Float32 and Int16
 - Default minimum runtime: `200ms`
