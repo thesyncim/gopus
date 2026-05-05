@@ -56,6 +56,8 @@ BENCH_LIBOPUS_GUARD_ALLOCS ?= 0
 BENCH_ENCODER_LIBOPUS_GUARD_RATIO ?= 2.50
 BENCH_ENCODER_LIBOPUS_GUARD_ALLOCS ?= -1
 BENCH_ENCODER_LIBOPUS_GUARD_CASES ?= all
+TEST_VECTOR_URL ?= https://opus-codec.org/static/testvectors/opus_testvectors-rfc8251.tar.gz
+TEST_VECTOR_FALLBACK_URL ?= https://www.ietf.org/proceedings/98/slides/materials-98-codec-opus-newvectors-00.tar.gz
 GO_TEST_FAST = GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test
 GO_TEST_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test
 GO_TEST_PARITY_EXACT = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test
@@ -377,16 +379,34 @@ ensure-libopus-qext:
 
 # Ensure the downloaded official RFC 8251 test-vector cache exists.
 ensure-testvectors:
+	@bash -c 'set -euo pipefail; \
+		dir="testvectors/testdata/opus_testvectors"; \
+		complete() { \
+			for n in 01 02 03 04 05 06 07 08 09 10 11 12; do \
+				for ext in bit dec; do \
+					test -s "$$dir/testvector$$n.$$ext" || return 1; \
+				done; \
+			done; \
+		}; \
+		if ! complete; then \
+			tmp=$$(mktemp -d); \
+			trap "rm -rf \"$$tmp\"" EXIT; \
+			archive="$$tmp/opus_testvectors-rfc8251.tar.gz"; \
+			for url in "$(TEST_VECTOR_URL)" "$(TEST_VECTOR_FALLBACK_URL)"; do \
+				echo "fetching official test vectors from $$url"; \
+				if curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 180 "$$url" -o "$$archive"; then \
+					fetched=1; \
+					break; \
+				fi; \
+			done; \
+			test "$${fetched:-}" = 1 || { echo "failed to fetch official test vectors"; exit 1; }; \
+			rm -rf "$$dir"; \
+			mkdir -p "$$dir"; \
+			tar -xzf "$$archive" -C "$$tmp"; \
+			find "$$tmp" -type f \( -name "testvector*.bit" -o -name "testvector*.dec" \) -exec cp {} "$$dir"/ \;; \
+			complete || { echo "downloaded official test vectors are incomplete"; exit 1; }; \
+		fi'
 	cd testvectors && $(GO_WORK_ENV) $(GO) test . -run='^TestParseTestVectorBitstreams$$' -count=1
-	@for n in 01 02 03 04 05 06 07 08 09 10 11 12; do \
-		for ext in bit dec; do \
-			path="testvectors/testdata/opus_testvectors/testvector$$n.$$ext"; \
-			if [ ! -s "$$path" ]; then \
-				echo "missing official test vector file $$path"; \
-				exit 1; \
-			fi; \
-		done; \
-	done
 
 # Build pinned Linux CI image with codec/tooling dependencies.
 docker-buildx-bootstrap:
