@@ -72,8 +72,12 @@ Libopus-relative decode checks are orchestrated by `tools/testvectorbenchcmp` th
 - Paths: Float32 and Int16
 - Default minimum runtime: `200ms`
 - Default count: `3`
-- Default max `gopus/libopus` ratio: `1.25x`
+- Default max `gopus/libopus` ratio: `1.60x`
 - Default max `gopus` allocations/op: `0`
+
+The decoder ratio is intentionally wider than local release-report numbers to
+absorb GitHub hosted-runner variance while still comparing directly against
+pinned libopus on the same runner. Keep allocation enforcement at `0`.
 
 Libopus-relative encoder checks are orchestrated by `tools/encoderbenchcmp` through the same `make bench-libopus-guard` target:
 - Baseline: pinned libopus 1.6.1 from `tmp_check/opus-1.6.1/`
