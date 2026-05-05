@@ -144,6 +144,25 @@ func TestFixedPointMath(t *testing.T) {
 		t.Error("silk_SAT16 failed passthrough")
 	}
 
+	if silk_ADD_SAT32(0x7fffffff, 1) != 0x7fffffff {
+		t.Error("silk_ADD_SAT32 failed positive saturation")
+	}
+	if silk_ADD_SAT32(-0x80000000, -1) != -0x80000000 {
+		t.Error("silk_ADD_SAT32 failed negative saturation")
+	}
+	if silk_ADD_SAT32(123, -23) != 100 {
+		t.Error("silk_ADD_SAT32 failed passthrough")
+	}
+	if silk_SUB_SAT32(0x7fffffff, -1) != 0x7fffffff {
+		t.Error("silk_SUB_SAT32 failed positive saturation")
+	}
+	if silk_SUB_SAT32(-0x80000000, 1) != -0x80000000 {
+		t.Error("silk_SUB_SAT32 failed negative saturation")
+	}
+	if silk_SUB_SAT32(123, 23) != 100 {
+		t.Error("silk_SUB_SAT32 failed passthrough")
+	}
+
 	// Test LIMIT_32
 	if silk_LIMIT_32(100, 50, 150) != 100 {
 		t.Error("silk_LIMIT_32 failed passthrough")
