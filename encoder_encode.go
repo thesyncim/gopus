@@ -18,7 +18,7 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	e.enc.SetFloatInputFrame(pcm)
 
 	pcm64 := e.scratchPCM64[:len(pcm)]
-	if e.enc.LSBDepth() != 24 || (e.application != ApplicationLowDelay && e.application != ApplicationRestrictedCelt) {
+	if e.enc.LSBDepth() != 24 {
 		for i, v := range pcm {
 			pcm64[i] = float64(v)
 		}
