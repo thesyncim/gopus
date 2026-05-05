@@ -469,6 +469,7 @@ func noiseShapeQuantizerDelDec(
 		aQ12Order10 = (*[10]int16)(aQ12)
 	}
 
+	var nARQ14ByState [maxDelDecStates]int32
 	for i := 0; i < length; i++ {
 		var ltpPredQ14 int32
 		if signalType == typeVoiced {
@@ -518,7 +519,6 @@ func noiseShapeQuantizerDelDec(
 		_ = psDelDec[0].shapeQ14[localSmplBufIdx]
 
 		psLPCIdx := nsqLpcBufLength - 1 + i
-		var nARQ14ByState [maxDelDecStates]int32
 		precomputedNARQ14 := true
 		switch shapingLPCOrder {
 		case 24:
