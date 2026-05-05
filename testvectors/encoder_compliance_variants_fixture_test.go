@@ -351,7 +351,7 @@ func TestEncoderVariantsFixtureHonestyWithOpusDemo(t *testing.T) {
 				}
 			}
 			if runtime.GOARCH == "amd64" {
-				// Permit bounded drift, but fail on broad divergence.
+				// Permit bounded drift, but fail on broad waveform mismatch.
 				maxDrift := (len(gotPackets) + 3) / 4
 				if maxDrift < 1 {
 					maxDrift = 1

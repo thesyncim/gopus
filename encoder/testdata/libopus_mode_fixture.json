@@ -1,7 +1,7 @@
 {
   "version": 1,
   "sample_rate": 48000,
-  "generator": "libopus-1.6.1 opus_encode_float mode-trace (darwin/arm64)",
+  "generator": "libopus-1.6.1 opus_encode_float mode-fixture (darwin/arm64)",
   "cases": [
     {
       "name": "AUTO-FB-20ms-mono-64k",

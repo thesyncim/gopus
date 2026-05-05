@@ -48,37 +48,6 @@ func (d *Decoder) DecodePVQ(n, k int) []float64 {
 	return NormalizeVector(intToFloat(pulses))
 }
 
-// DecodePVQWithTrace decodes a PVQ codeword and traces the result.
-// band: the band index (for tracing purposes)
-// n: band width (number of MDCT bins)
-// k: number of pulses (from bit allocation)
-// Returns: normalized float64 vector of length n with unit L2 norm.
-//
-// This is identical to DecodePVQ but also calls DefaultTracer.TracePVQ.
-func (d *Decoder) DecodePVQWithTrace(band, n, k int) []float64 {
-	if k == 0 || n <= 0 {
-		// No pulses - return zero vector (will be folded)
-		return make([]float64, n)
-	}
-
-	// Read CWRS index from range coder
-	// Index has V(n,k) possible values
-	vSize := PVQ_V(n, k)
-	if vSize == 0 {
-		return make([]float64, n)
-	}
-
-	index := decodeUniformPVQIndex(d.rangeDecoder, vSize)
-
-	// Convert index to pulse vector using CWRS
-	pulses := DecodePulses(index, n, k)
-
-	// Trace PVQ decode
-
-	// Normalize to unit L2 energy
-	return NormalizeVector(intToFloat(pulses))
-}
-
 // NormalizeVector scales vector to unit L2 norm.
 // If the input vector has zero energy, returns the input unchanged.
 func NormalizeVector(v []float64) []float64 {
@@ -245,7 +214,7 @@ func (d *Decoder) DecodeIntensityStereo(mid []float64) (left, right []float64) {
 
 // decodePVQInto decodes a PVQ codeword directly into a pre-allocated buffer.
 // This is the zero-allocation version used in the hot path.
-// band: the band index (for tracing purposes)
+// band: the band index
 // n: band width (number of MDCT bins)
 // k: number of pulses (from bit allocation)
 // dst: pre-allocated destination buffer of length n
@@ -272,8 +241,6 @@ func (d *Decoder) decodePVQInto(band, n, k int, dst []float64) {
 	// Convert index to pulse vector using CWRS with pre-allocated buffer
 	pulses := d.scratchBands.ensurePVQPulses(n)
 	decodePulsesInto(index, n, k, pulses, &d.scratchBands)
-
-	// Trace PVQ decode
 
 	// Convert to float and normalize directly into dst
 	var energy float64

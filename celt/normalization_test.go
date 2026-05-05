@@ -61,7 +61,6 @@ func TestNormalizeBandsToArrayUnitNorm(t *testing.T) {
 			t.Errorf("band %d: L2 norm is %v (NaN or Inf)", band, l2norm)
 		}
 
-		// Log for debugging
 		if l2norm > 1e-6 {
 			t.Logf("band %2d: width=%3d, energy=%8.3f, L2 norm=%.6f",
 				band, n, energies[band], l2norm)

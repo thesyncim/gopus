@@ -57,7 +57,7 @@ func TestPVQRoundTrip(t *testing.T) {
 
 	dec := celt.NewDecoder(1)
 	dec.SetRangeDecoder(rd)
-	decodedShape := dec.DecodePVQWithTrace(0, n, k)
+	decodedShape := dec.DecodePVQ(n, k)
 
 	t.Logf("\nDecoded shape:")
 	for i, v := range decodedShape {

@@ -344,7 +344,6 @@ func TestTonalityPureSineWave(t *testing.T) {
 				t.Errorf("Pure sine wave tonality = %v, want >= 0.85", result.Tonality)
 			}
 
-			// Log for diagnostic purposes
 			t.Logf("Frequency=%dHz, FrameSize=%d: Tonality=%.4f",
 				tc.frequency, tc.frameSize, result.Tonality)
 		})
@@ -410,7 +409,6 @@ func TestTonalityWhiteNoise(t *testing.T) {
 				t.Errorf("Tonality out of [0,1] range: %v", result.Tonality)
 			}
 
-			// Log for diagnostics
 			t.Logf("FrameSize=%d, Seed=%d: Tonality=%.4f",
 				tc.frameSize, tc.seed, result.Tonality)
 		})
@@ -583,7 +581,6 @@ func TestTonalityPerBandConsistency(t *testing.T) {
 				}
 			}
 
-			// Log comparison for diagnostic purposes
 			var avgBandTonality float64
 			for _, bt := range result.BandTonality {
 				avgBandTonality += bt

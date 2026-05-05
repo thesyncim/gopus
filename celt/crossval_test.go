@@ -408,9 +408,6 @@ func decodeWithOpusdecCLI(oggData []byte) ([]float32, error) {
 	inputPath := filepath.Join(tmpDir, fmt.Sprintf("gopus_crossval_%d_in.opus", pid))
 	outputPath := filepath.Join(tmpDir, fmt.Sprintf("gopus_crossval_%d_out.wav", pid))
 
-	// Also save a persistent copy for debugging
-	debugPath := filepath.Join(tmpDir, "gopus_debug_last.opus")
-
 	// Clean up any existing files
 	os.Remove(inputPath)
 	os.Remove(outputPath)
@@ -422,9 +419,6 @@ func decodeWithOpusdecCLI(oggData []byte) ([]float32, error) {
 		return nil, err
 	}
 
-	// Save debug copy
-	os.WriteFile(debugPath, oggData, 0644)
-
 	// Verify file exists and is readable
 	if info, err := os.Stat(inputPath); err != nil {
 		return nil, fmt.Errorf("input file stat failed: %w", err)
@@ -434,8 +428,6 @@ func decodeWithOpusdecCLI(oggData []byte) ([]float32, error) {
 
 	// Clear extended attributes on macOS (com.apple.provenance can cause issues)
 	exec.Command("xattr", "-c", inputPath).Run()
-	exec.Command("xattr", "-c", debugPath).Run()
-
 	// Run opusdec with file-based I/O
 	cmd := exec.Command(opusdec, "--float", inputPath, outputPath)
 	output, err := cmd.CombinedOutput()
@@ -691,8 +683,8 @@ func findPeak(samples []float32) float32 {
 // These tests verify CELT decoder output has meaningful energy correlation
 // ============================================================================
 
-// TestEnergyCorrelation verifies that encoding then decoding preserves signal energy.
-// This is the key quality metric: if correlation is near 0, decoder is broken.
+// TestEnergyCorrelation records frame-size energy behavior while keeping
+// encode/decode errors as hard failures.
 func TestEnergyCorrelation(t *testing.T) {
 	// Test configuration
 	frameSizes := []int{120, 240, 480, 960}
@@ -742,12 +734,9 @@ func TestEnergyCorrelation(t *testing.T) {
 			if inputEnergy > 0 {
 				energyRatio := outputEnergy / inputEnergy
 
-				// Log the ratio for diagnostic purposes
 				t.Logf("Energy ratio: %.2f%% (output=%f, input=%f)",
 					energyRatio*100, outputEnergy, inputEnergy)
 
-				// Phase 15 target: >50% energy correlation
-				// Note: This may fail initially - the test documents expected behavior
 				if energyRatio < 0.01 { // Less than 1% is definitely broken
 					t.Logf("Energy ratio too low: %.2f%%, indicates decoder/encoder mismatch",
 						energyRatio*100)
@@ -833,69 +822,6 @@ func TestDecoderFiniteOutput(t *testing.T) {
 					if math.IsInf(s, 0) {
 						t.Errorf("Sample %d is Inf", i)
 					}
-				}
-			}
-		})
-	}
-}
-
-// TestDecoderEnergyRatioByFrameSize documents energy ratio for each frame size.
-// This is a diagnostic test to track decoder quality improvements.
-func TestDecoderEnergyRatioByFrameSize(t *testing.T) {
-	frameSizes := []int{120, 240, 480, 960}
-
-	for _, frameSize := range frameSizes {
-		t.Run(fmt.Sprintf("frameSize=%d", frameSize), func(t *testing.T) {
-			enc := NewEncoder(1)
-			dec := NewDecoder(1)
-
-			// Generate multiple test signals
-			signals := []struct {
-				name string
-				freq float64
-			}{
-				{"440Hz", 440.0},
-				{"1kHz", 1000.0},
-				{"4kHz", 4000.0},
-			}
-
-			for _, sig := range signals {
-				// Generate signal
-				samples := make([]float64, frameSize)
-				for i := range samples {
-					samples[i] = 0.5 * math.Sin(2*math.Pi*sig.freq*float64(i)/48000.0)
-				}
-
-				// Calculate input energy
-				inputEnergy := 0.0
-				for _, s := range samples {
-					inputEnergy += s * s
-				}
-
-				// Encode
-				encoded, err := enc.EncodeFrame(samples, frameSize)
-				if err != nil {
-					t.Logf("%s: encode failed: %v", sig.name, err)
-					continue
-				}
-
-				// Decode
-				decoded, err := dec.DecodeFrame(encoded, frameSize)
-				if err != nil {
-					t.Logf("%s: decode failed: %v", sig.name, err)
-					continue
-				}
-
-				// Calculate output energy
-				outputEnergy := 0.0
-				for _, s := range decoded {
-					outputEnergy += s * s
-				}
-
-				// Log energy ratio
-				if inputEnergy > 0 {
-					ratio := outputEnergy / inputEnergy * 100
-					t.Logf("%s: energy ratio %.2f%%", sig.name, ratio)
 				}
 			}
 		})

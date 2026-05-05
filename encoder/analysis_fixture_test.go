@@ -14,16 +14,16 @@ import (
 	"github.com/thesyncim/gopus/internal/testsignal"
 )
 
-const analysisTraceFixturePath = "testdata/libopus_analysis_trace_fixture.json"
+const analysisFixturePath = "testdata/libopus_analysis_fixture.json"
 
-type analysisTraceFixtureFile struct {
+type analysisFixtureFile struct {
 	Version    int                        `json:"version"`
 	SampleRate int                        `json:"sample_rate"`
 	Generator  string                     `json:"generator"`
-	Cases      []analysisTraceFixtureCase `json:"cases"`
+	Cases      []analysisFixtureCase `json:"cases"`
 }
 
-type analysisTraceFixtureCase struct {
+type analysisFixtureCase struct {
 	Name         string                     `json:"name"`
 	Variant      string                     `json:"variant"`
 	FrameSize    int                        `json:"frame_size"`
@@ -31,10 +31,10 @@ type analysisTraceFixtureCase struct {
 	Bitrate      int                        `json:"bitrate"`
 	SignalFrames int                        `json:"signal_frames"`
 	SignalSHA256 string                     `json:"signal_sha256"`
-	Frames       []analysisTraceFixtureInfo `json:"frames"`
+	Frames       []analysisFixtureInfo `json:"frames"`
 }
 
-type analysisTraceFixtureInfo struct {
+type analysisFixtureInfo struct {
 	Valid         bool    `json:"valid"`
 	Tonality      float32 `json:"tonality"`
 	TonalitySlope float32 `json:"tonality_slope"`
@@ -50,60 +50,60 @@ type analysisTraceFixtureInfo struct {
 }
 
 var (
-	analysisTraceFixtureOnce sync.Once
-	analysisTraceFixtureData analysisTraceFixtureFile
-	analysisTraceFixtureErr  error
+	analysisFixtureOnce sync.Once
+	analysisFixtureData analysisFixtureFile
+	analysisFixtureErr  error
 )
 
-func loadAnalysisTraceFixture() (analysisTraceFixtureFile, error) {
-	analysisTraceFixtureOnce.Do(func() {
-		data, err := os.ReadFile(filepath.Join(analysisTraceFixturePath))
+func loadAnalysisFixture() (analysisFixtureFile, error) {
+	analysisFixtureOnce.Do(func() {
+		data, err := os.ReadFile(filepath.Join(analysisFixturePath))
 		if err != nil {
-			analysisTraceFixtureErr = err
+			analysisFixtureErr = err
 			return
 		}
-		var fixture analysisTraceFixtureFile
+		var fixture analysisFixtureFile
 		if err := json.Unmarshal(data, &fixture); err != nil {
-			analysisTraceFixtureErr = err
+			analysisFixtureErr = err
 			return
 		}
 		if fixture.Version != 1 {
-			analysisTraceFixtureErr = fmt.Errorf("unsupported analysis fixture version %d", fixture.Version)
+			analysisFixtureErr = fmt.Errorf("unsupported analysis fixture version %d", fixture.Version)
 			return
 		}
 		if fixture.SampleRate != 48000 {
-			analysisTraceFixtureErr = fmt.Errorf("unsupported analysis fixture sample_rate %d", fixture.SampleRate)
+			analysisFixtureErr = fmt.Errorf("unsupported analysis fixture sample_rate %d", fixture.SampleRate)
 			return
 		}
 		for i := range fixture.Cases {
 			c := fixture.Cases[i]
 			if c.FrameSize <= 0 || c.Channels <= 0 || c.SignalFrames <= 0 {
-				analysisTraceFixtureErr = fmt.Errorf("invalid metadata in fixture case[%d]", i)
+				analysisFixtureErr = fmt.Errorf("invalid metadata in fixture case[%d]", i)
 				return
 			}
 			if len(c.Frames) != c.SignalFrames {
-				analysisTraceFixtureErr = fmt.Errorf("frame count mismatch in fixture case[%d]", i)
+				analysisFixtureErr = fmt.Errorf("frame count mismatch in fixture case[%d]", i)
 				return
 			}
 			for j := range c.Frames {
 				if _, err := base64.StdEncoding.DecodeString(c.Frames[j].LeakBoostB64); err != nil {
-					analysisTraceFixtureErr = fmt.Errorf("invalid leak_boost_b64 case[%d] frame[%d]: %w", i, j, err)
+					analysisFixtureErr = fmt.Errorf("invalid leak_boost_b64 case[%d] frame[%d]: %w", i, j, err)
 					return
 				}
 			}
 		}
-		analysisTraceFixtureData = fixture
+		analysisFixtureData = fixture
 	})
-	return analysisTraceFixtureData, analysisTraceFixtureErr
+	return analysisFixtureData, analysisFixtureErr
 }
 
-func TestAnalysisTraceFixtureParityWithLibopus(t *testing.T) {
+func TestAnalysisFixtureParityWithLibopus(t *testing.T) {
 	requireLibopusExactness(t)
 	requireTestTier(t, testTierFast)
 
-	fixture, err := loadAnalysisTraceFixture()
+	fixture, err := loadAnalysisFixture()
 	if err != nil {
-		t.Fatalf("load analysis trace fixture: %v", err)
+		t.Fatalf("load analysis fixture: %v", err)
 	}
 
 	const (
@@ -189,16 +189,16 @@ func TestAnalysisTraceFixtureParityWithLibopus(t *testing.T) {
 	}
 }
 
-func TestAnalysisTraceFixtureMetadata(t *testing.T) {
+func TestAnalysisFixtureMetadata(t *testing.T) {
 	requireTestTier(t, testTierFast)
 
-	fixture, err := loadAnalysisTraceFixture()
+	fixture, err := loadAnalysisFixture()
 	if err != nil {
-		t.Fatalf("load analysis trace fixture: %v", err)
+		t.Fatalf("load analysis fixture: %v", err)
 	}
 
 	if len(fixture.Cases) == 0 {
-		t.Fatal("analysis trace fixture has no cases")
+		t.Fatal("analysis fixture has no cases")
 	}
 
 	if !strings.Contains(strings.ToLower(fixture.Generator), "libopus-1.6.1") {
@@ -211,12 +211,12 @@ func TestAnalysisTraceFixtureMetadata(t *testing.T) {
 	}
 }
 
-func TestAnalysisTraceFixtureProfileCoverage(t *testing.T) {
+func TestAnalysisFixtureProfileCoverage(t *testing.T) {
 	requireTestTier(t, testTierFast)
 
-	fixture, err := loadAnalysisTraceFixture()
+	fixture, err := loadAnalysisFixture()
 	if err != nil {
-		t.Fatalf("load analysis trace fixture: %v", err)
+		t.Fatalf("load analysis fixture: %v", err)
 	}
 
 	want := map[string]struct{}{

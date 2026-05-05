@@ -369,18 +369,6 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 	outXQ := make([]int16, frameLength)
 	copy(outXQ, nsq.xq[ltpMemLength:ltpMemLength+frameLength])
 
-	// Debug signal presence
-	var maxAbs int16
-	for _, v := range outXQ {
-		absV := v
-		if absV < 0 {
-			absV = -absV
-		}
-		if absV > maxAbs {
-			maxAbs = absV
-		}
-	}
-
 	// Update state for next frame
 	nsq.lagPrev = params.PitchL[nbSubfr-1]
 

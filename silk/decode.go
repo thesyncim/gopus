@@ -38,9 +38,8 @@ func (d *Decoder) DecodeFrame(
 	for i := 0; i < framesPerPacket; i++ {
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
 		frameIndex := st.nFramesDecoded
-		ctrl := d.decodeFrameCoreInto(st, rd, frameOut, frameCondCoding(frameIndex), st.VADFlags[frameIndex] != 0, i, nil)
+		ctrl := d.decodeFrameCoreInto(st, rd, frameOut, frameCondCoding(frameIndex), st.VADFlags[frameIndex] != 0)
 		d.finalizeDecodedChannelFrame(0, st, &ctrl, frameOut, false)
-		d.fireFrameParamsHook(0, frameIndex)
 	}
 
 	// Apply libopus-compatible mono delay compensation.
@@ -131,9 +130,8 @@ func (d *Decoder) decodeFrameRawInt16(
 	for i := 0; i < framesPerPacket; i++ {
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
 		frameIndex := st.nFramesDecoded
-		ctrl := d.decodeFrameCoreInto(st, rd, frameOut, frameCondCoding(frameIndex), st.VADFlags[frameIndex] != 0, i, nil)
+		ctrl := d.decodeFrameCoreInto(st, rd, frameOut, frameCondCoding(frameIndex), st.VADFlags[frameIndex] != 0)
 		d.finalizeDecodedChannelFrame(0, st, &ctrl, frameOut, true)
-		d.fireFrameParamsHook(0, frameIndex)
 	}
 
 	// Mono decode resets mid-only tracking (libopus sets decode_only_middle=0).
@@ -159,39 +157,6 @@ func (d *Decoder) DecodeStereoFrameToMono(
 		mid[i] = float32(v) / 32768.0
 	}
 	return mid, nil
-}
-
-// decodeFrameWithTrace decodes a SILK frame with tracing callbacks.
-// The callback is called for each subframe with LTP information.
-func (d *Decoder) decodeFrameWithTrace(
-	rd *rangecoding.Decoder,
-	bandwidth Bandwidth,
-	duration FrameDuration,
-	vadFlag bool,
-	trace traceCallback,
-) ([]float32, error) {
-	_ = vadFlag
-	st, framesPerPacket, _, err := d.prepareMonoFramePacket(rd, bandwidth, duration)
-	if err != nil {
-		return nil, err
-	}
-
-	frameLength := st.frameLength
-	outInt16 := d.int16OutputBuffer(framesPerPacket * frameLength)
-	for i := 0; i < framesPerPacket; i++ {
-		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
-		frameIndex := st.nFramesDecoded
-		ctrl := d.decodeFrameCoreInto(st, rd, frameOut, frameCondCoding(frameIndex), st.VADFlags[frameIndex] != 0, i, trace)
-		d.finalizeDecodedChannelFrame(0, st, &ctrl, frameOut, false)
-	}
-
-	output := make([]float32, len(outInt16))
-	for i, v := range outInt16 {
-		output[i] = float32(v) / 32768.0
-	}
-
-	d.haveDecoded = true
-	return output, nil
 }
 
 // DecodeStereoFrame decodes a SILK stereo frame from the bitstream.
@@ -233,14 +198,12 @@ func (d *Decoder) DecodeStereoFrame(
 		midOut := midFrame[2:]
 		sideOut := sideFrame[2:]
 
-		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0, i, nil)
+		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0)
 		d.finalizeDecodedChannelFrame(0, stMid, &ctrlMid, midOut, false)
-		d.fireFrameParamsHook(0, frameIndex)
 
 		if hasSide {
-			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0, i, nil)
+			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0)
 			d.finalizeDecodedChannelFrame(1, stSide, &ctrlSide, sideOut, false)
-			d.fireFrameParamsHook(1, frameIndex)
 		} else {
 			clear(sideOut)
 			stSide.nFramesDecoded++
@@ -307,14 +270,12 @@ func (d *Decoder) DecodeStereoFrameInt16Into(
 		midOut := midFrame[2:]
 		sideOut := sideFrame[2:]
 
-		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0, i, nil)
+		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0)
 		d.finalizeDecodedChannelFrame(0, stMid, &ctrlMid, midOut, false)
-		d.fireFrameParamsHook(0, frameIndex)
 
 		if hasSide {
-			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0, i, nil)
+			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0)
 			d.finalizeDecodedChannelFrame(1, stSide, &ctrlSide, sideOut, false)
-			d.fireFrameParamsHook(1, frameIndex)
 		} else {
 			clear(sideOut)
 			stSide.nFramesDecoded++
@@ -361,15 +322,13 @@ func (d *Decoder) decodeStereoMidNative(
 		hasSide := decodeOnlyMiddle == 0
 		midOut := midNative[i*frameLength : (i+1)*frameLength]
 
-		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0, i, nil)
+		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0)
 		d.finalizeDecodedChannelFrame(0, stMid, &ctrlMid, midOut, false)
-		d.fireFrameParamsHook(0, frameIndex)
 
 		if hasSide {
 			sideOut := make([]int16, frameLength)
-			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0, i, nil)
+			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0)
 			d.finalizeDecodedChannelFrame(1, stSide, &ctrlSide, sideOut, false)
-			d.fireFrameParamsHook(1, frameIndex)
 		} else {
 			stSide.nFramesDecoded++
 		}

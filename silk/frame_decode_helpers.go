@@ -154,8 +154,6 @@ func (d *Decoder) decodeFrameCoreInto(
 	frameOut []int16,
 	condCoding int,
 	vad bool,
-	frameIndex int,
-	trace traceCallback,
 ) decoderControl {
 	silkDecodeIndices(st, rd, vad, condCoding)
 	pulses := d.pulseBuffer(st.frameLength)
@@ -163,11 +161,7 @@ func (d *Decoder) decodeFrameCoreInto(
 
 	var ctrl decoderControl
 	silkDecodeParameters(st, &ctrl, condCoding)
-	if trace != nil {
-		silkDecodeCoreWithTrace(st, &ctrl, frameOut, pulses, frameIndex, trace)
-	} else {
-		silkDecodeCore(st, &ctrl, frameOut, pulses)
-	}
+	silkDecodeCore(st, &ctrl, frameOut, pulses)
 	return ctrl
 }
 
@@ -191,7 +185,7 @@ func (d *Decoder) finalizeDecodedChannelFrame(channel int, st *decoderState, ctr
 }
 
 func (d *Decoder) decodeLBRRFrameInto(channel int, st *decoderState, rd *rangecoding.Decoder, frameIndex int, frameOut []int16, updateHistory bool) {
-	ctrl := d.decodeFrameCoreInto(st, rd, frameOut, lbrrCondCoding(st, frameIndex), true, frameIndex, nil)
+	ctrl := d.decodeFrameCoreInto(st, rd, frameOut, lbrrCondCoding(st, frameIndex), true)
 	d.finalizeDecodedChannelFrame(channel, st, &ctrl, frameOut, updateHistory)
 }
 

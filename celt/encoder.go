@@ -126,11 +126,6 @@ type Encoder struct {
 	// Reference: libopus celt_encoder.c dynalloc_analysis()
 	lastDynalloc DynallocResult
 
-	// Optional diagnostics hook for capturing per-frame CELT VBR target stats.
-	targetStatsHook func(CeltTargetStats)
-	// Optional diagnostics hook for capturing prefilter decisions.
-	prefilterDebugHook func(PrefilterDebugStats)
-
 	// Hybrid mode flag
 	// When true, postfilter flag encoding is skipped per RFC 6716 Section 3.2
 	// Reference: libopus celt_encoder.c line 2047-2048

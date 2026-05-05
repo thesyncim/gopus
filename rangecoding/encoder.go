@@ -280,8 +280,6 @@ func (e *Encoder) Done() []byte {
 		end = (e.val + msk) & ^msk
 	}
 
-	// println("rangeCoder Done: l=", l, "rng=", e.rng, "val=", e.val, "end=", end, "Tell=", e.Tell())
-
 	// Output remaining bytes via carry propagation
 	for l > 0 {
 		e.carryOut(int(end >> EC_CODE_SHIFT))
@@ -401,7 +399,7 @@ func (e *Encoder) TellFrac() int {
 	return nbits - ((l << 3) + b)
 }
 
-// Range returns the current range value (for testing/debugging).
+// Range returns the current range value.
 func (e *Encoder) Range() uint32 {
 	return e.rng
 }
@@ -417,12 +415,12 @@ func (e *Encoder) Buffer() []byte {
 	return e.buf
 }
 
-// Val returns the current val (low end of range) (for testing/debugging).
+// Val returns the current val, the low end of the range.
 func (e *Encoder) Val() uint32 {
 	return e.val
 }
 
-// Rem returns the stored remainder byte (for testing/debugging).
+// Rem returns the stored remainder byte.
 func (e *Encoder) Rem() int {
 	return e.rem
 }
@@ -437,7 +435,7 @@ func (e *Encoder) Storage() int {
 	return int(e.storage)
 }
 
-// Ext returns the extension count (for testing/debugging).
+// Ext returns the extension count.
 func (e *Encoder) Ext() uint32 {
 	return e.ext
 }

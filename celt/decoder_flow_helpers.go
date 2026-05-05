@@ -74,12 +74,6 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 		return samples
 	}
 
-	// Trace synthesis output before postfilter/de-emphasis for libopus comparison.
-	traceLen := len(samples)
-	if traceLen > 16 {
-		traceLen = 16
-	}
-
 	d.applyPostfilter(samples, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	// Step 7: Apply de-emphasis filter
@@ -87,12 +81,6 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:len(samples)], samples, 1.0/32768.0)
 	} else {
 		d.applyDeemphasisAndScale(samples, 1.0/32768.0)
-	}
-
-	// Trace final synthesis output
-	traceLen = len(samples)
-	if traceLen > 16 {
-		traceLen = 16
 	}
 
 	return samples

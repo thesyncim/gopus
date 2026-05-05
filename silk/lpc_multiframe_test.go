@@ -122,12 +122,9 @@ func TestLPCHistoryPreservation(t *testing.T) {
 	// Create decoder
 	decoder := NewDecoder()
 
-	// Decode with tracing
 	var rd rangecoding.Decoder
 	rd.Init(encoded)
 
-	// We want to trace the sLPC values during decode
-	// Let's decode and check the state after
 	decoded, err := decoder.DecodeFrame(&rd, BandwidthNarrowband, Frame20ms, true)
 	if err != nil {
 		t.Fatalf("Decode failed: %v", err)

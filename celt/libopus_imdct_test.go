@@ -1,7 +1,6 @@
 package celt
 
 import (
-	"fmt"
 	"math"
 	"testing"
 )
@@ -46,18 +45,15 @@ func TestLibopusIMDCT_DCImpulse(t *testing.T) {
 	}
 	signal := result[start:end]
 
-	fmt.Printf("libopusIMDCT DC impulse test:\n")
-	fmt.Printf("  Output length: %d (expected %d)\n", len(result), n2+overlap)
-	fmt.Printf("  IMDCT region start: %d, len: %d\n", start, len(signal))
-	fmt.Printf("  IMDCT first 10: ")
+	t.Log("libopusIMDCT DC impulse test")
+	t.Logf("Output length: %d (expected %d)", len(result), n2+overlap)
+	t.Logf("IMDCT region start: %d, len: %d", start, len(signal))
 	for i := 0; i < 10 && i < len(signal); i++ {
-		fmt.Printf("%.6f ", signal[i])
+		t.Logf("IMDCT first[%d]=%.6f", i, signal[i])
 	}
-	fmt.Printf("\n  IMDCT last 10: ")
 	for i := len(signal) - 10; i < len(signal) && i >= 0; i++ {
-		fmt.Printf("%.6f ", signal[i])
+		t.Logf("IMDCT last[%d]=%.6f", i, signal[i])
 	}
-	fmt.Printf("\n")
 
 	// Check that values are not perfectly linear across the IMDCT region.
 	// The old broken implementation produced a near-linear ramp.
@@ -73,7 +69,7 @@ func TestLibopusIMDCT_DCImpulse(t *testing.T) {
 		}
 		if sigpow > 0 {
 			linearity := errpow / sigpow
-			fmt.Printf("  Linearity residual ratio: %.6f\n", linearity)
+			t.Logf("Linearity residual ratio: %.6f", linearity)
 			if linearity < 1e-4 {
 				t.Errorf("Suspiciously linear output detected (residual ratio=%.6f)", linearity)
 			}
@@ -94,16 +90,12 @@ func TestLibopusIMDCT_CompareWithDirect(t *testing.T) {
 	libopusResult := libopusIMDCT(spectrum, prevOverlap, overlap)
 	directResult := IMDCTDirect(spectrum)
 
-	fmt.Printf("\nComparing libopusIMDCT with IMDCTDirect:\n")
-	fmt.Printf("  Direct IMDCT first 10: ")
 	for i := 0; i < 10; i++ {
-		fmt.Printf("%.6f ", directResult[i])
+		t.Logf("Direct IMDCT first[%d]=%.6f", i, directResult[i])
 	}
-	fmt.Printf("\n  libopus IMDCT first 10: ")
 	for i := 0; i < 10; i++ {
-		fmt.Printf("%.6f ", libopusResult[i])
+		t.Logf("libopus IMDCT first[%d]=%.6f", i, libopusResult[i])
 	}
-	fmt.Printf("\n")
 
 	// The libopus IMDCT should produce values in a similar range
 	// (they may differ due to different normalization and folding)
@@ -112,9 +104,9 @@ func TestLibopusIMDCT_CompareWithDirect(t *testing.T) {
 		directEnergy += directResult[i] * directResult[i]
 		libopusEnergy += libopusResult[i] * libopusResult[i]
 	}
-	fmt.Printf("\n  Energy (direct first N): %.6f\n", directEnergy)
-	fmt.Printf("  Energy (libopus first N): %.6f\n", libopusEnergy)
-	fmt.Printf("  Ratio: %.2f\n", libopusEnergy/directEnergy)
+	t.Logf("Energy (direct first N): %.6f", directEnergy)
+	t.Logf("Energy (libopus first N): %.6f", libopusEnergy)
+	t.Logf("Ratio: %.2f", libopusEnergy/directEnergy)
 
 	// Energy ratio should be reasonable (not millions like the broken implementation)
 	ratio := libopusEnergy / directEnergy
@@ -144,13 +136,11 @@ func TestLibopusIMDCT_Sinusoid(t *testing.T) {
 		}
 	}
 
-	fmt.Printf("\nSinusoid input test:\n")
-	fmt.Printf("  Max absolute value: %.6f\n", maxAbs)
-	fmt.Printf("  First 10: ")
+	t.Log("Sinusoid input test")
+	t.Logf("Max absolute value: %.6f", maxAbs)
 	for i := 0; i < 10; i++ {
-		fmt.Printf("%.4f ", result[i])
+		t.Logf("First[%d]=%.4f", i, result[i])
 	}
-	fmt.Printf("\n")
 
 	// Values shouldn't explode
 	if maxAbs > 100 {

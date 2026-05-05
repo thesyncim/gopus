@@ -1106,17 +1106,17 @@ func (d *Decoder) ShrinkStorage(bytes int) {
 	}
 }
 
-// Range returns the current range value (for testing/debugging).
+// Range returns the current range value.
 func (d *Decoder) Range() uint32 {
 	return d.rng
 }
 
-// Val returns the current val (for testing/debugging).
+// Val returns the current val.
 func (d *Decoder) Val() uint32 {
 	return d.val
 }
 
-// Offs returns the current read offset (for testing/debugging).
+// Offs returns the current read offset.
 func (d *Decoder) Offs() uint32 {
 	return d.offs
 }

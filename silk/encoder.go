@@ -54,9 +54,6 @@ type Encoder struct {
 	pitchState       PitchAnalysisState // State for pitch estimation across frames
 	pitchAnalysisBuf []float32          // History buffer for pitch analysis (LTP memory + frame)
 
-	// Optional trace hook for parity debugging (set in tests).
-	trace *EncoderTrace
-
 	// VAD-derived state (optional, provided by Opus-level encoder)
 	speechActivityQ8     int    // Speech activity in Q8 (0-255)
 	inputTiltQ15         int    // Spectral tilt in Q15 from VAD
@@ -757,11 +754,6 @@ func (e *Encoder) SetPrevStereoWeights(weights [2]int16) {
 	e.prevStereoWeights = weights
 }
 
-// SetTrace enables or disables encoder tracing for debugging parity.
-func (e *Encoder) SetTrace(trace *EncoderTrace) {
-	e.trace = trace
-}
-
 // InputBuffer returns the input sample buffer.
 func (e *Encoder) InputBuffer() []float32 {
 	return e.inputBuffer
@@ -777,53 +769,6 @@ func (e *Encoder) LPCState() []float32 {
 // Must be called after EncodeFrame() to get a meaningful value.
 func (e *Encoder) FinalRange() uint32 {
 	return e.lastRng
-}
-
-// NSQState returns the noise shaping quantizer state.
-func (e *Encoder) NSQState() *NSQState {
-	return e.nsqState
-}
-
-// GetLastTotalEnergy returns the total energy (C0) from the last LPC Burg analysis.
-// Used for debugging gain computation from prediction residual.
-func (e *Encoder) GetLastTotalEnergy() float64 {
-	return e.lastTotalEnergy
-}
-
-// GetLastInvGain returns the inverse prediction gain from the last LPC Burg analysis.
-// invGain = residualEnergy / totalEnergy, so residualEnergy = totalEnergy * invGain.
-func (e *Encoder) GetLastInvGain() float64 {
-	return e.lastInvGain
-}
-
-// GetLastNumSamples returns the number of samples analyzed in the last LPC Burg analysis.
-func (e *Encoder) GetLastNumSamples() int {
-	return e.lastNumSamples
-}
-
-// InputQualityBandsQ15 returns the current VAD-derived input quality bands.
-func (e *Encoder) InputQualityBandsQ15() [4]int {
-	return e.inputQualityBandsQ15
-}
-
-// LaShape returns the current shaping lookahead in samples.
-func (e *Encoder) LaShape() int {
-	return e.laShape
-}
-
-// ShapeWinLength returns the current shaping analysis window length in samples.
-func (e *Encoder) ShapeWinLength() int {
-	return e.shapeWinLength
-}
-
-// ShapingLPCOrder returns the current shaping LPC order.
-func (e *Encoder) ShapingLPCOrder() int {
-	return e.shapingLPCOrder
-}
-
-// WarpingQ16 returns the current shaping warping factor in Q16.
-func (e *Encoder) WarpingQ16() int {
-	return e.warpingQ16
 }
 
 // LastEncodedSignalInfo returns the signal type and quantization offset from

@@ -14,17 +14,17 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-const modeTraceFixturePath = "testdata/libopus_mode_trace_fixture.json"
+const modeFixturePath = "testdata/libopus_mode_fixture.json"
 
-type modeTraceFixtureFile struct {
+type modeFixtureFile struct {
 	Version    int                    `json:"version"`
 	SampleRate int                    `json:"sample_rate"`
 	Generator  string                 `json:"generator"`
-	Cases      []modeTraceFixtureCase `json:"cases"`
+	Cases      []modeFixtureCase `json:"cases"`
 	Variants   []string               `json:"variants"`
 }
 
-type modeTraceFixtureCase struct {
+type modeFixtureCase struct {
 	Name         string                  `json:"name"`
 	Variant      string                  `json:"variant"`
 	FrameSize    int                     `json:"frame_size"`
@@ -33,68 +33,68 @@ type modeTraceFixtureCase struct {
 	Bandwidth    string                  `json:"bandwidth"`
 	SignalFrames int                     `json:"signal_frames"`
 	SignalSHA256 string                  `json:"signal_sha256"`
-	Frames       []modeTraceFixtureFrame `json:"frames"`
+	Frames       []modeFixtureFrame `json:"frames"`
 }
 
-type modeTraceFixtureFrame struct {
+type modeFixtureFrame struct {
 	Mode      string `json:"mode"`
 	TOCConfig int    `json:"toc_config"`
 }
 
 var (
-	modeTraceFixtureOnce sync.Once
-	modeTraceFixtureData modeTraceFixtureFile
-	modeTraceFixtureErr  error
+	modeFixtureOnce sync.Once
+	modeFixtureData modeFixtureFile
+	modeFixtureErr  error
 )
 
-func loadModeTraceFixture() (modeTraceFixtureFile, error) {
-	modeTraceFixtureOnce.Do(func() {
-		data, err := os.ReadFile(filepath.Join(modeTraceFixturePath))
+func loadModeFixture() (modeFixtureFile, error) {
+	modeFixtureOnce.Do(func() {
+		data, err := os.ReadFile(filepath.Join(modeFixturePath))
 		if err != nil {
-			modeTraceFixtureErr = err
+			modeFixtureErr = err
 			return
 		}
-		var fixture modeTraceFixtureFile
+		var fixture modeFixtureFile
 		if err := json.Unmarshal(data, &fixture); err != nil {
-			modeTraceFixtureErr = err
+			modeFixtureErr = err
 			return
 		}
 		if fixture.Version != 1 {
-			modeTraceFixtureErr = fmt.Errorf("unsupported mode trace fixture version %d", fixture.Version)
+			modeFixtureErr = fmt.Errorf("unsupported mode fixture version %d", fixture.Version)
 			return
 		}
 		if fixture.SampleRate != 48000 {
-			modeTraceFixtureErr = fmt.Errorf("unsupported mode trace fixture sample_rate %d", fixture.SampleRate)
+			modeFixtureErr = fmt.Errorf("unsupported mode fixture sample_rate %d", fixture.SampleRate)
 			return
 		}
 		for i := range fixture.Cases {
 			c := fixture.Cases[i]
 			if c.FrameSize <= 0 || c.Channels <= 0 || c.Bitrate <= 0 || c.SignalFrames <= 0 {
-				modeTraceFixtureErr = fmt.Errorf("invalid metadata in mode trace fixture case[%d]", i)
+				modeFixtureErr = fmt.Errorf("invalid metadata in mode fixture case[%d]", i)
 				return
 			}
 			if len(c.Frames) != c.SignalFrames {
-				modeTraceFixtureErr = fmt.Errorf("frame count mismatch in mode trace fixture case[%d]", i)
+				modeFixtureErr = fmt.Errorf("frame count mismatch in mode fixture case[%d]", i)
 				return
 			}
 			for j := range c.Frames {
 				frame := c.Frames[j]
 				if frame.TOCConfig < 0 || frame.TOCConfig > 31 {
-					modeTraceFixtureErr = fmt.Errorf("invalid toc config in mode trace fixture case[%d] frame[%d]", i, j)
+					modeFixtureErr = fmt.Errorf("invalid toc config in mode fixture case[%d] frame[%d]", i, j)
 					return
 				}
 				if frame.Mode != "silk" && frame.Mode != "hybrid" && frame.Mode != "celt" {
-					modeTraceFixtureErr = fmt.Errorf("invalid mode label in mode trace fixture case[%d] frame[%d]: %q", i, j, frame.Mode)
+					modeFixtureErr = fmt.Errorf("invalid mode label in mode fixture case[%d] frame[%d]: %q", i, j, frame.Mode)
 					return
 				}
 			}
 		}
-		modeTraceFixtureData = fixture
+		modeFixtureData = fixture
 	})
-	return modeTraceFixtureData, modeTraceFixtureErr
+	return modeFixtureData, modeFixtureErr
 }
 
-func modeTraceBandwidth(label string) (types.Bandwidth, error) {
+func modeFixtureBandwidth(label string) (types.Bandwidth, error) {
 	switch strings.ToLower(strings.TrimSpace(label)) {
 	case "narrowband":
 		return types.BandwidthNarrowband, nil
@@ -111,7 +111,7 @@ func modeTraceBandwidth(label string) (types.Bandwidth, error) {
 	}
 }
 
-func modeTraceLabelFromConfig(cfg int) string {
+func modeFixtureLabelFromConfig(cfg int) string {
 	switch {
 	case cfg <= 11:
 		return "silk"
@@ -122,13 +122,13 @@ func modeTraceLabelFromConfig(cfg int) string {
 	}
 }
 
-func TestModeTraceFixtureParityWithLibopus(t *testing.T) {
+func TestModeFixtureParityWithLibopus(t *testing.T) {
 	requireLibopusExactness(t)
 	requireTestTier(t, testTierFast)
 
-	fixture, err := loadModeTraceFixture()
+	fixture, err := loadModeFixture()
 	if err != nil {
-		t.Fatalf("load mode trace fixture: %v", err)
+		t.Fatalf("load mode fixture: %v", err)
 	}
 	const maxModeMismatchRatio = 0.02
 	const maxConfigMismatchRatio = 0.02
@@ -139,7 +139,7 @@ func TestModeTraceFixtureParityWithLibopus(t *testing.T) {
 		t.Run(caseName, func(t *testing.T) {
 			t.Parallel()
 
-			bw, err := modeTraceBandwidth(c.Bandwidth)
+			bw, err := modeFixtureBandwidth(c.Bandwidth)
 			if err != nil {
 				t.Fatalf("invalid fixture bandwidth: %v", err)
 			}
@@ -194,7 +194,7 @@ func TestModeTraceFixtureParityWithLibopus(t *testing.T) {
 				}
 
 				cfg := int(packet[0] >> 3)
-				gotMode := modeTraceLabelFromConfig(cfg)
+				gotMode := modeFixtureLabelFromConfig(cfg)
 				want := c.Frames[i]
 				if gotMode != want.Mode {
 					modeMismatch++
@@ -216,10 +216,10 @@ func TestModeTraceFixtureParityWithLibopus(t *testing.T) {
 				configMismatch, c.SignalFrames, cfgRatio*100)
 			if modeRatio > maxModeMismatchRatio {
 				if firstModeMismatch >= 0 {
-					t.Fatalf("mode trace parity drift: mismatches=%d/%d first_mismatch_frame=%d got=%s want=%s",
+					t.Fatalf("mode fixture parity drift: mismatches=%d/%d first_mismatch_frame=%d got=%s want=%s",
 						modeMismatch, c.SignalFrames, firstModeMismatch, firstModeGot, firstModeWant)
 				}
-				t.Fatalf("mode trace parity drift: mismatches=%d/%d", modeMismatch, c.SignalFrames)
+				t.Fatalf("mode fixture parity drift: mismatches=%d/%d", modeMismatch, c.SignalFrames)
 			}
 			if cfgRatio > maxConfigMismatchRatio {
 				t.Fatalf("toc config parity drift: mismatches=%d/%d", configMismatch, c.SignalFrames)
@@ -228,16 +228,16 @@ func TestModeTraceFixtureParityWithLibopus(t *testing.T) {
 	}
 }
 
-func TestModeTraceFixtureMetadata(t *testing.T) {
+func TestModeFixtureMetadata(t *testing.T) {
 	requireTestTier(t, testTierFast)
 
-	fixture, err := loadModeTraceFixture()
+	fixture, err := loadModeFixture()
 	if err != nil {
-		t.Fatalf("load mode trace fixture: %v", err)
+		t.Fatalf("load mode fixture: %v", err)
 	}
 
 	if len(fixture.Cases) == 0 {
-		t.Fatal("mode trace fixture has no cases")
+		t.Fatal("mode fixture has no cases")
 	}
 	if !strings.Contains(strings.ToLower(fixture.Generator), "libopus-1.6.1") {
 		t.Fatalf("generator must reference libopus 1.6.1, got %q", fixture.Generator)

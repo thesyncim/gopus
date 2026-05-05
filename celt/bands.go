@@ -76,12 +76,10 @@ func (d *Decoder) DecodeBands(
 		// Convert bits to pulse count
 		k := bitsToK(bandBits[band], n)
 
-		// Trace allocation
-
 		// Get pre-allocated storage for this band's shape vector
 		shape := d.scratchBands.getBandStorage(band, n)
 		if k > 0 {
-			// Decode PVQ vector for this band (with tracing) into pre-allocated buffer
+			// Decode PVQ vector for this band into the pre-allocated buffer.
 			d.decodePVQInto(band, n, k, shape)
 			UpdateCollapseMask(&collapseMask, band)
 		} else {
@@ -114,12 +112,6 @@ func (d *Decoder) DecodeBands(
 		// Apply gain to shape and write to output
 		for i := 0; i < n && i < len(shape); i++ {
 			coeffs[offset+i] = shape[i] * gain
-		}
-
-		// Trace denormalized coefficients
-		traceEnd := offset + n
-		if traceEnd > len(coeffs) {
-			traceEnd = len(coeffs)
 		}
 
 		offset += n
@@ -194,7 +186,6 @@ func (d *Decoder) DecodeBandsStereo(
 
 		// Convert bits to pulse count
 		k := bitsToK(bandBits[band], n)
-		// Trace allocation
 
 		// Get pre-allocated storage for this band's shape vectors
 		shapeL := d.scratchBands.getBandStorageL(band, n)

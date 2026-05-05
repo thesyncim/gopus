@@ -1925,18 +1925,6 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	// CBR path uses fixed payload size.
 	if !e.vbr {
 		targetBits := e.cbrPayloadBytes(frameSize) * 8
-		if e.targetStatsHook != nil {
-			e.emitTargetStats(
-				CeltTargetStats{
-					FrameSize:   frameSize,
-					Tonality:    e.lastTonality,
-					PitchChange: pitchChange,
-					MaxDepth:    e.lastDynalloc.MaxDepth,
-				},
-				targetBits,
-				targetBits,
-			)
-		}
 		return targetBits
 	}
 
@@ -1982,13 +1970,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	}
 
 	// For VBR mode, apply boost based on signal characteristics.
-	var targetQ3 int
-	var stats *CeltTargetStats
-	if e.targetStatsHook != nil {
-		s := CeltTargetStats{FrameSize: frameSize}
-		stats = &s
-	}
-	targetQ3 = e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange, stats)
+	targetQ3 := e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange)
 
 	// libopus adds ec_tell_frac(enc) to the VBR target before converting to
 	// bytes (line 2478). This accounts for side information already written
@@ -2089,15 +2071,11 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	if targetBits > maxBits {
 		targetBits = maxBits
 	}
-	if stats != nil {
-		e.emitTargetStats(*stats, baseBits, targetBits)
-	}
-
 	return targetBits
 }
 
 // computeVBRTarget applies libopus-style CELT VBR shaping in Q3 units.
-func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool, stats *CeltTargetStats) int {
+func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool) int {
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
 	nbBands := e.effectiveBandCount(frameSize)
@@ -2209,10 +2187,8 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	if floorDepth < (targetQ3 >> 2) {
 		floorDepth = targetQ3 >> 2
 	}
-	floorLimited := false
 	if targetQ3 > floorDepth {
 		targetQ3 = floorDepth
-		floorLimited = true
 	}
 
 	// Constrained VBR makes target changes less aggressive.
@@ -2243,15 +2219,6 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	}
 	if targetQ3 < 0 {
 		targetQ3 = 0
-	}
-
-	if stats != nil {
-		stats.DynallocBoost = dynallocBoost
-		stats.PitchChange = pitchChange
-		stats.TFBoost = tfBoost
-		stats.FloorLimited = floorLimited
-		stats.MaxDepth = maxDepth
-		stats.Tonality = tonality
 	}
 
 	return targetQ3

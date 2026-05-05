@@ -204,8 +204,6 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 			q := float64(qi) * DB6
 			energy := pred + q
 
-			// Trace coarse energy (coarse=pred, fine=qi*DB6, total=energy)
-
 			// Store result
 			dst[c*nbBands+band] = energy
 

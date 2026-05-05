@@ -100,9 +100,6 @@ func TestDownsamplingResamplerQuality(t *testing.T) {
 		t.Errorf("Zero crossing ratio %.4f indicates frequency distortion", crossingRatio)
 	}
 
-	// Log first few samples for debugging
-	t.Logf("First 10 input samples: %v", input[:10])
-	t.Logf("First 10 output samples: %v", output[:10])
 }
 
 // TestDownsamplingResamplerSNR measures the signal-to-noise ratio of the resampler.

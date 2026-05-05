@@ -162,21 +162,6 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 
 	minInvGain32 := float32(minInvGainVal)
 
-	if e.trace != nil && e.trace.NLSF != nil {
-		tr := e.trace.NLSF
-		tr.LTPResLen = totalLen
-		tr.LTPResHash = hashFloat32Slice(ltpRes[:totalLen])
-		if tr.CaptureLTPRes {
-			tr.LTPRes = append(tr.LTPRes[:0], ltpRes[:totalLen]...)
-		}
-		tr.MinInvGain = float64(minInvGain32)
-		tr.LPCOrder = order
-		tr.NbSubfr = numSubframes
-		tr.SubfrLen = subframeSamples
-		tr.SubfrLenWithOrder = subfrLen
-		tr.FirstFrameAfterReset = e.firstFrameAfterResetActive()
-	}
-
 	aFull, resNrg := e.burgModifiedFLPZeroAllocF32(ltpRes[:totalLen], minInvGain32, subfrLen, numSubframes, order)
 	resNrg32 := float32(resNrg)
 	fullTotalEnergy := e.lastTotalEnergy
@@ -217,15 +202,6 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 			// double before subtracting the double burg result, then truncated
 			// back to float. This avoids premature truncation of resNrgLast.
 			resNrg32 = float32(float64(resNrg32) - resNrgLast)
-			if e.trace != nil && e.trace.NLSF != nil {
-				tr := e.trace.NLSF
-				tr.InterpBaseResNrg = resNrg32
-				tr.InterpBreakAt = -1
-				for i := range tr.InterpResNrgQ2 {
-					tr.InterpResNrgQ2[i] = float32(math.NaN())
-				}
-			}
-
 			resNrg2nd := float32(math.MaxFloat32)
 			analyzeLen := 2 * subfrLen
 			if analyzeLen <= totalLen {
@@ -254,17 +230,10 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 							energyF32Libopus(lpcRes[order+subfrLen:], subframeSamples),
 					)
 
-					if e.trace != nil && e.trace.NLSF != nil && k >= 0 && k < len(e.trace.NLSF.InterpResNrgQ2) {
-						e.trace.NLSF.InterpResNrgQ2[k] = resNrgInterp
-					}
-
 					if resNrgInterp < resNrg32 {
 						resNrg32 = resNrgInterp
 						interpIdx = k
 					} else if resNrgInterp > resNrg2nd {
-						if e.trace != nil && e.trace.NLSF != nil {
-							e.trace.NLSF.InterpBreakAt = k
-						}
 						break
 					}
 					resNrg2nd = resNrgInterp
@@ -275,14 +244,6 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 				copy(lsfQ15, lsfLast)
 			}
 		}
-	}
-
-	if e.trace != nil && e.trace.NLSF != nil {
-		tr := e.trace.NLSF
-		tr.UseInterp = useInterp
-		tr.InterpIdx = interpIdx
-		tr.RawNLSFQ15 = append(tr.RawNLSFQ15[:0], lsfQ15...)
-		tr.PrevNLSFQ15 = append(tr.PrevNLSFQ15[:0], e.prevLSFQ15...)
 	}
 
 	return lpcQ12, lsfQ15, interpIdx

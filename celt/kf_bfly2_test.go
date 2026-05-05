@@ -80,27 +80,11 @@ func TestKfBfly2M1Correctness(t *testing.T) {
 			// Verify copy worked
 			for i := range input {
 				if input[i] != optOut[i] {
-					t.Logf("Copy mismatch at %d: input={%.6f,%.6f} optOut={%.6f,%.6f}",
+					t.Fatalf("Copy mismatch at %d: input={%.6f,%.6f} optOut={%.6f,%.6f}",
 						i, input[i].r, input[i].i, optOut[i].r, optOut[i].i)
 				}
 			}
 			kfBfly2M1(optOut, n)
-
-			// Debug: print first few values
-			if n <= 4 {
-				t.Logf("n=%d input:", n)
-				for i := 0; i < len(input); i++ {
-					t.Logf("  [%d] = {%.6f, %.6f}", i, input[i].r, input[i].i)
-				}
-				t.Logf("n=%d ref output:", n)
-				for i := 0; i < len(refOut); i++ {
-					t.Logf("  [%d] = {%.6f, %.6f}", i, refOut[i].r, refOut[i].i)
-				}
-				t.Logf("n=%d opt output:", n)
-				for i := 0; i < len(optOut); i++ {
-					t.Logf("  [%d] = {%.6f, %.6f}", i, optOut[i].r, optOut[i].i)
-				}
-			}
 
 			// Compare
 			var maxDiff float64

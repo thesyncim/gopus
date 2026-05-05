@@ -44,7 +44,7 @@ evidence archive.
 - [ ] Parity summary.
 - [ ] Consumer-smoke result.
 - [ ] `TestEncoderComplianceSummary` output (pass/fail summary).
-- [ ] `TestSILKParamTraceAgainstLibopus` output.
+- [ ] `make test-exactness` output.
 - [ ] Hot-path allocation guard output:
   - [ ] `TestHotPathAllocsEncodeFloat32`
   - [ ] `TestHotPathAllocsEncodeInt16`

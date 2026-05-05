@@ -179,7 +179,6 @@ func TestCoarseEnergyEncoderProducesValidOutput(t *testing.T) {
 				if intra && len(encoded) == 0 {
 					t.Errorf("No bytes produced for %d bands in intra mode", nbBands)
 				}
-				// Log inter mode output for diagnostics
 				if !intra {
 					t.Logf("Inter mode produced %d bytes for %d bands", len(encoded), nbBands)
 				}

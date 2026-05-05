@@ -23,11 +23,6 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	if channels <= 0 || frameSize <= 0 || len(preemph) == 0 {
 		return result
 	}
-	hook := e.prefilterDebugHook
-	usedTonePath := false
-	usedPitchPath := false
-	pitchSearchOut := 0
-	pitchBeforeRD := 0
 
 	if tapset < 0 {
 		tapset = 0
@@ -85,7 +80,6 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	pfOn := false
 
 	if enabled && toneishness > 0.99 {
-		usedTonePath = true
 		freq := toneFreq
 		if freq >= math.Pi {
 			freq = math.Pi - freq
@@ -104,7 +98,6 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		}
 		gain1 = 0.75
 	} else if enabled && e.complexity >= 5 {
-		usedPitchPath = true
 		pitchBufLen := (maxPeriod + frameSize) >> 1
 		if pitchBufLen < 1 {
 			pitchBufLen = 1
@@ -116,10 +109,8 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			maxPitch = 1
 		}
 		searchOut := pitchSearch(pitchBuf[maxPeriod>>1:], pitchBuf, frameSize, maxPitch, &e.scratch)
-		pitchSearchOut = searchOut
 		pitchIndex = searchOut
 		pitchIndex = maxPeriod - pitchIndex
-		pitchBeforeRD = pitchIndex
 		gain1 = removeDoubling(pitchBuf, maxPeriod, minPeriod, frameSize, &pitchIndex, e.prefilterPeriod, e.prefilterGain, &e.scratch)
 		if pitchIndex > maxPeriod-2 {
 			pitchIndex = maxPeriod - 2
@@ -317,25 +308,6 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	result.qg = qg
 	result.tapset = tapset
 	result.gain = gain1
-	if hook != nil {
-		hook(PrefilterDebugStats{
-			Frame:          e.frameCount,
-			Enabled:        enabled,
-			UsedTonePath:   usedTonePath,
-			UsedPitchPath:  usedPitchPath,
-			TFEstimate:     tfEstimate,
-			NBBytes:        nbAvailableBytes,
-			ToneFreq:       toneFreq,
-			Toneishness:    toneishness,
-			MaxPitchRatio:  maxPitchRatio,
-			PitchSearchOut: pitchSearchOut,
-			PitchBeforeRD:  pitchBeforeRD,
-			PitchAfterRD:   pitchIndex,
-			PFOn:           pfOn,
-			QG:             qg,
-			Gain:           gain1,
-		})
-	}
 	return result
 }
 

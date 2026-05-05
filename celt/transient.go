@@ -49,7 +49,7 @@ type TransientAnalysisResult struct {
 	IsTransient   bool    // Whether a transient was detected
 	TfEstimate    float64 // Time-frequency estimate (0.0 = time, 1.0 = freq) for TF analysis bias
 	TfChannel     int     // Which channel had the strongest transient (0 or 1)
-	MaskMetric    float64 // The raw mask metric value (for diagnostics)
+	MaskMetric    float64 // Raw mask metric value.
 	WeakTransient bool    // Whether this is a "weak" transient (for hybrid mode)
 	ToneFreq      float64 // Detected tone frequency in radians/sample (-1 if no tone)
 	Toneishness   float64 // How "pure" the tone is (0.0-1.0, higher = purer)
@@ -970,7 +970,7 @@ func (e *Encoder) DetectTransientWithCustomThreshold(pcm []float64, frameSize in
 
 // ComputeSubBlockEnergies computes energy per sub-block for analysis.
 // Returns energy values for each of the 8 sub-blocks.
-// Useful for diagnostics or adaptive thresholding.
+// Useful for adaptive thresholding.
 func (e *Encoder) ComputeSubBlockEnergies(pcm []float64, frameSize int) []float64 {
 	if len(pcm) == 0 || frameSize <= 0 {
 		return nil
