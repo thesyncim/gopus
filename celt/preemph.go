@@ -218,7 +218,58 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCoreF32(pcm, output []flo
 
 	coef := float32(PreemphCoef)
 	var firstMaxBits, overlapMaxBits uint64
-	if channels == 1 {
+	if !writeF32 && channels == 1 {
+		state := float32(e.preemphState[0])
+		for i := 0; i < split; i++ {
+			v := pcm[i]
+			firstMaxBits = updateMaxAbsBits(firstMaxBits, v)
+			scaled := float32(v) * float32(CELTSigScale)
+			output[i] = float64(scaled - state)
+			state = coef * scaled
+		}
+		for i := split; i < total; i++ {
+			v := pcm[i]
+			overlapMaxBits = updateMaxAbsBits(overlapMaxBits, v)
+			scaled := float32(v) * float32(CELTSigScale)
+			output[i] = float64(scaled - state)
+			state = coef * scaled
+		}
+		e.preemphState[0] = float64(state)
+	} else if !writeF32 {
+		stateL := float32(e.preemphState[0])
+		stateR := float32(e.preemphState[1])
+		i := 0
+		for ; i+1 < split; i += 2 {
+			vL := pcm[i]
+			vR := pcm[i+1]
+			firstMaxBits = updateMaxAbsBits(firstMaxBits, vL)
+			firstMaxBits = updateMaxAbsBits(firstMaxBits, vR)
+
+			scaledL := float32(vL) * float32(CELTSigScale)
+			output[i] = float64(scaledL - stateL)
+			stateL = coef * scaledL
+
+			scaledR := float32(vR) * float32(CELTSigScale)
+			output[i+1] = float64(scaledR - stateR)
+			stateR = coef * scaledR
+		}
+		for ; i+1 < total; i += 2 {
+			vL := pcm[i]
+			vR := pcm[i+1]
+			overlapMaxBits = updateMaxAbsBits(overlapMaxBits, vL)
+			overlapMaxBits = updateMaxAbsBits(overlapMaxBits, vR)
+
+			scaledL := float32(vL) * float32(CELTSigScale)
+			output[i] = float64(scaledL - stateL)
+			stateL = coef * scaledL
+
+			scaledR := float32(vR) * float32(CELTSigScale)
+			output[i+1] = float64(scaledR - stateR)
+			stateR = coef * scaledR
+		}
+		e.preemphState[0] = float64(stateL)
+		e.preemphState[1] = float64(stateR)
+	} else if channels == 1 {
 		state := float32(e.preemphState[0])
 		for i := 0; i < split; i++ {
 			v := pcm[i]
