@@ -220,8 +220,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		if firstFrameAfterReset {
 			// Match libopus: skip pitch analysis on the first frame after reset.
 			pitchLags = make([]int, numSubframes)
-			lagIndex = 0
-			contourIndex = 0
 			e.ltpCorr = 0
 			e.pitchState.ltpCorr = 0
 		} else {
