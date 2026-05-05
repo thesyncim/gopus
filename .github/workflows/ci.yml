@@ -508,6 +508,9 @@ jobs:
       - name: Enforce benchmark guardrails
         run: make bench-guard
 
+      - name: Enforce libopus-relative benchmark guardrails
+        run: make bench-libopus-guard
+
   test-macos:
     name: test-macos
     needs:

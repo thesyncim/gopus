@@ -145,7 +145,7 @@ If you want to evaluate or contribute to the codec, these are the main entry poi
 - `make bench-testvectors-compare`
 - `make verify-production`
 
-`make ensure-libopus` bootstraps the pinned libopus 1.6.1 reference used by parity and quality checks. Some verification paths also expect `ffmpeg` and `opusdec` to be available.
+`make ensure-libopus` bootstraps the pinned libopus 1.6.1 reference used by parity and quality checks. `make ensure-testvectors` fetches the official RFC 8251 vectors; benchmark targets that need them run it automatically. Some verification paths also expect `ffmpeg` and `opusdec` to be available.
 
 ## Docs and Project Hygiene
 

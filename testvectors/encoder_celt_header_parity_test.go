@@ -3,7 +3,6 @@ package testvectors
 import (
 	"fmt"
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/celt"
@@ -27,24 +26,7 @@ func TestEncoderVariantCELTHeaderParityAgainstFixture(t *testing.T) {
 		t.Fatalf("load encoder variants fixture: %v", err)
 	}
 
-	// These cases still expose pitch/postfilter rounding gaps, so keep them out
-	// of the exact header ratchet until that path is green. The amd64 fixture
-	// keeps its vectorized tone-LPC coverage separate from the scalar-order path
-	// used by the generic/arm64 fixture.
-	knownHeaderGaps := map[string]struct{}{
-		"CELT-FB-2.5ms-mono-64k-speech_like_v1":  {},
-		"CELT-FB-5ms-stereo-128k-chirp_sweep_v1": {},
-	}
-	expectedCoverage := 26
-	if runtime.GOARCH == "amd64" {
-		knownHeaderGaps = map[string]struct{}{
-			"CELT-FB-10ms-mono-64k-chirp_sweep_v1":  {},
-			"CELT-FB-2.5ms-mono-64k-chirp_sweep_v1": {},
-			"CELT-FB-2.5ms-mono-64k-speech_like_v1": {},
-			"CELT-FB-5ms-mono-64k-chirp_sweep_v1":   {},
-		}
-		expectedCoverage = 24
-	}
+	expectedCoverage := 28
 
 	covered := 0
 	for _, c := range fixture.Cases {
@@ -52,9 +34,6 @@ func TestEncoderVariantCELTHeaderParityAgainstFixture(t *testing.T) {
 			continue
 		}
 		testName := fmt.Sprintf("%s-%s", c.Name, c.Variant)
-		if _, ok := knownHeaderGaps[testName]; ok {
-			continue
-		}
 		c := c
 		t.Run(testName, func(t *testing.T) {
 			assertCELTVariantPostfilterHeaderParityForCase(t, c)

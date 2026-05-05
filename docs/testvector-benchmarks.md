@@ -22,6 +22,7 @@ The `gopus` rows are built with Go PGO profile `default.pgo`.
 ## Reproduce
 
 ```sh
+make ensure-testvectors
 GOWORK=off go run -pgo=default.pgo ./tools/testvectorbenchcmp -cases=aggregate -paths=all -benchtimes=200ms,1s,5s -count=3 -gopus-pgo=default.pgo -format=markdown
 ```
 

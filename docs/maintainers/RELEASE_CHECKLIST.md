@@ -39,7 +39,7 @@ evidence archive.
 - [ ] OS/platform.
 - [ ] libopus reference version and SHA256.
 - [ ] Commands run with pass/fail summaries.
-- [ ] Benchmark guardrail result.
+- [ ] Benchmark guardrail result, including pinned-libopus relative decoder and encoder performance.
 - [ ] Fuzz/safety summary.
 - [ ] Parity summary.
 - [ ] Consumer-smoke result.

@@ -824,7 +824,34 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 				false,
 			)
 		} else if packet == nil {
-			packetLen, pktErr = BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
+			targetSize := targetBytesForBitrate(e.bitrate, frameSize)
+			if e.bitrateMode == ModeCBR && targetSize >= 2+len(frameData) {
+				if targetSize == 2+len(frameData) {
+					config := configFromParams(modeToTypes(actualMode), packetBW, frameSize)
+					if config < 0 || len(e.scratchPacket) < targetSize {
+						pktErr = ErrInvalidConfig
+					} else {
+						e.scratchPacket[0] = generateTOC(uint8(config), stereo, 3)
+						e.scratchPacket[1] = 0x01
+						copy(e.scratchPacket[2:], frameData)
+						packetLen = targetSize
+					}
+				} else {
+					packetLen, pktErr = buildPacketWithExtensionsInto(
+						e.scratchPacket,
+						frameData,
+						modeToTypes(actualMode),
+						packetBW,
+						frameSize,
+						stereo,
+						nil,
+						targetSize,
+						true,
+					)
+				}
+			} else {
+				packetLen, pktErr = BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
+			}
 		}
 		if packet == nil && pktErr != nil {
 			return nil, pktErr

@@ -27,16 +27,58 @@ func pitchAutocorr5Ref(lp []float64, length int, ac *[5]float64) {
 	if fastN < 0 {
 		fastN = 0
 	}
+	if pitchAutocorr5RefUsesArm64LibopusOrder && fastN > 0 {
+		for lag := 0; lag < 4; lag++ {
+			sum := float32(0)
+			for i := 0; i < fastN; i++ {
+				sum = fma32(float32(lp[i]), float32(lp[i+lag]), sum)
+			}
+			tail := float32(0)
+			for i := lag + fastN; i < length; i++ {
+				tail += float32(lp[i]) * float32(lp[i-lag])
+			}
+			ac[lag] = float64(sum + tail)
+		}
+		ac[4] = float64(pitchAutocorr5InnerProdNeonRef(lp, lp[4:], fastN))
+		return
+	}
 	for lag := 0; lag <= 4; lag++ {
 		sum := float32(0)
 		for i := 0; i < fastN; i++ {
 			sum += float32(lp[i]) * float32(lp[i+lag])
 		}
+		tail := float32(0)
 		for i := lag + fastN; i < length; i++ {
-			sum += float32(lp[i]) * float32(lp[i-lag])
+			tail += float32(lp[i]) * float32(lp[i-lag])
 		}
-		ac[lag] = float64(sum)
+		ac[lag] = float64(sum + tail)
 	}
+}
+
+func pitchAutocorr5InnerProdNeonRef(x, y []float64, n int) float32 {
+	var sum [4]float32
+	i := 0
+	for ; i < n-7; i += 8 {
+		for lane := 0; lane < 4; lane++ {
+			sum[lane] = fma32(float32(x[i+lane]), float32(y[i+lane]), sum[lane])
+		}
+		for lane := 0; lane < 4; lane++ {
+			sum[lane] = fma32(float32(x[i+4+lane]), float32(y[i+4+lane]), sum[lane])
+		}
+	}
+	if n-i >= 4 {
+		for lane := 0; lane < 4; lane++ {
+			sum[lane] = fma32(float32(x[i+lane]), float32(y[i+lane]), sum[lane])
+		}
+		i += 4
+	}
+	xy0 := sum[0] + sum[2]
+	xy1 := sum[1] + sum[3]
+	xy := xy0 + xy1
+	for ; i < n; i++ {
+		xy = fma32(float32(x[i]), float32(y[i]), xy)
+	}
+	return xy
 }
 
 func TestArm64HotHelpersMatchReference(t *testing.T) {

@@ -12,7 +12,8 @@
 // For each lag 0..4: ac[lag] = sum(float32(lp[i])*float32(lp[i+lag])) for i in [0,fastN)
 //   plus correction terms for i in [lag+fastN, length).
 //
-// Uses the same FCVTN + FMLA pattern as prefilterPitchXcorr.
+// Lags 0..3 follow libopus' ARM64 xcorr_kernel_neon_float FMA order; lag 4
+// follows its celt_inner_prod_neon reduction order.
 TEXT ·pitchAutocorr5(SB), NOSPLIT, $0-40
 	MOVD lp_base+0(FP), R0
 	MOVD length+24(FP), R1
@@ -24,8 +25,142 @@ TEXT ·pitchAutocorr5(SB), NOSPLIT, $0-40
 
 	MOVD $16, R15                  // post-increment stride
 
-	// Process lag 0 through 4
+	CBNZ R3, pa_lags0_3
+
+	// Very short inputs are not used by CELT prefilter pitch analysis, but keep
+	// the original generic lag loop as the bounds-safe fallback.
 	MOVD ZR, R4                    // lag counter
+	B    pa_lag_loop
+
+pa_lags0_3:
+	// libopus' ARM64 float path computes autocorr lags 0..3 through
+	// xcorr_kernel_neon_float(): one scalar x sample is fused into four lag
+	// accumulators before advancing.  Borderline pitch decisions depend on this
+	// FMA order.
+	VEOR V16.B16, V16.B16, V16.B16
+	VEOR V17.B16, V17.B16, V17.B16
+	VEOR V18.B16, V18.B16, V18.B16
+	VEOR V19.B16, V19.B16, V19.B16
+
+	MOVD R3, R7                    // fastN counter
+	MOVD R0, R8                    // x pointer
+	MOVD R0, R9                    // y base pointer
+
+pa_lags0_3_loop:
+	FMOVD  (R8), F0
+	FCVTDS F0, F0
+
+	FMOVD  (R9), F1
+	FCVTDS F1, F1
+	FMADDS F0, F16, F1, F16
+
+	FMOVD  8(R9), F1
+	FCVTDS F1, F1
+	FMADDS F0, F17, F1, F17
+
+	FMOVD  16(R9), F1
+	FCVTDS F1, F1
+	FMADDS F0, F18, F1, F18
+
+	FMOVD  24(R9), F1
+	FCVTDS F1, F1
+	FMADDS F0, F19, F1, F19
+
+	ADD  $8, R8
+	ADD  $8, R9
+	SUBS $1, R7
+	BNE  pa_lags0_3_loop
+
+	// _celt_autocorr() correction terms for k=0..3.
+	VEOR V20.B16, V20.B16, V20.B16
+	VEOR V21.B16, V21.B16, V21.B16
+	VEOR V22.B16, V22.B16, V22.B16
+	VEOR V23.B16, V23.B16, V23.B16
+
+	MOVD R3, R7
+pa_corr0_loop:
+	CMP  R1, R7
+	BGE  pa_corr1_init
+	LSL  $3, R7, R8
+	ADD  R0, R8, R8
+	FMOVD  (R8), F0
+	FCVTDS F0, F0
+	FMADDS F0, F20, F0, F20
+	ADD  $1, R7
+	B    pa_corr0_loop
+
+pa_corr1_init:
+	ADD  $1, R3, R7
+pa_corr1_loop:
+	CMP  R1, R7
+	BGE  pa_corr2_init
+	LSL  $3, R7, R8
+	ADD  R0, R8, R8
+	FMOVD  (R8), F0
+	FCVTDS F0, F0
+	SUB  $1, R7, R10
+	LSL  $3, R10, R10
+	ADD  R0, R10, R10
+	FMOVD  (R10), F1
+	FCVTDS F1, F1
+	FMADDS F0, F21, F1, F21
+	ADD  $1, R7
+	B    pa_corr1_loop
+
+pa_corr2_init:
+	ADD  $2, R3, R7
+pa_corr2_loop:
+	CMP  R1, R7
+	BGE  pa_corr3_init
+	LSL  $3, R7, R8
+	ADD  R0, R8, R8
+	FMOVD  (R8), F0
+	FCVTDS F0, F0
+	SUB  $2, R7, R10
+	LSL  $3, R10, R10
+	ADD  R0, R10, R10
+	FMOVD  (R10), F1
+	FCVTDS F1, F1
+	FMADDS F0, F22, F1, F22
+	ADD  $1, R7
+	B    pa_corr2_loop
+
+pa_corr3_init:
+	ADD  $3, R3, R7
+pa_corr3_loop:
+	CMP  R1, R7
+	BGE  pa_store_lags0_3
+	LSL  $3, R7, R8
+	ADD  R0, R8, R8
+	FMOVD  (R8), F0
+	FCVTDS F0, F0
+	SUB  $3, R7, R10
+	LSL  $3, R10, R10
+	ADD  R0, R10, R10
+	FMOVD  (R10), F1
+	FCVTDS F1, F1
+	FMADDS F0, F23, F1, F23
+	ADD  $1, R7
+	B    pa_corr3_loop
+
+pa_store_lags0_3:
+	FADDS F20, F16, F16
+	FADDS F21, F17, F17
+	FADDS F22, F18, F18
+	FADDS F23, F19, F19
+
+	FCVTSD F16, F0
+	FMOVD  F0, 0(R2)
+	FCVTSD F17, F0
+	FMOVD  F0, 8(R2)
+	FCVTSD F18, F0
+	FMOVD  F0, 16(R2)
+	FCVTSD F19, F0
+	FMOVD  F0, 24(R2)
+
+	// Lag 4 uses celt_inner_prod_neon() in libopus; the existing per-lag
+	// vector reduction matches that accumulation order.
+	MOVD $4, R4
 
 pa_lag_loop:
 	VEOR V16.B16, V16.B16, V16.B16  // accumulator

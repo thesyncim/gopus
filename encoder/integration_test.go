@@ -95,8 +95,6 @@ func TestEncoderAllModes(t *testing.T) {
 }
 
 // TestEncoderHybridRoundTrip tests encode->decode round-trip for Hybrid mode.
-// Note: Internal decoder has known issues (see STATE.md - CELT frame size mismatch).
-// This test validates encoding produces decodable packets and logs quality metrics.
 func TestEncoderHybridRoundTrip(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -151,9 +149,7 @@ func TestEncoderHybridRoundTrip(t *testing.T) {
 				decoded, err = dec.Decode(frameData, tc.frameSize)
 			}
 			if err != nil {
-				// Log but don't fail - decoder has known issues
-				t.Logf("decoding returned error (known decoder issue): %v", err)
-				return
+				t.Fatalf("decoding failed: %v", err)
 			}
 
 			// Verify signal energy is preserved
@@ -167,19 +163,14 @@ func TestEncoderHybridRoundTrip(t *testing.T) {
 			t.Logf("Energy ratio: %.2f (input: %.4f, output: %.4f, decoded_len=%d)",
 				ratio, inputEnergy, outputEnergy, len(decoded))
 
-			// Log quality metrics without failing - decoder has known issues
-			if ratio > 0.1 {
-				t.Logf("PASS: Signal quality >10%% preserved")
-			} else {
-				t.Logf("INFO: Signal quality below threshold (known decoder issue)")
+			if ratio <= 0.1 {
+				t.Fatalf("signal quality below threshold: ratio=%.2f", ratio)
 			}
 		})
 	}
 }
 
 // TestEncoderCELTRoundTrip tests encode->decode round-trip for CELT mode.
-// Note: Internal decoder has known issues (see STATE.md - CELT frame size mismatch).
-// This test validates encoding produces decodable packets and logs quality metrics.
 func TestEncoderCELTRoundTrip(t *testing.T) {
 	tests := []struct {
 		name      string
@@ -193,13 +184,6 @@ func TestEncoderCELTRoundTrip(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			// Recover from decoder panics (known issues)
-			defer func() {
-				if r := recover(); r != nil {
-					t.Logf("INFO: decoder panic (known issue): %v", r)
-				}
-			}()
-
 			enc := encoder.NewEncoder(48000, tc.channels)
 			enc.SetMode(encoder.ModeCELT)
 			enc.SetBandwidth(types.BandwidthFullband)
@@ -232,15 +216,12 @@ func TestEncoderCELTRoundTrip(t *testing.T) {
 			rd.Init(frameData)
 			decoded, err := dec.DecodeFrameWithDecoder(rd, tc.frameSize)
 			if err != nil {
-				// Log but don't fail - decoder has known issues
-				t.Logf("decoding returned error (known decoder issue): %v", err)
-				return
+				t.Fatalf("decoding failed: %v", err)
 			}
 
-			// Log decoded length - known issue is size mismatch
 			expectedLen := tc.frameSize * tc.channels
 			if len(decoded) != expectedLen {
-				t.Logf("INFO: decoded length = %d, want %d (known decoder issue)", len(decoded), expectedLen)
+				t.Fatalf("decoded length = %d, want %d", len(decoded), expectedLen)
 			}
 
 			// Verify energy
@@ -253,11 +234,8 @@ func TestEncoderCELTRoundTrip(t *testing.T) {
 			}
 			t.Logf("Energy ratio: %.2f (decoded_len=%d)", ratio, len(decoded))
 
-			// Log quality metrics without failing - decoder has known issues
-			if ratio > 0.1 {
-				t.Logf("PASS: Signal quality >10%% preserved")
-			} else {
-				t.Logf("INFO: Signal quality below threshold (known decoder issue)")
+			if ratio <= 0.1 {
+				t.Fatalf("signal quality below threshold: ratio=%.2f", ratio)
 			}
 		})
 	}

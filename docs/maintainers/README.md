@@ -6,6 +6,7 @@ These documents are for release, CI, and repo-maintenance workflows rather than 
 
 - [ASSEMBLY_VALIDATION.md](ASSEMBLY_VALIDATION.md)
 - [CI_GUARDRAILS.md](CI_GUARDRAILS.md)
+- [ENCODER_PARITY.md](ENCODER_PARITY.md)
 - [RELEASE_CHECKLIST.md](RELEASE_CHECKLIST.md)
 - [SUPPLY_CHAIN.md](SUPPLY_CHAIN.md)
 - [PRODUCTION_PLAN.md](PRODUCTION_PLAN.md)

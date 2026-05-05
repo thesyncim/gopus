@@ -1,6 +1,6 @@
 # Production TODO
 
-Last updated: 2026-04-21
+Last updated: 2026-05-05
 
 ## Recently completed
 
@@ -15,6 +15,7 @@ Last updated: 2026-04-21
 - [x] Document production plan and verification workflow.
 - [x] Add deterministic benchmark regression guard tooling (`tools/benchguard` + `tools/bench_guardrails.json`).
 - [x] Add explicit CI performance gate (`perf-linux`) and wire `make bench-guard` into `verify-production`.
+- [x] Add pinned-libopus relative decoder and encoder performance guardrails and wire `make bench-libopus-guard` into CI and production verification.
 - [x] Document CI guardrail/branch-protection policy (`docs/maintainers/CI_GUARDRAILS.md`) and the concise project brief (`AGENTS.md`).
 - [x] Close the previously-known large encoder quality regressions and return `make test-quality` to green.
 - [x] Expand zero-allocation hard gates to cover PLC and stereo decode hot paths.

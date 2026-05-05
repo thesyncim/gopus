@@ -20,7 +20,10 @@ import (
 // Test vector URLs and paths
 const (
 	// testVectorURL is the official RFC 8251 test vector archive
-	testVectorURL = "https://opus-codec.org/docs/opus_testvectors-rfc8251.tar.gz"
+	testVectorURL = "https://opus-codec.org/static/testvectors/opus_testvectors-rfc8251.tar.gz"
+
+	// testVectorFallbackURL mirrors the same official RFC 8251 vectors.
+	testVectorFallbackURL = "https://www.ietf.org/proceedings/98/slides/materials-98-codec-opus-newvectors-00.tar.gz"
 
 	// testVectorDir is where test vectors are extracted
 	testVectorDir = "testdata/opus_testvectors"
@@ -143,20 +146,36 @@ func ensureTestVectors(t testing.TB) error {
 		return fmt.Errorf("failed to remove existing test vectors: %w", err)
 	}
 
-	// Download the archive
-	resp, err := http.Get(testVectorURL)
-	if err != nil {
-		return fmt.Errorf("failed to download test vectors (network unavailable?): %w", err)
-	}
-	defer resp.Body.Close()
+	// Download and extract the archive.
+	var downloadErrs []string
+	for _, url := range []string{testVectorURL, testVectorFallbackURL} {
+		resp, err := http.Get(url)
+		if err != nil {
+			downloadErrs = append(downloadErrs, fmt.Sprintf("%s: %v", url, err))
+			continue
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to download test vectors: HTTP %d", resp.StatusCode)
-	}
+		if resp.StatusCode != http.StatusOK {
+			downloadErrs = append(downloadErrs, fmt.Sprintf("%s: HTTP %d", url, resp.StatusCode))
+			if err := resp.Body.Close(); err != nil {
+				downloadErrs = append(downloadErrs, fmt.Sprintf("%s: close response: %v", url, err))
+			}
+			continue
+		}
 
-	// Extract the archive
-	if err := extractTarGz(resp.Body); err != nil {
-		return fmt.Errorf("failed to extract test vectors: %w", err)
+		err = extractTarGz(resp.Body)
+		if closeErr := resp.Body.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			downloadErrs = append(downloadErrs, fmt.Sprintf("%s: extract: %v", url, err))
+			continue
+		}
+		downloadErrs = nil
+		break
+	}
+	if len(downloadErrs) != 0 {
+		return fmt.Errorf("failed to download test vectors (network unavailable?): %s", strings.Join(downloadErrs, "; "))
 	}
 
 	if ok, err := testVectorsComplete(); err != nil {

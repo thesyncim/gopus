@@ -29,8 +29,8 @@ var (
 	encoderTotalLineRE   = regexp.MustCompile(`^Total:\s+(\d+)\s+passed,\s+(\d+)\s+failed$`)
 	variantLineRE        = regexp.MustCompile(`^goQ=([-+0-9.]+)\(goBestDelay=([-+0-9]+) dec=(\d+) cmp=(\d+)\)\s+libQ=([-+0-9.]+)\(libBestDelay=([-+0-9]+) dec=(\d+) cmp=(\d+)\)\s+gapQ=([-+0-9.]+)\s+meanAbs=([-+0-9.]+)\s+p95Abs=([-+0-9.]+)\s+mismatch=([-+0-9.]+)%\s+histL1=([-+0-9.]+)\s+payloadMismatch=(\d+)/(\d+)\s+firstPayloadMismatch=([-+0-9]+)$`)
 	decoderParityLineRE  = regexp.MustCompile(`^Q=([-+0-9.]+)\s+delay=([-+0-9]+)\s+corr=([-+0-9.]+)\s+rms_ratio=([-+0-9.]+)$`)
-	decoderLossLineRE    = regexp.MustCompile(`^Q=([-+0-9.]+)\s+SNR=([-+0-9.]+)\s+delay=([-+0-9]+)\s+corr=([-+0-9.]+)\s+rms_ratio=([-+0-9.]+)\s+len_ref=(\d+)\s+len_got=(\d+)$`)
-	transitionLineRE     = regexp.MustCompile(`^(transition|next)\s+frame=(\d+)\s+snr=([-+0-9.]+)\s+dB$`)
+	decoderLossLineRE    = regexp.MustCompile(`^Q=([-+0-9.]+)\s+delay=([-+0-9]+)\s+corr=([-+0-9.]+)\s+rms_ratio=([-+0-9.]+)\s+len_ref=(\d+)\s+len_got=(\d+)$`)
+	transitionLineRE     = regexp.MustCompile(`^(transition|next)\s+frame=(\d+)\s+q=([-+0-9.]+)\s+corr=([-+0-9.]+)\s+meanAbs=([-+0-9.]+)\s+maxAbs=([-+0-9.]+)$`)
 )
 
 type goTestEvent struct {
@@ -78,7 +78,6 @@ type decoderParityCase struct {
 type decoderLossCase struct {
 	Name     string
 	Q        float64
-	SNR      float64
 	Delay    int
 	Corr     float64
 	RMSRatio float64
@@ -88,12 +87,18 @@ type decoderLossCase struct {
 }
 
 type transitionCase struct {
-	Name            string
-	TransitionFrame int
-	TransitionSNR   float64
-	NextFrame       int
-	NextSNR         float64
-	Status          string
+	Name              string
+	TransitionFrame   int
+	TransitionQ       float64
+	TransitionCorr    float64
+	TransitionMeanAbs float64
+	TransitionMaxAbs  float64
+	NextFrame         int
+	NextQ             float64
+	NextCorr          float64
+	NextMeanAbs       float64
+	NextMaxAbs        float64
+	Status            string
 }
 
 type testRunSummary struct {
@@ -170,13 +175,17 @@ func main() {
 
 	fmt.Printf("wrote %s\n", reportPath)
 
-	if qualityErr != nil || compatErr != nil {
+	coverageErr := validateParsedCoverage(qualitySummary, compatSummary)
+	if qualityErr != nil || compatErr != nil || coverageErr != nil {
 		var parts []string
 		if qualityErr != nil {
 			parts = append(parts, fmt.Sprintf("%s failed", qualityRunName))
 		}
 		if compatErr != nil {
 			parts = append(parts, fmt.Sprintf("%s failed", compatRunName))
+		}
+		if coverageErr != nil {
+			parts = append(parts, coverageErr.Error())
 		}
 		exitf("%s; see %s", strings.Join(parts, " and "), reportPath)
 	}
@@ -437,12 +446,11 @@ func parseDecoderLossMessage(summary *testRunSummary, testName, msg string) {
 	summary.DecoderLossCases[name] = decoderLossCase{
 		Name:     name,
 		Q:        mustParseFloat(m[1]),
-		SNR:      mustParseFloat(m[2]),
-		Delay:    mustParseInt(m[3]),
-		Corr:     mustParseFloat(m[4]),
-		RMSRatio: mustParseFloat(m[5]),
-		RefLen:   mustParseInt(m[6]),
-		GotLen:   mustParseInt(m[7]),
+		Delay:    mustParseInt(m[2]),
+		Corr:     mustParseFloat(m[3]),
+		RMSRatio: mustParseFloat(m[4]),
+		RefLen:   mustParseInt(m[5]),
+		GotLen:   mustParseInt(m[6]),
 	}
 }
 
@@ -455,13 +463,22 @@ func parseTransitionMessage(summary *testRunSummary, testName, msg string) {
 	tc := summary.TransitionCases[name]
 	tc.Name = name
 	frame := mustParseInt(m[2])
-	snr := mustParseFloat(m[3])
+	q := mustParseFloat(m[3])
+	corr := mustParseFloat(m[4])
+	meanAbs := mustParseFloat(m[5])
+	maxAbs := mustParseFloat(m[6])
 	if m[1] == "transition" {
 		tc.TransitionFrame = frame
-		tc.TransitionSNR = snr
+		tc.TransitionQ = q
+		tc.TransitionCorr = corr
+		tc.TransitionMeanAbs = meanAbs
+		tc.TransitionMaxAbs = maxAbs
 	} else {
 		tc.NextFrame = frame
-		tc.NextSNR = snr
+		tc.NextQ = q
+		tc.NextCorr = corr
+		tc.NextMeanAbs = meanAbs
+		tc.NextMaxAbs = maxAbs
 	}
 	summary.TransitionCases[name] = tc
 }
@@ -564,6 +581,33 @@ func readBestQualityLedger(path string) (*ledgerRow, error) {
 	return best, nil
 }
 
+func validateParsedCoverage(quality, compat testRunSummary) error {
+	var missing []string
+	if quality.Status == "PASS" {
+		if len(quality.EncoderCases) == 0 {
+			missing = append(missing, "encoder summary cases")
+		}
+		if len(quality.VariantCases) == 0 {
+			missing = append(missing, "encoder variant cases")
+		}
+		if len(quality.DecoderParityCases) == 0 {
+			missing = append(missing, "decoder parity cases")
+		}
+	}
+	if compat.Status == "PASS" {
+		if len(compat.DecoderLossCases) == 0 {
+			missing = append(missing, "decoder loss cases")
+		}
+		if len(compat.TransitionCases) == 0 {
+			missing = append(missing, "transition cases")
+		}
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+	return fmt.Errorf("parsed coverage missing %s", strings.Join(missing, ", "))
+}
+
 func writeReport(path string, meta metaInfo, quality, compat testRunSummary, best *ledgerRow) error {
 	var b strings.Builder
 	currentScore := qualityScore(quality, compat)
@@ -571,8 +615,8 @@ func writeReport(path string, meta metaInfo, quality, compat testRunSummary, bes
 	worstVariant, hasWorstVariant := lowestVariantGap(quality)
 	worstDecoder, hasWorstDecoder := lowestDecoderParityQ(quality)
 	worstLoss, hasWorstLoss := lowestDecoderLossQ(compat)
-	lowestTransition, hasTransition := lowestTransitionSNR(compat)
-	lowestNext, hasNext := lowestNextSNR(compat)
+	lowestTransition, hasTransition := lowestTransitionQ(compat)
+	lowestNext, hasNext := lowestNextQ(compat)
 
 	fmt.Fprintf(&b, "# Quality Report\n\n")
 	fmt.Fprintf(&b, "- Generated (UTC): %s\n", meta.GeneratedAt.Format(time.RFC3339))
@@ -584,11 +628,11 @@ func writeReport(path string, meta metaInfo, quality, compat testRunSummary, bes
 	fmt.Fprintf(&b, "- Raw logs: `%s`, `%s`\n", quality.LogPath, compat.LogPath)
 	fmt.Fprintf(&b, "\n")
 
-	fmt.Fprintf(&b, "Encoder/decoder quality uses libopus-relative `opus_compare` Q. The transition guard still reports per-frame SNR because that is the existing compatibility test surface.\n\n")
+	fmt.Fprintf(&b, "Encoder/decoder quality uses libopus-relative `opus_compare` Q. Transition guards report per-frame Q plus correlation and absolute-error telemetry.\n\n")
 
 	fmt.Fprintf(&b, "## Snapshot\n\n")
 	if meanGap, ok := meanEncoderGapQ(quality); ok {
-		fmt.Fprintf(&b, "- Autoresearch quality score: `%.3f` (`mean_gap_q + min_transition_snr_db / 1000`)\n", currentScore)
+		fmt.Fprintf(&b, "- Autoresearch quality score: `%.3f` (`mean_gap_q + min_transition_q / 1000`)\n", currentScore)
 		fmt.Fprintf(&b, "- Encoder summary: `%d passed, %d failed`, mean gap `%.2f Q`\n", quality.EncoderSummaryPass, quality.EncoderSummaryFail, meanGap)
 	}
 	if hasWorstEncoder {
@@ -607,10 +651,10 @@ func writeReport(path string, meta metaInfo, quality, compat testRunSummary, bes
 		fmt.Fprintf(&b, "- Worst decoder loss case: `%s` with `Q=%.2f`, `corr=%.6f`\n", worstLoss.Name, worstLoss.Q, worstLoss.Corr)
 	}
 	if hasTransition {
-		fmt.Fprintf(&b, "- Lowest transition-frame SNR: `%s` at `%.2f dB`\n", lowestTransition.Name, lowestTransition.TransitionSNR)
+		fmt.Fprintf(&b, "- Lowest transition-frame Q: `%s` at `%.2f`\n", lowestTransition.Name, lowestTransition.TransitionQ)
 	}
 	if hasNext {
-		fmt.Fprintf(&b, "- Lowest next-frame SNR: `%s` at `%.2f dB`\n", lowestNext.Name, lowestNext.NextSNR)
+		fmt.Fprintf(&b, "- Lowest next-frame Q: `%s` at `%.2f`\n", lowestNext.Name, lowestNext.NextQ)
 	}
 	if best != nil {
 		fmt.Fprintf(&b, "- Best ledger row: commit `%s`, score `%.3f`, mean gap `%.2f Q`, min gap `%.2f Q` (`%s`)\n", best.Commit, best.Score, best.MeanGapQ, best.MinGapQ, best.Description)
@@ -655,13 +699,13 @@ func writeReport(path string, meta metaInfo, quality, compat testRunSummary, bes
 		fmt.Fprintf(&b, "- Decoder parity pressure point: `%s` (`Q=%.2f`, `delay=%d`, `corr=%.6f`, `rms_ratio=%.6f`)\n", worstDecoder.Name, worstDecoder.Q, worstDecoder.Delay, worstDecoder.Corr, worstDecoder.RMSRatio)
 	}
 	if hasWorstLoss {
-		fmt.Fprintf(&b, "- Loss/FEC pressure point: `%s` (`Q=%.2f`, `SNR=%.2f dB`, `delay=%d`, `corr=%.6f`)\n", worstLoss.Name, worstLoss.Q, worstLoss.SNR, worstLoss.Delay, worstLoss.Corr)
+		fmt.Fprintf(&b, "- Loss/FEC pressure point: `%s` (`Q=%.2f`, `delay=%d`, `corr=%.6f`, `rms_ratio=%.6f`)\n", worstLoss.Name, worstLoss.Q, worstLoss.Delay, worstLoss.Corr, worstLoss.RMSRatio)
 	}
 	if hasTransition {
-		fmt.Fprintf(&b, "- Transition-frame minimum: `%s` (`frame=%d`, `%.2f dB`)\n", lowestTransition.Name, lowestTransition.TransitionFrame, lowestTransition.TransitionSNR)
+		fmt.Fprintf(&b, "- Transition-frame minimum: `%s` (`frame=%d`, `Q=%.2f`, `corr=%.6f`, `meanAbs=%.1f`, `maxAbs=%.1f`)\n", lowestTransition.Name, lowestTransition.TransitionFrame, lowestTransition.TransitionQ, lowestTransition.TransitionCorr, lowestTransition.TransitionMeanAbs, lowestTransition.TransitionMaxAbs)
 	}
 	if hasNext {
-		fmt.Fprintf(&b, "- Post-transition minimum: `%s` (`frame=%d`, `%.2f dB`)\n", lowestNext.Name, lowestNext.NextFrame, lowestNext.NextSNR)
+		fmt.Fprintf(&b, "- Post-transition minimum: `%s` (`frame=%d`, `Q=%.2f`, `corr=%.6f`, `meanAbs=%.1f`, `maxAbs=%.1f`)\n", lowestNext.Name, lowestNext.NextFrame, lowestNext.NextQ, lowestNext.NextCorr, lowestNext.NextMeanAbs, lowestNext.NextMaxAbs)
 	}
 	fmt.Fprintf(&b, "\n")
 
@@ -703,11 +747,11 @@ func qualityScore(quality, compat testRunSummary) float64 {
 	if !ok {
 		return 0
 	}
-	transition, ok := lowestTransitionSNR(compat)
+	transition, ok := lowestTransitionQ(compat)
 	if !ok {
 		return meanGap
 	}
-	return meanGap + transition.TransitionSNR/1000.0
+	return meanGap + transition.TransitionQ/1000.0
 }
 
 func lowestEncoderGap(summary testRunSummary) (encoderSummaryCase, bool) {
@@ -796,18 +840,18 @@ func lowestDecoderLossQ(summary testRunSummary) (decoderLossCase, bool) {
 	return rows[0], true
 }
 
-func lowestTransitionSNR(summary testRunSummary) (transitionCase, bool) {
+func lowestTransitionQ(summary testRunSummary) (transitionCase, bool) {
 	rows := make([]transitionCase, 0, len(summary.TransitionCases))
 	for _, c := range summary.TransitionCases {
-		if c.TransitionFrame > 0 || c.TransitionSNR != 0 {
+		if c.TransitionFrame > 0 || c.TransitionQ != 0 {
 			rows = append(rows, c)
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].TransitionSNR == rows[j].TransitionSNR {
+		if rows[i].TransitionQ == rows[j].TransitionQ {
 			return rows[i].Name < rows[j].Name
 		}
-		return rows[i].TransitionSNR < rows[j].TransitionSNR
+		return rows[i].TransitionQ < rows[j].TransitionQ
 	})
 	if len(rows) == 0 {
 		return transitionCase{}, false
@@ -815,18 +859,18 @@ func lowestTransitionSNR(summary testRunSummary) (transitionCase, bool) {
 	return rows[0], true
 }
 
-func lowestNextSNR(summary testRunSummary) (transitionCase, bool) {
+func lowestNextQ(summary testRunSummary) (transitionCase, bool) {
 	rows := make([]transitionCase, 0, len(summary.TransitionCases))
 	for _, c := range summary.TransitionCases {
-		if c.NextFrame > 0 || c.NextSNR != 0 {
+		if c.NextFrame > 0 || c.NextQ != 0 {
 			rows = append(rows, c)
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].NextSNR == rows[j].NextSNR {
+		if rows[i].NextQ == rows[j].NextQ {
 			return rows[i].Name < rows[j].Name
 		}
-		return rows[i].NextSNR < rows[j].NextSNR
+		return rows[i].NextQ < rows[j].NextQ
 	})
 	if len(rows) == 0 {
 		return transitionCase{}, false

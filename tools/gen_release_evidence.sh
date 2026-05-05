@@ -191,7 +191,7 @@ write_summary() {
     echo "## Required Summaries"
     echo
     echo "- Pass/fail summaries: see the command table above and per-command logs."
-    echo "- Benchmark guardrail result: see \`make bench-guard\` in the Performance row."
+    echo "- Benchmark guardrail result: see \`make bench-guard\` and encoder/decoder \`make bench-libopus-guard\` in the Performance rows."
     echo "- Fuzz/safety summary: see \`make test-fuzz-smoke\`, \`make test-fuzz-safety\`, and \`make test-soak-safety\` in the Safety rows."
     echo "- Parity summary: see \`make test-quality\` and \`make verify-production-exhaustive\` in the Parity and Release gate rows."
     echo "- Consumer-smoke result: see \`make test-consumer-smoke\` in the Consumer row."
@@ -214,6 +214,7 @@ run_cmd "Docs" "Documentation contract" make test-doc-contract
 run_cmd "Consumer" "External consumer smoke" make test-consumer-smoke
 run_cmd "Parity" "Focused libopus parity gate" make test-quality
 run_cmd "Performance" "Benchmark guardrails" make bench-guard
+run_cmd "Performance" "Libopus-relative benchmark guardrails" make bench-libopus-guard
 run_cmd "Safety" "Fuzz smoke gate" make test-fuzz-smoke
 run_cmd "Release gate" "Production exhaustive gate" make verify-production-exhaustive
 run_cmd "Safety" "Assembly safety matrix" make test-assembly-safety

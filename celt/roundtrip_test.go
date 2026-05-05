@@ -65,8 +65,6 @@ func hasNonZeroSamples(samples []float64) bool {
 // Verifies that:
 // 1. Encoding produces valid packets
 // 2. Decoding produces non-zero output (signal passes through)
-// Note: Frame size mismatch is a known issue - the CELT codec uses 800 MDCT bins
-// for 20ms frames but synthesis produces more samples. This is tracked for fix.
 func TestCELTRoundTripMono(t *testing.T) {
 	// Generate 20ms sine wave at 440Hz (960 samples at 48kHz)
 	frameSize := 960
@@ -91,10 +89,8 @@ func TestCELTRoundTripMono(t *testing.T) {
 		t.Fatalf("DecodeFrame failed: %v", err)
 	}
 
-	// Note: Due to MDCT bin count vs frame size mismatch (800 bins for 960 samples),
-	// the decoder produces more samples than expected. This is logged but not a failure.
 	if len(decoded) != frameSize {
-		t.Logf("Frame size note: got %d samples, expected %d (MDCT bin mismatch)", len(decoded), frameSize)
+		t.Fatalf("decoded length = %d, want %d", len(decoded), frameSize)
 	}
 
 	// Critical check: Signal must pass through (non-zero output)
@@ -134,10 +130,9 @@ func TestCELTRoundTripStereo(t *testing.T) {
 		t.Fatalf("DecodeFrame failed: %v", err)
 	}
 
-	// Note: Due to MDCT bin count vs frame size mismatch, decoder produces more samples
 	expectedLen := frameSize * 2
 	if len(decoded) != expectedLen {
-		t.Logf("Frame size note: got %d samples, expected %d (MDCT bin mismatch)", len(decoded), expectedLen)
+		t.Fatalf("decoded length = %d, want %d", len(decoded), expectedLen)
 	}
 
 	// Critical check: Signal must pass through (non-zero output)
@@ -151,14 +146,10 @@ func TestCELTRoundTripStereo(t *testing.T) {
 		frameSize*2, len(encoded), len(decoded))
 }
 
-// TestCELTRoundTripAllFrameSizes tests all valid frame sizes.
-// Verifies encoding/decoding completes without errors for all sizes.
-// Note: This test is temporarily disabled due to MDCT synthesis frame size mismatch
-// that causes panics in overlap-add for small frame sizes. The issue is that
-// CELT's band-based MDCT coefficient count doesn't match the frame size.
-func TestCELTRoundTripAllFrameSizes(t *testing.T) {
-	// Only test 20ms frames for now - smaller frames have synthesis issues
-	frameSizes := []int{960}
+// TestCELTRoundTripFrameSizes verifies encoding/decoding completes without
+// errors for CELT frame sizes that produce non-zero first-frame output.
+func TestCELTRoundTripFrameSizes(t *testing.T) {
+	frameSizes := []int{240, 480, 960}
 
 	for _, frameSize := range frameSizes {
 		t.Run(FrameSizeName(frameSize), func(t *testing.T) {
@@ -185,10 +176,8 @@ func TestCELTRoundTripAllFrameSizes(t *testing.T) {
 				t.Fatalf("DecodeFrame failed for size %d: %v", frameSize, err)
 			}
 
-			// Note: Frame size mismatch is expected due to MDCT bin count issue
 			if len(decoded) != frameSize {
-				t.Logf("Size %d: decoded length %d != expected %d (known MDCT issue)",
-					frameSize, len(decoded), frameSize)
+				t.Fatalf("decoded length = %d, want %d", len(decoded), frameSize)
 			}
 
 			// Critical: Signal should pass through
@@ -230,9 +219,8 @@ func TestCELTRoundTripTransient(t *testing.T) {
 		t.Fatalf("DecodeFrame failed: %v", err)
 	}
 
-	// Frame size mismatch is expected
 	if len(decoded) != frameSize {
-		t.Logf("Decoded length: got %d, want %d (known MDCT issue)", len(decoded), frameSize)
+		t.Fatalf("decoded length = %d, want %d", len(decoded), frameSize)
 	}
 
 	hasOutput := hasNonZeroSamples(decoded)
@@ -267,9 +255,8 @@ func TestCELTRoundTripSilence(t *testing.T) {
 		t.Fatalf("DecodeFrame failed: %v", err)
 	}
 
-	// Frame size mismatch is expected
 	if len(decoded) != frameSize {
-		t.Logf("Decoded length: got %d, want %d (known MDCT issue)", len(decoded), frameSize)
+		t.Fatalf("decoded length = %d, want %d", len(decoded), frameSize)
 	}
 
 	// For silence input, output should be mostly silent (allow small noise)
@@ -307,17 +294,13 @@ func TestCELTRoundTripMultipleFrames(t *testing.T) {
 			t.Fatalf("Frame %d: DecodeFrame failed: %v", i, err)
 		}
 
-		// Frame size mismatch is expected
 		if len(decoded) != frameSize {
-			// Only log on first frame to reduce noise
-			if i == 0 {
-				t.Logf("Frame size: got %d, expected %d (known MDCT issue)", len(decoded), frameSize)
-			}
+			t.Fatalf("Frame %d: decoded length = %d, want %d", i, len(decoded), frameSize)
 		}
 
 		hasOutput := hasNonZeroSamples(decoded)
 		if !hasOutput {
-			t.Logf("Frame %d has no output energy (encoder/decoder mismatch)", i)
+			t.Fatalf("Frame %d has no output energy", i)
 		}
 		t.Logf("Frame %d: %.0fHz -> %d bytes (has_output=%v)", i, freq, len(encoded), hasOutput)
 	}
@@ -347,10 +330,9 @@ func TestStereoParamsRoundTrip(t *testing.T) {
 		t.Fatalf("DecodeFrame failed: %v", err)
 	}
 
-	// Frame size mismatch is expected
 	expectedLen := frameSize * 2
 	if len(decoded) != expectedLen {
-		t.Logf("Decoded length: got %d, want %d (known MDCT issue)", len(decoded), expectedLen)
+		t.Fatalf("decoded length = %d, want %d", len(decoded), expectedLen)
 	}
 
 	// Check that both channels have content (informational)
@@ -369,10 +351,10 @@ func TestStereoParamsRoundTrip(t *testing.T) {
 		len(encoded), len(decoded), leftHasContent, rightHasContent)
 }
 
-// TestCELTRoundTripAllFrameSizesStereo tests all frame sizes in stereo mode.
-// Note: Only testing 20ms frames due to MDCT synthesis issues with smaller sizes.
-func TestCELTRoundTripAllFrameSizesStereo(t *testing.T) {
-	frameSizes := []int{960} // Smaller sizes have synthesis issues
+// TestCELTRoundTripFrameSizesStereo tests stereo round-trip frame sizes that
+// produce non-zero first-frame output.
+func TestCELTRoundTripFrameSizesStereo(t *testing.T) {
+	frameSizes := []int{240, 480, 960}
 
 	for _, frameSize := range frameSizes {
 		t.Run(FrameSizeName(frameSize)+"_stereo", func(t *testing.T) {
@@ -393,7 +375,7 @@ func TestCELTRoundTripAllFrameSizesStereo(t *testing.T) {
 
 			expectedLen := frameSize * 2
 			if len(decoded) != expectedLen {
-				t.Logf("Decoded length %d != expected %d (known MDCT issue)", len(decoded), expectedLen)
+				t.Fatalf("decoded length = %d, want %d", len(decoded), expectedLen)
 			}
 
 			hasOutput := hasNonZeroSamples(decoded)
@@ -568,14 +550,11 @@ func TestEncodeFramesMultiple(t *testing.T) {
 			continue
 		}
 		if len(decoded) != frameSize {
-			// Only log first mismatch
-			if i == 0 {
-				t.Logf("Frame size: got %d, expected %d (known MDCT issue)", len(decoded), frameSize)
-			}
+			t.Fatalf("Frame %d: decoded length = %d, want %d", i, len(decoded), frameSize)
 		}
 		hasOutput := hasNonZeroSamples(decoded)
 		if !hasOutput {
-			t.Logf("Frame %d has no output energy (encoder/decoder mismatch)", i)
+			t.Fatalf("Frame %d has no output energy", i)
 		}
 		t.Logf("Frame %d: %d bytes -> %d samples (has_output=%v)", i, len(packet), len(decoded), hasOutput)
 	}

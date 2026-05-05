@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-dnn-blob-parity test-dred-tag test-qext-parity test-unsupported-controls-tag test-unsupported-controls-parity test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-dnn-blob-parity test-dred-tag test-qext-parity test-unsupported-controls-tag test-unsupported-controls-parity test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -49,6 +49,15 @@ BENCH_TESTVECTORS_COMPARE_COUNT ?= 3
 BENCH_TESTVECTORS_COMPARE_CASES ?= all
 BENCH_TESTVECTORS_COMPARE_PATHS ?= all
 BENCH_TESTVECTORS_COMPARE_TIME_FLAG = $(if $(BENCH_TESTVECTORS_COMPARE_TIMES),-benchtimes=$(BENCH_TESTVECTORS_COMPARE_TIMES),-benchtime=$(BENCH_TESTVECTORS_COMPARE_TIME))
+BENCH_LIBOPUS_GUARD_TIME ?= 200ms
+BENCH_LIBOPUS_GUARD_COUNT ?= 3
+BENCH_LIBOPUS_GUARD_RATIO ?= 1.60
+BENCH_LIBOPUS_GUARD_ALLOCS ?= 0
+BENCH_ENCODER_LIBOPUS_GUARD_RATIO ?= 2.50
+BENCH_ENCODER_LIBOPUS_GUARD_ALLOCS ?= -1
+BENCH_ENCODER_LIBOPUS_GUARD_CASES ?= all
+TEST_VECTOR_URL ?= https://opus-codec.org/static/testvectors/opus_testvectors-rfc8251.tar.gz
+TEST_VECTOR_FALLBACK_URL ?= https://www.ietf.org/proceedings/98/slides/materials-98-codec-opus-newvectors-00.tar.gz
 GO_TEST_FAST = GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test
 GO_TEST_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test
 GO_TEST_PARITY_EXACT = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test
@@ -261,7 +270,7 @@ test-unsupported-controls-parity-experimental: test-unsupported-controls-parity
 	fi
 
 # Primary libopus-facing focused gate.
-test-quality:
+test-quality: ensure-testvectors
 	$(GO_TEST_PARITY) ./testvectors -run 'TestFinalRangeVerification|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderVariantCELTAllocationParityAgainstFixture|TestEncoderVariantCELTHeaderParityAgainstFixture|TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity' -count=1 -v
 
 # Optional libopus-internal exactness checks. These are intentionally not part
@@ -286,16 +295,27 @@ test-soak-safety:
 bench-guard:
 	$(GO_WORK_ENV) $(GO) run ./tools/benchguard -config tools/bench_guardrails.json
 
+# Libopus-relative codec performance guardrails against the pinned reference.
+bench-libopus-guard: bench-decoder-libopus-guard bench-encoder-libopus-guard
+
+# Libopus-relative decode performance guardrail on the official RFC 8251 bitstreams.
+bench-decoder-libopus-guard: ensure-libopus ensure-testvectors
+	$(GO_WORK_ENV) $(GO) run $(PGO_FLAG) ./tools/testvectorbenchcmp -cases=aggregate -paths=all -benchtime=$(BENCH_LIBOPUS_GUARD_TIME) -count=$(BENCH_LIBOPUS_GUARD_COUNT) -format=tsv -max-gopus-libopus-ratio=$(BENCH_LIBOPUS_GUARD_RATIO) -max-gopus-allocs-per-op=$(BENCH_LIBOPUS_GUARD_ALLOCS)
+
+# Libopus-relative encoder performance guardrail across CELT, SILK, and Hybrid workloads.
+bench-encoder-libopus-guard: ensure-libopus
+	$(GO_WORK_ENV) $(GO) run $(PGO_FLAG) ./tools/encoderbenchcmp -cases=$(BENCH_ENCODER_LIBOPUS_GUARD_CASES) -benchtime=$(BENCH_LIBOPUS_GUARD_TIME) -count=$(BENCH_LIBOPUS_GUARD_COUNT) -format=tsv -max-gopus-libopus-ratio=$(BENCH_ENCODER_LIBOPUS_GUARD_RATIO) -max-gopus-allocs-per-op=$(BENCH_ENCODER_LIBOPUS_GUARD_ALLOCS)
+
 # Decode the official RFC 8251 bitstreams with benchmark metrics per vector.
-bench-testvectors:
+bench-testvectors: ensure-testvectors
 	$(GO_WORK_ENV) $(GO) test $(PGO_FLAG) ./testvectors -run='^$$' -bench='^BenchmarkDecodeOfficialTestVectors$$' -benchmem -count=1
 
 # Compare the same official bitstreams against pinned libopus and emit Markdown.
-bench-testvectors-compare: ensure-libopus
+bench-testvectors-compare: ensure-libopus ensure-testvectors
 	$(GO_WORK_ENV) $(GO) run $(PGO_FLAG) ./tools/testvectorbenchcmp -cases=$(BENCH_TESTVECTORS_COMPARE_CASES) -paths=$(BENCH_TESTVECTORS_COMPARE_PATHS) $(BENCH_TESTVECTORS_COMPARE_TIME_FLAG) -count=$(BENCH_TESTVECTORS_COMPARE_COUNT) -gopus-pgo=$(PGO_REPORT_PROFILE) -format=markdown
 
 # Refresh the checked-in Markdown benchmark report.
-bench-testvectors-report: ensure-libopus
+bench-testvectors-report: ensure-libopus ensure-testvectors
 	$(GO_WORK_ENV) $(GO) run $(PGO_FLAG) ./tools/testvectorbenchcmp -cases=$(BENCH_TESTVECTORS_COMPARE_CASES) -paths=$(BENCH_TESTVECTORS_COMPARE_PATHS) $(BENCH_TESTVECTORS_COMPARE_TIME_FLAG) -count=$(BENCH_TESTVECTORS_COMPARE_COUNT) -gopus-pgo=$(PGO_REPORT_PROFILE) -format=markdown -out docs/testvector-benchmarks.md
 
 # Default production verification gate.
@@ -308,6 +328,7 @@ verify-production: ensure-libopus
 	$(MAKE) test-unsupported-controls-tag
 	$(MAKE) test-unsupported-controls-parity
 	$(MAKE) bench-guard
+	$(MAKE) bench-libopus-guard
 	$(MAKE) test-race
 
 # Extended production gate (includes fuzz + exhaustive fixture honesty).
@@ -322,6 +343,7 @@ verify-safety: ensure-libopus
 	$(MAKE) test-quality
 	$(MAKE) test-exhaustive
 	$(MAKE) bench-guard
+	$(MAKE) bench-libopus-guard
 	$(MAKE) test-assembly-safety
 	$(MAKE) test-fuzz-safety
 	$(MAKE) test-soak-safety
@@ -354,6 +376,37 @@ ensure-libopus:
 # Ensure tmp_check/opus-$(LIBOPUS_VERSION)-qext/opus_demo exists with ENABLE_QEXT.
 ensure-libopus-qext:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_QEXT=1 ./tools/ensure_libopus.sh
+
+# Ensure the downloaded official RFC 8251 test-vector cache exists.
+ensure-testvectors:
+	@bash -c 'set -euo pipefail; \
+		dir="testvectors/testdata/opus_testvectors"; \
+		complete() { \
+			for n in 01 02 03 04 05 06 07 08 09 10 11 12; do \
+				for ext in bit dec; do \
+					test -s "$$dir/testvector$$n.$$ext" || return 1; \
+				done; \
+			done; \
+		}; \
+		if ! complete; then \
+			tmp=$$(mktemp -d); \
+			trap "rm -rf \"$$tmp\"" EXIT; \
+			archive="$$tmp/opus_testvectors-rfc8251.tar.gz"; \
+			for url in "$(TEST_VECTOR_URL)" "$(TEST_VECTOR_FALLBACK_URL)"; do \
+				echo "fetching official test vectors from $$url"; \
+				if curl -fsSL --retry 3 --retry-delay 2 --connect-timeout 15 --max-time 180 "$$url" -o "$$archive"; then \
+					fetched=1; \
+					break; \
+				fi; \
+			done; \
+			test "$${fetched:-}" = 1 || { echo "failed to fetch official test vectors"; exit 1; }; \
+			rm -rf "$$dir"; \
+			mkdir -p "$$dir"; \
+			tar -xzf "$$archive" -C "$$tmp"; \
+			find "$$tmp" -type f \( -name "testvector*.bit" -o -name "testvector*.dec" \) -exec cp {} "$$dir"/ \;; \
+			complete || { echo "downloaded official test vectors are incomplete"; exit 1; }; \
+		fi'
+	cd testvectors && $(GO_WORK_ENV) $(GO) test . -run='^TestParseTestVectorBitstreams$$' -count=1
 
 # Build pinned Linux CI image with codec/tooling dependencies.
 docker-buildx-bootstrap:

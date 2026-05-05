@@ -59,7 +59,7 @@ type TransientAnalysisResult struct {
 // This is used to detect pure tones by analyzing the resonant characteristics.
 // Returns (lpc0, lpc1, success) where success=false if the computation fails.
 // Reference: libopus celt/celt_encoder.c tone_lpc()
-func toneLPC(x []float32, delay int) (float32, float32, bool) {
+func toneLPC(x []float32, delay int, lane4Corr bool) (float32, float32, bool) {
 	n := len(x)
 	if n <= 2*delay {
 		return 0, 0, false
@@ -71,7 +71,12 @@ func toneLPC(x []float32, delay int) (float32, float32, bool) {
 	// Compute correlations using forward prediction covariance method.
 	cnt := n - 2*delay
 	delay2 := 2 * delay
-	r00, r01, r02 := toneLPCCorr(x, cnt, delay, delay2)
+	var r00, r01, r02 float32
+	if lane4Corr {
+		r00, r01, r02 = toneLPCCorrLane4(x, cnt, delay, delay2)
+	} else {
+		r00, r01, r02 = toneLPCCorr(x, cnt, delay, delay2)
+	}
 
 	// Edge corrections for r11, r22, r12.
 	// Precompute base offsets to avoid repeated arithmetic.
@@ -135,6 +140,46 @@ func toneLPC(x []float32, delay int) (float32, float32, bool) {
 	return lpc0, lpc1, true
 }
 
+// toneLPCCorrLane4 mirrors the four-lane reduction shape used by the
+// libopus float build for non-amd64 stereo tone detection.
+func toneLPCCorrLane4(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32) {
+	i := 0
+	var r00v0, r00v1, r00v2, r00v3 float32
+	var r01v0, r01v1, r01v2, r01v3 float32
+	var r02v0, r02v1, r02v2, r02v3 float32
+	for ; i+3 < cnt; i += 4 {
+		xi := x[i]
+		r00v0 += xi * xi
+		r01v0 += xi * x[i+delay]
+		r02v0 += xi * x[i+delay2]
+
+		xi = x[i+1]
+		r00v1 += xi * xi
+		r01v1 += xi * x[i+1+delay]
+		r02v1 += xi * x[i+1+delay2]
+
+		xi = x[i+2]
+		r00v2 += xi * xi
+		r01v2 += xi * x[i+2+delay]
+		r02v2 += xi * x[i+2+delay2]
+
+		xi = x[i+3]
+		r00v3 += xi * xi
+		r01v3 += xi * x[i+3+delay]
+		r02v3 += xi * x[i+3+delay2]
+	}
+	r00 = (r00v0 + r00v1) + (r00v2 + r00v3)
+	r01 = (r01v0 + r01v1) + (r01v2 + r01v3)
+	r02 = (r02v0 + r02v1) + (r02v2 + r02v3)
+	for ; i < cnt; i++ {
+		xi := x[i]
+		r00 += xi * xi
+		r01 += xi * x[i+delay]
+		r02 += xi * x[i+delay2]
+	}
+	return
+}
+
 // toneDetect detects pure or nearly pure tones in the input signal.
 // Returns (toneFreq, toneishness) where:
 //   - toneFreq: angular frequency in radians/sample (-1 if no tone detected)
@@ -163,8 +208,8 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 	// Mix down to mono if stereo (matching libopus behavior)
 	if channels == 2 {
 		for i := 0; i < n; i++ {
-			// libopus sums channels (no 0.5 scale in float builds).
-			x[i] = float32(in[i*2] + in[i*2+1])
+			// libopus sums the two celt_sig float channels inside tone_detect.
+			x[i] = float32(in[i*2]) + float32(in[i*2+1])
 		}
 	} else {
 		for i := 0; i < n; i++ {
@@ -173,7 +218,8 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 	}
 
 	delay := 1
-	lpc0, lpc1, success := toneLPC(x, delay)
+	lane4Corr := channels == 2 && toneLPCStereoLane4
+	lpc0, lpc1, success := toneLPC(x, delay, lane4Corr)
 
 	// If LPC resonates too close to DC, retry with downsampling
 	// (delay <= sampleRate/3000 corresponds to frequencies > ~1500 Hz)
@@ -186,7 +232,7 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 		if 2*delay >= n {
 			break
 		}
-		lpc0, lpc1, success = toneLPC(x, delay)
+		lpc0, lpc1, success = toneLPC(x, delay, lane4Corr)
 	}
 
 	// Check that our filter has complex roots: lpc0^2 + 4*lpc1 < 0

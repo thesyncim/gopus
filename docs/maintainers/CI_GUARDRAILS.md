@@ -1,6 +1,6 @@
 # CI Guardrails
 
-Last updated: 2026-05-01
+Last updated: 2026-05-05
 
 ## Goal
 
@@ -35,8 +35,10 @@ Block correctness and hot-path performance regressions before merge.
 
 3. Performance gate (`perf-linux`)
 - `make bench-guard`
+- `make bench-libopus-guard`
 - Runs deterministic benchmark guardrails from `tools/bench_guardrails.json`.
 - Fails when median benchmark metrics exceed configured limits.
+- Compares decoder and encoder throughput against pinned libopus 1.6.1 on the same runner and fails when configured `gopus/libopus` ratios are exceeded.
 
 4. Cross-platform sanity
 - `test-macos`: `go test ./... -count=1`
@@ -50,7 +52,7 @@ Block correctness and hot-path performance regressions before merge.
 
 ## Benchmark Guardrails
 
-Benchmark command is orchestrated by `tools/benchguard`:
+Absolute hot-path benchmark checks are orchestrated by `tools/benchguard`:
 - Package: `.`
 - CPU: `1` (`GOMAXPROCS=1`)
 - Count: `5`
@@ -63,11 +65,37 @@ Benchmark command is orchestrated by `tools/benchguard`:
 
 Guardrail thresholds live in `tools/bench_guardrails.json`.
 
+Libopus-relative decode checks are orchestrated by `tools/testvectorbenchcmp` through `make bench-libopus-guard`:
+- Baseline: pinned libopus 1.6.1 from `tmp_check/opus-1.6.1/`
+- Inputs: official RFC 8251 bitstreams under `testvectors/testdata/opus_testvectors/`; the Make target runs `ensure-testvectors` first so CI fetches, extracts, and parser-validates the cache before benchmarking.
+- Cases: aggregate official-vector decode
+- Paths: Float32 and Int16
+- Default minimum runtime: `200ms`
+- Default count: `3`
+- Default max `gopus/libopus` ratio: `1.60x`
+- Default max `gopus` allocations/op: `0`
+
+The decoder ratio is intentionally wider than local release-report numbers to
+absorb GitHub hosted-runner variance while still comparing directly against
+pinned libopus on the same runner. Keep allocation enforcement at `0`.
+
+Libopus-relative encoder checks are orchestrated by `tools/encoderbenchcmp` through the same `make bench-libopus-guard` target:
+- Baseline: pinned libopus 1.6.1 from `tmp_check/opus-1.6.1/`
+- Inputs: generated deterministic float32 signals from `internal/testsignal`
+- Cases: aggregate plus per-workload CELT, SILK, and Hybrid encode workloads
+- Path: Float32 caller-owned public encode path
+- Default minimum runtime: `200ms`
+- Default count: `3`
+- Default max `gopus/libopus` ratio: `2.50x`
+- Allocation enforcement remains in `make bench-guard`; the encoder libopus-relative suite is a throughput comparison.
+
+For exploratory reports, use `make bench-testvectors-compare` or regenerate `docs/testvector-benchmarks.md` with `make bench-testvectors-report`.
+
 ## Threshold Change Policy
 
 Threshold changes are allowed only when all are true:
 - There is a measured reason (hardware variance, intentional tradeoff, or known unavoidable cost).
-- The change includes updated evidence from `make bench-guard`.
+- The change includes updated evidence from `make bench-guard` and, for libopus-relative throughput thresholds, `make bench-libopus-guard`.
 - A reviewer explicitly signs off on the threshold adjustment.
 
 Never raise thresholds just to hide regressions.

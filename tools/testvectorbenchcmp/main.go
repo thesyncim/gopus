@@ -57,16 +57,18 @@ type benchmarkResult struct {
 }
 
 type runConfig struct {
-	cases       string
-	paths       string
-	minDuration time.Duration
-	benchtimes  string
-	count       int
-	vectorDir   string
-	libopusRoot string
-	format      string
-	outPath     string
-	gopusPGO    string
+	cases                string
+	paths                string
+	minDuration          time.Duration
+	benchtimes           string
+	count                int
+	vectorDir            string
+	libopusRoot          string
+	format               string
+	outPath              string
+	gopusPGO             string
+	maxGopusLibopusRatio float64
+	maxGopusAllocsPerOp  float64
 }
 
 func main() {
@@ -81,6 +83,8 @@ func main() {
 	flag.StringVar(&cfg.gopusPGO, "gopus-pgo", "", "optional gopus PGO profile label to include in Markdown output")
 	flag.StringVar(&cfg.format, "format", "markdown", "output format: markdown or tsv")
 	flag.StringVar(&cfg.outPath, "out", "", "optional output path")
+	flag.Float64Var(&cfg.maxGopusLibopusRatio, "max-gopus-libopus-ratio", 0, "optional guardrail: fail when gopus/libopus ns/sample ratio exceeds this value")
+	flag.Float64Var(&cfg.maxGopusAllocsPerOp, "max-gopus-allocs-per-op", -1, "optional guardrail: fail when gopus allocations/op exceeds this value")
 	flag.Parse()
 
 	if err := run(cfg); err != nil {
@@ -105,6 +109,12 @@ func run(cfg runConfig) error {
 	}
 	if cfg.format != "markdown" && cfg.format != "tsv" {
 		return fmt.Errorf("invalid format %q", cfg.format)
+	}
+	if cfg.maxGopusLibopusRatio < 0 {
+		return errors.New("max-gopus-libopus-ratio must be >= 0")
+	}
+	if cfg.maxGopusAllocsPerOp < -1 {
+		return errors.New("max-gopus-allocs-per-op must be >= -1")
 	}
 
 	root, err := repoRoot()
@@ -150,6 +160,7 @@ func run(cfg runConfig) error {
 	default:
 		out = formatTSV(results)
 	}
+	violations := evaluatePerformanceGuardrails(results, cfg)
 
 	if cfg.outPath != "" {
 		outPath := absPath(root, cfg.outPath)
@@ -160,10 +171,18 @@ func run(cfg runConfig) error {
 			return err
 		}
 		fmt.Printf("wrote %s\n", outPath)
-		return nil
+	} else {
+		fmt.Print(out)
 	}
-
-	fmt.Print(out)
+	if len(violations) > 0 {
+		for _, violation := range violations {
+			fmt.Fprintln(os.Stderr, violation)
+		}
+		return errors.New("performance guardrail failed")
+	}
+	if performanceGuardrailsEnabled(cfg) {
+		fmt.Fprintln(os.Stderr, "testvectorbenchcmp: libopus-relative performance guardrails are within limits")
+	}
 	return nil
 }
 
@@ -276,7 +295,7 @@ func loadVectors(vectorDir string) ([]benchmarkVector, error) {
 		path := filepath.Join(vectorDir, name+".bit")
 		packets, err := testvectors.ReadBitstreamFile(path)
 		if err != nil {
-			return nil, fmt.Errorf("read %s: %w (run make bench-testvectors once to fetch vectors)", path, err)
+			return nil, fmt.Errorf("read %s: %w (run make ensure-testvectors once to fetch vectors)", path, err)
 		}
 		if len(packets) == 0 {
 			return nil, fmt.Errorf("%s has no packets", path)
@@ -695,6 +714,54 @@ func resultKey(minDuration time.Duration, implementation, path, vector string) s
 	return minDuration.String() + "/" + implementation + "/" + path + "/" + vector
 }
 
+func performanceGuardrailsEnabled(cfg runConfig) bool {
+	return cfg.maxGopusLibopusRatio > 0 || cfg.maxGopusAllocsPerOp >= 0
+}
+
+func evaluatePerformanceGuardrails(results []benchmarkResult, cfg runConfig) []string {
+	if !performanceGuardrailsEnabled(cfg) {
+		return nil
+	}
+	m := resultMap(results)
+	var violations []string
+	for _, result := range results {
+		if result.Implementation != "gopus" {
+			continue
+		}
+		if cfg.maxGopusLibopusRatio > 0 {
+			libopus, ok := m[resultKey(result.MinDuration, "libopus", result.Path, result.Vector)]
+			if !ok {
+				violations = append(violations, fmt.Sprintf("testvectorbenchcmp: missing libopus baseline for %s/%s/%s", result.MinDuration, result.Path, result.Vector))
+			} else if libopus.NsPerSample <= 0 {
+				violations = append(violations, fmt.Sprintf("testvectorbenchcmp: invalid libopus ns/sample %.6f for %s/%s/%s", libopus.NsPerSample, result.MinDuration, result.Path, result.Vector))
+			} else {
+				ratio := result.NsPerSample / libopus.NsPerSample
+				fmt.Fprintf(os.Stderr, "testvectorbenchcmp: %s %-7s %-12s gopus/libopus=%.3fx (max %.3fx), gopus allocs/op=%s\n",
+					result.MinDuration,
+					result.Path,
+					result.Vector,
+					ratio,
+					cfg.maxGopusLibopusRatio,
+					formatAllocs(result.Allocations),
+				)
+				if ratio > cfg.maxGopusLibopusRatio {
+					violations = append(violations, fmt.Sprintf("testvectorbenchcmp: %s/%s/%s gopus/libopus regression: %.3fx > max %.3fx",
+						result.MinDuration, result.Path, result.Vector, ratio, cfg.maxGopusLibopusRatio))
+				}
+			}
+		}
+		if cfg.maxGopusAllocsPerOp >= 0 {
+			if result.Allocations == nil {
+				violations = append(violations, fmt.Sprintf("testvectorbenchcmp: missing gopus allocations/op for %s/%s/%s", result.MinDuration, result.Path, result.Vector))
+			} else if *result.Allocations > cfg.maxGopusAllocsPerOp {
+				violations = append(violations, fmt.Sprintf("testvectorbenchcmp: %s/%s/%s gopus allocations regression: %.1f > max %.1f",
+					result.MinDuration, result.Path, result.Vector, *result.Allocations, cfg.maxGopusAllocsPerOp))
+			}
+		}
+	}
+	return violations
+}
+
 func resultDurations(results []benchmarkResult) []time.Duration {
 	seen := make(map[time.Duration]bool)
 	var durations []time.Duration
@@ -848,6 +915,7 @@ func formatMarkdown(results []benchmarkResult, cfg runConfig) string {
 
 	fmt.Fprintf(&b, "\n## Reproduce\n\n")
 	fmt.Fprintf(&b, "```sh\n")
+	fmt.Fprintf(&b, "make ensure-testvectors\n")
 	pgoRunFlag := ""
 	pgoReportFlag := ""
 	if cfg.gopusPGO != "" && cfg.gopusPGO != "off" {
