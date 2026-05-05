@@ -270,7 +270,7 @@ test-unsupported-controls-parity-experimental: test-unsupported-controls-parity
 	fi
 
 # Primary libopus-facing focused gate.
-test-quality:
+test-quality: ensure-testvectors
 	$(GO_TEST_PARITY) ./testvectors -run 'TestFinalRangeVerification|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderVariantCELTAllocationParityAgainstFixture|TestEncoderVariantCELTHeaderParityAgainstFixture|TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity' -count=1 -v
 
 # Optional libopus-internal exactness checks. These are intentionally not part
