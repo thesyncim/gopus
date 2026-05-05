@@ -711,9 +711,9 @@ func noiseShapeQuantizerDelDec(
 		if rdMin2 < rdMax {
 			src := &psDelDec[rdMinInd]
 			dst := &psDelDec[rdMaxInd]
-			// Match libopus: clone the LPC tail from the current sample onward,
-			// then clone the non-LPC delayed-decision state as one block.
-			copy(dst.sLPCQ14[i:], src.sLPCQ14[i:])
+			// Only the live LPC history window can be read before later samples
+			// overwrite the future part of this subframe.
+			copy(dst.sLPCQ14[i:nsqLpcBufLength+i], src.sLPCQ14[i:nsqLpcBufLength+i])
 			dst.nsqDelDecStateTail = src.nsqDelDecStateTail
 			psSampleState[rdMaxInd][0] = psSampleState[rdMinInd][1]
 		}
