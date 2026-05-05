@@ -3,7 +3,11 @@ package silk
 // Delayed-decision NSQ ported from libopus silk/NSQ_del_dec.c.
 
 type nsqDelDecState struct {
-	sLPCQ14   [maxSubFrameLength + nsqLpcBufLength]int32
+	sLPCQ14 [maxSubFrameLength + nsqLpcBufLength]int32
+	nsqDelDecStateTail
+}
+
+type nsqDelDecStateTail struct {
 	randState [decisionDelay]int32
 	qQ10      [decisionDelay]int32
 	xqQ14     [decisionDelay]int32
@@ -667,24 +671,12 @@ func noiseShapeQuantizerDelDec(
 		}
 
 		if rdMin2 < rdMax {
-			// Match libopus NSQ_del_dec.c: copy the delayed-decision state tail
-			// from sLPCQ14[i] onward. Future samples in the same subframe still
-			// consume the later sLPCQ14 entries, so copying only the current LPC
-			// window can leave stale tail state and change the winning path.
 			src := &psDelDec[rdMinInd]
 			dst := &psDelDec[rdMaxInd]
+			// Match libopus: clone the LPC tail from the current sample onward,
+			// then clone the non-LPC delayed-decision state as one block.
 			copy(dst.sLPCQ14[i:], src.sLPCQ14[i:])
-			copy(dst.randState[:], src.randState[:])
-			copy(dst.qQ10[:], src.qQ10[:])
-			copy(dst.xqQ14[:], src.xqQ14[:])
-			copy(dst.predQ15[:], src.predQ15[:])
-			copy(dst.shapeQ14[:], src.shapeQ14[:])
-			copy(dst.sAR2Q14[:], src.sAR2Q14[:])
-			dst.lfARQ14 = src.lfARQ14
-			dst.diffQ14 = src.diffQ14
-			dst.seed = src.seed
-			dst.seedInit = src.seedInit
-			dst.rdQ10 = src.rdQ10
+			dst.nsqDelDecStateTail = src.nsqDelDecStateTail
 			psSampleState[rdMaxInd][0] = psSampleState[rdMinInd][1]
 		}
 
