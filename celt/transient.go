@@ -563,8 +563,7 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			for i := 0; i < len2; i++ {
 				j := i << 1
 
-				v0 := src[j]
-				x0 := float32(v0)
+				x0 := float32(src[j])
 				if deferMonoToneDetect {
 					monoToneX[j] = x0
 				}
@@ -573,8 +572,7 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 				hp0 = hp0 - x0 + hpFeedback*hp1
 				hp1 = x0 - hp00
 
-				v1 := src[j+1]
-				x1 := float32(v1)
+				x1 := float32(src[j+1])
 				if deferMonoToneDetect {
 					monoToneX[j+1] = x1
 				}
