@@ -377,7 +377,7 @@ ensure-libopus-qext:
 
 # Ensure the downloaded official RFC 8251 test-vector cache exists.
 ensure-testvectors:
-	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^TestParseTestVectorBitstreams$$' -count=1
+	cd testvectors && $(GO_WORK_ENV) $(GO) test . -run='^TestParseTestVectorBitstreams$$' -count=1
 	@for n in 01 02 03 04 05 06 07 08 09 10 11 12; do \
 		for ext in bit dec; do \
 			path="testvectors/testdata/opus_testvectors/testvector$$n.$$ext"; \

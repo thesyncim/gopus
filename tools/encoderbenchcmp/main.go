@@ -139,7 +139,9 @@ func run(cfg runConfig) error {
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tempDir)
+	defer func() {
+		_ = os.RemoveAll(tempDir)
+	}()
 	caseSpecs, err := writeLibopusPCMInputs(tempDir, workloads)
 	if err != nil {
 		return err
