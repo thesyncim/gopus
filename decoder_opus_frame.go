@@ -329,6 +329,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 
 	switch mode {
 	case ModeHybrid:
+		if data != nil && d.haveDecoded && d.prevMode == ModeCELT {
+			d.silkDecoder.Reset()
+		}
 		if data == nil {
 			samples, err := d.hybridDecoder.DecodeWithPacketStereo(nil, frameSize, packetStereoLocal)
 			if err != nil {
