@@ -275,3 +275,8 @@ func NewNoiseShapeState() *NoiseShapeState {
 		LastGainIndex: 0,
 	}
 }
+
+// Reset clears noise-shaping state while retaining the caller-owned state object.
+func (s *NoiseShapeState) Reset() {
+	*s = NoiseShapeState{}
+}

@@ -27,6 +27,7 @@ func (e *MultistreamEncoder) applyApplication(app Application) error {
 	e.application = app
 	e.enc.SetLowDelay(settings.lowDelay)
 	e.enc.SetVoIPApplication(settings.voip)
+	e.enc.SetRestrictedSilkApplication(app == ApplicationRestrictedSilk)
 	e.enc.SetMode(settings.mode)
 	e.enc.SetBandwidth(settings.bandwidth)
 	e.enc.SetSignal(settings.signal)

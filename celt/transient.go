@@ -1088,6 +1088,12 @@ func GetShortBlockCount(frameSize int) int {
 //
 // Reference: libopus celt/celt_encoder.c patch_transient_decision()
 func PatchTransientDecision(newE, oldE []float64, nbEBands, start, end, channels int) bool {
+	return PatchTransientDecisionWithScratch(newE, oldE, nbEBands, start, end, channels, nil)
+}
+
+// PatchTransientDecisionWithScratch is PatchTransientDecision using caller-owned
+// scratch for the spread-old-energy workspace.
+func PatchTransientDecisionWithScratch(newE, oldE []float64, nbEBands, start, end, channels int, spreadOld []float64) bool {
 	if len(newE) < end || len(oldE) < end {
 		return false
 	}
@@ -1095,7 +1101,11 @@ func PatchTransientDecision(newE, oldE []float64, nbEBands, start, end, channels
 	// Apply an aggressive (-6 dB/Bark) spreading function to the old frame
 	// to avoid false detection caused by irrelevant bands.
 	// GCONST(1.0f) in libopus is 1.0 in the log-energy domain (corresponds to ~6dB).
-	spreadOld := make([]float64, end)
+	if len(spreadOld) < end {
+		spreadOld = make([]float64, end)
+	} else {
+		spreadOld = spreadOld[:end]
+	}
 
 	if channels == 1 {
 		spreadOld[start] = oldE[start]

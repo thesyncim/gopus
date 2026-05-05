@@ -421,6 +421,7 @@ func (s *TonalityAnalysisState) Reset() {
 	scratchDownsampled := s.scratchDownsampled[:0]
 	scratchResample3x := s.scratchResample3x[:0]
 	scratchFFTKiss := s.scratchFFTKiss
+	scratchBinE := s.scratchBinE[:0]
 
 	*s = TonalityAnalysisState{
 		Fs:                 fs,
@@ -429,6 +430,7 @@ func (s *TonalityAnalysisState) Reset() {
 		scratchDownsampled: scratchDownsampled,
 		scratchResample3x:  scratchResample3x,
 		scratchFFTKiss:     scratchFFTKiss,
+		scratchBinE:        scratchBinE,
 	}
 }
 
@@ -843,7 +845,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	const binStart = 4 // tbands[0]
 	const binEnd = 240 // tbands[NbTBands]
 	const numBins = binEnd - binStart
-	if len(s.scratchBinE) < numBins {
+	if cap(s.scratchBinE) < numBins {
 		s.scratchBinE = make([]float32, numBins)
 	}
 	binEArr := s.scratchBinE[:numBins]

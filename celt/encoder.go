@@ -1112,8 +1112,9 @@ type encoderScratch struct {
 	mdctBlockCoeffs []float64 // Per-block coefficients for short MDCT
 
 	// Transient analysis scratch
-	transientEnergy []float32
-	transientX      []float32
+	transientEnergy    []float32
+	transientX         []float32
+	transientSpreadOld []float64
 
 	// CWRS encoding scratch
 	cwrsU []uint32

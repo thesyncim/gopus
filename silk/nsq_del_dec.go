@@ -502,13 +502,13 @@ func noiseShapeQuantizerDelDec(
 		// This eliminates psDD.shapeQ14[localSmplBufIdx] checks inside the k-loop.
 		_ = psDelDec[0].shapeQ14[localSmplBufIdx]
 
+		psLPCIdx := nsqLpcBufLength - 1 + i
 		for k := 0; k < nStatesDelayedDecision; k++ {
 			psDD := &psDelDec[k]
 			psSS := &psSampleState[k]
 
 			psDD.seed = psDD.seed*196314165 + 907633515 // silk_RAND inline
 
-			psLPCIdx := nsqLpcBufLength - 1 + i
 			// Use the generic LPC predictor so delayed-decision NSQ shares the
 			// same libopus-aligned path across predictor orders.
 			lpcPredQ14 := shortTermPrediction(psDD.sLPCQ14[:], psLPCIdx, aQ12, predictLPCOrder)

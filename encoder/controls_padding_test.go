@@ -72,3 +72,32 @@ func TestPadToSize_Code3PaddingUsesTotalPadAmount(t *testing.T) {
 		t.Fatalf("expected trailing zero padding byte")
 	}
 }
+
+func TestPadToSizeInto_InPlaceNoAllocs(t *testing.T) {
+	frame := bytes.Repeat([]byte{0x7a}, 78)
+	buf := make([]byte, 128)
+	buf[0] = 0x48
+	copy(buf[1:], frame)
+	packet := buf[:1+len(frame)]
+	target := len(packet) + 3
+
+	allocs := testing.AllocsPerRun(100, func() {
+		got := padToSizeInto(buf, packet, target)
+		if len(got) != target {
+			t.Fatalf("len=%d want=%d", len(got), target)
+		}
+		if got[0]&0x03 != 0x03 || got[1] != 0x41 || got[2] != 0x01 {
+			t.Fatalf("unexpected padded header: % x", got[:3])
+		}
+		if !bytes.Equal(got[3:81], frame) {
+			t.Fatalf("frame payload mismatch with in-place padding")
+		}
+		packet = buf[:1+len(frame)]
+		packet[0] = 0x48
+		copy(packet[1:], frame)
+		clear(buf[len(packet):])
+	})
+	if allocs != 0 {
+		t.Fatalf("padToSizeInto allocs/op = %.0f, want 0", allocs)
+	}
+}

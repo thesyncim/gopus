@@ -571,7 +571,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Get previous frame's band energies (oldBandE in libopus)
 		oldBandE := e.prevEnergy
 
-		if PatchTransientDecision(energies, oldBandE, nbBands, 0, end, e.channels) {
+		spreadOld := ensureFloat64Slice(&e.scratch.transientSpreadOld, end)
+		if PatchTransientDecisionWithScratch(energies, oldBandE, nbBands, 0, end, e.channels, spreadOld) {
 			// Transient patched! Need to recompute MDCT with short blocks
 			transient = true
 			shortBlocks = mode.ShortBlocks

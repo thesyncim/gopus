@@ -65,13 +65,14 @@ type Encoder struct {
 	celtEncoder     *celt.Encoder
 
 	// Configuration
-	mode       Mode
-	bandwidth  types.Bandwidth
-	sampleRate int
-	channels   int
-	frameSize  int // In samples at 48kHz
-	lowDelay   bool
-	voipApp    bool
+	mode              Mode
+	bandwidth         types.Bandwidth
+	sampleRate        int
+	channels          int
+	frameSize         int // In samples at 48kHz
+	lowDelay          bool
+	voipApp           bool
+	restrictedSilkApp bool
 
 	// Bitrate controls
 	bitrateMode   BitrateMode
@@ -304,6 +305,11 @@ func (e *Encoder) SetVoIPApplication(enabled bool) {
 // VoIPApplication reports whether VoIP application bias is enabled.
 func (e *Encoder) VoIPApplication() bool {
 	return e.voipApp
+}
+
+// SetRestrictedSilkApplication toggles restricted-SILK application behavior.
+func (e *Encoder) SetRestrictedSilkApplication(enabled bool) {
+	e.restrictedSilkApp = enabled
 }
 
 // SetBandwidth sets the target audio bandwidth.
@@ -897,7 +903,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 				packet = e.scratchPacket[:packetLen]
 			}
 		} else {
-			packet = padToSize(packet, targetSize)
+			packet = padToSizeInto(e.scratchPacket, packet, targetSize)
 		}
 	case ModeCVBR:
 		if !dredPacketBuilt && len(qextPayload) == 0 {
@@ -1048,6 +1054,12 @@ func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
 	if e.analyzer == nil || frameSize <= 0 || len(pcm) == 0 {
 		return
 	}
+	if !e.analysisEnabled() {
+		if e.analyzer.Initialized {
+			e.analyzer.Reset()
+		}
+		return
+	}
 	pcm32 := e.floatInputFrame
 	if len(pcm32) < len(pcm) {
 		pcm32 = e.scratchPCM32[:len(pcm)]
@@ -1070,6 +1082,10 @@ func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
 	e.lastAnalysisInfo = info
 	e.lastAnalysisValid = true
 	e.lastAnalysisFresh = true
+}
+
+func (e *Encoder) analysisEnabled() bool {
+	return !e.restrictedSilkApp && e.complexity >= 7 && e.sampleRate >= 16000 && e.sampleRate <= 48000
 }
 
 // primeSubframeAnalysis advances tonality_get_info() for long packets and keeps
@@ -1829,6 +1845,9 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 // autoSignalFromPCM is kept for backward compatibility but RunAnalysis is preferred.
 func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 	if len(pcm) == 0 || frameSize <= 0 {
+		return types.SignalAuto
+	}
+	if !e.analysisEnabled() {
 		return types.SignalAuto
 	}
 	if !e.lastAnalysisFresh {
