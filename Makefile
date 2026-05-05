@@ -10,8 +10,8 @@ PGO_FILE ?= default.pgo
 PGO_FLAG ?= -pgo=$(PGO_FILE)
 PGO_GENERATE_FLAG ?= -pgo=off
 PGO_REPORT_PROFILE ?= $(PGO_FILE)
-PGO_BENCH ?= ^BenchmarkDecodeOfficialTestVectors/(Float32|Int16)/all$
-PGO_PKG ?= ./testvectors
+PGO_BENCH ?= ^Benchmark(DecoderDecode_CELT|DecoderDecodeInt16|DecoderDecode_Stereo|EncoderEncode_CallerBuffer|EncoderEncodeInt16|EncoderEncode_Restricted(CELT|CELT5ms|SILK)CBRStreamAfterReset)$$
+PGO_PKG ?= .
 PGO_BENCHTIME ?= 20s
 PGO_COUNT ?= 1
 LIBOPUS_VERSION ?= 1.6.1
@@ -519,7 +519,7 @@ build:
 build-nopgo:
 	$(GO_WORK_ENV) $(GO) build -pgo=off ./...
 
-# Regenerate default.pgo from decode hot-path benchmarks
+# Regenerate default.pgo from representative public encode/decode hot-path benchmarks
 pgo-generate:
 	$(GO_WORK_ENV) $(GO) test $(PGO_GENERATE_FLAG) -run='^$$' -bench='$(PGO_BENCH)' -benchtime=$(PGO_BENCHTIME) -count=$(PGO_COUNT) -cpuprofile $(PGO_FILE) $(PGO_PKG)
 
