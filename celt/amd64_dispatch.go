@@ -6,6 +6,11 @@ import "github.com/thesyncim/gopus/internal/cpufeat"
 
 var amd64UseAVX2FMA = cpufeat.AMD64.HasAVX2 && cpufeat.AMD64.HasFMA
 
+// Keep CELT prefilter decisions independent of host AVX/FMA exposure. These
+// helpers feed encoded postfilter headers, and SIMD reassociation can flip tied
+// pitch choices by one sample against the pinned amd64 fixtures.
+var amd64UsePrefilterAVX2FMA = false
+
 //go:noescape
 func absSumAVX(x []float64) float64
 
@@ -42,7 +47,7 @@ func celtPitchXcorr(x, y, xcorr []float64, length, maxPitch int) {
 func prefilterInnerProdAVXFMA(x, y []float64, length int) float64
 
 func prefilterInnerProd(x, y []float64, length int) float64 {
-	if amd64UseAVX2FMA {
+	if amd64UsePrefilterAVX2FMA && amd64UseAVX2FMA {
 		return prefilterInnerProdAVXFMA(x, y, length)
 	}
 	return prefilterInnerProdGeneric(x, y, length)
@@ -52,7 +57,7 @@ func prefilterInnerProd(x, y []float64, length int) float64 {
 func prefilterDualInnerProdAVXFMA(x, y1, y2 []float64, length int) (float64, float64)
 
 func prefilterDualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
-	if amd64UseAVX2FMA {
+	if amd64UsePrefilterAVX2FMA && amd64UseAVX2FMA {
 		return prefilterDualInnerProdAVXFMA(x, y1, y2, length)
 	}
 	return prefilterDualInnerProdGeneric(x, y1, y2, length)
@@ -131,7 +136,7 @@ func toneLPCCorr(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32) {
 func prefilterPitchXcorrAVX2FMA(x, y, xcorr []float64, length, maxPitch int)
 
 func prefilterPitchXcorr(x, y, xcorr []float64, length, maxPitch int) {
-	if amd64UseAVX2FMA {
+	if amd64UsePrefilterAVX2FMA && amd64UseAVX2FMA {
 		prefilterPitchXcorrAVX2FMA(x, y, xcorr, length, maxPitch)
 		return
 	}
