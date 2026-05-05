@@ -18,8 +18,10 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	e.enc.SetFloatInputFrame(pcm)
 
 	pcm64 := e.scratchPCM64[:len(pcm)]
-	for i, v := range pcm {
-		pcm64[i] = float64(v)
+	if e.enc.LSBDepth() != 24 || (e.application != ApplicationLowDelay && e.application != ApplicationRestrictedCelt) {
+		for i, v := range pcm {
+			pcm64[i] = float64(v)
+		}
 	}
 
 	packet, err := e.enc.Encode(pcm64, e.frameSize)

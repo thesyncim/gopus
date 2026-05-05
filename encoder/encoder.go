@@ -642,14 +642,22 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	lookaheadSamples := 0
 	pcm = e.quantizeInputToLSBDepth(pcm)
 	pcm = e.dcReject(pcm, frameSize)
-	e.inputBuffer = append(e.inputBuffer, pcm...)
-	samplesNeeded := (frameSize * e.channels) + lookaheadSamples
-	if len(e.inputBuffer) < samplesNeeded {
-		return nil, nil
-	}
 	frameEnd := frameSize * e.channels
-	framePCM := e.inputBuffer[:frameEnd]
-	lookaheadSlice := e.inputBuffer[frameEnd : frameEnd+lookaheadSamples]
+	samplesNeeded := frameEnd + lookaheadSamples
+	directFrameInput := lookaheadSamples == 0 && len(e.inputBuffer) == 0
+	var framePCM []float64
+	var lookaheadSlice []float64
+	if directFrameInput {
+		framePCM = pcm[:frameEnd]
+		lookaheadSlice = pcm[frameEnd:frameEnd]
+	} else {
+		e.inputBuffer = append(e.inputBuffer, pcm...)
+		if len(e.inputBuffer) < samplesNeeded {
+			return nil, nil
+		}
+		framePCM = e.inputBuffer[:frameEnd]
+		lookaheadSlice = e.inputBuffer[frameEnd:samplesNeeded]
+	}
 	dredExtraDelay := 0
 	if !e.lowDelay {
 		dredExtraDelay = e.sampleRate / 250
@@ -660,8 +668,10 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 
 	suppressFrame, _ := e.shouldUseDTX(framePCM)
 	if suppressFrame {
-		remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
-		e.inputBuffer = e.inputBuffer[:remaining]
+		if !directFrameInput {
+			remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
+			e.inputBuffer = e.inputBuffer[:remaining]
+		}
 		// Match libopus: return a 1-byte TOC-only packet for DTX frames.
 		// The decoder triggers its own CNG when it sees a TOC with no frame data.
 		// Returning nil here would cause WebRTC to see missing packets and apply
@@ -791,8 +801,10 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
-	e.inputBuffer = e.inputBuffer[:remaining]
+	if !directFrameInput {
+		remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
+		e.inputBuffer = e.inputBuffer[:remaining]
+	}
 	qextPayload := []byte(nil)
 	if extsupport.QEXT && actualMode == ModeCELT && e.celtEncoder != nil {
 		qextPayload = e.lastQEXTPayload()
