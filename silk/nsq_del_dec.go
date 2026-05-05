@@ -88,9 +88,6 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 	var xScQ10 []int32
 	if nsq.scratchXScQ10 != nil && len(nsq.scratchXScQ10) >= subfrLength {
 		xScQ10 = nsq.scratchXScQ10[:subfrLength]
-		for i := range xScQ10 {
-			xScQ10[i] = 0
-		}
 	} else {
 		xScQ10 = make([]int32, subfrLength)
 		nsq.scratchXScQ10 = xScQ10
