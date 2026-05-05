@@ -25,10 +25,10 @@ func (e *Encoder) fillMDCTHistoryFromPrefilter(channel, overlap int, dst []float
 	if overlap <= 0 || len(dst) < overlap || channel < 0 {
 		return
 	}
-	for i := 0; i < overlap; i++ {
-		dst[i] = 0
-	}
 	if len(e.overlapBuffer) < (channel+1)*overlap {
+		for i := 0; i < overlap; i++ {
+			dst[i] = 0
+		}
 		return
 	}
 	start := channel * overlap
@@ -49,11 +49,11 @@ func (e *Encoder) fillTransientHistoryFromPrefilter(overlap int, dst []float64) 
 	if len(dst) < need {
 		return
 	}
-	for i := 0; i < need; i++ {
-		dst[i] = 0
-	}
 	maxPeriod := combFilterMaxPeriod
 	if len(e.prefilterMem) < maxPeriod*e.channels {
+		for i := 0; i < need; i++ {
+			dst[i] = 0
+		}
 		return
 	}
 	base := maxPeriod - overlap
