@@ -736,11 +736,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	_ = normBandEScratch
 
-	// Step 11.0.6: Compute tonality analysis for next frame's VBR decisions
-	// We compute tonality here using Spectral Flatness Measure (SFM) and store it
-	// for use in the next frame's computeVBRTarget (similar to how libopus uses
-	// analysis from the previous frame).
-	e.updateTonalityAnalysis(normL, analysisEnergies, nbBands, frameSize)
+	// Step 11.0.6: Compute tonality analysis only when it can feed the next
+	// frame's VBR target. CBR target sizing does not consume this state.
+	if e.vbr {
+		e.updateTonalityAnalysis(normL, analysisEnergies, nbBands, frameSize)
+	}
 
 	// Step 11.0.7: Compute temporal VBR from current frame band energies.
 	// Reference: libopus celt_encoder.c lines 2186-2202.

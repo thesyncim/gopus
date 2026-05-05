@@ -530,6 +530,9 @@ func (e *Encoder) TFAnalysisHybridScratch(norm []float64, nbBands int, transient
 
 // UpdateTonalityAnalysisHybrid updates tonality metrics for VBR decisions.
 func (e *Encoder) UpdateTonalityAnalysisHybrid(normCoeffs, energies []float64, nbBands, frameSize int) {
+	if !e.vbr {
+		return
+	}
 	e.updateTonalityAnalysis(normCoeffs, energies, nbBands, frameSize)
 }
 
