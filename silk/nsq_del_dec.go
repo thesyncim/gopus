@@ -469,6 +469,14 @@ func noiseShapeQuantizerDelDec(
 	case 16:
 		arShpQ13Order16 = (*[16]int16)(arShpQ13)
 	}
+	var aQ12Order16 *[16]int16
+	var aQ12Order10 *[10]int16
+	switch predictLPCOrder {
+	case 16:
+		aQ12Order16 = (*[16]int16)(aQ12)
+	case 10:
+		aQ12Order10 = (*[10]int16)(aQ12)
+	}
 
 	for i := 0; i < length; i++ {
 		var ltpPredQ14 int32
@@ -541,9 +549,15 @@ func noiseShapeQuantizerDelDec(
 
 			psDD.seed = psDD.seed*196314165 + 907633515 // silk_RAND inline
 
-			// Use the generic LPC predictor so delayed-decision NSQ shares the
-			// same libopus-aligned path across predictor orders.
-			lpcPredQ14 := shortTermPrediction(psDD.sLPCQ14[:], psLPCIdx, aQ12, predictLPCOrder)
+			var lpcPredQ14 int32
+			switch predictLPCOrder {
+			case 16:
+				lpcPredQ14 = shortTermPrediction16State(&psDD.sLPCQ14, psLPCIdx, aQ12Order16)
+			case 10:
+				lpcPredQ14 = shortTermPrediction10State(&psDD.sLPCQ14, psLPCIdx, aQ12Order10)
+			default:
+				lpcPredQ14 = shortTermPrediction(psDD.sLPCQ14[:], psLPCIdx, aQ12, predictLPCOrder)
+			}
 			lpcPredQ14 <<= 4
 
 			var nARQ14 int32

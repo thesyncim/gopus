@@ -26,6 +26,28 @@ func shortTermPrediction16(sLPCQ14 []int32, idx int, aQ12 []int16) int32 {
 	return out
 }
 
+func shortTermPrediction16State(sLPCQ14 *[maxSubFrameLength + nsqLpcBufLength]int32, idx int, aQ12 *[16]int16) int32 {
+	lpc := sLPCQ14[idx-15 : idx+1 : idx+1]
+	out := int32(8)
+	out = silk_SMLAWB(out, lpc[15], int32(aQ12[0]))
+	out = silk_SMLAWB(out, lpc[14], int32(aQ12[1]))
+	out = silk_SMLAWB(out, lpc[13], int32(aQ12[2]))
+	out = silk_SMLAWB(out, lpc[12], int32(aQ12[3]))
+	out = silk_SMLAWB(out, lpc[11], int32(aQ12[4]))
+	out = silk_SMLAWB(out, lpc[10], int32(aQ12[5]))
+	out = silk_SMLAWB(out, lpc[9], int32(aQ12[6]))
+	out = silk_SMLAWB(out, lpc[8], int32(aQ12[7]))
+	out = silk_SMLAWB(out, lpc[7], int32(aQ12[8]))
+	out = silk_SMLAWB(out, lpc[6], int32(aQ12[9]))
+	out = silk_SMLAWB(out, lpc[5], int32(aQ12[10]))
+	out = silk_SMLAWB(out, lpc[4], int32(aQ12[11]))
+	out = silk_SMLAWB(out, lpc[3], int32(aQ12[12]))
+	out = silk_SMLAWB(out, lpc[2], int32(aQ12[13]))
+	out = silk_SMLAWB(out, lpc[1], int32(aQ12[14]))
+	out = silk_SMLAWB(out, lpc[0], int32(aQ12[15]))
+	return out
+}
+
 // shortTermPrediction10 computes 10-tap LPC prediction.
 // Returns 5 + sum((sLPCQ14[idx-k] * int16(aQ12[k])) >> 16) for k=0..9.
 func shortTermPrediction10(sLPCQ14 []int32, idx int, aQ12 []int16) int32 {
@@ -43,5 +65,21 @@ func shortTermPrediction10(sLPCQ14 []int32, idx int, aQ12 []int16) int32 {
 	out = silk_SMLAWB(out, sLPCQ14[idx-7], int32(aQ12[7]))
 	out = silk_SMLAWB(out, sLPCQ14[idx-8], int32(aQ12[8]))
 	out = silk_SMLAWB(out, sLPCQ14[idx-9], int32(aQ12[9]))
+	return out
+}
+
+func shortTermPrediction10State(sLPCQ14 *[maxSubFrameLength + nsqLpcBufLength]int32, idx int, aQ12 *[10]int16) int32 {
+	lpc := sLPCQ14[idx-9 : idx+1 : idx+1]
+	out := int32(5)
+	out = silk_SMLAWB(out, lpc[9], int32(aQ12[0]))
+	out = silk_SMLAWB(out, lpc[8], int32(aQ12[1]))
+	out = silk_SMLAWB(out, lpc[7], int32(aQ12[2]))
+	out = silk_SMLAWB(out, lpc[6], int32(aQ12[3]))
+	out = silk_SMLAWB(out, lpc[5], int32(aQ12[4]))
+	out = silk_SMLAWB(out, lpc[4], int32(aQ12[5]))
+	out = silk_SMLAWB(out, lpc[3], int32(aQ12[6]))
+	out = silk_SMLAWB(out, lpc[2], int32(aQ12[7]))
+	out = silk_SMLAWB(out, lpc[1], int32(aQ12[8]))
+	out = silk_SMLAWB(out, lpc[0], int32(aQ12[9]))
 	return out
 }
