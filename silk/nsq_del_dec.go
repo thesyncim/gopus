@@ -80,6 +80,7 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 		sLTPQ15 = nsq.scratchSLTPQ15[:ltpMemLength+frameLength]
 	} else {
 		sLTPQ15 = make([]int32, ltpMemLength+frameLength)
+		nsq.scratchSLTPQ15 = sLTPQ15
 	}
 
 	var sLTP []int16
@@ -87,6 +88,7 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 		sLTP = nsq.scratchSLTP[:ltpMemLength+frameLength]
 	} else {
 		sLTP = make([]int16, ltpMemLength+frameLength)
+		nsq.scratchSLTP = sLTP
 	}
 
 	var xScQ10 []int32
@@ -97,6 +99,7 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 		}
 	} else {
 		xScQ10 = make([]int32, subfrLength)
+		nsq.scratchXScQ10 = xScQ10
 	}
 
 	// LSF interpolation flag
