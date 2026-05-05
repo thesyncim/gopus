@@ -336,6 +336,139 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 		e.scratch.transientEnergy)
 }
 
+func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
+	result := TransientAnalysisResult{
+		TfEstimate:  0.0,
+		TfChannel:   0,
+		ToneFreq:    -1,
+		Toneishness: 0,
+	}
+
+	if len(pcm) == 0 || frameSize <= 0 {
+		return result
+	}
+	samplesPerChannel := len(pcm)
+	if samplesPerChannel < 16 {
+		return result
+	}
+
+	toneFreq, toneishness := toneDetectFloat32Mono(pcm[:samplesPerChannel], 48000, false)
+	result.ToneFreq = toneFreq
+	result.Toneishness = toneishness
+
+	forwardDecay := float32(0.0625)
+	forwardRetain := float32(1.0) - forwardDecay
+	if allowWeakTransients {
+		forwardDecay = 0.03125
+		forwardRetain = float32(1.0) - forwardDecay
+	}
+
+	len2 := samplesPerChannel / 2
+	var energy []float32
+	if len(e.scratch.transientEnergy) >= len2 {
+		energy = e.scratch.transientEnergy[:len2]
+	} else {
+		energy = make([]float32, len2)
+	}
+
+	const (
+		hpFeedback     = float32(0.5)
+		backwardRetain = float32(0.875)
+		backwardScale  = float32(0.125)
+		warmupPairs    = 6
+	)
+	var hp0, hp1 float32
+	var mask float32
+	mean := float32(0)
+	src := pcm[:samplesPerChannel]
+	_ = src[2*len2-1]
+	for i := 0; i < len2; i++ {
+		j := i << 1
+
+		x0 := src[j]
+		y0 := hp0 + x0
+		hp00 := hp0
+		hp0 = hp0 - x0 + hpFeedback*hp1
+		hp1 = x0 - hp00
+
+		x1 := src[j+1]
+		y1 := hp0 + x1
+		hp00 = hp0
+		hp0 = hp0 - x1 + hpFeedback*hp1
+		hp1 = x1 - hp00
+
+		if i < warmupPairs {
+			y0 = 0
+			y1 = 0
+		}
+
+		pair := y0*y0 + y1*y1
+		mean += pair
+		mask = pair + forwardRetain*mask
+		energy[i] = forwardDecay * mask
+	}
+
+	var maxE float32
+	mask = 0
+	for i := len2 - 1; i >= 0; i-- {
+		mask = energy[i] + backwardRetain*mask
+		ei := backwardScale * mask
+		energy[i] = ei
+		if ei > maxE {
+			maxE = ei
+		}
+	}
+
+	meanGeom := math.Sqrt(float64(mean * maxE * float32(0.5*float64(len2))))
+	const epsilon = 1e-15
+	normE := float32(float64(64*len2) / (meanGeom + epsilon))
+
+	const epsF32 = float32(1e-15)
+	var unmask int
+	for i := 12; i < len2-5; i += 4 {
+		id := int(normE * (energy[i] + epsF32))
+		if id > 127 {
+			id = 127
+		}
+		unmask += transientInvTable[id]
+	}
+
+	maxMaskMetric := 0
+	if len2 > 17 {
+		maxMaskMetric = 64 * unmask * 4 / (6 * (len2 - 17))
+	}
+
+	result.TfChannel = 0
+	result.IsTransient = maxMaskMetric > 200
+	if result.Toneishness > 0.98 && result.ToneFreq >= 0 && result.ToneFreq < 0.026 {
+		result.IsTransient = false
+		maxMaskMetric = 0
+	}
+	if allowWeakTransients && result.IsTransient && maxMaskMetric < 600 {
+		result.IsTransient = false
+		result.WeakTransient = true
+	}
+	result.MaskMetric = float64(maxMaskMetric)
+
+	tfMax := math.Sqrt(27*float64(maxMaskMetric)) - 42
+	if tfMax < 0 {
+		tfMax = 0
+	}
+	if tfMax > 163 {
+		tfMax = 163
+	}
+	tfEstimateSquared := 0.0069*tfMax - 0.139
+	if tfEstimateSquared < 0 {
+		tfEstimateSquared = 0
+	}
+	result.TfEstimate = math.Sqrt(tfEstimateSquared)
+	if result.TfEstimate > 1.0 {
+		result.TfEstimate = 1.0
+	}
+
+	return result
+}
+
 // transientInvTable is the inverse table for computing harmonic mean (6*64/x, trained on real data).
 // Hoisted to package level to avoid re-initializing on every call. This matches libopus exactly.
 var transientInvTable = [128]int{

@@ -1043,7 +1043,8 @@ type encoderScratch struct {
 	preemph []float64
 
 	// Transient analysis input buffer (overlap + frame)
-	transientInput []float64
+	transientInput    []float64
+	transientInputF32 []float32
 
 	// Prefilter (comb filter) scratch buffers
 	prefilterPre      []float64
@@ -1190,6 +1191,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Transient analysis input (overlap + frameSize) * channels
 	transientLen := (overlap + frameSize) * channels
 	s.transientInput = ensureFloat64Slice(&s.transientInput, transientLen)
+	s.transientInputF32 = ensureFloat32Slice(&s.transientInputF32, transientLen)
 
 	// Prefilter scratch buffers
 	maxPeriod := combFilterMaxPeriod

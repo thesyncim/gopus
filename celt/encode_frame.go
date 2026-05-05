@@ -65,6 +65,28 @@ func (e *Encoder) fillTransientHistoryFromPrefilter(overlap int, dst []float64) 
 	}
 }
 
+func (e *Encoder) fillTransientHistoryFromPrefilterF32(overlap int, dst []float32) {
+	if overlap <= 0 || e.channels <= 0 {
+		return
+	}
+	need := overlap * e.channels
+	if len(dst) < need {
+		return
+	}
+	maxPeriod := combFilterMaxPeriod
+	if len(e.prefilterMem) < maxPeriod*e.channels {
+		clear(dst[:need])
+		return
+	}
+	base := maxPeriod - overlap
+	for ch := 0; ch < e.channels; ch++ {
+		chBase := ch * maxPeriod
+		for i := 0; i < overlap; i++ {
+			dst[i*e.channels+ch] = float32(e.prefilterMem[chBase+base+i])
+		}
+	}
+}
+
 // quantizeInputToLSBDepthScratch mirrors opus_demo -f32 ingestion when fixtures
 // are generated via opus_encode24: round to the configured LSB depth before
 // dc_reject/pre-emphasis.
@@ -290,11 +312,24 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		e.scratch.transientInput = transientInput
 	}
 	transientInput = transientInput[:transientLen]
-	e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
 	// Match libopus celt_preemphasis() ordering, but write the current frame
 	// directly after the overlap history so transient analysis needs no copy.
 	preemph := transientInput[preemphBufSize:]
-	isSilence := e.applyPreemphasisWithScalingAndSilenceCore(samplesForFrame, preemph, frameSize, overlap)
+	var transientInputF32 []float32
+	var preemphF32 []float32
+	if e.channels == 1 {
+		transientInputF32 = e.scratch.transientInputF32
+		if len(transientInputF32) < transientLen {
+			transientInputF32 = make([]float32, transientLen)
+			e.scratch.transientInputF32 = transientInputF32
+		}
+		transientInputF32 = transientInputF32[:transientLen]
+		e.fillTransientHistoryFromPrefilterF32(overlap, transientInputF32[:preemphBufSize])
+		preemphF32 = transientInputF32[preemphBufSize:]
+	} else {
+		e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
+	}
+	isSilence := e.applyPreemphasisWithScalingAndSilenceCoreF32(samplesForFrame, preemph, preemphF32, frameSize, overlap)
 
 	allowWeakTransients := false
 	if e.hybrid {
@@ -308,7 +343,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Call transient analysis with the pre-emphasized signal (N+overlap samples)
 	// and the libopus hybrid weak-transient gate when a SILK handoff is active.
-	transientResult := e.TransientAnalysis(transientInput, frameSize+overlap, allowWeakTransients)
+	var transientResult TransientAnalysisResult
+	if e.channels == 1 && len(transientInputF32) >= transientLen {
+		transientResult = e.transientAnalysisMonoFloat32(transientInputF32[:transientLen], frameSize+overlap, allowWeakTransients)
+	} else {
+		transientResult = e.TransientAnalysis(transientInput, frameSize+overlap, allowWeakTransients)
+	}
 	transient := transientResult.IsTransient
 	weakTransient := transientResult.WeakTransient
 	tfEstimate := transientResult.TfEstimate
