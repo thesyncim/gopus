@@ -7,7 +7,30 @@ func toneLPCCorr(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float32) {
 	x0 := x[:cnt:cnt]
 	x1 := x[delay : delay+cnt : delay+cnt]
 	x2 := x[delay2 : delay2+cnt : delay2+cnt]
-	for i, xi := range x0 {
+	i := 0
+	for ; i+3 < cnt; i += 4 {
+		xi := x0[i]
+		r00 += xi * xi
+		r01 += xi * x1[i]
+		r02 += xi * x2[i]
+
+		xi = x0[i+1]
+		r00 += xi * xi
+		r01 += xi * x1[i+1]
+		r02 += xi * x2[i+1]
+
+		xi = x0[i+2]
+		r00 += xi * xi
+		r01 += xi * x1[i+2]
+		r02 += xi * x2[i+2]
+
+		xi = x0[i+3]
+		r00 += xi * xi
+		r01 += xi * x1[i+3]
+		r02 += xi * x2[i+3]
+	}
+	for ; i < cnt; i++ {
+		xi := x0[i]
 		r00 += xi * xi
 		r01 += xi * x1[i]
 		r02 += xi * x2[i]

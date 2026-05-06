@@ -533,9 +533,13 @@ func noiseShapeQuantizerDelDec(
 		precomputedNARQ14 := true
 		switch shapingLPCOrder {
 		case 24:
-			for k := 0; k < nStatesDelayedDecision; k++ {
-				psDD := &psDelDec[k]
-				nARQ14ByState[k] = warpedARFeedback24(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13Order24, warpQ16i16)
+			if nStatesDelayedDecision == maxDelDecStates {
+				warpedARFeedback24States4(psDelDec, arShpQ13Order24, warpQ16i16, &nARQ14ByState)
+			} else {
+				for k := 0; k < nStatesDelayedDecision; k++ {
+					psDD := &psDelDec[k]
+					nARQ14ByState[k] = warpedARFeedback24(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13Order24, warpQ16i16)
+				}
 			}
 		case 16:
 			for k := 0; k < nStatesDelayedDecision; k++ {

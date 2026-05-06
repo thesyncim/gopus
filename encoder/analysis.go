@@ -103,7 +103,7 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 		coef1 = float32(0.15063)
 	)
 
-	var hpEner float64
+	var hpEner float32
 	k := 0
 	for ; k+1 < len2; k += 2 {
 		base := 2 * k
@@ -126,7 +126,7 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k] = 0.5 * out32
 
 		in32 = in[base+2]
@@ -147,7 +147,7 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k+1] = 0.5 * out32
 	}
 	for ; k < len2; k++ {
@@ -171,7 +171,7 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k] = 0.5 * out32
 	}
 
@@ -180,7 +180,7 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 
 	// In libopus float builds, SHR64() is identity, so hp_ener accumulates the
 	// raw squared high-pass output (no /256 shift). Keep that behavior here.
-	return float32(hpEner)
+	return hpEner
 }
 
 func silkResamplerDown2HPScaled(s []float32, out []float32, in []float32, scale float32) float32 {
@@ -202,7 +202,7 @@ func silkResamplerDown2HPScaled(s []float32, out []float32, in []float32, scale 
 		coef1 = float32(0.15063)
 	)
 
-	var hpEner float64
+	var hpEner float32
 	k := 0
 	for ; k+1 < len2; k += 2 {
 		base := 2 * k
@@ -225,7 +225,7 @@ func silkResamplerDown2HPScaled(s []float32, out []float32, in []float32, scale 
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k] = 0.5 * out32
 
 		in32 = in[base+2] * scale
@@ -246,7 +246,7 @@ func silkResamplerDown2HPScaled(s []float32, out []float32, in []float32, scale 
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k+1] = 0.5 * out32
 	}
 	for ; k < len2; k++ {
@@ -270,12 +270,12 @@ func silkResamplerDown2HPScaled(s []float32, out []float32, in []float32, scale 
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k] = 0.5 * out32
 	}
 
 	s[0], s[1], s[2] = s0, s1, s2
-	return float32(hpEner)
+	return hpEner
 }
 
 func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale float32) float32 {
@@ -297,7 +297,7 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale 
 		coef1 = float32(0.15063)
 	)
 
-	var hpEner float64
+	var hpEner float32
 	k := 0
 	for ; k+1 < len2; k += 2 {
 		base := 4 * k
@@ -323,7 +323,7 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale 
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k] = 0.5 * out32
 
 		base += 4
@@ -349,7 +349,7 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale 
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k+1] = 0.5 * out32
 	}
 	for ; k < len2; k++ {
@@ -376,12 +376,12 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale 
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k] = 0.5 * out32
 	}
 
 	s[0], s[1], s[2] = s0, s1, s2
-	return float32(hpEner)
+	return hpEner
 }
 
 func isDigitalSilence32(pcm []float32) bool {
