@@ -80,11 +80,15 @@ func toneLPC(x []float32, delay int, lane4Corr bool) (float32, float32, bool) {
 	} else {
 		r00, r01, r02 = toneLPCCorr(x, cnt, delay, delay2)
 	}
+	return toneLPCSolveFromCorr(x, delay, r00, r01, r02)
+}
 
-	// Edge corrections for r11, r22, r12.
-	// Precompute base offsets to avoid repeated arithmetic.
+func toneLPCSolveFromCorr(x []float32, delay int, r00, r01, r02 float32) (float32, float32, bool) {
+	n := len(x)
+	delay2 := 2 * delay
 	base1 := n - delay2 // n-2*delay
 	base2 := n - delay
+
 	var edges float32
 	for i := 0; i < delay; i++ {
 		a := x[base1+i]
@@ -107,14 +111,12 @@ func toneLPC(x []float32, delay int, lane4Corr bool) (float32, float32, bool) {
 	}
 	r12 := r01 + edges
 
-	// Combine forward and backward for symmetric solution.
 	R00 := r00 + r22
 	R01 := r01 + r12
 	R11 := 2 * r11
 	R02 := 2 * r02
 	R12 := r12 + r01
 
-	// Solve A*x=b where A=[R00, R01; R01, R11] and b=[R02; R12].
 	den := R00*R11 - R01*R01
 	if den < float32(0.001)*R00*R11 {
 		return 0, 0, false
@@ -193,6 +195,118 @@ func toneLPCDelay1(x []float32, lane4Corr bool) (float32, float32, bool) {
 	}
 
 	return lpc0, lpc1, true
+}
+
+func toneLPCRetryNeeded(lpc0, lpc1 float32, success bool) bool {
+	return !success || (lpc0 > float32(1.0) && lpc1 < 0)
+}
+
+// toneLPCRetry48kMono fuses the 48 kHz mono retry-delay correlations while
+// preserving the ascending accumulation order used by separate toneLPC calls.
+func toneLPCRetry48kMono(x []float32, maxDelay int) (float32, float32, bool, int) {
+	n := len(x)
+	_ = x[n-1]
+	cnt2 := n - 4
+	cnt4 := n - 8
+	cnt8 := n - 16
+	cnt16 := n - 32
+	cnt32 := n - 64
+
+	var r002, r012, r022 float32
+	var r004, r014, r024 float32
+	var r008, r018, r028 float32
+	var r0016, r0116, r0216 float32
+	var r0032, r0132, r0232 float32
+
+	i := 0
+	for ; i < cnt32; i++ {
+		xi := x[i]
+		xi2 := xi * xi
+		r002 += xi2
+		r012 += xi * x[i+2]
+		r022 += xi * x[i+4]
+		r004 += xi2
+		r014 += xi * x[i+4]
+		r024 += xi * x[i+8]
+		r008 += xi2
+		r018 += xi * x[i+8]
+		r028 += xi * x[i+16]
+		r0016 += xi2
+		r0116 += xi * x[i+16]
+		r0216 += xi * x[i+32]
+		r0032 += xi2
+		r0132 += xi * x[i+32]
+		r0232 += xi * x[i+64]
+	}
+	for ; i < cnt16; i++ {
+		xi := x[i]
+		xi2 := xi * xi
+		r002 += xi2
+		r012 += xi * x[i+2]
+		r022 += xi * x[i+4]
+		r004 += xi2
+		r014 += xi * x[i+4]
+		r024 += xi * x[i+8]
+		r008 += xi2
+		r018 += xi * x[i+8]
+		r028 += xi * x[i+16]
+		r0016 += xi2
+		r0116 += xi * x[i+16]
+		r0216 += xi * x[i+32]
+	}
+	for ; i < cnt8; i++ {
+		xi := x[i]
+		xi2 := xi * xi
+		r002 += xi2
+		r012 += xi * x[i+2]
+		r022 += xi * x[i+4]
+		r004 += xi2
+		r014 += xi * x[i+4]
+		r024 += xi * x[i+8]
+		r008 += xi2
+		r018 += xi * x[i+8]
+		r028 += xi * x[i+16]
+	}
+	for ; i < cnt4; i++ {
+		xi := x[i]
+		xi2 := xi * xi
+		r002 += xi2
+		r012 += xi * x[i+2]
+		r022 += xi * x[i+4]
+		r004 += xi2
+		r014 += xi * x[i+4]
+		r024 += xi * x[i+8]
+	}
+	for ; i < cnt2; i++ {
+		xi := x[i]
+		r002 += xi * xi
+		r012 += xi * x[i+2]
+		r022 += xi * x[i+4]
+	}
+
+	delay := 2
+	lpc0, lpc1, success := toneLPCSolveFromCorr(x, delay, r002, r012, r022)
+	if delay > maxDelay || !toneLPCRetryNeeded(lpc0, lpc1, success) {
+		return lpc0, lpc1, success, delay
+	}
+	delay = 4
+	lpc0, lpc1, success = toneLPCSolveFromCorr(x, delay, r004, r014, r024)
+	if delay > maxDelay || !toneLPCRetryNeeded(lpc0, lpc1, success) {
+		return lpc0, lpc1, success, delay
+	}
+	delay = 8
+	lpc0, lpc1, success = toneLPCSolveFromCorr(x, delay, r008, r018, r028)
+	if delay > maxDelay || !toneLPCRetryNeeded(lpc0, lpc1, success) {
+		return lpc0, lpc1, success, delay
+	}
+	delay = 16
+	lpc0, lpc1, success = toneLPCSolveFromCorr(x, delay, r0016, r0116, r0216)
+	if delay > maxDelay || !toneLPCRetryNeeded(lpc0, lpc1, success) {
+		return lpc0, lpc1, success, delay
+	}
+	delay = 32
+	lpc0, lpc1, success = toneLPCSolveFromCorr(x, delay, r0032, r0132, r0232)
+	return lpc0, lpc1, success, delay
 }
 
 // toneLPCCorrLane4 mirrors the four-lane reduction shape used by the
@@ -291,12 +405,16 @@ func toneDetectFloat32Mono(x []float32, sampleRate int, lane4Corr bool) (float64
 	if maxDelay < 1 {
 		maxDelay = 1
 	}
-	for delay <= maxDelay && (!success || (lpc0 > float32(1.0) && lpc1 < 0)) {
-		delay *= 2
-		if 2*delay >= n {
-			break
+	if !lane4Corr && sampleRate == 48000 && n > 64 && delay <= maxDelay && toneLPCRetryNeeded(lpc0, lpc1, success) {
+		lpc0, lpc1, success, delay = toneLPCRetry48kMono(x, maxDelay)
+	} else {
+		for delay <= maxDelay && toneLPCRetryNeeded(lpc0, lpc1, success) {
+			delay *= 2
+			if 2*delay >= n {
+				break
+			}
+			lpc0, lpc1, success = toneLPC(x, delay, lane4Corr)
 		}
-		lpc0, lpc1, success = toneLPC(x, delay, lane4Corr)
 	}
 
 	// Check that our filter has complex roots: lpc0^2 + 4*lpc1 < 0
