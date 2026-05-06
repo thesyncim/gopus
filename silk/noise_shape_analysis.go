@@ -272,7 +272,7 @@ func (e *Encoder) computeShapingARAndGains(
 		}
 
 		if e.warpingQ16 > 0 {
-			warpedAutocorrelationFLP32(autoCorr, rc, win, warping, shapeWinLength, shapeOrder)
+			warpedAutocorrelationFLP32(autoCorr, nil, win, warping, shapeWinLength, shapeOrder)
 		} else {
 			autocorrelationF32(autoCorr, win, shapeWinLength, shapeOrder+1)
 		}
