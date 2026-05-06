@@ -18,6 +18,10 @@ const (
 	analysisFFTEnergyScale = float32(1.0 / (480.0 * 480.0))
 	analysisAtanScale      = float32(0.5 / math.Pi)
 	analysisPi4            = float32(math.Pi * math.Pi * math.Pi * math.Pi)
+	analysisAtanCA         = float32(0.43157974)
+	analysisAtanCB         = float32(0.67848403)
+	analysisAtanCC         = float32(0.08595542)
+	analysisAtanCE         = float32(math.Pi / 2)
 )
 
 var stdFeatureBias = [9]float32{
@@ -204,17 +208,16 @@ func silkResamplerDown2HPScaled(s []float32, out []float32, in []float32, scale 
 
 	var hpEner float32
 	k := 0
+	j := 0
 	for ; k+1 < len2; k += 2 {
-		base := 2 * k
-
-		in32 := in[base] * scale
+		in32 := in[j] * scale
 		y := in32 - s0
 		xf := coef0 * y
 		out32 := s0 + xf
 		s0 = in32 + xf
 		out32HP := out32
 
-		in32 = in[base+1] * scale
+		in32 = in[j+1] * scale
 		y = in32 - s1
 		xf = coef1 * y
 		out32 = out32 + s1 + xf
@@ -227,15 +230,16 @@ func silkResamplerDown2HPScaled(s []float32, out []float32, in []float32, scale 
 
 		hpEner += out32HP * out32HP
 		out[k] = 0.5 * out32
+		j += 2
 
-		in32 = in[base+2] * scale
+		in32 = in[j] * scale
 		y = in32 - s0
 		xf = coef0 * y
 		out32 = s0 + xf
 		s0 = in32 + xf
 		out32HP = out32
 
-		in32 = in[base+3] * scale
+		in32 = in[j+1] * scale
 		y = in32 - s1
 		xf = coef1 * y
 		out32 = out32 + s1 + xf
@@ -248,18 +252,17 @@ func silkResamplerDown2HPScaled(s []float32, out []float32, in []float32, scale 
 
 		hpEner += out32HP * out32HP
 		out[k+1] = 0.5 * out32
+		j += 2
 	}
 	for ; k < len2; k++ {
-		base := 2 * k
-
-		in32 := in[base] * scale
+		in32 := in[j] * scale
 		y := in32 - s0
 		xf := coef0 * y
 		out32 := s0 + xf
 		s0 = in32 + xf
 		out32HP := out32
 
-		in32 = in[base+1] * scale
+		in32 = in[j+1] * scale
 		y = in32 - s1
 		xf = coef1 * y
 		out32 = out32 + s1 + xf
@@ -398,12 +401,6 @@ func analysisFloat2Int(x float32) int32 {
 }
 
 func analysisFastAtan2f(y, x float32) float32 {
-	const (
-		cA = float32(0.43157974)
-		cB = float32(0.67848403)
-		cC = float32(0.08595542)
-		cE = float32(math.Pi / 2)
-	)
 	x2 := x * x
 	y2 := y * y
 	if x2+y2 < 1e-18 {
@@ -411,23 +408,23 @@ func analysisFastAtan2f(y, x float32) float32 {
 	}
 	xy := x * y
 	if x2 < y2 {
-		num := -xy * (y2 + cA*x2)
-		den := (y2 + cB*x2) * (y2 + cC*x2)
+		num := -xy * (y2 + analysisAtanCA*x2)
+		den := (y2 + analysisAtanCB*x2) * (y2 + analysisAtanCC*x2)
 		if y < 0 {
-			return num/den - cE
+			return num/den - analysisAtanCE
 		}
-		return num/den + cE
+		return num/den + analysisAtanCE
 	}
-	num := xy * (x2 + cA*y2)
-	den := (x2 + cB*y2) * (x2 + cC*y2)
+	num := xy * (x2 + analysisAtanCA*y2)
+	den := (x2 + analysisAtanCB*y2) * (x2 + analysisAtanCC*y2)
 	if y < 0 {
 		if xy < 0 {
 			return num / den
 		}
-		return num/den - cE - cE
+		return num/den - analysisAtanCE - analysisAtanCE
 	}
 	if xy < 0 {
-		return num/den + cE + cE
+		return num/den + analysisAtanCE + analysisAtanCE
 	}
 	return num / den
 }
@@ -850,11 +847,69 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		x2r := imag(outBuf[i]) + imag(outBuf[480-i])
 		x2i := real(outBuf[480-i]) - real(outBuf[i])
 
-		angle := analysisAtanScale * analysisFastAtan2f(x1i, x1r)
+		xr2 := x1r * x1r
+		xi2 := x1i * x1i
+		atan := float32(0)
+		if xr2+xi2 >= 1e-18 {
+			xy := x1r * x1i
+			if xr2 < xi2 {
+				num := -xy * (xi2 + analysisAtanCA*xr2)
+				den := (xi2 + analysisAtanCB*xr2) * (xi2 + analysisAtanCC*xr2)
+				if x1i < 0 {
+					atan = num/den - analysisAtanCE
+				} else {
+					atan = num/den + analysisAtanCE
+				}
+			} else {
+				num := xy * (xr2 + analysisAtanCA*xi2)
+				den := (xr2 + analysisAtanCB*xi2) * (xr2 + analysisAtanCC*xi2)
+				if x1i < 0 {
+					if xy < 0 {
+						atan = num / den
+					} else {
+						atan = num/den - analysisAtanCE - analysisAtanCE
+					}
+				} else if xy < 0 {
+					atan = num/den + analysisAtanCE + analysisAtanCE
+				} else {
+					atan = num / den
+				}
+			}
+		}
+		angle := analysisAtanScale * atan
 		dAngle := angle - s.Angle[i]
 		d2Angle := dAngle - s.DAngle[i]
 
-		angle2 := analysisAtanScale * analysisFastAtan2f(x2i, x2r)
+		xr2 = x2r * x2r
+		xi2 = x2i * x2i
+		atan = 0
+		if xr2+xi2 >= 1e-18 {
+			xy := x2r * x2i
+			if xr2 < xi2 {
+				num := -xy * (xi2 + analysisAtanCA*xr2)
+				den := (xi2 + analysisAtanCB*xr2) * (xi2 + analysisAtanCC*xr2)
+				if x2i < 0 {
+					atan = num/den - analysisAtanCE
+				} else {
+					atan = num/den + analysisAtanCE
+				}
+			} else {
+				num := xy * (xr2 + analysisAtanCA*xi2)
+				den := (xr2 + analysisAtanCB*xi2) * (xr2 + analysisAtanCC*xi2)
+				if x2i < 0 {
+					if xy < 0 {
+						atan = num / den
+					} else {
+						atan = num/den - analysisAtanCE - analysisAtanCE
+					}
+				} else if xy < 0 {
+					atan = num/den + analysisAtanCE + analysisAtanCE
+				} else {
+					atan = num / den
+				}
+			}
+		}
+		angle2 := analysisAtanScale * atan
 		dAngle2 := angle2 - angle
 		d2Angle2 := dAngle2 - dAngle
 

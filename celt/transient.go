@@ -154,7 +154,7 @@ func toneLPCDelay1(x []float32, lane4Corr bool) (float32, float32, bool) {
 	if lane4Corr {
 		r00, r01, r02 = toneLPCCorrLane4(x, cnt, 1, 2)
 	} else {
-		r00, r01, r02 = toneLPCCorr(x, cnt, 1, 2)
+		r00, r01, r02 = toneLPCCorrDelay1(x, cnt)
 	}
 
 	r11 := r00 + x[n-2]*x[n-2] - x[0]*x[0]
@@ -410,7 +410,8 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 
 	var maxE float32
 	mask = 0
-	for i := len2 - 1; i >= 0; i-- {
+	for i := len2; i > 0; {
+		i--
 		mask = energy[i] + backwardRetain*mask
 		ei := backwardScale * mask
 		energy[i] = ei
