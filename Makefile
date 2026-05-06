@@ -38,6 +38,7 @@ RELEASE_EVIDENCE_DIR ?= reports/release
 QUALITY_REPORT_DIR ?= reports/quality
 GOPUS_SAFETY_FUZZTIME ?= 12s
 GOPUS_SAFETY_PARSER_FUZZTIME ?= $(GOPUS_SAFETY_FUZZTIME)
+GOPUS_FUZZ_SMOKE_FUZZTIME ?= 50000x
 GOPUS_SAFETY_SOAK_DURATION ?= 30s
 GOPUS_SAFETY_SOAK_REPORT_INTERVAL ?= 10s
 GOPUS_SAFETY_SOAK_MAX_RSS_GROWTH_MIB ?= 256
@@ -92,9 +93,9 @@ test-race:
 
 # Fuzz smoke run for packet/fixture parsers.
 test-fuzz-smoke:
-	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzParsePacket_NoPanic' -fuzztime=10s -count=1
-	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzPacketMutationHelpers_NoPanic' -fuzztime=10s -count=1
-	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=10s -count=1
+	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzParsePacket_NoPanic' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzPacketMutationHelpers_NoPanic' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
 
 # Safety-focused fuzzing for malformed packets, Ogg pages, and libopus differential decode.
 test-fuzz-safety: ensure-libopus
