@@ -167,10 +167,8 @@ func (e *Encoder) computeShapingARAndGains(
 ) ([]float32, []int16) {
 	gains := ensureFloat32Slice(&e.scratchGains, numSubframes)
 	arShpQ13 := ensureInt16Slice(&e.scratchArShpQ13, numSubframes*maxShapeLpcOrder)
-	for i := range arShpQ13 {
-		arShpQ13[i] = 0
-	}
 	if numSubframes == 0 || subframeSamples <= 0 || len(pcm) == 0 {
+		clear(arShpQ13)
 		for i := range gains {
 			gains[i] = 1.0
 		}
@@ -206,6 +204,7 @@ func (e *Encoder) computeShapingARAndGains(
 		frameSamples = len(pcm)
 	}
 	if frameSamples <= 0 {
+		clear(arShpQ13)
 		for i := range gains {
 			gains[i] = 1.0
 		}
@@ -214,6 +213,7 @@ func (e *Encoder) computeShapingARAndGains(
 
 	shapeWinLength := subframeSamples + 2*laShape
 	if shapeWinLength <= 0 {
+		clear(arShpQ13)
 		for i := range gains {
 			gains[i] = 1.0
 		}
@@ -222,9 +222,6 @@ func (e *Encoder) computeShapingARAndGains(
 
 	xLen := frameSamples + 2*laShape
 	xBuf := ensureFloat32Slice(&e.scratchPitchInput32, xLen)
-	for i := range xBuf {
-		xBuf[i] = 0
-	}
 
 	// Populate xBuf from the SILK analysis buffer (x_buf in libopus).
 	// libopus noise shaping uses x_ptr = x - la_shape, where x points to x_frame
@@ -234,13 +231,17 @@ func (e *Encoder) computeShapingARAndGains(
 	if start < 0 {
 		start = 0
 	}
-	for i := 0; i < xLen; i++ {
-		srcIdx := start + i
-		if srcIdx < len(src) {
-			xBuf[i] = src[srcIdx] * float32(silkSampleScale)
-		} else {
-			xBuf[i] = 0
+	if start < len(src) {
+		copyLen := xLen
+		if remaining := len(src) - start; copyLen > remaining {
+			copyLen = remaining
 		}
+		for i, sample := range src[start : start+copyLen] {
+			xBuf[i] = sample * float32(silkSampleScale)
+		}
+		clear(xBuf[copyLen:])
+	} else {
+		clear(xBuf)
 	}
 	// Bandwidth expansion and warping in float32 precision to mirror libopus FLP behavior.
 	strengthF32 := float32(findPitchWhiteNoiseFraction) * float32(lpcPredGain)
