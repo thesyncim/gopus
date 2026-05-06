@@ -377,16 +377,32 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 
 	preemphBufSize := overlap * e.channels
 	transientLen := (overlap + frameSize) * e.channels
-	transientInput := e.scratch.transientInput
-	if len(transientInput) < transientLen {
-		transientInput = make([]float64, transientLen)
-		e.scratch.transientInput = transientInput
-	}
-	transientInput = transientInput[:transientLen]
-	e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
-	copy(transientInput[preemphBufSize:], preemph)
 
-	result := e.TransientAnalysis(transientInput, frameSize+overlap, allowWeakTransients)
+	var result TransientAnalysisResult
+	if e.channels == 1 {
+		transientInputF32 := e.scratch.transientInputF32
+		if len(transientInputF32) < transientLen {
+			transientInputF32 = make([]float32, transientLen)
+			e.scratch.transientInputF32 = transientInputF32
+		}
+		transientInputF32 = transientInputF32[:transientLen]
+		e.fillTransientHistoryFromPrefilterF32(overlap, transientInputF32[:preemphBufSize])
+		preemphF32 := transientInputF32[preemphBufSize:]
+		for i := range preemphF32 {
+			preemphF32[i] = float32(preemph[i])
+		}
+		result = e.transientAnalysisMonoFloat32(transientInputF32, frameSize+overlap, allowWeakTransients)
+	} else {
+		transientInput := e.scratch.transientInput
+		if len(transientInput) < transientLen {
+			transientInput = make([]float64, transientLen)
+			e.scratch.transientInput = transientInput
+		}
+		transientInput = transientInput[:transientLen]
+		e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
+		copy(transientInput[preemphBufSize:], preemph)
+		result = e.TransientAnalysis(transientInput, frameSize+overlap, allowWeakTransients)
+	}
 	transient = result.IsTransient
 	weakTransient = result.WeakTransient
 	tfEstimate = result.TfEstimate
@@ -530,6 +546,9 @@ func (e *Encoder) TFAnalysisHybridScratch(norm []float64, nbBands int, transient
 
 // UpdateTonalityAnalysisHybrid updates tonality metrics for VBR decisions.
 func (e *Encoder) UpdateTonalityAnalysisHybrid(normCoeffs, energies []float64, nbBands, frameSize int) {
+	if !e.vbr {
+		return
+	}
 	e.updateTonalityAnalysis(normCoeffs, energies, nbBands, frameSize)
 }
 

@@ -3,6 +3,8 @@ package encoder
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/types"
 )
 
 func TestUpdateOpusVADReusesFreshAnalysis(t *testing.T) {
@@ -34,5 +36,33 @@ func TestUpdateOpusVADReusesFreshAnalysis(t *testing.T) {
 	enc.updateOpusVAD(pcm, frameSize)
 	if enc.analyzer.Count <= countBefore {
 		t.Fatalf("expected fallback analyzer run on second updateOpusVAD call, countBefore=%d countAfter=%d", countBefore, enc.analyzer.Count)
+	}
+}
+
+func TestRestrictedSilkApplicationSkipsAnalysis(t *testing.T) {
+	const frameSize = 960
+
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetRestrictedSilkApplication(true)
+
+	pcm := make([]float64, frameSize)
+	for i := range pcm {
+		pcm[i] = 0.25 * math.Sin(2*math.Pi*220*float64(i)/48000.0)
+	}
+
+	enc.refreshFrameAnalysis(pcm, frameSize)
+	if enc.lastAnalysisValid || enc.lastAnalysisFresh {
+		t.Fatalf("restricted SILK analysis valid=%v fresh=%v, want disabled", enc.lastAnalysisValid, enc.lastAnalysisFresh)
+	}
+	if enc.analyzer.Initialized {
+		t.Fatal("restricted SILK should leave analyzer reset")
+	}
+
+	if got := enc.autoSignalFromPCM(pcm, frameSize*2); got != types.SignalAuto {
+		t.Fatalf("restricted SILK autoSignalFromPCM=%v, want auto", got)
+	}
+	if enc.analyzer.Initialized {
+		t.Fatal("restricted SILK auto signal fallback should not initialize analyzer")
 	}
 }

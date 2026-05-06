@@ -3,7 +3,11 @@ package silk
 // Delayed-decision NSQ ported from libopus silk/NSQ_del_dec.c.
 
 type nsqDelDecState struct {
-	sLPCQ14   [maxSubFrameLength + nsqLpcBufLength]int32
+	sLPCQ14 [maxSubFrameLength + nsqLpcBufLength]int32
+	nsqDelDecStateTail
+}
+
+type nsqDelDecStateTail struct {
 	randState [decisionDelay]int32
 	qQ10      [decisionDelay]int32
 	xqQ14     [decisionDelay]int32
@@ -57,25 +61,13 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 		nsq.scratchPulses = pulses
 	}
 	pulses = pulses[:frameLength]
-	for i := range pulses {
-		pulses[i] = 0
-	}
-
-	xq := nsq.scratchXq
-	if len(xq) < frameLength {
-		xq = make([]int16, frameLength)
-		nsq.scratchXq = xq
-	}
-	xq = xq[:frameLength]
-	for i := range xq {
-		xq[i] = 0
-	}
 
 	var sLTPQ15 []int32
 	if nsq.scratchSLTPQ15 != nil && len(nsq.scratchSLTPQ15) >= ltpMemLength+frameLength {
 		sLTPQ15 = nsq.scratchSLTPQ15[:ltpMemLength+frameLength]
 	} else {
 		sLTPQ15 = make([]int32, ltpMemLength+frameLength)
+		nsq.scratchSLTPQ15 = sLTPQ15
 	}
 
 	var sLTP []int16
@@ -83,16 +75,15 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 		sLTP = nsq.scratchSLTP[:ltpMemLength+frameLength]
 	} else {
 		sLTP = make([]int16, ltpMemLength+frameLength)
+		nsq.scratchSLTP = sLTP
 	}
 
 	var xScQ10 []int32
 	if nsq.scratchXScQ10 != nil && len(nsq.scratchXScQ10) >= subfrLength {
 		xScQ10 = nsq.scratchXScQ10[:subfrLength]
-		for i := range xScQ10 {
-			xScQ10[i] = 0
-		}
 	} else {
 		xScQ10 = make([]int32, subfrLength)
+		nsq.scratchXScQ10 = xScQ10
 	}
 
 	// LSF interpolation flag
@@ -443,6 +434,12 @@ func noiseShapeQuantizerDelDec(
 	// NOTE: We intentionally use len(sLTPQ15) and len(nsq.sLTPShpQ14) inline
 	// in guard checks rather than caching them in local variables. This lets
 	// the compiler prove bounds and eliminate bounds checks on the guarded accesses.
+	fastVoicedLTP := signalType == typeVoiced && length > 0 &&
+		predLagPtrIdx >= ltpOrderConst-1 &&
+		predLagPtrIdx+length-1 < len(sLTPQ15)
+	fastShapingLTP := lag > 0 && length > 0 &&
+		shpLagPtrIdx >= harmShapeFirTaps-1 &&
+		shpLagPtrIdx+length-1 < len(nsq.sLTPShpQ14)
 
 	tiltQ14i32 := int32(tiltQ14)
 	lfShpQ14i32 := int32(lfShpQ14)
@@ -454,12 +451,36 @@ func noiseShapeQuantizerDelDec(
 		rdoOffset = int32(lambdaQ10/2 - 512)
 	}
 
+	var arShpQ13Order24 *[24]int16
+	var arShpQ13Order16 *[16]int16
+	switch shapingLPCOrder {
+	case 24:
+		arShpQ13Order24 = (*[24]int16)(arShpQ13)
+	case 16:
+		arShpQ13Order16 = (*[16]int16)(arShpQ13)
+	}
+	var aQ12Order16 *[16]int16
+	var aQ12Order10 *[10]int16
+	switch predictLPCOrder {
+	case 16:
+		aQ12Order16 = (*[16]int16)(aQ12)
+	case 10:
+		aQ12Order10 = (*[10]int16)(aQ12)
+	}
+
+	var nARQ14ByState [maxDelDecStates]int32
 	for i := 0; i < length; i++ {
 		var ltpPredQ14 int32
 		if signalType == typeVoiced {
 			// Unrolled 5-tap LTP filter (ltpOrderConst == 5)
 			ltpPredQ14 = 2
-			if predLagPtrIdx >= 4 && predLagPtrIdx < len(sLTPQ15) {
+			if fastVoicedLTP {
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-0], int32(bQ14[0]))
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-1], int32(bQ14[1]))
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-2], int32(bQ14[2]))
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-3], int32(bQ14[3]))
+				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-4], int32(bQ14[4]))
+			} else if predLagPtrIdx >= 4 && predLagPtrIdx < len(sLTPQ15) {
 				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-0], int32(bQ14[0]))
 				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-1], int32(bQ14[1]))
 				ltpPredQ14 = silk_SMLAWB(ltpPredQ14, sLTPQ15[predLagPtrIdx-2], int32(bQ14[2]))
@@ -480,14 +501,20 @@ func noiseShapeQuantizerDelDec(
 		var nLTPQ14 int32
 		if lag > 0 {
 			shp0, shp1, shp2 := int32(0), int32(0), int32(0)
-			if shpLagPtrIdx >= 0 && shpLagPtrIdx < len(nsq.sLTPShpQ14) {
+			if fastShapingLTP {
 				shp0 = nsq.sLTPShpQ14[shpLagPtrIdx]
-			}
-			if shpLagPtrIdx >= 1 && shpLagPtrIdx-1 < len(nsq.sLTPShpQ14) {
 				shp1 = nsq.sLTPShpQ14[shpLagPtrIdx-1]
-			}
-			if shpLagPtrIdx >= 2 && shpLagPtrIdx-2 < len(nsq.sLTPShpQ14) {
 				shp2 = nsq.sLTPShpQ14[shpLagPtrIdx-2]
+			} else {
+				if shpLagPtrIdx >= 0 && shpLagPtrIdx < len(nsq.sLTPShpQ14) {
+					shp0 = nsq.sLTPShpQ14[shpLagPtrIdx]
+				}
+				if shpLagPtrIdx >= 1 && shpLagPtrIdx-1 < len(nsq.sLTPShpQ14) {
+					shp1 = nsq.sLTPShpQ14[shpLagPtrIdx-1]
+				}
+				if shpLagPtrIdx >= 2 && shpLagPtrIdx-2 < len(nsq.sLTPShpQ14) {
+					shp2 = nsq.sLTPShpQ14[shpLagPtrIdx-2]
+				}
 			}
 			nLTPQ14 = silk_SMULWB(silk_ADD_SAT32(shp0, shp2), harmShapeFIRPackedQ14)
 			nLTPQ14 = silk_SMLAWT(nLTPQ14, shp1, harmShapeFIRPackedQ14)
@@ -502,26 +529,47 @@ func noiseShapeQuantizerDelDec(
 		// This eliminates psDD.shapeQ14[localSmplBufIdx] checks inside the k-loop.
 		_ = psDelDec[0].shapeQ14[localSmplBufIdx]
 
+		psLPCIdx := nsqLpcBufLength - 1 + i
+		precomputedNARQ14 := true
+		switch shapingLPCOrder {
+		case 24:
+			if nStatesDelayedDecision == maxDelDecStates {
+				warpedARFeedback24States4(psDelDec, arShpQ13Order24, warpQ16i16, &nARQ14ByState)
+			} else {
+				for k := 0; k < nStatesDelayedDecision; k++ {
+					psDD := &psDelDec[k]
+					nARQ14ByState[k] = warpedARFeedback24(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13Order24, warpQ16i16)
+				}
+			}
+		case 16:
+			for k := 0; k < nStatesDelayedDecision; k++ {
+				psDD := &psDelDec[k]
+				nARQ14ByState[k] = warpedARFeedback16(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13Order16, warpQ16i16)
+			}
+		default:
+			precomputedNARQ14 = false
+		}
 		for k := 0; k < nStatesDelayedDecision; k++ {
 			psDD := &psDelDec[k]
 			psSS := &psSampleState[k]
 
 			psDD.seed = psDD.seed*196314165 + 907633515 // silk_RAND inline
 
-			psLPCIdx := nsqLpcBufLength - 1 + i
-			// Use the generic LPC predictor so delayed-decision NSQ shares the
-			// same libopus-aligned path across predictor orders.
-			lpcPredQ14 := shortTermPrediction(psDD.sLPCQ14[:], psLPCIdx, aQ12, predictLPCOrder)
+			var lpcPredQ14 int32
+			switch predictLPCOrder {
+			case 16:
+				lpcPredQ14 = shortTermPrediction16State(&psDD.sLPCQ14, psLPCIdx, aQ12Order16)
+			case 10:
+				lpcPredQ14 = shortTermPrediction10State(&psDD.sLPCQ14, psLPCIdx, aQ12Order10)
+			default:
+				lpcPredQ14 = shortTermPrediction(psDD.sLPCQ14[:], psLPCIdx, aQ12, predictLPCOrder)
+			}
 			lpcPredQ14 <<= 4
 
-			// Warped AR noise shaping filter — dispatched to assembly.
 			var nARQ14 int32
-			switch shapingLPCOrder {
-			case 24:
-				nARQ14 = warpedARFeedback24(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13, warpQ16i16)
-			case 16:
-				nARQ14 = warpedARFeedback16(&psDD.sAR2Q14, psDD.diffQ14, arShpQ13, warpQ16i16)
-			default:
+			if precomputedNARQ14 {
+				nARQ14 = nARQ14ByState[k]
+			} else {
 				nARQ14 = warpedARFeedbackGeneric(psDD.sAR2Q14[:], psDD.diffQ14, arShpQ13, warpQ16i16, shapingLPCOrder)
 			}
 			nARQ14 <<= 1
@@ -667,24 +715,12 @@ func noiseShapeQuantizerDelDec(
 		}
 
 		if rdMin2 < rdMax {
-			// Match libopus NSQ_del_dec.c: copy the delayed-decision state tail
-			// from sLPCQ14[i] onward. Future samples in the same subframe still
-			// consume the later sLPCQ14 entries, so copying only the current LPC
-			// window can leave stale tail state and change the winning path.
 			src := &psDelDec[rdMinInd]
 			dst := &psDelDec[rdMaxInd]
-			copy(dst.sLPCQ14[i:], src.sLPCQ14[i:])
-			copy(dst.randState[:], src.randState[:])
-			copy(dst.qQ10[:], src.qQ10[:])
-			copy(dst.xqQ14[:], src.xqQ14[:])
-			copy(dst.predQ15[:], src.predQ15[:])
-			copy(dst.shapeQ14[:], src.shapeQ14[:])
-			copy(dst.sAR2Q14[:], src.sAR2Q14[:])
-			dst.lfARQ14 = src.lfARQ14
-			dst.diffQ14 = src.diffQ14
-			dst.seed = src.seed
-			dst.seedInit = src.seedInit
-			dst.rdQ10 = src.rdQ10
+			// Only the live LPC history window can be read before later samples
+			// overwrite the future part of this subframe.
+			copy(dst.sLPCQ14[i:nsqLpcBufLength+i], src.sLPCQ14[i:nsqLpcBufLength+i])
+			dst.nsqDelDecStateTail = src.nsqDelDecStateTail
 			psSampleState[rdMaxInd][0] = psSampleState[rdMinInd][1]
 		}
 

@@ -64,6 +64,9 @@ func toneLPC(x []float32, delay int, lane4Corr bool) (float32, float32, bool) {
 	if n <= 2*delay {
 		return 0, 0, false
 	}
+	if delay == 1 {
+		return toneLPCDelay1(x, lane4Corr)
+	}
 
 	// BCE hint: the maximum index accessed in the correlation loop is (cnt-1)+2*delay = n-1.
 	_ = x[n-1]
@@ -77,11 +80,15 @@ func toneLPC(x []float32, delay int, lane4Corr bool) (float32, float32, bool) {
 	} else {
 		r00, r01, r02 = toneLPCCorr(x, cnt, delay, delay2)
 	}
+	return toneLPCSolveFromCorr(x, delay, r00, r01, r02)
+}
 
-	// Edge corrections for r11, r22, r12.
-	// Precompute base offsets to avoid repeated arithmetic.
+func toneLPCSolveFromCorr(x []float32, delay int, r00, r01, r02 float32) (float32, float32, bool) {
+	n := len(x)
+	delay2 := 2 * delay
 	base1 := n - delay2 // n-2*delay
 	base2 := n - delay
+
 	var edges float32
 	for i := 0; i < delay; i++ {
 		a := x[base1+i]
@@ -104,14 +111,12 @@ func toneLPC(x []float32, delay int, lane4Corr bool) (float32, float32, bool) {
 	}
 	r12 := r01 + edges
 
-	// Combine forward and backward for symmetric solution.
 	R00 := r00 + r22
 	R01 := r01 + r12
 	R11 := 2 * r11
 	R02 := 2 * r02
 	R12 := r12 + r01
 
-	// Solve A*x=b where A=[R00, R01; R01, R11] and b=[R02; R12].
 	den := R00*R11 - R01*R01
 	if den < float32(0.001)*R00*R11 {
 		return 0, 0, false
@@ -138,6 +143,170 @@ func toneLPC(x []float32, delay int, lane4Corr bool) (float32, float32, bool) {
 	}
 
 	return lpc0, lpc1, true
+}
+
+func toneLPCDelay1(x []float32, lane4Corr bool) (float32, float32, bool) {
+	n := len(x)
+
+	// BCE hint: the maximum index accessed in the correlation loop is n-1.
+	_ = x[n-1]
+
+	cnt := n - 2
+	var r00, r01, r02 float32
+	if lane4Corr {
+		r00, r01, r02 = toneLPCCorrLane4(x, cnt, 1, 2)
+	} else {
+		r00, r01, r02 = toneLPCCorrDelay1(x, cnt)
+	}
+
+	r11 := r00 + x[n-2]*x[n-2] - x[0]*x[0]
+	r22 := r11 + x[n-1]*x[n-1] - x[1]*x[1]
+	r12 := r01 + x[n-2]*x[n-1] - x[0]*x[1]
+
+	R00 := r00 + r22
+	R01 := r01 + r12
+	R11 := 2 * r11
+	R02 := 2 * r02
+	R12 := r12 + r01
+
+	den := R00*R11 - R01*R01
+	if den < float32(0.001)*R00*R11 {
+		return 0, 0, false
+	}
+
+	num1 := R02*R11 - R01*R12
+	var lpc1 float32
+	if num1 >= den {
+		lpc1 = 1.0
+	} else if num1 <= -den {
+		lpc1 = -1.0
+	} else {
+		lpc1 = num1 / den
+	}
+
+	num0 := R00*R12 - R02*R01
+	var lpc0 float32
+	if float32(0.5)*num0 >= den {
+		lpc0 = 1.999999
+	} else if float32(0.5)*num0 <= -den {
+		lpc0 = -1.999999
+	} else {
+		lpc0 = num0 / den
+	}
+
+	return lpc0, lpc1, true
+}
+
+func toneLPCRetryNeeded(lpc0, lpc1 float32, success bool) bool {
+	return !success || (lpc0 > float32(1.0) && lpc1 < 0)
+}
+
+// toneLPCRetry48kMono fuses the 48 kHz mono retry-delay correlations while
+// preserving the ascending accumulation order used by separate toneLPC calls.
+func toneLPCRetry48kMono(x []float32, maxDelay int) (float32, float32, bool, int) {
+	n := len(x)
+	_ = x[n-1]
+	cnt2 := n - 4
+	cnt4 := n - 8
+	cnt8 := n - 16
+	cnt16 := n - 32
+	cnt32 := n - 64
+
+	var r002, r012, r022 float32
+	var r004, r014, r024 float32
+	var r008, r018, r028 float32
+	var r0016, r0116, r0216 float32
+	var r0032, r0132, r0232 float32
+
+	i := 0
+	for ; i < cnt32; i++ {
+		xi := x[i]
+		xi2 := xi * xi
+		r002 += xi2
+		r012 += xi * x[i+2]
+		r022 += xi * x[i+4]
+		r004 += xi2
+		r014 += xi * x[i+4]
+		r024 += xi * x[i+8]
+		r008 += xi2
+		r018 += xi * x[i+8]
+		r028 += xi * x[i+16]
+		r0016 += xi2
+		r0116 += xi * x[i+16]
+		r0216 += xi * x[i+32]
+		r0032 += xi2
+		r0132 += xi * x[i+32]
+		r0232 += xi * x[i+64]
+	}
+	for ; i < cnt16; i++ {
+		xi := x[i]
+		xi2 := xi * xi
+		r002 += xi2
+		r012 += xi * x[i+2]
+		r022 += xi * x[i+4]
+		r004 += xi2
+		r014 += xi * x[i+4]
+		r024 += xi * x[i+8]
+		r008 += xi2
+		r018 += xi * x[i+8]
+		r028 += xi * x[i+16]
+		r0016 += xi2
+		r0116 += xi * x[i+16]
+		r0216 += xi * x[i+32]
+	}
+	for ; i < cnt8; i++ {
+		xi := x[i]
+		xi2 := xi * xi
+		r002 += xi2
+		r012 += xi * x[i+2]
+		r022 += xi * x[i+4]
+		r004 += xi2
+		r014 += xi * x[i+4]
+		r024 += xi * x[i+8]
+		r008 += xi2
+		r018 += xi * x[i+8]
+		r028 += xi * x[i+16]
+	}
+	for ; i < cnt4; i++ {
+		xi := x[i]
+		xi2 := xi * xi
+		r002 += xi2
+		r012 += xi * x[i+2]
+		r022 += xi * x[i+4]
+		r004 += xi2
+		r014 += xi * x[i+4]
+		r024 += xi * x[i+8]
+	}
+	for ; i < cnt2; i++ {
+		xi := x[i]
+		r002 += xi * xi
+		r012 += xi * x[i+2]
+		r022 += xi * x[i+4]
+	}
+
+	delay := 2
+	lpc0, lpc1, success := toneLPCSolveFromCorr(x, delay, r002, r012, r022)
+	if delay > maxDelay || !toneLPCRetryNeeded(lpc0, lpc1, success) {
+		return lpc0, lpc1, success, delay
+	}
+	delay = 4
+	lpc0, lpc1, success = toneLPCSolveFromCorr(x, delay, r004, r014, r024)
+	if delay > maxDelay || !toneLPCRetryNeeded(lpc0, lpc1, success) {
+		return lpc0, lpc1, success, delay
+	}
+	delay = 8
+	lpc0, lpc1, success = toneLPCSolveFromCorr(x, delay, r008, r018, r028)
+	if delay > maxDelay || !toneLPCRetryNeeded(lpc0, lpc1, success) {
+		return lpc0, lpc1, success, delay
+	}
+	delay = 16
+	lpc0, lpc1, success = toneLPCSolveFromCorr(x, delay, r0016, r0116, r0216)
+	if delay > maxDelay || !toneLPCRetryNeeded(lpc0, lpc1, success) {
+		return lpc0, lpc1, success, delay
+	}
+	delay = 32
+	lpc0, lpc1, success = toneLPCSolveFromCorr(x, delay, r0032, r0132, r0232)
+	return lpc0, lpc1, success, delay
 }
 
 // toneLPCCorrLane4 mirrors the four-lane reduction shape used by the
@@ -217,9 +386,18 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 		}
 	}
 
-	delay := 1
 	lane4Corr := channels == 2 && toneLPCStereoLane4
-	lpc0, lpc1, success := toneLPC(x, delay, lane4Corr)
+	return toneDetectFloat32Mono(x, sampleRate, lane4Corr)
+}
+
+func toneDetectFloat32Mono(x []float32, sampleRate int, lane4Corr bool) (float64, float64) {
+	n := len(x)
+	if n < 4 {
+		return -1, 0
+	}
+
+	delay := 1
+	lpc0, lpc1, success := toneLPCDelay1(x, lane4Corr)
 
 	// If LPC resonates too close to DC, retry with downsampling
 	// (delay <= sampleRate/3000 corresponds to frequencies > ~1500 Hz)
@@ -227,12 +405,16 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 	if maxDelay < 1 {
 		maxDelay = 1
 	}
-	for delay <= maxDelay && (!success || (lpc0 > float32(1.0) && lpc1 < 0)) {
-		delay *= 2
-		if 2*delay >= n {
-			break
+	if !lane4Corr && sampleRate == 48000 && n > 64 && delay <= maxDelay && toneLPCRetryNeeded(lpc0, lpc1, success) {
+		lpc0, lpc1, success, delay = toneLPCRetry48kMono(x, maxDelay)
+	} else {
+		for delay <= maxDelay && toneLPCRetryNeeded(lpc0, lpc1, success) {
+			delay *= 2
+			if 2*delay >= n {
+				break
+			}
+			lpc0, lpc1, success = toneLPC(x, delay, lane4Corr)
 		}
-		lpc0, lpc1, success = toneLPC(x, delay, lane4Corr)
 	}
 
 	// Check that our filter has complex roots: lpc0^2 + 4*lpc1 < 0
@@ -272,6 +454,140 @@ func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTrans
 		e.scratch.transientEnergy)
 }
 
+func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
+	result := TransientAnalysisResult{
+		TfEstimate:  0.0,
+		TfChannel:   0,
+		ToneFreq:    -1,
+		Toneishness: 0,
+	}
+
+	if len(pcm) == 0 || frameSize <= 0 {
+		return result
+	}
+	samplesPerChannel := len(pcm)
+	if samplesPerChannel < 16 {
+		return result
+	}
+
+	toneFreq, toneishness := toneDetectFloat32Mono(pcm[:samplesPerChannel], 48000, false)
+	result.ToneFreq = toneFreq
+	result.Toneishness = toneishness
+
+	forwardDecay := float32(0.0625)
+	forwardRetain := float32(1.0) - forwardDecay
+	if allowWeakTransients {
+		forwardDecay = 0.03125
+		forwardRetain = float32(1.0) - forwardDecay
+	}
+
+	len2 := samplesPerChannel / 2
+	var energy []float32
+	if len(e.scratch.transientEnergy) >= len2 {
+		energy = e.scratch.transientEnergy[:len2]
+	} else {
+		energy = make([]float32, len2)
+	}
+
+	const (
+		hpFeedback     = float32(0.5)
+		backwardRetain = float32(0.875)
+		backwardScale  = float32(0.125)
+		warmupPairs    = 6
+	)
+	var hp0, hp1 float32
+	var mask float32
+	mean := float32(0)
+	src := pcm[:samplesPerChannel]
+	_ = src[2*len2-1]
+	for i := 0; i < len2; i++ {
+		j := i << 1
+
+		x0 := src[j]
+		y0 := hp0 + x0
+		hp00 := hp0
+		hp0 = hp0 - x0 + hpFeedback*hp1
+		hp1 = x0 - hp00
+
+		x1 := src[j+1]
+		y1 := hp0 + x1
+		hp00 = hp0
+		hp0 = hp0 - x1 + hpFeedback*hp1
+		hp1 = x1 - hp00
+
+		if i < warmupPairs {
+			y0 = 0
+			y1 = 0
+		}
+
+		pair := y0*y0 + y1*y1
+		mean += pair
+		mask = pair + forwardRetain*mask
+		energy[i] = forwardDecay * mask
+	}
+
+	var maxE float32
+	mask = 0
+	for i := len2; i > 0; {
+		i--
+		mask = energy[i] + backwardRetain*mask
+		ei := backwardScale * mask
+		energy[i] = ei
+		if ei > maxE {
+			maxE = ei
+		}
+	}
+
+	meanGeom := math.Sqrt(float64(mean * maxE * float32(0.5*float64(len2))))
+	const epsilon = 1e-15
+	normE := float32(float64(64*len2) / (meanGeom + epsilon))
+
+	const epsF32 = float32(1e-15)
+	var unmask int
+	for i := 12; i < len2-5; i += 4 {
+		id := int(normE * (energy[i] + epsF32))
+		if id > 127 {
+			id = 127
+		}
+		unmask += transientInvTable[id]
+	}
+
+	maxMaskMetric := 0
+	if len2 > 17 {
+		maxMaskMetric = 64 * unmask * 4 / (6 * (len2 - 17))
+	}
+
+	result.TfChannel = 0
+	result.IsTransient = maxMaskMetric > 200
+	if result.Toneishness > 0.98 && result.ToneFreq >= 0 && result.ToneFreq < 0.026 {
+		result.IsTransient = false
+		maxMaskMetric = 0
+	}
+	if allowWeakTransients && result.IsTransient && maxMaskMetric < 600 {
+		result.IsTransient = false
+		result.WeakTransient = true
+	}
+	result.MaskMetric = float64(maxMaskMetric)
+
+	tfMax := math.Sqrt(27*float64(maxMaskMetric)) - 42
+	if tfMax < 0 {
+		tfMax = 0
+	}
+	if tfMax > 163 {
+		tfMax = 163
+	}
+	tfEstimateSquared := 0.0069*tfMax - 0.139
+	if tfEstimateSquared < 0 {
+		tfEstimateSquared = 0
+	}
+	result.TfEstimate = math.Sqrt(tfEstimateSquared)
+	if result.TfEstimate > 1.0 {
+		result.TfEstimate = 1.0
+	}
+
+	return result
+}
+
 // transientInvTable is the inverse table for computing harmonic mean (6*64/x, trained on real data).
 // Hoisted to package level to avoid re-initializing on every call. This matches libopus exactly.
 var transientInvTable = [128]int{
@@ -305,12 +621,19 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 		return result
 	}
 
-	// Detect pure tones before transient analysis
-	// This is used to prevent false transient detection on low-frequency tones
-	// Reference: libopus celt/celt_encoder.c tone_detect() called before transient_analysis()
-	toneFreq, toneishness := toneDetectScratch(pcm, channels, 48000, toneBuf)
-	result.ToneFreq = toneFreq
-	result.Toneishness = toneishness
+	// Detect pure tones before transient analysis. Mono can fill the tone
+	// buffer while computing pair energies below; stereo keeps the standalone
+	// path because toneBuf is reused for right-channel energy.
+	deferMonoToneDetect := channels == 1 && len(toneBuf) >= samplesPerChannel
+	deferStereoToneDetect := channels == 2 && len(toneBuf) >= samplesPerChannel && len(e.scratch.transientEnergyR) >= samplesPerChannel/2
+	var monoToneX []float32
+	if deferMonoToneDetect {
+		monoToneX = toneBuf[:samplesPerChannel]
+	} else if !deferStereoToneDetect {
+		toneFreq, toneishness := toneDetectScratch(pcm, channels, 48000, toneBuf)
+		result.ToneFreq = toneFreq
+		result.Toneishness = toneishness
+	}
 
 	// Forward masking decay: 6.7 dB/ms (default) or 3.3 dB/ms (weak transients)
 	// At 48kHz, we process pairs of samples, so decay per pair:
@@ -339,7 +662,9 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	// while preserving each channel's exact arithmetic order.
 	if channels == 2 {
 		var energyR []float32
-		if len(toneBuf) >= len2 {
+		if deferStereoToneDetect {
+			energyR = e.scratch.transientEnergyR[:len2]
+		} else if len(toneBuf) >= len2 {
 			energyR = toneBuf[:len2]
 		} else {
 			energyR = make([]float32, len2)
@@ -363,6 +688,10 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			xR0 := float32(pcm[idx+1])
 			xL1 := float32(pcm[idx+2])
 			xR1 := float32(pcm[idx+3])
+			if deferStereoToneDetect {
+				toneBuf[i<<1] = xL0 + xR0
+				toneBuf[(i<<1)+1] = xL1 + xR1
+			}
 			idx += 4
 
 			yL0 := hp0L + xL0
@@ -458,6 +787,11 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			tfChannel = 1
 			maxMaskMetric = maskMetricR
 		}
+		if deferStereoToneDetect {
+			toneFreq, toneishness := toneDetectFloat32Mono(toneBuf[:samplesPerChannel], 48000, toneLPCStereoLane4)
+			result.ToneFreq = toneFreq
+			result.Toneishness = toneishness
+		}
 		goto transientMetricsDone
 	}
 
@@ -482,12 +816,18 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 				j := i << 1
 
 				x0 := float32(src[j])
+				if deferMonoToneDetect {
+					monoToneX[j] = x0
+				}
 				y0 := hp0 + x0
 				hp00 := hp0
 				hp0 = hp0 - x0 + hpFeedback*hp1
 				hp1 = x0 - hp00
 
 				x1 := float32(src[j+1])
+				if deferMonoToneDetect {
+					monoToneX[j+1] = x1
+				}
 				y1 := hp0 + x1
 				hp00 = hp0
 				hp0 = hp0 - x1 + hpFeedback*hp1
@@ -502,6 +842,9 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 				mean += pair
 				mask = pair + forwardRetain*mask
 				energy[i] = forwardDecay * mask
+			}
+			if deferMonoToneDetect && samplesPerChannel > 2*len2 {
+				monoToneX[samplesPerChannel-1] = float32(src[samplesPerChannel-1])
 			}
 		} else {
 			stride := channels
@@ -581,6 +924,12 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 			tfChannel = c
 			maxMaskMetric = maskMetric
 		}
+	}
+
+	if deferMonoToneDetect {
+		toneFreq, toneishness := toneDetectFloat32Mono(monoToneX, 48000, false)
+		result.ToneFreq = toneFreq
+		result.Toneishness = toneishness
 	}
 
 transientMetricsDone:
@@ -1088,6 +1437,12 @@ func GetShortBlockCount(frameSize int) int {
 //
 // Reference: libopus celt/celt_encoder.c patch_transient_decision()
 func PatchTransientDecision(newE, oldE []float64, nbEBands, start, end, channels int) bool {
+	return PatchTransientDecisionWithScratch(newE, oldE, nbEBands, start, end, channels, nil)
+}
+
+// PatchTransientDecisionWithScratch is PatchTransientDecision using caller-owned
+// scratch for the spread-old-energy workspace.
+func PatchTransientDecisionWithScratch(newE, oldE []float64, nbEBands, start, end, channels int, spreadOld []float64) bool {
 	if len(newE) < end || len(oldE) < end {
 		return false
 	}
@@ -1095,25 +1450,45 @@ func PatchTransientDecision(newE, oldE []float64, nbEBands, start, end, channels
 	// Apply an aggressive (-6 dB/Bark) spreading function to the old frame
 	// to avoid false detection caused by irrelevant bands.
 	// GCONST(1.0f) in libopus is 1.0 in the log-energy domain (corresponds to ~6dB).
-	spreadOld := make([]float64, end)
+	if len(spreadOld) < end {
+		spreadOld = make([]float64, end)
+	} else {
+		spreadOld = spreadOld[:end]
+	}
 
 	if channels == 1 {
 		spreadOld[start] = oldE[start]
 		for i := start + 1; i < end; i++ {
-			spreadOld[i] = math.Max(spreadOld[i-1]-1.0, oldE[i])
+			v := spreadOld[i-1] - 1.0
+			if oldE[i] > v {
+				v = oldE[i]
+			}
+			spreadOld[i] = v
 		}
 	} else {
 		// Stereo: use max of left and right channel
-		spreadOld[start] = math.Max(oldE[start], oldE[start+nbEBands])
+		v := oldE[start]
+		if oldE[start+nbEBands] > v {
+			v = oldE[start+nbEBands]
+		}
+		spreadOld[start] = v
 		for i := start + 1; i < end; i++ {
-			spreadOld[i] = math.Max(spreadOld[i-1]-1.0,
-				math.Max(oldE[i], oldE[i+nbEBands]))
+			v = oldE[i]
+			if oldE[i+nbEBands] > v {
+				v = oldE[i+nbEBands]
+			}
+			if prev := spreadOld[i-1] - 1.0; prev > v {
+				v = prev
+			}
+			spreadOld[i] = v
 		}
 	}
 
 	// Backward pass: spread from high to low frequencies
 	for i := end - 2; i >= start; i-- {
-		spreadOld[i] = math.Max(spreadOld[i], spreadOld[i+1]-1.0)
+		if v := spreadOld[i+1] - 1.0; v > spreadOld[i] {
+			spreadOld[i] = v
+		}
 	}
 
 	// Compute mean increase
@@ -1125,9 +1500,17 @@ func PatchTransientDecision(newE, oldE []float64, nbEBands, start, end, channels
 
 	for c := 0; c < channels; c++ {
 		for i := startBand; i < end-1; i++ {
-			x1 := math.Max(0, newE[i+c*nbEBands])
-			x2 := math.Max(0, spreadOld[i])
-			meanDiff += math.Max(0, x1-x2)
+			x1 := newE[i+c*nbEBands]
+			if x1 < 0 {
+				x1 = 0
+			}
+			x2 := spreadOld[i]
+			if x2 < 0 {
+				x2 = 0
+			}
+			if diff := x1 - x2; diff > 0 {
+				meanDiff += diff
+			}
 		}
 	}
 

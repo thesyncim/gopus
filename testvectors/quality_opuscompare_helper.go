@@ -93,7 +93,8 @@ func getOpusCompareHelperPath() (string, error) {
 		outPath := helperBinaryPath("gopus_libopus_compare_single", runtime.GOOS, runtime.GOARCH)
 		args := []string{
 			"-std=c99",
-			"-O2",
+			"-O3",
+			"-DNDEBUG",
 			srcPath,
 			"-lm",
 			"-o", outPath,

@@ -85,6 +85,45 @@ func TestHotPathAllocsEncodeInt16(t *testing.T) {
 	}
 }
 
+func TestHotPathAllocsEncodeRestrictedSilkLowComplexity(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationRestrictedSilk})
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthWideband); err != nil {
+		t.Fatalf("SetBandwidth: %v", err)
+	}
+	if err := enc.SetBitrate(32000); err != nil {
+		t.Fatalf("SetBitrate: %v", err)
+	}
+	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+		t.Fatalf("SetBitrateMode: %v", err)
+	}
+	if err := enc.SetComplexity(0); err != nil {
+		t.Fatalf("SetComplexity: %v", err)
+	}
+	if err := enc.SetSignal(SignalVoice); err != nil {
+		t.Fatalf("SetSignal: %v", err)
+	}
+
+	pcm := testSineFrame(960)
+	packet := make([]byte, 4000)
+	for i := 0; i < 5; i++ {
+		if _, err := enc.Encode(pcm, packet); err != nil {
+			t.Fatalf("warmup Encode: %v", err)
+		}
+	}
+
+	allocs := testing.AllocsPerRun(200, func() {
+		if _, err := enc.Encode(pcm, packet); err != nil {
+			t.Fatalf("Encode: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("Encode(restricted SILK complexity 0) allocs/op = %.2f, want 0", allocs)
+	}
+}
+
 func TestHotPathAllocsDecodeFloat32(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {

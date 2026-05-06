@@ -391,6 +391,265 @@ func BenchmarkEncoderEncode_LowDelay(b *testing.B) {
 	}
 }
 
+// BenchmarkEncoderEncode_RestrictedCELTCBR benchmarks the CELT CBR workload used
+// by the libopus-relative encoder guard.
+// Target: 0 allocs/op
+func BenchmarkEncoderEncode_RestrictedCELTCBR(b *testing.B) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationRestrictedCelt})
+	if err != nil {
+		b.Fatalf("NewEncoder: %v", err)
+	}
+	if err := enc.SetFrameSize(960); err != nil {
+		b.Fatalf("SetFrameSize: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+		b.Fatalf("SetBandwidth: %v", err)
+	}
+	if err := enc.SetBitrate(128000); err != nil {
+		b.Fatalf("SetBitrate: %v", err)
+	}
+	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+		b.Fatalf("SetBitrateMode: %v", err)
+	}
+	if err := enc.SetComplexity(10); err != nil {
+		b.Fatalf("SetComplexity: %v", err)
+	}
+	if err := enc.SetSignal(SignalMusic); err != nil {
+		b.Fatalf("SetSignal: %v", err)
+	}
+
+	pcm := generateBenchSineWave(960 * 2)
+	packet := make([]byte, 4000)
+
+	for i := 0; i < 5; i++ {
+		if _, err := enc.Encode(pcm, packet); err != nil {
+			b.Fatalf("Encode warmup: %v", err)
+		}
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		if _, err := enc.Encode(pcm, packet); err != nil {
+			b.Fatalf("Encode: %v", err)
+		}
+	}
+}
+
+// BenchmarkEncoderEncode_RestrictedCELTCBRAfterReset keeps the libopus-relative
+// benchmark contract honest: every measured operation starts a new stream.
+// Target: 0 allocs/op
+func BenchmarkEncoderEncode_RestrictedCELTCBRAfterReset(b *testing.B) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationRestrictedCelt})
+	if err != nil {
+		b.Fatalf("NewEncoder: %v", err)
+	}
+	if err := enc.SetFrameSize(960); err != nil {
+		b.Fatalf("SetFrameSize: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+		b.Fatalf("SetBandwidth: %v", err)
+	}
+	if err := enc.SetBitrate(128000); err != nil {
+		b.Fatalf("SetBitrate: %v", err)
+	}
+	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+		b.Fatalf("SetBitrateMode: %v", err)
+	}
+	if err := enc.SetComplexity(10); err != nil {
+		b.Fatalf("SetComplexity: %v", err)
+	}
+	if err := enc.SetSignal(SignalMusic); err != nil {
+		b.Fatalf("SetSignal: %v", err)
+	}
+
+	pcm := generateBenchSineWave(960 * 2)
+	packet := make([]byte, 4000)
+
+	for i := 0; i < 5; i++ {
+		enc.Reset()
+		if _, err := enc.Encode(pcm, packet); err != nil {
+			b.Fatalf("Encode warmup: %v", err)
+		}
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		enc.Reset()
+		if _, err := enc.Encode(pcm, packet); err != nil {
+			b.Fatalf("Encode: %v", err)
+		}
+	}
+}
+
+// BenchmarkEncoderEncode_RestrictedCELTCBRStreamAfterReset matches one
+// per-case operation in tools/encoderbenchcmp.
+// Target: 0 allocs/op
+func BenchmarkEncoderEncode_RestrictedCELTCBRStreamAfterReset(b *testing.B) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationRestrictedCelt})
+	if err != nil {
+		b.Fatalf("NewEncoder: %v", err)
+	}
+	if err := enc.SetFrameSize(960); err != nil {
+		b.Fatalf("SetFrameSize: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+		b.Fatalf("SetBandwidth: %v", err)
+	}
+	if err := enc.SetBitrate(128000); err != nil {
+		b.Fatalf("SetBitrate: %v", err)
+	}
+	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+		b.Fatalf("SetBitrateMode: %v", err)
+	}
+	if err := enc.SetComplexity(10); err != nil {
+		b.Fatalf("SetComplexity: %v", err)
+	}
+	if err := enc.SetSignal(SignalMusic); err != nil {
+		b.Fatalf("SetSignal: %v", err)
+	}
+
+	frames := 50
+	pcm := generateBenchSineWave(960 * 2 * frames)
+	packet := make([]byte, 4000)
+
+	for i := 0; i < 5; i++ {
+		enc.Reset()
+		for frame := 0; frame < frames; frame++ {
+			start := frame * 960 * 2
+			if _, err := enc.Encode(pcm[start:start+960*2], packet); err != nil {
+				b.Fatalf("Encode warmup frame %d: %v", frame, err)
+			}
+		}
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		enc.Reset()
+		for frame := 0; frame < frames; frame++ {
+			start := frame * 960 * 2
+			if _, err := enc.Encode(pcm[start:start+960*2], packet); err != nil {
+				b.Fatalf("Encode frame %d: %v", frame, err)
+			}
+		}
+	}
+}
+
+// BenchmarkEncoderEncode_RestrictedCELT5msCBRStreamAfterReset matches the
+// short-frame CELT per-case operation in tools/encoderbenchcmp.
+// Target: 0 allocs/op
+func BenchmarkEncoderEncode_RestrictedCELT5msCBRStreamAfterReset(b *testing.B) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationRestrictedCelt})
+	if err != nil {
+		b.Fatalf("NewEncoder: %v", err)
+	}
+	if err := enc.SetFrameSize(240); err != nil {
+		b.Fatalf("SetFrameSize: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+		b.Fatalf("SetBandwidth: %v", err)
+	}
+	if err := enc.SetBitrate(64000); err != nil {
+		b.Fatalf("SetBitrate: %v", err)
+	}
+	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+		b.Fatalf("SetBitrateMode: %v", err)
+	}
+	if err := enc.SetComplexity(10); err != nil {
+		b.Fatalf("SetComplexity: %v", err)
+	}
+	if err := enc.SetSignal(SignalMusic); err != nil {
+		b.Fatalf("SetSignal: %v", err)
+	}
+
+	frames := 200
+	pcm := generateBenchSineWave(240 * frames)
+	packet := make([]byte, 4000)
+
+	for i := 0; i < 5; i++ {
+		enc.Reset()
+		for frame := 0; frame < frames; frame++ {
+			start := frame * 240
+			if _, err := enc.Encode(pcm[start:start+240], packet); err != nil {
+				b.Fatalf("Encode warmup frame %d: %v", frame, err)
+			}
+		}
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		enc.Reset()
+		for frame := 0; frame < frames; frame++ {
+			start := frame * 240
+			if _, err := enc.Encode(pcm[start:start+240], packet); err != nil {
+				b.Fatalf("Encode frame %d: %v", frame, err)
+			}
+		}
+	}
+}
+
+// BenchmarkEncoderEncode_RestrictedSILKCBRStreamAfterReset matches the SILK
+// per-case operation in tools/encoderbenchcmp.
+// Target: 0 allocs/op
+func BenchmarkEncoderEncode_RestrictedSILKCBRStreamAfterReset(b *testing.B) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationRestrictedSilk})
+	if err != nil {
+		b.Fatalf("NewEncoder: %v", err)
+	}
+	if err := enc.SetFrameSize(960); err != nil {
+		b.Fatalf("SetFrameSize: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthWideband); err != nil {
+		b.Fatalf("SetBandwidth: %v", err)
+	}
+	if err := enc.SetBitrate(32000); err != nil {
+		b.Fatalf("SetBitrate: %v", err)
+	}
+	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+		b.Fatalf("SetBitrateMode: %v", err)
+	}
+	if err := enc.SetComplexity(10); err != nil {
+		b.Fatalf("SetComplexity: %v", err)
+	}
+	if err := enc.SetSignal(SignalVoice); err != nil {
+		b.Fatalf("SetSignal: %v", err)
+	}
+
+	frames := 50
+	pcm := generateBenchSineWave(960 * frames)
+	packet := make([]byte, 4000)
+
+	for i := 0; i < 5; i++ {
+		enc.Reset()
+		for frame := 0; frame < frames; frame++ {
+			start := frame * 960
+			if _, err := enc.Encode(pcm[start:start+960], packet); err != nil {
+				b.Fatalf("Encode warmup frame %d: %v", frame, err)
+			}
+		}
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		enc.Reset()
+		for frame := 0; frame < frames; frame++ {
+			start := frame * 960
+			if _, err := enc.Encode(pcm[start:start+960], packet); err != nil {
+				b.Fatalf("Encode frame %d: %v", frame, err)
+			}
+		}
+	}
+}
+
 // BenchmarkRoundTrip benchmarks encode + decode round trip.
 // Target: 0 allocs/op
 func BenchmarkRoundTrip(b *testing.B) {

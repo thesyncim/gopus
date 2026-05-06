@@ -75,6 +75,34 @@ func TestSilkResamplerDown2HPStereoMatchesDownmixThenResample(t *testing.T) {
 	}
 }
 
+func TestSilkResamplerDown2HPScaledMatchesScaleThenResample(t *testing.T) {
+	in := []float32{
+		0.11, -0.03, -0.27, 0.08,
+		0.36, -0.14, -0.48, 0.19,
+		0.59, -0.22, -0.63, 0.27,
+		0.71, -0.31, -0.82, 0.34,
+	}
+	scale := float32(celtSigScale)
+	staged := make([]float32, len(in))
+	for i := range staged {
+		staged[i] = in[i] * scale
+	}
+
+	stateA := []float32{-0.2, 0.45, -0.6}
+	stateB := append([]float32(nil), stateA...)
+	outA := make([]float32, len(in)/2)
+	outB := make([]float32, len(in)/2)
+
+	hpA := silkResamplerDown2HP(stateA, outA, staged)
+	hpB := silkResamplerDown2HPScaled(stateB, outB, in, scale)
+
+	requireFloat32SliceWithinULP(t, outB, outA, 8)
+	requireFloat32SliceWithinULP(t, stateB, stateA, 8)
+	if diff := ulpDiffFloat32(hpB, hpA); diff > 8 {
+		t.Fatalf("hp energy mismatch: got=%08x want=%08x ulp=%d", math.Float32bits(hpB), math.Float32bits(hpA), diff)
+	}
+}
+
 func TestSilkResamplerDown2HPMatchesLegacy(t *testing.T) {
 	in := []float32{
 		0.11, -0.03, -0.27, 0.08,

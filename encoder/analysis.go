@@ -18,6 +18,10 @@ const (
 	analysisFFTEnergyScale = float32(1.0 / (480.0 * 480.0))
 	analysisAtanScale      = float32(0.5 / math.Pi)
 	analysisPi4            = float32(math.Pi * math.Pi * math.Pi * math.Pi)
+	analysisAtanCA         = float32(0.43157974)
+	analysisAtanCB         = float32(0.67848403)
+	analysisAtanCC         = float32(0.08595542)
+	analysisAtanCE         = float32(math.Pi / 2)
 )
 
 var stdFeatureBias = [9]float32{
@@ -103,7 +107,7 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 		coef1 = float32(0.15063)
 	)
 
-	var hpEner float64
+	var hpEner float32
 	k := 0
 	for ; k+1 < len2; k += 2 {
 		base := 2 * k
@@ -126,7 +130,7 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k] = 0.5 * out32
 
 		in32 = in[base+2]
@@ -147,7 +151,7 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k+1] = 0.5 * out32
 	}
 	for ; k < len2; k++ {
@@ -171,7 +175,7 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k] = 0.5 * out32
 	}
 
@@ -180,7 +184,101 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 
 	// In libopus float builds, SHR64() is identity, so hp_ener accumulates the
 	// raw squared high-pass output (no /256 shift). Keep that behavior here.
-	return float32(hpEner)
+	return hpEner
+}
+
+func silkResamplerDown2HPScaled(s []float32, out []float32, in []float32, scale float32) float32 {
+	len2 := len(in) / 2
+	if len(out) < len2 {
+		len2 = len(out)
+	}
+	if len2 <= 0 {
+		return 0
+	}
+	_ = in[2*len2-1]
+	_ = out[len2-1]
+	_ = s[2]
+
+	s0, s1, s2 := s[0], s[1], s[2]
+
+	const (
+		coef0 = float32(0.6074371)
+		coef1 = float32(0.15063)
+	)
+
+	var hpEner float32
+	k := 0
+	j := 0
+	for ; k+1 < len2; k += 2 {
+		in32 := in[j] * scale
+		y := in32 - s0
+		xf := coef0 * y
+		out32 := s0 + xf
+		s0 = in32 + xf
+		out32HP := out32
+
+		in32 = in[j+1] * scale
+		y = in32 - s1
+		xf = coef1 * y
+		out32 = out32 + s1 + xf
+		s1 = in32 + xf
+
+		y = -in32 - s2
+		xf = coef1 * y
+		out32HP = out32HP + s2 + xf
+		s2 = -in32 + xf
+
+		hpEner += out32HP * out32HP
+		out[k] = 0.5 * out32
+		j += 2
+
+		in32 = in[j] * scale
+		y = in32 - s0
+		xf = coef0 * y
+		out32 = s0 + xf
+		s0 = in32 + xf
+		out32HP = out32
+
+		in32 = in[j+1] * scale
+		y = in32 - s1
+		xf = coef1 * y
+		out32 = out32 + s1 + xf
+		s1 = in32 + xf
+
+		y = -in32 - s2
+		xf = coef1 * y
+		out32HP = out32HP + s2 + xf
+		s2 = -in32 + xf
+
+		hpEner += out32HP * out32HP
+		out[k+1] = 0.5 * out32
+		j += 2
+	}
+	for ; k < len2; k++ {
+		in32 := in[j] * scale
+		y := in32 - s0
+		xf := coef0 * y
+		out32 := s0 + xf
+		s0 = in32 + xf
+		out32HP := out32
+
+		in32 = in[j+1] * scale
+		y = in32 - s1
+		xf = coef1 * y
+		out32 = out32 + s1 + xf
+		s1 = in32 + xf
+
+		y = -in32 - s2
+		xf = coef1 * y
+		out32HP = out32HP + s2 + xf
+		s2 = -in32 + xf
+
+		hpEner += out32HP * out32HP
+		out[k] = 0.5 * out32
+	}
+
+	s[0], s[1], s[2] = s0, s1, s2
+	return hpEner
 }
 
 func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale float32) float32 {
@@ -202,7 +300,7 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale 
 		coef1 = float32(0.15063)
 	)
 
-	var hpEner float64
+	var hpEner float32
 	k := 0
 	for ; k+1 < len2; k += 2 {
 		base := 4 * k
@@ -228,7 +326,7 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale 
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k] = 0.5 * out32
 
 		base += 4
@@ -254,7 +352,7 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale 
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k+1] = 0.5 * out32
 	}
 	for ; k < len2; k++ {
@@ -281,12 +379,12 @@ func silkResamplerDown2HPStereo(s []float32, out []float32, in []float32, scale 
 		out32HP = out32HP + s2 + xf
 		s2 = -in32 + xf
 
-		hpEner += float64(out32HP * out32HP)
+		hpEner += out32HP * out32HP
 		out[k] = 0.5 * out32
 	}
 
 	s[0], s[1], s[2] = s0, s1, s2
-	return float32(hpEner)
+	return hpEner
 }
 
 func isDigitalSilence32(pcm []float32) bool {
@@ -303,12 +401,6 @@ func analysisFloat2Int(x float32) int32 {
 }
 
 func analysisFastAtan2f(y, x float32) float32 {
-	const (
-		cA = float32(0.43157974)
-		cB = float32(0.67848403)
-		cC = float32(0.08595542)
-		cE = float32(math.Pi / 2)
-	)
 	x2 := x * x
 	y2 := y * y
 	if x2+y2 < 1e-18 {
@@ -316,23 +408,23 @@ func analysisFastAtan2f(y, x float32) float32 {
 	}
 	xy := x * y
 	if x2 < y2 {
-		num := -xy * (y2 + cA*x2)
-		den := (y2 + cB*x2) * (y2 + cC*x2)
+		num := -xy * (y2 + analysisAtanCA*x2)
+		den := (y2 + analysisAtanCB*x2) * (y2 + analysisAtanCC*x2)
 		if y < 0 {
-			return num/den - cE
+			return num/den - analysisAtanCE
 		}
-		return num/den + cE
+		return num/den + analysisAtanCE
 	}
-	num := xy * (x2 + cA*y2)
-	den := (x2 + cB*y2) * (x2 + cC*y2)
+	num := xy * (x2 + analysisAtanCA*y2)
+	den := (x2 + analysisAtanCB*y2) * (x2 + analysisAtanCC*y2)
 	if y < 0 {
 		if xy < 0 {
 			return num / den
 		}
-		return num/den - cE - cE
+		return num/den - analysisAtanCE - analysisAtanCE
 	}
 	if xy < 0 {
-		return num/den + cE + cE
+		return num/den + analysisAtanCE + analysisAtanCE
 	}
 	return num / den
 }
@@ -421,6 +513,7 @@ func (s *TonalityAnalysisState) Reset() {
 	scratchDownsampled := s.scratchDownsampled[:0]
 	scratchResample3x := s.scratchResample3x[:0]
 	scratchFFTKiss := s.scratchFFTKiss
+	scratchBinE := s.scratchBinE[:0]
 
 	*s = TonalityAnalysisState{
 		Fs:                 fs,
@@ -429,6 +522,7 @@ func (s *TonalityAnalysisState) Reset() {
 		scratchDownsampled: scratchDownsampled,
 		scratchResample3x:  scratchResample3x,
 		scratchFFTKiss:     scratchFFTKiss,
+		scratchBinE:        scratchBinE,
 	}
 }
 
@@ -525,7 +619,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	frameSize := len(pcm) / channels
 	stereoScale := float32(0.5 * celtSigScale)
 	var mono []float32
-	if s.Fs != 48000 || channels != 2 {
+	if s.Fs != 48000 {
 		if cap(s.scratchMono) < frameSize {
 			s.scratchMono = make([]float32, frameSize)
 		}
@@ -573,7 +667,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			case 2:
 				hp = silkResamplerDown2HPStereo(s.DownmixState[:], first, pcm[:firstCopy*4], stereoScale)
 			default:
-				hp = silkResamplerDown2HP(s.DownmixState[:], first, mono[:firstCopy*2])
+				hp = silkResamplerDown2HPScaled(s.DownmixState[:], first, pcm[:firstCopy*2], celtSigScale)
 			}
 			hp *= 1.0 / (celtSigScale * celtSigScale)
 			s.HPEnerAccum += hp
@@ -659,7 +753,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			default:
 				restSrcStart := firstCopy * 2
 				restSrcEnd := restSrcStart + remaining*2
-				hp = silkResamplerDown2HP(s.DownmixState[:], rest, mono[restSrcStart:restSrcEnd])
+				hp = silkResamplerDown2HPScaled(s.DownmixState[:], rest, pcm[restSrcStart:restSrcEnd], celtSigScale)
 			}
 			hp *= 1.0 / (celtSigScale * celtSigScale)
 			s.HPEnerAccum = hp
@@ -753,11 +847,69 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		x2r := imag(outBuf[i]) + imag(outBuf[480-i])
 		x2i := real(outBuf[480-i]) - real(outBuf[i])
 
-		angle := analysisAtanScale * analysisFastAtan2f(x1i, x1r)
+		xr2 := x1r * x1r
+		xi2 := x1i * x1i
+		atan := float32(0)
+		if xr2+xi2 >= 1e-18 {
+			xy := x1r * x1i
+			if xr2 < xi2 {
+				num := -xy * (xi2 + analysisAtanCA*xr2)
+				den := (xi2 + analysisAtanCB*xr2) * (xi2 + analysisAtanCC*xr2)
+				if x1i < 0 {
+					atan = num/den - analysisAtanCE
+				} else {
+					atan = num/den + analysisAtanCE
+				}
+			} else {
+				num := xy * (xr2 + analysisAtanCA*xi2)
+				den := (xr2 + analysisAtanCB*xi2) * (xr2 + analysisAtanCC*xi2)
+				if x1i < 0 {
+					if xy < 0 {
+						atan = num / den
+					} else {
+						atan = num/den - analysisAtanCE - analysisAtanCE
+					}
+				} else if xy < 0 {
+					atan = num/den + analysisAtanCE + analysisAtanCE
+				} else {
+					atan = num / den
+				}
+			}
+		}
+		angle := analysisAtanScale * atan
 		dAngle := angle - s.Angle[i]
 		d2Angle := dAngle - s.DAngle[i]
 
-		angle2 := analysisAtanScale * analysisFastAtan2f(x2i, x2r)
+		xr2 = x2r * x2r
+		xi2 = x2i * x2i
+		atan = 0
+		if xr2+xi2 >= 1e-18 {
+			xy := x2r * x2i
+			if xr2 < xi2 {
+				num := -xy * (xi2 + analysisAtanCA*xr2)
+				den := (xi2 + analysisAtanCB*xr2) * (xi2 + analysisAtanCC*xr2)
+				if x2i < 0 {
+					atan = num/den - analysisAtanCE
+				} else {
+					atan = num/den + analysisAtanCE
+				}
+			} else {
+				num := xy * (xr2 + analysisAtanCA*xi2)
+				den := (xr2 + analysisAtanCB*xi2) * (xr2 + analysisAtanCC*xi2)
+				if x2i < 0 {
+					if xy < 0 {
+						atan = num / den
+					} else {
+						atan = num/den - analysisAtanCE - analysisAtanCE
+					}
+				} else if xy < 0 {
+					atan = num/den + analysisAtanCE + analysisAtanCE
+				} else {
+					atan = num / den
+				}
+			}
+		}
+		angle2 := analysisAtanScale * atan
 		dAngle2 := angle2 - angle
 		d2Angle2 := dAngle2 - dAngle
 
@@ -843,7 +995,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	const binStart = 4 // tbands[0]
 	const binEnd = 240 // tbands[NbTBands]
 	const numBins = binEnd - binStart
-	if len(s.scratchBinE) < numBins {
+	if cap(s.scratchBinE) < numBins {
 		s.scratchBinE = make([]float32, numBins)
 	}
 	binEArr := s.scratchBinE[:numBins]

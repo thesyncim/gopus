@@ -25,10 +25,10 @@ func (e *Encoder) fillMDCTHistoryFromPrefilter(channel, overlap int, dst []float
 	if overlap <= 0 || len(dst) < overlap || channel < 0 {
 		return
 	}
-	for i := 0; i < overlap; i++ {
-		dst[i] = 0
-	}
 	if len(e.overlapBuffer) < (channel+1)*overlap {
+		for i := 0; i < overlap; i++ {
+			dst[i] = 0
+		}
 		return
 	}
 	start := channel * overlap
@@ -49,11 +49,11 @@ func (e *Encoder) fillTransientHistoryFromPrefilter(overlap int, dst []float64) 
 	if len(dst) < need {
 		return
 	}
-	for i := 0; i < need; i++ {
-		dst[i] = 0
-	}
 	maxPeriod := combFilterMaxPeriod
 	if len(e.prefilterMem) < maxPeriod*e.channels {
+		for i := 0; i < need; i++ {
+			dst[i] = 0
+		}
 		return
 	}
 	base := maxPeriod - overlap
@@ -61,6 +61,28 @@ func (e *Encoder) fillTransientHistoryFromPrefilter(overlap int, dst []float64) 
 		chBase := ch * maxPeriod
 		for i := 0; i < overlap; i++ {
 			dst[i*e.channels+ch] = float64(float32(e.prefilterMem[chBase+base+i]))
+		}
+	}
+}
+
+func (e *Encoder) fillTransientHistoryFromPrefilterF32(overlap int, dst []float32) {
+	if overlap <= 0 || e.channels <= 0 {
+		return
+	}
+	need := overlap * e.channels
+	if len(dst) < need {
+		return
+	}
+	maxPeriod := combFilterMaxPeriod
+	if len(e.prefilterMem) < maxPeriod*e.channels {
+		clear(dst[:need])
+		return
+	}
+	base := maxPeriod - overlap
+	for ch := 0; ch < e.channels; ch++ {
+		chBase := ch * maxPeriod
+		for i := 0; i < overlap; i++ {
+			dst[i*e.channels+ch] = float32(e.prefilterMem[chBase+base+i])
 		}
 	}
 }
@@ -264,13 +286,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		samplesForFrame = e.ApplyDelayCompensationScratchHybrid(samplesForFrame, frameSize)
 	}
 
-	// Step 3c: Apply pre-emphasis with signal scaling (before transient analysis)
-	// This matches libopus order: celt_preemphasis() is called before transient_analysis()
-	// Reference: libopus celt_encoder.c lines 2015-2030
-	// Input samples in float range [-1.0, 1.0] are scaled to signal scale (x32768)
-	// This matches libopus CELT_SIG_SCALE. The decoder later divides back by the same scale.
-	preemph := e.applyPreemphasisWithScalingScratch(samplesForFrame)
-
 	// Step 4: Detect transient and compute tf_estimate using PRE-EMPHASIZED signal
 	// libopus calls transient_analysis(in, N+overlap, ...) where 'in' contains:
 	// - Previous frame's pre-emphasized overlap samples (indices 0 to overlap-1)
@@ -297,8 +312,24 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		e.scratch.transientInput = transientInput
 	}
 	transientInput = transientInput[:transientLen]
-	e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
-	copy(transientInput[preemphBufSize:], preemph)
+	// Match libopus celt_preemphasis() ordering, but write the current frame
+	// directly after the overlap history so transient analysis needs no copy.
+	preemph := transientInput[preemphBufSize:]
+	var transientInputF32 []float32
+	var preemphF32 []float32
+	if e.channels == 1 {
+		transientInputF32 = e.scratch.transientInputF32
+		if len(transientInputF32) < transientLen {
+			transientInputF32 = make([]float32, transientLen)
+			e.scratch.transientInputF32 = transientInputF32
+		}
+		transientInputF32 = transientInputF32[:transientLen]
+		e.fillTransientHistoryFromPrefilterF32(overlap, transientInputF32[:preemphBufSize])
+		preemphF32 = transientInputF32[preemphBufSize:]
+	} else {
+		e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
+	}
+	isSilence := e.applyPreemphasisWithScalingAndSilenceCoreF32(samplesForFrame, preemph, preemphF32, frameSize, overlap)
 
 	allowWeakTransients := false
 	if e.hybrid {
@@ -312,7 +343,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Call transient analysis with the pre-emphasized signal (N+overlap samples)
 	// and the libopus hybrid weak-transient gate when a SILK handoff is active.
-	transientResult := e.TransientAnalysis(transientInput, frameSize+overlap, allowWeakTransients)
+	var transientResult TransientAnalysisResult
+	if e.channels == 1 && len(transientInputF32) >= transientLen {
+		transientResult = e.transientAnalysisMonoFloat32(transientInputF32[:transientLen], frameSize+overlap, allowWeakTransients)
+	} else {
+		transientResult = e.TransientAnalysis(transientInput, frameSize+overlap, allowWeakTransients)
+	}
 	transient := transientResult.IsTransient
 	weakTransient := transientResult.WeakTransient
 	tfEstimate := transientResult.TfEstimate
@@ -360,7 +396,6 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	e.SetRangeEncoder(re)
 
 	tell := re.Tell()
-	isSilence := e.computeSilenceFlag(samplesForFrame, frameSize, overlap)
 	if tell == 1 {
 		if isSilence {
 			re.EncodeBit(1, 15)
@@ -571,7 +606,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Get previous frame's band energies (oldBandE in libopus)
 		oldBandE := e.prevEnergy
 
-		if PatchTransientDecision(energies, oldBandE, nbBands, 0, end, e.channels) {
+		spreadOld := ensureFloat64Slice(&e.scratch.transientSpreadOld, end)
+		if PatchTransientDecisionWithScratch(energies, oldBandE, nbBands, 0, end, e.channels, spreadOld) {
 			// Transient patched! Need to recompute MDCT with short blocks
 			transient = true
 			shortBlocks = mode.ShortBlocks
@@ -739,11 +775,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	_ = normBandEScratch
 
-	// Step 11.0.6: Compute tonality analysis for next frame's VBR decisions
-	// We compute tonality here using Spectral Flatness Measure (SFM) and store it
-	// for use in the next frame's computeVBRTarget (similar to how libopus uses
-	// analysis from the previous frame).
-	e.updateTonalityAnalysis(normL, analysisEnergies, nbBands, frameSize)
+	// Step 11.0.6: Compute tonality analysis only when it can feed the next
+	// frame's VBR target. CBR target sizing does not consume this state.
+	if e.vbr {
+		e.updateTonalityAnalysis(normL, analysisEnergies, nbBands, frameSize)
+	}
 
 	// Step 11.0.7: Compute temporal VBR from current frame band energies.
 	// Reference: libopus celt_encoder.c lines 2186-2202.

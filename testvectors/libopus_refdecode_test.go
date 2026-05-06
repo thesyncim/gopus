@@ -51,7 +51,8 @@ func getLibopusRefdecodeSinglePath() (string, error) {
 		outPath := helperBinaryPath("gopus_libopus_refdecode_single", runtime.GOOS, runtime.GOARCH)
 		args := []string{
 			"-std=c99",
-			"-O2",
+			"-O3",
+			"-DNDEBUG",
 			"-I", filepath.Join(opusRoot, "include"),
 			srcPath,
 			libopusStatic,

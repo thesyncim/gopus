@@ -290,6 +290,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 
 			tell := e.rangeEncoder.Tell()
 			bitsLeft := budget - tell - 3*channels*(nbBands-band)
+			remaining := budget - tell
 			if band != 0 && bitsLeft < 30 {
 				if bitsLeft < 24 && qi > 1 {
 					qi = 1
@@ -302,7 +303,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 				qi = 0
 			}
 
-			if budget-tell >= 15 {
+			if remaining >= 15 {
 				pi := 2 * band
 				if pi > 40 {
 					pi = 40
@@ -310,7 +311,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 				fs := int(prob[pi]) << 7
 				decay := int(prob[pi+1]) << 6
 				qi = e.encodeLaplace(qi, fs, decay)
-			} else if budget-tell >= 2 {
+			} else if remaining >= 2 {
 				if qi > 1 {
 					qi = 1
 				}
@@ -324,7 +325,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 					s = 2 * qi
 				}
 				e.rangeEncoder.EncodeICDF(s, smallEnergyICDF, 2)
-			} else if budget-tell >= 1 {
+			} else if remaining >= 1 {
 				if qi > 0 {
 					qi = 0
 				}

@@ -520,6 +520,13 @@ func (e *Encoder) VoIPApplication() bool {
 	return false
 }
 
+// SetRestrictedSilkApplication toggles restricted-SILK application behavior.
+func (e *Encoder) SetRestrictedSilkApplication(enabled bool) {
+	for _, enc := range e.encoders {
+		enc.SetRestrictedSilkApplication(enabled)
+	}
+}
+
 func maxInt(a, b int) int {
 	if a > b {
 		return a

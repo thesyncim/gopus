@@ -51,7 +51,8 @@ func getLibopusRefdecodePath() (string, error) {
 		outPath := filepath.Join(os.TempDir(), fmt.Sprintf("gopus_libopus_refdecode_%s_%s", runtime.GOOS, runtime.GOARCH))
 		args := []string{
 			"-std=c99",
-			"-O2",
+			"-O3",
+			"-DNDEBUG",
 			"-I", filepath.Join(opusRoot, "include"),
 			srcPath,
 			libopusStatic,

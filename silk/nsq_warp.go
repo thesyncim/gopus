@@ -2,11 +2,10 @@ package silk
 
 // warpedARFeedback24 computes 24-tap warped AR noise shaping feedback.
 // Sequential dependencies prevent SIMD parallelism.
-func warpedARFeedback24(sAR2Q14 *[maxShapeLpcOrder]int32, diffQ14 int32, arShpQ13 []int16, warpQ16 int32) int32 {
+func warpedARFeedback24(sAR2Q14 *[maxShapeLpcOrder]int32, diffQ14 int32, arShpQ13 *[24]int16, warpQ16 int32) int32 {
 	sAR := sAR2Q14
 	w := int64(warpQ16)
 	_ = sAR[23] // BCE
-	_ = arShpQ13[23]
 
 	tmp2 := diffQ14 + int32((int64(sAR[0])*w)>>16)
 	tmp1 := sAR[0] + int32((int64(sAR[1]-tmp2)*w)>>16)
@@ -97,13 +96,96 @@ func warpedARFeedback24(sAR2Q14 *[maxShapeLpcOrder]int32, diffQ14 int32, arShpQ1
 	return acc
 }
 
+// warpedARFeedback24States4 computes the 24-tap warped AR feedback for the
+// four delayed-decision states used at libopus complexity >= 8. Each state's
+// arithmetic order matches warpedARFeedback24; the states are only interleaved.
+func warpedARFeedback24States4(psDelDec []nsqDelDecState, arShpQ13 *[24]int16, warpQ16 int32, out *[maxDelDecStates]int32) {
+	_ = psDelDec[3]
+	s0 := &psDelDec[0].sAR2Q14
+	s1 := &psDelDec[1].sAR2Q14
+	s2 := &psDelDec[2].sAR2Q14
+	s3 := &psDelDec[3].sAR2Q14
+	_ = s0[23]
+	_ = s1[23]
+	_ = s2[23]
+	_ = s3[23]
+
+	w := int64(warpQ16)
+	c0 := int64(arShpQ13[0])
+
+	tmp20 := psDelDec[0].diffQ14 + int32((int64(s0[0])*w)>>16)
+	tmp21 := psDelDec[1].diffQ14 + int32((int64(s1[0])*w)>>16)
+	tmp22 := psDelDec[2].diffQ14 + int32((int64(s2[0])*w)>>16)
+	tmp23 := psDelDec[3].diffQ14 + int32((int64(s3[0])*w)>>16)
+
+	tmp10 := s0[0] + int32((int64(s0[1]-tmp20)*w)>>16)
+	tmp11 := s1[0] + int32((int64(s1[1]-tmp21)*w)>>16)
+	tmp12 := s2[0] + int32((int64(s2[1]-tmp22)*w)>>16)
+	tmp13 := s3[0] + int32((int64(s3[1]-tmp23)*w)>>16)
+
+	s0[0] = tmp20
+	s1[0] = tmp21
+	s2[0] = tmp22
+	s3[0] = tmp23
+
+	acc0 := int32(12) + int32((int64(tmp20)*c0)>>16)
+	acc1 := int32(12) + int32((int64(tmp21)*c0)>>16)
+	acc2 := int32(12) + int32((int64(tmp22)*c0)>>16)
+	acc3 := int32(12) + int32((int64(tmp23)*c0)>>16)
+
+	for j := 2; j < 24; j += 2 {
+		cPrev := int64(arShpQ13[j-1])
+		cCur := int64(arShpQ13[j])
+
+		tmp20 = s0[j-1] + int32((int64(s0[j]-tmp10)*w)>>16)
+		tmp21 = s1[j-1] + int32((int64(s1[j]-tmp11)*w)>>16)
+		tmp22 = s2[j-1] + int32((int64(s2[j]-tmp12)*w)>>16)
+		tmp23 = s3[j-1] + int32((int64(s3[j]-tmp13)*w)>>16)
+		s0[j-1] = tmp10
+		s1[j-1] = tmp11
+		s2[j-1] = tmp12
+		s3[j-1] = tmp13
+		acc0 += int32((int64(tmp10) * cPrev) >> 16)
+		acc1 += int32((int64(tmp11) * cPrev) >> 16)
+		acc2 += int32((int64(tmp12) * cPrev) >> 16)
+		acc3 += int32((int64(tmp13) * cPrev) >> 16)
+
+		tmp10 = s0[j] + int32((int64(s0[j+1]-tmp20)*w)>>16)
+		tmp11 = s1[j] + int32((int64(s1[j+1]-tmp21)*w)>>16)
+		tmp12 = s2[j] + int32((int64(s2[j+1]-tmp22)*w)>>16)
+		tmp13 = s3[j] + int32((int64(s3[j+1]-tmp23)*w)>>16)
+		s0[j] = tmp20
+		s1[j] = tmp21
+		s2[j] = tmp22
+		s3[j] = tmp23
+		acc0 += int32((int64(tmp20) * cCur) >> 16)
+		acc1 += int32((int64(tmp21) * cCur) >> 16)
+		acc2 += int32((int64(tmp22) * cCur) >> 16)
+		acc3 += int32((int64(tmp23) * cCur) >> 16)
+	}
+
+	cLast := int64(arShpQ13[23])
+	s0[23] = tmp10
+	s1[23] = tmp11
+	s2[23] = tmp12
+	s3[23] = tmp13
+	acc0 += int32((int64(tmp10) * cLast) >> 16)
+	acc1 += int32((int64(tmp11) * cLast) >> 16)
+	acc2 += int32((int64(tmp12) * cLast) >> 16)
+	acc3 += int32((int64(tmp13) * cLast) >> 16)
+
+	out[0] = acc0
+	out[1] = acc1
+	out[2] = acc2
+	out[3] = acc3
+}
+
 // warpedARFeedback16 computes 16-tap warped AR noise shaping feedback.
 // Sequential dependencies prevent SIMD parallelism.
-func warpedARFeedback16(sAR2Q14 *[maxShapeLpcOrder]int32, diffQ14 int32, arShpQ13 []int16, warpQ16 int32) int32 {
+func warpedARFeedback16(sAR2Q14 *[maxShapeLpcOrder]int32, diffQ14 int32, arShpQ13 *[16]int16, warpQ16 int32) int32 {
 	sAR := sAR2Q14
 	w := int64(warpQ16)
 	_ = sAR[15] // BCE
-	_ = arShpQ13[15]
 
 	tmp2 := diffQ14 + int32((int64(sAR[0])*w)>>16)
 	tmp1 := sAR[0] + int32((int64(sAR[1]-tmp2)*w)>>16)

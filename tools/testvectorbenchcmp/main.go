@@ -569,7 +569,8 @@ func buildLibopusHelper(root, libopusRoot string) (string, error) {
 	}
 	args := []string{
 		"-std=c99",
-		"-O2",
+		"-O3",
+		"-DNDEBUG",
 		"-I", filepath.Join(libopusRoot, "include"),
 		src,
 		staticLib,

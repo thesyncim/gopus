@@ -130,7 +130,8 @@ func TestFEC_EndToEnd(t *testing.T) {
 }
 
 func TestFEC_ProvidedPacketRecoveryPath(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
+	const channels = 2
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: channels, Application: ApplicationAudio})
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
@@ -138,18 +139,26 @@ func TestFEC_ProvidedPacketRecoveryPath(t *testing.T) {
 	if err := enc.SetPacketLoss(15); err != nil {
 		t.Fatalf("SetPacketLoss error: %v", err)
 	}
-	if err := enc.SetBitrate(24000); err != nil {
+	if err := enc.SetBitrate(96000); err != nil {
 		t.Fatalf("SetBitrate error: %v", err)
+	}
+	if err := enc.SetSignal(SignalVoice); err != nil {
+		t.Fatalf("SetSignal error: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+		t.Fatalf("SetBandwidth error: %v", err)
 	}
 
 	frameSize := 960
 	var packets [][]byte
 	for i := 0; i < 12; i++ {
-		pcm := make([]float32, frameSize)
-		for j := range pcm {
+		pcm := make([]float32, frameSize*channels)
+		for j := 0; j < frameSize; j++ {
 			sampleIdx := i*frameSize + j
-			pcm[j] = float32(0.5*math.Sin(2*math.Pi*220*float64(sampleIdx)/48000) +
+			pcm[2*j] = float32(0.5*math.Sin(2*math.Pi*220*float64(sampleIdx)/48000) +
 				0.25*math.Sin(2*math.Pi*440*float64(sampleIdx)/48000))
+			pcm[2*j+1] = float32(0.45*math.Sin(2*math.Pi*330*float64(sampleIdx)/48000) +
+				0.20*math.Sin(2*math.Pi*660*float64(sampleIdx)/48000))
 		}
 		packet, err := enc.EncodeFloat32(pcm)
 		if err != nil {
@@ -168,17 +177,17 @@ func TestFEC_ProvidedPacketRecoveryPath(t *testing.T) {
 	packet0 := packets[len(packets)-3]
 	recoveryPacket := packets[len(packets)-1]
 
-	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
 
-	seed := make([]float32, frameSize)
+	seed := make([]float32, frameSize*channels)
 	if _, err := dec.Decode(packet0, seed); err != nil {
 		t.Fatalf("Decode seed packet error: %v", err)
 	}
 
-	recovered := make([]float32, frameSize)
+	recovered := make([]float32, frameSize*channels)
 	n, err := dec.DecodeWithFEC(recoveryPacket, recovered, true)
 	if err != nil {
 		t.Fatalf("DecodeWithFEC(recovery packet) error: %v", err)
@@ -186,11 +195,11 @@ func TestFEC_ProvidedPacketRecoveryPath(t *testing.T) {
 	if n != frameSize {
 		t.Fatalf("DecodeWithFEC(recovery packet) samples=%d want=%d", n, frameSize)
 	}
-	if computeEnergyFloat32(recovered[:n]) == 0 {
+	if computeEnergyFloat32(recovered[:n*channels]) == 0 {
 		t.Fatal("DecodeWithFEC(recovery packet) produced silence")
 	}
 
-	packetOut := make([]float32, frameSize)
+	packetOut := make([]float32, frameSize*channels)
 	if _, err := dec.Decode(recoveryPacket, packetOut); err != nil {
 		t.Fatalf("Decode recovery packet after FEC error: %v", err)
 	}

@@ -272,6 +272,7 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 		}
 	} else {
 		sLTPQ15 = make([]int32, ltpMemLength+frameLength)
+		nsq.scratchSLTPQ15 = sLTPQ15
 	}
 
 	var sLTP []int16
@@ -282,6 +283,7 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 		}
 	} else {
 		sLTP = make([]int16, ltpMemLength+frameLength)
+		nsq.scratchSLTP = sLTP
 	}
 
 	var xScQ10 []int32
@@ -292,6 +294,7 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 		}
 	} else {
 		xScQ10 = make([]int32, subfrLength)
+		nsq.scratchXScQ10 = xScQ10
 	}
 
 	// Check LSF interpolation
@@ -365,8 +368,13 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 		)
 	}
 
-	// Copy reconstructed samples to output buffer BEFORE shifting state
-	outXQ := make([]int16, frameLength)
+	// Copy reconstructed samples to scratch BEFORE shifting state.
+	outXQ := nsq.scratchXq
+	if len(outXQ) < frameLength {
+		outXQ = make([]int16, frameLength)
+		nsq.scratchXq = outXQ
+	}
+	outXQ = outXQ[:frameLength]
 	copy(outXQ, nsq.xq[ltpMemLength:ltpMemLength+frameLength])
 
 	// Update state for next frame
@@ -863,24 +871,16 @@ func silk_SUB32(a, b int32) int32 {
 
 func silk_ADD_SAT32(a, b int32) int32 {
 	res := a + b
-	// Overflow if a and b have the same sign but res has a different sign.
-	if (a^b) >= 0 && (a^res) < 0 {
-		if a >= 0 {
-			return 0x7FFFFFFF
-		}
-		return -0x80000000
+	if ((a ^ res) & (b ^ res)) < 0 {
+		return int32((uint32(a) >> 31) + 0x7fffffff)
 	}
 	return res
 }
 
 func silk_SUB_SAT32(a, b int32) int32 {
 	res := a - b
-	// Overflow if a and b have different signs and res differs from a.
-	if (a^b) < 0 && (a^res) < 0 {
-		if a >= 0 {
-			return 0x7FFFFFFF
-		}
-		return -0x80000000
+	if ((a ^ b) & (a ^ res)) < 0 {
+		return int32((uint32(a) >> 31) + 0x7fffffff)
 	}
 	return res
 }

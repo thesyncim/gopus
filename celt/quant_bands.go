@@ -158,6 +158,7 @@ func quantCoarseEnergyImpl(
 			// Check bit budget constraints
 			tellNow := re.Tell()
 			bitsLeft := budget - tellNow - 3*channels*(end-i)
+			remaining := budget - tellNow
 			if i != start && bitsLeft < 30 {
 				if bitsLeft < 24 && qi > 1 {
 					qi = 1
@@ -173,7 +174,6 @@ func quantCoarseEnergyImpl(
 			}
 
 			// Encode the quantized value
-			remaining := budget - re.Tell()
 			if remaining >= 15 {
 				// Use Laplace encoding
 				pi := 2 * i

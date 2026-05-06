@@ -461,7 +461,7 @@ func (e *Encoder) Reset() {
 		e.nsqState.prevGainQ16 = 0
 	}
 	if e.noiseShapeState != nil {
-		e.noiseShapeState = NewNoiseShapeState() // Reset noise shaping state
+		e.noiseShapeState.Reset()
 	}
 	e.ltpCorr = 0
 
@@ -511,7 +511,7 @@ func (e *Encoder) ResetStereoSideAfterMidOnly() {
 		return
 	}
 	if e.noiseShapeState != nil {
-		e.noiseShapeState = NewNoiseShapeState()
+		e.noiseShapeState.Reset()
 	}
 	if e.nsqState != nil {
 		e.nsqState.Reset()

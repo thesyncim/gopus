@@ -180,11 +180,21 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		pfOn = true
 	}
 
-	mode := GetModeConfig(frameSize)
 	overlap := Overlap
 	if overlap > frameSize {
 		overlap = frameSize
 	}
+	if gain1 == 0 && e.prefilterGain == 0 {
+		e.updatePrefilterNoopState(pre, perChanLen, frameSize, channels, overlap)
+		e.prefilterPeriod = pitchIndex
+		e.prefilterGain = 0
+		e.prefilterTapset = tapset
+		result.pitch = pitchIndex
+		result.tapset = tapset
+		return result
+	}
+
+	mode := GetModeConfig(frameSize)
 	shortMdctSize := frameSize / mode.ShortBlocks
 	offset := shortMdctSize - overlap
 	if offset < 0 {
@@ -311,6 +321,36 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	return result
 }
 
+func (e *Encoder) updatePrefilterNoopState(pre []float64, perChanLen, frameSize, channels, overlap int) {
+	if channels <= 0 || frameSize <= 0 || len(pre) < perChanLen*channels {
+		return
+	}
+	maxPeriod := combFilterMaxPeriod
+	if overlap > 0 {
+		need := channels * overlap
+		if len(e.overlapBuffer) < need {
+			newBuf := make([]float64, need)
+			copy(newBuf, e.overlapBuffer)
+			e.overlapBuffer = newBuf
+		}
+	}
+
+	for ch := 0; ch < channels; ch++ {
+		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
+		mem := e.prefilterMem[ch*maxPeriod : (ch+1)*maxPeriod]
+		if frameSize > maxPeriod {
+			copy(mem, preCh[frameSize:frameSize+maxPeriod])
+		} else {
+			copy(mem, mem[frameSize:])
+			copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
+		}
+		if overlap > 0 && frameSize >= overlap && len(e.overlapBuffer) >= (ch+1)*overlap {
+			hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
+			copy(hist, preCh[maxPeriod+frameSize-overlap:maxPeriod+frameSize])
+		}
+	}
+}
+
 func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
 	if length <= 0 || factor <= 0 || len(xLP) < length {
 		return
@@ -428,7 +468,20 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 	findBestPitch(xcorr, yLP4, quarterLen, quarterPitch, &bestPitch)
 
 	ranges := pitchSearchFineRanges(bestPitch, halfPitch)
-	clear(xcorr[:halfPitch])
+	for _, r := range ranges {
+		if r.hi < r.lo {
+			continue
+		}
+		lo := r.lo - 1
+		if lo < 0 {
+			lo = 0
+		}
+		hi := r.hi + 2
+		if hi > halfPitch {
+			hi = halfPitch
+		}
+		clear(xcorr[lo:hi])
+	}
 	Syy := float32(1)
 	for j := 0; j < halfLen; j++ {
 		yj := float32(y[j])

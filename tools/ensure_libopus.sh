@@ -6,6 +6,8 @@ TMP_DIR="${ROOT_DIR}/tmp_check"
 LIBOPUS_VERSION="${LIBOPUS_VERSION:-1.6.1}"
 TARBALL="${TMP_DIR}/opus-${LIBOPUS_VERSION}.tar.gz"
 LIBOPUS_ENABLE_QEXT="${LIBOPUS_ENABLE_QEXT:-0}"
+LIBOPUS_CFLAGS="${LIBOPUS_CFLAGS:--O3 -DNDEBUG}"
+LIBOPUS_CPPFLAGS="${LIBOPUS_CPPFLAGS:-}"
 
 case "${LIBOPUS_ENABLE_QEXT}" in
   1|true|TRUE|yes|YES|on|ON)
@@ -25,7 +27,7 @@ case "${LIBOPUS_ENABLE_QEXT}" in
 esac
 
 BUILD_STAMP_FILE=".gopus-libopus-build"
-BUILD_STAMP=$'gopus libopus helper build v2\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${ENABLE_QEXT}"$'\n'
+BUILD_STAMP=$'gopus libopus helper build v3\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${ENABLE_QEXT}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\n'
 LOCK_DIR="${SRC_DIR}.lock"
 
 sha256_for_version() {
@@ -167,7 +169,7 @@ if [[ -f Makefile ]] && ! build_stamp_is_current; then
 fi
 
 if [[ ! -f Makefile ]]; then
-  ./configure "${CONFIGURE_FLAGS[@]}"
+  CFLAGS="${LIBOPUS_CFLAGS}" CPPFLAGS="${LIBOPUS_CPPFLAGS}" ./configure "${CONFIGURE_FLAGS[@]}"
 fi
 
 if command -v getconf >/dev/null 2>&1; then

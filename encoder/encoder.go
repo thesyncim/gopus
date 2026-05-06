@@ -65,13 +65,14 @@ type Encoder struct {
 	celtEncoder     *celt.Encoder
 
 	// Configuration
-	mode       Mode
-	bandwidth  types.Bandwidth
-	sampleRate int
-	channels   int
-	frameSize  int // In samples at 48kHz
-	lowDelay   bool
-	voipApp    bool
+	mode              Mode
+	bandwidth         types.Bandwidth
+	sampleRate        int
+	channels          int
+	frameSize         int // In samples at 48kHz
+	lowDelay          bool
+	voipApp           bool
+	restrictedSilkApp bool
 
 	// Bitrate controls
 	bitrateMode   BitrateMode
@@ -304,6 +305,11 @@ func (e *Encoder) SetVoIPApplication(enabled bool) {
 // VoIPApplication reports whether VoIP application bias is enabled.
 func (e *Encoder) VoIPApplication() bool {
 	return e.voipApp
+}
+
+// SetRestrictedSilkApplication toggles restricted-SILK application behavior.
+func (e *Encoder) SetRestrictedSilkApplication(enabled bool) {
+	e.restrictedSilkApp = enabled
 }
 
 // SetBandwidth sets the target audio bandwidth.
@@ -636,14 +642,22 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	lookaheadSamples := 0
 	pcm = e.quantizeInputToLSBDepth(pcm)
 	pcm = e.dcReject(pcm, frameSize)
-	e.inputBuffer = append(e.inputBuffer, pcm...)
-	samplesNeeded := (frameSize * e.channels) + lookaheadSamples
-	if len(e.inputBuffer) < samplesNeeded {
-		return nil, nil
-	}
 	frameEnd := frameSize * e.channels
-	framePCM := e.inputBuffer[:frameEnd]
-	lookaheadSlice := e.inputBuffer[frameEnd : frameEnd+lookaheadSamples]
+	samplesNeeded := frameEnd + lookaheadSamples
+	directFrameInput := lookaheadSamples == 0 && len(e.inputBuffer) == 0
+	var framePCM []float64
+	var lookaheadSlice []float64
+	if directFrameInput {
+		framePCM = pcm[:frameEnd]
+		lookaheadSlice = pcm[frameEnd:frameEnd]
+	} else {
+		e.inputBuffer = append(e.inputBuffer, pcm...)
+		if len(e.inputBuffer) < samplesNeeded {
+			return nil, nil
+		}
+		framePCM = e.inputBuffer[:frameEnd]
+		lookaheadSlice = e.inputBuffer[frameEnd:samplesNeeded]
+	}
 	dredExtraDelay := 0
 	if !e.lowDelay {
 		dredExtraDelay = e.sampleRate / 250
@@ -654,8 +668,10 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 
 	suppressFrame, _ := e.shouldUseDTX(framePCM)
 	if suppressFrame {
-		remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
-		e.inputBuffer = e.inputBuffer[:remaining]
+		if !directFrameInput {
+			remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
+			e.inputBuffer = e.inputBuffer[:remaining]
+		}
 		// Match libopus: return a 1-byte TOC-only packet for DTX frames.
 		// The decoder triggers its own CNG when it sees a TOC with no frame data.
 		// Returning nil here would cause WebRTC to see missing packets and apply
@@ -785,8 +801,10 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
-	e.inputBuffer = e.inputBuffer[:remaining]
+	if !directFrameInput {
+		remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
+		e.inputBuffer = e.inputBuffer[:remaining]
+	}
 	qextPayload := []byte(nil)
 	if extsupport.QEXT && actualMode == ModeCELT && e.celtEncoder != nil {
 		qextPayload = e.lastQEXTPayload()
@@ -897,7 +915,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 				packet = e.scratchPacket[:packetLen]
 			}
 		} else {
-			packet = padToSize(packet, targetSize)
+			packet = padToSizeInto(e.scratchPacket, packet, targetSize)
 		}
 	case ModeCVBR:
 		if !dredPacketBuilt && len(qextPayload) == 0 {
@@ -958,28 +976,54 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 	coef := float32(6.3) * float32(3) / float32(fs)
 	coef2 := float32(1.0) - coef
 	const verySmall = float32(1e-30)
+	src32 := e.floatInputFrame
+	if e.LSBDepth() != 24 || !e.floatInputExact || len(src32) < n {
+		src32 = nil
+	}
 	if channels == 2 {
 		m0 := e.hpMem[0]
 		m2 := e.hpMem[2]
-		for i := 0; i < frameSize; i++ {
-			x0 := float32(in[2*i])
-			x1 := float32(in[2*i+1])
-			out0 := x0 - m0
-			out1 := x1 - m2
-			m0 = coef*x0 + verySmall + coef2*m0
-			m2 = coef*x1 + verySmall + coef2*m2
-			out[2*i] = float64(out0)
-			out[2*i+1] = float64(out1)
+		if src32 != nil {
+			for i := 0; i < frameSize; i++ {
+				x0 := src32[2*i]
+				x1 := src32[2*i+1]
+				out0 := x0 - m0
+				out1 := x1 - m2
+				m0 = coef*x0 + verySmall + coef2*m0
+				m2 = coef*x1 + verySmall + coef2*m2
+				out[2*i] = float64(out0)
+				out[2*i+1] = float64(out1)
+			}
+		} else {
+			for i := 0; i < frameSize; i++ {
+				x0 := float32(in[2*i])
+				x1 := float32(in[2*i+1])
+				out0 := x0 - m0
+				out1 := x1 - m2
+				m0 = coef*x0 + verySmall + coef2*m0
+				m2 = coef*x1 + verySmall + coef2*m2
+				out[2*i] = float64(out0)
+				out[2*i+1] = float64(out1)
+			}
 		}
 		e.hpMem[0] = m0
 		e.hpMem[2] = m2
 	} else {
 		m0 := e.hpMem[0]
-		for i := 0; i < n; i++ {
-			x := float32(in[i])
-			y := x - m0
-			m0 = coef*x + verySmall + coef2*m0
-			out[i] = float64(y)
+		if src32 != nil {
+			for i := 0; i < n; i++ {
+				x := src32[i]
+				y := x - m0
+				m0 = coef*x + verySmall + coef2*m0
+				out[i] = float64(y)
+			}
+		} else {
+			for i := 0; i < n; i++ {
+				x := float32(in[i])
+				y := x - m0
+				m0 = coef*x + verySmall + coef2*m0
+				out[i] = float64(y)
+			}
 		}
 		e.hpMem[0] = m0
 	}
@@ -1048,6 +1092,12 @@ func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
 	if e.analyzer == nil || frameSize <= 0 || len(pcm) == 0 {
 		return
 	}
+	if !e.analysisEnabled() {
+		if e.analyzer.Initialized {
+			e.analyzer.Reset()
+		}
+		return
+	}
 	pcm32 := e.floatInputFrame
 	if len(pcm32) < len(pcm) {
 		pcm32 = e.scratchPCM32[:len(pcm)]
@@ -1070,6 +1120,10 @@ func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
 	e.lastAnalysisInfo = info
 	e.lastAnalysisValid = true
 	e.lastAnalysisFresh = true
+}
+
+func (e *Encoder) analysisEnabled() bool {
+	return !e.restrictedSilkApp && e.complexity >= 7 && e.sampleRate >= 16000 && e.sampleRate <= 48000
 }
 
 // primeSubframeAnalysis advances tonality_get_info() for long packets and keeps
@@ -1831,6 +1885,9 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 	if len(pcm) == 0 || frameSize <= 0 {
 		return types.SignalAuto
 	}
+	if !e.analysisEnabled() {
+		return types.SignalAuto
+	}
 	if !e.lastAnalysisFresh {
 		pcm32 := e.floatInputFrame
 		if len(pcm32) < len(pcm) {
@@ -2573,7 +2630,8 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 		e.lastOpusVADProb = 1.0
 		return
 	}
-	if isDigitalSilence(pcm, e.lsbDepth) {
+	isSilence := isDigitalSilence(pcm, e.lsbDepth)
+	if isSilence {
 		// Match libopus opus_encoder.c: digital silence forces activity=0
 		// before any tonality/VAD analysis is considered.
 		e.lastOpusVADProb = 0
@@ -2607,7 +2665,7 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 	// Match libopus peak signal energy tracking in opus_encoder.c.
 	// Update when analysis is invalid or clearly active (> threshold), and skip
 	// true digital silence frames.
-	if e.dtx != nil && (!analysisValid || analysisProb > DTXActivityThreshold) && !isDigitalSilence(pcm, e.lsbDepth) {
+	if e.dtx != nil && (!analysisValid || analysisProb > DTXActivityThreshold) && !isSilence {
 		frameEnergy := computeFrameEnergy(pcm)
 		e.dtx.peakSignalEnergy = math.Max(0.999*e.dtx.peakSignalEnergy, frameEnergy)
 	}
@@ -2652,10 +2710,10 @@ func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKH
 }
 
 func computeSilkVADFrameState(state *VADState, mono []float32, frameSamples, fsKHz int) (silk.VADFrameState, bool) {
-	activityQ8, active := computeSilkVADWithState(state, mono, frameSamples, fsKHz)
 	if state == nil || frameSamples <= 0 || fsKHz <= 0 || len(mono) < frameSamples {
 		return silk.VADFrameState{}, false
 	}
+	activityQ8, active := state.GetSpeechActivity(mono, frameSamples, fsKHz)
 	return silk.VADFrameState{
 		SpeechActivityQ8:     activityQ8,
 		InputTiltQ15:         state.InputTiltQ15,

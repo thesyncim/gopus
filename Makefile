@@ -10,8 +10,8 @@ PGO_FILE ?= default.pgo
 PGO_FLAG ?= -pgo=$(PGO_FILE)
 PGO_GENERATE_FLAG ?= -pgo=off
 PGO_REPORT_PROFILE ?= $(PGO_FILE)
-PGO_BENCH ?= ^BenchmarkDecodeOfficialTestVectors/(Float32|Int16)/all$
-PGO_PKG ?= ./testvectors
+PGO_BENCH ?= ^Benchmark(DecoderDecode_CELT|DecoderDecodeInt16|DecoderDecode_Stereo|EncoderEncode_CallerBuffer|EncoderEncodeInt16|EncoderEncode_Restricted(CELT|CELT5ms|SILK)CBRStreamAfterReset)$$
+PGO_PKG ?= .
 PGO_BENCHTIME ?= 20s
 PGO_COUNT ?= 1
 LIBOPUS_VERSION ?= 1.6.1
@@ -38,6 +38,7 @@ RELEASE_EVIDENCE_DIR ?= reports/release
 QUALITY_REPORT_DIR ?= reports/quality
 GOPUS_SAFETY_FUZZTIME ?= 12s
 GOPUS_SAFETY_PARSER_FUZZTIME ?= $(GOPUS_SAFETY_FUZZTIME)
+GOPUS_FUZZ_SMOKE_FUZZTIME ?= 50000x
 GOPUS_SAFETY_SOAK_DURATION ?= 30s
 GOPUS_SAFETY_SOAK_REPORT_INTERVAL ?= 10s
 GOPUS_SAFETY_SOAK_MAX_RSS_GROWTH_MIB ?= 256
@@ -54,7 +55,7 @@ BENCH_LIBOPUS_GUARD_COUNT ?= 3
 BENCH_LIBOPUS_GUARD_RATIO ?= 1.60
 BENCH_LIBOPUS_GUARD_ALLOCS ?= 0
 BENCH_ENCODER_LIBOPUS_GUARD_RATIO ?= 2.50
-BENCH_ENCODER_LIBOPUS_GUARD_ALLOCS ?= -1
+BENCH_ENCODER_LIBOPUS_GUARD_ALLOCS ?= 0
 BENCH_ENCODER_LIBOPUS_GUARD_CASES ?= all
 TEST_VECTOR_URL ?= https://opus-codec.org/static/testvectors/opus_testvectors-rfc8251.tar.gz
 TEST_VECTOR_FALLBACK_URL ?= https://www.ietf.org/proceedings/98/slides/materials-98-codec-opus-newvectors-00.tar.gz
@@ -92,9 +93,9 @@ test-race:
 
 # Fuzz smoke run for packet/fixture parsers.
 test-fuzz-smoke:
-	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzParsePacket_NoPanic' -fuzztime=10s -count=1
-	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzPacketMutationHelpers_NoPanic' -fuzztime=10s -count=1
-	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=10s -count=1
+	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzParsePacket_NoPanic' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzPacketMutationHelpers_NoPanic' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
 
 # Safety-focused fuzzing for malformed packets, Ogg pages, and libopus differential decode.
 test-fuzz-safety: ensure-libopus
@@ -519,7 +520,7 @@ build:
 build-nopgo:
 	$(GO_WORK_ENV) $(GO) build -pgo=off ./...
 
-# Regenerate default.pgo from decode hot-path benchmarks
+# Regenerate default.pgo from representative public encode/decode hot-path benchmarks
 pgo-generate:
 	$(GO_WORK_ENV) $(GO) test $(PGO_GENERATE_FLAG) -run='^$$' -bench='$(PGO_BENCH)' -benchtime=$(PGO_BENCHTIME) -count=$(PGO_COUNT) -cpuprofile $(PGO_FILE) $(PGO_PKG)
 
