@@ -62,13 +62,6 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 	}
 	pulses = pulses[:frameLength]
 
-	xq := nsq.scratchXq
-	if len(xq) < frameLength {
-		xq = make([]int16, frameLength)
-		nsq.scratchXq = xq
-	}
-	xq = xq[:frameLength]
-
 	var sLTPQ15 []int32
 	if nsq.scratchSLTPQ15 != nil && len(nsq.scratchSLTPQ15) >= ltpMemLength+frameLength {
 		sLTPQ15 = nsq.scratchSLTPQ15[:ltpMemLength+frameLength]
