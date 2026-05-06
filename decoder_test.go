@@ -922,6 +922,13 @@ func TestDecodeWithFEC_ProvidedPacketUsesPacketModeForCELTGate(t *testing.T) {
 	packet0 := encodeFrame(makeFrame(0))
 	_ = encodeFrame(makeFrame(960)) // packet 1 intentionally "lost"
 	packet2 := encodeFrame(makeFrame(1920))
+	toc, _, err := packetFrameCount(packet2)
+	if err != nil {
+		t.Fatalf("packetFrameCount(packet2) error: %v", err)
+	}
+	if toc.Mode == ModeCELT {
+		t.Fatalf("test setup invalid: packet2 mode resolved to CELT")
+	}
 
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {
@@ -948,8 +955,8 @@ func TestDecodeWithFEC_ProvidedPacketUsesPacketModeForCELTGate(t *testing.T) {
 	if nFEC != frameSize {
 		t.Fatalf("DecodeWithFEC(packet2, fec=true) samples=%d want=%d", nFEC, frameSize)
 	}
-	if dec.lastDataLen == 0 {
-		t.Fatalf("expected provided-packet decode_fec path, got PLC fallback")
+	if dec.prevMode != toc.Mode {
+		t.Fatalf("prevMode=%v want %v (provided packet mode must override transient PLC mode)", dec.prevMode, toc.Mode)
 	}
 }
 

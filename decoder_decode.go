@@ -382,14 +382,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 			}
 			if !packetHasLBRR(firstFrameData, toc) {
 				d.clearFECState()
-				plcFrameSize := d.lastPacketDuration
-				if plcFrameSize <= 0 {
-					plcFrameSize = d.lastFrameSize
-				}
-				if plcFrameSize <= 0 {
-					plcFrameSize = frameSize
-				}
-				return d.decodePLCForFEC(pcm, plcFrameSize)
+				return d.decodePLCForFECWithState(pcm, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
 			}
 			d.storeFECData(firstFrameData, toc, frameCount, frameSize)
 			if n, err := d.decodeFECFrame(pcm); err == nil {
