@@ -2630,7 +2630,8 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 		e.lastOpusVADProb = 1.0
 		return
 	}
-	if isDigitalSilence(pcm, e.lsbDepth) {
+	isSilence := isDigitalSilence(pcm, e.lsbDepth)
+	if isSilence {
 		// Match libopus opus_encoder.c: digital silence forces activity=0
 		// before any tonality/VAD analysis is considered.
 		e.lastOpusVADProb = 0
@@ -2664,7 +2665,7 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 	// Match libopus peak signal energy tracking in opus_encoder.c.
 	// Update when analysis is invalid or clearly active (> threshold), and skip
 	// true digital silence frames.
-	if e.dtx != nil && (!analysisValid || analysisProb > DTXActivityThreshold) && !isDigitalSilence(pcm, e.lsbDepth) {
+	if e.dtx != nil && (!analysisValid || analysisProb > DTXActivityThreshold) && !isSilence {
 		frameEnergy := computeFrameEnergy(pcm)
 		e.dtx.peakSignalEnergy = math.Max(0.999*e.dtx.peakSignalEnergy, frameEnergy)
 	}
