@@ -1183,9 +1183,10 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 
 	left := e.scratchLeft[:silkSamples+2]
 	right := e.scratchRight[:silkSamples+2]
-	for i := 0; i < silkSamples && i*2+1 < len(pcm); i++ {
-		left[i] = pcm[i*2]
-		right[i] = pcm[i*2+1]
+	stereoPCM := pcm[:silkSamples*2]
+	for i, j := 0, 0; i < silkSamples; i, j = i+1, j+2 {
+		left[i] = stereoPCM[j]
+		right[i] = stereoPCM[j+1]
 	}
 	// Use lookahead if provided, otherwise zero-pad.
 	if len(lookahead) >= 2 {

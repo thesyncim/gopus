@@ -2710,10 +2710,10 @@ func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKH
 }
 
 func computeSilkVADFrameState(state *VADState, mono []float32, frameSamples, fsKHz int) (silk.VADFrameState, bool) {
-	activityQ8, active := computeSilkVADWithState(state, mono, frameSamples, fsKHz)
 	if state == nil || frameSamples <= 0 || fsKHz <= 0 || len(mono) < frameSamples {
 		return silk.VADFrameState{}, false
 	}
+	activityQ8, active := state.GetSpeechActivity(mono, frameSamples, fsKHz)
 	return silk.VADFrameState{
 		SpeechActivityQ8:     activityQ8,
 		InputTiltQ15:         state.InputTiltQ15,
