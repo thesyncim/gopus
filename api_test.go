@@ -1,6 +1,8 @@
 package gopus
 
 import (
+	"errors"
+	"fmt"
 	"math"
 	"testing"
 )
@@ -29,520 +31,284 @@ func generateSineWaveInt16(sampleRate int, freq float64, samples int, channels i
 	return pcm
 }
 
-// computeEnergy computes the RMS energy of a float32 signal.
-func computeEnergy(samples []float32) float64 {
-	if len(samples) == 0 {
-		return 0
-	}
-	var sum float64
-	for _, s := range samples {
-		sum += float64(s) * float64(s)
-	}
-	return math.Sqrt(sum / float64(len(samples)))
-}
-
-// TestRoundTrip_Mono_Float32 tests mono float32 encode/decode round-trip.
-func TestRoundTrip_Mono_Float32(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
-
-	cfg := DefaultDecoderConfig(48000, 1)
-	dec, err := NewDecoder(cfg)
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	// Generate 440 Hz sine wave
-	frameSize := 960
-	pcmIn := generateSineWaveFloat32(48000, 440, frameSize, 1)
-	inputEnergy := computeEnergy(pcmIn)
-
-	// Encode
-	packet, err := enc.EncodeFloat32(pcmIn)
-	if err != nil {
-		t.Fatalf("Encode error: %v", err)
-	}
-
-	if len(packet) == 0 {
-		t.Fatal("Encoded packet is empty")
-	}
-
-	// Decode
-	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
-	n, err := dec.Decode(packet, pcmOut)
-	if err != nil {
-		t.Fatalf("Decode error: %v", err)
-	}
-
-	outputEnergy := computeEnergy(pcmOut[:n*cfg.Channels])
-
-	t.Logf("Mono float32 round-trip: input energy=%.4f, output energy=%.4f, packet=%d bytes",
-		inputEnergy, outputEnergy, len(packet))
-
-	// Lossy codec, but output should have significant energy
-	if outputEnergy == 0 {
-		t.Error("Output has zero energy")
-	}
-}
-
-// TestRoundTrip_Stereo_Float32 tests stereo float32 encode/decode round-trip.
-func TestRoundTrip_Stereo_Float32(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
-
-	cfg := DefaultDecoderConfig(48000, 2)
-	dec, err := NewDecoder(cfg)
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	// Generate stereo sine wave (L: 440Hz, R: 880Hz)
-	frameSize := 960
-	pcmIn := make([]float32, frameSize*2)
-	for i := 0; i < frameSize; i++ {
-		pcmIn[i*2] = float32(0.5 * math.Sin(2*math.Pi*440*float64(i)/48000))
-		pcmIn[i*2+1] = float32(0.5 * math.Sin(2*math.Pi*880*float64(i)/48000))
-	}
-	inputEnergy := computeEnergy(pcmIn)
-
-	// Encode
-	packet, err := enc.EncodeFloat32(pcmIn)
-	if err != nil {
-		t.Fatalf("Encode error: %v", err)
-	}
-
-	// Decode
-	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
-	n, err := dec.Decode(packet, pcmOut)
-	if err != nil {
-		t.Fatalf("Decode error: %v", err)
-	}
-
-	outputEnergy := computeEnergy(pcmOut[:n*cfg.Channels])
-
-	t.Logf("Stereo float32 round-trip: input energy=%.4f, output energy=%.4f, packet=%d bytes",
-		inputEnergy, outputEnergy, len(packet))
-}
-
-// TestRoundTrip_Mono_Int16 tests mono int16 encode/decode round-trip.
-func TestRoundTrip_Mono_Int16(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
-
-	cfg := DefaultDecoderConfig(48000, 1)
-	dec, err := NewDecoder(cfg)
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	// Generate 440 Hz sine wave as int16
-	frameSize := 960
-	pcmIn := generateSineWaveInt16(48000, 440, frameSize, 1)
-
-	// Encode
-	packet, err := enc.EncodeInt16Slice(pcmIn)
-	if err != nil {
-		t.Fatalf("Encode error: %v", err)
-	}
-
-	if len(packet) == 0 {
-		t.Error("Encoded packet is empty")
-	}
-
-	// Decode
-	pcmOut := make([]int16, cfg.MaxPacketSamples*cfg.Channels)
-	n, err := dec.DecodeInt16(packet, pcmOut)
-	if err != nil {
-		t.Fatalf("Decode error: %v", err)
-	}
-
-	// Note: Lossy codec - output may differ from input significantly
-	// The key validation is that encoding and decoding complete without error
-
-	t.Logf("Mono int16 round-trip: %d samples -> %d bytes -> %d samples",
-		len(pcmIn), len(packet), n*cfg.Channels)
-}
-
-// TestRoundTrip_Stereo_Int16 tests stereo int16 encode/decode round-trip.
-func TestRoundTrip_Stereo_Int16(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
-
-	cfg := DefaultDecoderConfig(48000, 2)
-	dec, err := NewDecoder(cfg)
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	// Generate stereo sine wave as int16
-	frameSize := 960
-	pcmIn := make([]int16, frameSize*2)
-	for i := 0; i < frameSize; i++ {
-		pcmIn[i*2] = int16(16384 * math.Sin(2*math.Pi*440*float64(i)/48000))
-		pcmIn[i*2+1] = int16(16384 * math.Sin(2*math.Pi*880*float64(i)/48000))
-	}
-
-	// Encode
-	packet, err := enc.EncodeInt16Slice(pcmIn)
-	if err != nil {
-		t.Fatalf("Encode error: %v", err)
-	}
-
-	// Decode
-	pcmOut := make([]int16, cfg.MaxPacketSamples*cfg.Channels)
-	n, err := dec.DecodeInt16(packet, pcmOut)
-	if err != nil {
-		t.Fatalf("Decode error: %v", err)
-	}
-
-	t.Logf("Stereo int16 round-trip: %d samples -> %d bytes -> %d samples",
-		len(pcmIn), len(packet), n*cfg.Channels)
-}
-
-// TestRoundTrip_MultipleFrames tests encoding/decoding multiple consecutive frames.
-func TestRoundTrip_MultipleFrames(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
-
-	cfg := DefaultDecoderConfig(48000, 1)
-	dec, err := NewDecoder(cfg)
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	frameSize := 960
-	numFrames := 10
-
-	var totalPacketBytes int
-	var totalInputEnergy, totalOutputEnergy float64
-
-	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
-	for i := 0; i < numFrames; i++ {
-		// Generate varying frequency for each frame
-		freq := 440.0 + float64(i)*50
-		pcmIn := generateSineWaveFloat32(48000, freq, frameSize, 1)
-		totalInputEnergy += computeEnergy(pcmIn)
-
-		// Encode
-		packet, err := enc.EncodeFloat32(pcmIn)
-		if err != nil {
-			t.Fatalf("Frame %d encode error: %v", i, err)
-		}
-		totalPacketBytes += len(packet)
-
-		// Decode
-		n, err := dec.Decode(packet, pcmOut)
-		if err != nil {
-			t.Fatalf("Frame %d decode error: %v", i, err)
-		}
-		totalOutputEnergy += computeEnergy(pcmOut[:n*cfg.Channels])
-	}
-
-	t.Logf("Multiple frames: %d frames, %d total bytes, avg input=%.4f, avg output=%.4f",
-		numFrames, totalPacketBytes, totalInputEnergy/float64(numFrames), totalOutputEnergy/float64(numFrames))
-}
-
-// TestRoundTrip_AllSampleRates tests all valid Opus sample rates.
-func TestRoundTrip_AllSampleRates(t *testing.T) {
-	sampleRates := []int{8000, 12000, 16000, 24000, 48000}
-
-	for _, sampleRate := range sampleRates {
-		t.Run(string(rune('0'+sampleRate/1000)), func(t *testing.T) {
-			enc, err := NewEncoder(EncoderConfig{SampleRate: sampleRate, Channels: 1, Application: ApplicationAudio})
-			if err != nil {
-				t.Fatalf("NewEncoder(%d) error: %v", sampleRate, err)
-			}
-
-			cfg := DefaultDecoderConfig(sampleRate, 1)
-			dec, err := NewDecoder(cfg)
-			if err != nil {
-				t.Fatalf("NewDecoder(%d) error: %v", sampleRate, err)
-			}
-
-			// Frame size at 48kHz is 960 (20ms), scale for other rates
-			frameSize := 960 // Opus frame size is always specified at 48kHz
-
-			pcmIn := generateSineWaveFloat32(sampleRate, 440, frameSize, 1)
-
-			packet, err := enc.EncodeFloat32(pcmIn)
-			if err != nil {
-				t.Fatalf("Encode error: %v", err)
-			}
-
-			pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
-			n, err := dec.Decode(packet, pcmOut)
-			if err != nil {
-				t.Fatalf("Decode error: %v", err)
-			}
-
-			t.Logf("%d Hz: %d bytes packet, %d samples out", sampleRate, len(packet), n*cfg.Channels)
-		})
-	}
-}
-
-// TestApplication_VoIP tests VoIP application uses appropriate settings.
-func TestApplication_VoIP(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
-
-	// VoIP mode should work with speech-like signals
-	frameSize := 960
-	pcm := generateSineWaveFloat32(48000, 300, frameSize, 1) // Speech frequency
-
-	packet, err := enc.EncodeFloat32(pcm)
-	if err != nil {
-		t.Fatalf("Encode error: %v", err)
-	}
-
-	if len(packet) == 0 {
-		t.Error("VoIP mode produced empty packet")
-	}
-
-	t.Logf("VoIP mode: %d bytes", len(packet))
-}
-
-// TestApplication_Audio tests Audio application uses appropriate settings.
-func TestApplication_Audio(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
-
-	// Audio mode should work with music-like signals
-	frameSize := 960
-	pcm := generateSineWaveFloat32(48000, 440, frameSize, 1) // Music frequency
-
-	packet, err := enc.EncodeFloat32(pcm)
-	if err != nil {
-		t.Fatalf("Encode error: %v", err)
-	}
-
-	if len(packet) == 0 {
-		t.Error("Audio mode produced empty packet")
-	}
-
-	t.Logf("Audio mode: %d bytes", len(packet))
-}
-
-// TestPLC_SingleLoss tests packet loss concealment for a single lost packet.
-func TestPLC_SingleLoss(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
-
-	cfg := DefaultDecoderConfig(48000, 1)
-	dec, err := NewDecoder(cfg)
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	frameSize := 960
-
-	// Encode and decode first frame (establishes state)
-	pcm1 := generateSineWaveFloat32(48000, 440, frameSize, 1)
-	packet1, _ := enc.EncodeFloat32(pcm1)
-	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
-	_, err = dec.Decode(packet1, pcmOut)
-	if err != nil {
-		t.Fatalf("First decode error: %v", err)
-	}
-
-	// Simulate packet loss - pass nil to decoder
-	n, err := dec.Decode(nil, pcmOut)
-	if err != nil {
-		t.Fatalf("PLC decode error: %v", err)
-	}
-
-	plcEnergy := computeEnergy(pcmOut[:n*cfg.Channels])
-
-	// PLC should produce some audio (concealed samples)
-	t.Logf("PLC single loss: produced %d samples with energy %.4f", n, plcEnergy)
-}
-
-// TestPLC_MultipleLoss tests PLC fades gracefully on consecutive losses.
-func TestPLC_MultipleLoss(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
-
-	cfg := DefaultDecoderConfig(48000, 1)
-	dec, err := NewDecoder(cfg)
-	if err != nil {
-		t.Fatalf("NewDecoder error: %v", err)
-	}
-
-	frameSize := 960
-
-	// Encode and decode first frame
-	pcm1 := generateSineWaveFloat32(48000, 440, frameSize, 1)
-	packet1, _ := enc.EncodeFloat32(pcm1)
-	pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
-	_, _ = dec.Decode(packet1, pcmOut)
-
-	// Multiple consecutive losses
-	numLosses := 5
-	var energies []float64
-
-	for i := 0; i < numLosses; i++ {
-		n, err := dec.Decode(nil, pcmOut)
-		if err != nil {
-			t.Fatalf("PLC decode %d error: %v", i, err)
-		}
-		energies = append(energies, computeEnergy(pcmOut[:n*cfg.Channels]))
-	}
-
-	t.Logf("PLC multiple losses: energies=%v", energies)
-
-	// Energy should generally decrease or stay low with consecutive losses
-	// (PLC should fade rather than produce loud artifacts)
-}
-
-// TestPacketParsing tests that encoded packets can be parsed.
-func TestPacketParsing(t *testing.T) {
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
-
-	frameSize := 960
-	pcm := generateSineWaveFloat32(48000, 440, frameSize, 1)
-
-	packet, err := enc.EncodeFloat32(pcm)
-	if err != nil {
-		t.Fatalf("Encode error: %v", err)
-	}
-
-	// Parse the packet
-	info, err := ParsePacket(packet)
-	if err != nil {
-		t.Fatalf("ParsePacket error: %v", err)
-	}
-
-	if info.FrameCount != 1 {
-		t.Errorf("FrameCount = %d, want 1", info.FrameCount)
-	}
-
-	t.Logf("Packet parsed: mode=%d, bandwidth=%d, frameSize=%d, stereo=%v",
-		info.TOC.Mode, info.TOC.Bandwidth, info.TOC.FrameSize, info.TOC.Stereo)
-}
-
-// TestSILK10msOpusRoundTrip tests SILK 10ms encoding/decoding through the full
-// Opus API at various bitrates. This verifies that the complete pipeline
-// (encoder -> TOC byte -> decoder) works correctly for 10ms SILK frames.
-func TestSILK10msOpusRoundTrip(t *testing.T) {
-	testCases := []struct {
-		name      string
-		bitrate   int
-		frameSize int // at 48kHz: 480=10ms, 960=20ms
-		maxPeak   float64
+func TestPublicAPIRoundTripBasics(t *testing.T) {
+	tests := []struct {
+		name       string
+		sampleRate int
+		channels   int
+		format     string
 	}{
-		{"SILK-10ms-32k", 32000, 480, 2.0},
-		{"SILK-10ms-40k", 40000, 480, 2.0},
-		{"SILK-10ms-48k", 48000, 480, 2.0},
-		{"SILK-10ms-64k", 64000, 480, 2.0},
-		{"SILK-20ms-32k", 32000, 960, 2.0},
-		{"SILK-20ms-64k", 64000, 960, 2.0},
+		{name: "float32_8k_mono", sampleRate: 8000, channels: 1, format: "float32"},
+		{name: "float32_12k_mono", sampleRate: 12000, channels: 1, format: "float32"},
+		{name: "float32_16k_mono", sampleRate: 16000, channels: 1, format: "float32"},
+		{name: "float32_24k_mono", sampleRate: 24000, channels: 1, format: "float32"},
+		{name: "float32_48k_mono", sampleRate: 48000, channels: 1, format: "float32"},
+		{name: "float32_48k_stereo", sampleRate: 48000, channels: 2, format: "float32"},
+		{name: "int16_48k_mono", sampleRate: 48000, channels: 1, format: "int16"},
+		{name: "int16_48k_stereo", sampleRate: 48000, channels: 2, format: "int16"},
 	}
 
-	for _, tc := range testCases {
+	for _, tc := range tests {
+		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
-			if err != nil {
-				t.Fatalf("NewEncoder error: %v", err)
-			}
-			enc.SetBitrate(tc.bitrate)
-			enc.SetFrameSize(tc.frameSize)
-			enc.SetSignal(SignalVoice)
-			if err := enc.SetMaxBandwidth(BandwidthWideband); err != nil {
-				t.Fatalf("SetMaxBandwidth(BandwidthWideband) error: %v", err)
-			}
+			enc := mustNewTestEncoder(t, tc.sampleRate, tc.channels, ApplicationAudio)
+			dec := mustNewTestDecoder(t, tc.sampleRate, tc.channels)
 
-			cfg := DefaultDecoderConfig(48000, 1)
-			dec, err := NewDecoder(cfg)
-			if err != nil {
-				t.Fatalf("NewDecoder error: %v", err)
-			}
-
-			nFrames := 20
-			var maxPeak float64
-			nDecoded := 0
-			pcmOut := make([]float32, cfg.MaxPacketSamples*cfg.Channels)
-
-			for i := 0; i < nFrames; i++ {
-				pcmIn := make([]float32, tc.frameSize)
-				for j := 0; j < tc.frameSize; j++ {
-					sampleIdx := i*tc.frameSize + j
-					tm := float64(sampleIdx) / 48000.0
-					pcmIn[j] = float32(0.5 * math.Sin(2*math.Pi*440*tm))
-				}
-
+			const frameSize = 960
+			switch tc.format {
+			case "float32":
+				pcmIn := publicCodecPCM(tc.sampleRate, frameSize, tc.channels, 0, false)
 				packet, err := enc.EncodeFloat32(pcmIn)
 				if err != nil {
-					t.Fatalf("Encode error at frame %d: %v", i, err)
+					t.Fatalf("EncodeFloat32: %v", err)
 				}
-				if len(packet) == 0 {
-					continue
-				}
+				requirePacketBasics(t, packet, tc.channels, frameSize)
 
-				// Verify TOC byte
-				toc := ParseTOC(packet[0])
-				if toc.Mode != ModeSILK {
-					t.Logf("Frame %d: mode=%d (expected SILK), bw=%d", i, toc.Mode, toc.Bandwidth)
-				}
-
+				pcmOut := make([]float32, defaultMaxPacketSamples*tc.channels)
 				n, err := dec.Decode(packet, pcmOut)
 				if err != nil {
-					t.Logf("Frame %d: decode error: %v (pktLen=%d)", i, err, len(packet))
-					continue
+					t.Fatalf("Decode: %v", err)
 				}
-				nDecoded++
-
-				for j := 0; j < n; j++ {
-					v := math.Abs(float64(pcmOut[j]))
-					if v > maxPeak {
-						maxPeak = v
-					}
+				requireDecodedFloat32(t, pcmOut[:n*tc.channels], n, frameSize, true)
+			case "int16":
+				pcmIn := generateSineWaveInt16(tc.sampleRate, 440, frameSize, tc.channels)
+				packet, err := enc.EncodeInt16Slice(pcmIn)
+				if err != nil {
+					t.Fatalf("EncodeInt16Slice: %v", err)
 				}
-			}
+				requirePacketBasics(t, packet, tc.channels, frameSize)
 
-			t.Logf("Peak=%.4f (nDecoded=%d)", maxPeak, nDecoded)
-			if maxPeak > tc.maxPeak {
-				t.Errorf("Output peak %.4f exceeds limit %.4f - CORRUPTION", maxPeak, tc.maxPeak)
-			}
-			if nDecoded == 0 {
-				t.Error("No frames decoded")
+				pcmOut := make([]int16, defaultMaxPacketSamples*tc.channels)
+				n, err := dec.DecodeInt16(packet, pcmOut)
+				if err != nil {
+					t.Fatalf("DecodeInt16: %v", err)
+				}
+				requireDecodedInt16(t, pcmOut[:n*tc.channels], n, frameSize)
+			default:
+				t.Fatalf("unknown format %q", tc.format)
 			}
 		})
 	}
 }
 
-// TestBufferSizing tests that buffer recommendations work.
-func TestBufferSizing(t *testing.T) {
-	// Maximum frame size: 60ms at 48kHz stereo = 2880 * 2 = 5760 samples
-	maxDecodeBuffer := make([]float32, 2880*2)
-	if len(maxDecodeBuffer) < 5760 {
-		t.Error("Max decode buffer should be 5760 samples")
+func TestPublicAPISequentialDecodeAndPLC(t *testing.T) {
+	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
+	dec := mustNewTestDecoder(t, 48000, 1)
+
+	packet := make([]byte, maxPacketBytesPerStream)
+	pcmOut := make([]float32, defaultMaxPacketSamples)
+
+	for i := 0; i < 6; i++ {
+		pcmIn := publicCodecPCM(48000, enc.FrameSize(), 1, i, false)
+		nPacket, err := enc.Encode(pcmIn, packet)
+		if err != nil {
+			t.Fatalf("frame %d Encode: %v", i, err)
+		}
+		requirePacketBasics(t, packet[:nPacket], 1, enc.FrameSize())
+
+		nPCM, err := dec.Decode(packet[:nPacket], pcmOut)
+		if err != nil {
+			t.Fatalf("frame %d Decode: %v", i, err)
+		}
+		requireDecodedFloat32(t, pcmOut[:nPCM], nPCM, enc.FrameSize(), true)
 	}
 
-	// Maximum encode output: 4000 bytes
-	maxEncodeBuffer := make([]byte, 4000)
-	if len(maxEncodeBuffer) < 4000 {
-		t.Error("Max encode buffer should be 4000 bytes")
+	for _, lost := range []struct {
+		name string
+		data []byte
+	}{
+		{name: "nil", data: nil},
+		{name: "empty", data: []byte{}},
+	} {
+		t.Run("plc_"+lost.name, func(t *testing.T) {
+			n, err := dec.Decode(lost.data, pcmOut)
+			if err != nil {
+				t.Fatalf("Decode PLC: %v", err)
+			}
+			requireDecodedFloat32(t, pcmOut[:n], n, enc.FrameSize(), false)
+		})
+	}
+}
+
+func TestPublicAPIBufferAndLimitContracts(t *testing.T) {
+	if _, err := NewDecoder(DecoderConfig{SampleRate: 48000, Channels: 1, MaxPacketSamples: -1}); !errors.Is(err, ErrInvalidMaxPacketSamples) {
+		t.Fatalf("NewDecoder invalid max samples error=%v want=%v", err, ErrInvalidMaxPacketSamples)
+	}
+	if _, err := NewDecoder(DecoderConfig{SampleRate: 48000, Channels: 1, MaxPacketBytes: -1}); !errors.Is(err, ErrInvalidMaxPacketBytes) {
+		t.Fatalf("NewDecoder invalid max bytes error=%v want=%v", err, ErrInvalidMaxPacketBytes)
 	}
 
-	t.Log("Buffer sizing verified: decode=5760 samples, encode=4000 bytes")
+	enc := mustNewTestEncoder(t, 48000, 1, ApplicationRestrictedCelt)
+	pcm := publicCodecPCM(48000, enc.FrameSize(), 1, 0, false)
+	if _, err := enc.Encode(pcm, nil); !errors.Is(err, ErrBufferTooSmall) {
+		t.Fatalf("Encode into nil buffer error=%v want=%v", err, ErrBufferTooSmall)
+	}
+
+	packet := publicEncodedPacket(t, ApplicationRestrictedCelt, 1, 960, nil)
+	decSmallPacket := mustNewDecoderWithConfig(t, DecoderConfig{
+		SampleRate:       48000,
+		Channels:         1,
+		MaxPacketSamples: defaultMaxPacketSamples,
+		MaxPacketBytes:   len(packet) - 1,
+	})
+	if _, err := decSmallPacket.Decode(packet, make([]float32, 960)); !errors.Is(err, ErrPacketTooLarge) {
+		t.Fatalf("Decode over byte cap error=%v want=%v", err, ErrPacketTooLarge)
+	}
+
+	decSmallSamples := mustNewDecoderWithConfig(t, DecoderConfig{
+		SampleRate:       48000,
+		Channels:         1,
+		MaxPacketSamples: 959,
+		MaxPacketBytes:   defaultMaxPacketBytes,
+	})
+	if _, err := decSmallSamples.Decode(packet, make([]float32, 960)); !errors.Is(err, ErrPacketTooLarge) {
+		t.Fatalf("Decode over sample cap error=%v want=%v", err, ErrPacketTooLarge)
+	}
+
+	dec := mustNewTestDecoder(t, 48000, 1)
+	if _, err := dec.Decode(packet, make([]float32, 959)); !errors.Is(err, ErrBufferTooSmall) {
+		t.Fatalf("Decode into short buffer error=%v want=%v", err, ErrBufferTooSmall)
+	}
+}
+
+func TestPublicEncoderResetKeepsConfiguration(t *testing.T) {
+	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
+
+	if err := enc.SetBitrate(96000); err != nil {
+		t.Fatalf("SetBitrate: %v", err)
+	}
+	if err := enc.SetBitrateMode(BitrateModeVBR); err != nil {
+		t.Fatalf("SetBitrateMode: %v", err)
+	}
+	if err := enc.SetComplexity(7); err != nil {
+		t.Fatalf("SetComplexity: %v", err)
+	}
+	if err := enc.SetExpertFrameDuration(ExpertFrameDuration40Ms); err != nil {
+		t.Fatalf("SetExpertFrameDuration: %v", err)
+	}
+	if err := enc.SetForceChannels(1); err != nil {
+		t.Fatalf("SetForceChannels: %v", err)
+	}
+	if err := enc.SetLSBDepth(16); err != nil {
+		t.Fatalf("SetLSBDepth: %v", err)
+	}
+	if err := enc.SetMaxBandwidth(BandwidthWideband); err != nil {
+		t.Fatalf("SetMaxBandwidth: %v", err)
+	}
+	if err := enc.SetSignal(SignalVoice); err != nil {
+		t.Fatalf("SetSignal: %v", err)
+	}
+	enc.SetDTX(true)
+	enc.SetFEC(true)
+	enc.SetPhaseInversionDisabled(true)
+	enc.SetPredictionDisabled(true)
+	enc.SetVBRConstraint(false)
+
+	enc.Reset()
+
+	checks := []struct {
+		name string
+		got  any
+		want any
+	}{
+		{name: "bitrate", got: enc.Bitrate(), want: 96000},
+		{name: "bitrate_mode", got: enc.BitrateMode(), want: BitrateModeVBR},
+		{name: "complexity", got: enc.Complexity(), want: 7},
+		{name: "expert_frame_duration", got: enc.ExpertFrameDuration(), want: ExpertFrameDuration40Ms},
+		{name: "frame_size", got: enc.FrameSize(), want: 1920},
+		{name: "force_channels", got: enc.ForceChannels(), want: 1},
+		{name: "lsb_depth", got: enc.LSBDepth(), want: 16},
+		{name: "max_bandwidth", got: enc.MaxBandwidth(), want: BandwidthWideband},
+		{name: "signal", got: enc.Signal(), want: SignalVoice},
+		{name: "dtx", got: enc.DTXEnabled(), want: true},
+		{name: "fec", got: enc.FECEnabled(), want: true},
+		{name: "phase_inversion_disabled", got: enc.PhaseInversionDisabled(), want: true},
+		{name: "prediction_disabled", got: enc.PredictionDisabled(), want: true},
+		{name: "vbr_constraint", got: enc.VBRConstraint(), want: false},
+	}
+	for _, check := range checks {
+		if check.got != check.want {
+			t.Fatalf("%s after Reset=%v want %v", check.name, check.got, check.want)
+		}
+	}
+}
+
+func TestPublicDecoderResetKeepsControls(t *testing.T) {
+	dec := mustNewTestDecoder(t, 48000, 1)
+	if err := dec.SetGain(512); err != nil {
+		t.Fatalf("SetGain: %v", err)
+	}
+	dec.SetIgnoreExtensions(true)
+
+	dec.Reset()
+
+	if got := dec.Gain(); got != 512 {
+		t.Fatalf("Gain() after Reset=%d want 512", got)
+	}
+	if !dec.IgnoreExtensions() {
+		t.Fatal("IgnoreExtensions() after Reset=false want true")
+	}
+}
+
+func requirePacketBasics(t *testing.T, packet []byte, channels, frameSize int) {
+	t.Helper()
+
+	if len(packet) == 0 {
+		t.Fatal("packet is empty")
+	}
+	info, err := ParsePacket(packet)
+	if err != nil {
+		t.Fatalf("ParsePacket: %v", err)
+	}
+	if info.FrameCount < 1 {
+		t.Fatalf("FrameCount=%d want >=1", info.FrameCount)
+	}
+	if info.TOC.Stereo != (channels == 2) {
+		t.Fatalf("packet stereo=%v want %v", info.TOC.Stereo, channels == 2)
+	}
+	if info.TOC.FrameSize > frameSize {
+		t.Fatalf("TOC frame size=%d exceeds encode frame size %d", info.TOC.FrameSize, frameSize)
+	}
+}
+
+func requireDecodedFloat32(t *testing.T, pcm []float32, gotSamples, wantSamples int, wantEnergy bool) {
+	t.Helper()
+
+	if gotSamples != wantSamples {
+		t.Fatalf("decoded samples=%d want %d", gotSamples, wantSamples)
+	}
+	assertPublicCodecPCM(t, pcm)
+	if wantEnergy && computeEnergyFloat32(pcm) == 0 {
+		t.Fatal("decoded output has zero energy")
+	}
+}
+
+func requireDecodedInt16(t *testing.T, pcm []int16, gotSamples, wantSamples int) {
+	t.Helper()
+
+	if gotSamples != wantSamples {
+		t.Fatalf("decoded samples=%d want %d", gotSamples, wantSamples)
+	}
+	for i, v := range pcm {
+		if v != 0 {
+			return
+		}
+		if i == len(pcm)-1 {
+			t.Fatal("decoded int16 output is silent")
+		}
+	}
+}
+
+func mustNewDecoderWithConfig(t *testing.T, cfg DecoderConfig) *Decoder {
+	t.Helper()
+
+	dec, err := NewDecoder(cfg)
+	if err != nil {
+		t.Fatalf("NewDecoder(%s): %v", decoderConfigName(cfg), err)
+	}
+	return dec
+}
+
+func decoderConfigName(cfg DecoderConfig) string {
+	return fmt.Sprintf("rate=%d/ch=%d/max_samples=%d/max_bytes=%d", cfg.SampleRate, cfg.Channels, cfg.MaxPacketSamples, cfg.MaxPacketBytes)
 }

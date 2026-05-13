@@ -652,7 +652,8 @@ func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal [
 	enc.SetBandwidth(bandwidth)
 	enc.SetBitrate(c.Bitrate)
 	enc.SetBitrateMode(encoder.ModeCBR)
-	// Match fixture generation (opus_demo app/profile + bitrate controls only):
+	enc.SetComplexity(10)
+	// Match fixture generation (opus_demo app/profile + bitrate/complexity controls only):
 	// do not force signal-type hints here.
 
 	packets := make([][]byte, 0, c.Frames)

@@ -213,6 +213,7 @@ type Encoder struct {
 	scratchCELTPrefill       []float64 // CELT transition prefill source (Fs/400 * channels)
 	hasCELTPrefill           bool
 	scratchQuantPCM          []float64 // LSB-depth quantized input
+	scratchStreamPCM         []float64 // channel-forced CELT frame view
 	floatInputFrame          []float32 // Current public float32 frame view, if available
 	floatInputExact          bool      // True when pcm originated from float32 samples
 }
@@ -230,6 +231,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		channels = 2
 	}
 	maxSamples := 5760 * channels
+	maxStreamSamples := 5760 * 2
 
 	return &Encoder{
 		mode:                   ModeAuto,
@@ -249,7 +251,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		dtxEnabled:             false,
 		dtx:                    newDTXState(),
 		rng:                    22222,
-		complexity:             10,
+		complexity:             9,
 		signalType:             types.SignalAuto,
 		maxBandwidth:           types.BandwidthFullband,
 		forceChannels:          -1,
@@ -263,6 +265,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchRight:           make([]float32, maxSamples),
 		scratchMono:            make([]float32, maxSamples),
 		scratchPacket:          make([]byte, defaultScratchPacketBytes),
+		scratchStreamPCM:       make([]float64, maxStreamSamples),
 		prevMode:               ModeAuto,
 		prevPacketMode:         ModeAuto,
 		prevAutoMode:           ModeAuto,
@@ -811,7 +814,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	dredPacketBuilt := false
 	if packet == nil {
-		stereo := e.channels == 2
+		stereo := e.packetChannelsForMode(actualMode) == 2
 		packetBW := e.effectiveBandwidth()
 		if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 			packetBW = types.BandwidthWideband
@@ -894,7 +897,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		}
 		targetSize := targetBytesForBitrate(e.bitrate, frameSize)
 		if len(qextPayload) > 0 && len(packet) < targetSize {
-			stereo := e.channels == 2
+			stereo := e.packetChannelsForMode(actualMode) == 2
 			packetBW := e.effectiveBandwidth()
 			if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 				packetBW = types.BandwidthWideband
@@ -940,7 +943,7 @@ func (e *Encoder) buildDTXPacket(frameSize int) ([]byte, error) {
 	if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 		packetBW = types.BandwidthWideband
 	}
-	stereo := e.channels == 2
+	stereo := e.packetChannelsForMode(actualMode) == 2
 
 	// Build TOC-only packet (no frame data) into scratch buffer.
 	n, err := BuildPacketInto(e.scratchPacket, nil, modeToTypes(actualMode), packetBW, frameSize, stereo)
@@ -1679,6 +1682,55 @@ func (e *Encoder) prepareCELTPCM(framePCM []float64, frameSize int) []float64 {
 	return e.applyDelayCompensation(framePCM, frameSize)
 }
 
+func (e *Encoder) packetChannelsForMode(mode Mode) int {
+	if mode == ModeCELT {
+		return e.effectiveStreamChannels()
+	}
+	return e.channels
+}
+
+func (e *Encoder) effectiveStreamChannels() int {
+	if e.channels == 2 && (e.forceChannels == 1 || e.forceChannels == 2) {
+		return e.forceChannels
+	}
+	return e.channels
+}
+
+func (e *Encoder) frameForStreamChannels(pcm []float64, frameSize int) ([]float64, int, error) {
+	streamChannels := e.effectiveStreamChannels()
+	if streamChannels == e.channels {
+		if len(pcm) != frameSize*e.channels {
+			return nil, 0, ErrInvalidFrameSize
+		}
+		return pcm, streamChannels, nil
+	}
+
+	if frameSize <= 0 || len(pcm) != frameSize*e.channels {
+		return nil, 0, ErrInvalidFrameSize
+	}
+	needed := frameSize * streamChannels
+	if needed > cap(e.scratchStreamPCM) {
+		e.scratchStreamPCM = make([]float64, needed)
+	}
+	out := e.scratchStreamPCM[:needed]
+
+	switch {
+	case e.channels == 2 && streamChannels == 1:
+		for i := 0; i < frameSize; i++ {
+			out[i] = 0.5 * (pcm[2*i] + pcm[2*i+1])
+		}
+	case e.channels == 1 && streamChannels == 2:
+		for i := 0; i < frameSize; i++ {
+			v := pcm[i]
+			out[2*i] = v
+			out[2*i+1] = v
+		}
+	default:
+		return nil, 0, ErrInvalidChannels
+	}
+	return out, streamChannels, nil
+}
+
 // selectMode determines the actual encoding mode based on settings and content.
 func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	if frameSize > 960 {
@@ -2213,7 +2265,11 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 }
 
 func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSize int, bitrate int, maxPayloadBytes int) ([]byte, error) {
-	e.ensureCELTEncoder()
+	streamPCM, streamChannels, err := e.frameForStreamChannels(pcm, frameSize)
+	if err != nil {
+		return nil, err
+	}
+	e.ensureCELTEncoderForChannels(streamChannels)
 	e.syncQEXTToCELT()
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetBitrate(bitrate)
@@ -2237,7 +2293,7 @@ func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSi
 		e.celtEncoder.SetConstrainedVBR(false)
 	}
 	defer e.celtEncoder.SetMaxPayloadBytes(0)
-	return e.celtEncoder.EncodeFrame(pcm, frameSize)
+	return e.celtEncoder.EncodeFrame(streamPCM, frameSize)
 }
 
 // encodeCELTMultiFramePacket encodes long CELT packets by splitting into
@@ -2250,7 +2306,11 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 	if frameCount < 2 || frameCount > 6 {
 		return nil, ErrInvalidFrameSize
 	}
-	if len(celtPCM) != frameSize*e.channels {
+	streamPCM, streamChannels, err := e.frameForStreamChannels(celtPCM, frameSize)
+	if err != nil {
+		return nil, err
+	}
+	if len(streamPCM) != frameSize*streamChannels {
 		return nil, ErrInvalidFrameSize
 	}
 	if e.analysisReadBakSet && e.analyzer != nil {
@@ -2258,7 +2318,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 		e.analyzer.ReadSubframe = e.analysisSubframeBak
 	}
 
-	frameStride := 960 * e.channels
+	frameStride := 960 * streamChannels
 	frames := make([][]byte, frameCount)
 	sameSize := true
 	prevSize := -1
@@ -2306,7 +2366,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 			currMax = 2
 		}
 		maxPayload := currMax - 1
-		frameData, err := e.encodeCELTFrameWithBitrateAndMaxPayload(celtPCM[start:end], 960, subframeBitrate, maxPayload)
+		frameData, err := e.encodeCELTFrameWithBitrateAndMaxPayload(streamPCM[start:end], 960, subframeBitrate, maxPayload)
 		if err != nil {
 			return nil, err
 		}
@@ -2326,7 +2386,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 		types.ModeCELT,
 		e.effectiveBandwidth(),
 		960,
-		e.channels == 2,
+		streamChannels == 2,
 		!sameSize,
 	)
 }
@@ -2872,8 +2932,18 @@ func (e *Encoder) ensureSilkResampledR(size int) []float32 {
 
 // ensureCELTEncoder creates the CELT encoder if it doesn't exist.
 func (e *Encoder) ensureCELTEncoder() {
-	if e.celtEncoder == nil {
-		e.celtEncoder = celt.NewEncoder(e.channels)
+	e.ensureCELTEncoderForChannels(e.channels)
+}
+
+func (e *Encoder) ensureCELTEncoderForChannels(channels int) {
+	if channels < 1 {
+		channels = 1
+	}
+	if channels > 2 {
+		channels = 2
+	}
+	if e.celtEncoder == nil || e.celtEncoder.Channels() != channels {
+		e.celtEncoder = celt.NewEncoder(channels)
 		e.celtEncoder.SetComplexity(e.complexity)
 		// Opus encoder already rounds input to the configured LSB depth.
 		e.celtEncoder.SetLSBQuantizationEnabled(false)

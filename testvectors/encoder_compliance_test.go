@@ -400,6 +400,7 @@ func computeEncoderComplianceResult(mode encoder.Mode, bandwidth types.Bandwidth
 	enc.SetBandwidth(bandwidth)
 	enc.SetBitrate(bitrate)
 	enc.SetBitrateMode(encoder.ModeCBR)
+	enc.SetComplexity(10)
 
 	// Encode all signal frames.
 	packets := make([][]byte, 0, numFrames+1)

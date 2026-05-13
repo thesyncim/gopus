@@ -1241,9 +1241,9 @@ func TestDTXExitOnSpeech(t *testing.T) {
 func TestComplexitySetting(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
 
-	// Verify default is 10 (maximum quality)
-	if enc.Complexity() != 10 {
-		t.Errorf("Default complexity = %d, want 10", enc.Complexity())
+	// Verify default matches libopus OPUS_GET_COMPLEXITY.
+	if enc.Complexity() != 9 {
+		t.Errorf("Default complexity = %d, want 9", enc.Complexity())
 	}
 
 	// Test valid range
