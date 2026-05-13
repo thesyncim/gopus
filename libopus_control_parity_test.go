@@ -18,6 +18,7 @@ import (
 type controlParityStep struct {
 	frameSize              int
 	channels               int
+	application            int
 	ret                    int
 	lookahead              int
 	finalRange             uint32
@@ -168,6 +169,7 @@ func encodeControlParityStep(t *testing.T, enc *Encoder, packet []byte, frameInd
 	return controlParityStep{
 		frameSize:              enc.FrameSize(),
 		channels:               enc.Channels(),
+		application:            int(enc.Application()),
 		ret:                    n,
 		lookahead:              enc.Lookahead(),
 		finalRange:             enc.FinalRange(),
@@ -201,6 +203,7 @@ func compareControlParitySteps(t *testing.T, got, want []controlParityStep) {
 		t.Run(fmt.Sprintf("step_%d", i), func(t *testing.T) {
 			compareControlParityScalar(t, "frameSize", got[i].frameSize, want[i].frameSize)
 			compareControlParityScalar(t, "channels", got[i].channels, want[i].channels)
+			compareControlParityScalar(t, "application", got[i].application, want[i].application)
 			compareControlParityScalar(t, "lookahead", got[i].lookahead, want[i].lookahead)
 			compareControlParityScalar(t, "bitrate", got[i].bitrate, want[i].bitrate)
 			compareControlParityScalar(t, "complexity", got[i].complexity, want[i].complexity)
@@ -301,6 +304,9 @@ func parseLibopusControlOutput(data []byte) ([]controlParityStep, error) {
 			return nil, err
 		}
 		if step.channels, err = readControlI32(r); err != nil {
+			return nil, err
+		}
+		if step.application, err = readControlI32(r); err != nil {
 			return nil, err
 		}
 		if step.ret, err = readControlI32(r); err != nil {

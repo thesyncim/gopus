@@ -44,6 +44,23 @@ static int map_bandwidth(int v) {
     }
 }
 
+static int map_application(int v) {
+    switch (v) {
+    case OPUS_APPLICATION_VOIP:
+        return 0;
+    case OPUS_APPLICATION_AUDIO:
+        return 1;
+    case OPUS_APPLICATION_RESTRICTED_LOWDELAY:
+        return 2;
+    case OPUS_APPLICATION_RESTRICTED_SILK:
+        return 3;
+    case OPUS_APPLICATION_RESTRICTED_CELT:
+        return 4;
+    default:
+        return -1;
+    }
+}
+
 static void fill_pcm(float *pcm, int frame_size, int channels, int frame_index) {
     int start = frame_index * frame_size;
     for (int i = 0; i < frame_size; i++) {
@@ -61,6 +78,7 @@ static void write_step(OpusEncoder *enc, int frame_size, int channels, int frame
     float pcm[5760 * 2];
     unsigned char packet[MAX_PACKET];
     int lookahead = 0;
+    int application = 0;
     opus_uint32 final_range = 0;
     int bitrate = 0;
     int complexity = 0;
@@ -83,6 +101,7 @@ static void write_step(OpusEncoder *enc, int frame_size, int channels, int frame
     int n = opus_encode_float(enc, pcm, frame_size, packet, MAX_PACKET);
 
     opus_encoder_ctl(enc, OPUS_GET_LOOKAHEAD(&lookahead));
+    opus_encoder_ctl(enc, OPUS_GET_APPLICATION(&application));
     opus_encoder_ctl(enc, OPUS_GET_FINAL_RANGE(&final_range));
     opus_encoder_ctl(enc, OPUS_GET_BITRATE(&bitrate));
     opus_encoder_ctl(enc, OPUS_GET_COMPLEXITY(&complexity));
@@ -103,6 +122,7 @@ static void write_step(OpusEncoder *enc, int frame_size, int channels, int frame
 
     put_i32(frame_size);
     put_i32(channels);
+    put_i32(map_application(application));
     put_i32(n);
     put_i32(lookahead);
     put_u32(final_range);
