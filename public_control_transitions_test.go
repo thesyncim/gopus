@@ -240,7 +240,8 @@ func TestPublicDecoderControlAndFECTransitions(t *testing.T) {
 	requireControlEqual(t, "channels", dec.Channels(), 1)
 	requireControlEqual(t, "default gain", dec.Gain(), 0)
 	requireControlEqual(t, "default ignore extensions", dec.IgnoreExtensions(), false)
-	requireControlEqual(t, "cold last packet duration", dec.LastPacketDuration(), 960)
+	requireControlEqual(t, "cold bandwidth", dec.Bandwidth(), BandwidthUnknown)
+	requireControlEqual(t, "cold last packet duration", dec.LastPacketDuration(), 0)
 	requireControlEqual(t, "cold final range", dec.FinalRange(), uint32(0))
 
 	requireNoControlError(t, dec.SetGain(-32768), "SetGain(min)")

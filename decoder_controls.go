@@ -83,29 +83,36 @@ func (d *Decoder) SetDNNBlob(data []byte) error {
 	return nil
 }
 
-// Pitch returns the most recent CELT postfilter pitch period.
+// Pitch returns the most recent decoder pitch period.
 //
-// This mirrors OPUS_GET_PITCH behavior for decoded CELT/hybrid content.
+// This mirrors OPUS_GET_PITCH: CELT packets report CELT postfilter pitch,
+// while SILK and Hybrid packets report the SILK pitch lag.
 // Returns 0 when no pitch information is available.
 func (d *Decoder) Pitch() int {
-	if d.celtDecoder == nil {
-		return 0
+	if d.lastPacketMode == ModeCELT {
+		if d.celtDecoder == nil {
+			return 0
+		}
+		return d.celtDecoder.PostfilterPeriod()
 	}
-	return d.celtDecoder.PostfilterPeriod()
+	if d.silkDecoder != nil {
+		return d.silkDecoder.GetLagPrev()
+	}
+	return 0
 }
 
 // Bandwidth returns the bandwidth of the last successfully decoded packet.
 func (d *Decoder) Bandwidth() Bandwidth {
+	if !d.haveDecoded {
+		return BandwidthUnknown
+	}
 	return d.lastBandwidth
 }
 
 // LastPacketDuration returns the duration (in samples per channel at 48kHz scale)
 // of the last decoded packet.
 func (d *Decoder) LastPacketDuration() int {
-	if d.lastPacketDuration > 0 {
-		return d.lastPacketDuration
-	}
-	return d.lastFrameSize
+	return d.lastPacketDuration
 }
 
 // InDTX reports whether the most recently decoded packet was a DTX packet.

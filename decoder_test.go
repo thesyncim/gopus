@@ -1343,7 +1343,7 @@ func TestDecoder_PitchGetter(t *testing.T) {
 	}
 
 	got := dec.Pitch()
-	want := dec.celtDecoder.PostfilterPeriod()
+	want := dec.silkDecoder.GetLagPrev()
 	if got != want {
 		t.Fatalf("Pitch()=%d want=%d", got, want)
 	}

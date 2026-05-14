@@ -24,6 +24,7 @@ const (
 	BandwidthWideband      = types.BandwidthWideband      // 8kHz audio, 16kHz sample rate
 	BandwidthSuperwideband = types.BandwidthSuperwideband // 12kHz audio, 24kHz sample rate
 	BandwidthFullband      = types.BandwidthFullband      // 20kHz audio, 48kHz sample rate
+	BandwidthUnknown       = Bandwidth(255)               // No packet bandwidth has been observed yet
 )
 
 // TOC represents the parsed Table of Contents byte from an Opus packet.
