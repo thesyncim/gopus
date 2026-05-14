@@ -217,6 +217,75 @@ static int run_packet_modes_stereo(void) {
     return 0;
 }
 
+static int run_fec_plc_transitions(void) {
+    unsigned char packets[12][MAX_PACKET];
+    int packet_lens[12];
+    int fec_index = -1;
+    int err = OPUS_OK;
+    float pcm[MAX_FRAME * 2];
+    OpusEncoder *enc = opus_encoder_create(48000, 1, OPUS_APPLICATION_VOIP, &err);
+    if (err != OPUS_OK || enc == NULL) return 1;
+
+    opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(10));
+    opus_encoder_ctl(enc, OPUS_SET_VBR(0));
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(24000));
+    opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
+    opus_encoder_ctl(enc, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
+    opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
+    opus_encoder_ctl(enc, OPUS_SET_INBAND_FEC(1));
+    opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(25));
+
+    for (int i = 0; i < 12; i++) {
+        fill_pcm(pcm, 960, 1, i);
+        packet_lens[i] = opus_encode_float(enc, pcm, 960, packets[i], MAX_PACKET);
+        if (packet_lens[i] <= 0) {
+            opus_encoder_destroy(enc);
+            return 1;
+        }
+        if (i >= 2 && fec_index < 0 && opus_packet_has_lbrr(packets[i], packet_lens[i]) == 1) {
+            fec_index = i;
+        }
+    }
+    opus_encoder_destroy(enc);
+    if (fec_index < 2) return 1;
+
+    OpusDecoder *dec = opus_decoder_create(48000, 1, &err);
+    if (err != OPUS_OK || dec == NULL) return 1;
+
+    begin_output(4);
+
+    int ret = opus_decode_float(dec, packets[fec_index - 2], packet_lens[fec_index - 2], pcm, MAX_FRAME, 0);
+    if (ret < 0) {
+        opus_decoder_destroy(dec);
+        return 1;
+    }
+    write_state(dec, ret, 1, packets[fec_index - 2], packet_lens[fec_index - 2]);
+
+    ret = opus_decode_float(dec, packets[fec_index], packet_lens[fec_index], pcm, 960, 1);
+    if (ret < 0) {
+        opus_decoder_destroy(dec);
+        return 1;
+    }
+    write_state(dec, ret, 1, packets[fec_index], packet_lens[fec_index]);
+
+    ret = opus_decode_float(dec, packets[fec_index], packet_lens[fec_index], pcm, MAX_FRAME, 0);
+    if (ret < 0) {
+        opus_decoder_destroy(dec);
+        return 1;
+    }
+    write_state(dec, ret, 1, packets[fec_index], packet_lens[fec_index]);
+
+    ret = opus_decode_float(dec, NULL, 0, pcm, 960, 0);
+    if (ret < 0) {
+        opus_decoder_destroy(dec);
+        return 1;
+    }
+    write_state(dec, ret, 1, NULL, 0);
+
+    opus_decoder_destroy(dec);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         return 2;
@@ -232,6 +301,9 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[1], "packet_modes_stereo") == 0) {
         return run_packet_modes_stereo();
+    }
+    if (strcmp(argv[1], "fec_plc_transitions") == 0) {
+        return run_fec_plc_transitions();
     }
     return 2;
 }

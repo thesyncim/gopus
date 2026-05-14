@@ -96,7 +96,7 @@ func (d *Decoder) Pitch() int {
 		return d.celtDecoder.PostfilterPeriod()
 	}
 	if d.silkDecoder != nil {
-		return d.silkDecoder.GetLagPrev()
+		return d.silkDecoder.GetPrevPitchLag48k()
 	}
 	return 0
 }

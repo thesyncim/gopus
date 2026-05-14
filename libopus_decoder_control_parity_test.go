@@ -39,6 +39,7 @@ func TestLibopusDecoderControlParity(t *testing.T) {
 		"control_lifecycle",
 		"packet_modes_mono",
 		"packet_modes_stereo",
+		"fec_plc_transitions",
 	} {
 		name := name
 		t.Run(name, func(t *testing.T) {
@@ -50,6 +51,9 @@ func TestLibopusDecoderControlParity(t *testing.T) {
 			compareDecoderControlParitySteps(t, got, want)
 			if name == "packet_modes_mono" || name == "packet_modes_stereo" {
 				assertDecoderControlPacketCoverage(t, want)
+			}
+			if name == "fec_plc_transitions" {
+				assertDecoderControlFECStep(t, want)
 			}
 		})
 	}
@@ -99,6 +103,38 @@ func runGopusDecoderControlScenario(t *testing.T, name string, want []decoderCon
 			}
 			out = append(out, captureDecoderControlParityStep(dec, n, step.packet))
 		}
+		return out
+	case "fec_plc_transitions":
+		if len(want) != 4 {
+			t.Fatalf("fec_plc_transitions step count=%d want 4", len(want))
+		}
+		dec := mustNewTestDecoder(t, want[0].sampleRate, want[0].channels)
+		pcm := make([]float32, defaultMaxPacketSamples*want[0].channels)
+		out := make([]decoderControlParityStep, 0, len(want))
+
+		n, err := dec.Decode(want[0].packet, pcm)
+		if err != nil {
+			t.Fatalf("Decode FEC warmup: %v", err)
+		}
+		out = append(out, captureDecoderControlParityStep(dec, n, want[0].packet))
+
+		n, err = dec.DecodeWithFEC(want[1].packet, pcm, true)
+		if err != nil {
+			t.Fatalf("DecodeWithFEC: %v", err)
+		}
+		out = append(out, captureDecoderControlParityStep(dec, n, want[1].packet))
+
+		n, err = dec.Decode(want[2].packet, pcm)
+		if err != nil {
+			t.Fatalf("Decode after FEC: %v", err)
+		}
+		out = append(out, captureDecoderControlParityStep(dec, n, want[2].packet))
+
+		n, err = dec.Decode(nil, pcm)
+		if err != nil {
+			t.Fatalf("Decode PLC after FEC: %v", err)
+		}
+		out = append(out, captureDecoderControlParityStep(dec, n, nil))
 		return out
 	default:
 		t.Fatalf("unknown decoder control scenario %q", name)
@@ -190,6 +226,24 @@ func assertDecoderControlPacketCoverage(t *testing.T, steps []decoderControlPari
 	}
 	if steps[0].channels == 2 && !seenStereo {
 		t.Fatal("decoder packet scenario missing stereo packets")
+	}
+}
+
+func assertDecoderControlFECStep(t *testing.T, steps []decoderControlParityStep) {
+	t.Helper()
+	if len(steps) < 2 {
+		t.Fatal("FEC scenario missing decode_fec step")
+	}
+	toc, _, err := packetFrameCount(steps[1].packet)
+	if err != nil {
+		t.Fatalf("packetFrameCount(FEC step): %v", err)
+	}
+	first, err := extractFirstFramePayload(steps[1].packet, toc)
+	if err != nil {
+		t.Fatalf("extractFirstFramePayload(FEC step): %v", err)
+	}
+	if !packetHasLBRR(first, toc) {
+		t.Fatal("FEC scenario packet is missing LBRR")
 	}
 }
 

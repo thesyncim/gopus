@@ -55,6 +55,7 @@ func (d *Decoder) DecodeFEC(
 	if err != nil {
 		return nil, err
 	}
+	d.SetRangeDecoder(&rd)
 
 	config := GetBandwidthConfig(bandwidth)
 	fsKHz := config.SampleRate / 1000

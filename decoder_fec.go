@@ -294,6 +294,8 @@ func (d *Decoder) decodeFECViaSILK(pcm []float32, frameSize int) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	d.mainDecodeRng = d.silkDecoder.FinalRange()
+	d.redundantRng = 0
 
 	needed := len(fecSamples)
 	if len(pcm) < needed {

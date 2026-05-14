@@ -1343,7 +1343,7 @@ func TestDecoder_PitchGetter(t *testing.T) {
 	}
 
 	got := dec.Pitch()
-	want := dec.silkDecoder.GetLagPrev()
+	want := dec.silkDecoder.GetPrevPitchLag48k()
 	if got != want {
 		t.Fatalf("Pitch()=%d want=%d", got, want)
 	}

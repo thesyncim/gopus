@@ -577,6 +577,25 @@ func (d *Decoder) GetLagPrev() int {
 	return d.state[0].lagPrev
 }
 
+// GetPrevPitchLag48k returns the previous voiced pitch lag at 48 kHz scale.
+// This mirrors the value exported by libopus through OPUS_GET_PITCH.
+func (d *Decoder) GetPrevPitchLag48k() int {
+	st := &d.state[0]
+	if st.prevSignalType != typeVoiced || st.lagPrev <= 0 {
+		return 0
+	}
+	switch st.fsKHz {
+	case 8:
+		return st.lagPrev * 6
+	case 12:
+		return st.lagPrev * 4
+	case 16:
+		return st.lagPrev * 3
+	default:
+		return 0
+	}
+}
+
 // RawMonoFrameHook fires on raw mono/mid 10 ms chunks before CNG/glue mutates
 // the decoded frame buffer. The slice aliases decoder scratch memory and must
 // be consumed synchronously.
