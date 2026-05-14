@@ -203,6 +203,26 @@ static int run_applications(void) {
     return 0;
 }
 
+static int run_default_applications(void) {
+    const int applications[] = {
+        OPUS_APPLICATION_VOIP,
+        OPUS_APPLICATION_AUDIO,
+        OPUS_APPLICATION_RESTRICTED_LOWDELAY,
+        OPUS_APPLICATION_RESTRICTED_SILK,
+        OPUS_APPLICATION_RESTRICTED_CELT,
+    };
+
+    begin_output(5);
+    for (int i = 0; i < 5; i++) {
+        int err = OPUS_OK;
+        OpusEncoder *enc = opus_encoder_create(48000, 1, applications[i], &err);
+        if (err != OPUS_OK || enc == NULL) return 1;
+        write_step(enc, 960, 1, i);
+        opus_encoder_destroy(enc);
+    }
+    return 0;
+}
+
 static int run_audio_controls(void) {
     int err = OPUS_OK;
     OpusEncoder *enc = opus_encoder_create(48000, 1, OPUS_APPLICATION_AUDIO, &err);
@@ -498,6 +518,7 @@ int main(int argc, char **argv) {
         return 2;
     }
     if (strcmp(argv[1], "applications") == 0) return run_applications();
+    if (strcmp(argv[1], "default_applications") == 0) return run_default_applications();
     if (strcmp(argv[1], "audio_controls") == 0) return run_audio_controls();
     if (strcmp(argv[1], "bitrate_mode_transitions") == 0) return run_bitrate_mode_transitions();
     if (strcmp(argv[1], "lowdelay_controls") == 0) return run_lowdelay_controls();
