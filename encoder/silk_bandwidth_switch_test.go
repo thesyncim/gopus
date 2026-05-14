@@ -23,7 +23,7 @@ func generateSinePCM(frameSize, channels int, frequency float64) []float64 {
 	return pcm
 }
 
-func TestSILKEncoderReconfiguresOnBandwidthChangeMono(t *testing.T) {
+func TestSILKEncoderKeepsActiveSilkOnlyBandwidthMono(t *testing.T) {
 	enc := NewEncoder(48000, 1)
 	enc.SetMode(ModeSILK)
 	enc.SetBitrate(32000)
@@ -60,7 +60,7 @@ func TestSILKEncoderReconfiguresOnBandwidthChangeMono(t *testing.T) {
 	if packet == nil {
 		t.Fatal("NB encode returned nil packet")
 	}
-	check(silk.BandwidthNarrowband, 8000)
+	check(silk.BandwidthWideband, 16000)
 
 	enc.SetBandwidth(types.BandwidthWideband)
 	packet, err = enc.Encode(pcm, frameSize)
@@ -71,9 +71,23 @@ func TestSILKEncoderReconfiguresOnBandwidthChangeMono(t *testing.T) {
 		t.Fatal("WB re-encode returned nil packet")
 	}
 	check(silk.BandwidthWideband, 16000)
+
+	fresh := NewEncoder(48000, 1)
+	fresh.SetMode(ModeSILK)
+	fresh.SetBitrate(32000)
+	fresh.SetBandwidth(types.BandwidthNarrowband)
+	packet, err = fresh.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("fresh NB encode failed: %v", err)
+	}
+	if packet == nil {
+		t.Fatal("fresh NB encode returned nil packet")
+	}
+	enc = fresh
+	check(silk.BandwidthNarrowband, 8000)
 }
 
-func TestSILKEncoderReconfiguresOnBandwidthChangeStereo(t *testing.T) {
+func TestSILKEncoderKeepsActiveSilkOnlyBandwidthStereo(t *testing.T) {
 	enc := NewEncoder(48000, 2)
 	enc.SetMode(ModeSILK)
 	enc.SetBitrate(48000)
@@ -119,5 +133,19 @@ func TestSILKEncoderReconfiguresOnBandwidthChangeStereo(t *testing.T) {
 	if packet == nil {
 		t.Fatal("stereo NB encode returned nil packet")
 	}
+	check(silk.BandwidthWideband, 16000)
+
+	fresh := NewEncoder(48000, 2)
+	fresh.SetMode(ModeSILK)
+	fresh.SetBitrate(48000)
+	fresh.SetBandwidth(types.BandwidthNarrowband)
+	packet, err = fresh.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("fresh stereo NB encode failed: %v", err)
+	}
+	if packet == nil {
+		t.Fatal("fresh stereo NB encode returned nil packet")
+	}
+	enc = fresh
 	check(silk.BandwidthNarrowband, 8000)
 }

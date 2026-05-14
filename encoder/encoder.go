@@ -756,6 +756,9 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		e.bandwidth = bw
 	}
 	actualMode, prevModeNext := e.applyCELTTransitionDelay(frameSize, requestedMode)
+	if actualMode != requestedMode && actualMode != ModeCELT {
+		actualMode = autoModeFixup(actualMode, e.effectiveBandwidth())
+	}
 	transitionToCELT := requestedMode == ModeCELT && actualMode != ModeCELT
 	if actualMode == ModeSILK || (actualMode == ModeHybrid && frameSize <= 960) {
 		// Match libopus application semantics:
@@ -858,8 +861,8 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if packet == nil {
 		stereo := e.packetChannelsForMode(actualMode) == 2
 		packetBW := e.effectiveBandwidth()
-		if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
-			packetBW = types.BandwidthWideband
+		if actualMode == ModeSILK {
+			packetBW = e.silkPacketBandwidth(packetBW)
 		}
 		if e.dredEncodingActive() {
 			if dredPacket, ok, dredErr := e.maybeBuildSingleFrameDREDPacket(frameData, actualMode, packetBW, frameSize, stereo); dredErr != nil {
@@ -941,8 +944,8 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		if len(qextPayload) > 0 && len(packet) < targetSize {
 			stereo := e.packetChannelsForMode(actualMode) == 2
 			packetBW := e.effectiveBandwidth()
-			if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
-				packetBW = types.BandwidthWideband
+			if actualMode == ModeSILK {
+				packetBW = e.silkPacketBandwidth(packetBW)
 			}
 			packetLen, pktErr := buildPacketWithSingleExtensionInto(
 				e.scratchPacket,
@@ -984,8 +987,8 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 func (e *Encoder) buildDTXPacket(frameSize int) ([]byte, error) {
 	actualMode := e.selectMode(frameSize, e.signalType)
 	packetBW := e.effectiveBandwidth()
-	if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
-		packetBW = types.BandwidthWideband
+	if actualMode == ModeSILK {
+		packetBW = e.silkPacketBandwidth(packetBW)
 	}
 	stereo := e.packetChannelsForMode(actualMode) == 2
 
@@ -2086,7 +2089,8 @@ func (e *Encoder) celtPredictionModeForFrame() int {
 
 // encodeSILKFrame encodes a frame using SILK-only mode.
 func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize int) ([]byte, error) {
-	e.ensureSILKEncoder()
+	codingBW := e.silkCodingBandwidthForSilkOnly()
+	e.ensureSILKEncoderBandwidth(codingBW)
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
 		pcm32[i] = float32(v)
@@ -2111,7 +2115,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		quantizeFloat32ToInt16LibopusInPlace(lookahead32)
 	}
 
-	cfg := silk.GetBandwidthConfig(e.silkBandwidth())
+	cfg := silk.GetBandwidthConfig(codingBW)
 	targetRate := cfg.SampleRate
 	if targetRate != 48000 {
 		e.ensureSILKResampler(targetRate)
@@ -2130,7 +2134,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		}
 		e.silkEncoder.SetFEC(e.lbrrCoded)
 		e.silkEncoder.SetPacketLoss(e.packetLoss)
-		e.ensureSILKSideEncoder()
+		e.ensureSILKSideEncoderBandwidth(codingBW)
 		if totalSilkRate > 0 {
 			e.silkSideEncoder.SetBitrate(totalSilkRate)
 		} else if perChannelRate > 0 {
@@ -2218,7 +2222,7 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 			e.silkSideEncoder,
 			left,
 			right,
-			e.silkBandwidth(),
+			codingBW,
 			nil,
 			nil,
 			midFeedbackAnalyzer,
@@ -2301,6 +2305,45 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	}
 	res := e.silkEncoder.EncodeFrame(pcm32, lookaheadOut, vadFlag)
 	return res, nil
+}
+
+func (e *Encoder) silkCodingBandwidthForSilkOnly() silk.Bandwidth {
+	desired := e.silkBandwidth()
+	if e.silkEncoder == nil {
+		return desired
+	}
+	current := e.silkEncoder.Bandwidth()
+	if current == desired {
+		return desired
+	}
+	if !e.silkBandwidthSwitchAllowed() {
+		return current
+	}
+	return desired
+}
+
+func (e *Encoder) silkBandwidthSwitchAllowed() bool {
+	// Libopus gates SILK-only internal rate switches on a quiet switching
+	// window. Keep active packets on the current SILK core rate instead of
+	// retuning immediately when OPUS_SET_BANDWIDTH changes the public control.
+	return e.dtxEnabled && e.lastOpusVADValid && !e.lastOpusVADActive
+}
+
+func (e *Encoder) silkPacketBandwidth(defaultBW types.Bandwidth) types.Bandwidth {
+	if e.silkEncoder != nil {
+		switch e.silkEncoder.SampleRate() {
+		case 8000:
+			return types.BandwidthNarrowband
+		case 12000:
+			return types.BandwidthMediumband
+		case 16000:
+			return types.BandwidthWideband
+		}
+	}
+	if defaultBW > types.BandwidthWideband {
+		return types.BandwidthWideband
+	}
+	return defaultBW
 }
 
 // encodeCELTFrame encodes a frame using CELT-only mode.
@@ -2625,9 +2668,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int) ([]by
 	}
 
 	packetBW := e.effectiveBandwidth()
-	if packetBW > types.BandwidthWideband {
-		packetBW = types.BandwidthWideband
-	}
+	packetBW = e.silkPacketBandwidth(packetBW)
 	if e.dredEncodingActive() {
 		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeSILK, packetBW, frameSize, encFrameSize, e.channels == 2, !sameSize); err != nil {
 			return nil, err
@@ -2640,7 +2681,10 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int) ([]by
 
 // ensureSILKEncoder creates the SILK encoder if it doesn't exist.
 func (e *Encoder) ensureSILKEncoder() {
-	bw := e.silkBandwidth()
+	e.ensureSILKEncoderBandwidth(e.silkBandwidth())
+}
+
+func (e *Encoder) ensureSILKEncoderBandwidth(bw silk.Bandwidth) {
 	if e.silkEncoder != nil && e.silkEncoder.Bandwidth() == bw {
 		e.silkEncoder.SetReducedDependency(e.predictionDisabled)
 		return
@@ -2655,10 +2699,13 @@ func (e *Encoder) ensureSILKEncoder() {
 
 // ensureSILKSideEncoder creates the SILK side channel encoder for stereo hybrid mode.
 func (e *Encoder) ensureSILKSideEncoder() {
+	e.ensureSILKSideEncoderBandwidth(e.silkBandwidth())
+}
+
+func (e *Encoder) ensureSILKSideEncoderBandwidth(bw silk.Bandwidth) {
 	if e.channels != 2 {
 		return
 	}
-	bw := e.silkBandwidth()
 	if e.silkSideEncoder != nil && e.silkSideEncoder.Bandwidth() == bw {
 		e.silkSideEncoder.SetReducedDependency(e.predictionDisabled)
 		return

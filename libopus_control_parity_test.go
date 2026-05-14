@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"sort"
 	"sync"
 	"testing"
 
@@ -65,7 +64,7 @@ func TestLibopusControlTransitionParity(t *testing.T) {
 		{name: "bitrate_mode_transitions", run: runGopusBitrateModeTransitionsParity},
 		{name: "lowdelay_controls", run: runGopusLowDelayControlParity},
 		{name: "expert_durations", run: runGopusExpertDurationsParity},
-		{name: "bandwidth_signal_controls", run: runGopusBandwidthSignalControlsParity, opts: controlParityOptions{onlyControlState: true}},
+		{name: "bandwidth_signal_controls", run: runGopusBandwidthSignalControlsParity},
 		{name: "fec_dtx_lsb_controls", run: runGopusFECDTXLSBControlsParity},
 		{name: "force_channels", run: runGopusForceChannelsParity},
 		{name: "prediction_phase_controls", run: runGopusPredictionPhaseControlsParity},
@@ -84,24 +83,6 @@ func TestLibopusControlTransitionParity(t *testing.T) {
 			compareControlParitySteps(t, got, want, tc.opts)
 		})
 	}
-}
-
-// Tracks known libopus-backed encoder drifts that are too meaningful to hide
-// behind relaxed transition checks.
-func TestLibopusMeaningfulControlDrifts(t *testing.T) {
-	t.Run("bandwidth_signal_packet_shape", func(t *testing.T) {
-		want, err := probeLibopusControlScenario("bandwidth_signal_controls")
-		if err != nil {
-			t.Skipf("libopus control helper unavailable: %v", err)
-		}
-		got := runGopusBandwidthSignalControlsParity(t)
-		assertControlDriftSet(t, collectPacketMetadataDrifts(t, got, want), []string{
-			"step_1/packet_bandwidth",
-			"step_2/packet_bandwidth",
-			"step_3/packet_bandwidth",
-			"step_3/packet_mode",
-		})
-	})
 }
 
 func runGopusDefaultApplicationsDriftProbe(t *testing.T) []controlParityStep {
@@ -584,69 +565,6 @@ func compareControlPacketMetadata(t *testing.T, gotPacket, wantPacket []byte) {
 	if got.FrameCount != want.FrameCount {
 		t.Fatalf("packet frame count=%d want libopus %d", got.FrameCount, want.FrameCount)
 	}
-}
-
-func collectPacketMetadataDrifts(t *testing.T, got, want []controlParityStep) []string {
-	t.Helper()
-	requireControlStepCount(t, got, want)
-
-	var drifts []string
-	for i := range got {
-		gotPacket, err := ParsePacket(got[i].packet)
-		if err != nil {
-			t.Fatalf("ParsePacket(got step %d): %v", i, err)
-		}
-		wantPacket, err := ParsePacket(want[i].packet)
-		if err != nil {
-			t.Fatalf("ParsePacket(libopus step %d): %v", i, err)
-		}
-		prefix := fmt.Sprintf("step_%d/", i)
-		if gotPacket.TOC.Mode != wantPacket.TOC.Mode {
-			drifts = append(drifts, prefix+"packet_mode")
-		}
-		if gotPacket.TOC.Bandwidth != wantPacket.TOC.Bandwidth {
-			drifts = append(drifts, prefix+"packet_bandwidth")
-		}
-		if gotPacket.TOC.FrameSize != wantPacket.TOC.FrameSize {
-			drifts = append(drifts, prefix+"packet_frame_size")
-		}
-		if gotPacket.TOC.Stereo != wantPacket.TOC.Stereo {
-			drifts = append(drifts, prefix+"packet_stereo")
-		}
-		if gotPacket.FrameCount != wantPacket.FrameCount {
-			drifts = append(drifts, prefix+"packet_frame_count")
-		}
-	}
-	return drifts
-}
-
-func requireControlStepCount(t *testing.T, got, want []controlParityStep) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("step count=%d want %d", len(got), len(want))
-	}
-}
-
-func assertControlDriftSet(t *testing.T, got, want []string) {
-	t.Helper()
-
-	sort.Strings(got)
-	sort.Strings(want)
-	if !equalStringSlices(got, want) {
-		t.Fatalf("meaningful drift set changed:\n got %v\nwant %v", got, want)
-	}
-}
-
-func equalStringSlices(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }
 
 func probeLibopusControlScenario(name string) ([]controlParityStep, error) {
