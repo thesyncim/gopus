@@ -855,8 +855,8 @@ func TestMultistreamEncoder_SetApplicationForwardsModeAndBandwidth(t *testing.T)
 	if enc.enc.LowDelay() {
 		t.Fatalf("LowDelay() after VoIP = true, want false")
 	}
-	if got := enc.Bandwidth(); got != BandwidthWideband {
-		t.Fatalf("Bandwidth() after VoIP = %v, want %v", got, BandwidthWideband)
+	if got := enc.Bandwidth(); got != BandwidthFullband {
+		t.Fatalf("Bandwidth() after VoIP = %v, want %v", got, BandwidthFullband)
 	}
 
 	if err := enc.SetApplication(ApplicationLowDelay); err != nil {

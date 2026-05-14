@@ -13,7 +13,7 @@ func TestPublicEncoderControlTransitionContracts(t *testing.T) {
 	requireControlEqual(t, "channels", enc.Channels(), 2)
 	requireControlEqual(t, "frame_size", enc.FrameSize(), 960)
 	requireControlEqual(t, "expert_frame_duration", enc.ExpertFrameDuration(), ExpertFrameDurationArg)
-	requireControlEqual(t, "bitrate", enc.Bitrate(), 64000)
+	requireControlEqual(t, "bitrate", enc.Bitrate(), 120000)
 	requireControlEqual(t, "complexity", enc.Complexity(), 9)
 	requireControlEqual(t, "bitrate_mode", enc.BitrateMode(), BitrateModeCVBR)
 	requireControlEqual(t, "vbr", enc.VBR(), true)
@@ -57,7 +57,7 @@ func TestPublicEncoderControlTransitionContracts(t *testing.T) {
 	requireNoControlError(t, enc.SetApplication(ApplicationVoIP), "SetApplication(VoIP)")
 	requireControlEqual(t, "application after VoIP", enc.Application(), ApplicationVoIP)
 	requireControlEqual(t, "VoIP lookahead", enc.Lookahead(), 312)
-	requireControlEqual(t, "VoIP bandwidth policy", enc.Bandwidth(), BandwidthWideband)
+	requireControlEqual(t, "VoIP bandwidth policy", enc.Bandwidth(), BandwidthFullband)
 
 	requireNoControlError(t, enc.SetApplication(ApplicationLowDelay), "SetApplication(LowDelay)")
 	requireControlEqual(t, "application after LowDelay", enc.Application(), ApplicationLowDelay)

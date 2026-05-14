@@ -435,6 +435,7 @@ func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			enc := encoder.NewEncoder(48000, 1)
+			enc.SetBitrate(64000)
 			enc.SetMode(tc.mode)
 			enc.SetSignalType(tc.signalType)
 			enc.SetBandwidth(tc.bandwidth)
@@ -475,6 +476,7 @@ func TestAutoLongFrameSpeechLikePrefersCELTAtFullband(t *testing.T) {
 	const frameSize = 1920
 
 	enc := encoder.NewEncoder(48000, 1)
+	enc.SetBitrate(64000)
 	enc.SetMode(encoder.ModeAuto)
 	enc.SetSignalType(types.SignalAuto)
 	enc.SetBandwidth(types.BandwidthFullband)

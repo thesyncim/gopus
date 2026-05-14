@@ -140,6 +140,9 @@ func TestFEC_LBRRActualRecovery(t *testing.T) {
 // TestFEC_HasLBRRCheck verifies the SILK decoder's HasLBRR function
 func TestFEC_HasLBRRCheck(t *testing.T) {
 	enc, _ := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
+	if err := enc.SetBandwidth(BandwidthWideband); err != nil {
+		t.Fatalf("SetBandwidth error: %v", err)
+	}
 	enc.SetFEC(true)
 	if err := enc.SetPacketLoss(15); err != nil {
 		t.Fatalf("SetPacketLoss error: %v", err)

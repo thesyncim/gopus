@@ -59,6 +59,7 @@ func TestLibopusControlTransitionParity(t *testing.T) {
 		run  func(*testing.T) []controlParityStep
 		opts controlParityOptions
 	}{
+		{name: "default_applications", run: runGopusDefaultApplicationsDriftProbe},
 		{name: "applications", run: runGopusApplicationsParity},
 		{name: "audio_controls", run: runGopusAudioControlParity},
 		{name: "bitrate_mode_transitions", run: runGopusBitrateModeTransitionsParity},
@@ -88,21 +89,6 @@ func TestLibopusControlTransitionParity(t *testing.T) {
 // Tracks known libopus-backed encoder drifts that are too meaningful to hide
 // behind relaxed transition checks.
 func TestLibopusMeaningfulControlDrifts(t *testing.T) {
-	t.Run("default_application_bitrate", func(t *testing.T) {
-		want, err := probeLibopusControlScenario("default_applications")
-		if err != nil {
-			t.Skipf("libopus control helper unavailable: %v", err)
-		}
-		got := runGopusDefaultApplicationsDriftProbe(t)
-		assertControlDriftSet(t, collectScalarDrifts(t, got, want, "bitrate"), []string{
-			"step_0/bitrate",
-			"step_1/bitrate",
-			"step_2/bitrate",
-			"step_3/bitrate",
-			"step_4/bitrate",
-		})
-	})
-
 	t.Run("bandwidth_signal_packet_shape", func(t *testing.T) {
 		want, err := probeLibopusControlScenario("bandwidth_signal_controls")
 		if err != nil {
@@ -597,30 +583,6 @@ func compareControlPacketMetadata(t *testing.T, gotPacket, wantPacket []byte) {
 	}
 	if got.FrameCount != want.FrameCount {
 		t.Fatalf("packet frame count=%d want libopus %d", got.FrameCount, want.FrameCount)
-	}
-}
-
-func collectScalarDrifts(t *testing.T, got, want []controlParityStep, fields ...string) []string {
-	t.Helper()
-	requireControlStepCount(t, got, want)
-
-	var drifts []string
-	for i := range got {
-		for _, field := range fields {
-			if controlScalarField(got[i], field) != controlScalarField(want[i], field) {
-				drifts = append(drifts, fmt.Sprintf("step_%d/%s", i, field))
-			}
-		}
-	}
-	return drifts
-}
-
-func controlScalarField(step controlParityStep, field string) int {
-	switch field {
-	case "bitrate":
-		return step.bitrate
-	default:
-		panic(fmt.Sprintf("unknown control scalar drift field %q", field))
 	}
 }
 

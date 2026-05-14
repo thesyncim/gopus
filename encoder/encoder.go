@@ -79,6 +79,7 @@ type Encoder struct {
 	useVBR        bool
 	vbrConstraint bool
 	bitrate       int // Target bits per second
+	bitrateAuto   bool
 	// celtCVBRBoundScale scales CELT constrained-VBR burst bound.
 	// 1.0 matches libopus single-stream behavior.
 	celtCVBRBoundScale float64
@@ -176,6 +177,7 @@ type Encoder struct {
 	detectedBandwidth types.Bandwidth // Analysis-detected bandwidth (0 = undetected)
 	streamChannels    int             // Actual encoding channels (1 or 2)
 	prevChannels      int             // Previous frame's streamChannels
+	prevFrameSize     int             // Previous encoded frame size, for auto bitrate ctl parity
 	autoBandwidth     types.Bandwidth // Last auto-selected bandwidth (for hysteresis)
 	first             bool            // First frame flag
 	lbrrCoded         bool            // Previous frame FEC coding decision
@@ -245,7 +247,8 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		useVBR:                 true,
 		vbrConstraint:          true,
 		celtCVBRBoundScale:     1.0,
-		bitrate:                64000,
+		bitrate:                defaultAutoBitrate(sampleRate, channels, 0),
+		bitrateAuto:            true,
 		fecEnabled:             false,
 		packetLoss:             0,
 		fec:                    newFECState(),
@@ -410,6 +413,7 @@ func (e *Encoder) Reset() {
 	e.detectedBandwidth = 0
 	e.streamChannels = e.channels
 	e.prevChannels = e.channels
+	e.prevFrameSize = 0
 	e.autoBandwidth = types.BandwidthFullband
 	e.first = true
 	e.lbrrCoded = false
@@ -587,11 +591,25 @@ func modeFromVBRFlags(useVBR, vbrConstraint bool) BitrateMode {
 // SetBitrate sets the target bitrate in bits per second.
 func (e *Encoder) SetBitrate(bitrate int) {
 	e.bitrate = ClampBitrate(bitrate)
+	e.bitrateAuto = false
 }
 
 // Bitrate returns the current target bitrate.
 func (e *Encoder) Bitrate() int {
+	if e.bitrateAuto {
+		return defaultAutoBitrate(e.sampleRate, e.channels, e.prevFrameSize)
+	}
 	return e.bitrate
+}
+
+func defaultAutoBitrate(sampleRate, channels, frameSize int) int {
+	if frameSize <= 0 {
+		frameSize = sampleRate / 400
+	}
+	if frameSize <= 0 {
+		return 0
+	}
+	return 60*sampleRate/frameSize + sampleRate*channels
 }
 
 func bitrateToBits(bitrate int, frameSize int) int {
@@ -649,6 +667,9 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if len(pcm) != expectedLen {
 		return nil, ErrInvalidFrameSize
 	}
+	if e.bitrateAuto {
+		e.bitrate = defaultAutoBitrate(e.sampleRate, e.channels, frameSize)
+	}
 	e.hasCELTPrefill = false
 	defer func() {
 		e.analysisReadBakSet = false
@@ -696,7 +717,11 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		// The decoder triggers its own CNG when it sees a TOC with no frame data.
 		// Returning nil here would cause WebRTC to see missing packets and apply
 		// degrading PLC instead of smooth comfort noise.
-		return e.buildDTXPacket(frameSize)
+		packet, err := e.buildDTXPacket(frameSize)
+		if err == nil {
+			e.prevFrameSize = frameSize
+		}
+		return packet, err
 	}
 
 	var requestedMode Mode
@@ -943,6 +968,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		}
 	}
 	e.finalRange = e.currentSubencoderFinalRange(actualMode)
+	e.prevFrameSize = frameSize
 	return packet, nil
 }
 
