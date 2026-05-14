@@ -149,7 +149,9 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	d.lastPacketMode = toc.Mode
 	d.lastDataLen = len(data)
 
-	if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
+	if len(data) <= 1 {
+		d.hasFEC = false
+	} else if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
 		firstFrameData, err := extractFirstFramePayload(data, *toc)
 		if err != nil {
 			return 0, err
