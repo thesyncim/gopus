@@ -492,6 +492,80 @@ static int run_reset_preserves_controls(void) {
     return 0;
 }
 
+static int run_control_matrix(void) {
+    int err = OPUS_OK;
+    OpusEncoder *enc = opus_encoder_create(48000, 2, OPUS_APPLICATION_AUDIO, &err);
+    if (err != OPUS_OK || enc == NULL) return 1;
+
+    begin_output(8);
+
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(64000));
+    opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(0));
+    opus_encoder_ctl(enc, OPUS_SET_VBR(1));
+    opus_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT(1));
+    opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(OPUS_BANDWIDTH_FULLBAND));
+    opus_encoder_ctl(enc, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_FULLBAND));
+    opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
+    opus_encoder_ctl(enc, OPUS_SET_EXPERT_FRAME_DURATION(OPUS_FRAMESIZE_20_MS));
+    opus_encoder_ctl(enc, OPUS_SET_FORCE_CHANNELS(2));
+    write_step(enc, 960, 2, 0);
+
+    opus_encoder_ctl(enc, OPUS_SET_COMPLEXITY(10));
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(128000));
+    opus_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT(0));
+    write_step(enc, 960, 2, 1);
+
+    opus_encoder_ctl(enc, OPUS_SET_FORCE_CHANNELS(1));
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(24000));
+    opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
+    opus_encoder_ctl(enc, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_WIDEBAND));
+    opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_VOICE));
+    opus_encoder_ctl(enc, OPUS_SET_INBAND_FEC(1));
+    opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(10));
+    write_step(enc, 960, 2, 2);
+
+    opus_encoder_ctl(enc, OPUS_SET_DTX(1));
+    opus_encoder_ctl(enc, OPUS_SET_LSB_DEPTH(16));
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(20000));
+    write_step(enc, 960, 2, 3);
+
+    opus_encoder_ctl(enc, OPUS_SET_VBR(0));
+    opus_encoder_ctl(enc, OPUS_SET_DTX(0));
+    opus_encoder_ctl(enc, OPUS_SET_INBAND_FEC(0));
+    opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(0));
+    opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(OPUS_BANDWIDTH_NARROWBAND));
+    opus_encoder_ctl(enc, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_NARROWBAND));
+    opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_AUTO));
+    opus_encoder_ctl(enc, OPUS_SET_LSB_DEPTH(8));
+    write_step(enc, 960, 2, 4);
+
+    opus_encoder_ctl(enc, OPUS_RESET_STATE);
+    opus_encoder_ctl(enc, OPUS_SET_APPLICATION(OPUS_APPLICATION_RESTRICTED_LOWDELAY));
+    opus_encoder_ctl(enc, OPUS_SET_EXPERT_FRAME_DURATION(OPUS_FRAMESIZE_5_MS));
+    opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(OPUS_BANDWIDTH_FULLBAND));
+    opus_encoder_ctl(enc, OPUS_SET_MAX_BANDWIDTH(OPUS_BANDWIDTH_FULLBAND));
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(96000));
+    opus_encoder_ctl(enc, OPUS_SET_VBR(1));
+    opus_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT(1));
+    opus_encoder_ctl(enc, OPUS_SET_PREDICTION_DISABLED(1));
+    write_step(enc, 240, 2, 5);
+
+    opus_encoder_ctl(enc, OPUS_SET_EXPERT_FRAME_DURATION(OPUS_FRAMESIZE_2_5_MS));
+    opus_encoder_ctl(enc, OPUS_SET_PREDICTION_DISABLED(0));
+    opus_encoder_ctl(enc, OPUS_SET_PHASE_INVERSION_DISABLED(1));
+    opus_encoder_ctl(enc, OPUS_SET_FORCE_CHANNELS(2));
+    write_step(enc, 120, 2, 6);
+
+    opus_encoder_ctl(enc, OPUS_RESET_STATE);
+    opus_encoder_ctl(enc, OPUS_SET_APPLICATION(OPUS_APPLICATION_AUDIO));
+    opus_encoder_ctl(enc, OPUS_SET_EXPERT_FRAME_DURATION(OPUS_FRAMESIZE_20_MS));
+    opus_encoder_ctl(enc, OPUS_SET_PHASE_INVERSION_DISABLED(0));
+    write_step(enc, 960, 2, 7);
+
+    opus_encoder_destroy(enc);
+    return 0;
+}
+
 static int run_dtx_silence_exact(void) {
     int err = OPUS_OK;
     OpusEncoder *enc = opus_encoder_create(48000, 1, OPUS_APPLICATION_VOIP, &err);
@@ -528,6 +602,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[1], "force_channels") == 0) return run_force_channels();
     if (strcmp(argv[1], "prediction_phase_controls") == 0) return run_prediction_phase_controls();
     if (strcmp(argv[1], "reset_preserves_controls") == 0) return run_reset_preserves_controls();
+    if (strcmp(argv[1], "control_matrix") == 0) return run_control_matrix();
     if (strcmp(argv[1], "dtx_silence_exact") == 0) return run_dtx_silence_exact();
     fprintf(stderr, "unknown scenario: %s\n", argv[1]);
     return 2;

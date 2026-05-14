@@ -217,6 +217,8 @@ type Encoder struct {
 	hasCELTPrefill           bool
 	scratchQuantPCM          []float64 // LSB-depth quantized input
 	scratchStreamPCM         []float64 // channel-forced CELT frame view
+	scratchStreamRawPCM      []float64 // channel-forced pre-analysis frame view
+	scratchStreamLookahead   []float64 // channel-forced lookahead frame view
 	floatInputFrame          []float32 // Current public float32 frame view, if available
 	floatInputExact          bool      // True when pcm originated from float32 samples
 }
@@ -270,6 +272,8 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		scratchMono:            make([]float32, maxSamples),
 		scratchPacket:          make([]byte, defaultScratchPacketBytes),
 		scratchStreamPCM:       make([]float64, maxStreamSamples),
+		scratchStreamRawPCM:    make([]float64, maxStreamSamples),
+		scratchStreamLookahead: make([]float64, maxStreamSamples),
 		prevMode:               ModeAuto,
 		prevPacketMode:         ModeAuto,
 		prevAutoMode:           ModeAuto,
@@ -772,6 +776,34 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		}
 	}
 
+	codingFramePCM := framePCM
+	codingRawPCM := rawPCM
+	codingLookahead := lookaheadSlice
+	inputChannels := e.channels
+	streamChannels := e.effectiveStreamChannels()
+	if actualMode != ModeCELT && streamChannels != inputChannels {
+		var convErr error
+		codingFramePCM, convErr = e.frameForChannelsInto(e.scratchStreamPCM, framePCM, frameSize, inputChannels, streamChannels)
+		if convErr != nil {
+			return nil, convErr
+		}
+		codingRawPCM, convErr = e.frameForChannelsInto(e.scratchStreamRawPCM, rawPCM, frameSize, inputChannels, streamChannels)
+		if convErr != nil {
+			return nil, convErr
+		}
+		if len(lookaheadSlice) > 0 {
+			lookaheadFrames := len(lookaheadSlice) / inputChannels
+			codingLookahead, convErr = e.frameForChannelsInto(e.scratchStreamLookahead, lookaheadSlice, lookaheadFrames, inputChannels, streamChannels)
+			if convErr != nil {
+				return nil, convErr
+			}
+		}
+		e.channels = streamChannels
+		defer func() {
+			e.channels = inputChannels
+		}()
+	}
+
 	encodingBitrate := e.bitrate
 	dredBitrate := 0
 	var dredPlan dredEmissionPlan
@@ -795,13 +827,13 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	case ModeSILK:
 		e.maybePrefillSILKOnModeTransition(actualMode)
 		if frameSize > 2880 {
-			packet, err = e.encodeSILKMultiFramePacket(framePCM, frameSize)
+			packet, err = e.encodeSILKMultiFramePacket(codingFramePCM, frameSize)
 		} else {
 			originalBitrate := e.bitrate
 			if encodingBitrate != originalBitrate {
 				e.bitrate = encodingBitrate
 			}
-			frameData, err = e.encodeSILKFrame(framePCM, lookaheadSlice, frameSize)
+			frameData, err = e.encodeSILKFrame(codingFramePCM, codingLookahead, frameSize)
 			if encodingBitrate != originalBitrate {
 				e.bitrate = originalBitrate
 			}
@@ -811,16 +843,16 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 				frameData = trimSilkTrailingZeros(frameData)
 			}
 		}
-		e.updateDelayBuffer(framePCM, frameSize)
+		e.updateDelayBuffer(codingFramePCM, frameSize)
 	case ModeHybrid:
 		if frameSize > 960 {
 			delayState := e.ensureDelayState(len(e.delayBuffer))
 			copy(delayState, e.delayBuffer)
-			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
-			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, rawPCM, lookaheadSlice, delayState, frameSize, transitionToCELT, e.bitrate, encodingBitrate, dredBitrate)
+			celtPCM := e.applyDelayCompensation(codingFramePCM, frameSize)
+			packet, err = e.encodeHybridMultiFramePacket(codingFramePCM, celtPCM, codingRawPCM, codingLookahead, delayState, frameSize, transitionToCELT, e.bitrate, encodingBitrate, dredBitrate)
 		} else {
 			e.maybePrefillSILKOnModeTransition(actualMode)
-			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
+			celtPCM := e.applyDelayCompensation(codingFramePCM, frameSize)
 			originalBitrate := e.bitrate
 			maxPacketBytes := 0
 			if encodingBitrate != originalBitrate {
@@ -829,7 +861,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 				}
 				e.bitrate = encodingBitrate
 			}
-			frameData, err = e.encodeHybridFrameWithMaxPacketAndTransition(framePCM, celtPCM, lookaheadSlice, frameSize, maxPacketBytes, dredBitrate, false, true, transitionToCELT, false)
+			frameData, err = e.encodeHybridFrameWithMaxPacketAndTransition(codingFramePCM, celtPCM, codingLookahead, frameSize, maxPacketBytes, dredBitrate, false, true, transitionToCELT, false)
 			if encodingBitrate != originalBitrate {
 				e.bitrate = originalBitrate
 			}
@@ -1730,14 +1762,11 @@ func (e *Encoder) prepareCELTPCM(framePCM []float64, frameSize int) []float64 {
 }
 
 func (e *Encoder) packetChannelsForMode(mode Mode) int {
-	if mode == ModeCELT {
-		return e.effectiveStreamChannels()
-	}
-	return e.channels
+	return e.effectiveStreamChannels()
 }
 
 func (e *Encoder) effectiveStreamChannels() int {
-	if e.channels == 2 && (e.forceChannels == 1 || e.forceChannels == 2) {
+	if e.forceChannels == 1 || e.forceChannels == 2 {
 		return e.forceChannels
 	}
 	return e.channels
@@ -1776,6 +1805,41 @@ func (e *Encoder) frameForStreamChannels(pcm []float64, frameSize int) ([]float6
 		return nil, 0, ErrInvalidChannels
 	}
 	return out, streamChannels, nil
+}
+
+func (e *Encoder) frameForChannelsInto(dst, pcm []float64, frameSize, fromChannels, toChannels int) ([]float64, error) {
+	if fromChannels == toChannels {
+		if len(pcm) != frameSize*fromChannels {
+			return nil, ErrInvalidFrameSize
+		}
+		return pcm, nil
+	}
+	if fromChannels < 1 || fromChannels > 2 || toChannels < 1 || toChannels > 2 {
+		return nil, ErrInvalidChannels
+	}
+	if frameSize < 0 || len(pcm) != frameSize*fromChannels {
+		return nil, ErrInvalidFrameSize
+	}
+	needed := frameSize * toChannels
+	if needed > len(dst) {
+		return nil, ErrInvalidFrameSize
+	}
+	out := dst[:needed]
+	switch {
+	case fromChannels == 2 && toChannels == 1:
+		for i := 0; i < frameSize; i++ {
+			out[i] = 0.5 * (pcm[2*i] + pcm[2*i+1])
+		}
+	case fromChannels == 1 && toChannels == 2:
+		for i := 0; i < frameSize; i++ {
+			v := pcm[i]
+			out[2*i] = v
+			out[2*i+1] = v
+		}
+	default:
+		return nil, ErrInvalidChannels
+	}
+	return out, nil
 }
 
 // selectMode determines the actual encoding mode based on settings and content.

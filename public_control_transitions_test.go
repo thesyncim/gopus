@@ -172,6 +172,73 @@ func TestPublicEncoderReportsDTXStateFromSilence(t *testing.T) {
 	}
 }
 
+func TestPublicEncoderForceChannelsChangesPacketShape(t *testing.T) {
+	tests := []struct {
+		name        string
+		channels    int
+		force       int
+		application Application
+		bandwidth   Bandwidth
+		signal      Signal
+		bitrate     int
+		wantStereo  bool
+	}{
+		{
+			name:        "stereo_input_forced_mono_silk",
+			channels:    2,
+			force:       1,
+			application: ApplicationVoIP,
+			bandwidth:   BandwidthWideband,
+			signal:      SignalVoice,
+			bitrate:     24000,
+			wantStereo:  false,
+		},
+		{
+			name:        "mono_input_forced_stereo_celt",
+			channels:    1,
+			force:       2,
+			application: ApplicationLowDelay,
+			bandwidth:   BandwidthFullband,
+			signal:      SignalMusic,
+			bitrate:     96000,
+			wantStereo:  true,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			enc := mustNewTestEncoder(t, 48000, tc.channels, tc.application)
+			requireNoControlError(t, enc.SetBitrate(tc.bitrate), "SetBitrate")
+			requireNoControlError(t, enc.SetBandwidth(tc.bandwidth), "SetBandwidth")
+			requireNoControlError(t, enc.SetMaxBandwidth(tc.bandwidth), "SetMaxBandwidth")
+			requireNoControlError(t, enc.SetSignal(tc.signal), "SetSignal")
+			requireNoControlError(t, enc.SetForceChannels(tc.force), "SetForceChannels")
+
+			packet := encodePublicEntryPoint(t, enc, "float32_buffer", 0)
+			info, err := ParsePacket(packet)
+			if err != nil {
+				t.Fatalf("ParsePacket: %v", err)
+			}
+			if info.TOC.Stereo != tc.wantStereo {
+				t.Fatalf("packet stereo=%v want %v", info.TOC.Stereo, tc.wantStereo)
+			}
+
+			decodeChannels := 1
+			if tc.wantStereo {
+				decodeChannels = 2
+			}
+			dec := mustNewTestDecoder(t, 48000, decodeChannels)
+			out := make([]float32, defaultMaxPacketSamples*decodeChannels)
+			n, err := dec.Decode(packet, out)
+			if err != nil {
+				t.Fatalf("Decode forced-channel packet: %v", err)
+			}
+			requireDecodedFloat32(t, out[:n*decodeChannels], n, enc.FrameSize(), true)
+		})
+	}
+}
+
 func TestPublicEncoderControlValidationRejectsBadValues(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
 

@@ -286,6 +286,71 @@ static int run_fec_plc_transitions(void) {
     return 0;
 }
 
+static int run_control_packet_interleave(void) {
+    unsigned char packets[3][MAX_PACKET];
+    int packet_lens[3];
+
+    packet_lens[0] = encode_packet(OPUS_APPLICATION_RESTRICTED_SILK, 1,
+            OPUS_BANDWIDTH_WIDEBAND, 24000, OPUS_SIGNAL_VOICE, 960, 0, packets[0]);
+    packet_lens[1] = encode_packet(OPUS_APPLICATION_VOIP, 1,
+            OPUS_BANDWIDTH_SUPERWIDEBAND, 32000, OPUS_SIGNAL_VOICE, 960, 1, packets[1]);
+    packet_lens[2] = encode_packet(OPUS_APPLICATION_RESTRICTED_CELT, 1,
+            OPUS_BANDWIDTH_FULLBAND, 96000, OPUS_SIGNAL_MUSIC, 480, 2, packets[2]);
+    for (int i = 0; i < 3; i++) {
+        if (packet_lens[i] <= 0) return 1;
+    }
+
+    int err = OPUS_OK;
+    float pcm[MAX_FRAME * 2];
+    OpusDecoder *dec = opus_decoder_create(48000, 1, &err);
+    if (err != OPUS_OK || dec == NULL) return 1;
+
+    begin_output(8);
+    write_state(dec, 0, 1, NULL, 0);
+
+    opus_decoder_ctl(dec, OPUS_SET_GAIN(256));
+    opus_decoder_ctl(dec, OPUS_SET_IGNORE_EXTENSIONS(1));
+    write_state(dec, 0, 1, NULL, 0);
+
+    int ret = opus_decode_float(dec, packets[0], packet_lens[0], pcm, MAX_FRAME, 0);
+    if (ret < 0) {
+        opus_decoder_destroy(dec);
+        return 1;
+    }
+    write_state(dec, ret, 1, packets[0], packet_lens[0]);
+
+    opus_decoder_ctl(dec, OPUS_SET_GAIN(-512));
+    opus_decoder_ctl(dec, OPUS_SET_IGNORE_EXTENSIONS(0));
+    write_state(dec, 0, 1, NULL, 0);
+
+    ret = opus_decode_float(dec, packets[1], packet_lens[1], pcm, MAX_FRAME, 0);
+    if (ret < 0) {
+        opus_decoder_destroy(dec);
+        return 1;
+    }
+    write_state(dec, ret, 1, packets[1], packet_lens[1]);
+
+    opus_decoder_ctl(dec, OPUS_RESET_STATE);
+    write_state(dec, 0, 1, NULL, 0);
+
+    ret = opus_decode_float(dec, packets[2], packet_lens[2], pcm, MAX_FRAME, 0);
+    if (ret < 0) {
+        opus_decoder_destroy(dec);
+        return 1;
+    }
+    write_state(dec, ret, 1, packets[2], packet_lens[2]);
+
+    ret = opus_decode_float(dec, NULL, 0, pcm, 480, 0);
+    if (ret < 0) {
+        opus_decoder_destroy(dec);
+        return 1;
+    }
+    write_state(dec, ret, 1, NULL, 0);
+
+    opus_decoder_destroy(dec);
+    return 0;
+}
+
 int main(int argc, char **argv) {
     if (argc != 2) {
         return 2;
@@ -304,6 +369,9 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[1], "fec_plc_transitions") == 0) {
         return run_fec_plc_transitions();
+    }
+    if (strcmp(argv[1], "control_packet_interleave") == 0) {
+        return run_control_packet_interleave();
     }
     return 2;
 }

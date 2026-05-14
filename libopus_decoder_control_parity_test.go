@@ -1,3 +1,5 @@
+//go:build gopus_libopus_oracle
+
 package gopus
 
 import (
@@ -40,6 +42,7 @@ func TestLibopusDecoderControlParity(t *testing.T) {
 		"packet_modes_mono",
 		"packet_modes_stereo",
 		"fec_plc_transitions",
+		"control_packet_interleave",
 	} {
 		name := name
 		t.Run(name, func(t *testing.T) {
@@ -133,6 +136,51 @@ func runGopusDecoderControlScenario(t *testing.T, name string, want []decoderCon
 		n, err = dec.Decode(nil, pcm)
 		if err != nil {
 			t.Fatalf("Decode PLC after FEC: %v", err)
+		}
+		out = append(out, captureDecoderControlParityStep(dec, n, nil))
+		return out
+	case "control_packet_interleave":
+		if len(want) != 8 {
+			t.Fatalf("control_packet_interleave step count=%d want 8", len(want))
+		}
+		dec := mustNewTestDecoder(t, want[0].sampleRate, want[0].channels)
+		pcm := make([]float32, defaultMaxPacketSamples*want[0].channels)
+		out := make([]decoderControlParityStep, 0, len(want))
+
+		out = append(out, captureDecoderControlParityStep(dec, 0, nil))
+
+		mustSetControl(t, dec.SetGain(256), "SetGain")
+		dec.SetIgnoreExtensions(true)
+		out = append(out, captureDecoderControlParityStep(dec, 0, nil))
+
+		n, err := dec.Decode(want[2].packet, pcm)
+		if err != nil {
+			t.Fatalf("Decode SILK step: %v", err)
+		}
+		out = append(out, captureDecoderControlParityStep(dec, n, want[2].packet))
+
+		mustSetControl(t, dec.SetGain(-512), "SetGain")
+		dec.SetIgnoreExtensions(false)
+		out = append(out, captureDecoderControlParityStep(dec, 0, nil))
+
+		n, err = dec.Decode(want[4].packet, pcm)
+		if err != nil {
+			t.Fatalf("Decode Hybrid step: %v", err)
+		}
+		out = append(out, captureDecoderControlParityStep(dec, n, want[4].packet))
+
+		dec.Reset()
+		out = append(out, captureDecoderControlParityStep(dec, 0, nil))
+
+		n, err = dec.Decode(want[6].packet, pcm)
+		if err != nil {
+			t.Fatalf("Decode CELT step: %v", err)
+		}
+		out = append(out, captureDecoderControlParityStep(dec, n, want[6].packet))
+
+		n, err = dec.Decode(nil, pcm)
+		if err != nil {
+			t.Fatalf("Decode PLC step: %v", err)
 		}
 		out = append(out, captureDecoderControlParityStep(dec, n, nil))
 		return out

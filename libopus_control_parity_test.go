@@ -1,3 +1,5 @@
+//go:build gopus_libopus_oracle
+
 package gopus
 
 import (
@@ -69,6 +71,7 @@ func TestLibopusControlTransitionParity(t *testing.T) {
 		{name: "force_channels", run: runGopusForceChannelsParity},
 		{name: "prediction_phase_controls", run: runGopusPredictionPhaseControlsParity},
 		{name: "reset_preserves_controls", run: runGopusResetPreservesControlsParity},
+		{name: "control_matrix", run: runGopusControlMatrixParity},
 		{name: "dtx_silence_exact", run: runGopusDTXSilenceExactParity, opts: controlParityOptions{exactPacketBytes: true}},
 	}
 
@@ -404,6 +407,78 @@ func runGopusResetPreservesControlsParity(t *testing.T) []controlParityStep {
 
 	enc.Reset()
 	out = append(out, encodeControlParityStep(t, enc, packet, 1))
+
+	return out
+}
+
+func runGopusControlMatrixParity(t *testing.T) []controlParityStep {
+	t.Helper()
+
+	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
+	packet := make([]byte, maxPacketBytesPerStream)
+	var out []controlParityStep
+
+	mustSetControl(t, enc.SetBitrate(64000), "SetBitrate")
+	mustSetControl(t, enc.SetComplexity(0), "SetComplexity")
+	mustSetControl(t, enc.SetBitrateMode(BitrateModeCVBR), "SetBitrateMode")
+	mustSetControl(t, enc.SetBandwidth(BandwidthFullband), "SetBandwidth")
+	mustSetControl(t, enc.SetMaxBandwidth(BandwidthFullband), "SetMaxBandwidth")
+	mustSetControl(t, enc.SetSignal(SignalMusic), "SetSignal")
+	mustSetControl(t, enc.SetExpertFrameDuration(ExpertFrameDuration20Ms), "SetExpertFrameDuration")
+	mustSetControl(t, enc.SetForceChannels(2), "SetForceChannels")
+	out = append(out, encodeControlParityStep(t, enc, packet, 0))
+
+	mustSetControl(t, enc.SetComplexity(10), "SetComplexity")
+	mustSetControl(t, enc.SetBitrate(128000), "SetBitrate")
+	enc.SetVBRConstraint(false)
+	out = append(out, encodeControlParityStep(t, enc, packet, 1))
+
+	mustSetControl(t, enc.SetForceChannels(1), "SetForceChannels")
+	mustSetControl(t, enc.SetBitrate(24000), "SetBitrate")
+	mustSetControl(t, enc.SetBandwidth(BandwidthWideband), "SetBandwidth")
+	mustSetControl(t, enc.SetMaxBandwidth(BandwidthWideband), "SetMaxBandwidth")
+	mustSetControl(t, enc.SetSignal(SignalVoice), "SetSignal")
+	enc.SetFEC(true)
+	mustSetControl(t, enc.SetPacketLoss(10), "SetPacketLoss")
+	out = append(out, encodeControlParityStep(t, enc, packet, 2))
+
+	enc.SetDTX(true)
+	mustSetControl(t, enc.SetLSBDepth(16), "SetLSBDepth")
+	mustSetControl(t, enc.SetBitrate(20000), "SetBitrate")
+	out = append(out, encodeControlParityStep(t, enc, packet, 3))
+
+	enc.SetVBR(false)
+	enc.SetDTX(false)
+	enc.SetFEC(false)
+	mustSetControl(t, enc.SetPacketLoss(0), "SetPacketLoss")
+	mustSetControl(t, enc.SetBandwidth(BandwidthNarrowband), "SetBandwidth")
+	mustSetControl(t, enc.SetMaxBandwidth(BandwidthNarrowband), "SetMaxBandwidth")
+	mustSetControl(t, enc.SetSignal(SignalAuto), "SetSignal")
+	mustSetControl(t, enc.SetLSBDepth(8), "SetLSBDepth")
+	out = append(out, encodeControlParityStep(t, enc, packet, 4))
+
+	enc.Reset()
+	requireNoControlError(t, enc.SetApplication(ApplicationLowDelay), "SetApplication(LowDelay)")
+	mustSetControl(t, enc.SetExpertFrameDuration(ExpertFrameDuration5Ms), "SetExpertFrameDuration")
+	mustSetControl(t, enc.SetBandwidth(BandwidthFullband), "SetBandwidth")
+	mustSetControl(t, enc.SetMaxBandwidth(BandwidthFullband), "SetMaxBandwidth")
+	mustSetControl(t, enc.SetBitrate(96000), "SetBitrate")
+	enc.SetVBR(true)
+	enc.SetVBRConstraint(true)
+	enc.SetPredictionDisabled(true)
+	out = append(out, encodeControlParityStep(t, enc, packet, 5))
+
+	mustSetControl(t, enc.SetExpertFrameDuration(ExpertFrameDuration2_5Ms), "SetExpertFrameDuration")
+	enc.SetPredictionDisabled(false)
+	enc.SetPhaseInversionDisabled(true)
+	mustSetControl(t, enc.SetForceChannels(2), "SetForceChannels")
+	out = append(out, encodeControlParityStep(t, enc, packet, 6))
+
+	enc.Reset()
+	requireNoControlError(t, enc.SetApplication(ApplicationAudio), "SetApplication(Audio)")
+	mustSetControl(t, enc.SetExpertFrameDuration(ExpertFrameDuration20Ms), "SetExpertFrameDuration")
+	enc.SetPhaseInversionDisabled(false)
+	out = append(out, encodeControlParityStep(t, enc, packet, 7))
 
 	return out
 }

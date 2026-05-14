@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-dnn-blob-parity test-dred-tag test-qext-parity test-unsupported-controls-tag test-unsupported-controls-parity test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-libopus-control-oracle test-dnn-blob-parity test-dred-tag test-qext-parity test-unsupported-controls-tag test-unsupported-controls-parity test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -113,6 +113,29 @@ test-consumer-smoke:
 # Lightweight docs contract that keeps release-surface claims aligned.
 test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run 'Test(OptionalExtensionDocsContract|TrustDocsContract|TrustSensitiveFilesHaveCodeOwners|ReleaseNotesExistForTags|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
+
+# Broad libopus-backed control oracles are tag-gated so ordinary package tests do
+# not build helper compilers or carry oracle imports unless this gate asks for it.
+test-libopus-control-oracle: ensure-libopus
+	@json_out="$$(mktemp)"; \
+	json_part="$$json_out.part"; \
+	trap 'rm -f "$$json_out" "$$json_part"' EXIT; \
+	run_json() { \
+		if ! "$$@" -json > "$$json_part"; then \
+			cat "$$json_part"; \
+			cat "$$json_part" >> "$$json_out"; \
+			exit 1; \
+		fi; \
+		cat "$$json_part"; \
+		cat "$$json_part" >> "$$json_out"; \
+		: > "$$json_part"; \
+	}; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_libopus_oracle . -run 'TestLibopus(ControlTransitionParity|DecoderControlParity)' -count=1; \
+	if grep -q '"Action":"skip"' "$$json_out"; then \
+		echo "Unexpected skip detected in required libopus control oracle gate:"; \
+		grep '"Action":"skip"' "$$json_out"; \
+		exit 1; \
+	fi
 
 # Default-supported DNN blob control parity against libopus USE_WEIGHTS_FILE
 # model blobs. The target fails if the required libopus-backed test is skipped.
@@ -323,6 +346,7 @@ bench-testvectors-report: ensure-libopus ensure-testvectors
 verify-production: ensure-libopus
 	$(RUNNABLE_PARITY) -count=1 -timeout=25m
 	$(MAKE) test-consumer-smoke
+	$(MAKE) test-libopus-control-oracle
 	$(MAKE) test-dnn-blob-parity
 	$(MAKE) test-dred-tag
 	$(MAKE) test-qext-parity
