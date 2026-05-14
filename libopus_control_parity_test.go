@@ -41,6 +41,11 @@ type controlParityStep struct {
 	packet                 []byte
 }
 
+type controlParityOptions struct {
+	exactPacketBytes bool
+	onlyControlState bool
+}
+
 var (
 	libopusControlHelperOnce sync.Once
 	libopusControlHelperPath string
@@ -51,10 +56,19 @@ func TestLibopusControlTransitionParity(t *testing.T) {
 	tests := []struct {
 		name string
 		run  func(*testing.T) []controlParityStep
+		opts controlParityOptions
 	}{
+		{name: "applications", run: runGopusApplicationsParity},
 		{name: "audio_controls", run: runGopusAudioControlParity},
+		{name: "bitrate_mode_transitions", run: runGopusBitrateModeTransitionsParity},
 		{name: "lowdelay_controls", run: runGopusLowDelayControlParity},
+		{name: "expert_durations", run: runGopusExpertDurationsParity},
+		{name: "bandwidth_signal_controls", run: runGopusBandwidthSignalControlsParity, opts: controlParityOptions{onlyControlState: true}},
+		{name: "fec_dtx_lsb_controls", run: runGopusFECDTXLSBControlsParity},
 		{name: "force_channels", run: runGopusForceChannelsParity},
+		{name: "prediction_phase_controls", run: runGopusPredictionPhaseControlsParity},
+		{name: "reset_preserves_controls", run: runGopusResetPreservesControlsParity},
+		{name: "dtx_silence_exact", run: runGopusDTXSilenceExactParity, opts: controlParityOptions{exactPacketBytes: true}},
 	}
 
 	for _, tc := range tests {
@@ -65,9 +79,37 @@ func TestLibopusControlTransitionParity(t *testing.T) {
 				t.Skipf("libopus control helper unavailable: %v", err)
 			}
 			got := tc.run(t)
-			compareControlParitySteps(t, got, want)
+			compareControlParitySteps(t, got, want, tc.opts)
 		})
 	}
+}
+
+func runGopusApplicationsParity(t *testing.T) []controlParityStep {
+	t.Helper()
+
+	applications := []Application{
+		ApplicationVoIP,
+		ApplicationAudio,
+		ApplicationLowDelay,
+		ApplicationRestrictedSilk,
+		ApplicationRestrictedCelt,
+	}
+	var out []controlParityStep
+	for i, application := range applications {
+		enc := mustNewTestEncoder(t, 48000, 1, application)
+		mustSetControl(t, enc.SetBitrate(64000), "SetBitrate")
+		switch application {
+		case ApplicationVoIP, ApplicationRestrictedSilk:
+			mustSetControl(t, enc.SetBandwidth(BandwidthWideband), "SetBandwidth")
+			mustSetControl(t, enc.SetMaxBandwidth(BandwidthWideband), "SetMaxBandwidth")
+		default:
+			mustSetControl(t, enc.SetBandwidth(BandwidthFullband), "SetBandwidth")
+			mustSetControl(t, enc.SetMaxBandwidth(BandwidthFullband), "SetMaxBandwidth")
+		}
+		packet := make([]byte, maxPacketBytesPerStream)
+		out = append(out, encodeControlParityStep(t, enc, packet, i))
+	}
+	return out
 }
 
 func runGopusAudioControlParity(t *testing.T) []controlParityStep {
@@ -107,6 +149,43 @@ func runGopusAudioControlParity(t *testing.T) []controlParityStep {
 	return out
 }
 
+func runGopusBitrateModeTransitionsParity(t *testing.T) []controlParityStep {
+	t.Helper()
+
+	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
+	packet := make([]byte, maxPacketBytesPerStream)
+	var out []controlParityStep
+
+	mustSetControl(t, enc.SetBitrate(64000), "SetBitrate")
+	mustSetControl(t, enc.SetComplexity(9), "SetComplexity")
+	mustSetControl(t, enc.SetBandwidth(BandwidthFullband), "SetBandwidth")
+	mustSetControl(t, enc.SetMaxBandwidth(BandwidthFullband), "SetMaxBandwidth")
+	out = append(out, encodeControlParityStep(t, enc, packet, 0))
+
+	enc.SetVBRConstraint(false)
+	out = append(out, encodeControlParityStep(t, enc, packet, 1))
+
+	enc.SetVBR(false)
+	out = append(out, encodeControlParityStep(t, enc, packet, 2))
+
+	enc.SetVBRConstraint(true)
+	out = append(out, encodeControlParityStep(t, enc, packet, 3))
+
+	enc.SetVBR(true)
+	out = append(out, encodeControlParityStep(t, enc, packet, 4))
+
+	mustSetControl(t, enc.SetBitrateMode(BitrateModeVBR), "SetBitrateMode(VBR)")
+	out = append(out, encodeControlParityStep(t, enc, packet, 5))
+
+	mustSetControl(t, enc.SetBitrateMode(BitrateModeCBR), "SetBitrateMode(CBR)")
+	out = append(out, encodeControlParityStep(t, enc, packet, 6))
+
+	mustSetControl(t, enc.SetBitrateMode(BitrateModeCVBR), "SetBitrateMode(CVBR)")
+	out = append(out, encodeControlParityStep(t, enc, packet, 7))
+
+	return out
+}
+
 func runGopusLowDelayControlParity(t *testing.T) []controlParityStep {
 	t.Helper()
 
@@ -133,6 +212,106 @@ func runGopusLowDelayControlParity(t *testing.T) []controlParityStep {
 	return out
 }
 
+func runGopusExpertDurationsParity(t *testing.T) []controlParityStep {
+	t.Helper()
+
+	enc := mustNewTestEncoder(t, 48000, 1, ApplicationLowDelay)
+	packet := make([]byte, maxPacketBytesPerStream)
+	var out []controlParityStep
+
+	mustSetControl(t, enc.SetBitrate(96000), "SetBitrate")
+	mustSetControl(t, enc.SetComplexity(7), "SetComplexity")
+	mustSetControl(t, enc.SetSignal(SignalMusic), "SetSignal")
+	mustSetControl(t, enc.SetMaxBandwidth(BandwidthFullband), "SetMaxBandwidth")
+
+	durations := []ExpertFrameDuration{
+		ExpertFrameDurationArg,
+		ExpertFrameDuration2_5Ms,
+		ExpertFrameDuration5Ms,
+		ExpertFrameDuration10Ms,
+		ExpertFrameDuration20Ms,
+		ExpertFrameDuration40Ms,
+		ExpertFrameDuration60Ms,
+		ExpertFrameDuration80Ms,
+		ExpertFrameDuration100Ms,
+		ExpertFrameDuration120Ms,
+	}
+	frameSizes := []int{960, 120, 240, 480, 960, 1920, 2880, 3840, 4800, 5760}
+	for i, duration := range durations {
+		mustSetControl(t, enc.SetExpertFrameDuration(duration), "SetExpertFrameDuration")
+		if duration == ExpertFrameDurationArg {
+			mustSetControl(t, enc.SetFrameSize(frameSizes[i]), "SetFrameSize(ARG)")
+		}
+		out = append(out, encodeControlParityStep(t, enc, packet, i))
+	}
+
+	return out
+}
+
+func runGopusBandwidthSignalControlsParity(t *testing.T) []controlParityStep {
+	t.Helper()
+
+	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
+	packet := make([]byte, maxPacketBytesPerStream)
+	var out []controlParityStep
+
+	mustSetControl(t, enc.SetBitrate(48000), "SetBitrate")
+	mustSetControl(t, enc.SetExpertFrameDuration(ExpertFrameDuration20Ms), "SetExpertFrameDuration")
+	steps := []struct {
+		bandwidth Bandwidth
+		max       Bandwidth
+		signal    Signal
+		bitrate   int
+	}{
+		{bandwidth: BandwidthNarrowband, max: BandwidthNarrowband, signal: SignalAuto, bitrate: 16000},
+		{bandwidth: BandwidthMediumband, max: BandwidthMediumband, signal: SignalVoice, bitrate: 20000},
+		{bandwidth: BandwidthWideband, max: BandwidthWideband, signal: SignalVoice, bitrate: 28000},
+		{bandwidth: BandwidthSuperwideband, max: BandwidthSuperwideband, signal: SignalMusic, bitrate: 64000},
+		{bandwidth: BandwidthFullband, max: BandwidthFullband, signal: SignalMusic, bitrate: 96000},
+	}
+	for i, step := range steps {
+		mustSetControl(t, enc.SetBitrate(step.bitrate), "SetBitrate")
+		mustSetControl(t, enc.SetBandwidth(step.bandwidth), "SetBandwidth")
+		mustSetControl(t, enc.SetMaxBandwidth(step.max), "SetMaxBandwidth")
+		mustSetControl(t, enc.SetSignal(step.signal), "SetSignal")
+		out = append(out, encodeControlParityStep(t, enc, packet, i))
+	}
+
+	return out
+}
+
+func runGopusFECDTXLSBControlsParity(t *testing.T) []controlParityStep {
+	t.Helper()
+
+	enc := mustNewTestEncoder(t, 48000, 1, ApplicationVoIP)
+	packet := make([]byte, maxPacketBytesPerStream)
+	var out []controlParityStep
+
+	mustSetControl(t, enc.SetBitrate(24000), "SetBitrate")
+	mustSetControl(t, enc.SetBandwidth(BandwidthWideband), "SetBandwidth")
+	mustSetControl(t, enc.SetSignal(SignalVoice), "SetSignal")
+	steps := []struct {
+		fec        bool
+		packetLoss int
+		dtx        bool
+		lsbDepth   int
+	}{
+		{fec: false, packetLoss: 0, dtx: false, lsbDepth: 24},
+		{fec: true, packetLoss: 5, dtx: false, lsbDepth: 24},
+		{fec: true, packetLoss: 20, dtx: true, lsbDepth: 16},
+		{fec: false, packetLoss: 100, dtx: true, lsbDepth: 8},
+	}
+	for i, step := range steps {
+		enc.SetFEC(step.fec)
+		mustSetControl(t, enc.SetPacketLoss(step.packetLoss), "SetPacketLoss")
+		enc.SetDTX(step.dtx)
+		mustSetControl(t, enc.SetLSBDepth(step.lsbDepth), "SetLSBDepth")
+		out = append(out, encodeControlParityStep(t, enc, packet, i))
+	}
+
+	return out
+}
+
 func runGopusForceChannelsParity(t *testing.T) []controlParityStep {
 	t.Helper()
 
@@ -154,10 +333,88 @@ func runGopusForceChannelsParity(t *testing.T) []controlParityStep {
 	return out
 }
 
+func runGopusPredictionPhaseControlsParity(t *testing.T) []controlParityStep {
+	t.Helper()
+
+	enc := mustNewTestEncoder(t, 48000, 2, ApplicationLowDelay)
+	packet := make([]byte, maxPacketBytesPerStream)
+	var out []controlParityStep
+
+	mustSetControl(t, enc.SetBitrate(128000), "SetBitrate")
+	mustSetControl(t, enc.SetExpertFrameDuration(ExpertFrameDuration20Ms), "SetExpertFrameDuration")
+	mustSetControl(t, enc.SetSignal(SignalMusic), "SetSignal")
+
+	steps := []struct {
+		predictionDisabled     bool
+		phaseInversionDisabled bool
+	}{
+		{predictionDisabled: false, phaseInversionDisabled: false},
+		{predictionDisabled: true, phaseInversionDisabled: false},
+		{predictionDisabled: true, phaseInversionDisabled: true},
+		{predictionDisabled: false, phaseInversionDisabled: true},
+		{predictionDisabled: false, phaseInversionDisabled: false},
+	}
+	for i, step := range steps {
+		enc.SetPredictionDisabled(step.predictionDisabled)
+		enc.SetPhaseInversionDisabled(step.phaseInversionDisabled)
+		out = append(out, encodeControlParityStep(t, enc, packet, i))
+	}
+
+	return out
+}
+
+func runGopusResetPreservesControlsParity(t *testing.T) []controlParityStep {
+	t.Helper()
+
+	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
+	packet := make([]byte, maxPacketBytesPerStream)
+	var out []controlParityStep
+
+	mustSetControl(t, enc.SetBitrate(48000), "SetBitrate")
+	mustSetControl(t, enc.SetComplexity(4), "SetComplexity")
+	mustSetControl(t, enc.SetBitrateMode(BitrateModeVBR), "SetBitrateMode")
+	mustSetControl(t, enc.SetBandwidth(BandwidthWideband), "SetBandwidth")
+	mustSetControl(t, enc.SetMaxBandwidth(BandwidthWideband), "SetMaxBandwidth")
+	mustSetControl(t, enc.SetSignal(SignalVoice), "SetSignal")
+	mustSetControl(t, enc.SetLSBDepth(16), "SetLSBDepth")
+	enc.SetFEC(true)
+	mustSetControl(t, enc.SetPacketLoss(12), "SetPacketLoss")
+	enc.SetDTX(true)
+	out = append(out, encodeControlParityStep(t, enc, packet, 0))
+
+	enc.Reset()
+	out = append(out, encodeControlParityStep(t, enc, packet, 1))
+
+	return out
+}
+
+func runGopusDTXSilenceExactParity(t *testing.T) []controlParityStep {
+	t.Helper()
+
+	enc := mustNewTestEncoder(t, 48000, 1, ApplicationVoIP)
+	packet := make([]byte, maxPacketBytesPerStream)
+	mustSetControl(t, enc.SetBitrate(16000), "SetBitrate")
+	mustSetControl(t, enc.SetBandwidth(BandwidthWideband), "SetBandwidth")
+	mustSetControl(t, enc.SetMaxBandwidth(BandwidthWideband), "SetMaxBandwidth")
+	mustSetControl(t, enc.SetSignal(SignalVoice), "SetSignal")
+	enc.SetDTX(true)
+
+	for i := 0; i < 10; i++ {
+		encodeControlParityStepWithSilence(t, enc, packet, i, true)
+	}
+	return []controlParityStep{encodeControlParityStepWithSilence(t, enc, packet, 10, true)}
+}
+
 func encodeControlParityStep(t *testing.T, enc *Encoder, packet []byte, frameIndex int) controlParityStep {
 	t.Helper()
 
-	pcm := publicCodecPCM(48000, enc.FrameSize(), enc.Channels(), frameIndex, false)
+	return encodeControlParityStepWithSilence(t, enc, packet, frameIndex, false)
+}
+
+func encodeControlParityStepWithSilence(t *testing.T, enc *Encoder, packet []byte, frameIndex int, silence bool) controlParityStep {
+	t.Helper()
+
+	pcm := publicCodecPCM(48000, enc.FrameSize(), enc.Channels(), frameIndex, silence)
 	n, err := enc.Encode(pcm, packet)
 	if err != nil {
 		t.Fatalf("Encode frame %d: %v", frameIndex, err)
@@ -193,7 +450,7 @@ func encodeControlParityStep(t *testing.T, enc *Encoder, packet []byte, frameInd
 	}
 }
 
-func compareControlParitySteps(t *testing.T, got, want []controlParityStep) {
+func compareControlParitySteps(t *testing.T, got, want []controlParityStep, opts controlParityOptions) {
 	t.Helper()
 
 	if len(got) != len(want) {
@@ -201,6 +458,12 @@ func compareControlParitySteps(t *testing.T, got, want []controlParityStep) {
 	}
 	for i := range got {
 		t.Run(fmt.Sprintf("step_%d", i), func(t *testing.T) {
+			requireControlStepPacketContract(t, "gopus", got[i])
+			requireControlStepPacketContract(t, "libopus", want[i])
+			if opts.exactPacketBytes {
+				compareControlParityScalar(t, "ret", got[i].ret, want[i].ret)
+				compareControlParityScalar(t, "finalRange", int(got[i].finalRange), int(want[i].finalRange))
+			}
 			compareControlParityScalar(t, "frameSize", got[i].frameSize, want[i].frameSize)
 			compareControlParityScalar(t, "channels", got[i].channels, want[i].channels)
 			compareControlParityScalar(t, "application", got[i].application, want[i].application)
@@ -221,8 +484,22 @@ func compareControlParitySteps(t *testing.T, got, want []controlParityStep) {
 			compareControlParityScalar(t, "lsbDepth", got[i].lsbDepth, want[i].lsbDepth)
 			compareControlParityScalar(t, "predictionDisabled", got[i].predictionDisabled, want[i].predictionDisabled)
 			compareControlParityScalar(t, "phaseInversionDisabled", got[i].phaseInversionDisabled, want[i].phaseInversionDisabled)
-			compareControlPacketMetadata(t, got[i].packet, want[i].packet)
+			if opts.exactPacketBytes {
+				compareControlPacketBytes(t, got[i].packet, want[i].packet)
+			} else if !opts.onlyControlState {
+				compareControlPacketMetadata(t, got[i].packet, want[i].packet)
+			}
 		})
+	}
+}
+
+func requireControlStepPacketContract(t *testing.T, name string, step controlParityStep) {
+	t.Helper()
+	if step.ret < 0 {
+		t.Fatalf("%s ret=%d want non-negative", name, step.ret)
+	}
+	if len(step.packet) != step.ret {
+		t.Fatalf("%s packet length=%d want ret %d", name, len(step.packet), step.ret)
 	}
 }
 
@@ -231,6 +508,14 @@ func compareControlParityScalar(t *testing.T, name string, got, want int) {
 	if got != want {
 		t.Fatalf("%s=%d want %d", name, got, want)
 	}
+}
+
+func compareControlPacketBytes(t *testing.T, gotPacket, wantPacket []byte) {
+	t.Helper()
+	if !bytes.Equal(gotPacket, wantPacket) {
+		t.Fatalf("packet bytes differ:\n got % X\nwant % X", gotPacket, wantPacket)
+	}
+	compareControlPacketMetadata(t, gotPacket, wantPacket)
 }
 
 func compareControlPacketMetadata(t *testing.T, gotPacket, wantPacket []byte) {

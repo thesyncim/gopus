@@ -160,6 +160,7 @@ type Encoder struct {
 	lastAnalysisInfo    AnalysisInfo
 	lastAnalysisValid   bool
 	lastAnalysisFresh   bool
+	finalRange          uint32
 	analysisReadPosBak  int
 	analysisSubframeBak int
 	analysisReadBakSet  bool
@@ -400,6 +401,7 @@ func (e *Encoder) Reset() {
 	}
 	e.lastAnalysisValid = false
 	e.lastAnalysisFresh = false
+	e.finalRange = 0
 	e.analysisReadBakSet = false
 	e.prevMode = ModeAuto
 	e.prevPacketMode = ModeAuto
@@ -490,6 +492,20 @@ func (e *Encoder) Complexity() int {
 
 // FinalRange returns the final range coder state after encoding.
 func (e *Encoder) FinalRange() uint32 {
+	return e.finalRange
+}
+
+func (e *Encoder) currentSubencoderFinalRange(mode Mode) uint32 {
+	switch mode {
+	case ModeSILK:
+		if e.silkEncoder != nil {
+			return e.silkEncoder.FinalRange()
+		}
+	case ModeCELT, ModeHybrid:
+		if e.celtEncoder != nil {
+			return e.celtEncoder.FinalRange()
+		}
+	}
 	if e.celtEncoder != nil {
 		return e.celtEncoder.FinalRange()
 	}
@@ -675,6 +691,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
 			e.inputBuffer = e.inputBuffer[:remaining]
 		}
+		e.finalRange = 0
 		// Match libopus: return a 1-byte TOC-only packet for DTX frames.
 		// The decoder triggers its own CNG when it sees a TOC with no frame data.
 		// Returning nil here would cause WebRTC to see missing packets and apply
@@ -925,6 +942,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			packet = constrainSize(packet, targetBytesForBitrate(e.bitrate, frameSize), CVBRTolerance)
 		}
 	}
+	e.finalRange = e.currentSubencoderFinalRange(actualMode)
 	return packet, nil
 }
 
