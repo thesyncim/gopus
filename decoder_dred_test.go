@@ -202,11 +202,15 @@ func makeValidMonoCELTPacketForDREDTest(t *testing.T) []byte {
 }
 
 func makeValidMonoCELTPacketForFrameSizeForDREDTest(t *testing.T, frameSize int) []byte {
+	return makeValidMonoCELTPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthFullband)
+}
+
+func makeValidMonoCELTPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frameSize int, bandwidth Bandwidth) []byte {
 	t.Helper()
 
 	enc := internalenc.NewEncoder(48000, 1)
 	enc.SetMode(internalenc.ModeCELT)
-	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetBandwidth(types.Bandwidth(bandwidth))
 	enc.SetBitrate(128000)
 
 	pcm := make([]float64, frameSize)
