@@ -2708,13 +2708,36 @@ func (e *Encoder) clearOpusVADDecision() {
 }
 
 func (e *Encoder) updateRestrictedSilkOpusVAD(pcm []float64, frameSize int) {
-	if frameSize > 0 && len(pcm) > 0 && isDigitalSilence(pcm, e.lsbDepth) {
+	if frameSize > 0 && len(pcm) > 0 && e.currentInputIsDigitalSilence(pcm) {
 		e.lastOpusVADProb = 0
 		e.lastOpusVADValid = true
 		e.lastOpusVADActive = false
 		return
 	}
 	e.clearOpusVADDecision()
+}
+
+func (e *Encoder) currentInputIsDigitalSilence(pcm []float64) bool {
+	if e.floatInputExact && len(e.floatInputFrame) >= len(pcm) {
+		return isDigitalSilenceFloat32(e.floatInputFrame[:len(pcm)], e.lsbDepth)
+	}
+	return isDigitalSilence(pcm, e.lsbDepth)
+}
+
+func isDigitalSilenceFloat32(pcm []float32, lsbDepth int) bool {
+	if lsbDepth < 8 {
+		lsbDepth = 8
+	}
+	if lsbDepth > 24 {
+		lsbDepth = 24
+	}
+	threshold := float32(1.0 / float64(int(1)<<lsbDepth))
+	for _, s := range pcm {
+		if s > threshold || s < -threshold {
+			return false
+		}
+	}
+	return true
 }
 
 func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKHz int) (int, bool) {
