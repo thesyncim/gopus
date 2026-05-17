@@ -2348,3 +2348,60 @@ func TestDecoderExplicitSecondLossThenNextPacketFrameSizeMatrixMatchesLibopus(t 
 		})
 	}
 }
+
+func TestDecoderExplicitSecondLossThenNextPacketCELTSuperwidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	for _, frameSize := range []int{120, 240, 480, 960} {
+		frameSize := frameSize
+		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
+			dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 48000, libopusDREDPacketConfig{
+				FrameSize: frameSize,
+				ForceMode: ModeCELT,
+				Bandwidth: BandwidthSuperwideband,
+			})
+			if packetInfo.sampleRate != 48000 || n != frameSize {
+				t.Skipf("48 kHz CELT SWB second-loss follow-up parity requires frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+			}
+			nextPacket := makeValidMonoCELTPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthSuperwideband)
+
+			pcm0 := make([]float32, dec.maxPacketSamples)
+			if _, err := dec.decodeExplicitDREDFloat(dred, n, pcm0, n); err != nil {
+				t.Fatalf("decodeExplicitDREDFloat(first) error: %v", err)
+			}
+			pcm1 := make([]float32, dec.maxPacketSamples)
+			if _, err := dec.decodeExplicitDREDFloat(dred, 2*n, pcm1, n); err != nil {
+				t.Fatalf("decodeExplicitDREDFloat(second) error: %v", err)
+			}
+
+			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
+			if err != nil {
+				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+			}
+			if want.parseRet < 0 {
+				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
+			}
+			if want.warmupRet != n {
+				t.Fatalf("libopus decoder CELT SWB DRED warmup ret=%d want %d", want.warmupRet, n)
+			}
+			if want.ret != n {
+				t.Fatalf("libopus decoder CELT SWB DRED second ret=%d want %d", want.ret, n)
+			}
+			if want.nextRet != n {
+				t.Fatalf("libopus decoder CELT SWB second-loss follow-up ret=%d want %d", want.nextRet, n)
+			}
+
+			nextPCM := make([]float32, dec.maxPacketSamples)
+			gotNext, err := dec.Decode(nextPacket, nextPCM)
+			if err != nil {
+				t.Fatalf("Decode(next CELT SWB packet) after second loss error: %v", err)
+			}
+			if gotNext != n {
+				t.Fatalf("Decode(next CELT SWB packet) after second loss=%d want %d", gotNext, n)
+			}
+
+			assertFloat32ApproxEqual(t, nextPCM[:gotNext], want.nextPCM[:gotNext], "celt swb second-loss follow-up pcm", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "celt swb second-loss follow-up plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "celt swb second-loss follow-up fargan")
+			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "celt swb second-loss follow-up celt")
+		})
+	}
+}
