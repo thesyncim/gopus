@@ -115,6 +115,57 @@ Implemented or in progress:
 - the unsupported-controls gate and libopus-backed DRED/PLC helper tests now explicitly bootstrap the pinned libopus source snapshot through `tools/ensure_libopus.sh` instead of assuming a preseeded tarball/cache
 - the libopus-backed DRED/PLC helper builds now use stamped scalar OS/arch-specific `build-opus-dred-scalar-*` directories and x86-vector-disabling CFLAGS, including the top-level DRED packet helpers, so Linux/amd64 helper oracles do not drift just because compiler builtins route libopus through SSE/AVX DNN helpers while the pure-Go port is tracking scalar math
 
+### DNN blob runtime coverage
+
+Decoder-side `SetDNNBlob(...)` is intentionally a model-readiness surface, not a
+full model-backed runtime arm. What it currently does:
+
+- validates the incoming blob through `dnnblob.Clone(...)` plus
+  `Blob.ValidateDecoderControl(false)` in `dnn_blob.go::cloneDecoderDNNBlobForControl`
+- retains the validated `*dnnblob.Blob` on the `Decoder` and mirrors the blob's
+  `DecoderModelState` into `pitchDNNLoaded`, `plcModelLoaded`, `farganModelLoaded`,
+  `osceModelsLoaded`, and `osceBWEModelLoaded` (see `decoder.go` field block)
+- in default `.` builds (`decoder_dred_helpers_default.go::setDNNBlob`) does NOT
+  arm any neural runtime: no `lpcnetplc` Analysis/Predictor/FARGAN binding, no
+  DRED sidecar materialization, no OSCE/OSCE-BWE postfilter; the flags are
+  observation-only for `SupportsOptionalExtension(OptionalExtensionDNNBlob)`
+  consumers
+- in `-tags gopus_dred` (and `-tags gopus_unsupported_controls`) builds
+  (`decoder_dred_helpers.go::setDNNBlob`) eagerly binds `lpcnetplc.Analysis`,
+  `lpcnetplc.Predictor`, and `lpcnetplc.FARGAN` against the blob to surface load
+  failures synchronously, then defers actual DRED neural-state allocation until
+  `dredNeuralConfigEligible()` is true (mono 16 kHz or 48 kHz) and real
+  concealment/history work begins via `ensureDREDNeuralConcealmentRuntime()`
+- DRED runtime arming additionally requires `SetDREDDuration(...)` on the
+  encoder-side recovery loop and an active DRED payload/cache or first-loss
+  entry on the decoder side; `SetDNNBlob(...)` alone keeps the DRED sidecar nil
+- `-tags gopus_unsupported_controls` does not add new runtime paths beyond
+  `gopus_dred`; it only widens the test surface that exercises the same PLC/DRED
+  code (e.g. the `unsupported-controls-parity` matrix)
+
+Runtime paths NOT wired by `SetDNNBlob(...)` in any build:
+
+- OSCE LACE / NoLACE postfilter consumption of `osceModelsLoaded` (the flag is
+  retained but no decoder code consumes it; `decoder_dred_helpers.go` ignores it
+  entirely)
+- OSCE BWE upsampler consumption of `osceBWEModelLoaded` and `osceBWEEnabled`
+  (no decoder runtime references either field; `SetOSCEBWE(...)` is a
+  capability-only quarantine control)
+- ordinary (non-DRED) FARGAN PLC: `lpcnetplc.FARGAN` is only invoked inside the
+  DRED concealment path (`decoder_dred_helpers.go::generateDREDNeuralFrames16k`
+  and `decoder_dred_48k.go`); there is no stand-alone FARGAN-as-PLC seam wired
+  into `decoder_plc_helpers.go`
+- stereo and multistream DRED/PLC neural concealment: `setDNNBlob(...)` on the
+  multistream decoder is capability-only by design (no per-stream neural
+  consumer yet); single-stream DRED runtime gates on `d.channels != 1` in
+  `dredNeuralConcealmentAvailable()` / `dredNeuralConfigEligible()`
+- non-16/48 kHz mono DRED runtime: the eligible-config gate rejects 8/12/24 kHz
+  mono decoders even when the blob, duration, and recovery state are otherwise
+  ready
+- encoder-side `SetDNNBlob(...)` and decoder-side blob retention are wired, but
+  encoder DRED latent generation still requires `SetDREDDuration(...)` plus an
+  eligible mono/stereo-downmix carrier (see `encoder/dred_runtime.go`)
+
 Recent closed seams to avoid re-debugging:
 
 - standalone single-stream DRED arm is intentionally payload/model-only; recovery state wakes on first cached DRED payload rather than at arm time
@@ -138,6 +189,7 @@ Recent closed seams to avoid re-debugging:
 Still missing for full parity:
 
 - decoder-level parity beyond the current mono seams after CELT + Hybrid 48 kHz mono and the exercised 16 kHz mono seam, especially stereo/multistream coverage, broader packet coverage, and the final supported-surface decisions for what graduates from quarantine
+- `SetDNNBlob(...)` only validates the blob and retains the model-loaded flags (`pitchDNNLoaded`, `plcModelLoaded`, `farganModelLoaded`, `osceModelsLoaded`, `osceBWEModelLoaded`) plus, in tag-gated builds, the eligible-mono DRED neural-runtime arming inside `ensureDREDNeuralConcealmentRuntime()`; OSCE LACE/NoLACE postfilter, OSCE BWE upsampler, and any FARGAN-as-ordinary-PLC seam stay un-wired in every build, and stereo/multistream/non-16-or-48 kHz mono DRED neural concealment remains gated off independently of blob readiness
 - model-backed `opus_decoder_dred_decode*()` parity beyond the currently exercised mono explicit seams, including broader `LPCNetEncState`-shaped analysis/runtime coverage and decoder-owned integration for any surfaces that graduate from quarantine
 - broader live-oracle adoption beyond the covered mono cached seams; some cached/live tests still compare against the explicit `opus_decoder_dred_decode_float()` helper, and stereo/multistream paths plus wider packet matrices still need migration to live-sequence coverage where those surfaces become supported
 - encoder-side DRED beyond the current exercised latent-generation and carried-payload seams: broadening rate / packet-shape / stereo / multistream coverage around the payload-emission path and finalizing which surfaces graduate from quarantine
