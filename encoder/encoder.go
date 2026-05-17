@@ -2386,12 +2386,18 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		dredBytes = bitrateToBits(dredBitrate, frameSize) / 8
 	}
 	dredSubframeBytes := 0
-	if dredBitrate > 0 {
-		// Libopus gives the first 20 ms subpacket room for a rounded DRED byte
-		// budget before repacketizing. This path attaches DRED after subframe
-		// encoding, so only that first-subpacket allowance is added back here.
+	if dredBitrate > 0 && e.dredEncodingActive() {
 		dredSubframeBytes = (bitrateToBits(dredBitrate, 960) + 7) / 8
 		dredSubframeBytes += frameLengthBytes(dredSubframeBytes)
+		if e.channels > 1 {
+			// Libopus appends DRED before repacketizing long packets and reserves
+			// three structural bytes for code-3 framing, padding length, and the
+			// extension id when computing the DRED space left.
+			dredSubframeBytes = e.previewDREDPacketExtensionPadding(frameSize)
+			if dredSubframeBytes > 2 {
+				dredSubframeBytes -= 3
+			}
+		}
 	}
 	totSize := 0
 	packetPrefillFromCELT := e.shouldPrefillSILKOnModeTransition(ModeHybrid)

@@ -105,4 +105,60 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo(t *test
 	if !bytes.Equal(gotPayload, wantPayload) {
 		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereo(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 1920,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthFullband,
+		Channels:  2,
+	})
+	if err != nil {
+		t.Skipf("libopus 40 ms stereo hybrid DRED packet helper unavailable: %v", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus 40 ms stereo hybrid packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeHybrid, BandwidthFullband, 1920, 2)
+	toc := ParseTOC(gotPacket[0])
+	if toc.Mode != ModeHybrid || !toc.Stereo {
+		t.Fatalf("got packet toc=%+v want hybrid stereo", toc)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func assertDREDPacketPrimaryFrameSizesMatchLibopus(t *testing.T, gotPacket, wantPacket []byte) {
+	t.Helper()
+	_, gotFrames, _, _, err := parsePacketFramesAndPadding(gotPacket)
+	if err != nil {
+		t.Fatalf("parse got DRED packet frames: %v", err)
+	}
+	_, wantFrames, _, _, err := parsePacketFramesAndPadding(wantPacket)
+	if err != nil {
+		t.Fatalf("parse libopus DRED packet frames: %v", err)
+	}
+	if len(gotFrames) != len(wantFrames) {
+		t.Fatalf("primary frame count=%d want %d", len(gotFrames), len(wantFrames))
+	}
+	for i := range wantFrames {
+		if len(gotFrames[i]) != len(wantFrames[i]) {
+			t.Fatalf("primary frame %d length=%d want %d", i, len(gotFrames[i]), len(wantFrames[i]))
+		}
+	}
 }

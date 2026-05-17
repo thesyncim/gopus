@@ -45,6 +45,10 @@ func (e *Encoder) hybridDREDPrimaryBudget(_ int, _ int, _ dredEmissionPlan) int 
 	return 0
 }
 
+func (e *Encoder) previewDREDPacketExtensionPadding(_ int) int {
+	return 0
+}
+
 func (e *Encoder) maybeBuildSingleFrameDREDPacket(_ []byte, _ Mode, _ types.Bandwidth, _ int, _ bool) ([]byte, bool, error) {
 	return nil, false, nil
 }
