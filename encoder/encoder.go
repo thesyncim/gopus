@@ -715,9 +715,10 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if actualMode == ModeSILK || (actualMode == ModeHybrid && frameSize <= 960) {
 		// Match libopus application semantics:
 		// explicit ModeSILK mirrors restricted-silk, where Opus-level activity
-		// stays VAD_NO_DECISION and must not clamp SILK VAD.
+		// stays VAD_NO_DECISION except true digital-silence input, which libopus
+		// still forwards as VAD_NO_ACTIVITY before SILK VAD runs.
 		if actualMode == ModeSILK && e.mode == ModeSILK {
-			e.clearOpusVADDecision()
+			e.updateRestrictedSilkOpusVAD(rawPCM, frameSize)
 		} else {
 			// Audio/VoIP SILK and short hybrid lanes still use Opus-level activity.
 			e.updateOpusVAD(rawPCM, frameSize)
@@ -2703,6 +2704,39 @@ func (e *Encoder) clearOpusVADDecision() {
 	e.lastOpusVADValid = false
 	e.lastOpusVADActive = true
 	e.lastOpusVADProb = 1.0
+}
+
+func (e *Encoder) updateRestrictedSilkOpusVAD(pcm []float64, frameSize int) {
+	if frameSize > 0 && len(pcm) > 0 && e.currentInputIsDigitalSilence(pcm) {
+		e.lastOpusVADProb = 0
+		e.lastOpusVADValid = true
+		e.lastOpusVADActive = false
+		return
+	}
+	e.clearOpusVADDecision()
+}
+
+func (e *Encoder) currentInputIsDigitalSilence(pcm []float64) bool {
+	if e.floatInputExact && len(e.floatInputFrame) >= len(pcm) {
+		return isDigitalSilenceFloat32(e.floatInputFrame[:len(pcm)], e.lsbDepth)
+	}
+	return isDigitalSilence(pcm, e.lsbDepth)
+}
+
+func isDigitalSilenceFloat32(pcm []float32, lsbDepth int) bool {
+	if lsbDepth < 8 {
+		lsbDepth = 8
+	}
+	if lsbDepth > 24 {
+		lsbDepth = 24
+	}
+	threshold := float32(1.0 / float64(int(1)<<lsbDepth))
+	for _, s := range pcm {
+		if s > threshold || s < -threshold {
+			return false
+		}
+	}
+	return true
 }
 
 func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKHz int) (int, bool) {
