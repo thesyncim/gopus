@@ -1128,6 +1128,70 @@ func TestDecoderExplicitHybridDREDDecodeSecondLossMatrixMatchesLibopus(t *testin
 	}
 }
 
+func TestDecoderExplicitHybridDREDDecodeSecondLossThenNextPacketMatrixMatchesLibopus(t *testing.T) {
+	tests := []struct {
+		name      string
+		bandwidth Bandwidth
+		frameSize int
+	}{
+		{name: "swb_10ms", bandwidth: BandwidthSuperwideband, frameSize: 480},
+		{name: "swb_20ms", bandwidth: BandwidthSuperwideband, frameSize: 960},
+		{name: "fb_10ms", bandwidth: BandwidthFullband, frameSize: 480},
+		{name: "fb_20ms", bandwidth: BandwidthFullband, frameSize: 960},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 48000, libopusDREDPacketConfig{
+				FrameSize: tc.frameSize,
+				ForceMode: ModeHybrid,
+				Bandwidth: tc.bandwidth,
+			})
+			nextPacket := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, tc.frameSize, tc.bandwidth)
+
+			pcm0 := make([]float32, dec.maxPacketSamples)
+			if _, err := dec.decodeExplicitDREDFloat(dred, n, pcm0, n); err != nil {
+				t.Fatalf("decodeExplicitDREDFloat(first) error: %v", err)
+			}
+			pcm1 := make([]float32, dec.maxPacketSamples)
+			if _, err := dec.decodeExplicitDREDFloat(dred, 2*n, pcm1, n); err != nil {
+				t.Fatalf("decodeExplicitDREDFloat(second) error: %v", err)
+			}
+
+			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
+			if err != nil {
+				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+			}
+			if want.parseRet < 0 {
+				t.Skipf("libopus decoder hybrid DRED parse failed: %d", want.parseRet)
+			}
+			if want.warmupRet != n {
+				t.Fatalf("libopus hybrid decoder DRED warmup ret=%d want %d", want.warmupRet, n)
+			}
+			if want.ret != n {
+				t.Fatalf("libopus hybrid decoder DRED second ret=%d want %d", want.ret, n)
+			}
+			if want.nextRet <= 0 {
+				t.Fatalf("libopus hybrid decoder second-loss follow-up ret=%d want >0", want.nextRet)
+			}
+
+			nextPCM := make([]float32, dec.maxPacketSamples)
+			gotNext, err := dec.Decode(nextPacket, nextPCM)
+			if err != nil {
+				t.Fatalf("Decode(next hybrid packet) after second loss error: %v", err)
+			}
+			if gotNext != want.nextRet {
+				t.Fatalf("Decode(next hybrid packet) after second loss=%d want %d", gotNext, want.nextRet)
+			}
+
+			assertFloat32ApproxEqual(t, nextPCM[:gotNext], want.nextPCM[:gotNext], "hybrid explicit second-loss follow-up pcm", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "hybrid explicit second-loss follow-up plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "hybrid explicit second-loss follow-up fargan")
+			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "hybrid explicit second-loss follow-up celt")
+		})
+	}
+}
+
 func cachedHybridLiveSequenceTolerances(_ Bandwidth, frameSize int) (pcmTol, plcTol, farganTol, celtTol float64) {
 	pcmTol, plcTol, farganTol, celtTol = decoderDREDLiveSequenceTolerances(frameSize)
 	return pcmTol, plcTol, farganTol, celtTol
