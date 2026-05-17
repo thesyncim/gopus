@@ -61,8 +61,9 @@ zero-allocation, libopus parse/decode/process metadata coverage, and real-packet
 standalone process state/feature parity, standalone recovery scheduling parity,
 and decoder cached recovery bookkeeping parity plus the supported-tag SILK
 wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload/primary-frame
-seams, the Hybrid fullband 20 ms payload-only seam, and the SILK 20 ms
-primary-budget seam. `make test-unsupported-controls-tag` pins the quarantine
+seams, the Hybrid fullband 20/40 ms mono and 20 ms stereo
+carried-payload/primary-frame seams, and the SILK 20 ms primary-budget seam.
+`make test-unsupported-controls-tag` pins the quarantine
 API exposure, standalone/control smoke, cached DRED recovery bookkeeping, and
 dormant-runtime checks without changing support probes.
 `make test-unsupported-controls-parity` mirrors the supported encoder seams and
@@ -83,9 +84,11 @@ zero-allocation and leaves the encoder DRED runtime dormant while
 `Decoder` paths also keep DRED model-only control state from arming the encoder
 latent path, decoder payload scan, or decoder good-packet marker work. The
 current mono decoder explicit/live numerical matrix is parity-gated in
-quarantine; stereo/multistream decoder coverage, broader decoder packet
-coverage, and Hybrid primary-frame byte exactness remain seam-specific and
-unsupported unless covered by green libopus-backed parity tests.
+quarantine, and Hybrid primary-frame byte exactness is covered for the current
+fullband 20 ms mono, 40 ms mono, and 20 ms stereo carried-packet seams.
+Broader stereo/multistream decoder coverage and broader decoder packet coverage
+remain seam-specific and unsupported unless covered by green libopus-backed
+parity tests.
 
 Supported feature tags can be combined when both surfaces are needed. A
 `-tags "gopus_dred gopus_qext"` build reports both DRED and QEXT support and
