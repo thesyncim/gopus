@@ -187,7 +187,7 @@ func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan d
 	}
 	targetSize := targetBytesForBitrate(originalBitrate, frameSize)
 	paddingAmount := packetExtensionPaddingAmount(internaldred.ExtensionID, payloadLen)
-	budget := targetSize - paddingAmount - 3
+	budget := targetSize - paddingAmount - 1
 	if e.channels > 1 {
 		budget -= 4 * (e.channels - 1)
 	}
