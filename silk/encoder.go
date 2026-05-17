@@ -790,7 +790,10 @@ func GetQuantizationOffset(signalType, quantOffsetType int) int {
 	return getQuantizationOffset(signalType, quantOffsetType)
 }
 
-// SetBitrate sets the target bitrate in bps (per channel).
+// SetBitrate sets the target bitrate in bps. In stereo packets this is the
+// total stream rate (matching libopus silk_EncControlStruct.bitRate); the
+// stereo split into mid/side rates happens inside silk_stereo_LR_to_MS via
+// stereoAllocationTargetRate, so callers must not pre-divide by channels.
 func (e *Encoder) SetBitrate(bitrate int) {
 	e.targetRateBps = bitrate
 }

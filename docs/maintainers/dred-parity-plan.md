@@ -130,6 +130,7 @@ Recent closed seams to avoid re-debugging:
 - fallback loss entry still has to mark the real retained PLC blend state, not only the shadow `dredBlend` bookkeeping; otherwise cached recovery-window math may look armed while the underlying PLC lifecycle remains in the good-packet state and cross-platform decoder tests fail
 - Hybrid resumed-packet parity depends on CELT-side `FRAME_DRED` cadence/state retention, not just on advancing the DRED feature queue; treating Hybrid loss as ordinary PLC plus hidden neural-state advancement leaves the next good packet far from libopus
 - explicit Hybrid DRED entry must lazily seed LPCNet/DRED PCM history from the retained SILK lowband tail when no raw Hybrid history hook has already run; waking the sidecar on ordinary good packets just because a DNN blob is loaded violates the zero-cost optional-feature contract, while skipping this lazy seed leaves FARGAN continuity and the next good packet far from libopus
+- SILK stereo `bitRate` is the total stream rate, not per-channel: `silk/enc_API.c` splits it inside `silk_stereo_LR_to_MS` into `MStargetRates_bps[0/1]`, mirroring `encoder/encoder.go` stereo SILK setup at `totalSilkRate := e.silkInputBitrate(frameSize)`; the `/ e.channels` divide on the mono branch at `encoder/encoder.go:2175` is a no-op (only reached when `e.channels == 1`) and is not the source of stereo 40/60 ms DRED carrier divergence — investigate primary-frame budgeting / `maybeBuildSingleFrameDREDPacket` carrier sizing instead
 
 Still missing for full parity:
 
