@@ -4,8 +4,12 @@
 package multistream
 
 import (
+	"encoding/binary"
 	"reflect"
+	"strconv"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/dnnblob"
 )
 
 func exportedMethodNames(v any) map[string]struct{} {
@@ -40,17 +44,178 @@ func TestDefaultBuildQuarantinesUnsupportedControls(t *testing.T) {
 }
 
 func TestNewDecoderLeavesDREDSidecarDormant(t *testing.T) {
-	dec, err := NewDecoderDefault(48000, 3)
+	for _, channels := range []int{1, 2, 3, 6} {
+		t.Run("channels="+strconv.Itoa(channels), func(t *testing.T) {
+			dec, err := NewDecoderDefault(48000, channels)
+			if err != nil {
+				t.Fatalf("NewDecoderDefault error: %v", err)
+			}
+			if dec.dred != nil {
+				t.Fatalf("default build allocated multistream DRED sidecar after construction: %+v", dec.dred)
+			}
+
+			dec.SetDNNBlob(nil)
+			if dec.dred != nil {
+				t.Fatalf("default SetDNNBlob(nil) allocated multistream DRED sidecar: %+v", dec.dred)
+			}
+
+			// Reset must not stir the dormant sidecar awake on default builds.
+			dec.Reset()
+			if dec.dred != nil {
+				t.Fatalf("Reset awakened dormant DRED sidecar: %+v", dec.dred)
+			}
+
+			// A second SetDNNBlob(nil) / Reset cycle must remain dormant.
+			dec.SetDNNBlob(nil)
+			dec.Reset()
+			if dec.dred != nil {
+				t.Fatalf("repeated nil-blob/Reset cycle awakened DRED sidecar: %+v", dec.dred)
+			}
+		})
+	}
+}
+
+// appendDefaultTestBlobRecord appends a libopus-style DNN weights record with a
+// zero-filled payload of the requested size. Mirrors the framing used by the
+// gopus_dred-tagged helpers but stays available in default builds so the
+// dormancy contract can be exercised without the DRED runtime.
+func appendDefaultTestBlobRecord(dst []byte, name string, typ int32, payloadSize int) []byte {
+	const headerSize = 64
+	blockSize := ((payloadSize + headerSize - 1) / headerSize) * headerSize
+	out := make([]byte, headerSize+blockSize)
+	copy(out[:4], []byte("DNNw"))
+	binary.LittleEndian.PutUint32(out[8:12], uint32(typ))
+	binary.LittleEndian.PutUint32(out[12:16], uint32(payloadSize))
+	binary.LittleEndian.PutUint32(out[16:20], uint32(blockSize))
+	copy(out[20:63], []byte(name))
+	out[63] = 0
+	return append(dst, out...)
+}
+
+// makeValidDefaultDecoderTestBlob constructs a minimal but loader-valid decoder
+// DNN blob containing every record the default-build libopus decoder loader
+// expects. It is sufficient to flip the decoder's model-loaded flags during
+// SetDNNBlob without requiring any DRED runtime machinery.
+func makeValidDefaultDecoderTestBlob(t *testing.T) *dnnblob.Blob {
+	t.Helper()
+	var raw []byte
+	for _, name := range dnnblob.RequiredDecoderControlRecordNames(false) {
+		raw = appendDefaultTestBlobRecord(raw, name, dnnblob.TypeFloat, 4)
+	}
+	blob, err := dnnblob.Clone(raw)
+	if err != nil {
+		t.Fatalf("dnnblob.Clone error: %v", err)
+	}
+	return blob
+}
+
+// TestDefaultBuildMultistreamDecoderRealBlobDormant guards the contract that a
+// fully validated decoder DNN blob still keeps the DRED sidecar nil on default
+// builds, both at SetDNNBlob time and across real Decode / PLC / Reset cycles.
+func TestDefaultBuildMultistreamDecoderRealBlobDormant(t *testing.T) {
+	const (
+		sampleRate = 48000
+		channels   = 2
+		frameSize  = 960
+	)
+
+	blob := makeValidDefaultDecoderTestBlob(t)
+
+	dec, err := NewDecoderDefault(sampleRate, channels)
 	if err != nil {
 		t.Fatalf("NewDecoderDefault error: %v", err)
 	}
+
+	dec.SetDNNBlob(blob)
+	if dec.dnnBlob == nil {
+		t.Fatal("SetDNNBlob did not retain the validated multistream decoder blob")
+	}
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("SetDNNBlob did not flip model-loaded flags for a validated decoder blob")
+	}
 	if dec.dred != nil {
-		t.Fatalf("default build allocated multistream DRED sidecar: %+v", dec.dred)
+		t.Fatalf("default build SetDNNBlob(real blob) allocated DRED sidecar: %+v", dec.dred)
 	}
 
-	dec.SetDNNBlob(nil)
+	// Encode a real multistream packet so we can drive Decode end-to-end.
+	enc, err := NewEncoderDefault(sampleRate, channels)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+	pcm := generateTestSignal(channels, frameSize, sampleRate, 997)
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+
+	out, err := dec.Decode(packet, frameSize)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if len(out) != frameSize*channels {
+		t.Fatalf("Decode produced %d samples, want %d", len(out), frameSize*channels)
+	}
 	if dec.dred != nil {
-		t.Fatalf("default SetDNNBlob allocated multistream DRED sidecar: %+v", dec.dred)
+		t.Fatalf("default build Decode after real-blob SetDNNBlob allocated DRED sidecar: %+v", dec.dred)
+	}
+
+	// Drive PLC and confirm the dormant sidecar stays nil.
+	if _, err := dec.Decode(nil, frameSize); err != nil {
+		t.Fatalf("Decode(nil) error: %v", err)
+	}
+	if dec.dred != nil {
+		t.Fatalf("default build Decode(nil) after real-blob SetDNNBlob allocated DRED sidecar: %+v", dec.dred)
+	}
+
+	// Reset must not stir the dormant sidecar, and the retained blob/flags
+	// must survive Reset just like the top-level decoder contract.
+	dec.Reset()
+	if dec.dnnBlob == nil {
+		t.Fatal("Reset cleared retained multistream decoder blob")
+	}
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("Reset cleared multistream decoder model-loaded flags")
+	}
+	if dec.dred != nil {
+		t.Fatalf("default build Reset after real-blob SetDNNBlob allocated DRED sidecar: %+v", dec.dred)
+	}
+
+	// A second Decode/Decode(nil) cycle after Reset must remain dormant.
+	if _, err := dec.Decode(packet, frameSize); err != nil {
+		t.Fatalf("Decode after Reset error: %v", err)
+	}
+	if _, err := dec.Decode(nil, frameSize); err != nil {
+		t.Fatalf("Decode(nil) after Reset error: %v", err)
+	}
+	if dec.dred != nil {
+		t.Fatalf("default build Decode cycle after Reset awakened DRED sidecar: %+v", dec.dred)
+	}
+
+	// Allocation guard: Decode(nil) on the armed decoder must not allocate any
+	// DRED-flavoured state. We compare against a baseline decoder with no blob
+	// installed so that benign per-call allocations don't fail the test.
+	baseline, err := NewDecoderDefault(sampleRate, channels)
+	if err != nil {
+		t.Fatalf("baseline NewDecoderDefault error: %v", err)
+	}
+	if _, err := baseline.Decode(packet, frameSize); err != nil {
+		t.Fatalf("baseline Decode error: %v", err)
+	}
+	baselineAllocs := testing.AllocsPerRun(50, func() {
+		if _, err := baseline.Decode(nil, frameSize); err != nil {
+			t.Fatalf("baseline Decode(nil): %v", err)
+		}
+	})
+	armedAllocs := testing.AllocsPerRun(50, func() {
+		if _, err := dec.Decode(nil, frameSize); err != nil {
+			t.Fatalf("armed Decode(nil): %v", err)
+		}
+	})
+	if armedAllocs > baselineAllocs {
+		t.Fatalf("default build Decode(nil) after SetDNNBlob allocs/op = %.2f, want at most baseline %.2f", armedAllocs, baselineAllocs)
+	}
+	if dec.dred != nil {
+		t.Fatalf("default build allocation guard awakened DRED sidecar: %+v", dec.dred)
 	}
 }
 
