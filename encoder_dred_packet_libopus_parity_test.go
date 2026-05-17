@@ -184,6 +184,45 @@ func encodeUntilDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, 
 	return nil, nil, 0
 }
 
+func assertSilkMonoPrimaryFrameByteExact(t *testing.T, frameSize int) {
+	t.Helper()
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: frameSize, ForceMode: ModeSILK, Bandwidth: BandwidthWideband,
+	})
+	if err != nil {
+		t.Skipf("emit: %v", err)
+	}
+	gotPacket, _, _ := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, frameSize, 1)
+	_, gotFrames, _, _, err := parsePacketFramesAndPadding(gotPacket)
+	if err != nil {
+		t.Fatalf("parsePacketFramesAndPadding(got): %v", err)
+	}
+	_, wantFrames, _, _, err := parsePacketFramesAndPadding(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("parsePacketFramesAndPadding(want): %v", err)
+	}
+	if len(gotFrames) != len(wantFrames) {
+		t.Fatalf("frame count=%d want %d", len(gotFrames), len(wantFrames))
+	}
+	for i := range wantFrames {
+		if !bytes.Equal(gotFrames[i], wantFrames[i]) {
+			t.Fatalf("frame %d DIVERGES\n got=%x\nwant=%x", i, gotFrames[i], wantFrames[i])
+		}
+	}
+}
+
+func TestEncoderSilkMono20msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	assertSilkMonoPrimaryFrameByteExact(t, 960)
+}
+
+func TestEncoderSilkMono40msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	assertSilkMonoPrimaryFrameByteExact(t, 1920)
+}
+
+func TestEncoderSilkMono60msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	assertSilkMonoPrimaryFrameByteExact(t, 2880)
+}
+
 func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
