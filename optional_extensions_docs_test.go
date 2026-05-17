@@ -130,7 +130,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"zero-allocation, libopus parse/decode/process metadata coverage, and real-packet",
 		"standalone process state/feature parity, standalone recovery scheduling parity,",
 		"and decoder cached recovery bookkeeping parity plus the supported-tag SILK",
-		"wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload seams",
+		"wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload/packet-envelope",
 		"Hybrid fullband 20/40 ms mono carried-payload/packet-envelope seams,",
 		"Hybrid fullband 20/40 ms stereo carried-payload/primary-frame seams",
 		"`Encode` remains",

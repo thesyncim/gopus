@@ -39,6 +39,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T)
 	if !bytes.Equal(gotPayload, wantPayload) {
 		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms(t *testing.T) {
@@ -71,6 +72,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms(t *testing.T)
 	if !bytes.Equal(gotPayload, wantPayload) {
 		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo(t *testing.T) {
