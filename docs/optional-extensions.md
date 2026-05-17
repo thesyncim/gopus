@@ -85,9 +85,9 @@ zero-allocation and leaves the encoder DRED runtime dormant while
 latent path, decoder payload scan, or decoder good-packet marker work. The
 current mono decoder explicit/live numerical matrix is parity-gated in
 quarantine. Hybrid primary-frame sizes are verified for the current
-fullband 20/40 ms stereo carried-packet seams; Hybrid mono coverage remains
-carried-payload/packet-envelope exact, and SILK primary-frame byte exactness
-remains outside the supported gate.
+fullband 20/40 ms stereo carried-packet seams; Hybrid mono coverage verifies
+carried-payload bytes plus packet-envelope and primary-frame sizes, and SILK
+primary-frame byte exactness remains outside the supported gate.
 Broader stereo/multistream decoder coverage and broader decoder packet coverage
 remain seam-specific and unsupported unless covered by green libopus-backed
 parity tests.
