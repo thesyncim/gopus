@@ -114,6 +114,58 @@ func TestSelfDelimitedPacketRoundTrip(t *testing.T) {
 	}
 }
 
+func TestParseOpusPacketRejectsLibopusEnvelopeViolations(t *testing.T) {
+	tests := []struct {
+		name          string
+		packet        []byte
+		selfDelimited bool
+	}{
+		{
+			name:   "code0_implicit_frame_too_large",
+			packet: append([]byte{0x00}, make([]byte, maxOpusFrameBytes+1)...),
+		},
+		{
+			name:   "code1_implicit_frame_too_large",
+			packet: append([]byte{0x01}, make([]byte, (maxOpusFrameBytes+1)*2)...),
+		},
+		{
+			name:   "code2_implicit_last_frame_too_large",
+			packet: append([]byte{0x02, 1, 0xAA}, make([]byte, maxOpusFrameBytes+1)...),
+		},
+		{
+			name:   "code3_duration_over_120ms",
+			packet: []byte{0xFB, 0x07},
+		},
+		{
+			name:          "self_delimited_code3_duration_over_120ms",
+			packet:        []byte{0xFB, 0x07, 0x00},
+			selfDelimited: true,
+		},
+		{
+			name:   "code3_cbr_implicit_frame_too_large",
+			packet: append([]byte{0x83, 0x02}, make([]byte, (maxOpusFrameBytes+1)*2)...),
+		},
+		{
+			name:   "code3_vbr_implicit_last_frame_too_large",
+			packet: append([]byte{0x83, 0x82, 1, 0xAA}, make([]byte, maxOpusFrameBytes+1)...),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseOpusPacket(tc.packet, tc.selfDelimited); err != ErrInvalidPacket {
+				t.Fatalf("parseOpusPacket error=%v want %v", err, ErrInvalidPacket)
+			}
+		})
+	}
+}
+
+func TestPacketDurationRejectsLibopusEnvelopeViolation(t *testing.T) {
+	if _, err := PacketDuration([]byte{0xFB, 0x07}, 1); err != ErrInvalidPacket {
+		t.Fatalf("PacketDuration error=%v want %v", err, ErrInvalidPacket)
+	}
+}
+
 func TestParseMultistreamPacketWithSelfDelimitedCode3(t *testing.T) {
 	stream0 := buildCode3VBRPacket(0xF8,
 		[]byte{1, 2, 3},

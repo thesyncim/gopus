@@ -72,44 +72,7 @@ func (d *Decoder) handleChannelTransition(streamChannels int) bool {
 	}
 
 	// Detect stereo-to-mono transition: previous was stereo (2), current is mono (1)
-	// For stereo-to-mono, libopus uses max of L/R for mono prediction, but doesn't
-	// need to copy state since mono decoding will overwrite. However, we should ensure
-	// the mono channel has reasonable values by taking max of L/R energies.
 	if prevChannels == 2 && streamChannels == 1 && d.channels == 2 {
-		// For stereo->mono transition, take max of L/R for energy state
-		// This matches libopus prepareMonoEnergyFromStereo behavior
-		if len(d.prevEnergy) >= MaxBands*2 {
-			for i := 0; i < MaxBands; i++ {
-				right := d.prevEnergy[MaxBands+i]
-				if right > d.prevEnergy[i] {
-					d.prevEnergy[i] = right
-				}
-			}
-		}
-		if len(d.prevLogE) >= MaxBands*2 {
-			for i := 0; i < MaxBands; i++ {
-				right := d.prevLogE[MaxBands+i]
-				if right > d.prevLogE[i] {
-					d.prevLogE[i] = right
-				}
-			}
-		}
-		if len(d.prevLogE2) >= MaxBands*2 {
-			for i := 0; i < MaxBands; i++ {
-				right := d.prevLogE2[MaxBands+i]
-				if right > d.prevLogE2[i] {
-					d.prevLogE2[i] = right
-				}
-			}
-		}
-		if len(d.backgroundEnergy) >= MaxBands*2 {
-			for i := 0; i < MaxBands; i++ {
-				right := d.backgroundEnergy[MaxBands+i]
-				if right > d.backgroundEnergy[i] {
-					d.backgroundEnergy[i] = right
-				}
-			}
-		}
 		return true
 	}
 

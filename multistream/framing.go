@@ -1,5 +1,10 @@
 package multistream
 
+const (
+	maxOpusFrameBytes       = 1275
+	maxOpusPacketDuration48 = 5760
+)
+
 type parsedOpusPacket struct {
 	tocBase           byte
 	frames            [][]byte
@@ -34,7 +39,11 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 			offset += consumed
 			frameSizes = append(frameSizes, length)
 		} else {
-			frameSizes = append(frameSizes, len(data)-offset)
+			frameLen := len(data) - offset
+			if frameLen > maxOpusFrameBytes {
+				return parsedOpusPacket{}, ErrInvalidPacket
+			}
+			frameSizes = append(frameSizes, frameLen)
 		}
 
 	case 1:
@@ -52,6 +61,9 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 				return parsedOpusPacket{}, ErrInvalidPacket
 			}
 			frameLen := frameDataLen / 2
+			if frameLen > maxOpusFrameBytes {
+				return parsedOpusPacket{}, ErrInvalidPacket
+			}
 			frameSizes = append(frameSizes, frameLen, frameLen)
 		}
 
@@ -76,6 +88,9 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 		if length0 < 0 || length1 < 0 {
 			return parsedOpusPacket{}, ErrInvalidPacket
 		}
+		if !selfDelimited && length1 > maxOpusFrameBytes {
+			return parsedOpusPacket{}, ErrInvalidPacket
+		}
 		frameCount = 2
 		frameSizes = append(frameSizes, length0, length1)
 
@@ -90,6 +105,9 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 		hasPadding := (frameCountByte & 0x40) != 0
 		frameCount = int(frameCountByte & 0x3F)
 		if frameCount == 0 || frameCount > 48 {
+			return parsedOpusPacket{}, ErrInvalidPacket
+		}
+		if opusSamplesPerFrame48k(toc)*frameCount > maxOpusPacketDuration48 {
 			return parsedOpusPacket{}, ErrInvalidPacket
 		}
 
@@ -134,6 +152,9 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 				if lastLen < 0 {
 					return parsedOpusPacket{}, ErrInvalidPacket
 				}
+				if lastLen > maxOpusFrameBytes {
+					return parsedOpusPacket{}, ErrInvalidPacket
+				}
 				frameSizes[frameCount-1] = lastLen
 			}
 		} else {
@@ -152,6 +173,9 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 					return parsedOpusPacket{}, ErrInvalidPacket
 				}
 				frameLen := frameDataLen / frameCount
+				if frameLen > maxOpusFrameBytes {
+					return parsedOpusPacket{}, ErrInvalidPacket
+				}
 				for i := 0; i < frameCount; i++ {
 					frameSizes[i] = frameLen
 				}

@@ -197,6 +197,7 @@ int main(void) {
   int32_t warmup_dred_offset = -1;
   int32_t dred_offset = 0;
   uint32_t frame_size = 0;
+  int32_t decode_gain = 0;
   uint32_t seed_packet_len = 0;
   uint32_t packet_len = 0;
   uint32_t next_packet_len = 0;
@@ -273,11 +274,12 @@ int main(void) {
     fprintf(stderr, "invalid input magic\n");
     return 1;
   }
-  if (!read_u32(&version) || version != 6 ||
+  if (!read_u32(&version) || version != 7 ||
       !read_u32(&sample_rate) || !read_u32(&max_dred_samples) ||
       !read_exact(&warmup_dred_offset, sizeof(warmup_dred_offset)) ||
       !read_exact(&dred_offset, sizeof(dred_offset)) ||
-      !read_u32(&frame_size) || !read_u32(&seed_packet_len) ||
+      !read_u32(&frame_size) || !read_exact(&decode_gain, sizeof(decode_gain)) ||
+      !read_u32(&seed_packet_len) ||
       !read_u32(&packet_len) || !read_u32(&next_packet_len) ||
       !read_u32(&decoder_model_blob_len) ||
       !read_u32(&dred_model_blob_len)) {
@@ -364,6 +366,17 @@ int main(void) {
     free(decoder_model_blob);
     free(seed_packet);
     free(packet);
+    return 1;
+  }
+  err = opus_decoder_ctl(dec, OPUS_SET_GAIN(decode_gain));
+  if (err != OPUS_OK) {
+    fprintf(stderr, "opus_decoder_ctl(OPUS_SET_GAIN) failed: %d\n", err);
+    opus_decoder_destroy(dec);
+    free(dred_model_blob);
+    free(decoder_model_blob);
+    free(seed_packet);
+    free(packet);
+    free(next_packet);
     return 1;
   }
 #ifdef USE_WEIGHTS_FILE

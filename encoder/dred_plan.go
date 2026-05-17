@@ -187,6 +187,9 @@ func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan d
 	}
 	targetSize := targetBytesForBitrate(originalBitrate, frameSize)
 	paddingAmount := packetExtensionPaddingAmount(internaldred.ExtensionID, payloadLen)
+	// maxPacketBytes is the primary packet budget including its TOC. When the
+	// DRED extension is added, repacketizing to code 3 adds one count byte; the
+	// extension id and padding-length bytes are already included in paddingAmount.
 	budget := targetSize - paddingAmount - 1
 	if e.channels > 1 {
 		budget -= 4 * (e.channels - 1)

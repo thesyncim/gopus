@@ -106,3 +106,22 @@ func TestMultistreamPacketUnpadRejectsInvalidSelfDelimited(t *testing.T) {
 		t.Fatalf("MultistreamPacketUnpad err=%v want=%v", err, ErrPacketTooShort)
 	}
 }
+
+func TestMultistreamPacketPadRejectsLibopusParserEnvelopeViolation(t *testing.T) {
+	invalid := append([]byte{0x00}, make([]byte, maxOpusFrameBytes+1)...)
+	buf := make([]byte, len(invalid)+8)
+	copy(buf, invalid)
+
+	err := MultistreamPacketPad(buf, len(invalid), len(invalid)+8, 1)
+	if !errors.Is(err, ErrInvalidPacket) {
+		t.Fatalf("MultistreamPacketPad err=%v want=%v", err, ErrInvalidPacket)
+	}
+}
+
+func TestMultistreamPacketUnpadRejectsLibopusParserEnvelopeViolation(t *testing.T) {
+	invalid := []byte{GenerateTOC(31, false, 3), 0x07}
+	_, err := MultistreamPacketUnpad(invalid, len(invalid), 1)
+	if !errors.Is(err, ErrInvalidPacket) {
+		t.Fatalf("MultistreamPacketUnpad err=%v want=%v", err, ErrInvalidPacket)
+	}
+}

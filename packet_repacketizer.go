@@ -225,6 +225,9 @@ func parseSelfDelimitedPacketAndPadding(data []byte) (tocBase byte, frames [][]b
 		if frameCount == 0 || frameCount > maxRepacketizerFrames {
 			return 0, nil, nil, 0, 0, ErrInvalidPacket
 		}
+		if ParseTOC(toc).FrameSize*frameCount > maxRepacketizerDuration48k {
+			return 0, nil, nil, 0, 0, ErrInvalidPacket
+		}
 
 		frameSizes = make([]int, frameCount)
 		if hasPadding {

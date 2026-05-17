@@ -115,33 +115,27 @@ func getFrameDuration(packet []byte) int {
 		return 0
 	}
 
-	// TOC byte structure: config (5 bits) | stereo (1 bit) | code (2 bits)
-	config := packet[0] >> 3 // Top 5 bits
+	return opusSamplesPerFrame48k(packet[0]) * len(parsed.frames)
+}
 
-	// Frame size table indexed by config (0-31)
-	// Matches gopus.configTable from packet.go
+func opusSamplesPerFrame48k(toc byte) int {
+	// TOC byte structure: config (5 bits) | stereo (1 bit) | code (2 bits).
+	config := toc >> 3
+
+	// Frame size table indexed by config (0-31). Matches gopus.configTable
+	// from packet.go and libopus opus_packet_get_samples_per_frame(..., 48000).
 	frameSizeTable := [32]int{
-		// SILK NB (configs 0-3): 10/20/40/60ms
 		480, 960, 1920, 2880,
-		// SILK MB (configs 4-7): 10/20/40/60ms
 		480, 960, 1920, 2880,
-		// SILK WB (configs 8-11): 10/20/40/60ms
 		480, 960, 1920, 2880,
-		// Hybrid SWB (configs 12-13): 10/20ms
 		480, 960,
-		// Hybrid FB (configs 14-15): 10/20ms
 		480, 960,
-		// CELT NB (configs 16-19): 2.5/5/10/20ms
 		120, 240, 480, 960,
-		// CELT WB (configs 20-23): 2.5/5/10/20ms
 		120, 240, 480, 960,
-		// CELT SWB (configs 24-27): 2.5/5/10/20ms
 		120, 240, 480, 960,
-		// CELT FB (configs 28-31): 2.5/5/10/20ms
 		120, 240, 480, 960,
 	}
-
-	return frameSizeTable[config] * len(parsed.frames)
+	return frameSizeTable[config]
 }
 
 // validateStreamDurations checks that all stream packets have the same frame duration.

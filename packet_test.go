@@ -436,11 +436,52 @@ func TestParsePacketErrors(t *testing.T) {
 	}
 }
 
+func TestParsePacketRejectsLibopusEnvelopeViolations(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "code0_implicit_frame_too_large",
+			data: append([]byte{0x00}, make([]byte, maxOpusFrameBytes+1)...),
+		},
+		{
+			name: "code1_implicit_frame_too_large",
+			data: append([]byte{0x01}, make([]byte, (maxOpusFrameBytes+1)*2)...),
+		},
+		{
+			name: "code2_implicit_last_frame_too_large",
+			data: append([]byte{0x02, 1, 0xAA}, make([]byte, maxOpusFrameBytes+1)...),
+		},
+		{
+			name: "code3_duration_over_120ms",
+			data: []byte{GenerateTOC(31, false, 3), 0x07},
+		},
+		{
+			name: "code3_cbr_implicit_frame_too_large",
+			data: append([]byte{GenerateTOC(16, false, 3), 0x02}, make([]byte, (maxOpusFrameBytes+1)*2)...),
+		},
+		{
+			name: "code3_vbr_implicit_last_frame_too_large",
+			data: append([]byte{GenerateTOC(16, false, 3), 0x82, 1, 0xAA}, make([]byte, maxOpusFrameBytes+1)...),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := ParsePacket(tt.data); err != ErrInvalidPacket {
+				t.Fatalf("ParsePacket error=%v want %v", err, ErrInvalidPacket)
+			}
+		})
+	}
+}
+
 func TestParsePacketCode3MaxFrames(t *testing.T) {
 	// Test M=48 (maximum allowed)
-	// TOC=0x03, frameCount=0xB0 (VBR, no padding, M=48=0x30)
+	// 48 2.5 ms frames is exactly the libopus 120 ms packet-duration limit.
+	// TOC=CELT NB 2.5 ms code 3, frameCount=0xB0 (VBR, no padding, M=48=0x30)
 	// Need 47 frame lengths + last frame is remainder
-	header := []byte{0x03, 0xB0} // VBR, M=48
+	header := []byte{GenerateTOC(16, false, 3), 0xB0} // VBR, M=48
 	frameLens := make([]byte, 47)
 	for i := range frameLens {
 		frameLens[i] = 10 // Each frame is 10 bytes

@@ -154,6 +154,31 @@ func TestRepacketizerRejectsDurationOver120ms(t *testing.T) {
 	}
 }
 
+func TestRepacketizerRejectsLibopusParserEnvelopeViolations(t *testing.T) {
+	tests := []struct {
+		name   string
+		packet []byte
+	}{
+		{
+			name:   "implicit_frame_too_large",
+			packet: append([]byte{0x00}, make([]byte, maxOpusFrameBytes+1)...),
+		},
+		{
+			name:   "code3_duration_over_120ms",
+			packet: []byte{GenerateTOC(31, false, 3), 0x07},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rp := NewRepacketizer()
+			if err := rp.Cat(tt.packet); err != ErrInvalidPacket {
+				t.Fatalf("Cat error=%v want %v", err, ErrInvalidPacket)
+			}
+		})
+	}
+}
+
 func TestRepacketizerPreservesPacketExtensions(t *testing.T) {
 	packetAExt := mustDecodeHex(t, "4b41061122330baa50deadbe")
 	packetB := mustDecodeHex(t, "48445566")

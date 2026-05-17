@@ -2,6 +2,8 @@ package gopus
 
 import "errors"
 
+const maxOpusFrameBytes = 1275
+
 // Errors returned by packet parsing functions.
 var (
 	ErrPacketTooShort    = errors.New("opus: packet too short")
@@ -34,6 +36,9 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 	switch toc.FrameCode {
 	case 0:
 		// Code 0: One frame
+		if len(data)-1 > maxOpusFrameBytes {
+			return PacketInfo{}, ErrInvalidPacket
+		}
 		info.FrameCount = 1
 		info.FrameSizes = []int{len(data) - 1}
 
@@ -44,6 +49,9 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 			return PacketInfo{}, ErrInvalidPacket
 		}
 		frameSize := frameDataLen / 2
+		if frameSize > maxOpusFrameBytes {
+			return PacketInfo{}, ErrInvalidPacket
+		}
 		info.FrameCount = 2
 		info.FrameSizes = []int{frameSize, frameSize}
 
@@ -61,6 +69,9 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 		if frame2Len < 0 {
 			return PacketInfo{}, ErrInvalidPacket
 		}
+		if frame2Len > maxOpusFrameBytes {
+			return PacketInfo{}, ErrInvalidPacket
+		}
 		info.FrameCount = 2
 		info.FrameSizes = []int{frame1Len, frame2Len}
 
@@ -76,6 +87,9 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 
 		if m == 0 || m > 48 {
 			return PacketInfo{}, ErrInvalidFrameCount
+		}
+		if toc.FrameSize*m > maxRepacketizerDuration48k {
+			return PacketInfo{}, ErrInvalidPacket
 		}
 
 		offset := 2
@@ -121,6 +135,9 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 			if lastFrameLen < 0 {
 				return PacketInfo{}, ErrInvalidPacket
 			}
+			if lastFrameLen > maxOpusFrameBytes {
+				return PacketInfo{}, ErrInvalidPacket
+			}
 			info.FrameSizes[m-1] = lastFrameLen
 		} else {
 			// CBR: Parse single frame length, all frames are same size
@@ -137,6 +154,9 @@ func ParsePacket(data []byte) (PacketInfo, error) {
 				return PacketInfo{}, ErrInvalidPacket
 			}
 			frameLen := frameDataLen / m
+			if frameLen > maxOpusFrameBytes {
+				return PacketInfo{}, ErrInvalidPacket
+			}
 			for i := 0; i < m; i++ {
 				info.FrameSizes[i] = frameLen
 			}

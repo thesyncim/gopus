@@ -337,14 +337,14 @@ func TestDecodeLibopusQEXTPacketMatchesLibopus(t *testing.T) {
 			refData = refData[:len(got)*2]
 
 			var (
-				maxDiff         float64
-				baseMaxDiff     float64
-				signalPower     float64
-				errorPower      float64
-				baseErrorPower  float64
-				deltaNoQEXT     float64
-				maxDiffIdx      int
-				baseMaxDiffIdx  int
+				maxDiff        float64
+				baseMaxDiff    float64
+				signalPower    float64
+				errorPower     float64
+				baseErrorPower float64
+				deltaNoQEXT    float64
+				maxDiffIdx     int
+				baseMaxDiffIdx int
 			)
 			for i := range got {
 				ref := float32(int16(binary.LittleEndian.Uint16(refData[i*2:]))) / 32768.0
@@ -462,6 +462,128 @@ func TestDecodeLibopusQEXTPacketCELTFloat32FastPathMatchesFloat64(t *testing.T) 
 				t.Fatalf("max diff %.2e at idx=%d frame=%d ch=%d", maxDiff, maxDiffIdx, maxDiffIdx/channels, maxDiffIdx%channels)
 			}
 		})
+	}
+}
+
+func TestDecodeLibopusQEXTChannelTransitionSequenceMatchesLibopus(t *testing.T) {
+	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	if err != nil {
+		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+	}
+
+	type transitionFrame struct {
+		packet      []byte
+		rawFrame    []byte
+		qextPayload []byte
+		frameSize   int
+		stereo      bool
+	}
+
+	newSine := func(channels int, freq float64, rightPhase float64, rightGain float64) []float32 {
+		pcm := make([]float32, 960*channels)
+		for i := 0; i < 960; i++ {
+			phase := 2 * math.Pi * freq * float64(i) / 48000.0
+			pcm[i*channels] = float32(0.45 * math.Sin(phase))
+			if channels == 2 {
+				pcm[i*channels+1] = float32(rightGain * math.Sin(phase+rightPhase))
+			}
+		}
+		return pcm
+	}
+
+	plans := []struct {
+		channels int
+		pcm      []float32
+	}{
+		{1, newSine(1, 320.0, 0, 0)},
+		{2, newSine(2, 640.0, 0.37, 0.35)},
+		{1, newSine(1, 800.0, 0.12, 0)},
+	}
+
+	sequence := make([]transitionFrame, 0, len(plans))
+	packets := make([][]byte, 0, len(plans))
+	for i, tc := range plans {
+		packet := encodeLibopusQEXTPacket(t, opusDemo, tc.channels, tc.pcm, false)
+		if len(packet) == 0 {
+			t.Fatalf("encodeLibopusQEXTPacket[%d] empty", i)
+		}
+		info, frames, padding, nbFrames, err := parsePacketFramesAndPadding(packet)
+		if err != nil {
+			t.Fatalf("parsePacketFramesAndPadding[%d]: %v", i, err)
+		}
+		if len(frames) != 1 {
+			t.Fatalf("frame count[%d]=%d want 1", i, len(frames))
+		}
+		ext, ok, err := findPacketExtension(padding, nbFrames, qextPacketExtensionID)
+		if err != nil {
+			t.Fatalf("findPacketExtension[%d]: %v", i, err)
+		}
+		if !ok || len(ext.Data) == 0 {
+			t.Fatalf("packet[%d] missing QEXT extension payload", i)
+		}
+		sequence = append(sequence, transitionFrame{
+			packet:      packet,
+			rawFrame:    frames[0],
+			qextPayload: ext.Data,
+			frameSize:   info.TOC.FrameSize,
+			stereo:      info.TOC.Stereo,
+		})
+		packets = append(packets, packet)
+	}
+
+	celtDec := celt.NewDecoder(2)
+	got := make([]float64, 960*2*len(sequence))
+	gotSamples := 0
+	for i, tc := range sequence {
+		celtDec.SetQEXTPayload(tc.qextPayload)
+		decoded, err := celtDec.DecodeFrameWithPacketStereo(tc.rawFrame, tc.frameSize, tc.stereo)
+		if err != nil {
+			t.Fatalf("decode frame[%d]: %v", i, err)
+		}
+		gotLen := len(decoded)
+		if gotLen != tc.frameSize*2 {
+			t.Fatalf("decoded len[%d]=%d want %d", i, gotLen, tc.frameSize*2)
+		}
+		start := gotSamples * 2
+		copy(got[start:start+gotLen], decoded)
+		gotSamples += tc.frameSize
+	}
+
+	tmpDir := t.TempDir()
+	bitstreamPath := filepath.Join(tmpDir, "transition.bit")
+	outputPath := filepath.Join(tmpDir, "transition.raw")
+	if err := benchutil.WriteRepeatedOpusDemoBitstream(bitstreamPath, packets, 1); err != nil {
+		t.Fatalf("WriteRepeatedOpusDemoBitstream: %v", err)
+	}
+	cmd := exec.Command(opusDemo, "-d", "48000", "2", bitstreamPath, outputPath)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("opus_demo decode failed: %v (%s)", err, bytes.TrimSpace(out))
+	}
+
+	refData, err := os.ReadFile(outputPath)
+	if err != nil {
+		t.Fatalf("read opus_demo output: %v", err)
+	}
+	gotBytes := gotSamples * 2 * 2
+	if len(refData) < gotBytes {
+		t.Fatalf("opus_demo output bytes=%d want at least %d", len(refData), gotBytes)
+	}
+	refData = refData[:gotBytes]
+
+	var maxDiff float64
+	var maxDiffIdx int
+	for i := 0; i < gotBytes/2; i++ {
+		ref := float32(int16(binary.LittleEndian.Uint16(refData[i*2:]))) / 32768.0
+		q := float32(float32ToInt16(float32(got[i]))) / 32768.0
+		diff := math.Abs(float64(q - ref))
+		if diff > maxDiff {
+			maxDiff = diff
+			maxDiffIdx = i
+		}
+	}
+	if maxDiff > 2.0/32768.0 {
+		t.Fatalf("max diff too high: got %.2e want <= %.2e at sample=%d", maxDiff, 2.0/32768.0, maxDiffIdx)
 	}
 }
 

@@ -371,12 +371,8 @@ func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error
 	}
 
 	var qextPayloads [maxPacketExtensionFrames][]byte
-	if extsupport.QEXT && toc.mode == streamModeCELT && !d.ignoreExtensions && len(parsed.padding) > 0 {
-		if err := collectPacketExtensionPayloadsByFrame(parsed.padding, parsed.paddingFrameCount, qextPacketExtensionID, &qextPayloads); err != nil {
-			for i := range qextPayloads {
-				qextPayloads[i] = nil
-			}
-		}
+	if extsupport.QEXT && !d.ignoreExtensions && toc.mode == streamModeCELT && len(parsed.padding) > 0 {
+		collectQEXTPacketExtensions(parsed.padding, parsed.paddingFrameCount, qextPacketExtensionID, &qextPayloads)
 	}
 
 	if frameCount == 1 {
@@ -396,6 +392,34 @@ func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error
 		out = append(out, frameDecoded...)
 	}
 	return d.finishDecode(out, nil)
+}
+
+func collectQEXTPacketExtensions(data []byte, nbFrames, id int, payloads *[maxPacketExtensionFrames][]byte) {
+	if payloads == nil {
+		return
+	}
+	for i := 0; i < maxPacketExtensionFrames; i++ {
+		payloads[i] = nil
+	}
+	if len(data) == 0 || nbFrames <= 0 {
+		return
+	}
+
+	var iter packetExtensionIterator
+	initPacketExtensionIterator(&iter, data, nbFrames)
+	for {
+		var ext packetExtensionData
+		ok, err := iter.next(&ext)
+		if err != nil || !ok {
+			return
+		}
+		if ext.ID != id || ext.Frame < 0 || ext.Frame >= nbFrames {
+			continue
+		}
+		if payloads[ext.Frame] == nil {
+			payloads[ext.Frame] = ext.Data
+		}
+	}
 }
 
 // Decoder decodes Opus multistream packets containing multiple elementary streams.

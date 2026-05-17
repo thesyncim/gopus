@@ -44,7 +44,7 @@ func (d *Decoder) decodeFrameSpectrum(qextPayload []byte, rd *rangecoding.Decode
 	}
 
 	bitsLeft := totalBits - rd.Tell()
-	if extsupport.QEXT && len(qextPayload) != 0 {
+	if extsupport.QEXT && spectrum.qext != nil {
 		d.DecodeEnergyFinaliseRange(start, end, nil, fineQuant, finePriority, bitsLeft)
 	} else {
 		d.DecodeEnergyFinalise(energies, end, fineQuant, finePriority, bitsLeft)

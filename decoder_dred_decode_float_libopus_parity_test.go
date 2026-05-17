@@ -69,10 +69,18 @@ func getLibopusDecoderDREDDecodeFloatHelperPath() (string, error) {
 }
 
 func probeLibopusDecoderDREDDecodeFloat(seedPacket, packet []byte, maxDREDSamples, sampleRate, warmupDREDOffsetSamples, dredOffsetSamples, frameSizeSamples int) (libopusDecoderDREDDecodeFloatInfo, error) {
-	return probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packet, nil, maxDREDSamples, sampleRate, warmupDREDOffsetSamples, dredOffsetSamples, frameSizeSamples)
+	return probeLibopusDecoderDREDDecodeFloatWithGain(seedPacket, packet, maxDREDSamples, sampleRate, warmupDREDOffsetSamples, dredOffsetSamples, frameSizeSamples, 0)
+}
+
+func probeLibopusDecoderDREDDecodeFloatWithGain(seedPacket, packet []byte, maxDREDSamples, sampleRate, warmupDREDOffsetSamples, dredOffsetSamples, frameSizeSamples, gain int) (libopusDecoderDREDDecodeFloatInfo, error) {
+	return probeLibopusDecoderDREDDecodeAndNextFloatWithGain(seedPacket, packet, nil, maxDREDSamples, sampleRate, warmupDREDOffsetSamples, dredOffsetSamples, frameSizeSamples, gain)
 }
 
 func probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packet, nextPacket []byte, maxDREDSamples, sampleRate, warmupDREDOffsetSamples, dredOffsetSamples, frameSizeSamples int) (libopusDecoderDREDDecodeFloatInfo, error) {
+	return probeLibopusDecoderDREDDecodeAndNextFloatWithGain(seedPacket, packet, nextPacket, maxDREDSamples, sampleRate, warmupDREDOffsetSamples, dredOffsetSamples, frameSizeSamples, 0)
+}
+
+func probeLibopusDecoderDREDDecodeAndNextFloatWithGain(seedPacket, packet, nextPacket []byte, maxDREDSamples, sampleRate, warmupDREDOffsetSamples, dredOffsetSamples, frameSizeSamples, gain int) (libopusDecoderDREDDecodeFloatInfo, error) {
 	binPath, err := getLibopusDecoderDREDDecodeFloatHelperPath()
 	if err != nil {
 		return libopusDecoderDREDDecodeFloatInfo{}, err
@@ -89,12 +97,21 @@ func probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packet, nextPacket []
 	var payload bytes.Buffer
 	payload.WriteString(libopusDecoderDREDDecodeFloatInputMagic)
 	for _, v := range []uint32{
-		6,
+		7,
 		uint32(sampleRate),
 		uint32(maxDREDSamples),
 		uint32(warmupDREDOffsetSamples),
 		uint32(dredOffsetSamples),
 		uint32(frameSizeSamples),
+	} {
+		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
+			return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper header: %w", err)
+		}
+	}
+	if err := binary.Write(&payload, binary.LittleEndian, int32(gain)); err != nil {
+		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper header: %w", err)
+	}
+	for _, v := range []uint32{
 		uint32(len(seedPacket)),
 		uint32(len(packet)),
 		uint32(len(nextPacket)),
@@ -1341,6 +1358,70 @@ func TestDecoderExplicitDREDDecodeSecondLossMatchesLibopus(t *testing.T) {
 	assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "explicit second libopus pcm", 1e-4)
 	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "explicit second libopus plc")
 	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "explicit second libopus fargan")
+}
+
+func TestDecoderExplicitDREDDecodeSecondLossGainTransitionMatchesLibopus(t *testing.T) {
+	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
+	const gainA = 256
+	const gainB = -512
+
+	if err := dec.SetGain(gainA); err != nil {
+		t.Fatalf("SetGain(%d) error: %v", gainA, err)
+	}
+	wantFirst, err := probeLibopusDecoderDREDDecodeFloatWithGain(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n, gainA)
+	if err != nil {
+		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+	}
+	if wantFirst.parseRet < 0 {
+		t.Skipf("libopus decoder DRED parse failed: %d", wantFirst.parseRet)
+	}
+	if wantFirst.ret != n {
+		t.Fatalf("libopus decoder DRED first ret=%d want %d", wantFirst.ret, n)
+	}
+
+	pcm0 := make([]float32, dec.maxPacketSamples)
+	got, err := dec.decodeExplicitDREDFloat(dred, n, pcm0, n)
+	if err != nil {
+		t.Fatalf("decodeExplicitDREDFloat(first) error: %v", err)
+	}
+	if got != n {
+		t.Fatalf("decodeExplicitDREDFloat(first)=%d want %d", got, n)
+	}
+
+	assertFloat32ApproxEqual(t, pcm0[:n], wantFirst.pcm[:n], "explicit second-loss gain transition first libopus pcm", 1e-4)
+	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), wantFirst.state, "explicit second-loss gain transition first libopus plc")
+	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), wantFirst.fargan, "explicit second-loss gain transition first libopus fargan")
+
+	if err := dec.SetGain(gainB); err != nil {
+		t.Fatalf("SetGain(%d) error: %v", gainB, err)
+	}
+	wantSecond, err := probeLibopusDecoderDREDDecodeFloatWithGain(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n, gainB)
+	if err != nil {
+		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+	}
+	if wantSecond.parseRet < 0 {
+		t.Skipf("libopus decoder DRED parse failed: %d", wantSecond.parseRet)
+	}
+	if wantSecond.warmupRet != n {
+		t.Fatalf("libopus decoder DRED warmup ret=%d want %d", wantSecond.warmupRet, n)
+	}
+	if wantSecond.ret != n {
+		t.Fatalf("libopus decoder DRED second ret=%d want %d", wantSecond.ret, n)
+	}
+
+	pcm1 := make([]float32, dec.maxPacketSamples)
+	got, err = dec.decodeExplicitDREDFloat(dred, 2*n, pcm1, n)
+	if err != nil {
+		t.Fatalf("decodeExplicitDREDFloat(second) error: %v", err)
+	}
+	if got != n {
+		t.Fatalf("decodeExplicitDREDFloat(second)=%d want %d", got, n)
+	}
+
+	assertFloat32ApproxEqual(t, pcm1[:n], wantSecond.pcm[:n], "explicit second-loss gain transition second libopus pcm", 1e-4)
+	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), wantSecond.state, "explicit second-loss gain transition second libopus plc")
+	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), wantSecond.fargan, "explicit second-loss gain transition second libopus fargan")
+	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, wantSecond.celt48k, "explicit second-loss gain transition second libopus celt")
 }
 
 func TestDecoderExplicitDREDDecodeSecondLoss16kMatchesLibopus(t *testing.T) {
