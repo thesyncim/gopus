@@ -82,3 +82,38 @@ func TestDefaultBuildDNNBlobKeepsDREDRuntimeDormant(t *testing.T) {
 		t.Fatalf("default build allocation guard woke DRED sidecar: %+v", armed.dredState())
 	}
 }
+
+func TestDefaultBuildEncoderDNNBlobKeepsDREDDormant(t *testing.T) {
+	baseline := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
+	armed := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
+	if err := armed.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if armed.dnnBlob == nil {
+		t.Fatal("SetDNNBlob did not retain encoder dnn blob handle")
+	}
+
+	pcm := make([]float32, 960)
+	baselinePacket := make([]byte, 4000)
+	armedPacket := make([]byte, 4000)
+	if _, err := baseline.Encode(pcm, baselinePacket); err != nil {
+		t.Fatalf("baseline Encode error: %v", err)
+	}
+	if _, err := armed.Encode(pcm, armedPacket); err != nil {
+		t.Fatalf("armed Encode error: %v", err)
+	}
+
+	baselineAllocs := testing.AllocsPerRun(50, func() {
+		if _, err := baseline.Encode(pcm, baselinePacket); err != nil {
+			t.Fatalf("baseline Encode: %v", err)
+		}
+	})
+	armedAllocs := testing.AllocsPerRun(50, func() {
+		if _, err := armed.Encode(pcm, armedPacket); err != nil {
+			t.Fatalf("armed Encode: %v", err)
+		}
+	})
+	if armedAllocs > baselineAllocs {
+		t.Fatalf("default build Encode after SetDNNBlob allocs/op = %.2f, want at most baseline %.2f", armedAllocs, baselineAllocs)
+	}
+}
