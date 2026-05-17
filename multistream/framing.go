@@ -450,15 +450,317 @@ func buildOpusPacketFromFramesAndPadding(tocBase byte, frames [][]byte, padding 
 	return offset, nil
 }
 
+func parsePacketExtensionList(padding []byte, nbFrames int) ([]packetExtensionData, error) {
+	if len(padding) == 0 || nbFrames <= 0 {
+		return nil, nil
+	}
+
+	var iter packetExtensionIterator
+	initPacketExtensionIterator(&iter, padding, nbFrames)
+	var extensions []packetExtensionData
+	for {
+		var ext packetExtensionData
+		ok, err := iter.next(&ext)
+		if err != nil {
+			return nil, err
+		}
+		if !ok {
+			return extensions, nil
+		}
+		extensions = append(extensions, ext)
+	}
+}
+
+func writePacketExtensionPayload(dst []byte, pos int, ext packetExtensionData, last bool) (int, error) {
+	if ext.ID < 3 || ext.ID > 127 {
+		return 0, ErrInvalidPacket
+	}
+
+	if ext.ID < 32 {
+		if len(ext.Data) > 1 {
+			return 0, ErrInvalidPacket
+		}
+		if len(dst)-pos < len(ext.Data) {
+			return 0, ErrPacketTooShort
+		}
+		if len(ext.Data) > 0 {
+			dst[pos] = ext.Data[0]
+			pos++
+		}
+		return pos, nil
+	}
+
+	lengthBytes := 1 + len(ext.Data)/255
+	if last {
+		lengthBytes = 0
+	}
+	if len(dst)-pos < lengthBytes+len(ext.Data) {
+		return 0, ErrPacketTooShort
+	}
+
+	if !last {
+		for j := 0; j < len(ext.Data)/255; j++ {
+			dst[pos] = 255
+			pos++
+		}
+		dst[pos] = byte(len(ext.Data) % 255)
+		pos++
+	}
+	copy(dst[pos:], ext.Data)
+	pos += len(ext.Data)
+	return pos, nil
+}
+
+func writePacketExtension(dst []byte, pos int, ext packetExtensionData, last bool) (int, error) {
+	if ext.ID < 3 || ext.ID > 127 {
+		return 0, ErrInvalidPacket
+	}
+	if len(dst)-pos < 1 {
+		return 0, ErrPacketTooShort
+	}
+
+	lFlag := 0
+	if ext.ID < 32 {
+		lFlag = len(ext.Data)
+		if lFlag < 0 || lFlag > 1 {
+			return 0, ErrInvalidPacket
+		}
+	} else if !last {
+		lFlag = 1
+	}
+
+	dst[pos] = byte((ext.ID << 1) | lFlag)
+	pos++
+	return writePacketExtensionPayload(dst, pos, ext, last)
+}
+
+func generatePacketExtensions(dst []byte, length int, extensions []packetExtensionData, nbFrames int, pad bool) (int, error) {
+	if nbFrames < 0 || nbFrames > maxPacketExtensionFrames || length < 0 {
+		return 0, ErrInvalidPacket
+	}
+	if dst != nil && len(dst) < length {
+		return 0, ErrPacketTooShort
+	}
+
+	frameMinIdx := make([]int, nbFrames)
+	frameMaxIdx := make([]int, nbFrames)
+	frameRepeatIdx := make([]int, nbFrames)
+	for f := 0; f < nbFrames; f++ {
+		frameMinIdx[f] = len(extensions)
+	}
+
+	for i, ext := range extensions {
+		if ext.Frame < 0 || ext.Frame >= nbFrames || ext.ID < 3 || ext.ID > 127 {
+			return 0, ErrInvalidPacket
+		}
+		if i < frameMinIdx[ext.Frame] {
+			frameMinIdx[ext.Frame] = i
+		}
+		if i+1 > frameMaxIdx[ext.Frame] {
+			frameMaxIdx[ext.Frame] = i + 1
+		}
+	}
+	copy(frameRepeatIdx, frameMinIdx)
+
+	pos := 0
+	written := 0
+	currFrame := 0
+	for f := 0; f < nbFrames; f++ {
+		lastLongIdx := -1
+		repeatCount := 0
+
+		if f+1 < nbFrames {
+			for i := frameMinIdx[f]; i < frameMaxIdx[f]; i++ {
+				if extensions[i].Frame != f {
+					continue
+				}
+
+				g := f + 1
+				for ; g < nbFrames; g++ {
+					if frameRepeatIdx[g] >= frameMaxIdx[g] {
+						break
+					}
+					repeatExt := extensions[frameRepeatIdx[g]]
+					if repeatExt.ID != extensions[i].ID {
+						break
+					}
+					if repeatExt.ID < 32 && len(repeatExt.Data) != len(extensions[i].Data) {
+						break
+					}
+				}
+				if g < nbFrames {
+					break
+				}
+
+				if extensions[i].ID >= 32 {
+					lastLongIdx = frameRepeatIdx[nbFrames-1]
+				}
+				for g = f + 1; g < nbFrames; g++ {
+					j := frameRepeatIdx[g] + 1
+					for ; j < frameMaxIdx[g] && extensions[j].Frame != g; j++ {
+					}
+					frameRepeatIdx[g] = j
+				}
+				repeatCount++
+				frameRepeatIdx[f] = i
+			}
+		}
+
+		for i := frameMinIdx[f]; i < frameMaxIdx[f]; i++ {
+			if extensions[i].Frame != f {
+				continue
+			}
+
+			if f != currFrame {
+				diff := f - currFrame
+				if diff <= 0 {
+					return 0, ErrInvalidPacket
+				}
+				if length-pos < 2 {
+					return 0, ErrPacketTooShort
+				}
+				if dst != nil {
+					if diff == 1 {
+						dst[pos] = 0x02
+					} else {
+						dst[pos] = 0x03
+						dst[pos+1] = byte(diff)
+					}
+				}
+				if diff == 1 {
+					pos++
+				} else {
+					pos += 2
+				}
+				currFrame = f
+			}
+
+			last := written == len(extensions)-1
+			if dst != nil {
+				var err error
+				pos, err = writePacketExtension(dst, pos, extensions[i], last)
+				if err != nil {
+					return 0, err
+				}
+			} else {
+				size := 1
+				if extensions[i].ID < 32 {
+					if len(extensions[i].Data) > 1 {
+						return 0, ErrInvalidPacket
+					}
+					size += len(extensions[i].Data)
+				} else {
+					if !last {
+						size += 1 + len(extensions[i].Data)/255
+					}
+					size += len(extensions[i].Data)
+				}
+				if length-pos < size {
+					return 0, ErrPacketTooShort
+				}
+				pos += size
+			}
+			written++
+
+			if repeatCount > 0 && frameRepeatIdx[f] == i {
+				nbRepeated := repeatCount * (nbFrames - (f + 1))
+				last := written+nbRepeated == len(extensions) || (lastLongIdx < 0 && i+1 >= frameMaxIdx[f])
+				if length-pos < 1 {
+					return 0, ErrPacketTooShort
+				}
+				if dst != nil {
+					if last {
+						dst[pos] = 0x04
+					} else {
+						dst[pos] = 0x05
+					}
+				}
+				pos++
+
+				for g := f + 1; g < nbFrames; g++ {
+					j := frameMinIdx[g]
+					for ; j < frameRepeatIdx[g]; j++ {
+						if extensions[j].Frame != g {
+							continue
+						}
+						if dst != nil {
+							var err error
+							pos, err = writePacketExtensionPayload(dst, pos, extensions[j], last && j == lastLongIdx)
+							if err != nil {
+								return 0, err
+							}
+						} else {
+							size := len(extensions[j].Data)
+							if extensions[j].ID < 32 {
+								if size > 1 {
+									return 0, ErrInvalidPacket
+								}
+							} else if !last || j != lastLongIdx {
+								size += 1 + len(extensions[j].Data)/255
+							}
+							if length-pos < size {
+								return 0, ErrPacketTooShort
+							}
+							pos += size
+						}
+						written++
+					}
+					frameMinIdx[g] = j
+				}
+				if last {
+					currFrame++
+				}
+			}
+		}
+	}
+
+	if written != len(extensions) {
+		return 0, ErrInvalidPacket
+	}
+
+	if pad && pos < length {
+		padding := length - pos
+		if dst != nil {
+			copy(dst[padding:], dst[:pos])
+			for i := 0; i < padding; i++ {
+				dst[i] = 0x01
+			}
+		}
+		pos += padding
+	}
+
+	return pos, nil
+}
+
+func buildOpusPacketFromFramesAndExtensions(tocBase byte, frames [][]byte, extensions []packetExtensionData, selfDelimited bool, dst []byte) (int, error) {
+	if len(extensions) == 0 {
+		return buildOpusPacketFromFrames(tocBase, frames, selfDelimited, dst)
+	}
+
+	extLen, err := generatePacketExtensions(nil, len(dst), extensions, len(frames), false)
+	if err != nil {
+		return 0, err
+	}
+	padding := make([]byte, extLen)
+	if _, err := generatePacketExtensions(padding, extLen, extensions, len(frames), false); err != nil {
+		return 0, err
+	}
+	return buildOpusPacketFromFramesAndPadding(tocBase, frames, padding, selfDelimited, dst)
+}
+
 func makeSelfDelimitedPacket(packet []byte) ([]byte, error) {
 	parsed, err := parseOpusPacket(packet, false)
+	if err != nil {
+		return nil, err
+	}
+	extensions, err := parsePacketExtensionList(parsed.padding, parsed.paddingFrameCount)
 	if err != nil {
 		return nil, err
 	}
 
 	// Self-delimiting framing adds at most 2 bytes.
 	dst := make([]byte, len(packet)+2)
-	n, err := buildOpusPacketFromFramesAndPadding(parsed.tocBase, parsed.frames, parsed.padding, true, dst)
+	n, err := buildOpusPacketFromFramesAndExtensions(parsed.tocBase, parsed.frames, extensions, true, dst)
 	if err != nil {
 		return nil, err
 	}
@@ -470,9 +772,13 @@ func decodeSelfDelimitedPacket(data []byte) ([]byte, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
+	extensions, err := parsePacketExtensionList(parsed.padding, parsed.paddingFrameCount)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	dst := make([]byte, parsed.consumed)
-	n, err := buildOpusPacketFromFramesAndPadding(parsed.tocBase, parsed.frames, parsed.padding, false, dst)
+	n, err := buildOpusPacketFromFramesAndExtensions(parsed.tocBase, parsed.frames, extensions, false, dst)
 	if err != nil {
 		return nil, 0, err
 	}

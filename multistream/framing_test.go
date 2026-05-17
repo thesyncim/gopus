@@ -195,6 +195,31 @@ func TestParseMultistreamPacketWithSelfDelimitedCode3(t *testing.T) {
 	}
 }
 
+func TestSelfDelimitedPacketDropsOrdinaryPadding(t *testing.T) {
+	packet := mustDecodeHex(t, "034101aa00")
+	wantSelfDelimited := mustDecodeHex(t, "0001aa")
+	wantRecovered := mustDecodeHex(t, "00aa")
+
+	selfDelimited, err := makeSelfDelimitedPacket(packet)
+	if err != nil {
+		t.Fatalf("makeSelfDelimitedPacket: %v", err)
+	}
+	if !bytes.Equal(selfDelimited, wantSelfDelimited) {
+		t.Fatalf("selfDelimited=%x want=%x", selfDelimited, wantSelfDelimited)
+	}
+
+	recovered, consumed, err := decodeSelfDelimitedPacket(selfDelimited)
+	if err != nil {
+		t.Fatalf("decodeSelfDelimitedPacket: %v", err)
+	}
+	if consumed != len(selfDelimited) {
+		t.Fatalf("decodeSelfDelimitedPacket consumed=%d want=%d", consumed, len(selfDelimited))
+	}
+	if !bytes.Equal(recovered, wantRecovered) {
+		t.Fatalf("recovered=%x want=%x", recovered, wantRecovered)
+	}
+}
+
 func TestSelfDelimitedPacketPreservesPacketExtensions(t *testing.T) {
 	packet := mustDecodeHex(t, "4b41061122330baa50deadbe")
 	wantSelfDelimited := mustDecodeHex(t, "4b4106031122330baa50deadbe")
