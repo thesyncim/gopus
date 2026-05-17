@@ -1926,6 +1926,55 @@ func TestDecoderExplicitDREDDecodeSecondLossFrameSizeMatrixMatchesLibopus(t *tes
 	}
 }
 
+func TestDecoderExplicitDREDDecodeSecondLossCELTSuperwidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	for _, frameSize := range []int{120, 240, 480, 960} {
+		frameSize := frameSize
+		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
+			dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 48000, libopusDREDPacketConfig{
+				FrameSize: frameSize,
+				ForceMode: ModeCELT,
+				Bandwidth: BandwidthSuperwideband,
+			})
+			if packetInfo.sampleRate != 48000 || n != frameSize {
+				t.Skipf("48 kHz CELT SWB second-loss parity requires frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+			}
+
+			pcm0 := make([]float32, dec.maxPacketSamples)
+			if _, err := dec.decodeExplicitDREDFloat(dred, n, pcm0, n); err != nil {
+				t.Fatalf("decodeExplicitDREDFloat(first) error: %v", err)
+			}
+
+			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
+			if err != nil {
+				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+			}
+			if want.parseRet < 0 {
+				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
+			}
+			if want.warmupRet != n {
+				t.Fatalf("libopus decoder CELT SWB DRED warmup ret=%d want %d", want.warmupRet, n)
+			}
+			if want.ret != n {
+				t.Fatalf("libopus decoder CELT SWB DRED second ret=%d want %d", want.ret, n)
+			}
+
+			pcm1 := make([]float32, dec.maxPacketSamples)
+			got, err := dec.decodeExplicitDREDFloat(dred, 2*n, pcm1, n)
+			if err != nil {
+				t.Fatalf("decodeExplicitDREDFloat(second) error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("decodeExplicitDREDFloat(second)=%d want %d", got, n)
+			}
+
+			assertFloat32ApproxEqual(t, pcm1[:got], want.pcm[:got], "celt swb second loss frame size matrix pcm", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "celt swb second loss frame size matrix plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "celt swb second loss frame size matrix fargan")
+			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "celt swb second loss frame size matrix celt")
+		})
+	}
+}
+
 func TestDecoderExplicitDREDDecodeThenNextPacketFrameSizeMatrixMatchesLibopus(t *testing.T) {
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
