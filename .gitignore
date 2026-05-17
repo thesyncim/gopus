@@ -49,3 +49,4 @@ Thumbs.db
 # Coverage
 coverage.out
 coverage.html
+.claude/
