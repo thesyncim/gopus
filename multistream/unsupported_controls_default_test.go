@@ -303,6 +303,73 @@ func childDREDNil(v any) bool {
 	return field.IsNil()
 }
 
+// TestDefaultBuildMultistreamEncoderDNNBlobKeepsAllocsFlat mirrors the
+// top-level TestDefaultBuildEncoderDNNBlobKeepsDREDDormant contract for the
+// multistream encoder: SetDNNBlob on a default build must not allocate any
+// hidden state that leaks into the steady-state Encode hot path. Constructing
+// a real encoder DNN blob requires DRED-tagged helpers that aren't reachable
+// from default-build tests, so we exercise the SetDNNBlob(nil) path which is
+// the only operation guaranteed to be safe in default builds. The point is
+// that the SetDNNBlob call itself must not arm any DRED-flavoured machinery
+// that would inflate the per-Encode allocation count.
+func TestDefaultBuildMultistreamEncoderDNNBlobKeepsAllocsFlat(t *testing.T) {
+	const (
+		sampleRate = 48000
+		channels   = 2
+		frameSize  = 960
+	)
+
+	baseline, err := NewEncoderDefault(sampleRate, channels)
+	if err != nil {
+		t.Fatalf("baseline NewEncoderDefault error: %v", err)
+	}
+	armed, err := NewEncoderDefault(sampleRate, channels)
+	if err != nil {
+		t.Fatalf("armed NewEncoderDefault error: %v", err)
+	}
+
+	// SetDNNBlob(nil) is the only multistream encoder blob path safe to call
+	// without DRED runtime helpers. It must remain a no-op for default builds.
+	armed.SetDNNBlob(nil)
+	if armed.DNNBlobLoaded() {
+		t.Fatal("SetDNNBlob(nil) left multistream encoder reporting DNN blob loaded")
+	}
+	for i, child := range armed.encoders {
+		if !childDREDNil(child) {
+			t.Fatalf("SetDNNBlob(nil) woke child DRED runtime for stream %d", i)
+		}
+	}
+
+	pcm := generateTestSignal(channels, frameSize, sampleRate, 997)
+
+	// Warm both encoders so steady-state Encode allocations are measured.
+	if _, err := baseline.Encode(pcm, frameSize); err != nil {
+		t.Fatalf("baseline Encode warmup error: %v", err)
+	}
+	if _, err := armed.Encode(pcm, frameSize); err != nil {
+		t.Fatalf("armed Encode warmup error: %v", err)
+	}
+
+	baselineAllocs := testing.AllocsPerRun(50, func() {
+		if _, err := baseline.Encode(pcm, frameSize); err != nil {
+			t.Fatalf("baseline Encode: %v", err)
+		}
+	})
+	armedAllocs := testing.AllocsPerRun(50, func() {
+		if _, err := armed.Encode(pcm, frameSize); err != nil {
+			t.Fatalf("armed Encode: %v", err)
+		}
+	})
+	if armedAllocs > baselineAllocs {
+		t.Fatalf("default build multistream Encode after SetDNNBlob allocs/op = %.2f, want at most baseline %.2f", armedAllocs, baselineAllocs)
+	}
+	for i, child := range armed.encoders {
+		if !childDREDNil(child) {
+			t.Fatalf("Encode loop awakened child DRED runtime for stream %d", i)
+		}
+	}
+}
+
 func TestNewEncoderLeavesDREDDormant(t *testing.T) {
 	enc, err := NewEncoderDefault(48000, 3)
 	if err != nil {
