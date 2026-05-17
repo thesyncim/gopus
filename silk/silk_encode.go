@@ -182,7 +182,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	if packetRate <= 0 {
 		packetRate = enc.targetRateBps
 	}
-	totalRate := stereoAllocationTargetRate(enc, packetRate, frameLength20ms, 0)
+	totalRate := stereoAllocationTargetRate(enc, packetRate, frameLength20ms*nFrames, 0)
 	if totalRate <= 0 {
 		totalRate = enc.targetRateBps
 	}
@@ -263,7 +263,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 
 		leftFrame := left[start:end]
 		rightFrame := right[start:end]
-		frameRate := stereoAllocationTargetRate(enc, packetRate, frameLength, re.Tell())
+		frameRate := stereoAllocationTargetRate(enc, packetRate, frameLength*nFrames, re.Tell())
 		if frameRate > 0 {
 			totalRate = frameRate
 		}
