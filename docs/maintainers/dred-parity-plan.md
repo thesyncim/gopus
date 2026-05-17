@@ -1,6 +1,6 @@
 # DRED Parity Plan
 
-Last updated: 2026-05-01
+Last updated: 2026-05-17
 
 ## Goal
 
@@ -194,6 +194,7 @@ Still missing for full parity:
 - model-backed `opus_decoder_dred_decode*()` parity beyond the currently exercised mono explicit seams, including broader `LPCNetEncState`-shaped analysis/runtime coverage and decoder-owned integration for any surfaces that graduate from quarantine
 - broader live-oracle adoption beyond the covered mono cached seams; some cached/live tests still compare against the explicit `opus_decoder_dred_decode_float()` helper, and stereo/multistream paths plus wider packet matrices still need migration to live-sequence coverage where those surfaces become supported
 - encoder-side DRED beyond the current exercised latent-generation and carried-payload seams: broadening rate / packet-shape / stereo / multistream coverage around the payload-emission path and finalizing which surfaces graduate from quarantine
+<<<<<<< HEAD
 - clean runtime re-verification after the current macOS AppleSystemPolicy issue: freshly built local Go test binaries on this machine are being rejected by Gatekeeper (`spctl --assess --type execute` rejects them, `syspolicyd` logs repeated `Unable to initialize qtn_proc: 3`, and the processes stall at `_dyld_start`), so CI remains the reliable runtime oracle while that host-policy issue is open; see [PLATFORM_NOTES.md](PLATFORM_NOTES.md#macos-local-test-binary-quarantine) for documented local workarounds
 
 ### Stereo DRED runtime port (scope)
@@ -349,6 +350,7 @@ Out of scope for this port:
 - multistream decoder DRED, which still keeps standalone DRED on a
   cache/timing-only path (see the existing "multistream optional-state
   hardening" entry above). Multistream stereo DRED is a separate workstream.
+- 16 kHz mono Hybrid DRED concealment currently produces near-zero PCM (probe values in the `1e-4` to `1e-6` range while libopus delivers values around `0.05` to `0.16` on the same packet), so the low-rate Hybrid loss output is effectively silence. Probe localization: `decoder_decode.go` `Decode(nil)` routes 16 kHz mono `Decode(nil)` through `applyDREDNeuralConcealment`, which in `decoder_dred_helpers.go` (`applyDREDNeuralConcealment` around lines 870-894 and `advanceHybridDREDLowbandState` at lines 896-925) is currently gated to `d.sampleRate == 48000` for the Hybrid SILK lowband stitching path. At 16 kHz the helper falls through to `applyPLCNeuralConcealment48kMono` / `concealNeural48kMono` (`decoder_dred_48k.go` plus `celt/dred_conceal.go`), which generates a CELT-only neural waveform at 48 kHz frame-size domain and skips the libopus-shaped SILK 0-8 kHz reconstruction the Hybrid lost frame needs. `decoder_dred_explicit_unsupported.go` `decodeExplicitDREDFloat` shows the same shape: the 48 kHz branch (lines 71-85) routes Hybrid through the dedicated `decodeExplicitHybridDREDFloat` helper that snapshots the SILK lowband, runs the libopus-shaped Hybrid PLC base, and then advances `advanceHybridDREDLowbandState`, while the 16 kHz branch (lines 86-95) does none of that and only invokes the CELT-domain `applyDREDNeuralConcealment48kMono`. Suggested fix area: port the 48 kHz `decodeExplicitHybridDREDFloat` / `beginHybridDREDLowbandHook` / `advanceHybridDREDLowbandState` lowband-stitching path to the 16 kHz seam (relaxing the `d.sampleRate != 48000` gates and matching the libopus `opus_decode_frame` Hybrid SILK + CELT split that runs at `st->Fs` with `celt_decode_with_ec_dred` + `st->downsample` in `tmp_check/opus-1.6.1/src/opus_decoder.c` and `celt/celt_decoder.c`), and add a 16 kHz mono Hybrid DRED parity test mirroring `TestDecoderExplicitHybridDREDDecodeMatrixMatchesLibopus` but built on top of `prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 16000, ...)` so the regression is pinned before claiming low-rate Hybrid DRED parity.
 
 ## Workstreams
 
