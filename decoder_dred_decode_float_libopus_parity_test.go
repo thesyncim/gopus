@@ -722,6 +722,66 @@ func TestDecoderCachedDREDThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 	}
 }
 
+func TestDecoderCachedDREDThenNextPacketCELTSuperwidebandMatchesLiveSequenceOracle(t *testing.T) {
+	for _, frameSize := range []int{120, 240, 480, 960} {
+		frameSize := frameSize
+		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
+			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+				FrameSize: frameSize,
+				ForceMode: ModeCELT,
+				Bandwidth: BandwidthSuperwideband,
+			})
+			if err != nil {
+				t.Skipf("libopus dred packet helper unavailable: %v", err)
+			}
+			nextPacket := makeValidMonoCELTPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthSuperwideband)
+
+			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
+			if packetInfo.sampleRate != 48000 || n != frameSize {
+				t.Skipf("cached CELT SWB live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+			}
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
+			if err != nil {
+				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+			}
+			if want.carrierParseRet < 0 {
+				t.Skipf("libopus cached CELT SWB DRED sequence parse failed: %d", want.carrierParseRet)
+			}
+			if want.step0.ret != n {
+				t.Fatalf("libopus cached CELT SWB decoder first-loss ret=%d want %d", want.step0.ret, n)
+			}
+			if want.next.ret <= 0 {
+				t.Fatalf("libopus cached CELT SWB decoder follow-up ret=%d want >0", want.next.ret)
+			}
+
+			pcm := make([]float32, dec.maxPacketSamples)
+			got, err := dec.Decode(nil, pcm)
+			if err != nil {
+				t.Fatalf("Decode(nil) error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("Decode(nil)=%d want %d", got, n)
+			}
+			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
+			assertFloat32ApproxEqual(t, pcm[:got], want.step0.pcm[:got], "cached CELT SWB live-sequence first-loss pcm", pcmTol)
+
+			nextPCM := make([]float32, dec.maxPacketSamples)
+			gotNext, err := dec.Decode(nextPacket, nextPCM)
+			if err != nil {
+				t.Fatalf("Decode(next CELT SWB packet) error: %v", err)
+			}
+			if gotNext != want.next.ret {
+				t.Fatalf("Decode(next CELT SWB packet)=%d want %d", gotNext, want.next.ret)
+			}
+
+			assertFloat32ApproxEqual(t, nextPCM[:gotNext], want.next.pcm[:gotNext], "cached CELT SWB next packet live-sequence pcm", pcmTol)
+			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "cached CELT SWB next packet live-sequence plc", plcTol)
+			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "cached CELT SWB next packet live-sequence fargan", farganTol)
+			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "cached CELT SWB next packet live-sequence celt", celtTol)
+		})
+	}
+}
+
 func TestDecoderCachedDREDSecondLossMatchesLiveSequenceOracle(t *testing.T) {
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
