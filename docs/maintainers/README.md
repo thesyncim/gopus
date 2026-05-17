@@ -18,4 +18,5 @@ These documents are for release, CI, and repo-maintenance workflows rather than 
 ## Maintenance
 
 - [CLEANUP_TODO.md](CLEANUP_TODO.md)
+- [PLATFORM_NOTES.md](PLATFORM_NOTES.md)
 - [PR_SMOKE_TEST.md](PR_SMOKE_TEST.md)

@@ -141,7 +141,7 @@ Still missing for full parity:
 - model-backed `opus_decoder_dred_decode*()` parity beyond the currently exercised mono explicit seams, including broader `LPCNetEncState`-shaped analysis/runtime coverage and decoder-owned integration for any surfaces that graduate from quarantine
 - broader live-oracle adoption beyond the covered mono cached seams; some cached/live tests still compare against the explicit `opus_decoder_dred_decode_float()` helper, and stereo/multistream paths plus wider packet matrices still need migration to live-sequence coverage where those surfaces become supported
 - encoder-side DRED beyond the current exercised latent-generation and carried-payload seams: broadening rate / packet-shape / stereo / multistream coverage around the payload-emission path and finalizing which surfaces graduate from quarantine
-- clean runtime re-verification after the current macOS AppleSystemPolicy issue: freshly built local Go test binaries on this machine are being rejected by Gatekeeper (`spctl --assess --type execute` rejects them, `syspolicyd` logs repeated `Unable to initialize qtn_proc: 3`, and the processes stall at `_dyld_start`), so CI remains the reliable runtime oracle while that host-policy issue is open
+- clean runtime re-verification after the current macOS AppleSystemPolicy issue: freshly built local Go test binaries on this machine are being rejected by Gatekeeper (`spctl --assess --type execute` rejects them, `syspolicyd` logs repeated `Unable to initialize qtn_proc: 3`, and the processes stall at `_dyld_start`), so CI remains the reliable runtime oracle while that host-policy issue is open; see [PLATFORM_NOTES.md](PLATFORM_NOTES.md#macos-local-test-binary-quarantine) for documented local workarounds
 
 ## Workstreams
 
