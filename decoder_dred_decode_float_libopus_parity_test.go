@@ -3215,3 +3215,89 @@ func TestDecoderExplicitSecondLossThenNextPacketCELTWidebandFrameSizeMatrixMatch
 		})
 	}
 }
+
+// TestProbeDecoderExplicitSILKDRED probes whether libopus emits a DRED-bearing
+// packet for SILK-only mode (no CELT) at 48 kHz WB 20 ms, and if so whether the
+// pure-Go decoder explicit DRED path agrees with libopus on the recovered PCM.
+// Intentionally tolerant: just reports first-diff position and counts instead
+// of fatally failing, so we can characterize the seam before promoting to a
+// full matrix.
+func TestProbeDecoderExplicitSILKDRED(t *testing.T) {
+	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(
+		t, 48000, libopusDREDPacketConfig{
+			FrameSize: 960,
+			ForceMode: ModeSILK,
+			Bandwidth: BandwidthWideband,
+		})
+	t.Logf("probe SILK DRED: packetSampleRate=%d packetLen=%d maxDREDSamples=%d n=%d",
+		packetInfo.sampleRate, len(packetInfo.packet), packetInfo.maxDREDSamples, n)
+
+	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
+	if err != nil {
+		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+	}
+	t.Logf("libopus probe: parseRet=%d dredEnd=%d warmupRet=%d ret=%d channels=%d", want.parseRet, want.dredEnd, want.warmupRet, want.ret, want.channels)
+	if want.parseRet < 0 {
+		t.Skipf("libopus decoder SILK DRED parse failed: %d", want.parseRet)
+	}
+	if want.ret <= 0 {
+		t.Skipf("libopus decoder SILK DRED decode returned ret=%d", want.ret)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	got, err := dec.decodeExplicitDREDFloat(dred, n, pcm, n)
+	t.Logf("gopus decodeExplicitDREDFloat: got=%d err=%v (want_ret=%d)", got, err, want.ret)
+	if err != nil {
+		t.Logf("gopus decoder rejected explicit SILK DRED decode; this characterizes a decoder gap")
+		return
+	}
+	if got != want.ret {
+		t.Logf("gopus got=%d want=%d sample count mismatch", got, want.ret)
+	}
+
+	// Compare first N samples to characterize divergence (don't fail).
+	cmpN := got
+	if want.ret < cmpN {
+		cmpN = want.ret
+	}
+	if len(pcm) < cmpN {
+		cmpN = len(pcm)
+	}
+	if len(want.pcm) < cmpN {
+		cmpN = len(want.pcm)
+	}
+	var firstDiff = -1
+	var maxAbsDiff float32
+	var diffCount int
+	const tol = 1e-4
+	for i := 0; i < cmpN; i++ {
+		d := pcm[i] - want.pcm[i]
+		if d < 0 {
+			d = -d
+		}
+		if d > maxAbsDiff {
+			maxAbsDiff = d
+		}
+		if d > tol {
+			diffCount++
+			if firstDiff < 0 {
+				firstDiff = i
+			}
+		}
+	}
+	t.Logf("PCM diff: cmpN=%d firstDiffPos=%d diffCount=%d maxAbsDiff=%g (tol=%g)", cmpN, firstDiff, diffCount, maxAbsDiff, tol)
+	if firstDiff >= 0 {
+		const ctx = 4
+		lo := firstDiff - ctx
+		if lo < 0 {
+			lo = 0
+		}
+		hi := firstDiff + ctx + 1
+		if hi > cmpN {
+			hi = cmpN
+		}
+		for i := lo; i < hi; i++ {
+			t.Logf("  pcm[%d] got=%g want=%g diff=%g", i, pcm[i], want.pcm[i], pcm[i]-want.pcm[i])
+		}
+	}
+}

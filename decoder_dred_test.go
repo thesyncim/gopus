@@ -274,10 +274,47 @@ func makeValidMonoPacketForModeBandwidthFrameSizeForDREDTest(t *testing.T, mode 
 		return makeValidMonoCELTPacketForFrameSizeForDREDTest(t, frameSize)
 	case ModeHybrid:
 		return makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, frameSize, bandwidth)
+	case ModeSILK:
+		return makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, bandwidth)
 	default:
 		t.Fatalf("unsupported DRED test packet mode %v", mode)
 		return nil
 	}
+}
+
+func makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frameSize int, bandwidth Bandwidth) []byte {
+	t.Helper()
+
+	if frameSize != 480 && frameSize != 960 && frameSize != 1920 && frameSize != 2880 {
+		t.Fatalf("silk DRED test packet requires 10/20/40/60ms frame size, got %d", frameSize)
+	}
+	if bandwidth != BandwidthNarrowband && bandwidth != BandwidthMediumband && bandwidth != BandwidthWideband {
+		t.Fatalf("silk DRED test packet requires NB/MB/WB bandwidth, got %v", bandwidth)
+	}
+
+	enc := internalenc.NewEncoder(48000, 1)
+	enc.SetMode(internalenc.ModeSILK)
+	enc.SetBandwidth(types.Bandwidth(bandwidth))
+	enc.SetBitrate(32000)
+
+	pcm := make([]float64, frameSize)
+	for i := range pcm {
+		tm := float64(i) / 48000.0
+		pcm[i] = 0.31*math.Sin(2*math.Pi*197*tm) + 0.12*math.Sin(2*math.Pi*389*tm+0.23)
+	}
+
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode(mono SILK): %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode(mono SILK) returned empty packet")
+	}
+	toc := ParseTOC(packet[0])
+	if toc.Mode != ModeSILK || toc.Bandwidth != bandwidth || toc.FrameSize != frameSize {
+		t.Fatalf("Encode(mono SILK) produced mode=%v bandwidth=%v frame=%d, want mode=%v bandwidth=%v frame=%d", toc.Mode, toc.Bandwidth, toc.FrameSize, ModeSILK, bandwidth, frameSize)
+	}
+	return packet
 }
 
 func makeValidMono16kPacketForDREDTest(t *testing.T) []byte {
