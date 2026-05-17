@@ -20,21 +20,33 @@ import (
 )
 
 func firstOpusDemoPacket(path string) ([]byte, error) {
+	packet, _, err := firstOpusDemoPacketWithFinalRange(path)
+	return packet, err
+}
+
+func firstOpusDemoPacketWithFinalRange(path string) ([]byte, uint32, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if len(data) < 8 {
-		return nil, os.ErrInvalid
+		return nil, 0, os.ErrInvalid
 	}
 	n := int(binary.BigEndian.Uint32(data[:4]))
 	if n < 0 || len(data) < 8+n {
-		return nil, os.ErrInvalid
+		return nil, 0, os.ErrInvalid
 	}
-	return append([]byte(nil), data[8:8+n]...), nil
+	finalRange := binary.BigEndian.Uint32(data[4:8])
+	return append([]byte(nil), data[8:8+n]...), finalRange, nil
 }
 
 func encodeLibopusPacket(t *testing.T, opusDemo string, channels int, pcm32 []float32, cbr bool, qext bool) []byte {
+	t.Helper()
+	packet, _ := encodeLibopusPacketWithFinalRange(t, opusDemo, channels, pcm32, cbr, qext)
+	return packet
+}
+
+func encodeLibopusPacketWithFinalRange(t *testing.T, opusDemo string, channels int, pcm32 []float32, cbr bool, qext bool) ([]byte, uint32) {
 	t.Helper()
 
 	tmpDir := t.TempDir()
@@ -61,16 +73,21 @@ func encodeLibopusPacket(t *testing.T, opusDemo string, channels int, pcm32 []fl
 		t.Fatalf("opus_demo encode failed: %v (%s)", err, bytes.TrimSpace(out))
 	}
 
-	packet, err := firstOpusDemoPacket(bitstreamPath)
+	packet, finalRange, err := firstOpusDemoPacketWithFinalRange(bitstreamPath)
 	if err != nil {
-		t.Fatalf("firstOpusDemoPacket: %v", err)
+		t.Fatalf("firstOpusDemoPacketWithFinalRange: %v", err)
 	}
-	return packet
+	return packet, finalRange
 }
 
 func encodeLibopusQEXTPacket(t *testing.T, opusDemo string, channels int, pcm32 []float32, cbr bool) []byte {
 	t.Helper()
 	return encodeLibopusPacket(t, opusDemo, channels, pcm32, cbr, true)
+}
+
+func encodeLibopusQEXTPacketWithFinalRange(t *testing.T, opusDemo string, channels int, pcm32 []float32, cbr bool) ([]byte, uint32) {
+	t.Helper()
+	return encodeLibopusPacketWithFinalRange(t, opusDemo, channels, pcm32, cbr, true)
 }
 
 func firstDiffByte(a, b []byte) int {
@@ -87,6 +104,63 @@ func firstDiffByte(a, b []byte) int {
 		return n
 	}
 	return -1
+}
+
+func TestDecodeLibopusQEXTPacketFinalRangeMatchesLibopus(t *testing.T) {
+	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	if err != nil {
+		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+	}
+
+	for _, channels := range []int{1, 2} {
+		channels := channels
+		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
+			pcm32 := make([]float32, 960*channels)
+			for i := 0; i < 960; i++ {
+				phase := 2 * math.Pi * 997 * float64(i) / 48000.0
+				left := 0.45 * math.Sin(phase)
+				pcm32[i*channels] = float32(left)
+				if channels == 2 {
+					pcm32[i*channels+1] = float32(0.35 * math.Sin(phase+0.37))
+				}
+			}
+
+			packet, wantRange := encodeLibopusQEXTPacketWithFinalRange(t, opusDemo, channels, pcm32, false)
+			if wantRange == 0 {
+				t.Fatal("libopus packet final range is zero")
+			}
+			_, frames, padding, nbFrames, err := parsePacketFramesAndPadding(packet)
+			if err != nil {
+				t.Fatalf("parsePacketFramesAndPadding: %v", err)
+			}
+			if len(frames) != 1 {
+				t.Fatalf("frame count=%d want 1", len(frames))
+			}
+			ext, ok, err := findPacketExtension(padding, nbFrames, qextPacketExtensionID)
+			if err != nil {
+				t.Fatalf("findPacketExtension: %v", err)
+			}
+			if !ok || len(ext.Data) == 0 {
+				t.Fatal("libopus packet missing QEXT payload")
+			}
+
+			dec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			pcm := make([]float32, 960*channels)
+			n, err := dec.Decode(packet, pcm)
+			if err != nil {
+				t.Fatalf("Decode: %v", err)
+			}
+			if n != 960 {
+				t.Fatalf("Decode samples=%d want 960", n)
+			}
+			if got := dec.FinalRange(); got != wantRange {
+				t.Fatalf("FinalRange()=0x%08x want libopus 0x%08x", got, wantRange)
+			}
+		})
+	}
 }
 
 func TestDecodeGopusQEXTPacketMatchesLibopus(t *testing.T) {
