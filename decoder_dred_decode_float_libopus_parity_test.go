@@ -903,6 +903,62 @@ func TestDecoderExplicitHybridDREDDecodeThenNextPacketMatchesLibopus(t *testing.
 	}
 }
 
+func TestDecoderExplicitHybridDREDDecodeSecondLossMatrixMatchesLibopus(t *testing.T) {
+	tests := []struct {
+		name      string
+		bandwidth Bandwidth
+		frameSize int
+	}{
+		{name: "swb_10ms", bandwidth: BandwidthSuperwideband, frameSize: 480},
+		{name: "swb_20ms", bandwidth: BandwidthSuperwideband, frameSize: 960},
+		{name: "fb_10ms", bandwidth: BandwidthFullband, frameSize: 480},
+		{name: "fb_20ms", bandwidth: BandwidthFullband, frameSize: 960},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 48000, libopusDREDPacketConfig{
+				FrameSize: tc.frameSize,
+				ForceMode: ModeHybrid,
+				Bandwidth: tc.bandwidth,
+			})
+
+			pcm0 := make([]float32, dec.maxPacketSamples)
+			if _, err := dec.decodeExplicitDREDFloat(dred, n, pcm0, n); err != nil {
+				t.Fatalf("decodeExplicitDREDFloat(first) error: %v", err)
+			}
+
+			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
+			if err != nil {
+				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+			}
+			if want.parseRet < 0 {
+				t.Skipf("libopus decoder hybrid DRED parse failed: %d", want.parseRet)
+			}
+			if want.warmupRet != n {
+				t.Fatalf("libopus hybrid decoder DRED warmup ret=%d want %d", want.warmupRet, n)
+			}
+			if want.ret != n {
+				t.Fatalf("libopus hybrid decoder DRED second ret=%d want %d", want.ret, n)
+			}
+
+			pcm1 := make([]float32, dec.maxPacketSamples)
+			got, err := dec.decodeExplicitDREDFloat(dred, 2*n, pcm1, n)
+			if err != nil {
+				t.Fatalf("decodeExplicitDREDFloat(second) error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("decodeExplicitDREDFloat(second)=%d want %d", got, n)
+			}
+
+			assertFloat32ApproxEqual(t, pcm1[:got], want.pcm[:got], "hybrid explicit second loss pcm", 1e-4)
+			assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "hybrid explicit second loss plc")
+			assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "hybrid explicit second loss fargan")
+			assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "hybrid explicit second loss celt")
+		})
+	}
+}
+
 func cachedHybridLiveSequenceTolerances(_ Bandwidth, frameSize int) (pcmTol, plcTol, farganTol, celtTol float64) {
 	pcmTol, plcTol, farganTol, celtTol = decoderDREDLiveSequenceTolerances(frameSize)
 	return pcmTol, plcTol, farganTol, celtTol
