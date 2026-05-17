@@ -219,6 +219,74 @@ func TestDefaultBuildMultistreamDecoderRealBlobDormant(t *testing.T) {
 	}
 }
 
+// TestDefaultBuildMultistreamDecoderDecodeAllocGuard pins the steady-state
+// allocation contract for the multistream decoder Decode hot path on default
+// builds: an armed decoder (real DNN blob installed) must not allocate more
+// per Decode call than an identical baseline decoder with no blob installed.
+// This mirrors the encoder-side guard in
+// TestDefaultBuildEncoderDNNBlobKeepsDREDDormant and complements the dormancy
+// pin in TestDefaultBuildMultistreamDecoderRealBlobDormant.
+func TestDefaultBuildMultistreamDecoderDecodeAllocGuard(t *testing.T) {
+	const (
+		sampleRate = 48000
+		channels   = 2
+		frameSize  = 960
+	)
+
+	blob := makeValidDefaultDecoderTestBlob(t)
+
+	baseline, err := NewDecoderDefault(sampleRate, channels)
+	if err != nil {
+		t.Fatalf("baseline NewDecoderDefault error: %v", err)
+	}
+	armed, err := NewDecoderDefault(sampleRate, channels)
+	if err != nil {
+		t.Fatalf("armed NewDecoderDefault error: %v", err)
+	}
+	armed.SetDNNBlob(blob)
+	if armed.dred != nil {
+		t.Fatalf("default build SetDNNBlob(real blob) allocated multistream DRED sidecar: %+v", armed.dred)
+	}
+
+	// Build a real stereo CELT packet via the multistream encoder default
+	// build so Decode exercises the same hot path real callers hit.
+	enc, err := NewEncoderDefault(sampleRate, channels)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+	pcm := generateTestSignal(channels, frameSize, sampleRate, 997)
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+
+	// Prime both decoders so any one-shot allocations are paid before
+	// measurement.
+	if _, err := baseline.Decode(packet, frameSize); err != nil {
+		t.Fatalf("baseline Decode warmup error: %v", err)
+	}
+	if _, err := armed.Decode(packet, frameSize); err != nil {
+		t.Fatalf("armed Decode warmup error: %v", err)
+	}
+
+	baselineAllocs := testing.AllocsPerRun(50, func() {
+		if _, err := baseline.Decode(packet, frameSize); err != nil {
+			t.Fatalf("baseline Decode: %v", err)
+		}
+	})
+	armedAllocs := testing.AllocsPerRun(50, func() {
+		if _, err := armed.Decode(packet, frameSize); err != nil {
+			t.Fatalf("armed Decode: %v", err)
+		}
+	})
+	if armedAllocs > baselineAllocs {
+		t.Fatalf("default build Decode after SetDNNBlob allocs/op = %.2f, want at most baseline %.2f", armedAllocs, baselineAllocs)
+	}
+	if armed.dred != nil {
+		t.Fatalf("default build Decode alloc guard awakened multistream DRED sidecar: %+v", armed.dred)
+	}
+}
+
 // childDREDNil reports whether the unexported `dred` field of the given
 // *encoder.Encoder is nil. Reflection is required because `dred` is
 // unexported in the encoder package and lives outside the multistream
