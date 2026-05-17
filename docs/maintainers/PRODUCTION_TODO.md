@@ -1,6 +1,6 @@
 # Production TODO
 
-Last updated: 2026-05-05
+Last updated: 2026-05-17
 
 ## Recently completed
 
@@ -43,5 +43,5 @@ Last updated: 2026-05-05
 
 ## Optional stretch goals
 
-- [ ] Expand long-running safety soak beyond mono root paths into stereo, streaming, multistream, and container surfaces.
+- [x] Expand long-running safety soak beyond mono root paths into stereo, streaming, multistream, and container surfaces.
 - [ ] Add architecture-specific performance dashboards (arm64 vs amd64).
