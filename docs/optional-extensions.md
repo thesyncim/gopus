@@ -60,9 +60,9 @@ the standalone DRED wrapper, and the selected green parity seams.
 zero-allocation, libopus parse/decode/process metadata coverage, and real-packet
 standalone process state/feature parity, standalone recovery scheduling parity,
 and decoder cached recovery bookkeeping parity plus the supported-tag SILK
-wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload/primary-frame
-seams, the Hybrid fullband 20/40 ms mono and 20 ms stereo
-carried-payload/primary-frame seams, and the SILK 20 ms primary-budget seam.
+wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload seams, the
+Hybrid fullband 20/40 ms mono carried-payload/packet-envelope seams, and the
+Hybrid fullband 20/40 ms stereo carried-payload/primary-frame seams.
 `make test-unsupported-controls-tag` pins the quarantine
 API exposure, standalone/control smoke, cached DRED recovery bookkeeping, and
 dormant-runtime checks without changing support probes.
@@ -84,8 +84,10 @@ zero-allocation and leaves the encoder DRED runtime dormant while
 `Decoder` paths also keep DRED model-only control state from arming the encoder
 latent path, decoder payload scan, or decoder good-packet marker work. The
 current mono decoder explicit/live numerical matrix is parity-gated in
-quarantine, and Hybrid primary-frame byte exactness is covered for the current
-fullband 20 ms mono, 40 ms mono, and 20 ms stereo carried-packet seams.
+quarantine. Hybrid primary-frame byte exactness is covered for the current
+fullband 20/40 ms stereo carried-packet seams; Hybrid mono coverage remains
+carried-payload/packet-envelope exact, and SILK primary-frame exactness remains
+outside the supported gate.
 Broader stereo/multistream decoder coverage and broader decoder packet coverage
 remain seam-specific and unsupported unless covered by green libopus-backed
 parity tests.
