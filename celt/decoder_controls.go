@@ -20,10 +20,7 @@ func (d *Decoder) RangeDecoder() *rangecoding.Decoder {
 // This matches libopus OPUS_GET_FINAL_RANGE and is used for bitstream verification.
 // Must be called after decoding a frame to get a meaningful value.
 func (d *Decoder) FinalRange() uint32 {
-	if d.rangeDecoder != nil {
-		return d.rangeDecoder.Range()
-	}
-	return 0
+	return d.rng
 }
 
 func (d *Decoder) takeQEXTPayload() []byte {
