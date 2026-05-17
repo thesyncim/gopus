@@ -487,11 +487,22 @@ func (e *Encoder) Complexity() int {
 
 // FinalRange returns the final range coder state after encoding.
 func (e *Encoder) FinalRange() uint32 {
-	if e.celtEncoder != nil {
-		return e.celtEncoder.FinalRange()
-	}
-	if e.silkEncoder != nil {
-		return e.silkEncoder.FinalRange()
+	switch e.prevPacketMode {
+	case ModeSILK:
+		if e.silkEncoder != nil {
+			return e.silkEncoder.FinalRange()
+		}
+	case ModeHybrid, ModeCELT:
+		if e.celtEncoder != nil {
+			return e.celtEncoder.FinalRange()
+		}
+	default:
+		if e.celtEncoder != nil {
+			return e.celtEncoder.FinalRange()
+		}
+		if e.silkEncoder != nil {
+			return e.silkEncoder.FinalRange()
+		}
 	}
 	return 0
 }
