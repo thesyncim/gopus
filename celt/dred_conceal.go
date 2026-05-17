@@ -65,6 +65,166 @@ func (d *Decoder) ConcealDRED48kMonoToFloat32(
 	return d.concealNeural48kMono(out[:frameSize], frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, frameDRED)
 }
 
+// ConcealDRED48kToFloat32 mirrors ConcealDRED48kMonoToFloat32 for both mono
+// and stereo decoders. libopus implements DRED concealment as fundamentally
+// mono (a single LPCNetPLCState, see opus_decoder.c) and, for stereo output,
+// runs the mono pipeline against channel-0 CELT state then duplicates that
+// state to channel-1 (celt_decoder.c:1066-1067:
+// `if (C==2) OPUS_COPY(decode_mem[1], decode_mem[0], ...)`). This wrapper
+// follows the same shape: it runs concealNeural48kMono against channel-0
+// slices of the CELT state buffers, mirrors channel-0 to channel-1 after
+// the call, and writes mono PCM duplicated across both interleaved channels.
+func (d *Decoder) ConcealDRED48kToFloat32(
+	out []float32,
+	frameSize int,
+	lastNeural *bool,
+	plcPCM []float32,
+	plcFill *int,
+	plcPreemphMem *float32,
+	generate func([]float32) bool,
+) bool {
+	if d == nil || frameSize <= 0 {
+		return false
+	}
+	if d.channels == 1 {
+		return d.ConcealDRED48kMonoToFloat32(out, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate)
+	}
+	if d.channels != 2 {
+		return false
+	}
+	if len(out) < frameSize*d.channels {
+		return false
+	}
+	return d.runStereoDREDConceal(out, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, frameDRED)
+}
+
+// ConcealPLCNeural48kToFloat32 mirrors ConcealPLCNeural48kMonoToFloat32 for
+// both mono and stereo decoders. See ConcealDRED48kToFloat32 for the
+// mono-downmix-in / mono-duplicate-out stereo rationale.
+func (d *Decoder) ConcealPLCNeural48kToFloat32(
+	out []float32,
+	frameSize int,
+	lastNeural *bool,
+	plcPCM []float32,
+	plcFill *int,
+	plcPreemphMem *float32,
+	generate func([]float32) bool,
+) bool {
+	if d == nil || frameSize <= 0 {
+		return false
+	}
+	if d.channels == 1 {
+		return d.ConcealPLCNeural48kMonoToFloat32(out, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate)
+	}
+	if d.channels != 2 {
+		return false
+	}
+	if len(out) < frameSize*d.channels {
+		return false
+	}
+	return d.runStereoDREDConceal(out, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, framePLCNeural)
+}
+
+// runStereoDREDConceal mirrors the libopus stereo neural PLC path that
+// computes mono PCM and mono CELT state and then duplicates the channel-0
+// state and PCM to channel-1. The CELT mono helpers are exercised by
+// temporarily aliasing the channel-0 portion of each per-channel state
+// buffer to the decoder's mono slot.
+func (d *Decoder) runStereoDREDConceal(
+	out []float32,
+	frameSize int,
+	lastNeural *bool,
+	plcPCM []float32,
+	plcFill *int,
+	plcPreemphMem *float32,
+	generate func([]float32) bool,
+	recordLoss bool,
+	frameType int,
+) bool {
+	if d == nil || d.channels != 2 || frameSize <= 0 {
+		return false
+	}
+	if lastNeural == nil || plcFill == nil || plcPreemphMem == nil || generate == nil {
+		return false
+	}
+	// Either a real output buffer of size >= frameSize*2 or nil for state-only.
+	if out != nil && len(out) < frameSize*2 {
+		return false
+	}
+
+	// Materialize any ringed PLC decode history first so both channels are
+	// in contiguous libopus layout before we narrow our view to channel 0.
+	d.materializePLCDecodeHistory()
+	d.materializePostfilterHistoryFromPLC()
+
+	// Snapshot stereo buffers and replace them with channel-0 aliases so the
+	// mono helper sees a self-consistent mono CELT state without reallocating.
+	origPostfilterMem := d.postfilterMem
+	origPLCDecodeMem := d.plcDecodeMem
+	origOverlapBuffer := d.overlapBuffer
+	origPreemphState := d.preemphState
+	origChannels := d.channels
+
+	d.channels = 1
+	if len(origPostfilterMem) >= combFilterHistory*2 {
+		d.postfilterMem = origPostfilterMem[:combFilterHistory]
+	}
+	if len(origPLCDecodeMem) >= plcDecodeBufferSize*2 {
+		d.plcDecodeMem = origPLCDecodeMem[:plcDecodeBufferSize]
+	}
+	if len(origOverlapBuffer) >= Overlap*2 {
+		d.overlapBuffer = origOverlapBuffer[:Overlap]
+	}
+	if len(origPreemphState) >= 2 {
+		d.preemphState = origPreemphState[:1]
+	}
+
+	// Run the mono neural concealment pipeline against the channel-0 slices.
+	monoOut := out
+	if out != nil {
+		monoOut = out[:frameSize]
+	}
+	ok := d.concealNeural48kMono(monoOut, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, recordLoss, frameType)
+
+	// Restore stereo slice headers. concealNeural48kMono may have grown its
+	// channel-0 buffers in place when sizes already matched, so refresh the
+	// headers from the originals before mirroring to channel 1.
+	d.channels = origChannels
+	d.postfilterMem = origPostfilterMem
+	d.plcDecodeMem = origPLCDecodeMem
+	d.overlapBuffer = origOverlapBuffer
+	d.preemphState = origPreemphState
+
+	if !ok {
+		return false
+	}
+
+	// Mirror channel-0 CELT state to channel-1 (matches libopus C
+	// `OPUS_COPY(decode_mem[1], decode_mem[0], ...)`).
+	if len(d.postfilterMem) >= combFilterHistory*2 {
+		copy(d.postfilterMem[combFilterHistory:combFilterHistory*2], d.postfilterMem[:combFilterHistory])
+	}
+	if len(d.plcDecodeMem) >= plcDecodeBufferSize*2 {
+		copy(d.plcDecodeMem[plcDecodeBufferSize:plcDecodeBufferSize*2], d.plcDecodeMem[:plcDecodeBufferSize])
+	}
+	if len(d.overlapBuffer) >= Overlap*2 {
+		copy(d.overlapBuffer[Overlap:Overlap*2], d.overlapBuffer[:Overlap])
+	}
+	if len(d.preemphState) >= 2 {
+		d.preemphState[1] = d.preemphState[0]
+	}
+
+	// Duplicate mono PCM into interleaved stereo PCM for the caller.
+	if out != nil {
+		for i := frameSize - 1; i >= 0; i-- {
+			v := out[i]
+			out[2*i] = v
+			out[2*i+1] = v
+		}
+	}
+	return true
+}
+
 // ConcealPLCNeural48kMonoStateOnly updates retained CELT 48 kHz mono neural
 // PLC state without producing caller-visible PCM or recording another loss
 // event.

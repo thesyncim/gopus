@@ -257,7 +257,7 @@ func (d *Decoder) resetDREDRuntimeState() {
 }
 
 func (d *Decoder) dredNeuralConfigEligible() bool {
-	if d == nil || d.channels != 1 {
+	if d == nil || d.channels < 1 || d.channels > 2 {
 		return false
 	}
 	return d.sampleRate == 16000 || d.sampleRate == 48000
@@ -462,7 +462,7 @@ func (d *Decoder) dredGoodPacketMarkerActive() bool {
 }
 
 func (d *Decoder) dredNeedsCELTFloatPath() bool {
-	if d == nil || d.channels != 1 {
+	if d == nil || d.channels < 1 || d.channels > 2 {
 		return false
 	}
 	b := d.dred48kBridgeState()
