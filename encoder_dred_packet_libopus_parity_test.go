@@ -351,6 +351,35 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msPayloadOnly(t 
 	}
 }
 
+func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20ms(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+	})
+	if err != nil {
+		t.Skipf("libopus CELT DRED packet helper unavailable: %v", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus CELT packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset := encodeUntilDREDPacket(t, encpkg.ModeCELT, BandwidthFullband, 960, 1)
+	if ParseTOC(gotPacket[0]).Mode != ModeCELT {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeCELT)
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
+}
+
 func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,

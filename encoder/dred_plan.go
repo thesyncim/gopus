@@ -211,7 +211,7 @@ func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan d
 }
 
 func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode Mode, packetBW types.Bandwidth, frameSize int, stereo bool) ([]byte, bool, error) {
-	if !extsupport.DREDRuntime || actualMode == ModeCELT {
+	if !extsupport.DREDRuntime {
 		return nil, false, nil
 	}
 	plan, ok := e.computeDREDEmissionPlan(frameSize)
@@ -221,10 +221,14 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 
 	targetSize := targetBytesForBitrate(e.bitrate, frameSize)
 	baseLen := 1 + len(frameData)
-	if targetSize < baseLen+1 {
+	withPadding := e.bitrateMode == ModeCBR
+	// In CBR we must fit DRED within the bitrate-based target; in VBR/CVBR the
+	// primary CELT/Hybrid encoder may exceed that target and DRED still goes
+	// into the spare scratch buffer space, matching libopus opus_packet_pad_impl
+	// behavior against orig_max_data_bytes.
+	if withPadding && targetSize < baseLen+1 {
 		return nil, false, nil
 	}
-	withPadding := e.bitrateMode == ModeCBR
 
 	dredBytesLeft := targetSize - baseLen - 3
 	if !withPadding {
@@ -272,7 +276,7 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 }
 
 func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mode, packetBW types.Bandwidth, packetFrameSize, packetTOCFrameSize int, stereo bool, vbr bool) ([]byte, bool, error) {
-	if !extsupport.DREDRuntime || actualMode == ModeCELT {
+	if !extsupport.DREDRuntime {
 		return nil, false, nil
 	}
 	plan, ok := e.computeDREDEmissionPlan(packetFrameSize)
@@ -290,10 +294,13 @@ func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mod
 	for _, frame := range frames {
 		baseLen += len(frame)
 	}
-	if targetSize < baseLen+1 {
+	withPadding := e.bitrateMode == ModeCBR
+	// In CBR we must fit DRED within the bitrate-based target; in VBR/CVBR the
+	// primary encoder may exceed that target and DRED still goes into the spare
+	// scratch buffer space, matching libopus opus_packet_pad_impl behavior.
+	if withPadding && targetSize < baseLen+1 {
 		return nil, false, nil
 	}
-	withPadding := e.bitrateMode == ModeCBR
 
 	dredBytesLeft := targetSize - baseLen - 3
 	if !withPadding {

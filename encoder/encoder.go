@@ -740,14 +740,20 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	dredBitrate := 0
 	var dredPlan dredEmissionPlan
 	dredPlanOK := false
-	if e.dredEncodingActive() && actualMode != ModeCELT {
+	if e.dredEncodingActive() {
 		if plan, ok := e.computeDREDEmissionPlan(frameSize); ok {
 			dredPlan = plan
 			dredPlanOK = true
 			dredBitrate = dredPlan.bitrate
-			encodingBitrate -= dredPlan.bitrate
-			if encodingBitrate < 1 {
-				encodingBitrate = 1
+			if actualMode != ModeCELT {
+				// SILK/Hybrid primary encoders consume the full bitrate
+				// budget, so we explicitly reserve DRED bytes ahead of them.
+				// CELT keeps its full bitrate; libopus tucks DRED into
+				// remaining packet space via opus_packet_pad_impl().
+				encodingBitrate -= dredPlan.bitrate
+				if encodingBitrate < 1 {
+					encodingBitrate = 1
+				}
 			}
 		}
 	}
@@ -828,7 +834,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 			packetBW = types.BandwidthWideband
 		}
-		if e.dredEncodingActive() {
+		if e.dredEncodingActive() && len(qextPayload) == 0 {
 			if dredPacket, ok, dredErr := e.maybeBuildSingleFrameDREDPacket(frameData, actualMode, packetBW, frameSize, stereo); dredErr != nil {
 				return nil, dredErr
 			} else if ok {
