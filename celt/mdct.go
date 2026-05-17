@@ -62,7 +62,6 @@ var (
 	mdctTrig480F64Static  = buildMDCTTrig(480)
 	mdctTrig960F64Static  = buildMDCTTrig(960)
 	mdctTrig1920F64Static = buildMDCTTrig(1920)
-	mdctTrig1920F32Static = buildMDCTTrigF32(1920)
 )
 
 func buildMDCTTrig(n int) []float64 {
@@ -119,7 +118,7 @@ func getMDCTTrigF32(n int) []float32 {
 		// Use exact libopus twiddle segment for 48kHz 10ms long-block MDCT.
 		return mdctTrig960F32Static[:]
 	case 1920:
-		return mdctTrig1920F32Static
+		return mdctTrig1920F32Static[:]
 	default:
 		return buildMDCTTrigF32(n)
 	}
