@@ -5,6 +5,8 @@ import (
 	"math"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/extsupport"
 )
 
 func TestNewDecoder_ValidParams(t *testing.T) {
@@ -1266,8 +1268,14 @@ func TestDecoder_OptionalExtensionControls(t *testing.T) {
 	dec := newMonoTestDecoder(t)
 
 	assertOptionalDecoderControls(t, dec)
-	if _, ok := any(dec).(unsupportedOSCEBWEControl); ok {
-		t.Fatal("default build unexpectedly exposes OSCE BWE control")
+	if osce, ok := any(dec).(unsupportedOSCEBWEControl); ok {
+		if extsupport.OSCEBWERuntime {
+			assertWorkingOSCEBWEControl(t, osce)
+		} else {
+			t.Fatal("non-OSCE-runtime build unexpectedly exposes OSCE BWE control")
+		}
+	} else if extsupport.OSCEBWERuntime {
+		t.Fatal("OSCE runtime build does not expose OSCE BWE control")
 	}
 }
 
