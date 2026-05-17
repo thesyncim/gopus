@@ -92,7 +92,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"Hybrid fullband 20/40 ms mono carried-payload/packet-envelope seams",
 		"Hybrid fullband 20/40 ms stereo carried-payload/primary-frame seams",
 		"current mono decoder explicit/live numerical matrix",
-		"Hybrid primary-frame byte exactness is covered for the current stereo carried-packet seams",
+		"Hybrid primary-frame sizes are verified for the current stereo carried-packet seams",
 		"broader stereo/multistream decoder support remains unsupported/open",
 		"`make test-dred-tag`",
 		"pinned by `make test-unsupported-controls-tag`",
