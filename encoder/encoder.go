@@ -2391,9 +2391,9 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		dredSubframeBytes = (bitrateToBits(dredBitrate, 960) + 7) / 8
 		dredSubframeBytes += frameLengthBytes(dredSubframeBytes)
 		if e.channels > 1 {
-			// Libopus appends DRED before repacketizing long packets and reserves
-			// three structural bytes for code-3 framing, padding length, and the
-			// extension id when computing the DRED space left.
+			// The final packet extension cost includes three framing bytes for
+			// code-3 framing, padding length, and extension id. Those bytes belong
+			// to the packet builder rather than the first primary subframe budget.
 			dredSubframeBytes = e.previewDREDPacketExtensionPadding(frameSize)
 			if dredSubframeBytes > 2 {
 				dredSubframeBytes -= 3
