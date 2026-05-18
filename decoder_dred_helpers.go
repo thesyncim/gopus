@@ -798,6 +798,12 @@ func (d *Decoder) refreshDREDHistoryFromHybridDecoder(samplesPerChannel int) boo
 // output via silk.Decoder.LatestNativeMono() instead of the Hybrid lowband
 // snapshot. The DRED neural concealment runs at 16 kHz, so we require the
 // native rate to be 16 kHz (SILK WB).
+//
+// For stereo decoders, the LPCNet/FARGAN entry history remains mono (libopus
+// keeps a single lpcnet_state on the OpusDecoder regardless of channel count;
+// see opus_decoder.c). We pull both native channels via LatestNativeStereo
+// and average them into a mono downmix before seeding the entry history,
+// matching the libopus stereo SILK DRED mono-downmix-in invariant.
 func (d *Decoder) refreshDREDHistoryFromSILKDecoder() bool {
 	if !d.ensureDREDNeuralConcealmentRuntime() {
 		return false
@@ -809,25 +815,58 @@ func (d *Decoder) refreshDREDHistoryFromSILKDecoder() bool {
 	if n == nil {
 		return false
 	}
-	native, fsKHz := d.silkDecoder.LatestNativeMono()
-	if native == nil || fsKHz != 16 {
+	const scale = float32(1.0 / 32768.0)
+	var (
+		nativeLen int
+		fsKHz     int
+		readSrc   func(dst []float32, start, count int)
+	)
+	if d.channels == 2 {
+		left, right, samples, kHz, ok := d.silkDecoder.LatestNativeStereo()
+		if !ok || left == nil || right == nil || kHz != 16 || samples <= 0 {
+			return false
+		}
+		if samples > len(left) || samples > len(right) {
+			return false
+		}
+		nativeLen = samples
+		fsKHz = kHz
+		readSrc = func(dst []float32, start, count int) {
+			// Mono-downmix: average L+R before scaling. Clamp via int32 to
+			// avoid int16 overflow on the sum.
+			for i := 0; i < count; i++ {
+				sum := int32(left[start+i]) + int32(right[start+i])
+				dst[i] = float32(sum>>1) * scale
+			}
+		}
+	} else {
+		native, kHz := d.silkDecoder.LatestNativeMono()
+		if native == nil || kHz != 16 {
+			return false
+		}
+		nativeLen = len(native)
+		fsKHz = kHz
+		readSrc = func(dst []float32, start, count int) {
+			for i := 0; i < count; i++ {
+				dst[i] = float32(native[start+i]) * scale
+			}
+		}
+	}
+	if fsKHz != 16 || nativeLen <= 0 {
 		return false
 	}
 	// DRED runs at 16 kHz; clamp to whole lpcnetplc 10 ms frames and to the
 	// retained dredPLCUpdate scratch capacity.
-	usable := len(native) - (len(native) % lpcnetplc.FrameSize)
+	usable := nativeLen - (nativeLen % lpcnetplc.FrameSize)
 	if usable > len(n.dredPLCUpdate) {
 		usable = len(n.dredPLCUpdate) - (len(n.dredPLCUpdate) % lpcnetplc.FrameSize)
 	}
 	if usable < lpcnetplc.FrameSize {
 		return false
 	}
-	const scale = float32(1.0 / 32768.0)
-	start := len(native) - usable
+	start := nativeLen - usable
 	dst := n.dredPLCUpdate[:usable]
-	for i := 0; i < usable; i++ {
-		dst[i] = float32(native[start+i]) * scale
-	}
+	readSrc(dst, start, usable)
 	d.updateDREDPCMHistory(dst)
 	n.dredRawHistoryUpdated = true
 	return true

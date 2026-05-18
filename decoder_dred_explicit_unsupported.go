@@ -78,7 +78,14 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		// output rate. The neural runtime needs its 16 kHz PCM history
 		// primed from the prior SILK decode so FARGAN/LPCNet enter with the
 		// voiced trajectory rather than zeros.
-		if d.prevMode == ModeSILK && d.channels == 1 {
+		//
+		// Stereo SILK DRED follows the same mono-downmix-in / mono-duplicate-
+		// out shape as the CELT/Hybrid stereo DRED paths (commit 0ee30e59):
+		// the DRED lpcnet state is fundamentally mono on both sides (single
+		// LPCNetPLCState in opus_decoder.c), so we seed the entry history
+		// from a mono downmix of the prior stereo SILK native lowband and
+		// mirror the channel-0 concealment to channel-1 on output.
+		if d.prevMode == ModeSILK && (d.channels == 1 || d.channels == 2) {
 			return d.decodeExplicitSILKDREDFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
 		}
 	}
@@ -164,6 +171,18 @@ func (d *Decoder) primeExplicitHybridDREDEntryHistory(frameSizeSamples int) {
 // LPC concealment, then run standard SILK PLC via decodePLCChunksInto. SILK
 // upsamples the neural lowband to the API sample rate using its existing
 // resampler, matching libopus's `silk_Decode(lost_flag=1)` flow.
+//
+// Stereo SILK DRED follows the same mono-downmix-in / mono-duplicate-out
+// shape as the CELT/Hybrid stereo DRED runtime path (commit 0ee30e59). The
+// DRED lpcnet state is fundamentally mono on both sides (single
+// LPCNetPLCState in opus_decoder.c). For stereo decoders we run the standard
+// SILK PLC chunked decode (which handles stereo mid/side concealment +
+// MS->LR internally) but seed the lpcnet entry history from a mono downmix
+// of the prior stereo SILK native lowband, advance the mono lpcnet/FARGAN
+// state by generating one packet-worth of 16 kHz neural concealment frames
+// to mirror what the libopus mono DeepPLC hook consumes, and mirror the
+// channel-0 result to channel-1 on output to satisfy the L=R duplicated
+// invariant libopus produces for stereo neural concealment.
 func (d *Decoder) decodeExplicitSILKDREDFloat(dred *DRED, dredOffsetSamples int, pcm []float32, frameSizeSamples int) (int, error) {
 	if d == nil {
 		return 0, ErrInvalidArgument
@@ -184,6 +203,36 @@ func (d *Decoder) decodeExplicitSILKDREDFloat(dred *DRED, dredOffsetSamples int,
 	})
 	if err != nil {
 		return 0, err
+	}
+	// Stereo decoders skip the SILK DeepPLC mono hook entirely (it only
+	// fires on the mid channel mono PLC path, and `decodePLCStereo` does
+	// not invoke it). Explicitly advance the mono lpcnet/FARGAN state by
+	// generating the per-packet 16 kHz neural concealment frames so the
+	// retained PLC continuity buffers match what libopus's single
+	// LPCNetPLCState would have produced after consuming the same number
+	// of FEC features. Without this step the lpcnet header fields (blend,
+	// FECReadPos, etc.) remain pinned at their pre-call values and stereo
+	// SILK DRED parity diverges immediately on the first PLC frame.
+	if d.channels == 2 && n > 0 && d.sampleRate > 0 {
+		// DRED neural concealment runs at 16 kHz; convert decoder-rate
+		// samples to lpcnet 16 kHz sample count. Skip if the conversion
+		// is non-integral or yields a non-FrameSize multiple.
+		nativeSamples := n * 16000 / d.sampleRate
+		if nativeSamples > 0 && n*16000%d.sampleRate == 0 {
+			_ = d.generateDREDNeuralFrames16k(nil, nativeSamples)
+		}
+	}
+	// Mono-duplicate the stereo output (libopus stereo neural concealment
+	// is fundamentally mono; see opus_decoder.c lpcnet_state). Average L+R
+	// to recover the mid channel, then duplicate to both channels so the
+	// caller observes L=R interleaved PCM, matching the CELT/Hybrid stereo
+	// DRED runtime invariant from 0ee30e59.
+	if d.channels == 2 && n > 0 && len(pcm) >= 2*n {
+		for i := 0; i < n; i++ {
+			mid := 0.5 * (pcm[2*i] + pcm[2*i+1])
+			pcm[2*i] = mid
+			pcm[2*i+1] = mid
+		}
 	}
 	d.applyOutputGain(pcm[:n*d.channels])
 	d.lastFrameSize = n
