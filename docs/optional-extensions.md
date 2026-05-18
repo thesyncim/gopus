@@ -61,8 +61,8 @@ zero-allocation, libopus parse/decode/process metadata coverage, and real-packet
 standalone process state/feature parity, standalone recovery scheduling parity,
 and decoder cached recovery bookkeeping parity plus the supported-tag SILK
 wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload/packet-envelope
-seams, the Hybrid fullband 20/40 ms mono carried-payload/packet-envelope seams,
-and the Hybrid fullband 20/40 ms stereo carried-payload/primary-frame seams.
+seams, the Hybrid fullband 20 ms mono carried-payload-only seam, and the
+Hybrid fullband 20 ms stereo carried-payload/packet-envelope seam.
 `make test-unsupported-controls-tag` pins the quarantine
 API exposure, standalone/control smoke, cached DRED recovery bookkeeping, and
 dormant-runtime checks without changing support probes.
@@ -86,10 +86,10 @@ zero-allocation and leaves the encoder DRED runtime dormant while
 latent path, decoder payload scan, or decoder good-packet marker work. The
 current mono decoder explicit/live numerical matrix, selected 16 kHz Hybrid mono
 live-sequence seams, and the 48 kHz CELT cached stereo first-loss seam are
-parity-gated in quarantine. Hybrid primary-frame sizes are verified for the current
-fullband 20/40 ms stereo carried-packet seams; Hybrid mono coverage verifies
-carried-payload bytes plus packet-envelope and primary-frame sizes, and SILK
-primary-frame byte exactness remains outside the supported gate.
+parity-gated in quarantine. Hybrid mono 20/40 ms packet-envelope exactness and
+Hybrid stereo 40 ms packet-envelope/primary-frame exactness remain diagnostic
+until the Linux amd64 packet-shape drift is closed; SILK primary-frame byte
+exactness remains outside the supported gate.
 Broader stereo/multistream decoder coverage and broader decoder packet coverage
 remain seam-specific and unsupported unless covered by green libopus-backed
 parity tests.

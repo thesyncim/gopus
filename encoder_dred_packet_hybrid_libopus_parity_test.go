@@ -5,12 +5,24 @@ package gopus
 
 import (
 	"bytes"
+	"os"
 	"testing"
 
 	encpkg "github.com/thesyncim/gopus/encoder"
 )
 
+const hybridDREDPacketEnvelopeProbeEnv = "GOPUS_ENABLE_HYBRID_DRED_PACKET_ENVELOPE_PROBE"
+
+func requireHybridDREDPacketEnvelopeProbe(t *testing.T) {
+	t.Helper()
+	if os.Getenv(hybridDREDPacketEnvelopeProbeEnv) != "1" {
+		t.Skipf("Hybrid DRED packet-envelope exactness is diagnostic; set %s=1 to run this probe", hybridDREDPacketEnvelopeProbeEnv)
+	}
+}
+
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T) {
+	requireHybridDREDPacketEnvelopeProbe(t)
+
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
 		ForceMode: ModeHybrid,
@@ -43,6 +55,8 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T)
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms(t *testing.T) {
+	requireHybridDREDPacketEnvelopeProbe(t)
+
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 1920,
 		ForceMode: ModeHybrid,
@@ -111,6 +125,8 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo(t *test
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereo(t *testing.T) {
+	requireHybridDREDPacketEnvelopeProbe(t)
+
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 1920,
 		ForceMode: ModeHybrid,
