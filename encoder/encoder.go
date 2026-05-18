@@ -745,15 +745,14 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			dredPlan = plan
 			dredPlanOK = true
 			dredBitrate = dredPlan.bitrate
-			if actualMode != ModeCELT {
-				// SILK/Hybrid primary encoders consume the full bitrate
-				// budget, so we explicitly reserve DRED bytes ahead of them.
-				// CELT keeps its full bitrate; libopus tucks DRED into
-				// remaining packet space via opus_packet_pad_impl().
-				encodingBitrate -= dredPlan.bitrate
-				if encodingBitrate < 1 {
-					encodingBitrate = 1
-				}
+			// Reserve DRED bytes from the primary encoder's bitrate budget.
+			// libopus opus_encoder.c (line 1338) reduces st->bitrate_bps by
+			// dred_bitrate_bps before passing it to all three primary modes
+			// (SILK/Hybrid/CELT). The reduced bitrate then flows into each
+			// mode's compute_vbr step, shrinking the primary-frame target.
+			encodingBitrate -= dredPlan.bitrate
+			if encodingBitrate < 1 {
+				encodingBitrate = 1
 			}
 		}
 	}
@@ -811,7 +810,14 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			// Long CELT packets are encoded as multi-frame packets.
 			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
 		} else {
+			originalBitrate := e.bitrate
+			if encodingBitrate != originalBitrate {
+				e.bitrate = encodingBitrate
+			}
 			frameData, err = e.encodeCELTFrame(celtPCM, frameSize)
+			if encodingBitrate != originalBitrate {
+				e.bitrate = originalBitrate
+			}
 		}
 	default:
 		return nil, ErrEncodingFailed
