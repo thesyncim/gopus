@@ -146,6 +146,18 @@ type Decoder struct {
 	// Native SILK sample rate in kHz used to produce lastNativeStereoLen
 	// samples (e.g. 16 for WB). Zero until a stereo decode has run.
 	lastNativeStereoFsKHz int
+
+	// lastFrameCtrl caches the most recent silk_decoder_control produced by
+	// `decodeFrameCoreInto` for each channel. The OSCE LACE / NoLACE
+	// postfilter feature extractor reads PredCoef_Q12, LTPCoef_Q14,
+	// Gains_Q16 and pitchL out of this cache after SILK decode completes
+	// (libopus does the equivalent by reading the live psDecCtrl from the
+	// stack frame). Both fields are only valid for the channel/decoded
+	// frames; multi-frame packets retain only the last 20 ms frame's ctrl
+	// (matching the LACE/NoLACE per-frame cadence which only runs at fs=16).
+	lastFrameCtrl       [2]decoderControl
+	lastFrameCtrlSignal [2]int // signalType from st.indices for the corresponding ctrl.
+	lastFrameCtrlValid  [2]bool
 }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
@@ -319,6 +331,11 @@ func (d *Decoder) Reset() {
 	d.lastNativeMonoFsKHz = 0
 	d.lastNativeStereoLen = 0
 	d.lastNativeStereoFsKHz = 0
+	for c := range d.lastFrameCtrl {
+		d.lastFrameCtrl[c] = decoderControl{}
+		d.lastFrameCtrlSignal[c] = 0
+		d.lastFrameCtrlValid[c] = false
+	}
 	for i := range d.scratchPulses {
 		d.scratchPulses[i] = 0
 	}
@@ -648,6 +665,57 @@ func (d *Decoder) LatestNativeStereo() (left, right []int16, samplesPerChannel, 
 		return nil, nil, 0, 0, false
 	}
 	return d.stereoLeftNative[:n], d.stereoRightNative[:n], n, d.lastNativeStereoFsKHz, true
+}
+
+// LatestDecoderControl is the public view of the most recent
+// `silk_decoder_control` decoded for a channel. It mirrors the libopus
+// `silk_decoder_control` fields the OSCE LACE / NoLACE feature extractor
+// reads (`osce_features.c::osce_calculate_features`): per-subframe LPC
+// prediction coefficients (Q12), LTP filter coefficients (Q14),
+// subframe gains (Q16), pitch lags, and the SILK signal type for the
+// frame. Field names mirror the libopus C struct so future cross-
+// referencing stays mechanical.
+type LatestDecoderControl struct {
+	PredCoefQ12 [2][maxLPCOrder]int16
+	LTPCoefQ14  [ltpOrder * maxNbSubfr]int16
+	GainsQ16    [maxNbSubfr]int32
+	PitchL      [maxNbSubfr]int
+	LPCOrder    int
+	NbSubfr     int
+	SignalType  int
+	FsKHz       int
+}
+
+// LatestDecoderControl returns the per-frame SILK decoder control state for
+// the most recent good-frame decode on `channel` (0 = mono / mid / left,
+// 1 = side / right). Returns (zero, false) when no decoded ctrl has been
+// cached (e.g. before the first decode, after a Reset, or for PLC frames
+// which bypass `finalizeDecodedChannelFrame`).
+//
+// The accessor exists so optional decoder-side post-processing -- in
+// particular the OSCE LACE / NoLACE postfilter feature extractor -- can
+// read libopus' per-frame `silk_decoder_control` fields without performing
+// a second decode pass.
+func (d *Decoder) LatestDecoderControl(channel int) (LatestDecoderControl, bool) {
+	if d == nil || channel < 0 || channel >= len(d.lastFrameCtrl) {
+		return LatestDecoderControl{}, false
+	}
+	if !d.lastFrameCtrlValid[channel] {
+		return LatestDecoderControl{}, false
+	}
+	st := &d.state[channel]
+	src := d.lastFrameCtrl[channel]
+	out := LatestDecoderControl{
+		PredCoefQ12: src.PredCoefQ12,
+		LTPCoefQ14:  src.LTPCoefQ14,
+		GainsQ16:    src.GainsQ16,
+		PitchL:      src.pitchL,
+		SignalType:  d.lastFrameCtrlSignal[channel],
+		LPCOrder:    st.lpcOrder,
+		NbSubfr:     st.nbSubfr,
+		FsKHz:       st.fsKHz,
+	}
+	return out, true
 }
 
 // RawMonoFrameHook fires on raw mono/mid 10 ms chunks before CNG/glue mutates

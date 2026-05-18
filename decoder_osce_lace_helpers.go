@@ -77,6 +77,11 @@ func (d *Decoder) bindOSCELACEModel(blob *dnnblob.Blob, supported bool) error {
 			return err
 		}
 	}
+	// Feature extractor state is independent of the model weights but its
+	// signal-history / numbits-smooth / pitch-hangover buffers must start
+	// from zero on (re)bind to match `osce_init` in libopus.
+	d.osceLACE.osceLACEFeatures[0].Reset()
+	d.osceLACE.osceLACEFeatures[1].Reset()
 	return nil
 }
 

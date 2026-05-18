@@ -57,6 +57,14 @@ type decoderOSCELACEState struct {
 	osceLACERuntime   [2]osceLACE.LACEState
 	osceNoLACERuntime [2]osceLACE.NoLACEState
 
+	// Per-channel OSCE feature extractor state mirroring libopus
+	// `silk_channel_state.osce.features` (the `OSCEFeatureState` struct):
+	// the rolling 350-sample signal history, smoothed bit count and
+	// pitch-hangover bookkeeping. Both LACE and NoLACE share one feature
+	// extractor per channel because libopus emits a single 4 * 93 feature
+	// vector per 20 ms frame independent of the postfilter method.
+	osceLACEFeatures [2]osceLACE.FeatureState
+
 	// Pre-allocated working buffers for the post-SILK LACE/NoLACE forward
 	// pass so the decoder hot path does not allocate per-frame. The buffers
 	// are sized for one channel; stereo runs the forward pass sequentially

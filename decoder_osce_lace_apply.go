@@ -4,6 +4,7 @@
 package gopus
 
 import (
+	osceLACE "github.com/thesyncim/gopus/internal/osce/lace"
 	"github.com/thesyncim/gopus/silk"
 )
 
@@ -191,10 +192,19 @@ func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, tr
 		state.applyIn16[i] = native[i]
 		state.applyInFloat[i] = float32(native[i]) * (1.0 / 32768.0)
 	}
-	// Zero features/numbits (osce_features.c port not yet wired for LACE);
-	// periods default to OSCE_NO_PITCH_VALUE=7 so AdaComb history-reads
-	// don't over-read at pitch_lag=0. libopus pitch_postprocessing
-	// substitutes the same OSCE_NO_PITCH_VALUE for unvoiced frames.
+	// Populate features via the libopus-parity OSCE feature extractor.
+	// libopus calls `osce_calculate_features(psDec, psDecCtrl, features,
+	// numbits, periods, xq, num_bits)` at the top of `osce_enhance_frame`;
+	// we mirror that by reading the cached `silk_decoder_control` for the
+	// channel (decoded in the latest finalizeDecodedChannelFrame call) and
+	// running the gopus port of the feature extractor on the int16 lowband
+	// captured in `applyIn16`.
+	//
+	// When no decoder control has been cached yet (e.g. the latest decode
+	// was a PLC frame which bypasses `finalizeDecodedChannelFrame`), we
+	// fall back to zero features + OSCE_NO_PITCH_VALUE periods so the
+	// forward pass still runs but the AdaComb stages degenerate to a no-op
+	// pitch lag instead of over-reading their history buffers.
 	for i := range state.applyFeatures {
 		state.applyFeatures[i] = 0
 	}
@@ -203,6 +213,30 @@ func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, tr
 	}
 	for i := range state.applyPeriods {
 		state.applyPeriods[i] = 7
+	}
+	if ctrl, ok := d.silkDecoder.LatestDecoderControl(channelIdx); ok && ctrl.FsKHz == 16 && ctrl.NbSubfr == osceLACESubframesPerFrame {
+		var fc osceLACE.FeatureControl
+		fc.LPCOrder = ctrl.LPCOrder
+		fc.PredCoefQ12[0] = ctrl.PredCoefQ12[0]
+		fc.PredCoefQ12[1] = ctrl.PredCoefQ12[1]
+		fc.LTPCoefQ14 = ctrl.LTPCoefQ14
+		for sf := 0; sf < osceLACESubframesPerFrame; sf++ {
+			fc.GainsQ16[sf] = ctrl.GainsQ16[sf]
+			fc.PitchL[sf] = ctrl.PitchL[sf]
+		}
+		fc.SignalType = ctrl.SignalType
+		// num_bits is not currently plumbed through the SILK decoder, so we
+		// pass 0 for the raw payload bit count. The smoothed slot
+		// `numbits[1]` therefore decays towards 0 over many frames; this is
+		// the same value the libopus OSCE LACE parity test feeds the helper.
+		state.osceLACEFeatures[channelIdx].CalculateFeatures(
+			state.applyFeatures[:],
+			state.applyNumBits[:],
+			state.applyPeriods[:],
+			state.applyIn16[:osceLACEFrameSamples],
+			&fc,
+			0, // num_bits (not plumbed through yet; matches parity-test input).
+		)
 	}
 	switch mode {
 	case osceLACEModeNoLACE:

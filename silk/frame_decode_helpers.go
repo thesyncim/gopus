@@ -181,6 +181,18 @@ func (d *Decoder) finalizeDecodedChannelFrame(channel int, st *decoderState, ctr
 	if st.nbSubfr > 0 {
 		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
 	}
+	// Cache the decoder control + signal type so optional decoder-side
+	// post-processing (OSCE LACE / NoLACE) can read libopus' per-frame
+	// PredCoef_Q12 / LTPCoef_Q14 / Gains_Q16 / pitchL out of the SILK
+	// decoder after the frame finishes. Multi-frame packets retain only
+	// the last 20 ms frame's ctrl, which matches the LACE/NoLACE per-frame
+	// invocation cadence (libopus runs osce_enhance_frame at the bottom of
+	// each silk_decode_frame call).
+	if channel >= 0 && channel < len(d.lastFrameCtrl) {
+		d.lastFrameCtrl[channel] = *ctrl
+		d.lastFrameCtrlSignal[channel] = int(st.indices.signalType)
+		d.lastFrameCtrlValid[channel] = true
+	}
 	st.nFramesDecoded++
 }
 
