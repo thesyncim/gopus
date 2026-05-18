@@ -199,7 +199,13 @@ func (e *Encoder) convertDREDFrameTo16k(runtime *dredEncoderRuntime, framePCM []
 			return 0
 		}
 		out += n
-		input = input[processSamples:]
+		// Match libopus dred_compute_latents() pcm advancement: it does
+		// `pcm += process_size` regardless of channel count, which under-advances
+		// the interleaved-stereo pointer by a factor of `channels` per iteration.
+		// Faithfully replicate that here so the DRED encoder sees the same input
+		// window libopus does on stereo 40 ms / 60 ms multi-iter Process16k calls.
+		// See tmp_check/opus-1.6.1/dnn/dred_encoder.c:240.
+		input = input[processSize:]
 		remaining16k -= processSize16k
 	}
 	return out
