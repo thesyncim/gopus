@@ -306,9 +306,10 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 			midVAD[i] = 1
 		}
 
-		// For long packets (40/60ms), always code the side channel to keep
-		// side-frame conditional coding aligned across 20ms subframes.
-		forceSideCoding := nFrames > 1
+		// Match libopus: side channel is coded only when stereo_LR_to_MS
+		// reports mid_only_flag == 0 (sideRate > 0). The earlier
+		// forceSideCoding override on 40/60ms packets bloated the stereo
+		// SILK packet versus libopus.
 		sideFrameVAD := midFrameVAD && !midOnly
 		var sideState VADFrameState
 		if !midOnly && sideAnalyzer != nil {
@@ -320,16 +321,6 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 			}
 			if i < len(sideVADStates) && sideVADStates[i].Valid {
 				sideState = sideVADStates[i]
-			}
-		}
-		if forceSideCoding {
-			midOnly = false
-			if sideAnalyzer != nil {
-				sideFrameVAD = true
-			} else if len(sideVADFlags) == 0 {
-				sideFrameVAD = midFrameVAD
-			} else {
-				sideFrameVAD = stereoVADFlagAt(sideVADFlags, i)
 			}
 		}
 		if sideFrameVAD {
