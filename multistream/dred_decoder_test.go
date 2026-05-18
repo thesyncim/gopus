@@ -876,6 +876,15 @@ func TestDecoderDecodeNilConsumesMultistreamDREDNeuralHybridStereoStream(t *test
 	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "hybrid stereo", packet, channels, targetStream)
 }
 
+func TestDecoderDecodeNilConsumesMultistreamDREDNeuralHybridSecondCoupledStream(t *testing.T) {
+	const channels = 5
+	const targetStream = 1
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeModeMultistreamPacketWithDREDForTest(t, channels, targetStream, internalenc.ModeHybrid, types.BandwidthFullband, 128000, body)
+
+	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "hybrid second coupled", packet, channels, targetStream)
+}
+
 func TestDecoderDecodeNilConsumesMultistreamDREDNeuralSILKStereoStream(t *testing.T) {
 	const channels = 3
 	const targetStream = 0
