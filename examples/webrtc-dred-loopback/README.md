@@ -33,7 +33,9 @@ go run -tags gopus_dred . -export-dnn
 This writes `dnn/encoder-dred.blob` and `dnn/decoder-dred.blob`.
 
 For a terminal smoke test that exercises the WebRTC/RTP/loss/decode loop and
-prints JSON stats:
+prints JSON stats. Headless runs use a deterministic speech-like source by
+default; pass `-source tone` for the older tonal probe or `-source mic` for live
+capture.
 
 ```bash
 go run -tags gopus_dred . \
@@ -104,7 +106,7 @@ The Gio stats panel and `-headless` JSON report include:
 - DRED recovery attempts, DRED output frames, DRED fallbacks, and DRED payload
   coverage so packet carriage and audible recovery are visible separately
 - received and concealed audio duration, latest decoded RMS/peak, and headless
-  tone-reference SNR/correlation metrics for total and lost samples
+  source-reference SNR/correlation metrics for total and lost samples
 - `ReferenceIntelligibility` and `LossIntelligibility`, a pure Go STOI-style
   third-octave envelope correlation score for total and lost samples
 - `ResilienceScore` and `RecoverySummary`, a compact recovery-health summary

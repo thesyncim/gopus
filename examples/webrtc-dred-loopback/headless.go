@@ -8,44 +8,67 @@ import (
 	"time"
 )
 
-type toneAudio struct {
+type syntheticAudio struct {
 	sample int
 	trace  bool
+	kind   string
 	pcm    []float32
 }
 
-func newToneAudio(trace bool) *toneAudio {
-	return &toneAudio{trace: trace}
+func newSyntheticAudio(kind string, trace bool) *syntheticAudio {
+	if kind == "" {
+		kind = "speech"
+	}
+	return &syntheticAudio{kind: kind, trace: trace}
 }
 
-func (t *toneAudio) readCaptureFrame(dst []float32) int {
+func (a *syntheticAudio) readCaptureFrame(dst []float32) int {
 	for i := 0; i < len(dst); i++ {
-		n := t.sample + i
+		n := a.sample + i
 		sec := float64(n) / audioSampleRate
-		env := 0.65 + 0.25*math.Sin(2*math.Pi*2.1*sec)
-		v := 0.32*math.Sin(2*math.Pi*180*sec) +
-			0.18*math.Sin(2*math.Pi*360*sec+0.2) +
-			0.08*math.Sin(2*math.Pi*720*sec+0.4)
-		dst[i] = float32(env * v)
+		if a.kind == "tone" {
+			env := 0.65 + 0.25*math.Sin(2*math.Pi*2.1*sec)
+			v := 0.32*math.Sin(2*math.Pi*180*sec) +
+				0.18*math.Sin(2*math.Pi*360*sec+0.2) +
+				0.08*math.Sin(2*math.Pi*720*sec+0.4)
+			dst[i] = float32(env * v)
+			continue
+		}
+		phase := 2 * math.Pi * (150.0*sec -
+			28.0*math.Cos(2*math.Pi*0.61*sec)/(2*math.Pi*0.61) -
+			9.0*math.Cos(2*math.Pi*2.3*sec+0.4)/(2*math.Pi*2.3))
+		voiced := 0.0
+		for h := 1; h <= 6; h++ {
+			amp := math.Exp(-0.34 * float64(h-1))
+			voiced += amp * math.Sin(float64(h)*phase+0.17*float64(h*h))
+		}
+		formants := 0.16*math.Sin(2*math.Pi*(620.0+90.0*math.Sin(2*math.Pi*0.41*sec))*sec+0.4) +
+			0.10*math.Sin(2*math.Pi*(1320.0+180.0*math.Sin(2*math.Pi*0.27*sec))*sec+0.9)
+		syllable := 0.55 + 0.45*math.Pow(0.5+0.5*math.Sin(2*math.Pi*2.7*sec+0.2), 2)
+		onset := 1.0
+		if n < audioSampleRate/5 {
+			onset = float64(n) / float64(audioSampleRate/5)
+		}
+		dst[i] = float32(0.20 * onset * syllable * (0.68*voiced + formants))
 	}
-	t.sample += len(dst)
-	if t.trace {
-		t.pcm = append(t.pcm, dst...)
+	a.sample += len(dst)
+	if a.trace {
+		a.pcm = append(a.pcm, dst...)
 	}
 	return len(dst)
 }
 
-func (t *toneAudio) queuePlayback(_ []float32) {}
+func (a *syntheticAudio) queuePlayback(_ []float32) {}
 
-func (t *toneAudio) setLivePlayback(_ bool) {}
+func (a *syntheticAudio) setLivePlayback(_ bool) {}
 
-func (t *toneAudio) close() {}
+func (a *syntheticAudio) close() {}
 
-func (t *toneAudio) samplesCopy() []float32 {
-	if t == nil {
+func (a *syntheticAudio) samplesCopy() []float32 {
+	if a == nil {
 		return nil
 	}
-	return append([]float32(nil), t.pcm...)
+	return append([]float32(nil), a.pcm...)
 }
 
 func runHeadless(cfg engineConfig, source string, duration time.Duration) (engineStats, error) {
@@ -54,19 +77,19 @@ func runHeadless(cfg engineConfig, source string, duration time.Duration) (engin
 	}
 	cfg.LivePlayback = false
 	cfg.RecordWAV = true
-	cfg.TraceQuality = source == "tone" || source == ""
+	cfg.TraceQuality = source == "speech" || source == "tone" || source == ""
 
 	var (
-		e    *engine
-		tone *toneAudio
-		err  error
+		e         *engine
+		synthetic *syntheticAudio
+		err       error
 	)
 	switch source {
 	case "mic":
 		e, err = startEngine(cfg)
-	case "tone", "":
-		tone = newToneAudio(cfg.TraceQuality)
-		e, err = startEngineWithAudio(cfg, tone)
+	case "speech", "tone", "":
+		synthetic = newSyntheticAudio(source, cfg.TraceQuality)
+		e, err = startEngineWithAudio(cfg, synthetic)
 	default:
 		return engineStats{}, fmt.Errorf("unknown headless source %q", source)
 	}
@@ -76,9 +99,9 @@ func runHeadless(cfg engineConfig, source string, duration time.Duration) (engin
 	time.Sleep(duration)
 	e.close()
 	stats := e.Stats()
-	if tone != nil {
+	if synthetic != nil {
 		decoded, loss := e.decodedTraceCopy()
-		applyReferenceMetrics(&stats, tone.samplesCopy(), decoded, loss, audioSampleRate)
+		applyReferenceMetrics(&stats, synthetic.samplesCopy(), decoded, loss, audioSampleRate)
 	}
 	return stats, nil
 }
@@ -141,7 +164,7 @@ func applyReferenceMetrics(stats *engineStats, reference, decoded []float32, los
 	if stats == nil || len(reference) == 0 || len(decoded) == 0 {
 		return
 	}
-	maxLag := sampleRate / 5
+	maxLag := 2 * frameSamples
 	if maxLag > len(reference)-1 {
 		maxLag = len(reference) - 1
 	}

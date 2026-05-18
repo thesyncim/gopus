@@ -1102,6 +1102,7 @@ func TestDecoderDecodePLCAppliesNeuralConcealmentWhenReady(t *testing.T) {
 			t.Fatalf("good decode eagerly allocated neural runtime state: %+v", state.decoderDREDNeuralState)
 		}
 	}
+	setValidDREDDecoderBlobForTest(t, dec)
 
 	n, err = dec.Decode(nil, pcm)
 	if err != nil {
@@ -1122,7 +1123,7 @@ func TestDecoderDecodePLCAppliesNeuralConcealmentWhenReady(t *testing.T) {
 func TestDecoderCachesDREDSampleTimingForLaterFrame(t *testing.T) {
 	requireDREDRuntimeForTest(t)
 
-	base := makeValidCELTPacketForDREDTest(t)
+	base := testStereoCELTPacket()
 	if len(base) < 2 {
 		t.Fatal("base packet too short")
 	}

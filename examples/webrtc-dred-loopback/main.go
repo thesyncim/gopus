@@ -53,7 +53,7 @@ func main() {
 		dnnDir      = flag.String("dnn-dir", "dnn", "directory for -export-dnn output")
 		recordDir   = flag.String("record-dir", "recordings", "directory for captured WAV files")
 		headless    = flag.Bool("headless", false, "run a terminal loopback test instead of opening the Gio UI")
-		source      = flag.String("source", "tone", "headless source: tone or mic")
+		source      = flag.String("source", "speech", "headless source: speech, tone, or mic")
 		duration    = flag.Duration("duration", 5*time.Second, "headless run duration")
 		loss        = flag.Int("loss", 15, "headless RTP loss percentage")
 		lossSeed    = flag.Uint64("loss-seed", 1, "headless deterministic RTP loss seed")
