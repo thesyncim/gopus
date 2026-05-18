@@ -160,3 +160,105 @@ func TestDecoderQEXTIgnoreExtensionsToggleMatchesExplicitStreamPayloads(t *testi
 		}
 	}
 }
+
+func TestDecoderQEXTTwoStreamPacketMatchesExplicitStreamPayloads(t *testing.T) {
+	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	if err != nil {
+		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+	}
+
+	parseQEXTFrame := func(label string, packet []byte) (rawFrame []byte, payload []byte, toc streamTOC) {
+		parsed, err := parseOpusPacket(packet, false)
+		if err != nil {
+			t.Fatalf("parseOpusPacket(%s): %v", label, err)
+		}
+		if len(parsed.frames) != 1 {
+			t.Fatalf("%s frame count=%d want 1", label, len(parsed.frames))
+		}
+		extensions, err := parsePacketExtensionList(parsed.padding, parsed.paddingFrameCount)
+		if err != nil {
+			t.Fatalf("parsePacketExtensionList(%s): %v", label, err)
+		}
+		for _, ext := range extensions {
+			if ext.ID == qextPacketExtensionID && ext.Frame == 0 {
+				payload = ext.Data
+				break
+			}
+		}
+		if len(payload) == 0 {
+			t.Fatalf("%s missing QEXT payload", label)
+		}
+		return parsed.frames[0], payload, parseStreamTOC(packet[0])
+	}
+
+	stereoPCM := make([]float32, 960*2)
+	monoPCM := make([]float32, 960)
+	for i := 0; i < 960; i++ {
+		tm := float64(i) / 48000.0
+		stereoPCM[2*i] = float32(0.45 * math.Sin(2*math.Pi*440*tm))
+		stereoPCM[2*i+1] = float32(0.35 * math.Sin(2*math.Pi*660*tm+0.37))
+		monoPCM[i] = float32(0.40 * math.Sin(2*math.Pi*550*tm+0.19))
+	}
+
+	coupledPacket := encodeLibopusQEXTPacketForMultistreamTest(t, opusDemo, 2, stereoPCM)
+	monoPacket := encodeLibopusQEXTPacketForMultistreamTest(t, opusDemo, 1, monoPCM)
+	coupledFrame, coupledPayload, coupledTOC := parseQEXTFrame("coupled", coupledPacket)
+	monoFrame, monoPayload, monoTOC := parseQEXTFrame("mono", monoPacket)
+
+	selfDelimitedCoupled, err := makeSelfDelimitedPacket(coupledPacket)
+	if err != nil {
+		t.Fatalf("makeSelfDelimitedPacket: %v", err)
+	}
+	packet := make([]byte, 0, len(selfDelimitedCoupled)+len(monoPacket))
+	packet = append(packet, selfDelimitedCoupled...)
+	packet = append(packet, monoPacket...)
+
+	for _, ignore := range []bool{false, true} {
+		coupledWant := newStreamDecoder(48000, 2)
+		coupledPayloadForDecode := coupledPayload
+		if ignore {
+			coupledPayloadForDecode = nil
+		}
+		coupledWant.recordDecodeCall(960, len(coupledPacket))
+		coupledOut, err := coupledWant.finishDecode(coupledWant.decodeFramePayload(coupledFrame, 960, coupledTOC, coupledPayloadForDecode))
+		if err != nil {
+			t.Fatalf("decode coupled ignore=%v: %v", ignore, err)
+		}
+
+		monoWant := newStreamDecoder(48000, 1)
+		monoPayloadForDecode := monoPayload
+		if ignore {
+			monoPayloadForDecode = nil
+		}
+		monoWant.recordDecodeCall(960, len(monoPacket))
+		monoOut, err := monoWant.finishDecode(monoWant.decodeFramePayload(monoFrame, 960, monoTOC, monoPayloadForDecode))
+		if err != nil {
+			t.Fatalf("decode mono ignore=%v: %v", ignore, err)
+		}
+
+		want := make([]float64, 960*3)
+		for i := 0; i < 960; i++ {
+			want[3*i] = coupledOut[2*i]
+			want[3*i+1] = coupledOut[2*i+1]
+			want[3*i+2] = monoOut[i]
+		}
+
+		dec, err := NewDecoder(48000, 3, 2, 1, []byte{0, 1, 2})
+		if err != nil {
+			t.Fatalf("NewDecoder(ignore=%v): %v", ignore, err)
+		}
+		dec.SetIgnoreExtensions(ignore)
+		got, err := dec.Decode(packet, 960)
+		if err != nil {
+			t.Fatalf("Decode(ignore=%v): %v", ignore, err)
+		}
+		if len(got) != len(want) {
+			t.Fatalf("Decode(ignore=%v) len=%d want %d", ignore, len(got), len(want))
+		}
+		for i := range got {
+			if got[i] != want[i] {
+				t.Fatalf("Decode(ignore=%v) sample[%d]=%v want %v", ignore, i, got[i], want[i])
+			}
+		}
+	}
+}
