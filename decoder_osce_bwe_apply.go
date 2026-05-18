@@ -98,16 +98,19 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 		}
 		state := d.osceBWE
 		numFrames := in16Per / 160
-		// Zero the features vector once -- both channels currently consume
-		// the same zero-features stub (Phase 1 forward pass).
-		for i := 0; i < numFrames*osceBWE.FeatureDim; i++ {
-			state.applyFeatures[i] = 0
-		}
 
-		// Left/mid channel forward pass.
+		// Left/mid channel forward pass. Stage the int16 lowband for the
+		// per-channel feature extractor and normalise to float32 [-1, 1]
+		// for the BBWENet forward pass. libopus computes features
+		// independently for each channel using channel_state[n].osce_bwe.
 		for i := 0; i < in16Per; i++ {
+			state.applyIn16Int[i] = leftNative[i]
 			state.applyIn16[i] = float32(leftNative[i]) / 32768.0
 		}
+		state.osceBWEFeatures[0].CalculateFeatures(
+			state.applyFeatures[:numFrames*osceBWE.FeatureDim],
+			state.applyIn16Int[:in16Per],
+		)
 		if err := state.osceBWERuntime[0].Process(
 			state.applyIn16[:in16Per],
 			state.applyOut48[:in48Per],
@@ -120,10 +123,16 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 			out[2*i] = state.applyOut48[i]
 		}
 
-		// Right/side channel forward pass.
+		// Right/side channel forward pass. Compute per-channel features
+		// from the right-channel int16 lowband.
 		for i := 0; i < in16Per; i++ {
+			state.applyIn16Int[i] = rightNative[i]
 			state.applyIn16[i] = float32(rightNative[i]) / 32768.0
 		}
+		state.osceBWEFeatures[1].CalculateFeatures(
+			state.applyFeatures[:numFrames*osceBWE.FeatureDim],
+			state.applyIn16Int[:in16Per],
+		)
 		if err := state.osceBWERuntime[1].Process(
 			state.applyIn16[:in16Per],
 			state.applyOut48[:in48Per],
@@ -275,12 +284,20 @@ func (d *Decoder) applyOSCEBWEFadeOut(out []float32, frameSize int, packetStereo
 
 	state := d.osceBWE
 	for i := 0; i < in16Per; i++ {
+		state.applyIn16Int[i] = native[i]
 		state.applyIn16[i] = float32(native[i]) / 32768.0
 	}
 	numFrames := in16Per / 160
-	for i := 0; i < numFrames*osceBWE.FeatureDim; i++ {
-		state.applyFeatures[i] = 0
-	}
+	// Port of libopus `osce_bwe_calculate_features` -- compute the same 114-
+	// float feature vector per 10 ms hop that the BWE-active path uses, so the
+	// fade-out BWE pass produces output matching what the previous BWE-active
+	// frame would have produced. Zero features here would cause the fade-out
+	// BWE output to drift from the previous frame's BWE output and produce an
+	// audible cross-fade boundary.
+	state.osceBWEFeatures[0].CalculateFeatures(
+		state.applyFeatures[:numFrames*osceBWE.FeatureDim],
+		state.applyIn16Int[:in16Per],
+	)
 	if err := state.osceBWERuntime[0].Process(
 		state.applyIn16[:in16Per],
 		state.applyOut48[:in48Per],

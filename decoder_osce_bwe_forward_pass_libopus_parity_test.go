@@ -218,6 +218,250 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 	}
 }
 
+// TestOSCEBWEForwardPassPLCContinuityMatchesLibopus drives the BWE forward
+// pass twice in succession on the same 16 kHz lowband (the canonical state-
+// continuity scenario the PLC path exercises: a good SILK WB frame is
+// followed by a concealed SILK WB frame and both invoke the same per-channel
+// `osce_bwe` state). The second-frame output is the one the listener hears
+// during PLC; the parity contract is therefore that the gopus second-frame
+// output stays within the same bounded-divergence envelope as the single-
+// frame forward pass.
+func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
+	binPath, err := getLibopusOSCEBWEForwardHelperPath()
+	if err != nil {
+		t.Skipf("libopus OSCE BWE forward helper unavailable: %v", err)
+	}
+
+	blob := requireLibopusOSCEBWEModelBlob(t)
+	parsed, err := dnnblob.Clone(blob)
+	if err != nil {
+		t.Fatalf("dnnblob.Clone: %v", err)
+	}
+	if !parsed.SupportsOSCEBWE() {
+		t.Fatalf("parsed OSCE BWE blob does not advertise SupportsOSCEBWE()")
+	}
+
+	const (
+		numIn16            = 160 // 10 ms @ 16 kHz: minimum BWE frame
+		numFrames          = 1
+		outputDelay        = 21
+		featureTolerance   = 5e-3
+		outputAbsTolerance = 0.20
+		outputRMSTolerance = 0.10
+	)
+
+	refFeatures, refOut, err := runOSCEBWEForwardHelperMode(binPath, numIn16, "consecutive")
+	if err != nil {
+		t.Skipf("libopus OSCE BWE consecutive helper failed: %v", err)
+	}
+	if len(refFeatures) != numFrames*osceBWE.FeatureDim {
+		t.Fatalf("libopus consecutive features: got %d floats, want %d", len(refFeatures), numFrames*osceBWE.FeatureDim)
+	}
+	if len(refOut) != 3*numIn16 {
+		t.Fatalf("libopus consecutive output: got %d samples, want %d", len(refOut), 3*numIn16)
+	}
+
+	// Generate the same 1 kHz sinusoid (matches the C helper).
+	xq16 := make([]int16, numIn16)
+	in16f := make([]float32, numIn16)
+	for i := 0; i < numIn16; i++ {
+		v := 0.5 * math.Sin(2*math.Pi*1000*float64(i)/16000)
+		q := int(math.Round(v * 32767))
+		if q > 32767 {
+			q = 32767
+		} else if q < -32768 {
+			q = -32768
+		}
+		xq16[i] = int16(q)
+		in16f[i] = float32(xq16[i]) / 32768
+	}
+
+	// Drive a single feature/forward state through two consecutive 10 ms
+	// frames so the second-frame state mirrors the libopus side. The PLC
+	// path in decoder_osce_bwe_apply.go does exactly this via the
+	// per-channel osceBWEFeatures + osceBWERuntime state.
+	var feat osceBWE.FeatureState
+	feat.Reset()
+	var state osceBWE.State
+	if err := state.SetModel(parsed); err != nil {
+		t.Fatalf("state.SetModel: %v", err)
+	}
+
+	gopusFeatures1 := make([]float32, numFrames*osceBWE.FeatureDim)
+	feat.CalculateFeatures(gopusFeatures1, xq16)
+	gopusOut1 := make([]float32, 3*numIn16)
+	if err := state.Process(in16f, gopusOut1, gopusFeatures1); err != nil {
+		t.Fatalf("state.Process (frame 1): %v", err)
+	}
+
+	// Second frame: same input but the state has now consumed the first
+	// frame so the signal_history / last_spec / GRU hidden state differ.
+	gopusFeatures2 := make([]float32, numFrames*osceBWE.FeatureDim)
+	feat.CalculateFeatures(gopusFeatures2, xq16)
+	gopusOut2 := make([]float32, 3*numIn16)
+	if err := state.Process(in16f, gopusOut2, gopusFeatures2); err != nil {
+		t.Fatalf("state.Process (frame 2): %v", err)
+	}
+
+	// Features: feed gopus second-frame output the libopus second-frame
+	// features so feature-extractor drift is isolated from signal-net drift.
+	maxFeatErrLM := float32(0)
+	maxFeatErrIF := float32(0)
+	for i := range gopusFeatures2 {
+		d := gopusFeatures2[i] - refFeatures[i]
+		if d < 0 {
+			d = -d
+		}
+		within := i % osceBWE.FeatureDim
+		if within < 32 {
+			if d > maxFeatErrLM {
+				maxFeatErrLM = d
+			}
+		} else {
+			if d > maxFeatErrIF {
+				maxFeatErrIF = d
+			}
+		}
+	}
+	t.Logf("PLC continuity feature-extractor lmspec maxAbs=%g, instafreq maxAbs=%g",
+		maxFeatErrLM, maxFeatErrIF)
+	if maxFeatErrLM > featureTolerance {
+		t.Errorf("PLC continuity feature extractor lmspec drift %g exceeds %g", maxFeatErrLM, featureTolerance)
+	}
+
+	// Re-run the gopus second frame against the libopus features so we are
+	// strictly measuring the signal-net divergence. This mirrors the
+	// forward-pass test methodology.
+	feat.Reset()
+	var state2 osceBWE.State
+	if err := state2.SetModel(parsed); err != nil {
+		t.Fatalf("state2.SetModel: %v", err)
+	}
+	// First frame: libopus features (snapshot from a fresh feature state).
+	refFeatures1, _, err := runOSCEBWEForwardHelperMode(binPath, numIn16, "")
+	if err != nil {
+		t.Skipf("libopus OSCE BWE forward helper failed: %v", err)
+	}
+	scratch := make([]float32, 3*numIn16)
+	if err := state2.Process(in16f, scratch, refFeatures1); err != nil {
+		t.Fatalf("state2.Process (frame 1, libopus feats): %v", err)
+	}
+	gopusOut2WithLibopusFeat := make([]float32, 3*numIn16)
+	if err := state2.Process(in16f, gopusOut2WithLibopusFeat, refFeatures); err != nil {
+		t.Fatalf("state2.Process (frame 2, libopus feats): %v", err)
+	}
+
+	// libopus reference is int16-quantised and 21-sample-delayed. Compare
+	// gopus[0:N-21] to refOut[21:N].
+	if len(refOut) <= outputDelay {
+		t.Fatalf("reference output too short to skip delay: %d", len(refOut))
+	}
+	cmpLen := len(refOut) - outputDelay
+	var maxAbsErr float32
+	var sumSq float64
+	for i := 0; i < cmpLen; i++ {
+		d := gopusOut2WithLibopusFeat[i] - refOut[i+outputDelay]
+		ad := d
+		if ad < 0 {
+			ad = -ad
+		}
+		if ad > maxAbsErr {
+			maxAbsErr = ad
+		}
+		sumSq += float64(d) * float64(d)
+	}
+	rms := math.Sqrt(sumSq / float64(cmpLen))
+	t.Logf("OSCE BWE PLC continuity parity (frame 2 of 2): maxAbs=%g rms=%g (tolerances: maxAbs<=%g rms<=%g)",
+		maxAbsErr, rms, outputAbsTolerance, outputRMSTolerance)
+
+	if rmsOfFloat32(gopusOut2WithLibopusFeat) == 0 {
+		t.Fatalf("gopus second-frame output has zero energy")
+	}
+	if rmsOfFloat32(refOut[outputDelay:]) == 0 {
+		t.Fatalf("libopus second-frame reference has zero energy after delay")
+	}
+	if maxAbsErr > outputAbsTolerance {
+		t.Errorf("OSCE BWE PLC continuity max-abs error %g exceeds %g", maxAbsErr, outputAbsTolerance)
+	}
+	if rms > outputRMSTolerance {
+		t.Errorf("OSCE BWE PLC continuity rms error %g exceeds %g", rms, outputRMSTolerance)
+	}
+}
+
+// TestOSCEBWECrossFade10msMatchesLibopus drives the SILK WB -> Hybrid SWB
+// fade-out cross-fade directly. The gopus port of osce_bwe_cross_fade_10ms
+// operates on float32 PCM in [-1, 1] while libopus operates on int16; the
+// weighting expression is identical so the result must match within int16
+// quantisation noise plus our usual bounded-divergence envelope.
+func TestOSCEBWECrossFade10msMatchesLibopus(t *testing.T) {
+	binPath, err := getLibopusOSCEBWEForwardHelperPath()
+	if err != nil {
+		t.Skipf("libopus OSCE BWE forward helper unavailable: %v", err)
+	}
+
+	const numIn16 = 160
+	_, refOut, err := runOSCEBWEForwardHelperMode(binPath, numIn16, "crossfade")
+	if err != nil {
+		t.Skipf("libopus OSCE BWE crossfade helper failed: %v", err)
+	}
+	if len(refOut) != 480 {
+		t.Fatalf("libopus crossfade output: got %d samples, want 480", len(refOut))
+	}
+
+	// Reproduce the same fade-in / fade-out ramps the C helper generates.
+	fadeinF := make([]float32, 480)
+	fadeoutF := make([]float32, 480)
+	for i := 0; i < 480; i++ {
+		fi := int32((i*24000)/480) - 12000
+		fo := int32(12000 - ((i * 24000) / 480))
+		if fi > 32767 {
+			fi = 32767
+		} else if fi < -32768 {
+			fi = -32768
+		}
+		if fo > 32767 {
+			fo = 32767
+		} else if fo < -32768 {
+			fo = -32768
+		}
+		fadeinF[i] = float32(fi) / 32768
+		fadeoutF[i] = float32(fo) / 32768
+	}
+
+	osceBWECrossFade10ms(fadeinF, fadeoutF, 480)
+
+	// Tight tolerances: cross-fade is pure arithmetic so divergence comes
+	// only from int16 vs float32 quantisation in libopus's xq -> float
+	// conversion at the boundary. Each int16 step is ~3e-5 so an error of
+	// 1e-3 is already > 30 LSB and would indicate a real algorithmic bug.
+	const (
+		crossfadeAbsTolerance = 1e-3
+		crossfadeRMSTolerance = 5e-4
+	)
+	var maxAbsErr float32
+	var sumSq float64
+	for i := 0; i < 480; i++ {
+		d := fadeinF[i] - refOut[i]
+		ad := d
+		if ad < 0 {
+			ad = -ad
+		}
+		if ad > maxAbsErr {
+			maxAbsErr = ad
+		}
+		sumSq += float64(d) * float64(d)
+	}
+	rms := math.Sqrt(sumSq / 480)
+	t.Logf("OSCE BWE crossfade parity: maxAbs=%g rms=%g (tolerances: maxAbs<=%g rms<=%g)",
+		maxAbsErr, rms, crossfadeAbsTolerance, crossfadeRMSTolerance)
+	if maxAbsErr > crossfadeAbsTolerance {
+		t.Errorf("OSCE BWE crossfade max-abs error %g exceeds %g", maxAbsErr, crossfadeAbsTolerance)
+	}
+	if rms > crossfadeRMSTolerance {
+		t.Errorf("OSCE BWE crossfade rms error %g exceeds %g", rms, crossfadeRMSTolerance)
+	}
+}
+
 func rmsOfFloat32(x []float32) float64 {
 	if len(x) == 0 {
 		return 0
@@ -257,7 +501,22 @@ func getLibopusOSCEBWEForwardHelperPath() (string, error) {
 // returns the libopus feature vectors and the libopus 48 kHz output (float
 // in [-1, 1], obtained by dividing libopus's int16 PCM by 32768).
 func runOSCEBWEForwardHelper(binPath string, numIn16 int) (features, out48k []float32, err error) {
-	cmd := exec.Command(binPath, fmt.Sprintf("%d", numIn16))
+	return runOSCEBWEForwardHelperMode(binPath, numIn16, "")
+}
+
+// runOSCEBWEForwardHelperMode invokes the libopus OSCE BWE helper with an
+// explicit mode argument. Recognised modes are:
+//   - "" / "forward" : single osce_bwe pass on a 1 kHz sinusoid (default).
+//   - "consecutive"  : two back-to-back osce_bwe passes, the second-frame
+//     output is emitted (covers PLC frame-to-frame state continuity).
+//   - "crossfade"    : runs osce_bwe_cross_fade_10ms directly on two
+//     deterministic ramps; emits the 480-sample crossfaded result.
+func runOSCEBWEForwardHelperMode(binPath string, numIn16 int, mode string) (features, out48k []float32, err error) {
+	args := []string{fmt.Sprintf("%d", numIn16)}
+	if mode != "" {
+		args = append(args, mode)
+	}
+	cmd := exec.Command(binPath, args...)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

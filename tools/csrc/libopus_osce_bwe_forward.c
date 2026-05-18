@@ -96,9 +96,28 @@ extern void osce_bwe(
     int32_t xq16_len,
     int arch);
 
+/* osce_bwe_cross_fade_10ms is exported from libopus dnn/osce_features.c when
+ * the build is configured with --enable-osce-bwe. The signature matches the
+ * upstream header. */
+extern void osce_bwe_cross_fade_10ms(
+    int16_t *x_fadein,
+    int16_t *x_fadeout,
+    int length);
+
+static void fill_sinusoid(int16_t *out, int num_samples, double freq_hz, double amp) {
+  for (int i = 0; i < num_samples; i++) {
+    double v = amp * sin(2.0 * M_PI * freq_hz * (double)i / 16000.0);
+    long q = lrint(v * 32767.0);
+    if (q > 32767) q = 32767;
+    if (q < -32768) q = -32768;
+    out[i] = (int16_t)q;
+  }
+}
+
 int main(int argc, char *argv[]) {
   if (argc < 2) {
-    fprintf(stderr, "usage: %s NUM_SAMPLES_16K\n", argv[0]);
+    fprintf(stderr, "usage: %s NUM_SAMPLES_16K [MODE]\n"
+                    "  MODE: forward (default), consecutive, crossfade\n", argv[0]);
     return 2;
   }
   int num_samples = atoi(argv[1]);
@@ -106,6 +125,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "NUM_SAMPLES_16K must be 160 or 320 (got %d)\n", num_samples);
     return 2;
   }
+  const char *mode = (argc >= 3) ? argv[2] : "forward";
   int num_frames = num_samples / 160;
   int num_subframes = 2 * num_frames;
   int num_out = 3 * num_samples;
@@ -117,13 +137,7 @@ int main(int argc, char *argv[]) {
 
   /* Generate the same 1 kHz sinusoid that the gopus side uses. */
   static int16_t xq16[320];
-  for (int i = 0; i < num_samples; i++) {
-    double v = 0.5 * sin(2.0 * M_PI * 1000.0 * (double)i / 16000.0);
-    long q = lrint(v * 32767.0);
-    if (q > 32767) q = 32767;
-    if (q < -32768) q = -32768;
-    xq16[i] = (int16_t)q;
-  }
+  fill_sinusoid(xq16, num_samples, 1000.0, 0.5);
 
   /* Load default-shipped OSCE models from the libopus built-in tables. */
   OSCEModel *model = (OSCEModel *)calloc(1, sizeof(OSCEModel));
@@ -163,7 +177,55 @@ int main(int argc, char *argv[]) {
   }
 
   static int16_t xq48[3 * 320];
-  osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
+  static int16_t xq48_second[3 * 320];
+
+  if (strcmp(mode, "consecutive") == 0) {
+    /* Two consecutive BWE calls to capture per-frame state continuity (the
+     * scenario the PLC path triggers: a good SILK WB frame followed by a
+     * concealed SILK WB frame both invoke osce_bwe in succession on the same
+     * BWE state). We emit the SECOND frame's features and output so the
+     * gopus side can compare its second-frame output against the libopus
+     * second-frame output.
+     *
+     * Both frames use the same sinusoid input -- this isolates the
+     * state-continuity issue from input-variability noise. */
+    osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
+    /* Snapshot features for the second frame using a separate feature state
+     * that has consumed the first frame already. */
+    osce_bwe_calculate_features(&featState.features, features, xq16, num_samples);
+    /* Second frame -- bweState carries over signal_history, last_spec, etc. */
+    osce_bwe(model, &bweState, xq48_second, xq16, num_samples, 0 /*arch=GENERIC*/);
+    /* Use the second-frame output as the canonical xq48 emitted below. */
+    memcpy(xq48, xq48_second, sizeof(xq48));
+  } else if (strcmp(mode, "crossfade") == 0) {
+    /* Direct osce_bwe_cross_fade_10ms test. We synthesise two distinguishable
+     * fade-in/fade-out signals at 48 kHz (since the function operates in the
+     * 48 kHz output domain) and verify the gopus port produces the same
+     * crossfade result. The features and the BWE pass are not used here; we
+     * leave them populated with the forward-mode output for diagnostic
+     * compatibility with the header parser, but mark numOut = 480 (10 ms
+     * @ 48 kHz) which is the natural cross-fade window length. */
+    osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
+    num_out = 480;
+    /* Generate two distinct ramps and emit the crossfaded result. */
+    int16_t fadein[480];
+    int16_t fadeout[480];
+    for (int i = 0; i < 480; i++) {
+      /* Triangle ramp for fadein (rising), sawtooth for fadeout (falling).
+       * Scaled to ~24kFS to leave headroom. */
+      long fi = (long)((i * 24000L) / 480L) - 12000L; /* -12000..+12000 */
+      long fo = (long)(12000L - ((i * 24000L) / 480L)); /* +12000..-12000 */
+      if (fi > 32767) fi = 32767; else if (fi < -32768) fi = -32768;
+      if (fo > 32767) fo = 32767; else if (fo < -32768) fo = -32768;
+      fadein[i] = (int16_t)fi;
+      fadeout[i] = (int16_t)fo;
+    }
+    osce_bwe_cross_fade_10ms(fadein, fadeout, 480);
+    memcpy(xq48, fadein, sizeof(fadein));
+  } else {
+    /* Default "forward" mode: single BWE pass on the sinusoid. */
+    osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
+  }
 
   /* Emit header + binary payload. */
   static const char tag[8] = {'O','S','C','E','B','W','E','\0'};
