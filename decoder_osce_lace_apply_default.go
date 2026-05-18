@@ -18,3 +18,8 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 ) bool {
 	return false
 }
+
+// osceLACEMarkInactiveIfModeIneligible is a no-op stub on the default
+// build. The quarantined `gopus_unsupported_controls` build provides the
+// real implementation in `decoder_osce_lace_apply.go`.
+func (d *Decoder) osceLACEMarkInactiveIfModeIneligible(_ Mode, _ Bandwidth) {}

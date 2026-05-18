@@ -81,6 +81,19 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		// that BWE expects. Stereo and DRED neural concealment paths are
 		// intentionally excluded so the BWE never overwrites richer
 		// concealment output.
+		//
+		// LACE/NoLACE runs on the same SILK lowband BEFORE BWE -- mirror
+		// the wiring order from decoder_opus_frame.go so the BWE forward
+		// pass consumes the postfilter-enhanced native lowband during PLC.
+		// libopus reaches `osce_enhance_frame` on the PLC path through the
+		// `data == NULL` branch where `silk_Decode` is still invoked with
+		// `lost_flag = 1`, after which the SILK PLC output flows through
+		// the same post-decode hook as a good frame.
+		if !usedNeuralConcealment && d.lastPacketMode == ModeSILK &&
+			d.lastBandwidth == BandwidthWideband &&
+			d.sampleRate == 48000 && d.channels == 1 && d.osceLACEEnabled {
+			d.maybeApplyOSCELACEPostSilk(pcm[:frameSize*d.channels], frameSize, ModeSILK, silk.BandwidthWideband, false)
+		}
 		if !usedNeuralConcealment && d.lastPacketMode == ModeSILK &&
 			d.lastBandwidth == BandwidthWideband &&
 			d.sampleRate == 48000 && d.channels == 1 && d.osceBWEEnabled {
@@ -166,6 +179,13 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	// SILK -> SILK cross-fade itself; this catches Hybrid and CELT
 	// transitions where the SILK helper is not invoked.
 	d.osceBWEMarkInactiveIfModeIneligible(toc.Mode, toc.Bandwidth)
+
+	// OSCE LACE/NoLACE transition bookkeeping: clear the previous-LACE-
+	// active flag when the current packet bypasses the postfilter (Hybrid
+	// or CELT). Mirrors libopus `osce_reset` which gets called whenever
+	// `osce_enhance_frame` exits early (e.g. fs_kHz != 16), priming the
+	// reset counter so the next LACE-active frame runs the cross-fade.
+	d.osceLACEMarkInactiveIfModeIneligible(toc.Mode, toc.Bandwidth)
 
 	d.lastFrameSize = frameSize
 	d.lastPacketDuration = totalSamples

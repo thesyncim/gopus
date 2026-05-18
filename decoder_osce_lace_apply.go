@@ -108,6 +108,13 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 		return false
 	}
 
+	// Snapshot the transition state BEFORE running the forward pass so
+	// the per-channel helper knows whether the current frame is the first
+	// LACE-active frame after a non-LACE frame. libopus tracks this via
+	// `psDec->osce.features.reset` set by `osce_reset` whenever the
+	// postfilter is bypassed; the gopus equivalent uses `prevLACEActive`.
+	transition := !d.osceLACE.prevLACEActive
+
 	// Stereo packet on a stereo decoder: libopus runs the postfilter
 	// independently on each channel (per `silk_channel_state.osce`); the
 	// gopus equivalent reads both native lowband channels from
@@ -119,8 +126,8 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 			d.osceLACE.prevLACEActive = false
 			return false
 		}
-		ran := d.applyOSCELACEMonoChannel(leftNative, pickedMode)
-		ran = d.applyOSCELACEMonoChannel(rightNative, pickedMode) || ran
+		ran := d.applyOSCELACEMonoChannel(leftNative, pickedMode, transition)
+		ran = d.applyOSCELACEMonoChannel(rightNative, pickedMode, transition) || ran
 		if !ran {
 			d.osceLACE.prevLACEActive = false
 			return false
@@ -145,7 +152,7 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 		d.osceLACE.prevLACEActive = false
 		return false
 	}
-	if !d.applyOSCELACEMonoChannel(native, pickedMode) {
+	if !d.applyOSCELACEMonoChannel(native, pickedMode, transition) {
 		d.osceLACE.prevLACEActive = false
 		return false
 	}
@@ -162,14 +169,22 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 // guard catches future regressions) without modifying the audio; a
 // follow-up Phase 2 port of `lace_process_20ms_frame` /
 // `nolace_process_20ms_frame` will replace the identity copy.
-func (d *Decoder) applyOSCELACEMonoChannel(native []int16, _ osceLACEMode) bool {
+//
+// `transition` indicates the frame transitioned from non-LACE to LACE this
+// call. When set, the helper cross-fades the first 10 ms (160 samples) of
+// the enhanced output against the pre-enhancement input, mirroring the
+// `osce_cross_fade_10ms` invocation guarded by `psDec->osce.features.reset`
+// in libopus `osce_enhance_frame`.
+func (d *Decoder) applyOSCELACEMonoChannel(native []int16, _ osceLACEMode, transition bool) bool {
 	if d == nil || d.osceLACE == nil {
 		return false
 	}
 	state := d.osceLACE
 	// libopus scales by 1/32768.f at the start of osce_enhance_frame; mirror
 	// that so a Phase 2 forward pass can drop into applyInFloat without
-	// re-scanning the int16 buffer.
+	// re-scanning the int16 buffer. Capture the pre-enhancement int16 view
+	// in applyIn16 so the cross-fade has the raw input available even after
+	// the enhancement overwrites the native lowband.
 	for i := 0; i < osceLACEFrameSamples; i++ {
 		state.applyIn16[i] = native[i]
 		state.applyInFloat[i] = float32(native[i]) * (1.0 / 32768.0)
@@ -195,5 +210,39 @@ func (d *Decoder) applyOSCELACEMonoChannel(native []int16, _ osceLACEMode) bool 
 		state.applyOutInt16[i] = int16(v)
 		native[i] = state.applyOutInt16[i]
 	}
+	// On transitions from non-LACE to LACE/NoLACE-active, run the 10 ms
+	// cross-fade mirroring libopus `osce_cross_fade_10ms`. The fade-in
+	// buffer is the enhanced postfilter output (the freshly written
+	// `native`), the fade-out buffer is the pre-enhancement input
+	// captured in `applyIn16`. The cross-fade writes back into `native`
+	// so the downstream silk_resampler consumes a smooth transition.
+	if transition {
+		osceLACECrossFade10msInt16(native[:osceLACEFrameSamples], state.applyIn16[:osceLACEFrameSamples], osceLACEFrameSamples)
+	}
 	return true
+}
+
+// osceLACEMarkInactiveIfModeIneligible clears the LACE-active flag when the
+// current packet's mode/bandwidth does not satisfy the LACE/NoLACE gate
+// (SILK-only at 16 kHz internal). This catches Hybrid / CELT / SILK-NB
+// packets where maybeApplyOSCELACEPostSilk is not invoked but the
+// `prevLACEActive` transition tracking still needs to be updated.
+//
+// Without this clearing the next SILK WB/MB packet would incorrectly skip
+// the LACE fade-in cross-fade because `prevLACEActive` could still be true
+// from many packets ago.
+func (d *Decoder) osceLACEMarkInactiveIfModeIneligible(mode Mode, bandwidth Bandwidth) {
+	if d == nil || d.osceLACE == nil {
+		return
+	}
+	// LACE/NoLACE runs in SILK-only mode at WB or MB (the LACE NB mode
+	// covers NB but with the same `prevLACEActive` flag); Hybrid and CELT
+	// always bypass the postfilter so we must clear the prev flag.
+	if mode == ModeSILK && (bandwidth == BandwidthWideband || bandwidth == BandwidthMediumband || bandwidth == BandwidthNarrowband) {
+		// SILK packet with a LACE-eligible bandwidth: the SILK-only post-
+		// decode hook handles the flag itself based on the actual SILK
+		// internal bandwidth.
+		return
+	}
+	d.osceLACE.prevLACEActive = false
 }
