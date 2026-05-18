@@ -77,6 +77,7 @@ const (
 	actSigmoid = 1
 	actTanh    = 2
 	actRelu    = 3
+	actSoftmax = 4
 	actExp     = 6
 )
 
@@ -730,6 +731,8 @@ func computeActivation(out, in []float32, n, activation int) {
 			}
 			out[i] = v
 		}
+	case actSoftmax:
+		dnnmath.SoftmaxApprox(out, in, n)
 	case actExp:
 		dnnmath.ExpVectorApprox(out, in, n)
 	default:
