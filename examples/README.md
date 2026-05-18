@@ -10,6 +10,7 @@ These examples target the supported default build. QEXT examples require `-tags 
 - ffmpeg/ffprobe (optional, for interoperability verification)
 - ffplay/afplay/aplay/paplay (optional, for decode-play audio playback)
 - A WebRTC-capable browser (optional, for `webrtc-control`)
+- A desktop microphone/speaker device (optional, for `webrtc-dred-loopback`)
 
 ## Label Guide
 
@@ -31,6 +32,7 @@ These examples target the supported default build. QEXT examples require `-tags 
 | `bench-encode` | `downloads assets`, `needs external tools` | Compares encode throughput against `opus_demo` using local or downloaded inputs. |
 | `bench-decode` | `downloads assets`, `needs external tools` | Compares decode throughput against `opus_demo` using local or downloaded inputs. |
 | `webrtc-control` | `offline only`, `needs external tools` | Runs a browser-based WebRTC control surface for encoder parameters. |
+| `webrtc-dred-loopback` | `offline only`, `needs external tools` | Runs a Gio desktop WebRTC microphone loopback with configurable RTP loss, optional DRED, WAV recording, and optional monitor playback. |
 
 ## Examples
 
@@ -318,6 +320,48 @@ Mixing open-source speech tracks into one output
   Output: mixed_arrivals.opus
 ```
 
+### webrtc-dred-loopback
+
+Runs a desktop Gio app that captures microphone audio, sends gopus-encoded Opus
+over an in-process Pion WebRTC RTP track, drops configurable RTP packets, and
+decodes the receiver side with optional WAV recording and optional live monitor
+playback.
+
+**Labels:** `offline only`; `needs external tools` for desktop audio devices
+
+**What it does:**
+1. Captures mono 48 kHz microphone PCM
+2. Encodes with gopus and sends one Opus packet per RTP packet over Pion WebRTC
+3. Simulates RTP loss while preserving sequence gaps
+4. Calls `Decode(nil, pcm)` for missing packets at the receiver
+5. Records receiver audio to WAV by default and can optionally play it live
+
+**Usage:**
+```bash
+cd examples/webrtc-dred-loopback
+go run .
+
+# DRED controls require the tagged build and compatible DNN blobs.
+go run -tags gopus_dred . \
+  -encoder-dnn /path/to/encoder-dnn.blob \
+  -decoder-dnn /path/to/decoder-dnn.blob
+
+# Export compatible local blobs from the pinned libopus helper build.
+go run -tags gopus_dred . -export-dnn
+
+# Run a terminal loopback and print JSON stats.
+go run -tags gopus_dred . -headless -duration 6s -loss 30 \
+  -encoder-dnn dnn/encoder-dred.blob \
+  -decoder-dnn dnn/decoder-dred.blob
+```
+
+**Notes:**
+- The WebRTC, RTP, and Opus path is pure Go.
+- Desktop microphone/speaker access uses `malgo` as the OS audio bridge.
+- Live monitor playback is off by default to avoid feedback.
+- The stats panel reports live drop rate, delivered bitrate, concealment
+  milliseconds per second, DRED coverage, and a demo-friendly resilience score.
+
 ## Building All Examples
 
 ```bash
@@ -335,6 +379,7 @@ go build ./examples/...
 # Separate modules
 (cd examples/external-consumer-smoke && go test ./...)
 (cd examples/webrtc-control && go build .)
+(cd examples/webrtc-dred-loopback && go test ./...)
 ```
 
 ## API Overview
