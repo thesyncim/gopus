@@ -3331,6 +3331,83 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixHybridFullbandMatchesLibopus(t *te
 	}
 }
 
+func TestDecoderExplicitDREDDecodeOffsetMatrix16kHybridMatchesLibopus(t *testing.T) {
+	tests := []struct {
+		name      string
+		bandwidth Bandwidth
+	}{
+		{name: "swb", bandwidth: BandwidthSuperwideband},
+		{name: "fb", bandwidth: BandwidthFullband},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			_, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 16000, libopusDREDPacketConfig{
+				FrameSize: 960,
+				ForceMode: ModeHybrid,
+				Bandwidth: tc.bandwidth,
+			})
+			if packetInfo.sampleRate != 48000 || n != 960 {
+				t.Skipf("16 kHz hybrid offset parity requires 48 kHz packet-domain frame=960, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
+			}
+			boundary := -dred.Parsed().Header.OffsetSamples(packetInfo.sampleRate)
+
+			offsets := []struct {
+				name       string
+				dredOffset int
+			}{
+				{name: "before_first_feature_boundary", dredOffset: boundary - 1},
+				{name: "at_first_feature_boundary", dredOffset: boundary},
+				{name: "end_of_first_feature_frame", dredOffset: boundary + n - 1},
+				{name: "at_second_feature_boundary", dredOffset: boundary + n},
+				{name: "late_offset", dredOffset: boundary + 2*n},
+			}
+
+			for _, offset := range offsets {
+				offset := offset
+				t.Run(offset.name, func(t *testing.T) {
+					localDec, localDRED, localPacketInfo, seedPacket, localN := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 16000, libopusDREDPacketConfig{
+						FrameSize: 960,
+						ForceMode: ModeHybrid,
+						Bandwidth: tc.bandwidth,
+					})
+					if localPacketInfo.sampleRate != packetInfo.sampleRate || localN != n {
+						t.Fatalf("local 16 kHz hybrid packet changed: sampleRate=%d frame=%d want sampleRate=%d frame=%d", localPacketInfo.sampleRate, localN, packetInfo.sampleRate, n)
+					}
+					want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, localPacketInfo.packet, localPacketInfo.maxDREDSamples, localPacketInfo.sampleRate, -1, offset.dredOffset, n)
+					if err != nil {
+						t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+					}
+					if want.parseRet < 0 {
+						t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
+					}
+					if want.ret != n {
+						t.Fatalf("libopus decoder 16k hybrid DRED decode ret=%d want %d", want.ret, n)
+					}
+
+					pcm := make([]float32, localDec.maxPacketSamples)
+					got, err := localDec.decodeExplicitDREDFloat(localDRED, offset.dredOffset, pcm, n)
+					if err != nil {
+						t.Fatalf("decodeExplicitDREDFloat error: %v", err)
+					}
+					if got != n {
+						t.Fatalf("decodeExplicitDREDFloat=%d want %d", got, n)
+					}
+
+					pcmTol, plcTol, farganTol := 1e-4, 1e-4, 1e-4
+					if offset.dredOffset == boundary {
+						pcmTol, plcTol, farganTol = 1.5e-4, 1e-2, 5e-2
+					}
+					assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "16k hybrid offset matrix pcm", pcmTol)
+					assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, localDec).dredPLC.Snapshot(), want.state, "16k hybrid offset matrix plc", plcTol)
+					assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, localDec).dredFARGAN.Snapshot(), want.fargan, "16k hybrid offset matrix fargan", farganTol)
+				})
+			}
+		})
+	}
+}
+
 func TestDecoderExplicitDREDDecodeFrameSizeMatrixMatchesLibopus(t *testing.T) {
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
