@@ -385,6 +385,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					d.celtDecoder.Reset()
 					d.celtDecoder.SetBandwidth(celtBW)
 				}
+				if extsupport.QEXT {
+					d.setCELTQEXTPayload(qextPayload)
+				}
 				return nil
 			}
 

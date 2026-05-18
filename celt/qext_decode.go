@@ -124,8 +124,18 @@ func (d *Decoder) storeQEXTEnergyState(energies []float64, nbBands int) {
 }
 
 func (d *Decoder) prepareQEXTDecode(payload []byte, mainRD *rangecoding.Decoder, end, lm, frameSize int) *preparedQEXTDecode {
+	return d.prepareQEXTDecodeRange(payload, mainRD, 0, end, lm, frameSize)
+}
+
+func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Decoder, start, end, lm, frameSize int) *preparedQEXTDecode {
 	if len(payload) == 0 || mainRD == nil || end <= 0 {
 		return nil
+	}
+	if start < 0 {
+		start = 0
+	}
+	if start > end {
+		start = end
 	}
 
 	qextState := d.ensureQEXTState()
@@ -173,7 +183,7 @@ func (d *Decoder) prepareQEXTDecode(payload []byte, mainRD *rangecoding.Decoder,
 		budgetQ3 = 0
 	}
 	tellBeforeAlloc := extDec.TellFrac()
-	computeQEXTExtraAllocationDecodeWithMode(0, end, qext.end, budgetQ3, d.channels, lm, extDec, qext.extraPulses, qext.extraQuant, qextMode)
+	computeQEXTExtraAllocationDecodeWithMode(start, end, qext.end, budgetQ3, d.channels, lm, extDec, qext.extraPulses, qext.extraQuant, qextMode)
 	_ = tellBeforeAlloc
 	return qext
 }

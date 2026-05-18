@@ -274,7 +274,7 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 					break
 				}
 			}
-			if extsupport.QEXT && !d.ignoreExtensions && toc.Mode == ModeCELT {
+			if extsupport.QEXT && !d.ignoreExtensions && toc.Mode != ModeSILK {
 				if padding > len(data) {
 					return 0, ErrInvalidPacket
 				}

@@ -48,6 +48,17 @@ func encodeLibopusPacket(t *testing.T, opusDemo string, channels int, pcm32 []fl
 
 func encodeLibopusPacketWithFinalRange(t *testing.T, opusDemo string, channels int, pcm32 []float32, cbr bool, qext bool) ([]byte, uint32) {
 	t.Helper()
+	return encodeLibopusPacketWithFinalRangeAtBitrate(t, opusDemo, channels, pcm32, cbr, qext, 256000)
+}
+
+func encodeLibopusPacketAtBitrate(t *testing.T, opusDemo string, channels int, pcm32 []float32, cbr bool, qext bool, bitrate int) []byte {
+	t.Helper()
+	packet, _ := encodeLibopusPacketWithFinalRangeAtBitrate(t, opusDemo, channels, pcm32, cbr, qext, bitrate)
+	return packet
+}
+
+func encodeLibopusPacketWithFinalRangeAtBitrate(t *testing.T, opusDemo string, channels int, pcm32 []float32, cbr bool, qext bool, bitrate int) ([]byte, uint32) {
+	t.Helper()
 
 	tmpDir := t.TempDir()
 	inputPath := filepath.Join(tmpDir, "qext.f32")
@@ -57,7 +68,7 @@ func encodeLibopusPacketWithFinalRange(t *testing.T, opusDemo string, channels i
 	}
 
 	args := []string{
-		"-e", "restricted-celt", "48000", fmt.Sprint(channels), "256000",
+		"-e", "restricted-celt", "48000", fmt.Sprint(channels), fmt.Sprint(bitrate),
 		"-f32", "-complexity", "10", "-bandwidth", "FB", "-framesize", "20",
 	}
 	if qext {
@@ -730,6 +741,163 @@ func TestDecodeLibopusQEXTPacketWrapperMatchesDirectCELT(t *testing.T) {
 			}
 			if maxDiff != 0 {
 				t.Fatalf("max diff %.2e at idx=%d frame=%d ch=%d", maxDiff, maxDiffIdx, maxDiffIdx/channels, maxDiffIdx%channels)
+			}
+		})
+	}
+}
+
+func makeHybridQEXTPacketForTest(t *testing.T, opusDemo string, channels int) []byte {
+	t.Helper()
+
+	const frameSize = 960
+	hybridPCM := make([]float32, frameSize*channels)
+	qextPCM := make([]float32, frameSize*channels)
+	for i := 0; i < frameSize; i++ {
+		tm := float64(i) / 48000.0
+		left := 0.28*math.Sin(2*math.Pi*173*tm) +
+			0.17*math.Sin(2*math.Pi*347*tm+0.13) +
+			0.09*math.Sin(2*math.Pi*521*tm+0.29)
+		hybridPCM[i*channels] = float32(left)
+		qextPCM[i*channels] = float32(0.45 * math.Sin(2*math.Pi*997*tm))
+		if channels == 2 {
+			right := 0.22*math.Sin(2*math.Pi*211*tm+0.19) +
+				0.15*math.Sin(2*math.Pi*389*tm+0.31)
+			hybridPCM[i*channels+1] = float32(right)
+			qextPCM[i*channels+1] = float32(0.35 * math.Sin(2*math.Pi*997*tm+0.37))
+		}
+	}
+
+	tmpDir := t.TempDir()
+	inputPath := filepath.Join(tmpDir, "hybrid.f32")
+	bitstreamPath := filepath.Join(tmpDir, "hybrid.bit")
+	if err := benchutil.WriteRepeatedRawFloat32(inputPath, hybridPCM, 1); err != nil {
+		t.Fatalf("WriteRepeatedRawFloat32(Hybrid): %v", err)
+	}
+	args := []string{
+		"-e", "audio", "48000", fmt.Sprint(channels), "32000",
+		"-f32", "-complexity", "10", "-bandwidth", "FB", "-framesize", "20",
+		inputPath, bitstreamPath,
+	}
+	cmd := exec.Command(opusDemo, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("opus_demo hybrid encode failed: %v (%s)", err, bytes.TrimSpace(out))
+	}
+	hybridPacket, err := firstOpusDemoPacket(bitstreamPath)
+	if err != nil {
+		t.Fatalf("firstOpusDemoPacket(Hybrid): %v", err)
+	}
+	info, frames, _, _, err := parsePacketFramesAndPadding(hybridPacket)
+	if err != nil {
+		t.Fatalf("parsePacketFramesAndPadding(Hybrid): %v", err)
+	}
+	if info.TOC.Mode != ModeHybrid || info.TOC.Bandwidth != BandwidthFullband || len(frames) != 1 {
+		t.Fatalf("Hybrid packet mode=%v bandwidth=%v frames=%d", info.TOC.Mode, info.TOC.Bandwidth, len(frames))
+	}
+
+	qextPacket := encodeLibopusPacketAtBitrate(t, opusDemo, channels, qextPCM, false, true, 96000)
+	_, _, padding, nbFrames, err := parsePacketFramesAndPadding(qextPacket)
+	if err != nil {
+		t.Fatalf("parsePacketFramesAndPadding(QEXT): %v", err)
+	}
+	ext, ok, err := findPacketExtension(padding, nbFrames, qextPacketExtensionID)
+	if err != nil {
+		t.Fatalf("findPacketExtension(QEXT): %v", err)
+	}
+	if !ok || len(ext.Data) == 0 {
+		t.Fatal("libopus packet missing QEXT payload")
+	}
+
+	packet := make([]byte, len(hybridPacket)+len(ext.Data)+64)
+	n, err := buildRepacketizedPacketWithOptions(
+		hybridPacket[0]&^byte(0x03),
+		frames,
+		packet,
+		0,
+		false,
+		[]packetExtensionData{{
+			ID:    qextPacketExtensionID,
+			Frame: 0,
+			Data:  ext.Data,
+		}},
+	)
+	if err != nil {
+		t.Fatalf("build hybrid QEXT packet: %v", err)
+	}
+	packet = packet[:n]
+
+	builtInfo, _, builtPadding, builtFrames, err := parsePacketFramesAndPadding(packet)
+	if err != nil {
+		t.Fatalf("parsePacketFramesAndPadding(built): %v", err)
+	}
+	if builtInfo.TOC.Mode != ModeHybrid {
+		t.Fatalf("built packet mode=%v want Hybrid", builtInfo.TOC.Mode)
+	}
+	if _, ok, err := findPacketExtension(builtPadding, builtFrames, qextPacketExtensionID); err != nil || !ok {
+		t.Fatalf("built packet missing QEXT extension ok=%v err=%v", ok, err)
+	}
+	return packet
+}
+
+func TestDecodeHybridLibopusQEXTPacketMatchesLibopus(t *testing.T) {
+	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	if err != nil {
+		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+	}
+
+	for _, channels := range []int{1, 2} {
+		channels := channels
+		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
+			packet := makeHybridQEXTPacketForTest(t, opusDemo, channels)
+			dec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			got := make([]float32, 960*channels)
+			n, err := dec.Decode(packet, got)
+			if err != nil {
+				t.Fatalf("Decode: %v", err)
+			}
+			if n != 960 {
+				t.Fatalf("Decode samples=%d want 960", n)
+			}
+
+			tmpDir := t.TempDir()
+			bitstreamPath := filepath.Join(tmpDir, "hybrid_qext.bit")
+			outputPath := filepath.Join(tmpDir, "hybrid_qext.raw")
+			if err := benchutil.WriteRepeatedOpusDemoBitstream(bitstreamPath, [][]byte{packet}, 1); err != nil {
+				t.Fatalf("WriteRepeatedOpusDemoBitstream: %v", err)
+			}
+			cmd := exec.Command(opusDemo, "-d", "48000", fmt.Sprint(channels), bitstreamPath, outputPath)
+			out, err := cmd.CombinedOutput()
+			if err != nil {
+				t.Fatalf("opus_demo decode failed: %v (%s)", err, bytes.TrimSpace(out))
+			}
+
+			refData, err := os.ReadFile(outputPath)
+			if err != nil {
+				t.Fatalf("read opus_demo output: %v", err)
+			}
+			if len(refData) < len(got)*2 {
+				t.Fatalf("opus_demo output bytes=%d want at least %d", len(refData), len(got)*2)
+			}
+			refData = refData[:len(got)*2]
+
+			var (
+				maxDiff    float64
+				maxDiffIdx int
+			)
+			for i := range got {
+				ref := float32(int16(binary.LittleEndian.Uint16(refData[i*2:]))) / 32768.0
+				quantized := float32(float32ToInt16(got[i])) / 32768.0
+				diff := math.Abs(float64(quantized - ref))
+				if diff > maxDiff {
+					maxDiff = diff
+					maxDiffIdx = i
+				}
+			}
+			if maxDiff > 2.0/32768.0 {
+				t.Fatalf("max diff too high: got %.2e want <= %.2e at sample=%d frame=%d ch=%d", maxDiff, 2.0/32768.0, maxDiffIdx, maxDiffIdx/channels, maxDiffIdx%channels)
 			}
 		})
 	}

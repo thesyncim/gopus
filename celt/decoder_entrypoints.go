@@ -113,6 +113,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	d.beginDecodedPacketPLCState()
 	d.SetRangeDecoder(rd)
 	d.prepareMonoEnergyFromStereo()
+	qextPayload := d.takeQEXTPayload()
 
 	// Get mode configuration
 	mode := GetModeConfig(frameSize)
@@ -202,12 +203,12 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	balance := allocation.balance
 	codedBands := allocation.codedBands
 
-	coeffsL, coeffsR := d.decodeHybridSpectrum(rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, d.channels, d.channels == 1, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
+	coeffsL, coeffsR, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, d.channels, d.channels == 1, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
 	d.applyPendingPLCPrefilterAndFold()
-	samples := d.synthesizeHybridDecodedFrame(frameSize, mode.LM, end, hybridBinStart, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset, energies, coeffsL, coeffsR)
-	if err := d.finalizeDecodedFrameState(frameSize, start, end, lm, transient, energies, prev1Energy, nil, rd); err != nil {
+	samples := d.synthesizeHybridDecodedFrame(frameSize, mode.LM, end, hybridBinStart, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset, energies, coeffsL, coeffsR, qext)
+	if err := d.finalizeDecodedFrameState(frameSize, start, end, lm, transient, energies, prev1Energy, qext, rd); err != nil {
 		return nil, err
 	}
 	return samples, nil

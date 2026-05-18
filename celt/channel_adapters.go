@@ -567,6 +567,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	}()
 
 	d.SetRangeDecoder(rd)
+	qextPayload := d.takeQEXTPayload()
 
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
@@ -653,9 +654,19 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	balance := allocation.balance
 	codedBands := allocation.codedBands
 
-	coeffsMono, _ := d.decodeHybridSpectrum(rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, 1, false, monoEnergies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
+	coeffsMono, _, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, 1, false, monoEnergies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 
-	denormalizeCoeffs(coeffsMono, monoEnergies, end, frameSize)
+	if qext != nil && qext.end > 0 {
+		qextState := d.ensureQEXTState()
+		specMono := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsMono))
+		denormalizeBandsPackedInto(specMono, coeffsMono, monoEnergies, HybridCELTStartBand, end, lm, EBands[:])
+		if qext.coeffsL != nil {
+			denormalizeBandsPackedInto(specMono, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
+		}
+		coeffsMono = specMono
+	} else {
+		denormalizeCoeffs(coeffsMono, monoEnergies, end, frameSize)
+	}
 
 	d.channels = origChannels
 	d.prevEnergy = origPrevEnergy
@@ -702,8 +713,14 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	d.SetPrevEnergyWithPrev(prev1Energy, stereoEnergies)
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, origChannels)
+	var extDec *rangecoding.Decoder
+	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
+		return nil, ErrInvalidFrame
+	} else if qext != nil {
+		extDec = qext.dec
+	}
 
-	d.rng = rd.Range()
+	d.rng = combineFinalRange(rd, extDec)
 	d.resetPLCCadence(frameSize, origChannels)
 
 	return samples, nil
@@ -728,6 +745,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	}()
 
 	d.SetRangeDecoder(rd)
+	qextPayload := d.takeQEXTPayload()
 
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
@@ -822,18 +840,34 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	balance := allocation.balance
 	codedBands := allocation.codedBands
 
-	coeffsL, coeffsR := d.decodeHybridSpectrum(rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, d.channels, origChannels == 1, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
+	coeffsL, coeffsR, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, d.channels, origChannels == 1, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
 	energiesL := energies[:end]
 	energiesR := energies[end:]
-	denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
-	denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
-	for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
-		coeffsL[i] = 0
-	}
-	for i := 0; i < hybridBinStart && i < len(coeffsR); i++ {
-		coeffsR[i] = 0
+	if qext != nil && qext.end > 0 {
+		qextState := d.ensureQEXTState()
+		specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
+		specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
+		denormalizeBandsPackedInto(specL, coeffsL, energiesL, HybridCELTStartBand, end, lm, EBands[:])
+		denormalizeBandsPackedInto(specR, coeffsR, energiesR, HybridCELTStartBand, end, lm, EBands[:])
+		if qext.coeffsL != nil {
+			denormalizeBandsPackedInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
+		}
+		if qext.coeffsR != nil {
+			denormalizeBandsPackedInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands)
+		}
+		coeffsL = specL
+		coeffsR = specR
+	} else {
+		denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
+		denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
+		for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
+			coeffsL[i] = 0
+		}
+		for i := 0; i < hybridBinStart && i < len(coeffsR); i++ {
+			coeffsR[i] = 0
+		}
 	}
 
 	coeffsMono := ensureFloat64Slice(&d.scratchMonoMix, len(coeffsL))
@@ -845,7 +879,13 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, 2)
-	d.rng = rd.Range()
+	var extDec *rangecoding.Decoder
+	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
+		return nil, ErrInvalidFrame
+	} else if qext != nil {
+		extDec = qext.dec
+	}
+	d.rng = combineFinalRange(rd, extDec)
 
 	d.channels = origChannels
 	d.applyPendingPLCPrefilterAndFold()
