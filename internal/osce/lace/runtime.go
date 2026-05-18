@@ -936,7 +936,7 @@ func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View
 		return
 	}
 	for i := 0; i < cols; i++ {
-		q[i] = dnnmath.Cgemv8x4QuantizeInput(x[i])
+		q[i] = dnnmath.Cgemv8x4QuantizeInputScalar(x[i])
 	}
 	for i := 0; i < rows; i++ {
 		out[i] = 0
@@ -973,9 +973,9 @@ func computeActivation(out, in []float32, n, activation int) {
 			copy(out[:n], in[:n])
 		}
 	case actSigmoid:
-		dnnmath.SigmoidVectorApprox(out, in, n)
+		dnnmath.SigmoidVectorScalarApprox(out, in, n)
 	case actTanh:
-		dnnmath.TanhVectorApprox(out, in, n)
+		dnnmath.TanhVectorScalarApprox(out, in, n)
 	case actRelu:
 		for i := 0; i < n; i++ {
 			v := in[i]
@@ -987,7 +987,7 @@ func computeActivation(out, in []float32, n, activation int) {
 	case actSoftmax:
 		dnnmath.SoftmaxApprox(out, in, n)
 	case actExp:
-		dnnmath.ExpVectorApprox(out, in, n)
+		dnnmath.ExpVectorScalarApprox(out, in, n)
 	default:
 		copy(out[:n], in[:n])
 	}
@@ -1322,7 +1322,7 @@ func adashapeProcessFrame(
 		*interpState = tmpBuf[i]
 	}
 
-	dnnmath.ExpVectorApprox(outBuf[:frameSize], outBuf[:frameSize], frameSize)
+	dnnmath.ExpVectorScalarApprox(outBuf[:frameSize], outBuf[:frameSize], frameSize)
 	for i := 0; i < frameSize; i++ {
 		xOut[i] = outBuf[i] * xIn[i]
 	}

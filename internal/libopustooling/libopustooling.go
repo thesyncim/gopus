@@ -19,17 +19,22 @@ const (
 	// vec_avx.h unless the helper build explicitly undefines those macros.
 	ScalarDNNBuildCFLAGS = "-g -O2 -fvisibility=hidden -U__AVX__ -U__AVX2__ -U__FMA__ -U__SSE__ -U__SSE2__ -U__SSE3__ -U__SSSE3__ -U__SSE4_1__ -U__SSE4_2__"
 
+	// OSCEScalarDNNBuildCFLAGS keeps OSCE BWE/LACE reference helpers on the
+	// generic DNN path even on ARM, where dnn/vec.h checks compiler NEON macros
+	// directly.
+	OSCEScalarDNNBuildCFLAGS = "-g -O2 -fvisibility=hidden -DDISABLE_NEON -U__ARM_NEON__ -U__ARM_NEON -U__AVX__ -U__AVX2__ -U__FMA__ -U__SSE__ -U__SSE2__ -U__SSE3__ -U__SSSE3__ -U__SSE4_1__ -U__SSE4_2__"
+
 	scalarDNNBuildStampFile = ".gopus-scalar-dnn-build"
 	scalarDNNBuildStamp     = "gopus scalar libopus DNN helper build v2\nCFLAGS=" + ScalarDNNBuildCFLAGS + "\n"
 
 	// OSCE-enabled scalar build stamp. The OSCE build pulls in additional
 	// source (`dnn/osce.c`, `dnn/osce_features.c`, `dnn/bbwenet_data.c`, ...)
 	// because `--enable-osce` / `--enable-osce-bwe` are passed to configure.
-	// The CFLAGS are identical to the regular scalar build (same x86 vector
-	// macros need disabling), but the stamp is different so a stale plain
-	// scalar build cannot be reused as an OSCE build.
+	// The CFLAGS are stricter than the regular scalar build because OSCE parity
+	// fixtures exercise the generic DNN path on ARM too. The stamp is different
+	// so a stale plain scalar build cannot be reused as an OSCE build.
 	osceScalarDNNBuildStampFile = ".gopus-scalar-dnn-build-osce"
-	osceScalarDNNBuildStamp     = "gopus scalar libopus DNN helper build v2 (osce)\nCFLAGS=" + ScalarDNNBuildCFLAGS + "\n"
+	osceScalarDNNBuildStamp     = "gopus scalar libopus DNN helper build v3 (osce)\nCFLAGS=" + OSCEScalarDNNBuildCFLAGS + "\n"
 )
 
 // DefaultSearchRoots covers common invocation locations:
@@ -206,6 +211,21 @@ func ScalarDNNBuildEnv() []string {
 		dst = append(dst, kv)
 	}
 	return append(dst, "CFLAGS="+ScalarDNNBuildCFLAGS, "CPPFLAGS=")
+}
+
+// OSCEScalarDNNBuildEnv returns a controlled environment for OSCE reference
+// helper builds.
+func OSCEScalarDNNBuildEnv() []string {
+	env := os.Environ()
+	dst := env[:0]
+	for _, kv := range env {
+		name, _, ok := strings.Cut(kv, "=")
+		if ok && (name == "CFLAGS" || name == "CPPFLAGS") {
+			continue
+		}
+		dst = append(dst, kv)
+	}
+	return append(dst, "CFLAGS="+OSCEScalarDNNBuildCFLAGS, "CPPFLAGS=")
 }
 
 // ScalarDNNBuildIsCurrent reports whether buildDir was produced with the

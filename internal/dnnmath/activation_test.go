@@ -90,6 +90,21 @@ func TestVectorActivationsMatchActiveTailPath(t *testing.T) {
 	}
 }
 
+func TestScalarVectorActivationsMatchScalarReferencePath(t *testing.T) {
+	in := []float32{-0.75}
+	tanhOut := make([]float32, 1)
+	TanhVectorScalarApprox(tanhOut, in, 1)
+	sigmoidOut := make([]float32, 1)
+	SigmoidVectorScalarApprox(sigmoidOut, in, 1)
+
+	if got, want := math.Float32bits(tanhOut[0]), math.Float32bits(TanhScalarApprox(in[0])); got != want {
+		t.Fatalf("TanhVectorScalarApprox bits=0x%08x want 0x%08x", got, want)
+	}
+	if got, want := math.Float32bits(sigmoidOut[0]), math.Float32bits(SigmoidScalarApprox(in[0])); got != want {
+		t.Fatalf("SigmoidVectorScalarApprox bits=0x%08x want 0x%08x", got, want)
+	}
+}
+
 func TestExpVectorApproxMatchesActiveTailPath(t *testing.T) {
 	in := []float32{-1, 0, 1, 2, 0.125}
 	out := make([]float32, len(in))
@@ -101,6 +116,18 @@ func TestExpVectorApproxMatchesActiveTailPath(t *testing.T) {
 	}
 	if gotBits, wantBits := math.Float32bits(out[len(out)-1]), math.Float32bits(want); gotBits != wantBits {
 		t.Fatalf("ExpVectorApprox tail bits=0x%08x want 0x%08x", gotBits, wantBits)
+	}
+}
+
+func TestExpVectorScalarApproxMatchesScalarReferencePath(t *testing.T) {
+	in := []float32{-1, 0, 1, 2, 0.125}
+	out := make([]float32, len(in))
+	ExpVectorScalarApprox(out, in, len(in))
+
+	for i, x := range in {
+		if gotBits, wantBits := math.Float32bits(out[i]), math.Float32bits(ExpApprox(x)); gotBits != wantBits {
+			t.Fatalf("ExpVectorScalarApprox[%d] bits=0x%08x want 0x%08x", i, gotBits, wantBits)
+		}
 	}
 }
 
@@ -122,6 +149,23 @@ func TestCgemv8x4QuantizeInputMatchesActiveArch(t *testing.T) {
 		}
 		if got := Cgemv8x4QuantizeInput(x); got != want {
 			t.Fatalf("Cgemv8x4QuantizeInput(%g)=%d want %d", x, got, want)
+		}
+	}
+}
+
+func TestCgemv8x4QuantizeInputScalarMatchesScalarReferencePath(t *testing.T) {
+	cases := []float32{
+		-1,
+		float32(-2.5 / 127),
+		0,
+		float32(2.5 / 127),
+		1,
+	}
+
+	for _, x := range cases {
+		want := int8(int(math.Floor(float64(float32(0.5) + float32(127)*x))))
+		if got := Cgemv8x4QuantizeInputScalar(x); got != want {
+			t.Fatalf("Cgemv8x4QuantizeInputScalar(%g)=%d want %d", x, got, want)
 		}
 	}
 }

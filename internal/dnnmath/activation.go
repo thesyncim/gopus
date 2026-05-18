@@ -68,6 +68,11 @@ func SigmoidVectorApprox(out, in []float32, n int) {
 		}
 		return
 	}
+	SigmoidVectorScalarApprox(out, in, n)
+}
+
+// SigmoidVectorScalarApprox mirrors libopus' generic DNN sigmoid helper.
+func SigmoidVectorScalarApprox(out, in []float32, n int) {
 	for i := 0; i < n; i++ {
 		out[i] = SigmoidScalarApprox(in[i])
 	}
@@ -89,6 +94,11 @@ func TanhVectorApprox(out, in []float32, n int) {
 		}
 		return
 	}
+	TanhVectorScalarApprox(out, in, n)
+}
+
+// TanhVectorScalarApprox mirrors libopus' generic DNN tanh helper.
+func TanhVectorScalarApprox(out, in []float32, n int) {
 	for i := 0; i < n; i++ {
 		out[i] = TanhScalarApprox(in[i])
 	}
@@ -116,6 +126,11 @@ func ExpVectorApprox(out, in []float32, n int) {
 		}
 		return
 	}
+	ExpVectorScalarApprox(out, in, n)
+}
+
+// ExpVectorScalarApprox mirrors libopus' generic DNN exponent kernel.
+func ExpVectorScalarApprox(out, in []float32, n int) {
 	for i := 0; i < n; i++ {
 		out[i] = ExpApprox(in[i])
 	}
@@ -141,6 +156,12 @@ func Cgemv8x4QuantizeInput(x float32) int8 {
 	if useNEONCgemvQuantize {
 		return int8(int32(math.RoundToEven(float64(float32(127) * x))))
 	}
+	return Cgemv8x4QuantizeInputScalar(x)
+}
+
+// Cgemv8x4QuantizeInputScalar mirrors libopus' generic cgemv8x4 input
+// quantizer.
+func Cgemv8x4QuantizeInputScalar(x float32) int8 {
 	return int8(int(math.Floor(float64(float32(0.5) + float32(127)*x))))
 }
 

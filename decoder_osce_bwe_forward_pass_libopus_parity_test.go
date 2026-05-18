@@ -62,20 +62,20 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 	}
 
 	cases := []struct {
-		name      string
-		numIn16   int
-		numFrames int
+		name               string
+		numIn16            int
+		numFrames          int
+		outputAbsTolerance float32
+		outputRMSTolerance float64
 	}{
-		{"10ms", 160, 1},
-		{"20ms", 320, 2},
+		{"10ms", 160, 1, 0, 0},
+		// 20 ms still has one int16 threshold crossing in the delayed wrapper.
+		{"20ms", 320, 2, 3.1e-5, 1.2e-6},
 	}
 
 	const (
 		featureTolerance   = 6e-7
 		instafreqTolerance = 1.5e-7
-		// Wrapper parity is int16-domain: one LSB is 1/32768.
-		outputAbsTolerance = 3.2e-5
-		outputRMSTolerance = 1.6e-6
 	)
 
 	for _, tc := range cases {
@@ -181,7 +181,7 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 			}
 			rms := math.Sqrt(sumSq / float64(len(refOut)))
 			t.Logf("OSCE BWE forward-pass parity (%s): maxAbs=%g rms=%g (tolerances: maxAbs<=%g rms<=%g)",
-				tc.name, maxAbsErr, rms, outputAbsTolerance, outputRMSTolerance)
+				tc.name, maxAbsErr, rms, tc.outputAbsTolerance, tc.outputRMSTolerance)
 
 			// Sanity: neither side should be all-zero.
 			if rmsOfFloat32(gopusOut) == 0 {
@@ -191,11 +191,11 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 				t.Fatalf("libopus reference has zero energy")
 			}
 
-			if maxAbsErr > outputAbsTolerance {
-				t.Errorf("OSCE BWE forward-pass max-abs error %g exceeds %g (signal-net divergence beyond bounded contract)", maxAbsErr, outputAbsTolerance)
+			if maxAbsErr > tc.outputAbsTolerance {
+				t.Errorf("OSCE BWE forward-pass max-abs error %g exceeds %g (signal-net divergence beyond bounded contract)", maxAbsErr, tc.outputAbsTolerance)
 			}
-			if rms > outputRMSTolerance {
-				t.Errorf("OSCE BWE forward-pass rms error %g exceeds %g (signal-net divergence beyond bounded contract)", rms, outputRMSTolerance)
+			if rms > tc.outputRMSTolerance {
+				t.Errorf("OSCE BWE forward-pass rms error %g exceeds %g (signal-net divergence beyond bounded contract)", rms, tc.outputRMSTolerance)
 			}
 		})
 	}
@@ -227,8 +227,8 @@ func TestOSCEBWERawSignalNetMatchesLibopus(t *testing.T) {
 	}
 
 	const (
-		rawAbsTolerance = 8e-7
-		rawRMSTolerance = 8e-8
+		rawAbsTolerance = 2.5e-7
+		rawRMSTolerance = 6e-8
 	)
 
 	for _, tc := range cases {

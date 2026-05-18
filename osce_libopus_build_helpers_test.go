@@ -75,7 +75,7 @@ func ensureLibopusOSCEBuild(repoRoot string) (sourceDir, buildDir string, err er
 			"--disable-intrinsics",
 		)
 		cmd.Dir = buildDir
-		cmd.Env = libopustooling.ScalarDNNBuildEnv()
+		cmd.Env = libopustooling.OSCEScalarDNNBuildEnv()
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return "", "", fmt.Errorf("configure osce libopus build: %w (%s)", err, bytes.TrimSpace(output))
 		}
@@ -83,7 +83,7 @@ func ensureLibopusOSCEBuild(repoRoot string) (sourceDir, buildDir string, err er
 
 	makeCmd := exec.Command("make", fmt.Sprintf("-j%d", max(1, runtime.NumCPU())))
 	makeCmd.Dir = buildDir
-	makeCmd.Env = libopustooling.ScalarDNNBuildEnv()
+	makeCmd.Env = libopustooling.OSCEScalarDNNBuildEnv()
 	if output, err := makeCmd.CombinedOutput(); err != nil {
 		return "", "", fmt.Errorf("build osce libopus: %w (%s)", err, bytes.TrimSpace(output))
 	}
