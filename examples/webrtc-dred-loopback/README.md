@@ -37,7 +37,7 @@ prints JSON stats:
 
 ```bash
 go run -tags gopus_dred . \
-  -headless -duration 6s -loss 30 \
+  -headless -duration 6s -loss 30 -loss-seed 1 \
   -encoder-dnn dnn/encoder-dred.blob \
   -decoder-dnn dnn/decoder-dred.blob
 ```
@@ -49,10 +49,14 @@ if receiver-side cached DRED recovery should be exercised.
 ## Controls
 
 - `RTP loss`: drops outgoing RTP packets while preserving sequence gaps so the
-  receiver calls `Decode(nil, pcm)` for concealment.
+  receiver exercises loss recovery.
 - `Bitrate`: updates the live gopus encoder.
-- `In-band FEC`: toggles ordinary Opus FEC independently of DRED.
+- `In-band FEC`: toggles ordinary Opus FEC independently of DRED. Single
+  missing packets are recovered with `DecodeWithFEC(nextPacket, pcm, true)`.
 - `Enable DRED`: arms `SetDREDDuration` when built with `-tags gopus_dred`.
+- `Depth`: DRED depth in 2.5 ms units. The loss slider also updates the
+  encoder expected-loss control; at 0% expected loss the encoder may not spend
+  bits on DRED payloads even when the DRED toggle is on.
 - `Live monitor`: plays decoded receiver audio through the speakers. Leave this
   off when speakers are near the microphone.
 - `Record WAV`: writes decoded receiver audio under `recordings/`.
@@ -67,9 +71,11 @@ The Gio stats panel and `-headless` JSON report include:
 - live packet rate, drop percentage, delivered bitrate, and concealment
   milliseconds per second
 - actual loss, DRED payload coverage, encoded/delivered/dropped bitrate
+- FEC recovery attempts, FEC output frames, FEC fallbacks, and receiver
+  PLC/DRED loss-path frames
 - received and concealed audio duration, plus latest decoded RMS/peak
-- `MindBlownScore` and `MindBlown`, a demo-friendly resilience summary that
-  reacts to loss, DRED coverage, concealment, and encode/decode errors
+- `ResilienceScore` and `RecoverySummary`, a compact recovery-health summary
+  based on loss, DRED payload coverage, FEC use, concealment, and errors
 
 ## Notes
 

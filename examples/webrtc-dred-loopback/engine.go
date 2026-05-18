@@ -25,6 +25,7 @@ type engineConfig struct {
 	LivePlayback    bool
 	RecordWAV       bool
 	RecordDir       string
+	LossSeed        uint64
 }
 
 type engineStats struct {
@@ -40,6 +41,10 @@ type engineStats struct {
 	PacketsDropped            uint64
 	PacketsReceived           uint64
 	ConcealedFrames           uint64
+	FECRecoveryAttempts       uint64
+	FECFrames                 uint64
+	FECFallbackFrames         uint64
+	LossPathFrames            uint64
 	DREDPackets               uint64
 	EncodedBytes              uint64
 	DeliveredBytes            uint64
@@ -64,8 +69,8 @@ type engineStats struct {
 	CurrentDropPercent        float64
 	CurrentDeliveredKbps      float64
 	CurrentConcealMSPerSecond float64
-	MindBlownScore            int
-	MindBlown                 string
+	ResilienceScore           int
+	RecoverySummary           string
 	LastRecording             string
 }
 
@@ -88,10 +93,19 @@ type engine struct {
 	stats         engineStats
 	started       time.Time
 	lastRoll      rollingStats
+	lossRand      *rand.Rand
 	closed        bool
 	stopCh        chan struct{}
 	done          sync.WaitGroup
 }
+
+type decodeKind int
+
+const (
+	decodeNormal decodeKind = iota
+	decodeLossPath
+	decodeFEC
+)
 
 type rollingStats struct {
 	at               time.Time
@@ -123,6 +137,7 @@ func defaultEngineConfig(recordDir, encBlob, decBlob string) engineConfig {
 		LivePlayback:    false,
 		RecordWAV:       true,
 		RecordDir:       recordDir,
+		LossSeed:        1,
 	}
 }
 
@@ -135,6 +150,10 @@ func startEngine(cfg engineConfig) (*engine, error) {
 }
 
 func startEngineWithAudio(cfg engineConfig, audio audioBackend) (*engine, error) {
+	lossSeed := cfg.LossSeed
+	if lossSeed == 0 {
+		lossSeed = 1
+	}
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
 		SampleRate:  audioSampleRate,
 		Channels:    audioChannels,
@@ -151,11 +170,12 @@ func startEngineWithAudio(cfg engineConfig, audio audioBackend) (*engine, error)
 	}
 
 	e := &engine{
-		enc:     enc,
-		dec:     dec,
-		audio:   audio,
-		started: time.Now(),
-		stopCh:  make(chan struct{}),
+		enc:      enc,
+		dec:      dec,
+		audio:    audio,
+		started:  time.Now(),
+		lossRand: rand.New(rand.NewPCG(lossSeed, lossSeed^0x9e3779b97f4a7c15)),
+		stopCh:   make(chan struct{}),
 		stats: engineStats{
 			Running:    true,
 			State:      "starting",
@@ -306,6 +326,9 @@ func (e *engine) UpdateConfig(cfg engineConfig) error {
 	if cfg.DREDDuration > 104 {
 		cfg.DREDDuration = 104
 	}
+	if cfg.LossSeed == 0 {
+		cfg.LossSeed = 1
+	}
 
 	if err := e.enc.SetBitrate(cfg.Bitrate); err != nil {
 		return err
@@ -361,7 +384,11 @@ func (e *engine) UpdateConfig(cfg engineConfig) error {
 		}
 	}
 	if cfg.DRED && e.loadedEncBlob != "" && e.loadedDecBlob != "" {
-		status = fmt.Sprintf("DRED armed, duration=%d", cfg.DREDDuration)
+		if cfg.ExpectedLoss == 0 {
+			status = fmt.Sprintf("DRED armed, expected loss is 0%%, depth=%d", cfg.DREDDuration)
+		} else {
+			status = fmt.Sprintf("DRED armed, expected loss=%d%%, depth=%d", cfg.ExpectedLoss, cfg.DREDDuration)
+		}
 	}
 
 	if cfg.RecordWAV && e.recorder == nil {
@@ -427,7 +454,7 @@ func (e *engine) sendLoop() {
 			continue
 		}
 
-		drop := lossPercent > 0 && rand.IntN(100) < lossPercent
+		drop := lossPercent > 0 && e.lossRand.IntN(100) < lossPercent
 		if drop {
 			e.bump(func(s *engineStats) {
 				s.PacketsDropped++
@@ -493,25 +520,48 @@ func (e *engine) receiveLoop(remote *webrtc.TrackRemote) {
 		if haveExpected {
 			missing := int(pkt.SequenceNumber - expected)
 			if missing > 0 && missing < 100 {
-				for i := 0; i < missing; i++ {
-					e.decodeAndOutput(nil, pcm, true)
+				recoverWithFEC := e.fecEnabled()
+				plcFrames := missing
+				if recoverWithFEC {
+					plcFrames--
+				}
+				for i := 0; i < plcFrames; i++ {
+					e.decodeAndOutput(nil, pcm, decodeLossPath)
+				}
+				if recoverWithFEC && !e.decodeAndOutput(pkt.Payload, pcm, decodeFEC) {
+					e.bump(func(s *engineStats) { s.FECFallbackFrames++ })
+					e.decodeAndOutput(nil, pcm, decodeLossPath)
 				}
 			}
 		}
 		expected = pkt.SequenceNumber + 1
 		haveExpected = true
 
-		e.decodeAndOutput(pkt.Payload, pcm, false)
+		e.decodeAndOutput(pkt.Payload, pcm, decodeNormal)
 	}
 }
 
-func (e *engine) decodeAndOutput(payload []byte, pcm []float32, concealed bool) {
+func (e *engine) fecEnabled() bool {
 	e.mu.Lock()
-	samples, err := e.dec.Decode(payload, pcm)
+	enabled := e.cfg.FEC
+	e.mu.Unlock()
+	return enabled
+}
+
+func (e *engine) decodeAndOutput(payload []byte, pcm []float32, kind decodeKind) bool {
+	e.mu.Lock()
+	var samples int
+	var err error
+	if kind == decodeFEC {
+		e.stats.FECRecoveryAttempts++
+		samples, err = e.dec.DecodeWithFEC(payload, pcm, true)
+	} else {
+		samples, err = e.dec.Decode(payload, pcm)
+	}
 	if err != nil {
 		e.stats.DecodeErrors++
 		e.mu.Unlock()
-		return
+		return false
 	}
 	if samples > 0 {
 		out := pcm[:samples*audioChannels]
@@ -535,14 +585,21 @@ func (e *engine) decodeAndOutput(payload []byte, pcm []float32, concealed bool) 
 			}
 		}
 	}
-	if concealed {
+	switch kind {
+	case decodeLossPath:
 		e.stats.ConcealedFrames++
+		e.stats.LossPathFrames++
 		e.stats.ConcealedSamples += uint64(samples)
-	} else {
+	case decodeFEC:
+		e.stats.ConcealedFrames++
+		e.stats.FECFrames++
+		e.stats.ConcealedSamples += uint64(samples)
+	default:
 		e.stats.PacketsReceived++
 		e.stats.ReceivedSamples += uint64(samples)
 	}
 	e.mu.Unlock()
+	return true
 }
 
 func (e *engine) Stats() engineStats {
@@ -598,7 +655,7 @@ func (e *engine) refreshStatsLocked(now time.Time) {
 		e.lastRoll = current
 	}
 
-	s.MindBlownScore, s.MindBlown = mindBlownSummary(*s, totalPackets)
+	s.ResilienceScore, s.RecoverySummary = recoverySummary(*s, totalPackets)
 }
 
 func percent(part, total float64) float64 {
@@ -619,29 +676,30 @@ func ema(old, current float64) float64 {
 	return old*0.65 + current*0.35
 }
 
-func mindBlownSummary(s engineStats, totalPackets uint64) (int, string) {
+func recoverySummary(s engineStats, totalPackets uint64) (int, string) {
 	if totalPackets == 0 {
 		return 0, "waiting for the first packet"
 	}
 	lossScore := math.Min(40, s.ActualLossPercent*1.2)
-	dredScore := math.Min(35, s.DREDCoveragePercent*0.35)
-	concealScore := math.Min(20, s.ConcealedAudioMS/100)
+	dredScore := math.Min(30, s.DREDCoveragePercent*0.30)
+	fecScore := math.Min(15, float64(s.FECFrames)*0.5)
+	concealScore := math.Min(15, s.ConcealedAudioMS/120)
 	cleanScore := 0.0
 	if s.EncodeErrors+s.DecodeErrors == 0 {
 		cleanScore = 10
 	}
-	score := int(math.Round(math.Min(100, lossScore+dredScore+concealScore+cleanScore)))
+	score := int(math.Round(math.Min(100, lossScore+dredScore+fecScore+concealScore+cleanScore)))
 	switch {
 	case score >= 90:
-		return score, fmt.Sprintf("MIND BLOWN: %.1f%% loss, %.1f%% DRED coverage, zero decoder drama", s.ActualLossPercent, s.DREDCoveragePercent)
+		return score, fmt.Sprintf("%.1f%% loss with %.1f%% DRED payload coverage and clean decode", s.ActualLossPercent, s.DREDCoveragePercent)
 	case score >= 75:
-		return score, fmt.Sprintf("wild: %.0f ms/s being concealed live", s.CurrentConcealMSPerSecond)
+		return score, fmt.Sprintf("%.0f ms/s recovered on the loss path", s.CurrentConcealMSPerSecond)
 	case score >= 50:
-		return score, "heating up: concealment is visibly doing work"
+		return score, "loss recovery is active"
 	case s.DREDPackets == 0:
 		return score, "DRED payloads not detected yet"
 	default:
-		return score, "clean link: raise loss for more spectacle"
+		return score, "link is clean"
 	}
 }
 

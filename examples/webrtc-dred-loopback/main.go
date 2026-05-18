@@ -56,6 +56,7 @@ func main() {
 		source      = flag.String("source", "tone", "headless source: tone or mic")
 		duration    = flag.Duration("duration", 5*time.Second, "headless run duration")
 		loss        = flag.Int("loss", 15, "headless RTP loss percentage")
+		lossSeed    = flag.Uint64("loss-seed", 1, "headless deterministic RTP loss seed")
 		bitrate     = flag.Int("bitrate", 48000, "headless encoder bitrate")
 		fec         = flag.Bool("fec", false, "enable Opus in-band FEC")
 		dred        = flag.Bool("dred", dredControlsAvailable(), "enable DRED when available")
@@ -85,6 +86,7 @@ func main() {
 		cfg.LossPercent = *loss
 		cfg.ExpectedLoss = *loss
 		cfg.Bitrate = *bitrate
+		cfg.LossSeed = *lossSeed
 		cfg.FEC = *fec
 		cfg.DRED = *dred
 		stats, err := runHeadless(cfg, *source, *duration)
@@ -320,7 +322,7 @@ func (ui *uiState) dredControls(gtx layout.Context) layout.Dimensions {
 	return ui.panel(gtx, "DRED", func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical, Gap: 8}.Layout(gtx,
 			layout.Rigid(ui.switchRow("Enable DRED", &ui.dredSwitch)),
-			layout.Rigid(ui.sliderRow("Duration", &ui.durationSlider, fmt.Sprintf("%d", sliderInt(ui.durationSlider.Value, 0, 104, 1)))),
+			layout.Rigid(ui.sliderRow("Depth", &ui.durationSlider, fmt.Sprintf("%d x 2.5 ms", sliderInt(ui.durationSlider.Value, 0, 104, 1)))),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return material.Body2(ui.theme, dredBuildStatus()).Layout(gtx)
 			}),
@@ -352,13 +354,14 @@ func (ui *uiState) statsView(gtx layout.Context) layout.Dimensions {
 		stats = ui.engine.Stats()
 	}
 	lines := []string{
-		fmt.Sprintf("mind blown: %d/100 - %s", stats.MindBlownScore, stats.MindBlown),
+		fmt.Sprintf("recovery score: %d/100 - %s", stats.ResilienceScore, stats.RecoverySummary),
 		fmt.Sprintf("state: %s", stats.State),
 		fmt.Sprintf("dred: %s", stats.DREDStatus),
 		fmt.Sprintf("live: %.1f pkt/s, %.1f%% drop, %.1f kbps delivered, %.0f ms/s concealed", stats.CurrentPacketsPerSecond, stats.CurrentDropPercent, stats.CurrentDeliveredKbps, stats.CurrentConcealMSPerSecond),
 		fmt.Sprintf("coverage: actual loss=%.1f%% configured=%d%% expected=%d%% dred=%.1f%%", stats.ActualLossPercent, stats.LossPercent, stats.ExpectedLoss, stats.DREDCoveragePercent),
 		fmt.Sprintf("audio: received=%.2fs concealed=%.2fs total=%.2fs rms=%.3f peak=%.3f", stats.ReceivedAudioMS/1000, stats.ConcealedAudioMS/1000, stats.TotalAudioMS/1000, stats.LastRMS, stats.LastPeak),
 		fmt.Sprintf("packets: sent=%d dropped=%d received=%d concealed=%d dred=%d", stats.PacketsSent, stats.PacketsDropped, stats.PacketsReceived, stats.ConcealedFrames, stats.DREDPackets),
+		fmt.Sprintf("recovery: fec=%d/%d fallback=%d plc-or-dred=%d", stats.FECFrames, stats.FECRecoveryAttempts, stats.FECFallbackFrames, stats.LossPathFrames),
 		fmt.Sprintf("bitrate: encoded=%.1f kbps delivered=%.1f kbps dropped=%.1f kbps last=%d B", stats.EncodedKbps, stats.DeliveredKbps, stats.DroppedKbps, stats.LastPacketBytes),
 		fmt.Sprintf("errors: encode=%d decode=%d mic underruns=%d", stats.EncodeErrors, stats.DecodeErrors, stats.MicUnderruns),
 	}
