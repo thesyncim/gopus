@@ -19,10 +19,10 @@ const (
 	OutputSampleRate = 48000
 
 	// libopus xq16_len is restricted to 160 (10 ms) or 320 (20 ms).
-	frameSize16     = 80  // BBWENET_AF1_FRAME_SIZE / BBWENET_FRAME_SIZE16
-	frameSize32     = 160 // BBWENET_AF2_FRAME_SIZE / BBWENET_TDSHAPE1_FRAME_SIZE
-	frameSize48     = 240 // BBWENET_AF3_FRAME_SIZE / BBWENET_TDSHAPE2_FRAME_SIZE
-	subframesPerFr  = 2
+	frameSize16    = 80  // BBWENET_AF1_FRAME_SIZE / BBWENET_FRAME_SIZE16
+	frameSize32    = 160 // BBWENET_AF2_FRAME_SIZE / BBWENET_TDSHAPE1_FRAME_SIZE
+	frameSize48    = 240 // BBWENET_AF3_FRAME_SIZE / BBWENET_TDSHAPE2_FRAME_SIZE
+	subframesPerFr = 2
 
 	// AdaConv geometry (matches libopus header constants).
 	af1KernelSize  = 16
@@ -47,15 +47,15 @@ const (
 	af3FilterGainA = 1.381551
 
 	// TDShape geometry.
-	tdshape1AvgPoolK    = 8
-	tdshape1InterpolK   = 2
-	tdshape1HiddenDim   = frameSize32 / tdshape1InterpolK // 80
-	tdshape1TenvSize    = frameSize32 / tdshape1AvgPoolK  // 20
+	tdshape1AvgPoolK  = 8
+	tdshape1InterpolK = 2
+	tdshape1HiddenDim = frameSize32 / tdshape1InterpolK // 80
+	tdshape1TenvSize  = frameSize32 / tdshape1AvgPoolK  // 20
 
-	tdshape2AvgPoolK    = 12
-	tdshape2InterpolK   = 2
-	tdshape2HiddenDim   = frameSize48 / tdshape2InterpolK // 120
-	tdshape2TenvSize    = frameSize48 / tdshape2AvgPoolK  // 20
+	tdshape2AvgPoolK  = 12
+	tdshape2InterpolK = 2
+	tdshape2HiddenDim = frameSize48 / tdshape2InterpolK // 120
+	tdshape2TenvSize  = frameSize48 / tdshape2AvgPoolK  // 20
 
 	// Resampler delays (match libopus).
 	resampDelaySamples = 8
@@ -335,7 +335,8 @@ func (s *State) ensureWindows() {
 
 func computeOverlapWindow(window []float32, overlapSize int) {
 	for i := 0; i < overlapSize; i++ {
-		window[i] = float32(0.5 + 0.5*math.Cos(math.Pi*(float64(i)+0.5)/float64(overlapSize)))
+		arg := float32(3.141592653589793) * (float32(i) + 0.5) / float32(overlapSize)
+		window[i] = float32(0.5 + 0.5*math.Cos(float64(arg)))
 	}
 }
 
@@ -551,9 +552,12 @@ func (s *State) interpol32(ch int, xOut, xIn []float32) {
 //	x[i] *= sin(log(|x[i]| + 1e-6)).
 func applyValinActivation(x []float32) {
 	for i := 0; i < len(x); i++ {
-		y := math.Abs(float64(x[i])) + 1e-6
-		y = math.Log(y)
-		x[i] = x[i] * float32(math.Sin(y))
+		v := x[i]
+		if v < 0 {
+			v = -v
+		}
+		y := dnnmath.CeltLog(v + 1e-6)
+		x[i] *= dnnmath.CeltSin(y)
 	}
 }
 
@@ -812,7 +816,7 @@ func adaconvProcessFrame(
 				norm += v * v
 			}
 		}
-		invNorm := 1.0 / (1e-6 + float32(math.Sqrt(float64(norm))))
+		invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
 		scale := invNorm * gainBuf[o]
 		for ic := 0; ic < inChannels; ic++ {
 			for k := 0; k < kernelSize; k++ {
@@ -897,7 +901,7 @@ func adashapeProcessFrame(
 			}
 			sum += v
 		}
-		tenv[i] = float32(math.Log(float64(sum*f + 1.52587890625e-05)))
+		tenv[i] = dnnmath.CeltLog(sum*f + 1.52587890625e-05)
 		mean += tenv[i]
 	}
 	mean /= float32(tenvSize)
@@ -914,7 +918,7 @@ func adashapeProcessFrame(
 	for i := 0; i < hiddenDim; i++ {
 		v := outBuf[i] + tmpBuf[i]
 		if v < 0 {
-			v = 0.2 * v
+			v = float32(0.2 * float64(v))
 		}
 		inBuf[i] = v
 	}

@@ -21,10 +21,10 @@ import (
 //     same state yields different values on hop 2 vs hop 1).
 func TestCalculateFeaturesStructure(t *testing.T) {
 	const (
-		fs       = 16000
-		f0       = 1000 // Hz
-		numHops  = 4
-		hopSize  = bweHalfWindowSize // 160 samples per 10 ms
+		fs      = 16000
+		f0      = 1000 // Hz
+		numHops = 4
+		hopSize = bweHalfWindowSize // 160 samples per 10 ms
 	)
 	xq := make([]int16, numHops*hopSize)
 	for n := range xq {
@@ -76,8 +76,7 @@ func TestCalculateFeaturesStructure(t *testing.T) {
 
 	// Hop 2 onward must differ from hop 0 because by then the analysis window
 	// has slid forward and the previous-spectrum buffer contains real values
-	// rather than zero. (Hop 0 sees zero history & zero last_spec so its
-	// instafreq pairs collapse to the bias term.)
+	// rather than the reset-time 1e-9 prime.
 	hop0 := features[0:bweFeatureDim]
 	hop1 := features[bweFeatureDim : 2*bweFeatureDim]
 	differ := false
@@ -122,6 +121,22 @@ func TestCalculateFeaturesSilenceProducesFloorEnergy(t *testing.T) {
 			if math.Abs(float64(v-expectedFloor)) > 1e-3 {
 				t.Fatalf("hop %d band %d: got %v, want ~%v (silence floor)", hop, b, v, expectedFloor)
 			}
+		}
+	}
+}
+
+func TestFeatureStateResetPrimesLastSpec(t *testing.T) {
+	var state FeatureState
+	state.Reset()
+	if !state.primed {
+		t.Fatalf("Reset did not mark state as primed")
+	}
+	for k := 0; k <= bweMaxInstaFreqBin; k++ {
+		if got := state.lastSpec[2*k]; got != 1e-9 {
+			t.Fatalf("lastSpec real bin %d = %g, want 1e-9", k, got)
+		}
+		if got := state.lastSpec[2*k+1]; got != 0 {
+			t.Fatalf("lastSpec imag bin %d = %g, want 0", k, got)
 		}
 	}
 }

@@ -25,30 +25,30 @@ const (
 	SampleRate = 16000
 
 	// Common subframe geometry.
-	subframeSize    = 80 // LACE_FRAME_SIZE / NOLACE_FRAME_SIZE
+	subframeSize      = 80 // LACE_FRAME_SIZE / NOLACE_FRAME_SIZE
 	subframesPerFrame = 4
-	frame20msSize   = subframesPerFrame * subframeSize // 320
+	frame20msSize     = subframesPerFrame * subframeSize // 320
 
 	// LACE feature net.
-	laceNumFeatures        = 93  // LACE_NUM_FEATURES
-	lacePitchEmbeddingDim  = 64  // LACE_PITCH_EMBEDDING_DIM
-	laceNumbitsEmbeddingDim = 8  // LACE_NUMBITS_EMBEDDING_DIM
-	laceHiddenFeatureDim   = 96  // LACE_HIDDEN_FEATURE_DIM
-	laceCondDim            = 128 // LACE_COND_DIM
-	lacePitchMax           = 300 // LACE_PITCH_MAX
-	lacePreemph            = 0.85
-	laceOverlapSize        = 40 // LACE_OVERLAP_SIZE
+	laceNumFeatures         = 93  // LACE_NUM_FEATURES
+	lacePitchEmbeddingDim   = 64  // LACE_PITCH_EMBEDDING_DIM
+	laceNumbitsEmbeddingDim = 8   // LACE_NUMBITS_EMBEDDING_DIM
+	laceHiddenFeatureDim    = 96  // LACE_HIDDEN_FEATURE_DIM
+	laceCondDim             = 128 // LACE_COND_DIM
+	lacePitchMax            = 300 // LACE_PITCH_MAX
+	lacePreemph             = 0.85
+	laceOverlapSize         = 40 // LACE_OVERLAP_SIZE
 
 	// LACE numbits-embedding ranges and scales.
 	laceNumbitsRangeLow  = 50.0
 	laceNumbitsRangeHigh = 650.0
 
 	// LACE CF1/CF2 (AdaComb) geometry.
-	laceCF1KernelSize    = 16
-	laceCF1LeftPadding   = 8
-	laceCF1FilterGainA   = 0.690776
-	laceCF1FilterGainB   = 0.000000
-	laceCF1LogGainLimit  = 1.151293
+	laceCF1KernelSize   = 16
+	laceCF1LeftPadding  = 8
+	laceCF1FilterGainA  = 0.690776
+	laceCF1FilterGainB  = 0.000000
+	laceCF1LogGainLimit = 1.151293
 
 	// LACE AF1 (AdaConv) geometry.
 	laceAF1KernelSize  = 16
@@ -59,14 +59,14 @@ const (
 	laceAF1OutChannels = 1
 
 	// NoLACE feature net.
-	nolaceNumFeatures        = 93
-	nolacePitchEmbeddingDim  = 64
+	nolaceNumFeatures         = 93
+	nolacePitchEmbeddingDim   = 64
 	nolaceNumbitsEmbeddingDim = 8
-	nolaceHiddenFeatureDim   = 96
-	nolaceCondDim            = 160
-	nolacePitchMax           = 300
-	nolacePreemph            = 0.85
-	nolaceOverlapSize        = 40
+	nolaceHiddenFeatureDim    = 96
+	nolaceCondDim             = 160
+	nolacePitchMax            = 300
+	nolacePreemph             = 0.85
+	nolaceOverlapSize         = 40
 
 	nolaceNumbitsRangeLow  = 50.0
 	nolaceNumbitsRangeHigh = 650.0
@@ -107,8 +107,8 @@ const (
 	nolaceAF4OutChannels = 1
 
 	// NoLACE TDShape (alpha pool / interpolate).
-	nolaceTDShapeAvgPoolK   = 4
-	nolaceTDShapeInterpolK  = 1
+	nolaceTDShapeAvgPoolK  = 4
+	nolaceTDShapeInterpolK = 1
 )
 
 // LACE numbits scales (LACE_NUMBITS_SCALE_0..7).
@@ -154,15 +154,15 @@ type LACEState struct {
 	fnetConv2State [384]float32
 	fnetGRUState   [laceCondDim]float32
 
-	cf1History       [adaCombMaxKernelSize + adaCombMaxLag]float32
-	cf1LastKernel    [adaCombMaxKernelSize]float32
+	cf1History        [adaCombMaxKernelSize + adaCombMaxLag]float32
+	cf1LastKernel     [adaCombMaxKernelSize]float32
 	cf1LastGlobalGain float32
-	cf1LastPitchLag  int
+	cf1LastPitchLag   int
 
-	cf2History       [adaCombMaxKernelSize + adaCombMaxLag]float32
-	cf2LastKernel    [adaCombMaxKernelSize]float32
+	cf2History        [adaCombMaxKernelSize + adaCombMaxLag]float32
+	cf2LastKernel     [adaCombMaxKernelSize]float32
 	cf2LastGlobalGain float32
-	cf2LastPitchLag  int
+	cf2LastPitchLag   int
 
 	af1History    [laceAF1KernelSize * laceAF1InChannels]float32
 	af1LastKernel [laceAF1KernelSize * laceAF1InChannels * laceAF1OutChannels]float32
@@ -184,15 +184,15 @@ type NoLACEState struct {
 	fnetConv2State [384]float32
 	fnetGRUState   [nolaceCondDim]float32
 
-	cf1History       [adaCombMaxKernelSize + adaCombMaxLag]float32
-	cf1LastKernel    [adaCombMaxKernelSize]float32
+	cf1History        [adaCombMaxKernelSize + adaCombMaxLag]float32
+	cf1LastKernel     [adaCombMaxKernelSize]float32
 	cf1LastGlobalGain float32
-	cf1LastPitchLag  int
+	cf1LastPitchLag   int
 
-	cf2History       [adaCombMaxKernelSize + adaCombMaxLag]float32
-	cf2LastKernel    [adaCombMaxKernelSize]float32
+	cf2History        [adaCombMaxKernelSize + adaCombMaxLag]float32
+	cf2LastKernel     [adaCombMaxKernelSize]float32
 	cf2LastGlobalGain float32
-	cf2LastPitchLag  int
+	cf2LastPitchLag   int
 
 	af1History    [nolaceAF1KernelSize * nolaceAF1InChannels]float32
 	af1LastKernel [nolaceAF1KernelSize * nolaceAF1InChannels * nolaceAF1OutChannels]float32
@@ -237,12 +237,12 @@ type NoLACEState struct {
 // Errors returned by Process when the inputs do not match the libopus
 // reference constraints.
 var (
-	errLACENoModel   = errors.New("osce/lace: no model bound")
-	errLACEInLen     = errors.New("osce/lace: unsupported input length (expected 320 samples for 20 ms @ 16 kHz)")
-	errLACEOutLen    = errors.New("osce/lace: output buffer too short (need 320 samples)")
-	errLACEFeatures  = errors.New("osce/lace: invalid features length (expected 4 * 93)")
-	errLACEPeriods   = errors.New("osce/lace: invalid periods length (expected 4)")
-	errLACENumbits   = errors.New("osce/lace: invalid numbits length (expected 2)")
+	errLACENoModel  = errors.New("osce/lace: no model bound")
+	errLACEInLen    = errors.New("osce/lace: unsupported input length (expected 320 samples for 20 ms @ 16 kHz)")
+	errLACEOutLen   = errors.New("osce/lace: output buffer too short (need 320 samples)")
+	errLACEFeatures = errors.New("osce/lace: invalid features length (expected 4 * 93)")
+	errLACEPeriods  = errors.New("osce/lace: invalid periods length (expected 4)")
+	errLACENumbits  = errors.New("osce/lace: invalid numbits length (expected 2)")
 )
 
 // SetModel binds (or clears) the LACE model on the runtime state.
@@ -698,7 +698,8 @@ func (s *NoLACEState) ensureWindow() {
 
 func computeOverlapWindow(window []float32, overlapSize int) {
 	for i := 0; i < overlapSize; i++ {
-		window[i] = float32(0.5 + 0.5*math.Cos(math.Pi*(float64(i)+0.5)/float64(overlapSize)))
+		arg := float32(3.141592653589793) * (float32(i) + 0.5) / float32(overlapSize)
+		window[i] = float32(0.5 + 0.5*math.Cos(float64(arg)))
 	}
 }
 
@@ -1055,10 +1056,10 @@ func adacombProcessFrame(
 	window []float32,
 ) {
 	var (
-		outputBuf      [adaCombMaxFrameSize]float32
-		outputBufLast  [adaCombMaxFrameSize]float32
-		kernelBuf      [adaCombMaxKernelSize]float32
-		inputBuf       [adaCombMaxFrameSize + adaCombMaxLag + adaCombMaxKernelSize]float32
+		outputBuf        [adaCombMaxFrameSize]float32
+		outputBufLast    [adaCombMaxFrameSize]float32
+		kernelBuf        [adaCombMaxKernelSize]float32
+		inputBuf         [adaCombMaxFrameSize + adaCombMaxLag + adaCombMaxKernelSize]float32
 		gain, globalGain float32
 	)
 
@@ -1085,7 +1086,7 @@ func adacombProcessFrame(
 	for k := 0; k < kernelSize; k++ {
 		norm += kernelBuf[k] * kernelBuf[k]
 	}
-	invNorm := 1.0 / (1e-6 + float32(math.Sqrt(float64(norm))))
+	invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
 	scale := invNorm * gain
 	for k := 0; k < kernelSize; k++ {
 		kernelBuf[k] *= scale
@@ -1188,7 +1189,7 @@ func adaconvProcessFrame(
 				norm += v * v
 			}
 		}
-		invNorm := 1.0 / (1e-6 + float32(math.Sqrt(float64(norm))))
+		invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
 		scale := invNorm * gainBuf[o]
 		for ic := 0; ic < inChannels; ic++ {
 			for k := 0; k < kernelSize; k++ {
@@ -1274,7 +1275,7 @@ func adashapeProcessFrame(
 			}
 			sum += v
 		}
-		tenv[i] = float32(math.Log(float64(sum*f + 1.52587890625e-05)))
+		tenv[i] = dnnmath.CeltLog(sum*f + 1.52587890625e-05)
 		mean += tenv[i]
 	}
 	mean /= float32(tenvSize)
@@ -1289,7 +1290,7 @@ func adashapeProcessFrame(
 	for i := 0; i < hiddenDim; i++ {
 		v := outBuf[i] + tmpBuf[i]
 		if v < 0 {
-			v = 0.2 * v
+			v = float32(0.2 * float64(v))
 		}
 		inBuf[i] = v
 	}

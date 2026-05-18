@@ -24,13 +24,13 @@ import (
 // package-level constants so callers can size feature buffers without having
 // to import internal headers.
 const (
-	bweWindowSize       = 320 // OSCE_BWE_WINDOW_SIZE
-	bweHalfWindowSize   = 160 // OSCE_BWE_HALF_WINDOW_SIZE
-	bweMaxInstaFreqBin  = 40  // OSCE_BWE_MAX_INSTAFREQ_BIN
-	bweNumBands         = 32  // OSCE_BWE_NUM_BANDS
-	bweFeatureDim       = 114 // OSCE_BWE_FEATURE_DIM (== FeatureDim)
-	bweSpecNumFreqs     = 161 // OSCE_SPEC_NUM_FREQS (one-sided bins for 320-pt FFT)
-	bweInstaFreqLen     = 2 * (bweMaxInstaFreqBin + 1) // 82
+	bweWindowSize      = 320                          // OSCE_BWE_WINDOW_SIZE
+	bweHalfWindowSize  = 160                          // OSCE_BWE_HALF_WINDOW_SIZE
+	bweMaxInstaFreqBin = 40                           // OSCE_BWE_MAX_INSTAFREQ_BIN
+	bweNumBands        = 32                           // OSCE_BWE_NUM_BANDS
+	bweFeatureDim      = 114                          // OSCE_BWE_FEATURE_DIM (== FeatureDim)
+	bweSpecNumFreqs    = 161                          // OSCE_SPEC_NUM_FREQS (one-sided bins for 320-pt FFT)
+	bweInstaFreqLen    = 2 * (bweMaxInstaFreqBin + 1) // 82
 )
 
 // centerBinsBWE is the 32-band filterbank centre-bin layout from
@@ -131,16 +131,25 @@ var osceWindow = [bweWindowSize]float32{
 type FeatureState struct {
 	signalHistory [bweHalfWindowSize]float32
 	lastSpec      [bweInstaFreqLen]float32
+	primed        bool
 }
 
-// Reset clears the persistent buffers, matching `osce_init`'s zero-fill of
-// the feature state on decoder reset.
+// Reset clears the persistent buffers and primes the previous spectrum to
+// match libopus `osce_bwe_reset`.
 func (s *FeatureState) Reset() {
 	if s == nil {
 		return
 	}
 	s.signalHistory = [bweHalfWindowSize]float32{}
 	s.lastSpec = [bweInstaFreqLen]float32{}
+	s.primeLastSpec()
+}
+
+func (s *FeatureState) primeLastSpec() {
+	for k := 0; k <= bweMaxInstaFreqBin; k++ {
+		s.lastSpec[2*k] = 1e-9
+	}
+	s.primed = true
 }
 
 // CalculateFeatures populates `features` with libopus-compatible BBWENet input
@@ -159,6 +168,9 @@ func (s *FeatureState) CalculateFeatures(features []float32, xq16k []int16) {
 	numFrames := numSamples / bweHalfWindowSize
 	if len(features) < numFrames*bweFeatureDim {
 		return
+	}
+	if !s.primed {
+		s.primeLastSpec()
 	}
 
 	fftState := celt.GetKissFFT64State(bweWindowSize)

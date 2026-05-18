@@ -94,8 +94,8 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 		outputAbsTolerance float32
 		outputRMSTolerance float64
 	}{
-		{"LACE", "lace", 0.30, 0.15},
-		{"NoLACE", "nolace", 0.50, 0.20},
+		{"LACE", "lace", 0.28, 0.14},
+		{"NoLACE", "nolace", 0.46, 0.18},
 	}
 
 	for _, tc := range cases {
@@ -143,8 +143,15 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 			}
 
 			var maxAbsErr float32
+			maxAbsIdx := -1
 			var sumSq float64
 			for i := 0; i < inputLen; i++ {
+				if math.IsNaN(float64(out[i])) || math.IsInf(float64(out[i]), 0) {
+					t.Fatalf("gopus %s output[%d]=%v is not finite", tc.mode, i, out[i])
+				}
+				if math.IsNaN(float64(refOut[i])) || math.IsInf(float64(refOut[i]), 0) {
+					t.Fatalf("libopus %s reference[%d]=%v is not finite", tc.mode, i, refOut[i])
+				}
 				d := out[i] - refOut[i]
 				ad := d
 				if ad < 0 {
@@ -152,12 +159,13 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 				}
 				if ad > maxAbsErr {
 					maxAbsErr = ad
+					maxAbsIdx = i
 				}
 				sumSq += float64(d) * float64(d)
 			}
 			rms := math.Sqrt(sumSq / float64(inputLen))
-			t.Logf("OSCE %s forward-pass parity: maxAbs=%g rms=%g (tolerances: maxAbs<=%g rms<=%g)",
-				tc.name, maxAbsErr, rms, tc.outputAbsTolerance, tc.outputRMSTolerance)
+			t.Logf("OSCE %s forward-pass parity: maxAbs=%g (idx %d) rms=%g (tolerances: maxAbs<=%g rms<=%g)",
+				tc.name, maxAbsErr, maxAbsIdx, rms, tc.outputAbsTolerance, tc.outputRMSTolerance)
 			if maxAbsErr > tc.outputAbsTolerance {
 				t.Errorf("OSCE %s forward-pass max-abs error %g exceeds %g (signal-net divergence beyond bounded contract)",
 					tc.name, maxAbsErr, tc.outputAbsTolerance)
@@ -216,8 +224,15 @@ func runOSCELACEForwardHelper(binPath string, numIn16 int, mode string) (out16k 
 		return nil, fmt.Errorf("libopus OSCE LACE forward output missing tag, got %q", payload[:tagLen])
 	}
 	off := tagLen
-	_ = int(int32(binary.LittleEndian.Uint32(payload[off:]))) // mode_id (informational)
+	modeID := int(int32(binary.LittleEndian.Uint32(payload[off:])))
 	off += 4
+	wantModeID := 0
+	if mode == "nolace" {
+		wantModeID = 1
+	}
+	if modeID != wantModeID {
+		return nil, fmt.Errorf("libopus OSCE LACE forward output: mode_id=%d, want %d for mode %q", modeID, wantModeID, mode)
+	}
 	numOut := int(int32(binary.LittleEndian.Uint32(payload[off:])))
 	off += 4
 	if numOut != numIn16 {
@@ -227,6 +242,9 @@ func runOSCELACEForwardHelper(binPath string, numIn16 int, mode string) (out16k 
 	outBytes := numOut * 4
 	if len(payload)-off < outBytes {
 		return nil, fmt.Errorf("libopus OSCE LACE forward output truncated: have %d bytes for %d samples", len(payload)-off, numOut)
+	}
+	if len(payload)-off != outBytes {
+		return nil, fmt.Errorf("libopus OSCE LACE forward output has %d trailing bytes", len(payload)-off-outBytes)
 	}
 	out16k = make([]float32, numOut)
 	for i := range out16k {

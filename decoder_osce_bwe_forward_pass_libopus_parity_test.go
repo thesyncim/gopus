@@ -25,14 +25,9 @@ import (
 //
 // Bit-exact parity status:
 //
-//	The libopus reference is built without -ffast-math but uses several
-//	bespoke math approximations (`tansig_approx`, `sigmoid_approx`,
-//	`celt_exp`, `celt_log2`, ...) compiled into `dnn/nnet.c` and
-//	`dnn/nndsp.c`. The pure-Go runtime in `internal/osce/bwe` now uses the
-//	libopus scalar DNN activation/exponential approximations for the
-//	signal-net nonlinearities, but still has residual celt_log / celt_sin
-//	and output-quantisation differences that compound through the GRU +
-//	AdaConv pipeline.
+//	The pure-Go runtime in `internal/osce/bwe` now uses the libopus DNN
+//	activation / exponential approximations plus the CELT log/sin helpers
+//	used by the BWE Valin and AdaShape paths.
 //
 //	Additionally, libopus quantises the BBWENet float output to int16
 //	with a 21-sample delay buffer in `osce_bwe(...)` before returning.
@@ -52,10 +47,9 @@ import (
 //     output stays within `outputAbsTolerance` of the libopus output
 //     after compensating for the 21-sample libopus output-delay buffer.
 //
-// The probe documents the *current* parity gap; tightening either
-// tolerance requires landing libopus's exact math approximations in
-// `internal/dnnmath` (and/or porting the int16 output-delay path into
-// `decoder_osce_bwe_apply.go`).
+// The probe documents the *current* parity gap; tightening further likely
+// requires splitting raw BBWENet parity from the public delayed/int16
+// `osce_bwe` wrapper.
 func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 	binPath, err := getLibopusOSCEBWEForwardHelperPath()
 	if err != nil {
@@ -82,9 +76,10 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 
 	const (
 		outputDelay        = 21    // libopus OSCE_BWE_OUTPUT_DELAY
-		featureTolerance   = 5e-3  // documented feature-extractor drift (small but nonzero)
-		outputAbsTolerance = 0.02  // float in [-1, 1] PCM; narrowed after scalar DNN activation parity
-		outputRMSTolerance = 0.003 // residual celt_log/celt_sin + output-delay quantisation envelope
+		featureTolerance   = 5e-4  // documented feature-extractor drift (small but nonzero)
+		instafreqTolerance = 1e-4  // last_spec priming now matches libopus osce_bwe_reset
+		outputAbsTolerance = 0.002 // float in [-1, 1] PCM; narrowed after CELT math parity
+		outputRMSTolerance = 5e-4  // residual public osce_bwe delay/quantisation envelope
 	)
 
 	for _, tc := range cases {
@@ -124,11 +119,8 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 			// Compare features (within tolerance). We track the maximum
 			// per-element error inside the lmspec block (first 32 floats
 			// of each 114-vector) and the instafreq block (remaining 82)
-			// separately, because the instafreq cross-power computation
-			// first-frame is initialised differently between libopus's
-			// 1e-9 prime and gopus's; on the very first frame the
-			// instafreq values are dominated by that prime and can show
-			// large but harmless divergence.
+			// separately because the instafreq and lmspec paths have
+			// different sources of residual float drift.
 			maxFeatErrLM := float32(0)
 			maxIdxLM := -1
 			maxFeatErrIF := float32(0)
@@ -157,6 +149,9 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 				t.Logf("first 8 libopus lmspec: %v", refFeatures[:8])
 				t.Logf("first 8 gopus  lmspec: %v", gopusFeatures[:8])
 				t.Errorf("OSCE BWE feature extractor lmspec drifted from libopus beyond tolerance")
+			}
+			if maxFeatErrIF > instafreqTolerance {
+				t.Errorf("OSCE BWE feature extractor instafreq drift %g exceeds %g", maxFeatErrIF, instafreqTolerance)
 			}
 
 			// Drive the gopus forward pass with the *libopus* features so
@@ -245,9 +240,10 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 		numIn16            = 160 // 10 ms @ 16 kHz: minimum BWE frame
 		numFrames          = 1
 		outputDelay        = 21
-		featureTolerance   = 5e-3
-		outputAbsTolerance = 0.02
-		outputRMSTolerance = 0.003
+		featureTolerance   = 5e-4
+		instafreqTolerance = 1e-4
+		outputAbsTolerance = 0.002
+		outputRMSTolerance = 5e-4
 	)
 
 	refFeatures, refOut, err := runOSCEBWEForwardHelperMode(binPath, numIn16, "consecutive")
@@ -327,6 +323,9 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 		maxFeatErrLM, maxFeatErrIF)
 	if maxFeatErrLM > featureTolerance {
 		t.Errorf("PLC continuity feature extractor lmspec drift %g exceeds %g", maxFeatErrLM, featureTolerance)
+	}
+	if maxFeatErrIF > instafreqTolerance {
+		t.Errorf("PLC continuity feature extractor instafreq drift %g exceeds %g", maxFeatErrIF, instafreqTolerance)
 	}
 
 	// Re-run the gopus second frame against the libopus features so we are

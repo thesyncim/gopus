@@ -69,3 +69,38 @@ func TestSoftmaxApproxMatchesLibopusScalarBits(t *testing.T) {
 		}
 	}
 }
+
+func TestCeltMathMatchesLibopusFloatBits(t *testing.T) {
+	logTests := []struct {
+		x    float32
+		bits uint32
+	}{
+		{1e-6, 0xc15d0c55},
+		{1.52587890625e-05, 0xc1317218},
+		{0.125, 0xc0051592},
+		{1, 0x32317218},
+		{3.5, 0x3fa05a8a},
+	}
+	for _, tc := range logTests {
+		if got := math.Float32bits(CeltLog(tc.x)); got != tc.bits {
+			t.Fatalf("CeltLog(%g) bits=0x%08x want 0x%08x", tc.x, got, tc.bits)
+		}
+	}
+
+	sinTests := []struct {
+		x    float32
+		bits uint32
+	}{
+		{-10, 0x3ee2b7dc},
+		{-1, 0xbf1fcfe5},
+		{0, 0x00000000},
+		{0.5, 0x3f719795},
+		{1, 0x3f1fcfe4},
+		{3, 0x3f6650eb},
+	}
+	for _, tc := range sinTests {
+		if got := math.Float32bits(CeltSin(tc.x)); got != tc.bits {
+			t.Fatalf("CeltSin(%g) bits=0x%08x want 0x%08x", tc.x, got, tc.bits)
+		}
+	}
+}
