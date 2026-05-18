@@ -17,6 +17,7 @@ type engineConfig struct {
 	LossPercent     int
 	ExpectedLoss    int
 	Bitrate         int
+	Profile         string
 	FEC             bool
 	DRED            bool
 	DREDDuration    int
@@ -26,6 +27,7 @@ type engineConfig struct {
 	RecordWAV       bool
 	RecordDir       string
 	LossSeed        uint64
+	TraceQuality    bool
 }
 
 type engineStats struct {
@@ -41,6 +43,9 @@ type engineStats struct {
 	PacketsDropped            uint64
 	PacketsReceived           uint64
 	ConcealedFrames           uint64
+	SILKPackets               uint64
+	HybridPackets             uint64
+	CELTPackets               uint64
 	FECRecoveryAttempts       uint64
 	FECFrames                 uint64
 	FECFallbackFrames         uint64
@@ -71,6 +76,15 @@ type engineStats struct {
 	CurrentConcealMSPerSecond float64
 	ResilienceScore           int
 	RecoverySummary           string
+	ReferenceLagSamples       int
+	ReferenceComparedSamples  uint64
+	ReferenceRMSE             float64
+	ReferenceSNRDB            float64
+	ReferenceCorrelation      float64
+	LossComparedSamples       uint64
+	LossReferenceRMSE         float64
+	LossReferenceSNRDB        float64
+	LossReferenceCorrelation  float64
 	LastRecording             string
 }
 
@@ -94,6 +108,8 @@ type engine struct {
 	started       time.Time
 	lastRoll      rollingStats
 	lossRand      *rand.Rand
+	traceDecoded  []float32
+	traceLoss     []bool
 	closed        bool
 	stopCh        chan struct{}
 	done          sync.WaitGroup
@@ -129,6 +145,7 @@ func defaultEngineConfig(recordDir, encBlob, decBlob string) engineConfig {
 		LossPercent:     15,
 		ExpectedLoss:    15,
 		Bitrate:         48000,
+		Profile:         "dred",
 		FEC:             false,
 		DRED:            dredControlsAvailable(),
 		DREDDuration:    80,
@@ -154,10 +171,14 @@ func startEngineWithAudio(cfg engineConfig, audio audioBackend) (*engine, error)
 	if lossSeed == 0 {
 		lossSeed = 1
 	}
+	application := gopus.ApplicationLowDelay
+	if cfg.Profile == "voice" {
+		application = gopus.ApplicationVoIP
+	}
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
 		SampleRate:  audioSampleRate,
 		Channels:    audioChannels,
-		Application: gopus.ApplicationVoIP,
+		Application: application,
 	})
 	if err != nil {
 		audio.close()
@@ -320,6 +341,9 @@ func (e *engine) UpdateConfig(cfg engineConfig) error {
 	if cfg.Bitrate > 510000 {
 		cfg.Bitrate = 510000
 	}
+	if cfg.Profile != "voice" {
+		cfg.Profile = "dred"
+	}
 	if cfg.DREDDuration < 0 {
 		cfg.DREDDuration = 0
 	}
@@ -336,11 +360,26 @@ func (e *engine) UpdateConfig(cfg engineConfig) error {
 	if err := e.enc.SetComplexity(10); err != nil {
 		return err
 	}
-	if err := e.enc.SetSignal(gopus.SignalVoice); err != nil {
-		return err
-	}
-	if err := e.enc.SetMaxBandwidth(gopus.BandwidthWideband); err != nil {
-		return err
+	if cfg.Profile == "voice" {
+		if err := e.enc.SetSignal(gopus.SignalVoice); err != nil {
+			return err
+		}
+		if err := e.enc.SetBandwidth(gopus.BandwidthWideband); err != nil {
+			return err
+		}
+		if err := e.enc.SetMaxBandwidth(gopus.BandwidthWideband); err != nil {
+			return err
+		}
+	} else {
+		if err := e.enc.SetSignal(gopus.SignalMusic); err != nil {
+			return err
+		}
+		if err := e.enc.SetBandwidth(gopus.BandwidthFullband); err != nil {
+			return err
+		}
+		if err := e.enc.SetMaxBandwidth(gopus.BandwidthFullband); err != nil {
+			return err
+		}
 	}
 	e.enc.SetFEC(cfg.FEC)
 	if err := e.enc.SetPacketLoss(cfg.ExpectedLoss); err != nil {
@@ -445,6 +484,10 @@ func (e *engine) sendLoop() {
 		lossPercent := e.cfg.LossPercent
 		track := e.track
 		hasDRED := err == nil && n > 0 && e.dredProbe != nil && e.dredProbe.packetHasDRED(packet[:n], frameSamples)
+		var packetMode gopus.Mode
+		if err == nil && n > 0 {
+			packetMode = gopus.ParseTOC(packet[0]).Mode
+		}
 		e.mu.Unlock()
 		if err != nil {
 			e.bump(func(s *engineStats) { s.EncodeErrors++ })
@@ -464,6 +507,7 @@ func (e *engine) sendLoop() {
 				if hasDRED {
 					s.DREDPackets++
 				}
+				incrementPacketMode(s, packetMode)
 			})
 			seq++
 			timestamp += frameSamples
@@ -494,6 +538,7 @@ func (e *engine) sendLoop() {
 			if hasDRED {
 				s.DREDPackets++
 			}
+			incrementPacketMode(s, packetMode)
 		})
 	}
 }
@@ -520,7 +565,7 @@ func (e *engine) receiveLoop(remote *webrtc.TrackRemote) {
 		if haveExpected {
 			missing := int(pkt.SequenceNumber - expected)
 			if missing > 0 && missing < 100 {
-				recoverWithFEC := e.fecEnabled()
+				recoverWithFEC := e.fecEnabledFor(pkt.Payload)
 				plcFrames := missing
 				if recoverWithFEC {
 					plcFrames--
@@ -541,11 +586,26 @@ func (e *engine) receiveLoop(remote *webrtc.TrackRemote) {
 	}
 }
 
-func (e *engine) fecEnabled() bool {
+func incrementPacketMode(s *engineStats, mode gopus.Mode) {
+	switch mode {
+	case gopus.ModeSILK:
+		s.SILKPackets++
+	case gopus.ModeHybrid:
+		s.HybridPackets++
+	case gopus.ModeCELT:
+		s.CELTPackets++
+	}
+}
+
+func (e *engine) fecEnabledFor(payload []byte) bool {
 	e.mu.Lock()
 	enabled := e.cfg.FEC
 	e.mu.Unlock()
-	return enabled
+	if !enabled || len(payload) == 0 {
+		return false
+	}
+	mode := gopus.ParseTOC(payload[0]).Mode
+	return mode == gopus.ModeSILK || mode == gopus.ModeHybrid
 }
 
 func (e *engine) decodeAndOutput(payload []byte, pcm []float32, kind decodeKind) bool {
@@ -584,6 +644,13 @@ func (e *engine) decodeAndOutput(payload []byte, pcm []float32, kind decodeKind)
 				e.stats.DREDStatus = "recording failed: " + err.Error()
 			}
 		}
+		if e.cfg.TraceQuality {
+			e.traceDecoded = append(e.traceDecoded, out...)
+			lost := kind != decodeNormal
+			for range out {
+				e.traceLoss = append(e.traceLoss, lost)
+			}
+		}
 	}
 	switch kind {
 	case decodeLossPath:
@@ -600,6 +667,14 @@ func (e *engine) decodeAndOutput(payload []byte, pcm []float32, kind decodeKind)
 	}
 	e.mu.Unlock()
 	return true
+}
+
+func (e *engine) decodedTraceCopy() ([]float32, []bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	decoded := append([]float32(nil), e.traceDecoded...)
+	loss := append([]bool(nil), e.traceLoss...)
+	return decoded, loss
 }
 
 func (e *engine) Stats() engineStats {

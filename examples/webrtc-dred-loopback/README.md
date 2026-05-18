@@ -37,7 +37,7 @@ prints JSON stats:
 
 ```bash
 go run -tags gopus_dred . \
-  -headless -duration 6s -loss 30 -loss-seed 1 \
+  -headless -duration 6s -loss 30 -loss-seed 1 -profile dred \
   -encoder-dnn dnn/encoder-dred.blob \
   -decoder-dnn dnn/decoder-dred.blob
 ```
@@ -57,6 +57,11 @@ if receiver-side cached DRED recovery should be exercised.
 - `Depth`: DRED depth in 2.5 ms units. The loss slider also updates the
   encoder expected-loss control; at 0% expected loss the encoder may not spend
   bits on DRED payloads even when the DRED toggle is on.
+- `-profile dred`: the default headless/UI profile uses low-delay fullband CELT
+  so the current 48 kHz DRED neural loss path is actually exercised.
+- `-profile voice`: uses the speech-oriented SILK wideband profile for ordinary
+  Opus/FEC checks. In the current decoder, 48 kHz SILK packets can carry DRED
+  payloads, but their loss path falls back to ordinary PLC.
 - `Live monitor`: plays decoded receiver audio through the speakers. Leave this
   off when speakers are near the microphone.
 - `Record WAV`: writes decoded receiver audio under `recordings/`.
@@ -71,9 +76,11 @@ The Gio stats panel and `-headless` JSON report include:
 - live packet rate, drop percentage, delivered bitrate, and concealment
   milliseconds per second
 - actual loss, DRED payload coverage, encoded/delivered/dropped bitrate
+- emitted packet mode counts, so CELT/Hybrid/SILK runs are visible
 - FEC recovery attempts, FEC output frames, FEC fallbacks, and receiver
   PLC/DRED loss-path frames
-- received and concealed audio duration, plus latest decoded RMS/peak
+- received and concealed audio duration, latest decoded RMS/peak, and headless
+  tone-reference SNR/correlation metrics for total and lost samples
 - `ResilienceScore` and `RecoverySummary`, a compact recovery-health summary
   based on loss, DRED payload coverage, FEC use, concealment, and errors
 

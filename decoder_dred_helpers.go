@@ -986,11 +986,15 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 	if b != nil && (d.sampleRate == 48000 || d.sampleRate == 16000) {
 		cachedDRED := d.dredCachedPayloadActive()
 		d.prepareDRED48kNeuralEntry(samplesPerChannel, d.prevMode, false)
+		if cachedDRED {
+			d.queueActiveDREDRecovery(samplesPerChannel)
+			if d.applyDREDNeuralConcealment48kMono(pcm, samplesPerChannel) {
+				d.finishActiveDREDRecovery(samplesPerChannel)
+				return true
+			}
+		}
 		if !d.applyPLCNeuralConcealment48kMono(pcm, samplesPerChannel) {
 			return false
-		}
-		if cachedDRED {
-			d.finishActiveDREDRecovery(samplesPerChannel)
 		}
 		return true
 	}

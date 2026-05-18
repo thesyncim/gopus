@@ -58,6 +58,7 @@ func main() {
 		loss        = flag.Int("loss", 15, "headless RTP loss percentage")
 		lossSeed    = flag.Uint64("loss-seed", 1, "headless deterministic RTP loss seed")
 		bitrate     = flag.Int("bitrate", 48000, "headless encoder bitrate")
+		profile     = flag.String("profile", "dred", "headless encoder profile: dred or voice")
 		fec         = flag.Bool("fec", false, "enable Opus in-band FEC")
 		dred        = flag.Bool("dred", dredControlsAvailable(), "enable DRED when available")
 	)
@@ -87,6 +88,7 @@ func main() {
 		cfg.ExpectedLoss = *loss
 		cfg.Bitrate = *bitrate
 		cfg.LossSeed = *lossSeed
+		cfg.Profile = *profile
 		cfg.FEC = *fec
 		cfg.DRED = *dred
 		stats, err := runHeadless(cfg, *source, *duration)
@@ -361,9 +363,13 @@ func (ui *uiState) statsView(gtx layout.Context) layout.Dimensions {
 		fmt.Sprintf("coverage: actual loss=%.1f%% configured=%d%% expected=%d%% dred=%.1f%%", stats.ActualLossPercent, stats.LossPercent, stats.ExpectedLoss, stats.DREDCoveragePercent),
 		fmt.Sprintf("audio: received=%.2fs concealed=%.2fs total=%.2fs rms=%.3f peak=%.3f", stats.ReceivedAudioMS/1000, stats.ConcealedAudioMS/1000, stats.TotalAudioMS/1000, stats.LastRMS, stats.LastPeak),
 		fmt.Sprintf("packets: sent=%d dropped=%d received=%d concealed=%d dred=%d", stats.PacketsSent, stats.PacketsDropped, stats.PacketsReceived, stats.ConcealedFrames, stats.DREDPackets),
+		fmt.Sprintf("modes: silk=%d hybrid=%d celt=%d", stats.SILKPackets, stats.HybridPackets, stats.CELTPackets),
 		fmt.Sprintf("recovery: fec=%d/%d fallback=%d plc-or-dred=%d", stats.FECFrames, stats.FECRecoveryAttempts, stats.FECFallbackFrames, stats.LossPathFrames),
 		fmt.Sprintf("bitrate: encoded=%.1f kbps delivered=%.1f kbps dropped=%.1f kbps last=%d B", stats.EncodedKbps, stats.DeliveredKbps, stats.DroppedKbps, stats.LastPacketBytes),
 		fmt.Sprintf("errors: encode=%d decode=%d mic underruns=%d", stats.EncodeErrors, stats.DecodeErrors, stats.MicUnderruns),
+	}
+	if stats.ReferenceComparedSamples > 0 {
+		lines = append(lines, fmt.Sprintf("reference: snr=%.2f dB loss-snr=%.2f dB corr=%.4f lag=%d", stats.ReferenceSNRDB, stats.LossReferenceSNRDB, stats.ReferenceCorrelation, stats.ReferenceLagSamples))
 	}
 	if stats.LastRecording != "" {
 		lines = append(lines, "wav: "+stats.LastRecording)
