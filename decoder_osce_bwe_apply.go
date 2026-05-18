@@ -82,6 +82,13 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 		return false
 	}
 	in16Per := in48Per / 3
+	state := d.osceBWE
+	if !state.prevBWEActive {
+		for i := range state.osceBWERuntime {
+			state.osceBWERuntime[i].Reset()
+			state.osceBWEFeatures[i].Reset()
+		}
+	}
 
 	// Stereo packet on a stereo decoder: run the per-channel forward pass
 	// for the mid/left and side/right lowband signals independently and
@@ -96,7 +103,6 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 		if !ok || fsKHz != 16 || samplesPerChannel < in16Per {
 			return false
 		}
-		state := d.osceBWE
 		numFrames := in16Per / 160
 
 		// Left/mid channel forward pass. Stage the int16 lowband for the
@@ -111,7 +117,7 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 			state.applyFeatures[:numFrames*osceBWE.FeatureDim],
 			state.applyIn16Int[:in16Per],
 		)
-		if err := state.osceBWERuntime[0].Process(
+		if err := state.osceBWERuntime[0].ProcessDelayed(
 			state.applyIn16[:in16Per],
 			state.applyOut48[:in48Per],
 			state.applyFeatures[:numFrames*osceBWE.FeatureDim],
@@ -133,7 +139,7 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 			state.applyFeatures[:numFrames*osceBWE.FeatureDim],
 			state.applyIn16Int[:in16Per],
 		)
-		if err := state.osceBWERuntime[1].Process(
+		if err := state.osceBWERuntime[1].ProcessDelayed(
 			state.applyIn16[:in16Per],
 			state.applyOut48[:in48Per],
 			state.applyFeatures[:numFrames*osceBWE.FeatureDim],
@@ -179,7 +185,6 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 		return false
 	}
 
-	state := d.osceBWE
 	// Stage the int16 lowband for the feature extractor and normalise to
 	// float32 [-1, 1] for the BBWENet forward pass. libopus performs both
 	// conversions internally; keeping them side-by-side avoids re-scanning
@@ -198,7 +203,7 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 		state.applyIn16Int[:in16Per],
 	)
 
-	if err := state.osceBWERuntime[0].Process(
+	if err := state.osceBWERuntime[0].ProcessDelayed(
 		state.applyIn16[:in16Per],
 		state.applyOut48[:in48Per],
 		state.applyFeatures[:numFrames*osceBWE.FeatureDim],
@@ -298,7 +303,7 @@ func (d *Decoder) applyOSCEBWEFadeOut(out []float32, frameSize int, packetStereo
 		state.applyFeatures[:numFrames*osceBWE.FeatureDim],
 		state.applyIn16Int[:in16Per],
 	)
-	if err := state.osceBWERuntime[0].Process(
+	if err := state.osceBWERuntime[0].ProcessDelayed(
 		state.applyIn16[:in16Per],
 		state.applyOut48[:in48Per],
 		state.applyFeatures[:numFrames*osceBWE.FeatureDim],

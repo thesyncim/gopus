@@ -59,6 +59,7 @@ const (
 
 	// Resampler delays (match libopus).
 	resampDelaySamples = 8
+	outputDelaySamples = 21
 
 	// AdaShape conv1d sliding-history sizes are nb_inputs - input_size of
 	// the corresponding LinearLayer (= (kernel_size - 1) * input_size).
@@ -121,7 +122,7 @@ type State struct {
 	resampInterpol [3][resampDelaySamples]float32
 
 	// Output delay buffer (BBWENET_OSCE_BWE_OUTPUT_DELAY = 21 int16 samples).
-	outputDelay [21]int16
+	outputDelay [outputDelaySamples]int16
 
 	// Pre-computed Hann overlap windows for the three AdaConv stages.
 	// Caching them on the state avoids re-computing on every Process call.
@@ -195,7 +196,7 @@ func (s *State) Reset() {
 	s.resampUpEven = [3][3]float32{}
 	s.resampUpOdd = [3][3]float32{}
 	s.resampInterpol = [3][resampDelaySamples]float32{}
-	s.outputDelay = [21]int16{}
+	s.outputDelay = [outputDelaySamples]int16{}
 }
 
 // errBWERuntimeFrameSize reports an unsupported input length. The libopus
@@ -316,6 +317,39 @@ func (s *State) Process(in16k, out48k, features []float32) error {
 	}
 
 	return nil
+}
+
+// ProcessDelayed runs the BBWENet forward pass and then applies libopus'
+// public osce_bwe wrapper semantics: 21 samples of int16-domain output delay
+// plus int16 scaling/clipping. The output remains normalised float32 PCM for
+// the Go decoder, but its samples mirror the libopus int16 wrapper boundary.
+func (s *State) ProcessDelayed(in16k, out48k, features []float32) error {
+	if err := s.Process(in16k, out48k, features); err != nil {
+		return err
+	}
+	numOut := 3 * len(in16k)
+	var nextDelay [outputDelaySamples]int16
+	for i := 0; i < outputDelaySamples; i++ {
+		nextDelay[i] = bweFloatToInt16(out48k[numOut-outputDelaySamples+i])
+	}
+	for i := numOut - outputDelaySamples - 1; i >= 0; i-- {
+		out48k[i+outputDelaySamples] = float32(bweFloatToInt16(out48k[i])) * (1.0 / 32768.0)
+	}
+	for i := 0; i < outputDelaySamples; i++ {
+		out48k[i] = float32(s.outputDelay[i]) * (1.0 / 32768.0)
+	}
+	s.outputDelay = nextDelay
+	return nil
+}
+
+func bweFloatToInt16(x float32) int16 {
+	tmp := float32(32768) * x
+	if tmp > 32767 {
+		tmp = 32767
+	} else if tmp < -32767 {
+		tmp = -32767
+	}
+	return int16(int32(math.RoundToEven(float64(tmp))))
 }
 
 // errBWERuntimeNotImplemented is returned by Process when no model is bound.

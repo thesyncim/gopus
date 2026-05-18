@@ -25,28 +25,24 @@ import (
 //
 // Bit-exact parity status:
 //
-//	The pure-Go runtime in `internal/osce/bwe` now uses the libopus DNN
-//	activation / exponential approximations plus the CELT log/sin helpers
-//	used by the BWE Valin and AdaShape paths.
+//		The pure-Go runtime in `internal/osce/bwe` now uses the libopus DNN
+//		activation / exponential approximations plus the CELT log/sin helpers
+//		used by the BWE Valin and AdaShape paths.
 //
-//	Additionally, libopus quantises the BBWENet float output to int16
-//	with a 21-sample delay buffer in `osce_bwe(...)` before returning.
-//	The gopus `State.Process` returns the raw float BBWENET output.
+//		Additionally, libopus quantises the BBWENet float output to int16
+//		with a 21-sample delay buffer in `osce_bwe(...)` before returning.
+//		The gopus `State.ProcessDelayed` path mirrors that public wrapper while
+//		`State.Process` remains available for raw BBWENet math parity.
 //
-// The public `osce_bwe` wrapper still returns delayed, int16-quantised PCM, so
-// this probe asserts a tight public-wrapper contract instead of raw bit-exact
-// float parity:
-//
-//   - Both pipelines accept the same shapes (160 / 320 samples) and emit
-//     the expected number of output samples (480 / 960).
-//   - The libopus-computed feature vectors and the gopus-computed feature
-//     vectors agree to within `featureTolerance` per element. (The feature
-//     extractor port is independent of the math-approximation issues
-//     above and is therefore the closer-to-bit-exact path.)
-//   - When the gopus forward pass is fed the libopus-computed features
-//     (so feature-extractor drift is eliminated), the resulting 48 kHz
-//     output stays within `outputAbsTolerance` of the libopus output
-//     after compensating for the 21-sample libopus output-delay buffer.
+//	  - Both pipelines accept the same shapes (160 / 320 samples) and emit
+//	    the expected number of output samples (480 / 960).
+//	  - The libopus-computed feature vectors and the gopus-computed feature
+//	    vectors agree to within `featureTolerance` per element. (The feature
+//	    extractor port is independent of the math-approximation issues
+//	    above and is therefore the closer-to-bit-exact path.)
+//	  - When the gopus forward pass is fed the libopus-computed features
+//	    (so feature-extractor drift is eliminated), the delayed/int16-wrapper
+//	    output stays within `outputAbsTolerance` of the libopus output.
 //
 // TestOSCEBWERawSignalNetMatchesLibopus separately exercises the raw BBWENet
 // float path and keeps the signal-net math tolerance near float32 roundoff.
@@ -75,11 +71,11 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 	}
 
 	const (
-		outputDelay        = 21 // libopus OSCE_BWE_OUTPUT_DELAY
 		featureTolerance   = 1e-6
 		instafreqTolerance = 3e-7
-		outputAbsTolerance = 3e-5
-		outputRMSTolerance = 1.5e-5
+		// Wrapper parity is int16-domain: one LSB is 1/32768.
+		outputAbsTolerance = 3.2e-5
+		outputRMSTolerance = 3e-6
 	)
 
 	for _, tc := range cases {
@@ -166,22 +162,14 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 			}
 
 			gopusOut := make([]float32, 3*tc.numIn16)
-			if err := state.Process(in16f, gopusOut, refFeatures); err != nil {
-				t.Fatalf("state.Process: %v", err)
+			if err := state.ProcessDelayed(in16f, gopusOut, refFeatures); err != nil {
+				t.Fatalf("state.ProcessDelayed: %v", err)
 			}
 
-			// libopus reference is int16-quantised and 21-sample-delayed.
-			// First `outputDelay` reference samples are the previous-frame
-			// tail (zero on first call), so we compare gopus[0:N-21] to
-			// refOut[21:N].
-			if len(refOut) <= outputDelay {
-				t.Fatalf("reference output too short to skip delay: %d", len(refOut))
-			}
-			cmpLen := len(refOut) - outputDelay
 			var maxAbsErr float32
 			var sumSq float64
-			for i := 0; i < cmpLen; i++ {
-				d := gopusOut[i] - refOut[i+outputDelay]
+			for i := 0; i < len(refOut); i++ {
+				d := gopusOut[i] - refOut[i]
 				ad := d
 				if ad < 0 {
 					ad = -ad
@@ -191,7 +179,7 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 				}
 				sumSq += float64(d) * float64(d)
 			}
-			rms := math.Sqrt(sumSq / float64(cmpLen))
+			rms := math.Sqrt(sumSq / float64(len(refOut)))
 			t.Logf("OSCE BWE forward-pass parity (%s): maxAbs=%g rms=%g (tolerances: maxAbs<=%g rms<=%g)",
 				tc.name, maxAbsErr, rms, outputAbsTolerance, outputRMSTolerance)
 
@@ -199,8 +187,8 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 			if rmsOfFloat32(gopusOut) == 0 {
 				t.Fatalf("gopus output has zero energy")
 			}
-			if rmsOfFloat32(refOut[outputDelay:]) == 0 {
-				t.Fatalf("libopus reference has zero energy after delay")
+			if rmsOfFloat32(refOut) == 0 {
+				t.Fatalf("libopus reference has zero energy")
 			}
 
 			if maxAbsErr > outputAbsTolerance {
@@ -337,11 +325,11 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 	const (
 		numIn16            = 160 // 10 ms @ 16 kHz: minimum BWE frame
 		numFrames          = 1
-		outputDelay        = 21
 		featureTolerance   = 1e-6
 		instafreqTolerance = 3e-7
-		outputAbsTolerance = 3e-5
-		outputRMSTolerance = 1.5e-5
+		// Wrapper parity is int16-domain: one LSB is 1/32768.
+		outputAbsTolerance = 3.2e-5
+		outputRMSTolerance = 3e-6
 	)
 
 	refFeatures, refOut, err := runOSCEBWEForwardHelperMode(binPath, numIn16, "consecutive")
@@ -440,24 +428,18 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 		t.Skipf("libopus OSCE BWE forward helper failed: %v", err)
 	}
 	scratch := make([]float32, 3*numIn16)
-	if err := state2.Process(in16f, scratch, refFeatures1); err != nil {
-		t.Fatalf("state2.Process (frame 1, libopus feats): %v", err)
+	if err := state2.ProcessDelayed(in16f, scratch, refFeatures1); err != nil {
+		t.Fatalf("state2.ProcessDelayed (frame 1, libopus feats): %v", err)
 	}
 	gopusOut2WithLibopusFeat := make([]float32, 3*numIn16)
-	if err := state2.Process(in16f, gopusOut2WithLibopusFeat, refFeatures); err != nil {
-		t.Fatalf("state2.Process (frame 2, libopus feats): %v", err)
+	if err := state2.ProcessDelayed(in16f, gopusOut2WithLibopusFeat, refFeatures); err != nil {
+		t.Fatalf("state2.ProcessDelayed (frame 2, libopus feats): %v", err)
 	}
 
-	// libopus reference is int16-quantised and 21-sample-delayed. Compare
-	// gopus[0:N-21] to refOut[21:N].
-	if len(refOut) <= outputDelay {
-		t.Fatalf("reference output too short to skip delay: %d", len(refOut))
-	}
-	cmpLen := len(refOut) - outputDelay
 	var maxAbsErr float32
 	var sumSq float64
-	for i := 0; i < cmpLen; i++ {
-		d := gopusOut2WithLibopusFeat[i] - refOut[i+outputDelay]
+	for i := 0; i < len(refOut); i++ {
+		d := gopusOut2WithLibopusFeat[i] - refOut[i]
 		ad := d
 		if ad < 0 {
 			ad = -ad
@@ -467,15 +449,15 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 		}
 		sumSq += float64(d) * float64(d)
 	}
-	rms := math.Sqrt(sumSq / float64(cmpLen))
+	rms := math.Sqrt(sumSq / float64(len(refOut)))
 	t.Logf("OSCE BWE PLC continuity parity (frame 2 of 2): maxAbs=%g rms=%g (tolerances: maxAbs<=%g rms<=%g)",
 		maxAbsErr, rms, outputAbsTolerance, outputRMSTolerance)
 
 	if rmsOfFloat32(gopusOut2WithLibopusFeat) == 0 {
 		t.Fatalf("gopus second-frame output has zero energy")
 	}
-	if rmsOfFloat32(refOut[outputDelay:]) == 0 {
-		t.Fatalf("libopus second-frame reference has zero energy after delay")
+	if rmsOfFloat32(refOut) == 0 {
+		t.Fatalf("libopus second-frame reference has zero energy")
 	}
 	if maxAbsErr > outputAbsTolerance {
 		t.Errorf("OSCE BWE PLC continuity max-abs error %g exceeds %g", maxAbsErr, outputAbsTolerance)
