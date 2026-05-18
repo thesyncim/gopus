@@ -76,8 +76,8 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 
 	const (
 		outputDelay        = 21 // libopus OSCE_BWE_OUTPUT_DELAY
-		featureTolerance   = 2.5e-4
-		instafreqTolerance = 2e-5
+		featureTolerance   = 1e-6
+		instafreqTolerance = 3e-7
 		outputAbsTolerance = 3e-5
 		outputRMSTolerance = 1.5e-5
 	)
@@ -338,8 +338,8 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 		numIn16            = 160 // 10 ms @ 16 kHz: minimum BWE frame
 		numFrames          = 1
 		outputDelay        = 21
-		featureTolerance   = 2.5e-4
-		instafreqTolerance = 2e-5
+		featureTolerance   = 1e-6
+		instafreqTolerance = 3e-7
 		outputAbsTolerance = 3e-5
 		outputRMSTolerance = 1.5e-5
 	)

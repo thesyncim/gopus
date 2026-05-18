@@ -11,8 +11,8 @@ package bwe
 //                        41 DFT bins (instantaneous-frequency cos).
 //   instafreq[73:114] -- normalised cross-power imaginary parts (sin).
 //
-// libopus uses kissfft (`opus_fft`) for the 320-point DFT; gopus reuses the
-// same scalar mixed-radix kernel via the celt package's `KissFFT64State`.
+// libopus uses float32 kissfft (`opus_fft`) for the 320-point DFT; gopus reuses
+// the same scalar mixed-radix kernel via the celt package's float32 Kiss FFT.
 
 import (
 	"math"
@@ -173,10 +173,11 @@ func (s *FeatureState) CalculateFeatures(features []float32, xq16k []int16) {
 		s.primeLastSpec()
 	}
 
-	fftState := celt.GetKissFFT64State(bweWindowSize)
+	const fftScale = float32(1.0 / bweWindowSize)
 	var (
-		fftIn   [bweWindowSize]complex128
-		fftOut  [bweWindowSize]complex128
+		fftIn   [bweWindowSize]complex64
+		fftOut  [bweWindowSize]complex64
+		fftTmp  [bweWindowSize]celt.KissCpx
 		buffer  [bweWindowSize]float32
 		spec    [bweInstaFreqLen]float32
 		magSpec [bweSpecNumFreqs]float32
@@ -206,12 +207,13 @@ func (s *FeatureState) CalculateFeatures(features []float32, xq16k []int16) {
 			buffer[n] *= osceWindow[n]
 		}
 
-		// Forward 320-point DFT via the gopus kissfft kernel. The kernel
-		// applies the 1/nfft scale matching libopus `opus_fft`.
+		// Forward 320-point DFT via the float32 kissfft kernel. libopus'
+		// opus_fft applies st->scale during the bit-reverse copy, before the
+		// butterflies, so scale the input here rather than the output.
 		for n := 0; n < bweWindowSize; n++ {
-			fftIn[n] = complex(float64(buffer[n]), 0)
+			fftIn[n] = complex(buffer[n]*fftScale, 0)
 		}
-		fftState.KissFFT(fftIn[:], fftOut[:])
+		celt.KissFFT32ToWithScratch(fftOut[:], fftIn[:], fftTmp[:])
 
 		// Instantaneous frequency from the cross-power of the current frame
 		// with the previous frame's first (bweMaxInstaFreqBin+1) bins.
@@ -219,8 +221,8 @@ func (s *FeatureState) CalculateFeatures(features []float32, xq16k []int16) {
 			// libopus stores the un-scaled DFT samples (*nfft) and tacks on
 			// a 1e-9 bias to the real channel; the bias is harmless because
 			// it is dwarfed by even small signals after the *nfft scaling.
-			spec[2*k] = float32(bweWindowSize)*float32(real(fftOut[k])) + 1e-9
-			spec[2*k+1] = float32(bweWindowSize) * float32(imag(fftOut[k]))
+			spec[2*k] = float32(bweWindowSize)*real(fftOut[k]) + 1e-9
+			spec[2*k+1] = float32(bweWindowSize) * imag(fftOut[k])
 			re1 := spec[2*k]
 			im1 := spec[2*k+1]
 			re2 := s.lastSpec[2*k]
@@ -235,8 +237,8 @@ func (s *FeatureState) CalculateFeatures(features []float32, xq16k []int16) {
 
 		// ERB-scale magnitude spectrogram on the first 161 bins of the DFT.
 		for k := 0; k < bweSpecNumFreqs; k++ {
-			re := float32(real(fftOut[k]))
-			im := float32(imag(fftOut[k]))
+			re := real(fftOut[k])
+			im := imag(fftOut[k])
 			magSpec[k] = float32(bweWindowSize) * float32(math.Sqrt(float64(re*re+im*im)))
 		}
 		applyFilterbankBWE(lmspec, magSpec[:])
