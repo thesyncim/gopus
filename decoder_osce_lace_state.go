@@ -43,6 +43,20 @@ const (
 type decoderOSCELACEState struct {
 	osceLACEModel *osceLACE.Model
 
+	// Per-channel forward-pass runtime state mirroring libopus
+	// `silk_channel_state.osce.state.{lace,nolace}`. The decoder keeps both
+	// LACE and NoLACE state slots per channel because `pickOSCELACEMode`
+	// can switch between the two modes from one packet to the next (e.g.
+	// SILK NB -> SILK WB transition). libopus calls `osce_reset` on a mode
+	// change; here we keep the inactive runtime's history zeroed via
+	// Reset() so a return to that mode starts from a clean state.
+	//
+	// Slot 0 carries the mid/left channel, slot 1 the side/right channel
+	// when a stereo packet is decoded on a stereo decoder. Mono decode
+	// paths only use slot 0.
+	osceLACERuntime   [2]osceLACE.LACEState
+	osceNoLACERuntime [2]osceLACE.NoLACEState
+
 	// Pre-allocated working buffers for the post-SILK LACE/NoLACE forward
 	// pass so the decoder hot path does not allocate per-frame. The buffers
 	// are sized for one channel; stereo runs the forward pass sequentially

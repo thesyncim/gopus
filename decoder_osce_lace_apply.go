@@ -126,8 +126,8 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 			d.osceLACE.prevLACEActive = false
 			return false
 		}
-		ran := d.applyOSCELACEMonoChannel(leftNative, pickedMode, transition)
-		ran = d.applyOSCELACEMonoChannel(rightNative, pickedMode, transition) || ran
+		ran := d.applyOSCELACEMonoChannel(leftNative, pickedMode, transition, 0)
+		ran = d.applyOSCELACEMonoChannel(rightNative, pickedMode, transition, 1) || ran
 		if !ran {
 			d.osceLACE.prevLACEActive = false
 			return false
@@ -152,7 +152,7 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 		d.osceLACE.prevLACEActive = false
 		return false
 	}
-	if !d.applyOSCELACEMonoChannel(native, pickedMode, transition) {
+	if !d.applyOSCELACEMonoChannel(native, pickedMode, transition, 0) {
 		d.osceLACE.prevLACEActive = false
 		return false
 	}
@@ -175,26 +175,57 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 // the enhanced output against the pre-enhancement input, mirroring the
 // `osce_cross_fade_10ms` invocation guarded by `psDec->osce.features.reset`
 // in libopus `osce_enhance_frame`.
-func (d *Decoder) applyOSCELACEMonoChannel(native []int16, _ osceLACEMode, transition bool) bool {
+func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, transition bool, channelIdx int) bool {
 	if d == nil || d.osceLACE == nil {
+		return false
+	}
+	if channelIdx < 0 || channelIdx > 1 {
 		return false
 	}
 	state := d.osceLACE
 	// libopus scales by 1/32768.f at the start of osce_enhance_frame; mirror
-	// that so a Phase 2 forward pass can drop into applyInFloat without
-	// re-scanning the int16 buffer. Capture the pre-enhancement int16 view
-	// in applyIn16 so the cross-fade has the raw input available even after
-	// the enhancement overwrites the native lowband.
+	// that so the Phase 2 forward pass receives float32 input. Capture the
+	// pre-enhancement int16 view in applyIn16 so the cross-fade has the raw
+	// input available even after the enhancement overwrites the native lowband.
 	for i := 0; i < osceLACEFrameSamples; i++ {
 		state.applyIn16[i] = native[i]
 		state.applyInFloat[i] = float32(native[i]) * (1.0 / 32768.0)
 	}
-	// Phase 1: identity copy. Phase 2 will dispatch on `mode` and run
-	// either `lace_process_20ms_frame` or `nolace_process_20ms_frame`
-	// using the model layers in `state.osceLACEModel.LACE` /
-	// `state.osceLACEModel.NoLACE` and the per-channel ring-buffer state
-	// that ships alongside the forward pass.
-	copy(state.applyOutFloat[:], state.applyInFloat[:])
+	// Zero features/numbits (osce_features.c port not yet wired for LACE);
+	// periods default to OSCE_NO_PITCH_VALUE=7 so AdaComb history-reads
+	// don't over-read at pitch_lag=0. libopus pitch_postprocessing
+	// substitutes the same OSCE_NO_PITCH_VALUE for unvoiced frames.
+	for i := range state.applyFeatures {
+		state.applyFeatures[i] = 0
+	}
+	for i := range state.applyNumBits {
+		state.applyNumBits[i] = 0
+	}
+	for i := range state.applyPeriods {
+		state.applyPeriods[i] = 7
+	}
+	switch mode {
+	case osceLACEModeNoLACE:
+		if err := state.osceNoLACERuntime[channelIdx].Process(
+			state.applyInFloat[:osceLACEFrameSamples],
+			state.applyOutFloat[:osceLACEFrameSamples],
+			state.applyFeatures[:],
+			state.applyNumBits[:],
+			state.applyPeriods[:],
+		); err != nil {
+			return false
+		}
+	default:
+		if err := state.osceLACERuntime[channelIdx].Process(
+			state.applyInFloat[:osceLACEFrameSamples],
+			state.applyOutFloat[:osceLACEFrameSamples],
+			state.applyFeatures[:],
+			state.applyNumBits[:],
+			state.applyPeriods[:],
+		); err != nil {
+			return false
+		}
+	}
 	// Requantise to int16 and write back into the native lowband so the
 	// downstream silk_resampler / OSCE BWE consumer reads the postfilter
 	// output. libopus mutates psDec->outBuf in place; we mirror that by

@@ -129,6 +129,92 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		}
 	})
 
+	// Phase 2: with the real LACE/NoLACE forward pass wired in, the
+	// postfilter must mutate the native 16 kHz int16 SILK lowband
+	// in place (libopus mirror: `osce_enhance_frame` overwrites
+	// psDec->outBuf with the postfilter-enhanced samples). Compare
+	// the int16 lowband produced by a LACE-off decode against the
+	// same packet decoded with LACE on; any difference confirms the
+	// forward pass is no longer an identity copy.
+	//
+	// The current gopus call site invokes the postfilter AFTER
+	// silk_resampler, so the public 48 kHz `out` buffer is not yet
+	// affected -- the mutation flows through to the OSCE BWE forward
+	// pass which reads `LatestNativeMono()` downstream. Checking the
+	// int16 buffer directly keeps this smoke test independent of the
+	// call-site ordering.
+	t.Run("silk_wb_lace_mutates_native_lowband", func(t *testing.T) {
+		const frameSize = 960 // 20 ms @ 48 kHz
+		packet := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
+
+		// Reference decode with LACE disabled to capture the
+		// pre-postfilter native lowband.
+		decRef, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+		if err != nil {
+			t.Fatalf("NewDecoder(ref): %v", err)
+		}
+		if err := decRef.SetOSCELACE(false); err != nil {
+			t.Fatalf("SetOSCELACE(false): %v", err)
+		}
+		if err := decRef.SetDNNBlob(merged); err != nil {
+			t.Fatalf("SetDNNBlob(ref): %v", err)
+		}
+		pcmRef := make([]float32, decRef.maxPacketSamples*decRef.channels)
+		if _, err := decRef.Decode(packet, pcmRef); err != nil {
+			t.Fatalf("Decode(ref): %v", err)
+		}
+		nativeRef, fsKHzRef := decRef.silkDecoder.LatestNativeMono()
+		if nativeRef == nil || fsKHzRef != 16 {
+			t.Fatalf("ref decode produced no 16 kHz native lowband: nativeRef=%v fsKHz=%d", nativeRef, fsKHzRef)
+		}
+		nativeRefCopy := make([]int16, osceLACEFrameSamples)
+		copy(nativeRefCopy, nativeRef[:osceLACEFrameSamples])
+
+		// LACE-on decode using a fresh decoder so the runtime state
+		// has no carry-over from prior subtests.
+		decLACE, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+		if err != nil {
+			t.Fatalf("NewDecoder(lace): %v", err)
+		}
+		if err := decLACE.SetOSCELACE(true); err != nil {
+			t.Fatalf("SetOSCELACE(true): %v", err)
+		}
+		if err := decLACE.SetDNNBlob(merged); err != nil {
+			t.Fatalf("SetDNNBlob(lace): %v", err)
+		}
+		pcmLACE := make([]float32, decLACE.maxPacketSamples*decLACE.channels)
+		if _, err := decLACE.Decode(packet, pcmLACE); err != nil {
+			t.Fatalf("Decode(lace): %v", err)
+		}
+		nativeLACE, fsKHzLACE := decLACE.silkDecoder.LatestNativeMono()
+		if nativeLACE == nil || fsKHzLACE != 16 {
+			t.Fatalf("lace decode produced no 16 kHz native lowband: nativeLACE=%v fsKHz=%d", nativeLACE, fsKHzLACE)
+		}
+
+		// The 320-sample 20 ms lowband must differ on at least one
+		// sample. If the buffers are bit-identical, the LACE/NoLACE
+		// forward pass has degenerated back into the Phase 1 identity
+		// copy and the postfilter is not actually running.
+		var diffCount int
+		var maxDiff int
+		for i := 0; i < osceLACEFrameSamples; i++ {
+			d := int(nativeLACE[i]) - int(nativeRefCopy[i])
+			if d < 0 {
+				d = -d
+			}
+			if d > maxDiff {
+				maxDiff = d
+			}
+			if d > 0 {
+				diffCount++
+			}
+		}
+		if diffCount == 0 {
+			t.Fatalf("LACE-on and LACE-off native int16 lowband are bit-identical: forward pass appears to be an identity copy")
+		}
+		t.Logf("LACE postfilter altered %d/%d native int16 samples; max abs diff %d", diffCount, osceLACEFrameSamples, maxDiff)
+	})
+
 	// SetOSCELACE(false) disables the helper at runtime; the SILK WB
 	// decode must still produce non-zero audio with the postfilter off.
 	t.Run("disable_keeps_decode_working", func(t *testing.T) {

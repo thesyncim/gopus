@@ -26,6 +26,10 @@ func (d *Decoder) bindOSCELACEModel(blob *dnnblob.Blob, supported bool) error {
 	}
 	if blob == nil || !supported {
 		if d.osceLACE != nil {
+			for ch := range d.osceLACE.osceLACERuntime {
+				_ = d.osceLACE.osceLACERuntime[ch].SetModel(nil)
+				_ = d.osceLACE.osceNoLACERuntime[ch].SetModel(nil)
+			}
 			d.osceLACE.osceLACEModel = nil
 			d.osceLACE = nil
 		}
@@ -36,6 +40,10 @@ func (d *Decoder) bindOSCELACEModel(blob *dnnblob.Blob, supported bool) error {
 		// Keep d.osceModelsLoaded as the blob-level signal (still true) but
 		// drop any prior runtime binding so callers see Loaded()==false.
 		if d.osceLACE != nil {
+			for ch := range d.osceLACE.osceLACERuntime {
+				_ = d.osceLACE.osceLACERuntime[ch].SetModel(nil)
+				_ = d.osceLACE.osceNoLACERuntime[ch].SetModel(nil)
+			}
 			d.osceLACE.osceLACEModel = nil
 			d.osceLACE = nil
 		}
@@ -45,6 +53,30 @@ func (d *Decoder) bindOSCELACEModel(blob *dnnblob.Blob, supported bool) error {
 		d.osceLACE = &decoderOSCELACEState{}
 	}
 	d.osceLACE.osceLACEModel = model
+	// Mirror the OSCE BWE binding: keep all per-channel runtime states in
+	// sync with the loaded model so the forward pass can dispatch on a
+	// per-channel slot without extra plumbing. libopus does the same with a
+	// shared `OSCEModel` and one `LACEState`/`NoLACEState` per channel.
+	for ch := range d.osceLACE.osceLACERuntime {
+		if err := d.osceLACE.osceLACERuntime[ch].SetModel(model); err != nil {
+			for j := range d.osceLACE.osceLACERuntime {
+				_ = d.osceLACE.osceLACERuntime[j].SetModel(nil)
+				_ = d.osceLACE.osceNoLACERuntime[j].SetModel(nil)
+			}
+			d.osceLACE.osceLACEModel = nil
+			d.osceLACE = nil
+			return err
+		}
+		if err := d.osceLACE.osceNoLACERuntime[ch].SetModel(model); err != nil {
+			for j := range d.osceLACE.osceLACERuntime {
+				_ = d.osceLACE.osceLACERuntime[j].SetModel(nil)
+				_ = d.osceLACE.osceNoLACERuntime[j].SetModel(nil)
+			}
+			d.osceLACE.osceLACEModel = nil
+			d.osceLACE = nil
+			return err
+		}
+	}
 	return nil
 }
 
