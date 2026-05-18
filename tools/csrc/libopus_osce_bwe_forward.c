@@ -54,24 +54,25 @@
 #include "osce_features.h"
 #include "bbwenet_data.h"
 
-/* bbwenet_process_frames is static in osce.c. Build the helper with the
- * matching libopus source TU directly so we can call it. We must not
- * recursively include the helpers that are already shipped in libopus.a
- * (init_bbwenet, reset_bbwenet_state, osce_bwe, ...) -- the linker would
- * complain about duplicate symbols. The path used here matches the same
- * source tree used to build libopus.a; the helper takes only the static
- * `bbwenet_process_frames` (and its inline-able dependencies in nndsp.c
- * which the libopus build re-emits as extern symbols). To avoid the duplicate
- * symbol problem we compile osce.c with extra #defines that suppress the
- * non-static API surface; if any conflict remains we fall back to bundling
- * a thin reimplementation that wraps the static helpers via `osce_bwe`.
- *
- * In practice, calling libopus's public `osce_bwe(...)` already produces the
- * same x_out (the output is just routed through an extra int16 quantisation
- * for the BBWENET output delay buffer), so we use the public symbol instead
- * of fishing the static helper out of osce.c. The trade-off is that the
- * helper output is int16-quantised PCM, not raw float, so the gopus side
- * comparison must also quantise to int16 (or we lose <= 1 LSB of precision).
+/* Pull in the pinned OSCE implementation under helper-local public names so
+ * this test helper can call static BBWENet routines without colliding with
+ * libopus.a's exported OSCE symbols. */
+#define osce_reset gopus_helper_osce_reset
+#define osce_bwe_reset gopus_helper_osce_bwe_reset
+#define osce_load_models gopus_helper_osce_load_models
+#define osce_bwe gopus_helper_osce_bwe
+#define osce_enhance_frame gopus_helper_osce_enhance_frame
+#include "osce.c"
+#undef osce_reset
+#undef osce_bwe_reset
+#undef osce_load_models
+#undef osce_bwe
+#undef osce_enhance_frame
+
+/* bbwenet_process_frames is static in osce.c. The helper-local symbol renames
+ * above let this file expose both reference paths: public `osce_bwe` wrapper
+ * modes, which return delayed/int16 PCM, and raw BBWENet modes, which return
+ * the float output before libopus applies the public wrapper delay.
  */
 
 static int set_binary_stdio(void) {
@@ -86,15 +87,6 @@ static int set_binary_stdio(void) {
 #ifndef ENABLE_OSCE_BWE
 #error "libopus_osce_bwe_forward.c requires libopus built with --enable-osce --enable-osce-bwe"
 #endif
-
-extern int osce_load_models(OSCEModel *model, const void *data, int len);
-extern void osce_bwe(
-    OSCEModel *model,
-    silk_OSCE_BWE_struct *psOSCEBWE,
-    int16_t xq48[],
-    int16_t xq16[],
-    int32_t xq16_len,
-    int arch);
 
 /* osce_bwe_cross_fade_10ms is exported from libopus dnn/osce_features.c when
  * the build is configured with --enable-osce-bwe. The signature matches the
@@ -114,10 +106,35 @@ static void fill_sinusoid(int16_t *out, int num_samples, double freq_hz, double 
   }
 }
 
+static void scale_s16_to_float(float *out, const int16_t *in, int num_samples) {
+  for (int i = 0; i < num_samples; i++) {
+    out[i] = ((float)in[i]) * (1.0f / 32768.0f);
+  }
+}
+
+static void bbwenet_raw_forward(
+    OSCEModel *model,
+    BBWENetState *state,
+    float *x_out,
+    const int16_t *xq16,
+    const float *features,
+    int num_samples) {
+  float in_buffer[320];
+  scale_s16_to_float(in_buffer, xq16, num_samples);
+  bbwenet_process_frames(
+      &model->bbwenet,
+      state,
+      x_out,
+      in_buffer,
+      features,
+      num_samples / 160,
+      0 /*arch=GENERIC*/);
+}
+
 int main(int argc, char *argv[]) {
   if (argc < 2) {
     fprintf(stderr, "usage: %s NUM_SAMPLES_16K [MODE]\n"
-                    "  MODE: forward (default), consecutive, crossfade\n", argv[0]);
+                    "  MODE: forward (default), consecutive, crossfade, raw, raw-consecutive\n", argv[0]);
     return 2;
   }
   int num_samples = atoi(argv[1]);
@@ -145,7 +162,7 @@ int main(int argc, char *argv[]) {
     fprintf(stderr, "calloc OSCEModel failed\n");
     return 1;
   }
-  if (osce_load_models(model, NULL, 0) != 0) {
+  if (gopus_helper_osce_load_models(model, NULL, 0) != 0) {
     fprintf(stderr, "osce_load_models failed (built-in tables unavailable?)\n");
     free(model);
     return 1;
@@ -178,6 +195,8 @@ int main(int argc, char *argv[]) {
 
   static int16_t xq48[3 * 320];
   static int16_t xq48_second[3 * 320];
+  static float xq48_raw_emit[3 * 320];
+  int emit_raw = 0;
 
   if (strcmp(mode, "consecutive") == 0) {
     /* Two consecutive BWE calls to capture per-frame state continuity (the
@@ -189,12 +208,12 @@ int main(int argc, char *argv[]) {
      *
      * Both frames use the same sinusoid input -- this isolates the
      * state-continuity issue from input-variability noise. */
-    osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
+    gopus_helper_osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
     /* Snapshot features for the second frame using a separate feature state
      * that has consumed the first frame already. */
     osce_bwe_calculate_features(&featState.features, features, xq16, num_samples);
     /* Second frame -- bweState carries over signal_history, last_spec, etc. */
-    osce_bwe(model, &bweState, xq48_second, xq16, num_samples, 0 /*arch=GENERIC*/);
+    gopus_helper_osce_bwe(model, &bweState, xq48_second, xq16, num_samples, 0 /*arch=GENERIC*/);
     /* Use the second-frame output as the canonical xq48 emitted below. */
     memcpy(xq48, xq48_second, sizeof(xq48));
   } else if (strcmp(mode, "crossfade") == 0) {
@@ -205,7 +224,7 @@ int main(int argc, char *argv[]) {
      * leave them populated with the forward-mode output for diagnostic
      * compatibility with the header parser, but mark numOut = 480 (10 ms
      * @ 48 kHz) which is the natural cross-fade window length. */
-    osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
+    gopus_helper_osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
     num_out = 480;
     /* Generate two distinct ramps and emit the crossfaded result. */
     int16_t fadein[480];
@@ -222,9 +241,20 @@ int main(int argc, char *argv[]) {
     }
     osce_bwe_cross_fade_10ms(fadein, fadeout, 480);
     memcpy(xq48, fadein, sizeof(fadein));
+  } else if (strcmp(mode, "raw") == 0) {
+    bbwenet_raw_forward(model, &bweState.state.bbwenet, xq48_raw_emit, xq16, features, num_samples);
+    num_out = 3 * num_samples;
+    emit_raw = 1;
+  } else if (strcmp(mode, "raw-consecutive") == 0) {
+    static float xq48_raw[3 * 320];
+    bbwenet_raw_forward(model, &bweState.state.bbwenet, xq48_raw, xq16, features, num_samples);
+    osce_bwe_calculate_features(&featState.features, features, xq16, num_samples);
+    bbwenet_raw_forward(model, &bweState.state.bbwenet, xq48_raw_emit, xq16, features, num_samples);
+    num_out = 3 * num_samples;
+    emit_raw = 1;
   } else {
     /* Default "forward" mode: single BWE pass on the sinusoid. */
-    osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
+    gopus_helper_osce_bwe(model, &bweState, xq48, xq16, num_samples, 0 /*arch=GENERIC*/);
   }
 
   /* Emit header + binary payload. */
@@ -237,11 +267,15 @@ int main(int argc, char *argv[]) {
   if (fwrite(hdr, sizeof(int32_t), 3, stdout) != 3) goto write_err;
   if (fwrite(features, sizeof(float), num_frames * OSCE_BWE_FEATURE_DIM, stdout)
       != (size_t)(num_frames * OSCE_BWE_FEATURE_DIM)) goto write_err;
-  /* Convert int16 PCM to float in [-1, 1] for comparison with the
-   * gopus runtime, which works in normalised float space. */
   static float xq48f[3 * 320];
-  for (int i = 0; i < num_out; i++) {
-    xq48f[i] = (float)xq48[i] * (1.0f / 32768.0f);
+  if (emit_raw) {
+    memcpy(xq48f, xq48_raw_emit, (size_t)num_out * sizeof(float));
+  } else {
+    /* Convert int16 PCM to float in [-1, 1] for comparison with the
+     * gopus runtime, which works in normalised float space. */
+    for (int i = 0; i < num_out; i++) {
+      xq48f[i] = (float)xq48[i] * (1.0f / 32768.0f);
+    }
   }
   if (fwrite(xq48f, sizeof(float), num_out, stdout) != (size_t)num_out) goto write_err;
 

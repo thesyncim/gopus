@@ -984,9 +984,7 @@ func computeActivation(out, in []float32, n, activation int) {
 			out[i] = v
 		}
 	case actExp:
-		for i := 0; i < n; i++ {
-			out[i] = dnnmath.ExpApprox(in[i])
-		}
+		dnnmath.ExpVectorApprox(out, in, n)
 	default:
 		copy(out[:n], in[:n])
 	}

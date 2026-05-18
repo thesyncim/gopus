@@ -33,8 +33,9 @@ import (
 //	with a 21-sample delay buffer in `osce_bwe(...)` before returning.
 //	The gopus `State.Process` returns the raw float BBWENET output.
 //
-// As a result this probe currently asserts a *bounded-divergence* contract
-// rather than bit-exact parity:
+// The public `osce_bwe` wrapper still returns delayed, int16-quantised PCM, so
+// this probe asserts a tight public-wrapper contract instead of raw bit-exact
+// float parity:
 //
 //   - Both pipelines accept the same shapes (160 / 320 samples) and emit
 //     the expected number of output samples (480 / 960).
@@ -47,9 +48,8 @@ import (
 //     output stays within `outputAbsTolerance` of the libopus output
 //     after compensating for the 21-sample libopus output-delay buffer.
 //
-// The probe documents the *current* parity gap; tightening further likely
-// requires splitting raw BBWENet parity from the public delayed/int16
-// `osce_bwe` wrapper.
+// TestOSCEBWERawSignalNetMatchesLibopus separately exercises the raw BBWENet
+// float path and keeps the signal-net math tolerance near float32 roundoff.
 func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 	binPath, err := getLibopusOSCEBWEForwardHelperPath()
 	if err != nil {
@@ -75,11 +75,11 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 	}
 
 	const (
-		outputDelay        = 21    // libopus OSCE_BWE_OUTPUT_DELAY
-		featureTolerance   = 5e-4  // documented feature-extractor drift (small but nonzero)
-		instafreqTolerance = 1e-4  // last_spec priming now matches libopus osce_bwe_reset
-		outputAbsTolerance = 0.002 // float in [-1, 1] PCM; narrowed after CELT math parity
-		outputRMSTolerance = 5e-4  // residual public osce_bwe delay/quantisation envelope
+		outputDelay        = 21 // libopus OSCE_BWE_OUTPUT_DELAY
+		featureTolerance   = 2.5e-4
+		instafreqTolerance = 2e-5
+		outputAbsTolerance = 3e-5
+		outputRMSTolerance = 1.5e-5
 	)
 
 	for _, tc := range cases {
@@ -213,6 +213,104 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 	}
 }
 
+func TestOSCEBWERawSignalNetMatchesLibopus(t *testing.T) {
+	binPath, err := getLibopusOSCEBWEForwardHelperPath()
+	if err != nil {
+		t.Skipf("libopus OSCE BWE forward helper unavailable: %v", err)
+	}
+
+	blob := requireLibopusOSCEBWEModelBlob(t)
+	parsed, err := dnnblob.Clone(blob)
+	if err != nil {
+		t.Fatalf("dnnblob.Clone: %v", err)
+	}
+	if !parsed.SupportsOSCEBWE() {
+		t.Fatalf("parsed OSCE BWE blob does not advertise SupportsOSCEBWE()")
+	}
+
+	cases := []struct {
+		name    string
+		numIn16 int
+		mode    string
+	}{
+		{"10ms", 160, "raw"},
+		{"20ms", 320, "raw"},
+		{"10ms_consecutive", 160, "raw-consecutive"},
+	}
+
+	const (
+		rawAbsTolerance = 4e-6
+		rawRMSTolerance = 1e-6
+	)
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			refFeatures, refOut, err := runOSCEBWEForwardHelperMode(binPath, tc.numIn16, tc.mode)
+			if err != nil {
+				t.Skipf("libopus OSCE BWE raw helper failed: %v", err)
+			}
+			if len(refOut) != 3*tc.numIn16 {
+				t.Fatalf("libopus raw output: got %d samples, want %d", len(refOut), 3*tc.numIn16)
+			}
+
+			in16f := make([]float32, tc.numIn16)
+			for i := 0; i < tc.numIn16; i++ {
+				v := 0.5 * math.Sin(2*math.Pi*1000*float64(i)/16000)
+				q := int(math.Round(v * 32767))
+				if q > 32767 {
+					q = 32767
+				} else if q < -32768 {
+					q = -32768
+				}
+				in16f[i] = float32(int16(q)) / 32768
+			}
+
+			var state osceBWE.State
+			if err := state.SetModel(parsed); err != nil {
+				t.Fatalf("state.SetModel: %v", err)
+			}
+			if tc.mode == "raw-consecutive" {
+				firstFeatures, _, err := runOSCEBWEForwardHelperMode(binPath, tc.numIn16, "raw")
+				if err != nil {
+					t.Skipf("libopus OSCE BWE first-frame raw helper failed: %v", err)
+				}
+				scratch := make([]float32, 3*tc.numIn16)
+				if err := state.Process(in16f, scratch, firstFeatures); err != nil {
+					t.Fatalf("state.Process first frame: %v", err)
+				}
+			}
+
+			gotOut := make([]float32, 3*tc.numIn16)
+			if err := state.Process(in16f, gotOut, refFeatures); err != nil {
+				t.Fatalf("state.Process: %v", err)
+			}
+
+			var maxAbsErr float32
+			var sumSq float64
+			for i := range refOut {
+				d := gotOut[i] - refOut[i]
+				ad := d
+				if ad < 0 {
+					ad = -ad
+				}
+				if ad > maxAbsErr {
+					maxAbsErr = ad
+				}
+				sumSq += float64(d) * float64(d)
+			}
+			rms := math.Sqrt(sumSq / float64(len(refOut)))
+			t.Logf("OSCE BWE raw signal-net parity (%s): maxAbs=%g rms=%g (tolerances: maxAbs<=%g rms<=%g)",
+				tc.name, maxAbsErr, rms, rawAbsTolerance, rawRMSTolerance)
+			if maxAbsErr > rawAbsTolerance {
+				t.Errorf("OSCE BWE raw signal-net max-abs error %g exceeds %g", maxAbsErr, rawAbsTolerance)
+			}
+			if rms > rawRMSTolerance {
+				t.Errorf("OSCE BWE raw signal-net rms error %g exceeds %g", rms, rawRMSTolerance)
+			}
+		})
+	}
+}
+
 // TestOSCEBWEForwardPassPLCContinuityMatchesLibopus drives the BWE forward
 // pass twice in succession on the same 16 kHz lowband (the canonical state-
 // continuity scenario the PLC path exercises: a good SILK WB frame is
@@ -240,10 +338,10 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 		numIn16            = 160 // 10 ms @ 16 kHz: minimum BWE frame
 		numFrames          = 1
 		outputDelay        = 21
-		featureTolerance   = 5e-4
-		instafreqTolerance = 1e-4
-		outputAbsTolerance = 0.002
-		outputRMSTolerance = 5e-4
+		featureTolerance   = 2.5e-4
+		instafreqTolerance = 2e-5
+		outputAbsTolerance = 3e-5
+		outputRMSTolerance = 1.5e-5
 	)
 
 	refFeatures, refOut, err := runOSCEBWEForwardHelperMode(binPath, numIn16, "consecutive")

@@ -685,13 +685,9 @@ func computeActivation(out, in []float32, n, activation int) {
 			copy(out[:n], in[:n])
 		}
 	case actSigmoid:
-		for i := 0; i < n; i++ {
-			out[i] = dnnmath.SigmoidScalarApprox(in[i])
-		}
+		dnnmath.SigmoidVectorApprox(out, in, n)
 	case actTanh:
-		for i := 0; i < n; i++ {
-			out[i] = dnnmath.TanhScalarApprox(in[i])
-		}
+		dnnmath.TanhVectorApprox(out, in, n)
 	case actRelu:
 		for i := 0; i < n; i++ {
 			v := in[i]
@@ -701,9 +697,7 @@ func computeActivation(out, in []float32, n, activation int) {
 			out[i] = v
 		}
 	case actExp:
-		for i := 0; i < n; i++ {
-			out[i] = dnnmath.ExpApprox(in[i])
-		}
+		dnnmath.ExpVectorApprox(out, in, n)
 	default:
 		copy(out[:n], in[:n])
 	}

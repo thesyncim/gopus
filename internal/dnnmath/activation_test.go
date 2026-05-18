@@ -57,11 +57,14 @@ func TestScalarActivationsMatchLibopusBits(t *testing.T) {
 	}
 }
 
-func TestSoftmaxApproxMatchesLibopusScalarBits(t *testing.T) {
+func TestSoftmaxApproxMatchesLibopusActiveBits(t *testing.T) {
 	in := []float32{-1, 0, 1, 2}
 	out := make([]float32, len(in))
 	SoftmaxApprox(out, in, len(in))
 	want := []uint32{0x3d034d82, 0x3db2749c, 0x3e728be7, 0x3f24d99c}
+	if runtime.GOARCH == "arm64" {
+		want = []uint32{0x3d034d84, 0x3db274a4, 0x3e728ba4, 0x3f24d9ab}
+	}
 
 	for i, bits := range want {
 		got := math.Float32bits(out[i])

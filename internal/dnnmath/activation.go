@@ -99,6 +99,28 @@ func ExpApprox(x float32) float32 {
 	return Exp2Approx(x * 1.44269504)
 }
 
+// ExpVectorApprox mirrors libopus' active vector exponent kernel. In libopus
+// this helper is named softmax(), and ACTIVATION_EXP uses it without the
+// normalisation step.
+func ExpVectorApprox(out, in []float32, n int) {
+	if useNEONApproxActivation {
+		i := 0
+		for ; i < n-3; i += 4 {
+			out[i] = expApproxNEON(in[i])
+			out[i+1] = expApproxNEON(in[i+1])
+			out[i+2] = expApproxNEON(in[i+2])
+			out[i+3] = expApproxNEON(in[i+3])
+		}
+		for ; i < n; i++ {
+			out[i] = ExpApprox(in[i])
+		}
+		return
+	}
+	for i := 0; i < n; i++ {
+		out[i] = ExpApprox(in[i])
+	}
+}
+
 // Exp2Approx mirrors libopus' DNN lpcnet_exp2() cubic approximation.
 func Exp2Approx(x float32) float32 {
 	integer := int(math.Floor(float64(x)))
@@ -127,8 +149,8 @@ func Cgemv8x4QuantizeInput(x float32) int8 {
 // ACTIVATION_EXP still uses this exponent kernel without normalisation.
 func SoftmaxApprox(out, in []float32, n int) {
 	var sum float32
+	ExpVectorApprox(out, in, n)
 	for i := 0; i < n; i++ {
-		out[i] = ExpApprox(in[i])
 		sum += out[i]
 	}
 	scale := 1 / (sum + 1e-30)
