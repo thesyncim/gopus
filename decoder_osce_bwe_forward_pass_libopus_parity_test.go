@@ -529,11 +529,11 @@ func TestOSCEBWECrossFade10msMatchesLibopus(t *testing.T) {
 
 	// Tight tolerances: cross-fade is pure arithmetic so divergence comes
 	// only from int16 vs float32 quantisation in libopus's xq -> float
-	// conversion at the boundary. Each int16 step is ~3e-5 so an error of
-	// 1e-3 is already > 30 LSB and would indicate a real algorithmic bug.
+	// conversion at the boundary. Each int16 step is ~3e-5, so a 1e-4 max
+	// envelope is already several LSB and would indicate a real arithmetic bug.
 	const (
-		crossfadeAbsTolerance = 1e-3
-		crossfadeRMSTolerance = 5e-4
+		crossfadeAbsTolerance = 1e-4
+		crossfadeRMSTolerance = 4e-5
 	)
 	var maxAbsErr float32
 	var sumSq float64

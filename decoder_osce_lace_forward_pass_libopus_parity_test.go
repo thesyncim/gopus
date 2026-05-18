@@ -17,7 +17,7 @@ import (
 	osceLACE "github.com/thesyncim/gopus/internal/osce/lace"
 )
 
-// TestOSCELACEForwardPassMatchesLibopus is the bounded-divergence parity
+// TestOSCELACEForwardPassMatchesLibopus is the tight bounded-divergence parity
 // probe for the gopus OSCE LACE / NoLACE postfilter forward pass.
 //
 // It mirrors the OSCE BWE parity test pattern (see
@@ -29,9 +29,9 @@ import (
 // runtime is driven on the same input + same zero-features / zero-numbits /
 // small-period inputs and the two 16 kHz 320-sample outputs are compared.
 //
-// Parity is bounded-divergence (not bit-exact): the feature-net trace matches
-// libopus through conv2/tconv and stays at float epsilon after the GRU, while
-// residual drift now comes from the AdaComb/AdaConv signal filters. See
+// Parity is near float32 roundoff but not bit-exact: the feature-net trace
+// matches libopus through conv2/tconv and stays at float epsilon after the GRU,
+// while residual drift now comes from the AdaComb/AdaConv signal filters. See
 // `cases` below for the active envelope.
 func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 	binPath, err := getLibopusOSCELACEForwardHelperPath()
@@ -87,8 +87,8 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 		outputAbsTolerance float32
 		outputRMSTolerance float64
 	}{
-		{"LACE", "lace", 0.000001, 0.0000002},
-		{"NoLACE", "nolace", 0.000004, 0.0000005},
+		{"LACE", "lace", 1e-7, 5e-8},
+		{"NoLACE", "nolace", 2e-6, 2.5e-7},
 	}
 
 	for _, tc := range cases {
