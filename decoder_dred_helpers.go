@@ -311,6 +311,12 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	d.farganModelLoaded = models.FARGAN
 	d.osceModelsLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
+	// Bind the quarantined OSCE BWE model when its weights are present. The
+	// helper is a no-op outside of `gopus_unsupported_controls` builds so the
+	// shared DRED path remains untouched.
+	if err := d.bindOSCEBWEModel(blob, models.OSCEBWE); err != nil {
+		return err
+	}
 
 	n := d.dredNeuralState()
 	if !models.PitchDNN && !models.PLC && !models.FARGAN {

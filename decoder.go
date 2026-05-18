@@ -98,6 +98,7 @@ type Decoder struct {
 	osceModelsLoaded   bool
 	osceBWEModelLoaded bool
 	osceBWEEnabled     bool
+	osceBWE            *decoderOSCEBWEState
 }
 
 // NewDecoder creates a new Opus decoder.
