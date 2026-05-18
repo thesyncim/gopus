@@ -894,6 +894,15 @@ func TestDecoderDecodeNilConsumesMultistreamDREDNeuralSILKStereoStream(t *testin
 	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "silk stereo", packet, channels, targetStream)
 }
 
+func TestDecoderDecodeNilConsumesMultistreamDREDNeuralSILKSecondCoupledStream(t *testing.T) {
+	const channels = 5
+	const targetStream = 1
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeModeMultistreamPacketWithDREDForTest(t, channels, targetStream, internalenc.ModeSILK, types.BandwidthWideband, 96000, body)
+
+	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "silk second coupled", packet, channels, targetStream)
+}
+
 func TestDecoderLeavesDREDPayloadDormantWhenIgnoringExtensions(t *testing.T) {
 	packet := makeMultistreamPacketWithDREDForTest(t, 3, 1, makeExperimentalDREDPayloadBodyForTest(t, 0, 4))
 
