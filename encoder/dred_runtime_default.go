@@ -37,6 +37,14 @@ func (e *Encoder) processDREDLatents(_ []float64, _ int) int {
 	return 0
 }
 
+func (e *Encoder) processDREDLatentsForPacket(_ []float64, _ int, _ int, _ Mode) int {
+	return 0
+}
+
+func (e *Encoder) snapshotDREDPacketState() {}
+
+func (e *Encoder) clearDREDPacketSnapshot() {}
+
 func (e *Encoder) computeDREDEmissionPlan(_ int) (dredEmissionPlan, bool) {
 	return dredEmissionPlan{}, false
 }

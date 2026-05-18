@@ -61,3 +61,34 @@ func (e *Encoder) buildDREDExperimentalPayload(dst []byte, maxChunks, q0, dQ, qm
 		runtime.activity[:],
 	)
 }
+
+func (e *Encoder) buildDREDExperimentalPayloadForPacket(dst []byte, maxChunks, q0, dQ, qmax int) int {
+	if !extsupport.DREDRuntime {
+		return 0
+	}
+	runtime := e.ensureActiveDREDRuntime()
+	if runtime == nil {
+		return 0
+	}
+	snapshot := &runtime.packetSnapshot
+	if !snapshot.valid {
+		return e.buildDREDExperimentalPayload(dst, maxChunks, q0, dQ, qmax)
+	}
+	lastExtra := snapshot.lastExtraDREDOffset
+	n := internaldred.EncodeExperimentalPayload(
+		dst,
+		maxChunks,
+		q0,
+		dQ,
+		qmax,
+		snapshot.stateBuffer[:],
+		snapshot.latentsBuffer[:],
+		snapshot.latentsFill,
+		snapshot.dredOffset,
+		snapshot.latentOffset,
+		&lastExtra,
+		snapshot.activity[:],
+	)
+	runtime.lastExtraDREDOffset = lastExtra
+	return n
+}

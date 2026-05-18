@@ -28,6 +28,7 @@ type dredEncoderRuntime struct {
 	scaledPCM16k        [maxDREDPCM16k]float32
 	latentsBuffer       [internaldred.MaxFrames * rdovae.LatentDim]float32
 	stateBuffer         [internaldred.MaxFrames * rdovae.StateDim]float32
+	packetSnapshot      dredEncoderPacketSnapshot
 	activity            [internaldred.ActivityHistorySize]byte
 	latestLatents       [rdovae.LatentDim]float32
 	latestState         [rdovae.StateDim]float32
@@ -37,6 +38,17 @@ type dredEncoderRuntime struct {
 	lastExtraDREDOffset int
 	payload             [internaldred.MaxDataSize]byte
 	emitted             int
+}
+
+type dredEncoderPacketSnapshot struct {
+	valid               bool
+	latentsBuffer       [internaldred.MaxFrames * rdovae.LatentDim]float32
+	stateBuffer         [internaldred.MaxFrames * rdovae.StateDim]float32
+	activity            [internaldred.ActivityHistorySize]byte
+	latentsFill         int
+	dredOffset          int
+	latentOffset        int
+	lastExtraDREDOffset int
 }
 
 type dredEncoderExtras struct {
@@ -168,6 +180,59 @@ func (e *Encoder) processDREDLatents(framePCM []float64, extraDelay int) int {
 	runtime.latentOffset = runtime.generator.LatentOffset()
 	internaldred.UpdateActivityHistory(&runtime.activity, len(framePCM)/e.channels, e.sampleRate, e.currentDREDActivity(framePCM))
 	return emitted
+}
+
+func (e *Encoder) processDREDLatentsForPacket(framePCM []float64, frameSize, extraDelay int, mode Mode) int {
+	if !extsupport.DREDRuntime {
+		return 0
+	}
+	if mode == ModeHybrid && frameSize > 960 && frameSize%960 == 0 {
+		if e.channels <= 0 {
+			return 0
+		}
+		frameSamples := frameSize * e.channels
+		if frameSamples <= 0 || len(framePCM) < frameSamples {
+			return 0
+		}
+		e.clearDREDPacketSnapshot()
+		frameStride := 960 * e.channels
+		emitted := 0
+		for start := 0; start < frameSamples; start += frameStride {
+			end := start + frameStride
+			if end > frameSamples {
+				return emitted
+			}
+			emitted += e.processDREDLatents(framePCM[start:end], extraDelay)
+			if start == 0 {
+				e.snapshotDREDPacketState()
+			}
+		}
+		return emitted
+	}
+	return e.processDREDLatents(framePCM, extraDelay)
+}
+
+func (e *Encoder) snapshotDREDPacketState() {
+	if !extsupport.DREDRuntime || e.dred == nil || e.dred.runtime == nil {
+		return
+	}
+	runtime := e.dred.runtime
+	snapshot := &runtime.packetSnapshot
+	copy(snapshot.latentsBuffer[:], runtime.latentsBuffer[:])
+	copy(snapshot.stateBuffer[:], runtime.stateBuffer[:])
+	copy(snapshot.activity[:], runtime.activity[:])
+	snapshot.latentsFill = runtime.latentsFill
+	snapshot.dredOffset = runtime.dredOffset
+	snapshot.latentOffset = runtime.latentOffset
+	snapshot.lastExtraDREDOffset = runtime.lastExtraDREDOffset
+	snapshot.valid = true
+}
+
+func (e *Encoder) clearDREDPacketSnapshot() {
+	if !extsupport.DREDRuntime || e.dred == nil || e.dred.runtime == nil {
+		return
+	}
+	e.dred.runtime.packetSnapshot.valid = false
 }
 
 func (e *Encoder) convertDREDFrameTo16k(runtime *dredEncoderRuntime, framePCM []float64) int {

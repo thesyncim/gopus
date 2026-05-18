@@ -318,6 +318,11 @@ func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mod
 	if runtime == nil {
 		return nil, false, nil
 	}
+	if runtime.packetSnapshot.valid {
+		defer func() {
+			runtime.packetSnapshot.valid = false
+		}()
+	}
 
 	maxChunks := (e.dred.duration + 5) / 4
 	if maxChunks > internaldred.NumRedundancyFrames/2 {
@@ -330,7 +335,7 @@ func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mod
 		return nil, false, nil
 	}
 
-	n := e.buildDREDExperimentalPayload(runtime.payload[:dredBytesLeft], maxChunks, plan.q0, plan.dQ, plan.qmax)
+	n := e.buildDREDExperimentalPayloadForPacket(runtime.payload[:dredBytesLeft], maxChunks, plan.q0, plan.dQ, plan.qmax)
 	if n == 0 {
 		return nil, false, nil
 	}

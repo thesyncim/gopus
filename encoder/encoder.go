@@ -674,7 +674,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		dredExtraDelay = e.sampleRate / 250
 	}
 	if e.dredEncodingActive() {
-		e.processDREDLatents(framePCM, dredExtraDelay)
+		e.processDREDLatentsForPacket(framePCM, frameSize, dredExtraDelay, e.mode)
 	}
 
 	suppressFrame, _ := e.shouldUseDTX(framePCM)
