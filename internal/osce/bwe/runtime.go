@@ -561,15 +561,22 @@ func applyValinActivation(x []float32) {
 // Generic linear/conv/gru helpers (mirrors libopus dnn/nnet.c).
 // ----------------------------------------------------------------------------
 
-// computeLinear evaluates a LinearLayer: out = W^T * in + bias. Uses the
-// float-weight path; this skeleton does not yet wire the int8 quantised
-// kernels (the model loader still stores them so a future phase can add them).
+// computeLinear evaluates a LinearLayer: out = W^T * in + bias. Mirrors
+// libopus `compute_linear_c` (dnn/nnet_arch.h): the float-weight path runs
+// `sgemv` (column-major W[j*N+i]), the int8 path runs `cgemv8x4` -- a packed
+// 8x4 block kernel where weights are laid out as consecutive 32-element
+// (8 rows by 4 cols) tiles iterating rows in groups of 8 then cols in groups
+// of 4. The int8 path quantises the input to signed int8 via
+// floor(0.5 + 127*x), accumulates as float multiplied by the int8 weight,
+// then scales each output row by `scale[i]` (per-row dequantisation).
 func computeLinear(layer *LinearLayer, out, in []float32) {
 	n := layer.NbOutputs
 	m := layer.NbInputs
-	// Weight layout: rows = n outputs, cols = m inputs, col-major:
-	// weight(row, col) = w[col*n + row]. Mirrors libopus sgemv layout.
-	if !layer.FloatWeights.Empty() {
+	bias := layer.Bias
+	switch {
+	case !layer.FloatWeights.Empty():
+		// Weight layout: rows = n outputs, cols = m inputs, col-major:
+		// weight(row, col) = w[col*n + row]. Mirrors libopus sgemv layout.
 		for i := 0; i < n; i++ {
 			var sum float32
 			for j := 0; j < m; j++ {
@@ -577,27 +584,92 @@ func computeLinear(layer *LinearLayer, out, in []float32) {
 			}
 			out[i] = sum
 		}
-	} else if !layer.Weights.Empty() {
-		// Quantised int8 path. libopus stores weights in a packed 8x4
-		// pattern but we use the scalar fallback for the skeleton.
-		for i := 0; i < n; i++ {
-			var sum float32
-			for j := 0; j < m; j++ {
-				sum += float32(layer.Weights.At(j*n+i)) * in[j]
-			}
-			if !layer.Scale.Empty() {
-				sum *= layer.Scale.At(i)
-			}
-			out[i] = sum
-		}
-	} else {
+	case !layer.Weights.Empty():
+		// Quantised int8 path; mirrors libopus `cgemv8x4` from vec.h.
+		// USE_SU_BIAS is only enabled on AVX/AVX2 builds; the pure-Go
+		// reference matches the default scalar libopus build (signed
+		// int8 input quantisation, plain `bias`).
+		cgemv8x4(out[:n], layer.Weights, layer.Scale, n, m, in[:m])
+	default:
 		for i := 0; i < n; i++ {
 			out[i] = 0
 		}
 	}
+	if !bias.Empty() {
+		for i := 0; i < n; i++ {
+			out[i] += bias.At(i)
+		}
+	}
+}
+
+// EvaluateLayerInt8 runs the supplied LinearLayer using only its int8
+// quantised weight path (cgemv8x4 + scale). Used by parity tests to verify
+// the int8 kernel agrees with a reference computation on real libopus
+// weights. Writes zeros to `out` when the layer has no int8 weights.
+func EvaluateLayerInt8(layer *LinearLayer, out, in []float32) {
+	if layer == nil || layer.Weights.Empty() {
+		for i := range out {
+			out[i] = 0
+		}
+		return
+	}
+	n := layer.NbOutputs
+	m := layer.NbInputs
+	cgemv8x4(out[:n], layer.Weights, layer.Scale, n, m, in[:m])
 	if !layer.Bias.Empty() {
 		for i := 0; i < n; i++ {
 			out[i] += layer.Bias.At(i)
+		}
+	}
+}
+
+// cgemv8x4 mirrors the scalar fallback in libopus dnn/vec.h. The weight
+// matrix is stored as a sequence of 8-row by 4-col tiles (32 int8 values per
+// tile) iterating cols of 4 within each row-of-8, then rows of 8. After
+// integer accumulation each row is multiplied by `scale[row]` to recover the
+// float-domain product. The input is symmetrically quantised to int8 via
+// floor(0.5 + 127*x) so the dynamic range matches the trained kernel.
+//
+// Requires rows % 8 == 0 and cols % 4 == 0 (verified at model load time by
+// the libopus 1.6.1 BBWENet layer dimensions: every int8 layer satisfies
+// these constraints).
+func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View, rows, cols int, x []float32) {
+	const maxCols = 512
+	var q [maxCols]int8
+	if cols > maxCols {
+		// Should never happen for BBWENet (max int8 cols is 384).
+		for i := 0; i < rows; i++ {
+			out[i] = 0
+		}
+		return
+	}
+	for i := 0; i < cols; i++ {
+		// Signed int8 quantisation: floor(0.5 + 127*x). Match libopus
+		// scalar default (vec.h, no USE_SU_BIAS).
+		q[i] = int8(int(math.Floor(0.5 + 127*float64(x[i]))))
+	}
+	for i := 0; i < rows; i++ {
+		out[i] = 0
+	}
+	wOffset := 0
+	for row := 0; row < rows; row += 8 {
+		var acc [8]int32
+		for col := 0; col < cols; col += 4 {
+			x0 := int32(q[col])
+			x1 := int32(q[col+1])
+			x2 := int32(q[col+2])
+			x3 := int32(q[col+3])
+			for r := 0; r < 8; r++ {
+				base := wOffset + r*4
+				acc[r] += int32(weights.At(base))*x0 +
+					int32(weights.At(base+1))*x1 +
+					int32(weights.At(base+2))*x2 +
+					int32(weights.At(base+3))*x3
+			}
+			wOffset += 32
+		}
+		for r := 0; r < 8; r++ {
+			out[row+r] = float32(acc[r]) * scale.At(row+r)
 		}
 	}
 }
