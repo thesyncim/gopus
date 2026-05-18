@@ -372,9 +372,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// tf_estimate=0.2 override through patch_transient_decision() after MDCT
 	// analysis, not unconditionally at frame start.
 
-	// Step 5: Initialize range encoder and encode early flags (silence/postfilter)
-	targetBitsRaw := e.computeTargetBits(frameSize, tfEstimate, e.lastPitchChange)
-	targetBytes := (targetBitsRaw + 7) / 8
+	// Step 5: Initialize range encoder and encode early flags (silence/postfilter).
+	// In VBR/CVBR mode libopus starts with the current packet cap, then shrinks
+	// after dynalloc and trim once current-frame VBR inputs are known.
+	targetBytes := e.computeInitialTargetBytes(frameSize)
 	targetBits := targetBytes * 8
 	e.frameBits = targetBits
 	defer func() { e.frameBits = 0 }()
@@ -797,14 +798,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			bandEnd = nbBands
 		}
 		for i := start; i < bandEnd; i++ {
-			v := analysisEnergies[i]/32.0 - offset
+			v := analysisEnergies[i] - offset
 			if follow-1.0 > v {
 				follow = follow - 1.0
 			} else {
 				follow = v
 			}
 			if e.channels == 2 && nbBands+i < len(analysisEnergies) {
-				v2 := analysisEnergies[nbBands+i]/32.0 - offset
+				v2 := analysisEnergies[nbBands+i] - offset
 				if v2 > follow {
 					follow = v2
 				}
@@ -814,7 +815,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		if bandEnd > start {
 			frameAvg /= float64(bandEnd - start)
 		}
-		temporalVBR := frameAvg*32.0 - e.specAvg
+		temporalVBR := frameAvg - e.specAvg
 		if temporalVBR > 3.0 {
 			temporalVBR = 3.0
 		}
@@ -1123,6 +1124,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			}
 		}
 		re.EncodeICDF(allocTrim, trimICDF, 7)
+	}
+	if e.vbr {
+		targetBytes = e.computeFinalVBRTargetBytes(frameSize, tfEstimate, e.lastPitchChange, re.TellFrac(), totalBoost, targetBytes)
+		targetBits = targetBytes * 8
+		e.frameBits = targetBits
+		re.Shrink(uint32(targetBytes))
+		if re.Error() != 0 {
+			return nil, ErrEncodingFailed
+		}
 	}
 	var qextEnc *rangecoding.Encoder
 	var qextExtraBits []int
@@ -1955,6 +1965,110 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 	return payload
 }
 
+func (e *Encoder) vbrMaxPayloadBytes(frameSize int) int {
+	mode := GetModeConfig(frameSize)
+	lm := mode.LM
+	packetSizeCap := 1275
+	if e.qextActive() && !e.hybrid {
+		packetSizeCap = qextPacketSizeCap
+	}
+	maxBytes := (packetSizeCap >> (3 - lm)) - 1
+	if maxBytes < 2 {
+		maxBytes = 2
+	}
+	if e.maxPayloadBytes > 0 && maxBytes > e.maxPayloadBytes {
+		maxBytes = e.maxPayloadBytes
+	}
+	return maxBytes
+}
+
+func (e *Encoder) computeInitialTargetBytes(frameSize int) int {
+	if !e.vbr {
+		return e.cbrPayloadBytes(frameSize)
+	}
+	targetBytes := e.vbrMaxPayloadBytes(frameSize)
+	if e.constrainedVBR {
+		vbrRateQ3 := e.bitrateToBits(frameSize) << bitRes
+		boundScale := e.constrainedVBRBoundScale
+		if boundScale < 0 {
+			boundScale = 0
+		} else if boundScale > 1 {
+			boundScale = 1
+		}
+		vbrBoundQ3 := int(float64(vbrRateQ3) * boundScale)
+		maxAllowedBytes := (vbrRateQ3 + vbrBoundQ3 - e.vbrReservoir) >> (bitRes + 3)
+		if maxAllowedBytes < 2 {
+			maxAllowedBytes = 2
+		}
+		if targetBytes > maxAllowedBytes {
+			targetBytes = maxAllowedBytes
+		}
+	}
+	if targetBytes < 2 {
+		targetBytes = 2
+	}
+	return targetBytes
+}
+
+func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float64, pitchChange bool, tellFrac, totalBoost, limitBytes int) int {
+	mode := GetModeConfig(frameSize)
+	lm := mode.LM
+	lmDiff := 3 - lm
+	if lmDiff < 0 {
+		lmDiff = 0
+	}
+
+	vbrRateQ3 := e.bitrateToBits(frameSize) << bitRes
+	overheadQ3 := (40*e.channels + 20) << bitRes
+	baseTargetQ3 := vbrRateQ3 - overheadQ3
+	if baseTargetQ3 < 0 {
+		baseTargetQ3 = 0
+	}
+	if e.constrainedVBR {
+		baseTargetQ3 += e.vbrOffset >> lmDiff
+	}
+
+	targetQ3 := e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange)
+	targetQ3 += tellFrac
+
+	targetBytes := (targetQ3 + (1 << (bitRes + 2))) >> (bitRes + 3)
+	minAllowed := ((tellFrac + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
+	if targetBytes < minAllowed {
+		targetBytes = minAllowed
+	}
+	if targetBytes > limitBytes {
+		targetBytes = limitBytes
+	}
+	if targetBytes < 2 {
+		targetBytes = 2
+	}
+	if e.constrainedVBR {
+		deltaQ3 := targetQ3 - vbrRateQ3
+		targetQ3 = targetBytes << (bitRes + 3)
+		if e.vbrCount < 970 {
+			e.vbrCount++
+			alpha := 1.0 / float64(e.vbrCount+20)
+			driftDelta := ((deltaQ3 << lmDiff) - e.vbrOffset - e.vbrDrift)
+			e.vbrDrift += int(alpha * float64(driftDelta))
+		} else {
+			driftDelta := ((deltaQ3 << lmDiff) - e.vbrOffset - e.vbrDrift)
+			e.vbrDrift += int(0.001 * float64(driftDelta))
+		}
+		e.vbrReservoir += targetQ3 - vbrRateQ3
+		e.vbrOffset = -e.vbrDrift
+		if e.vbrReservoir < 0 {
+			adjust := (-e.vbrReservoir) / (8 << bitRes)
+			targetBytes += adjust
+			e.vbrReservoir = 0
+			if targetBytes > limitBytes {
+				targetBytes = limitBytes
+			}
+		}
+	}
+
+	return targetBytes
+}
+
 // computeTargetBits computes the target CELT bit budget in bits.
 // Reference: libopus celt/celt_encoder.c compute_vbr().
 func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChange bool) int {
@@ -2171,11 +2285,6 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 
 	// Boost the rate according to dynalloc (minus the dynalloc average for calibration).
 	totBoost := e.lastDynalloc.TotBoost
-	// VBR target uses previous-frame dynalloc state; bootstrap frame 0 with a
-	// representative boost so one-shot/single-frame encodes are not starved.
-	if totBoost == 0 && e.frameCount == 0 && frameSize == 960 {
-		totBoost = 960 << bitRes
-	}
 	calibration := 19 << lm
 	dynallocBoost := totBoost - calibration
 	targetQ3 += dynallocBoost
@@ -2188,23 +2297,21 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	if tfEstimate > 1 {
 		tfEstimate = 1
 	}
-	tfBoost := int(2.0 * (tfEstimate - tfCalibration) * float64(targetQ3))
+	tfBoost := int((tfEstimate - tfCalibration) * float64(targetQ3))
 	targetQ3 += tfBoost
 
 	// Tonality boost.
-	tonality := e.lastTonality
+	tonality := e.analysisTonality
 	if tonality < 0 {
 		tonality = 0
 	}
 	if tonality > 1 {
 		tonality = 1
 	}
-	if !e.lfe {
+	if e.analysisValid && !e.lfe {
 		tonal := math.Max(0, tonality-0.15) - 0.12
 		tonalTarget := targetQ3
-		if tonal > 0 {
-			tonalTarget += int(float64(codedBins<<bitRes) * 1.2 * tonal)
-		}
+		tonalTarget += int(float64(codedBins<<bitRes) * 1.2 * tonal)
 		if pitchChange {
 			tonalTarget += int(float64(codedBins<<bitRes) * 0.8)
 		}

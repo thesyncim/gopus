@@ -26,12 +26,14 @@ func TestComputeTargetBitsLFEAvoidsNonLFEBudgets(t *testing.T) {
 	nonLFE.SetVBR(true)
 	nonLFE.SetHybrid(false)
 	nonLFE.SetBitrate(64000)
+	nonLFE.SetAnalysisInfoWithTonality(20, [leakBands]uint8{}, 0.8, 0.9, 0, 1, true)
 
 	lfe := NewEncoder(1)
 	lfe.SetVBR(true)
 	lfe.SetHybrid(false)
 	lfe.SetBitrate(64000)
 	lfe.SetLFE(true)
+	lfe.SetAnalysisInfoWithTonality(20, [leakBands]uint8{}, 0.8, 0.9, 0, 1, true)
 
 	frameSize := 960
 	nonLFEBits := nonLFE.computeTargetBits(frameSize, 0.3, false)
@@ -58,5 +60,25 @@ func TestComputeTargetBitsUsesAnalysisActivityPenalty(t *testing.T) {
 	bitsWithPenalty := withActivityPenalty.computeTargetBits(frameSize, 0.2, false)
 	if bitsWithPenalty >= bitsNoAnalysis {
 		t.Fatalf("analysis activity penalty should reduce target bits: withPenalty=%d noAnalysis=%d", bitsWithPenalty, bitsNoAnalysis)
+	}
+}
+
+func TestComputeVBRTargetMatchesLibopusLowTonalityTransient(t *testing.T) {
+	enc := NewEncoder(2)
+	enc.SetVBR(true)
+	enc.SetBitrate(19000)
+	enc.SetConstrainedVBR(true)
+	enc.intensity = 9
+	enc.lastStereoSaving = 0.25
+	enc.lastDynalloc = DynallocResult{
+		TotBoost: 480,
+		MaxDepth: 25.525310516357422,
+	}
+	enc.SetAnalysisInfoWithTonality(20, [leakBands]uint8{}, 0.47803518176078796, 0.08520728349685669, 0, 1, true)
+
+	got := enc.computeVBRTarget(2240, 960, 0.9928242543370907, false)
+	const want = 3301
+	if got != want {
+		t.Fatalf("computeVBRTarget low-tonality transient=%d want %d", got, want)
 	}
 }

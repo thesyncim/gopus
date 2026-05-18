@@ -21,7 +21,7 @@ import (
 //   - full packet length (the headline check)
 //   - DRED payload offset
 //   - DRED payload bytes
-//   - primary CELT frame byte counts (when the packet structure matches)
+//   - primary CELT frame byte counts
 //
 // History:
 //   - Pre-fix (encoder/encoder.go reserving DRED bytes from SILK/Hybrid only):
@@ -33,10 +33,9 @@ import (
 //     gopus's CELT compute_vbr being slightly more conservative than libopus
 //     at low (post-DRED) bitrates; this is independent of stereo coupling and
 //     is left as a separate alignment task.
-//
-// On length divergence the probe records the residual gap via t.Skipf so
-// regressions on the major 80-byte gap remain visible without breaking the
-// gate while the residual is investigated.
+//   - CVBR alignment fix: CELT now shrinks VBR packets after current-frame
+//     dynalloc/trim and mirrors libopus float compute_vbr tonality/transient
+//     math, so this probe is a strict packet-length parity gate.
 func TestProbeEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereo(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
@@ -70,16 +69,9 @@ func TestProbeEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereo(t *t
 		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
 
-	// Surface any remaining full-packet length delta. The 80-byte pre-fix gap
-	// is closed; if the residual ever swings back above 30 bytes (the previous
-	// "primary CELT 1/2x bitrate" regime), fail loudly.
 	delta := len(gotPacket) - len(packetInfo.packet)
-	if delta > 30 || delta < -30 {
-		t.Fatalf("CELT FB stereo packet length=%d want %d (delta=%d bytes) regressed beyond ±30",
-			len(gotPacket), len(packetInfo.packet), delta)
-	}
 	if delta != 0 {
-		t.Skipf("CELT FB stereo packet length=%d want %d (delta=%d bytes); residual CELT compute_vbr alignment gap is tracked separately",
+		t.Fatalf("CELT FB stereo packet length=%d want %d (delta=%d bytes)",
 			len(gotPacket), len(packetInfo.packet), delta)
 	}
 	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)

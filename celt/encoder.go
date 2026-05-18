@@ -111,6 +111,7 @@ type Encoder struct {
 	analysisValid         bool // True after at least one analysis update
 	analysisActivity      float64
 	analysisLeakBoost     [leakBands]uint8
+	analysisTonality      float64
 	analysisTonalitySlope float64
 	analysisMaxPitchRatio float64
 	// Surround trim adjustment (in trim units) used by alloc_trim analysis.
@@ -292,6 +293,7 @@ func NewEncoder(channels int) *Encoder {
 		analysisBandwidth:     20,
 		analysisValid:         false,
 		analysisActivity:      0.0,
+		analysisTonality:      0.0,
 		analysisTonalitySlope: 0.0,
 		analysisMaxPitchRatio: 0.0,
 
@@ -339,6 +341,7 @@ func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 	if !valid {
 		e.analysisValid = false
 		e.analysisActivity = 0
+		e.analysisTonality = 0
 		e.analysisTonalitySlope = 0
 		e.analysisMaxPitchRatio = 0
 		for i := range e.analysisLeakBoost {
@@ -355,6 +358,7 @@ func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 	e.analysisBandwidth = bandwidth
 	e.analysisValid = true
 	e.analysisActivity = 0
+	e.analysisTonality = 0
 	e.analysisTonalitySlope = 0
 	e.analysisMaxPitchRatio = 1.0
 	for i := range e.analysisLeakBoost {
@@ -365,6 +369,12 @@ func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 // SetAnalysisInfo provides analysis-derived state from the top-level Opus analysis
 // pipeline. This mirrors libopus use of AnalysisInfo in CELT dynalloc.
 func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, activity, tonalitySlope float64, maxPitchRatio float64, valid bool) {
+	e.SetAnalysisInfoWithTonality(bandwidth, leakBoost, activity, 0, tonalitySlope, maxPitchRatio, valid)
+}
+
+// SetAnalysisInfoWithTonality provides the full AnalysisInfo subset used by
+// libopus CELT decisions, including analysis.tonality for compute_vbr().
+func (e *Encoder) SetAnalysisInfoWithTonality(bandwidth int, leakBoost [leakBands]uint8, activity, tonality, tonalitySlope float64, maxPitchRatio float64, valid bool) {
 	if !valid {
 		e.SetAnalysisBandwidth(0, false)
 		return
@@ -379,6 +389,12 @@ func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, act
 	e.analysisValid = true
 	e.analysisActivity = activity
 	e.analysisLeakBoost = leakBoost
+	if tonality < 0 {
+		tonality = 0
+	} else if tonality > 1 {
+		tonality = 1
+	}
+	e.analysisTonality = tonality
 	e.analysisTonalitySlope = tonalitySlope
 	if maxPitchRatio < 0 {
 		maxPitchRatio = 0
@@ -472,6 +488,7 @@ func (e *Encoder) Reset() {
 	e.analysisBandwidth = 20
 	e.analysisValid = false
 	e.analysisActivity = 0
+	e.analysisTonality = 0
 	e.analysisTonalitySlope = 0
 	e.analysisMaxPitchRatio = 0
 	for i := range e.analysisLeakBoost {

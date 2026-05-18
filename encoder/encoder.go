@@ -1175,13 +1175,14 @@ func (e *Encoder) syncCELTAnalysisToCELT() {
 		return
 	}
 	if !e.lastAnalysisValid {
-		e.celtEncoder.SetAnalysisInfo(0, [19]uint8{}, 0, 0, 0, false)
+		e.celtEncoder.SetAnalysisInfoWithTonality(0, [19]uint8{}, 0, 0, 0, 0, false)
 		return
 	}
-	e.celtEncoder.SetAnalysisInfo(
+	e.celtEncoder.SetAnalysisInfoWithTonality(
 		e.lastAnalysisInfo.BandwidthIndex,
 		e.lastAnalysisInfo.LeakBoost,
 		float64(e.lastAnalysisInfo.Activity),
+		float64(e.lastAnalysisInfo.Tonality),
 		float64(e.lastAnalysisInfo.TonalitySlope),
 		float64(e.lastAnalysisInfo.MaxPitchRatio),
 		true,
@@ -2290,6 +2291,9 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 	if packetTargetBytes < 1 {
 		packetTargetBytes = 1
 	}
+	if packetTargetBytes > maxSilkPacketBytes {
+		packetTargetBytes = maxSilkPacketBytes
+	}
 	maxHeaderBytes := 3
 	if frameCount > 2 {
 		maxHeaderBytes = 2 + (frameCount-1)*2
@@ -2303,16 +2307,6 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 		currMaxByRate = 2
 	}
 	totSize := 0
-	subframeBitrate := e.bitrate
-	if e.bitrateMode == ModeVBR {
-		// For long CELT VBR packets, encode each 20ms subframe with a
-		// reduced bitrate budget to avoid repeatedly hitting the per-frame
-		// CELT VBR boost ceiling across multiple subframes.
-		subframeBitrate = (e.bitrate * 3) / 5
-		if subframeBitrate < 6000 {
-			subframeBitrate = 6000
-		}
-	}
 	for i := 0; i < frameCount; i++ {
 		e.primeSubframeAnalysis(960)
 		start := i * frameStride
@@ -2330,7 +2324,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 			currMax = 2
 		}
 		maxPayload := currMax - 1
-		frameData, err := e.encodeCELTFrameWithBitrateAndMaxPayload(celtPCM[start:end], 960, subframeBitrate, maxPayload)
+		frameData, err := e.encodeCELTFrameWithBitrateAndMaxPayload(celtPCM[start:end], 960, e.bitrate, maxPayload)
 		if err != nil {
 			return nil, err
 		}

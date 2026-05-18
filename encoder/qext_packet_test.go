@@ -226,6 +226,7 @@ func TestEncodeCELTPacketQEXTSizeTracksLibopus(t *testing.T) {
 			enc.SetMode(ModeCELT)
 			enc.SetBandwidth(types.BandwidthFullband)
 			enc.SetBitrate(256000)
+			enc.SetBitrateMode(ModeCBR)
 			enc.SetQEXT(true)
 
 			pcm64 := make([]float64, 960*channels)
