@@ -71,11 +71,11 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 	}
 
 	const (
-		featureTolerance   = 1e-6
-		instafreqTolerance = 3e-7
+		featureTolerance   = 6e-7
+		instafreqTolerance = 1.5e-7
 		// Wrapper parity is int16-domain: one LSB is 1/32768.
 		outputAbsTolerance = 3.2e-5
-		outputRMSTolerance = 3e-6
+		outputRMSTolerance = 1.6e-6
 	)
 
 	for _, tc := range cases {
@@ -227,8 +227,8 @@ func TestOSCEBWERawSignalNetMatchesLibopus(t *testing.T) {
 	}
 
 	const (
-		rawAbsTolerance = 4e-6
-		rawRMSTolerance = 1e-6
+		rawAbsTolerance = 1e-6
+		rawRMSTolerance = 1e-7
 	)
 
 	for _, tc := range cases {
@@ -325,11 +325,11 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 	const (
 		numIn16            = 160 // 10 ms @ 16 kHz: minimum BWE frame
 		numFrames          = 1
-		featureTolerance   = 1e-6
-		instafreqTolerance = 3e-7
+		featureTolerance   = 6e-7
+		instafreqTolerance = 1.5e-7
 		// Wrapper parity is int16-domain: one LSB is 1/32768.
 		outputAbsTolerance = 3.2e-5
-		outputRMSTolerance = 3e-6
+		outputRMSTolerance = 1.6e-6
 	)
 
 	refFeatures, refOut, err := runOSCEBWEForwardHelperMode(binPath, numIn16, "consecutive")
