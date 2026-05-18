@@ -310,6 +310,7 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	d.plcModelLoaded = models.PLC
 	d.farganModelLoaded = models.FARGAN
 	d.osceModelsLoaded = models.OSCE
+	d.osceLACEModelLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
 	// Bind the quarantined OSCE BWE model when its weights are present. The
 	// helper is a no-op outside of `gopus_unsupported_controls` builds so the

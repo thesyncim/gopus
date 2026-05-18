@@ -100,6 +100,16 @@ type Decoder struct {
 	osceBWEEnabled     bool
 	osceBWE            *decoderOSCEBWEState
 	osceLACE           *decoderOSCELACEState
+	// osceLACEModelLoaded mirrors `osceModelsLoaded` (LACE/NoLACE manifest
+	// presence in the bound DNN blob) but is exposed as a dedicated field so
+	// the maybeApplyOSCELACEPostSilk gate matches the libopus OPUS_SET_DNN_BLOB
+	// shape (separate blob-presence vs. user-toggle bits).
+	osceLACEModelLoaded bool
+	// osceLACEEnabled mirrors libopus DecControl.osce_method != OSCE_METHOD_NONE
+	// in the same way osceBWEEnabled mirrors DecControl.enable_osce_bwe. The
+	// toggle only takes effect when the bound DNN blob also satisfies the
+	// LACE/NoLACE manifest.
+	osceLACEEnabled bool
 }
 
 // NewDecoder creates a new Opus decoder.

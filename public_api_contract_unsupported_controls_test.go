@@ -47,9 +47,9 @@ func TestUnsupportedControlsBuildPublicAPIContract(t *testing.T) {
 			got:  &Decoder{},
 			want: []string{
 				"Bandwidth", "Channels", "Decode", "DecodeInt16", "DecodeWithFEC", "FinalRange",
-				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "OSCEBWE",
+				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "OSCEBWE", "OSCELACE",
 				"Pitch", "Reset", "SampleRate", "SetDNNBlob", "SetGain", "SetIgnoreExtensions",
-				"SetOSCEBWE",
+				"SetOSCEBWE", "SetOSCELACE",
 			},
 		},
 		{
