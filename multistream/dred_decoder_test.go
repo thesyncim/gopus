@@ -858,6 +858,15 @@ func TestDecoderDecodeNilConsumesMultistreamDREDNeuralCELTStereoStream(t *testin
 	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "celt stereo", packet, channels, targetStream)
 }
 
+func TestDecoderDecodeNilConsumesMultistreamDREDNeuralCELTSecondCoupledStream(t *testing.T) {
+	const channels = 5
+	const targetStream = 1
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeCELTMultistreamPacketWithDREDForTest(t, channels, targetStream, body)
+
+	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "celt second coupled", packet, channels, targetStream)
+}
+
 func TestDecoderDecodeNilConsumesMultistreamDREDNeuralHybridStereoStream(t *testing.T) {
 	const channels = 3
 	const targetStream = 0
