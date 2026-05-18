@@ -4193,6 +4193,46 @@ func TestDecoderExplicitSILKDREDDecodeMatchesLibopus(t *testing.T) {
 	assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "explicit silk libopus pcm", 1e-4)
 }
 
+// TestDecoderExplicit16kSILKDREDDecodeMatchesLibopus mirrors the 48 kHz SILK
+// explicit DRED parity test at a 16 kHz decoder rate. SILK runs internally at
+// 16 kHz so the 16 kHz API path skips the SILK->API upsampler entirely; the
+// DeepPLC neural lowband is emitted at 16 kHz directly to the caller buffer.
+// libopus's opus_decoder_dred_decode_float supports this path at any internal
+// SR including 16 kHz.
+func TestDecoderExplicit16kSILKDREDDecodeMatchesLibopus(t *testing.T) {
+	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(
+		t, 16000, libopusDREDPacketConfig{
+			FrameSize: 960,
+			ForceMode: ModeSILK,
+			Bandwidth: BandwidthWideband,
+		})
+
+	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
+	if err != nil {
+		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+	}
+	if want.parseRet < 0 {
+		t.Skipf("libopus decoder 16k SILK DRED parse failed: %d", want.parseRet)
+	}
+	if want.ret != n {
+		t.Fatalf("libopus decoder 16k SILK DRED decode ret=%d want %d", want.ret, n)
+	}
+	if want.channels != 1 {
+		t.Fatalf("libopus decoder 16k SILK DRED decode channels=%d want 1", want.channels)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	got, err := dec.decodeExplicitDREDFloat(dred, n, pcm, n)
+	if err != nil {
+		t.Fatalf("decodeExplicitDREDFloat error: %v", err)
+	}
+	if got != n {
+		t.Fatalf("decodeExplicitDREDFloat=%d want %d", got, n)
+	}
+
+	assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "explicit 16k silk libopus pcm", 1e-4)
+}
+
 // TestProbeDecoderExplicitSILKDRED probes whether libopus emits a DRED-bearing
 // packet for SILK-only mode (no CELT) at 48 kHz WB 20 ms, and if so whether the
 // pure-Go decoder explicit DRED path agrees with libopus on the recovered PCM.
