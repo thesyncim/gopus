@@ -826,7 +826,7 @@ func (d *Decoder) prepareDRED48kNeuralEntry(frameSize int, mode Mode, primeAnaly
 	}
 	r := d.dredRecoveryState()
 	b := d.dred48kBridgeState()
-	if d == nil || r == nil || b == nil || (d.sampleRate != 48000 && d.sampleRate != 16000) || d.channels != 1 || (mode != ModeCELT && mode != ModeHybrid) {
+	if d == nil || r == nil || b == nil || (d.sampleRate != 48000 && d.sampleRate != 16000) || d.channels < 1 || d.channels > 2 || (mode != ModeCELT && mode != ModeHybrid) {
 		return
 	}
 	if !b.dredLastNeural && b.dredPLCFill == 0 && r.dredPLC.FECFillPos() == 0 && r.dredPLC.FECSkip() == 0 {

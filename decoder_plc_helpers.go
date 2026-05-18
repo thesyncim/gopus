@@ -123,12 +123,16 @@ func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state
 		n, err := d.decodePLCChunksInto(out, frameSize, state)
 		return n, false, err
 	}
-	if (d.sampleRate != 48000 && d.sampleRate != 16000) || d.channels != 1 || (state.mode != ModeCELT && state.mode != ModeHybrid) {
+	if (d.sampleRate != 48000 && d.sampleRate != 16000) || d.channels < 1 || d.channels > 2 || (state.mode != ModeCELT && state.mode != ModeHybrid) {
 		n, err := d.decodePLCChunksInto(out, frameSize, state)
 		return n, false, err
 	}
-	if state.mode == ModeHybrid {
+	if state.mode == ModeHybrid && d.channels == 1 {
 		return d.decodeHybridDRED48kInto(out, frameSize, state)
+	}
+	if state.mode == ModeHybrid {
+		n, err := d.decodePLCChunksInto(out, frameSize, state)
+		return n, false, err
 	}
 	if d.sampleRate != 48000 {
 		n, err := d.decodePLCChunksInto(out, frameSize, state)
