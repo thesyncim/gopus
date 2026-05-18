@@ -23,9 +23,9 @@ coverage is skipped.
 
 | Extension | Support status | Probe | Notes |
 | --- | --- | --- | --- |
-| DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; `make test-dnn-blob-parity` validates the default control surface against libopus USE_WEIGHTS_FILE model blobs and fails on skipped helper coverage; decoder-side support currently covers loader-derived validation and retained control state, not full model-backed PLC/OSCE runtime behavior. Tagged DRED/quarantine builds may bind DRED-capable model families on this control path; encoder runtime work remains dormant until a DRED duration is armed, core-only decoder blobs keep DRED payload scanning dormant, and combined core+DRED decoder blobs arm the DRED parser so cached recovery can consume packet extensions on green seams |
+| DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; `make test-dnn-blob-parity` validates the default control surface against libopus USE_WEIGHTS_FILE model blobs and fails on skipped helper coverage; decoder-side default support covers loader-derived validation and retained control state, while optional model-backed audio runtimes stay tag-gated/quarantined. Tagged DRED/quarantine builds may bind DRED-capable model families on this control path; encoder runtime work remains dormant until a DRED duration is armed, core-only decoder blobs keep DRED payload scanning dormant, and combined core+DRED decoder blobs arm the DRED parser so cached recovery can consume packet extensions on green seams |
 | QEXT | Tagged support | `OptionalExtensionQEXT` | Build with `-tags gopus_qext` to support `SetQEXT` / `QEXT` on `Encoder` and `MultistreamEncoder`; default builds keep those controls absent and compile the packet-extension payload scan/encode plumbing behind a constant false gate |
-| DRED | Tagged control/standalone support | `OptionalExtensionDRED` | Build with `-tags gopus_dred` to support `SetDREDDuration(...)` / `DREDDuration()` on `Encoder` and `MultistreamEncoder`, plus standalone `DREDDecoder` / `DRED`; quarantine builds may expose the same controls/helpers under `gopus_unsupported_controls` for parity work without reporting DRED support; this does not claim broad multistream or broad DRED audio-path parity beyond the required mono explicit/live decoder matrix, selected 16 kHz Hybrid mono live-sequence seams, selected 48 kHz CELT stereo cached/live first/second-loss and next-packet handoff seams, explicit first-loss and recovery lifecycle/cursor seams, the 48 kHz SILK WB explicit stereo first-loss seam, and the 48 kHz CELT elementary-stream multistream DRED consumer seam; 16 kHz stereo CELT/Hybrid probes remain carrier-helper blocked, broader multistream Hybrid/SILK DRED remains seam-specific, and default builds keep DRED absent with runtime hooks dormant |
+| DRED | Tagged control/standalone support | `OptionalExtensionDRED` | Build with `-tags gopus_dred` to support `SetDREDDuration(...)` / `DREDDuration()` on `Encoder` and `MultistreamEncoder`, plus standalone `DREDDecoder` / `DRED`; quarantine builds may expose the same controls/helpers under `gopus_unsupported_controls` for parity work without reporting DRED support; this does not claim broad multistream or broad DRED audio-path parity beyond the required mono explicit/live decoder matrix, selected 16 kHz Hybrid mono live-sequence seams, selected 16 kHz CELT/Hybrid stereo explicit first-loss probes, selected 48 kHz CELT stereo cached/live first/second-loss and next-packet handoff seams, explicit first-loss and recovery lifecycle/cursor seams, the 48 kHz SILK WB explicit stereo first-loss seam, and the 48 kHz CELT elementary-stream multistream DRED consumer seam; broader multistream Hybrid/SILK DRED remains seam-specific, and default builds keep DRED absent with runtime hooks dormant |
 | OSCE BWE | Unsupported and quarantined | `OptionalExtensionOSCEBWE` | `SetOSCEBWE(...)` / `OSCEBWE()` are absent from the default public API surface, and low-level OSCE model helpers stay quarantine-gated |
 
 ## Supported Feature Tags
@@ -61,19 +61,22 @@ zero-allocation, libopus parse/decode/process metadata coverage, and real-packet
 standalone process state/feature parity, standalone recovery scheduling parity,
 and decoder cached recovery bookkeeping parity plus the supported-tag SILK
 wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload/packet-envelope
-seams, plus Hybrid fullband 20/40 ms mono and stereo carried-payload/packet-envelope
-seams.
+seams, Hybrid fullband 20/40 ms mono and stereo carried-payload/packet-envelope
+seams, and the single-coupled multistream SILK/CELT/Hybrid 20 ms stereo DRED
+carrier fan-out seams.
 `make test-unsupported-controls-tag` pins the quarantine
 API exposure, standalone/control smoke, cached DRED recovery bookkeeping, and
 dormant-runtime checks without changing support probes.
 `make test-unsupported-controls-parity` mirrors the supported encoder seams and
 adds parser availability, internal converter/payload/basic-analysis coverage,
 real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle,
-48 kHz bootstrap coverage, the required mono decoder explicit/live numerical
-matrix, selected 16 kHz Hybrid mono live-sequence seams, selected 48 kHz CELT
-stereo cached/live first/second-loss and next-packet handoff seams, explicit
-first-loss and recovery lifecycle/cursor seams, and the 48 kHz SILK WB explicit
-stereo first-loss seam.
+OSCE BWE/LACE numerical forward-pass and runtime integration coverage, 48 kHz
+bootstrap coverage, the required mono decoder explicit/live numerical matrix,
+selected 16 kHz Hybrid mono live-sequence seams, selected 16 kHz CELT/Hybrid
+stereo explicit first-loss probes, selected 48 kHz CELT stereo cached/live
+first/second-loss and next-packet handoff seams, explicit first-loss and
+recovery lifecycle/cursor seams, and the 48 kHz SILK WB explicit stereo
+first-loss seam.
 Required DRED parity gates fail on skipped libopus-helper tests instead
 of treating missing helpers as green. In
 default builds, DRED controls are absent and
@@ -91,11 +94,12 @@ work dormant. Single-stream and multistream decoders may arm the RDOVAE parser
 from a combined core+DRED decoder blob and consume cached DRED on green seams,
 including the 48 kHz CELT elementary-stream multistream seam. The
 required mono decoder explicit/live numerical matrix, selected 16 kHz Hybrid
-mono live-sequence seams, selected 48 kHz CELT stereo cached/live
+mono live-sequence seams, selected 16 kHz CELT/Hybrid stereo explicit first-loss
+probes, selected 48 kHz CELT stereo cached/live
 first/second-loss and next-packet handoff seams, explicit first-loss and
 recovery lifecycle/cursor seams, and the 48 kHz SILK WB explicit stereo
-first-loss seam are parity-gated in quarantine. The 16 kHz stereo CELT/Hybrid probes remain carrier-helper
-blocked, and broader multistream Hybrid/SILK DRED remains seam-specific.
+first-loss seam are parity-gated in quarantine. Broader multistream Hybrid/SILK
+DRED remains seam-specific.
 Hybrid 20/40 ms mono/stereo packet-envelope
 exactness is required in both DRED parity gates; Hybrid/SILK primary-frame byte
 exactness remains outside the supported gate unless a seam is explicitly named
@@ -125,9 +129,10 @@ parity sweeps, but it does not, by itself, change `SupportsOptionalExtension(...
 DRED release support comes from `gopus_dred`, and OSCE BWE remains unsupported.
 
 In quarantine builds, tag-gated wrappers and low-level helper methods are
-available for parity work and explicit experiments. Some OSCE control state is
-retained and observable, but full model-backed OSCE BWE runtime behavior remains
-incomplete.
+available for parity work and explicit experiments. OSCE BWE and LACE/NoLACE
+control state is retained, model-bound, and exercised by numerical
+libopus-backed forward-pass comparators plus decoder runtime smoke gates; it
+still does not report public support from `SupportsOptionalExtension(...)`.
 
 ## Release Contract
 

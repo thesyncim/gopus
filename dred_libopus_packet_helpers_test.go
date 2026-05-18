@@ -40,10 +40,11 @@ func libopusDREDRequestForDecoder(packetInfo libopusDREDPacket, decoderSampleRat
 }
 
 type libopusDREDPacketConfig struct {
-	FrameSize int
-	ForceMode Mode
-	Bandwidth Bandwidth
-	Channels  int
+	FrameSize     int
+	ForceMode     Mode
+	Bandwidth     Bandwidth
+	Channels      int
+	ForceChannels int
 }
 
 var (
@@ -104,6 +105,9 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 		fmt.Sprintf("GOPUS_DRED_FORCE_MODE=%s", forceModeEnv),
 		fmt.Sprintf("GOPUS_DRED_BANDWIDTH=%s", bandwidthEnv),
 	)
+	if cfg.ForceChannels != 0 {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("GOPUS_DRED_FORCE_CHANNELS=%d", cfg.ForceChannels))
+	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -131,6 +135,13 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 	}
 	if toc.Bandwidth != cfg.Bandwidth {
 		return libopusDREDPacket{}, fmt.Errorf("dred emit helper bandwidth=%v want %v", toc.Bandwidth, cfg.Bandwidth)
+	}
+	if cfg.ForceChannels != 0 && toc.Stereo != (cfg.ForceChannels == 2) {
+		gotChannels := 1
+		if toc.Stereo {
+			gotChannels = 2
+		}
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper channels=%d want %d", gotChannels, cfg.ForceChannels)
 	}
 	packetDuration, err := opusPacketDurationSamples(info.packet)
 	if err != nil {

@@ -90,6 +90,12 @@ func TestPublicDREDDecoderDecodeWithCoreModelsStaysZeroAlloc(t *testing.T) {
 	if state := dec.dredState(); state != nil {
 		t.Fatalf("warmup Decode woke DRED sidecar: %+v", state)
 	}
+	if _, err := dec.Decode(nil, pcm); err != nil {
+		t.Fatalf("warmup Decode(nil): %v", err)
+	}
+	if state := dec.dredState(); state != nil {
+		t.Fatalf("warmup Decode(nil) woke DRED sidecar without a DRED payload: %+v", state)
+	}
 
 	allocs := testing.AllocsPerRun(200, func() {
 		if _, err := dec.Decode(packet, pcm); err != nil {

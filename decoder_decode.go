@@ -82,22 +82,20 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		// intentionally excluded so the BWE never overwrites richer
 		// concealment output.
 		//
-		// LACE/NoLACE runs on the same SILK lowband BEFORE BWE -- mirror
-		// the wiring order from decoder_opus_frame.go so the BWE forward
-		// pass consumes the postfilter-enhanced native lowband during PLC.
-		// libopus reaches `osce_enhance_frame` on the PLC path through the
-		// `data == NULL` branch where `silk_Decode` is still invoked with
-		// `lost_flag = 1`, after which the SILK PLC output flows through
-		// the same post-decode hook as a good frame.
-		if !usedNeuralConcealment && d.lastPacketMode == ModeSILK &&
+		// LACE/NoLACE does not enhance packet-loss frames in libopus:
+		// `silk_decode_frame` calls `osce_reset` on the lost branch.
+		// Keep that state transition here before optional BWE runs on the
+		// concealed SILK lowband.
+		packetStereoLocal := d.prevPacketStereo
+		if d.lastPacketMode == ModeSILK &&
 			d.lastBandwidth == BandwidthWideband &&
-			d.sampleRate == 48000 && d.channels == 1 && d.osceLACEEnabled {
-			d.maybeApplyOSCELACEPostSilk(pcm[:frameSize*d.channels], frameSize, ModeSILK, silk.BandwidthWideband, false)
+			d.sampleRate == 48000 && d.osceLACEEnabled {
+			d.resetOSCELACEPostfilterState(packetStereoLocal)
 		}
 		if !usedNeuralConcealment && d.lastPacketMode == ModeSILK &&
 			d.lastBandwidth == BandwidthWideband &&
-			d.sampleRate == 48000 && d.channels == 1 && d.osceBWEEnabled {
-			d.maybeApplyOSCEBWEPostSilk(pcm[:frameSize*d.channels], frameSize, ModeSILK, silk.BandwidthWideband, false)
+			d.sampleRate == 48000 && d.osceBWEEnabled {
+			d.maybeApplyOSCEBWEPostSilk(pcm[:frameSize*d.channels], frameSize, ModeSILK, silk.BandwidthWideband, packetStereoLocal)
 		}
 		d.applyOutputGain(pcm[:frameSize*d.channels])
 

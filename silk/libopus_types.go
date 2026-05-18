@@ -104,6 +104,7 @@ type decoderControl struct {
 	PredCoefQ12 [2][maxLPCOrder]int16
 	LTPCoefQ14  [ltpOrder * maxNbSubfr]int16
 	LTPScaleQ14 int32
+	NumBits     int
 }
 
 type stereoDecState struct {

@@ -3,15 +3,14 @@
 
 package gopus
 
-// Phase 1 smoke test for the OSCE LACE / NoLACE postfilter wiring on the
-// decoder hot path. The wiring lives in `decoder_osce_lace_apply.go`; this
-// test verifies that:
+// Smoke test for the OSCE LACE / NoLACE postfilter wiring on the decoder hot
+// path. The wiring lives in `decoder_osce_lace_apply.go`; this test verifies
+// that:
 //
 //   - SetOSCELACE(true) + SetDNNBlob(merged core+LACE) succeeds.
 //   - Decoding a SILK WB packet completes without panic / error.
 //   - The decoded PCM has non-zero energy (so the postfilter helper did
-//     not zero out the standard silk_resampler output when conditions
-//     are not met or when the Phase 1 identity stub runs).
+//     not zero out the standard silk_resampler output).
 //   - Hybrid SWB packets bypass the postfilter (libopus only runs LACE /
 //     NoLACE for SILK-only mode at 16 kHz internal).
 //
@@ -62,10 +61,9 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 	}
 
 	// SILK WB packets satisfy the libopus `osce_enhance_frame` early-
-	// return gate (fs_kHz == 16, nb_subfr == 4) so the postfilter hook
-	// is expected to invoke the Phase 1 identity stub. The decoded PCM
-	// must remain non-zero -- the identity copy must not clobber the
-	// standard silk_resampler output to silence.
+	// return gate (fs_kHz == 16, nb_subfr == 4) so the postfilter hook is
+	// expected to invoke the model-backed forward pass. The decoded PCM
+	// must remain non-zero.
 	t.Run("silk_wb_invokes_lace", func(t *testing.T) {
 		dec.Reset()
 		const frameSize = 960 // 20 ms @ 48 kHz
@@ -129,13 +127,11 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		}
 	})
 
-	// Phase 2: with the real LACE/NoLACE forward pass wired in, the
-	// postfilter must mutate the native 16 kHz int16 SILK lowband
-	// in place (libopus mirror: `osce_enhance_frame` overwrites
-	// psDec->outBuf with the postfilter-enhanced samples). Compare
-	// the int16 lowband produced by a LACE-off decode against the
-	// same packet decoded with LACE on; any difference confirms the
-	// forward pass is no longer an identity copy.
+	// The real LACE/NoLACE forward pass must mutate the native 16 kHz
+	// int16 SILK lowband in place (libopus mirror: `osce_enhance_frame`
+	// overwrites psDec->outBuf with the postfilter-enhanced samples).
+	// Compare the int16 lowband produced by a LACE-off decode against
+	// the same packet decoded with LACE on.
 	//
 	// The current gopus call site invokes the postfilter AFTER
 	// silk_resampler, so the public 48 kHz `out` buffer is not yet
@@ -193,8 +189,8 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 
 		// The 320-sample 20 ms lowband must differ on at least one
 		// sample. If the buffers are bit-identical, the LACE/NoLACE
-		// forward pass has degenerated back into the Phase 1 identity
-		// copy and the postfilter is not actually running.
+		// forward pass has degenerated into an identity copy and the
+		// postfilter is not actually running.
 		var diffCount int
 		var maxDiff int
 		for i := 0; i < osceLACEFrameSamples; i++ {

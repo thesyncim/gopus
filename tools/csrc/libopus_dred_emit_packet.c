@@ -150,8 +150,10 @@ int main(void) {
   int frame_idx;
   const char *frame_size_env = getenv("GOPUS_DRED_FRAME_SIZE");
   const char *channels_env = getenv("GOPUS_DRED_CHANNELS");
+  const char *force_channels_env = getenv("GOPUS_DRED_FORCE_CHANNELS");
   const char *force_mode_env = getenv("GOPUS_DRED_FORCE_MODE");
   const char *bandwidth_env = getenv("GOPUS_DRED_BANDWIDTH");
+  int force_channels = 0;
 
   if (frame_size_env != NULL && frame_size_env[0] != '\0') {
     char *end = NULL;
@@ -171,6 +173,16 @@ int main(void) {
       return 1;
     }
     channels = (int)parsed;
+  }
+
+  if (force_channels_env != NULL && force_channels_env[0] != '\0') {
+    char *end = NULL;
+    long parsed = strtol(force_channels_env, &end, 10);
+    if (end == NULL || *end != '\0' || (parsed != 1 && parsed != 2)) {
+      fprintf(stderr, "invalid GOPUS_DRED_FORCE_CHANNELS=%s\n", force_channels_env);
+      return 1;
+    }
+    force_channels = (int)parsed;
   }
 
   if (!parse_force_mode_env(force_mode_env, &force_mode, &force_mode_enabled)) {
@@ -217,6 +229,9 @@ int main(void) {
   opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate));
   opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
   opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(bandwidth));
+  if (force_channels != 0) {
+    opus_encoder_ctl(enc, OPUS_SET_FORCE_CHANNELS(force_channels));
+  }
   if (force_mode_enabled) {
     opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE(force_mode));
   }

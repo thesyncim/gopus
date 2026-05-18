@@ -155,6 +155,10 @@ func (d *Decoder) decodeFrameCoreInto(
 	condCoding int,
 	vad bool,
 ) decoderControl {
+	ecStart := 0
+	if rd != nil {
+		ecStart = rd.Tell()
+	}
 	silkDecodeIndices(st, rd, vad, condCoding)
 	pulses := d.pulseBuffer(st.frameLength)
 	silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength, st.scratchSumPulses, st.scratchNLshifts)
@@ -162,6 +166,9 @@ func (d *Decoder) decodeFrameCoreInto(
 	var ctrl decoderControl
 	silkDecodeParameters(st, &ctrl, condCoding)
 	silkDecodeCore(st, &ctrl, frameOut, pulses)
+	if rd != nil {
+		ctrl.NumBits = rd.Tell() - ecStart
+	}
 	return ctrl
 }
 

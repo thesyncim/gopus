@@ -12,7 +12,7 @@ import (
 // the SILK lowband output and writes the bandwidth-extended PCM into `out`,
 // overwriting the standard silk_resampler output.
 //
-// The hook is a libopus parity stub for the SILK_BBWE extended mode:
+// The hook mirrors the libopus SILK_BBWE extended mode:
 //
 //	st->DecControl.osce_extended_mode == OSCE_MODE_SILK_BBWE
 //
@@ -89,6 +89,7 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 			state.osceBWEFeatures[i].Reset()
 		}
 	}
+	transitionIntoBWE := !state.prevBWEActive
 
 	// Stereo packet on a stereo decoder: run the per-channel forward pass
 	// for the mid/left and side/right lowband signals independently and
@@ -124,6 +125,12 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 		); err != nil {
 			return false
 		}
+		if transitionIntoBWE {
+			for i := 0; i < in48Per; i++ {
+				state.applyFadeout48[i] = out[2*i]
+			}
+			osceBWECrossFade10ms(state.applyOut48[:in48Per], state.applyFadeout48[:in48Per], 480)
+		}
 		// Interleave left channel into out[2*i].
 		for i := 0; i < in48Per; i++ {
 			out[2*i] = state.applyOut48[i]
@@ -156,11 +163,19 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 			for i := 0; i < in48Per; i++ {
 				out[2*i+1] = out[2*i]
 			}
+			state.prevBWEActive = true
 			return true
+		}
+		if transitionIntoBWE {
+			for i := 0; i < in48Per; i++ {
+				state.applyFadeout48[i] = out[2*i+1]
+			}
+			osceBWECrossFade10ms(state.applyOut48[:in48Per], state.applyFadeout48[:in48Per], 480)
 		}
 		for i := 0; i < in48Per; i++ {
 			out[2*i+1] = state.applyOut48[i]
 		}
+		state.prevBWEActive = true
 		return true
 	}
 
@@ -223,8 +238,15 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 	// buffer in via osceBWECrossFade10ms which writes the cross-fade
 	// samples directly back into the BWE output buffer; we then overwrite
 	// `out` from there.
-	if !state.prevBWEActive && d.channels == 1 {
-		osceBWECrossFade10ms(state.applyOut48[:in48Per], out[:in48Per], 480)
+	if transitionIntoBWE {
+		if d.channels == 1 {
+			osceBWECrossFade10ms(state.applyOut48[:in48Per], out[:in48Per], 480)
+		} else {
+			for i := 0; i < in48Per; i++ {
+				state.applyFadeout48[i] = out[2*i]
+			}
+			osceBWECrossFade10ms(state.applyOut48[:in48Per], state.applyFadeout48[:in48Per], 480)
+		}
 	}
 
 	// Write BWE output to the mono channel of `out`. For mono channels==1 we
@@ -273,7 +295,7 @@ func (d *Decoder) applyOSCEBWEFadeOut(out []float32, frameSize int, packetStereo
 	if d == nil || d.osceBWE == nil || !d.osceBWE.osceBWERuntime[0].Loaded() {
 		return
 	}
-	if d.sampleRate != 48000 || d.channels != 1 || packetStereoLocal {
+	if d.sampleRate != 48000 {
 		return
 	}
 	in48Per := frameSize
@@ -282,36 +304,80 @@ func (d *Decoder) applyOSCEBWEFadeOut(out []float32, frameSize int, packetStereo
 	}
 	in16Per := in48Per / 3
 
-	native, fsKHz := d.silkDecoder.LatestNativeMono()
-	if native == nil || fsKHz != 16 || len(native) < in16Per {
+	state := d.osceBWE
+	numFrames := in16Per / 160
+	runChannel := func(native []int16, channelIdx int) bool {
+		if channelIdx < 0 || channelIdx > 1 || !state.osceBWERuntime[channelIdx].Loaded() {
+			return false
+		}
+		if len(native) < in16Per {
+			return false
+		}
+		for i := 0; i < in16Per; i++ {
+			state.applyIn16Int[i] = native[i]
+			state.applyIn16[i] = float32(native[i]) / 32768.0
+		}
+		// Port of libopus `osce_bwe_calculate_features` -- compute the same
+		// 114-float feature vector per 10 ms hop that the BWE-active path
+		// uses, so the fade-out BWE pass produces output matching the per-
+		// channel BWE state libopus cross-fades against.
+		state.osceBWEFeatures[channelIdx].CalculateFeatures(
+			state.applyFeatures[:numFrames*osceBWE.FeatureDim],
+			state.applyIn16Int[:in16Per],
+		)
+		return state.osceBWERuntime[channelIdx].ProcessDelayed(
+			state.applyIn16[:in16Per],
+			state.applyOut48[:in48Per],
+			state.applyFeatures[:numFrames*osceBWE.FeatureDim],
+		) == nil
+	}
+
+	if packetStereoLocal && d.channels == 2 {
+		leftNative, rightNative, samplesPerChannel, fsKHz, ok := d.silkDecoder.LatestNativeStereo()
+		if !ok || fsKHz != 16 || samplesPerChannel < in16Per {
+			return
+		}
+		if runChannel(leftNative, 0) {
+			for i := 0; i < in48Per; i++ {
+				state.applyFadeout48[i] = out[2*i]
+			}
+			osceBWECrossFade10ms(state.applyFadeout48[:in48Per], state.applyOut48[:in48Per], 480)
+			for i := 0; i < in48Per; i++ {
+				out[2*i] = state.applyFadeout48[i]
+			}
+		}
+		if runChannel(rightNative, 1) {
+			for i := 0; i < in48Per; i++ {
+				state.applyFadeout48[i] = out[2*i+1]
+			}
+			osceBWECrossFade10ms(state.applyFadeout48[:in48Per], state.applyOut48[:in48Per], 480)
+			for i := 0; i < in48Per; i++ {
+				out[2*i+1] = state.applyFadeout48[i]
+			}
+		}
 		return
 	}
 
-	state := d.osceBWE
-	for i := 0; i < in16Per; i++ {
-		state.applyIn16Int[i] = native[i]
-		state.applyIn16[i] = float32(native[i]) / 32768.0
-	}
-	numFrames := in16Per / 160
-	// Port of libopus `osce_bwe_calculate_features` -- compute the same 114-
-	// float feature vector per 10 ms hop that the BWE-active path uses, so the
-	// fade-out BWE pass produces output matching what the previous BWE-active
-	// frame would have produced. Zero features here would cause the fade-out
-	// BWE output to drift from the previous frame's BWE output and produce an
-	// audible cross-fade boundary.
-	state.osceBWEFeatures[0].CalculateFeatures(
-		state.applyFeatures[:numFrames*osceBWE.FeatureDim],
-		state.applyIn16Int[:in16Per],
-	)
-	if err := state.osceBWERuntime[0].ProcessDelayed(
-		state.applyIn16[:in16Per],
-		state.applyOut48[:in48Per],
-		state.applyFeatures[:numFrames*osceBWE.FeatureDim],
-	); err != nil {
+	native, fsKHz := d.silkDecoder.LatestNativeMono()
+	if native == nil || fsKHz != 16 || !runChannel(native, 0) {
 		return
 	}
-	// `out` is the standard upsampled output (fadein), `applyOut48` is the
-	// BWE output (fadeout). osceBWECrossFade10ms writes the cross-fade into
-	// its first argument.
-	osceBWECrossFade10ms(out[:in48Per], state.applyOut48[:in48Per], 480)
+	if d.channels == 1 {
+		// `out` is the standard upsampled output (fadein), `applyOut48` is
+		// the BWE output (fadeout). osceBWECrossFade10ms writes the cross-
+		// fade into its first argument.
+		osceBWECrossFade10ms(out[:in48Per], state.applyOut48[:in48Per], 480)
+		return
+	}
+	if d.channels == 2 {
+		for i := 0; i < in48Per; i++ {
+			state.applyFadeout48[i] = out[2*i]
+		}
+		osceBWECrossFade10ms(state.applyFadeout48[:in48Per], state.applyOut48[:in48Per], 480)
+		for i := 0; i < in48Per; i++ {
+			v := state.applyFadeout48[i]
+			out[2*i] = v
+			out[2*i+1] = v
+		}
+	}
 }

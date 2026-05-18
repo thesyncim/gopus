@@ -16,10 +16,8 @@ import (
 // libopus keeps a single shared OSCEModel inside `OpusDecoder` (see
 // `dnn/osce.c`: `osce_init`) carrying both LACE and NoLACE postfilter
 // weights; the per-channel postfilter state (LACEState / NoLACEState)
-// lives in the silk decoder structs. Phase 1 wires the typed model
-// pointer and per-channel scratch buffers; the per-channel runtime
-// state machine (LACEState / NoLACEState ring buffers) arrives with the
-// Phase 2 forward pass.
+// lives in the silk decoder structs. The quarantine build mirrors that shape
+// with one LACE and one NoLACE runtime state per channel.
 //
 // Both LACE and NoLACE operate on a 20 ms @ 16 kHz int16 frame (320
 // samples) in libopus; the scratch buffers below are sized accordingly.
@@ -85,18 +83,13 @@ type decoderOSCELACEState struct {
 
 	// Per-frame conditioning features consumed by the LACE / NoLACE
 	// pitch / feature embedding net. Sized for the maximum 4-subframe
-	// invocation libopus supports. The Phase 1 stub leaves these zeroed
-	// because the upstream feature pipeline (`osce_calculate_features`)
-	// has not been ported yet.
+	// invocation libopus supports.
 	applyFeatures [osceLACESubframesPerFrame * osceLACEFeatureDim]float32
 	applyNumBits  [2]float32
 	applyPeriods  [osceLACESubframesPerFrame]int
 
 	// prevLACEActive mirrors libopus DecControl.prev_osce_extended_mode
-	// for the LACE/NoLACE bit. The Phase 1 wiring tracks the flag so a
-	// future cross-fade helper (analogous to osceBWECrossFade10ms) has the
-	// state it needs to decide whether to fade between the postfilter and
-	// raw SILK output. The current stub does not run the cross-fade.
+	// for the LACE/NoLACE bit. The postfilter uses it to decide when to
+	// cross-fade between enhanced and raw SILK output.
 	prevLACEActive bool
-
 }

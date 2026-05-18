@@ -221,4 +221,73 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 	if energy == 0 {
 		t.Fatalf("PLC PCM is silent after BWE-armed SILK WB packet -- BWE PLC path likely did not run")
 	}
+
+	t.Run("stereo", func(t *testing.T) {
+		dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+		if err != nil {
+			t.Fatalf("NewDecoder(stereo 48kHz): %v", err)
+		}
+		if err := dec.SetOSCEBWE(true); err != nil {
+			t.Fatalf("SetOSCEBWE(true): %v", err)
+		}
+		if err := dec.SetDNNBlob(merged); err != nil {
+			t.Fatalf("SetDNNBlob(merged core+BWE): %v", err)
+		}
+		if !dec.osceBWEModelLoadedRuntime() {
+			t.Fatalf("decoder did not bind OSCE BWE runtime model after SetDNNBlob")
+		}
+
+		silkWB := makeValidStereoSILKPacketForFrameSizeBandwidthForOSCEBWETest(t, frameSize, BandwidthWideband)
+		pcmGood := make([]float32, dec.maxPacketSamples*dec.channels)
+		gotGood, err := dec.Decode(silkWB, pcmGood)
+		if err != nil {
+			t.Fatalf("Decode(stereo silk WB): %v", err)
+		}
+		if gotGood != frameSize {
+			t.Fatalf("Decode(stereo silk WB) returned %d samples, want %d", gotGood, frameSize)
+		}
+		if dec.lastPacketMode != ModeSILK || dec.lastBandwidth != BandwidthWideband || !dec.prevPacketStereo {
+			t.Fatalf("decoder state after good stereo SILK WB packet: mode=%v bandwidth=%v stereo=%v, want SILK WB stereo", dec.lastPacketMode, dec.lastBandwidth, dec.prevPacketStereo)
+		}
+		if dec.osceBWE == nil || !dec.osceBWE.prevBWEActive {
+			t.Fatalf("prevBWEActive=false after stereo SILK WB decode")
+		}
+
+		pcmPLC := make([]float32, dec.maxPacketSamples*dec.channels)
+		gotPLC, err := dec.Decode(nil, pcmPLC)
+		if err != nil {
+			t.Fatalf("Decode(nil) stereo PLC: %v", err)
+		}
+		if gotPLC != frameSize {
+			t.Fatalf("Decode(nil) stereo PLC returned %d samples, want %d", gotPLC, frameSize)
+		}
+		if dec.osceBWE == nil || !dec.osceBWE.prevBWEActive {
+			t.Fatalf("prevBWEActive=false after stereo SILK WB PLC; BWE PLC path did not stay active")
+		}
+
+		var leftEnergy, rightEnergy, diffEnergy float64
+		for i := 0; i < gotPLC; i++ {
+			l := pcmPLC[2*i]
+			r := pcmPLC[2*i+1]
+			if math.IsNaN(float64(l)) || math.IsInf(float64(l), 0) {
+				t.Fatalf("stereo PLC left PCM contains NaN/Inf at sample %d: %v", i, l)
+			}
+			if math.IsNaN(float64(r)) || math.IsInf(float64(r), 0) {
+				t.Fatalf("stereo PLC right PCM contains NaN/Inf at sample %d: %v", i, r)
+			}
+			leftEnergy += float64(l) * float64(l)
+			rightEnergy += float64(r) * float64(r)
+			diff := float64(l - r)
+			diffEnergy += diff * diff
+		}
+		if leftEnergy == 0 {
+			t.Fatalf("stereo PLC left channel is silent after BWE-armed SILK WB packet")
+		}
+		if rightEnergy == 0 {
+			t.Fatalf("stereo PLC right channel is silent after BWE-armed SILK WB packet")
+		}
+		if diffEnergy == 0 {
+			t.Fatalf("stereo PLC collapsed to mono after BWE-armed stereo SILK WB packet")
+		}
+	})
 }

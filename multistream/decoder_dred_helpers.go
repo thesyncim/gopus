@@ -168,9 +168,8 @@ func (d *Decoder) dredSidecarActive() bool {
 	if s == nil {
 		return false
 	}
-	// Multistream has standalone DRED caching today, but no per-stream neural
-	// concealment consumer yet, so keep the sidecar dormant until we actually
-	// cache a payload.
+		// Keep the sidecar dormant until a stream actually caches a DRED
+		// payload; the per-stream neural consumer is entered from the PLC path.
 	return len(s.dredCache) != 0
 }
 

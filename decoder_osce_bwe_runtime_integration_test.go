@@ -3,9 +3,8 @@
 
 package gopus
 
-// Phase 1 smoke test for the OSCE BWE forward-pass wiring on the decoder hot
-// path. The wiring lives in `decoder_osce_bwe_apply.go`; this test verifies
-// that:
+// Smoke test for the OSCE BWE forward-pass wiring on the decoder hot path. The
+// wiring lives in `decoder_osce_bwe_apply.go`; this test verifies that:
 //
 //   - SetOSCEBWE(true) + SetDNNBlob(merged core+BWE) succeeds.
 //   - Decoding a Hybrid SWB packet completes without panic / error.
@@ -100,8 +99,7 @@ func TestDecoderOSCEBWERuntimeIntegration(t *testing.T) {
 	// should overwrite the standard silk_resampler output with the BWE
 	// 16k -> 48k forward pass. The packet is mono so the stereo decoder's
 	// channels==2 branch in maybeApplyOSCEBWEPostSilk applies. Verify the
-	// decode completes and PCM is non-zero (Phase 1 forward pass produces
-	// non-trivial output for a sinusoidal input even with zero features).
+	// decode completes and PCM is non-zero.
 	t.Run("silk_wb_invokes_bwe", func(t *testing.T) {
 		// Reset to clear any prior packet state.
 		dec.Reset()
@@ -187,7 +185,7 @@ func TestDecoderOSCEBWERuntimeIntegration(t *testing.T) {
 		// The stereo test packet uses different signals per channel so the
 		// per-channel BWE forward pass should produce distinguishable
 		// output. If both channels were identical (e.g. because the side-
-		// channel runtime was not wired) diffEnergy would be exactly zero.
+		// channel runtime was not invoked) diffEnergy would be exactly zero.
 		if diffEnergy == 0 {
 			t.Fatalf("decoded stereo PCM is mono (left == right) after stereo BWE pass -- side-channel runtime not invoked?")
 		}

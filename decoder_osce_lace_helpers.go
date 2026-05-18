@@ -9,10 +9,9 @@ import (
 )
 
 // bindOSCELACEModel attaches (or detaches) the quarantined libopus OSCE
-// LACE/NoLACE model to the decoder's runtime state. The runtime forward
-// pass is still a Phase 1 stub; this helper only handles the typed model
-// binding so callers can verify the loader recognises the upstream
-// `lace_*` / `nolace_*` weight records.
+// LACE/NoLACE model to the decoder's runtime state. The bound state is consumed
+// by the post-SILK OSCE LACE / NoLACE forward pass, so callers can verify both
+// upstream `lace_*` / `nolace_*` weight loading and runtime execution.
 //
 // supported reflects the blob's `SupportsOSCE()` answer (i.e. both LACE
 // and NoLACE manifests present); when false the helper clears any prior

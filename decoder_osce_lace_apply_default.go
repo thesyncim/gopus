@@ -23,3 +23,6 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 // build. The quarantined `gopus_unsupported_controls` build provides the
 // real implementation in `decoder_osce_lace_apply.go`.
 func (d *Decoder) osceLACEMarkInactiveIfModeIneligible(_ Mode, _ Bandwidth) {}
+
+// resetOSCELACEPostfilterState is a no-op on the default build.
+func (d *Decoder) resetOSCELACEPostfilterState(_ bool) {}

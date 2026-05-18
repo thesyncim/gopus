@@ -684,6 +684,7 @@ type LatestDecoderControl struct {
 	NbSubfr     int
 	SignalType  int
 	FsKHz       int
+	NumBits     int
 }
 
 // LatestDecoderControl returns the per-frame SILK decoder control state for
@@ -714,6 +715,7 @@ func (d *Decoder) LatestDecoderControl(channel int) (LatestDecoderControl, bool)
 		LPCOrder:    st.lpcOrder,
 		NbSubfr:     st.nbSubfr,
 		FsKHz:       st.fsKHz,
+		NumBits:     src.NumBits,
 	}
 	return out, true
 }

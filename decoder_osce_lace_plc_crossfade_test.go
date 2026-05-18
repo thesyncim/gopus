@@ -144,10 +144,10 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 	}
 }
 
-// TestDecoderOSCELACEPLC verifies LACE/NoLACE is invoked during PLC when
-// the previous packet was SILK WB. The PLC output must be non-zero (so the
-// LACE forward pass did not collapse the concealed lowband to silence) and
-// must not contain NaN/Inf samples.
+// TestDecoderOSCELACEPLC verifies LACE/NoLACE follows libopus PLC semantics:
+// the lost SILK frame resets postfilter state instead of running
+// osce_enhance_frame. The PLC output must be non-zero and must not contain
+// NaN/Inf samples.
 func TestDecoderOSCELACEPLC(t *testing.T) {
 	coreBlob := requireLibopusDecoderNeuralModelBlob(t)
 	laceBlob := requireLibopusOSCELACEModelBlob(t)
@@ -188,9 +188,8 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 	}
 
 	// Step 2: invoke Decode(nil) for PLC. With LACE armed, the PLC path
-	// must invoke maybeApplyOSCELACEPostSilk after the standard PLC
-	// resampling so the concealed lowband is postfilter-enhanced like a
-	// good SILK WB frame.
+	// must reset the postfilter state instead of enhancing the concealed
+	// frame, matching libopus silk_decode_frame lost-branch behavior.
 	pcmPLC := make([]float32, dec.maxPacketSamples*dec.channels)
 	gotPLC, err := dec.Decode(nil, pcmPLC)
 	if err != nil {
@@ -200,10 +199,14 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 		t.Fatalf("Decode(nil) PLC returned %d samples, want %d", gotPLC, frameSize)
 	}
 
+	if dec.osceLACE != nil && dec.osceLACE.prevLACEActive {
+		t.Fatalf("prevLACEActive=true after SILK WB PLC; libopus resets OSCE LACE on the lost branch")
+	}
+
 	// PLC output must be non-zero -- the silk_resampler upsampling alone
 	// already produces non-zero energy from the concealed lowband, so this
-	// check guards against an accidental regression where the LACE PLC
-	// path zeroes out the buffer or otherwise yields silence.
+	// check guards against an accidental regression where the PLC path zeroes
+	// out the buffer or otherwise yields silence.
 	var energy float64
 	for i := 0; i < gotPLC*dec.channels; i++ {
 		v := pcmPLC[i]
@@ -213,6 +216,75 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 		energy += float64(v) * float64(v)
 	}
 	if energy == 0 {
-		t.Fatalf("PLC PCM is silent after LACE-armed SILK WB packet -- LACE PLC path likely did not run")
+		t.Fatalf("PLC PCM is silent after LACE-armed SILK WB packet")
 	}
+
+	t.Run("stereo", func(t *testing.T) {
+		dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+		if err != nil {
+			t.Fatalf("NewDecoder(stereo 48kHz): %v", err)
+		}
+		if err := dec.SetOSCELACE(true); err != nil {
+			t.Fatalf("SetOSCELACE(true): %v", err)
+		}
+		if err := dec.SetDNNBlob(merged); err != nil {
+			t.Fatalf("SetDNNBlob(merged core+LACE): %v", err)
+		}
+		if !dec.osceLACEModelLoadedRuntime() {
+			t.Fatalf("decoder did not bind OSCE LACE runtime model after SetDNNBlob")
+		}
+
+		silkWB := makeValidStereoSILKPacketForFrameSizeBandwidthForOSCEBWETest(t, frameSize, BandwidthWideband)
+		pcmGood := make([]float32, dec.maxPacketSamples*dec.channels)
+		gotGood, err := dec.Decode(silkWB, pcmGood)
+		if err != nil {
+			t.Fatalf("Decode(stereo silk WB): %v", err)
+		}
+		if gotGood != frameSize {
+			t.Fatalf("Decode(stereo silk WB) returned %d samples, want %d", gotGood, frameSize)
+		}
+		if dec.lastPacketMode != ModeSILK || dec.lastBandwidth != BandwidthWideband || !dec.prevPacketStereo {
+			t.Fatalf("decoder state after good stereo SILK WB packet: mode=%v bandwidth=%v stereo=%v, want SILK WB stereo", dec.lastPacketMode, dec.lastBandwidth, dec.prevPacketStereo)
+		}
+		if dec.osceLACE == nil || !dec.osceLACE.prevLACEActive {
+			t.Fatalf("prevLACEActive=false after stereo SILK WB decode")
+		}
+
+		pcmPLC := make([]float32, dec.maxPacketSamples*dec.channels)
+		gotPLC, err := dec.Decode(nil, pcmPLC)
+		if err != nil {
+			t.Fatalf("Decode(nil) stereo PLC: %v", err)
+		}
+		if gotPLC != frameSize {
+			t.Fatalf("Decode(nil) stereo PLC returned %d samples, want %d", gotPLC, frameSize)
+		}
+		if dec.osceLACE != nil && dec.osceLACE.prevLACEActive {
+			t.Fatalf("prevLACEActive=true after stereo SILK WB PLC; libopus resets OSCE LACE on the lost branch")
+		}
+
+		var leftEnergy, rightEnergy, diffEnergy float64
+		for i := 0; i < gotPLC; i++ {
+			l := pcmPLC[2*i]
+			r := pcmPLC[2*i+1]
+			if math.IsNaN(float64(l)) || math.IsInf(float64(l), 0) {
+				t.Fatalf("stereo PLC left PCM contains NaN/Inf at sample %d: %v", i, l)
+			}
+			if math.IsNaN(float64(r)) || math.IsInf(float64(r), 0) {
+				t.Fatalf("stereo PLC right PCM contains NaN/Inf at sample %d: %v", i, r)
+			}
+			leftEnergy += float64(l) * float64(l)
+			rightEnergy += float64(r) * float64(r)
+			diff := float64(l - r)
+			diffEnergy += diff * diff
+		}
+		if leftEnergy == 0 {
+			t.Fatalf("stereo PLC left channel is silent after LACE-armed SILK WB packet")
+		}
+		if rightEnergy == 0 {
+			t.Fatalf("stereo PLC right channel is silent after LACE-armed SILK WB packet")
+		}
+		if diffEnergy == 0 {
+			t.Fatalf("stereo PLC collapsed to mono after LACE-armed stereo SILK WB packet")
+		}
+	})
 }

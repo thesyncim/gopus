@@ -108,7 +108,7 @@ func (d *Decoder) dredNeuralModelsLoaded() bool {
 }
 
 func (d *Decoder) dredDecodeSidecarPossible() bool {
-	return d != nil && (d.dred != nil || d.dredNeuralModelsLoaded())
+	return d != nil && (d.dredPayloadScannerActive() || d.dredCachedPayloadActive() || d.dredGoodPacketMarkerActive())
 }
 
 func (d *Decoder) dredNeuralRuntimeLoaded() bool {
@@ -456,10 +456,8 @@ func (d *Decoder) resetDRED48kNeuralBridge() {
 func (d *Decoder) dredSidecarActive() bool {
 	p := d.dredPayloadState()
 	r := d.dredRecoveryState()
-	if p == nil && r == nil && !d.dredNeuralModelsLoaded() {
-		return false
-	}
-	return (p != nil && p.dredModelLoaded) || d.dredNeuralModelsLoaded()
+	b := d.dred48kBridgeState()
+	return (p != nil && p.dredModelLoaded) || r != nil || b != nil
 }
 
 func (d *Decoder) dredPayloadScannerActive() bool {

@@ -9,9 +9,9 @@ import (
 )
 
 // bindOSCEBWEModel attaches (or detaches) the quarantined libopus OSCE BWE
-// model to the decoder's runtime state. The runtime forward pass is still a
-// Phase 1 stub; this helper only handles the typed model binding so callers
-// can verify the loader recognises the upstream `bbwenet_*` weight records.
+// model to the decoder's runtime state. The bound state is consumed by the
+// post-SILK OSCE BWE forward pass in `maybeApplyOSCEBWEPostSilk`, so callers can
+// verify both upstream `bbwenet_*` weight loading and runtime execution.
 //
 // supported reflects the blob's `SupportsOSCEBWE()` answer; when false the
 // helper clears any prior binding.
@@ -53,8 +53,8 @@ func (d *Decoder) bindOSCEBWEModel(blob *dnnblob.Blob, supported bool) error {
 	}
 	d.osceBWE.osceBWEModel = model
 	// Mirror the LPCNet pattern: keep both runtime states in sync with the
-	// loaded model so a later Phase 2 forward pass can rely on Loaded() for
-	// each channel slot independently.
+	// loaded model so each channel slot can run the forward pass
+	// independently.
 	for ch := range d.osceBWE.osceBWERuntime {
 		if err := d.osceBWE.osceBWERuntime[ch].SetModel(blob); err != nil {
 			d.osceBWE.osceBWEModel = nil
@@ -79,10 +79,10 @@ func (d *Decoder) bindOSCEBWEModel(blob *dnnblob.Blob, supported bool) error {
 // OSCE BWE model that the runtime can use. The bool mirrors the LPCNet
 // `Loaded()` accessors and is intended for test parity assertions.
 //
-// Stereo SILK WB requires both per-channel runtime slots to be bound; the
-// helper accordingly returns true only when slot 0 (mid/left) is loaded,
-// matching the mono gate. Callers that care specifically about the side
-// channel runtime can introspect `d.osceBWE.osceBWERuntime[1].Loaded()`.
+// Stereo SILK WB requires both per-channel runtime slots to be bound; this
+// helper returns true when slot 0 (mid/left) is loaded, matching the legacy
+// readiness probe. Callers that care specifically about the side-channel
+// runtime can introspect `d.osceBWE.osceBWERuntime[1].Loaded()`.
 func (d *Decoder) osceBWEModelLoadedRuntime() bool {
 	if d == nil || d.osceBWE == nil {
 		return false

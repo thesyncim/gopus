@@ -28,9 +28,7 @@ const (
 )
 
 // pickOSCELACEMode mirrors the libopus complexity-based mode selection,
-// projected onto the SILK internal bandwidth. The Phase 1 forward pass
-// stub treats both modes identically; the selection is recorded so a
-// Phase 2 forward pass can dispatch to the correct sub-model.
+// projected onto the SILK internal bandwidth.
 func pickOSCELACEMode(silkBW silk.Bandwidth) osceLACEMode {
 	switch silkBW {
 	case silk.BandwidthNarrowband:
@@ -54,15 +52,9 @@ func pickOSCELACEMode(silkBW silk.Bandwidth) osceLACEMode {
 // mutating the int16 lowband samples in `pOut` in place. The gopus
 // equivalent reads the latest native int16 lowband from
 // `silk.Decoder.LatestNativeMono()` / `LatestNativeStereo()`, runs the
-// LACE / NoLACE forward pass (Phase 1 = identity), and writes the
-// enhanced lowband back so the downstream stages (silk_resampler and
-// optional OSCE BWE) consume the postfilter-enhanced signal.
-//
-// Phase 1 keeps the forward pass as a no-op when the runtime is not
-// loaded; the wiring is still useful as a compile-time hook that callers
-// of the decoder can rely on. Once the per-channel LACEState / NoLACEState
-// runtime lands in `internal/osce/lace`, the helper can dispatch to it
-// without changes to the call site in `decoder_opus_frame.go`.
+// LACE / NoLACE forward pass, and writes the enhanced lowband back so the
+// downstream stages (silk_resampler and optional OSCE BWE) consume the
+// postfilter-enhanced signal.
 //
 // Gates (all must hold for the postfilter to run):
 //   - `osceLACEEnabled` (user toggle via SetOSCELACE)
@@ -90,10 +82,9 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 	}
 	state := d.osceLACE
 	if state == nil || state.osceLACEModel == nil || !state.osceLACEModel.Loaded() {
-		// Phase 1: when the runtime model is not bound (e.g. blob did
-		// not carry the LACE/NoLACE manifests, or a parallel agent has
-		// not yet ported the forward pass), keep the standard
-		// silk_resampler output untouched.
+		// When the runtime model is not bound (e.g. blob did not carry
+		// the LACE/NoLACE manifests), keep the standard silk_resampler
+		// output untouched.
 		return false
 	}
 	// libopus only runs LACE/NoLACE on SILK-only mode at 16 kHz internal
@@ -133,13 +124,9 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 			d.osceLACE.prevLACEActive = false
 			return false
 		}
-		// Phase 1 forward pass is identity, so the native lowband is
-		// unchanged and the standard silk_resampler output already in
-		// `out` remains correct. When Phase 2 lands, the native int16
-		// buffer mutation will propagate naturally because
 		// `LatestNativeStereo` returns slices aliasing decoder scratch
-		// storage (so the downstream OSCE BWE call will consume the
-		// enhanced lowband as in libopus).
+		// storage, so the downstream OSCE BWE call consumes the enhanced
+		// lowband as in libopus.
 		d.osceLACE.prevLACEActive = true
 		_ = out
 		_ = frameSize
@@ -165,11 +152,7 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 
 // applyOSCELACEMonoChannel runs the LACE / NoLACE forward pass over one
 // native-rate int16 SILK lowband channel and writes the enhanced samples
-// back into the same buffer. The Phase 1 implementation is an identity
-// pass that exercises the scratch arena (so the per-frame allocation
-// guard catches future regressions) without modifying the audio; a
-// follow-up Phase 2 port of `lace_process_20ms_frame` /
-// `nolace_process_20ms_frame` will replace the identity copy.
+// back into the same buffer.
 //
 // `transition` indicates the frame transitioned from non-LACE to LACE this
 // call. When set, the helper cross-fades the first 10 ms (160 samples) of
@@ -185,7 +168,7 @@ func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, tr
 	}
 	state := d.osceLACE
 	// libopus scales by 1/32768.f at the start of osce_enhance_frame; mirror
-	// that so the Phase 2 forward pass receives float32 input. Capture the
+	// that so the forward pass receives float32 input. Capture the
 	// pre-enhancement int16 view in applyIn16 so the cross-fade has the raw
 	// input available even after the enhancement overwrites the native lowband.
 	for i := 0; i < osceLACEFrameSamples; i++ {
@@ -225,17 +208,17 @@ func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, tr
 			fc.PitchL[sf] = ctrl.PitchL[sf]
 		}
 		fc.SignalType = ctrl.SignalType
-		// num_bits is not currently plumbed through the SILK decoder, so we
-		// pass 0 for the raw payload bit count. The smoothed slot
-		// `numbits[1]` therefore decays towards 0 over many frames; this is
-		// the same value the libopus OSCE LACE parity test feeds the helper.
+		numBits := ctrl.NumBits
+		if numBits < 0 {
+			numBits = 0
+		}
 		state.osceLACEFeatures[channelIdx].CalculateFeatures(
 			state.applyFeatures[:],
 			state.applyNumBits[:],
 			state.applyPeriods[:],
 			state.applyIn16[:osceLACEFrameSamples],
 			&fc,
-			0, // num_bits (not plumbed through yet; matches parity-test input).
+			int32(numBits),
 		)
 	}
 	switch mode {
@@ -308,6 +291,22 @@ func (d *Decoder) osceLACEMarkInactiveIfModeIneligible(mode Mode, bandwidth Band
 		// decode hook handles the flag itself based on the actual SILK
 		// internal bandwidth.
 		return
+	}
+	d.osceLACE.prevLACEActive = false
+}
+
+func (d *Decoder) resetOSCELACEPostfilterState(packetStereoLocal bool) {
+	if d == nil || d.osceLACE == nil {
+		return
+	}
+	channels := 1
+	if packetStereoLocal && d.channels == 2 {
+		channels = 2
+	}
+	for ch := 0; ch < channels; ch++ {
+		d.osceLACE.osceLACEFeatures[ch].Reset()
+		d.osceLACE.osceLACERuntime[ch].Reset()
+		d.osceLACE.osceNoLACERuntime[ch].Reset()
 	}
 	d.osceLACE.prevLACEActive = false
 }
