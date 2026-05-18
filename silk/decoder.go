@@ -136,6 +136,16 @@ type Decoder struct {
 	// Native SILK sample rate in kHz used to produce lastNativeMonoLen samples
 	// (e.g. 16 for WB). Zero until a decode has run.
 	lastNativeMonoFsKHz int
+
+	// Length of the most recent native-rate int16 stereo decode written to
+	// stereoLeftNative / stereoRightNative. Exposed via LatestNativeStereo
+	// so the optional OSCE BWE forward pass can read both pre-resample SILK
+	// lowband channels (libopus runs the BWE forward pass per channel with
+	// its own BBWENet state). Zero until a stereo decode has run.
+	lastNativeStereoLen int
+	// Native SILK sample rate in kHz used to produce lastNativeStereoLen
+	// samples (e.g. 16 for WB). Zero until a stereo decode has run.
+	lastNativeStereoFsKHz int
 }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
@@ -307,6 +317,8 @@ func (d *Decoder) Reset() {
 	}
 	d.lastNativeMonoLen = 0
 	d.lastNativeMonoFsKHz = 0
+	d.lastNativeStereoLen = 0
+	d.lastNativeStereoFsKHz = 0
 	for i := range d.scratchPulses {
 		d.scratchPulses[i] = 0
 	}
@@ -610,6 +622,32 @@ func (d *Decoder) LatestNativeMono() ([]int16, int) {
 		n = len(d.scratchOutInt16)
 	}
 	return d.scratchOutInt16[:n], d.lastNativeMonoFsKHz
+}
+
+// LatestNativeStereo returns the most recent native-rate (pre-resample) int16
+// left/right SILK output produced by `DecodeStereoFrameInt16Into` (used by the
+// public `DecodeStereoWithDecoderInto`), along with the per-channel sample
+// count and native sample rate in kHz.
+//
+// The returned slices alias internal scratch storage and must be consumed
+// synchronously, before the next decode call. Returns (nil, nil, 0, 0, false)
+// when no stereo decode has run since the last Reset.
+//
+// This accessor exists for the optional OSCE BWE forward pass: libopus runs
+// the BWE on the 16 kHz lowband produced by SILK on each channel independently
+// (one `silk_OSCE_BWE_struct` per `silk_channel_state`), before
+// `silk_resampler` upsamples to 48 kHz. The gopus equivalent path consumes
+// these buffers directly so the BWE input matches libopus without performing a
+// second decode pass.
+func (d *Decoder) LatestNativeStereo() (left, right []int16, samplesPerChannel, fsKHz int, ok bool) {
+	if d == nil || d.lastNativeStereoLen <= 0 {
+		return nil, nil, 0, 0, false
+	}
+	n := d.lastNativeStereoLen
+	if n > len(d.stereoLeftNative) || n > len(d.stereoRightNative) {
+		return nil, nil, 0, 0, false
+	}
+	return d.stereoLeftNative[:n], d.stereoRightNative[:n], n, d.lastNativeStereoFsKHz, true
 }
 
 // RawMonoFrameHook fires on raw mono/mid 10 ms chunks before CNG/glue mutates

@@ -468,6 +468,14 @@ func (d *Decoder) DecodeStereoWithDecoderInto(
 	if err != nil {
 		return 0, err
 	}
+	// Record native-rate length / fs for optional decoder-side post-
+	// processing (OSCE BWE). LatestNativeStereo reads back from
+	// stereoLeftNative / stereoRightNative which are aliased by the
+	// `leftNative` / `rightNative` slices returned by GetStereoInt16Scratch
+	// above, so the pre-resample SILK lowband is available to the caller
+	// without performing a second decode pass. Mirrors LatestNativeMono.
+	d.lastNativeStereoLen = nativeSamples
+	d.lastNativeStereoFsKHz = config.SampleRate / 1000
 	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
 	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
 	leftScratch, rightScratch, ok := d.stereoFloat32Scratch(frameSizeSamples)
