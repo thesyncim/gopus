@@ -71,6 +71,27 @@ func TestSoftmaxApproxMatchesLibopusScalarBits(t *testing.T) {
 	}
 }
 
+func TestVectorActivationsMatchActiveTailPath(t *testing.T) {
+	in := []float32{-0.75}
+	tanhOut := make([]float32, 1)
+	TanhVectorApprox(tanhOut, in, 1)
+	sigmoidOut := make([]float32, 1)
+	SigmoidVectorApprox(sigmoidOut, in, 1)
+
+	wantTanh := TanhScalarApprox(in[0])
+	wantSigmoid := SigmoidScalarApprox(in[0])
+	if runtime.GOARCH == "arm64" {
+		wantTanh = tanhTailNEON(in[0])
+		wantSigmoid = sigmoidTailNEON(in[0])
+	}
+	if got, want := math.Float32bits(tanhOut[0]), math.Float32bits(wantTanh); got != want {
+		t.Fatalf("TanhVectorApprox tail bits=0x%08x want 0x%08x", got, want)
+	}
+	if got, want := math.Float32bits(sigmoidOut[0]), math.Float32bits(wantSigmoid); got != want {
+		t.Fatalf("SigmoidVectorApprox tail bits=0x%08x want 0x%08x", got, want)
+	}
+}
+
 func TestCgemv8x4QuantizeInputMatchesActiveArch(t *testing.T) {
 	cases := []float32{
 		-1,

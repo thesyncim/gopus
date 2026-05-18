@@ -972,13 +972,9 @@ func computeActivation(out, in []float32, n, activation int) {
 			copy(out[:n], in[:n])
 		}
 	case actSigmoid:
-		for i := 0; i < n; i++ {
-			out[i] = dnnmath.SigmoidApprox(in[i])
-		}
+		dnnmath.SigmoidVectorApprox(out, in, n)
 	case actTanh:
-		for i := 0; i < n; i++ {
-			out[i] = dnnmath.TanhApprox(in[i])
-		}
+		dnnmath.TanhVectorApprox(out, in, n)
 	case actRelu:
 		for i := 0; i < n; i++ {
 			v := in[i]
@@ -1047,13 +1043,17 @@ func computeGenericGRU(inputW, recurrentW *LinearLayer, state, in []float32) {
 	}
 	computeActivation(zrh[:2*n], zrh[:2*n], 2*n, actSigmoid)
 	for i := 0; i < n; i++ {
-		h[i] += recur[2*n+i] * r[i]
+		h[i] = fma32(recur[2*n+i], r[i], h[i])
 	}
 	computeActivation(h, h, n, actTanh)
 	for i := 0; i < n; i++ {
-		h[i] = z[i]*state[i] + (1-z[i])*h[i]
+		h[i] = fma32(z[i], state[i], (1-z[i])*h[i])
 		state[i] = h[i]
 	}
+}
+
+func fma32(a, b, c float32) float32 {
+	return float32(math.FMA(float64(a), float64(b), float64(c)))
 }
 
 // ----------------------------------------------------------------------------

@@ -79,18 +79,16 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 	numbits := []float32{0, 0}
 	periods := []int{60, 60, 60, 60}
 
-	// Per-mode tolerances. LACE has a 3-stage signal path (CF1 -> CF2 -> AF1);
-	// NoLACE has a 5-stage signal path plus 3 AdaShape branches, so its residual
-	// filter drift is wider. The feature-net stages are covered by the opt-in
-	// trace below and are expected to remain exact/nearly exact.
+	// Per-mode tolerances. LACE and NoLACE now share the libopus vector
+	// activation tail semantics, leaving only last-bit filter/runtime drift.
 	cases := []struct {
 		name               string
 		mode               string
 		outputAbsTolerance float32
 		outputRMSTolerance float64
 	}{
-		{"LACE", "lace", 0.001, 0.0004},
-		{"NoLACE", "nolace", 0.004, 0.0015},
+		{"LACE", "lace", 0.000001, 0.0000002},
+		{"NoLACE", "nolace", 0.000004, 0.0000005},
 	}
 
 	for _, tc := range cases {
@@ -248,7 +246,7 @@ func TestOSCELACEForwardTraceLocatesFirstDivergence(t *testing.T) {
 		}
 	}
 	if firstDivergence == "" {
-		t.Log("LACE trace is bit-equivalent across captured stages")
+		t.Log("LACE trace is within captured-stage parity thresholds")
 	} else {
 		t.Logf("first captured LACE divergence: %s", firstDivergence)
 	}
@@ -494,6 +492,14 @@ func traceStageName(stage osceLACE.TraceStage) string {
 		return "post_af1"
 	case osceLACE.TraceStageDeemph:
 		return "deemph"
+	case osceLACE.TraceStageCF1KernelRaw:
+		return "cf1_kernel_raw"
+	case osceLACE.TraceStageCF1GainsRaw:
+		return "cf1_gains_raw"
+	case osceLACE.TraceStageCF1KernelScaled:
+		return "cf1_kernel_scaled"
+	case osceLACE.TraceStageCF1GainsScaled:
+		return "cf1_gains_scaled"
 	default:
 		return fmt.Sprintf("stage_%d", stage)
 	}

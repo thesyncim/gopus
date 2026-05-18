@@ -24,6 +24,10 @@ const (
 	TraceStagePostCF2
 	TraceStagePostAF1
 	TraceStageDeemph
+	TraceStageCF1KernelRaw
+	TraceStageCF1GainsRaw
+	TraceStageCF1KernelScaled
+	TraceStageCF1GainsScaled
 )
 
 // TraceRecord captures one opt-in LACE diagnostic checkpoint. These records are
@@ -65,7 +69,7 @@ func (s *LACEState) ProcessTrace(in, out, features []float32, numbits []float32,
 	s.ensureWindow()
 	m := &s.model.LACE
 
-	records := make([]TraceRecord, 0, 15)
+	records := make([]TraceRecord, 0, 31)
 	appendTraceRecord(&records, TraceStageInput, -1, 1, frame20msSize, in[:frame20msSize])
 	appendTraceRecord(&records, TraceStageFeatures, -1, 1, subframesPerFrame*laceNumFeatures, features[:subframesPerFrame*laceNumFeatures])
 	appendTraceRecord(&records, TraceStageNumbits, -1, 1, 2, numbits[:2])
@@ -83,6 +87,13 @@ func (s *LACEState) ProcessTrace(in, out, features []float32, numbits []float32,
 
 	for sf := 0; sf < subframesPerFrame; sf++ {
 		base := sf * subframeSize
+		traceAdaCombParams(
+			&records, sf,
+			latent[sf*laceCondDim:sf*laceCondDim+laceCondDim],
+			&m.CF1Kernel, &m.CF1Gain, &m.CF1GlobalGain,
+			laceCF1KernelSize,
+			laceCF1FilterGainA, laceCF1FilterGainB, laceCF1LogGainLimit,
+		)
 		adacombProcessFrame(
 			s.cf1History[:], s.cf1LastKernel[:], &s.cf1LastGlobalGain, &s.cf1LastPitchLag,
 			outputBuf[base:base+subframeSize], outputBuf[base:base+subframeSize],
@@ -215,6 +226,37 @@ func (s *LACEState) featureNetTrace(out, features []float32, numbits []float32, 
 		copy(out[sf*condDim:sf*condDim+condDim], s.fnetGRUState[:])
 	}
 	appendTraceRecord(records, TraceStageFeatureNetLatent, -1, 1, subframesPerFrame*condDim, out[:subframesPerFrame*condDim])
+}
+
+func traceAdaCombParams(
+	records *[]TraceRecord,
+	subframe int,
+	features []float32,
+	kernelLayer, gainLayer, globalGainLayer *LinearLayer,
+	kernelSize int,
+	filterGainA, filterGainB, logGainLimit float32,
+) {
+	var kernel [adaCombMaxKernelSize]float32
+	var gains [2]float32
+	computeGenericDense(kernelLayer, kernel[:kernelSize], features, actLinear)
+	computeGenericDense(gainLayer, gains[:1], features, actRelu)
+	computeGenericDense(globalGainLayer, gains[1:2], features, actTanh)
+	appendTraceRecord(records, TraceStageCF1KernelRaw, subframe, 1, kernelSize, kernel[:kernelSize])
+	appendTraceRecord(records, TraceStageCF1GainsRaw, subframe, 1, len(gains), gains[:])
+
+	gains[0] = float32(math.Exp(float64(logGainLimit - gains[0])))
+	gains[1] = float32(math.Exp(float64(filterGainA*gains[1] + filterGainB)))
+	var norm float32
+	for k := 0; k < kernelSize; k++ {
+		norm += kernel[k] * kernel[k]
+	}
+	invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
+	scale := invNorm * gains[0]
+	for k := 0; k < kernelSize; k++ {
+		kernel[k] *= scale
+	}
+	appendTraceRecord(records, TraceStageCF1KernelScaled, subframe, 1, kernelSize, kernel[:kernelSize])
+	appendTraceRecord(records, TraceStageCF1GainsScaled, subframe, 1, len(gains), gains[:])
 }
 
 func appendTraceRecord(records *[]TraceRecord, stage TraceStage, subframe, channels, samplesPerChannel int, values []float32) {

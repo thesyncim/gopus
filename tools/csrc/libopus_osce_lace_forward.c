@@ -128,7 +128,11 @@ enum {
   TRACE_STAGE_POST_CF1 = 12,
   TRACE_STAGE_POST_CF2 = 13,
   TRACE_STAGE_POST_AF1 = 14,
-  TRACE_STAGE_DEEMPH = 15
+  TRACE_STAGE_DEEMPH = 15,
+  TRACE_STAGE_CF1_KERNEL_RAW = 16,
+  TRACE_STAGE_CF1_GAINS_RAW = 17,
+  TRACE_STAGE_CF1_KERNEL_SCALED = 18,
+  TRACE_STAGE_CF1_GAINS_SCALED = 19
 };
 
 static int write_i32(int32_t v) {
@@ -232,6 +236,46 @@ static int trace_lace_feature_net(
   return write_trace_record(TRACE_STAGE_FEATURE_NET_LATENT, -1, 1, 4 * LACE_COND_DIM, output, 4 * LACE_COND_DIM);
 }
 
+static int trace_lace_adacomb_params(
+    int subframe,
+    const float *features,
+    const LinearLayer *kernel_layer,
+    const LinearLayer *gain_layer,
+    const LinearLayer *global_gain_layer,
+    int kernel_size,
+    float filter_gain_a,
+    float filter_gain_b,
+    float log_gain_limit,
+    int arch
+) {
+  float kernel_buffer[ADACOMB_MAX_KERNEL_SIZE];
+  float gains[2];
+  float norm;
+  float scale;
+  int i;
+
+  OPUS_CLEAR(kernel_buffer, ADACOMB_MAX_KERNEL_SIZE);
+  OPUS_CLEAR(gains, 2);
+  compute_generic_dense(kernel_layer, kernel_buffer, features, ACTIVATION_LINEAR, arch);
+  compute_generic_dense(gain_layer, &gains[0], features, ACTIVATION_RELU, arch);
+  compute_generic_dense(global_gain_layer, &gains[1], features, ACTIVATION_TANH, arch);
+  if (!write_trace_record(TRACE_STAGE_CF1_KERNEL_RAW, subframe, 1, kernel_size, kernel_buffer, kernel_size)) return 0;
+  if (!write_trace_record(TRACE_STAGE_CF1_GAINS_RAW, subframe, 1, 2, gains, 2)) return 0;
+
+  gains[0] = exp(log_gain_limit - gains[0]);
+  gains[1] = exp(filter_gain_a * gains[1] + filter_gain_b);
+  norm = 0;
+  for (i = 0; i < kernel_size; i++) {
+    norm += kernel_buffer[i] * kernel_buffer[i];
+  }
+  scale = (1.f / (1e-6f + sqrt(norm))) * gains[0];
+  for (i = 0; i < kernel_size; i++) {
+    kernel_buffer[i] *= scale;
+  }
+  if (!write_trace_record(TRACE_STAGE_CF1_KERNEL_SCALED, subframe, 1, kernel_size, kernel_buffer, kernel_size)) return 0;
+  return write_trace_record(TRACE_STAGE_CF1_GAINS_SCALED, subframe, 1, 2, gains, 2);
+}
+
 static int trace_lace_process_20ms_frame(
     LACE* hLACE,
     LACEState *state,
@@ -251,7 +295,7 @@ static int trace_lace_process_20ms_frame(
     periods_f[i_subframe] = (float)periods[i_subframe];
   }
 
-  if (!write_trace_header(0, 15)) return 0;
+  if (!write_trace_header(0, 31)) return 0;
   if (!write_trace_record(TRACE_STAGE_INPUT, -1, 1, 4 * LACE_FRAME_SIZE, x_in, 4 * LACE_FRAME_SIZE)) return 0;
   if (!write_trace_record(TRACE_STAGE_FEATURES, -1, 1, 4 * LACE_NUM_FEATURES, features, 4 * LACE_NUM_FEATURES)) return 0;
   if (!write_trace_record(TRACE_STAGE_NUMBITS, -1, 1, 2, numbits, 2)) return 0;
@@ -266,6 +310,17 @@ static int trace_lace_process_20ms_frame(
   if (!trace_lace_feature_net(hLACE, state, feature_buffer, features, numbits, periods, arch)) return 0;
 
   for (i_subframe = 0; i_subframe < 4; i_subframe++) {
+    if (!trace_lace_adacomb_params(
+        i_subframe,
+        feature_buffer + i_subframe * LACE_COND_DIM,
+        &hLACE->layers.lace_cf1_kernel,
+        &hLACE->layers.lace_cf1_gain,
+        &hLACE->layers.lace_cf1_global_gain,
+        LACE_CF1_KERNEL_SIZE,
+        LACE_CF1_FILTER_GAIN_A,
+        LACE_CF1_FILTER_GAIN_B,
+        LACE_CF1_LOG_GAIN_LIMIT,
+        arch)) return 0;
     adacomb_process_frame(
         &state->cf1_state,
         output_buffer + i_subframe * LACE_FRAME_SIZE,

@@ -52,6 +52,48 @@ func TanhScalarApprox(x float32) float32 {
 	return y
 }
 
+// SigmoidVectorApprox mirrors libopus' active vector sigmoid helper, including
+// the NEON tail path used when N is not a multiple of four.
+func SigmoidVectorApprox(out, in []float32, n int) {
+	if useNEONApproxActivation {
+		i := 0
+		for ; i < n-3; i += 4 {
+			out[i] = sigmoidApproxNEON(in[i])
+			out[i+1] = sigmoidApproxNEON(in[i+1])
+			out[i+2] = sigmoidApproxNEON(in[i+2])
+			out[i+3] = sigmoidApproxNEON(in[i+3])
+		}
+		for ; i < n; i++ {
+			out[i] = sigmoidTailNEON(in[i])
+		}
+		return
+	}
+	for i := 0; i < n; i++ {
+		out[i] = SigmoidScalarApprox(in[i])
+	}
+}
+
+// TanhVectorApprox mirrors libopus' active vector tanh helper, including the
+// NEON tail path used when N is not a multiple of four.
+func TanhVectorApprox(out, in []float32, n int) {
+	if useNEONApproxActivation {
+		i := 0
+		for ; i < n-3; i += 4 {
+			out[i] = tanhApproxNEON(in[i])
+			out[i+1] = tanhApproxNEON(in[i+1])
+			out[i+2] = tanhApproxNEON(in[i+2])
+			out[i+3] = tanhApproxNEON(in[i+3])
+		}
+		for ; i < n; i++ {
+			out[i] = tanhTailNEON(in[i])
+		}
+		return
+	}
+	for i := 0; i < n; i++ {
+		out[i] = TanhScalarApprox(in[i])
+	}
+}
+
 // ExpApprox mirrors libopus' DNN lpcnet_exp() helper used by ACTIVATION_EXP.
 func ExpApprox(x float32) float32 {
 	return Exp2Approx(x * 1.44269504)
@@ -188,6 +230,11 @@ func sigmoidApproxNEON(x float32) float32 {
 	return y
 }
 
+func sigmoidTailNEON(x float32) float32 {
+	ex := expApproxNEON(x)
+	return ex / (ex + 1)
+}
+
 func tanhApproxNEON(x float32) float32 {
 	const (
 		n0 = float32(952.52801514)
@@ -208,6 +255,25 @@ func tanhApproxNEON(x float32) float32 {
 		return 1
 	}
 	return y
+}
+
+func tanhTailNEON(x float32) float32 {
+	ex2 := expApproxNEON(2 * x)
+	return (ex2 - 1) / (ex2 + 1)
+}
+
+func expApproxNEON(x float32) float32 {
+	if x > 88 {
+		x = 88
+	} else if x < -88 {
+		x = -88
+	}
+	x = fma32(x, float32(1.44269504), 127)
+	integer := int32(x)
+	frac := x - float32(integer)
+	y := fma32(frac, fma32(frac, fma32(float32(0.078024523), frac, float32(0.22606716)), float32(0.69583354)), float32(0.99992522))
+	bits := uint32(integer << 23)
+	return y * math.Float32frombits(bits)
 }
 
 func fma32(a, b, c float32) float32 {
