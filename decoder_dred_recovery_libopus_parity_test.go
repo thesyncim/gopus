@@ -36,6 +36,22 @@ func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELT(t *testing.T) {
 	}
 }
 
+func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELTStereo(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+		Channels:  2,
+	})
+	if err != nil {
+		t.Skipf("libopus stereo dred packet helper unavailable: %v", err)
+	}
+	if !ParseTOC(packetInfo.packet[0]).Stereo {
+		t.Skipf("libopus dred emit helper produced mono TOC for stereo CELT recovery lifecycle (toc=0x%02x)", packetInfo.packet[0])
+	}
+	assertDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t, "48k_celt_stereo", packetInfo, packetInfo.sampleRate)
+}
+
 func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle48kHybrid(t *testing.T) {
 	for _, frameSize := range []int{480, 960} {
 		frameSize := frameSize
@@ -144,6 +160,22 @@ func TestDecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELT(t *testing.T
 	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_celt", packetInfo, packetInfo.sampleRate, true)
 }
 
+func TestDecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELTStereo(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+		Channels:  2,
+	})
+	if err != nil {
+		t.Skipf("libopus stereo dred packet helper unavailable: %v", err)
+	}
+	if !ParseTOC(packetInfo.packet[0]).Stereo {
+		t.Skipf("libopus dred emit helper produced mono TOC for stereo CELT recovery cursor (toc=0x%02x)", packetInfo.packet[0])
+	}
+	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_celt_stereo", packetInfo, packetInfo.sampleRate, true)
+}
+
 func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
@@ -158,6 +190,24 @@ func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid(t *testin
 	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_hybrid", packetInfo, packetInfo.sampleRate, false)
 }
 
+func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybridStereo(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthFullband,
+		Channels:  2,
+	})
+	if err != nil {
+		t.Skipf("libopus stereo hybrid dred packet helper unavailable: %v", err)
+	}
+	if !ParseTOC(packetInfo.packet[0]).Stereo {
+		t.Skipf("libopus dred emit helper produced mono TOC for stereo Hybrid recovery cursor (toc=0x%02x)", packetInfo.packet[0])
+	}
+	// Ordinary cached Hybrid Decode(nil) follows libopus live loss semantics:
+	// cached DRED recovery is not queued even after the stereo runtime gate is lifted.
+	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_hybrid_stereo", packetInfo, packetInfo.sampleRate, false)
+}
+
 func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label string, packetInfo libopusDREDPacket, decoderSampleRate int, wantAdvance bool) {
 	t.Helper()
 
@@ -169,9 +219,6 @@ func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label strin
 	channels := 1
 	if ParseTOC(packetInfo.packet[0]).Stereo {
 		channels = 2
-	}
-	if channels != 1 {
-		t.Skipf("%s cursor test requires mono packet, got sampleRate=%d channels=%d", label, packetInfo.sampleRate, channels)
 	}
 
 	dec, err := NewDecoder(DefaultDecoderConfig(decoderSampleRate, channels))

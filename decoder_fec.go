@@ -43,7 +43,7 @@ func (d *Decoder) decodePLCForFECWithState(
 	}
 	frameSize = n
 
-	if neuralReady && !usedNeuralConcealment {
+	if neuralReady && !usedNeuralConcealment && mode != ModeHybrid {
 		usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
 	}
 	d.applyOutputGain(pcm[:frameSize*d.channels])

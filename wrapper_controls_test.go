@@ -408,7 +408,7 @@ func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
 	}
 }
 
-func TestDecoderSetDNNBlobUnsupportedConfigStaysDormant(t *testing.T) {
+func TestDecoderSetDNNBlobStereoRuntimeRetainedAcrossReset(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 2)
 
 	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
@@ -417,16 +417,31 @@ func TestDecoderSetDNNBlobUnsupportedConfigStaysDormant(t *testing.T) {
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob=nil want non-nil")
 	}
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder retained DNN model flags not armed from validated blob")
+	}
 	if dec.dredState() != nil {
-		t.Fatalf("unsupported stereo config eagerly allocated DRED sidecar: %+v", dec.dredState())
+		t.Fatalf("stereo decoder eagerly allocated DRED sidecar on SetDNNBlob: %+v", dec.dredState())
+	}
+	if extsupport.DREDRuntime {
+		if !dec.dredNeuralConcealmentReady() {
+			t.Fatal("stereo decoder failed to lazily materialize neural concealment runtime")
+		}
+		assertDecoderDREDRuntimeLoadedForTest(t, dec, "stereo lazy materialization")
 	}
 
 	dec.Reset()
 	if dec.dnnBlob == nil {
 		t.Fatal("wrapper dnnBlob cleared by Reset")
 	}
-	if dec.dredState() != nil {
-		t.Fatalf("unsupported stereo config awakened DRED sidecar after Reset: %+v", dec.dredState())
+	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder retained DNN model flags cleared by Reset")
+	}
+	if extsupport.DREDRuntime {
+		if !dec.dredNeuralConcealmentReady() {
+			t.Fatal("stereo decoder failed to rematerialize neural concealment runtime after Reset")
+		}
+		assertDecoderDREDRuntimeLoadedForTest(t, dec, "stereo Reset rematerialization")
 	}
 }
 

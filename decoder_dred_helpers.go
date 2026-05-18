@@ -635,7 +635,7 @@ func (d *Decoder) finishActiveDREDRecovery(frameSizeSamples int) {
 }
 
 func (d *Decoder) hybridDREDLowbandEligible() bool {
-	return d != nil && d.silkDecoder != nil && d.channels == 1 && (d.sampleRate == 48000 || d.sampleRate == 16000)
+	return d != nil && d.silkDecoder != nil && d.channels >= 1 && d.channels <= 2 && (d.sampleRate == 48000 || d.sampleRate == 16000)
 }
 
 func (d *Decoder) hybridDREDLowbandSamples(frameSizeSamples int) (int, bool) {
@@ -1045,7 +1045,20 @@ func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int, mode 
 		return
 	}
 	r.dredPLC.ClearBlend()
-	if mode == ModeSILK && d.sampleRate == 16000 && d.channels == 1 && samplesPerChannel >= lpcnetplc.FrameSize && samplesPerChannel%lpcnetplc.FrameSize == 0 && len(pcm) >= samplesPerChannel {
-		d.updateDREDPCMHistory(pcm[:samplesPerChannel])
+	if mode == ModeSILK && d.sampleRate == 16000 && samplesPerChannel >= lpcnetplc.FrameSize && samplesPerChannel%lpcnetplc.FrameSize == 0 {
+		switch {
+		case d.channels == 1 && len(pcm) >= samplesPerChannel:
+			d.updateDREDPCMHistory(pcm[:samplesPerChannel])
+		case d.channels == 2 && len(pcm) >= 2*samplesPerChannel:
+			n := d.dredNeuralState()
+			if n == nil || samplesPerChannel > len(n.dredPLCUpdate) {
+				return
+			}
+			mono := n.dredPLCUpdate[:samplesPerChannel]
+			for i := 0; i < samplesPerChannel; i++ {
+				mono[i] = 0.5 * (pcm[2*i] + pcm[2*i+1])
+			}
+			d.updateDREDPCMHistory(mono)
+		}
 	}
 }

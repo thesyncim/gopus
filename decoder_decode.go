@@ -42,7 +42,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		n := frameSize
 		usedNeuralConcealment := false
 		var err error
-		if neuralReady && d.sampleRate == 16000 && d.channels == 1 && d.prevMode != ModeHybrid {
+		if neuralReady && d.sampleRate == 16000 && d.channels >= 1 && d.channels <= 2 && d.prevMode != ModeHybrid {
 			if len(pcm) < frameSize*d.channels {
 				return 0, ErrBufferTooSmall
 			}
@@ -70,7 +70,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 			return 0, err
 		}
 		frameSize = n
-		if neuralReady && !usedNeuralConcealment {
+		if neuralReady && !usedNeuralConcealment && d.prevMode != ModeHybrid {
 			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
 		}
 		// libopus enables OSCE_MODE_SILK_BBWE during PLC whenever the
