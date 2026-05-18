@@ -1231,7 +1231,8 @@ func adaconvProcessFrame(
 					for k := 0; k < kernelSize; k++ {
 						sumOld += kernelOld[k] * inputBuf[base+i+k-leftPadding]
 					}
-					outputBuf[o*frameSize+i] += window[i]*sumOld + (1.0-window[i])*sumNew
+					outputBuf[o*frameSize+i] += window[i] * sumOld
+					outputBuf[o*frameSize+i] += (1.0 - window[i]) * sumNew
 				} else {
 					outputBuf[o*frameSize+i] += sumNew
 				}
@@ -1318,8 +1319,8 @@ func adashapeProcessFrame(
 		*interpState = tmpBuf[i]
 	}
 
+	dnnmath.ExpVectorApprox(outBuf[:frameSize], outBuf[:frameSize], frameSize)
 	for i := 0; i < frameSize; i++ {
-		outBuf[i] = dnnmath.ExpApprox(outBuf[i])
 		xOut[i] = outBuf[i] * xIn[i]
 	}
 }

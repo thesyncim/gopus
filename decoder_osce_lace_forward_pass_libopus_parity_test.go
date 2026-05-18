@@ -79,8 +79,9 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 	numbits := []float32{0, 0}
 	periods := []int{60, 60, 60, 60}
 
-	// Per-mode tolerances. LACE and NoLACE now share the libopus vector
-	// activation tail semantics, leaving only last-bit filter/runtime drift.
+	// Per-mode tolerances. LACE and NoLACE share the libopus vector activation
+	// semantics, including NoLACE AdaShape EXP, leaving only last-bit
+	// filter/runtime drift.
 	cases := []struct {
 		name               string
 		mode               string
@@ -88,7 +89,7 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 		outputRMSTolerance float64
 	}{
 		{"LACE", "lace", 1e-7, 5e-8},
-		{"NoLACE", "nolace", 2e-6, 2.5e-7},
+		{"NoLACE", "nolace", 5e-7, 1e-7},
 	}
 
 	for _, tc := range cases {
