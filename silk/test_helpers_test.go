@@ -12,9 +12,8 @@ var silkQualityOnce sync.Once
 func logSilkQualityStatus(t *testing.T) {
 	t.Helper()
 	silkQualityOnce.Do(func() {
-		t.Log("SILK QUALITY STATUS: expected failures while encoder parity is in progress.")
-		t.Log("ATTEMPTED: frame type coding tables (VAD active/inactive), inputBuffer-based pitch residual + noise-shape window alignment, int16 quantization at entry.")
-		t.Log("KNOWN: SILK roundtrip amplitude is still unstable (too low in some paths, overdrives in others).")
-		t.Log("NEXT: verify SILK past-only buffer vs libopus, LTP residual alignment, and gain/LSF parity before FEC checks.")
+		t.Log("SILK QUALITY STATUS: focused SILK parity probes are green; keep monitoring amplitude and correlation drift with fixture-backed tests.")
+		t.Log("COVERED: frame type coding tables, inputBuffer-based pitch residual/noise-shape window alignment, int16 entry quantization, NLSF/gain/LTP focused probes.")
+		t.Log("WATCH: broad packet exactness and quality thresholds should move only with live libopus-backed fixture evidence.")
 	})
 }

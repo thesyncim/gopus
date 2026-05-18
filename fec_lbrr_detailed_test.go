@@ -11,10 +11,9 @@ var fecQualityOnce sync.Once
 func logFECQualityStatus(t *testing.T) {
 	t.Helper()
 	fecQualityOnce.Do(func() {
-		t.Log("FEC/LBRR STATUS: expected failures while SILK encoder quality is being fixed.")
-		t.Log("ATTEMPTED: frame type coding tables, inputBuffer-based noise shaping/pitch residual, int16 quantization at entry.")
-		t.Log("KNOWN: LBRR recovery can be near-silence because SILK output energy is still low.")
-		t.Log("NEXT: fix SILK gain/pitch residual alignment, then re-check LBRR correlation/energy.")
+		t.Log("FEC/LBRR STATUS: LBRR recovery is active in focused tests; keep correlation and energy checks as regression sentinels.")
+		t.Log("COVERED: provided-packet recovery, no-LBRR PLC fallback, stored FEC state, and packet-mode gating.")
+		t.Log("WATCH: low-bitrate/no-LBRR packet mixes can still fall back to PLC by design; broaden claims only with libopus-backed seams.")
 	})
 }
 
