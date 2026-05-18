@@ -144,18 +144,15 @@ func Cgemv8x4QuantizeInput(x float32) int8 {
 	return int8(int(math.Floor(float64(float32(0.5) + float32(127)*x))))
 }
 
-// SoftmaxApprox mirrors libopus' vec.h softmax kernel. The pinned nnet.c
-// build defines SOFTMAX_HACK, so ACTIVATION_SOFTMAX itself copies inputs;
-// ACTIVATION_EXP still uses this exponent kernel without normalisation.
+// SoftmaxApprox mirrors libopus' pinned ACTIVATION_SOFTMAX path. The 1.6.1
+// nnet.c build defines SOFTMAX_HACK, so softmax activations copy inputs
+// unchanged. ACTIVATION_EXP still uses ExpVectorApprox's exponent kernel.
 func SoftmaxApprox(out, in []float32, n int) {
-	var sum float32
-	ExpVectorApprox(out, in, n)
-	for i := 0; i < n; i++ {
-		sum += out[i]
+	if n == 0 {
+		return
 	}
-	scale := 1 / (sum + 1e-30)
-	for i := 0; i < n; i++ {
-		out[i] *= scale
+	if len(out) == 0 || len(in) == 0 || &out[0] != &in[0] {
+		copy(out[:n], in[:n])
 	}
 }
 
