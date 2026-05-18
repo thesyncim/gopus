@@ -1,0 +1,64 @@
+//go:build gopus_unsupported_controls
+// +build gopus_unsupported_controls
+
+package gopus
+
+import (
+	"github.com/thesyncim/gopus/internal/dnnblob"
+	osceLACE "github.com/thesyncim/gopus/internal/osce/lace"
+)
+
+// bindOSCELACEModel attaches (or detaches) the quarantined libopus OSCE
+// LACE/NoLACE model to the decoder's runtime state. The runtime forward
+// pass is still a Phase 1 stub; this helper only handles the typed model
+// binding so callers can verify the loader recognises the upstream
+// `lace_*` / `nolace_*` weight records.
+//
+// supported reflects the blob's `SupportsOSCE()` answer (i.e. both LACE
+// and NoLACE manifests present); when false the helper clears any prior
+// binding.
+//
+// Both postfilter families ship together in the upstream weights blob and
+// share an `OSCEModel` instance, so the loader binds both in one pass.
+func (d *Decoder) bindOSCELACEModel(blob *dnnblob.Blob, supported bool) error {
+	if d == nil {
+		return nil
+	}
+	if blob == nil || !supported {
+		if d.osceLACE != nil {
+			d.osceLACE.osceLACEModel = nil
+			d.osceLACE = nil
+		}
+		return nil
+	}
+	model, err := osceLACE.Load(blob)
+	if err != nil {
+		// Keep d.osceModelsLoaded as the blob-level signal (still true) but
+		// drop any prior runtime binding so callers see Loaded()==false.
+		if d.osceLACE != nil {
+			d.osceLACE.osceLACEModel = nil
+			d.osceLACE = nil
+		}
+		return err
+	}
+	if d.osceLACE == nil {
+		d.osceLACE = &decoderOSCELACEState{}
+	}
+	d.osceLACE.osceLACEModel = model
+	return nil
+}
+
+// osceLACEModelLoadedRuntime reports whether the decoder currently has a
+// bound OSCE LACE/NoLACE model that the runtime can use. The bool mirrors
+// the OSCE BWE `osceBWEModelLoadedRuntime` accessor and is intended for
+// test parity assertions.
+func (d *Decoder) osceLACEModelLoadedRuntime() bool {
+	if d == nil || d.osceLACE == nil {
+		return false
+	}
+	return d.osceLACE.osceLACEModel != nil && d.osceLACE.osceLACEModel.Loaded()
+}
+
+// Compile-time sanity: keep the model alias visible so we don't drop the
+// dependency when refactoring.
+var _ = (*osceLACE.Model)(nil)

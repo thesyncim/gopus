@@ -317,6 +317,11 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	if err := d.bindOSCEBWEModel(blob, models.OSCEBWE); err != nil {
 		return err
 	}
+	// Bind the quarantined OSCE LACE/NoLACE postfilter models when their
+	// weights are present. Same quarantine pattern as bindOSCEBWEModel.
+	if err := d.bindOSCELACEModel(blob, models.OSCE); err != nil {
+		return err
+	}
 
 	n := d.dredNeuralState()
 	if !models.PitchDNN && !models.PLC && !models.FARGAN {
