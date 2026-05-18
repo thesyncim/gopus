@@ -25,18 +25,18 @@ import (
 //
 // Bit-exact parity status:
 //
-//   The libopus reference is built without -ffast-math but uses several
-//   bespoke math approximations (`tansig_approx`, `sigmoid_approx`,
-//   `celt_exp`, `celt_log2`, ...) compiled into `dnn/nnet.c` and
-//   `dnn/nndsp.c`. The pure-Go runtime in `internal/osce/bwe` currently
-//   uses `dnnmath.SigmoidApprox` / `dnnmath.TanhApprox` plus the standard
-//   library `math.Exp` / `math.Sin` for the Valin activation. These
-//   diverge from the libopus intrinsics by amounts that compound through
-//   the GRU + AdaConv pipeline.
+//	The libopus reference is built without -ffast-math but uses several
+//	bespoke math approximations (`tansig_approx`, `sigmoid_approx`,
+//	`celt_exp`, `celt_log2`, ...) compiled into `dnn/nnet.c` and
+//	`dnn/nndsp.c`. The pure-Go runtime in `internal/osce/bwe` now uses the
+//	libopus scalar DNN activation/exponential approximations for the
+//	signal-net nonlinearities, but still has residual celt_log / celt_sin
+//	and output-quantisation differences that compound through the GRU +
+//	AdaConv pipeline.
 //
-//   Additionally, libopus quantises the BBWENet float output to int16
-//   with a 21-sample delay buffer in `osce_bwe(...)` before returning.
-//   The gopus `State.Process` returns the raw float BBWENET output.
+//	Additionally, libopus quantises the BBWENet float output to int16
+//	with a 21-sample delay buffer in `osce_bwe(...)` before returning.
+//	The gopus `State.Process` returns the raw float BBWENET output.
 //
 // As a result this probe currently asserts a *bounded-divergence* contract
 // rather than bit-exact parity:
@@ -81,10 +81,10 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 	}
 
 	const (
-		outputDelay        = 21      // libopus OSCE_BWE_OUTPUT_DELAY
-		featureTolerance   = 5e-3    // documented feature-extractor drift (small but nonzero)
-		outputAbsTolerance = 0.20    // float in [-1, 1] PCM; ~ -14 dBFS bounded divergence
-		outputRMSTolerance = 0.10    // ~ -20 dBFS bounded divergence
+		outputDelay        = 21    // libopus OSCE_BWE_OUTPUT_DELAY
+		featureTolerance   = 5e-3  // documented feature-extractor drift (small but nonzero)
+		outputAbsTolerance = 0.02  // float in [-1, 1] PCM; narrowed after scalar DNN activation parity
+		outputRMSTolerance = 0.003 // residual celt_log/celt_sin + output-delay quantisation envelope
 	)
 
 	for _, tc := range cases {
@@ -246,8 +246,8 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 		numFrames          = 1
 		outputDelay        = 21
 		featureTolerance   = 5e-3
-		outputAbsTolerance = 0.20
-		outputRMSTolerance = 0.10
+		outputAbsTolerance = 0.02
+		outputRMSTolerance = 0.003
 	)
 
 	refFeatures, refOut, err := runOSCEBWEForwardHelperMode(binPath, numIn16, "consecutive")

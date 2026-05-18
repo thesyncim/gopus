@@ -31,10 +31,10 @@ import (
 // Parity is bounded-divergence (not bit-exact) for the same reason the BWE
 // probe is: libopus uses bespoke math approximations (`tansig_approx`,
 // `sigmoid_approx`, `celt_exp`, `celt_log2`) that compound through the
-// GRU + AdaConv + AdaComb stack and diverge from the gopus pure-Go runtime's
-// `dnnmath.SigmoidApprox` / `dnnmath.TanhApprox` plus stdlib `math.Exp` /
-// `math.Sin`. Per-mode tolerances are wider than the BWE bound (which has a
-// shallower signal-net stack); see `cases` below for the active envelope.
+// GRU + AdaConv + AdaComb stack. The shared DNN EXP approximation is now
+// libopus-shaped, but LACE still carries residual math/order differences
+// outside that seam. Per-mode tolerances are wider than the BWE bound (which
+// has a shallower signal-net stack); see `cases` below for the active envelope.
 func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 	binPath, err := getLibopusOSCELACEForwardHelperPath()
 	if err != nil {

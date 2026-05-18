@@ -12,7 +12,7 @@ func SigmoidApprox(x float32) float32 {
 	if useNEONApproxActivation {
 		return sigmoidApproxNEON(x)
 	}
-	return 0.5 + 0.5*TanhApprox(0.5*x)
+	return SigmoidScalarApprox(x)
 }
 
 // TanhApprox mirrors libopus' DNN ACTIVATION_TANH path.
@@ -20,6 +20,16 @@ func TanhApprox(x float32) float32 {
 	if useNEONApproxActivation {
 		return tanhApproxNEON(x)
 	}
+	return TanhScalarApprox(x)
+}
+
+// SigmoidScalarApprox mirrors libopus' generic DNN sigmoid path.
+func SigmoidScalarApprox(x float32) float32 {
+	return 0.5 + 0.5*TanhScalarApprox(0.5*x)
+}
+
+// TanhScalarApprox mirrors libopus' generic DNN tanh path.
+func TanhScalarApprox(x float32) float32 {
 	const (
 		n0 = 952.52801514
 		n1 = 96.39235687
@@ -39,6 +49,37 @@ func TanhApprox(x float32) float32 {
 		return 1
 	}
 	return y
+}
+
+// ExpApprox mirrors libopus' DNN lpcnet_exp() helper used by ACTIVATION_EXP.
+func ExpApprox(x float32) float32 {
+	return Exp2Approx(x * 1.44269504)
+}
+
+// Exp2Approx mirrors libopus' DNN lpcnet_exp2() cubic approximation.
+func Exp2Approx(x float32) float32 {
+	integer := int(math.Floor(float64(x)))
+	if integer < -50 {
+		return 0
+	}
+	frac := x - float32(integer)
+	res := fma32(frac, fma32(frac, fma32(float32(0.078024523), frac, float32(0.22606716)), float32(0.69583354)), float32(0.99992522))
+	bits := math.Float32bits(res)
+	bits = (bits + uint32(int32(integer)<<23)) & 0x7fffffff
+	return math.Float32frombits(bits)
+}
+
+// SoftmaxApprox mirrors libopus' DNN ACTIVATION_SOFTMAX path.
+func SoftmaxApprox(out, in []float32, n int) {
+	var sum float32
+	for i := 0; i < n; i++ {
+		out[i] = ExpApprox(in[i])
+		sum += out[i]
+	}
+	scale := 1 / (sum + 1e-30)
+	for i := 0; i < n; i++ {
+		out[i] *= scale
+	}
 }
 
 func sigmoidApproxNEON(x float32) float32 {

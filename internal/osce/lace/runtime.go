@@ -973,7 +973,7 @@ func computeActivation(out, in []float32, n, activation int) {
 		}
 	case actExp:
 		for i := 0; i < n; i++ {
-			out[i] = float32(math.Exp(float64(in[i])))
+			out[i] = dnnmath.ExpApprox(in[i])
 		}
 	default:
 		copy(out[:n], in[:n])
@@ -1305,7 +1305,7 @@ func adashapeProcessFrame(
 	}
 
 	for i := 0; i < frameSize; i++ {
-		outBuf[i] = float32(math.Exp(float64(outBuf[i])))
+		outBuf[i] = dnnmath.ExpApprox(outBuf[i])
 		xOut[i] = outBuf[i] * xIn[i]
 	}
 }

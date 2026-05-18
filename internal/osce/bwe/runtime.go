@@ -684,11 +684,11 @@ func computeActivation(out, in []float32, n, activation int) {
 		}
 	case actSigmoid:
 		for i := 0; i < n; i++ {
-			out[i] = dnnmath.SigmoidApprox(in[i])
+			out[i] = dnnmath.SigmoidScalarApprox(in[i])
 		}
 	case actTanh:
 		for i := 0; i < n; i++ {
-			out[i] = dnnmath.TanhApprox(in[i])
+			out[i] = dnnmath.TanhScalarApprox(in[i])
 		}
 	case actRelu:
 		for i := 0; i < n; i++ {
@@ -700,7 +700,7 @@ func computeActivation(out, in []float32, n, activation int) {
 		}
 	case actExp:
 		for i := 0; i < n; i++ {
-			out[i] = float32(math.Exp(float64(in[i])))
+			out[i] = dnnmath.ExpApprox(in[i])
 		}
 	default:
 		copy(out[:n], in[:n])
@@ -933,7 +933,7 @@ func adashapeProcessFrame(
 
 	// Apply exp activation in place, then modulate.
 	for i := 0; i < frameSize; i++ {
-		outBuf[i] = float32(math.Exp(float64(outBuf[i])))
+		outBuf[i] = dnnmath.ExpApprox(outBuf[i])
 		xOut[i] = outBuf[i] * xIn[i]
 	}
 }
