@@ -227,8 +227,8 @@ func TestOSCEBWERawSignalNetMatchesLibopus(t *testing.T) {
 	}
 
 	const (
-		rawAbsTolerance = 1e-6
-		rawRMSTolerance = 1e-7
+		rawAbsTolerance = 8e-7
+		rawRMSTolerance = 8e-8
 	)
 
 	for _, tc := range cases {

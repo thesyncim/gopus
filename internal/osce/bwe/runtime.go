@@ -369,8 +369,8 @@ func (s *State) ensureWindows() {
 
 func computeOverlapWindow(window []float32, overlapSize int) {
 	for i := 0; i < overlapSize; i++ {
-		arg := float32(3.141592653589793) * (float32(i) + 0.5) / float32(overlapSize)
-		window[i] = float32(0.5 + 0.5*math.Cos(float64(arg)))
+		arg := math.Pi * (float64(i) + 0.5) / float64(overlapSize)
+		window[i] = float32(0.5 + 0.5*math.Cos(arg))
 	}
 }
 
