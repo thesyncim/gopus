@@ -39,7 +39,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		n := frameSize
 		usedNeuralConcealment := false
 		var err error
-		if neuralReady && d.sampleRate == 16000 && d.channels == 1 {
+		if neuralReady && d.sampleRate == 16000 && d.channels == 1 && d.prevMode != ModeHybrid {
 			if len(pcm) < frameSize*d.channels {
 				return 0, ErrBufferTooSmall
 			}
