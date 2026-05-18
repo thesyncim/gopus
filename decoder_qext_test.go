@@ -174,6 +174,76 @@ func TestDecodeLibopusQEXTPacketFinalRangeMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecodeLibopusQEXTPacketIgnoreExtensionsMatchesInactiveCELT(t *testing.T) {
+	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	if err != nil {
+		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+	}
+
+	for _, channels := range []int{1, 2} {
+		channels := channels
+		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
+			pcm32 := make([]float32, 960*channels)
+			for i := 0; i < 960; i++ {
+				phase := 2 * math.Pi * 997 * float64(i) / 48000.0
+				left := 0.45 * math.Sin(phase)
+				pcm32[i*channels] = float32(left)
+				if channels == 2 {
+					pcm32[i*channels+1] = float32(0.35 * math.Sin(phase+0.37))
+				}
+			}
+
+			packet := encodeLibopusQEXTPacket(t, opusDemo, channels, pcm32, false)
+			info, frames, padding, nbFrames, err := parsePacketFramesAndPadding(packet)
+			if err != nil {
+				t.Fatalf("parsePacketFramesAndPadding: %v", err)
+			}
+			if len(frames) != 1 {
+				t.Fatalf("frame count=%d want 1", len(frames))
+			}
+			ext, ok, err := findPacketExtension(padding, nbFrames, qextPacketExtensionID)
+			if err != nil {
+				t.Fatalf("findPacketExtension: %v", err)
+			}
+			if !ok || len(ext.Data) == 0 {
+				t.Fatal("libopus packet missing QEXT payload")
+			}
+
+			wantDec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder(want): %v", err)
+			}
+			want := make([]float32, 960*channels)
+			wantN, err := wantDec.decodeOpusFrameIntoWithQEXT(want, frames[0], info.TOC.FrameSize, info.TOC.FrameSize, info.TOC.Mode, info.TOC.Bandwidth, info.TOC.Stereo, nil)
+			if err != nil {
+				t.Fatalf("decodeOpusFrameIntoWithQEXT(nil): %v", err)
+			}
+
+			gotDec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder(got): %v", err)
+			}
+			gotDec.SetIgnoreExtensions(true)
+			got := make([]float32, 960*channels)
+			gotN, err := gotDec.Decode(packet, got)
+			if err != nil {
+				t.Fatalf("Decode(ignore extensions): %v", err)
+			}
+			if gotN != wantN {
+				t.Fatalf("Decode samples=%d want %d", gotN, wantN)
+			}
+			if gotRange, wantRange := gotDec.FinalRange(), wantDec.mainDecodeRng; gotRange != wantRange {
+				t.Fatalf("FinalRange()=0x%08x want inactive CELT range 0x%08x", gotRange, wantRange)
+			}
+			for i := 0; i < gotN*channels; i++ {
+				if got[i] != want[i] {
+					t.Fatalf("sample[%d]=%v want inactive CELT %v", i, got[i], want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestDecodeGopusQEXTPacketMatchesLibopus(t *testing.T) {
 	opusDemo, err := benchutil.QEXTOpusDemoPath()
 	if err != nil {
