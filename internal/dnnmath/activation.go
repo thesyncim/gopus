@@ -112,7 +112,7 @@ func ExpVectorApprox(out, in []float32, n int) {
 			out[i+3] = expApproxNEON(in[i+3])
 		}
 		for ; i < n; i++ {
-			out[i] = ExpApprox(in[i])
+			out[i] = expApproxNEON(in[i])
 		}
 		return
 	}

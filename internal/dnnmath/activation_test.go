@@ -95,6 +95,20 @@ func TestVectorActivationsMatchActiveTailPath(t *testing.T) {
 	}
 }
 
+func TestExpVectorApproxMatchesActiveTailPath(t *testing.T) {
+	in := []float32{-1, 0, 1, 2, 0.125}
+	out := make([]float32, len(in))
+	ExpVectorApprox(out, in, len(in))
+
+	want := ExpApprox(in[len(in)-1])
+	if runtime.GOARCH == "arm64" {
+		want = expApproxNEON(in[len(in)-1])
+	}
+	if gotBits, wantBits := math.Float32bits(out[len(out)-1]), math.Float32bits(want); gotBits != wantBits {
+		t.Fatalf("ExpVectorApprox tail bits=0x%08x want 0x%08x", gotBits, wantBits)
+	}
+}
+
 func TestCgemv8x4QuantizeInputMatchesActiveArch(t *testing.T) {
 	cases := []float32{
 		-1,
