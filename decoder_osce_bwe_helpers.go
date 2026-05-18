@@ -49,6 +49,10 @@ func (d *Decoder) bindOSCEBWEModel(blob *dnnblob.Blob, supported bool) error {
 		d.osceBWE = nil
 		return err
 	}
+	// Feature extractor state is independent of the model weights but its
+	// signal-history / last-spec buffers must start from zero on (re)bind to
+	// match `osce_init` in libopus.
+	d.osceBWE.osceBWEFeatures.Reset()
 	return nil
 }
 

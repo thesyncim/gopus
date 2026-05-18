@@ -22,10 +22,11 @@ import (
 //   - the packet was decoded as SILK-only at WB internal sample rate
 //   - the API sample rate is 48 kHz
 //
-// Phase 1 of the wiring supplies a zero features vector; bit-exact parity to
-// libopus requires implementing osce_features.c which is Phase 3. Errors from
-// the runtime (e.g. unsupported frame size) fall through silently so the
-// standard resampler output is retained.
+// Phase 3 of the wiring computes the per-10ms BBWENet feature vector from the
+// raw int16 SILK lowband samples via the ported `osce_bwe_calculate_features`
+// (see internal/osce/bwe/features.go). Errors from the runtime (e.g.
+// unsupported frame size) fall through silently so the standard resampler
+// output is retained.
 //
 // `out` is the gopus output buffer holding `frameSize * channels` float32
 // samples in [-1, 1]. Returns true when the BWE pass executed and overwrote
@@ -76,16 +77,23 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 	}
 
 	state := d.osceBWE
-	// Normalise native int16 lowband to float32 [-1, 1].
+	// Stage the int16 lowband for the feature extractor and normalise to
+	// float32 [-1, 1] for the BBWENet forward pass. libopus performs both
+	// conversions internally; keeping them side-by-side avoids re-scanning
+	// the input on the hot path.
 	for i := 0; i < in16Per; i++ {
+		state.applyIn16Int[i] = native[i]
 		state.applyIn16[i] = float32(native[i]) / 32768.0
 	}
-	// Zero the features vector for Phase 1 -- the structural forward pass
-	// runs without a bit-exact feature extractor (Phase 3).
 	numFrames := in16Per / 160
-	for i := 0; i < numFrames*osceBWE.FeatureDim; i++ {
-		state.applyFeatures[i] = 0
-	}
+
+	// Port of libopus `osce_bwe_calculate_features`: produces a 114-float
+	// feature vector per 10 ms hop (log-mag spectrogram + instantaneous-
+	// frequency cross-power) consumed by the BBWENet feature net.
+	state.osceBWEFeatures.CalculateFeatures(
+		state.applyFeatures[:numFrames*osceBWE.FeatureDim],
+		state.applyIn16Int[:in16Per],
+	)
 
 	if err := state.osceBWERuntime.Process(
 		state.applyIn16[:in16Per],
