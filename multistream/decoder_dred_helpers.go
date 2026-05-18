@@ -19,7 +19,20 @@ type decoderDREDState struct {
 	dredDecoded     []internaldred.Decoded
 	dredProcesses   []rdovae.Processor
 	dredPLC         []lpcnetplc.State
+	dredRecovery    []int
 	dredBlend       []int
+	dredAnalysis    []lpcnetplc.Analysis
+	dredPredictor   []lpcnetplc.Predictor
+	dredFARGAN      []lpcnetplc.FARGAN
+	dredBridge      []decoderDRED48kBridgeState
+}
+
+type decoderDRED48kBridgeState struct {
+	dredPLCPCM        [4 * lpcnetplc.FrameSize]float32
+	dredPLCUpdate     [4 * lpcnetplc.FrameSize]float32
+	dredPLCFill       int
+	dredPLCPreemphMem float32
+	dredLastNeural    bool
 }
 
 func (d *Decoder) dredState() *decoderDREDState {
@@ -47,6 +60,13 @@ func (d *Decoder) maybeDropDREDState() {
 	if s.dredDNNBlob == nil && !s.dredModelLoaded && len(s.dredCache) == 0 {
 		d.dred = nil
 	}
+}
+
+func (d *Decoder) bindDREDDecoderBlob(blob *dnnblob.Blob, supported bool) {
+	if !supported {
+		return
+	}
+	d.setDREDDecoderBlob(blob)
 }
 
 // setDREDDecoderBlob mirrors the standalone libopus OpusDREDDecoder
@@ -88,7 +108,12 @@ func (d *Decoder) ensureDREDSidecar() {
 	s.dredDecoded = make([]internaldred.Decoded, streams)
 	s.dredProcesses = make([]rdovae.Processor, streams)
 	s.dredPLC = make([]lpcnetplc.State, streams)
+	s.dredRecovery = make([]int, streams)
 	s.dredBlend = make([]int, streams)
+	s.dredAnalysis = make([]lpcnetplc.Analysis, streams)
+	s.dredPredictor = make([]lpcnetplc.Predictor, streams)
+	s.dredFARGAN = make([]lpcnetplc.FARGAN, streams)
+	s.dredBridge = make([]decoderDRED48kBridgeState, streams)
 	s.dredData = makeDREDBuffers(streams)
 	s.dredCache = make([]internaldred.Cache, streams)
 }
@@ -101,7 +126,12 @@ func (d *Decoder) releaseDREDSidecar() {
 	s.dredDecoded = nil
 	s.dredProcesses = nil
 	s.dredPLC = nil
+	s.dredRecovery = nil
 	s.dredBlend = nil
+	s.dredAnalysis = nil
+	s.dredPredictor = nil
+	s.dredFARGAN = nil
+	s.dredBridge = nil
 	s.dredData = nil
 	s.dredCache = nil
 }
@@ -113,6 +143,12 @@ func (d *Decoder) resetDREDRuntimeState() {
 	}
 	for i := range s.dredPLC {
 		s.dredPLC[i].Reset()
+	}
+	for i := range s.dredRecovery {
+		s.dredRecovery[i] = 0
+	}
+	for i := range s.dredBridge {
+		s.dredBridge[i] = decoderDRED48kBridgeState{}
 	}
 }
 
@@ -152,6 +188,9 @@ func (d *Decoder) clearDREDPayloadState() {
 		s.dredCache[i].Clear()
 		s.dredDecoded[i].Clear()
 		s.dredPLC[i].FECClear()
+		if i < len(s.dredRecovery) {
+			s.dredRecovery[i] = 0
+		}
 		s.dredBlend[i] = s.dredPLC[i].Blend()
 	}
 }
@@ -164,6 +203,9 @@ func (d *Decoder) invalidateDREDPayloadState() {
 	for i := range s.dredCache {
 		s.dredCache[i].Invalidate()
 		s.dredDecoded[i].Invalidate()
+		if i < len(s.dredRecovery) {
+			s.dredRecovery[i] = 0
+		}
 		s.dredBlend[i] = s.dredPLC[i].Blend()
 	}
 }
@@ -202,6 +244,12 @@ func (d *Decoder) markDREDUpdated(stream int) {
 		return
 	}
 	s.dredPLC[stream].MarkUpdated()
+	if stream < len(s.dredRecovery) {
+		s.dredRecovery[stream] = 0
+	}
+	if stream < len(s.dredBridge) {
+		s.dredBridge[stream].dredLastNeural = false
+	}
 }
 
 func (d *Decoder) markDREDConcealedAll() {
@@ -268,4 +316,124 @@ func (d *Decoder) queueCachedDREDRecovery(stream, maxDredSamples, decodeOffsetSa
 		initFrames = 2
 	}
 	return internaldred.QueueProcessedFeaturesWithInitFrames(&s.dredPLC[stream], d.cachedDREDResult(stream, maxDredSamples), &s.dredDecoded[stream], decodeOffsetSamples, frameSizeSamples, initFrames)
+}
+
+func (d *Decoder) dredNeuralConcealmentAvailable() bool {
+	return d != nil &&
+		d.sampleRate == 48000 &&
+		d.dnnBlob != nil &&
+		d.pitchDNNLoaded &&
+		d.plcModelLoaded &&
+		d.farganModelLoaded
+}
+
+func (d *Decoder) ensureDREDNeuralRuntime(stream int) bool {
+	s := d.dredState()
+	if s == nil || stream < 0 || stream >= len(s.dredAnalysis) || stream >= len(s.dredPredictor) || stream >= len(s.dredFARGAN) {
+		return false
+	}
+	if s.dredAnalysis[stream].Loaded() && s.dredPredictor[stream].Loaded() && s.dredFARGAN[stream].Loaded() {
+		return true
+	}
+	var (
+		analysis  lpcnetplc.Analysis
+		predictor lpcnetplc.Predictor
+		fargan    lpcnetplc.FARGAN
+	)
+	if err := analysis.SetModel(d.dnnBlob); err != nil {
+		return false
+	}
+	if err := predictor.SetModel(d.dnnBlob); err != nil {
+		return false
+	}
+	if err := fargan.SetModel(d.dnnBlob); err != nil {
+		return false
+	}
+	s.dredAnalysis[stream] = analysis
+	s.dredPredictor[stream] = predictor
+	s.dredFARGAN[stream] = fargan
+	return true
+}
+
+func (d *Decoder) prepareDRED48kNeuralEntry(stream, frameSize int, st *streamState) {
+	s := d.dredState()
+	if s == nil || st == nil || st.celtDec == nil || stream < 0 || stream >= len(s.dredPLC) || stream >= len(s.dredBridge) || frameSize <= 0 {
+		return
+	}
+	plc := &s.dredPLC[stream]
+	bridge := &s.dredBridge[stream]
+	if !bridge.dredLastNeural && bridge.dredPLCFill == 0 && plc.FECFillPos() == 0 && plc.FECSkip() == 0 {
+		plc.FECClear()
+	}
+	if st.celtDec.LastPLCFrameWasNeural() || plc.Blend() != 0 {
+		return
+	}
+	if st.lastMode != streamModeCELT && st.lastMode != streamModeHybrid {
+		return
+	}
+	samples, preemphMem := st.celtDec.FillPLCUpdate16kMonoWithPreemphasisMem(bridge.dredPLCUpdate[:])
+	bridge.dredPLCPreemphMem = preemphMem
+	for offset := 0; offset+lpcnetplc.FrameSize <= samples; offset += lpcnetplc.FrameSize {
+		plc.MarkUpdatedFrameFloat(bridge.dredPLCUpdate[offset : offset+lpcnetplc.FrameSize])
+	}
+}
+
+func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float64, bool, error) {
+	s := d.dredState()
+	if s == nil ||
+		stream < 0 ||
+		stream >= len(s.dredCache) ||
+		stream >= len(s.dredPLC) ||
+		stream >= len(s.dredBridge) ||
+		s.dredCache[stream].Empty() ||
+		!s.dredModelLoaded ||
+		d.ignoreExtensions ||
+		!d.dredNeuralConcealmentAvailable() ||
+		!d.ensureDREDNeuralRuntime(stream) {
+		return nil, false, nil
+	}
+	st, ok := d.decoders[stream].(*streamState)
+	if !ok || st == nil || st.celtDec == nil || st.channels < 1 || st.channels > 2 || st.lastMode != streamModeCELT {
+		return nil, false, nil
+	}
+	if frameSize <= 0 {
+		frameSize = st.lastFrameSize
+	}
+	if frameSize <= 0 {
+		frameSize = 960
+	}
+	out := make([]float32, frameSize*st.channels)
+	bridge := &s.dredBridge[stream]
+	plc := &s.dredPLC[stream]
+	analysis := &s.dredAnalysis[stream]
+	predictor := &s.dredPredictor[stream]
+	fargan := &s.dredFARGAN[stream]
+
+	d.prepareDRED48kNeuralEntry(stream, frameSize, st)
+	generate := func(frame []float32) bool {
+		if len(frame) < lpcnetplc.FrameSize {
+			return false
+		}
+		if plc.Blend() == 0 {
+			return plc.GenerateConcealedFrameFloatWithAnalysis(analysis, predictor, fargan, frame[:lpcnetplc.FrameSize])
+		}
+		return plc.GenerateConcealedFrameFloat(predictor, fargan, frame[:lpcnetplc.FrameSize])
+	}
+
+	var okConceal bool
+	if plc.FECFillPos() > plc.FECReadPos() {
+		okConceal = st.celtDec.ConcealDRED48kToFloat32(out, frameSize, &bridge.dredLastNeural, bridge.dredPLCPCM[:], &bridge.dredPLCFill, &bridge.dredPLCPreemphMem, generate)
+	} else {
+		okConceal = st.celtDec.ConcealPLCNeural48kToFloat32(out, frameSize, &bridge.dredLastNeural, bridge.dredPLCPCM[:], &bridge.dredPLCFill, &bridge.dredPLCPreemphMem, generate)
+	}
+	if !okConceal {
+		return nil, false, nil
+	}
+	if stream < len(s.dredRecovery) {
+		s.dredRecovery[stream] += frameSize
+	}
+	st.recordDecodeCall(frameSize, 0)
+	decoded := float32ToFloat64Slice(out)
+	st.applyOutputGain(decoded)
+	return decoded, true, nil
 }

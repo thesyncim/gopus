@@ -10,10 +10,13 @@ import (
 	"slices"
 	"testing"
 
+	internalenc "github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/lpcnetplc"
 	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/types"
 )
 
 func dredSidecarLengthsForTest(dec *Decoder) (cache, data, plc int) {
@@ -92,6 +95,39 @@ func makeDecoderBlobForDREDTest(t *testing.T, withDRED bool) *dnnblob.Blob {
 	blob, err := dnnblob.Clone(raw)
 	if err != nil {
 		t.Fatalf("dnnblob.Clone error: %v", err)
+	}
+	return blob
+}
+
+func makeLoadableDecoderDREDControlTestBlob(t *testing.T) *dnnblob.Blob {
+	t.Helper()
+
+	var raw []byte
+	for _, spec := range lpcnetplc.PitchDNNLinearLayerSpecs() {
+		raw = appendLinearLayerSpecBlob(raw, spec)
+	}
+	for _, spec := range lpcnetplc.PitchDNNConv2DLayerSpecs() {
+		raw = appendConv2DLayerSpecBlob(raw, spec)
+	}
+	for _, spec := range lpcnetplc.ModelLayerSpecs() {
+		raw = appendLinearLayerSpecBlob(raw, spec)
+	}
+	for _, spec := range lpcnetplc.FARGANModelLayerSpecs() {
+		raw = appendLinearLayerSpecBlob(raw, spec)
+	}
+	for _, spec := range rdovae.DecoderLayerSpecs() {
+		raw = appendDREDDecoderLayerTestRecords(raw, spec)
+	}
+
+	blob, err := dnnblob.Clone(raw)
+	if err != nil {
+		t.Fatalf("dnnblob.Clone(loadable decoder DRED control): %v", err)
+	}
+	if err := blob.ValidateDecoderControl(false); err != nil {
+		t.Fatalf("ValidateDecoderControl(loadable decoder DRED control): %v", err)
+	}
+	if err := blob.ValidateDREDDecoderControl(); err != nil {
+		t.Fatalf("ValidateDREDDecoderControl(loadable decoder DRED control): %v", err)
 	}
 	return blob
 }
@@ -222,6 +258,35 @@ func rebuildMultistreamPacketForTest(t *testing.T, packets [][]byte) []byte {
 
 func makeMultistreamPacketWithDREDForTest(t *testing.T, channels, targetStream int, body []byte) []byte {
 	return makeMultistreamPacketWithDREDFrameForTest(t, channels, targetStream, 0, body)
+}
+
+func makeCELTMultistreamPacketWithDREDForTest(t *testing.T, channels, targetStream int, body []byte) []byte {
+	t.Helper()
+
+	enc, err := NewEncoderDefault(48000, channels)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+	enc.SetMode(internalenc.ModeCELT)
+	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetBitrate(256000)
+
+	packet, err := enc.Encode(generateTestSignal(channels, 960, 48000, 997), 960)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+	packets, err := parseMultistreamPacket(packet, enc.Streams())
+	if err != nil {
+		t.Fatalf("parseMultistreamPacket error: %v", err)
+	}
+	if targetStream < 0 || targetStream >= len(packets) {
+		t.Fatalf("targetStream=%d out of range for %d packets", targetStream, len(packets))
+	}
+	if toc := parseStreamTOC(packets[targetStream][0]); toc.mode != streamModeCELT {
+		t.Fatalf("target stream mode=%d want CELT", toc.mode)
+	}
+	packets[targetStream] = addDREDExtensionToOpusPacketFrameForTest(t, packets[targetStream], 0, body)
+	return rebuildMultistreamPacketForTest(t, packets)
 }
 
 func makeMultistreamPacketWithDREDFrameForTest(t *testing.T, channels, targetStream, frame int, body []byte) []byte {
@@ -557,16 +622,16 @@ func TestDecoderLeavesDREDStateDormantWithOnlyMainDNNBlob(t *testing.T) {
 	}
 }
 
-func TestDecoderPublicSetDNNBlobDoesNotArmStandaloneDREDDecoder(t *testing.T) {
+func TestDecoderPublicSetDNNBlobArmsDREDDecoderWhenBlobContainsModel(t *testing.T) {
 	packet := makeMultistreamPacketWithDREDForTest(t, 3, 1, makeExperimentalDREDPayloadBodyForTest(t, 0, 4))
 
 	dec, err := NewDecoderDefault(48000, 3)
 	if err != nil {
 		t.Fatalf("NewDecoderDefault error: %v", err)
 	}
-	dec.SetDNNBlob(makeDecoderBlobForDREDTest(t, true))
-	if dec.dred != nil && dec.dred.dredModelLoaded {
-		t.Fatal("public decoder SetDNNBlob armed standalone DRED decoder")
+	dec.SetDNNBlob(makeLoadableDecoderDREDControlTestBlob(t))
+	if dec.dred == nil || !dec.dred.dredModelLoaded {
+		t.Fatal("public decoder SetDNNBlob did not arm DRED decoder from combined blob")
 	}
 
 	samples, err := dec.Decode(packet, 960)
@@ -576,8 +641,49 @@ func TestDecoderPublicSetDNNBlobDoesNotArmStandaloneDREDDecoder(t *testing.T) {
 	if len(samples) != 960*3 {
 		t.Fatalf("len(samples)=%d want %d", len(samples), 960*3)
 	}
-	if dec.dred != nil && len(dec.dred.dredCache) != 0 {
-		t.Fatalf("public SetDNNBlob cached DRED sidecar=%+v want nil/empty", dec.dred)
+	if dec.dred.dredCache[1].Empty() {
+		t.Fatal("public SetDNNBlob did not cache target-stream DRED payload")
+	}
+}
+
+func TestDecoderDecodeNilConsumesMultistreamDREDNeuralStream(t *testing.T) {
+	const channels = 3
+	const targetStream = 1
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeCELTMultistreamPacketWithDREDForTest(t, channels, targetStream, body)
+
+	dec, err := NewDecoderDefault(48000, channels)
+	if err != nil {
+		t.Fatalf("NewDecoderDefault error: %v", err)
+	}
+	dec.SetDNNBlob(makeLoadableDecoderDREDControlTestBlob(t))
+
+	samples, err := dec.Decode(packet, 960)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if len(samples) != 960*channels {
+		t.Fatalf("len(samples)=%d want %d", len(samples), 960*channels)
+	}
+	if dec.dred == nil || dec.dred.dredCache[targetStream].Empty() {
+		t.Fatal("Decode did not cache target-stream DRED payload")
+	}
+
+	plcSamples, err := dec.Decode(nil, 960)
+	if err != nil {
+		t.Fatalf("Decode(nil) error: %v", err)
+	}
+	if len(plcSamples) != 960*channels {
+		t.Fatalf("len(plcSamples)=%d want %d", len(plcSamples), 960*channels)
+	}
+	if got := dec.dred.dredRecovery[targetStream]; got != 960 {
+		t.Fatalf("target stream dredRecovery=%d want 960", got)
+	}
+	if got := dec.dred.dredRecovery[0]; got != 0 {
+		t.Fatalf("non-target stream 0 dredRecovery=%d want 0", got)
+	}
+	if got := dec.dred.dredBridge[targetStream].dredPLCFill; got <= 0 {
+		t.Fatalf("target stream dredPLCFill=%d want >0 after neural DRED PLC", got)
 	}
 }
 

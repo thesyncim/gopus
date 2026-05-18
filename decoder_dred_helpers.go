@@ -276,9 +276,9 @@ func (d *Decoder) dredRuntimeSampleRate() int {
 	return d.sampleRate
 }
 
-// setDNNBlob mirrors the main libopus decoder OPUS_SET_DNN_BLOB surface. The
-// standalone DRED decoder keeps its own model lifetime and is managed
-// separately through setDREDDecoderBlob.
+// setDNNBlob mirrors the main libopus decoder OPUS_SET_DNN_BLOB surface. When a
+// retained blob also carries the standalone DRED decoder family, bind that model
+// so packet-extension DRED can use the same combined control blob.
 func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	var (
 		models    dnnblob.DecoderModelState
@@ -312,6 +312,9 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	d.osceModelsLoaded = models.OSCE
 	d.osceLACEModelLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
+	if models.DRED {
+		d.setDREDDecoderBlob(blob)
+	}
 	// Bind the quarantined OSCE BWE model when its weights are present. The
 	// helper is a no-op outside of `gopus_unsupported_controls` builds so the
 	// shared DRED path remains untouched.

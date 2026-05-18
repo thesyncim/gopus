@@ -64,22 +64,22 @@ func TestPublicDREDEncoderEncodeWithDormantModelStaysZeroAlloc(t *testing.T) {
 	}
 }
 
-func TestPublicDREDDecoderDecodeWithControlOnlyModelsStaysZeroAlloc(t *testing.T) {
+func TestPublicDREDDecoderDecodeWithCoreModelsStaysZeroAlloc(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatalf("NewDecoder: %v", err)
 	}
-	if err := dec.SetDNNBlob(makeValidDecoderControlWithDREDDecoderTestDNNBlob()); err != nil {
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob: %v", err)
 	}
 	if !dec.dredNeuralModelsLoaded() {
 		t.Fatal("decoder did not retain neural model readiness")
 	}
 	if dec.dredPayloadScannerActive() {
-		t.Fatal("main decoder DNN blob armed standalone DRED payload scanning")
+		t.Fatal("core decoder DNN blob armed standalone DRED payload scanning")
 	}
 	if dec.dredGoodPacketMarkerActive() {
-		t.Fatal("main decoder DNN blob armed good-packet DRED marker work")
+		t.Fatal("core decoder DNN blob armed good-packet DRED marker work")
 	}
 
 	packet := testCELTPacket()
@@ -97,7 +97,7 @@ func TestPublicDREDDecoderDecodeWithControlOnlyModelsStaysZeroAlloc(t *testing.T
 		}
 	})
 	if allocs != 0 {
-		t.Fatalf("public Decode with control-only DRED-capable models allocs/op = %.2f, want 0", allocs)
+		t.Fatalf("public Decode with core DNN models allocs/op = %.2f, want 0", allocs)
 	}
 	if state := dec.dredState(); state != nil {
 		t.Fatalf("allocation guard woke DRED sidecar: %+v", state)

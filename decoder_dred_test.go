@@ -32,21 +32,21 @@ func requireDREDRuntimeForTest(t *testing.T) {
 	}
 }
 
-func TestDecoderDNNBlobOnlyDoesNotArmGoodPacketDREDWork(t *testing.T) {
+func TestDecoderCoreDNNBlobDoesNotArmGoodPacketDREDWork(t *testing.T) {
 	requireDREDRuntimeForTest(t)
 
 	dec := mustNewTestDecoder(t, 48000, 1)
-	if err := dec.SetDNNBlob(makeValidDecoderControlWithDREDDecoderTestDNNBlob()); err != nil {
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
 	if !dec.dredNeuralModelsLoaded() {
 		t.Fatal("decoder did not retain neural model readiness")
 	}
 	if dec.dredPayloadScannerActive() {
-		t.Fatal("main decoder SetDNNBlob armed standalone DRED payload scanning")
+		t.Fatal("core decoder SetDNNBlob armed standalone DRED payload scanning")
 	}
 	if dec.dredGoodPacketMarkerActive() {
-		t.Fatal("main decoder SetDNNBlob armed good-packet DRED marker work")
+		t.Fatal("core decoder SetDNNBlob armed good-packet DRED marker work")
 	}
 
 	packet := testCELTPacket()
@@ -61,7 +61,7 @@ func TestDecoderDNNBlobOnlyDoesNotArmGoodPacketDREDWork(t *testing.T) {
 		t.Fatal("good packet armed DRED marker work without payload/recovery state")
 	}
 	if state := dec.dredState(); state != nil {
-		t.Fatalf("good packet with control-only DNN blob woke DRED sidecar: %+v", state)
+		t.Fatalf("good packet with core DNN blob woke DRED sidecar: %+v", state)
 	}
 }
 
@@ -1168,7 +1168,7 @@ func TestDecoderLeavesDREDStateDormantWithoutAnySidecar(t *testing.T) {
 	}
 }
 
-func TestDecoderPublicSetDNNBlobDoesNotArmStandaloneDREDDecoder(t *testing.T) {
+func TestPublicDREDDecoderSetDNNBlobArmsDREDDecoderWhenBlobContainsModel(t *testing.T) {
 	base := makeValidCELTPacketForDREDTest(t)
 	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
 	extended := buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
@@ -1182,16 +1182,16 @@ func TestDecoderPublicSetDNNBlobDoesNotArmStandaloneDREDDecoder(t *testing.T) {
 	if err := dec.SetDNNBlob(makeValidDecoderControlWithDREDDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
-	if s := dec.dredState(); s != nil && s.dredModelLoaded {
-		t.Fatal("public decoder SetDNNBlob armed standalone DRED decoder")
+	if s := dec.dredState(); s == nil || !s.dredModelLoaded {
+		t.Fatal("public decoder SetDNNBlob did not arm DRED decoder from combined blob")
 	}
 
 	pcm := make([]float32, 960*2)
 	if _, err := dec.Decode(extended, pcm); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
-	if s := dec.dredState(); s != nil && s.dredCache != (internaldred.Cache{}) {
-		t.Fatalf("public SetDNNBlob cached DRED payload=%+v want zero state", s.dredCache)
+	if s := dec.dredState(); s == nil || s.dredCache.Empty() {
+		t.Fatal("public SetDNNBlob did not cache DRED payload")
 	}
 }
 

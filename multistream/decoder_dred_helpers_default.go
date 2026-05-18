@@ -3,7 +3,11 @@
 
 package multistream
 
+import "github.com/thesyncim/gopus/internal/dnnblob"
+
 type decoderDREDState struct{}
+
+func (d *Decoder) bindDREDDecoderBlob(_ *dnnblob.Blob, _ bool) {}
 
 func (d *Decoder) resetDREDRuntimeState() {}
 
@@ -24,3 +28,7 @@ func (d *Decoder) maybeCacheDREDPayload(_ int, _ []byte) {}
 func (d *Decoder) markDREDUpdated(_ int) {}
 
 func (d *Decoder) markDREDConcealedAll() {}
+
+func (d *Decoder) decodeDREDPLCStream(_ int, _ int) ([]float64, bool, error) {
+	return nil, false, nil
+}

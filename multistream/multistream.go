@@ -160,6 +160,14 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	// Decode PLC for each stream
 	decodedStreams := make([][]float64, d.streams)
 	for i := 0; i < d.streams; i++ {
+		if extsupport.DREDRuntime {
+			if decoded, ok, err := d.decodeDREDPLCStream(i, frameSize); err != nil {
+				return nil, err
+			} else if ok {
+				decodedStreams[i] = decoded
+				continue
+			}
+		}
 		decoded, err := d.decodeStream(i, nil, frameSize)
 		if err != nil {
 			// On PLC error, use silence for this stream
