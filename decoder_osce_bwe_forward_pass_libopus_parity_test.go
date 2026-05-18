@@ -469,9 +469,8 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 
 // TestOSCEBWECrossFade10msMatchesLibopus drives the SILK WB -> Hybrid SWB
 // fade-out cross-fade directly. The gopus port of osce_bwe_cross_fade_10ms
-// operates on float32 PCM in [-1, 1] while libopus operates on int16; the
-// weighting expression is identical so the result must match within int16
-// quantisation noise plus our usual bounded-divergence envelope.
+// operates on float32 PCM in [-1, 1] but mirrors libopus' int16-domain
+// writeback, so the normalised outputs should match exactly.
 func TestOSCEBWECrossFade10msMatchesLibopus(t *testing.T) {
 	binPath, err := getLibopusOSCEBWEForwardHelperPath()
 	if err != nil {
@@ -509,13 +508,9 @@ func TestOSCEBWECrossFade10msMatchesLibopus(t *testing.T) {
 
 	osceBWECrossFade10ms(fadeinF, fadeoutF, 480)
 
-	// Tight tolerances: cross-fade is pure arithmetic so divergence comes
-	// only from int16 vs float32 quantisation in libopus's xq -> float
-	// conversion at the boundary. Each int16 step is ~3e-5, so a 1e-4 max
-	// envelope is already several LSB and would indicate a real arithmetic bug.
 	const (
-		crossfadeAbsTolerance = 1e-4
-		crossfadeRMSTolerance = 4e-5
+		crossfadeAbsTolerance = float32(0)
+		crossfadeRMSTolerance = float64(0)
 	)
 	var maxAbsErr float32
 	var sumSq float64

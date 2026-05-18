@@ -3,6 +3,8 @@
 
 package gopus
 
+import "math"
+
 // osceWindow mirrors the upstream libopus 1.6.1 `osce_window[]` table from
 // dnn/osce_features.c. Only the first 160 entries are needed by
 // osce_bwe_cross_fade_10ms (the 10 ms half-window weights at 16 kHz). The full
@@ -80,10 +82,10 @@ var osceWindow = [320]float32{
 // buffer using the libopus osce_window weights; the result is written back
 // into the fade-in buffer.
 //
-// libopus operates on opus_int16 PCM and converts to float for the weighting.
-// The gopus equivalent operates on float32 PCM in [-1, 1]; the weighting
-// expression is identical (multiplications and additions only) so the result
-// is numerically equivalent up to int16 quantisation.
+// libopus operates on opus_int16 PCM and writes each blended sample through
+// `(int)(x + 0.5)`. The Go decoder keeps float32 PCM at its API boundary, so
+// this helper converts the two inputs to the same int16 domain, applies the
+// reference writeback, then normalises the result back to float32.
 //
 // length must be >= 480.
 func osceBWECrossFade10ms(xFadein, xFadeout []float32, length int) {
@@ -100,10 +102,27 @@ func osceBWECrossFade10ms(xFadein, xFadeout []float32, length int) {
 			diff = osceWindow[i+1] - osceWindow[i]
 		}
 		wCurr := osceWindow[i]
-		xFadein[3*i+0] = wCurr*xFadein[3*i+0] + (1.0-wCurr)*xFadeout[3*i+0]
+		xFadein[3*i+0] = float32(osceBWECrossFadeSample(wCurr, xFadein[3*i+0], xFadeout[3*i+0])) * (1.0 / 32768.0)
 		wCurr += diff * oneThird
-		xFadein[3*i+1] = wCurr*xFadein[3*i+1] + (1.0-wCurr)*xFadeout[3*i+1]
+		xFadein[3*i+1] = float32(osceBWECrossFadeSample(wCurr, xFadein[3*i+1], xFadeout[3*i+1])) * (1.0 / 32768.0)
 		wCurr += diff * oneThird
-		xFadein[3*i+2] = wCurr*xFadein[3*i+2] + (1.0-wCurr)*xFadeout[3*i+2]
+		xFadein[3*i+2] = float32(osceBWECrossFadeSample(wCurr, xFadein[3*i+2], xFadeout[3*i+2])) * (1.0 / 32768.0)
 	}
+}
+
+func osceBWECrossFadeSample(weight, fadein, fadeout float32) int16 {
+	fi := osceBWEFloatToInt16(fadein)
+	fo := osceBWEFloatToInt16(fadeout)
+	v := weight*float32(fi) + (1.0-weight)*float32(fo) + 0.5
+	return int16(int32(v))
+}
+
+func osceBWEFloatToInt16(x float32) int16 {
+	tmp := float32(32768) * x
+	if tmp > 32767 {
+		tmp = 32767
+	} else if tmp < -32767 {
+		tmp = -32767
+	}
+	return int16(int32(math.RoundToEven(float64(tmp))))
 }
