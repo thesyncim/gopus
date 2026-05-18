@@ -127,6 +127,15 @@ type Decoder struct {
 	stereoRightNative []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
 	stereoMidFrame    []int16 // Size: maxFrameLength + 2
 	stereoSideFrame   []int16 // Size: maxFrameLength + 2
+
+	// Length of the most recent native-rate int16 mono decode written to
+	// scratchOutInt16. Exposed via LatestNativeMono so optional decoder-side
+	// post-processing (e.g. OSCE BWE) can read the pre-resample SILK output
+	// without performing a second decode pass.
+	lastNativeMonoLen int
+	// Native SILK sample rate in kHz used to produce lastNativeMonoLen samples
+	// (e.g. 16 for WB). Zero until a decode has run.
+	lastNativeMonoFsKHz int
 }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
@@ -296,6 +305,8 @@ func (d *Decoder) Reset() {
 	for i := range d.scratchOutInt16 {
 		d.scratchOutInt16[i] = 0
 	}
+	d.lastNativeMonoLen = 0
+	d.lastNativeMonoFsKHz = 0
 	for i := range d.scratchPulses {
 		d.scratchPulses[i] = 0
 	}
@@ -575,6 +586,30 @@ func (d *Decoder) GetLastSignalType() int {
 // GetLagPrev returns the previous pitch lag tracked by SILK decode state.
 func (d *Decoder) GetLagPrev() int {
 	return d.state[0].lagPrev
+}
+
+// LatestNativeMono returns the most recent native-rate (pre-resample) int16
+// mono SILK output produced by decodeFrameRawInt16 (also used by
+// DecodeWithDecoderInto), along with the native sample rate in kHz.
+//
+// The returned slice aliases internal scratch storage and must be consumed
+// synchronously, before the next decode call. Returns (nil, 0) when no mono
+// decode has run since the last Reset.
+//
+// This accessor exists for the optional OSCE BWE forward pass: libopus runs
+// the BWE on the 16 kHz lowband produced by SILK, before silk_resampler
+// upsamples to 48 kHz. The gopus equivalent path consumes this buffer
+// directly so the BWE input matches libopus without performing a second
+// decode pass.
+func (d *Decoder) LatestNativeMono() ([]int16, int) {
+	if d == nil || d.lastNativeMonoLen <= 0 || d.scratchOutInt16 == nil {
+		return nil, 0
+	}
+	n := d.lastNativeMonoLen
+	if n > len(d.scratchOutInt16) {
+		n = len(d.scratchOutInt16)
+	}
+	return d.scratchOutInt16[:n], d.lastNativeMonoFsKHz
 }
 
 // RawMonoFrameHook fires on raw mono/mid 10 ms chunks before CNG/glue mutates

@@ -499,6 +499,19 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		}
 		_ = silkSamples // Used for tracking decode size
 
+		// Optional libopus OSCE BWE forward pass for SILK-only mode at 48 kHz
+		// API with WB internal sample rate. Mirrors libopus
+		// OSCE_MODE_SILK_BBWE which replaces the silk_resampler upsampling
+		// with an ML-based 16 kHz -> 48 kHz bandwidth extension.
+		//
+		// The helper is a no-op outside of `gopus_unsupported_controls` and
+		// short-circuits when the BWE control is disabled / no BWE model is
+		// loaded, so the standard silk_resampler output is retained for
+		// every existing decode path.
+		if data != nil {
+			d.maybeApplyOSCEBWEPostSilk(out, frameSize, mode, silkBW, packetStereoLocal)
+		}
+
 		if data != nil && rd.Tell()+17 <= 8*len(data) {
 			redundancy = true
 			celtToSilk = rd.DecodeBit(1) == 1

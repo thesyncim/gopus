@@ -12,6 +12,12 @@ import (
 // pattern as the FARGAN / Predictor bindings: it is non-nil once
 // `SetDNNBlob` has successfully bound an OSCE BWE-capable weights blob.
 type decoderOSCEBWEState struct {
-	osceBWEModel *osceBWE.Model
+	osceBWEModel   *osceBWE.Model
 	osceBWERuntime osceBWE.State
+
+	// Pre-allocated working buffers for the post-SILK BWE forward pass so
+	// the decoder hot path does not allocate per-frame.
+	applyIn16    [320]float32 // 20 ms @ 16 kHz max
+	applyOut48   [3 * 320]float32
+	applyFeatures [2 * osceBWE.FeatureDim]float32
 }

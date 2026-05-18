@@ -118,7 +118,7 @@ func (d *Decoder) decodeFrameRawInt16(
 	vadFlag bool,
 ) ([]int16, error) {
 	_ = vadFlag
-	st, framesPerPacket, _, err := d.prepareMonoFramePacket(rd, bandwidth, duration)
+	st, framesPerPacket, fsKHz, err := d.prepareMonoFramePacket(rd, bandwidth, duration)
 	if err != nil {
 		return nil, err
 	}
@@ -137,6 +137,13 @@ func (d *Decoder) decodeFrameRawInt16(
 	// Mono decode resets mid-only tracking (libopus sets decode_only_middle=0).
 	d.prevDecodeOnlyMiddle = 0
 	d.haveDecoded = true
+
+	// Record native-rate length/fs so decoder-side post-processing (e.g. the
+	// optional OSCE BWE forward pass) can read the pre-resample lowband signal
+	// without performing a second decode pass. Mirrors libopus where BWE
+	// consumes samplesOut1_tmp directly.
+	d.lastNativeMonoLen = totalLen
+	d.lastNativeMonoFsKHz = fsKHz
 	return outInt16, nil
 }
 
