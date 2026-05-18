@@ -21,6 +21,15 @@ const (
 
 	scalarDNNBuildStampFile = ".gopus-scalar-dnn-build"
 	scalarDNNBuildStamp     = "gopus scalar libopus DNN helper build v2\nCFLAGS=" + ScalarDNNBuildCFLAGS + "\n"
+
+	// OSCE-enabled scalar build stamp. The OSCE build pulls in additional
+	// source (`dnn/osce.c`, `dnn/osce_features.c`, `dnn/bbwenet_data.c`, ...)
+	// because `--enable-osce` / `--enable-osce-bwe` are passed to configure.
+	// The CFLAGS are identical to the regular scalar build (same x86 vector
+	// macros need disabling), but the stamp is different so a stale plain
+	// scalar build cannot be reused as an OSCE build.
+	osceScalarDNNBuildStampFile = ".gopus-scalar-dnn-build-osce"
+	osceScalarDNNBuildStamp     = "gopus scalar libopus DNN helper build v2 (osce)\nCFLAGS=" + ScalarDNNBuildCFLAGS + "\n"
 )
 
 // DefaultSearchRoots covers common invocation locations:
@@ -225,4 +234,31 @@ func ResetScalarDNNBuildIfStale(buildDir string) error {
 // scalar-DNN helper contract.
 func WriteScalarDNNBuildStamp(buildDir string) error {
 	return os.WriteFile(filepath.Join(buildDir, scalarDNNBuildStampFile), []byte(scalarDNNBuildStamp), 0o644)
+}
+
+// OSCEScalarDNNBuildIsCurrent reports whether buildDir was produced with the
+// current OSCE-enabled scalar-DNN helper contract.
+func OSCEScalarDNNBuildIsCurrent(buildDir string) bool {
+	data, err := os.ReadFile(filepath.Join(buildDir, osceScalarDNNBuildStampFile))
+	return err == nil && string(data) == osceScalarDNNBuildStamp
+}
+
+// ResetOSCEScalarDNNBuildIfStale removes buildDir when it was produced before
+// the current OSCE-enabled scalar-DNN helper contract.
+func ResetOSCEScalarDNNBuildIfStale(buildDir string) error {
+	if _, err := os.Stat(buildDir); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if OSCEScalarDNNBuildIsCurrent(buildDir) {
+		return nil
+	}
+	return os.RemoveAll(buildDir)
+}
+
+// WriteOSCEScalarDNNBuildStamp records that buildDir satisfies the current
+// OSCE-enabled scalar-DNN helper contract.
+func WriteOSCEScalarDNNBuildStamp(buildDir string) error {
+	return os.WriteFile(filepath.Join(buildDir, osceScalarDNNBuildStampFile), []byte(osceScalarDNNBuildStamp), 0o644)
 }
