@@ -19,14 +19,18 @@ import (
 // which triggers when:
 //   - the OSCE BWE control is enabled (SetOSCEBWE(true))
 //   - a valid OSCE BWE model was bound via SetDNNBlob
-//   - the packet was decoded as SILK-only at WB internal sample rate
+//   - the packet was decoded as SILK-only at WB internal sample rate (or PLC
+//     is running with the previous packet matching that profile)
 //   - the API sample rate is 48 kHz
 //
 // Phase 3 of the wiring computes the per-10ms BBWENet feature vector from the
 // raw int16 SILK lowband samples via the ported `osce_bwe_calculate_features`
-// (see internal/osce/bwe/features.go). Errors from the runtime (e.g.
-// unsupported frame size) fall through silently so the standard resampler
-// output is retained.
+// (see internal/osce/bwe/features.go). On transitions between BWE-active and
+// BWE-inactive frames the helper runs a 10 ms cross-fade between the BWE
+// output and the standard silk_resampler output, mirroring
+// osce_bwe_cross_fade_10ms in libopus dec_API.c. Errors from the runtime
+// (e.g. unsupported frame size) fall through silently so the standard
+// resampler output is retained.
 //
 // `out` is the gopus output buffer holding `frameSize * channels` float32
 // samples in [-1, 1]. Returns true when the BWE pass executed and overwrote
@@ -55,14 +59,26 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 	// libopus only enables OSCE_MODE_SILK_BBWE for SILK-only mode at 48 kHz
 	// API and 16 kHz internal sample rate. Hybrid mode keeps the standard
 	// silk_resampler path even when BWE is requested. See opus_decoder.c
-	// around `OSCE_MODE_SILK_BBWE`.
+	// around `OSCE_MODE_SILK_BBWE`. PLC re-uses this same gate (the caller
+	// passes the previous packet's mode/bandwidth, which is how libopus
+	// derives the BWE eligibility on `data == NULL`).
 	if mode != ModeSILK || d.sampleRate != 48000 || silkBW != silk.BandwidthWideband {
+		// BWE is inactive this frame. If the previous frame ran BWE we still
+		// need a cross-fade so the resampler/BWE boundary is not audible.
+		if d.osceBWE.prevBWEActive {
+			d.applyOSCEBWEFadeOut(out, frameSize, packetStereoLocal)
+		}
+		d.osceBWE.prevBWEActive = false
 		return false
 	}
 	// The runtime only supports 10 ms (160 sample) and 20 ms (320 sample)
 	// frames at 16 kHz, which map to 480 / 960 samples per channel at 48 kHz.
 	in48Per := frameSize
 	if in48Per != 480 && in48Per != 960 {
+		if d.osceBWE.prevBWEActive {
+			d.applyOSCEBWEFadeOut(out, frameSize, packetStereoLocal)
+		}
+		d.osceBWE.prevBWEActive = false
 		return false
 	}
 	in16Per := in48Per / 3
@@ -140,9 +156,17 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 	}
 	native, fsKHz := d.silkDecoder.LatestNativeMono()
 	if native == nil || fsKHz != 16 {
+		if d.osceBWE.prevBWEActive {
+			d.applyOSCEBWEFadeOut(out, frameSize, packetStereoLocal)
+		}
+		d.osceBWE.prevBWEActive = false
 		return false
 	}
 	if len(native) < in16Per {
+		if d.osceBWE.prevBWEActive {
+			d.applyOSCEBWEFadeOut(out, frameSize, packetStereoLocal)
+		}
+		d.osceBWE.prevBWEActive = false
 		return false
 	}
 
@@ -170,7 +194,23 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 		state.applyOut48[:in48Per],
 		state.applyFeatures[:numFrames*osceBWE.FeatureDim],
 	); err != nil {
+		// Runtime failed -- keep the standard resampler output. Treat as a
+		// BWE-inactive frame for transition tracking; if we were previously
+		// active a fade-out would have been ideal but we have no usable BWE
+		// data to cross-fade with, so just mark prev as inactive.
+		state.prevBWEActive = false
 		return false
+	}
+
+	// If the previous frame did NOT run BWE we are transitioning into BWE.
+	// libopus cross-fades the BWE output (fadein) against the standard
+	// silk_resampler output (fadeout). The standard output is already in
+	// `out` (channels==1 here -- stereo is bypassed above). Mix the BWE
+	// buffer in via osceBWECrossFade10ms which writes the cross-fade
+	// samples directly back into the BWE output buffer; we then overwrite
+	// `out` from there.
+	if !state.prevBWEActive && d.channels == 1 {
+		osceBWECrossFade10ms(state.applyOut48[:in48Per], out[:in48Per], 480)
 	}
 
 	// Write BWE output to the mono channel of `out`. For mono channels==1 we
@@ -185,5 +225,71 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 			out[2*i+1] = v
 		}
 	}
+	state.prevBWEActive = true
 	return true
+}
+
+// osceBWEMarkInactiveIfModeIneligible clears the BWE-active flag when the
+// current packet's mode/bandwidth does not satisfy OSCE_MODE_SILK_BBWE. This
+// catches Hybrid / CELT / SILK-NB-MB packets where maybeApplyOSCEBWEPostSilk
+// is not invoked but the prevBWEActive transition tracking still needs to be
+// updated. Without this clearing the next SILK WB packet would incorrectly
+// skip the BWE fade-in cross-fade because prevBWEActive would still be true
+// from many packets ago.
+func (d *Decoder) osceBWEMarkInactiveIfModeIneligible(mode Mode, bandwidth Bandwidth) {
+	if d == nil || d.osceBWE == nil {
+		return
+	}
+	if mode == ModeSILK && bandwidth == BandwidthWideband {
+		// SILK WB packets go through maybeApplyOSCEBWEPostSilk which manages
+		// the flag itself.
+		return
+	}
+	d.osceBWE.prevBWEActive = false
+}
+
+// applyOSCEBWEFadeOut runs a fade-out cross-fade when leaving BWE: BWE on the
+// previous lowband -> standard upsampled `out`. Mirrors the second branch of
+// the libopus dec_API.c BWE handler where, after a BWE-active frame, the new
+// frame's standard silk_resampler output is cross-faded against a fresh BWE
+// pass on the same native lowband. We approximate that by running BWE on the
+// current native lowband (if available) and fading the existing `out` against
+// it. When BWE cannot run (e.g. native unavailable), the helper is a no-op.
+func (d *Decoder) applyOSCEBWEFadeOut(out []float32, frameSize int, packetStereoLocal bool) {
+	if d == nil || d.osceBWE == nil || !d.osceBWE.osceBWERuntime[0].Loaded() {
+		return
+	}
+	if d.sampleRate != 48000 || d.channels != 1 || packetStereoLocal {
+		return
+	}
+	in48Per := frameSize
+	if in48Per != 480 && in48Per != 960 {
+		return
+	}
+	in16Per := in48Per / 3
+
+	native, fsKHz := d.silkDecoder.LatestNativeMono()
+	if native == nil || fsKHz != 16 || len(native) < in16Per {
+		return
+	}
+
+	state := d.osceBWE
+	for i := 0; i < in16Per; i++ {
+		state.applyIn16[i] = float32(native[i]) / 32768.0
+	}
+	numFrames := in16Per / 160
+	for i := 0; i < numFrames*osceBWE.FeatureDim; i++ {
+		state.applyFeatures[i] = 0
+	}
+	if err := state.osceBWERuntime[0].Process(
+		state.applyIn16[:in16Per],
+		state.applyOut48[:in48Per],
+		state.applyFeatures[:numFrames*osceBWE.FeatureDim],
+	); err != nil {
+		return
+	}
+	// `out` is the standard upsampled output (fadein), `applyOut48` is the
+	// BWE output (fadeout). osceBWECrossFade10ms writes the cross-fade into
+	// its first argument.
+	osceBWECrossFade10ms(out[:in48Per], state.applyOut48[:in48Per], 480)
 }

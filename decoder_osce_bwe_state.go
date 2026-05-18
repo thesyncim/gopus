@@ -27,8 +27,15 @@ type decoderOSCEBWEState struct {
 	// the decoder hot path does not allocate per-frame. The input/output
 	// buffers are sized for one channel; stereo runs the forward pass
 	// sequentially on each channel re-using the same scratch.
-	applyIn16     [320]float32 // 20 ms @ 16 kHz max
-	applyIn16Int  [320]int16   // signed-int16 view consumed by the feature extractor
+	applyIn16    [320]float32 // 20 ms @ 16 kHz max
+	applyIn16Int [320]int16   // signed-int16 view consumed by the feature extractor
 	applyOut48    [3 * 320]float32
 	applyFeatures [2 * osceBWE.FeatureDim]float32
+
+	// prevBWEActive mirrors libopus DecControl.prev_osce_extended_mode for the
+	// OSCE_MODE_SILK_BBWE bit. When the previous frame ran BWE but the current
+	// frame does not (or vice versa), maybeApplyOSCEBWEPostSilk applies a 10 ms
+	// cross-fade between the BWE output and the standard silk_resampler
+	// output. This mirrors osce_bwe_cross_fade_10ms in libopus dec_API.c.
+	prevBWEActive bool
 }

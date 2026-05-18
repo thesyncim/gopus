@@ -1,6 +1,9 @@
 package gopus
 
-import "github.com/thesyncim/gopus/internal/extsupport"
+import (
+	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/silk"
+)
 
 // Decode decodes an Opus packet into float32 PCM samples.
 //
@@ -69,6 +72,19 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		frameSize = n
 		if neuralReady && !usedNeuralConcealment {
 			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
+		}
+		// libopus enables OSCE_MODE_SILK_BBWE during PLC whenever the
+		// internal sample rate is 16 kHz and the API sample rate is 48 kHz
+		// (`data == NULL` branch in opus_decoder.c). The gopus equivalent
+		// gate uses the previous packet's mode/bandwidth as the BWE
+		// eligibility signal: only SILK WB carries the 16 kHz internal SR
+		// that BWE expects. Stereo and DRED neural concealment paths are
+		// intentionally excluded so the BWE never overwrites richer
+		// concealment output.
+		if !usedNeuralConcealment && d.lastPacketMode == ModeSILK &&
+			d.lastBandwidth == BandwidthWideband &&
+			d.sampleRate == 48000 && d.channels == 1 && d.osceBWEEnabled {
+			d.maybeApplyOSCEBWEPostSilk(pcm[:frameSize*d.channels], frameSize, ModeSILK, silk.BandwidthWideband, false)
 		}
 		d.applyOutputGain(pcm[:frameSize*d.channels])
 
@@ -142,6 +158,14 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 			return 0, err
 		}
 	}
+
+	// OSCE BWE transition bookkeeping: when the current packet does not
+	// satisfy OSCE_MODE_SILK_BBWE (Hybrid or mono SILK NB/MB), clear the
+	// previous-BWE-active flag so the next SILK WB packet does not
+	// erroneously fade in. The SILK-only post-decode hook handles the
+	// SILK -> SILK cross-fade itself; this catches Hybrid and CELT
+	// transitions where the SILK helper is not invoked.
+	d.osceBWEMarkInactiveIfModeIneligible(toc.Mode, toc.Bandwidth)
 
 	d.lastFrameSize = frameSize
 	d.lastPacketDuration = totalSamples

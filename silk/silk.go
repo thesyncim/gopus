@@ -966,6 +966,20 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	// to avoid gain-bounce on subsequent good frames.
 	d.state[0].lastGainIndex = 10
 
+	// Expose the native-rate concealed PCM via LatestNativeMono so the optional
+	// OSCE BWE forward pass can read the pre-resample lowband during PLC.
+	// libopus enables OSCE_MODE_SILK_BBWE on `data == NULL` whenever the
+	// internal sample rate is 16 kHz; the gopus equivalent needs access to the
+	// native-rate samples for the 16k -> 48k BWE input.
+	if !usedDeepPLCHook && cap(d.scratchOutInt16) >= len(concealed) {
+		buf := d.scratchOutInt16[:len(concealed)]
+		for i, v := range concealed {
+			buf[i] = float32ToInt16(v)
+		}
+	}
+	d.lastNativeMonoLen = len(concealed)
+	d.lastNativeMonoFsKHz = config.SampleRate / 1000
+
 	// Upsample to 48kHz using the same mono sMid buffering cadence as good frames.
 	duration := FrameDurationFromTOC(frameSizeSamples)
 	framesPerPacket, nbSubfr, err := frameParams(duration)

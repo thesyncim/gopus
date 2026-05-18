@@ -17,3 +17,6 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 ) bool {
 	return false
 }
+
+// osceBWEMarkInactiveIfModeIneligible is a no-op stub on the default build.
+func (d *Decoder) osceBWEMarkInactiveIfModeIneligible(_ Mode, _ Bandwidth) {}
