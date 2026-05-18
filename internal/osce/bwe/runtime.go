@@ -648,9 +648,7 @@ func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View
 		return
 	}
 	for i := 0; i < cols; i++ {
-		// Signed int8 quantisation: floor(0.5 + 127*x). Match libopus
-		// scalar default (vec.h, no USE_SU_BIAS).
-		q[i] = int8(int(math.Floor(0.5 + 127*float64(x[i]))))
+		q[i] = dnnmath.Cgemv8x4QuantizeInput(x[i])
 	}
 	for i := 0; i < rows; i++ {
 		out[i] = 0

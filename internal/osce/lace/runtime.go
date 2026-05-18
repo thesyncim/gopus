@@ -49,6 +49,11 @@ const (
 	laceCF1FilterGainA  = 0.690776
 	laceCF1FilterGainB  = 0.000000
 	laceCF1LogGainLimit = 1.151293
+	laceCF2KernelSize   = 16
+	laceCF2LeftPadding  = 8
+	laceCF2FilterGainA  = 0.690776
+	laceCF2FilterGainB  = 0.000000
+	laceCF2LogGainLimit = 1.151293
 
 	// LACE AF1 (AdaConv) geometry.
 	laceAF1KernelSize  = 16
@@ -76,6 +81,11 @@ const (
 	nolaceCF1FilterGainA  = 0.690776
 	nolaceCF1FilterGainB  = 0.000000
 	nolaceCF1LogGainLimit = 1.151293
+	nolaceCF2KernelSize   = 16
+	nolaceCF2LeftPadding  = 8
+	nolaceCF2FilterGainA  = 0.690776
+	nolaceCF2FilterGainB  = 0.000000
+	nolaceCF2LogGainLimit = 1.151293
 
 	// AdaConv stages.
 	nolaceAF1KernelSize  = 16
@@ -242,6 +252,7 @@ var (
 	errLACEOutLen   = errors.New("osce/lace: output buffer too short (need 320 samples)")
 	errLACEFeatures = errors.New("osce/lace: invalid features length (expected 4 * 93)")
 	errLACEPeriods  = errors.New("osce/lace: invalid periods length (expected 4)")
+	errLACEPeriod   = errors.New("osce/lace: invalid period value (expected 0..300)")
 	errLACENumbits  = errors.New("osce/lace: invalid numbits length (expected 2)")
 )
 
@@ -350,7 +361,7 @@ func (s *NoLACEState) Reset() {
 //	numbits  2 float32 numbits values
 //	periods  4 int pitch periods (one per subframe)
 func (s *LACEState) Process(in, out, features []float32, numbits []float32, periods []int) error {
-	if s == nil || s.model == nil {
+	if !s.Loaded() {
 		return errLACENoModel
 	}
 	if len(in) != frame20msSize {
@@ -368,12 +379,11 @@ func (s *LACEState) Process(in, out, features []float32, numbits []float32, peri
 	if len(numbits) < 2 {
 		return errLACENumbits
 	}
+	if err := validatePeriods(periods, lacePitchMax); err != nil {
+		return err
+	}
 	s.ensureWindow()
 	m := &s.model.LACE
-
-	// Feature net -> latent_features[4 * COND_DIM].
-	var latent [subframesPerFrame * laceCondDim]float32
-	s.featureNet(latent[:], features, numbits, periods)
 
 	// Output scratch (per-sample, single channel).
 	var outputBuf [frame20msSize]float32
@@ -383,6 +393,10 @@ func (s *LACEState) Process(in, out, features []float32, numbits []float32, peri
 		outputBuf[i] = in[i] - lacePreemph*s.preempMem
 		s.preempMem = in[i]
 	}
+
+	// Feature net -> latent_features[4 * COND_DIM].
+	var latent [subframesPerFrame * laceCondDim]float32
+	s.featureNet(latent[:], features, numbits, periods)
 
 	// CF1 (1st AdaComb stage).
 	for sf := 0; sf < subframesPerFrame; sf++ {
@@ -410,8 +424,8 @@ func (s *LACEState) Process(in, out, features []float32, numbits []float32, peri
 			&m.CF2Kernel, &m.CF2Gain, &m.CF2GlobalGain,
 			periods[sf],
 			subframeSize, laceOverlapSize,
-			laceCF1KernelSize, laceCF1LeftPadding,
-			laceCF1FilterGainA, laceCF1FilterGainB, laceCF1LogGainLimit,
+			laceCF2KernelSize, laceCF2LeftPadding,
+			laceCF2FilterGainA, laceCF2FilterGainB, laceCF2LogGainLimit,
 			s.window[:],
 		)
 	}
@@ -448,7 +462,7 @@ func (s *LACEState) Process(in, out, features []float32, numbits []float32, peri
 //	numbits  2 float32 numbits values
 //	periods  4 int pitch periods (one per subframe)
 func (s *NoLACEState) Process(in, out, features []float32, numbits []float32, periods []int) error {
-	if s == nil || s.model == nil {
+	if !s.Loaded() {
 		return errLACENoModel
 	}
 	if len(in) != frame20msSize {
@@ -466,13 +480,11 @@ func (s *NoLACEState) Process(in, out, features []float32, numbits []float32, pe
 	if len(numbits) < 2 {
 		return errLACENumbits
 	}
+	if err := validatePeriods(periods, nolacePitchMax); err != nil {
+		return err
+	}
 	s.ensureWindow()
 	m := &s.model.NoLACE
-
-	// Feature net -> feature_buffer[4 * COND_DIM].
-	var featureBuf [subframesPerFrame * nolaceCondDim]float32
-	var featureTransformBuf [subframesPerFrame * nolaceCondDim]float32
-	s.featureNet(featureBuf[:], features, numbits, periods)
 
 	// Signal buffers. The NoLACE pipeline writes 2-channel signals after AF1,
 	// so we allocate 2 * frame_size per subframe (4 * 2 * 80 = 640 floats).
@@ -484,6 +496,11 @@ func (s *NoLACEState) Process(in, out, features []float32, numbits []float32, pe
 		xBuf1[i] = in[i] - nolacePreemph*s.preempMem
 		s.preempMem = in[i]
 	}
+
+	// Feature net -> feature_buffer[4 * COND_DIM].
+	var featureBuf [subframesPerFrame * nolaceCondDim]float32
+	var featureTransformBuf [subframesPerFrame * nolaceCondDim]float32
+	s.featureNet(featureBuf[:], features, numbits, periods)
 
 	// 1st AdaComb stage + post-CF1 conv1d.
 	for sf := 0; sf < subframesPerFrame; sf++ {
@@ -520,8 +537,8 @@ func (s *NoLACEState) Process(in, out, features []float32, numbits []float32, pe
 			&m.CF2Kernel, &m.CF2Gain, &m.CF2GlobalGain,
 			periods[sf],
 			subframeSize, nolaceOverlapSize,
-			nolaceCF1KernelSize, nolaceCF1LeftPadding,
-			nolaceCF1FilterGainA, nolaceCF1FilterGainB, nolaceCF1LogGainLimit,
+			nolaceCF2KernelSize, nolaceCF2LeftPadding,
+			nolaceCF2FilterGainA, nolaceCF2FilterGainB, nolaceCF2LogGainLimit,
 			s.window[:],
 		)
 
@@ -696,6 +713,18 @@ func (s *NoLACEState) ensureWindow() {
 	s.windowInit = true
 }
 
+func validatePeriods(periods []int, maxPeriod int) error {
+	if len(periods) < subframesPerFrame {
+		return errLACEPeriods
+	}
+	for sf := 0; sf < subframesPerFrame; sf++ {
+		if periods[sf] < 0 || periods[sf] > maxPeriod {
+			return errLACEPeriod
+		}
+	}
+	return nil
+}
+
 func computeOverlapWindow(window []float32, overlapSize int) {
 	for i := 0; i < overlapSize; i++ {
 		arg := float32(3.141592653589793) * (float32(i) + 0.5) / float32(overlapSize)
@@ -750,12 +779,6 @@ func (s *LACEState) featureNet(out, features []float32, numbits []float32, perio
 	for sf := 0; sf < subframesPerFrame; sf++ {
 		copy(conv1In[:numFeat], features[sf*numFeat:sf*numFeat+numFeat])
 		period := periods[sf]
-		if period < 0 {
-			period = 0
-		}
-		if period > lacePitchMax {
-			period = lacePitchMax
-		}
 		if !m.PitchEmbedding.FloatWeights.Empty() {
 			for j := 0; j < pitchEmbDim; j++ {
 				conv1In[numFeat+j] = m.PitchEmbedding.FloatWeights.At(period*pitchEmbDim + j)
@@ -826,12 +849,6 @@ func (s *NoLACEState) featureNet(out, features []float32, numbits []float32, per
 	for sf := 0; sf < subframesPerFrame; sf++ {
 		copy(conv1In[:numFeat], features[sf*numFeat:sf*numFeat+numFeat])
 		period := periods[sf]
-		if period < 0 {
-			period = 0
-		}
-		if period > nolacePitchMax {
-			period = nolacePitchMax
-		}
 		if !m.PitchEmbedding.FloatWeights.Empty() {
 			for j := 0; j < pitchEmbDim; j++ {
 				conv1In[numFeat+j] = m.PitchEmbedding.FloatWeights.At(period*pitchEmbDim + j)
@@ -920,7 +937,7 @@ func cgemv8x4(out []float32, weights dnnblob.Int8View, scale dnnblob.Float32View
 		return
 	}
 	for i := 0; i < cols; i++ {
-		q[i] = int8(int(math.Floor(0.5 + 127*float64(x[i]))))
+		q[i] = dnnmath.Cgemv8x4QuantizeInput(x[i])
 	}
 	for i := 0; i < rows; i++ {
 		out[i] = 0

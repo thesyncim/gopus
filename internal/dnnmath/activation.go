@@ -6,6 +6,7 @@ import (
 )
 
 var useNEONApproxActivation = runtime.GOARCH == "arm64"
+var useNEONCgemvQuantize = runtime.GOARCH == "arm64"
 
 // SigmoidApprox mirrors libopus' DNN ACTIVATION_SIGMOID path.
 func SigmoidApprox(x float32) float32 {
@@ -67,6 +68,16 @@ func Exp2Approx(x float32) float32 {
 	bits := math.Float32bits(res)
 	bits = (bits + uint32(int32(integer)<<23)) & 0x7fffffff
 	return math.Float32frombits(bits)
+}
+
+// Cgemv8x4QuantizeInput mirrors libopus' cgemv8x4 input quantizer for the
+// active DNN vector path. ARM NEON uses nearest-even conversion after a
+// float32 multiply; the scalar fallback uses floor(0.5 + 127*x).
+func Cgemv8x4QuantizeInput(x float32) int8 {
+	if useNEONCgemvQuantize {
+		return int8(int32(math.RoundToEven(float64(float32(127) * x))))
+	}
+	return int8(int(math.Floor(float64(float32(0.5) + float32(127)*x))))
 }
 
 // SoftmaxApprox mirrors libopus' vec.h softmax kernel. The pinned nnet.c

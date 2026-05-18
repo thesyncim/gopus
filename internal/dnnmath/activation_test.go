@@ -2,6 +2,7 @@ package dnnmath
 
 import (
 	"math"
+	"runtime"
 	"testing"
 )
 
@@ -66,6 +67,28 @@ func TestSoftmaxApproxMatchesLibopusScalarBits(t *testing.T) {
 		got := math.Float32bits(out[i])
 		if got != bits {
 			t.Fatalf("SoftmaxApprox[%d] bits=0x%08x want 0x%08x", i, got, bits)
+		}
+	}
+}
+
+func TestCgemv8x4QuantizeInputMatchesActiveArch(t *testing.T) {
+	cases := []float32{
+		-1,
+		float32(-2.5 / 127),
+		0,
+		float32(2.5 / 127),
+		1,
+	}
+
+	for _, x := range cases {
+		var want int8
+		if runtime.GOARCH == "arm64" {
+			want = int8(int32(math.RoundToEven(float64(float32(127) * x))))
+		} else {
+			want = int8(int(math.Floor(float64(float32(0.5) + float32(127)*x))))
+		}
+		if got := Cgemv8x4QuantizeInput(x); got != want {
+			t.Fatalf("Cgemv8x4QuantizeInput(%g)=%d want %d", x, got, want)
 		}
 	}
 }

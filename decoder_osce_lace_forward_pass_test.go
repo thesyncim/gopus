@@ -148,6 +148,14 @@ func TestOSCELACEForwardPassRejectsBadInputs(t *testing.T) {
 	numbits := []float32{200.0, 200.0}
 	periods := []int{60, 60, 60, 60}
 
+	var unloaded osceLACE.LACEState
+	if err := unloaded.SetModel(&osceLACE.Model{}); err != nil {
+		t.Fatalf("SetModel(zero model): %v", err)
+	}
+	if err := unloaded.Process(make([]float32, 320), make([]float32, 320), features, numbits, periods); err == nil {
+		t.Fatalf("Process accepted an unloaded model; expected error")
+	}
+
 	// Wrong input length.
 	in := make([]float32, 160)
 	out := make([]float32, 320)
@@ -172,6 +180,12 @@ func TestOSCELACEForwardPassRejectsBadInputs(t *testing.T) {
 	// Wrong periods length.
 	if err := state.Process(in, out, features, numbits, periods[:1]); err == nil {
 		t.Fatalf("Process accepted periods of wrong length; expected error")
+	}
+
+	badPeriods := append([]int(nil), periods...)
+	badPeriods[0] = 301
+	if err := state.Process(in, out, features, numbits, badPeriods); err == nil {
+		t.Fatalf("Process accepted out-of-range period; expected error")
 	}
 
 	// Wrong numbits length.

@@ -7,16 +7,17 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/dnnmath"
 )
 
 // TestCGEMV8x4MatchesFloatReference exercises the cgemv8x4 kernel against a
 // float reference that computes the same product by:
 //
-//   1. dequantising the int8 weight matrix (in 8x4 tile layout) into a
-//      column-major float matrix with `scale[row]` already baked into each
-//      coefficient, and
-//   2. quantising the input the same way cgemv8x4 does (floor(0.5 + 127*x))
-//      so the dot products see identical operand pairs.
+//  1. dequantising the int8 weight matrix (in 8x4 tile layout) into a
+//     column-major float matrix with `scale[row]` already baked into each
+//     coefficient, and
+//  2. quantising the input the same way cgemv8x4 does for the active
+//     libopus vector/scalar path so the dot products see identical operands.
 //
 // The integer accumulation must exactly match the float-accumulation form
 // (modulo float-precision conversion of the int32 accumulator into float32);
@@ -127,12 +128,7 @@ func TestComputeLinearInt8MatchesDequantisedFloat(t *testing.T) {
 func referenceCGEMV8x4(weights []int8, scale []float32, rows, cols int, x []float32) []float32 {
 	q := make([]int32, cols)
 	for i := 0; i < cols; i++ {
-		q[i] = int32(math.Floor(0.5 + 127*float64(x[i])))
-		if q[i] > 127 {
-			q[i] = 127
-		} else if q[i] < -128 {
-			q[i] = -128
-		}
+		q[i] = int32(dnnmath.Cgemv8x4QuantizeInput(x[i]))
 	}
 	out := make([]float32, rows)
 	wOffset := 0
