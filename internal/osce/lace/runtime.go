@@ -734,13 +734,11 @@ func computeOverlapWindow(window []float32, overlapSize int) {
 
 // computeNumbitsEmbedding mirrors libopus
 // `compute_{lace,nolace}_numbits_embedding`: an 8-element sin-of-scaled-log
-// fingerprint of the encoder bit budget.
+// fingerprint of the encoder bit budget. The upstream OSCE CLIP macro only
+// caps values above maxVal; values below minVal are left unchanged.
 func computeNumbitsEmbedding(emb []float32, numbits, minVal, maxVal float32, scales [8]float32) {
 	logN := float32(math.Log(float64(numbits)))
 	c := logN
-	if c < minVal {
-		c = minVal
-	}
 	if c > maxVal {
 		c = maxVal
 	}
