@@ -25,7 +25,7 @@ coverage is skipped.
 | --- | --- | --- | --- |
 | DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` | Available through `SetDNNBlob` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`; `make test-dnn-blob-parity` validates the default control surface against libopus USE_WEIGHTS_FILE model blobs and fails on skipped helper coverage; decoder-side support currently covers loader-derived validation and retained control state, not full model-backed PLC/OSCE runtime behavior. Tagged DRED/quarantine builds may bind DRED-capable model families on this control path, but normal encode/decode runtime work remains dormant until a DRED duration, payload, or recovery path is explicitly armed; model-only public caller-buffer encode/decode paths stay zero-allocation and skip unarmed DRED helper work |
 | QEXT | Tagged support | `OptionalExtensionQEXT` | Build with `-tags gopus_qext` to support `SetQEXT` / `QEXT` on `Encoder` and `MultistreamEncoder`; default builds keep those controls absent and compile the packet-extension payload scan/encode plumbing behind a constant false gate |
-| DRED | Tagged control/standalone support | `OptionalExtensionDRED` | Build with `-tags gopus_dred` to support `SetDREDDuration(...)` / `DREDDuration()` on `Encoder` and `MultistreamEncoder`, plus standalone `DREDDecoder` / `DRED`; quarantine builds may expose the same controls/helpers under `gopus_unsupported_controls` for parity work without reporting DRED support; this does not claim broad stereo, multistream, or broad DRED audio-path parity beyond the current mono explicit/live decoder matrix, selected 16 kHz Hybrid mono seams, and one 48 kHz CELT cached stereo first-loss seam, and default builds keep DRED absent with runtime hooks dormant |
+| DRED | Tagged control/standalone support | `OptionalExtensionDRED` | Build with `-tags gopus_dred` to support `SetDREDDuration(...)` / `DREDDuration()` on `Encoder` and `MultistreamEncoder`, plus standalone `DREDDecoder` / `DRED`; quarantine builds may expose the same controls/helpers under `gopus_unsupported_controls` for parity work without reporting DRED support; this does not claim broad multistream or broad DRED audio-path parity beyond the required mono explicit/live decoder matrix, selected 16 kHz Hybrid mono live-sequence seams, selected 48 kHz CELT stereo cached/live first/second-loss and next-packet handoff seams, explicit first-loss and recovery lifecycle/cursor seams, and the 48 kHz SILK WB explicit stereo first-loss seam; 16 kHz stereo CELT/Hybrid probes remain carrier-helper blocked, multistream decoder DRED remains cache/timing-only, and default builds keep DRED absent with runtime hooks dormant |
 | OSCE BWE | Unsupported and quarantined | `OptionalExtensionOSCEBWE` | `SetOSCEBWE(...)` / `OSCEBWE()` are absent from the default public API surface, and low-level OSCE model helpers stay quarantine-gated |
 
 ## Supported Feature Tags
@@ -69,9 +69,12 @@ dormant-runtime checks without changing support probes.
 `make test-unsupported-controls-parity` mirrors the supported encoder seams and
 adds parser availability, internal converter/payload/basic-analysis coverage,
 real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle,
-48 kHz bootstrap coverage, the current mono decoder explicit/live numerical
-matrix, selected 16 kHz Hybrid mono live-sequence seams, and the 48 kHz CELT cached
-stereo first-loss live-sequence seam. Required DRED parity gates fail on skipped libopus-helper tests instead
+48 kHz bootstrap coverage, the required mono decoder explicit/live numerical
+matrix, selected 16 kHz Hybrid mono live-sequence seams, selected 48 kHz CELT
+stereo cached/live first/second-loss and next-packet handoff seams, explicit
+first-loss and recovery lifecycle/cursor seams, and the 48 kHz SILK WB explicit
+stereo first-loss seam.
+Required DRED parity gates fail on skipped libopus-helper tests instead
 of treating missing helpers as green. In
 default builds, DRED controls are absent and
 encode/decode hot paths do not enter DRED runtime hooks. The internal encoder
@@ -84,15 +87,19 @@ zero-allocation and leaves the encoder DRED runtime dormant while
 `SetDREDDuration(...)` is unset. The public caller-buffer `Encoder` and
 `Decoder` paths also keep DRED model-only control state from arming the encoder
 latent path, decoder payload scan, or decoder good-packet marker work. The
-current mono decoder explicit/live numerical matrix, selected 16 kHz Hybrid mono
-live-sequence seams, and the 48 kHz CELT cached stereo first-loss seam are
-parity-gated in quarantine. Hybrid 20/40 ms mono/stereo packet-envelope
+required mono decoder explicit/live numerical matrix, selected 16 kHz Hybrid
+mono live-sequence seams, selected 48 kHz CELT stereo cached/live
+first/second-loss and next-packet handoff seams, explicit first-loss and
+recovery lifecycle/cursor seams, and the 48 kHz SILK WB explicit stereo
+first-loss seam are parity-gated in quarantine. The 16 kHz stereo CELT/Hybrid probes remain carrier-helper
+blocked, and multistream decoder DRED remains cache/timing-only.
+Hybrid 20/40 ms mono/stereo packet-envelope
 exactness is required in both DRED parity gates; Hybrid/SILK primary-frame byte
 exactness remains outside the supported gate unless a seam is explicitly named
 in the byte-exact test matrix.
-Broader stereo/multistream decoder coverage and broader decoder packet coverage
-remain seam-specific and unsupported unless covered by green libopus-backed
-parity tests.
+Broader single-stream stereo packet/mode matrices, multistream neural DRED
+decoder coverage, and broader decoder packet coverage remain seam-specific and
+unsupported unless covered by green libopus-backed parity tests.
 
 Supported feature tags can be combined when both surfaces are needed. A
 `-tags "gopus_dred gopus_qext"` build reports both DRED and QEXT support and
