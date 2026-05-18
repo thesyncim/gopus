@@ -172,6 +172,12 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 		return false
 	}
 	in16Per := in48Per / 3
+	if !state.prevBWEActive {
+		for i := range state.bweRuntime {
+			state.bweRuntime[i].Reset()
+			state.bweFeatures[i].Reset()
+		}
+	}
 	if packetStereo && d.channels == 2 {
 		if !state.bweRuntime[0].Loaded() || !state.bweRuntime[1].Loaded() {
 			return false
@@ -190,7 +196,7 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 			state.bweFeatBuf[:numFrames*osceBWE.FeatureDim],
 			state.bweIn16Int[:in16Per],
 		)
-		if err := state.bweRuntime[0].Process(
+		if err := state.bweRuntime[0].ProcessDelayed(
 			state.bweIn16[:in16Per],
 			state.bweOut48[:in48Per],
 			state.bweFeatBuf[:numFrames*osceBWE.FeatureDim],
@@ -208,7 +214,7 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 			state.bweFeatBuf[:numFrames*osceBWE.FeatureDim],
 			state.bweIn16Int[:in16Per],
 		)
-		if err := state.bweRuntime[1].Process(
+		if err := state.bweRuntime[1].ProcessDelayed(
 			state.bweIn16[:in16Per],
 			state.bweOut48[:in48Per],
 			state.bweFeatBuf[:numFrames*osceBWE.FeatureDim],
@@ -243,7 +249,7 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 		state.bweFeatBuf[:numFrames*osceBWE.FeatureDim],
 		state.bweIn16Int[:in16Per],
 	)
-	if err := state.bweRuntime[0].Process(
+	if err := state.bweRuntime[0].ProcessDelayed(
 		state.bweIn16[:in16Per],
 		state.bweOut48[:in48Per],
 		state.bweFeatBuf[:numFrames*osceBWE.FeatureDim],

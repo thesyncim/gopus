@@ -137,6 +137,67 @@ func TestMultistreamDecoderOSCEBWELACERuntimeIntegration(t *testing.T) {
 		diffCount, len(pcm), maxAbsDiff)
 }
 
+func TestMultistreamDecoderOSCEBWEMatchesSingleStreamDecoder(t *testing.T) {
+	coreBlob := requireLibopusDecoderNeuralModelBlob(t)
+	bweBlob := requireLibopusOSCEBWEModelBlob(t)
+
+	merged := make([]byte, 0, len(coreBlob)+len(bweBlob))
+	merged = append(merged, coreBlob...)
+	merged = append(merged, bweBlob...)
+
+	const (
+		sampleRate = 48000
+		channels   = 2
+		frameSize  = 960
+	)
+
+	packet := makeMultistreamStereoSILKWBPacket(t, sampleRate, channels, frameSize)
+
+	decSingle, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder(single): %v", err)
+	}
+	if err := decSingle.SetOSCEBWE(true); err != nil {
+		t.Fatalf("single.SetOSCEBWE(true): %v", err)
+	}
+	if err := decSingle.SetOSCELACE(false); err != nil {
+		t.Fatalf("single.SetOSCELACE(false): %v", err)
+	}
+	if err := decSingle.SetDNNBlob(merged); err != nil {
+		t.Fatalf("single.SetDNNBlob(merged): %v", err)
+	}
+	pcmSingle := make([]float32, frameSize*channels)
+	if n, err := decSingle.Decode(packet, pcmSingle); err != nil {
+		t.Fatalf("single.Decode: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("single.Decode returned %d samples/ch, want %d", n, frameSize)
+	}
+
+	decMS := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+	if err := decMS.SetOSCEBWE(true); err != nil {
+		t.Fatalf("multistream.SetOSCEBWE(true): %v", err)
+	}
+	if err := decMS.SetOSCELACE(false); err != nil {
+		t.Fatalf("multistream.SetOSCELACE(false): %v", err)
+	}
+	if err := decMS.SetDNNBlob(merged); err != nil {
+		t.Fatalf("multistream.SetDNNBlob(merged): %v", err)
+	}
+	pcmMS := make([]float32, frameSize*channels)
+	if n, err := decMS.Decode(packet, pcmMS); err != nil {
+		t.Fatalf("multistream.Decode: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("multistream.Decode returned %d samples/ch, want %d", n, frameSize)
+	}
+
+	for i := range pcmSingle {
+		if got, want := math.Float32bits(pcmMS[i]), math.Float32bits(pcmSingle[i]); got != want {
+			t.Fatalf("multistream OSCE BWE sample %d bits=0x%08x want single-stream 0x%08x (values %g vs %g)",
+				i, got, want, pcmMS[i], pcmSingle[i])
+		}
+	}
+}
+
 // makeMultistreamStereoSILKWBPacket encodes a stereo SILK WB test packet via
 // the public MultistreamEncoder. The default 2-channel mapping produces a
 // single coupled stream, so the multistream packet payload is the same as a
