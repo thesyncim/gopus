@@ -74,8 +74,8 @@ func TestUnsupportedControlsBuildPublicAPIContract(t *testing.T) {
 			got:  &MultistreamDecoder{},
 			want: []string{
 				"Channels", "CoupledStreams", "Decode", "DecodeInt16", "IgnoreExtensions",
-				"OSCEBWE", "Reset", "SampleRate", "SetDNNBlob", "SetIgnoreExtensions",
-				"SetOSCEBWE", "Streams",
+				"OSCEBWE", "OSCELACE", "Reset", "SampleRate", "SetDNNBlob",
+				"SetIgnoreExtensions", "SetOSCEBWE", "SetOSCELACE", "Streams",
 			},
 		},
 		{

@@ -134,6 +134,15 @@ func (d *Decoder) DecodeStereo(
 		return nil, err
 	}
 
+	// Mirror the int16-path bookkeeping so callers can read the native-rate
+	// SILK lowband via LatestNativeStereo. Multistream stream decoders use
+	// DecodeStereo (this function) and still need the pre-resample buffers
+	// available for optional decoder-side post-processing (OSCE BWE /
+	// LACE / NoLACE). The libopus-style int16 view is re-derived here from
+	// the float32 native output rather than threading a second buffer
+	// through DecodeStereoFrame.
+	d.recordNativeStereoFromFloat32(leftNative, rightNative, bandwidth)
+
 	// Upsample to 48kHz using libopus-compatible resampler
 	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
 	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
@@ -150,6 +159,42 @@ func (d *Decoder) DecodeStereo(
 	d.finalizeSuccessfulDecode(frameSizeSamples, 2)
 
 	return output, nil
+}
+
+// recordNativeStereoFromFloat32 copies the float32 native SILK left/right
+// channels into the int16 scratch slots that back LatestNativeStereo. Used by
+// DecodeStereo so multistream stream decoders (which take this path) can
+// expose the pre-resample SILK lowband to optional post-processing such as
+// OSCE BWE / LACE.
+func (d *Decoder) recordNativeStereoFromFloat32(leftNative, rightNative []float32, bandwidth Bandwidth) {
+	n := len(leftNative)
+	if n > len(d.stereoLeftNative) {
+		n = len(d.stereoLeftNative)
+	}
+	if n > len(rightNative) {
+		n = len(rightNative)
+	}
+	if n > len(d.stereoRightNative) {
+		n = len(d.stereoRightNative)
+	}
+	for i := 0; i < n; i++ {
+		l := leftNative[i] * 32768.0
+		if l > 32767.0 {
+			l = 32767.0
+		} else if l < -32768.0 {
+			l = -32768.0
+		}
+		r := rightNative[i] * 32768.0
+		if r > 32767.0 {
+			r = 32767.0
+		} else if r < -32768.0 {
+			r = -32768.0
+		}
+		d.stereoLeftNative[i] = int16(l)
+		d.stereoRightNative[i] = int16(r)
+	}
+	d.lastNativeStereoLen = n
+	d.lastNativeStereoFsKHz = GetBandwidthConfig(bandwidth).SampleRate / 1000
 }
 
 // DecodeStereoToMono decodes a SILK stereo frame and returns mono 48kHz PCM samples.
