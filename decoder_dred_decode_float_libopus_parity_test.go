@@ -1864,6 +1864,161 @@ func TestDecoderExplicitStereoDREDDecodeMatchesLibopus(t *testing.T) {
 	assertFloat32ApproxEqual(t, pcm[:n*dec.channels], want.pcm[:n*dec.channels], "explicit stereo libopus pcm", stereoDREDPCMTol)
 }
 
+// TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus extends the stereo DRED
+// runtime mono-downmix/mono-duplicate parity (TestDecoderExplicitStereoDRED-
+// DecodeMatchesLibopus) to the 16 kHz CELT FB seam, mirroring the existing
+// 16 kHz mono CELT pattern from prepareExplicitDREDDecodeParityState16k
+// (480-sample frame). The same L=R interleaved invariant applies: libopus
+// stereo CELT decoder mirrors decode_mem[0] into decode_mem[1] for
+// concealment output, and gopus runStereoDREDConceal narrows to channel-0
+// then mirrors to channel-1. Wide state/PCM tolerances (matching the 48 kHz
+// stereo case) capture the stereo CELT-seed drift that is mono-amplified
+// through the LPCNet GRU continuity features.
+func TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus(t *testing.T) {
+	// The libopus dred emit helper is rate-controlled (no OPUS_SET_FORCE_-
+	// CHANNELS), so 10 ms / 480-sample CELT-FB frames currently drop the
+	// stereo TOC even when Channels=2 is requested. The shared
+	// prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig
+	// helper reads channels from the TOC byte, so we end up with a mono
+	// decoder and have to skip the stereo invariant assertion below. Probe
+	// the carrier packet up front and skip with a clear seam message rather
+	// than silently masking a future regression.
+	probeInfo, probeErr := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 480,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+		Channels:  2,
+	})
+	if probeErr != nil {
+		t.Skipf("libopus dred packet helper unavailable: %v", probeErr)
+	}
+	if !ParseTOC(probeInfo.packet[0]).Stereo {
+		t.Skipf("libopus dred emit helper produced mono TOC at 480-sample CELT FB (toc=0x%02x); 16k stereo carrier seam not yet exercisable", probeInfo.packet[0])
+	}
+
+	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 16000, libopusDREDPacketConfig{
+		FrameSize: 480,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+		Channels:  2,
+	})
+	if dec.channels != 2 {
+		t.Skipf("stereo explicit DRED 16k parity requires stereo decoder, got channels=%d", dec.channels)
+	}
+
+	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
+	if err != nil {
+		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+	}
+	if want.parseRet < 0 {
+		t.Skipf("libopus decoder stereo 16k DRED parse failed: %d", want.parseRet)
+	}
+	if want.ret != n {
+		t.Fatalf("libopus decoder stereo 16k DRED decode ret=%d want %d", want.ret, n)
+	}
+	if want.channels != 2 {
+		t.Fatalf("libopus decoder stereo 16k DRED decode channels=%d want 2", want.channels)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+	got, err := dec.decodeExplicitDREDFloat(dred, n, pcm, n)
+	if err != nil {
+		t.Fatalf("decodeExplicitDREDFloat error: %v", err)
+	}
+	if got != n {
+		t.Fatalf("decodeExplicitDREDFloat=%d want %d", got, n)
+	}
+
+	// L=R interleaved invariant: both gopus and libopus must produce
+	// L=R-duplicated stereo PCM for DRED concealment at 16 kHz, same as the
+	// 48 kHz stereo case.
+	for i := 0; i < n; i++ {
+		if d := math.Abs(float64(pcm[2*i] - pcm[2*i+1])); d != 0 {
+			t.Fatalf("gopus stereo 16k DRED PCM not L=R duplicated at sample %d: |L-R|=%g", i, d)
+		}
+		if d := math.Abs(float64(want.pcm[2*i] - want.pcm[2*i+1])); d != 0 {
+			t.Fatalf("libopus stereo 16k DRED PCM not L=R duplicated at sample %d: |L-R|=%g", i, d)
+		}
+	}
+
+	const stereoDREDStateTol = 20.0
+	const stereoDREDPCMTol = 1.0
+	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "explicit stereo 16k libopus plc", stereoDREDStateTol)
+	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "explicit stereo 16k libopus fargan", stereoDREDStateTol)
+	assertFloat32ApproxEqual(t, pcm[:n*dec.channels], want.pcm[:n*dec.channels], "explicit stereo 16k libopus pcm", stereoDREDPCMTol)
+}
+
+// TestDecoderExplicitStereoHybridDRED16kDecodeMatchesLibopus exercises the
+// stereo DRED runtime path at 16 kHz against a Hybrid SWB carrier packet
+// (10 ms / 480 samples) instead of CELT FB. The same L=R duplicated
+// invariant and wide tolerances apply.
+func TestDecoderExplicitStereoHybridDRED16kDecodeMatchesLibopus(t *testing.T) {
+	// Same carrier-packet seam as TestDecoderExplicitStereoDRED16kDecodeMatches-
+	// Libopus: probe the libopus dred emit helper for a stereo TOC before
+	// driving the full parity state machine, and skip with a documented
+	// reason if the rate-controlled encoder falls back to mono.
+	probeInfo, probeErr := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 480,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthSuperwideband,
+		Channels:  2,
+	})
+	if probeErr != nil {
+		t.Skipf("libopus dred packet helper unavailable: %v", probeErr)
+	}
+	if !ParseTOC(probeInfo.packet[0]).Stereo {
+		t.Skipf("libopus dred emit helper produced mono TOC at 480-sample Hybrid SWB (toc=0x%02x); 16k stereo Hybrid carrier seam not yet exercisable", probeInfo.packet[0])
+	}
+
+	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 16000, libopusDREDPacketConfig{
+		FrameSize: 480,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthSuperwideband,
+		Channels:  2,
+	})
+	if dec.channels != 2 {
+		t.Skipf("stereo explicit Hybrid DRED 16k parity requires stereo decoder, got channels=%d", dec.channels)
+	}
+
+	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
+	if err != nil {
+		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+	}
+	if want.parseRet < 0 {
+		t.Skipf("libopus decoder stereo Hybrid 16k DRED parse failed: %d", want.parseRet)
+	}
+	if want.ret != n {
+		t.Fatalf("libopus decoder stereo Hybrid 16k DRED decode ret=%d want %d", want.ret, n)
+	}
+	if want.channels != 2 {
+		t.Fatalf("libopus decoder stereo Hybrid 16k DRED decode channels=%d want 2", want.channels)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+	got, err := dec.decodeExplicitDREDFloat(dred, n, pcm, n)
+	if err != nil {
+		t.Fatalf("decodeExplicitDREDFloat error: %v", err)
+	}
+	if got != n {
+		t.Fatalf("decodeExplicitDREDFloat=%d want %d", got, n)
+	}
+
+	for i := 0; i < n; i++ {
+		if d := math.Abs(float64(pcm[2*i] - pcm[2*i+1])); d != 0 {
+			t.Fatalf("gopus stereo Hybrid 16k DRED PCM not L=R duplicated at sample %d: |L-R|=%g", i, d)
+		}
+		if d := math.Abs(float64(want.pcm[2*i] - want.pcm[2*i+1])); d != 0 {
+			t.Fatalf("libopus stereo Hybrid 16k DRED PCM not L=R duplicated at sample %d: |L-R|=%g", i, d)
+		}
+	}
+
+	const stereoDREDStateTol = 20.0
+	const stereoDREDPCMTol = 1.0
+	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "explicit stereo Hybrid 16k libopus plc", stereoDREDStateTol)
+	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "explicit stereo Hybrid 16k libopus fargan", stereoDREDStateTol)
+	assertFloat32ApproxEqual(t, pcm[:n*dec.channels], want.pcm[:n*dec.channels], "explicit stereo Hybrid 16k libopus pcm", stereoDREDPCMTol)
+}
+
 func TestDecoderExplicit16kHybridDREDDecodeMatrixMatchesLibopus(t *testing.T) {
 	tests := []struct {
 		name      string
