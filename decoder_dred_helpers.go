@@ -622,13 +622,24 @@ func (d *Decoder) finishActiveDREDRecovery(frameSizeSamples int) {
 	r.dredRecovery += frameSizeSamples
 }
 
+func (d *Decoder) hybridDREDLowbandEligible() bool {
+	return d != nil && d.silkDecoder != nil && d.channels == 1 && (d.sampleRate == 48000 || d.sampleRate == 16000)
+}
+
+func (d *Decoder) hybridDREDLowbandSamples(frameSizeSamples int) (int, bool) {
+	if !d.hybridDREDLowbandEligible() || frameSizeSamples <= 0 || frameSizeSamples%3 != 0 {
+		return 0, false
+	}
+	return frameSizeSamples / 3, true
+}
+
 func (d *Decoder) beginHybridDREDLowbandHook() (cleanup func(), used func() bool) {
 	if !d.ensureDREDNeuralConcealmentRuntime() {
 		return func() {}, func() bool { return false }
 	}
 	r := d.dredRecoveryState()
 	n := d.dredNeuralState()
-	if d == nil || d.silkDecoder == nil || r == nil || n == nil || d.sampleRate != 48000 || d.channels != 1 {
+	if !d.hybridDREDLowbandEligible() || r == nil || n == nil {
 		return func() {}, func() bool { return false }
 	}
 	directUsed := false
@@ -724,7 +735,7 @@ func (d *Decoder) recordDREDRawMonoGoodFrame(samples []int16) {
 }
 
 func (d *Decoder) beginDREDRawMonoGoodFrameCapture(mode Mode) func() {
-	if d == nil || d.silkDecoder == nil || d.sampleRate != 48000 || d.channels != 1 {
+	if !d.hybridDREDLowbandEligible() {
 		return nil
 	}
 	if mode != ModeHybrid && mode != ModeSILK {
@@ -750,14 +761,14 @@ func (d *Decoder) refreshDREDHistoryFromHybridDecoder(samplesPerChannel int) boo
 	if !d.ensureDREDNeuralConcealmentRuntime() {
 		return false
 	}
-	if d == nil || d.silkDecoder == nil || d.sampleRate != 48000 || d.channels != 1 || samplesPerChannel <= 0 || samplesPerChannel%3 != 0 {
+	nativeSamples, ok := d.hybridDREDLowbandSamples(samplesPerChannel)
+	if !ok {
 		return false
 	}
 	n := d.dredNeuralState()
 	if n == nil {
 		return false
 	}
-	nativeSamples := samplesPerChannel / 3
 	if nativeSamples < lpcnetplc.FrameSize || nativeSamples > len(n.dredPLCUpdate) || nativeSamples%lpcnetplc.FrameSize != 0 {
 		return false
 	}
@@ -899,10 +910,10 @@ func (d *Decoder) advanceHybridDREDLowbandState(frameSizeSamples int, lowbandSna
 	}
 	r := d.dredRecoveryState()
 	n := d.dredNeuralState()
-	if d == nil || d.silkDecoder == nil || r == nil || n == nil || d.sampleRate != 48000 || d.channels != 1 || frameSizeSamples <= 0 || frameSizeSamples%3 != 0 {
+	nativeSamples, ok := d.hybridDREDLowbandSamples(frameSizeSamples)
+	if r == nil || n == nil || !ok {
 		return false
 	}
-	nativeSamples := frameSizeSamples / 3
 	if nativeSamples < lpcnetplc.FrameSize || nativeSamples > len(n.dredPLCUpdate) || nativeSamples%lpcnetplc.FrameSize != 0 {
 		return false
 	}
