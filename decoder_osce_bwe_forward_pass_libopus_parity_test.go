@@ -16,14 +16,14 @@ import (
 	osceBWE "github.com/thesyncim/gopus/internal/osce/bwe"
 )
 
-// TestOSCEBWEForwardPassMatchesLibopusBitExact is the sentinel parity probe
+// TestOSCEBWEForwardPassMatchesLibopusNumericalParity is the sentinel parity probe
 // for the gopus OSCE BWE (BBWENet) forward pass. It builds the libopus
 // reference helper (`tools/csrc/libopus_osce_bwe_forward.c`) against an
 // OSCE-enabled libopus 1.6.1 build (`--enable-osce --enable-osce-bwe`),
 // drives both libopus and gopus on the same deterministic 1 kHz 16 kHz
 // sinusoid, and compares their 48 kHz outputs.
 //
-// Bit-exact parity status:
+// Comparator status:
 //
 //		The pure-Go runtime in `internal/osce/bwe` now uses the libopus DNN
 //		activation / exponential approximations plus the CELT log/sin helpers
@@ -39,14 +39,15 @@ import (
 //	  - The libopus-computed feature vectors and the gopus-computed feature
 //	    vectors agree to within `featureTolerance` per element. (The feature
 //	    extractor port is independent of the math-approximation issues
-//	    above and is therefore the closer-to-bit-exact path.)
+//	    above and is therefore the tighter numerical path.)
 //	  - When the gopus forward pass is fed the libopus-computed features
 //	    (so feature-extractor drift is eliminated), the delayed/int16-wrapper
-//	    output stays within `outputAbsTolerance` of the libopus output.
+//	    output is exact for 10 ms and within a ratcheted one-LSB numerical
+//	    envelope for 20 ms.
 //
 // TestOSCEBWERawSignalNetMatchesLibopus separately exercises the raw BBWENet
 // float path and keeps the signal-net math tolerance near float32 roundoff.
-func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
+func TestOSCEBWEForwardPassMatchesLibopusNumericalParity(t *testing.T) {
 	binPath, err := getLibopusOSCEBWEForwardHelperPath()
 	if err != nil {
 		t.Skipf("libopus OSCE BWE forward helper unavailable: %v", err)
@@ -192,10 +193,10 @@ func TestOSCEBWEForwardPassMatchesLibopusBitExact(t *testing.T) {
 			}
 
 			if maxAbsErr > tc.outputAbsTolerance {
-				t.Errorf("OSCE BWE forward-pass max-abs error %g exceeds %g (signal-net divergence beyond bounded contract)", maxAbsErr, tc.outputAbsTolerance)
+				t.Errorf("OSCE BWE forward-pass max-abs error %g exceeds %g (signal-net divergence beyond numerical contract)", maxAbsErr, tc.outputAbsTolerance)
 			}
 			if rms > tc.outputRMSTolerance {
-				t.Errorf("OSCE BWE forward-pass rms error %g exceeds %g (signal-net divergence beyond bounded contract)", rms, tc.outputRMSTolerance)
+				t.Errorf("OSCE BWE forward-pass rms error %g exceeds %g (signal-net divergence beyond numerical contract)", rms, tc.outputRMSTolerance)
 			}
 		})
 	}
@@ -305,7 +306,7 @@ func TestOSCEBWERawSignalNetMatchesLibopus(t *testing.T) {
 // followed by a concealed SILK WB frame and both invoke the same per-channel
 // `osce_bwe` state). The second-frame output is the one the listener hears
 // during PLC; the parity contract is therefore that the gopus second-frame
-// output stays within the same bounded-divergence envelope as the single-
+// output stays within the same numerical comparator envelope as the single-
 // frame forward pass.
 func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 	binPath, err := getLibopusOSCEBWEForwardHelperPath()

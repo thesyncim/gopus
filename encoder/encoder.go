@@ -2409,18 +2409,17 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	if dredBitrate > 0 {
 		dredBytes = bitrateToBits(dredBitrate, frameSize) / 8
 	}
-	dredSubframeBytes := 0
+	dredFirstFrameBudget := 0
 	if dredBitrate > 0 && e.dredEncodingActive() {
-		dredSubframeBytes = (bitrateToBits(dredBitrate, 960) + 7) / 8
-		dredSubframeBytes += frameLengthBytes(dredSubframeBytes)
+		dredFirstFrameBudget = (bitrateToBits(dredBitrate, 960) + 7) / 8
+		dredFirstFrameBudget += frameLengthBytes(dredFirstFrameBudget)
 		if e.channels > 1 {
-			// Libopus appends DRED before repacketizing long packets. The final
-			// extension cost includes three structural bytes for code-3 framing,
-			// padding length, and extension id, which belong to the packet builder
-			// rather than the first primary subframe budget.
-			dredSubframeBytes = e.previewDREDPacketExtensionPadding(frameSize)
-			if dredSubframeBytes > 2 {
-				dredSubframeBytes -= 3
+			dredFirstFrameBudget = (bitrateToBits(dredBitrate, 960) + 7) / 8
+			stereoLongPacketOverhead := 4 + frameLengthBytes(dredFirstFrameBudget) + 4*(e.channels-1)
+			if dredFirstFrameBudget > stereoLongPacketOverhead {
+				dredFirstFrameBudget -= stereoLongPacketOverhead
+			} else {
+				dredFirstFrameBudget = 0
 			}
 		}
 	}
@@ -2466,7 +2465,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 				currMax = dredCap
 			}
 			if i == 0 {
-				currMax += dredSubframeBytes
+				currMax += dredFirstFrameBudget
 			}
 		}
 		remainingCap := maxLenSum - totSize

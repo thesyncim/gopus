@@ -5,20 +5,10 @@ package gopus
 
 import (
 	"bytes"
-	"os"
 	"testing"
 
 	encpkg "github.com/thesyncim/gopus/encoder"
 )
-
-const hybridDREDPacketEnvelopeProbeEnv = "GOPUS_ENABLE_HYBRID_DRED_PACKET_ENVELOPE_PROBE"
-
-func requireHybridDREDPacketEnvelopeProbe(t *testing.T) {
-	t.Helper()
-	if os.Getenv(hybridDREDPacketEnvelopeProbeEnv) != "1" {
-		t.Skipf("Hybrid DRED packet-envelope exactness is diagnostic; set %s=1 to run this probe", hybridDREDPacketEnvelopeProbeEnv)
-	}
-}
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
@@ -121,8 +111,6 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo(t *test
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereo(t *testing.T) {
-	requireHybridDREDPacketEnvelopeProbe(t)
-
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 1920,
 		ForceMode: ModeHybrid,
@@ -152,18 +140,18 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereo(t *test
 		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
 	if len(gotPacket) != len(packetInfo.packet) {
-		t.Skipf("stereo hybrid 40 ms primary-frame length differs: packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
 	}
 	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
 }
 
 func assertDREDPacketPrimaryFrameSizesMatchLibopus(t *testing.T, gotPacket, wantPacket []byte) {
 	t.Helper()
-	_, gotFrames, _, _, err := parsePacketFramesAndPadding(gotPacket)
+	_, gotFrames, gotPadding, _, err := parsePacketFramesAndPadding(gotPacket)
 	if err != nil {
 		t.Fatalf("parse got DRED packet frames: %v", err)
 	}
-	_, wantFrames, _, _, err := parsePacketFramesAndPadding(wantPacket)
+	_, wantFrames, wantPadding, _, err := parsePacketFramesAndPadding(wantPacket)
 	if err != nil {
 		t.Fatalf("parse libopus DRED packet frames: %v", err)
 	}
@@ -174,5 +162,8 @@ func assertDREDPacketPrimaryFrameSizesMatchLibopus(t *testing.T, gotPacket, want
 		if len(gotFrames[i]) != len(wantFrames[i]) {
 			t.Fatalf("primary frame %d length=%d want %d", i, len(gotFrames[i]), len(wantFrames[i]))
 		}
+	}
+	if !bytes.Equal(gotPadding, wantPadding) {
+		t.Fatalf("extension padding mismatch\n got=%x\nwant=%x", gotPadding, wantPadding)
 	}
 }

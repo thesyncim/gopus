@@ -41,6 +41,16 @@ This is a green quality-parity report, not a claim of byte-identical packets or 
 
 `reports/quality/` is intentionally ignored because the report is generated evidence, not source. Keep durable parity rules in tests and docs, and regenerate reports when evaluating a branch.
 
+## Comparator Ladder
+
+Use the strictest comparator that matches the libopus seam being exercised:
+
+- Byte-exact comparators cover packet structure and deterministic bitstream seams: TOC/config, frame counts, frame sizes, offsets, extension framing, extension padding bytes, DRED payload bytes, and primary-frame byte equality only where a test explicitly declares it.
+- Numerical comparators cover OSCE/DNN float paths. Keep exact assertions where the path is exact, but otherwise ratchet maxAbs/RMS tolerances to observed float32 or one-LSB drift and report those values directly.
+- Audio comparators cover encoder/decoder quality and transitions through pinned-libopus `opus_compare`, transition metrics, correlation, delay, and fixture matrices.
+
+Do not describe a seam as bit-exact unless the required test compares bytes or exact samples. Packet-envelope exactness is distinct from primary-frame byte exactness.
+
 ## Performance Baseline
 
 `make bench-guard` is the required absolute hot-path performance gate, and `make bench-libopus-guard` is the required pinned-libopus relative codec-throughput gate. The absolute gate catches local `ns/op` and allocation regressions; the libopus-relative gate compares official RFC 8251 decode throughput plus generated CELT, SILK, and Hybrid encoder workloads against libopus 1.6.1 on the same runner.

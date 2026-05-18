@@ -17,11 +17,11 @@ import (
 	osceLACE "github.com/thesyncim/gopus/internal/osce/lace"
 )
 
-// TestOSCELACEForwardPassMatchesLibopus is the tight bounded-divergence parity
+// TestOSCELACEForwardPassMatchesLibopus is the tight numerical parity
 // probe for the gopus OSCE LACE / NoLACE postfilter forward pass.
 //
 // It mirrors the OSCE BWE parity test pattern (see
-// `TestOSCEBWEForwardPassMatchesLibopusBitExact`): the libopus reference
+// `TestOSCEBWEForwardPassMatchesLibopusNumericalParity`): the libopus reference
 // helper (`tools/csrc/libopus_osce_lace_forward.c`) is built against an
 // OSCE-enabled libopus 1.6.1 build (`--enable-osce`) and the helper drives
 // the static `lace_process_20ms_frame` / `nolace_process_20ms_frame`
@@ -29,7 +29,7 @@ import (
 // runtime is driven on the same input + same zero-features / zero-numbits /
 // small-period inputs and the two 16 kHz 320-sample outputs are compared.
 //
-// Parity is near float32 roundoff but not bit-exact: the feature-net trace
+// Parity is near float32 roundoff but remains a numerical comparator: the feature-net trace
 // matches libopus through conv2/tconv and stays at float epsilon after the GRU,
 // while residual drift now comes from the AdaComb/AdaConv signal filters. See
 // `cases` below for the active envelope.
@@ -160,11 +160,11 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 			t.Logf("OSCE %s forward-pass parity: maxAbs=%g (idx %d) rms=%g (tolerances: maxAbs<=%g rms<=%g)",
 				tc.name, maxAbsErr, maxAbsIdx, rms, tc.outputAbsTolerance, tc.outputRMSTolerance)
 			if maxAbsErr > tc.outputAbsTolerance {
-				t.Errorf("OSCE %s forward-pass max-abs error %g exceeds %g (signal-net divergence beyond bounded contract)",
+				t.Errorf("OSCE %s forward-pass max-abs error %g exceeds %g (signal-net divergence beyond numerical contract)",
 					tc.name, maxAbsErr, tc.outputAbsTolerance)
 			}
 			if rms > tc.outputRMSTolerance {
-				t.Errorf("OSCE %s forward-pass rms error %g exceeds %g (signal-net divergence beyond bounded contract)",
+				t.Errorf("OSCE %s forward-pass rms error %g exceeds %g (signal-net divergence beyond numerical contract)",
 					tc.name, rms, tc.outputRMSTolerance)
 			}
 		})
