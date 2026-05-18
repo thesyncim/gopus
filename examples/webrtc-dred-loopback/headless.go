@@ -83,10 +83,58 @@ func runHeadless(cfg engineConfig, source string, duration time.Duration) (engin
 	return stats, nil
 }
 
+type comparisonResult struct {
+	Name  string
+	FEC   bool
+	DRED  bool
+	Stats engineStats
+}
+
+func runHeadlessComparison(cfg engineConfig, source string, duration time.Duration) ([]comparisonResult, error) {
+	cases := []struct {
+		name string
+		fec  bool
+		dred bool
+	}{
+		{name: "plc"},
+		{name: "fec", fec: true},
+		{name: "dred", dred: true},
+		{name: "fec+dred", fec: true, dred: true},
+	}
+
+	results := make([]comparisonResult, 0, len(cases))
+	baseRecordDir := cfg.RecordDir
+	for _, tc := range cases {
+		runCfg := cfg
+		runCfg.FEC = tc.fec
+		runCfg.DRED = tc.dred
+		if baseRecordDir != "" {
+			runCfg.RecordDir = baseRecordDir + "/" + tc.name
+		}
+		stats, err := runHeadless(runCfg, source, duration)
+		if err != nil {
+			return nil, fmt.Errorf("%s comparison: %w", tc.name, err)
+		}
+		results = append(results, comparisonResult{
+			Name:  tc.name,
+			FEC:   tc.fec,
+			DRED:  tc.dred,
+			Stats: stats,
+		})
+	}
+	return results, nil
+}
+
 func printStatsJSON(stats engineStats) error {
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
 	return enc.Encode(stats)
+}
+
+func printComparisonJSON(results []comparisonResult) error {
+	enc := json.NewEncoder(os.Stdout)
+	enc.SetIndent("", "  ")
+	return enc.Encode(results)
 }
 
 func applyReferenceMetrics(stats *engineStats, reference, decoded []float32, loss []bool, sampleRate int) {
@@ -131,6 +179,8 @@ func applyReferenceMetrics(stats *engineStats, reference, decoded []float32, los
 	stats.ReferenceRMSE, stats.ReferenceSNRDB, stats.ReferenceComparedSamples = referenceError(reference, decoded, nil, bestLag)
 	stats.LossReferenceCorrelation, _ = referenceCorrelation(reference, decoded, loss, bestLag)
 	stats.LossReferenceRMSE, stats.LossReferenceSNRDB, stats.LossComparedSamples = referenceError(reference, decoded, loss, bestLag)
+	stats.ReferenceIntelligibility = intelligibilityScore(reference, decoded, nil, bestLag, sampleRate)
+	stats.LossIntelligibility = intelligibilityScore(reference, decoded, loss, bestLag, sampleRate)
 }
 
 func referenceCorrelation(reference, decoded []float32, mask []bool, lag int) (float64, uint64) {

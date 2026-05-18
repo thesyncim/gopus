@@ -312,3 +312,9 @@ func (d *DREDDecoder) Process(src, dst *DRED) error {
 	dst.processStage = DREDProcessStageProcessed
 	return nil
 }
+
+// DecodeDRED decodes a processed standalone DRED payload into pcm using the
+// receiver Decoder state as the concealment context.
+func (d *Decoder) DecodeDRED(dred *DRED, dredOffsetSamples int, pcm []float32, frameSizeSamples int) (int, error) {
+	return d.decodeExplicitDREDFloat(dred, dredOffsetSamples, pcm, frameSizeSamples)
+}

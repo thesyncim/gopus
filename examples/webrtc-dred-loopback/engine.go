@@ -49,6 +49,9 @@ type engineStats struct {
 	FECRecoveryAttempts       uint64
 	FECFrames                 uint64
 	FECFallbackFrames         uint64
+	DREDRecoveryAttempts      uint64
+	DREDFrames                uint64
+	DREDFallbackFrames        uint64
 	LossPathFrames            uint64
 	DREDPackets               uint64
 	EncodedBytes              uint64
@@ -85,6 +88,8 @@ type engineStats struct {
 	LossReferenceRMSE         float64
 	LossReferenceSNRDB        float64
 	LossReferenceCorrelation  float64
+	ReferenceIntelligibility  float64
+	LossIntelligibility       float64
 	LastRecording             string
 }
 
@@ -121,6 +126,7 @@ const (
 	decodeNormal decodeKind = iota
 	decodeLossPath
 	decodeFEC
+	decodeDRED
 )
 
 type rollingStats struct {
@@ -172,7 +178,10 @@ func startEngineWithAudio(cfg engineConfig, audio audioBackend) (*engine, error)
 		lossSeed = 1
 	}
 	application := gopus.ApplicationLowDelay
-	if cfg.Profile == "voice" {
+	switch cfg.Profile {
+	case "hybrid":
+		application = gopus.ApplicationAudio
+	case "voice":
 		application = gopus.ApplicationVoIP
 	}
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
@@ -341,7 +350,9 @@ func (e *engine) UpdateConfig(cfg engineConfig) error {
 	if cfg.Bitrate > 510000 {
 		cfg.Bitrate = 510000
 	}
-	if cfg.Profile != "voice" {
+	switch cfg.Profile {
+	case "dred", "hybrid", "voice":
+	default:
 		cfg.Profile = "dred"
 	}
 	if cfg.DREDDuration < 0 {
@@ -360,7 +371,8 @@ func (e *engine) UpdateConfig(cfg engineConfig) error {
 	if err := e.enc.SetComplexity(10); err != nil {
 		return err
 	}
-	if cfg.Profile == "voice" {
+	switch cfg.Profile {
+	case "voice":
 		if err := e.enc.SetSignal(gopus.SignalVoice); err != nil {
 			return err
 		}
@@ -370,7 +382,17 @@ func (e *engine) UpdateConfig(cfg engineConfig) error {
 		if err := e.enc.SetMaxBandwidth(gopus.BandwidthWideband); err != nil {
 			return err
 		}
-	} else {
+	case "hybrid":
+		if err := e.enc.SetSignal(gopus.SignalVoice); err != nil {
+			return err
+		}
+		if err := e.enc.SetBandwidth(gopus.BandwidthFullband); err != nil {
+			return err
+		}
+		if err := e.enc.SetMaxBandwidth(gopus.BandwidthFullband); err != nil {
+			return err
+		}
+	default:
 		if err := e.enc.SetSignal(gopus.SignalMusic); err != nil {
 			return err
 		}
@@ -566,15 +588,20 @@ func (e *engine) receiveLoop(remote *webrtc.TrackRemote) {
 			missing := int(pkt.SequenceNumber - expected)
 			if missing > 0 && missing < 100 {
 				recoverWithFEC := e.fecEnabledFor(pkt.Payload)
-				plcFrames := missing
-				if recoverWithFEC {
-					plcFrames--
-				}
-				for i := 0; i < plcFrames; i++ {
-					e.decodeAndOutput(nil, pcm, decodeLossPath)
-				}
-				if recoverWithFEC && !e.decodeAndOutput(pkt.Payload, pcm, decodeFEC) {
-					e.bump(func(s *engineStats) { s.FECFallbackFrames++ })
+				dredAvailable, dredReady := e.prepareDREDRecovery(pkt.Payload, missing*frameSamples)
+				for lostAgo := missing; lostAgo >= 1; lostAgo-- {
+					if recoverWithFEC && lostAgo == 1 {
+						if e.decodeAndOutput(pkt.Payload, pcm, decodeFEC) {
+							continue
+						}
+						e.bump(func(s *engineStats) { s.FECFallbackFrames++ })
+					}
+					if dredReady && dredAvailable >= lostAgo*frameSamples && e.decodeDREDAndOutput(lostAgo*frameSamples, pcm) {
+						continue
+					}
+					if dredReady {
+						e.bump(func(s *engineStats) { s.DREDFallbackFrames++ })
+					}
 					e.decodeAndOutput(nil, pcm, decodeLossPath)
 				}
 			}
@@ -608,6 +635,32 @@ func (e *engine) fecEnabledFor(payload []byte) bool {
 	return mode == gopus.ModeSILK || mode == gopus.ModeHybrid
 }
 
+func (e *engine) prepareDREDRecovery(payload []byte, maxDREDSamples int) (int, bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if !e.cfg.DRED || e.dredProbe == nil || maxDREDSamples <= 0 {
+		return 0, false
+	}
+	return e.dredProbe.prepareRecovery(payload, maxDREDSamples)
+}
+
+func (e *engine) decodeDREDAndOutput(dredOffsetSamples int, pcm []float32) bool {
+	e.mu.Lock()
+	if e.dredProbe == nil {
+		e.mu.Unlock()
+		return false
+	}
+	e.stats.DREDRecoveryAttempts++
+	samples, err := e.dredProbe.decodeRecovery(e.dec, dredOffsetSamples, pcm, frameSamples)
+	if err != nil {
+		e.mu.Unlock()
+		return false
+	}
+	e.writeDecodedLocked(pcm, samples, decodeDRED)
+	e.mu.Unlock()
+	return true
+}
+
 func (e *engine) decodeAndOutput(payload []byte, pcm []float32, kind decodeKind) bool {
 	e.mu.Lock()
 	var samples int
@@ -623,6 +676,12 @@ func (e *engine) decodeAndOutput(payload []byte, pcm []float32, kind decodeKind)
 		e.mu.Unlock()
 		return false
 	}
+	e.writeDecodedLocked(pcm, samples, kind)
+	e.mu.Unlock()
+	return true
+}
+
+func (e *engine) writeDecodedLocked(pcm []float32, samples int, kind decodeKind) {
 	if samples > 0 {
 		out := pcm[:samples*audioChannels]
 		var sumSquares float64
@@ -661,12 +720,14 @@ func (e *engine) decodeAndOutput(payload []byte, pcm []float32, kind decodeKind)
 		e.stats.ConcealedFrames++
 		e.stats.FECFrames++
 		e.stats.ConcealedSamples += uint64(samples)
+	case decodeDRED:
+		e.stats.ConcealedFrames++
+		e.stats.DREDFrames++
+		e.stats.ConcealedSamples += uint64(samples)
 	default:
 		e.stats.PacketsReceived++
 		e.stats.ReceivedSamples += uint64(samples)
 	}
-	e.mu.Unlock()
-	return true
 }
 
 func (e *engine) decodedTraceCopy() ([]float32, []bool) {
@@ -756,7 +817,10 @@ func recoverySummary(s engineStats, totalPackets uint64) (int, string) {
 		return 0, "waiting for the first packet"
 	}
 	lossScore := math.Min(40, s.ActualLossPercent*1.2)
-	dredScore := math.Min(30, s.DREDCoveragePercent*0.30)
+	dredScore := 0.0
+	if s.DREDFrames > 0 {
+		dredScore = math.Min(30, s.DREDCoveragePercent*0.30)
+	}
 	fecScore := math.Min(15, float64(s.FECFrames)*0.5)
 	concealScore := math.Min(15, s.ConcealedAudioMS/120)
 	cleanScore := 0.0
@@ -765,8 +829,10 @@ func recoverySummary(s engineStats, totalPackets uint64) (int, string) {
 	}
 	score := int(math.Round(math.Min(100, lossScore+dredScore+fecScore+concealScore+cleanScore)))
 	switch {
-	case score >= 90:
-		return score, fmt.Sprintf("%.1f%% loss with %.1f%% DRED payload coverage and clean decode", s.ActualLossPercent, s.DREDCoveragePercent)
+	case score >= 90 && s.DREDFrames > 0:
+		return score, fmt.Sprintf("%.1f%% loss with %.1f%% DRED coverage and %d DRED frames", s.ActualLossPercent, s.DREDCoveragePercent, s.DREDFrames)
+	case s.DREDPackets > 0 && s.DREDFrames == 0:
+		return score, "DRED payloads detected; explicit recovery has not fired"
 	case score >= 75:
 		return score, fmt.Sprintf("%.0f ms/s recovered on the loss path", s.CurrentConcealMSPerSecond)
 	case score >= 50:

@@ -46,7 +46,7 @@ func TestDREDBuildPublicAPIContract(t *testing.T) {
 			name: "Decoder",
 			got:  &Decoder{},
 			want: []string{
-				"Bandwidth", "Channels", "Decode", "DecodeInt16", "DecodeWithFEC", "FinalRange",
+				"Bandwidth", "Channels", "Decode", "DecodeDRED", "DecodeInt16", "DecodeWithFEC", "FinalRange",
 				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "Pitch", "Reset",
 				"SampleRate", "SetDNNBlob", "SetGain", "SetIgnoreExtensions",
 			},

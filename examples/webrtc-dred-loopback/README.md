@@ -42,6 +42,25 @@ go run -tags gopus_dred . \
   -decoder-dnn dnn/decoder-dred.blob
 ```
 
+For a deterministic 4-way comparison with the same source, loss seed, and loss
+rate in each run:
+
+```bash
+go run -tags gopus_dred . \
+  -headless -compare -duration 6s -loss 60 -loss-seed 7 \
+  -encoder-dnn dnn/encoder-dred.blob \
+  -decoder-dnn dnn/decoder-dred.blob
+```
+
+`-compare` defaults to the fullband Hybrid profile, because Hybrid is the Opus
+mode where in-band FEC and the current 48 kHz DRED recovery path can be compared
+and combined. The JSON array reports `plc`, `fec`, `dred`, and `fec+dred` runs.
+Hybrid comparison uses Opus FEC for the most recent missing frame and explicit
+DRED recovery for older missing frames when a delivered packet carries usable
+DRED redundancy. Use `-profile dred` for the CELT DRED-only showcase path; CELT
+does not carry ordinary Opus in-band FEC, but it is the clearest current path
+for hearing and measuring receiver-side DRED recovery.
+
 The encoder blob must satisfy the encoder DNN control surface. The decoder blob
 must satisfy the decoder DNN control surface and include the DRED decoder family
 if receiver-side cached DRED recovery should be exercised.
@@ -59,6 +78,9 @@ if receiver-side cached DRED recovery should be exercised.
   bits on DRED payloads even when the DRED toggle is on.
 - `-profile dred`: the default headless/UI profile uses low-delay fullband CELT
   so the current 48 kHz DRED neural loss path is actually exercised.
+- `-profile hybrid`: uses fullband Hybrid packets so in-band FEC and DRED can be
+  compared together in `-headless -compare` runs. `DREDFrames` reports explicit
+  DRED recovery frames; `DREDPackets` only reports carrier payload coverage.
 - `-profile voice`: uses the speech-oriented SILK wideband profile for ordinary
   Opus/FEC checks. In the current decoder, 48 kHz SILK packets can carry DRED
   payloads, but their loss path falls back to ordinary PLC.
@@ -79,8 +101,12 @@ The Gio stats panel and `-headless` JSON report include:
 - emitted packet mode counts, so CELT/Hybrid/SILK runs are visible
 - FEC recovery attempts, FEC output frames, FEC fallbacks, and receiver
   PLC/DRED loss-path frames
+- DRED recovery attempts, DRED output frames, DRED fallbacks, and DRED payload
+  coverage so packet carriage and audible recovery are visible separately
 - received and concealed audio duration, latest decoded RMS/peak, and headless
   tone-reference SNR/correlation metrics for total and lost samples
+- `ReferenceIntelligibility` and `LossIntelligibility`, a pure Go STOI-style
+  third-octave envelope correlation score for total and lost samples
 - `ResilienceScore` and `RecoverySummary`, a compact recovery-health summary
   based on loss, DRED payload coverage, FEC use, concealment, and errors
 

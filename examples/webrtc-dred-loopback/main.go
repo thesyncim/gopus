@@ -58,11 +58,18 @@ func main() {
 		loss        = flag.Int("loss", 15, "headless RTP loss percentage")
 		lossSeed    = flag.Uint64("loss-seed", 1, "headless deterministic RTP loss seed")
 		bitrate     = flag.Int("bitrate", 48000, "headless encoder bitrate")
-		profile     = flag.String("profile", "dred", "headless encoder profile: dred or voice")
+		profile     = flag.String("profile", "dred", "headless encoder profile: dred, hybrid, or voice")
 		fec         = flag.Bool("fec", false, "enable Opus in-band FEC")
 		dred        = flag.Bool("dred", dredControlsAvailable(), "enable DRED when available")
+		compare     = flag.Bool("compare", false, "run PLC/FEC/DRED/FEC+DRED headless comparison")
 	)
 	flag.Parse()
+	profileSet := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == "profile" {
+			profileSet = true
+		}
+	})
 
 	if *exportDNN {
 		exported, err := exportDNNBlobs(*dnnDir)
@@ -91,6 +98,19 @@ func main() {
 		cfg.Profile = *profile
 		cfg.FEC = *fec
 		cfg.DRED = *dred
+		if *compare {
+			if !profileSet {
+				cfg.Profile = "hybrid"
+			}
+			results, err := runHeadlessComparison(cfg, *source, *duration)
+			if err != nil {
+				log.Fatal(err)
+			}
+			if err := printComparisonJSON(results); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
 		stats, err := runHeadless(cfg, *source, *duration)
 		if err != nil {
 			log.Fatal(err)
@@ -364,12 +384,12 @@ func (ui *uiState) statsView(gtx layout.Context) layout.Dimensions {
 		fmt.Sprintf("audio: received=%.2fs concealed=%.2fs total=%.2fs rms=%.3f peak=%.3f", stats.ReceivedAudioMS/1000, stats.ConcealedAudioMS/1000, stats.TotalAudioMS/1000, stats.LastRMS, stats.LastPeak),
 		fmt.Sprintf("packets: sent=%d dropped=%d received=%d concealed=%d dred=%d", stats.PacketsSent, stats.PacketsDropped, stats.PacketsReceived, stats.ConcealedFrames, stats.DREDPackets),
 		fmt.Sprintf("modes: silk=%d hybrid=%d celt=%d", stats.SILKPackets, stats.HybridPackets, stats.CELTPackets),
-		fmt.Sprintf("recovery: fec=%d/%d fallback=%d plc-or-dred=%d", stats.FECFrames, stats.FECRecoveryAttempts, stats.FECFallbackFrames, stats.LossPathFrames),
+		fmt.Sprintf("recovery: fec=%d/%d fallback=%d dred=%d/%d fallback=%d plc=%d", stats.FECFrames, stats.FECRecoveryAttempts, stats.FECFallbackFrames, stats.DREDFrames, stats.DREDRecoveryAttempts, stats.DREDFallbackFrames, stats.LossPathFrames),
 		fmt.Sprintf("bitrate: encoded=%.1f kbps delivered=%.1f kbps dropped=%.1f kbps last=%d B", stats.EncodedKbps, stats.DeliveredKbps, stats.DroppedKbps, stats.LastPacketBytes),
 		fmt.Sprintf("errors: encode=%d decode=%d mic underruns=%d", stats.EncodeErrors, stats.DecodeErrors, stats.MicUnderruns),
 	}
 	if stats.ReferenceComparedSamples > 0 {
-		lines = append(lines, fmt.Sprintf("reference: snr=%.2f dB loss-snr=%.2f dB corr=%.4f lag=%d", stats.ReferenceSNRDB, stats.LossReferenceSNRDB, stats.ReferenceCorrelation, stats.ReferenceLagSamples))
+		lines = append(lines, fmt.Sprintf("reference: snr=%.2f dB loss-snr=%.2f dB corr=%.4f intelligibility=%.3f/%.3f lag=%d", stats.ReferenceSNRDB, stats.LossReferenceSNRDB, stats.ReferenceCorrelation, stats.ReferenceIntelligibility, stats.LossIntelligibility, stats.ReferenceLagSamples))
 	}
 	if stats.LastRecording != "" {
 		lines = append(lines, "wav: "+stats.LastRecording)
