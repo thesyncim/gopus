@@ -4152,6 +4152,47 @@ func TestDecoderExplicitSecondLossThenNextPacketCELTWidebandFrameSizeMatrixMatch
 	}
 }
 
+// TestDecoderExplicitSILKDREDDecodeMatchesLibopus exercises the SILK-only
+// explicit DRED decode path against libopus. libopus routes SILK-only DRED
+// through silk_Decode(lost_flag=1) with FEC features queued in lpcnet, where
+// the SILK DeepPLC hook produces 16 kHz neural concealment and SILK upsamples
+// to the API rate. The gopus equivalent (decodeExplicitSILKDREDFloat) installs
+// the same DeepPLC hook around a standard PLC chunk decode after priming the
+// LPCNet/FARGAN entry history from the prior SILK native lowband.
+func TestDecoderExplicitSILKDREDDecodeMatchesLibopus(t *testing.T) {
+	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(
+		t, 48000, libopusDREDPacketConfig{
+			FrameSize: 960,
+			ForceMode: ModeSILK,
+			Bandwidth: BandwidthWideband,
+		})
+
+	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
+	if err != nil {
+		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+	}
+	if want.parseRet < 0 {
+		t.Skipf("libopus decoder SILK DRED parse failed: %d", want.parseRet)
+	}
+	if want.ret != n {
+		t.Fatalf("libopus decoder SILK DRED decode ret=%d want %d", want.ret, n)
+	}
+	if want.channels != 1 {
+		t.Fatalf("libopus decoder SILK DRED decode channels=%d want 1", want.channels)
+	}
+
+	pcm := make([]float32, dec.maxPacketSamples)
+	got, err := dec.decodeExplicitDREDFloat(dred, n, pcm, n)
+	if err != nil {
+		t.Fatalf("decodeExplicitDREDFloat error: %v", err)
+	}
+	if got != n {
+		t.Fatalf("decodeExplicitDREDFloat=%d want %d", got, n)
+	}
+
+	assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "explicit silk libopus pcm", 1e-4)
+}
+
 // TestProbeDecoderExplicitSILKDRED probes whether libopus emits a DRED-bearing
 // packet for SILK-only mode (no CELT) at 48 kHz WB 20 ms, and if so whether the
 // pure-Go decoder explicit DRED path agrees with libopus on the recovered PCM.

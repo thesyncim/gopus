@@ -792,6 +792,47 @@ func (d *Decoder) refreshDREDHistoryFromHybridDecoder(samplesPerChannel int) boo
 	return true
 }
 
+// refreshDREDHistoryFromSILKDecoder seeds the LPCNet/FARGAN entry history from
+// the SILK-only native int16 lowband produced by the most recent SILK decode.
+// Mirrors refreshDREDHistoryFromHybridDecoder but pulls the full native mono
+// output via silk.Decoder.LatestNativeMono() instead of the Hybrid lowband
+// snapshot. The DRED neural concealment runs at 16 kHz, so we require the
+// native rate to be 16 kHz (SILK WB).
+func (d *Decoder) refreshDREDHistoryFromSILKDecoder() bool {
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return false
+	}
+	if d == nil || d.silkDecoder == nil {
+		return false
+	}
+	n := d.dredNeuralState()
+	if n == nil {
+		return false
+	}
+	native, fsKHz := d.silkDecoder.LatestNativeMono()
+	if native == nil || fsKHz != 16 {
+		return false
+	}
+	// DRED runs at 16 kHz; clamp to whole lpcnetplc 10 ms frames and to the
+	// retained dredPLCUpdate scratch capacity.
+	usable := len(native) - (len(native) % lpcnetplc.FrameSize)
+	if usable > len(n.dredPLCUpdate) {
+		usable = len(n.dredPLCUpdate) - (len(n.dredPLCUpdate) % lpcnetplc.FrameSize)
+	}
+	if usable < lpcnetplc.FrameSize {
+		return false
+	}
+	const scale = float32(1.0 / 32768.0)
+	start := len(native) - usable
+	dst := n.dredPLCUpdate[:usable]
+	for i := 0; i < usable; i++ {
+		dst[i] = float32(native[start+i]) * scale
+	}
+	d.updateDREDPCMHistory(dst)
+	n.dredRawHistoryUpdated = true
+	return true
+}
+
 func (d *Decoder) primeDREDCELTEntryHistory(mode Mode, primeAnalysis bool) int {
 	if !d.ensureDREDNeuralConcealmentRuntime() {
 		return 0

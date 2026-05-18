@@ -72,6 +72,15 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		if d.prevMode == ModeHybrid && d.channels == 1 {
 			return d.decodeExplicitHybridDREDFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
 		}
+		// SILK-only previous mode: libopus runs the standard SILK PLC path
+		// with lpcnet FEC features queued; the SILK DeepPLC hook produces
+		// the 16 kHz neural concealment lowband and SILK upsamples to the
+		// output rate. The neural runtime needs its 16 kHz PCM history
+		// primed from the prior SILK decode so FARGAN/LPCNet enter with the
+		// voiced trajectory rather than zeros.
+		if d.prevMode == ModeSILK && d.channels == 1 {
+			return d.decodeExplicitSILKDREDFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
+		}
 	}
 	if d.sampleRate == 48000 {
 		d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
@@ -146,4 +155,61 @@ func (d *Decoder) primeExplicitHybridDREDEntryHistory(frameSizeSamples int) {
 		return
 	}
 	d.refreshDREDHistoryFromHybridDecoder(frameSizeSamples)
+}
+
+// decodeExplicitSILKDREDFloat mirrors libopus opus_decode_native()'s SILK-only
+// DRED branch: queue lpcnet FEC features, prime the DeepPLC entry history from
+// the prior SILK lowband decode, install the SILK DeepPLC hook so SILK PLC
+// pulls neural concealment instead of running its classical periodic/random
+// LPC concealment, then run standard SILK PLC via decodePLCChunksInto. SILK
+// upsamples the neural lowband to the API sample rate using its existing
+// resampler, matching libopus's `silk_Decode(lost_flag=1)` flow.
+func (d *Decoder) decodeExplicitSILKDREDFloat(dred *DRED, dredOffsetSamples int, pcm []float32, frameSizeSamples int) (int, error) {
+	if d == nil {
+		return 0, ErrInvalidArgument
+	}
+	d.primeExplicitSILKDREDEntryHistory()
+	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
+	cleanupHook := func() {}
+	if d.dredNeuralConcealmentAvailable() && d.silkDecoder != nil {
+		cleanupHook, _ = d.beginHybridDREDLowbandHook()
+	}
+	defer cleanupHook()
+	n, err := d.decodePLCChunksInto(pcm, frameSizeSamples, plcDecodeState{
+		packetFrameSize:    frameSizeSamples,
+		mode:               d.prevMode,
+		bandwidth:          d.lastBandwidth,
+		packetStereo:       d.prevPacketStereo,
+		useDecoderPLCState: true,
+	})
+	if err != nil {
+		return 0, err
+	}
+	d.applyOutputGain(pcm[:n*d.channels])
+	d.lastFrameSize = n
+	d.lastPacketDuration = n
+	d.lastDataLen = 0
+	return n, nil
+}
+
+// primeExplicitSILKDREDEntryHistory seeds the DRED neural concealment entry
+// history from the SILK-only native lowband produced by the previous decode.
+// Without this priming, the FARGAN renderer enters concealment with a zeroed
+// PCM history and produces near-silent output instead of the voiced trajectory
+// libopus emits. Mirrors the Hybrid priming flow but pulls the native PCM via
+// silk.Decoder.LatestNativeMono() since the SILK-only path produces a full
+// native lowband (not just the Hybrid lowband portion).
+func (d *Decoder) primeExplicitSILKDREDEntryHistory() {
+	if d == nil || d.silkDecoder == nil {
+		return
+	}
+	r := d.dredRecoveryState()
+	n := d.dredNeuralState()
+	if r == nil || n == nil || n.dredRawHistoryUpdated {
+		return
+	}
+	if r.dredPLC.Blend() != 0 || r.dredPLC.FECReadPos() != 0 || r.dredPLC.FECFillPos() != 0 || r.dredPLC.FECSkip() != 0 {
+		return
+	}
+	d.refreshDREDHistoryFromSILKDecoder()
 }
