@@ -40,12 +40,13 @@ type streamOSCEState struct {
 	prevLACEActive  bool
 
 	// OSCE BWE 16 kHz -> 48 kHz forward pass replacing `silk_resampler`.
-	bweModel    *osceBWE.Model
-	bweRuntime  [2]osceBWE.State
-	bweFeatures [2]osceBWE.FeatureState
-	bweIn16     [320]float32
-	bweIn16Int  [320]int16
-	bweOut48    [3 * 320]float32
-	bweFeatBuf  [2 * osceBWE.FeatureDim]float32
+	bweModel      *osceBWE.Model
+	bweRuntime    [2]osceBWE.State
+	bweFeatures   [2]osceBWE.FeatureState
+	bweIn16       [320]float32
+	bweIn16Int    [320]int16
+	bweOut48      [3 * 320]float32
+	bweFadeout48  [3 * 320]float32
+	bweFeatBuf    [2 * osceBWE.FeatureDim]float32
 	prevBWEActive bool
 }

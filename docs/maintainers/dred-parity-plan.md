@@ -67,7 +67,7 @@ Implemented or in progress:
 - `Decoder.Reset()` now drops activated single-stream DRED recovery, neural, and 48 kHz bridge runtime back to the dormant control-only state while retaining validated model blobs, so optional extras return to their pre-activation zero-cost posture on a new stream
 - the standalone single-stream DRED payload buffer is now allocated lazily on first cached DRED payload instead of at standalone model arm time
 - the top-level decoder DRED internals are now build-tag split too, so default `.` builds avoid importing `internal/dred`, RDOVAE, or LPCNet PLC internals while retaining DNN blob readiness flags through no-op default runtime stubs
-- multistream optional-state hardening keeps the DRED sidecar build-tag split so default `./multistream` builds avoid importing `internal/dred`, RDOVAE, or LPCNet PLC internals; tagged builds now let a combined core+DRED decoder blob arm RDOVAE and consume cached DRED on the 48 kHz CELT elementary-stream seam while broader Hybrid/SILK multistream paths remain seam-specific
+- multistream optional-state hardening keeps the DRED sidecar build-tag split so default `./multistream` builds avoid importing `internal/dred`, RDOVAE, or LPCNet PLC internals; tagged builds now let a combined core+DRED decoder blob arm RDOVAE and consume cached DRED on single-coupled CELT/Hybrid/SILK consumer seams while broader packet/mode matrices remain seam-specific
 - the current 48 kHz Hybrid DRED path now updates retained CELT waveform/cadence state with a state-only pure-Go DRED concealment pass instead of only relabeling an ordinary Hybrid PLC loss after the fact; this pins the next-good-packet handoff parity that remained after the earlier cadence-only sync work
 - a new internal libopus decoder-sequence helper now exists for cached/live DRED decoder parity, covering `carrier good -> first loss -> second loss -> optional next good packet` via `opus_decode_native(..., dred, dred_offset)` instead of only the public explicit `opus_decoder_dred_decode_float()` seam
 - that live-sequence helper now drives float recovery steps through `opus_decoder_dred_decode_float()` itself, so the cached/live float oracle matches the same public libopus DRED entrypoint the explicit decoder parity tests already use
@@ -80,7 +80,7 @@ Implemented or in progress:
 - the cached mono CELT 48 kHz live sequence now also avoids pre-priming LPCNet analysis before first loss, matching libopus `update_plc_state()` seeding followed by analysis inside `lpcnet_plc_conceal()`; the stale cached-vs-explicit CELT oracle tests are disabled because explicit DRED remains a separate `FRAME_DRED` entrypoint
 - the cached mono Hybrid 48 kHz live sequence now follows the same split: ordinary `Decode(nil)` does not queue cached DRED FEC or enter the explicit DRED surface; SILK may use the ordinary lowband deep-PLC hook while CELT stays on the libopus Hybrid noise PLC branch (`start != 0`), and the stale cached-vs-explicit Hybrid oracle tests are disabled for the same reason
 - the root decoder tests now explicitly pin that split too: core-only decoder blobs keep the DRED sidecar nil across good-packet decode, while combined core+DRED blobs arm the parser and cache carried DRED payloads
-- these decoder parity claims are seam-specific and libopus-backed; the required mono explicit/live decoder numerical matrix plus selected 16 kHz Hybrid mono live-sequence seams, selected 16 kHz CELT/Hybrid stereo explicit first-loss probes, selected 48 kHz CELT stereo cached/live first/second-loss and next-packet handoff seams, explicit first-loss and recovery lifecycle/cursor seams, the 48 kHz SILK WB explicit stereo first-loss seam, and the 48 kHz CELT elementary-stream multistream DRED consumer are now required in the DRED gates, while broader single-stream stereo packet/mode matrices, broader multistream Hybrid/SILK DRED, and packet coverage remain separate work unless explicitly covered by green parity tests
+- these decoder parity claims are seam-specific and libopus-backed; the required mono explicit/live decoder numerical matrix plus selected 16 kHz Hybrid mono live-sequence seams, CELT/Hybrid stereo cached/live first/second-loss and next-packet handoff matrices, selected 16 kHz CELT/Hybrid stereo explicit first-loss probes, explicit first-loss and recovery lifecycle/cursor seams, the 48 kHz SILK WB explicit stereo first-loss seam, and single-coupled multistream CELT/Hybrid/SILK DRED consumers are now required in the DRED gates, while broader SILK stereo packet/mode matrices, broader multistream packet/mode coverage, and packet coverage remain separate work unless explicitly covered by green parity tests
 - libopus-backed real-packet parity coverage exists for:
   - parse-stage state and latents
   - processed DRED features
@@ -96,8 +96,8 @@ Implemented or in progress:
 - libopus-backed explicit decoder-owned processed-DRED float coverage at the targeted 48 kHz mono and selected 48 kHz stereo CELT seams, with the required mono PCM/state matrix and selected stereo first-loss seam in the required unsupported-controls parity lane
 - explicit decoder-owned processed-DRED float decode offset-boundary coverage around the libopus recovery-window transition points for that same seam is part of the required unsupported-controls parity lane
 - the libopus-backed explicit decoder helper now seeds real prior decoder state from a good packet, loads separate decoder and standalone DRED model blobs, supports warmup-plus-current explicit decode lifecycles, and captures retained CELT 48 kHz bridge state (`last_frame_type`, `plc_fill`, `plc_duration`, `skip_plc`, `plc_preemphasis_mem`, `preemph_memD`, and queued PLC PCM)
-- the required supported DRED tag gate now carries standalone DRED wrapper lifecycle/no-allocation, libopus parse/decode/process metadata coverage, real-packet standalone process state/feature parity, standalone recovery scheduling parity, decoder cached recovery bookkeeping parity, the SILK wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload proofs, and the Hybrid fullband 20/40 ms mono and stereo carried-payload/packet-envelope proofs, while the unsupported-controls gate covers the green quarantine/core and selected parity surface: API exposure, parser availability, those same encoder seams, internal converter/payload/basic-analysis seams, the real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle, OSCE BWE/LACE numerical forward-pass contracts, 48 kHz runtime bootstrap checks, the required mono decoder explicit/live numerical matrix, selected 16 kHz Hybrid mono live-sequence seams, selected 16 kHz CELT/Hybrid stereo explicit first-loss probes, selected 48 kHz CELT stereo cached/live first/second-loss and next-packet handoff seams, explicit first-loss and recovery lifecycle/cursor seams, and the 48 kHz SILK WB explicit stereo first-loss seam
-- Hybrid fullband 20/40 ms mono and stereo packet-envelope exactness is required in both DRED parity gates; Hybrid/SILK stereo primary-frame byte exactness, broader single-stream stereo packet/mode matrices, broader multistream neural DRED packet/mode coverage, and support-surface graduation remain separate work unless a green libopus-backed seam explicitly claims them
+- the required supported DRED tag gate now carries standalone DRED wrapper lifecycle/no-allocation, libopus parse/decode/process metadata coverage, real-packet standalone process state/feature parity, standalone recovery scheduling parity, decoder cached recovery bookkeeping parity, the SILK wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload proofs, Hybrid fullband 20/40 ms mono and stereo carried-payload/packet-envelope proofs, and single-coupled multistream CELT/Hybrid/SILK consumers, while the unsupported-controls gate covers the green quarantine/core and selected parity surface: API exposure, parser availability, those same encoder seams, internal converter/payload/basic-analysis seams, the real-model PitchDNN and RDOVAE encoder oracles, the conceal-analysis oracle, OSCE BWE/LACE numerical forward-pass contracts, 48 kHz runtime bootstrap checks, the required mono decoder explicit/live numerical matrix, selected 16 kHz Hybrid mono live-sequence seams, CELT/Hybrid stereo cached/live first/second-loss and next-packet handoff matrices, selected 16 kHz CELT/Hybrid stereo explicit first-loss probes, explicit first-loss and recovery lifecycle/cursor seams, and the 48 kHz SILK WB explicit stereo first-loss seam
+- Hybrid fullband 20/40 ms mono and stereo packet-envelope exactness is required in both DRED parity gates; Hybrid/SILK stereo primary-frame byte exactness, broader SILK stereo packet/mode matrices, broader multistream packet/mode coverage, and support-surface graduation remain separate work unless a green libopus-backed seam explicitly claims them
 - fallback-loss bookkeeping no longer forces the pure-Go LPCNet blend state forward when neural concealment did not actually run, but cached recovery scheduling still preserves the libopus-shaped post-loss recovery phase across recache boundaries
 - encoder-side `DFrameSize` staging / rollover groundwork exists in pure Go
 - encoder-side DNN admission is now stricter than simple manifest booleans: the retained encoder DNN blob must bind both the pure-Go RDOVAE encoder model family and the shared pure-Go PitchDNN analysis model family before `DREDModelLoaded()` reports ready, which gives the encoder path a real model-contract seam before latent generation and bitstream emission land
@@ -214,19 +214,19 @@ Recent closed seams to avoid re-debugging:
 
 Still missing for full parity:
 
-- decoder-level parity beyond the required mono seams, selected 16 kHz Hybrid mono live-sequence seams, selected 16 kHz CELT/Hybrid stereo explicit first-loss probes, selected 48 kHz CELT stereo cached/live first/second-loss and next-packet handoff seams, explicit first-loss and recovery lifecycle/cursor seams, the required 48 kHz SILK WB explicit stereo first-loss seam, and the 48 kHz CELT elementary-stream multistream DRED consumer, especially broader single-stream stereo packet/mode matrices, broader multistream neural DRED coverage, broader packet coverage, and the final supported-surface decisions for what graduates from quarantine
+- decoder-level parity beyond the required mono seams, selected 16 kHz Hybrid mono live-sequence seams, CELT/Hybrid stereo cached/live first/second-loss and next-packet handoff matrices, selected 16 kHz CELT/Hybrid stereo explicit first-loss probes, explicit first-loss and recovery lifecycle/cursor seams, the required 48 kHz SILK WB explicit stereo first-loss seam, and the single-coupled multistream CELT/Hybrid/SILK DRED consumers, especially broader SILK stereo packet/mode matrices, broader multistream packet/mode coverage, broader packet coverage, and the final supported-surface decisions for what graduates from quarantine
 - single-stream and multistream `SetDNNBlob(...)` validate the blob and retain the model-loaded flags (`pitchDNNLoaded`, `plcModelLoaded`, `farganModelLoaded`, `osceModelsLoaded`, `osceBWEModelLoaded`); in tag-gated builds, a retained blob that also contains the DRED decoder family arms RDOVAE for packet-extension recovery, while core-only blobs leave DRED payload scanning and nil-packet DRED PLC dormant. OSCE LACE/NoLACE postfilter and OSCE BWE upsampler runtime paths are wired in the quarantined OSCE lane with numerical comparator contracts and runtime smoke coverage; ordinary non-DRED model-backed PLC is not a supported standalone surface yet, while non-16-or-48 kHz DRED neural concealment remains gated off independently of blob readiness
 - model-backed `opus_decoder_dred_decode*()` parity beyond the currently exercised mono explicit seams, including broader `LPCNetEncState`-shaped analysis/runtime coverage and decoder-owned integration for any surfaces that graduate from quarantine
-- broader live-oracle adoption beyond the covered mono cached seams, selected 48 kHz CELT stereo first/second-loss and next-packet handoff seams, and the 48 kHz CELT elementary-stream multistream consumer; broader single-stream stereo packet/mode matrices and broader multistream neural paths still need live-sequence coverage where those surfaces become supported
+- broader live-oracle adoption beyond the covered mono cached seams, CELT/Hybrid stereo first/second-loss and next-packet handoff matrices, and the single-coupled multistream CELT/Hybrid/SILK consumers; broader SILK stereo packet/mode matrices and broader multistream packet/mode paths still need live-sequence coverage where those surfaces become supported
 - encoder-side DRED beyond the current exercised latent-generation and carried-payload seams: broadening rate / packet-shape / stereo / multistream coverage around the payload-emission path and finalizing which surfaces graduate from quarantine
 
-### Remaining Stereo DRED Runtime Scope
+### Stereo And Multistream DRED Runtime Scope
 
 Decoder-side DRED neural concealment follows libopus's mono-internal model:
 there is one retained LPCNet/FARGAN/DRED-feature pipeline, and stereo output is
 made by downmixing on entry and duplicating the concealed mono result on exit.
-The selected 48 kHz CELT cached/live first/second-loss and next-packet handoff
-seams, explicit first-loss and recovery lifecycle/cursor seams, selected 16 kHz
+The CELT/Hybrid cached/live first/second-loss and next-packet handoff matrices,
+explicit first-loss and recovery lifecycle/cursor seams, selected 16 kHz
 CELT/Hybrid stereo explicit first-loss probes, plus the 48 kHz SILK WB explicit
 stereo first-loss seam now follow that shape in tag-gated parity tests.
 
@@ -238,9 +238,9 @@ What is green today:
 - `applyDREDNeuralConcealment48kMono()` and
   `applyPLCNeuralConcealment48kMono()` accept mono or stereo caller buffers while
   preserving the mono-internal runtime contract.
-- The CELT wrapper mirrors channel-0 neural state into channel 1 and interleaves
-  duplicated mono PCM for the selected 48 kHz CELT stereo cached/live
-  first/second-loss and next-packet handoff seams.
+- The CELT and Hybrid wrappers mirror channel-0 neural state into channel 1 and
+  interleave duplicated mono PCM for the stereo cached/live first/second-loss
+  and next-packet handoff matrices.
 - Cached stereo recovery lifecycle/cursor tests verify libopus-style recovery
   bookkeeping, including the Hybrid live-loss idle cursor behavior.
 - Explicit 48 kHz CELT FB stereo DRED first-loss parity exercises downmixed
@@ -251,17 +251,16 @@ What is green today:
 - Explicit 16 kHz CELT/Hybrid stereo DRED first-loss parity now uses the
   libopus packet helper's forced-channel mode so those carrier shapes are
   required no-skip probes in the quarantine gate.
+- Single-coupled multistream CELT/Hybrid/SILK DRED consumers are required in
+  both the supported DRED and quarantine gates.
 
 What remains open:
 
-- 48 kHz CELT stereo broader frame-size and packet-shape coverage beyond the
-  selected first/second-loss and next-packet handoff seams.
-- Broader Hybrid/SILK stereo decoder DRED matrices, especially repeated-loss,
+- Broader SILK stereo decoder DRED matrices, especially repeated-loss,
   resumed-good-packet, and packet-shape coverage around the SILK mid/lowband
   hook path.
-- Broader multistream decoder DRED beyond the 48 kHz CELT elementary-stream
-  consumer, especially Hybrid/SILK packet/mode matrices and live-sequence
-  parity beyond the focused structural gate.
+- Broader multistream decoder DRED packet/mode matrices and live-sequence
+  parity beyond the focused CELT/Hybrid/SILK consumer gates.
 - Support-surface graduation. Broader stereo DRED should stay quarantine-only
   until the above seams are green in libopus-backed parity tests.
 
@@ -457,7 +456,7 @@ Acceptance:
 - full first-loss LPCNet analysis concealment now also matches libopus on retained PLC/FARGAN/analysis state when started from the same queue/history inputs
 - CELT neural-entry history preparation now matches libopus-derived `update_plc_state()` math closely enough for the 48 kHz -> 16 kHz bridge to stay deterministic and allocation-free in steady state
 - the current 16 kHz mono cached/live seam has required resumed-good-packet handoff PCM coverage after first and repeated loss across the exercised frame-size matrix, and direct concealment PCM plus explicit matrix checks are now in the required unsupported-controls parity lane for the required mono seams
-- the 48 kHz mono CELT `FRAME_DRED` bridge, selected 16 kHz CELT/Hybrid stereo explicit first-loss probes, the selected 48 kHz CELT stereo first/second-loss, next-packet, and recovery seams, the 48 kHz SILK WB explicit stereo first-loss seam, the 48 kHz mono Hybrid SWB/FB first-loss/handoff seams, and the 48 kHz CELT elementary-stream multistream consumer are covered by required gates, with Hybrid now following the libopus-shaped Hybrid PLC base; the next decoder gap is broader packet/mode coverage and broader multistream Hybrid/SILK DRED consumption
+- the 48 kHz mono CELT `FRAME_DRED` bridge, selected 16 kHz CELT/Hybrid stereo explicit first-loss probes, CELT/Hybrid stereo first/second-loss, next-packet, and recovery matrices, the 48 kHz SILK WB explicit stereo first-loss seam, the 48 kHz mono Hybrid SWB/FB first-loss/handoff seams, and the single-coupled multistream CELT/Hybrid/SILK consumers are covered by required gates, with Hybrid now following the libopus-shaped Hybrid PLC base; the next decoder gap is broader SILK stereo and multistream packet/mode coverage
 - explicit 48 kHz DRED now drives the dedicated `FRAME_DRED` bridge instead of accidentally reusing the live `FRAME_PLC_NEURAL` bridge, and the exercised explicit decoder matrix is now required in `make test-unsupported-controls-parity`
 
 ### M3. Encoder Staging Parity

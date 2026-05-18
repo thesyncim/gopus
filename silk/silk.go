@@ -1243,7 +1243,24 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	sideState := d.ensureSILKPLCState(1)
 	midView := d.plcDecoderView(0)
 	sideView := d.plcDecoderView(1)
-	if midState != nil && midView != nil && d.state[0].nbSubfr > 0 {
+	usedDeepPLCHook := false
+	hookLagPrev := 0
+	if d.deepPLCLossMonoHook != nil {
+		ok, lagPrev := d.deepPLCLossMonoHook(mid)
+		if ok {
+			usedDeepPLCHook = true
+			hookLagPrev = lagPrev
+			if midState != nil && midView != nil && d.state[0].nbSubfr > 0 {
+				_ = plc.ConcealSILKWithLTP(midView, midState, lossCnt, nativeSamples)
+				if lag := int((midState.PitchLQ8 + 128) >> 8); lag > 0 {
+					hookLagPrev = lag
+				}
+			}
+		} else {
+			clear(mid)
+		}
+	}
+	if !usedDeepPLCHook && midState != nil && midView != nil && d.state[0].nbSubfr > 0 {
 		midQ0 := plc.ConcealSILKWithLTP(midView, midState, lossCnt, nativeSamples)
 		scale := float32(1.0 / 32768.0)
 		for i := 0; i < nativeSamples && i < len(midQ0); i++ {
@@ -1252,16 +1269,7 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 		if lag := int((midState.PitchLQ8 + 128) >> 8); lag > 0 {
 			d.state[0].lagPrev = lag
 		}
-		if hasSide && sideState != nil && sideView != nil && d.state[1].nbSubfr > 0 {
-			sideQ0 := plc.ConcealSILKWithLTP(sideView, sideState, lossCnt, nativeSamples)
-			for i := 0; i < nativeSamples && i < len(sideQ0); i++ {
-				side[i] = float32(sideQ0[i]) * scale
-			}
-			if lag := int((sideState.PitchLQ8 + 128) >> 8); lag > 0 {
-				d.state[1].lagPrev = lag
-			}
-		}
-	} else {
+	} else if !usedDeepPLCHook && (midState == nil || midView == nil || d.state[0].nbSubfr <= 0) {
 		// Legacy fallback when richer PLC state is unavailable.
 		left, right := plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
 		copy(mid, left)
@@ -1269,9 +1277,28 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 			copy(side, right)
 		}
 	}
+	if usedDeepPLCHook && hookLagPrev > 0 {
+		d.state[0].lagPrev = hookLagPrev
+	}
+	if hasSide && sideState != nil && sideView != nil && d.state[1].nbSubfr > 0 {
+		sideQ0 := plc.ConcealSILKWithLTP(sideView, sideState, lossCnt, nativeSamples)
+		scale := float32(1.0 / 32768.0)
+		for i := 0; i < nativeSamples && i < len(sideQ0); i++ {
+			side[i] = float32(sideQ0[i]) * scale
+		}
+		if lag := int((sideState.PitchLQ8 + 128) >> 8); lag > 0 {
+			d.state[1].lagPrev = lag
+		}
+	}
 
 	// Update decoder state for the concealed internal channels before MS->LR.
+	if usedDeepPLCHook {
+		d.applyDeepPLCHistoryMono(&d.state[0], mid)
+	}
 	d.recordPLCLossForState(&d.state[0], mid)
+	if usedDeepPLCHook {
+		d.state[0].plcSkipRecoveryGlue = true
+	}
 	d.state[0].lastGainIndex = 10
 	if hasSide {
 		d.recordPLCLossForState(&d.state[1], side)

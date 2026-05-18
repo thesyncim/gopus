@@ -4,6 +4,8 @@
 package multistream
 
 import (
+	"math"
+
 	osceBWE "github.com/thesyncim/gopus/internal/osce/bwe"
 	"github.com/thesyncim/gopus/silk"
 )
@@ -178,6 +180,7 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 			state.bweFeatures[i].Reset()
 		}
 	}
+	transitionIntoBWE := !state.prevBWEActive
 	if packetStereo && d.channels == 2 {
 		if !state.bweRuntime[0].Loaded() || !state.bweRuntime[1].Loaded() {
 			return false
@@ -203,6 +206,12 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 		); err != nil {
 			return false
 		}
+		if transitionIntoBWE {
+			for i := 0; i < in48Per; i++ {
+				state.bweFadeout48[i] = out[2*i]
+			}
+			streamOSCEBWECrossFade10ms(state.bweOut48[:in48Per], state.bweFadeout48[:in48Per], 480)
+		}
 		for i := 0; i < in48Per; i++ {
 			out[2*i] = state.bweOut48[i]
 		}
@@ -224,6 +233,12 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 			}
 			state.prevBWEActive = true
 			return true
+		}
+		if transitionIntoBWE {
+			for i := 0; i < in48Per; i++ {
+				state.bweFadeout48[i] = out[2*i+1]
+			}
+			streamOSCEBWECrossFade10ms(state.bweOut48[:in48Per], state.bweFadeout48[:in48Per], 480)
 		}
 		for i := 0; i < in48Per; i++ {
 			out[2*i+1] = state.bweOut48[i]
@@ -257,6 +272,16 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 		state.prevBWEActive = false
 		return false
 	}
+	if transitionIntoBWE {
+		if d.channels == 1 {
+			streamOSCEBWECrossFade10ms(state.bweOut48[:in48Per], out[:in48Per], 480)
+		} else {
+			for i := 0; i < in48Per; i++ {
+				state.bweFadeout48[i] = out[2*i]
+			}
+			streamOSCEBWECrossFade10ms(state.bweOut48[:in48Per], state.bweFadeout48[:in48Per], 480)
+		}
+	}
 	if d.channels == 1 {
 		copy(out[:in48Per], state.bweOut48[:in48Per])
 	} else {
@@ -268,6 +293,45 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 	}
 	state.prevBWEActive = true
 	return true
+}
+
+// streamOSCEBWECrossFade10ms mirrors libopus dnn/osce_features.c
+// osce_bwe_cross_fade_10ms for float32 PCM. It writes the blended samples back
+// into xFadein.
+func streamOSCEBWECrossFade10ms(xFadein, xFadeout []float32, length int) {
+	if length < 480 || len(xFadein) < 480 || len(xFadeout) < 480 {
+		return
+	}
+	const oneThird = 1.0 / 3.0
+	for i := 0; i < 160; i++ {
+		var diff float32
+		if i != 159 {
+			diff = streamOSCEWindow[i+1] - streamOSCEWindow[i]
+		}
+		wCurr := streamOSCEWindow[i]
+		xFadein[3*i+0] = float32(streamOSCEBWECrossFadeSample(wCurr, xFadein[3*i+0], xFadeout[3*i+0])) * (1.0 / 32768.0)
+		wCurr += diff * oneThird
+		xFadein[3*i+1] = float32(streamOSCEBWECrossFadeSample(wCurr, xFadein[3*i+1], xFadeout[3*i+1])) * (1.0 / 32768.0)
+		wCurr += diff * oneThird
+		xFadein[3*i+2] = float32(streamOSCEBWECrossFadeSample(wCurr, xFadein[3*i+2], xFadeout[3*i+2])) * (1.0 / 32768.0)
+	}
+}
+
+func streamOSCEBWECrossFadeSample(weight, fadein, fadeout float32) int16 {
+	fi := streamOSCEBWEFloatToInt16(fadein)
+	fo := streamOSCEBWEFloatToInt16(fadeout)
+	v := weight*float32(fi) + (1.0-weight)*float32(fo) + 0.5
+	return int16(int32(v))
+}
+
+func streamOSCEBWEFloatToInt16(x float32) int16 {
+	tmp := float32(32768) * x
+	if tmp > 32767 {
+		tmp = 32767
+	} else if tmp < -32767 {
+		tmp = -32767
+	}
+	return int16(int32(math.RoundToEven(float64(tmp))))
 }
 
 // streamOSCELACECrossFade10msInt16 mirrors `osceLACECrossFade10msInt16` in

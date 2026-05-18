@@ -115,7 +115,17 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	// Decode each stream
 	decodedStreams := make([][]float64, d.streams)
 	for i := 0; i < d.streams; i++ {
+		var endDREDCapture func()
+		if extsupport.DREDRuntime && d.dredPayloadScannerActive() {
+			if st, ok := d.decoders[i].(*streamState); ok && len(packets[i]) > 0 {
+				toc := parseStreamTOC(packets[i][0])
+				endDREDCapture = d.beginDREDRawMonoGoodFrameCapture(i, st, toc.mode, packets[i])
+			}
+		}
 		decoded, decodeErr := d.decodeStream(i, packets[i], frameSize)
+		if endDREDCapture != nil {
+			endDREDCapture()
+		}
 		if decodeErr != nil {
 			return nil, fmt.Errorf("multistream: stream %d decode error: %w", i, decodeErr)
 		}

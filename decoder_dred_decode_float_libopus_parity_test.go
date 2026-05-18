@@ -928,6 +928,234 @@ func assertInterleavedStereoDuplicated(t *testing.T, pcm []float32, samples int,
 	}
 }
 
+func assertInterleavedStereoApproxDuplicated(t *testing.T, pcm []float32, samples int, label string, tol float64) {
+	t.Helper()
+	if len(pcm) < samples*2 {
+		t.Fatalf("%s PCM length=%d too short for %d stereo samples", label, len(pcm), samples)
+	}
+	var maxDrift float64
+	for i := 0; i < samples; i++ {
+		d := math.Abs(float64(pcm[2*i] - pcm[2*i+1]))
+		if d > maxDrift {
+			maxDrift = d
+		}
+		if d > tol {
+			t.Fatalf("%s PCM not L=R duplicated at sample %d: |L-R|=%g max=%g tol=%g", label, i, d, maxDrift, tol)
+		}
+	}
+}
+
+type cachedStereoDREDLiveFlow int
+
+const (
+	cachedStereoDREDFirstLoss cachedStereoDREDLiveFlow = iota
+	cachedStereoDREDSecondLoss
+	cachedStereoDREDFirstLossThenNext
+	cachedStereoDREDSecondLossThenNext
+)
+
+func (f cachedStereoDREDLiveFlow) name() string {
+	switch f {
+	case cachedStereoDREDFirstLoss:
+		return "first_loss"
+	case cachedStereoDREDSecondLoss:
+		return "second_loss"
+	case cachedStereoDREDFirstLossThenNext:
+		return "first_loss_then_next"
+	case cachedStereoDREDSecondLossThenNext:
+		return "second_loss_then_next"
+	default:
+		return "unknown"
+	}
+}
+
+func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label string, packetCfg libopusDREDPacketConfig, nextPacket []byte, flow cachedStereoDREDLiveFlow) {
+	t.Helper()
+	packetCfg.Channels = 2
+	packetCfg.ForceChannels = 2
+	packetInfo, err := emitLibopusDREDPacketWithConfig(packetCfg)
+	if err != nil {
+		t.Skipf("%s libopus dred packet helper unavailable: %v", label, err)
+	}
+	toc := ParseTOC(packetInfo.packet[0])
+	if !toc.Stereo || toc.Mode != packetCfg.ForceMode || toc.Bandwidth != packetCfg.Bandwidth || toc.FrameSize != packetCfg.FrameSize {
+		t.Skipf("%s requires forced stereo %v/%v/%d packet, got stereo=%t mode=%v bandwidth=%v frame=%d", label, packetCfg.ForceMode, packetCfg.Bandwidth, packetCfg.FrameSize, toc.Stereo, toc.Mode, toc.Bandwidth, toc.FrameSize)
+	}
+
+	dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t, packetInfo.sampleRate, packetInfo, 2)
+	if packetInfo.sampleRate != 48000 || n != packetCfg.FrameSize {
+		t.Skipf("%s cached stereo live-sequence parity requires 48 kHz frame=%d packet, got sampleRate=%d frame=%d", label, packetCfg.FrameSize, packetInfo.sampleRate, n)
+	}
+
+	step1Source := 0
+	decodeNext := false
+	switch flow {
+	case cachedStereoDREDSecondLoss:
+		step1Source = 1
+	case cachedStereoDREDFirstLossThenNext:
+		decodeNext = true
+	case cachedStereoDREDSecondLossThenNext:
+		step1Source = 1
+		decodeNext = true
+	}
+	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, step1Source, 2*n, decodeNext)
+	if err != nil {
+		t.Skipf("%s libopus decoder DRED sequence helper unavailable: %v", label, err)
+	}
+	if want.carrierParseRet < 0 {
+		t.Skipf("%s libopus cached stereo DRED sequence parse failed: %d", label, want.carrierParseRet)
+	}
+	if want.channels != 2 {
+		t.Fatalf("%s libopus cached stereo DRED channels=%d want 2", label, want.channels)
+	}
+	if want.step0.ret != n {
+		t.Fatalf("%s libopus cached stereo first-loss ret=%d want %d", label, want.step0.ret, n)
+	}
+	if step1Source != 0 && want.step1.ret != n {
+		t.Fatalf("%s libopus cached stereo second-loss ret=%d want %d", label, want.step1.ret, n)
+	}
+	if decodeNext && want.next.ret <= 0 {
+		t.Fatalf("%s libopus cached stereo follow-up ret=%d want >0", label, want.next.ret)
+	}
+
+	const stereoStateTol = 20.0
+	const stereoPCMTol = 1.0
+	const duplicateTol = 1e-2
+
+	pcm0 := make([]float32, dec.maxPacketSamples*dec.channels)
+	got, err := dec.Decode(nil, pcm0)
+	if err != nil {
+		t.Fatalf("%s Decode(nil, first) error: %v", label, err)
+	}
+	if got != n {
+		t.Fatalf("%s Decode(nil, first)=%d want %d", label, got, n)
+	}
+	assertInterleavedStereoApproxDuplicated(t, pcm0, got, label+" first loss", duplicateTol)
+	assertInterleavedStereoApproxDuplicated(t, want.step0.pcm, got, label+" libopus first loss", duplicateTol)
+
+	comparePCM := pcm0[:got*dec.channels]
+	compareSamples := got
+	compareState := want.step0
+	compareLabel := label + " first-loss"
+
+	if step1Source != 0 {
+		pcm1 := make([]float32, dec.maxPacketSamples*dec.channels)
+		got, err = dec.Decode(nil, pcm1)
+		if err != nil {
+			t.Fatalf("%s Decode(nil, second) error: %v", label, err)
+		}
+		if got != n {
+			t.Fatalf("%s Decode(nil, second)=%d want %d", label, got, n)
+		}
+		assertInterleavedStereoApproxDuplicated(t, pcm1, got, label+" second loss", duplicateTol)
+		assertInterleavedStereoApproxDuplicated(t, want.step1.pcm, got, label+" libopus second loss", duplicateTol)
+		comparePCM = pcm1[:got*dec.channels]
+		compareSamples = got
+		compareState = want.step1
+		compareLabel = label + " second-loss"
+	}
+
+	if decodeNext {
+		nextPCM := make([]float32, dec.maxPacketSamples*dec.channels)
+		gotNext, err := dec.Decode(nextPacket, nextPCM)
+		if err != nil {
+			t.Fatalf("%s Decode(next packet) error: %v", label, err)
+		}
+		if gotNext != want.next.ret {
+			t.Fatalf("%s Decode(next packet)=%d want %d", label, gotNext, want.next.ret)
+		}
+		comparePCM = nextPCM[:gotNext*dec.channels]
+		compareSamples = gotNext
+		compareState = want.next
+		compareLabel = label + " next-packet"
+	}
+
+	assertFloat32ApproxEqual(t, comparePCM, compareState.pcm[:compareSamples*dec.channels], compareLabel+" live-sequence pcm", stereoPCMTol)
+	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), compareState.state, compareLabel+" live-sequence plc", stereoStateTol)
+	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), compareState.fargan, compareLabel+" live-sequence fargan", stereoStateTol)
+	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, compareState.celt48k, compareLabel+" live-sequence celt", stereoPCMTol)
+}
+
+func TestDecoderCachedStereoDREDCELTMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	tests := []struct {
+		name      string
+		bandwidth Bandwidth
+		frameSize int
+	}{
+		{name: "wb_2_5ms", bandwidth: BandwidthWideband, frameSize: 120},
+		{name: "wb_5ms", bandwidth: BandwidthWideband, frameSize: 240},
+		{name: "wb_10ms", bandwidth: BandwidthWideband, frameSize: 480},
+		{name: "wb_20ms", bandwidth: BandwidthWideband, frameSize: 960},
+		{name: "swb_2_5ms", bandwidth: BandwidthSuperwideband, frameSize: 120},
+		{name: "swb_5ms", bandwidth: BandwidthSuperwideband, frameSize: 240},
+		{name: "swb_10ms", bandwidth: BandwidthSuperwideband, frameSize: 480},
+		{name: "swb_20ms", bandwidth: BandwidthSuperwideband, frameSize: 960},
+		{name: "fb_2_5ms", bandwidth: BandwidthFullband, frameSize: 120},
+		{name: "fb_5ms", bandwidth: BandwidthFullband, frameSize: 240},
+		{name: "fb_10ms", bandwidth: BandwidthFullband, frameSize: 480},
+		{name: "fb_20ms", bandwidth: BandwidthFullband, frameSize: 960},
+	}
+	flows := []cachedStereoDREDLiveFlow{
+		cachedStereoDREDFirstLoss,
+		cachedStereoDREDSecondLoss,
+		cachedStereoDREDFirstLossThenNext,
+		cachedStereoDREDSecondLossThenNext,
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			nextPacket := makeValidStereoCELTPacketForFrameSizeBandwidthForDREDTest(t, tc.frameSize, tc.bandwidth)
+			for _, flow := range flows {
+				flow := flow
+				t.Run(flow.name(), func(t *testing.T) {
+					assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t, "cached stereo CELT "+tc.name+" "+flow.name(), libopusDREDPacketConfig{
+						FrameSize: tc.frameSize,
+						ForceMode: ModeCELT,
+						Bandwidth: tc.bandwidth,
+					}, nextPacket, flow)
+				})
+			}
+		})
+	}
+}
+
+func TestDecoderCachedStereoDREDHybridMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	tests := []struct {
+		name      string
+		bandwidth Bandwidth
+		frameSize int
+	}{
+		{name: "swb_10ms", bandwidth: BandwidthSuperwideband, frameSize: 480},
+		{name: "swb_20ms", bandwidth: BandwidthSuperwideband, frameSize: 960},
+		{name: "fb_10ms", bandwidth: BandwidthFullband, frameSize: 480},
+		{name: "fb_20ms", bandwidth: BandwidthFullband, frameSize: 960},
+	}
+	flows := []cachedStereoDREDLiveFlow{
+		cachedStereoDREDFirstLoss,
+		cachedStereoDREDSecondLoss,
+		cachedStereoDREDFirstLossThenNext,
+		cachedStereoDREDSecondLossThenNext,
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			nextPacket := makeValidStereoHybridPacketForFrameSizeBandwidthForDREDTest(t, tc.frameSize, tc.bandwidth)
+			for _, flow := range flows {
+				flow := flow
+				t.Run(flow.name(), func(t *testing.T) {
+					assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t, "cached stereo Hybrid "+tc.name+" "+flow.name(), libopusDREDPacketConfig{
+						FrameSize: tc.frameSize,
+						ForceMode: ModeHybrid,
+						Bandwidth: tc.bandwidth,
+					}, nextPacket, flow)
+				})
+			}
+		})
+	}
+}
+
 func TestDecoderCachedDREDDecodeCELTSuperwidebandMatrixMatchesLiveSequenceOracle(t *testing.T) {
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize

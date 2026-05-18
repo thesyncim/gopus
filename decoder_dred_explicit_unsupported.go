@@ -190,8 +190,9 @@ func (d *Decoder) decodeExplicitSILKDREDFloat(dred *DRED, dredOffsetSamples int,
 	d.primeExplicitSILKDREDEntryHistory()
 	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
 	cleanupHook := func() {}
+	usedHook := func() bool { return false }
 	if d.dredNeuralConcealmentAvailable() && d.silkDecoder != nil {
-		cleanupHook, _ = d.beginHybridDREDLowbandHook()
+		cleanupHook, usedHook = d.beginHybridDREDLowbandHook()
 	}
 	defer cleanupHook()
 	n, err := d.decodePLCChunksInto(pcm, frameSizeSamples, plcDecodeState{
@@ -204,16 +205,13 @@ func (d *Decoder) decodeExplicitSILKDREDFloat(dred *DRED, dredOffsetSamples int,
 	if err != nil {
 		return 0, err
 	}
-	// Stereo decoders skip the SILK DeepPLC mono hook entirely (it only
-	// fires on the mid channel mono PLC path, and `decodePLCStereo` does
-	// not invoke it). Explicitly advance the mono lpcnet/FARGAN state by
-	// generating the per-packet 16 kHz neural concealment frames so the
-	// retained PLC continuity buffers match what libopus's single
-	// LPCNetPLCState would have produced after consuming the same number
-	// of FEC features. Without this step the lpcnet header fields (blend,
-	// FECReadPos, etc.) remain pinned at their pre-call values and stereo
-	// SILK DRED parity diverges immediately on the first PLC frame.
-	if d.channels == 2 && n > 0 && d.sampleRate > 0 {
+	// libopus passes the single LPCNetPLCState only to SILK channel 0. If
+	// the lowband hook fired, it already consumed the queued FEC features.
+	// Older stereo paths that cannot fire the hook still need an explicit
+	// state advance so retained lpcnet/FARGAN continuity matches libopus.
+	if usedHook() {
+		d.finishActiveDREDRecovery(n)
+	} else if d.channels == 2 && n > 0 && d.sampleRate > 0 {
 		// DRED neural concealment runs at 16 kHz; convert decoder-rate
 		// samples to lpcnet 16 kHz sample count. Skip if the conversion
 		// is non-integral or yields a non-FrameSize multiple.

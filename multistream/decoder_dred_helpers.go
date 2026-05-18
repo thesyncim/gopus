@@ -168,8 +168,8 @@ func (d *Decoder) dredSidecarActive() bool {
 	if s == nil {
 		return false
 	}
-		// Keep the sidecar dormant until a stream actually caches a DRED
-		// payload; the per-stream neural consumer is entered from the PLC path.
+	// Keep the sidecar dormant until a stream actually caches a DRED
+	// payload; the per-stream neural consumer is entered from the PLC path.
 	return len(s.dredCache) != 0
 }
 
@@ -354,6 +354,64 @@ func (d *Decoder) ensureDREDNeuralRuntime(stream int) bool {
 	return true
 }
 
+func (d *Decoder) streamPacketHasDREDPayload(packet []byte) bool {
+	if packet == nil || len(packet) == 0 || d.ignoreExtensions {
+		return false
+	}
+	_, _, ok, err := findDREDPayload(packet)
+	return err == nil && ok
+}
+
+func (d *Decoder) markDREDUpdatedPCMFrame(stream int, samples []int16) {
+	s := d.dredState()
+	if s == nil || stream < 0 || stream >= len(s.dredPLC) || stream >= len(s.dredBridge) || len(samples) < lpcnetplc.FrameSize {
+		return
+	}
+	bridge := &s.dredBridge[stream]
+	usable := len(samples) - len(samples)%lpcnetplc.FrameSize
+	for offset := 0; offset+lpcnetplc.FrameSize <= usable; offset += lpcnetplc.FrameSize {
+		frame := bridge.dredPLCUpdate[:lpcnetplc.FrameSize]
+		for i := 0; i < lpcnetplc.FrameSize; i++ {
+			frame[i] = float32(samples[offset+i]) * (1.0 / 32768.0)
+		}
+		s.dredPLC[stream].MarkUpdatedFrameFloat(frame)
+	}
+}
+
+func (d *Decoder) beginDREDRawMonoGoodFrameCapture(stream int, st *streamState, mode int, packet []byte) func() {
+	if d == nil || st == nil || !d.dredNeuralConcealmentAvailable() || d.ignoreExtensions {
+		return nil
+	}
+	if mode != streamModeSILK && mode != streamModeHybrid {
+		return nil
+	}
+	s := d.dredState()
+	hasSidecar := s != nil && len(s.dredCache) != 0
+	if !hasSidecar {
+		if s == nil || !s.dredModelLoaded || !d.streamPacketHasDREDPayload(packet) {
+			return nil
+		}
+		d.ensureDREDSidecar()
+	}
+	s = d.dredState()
+	if s == nil || stream < 0 || stream >= len(s.dredPLC) || stream >= len(s.dredBridge) {
+		return nil
+	}
+	hook := func(samples []int16) {
+		d.markDREDUpdatedPCMFrame(stream, samples)
+	}
+	switch mode {
+	case streamModeSILK:
+		st.silkDec.SetRawMonoFrameHook(hook)
+		return func() { st.silkDec.SetRawMonoFrameHook(nil) }
+	case streamModeHybrid:
+		st.hybridDec.SetRawMonoFrameHook(hook)
+		return func() { st.hybridDec.SetRawMonoFrameHook(nil) }
+	default:
+		return nil
+	}
+}
+
 func (d *Decoder) prepareDRED48kNeuralEntry(stream, frameSize int, st *streamState) {
 	s := d.dredState()
 	if s == nil || st == nil || st.celtDec == nil || stream < 0 || stream >= len(s.dredPLC) || stream >= len(s.dredBridge) || frameSize <= 0 {
@@ -377,6 +435,77 @@ func (d *Decoder) prepareDRED48kNeuralEntry(stream, frameSize int, st *streamSta
 	}
 }
 
+func (d *Decoder) generateDREDNeuralFrames16k(stream int, dst []float32, samplesPerChannel int) bool {
+	s := d.dredState()
+	if s == nil ||
+		stream < 0 ||
+		stream >= len(s.dredPLC) ||
+		stream >= len(s.dredAnalysis) ||
+		stream >= len(s.dredPredictor) ||
+		stream >= len(s.dredFARGAN) ||
+		samplesPerChannel < lpcnetplc.FrameSize ||
+		samplesPerChannel%lpcnetplc.FrameSize != 0 ||
+		len(dst) < samplesPerChannel ||
+		!d.ensureDREDNeuralRuntime(stream) {
+		return false
+	}
+	plc := &s.dredPLC[stream]
+	analysis := &s.dredAnalysis[stream]
+	predictor := &s.dredPredictor[stream]
+	fargan := &s.dredFARGAN[stream]
+	for offset := 0; offset+lpcnetplc.FrameSize <= samplesPerChannel; offset += lpcnetplc.FrameSize {
+		frame := dst[offset : offset+lpcnetplc.FrameSize]
+		if plc.Blend() == 0 {
+			if !plc.GenerateConcealedFrameFloatWithAnalysis(analysis, predictor, fargan, frame) {
+				return false
+			}
+			continue
+		}
+		if !plc.GenerateConcealedFrameFloat(predictor, fargan, frame) {
+			return false
+		}
+	}
+	return true
+}
+
+func (d *Decoder) decodeDREDSILKOrHybridPLCStream(stream, frameSize int, st *streamState) ([]float64, bool, error) {
+	if st == nil || st.channels < 1 || st.channels > 2 {
+		return nil, false, nil
+	}
+	usedHook := false
+	hook := func(concealed []float32) (bool, int) {
+		if !d.generateDREDNeuralFrames16k(stream, concealed, len(concealed)) {
+			return false, 0
+		}
+		usedHook = true
+		return true, 0
+	}
+
+	var (
+		decoded []float64
+		err     error
+	)
+	switch st.lastMode {
+	case streamModeSILK:
+		st.silkDec.SetDeepPLCLossMonoHook(hook)
+		decoded, err = st.finishDecode(st.decodeSILK(nil, frameSize, st.lastPacketStereo, st.lastBandwidth))
+		st.silkDec.SetDeepPLCLossMonoHook(nil)
+	case streamModeHybrid:
+		st.hybridDec.SetDeepPLCLossMonoHook(hook)
+		decoded, err = st.finishDecode(st.hybridDec.DecodeWithPacketStereo(nil, frameSize, st.lastPacketStereo))
+		st.hybridDec.SetDeepPLCLossMonoHook(nil)
+	default:
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	if !usedHook {
+		return nil, false, nil
+	}
+	return decoded, true, nil
+}
+
 func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float64, bool, error) {
 	s := d.dredState()
 	if s == nil ||
@@ -392,7 +521,21 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float64, bool, e
 		return nil, false, nil
 	}
 	st, ok := d.decoders[stream].(*streamState)
-	if !ok || st == nil || st.celtDec == nil || st.channels < 1 || st.channels > 2 || st.lastMode != streamModeCELT {
+	if !ok || st == nil || st.channels < 1 || st.channels > 2 {
+		return nil, false, nil
+	}
+	if st.lastMode == streamModeSILK || st.lastMode == streamModeHybrid {
+		decoded, ok, err := d.decodeDREDSILKOrHybridPLCStream(stream, frameSize, st)
+		if err != nil || !ok {
+			return decoded, ok, err
+		}
+		if stream < len(s.dredRecovery) {
+			s.dredRecovery[stream] += frameSize
+		}
+		st.recordDecodeCall(frameSize, 0)
+		return decoded, true, nil
+	}
+	if st.celtDec == nil || st.lastMode != streamModeCELT {
 		return nil, false, nil
 	}
 	if frameSize <= 0 {

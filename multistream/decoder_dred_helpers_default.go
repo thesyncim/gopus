@@ -25,6 +25,10 @@ func (d *Decoder) invalidateDREDPayloadState() {}
 
 func (d *Decoder) maybeCacheDREDPayload(_ int, _ []byte) {}
 
+func (d *Decoder) beginDREDRawMonoGoodFrameCapture(_ int, _ *streamState, _ int, _ []byte) func() {
+	return nil
+}
+
 func (d *Decoder) markDREDUpdated(_ int) {}
 
 func (d *Decoder) markDREDConcealedAll() {}

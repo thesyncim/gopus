@@ -229,6 +229,36 @@ func makeValidMonoCELTPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frame
 	return packet
 }
 
+func makeValidStereoCELTPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frameSize int, bandwidth Bandwidth) []byte {
+	t.Helper()
+
+	enc := internalenc.NewEncoder(48000, 2)
+	enc.SetMode(internalenc.ModeCELT)
+	enc.SetBandwidth(types.Bandwidth(bandwidth))
+	enc.SetBitrate(256000)
+	enc.SetForceChannels(2)
+
+	pcm := make([]float64, frameSize*2)
+	for i := 0; i < frameSize; i++ {
+		tm := float64(i) / 48000.0
+		pcm[2*i] = 0.41 * math.Sin(2*math.Pi*823*tm)
+		pcm[2*i+1] = 0.29 * math.Sin(2*math.Pi*617*tm+0.31)
+	}
+
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode(stereo CELT): %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode(stereo CELT) returned empty packet")
+	}
+	toc := ParseTOC(packet[0])
+	if toc.Mode != ModeCELT || toc.Bandwidth != bandwidth || toc.FrameSize != frameSize || !toc.Stereo {
+		t.Fatalf("Encode(stereo CELT) produced mode=%v bandwidth=%v frame=%d stereo=%t, want mode=%v bandwidth=%v frame=%d stereo=true", toc.Mode, toc.Bandwidth, toc.FrameSize, toc.Stereo, ModeCELT, bandwidth, frameSize)
+	}
+	return packet
+}
+
 func makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frameSize int, bandwidth Bandwidth) []byte {
 	t.Helper()
 
@@ -262,6 +292,47 @@ func makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t *testing.T, fra
 	toc := ParseTOC(packet[0])
 	if toc.Mode != ModeHybrid || toc.Bandwidth != bandwidth || toc.FrameSize != frameSize {
 		t.Fatalf("Encode(mono Hybrid) produced mode=%v bandwidth=%v frame=%d, want mode=%v bandwidth=%v frame=%d", toc.Mode, toc.Bandwidth, toc.FrameSize, ModeHybrid, bandwidth, frameSize)
+	}
+	return packet
+}
+
+func makeValidStereoHybridPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frameSize int, bandwidth Bandwidth) []byte {
+	t.Helper()
+
+	if frameSize != 480 && frameSize != 960 {
+		t.Fatalf("hybrid DRED test packet requires 10ms/20ms frame size, got %d", frameSize)
+	}
+	if bandwidth != BandwidthSuperwideband && bandwidth != BandwidthFullband {
+		t.Fatalf("hybrid DRED test packet requires SWB/FB bandwidth, got %v", bandwidth)
+	}
+
+	enc := internalenc.NewEncoder(48000, 2)
+	enc.SetMode(internalenc.ModeHybrid)
+	enc.SetBandwidth(types.Bandwidth(bandwidth))
+	enc.SetBitrate(96000)
+	enc.SetForceChannels(2)
+
+	pcm := make([]float64, frameSize*2)
+	for i := 0; i < frameSize; i++ {
+		tm := float64(i) / 48000.0
+		pcm[2*i] = 0.28*math.Sin(2*math.Pi*173*tm) +
+			0.17*math.Sin(2*math.Pi*347*tm+0.13) +
+			0.09*math.Sin(2*math.Pi*521*tm+0.29)
+		pcm[2*i+1] = 0.25*math.Sin(2*math.Pi*211*tm+0.07) +
+			0.14*math.Sin(2*math.Pi*431*tm+0.19) +
+			0.07*math.Sin(2*math.Pi*653*tm+0.41)
+	}
+
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode(stereo Hybrid): %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode(stereo Hybrid) returned empty packet")
+	}
+	toc := ParseTOC(packet[0])
+	if toc.Mode != ModeHybrid || toc.Bandwidth != bandwidth || toc.FrameSize != frameSize || !toc.Stereo {
+		t.Fatalf("Encode(stereo Hybrid) produced mode=%v bandwidth=%v frame=%d stereo=%t, want mode=%v bandwidth=%v frame=%d stereo=true", toc.Mode, toc.Bandwidth, toc.FrameSize, toc.Stereo, ModeHybrid, bandwidth, frameSize)
 	}
 	return packet
 }

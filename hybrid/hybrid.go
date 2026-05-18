@@ -105,6 +105,24 @@ func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStere
 	return d.decodeAndFinishPacket(data, frameSize, packetStereo, d.channels)
 }
 
+// SetRawMonoFrameHook forwards the SILK lowband raw mono/mid-channel hook used
+// by decoder-side neural PLC/DRED paths.
+func (d *Decoder) SetRawMonoFrameHook(hook silk.RawMonoFrameHook) {
+	if d == nil || d.silkDecoder == nil {
+		return
+	}
+	d.silkDecoder.SetRawMonoFrameHook(hook)
+}
+
+// SetDeepPLCLossMonoHook forwards the SILK lowband loss hook used by
+// decoder-side neural PLC/DRED paths.
+func (d *Decoder) SetDeepPLCLossMonoHook(hook silk.DeepPLCLossMonoHook) {
+	if d == nil || d.silkDecoder == nil {
+		return
+	}
+	d.silkDecoder.SetDeepPLCLossMonoHook(hook)
+}
+
 // DecodeStereo decodes a Hybrid stereo frame and returns 48kHz PCM samples.
 // If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
 // Returns interleaved stereo samples [L0, R0, L1, R1, ...] at 48kHz.
