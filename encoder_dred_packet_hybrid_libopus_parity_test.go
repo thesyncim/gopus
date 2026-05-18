@@ -21,8 +21,6 @@ func requireHybridDREDPacketEnvelopeProbe(t *testing.T) {
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T) {
-	requireHybridDREDPacketEnvelopeProbe(t)
-
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
 		ForceMode: ModeHybrid,
@@ -55,8 +53,6 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T)
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms(t *testing.T) {
-	requireHybridDREDPacketEnvelopeProbe(t)
-
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 1920,
 		ForceMode: ModeHybrid,
