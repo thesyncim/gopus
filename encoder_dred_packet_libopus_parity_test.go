@@ -122,25 +122,58 @@ func encodeUntilDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, 
 }
 
 func encodeUntilDREDPacketWithFrameIndex(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, frameSize, channels int) ([]byte, []byte, int, int) {
+	return encodeUntilDREDPacketWithSettings(t, encoderDREDPacketSettings{
+		mode:      mode,
+		bandwidth: bandwidth,
+		frameSize: frameSize,
+		channels:  channels,
+		bitrate:   encoderDREDBitrateForFrameSize(frameSize),
+	})
+}
+
+type encoderDREDPacketSettings struct {
+	mode      encpkg.Mode
+	bandwidth Bandwidth
+	frameSize int
+	channels  int
+	bitrate   int
+	cbr       bool
+}
+
+func encodeUntilDREDPacketWithSettings(t *testing.T, settings encoderDREDPacketSettings) ([]byte, []byte, int, int) {
 	t.Helper()
+	if settings.frameSize <= 0 {
+		settings.frameSize = 960
+	}
+	if settings.channels <= 0 {
+		settings.channels = 1
+	}
+	if settings.bitrate <= 0 {
+		settings.bitrate = encoderDREDBitrateForFrameSize(settings.frameSize)
+	}
 
 	cfg := EncoderConfig{
 		SampleRate:  48000,
-		Channels:    channels,
+		Channels:    settings.channels,
 		Application: ApplicationAudio,
 	}
 	enc, err := NewEncoder(cfg)
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
-	if err := enc.SetFrameSize(frameSize); err != nil {
+	if err := enc.SetFrameSize(settings.frameSize); err != nil {
 		t.Fatalf("SetFrameSize error: %v", err)
 	}
-	if err := enc.SetBandwidth(bandwidth); err != nil {
+	if err := enc.SetBandwidth(settings.bandwidth); err != nil {
 		t.Fatalf("SetBandwidth error: %v", err)
 	}
-	if err := enc.SetBitrate(encoderDREDBitrateForFrameSize(frameSize)); err != nil {
+	if err := enc.SetBitrate(settings.bitrate); err != nil {
 		t.Fatalf("SetBitrate error: %v", err)
+	}
+	if settings.cbr {
+		if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+			t.Fatalf("SetBitrateMode(CBR) error: %v", err)
+		}
 	}
 	if err := enc.SetSignal(SignalMusic); err != nil {
 		t.Fatalf("SetSignal error: %v", err)
@@ -154,16 +187,16 @@ func encodeUntilDREDPacketWithFrameIndex(t *testing.T, mode encpkg.Mode, bandwid
 	if err := enc.SetDREDDuration(80); err != nil {
 		t.Fatalf("SetDREDDuration error: %v", err)
 	}
-	enc.enc.SetMode(mode)
+	enc.enc.SetMode(settings.mode)
 
-	wantMode, err := encoderModeToPublic(mode)
+	wantMode, err := encoderModeToPublic(settings.mode)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	packet := make([]byte, maxPacketBytesPerStream)
 	for frameIdx := 0; frameIdx < 640; frameIdx++ {
-		pcm := encoderDREDFrame(frameIdx, frameSize, cfg.SampleRate, cfg.Channels)
+		pcm := encoderDREDFrame(frameIdx, settings.frameSize, cfg.SampleRate, cfg.Channels)
 		n, err := enc.Encode(pcm, packet)
 		if err != nil {
 			t.Fatalf("Encode(frame=%d) error: %v", frameIdx, err)
@@ -174,7 +207,7 @@ func encodeUntilDREDPacketWithFrameIndex(t *testing.T, mode encpkg.Mode, bandwid
 		if err != nil {
 			t.Fatalf("parse packet duration frame=%d: %v", frameIdx, err)
 		}
-		if toc.Mode != wantMode || toc.Bandwidth != bandwidth || packetDuration != frameSize {
+		if toc.Mode != wantMode || toc.Bandwidth != settings.bandwidth || packetDuration != settings.frameSize {
 			continue
 		}
 		payload, frameOffset, ok, err := findDREDPayload(gotPacket)
@@ -185,7 +218,7 @@ func encodeUntilDREDPacketWithFrameIndex(t *testing.T, mode encpkg.Mode, bandwid
 			return gotPacket, append([]byte(nil), payload...), frameOffset, frameIdx
 		}
 	}
-	t.Fatalf("no DRED packet emitted for mode=%v bandwidth=%v frameSize=%d", mode, bandwidth, frameSize)
+	t.Fatalf("no DRED packet emitted for mode=%v bandwidth=%v frameSize=%d", settings.mode, settings.bandwidth, settings.frameSize)
 	return nil, nil, 0, 0
 }
 
@@ -290,6 +323,50 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms(t *testing.T) {
 		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
 	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msCBR(t *testing.T) {
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeSILK,
+		Bandwidth: BandwidthWideband,
+		Bitrate:   40000,
+		CBR:       true,
+	})
+	if err != nil {
+		t.Skipf("libopus CBR DRED packet helper unavailable: %v", err)
+	}
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+	if err != nil {
+		t.Fatalf("findDREDPayload(libopus) error: %v", err)
+	}
+	if !ok {
+		t.Fatal("libopus CBR silk packet missing DRED payload")
+	}
+
+	gotPacket, gotPayload, gotOffset, gotFrameIndex := encodeUntilDREDPacketWithSettings(t, encoderDREDPacketSettings{
+		mode:      encpkg.ModeSILK,
+		bandwidth: BandwidthWideband,
+		frameSize: 960,
+		channels:  1,
+		bitrate:   40000,
+		cbr:       true,
+	})
+	if ParseTOC(gotPacket[0]).Mode != ModeSILK {
+		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeSILK)
+	}
+	if gotFrameIndex != packetInfo.frameIndex {
+		t.Fatalf("DRED frame index=%d want %d", gotFrameIndex, packetInfo.frameIndex)
+	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
+	if !bytes.Equal(gotPayload, wantPayload) {
+		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+	}
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms(t *testing.T) {

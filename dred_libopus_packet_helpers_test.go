@@ -46,6 +46,8 @@ type libopusDREDPacketConfig struct {
 	Bandwidth     Bandwidth
 	Channels      int
 	ForceChannels int
+	Bitrate       int
+	CBR           bool
 	Multistream   bool
 }
 
@@ -92,6 +94,9 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 	if cfg.Channels <= 0 {
 		cfg.Channels = 1
 	}
+	if cfg.Bitrate <= 0 {
+		cfg.Bitrate = encoderDREDBitrateForFrameSize(cfg.FrameSize)
+	}
 	forceModeEnv, err := libopusDREDForceModeEnv(cfg.ForceMode)
 	if err != nil {
 		return libopusDREDPacket{}, err
@@ -106,7 +111,11 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 		fmt.Sprintf("GOPUS_DRED_CHANNELS=%d", cfg.Channels),
 		fmt.Sprintf("GOPUS_DRED_FORCE_MODE=%s", forceModeEnv),
 		fmt.Sprintf("GOPUS_DRED_BANDWIDTH=%s", bandwidthEnv),
+		fmt.Sprintf("GOPUS_DRED_BITRATE=%d", cfg.Bitrate),
 	)
+	if cfg.CBR {
+		cmd.Env = append(cmd.Env, "GOPUS_DRED_CBR=1")
+	}
 	if cfg.ForceChannels != 0 {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("GOPUS_DRED_FORCE_CHANNELS=%d", cfg.ForceChannels))
 	}

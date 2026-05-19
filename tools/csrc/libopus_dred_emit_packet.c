@@ -165,8 +165,11 @@ int main(void) {
   const char *force_mode_env = getenv("GOPUS_DRED_FORCE_MODE");
   const char *bandwidth_env = getenv("GOPUS_DRED_BANDWIDTH");
   const char *multistream_env = getenv("GOPUS_DRED_MULTISTREAM");
+  const char *bitrate_env = getenv("GOPUS_DRED_BITRATE");
+  const char *cbr_env = getenv("GOPUS_DRED_CBR");
   int force_channels = 0;
   int use_multistream = 0;
+  int use_cbr = 0;
 
   if (frame_size_env != NULL && frame_size_env[0] != '\0') {
     char *end = NULL;
@@ -218,6 +221,23 @@ int main(void) {
   }
 
   bitrate = dred_helper_bitrate_for_frame_size(frame_size);
+  if (bitrate_env != NULL && bitrate_env[0] != '\0') {
+    char *end = NULL;
+    long parsed = strtol(bitrate_env, &end, 10);
+    if (end == NULL || *end != '\0' || parsed <= 0 || parsed > 510000) {
+      fprintf(stderr, "invalid GOPUS_DRED_BITRATE=%s\n", bitrate_env);
+      return 1;
+    }
+    bitrate = (int)parsed;
+  }
+  if (cbr_env != NULL && cbr_env[0] != '\0') {
+    if (strcmp(cbr_env, "1") == 0 || strcmp(cbr_env, "true") == 0) {
+      use_cbr = 1;
+    } else if (strcmp(cbr_env, "0") != 0 && strcmp(cbr_env, "false") != 0) {
+      fprintf(stderr, "invalid GOPUS_DRED_CBR=%s\n", cbr_env);
+      return 1;
+    }
+  }
 
   if (force_mode_enabled && force_mode == MODE_HYBRID && bandwidth <= OPUS_BANDWIDTH_WIDEBAND) {
     fprintf(stderr, "hybrid DRED packet helper requires swb/fb bandwidth, got %d\n", bandwidth);
@@ -274,6 +294,9 @@ int main(void) {
     if (force_mode_enabled) {
       opus_multistream_encoder_ctl(ms_enc, OPUS_SET_FORCE_MODE(force_mode));
     }
+    if (use_cbr) {
+      opus_multistream_encoder_ctl(ms_enc, OPUS_SET_VBR(0));
+    }
     opus_multistream_encoder_ctl(ms_enc, OPUS_SET_PACKET_LOSS_PERC(20));
   } else {
     opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate));
@@ -284,6 +307,9 @@ int main(void) {
     }
     if (force_mode_enabled) {
       opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE(force_mode));
+    }
+    if (use_cbr) {
+      opus_encoder_ctl(enc, OPUS_SET_VBR(0));
     }
     opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(20));
   }
