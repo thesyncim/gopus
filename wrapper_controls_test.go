@@ -243,6 +243,22 @@ func makeFramedButIncompatibleTestDNNBlob() []byte {
 	return appendTestBlobRecord(nil, "dummy_record", 0, 4)
 }
 
+func makeNameCompleteEncoderTestDNNBlob() []byte {
+	var blob []byte
+	for _, name := range dnnblob.RequiredEncoderControlRecordNames() {
+		blob = appendTestBlobRecord(blob, name, dnnblob.TypeFloat, 4)
+	}
+	return blob
+}
+
+func makeNameCompleteDecoderTestDNNBlob() []byte {
+	var blob []byte
+	for _, name := range dnnblob.RequiredDecoderControlRecordNames(false) {
+		blob = appendTestBlobRecord(blob, name, dnnblob.TypeFloat, 4)
+	}
+	return blob
+}
+
 func makeValidEncoderTestDNNBlob() []byte {
 	specs := make(map[string]testBlobRecordSpec)
 	for _, spec := range lpcnetplc.PitchDNNLinearLayerSpecs() {
@@ -352,6 +368,28 @@ func TestValidDecoderTestDNNBlobShape(t *testing.T) {
 		if !strings.Contains(string(blob), name) {
 			t.Fatalf("missing record name %q", name)
 		}
+	}
+}
+
+func TestEncoderSetDNNBlobRejectsNameOnlyModelBlob(t *testing.T) {
+	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
+
+	if err := enc.SetDNNBlob(makeNameCompleteEncoderTestDNNBlob()); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(name-only encoder blob) error=%v want %v", err, ErrInvalidArgument)
+	}
+	if enc.dnnBlob != nil || enc.enc.DNNBlobLoaded() {
+		t.Fatal("encoder retained name-only DNN blob")
+	}
+}
+
+func TestDecoderSetDNNBlobRejectsNameOnlyModelBlob(t *testing.T) {
+	dec := mustNewTestDecoder(t, 48000, 1)
+
+	if err := dec.SetDNNBlob(makeNameCompleteDecoderTestDNNBlob()); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(name-only decoder blob) error=%v want %v", err, ErrInvalidArgument)
+	}
+	if dec.dnnBlob != nil || dec.pitchDNNLoaded || dec.plcModelLoaded || dec.farganModelLoaded {
+		t.Fatal("decoder retained name-only DNN blob")
 	}
 }
 
