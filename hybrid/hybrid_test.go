@@ -213,14 +213,52 @@ func TestHybridReset(t *testing.T) {
 	}
 }
 
-// TestHybridOutputRange verifies output samples are in expected range.
-// Note: This test was previously skipped due to lack of valid test data.
-// Real packet integration testing is now in TestHybridRealPacketDecode and
-// TestHybridOutputSampleRange which use createMinimalHybridPacket.
+// TestHybridOutputRange verifies output samples stay finite and bounded for
+// syntactically valid minimal hybrid packets.
 func TestHybridOutputRange(t *testing.T) {
-	// Redirect to the new integration tests which use properly encoded packets
-	// See: TestHybridRealPacketDecode, TestHybridOutputSampleRange
-	t.Skip("Skipping: see TestHybridRealPacketDecode and TestHybridOutputSampleRange for real packet testing")
+	tests := []struct {
+		name      string
+		channels  int
+		frameSize int
+		stereo    bool
+	}{
+		{name: "mono_10ms", channels: 1, frameSize: 480},
+		{name: "mono_20ms", channels: 1, frameSize: 960},
+		{name: "stereo_20ms", channels: 2, frameSize: 960, stereo: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			d := NewDecoder(tt.channels)
+			packet := createMinimalHybridPacket(tt.frameSize)
+
+			rd := &rangecoding.Decoder{}
+			rd.Init(packet)
+
+			output, err := d.decodeFrame(rd, tt.frameSize, tt.stereo)
+			if err != nil {
+				t.Fatalf("decodeFrame failed: %v", err)
+			}
+
+			wantLen := tt.frameSize * tt.channels
+			if len(output) != wantLen {
+				t.Fatalf("output length = %d, want %d", len(output), wantLen)
+			}
+
+			var maxAbs float64
+			for i, sample := range output {
+				if math.IsNaN(sample) || math.IsInf(sample, 0) {
+					t.Fatalf("output[%d] is invalid: %f", i, sample)
+				}
+				if abs := math.Abs(sample); abs > maxAbs {
+					maxAbs = abs
+				}
+			}
+			if maxAbs > 100 {
+				t.Fatalf("max absolute sample value = %f, want <= 100", maxAbs)
+			}
+		})
+	}
 }
 
 // TestHybridStereo verifies stereo hybrid decoding API.
