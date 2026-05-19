@@ -55,7 +55,6 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 				bandwidth:          d.lastBandwidth,
 				packetStereo:       d.prevPacketStereo,
 				useDecoderPLCState: true,
-				queueCachedDRED:    true,
 			})
 		} else if !usedNeuralConcealment {
 			n, err = d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{

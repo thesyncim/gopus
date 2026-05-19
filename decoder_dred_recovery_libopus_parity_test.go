@@ -141,15 +141,15 @@ func assertDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T, label 
 	assertDecoderCachedDREDRecoveryMatchesLibopus(t, dec, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, true)
 }
 
-func TestDecoderCachedDREDRecoveryCursorAdvancesAcrossLosses(t *testing.T) {
+func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacket()
 	if err != nil {
 		t.Skipf("libopus dred packet helper unavailable: %v", err)
 	}
-	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "16k_celt", packetInfo, 16000, true)
+	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "16k_celt", packetInfo, 16000)
 }
 
-func TestDecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELT(t *testing.T) {
+func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kCELT(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
 		ForceMode: ModeCELT,
@@ -158,10 +158,10 @@ func TestDecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELT(t *testing.T
 	if err != nil {
 		t.Skipf("libopus dred packet helper unavailable: %v", err)
 	}
-	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_celt", packetInfo, packetInfo.sampleRate, true)
+	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_celt", packetInfo, packetInfo.sampleRate)
 }
 
-func TestDecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELTStereo(t *testing.T) {
+func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kCELTStereo(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:     960,
 		ForceMode:     ModeCELT,
@@ -175,7 +175,7 @@ func TestDecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELTStereo(t *tes
 	if !ParseTOC(packetInfo.packet[0]).Stereo {
 		t.Fatalf("forced stereo CELT recovery cursor packet produced mono TOC (toc=0x%02x)", packetInfo.packet[0])
 	}
-	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_celt_stereo", packetInfo, packetInfo.sampleRate, true)
+	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_celt_stereo", packetInfo, packetInfo.sampleRate)
 }
 
 func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid(t *testing.T) {
@@ -189,7 +189,7 @@ func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid(t *testin
 	}
 	// Ordinary cached Hybrid Decode(nil) follows libopus live loss semantics:
 	// the lowband hook may run, but cached DRED recovery is not queued.
-	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_hybrid", packetInfo, packetInfo.sampleRate, false)
+	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_hybrid", packetInfo, packetInfo.sampleRate)
 }
 
 func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybridStereo(t *testing.T) {
@@ -208,10 +208,10 @@ func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybridStereo(t *
 	}
 	// Ordinary cached Hybrid Decode(nil) follows libopus live loss semantics:
 	// cached DRED recovery is not queued even after the stereo runtime gate is lifted.
-	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_hybrid_stereo", packetInfo, packetInfo.sampleRate, false)
+	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_hybrid_stereo", packetInfo, packetInfo.sampleRate)
 }
 
-func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label string, packetInfo libopusDREDPacket, decoderSampleRate int, wantAdvance bool) {
+func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label string, packetInfo libopusDREDPacket, decoderSampleRate int) {
 	t.Helper()
 
 	modelBlob, err := probeLibopusDREDModelBlob()
@@ -248,27 +248,25 @@ func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label strin
 		t.Fatalf("%s dredRecovery after good decode=%d want 0", label, requireDecoderDREDState(t, dec).dredRecovery)
 	}
 
-	n1, err := dec.Decode(nil, pcm)
-	if err != nil {
+	if _, err := dec.Decode(nil, pcm); err != nil {
 		t.Fatalf("%s Decode(nil, first) error: %v", label, err)
 	}
 	wantRecovery := 0
-	if wantAdvance {
-		wantRecovery = n1
-	}
 	if requireDecoderDREDState(t, dec).dredRecovery != wantRecovery {
 		t.Fatalf("%s dredRecovery after first loss=%d want %d", label, requireDecoderDREDState(t, dec).dredRecovery, wantRecovery)
 	}
-
-	n2, err := dec.Decode(nil, pcm)
-	if err != nil {
-		t.Fatalf("%s Decode(nil, second) error: %v", label, err)
+	if requireDecoderDREDState(t, dec).dredPLC.FECFillPos() != 0 {
+		t.Fatalf("%s FECFillPos after first loss=%d want 0", label, requireDecoderDREDState(t, dec).dredPLC.FECFillPos())
 	}
-	if wantAdvance {
-		wantRecovery += n2
+
+	if _, err := dec.Decode(nil, pcm); err != nil {
+		t.Fatalf("%s Decode(nil, second) error: %v", label, err)
 	}
 	if requireDecoderDREDState(t, dec).dredRecovery != wantRecovery {
 		t.Fatalf("%s dredRecovery after second loss=%d want %d", label, requireDecoderDREDState(t, dec).dredRecovery, wantRecovery)
+	}
+	if requireDecoderDREDState(t, dec).dredPLC.FECFillPos() != 0 {
+		t.Fatalf("%s FECFillPos after second loss=%d want 0", label, requireDecoderDREDState(t, dec).dredPLC.FECFillPos())
 	}
 
 	if _, err := dec.Decode(packetInfo.packet, pcm); err != nil {

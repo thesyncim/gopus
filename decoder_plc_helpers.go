@@ -8,7 +8,6 @@ type plcDecodeState struct {
 	bandwidth          Bandwidth
 	packetStereo       bool
 	useDecoderPLCState bool
-	queueCachedDRED    bool
 }
 
 func nextPLCChunkSamples(sampleRate int, mode Mode, remaining int) int {

@@ -605,27 +605,6 @@ func (d *Decoder) queueCachedDREDRecovery(maxDredSamples, decodeOffsetSamples, f
 	return internaldred.QueueProcessedFeaturesWithInitFrames(&r.dredPLC, d.cachedDREDResult(maxDredSamples), &p.dredDecoded, decodeOffsetSamples, frameSizeSamples, initFrames)
 }
 
-func (d *Decoder) queueActiveDREDRecovery(frameSizeSamples int) internaldred.FeatureWindow {
-	p := d.dredPayloadState()
-	r := d.dredRecoveryState()
-	if p == nil || r == nil || frameSizeSamples <= 0 {
-		return internaldred.FeatureWindow{}
-	}
-	decodeOffsetSamples := frameSizeSamples + r.dredRecovery
-	initFrames := 0
-	if r.dredPLC.Blend() == 0 && r.dredRecovery == 0 {
-		initFrames = 2
-	}
-	return internaldred.QueueProcessedFeaturesWithInitFrames(
-		&r.dredPLC,
-		d.cachedDREDResult(decodeOffsetSamples),
-		&p.dredDecoded,
-		decodeOffsetSamples,
-		frameSizeSamples,
-		initFrames,
-	)
-}
-
 func (d *Decoder) finishActiveDREDRecovery(frameSizeSamples int) {
 	r := d.dredRecoveryState()
 	if r == nil || frameSizeSamples <= 0 {
@@ -980,13 +959,9 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 		return false
 	}
 	if b != nil && (d.sampleRate == 48000 || d.sampleRate == 16000) {
-		cachedDRED := d.dredCachedPayloadActive()
 		d.prepareDRED48kNeuralEntry(samplesPerChannel, d.prevMode, false)
 		if !d.applyPLCNeuralConcealment48kMono(pcm, samplesPerChannel) {
 			return false
-		}
-		if cachedDRED {
-			d.finishActiveDREDRecovery(samplesPerChannel)
 		}
 		return true
 	}
