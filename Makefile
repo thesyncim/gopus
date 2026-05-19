@@ -87,6 +87,7 @@ DEFAULT_OGG_WRITER_FLOW_RUN = 'Test(WritePacket_(Single|ShortWriteRollsBackGranu
 DEFAULT_OGG_PAGE_RUN = 'Test(OggCRC|BuildSegmentTable|ParseSegmentTable|SegmentTableRoundTrip|PageEncode|ParsePage|ParsePage_BadCRC|ParsePage_Truncated|PageFlags)$$'
 DEFAULT_OGG_PAGE_PACKET_RUN = 'Test(PagePackets|PagePackets_LargePacket|PagePackets_MultiplePackets|PagePackets_Continuation|CRCCompatibility|PageRoundTrip_FullOggOpus|PageRoundTrip_AudioData|ParsePage_MultiplePages)$$'
 DEFAULT_OGG_METADATA_RUN = 'Test(OpusHeadFamily0_Mono|OpusHeadFamily0_Stereo|OpusHeadFamily1|OpusHeadRoundTrip|OpusTags|OpusHeadErrors|OpusTagsErrors)$$'
+DEFAULT_OGG_PROJECTION_RUN = 'TestDefaultProjectionDemixingMatrix(LibopusParity|FallbackIdentity)$$'
 DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN = 'Test(DecoderDecodeValidUnknownExtensionMatchesBasePacket|DecoderOpaquePaddingRemainsDecodableInDefaultBuild|DecoderCELTOpaquePaddingRemainsDecodable|DecoderCELTUnsupportedQEXTExtensionMatchesBasePacket)'
 DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN = 'Test(MultistreamPacketPadUnpadSelfDelimitedRoundTrip|MultistreamPacketPadUnpadThreeStreamsRoundTrip|MultistreamPacketPadRejectsInvalidSelfDelimited|MultistreamPacketUnpadRejectsInvalidSelfDelimited|MultistreamPacketPadRejectsLibopusParserEnvelopeViolation|MultistreamPacketUnpadRejectsLibopusParserEnvelopeViolation)'
 DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN = 'Test(SelfDelimitedPacketPreservesPacketExtensions|DecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding)'
@@ -189,6 +190,7 @@ test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_PAGE_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_PAGE_PACKET_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_METADATA_RUN) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_PROJECTION_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN) -count=1
