@@ -701,28 +701,10 @@ func pitchXCorrFloatNEON(dst, x, y []float32, length, maxPitch int) {
 }
 
 func innerProdFloatNEON(x, y []float32, length int) float32 {
-	var s0, s1, s2, s3 float32
-	i := 0
-	for ; i < length-7; i += 8 {
-		s0 = fma32(x[i], y[i], s0)
-		s1 = fma32(x[i+1], y[i+1], s1)
-		s2 = fma32(x[i+2], y[i+2], s2)
-		s3 = fma32(x[i+3], y[i+3], s3)
-		s0 = fma32(x[i+4], y[i+4], s0)
-		s1 = fma32(x[i+5], y[i+5], s1)
-		s2 = fma32(x[i+6], y[i+6], s2)
-		s3 = fma32(x[i+7], y[i+7], s3)
-	}
-	if length-i >= 4 {
-		s0 = fma32(x[i], y[i], s0)
-		s1 = fma32(x[i+1], y[i+1], s1)
-		s2 = fma32(x[i+2], y[i+2], s2)
-		s3 = fma32(x[i+3], y[i+3], s3)
-		i += 4
-	}
-	sum := (s0 + s2) + (s1 + s3)
-	for ; i < length; i++ {
-		sum = fma32(x[i], y[i], sum)
+	var sum float32
+	for i := 0; i < length; i++ {
+		prod := math.Float32frombits(math.Float32bits(x[i] * y[i]))
+		sum = math.Float32frombits(math.Float32bits(sum + prod))
 	}
 	return sum
 }
