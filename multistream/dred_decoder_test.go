@@ -725,6 +725,33 @@ func TestDecoderDecodeNilConsumesMultistreamDREDNeuralSILKMonoStream(t *testing.
 	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "silk mono", packet, channels, targetStream)
 }
 
+func TestDecoderDecodeNilConsumesMultistreamDREDNeuralCELTNonFinalMonoStream(t *testing.T) {
+	const channels = 6
+	const targetStream = 2
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeCELTMultistreamPacketWithDREDForTest(t, channels, targetStream, body)
+
+	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "celt non-final mono", packet, channels, targetStream)
+}
+
+func TestDecoderDecodeNilConsumesMultistreamDREDNeuralHybridNonFinalMonoStream(t *testing.T) {
+	const channels = 6
+	const targetStream = 2
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeModeMultistreamPacketWithDREDForTest(t, channels, targetStream, internalenc.ModeHybrid, types.BandwidthFullband, 128000, body)
+
+	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "hybrid non-final mono", packet, channels, targetStream)
+}
+
+func TestDecoderDecodeNilConsumesMultistreamDREDNeuralSILKNonFinalMonoStream(t *testing.T) {
+	const channels = 6
+	const targetStream = 2
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeModeMultistreamPacketWithDREDForTest(t, channels, targetStream, internalenc.ModeSILK, types.BandwidthWideband, 96000, body)
+
+	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "silk non-final mono", packet, channels, targetStream)
+}
+
 func extractMappedStreamSamplesForTest(t *testing.T, samples []float64, frameSize, outputChannels int, mapping []byte, coupledStreams, targetStream int) []float64 {
 	t.Helper()
 
