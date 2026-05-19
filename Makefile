@@ -67,50 +67,6 @@ RUNNABLE_FAST = GOPUS_TEST_TIER=fast $(GO_RUNNABLE_TEST)
 RUNNABLE_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABLE_TEST)
 DNN_BLOB_DEFAULT_ROOT_RUN = 'Test(DefaultBuildDNNBlobKeepsDREDRuntimeDormant|DefaultBuildEncoderDNNBlobKeepsDREDDormant|HotPathAllocsDecodePLCDNNReadyAtMostBaseline|EncoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobStereoRuntimeRetainedAcrossReset|MultistreamEncoderSetDNNBlobRetainedAcrossReset|MultistreamDecoderSetDNNBlobRetainedAcrossReset|ValidEncoderTestDNNBlobShape|ValidDecoderTestDNNBlobShape)'
 DNN_BLOB_DEFAULT_MULTISTREAM_RUN = 'Test(DefaultBuildMultistreamDecoderRealBlobDormant|DefaultBuildMultistreamEncoderDNNBlobKeepsAllocsFlat)'
-DEFAULT_DECODER_DECODE_ROOT_RUN = 'TestDecoder_(Decode_Float32|Decode_Int16|Decode_BufferTooSmall|Decode_PLC|Reset|Stereo|TOCParsing)$$'
-DEFAULT_DECODER_STATE_ROOT_RUN = 'Test(NewDecoder_DefaultMaxPacketLimits|Decode_ModeRouting|Decode_ExtendedFrameSizes|Decode_PLC_ModeTracking|Decoder_BandwidthAndLastPacketDuration)'
-DEFAULT_DECODER_FEC_ROOT_RUN = 'Test(DecodeWithFEC_FallbackToPLC|DecodeWithFEC_CELTNoFEC|DecodeWithFEC_SILKStoresFEC|StoreFECData_ReusesBackingBuffer|DecodeFECFrame_BufferSizingUsesSingleFrame|DecodeWithFEC_HybridStoresFEC|DecodeWithFEC_Recovery|DecodeWithFEC_ResetClearsFEC)'
-DEFAULT_DECODER_FEC_PACKET_ROOT_RUN = 'Test(DecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode|DecodeWithFEC_FrameSizeTransitionUsesProvidedPacketGranularity|DecodeWithFEC_ProvidedCELTPacketFallsBackToPLC|DecodeWithFEC_ProvidedCELTPacketClearsStoredFECState|DecodeWithFEC_ProvidedPacketUsesPacketModeForCELTGate|DecodeWithFEC_ProvidedPacketWithoutLBRRUsesDirectPLCFallback|DecodeWithFEC_PLCWithProvidedStateUsesProvidedMode|DecodeWithFEC_NoFECRequested)'
-DEFAULT_FEC_LBRR_ROOT_RUN = 'TestFEC_(EndToEnd|ProvidedPacketRecoveryPath|LBRRPresence|RecoveryQuality|MultiplePacketLoss|LBRRActualRecovery|HasLBRRCheck|SILKEncoderLBRREnabled|ProvidedPacketWithoutLBRRFallsBackToPLC)$$'
-DEFAULT_MULTISTREAM_DECODER_STATE_ROOT_RUN = 'TestMultistreamDecoder(FirstPacketDurationMatrix|TracksPacketDurationChanges|EmptyPacketRejected)'
-DEFAULT_MULTISTREAM_ROUNDTRIP_ROOT_RUN = 'TestMultistream(Encoder_Creation|Decoder_Creation|ConstructorErrorsReportSupportedRanges|RoundTrip_(51|71|Stereo|MultipleFrames|Int16|Mono|AllApplications)|Encoder_Reset|Decoder_Reset|Encoder_ExplicitConstructor|Decoder_ExplicitConstructor)$$'
-DEFAULT_MULTISTREAM_SAMPLE_PATH_ROOT_RUN = 'TestMultistream(Encoder_EncodeInt24|Encoder_EncodeInt24InvalidFrameSize|Decoder_PLC)$$'
-DEFAULT_WRAPPER_SAFETY_ROOT_RUN = 'Test(EncoderEncodeInt16RejectsOversizedInputWithoutPanic|MultistreamEncoderEncodeInt16RejectsOversizedInputWithoutPanic|DecoderResetClearsReportedState)'
-DEFAULT_CONSTRUCTOR_VALIDATION_ROOT_RUN = 'Test(NewDecoder_(ValidParams|InvalidSampleRate|InvalidChannels)|NewEncoder_(ValidParams|InvalidParams|InvalidApplication)|SettingsForApplicationInvalidReturnsError|APIAbuseReturnsError)$$'
-DEFAULT_PUBLIC_API_ROUNDTRIP_ROOT_RUN = 'Test(RoundTrip_(Mono_Float32|Stereo_Float32|Mono_Int16|Stereo_Int16|MultipleFrames|AllSampleRates)|Application_(VoIP|Audio)|PLC_(SingleLoss|MultipleLoss)|PacketParsing|SILK10msOpusRoundTrip|BufferSizing)$$'
-DEFAULT_BUILD_SAFETY_ROOT_RUN = 'Test(BuildNoCGO|BuildAllPackages|NoUnsafeImports|NoCGOSourceDirectives|NoCGOTestArtifacts)$$'
-DEFAULT_HOTPATH_ALLOCS_ROOT_RUN = 'TestHotPathAllocs(EncodeFloat32|EncodeInt16|EncodeRestrictedSilkLowComplexity|DecodeFloat32|DecodeInt16|DecodePLC|DecodeStereo|StreamWriterFloat32)$$'
-DEFAULT_ENCODER_ENCODE_ROOT_RUN = 'TestEncoder_(Encode_Float32|Encode_Int16|Encode_Int24|Encode_Int24_InvalidFrameSize|Encode_RoundTrip|Stereo|FrameSize|EncodeFloat32_Convenience|EncodeInt16Slice_Convenience|InvalidFrameSize_Encode|LongPacketRoundTrip)$$'
-DEFAULT_ENCODER_STATE_ROOT_RUN = 'TestEncoder_(DTX_Silence|InDTXDelegatesToCoreEncoder|VADActivityDelegatesToCoreEncoder|FEC|Reset)$$'
-DEFAULT_ENCODER_ROUTING_ROOT_RUN = 'TestEncoder_(SignalVoice_BiasesTowardSILK|SignalMusic_BiasesTowardCELT|MaxBandwidth_ClampsOutput)$$'
-DEFAULT_ENCODER_CONTROLS_ROOT_RUN = 'TestEncoder_(SetBitrate|SetComplexity|SetBitrateMode|SetVBRAndConstraint|SetPacketLoss|SetBandwidth|SetApplication|RestrictedApplications|ExpertFrameDuration|SetSignal|SetMaxBandwidth|SetForceChannels|Lookahead|SetLSBDepth|SetPredictionDisabled|SetPhaseInversionDisabled)$$'
-DEFAULT_DECODER_CONTROLS_ROOT_RUN = 'TestDecoder_(InDTX|SetGainBounds|IgnoreExtensions|GainAppliedToDecodeOutput|PitchGetter)$$'
-DEFAULT_MULTISTREAM_CONTROLS_ROOT_RUN = 'TestMultistream(Encoder_(Controls|CVBRPacketEnvelope|SetApplicationPreservesControls|SetApplicationForwardsModeAndBandwidth|SetApplicationAfterEncodeRejected|RestrictedApplications|Lookahead)|Decoder_IgnoreExtensions)$$'
-DEFAULT_STREAM_READER_ROOT_RUN = 'Test(NewReader_(ValidParams|InvalidParams)|Reader_(Format_Float32LE|Format_Int16LE|Reset|io_Reader_Interface))$$'
-DEFAULT_STREAM_READER_FLOW_ROOT_RUN = 'TestReader_(Read_SinglePacket|LastGranulePos|Read_MultiplePackets|Read_PartialRead|Read_EOF|Read_PLC)$$'
-DEFAULT_STREAM_WRITER_ROOT_RUN = 'Test(NewWriter_(ValidParams|InvalidParams)|Writer_(Format_Float32LE|Format_Int16LE|Flush|Flush_Empty|Close_FlushesAndClosesSink|Close_Idempotent|Reset|io_Writer_Interface))$$'
-DEFAULT_STREAM_WRITER_FLOW_ROOT_RUN = 'TestWriter_(Write_SingleFrame|Write_MultipleFrames|Write_PartialFrame|Write_CrossFrameBoundary|WriteAfterClose|ResetAfterCloseReopensWriter|SinkShortWriteReturnsPartialProgress|SinkErrorAfterPartialWriteReturnsShortWrite|DTX)$$'
-DEFAULT_STREAM_END_TO_END_ROOT_RUN = 'TestStream_(RoundTrip_Float32|RoundTrip_Int16|Pipe|LargeTransfer|io_Copy|MixedReadWrite)$$'
-DEFAULT_OGG_READER_RUN = 'Test(NewReader_(Valid|NotOgg|NilReader|BadMagic)|Reader_(HeaderFields|MultistreamHeader|Serial|EmptyStream|GranulePos))$$'
-DEFAULT_OGG_READER_FLOW_RUN = 'Test(Reader_(LargePacket|WriterRoundTrip|SeekGranule|SeekGranule_NotSeekable|Truncated)|ReadPacket_MultiPacketPageGranules)$$'
-DEFAULT_OGG_WRITER_RUN = 'Test(NewWriter_(Mono|Stereo|InvalidChannels|NilWriter)|WriterWithConfig_(Multistream|PreservesMappingFamily|InvalidConfig)|WriterPreSkip|WriterOutputGain)$$'
-DEFAULT_OGG_WRITER_FLOW_RUN = 'Test(WritePacket_(Single|ShortWriteRollsBackGranule|Multiple|LargePacket)|Close|WriterGranulePositionSequence)$$'
-DEFAULT_OGG_PAGE_RUN = 'Test(OggCRC|BuildSegmentTable|ParseSegmentTable|SegmentTableRoundTrip|PageEncode|ParsePage|ParsePage_BadCRC|ParsePage_Truncated|PageFlags)$$'
-DEFAULT_OGG_PAGE_PACKET_RUN = 'Test(PagePackets|PagePackets_LargePacket|PagePackets_MultiplePackets|PagePackets_Continuation|CRCCompatibility|PageRoundTrip_FullOggOpus|PageRoundTrip_AudioData|ParsePage_MultiplePages)$$'
-DEFAULT_OGG_METADATA_RUN = 'Test(OpusHeadFamily0_Mono|OpusHeadFamily0_Stereo|OpusHeadFamily1|OpusHeadRoundTrip|OpusTags|OpusHeadErrors|OpusTagsErrors)$$'
-DEFAULT_OGG_PROJECTION_RUN = 'TestDefaultProjectionDemixingMatrix(LibopusParity|FallbackIdentity)$$'
-DEFAULT_OGG_INTERNAL_INTEGRATION_RUN = 'TestIntegration_(RoundTrip|ReaderWriterRoundTrip|GranulePosition|ContainerStructure|LargeFile)$$'
-DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN = 'Test(DecoderDecodeValidUnknownExtensionMatchesBasePacket|DecoderOpaquePaddingRemainsDecodableInDefaultBuild|DecoderCELTOpaquePaddingRemainsDecodable|DecoderCELTUnsupportedQEXTExtensionMatchesBasePacket)'
-DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN = 'Test(MultistreamPacketPadUnpadSelfDelimitedRoundTrip|MultistreamPacketPadUnpadThreeStreamsRoundTrip|MultistreamPacketPadRejectsInvalidSelfDelimited|MultistreamPacketUnpadRejectsInvalidSelfDelimited|MultistreamPacketPadRejectsLibopusParserEnvelopeViolation|MultistreamPacketUnpadRejectsLibopusParserEnvelopeViolation)'
-DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN = 'Test(SelfDelimitedPacketPreservesPacketExtensions|DecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding)'
-DEFAULT_PACKET_PARSER_ROOT_RUN = 'Test(ParsePacketCode0|ParsePacketCode1|ParsePacketCode2|ParsePacketCode3CBR|ParsePacketCode3VBR|TwoByteFrameLength|ParsePacketErrors|ExtractFirstFramePayloadCode3VBROneFrameWithPadding|DecodeCode3VBROneFramePaddingRegression|ParsePacketRejectsLibopusEnvelopeViolations|ParsePacketCode3MaxFrames|ParsePacketCode3ContinuationPadding)'
-DEFAULT_MULTISTREAM_ENCODER_PKG_RUN = 'Test(NewEncoder|NewEncoderDefault|RouteChannelsToStreams|RouteChannelsToStreams_RoundTrip|WriteSelfDelimitedLength|AssembleMultistreamPacket|EncoderSetBitrate|EncoderReset|Encode_(Basic|51Surround|71Surround|InputValidation))$$'
-DEFAULT_MULTISTREAM_ENCODER_POLICY_PKG_RUN = 'Test(SetBitrate_Distribution|AllocateRates_SurroundLFEAware|NewEncoderDefault_SetsLFEFlags|Encode_(SurroundPerStreamPolicy|SurroundPolicyPreservesMonoForceChannels|SurroundTrimProduced|SurroundBandSMRProduced|SurroundEnergyMaskPerStream|SurroundTrimProducedAt24k|AmbisonicsForcesCELTMode|Mono)|EncoderControlMethods|GetFinalRange|Lookahead|Signal|MaxBandwidth|LSBDepth|ValidateEncoderLayout|NewEncoderLayoutValidation|GetFinalRange_XORCombination)$$'
-DEFAULT_MULTISTREAM_DECODER_PKG_RUN = 'Test(NewDecoder_(ValidConfigs|InvalidConfigs)|DefaultMapping|ResolveMapping|StreamChannels|ApplyChannelMapping|DecodePLC|DecodeTo(Int16|Float32)|Float64To(Int16|Float32)|DecoderReset|DecoderPLCState)$$'
-DEFAULT_MULTISTREAM_AMBISONICS_PKG_RUN = 'Test(Isqrt32|Isqrt32_MatchesMath|ValidAmbisonicsChannelCounts|InvalidAmbisonicsChannelCounts|AmbisonicsMapping|AmbisonicsMappingFamily3|AmbisonicsMappingFamily3_UnsupportedOrders|ValidateAmbisonicsFamily3|ValidateAmbisonicsFamily3_UnsupportedOrders|AmbisonicsChannelCount|NewEncoderAmbisonics_(Family2|Family3|InvalidFamily|InvalidChannels)|EncoderAmbisonics_Encode|MappingFamily_DefaultEncoder|ProjectionMixingDefaultsLibopusParity|NewEncoderAmbisonicsFamily3InitializesProjectionMixing|ApplyProjectionMixingSwapsChannels|SetProjectionDemixingMatrixInvalidSize|ApplyProjectionDemixingSwapsChannels|SetProjectionDemixingMatrixFromFamily3Header)$$'
-DEFAULT_MULTISTREAM_ROUNDTRIP_PKG_RUN = 'TestRoundTrip(_Helpers|_Mono|_Stereo|_51Surround|_71Surround|_MultipleFrames|_ChannelIsolation)?$$'
-DEFAULT_MULTISTREAM_PARSER_RUN = 'Test(ParseSelfDelimitedLength|ParseMultistreamPacket|GetFrameDuration|ValidateStreamDurations|ParseOpusPacketRejectsLibopusEnvelopeViolations|PacketDurationRejectsLibopusEnvelopeViolation|ParseMultistreamPacketWithSelfDelimitedCode3|SelfDelimitedPacketDropsOrdinaryPadding)'
-DEFAULT_REPACKETIZER_ROOT_RUN = 'Test(RepacketizerParityWithLibopusFixture|RepacketizerRejectsTOCMismatch|RepacketizerRejectsDurationOver120ms|RepacketizerRejectsLibopusParserEnvelopeViolations)'
 UNSUPPORTED_CONTROLS_CORE_ROOT_RUN = 'Test(SupportsOptionalExtension|UnsupportedControlsBuildExposesQuarantinedTopLevelControls|UnsupportedControlsBuildPublicAPIContract|PublicDRED|DREDDecoderParseRequiresModel|DREDDecoderParseAndProcessRetainsMetadata|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderParseClearsStateOnMalformedPacket|StandaloneDREDParseMatchesLibopus|StandaloneDREDProcessMatchesLibopusOnRealPacket|StandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket|StandaloneDREDRecoveryWindowMatchesLibopus|StandaloneDREDRecoveryQueueMatchesLibopus|DecoderCoreDNNBlobDoesNotArmGoodPacketDREDWork|DecoderCachedDREDRecoveryMatchesLibopusLifecycle|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELT|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kHybrid|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELT|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid|DecoderExplicitDREDWarmup48kStateMatchesLibopus)|ExampleSupportsOptionalExtension'
 DRED_STEREO_RECOVERY_ROOT_RUN = 'Test(DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELTStereo|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELTStereo|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybridStereo)'
 DRED_LATENTS_TRACE_RUN = 'TestLibopusDREDLatentsTraceStereoDivergesFromMono'
@@ -183,54 +139,9 @@ test-examples-smoke:
 	cd examples/webrtc-dred-loopback && $(GO_WORK_ENV) $(GO) test ./... -count=1
 	cd examples/webrtc-dred-loopback && $(GO_WORK_ENV) $(GO) test -tags gopus_dred ./... -count=1
 
-# Lightweight docs and optional-extension contract that keeps release-surface claims aligned.
+# Docs and release-surface contracts run with the default package suite.
 test-doc-contract:
-	$(GO_WORK_ENV) $(GO) test . -run 'Test(OptionalExtensionDocsContract|TrustDocsContract|TrustSensitiveFilesHaveCodeOwners|ReleaseNotesExistForTags|DefaultBuildPublicAPIContract|Encoder_OptionalExtensionControls|Decoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls|MultistreamDecoder_OptionalExtensionControls|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
-	$(GO_WORK_ENV) $(GO) test . ./multistream -run 'TestDefaultBuildQuarantinesUnsupportedControls' -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_DECODE_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_STATE_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_FEC_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_FEC_PACKET_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_FEC_LBRR_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_MULTISTREAM_DECODER_STATE_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_MULTISTREAM_ROUNDTRIP_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_MULTISTREAM_SAMPLE_PATH_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_WRAPPER_SAFETY_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_CONSTRUCTOR_VALIDATION_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PUBLIC_API_ROUNDTRIP_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_BUILD_SAFETY_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_HOTPATH_ALLOCS_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_ENCODE_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_STATE_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_ROUTING_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_CONTROLS_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_CONTROLS_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_MULTISTREAM_CONTROLS_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_STREAM_READER_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_STREAM_READER_FLOW_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_STREAM_WRITER_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_STREAM_WRITER_FLOW_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_STREAM_END_TO_END_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_READER_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_READER_FLOW_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_WRITER_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_WRITER_FLOW_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_PAGE_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_PAGE_PACKET_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_METADATA_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_PROJECTION_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_INTERNAL_INTEGRATION_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_PARSER_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_MULTISTREAM_ENCODER_PKG_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_MULTISTREAM_ENCODER_POLICY_PKG_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_MULTISTREAM_DECODER_PKG_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_MULTISTREAM_AMBISONICS_PKG_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_MULTISTREAM_ROUNDTRIP_PKG_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_MULTISTREAM_PARSER_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_REPACKETIZER_ROOT_RUN) -count=1
+	$(GO_WORK_ENV) $(GO) test ./... -count=1
 
 # Default-supported DNN blob control parity against libopus USE_WEIGHTS_FILE
 # model blobs. The target fails if the required libopus-backed test is skipped.
