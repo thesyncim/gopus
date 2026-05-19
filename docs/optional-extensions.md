@@ -47,7 +47,9 @@ reference-tool lookup coverage plus packet generator/iterator and
 repacketizer/self-delimited extension preservation coverage in root and
 multistream framing paths.
 Default builds keep QEXT controls absent and do not scan, arm, or encode QEXT
-packet extensions in the public encode/decode hot paths.
+packet extensions in the public encode/decode hot paths; `make test-doc-contract`
+pins unknown, malformed, and unsupported QEXT packet-extension dormancy in that
+default build.
 
 Build tag-gated DRED control/standalone support explicitly when you need the
 verified DRED control and standalone surfaces:
