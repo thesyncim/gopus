@@ -59,6 +59,92 @@ func encodeLibopusQEXTPacketForMultistreamTest(t *testing.T, opusDemo string, ch
 	return packet
 }
 
+type qextStreamFrame struct {
+	rawFrame    []byte
+	qextPayload []byte
+	toc         streamTOC
+}
+
+func makeQEXTSinePCMForMultistreamTest(channels int, freq, phaseShift float64) []float32 {
+	pcm := make([]float32, 960*channels)
+	for i := 0; i < 960; i++ {
+		phase := 2 * math.Pi * freq * float64(i) / 48000.0
+		pcm[i*channels] = float32(0.43 * math.Sin(phase+phaseShift))
+		if channels == 2 {
+			pcm[i*channels+1] = float32(0.31 * math.Sin(phase+phaseShift+0.41))
+		}
+	}
+	return pcm
+}
+
+func parseQEXTStreamFrameForTest(t *testing.T, label string, packet []byte) qextStreamFrame {
+	t.Helper()
+	parsed, err := parseOpusPacket(packet, false)
+	if err != nil {
+		t.Fatalf("parseOpusPacket(%s): %v", label, err)
+	}
+	if len(parsed.frames) != 1 {
+		t.Fatalf("%s frame count=%d want 1", label, len(parsed.frames))
+	}
+	extensions, err := parsePacketExtensionList(parsed.padding, parsed.paddingFrameCount)
+	if err != nil {
+		t.Fatalf("parsePacketExtensionList(%s): %v", label, err)
+	}
+	for _, ext := range extensions {
+		if ext.ID == qextPacketExtensionID && ext.Frame == 0 {
+			return qextStreamFrame{
+				rawFrame:    parsed.frames[0],
+				qextPayload: ext.Data,
+				toc:         parseStreamTOC(packet[0]),
+			}
+		}
+	}
+	t.Fatalf("%s missing QEXT payload", label)
+	return qextStreamFrame{}
+}
+
+func makeLibopusQEXTMultiFrameStreamPacketForTest(t *testing.T, opusDemo string, channels int) ([]byte, []qextStreamFrame) {
+	t.Helper()
+	packetA := encodeLibopusQEXTPacketForMultistreamTest(t, opusDemo, channels, makeQEXTSinePCMForMultistreamTest(channels, 997, 0.0))
+	packetB := encodeLibopusQEXTPacketForMultistreamTest(t, opusDemo, channels, makeQEXTSinePCMForMultistreamTest(channels, 1237, 0.23))
+	frameA := parseQEXTStreamFrameForTest(t, "frameA", packetA)
+	frameB := parseQEXTStreamFrameForTest(t, "frameB", packetB)
+	if frameA.toc != frameB.toc {
+		t.Fatalf("source frames are not repacketizable: A=%+v B=%+v", frameA.toc, frameB.toc)
+	}
+
+	dst := make([]byte, len(packetA)+len(packetB)+len(frameA.qextPayload)+len(frameB.qextPayload)+128)
+	n, err := buildOpusPacketFromFramesAndExtensions(
+		packetA[0]&^byte(0x03),
+		[][]byte{frameA.rawFrame, frameB.rawFrame},
+		[]packetExtensionData{
+			{ID: qextPacketExtensionID, Frame: 0, Data: frameA.qextPayload},
+			{ID: qextPacketExtensionID, Frame: 1, Data: frameB.qextPayload},
+		},
+		false,
+		dst,
+	)
+	if err != nil {
+		t.Fatalf("build multi-frame QEXT packet: %v", err)
+	}
+	packet := dst[:n]
+	parsed, err := parseOpusPacket(packet, false)
+	if err != nil {
+		t.Fatalf("parseOpusPacket(built): %v", err)
+	}
+	if len(parsed.frames) != 2 || parsed.paddingFrameCount != 2 {
+		t.Fatalf("built packet frames=%d paddingFrameCount=%d want 2", len(parsed.frames), parsed.paddingFrameCount)
+	}
+	extensions, err := parsePacketExtensionList(parsed.padding, parsed.paddingFrameCount)
+	if err != nil {
+		t.Fatalf("parsePacketExtensionList(built): %v", err)
+	}
+	if len(extensions) != 2 || extensions[0].Frame != 0 || extensions[1].Frame != 1 {
+		t.Fatalf("built extensions=%+v want one QEXT payload per frame", extensions)
+	}
+	return packet, []qextStreamFrame{frameA, frameB}
+}
+
 func TestDecoderQEXTIgnoreExtensionsToggleMatchesExplicitStreamPayloads(t *testing.T) {
 	opusDemo, err := benchutil.QEXTOpusDemoPath()
 	if err != nil {
@@ -158,6 +244,58 @@ func TestDecoderQEXTIgnoreExtensionsToggleMatchesExplicitStreamPayloads(t *testi
 				t.Fatalf("Decode[%d] sample[%d]=%v want %v", i, j, got[j], want[j])
 			}
 		}
+	}
+}
+
+func TestDecoderQEXTMultiFramePacketMatchesExplicitPayloads(t *testing.T) {
+	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	if err != nil {
+		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+	}
+
+	for _, channels := range []int{1, 2} {
+		channels := channels
+		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
+			packet, frames := makeLibopusQEXTMultiFrameStreamPacketForTest(t, opusDemo, channels)
+
+			wantStream := newStreamDecoder(48000, channels)
+			wantStream.recordDecodeCall(960*len(frames), len(packet))
+			want := make([]float64, 0, 960*channels*len(frames))
+			for i, frame := range frames {
+				decoded, err := wantStream.decodeFramePayload(frame.rawFrame, 960, frame.toc, frame.qextPayload)
+				if err != nil {
+					t.Fatalf("decodeFramePayload[%d]: %v", i, err)
+				}
+				want = append(want, decoded...)
+			}
+			want, err = wantStream.finishDecode(want, nil)
+			if err != nil {
+				t.Fatalf("finishDecode: %v", err)
+			}
+
+			coupledStreams := 0
+			mapping := []byte{0}
+			if channels == 2 {
+				coupledStreams = 1
+				mapping = []byte{0, 1}
+			}
+			gotDec, err := NewDecoder(48000, channels, 1, coupledStreams, mapping)
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			got, err := gotDec.Decode(packet, 960*len(frames))
+			if err != nil {
+				t.Fatalf("Decode: %v", err)
+			}
+			if len(got) != len(want) {
+				t.Fatalf("Decode len=%d want %d", len(got), len(want))
+			}
+			for i := range got {
+				if got[i] != want[i] {
+					t.Fatalf("sample[%d]=%v want %v", i, got[i], want[i])
+				}
+			}
+		})
 	}
 }
 
