@@ -76,13 +76,19 @@ func TestExplicitDREDQualityTracksLibopusAtSixtyPercentLoss(t *testing.T) {
 	if libDREDMetrics.Envelope < libPLCMetrics.Envelope+0.010 {
 		t.Fatalf("libopus DRED envelope quality did not improve enough: dred=%.5f plc=%.5f", libDREDMetrics.Envelope, libPLCMetrics.Envelope)
 	}
-	if goDREDMetrics.Envelope+0.030 < libDREDMetrics.Envelope {
+	if goDREDMetrics.Envelope+0.015 < libDREDMetrics.Envelope {
 		t.Fatalf("Go DRED envelope quality too far below libopus: go=%.5f libopus=%.5f", goDREDMetrics.Envelope, libDREDMetrics.Envelope)
 	}
-	if goVsLib.Envelope < 0.900 {
+	if goVsLib.SNRDB < 20.0 {
+		t.Fatalf("Go DRED PCM SNR diverges from libopus: %.3f dB", goVsLib.SNRDB)
+	}
+	if goVsLib.Correlation < 0.995 {
+		t.Fatalf("Go DRED PCM correlation diverges from libopus: %.5f", goVsLib.Correlation)
+	}
+	if goVsLib.Envelope < 0.990 {
 		t.Fatalf("Go DRED PCM envelope diverges from libopus: %.5f", goVsLib.Envelope)
 	}
-	if goDREDMetrics.OpusQOK && libDREDMetrics.OpusQOK && goDREDMetrics.OpusQ+35.0 < libDREDMetrics.OpusQ {
+	if goDREDMetrics.OpusQOK && libDREDMetrics.OpusQOK && goDREDMetrics.OpusQ+20.0 < libDREDMetrics.OpusQ {
 		t.Fatalf("Go DRED opus_compare quality too far below libopus: go=%.3f libopus=%.3f", goDREDMetrics.OpusQ, libDREDMetrics.OpusQ)
 	}
 }
