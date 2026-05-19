@@ -71,6 +71,7 @@ DEFAULT_DECODER_DECODE_ROOT_RUN = 'TestDecoder_(Decode_Float32|Decode_Int16|Deco
 DEFAULT_DECODER_STATE_ROOT_RUN = 'Test(NewDecoder_DefaultMaxPacketLimits|Decode_ModeRouting|Decode_ExtendedFrameSizes|Decode_PLC_ModeTracking|Decoder_BandwidthAndLastPacketDuration)'
 DEFAULT_DECODER_FEC_ROOT_RUN = 'Test(DecodeWithFEC_FallbackToPLC|DecodeWithFEC_CELTNoFEC|DecodeWithFEC_SILKStoresFEC|StoreFECData_ReusesBackingBuffer|DecodeFECFrame_BufferSizingUsesSingleFrame|DecodeWithFEC_HybridStoresFEC|DecodeWithFEC_Recovery|DecodeWithFEC_ResetClearsFEC)'
 DEFAULT_DECODER_FEC_PACKET_ROOT_RUN = 'Test(DecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode|DecodeWithFEC_FrameSizeTransitionUsesProvidedPacketGranularity|DecodeWithFEC_ProvidedCELTPacketFallsBackToPLC|DecodeWithFEC_ProvidedCELTPacketClearsStoredFECState|DecodeWithFEC_ProvidedPacketUsesPacketModeForCELTGate|DecodeWithFEC_ProvidedPacketWithoutLBRRUsesDirectPLCFallback|DecodeWithFEC_PLCWithProvidedStateUsesProvidedMode|DecodeWithFEC_NoFECRequested)'
+DEFAULT_FEC_LBRR_ROOT_RUN = 'TestFEC_(EndToEnd|ProvidedPacketRecoveryPath|LBRRPresence|RecoveryQuality|MultiplePacketLoss|LBRRActualRecovery|HasLBRRCheck|SILKEncoderLBRREnabled|ProvidedPacketWithoutLBRRFallsBackToPLC)$$'
 DEFAULT_MULTISTREAM_DECODER_STATE_ROOT_RUN = 'TestMultistreamDecoder(FirstPacketDurationMatrix|TracksPacketDurationChanges|EmptyPacketRejected)'
 DEFAULT_WRAPPER_SAFETY_ROOT_RUN = 'Test(EncoderEncodeInt16RejectsOversizedInputWithoutPanic|MultistreamEncoderEncodeInt16RejectsOversizedInputWithoutPanic|DecoderResetClearsReportedState)'
 DEFAULT_CONSTRUCTOR_VALIDATION_ROOT_RUN = 'Test(NewDecoder_(ValidParams|InvalidSampleRate|InvalidChannels)|NewEncoder_(ValidParams|InvalidParams|InvalidApplication)|SettingsForApplicationInvalidReturnsError|APIAbuseReturnsError)$$'
@@ -181,6 +182,7 @@ test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_STATE_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_FEC_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_FEC_PACKET_ROOT_RUN) -count=1
+	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_FEC_LBRR_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_MULTISTREAM_DECODER_STATE_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_WRAPPER_SAFETY_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_CONSTRUCTOR_VALIDATION_ROOT_RUN) -count=1
