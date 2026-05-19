@@ -148,22 +148,34 @@ func TestRDOVAEDecoderMatchesLibopusOnRealModel(t *testing.T) {
 		t.Fatalf("LoadDecoder(real model) error: %v", err)
 	}
 
-	for _, nbLatents := range []int{1, 2, 4, 8, 16} {
-		t.Run(fmt.Sprintf("latents_%d", nbLatents), func(t *testing.T) {
-			state := makeDREDRDOVAEDecoderState()
-			latents := makeDREDRDOVAEDecoderLatents(nbLatents)
-			want, err := probeLibopusDREDRDOVAEDec(state, latents, nbLatents)
-			if err != nil {
-				t.Skipf("rdovae decoder helper unavailable: %v", err)
-			}
+	cases := []struct {
+		name    string
+		state   func() []float32
+		latents func(int) []float32
+	}{
+		{"trig", makeDREDRDOVAEDecoderState, makeDREDRDOVAEDecoderLatents},
+		{"zero", makeDREDRDOVAEZeroDecoderState, makeDREDRDOVAEZeroDecoderLatents},
+		{"impulse", makeDREDRDOVAEImpulseDecoderState, makeDREDRDOVAEImpulseDecoderLatents},
+		{"alternating", makeDREDRDOVAEAlternatingDecoderState, makeDREDRDOVAEAlternatingDecoderLatents},
+	}
+	for _, tc := range cases {
+		for _, nbLatents := range []int{1, 2, 4, 8, 16} {
+			t.Run(fmt.Sprintf("%s_latents_%d", tc.name, nbLatents), func(t *testing.T) {
+				state := tc.state()
+				latents := tc.latents(nbLatents)
+				want, err := probeLibopusDREDRDOVAEDec(state, latents, nbLatents)
+				if err != nil {
+					t.Skipf("rdovae decoder helper unavailable: %v", err)
+				}
 
-			got := make([]float32, len(want))
-			var processor rdovae.Processor
-			if n := model.DecodeAllWithProcessor(&processor, got, state, latents, nbLatents); n != len(got) {
-				t.Fatalf("DecodeAllWithProcessor count=%d want %d", n, len(got))
-			}
-			assertDREDFloat32Close(t, got, want, 0, "rdovae decoder features")
-		})
+				got := make([]float32, len(want))
+				var processor rdovae.Processor
+				if n := model.DecodeAllWithProcessor(&processor, got, state, latents, nbLatents); n != len(got) {
+					t.Fatalf("DecodeAllWithProcessor count=%d want %d", n, len(got))
+				}
+				assertDREDFloat32Close(t, got, want, 0, "rdovae decoder features")
+			})
+		}
 	}
 }
 
@@ -185,6 +197,53 @@ func makeDREDRDOVAEDecoderLatents(nbLatents int) []float32 {
 			latents[base+i] = float32(0.37*math.Sin(0.11*x) + 0.23*math.Cos(0.07*x+0.13*float64(frame)))
 		}
 		latents[base+rdovae.LatentDim] = float32(float64((frame%16))*0.125 - 1.0)
+	}
+	return latents
+}
+
+func makeDREDRDOVAEZeroDecoderState() []float32 {
+	return make([]float32, rdovae.StateDim)
+}
+
+func makeDREDRDOVAEZeroDecoderLatents(nbLatents int) []float32 {
+	return make([]float32, nbLatents*(rdovae.LatentDim+1))
+}
+
+func makeDREDRDOVAEImpulseDecoderState() []float32 {
+	state := make([]float32, rdovae.StateDim)
+	for i := 0; i < len(state); i += 17 {
+		if (i/17)%2 == 0 {
+			state[i] = 0.875
+		} else {
+			state[i] = -0.625
+		}
+	}
+	return state
+}
+
+func makeDREDRDOVAEImpulseDecoderLatents(nbLatents int) []float32 {
+	latents := make([]float32, nbLatents*(rdovae.LatentDim+1))
+	for frame := 0; frame < nbLatents; frame++ {
+		base := frame * (rdovae.LatentDim + 1)
+		latents[base+(frame%rdovae.LatentDim)] = 0.75
+		latents[base+((frame*7+3)%rdovae.LatentDim)] = -0.5
+		latents[base+rdovae.LatentDim] = float32(frame%5-2) * 0.25
+	}
+	return latents
+}
+
+func makeDREDRDOVAEAlternatingDecoderState() []float32 {
+	state := make([]float32, rdovae.StateDim)
+	for i := range state {
+		state[i] = float32(i%9-4) * 0.11
+	}
+	return state
+}
+
+func makeDREDRDOVAEAlternatingDecoderLatents(nbLatents int) []float32 {
+	latents := make([]float32, nbLatents*(rdovae.LatentDim+1))
+	for i := range latents {
+		latents[i] = float32(i%13-6) * 0.07
 	}
 	return latents
 }

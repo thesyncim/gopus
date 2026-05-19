@@ -156,30 +156,41 @@ func TestRDOVAEEncoderMatchesLibopusOnRealModel(t *testing.T) {
 		t.Fatalf("LoadEncoder(real model) error: %v", err)
 	}
 
-	for _, frameCount := range []int{1, 2, 6, 9, 12} {
-		t.Run(fmt.Sprintf("frames_%d", frameCount), func(t *testing.T) {
-			input := makeDREDRDOVAEInputFrames(frameCount)
-			want, err := probeLibopusDREDRDOVAEEnc(input)
-			if err != nil {
-				t.Skipf("rdovae encoder helper unavailable: %v", err)
-			}
-
-			var processor rdovae.EncoderProcessor
-			var latents [rdovae.LatentDim]float32
-			var state [rdovae.StateDim]float32
-			gotLatents := make([]float32, 0, len(want.Latents))
-			gotState := make([]float32, 0, len(want.State))
-			for i := 0; i < len(input); i += 2 * NumFeatures {
-				if !model.EncodeDFrameWithProcessor(&processor, latents[:], state[:], input[i:i+2*NumFeatures]) {
-					t.Fatalf("EncodeDFrameWithProcessor(frame=%d) returned false", i/(2*NumFeatures))
+	cases := []struct {
+		name  string
+		input func(int) []float32
+	}{
+		{"trig", makeDREDRDOVAEInputFrames},
+		{"zero", makeDREDRDOVAEZeroInputFrames},
+		{"impulse", makeDREDRDOVAEImpulseInputFrames},
+		{"alternating", makeDREDRDOVAEAlternatingInputFrames},
+	}
+	for _, tc := range cases {
+		for _, frameCount := range []int{1, 2, 6, 9, 12} {
+			t.Run(fmt.Sprintf("%s_frames_%d", tc.name, frameCount), func(t *testing.T) {
+				input := tc.input(frameCount)
+				want, err := probeLibopusDREDRDOVAEEnc(input)
+				if err != nil {
+					t.Skipf("rdovae encoder helper unavailable: %v", err)
 				}
-				gotLatents = append(gotLatents, latents[:]...)
-				gotState = append(gotState, state[:]...)
-			}
 
-			assertDREDFloat32Close(t, gotLatents, want.Latents, 0, "rdovae latents")
-			assertDREDFloat32Close(t, gotState, want.State, 0, "rdovae state")
-		})
+				var processor rdovae.EncoderProcessor
+				var latents [rdovae.LatentDim]float32
+				var state [rdovae.StateDim]float32
+				gotLatents := make([]float32, 0, len(want.Latents))
+				gotState := make([]float32, 0, len(want.State))
+				for i := 0; i < len(input); i += 2 * NumFeatures {
+					if !model.EncodeDFrameWithProcessor(&processor, latents[:], state[:], input[i:i+2*NumFeatures]) {
+						t.Fatalf("EncodeDFrameWithProcessor(frame=%d) returned false", i/(2*NumFeatures))
+					}
+					gotLatents = append(gotLatents, latents[:]...)
+					gotState = append(gotState, state[:]...)
+				}
+
+				assertDREDFloat32Close(t, gotLatents, want.Latents, 0, "rdovae latents")
+				assertDREDFloat32Close(t, gotState, want.State, 0, "rdovae state")
+			})
+		}
 	}
 }
 
@@ -189,6 +200,28 @@ func makeDREDRDOVAEInputFrames(frameCount int) []float32 {
 		t := float64(i)
 		frame := float64(i / (2 * NumFeatures))
 		input[i] = float32(0.34*math.Sin(0.13*t+0.07*frame) + 0.21*math.Cos(0.29*t-0.11*frame))
+	}
+	return input
+}
+
+func makeDREDRDOVAEZeroInputFrames(frameCount int) []float32 {
+	return make([]float32, frameCount*2*NumFeatures)
+}
+
+func makeDREDRDOVAEImpulseInputFrames(frameCount int) []float32 {
+	input := make([]float32, frameCount*2*NumFeatures)
+	for frame := 0; frame < frameCount; frame++ {
+		base := frame * 2 * NumFeatures
+		input[base+(frame%NumFeatures)] = 0.9
+		input[base+NumFeatures+((frame*5+3)%NumFeatures)] = -0.8
+	}
+	return input
+}
+
+func makeDREDRDOVAEAlternatingInputFrames(frameCount int) []float32 {
+	input := make([]float32, frameCount*2*NumFeatures)
+	for i := range input {
+		input[i] = float32(i%15-7) * 0.055
 	}
 	return input
 }
