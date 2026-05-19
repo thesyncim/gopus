@@ -251,3 +251,19 @@ func TestSelfDelimitedPacketPreservesPacketExtensions(t *testing.T) {
 		t.Fatalf("decodeSelfDelimitedPacket(packet with extensions)=%s want=%s", got, hex.EncodeToString(packetAExt))
 	}
 }
+
+func TestDecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding(t *testing.T) {
+	packet := mustDecodeHex(t, "4b4102112233ffff")
+	selfDelimited := mustDecodeHex(t, "4b410203112233ffff")
+
+	decoded, consumed, err := decodeSelfDelimitedPacket(selfDelimited)
+	if err != nil {
+		t.Fatalf("decodeSelfDelimitedPacket(malformed padding): %v", err)
+	}
+	if consumed != len(selfDelimited) {
+		t.Fatalf("decodeSelfDelimitedPacket consumed=%d want=%d", consumed, len(selfDelimited))
+	}
+	if got := hex.EncodeToString(decoded); got != hex.EncodeToString(packet) {
+		t.Fatalf("decodeSelfDelimitedPacket(malformed padding)=%s want=%s", got, hex.EncodeToString(packet))
+	}
+}

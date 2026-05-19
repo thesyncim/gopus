@@ -62,6 +62,7 @@ func encodeLibopusQEXTPacketForMultistreamTest(t *testing.T, opusDemo string, ch
 type qextStreamFrame struct {
 	rawFrame    []byte
 	qextPayload []byte
+	tocBase     byte
 	toc         streamTOC
 }
 
@@ -95,6 +96,7 @@ func parseQEXTStreamFrameForTest(t *testing.T, label string, packet []byte) qext
 			return qextStreamFrame{
 				rawFrame:    parsed.frames[0],
 				qextPayload: ext.Data,
+				tocBase:     packet[0] &^ 0x03,
 				toc:         parseStreamTOC(packet[0]),
 			}
 		}
@@ -143,6 +145,17 @@ func makeLibopusQEXTMultiFrameStreamPacketForTest(t *testing.T, opusDemo string,
 		t.Fatalf("built extensions=%+v want one QEXT payload per frame", extensions)
 	}
 	return packet, []qextStreamFrame{frameA, frameB}
+}
+
+func makeMalformedQEXTPaddingStreamPacketForTest(t *testing.T, frame qextStreamFrame, selfDelimited bool) []byte {
+	t.Helper()
+	padding := []byte{0xFF, 0xFF}
+	dst := make([]byte, len(frame.rawFrame)+len(padding)+8)
+	n, err := buildOpusPacketFromFramesAndPadding(frame.tocBase, [][]byte{frame.rawFrame}, padding, selfDelimited, dst)
+	if err != nil {
+		t.Fatalf("build malformed QEXT padding packet: %v", err)
+	}
+	return dst[:n]
 }
 
 func TestDecoderQEXTIgnoreExtensionsToggleMatchesExplicitStreamPayloads(t *testing.T) {
@@ -451,5 +464,106 @@ func TestDecoderQEXTTwoStreamPacketMatchesExplicitStreamPayloads(t *testing.T) {
 				t.Fatalf("Decode(ignore=%v) sample[%d]=%v want %v", ignore, i, got[i], want[i])
 			}
 		}
+	}
+}
+
+func TestDecoderQEXTTwoStreamOpaquePaddingMatchesExplicitStreamPayloads(t *testing.T) {
+	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	if err != nil {
+		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+	}
+
+	stereoPCM := makeQEXTSinePCMForMultistreamTest(2, 440, 0.0)
+	monoPCM := makeQEXTSinePCMForMultistreamTest(1, 550, 0.19)
+	coupledPacket := encodeLibopusQEXTPacketForMultistreamTest(t, opusDemo, 2, stereoPCM)
+	monoPacket := encodeLibopusQEXTPacketForMultistreamTest(t, opusDemo, 1, monoPCM)
+	coupledFrame := parseQEXTStreamFrameForTest(t, "coupled", coupledPacket)
+	monoFrame := parseQEXTStreamFrameForTest(t, "mono", monoPacket)
+
+	coupledSelfDelimited, err := makeSelfDelimitedPacket(coupledPacket)
+	if err != nil {
+		t.Fatalf("makeSelfDelimitedPacket: %v", err)
+	}
+	coupledMalformed := makeMalformedQEXTPaddingStreamPacketForTest(t, coupledFrame, false)
+	coupledMalformedSelfDelimited := makeMalformedQEXTPaddingStreamPacketForTest(t, coupledFrame, true)
+	monoMalformed := makeMalformedQEXTPaddingStreamPacketForTest(t, monoFrame, false)
+
+	cases := []struct {
+		name             string
+		packet           []byte
+		coupledPacketLen int
+		coupledPayload   []byte
+		monoPacketLen    int
+		monoPayload      []byte
+	}{
+		{
+			name:             "self_delimited_coupled",
+			packet:           append(append([]byte(nil), coupledMalformedSelfDelimited...), monoPacket...),
+			coupledPacketLen: len(coupledMalformed),
+			coupledPayload:   nil,
+			monoPacketLen:    len(monoPacket),
+			monoPayload:      monoFrame.qextPayload,
+		},
+		{
+			name:             "last_mono",
+			packet:           append(append([]byte(nil), coupledSelfDelimited...), monoMalformed...),
+			coupledPacketLen: len(coupledPacket),
+			coupledPayload:   coupledFrame.qextPayload,
+			monoPacketLen:    len(monoMalformed),
+			monoPayload:      nil,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			for _, ignore := range []bool{false, true} {
+				coupledPayload := tc.coupledPayload
+				monoPayload := tc.monoPayload
+				if ignore {
+					coupledPayload = nil
+					monoPayload = nil
+				}
+
+				coupledWant := newStreamDecoder(48000, 2)
+				coupledWant.recordDecodeCall(960, tc.coupledPacketLen)
+				coupledOut, err := coupledWant.finishDecode(coupledWant.decodeFramePayload(coupledFrame.rawFrame, 960, coupledFrame.toc, coupledPayload))
+				if err != nil {
+					t.Fatalf("decode coupled ignore=%v: %v", ignore, err)
+				}
+
+				monoWant := newStreamDecoder(48000, 1)
+				monoWant.recordDecodeCall(960, tc.monoPacketLen)
+				monoOut, err := monoWant.finishDecode(monoWant.decodeFramePayload(monoFrame.rawFrame, 960, monoFrame.toc, monoPayload))
+				if err != nil {
+					t.Fatalf("decode mono ignore=%v: %v", ignore, err)
+				}
+
+				want := make([]float64, 960*3)
+				for i := 0; i < 960; i++ {
+					want[3*i] = coupledOut[2*i]
+					want[3*i+1] = coupledOut[2*i+1]
+					want[3*i+2] = monoOut[i]
+				}
+
+				dec, err := NewDecoder(48000, 3, 2, 1, []byte{0, 1, 2})
+				if err != nil {
+					t.Fatalf("NewDecoder(ignore=%v): %v", ignore, err)
+				}
+				dec.SetIgnoreExtensions(ignore)
+				got, err := dec.Decode(tc.packet, 960)
+				if err != nil {
+					t.Fatalf("Decode(ignore=%v): %v", ignore, err)
+				}
+				if len(got) != len(want) {
+					t.Fatalf("Decode(ignore=%v) len=%d want %d", ignore, len(got), len(want))
+				}
+				for i := range got {
+					if got[i] != want[i] {
+						t.Fatalf("Decode(ignore=%v) sample[%d]=%v want %v", ignore, i, got[i], want[i])
+					}
+				}
+			}
+		})
 	}
 }

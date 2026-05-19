@@ -772,13 +772,9 @@ func decodeSelfDelimitedPacket(data []byte) ([]byte, int, error) {
 	if err != nil {
 		return nil, 0, err
 	}
-	extensions, err := parsePacketExtensionList(parsed.padding, parsed.paddingFrameCount)
-	if err != nil {
-		return nil, 0, err
-	}
 
 	dst := make([]byte, parsed.consumed)
-	n, err := buildOpusPacketFromFramesAndExtensions(parsed.tocBase, parsed.frames, extensions, false, dst)
+	n, err := buildOpusPacketFromFramesAndPadding(parsed.tocBase, parsed.frames, parsed.padding, false, dst)
 	if err != nil {
 		return nil, 0, err
 	}
