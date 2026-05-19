@@ -68,20 +68,21 @@ DRED payload scanner edge cases, encoder runtime history/rate-conversion/scratch
 coverage, top-level decoder dormancy/cache lifecycle coverage, top-level decoder
 recovery/bridge lifecycle coverage, multistream DRED dormancy/cache failure-path
 coverage, multistream decoder recovery lifecycle coverage, decoder cached recovery
-bookkeeping parity, and stereo cached recovery
-lifecycle/cursor seams plus the supported-tag SILK
+bookkeeping parity, and stereo cached recovery lifecycle/cursor seams plus the supported-tag SILK
 wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload/packet-envelope
 seams, Hybrid fullband 20/40 ms mono and stereo carried-payload/packet-envelope
 seams, and the final/non-final uncoupled mono, final/non-final single-coupled
 stereo, and final/non-final non-leading second-coupled multistream
-CELT/Hybrid/SILK DRED carrier fan-out seams.
+CELT/Hybrid/SILK DRED carrier fan-out seams. The gate also includes the
+explicit 60% loss quality smoke.
 `make test-unsupported-controls-tag` pins the quarantine
 API exposure, standalone/control smoke, top-level decoder DRED dormancy/cache
 lifecycle coverage, DRED payload scanner edge cases, encoder DRED runtime
 history/rate-conversion/scratch coverage, top-level decoder DRED recovery/bridge
 lifecycle coverage, multistream DRED dormancy/cache/ready coverage, multistream
 decoder DRED recovery lifecycle coverage, cached DRED recovery bookkeeping, and
-dormant-runtime checks without changing support probes.
+dormant-runtime checks without changing support probes. The gate also includes
+the explicit 60% loss quality smoke.
 `make test-unsupported-controls-parity` mirrors the supported encoder seams and
 adds parser availability, internal converter/payload/basic-analysis coverage,
 real-model PitchDNN and RDOVAE encoder oracles, the libopus DRED latent trace
