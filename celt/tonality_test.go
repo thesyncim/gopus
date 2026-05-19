@@ -524,7 +524,7 @@ func TestTonalityPerBand(t *testing.T) {
 	// Calculate average tonality for first half vs second half of bands
 	midPoint := len(result.BandTonality) / 2
 	if midPoint == 0 {
-		t.Skip("Not enough bands for per-band analysis")
+		t.Fatal("not enough bands for per-band analysis")
 	}
 
 	var lowBandAvg, highBandAvg float64
@@ -968,7 +968,7 @@ func TestTonalityWithRealMDCT(t *testing.T) {
 	// Apply MDCT
 	coeffs := MDCT(samples)
 	if coeffs == nil {
-		t.Skip("MDCT returned nil")
+		t.Fatal("MDCT returned nil")
 	}
 
 	result := computeTonalityWithBands(coeffs, nbBands, frameSize)
@@ -998,7 +998,7 @@ func TestTonalityWithRealNoise(t *testing.T) {
 	// Apply MDCT
 	coeffs := MDCT(samples)
 	if coeffs == nil {
-		t.Skip("MDCT returned nil")
+		t.Fatal("MDCT returned nil")
 	}
 
 	result := computeTonalityWithBands(coeffs, nbBands, frameSize)

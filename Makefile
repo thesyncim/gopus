@@ -89,6 +89,7 @@ DEFAULT_MULTISTREAM_CONTROLS_ROOT_RUN = 'TestMultistream(Encoder_(Controls|CVBRP
 DEFAULT_HYBRID_PKG_RUN = 'Test(NewDecoder|ValidHybridFrameSize|Hybrid(FrameSizes|DelayCompensation|DelayCompensationStereo|Reset|OutputRange|Stereo|EmptyInput|InvalidFrameSize|Constants|RealPacketDecode|RealPacket10ms|RealPacketStereo|RealPacketWithPublicAPI|RangeDecoderTransition|MultipleFrames|OutputSampleRange|StartEndBandState))$$'
 DEFAULT_CELT_BAND_PKG_RUN = 'Test(VectorToPulses|VectorToPulsesPreservesDirection|VectorToPulsesRoundTrip|PVQEncodeDecodeRoundTrip|EncodeBandsAllSizes|PVQEncodingPreservesEnergy|NormalizeBands|EncodeBandsWithDecoder|EncodeBandPVQProducesValidIndex)$$'
 DEFAULT_CELT_FFT_PKG_RUN = 'TestKfBfly2(ViaFFT|M1Correctness)$$'
+DEFAULT_CELT_TONALITY_PKG_RUN = 'TestTonality(PerBand|WithRealMDCT|WithRealNoise)$$'
 DEFAULT_STREAM_READER_ROOT_RUN = 'Test(NewReader_(ValidParams|InvalidParams)|Reader_(Format_Float32LE|Format_Int16LE|Reset|io_Reader_Interface))$$'
 DEFAULT_STREAM_READER_FLOW_ROOT_RUN = 'TestReader_(Read_SinglePacket|LastGranulePos|Read_MultiplePackets|Read_PartialRead|Read_EOF|Read_PLC)$$'
 DEFAULT_STREAM_WRITER_ROOT_RUN = 'Test(NewWriter_(ValidParams|InvalidParams)|Writer_(Format_Float32LE|Format_Int16LE|Flush|Flush_Empty|Close_FlushesAndClosesSink|Close_Idempotent|Reset|io_Writer_Interface))$$'
@@ -213,6 +214,7 @@ test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test ./hybrid -run $(DEFAULT_HYBRID_PKG_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./celt -run $(DEFAULT_CELT_BAND_PKG_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./celt -run $(DEFAULT_CELT_FFT_PKG_RUN) -count=1
+	$(GO_WORK_ENV) $(GO) test ./celt -run $(DEFAULT_CELT_TONALITY_PKG_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_STREAM_READER_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_STREAM_READER_FLOW_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_STREAM_WRITER_ROOT_RUN) -count=1
