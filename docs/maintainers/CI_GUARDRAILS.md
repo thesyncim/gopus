@@ -12,7 +12,7 @@ Block correctness and hot-path performance regressions before merge.
 - `make test-doc-contract`
 - `make lint`
 - Runs the pinned `golangci-lint` baseline from `.golangci.yml`.
-- Runs on markdown-only PRs too, so optional-extension docs changes still pass through the same static/docs contract checks, default-build optional-control quarantine checks, and default packet-extension dormancy checks.
+- Runs on markdown-only PRs too, so optional-extension docs changes still pass through the same static/docs contract checks, default-build optional-control quarantine checks, and default packet-extension dormancy/framing checks.
 - Intended to catch actionable vet/static-analysis issues without forcing broad codec-style churn.
 
 2. Correctness gate (`test-linux`)

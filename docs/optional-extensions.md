@@ -49,7 +49,7 @@ multistream framing paths.
 Default builds keep QEXT controls absent and do not scan, arm, or encode QEXT
 packet extensions in the public encode/decode hot paths; `make test-doc-contract`
 pins unknown, malformed, and unsupported QEXT packet-extension dormancy in that
-default build.
+default build, plus multistream self-delimited packet-extension framing.
 
 Build tag-gated DRED control/standalone support explicitly when you need the
 verified DRED control and standalone surfaces:
