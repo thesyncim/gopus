@@ -276,27 +276,15 @@ func cgemv8x4FloatAccum(out []float32, weights dnnblob.Int8View, scale dnnblob.F
 func computeActivation(output, input []float32, n, activation int) {
 	switch activation {
 	case activationSigmoid:
-		for i := 0; i < n; i++ {
-			output[i] = sigmoidApprox(input[i])
-		}
+		dnnmath.SigmoidVectorApprox(output, input, n)
 	case activationTanh:
-		for i := 0; i < n; i++ {
-			output[i] = tanhApprox(input[i])
-		}
+		dnnmath.TanhVectorApprox(output, input, n)
 	default:
 		if len(output) == 0 || len(input) == 0 || &output[0] == &input[0] {
 			return
 		}
 		copy(output[:n], input[:n])
 	}
-}
-
-func sigmoidApprox(x float32) float32 {
-	return dnnmath.SigmoidApprox(x)
-}
-
-func tanhApprox(x float32) float32 {
-	return dnnmath.TanhApprox(x)
 }
 
 func quantizeInput(x float32) int16 {

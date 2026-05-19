@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/dnnmath"
 )
 
 func makePredictorTestBlob() []byte {
@@ -122,6 +123,26 @@ func TestSGEMVUsesFusedFloatDenseWhenEnabled(t *testing.T) {
 	}
 	if want := math.Float32frombits(0x3f800001); fused != want {
 		t.Fatalf("fused sgemv=%g want %g", fused, want)
+	}
+}
+
+func TestComputeActivationUsesLibopusVectorTail(t *testing.T) {
+	input := []float32{-0.75}
+
+	gotTanh := []float32{0}
+	computeActivation(gotTanh, input, len(input), activationTanh)
+	wantTanh := []float32{0}
+	dnnmath.TanhVectorApprox(wantTanh, input, len(input))
+	if got, want := math.Float32bits(gotTanh[0]), math.Float32bits(wantTanh[0]); got != want {
+		t.Fatalf("tanh tail bits=0x%08x want 0x%08x", got, want)
+	}
+
+	gotSigmoid := []float32{0}
+	computeActivation(gotSigmoid, input, len(input), activationSigmoid)
+	wantSigmoid := []float32{0}
+	dnnmath.SigmoidVectorApprox(wantSigmoid, input, len(input))
+	if got, want := math.Float32bits(gotSigmoid[0]), math.Float32bits(wantSigmoid[0]); got != want {
+		t.Fatalf("sigmoid tail bits=0x%08x want 0x%08x", got, want)
 	}
 }
 

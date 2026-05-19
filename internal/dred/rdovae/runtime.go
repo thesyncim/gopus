@@ -431,13 +431,9 @@ func sparseCGEMV8x4(out []float32, weights Int8Tensor, idx IntTensor, scale Floa
 func computeActivation(output, input []float32, n, activation int) {
 	switch activation {
 	case activationSigmoid:
-		for i := 0; i < n; i++ {
-			output[i] = dnnmath.SigmoidApprox(input[i])
-		}
+		dnnmath.SigmoidVectorApprox(output, input, n)
 	case activationTanh:
-		for i := 0; i < n; i++ {
-			output[i] = dnnmath.TanhApprox(input[i])
-		}
+		dnnmath.TanhVectorApprox(output, input, n)
 	default:
 		if len(output) == 0 || len(input) == 0 || &output[0] == &input[0] {
 			return
