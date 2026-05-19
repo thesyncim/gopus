@@ -627,11 +627,9 @@ func assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t 
 func decoderDREDLiveSequenceTolerances(frameSize int) (pcmTol, plcTol, farganTol, celtTol float64) {
 	pcmTol, plcTol, farganTol, celtTol = 1e-4, 1e-4, 1e-4, 1e-4
 	if frameSize >= 960 {
-		// A 20 ms 48 kHz loss makes the libopus neural PLC synthesize three
-		// consecutive 16 kHz FARGAN frames. Keep the seam pinned by PCM, PLC
-		// lifecycle, CELT bridge, and FARGAN headers; the private recurrent
-		// vectors are numerically sensitive after repeated synthesis.
-		return 5e-3, 1e-2, 9e-2, 5e-3
+		// A 20 ms 48 kHz loss synthesizes three 16 kHz FARGAN frames.
+		// Keep the sensitive recurrent state envelope, but pin PLC history tighter.
+		return 5e-3, 6e-3, 9e-2, 5e-3
 	}
 	return pcmTol, plcTol, farganTol, celtTol
 }
