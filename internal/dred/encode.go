@@ -11,6 +11,13 @@ const ActivityHistorySize = 4 * MaxFrames
 
 const dredLaplaceFTBits = 15
 
+type dredLatentEncodeScratch struct {
+	q        [StateDim]int
+	xq       [StateDim]float32
+	delta    [StateDim]float32
+	deadzone [StateDim]float32
+}
+
 // UpdateActivityHistory mirrors the libopus encoder-side DRED activity-memory
 // rollover at 2.5 ms resolution.
 func UpdateActivityHistory(dst *[ActivityHistorySize]byte, frameSize, sampleRate int, active bool) {
@@ -94,21 +101,44 @@ func encodeLaplaceP0(enc *rangecoding.Encoder, value int, p0, decay uint16) {
 	}
 }
 
-func tanhApprox(x float32) float32 {
-	return dnnmath.TanhApprox(x)
+func quantizeDREDLatents(q []int, x []float32, scale, dzone, rTable, p0Table []uint8, scratch *dredLatentEncodeScratch) {
+	if scratch == nil {
+		var local dredLatentEncodeScratch
+		scratch = &local
+	}
+	n := len(x)
+	xq := scratch.xq[:n]
+	delta := scratch.delta[:n]
+	deadzone := scratch.deadzone[:n]
+
+	for i := 0; i < n; i++ {
+		delta[i] = float32(dzone[i]) * (1.0 / 256.0)
+		xq[i] = x[i] * float32(scale[i]) * (1.0 / 256.0)
+		deadzone[i] = xq[i] / (delta[i] + 0.1)
+	}
+	dnnmath.TanhVectorApprox(deadzone, deadzone, n)
+	for i := 0; i < n; i++ {
+		if rTable[i] == 0 || p0Table[i] == 255 {
+			q[i] = 0
+			continue
+		}
+		xqi := xq[i] - delta[i]*deadzone[i]
+		q[i] = int(math.Floor(float64(float32(0.5) + xqi)))
+	}
 }
 
-func encodeDREDLatents(enc *rangecoding.Encoder, x []float32, scale, dzone, rTable, p0Table []uint8) {
-	for i := range x {
+func encodeDREDLatents(enc *rangecoding.Encoder, x []float32, scale, dzone, rTable, p0Table []uint8, scratch *dredLatentEncodeScratch) {
+	if scratch == nil {
+		var local dredLatentEncodeScratch
+		scratch = &local
+	}
+	q := scratch.q[:len(x)]
+	quantizeDREDLatents(q, x, scale, dzone, rTable, p0Table, scratch)
+	for i, qi := range q {
 		if rTable[i] == 0 || p0Table[i] == 255 {
 			continue
 		}
-		delta := float32(dzone[i]) * (1.0 / 256.0)
-		xq := x[i] * float32(scale[i]) * (1.0 / 256.0)
-		deadzone := tanhApprox(xq / (delta + 0.1))
-		xq -= delta * deadzone
-		q := int(math.Floor(float64(float32(0.5) + xq)))
-		encodeLaplaceP0(enc, q, uint16(p0Table[i])<<7, uint16(rTable[i])<<7)
+		encodeLaplaceP0(enc, qi, uint16(p0Table[i])<<7, uint16(rTable[i])<<7)
 	}
 }
 
@@ -170,6 +200,7 @@ func EncodePayload(dst []byte, maxChunks, q0, dQ, qmax int, stateBuffer, latents
 		}
 	}
 
+	var latentScratch dredLatentEncodeScratch
 	stateOffset := q0 * StateDim
 	encodeDREDLatents(
 		&enc,
@@ -178,6 +209,7 @@ func EncodePayload(dst []byte, maxChunks, q0, dQ, qmax int, stateBuffer, latents
 		dredStateDeadZoneQ8[stateOffset:stateOffset+StateDim],
 		dredStateRQ8[stateOffset:stateOffset+StateDim],
 		dredStateP0Q8[stateOffset:stateOffset+StateDim],
+		&latentScratch,
 	)
 	if enc.Tell() > 8*len(dst) {
 		return 0
@@ -202,6 +234,7 @@ func EncodePayload(dst []byte, maxChunks, q0, dQ, qmax int, stateBuffer, latents
 			dredLatentDeadZoneQ8[offset:offset+LatentDim],
 			dredLatentRQ8[offset:offset+LatentDim],
 			dredLatentP0Q8[offset:offset+LatentDim],
+			&latentScratch,
 		)
 		if enc.Tell() > 8*len(dst) {
 			if i == 0 {

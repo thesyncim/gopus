@@ -1,8 +1,12 @@
 package dred
 
 import (
+	"math"
 	"reflect"
+	"runtime"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/dnnmath"
 )
 
 func TestUpdateActivityHistory(t *testing.T) {
@@ -57,6 +61,52 @@ func TestEncodeExperimentalPayloadHasExpectedHeader(t *testing.T) {
 	if parsed.PayloadLatents == 0 {
 		t.Fatal("EncodeExperimentalPayload() produced no decodable latent chunks")
 	}
+}
+
+func TestQuantizeDREDLatentsUsesLibopusVectorTail(t *testing.T) {
+	x := float32(-0.75)
+	scale := uint8(255)
+	dzone := uint8(255)
+	if runtime.GOARCH == "arm64" {
+		found := false
+		for step := -20000; step <= 20000; step++ {
+			candidate := float32(step) * (1.0 / 1024.0)
+			vectorQ := quantizeDREDLatentWithVectorTanh(candidate, scale, dzone)
+			scalarQ := quantizeDREDLatentWithScalarTanh(candidate, scale, dzone)
+			if vectorQ != scalarQ {
+				x = candidate
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatal("test case no longer distinguishes vector tail activation from scalar activation")
+		}
+	}
+
+	var scratch dredLatentEncodeScratch
+	q := []int{0}
+	quantizeDREDLatents(q, []float32{x}, []uint8{scale}, []uint8{dzone}, []uint8{1}, []uint8{1}, &scratch)
+	if want := quantizeDREDLatentWithVectorTanh(x, scale, dzone); q[0] != want {
+		t.Fatalf("quantized latent=%d want vector-tail %d", q[0], want)
+	}
+}
+
+func quantizeDREDLatentWithVectorTanh(x float32, scale, dzone uint8) int {
+	delta := float32(dzone) * (1.0 / 256.0)
+	xq := x * float32(scale) * (1.0 / 256.0)
+	in := []float32{xq / (delta + 0.1)}
+	out := []float32{0}
+	dnnmath.TanhVectorApprox(out, in, len(in))
+	xq -= delta * out[0]
+	return int(math.Floor(float64(float32(0.5) + xq)))
+}
+
+func quantizeDREDLatentWithScalarTanh(x float32, scale, dzone uint8) int {
+	delta := float32(dzone) * (1.0 / 256.0)
+	xq := x * float32(scale) * (1.0 / 256.0)
+	xq -= delta * dnnmath.TanhApprox(xq/(delta+0.1))
+	return int(math.Floor(float64(float32(0.5) + xq)))
 }
 
 func TestEncodeExperimentalPayloadDoesNotAllocate(t *testing.T) {
