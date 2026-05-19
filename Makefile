@@ -77,6 +77,7 @@ DEFAULT_CONSTRUCTOR_VALIDATION_ROOT_RUN = 'Test(NewDecoder_(ValidParams|InvalidS
 DEFAULT_HOTPATH_ALLOCS_ROOT_RUN = 'TestHotPathAllocs(EncodeFloat32|EncodeInt16|EncodeRestrictedSilkLowComplexity|DecodeFloat32|DecodeInt16|DecodePLC|DecodeStereo|StreamWriterFloat32)$$'
 DEFAULT_ENCODER_ENCODE_ROOT_RUN = 'TestEncoder_(Encode_Float32|Encode_Int16|Encode_Int24|Encode_Int24_InvalidFrameSize|Encode_RoundTrip|Stereo|FrameSize|EncodeFloat32_Convenience|EncodeInt16Slice_Convenience|InvalidFrameSize_Encode|LongPacketRoundTrip)$$'
 DEFAULT_ENCODER_STATE_ROOT_RUN = 'TestEncoder_(DTX_Silence|InDTXDelegatesToCoreEncoder|VADActivityDelegatesToCoreEncoder|FEC|Reset)$$'
+DEFAULT_ENCODER_ROUTING_ROOT_RUN = 'TestEncoder_(SignalVoice_BiasesTowardSILK|SignalMusic_BiasesTowardCELT|MaxBandwidth_ClampsOutput)$$'
 DEFAULT_ENCODER_CONTROLS_ROOT_RUN = 'TestEncoder_(SetBitrate|SetComplexity|SetBitrateMode|SetVBRAndConstraint|SetPacketLoss|SetBandwidth|SetApplication|RestrictedApplications|ExpertFrameDuration|SetSignal|SetMaxBandwidth|SetForceChannels|Lookahead|SetLSBDepth|SetPredictionDisabled|SetPhaseInversionDisabled)$$'
 DEFAULT_DECODER_CONTROLS_ROOT_RUN = 'TestDecoder_(InDTX|SetGainBounds|IgnoreExtensions|GainAppliedToDecodeOutput|PitchGetter)$$'
 DEFAULT_MULTISTREAM_CONTROLS_ROOT_RUN = 'TestMultistream(Encoder_(Controls|CVBRPacketEnvelope|SetApplicationPreservesControls|SetApplicationForwardsModeAndBandwidth|SetApplicationAfterEncodeRejected|RestrictedApplications|Lookahead)|Decoder_IgnoreExtensions)$$'
@@ -186,6 +187,7 @@ test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_HOTPATH_ALLOCS_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_ENCODE_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_STATE_ROOT_RUN) -count=1
+	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_ROUTING_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_CONTROLS_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_CONTROLS_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_MULTISTREAM_CONTROLS_ROOT_RUN) -count=1
