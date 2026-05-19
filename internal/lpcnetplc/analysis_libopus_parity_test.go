@@ -4,6 +4,7 @@
 package lpcnetplc
 
 import (
+	"fmt"
 	"math"
 	"testing"
 
@@ -86,24 +87,33 @@ func TestLPCNetDREDSequenceMatchesLibopusTightly(t *testing.T) {
 		t.Fatalf("Clone(real pitchdnn blob) error: %v", err)
 	}
 	var analysis Analysis
+	analysis.SetDREDEncoderMode(true)
 	if err := analysis.SetModel(blob); err != nil {
 		t.Fatalf("Analysis.SetModel(real model) error: %v", err)
 	}
 
-	frames := dredParityAnalysisFrames(4)
-	want, err := probeLibopusLPCNetFeatures(frames)
-	if err != nil {
-		t.Skipf("lpcnet features helper unavailable: %v", err)
+	for _, frameSize := range []int{1920, 2880} {
+		t.Run(fmt.Sprintf("%d_samples", frameSize), func(t *testing.T) {
+			analysis.Reset()
+			if err := analysis.SetModel(blob); err != nil {
+				t.Fatalf("Analysis.SetModel(real model) error: %v", err)
+			}
+			frames := dredParityAnalysisFrames(4, frameSize)
+			want, err := probeLibopusLPCNetFeatures(frames)
+			if err != nil {
+				t.Skipf("lpcnet features helper unavailable: %v", err)
+			}
+			for frame := 0; frame < len(frames)/FrameSize; frame++ {
+				var got [NumTotalFeatures]float32
+				if n := analysis.ComputeSingleFrameFeaturesFloat(got[:], frames[frame*FrameSize:(frame+1)*FrameSize]); n != NumTotalFeatures {
+					t.Fatalf("frame %d ComputeSingleFrameFeaturesFloat()=%d want %d", frame, n, NumTotalFeatures)
+				}
+				base := frame * NumTotalFeatures
+				assertFloat32Close(t, got[:], want.Features[base:base+NumTotalFeatures], 1e-5, "dred sequence features")
+			}
+			assertFloat32Close(t, analysis.xcorrFeatures[:], want.XCorr, 1e-6, "dred sequence xcorr")
+		})
 	}
-	for frame := 0; frame < len(frames)/FrameSize; frame++ {
-		var got [NumTotalFeatures]float32
-		if n := analysis.ComputeSingleFrameFeaturesFloat(got[:], frames[frame*FrameSize:(frame+1)*FrameSize]); n != NumTotalFeatures {
-			t.Fatalf("frame %d ComputeSingleFrameFeaturesFloat()=%d want %d", frame, n, NumTotalFeatures)
-		}
-		base := frame * NumTotalFeatures
-		assertFloat32Close(t, got[:], want.Features[base:base+NumTotalFeatures], 1e-5, "dred sequence features")
-	}
-	assertFloat32Close(t, analysis.xcorrFeatures[:], want.XCorr, 1e-6, "dred sequence xcorr")
 }
 
 func assertAnalysisMatches(t *testing.T, got *Analysis, want libopusLPCNetFeaturesResult, label string) {
@@ -126,10 +136,9 @@ func assertAnalysisMatches(t *testing.T, got *Analysis, want libopusLPCNetFeatur
 	assertFloat32Close(t, got.pitch.state.xcorrMem3[:], want.PitchState.xcorrMem3[:], 5e-2, label+" pitch xcorr_mem3")
 }
 
-func dredParityAnalysisFrames(frameCount int) []float32 {
+func dredParityAnalysisFrames(frameCount, frameSize int) []float32 {
 	const (
 		sampleRate = 48000
-		frameSize  = 1920
 		dframeSize = 2 * FrameSize
 	)
 	var resampleMem [9]float32

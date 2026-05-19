@@ -68,6 +68,7 @@ type Analysis struct {
 	lpc           [analysisLPCOrder]float32
 	features      [NumTotalFeatures]float32
 	scratch       analysisScratch
+	dredEncoder   bool
 }
 
 // SetModel binds the shared pitch model family used by libopus LPCNet
@@ -85,6 +86,15 @@ func (a *Analysis) SetModel(blob *dnnblob.Blob) error {
 // family required by libopus.
 func (a *Analysis) Loaded() bool {
 	return a != nil && a.pitch.Loaded()
+}
+
+// SetDREDEncoderMode selects the libopus DRED encoder-side band-energy
+// accumulation shape used before RDOVAE latent extraction.
+func (a *Analysis) SetDREDEncoderMode(enabled bool) {
+	if a == nil {
+		return
+	}
+	a.dredEncoder = enabled
 }
 
 // Reset clears the retained analysis state but preserves the bound model.
@@ -276,7 +286,7 @@ func (a *Analysis) frameAnalysis(spectrum []complex64, ex, in []float32) {
 	for i := 0; i < analysisFreqSize; i++ {
 		spectrum[i] = a.scratch.fftOut[i]
 	}
-	computeBandEnergy(ex, spectrum)
+	computeBandEnergy(ex, spectrum, a.dredEncoder)
 }
 
 func preemphasisInPlace(x []float32, mem *float32, coef float32) {
@@ -299,7 +309,7 @@ func applyAnalysisWindow(x []float32) {
 	}
 }
 
-func computeBandEnergy(bandE []float32, spectrum []complex64) {
+func computeBandEnergy(bandE []float32, spectrum []complex64, dredEncoder bool) {
 	var sum [NumBands]float32
 	for i := 0; i < NumBands-1; i++ {
 		bandSize := (analysisBandEdges[i+1] - analysisBandEdges[i]) * analysisWindow5ms
@@ -309,6 +319,11 @@ func computeBandEnergy(bandE []float32, spectrum []complex64) {
 			re := real(spectrum[idx])
 			im := imag(spectrum[idx])
 			tmp := re*re + im*im
+			if dredEncoder && useNEONAnalysisKernels {
+				sum[i] += float32(float64(1-frac) * float64(tmp))
+				sum[i+1] += float32(float64(frac) * float64(tmp))
+				continue
+			}
 			sum[i] += (1 - frac) * tmp
 			sum[i+1] += frac * tmp
 		}

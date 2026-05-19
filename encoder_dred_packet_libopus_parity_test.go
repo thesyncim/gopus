@@ -436,7 +436,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms(t *testing.T) {
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWidebandLongFrames(t *testing.T) {
-	for _, frameSize := range []int{3840, 4800} {
+	for _, frameSize := range []int{3840, 4800, 5760} {
 		t.Run(fmt.Sprintf("%d_samples", frameSize), func(t *testing.T) {
 			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 				FrameSize: frameSize,

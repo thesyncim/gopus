@@ -26,6 +26,7 @@ func (g *LatentGenerator) SetDNNBlob(blob *dnnblob.Blob) error {
 		g.Reset()
 		return err
 	}
+	g.analysis.SetDREDEncoderMode(true)
 	g.Reset()
 	return nil
 }
