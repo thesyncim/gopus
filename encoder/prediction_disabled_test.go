@@ -50,3 +50,38 @@ func TestSetPredictionDisabledPersistsAcrossReset(t *testing.T) {
 		t.Fatalf("celtEncoder prediction mode after Reset() = %d, want 0", got)
 	}
 }
+
+func TestSetPhaseInversionDisabledPropagatesToLazyCELTEncoder(t *testing.T) {
+	enc := NewEncoder(48000, 2)
+	enc.SetMode(ModeCELT)
+	enc.SetPhaseInversionDisabled(true)
+
+	if enc.celtEncoder != nil {
+		t.Fatal("SetPhaseInversionDisabled should not eagerly create the CELT encoder")
+	}
+
+	enc.ensureCELTEncoder()
+
+	if enc.celtEncoder == nil {
+		t.Fatal("ensureCELTEncoder should initialize the CELT encoder")
+	}
+	if !enc.celtEncoder.PhaseInversionDisabled() {
+		t.Fatal("lazy CELT encoder did not inherit disabled phase inversion")
+	}
+
+	enc.SetPhaseInversionDisabled(false)
+	if enc.celtEncoder.PhaseInversionDisabled() {
+		t.Fatal("CELT encoder phase inversion flag should follow later control changes")
+	}
+}
+
+func TestSetPhaseInversionDisabledRestrictedSilkNoop(t *testing.T) {
+	enc := NewEncoder(48000, 2)
+	enc.SetRestrictedSilkApplication(true)
+
+	enc.SetPhaseInversionDisabled(true)
+
+	if enc.PhaseInversionDisabled() {
+		t.Fatal("restricted SILK should not report disabled phase inversion")
+	}
+}

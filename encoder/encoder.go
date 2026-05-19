@@ -3215,6 +3215,7 @@ func (e *Encoder) ensureCELTEncoder() {
 		e.celtEncoder.SetDCRejectEnabled(false)
 		// Opus encoder already applies CELT delay compensation at the top level.
 		e.celtEncoder.SetDelayCompensationEnabled(false)
+		e.celtEncoder.SetPhaseInversionDisabled(e.phaseInversionDisabled)
 	}
 	e.syncQEXTToCELT()
 	e.celtEncoder.SetPrediction(e.celtPredictionMode())
@@ -3398,6 +3399,9 @@ func (e *Encoder) PredictionDisabled() bool {
 
 // SetPhaseInversionDisabled disables stereo phase inversion.
 func (e *Encoder) SetPhaseInversionDisabled(disabled bool) {
+	if e.restrictedSilkApp {
+		return
+	}
 	e.phaseInversionDisabled = disabled
 	if e.celtEncoder != nil {
 		e.celtEncoder.SetPhaseInversionDisabled(disabled)
@@ -3406,6 +3410,9 @@ func (e *Encoder) SetPhaseInversionDisabled(disabled bool) {
 
 // PhaseInversionDisabled returns whether stereo phase inversion is disabled.
 func (e *Encoder) PhaseInversionDisabled() bool {
+	if e.restrictedSilkApp {
+		return false
+	}
 	return e.phaseInversionDisabled
 }
 

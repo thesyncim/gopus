@@ -1150,6 +1150,19 @@ func TestEncoder_SetPhaseInversionDisabled(t *testing.T) {
 	}
 }
 
+func TestEncoder_SetPhaseInversionDisabledRestrictedSilkNoop(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationRestrictedSilk})
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	enc.SetPhaseInversionDisabled(true)
+
+	if enc.PhaseInversionDisabled() {
+		t.Fatal("restricted SILK should not report disabled phase inversion")
+	}
+}
+
 func TestEncoder_SignalVoice_BiasesTowardSILK(t *testing.T) {
 	// Create encoder with voice signal hint at wideband
 	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
