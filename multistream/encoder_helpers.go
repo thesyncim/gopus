@@ -46,6 +46,63 @@ func routeChannelsToStreams(
 	return streamBuffers
 }
 
+func (e *Encoder) routeFloatInputToStreams(frameSize int) [][]float32 {
+	if e == nil || len(e.floatInputFrame) != frameSize*e.inputChannels {
+		return nil
+	}
+	if cap(e.floatInputStreams) < e.streams {
+		e.floatInputStreams = make([][]float32, e.streams)
+	}
+	streams := e.floatInputStreams[:e.streams]
+
+	total := 0
+	for i := 0; i < e.streams; i++ {
+		total += frameSize * streamChannels(i, e.coupledStreams)
+	}
+	if cap(e.floatInputScratch) < total {
+		e.floatInputScratch = make([]float32, total)
+	}
+	scratch := e.floatInputScratch[:total]
+	clear(scratch)
+
+	offset := 0
+	for i := 0; i < e.streams; i++ {
+		count := frameSize * streamChannels(i, e.coupledStreams)
+		streams[i] = scratch[offset : offset+count]
+		offset += count
+	}
+
+	for outCh := 0; outCh < e.inputChannels; outCh++ {
+		mappingIdx := e.mapping[outCh]
+		if mappingIdx == 255 {
+			continue
+		}
+
+		streamIdx, chanInStream := resolveMapping(mappingIdx, e.coupledStreams)
+		if streamIdx < 0 || streamIdx >= e.streams {
+			continue
+		}
+
+		srcChannels := streamChannels(streamIdx, e.coupledStreams)
+		dst := streams[streamIdx]
+		for s := 0; s < frameSize; s++ {
+			dst[s*srcChannels+chanInStream] = e.floatInputFrame[s*e.inputChannels+outCh]
+		}
+	}
+
+	return streams
+}
+
+// SetFloatInputFrame exposes the current public float32 frame to stream encoders.
+func (e *Encoder) SetFloatInputFrame(pcm []float32) {
+	e.floatInputFrame = pcm
+}
+
+// ClearFloatInputFrame clears the per-call float32 input override.
+func (e *Encoder) ClearFloatInputFrame() {
+	e.floatInputFrame = nil
+}
+
 func (e *Encoder) applyProjectionMixing(pcm []float64, frameSize int) []float64 {
 	rows := e.projectionRows
 	cols := e.projectionCols

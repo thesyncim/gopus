@@ -45,6 +45,7 @@ type libopusDREDPacketConfig struct {
 	Bandwidth     Bandwidth
 	Channels      int
 	ForceChannels int
+	Multistream   bool
 }
 
 var (
@@ -107,6 +108,9 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 	)
 	if cfg.ForceChannels != 0 {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("GOPUS_DRED_FORCE_CHANNELS=%d", cfg.ForceChannels))
+	}
+	if cfg.Multistream {
+		cmd.Env = append(cmd.Env, "GOPUS_DRED_MULTISTREAM=1")
 	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer

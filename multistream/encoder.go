@@ -113,6 +113,11 @@ type Encoder struct {
 
 	// surroundAnalysisEncoder computes CELT band energies for surround analysis.
 	surroundAnalysisEncoder *celt.Encoder
+
+	// floatInputFrame is the current public float32 frame view, if available.
+	floatInputFrame   []float32
+	floatInputStreams [][]float32
+	floatInputScratch []float32
 }
 
 const surroundBands = 21
@@ -666,8 +671,6 @@ func (e *Encoder) allocateRates(frameSize int) []int {
 	rates := e.streamBitrates[:e.streams]
 
 	switch {
-	case e.isSurroundMapping():
-		e.allocateSurroundRates(rates, frameSize)
 	case e.isAmbisonicsMapping():
 		totalRate := e.bitrateForAllocation(frameSize)
 		per := totalRate / maxInt(1, e.streams)
@@ -676,24 +679,7 @@ func (e *Encoder) allocateRates(frameSize int) []int {
 			rates[i] = per
 		}
 	default:
-		totalRate := e.bitrateForAllocation(frameSize)
-		monoStreams := e.streams - e.coupledStreams
-		totalUnits := e.coupledStreams*3 + monoStreams*2
-		if totalUnits <= 0 {
-			per := maxInt(totalRate/maxInt(1, e.streams), 500)
-			for i := 0; i < e.streams; i++ {
-				rates[i] = per
-			}
-			return rates
-		}
-		unitRate := totalRate / totalUnits
-		for i := 0; i < e.streams; i++ {
-			if i < e.coupledStreams {
-				rates[i] = maxInt(unitRate*3, 500)
-			} else {
-				rates[i] = maxInt(unitRate*2, 500)
-			}
-		}
+		e.allocateSurroundRates(rates, frameSize)
 	}
 
 	return rates
@@ -1199,13 +1185,21 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Route input channels to stream buffers
 	streamBuffers := routeChannelsToStreams(inputPCM, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
+	floatInputStreams := e.routeFloatInputToStreams(frameSize)
 
 	// Encode each stream
 	streamPackets := make([][]byte, e.streams)
 	allDTX := true
 
 	for i := 0; i < e.streams; i++ {
-		packet, err := e.encoders[i].Encode(streamBuffers[i], frameSize)
+		enc := e.encoders[i]
+		if floatInputStreams != nil {
+			enc.SetFloatInputFrame(floatInputStreams[i])
+		}
+		packet, err := enc.Encode(streamBuffers[i], frameSize)
+		if floatInputStreams != nil {
+			enc.ClearFloatInputFrame()
+		}
 		if err != nil {
 			return nil, fmt.Errorf("stream %d encode failed: %w", i, err)
 		}

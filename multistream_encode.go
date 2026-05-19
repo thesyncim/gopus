@@ -14,11 +14,15 @@ func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
 	}
 
 	pcm64 := e.scratchPCM64[:len(pcm)]
-	for i, v := range pcm {
-		pcm64[i] = float64(v)
+	if e.enc.LSBDepth() != 24 {
+		for i, v := range pcm {
+			pcm64[i] = float64(v)
+		}
 	}
 
+	e.enc.SetFloatInputFrame(pcm)
 	packet, err := e.enc.Encode(pcm64, e.frameSize)
+	e.enc.ClearFloatInputFrame()
 	if err != nil {
 		return 0, err
 	}

@@ -10,10 +10,19 @@
 #endif
 
 #include "opus.h"
+#include "opus_multistream.h"
 #include "dred_decoder.h"
 #include "src/opus_private.h"
 
 #define GODO_MAGIC "GODP"
+
+static void destroy_encoder(OpusEncoder *enc, OpusMSEncoder *ms_enc) {
+  if (ms_enc != NULL) {
+    opus_multistream_encoder_destroy(ms_enc);
+  } else if (enc != NULL) {
+    opus_encoder_destroy(enc);
+  }
+}
 
 static int dred_helper_bitrate_for_frame_size(int frame_size) {
   int bitrate = 40000;
@@ -143,7 +152,9 @@ int main(void) {
   const int max_dred_samples = 960;
   float pcm[2880 * 2];
   unsigned char packet[1500];
+  unsigned char mapping[2] = {0, 1};
   OpusEncoder *enc = NULL;
+  OpusMSEncoder *ms_enc = NULL;
   OpusDREDDecoder *dred_dec = NULL;
   OpusDRED *dred = NULL;
   int err = OPUS_OK;
@@ -153,7 +164,9 @@ int main(void) {
   const char *force_channels_env = getenv("GOPUS_DRED_FORCE_CHANNELS");
   const char *force_mode_env = getenv("GOPUS_DRED_FORCE_MODE");
   const char *bandwidth_env = getenv("GOPUS_DRED_BANDWIDTH");
+  const char *multistream_env = getenv("GOPUS_DRED_MULTISTREAM");
   int force_channels = 0;
+  int use_multistream = 0;
 
   if (frame_size_env != NULL && frame_size_env[0] != '\0') {
     char *end = NULL;
@@ -195,6 +208,15 @@ int main(void) {
     return 1;
   }
 
+  if (multistream_env != NULL && multistream_env[0] != '\0') {
+    if (strcmp(multistream_env, "1") == 0 || strcmp(multistream_env, "true") == 0) {
+      use_multistream = 1;
+    } else if (strcmp(multistream_env, "0") != 0 && strcmp(multistream_env, "false") != 0) {
+      fprintf(stderr, "invalid GOPUS_DRED_MULTISTREAM=%s\n", multistream_env);
+      return 1;
+    }
+  }
+
   bitrate = dred_helper_bitrate_for_frame_size(frame_size);
 
   if (force_mode_enabled && force_mode == MODE_HYBRID && bandwidth <= OPUS_BANDWIDTH_WIDEBAND) {
@@ -207,35 +229,64 @@ int main(void) {
     return 1;
   }
 
-  enc = opus_encoder_create(sample_rate, channels, OPUS_APPLICATION_AUDIO, &err);
-  if (enc == NULL || err != OPUS_OK) {
-    fprintf(stderr, "opus_encoder_create failed: %d\n", err);
-    return 1;
+  if (use_multistream) {
+    int streams = 1;
+    int coupled_streams = channels == 2 ? 1 : 0;
+    ms_enc = opus_multistream_encoder_create(sample_rate, channels, streams, coupled_streams, mapping, OPUS_APPLICATION_AUDIO, &err);
+    if (ms_enc == NULL || err != OPUS_OK) {
+      fprintf(stderr, "opus_multistream_encoder_create failed: %d\n", err);
+      return 1;
+    }
+    err = opus_multistream_encoder_ctl(ms_enc, OPUS_MULTISTREAM_GET_ENCODER_STATE(0, &enc));
+    if (err != OPUS_OK || enc == NULL) {
+      fprintf(stderr, "OPUS_MULTISTREAM_GET_ENCODER_STATE failed: %d\n", err);
+      destroy_encoder(enc, ms_enc);
+      return 1;
+    }
+  } else {
+    enc = opus_encoder_create(sample_rate, channels, OPUS_APPLICATION_AUDIO, &err);
+    if (enc == NULL || err != OPUS_OK) {
+      fprintf(stderr, "opus_encoder_create failed: %d\n", err);
+      return 1;
+    }
   }
   dred_dec = opus_dred_decoder_create(&err);
   if (dred_dec == NULL || err != OPUS_OK) {
     fprintf(stderr, "opus_dred_decoder_create failed: %d\n", err);
-    opus_encoder_destroy(enc);
+    destroy_encoder(enc, ms_enc);
     return 1;
   }
   dred = opus_dred_alloc(&err);
   if (dred == NULL || err != OPUS_OK) {
     fprintf(stderr, "opus_dred_alloc failed: %d\n", err);
     opus_dred_decoder_destroy(dred_dec);
-    opus_encoder_destroy(enc);
+    destroy_encoder(enc, ms_enc);
     return 1;
   }
 
-  opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate));
-  opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
-  opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(bandwidth));
-  if (force_channels != 0) {
-    opus_encoder_ctl(enc, OPUS_SET_FORCE_CHANNELS(force_channels));
+  if (use_multistream) {
+    opus_multistream_encoder_ctl(ms_enc, OPUS_SET_BITRATE(bitrate));
+    opus_multistream_encoder_ctl(ms_enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
+    opus_multistream_encoder_ctl(ms_enc, OPUS_SET_BANDWIDTH(bandwidth));
+    if (force_channels != 0) {
+      opus_multistream_encoder_ctl(ms_enc, OPUS_SET_FORCE_CHANNELS(force_channels));
+    }
+    if (force_mode_enabled) {
+      opus_multistream_encoder_ctl(ms_enc, OPUS_SET_FORCE_MODE(force_mode));
+    }
+    opus_multistream_encoder_ctl(ms_enc, OPUS_SET_PACKET_LOSS_PERC(20));
+  } else {
+    opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate));
+    opus_encoder_ctl(enc, OPUS_SET_SIGNAL(OPUS_SIGNAL_MUSIC));
+    opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(bandwidth));
+    if (force_channels != 0) {
+      opus_encoder_ctl(enc, OPUS_SET_FORCE_CHANNELS(force_channels));
+    }
+    if (force_mode_enabled) {
+      opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE(force_mode));
+    }
+    opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(20));
   }
-  if (force_mode_enabled) {
-    opus_encoder_ctl(enc, OPUS_SET_FORCE_MODE(force_mode));
-  }
-  opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(20));
   opus_encoder_ctl(enc, OPUS_SET_DRED_DURATION(80));
 
   for (frame_idx = 0; frame_idx < max_frames_to_try; frame_idx++) {
@@ -253,12 +304,16 @@ int main(void) {
         pcm[i * channels + ch] = sample;
       }
     }
-    packet_len = opus_encode_float(enc, pcm, frame_size, packet, max_packet);
+    if (use_multistream) {
+      packet_len = opus_multistream_encode_float(ms_enc, pcm, frame_size, packet, max_packet);
+    } else {
+      packet_len = opus_encode_float(enc, pcm, frame_size, packet, max_packet);
+    }
     if (packet_len < 0) {
       fprintf(stderr, "opus_encode_float failed: %d\n", packet_len);
       opus_dred_free(dred);
       opus_dred_decoder_destroy(dred_dec);
-      opus_encoder_destroy(enc);
+      destroy_encoder(enc, ms_enc);
       return 1;
     }
     if (packet_len == 0) {
@@ -277,12 +332,12 @@ int main(void) {
         fprintf(stderr, "failed to write packet output\n");
         opus_dred_free(dred);
         opus_dred_decoder_destroy(dred_dec);
-        opus_encoder_destroy(enc);
+        destroy_encoder(enc, ms_enc);
         return 1;
       }
       opus_dred_free(dred);
       opus_dred_decoder_destroy(dred_dec);
-      opus_encoder_destroy(enc);
+      destroy_encoder(enc, ms_enc);
       return 0;
     }
   }
@@ -290,6 +345,6 @@ int main(void) {
   fprintf(stderr, "failed to emit a DRED-bearing packet\n");
   opus_dred_free(dred);
   opus_dred_decoder_destroy(dred_dec);
-  opus_encoder_destroy(enc);
+  destroy_encoder(enc, ms_enc);
   return 1;
 }

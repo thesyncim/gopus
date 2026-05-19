@@ -10,13 +10,8 @@ import (
 	encpkg "github.com/thesyncim/gopus/encoder"
 )
 
-// encodeUntilMultistreamDREDPacket mirrors encodeUntilDREDPacket but exercises
-// the public top-level multistream encoder API (gopus.NewMultistreamEncoder)
-// with one coupled stream (streams=1, coupledStreams=1), which is the
-// multistream equivalent of a libopus stereo OpusEncoder. Because a single
-// coupled stream skips RFC 6716 Appendix B self-delimited framing in
-// assembleMultistreamPacket, the resulting bytes should match the inner
-// stereo packet that libopus_dred_emit_packet emits via opus_encoder_create.
+// encodeUntilMultistreamDREDPacket exercises the public multistream encoder
+// with one coupled stream, matching the libopus multistream helper path.
 func encodeUntilMultistreamDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, frameSize, channels, streams, coupledStreams int, mapping []byte) ([]byte, []byte, int) {
 	t.Helper()
 
@@ -87,27 +82,13 @@ func encodeUntilMultistreamDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth 
 	return nil, nil, 0
 }
 
-// TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo
-// exercises the top-level MultistreamEncoder API with a single coupled stereo
-// stream and compares the emitted DRED payload against the libopus stereo
-// opus_encoder_create reference. The comparison is meaningful because:
-//
-//  1. With streams=1, coupledStreams=1, MultistreamEncoder routes both input
-//     channels into one coupled (stereo) stream encoder.
-//  2. assembleMultistreamPacket only adds self-delimited framing to the
-//     first N-1 packets, so a single coupled stream packet is emitted as-is.
-//  3. libopus_dred_emit_packet uses opus_encoder_create (single-stream
-//     stereo) with the same DRED settings as the single-stream parity test.
-//
-// Therefore parity here proves that the multistream encoder's DRED carrier
-// path (SetDNNBlob + SetDREDDuration fan-out across stream encoders) emits
-// the same bytes as the underlying single-stream stereo encoder.
 func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
-		FrameSize: 960,
-		ForceMode: ModeSILK,
-		Bandwidth: BandwidthWideband,
-		Channels:  2,
+		FrameSize:   960,
+		ForceMode:   ModeSILK,
+		Bandwidth:   BandwidthWideband,
+		Channels:    2,
+		Multistream: true,
 	})
 	if err != nil {
 		t.Skipf("libopus stereo silk DRED packet helper unavailable: %v", err)
@@ -142,34 +123,18 @@ func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStere
 	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
 }
 
-// TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereoPayloadOnly
-// is the CELT-mode counterpart to the SILK multistream parity test above.
-// It uses streams=1, coupledStreams=1 so the multistream encoder routes the
-// stereo input into a single coupled CELT stream encoder, and the assembled
-// multistream packet bytes equal the inner stereo packet emitted by libopus
-// via opus_encoder_create. Parity therefore exercises the CELT-mode DRED
-// carrier path fan-out (SetDNNBlob + SetDREDDuration) across stream encoders.
-//
-// This test asserts the DRED extension payload offset and bytes match libopus
-// exactly, but not full packet length or primary CELT frame bytes. The CELT
-// stereo primary-frame compressed bits currently diverge from libopus on the
-// single-stream stereo path itself (the published single-stream parity test
-// TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20ms only covers
-// mono). Since the multistream encoder with one coupled stream produces the
-// same bytes as the single-stream stereo encoder, the divergence surfaces
-// here too. The DRED carrier (extension byte + payload bytes) does match
-// byte-exact, confirming the carrier fan-out is correct.
-func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereoPayloadOnly(t *testing.T) {
+func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereo(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
-		FrameSize: 960,
-		ForceMode: ModeCELT,
-		Bandwidth: BandwidthFullband,
-		Channels:  2,
+		FrameSize:   960,
+		ForceMode:   ModeCELT,
+		Bandwidth:   BandwidthFullband,
+		Channels:    2,
+		Multistream: true,
 	})
 	if err != nil {
 		t.Skipf("libopus stereo CELT DRED packet helper unavailable: %v", err)
 	}
-	wantPayload, _, ok, err := findDREDPayload(packetInfo.packet)
+	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
 		t.Fatalf("findDREDPayload(libopus) error: %v", err)
 	}
@@ -178,27 +143,32 @@ func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStere
 	}
 
 	mapping := []byte{0, 1}
-	gotPacket, gotPayload, _ := encodeUntilMultistreamDREDPacket(
+	gotPacket, gotPayload, gotOffset := encodeUntilMultistreamDREDPacket(
 		t, encpkg.ModeCELT, BandwidthFullband, 960, 2, 1, 1, mapping,
 	)
 	toc := ParseTOC(gotPacket[0])
 	if toc.Mode != ModeCELT || !toc.Stereo {
 		t.Fatalf("got packet toc=%+v want celt stereo", toc)
 	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
+	if gotOffset != wantOffset {
+		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+	}
 	if !bytes.Equal(gotPayload, wantPayload) {
 		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
 }
 
-// TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo
-// is the Hybrid-mode counterpart to the SILK multistream parity test above.
-// Same single-coupled-stream rationale as the CELT variant.
 func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
-		FrameSize: 960,
-		ForceMode: ModeHybrid,
-		Bandwidth: BandwidthFullband,
-		Channels:  2,
+		FrameSize:   960,
+		ForceMode:   ModeHybrid,
+		Bandwidth:   BandwidthFullband,
+		Channels:    2,
+		Multistream: true,
 	})
 	if err != nil {
 		t.Skipf("libopus stereo hybrid DRED packet helper unavailable: %v", err)
@@ -222,7 +192,11 @@ func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msSte
 	if gotOffset != wantOffset {
 		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
 	}
+	if len(gotPacket) != len(packetInfo.packet) {
+		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	}
 	if !bytes.Equal(gotPayload, wantPayload) {
 		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
+	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
 }
