@@ -1341,6 +1341,68 @@ func TestDecodeHybridLibopusQEXTPacketIgnoreExtensionsMatchesInactiveHybrid(t *t
 	}
 }
 
+func TestDecodeHybridLibopusQEXTOpaquePaddingMatchesInactiveHybrid(t *testing.T) {
+	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	if err != nil {
+		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+	}
+
+	for _, channels := range []int{1, 2} {
+		channels := channels
+		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
+			packet := makeHybridQEXTPacketForTest(t, opusDemo, channels)
+			info, frames, _, _, err := parsePacketFramesAndPadding(packet)
+			if err != nil {
+				t.Fatalf("parsePacketFramesAndPadding: %v", err)
+			}
+			if info.TOC.Mode != ModeHybrid || len(frames) != 1 {
+				t.Fatalf("packet mode=%v frames=%d want Hybrid single frame", info.TOC.Mode, len(frames))
+			}
+
+			malformed := make([]byte, len(packet)+8)
+			n, err := buildPacketFromFramesAndPadding(packet[0]&^byte(0x03), frames, []byte{0xFF, 0xFF}, malformed, false)
+			if err != nil {
+				t.Fatalf("build malformed Hybrid QEXT padding packet: %v", err)
+			}
+			malformed = malformed[:n]
+
+			wantDec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder(want): %v", err)
+			}
+			want := make([]float32, 960*channels)
+			wantN, err := wantDec.decodeOpusFrameIntoWithQEXT(want, frames[0], info.TOC.FrameSize, info.TOC.FrameSize, info.TOC.Mode, info.TOC.Bandwidth, info.TOC.Stereo, nil)
+			if err != nil {
+				t.Fatalf("decodeOpusFrameIntoWithQEXT(nil): %v", err)
+			}
+
+			for _, ignore := range []bool{false, true} {
+				gotDec, err := NewDecoder(DefaultDecoderConfig(48000, channels))
+				if err != nil {
+					t.Fatalf("NewDecoder(got): %v", err)
+				}
+				gotDec.SetIgnoreExtensions(ignore)
+				got := make([]float32, 960*channels)
+				gotN, err := gotDec.Decode(malformed, got)
+				if err != nil {
+					t.Fatalf("Decode(malformed opaque padding, ignore=%v): %v", ignore, err)
+				}
+				if gotN != wantN {
+					t.Fatalf("Decode samples=%d want %d (ignore=%v)", gotN, wantN, ignore)
+				}
+				if gotRange, wantRange := gotDec.FinalRange(), wantDec.mainDecodeRng; gotRange != wantRange {
+					t.Fatalf("FinalRange()=0x%08x want inactive Hybrid range 0x%08x (ignore=%v)", gotRange, wantRange, ignore)
+				}
+				for i := 0; i < gotN*channels; i++ {
+					if got[i] != want[i] {
+						t.Fatalf("sample[%d]=%v want inactive Hybrid %v (ignore=%v)", i, got[i], want[i], ignore)
+					}
+				}
+			}
+		})
+	}
+}
+
 func TestDecodeHybridLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPayloads(t *testing.T) {
 	opusDemo, err := benchutil.QEXTOpusDemoPath()
 	if err != nil {
