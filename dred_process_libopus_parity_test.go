@@ -92,7 +92,7 @@ func TestStandaloneDREDProcessMatchesLibopusOnRealPacket(t *testing.T) {
 	if n := dred.FillFeatures(features); n != len(features) {
 		t.Fatalf("FillFeatures count=%d want %d", n, len(features))
 	}
-	assertFloat32ApproxEqual(t, features, want.features, "features", 1e-1)
+	assertFloat32BitsEqual(t, features, want.features, "features")
 }
 
 func TestStandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket(t *testing.T) {

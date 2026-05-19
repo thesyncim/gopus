@@ -175,8 +175,8 @@ func TestRDOVAEEncoderMatchesLibopusOnRealModel(t *testing.T) {
 		gotState = append(gotState, state[:]...)
 	}
 
-	assertDREDFloat32Close(t, gotLatents, want.Latents, 5e-3, "rdovae latents")
-	assertDREDFloat32Close(t, gotState, want.State, 5e-3, "rdovae state")
+	assertDREDFloat32Close(t, gotLatents, want.Latents, 0, "rdovae latents")
+	assertDREDFloat32Close(t, gotState, want.State, 0, "rdovae state")
 }
 
 func makeDREDRDOVAEInputFrames(frameCount int) []float32 {
@@ -195,6 +195,12 @@ func assertDREDFloat32Close(t *testing.T, got, want []float32, tol float64, labe
 		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
 	}
 	for i := range got {
+		if tol == 0 {
+			if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+				t.Fatalf("%s[%d]=%v want %v (bits differ)", label, i, got[i], want[i])
+			}
+			continue
+		}
 		if math.Abs(float64(got[i]-want[i])) > tol {
 			t.Fatalf("%s[%d]=%v want %v (tol=%g)", label, i, got[i], want[i], tol)
 		}
