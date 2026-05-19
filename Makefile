@@ -65,6 +65,8 @@ GO_TEST_PARITY_EXACT = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_L
 GO_TEST_EXHAUSTIVE = GOPUS_TEST_TIER=exhaustive $(GO_WORK_ENV) $(GO) test
 RUNNABLE_FAST = GOPUS_TEST_TIER=fast $(GO_RUNNABLE_TEST)
 RUNNABLE_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABLE_TEST)
+DNN_BLOB_DEFAULT_ROOT_RUN = 'Test(DefaultBuildDNNBlobKeepsDREDRuntimeDormant|DefaultBuildEncoderDNNBlobKeepsDREDDormant|EncoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobStereoRuntimeRetainedAcrossReset|MultistreamEncoderSetDNNBlobRetainedAcrossReset|MultistreamDecoderSetDNNBlobRetainedAcrossReset|ValidEncoderTestDNNBlobShape|ValidDecoderTestDNNBlobShape)'
+DNN_BLOB_DEFAULT_MULTISTREAM_RUN = 'Test(DefaultBuildMultistreamDecoderRealBlobDormant|DefaultBuildMultistreamEncoderDNNBlobKeepsAllocsFlat)'
 UNSUPPORTED_CONTROLS_CORE_ROOT_RUN = 'Test(SupportsOptionalExtension|UnsupportedControlsBuildExposesQuarantinedTopLevelControls|UnsupportedControlsBuildPublicAPIContract|PublicDRED|DREDDecoderParseRequiresModel|DREDDecoderParseAndProcessRetainsMetadata|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderParseClearsStateOnMalformedPacket|StandaloneDREDParseMatchesLibopus|StandaloneDREDProcessMatchesLibopusOnRealPacket|StandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket|StandaloneDREDRecoveryWindowMatchesLibopus|StandaloneDREDRecoveryQueueMatchesLibopus|DecoderCoreDNNBlobDoesNotArmGoodPacketDREDWork|DecoderCachedDREDRecoveryMatchesLibopusLifecycle|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELT|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kHybrid|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELT|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid|DecoderExplicitDREDWarmup48kStateMatchesLibopus)|ExampleSupportsOptionalExtension'
 DRED_STEREO_RECOVERY_ROOT_RUN = 'Test(DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELTStereo|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELTStereo|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybridStereo)'
 DRED_LATENTS_TRACE_RUN = 'TestLibopusDREDLatentsTraceStereoDivergesFromMono'
@@ -149,6 +151,8 @@ test-dnn-blob-parity: ensure-libopus
 		: > "$$json_part"; \
 	}; \
 	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test . -run 'Test(DNNBlobControlAcceptsLibopusModelBlobs|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test . -run $(DNN_BLOB_DEFAULT_ROOT_RUN) -count=1; \
+	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./multistream -run $(DNN_BLOB_DEFAULT_MULTISTREAM_RUN) -count=1; \
 	if grep -q '"Action":"skip"' "$$json_out"; then \
 		echo "Unexpected skip detected in required DNN blob parity gate:"; \
 		grep '"Action":"skip"' "$$json_out"; \

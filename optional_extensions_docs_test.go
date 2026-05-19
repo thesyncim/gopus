@@ -80,6 +80,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"Draft status: this is not a published release until the `v0.1.0` tag and the",
 		"`SetDNNBlob(...)` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`",
 		"`make test-dnn-blob-parity` validates the default `SetDNNBlob(...)` control surface",
+		"reset retention, fixture shape, dormant optional-runtime, and multistream allocation contracts",
 		"Decoder-side `SetDNNBlob(...)` currently covers loader-derived validation and retained control state.",
 		"may also bind DRED/OSCE-capable model families on the control path",
 		"QEXT controls are supported only when built with `-tags gopus_qext`",
@@ -133,6 +134,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"Build tag-gated QEXT support explicitly",
 		"`make test-dnn-blob-parity` builds the pinned libopus",
+		"reset retention, fixture shape, dormant optional-runtime, and multistream allocation contracts",
 		"fails if required helper",
 		"`SupportsOptionalExtension(gopus.OptionalExtensionQEXT)` reports `true` only in",
 		"`make test-qext-parity`",
