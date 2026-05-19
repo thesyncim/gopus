@@ -12,7 +12,7 @@ Block correctness and hot-path performance regressions before merge.
 - `make test-doc-contract`
 - `make lint`
 - Runs the pinned `golangci-lint` baseline from `.golangci.yml`.
-- Runs on markdown-only PRs too, so optional-extension docs changes still pass through the same static/docs contract checks, default public API surface checks, wrapper safety checks, default single-stream and multistream control checks, streaming reader/writer checks, streaming reader/writer data-flow and end-to-end stream checks, Ogg reader/writer contract and flow checks, Ogg page primitive checks, default decoder packet-state/FEC/provided-packet FEC checks, default multistream decoder duration checks, default-build optional-control semantics/quarantine checks, default packet-extension dormancy/framing checks, default parser-envelope checks, and root repacketizer libopus fixture/envelope checks.
+- Runs on markdown-only PRs too, so optional-extension docs changes still pass through the same static/docs contract checks, default public API surface checks, wrapper safety checks, default single-stream and multistream control checks, streaming reader/writer checks, streaming reader/writer data-flow and end-to-end stream checks, Ogg reader/writer contract and flow checks, Ogg page primitive/metadata checks, default decoder packet-state/FEC/provided-packet FEC checks, default multistream decoder duration checks, default-build optional-control semantics/quarantine checks, default packet-extension dormancy/framing checks, default parser-envelope checks, and root repacketizer libopus fixture/envelope checks.
 - Intended to catch actionable vet/static-analysis issues without forcing broad codec-style churn.
 
 2. Correctness gate (`test-linux`)
