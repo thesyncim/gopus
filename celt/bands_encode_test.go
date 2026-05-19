@@ -315,7 +315,7 @@ func TestPVQEncodingPreservesEnergy(t *testing.T) {
 			data := re.Done()
 
 			if len(data) == 0 {
-				t.Skip("no data produced")
+				t.Fatal("no data produced")
 			}
 
 			// Decode
@@ -425,7 +425,7 @@ func TestEncodeBandsWithDecoder(t *testing.T) {
 	data := re.Done()
 
 	if len(data) == 0 {
-		t.Skip("no data produced")
+		t.Fatal("no data produced")
 	}
 
 	// Decode
