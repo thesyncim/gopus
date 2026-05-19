@@ -59,8 +59,8 @@ the standalone DRED wrapper, and the selected green parity seams.
 `make test-dred-tag` exercises standalone DRED wrapper lifecycle,
 zero-allocation, libopus parse/decode/process metadata coverage, and real-packet
 standalone process state/feature parity, standalone recovery scheduling parity,
-decoder cached recovery bookkeeping parity, and stereo cached recovery
-lifecycle/cursor seams plus the supported-tag SILK
+top-level decoder dormancy/cache lifecycle coverage, decoder cached recovery
+bookkeeping parity, and stereo cached recovery lifecycle/cursor seams plus the supported-tag SILK
 wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload/packet-envelope
 seams, Hybrid fullband 20/40 ms mono and stereo carried-payload/packet-envelope
 seams, and the final/non-final uncoupled mono, final/non-final single-coupled
