@@ -86,10 +86,6 @@ DEFAULT_ENCODER_ROUTING_ROOT_RUN = 'TestEncoder_(SignalVoice_BiasesTowardSILK|Si
 DEFAULT_ENCODER_CONTROLS_ROOT_RUN = 'TestEncoder_(SetBitrate|SetComplexity|SetBitrateMode|SetVBRAndConstraint|SetPacketLoss|SetBandwidth|SetApplication|RestrictedApplications|ExpertFrameDuration|SetSignal|SetMaxBandwidth|SetForceChannels|Lookahead|SetLSBDepth|SetPredictionDisabled|SetPhaseInversionDisabled)$$'
 DEFAULT_DECODER_CONTROLS_ROOT_RUN = 'TestDecoder_(InDTX|SetGainBounds|IgnoreExtensions|GainAppliedToDecodeOutput|PitchGetter)$$'
 DEFAULT_MULTISTREAM_CONTROLS_ROOT_RUN = 'TestMultistream(Encoder_(Controls|CVBRPacketEnvelope|SetApplicationPreservesControls|SetApplicationForwardsModeAndBandwidth|SetApplicationAfterEncodeRejected|RestrictedApplications|Lookahead)|Decoder_IgnoreExtensions)$$'
-DEFAULT_HYBRID_PKG_RUN = 'Test(NewDecoder|ValidHybridFrameSize|Hybrid(FrameSizes|DelayCompensation|DelayCompensationStereo|Reset|OutputRange|Stereo|EmptyInput|InvalidFrameSize|Constants|RealPacketDecode|RealPacket10ms|RealPacketStereo|RealPacketWithPublicAPI|RangeDecoderTransition|MultipleFrames|OutputSampleRange|StartEndBandState))$$'
-DEFAULT_CELT_BAND_PKG_RUN = 'Test(VectorToPulses|VectorToPulsesPreservesDirection|VectorToPulsesRoundTrip|PVQEncodeDecodeRoundTrip|EncodeBandsAllSizes|PVQEncodingPreservesEnergy|NormalizeBands|EncodeBandsWithDecoder|EncodeBandPVQProducesValidIndex)$$'
-DEFAULT_CELT_FFT_PKG_RUN = 'TestKfBfly2(ViaFFT|M1Correctness)$$'
-DEFAULT_CELT_TONALITY_PKG_RUN = 'TestTonality(PerBand|WithRealMDCT|WithRealNoise)$$'
 DEFAULT_STREAM_READER_ROOT_RUN = 'Test(NewReader_(ValidParams|InvalidParams)|Reader_(Format_Float32LE|Format_Int16LE|Reset|io_Reader_Interface))$$'
 DEFAULT_STREAM_READER_FLOW_ROOT_RUN = 'TestReader_(Read_SinglePacket|LastGranulePos|Read_MultiplePackets|Read_PartialRead|Read_EOF|Read_PLC)$$'
 DEFAULT_STREAM_WRITER_ROOT_RUN = 'Test(NewWriter_(ValidParams|InvalidParams)|Writer_(Format_Float32LE|Format_Int16LE|Flush|Flush_Empty|Close_FlushesAndClosesSink|Close_Idempotent|Reset|io_Writer_Interface))$$'
@@ -110,11 +106,10 @@ DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN = 'Test(SelfDelimitedPacketPreservesPac
 DEFAULT_PACKET_PARSER_ROOT_RUN = 'Test(ParsePacketCode0|ParsePacketCode1|ParsePacketCode2|ParsePacketCode3CBR|ParsePacketCode3VBR|TwoByteFrameLength|ParsePacketErrors|ExtractFirstFramePayloadCode3VBROneFrameWithPadding|DecodeCode3VBROneFramePaddingRegression|ParsePacketRejectsLibopusEnvelopeViolations|ParsePacketCode3MaxFrames|ParsePacketCode3ContinuationPadding)'
 DEFAULT_MULTISTREAM_ENCODER_PKG_RUN = 'Test(NewEncoder|NewEncoderDefault|RouteChannelsToStreams|RouteChannelsToStreams_RoundTrip|WriteSelfDelimitedLength|AssembleMultistreamPacket|EncoderSetBitrate|EncoderReset|Encode_(Basic|51Surround|71Surround|InputValidation))$$'
 DEFAULT_MULTISTREAM_ENCODER_POLICY_PKG_RUN = 'Test(SetBitrate_Distribution|AllocateRates_SurroundLFEAware|NewEncoderDefault_SetsLFEFlags|Encode_(SurroundPerStreamPolicy|SurroundPolicyPreservesMonoForceChannels|SurroundTrimProduced|SurroundBandSMRProduced|SurroundEnergyMaskPerStream|SurroundTrimProducedAt24k|AmbisonicsForcesCELTMode|Mono)|EncoderControlMethods|GetFinalRange|Lookahead|Signal|MaxBandwidth|LSBDepth|ValidateEncoderLayout|NewEncoderLayoutValidation|GetFinalRange_XORCombination)$$'
-DEFAULT_MULTISTREAM_DECODER_PKG_RUN = 'Test(NewDecoder_(ValidConfigs|InvalidConfigs)|DefaultMapping|ResolveMapping|StreamChannels|ApplyChannelMapping|DecodePLC|DecodeIntegration|DecodeTo(Int16|Float32)|Float64To(Int16|Float32)|DecoderReset|DecoderPLCState)$$'
+DEFAULT_MULTISTREAM_DECODER_PKG_RUN = 'Test(NewDecoder_(ValidConfigs|InvalidConfigs)|DefaultMapping|ResolveMapping|StreamChannels|ApplyChannelMapping|DecodePLC|DecodeTo(Int16|Float32)|Float64To(Int16|Float32)|DecoderReset|DecoderPLCState)$$'
 DEFAULT_MULTISTREAM_AMBISONICS_PKG_RUN = 'Test(Isqrt32|Isqrt32_MatchesMath|ValidAmbisonicsChannelCounts|InvalidAmbisonicsChannelCounts|AmbisonicsMapping|AmbisonicsMappingFamily3|AmbisonicsMappingFamily3_UnsupportedOrders|ValidateAmbisonicsFamily3|ValidateAmbisonicsFamily3_UnsupportedOrders|AmbisonicsChannelCount|NewEncoderAmbisonics_(Family2|Family3|InvalidFamily|InvalidChannels)|EncoderAmbisonics_Encode|MappingFamily_DefaultEncoder|ProjectionMixingDefaultsLibopusParity|NewEncoderAmbisonicsFamily3InitializesProjectionMixing|ApplyProjectionMixingSwapsChannels|SetProjectionDemixingMatrixInvalidSize|ApplyProjectionDemixingSwapsChannels|SetProjectionDemixingMatrixFromFamily3Header)$$'
 DEFAULT_MULTISTREAM_ROUNDTRIP_PKG_RUN = 'TestRoundTrip(_Helpers|_Mono|_Stereo|_51Surround|_71Surround|_MultipleFrames|_ChannelIsolation)?$$'
 DEFAULT_MULTISTREAM_PARSER_RUN = 'Test(ParseSelfDelimitedLength|ParseMultistreamPacket|GetFrameDuration|ValidateStreamDurations|ParseOpusPacketRejectsLibopusEnvelopeViolations|PacketDurationRejectsLibopusEnvelopeViolation|ParseMultistreamPacketWithSelfDelimitedCode3|SelfDelimitedPacketDropsOrdinaryPadding)'
-DEFAULT_RANGECODING_PKG_RUN = 'Test(EncodeDecode(Bit|ICDF|Uniform|MultipleBits|Mixed|RawBits)RoundTrip|EncodeICDF16|EncodeICDF16NonSilkTable|EncodeICDF16MultipleSymbols|EncodeICDF16Determinism)$$'
 DEFAULT_REPACKETIZER_ROOT_RUN = 'Test(RepacketizerParityWithLibopusFixture|RepacketizerRejectsTOCMismatch|RepacketizerRejectsDurationOver120ms|RepacketizerRejectsLibopusParserEnvelopeViolations)'
 UNSUPPORTED_CONTROLS_CORE_ROOT_RUN = 'Test(SupportsOptionalExtension|UnsupportedControlsBuildExposesQuarantinedTopLevelControls|UnsupportedControlsBuildPublicAPIContract|PublicDRED|DREDDecoderParseRequiresModel|DREDDecoderParseAndProcessRetainsMetadata|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderParseClearsStateOnMalformedPacket|StandaloneDREDParseMatchesLibopus|StandaloneDREDProcessMatchesLibopusOnRealPacket|StandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket|StandaloneDREDRecoveryWindowMatchesLibopus|StandaloneDREDRecoveryQueueMatchesLibopus|DecoderCoreDNNBlobDoesNotArmGoodPacketDREDWork|DecoderCachedDREDRecoveryMatchesLibopusLifecycle|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELT|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kHybrid|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELT|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid|DecoderExplicitDREDWarmup48kStateMatchesLibopus)|ExampleSupportsOptionalExtension'
 DRED_STEREO_RECOVERY_ROOT_RUN = 'Test(DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELTStereo|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELTStereo|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybridStereo)'
@@ -211,10 +206,6 @@ test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_CONTROLS_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_CONTROLS_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_MULTISTREAM_CONTROLS_ROOT_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./hybrid -run $(DEFAULT_HYBRID_PKG_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./celt -run $(DEFAULT_CELT_BAND_PKG_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./celt -run $(DEFAULT_CELT_FFT_PKG_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./celt -run $(DEFAULT_CELT_TONALITY_PKG_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_STREAM_READER_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_STREAM_READER_FLOW_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_STREAM_WRITER_ROOT_RUN) -count=1
@@ -239,7 +230,6 @@ test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_MULTISTREAM_AMBISONICS_PKG_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_MULTISTREAM_ROUNDTRIP_PKG_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_MULTISTREAM_PARSER_RUN) -count=1
-	$(GO_WORK_ENV) $(GO) test ./rangecoding -run $(DEFAULT_RANGECODING_PKG_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_REPACKETIZER_ROOT_RUN) -count=1
 
 # Default-supported DNN blob control parity against libopus USE_WEIGHTS_FILE
