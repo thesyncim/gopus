@@ -82,6 +82,7 @@ DEFAULT_STREAM_WRITER_FLOW_ROOT_RUN = 'TestWriter_(Write_SingleFrame|Write_Multi
 DEFAULT_STREAM_END_TO_END_ROOT_RUN = 'TestStream_(RoundTrip_Float32|RoundTrip_Int16|Pipe|LargeTransfer|io_Copy|MixedReadWrite)$$'
 DEFAULT_OGG_READER_RUN = 'Test(NewReader_(Valid|NotOgg|NilReader|BadMagic)|Reader_(HeaderFields|MultistreamHeader|Serial|EmptyStream|GranulePos))$$'
 DEFAULT_OGG_READER_FLOW_RUN = 'Test(Reader_(LargePacket|WriterRoundTrip|SeekGranule|SeekGranule_NotSeekable|Truncated)|ReadPacket_MultiPacketPageGranules)$$'
+DEFAULT_OGG_WRITER_RUN = 'Test(NewWriter_(Mono|Stereo|InvalidChannels|NilWriter)|WriterWithConfig_(Multistream|PreservesMappingFamily|InvalidConfig)|WriterPreSkip|WriterOutputGain)$$'
 DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN = 'Test(DecoderDecodeValidUnknownExtensionMatchesBasePacket|DecoderOpaquePaddingRemainsDecodableInDefaultBuild|DecoderCELTOpaquePaddingRemainsDecodable|DecoderCELTUnsupportedQEXTExtensionMatchesBasePacket)'
 DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN = 'Test(MultistreamPacketPadUnpadSelfDelimitedRoundTrip|MultistreamPacketPadUnpadThreeStreamsRoundTrip|MultistreamPacketPadRejectsInvalidSelfDelimited|MultistreamPacketUnpadRejectsInvalidSelfDelimited|MultistreamPacketPadRejectsLibopusParserEnvelopeViolation|MultistreamPacketUnpadRejectsLibopusParserEnvelopeViolation)'
 DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN = 'Test(SelfDelimitedPacketPreservesPacketExtensions|DecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding)'
@@ -179,6 +180,7 @@ test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_STREAM_END_TO_END_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_READER_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_READER_FLOW_RUN) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run $(DEFAULT_OGG_WRITER_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN) -count=1
