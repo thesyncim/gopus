@@ -150,7 +150,7 @@ int main(void) {
   int bitrate = 40000;
   const int max_packet = 1500;
   const int max_dred_samples = 960;
-  float pcm[2880 * 2];
+  float pcm[5760 * 2];
   unsigned char packet[1500];
   unsigned char mapping[2] = {0, 1};
   OpusEncoder *enc = NULL;
@@ -174,7 +174,7 @@ int main(void) {
   if (frame_size_env != NULL && frame_size_env[0] != '\0') {
     char *end = NULL;
     long parsed = strtol(frame_size_env, &end, 10);
-    if (end == NULL || *end != '\0' || (parsed != 120 && parsed != 240 && parsed != 480 && parsed != 960 && parsed != 1920 && parsed != 2880)) {
+    if (end == NULL || *end != '\0' || (parsed != 120 && parsed != 240 && parsed != 480 && parsed != 960 && parsed != 1920 && parsed != 2880 && parsed != 3840 && parsed != 4800 && parsed != 5760)) {
       fprintf(stderr, "invalid GOPUS_DRED_FRAME_SIZE=%s\n", frame_size_env);
       return 1;
     }

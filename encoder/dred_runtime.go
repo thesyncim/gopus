@@ -186,6 +186,40 @@ func (e *Encoder) processDREDLatentsForPacket(framePCM []float64, frameSize, ext
 	if !extsupport.DREDRuntime {
 		return 0
 	}
+	if mode == ModeSILK && frameSize > 2880 {
+		var encFrameSize int
+		switch frameSize {
+		case 3840:
+			encFrameSize = 1920
+		case 4800:
+			encFrameSize = 960
+		case 5760:
+			encFrameSize = 2880
+		default:
+			return e.processDREDLatents(framePCM, extraDelay)
+		}
+		if e.channels <= 0 {
+			return 0
+		}
+		frameSamples := frameSize * e.channels
+		if frameSamples <= 0 || len(framePCM) < frameSamples {
+			return 0
+		}
+		e.clearDREDPacketSnapshot()
+		frameStride := encFrameSize * e.channels
+		emitted := 0
+		for start := 0; start < frameSamples; start += frameStride {
+			end := start + frameStride
+			if end > frameSamples {
+				return emitted
+			}
+			emitted += e.processDREDLatents(framePCM[start:end], extraDelay)
+			if start == 0 {
+				e.snapshotDREDPacketState()
+			}
+		}
+		return emitted
+	}
 	if mode == ModeHybrid && frameSize > 960 && frameSize%960 == 0 {
 		if e.channels <= 0 {
 			return 0

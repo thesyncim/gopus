@@ -764,7 +764,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	case ModeSILK:
 		e.maybePrefillSILKOnModeTransition(actualMode)
 		if frameSize > 2880 {
-			packet, err = e.encodeSILKMultiFramePacket(framePCM, frameSize)
+			packet, err = e.encodeSILKMultiFramePacket(framePCM, frameSize, e.bitrate, encodingBitrate, dredBitrate)
 		} else {
 			originalBitrate := e.bitrate
 			if encodingBitrate != originalBitrate {
@@ -2133,6 +2133,10 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 }
 
 func (e *Encoder) encodeSILKFrameWithDRED(pcm []float64, lookahead []float64, frameSize, originalBitrate, dredBitrate int) ([]byte, error) {
+	return e.encodeSILKFrameWithDREDAndMax(pcm, lookahead, frameSize, originalBitrate, dredBitrate, 0)
+}
+
+func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []float64, lookahead []float64, frameSize, originalBitrate, dredBitrate, maxPacketBytes int) ([]byte, error) {
 	e.ensureSILKEncoder()
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
@@ -2194,6 +2198,9 @@ func (e *Encoder) encodeSILKFrameWithDRED(pcm []float64, lookahead []float64, fr
 		// Set max bits for both encoders.
 		if e.bitrate > 0 {
 			maxBits := e.silkMaxBits(frameSize, totalSilkRate, originalBitrate, dredBitrate)
+			if maxPacketBytes > 0 {
+				maxBits = e.silkMaxBitsForPacketBytes(frameSize, totalSilkRate, maxPacketBytes, dredBitrate)
+			}
 			e.silkEncoder.SetMaxBits(maxBits)
 			e.silkSideEncoder.SetMaxBits(maxBits)
 		}
@@ -2297,7 +2304,11 @@ func (e *Encoder) encodeSILKFrameWithDRED(pcm []float64, lookahead []float64, fr
 	e.silkEncoder.SetVBR(e.bitrateMode != ModeCBR || dredBitrate > 0)
 	// Set SILK max bits based on bitrate mode (matches opus_encoder.c behavior).
 	if e.bitrate > 0 {
-		e.silkEncoder.SetMaxBits(e.silkMaxBits(frameSize, perChannelRate, originalBitrate, dredBitrate))
+		maxBits := e.silkMaxBits(frameSize, perChannelRate, originalBitrate, dredBitrate)
+		if maxPacketBytes > 0 {
+			maxBits = e.silkMaxBitsForPacketBytes(frameSize, perChannelRate, maxPacketBytes, dredBitrate)
+		}
+		e.silkEncoder.SetMaxBits(maxBits)
 	}
 	e.silkEncoder.SetFEC(e.lbrrCoded)
 	e.silkEncoder.SetPacketLoss(e.packetLoss)
@@ -2333,6 +2344,26 @@ func (e *Encoder) silkMaxBits(frameSize, silkBitrate, originalBitrate, dredBitra
 		maxBytes = maxSilkPacketBytes
 	}
 	maxBits := silkPayloadMaxBits(maxBytes)
+	if e.bitrateMode == ModeCBR && dredBitrate > 0 {
+		if e.sampleRate <= 0 {
+			return maxBits
+		}
+		if silkBitrate <= 0 {
+			silkBitrate = e.bitrate
+		}
+		otherBits := maxBits - silkBitrate*frameSize/e.sampleRate
+		if otherBits > 0 {
+			maxBits -= otherBits * 3 / 4
+		}
+		if maxBits < 0 {
+			maxBits = 0
+		}
+	}
+	return maxBits
+}
+
+func (e *Encoder) silkMaxBitsForPacketBytes(frameSize, silkBitrate, maxPacketBytes, dredBitrate int) int {
+	maxBits := silkPayloadMaxBits(maxPacketBytes)
 	if e.bitrateMode == ModeCBR && dredBitrate > 0 {
 		if e.sampleRate <= 0 {
 			return maxBits
@@ -2625,7 +2656,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 
 // encodeSILKMultiFramePacket encodes 80/100/120ms SILK packets by splitting
 // them into libopus-compatible 20/40/60ms SILK frames and repacketizing them.
-func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int) ([]byte, error) {
+func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int, originalBitrate, encodingBitrate, dredBitrate int) ([]byte, error) {
 	if len(pcm) != frameSize*e.channels {
 		return nil, ErrInvalidFrameSize
 	}
@@ -2647,21 +2678,83 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int) ([]by
 	sameSize := true
 	prevSize := -1
 	frameStride := encFrameSize * e.channels
+	if e.analysisReadBakSet && e.analyzer != nil {
+		e.analyzer.ReadPos = e.analysisReadPosBak
+		e.analyzer.ReadSubframe = e.analysisSubframeBak
+	}
+
+	subframeBitrate := e.bitrate
+	if encodingBitrate > 0 {
+		subframeBitrate = encodingBitrate
+	}
+	packetTargetBytes := targetBytesForBitrate(originalBitrate, frameSize)
+	if packetTargetBytes < 1 {
+		packetTargetBytes = 1
+	}
+	maxHeaderBytes := 3
+	if frameCount > 2 {
+		maxHeaderBytes = 2 + (frameCount-1)*2
+	}
+	maxLenSum := frameCount + packetTargetBytes - maxHeaderBytes
+	if maxLenSum < frameCount {
+		maxLenSum = frameCount
+	}
+	currMaxByRate := subframeBitrate * encFrameSize / 48000 / 8
+	if currMaxByRate < 2 {
+		currMaxByRate = 2
+	}
+	dredBytes := 0
+	if dredBitrate > 0 {
+		dredBytes = bitrateToBits(dredBitrate, frameSize) / 8
+	}
+	totSize := 0
+	savedBitrate := e.bitrate
+	e.bitrate = subframeBitrate
 
 	for i := 0; i < frameCount; i++ {
+		e.primeSubframeAnalysis(encFrameSize)
 		start := i * frameStride
 		end := start + frameStride
-		frameData, err := e.encodeSILKFrame(pcm[start:end], nil, encFrameSize)
+
+		currMax := currMaxByRate
+		capPerFrame := maxLenSum / frameCount
+		if currMax > capPerFrame {
+			currMax = capPerFrame
+		}
+		if dredBytes > 0 {
+			dredCap := (maxLenSum - dredBytes) / frameCount
+			if dredCap < 2 {
+				dredCap = 2
+			}
+			if currMax > dredCap {
+				currMax = dredCap
+			}
+			if i == 0 {
+				currMax += dredBytes
+			}
+		}
+		remainingCap := maxLenSum - totSize
+		if currMax > remainingCap {
+			currMax = remainingCap
+		}
+		if currMax < 2 {
+			currMax = 2
+		}
+		frameData, err := e.encodeSILKFrameWithDREDAndMax(pcm[start:end], nil, encFrameSize, originalBitrate, dredBitrate, currMax)
 		if err != nil {
+			e.bitrate = savedBitrate
 			return nil, err
 		}
 		frameCopy := append([]byte(nil), trimSilkTrailingZeros(frameData)...)
 		frames[i] = frameCopy
+		totSize += len(frameCopy) + 1
 		if prevSize >= 0 && len(frameCopy) != prevSize {
 			sameSize = false
 		}
 		prevSize = len(frameCopy)
 	}
+	e.bitrate = savedBitrate
+	e.analysisReadBakSet = false
 
 	packetBW := e.effectiveBandwidth()
 	if packetBW > types.BandwidthWideband {
