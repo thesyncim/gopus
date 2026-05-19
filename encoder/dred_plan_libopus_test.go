@@ -11,6 +11,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
 func TestDREDBitsTableMatchesLibopusReference(t *testing.T) {
@@ -22,6 +25,52 @@ func TestDREDBitsTableMatchesLibopusReference(t *testing.T) {
 		if got != want[i] {
 			t.Fatalf("dredBitsTable[%d]=%g want %g", i, got, want[i])
 		}
+	}
+}
+
+func TestComputeDREDEmissionPlanUsesFECControlFlag(t *testing.T) {
+	withoutLBRR := newDREDPlanTestEncoder()
+	withoutLBRR.fecEnabled = true
+	withoutLBRR.lbrrCoded = false
+	got, ok := withoutLBRR.computeDREDEmissionPlan(960)
+	if !ok {
+		t.Fatal("computeDREDEmissionPlan() disabled DRED with FEC enabled")
+	}
+
+	withLBRR := newDREDPlanTestEncoder()
+	withLBRR.fecEnabled = true
+	withLBRR.lbrrCoded = true
+	want, ok := withLBRR.computeDREDEmissionPlan(960)
+	if !ok {
+		t.Fatal("computeDREDEmissionPlan() disabled DRED with LBRR coded")
+	}
+	if got != want {
+		t.Fatalf("plan with FEC enabled differs by LBRR state: got %+v want %+v", got, want)
+	}
+
+	noFEC := newDREDPlanTestEncoder()
+	noFEC.fecEnabled = false
+	noFECPlan, ok := noFEC.computeDREDEmissionPlan(960)
+	if !ok {
+		t.Fatal("computeDREDEmissionPlan() disabled DRED without FEC")
+	}
+	if got == noFECPlan {
+		t.Fatalf("FEC-enabled plan matched no-FEC plan: %+v", got)
+	}
+}
+
+func newDREDPlanTestEncoder() *Encoder {
+	return &Encoder{
+		sampleRate: 48000,
+		bitrate:    64000,
+		packetLoss: 10,
+		dred: &dredEncoderExtras{
+			duration: 8,
+			models: dredEncoderModels{
+				encoder: &rdovae.EncoderModel{},
+				pitch:   &lpcnetplc.PitchDNNModel{},
+			},
+		},
 	}
 }
 

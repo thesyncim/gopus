@@ -65,7 +65,7 @@ func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool
 
 	var dredFrac float64
 	bitrateOffset := 12000
-	if e.fecEnabled && e.lbrrCoded {
+	if e.fecEnabled {
 		dredFrac = math.Min(0.7, 3.0*float64(packetLoss)/100.0)
 		bitrateOffset = 20000
 	} else if packetLoss > 5 {
