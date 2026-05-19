@@ -12,7 +12,7 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-var dredBitsTable = [...]float64{73.2, 68.1, 62.5, 57.0, 51.5, 45.7, 39.9, 32.4, 26.4, 20.4, 16.3, 13.0, 9.3, 8.2, 7.2, 6.4}
+var dredBitsTable = [...]float32{73.2, 68.1, 62.5, 57.0, 51.5, 45.7, 39.9, 32.4, 26.4, 20.4, 16.3, 13.0, 9.3, 8.2, 7.2, 6.4}
 
 type dredEmissionPlan struct {
 	q0           int
@@ -22,16 +22,37 @@ type dredEmissionPlan struct {
 	bitrate      int
 }
 
-func dredBitsToBitrate(bitCount, frameSize int) int {
-	durationMs := frameDurationMs(frameSize)
-	if durationMs <= 0 || bitCount <= 0 {
+func minFloat32(a, b float32) float32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func dredBitrateToBits(bitrate, sampleRate, frameSize int) int {
+	if bitrate <= 0 || sampleRate <= 0 || frameSize <= 0 {
 		return 0
 	}
-	return bitCount * 1000 / durationMs
+	unitsPerFrame := 6 * sampleRate / frameSize
+	if unitsPerFrame <= 0 {
+		return 0
+	}
+	return bitrate * 6 / unitsPerFrame
+}
+
+func dredBitsToBitrate(bitCount, sampleRate, frameSize int) int {
+	if bitCount <= 0 || sampleRate <= 0 || frameSize <= 0 {
+		return 0
+	}
+	unitsPerFrame := 6 * sampleRate / frameSize
+	if unitsPerFrame <= 0 {
+		return 0
+	}
+	return bitCount * unitsPerFrame / 6
 }
 
 func estimateDREDBits(q0, dQ, qmax, duration, targetBits int) (int, int) {
-	bitsUsed := 8.0 * float64(3+internaldred.ExperimentalHeaderBytes)
+	bitsUsed := float32(8 * (3 + internaldred.ExperimentalHeaderBytes))
 	bitsUsed += 50.0 + dredBitsTable[q0]
 
 	dredChunks := (duration + 5) / 4
@@ -43,15 +64,15 @@ func estimateDREDBits(q0, dQ, qmax, duration, targetBits int) (int, int) {
 	for i := 0; i < dredChunks; i++ {
 		q := header.QuantizerLevel(i)
 		bitsUsed += dredBitsTable[q]
-		if int(bitsUsed) < targetBits {
+		if bitsUsed < float32(targetBits) {
 			targetChunks = i + 1
 		}
 	}
-	return int(math.Floor(0.5 + bitsUsed)), targetChunks
+	return int(math.Floor(float64(float32(0.5) + bitsUsed))), targetChunks
 }
 
 func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool) {
-	if !extsupport.DREDRuntime || e.dred == nil || e.dred.duration <= 0 || !e.dredModelsLoaded() || e.bitrate <= 0 {
+	if !extsupport.DREDRuntime || e.dred == nil || e.dred.duration <= 0 || !e.dredModelsLoaded() || e.bitrate <= 0 || e.sampleRate <= 0 || frameSize <= 0 {
 		return dredEmissionPlan{}, false
 	}
 
@@ -63,18 +84,18 @@ func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool
 		packetLoss = 100
 	}
 
-	var dredFrac float64
+	var dredFrac float32
 	bitrateOffset := 12000
 	if e.fecEnabled {
-		dredFrac = math.Min(0.7, 3.0*float64(packetLoss)/100.0)
+		dredFrac = minFloat32(0.7, 3.0*float32(packetLoss)/100.0)
 		bitrateOffset = 20000
 	} else if packetLoss > 5 {
-		dredFrac = math.Min(0.8, 0.55+float64(packetLoss)/100.0)
+		dredFrac = minFloat32(0.8, 0.55+float32(packetLoss)/100.0)
 	} else {
-		dredFrac = 12.0 * float64(packetLoss) / 100.0
+		dredFrac = 12.0 * float32(packetLoss) / 100.0
 	}
 
-	frameRateScale := float64(frameSize*50) / float64(e.sampleRate)
+	frameRateScale := float32(frameSize*50) / float32(e.sampleRate)
 	dredFrac = dredFrac / (dredFrac + (1.0-dredFrac)*frameRateScale)
 
 	rateBudget := e.bitrate - bitrateOffset
@@ -93,15 +114,15 @@ func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool
 		dQ = 3
 	}
 	qmax := 15
-	targetDREDBitrate := int(dredFrac * float64(e.bitrate-bitrateOffset))
+	targetDREDBitrate := int(dredFrac * float32(e.bitrate-bitrateOffset))
 	if targetDREDBitrate < 0 {
 		targetDREDBitrate = 0
 	}
-	maxBits, targetChunks := estimateDREDBits(q0, dQ, qmax, e.dred.duration, bitrateToBits(targetDREDBitrate, frameSize))
+	maxBits, targetChunks := estimateDREDBits(q0, dQ, qmax, e.dred.duration, dredBitrateToBits(targetDREDBitrate, e.sampleRate, frameSize))
 	if targetChunks < 2 {
 		return dredEmissionPlan{}, false
 	}
-	dredBitrate := dredBitsToBitrate(maxBits, frameSize)
+	dredBitrate := dredBitsToBitrate(maxBits, e.sampleRate, frameSize)
 	if targetDREDBitrate < dredBitrate {
 		dredBitrate = targetDREDBitrate
 	}
