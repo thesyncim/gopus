@@ -214,3 +214,46 @@ func TestSilkTransitionPrefillLongPacketKeepsFirstCELTSnapshot(t *testing.T) {
 		}
 	}
 }
+
+func TestSilkTransitionPrefillStereoPrimesMidAndSide(t *testing.T) {
+	enc := NewEncoder(48000, 2)
+	enc.prevMode = ModeCELT
+	enc.prevPacketMode = ModeCELT
+	enc.SetBitrate(64000)
+
+	prefillSamples := enc.sampleRate / 100
+	enc.delayBuffer = make([]float64, prefillSamples*2)
+	for i := 0; i < prefillSamples; i++ {
+		left := 0.45 * math.Sin(2*math.Pi*440*float64(i)/48000.0)
+		right := 0.20 * math.Sin(2*math.Pi*660*float64(i)/48000.0)
+		enc.delayBuffer[2*i] = left
+		enc.delayBuffer[2*i+1] = right
+	}
+
+	enc.maybePrefillSILKOnModeTransitionWithOptions(ModeHybrid, false, false)
+
+	if enc.silkEncoder == nil {
+		t.Fatal("expected mid SILK encoder after stereo transition prefill")
+	}
+	if enc.silkSideEncoder == nil {
+		t.Fatal("expected side SILK encoder after stereo transition prefill")
+	}
+	if !hasNonZeroFloat32(enc.silkEncoder.InputBuffer()) {
+		t.Fatal("expected stereo transition prefill to prime mid SILK history")
+	}
+	if !hasNonZeroFloat32(enc.silkSideEncoder.InputBuffer()) {
+		t.Fatal("expected stereo transition prefill to prime side SILK history")
+	}
+	if enc.silkVADMidFeedback == nil || enc.silkVADSide == nil {
+		t.Fatal("expected stereo transition prefill to run mid and side VAD")
+	}
+}
+
+func hasNonZeroFloat32(v []float32) bool {
+	for _, x := range v {
+		if x != 0 {
+			return true
+		}
+	}
+	return false
+}

@@ -1535,7 +1535,7 @@ func (e *Encoder) runSilkTransitionPrefill(prefill []float64, preserveLP bool, c
 	}
 
 	if e.channels != 1 {
-		// Mono transition is the parity-critical gap currently.
+		e.runSilkStereoTransitionPrefill(prefill, prefillFrameSize, targetRate)
 		return
 	}
 
@@ -1575,6 +1575,120 @@ func (e *Encoder) runSilkTransitionPrefill(prefill []float64, preserveLP bool, c
 		e.lastVADValid = true
 	}
 	e.silkEncoder.PrefillFrame(silkIn)
+}
+
+func (e *Encoder) runSilkStereoTransitionPrefill(prefill []float64, prefillFrameSize, targetRate int) {
+	if e.silkEncoder == nil || e.silkSideEncoder == nil || prefillFrameSize <= 0 || targetRate <= 0 {
+		return
+	}
+	if len(prefill) < prefillFrameSize*2 {
+		return
+	}
+
+	left := e.scratchLeft[:prefillFrameSize]
+	right := e.scratchRight[:prefillFrameSize]
+	for i := 0; i < prefillFrameSize; i++ {
+		base := i * 2
+		left[i] = float32(prefill[base])
+		right[i] = float32(prefill[base+1])
+	}
+	quantizeFloat32ToInt16LibopusInPlace(left)
+	quantizeFloat32ToInt16LibopusInPlace(right)
+
+	if targetRate != 48000 {
+		targetSamples := prefillFrameSize * targetRate / 48000
+		if targetSamples <= 0 {
+			return
+		}
+		if e.silkResampler == nil || e.silkResamplerRight == nil {
+			e.ensureSILKResampler(targetRate)
+			if e.silkResampler == nil || e.silkResamplerRight == nil {
+				return
+			}
+		}
+		leftOut := e.ensureSilkResampled(targetSamples)
+		rightOut := e.ensureSilkResampledR(targetSamples)
+		nL := e.silkResampler.ProcessInto(left, leftOut)
+		nR := e.silkResamplerRight.ProcessInto(right, rightOut)
+		if nL <= 0 || nR <= 0 {
+			return
+		}
+		if nL < nR {
+			rightOut = rightOut[:nL]
+			leftOut = leftOut[:nL]
+		} else if nR < nL {
+			leftOut = leftOut[:nR]
+			rightOut = rightOut[:nR]
+		} else {
+			leftOut = leftOut[:nL]
+			rightOut = rightOut[:nR]
+		}
+		left = leftOut
+		right = rightOut
+		quantizeFloat32ToInt16LibopusInPlace(left)
+		quantizeFloat32ToInt16LibopusInPlace(right)
+	}
+	if len(left) == 0 || len(right) == 0 {
+		return
+	}
+
+	totalRate := e.silkInputBitrate(prefillFrameSize)
+	if totalRate <= 0 {
+		totalRate = e.bitrate
+	}
+	if totalRate <= 0 {
+		totalRate = 20000
+	}
+	fsKHz := targetRate / 1000
+	if fsKHz <= 0 {
+		fsKHz = 16
+	}
+	mid, side, _, midOnly, midRate, sideRate, widthQ14 := e.silkEncoder.StereoLRToMSWithRates(
+		left,
+		right,
+		len(left),
+		fsKHz,
+		totalRate,
+		0,
+		false,
+	)
+	if len(mid) == 0 {
+		return
+	}
+	if e.hybridState != nil {
+		e.hybridState.silkStereoWidthQ14 = int(widthQ14)
+	}
+	if midRate > 0 {
+		e.silkEncoder.SetBitrate(midRate)
+	}
+	if sideRate > 0 {
+		e.silkSideEncoder.SetBitrate(sideRate)
+	}
+
+	e.ensureSilkVADMidFeedback()
+	midState, midActive := computeSilkVADFrameState(e.silkVADMidFeedback, mid, len(mid), fsKHz)
+	midState, midActive = e.applyOpusVADToSilkState(midState, midActive)
+	if midState.Valid {
+		e.lastVADActivityQ8 = midState.SpeechActivityQ8
+		e.lastVADInputTiltQ15 = midState.InputTiltQ15
+		e.lastVADInputQualityBandsQ15 = midState.InputQualityBandsQ15
+		e.lastVADActive = midActive
+		e.lastVADValid = true
+		applySilkVADFrameState(e.silkEncoder, midState)
+	}
+	e.silkEncoder.PrefillFrame(mid)
+
+	if midOnly || sideRate <= 0 || len(side) == 0 {
+		return
+	}
+	e.ensureSilkVADSide()
+	sideState, sideActive := computeSilkVADFrameState(e.silkVADSide, side, len(side), fsKHz)
+	sideState, _ = e.applyOpusVADToSilkState(sideState, sideActive)
+	if sideState.Valid {
+		applySilkVADFrameState(e.silkSideEncoder, sideState)
+	}
+	e.silkSideEncoder.PrefillFrame(side)
+	e.silkSideEncoder.SetBitsExceeded(e.silkEncoder.BitsExceeded())
 }
 
 func (e *Encoder) applySilkTransitionPrefillRamp(prefill []float64, prefillFrameSize int) {
