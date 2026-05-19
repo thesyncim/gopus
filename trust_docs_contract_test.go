@@ -1,8 +1,6 @@
 package gopus
 
 import (
-	"os"
-	"os/exec"
 	"reflect"
 	"sort"
 	"strings"
@@ -16,29 +14,31 @@ func TestTrustDocsContract(t *testing.T) {
 		"Released version: none yet.",
 		"`v0.1.0` is not a release until the tag and GitHub Release are both published.",
 		"Latest release evidence:",
-		"[required checks and branch protection](docs/maintainers/CI_GUARDRAILS.md)",
-		"[private reporting and supported versions](SECURITY.md)",
-		"[release checklist](docs/maintainers/RELEASE_CHECKLIST.md)",
-		"[Dependabot, Scorecard, action review, and release provenance plan](docs/maintainers/SUPPLY_CHAIN.md)",
-		"[external consumer smoke test](examples/external-consumer-smoke/smoke_test.go)",
+		"Required branch checks:",
+		"Release checklist:",
+		"Dependabot is enabled",
+		"OpenSSF Scorecard",
+		"SPDX or CycloneDX",
+		"[SECURITY.md](SECURITY.md)",
+		"[examples/external-consumer-smoke/smoke_test.go](examples/external-consumer-smoke/smoke_test.go)",
 	} {
 		if !strings.Contains(readme, needle) {
 			t.Fatalf("README.md trust section missing %q", needle)
 		}
 	}
 
-	releaseChecklist := mustReadDocForTest(t, "docs/maintainers/RELEASE_CHECKLIST.md")
 	for _, command := range []string{
-		"`go test ./...`",
-		"`make test-doc-contract`",
-		"`make lint`",
-		"`make test-consumer-smoke`",
-		"`make verify-production`",
-		"`make verify-production-exhaustive`",
-		"`make release-evidence`",
+		"go test ./...",
+		"make test-doc-contract",
+		"make lint",
+		"make test-consumer-smoke",
+		"make test-examples-smoke",
+		"make verify-production",
+		"make verify-production-exhaustive",
+		"make release-evidence",
 	} {
-		if !strings.Contains(releaseChecklist, command) {
-			t.Fatalf("release checklist missing required command %s", command)
+		if !strings.Contains(readme, command) {
+			t.Fatalf("README.md release checklist missing required command %s", command)
 		}
 	}
 
@@ -53,7 +53,7 @@ func TestTrustDocsContract(t *testing.T) {
 		}
 	}
 
-	requiredChecks := extractRequiredChecks(t, mustReadDocForTest(t, "docs/maintainers/CI_GUARDRAILS.md"))
+	requiredChecks := extractRequiredChecks(t, readme)
 	wantChecks := []string{"lint-static-analysis", "test-linux", "perf-linux", "test-macos", "test-windows"}
 	if !reflect.DeepEqual(requiredChecks, wantChecks) {
 		t.Fatalf("required checks = %v, want %v", requiredChecks, wantChecks)
@@ -61,14 +61,13 @@ func TestTrustDocsContract(t *testing.T) {
 	ciJobs := workflowJobNames(t, ".github/workflows/ci.yml")
 	for _, check := range requiredChecks {
 		if !ciJobs[check] {
-			t.Fatalf("docs/maintainers/CI_GUARDRAILS.md lists stale required check %q; actual CI job names are %v", check, sortedKeys(ciJobs))
+			t.Fatalf("README.md lists stale required check %q; actual CI job names are %v", check, sortedKeys(ciJobs))
 		}
 	}
 
-	supplyChain := mustReadDocForTest(t, "docs/maintainers/SUPPLY_CHAIN.md")
 	for _, needle := range []string{"Dependabot is enabled", "OpenSSF Scorecard", "SPDX or CycloneDX"} {
-		if !strings.Contains(supplyChain, needle) {
-			t.Fatalf("docs/maintainers/SUPPLY_CHAIN.md missing %q", needle)
+		if !strings.Contains(readme, needle) {
+			t.Fatalf("README.md missing %q", needle)
 		}
 	}
 }
@@ -79,9 +78,6 @@ func TestTrustSensitiveFilesHaveCodeOwners(t *testing.T) {
 		".github/workflows/*",
 		"SECURITY.md",
 		"README.md",
-		"docs/optional-extensions.md",
-		"docs/maintainers/**",
-		"docs/releases/**",
 		"tools/ensure_libopus.sh",
 		"Makefile",
 	} {
@@ -91,25 +87,16 @@ func TestTrustSensitiveFilesHaveCodeOwners(t *testing.T) {
 	}
 }
 
-func TestReleaseNotesExistForTags(t *testing.T) {
-	if _, err := os.Stat(".git"); err != nil {
-		t.Skip("not running inside a git checkout")
-	}
-
-	cmd := exec.Command("git", "tag", "--list", "v*")
-	out, err := cmd.Output()
-	if err != nil {
-		t.Fatalf("list release tags: %v", err)
-	}
-	for _, tag := range strings.Fields(string(out)) {
-		path := "docs/releases/" + tag + ".md"
-		if info, err := os.Stat(path); err != nil || info.Size() == 0 {
-			t.Fatalf("release tag %s is missing non-empty release notes at %s", tag, path)
+func TestReleaseNotesSourceIsReadme(t *testing.T) {
+	readme := mustReadDocForTest(t, "README.md")
+	for _, needle := range []string{
+		"Released version: none yet.",
+		"`v0.1.0` is not a release until the tag and GitHub Release are both published.",
+		"make release-evidence",
+	} {
+		if !strings.Contains(readme, needle) {
+			t.Fatalf("README.md release notes source missing %q", needle)
 		}
-	}
-
-	if info, err := os.Stat("docs/releases/v0.1.0.md"); err != nil || info.Size() == 0 {
-		t.Fatalf("prepared v0.1.0 release notes are missing or empty")
 	}
 }
 
@@ -120,7 +107,7 @@ func extractRequiredChecks(t *testing.T, doc string) []string {
 	startAt := strings.Index(doc, start)
 	endAt := strings.Index(doc, end)
 	if startAt < 0 || endAt < 0 || endAt <= startAt {
-		t.Fatalf("CI guardrails doc missing required-checks markers")
+		t.Fatalf("README.md missing required-checks markers")
 	}
 
 	block := doc[startAt+len(start) : endAt]

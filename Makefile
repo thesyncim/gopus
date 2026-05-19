@@ -353,9 +353,10 @@ bench-testvectors: ensure-testvectors
 bench-testvectors-compare: ensure-libopus ensure-testvectors
 	$(GO_WORK_ENV) $(GO) run $(PGO_FLAG) ./tools/testvectorbenchcmp -cases=$(BENCH_TESTVECTORS_COMPARE_CASES) -paths=$(BENCH_TESTVECTORS_COMPARE_PATHS) $(BENCH_TESTVECTORS_COMPARE_TIME_FLAG) -count=$(BENCH_TESTVECTORS_COMPARE_COUNT) -gopus-pgo=$(PGO_REPORT_PROFILE) -format=markdown
 
-# Refresh the checked-in Markdown benchmark report.
+# Generate a local Markdown benchmark report.
 bench-testvectors-report: ensure-libopus ensure-testvectors
-	$(GO_WORK_ENV) $(GO) run $(PGO_FLAG) ./tools/testvectorbenchcmp -cases=$(BENCH_TESTVECTORS_COMPARE_CASES) -paths=$(BENCH_TESTVECTORS_COMPARE_PATHS) $(BENCH_TESTVECTORS_COMPARE_TIME_FLAG) -count=$(BENCH_TESTVECTORS_COMPARE_COUNT) -gopus-pgo=$(PGO_REPORT_PROFILE) -format=markdown -out docs/testvector-benchmarks.md
+	@mkdir -p reports/quality
+	$(GO_WORK_ENV) $(GO) run $(PGO_FLAG) ./tools/testvectorbenchcmp -cases=$(BENCH_TESTVECTORS_COMPARE_CASES) -paths=$(BENCH_TESTVECTORS_COMPARE_PATHS) $(BENCH_TESTVECTORS_COMPARE_TIME_FLAG) -count=$(BENCH_TESTVECTORS_COMPARE_COUNT) -gopus-pgo=$(PGO_REPORT_PROFILE) -format=markdown -out reports/quality/testvector-benchmarks.md
 
 # Default production verification gate.
 verify-production: ensure-libopus
@@ -400,7 +401,6 @@ release-preflight:
 		v[0-9]*.[0-9]*.[0-9]*) ;; \
 		*) echo "TAG must look like v0.1.0"; exit 1 ;; \
 	esac
-	@test -f "docs/releases/$(TAG).md" || { echo "missing release notes: docs/releases/$(TAG).md"; exit 1; }
 	@git diff --quiet --ignore-submodules -- && git diff --cached --quiet --ignore-submodules -- || { echo "working tree must be clean before release-preflight"; exit 1; }
 	@! git rev-parse -q --verify "refs/tags/$(TAG)" >/dev/null || { echo "tag $(TAG) already exists locally"; exit 1; }
 	$(MAKE) lint

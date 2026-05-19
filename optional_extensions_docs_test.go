@@ -16,8 +16,18 @@ func mustReadDocForTest(t *testing.T, path string) string {
 	return string(data)
 }
 
+func containsDocText(doc, needle string) bool {
+	if strings.Contains(doc, needle) {
+		return true
+	}
+	return strings.Contains(
+		strings.Join(strings.Fields(doc), " "),
+		strings.Join(strings.Fields(needle), " "),
+	)
+}
+
 func TestOptionalExtensionDocsContract(t *testing.T) {
-	optionalDoc := mustReadDocForTest(t, "docs/optional-extensions.md")
+	optionalDoc := mustReadDocForTest(t, "README.md")
 	for _, tc := range []struct {
 		name   string
 		ext    OptionalExtension
@@ -29,8 +39,8 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		{name: "OSCE BWE", ext: OptionalExtensionOSCEBWE, status: "Unsupported and quarantined"},
 	} {
 		wantLine := fmt.Sprintf("| %s | %s | `%s` |", tc.name, tc.status, optionalExtensionDocSymbol(tc.ext))
-		if !strings.Contains(optionalDoc, wantLine) {
-			t.Fatalf("docs/optional-extensions.md missing matrix row %q", wantLine)
+		if !containsDocText(optionalDoc, wantLine) {
+			t.Fatalf("README.md missing optional-extension matrix row %q", wantLine)
 		}
 	}
 
@@ -38,27 +48,25 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"Default builds support `SetDNNBlob(...)` only.",
 		"QEXT and DRED require build tags.",
 		"OSCE BWE remains quarantine-only.",
-		"`make test-dnn-blob-parity`",
-		"`make test-qext-parity`",
-		"`make test-dred-tag`",
-		"`make test-unsupported-controls-parity`",
+		"make test-dnn-blob-parity",
+		"make test-qext-parity",
+		"make test-dred-tag",
+		"make test-unsupported-controls-parity",
 		"does not make unsupported features part of the public support claim",
 	} {
-		if !strings.Contains(optionalDoc, needle) {
-			t.Fatalf("docs/optional-extensions.md missing %q", needle)
+		if !containsDocText(optionalDoc, needle) {
+			t.Fatalf("README.md missing %q", needle)
 		}
 	}
 	assertOptionalExtensionDocsMatchSupport(t, optionalDoc)
 
-	readme := mustReadDocForTest(t, "README.md")
 	for _, needle := range []string{
 		"Default builds support `SetDNNBlob(...)` only.",
 		"QEXT requires `-tags gopus_qext`",
 		"DRED control/standalone surfaces require `-tags gopus_dred`",
 		"OSCE BWE remains unsupported outside quarantine builds",
-		"[Optional Extensions](docs/optional-extensions.md)",
 	} {
-		if !strings.Contains(readme, needle) {
+		if !containsDocText(optionalDoc, needle) {
 			t.Fatalf("README.md missing %q", needle)
 		}
 	}
@@ -95,9 +103,9 @@ func assertOptionalExtensionDocsMatchSupport(t *testing.T, optionalDoc string) {
 	}
 
 	if SupportsOptionalExtension(OptionalExtensionQEXT) && !strings.Contains(optionalDoc, "go test -tags gopus_qext ./...") {
-		t.Fatal("docs/optional-extensions.md missing QEXT tag guidance")
+		t.Fatal("README.md missing QEXT tag guidance")
 	}
 	if SupportsOptionalExtension(OptionalExtensionDRED) && !strings.Contains(optionalDoc, "go test -tags gopus_dred ./...") {
-		t.Fatal("docs/optional-extensions.md missing DRED tag guidance")
+		t.Fatal("README.md missing DRED tag guidance")
 	}
 }

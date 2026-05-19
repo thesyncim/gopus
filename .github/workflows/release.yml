@@ -48,7 +48,7 @@ jobs:
             tag="${GITHUB_REF_NAME}"
           fi
 
-          notes_path="docs/releases/${tag}.md"
+          notes_path="README.md"
           if [[ ! -s "${notes_path}" ]]; then
             echo "missing release notes: ${notes_path}" >&2
             exit 1

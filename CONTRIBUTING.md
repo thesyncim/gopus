@@ -30,8 +30,9 @@ When a change touches codec behavior:
 
 For docs and public-facing material:
 
-- Keep the README concise and user-facing.
-- Put maintainer process and deeper release machinery under `docs/maintainers/` or other focused docs instead of the landing page.
+- Keep the README current; it is the single source of truth for support claims,
+  release state, verification gates, and required CI checks.
+- Keep extra Markdown focused on public policy or runnable examples.
 
 ## Verification
 
