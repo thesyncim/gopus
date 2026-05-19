@@ -703,8 +703,8 @@ func TestDecoderCachedStereoDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 		}
 	}
 
-	const stereoDREDStateTol = 20.0
-	const stereoDREDPCMTol = 1.0
+	const stereoDREDStateTol = 1e-4
+	const stereoDREDPCMTol = 1e-4
 	assertFloat32ApproxEqual(t, pcm[:got*dec.channels], want.step0.pcm[:got*dec.channels], "cached stereo live-sequence first-loss pcm", stereoDREDPCMTol)
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "cached stereo live-sequence first-loss plc", stereoDREDStateTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "cached stereo live-sequence first-loss fargan", stereoDREDStateTol)
@@ -767,8 +767,8 @@ func TestDecoderCachedStereoDREDSecondLossMatchesLiveSequenceOracle(t *testing.T
 	assertInterleavedStereoDuplicated(t, pcm1, got, "cached stereo second loss")
 	assertInterleavedStereoDuplicated(t, want.step1.pcm, got, "libopus cached stereo second loss")
 
-	const stereoDREDStateTol = 20.0
-	const stereoDREDPCMTol = 1.0
+	const stereoDREDStateTol = 1e-4
+	const stereoDREDPCMTol = 1e-4
 	assertFloat32ApproxEqual(t, pcm1[:got*dec.channels], want.step1.pcm[:got*dec.channels], "cached stereo live-sequence second-loss pcm", stereoDREDPCMTol)
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "cached stereo live-sequence second-loss plc", stereoDREDStateTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "cached stereo live-sequence second-loss fargan", stereoDREDStateTol)
@@ -833,8 +833,8 @@ func TestDecoderCachedStereoDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 		t.Fatalf("Decode(next stereo CELT packet)=%d want %d", gotNext, want.next.ret)
 	}
 
-	const stereoDREDStateTol = 20.0
-	const stereoDREDPCMTol = 1.0
+	const stereoDREDStateTol = 1e-4
+	const stereoDREDPCMTol = 1e-4
 	assertFloat32ApproxEqual(t, nextPCM[:gotNext*dec.channels], want.next.pcm[:gotNext*dec.channels], "cached stereo next packet live-sequence pcm", stereoDREDPCMTol)
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "cached stereo next packet live-sequence plc", stereoDREDStateTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "cached stereo next packet live-sequence fargan", stereoDREDStateTol)
@@ -910,8 +910,8 @@ func TestDecoderCachedStereoDREDSecondLossThenNextPacketMatchesLiveSequenceOracl
 		t.Fatalf("Decode(next stereo CELT packet)=%d want %d", gotNext, want.next.ret)
 	}
 
-	const stereoDREDStateTol = 20.0
-	const stereoDREDPCMTol = 1.0
+	const stereoDREDStateTol = 1e-4
+	const stereoDREDPCMTol = 1e-4
 	assertFloat32ApproxEqual(t, nextPCM[:gotNext*dec.channels], want.next.pcm[:gotNext*dec.channels], "cached stereo second-loss next packet live-sequence pcm", stereoDREDPCMTol)
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "cached stereo second-loss next packet live-sequence plc", stereoDREDStateTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "cached stereo second-loss next packet live-sequence fargan", stereoDREDStateTol)
@@ -1020,8 +1020,9 @@ func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label
 		t.Fatalf("%s libopus cached stereo follow-up ret=%d want >0", label, want.next.ret)
 	}
 
-	const stereoStateTol = 20.0
-	const stereoPCMTol = 1.0
+	const stereoStateTol = 3e-3
+	const stereoPCMTol = 1e-4
+	const stereoCELTTol = 3e-3
 	const duplicateTol = 1e-2
 
 	pcm0 := make([]float32, dec.maxPacketSamples*dec.channels)
@@ -1075,7 +1076,7 @@ func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label
 	assertFloat32ApproxEqual(t, comparePCM, compareState.pcm[:compareSamples*dec.channels], compareLabel+" live-sequence pcm", stereoPCMTol)
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), compareState.state, compareLabel+" live-sequence plc", stereoStateTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), compareState.fargan, compareLabel+" live-sequence fargan", stereoStateTol)
-	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, compareState.celt48k, compareLabel+" live-sequence celt", stereoPCMTol)
+	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, compareState.celt48k, compareLabel+" live-sequence celt", stereoCELTTol)
 }
 
 func TestDecoderCachedStereoDREDCELTMatrixMatchesLiveSequenceOracle(t *testing.T) {
@@ -2624,35 +2625,19 @@ func TestDecoderExplicitStereoDREDDecodeMatchesLibopus(t *testing.T) {
 		t.Fatalf("decodeExplicitDREDFloat=%d want %d", got, n)
 	}
 
-	// L=R interleaved invariant: the gopus mono-duplicate path mirrors what
-	// libopus produces for stereo DRED (mono concealment duplicated to
-	// channel-1). Both sides must yield bit-exact L=R; this is the core
-	// shape guarantee from 0ee30e59. Any future amplitude divergence still
-	// needs to preserve this property, otherwise the stereo downmix model
-	// is wrong.
+	// This forced-stereo carrier yields the libopus mono neural duplicate
+	// shape, so both sides should stay bit-exact L=R for this fixture.
 	for i := 0; i < n; i++ {
 		if d := math.Abs(float64(pcm[2*i] - pcm[2*i+1])); d != 0 {
-			t.Fatalf("gopus stereo DRED PCM not L=R duplicated at sample %d: |L-R|=%g", i, d)
+			t.Fatalf("stereo DRED PCM not L=R duplicated at sample %d: |L-R|=%g", i, d)
 		}
 		if d := math.Abs(float64(want.pcm[2*i] - want.pcm[2*i+1])); d != 0 {
 			t.Fatalf("libopus stereo DRED PCM not L=R duplicated at sample %d: |L-R|=%g", i, d)
 		}
 	}
 
-	// PCM amplitude and PLC/FARGAN feature state diverge from libopus because
-	// the *stereo* CELT carrier seed decode (the libopus DRED emit helper
-	// produces a stereo TOC packet for Channels=2) leaves gopus and libopus
-	// with slightly different decode_mem/preemph state before the
-	// concealment frame. The DRED concealment itself is mono on both sides,
-	// but it consumes that drifted CELT history, so the divergence
-	// propagates as a ~10-tens-of-percent residual into the concealed PCM
-	// and amplifies through the LPCNet GRU continuity features. Capture the
-	// current drift with a wide tolerance instead of skipping so any future
-	// regression that breaks the L=R property or radically inflates the
-	// amplitude shows up; future convergence on the stereo CELT seed path
-	// can tighten these back toward the mono 1e-4 budget.
-	const stereoDREDStateTol = 20.0
-	const stereoDREDPCMTol = 1.0
+	const stereoDREDStateTol = 1e-4
+	const stereoDREDPCMTol = 1e-4
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "explicit stereo libopus plc", stereoDREDStateTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "explicit stereo libopus fargan", stereoDREDStateTol)
 	assertFloat32ApproxEqual(t, pcm[:n*dec.channels], want.pcm[:n*dec.channels], "explicit stereo libopus pcm", stereoDREDPCMTol)
@@ -2663,11 +2648,8 @@ func TestDecoderExplicitStereoDREDDecodeMatchesLibopus(t *testing.T) {
 // DecodeMatchesLibopus) to the 16 kHz CELT FB seam, mirroring the existing
 // 16 kHz mono CELT pattern from prepareExplicitDREDDecodeParityState16k
 // (480-sample frame). The same L=R interleaved invariant applies: libopus
-// stereo CELT decoder mirrors decode_mem[0] into decode_mem[1] for
-// concealment output, and gopus runStereoDREDConceal narrows to channel-0
-// then mirrors to channel-1. Wide state/PCM tolerances (matching the 48 kHz
-// stereo case) capture the stereo CELT-seed drift that is mono-amplified
-// through the LPCNet GRU continuity features.
+// stereo CELT decoder uses a mono neural state copied into channel-1, with
+// per-channel overlap crossfade matching celt_decode_lost().
 func TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus(t *testing.T) {
 	// Force stereo at the libopus encoder control layer so this exercises a
 	// real 16 kHz stereo carrier instead of the encoder's auto mono choice.
@@ -2731,8 +2713,8 @@ func TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus(t *testing.T) {
 		}
 	}
 
-	const stereoDREDStateTol = 20.0
-	const stereoDREDPCMTol = 1.0
+	const stereoDREDStateTol = 1e-4
+	const stereoDREDPCMTol = 1e-4
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "explicit stereo 16k libopus plc", stereoDREDStateTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "explicit stereo 16k libopus fargan", stereoDREDStateTol)
 	assertFloat32ApproxEqual(t, pcm[:n*dec.channels], want.pcm[:n*dec.channels], "explicit stereo 16k libopus pcm", stereoDREDPCMTol)

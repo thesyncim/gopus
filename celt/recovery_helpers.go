@@ -58,9 +58,9 @@ func (d *Decoder) chooseLostFrameType(start int, allowNeural, allowDRED bool) in
 	}
 	if start == 0 && allowNeural && d.plcDuration < 80 && !d.plcSkip {
 		currFrameType = framePLCNeural
-		if allowDRED {
-			currFrameType = frameDRED
-		}
+	}
+	if start == 0 && allowNeural && allowDRED {
+		currFrameType = frameDRED
 	}
 	return currFrameType
 }
