@@ -67,6 +67,7 @@ RUNNABLE_FAST = GOPUS_TEST_TIER=fast $(GO_RUNNABLE_TEST)
 RUNNABLE_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABLE_TEST)
 DNN_BLOB_DEFAULT_ROOT_RUN = 'Test(DefaultBuildDNNBlobKeepsDREDRuntimeDormant|DefaultBuildEncoderDNNBlobKeepsDREDDormant|HotPathAllocsDecodePLCDNNReadyAtMostBaseline|EncoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobStereoRuntimeRetainedAcrossReset|MultistreamEncoderSetDNNBlobRetainedAcrossReset|MultistreamDecoderSetDNNBlobRetainedAcrossReset|ValidEncoderTestDNNBlobShape|ValidDecoderTestDNNBlobShape)'
 DNN_BLOB_DEFAULT_MULTISTREAM_RUN = 'Test(DefaultBuildMultistreamDecoderRealBlobDormant|DefaultBuildMultistreamEncoderDNNBlobKeepsAllocsFlat)'
+DEFAULT_DECODER_STATE_ROOT_RUN = 'Test(NewDecoder_DefaultMaxPacketLimits|Decode_ModeRouting|Decode_ExtendedFrameSizes|Decode_PLC_ModeTracking|Decoder_BandwidthAndLastPacketDuration)'
 DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN = 'Test(DecoderDecodeValidUnknownExtensionMatchesBasePacket|DecoderOpaquePaddingRemainsDecodableInDefaultBuild|DecoderCELTOpaquePaddingRemainsDecodable|DecoderCELTUnsupportedQEXTExtensionMatchesBasePacket)'
 DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN = 'Test(MultistreamPacketPadUnpadSelfDelimitedRoundTrip|MultistreamPacketPadUnpadThreeStreamsRoundTrip|MultistreamPacketPadRejectsInvalidSelfDelimited|MultistreamPacketUnpadRejectsInvalidSelfDelimited|MultistreamPacketPadRejectsLibopusParserEnvelopeViolation|MultistreamPacketUnpadRejectsLibopusParserEnvelopeViolation)'
 DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN = 'Test(SelfDelimitedPacketPreservesPacketExtensions|DecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding)'
@@ -149,6 +150,7 @@ test-examples-smoke:
 test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run 'Test(OptionalExtensionDocsContract|TrustDocsContract|TrustSensitiveFilesHaveCodeOwners|ReleaseNotesExistForTags|DefaultBuildPublicAPIContract|Encoder_OptionalExtensionControls|Decoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls|MultistreamDecoder_OptionalExtensionControls|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
 	$(GO_WORK_ENV) $(GO) test . ./multistream -run 'TestDefaultBuildQuarantinesUnsupportedControls' -count=1
+	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_STATE_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN) -count=1
