@@ -708,7 +708,8 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	if !e.lowDelay {
 		dredExtraDelay = e.sampleRate / 250
 	}
-	if e.dredEncodingActive() {
+	celtLongDREDInSubframes := actualMode == ModeCELT && frameSize > 960 && frameSize%960 == 0
+	if e.dredEncodingActive() && !celtLongDREDInSubframes {
 		e.processDREDLatentsForPacket(framePCM, frameSize, dredExtraDelay, actualMode)
 	}
 
@@ -810,7 +811,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
 		if frameSize > 960 {
 			// Long CELT packets are encoded as multi-frame packets.
-			packet, err = e.encodeCELTMultiFramePacket(celtPCM, frameSize)
+			packet, err = e.encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM, frameSize, e.bitrate, encodingBitrate, dredBitrate, dredExtraDelay)
 		} else {
 			originalBitrate := e.bitrate
 			if encodingBitrate != originalBitrate {
@@ -2390,10 +2391,30 @@ func (e *Encoder) encodeCELTFrame(pcm []float64, frameSize int) ([]byte, error) 
 }
 
 func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSize int, bitrate int, maxPayloadBytes int) ([]byte, error) {
+	return e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm, frameSize, bitrate, maxPayloadBytes, 0)
+}
+
+func celtDREDPayloadCap(maxPayloadBytes, dredBitrate, frameSize int) int {
+	if maxPayloadBytes <= 0 || dredBitrate <= 0 || frameSize <= 0 {
+		return maxPayloadBytes
+	}
+	dredBytes := bitrateToBits(dredBitrate, frameSize) / 8
+	maxCELTBytes := maxPayloadBytes - dredBytes*3/4
+	if maxCELTBytes < 5 {
+		maxCELTBytes = 5
+	}
+	if maxCELTBytes < maxPayloadBytes {
+		return maxCELTBytes
+	}
+	return maxPayloadBytes
+}
+
+func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []float64, frameSize int, bitrate int, maxPayloadBytes int, dredBitrate int) ([]byte, error) {
 	e.ensureCELTEncoder()
 	e.syncQEXTToCELT()
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetBitrate(bitrate)
+	maxPayloadBytes = celtDREDPayloadCap(maxPayloadBytes, dredBitrate, frameSize)
 	e.celtEncoder.SetMaxPayloadBytes(maxPayloadBytes)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetHybrid(false)
@@ -2419,7 +2440,7 @@ func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []float64, frameSi
 
 // encodeCELTMultiFramePacket encodes long CELT packets by splitting into
 // 20ms CELT frames and packing them using code-3 framing.
-func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) ([]byte, error) {
+func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM []float64, frameSize, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
 	if frameSize <= 960 || frameSize%960 != 0 {
 		return nil, ErrInvalidFrameSize
 	}
@@ -2427,7 +2448,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 	if frameCount < 2 || frameCount > 6 {
 		return nil, ErrInvalidFrameSize
 	}
-	if len(celtPCM) != frameSize*e.channels {
+	if len(framePCM) != frameSize*e.channels || len(rawPCM) != frameSize*e.channels || len(celtPCM) != frameSize*e.channels {
 		return nil, ErrInvalidFrameSize
 	}
 	if e.analysisReadBakSet && e.analyzer != nil {
@@ -2439,7 +2460,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 	frames := make([][]byte, frameCount)
 	sameSize := true
 	prevSize := -1
-	packetTargetBytes := targetBytesForBitrate(e.bitrate, frameSize)
+	packetTargetBytes := targetBytesForBitrate(originalBitrate, frameSize)
 	if packetTargetBytes < 1 {
 		packetTargetBytes = 1
 	}
@@ -2454,19 +2475,55 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 	if maxLenSum < frameCount {
 		maxLenSum = frameCount
 	}
-	currMaxByRate := e.bitrate * 960 / 48000 / 8
+	subframeBitrate := e.bitrate
+	if encodingBitrate > 0 {
+		subframeBitrate = encodingBitrate
+	}
+	currMaxByRate := subframeBitrate * 960 / 48000 / 8
 	if currMaxByRate < 2 {
 		currMaxByRate = 2
 	}
+	dredBytes := 0
+	if dredBitrate > 0 {
+		dredBytes = bitrateToBits(dredBitrate, frameSize) / 8
+	}
+	dredActive := e.dredEncodingActive()
+	if dredActive {
+		e.clearDREDPacketSnapshot()
+	}
 	totSize := 0
+	firstFrameMaxBytes := 0
+	savedBitrate := e.bitrate
+	e.bitrate = subframeBitrate
 	for i := 0; i < frameCount; i++ {
 		e.primeSubframeAnalysis(960)
 		start := i * frameStride
 		end := start + frameStride
+		subFramePCM := framePCM[start:end]
+		subRawPCM := rawPCM[start:end]
+		if dredActive {
+			e.updateOpusVAD(subRawPCM, 960)
+			e.processDREDLatentsWithActivity(subFramePCM, dredExtraDelay, e.lastOpusVADActive)
+			if i == 0 {
+				e.snapshotDREDPacketState()
+			}
+		}
 		currMax := currMaxByRate
 		capPerFrame := maxLenSum / frameCount
 		if currMax > capPerFrame {
 			currMax = capPerFrame
+		}
+		if dredBytes > 0 {
+			dredCap := (maxLenSum - dredBytes) / frameCount
+			if dredCap < 2 {
+				dredCap = 2
+			}
+			if currMax > dredCap {
+				currMax = dredCap
+			}
+			if i == 0 {
+				currMax += dredBytes
+			}
 		}
 		remainingCap := maxLenSum - totSize
 		if currMax > remainingCap {
@@ -2475,9 +2532,13 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 		if currMax < 2 {
 			currMax = 2
 		}
+		if i == 0 {
+			firstFrameMaxBytes = currMax
+		}
 		maxPayload := currMax - 1
-		frameData, err := e.encodeCELTFrameWithBitrateAndMaxPayload(celtPCM[start:end], 960, e.bitrate, maxPayload)
+		frameData, err := e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(celtPCM[start:end], 960, e.bitrate, maxPayload, dredBitrate)
 		if err != nil {
+			e.bitrate = savedBitrate
 			return nil, err
 		}
 		totSize += len(frameData) + 1
@@ -2489,8 +2550,16 @@ func (e *Encoder) encodeCELTMultiFramePacket(celtPCM []float64, frameSize int) (
 		}
 		prevSize = len(frameCopy)
 	}
+	e.bitrate = savedBitrate
 	e.analysisReadBakSet = false
 
+	if e.dredEncodingActive() {
+		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeCELT, e.effectiveBandwidth(), frameSize, 960, firstFrameMaxBytes, e.channels == 2, !sameSize); err != nil {
+			return nil, err
+		} else if ok {
+			return dredPacket, nil
+		}
+	}
 	return BuildMultiFramePacket(
 		frames,
 		types.ModeCELT,
@@ -2555,21 +2624,8 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	if dredBitrate > 0 {
 		dredBytes = bitrateToBits(dredBitrate, frameSize) / 8
 	}
-	dredFirstFrameBudget := 0
-	if dredBitrate > 0 && e.dredEncodingActive() {
-		dredFirstFrameBudget = (bitrateToBits(dredBitrate, 960) + 7) / 8
-		dredFirstFrameBudget += frameLengthBytes(dredFirstFrameBudget)
-		if e.channels > 1 {
-			dredFirstFrameBudget = (bitrateToBits(dredBitrate, 960) + 7) / 8
-			stereoLongPacketOverhead := 4 + frameLengthBytes(dredFirstFrameBudget) + 4*(e.channels-1)
-			if dredFirstFrameBudget > stereoLongPacketOverhead {
-				dredFirstFrameBudget -= stereoLongPacketOverhead
-			} else {
-				dredFirstFrameBudget = 0
-			}
-		}
-	}
 	totSize := 0
+	firstFrameMaxBytes := 0
 	packetPrefillFromCELT := e.shouldPrefillSILKOnModeTransition(ModeHybrid)
 	savedBitrate := e.bitrate
 	e.bitrate = subframeBitrate
@@ -2611,7 +2667,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 				currMax = dredCap
 			}
 			if i == 0 {
-				currMax += dredFirstFrameBudget
+				currMax += dredBytes
 			}
 		}
 		remainingCap := maxLenSum - totSize
@@ -2620,6 +2676,9 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		}
 		if currMax < 2 {
 			currMax = 2
+		}
+		if i == 0 {
+			firstFrameMaxBytes = currMax
 		}
 		allowTransitionRedundancy := (!transitionToCELT && i == 0) || (transitionToCELT && i == frameCount-1)
 		prevPacketMode := e.prevPacketMode
@@ -2647,7 +2706,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 
 	packetBW := e.effectiveBandwidth()
 	if e.dredEncodingActive() {
-		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeHybrid, packetBW, frameSize, 960, e.channels == 2, !sameSize); err != nil {
+		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeHybrid, packetBW, frameSize, 960, firstFrameMaxBytes, e.channels == 2, !sameSize); err != nil {
 			return nil, err
 		} else if ok {
 			return dredPacket, nil
@@ -2710,6 +2769,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int, origi
 		dredBytes = bitrateToBits(dredBitrate, frameSize) / 8
 	}
 	totSize := 0
+	firstFrameMaxBytes := 0
 	savedBitrate := e.bitrate
 	e.bitrate = subframeBitrate
 
@@ -2742,6 +2802,9 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int, origi
 		if currMax < 2 {
 			currMax = 2
 		}
+		if i == 0 {
+			firstFrameMaxBytes = currMax
+		}
 		frameData, err := e.encodeSILKFrameWithDREDAndMax(pcm[start:end], nil, encFrameSize, originalBitrate, dredBitrate, currMax)
 		if err != nil {
 			e.bitrate = savedBitrate
@@ -2763,7 +2826,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int, origi
 		packetBW = types.BandwidthWideband
 	}
 	if e.dredEncodingActive() {
-		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeSILK, packetBW, frameSize, encFrameSize, e.channels == 2, !sameSize); err != nil {
+		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeSILK, packetBW, frameSize, encFrameSize, firstFrameMaxBytes, e.channels == 2, !sameSize); err != nil {
 			return nil, err
 		} else if ok {
 			return dredPacket, nil

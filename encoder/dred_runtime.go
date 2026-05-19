@@ -152,6 +152,10 @@ func (e *Encoder) ensureActiveDREDRuntime() *dredEncoderRuntime {
 }
 
 func (e *Encoder) processDREDLatents(framePCM []float64, extraDelay int) int {
+	return e.processDREDLatentsWithActivity(framePCM, extraDelay, e.currentDREDActivity(framePCM))
+}
+
+func (e *Encoder) processDREDLatentsWithActivity(framePCM []float64, extraDelay int, active bool) int {
 	if !extsupport.DREDRuntime {
 		return 0
 	}
@@ -178,7 +182,7 @@ func (e *Encoder) processDREDLatents(framePCM []float64, extraDelay int) int {
 	})
 	runtime.dredOffset = runtime.generator.DREDOffset()
 	runtime.latentOffset = runtime.generator.LatentOffset()
-	internaldred.UpdateActivityHistory(&runtime.activity, len(framePCM)/e.channels, e.sampleRate, e.currentDREDActivity(framePCM))
+	internaldred.UpdateActivityHistory(&runtime.activity, len(framePCM)/e.channels, e.sampleRate, active)
 	return emitted
 }
 

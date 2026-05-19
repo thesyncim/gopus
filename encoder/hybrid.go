@@ -401,6 +401,15 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 		if dredBytes > 0 {
 			maxCELTBytes := maxTargetBytes - dredBytes*3/4
 			minCELTBytes := (re.Tell()+7)/8 + 5
+			if hardMaxPacketBytes && e.channels == 2 && e.hybridState != nil && e.hybridState.silkStereoWidthQ14 == 0 {
+				// Match libopus' collapsed-stereo hybrid path: when SILK has
+				// driven stereo width to zero, the inactive side channel lowers
+				// the CELT guard needed to preserve redundancy signaling.
+				minCELTBytes -= 5
+			}
+			if minCELTBytes < 5 {
+				minCELTBytes = 5
+			}
 			if maxCELTBytes < minCELTBytes {
 				maxCELTBytes = minCELTBytes
 			}
@@ -454,7 +463,12 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 		e.celtEncoder.SetBitrate(celtBitrate)
 	}
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
-	e.encodeCELTHybridImproved(celtInput, frameSize, payloadTargetMain, silkSignalType, silkOffset)
+	hybridCELTTargetBytes := payloadTargetMain
+	useFinalHybridVBRTarget := hardMaxPacketBytes
+	if useFinalHybridVBRTarget {
+		hybridCELTTargetBytes = maxTargetBytes
+	}
+	e.encodeCELTHybridImproved(celtInput, frameSize, hybridCELTTargetBytes, silkSignalType, silkOffset, useFinalHybridVBRTarget, !useFinalHybridVBRTarget && maxPacketBytes == 0)
 
 	// Update state for next frame
 	e.hybridState.prevHBGain = hbGain
@@ -1350,7 +1364,7 @@ func celtBandwidthFromTypes(bw types.Bandwidth) celt.CELTBandwidth {
 // targetPayloadBytes is the desired total payload budget (excluding TOC) for the full packet.
 // silkSignalType and silkOffset are the SILK encoder's signal classification,
 // used for VBR target adjustment per libopus celt_encoder.c line 2463-2475.
-func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetPayloadBytes int, silkSignalType, silkOffset int) {
+func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetPayloadBytes int, silkSignalType, silkOffset int, useFinalVBRTarget, useInitialVBRAdjust bool) {
 	// Set hybrid mode flag on CELT encoder
 	e.celtEncoder.SetHybrid(true)
 	e.celtEncoder.SetSilkInfo(silkSignalType, silkOffset)
@@ -1377,6 +1391,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		targetPayloadBytes = 1
 	}
 	totalBits := targetPayloadBytes * 8
+	tell0Frac := re.TellFrac()
 	if used := re.Tell(); totalBits < used+8 {
 		// Ensure we don't end up with negative budgets if SILK used more bits.
 		totalBits = used + 8
@@ -1443,34 +1458,23 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		preemph, frameSize, nbBands, lm, allowWeakTransients,
 	)
 
-	// Apply hybrid CELT VBR target adjustment based on SILK signal info.
-	// Per libopus celt_encoder.c line 2463-2475:
-	// - Tonal frames (offset < 100) get more bits
-	// - Noisy frames (offset > 100) get fewer bits
-	// - tf_estimate-based transient boost
-	// The shift (3-LM) scales the adjustment to the frame size.
-	if e.bitrateMode != ModeCBR {
+	if useInitialVBRAdjust && e.bitrateMode != ModeCBR {
 		shift := 3 - lm
 		if shift < 0 {
 			shift = 0
 		}
 		if silkOffset < 100 {
-			totalBits += 12 >> shift // Tonal boost: +12 bits for 20ms, +6 for 10ms
+			totalBits += 12 >> shift
 		}
 		if silkOffset > 100 {
-			totalBits -= 18 >> shift // Noise reduction: -18 bits for 20ms, -9 for 10ms
+			totalBits -= 18 >> shift
 		}
-		// Transient/vowel temporal spike boost (libopus line 2470).
-		// (tf_estimate - 0.25) * 50 bits, where tf_estimate is [0, 1].
 		tfAdj := int((tfEstimate - 0.25) * 50.0)
 		totalBits += tfAdj
-		// Minimum target for strong transients (libopus line 2473).
-		// Ensure at least 50 bits for CELT when tf_estimate > 0.7.
 		silkUsedBits := re.Tell()
 		if tfEstimate > 0.7 && totalBits-silkUsedBits < 50 {
 			totalBits = silkUsedBits + 50
 		}
-		// Don't let adjustment make totalBits negative or below SILK usage.
 		if totalBits < silkUsedBits+8 {
 			totalBits = silkUsedBits + 8
 		}
@@ -1701,6 +1705,14 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		// does not run alloc_trim_analysis().
 		re.EncodeICDF(allocTrim, celt.TrimICDF, 7)
 	}
+	if useFinalVBRTarget && e.bitrateMode != ModeCBR && e.celtEncoder.VBR() {
+		targetBytes := e.computeHybridCELTVBRTargetBytes(targetPayloadBytes, frameSize, tfEstimate, totalBoost, re.TellFrac(), tell0Frac, silkOffset)
+		totalBits = targetBytes * 8
+		re.Shrink(uint32(targetBytes))
+		if re.Error() != 0 {
+			return
+		}
+	}
 
 	// Compute bit allocation (hybrid bands only).
 	bitsUsed := re.TellFrac()
@@ -1815,6 +1827,59 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	e.celtEncoder.SetRNG(re.Range())
 	e.celtEncoder.IncrementFrameCount()
 	e.celtEncoder.UpdateConsecTransientWithDisabled(transient, transientGotDisabled)
+}
+
+func (e *Encoder) computeHybridCELTVBRTargetBytes(limitBytes, frameSize int, tfEstimate float64, totalBoost, tellFrac, tell0Frac, silkOffset int) int {
+	if limitBytes < 2 {
+		return 2
+	}
+	mode := celt.GetModeConfig(frameSize)
+	lmDiff := 3 - mode.LM
+	if lmDiff < 0 {
+		lmDiff = 0
+	}
+
+	vbrRateQ3 := e.celtEncoder.BitrateToBits(frameSize) << celt.BitRes
+	baseTargetQ3 := vbrRateQ3 - ((9*e.channels + 4) << celt.BitRes)
+	if e.channels == 2 && e.hybridState != nil && e.hybridState.silkStereoWidthQ14 == 0 {
+		// With duplicated stereo content, SILK can collapse the side channel.
+		// libopus then lets the already-coded side information and min_allowed
+		// drive the hybrid CELT size instead of adding a stereo high-band base.
+		baseTargetQ3 = 0
+	}
+	if baseTargetQ3 < 0 {
+		baseTargetQ3 = 0
+	}
+
+	targetQ3 := baseTargetQ3
+	if silkOffset < 100 {
+		targetQ3 += (12 << celt.BitRes) >> lmDiff
+	} else if silkOffset > 100 {
+		targetQ3 -= (18 << celt.BitRes) >> lmDiff
+	}
+	tfBoost := int((tfEstimate - 0.25) * float64(50<<celt.BitRes))
+	targetQ3 += tfBoost
+	if tfEstimate > 0.7 && targetQ3 < 50<<celt.BitRes {
+		targetQ3 = 50 << celt.BitRes
+	}
+	targetQ3 += tellFrac
+
+	targetBytes := (targetQ3 + (1 << (celt.BitRes + 2))) >> (celt.BitRes + 3)
+	minAllowed := ((tellFrac + totalBoost + (1 << (celt.BitRes + 3)) - 1) >> (celt.BitRes + 3)) + 2
+	hybridMinAllowed := (tell0Frac + (37 << celt.BitRes) + totalBoost + (1 << (celt.BitRes + 3)) - 1) >> (celt.BitRes + 3)
+	if minAllowed < hybridMinAllowed {
+		minAllowed = hybridMinAllowed
+	}
+	if targetBytes < minAllowed {
+		targetBytes = minAllowed
+	}
+	if targetBytes > limitBytes {
+		targetBytes = limitBytes
+	}
+	if targetBytes < 2 {
+		targetBytes = 2
+	}
+	return targetBytes
 }
 
 // computeMDCTForHybridScratch computes MDCT for hybrid mode encoding using scratch buffers.

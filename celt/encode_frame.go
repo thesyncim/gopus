@@ -2020,6 +2020,9 @@ func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float64, 
 
 	vbrRateQ3 := e.bitrateToBits(frameSize) << bitRes
 	overheadQ3 := (40*e.channels + 20) << bitRes
+	if e.hybrid {
+		overheadQ3 = (9*e.channels + 4) << bitRes
+	}
 	baseTargetQ3 := vbrRateQ3 - overheadQ3
 	if baseTargetQ3 < 0 {
 		baseTargetQ3 = 0
@@ -2028,11 +2031,34 @@ func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float64, 
 		baseTargetQ3 += e.vbrOffset >> lmDiff
 	}
 
-	targetQ3 := e.computeVBRTarget(baseTargetQ3, frameSize, tfEstimate, pitchChange)
+	targetQ3 := baseTargetQ3
+	if e.hybrid {
+		if e.silkOffset < 100 {
+			targetQ3 += (12 << bitRes) >> lmDiff
+		} else if e.silkOffset > 100 {
+			targetQ3 -= (18 << bitRes) >> lmDiff
+		}
+		tfBoost := int((tfEstimate - 0.25) * float64(50<<bitRes))
+		targetQ3 += tfBoost
+		if tfEstimate > 0.7 {
+			minHybridTarget := 50 << bitRes
+			if targetQ3 < minHybridTarget {
+				targetQ3 = minHybridTarget
+			}
+		}
+	} else {
+		targetQ3 = e.computeVBRTargetWithBoost(baseTargetQ3, frameSize, tfEstimate, pitchChange, totalBoost)
+	}
 	targetQ3 += tellFrac
 
 	targetBytes := (targetQ3 + (1 << (bitRes + 2))) >> (bitRes + 3)
 	minAllowed := ((tellFrac + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
+	if e.hybrid {
+		hybridMin := (tellFrac + (37 << bitRes) + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)
+		if minAllowed < hybridMin {
+			minAllowed = hybridMin
+		}
+	}
 	if targetBytes < minAllowed {
 		targetBytes = minAllowed
 	}
@@ -2226,6 +2252,10 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 
 // computeVBRTarget applies libopus-style CELT VBR shaping in Q3 units.
 func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool) int {
+	return e.computeVBRTargetWithBoost(baseTargetQ3, frameSize, tfEstimate, pitchChange, e.lastDynalloc.TotBoost)
+}
+
+func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool, totalBoost int) int {
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
 	nbBands := e.effectiveBandCount(frameSize)
@@ -2284,9 +2314,8 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 	}
 
 	// Boost the rate according to dynalloc (minus the dynalloc average for calibration).
-	totBoost := e.lastDynalloc.TotBoost
 	calibration := 19 << lm
-	dynallocBoost := totBoost - calibration
+	dynallocBoost := totalBoost - calibration
 	targetQ3 += dynallocBoost
 
 	// Transient boost with average compensation.

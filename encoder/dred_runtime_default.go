@@ -37,6 +37,10 @@ func (e *Encoder) processDREDLatents(_ []float64, _ int) int {
 	return 0
 }
 
+func (e *Encoder) processDREDLatentsWithActivity(_ []float64, _ int, _ bool) int {
+	return 0
+}
+
 func (e *Encoder) processDREDLatentsForPacket(_ []float64, _ int, _ int, _ Mode) int {
 	return 0
 }
@@ -61,6 +65,6 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(_ []byte, _ Mode, _ types.Band
 	return nil, false, nil
 }
 
-func (e *Encoder) maybeBuildMultiFrameDREDPacket(_ [][]byte, _ Mode, _ types.Bandwidth, _ int, _ int, _ bool, _ bool) ([]byte, bool, error) {
+func (e *Encoder) maybeBuildMultiFrameDREDPacket(_ [][]byte, _ Mode, _ types.Bandwidth, _ int, _ int, _ int, _ bool, _ bool) ([]byte, bool, error) {
 	return nil, false, nil
 }

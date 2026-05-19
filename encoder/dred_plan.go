@@ -218,10 +218,10 @@ func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan d
 	}
 	targetSize := targetBytesForBitrate(originalBitrate, frameSize)
 	paddingAmount := packetExtensionPaddingAmount(internaldred.ExtensionID, payloadLen)
-	// maxPacketBytes is the primary packet budget including its TOC. When the
-	// DRED extension is added, repacketizing to code 3 adds one count byte; the
-	// extension id and padding-length bytes are already included in paddingAmount.
-	budget := targetSize - paddingAmount - 1
+	// maxPacketBytes is the primary packet budget including its TOC. The hybrid
+	// VBR path applies the final range shrink after this soft budget, so leave
+	// the code-3 count byte to the packet-extension framing step.
+	budget := targetSize - paddingAmount
 	if e.channels > 1 {
 		budget -= 4 * (e.channels - 1)
 	}
@@ -296,7 +296,7 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 	return e.scratchPacket[:packetLen], true, nil
 }
 
-func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mode, packetBW types.Bandwidth, packetFrameSize, packetTOCFrameSize int, stereo bool, vbr bool) ([]byte, bool, error) {
+func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mode, packetBW types.Bandwidth, packetFrameSize, packetTOCFrameSize, firstFrameMaxBytes int, stereo bool, vbr bool) ([]byte, bool, error) {
 	if !extsupport.DREDRuntime {
 		return nil, false, nil
 	}
@@ -323,8 +323,13 @@ func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mod
 		return nil, false, nil
 	}
 
-	dredBytesLeft := targetSize - baseLen - 3
-	if !withPadding {
+	dredBytesLeft := 0
+	if firstFrameMaxBytes > 0 && len(frames) > 0 {
+		dredBytesLeft = firstFrameMaxBytes - (1 + len(frames[0])) - 3
+	} else {
+		dredBytesLeft = targetSize - baseLen - 3
+	}
+	if !withPadding && firstFrameMaxBytes <= 0 {
 		dredBytesLeft = len(e.scratchPacket) - baseLen - 3
 	}
 	if dredBytesLeft > internaldred.MaxDataSize {

@@ -593,6 +593,52 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20ms(t *testing.T) {
 	}
 }
 
+func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullbandLongFrames(t *testing.T) {
+	for _, tc := range []struct {
+		frameSize int
+		channels  int
+	}{
+		{frameSize: 1920, channels: 1},
+		{frameSize: 2880, channels: 1},
+		{frameSize: 1920, channels: 2},
+	} {
+		tc := tc
+		t.Run(fmt.Sprintf("%d_samples_%dch", tc.frameSize, tc.channels), func(t *testing.T) {
+			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+				FrameSize: tc.frameSize,
+				ForceMode: ModeCELT,
+				Bandwidth: BandwidthFullband,
+				Channels:  tc.channels,
+			})
+			if err != nil {
+				t.Skipf("libopus CELT DRED packet helper unavailable: %v", err)
+			}
+			wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
+			if err != nil {
+				t.Fatalf("findDREDPayload(libopus) error: %v", err)
+			}
+			if !ok {
+				t.Fatal("libopus CELT packet missing DRED payload")
+			}
+
+			gotPacket, gotPayload, gotOffset, gotFrameIndex := encodeUntilDREDPacketWithFrameIndex(t, encpkg.ModeCELT, BandwidthFullband, tc.frameSize, tc.channels)
+			toc := ParseTOC(gotPacket[0])
+			if toc.Mode != ModeCELT || toc.Stereo != (tc.channels == 2) {
+				t.Fatalf("got packet toc=%+v want celt channels=%d", toc, tc.channels)
+			}
+			if gotFrameIndex != packetInfo.frameIndex {
+				t.Fatalf("DRED frame index=%d want %d", gotFrameIndex, packetInfo.frameIndex)
+			}
+			if gotOffset != wantOffset {
+				t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
+			}
+			if !bytes.Equal(gotPayload, wantPayload) {
+				t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
+			}
+		})
+	}
+}
+
 func TestEncoderSilkStereo20msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960, ForceMode: ModeSILK, Bandwidth: BandwidthWideband, Channels: 2,
