@@ -148,20 +148,23 @@ func TestRDOVAEDecoderMatchesLibopusOnRealModel(t *testing.T) {
 		t.Fatalf("LoadDecoder(real model) error: %v", err)
 	}
 
-	nbLatents := 4
-	state := makeDREDRDOVAEDecoderState()
-	latents := makeDREDRDOVAEDecoderLatents(nbLatents)
-	want, err := probeLibopusDREDRDOVAEDec(state, latents, nbLatents)
-	if err != nil {
-		t.Skipf("rdovae decoder helper unavailable: %v", err)
-	}
+	for _, nbLatents := range []int{1, 2, 4, 8, 16} {
+		t.Run(fmt.Sprintf("latents_%d", nbLatents), func(t *testing.T) {
+			state := makeDREDRDOVAEDecoderState()
+			latents := makeDREDRDOVAEDecoderLatents(nbLatents)
+			want, err := probeLibopusDREDRDOVAEDec(state, latents, nbLatents)
+			if err != nil {
+				t.Skipf("rdovae decoder helper unavailable: %v", err)
+			}
 
-	got := make([]float32, len(want))
-	var processor rdovae.Processor
-	if n := model.DecodeAllWithProcessor(&processor, got, state, latents, nbLatents); n != len(got) {
-		t.Fatalf("DecodeAllWithProcessor count=%d want %d", n, len(got))
+			got := make([]float32, len(want))
+			var processor rdovae.Processor
+			if n := model.DecodeAllWithProcessor(&processor, got, state, latents, nbLatents); n != len(got) {
+				t.Fatalf("DecodeAllWithProcessor count=%d want %d", n, len(got))
+			}
+			assertDREDFloat32Close(t, got, want, 0, "rdovae decoder features")
+		})
 	}
-	assertDREDFloat32Close(t, got, want, 0, "rdovae decoder features")
 }
 
 func makeDREDRDOVAEDecoderState() []float32 {
