@@ -74,6 +74,7 @@ DEFAULT_DECODER_FEC_PACKET_ROOT_RUN = 'Test(DecodeWithFEC_UsesProvidedPacketAndP
 DEFAULT_FEC_LBRR_ROOT_RUN = 'TestFEC_(EndToEnd|ProvidedPacketRecoveryPath|LBRRPresence|RecoveryQuality|MultiplePacketLoss|LBRRActualRecovery|HasLBRRCheck|SILKEncoderLBRREnabled|ProvidedPacketWithoutLBRRFallsBackToPLC)$$'
 DEFAULT_MULTISTREAM_DECODER_STATE_ROOT_RUN = 'TestMultistreamDecoder(FirstPacketDurationMatrix|TracksPacketDurationChanges|EmptyPacketRejected)'
 DEFAULT_MULTISTREAM_ROUNDTRIP_ROOT_RUN = 'TestMultistream(Encoder_Creation|Decoder_Creation|ConstructorErrorsReportSupportedRanges|RoundTrip_(51|71|Stereo|MultipleFrames|Int16|Mono|AllApplications)|Encoder_Reset|Decoder_Reset|Encoder_ExplicitConstructor|Decoder_ExplicitConstructor)$$'
+DEFAULT_MULTISTREAM_SAMPLE_PATH_ROOT_RUN = 'TestMultistream(Encoder_EncodeInt24|Encoder_EncodeInt24InvalidFrameSize|Decoder_PLC)$$'
 DEFAULT_WRAPPER_SAFETY_ROOT_RUN = 'Test(EncoderEncodeInt16RejectsOversizedInputWithoutPanic|MultistreamEncoderEncodeInt16RejectsOversizedInputWithoutPanic|DecoderResetClearsReportedState)'
 DEFAULT_CONSTRUCTOR_VALIDATION_ROOT_RUN = 'Test(NewDecoder_(ValidParams|InvalidSampleRate|InvalidChannels)|NewEncoder_(ValidParams|InvalidParams|InvalidApplication)|SettingsForApplicationInvalidReturnsError|APIAbuseReturnsError)$$'
 DEFAULT_HOTPATH_ALLOCS_ROOT_RUN = 'TestHotPathAllocs(EncodeFloat32|EncodeInt16|EncodeRestrictedSilkLowComplexity|DecodeFloat32|DecodeInt16|DecodePLC|DecodeStereo|StreamWriterFloat32)$$'
@@ -186,6 +187,7 @@ test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_FEC_LBRR_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_MULTISTREAM_DECODER_STATE_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_MULTISTREAM_ROUNDTRIP_ROOT_RUN) -count=1
+	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_MULTISTREAM_SAMPLE_PATH_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_WRAPPER_SAFETY_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_CONSTRUCTOR_VALIDATION_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_HOTPATH_ALLOCS_ROOT_RUN) -count=1
