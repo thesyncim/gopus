@@ -330,7 +330,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msCBR(t *testing.T
 		FrameSize: 960,
 		ForceMode: ModeSILK,
 		Bandwidth: BandwidthWideband,
-		Bitrate:   40000,
+		Bitrate:   24000,
 		CBR:       true,
 	})
 	if err != nil {
@@ -349,7 +349,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msCBR(t *testing.T
 		bandwidth: BandwidthWideband,
 		frameSize: 960,
 		channels:  1,
-		bitrate:   40000,
+		bitrate:   24000,
 		cbr:       true,
 	})
 	if ParseTOC(gotPacket[0]).Mode != ModeSILK {

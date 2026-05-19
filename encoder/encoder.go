@@ -770,7 +770,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 			if encodingBitrate != originalBitrate {
 				e.bitrate = encodingBitrate
 			}
-			frameData, err = e.encodeSILKFrame(framePCM, lookaheadSlice, frameSize)
+			frameData, err = e.encodeSILKFrameWithDRED(framePCM, lookaheadSlice, frameSize, originalBitrate, dredBitrate)
 			if encodingBitrate != originalBitrate {
 				e.bitrate = originalBitrate
 			}
@@ -2129,6 +2129,10 @@ func (e *Encoder) celtPredictionModeForFrame() int {
 
 // encodeSILKFrame encodes a frame using SILK-only mode.
 func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize int) ([]byte, error) {
+	return e.encodeSILKFrameWithDRED(pcm, lookahead, frameSize, e.bitrate, 0)
+}
+
+func (e *Encoder) encodeSILKFrameWithDRED(pcm []float64, lookahead []float64, frameSize, originalBitrate, dredBitrate int) ([]byte, error) {
 	e.ensureSILKEncoder()
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
@@ -2183,28 +2187,13 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
 
 		// Set VBR mode on both encoders (matching mono path).
-		switch e.bitrateMode {
-		case ModeCBR:
-			e.silkEncoder.SetVBR(false)
-			e.silkSideEncoder.SetVBR(false)
-		default:
-			e.silkEncoder.SetVBR(true)
-			e.silkSideEncoder.SetVBR(true)
-		}
+		silkVBR := e.bitrateMode != ModeCBR || dredBitrate > 0
+		e.silkEncoder.SetVBR(silkVBR)
+		e.silkSideEncoder.SetVBR(silkVBR)
 
 		// Set max bits for both encoders.
 		if e.bitrate > 0 {
-			targetBytes := targetBytesForBitrate(e.bitrate, frameSize)
-			maxBytes := targetBytes
-			switch e.bitrateMode {
-			case ModeVBR:
-				maxBytes = maxSilkPacketBytes
-			case ModeCVBR:
-				// libopus does not apply vbr_constraint to SILK maxBits;
-				// SILK VBR is unconstrained even in CVBR mode.
-				maxBytes = maxSilkPacketBytes
-			}
-			maxBits := silkPayloadMaxBits(maxBytes)
+			maxBits := e.silkMaxBits(frameSize, totalSilkRate, originalBitrate, dredBitrate)
 			e.silkEncoder.SetMaxBits(maxBits)
 			e.silkSideEncoder.SetMaxBits(maxBits)
 		}
@@ -2298,33 +2287,17 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 		pcm32 = e.alignSilkMonoInput(pcm32)
 	}
 	quantizeFloat32ToInt16LibopusInPlace(pcm32)
+	perChannelRate := 0
 	if e.bitrate > 0 {
-		perChannelRate := e.silkInputBitrate(frameSize) / e.channels
+		perChannelRate = e.silkInputBitrate(frameSize) / e.channels
 		if perChannelRate > 0 {
 			e.silkEncoder.SetBitrate(perChannelRate)
 		}
 	}
-	switch e.bitrateMode {
-	case ModeCBR:
-		e.silkEncoder.SetVBR(false)
-	default:
-		e.silkEncoder.SetVBR(true)
-	}
+	e.silkEncoder.SetVBR(e.bitrateMode != ModeCBR || dredBitrate > 0)
 	// Set SILK max bits based on bitrate mode (matches opus_encoder.c behavior).
 	if e.bitrate > 0 {
-		targetBytes := targetBytesForBitrate(e.bitrate, frameSize)
-		maxBytes := targetBytes
-		switch e.bitrateMode {
-		case ModeVBR:
-			maxBytes = maxSilkPacketBytes
-		case ModeCVBR:
-			// libopus does not apply vbr_constraint to SILK maxBits;
-			// SILK VBR is unconstrained even in CVBR mode.
-			maxBytes = maxSilkPacketBytes
-		case ModeCBR:
-			// keep targetBytes
-		}
-		e.silkEncoder.SetMaxBits(silkPayloadMaxBits(maxBytes))
+		e.silkEncoder.SetMaxBits(e.silkMaxBits(frameSize, perChannelRate, originalBitrate, dredBitrate))
 	}
 	e.silkEncoder.SetFEC(e.lbrrCoded)
 	e.silkEncoder.SetPacketLoss(e.packetLoss)
@@ -2344,6 +2317,38 @@ func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize 
 	}
 	res := e.silkEncoder.EncodeFrame(pcm32, lookaheadOut, vadFlag)
 	return res, nil
+}
+
+func (e *Encoder) silkMaxBits(frameSize, silkBitrate, originalBitrate, dredBitrate int) int {
+	maxBitrate := e.bitrate
+	if e.bitrateMode == ModeCBR && dredBitrate > 0 && originalBitrate > 0 {
+		maxBitrate = originalBitrate
+	}
+	targetBytes := targetBytesForBitrate(maxBitrate, frameSize)
+	maxBytes := targetBytes
+	switch e.bitrateMode {
+	case ModeVBR:
+		maxBytes = maxSilkPacketBytes
+	case ModeCVBR:
+		maxBytes = maxSilkPacketBytes
+	}
+	maxBits := silkPayloadMaxBits(maxBytes)
+	if e.bitrateMode == ModeCBR && dredBitrate > 0 {
+		if e.sampleRate <= 0 {
+			return maxBits
+		}
+		if silkBitrate <= 0 {
+			silkBitrate = e.bitrate
+		}
+		otherBits := maxBits - silkBitrate*frameSize/e.sampleRate
+		if otherBits > 0 {
+			maxBits -= otherBits * 3 / 4
+		}
+		if maxBits < 0 {
+			maxBits = 0
+		}
+	}
+	return maxBits
 }
 
 // encodeCELTFrame encodes a frame using CELT-only mode.
