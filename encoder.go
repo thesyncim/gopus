@@ -58,6 +58,12 @@ const (
 	BitrateModeCBR = encoder.ModeCBR
 )
 
+const (
+	InBandFECDisabled  = encoder.InBandFECDisabled
+	InBandFECEnabled   = encoder.InBandFECEnabled
+	InBandFECMusicSafe = encoder.InBandFECMusicSafe
+)
+
 // EncoderConfig configures an Encoder instance.
 type EncoderConfig struct {
 	// SampleRate must be one of: 8000, 12000, 16000, 24000, 48000.

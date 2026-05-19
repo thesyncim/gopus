@@ -94,6 +94,13 @@ func validatePacketLoss(lossPercent int) error {
 	return nil
 }
 
+func validateInBandFEC(config int) error {
+	if config < InBandFECDisabled || config > InBandFECMusicSafe {
+		return ErrInvalidFECConfig
+	}
+	return nil
+}
+
 func validateLSBDepth(depth int) error {
 	if depth < 8 || depth > 24 {
 		return ErrInvalidLSBDepth

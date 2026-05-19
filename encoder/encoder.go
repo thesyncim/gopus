@@ -50,11 +50,20 @@ var (
 
 	// ErrInvalidDREDDuration indicates DRED duration is outside libopus bounds.
 	ErrInvalidDREDDuration = errors.New("encoder: invalid DRED duration")
+
+	// ErrInvalidFECConfig indicates an unsupported in-band FEC configuration.
+	ErrInvalidFECConfig = errors.New("encoder: invalid in-band FEC config")
 )
 
 const (
 	defaultScratchPacketBytes   = maxSilkPacketBytes
 	extensionScratchPacketBytes = 3826
+)
+
+const (
+	InBandFECDisabled  = 0
+	InBandFECEnabled   = 1
+	InBandFECMusicSafe = 2
 )
 
 // Encoder is the unified Opus encoder that orchestrates SILK and CELT sub-encoders.
@@ -182,7 +191,7 @@ type Encoder struct {
 	userBandwidthSet  bool            // Whether userBandwidth is explicitly set
 	widthMem          StereoWidthMem  // Stateful stereo width computation memory
 	toMono            int             // Stereo→mono transition countdown (0=inactive)
-	fecConfig         int             // FEC config: 0=auto, 1=force-on, 2=music-safe
+	fecConfig         int             // FEC config: 0=disabled, 1=enabled, 2=music-safe
 
 	// SILK downsampling
 	silkResampler       *silk.DownsamplingResampler
@@ -417,15 +426,34 @@ func (e *Encoder) Reset() {
 
 // SetFEC enables or disables in-band Forward Error Correction.
 func (e *Encoder) SetFEC(enabled bool) {
-	e.fecEnabled = enabled
-	if enabled && e.fec == nil {
+	config := InBandFECDisabled
+	if enabled {
+		config = InBandFECEnabled
+	}
+	_ = e.SetInBandFEC(config)
+}
+
+// SetInBandFEC sets the libopus-compatible in-band FEC configuration.
+func (e *Encoder) SetInBandFEC(config int) error {
+	if config < InBandFECDisabled || config > InBandFECMusicSafe {
+		return ErrInvalidFECConfig
+	}
+	e.fecConfig = config
+	e.fecEnabled = config != InBandFECDisabled
+	if e.fecEnabled && e.fec == nil {
 		e.fec = newFECState()
 	}
+	return nil
 }
 
 // FECEnabled returns whether FEC is enabled.
 func (e *Encoder) FECEnabled() bool {
 	return e.fecEnabled
+}
+
+// InBandFEC returns the in-band FEC configuration.
+func (e *Encoder) InBandFEC() int {
+	return e.fecConfig
 }
 
 // SetPacketLoss sets the expected packet loss percentage (0-100).
@@ -1941,8 +1969,9 @@ func (e *Encoder) selectShortAutoMode(frameSize int, signalHint types.Signal) Mo
 		mode = ModeCELT
 	}
 	// Match libopus behavior: with in-band FEC and sufficient expected loss,
-	// force SILK lane so LBRR can be emitted.
-	if e.fecEnabled && e.packetLoss > ((128-voiceEst)>>4) {
+	// force SILK unless music-safe FEC is confident the signal is music.
+	if e.fecEnabled && e.packetLoss > ((128-voiceEst)>>4) &&
+		(e.fecConfig != InBandFECMusicSafe || voiceEst > 25) {
 		mode = ModeSILK
 	}
 	// Match libopus behavior: when DTX is enabled for voiced content, favor SILK.
@@ -2011,8 +2040,9 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 		mode = ModeCELT
 	}
 	// Match libopus behavior: with in-band FEC and sufficient expected loss,
-	// force SILK lane (maps to Hybrid at SWB).
-	if e.fecEnabled && e.packetLoss > ((128-voiceEst)>>4) {
+	// force SILK unless music-safe FEC is confident the signal is music.
+	if e.fecEnabled && e.packetLoss > ((128-voiceEst)>>4) &&
+		(e.fecConfig != InBandFECMusicSafe || voiceEst > 25) {
 		mode = ModeHybrid
 	}
 	// Match libopus behavior: when DTX is enabled for voiced content, favor SILK lane.

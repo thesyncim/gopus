@@ -128,9 +128,22 @@ func (e *MultistreamEncoder) SetFEC(enabled bool) {
 	e.enc.SetFEC(enabled)
 }
 
+// SetInBandFEC sets the libopus-compatible in-band FEC configuration.
+func (e *MultistreamEncoder) SetInBandFEC(config int) error {
+	if err := validateInBandFEC(config); err != nil {
+		return err
+	}
+	return e.enc.SetInBandFEC(config)
+}
+
 // FECEnabled returns whether FEC is enabled.
 func (e *MultistreamEncoder) FECEnabled() bool {
 	return e.enc.FECEnabled()
+}
+
+// InBandFEC returns the current in-band FEC configuration.
+func (e *MultistreamEncoder) InBandFEC() int {
+	return e.enc.InBandFEC()
 }
 
 // SetDTX enables or disables Discontinuous Transmission for all streams.

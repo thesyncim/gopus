@@ -1299,12 +1299,30 @@ func (e *Encoder) SetFEC(enabled bool) {
 	}
 }
 
+// SetInBandFEC sets the in-band FEC configuration for all streams.
+func (e *Encoder) SetInBandFEC(config int) error {
+	for _, enc := range e.encoders {
+		if err := enc.SetInBandFEC(config); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // FECEnabled returns whether FEC is enabled (from first encoder).
 func (e *Encoder) FECEnabled() bool {
 	if len(e.encoders) > 0 {
 		return e.encoders[0].FECEnabled()
 	}
 	return false
+}
+
+// InBandFEC returns the in-band FEC configuration from the first stream.
+func (e *Encoder) InBandFEC() int {
+	if len(e.encoders) > 0 {
+		return e.encoders[0].InBandFEC()
+	}
+	return 0
 }
 
 // SetPacketLoss sets the expected packet loss percentage (0-100) for all streams.

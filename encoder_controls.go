@@ -86,9 +86,22 @@ func (e *Encoder) SetFEC(enabled bool) {
 	e.enc.SetFEC(enabled)
 }
 
+// SetInBandFEC sets the libopus-compatible in-band FEC configuration.
+func (e *Encoder) SetInBandFEC(config int) error {
+	if err := validateInBandFEC(config); err != nil {
+		return err
+	}
+	return e.enc.SetInBandFEC(config)
+}
+
 // FECEnabled returns whether FEC is enabled.
 func (e *Encoder) FECEnabled() bool {
 	return e.enc.FECEnabled()
+}
+
+// InBandFEC returns the current in-band FEC configuration.
+func (e *Encoder) InBandFEC() int {
+	return e.enc.InBandFEC()
 }
 
 // SetPacketLoss sets the expected packet loss percentage.

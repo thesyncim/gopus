@@ -333,7 +333,7 @@ func (e *Encoder) autoModeDecision(stereoWidth float64, voiceEst, equivRate, fra
 	// When fec_config == 2, don't force SILK unless voice_est > 25 (music-safe mode).
 	// Matches libopus opus_encoder.c line 1517.
 	if e.fecEnabled && e.packetLoss > (128-voiceEst)>>4 &&
-		(e.fecConfig != 2 || voiceEst > 25) {
+		(e.fecConfig != InBandFECMusicSafe || voiceEst > 25) {
 		mode = ModeSILK
 	}
 

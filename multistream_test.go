@@ -629,6 +629,18 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	if enc.FECEnabled() {
 		t.Error("FEC should be disabled")
 	}
+	if err := enc.SetInBandFEC(InBandFECMusicSafe); err != nil {
+		t.Fatalf("SetInBandFEC(%d) error: %v", InBandFECMusicSafe, err)
+	}
+	if got := enc.InBandFEC(); got != InBandFECMusicSafe {
+		t.Fatalf("InBandFEC()=%d want %d", got, InBandFECMusicSafe)
+	}
+	if !enc.FECEnabled() {
+		t.Fatal("FECEnabled()=false want true")
+	}
+	if err := enc.SetInBandFEC(3); err != ErrInvalidFECConfig {
+		t.Fatalf("SetInBandFEC(3) error=%v want %v", err, ErrInvalidFECConfig)
+	}
 
 	// Test SetDTX
 	enc.SetDTX(true)

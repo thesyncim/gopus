@@ -55,6 +55,9 @@ var (
 	// Valid range is 0 to 100.
 	ErrInvalidPacketLoss = errors.New("gopus: invalid packet loss percentage (must be 0-100)")
 
+	// ErrInvalidFECConfig indicates an unsupported in-band FEC configuration.
+	ErrInvalidFECConfig = errors.New("gopus: invalid in-band FEC config")
+
 	// ErrInvalidStreams indicates an invalid stream count for multistream encoding/decoding.
 	// Valid stream counts are 1 to 255.
 	ErrInvalidStreams = errors.New("gopus: invalid stream count (must be 1-255)")

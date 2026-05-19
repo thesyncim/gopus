@@ -669,6 +669,47 @@ func TestEncoder_FEC(t *testing.T) {
 	}
 }
 
+func TestEncoder_InBandFEC(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	for _, tc := range []struct {
+		config  int
+		enabled bool
+	}{
+		{InBandFECDisabled, false},
+		{InBandFECEnabled, true},
+		{InBandFECMusicSafe, true},
+	} {
+		if err := enc.SetInBandFEC(tc.config); err != nil {
+			t.Fatalf("SetInBandFEC(%d) error: %v", tc.config, err)
+		}
+		if got := enc.InBandFEC(); got != tc.config {
+			t.Fatalf("InBandFEC()=%d want %d", got, tc.config)
+		}
+		if got := enc.FECEnabled(); got != tc.enabled {
+			t.Fatalf("FECEnabled()=%t want %t", got, tc.enabled)
+		}
+	}
+
+	enc.SetFEC(true)
+	if got := enc.InBandFEC(); got != InBandFECEnabled {
+		t.Fatalf("SetFEC(true) InBandFEC()=%d want %d", got, InBandFECEnabled)
+	}
+	enc.SetFEC(false)
+	if got := enc.InBandFEC(); got != InBandFECDisabled {
+		t.Fatalf("SetFEC(false) InBandFEC()=%d want %d", got, InBandFECDisabled)
+	}
+
+	for _, config := range []int{-1, 3} {
+		if err := enc.SetInBandFEC(config); err != ErrInvalidFECConfig {
+			t.Fatalf("SetInBandFEC(%d) error=%v want %v", config, err, ErrInvalidFECConfig)
+		}
+	}
+}
+
 func TestEncoder_Reset(t *testing.T) {
 	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {

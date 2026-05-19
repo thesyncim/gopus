@@ -966,6 +966,81 @@ func TestFECEnabled(t *testing.T) {
 	}
 }
 
+func TestInBandFECConfig(t *testing.T) {
+	enc := encoder.NewEncoder(48000, 1)
+
+	for _, tc := range []struct {
+		config  int
+		enabled bool
+	}{
+		{encoder.InBandFECDisabled, false},
+		{encoder.InBandFECEnabled, true},
+		{encoder.InBandFECMusicSafe, true},
+	} {
+		if err := enc.SetInBandFEC(tc.config); err != nil {
+			t.Fatalf("SetInBandFEC(%d) error: %v", tc.config, err)
+		}
+		if got := enc.InBandFEC(); got != tc.config {
+			t.Fatalf("InBandFEC()=%d want %d", got, tc.config)
+		}
+		if got := enc.FECEnabled(); got != tc.enabled {
+			t.Fatalf("FECEnabled()=%t want %t", got, tc.enabled)
+		}
+	}
+
+	enc.SetFEC(true)
+	if got := enc.InBandFEC(); got != encoder.InBandFECEnabled {
+		t.Fatalf("SetFEC(true) InBandFEC()=%d want %d", got, encoder.InBandFECEnabled)
+	}
+	enc.SetFEC(false)
+	if got := enc.InBandFEC(); got != encoder.InBandFECDisabled {
+		t.Fatalf("SetFEC(false) InBandFEC()=%d want %d", got, encoder.InBandFECDisabled)
+	}
+
+	for _, config := range []int{-1, 3} {
+		if err := enc.SetInBandFEC(config); err != encoder.ErrInvalidFECConfig {
+			t.Fatalf("SetInBandFEC(%d) error=%v want %v", config, err, encoder.ErrInvalidFECConfig)
+		}
+	}
+}
+
+func TestInBandFECMusicSafeAvoidsMusicModeForce(t *testing.T) {
+	pcm := generateTestSignal(960, 1)
+
+	tests := []struct {
+		name   string
+		config int
+		want   types.Mode
+	}{
+		{name: "enabled", config: encoder.InBandFECEnabled, want: types.ModeHybrid},
+		{name: "music_safe", config: encoder.InBandFECMusicSafe, want: types.ModeCELT},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			enc := encoder.NewEncoder(48000, 1)
+			enc.SetMode(encoder.ModeAuto)
+			enc.SetBandwidth(types.BandwidthFullband)
+			enc.SetSignalType(types.SignalMusic)
+			enc.SetPacketLoss(20)
+			if err := enc.SetInBandFEC(tc.config); err != nil {
+				t.Fatalf("SetInBandFEC(%d): %v", tc.config, err)
+			}
+
+			packet, err := enc.Encode(pcm, 960)
+			if err != nil {
+				t.Fatalf("Encode: %v", err)
+			}
+			if len(packet) == 0 {
+				t.Fatal("Encode returned empty packet")
+			}
+			if got := gopus.ParseTOC(packet[0]).Mode; got != tc.want {
+				t.Fatalf("packet mode=%v want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // TestFECPacketLoss verifies packet loss percentage setting works correctly.
 func TestFECPacketLoss(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
