@@ -25,13 +25,14 @@ func TestKfBfly2ViaFFT(t *testing.T) {
 	t.Logf("nfft=2: factors=%v, ok=%v", factors, ok)
 
 	if !ok {
-		t.Skip("nfft=2 not supported")
+		t.Fatal("nfft=2 factorization unsupported")
 	}
 
 	// If factors are [2, 1], then radix-2 with m=1 will be used
-	if len(factors) >= 2 && factors[0] == 2 && factors[1] == 1 {
-		t.Logf("kfBfly2M1 path will be exercised")
+	if len(factors) < 2 || factors[0] != 2 || factors[1] != 1 {
+		t.Fatalf("nfft=2 factors=%v, want [2 1]", factors)
 	}
+	t.Logf("kfBfly2M1 path will be exercised")
 
 	// Run FFT with size 2
 	input := []complex64{complex(1.0, 2.0), complex(3.0, 4.0)}
