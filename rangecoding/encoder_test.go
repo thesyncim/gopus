@@ -299,9 +299,7 @@ func TestEncoderRangeInvariant(t *testing.T) {
 	}
 }
 
-// TestEncodeICDF16 tests that EncodeICDF16 can encode symbols without panicking
-// and produces non-empty output. Full round-trip verification is deferred pending
-// encoder-decoder byte format alignment (tracked in STATE.md as known gap).
+// TestEncodeICDF16 verifies EncodeICDF16 through the paired decoder.
 //
 // Note: Symbol 0 in SILK tables starting with 256 has effectively zero probability
 // (icdf[0]=256 means fh=ft-256=0), so we test symbols 1+ which have valid ranges.
@@ -329,6 +327,13 @@ func TestEncodeICDF16(t *testing.T) {
 			if enc.Range() <= EC_CODE_BOT {
 				t.Errorf("symbol %d: range invariant violated after encode", sym)
 			}
+
+			dec := &Decoder{}
+			dec.Init(encoded)
+			decoded := dec.DecodeICDF16(icdf, 8)
+			if decoded != sym {
+				t.Errorf("symbol %d: decoded %d (bytes: %x)", sym, decoded, encoded)
+			}
 		})
 	}
 }
@@ -349,6 +354,13 @@ func TestEncodeICDF16NonSilkTable(t *testing.T) {
 
 			if len(encoded) == 0 {
 				t.Errorf("symbol %d: empty encoded output", sym)
+			}
+
+			dec := &Decoder{}
+			dec.Init(encoded)
+			decoded := dec.DecodeICDF16(icdf, 8)
+			if decoded != sym {
+				t.Errorf("symbol %d: decoded %d (bytes: %x)", sym, decoded, encoded)
 			}
 		})
 	}
@@ -381,6 +393,14 @@ func TestEncodeICDF16MultipleSymbols(t *testing.T) {
 	// With 8-bit precision, expect roughly 3-4 bits per symbol average
 	if len(encoded) < 5 || len(encoded) > 50 {
 		t.Errorf("encoded size %d seems unreasonable for 14 symbols", len(encoded))
+	}
+
+	dec := &Decoder{}
+	dec.Init(encoded)
+	for i, want := range symbols {
+		if got := dec.DecodeICDF16(icdf, 8); got != want {
+			t.Fatalf("decoded symbol %d = %d, want %d (bytes: %x)", i, got, want, encoded)
+		}
 	}
 }
 
