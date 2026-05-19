@@ -73,6 +73,7 @@ DEFAULT_DECODER_FEC_PACKET_ROOT_RUN = 'Test(DecodeWithFEC_UsesProvidedPacketAndP
 DEFAULT_MULTISTREAM_DECODER_STATE_ROOT_RUN = 'TestMultistreamDecoder(FirstPacketDurationMatrix|TracksPacketDurationChanges|EmptyPacketRejected)'
 DEFAULT_WRAPPER_SAFETY_ROOT_RUN = 'Test(EncoderEncodeInt16RejectsOversizedInputWithoutPanic|MultistreamEncoderEncodeInt16RejectsOversizedInputWithoutPanic|DecoderResetClearsReportedState)'
 DEFAULT_ENCODER_CONTROLS_ROOT_RUN = 'TestEncoder_(SetBitrate|SetComplexity|SetBitrateMode|SetVBRAndConstraint|SetPacketLoss|SetBandwidth|SetApplication|RestrictedApplications|ExpertFrameDuration|SetSignal|SetMaxBandwidth|SetForceChannels|Lookahead|SetLSBDepth|SetPredictionDisabled|SetPhaseInversionDisabled)$$'
+DEFAULT_DECODER_CONTROLS_ROOT_RUN = 'TestDecoder_(InDTX|SetGainBounds|IgnoreExtensions|GainAppliedToDecodeOutput|PitchGetter)$$'
 DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN = 'Test(DecoderDecodeValidUnknownExtensionMatchesBasePacket|DecoderOpaquePaddingRemainsDecodableInDefaultBuild|DecoderCELTOpaquePaddingRemainsDecodable|DecoderCELTUnsupportedQEXTExtensionMatchesBasePacket)'
 DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN = 'Test(MultistreamPacketPadUnpadSelfDelimitedRoundTrip|MultistreamPacketPadUnpadThreeStreamsRoundTrip|MultistreamPacketPadRejectsInvalidSelfDelimited|MultistreamPacketUnpadRejectsInvalidSelfDelimited|MultistreamPacketPadRejectsLibopusParserEnvelopeViolation|MultistreamPacketUnpadRejectsLibopusParserEnvelopeViolation)'
 DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN = 'Test(SelfDelimitedPacketPreservesPacketExtensions|DecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding)'
@@ -161,6 +162,7 @@ test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_MULTISTREAM_DECODER_STATE_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_WRAPPER_SAFETY_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_CONTROLS_ROOT_RUN) -count=1
+	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_CONTROLS_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN) -count=1
