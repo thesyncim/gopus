@@ -111,6 +111,28 @@ func TestComputeDREDEmissionPlanUsesFECControlFlag(t *testing.T) {
 	}
 }
 
+func TestDREDMaxChunksOnlyCapsVBR(t *testing.T) {
+	enc := newDREDPlanTestEncoder(48000, 20000, 20, 80)
+	plan, ok := enc.computeDREDEmissionPlan(960)
+	if !ok {
+		t.Fatal("computeDREDEmissionPlan() disabled DRED")
+	}
+	if plan.targetChunks != 2 {
+		t.Fatalf("targetChunks=%d want 2", plan.targetChunks)
+	}
+
+	if got := maxDREDChunks(enc.dred.duration, plan.targetChunks, true); got != 2 {
+		t.Fatalf("VBR maxDREDChunks()=%d want 2", got)
+	}
+	wantCBRChunks := (enc.dred.duration + 5) / 4
+	if wantCBRChunks > internaldred.NumRedundancyFrames/2 {
+		wantCBRChunks = internaldred.NumRedundancyFrames / 2
+	}
+	if got := maxDREDChunks(enc.dred.duration, plan.targetChunks, false); got != wantCBRChunks {
+		t.Fatalf("CBR maxDREDChunks()=%d want %d", got, wantCBRChunks)
+	}
+}
+
 func newDREDPlanTestEncoder(sampleRate, bitrate, packetLoss, duration int) *Encoder {
 	return &Encoder{
 		sampleRate: sampleRate,

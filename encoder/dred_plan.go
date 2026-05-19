@@ -138,12 +138,12 @@ func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool
 	}, true
 }
 
-func maxDREDChunks(duration, targetChunks int) int {
+func maxDREDChunks(duration, targetChunks int, capToTarget bool) int {
 	maxChunks := (duration + 5) / 4
 	if maxChunks > internaldred.NumRedundancyFrames/2 {
 		maxChunks = internaldred.NumRedundancyFrames / 2
 	}
-	if targetChunks > 0 && maxChunks > targetChunks {
+	if capToTarget && targetChunks > 0 && maxChunks > targetChunks {
 		maxChunks = targetChunks
 	}
 	return maxChunks
@@ -199,7 +199,7 @@ func (e *Encoder) previewDREDPacketExtensionPadding(frameSize int) int {
 	if !ok {
 		return 0
 	}
-	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks)
+	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks, e.bitrateMode != ModeCBR)
 	payloadLen := e.previewDREDExperimentalPayloadLength(maxChunks, plan.q0, plan.dQ, plan.qmax)
 	return packetExtensionPaddingAmount(internaldred.ExtensionID, payloadLen)
 }
@@ -208,7 +208,7 @@ func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan d
 	if !extsupport.DREDRuntime || e.dred == nil || e.dred.duration <= 0 || plan.targetChunks < 1 {
 		return 0
 	}
-	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks)
+	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks, e.bitrateMode != ModeCBR)
 	if maxChunks < 1 {
 		return 0
 	}
@@ -268,7 +268,7 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 		return nil, false, nil
 	}
 
-	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks)
+	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks, e.bitrateMode != ModeCBR)
 	if maxChunks < 1 {
 		return nil, false, nil
 	}
@@ -345,13 +345,7 @@ func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mod
 		}()
 	}
 
-	maxChunks := (e.dred.duration + 5) / 4
-	if maxChunks > internaldred.NumRedundancyFrames/2 {
-		maxChunks = internaldred.NumRedundancyFrames / 2
-	}
-	if maxChunks > plan.targetChunks {
-		maxChunks = plan.targetChunks
-	}
+	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks, e.bitrateMode != ModeCBR)
 	if maxChunks < 1 {
 		return nil, false, nil
 	}
