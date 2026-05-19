@@ -121,3 +121,78 @@ func TestSILKEncoderReconfiguresOnBandwidthChangeStereo(t *testing.T) {
 	}
 	check(silk.BandwidthNarrowband, 8000)
 }
+
+func TestSILKEncoderRespectsMaxBandwidthClampMono(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetBitrate(32000)
+	enc.SetBandwidth(types.BandwidthFullband)
+	frameSize := 960
+	pcm := generateSinePCM(frameSize, 1, 440.0)
+
+	tests := []struct {
+		name       string
+		maxBW      types.Bandwidth
+		wantBW     silk.Bandwidth
+		wantRateHz int
+	}{
+		{name: "narrowband", maxBW: types.BandwidthNarrowband, wantBW: silk.BandwidthNarrowband, wantRateHz: 8000},
+		{name: "mediumband", maxBW: types.BandwidthMediumband, wantBW: silk.BandwidthMediumband, wantRateHz: 12000},
+		{name: "wideband", maxBW: types.BandwidthWideband, wantBW: silk.BandwidthWideband, wantRateHz: 16000},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			enc.SetMaxBandwidth(tc.maxBW)
+			packet, err := enc.Encode(pcm, frameSize)
+			if err != nil {
+				t.Fatalf("encode failed: %v", err)
+			}
+			if packet == nil {
+				t.Fatal("encode returned nil packet")
+			}
+			if enc.silkEncoder == nil {
+				t.Fatal("silk encoder is nil")
+			}
+			if got := enc.silkEncoder.Bandwidth(); got != tc.wantBW {
+				t.Fatalf("silk bandwidth=%v want %v", got, tc.wantBW)
+			}
+			if got := enc.silkEncoder.SampleRate(); got != tc.wantRateHz {
+				t.Fatalf("silk sample rate=%d want %d", got, tc.wantRateHz)
+			}
+		})
+	}
+}
+
+func TestSILKStereoSideEncoderRespectsMaxBandwidthClamp(t *testing.T) {
+	enc := NewEncoder(48000, 2)
+	enc.SetMode(ModeSILK)
+	enc.SetBitrate(48000)
+	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetMaxBandwidth(types.BandwidthNarrowband)
+	frameSize := 960
+	pcm := generateSinePCM(frameSize, 2, 330.0)
+
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("encode failed: %v", err)
+	}
+	if packet == nil {
+		t.Fatal("encode returned nil packet")
+	}
+	if enc.silkEncoder == nil || enc.silkSideEncoder == nil {
+		t.Fatal("stereo SILK encoders are not initialized")
+	}
+	if got := enc.silkEncoder.Bandwidth(); got != silk.BandwidthNarrowband {
+		t.Fatalf("mid silk bandwidth=%v want %v", got, silk.BandwidthNarrowband)
+	}
+	if got := enc.silkSideEncoder.Bandwidth(); got != silk.BandwidthNarrowband {
+		t.Fatalf("side silk bandwidth=%v want %v", got, silk.BandwidthNarrowband)
+	}
+	if got := enc.silkEncoder.SampleRate(); got != 8000 {
+		t.Fatalf("mid silk sample rate=%d want 8000", got)
+	}
+	if got := enc.silkSideEncoder.SampleRate(); got != 8000 {
+		t.Fatalf("side silk sample rate=%d want 8000", got)
+	}
+}

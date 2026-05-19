@@ -3228,7 +3228,7 @@ func (e *Encoder) ensureCELTEncoder() {
 
 // silkBandwidth converts the Opus bandwidth to SILK bandwidth.
 func (e *Encoder) silkBandwidth() silk.Bandwidth {
-	switch e.bandwidth {
+	switch e.effectiveBandwidth() {
 	case types.BandwidthNarrowband:
 		return silk.BandwidthNarrowband
 	case types.BandwidthMediumband:
