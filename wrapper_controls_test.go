@@ -259,6 +259,14 @@ func makeNameCompleteDecoderTestDNNBlob() []byte {
 	return blob
 }
 
+func makeNameCompleteDREDDecoderTestDNNBlob() []byte {
+	var blob []byte
+	for _, name := range dnnblob.RequiredDREDDecoderRecordNames() {
+		blob = appendTestBlobRecord(blob, name, dnnblob.TypeFloat, 4)
+	}
+	return blob
+}
+
 func makeValidEncoderTestDNNBlob() []byte {
 	specs := make(map[string]testBlobRecordSpec)
 	for _, spec := range lpcnetplc.PitchDNNLinearLayerSpecs() {
@@ -390,6 +398,19 @@ func TestDecoderSetDNNBlobRejectsNameOnlyModelBlob(t *testing.T) {
 	}
 	if dec.dnnBlob != nil || dec.pitchDNNLoaded || dec.plcModelLoaded || dec.farganModelLoaded {
 		t.Fatal("decoder retained name-only DNN blob")
+	}
+}
+
+func TestDecoderSetDNNBlobRejectsNameOnlyDREDDecoderFamily(t *testing.T) {
+	dec := mustNewTestDecoder(t, 48000, 1)
+	blob := append([]byte(nil), makeValidDecoderTestDNNBlob()...)
+	blob = append(blob, makeNameCompleteDREDDecoderTestDNNBlob()...)
+
+	if err := dec.SetDNNBlob(blob); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(name-only DRED decoder family) error=%v want %v", err, ErrInvalidArgument)
+	}
+	if dec.dnnBlob != nil || dec.pitchDNNLoaded || dec.plcModelLoaded || dec.farganModelLoaded {
+		t.Fatal("decoder retained blob with name-only DRED decoder family")
 	}
 }
 

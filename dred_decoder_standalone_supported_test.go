@@ -44,6 +44,17 @@ func TestDREDDecoderParseRequiresModel(t *testing.T) {
 	}
 }
 
+func TestDREDDecoderSetDNNBlobRejectsNameOnlyModelBlob(t *testing.T) {
+	dec := NewDREDDecoder()
+
+	if err := dec.SetDNNBlob(makeNameCompleteDREDDecoderTestDNNBlob()); !errors.Is(err, ErrInvalidArgument) {
+		t.Fatalf("SetDNNBlob(name-only DRED decoder blob) error=%v want %v", err, ErrInvalidArgument)
+	}
+	if dec.ModelLoaded() {
+		t.Fatal("DRED decoder retained name-only model blob")
+	}
+}
+
 func TestDREDDecoderParseClearsStateWhenPacketHasNoDRED(t *testing.T) {
 	dec := NewDREDDecoder()
 	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
