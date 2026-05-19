@@ -10,6 +10,8 @@ const (
 	FrameSize               = 160
 	DFrameSize              = 2 * FrameSize
 	MaxDataSize             = 1000
+	EncQ0                   = 6
+	EncQ1                   = 15
 	MaxLatents              = 26
 	NumRedundancyFrames     = 2 * MaxLatents
 	MaxFrames               = 4 * MaxLatents

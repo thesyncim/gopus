@@ -32,6 +32,8 @@ func TestDREDConstantsMatchLibopusReference(t *testing.T) {
 		{name: "DRED_FRAME_SIZE", got: FrameSize, defs: config},
 		{name: "DRED_DFRAME_SIZE", got: DFrameSize, defs: config},
 		{name: "DRED_MAX_DATA_SIZE", got: MaxDataSize, defs: config},
+		{name: "DRED_ENC_Q0", got: EncQ0, defs: config},
+		{name: "DRED_ENC_Q1", got: EncQ1, defs: config},
 		{name: "DRED_MAX_LATENTS", got: MaxLatents, defs: config},
 		{name: "DRED_NUM_REDUNDANCY_FRAMES", got: NumRedundancyFrames, defs: config},
 		{name: "DRED_MAX_FRAMES", got: MaxFrames, defs: config},
@@ -43,8 +45,12 @@ func TestDREDConstantsMatchLibopusReference(t *testing.T) {
 		{name: "DRED_STATE_DIM", got: rdovae.StateDim, defs: rdovaeConstants},
 		{name: "DRED_PADDED_LATENT_DIM", got: rdovae.PaddedLatentDim, defs: rdovaeConstants},
 		{name: "DRED_PADDED_STATE_DIM", got: rdovae.PaddedStateDim, defs: rdovaeConstants},
+		{name: "DRED_NUM_QUANTIZATION_LEVELS", got: rdovae.NumQuantLevels, defs: rdovaeConstants},
 		{name: "DRED_MAX_RNN_NEURONS", got: rdovae.MaxRNNNeurons, defs: rdovaeConstants},
 		{name: "DRED_MAX_CONV_INPUTS", got: rdovae.MaxConvInputs, defs: rdovaeConstants},
+		{name: "DRED_ENC_MAX_RNN_NEURONS", got: rdovae.EncMaxRNNNeurons, defs: rdovaeConstants},
+		{name: "DRED_ENC_MAX_CONV_INPUTS", got: rdovae.EncMaxConvInputs, defs: rdovaeConstants},
+		{name: "DRED_DEC_MAX_RNN_NEURONS", got: rdovae.DecMaxRNNNeurons, defs: rdovaeConstants},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			want := resolveLibopusDefineInt(t, tc.defs, tc.name, nil)

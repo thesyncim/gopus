@@ -10,8 +10,12 @@ const (
 	StateDim          = 50
 	PaddedLatentDim   = 32
 	PaddedStateDim    = 56
+	NumQuantLevels    = 16
 	MaxRNNNeurons     = 64
 	MaxConvInputs     = 128
+	EncMaxRNNNeurons  = 128
+	EncMaxConvInputs  = 128
+	DecMaxRNNNeurons  = 64
 	MaxProcessFrames  = 4
 	Dense1OutSize     = 96
 	HiddenInitOutSize = 128
