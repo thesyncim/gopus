@@ -134,7 +134,7 @@ test-consumer-smoke:
 
 # Lightweight docs and optional-extension contract that keeps release-surface claims aligned.
 test-doc-contract:
-	$(GO_WORK_ENV) $(GO) test . -run 'Test(OptionalExtensionDocsContract|TrustDocsContract|TrustSensitiveFilesHaveCodeOwners|ReleaseNotesExistForTags|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
+	$(GO_WORK_ENV) $(GO) test . -run 'Test(OptionalExtensionDocsContract|TrustDocsContract|TrustSensitiveFilesHaveCodeOwners|ReleaseNotesExistForTags|DefaultBuildPublicAPIContract|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
 	$(GO_WORK_ENV) $(GO) test . ./multistream -run 'TestDefaultBuildQuarantinesUnsupportedControls' -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN) -count=1
