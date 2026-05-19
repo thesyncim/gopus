@@ -41,10 +41,15 @@ func TestStandaloneDREDRecoveryQueueMatchesLibopus(t *testing.T) {
 		frameSizeSamples    int
 		blend               bool
 	}{
+		{name: "blend_off_negative_full_frame", decodeOffsetSamples: -960, frameSizeSamples: 960, blend: false},
 		{name: "blend_off_current_frame", decodeOffsetSamples: 0, frameSizeSamples: 960, blend: false},
+		{name: "blend_off_current_10ms", decodeOffsetSamples: 0, frameSizeSamples: 480, blend: false},
+		{name: "blend_off_current_60ms", decodeOffsetSamples: 0, frameSizeSamples: 2880, blend: false},
 		{name: "blend_on_current_frame", decodeOffsetSamples: 0, frameSizeSamples: 960, blend: true},
 		{name: "blend_off_late_recovery", decodeOffsetSamples: 3840, frameSizeSamples: 960, blend: false},
+		{name: "blend_off_beyond_payload", decodeOffsetSamples: 9600, frameSizeSamples: 960, blend: false},
 		{name: "blend_on_half_frame", decodeOffsetSamples: 960, frameSizeSamples: 480, blend: true},
+		{name: "blend_on_late_10ms", decodeOffsetSamples: 1920, frameSizeSamples: 480, blend: true},
 	}
 
 	for _, tc := range tests {

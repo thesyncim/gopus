@@ -285,9 +285,14 @@ func assertDecoderCachedDREDRecoveryMatchesLibopus(t *testing.T, dec *Decoder, p
 		frameSizeSamples    int
 	}{
 		{name: "negative_offset", decodeOffsetSamples: -480, frameSizeSamples: 960},
+		{name: "negative_full_frame", decodeOffsetSamples: -960, frameSizeSamples: 960},
 		{name: "current_frame", decodeOffsetSamples: 0, frameSizeSamples: 960},
+		{name: "current_10ms", decodeOffsetSamples: 0, frameSizeSamples: 480},
+		{name: "current_60ms", decodeOffsetSamples: 0, frameSizeSamples: 2880},
 		{name: "late_recovery", decodeOffsetSamples: 3840, frameSizeSamples: 960},
+		{name: "beyond_payload", decodeOffsetSamples: 9600, frameSizeSamples: 960},
 		{name: "half_frame", decodeOffsetSamples: 960, frameSizeSamples: 480},
+		{name: "late_10ms", decodeOffsetSamples: 1920, frameSizeSamples: 480},
 	}
 
 	for _, tc := range tests {
