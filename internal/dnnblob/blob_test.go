@@ -58,6 +58,7 @@ func TestCloneRejectsMalformedBlob(t *testing.T) {
 		blob []byte
 	}{
 		{name: "short", blob: []byte{1, 2, 3}},
+		{name: "zero size", blob: makeTestBlobRecord("bad", TypeFloat, nil)},
 		{name: "block smaller than size", blob: func() []byte {
 			out := makeTestBlobRecord("bad", TypeFloat, []byte{1, 2, 3, 4})
 			binary.LittleEndian.PutUint32(out[16:20], 2)

@@ -284,7 +284,7 @@ func parse(data []byte) ([]Record, error) {
 		typ := int32(binary.LittleEndian.Uint32(hdr[8:12]))
 		size := int32(binary.LittleEndian.Uint32(hdr[12:16]))
 		blockSize := int32(binary.LittleEndian.Uint32(hdr[16:20]))
-		if size < 0 || blockSize < size {
+		if size <= 0 || blockSize < size {
 			return nil, errInvalidBlob
 		}
 		if int(blockSize) > remaining-headerSize {
