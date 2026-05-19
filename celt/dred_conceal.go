@@ -301,7 +301,7 @@ func (d *Decoder) updateStereoDREDNeuralHistory(hist []float64, frameSize, histo
 		return
 	}
 	copy(histL, histL[frameSize:])
-	copy(histR[:history-frameSize], histL[:history-frameSize])
+	copy(histR, histR[frameSize:])
 	dst := history - frameSize
 	src := 0
 	for i := 0; i < frameSize; i++ {
