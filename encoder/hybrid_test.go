@@ -76,12 +76,18 @@ func TestHybridBitAllocation(t *testing.T) {
 					silkBitrate, celtBitrateHBGain, silkBitrate+celtBitrateHBGain, expectedHBTotal)
 			}
 
-			// Verify CELT gets at least minimum bitrate
-			minCelt := 2000 * tc.channels
-			if celtBitrate < minCelt {
-				t.Errorf("CELT bitrate %d below minimum %d", celtBitrate, minCelt)
-			}
 		})
+	}
+}
+
+func TestHybridBitAllocationDoesNotClampCELTRate(t *testing.T) {
+	e := &Encoder{
+		bitrate:  8000,
+		channels: 1,
+	}
+	silkBitrate, celtBitrate, celtBitrateHBGain := e.computeHybridBitAllocation(true)
+	if silkBitrate != 6333 || celtBitrate != 1667 || celtBitrateHBGain != 1267 {
+		t.Fatalf("allocation=(silk=%d celt=%d hb=%d), want (6333,1667,1267)", silkBitrate, celtBitrate, celtBitrateHBGain)
 	}
 }
 

@@ -749,14 +749,6 @@ func (e *Encoder) computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 
 
 	celtBitrateHBGain = totalRate - silkBitrate
 	celtBitrate = e.bitrate - silkBitrate
-
-	// Ensure minimum CELT bitrate for acceptable quality.
-	minCeltBitrate := 2000 * channels
-	if celtBitrate < minCeltBitrate {
-		celtBitrate = minCeltBitrate
-		silkBitrate = e.bitrate - celtBitrate
-		celtBitrateHBGain = totalRate - silkBitrate
-	}
 	return silkBitrate, celtBitrate, celtBitrateHBGain
 }
 
