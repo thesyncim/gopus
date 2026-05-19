@@ -299,6 +299,59 @@ func TestDecoderQEXTMultiFramePacketMatchesExplicitPayloads(t *testing.T) {
 	}
 }
 
+func TestDecoderQEXTMultiFrameIgnoreExtensionsMatchesInactivePayloads(t *testing.T) {
+	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	if err != nil {
+		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+	}
+
+	for _, channels := range []int{1, 2} {
+		channels := channels
+		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
+			packet, frames := makeLibopusQEXTMultiFrameStreamPacketForTest(t, opusDemo, channels)
+
+			wantStream := newStreamDecoder(48000, channels)
+			wantStream.recordDecodeCall(960*len(frames), len(packet))
+			want := make([]float64, 0, 960*channels*len(frames))
+			for i, frame := range frames {
+				decoded, err := wantStream.decodeFramePayload(frame.rawFrame, 960, frame.toc, nil)
+				if err != nil {
+					t.Fatalf("decodeFramePayload[%d]: %v", i, err)
+				}
+				want = append(want, decoded...)
+			}
+			want, err = wantStream.finishDecode(want, nil)
+			if err != nil {
+				t.Fatalf("finishDecode: %v", err)
+			}
+
+			coupledStreams := 0
+			mapping := []byte{0}
+			if channels == 2 {
+				coupledStreams = 1
+				mapping = []byte{0, 1}
+			}
+			gotDec, err := NewDecoder(48000, channels, 1, coupledStreams, mapping)
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			gotDec.SetIgnoreExtensions(true)
+			got, err := gotDec.Decode(packet, 960*len(frames))
+			if err != nil {
+				t.Fatalf("Decode(ignore extensions): %v", err)
+			}
+			if len(got) != len(want) {
+				t.Fatalf("Decode len=%d want %d", len(got), len(want))
+			}
+			for i := range got {
+				if got[i] != want[i] {
+					t.Fatalf("sample[%d]=%v want inactive payload %v", i, got[i], want[i])
+				}
+			}
+		})
+	}
+}
+
 func TestDecoderQEXTTwoStreamPacketMatchesExplicitStreamPayloads(t *testing.T) {
 	opusDemo, err := benchutil.QEXTOpusDemoPath()
 	if err != nil {
