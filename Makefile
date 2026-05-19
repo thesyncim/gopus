@@ -72,6 +72,7 @@ DEFAULT_DECODER_FEC_ROOT_RUN = 'Test(DecodeWithFEC_FallbackToPLC|DecodeWithFEC_C
 DEFAULT_DECODER_FEC_PACKET_ROOT_RUN = 'Test(DecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode|DecodeWithFEC_FrameSizeTransitionUsesProvidedPacketGranularity|DecodeWithFEC_ProvidedCELTPacketFallsBackToPLC|DecodeWithFEC_ProvidedCELTPacketClearsStoredFECState|DecodeWithFEC_ProvidedPacketUsesPacketModeForCELTGate|DecodeWithFEC_ProvidedPacketWithoutLBRRUsesDirectPLCFallback|DecodeWithFEC_PLCWithProvidedStateUsesProvidedMode|DecodeWithFEC_NoFECRequested)'
 DEFAULT_MULTISTREAM_DECODER_STATE_ROOT_RUN = 'TestMultistreamDecoder(FirstPacketDurationMatrix|TracksPacketDurationChanges|EmptyPacketRejected)'
 DEFAULT_WRAPPER_SAFETY_ROOT_RUN = 'Test(EncoderEncodeInt16RejectsOversizedInputWithoutPanic|MultistreamEncoderEncodeInt16RejectsOversizedInputWithoutPanic|DecoderResetClearsReportedState)'
+DEFAULT_ENCODER_CONTROLS_ROOT_RUN = 'TestEncoder_(SetBitrate|SetComplexity|SetBitrateMode|SetVBRAndConstraint|SetPacketLoss|SetBandwidth|SetApplication|RestrictedApplications|ExpertFrameDuration|SetSignal|SetMaxBandwidth|SetForceChannels|Lookahead|SetLSBDepth|SetPredictionDisabled|SetPhaseInversionDisabled)$$'
 DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN = 'Test(DecoderDecodeValidUnknownExtensionMatchesBasePacket|DecoderOpaquePaddingRemainsDecodableInDefaultBuild|DecoderCELTOpaquePaddingRemainsDecodable|DecoderCELTUnsupportedQEXTExtensionMatchesBasePacket)'
 DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN = 'Test(MultistreamPacketPadUnpadSelfDelimitedRoundTrip|MultistreamPacketPadUnpadThreeStreamsRoundTrip|MultistreamPacketPadRejectsInvalidSelfDelimited|MultistreamPacketUnpadRejectsInvalidSelfDelimited|MultistreamPacketPadRejectsLibopusParserEnvelopeViolation|MultistreamPacketUnpadRejectsLibopusParserEnvelopeViolation)'
 DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN = 'Test(SelfDelimitedPacketPreservesPacketExtensions|DecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding)'
@@ -159,6 +160,7 @@ test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_FEC_PACKET_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_MULTISTREAM_DECODER_STATE_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_WRAPPER_SAFETY_ROOT_RUN) -count=1
+	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_CONTROLS_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_DORMANCY_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test ./multistream -run $(DEFAULT_PACKET_EXTENSION_MULTISTREAM_RUN) -count=1
