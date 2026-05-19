@@ -117,6 +117,11 @@ func encoderModeToPublic(mode encpkg.Mode) (Mode, error) {
 }
 
 func encodeUntilDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, frameSize, channels int) ([]byte, []byte, int) {
+	packet, payload, offset, _ := encodeUntilDREDPacketWithFrameIndex(t, mode, bandwidth, frameSize, channels)
+	return packet, payload, offset
+}
+
+func encodeUntilDREDPacketWithFrameIndex(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, frameSize, channels int) ([]byte, []byte, int, int) {
 	t.Helper()
 
 	cfg := EncoderConfig{
@@ -177,11 +182,42 @@ func encodeUntilDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth Bandwidth, 
 			t.Fatalf("findDREDPayload(frame=%d) error: %v", frameIdx, err)
 		}
 		if ok {
-			return gotPacket, append([]byte(nil), payload...), frameOffset
+			return gotPacket, append([]byte(nil), payload...), frameOffset, frameIdx
 		}
 	}
 	t.Fatalf("no DRED packet emitted for mode=%v bandwidth=%v frameSize=%d", mode, bandwidth, frameSize)
-	return nil, nil, 0
+	return nil, nil, 0, 0
+}
+
+func TestEncoderDREDEmissionFrameIndexMatchesLibopus(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		mode      encpkg.Mode
+		public    Mode
+		bandwidth Bandwidth
+		channels  int
+	}{
+		{name: "silk", mode: encpkg.ModeSILK, public: ModeSILK, bandwidth: BandwidthWideband, channels: 1},
+		{name: "hybrid", mode: encpkg.ModeHybrid, public: ModeHybrid, bandwidth: BandwidthFullband, channels: 1},
+		{name: "celt", mode: encpkg.ModeCELT, public: ModeCELT, bandwidth: BandwidthFullband, channels: 1},
+		{name: "stereo_celt", mode: encpkg.ModeCELT, public: ModeCELT, bandwidth: BandwidthFullband, channels: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+				FrameSize: 960,
+				ForceMode: tc.public,
+				Bandwidth: tc.bandwidth,
+				Channels:  tc.channels,
+			})
+			if err != nil {
+				t.Skipf("libopus DRED packet helper unavailable: %v", err)
+			}
+			_, _, _, gotFrameIndex := encodeUntilDREDPacketWithFrameIndex(t, tc.mode, tc.bandwidth, 960, tc.channels)
+			if gotFrameIndex != packetInfo.frameIndex {
+				t.Fatalf("DRED frame index=%d want %d", gotFrameIndex, packetInfo.frameIndex)
+			}
+		})
+	}
 }
 
 func assertSilkMonoPrimaryFrameByteExact(t *testing.T, frameSize int) {
