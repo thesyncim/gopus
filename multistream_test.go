@@ -1,6 +1,7 @@
 package gopus
 
 import (
+	"bytes"
 	"errors"
 	"math"
 	"strings"
@@ -259,6 +260,49 @@ func TestMultistreamConstructorErrorsReportSupportedRanges(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestMultistreamEncodeFloat32DefaultLSBUsesInputPCM(t *testing.T) {
+	const (
+		sampleRate = 48000
+		channels   = 6
+		frameSize  = 960
+	)
+
+	pcm := generateSurroundTestSignal(sampleRate, frameSize, channels)
+	enc := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
+	ref := mustNewDefaultMultistreamEncoder(t, sampleRate, channels, ApplicationAudio)
+
+	data := make([]byte, maxPacketBytesPerStream*enc.Streams())
+	n, err := enc.Encode(pcm, data)
+	if err != nil {
+		t.Fatalf("Encode() error: %v", err)
+	}
+	if n == 0 {
+		t.Fatal("Encode() returned an empty packet")
+	}
+
+	pcm64 := make([]float64, len(pcm))
+	for i, v := range pcm {
+		pcm64[i] = float64(v)
+	}
+	ref.enc.SetFloatInputFrame(pcm)
+	refPacket, err := ref.enc.Encode(pcm64, frameSize)
+	ref.enc.ClearFloatInputFrame()
+	if err != nil {
+		t.Fatalf("reference multistream Encode() error: %v", err)
+	}
+	if len(refPacket) == 0 {
+		t.Fatal("reference multistream Encode() returned an empty packet")
+	}
+
+	got := data[:n]
+	if !bytes.Equal(got, refPacket) {
+		t.Fatalf("Encode() packet mismatch at default LSB depth: got %d bytes want %d", len(got), len(refPacket))
+	}
+	if gotRange, wantRange := enc.FinalRange(), ref.FinalRange(); gotRange != wantRange {
+		t.Fatalf("FinalRange() = 0x%08x, want 0x%08x", gotRange, wantRange)
 	}
 }
 

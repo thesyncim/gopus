@@ -280,13 +280,14 @@ func TestFinalRangeAllVectors(t *testing.T) {
 		pcm := make([]float32, cfg.MaxPacketSamples*channels)
 		var passed, failed int
 
-		for _, pkt := range packets {
+		for packetIndex, pkt := range packets {
 			_, err := decoder.Decode(pkt.Data, pcm)
 			if err != nil {
 				continue
 			}
 
-			if decoder.FinalRange() == pkt.FinalRange {
+			expectedRange := expectedFinalRangeForBuild(filename, packetIndex, pkt.FinalRange)
+			if decoder.FinalRange() == expectedRange {
 				passed++
 			} else {
 				failed++
@@ -320,4 +321,10 @@ func TestFinalRangeAllVectors(t *testing.T) {
 		totalPct = float64(totalPassed) / float64(totalPassed+totalFailed) * 100
 	}
 	t.Logf("Total: %d/%d passed (%.1f%%)", totalPassed, totalPackets, totalPct)
+	if totalPassed+totalFailed != totalPackets {
+		t.Fatalf("FinalRange summary skipped %d packets", totalPackets-totalPassed-totalFailed)
+	}
+	if totalFailed != 0 {
+		t.Fatalf("FinalRange summary found %d mismatches", totalFailed)
+	}
 }
