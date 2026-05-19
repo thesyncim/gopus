@@ -232,6 +232,30 @@ func TestDTX_InDTXGetterMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDTX_DisableClearsVisibleState(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetDTX(true)
+	silence := make([]float64, 960)
+
+	for i := 0; i < 11; i++ {
+		enc.shouldUseDTX(silence)
+	}
+	if !enc.InDTX() {
+		t.Fatal("should be in DTX before disabling")
+	}
+
+	enc.SetDTX(false)
+	if enc.InDTX() {
+		t.Fatal("InDTX()=true after SetDTX(false), want false")
+	}
+	if enc.dtx.noActivityMsQ1 != 0 {
+		t.Fatalf("noActivityMsQ1=%d after SetDTX(false), want 0", enc.dtx.noActivityMsQ1)
+	}
+	if enc.dtx.inDTXMode {
+		t.Fatal("inDTXMode=true after SetDTX(false), want false")
+	}
+}
+
 // TestDTX_40msFrames verifies DTX timing with 40ms frames (1920 samples at 48kHz).
 // At 40ms per frame, DTX threshold of 200ms = 5 frames.
 // frameSizeMsQ1 = 40 * 2 = 80

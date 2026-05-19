@@ -122,6 +122,10 @@ func computeFrameEnergy(pcm []float64) float64 {
 // Returns: (suppressFrame bool, sendComfortNoise bool)
 func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
 	if !e.dtxEnabled || e.dtx == nil {
+		if e.dtx != nil {
+			e.dtx.noActivityMsQ1 = 0
+			e.dtx.inDTXMode = false
+		}
 		return false, false
 	}
 
@@ -205,10 +209,10 @@ func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
 // InDTX returns whether the encoder is currently in DTX mode.
 // This matches OPUS_GET_IN_DTX from libopus.
 func (e *Encoder) InDTX() bool {
-	if e.dtx == nil {
+	if !e.dtxEnabled || e.dtx == nil {
 		return false
 	}
-	return e.dtx.inDTXMode
+	return e.dtx.noActivityMsQ1 >= NBSpeechFramesBeforeDTX*20*2
 }
 
 // GetVADActivity returns the current VAD speech activity level (0-255).

@@ -481,6 +481,10 @@ func (e *Encoder) SetDTX(enabled bool) {
 	if enabled && e.dtx == nil {
 		e.dtx = newDTXState()
 	}
+	if !enabled && e.dtx != nil {
+		e.dtx.noActivityMsQ1 = 0
+		e.dtx.inDTXMode = false
+	}
 }
 
 // DTXEnabled returns whether DTX is enabled.
