@@ -301,6 +301,25 @@ jobs:
       - name: Run external-consumer smoke gate
         run: make test-consumer-smoke
 
+  test-linux-examples-smoke:
+    name: test-linux-examples-smoke
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run examples smoke gate
+        run: make test-examples-smoke
+
   test-linux-dnn-blob-parity:
     name: test-linux-dnn-blob-parity
     needs:
@@ -435,6 +454,7 @@ jobs:
       - test-linux-flake
       - test-linux-fuzz-smoke
       - test-linux-consumer-smoke
+      - test-linux-examples-smoke
       - test-linux-dnn-blob-parity
       - test-linux-dred-tag
       - test-linux-qext-parity
@@ -450,6 +470,7 @@ jobs:
           echo "test-linux-flake: ${{ needs.test-linux-flake.result }}"
           echo "test-linux-fuzz-smoke: ${{ needs.test-linux-fuzz-smoke.result }}"
           echo "test-linux-consumer-smoke: ${{ needs.test-linux-consumer-smoke.result }}"
+          echo "test-linux-examples-smoke: ${{ needs.test-linux-examples-smoke.result }}"
           echo "test-linux-dnn-blob-parity: ${{ needs.test-linux-dnn-blob-parity.result }}"
           echo "test-linux-dred-tag: ${{ needs.test-linux-dred-tag.result }}"
           echo "test-linux-qext-parity: ${{ needs.test-linux-qext-parity.result }}"
@@ -471,6 +492,9 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-consumer-smoke.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-examples-smoke.result }}" != "success" ]; then
             exit 1
           fi
           if [ "${{ needs.test-linux-dnn-blob-parity.result }}" != "success" ]; then

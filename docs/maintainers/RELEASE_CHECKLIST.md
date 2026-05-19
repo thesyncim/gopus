@@ -26,6 +26,7 @@ evidence archive.
 - [ ] `make test-doc-contract`
 - [ ] `make lint`
 - [ ] `make test-consumer-smoke`
+- [ ] `make test-examples-smoke`
 - [ ] `make verify-production`
 - [ ] `make verify-production-exhaustive`
 - [ ] `make release-evidence` (captures a timestamped evidence bundle in `reports/release/` by default)
@@ -43,6 +44,7 @@ evidence archive.
 - [ ] Fuzz/safety summary.
 - [ ] Parity summary.
 - [ ] Consumer-smoke result.
+- [ ] Examples-smoke result.
 - [ ] `TestEncoderComplianceSummary` output (pass/fail summary).
 - [ ] `make test-exactness` output.
 - [ ] Hot-path allocation guard output:
@@ -62,6 +64,7 @@ evidence archive.
 - [ ] README and package docs describe the same supported default-build surface.
 - [ ] `make lint` passes on the release commit.
 - [ ] External-consumer smoke path passes on the release commit.
+- [ ] Maintained examples smoke path passes on the release commit.
 
 ## Post-Release
 

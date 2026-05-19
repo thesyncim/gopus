@@ -139,6 +139,7 @@ Environment and codec expectations:
 If you want to evaluate or contribute to the codec, these are the main entry points:
 
 - `go test ./...`
+- `make test-examples-smoke`
 - `make test-quality`
 - `make bench-guard`
 - `make bench-testvectors`

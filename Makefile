@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-doc-contract test-dnn-blob-parity test-dred-tag test-qext-parity test-unsupported-controls-tag test-unsupported-controls-parity test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke test-doc-contract test-dnn-blob-parity test-dred-tag test-qext-parity test-unsupported-controls-tag test-unsupported-controls-parity test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -131,6 +131,15 @@ test-fuzz-safety: ensure-libopus
 # Downstream consumer smoke path from a nested external module boundary.
 test-consumer-smoke:
 	cd examples/external-consumer-smoke && $(GO_WORK_ENV) $(GO) test ./... -count=1
+
+# Compile and test maintained examples, including build-tag-only surfaces.
+test-examples-smoke:
+	$(GO_WORK_ENV) $(GO) test ./examples/... -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./examples/... -count=1
+	$(GO_WORK_ENV) $(GO) test -tags gopus_qext ./examples/... -count=1
+	tmp="$$(mktemp -d)" && trap 'rm -rf "$$tmp"' EXIT && cd examples/webrtc-control && $(GO_WORK_ENV) $(GO) build -o "$$tmp/webrtc-control" .
+	cd examples/webrtc-dred-loopback && $(GO_WORK_ENV) $(GO) test ./... -count=1
+	cd examples/webrtc-dred-loopback && $(GO_WORK_ENV) $(GO) test -tags gopus_dred ./... -count=1
 
 # Lightweight docs and optional-extension contract that keeps release-surface claims aligned.
 test-doc-contract:
@@ -357,6 +366,7 @@ bench-testvectors-report: ensure-libopus ensure-testvectors
 verify-production: ensure-libopus
 	$(RUNNABLE_PARITY) -count=1 -timeout=25m
 	$(MAKE) test-consumer-smoke
+	$(MAKE) test-examples-smoke
 	$(MAKE) test-dnn-blob-parity
 	$(MAKE) test-dred-tag
 	$(MAKE) test-qext-parity
