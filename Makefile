@@ -78,6 +78,7 @@ DEFAULT_MULTISTREAM_SAMPLE_PATH_ROOT_RUN = 'TestMultistream(Encoder_EncodeInt24|
 DEFAULT_WRAPPER_SAFETY_ROOT_RUN = 'Test(EncoderEncodeInt16RejectsOversizedInputWithoutPanic|MultistreamEncoderEncodeInt16RejectsOversizedInputWithoutPanic|DecoderResetClearsReportedState)'
 DEFAULT_CONSTRUCTOR_VALIDATION_ROOT_RUN = 'Test(NewDecoder_(ValidParams|InvalidSampleRate|InvalidChannels)|NewEncoder_(ValidParams|InvalidParams|InvalidApplication)|SettingsForApplicationInvalidReturnsError|APIAbuseReturnsError)$$'
 DEFAULT_PUBLIC_API_ROUNDTRIP_ROOT_RUN = 'Test(RoundTrip_(Mono_Float32|Stereo_Float32|Mono_Int16|Stereo_Int16|MultipleFrames|AllSampleRates)|Application_(VoIP|Audio)|PLC_(SingleLoss|MultipleLoss)|PacketParsing|SILK10msOpusRoundTrip|BufferSizing)$$'
+DEFAULT_BUILD_SAFETY_ROOT_RUN = 'Test(BuildNoCGO|BuildAllPackages|NoUnsafeImports|NoCGOSourceDirectives|NoCGOTestArtifacts)$$'
 DEFAULT_HOTPATH_ALLOCS_ROOT_RUN = 'TestHotPathAllocs(EncodeFloat32|EncodeInt16|EncodeRestrictedSilkLowComplexity|DecodeFloat32|DecodeInt16|DecodePLC|DecodeStereo|StreamWriterFloat32)$$'
 DEFAULT_ENCODER_ENCODE_ROOT_RUN = 'TestEncoder_(Encode_Float32|Encode_Int16|Encode_Int24|Encode_Int24_InvalidFrameSize|Encode_RoundTrip|Stereo|FrameSize|EncodeFloat32_Convenience|EncodeInt16Slice_Convenience|InvalidFrameSize_Encode|LongPacketRoundTrip)$$'
 DEFAULT_ENCODER_STATE_ROOT_RUN = 'TestEncoder_(DTX_Silence|InDTXDelegatesToCoreEncoder|VADActivityDelegatesToCoreEncoder|FEC|Reset)$$'
@@ -197,6 +198,7 @@ test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_WRAPPER_SAFETY_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_CONSTRUCTOR_VALIDATION_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_PUBLIC_API_ROUNDTRIP_ROOT_RUN) -count=1
+	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_BUILD_SAFETY_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_HOTPATH_ALLOCS_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_ENCODE_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_ENCODER_STATE_ROOT_RUN) -count=1
