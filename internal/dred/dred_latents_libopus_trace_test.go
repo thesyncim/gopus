@@ -1,5 +1,5 @@
-//go:build gopus_unsupported_controls
-// +build gopus_unsupported_controls
+//go:build gopus_dred || gopus_unsupported_controls
+// +build gopus_dred gopus_unsupported_controls
 
 package dred
 
@@ -125,6 +125,4 @@ func TestLibopusDREDLatentsTraceStereoDivergesFromMono(t *testing.T) {
 	if !divergent {
 		t.Fatalf("expected libopus mono and stereo DFrame 2 latents to diverge; got identical values: mono=%v stereo=%v", monoD2, stereoD2)
 	}
-	t.Logf("libopus mono frame 0 DFrame 2 (position 0): % .4f", monoD2)
-	t.Logf("libopus stereo frame 0 DFrame 2 (position 0): % .4f", stereoD2)
 }
