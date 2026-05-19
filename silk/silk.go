@@ -195,6 +195,10 @@ func (d *Decoder) recordNativeStereoFromFloat32(leftNative, rightNative []float3
 	}
 	d.lastNativeStereoLen = n
 	d.lastNativeStereoFsKHz = GetBandwidthConfig(bandwidth).SampleRate / 1000
+	d.lastNativeMonoLen = 0
+	d.lastNativeMonoFsKHz = 0
+	d.lastNativeMidLen = 0
+	d.lastNativeMidFsKHz = 0
 }
 
 // DecodeStereoToMono decodes a SILK stereo frame and returns mono 48kHz PCM samples.
@@ -283,6 +287,15 @@ func (d *Decoder) DecodeMonoToStereo(
 	d.handleBandwidthChange(bandwidth)
 
 	if data == nil {
+		if !useStereoHistory {
+			mono, err := d.decodePLC(bandwidth, frameSizeSamples)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]float32, len(mono)*2)
+			duplicateMonoFloat32ToStereo(out, mono, len(mono))
+			return out, nil
+		}
 		return d.decodePLCStereo(bandwidth, frameSizeSamples)
 	}
 
@@ -1016,7 +1029,7 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	// libopus enables OSCE_MODE_SILK_BBWE on `data == NULL` whenever the
 	// internal sample rate is 16 kHz; the gopus equivalent needs access to the
 	// native-rate samples for the 16k -> 48k BWE input.
-	if !usedDeepPLCHook && cap(d.scratchOutInt16) >= len(concealed) {
+	if cap(d.scratchOutInt16) >= len(concealed) {
 		buf := d.scratchOutInt16[:len(concealed)]
 		for i, v := range concealed {
 			buf[i] = float32ToInt16(v)
@@ -1024,6 +1037,10 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	}
 	d.lastNativeMonoLen = len(concealed)
 	d.lastNativeMonoFsKHz = config.SampleRate / 1000
+	d.lastNativeStereoLen = 0
+	d.lastNativeStereoFsKHz = 0
+	d.lastNativeMidLen = 0
+	d.lastNativeMidFsKHz = 0
 
 	// Upsample to 48kHz using the same mono sMid buffering cadence as good frames.
 	duration := FrameDurationFromTOC(frameSizeSamples)

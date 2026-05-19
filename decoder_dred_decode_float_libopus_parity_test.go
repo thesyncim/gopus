@@ -2581,16 +2581,8 @@ func TestDecoderExplicitDREDDecodeMatchesLibopus(t *testing.T) {
 }
 
 // TestDecoderExplicitStereoDREDDecodeMatchesLibopus exercises the stereo DRED
-// runtime mono-downmix/mono-duplicate path (landed in 0ee30e59) against
-// libopus. The DRED model is fundamentally mono on both sides
-// (single LPCNetPLCState in opus_decoder.c), and the libopus stereo CELT
-// decoder mirrors decode_mem[0] into decode_mem[1] for the concealment
-// output (celt_decoder.c:1066-1067 `if (C==2) OPUS_COPY(...)`), so a stereo
-// libopus DRED decode produces L=R interleaved PCM. gopus follows the same
-// shape: runStereoDREDConceal narrows the CELT state to channel-0, runs the
-// mono concealment helper, then mirrors channel-0 state and PCM to
-// channel-1. We can therefore compare interleaved gopus stereo PCM directly
-// against libopus interleaved stereo PCM.
+// runtime against libopus. The neural signal is mono, while CELT stereo state
+// and overlap crossfade still follow celt_decode_lost().
 func TestDecoderExplicitStereoDREDDecodeMatchesLibopus(t *testing.T) {
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 48000, libopusDREDPacketConfig{
 		FrameSize: 960,
@@ -2643,13 +2635,8 @@ func TestDecoderExplicitStereoDREDDecodeMatchesLibopus(t *testing.T) {
 	assertFloat32ApproxEqual(t, pcm[:n*dec.channels], want.pcm[:n*dec.channels], "explicit stereo libopus pcm", stereoDREDPCMTol)
 }
 
-// TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus extends the stereo DRED
-// runtime mono-downmix/mono-duplicate parity (TestDecoderExplicitStereoDRED-
-// DecodeMatchesLibopus) to the 16 kHz CELT FB seam, mirroring the existing
-// 16 kHz mono CELT pattern from prepareExplicitDREDDecodeParityState16k
-// (480-sample frame). The same L=R interleaved invariant applies: libopus
-// stereo CELT decoder uses a mono neural state copied into channel-1, with
-// per-channel overlap crossfade matching celt_decode_lost().
+// TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus covers the same CELT
+// stereo DRED path through the 16 kHz decoder API.
 func TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus(t *testing.T) {
 	// Force stereo at the libopus encoder control layer so this exercises a
 	// real 16 kHz stereo carrier instead of the encoder's auto mono choice.
@@ -2775,24 +2762,18 @@ func TestDecoderExplicitStereoHybridDRED16kDecodeMatchesLibopus(t *testing.T) {
 		t.Fatalf("decodeExplicitDREDFloat=%d want %d", got, n)
 	}
 
-	const stereoHybridDuplicateTol = 1e-2
-	var maxGotDuplicateDrift, maxWantDuplicateDrift float64
+	const stereoHybridDuplicateTol = 3e-3
 	for i := 0; i < n; i++ {
 		if d := math.Abs(float64(pcm[2*i] - pcm[2*i+1])); d > stereoHybridDuplicateTol {
 			t.Fatalf("gopus stereo Hybrid 16k DRED PCM not duplicated at sample %d: |L-R|=%g", i, d)
-		} else if d > maxGotDuplicateDrift {
-			maxGotDuplicateDrift = d
 		}
 		if d := math.Abs(float64(want.pcm[2*i] - want.pcm[2*i+1])); d > stereoHybridDuplicateTol {
 			t.Fatalf("libopus stereo Hybrid 16k DRED PCM not duplicated at sample %d: |L-R|=%g", i, d)
-		} else if d > maxWantDuplicateDrift {
-			maxWantDuplicateDrift = d
 		}
 	}
-	t.Logf("stereo Hybrid 16k duplicate drift: gopus max=%g libopus max=%g", maxGotDuplicateDrift, maxWantDuplicateDrift)
 
-	const stereoDREDStateTol = 20.0
-	const stereoDREDPCMTol = 1.0
+	const stereoDREDStateTol = 1e-4
+	const stereoDREDPCMTol = 1e-4
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "explicit stereo Hybrid 16k libopus plc", stereoDREDStateTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "explicit stereo Hybrid 16k libopus fargan", stereoDREDStateTol)
 	assertFloat32ApproxEqual(t, pcm[:n*dec.channels], want.pcm[:n*dec.channels], "explicit stereo Hybrid 16k libopus pcm", stereoDREDPCMTol)
@@ -4666,12 +4647,8 @@ func TestDecoderExplicit16kSILKDREDDecodeMatchesLibopus(t *testing.T) {
 
 // TestDecoderExplicitSILKDREDDecodeStereoMatchesLibopus mirrors
 // TestDecoderExplicitSILKDREDDecodeMatchesLibopus for the stereo SILK DRED
-// runtime path. libopus stereo SILK DRED routes through a single mono lpcnet
-// state (opus_decoder.c) and exposes the concealment as duplicated L=R
-// interleaved PCM on the API side; gopus follows the same mono-downmix-in /
-// mono-duplicate-out shape from commit 0ee30e59 by seeding the lpcnet entry
-// history from a mono downmix of LatestNativeStereo() and mirroring the
-// channel-0 concealment to channel-1 on output.
+// runtime path. libopus routes DRED through one lpcnet state on SILK channel 0
+// and exposes duplicated L=R PCM on the API side for this fixture.
 func TestDecoderExplicitSILKDREDDecodeStereoMatchesLibopus(t *testing.T) {
 	probeInfo, probeErr := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:     960,
@@ -4731,8 +4708,8 @@ func TestDecoderExplicitSILKDREDDecodeStereoMatchesLibopus(t *testing.T) {
 		}
 	}
 
-	const stereoDREDStateTol = 20.0
-	const stereoDREDPCMTol = 1.0
+	const stereoDREDStateTol = 1e-4
+	const stereoDREDPCMTol = 1e-4
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "explicit stereo SILK libopus plc", stereoDREDStateTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "explicit stereo SILK libopus fargan", stereoDREDStateTol)
 	assertFloat32ApproxEqual(t, pcm[:n*dec.channels], want.pcm[:n*dec.channels], "explicit stereo SILK libopus pcm", stereoDREDPCMTol)

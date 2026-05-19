@@ -125,6 +125,7 @@ type Decoder struct {
 	// Scratch buffers for stereo SILK decode paths.
 	stereoLeftNative  []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
 	stereoRightNative []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
+	stereoMidNative   []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
 	stereoMidFrame    []int16 // Size: maxFrameLength + 2
 	stereoSideFrame   []int16 // Size: maxFrameLength + 2
 
@@ -146,6 +147,13 @@ type Decoder struct {
 	// Native SILK sample rate in kHz used to produce lastNativeStereoLen
 	// samples (e.g. 16 for WB). Zero until a stereo decode has run.
 	lastNativeStereoFsKHz int
+
+	// Length and rate for the most recent internal stereo mid channel before
+	// MS->LR conversion. libopus feeds decoder-side DeepPLC/DRED from SILK
+	// channel 0 only, so parity paths need this native mid channel rather than
+	// post-stereo left/right output.
+	lastNativeMidLen   int
+	lastNativeMidFsKHz int
 
 	// lastFrameCtrl caches the most recent silk_decoder_control produced by
 	// `decodeFrameCoreInto` for each channel. The OSCE LACE / NoLACE
@@ -218,6 +226,7 @@ func NewDecoder() *Decoder {
 		buildMonoInputScratch:  make([]float32, maxOutInt16Size),
 		stereoLeftNative:       make([]int16, maxOutInt16Size),
 		stereoRightNative:      make([]int16, maxOutInt16Size),
+		stereoMidNative:        make([]int16, maxOutInt16Size),
 		stereoMidFrame:         make([]int16, maxFrameLength+2),
 		stereoSideFrame:        make([]int16, maxFrameLength+2),
 		plcState:               plc.NewState(),
@@ -331,6 +340,8 @@ func (d *Decoder) Reset() {
 	d.lastNativeMonoFsKHz = 0
 	d.lastNativeStereoLen = 0
 	d.lastNativeStereoFsKHz = 0
+	d.lastNativeMidLen = 0
+	d.lastNativeMidFsKHz = 0
 	for c := range d.lastFrameCtrl {
 		d.lastFrameCtrl[c] = decoderControl{}
 		d.lastFrameCtrlSignal[c] = 0
@@ -665,6 +676,24 @@ func (d *Decoder) LatestNativeStereo() (left, right []int16, samplesPerChannel, 
 		return nil, nil, 0, 0, false
 	}
 	return d.stereoLeftNative[:n], d.stereoRightNative[:n], n, d.lastNativeStereoFsKHz, true
+}
+
+// LatestNativeMid returns the most recent native-rate internal SILK channel 0
+// samples before stereo MS->LR conversion.
+//
+// This is distinct from LatestNativeStereo, which exposes post-MS->LR
+// left/right lowband output. libopus feeds decoder-side DeepPLC/DRED from SILK
+// channel 0 only, so callers matching that path should prefer this accessor
+// when a true stereo packet was decoded.
+func (d *Decoder) LatestNativeMid() ([]int16, int) {
+	if d == nil || d.lastNativeMidLen <= 0 || d.stereoMidNative == nil {
+		return nil, 0
+	}
+	n := d.lastNativeMidLen
+	if n > len(d.stereoMidNative) {
+		n = len(d.stereoMidNative)
+	}
+	return d.stereoMidNative[:n], d.lastNativeMidFsKHz
 }
 
 // LatestDecoderControl is the public view of the most recent

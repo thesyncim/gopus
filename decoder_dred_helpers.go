@@ -800,11 +800,10 @@ func (d *Decoder) refreshDREDHistoryFromHybridDecoder(samplesPerChannel int) boo
 // snapshot. The DRED neural concealment runs at 16 kHz, so we require the
 // native rate to be 16 kHz (SILK WB).
 //
-// For stereo decoders, the LPCNet/FARGAN entry history remains mono (libopus
-// keeps a single lpcnet_state on the OpusDecoder regardless of channel count;
-// see opus_decoder.c). We pull both native channels via LatestNativeStereo
-// and average them into a mono downmix before seeding the entry history,
-// matching the libopus stereo SILK DRED mono-downmix-in invariant.
+// For stereo decoders, the LPCNet/FARGAN entry history remains mono. libopus
+// passes the single lpcnet_state only to SILK channel 0 (`n == 0 ? lpcnet :
+// NULL` in dec_API.c), so use the native internal mid/channel-0 samples rather
+// than post-MS->LR left/right output.
 func (d *Decoder) refreshDREDHistoryFromSILKDecoder() bool {
 	if !d.ensureDREDNeuralConcealmentRuntime() {
 		return false
@@ -823,21 +822,18 @@ func (d *Decoder) refreshDREDHistoryFromSILKDecoder() bool {
 		readSrc   func(dst []float32, start, count int)
 	)
 	if d.channels == 2 {
-		left, right, samples, kHz, ok := d.silkDecoder.LatestNativeStereo()
-		if !ok || left == nil || right == nil || kHz != 16 || samples <= 0 {
+		native, kHz := d.silkDecoder.LatestNativeMid()
+		if native == nil || kHz != 16 {
+			native, kHz = d.silkDecoder.LatestNativeMono()
+		}
+		if native == nil || kHz != 16 {
 			return false
 		}
-		if samples > len(left) || samples > len(right) {
-			return false
-		}
-		nativeLen = samples
+		nativeLen = len(native)
 		fsKHz = kHz
 		readSrc = func(dst []float32, start, count int) {
-			// Mono-downmix: average L+R before scaling. Clamp via int32 to
-			// avoid int16 overflow on the sum.
 			for i := 0; i < count; i++ {
-				sum := int32(left[start+i]) + int32(right[start+i])
-				dst[i] = float32(sum>>1) * scale
+				dst[i] = float32(native[start+i]) * scale
 			}
 		}
 	} else {
