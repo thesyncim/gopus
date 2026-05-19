@@ -220,7 +220,7 @@ func (e *Encoder) processDREDLatentsForPacket(framePCM []float64, frameSize, ext
 		}
 		return emitted
 	}
-	if mode == ModeHybrid && frameSize > 960 && frameSize%960 == 0 {
+	if mode != ModeSILK && frameSize > 960 && frameSize%960 == 0 {
 		if e.channels <= 0 {
 			return 0
 		}

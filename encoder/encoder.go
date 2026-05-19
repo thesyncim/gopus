@@ -669,26 +669,6 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		framePCM = e.inputBuffer[:frameEnd]
 		lookaheadSlice = e.inputBuffer[frameEnd:samplesNeeded]
 	}
-	dredExtraDelay := 0
-	if !e.lowDelay {
-		dredExtraDelay = e.sampleRate / 250
-	}
-	if e.dredEncodingActive() {
-		e.processDREDLatentsForPacket(framePCM, frameSize, dredExtraDelay, e.mode)
-	}
-
-	suppressFrame, _ := e.shouldUseDTX(framePCM)
-	if suppressFrame {
-		if !directFrameInput {
-			remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
-			e.inputBuffer = e.inputBuffer[:remaining]
-		}
-		// Match libopus: return a 1-byte TOC-only packet for DTX frames.
-		// The decoder triggers its own CNG when it sees a TOC with no frame data.
-		// Returning nil here would cause WebRTC to see missing packets and apply
-		// degrading PLC instead of smooth comfort noise.
-		return e.buildDTXPacket(frameSize)
-	}
 
 	var requestedMode Mode
 	if e.mode == ModeAuto {
@@ -723,6 +703,28 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	actualMode, prevModeNext := e.applyCELTTransitionDelay(frameSize, requestedMode)
 	transitionToCELT := requestedMode == ModeCELT && actualMode != ModeCELT
+
+	dredExtraDelay := 0
+	if !e.lowDelay {
+		dredExtraDelay = e.sampleRate / 250
+	}
+	if e.dredEncodingActive() {
+		e.processDREDLatentsForPacket(framePCM, frameSize, dredExtraDelay, actualMode)
+	}
+
+	suppressFrame, _ := e.shouldUseDTX(framePCM)
+	if suppressFrame {
+		if !directFrameInput {
+			remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
+			e.inputBuffer = e.inputBuffer[:remaining]
+		}
+		// Match libopus: return a 1-byte TOC-only packet for DTX frames.
+		// The decoder triggers its own CNG when it sees a TOC with no frame data.
+		// Returning nil here would cause WebRTC to see missing packets and apply
+		// degrading PLC instead of smooth comfort noise.
+		return e.buildDTXPacket(frameSize)
+	}
+
 	if actualMode == ModeSILK || (actualMode == ModeHybrid && frameSize <= 960) {
 		// Match libopus application semantics:
 		// explicit ModeSILK mirrors restricted-silk, where Opus-level activity

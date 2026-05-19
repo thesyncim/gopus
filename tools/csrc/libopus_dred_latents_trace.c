@@ -4,7 +4,8 @@
  * contents after each frame. This bypasses the full opus_encode_float path
  * so we can isolate stereo-vs-mono behavior of the DRED encoder itself.
  *
- * Args: <channels> [<frame_size>]. Defaults: channels=1, frame_size=1920.
+ * Args: <channels> [<frame_size>] [<chunk_size>].
+ * Defaults: channels=1, frame_size=1920, chunk_size=frame_size.
  */
 #include <math.h>
 #include <stdint.h>
@@ -37,6 +38,7 @@ int main(int argc, char **argv) {
   const int total_buffer = sample_rate / 250;
   const int frames_to_run = 4;
   int channels = 1;
+  int chunk_size = 0;
   int frame_idx;
   DREDEnc enc;
   float pcm[2880 * 2];
@@ -51,6 +53,14 @@ int main(int argc, char **argv) {
   }
   if (argc >= 3) {
     frame_size = atoi(argv[2]);
+  }
+  if (argc >= 4) {
+    chunk_size = atoi(argv[3]);
+  }
+  if (chunk_size <= 0) chunk_size = frame_size;
+  if (frame_size <= 0 || chunk_size <= 0 || frame_size % chunk_size != 0) {
+    fprintf(stderr, "frame_size must be a positive multiple of chunk_size\n");
+    return 1;
   }
 
   arch = opus_select_arch();
@@ -71,7 +81,9 @@ int main(int argc, char **argv) {
         pcm[i * channels + ch] = sample;
       }
     }
-    dred_compute_latents(&enc, pcm, frame_size, total_buffer, arch);
+    for (i = 0; i < frame_size; i += chunk_size) {
+      dred_compute_latents(&enc, &pcm[i * channels], chunk_size, total_buffer, arch);
+    }
 
     {
       int pos;

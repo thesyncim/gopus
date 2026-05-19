@@ -50,18 +50,62 @@ type encoderLibopusDREDFrameTrace struct {
 
 func TestEncoderDREDInitialLatentsTraceMatchesLibopus(t *testing.T) {
 	for _, channels := range []int{1, 2} {
+		for _, frameSize := range []int{960, 1920, 2880} {
+			channels := channels
+			frameSize := frameSize
+			t.Run(fmt.Sprintf("%dch_%d", channels, frameSize), func(t *testing.T) {
+				const (
+					sampleRate = 48000
+					extraDelay = sampleRate / 250
+				)
+
+				want := probeEncoderLibopusDREDLatentsTrace(t, channels, frameSize)
+				if len(want) == 0 {
+					t.Fatal("libopus DRED latents trace is empty")
+				}
+				blob := requireEncoderLibopusNeuralModelBlob(t)
+				parsed, err := dnnblob.Clone(blob)
+				if err != nil {
+					t.Fatalf("Clone libopus encoder model blob: %v", err)
+				}
+
+				enc := NewEncoder(sampleRate, channels)
+				enc.SetDNNBlob(parsed)
+				if err := enc.SetDREDDuration(4); err != nil {
+					t.Fatalf("SetDREDDuration error: %v", err)
+				}
+
+				got := make([]encoderLibopusDREDFrameTrace, len(want))
+				for frameIdx := range want {
+					frame := encoderLibopusDREDTraceFrame(frameIdx, frameSize, sampleRate, channels)
+					emitted := enc.processDREDLatents(frame, extraDelay)
+					if emitted == 0 {
+						t.Fatalf("frame %d processDREDLatents emitted 0", frameIdx)
+					}
+					got[frameIdx] = snapshotEncoderDREDTrace(t, enc, frameIdx)
+				}
+
+				compareEncoderDREDTraces(t, got, want)
+			})
+		}
+	}
+}
+
+func TestEncoderDREDLongCELTLatentsUseLibopusSubframeCadence(t *testing.T) {
+	for _, channels := range []int{1, 2} {
+		channels := channels
 		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
 			const (
 				sampleRate = 48000
-				frameSize  = 1920
+				frameSize  = 2880
+				chunkSize  = 960
 				extraDelay = sampleRate / 250
 			)
 
-			want := probeEncoderLibopusDREDLatentsTrace(t, channels, frameSize)
+			want := probeEncoderLibopusDREDLatentsTraceWithChunkSize(t, channels, frameSize, chunkSize)
 			if len(want) == 0 {
 				t.Fatal("libopus DRED latents trace is empty")
 			}
-			want = want[:1]
 			blob := requireEncoderLibopusNeuralModelBlob(t)
 			parsed, err := dnnblob.Clone(blob)
 			if err != nil {
@@ -77,9 +121,9 @@ func TestEncoderDREDInitialLatentsTraceMatchesLibopus(t *testing.T) {
 			got := make([]encoderLibopusDREDFrameTrace, len(want))
 			for frameIdx := range want {
 				frame := encoderLibopusDREDTraceFrame(frameIdx, frameSize, sampleRate, channels)
-				emitted := enc.processDREDLatents(frame, extraDelay)
-				if emitted == 0 {
-					t.Fatalf("frame %d processDREDLatents emitted 0", frameIdx)
+				emitted := enc.processDREDLatentsForPacket(frame, frameSize, extraDelay, ModeCELT)
+				if emitted != frameSize/chunkSize {
+					t.Fatalf("frame %d processDREDLatentsForPacket emitted %d want %d", frameIdx, emitted, frameSize/chunkSize)
 				}
 				got[frameIdx] = snapshotEncoderDREDTrace(t, enc, frameIdx)
 			}
@@ -209,12 +253,16 @@ func probeEncoderLibopusDREDEncoderBlob(t *testing.T) []byte {
 }
 
 func probeEncoderLibopusDREDLatentsTrace(t *testing.T, channels, frameSize int) []encoderLibopusDREDFrameTrace {
+	return probeEncoderLibopusDREDLatentsTraceWithChunkSize(t, channels, frameSize, frameSize)
+}
+
+func probeEncoderLibopusDREDLatentsTraceWithChunkSize(t *testing.T, channels, frameSize, chunkSize int) []encoderLibopusDREDFrameTrace {
 	t.Helper()
 	binPath, err := getEncoderLibopusDREDLatentsTracePath()
 	if err != nil {
 		t.Skipf("libopus DRED latents trace helper unavailable: %v", err)
 	}
-	cmd := exec.Command(binPath, fmt.Sprintf("%d", channels), fmt.Sprintf("%d", frameSize))
+	cmd := exec.Command(binPath, fmt.Sprintf("%d", channels), fmt.Sprintf("%d", frameSize), fmt.Sprintf("%d", chunkSize))
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout
