@@ -1,166 +1,42 @@
 # gopus
 
-Pure Go Opus codec for Go applications.
+`gopus` is a pure-Go implementation of Opus targeting RFC 6716/libopus parity.
 
-[![Go Reference](https://pkg.go.dev/badge/github.com/thesyncim/gopus.svg)](https://pkg.go.dev/github.com/thesyncim/gopus)
-[![Go Report Card](https://goreportcard.com/badge/github.com/thesyncim/gopus)](https://goreportcard.com/report/github.com/thesyncim/gopus)
-[![License](https://img.shields.io/badge/license-BSD--3--Clause-blue.svg)](LICENSE)
+Primary API:
 
-`gopus` implements Opus ([RFC 6716](https://datatracker.ietf.org/doc/html/rfc6716)) and Ogg Opus ([RFC 7845](https://datatracker.ietf.org/doc/html/rfc7845)) in pure Go. It is built for real-time use: no cgo, no C toolchain, and caller-owned buffers on the main encode/decode hot path.
+```go
+func (d *Decoder) Decode(data []byte, pcm []float32) (int, error)
+func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)
+```
+
+The hot encode/decode paths use caller-owned buffers and are guarded for zero allocations.
 
 ## Status
 
-`gopus` is usable today, but it is still pre-v1.
+Released version: none yet.
 
-- Recommended starting surface: `Encoder`, `Decoder`, `MultistreamEncoder`, `MultistreamDecoder`, `Reader`, `Writer`, and `container/ogg`.
-- The main API target is the zero-allocation caller-owned path:
-  - `func (d *Decoder) Decode(data []byte, pcm []float32) (int, error)`
-  - `func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)`
-- The default build intentionally does not support every optional libopus build-time extension. It supports `SetDNNBlob(...)`; QEXT and DRED are tag-gated, and OSCE BWE remains quarantine-only. See [Optional Extensions](docs/optional-extensions.md) for the supported, tag-gated, and unsupported matrix.
-- Low-level packages such as `celt`, `silk`, `hybrid`, `rangecoding`, and `plc` are implementation detail, not a stable public contract yet.
-- Validation and parity work is pinned against libopus 1.6.1.
-- No tagged release has been published yet. If you adopt `gopus` before `v0.1.0`, pin the exact version you validate.
+`v0.1.0` is not a release until the tag and GitHub Release are both published.
 
-## Trust And Verification
+Latest release evidence: none yet.
 
-- Released version: none yet. `docs/releases/v0.1.0.md` is prepared release notes, but `v0.1.0` is not a release until the tag and GitHub Release are both published.
-- Latest release evidence: after publication, inspect the `release-evidence-v0.1.0.md` summary and `release-evidence-v0.1.0.tar.gz` bundle attached to the [GitHub Release](https://github.com/thesyncim/gopus/releases); before then, run `make release-evidence` locally.
-- CI guardrails: [required checks and branch protection](docs/maintainers/CI_GUARDRAILS.md).
-- Security policy: [private reporting and supported versions](SECURITY.md).
-- Release process: [release checklist](docs/maintainers/RELEASE_CHECKLIST.md).
-- Supply chain: [Dependabot, Scorecard, action review, and release provenance plan](docs/maintainers/SUPPLY_CHAIN.md).
-- Downstream import check: [external consumer smoke test](examples/external-consumer-smoke/smoke_test.go), run by `make test-consumer-smoke`.
+## Optional Extensions
 
-## Installation
+Default builds support `SetDNNBlob(...)` only. QEXT requires `-tags gopus_qext`; DRED control/standalone surfaces require `-tags gopus_dred`; OSCE BWE remains unsupported outside quarantine builds.
 
-```bash
-go get github.com/thesyncim/gopus
-```
-
-Requirements:
-
-- Go 1.25+
-- No cgo or external C toolchain for normal builds
-
-## Performance Snapshot
-
-Official RFC 8251 test-vector decode benchmarks use pinned libopus 1.6.1 as the baseline, with the same preloaded packets, reset cadence, and 48 kHz stereo output. Current checked-in results were measured on Apple M4 Max with Go 1.26.0 and Go PGO profile `default.pgo`; the full report uses median-of-3 runs at 200ms, 1s, and 5s minimum run times. The table below highlights the 5s row. Ratios above `1.00x` mean `gopus` is slower than libopus.
-
-| Path | gopus ns/sample | libopus ns/sample | gopus/libopus | gopus allocs/op |
-| --- | ---: | ---: | ---: | ---: |
-| Float32 decode | 19.78 | 19.36 | 1.02x | 0 |
-| Int16 decode | 20.07 | 19.52 | 1.03x | 0 |
-
-See the full Markdown report in [Official Test Vector Decode Performance](docs/testvector-benchmarks.md). Reproduce it with `BENCH_TESTVECTORS_COMPARE_CASES=aggregate BENCH_TESTVECTORS_COMPARE_PATHS=all BENCH_TESTVECTORS_COMPARE_TIMES=200,1000,5000 BENCH_TESTVECTORS_COMPARE_COUNT=3 make bench-testvectors-compare`.
-
-## Quick Start
-
-Use caller-owned buffers in real-time paths.
-
-```go
-package main
-
-import (
-	"log"
-
-	"github.com/thesyncim/gopus"
-)
-
-func main() {
-	const sampleRate = 48000
-	const channels = 2
-
-	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
-		SampleRate:  sampleRate,
-		Channels:    channels,
-		Application: gopus.ApplicationAudio,
-	})
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	decCfg := gopus.DefaultDecoderConfig(sampleRate, channels)
-	dec, err := gopus.NewDecoder(decCfg)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	pcmIn := make([]float32, 960*channels)
-	packetBuf := make([]byte, 4000)
-	pcmOut := make([]float32, decCfg.MaxPacketSamples*channels)
-
-	nPacket, err := enc.Encode(pcmIn, packetBuf)
-	if err != nil {
-		log.Fatal(err)
-	}
-	if nPacket == 0 {
-		return
-	}
-
-	nSamples, err := dec.Decode(packetBuf[:nPacket], pcmOut)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	decoded := pcmOut[:nSamples*channels]
-	_ = decoded
-}
-```
-
-Packet loss concealment uses `dec.Decode(nil, pcmOut)`. If you prefer convenience over zero-allocation behavior, allocating helpers such as `EncodeFloat32` and `EncodeInt16Slice` are also available.
-
-## Support Matrix
-
-| Area | Status | Notes |
-| --- | --- | --- |
-| Mono/stereo encode/decode | Supported | `Encoder` / `Decoder` with caller-owned buffers |
-| Multistream encode/decode | Supported | Default mappings for 1-8 channels; explicit mappings up to 255 channels |
-| Ogg Opus container | Supported | `container/ogg` reader/writer |
-| Streaming facade | Supported | `Reader` / `Writer` |
-| Allocating convenience helpers | Supported | Simpler to use, but not zero-allocation |
-| Low-level codec packages | Experimental | May change before `v1` |
-| Optional libopus build-time extensions | Mixed | Default builds support `SetDNNBlob(...)` only. QEXT requires `-tags gopus_qext`; DRED control/standalone surfaces require `-tags gopus_dred`; OSCE BWE remains unsupported outside quarantine builds. See [Optional Extensions](docs/optional-extensions.md) |
-
-Environment and codec expectations:
-
-| Topic | Current expectation |
-| --- | --- |
-| Go versions | Go 1.25+ is required; scheduled safety automation also exercises Go 1.26 |
-| CI platforms | Linux, macOS, and Windows |
-| Optimized architectures | `amd64` and `arm64` have tuned assembly kernels; other architectures use pure Go fallbacks |
-| Sample rates | 8000, 12000, 16000, 24000, 48000 Hz |
-| Frame durations | 2.5 ms to 120 ms, depending on mode |
-| Channels | `Encoder` / `Decoder`: 1-2; default multistream: 1-8; explicit multistream: up to 255 channels |
-
-`Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder` are not safe for concurrent use. Use one instance per goroutine.
+See [Optional Extensions](docs/optional-extensions.md).
 
 ## Verification
 
-If you want to evaluate or contribute to the codec, these are the main entry points:
+```sh
+go test ./...
+make test-doc-contract
+make verify-production
+```
 
-- `go test ./...`
-- `make test-examples-smoke`
-- `make test-quality`
-- `make bench-guard`
-- `make bench-testvectors`
-- `make bench-testvectors-compare`
-- `make verify-production`
+## Trust And Verification
 
-`make ensure-libopus` bootstraps the pinned libopus 1.6.1 reference used by parity and quality checks. `make ensure-testvectors` fetches the official RFC 8251 vectors; benchmark targets that need them run it automatically. Some verification paths also expect `ffmpeg` and `opusdec` to be available.
-
-## Docs and Project Hygiene
-
-- [Go package docs](https://pkg.go.dev/github.com/thesyncim/gopus)
-- [Official test-vector performance](docs/testvector-benchmarks.md)
-- [Optional extension policy](docs/optional-extensions.md)
-- [Examples guide](examples/README.md)
-- [Release notes](docs/releases/README.md)
-- [Contributing guide](CONTRIBUTING.md)
-- [Security policy](SECURITY.md)
-- [Code of conduct](CODE_OF_CONDUCT.md)
-- [Maintainer docs](docs/maintainers/README.md)
-- [Assembly notes](ASSEMBLY.md)
-
-## License
-
-BSD 3-Clause. See [LICENSE](LICENSE).
+- [required checks and branch protection](docs/maintainers/CI_GUARDRAILS.md)
+- [private reporting and supported versions](SECURITY.md)
+- [release checklist](docs/maintainers/RELEASE_CHECKLIST.md)
+- [Dependabot, Scorecard, action review, and release provenance plan](docs/maintainers/SUPPLY_CHAIN.md)
+- [external consumer smoke test](examples/external-consumer-smoke/smoke_test.go)

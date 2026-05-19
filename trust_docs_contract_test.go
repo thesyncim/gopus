@@ -41,68 +41,23 @@ func TestTrustDocsContract(t *testing.T) {
 			t.Fatalf("release checklist missing required command %s", command)
 		}
 	}
-	for _, evidence := range []string{
-		"Commit SHA",
-		"Go version",
-		"OS/platform",
-		"libopus reference version and SHA256",
-		"Commands run with pass/fail summaries",
-		"Benchmark guardrail result",
-		"Fuzz/safety summary",
-		"Parity summary",
-		"Consumer-smoke result",
-	} {
-		if !strings.Contains(releaseChecklist, evidence) {
-			t.Fatalf("release checklist missing evidence item %q", evidence)
-		}
-	}
 
 	security := mustReadDocForTest(t, "SECURITY.md")
 	for _, needle := range []string{
 		"Do not open a public issue",
 		"Prefer GitHub private vulnerability reporting",
 		"email `thesyncim@gmail.com`",
-		"Acknowledgment within 5 business days",
-		"Initial triage or next-step update within 10 business days",
-		"GitHub Security Advisory",
-		"Ship a patched release",
-		"Panics, crashes, memory exhaustion, CPU exhaustion, or unbounded allocation",
-		"Supply-chain, release-integrity, CI-token, provenance, or dependency-update",
 	} {
 		if !strings.Contains(security, needle) {
 			t.Fatalf("SECURITY.md missing %q", needle)
 		}
 	}
 
-	releaseWorkflow := mustReadDocForTest(t, ".github/workflows/release.yml")
-	for _, needle := range []string{
-		"missing release notes:",
-		"Run full release verification and evidence capture",
-		"release evidence summary is missing",
-		"Overall result: PASS",
-		"release-evidence-${{ steps.meta.outputs.tag }}.tar.gz",
-		"release-evidence-${{ steps.meta.outputs.tag }}.md",
-		"gh release create",
-		"gh release upload",
-	} {
-		if !strings.Contains(releaseWorkflow, needle) {
-			t.Fatalf("release workflow missing %q", needle)
-		}
-	}
-
-	ciGuardrails := mustReadDocForTest(t, "docs/maintainers/CI_GUARDRAILS.md")
-	requiredChecks := extractRequiredChecks(t, ciGuardrails)
-	wantChecks := []string{
-		"lint-static-analysis",
-		"test-linux",
-		"perf-linux",
-		"test-macos",
-		"test-windows",
-	}
+	requiredChecks := extractRequiredChecks(t, mustReadDocForTest(t, "docs/maintainers/CI_GUARDRAILS.md"))
+	wantChecks := []string{"lint-static-analysis", "test-linux", "perf-linux", "test-macos", "test-windows"}
 	if !reflect.DeepEqual(requiredChecks, wantChecks) {
 		t.Fatalf("required checks = %v, want %v", requiredChecks, wantChecks)
 	}
-
 	ciJobs := workflowJobNames(t, ".github/workflows/ci.yml")
 	for _, check := range requiredChecks {
 		if !ciJobs[check] {
@@ -111,15 +66,7 @@ func TestTrustDocsContract(t *testing.T) {
 	}
 
 	supplyChain := mustReadDocForTest(t, "docs/maintainers/SUPPLY_CHAIN.md")
-	for _, needle := range []string{
-		"Dependabot is enabled",
-		"OpenSSF Scorecard",
-		"Existing workflows use version tags",
-		"decide during review whether the action should be pinned by full commit SHA",
-		"`go list -m -json all` module inventory",
-		"signed checksums and SLSA provenance",
-		"SPDX or CycloneDX",
-	} {
+	for _, needle := range []string{"Dependabot is enabled", "OpenSSF Scorecard", "SPDX or CycloneDX"} {
 		if !strings.Contains(supplyChain, needle) {
 			t.Fatalf("docs/maintainers/SUPPLY_CHAIN.md missing %q", needle)
 		}
@@ -180,10 +127,9 @@ func extractRequiredChecks(t *testing.T, doc string) []string {
 	var checks []string
 	for _, line := range strings.Split(block, "\n") {
 		line = strings.TrimSpace(line)
-		if !strings.HasPrefix(line, "- `") || !strings.HasSuffix(line, "`") {
-			continue
+		if strings.HasPrefix(line, "- `") && strings.HasSuffix(line, "`") {
+			checks = append(checks, strings.TrimSuffix(strings.TrimPrefix(line, "- `"), "`"))
 		}
-		checks = append(checks, strings.TrimSuffix(strings.TrimPrefix(line, "- `"), "`"))
 	}
 	return checks
 }

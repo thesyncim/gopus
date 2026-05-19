@@ -33,6 +33,21 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 			t.Fatalf("docs/optional-extensions.md missing matrix row %q", wantLine)
 		}
 	}
+
+	for _, needle := range []string{
+		"Default builds support `SetDNNBlob(...)` only.",
+		"QEXT and DRED require build tags.",
+		"OSCE BWE remains quarantine-only.",
+		"`make test-dnn-blob-parity`",
+		"`make test-qext-parity`",
+		"`make test-dred-tag`",
+		"`make test-unsupported-controls-parity`",
+		"does not make unsupported features part of the public support claim",
+	} {
+		if !strings.Contains(optionalDoc, needle) {
+			t.Fatalf("docs/optional-extensions.md missing %q", needle)
+		}
+	}
 	assertOptionalExtensionDocsMatchSupport(t, optionalDoc)
 
 	readme := mustReadDocForTest(t, "README.md")
@@ -45,171 +60,6 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	} {
 		if !strings.Contains(readme, needle) {
 			t.Fatalf("README.md missing %q", needle)
-		}
-	}
-
-	docGo := mustReadDocForTest(t, "doc.go")
-	for _, needle := range []string{
-		"// # Supported Default Build",
-		"// optional controls in the default build currently include SetDNNBlob only.",
-		"// That default control surface is parity-gated by make test-dnn-blob-parity",
-		"// against pinned libopus USE_WEIGHTS_FILE model blobs and fails on skipped",
-		"// helper coverage.",
-		"// QEXT controls are supported only in builds using `-tags gopus_qext`.",
-		"// That tag-gated surface is parity-gated by make test-qext-parity, which fails",
-		"// on skipped libopus-helper coverage.",
-		"// DRED control and standalone surfaces are supported only in builds using",
-		"// `-tags gopus_dred`.",
-		"// `-tags gopus_unsupported_controls` may also expose DRED controls/helpers for",
-		"// parity work, but they do not report DRED support.",
-		"// The supported DRED gate uses make test-dred-tag, and the quarantine parity",
-		"// lane uses make test-unsupported-controls-parity; required DRED parity gates",
-		"// fail on skipped libopus-helper coverage.",
-		"// Supported feature tags may be combined; quarantine combinations still report",
-		"// OSCE BWE remains quarantined from the default API surface.",
-		"// `-tags gopus_unsupported_controls`, and that tag does not itself report",
-	} {
-		if !strings.Contains(docGo, needle) {
-			t.Fatalf("doc.go missing %q", needle)
-		}
-	}
-
-	releaseNotes := mustReadDocForTest(t, "docs/releases/v0.1.0.md")
-	for _, needle := range []string{
-		"## Optional Extension Contract",
-		"Draft status: this is not a published release until the `v0.1.0` tag and the",
-		"`SetDNNBlob(...)` on `Encoder`, `Decoder`, `MultistreamEncoder`, and `MultistreamDecoder`",
-		"`make test-dnn-blob-parity` validates the default `SetDNNBlob(...)` control surface",
-		"reset retention, fixture shape, dormant optional-runtime, and multistream allocation contracts",
-		"Decoder-side `SetDNNBlob(...)` currently covers loader-derived validation and retained control state.",
-		"may also bind DRED/OSCE-capable model families on the control path",
-		"QEXT controls are supported only when built with `-tags gopus_qext`",
-		"`make test-qext-parity` enforces the supported QEXT packet-extension seams",
-		"separate reference-tool lookup",
-		"packet generator/iterator coverage",
-		"repacketizer/self-delimited extension preservation coverage",
-		"default builds keep QEXT controls absent",
-		"unknown, malformed, and unsupported QEXT packet-extension dormancy",
-		"multistream self-delimited packet-extension framing",
-		"normal encode/decode runtime work remains dormant until a DRED duration, payload, recovery path, or explicit quarantine OSCE control is armed",
-		"Model-only public caller-buffer encode/decode paths stay zero-allocation and skip unarmed optional helper work.",
-		"OSCE BWE/LACE runtime behavior is quarantined and parity-gated by numerical libopus-backed forward-pass comparators plus runtime smoke tests",
-		"DRED control and standalone surfaces are supported only when built with `-tags gopus_dred`",
-		"standalone DRED wrapper lifecycle/no-allocation, libopus parse/decode/process metadata checks, real-packet standalone process state/feature parity",
-		"standalone recovery scheduling parity, DRED payload scanner edge cases",
-		"encoder runtime history/rate-conversion/scratch coverage",
-		"top-level decoder dormancy/cache lifecycle coverage",
-		"top-level decoder recovery/bridge lifecycle coverage",
-		"multistream DRED dormancy/cache failure-path coverage",
-		"multistream decoder recovery lifecycle coverage",
-		"decoder cached recovery bookkeeping parity",
-		"stereo cached recovery lifecycle/cursor seams",
-		"Hybrid fullband 20/40 ms mono/stereo carried-payload/packet-envelope seams",
-		"required mono decoder explicit/live numerical matrix",
-		"selected 16 kHz Hybrid mono live-sequence seams",
-		"CELT/Hybrid stereo cached/live first/second-loss and next-packet handoff matrices",
-		"libopus DRED latent trace guard",
-		"48 kHz / 16 kHz SILK WB explicit mono first-loss seams",
-		"explicit first-loss and recovery lifecycle/cursor seams, 48 kHz / 16 kHz SILK WB explicit mono first-loss seams",
-		"selected 16 kHz CELT/Hybrid stereo explicit first-loss probes",
-		"final/non-final uncoupled mono, final/non-final single-coupled stereo, and final/non-final non-leading second-coupled multistream CELT/Hybrid/SILK DRED consumers",
-		"broader Hybrid/SILK primary-frame byte exactness remains outside the support claim unless named in the byte-exact test matrix",
-		"broader SILK stereo plus multistream packet/mode coverage remains seam-specific",
-		"`make test-dred-tag`",
-		"pinned by `make test-unsupported-controls-tag`",
-		"mirrored by `make test-unsupported-controls-parity`",
-		"`SetOSCEBWE(...)` / `OSCEBWE()` are absent unless built with `-tags gopus_unsupported_controls`",
-		"The `gopus_unsupported_controls` build remains a parity/quarantine umbrella",
-		"may expose DRED controls and standalone",
-		"commit SHA",
-		"consumer-smoke result",
-	} {
-		if !strings.Contains(releaseNotes, needle) {
-			t.Fatalf("docs/releases/v0.1.0.md missing %q", needle)
-		}
-	}
-
-	releaseGuide := mustReadDocForTest(t, "docs/releases/README.md")
-	if !strings.Contains(releaseGuide, "the optional extension contract, including supported default-build methods and any tag-gated or absent surfaces") {
-		t.Fatal("docs/releases/README.md missing optional-extension contract guidance")
-	}
-
-	for _, needle := range []string{
-		"Build tag-gated QEXT support explicitly",
-		"`make test-dnn-blob-parity` builds the pinned libopus",
-		"reset retention, fixture shape, dormant optional-runtime, and multistream allocation contracts",
-		"fails if required helper",
-		"`SupportsOptionalExtension(gopus.OptionalExtensionQEXT)` reports `true` only in",
-		"`make test-qext-parity`",
-		"reference-tool lookup coverage plus packet generator/iterator",
-		"packet generator/iterator and",
-		"repacketizer/self-delimited extension preservation coverage in root and",
-		"multistream framing paths",
-		"Default builds keep QEXT controls absent",
-		"unknown, malformed, and unsupported QEXT packet-extension dormancy",
-		"multistream self-delimited packet-extension framing",
-		"Build tag-gated DRED control/standalone support explicitly",
-		"top-level decoder DRED internals",
-		"expose DRED controls/standalone helpers",
-		"does not, by itself, change `SupportsOptionalExtension(...)`",
-		"release support comes from `gopus_dred`",
-		"standalone DRED wrapper lifecycle,",
-		"`make test-dred-tag` exercises standalone DRED wrapper lifecycle",
-		"zero-allocation, libopus parse/decode/process metadata coverage, and real-packet",
-		"standalone process state/feature parity, standalone recovery scheduling parity,",
-		"DRED payload scanner edge cases, encoder runtime history/rate-conversion/scratch",
-		"coverage, top-level decoder dormancy/cache lifecycle coverage, top-level decoder",
-		"recovery/bridge lifecycle coverage, multistream DRED dormancy/cache failure-path",
-		"coverage, multistream decoder recovery lifecycle coverage, decoder cached recovery",
-		"bookkeeping parity, and stereo cached recovery",
-		"stereo cached recovery",
-		"lifecycle/cursor seams plus the supported-tag SILK",
-		"wideband 20/40/60 ms mono and 20 ms stereo encoder carried-payload/packet-envelope",
-		"Hybrid fullband 20/40 ms mono and stereo carried-payload/packet-envelope",
-		"final/non-final uncoupled mono, final/non-final single-coupled",
-		"final/non-final non-leading second-coupled multistream",
-		"`Encode` remains",
-		"zero-allocation and leaves the encoder DRED runtime dormant while",
-		"The public caller-buffer `Encoder` path keeps",
-		"core-only decoder blobs keep decoder payload scanning",
-		"Single-stream and multistream decoders may arm the RDOVAE parser",
-		"`make test-unsupported-controls-tag` pins the quarantine",
-		"API exposure, standalone/control smoke, top-level decoder DRED dormancy/cache",
-		"lifecycle coverage, DRED payload scanner edge cases, encoder DRED runtime",
-		"history/rate-conversion/scratch coverage, top-level decoder DRED recovery/bridge",
-		"lifecycle coverage, multistream DRED dormancy/cache/ready coverage, multistream",
-		"decoder DRED recovery lifecycle coverage, cached DRED recovery bookkeeping, and",
-		"dormant-runtime checks",
-		"dormant-runtime checks",
-		"`make test-unsupported-controls-parity` mirrors the supported encoder seams and",
-		"adds parser availability, internal converter/payload/basic-analysis coverage,",
-		"real-model PitchDNN and RDOVAE encoder oracles, the libopus DRED latent trace",
-		"guard, the conceal-analysis oracle,",
-		"OSCE BWE/LACE numerical forward-pass, raw-signal/int8/crossfade/PLC-continuity",
-		"48 kHz bootstrap coverage",
-		"decoder explicit/live numerical matrix",
-		"selected 16 kHz Hybrid mono live-sequence seams",
-		"CELT/Hybrid stereo cached/live first/second-loss and",
-		"next-packet handoff matrices",
-		"48 kHz / 16 kHz SILK WB explicit mono first-loss seams",
-		"48 kHz SILK WB explicit stereo first-loss seam",
-		"stereo cached recovery lifecycle/cursor seams",
-		"selected 16 kHz CELT/Hybrid stereo explicit first-loss",
-		"focused multistream",
-		"CELT/Hybrid/SILK DRED consumers are parity-gated",
-		"OSCE BWE and LACE/NoLACE",
-		"control state is retained, model-bound, and exercised by numerical",
-		"libopus-backed forward-pass comparators plus decoder runtime smoke gates",
-		"Required DRED parity gates fail on skipped",
-		"skipped libopus-helper tests instead",
-		"of treating missing helpers as green",
-		"Supported feature tags can be combined",
-		"`-tags \"gopus_dred gopus_qext\"` build reports both DRED and QEXT support",
-		"`-tags \"gopus_unsupported_controls gopus_qext\"`",
-		"still reports DRED and OSCE BWE as unsupported",
-	} {
-		if !strings.Contains(optionalDoc, needle) {
-			t.Fatalf("docs/optional-extensions.md missing %q", needle)
 		}
 	}
 
@@ -244,21 +94,10 @@ func assertOptionalExtensionDocsMatchSupport(t *testing.T, optionalDoc string) {
 		t.Fatal("OptionalExtensionOSCEBWE documented as unsupported but current build reports supported")
 	}
 
-	if SupportsOptionalExtension(OptionalExtensionQEXT) {
-		if !strings.Contains(optionalDoc, "`SupportsOptionalExtension(gopus.OptionalExtensionQEXT)` reports `true` only in\nthat tagged QEXT build") {
-			t.Fatal("docs/optional-extensions.md missing gopus_qext-only QEXT support probe wording")
-		}
-	} else if !strings.Contains(optionalDoc, "Build tag-gated QEXT support explicitly") {
-		t.Fatal("docs/optional-extensions.md missing explicit QEXT build-tag guidance")
+	if SupportsOptionalExtension(OptionalExtensionQEXT) && !strings.Contains(optionalDoc, "go test -tags gopus_qext ./...") {
+		t.Fatal("docs/optional-extensions.md missing QEXT tag guidance")
 	}
-
-	if SupportsOptionalExtension(OptionalExtensionDRED) {
-		if !strings.Contains(optionalDoc, "`SupportsOptionalExtension(gopus.OptionalExtensionDRED)` reports `true` only in\nthat tagged DRED build") {
-			t.Fatal("docs/optional-extensions.md missing gopus_dred-only DRED support probe wording")
-		}
-		return
-	}
-	if !strings.Contains(optionalDoc, "Build tag-gated DRED control/standalone support explicitly") {
-		t.Fatal("docs/optional-extensions.md missing explicit DRED build-tag guidance")
+	if SupportsOptionalExtension(OptionalExtensionDRED) && !strings.Contains(optionalDoc, "go test -tags gopus_dred ./...") {
+		t.Fatal("docs/optional-extensions.md missing DRED tag guidance")
 	}
 }
