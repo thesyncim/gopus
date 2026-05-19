@@ -655,16 +655,17 @@ func TestDecoderCachedDREDDecodeMatrixMatchesLiveSequenceOracle(t *testing.T) {
 func TestDecoderCachedStereoDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 	const frameSize = 960
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
-		FrameSize: frameSize,
-		ForceMode: ModeCELT,
-		Bandwidth: BandwidthFullband,
-		Channels:  2,
+		FrameSize:     frameSize,
+		ForceMode:     ModeCELT,
+		Bandwidth:     BandwidthFullband,
+		Channels:      2,
+		ForceChannels: 2,
 	})
 	if err != nil {
 		t.Skipf("libopus dred packet helper unavailable: %v", err)
 	}
 	if toc := ParseTOC(packetInfo.packet[0]); !toc.Stereo {
-		t.Skipf("cached stereo DRED parity requires stereo packet, got TOC=%#x", packetInfo.packet[0])
+		t.Fatalf("cached stereo DRED parity forced mono packet, got TOC=%#x", packetInfo.packet[0])
 	}
 
 	dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t, packetInfo.sampleRate, packetInfo, 2)
@@ -713,16 +714,17 @@ func TestDecoderCachedStereoDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 func TestDecoderCachedStereoDREDSecondLossMatchesLiveSequenceOracle(t *testing.T) {
 	const frameSize = 960
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
-		FrameSize: frameSize,
-		ForceMode: ModeCELT,
-		Bandwidth: BandwidthFullband,
-		Channels:  2,
+		FrameSize:     frameSize,
+		ForceMode:     ModeCELT,
+		Bandwidth:     BandwidthFullband,
+		Channels:      2,
+		ForceChannels: 2,
 	})
 	if err != nil {
 		t.Skipf("libopus dred packet helper unavailable: %v", err)
 	}
 	if toc := ParseTOC(packetInfo.packet[0]); !toc.Stereo {
-		t.Skipf("cached stereo DRED parity requires stereo packet, got TOC=%#x", packetInfo.packet[0])
+		t.Fatalf("cached stereo DRED parity forced mono packet, got TOC=%#x", packetInfo.packet[0])
 	}
 
 	dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t, packetInfo.sampleRate, packetInfo, 2)
@@ -776,16 +778,17 @@ func TestDecoderCachedStereoDREDSecondLossMatchesLiveSequenceOracle(t *testing.T
 func TestDecoderCachedStereoDREDThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
 	const frameSize = 960
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
-		FrameSize: frameSize,
-		ForceMode: ModeCELT,
-		Bandwidth: BandwidthFullband,
-		Channels:  2,
+		FrameSize:     frameSize,
+		ForceMode:     ModeCELT,
+		Bandwidth:     BandwidthFullband,
+		Channels:      2,
+		ForceChannels: 2,
 	})
 	if err != nil {
 		t.Skipf("libopus dred packet helper unavailable: %v", err)
 	}
 	if toc := ParseTOC(packetInfo.packet[0]); !toc.Stereo {
-		t.Skipf("cached stereo DRED parity requires stereo packet, got TOC=%#x", packetInfo.packet[0])
+		t.Fatalf("cached stereo DRED parity forced mono packet, got TOC=%#x", packetInfo.packet[0])
 	}
 	nextPacket := makeValidCELTPacketForDREDTest(t)
 
@@ -841,16 +844,17 @@ func TestDecoderCachedStereoDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 func TestDecoderCachedStereoDREDSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
 	const frameSize = 960
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
-		FrameSize: frameSize,
-		ForceMode: ModeCELT,
-		Bandwidth: BandwidthFullband,
-		Channels:  2,
+		FrameSize:     frameSize,
+		ForceMode:     ModeCELT,
+		Bandwidth:     BandwidthFullband,
+		Channels:      2,
+		ForceChannels: 2,
 	})
 	if err != nil {
 		t.Skipf("libopus dred packet helper unavailable: %v", err)
 	}
 	if toc := ParseTOC(packetInfo.packet[0]); !toc.Stereo {
-		t.Skipf("cached stereo DRED parity requires stereo packet, got TOC=%#x", packetInfo.packet[0])
+		t.Fatalf("cached stereo DRED parity forced mono packet, got TOC=%#x", packetInfo.packet[0])
 	}
 	nextPacket := makeValidCELTPacketForDREDTest(t)
 
@@ -977,7 +981,7 @@ func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label
 	}
 	toc := ParseTOC(packetInfo.packet[0])
 	if !toc.Stereo || toc.Mode != packetCfg.ForceMode || toc.Bandwidth != packetCfg.Bandwidth || toc.FrameSize != packetCfg.FrameSize {
-		t.Skipf("%s requires forced stereo %v/%v/%d packet, got stereo=%t mode=%v bandwidth=%v frame=%d", label, packetCfg.ForceMode, packetCfg.Bandwidth, packetCfg.FrameSize, toc.Stereo, toc.Mode, toc.Bandwidth, toc.FrameSize)
+		t.Fatalf("%s forced stereo %v/%v/%d packet mismatch: stereo=%t mode=%v bandwidth=%v frame=%d", label, packetCfg.ForceMode, packetCfg.Bandwidth, packetCfg.FrameSize, toc.Stereo, toc.Mode, toc.Bandwidth, toc.FrameSize)
 	}
 
 	dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t, packetInfo.sampleRate, packetInfo, 2)
@@ -4698,7 +4702,7 @@ func TestDecoderExplicitSILKDREDDecodeStereoMatchesLibopus(t *testing.T) {
 		t.Skipf("libopus dred packet helper unavailable: %v", probeErr)
 	}
 	if !ParseTOC(probeInfo.packet[0]).Stereo {
-		t.Skipf("libopus dred emit helper produced mono TOC at 960-sample SILK WB (toc=0x%02x); stereo SILK carrier seam not yet exercisable", probeInfo.packet[0])
+		t.Fatalf("forced stereo SILK DRED packet produced mono TOC at 960-sample WB (toc=0x%02x)", probeInfo.packet[0])
 	}
 
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(
