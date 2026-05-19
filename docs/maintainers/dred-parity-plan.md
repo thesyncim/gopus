@@ -209,7 +209,7 @@ Recent closed seams to avoid re-debugging:
 - RESOLVED: SILK-only explicit DRED now seeds the neural entry history from the
   retained SILK native lowband through `primeExplicitSILKDREDEntryHistory(...)`
   before queueing FEC features, mirroring the Hybrid lazy-history pattern. The
-  48 kHz SILK WB explicit stereo first-loss seam is now required in the
+  48 kHz stereo seam and the 48 kHz / 16 kHz mono seams are now required in the
   unsupported-controls parity gate.
 
 Still missing for full parity:
@@ -246,6 +246,8 @@ What is green today:
 - Explicit 48 kHz CELT FB stereo DRED first-loss parity exercises downmixed
   entry history and mono-duplicated output against libopus in the required
   quarantine gate.
+- Explicit 48 kHz and 16 kHz SILK WB mono DRED first-loss parity is required in
+  the quarantine gate.
 - Explicit 48 kHz SILK WB stereo DRED first-loss parity is required in the
   quarantine gate.
 - Explicit 16 kHz CELT/Hybrid stereo DRED first-loss parity now uses the
