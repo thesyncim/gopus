@@ -67,6 +67,7 @@ RUNNABLE_FAST = GOPUS_TEST_TIER=fast $(GO_RUNNABLE_TEST)
 RUNNABLE_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABLE_TEST)
 DNN_BLOB_DEFAULT_ROOT_RUN = 'Test(DefaultBuildDNNBlobKeepsDREDRuntimeDormant|DefaultBuildEncoderDNNBlobKeepsDREDDormant|HotPathAllocsDecodePLCDNNReadyAtMostBaseline|EncoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobStereoRuntimeRetainedAcrossReset|MultistreamEncoderSetDNNBlobRetainedAcrossReset|MultistreamDecoderSetDNNBlobRetainedAcrossReset|ValidEncoderTestDNNBlobShape|ValidDecoderTestDNNBlobShape)'
 DNN_BLOB_DEFAULT_MULTISTREAM_RUN = 'Test(DefaultBuildMultistreamDecoderRealBlobDormant|DefaultBuildMultistreamEncoderDNNBlobKeepsAllocsFlat)'
+DEFAULT_DECODER_DECODE_ROOT_RUN = 'TestDecoder_(Decode_Float32|Decode_Int16|Decode_BufferTooSmall|Decode_PLC|Reset|Stereo|TOCParsing)$$'
 DEFAULT_DECODER_STATE_ROOT_RUN = 'Test(NewDecoder_DefaultMaxPacketLimits|Decode_ModeRouting|Decode_ExtendedFrameSizes|Decode_PLC_ModeTracking|Decoder_BandwidthAndLastPacketDuration)'
 DEFAULT_DECODER_FEC_ROOT_RUN = 'Test(DecodeWithFEC_FallbackToPLC|DecodeWithFEC_CELTNoFEC|DecodeWithFEC_SILKStoresFEC|StoreFECData_ReusesBackingBuffer|DecodeFECFrame_BufferSizingUsesSingleFrame|DecodeWithFEC_HybridStoresFEC|DecodeWithFEC_Recovery|DecodeWithFEC_ResetClearsFEC)'
 DEFAULT_DECODER_FEC_PACKET_ROOT_RUN = 'Test(DecodeWithFEC_UsesProvidedPacketAndPreservesNormalDecode|DecodeWithFEC_FrameSizeTransitionUsesProvidedPacketGranularity|DecodeWithFEC_ProvidedCELTPacketFallsBackToPLC|DecodeWithFEC_ProvidedCELTPacketClearsStoredFECState|DecodeWithFEC_ProvidedPacketUsesPacketModeForCELTGate|DecodeWithFEC_ProvidedPacketWithoutLBRRUsesDirectPLCFallback|DecodeWithFEC_PLCWithProvidedStateUsesProvidedMode|DecodeWithFEC_NoFECRequested)'
@@ -174,6 +175,7 @@ test-examples-smoke:
 test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run 'Test(OptionalExtensionDocsContract|TrustDocsContract|TrustSensitiveFilesHaveCodeOwners|ReleaseNotesExistForTags|DefaultBuildPublicAPIContract|Encoder_OptionalExtensionControls|Decoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls|MultistreamDecoder_OptionalExtensionControls|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
 	$(GO_WORK_ENV) $(GO) test . ./multistream -run 'TestDefaultBuildQuarantinesUnsupportedControls' -count=1
+	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_DECODE_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_STATE_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_FEC_ROOT_RUN) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run $(DEFAULT_DECODER_FEC_PACKET_ROOT_RUN) -count=1
