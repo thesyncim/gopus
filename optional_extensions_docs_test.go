@@ -97,7 +97,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"CELT/Hybrid stereo cached/live first/second-loss and next-packet handoff matrices",
 		"explicit first-loss and recovery lifecycle/cursor seams, the 48 kHz SILK WB explicit stereo first-loss seam",
 		"selected 16 kHz CELT/Hybrid stereo explicit first-loss probes",
-		"final/non-final uncoupled mono, single-coupled stereo, and non-leading second-coupled multistream CELT/Hybrid/SILK DRED consumers",
+		"final/non-final uncoupled mono, single-coupled stereo, and final/non-final non-leading second-coupled multistream CELT/Hybrid/SILK DRED consumers",
 		"broader Hybrid/SILK primary-frame byte exactness remains outside the support claim unless named in the byte-exact test matrix",
 		"broader SILK stereo plus multistream packet/mode coverage remains seam-specific",
 		"`make test-dred-tag`",
