@@ -67,8 +67,9 @@ seams, and the final/non-final uncoupled mono, final/non-final single-coupled
 stereo, and final/non-final non-leading second-coupled multistream
 CELT/Hybrid/SILK DRED carrier fan-out seams.
 `make test-unsupported-controls-tag` pins the quarantine
-API exposure, standalone/control smoke, cached DRED recovery bookkeeping, and
-dormant-runtime checks without changing support probes.
+API exposure, standalone/control smoke, top-level decoder DRED dormancy/cache
+lifecycle coverage, cached DRED recovery bookkeeping, and dormant-runtime checks
+without changing support probes.
 `make test-unsupported-controls-parity` mirrors the supported encoder seams and
 adds parser availability, internal converter/payload/basic-analysis coverage,
 real-model PitchDNN and RDOVAE encoder oracles, the libopus DRED latent trace
