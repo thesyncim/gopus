@@ -1044,6 +1044,20 @@ func TestEncoder_SetForceChannels(t *testing.T) {
 	}
 }
 
+func TestEncoder_SetForceChannelsRejectsStereoForMono(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	if err := enc.SetForceChannels(2); err != ErrInvalidForceChannels {
+		t.Fatalf("SetForceChannels(2) error = %v, want ErrInvalidForceChannels", err)
+	}
+	if got := enc.ForceChannels(); got != -1 {
+		t.Fatalf("ForceChannels() = %d, want -1", got)
+	}
+}
+
 func TestEncoder_Lookahead(t *testing.T) {
 	for _, tc := range lookaheadTestCases() {
 		t.Run(tc.name, func(t *testing.T) {

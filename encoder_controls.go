@@ -282,6 +282,9 @@ func (e *Encoder) SetForceChannels(channels int) error {
 	if err := validateForceChannels(channels); err != nil {
 		return err
 	}
+	if channels > e.channels {
+		return ErrInvalidForceChannels
+	}
 	e.enc.SetForceChannels(channels)
 	return nil
 }
