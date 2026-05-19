@@ -629,17 +629,51 @@ func TestDecodeToFloat32(t *testing.T) {
 	}
 }
 
-// TestDecodeIntegration tests full decode path.
-// This test is skipped because programmatic construction of valid
-// multistream packets is complex (requires range-coded SILK/CELT frames).
+// TestDecodeIntegration tests the full decode path with a valid multistream
+// packet produced by the package encoder.
 func TestDecodeIntegration(t *testing.T) {
-	t.Skip("Skipping integration test: programmatic multistream packet construction too complex (see Phase 4 experience)")
+	const (
+		sampleRate = 48000
+		channels   = 6
+		frameSize  = 960
+		baseFreq   = 220.0
+	)
 
-	// If we had valid multistream packet data, we would test:
-	// streams, coupled, mapping, _ := DefaultMapping(6) // 5.1
-	// dec, _ := NewDecoder(48000, 6, streams, coupled, mapping)
-	// samples, err := dec.Decode(validMultistreamPacket, 960)
-	// Verify: len(samples) == 960 * 6
+	streams, coupled, mapping, err := DefaultMapping(channels)
+	if err != nil {
+		t.Fatalf("DefaultMapping(%d) error: %v", channels, err)
+	}
+
+	enc, err := NewEncoder(sampleRate, channels, streams, coupled, mapping)
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	dec, err := NewDecoder(sampleRate, channels, streams, coupled, mapping)
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	pcm := generateTestSignal(channels, frameSize, sampleRate, baseFreq)
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode returned empty packet for non-silent input")
+	}
+
+	samples, err := dec.Decode(packet, frameSize)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+
+	expectedLen := frameSize * channels
+	if len(samples) != expectedLen {
+		t.Fatalf("Decode output len = %d, want %d", len(samples), expectedLen)
+	}
+	if energy := computeEnergy(samples); energy == 0 {
+		t.Fatal("Decode output energy is zero")
+	}
 }
 
 // TestFloat64ToInt16 tests the sample conversion helper.
