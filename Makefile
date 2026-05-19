@@ -126,9 +126,10 @@ test-fuzz-safety: ensure-libopus
 test-consumer-smoke:
 	cd examples/external-consumer-smoke && $(GO_WORK_ENV) $(GO) test ./... -count=1
 
-# Lightweight docs contract that keeps release-surface claims aligned.
+# Lightweight docs and optional-extension contract that keeps release-surface claims aligned.
 test-doc-contract:
 	$(GO_WORK_ENV) $(GO) test . -run 'Test(OptionalExtensionDocsContract|TrustDocsContract|TrustSensitiveFilesHaveCodeOwners|ReleaseNotesExistForTags|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
+	$(GO_WORK_ENV) $(GO) test . ./multistream -run 'TestDefaultBuildQuarantinesUnsupportedControls' -count=1
 
 # Default-supported DNN blob control parity against libopus USE_WEIGHTS_FILE
 # model blobs. The target fails if the required libopus-backed test is skipped.
