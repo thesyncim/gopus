@@ -331,7 +331,11 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	// portion of the available bits.
 	// Start from max_data_bytes-1 (payload excluding TOC), then subtract transition
 	// redundancy reservation (bytes plus signaling bits) when active.
-	silkMaxBits := payloadTarget * 8
+	silkMaxBitsPayload := payloadTarget
+	if dredBitrate > 0 && e.bitrateMode != ModeCBR && !hardMaxPacketBytes {
+		silkMaxBitsPayload = maxHybridPacketSize
+	}
+	silkMaxBits := silkMaxBitsPayload * 8
 	if redundancyBytes >= 2 {
 		// 1 bit redundancy position + 20 bits flag+size for hybrid.
 		silkMaxBits -= redundancyBytes*8 + 1 + 20
