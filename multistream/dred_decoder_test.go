@@ -903,6 +903,15 @@ func TestDecoderDecodeNilConsumesMultistreamDREDNeuralCELTStereoStream(t *testin
 	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "celt stereo", packet, channels, targetStream)
 }
 
+func TestDecoderDecodeNilConsumesMultistreamDREDNeuralCELTFinalStereoStream(t *testing.T) {
+	const channels = 2
+	const targetStream = 0
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeCELTMultistreamPacketWithDREDForTest(t, channels, targetStream, body)
+
+	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "celt final stereo", packet, channels, targetStream)
+}
+
 func TestDecoderDecodeNilConsumesMultistreamDREDNeuralCELTSecondCoupledStream(t *testing.T) {
 	const channels = 5
 	const targetStream = 1
@@ -930,6 +939,15 @@ func TestDecoderDecodeNilConsumesMultistreamDREDNeuralHybridStereoStream(t *test
 	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "hybrid stereo", packet, channels, targetStream)
 }
 
+func TestDecoderDecodeNilConsumesMultistreamDREDNeuralHybridFinalStereoStream(t *testing.T) {
+	const channels = 2
+	const targetStream = 0
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeModeMultistreamPacketWithDREDForTest(t, channels, targetStream, internalenc.ModeHybrid, types.BandwidthFullband, 128000, body)
+
+	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "hybrid final stereo", packet, channels, targetStream)
+}
+
 func TestDecoderDecodeNilConsumesMultistreamDREDNeuralHybridSecondCoupledStream(t *testing.T) {
 	const channels = 5
 	const targetStream = 1
@@ -955,6 +973,15 @@ func TestDecoderDecodeNilConsumesMultistreamDREDNeuralSILKStereoStream(t *testin
 	packet := makeModeMultistreamPacketWithDREDForTest(t, channels, targetStream, internalenc.ModeSILK, types.BandwidthWideband, 96000, body)
 
 	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "silk stereo", packet, channels, targetStream)
+}
+
+func TestDecoderDecodeNilConsumesMultistreamDREDNeuralSILKFinalStereoStream(t *testing.T) {
+	const channels = 2
+	const targetStream = 0
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeModeMultistreamPacketWithDREDForTest(t, channels, targetStream, internalenc.ModeSILK, types.BandwidthWideband, 96000, body)
+
+	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "silk final stereo", packet, channels, targetStream)
 }
 
 func TestDecoderDecodeNilConsumesMultistreamDREDNeuralSILKSecondCoupledStream(t *testing.T) {
