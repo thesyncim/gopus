@@ -515,6 +515,8 @@ func (e *Encoder) ResetStereoSideAfterMidOnly() {
 	}
 	if e.nsqState != nil {
 		e.nsqState.Reset()
+		e.nsqState.lagPrev = 100
+		e.nsqState.prevGainQ16 = 1 << 16
 	}
 	for i := range e.prevLSFQ15 {
 		e.prevLSFQ15[i] = 0

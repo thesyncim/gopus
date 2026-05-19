@@ -146,6 +146,69 @@ func TestResetTransitionPrefillState(t *testing.T) {
 	}
 }
 
+func TestResetStereoSideAfterMidOnlyPreservesRateControl(t *testing.T) {
+	enc := NewEncoder(BandwidthWideband)
+	enc.SetBitrate(12345)
+	enc.SetReducedDependency(true)
+	enc.SetPreviousLogGain(77)
+	enc.SetPreviousFrameVoiced(true)
+	enc.pitchState.prevLag = 222
+	enc.previousGainIndex = 33
+	enc.ecPrevLagIndex = 7
+	enc.ecPrevSignalType = typeVoiced
+	enc.forceFirstFrameAfterReset = false
+	if enc.nsqState == nil || enc.noiseShapeState == nil {
+		t.Fatal("expected SILK side reset state to be initialized")
+	}
+	enc.nsqState.prevGainQ16 = 54321
+	enc.nsqState.lagPrev = 222
+	enc.lpState.InLPState = [2]int32{11, 22}
+	for i := range enc.prevLSFQ15 {
+		enc.prevLSFQ15[i] = int16(i + 1)
+	}
+
+	enc.ResetStereoSideAfterMidOnly()
+
+	if enc.targetRateBps != 12345 {
+		t.Fatalf("targetRateBps = %d, want 12345", enc.targetRateBps)
+	}
+	if !enc.ReducedDependency() {
+		t.Fatal("ReducedDependency() should stay enabled")
+	}
+	if enc.previousGainIndex != 10 {
+		t.Fatalf("previousGainIndex = %d, want 10", enc.previousGainIndex)
+	}
+	if enc.PreviousLogGain() != 0 {
+		t.Fatalf("PreviousLogGain() = %d, want 0", enc.PreviousLogGain())
+	}
+	if enc.IsPreviousFrameVoiced() {
+		t.Fatal("IsPreviousFrameVoiced() should be false")
+	}
+	if enc.ecPrevLagIndex != 0 || enc.ecPrevSignalType != typeNoVoiceActivity {
+		t.Fatalf("entropy coding history = (%d,%d), want (0,%d)", enc.ecPrevLagIndex, enc.ecPrevSignalType, typeNoVoiceActivity)
+	}
+	if enc.pitchState.prevLag != 100 {
+		t.Fatalf("pitchState.prevLag = %d, want 100", enc.pitchState.prevLag)
+	}
+	if enc.nsqState.lagPrev != 100 {
+		t.Fatalf("nsqState.lagPrev = %d, want 100", enc.nsqState.lagPrev)
+	}
+	if enc.nsqState.prevGainQ16 != 1<<16 {
+		t.Fatalf("nsqState.prevGainQ16 = %d, want %d", enc.nsqState.prevGainQ16, 1<<16)
+	}
+	if enc.lpState.InLPState != ([2]int32{}) {
+		t.Fatalf("lpState.InLPState = %v, want zero", enc.lpState.InLPState)
+	}
+	for i, got := range enc.prevLSFQ15 {
+		if got != 0 {
+			t.Fatalf("prevLSFQ15[%d] = %d, want 0", i, got)
+		}
+	}
+	if !enc.forceFirstFrameAfterReset {
+		t.Fatal("forceFirstFrameAfterReset should be true")
+	}
+}
+
 func TestEncoderStateAccessors(t *testing.T) {
 	enc := NewEncoder(BandwidthWideband)
 

@@ -1305,7 +1305,7 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 	// 5. Encode Side Frame (skip if mid-only)
 	if e.silkSideEncoder != nil && !midOnly {
 		if e.hybridState != nil && e.hybridState.prevDecodeOnlyMiddle {
-			e.silkSideEncoder.Reset()
+			e.silkSideEncoder.ResetStereoSideAfterMidOnly()
 		}
 		_ = e.silkSideEncoder.EncodeFrame(side, nil, vadSide)
 	}
