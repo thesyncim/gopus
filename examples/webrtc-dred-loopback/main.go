@@ -33,8 +33,10 @@ type uiState struct {
 	lossSlider     widget.Float
 	bitrateSlider  widget.Float
 	durationSlider widget.Float
+	redDepthSlider widget.Float
 
 	fecSwitch    widget.Bool
+	redSwitch    widget.Bool
 	dredSwitch   widget.Bool
 	liveSwitch   widget.Bool
 	recordSwitch widget.Bool
@@ -63,8 +65,11 @@ func main() {
 		bitrate     = flag.Int("bitrate", 48000, "headless encoder bitrate")
 		profile     = flag.String("profile", "dred", "headless encoder profile: dred, hybrid, or voice")
 		fec         = flag.Bool("fec", false, "enable Opus in-band FEC")
+		red         = flag.Bool("red", false, "enable RTP RED-style redundant Opus payloads")
+		redDepth    = flag.Int("red-depth", 1, "number of prior Opus frames to carry in RED")
 		dred        = flag.Bool("dred", dredControlsAvailable(), "enable DRED when available")
-		compare     = flag.Bool("compare", false, "run PLC/FEC/DRED/FEC+DRED headless comparison")
+		allRecovery = flag.Bool("all-recovery", false, "enable FEC, RED, and DRED together")
+		compare     = flag.Bool("compare", false, "run PLC/FEC/RED/DRED combination headless comparison")
 	)
 	flag.Parse()
 	profileSet := false
@@ -100,7 +105,17 @@ func main() {
 		cfg.LossSeed = *lossSeed
 		cfg.Profile = *profile
 		cfg.FEC = *fec
+		cfg.RED = *red
+		cfg.REDDepth = *redDepth
 		cfg.DRED = *dred
+		if *allRecovery {
+			cfg.FEC = true
+			cfg.RED = true
+			cfg.DRED = true
+			if !profileSet {
+				cfg.Profile = "hybrid"
+			}
+		}
 		if *compare {
 			if !profileSet {
 				cfg.Profile = "hybrid"
@@ -149,7 +164,9 @@ func newUI(recordDir, encBlob, decBlob string) *uiState {
 	ui.lossSlider.Value = float32(cfg.LossPercent) / 60
 	ui.bitrateSlider.Value = float32(cfg.Bitrate-16000) / float32(96000-16000)
 	ui.durationSlider.Value = float32(cfg.DREDDuration) / 104
+	ui.redDepthSlider.Value = float32(cfg.REDDepth-1) / float32(maxREDDepth-1)
 	ui.fecSwitch.Value = cfg.FEC
+	ui.redSwitch.Value = cfg.RED
 	ui.dredSwitch.Value = cfg.DRED
 	ui.liveSwitch.Value = cfg.LivePlayback
 	ui.recordSwitch.Value = cfg.RecordWAV
@@ -223,6 +240,8 @@ func (ui *uiState) currentConfig() engineConfig {
 	cfg.ExpectedLoss = cfg.LossPercent
 	cfg.Bitrate = sliderInt(ui.bitrateSlider.Value, 16000, 96000, 1000)
 	cfg.FEC = ui.fecSwitch.Value
+	cfg.RED = ui.redSwitch.Value
+	cfg.REDDepth = sliderInt(ui.redDepthSlider.Value, 1, maxREDDepth, 1)
 	cfg.DRED = ui.dredSwitch.Value
 	cfg.DREDDuration = sliderInt(ui.durationSlider.Value, 0, 104, 1)
 	cfg.EncoderBlobPath = strings.TrimSpace(ui.encoderBlob.Text())
@@ -339,6 +358,8 @@ func (ui *uiState) lossControls(gtx layout.Context) layout.Dimensions {
 			layout.Rigid(ui.sliderRow("RTP loss", &ui.lossSlider, fmt.Sprintf("%d%%", sliderInt(ui.lossSlider.Value, 0, 60, 1)))),
 			layout.Rigid(ui.sliderRow("Bitrate", &ui.bitrateSlider, fmt.Sprintf("%d kbps", sliderInt(ui.bitrateSlider.Value, 16000, 96000, 1000)/1000))),
 			layout.Rigid(ui.switchRow("In-band FEC", &ui.fecSwitch)),
+			layout.Rigid(ui.switchRow("RTP RED", &ui.redSwitch)),
+			layout.Rigid(ui.sliderRow("RED depth", &ui.redDepthSlider, fmt.Sprintf("%d frame(s)", sliderInt(ui.redDepthSlider.Value, 1, maxREDDepth, 1)))),
 		)
 	})
 }
@@ -385,10 +406,10 @@ func (ui *uiState) statsView(gtx layout.Context) layout.Dimensions {
 		fmt.Sprintf("live: %.1f pkt/s, %.1f%% drop, %.1f kbps delivered, %.0f ms/s concealed", stats.CurrentPacketsPerSecond, stats.CurrentDropPercent, stats.CurrentDeliveredKbps, stats.CurrentConcealMSPerSecond),
 		fmt.Sprintf("coverage: actual loss=%.1f%% configured=%d%% expected=%d%% dred=%.1f%%", stats.ActualLossPercent, stats.LossPercent, stats.ExpectedLoss, stats.DREDCoveragePercent),
 		fmt.Sprintf("audio: received=%.2fs concealed=%.2fs total=%.2fs rms=%.3f peak=%.3f", stats.ReceivedAudioMS/1000, stats.ConcealedAudioMS/1000, stats.TotalAudioMS/1000, stats.LastRMS, stats.LastPeak),
-		fmt.Sprintf("packets: sent=%d dropped=%d received=%d concealed=%d dred=%d", stats.PacketsSent, stats.PacketsDropped, stats.PacketsReceived, stats.ConcealedFrames, stats.DREDPackets),
+		fmt.Sprintf("packets: sent=%d dropped=%d received=%d concealed=%d red=%d dred=%d", stats.PacketsSent, stats.PacketsDropped, stats.PacketsReceived, stats.ConcealedFrames, stats.REDPackets, stats.DREDPackets),
 		fmt.Sprintf("modes: silk=%d hybrid=%d celt=%d", stats.SILKPackets, stats.HybridPackets, stats.CELTPackets),
-		fmt.Sprintf("recovery: fec=%d/%d fallback=%d dred=%d/%d fallback=%d plc=%d", stats.FECFrames, stats.FECRecoveryAttempts, stats.FECFallbackFrames, stats.DREDFrames, stats.DREDRecoveryAttempts, stats.DREDFallbackFrames, stats.LossPathFrames),
-		fmt.Sprintf("bitrate: encoded=%.1f kbps delivered=%.1f kbps dropped=%.1f kbps last=%d B", stats.EncodedKbps, stats.DeliveredKbps, stats.DroppedKbps, stats.LastPacketBytes),
+		fmt.Sprintf("recovery: red=%d/%d fallback=%d fec=%d/%d fallback=%d dred=%d/%d fallback=%d plc=%d", stats.REDFrames, stats.REDRecoveryAttempts, stats.REDFallbackFrames, stats.FECFrames, stats.FECRecoveryAttempts, stats.FECFallbackFrames, stats.DREDFrames, stats.DREDRecoveryAttempts, stats.DREDFallbackFrames, stats.LossPathFrames),
+		fmt.Sprintf("bitrate: encoded=%.1f kbps delivered=%.1f kbps dropped=%.1f kbps red-extra=%d B last=%d B", stats.EncodedKbps, stats.DeliveredKbps, stats.DroppedKbps, stats.REDRedundantBytes, stats.LastPacketBytes),
 		fmt.Sprintf("errors: encode=%d decode=%d mic underruns=%d", stats.EncodeErrors, stats.DecodeErrors, stats.MicUnderruns),
 	}
 	if stats.ReferenceComparedSamples > 0 {

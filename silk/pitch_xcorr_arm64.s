@@ -2,7 +2,7 @@
 #include "textflag.h"
 
 // func celtPitchXcorrFloatImplASM(x, y []float32, out []float32, length, maxPitch int)
-TEXT ·celtPitchXcorrFloatImplASM(SB), NOSPLIT, $0-80
+TEXT ·celtPitchXcorrFloatImplASM(SB), NOSPLIT, $0-88
 	MOVD    x_base+0(FP), R0
 	MOVD    y_base+24(FP), R1
 	MOVD    out_base+48(FP), R2

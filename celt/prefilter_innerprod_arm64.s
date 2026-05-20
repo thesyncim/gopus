@@ -10,7 +10,7 @@
 //
 // Float32-accumulated dot product using NEON.
 // Converts float64 inputs to float32 via FCVTN, accumulates with VFMLA .S4.
-TEXT ·prefilterInnerProd(SB), NOSPLIT, $0-56
+TEXT ·prefilterInnerProd(SB), NOSPLIT, $0-64
 	MOVD x_base+0(FP), R0
 	MOVD y_base+24(FP), R1
 	MOVD length+48(FP), R2

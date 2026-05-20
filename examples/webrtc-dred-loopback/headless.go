@@ -109,6 +109,7 @@ func runHeadless(cfg engineConfig, source string, duration time.Duration) (engin
 type comparisonResult struct {
 	Name  string
 	FEC   bool
+	RED   bool
 	DRED  bool
 	Stats engineStats
 }
@@ -117,12 +118,17 @@ func runHeadlessComparison(cfg engineConfig, source string, duration time.Durati
 	cases := []struct {
 		name string
 		fec  bool
+		red  bool
 		dred bool
 	}{
 		{name: "plc"},
 		{name: "fec", fec: true},
+		{name: "red", red: true},
+		{name: "red+fec", red: true, fec: true},
 		{name: "dred", dred: true},
 		{name: "fec+dred", fec: true, dred: true},
+		{name: "red+dred", red: true, dred: true},
+		{name: "red+fec+dred", red: true, fec: true, dred: true},
 	}
 
 	results := make([]comparisonResult, 0, len(cases))
@@ -130,6 +136,7 @@ func runHeadlessComparison(cfg engineConfig, source string, duration time.Durati
 	for _, tc := range cases {
 		runCfg := cfg
 		runCfg.FEC = tc.fec
+		runCfg.RED = tc.red
 		runCfg.DRED = tc.dred
 		if baseRecordDir != "" {
 			runCfg.RecordDir = baseRecordDir + "/" + tc.name
@@ -141,6 +148,7 @@ func runHeadlessComparison(cfg engineConfig, source string, duration time.Durati
 		results = append(results, comparisonResult{
 			Name:  tc.name,
 			FEC:   tc.fec,
+			RED:   tc.red,
 			DRED:  tc.dred,
 			Stats: stats,
 		})

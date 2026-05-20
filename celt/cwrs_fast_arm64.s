@@ -6,7 +6,7 @@
 //
 // Mirrors libopus celt/cwrs.c:cwrsi for table-covered (n,k), using the fixed
 // dense U table directly. The Go wrapper validates n/k/y before entering here.
-TEXT ·cwrsiFastCore(SB), NOSPLIT, $0-56
+TEXT ·cwrsiFastCore(SB), NOSPLIT, $0-52
 	MOVD  n+0(FP), R1
 	MOVD  k+8(FP), R2
 	MOVWU i+16(FP), R3
@@ -151,7 +151,7 @@ cwrs_tail_n2_store:
 	RET
 
 // func cwrsiFastCore32(n, k int, i uint32, y []int32) uint32
-TEXT ·cwrsiFastCore32(SB), NOSPLIT, $0-56
+TEXT ·cwrsiFastCore32(SB), NOSPLIT, $0-52
 	MOVD  n+0(FP), R1
 	MOVD  k+8(FP), R2
 	MOVWU i+16(FP), R3
@@ -292,7 +292,7 @@ cwrs32_tail_n2_store:
 	RET
 
 // func cwrsiFastCore32N8(k int, i uint32, y []int32) uint32
-TEXT ·cwrsiFastCore32N8(SB), NOSPLIT, $0-48
+TEXT ·cwrsiFastCore32N8(SB), NOSPLIT, $0-44
 	MOVD  k+0(FP), R2
 	MOVWU i+8(FP), R3
 	MOVD  y_base+16(FP), R7
@@ -785,7 +785,7 @@ cwrs32n8_tail_n2_store:
 	RET
 
 // func cwrsiFastCore32N3(k int, i uint32, y []int32) uint32
-TEXT ·cwrsiFastCore32N3(SB), NOSPLIT, $0-48
+TEXT ·cwrsiFastCore32N3(SB), NOSPLIT, $0-44
 	MOVD  k+0(FP), R2
 	MOVWU i+8(FP), R3
 	MOVD  y_base+16(FP), R7

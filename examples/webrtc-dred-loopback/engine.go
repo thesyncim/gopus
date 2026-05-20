@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/pion/interceptor"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v4"
 	"github.com/thesyncim/gopus"
@@ -19,6 +20,8 @@ type engineConfig struct {
 	Bitrate         int
 	Profile         string
 	FEC             bool
+	RED             bool
+	REDDepth        int
 	DRED            bool
 	DREDDuration    int
 	EncoderBlobPath string
@@ -49,6 +52,11 @@ type engineStats struct {
 	FECRecoveryAttempts       uint64
 	FECFrames                 uint64
 	FECFallbackFrames         uint64
+	REDRecoveryAttempts       uint64
+	REDFrames                 uint64
+	REDFallbackFrames         uint64
+	REDPackets                uint64
+	REDRedundantBytes         uint64
 	DREDRecoveryAttempts      uint64
 	DREDFrames                uint64
 	DREDFallbackFrames        uint64
@@ -118,6 +126,12 @@ type engine struct {
 	closed        bool
 	stopCh        chan struct{}
 	done          sync.WaitGroup
+
+	decodeHook      func([]byte, decodeKind) bool
+	decodeREDHook   func([]byte) bool
+	fecEnabledHook  func([]byte) bool
+	prepareDREDHook func([]byte, int) (int, bool)
+	decodeDREDHook  func(int) bool
 }
 
 type decodeKind int
@@ -126,6 +140,7 @@ const (
 	decodeNormal decodeKind = iota
 	decodeLossPath
 	decodeFEC
+	decodeRED
 	decodeDRED
 )
 
@@ -146,6 +161,10 @@ type audioBackend interface {
 	close()
 }
 
+type rtpReader interface {
+	ReadRTP() (*rtp.Packet, interceptor.Attributes, error)
+}
+
 func defaultEngineConfig(recordDir, encBlob, decBlob string) engineConfig {
 	return engineConfig{
 		LossPercent:     15,
@@ -153,6 +172,8 @@ func defaultEngineConfig(recordDir, encBlob, decBlob string) engineConfig {
 		Bitrate:         48000,
 		Profile:         "dred",
 		FEC:             false,
+		RED:             false,
+		REDDepth:        1,
 		DRED:            dredControlsAvailable(),
 		DREDDuration:    80,
 		EncoderBlobPath: encBlob,
@@ -232,6 +253,18 @@ func (e *engine) setupWebRTC() error {
 	if err := mediaEngine.RegisterDefaultCodecs(); err != nil {
 		return fmt.Errorf("register WebRTC codecs: %w", err)
 	}
+	if err := mediaEngine.RegisterCodec(webrtc.RTPCodecParameters{
+		RTPCodecCapability: webrtc.RTPCodecCapability{
+			MimeType:     redMimeType,
+			ClockRate:    audioSampleRate,
+			Channels:     audioChannels,
+			SDPFmtpLine:  fmt.Sprintf("%d/%d", redOpusPayloadType, redOpusPayloadType),
+			RTCPFeedback: nil,
+		},
+		PayloadType: redPayloadType,
+	}, webrtc.RTPCodecTypeAudio); err != nil {
+		return fmt.Errorf("register RTP RED codec: %w", err)
+	}
 	api := webrtc.NewAPI(webrtc.WithMediaEngine(mediaEngine))
 
 	sender, err := api.NewPeerConnection(webrtc.Configuration{})
@@ -245,7 +278,10 @@ func (e *engine) setupWebRTC() error {
 	}
 
 	track, err := webrtc.NewTrackLocalStaticRTP(webrtc.RTPCodecCapability{
-		MimeType: webrtc.MimeTypeOpus,
+		MimeType:    redMimeType,
+		ClockRate:   audioSampleRate,
+		Channels:    audioChannels,
+		SDPFmtpLine: fmt.Sprintf("%d/%d", redOpusPayloadType, redOpusPayloadType),
 	}, "audio", "gopus-dred-loopback")
 	if err != nil {
 		_ = sender.Close()
@@ -343,6 +379,12 @@ func (e *engine) UpdateConfig(cfg engineConfig) error {
 	}
 	if cfg.ExpectedLoss > 100 {
 		cfg.ExpectedLoss = 100
+	}
+	if cfg.REDDepth < 1 {
+		cfg.REDDepth = 1
+	}
+	if cfg.REDDepth > maxREDDepth {
+		cfg.REDDepth = maxREDDepth
 	}
 	if cfg.Bitrate < 6000 {
 		cfg.Bitrate = 6000
@@ -488,6 +530,7 @@ func (e *engine) sendLoop() {
 	seq := uint16(rand.Uint32())
 	timestamp := rand.Uint32()
 	ssrc := rand.Uint32()
+	var redHistory []redHistoryFrame
 
 	for {
 		select {
@@ -504,6 +547,8 @@ func (e *engine) sendLoop() {
 		e.mu.Lock()
 		n, err := e.enc.Encode(pcm, packet)
 		lossPercent := e.cfg.LossPercent
+		redEnabled := e.cfg.RED
+		redDepth := e.cfg.REDDepth
 		track := e.track
 		hasDRED := err == nil && n > 0 && e.dredProbe != nil && e.dredProbe.packetHasDRED(packet[:n], frameSamples)
 		var packetMode gopus.Mode
@@ -518,14 +563,24 @@ func (e *engine) sendLoop() {
 		if n == 0 {
 			continue
 		}
+		primaryPayload := packet[:n]
+		if !redEnabled {
+			redDepth = 0
+		}
+		wirePayload, redRedundantBytes := buildREDPayload(primaryPayload, timestamp, redHistory, redDepth, frameSamples)
+		redHistory = rememberREDFrame(redHistory, primaryPayload, timestamp)
 
 		drop := lossPercent > 0 && e.lossRand.IntN(100) < lossPercent
 		if drop {
 			e.bump(func(s *engineStats) {
 				s.PacketsDropped++
-				s.EncodedBytes += uint64(n)
-				s.DroppedBytes += uint64(n)
-				s.LastPacketBytes = n
+				s.EncodedBytes += uint64(len(wirePayload))
+				s.DroppedBytes += uint64(len(wirePayload))
+				s.LastPacketBytes = len(wirePayload)
+				if redRedundantBytes > 0 {
+					s.REDPackets++
+					s.REDRedundantBytes += uint64(redRedundantBytes)
+				}
 				if hasDRED {
 					s.DREDPackets++
 				}
@@ -536,15 +591,19 @@ func (e *engine) sendLoop() {
 			continue
 		}
 
+		payloadType := uint8(redOpusPayloadType)
+		if redEnabled {
+			payloadType = redPayloadType
+		}
 		pkt := rtp.Packet{
 			Header: rtp.Header{
 				Version:        2,
-				PayloadType:    111,
+				PayloadType:    payloadType,
 				SequenceNumber: seq,
 				Timestamp:      timestamp,
 				SSRC:           ssrc,
 			},
-			Payload: packet[:n],
+			Payload: wirePayload,
 		}
 		seq++
 		timestamp += frameSamples
@@ -554,9 +613,13 @@ func (e *engine) sendLoop() {
 		}
 		e.bump(func(s *engineStats) {
 			s.PacketsSent++
-			s.EncodedBytes += uint64(n)
-			s.DeliveredBytes += uint64(n)
-			s.LastPacketBytes = n
+			s.EncodedBytes += uint64(len(wirePayload))
+			s.DeliveredBytes += uint64(len(wirePayload))
+			s.LastPacketBytes = len(wirePayload)
+			if redRedundantBytes > 0 {
+				s.REDPackets++
+				s.REDRedundantBytes += uint64(redRedundantBytes)
+			}
 			if hasDRED {
 				s.DREDPackets++
 			}
@@ -566,6 +629,10 @@ func (e *engine) sendLoop() {
 }
 
 func (e *engine) receiveLoop(remote *webrtc.TrackRemote) {
+	e.receiveRTP(remote)
+}
+
+func (e *engine) receiveRTP(remote rtpReader) {
 	defer e.done.Done()
 
 	pcm := make([]float32, 5760*audioChannels)
@@ -583,33 +650,66 @@ func (e *engine) receiveLoop(remote *webrtc.TrackRemote) {
 		if err != nil {
 			return
 		}
+		payload := pkt.Payload
+		var redBlocks []redBlock
+		redEnabled := e.redEnabled() && pkt.PayloadType == redPayloadType
+		malformedRED := false
+		if pkt.PayloadType == redPayloadType {
+			var err error
+			payload, redBlocks, err = parseREDPayload(pkt.Payload)
+			if err != nil {
+				malformedRED = true
+				e.bump(func(s *engineStats) {
+					s.REDFallbackFrames++
+					s.DecodeErrors++
+				})
+			}
+		}
 
 		if haveExpected {
 			missing := int(pkt.SequenceNumber - expected)
 			if missing > 0 && missing < 100 {
-				recoverWithFEC := e.fecEnabledFor(pkt.Payload)
-				dredAvailable, dredReady := e.prepareDREDRecovery(pkt.Payload, missing*frameSamples)
-				for lostAgo := missing; lostAgo >= 1; lostAgo-- {
-					if recoverWithFEC && lostAgo == 1 {
-						if e.decodeAndOutput(pkt.Payload, pcm, decodeFEC) {
+				if malformedRED {
+					for range missing {
+						e.decodeAndOutput(nil, pcm, decodeLossPath)
+					}
+				} else {
+					recoverWithFEC := e.fecEnabledFor(payload)
+					dredAvailable, dredReady := e.prepareDREDRecovery(payload, missing*frameSamples)
+					for lostAgo := missing; lostAgo >= 1; lostAgo-- {
+						if redEnabled {
+							if redPayload := findREDRecoveryBlock(redBlocks, lostAgo, frameSamples); len(redPayload) > 0 {
+								if e.decodeREDAndOutput(redPayload, pcm) {
+									continue
+								}
+								e.bump(func(s *engineStats) { s.REDFallbackFrames++ })
+							}
+						}
+						if recoverWithFEC && lostAgo == 1 {
+							if e.decodeAndOutput(payload, pcm, decodeFEC) {
+								continue
+							}
+							e.bump(func(s *engineStats) { s.FECFallbackFrames++ })
+						}
+						if dredReady && dredAvailable >= lostAgo*frameSamples && e.decodeDREDAndOutput(lostAgo*frameSamples, pcm) {
 							continue
 						}
-						e.bump(func(s *engineStats) { s.FECFallbackFrames++ })
+						if dredReady {
+							e.bump(func(s *engineStats) { s.DREDFallbackFrames++ })
+						}
+						e.decodeAndOutput(nil, pcm, decodeLossPath)
 					}
-					if dredReady && dredAvailable >= lostAgo*frameSamples && e.decodeDREDAndOutput(lostAgo*frameSamples, pcm) {
-						continue
-					}
-					if dredReady {
-						e.bump(func(s *engineStats) { s.DREDFallbackFrames++ })
-					}
-					e.decodeAndOutput(nil, pcm, decodeLossPath)
 				}
 			}
 		}
 		expected = pkt.SequenceNumber + 1
 		haveExpected = true
 
-		e.decodeAndOutput(pkt.Payload, pcm, decodeNormal)
+		if malformedRED {
+			e.decodeAndOutput(nil, pcm, decodeLossPath)
+			continue
+		}
+		e.decodeAndOutput(payload, pcm, decodeNormal)
 	}
 }
 
@@ -625,6 +725,9 @@ func incrementPacketMode(s *engineStats, mode gopus.Mode) {
 }
 
 func (e *engine) fecEnabledFor(payload []byte) bool {
+	if e.fecEnabledHook != nil {
+		return e.fecEnabledHook(payload)
+	}
 	e.mu.Lock()
 	enabled := e.cfg.FEC
 	e.mu.Unlock()
@@ -635,7 +738,16 @@ func (e *engine) fecEnabledFor(payload []byte) bool {
 	return mode == gopus.ModeSILK || mode == gopus.ModeHybrid
 }
 
+func (e *engine) redEnabled() bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.cfg.RED
+}
+
 func (e *engine) prepareDREDRecovery(payload []byte, maxDREDSamples int) (int, bool) {
+	if e.prepareDREDHook != nil {
+		return e.prepareDREDHook(payload, maxDREDSamples)
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if !e.cfg.DRED || e.dredProbe == nil || maxDREDSamples <= 0 {
@@ -644,7 +756,27 @@ func (e *engine) prepareDREDRecovery(payload []byte, maxDREDSamples int) (int, b
 	return e.dredProbe.prepareRecovery(payload, maxDREDSamples)
 }
 
+func (e *engine) decodeREDAndOutput(payload []byte, pcm []float32) bool {
+	if e.decodeREDHook != nil {
+		return e.decodeREDHook(payload)
+	}
+	e.mu.Lock()
+	e.stats.REDRecoveryAttempts++
+	samples, err := e.dec.Decode(payload, pcm)
+	if err != nil {
+		e.stats.DecodeErrors++
+		e.mu.Unlock()
+		return false
+	}
+	e.writeDecodedLocked(pcm, samples, decodeRED)
+	e.mu.Unlock()
+	return true
+}
+
 func (e *engine) decodeDREDAndOutput(dredOffsetSamples int, pcm []float32) bool {
+	if e.decodeDREDHook != nil {
+		return e.decodeDREDHook(dredOffsetSamples)
+	}
 	e.mu.Lock()
 	if e.dredProbe == nil {
 		e.mu.Unlock()
@@ -662,6 +794,9 @@ func (e *engine) decodeDREDAndOutput(dredOffsetSamples int, pcm []float32) bool 
 }
 
 func (e *engine) decodeAndOutput(payload []byte, pcm []float32, kind decodeKind) bool {
+	if e.decodeHook != nil {
+		return e.decodeHook(payload, kind)
+	}
 	e.mu.Lock()
 	var samples int
 	var err error
@@ -719,6 +854,10 @@ func (e *engine) writeDecodedLocked(pcm []float32, samples int, kind decodeKind)
 	case decodeFEC:
 		e.stats.ConcealedFrames++
 		e.stats.FECFrames++
+		e.stats.ConcealedSamples += uint64(samples)
+	case decodeRED:
+		e.stats.ConcealedFrames++
+		e.stats.REDFrames++
 		e.stats.ConcealedSamples += uint64(samples)
 	case decodeDRED:
 		e.stats.ConcealedFrames++
@@ -821,16 +960,21 @@ func recoverySummary(s engineStats, totalPackets uint64) (int, string) {
 	if s.DREDFrames > 0 {
 		dredScore = math.Min(30, s.DREDCoveragePercent*0.30)
 	}
+	redScore := math.Min(15, float64(s.REDFrames)*0.5)
 	fecScore := math.Min(15, float64(s.FECFrames)*0.5)
 	concealScore := math.Min(15, s.ConcealedAudioMS/120)
 	cleanScore := 0.0
 	if s.EncodeErrors+s.DecodeErrors == 0 {
 		cleanScore = 10
 	}
-	score := int(math.Round(math.Min(100, lossScore+dredScore+fecScore+concealScore+cleanScore)))
+	score := int(math.Round(math.Min(100, lossScore+dredScore+redScore+fecScore+concealScore+cleanScore)))
 	switch {
+	case s.REDFrames > 0 && s.FECFrames > 0 && s.DREDFrames > 0:
+		return score, fmt.Sprintf("%.1f%% loss recovered with RED, FEC, and DRED", s.ActualLossPercent)
 	case score >= 90 && s.DREDFrames > 0:
 		return score, fmt.Sprintf("%.1f%% loss with %.1f%% DRED coverage and %d DRED frames", s.ActualLossPercent, s.DREDCoveragePercent, s.DREDFrames)
+	case s.REDFrames > 0:
+		return score, fmt.Sprintf("%d frames recovered from RTP RED", s.REDFrames)
 	case s.DREDPackets > 0 && s.DREDFrames == 0:
 		return score, "DRED payloads detected; explicit recovery has not fired"
 	case score >= 75:

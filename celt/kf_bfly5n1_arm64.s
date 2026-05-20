@@ -6,7 +6,7 @@
 // Common CELT radix-5 stage specialization for N=1, mm=1.
 // This keeps rolling pointers for both fout lanes and twiddles, avoiding the
 // outer-loop/index rebuild that the general kfBfly5Inner path pays every call.
-TEXT ·kfBfly5N1(SB), NOSPLIT, $0-72
+TEXT ·kfBfly5N1(SB), NOSPLIT, $0-64
 	MOVD fout_base+0(FP), R0
 	MOVD tw_base+24(FP), R1
 	MOVD m+48(FP), R2

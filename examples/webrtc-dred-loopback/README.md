@@ -44,8 +44,8 @@ go run -tags gopus_dred . \
   -decoder-dnn dnn/decoder-dred.blob
 ```
 
-For a deterministic 4-way comparison with the same source, loss seed, and loss
-rate in each run:
+For a deterministic comparison with the same source, loss seed, and loss rate in
+each run:
 
 ```bash
 go run -tags gopus_dred . \
@@ -56,12 +56,9 @@ go run -tags gopus_dred . \
 
 `-compare` defaults to the fullband Hybrid profile, because Hybrid is the Opus
 mode where in-band FEC and the current 48 kHz DRED recovery path can be compared
-and combined. The JSON array reports `plc`, `fec`, `dred`, and `fec+dred` runs.
-Hybrid comparison uses Opus FEC for the most recent missing frame and explicit
-DRED recovery for older missing frames when a delivered packet carries usable
-DRED redundancy. Use `-profile dred` for the CELT DRED-only showcase path; CELT
-does not carry ordinary Opus in-band FEC, but it is the clearest current path
-for hearing and measuring receiver-side DRED recovery.
+and combined. The JSON array reports `plc`, `fec`, `red`, `red+fec`, `dred`,
+`fec+dred`, `red+dred`, and `red+fec+dred` runs. On receive, exact RTP RED
+recovery wins before FEC, DRED, then PLC.
 
 The encoder blob must satisfy the encoder DNN control surface. The decoder blob
 must satisfy the decoder DNN control surface and include the DRED decoder family
@@ -74,6 +71,8 @@ if receiver-side cached DRED recovery should be exercised.
 - `Bitrate`: updates the live gopus encoder.
 - `In-band FEC`: toggles ordinary Opus FEC independently of DRED. Single
   missing packets are recovered with `DecodeWithFEC(nextPacket, pcm, true)`.
+- `RTP RED`: wraps Opus payloads with redundant blocks; `RED depth` controls how
+  many prior Opus frames are carried.
 - `Enable DRED`: arms `SetDREDDuration` when built with `-tags gopus_dred`.
 - `Depth`: DRED depth in 2.5 ms units. The loss slider also updates the
   encoder expected-loss control; at 0% expected loss the encoder may not spend
@@ -103,6 +102,7 @@ The Gio stats panel and `-headless` JSON report include:
 - emitted packet mode counts, so CELT/Hybrid/SILK runs are visible
 - FEC recovery attempts, FEC output frames, FEC fallbacks, and receiver
   PLC/DRED loss-path frames
+- RED recovery attempts, output frames, fallbacks, and redundant payload bytes
 - DRED recovery attempts, DRED output frames, DRED fallbacks, and DRED payload
   coverage so packet carriage and audible recovery are visible separately
 - received and concealed audio duration, latest decoded RMS/peak, and headless

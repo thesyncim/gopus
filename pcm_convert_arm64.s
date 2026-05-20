@@ -6,7 +6,7 @@
 // Converts the common already-soft-clipped path where every sample is in
 // [-1, 1]. Returns false on the first out-of-range or NaN sample so the Go
 // soft-clip fallback can process the whole frame.
-TEXT ·convertFloat32ToInt16Unit(SB), NOSPLIT, $0-64
+TEXT ·convertFloat32ToInt16Unit(SB), NOSPLIT, $0-57
 	MOVD  dst_base+0(FP), R0
 	MOVD  src_base+24(FP), R1
 	MOVD  n+48(FP), R2
