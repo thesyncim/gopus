@@ -613,6 +613,72 @@ func TestEncoder_SetApplication(t *testing.T) {
 	}
 }
 
+func TestEncoder_SetApplicationPreservesControls(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	if err := enc.SetSignal(SignalMusic); err != nil {
+		t.Fatalf("SetSignal(SignalMusic) error: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthSuperwideband); err != nil {
+		t.Fatalf("SetBandwidth(SWB) error: %v", err)
+	}
+	if err := enc.SetForceChannels(1); err != nil {
+		t.Fatalf("SetForceChannels(1) error: %v", err)
+	}
+	if err := enc.SetMode(EncoderModeCELT); err != nil {
+		t.Fatalf("SetMode(CELT) error: %v", err)
+	}
+
+	if err := enc.SetApplication(ApplicationVoIP); err != nil {
+		t.Fatalf("SetApplication(ApplicationVoIP) error: %v", err)
+	}
+
+	if got := enc.Signal(); got != SignalMusic {
+		t.Fatalf("Signal()=%v want %v", got, SignalMusic)
+	}
+	if got := enc.Bandwidth(); got != BandwidthSuperwideband {
+		t.Fatalf("Bandwidth()=%v want %v", got, BandwidthSuperwideband)
+	}
+	if got := enc.ForceChannels(); got != 1 {
+		t.Fatalf("ForceChannels()=%d want 1", got)
+	}
+	if got := enc.Mode(); got != EncoderModeCELT {
+		t.Fatalf("Mode()=%v want %v", got, EncoderModeCELT)
+	}
+}
+
+func TestEncoder_SetApplicationFromLowDelayRestoresDefaultModeUnlessForced(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationLowDelay})
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	if err := enc.SetApplication(ApplicationAudio); err != nil {
+		t.Fatalf("SetApplication(ApplicationAudio) error: %v", err)
+	}
+	if got := enc.Mode(); got != EncoderModeAuto {
+		t.Fatalf("Mode()=%v want %v", got, EncoderModeAuto)
+	}
+	if enc.enc.LowDelay() {
+		t.Fatal("LowDelay()=true after switching to audio, want false")
+	}
+
+	forced, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationLowDelay})
+	if err != nil {
+		t.Fatalf("NewEncoder forced error: %v", err)
+	}
+	if err := forced.SetMode(EncoderModeCELT); err != nil {
+		t.Fatalf("SetMode(CELT) error: %v", err)
+	}
+	if err := forced.SetApplication(ApplicationAudio); err != nil {
+		t.Fatalf("SetApplication(ApplicationAudio) with forced mode error: %v", err)
+	}
+	if got := forced.Mode(); got != EncoderModeCELT {
+		t.Fatalf("forced Mode()=%v want %v", got, EncoderModeCELT)
+	}
+}
+
 func TestEncoder_RestrictedApplications(t *testing.T) {
 	for _, tt := range restrictedApplicationTestCases() {
 		t.Run(tt.name, func(t *testing.T) {

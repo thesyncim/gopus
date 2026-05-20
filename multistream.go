@@ -46,6 +46,7 @@ type MultistreamEncoder struct {
 	expertFrameDuration ExpertFrameDuration
 	application         Application
 	encodedOnce         bool
+	modeSet             bool
 	scratchPCM64        []float64
 	scratchPCM32        []float32
 	dnnBlob             *dnnblob.Blob

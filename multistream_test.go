@@ -992,6 +992,18 @@ func TestMultistreamEncoder_SetApplicationPreservesControls(t *testing.T) {
 	if err := enc.SetComplexity(wantComplexity); err != nil {
 		t.Fatalf("SetComplexity(%d) error: %v", wantComplexity, err)
 	}
+	if err := enc.SetSignal(SignalMusic); err != nil {
+		t.Fatalf("SetSignal(SignalMusic) error: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthSuperwideband); err != nil {
+		t.Fatalf("SetBandwidth(SWB) error: %v", err)
+	}
+	if err := enc.SetForceChannels(1); err != nil {
+		t.Fatalf("SetForceChannels(1) error: %v", err)
+	}
+	if err := enc.SetMode(EncoderModeCELT); err != nil {
+		t.Fatalf("SetMode(CELT) error: %v", err)
+	}
 
 	if err := enc.SetApplication(ApplicationVoIP); err != nil {
 		t.Fatalf("SetApplication(ApplicationVoIP) error: %v", err)
@@ -1003,9 +1015,21 @@ func TestMultistreamEncoder_SetApplicationPreservesControls(t *testing.T) {
 	if got := enc.Complexity(); got != wantComplexity {
 		t.Fatalf("Complexity() after SetApplication = %d, want %d", got, wantComplexity)
 	}
+	if got := enc.Signal(); got != SignalMusic {
+		t.Fatalf("Signal() after SetApplication = %v, want %v", got, SignalMusic)
+	}
+	if got := enc.Bandwidth(); got != BandwidthSuperwideband {
+		t.Fatalf("Bandwidth() after SetApplication = %v, want %v", got, BandwidthSuperwideband)
+	}
+	if got := enc.ForceChannels(); got != 1 {
+		t.Fatalf("ForceChannels() after SetApplication = %d, want 1", got)
+	}
+	if got := enc.Mode(); got != EncoderModeCELT {
+		t.Fatalf("Mode() after SetApplication = %v, want %v", got, EncoderModeCELT)
+	}
 }
 
-func TestMultistreamEncoder_SetApplicationForwardsModeAndBandwidth(t *testing.T) {
+func TestMultistreamEncoder_SetApplicationUpdatesApplicationPolicy(t *testing.T) {
 	enc := mustNewDefaultMultistreamEncoder(t, 48000, 6, ApplicationAudio)
 
 	if got := enc.enc.Mode(); got != encodercore.ModeAuto {
@@ -1027,21 +1051,45 @@ func TestMultistreamEncoder_SetApplicationForwardsModeAndBandwidth(t *testing.T)
 	if enc.enc.LowDelay() {
 		t.Fatalf("LowDelay() after VoIP = true, want false")
 	}
-	if got := enc.Bandwidth(); got != BandwidthWideband {
-		t.Fatalf("Bandwidth() after VoIP = %v, want %v", got, BandwidthWideband)
+	if got := enc.Bandwidth(); got != BandwidthFullband {
+		t.Fatalf("Bandwidth() after VoIP = %v, want preserved %v", got, BandwidthFullband)
 	}
 
 	if err := enc.SetApplication(ApplicationLowDelay); err != nil {
 		t.Fatalf("SetApplication(ApplicationLowDelay) error: %v", err)
 	}
-	if got := enc.enc.Mode(); got != encodercore.ModeCELT {
-		t.Fatalf("Mode() after LowDelay = %v, want %v", got, encodercore.ModeCELT)
+	if got := enc.enc.Mode(); got != encodercore.ModeAuto {
+		t.Fatalf("Mode() after LowDelay = %v, want preserved %v", got, encodercore.ModeAuto)
 	}
 	if !enc.enc.LowDelay() {
 		t.Fatalf("LowDelay() after LowDelay app = false, want true")
 	}
 	if got := enc.Bandwidth(); got != BandwidthFullband {
 		t.Fatalf("Bandwidth() after LowDelay = %v, want %v", got, BandwidthFullband)
+	}
+}
+
+func TestMultistreamEncoder_SetApplicationFromLowDelayRestoresDefaultModeUnlessForced(t *testing.T) {
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, 6, ApplicationLowDelay)
+	if err := enc.SetApplication(ApplicationAudio); err != nil {
+		t.Fatalf("SetApplication(ApplicationAudio) error: %v", err)
+	}
+	if got := enc.Mode(); got != EncoderModeAuto {
+		t.Fatalf("Mode()=%v want %v", got, EncoderModeAuto)
+	}
+	if enc.enc.LowDelay() {
+		t.Fatal("LowDelay()=true after switching to audio, want false")
+	}
+
+	forced := mustNewDefaultMultistreamEncoder(t, 48000, 6, ApplicationLowDelay)
+	if err := forced.SetMode(EncoderModeCELT); err != nil {
+		t.Fatalf("SetMode(CELT) error: %v", err)
+	}
+	if err := forced.SetApplication(ApplicationAudio); err != nil {
+		t.Fatalf("SetApplication(ApplicationAudio) with forced mode error: %v", err)
+	}
+	if got := forced.Mode(); got != EncoderModeCELT {
+		t.Fatalf("forced Mode()=%v want %v", got, EncoderModeCELT)
 	}
 }
 

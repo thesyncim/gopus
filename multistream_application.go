@@ -7,7 +7,19 @@ func (e *MultistreamEncoder) SetApplication(application Application) error {
 	if err := validateMutableApplication(e.application, e.encodedOnce, application); err != nil {
 		return err
 	}
-	return e.applyApplication(application)
+	previousApplication := e.application
+	settings, err := settingsForApplication(application)
+	if err != nil {
+		return err
+	}
+	if !e.modeSet && previousApplication == ApplicationLowDelay {
+		e.enc.SetMode(EncoderModeAuto)
+	}
+	e.application = application
+	e.enc.SetLowDelay(settings.lowDelay)
+	e.enc.SetVoIPApplication(settings.voip)
+	e.enc.SetRestrictedSilkApplication(false)
+	return nil
 }
 
 // Application returns the current encoder application hint.

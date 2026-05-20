@@ -103,6 +103,7 @@ func (e *MultistreamEncoder) SetMode(mode EncoderMode) error {
 		return err
 	}
 	e.enc.SetMode(mode)
+	e.modeSet = true
 	return nil
 }
 

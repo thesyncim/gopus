@@ -116,6 +116,7 @@ type Encoder struct {
 	expertFrameDuration ExpertFrameDuration
 	application         Application
 	encodedOnce         bool
+	modeSet             bool
 
 	// Scratch buffers for zero-allocation encoding
 	scratchPCM64 []float64 // float32 to float64 conversion buffer
