@@ -238,6 +238,16 @@ func probeLibopusDecoderDREDDecodeAndNextFloatWithGain(seedPacket, packet, nextP
 	return info, nil
 }
 
+func requireLibopusDREDDecodeParsed(t testing.TB, info libopusDecoderDREDDecodeFloatInfo, label string) {
+	t.Helper()
+	if info.parseRet <= 0 {
+		t.Fatalf("%s libopus DRED parse ret=%d want >0 (dredEnd=%d)", label, info.parseRet, info.dredEnd)
+	}
+	if info.parseRet < info.dredEnd {
+		t.Fatalf("%s libopus DRED parse ret=%d before dredEnd=%d", label, info.parseRet, info.dredEnd)
+	}
+}
+
 func assertDecoderDREDPLCStateApproxEqual(t *testing.T, got, want lpcnetplc.StateSnapshot, label string) {
 	t.Helper()
 	assertDecoderDREDPLCStateApproxEqualWithin(t, got, want, label, 1e-4)
@@ -1491,9 +1501,7 @@ func TestDecoderExplicitHybridDREDDecodeMatrixMatchesLibopus(t *testing.T) {
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder hybrid DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder hybrid DRED")
 			if want.ret != n {
 				t.Fatalf("libopus hybrid decoder DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -1543,9 +1551,7 @@ func TestDecoderExplicitHybridDREDDecode16kMatrixMatchesLibopus(t *testing.T) {
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder 16k hybrid DRED")
 			if want.ret != n {
 				t.Fatalf("libopus 16k hybrid decoder DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -1598,9 +1604,7 @@ func TestDecoderExplicitHybridDREDDecodeThenNextPacketMatchesLibopus(t *testing.
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder hybrid DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder hybrid DRED")
 			if want.ret != n {
 				t.Fatalf("libopus hybrid decoder DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -1656,9 +1660,7 @@ func TestDecoderExplicitHybridDREDDecodeThenNextPacket16kMatchesLibopus(t *testi
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder 16k hybrid DRED")
 			if want.ret != n {
 				t.Fatalf("libopus 16k hybrid decoder DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -1713,9 +1715,7 @@ func TestDecoderExplicitHybridDREDDecodeSecondLossMatrixMatchesLibopus(t *testin
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder hybrid DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder hybrid DRED")
 			if want.warmupRet != n {
 				t.Fatalf("libopus hybrid decoder DRED warmup ret=%d want %d", want.warmupRet, n)
 			}
@@ -1770,9 +1770,7 @@ func TestDecoderExplicitHybridDREDDecodeSecondLoss16kMatrixMatchesLibopus(t *tes
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder 16k hybrid DRED")
 			if want.warmupRet != n {
 				t.Fatalf("libopus 16k hybrid decoder DRED warmup ret=%d want %d", want.warmupRet, n)
 			}
@@ -1832,9 +1830,7 @@ func TestDecoderExplicitHybridDREDDecodeSecondLossThenNextPacketMatrixMatchesLib
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder hybrid DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder hybrid DRED")
 			if want.warmupRet != n {
 				t.Fatalf("libopus hybrid decoder DRED warmup ret=%d want %d", want.warmupRet, n)
 			}
@@ -1897,9 +1893,7 @@ func TestDecoderExplicitHybridDREDDecodeSecondLossThenNextPacket16kMatrixMatches
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder 16k hybrid DRED")
 			if want.warmupRet != n {
 				t.Fatalf("libopus 16k hybrid decoder DRED warmup ret=%d want %d", want.warmupRet, n)
 			}
@@ -2550,9 +2544,7 @@ func TestDecoderExplicitDREDDecodeMatchesLibopus(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 	if want.ret != n {
 		t.Fatalf("libopus decoder DRED decode ret=%d want %d", want.ret, n)
 	}
@@ -2594,9 +2586,7 @@ func TestDecoderExplicitStereoDREDDecodeMatchesLibopus(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder stereo DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder stereo DRED")
 	if want.ret != n {
 		t.Fatalf("libopus decoder stereo DRED decode ret=%d want %d", want.ret, n)
 	}
@@ -2666,9 +2656,7 @@ func TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder stereo 16k DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder stereo 16k DRED")
 	if want.ret != n {
 		t.Fatalf("libopus decoder stereo 16k DRED decode ret=%d want %d", want.ret, n)
 	}
@@ -2741,9 +2729,7 @@ func TestDecoderExplicitStereoHybridDRED16kDecodeMatchesLibopus(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder stereo Hybrid 16k DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder stereo Hybrid 16k DRED")
 	if want.ret != n {
 		t.Fatalf("libopus decoder stereo Hybrid 16k DRED decode ret=%d want %d", want.ret, n)
 	}
@@ -2803,9 +2789,7 @@ func TestDecoderExplicit16kHybridDREDDecodeMatrixMatchesLibopus(t *testing.T) {
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder 16k hybrid DRED")
 			if want.ret != n {
 				t.Fatalf("libopus 16k hybrid decoder DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -2835,9 +2819,7 @@ func TestDecoderExplicitDREDDecode16kMatchesLibopus(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 	if want.ret != n {
 		t.Fatalf("libopus 16k decoder DRED decode ret=%d want %d", want.ret, n)
 	}
@@ -2871,8 +2853,9 @@ func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusFirstLoss(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 || want.ret != n {
-		t.Skipf("libopus decoder DRED decode not available: parse=%d ret=%d", want.parseRet, want.ret)
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
+	if want.ret != n {
+		t.Fatalf("libopus decoder DRED decode ret=%d want %d", want.ret, n)
 	}
 
 	pcm := make([]float32, dec.maxPacketSamples)
@@ -2895,9 +2878,7 @@ func TestDecoderExplicitDREDDecodeSecondLossMatchesLibopus(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 	if want.warmupRet != n {
 		t.Fatalf("libopus decoder DRED warmup ret=%d want %d", want.warmupRet, n)
 	}
@@ -2935,9 +2916,7 @@ func TestDecoderExplicitDREDDecodeSecondLossGainTransitionMatchesLibopus(t *test
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if wantFirst.parseRet < 0 {
-		t.Skipf("libopus decoder DRED parse failed: %d", wantFirst.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, wantFirst, "libopus decoder DRED")
 	if wantFirst.ret != n {
 		t.Fatalf("libopus decoder DRED first ret=%d want %d", wantFirst.ret, n)
 	}
@@ -2962,9 +2941,7 @@ func TestDecoderExplicitDREDDecodeSecondLossGainTransitionMatchesLibopus(t *test
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if wantSecond.parseRet < 0 {
-		t.Skipf("libopus decoder DRED parse failed: %d", wantSecond.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, wantSecond, "libopus decoder DRED")
 	if wantSecond.warmupRet != n {
 		t.Fatalf("libopus decoder DRED warmup ret=%d want %d", wantSecond.warmupRet, n)
 	}
@@ -3000,9 +2977,7 @@ func TestDecoderExplicitDREDDecodeSecondLoss16kMatchesLibopus(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 	if want.warmupRet != n {
 		t.Fatalf("libopus 16k decoder DRED warmup ret=%d want %d", want.warmupRet, n)
 	}
@@ -3043,8 +3018,9 @@ func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusSecondLoss(t *testing.T) 
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 || want.ret != n {
-		t.Skipf("libopus decoder DRED second decode not available: parse=%d ret=%d", want.parseRet, want.ret)
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED second")
+	if want.ret != n {
+		t.Fatalf("libopus decoder DRED second decode ret=%d want %d", want.ret, n)
 	}
 
 	pcm1 := make([]float32, dec.maxPacketSamples)
@@ -3071,9 +3047,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketMatchesLibopus(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 	if want.ret != n {
 		t.Fatalf("libopus decoder DRED decode ret=%d want %d", want.ret, n)
 	}
@@ -3110,9 +3084,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kMatchesLibopus(t *testing.T) 
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 	if want.ret != n {
 		t.Fatalf("libopus 16k decoder DRED decode ret=%d want %d", want.ret, n)
 	}
@@ -3145,9 +3117,7 @@ func TestDecoderExplicitDREDDecode16kFrameSizeMatrixMatchesLibopus(t *testing.T)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 			if want.ret != n {
 				t.Fatalf("libopus 16k frame-size decode ret=%d want %d", want.ret, n)
 			}
@@ -3186,9 +3156,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kFrameSizeMatrixMatchesLibopus
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 			if want.ret != n {
 				t.Fatalf("libopus 16k follow-up frame-size decode ret=%d want %d", want.ret, n)
 			}
@@ -3228,9 +3196,7 @@ func TestDecoderExplicitDREDDecode16kCELTSuperwidebandFrameSizeMatrixMatchesLibo
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT SWB DRED")
 			if want.ret != n {
 				t.Fatalf("libopus 16k CELT SWB frame-size decode ret=%d want %d", want.ret, n)
 			}
@@ -3273,9 +3239,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kCELTSuperwidebandFrameSizeMat
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT SWB DRED")
 			if want.ret != n {
 				t.Fatalf("libopus 16k CELT SWB follow-up frame-size decode ret=%d want %d", want.ret, n)
 			}
@@ -3315,9 +3279,7 @@ func TestDecoderExplicitDREDDecode16kCELTWidebandFrameSizeMatrixMatchesLibopus(t
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT WB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT WB DRED")
 			if want.ret != n {
 				t.Fatalf("libopus 16k CELT WB frame-size decode ret=%d want %d", want.ret, n)
 			}
@@ -3360,9 +3322,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kCELTWidebandFrameSizeMatrixMa
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT WB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT WB DRED")
 			if want.ret != n {
 				t.Fatalf("libopus 16k CELT WB follow-up frame-size decode ret=%d want %d", want.ret, n)
 			}
@@ -3405,9 +3365,7 @@ func TestDecoderExplicitSecondLossThenNextPacket16kMatchesLibopus(t *testing.T) 
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 	if want.warmupRet != n {
 		t.Fatalf("libopus 16k decoder warmup ret=%d want %d", want.warmupRet, n)
 	}
@@ -3454,9 +3412,7 @@ func TestDecoderExplicitSecondLossThenNextPacketMatchesLibopus(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 	if want.warmupRet != n {
 		t.Fatalf("libopus decoder DRED warmup ret=%d want %d", want.warmupRet, n)
 	}
@@ -3506,9 +3462,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixMatchesLibopus(t *testing.T) {
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 			if want.ret != n {
 				t.Fatalf("libopus decoder DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -3578,9 +3532,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixCELTSuperwidebandMatchesLibopus(t 
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT SWB DRED")
 			if want.ret != n {
 				t.Fatalf("libopus decoder CELT SWB DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -3650,9 +3602,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixHybridSuperwidebandMatchesLibopus(
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder hybrid SWB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder hybrid SWB DRED")
 			if want.ret != n {
 				t.Fatalf("libopus decoder hybrid SWB DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -3722,9 +3672,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixHybridFullbandMatchesLibopus(t *te
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder hybrid FB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder hybrid FB DRED")
 			if want.ret != n {
 				t.Fatalf("libopus decoder hybrid FB DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -3815,9 +3763,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrix16kHybridMatchesLibopus(t *testing
 					if err != nil {
 						libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 					}
-					if want.parseRet < 0 {
-						t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
-					}
+					requireLibopusDREDDecodeParsed(t, want, "libopus decoder 16k hybrid DRED")
 					if want.ret != n {
 						t.Fatalf("libopus decoder 16k hybrid DRED decode ret=%d want %d", want.ret, n)
 					}
@@ -3858,9 +3804,7 @@ func TestDecoderExplicitDREDDecodeFrameSizeMatrixMatchesLibopus(t *testing.T) {
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 			if want.ret != n {
 				t.Fatalf("libopus decoder DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -3900,9 +3844,7 @@ func TestDecoderExplicitDREDDecodeCELTSuperwidebandFrameSizeMatrixMatchesLibopus
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT SWB DRED")
 			if want.ret != n {
 				t.Fatalf("libopus decoder CELT SWB DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -3942,9 +3884,7 @@ func TestDecoderExplicitDREDDecodeCELTWidebandFrameSizeMatrixMatchesLibopus(t *t
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT WB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT WB DRED")
 			if want.ret != n {
 				t.Fatalf("libopus decoder CELT WB DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -3985,9 +3925,7 @@ func TestDecoderExplicitDREDDecodeSecondLossFrameSizeMatrixMatchesLibopus(t *tes
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 			if want.warmupRet != n {
 				t.Fatalf("libopus decoder DRED warmup ret=%d want %d", want.warmupRet, n)
 			}
@@ -4035,9 +3973,7 @@ func TestDecoderExplicitDREDDecodeSecondLossCELTSuperwidebandFrameSizeMatrixMatc
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT SWB DRED")
 			if want.warmupRet != n {
 				t.Fatalf("libopus decoder CELT SWB DRED warmup ret=%d want %d", want.warmupRet, n)
 			}
@@ -4082,9 +4018,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketFrameSizeMatrixMatchesLibopus(t 
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 			if want.ret != n {
 				t.Fatalf("libopus decoder DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -4133,9 +4067,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketCELTSuperwidebandFrameSizeMatrix
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT SWB DRED")
 			if want.ret != n {
 				t.Fatalf("libopus decoder CELT SWB DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -4184,9 +4116,7 @@ func TestDecoderExplicitSecondLossThenNextPacketFrameSizeMatrixMatchesLibopus(t 
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder DRED")
 			if want.warmupRet != n {
 				t.Fatalf("libopus decoder DRED warmup ret=%d want %d", want.warmupRet, n)
 			}
@@ -4242,9 +4172,7 @@ func TestDecoderExplicitSecondLossThenNextPacketCELTSuperwidebandFrameSizeMatrix
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT SWB DRED")
 			if want.warmupRet != n {
 				t.Fatalf("libopus decoder CELT SWB DRED warmup ret=%d want %d", want.warmupRet, n)
 			}
@@ -4464,9 +4392,7 @@ func TestDecoderExplicitDREDDecodeSecondLossCELTWidebandFrameSizeMatrixMatchesLi
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT WB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT WB DRED")
 			if want.warmupRet != n {
 				t.Fatalf("libopus decoder CELT WB DRED warmup ret=%d want %d", want.warmupRet, n)
 			}
@@ -4515,9 +4441,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketCELTWidebandFrameSizeMatrixMatch
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT WB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT WB DRED")
 			if want.ret != n {
 				t.Fatalf("libopus decoder CELT WB DRED decode ret=%d want %d", want.ret, n)
 			}
@@ -4570,9 +4494,7 @@ func TestDecoderExplicitSecondLossThenNextPacketCELTWidebandFrameSizeMatrixMatch
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
-			if want.parseRet < 0 {
-				t.Skipf("libopus decoder CELT WB DRED parse failed: %d", want.parseRet)
-			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus decoder CELT WB DRED")
 			if want.warmupRet != n {
 				t.Fatalf("libopus decoder CELT WB DRED warmup ret=%d want %d", want.warmupRet, n)
 			}
@@ -4620,9 +4542,7 @@ func TestDecoderExplicitSILKDREDDecodeMatchesLibopus(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder SILK DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder SILK DRED")
 	if want.ret != n {
 		t.Fatalf("libopus decoder SILK DRED decode ret=%d want %d", want.ret, n)
 	}
@@ -4665,9 +4585,7 @@ func TestDecoderExplicit16kSILKDREDDecodeMatchesLibopus(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder 16k SILK DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder 16k SILK DRED")
 	if want.ret != n {
 		t.Fatalf("libopus decoder 16k SILK DRED decode ret=%d want %d", want.ret, n)
 	}
@@ -4727,9 +4645,7 @@ func TestDecoderExplicitSILKDREDDecodeStereoMatchesLibopus(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
-	if want.parseRet < 0 {
-		t.Skipf("libopus decoder stereo SILK DRED parse failed: %d", want.parseRet)
-	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus decoder stereo SILK DRED")
 	if want.ret != n {
 		t.Fatalf("libopus decoder stereo SILK DRED decode ret=%d want %d", want.ret, n)
 	}
