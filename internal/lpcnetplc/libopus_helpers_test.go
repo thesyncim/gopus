@@ -4,12 +4,8 @@
 package lpcnetplc
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 
@@ -428,12 +424,8 @@ func probeLibopusPLCConceal(state State, farganState FARGANState, fec0, fec1 []f
 		return libopusPLCConcealResult{}, fmt.Errorf("invalid conceal helper FEC sizes")
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusPLCConcealInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(2)); err != nil {
-		return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal version: %w", err)
-	}
-	for _, v := range []int32{
+	payload := libopustest.NewOraclePayloadVersion(libopusPLCConcealInputMagic, 2)
+	payload.I32s(
 		int32(state.blend),
 		int32(state.lossCount),
 		int32(state.analysisGap),
@@ -442,19 +434,7 @@ func probeLibopusPLCConceal(state State, farganState FARGANState, fec0, fec1 []f
 		int32(state.fecReadPos),
 		int32(state.fecFillPos),
 		int32(state.fecSkip),
-	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal header: %w", err)
-		}
-	}
-	writeBits := func(values []float32) error {
-		for _, v := range values {
-			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
+	)
 	for _, values := range [][]float32{
 		state.features[:],
 		state.cont[:],
@@ -466,23 +446,13 @@ func probeLibopusPLCConceal(state State, farganState FARGANState, fec0, fec1 []f
 		state.plcBak[1].gru1[:],
 		state.plcBak[1].gru2[:],
 	} {
-		if err := writeBits(values); err != nil {
-			return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal state: %w", err)
-		}
+		payload.Float32s(values...)
 	}
 	var contInitialized int32
 	if farganState.contInitialized {
 		contInitialized = 1
 	}
-	if err := binary.Write(&payload, binary.LittleEndian, contInitialized); err != nil {
-		return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal fargan flag: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(farganState.lastPeriod)); err != nil {
-		return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal fargan last period: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(2)); err != nil {
-		return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal queue count: %w", err)
-	}
+	payload.I32s(contInitialized, int32(farganState.lastPeriod), 2)
 	for _, values := range [][]float32{
 		{farganState.deemphMem},
 		farganState.pitchBuf[:],
@@ -492,68 +462,41 @@ func probeLibopusPLCConceal(state State, farganState FARGANState, fec0, fec1 []f
 		farganState.gru2State[:],
 		farganState.gru3State[:],
 	} {
-		if err := writeBits(values); err != nil {
-			return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal fargan payload: %w", err)
-		}
+		payload.Float32s(values...)
 	}
 	for _, values := range [][]float32{
 		fec0,
 		fec1,
 	} {
-		if err := writeBits(values); err != nil {
-			return libopusPLCConcealResult{}, fmt.Errorf("encode plc conceal queue payload: %w", err)
-		}
+		payload.Float32s(values...)
 	}
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusPLCConcealResult{}, fmt.Errorf("run plc conceal helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-
-	data := stdout.Bytes()
-	const header = 48
-	if len(data) < header || string(data[:4]) != libopusPLCConcealOutputMagic {
-		return libopusPLCConcealResult{}, fmt.Errorf("unexpected plc conceal helper output")
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "plc conceal", libopusPLCConcealOutputMagic, 2)
+	if err != nil {
+		return libopusPLCConcealResult{}, err
 	}
 	result := libopusPLCConcealResult{
-		GotFEC:      int32(binary.LittleEndian.Uint32(data[8:12])) != 0,
-		Blend:       int(int32(binary.LittleEndian.Uint32(data[12:16]))),
-		LossCount:   int(int32(binary.LittleEndian.Uint32(data[16:20]))),
-		AnalysisGap: int(int32(binary.LittleEndian.Uint32(data[20:24]))),
-		AnalysisPos: int(int32(binary.LittleEndian.Uint32(data[24:28]))),
-		PredictPos:  int(int32(binary.LittleEndian.Uint32(data[28:32]))),
-		FECRead:     int(int32(binary.LittleEndian.Uint32(data[32:36]))),
-		FECSkip:     int(int32(binary.LittleEndian.Uint32(data[36:40]))),
+		GotFEC:      reader.I32() != 0,
+		Blend:       int(reader.I32()),
+		LossCount:   int(reader.I32()),
+		AnalysisGap: int(reader.I32()),
+		AnalysisPos: int(reader.I32()),
+		PredictPos:  int(reader.I32()),
+		FECRead:     int(reader.I32()),
+		FECSkip:     int(reader.I32()),
 	}
-	result.FARGAN.ContInitialized = int32(binary.LittleEndian.Uint32(data[40:44])) != 0
-	result.FARGAN.LastPeriod = int(int32(binary.LittleEndian.Uint32(data[44:48])))
-	offset := header
-	readBits := func(count int) ([]float32, error) {
-		values := make([]float32, count)
-		for i := 0; i < count; i++ {
-			if len(data) < offset+4 {
-				return nil, fmt.Errorf("truncated plc conceal helper output")
-			}
-			values[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-			offset += 4
-		}
-		return values, nil
-	}
-	if result.Frame, err = readBits(FrameSize); err != nil {
+	result.FARGAN.ContInitialized = reader.I32() != 0
+	result.FARGAN.LastPeriod = int(reader.I32())
+	if result.Frame, err = readLibopusFloat32s(reader, FrameSize); err != nil {
 		return libopusPLCConcealResult{}, err
 	}
-	if result.Features, err = readBits(NumTotalFeatures); err != nil {
+	if result.Features, err = readLibopusFloat32s(reader, NumTotalFeatures); err != nil {
 		return libopusPLCConcealResult{}, err
 	}
-	if result.Cont, err = readBits(ContVectors * NumFeatures); err != nil {
+	if result.Cont, err = readLibopusFloat32s(reader, ContVectors*NumFeatures); err != nil {
 		return libopusPLCConcealResult{}, err
 	}
-	if result.PCM, err = readBits(PLCBufSize); err != nil {
+	if result.PCM, err = readLibopusFloat32s(reader, PLCBufSize); err != nil {
 		return libopusPLCConcealResult{}, err
 	}
 	for _, dst := range [][]float32{
@@ -564,33 +507,30 @@ func probeLibopusPLCConceal(state State, farganState FARGANState, fec0, fec1 []f
 		result.PLCBak[1].gru1[:],
 		result.PLCBak[1].gru2[:],
 	} {
-		values, readErr := readBits(len(dst))
-		if readErr != nil {
-			return libopusPLCConcealResult{}, readErr
+		if err := readLibopusFloat32Into(reader, dst); err != nil {
+			return libopusPLCConcealResult{}, err
 		}
-		copy(dst, values)
 	}
-	values, err := readBits(1)
-	if err != nil {
+	result.FARGAN.DeemphMem = reader.Float32()
+	if result.FARGAN.PitchBuf, err = readLibopusFloat32s(reader, PitchMaxPeriod); err != nil {
 		return libopusPLCConcealResult{}, err
 	}
-	result.FARGAN.DeemphMem = values[0]
-	if result.FARGAN.PitchBuf, err = readBits(PitchMaxPeriod); err != nil {
+	if result.FARGAN.CondConv1State, err = readLibopusFloat32s(reader, FARGANCondConv1State); err != nil {
 		return libopusPLCConcealResult{}, err
 	}
-	if result.FARGAN.CondConv1State, err = readBits(FARGANCondConv1State); err != nil {
+	if result.FARGAN.FWC0Mem, err = readLibopusFloat32s(reader, SigNetFWC0StateSize); err != nil {
 		return libopusPLCConcealResult{}, err
 	}
-	if result.FARGAN.FWC0Mem, err = readBits(SigNetFWC0StateSize); err != nil {
+	if result.FARGAN.GRU1State, err = readLibopusFloat32s(reader, SigNetGRU1StateSize); err != nil {
 		return libopusPLCConcealResult{}, err
 	}
-	if result.FARGAN.GRU1State, err = readBits(SigNetGRU1StateSize); err != nil {
+	if result.FARGAN.GRU2State, err = readLibopusFloat32s(reader, SigNetGRU2StateSize); err != nil {
 		return libopusPLCConcealResult{}, err
 	}
-	if result.FARGAN.GRU2State, err = readBits(SigNetGRU2StateSize); err != nil {
+	if result.FARGAN.GRU3State, err = readLibopusFloat32s(reader, SigNetGRU3StateSize); err != nil {
 		return libopusPLCConcealResult{}, err
 	}
-	if result.FARGAN.GRU3State, err = readBits(SigNetGRU3StateSize); err != nil {
+	if err := reader.ExpectConsumed(); err != nil {
 		return libopusPLCConcealResult{}, err
 	}
 	return result, nil
@@ -605,62 +545,24 @@ func probeLibopusFARGANCond(features []float32, period int, condConv1State []flo
 		return nil, nil, fmt.Errorf("invalid helper input sizes")
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusFARGANCondInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
-		return nil, nil, fmt.Errorf("encode fargan helper version: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(period)); err != nil {
-		return nil, nil, fmt.Errorf("encode fargan helper period: %w", err)
-	}
-	writeBits := func(values []float32) error {
-		for _, v := range values {
-			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := writeBits(features); err != nil {
-		return nil, nil, fmt.Errorf("encode fargan helper features: %w", err)
-	}
-	if err := writeBits(condConv1State); err != nil {
-		return nil, nil, fmt.Errorf("encode fargan helper state: %w", err)
-	}
+	payload := libopustest.NewOraclePayload(libopusFARGANCondInputMagic)
+	payload.I32(int32(period))
+	payload.Float32s(features...)
+	payload.Float32s(condConv1State...)
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, nil, fmt.Errorf("run fargan cond helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-
-	data := stdout.Bytes()
-	const header = 8
-	if len(data) < header || string(data[:4]) != libopusFARGANCondOutputMagic {
-		return nil, nil, fmt.Errorf("unexpected fargan cond helper output")
-	}
-	offset := header
-	readBits := func(count int) ([]float32, error) {
-		values := make([]float32, count)
-		for i := 0; i < count; i++ {
-			if len(data) < offset+4 {
-				return nil, fmt.Errorf("truncated fargan cond helper output")
-			}
-			values[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-			offset += 4
-		}
-		return values, nil
-	}
-	cond, err = readBits(FARGANCondDense2Size)
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "fargan cond", libopusFARGANCondOutputMagic)
 	if err != nil {
 		return nil, nil, err
 	}
-	nextState, err = readBits(FARGANCondConv1State)
+	cond, err = readLibopusFloat32s(reader, FARGANCondDense2Size)
 	if err != nil {
+		return nil, nil, err
+	}
+	nextState, err = readLibopusFloat32s(reader, FARGANCondConv1State)
+	if err != nil {
+		return nil, nil, err
+	}
+	if err := reader.ExpectConsumed(); err != nil {
 		return nil, nil, err
 	}
 	return cond, nextState, nil
@@ -688,36 +590,15 @@ func probeLibopusFARGANContinuity(pcm0, features0 []float32) (libopusFARGANRunti
 		return libopusFARGANRuntimeResult{}, fmt.Errorf("invalid continuity helper input sizes")
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusFARGANContInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
-		return libopusFARGANRuntimeResult{}, fmt.Errorf("encode fargan continuity version: %w", err)
-	}
-	writeBits := func(values []float32) error {
-		for _, v := range values {
-			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := writeBits(pcm0); err != nil {
-		return libopusFARGANRuntimeResult{}, fmt.Errorf("encode fargan continuity pcm0: %w", err)
-	}
-	if err := writeBits(features0); err != nil {
-		return libopusFARGANRuntimeResult{}, fmt.Errorf("encode fargan continuity features: %w", err)
-	}
+	payload := libopustest.NewOraclePayload(libopusFARGANContInputMagic)
+	payload.Float32s(pcm0...)
+	payload.Float32s(features0...)
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusFARGANRuntimeResult{}, fmt.Errorf("run fargan continuity helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "fargan continuity", libopusFARGANContOutputMagic)
+	if err != nil {
+		return libopusFARGANRuntimeResult{}, err
 	}
-	return readLibopusFARGANRuntimeResult(stdout.Bytes(), libopusFARGANContOutputMagic, false)
+	return readLibopusFARGANRuntimeResult(reader, false)
 }
 
 func probeLibopusFARGANSynthesize(state FARGANState, features []float32) (libopusFARGANRuntimeResult, error) {
@@ -729,29 +610,12 @@ func probeLibopusFARGANSynthesize(state FARGANState, features []float32) (libopu
 		return libopusFARGANRuntimeResult{}, fmt.Errorf("invalid synth helper input sizes")
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusFARGANSynthInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
-		return libopusFARGANRuntimeResult{}, fmt.Errorf("encode fargan synth version: %w", err)
-	}
+	payload := libopustest.NewOraclePayload(libopusFARGANSynthInputMagic)
 	var contInitialized int32
 	if state.contInitialized {
 		contInitialized = 1
 	}
-	if err := binary.Write(&payload, binary.LittleEndian, contInitialized); err != nil {
-		return libopusFARGANRuntimeResult{}, fmt.Errorf("encode fargan synth cont flag: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(state.lastPeriod)); err != nil {
-		return libopusFARGANRuntimeResult{}, fmt.Errorf("encode fargan synth last period: %w", err)
-	}
-	writeBits := func(values []float32) error {
-		for _, v := range values {
-			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
+	payload.I32s(contInitialized, int32(state.lastPeriod))
 	for _, values := range [][]float32{
 		{state.deemphMem},
 		state.pitchBuf[:],
@@ -762,71 +626,49 @@ func probeLibopusFARGANSynthesize(state FARGANState, features []float32) (libopu
 		state.gru3State[:],
 		features,
 	} {
-		if err := writeBits(values); err != nil {
-			return libopusFARGANRuntimeResult{}, fmt.Errorf("encode fargan synth payload: %w", err)
-		}
+		payload.Float32s(values...)
 	}
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusFARGANRuntimeResult{}, fmt.Errorf("run fargan synth helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-	return readLibopusFARGANRuntimeResult(stdout.Bytes(), libopusFARGANSynthOutputMagic, true)
-}
-
-func readLibopusFARGANRuntimeResult(data []byte, magic string, withPCM bool) (libopusFARGANRuntimeResult, error) {
-	const header = 16
-	if len(data) < header || string(data[:4]) != magic {
-		return libopusFARGANRuntimeResult{}, fmt.Errorf("unexpected fargan runtime helper output")
-	}
-	result := libopusFARGANRuntimeResult{
-		ContInitialized: int32(binary.LittleEndian.Uint32(data[8:12])) != 0,
-		LastPeriod:      int(int32(binary.LittleEndian.Uint32(data[12:16]))),
-	}
-	offset := header
-	readBits := func(count int) ([]float32, error) {
-		values := make([]float32, count)
-		for i := 0; i < count; i++ {
-			if len(data) < offset+4 {
-				return nil, fmt.Errorf("truncated fargan runtime helper output")
-			}
-			values[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-			offset += 4
-		}
-		return values, nil
-	}
-	values, err := readBits(1)
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "fargan synth", libopusFARGANSynthOutputMagic)
 	if err != nil {
 		return libopusFARGANRuntimeResult{}, err
 	}
-	result.DeemphMem = values[0]
+	return readLibopusFARGANRuntimeResult(reader, true)
+}
+
+func readLibopusFARGANRuntimeResult(reader *libopustest.OracleReader, withPCM bool) (libopusFARGANRuntimeResult, error) {
+	result := libopusFARGANRuntimeResult{
+		ContInitialized: reader.I32() != 0,
+		LastPeriod:      int(reader.I32()),
+	}
+	result.DeemphMem = reader.Float32()
 	if withPCM {
-		result.PCM, err = readBits(FARGANFrameSize)
+		var err error
+		result.PCM, err = readLibopusFloat32s(reader, FARGANFrameSize)
 		if err != nil {
 			return libopusFARGANRuntimeResult{}, err
 		}
 	}
-	if result.PitchBuf, err = readBits(PitchMaxPeriod); err != nil {
+	var err error
+	if result.PitchBuf, err = readLibopusFloat32s(reader, PitchMaxPeriod); err != nil {
 		return libopusFARGANRuntimeResult{}, err
 	}
-	if result.CondConv1State, err = readBits(FARGANCondConv1State); err != nil {
+	if result.CondConv1State, err = readLibopusFloat32s(reader, FARGANCondConv1State); err != nil {
 		return libopusFARGANRuntimeResult{}, err
 	}
-	if result.FWC0Mem, err = readBits(SigNetFWC0StateSize); err != nil {
+	if result.FWC0Mem, err = readLibopusFloat32s(reader, SigNetFWC0StateSize); err != nil {
 		return libopusFARGANRuntimeResult{}, err
 	}
-	if result.GRU1State, err = readBits(SigNetGRU1StateSize); err != nil {
+	if result.GRU1State, err = readLibopusFloat32s(reader, SigNetGRU1StateSize); err != nil {
 		return libopusFARGANRuntimeResult{}, err
 	}
-	if result.GRU2State, err = readBits(SigNetGRU2StateSize); err != nil {
+	if result.GRU2State, err = readLibopusFloat32s(reader, SigNetGRU2StateSize); err != nil {
 		return libopusFARGANRuntimeResult{}, err
 	}
-	if result.GRU3State, err = readBits(SigNetGRU3StateSize); err != nil {
+	if result.GRU3State, err = readLibopusFloat32s(reader, SigNetGRU3StateSize); err != nil {
+		return libopusFARGANRuntimeResult{}, err
+	}
+	if err := reader.ExpectConsumed(); err != nil {
 		return libopusFARGANRuntimeResult{}, err
 	}
 	return result, nil
