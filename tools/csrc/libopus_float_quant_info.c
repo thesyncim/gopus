@@ -1,0 +1,127 @@
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+#include <math.h>
+
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
+#include "config.h"
+#include "celt/float_cast.h"
+
+#define INPUT_MAGIC "GFQI"
+#define OUTPUT_MAGIC "GFQO"
+
+enum {
+  MODE_FLOAT2INT16 = 0,
+  MODE_OSCE_OUTPUT_SCALE = 1,
+  MODE_FARGAN_SYNTH_INT = 2,
+  MODE_CELT_RAW_32767_FLOAT2INT = 3
+};
+
+static int set_binary_stdio(void) {
+#ifdef _WIN32
+  if (_setmode(_fileno(stdin), _O_BINARY) == -1) return 0;
+  if (_setmode(_fileno(stdout), _O_BINARY) == -1) return 0;
+#endif
+  return 1;
+}
+
+static int read_exact(void *dst, size_t size) {
+  return fread(dst, 1, size, stdin) == size;
+}
+
+static int write_exact(const void *src, size_t size) {
+  return fwrite(src, 1, size, stdout) == size;
+}
+
+static int read_u32(uint32_t *out) {
+  return read_exact(out, sizeof(*out));
+}
+
+static int write_u32(uint32_t value) {
+  return write_exact(&value, sizeof(value));
+}
+
+static int16_t osce_output_scale(float x) {
+  float tmp = 32768.f * x;
+  if (tmp > 32767.f) tmp = 32767.f;
+  if (tmp < -32767.f) tmp = -32767.f;
+  return (int16_t)float2int(tmp);
+}
+
+static int16_t fargan_synth_int(float x) {
+  float tmp = 32768.f * x;
+  if (tmp > 32767.f) tmp = 32767.f;
+  if (tmp < -32767.f) tmp = -32767.f;
+  return (int16_t)floor(.5 + (double)tmp);
+}
+
+static int16_t celt_raw_32767_float2int(float x) {
+  if (x > 32767.f) x = 32767.f;
+  if (x < -32767.f) x = -32767.f;
+  return (int16_t)float2int(x);
+}
+
+static int16_t convert_sample(uint32_t mode, float x) {
+  switch (mode) {
+    case MODE_FLOAT2INT16:
+      return FLOAT2INT16(x);
+    case MODE_OSCE_OUTPUT_SCALE:
+      return osce_output_scale(x);
+    case MODE_FARGAN_SYNTH_INT:
+      return fargan_synth_int(x);
+    case MODE_CELT_RAW_32767_FLOAT2INT:
+      return celt_raw_32767_float2int(x);
+    default:
+      return 0;
+  }
+}
+
+int main(void) {
+  char magic[4];
+  uint32_t version;
+  uint32_t mode;
+  uint32_t count;
+  uint32_t i;
+
+  if (!set_binary_stdio()) {
+    fprintf(stderr, "failed to set binary stdio mode\n");
+    return 1;
+  }
+  if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) {
+    fprintf(stderr, "invalid input magic\n");
+    return 1;
+  }
+  if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) {
+    fprintf(stderr, "failed to read header\n");
+    return 1;
+  }
+  if (mode > MODE_CELT_RAW_32767_FLOAT2INT) {
+    fprintf(stderr, "invalid mode\n");
+    return 1;
+  }
+
+  if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) {
+    fprintf(stderr, "failed to write output header\n");
+    return 1;
+  }
+  for (i = 0; i < count; i++) {
+    uint32_t bits;
+    float x;
+    int16_t y;
+    if (!read_u32(&bits)) {
+      fprintf(stderr, "truncated input\n");
+      return 1;
+    }
+    memcpy(&x, &bits, sizeof(x));
+    y = convert_sample(mode, x);
+    if (!write_exact(&y, sizeof(y))) {
+      fprintf(stderr, "failed to write output\n");
+      return 1;
+    }
+  }
+  return 0;
+}
