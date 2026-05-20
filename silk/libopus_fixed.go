@@ -137,14 +137,17 @@ func silkSAT16(x int32) int16 {
 }
 
 func silkLShiftSAT32(x int32, shift int) int32 {
-	v := int64(x) << shift
-	if v > int64((1<<31)-1) {
-		return int32((1 << 31) - 1)
+	if shift <= 0 {
+		return x
 	}
-	if v < int64(-1<<31) {
-		return int32(-1 << 31)
+	min := int32(-1<<31) >> shift
+	max := int32(1<<31-1) >> shift
+	if x < min {
+		x = min
+	} else if x > max {
+		x = max
 	}
-	return int32(v)
+	return x << shift
 }
 
 func silkAddSat32(a, b int32) int32 {
