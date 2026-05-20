@@ -66,6 +66,23 @@ func ClampBitrate(bitrate int) int {
 	return bitrate
 }
 
+func clampAllocatedBitrate(bitrate, channels int) int {
+	if bitrate == BitrateAuto || bitrate == BitrateMax {
+		return bitrate
+	}
+	if channels < 1 {
+		channels = 1
+	}
+	if bitrate < 500 {
+		return 500
+	}
+	maxBitrate := 750000 * channels
+	if bitrate > maxBitrate {
+		return maxBitrate
+	}
+	return bitrate
+}
+
 // frameDurationMs returns frame duration in milliseconds.
 func frameDurationMs(frameSize int) int {
 	// At 48kHz: 480 samples = 10ms, 960 = 20ms, etc.

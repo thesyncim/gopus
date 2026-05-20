@@ -677,6 +677,36 @@ func TestEncoderSetBitrateSentinels(t *testing.T) {
 	}
 }
 
+func TestEncoderBitrateMaxPreservesAllocatedStreamRates(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	enc.SetBitrate(encpkg.BitrateMax)
+	wantRates := append([]int(nil), enc.allocateRates(960)...)
+	sawAboveSingleStreamCap := false
+	for i, want := range wantRates {
+		channels := 1
+		if i < enc.coupledStreams {
+			channels = 2
+		}
+		if maxRate := 750000 * channels; want > maxRate {
+			want = maxRate
+		}
+		got := enc.encoders[i].Bitrate()
+		if got > encpkg.MaxBitrate {
+			sawAboveSingleStreamCap = true
+		}
+		if got != want {
+			t.Fatalf("stream %d bitrate=%d want allocated rate %d", i, got, want)
+		}
+	}
+	if !sawAboveSingleStreamCap {
+		t.Fatal("BitrateMax allocation did not exercise a stream above the single-stream public cap")
+	}
+}
+
 func TestAmbisonicsBitrateSentinels(t *testing.T) {
 	enc, err := NewEncoderAmbisonics(48000, 4, 2)
 	if err != nil {

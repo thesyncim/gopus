@@ -457,7 +457,7 @@ func (e *Encoder) SetBitrate(totalBitrate int) {
 	e.bitrate = totalBitrate
 	rates := e.allocateRates(960)
 	for i := 0; i < e.streams && i < len(rates); i++ {
-		e.encoders[i].SetBitrate(rates[i])
+		e.encoders[i].SetAllocatedBitrate(rates[i])
 	}
 }
 
@@ -1107,7 +1107,7 @@ func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float64) {
 	surroundBandwidth := e.surroundBandwidth(frameSize)
 	for i := 0; i < e.streams; i++ {
 		enc := e.encoders[i]
-		enc.SetBitrate(rates[i])
+		enc.SetAllocatedBitrate(rates[i])
 		enc.SetLFE(i == e.lfeStream)
 		enc.SetCELTCVBRBoundScale(cvbrBoundScale)
 

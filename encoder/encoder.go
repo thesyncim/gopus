@@ -622,6 +622,11 @@ func (e *Encoder) SetBitrate(bitrate int) {
 	e.bitrate = ClampBitrate(bitrate)
 }
 
+// SetAllocatedBitrate sets a bitrate allocated by the multistream encoder.
+func (e *Encoder) SetAllocatedBitrate(bitrate int) {
+	e.bitrate = clampAllocatedBitrate(bitrate, e.channels)
+}
+
 // Bitrate returns the current target bitrate.
 func (e *Encoder) Bitrate() int {
 	return e.bitrate
