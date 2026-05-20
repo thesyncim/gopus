@@ -31,6 +31,7 @@ const (
 	libopusSILKFixedModeDiv32VarQ          = uint32(12)
 	libopusSILKFixedModeInverse32VarQ      = uint32(13)
 	libopusSILKFixedModeCLZ32              = uint32(14)
+	libopusSILKFixedModeRShiftRound64To32  = uint32(15)
 )
 
 type libopusSILKFixedRecord struct {
@@ -381,5 +382,40 @@ func TestSILKFixedDivisionAndCLZOpsMatchLibopus(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSILKFixedRShiftRound64MatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	values := []int64{
+		-1 << 50, -1 << 40, -1 << 33, -1 << 32, -1<<31 - 1,
+		-65537, -65536, -65535, -3, -2, -1,
+		0, 1, 2, 3, 65535, 65536, 65537,
+		1<<31 - 1, 1 << 32, 1 << 33, 1 << 40, 1 << 50,
+	}
+	records := make([]libopusSILKFixedOpRecord, 0, len(values)*48)
+	for _, value := range values {
+		for shift := uint32(1); shift <= 48; shift++ {
+			y := silkRSHIFT_ROUND64(value, int(shift))
+			if y < int64(fixedTestMinInt32) || y > int64(fixedTestMaxInt32) {
+				continue
+			}
+			bits := uint64(value)
+			records = append(records, libopusSILKFixedOpRecord{
+				a: int32(uint32(bits >> 32)),
+				b: int32(uint32(bits)),
+				q: shift,
+			})
+		}
+	}
+	want, err := probeLibopusSILKFixedOps(libopusSILKFixedModeRShiftRound64To32, records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk fixed", err)
+	}
+	for i, record := range records {
+		value := int64(uint64(uint32(record.a))<<32 | uint64(uint32(record.b)))
+		if got := int32(silkRSHIFT_ROUND64(value, int(record.q))); got != want[i] {
+			t.Fatalf("silkRSHIFT_ROUND64(%d,%d)=%d want %d", value, record.q, got, want[i])
+		}
 	}
 }
