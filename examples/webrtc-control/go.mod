@@ -1,6 +1,6 @@
 module github.com/thesyncim/gopus/examples/webrtc-control
 
-go 1.26
+go 1.25.0
 
 require (
 	github.com/pion/webrtc/v4 v4.0.12

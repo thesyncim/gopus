@@ -144,6 +144,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		}
 		d.updateLogE(silenceE, MaxBands, false)
 		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+		d.clearFrameHistoryOutsideRange(start, end, d.channels)
 		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
 		d.resetPLCCadence(frameSize, d.channels)
