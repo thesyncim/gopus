@@ -251,6 +251,12 @@ func (e *Encoder) SetBandwidth(bandwidth Bandwidth) error {
 	return nil
 }
 
+// SetBandwidthAuto restores automatic bandwidth selection.
+func (e *Encoder) SetBandwidthAuto() error {
+	e.enc.SetBandwidthAuto()
+	return nil
+}
+
 // Bandwidth returns the currently configured target bandwidth.
 func (e *Encoder) Bandwidth() Bandwidth {
 	return e.enc.Bandwidth()

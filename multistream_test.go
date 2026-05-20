@@ -687,6 +687,12 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	if err := enc.SetBandwidth(Bandwidth(255)); err != ErrInvalidBandwidth {
 		t.Errorf("SetBandwidth(invalid) error = %v, want %v", err, ErrInvalidBandwidth)
 	}
+	if err := enc.SetBandwidthAuto(); err != nil {
+		t.Errorf("SetBandwidthAuto error: %v", err)
+	}
+	if got := enc.Bandwidth(); got != BandwidthWideband {
+		t.Errorf("Bandwidth() after SetBandwidthAuto = %v, want last concrete bandwidth %v", got, BandwidthWideband)
+	}
 	if err := enc.SetMaxBandwidth(BandwidthWideband); err != nil {
 		t.Errorf("SetMaxBandwidth(BandwidthWideband) error: %v", err)
 	}

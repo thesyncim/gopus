@@ -1392,6 +1392,13 @@ func (e *Encoder) SetBandwidth(bw types.Bandwidth) {
 	}
 }
 
+// SetBandwidthAuto restores automatic bandwidth selection on all stream encoders.
+func (e *Encoder) SetBandwidthAuto() {
+	for _, enc := range e.encoders {
+		enc.SetBandwidthAuto()
+	}
+}
+
 // Bandwidth returns the target bandwidth from the first stream encoder.
 func (e *Encoder) Bandwidth() types.Bandwidth {
 	if len(e.encoders) > 0 {

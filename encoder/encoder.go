@@ -331,6 +331,15 @@ func (e *Encoder) SetBandwidth(bandwidth types.Bandwidth) {
 	}
 }
 
+// SetBandwidthAuto clears an explicit bandwidth request and restores automatic selection.
+func (e *Encoder) SetBandwidthAuto() {
+	e.userBandwidth = 0
+	e.userBandwidthSet = false
+	if e.celtEncoder != nil {
+		e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	}
+}
+
 // Bandwidth returns the current bandwidth setting.
 func (e *Encoder) Bandwidth() types.Bandwidth {
 	return e.bandwidth

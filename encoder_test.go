@@ -446,6 +446,12 @@ func TestEncoder_SetBandwidth(t *testing.T) {
 	if err := enc.SetBandwidth(Bandwidth(255)); err != ErrInvalidBandwidth {
 		t.Fatalf("SetBandwidth(invalid) error=%v want=%v", err, ErrInvalidBandwidth)
 	}
+	if err := enc.SetBandwidthAuto(); err != nil {
+		t.Fatalf("SetBandwidthAuto error: %v", err)
+	}
+	if got := enc.Bandwidth(); got != BandwidthFullband {
+		t.Fatalf("Bandwidth() after SetBandwidthAuto=%d want last concrete bandwidth %d", got, BandwidthFullband)
+	}
 }
 
 func TestEncoder_SetApplication(t *testing.T) {

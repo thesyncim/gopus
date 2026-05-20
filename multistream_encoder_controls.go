@@ -184,6 +184,12 @@ func (e *MultistreamEncoder) SetBandwidth(bw Bandwidth) error {
 	return nil
 }
 
+// SetBandwidthAuto restores automatic bandwidth selection for all stream encoders.
+func (e *MultistreamEncoder) SetBandwidthAuto() error {
+	e.enc.SetBandwidthAuto()
+	return nil
+}
+
 // Bandwidth returns the currently configured target bandwidth.
 func (e *MultistreamEncoder) Bandwidth() Bandwidth {
 	return Bandwidth(e.enc.Bandwidth())
