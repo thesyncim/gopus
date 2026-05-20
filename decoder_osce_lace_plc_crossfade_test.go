@@ -8,6 +8,26 @@ import (
 	"testing"
 )
 
+func TestDecoderOSCEFloatToInt16MatchesLibopusScaleOutput(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		in   float32
+		want int16
+	}{
+		{name: "positive clamp", in: 1.5, want: 32767},
+		{name: "negative clamp", in: -1.5, want: -32767},
+		{name: "negative full scale", in: -1.0, want: -32767},
+		{name: "half tie to even", in: float32(0.5 / 32768.0), want: 0},
+		{name: "one point five tie to even", in: float32(1.5 / 32768.0), want: 2},
+		{name: "two point five tie to even", in: float32(2.5 / 32768.0), want: 2},
+		{name: "negative one point five tie to even", in: float32(-1.5 / 32768.0), want: -2},
+	} {
+		if got := osceFloatToInt16(tc.in); got != tc.want {
+			t.Fatalf("%s: osceFloatToInt16(%g)=%d want %d", tc.name, tc.in, got, tc.want)
+		}
+	}
+}
+
 // TestDecoderOSCELACECrossFadeTransition exercises the LACE/NoLACE
 // <-> non-LACE transition cross-fade. It decodes a SILK WB packet (LACE
 // active), then a Hybrid SWB packet (LACE inactive), then another SILK WB

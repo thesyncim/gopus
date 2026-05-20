@@ -111,13 +111,13 @@ func osceBWECrossFade10ms(xFadein, xFadeout []float32, length int) {
 }
 
 func osceBWECrossFadeSample(weight, fadein, fadeout float32) int16 {
-	fi := osceBWEFloatToInt16(fadein)
-	fo := osceBWEFloatToInt16(fadeout)
+	fi := osceFloatToInt16(fadein)
+	fo := osceFloatToInt16(fadeout)
 	v := weight*float32(fi) + (1.0-weight)*float32(fo) + 0.5
 	return int16(int32(v))
 }
 
-func osceBWEFloatToInt16(x float32) int16 {
+func osceFloatToInt16(x float32) int16 {
 	tmp := float32(32768) * x
 	if tmp > 32767 {
 		tmp = 32767

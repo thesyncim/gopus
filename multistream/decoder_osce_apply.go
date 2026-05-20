@@ -139,14 +139,9 @@ func (d *streamState) runOSCELACEChannel(native []int16, mode streamOSCELACEMode
 		}
 	}
 	for i := 0; i < streamOSCELACEFrameSamples; i++ {
-		v := state.laceApplyOutF[i] * 32768.0
-		if v > 32767.0 {
-			v = 32767.0
-		} else if v < -32768.0 {
-			v = -32768.0
-		}
-		state.laceApplyOutI16[i] = int16(v)
-		native[i] = state.laceApplyOutI16[i]
+		q := streamOSCEFloatToInt16(state.laceApplyOutF[i])
+		state.laceApplyOutI16[i] = q
+		native[i] = q
 	}
 	if transition {
 		streamOSCELACECrossFade10msInt16(native[:streamOSCELACEFrameSamples], state.laceApplyIn16[:streamOSCELACEFrameSamples])
@@ -316,13 +311,13 @@ func streamOSCEBWECrossFade10ms(xFadein, xFadeout []float32, length int) {
 }
 
 func streamOSCEBWECrossFadeSample(weight, fadein, fadeout float32) int16 {
-	fi := streamOSCEBWEFloatToInt16(fadein)
-	fo := streamOSCEBWEFloatToInt16(fadeout)
+	fi := streamOSCEFloatToInt16(fadein)
+	fo := streamOSCEFloatToInt16(fadeout)
 	v := weight*float32(fi) + (1.0-weight)*float32(fo) + 0.5
 	return int16(int32(v))
 }
 
-func streamOSCEBWEFloatToInt16(x float32) int16 {
+func streamOSCEFloatToInt16(x float32) int16 {
 	tmp := float32(32768) * x
 	if tmp > 32767 {
 		tmp = 32767
@@ -345,12 +340,6 @@ func streamOSCELACECrossFade10msInt16(xEnhanced, xIn []int16) {
 		enh := float32(xEnhanced[i]) * (1.0 / 32768.0)
 		raw := float32(xIn[i]) * (1.0 / 32768.0)
 		mix := w*enh + (1.0-w)*raw
-		v := mix * 32768.0
-		if v > 32767.0 {
-			v = 32767.0
-		} else if v < -32768.0 {
-			v = -32768.0
-		}
-		xEnhanced[i] = int16(v)
+		xEnhanced[i] = streamOSCEFloatToInt16(mix)
 	}
 }

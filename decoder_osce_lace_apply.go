@@ -236,14 +236,9 @@ func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, tr
 	// overwriting the scratch slice returned by LatestNativeMono /
 	// LatestNativeStereo.
 	for i := 0; i < osceLACEFrameSamples; i++ {
-		v := state.applyOutFloat[i] * 32768.0
-		if v > 32767.0 {
-			v = 32767.0
-		} else if v < -32768.0 {
-			v = -32768.0
-		}
-		state.applyOutInt16[i] = int16(v)
-		native[i] = state.applyOutInt16[i]
+		q := osceFloatToInt16(state.applyOutFloat[i])
+		state.applyOutInt16[i] = q
+		native[i] = q
 	}
 	// On transitions from non-LACE to LACE/NoLACE-active, run the 10 ms
 	// cross-fade mirroring libopus `osce_cross_fade_10ms`. The fade-in

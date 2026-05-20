@@ -61,12 +61,6 @@ func osceLACECrossFade10msInt16(xEnhanced, xIn []int16, length int) {
 		enh := float32(xEnhanced[i]) * (1.0 / 32768.0)
 		raw := float32(xIn[i]) * (1.0 / 32768.0)
 		mix := w*enh + (1.0-w)*raw
-		v := mix * 32768.0
-		if v > 32767.0 {
-			v = 32767.0
-		} else if v < -32768.0 {
-			v = -32768.0
-		}
-		xEnhanced[i] = int16(v)
+		xEnhanced[i] = osceFloatToInt16(mix)
 	}
 }
