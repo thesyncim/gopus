@@ -13,7 +13,7 @@ func libopusFloat2Int16ForEncoderTest(t *testing.T, samples []float32) []int16 {
 	t.Helper()
 	want, err := libopustest.ProbeFloatQuant(libopustest.FloatQuantModeFloat2Int16, samples)
 	if err != nil {
-		t.Skipf("libopus float quant helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "float quant", err)
 	}
 	return want
 }
@@ -28,6 +28,7 @@ func encoderFloatQuantGrid() []float32 {
 }
 
 func TestEncoderFloat32ToInt16LibopusMatchesCGrid(t *testing.T) {
+	libopustest.RequireOracle(t)
 	samples := encoderFloatQuantGrid()
 	want := libopusFloat2Int16ForEncoderTest(t, samples)
 	for i, sample := range samples {
@@ -38,6 +39,7 @@ func TestEncoderFloat32ToInt16LibopusMatchesCGrid(t *testing.T) {
 }
 
 func TestQuantizeFloat32ToInt16LibopusInPlaceMatchesCGrid(t *testing.T) {
+	libopustest.RequireOracle(t)
 	samples := encoderFloatQuantGrid()
 	want := libopusFloat2Int16ForEncoderTest(t, samples)
 	got := append([]float32(nil), samples...)
@@ -51,6 +53,7 @@ func TestQuantizeFloat32ToInt16LibopusInPlaceMatchesCGrid(t *testing.T) {
 }
 
 func TestDownmixStereoToSilkMonoLibopusMatchesCQuantization(t *testing.T) {
+	libopustest.RequireOracle(t)
 	interleaved := []float32{
 		1, 1,
 		-1, -1,
@@ -78,6 +81,7 @@ func TestDownmixStereoToSilkMonoLibopusMatchesCQuantization(t *testing.T) {
 }
 
 func TestAverageSilkResamplerOutputsLibopusMatchesCQuantization(t *testing.T) {
+	libopustest.RequireOracle(t)
 	left := []float32{
 		1,
 		-1,
@@ -108,6 +112,7 @@ func TestAverageSilkResamplerOutputsLibopusMatchesCQuantization(t *testing.T) {
 }
 
 func TestFloatQuantFormulaMatchesC(t *testing.T) {
+	libopustest.RequireOracle(t)
 	samples := encoderFloatQuantGrid()
 	want := libopusFloat2Int16ForEncoderTest(t, samples)
 	for i, sample := range samples {

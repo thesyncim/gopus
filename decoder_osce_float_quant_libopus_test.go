@@ -3,18 +3,21 @@
 
 package gopus
 
-import "testing"
+import (
+	"testing"
 
-const libopusFloatQuantModeOSCEOutputScale = uint32(1)
+	"github.com/thesyncim/gopus/internal/libopustest"
+)
 
 func TestOSCEFloatToInt16MatchesLibopusOutputScaleExhaustiveGrid(t *testing.T) {
+	libopustest.RequireOracle(t)
 	samples := make([]float32, 0, 65536)
 	for i := -32768; i <= 32767; i++ {
 		samples = append(samples, float32(i)*(1.0/32768.0))
 	}
-	want, err := probeLibopusFloatQuant(libopusFloatQuantModeOSCEOutputScale, samples)
+	want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeOSCEOutputScale, samples)
 	if err != nil {
-		t.Skipf("libopus float quant helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "float quant", err)
 	}
 	for i, sample := range samples {
 		if got := osceFloatToInt16(sample); got != want[i] {
@@ -25,6 +28,7 @@ func TestOSCEFloatToInt16MatchesLibopusOutputScaleExhaustiveGrid(t *testing.T) {
 }
 
 func TestOSCEFloatToInt16MatchesLibopusOutputScaleTiesAndClamps(t *testing.T) {
+	libopustest.RequireOracle(t)
 	samples := []float32{
 		float32(-32769.0 / 32768.0),
 		-1,
@@ -44,9 +48,9 @@ func TestOSCEFloatToInt16MatchesLibopusOutputScaleTiesAndClamps(t *testing.T) {
 		1,
 		float32(32768.5 / 32768.0),
 	}
-	want, err := probeLibopusFloatQuant(libopusFloatQuantModeOSCEOutputScale, samples)
+	want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeOSCEOutputScale, samples)
 	if err != nil {
-		t.Skipf("libopus float quant helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "float quant", err)
 	}
 	for i, sample := range samples {
 		if got := osceFloatToInt16(sample); got != want[i] {

@@ -13,7 +13,7 @@ func probeLibopusCELTFloatQuant(t *testing.T, mode uint32, samples []float32) []
 	t.Helper()
 	want, err := libopustest.ProbeFloatQuant(mode, samples)
 	if err != nil {
-		t.Skipf("libopus float quant helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "float quant", err)
 	}
 	return want
 }
@@ -28,6 +28,7 @@ func celtPCMGrid() []float32 {
 }
 
 func TestFARGANPCM16GridSampleMatchesCGrid(t *testing.T) {
+	libopustest.RequireOracle(t)
 	samples := celtPCMGrid()
 	want := probeLibopusCELTFloatQuant(t, libopustest.FloatQuantModeFARGANSynthInt, samples)
 	for i, sample := range samples {
@@ -40,6 +41,7 @@ func TestFARGANPCM16GridSampleMatchesCGrid(t *testing.T) {
 }
 
 func TestQuantizePLCPCM16kFrameMatchesCFARGANGrid(t *testing.T) {
+	libopustest.RequireOracle(t)
 	samples := celtPCMGrid()
 	want := probeLibopusCELTFloatQuant(t, libopustest.FloatQuantModeFARGANSynthInt, samples)
 	got := append([]float32(nil), samples...)
@@ -53,6 +55,7 @@ func TestQuantizePLCPCM16kFrameMatchesCFARGANGrid(t *testing.T) {
 }
 
 func TestQuantizeRawPCM16LikeInt16MatchesCRawGrid(t *testing.T) {
+	libopustest.RequireOracle(t)
 	samples := make([]float32, 0, 2*65540)
 	for raw := -32770; raw <= 32769; raw++ {
 		samples = append(samples, float32(raw))
