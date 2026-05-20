@@ -1,6 +1,6 @@
 package dred
 
-import "math"
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 const (
 	// ResamplingOrder mirrors libopus RESAMPLING_ORDER in dred_encoder.h.
@@ -162,12 +162,5 @@ func dredFilterDF2T(in, out []float32, spec dred16kFilterSpec, mem *[ResamplingO
 }
 
 func dredFloatToInt16(v float32) int16 {
-	scaled := v * 32768
-	if scaled > 32767 {
-		return 32767
-	}
-	if scaled < -32768 {
-		return -32768
-	}
-	return int16(math.RoundToEven(float64(scaled)))
+	return opusmath.Float32ToInt16(v)
 }

@@ -1,6 +1,9 @@
 package lpcnetplc
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func seedPredictorBackupsForTest(predictor *Predictor, st *State) {
 	var tmpOut [NumFeatures]float32
@@ -109,6 +112,35 @@ func TestFECAddDoesNotAllocate(t *testing.T) {
 	})
 	if allocs != 0 {
 		t.Fatalf("AllocsPerRun=%v want 0", allocs)
+	}
+}
+
+func TestFloat32ToOpusInt16UsesSharedRounding(t *testing.T) {
+	tests := []struct {
+		name string
+		in   float32
+		want int16
+	}{
+		{name: "-one", in: -1, want: -32768},
+		{name: "below minus one", in: math.Nextafter32(-1, float32(math.Inf(-1))), want: -32768},
+		{name: "-1.5/32768", in: float32(-1.5 / 32768.0), want: -2},
+		{name: "-0.5/32768", in: float32(-0.5 / 32768.0), want: 0},
+		{name: "0.5/32768", in: float32(0.5 / 32768.0), want: 0},
+		{name: "1.5/32768", in: float32(1.5 / 32768.0), want: 2},
+		{name: "max exact", in: float32(32767.0 / 32768.0), want: 32767},
+		{name: "one clamps", in: 1, want: 32767},
+		{name: "above one", in: math.Nextafter32(1, float32(math.Inf(1))), want: 32767},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := float32ToOpusInt16(tc.in); got != tc.want {
+				t.Fatalf("float32ToOpusInt16(%0.10g)=%d want %d", tc.in, got, tc.want)
+			}
+			if got := quantizePCMUpdateFloat(tc.in); got != float32(tc.want)*(1.0/32768.0) {
+				t.Fatalf("quantizePCMUpdateFloat(%0.10g)=%0.10g want %0.10g", tc.in, got, float32(tc.want)*(1.0/32768.0))
+			}
+		})
 	}
 }
 
