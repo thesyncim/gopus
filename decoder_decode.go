@@ -89,12 +89,12 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 			packetStereoLocal := d.prevPacketStereo
 			if d.lastPacketMode == ModeSILK &&
 				d.lastBandwidth == BandwidthWideband &&
-				d.sampleRate == 48000 && d.osceLACEEnabled {
+				d.sampleRate == 48000 && d.osceLACEActive() {
 				d.resetOSCELACEPostfilterState(packetStereoLocal)
 			}
 			if !usedNeuralConcealment && d.lastPacketMode == ModeSILK &&
 				d.lastBandwidth == BandwidthWideband &&
-				d.sampleRate == 48000 && d.osceBWEEnabled {
+				d.sampleRate == 48000 && d.osceBWEActive() {
 				d.maybeApplyOSCEBWEPostSilk(pcm[:frameSize*d.channels], frameSize, ModeSILK, silk.BandwidthWideband, packetStereoLocal)
 			}
 		}

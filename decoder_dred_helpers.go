@@ -307,9 +307,7 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	d.pitchDNNLoaded = models.PitchDNN
 	d.plcModelLoaded = models.PLC
 	d.farganModelLoaded = models.FARGAN
-	d.osceModelsLoaded = models.OSCE
-	d.osceLACEModelLoaded = models.OSCE
-	d.osceBWEModelLoaded = models.OSCEBWE
+	d.setOSCEModelState(models)
 	// Bind the extra-control OSCE BWE model when its weights are present. The
 	// helper is a no-op outside of `gopus_extra_controls` builds so the
 	// shared DRED path remains untouched.

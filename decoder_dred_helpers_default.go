@@ -28,8 +28,7 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	d.pitchDNNLoaded = models.PitchDNN
 	d.plcModelLoaded = models.PLC
 	d.farganModelLoaded = models.FARGAN
-	d.osceModelsLoaded = models.OSCE
-	d.osceBWEModelLoaded = models.OSCEBWE
+	d.setOSCEModelState(models)
 	return nil
 }
 

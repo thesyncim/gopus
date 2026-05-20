@@ -90,27 +90,13 @@ type Decoder struct {
 	softClipMem [2]float32
 	dnnBlob     *dnnblob.Blob
 	decoderDREDFields
+	decoderOSCEFields
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
 	// by OPUS_SET_DNN_BLOB so optional paths can stay dormant until they are real.
-	pitchDNNLoaded     bool
-	plcModelLoaded     bool
-	farganModelLoaded  bool
-	osceModelsLoaded   bool
-	osceBWEModelLoaded bool
-	osceBWEEnabled     bool
-	osceBWE            *decoderOSCEBWEState
-	osceLACE           *decoderOSCELACEState
-	// osceLACEModelLoaded mirrors `osceModelsLoaded` (LACE/NoLACE manifest
-	// presence in the bound DNN blob) but is exposed as a dedicated field so
-	// the native SILK postfilter gate matches the libopus OPUS_SET_DNN_BLOB
-	// shape.
-	osceLACEModelLoaded bool
-	// osceLACEEnabled mirrors libopus DecControl.osce_method != OSCE_METHOD_NONE
-	// in the same way osceBWEEnabled mirrors DecControl.enable_osce_bwe. The
-	// toggle only takes effect when the bound DNN blob also satisfies the
-	// LACE/NoLACE manifest.
-	osceLACEEnabled bool
+	pitchDNNLoaded    bool
+	plcModelLoaded    bool
+	farganModelLoaded bool
 }
 
 // NewDecoder creates a new Opus decoder.
