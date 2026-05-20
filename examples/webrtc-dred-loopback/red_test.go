@@ -312,10 +312,13 @@ func TestReceiveLoopREDFECDREDPriority(t *testing.T) {
 
 func TestReceiveLoopREDDecodeFailureFallsBackThroughFECAndDRED(t *testing.T) {
 	var calls []string
+	var fecPayload []byte
+	var dredPayload []byte
 	e := newReceiveLoopTestEngine(engineConfig{RED: true, FEC: true, DRED: true})
 	e.fecEnabledHook = func(_ []byte) bool { return true }
-	e.prepareDREDHook = func(_ []byte, maxDREDSamples int) (int, bool) {
+	e.prepareDREDHook = func(payload []byte, maxDREDSamples int) (int, bool) {
 		calls = append(calls, "prepare-dred")
+		dredPayload = append([]byte(nil), payload...)
 		return maxDREDSamples, true
 	}
 	e.decodeREDHook = func(_ []byte) bool {
@@ -325,9 +328,10 @@ func TestReceiveLoopREDDecodeFailureFallsBackThroughFECAndDRED(t *testing.T) {
 		e.mu.Unlock()
 		return false
 	}
-	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+	e.decodeHook = func(payload []byte, kind decodeKind) bool {
 		calls = append(calls, kind.String())
 		if kind == decodeFEC {
+			fecPayload = append([]byte(nil), payload...)
 			e.mu.Lock()
 			e.stats.FECRecoveryAttempts++
 			e.mu.Unlock()
@@ -360,6 +364,12 @@ func TestReceiveLoopREDDecodeFailureFallsBackThroughFECAndDRED(t *testing.T) {
 	want := []string{decodeNormal.String(), "red", decodeFEC.String(), "prepare-dred", "dred", decodeNormal.String()}
 	if !sameStrings(calls, want) {
 		t.Fatalf("calls=%v want %v", calls, want)
+	}
+	if string(fecPayload) != string([]byte{0xb2}) {
+		t.Fatalf("FEC payload=%x want parsed RED primary b2", fecPayload)
+	}
+	if string(dredPayload) != string([]byte{0xb2}) {
+		t.Fatalf("DRED payload=%x want parsed RED primary b2", dredPayload)
 	}
 	stats := e.Stats()
 	if stats.REDFallbackFrames != 1 || stats.FECFallbackFrames != 1 || stats.DREDFrames != 1 || stats.DREDRecoveryAttempts != 1 || stats.LossPathFrames != 0 {
