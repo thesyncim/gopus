@@ -149,39 +149,86 @@ func TestOpusPCMSoftClipMatchesLibopus(t *testing.T) {
 
 func TestSoftClipAndFloat32ToInt16MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	n := 8
-	channels := 2
-	mem := []float32{-0.08, 0.11}
-	src := []float32{
-		1.3, -0.9,
-		1.7, -1.8,
-		0.9, -1.2,
-		-0.1, 0.4,
-		-1.4, 1.6,
-		-1.9, 1.2,
-		-0.6, 0.2,
-		0.1, -0.1,
+	tests := []struct {
+		name     string
+		n        int
+		channels int
+		mem      []float32
+		src      []float32
+	}{
+		{
+			name:     "fast path in range zero memory",
+			n:        8,
+			channels: 2,
+			mem:      []float32{0, 0},
+			src: []float32{
+				-1, 1,
+				float32(-1.5 / 32768.0), float32(1.5 / 32768.0),
+				float32(-0.5 / 32768.0), float32(0.5 / 32768.0),
+				-0.75, 0.75,
+				-0.125, 0.125,
+				0, float32(32767.0 / 32768.0),
+				float32(-32767.0 / 32768.0), float32(32766.5 / 32768.0),
+				float32(-32766.5 / 32768.0), 0,
+			},
+		},
+		{
+			name:     "zero memory clipped input",
+			n:        8,
+			channels: 2,
+			mem:      []float32{0, 0},
+			src: []float32{
+				1.3, -0.9,
+				1.7, -1.8,
+				0.9, -1.2,
+				-0.1, 0.4,
+				-1.4, 1.6,
+				-1.9, 1.2,
+				-0.6, 0.2,
+				0.1, -0.1,
+			},
+		},
+		{
+			name:     "carryover clipped input",
+			n:        8,
+			channels: 2,
+			mem:      []float32{-0.08, 0.11},
+			src: []float32{
+				1.3, -0.9,
+				1.7, -1.8,
+				0.9, -1.2,
+				-0.1, 0.4,
+				-1.4, 1.6,
+				-1.9, 1.2,
+				-0.6, 0.2,
+				0.1, -0.1,
+			},
+		},
 	}
 
-	wantFloat, wantMem, err := probeLibopusSoftClip(n, channels, src, mem)
-	if err != nil {
-		libopustest.HelperUnavailable(t, "softclip", err)
-	}
-	want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeFloat2Int16, wantFloat)
-	if err != nil {
-		libopustest.HelperUnavailable(t, "float quant", err)
-	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			wantFloat, wantMem, err := probeLibopusSoftClip(tc.n, tc.channels, tc.src, tc.mem)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "softclip", err)
+			}
+			want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeFloat2Int16, wantFloat)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "float quant", err)
+			}
 
-	gotSrc := append([]float32(nil), src...)
-	gotMem := append([]float32(nil), mem...)
-	got := make([]int16, len(src))
-	softClipAndFloat32ToInt16(got, gotSrc, n, channels, gotMem)
+			gotSrc := append([]float32(nil), tc.src...)
+			gotMem := append([]float32(nil), tc.mem...)
+			got := make([]int16, len(tc.src))
+			softClipAndFloat32ToInt16(got, gotSrc, tc.n, tc.channels, gotMem)
 
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("sample[%d]=%d want %d", i, got[i], want[i])
-		}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("sample[%d]=%d want %d", i, got[i], want[i])
+				}
+			}
+			assertSoftClipFloat32BitsEqual(t, gotSrc, wantFloat, "softclipped pcm")
+			assertSoftClipFloat32BitsEqual(t, gotMem, wantMem, "mem")
+		})
 	}
-	assertSoftClipFloat32BitsEqual(t, gotSrc, wantFloat, "softclipped pcm")
-	assertSoftClipFloat32BitsEqual(t, gotMem, wantMem, "mem")
 }
