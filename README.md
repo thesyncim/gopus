@@ -74,7 +74,7 @@ make release-evidence
 
 `make release-evidence` must produce a PASS summary before a tag is published.
 Current focused gates cover tagged DRED/QEXT seams, RED recovery ordering,
-CELT/range-coder math oracles, and SILK NLSF/LPC internals.
+CELT/range-coder math oracles, and SILK NLSF/LPC/gain internals.
 
 ## Trust And Verification
 
