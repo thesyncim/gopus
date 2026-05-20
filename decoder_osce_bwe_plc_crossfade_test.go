@@ -300,3 +300,81 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 		}
 	})
 }
+
+func TestDecoderOSCEBWEDisableFadesOut(t *testing.T) {
+	coreBlob := requireLibopusDecoderNeuralModelBlob(t)
+	bweBlob := requireLibopusOSCEBWEModelBlob(t)
+
+	merged := make([]byte, 0, len(coreBlob)+len(bweBlob))
+	merged = append(merged, coreBlob...)
+	merged = append(merged, bweBlob...)
+
+	const frameSize = 960
+	packetA := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
+	packetB := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
+
+	decRaw, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder(raw): %v", err)
+	}
+	if err := decRaw.SetComplexity(4); err != nil {
+		t.Fatalf("raw.SetComplexity(4): %v", err)
+	}
+	if err := decRaw.SetDNNBlob(merged); err != nil {
+		t.Fatalf("raw.SetDNNBlob: %v", err)
+	}
+	if err := decRaw.SetOSCEBWE(false); err != nil {
+		t.Fatalf("raw.SetOSCEBWE(false): %v", err)
+	}
+	pcmRaw := make([]float32, decRaw.maxPacketSamples*decRaw.channels)
+	if n, err := decRaw.Decode(packetA, pcmRaw); err != nil {
+		t.Fatalf("raw.Decode #1: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("raw.Decode #1 samples=%d want %d", n, frameSize)
+	}
+	if n, err := decRaw.Decode(packetB, pcmRaw); err != nil {
+		t.Fatalf("raw.Decode #2: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("raw.Decode #2 samples=%d want %d", n, frameSize)
+	}
+
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder(active): %v", err)
+	}
+	if err := dec.SetComplexity(4); err != nil {
+		t.Fatalf("active.SetComplexity(4): %v", err)
+	}
+	if err := dec.SetDNNBlob(merged); err != nil {
+		t.Fatalf("active.SetDNNBlob: %v", err)
+	}
+	if err := dec.SetOSCEBWE(true); err != nil {
+		t.Fatalf("active.SetOSCEBWE(true): %v", err)
+	}
+	pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+	if n, err := dec.Decode(packetA, pcm); err != nil {
+		t.Fatalf("active.Decode #1: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("active.Decode #1 samples=%d want %d", n, frameSize)
+	}
+	if dec.osceBWE == nil || !dec.osceBWE.prevBWEActive {
+		t.Fatalf("prevBWEActive=false after active SILK WB decode")
+	}
+	if err := dec.SetOSCEBWE(false); err != nil {
+		t.Fatalf("active.SetOSCEBWE(false): %v", err)
+	}
+	if n, err := dec.Decode(packetB, pcm); err != nil {
+		t.Fatalf("active.Decode after disable: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("active.Decode after disable samples=%d want %d", n, frameSize)
+	}
+	if dec.osceBWE != nil && dec.osceBWE.prevBWEActive {
+		t.Fatalf("prevBWEActive=true after disabled SILK WB fade-out")
+	}
+
+	diff, maxDiff := float32BufferDiff(pcm[:frameSize], pcmRaw[:frameSize])
+	if diff == 0 {
+		t.Fatal("disabled-after-active SILK WB output is raw; BWE fade-out did not run")
+	}
+	t.Logf("BWE disable fade-out altered %d/%d samples; max abs diff %g", diff, frameSize, maxDiff)
+}

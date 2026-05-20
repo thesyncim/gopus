@@ -162,7 +162,7 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	// erroneously fade in. The SILK-only post-decode hook handles the
 	// SILK -> SILK cross-fade itself; this catches Hybrid and CELT
 	// transitions where the SILK helper is not invoked.
-	d.osceBWEMarkInactiveIfModeIneligible(toc.Mode, toc.Bandwidth)
+	d.osceBWEMarkInactiveIfModeIneligible(toc.Mode, toc.Bandwidth, pcm[:totalSamples*d.channels], totalSamples, toc.Stereo)
 
 	// OSCE LACE/NoLACE transition bookkeeping: clear the previous-LACE-
 	// active flag when the current packet bypasses the postfilter (Hybrid

@@ -50,10 +50,14 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 	silkBW silk.Bandwidth,
 	packetStereoLocal bool,
 ) bool {
-	if d == nil || !d.osceBWEEnabled || !d.osceBWEModelLoaded {
+	if d == nil || d.osceBWE == nil {
 		return false
 	}
-	if d.osceBWE == nil {
+	if !d.osceBWEEnabled || !d.osceBWEModelLoaded {
+		if d.osceBWE.prevBWEActive {
+			d.applyOSCEBWEFadeOut(out, frameSize, packetStereoLocal)
+		}
+		d.osceBWE.prevBWEActive = false
 		return false
 	}
 	// libopus only enables OSCE_MODE_SILK_BBWE for SILK-only mode at 48 kHz
@@ -272,7 +276,7 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 // updated. Without this clearing the next SILK WB packet would incorrectly
 // skip the BWE fade-in cross-fade because prevBWEActive would still be true
 // from many packets ago.
-func (d *Decoder) osceBWEMarkInactiveIfModeIneligible(mode Mode, bandwidth Bandwidth) {
+func (d *Decoder) osceBWEMarkInactiveIfModeIneligible(mode Mode, bandwidth Bandwidth, out []float32, frameSize int, packetStereoLocal bool) {
 	if d == nil || d.osceBWE == nil {
 		return
 	}
@@ -280,6 +284,9 @@ func (d *Decoder) osceBWEMarkInactiveIfModeIneligible(mode Mode, bandwidth Bandw
 		// SILK WB packets go through maybeApplyOSCEBWEPostSilk which manages
 		// the flag itself.
 		return
+	}
+	if d.osceBWE.prevBWEActive && len(out) >= frameSize*d.channels {
+		d.applyOSCEBWEFadeOut(out, frameSize, packetStereoLocal)
 	}
 	d.osceBWE.prevBWEActive = false
 }
