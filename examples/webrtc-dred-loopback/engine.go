@@ -681,8 +681,9 @@ func (e *engine) receiveRTP(remote rtpReader) {
 						e.decodeAndOutput(nil, pcm, decodeLossPath)
 					}
 				} else {
-					recoverWithFEC := e.fecEnabledFor(payload)
-					dredAvailable, dredReady := e.prepareDREDRecovery(payload, missing*frameSamples)
+					dredAvailable := 0
+					dredReady := false
+					dredPrepared := false
 					for lostAgo := missing; lostAgo >= 1; lostAgo-- {
 						if redEnabled {
 							if redPayload := findREDRecoveryBlock(redBlocks, lostAgo, frameSamples); len(redPayload) > 0 {
@@ -692,11 +693,15 @@ func (e *engine) receiveRTP(remote rtpReader) {
 								e.bump(func(s *engineStats) { s.REDFallbackFrames++ })
 							}
 						}
-						if recoverWithFEC && lostAgo == 1 {
+						if lostAgo == 1 && e.fecEnabledFor(payload) {
 							if e.decodeAndOutput(payload, pcm, decodeFEC) {
 								continue
 							}
 							e.bump(func(s *engineStats) { s.FECFallbackFrames++ })
+						}
+						if !dredPrepared {
+							dredAvailable, dredReady = e.prepareDREDRecovery(payload, missing*frameSamples)
+							dredPrepared = true
 						}
 						if dredReady && dredAvailable >= lostAgo*frameSamples && e.decodeDREDAndOutput(lostAgo*frameSamples, pcm) {
 							continue

@@ -136,15 +136,15 @@ func parseREDPayload(payload []byte) (primary []byte, blocks []redBlock, err err
 		if payloadType != redOpusPayloadType {
 			return nil, nil, errors.New("unexpected RED redundant payload type")
 		}
+		if len(headers) == maxREDDepth {
+			return nil, nil, errors.New("too many RED redundant blocks")
+		}
 		headers = append(headers, blockHeader{
 			payloadType:     payloadType,
 			timestampOffset: offset,
 			length:          length,
 		})
 		pos += 4
-		if len(headers) > maxREDDepth {
-			return nil, nil, errors.New("too many RED redundant blocks")
-		}
 	}
 	blocks = make([]redBlock, 0, len(headers))
 	for _, header := range headers {

@@ -257,10 +257,13 @@ func TestReceiveLoopMalformedREDWithGapUsesPLCOnly(t *testing.T) {
 func TestReceiveLoopREDFECDREDPriority(t *testing.T) {
 	var calls []string
 	e := newReceiveLoopTestEngine(engineConfig{RED: true, FEC: true, DRED: true})
-	e.fecEnabledHook = func(_ []byte) bool { return true }
+	e.fecEnabledHook = func(_ []byte) bool {
+		t.Fatal("FEC should not be probed when RED carries the missing packet")
+		return false
+	}
 	e.prepareDREDHook = func(_ []byte, maxDREDSamples int) (int, bool) {
-		calls = append(calls, "prepare-dred")
-		return maxDREDSamples, true
+		t.Fatal("DRED should not prepare when RED carries the missing packet")
+		return 0, false
 	}
 	e.decodeHook = func(_ []byte, kind decodeKind) bool {
 		calls = append(calls, kind.String())
@@ -296,7 +299,7 @@ func TestReceiveLoopREDFECDREDPriority(t *testing.T) {
 		testPacket(102, redPayloadType, redPayload),
 	)
 
-	want := []string{decodeNormal.String(), "prepare-dred", "red", decodeNormal.String()}
+	want := []string{decodeNormal.String(), "red", decodeNormal.String()}
 	if !sameStrings(calls, want) {
 		t.Fatalf("calls=%v want %v", calls, want)
 	}
@@ -354,7 +357,7 @@ func TestReceiveLoopREDDecodeFailureFallsBackThroughFECAndDRED(t *testing.T) {
 		testPacket(102, redPayloadType, redPayload),
 	)
 
-	want := []string{decodeNormal.String(), "prepare-dred", "red", decodeFEC.String(), "dred", decodeNormal.String()}
+	want := []string{decodeNormal.String(), "red", decodeFEC.String(), "prepare-dred", "dred", decodeNormal.String()}
 	if !sameStrings(calls, want) {
 		t.Fatalf("calls=%v want %v", calls, want)
 	}
@@ -406,7 +409,7 @@ func TestReceiveLoopFECFallsBackToDREDWhenNoREDBlock(t *testing.T) {
 		testPacket(102, redPayloadType, mustREDPayload(t, []byte{0x02}, nil)),
 	)
 
-	want := []string{decodeNormal.String(), "prepare-dred", decodeFEC.String(), "dred", decodeNormal.String()}
+	want := []string{decodeNormal.String(), decodeFEC.String(), "prepare-dred", "dred", decodeNormal.String()}
 	if !sameStrings(calls, want) {
 		t.Fatalf("calls=%v want %v", calls, want)
 	}
@@ -514,6 +517,33 @@ func TestReceiveLoopIgnoresStalePacketsWithoutRewindingExpectedSequence(t *testi
 	}
 }
 
+func TestReceiveLoopIgnoresStaleMalformedRED(t *testing.T) {
+	var calls []decodeKind
+	e := newReceiveLoopTestEngine(engineConfig{RED: true})
+	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+		calls = append(calls, kind)
+		e.bumpDecodeStats(kind)
+		return true
+	}
+
+	runReceiveLoopTest(t, e,
+		testPacket(10, redPayloadType, mustREDPayload(t, []byte{0x10}, nil)),
+		testPacket(11, redPayloadType, mustREDPayload(t, []byte{0x11}, nil)),
+		testPacket(10, redPayloadType, []byte{0x80 | redOpusPayloadType, 0x00}),
+		testPacket(12, redPayloadType, mustREDPayload(t, []byte{0x12}, nil)),
+	)
+
+	want := []decodeKind{decodeNormal, decodeNormal, decodeNormal}
+	if !sameDecodeKinds(calls, want) {
+		t.Fatalf("decode calls=%v want %v", calls, want)
+	}
+	stats := e.Stats()
+	if stats.DecodeErrors != 0 || stats.REDFallbackFrames != 0 || stats.PacketsReceived != 3 {
+		t.Fatalf("stats decodeErrors=%d redFallback=%d received=%d, want 0/0/3",
+			stats.DecodeErrors, stats.REDFallbackFrames, stats.PacketsReceived)
+	}
+}
+
 func TestReceiveLoopSequenceWraparoundDoesNotTriggerLoss(t *testing.T) {
 	var calls []decodeKind
 	e := newReceiveLoopTestEngine(engineConfig{})
@@ -535,6 +565,31 @@ func TestReceiveLoopSequenceWraparoundDoesNotTriggerLoss(t *testing.T) {
 	stats := e.Stats()
 	if stats.LossPathFrames != 0 || stats.PacketsReceived != 2 {
 		t.Fatalf("stats loss=%d received=%d, want 0/2", stats.LossPathFrames, stats.PacketsReceived)
+	}
+}
+
+func TestReceiveLoopSequenceWraparoundMissingPacketUsesPLC(t *testing.T) {
+	var calls []decodeKind
+	e := newReceiveLoopTestEngine(engineConfig{})
+	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+		calls = append(calls, kind)
+		e.bumpDecodeStats(kind)
+		return true
+	}
+
+	runReceiveLoopTest(t, e,
+		testPacket(65534, redOpusPayloadType, []byte{0xfe}),
+		testPacket(0, redOpusPayloadType, []byte{0x00}),
+	)
+
+	want := []decodeKind{decodeNormal, decodeLossPath, decodeNormal}
+	if !sameDecodeKinds(calls, want) {
+		t.Fatalf("decode calls=%v want %v", calls, want)
+	}
+	stats := e.Stats()
+	if stats.LossPathFrames != 1 || stats.ConcealedFrames != 1 || stats.PacketsReceived != 2 {
+		t.Fatalf("stats loss=%d concealed=%d received=%d, want 1/1/2",
+			stats.LossPathFrames, stats.ConcealedFrames, stats.PacketsReceived)
 	}
 }
 
