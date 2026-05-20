@@ -30,6 +30,7 @@ func (e *MultistreamEncoder) applyApplication(app Application) error {
 	e.enc.SetRestrictedSilkApplication(app == ApplicationRestrictedSilk)
 	e.enc.SetMode(settings.mode)
 	e.enc.SetBandwidth(settings.bandwidth)
+	e.enc.SetBandwidthAuto()
 	e.enc.SetSignal(settings.signal)
 	return nil
 }

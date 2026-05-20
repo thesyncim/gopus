@@ -27,6 +27,7 @@ func (e *Encoder) applyApplication(app Application) error {
 	e.enc.SetRestrictedSilkApplication(app == ApplicationRestrictedSilk)
 	e.enc.SetMode(settings.mode)
 	e.enc.SetBandwidth(settings.bandwidth)
+	e.enc.SetBandwidthAuto()
 	e.enc.SetSignalType(settings.signal)
 	return nil
 }

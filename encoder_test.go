@@ -1306,6 +1306,42 @@ func TestEncoder_MaxBandwidth_ClampsOutput(t *testing.T) {
 	if len(packet) == 0 {
 		t.Error("Encode with limited bandwidth returned empty packet")
 	}
+	info, err := ParsePacket(packet)
+	if err != nil {
+		t.Fatalf("ParsePacket error: %v", err)
+	}
+	if info.TOC.Bandwidth > BandwidthWideband {
+		t.Fatalf("encoded bandwidth=%v want <= %v", info.TOC.Bandwidth, BandwidthWideband)
+	}
 
 	t.Logf("Wideband-limited encoded to %d bytes", len(packet))
+}
+
+func TestEncoder_ForcedBandwidthOverridesMaxBandwidth(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationRestrictedCelt})
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	if err := enc.SetFrameSize(480); err != nil {
+		t.Fatalf("SetFrameSize error: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthSuperwideband); err != nil {
+		t.Fatalf("SetBandwidth error: %v", err)
+	}
+	if err := enc.SetMaxBandwidth(BandwidthWideband); err != nil {
+		t.Fatalf("SetMaxBandwidth error: %v", err)
+	}
+
+	pcm := generateSineWave(48000, 440, 480)
+	packet, err := enc.EncodeFloat32(pcm)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+	info, err := ParsePacket(packet)
+	if err != nil {
+		t.Fatalf("ParsePacket error: %v", err)
+	}
+	if info.TOC.Mode != ModeCELT || info.TOC.Bandwidth != BandwidthSuperwideband {
+		t.Fatalf("TOC mode=%v bandwidth=%v want CELT %v", info.TOC.Mode, info.TOC.Bandwidth, BandwidthSuperwideband)
+	}
 }

@@ -749,10 +749,16 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		useVBR := e.bitrateMode != ModeCBR
 		equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate,
 			useVBR, requestedMode, e.complexity, e.packetLoss)
+		e.bandwidth = e.autoClampBandwidth(e.bandwidth, requestedMode, equivRate)
 		bw := e.bandwidth
 		e.lbrrCoded = decideFEC(e.fecEnabled, e.packetLoss, e.lbrrCoded,
 			requestedMode, &bw, equivRate)
 		e.bandwidth = bw
+		if e.mode == ModeSILK && e.bandwidth > types.BandwidthWideband {
+			e.bandwidth = types.BandwidthWideband
+		} else {
+			requestedMode = autoModeFixup(requestedMode, e.bandwidth)
+		}
 	}
 	actualMode, prevModeNext := e.applyCELTTransitionDelay(frameSize, requestedMode)
 	transitionToCELT := requestedMode == ModeCELT && actualMode != ModeCELT
@@ -2159,13 +2165,10 @@ func (e *Encoder) autoVoiceEstimate(prev Mode) int {
 	return voiceEst
 }
 
-// effectiveBandwidth returns the actual bandwidth to use, considering maxBandwidth limit.
+// effectiveBandwidth returns the resolved bandwidth for encoder submodules.
 func (e *Encoder) effectiveBandwidth() types.Bandwidth {
 	if e.lfe {
 		return types.BandwidthNarrowband
-	}
-	if e.bandwidth > e.maxBandwidth {
-		return e.maxBandwidth
 	}
 	return e.bandwidth
 }

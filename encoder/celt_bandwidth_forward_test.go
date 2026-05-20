@@ -42,8 +42,20 @@ func TestCELTBandwidthForwardingAndMaxClamp(t *testing.T) {
 	if len(pkt) == 0 {
 		t.Fatal("empty packet after max clamp")
 	}
+	if got := enc.celtEncoder.Bandwidth(); got != celt.CELTSuperwideband {
+		t.Fatalf("celt forced-bandwidth mismatch after max clamp: got=%v want=%v", got, celt.CELTSuperwideband)
+	}
+
+	enc.SetBandwidthAuto()
+	pkt, err = enc.Encode(pcm, 480)
+	if err != nil {
+		t.Fatalf("encode after bandwidth auto failed: %v", err)
+	}
+	if len(pkt) == 0 {
+		t.Fatal("empty packet after bandwidth auto")
+	}
 	if got := enc.celtEncoder.Bandwidth(); got != celt.CELTWideband {
-		t.Fatalf("celt max-bandwidth clamp mismatch: got=%v want=%v", got, celt.CELTWideband)
+		t.Fatalf("celt auto max-bandwidth clamp mismatch: got=%v want=%v", got, celt.CELTWideband)
 	}
 }
 
