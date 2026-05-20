@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 // OSCE BWE (blind bandwidth extension) is an extra-control libopus feature. The
@@ -68,7 +69,7 @@ func requireLibopusOSCEBWEModelBlob(t *testing.T) []byte {
 	t.Helper()
 	blob, err := probeLibopusOSCEBWEModelBlob()
 	if err != nil {
-		t.Skipf("libopus OSCE BWE model blob helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "OSCE BWE model blob", err)
 	}
 	return blob
 }
@@ -78,6 +79,7 @@ func requireLibopusOSCEBWEModelBlob(t *testing.T) []byte {
 // libopus tarball or build environment is unavailable, so it is safe to run
 // in environments that do not (yet) prepare a libopus DRED build.
 func TestOSCEBWEModelBlobExtractionSmoke(t *testing.T) {
+	libopustest.RequireOracle(t)
 	blob := requireLibopusOSCEBWEModelBlob(t)
 	if len(blob) == 0 {
 		t.Fatalf("OSCE BWE blob is empty")

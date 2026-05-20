@@ -14,6 +14,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	osceLACE "github.com/thesyncim/gopus/internal/osce/lace"
 )
 
@@ -34,9 +35,10 @@ import (
 // while residual drift now comes from the AdaComb/AdaConv signal filters. See
 // `cases` below for the active envelope.
 func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	binPath, err := getLibopusOSCELACEForwardHelperPath()
 	if err != nil {
-		t.Skipf("libopus OSCE LACE forward helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "OSCE LACE forward", err)
 	}
 
 	blob := requireLibopusOSCELACEModelBlob(t)
@@ -175,10 +177,11 @@ func TestOSCELACEForwardTraceLocatesFirstDivergence(t *testing.T) {
 	if os.Getenv("GOPUS_TRACE_OSCE_LACE") != "1" {
 		t.Skip("set GOPUS_TRACE_OSCE_LACE=1 to run the opt-in LACE stage trace")
 	}
+	libopustest.RequireOracle(t)
 
 	binPath, err := getLibopusOSCELACEForwardHelperPath()
 	if err != nil {
-		t.Skipf("libopus OSCE LACE forward helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "OSCE LACE forward", err)
 	}
 
 	blob := requireLibopusOSCELACEModelBlob(t)

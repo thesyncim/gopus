@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	osceBWE "github.com/thesyncim/gopus/internal/osce/bwe"
 )
 
@@ -48,9 +49,10 @@ import (
 // TestOSCEBWERawSignalNetMatchesLibopus separately exercises the raw BBWENet
 // float path and keeps the signal-net math tolerance near float32 roundoff.
 func TestOSCEBWEForwardPassMatchesLibopusNumericalParity(t *testing.T) {
+	libopustest.RequireOracle(t)
 	binPath, err := getLibopusOSCEBWEForwardHelperPath()
 	if err != nil {
-		t.Skipf("libopus OSCE BWE forward helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "OSCE BWE forward", err)
 	}
 
 	blob := requireLibopusOSCEBWEModelBlob(t)
@@ -203,9 +205,10 @@ func TestOSCEBWEForwardPassMatchesLibopusNumericalParity(t *testing.T) {
 }
 
 func TestOSCEBWERawSignalNetMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	binPath, err := getLibopusOSCEBWEForwardHelperPath()
 	if err != nil {
-		t.Skipf("libopus OSCE BWE forward helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "OSCE BWE forward", err)
 	}
 
 	blob := requireLibopusOSCEBWEModelBlob(t)
@@ -309,9 +312,10 @@ func TestOSCEBWERawSignalNetMatchesLibopus(t *testing.T) {
 // output stays within the same numerical comparator envelope as the single-
 // frame forward pass.
 func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	binPath, err := getLibopusOSCEBWEForwardHelperPath()
 	if err != nil {
-		t.Skipf("libopus OSCE BWE forward helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "OSCE BWE forward", err)
 	}
 
 	blob := requireLibopusOSCEBWEModelBlob(t)
@@ -473,9 +477,10 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 // operates on float32 PCM in [-1, 1] but mirrors libopus' int16-domain
 // writeback, so the normalised outputs should match exactly.
 func TestOSCEBWECrossFade10msMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	binPath, err := getLibopusOSCEBWEForwardHelperPath()
 	if err != nil {
-		t.Skipf("libopus OSCE BWE forward helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "OSCE BWE forward", err)
 	}
 
 	const numIn16 = 160

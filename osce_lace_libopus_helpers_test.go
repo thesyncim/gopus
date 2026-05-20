@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 // OSCE LACE/NoLACE postfilter is an extra-control libopus feature. The helpers
@@ -72,7 +73,7 @@ func requireLibopusOSCELACEModelBlob(t *testing.T) []byte {
 	t.Helper()
 	blob, err := probeLibopusOSCELACEModelBlob()
 	if err != nil {
-		t.Skipf("libopus OSCE LACE model blob helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "OSCE LACE model blob", err)
 	}
 	return blob
 }
@@ -83,6 +84,7 @@ func requireLibopusOSCELACEModelBlob(t *testing.T) []byte {
 // safe to run in environments that do not (yet) prepare a libopus DRED
 // build.
 func TestOSCELACEModelBlobExtractionSmoke(t *testing.T) {
+	libopustest.RequireOracle(t)
 	blob := requireLibopusOSCELACEModelBlob(t)
 	if len(blob) == 0 {
 		t.Fatalf("OSCE LACE blob is empty")
