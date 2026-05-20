@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -127,9 +128,8 @@ func TestComputeBandEnergies(t *testing.T) {
 }
 
 // TestCoarseEnergyEncoderProducesValidOutput verifies the encoder produces valid output.
-// Note: Strict encode->decode round-trip testing is limited by the decoder's approximate
-// Laplace implementation (updateRange uses DecodeBit approximation). This test verifies
-// the encoder produces non-empty, consistent output with correct quantization.
+// The encoded coarse energies should round-trip through the range decoder with
+// the same quantized band values the encoder stores for later prediction.
 func TestCoarseEnergyEncoderProducesValidOutput(t *testing.T) {
 	frameSizes := []int{120, 240, 480, 960}
 
@@ -167,23 +167,26 @@ func TestCoarseEnergyEncoderProducesValidOutput(t *testing.T) {
 				buf := make([]byte, 256)
 				re := &rangecoding.Encoder{}
 				re.Init(buf)
+				re.Shrink(uint32(len(buf)))
 				enc.SetRangeEncoder(re)
+				enc.frameBits = len(buf) * 8
 
 				quantizedEnc := enc.EncodeCoarseEnergy(energies, nbBands, intra, lm)
 
 				// Finish encoding
 				encoded := re.Done()
 
-				// Verify output produced (intra mode always produces bytes,
-				// inter mode may produce zero bytes if energies match prediction)
-				if intra && len(encoded) == 0 {
-					t.Errorf("No bytes produced for %d bands in intra mode", nbBands)
-				}
-				if !intra {
-					t.Logf("Inter mode produced %d bytes for %d bands", len(encoded), nbBands)
+				if len(encoded) != len(buf) {
+					t.Fatalf("encoded length=%d want %d", len(encoded), len(buf))
 				}
 
-				// Verify quantized energies are finite and not wildly off.
+				dec := NewDecoder(1)
+				rd := &rangecoding.Decoder{}
+				rd.Init(encoded)
+				dec.SetRangeDecoder(rd)
+				decoded := dec.DecodeCoarseEnergy(nbBands, intra, lm)
+
+				// Verify quantized energies are finite, bounded, and match decoder output.
 				for band := 0; band < nbBands; band++ {
 					diff := math.Abs(energies[band] - quantizedEnc[band])
 					if math.IsNaN(diff) || math.IsInf(diff, 0) {
@@ -192,6 +195,9 @@ func TestCoarseEnergyEncoderProducesValidOutput(t *testing.T) {
 					if diff > 12*DB6 {
 						t.Errorf("Band %d: original=%f, quantized=%f, diff=%f (>12*DB6)",
 							band, energies[band], quantizedEnc[band], diff)
+					}
+					if got, want := decoded[band], quantizedEnc[band]; math.Abs(got-want) > 1e-5 {
+						t.Fatalf("Band %d decoded=%f want encoded quantized=%f", band, got, want)
 					}
 				}
 
@@ -444,36 +450,35 @@ func TestEnergyEncodingAllFrameSizes(t *testing.T) {
 	}
 }
 
-// TestLaplaceEncoderProducesValidOutput verifies Laplace encoding produces valid bytes.
-// Note: Strict encode->decode round-trip testing is limited by the decoder's approximate
-// updateRange implementation (uses DecodeBit approximations). This test verifies the
-// encoder follows the same probability model and produces non-empty output.
-func TestLaplaceEncoderProducesValidOutput(t *testing.T) {
-	// Test range of values
+// TestLaplaceEncoderRoundTripsValues verifies CELT Laplace symbols decode back
+// to the exact value accepted by the encoder.
+func TestLaplaceEncoderRoundTripsValues(t *testing.T) {
 	values := []int{-10, -5, -3, -2, -1, 0, 1, 2, 3, 5, 10}
 
 	for _, val := range values {
-		t.Run(string(rune('0'+val+10)), func(t *testing.T) {
+		t.Run(fmt.Sprintf("value_%+d", val), func(t *testing.T) {
 			enc := NewEncoder(1)
 
-			// Encode
 			buf := make([]byte, 64)
 			re := &rangecoding.Encoder{}
 			re.Init(buf)
 			enc.rangeEncoder = re
 			fs := int(eProbModel[0][0][0]) << 7
 			decay := int(eProbModel[0][0][1]) << 6
-			enc.encodeLaplace(val, fs, decay)
+			want := enc.encodeLaplace(val, fs, decay)
 			encoded := re.Done()
 
-			// Should produce non-empty output
 			if len(encoded) == 0 {
 				t.Errorf("Value %d: no bytes produced", val)
 			}
 
-			// Larger values should consume more bits (generally)
-			// This verifies the probability model is being used
-			t.Logf("Value %d: encoded to %d bytes", val, len(encoded))
+			rd := &rangecoding.Decoder{}
+			rd.Init(encoded)
+			dec := NewDecoder(1)
+			dec.SetRangeDecoder(rd)
+			if got := dec.decodeLaplace(fs, decay); got != want {
+				t.Fatalf("decodeLaplace after encodeLaplace(%d)=%d want %d", val, got, want)
+			}
 		})
 	}
 }
