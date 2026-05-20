@@ -5,6 +5,35 @@ package celt
 
 import "testing"
 
+func TestQuantizePLCPCM16kFrameMatchesLibopusInt16Grid(t *testing.T) {
+	frame := []float32{
+		0,
+		float32(0.5 / 32768),
+		float32(1.5 / 32768),
+		float32(-1.5 / 32768),
+		float32(32766.6 / 32768),
+		1.2,
+		-1.2,
+	}
+	want := []float32{
+		0,
+		0,
+		2.0 / 32768.0,
+		-2.0 / 32768.0,
+		32767.0 / 32768.0,
+		32767.0 / 32768.0,
+		-32767.0 / 32768.0,
+	}
+
+	quantizePLCPCM16kFrame(frame)
+
+	for i := range want {
+		if frame[i] != want[i] {
+			t.Fatalf("frame[%d]=%g want %g", i, frame[i], want[i])
+		}
+	}
+}
+
 func TestUpdateStereoDREDNeuralHistoryPreservesRightShift(t *testing.T) {
 	d := NewDecoder(2)
 	const history = 6

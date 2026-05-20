@@ -20,6 +20,12 @@ var dred48kSincFilter = [...]float32{
 	4.2931e-05,
 }
 
+func quantizePLCPCM16kFrame(frame []float32) {
+	for i := range frame {
+		frame[i] = quantizedRawPCM16GridSample(frame[i] * 32768)
+	}
+}
+
 // ConcealPLCNeural48kMonoToFloat32 mirrors the libopus FRAME_PLC_NEURAL
 // lost-frame path for the current mono 48 kHz seam. The caller owns the
 // queued 16 kHz neural history and provides a frame generator that fills one
@@ -192,6 +198,7 @@ func (d *Decoder) runStereoDREDConceal(
 		if !generate(frame) {
 			return false
 		}
+		quantizePLCPCM16kFrame(frame)
 		*plcFill += 160
 	}
 
@@ -410,6 +417,7 @@ func (d *Decoder) concealNeural48kMono(
 		if !generate(frame) {
 			return false
 		}
+		quantizePLCPCM16kFrame(frame)
 		*plcFill += 160
 	}
 
