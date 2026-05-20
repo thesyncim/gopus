@@ -1,7 +1,6 @@
 package celt
 
 import (
-	"fmt"
 	"math"
 	"sync"
 	"testing"
@@ -62,11 +61,7 @@ func probeLibopusCELTMath(mode uint32, samples []float32) ([]float32, error) {
 		payload.Float32(sample)
 	}
 
-	data, err := libopustest.RunHelper(binPath, payload.Bytes())
-	if err != nil {
-		return nil, fmt.Errorf("run celt math helper: %w", err)
-	}
-	reader, err := libopustest.NewOracleReader("celt math", libopusCELTMathOutputMagic, data)
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "celt math", libopusCELTMathOutputMagic)
 	if err != nil {
 		return nil, err
 	}
@@ -92,11 +87,7 @@ func probeLibopusCELTMathWords(mode uint32, count int, words []uint32) ([]uint32
 		payload.U32(word)
 	}
 
-	data, err := libopustest.RunHelper(binPath, payload.Bytes())
-	if err != nil {
-		return nil, fmt.Errorf("run celt math helper: %w", err)
-	}
-	reader, err := libopustest.NewOracleReader("celt math", libopusCELTMathOutputMagic, data)
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "celt math", libopusCELTMathOutputMagic)
 	if err != nil {
 		return nil, err
 	}

@@ -4,25 +4,14 @@
 package celt
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-func repoRootForCELTTest(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	return filepath.Clean(filepath.Join(wd, ".."))
-}
-
 func probeLibopusCELTFloatQuant(t *testing.T, mode uint32, samples []float32) []int16 {
 	t.Helper()
-	want, err := libopustest.ProbeFloatQuant(repoRootForCELTTest(t), mode, samples)
+	want, err := libopustest.ProbeFloatQuant(mode, samples)
 	if err != nil {
 		t.Skipf("libopus float quant helper unavailable: %v", err)
 	}

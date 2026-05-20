@@ -77,13 +77,13 @@ lint-fix:
 	@command -v $(GOLANGCI_LINT) >/dev/null 2>&1 || { echo "golangci-lint not found. Install with: GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION)"; exit 1; }
 	$(GO_WORK_ENV) $(GOLANGCI_LINT) run --fix ./...
 
-# Run tests
-test:
-	$(GO_RUNNABLE_TEST)
+# Run the default package suite with pinned-reference oracles active.
+test: ensure-libopus
+	$(RUNNABLE_PARITY)
 
 # Fast inner-loop tests (skips parity/exhaustive tier checks)
 test-fast:
-	$(GO_RUNNABLE_TEST) -short
+	$(RUNNABLE_FAST) -short
 
 # Race detector sweep across all packages at fast test tier (keeps runtime bounded).
 test-race:

@@ -1,7 +1,6 @@
 package silk
 
 import (
-	"fmt"
 	"sync"
 	"testing"
 
@@ -66,11 +65,7 @@ func probeLibopusSILKFixed(mode uint32, records []libopusSILKFixedRecord) ([]int
 		payload.U32(record.shift)
 	}
 
-	data, err := libopustest.RunHelper(binPath, payload.Bytes())
-	if err != nil {
-		return nil, fmt.Errorf("run silk fixed helper: %w", err)
-	}
-	reader, err := libopustest.NewOracleReader("silk fixed", libopusSILKFixedOutputMagic, data)
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk fixed", libopusSILKFixedOutputMagic)
 	if err != nil {
 		return nil, err
 	}

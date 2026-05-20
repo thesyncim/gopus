@@ -143,7 +143,19 @@ func BuildDREDHelper(repoRoot, sourceFile, outputBase string, includeInternal bo
 	return outPath, nil
 }
 
-func ProbeFloatQuant(_ string, mode uint32, samples []float32) ([]int16, error) {
+func RunOracle(binPath string, input []byte, label, outputMagic string) (*OracleReader, error) {
+	return RunOracleEnv(binPath, input, label, outputMagic, nil)
+}
+
+func RunOracleEnv(binPath string, input []byte, label, outputMagic string, env []string) (*OracleReader, error) {
+	data, err := RunHelperEnv(binPath, input, env)
+	if err != nil {
+		return nil, fmt.Errorf("run %s helper: %w", label, err)
+	}
+	return NewOracleReader(label, outputMagic, data)
+}
+
+func ProbeFloatQuant(mode uint32, samples []float32) ([]int16, error) {
 	floatQuantHelperOnce.Do(func() {
 		floatQuantHelperPath, floatQuantHelperErr = BuildCHelper(CHelperConfig{
 			Label:       "float quant",
@@ -161,11 +173,7 @@ func ProbeFloatQuant(_ string, mode uint32, samples []float32) ([]int16, error) 
 		payload.Float32(sample)
 	}
 
-	data, err := RunHelper(floatQuantHelperPath, payload.Bytes())
-	if err != nil {
-		return nil, fmt.Errorf("run float quant helper: %w", err)
-	}
-	reader, err := NewOracleReader("float quant", "GFQO", data)
+	reader, err := RunOracle(floatQuantHelperPath, payload.Bytes(), "float quant", "GFQO")
 	if err != nil {
 		return nil, err
 	}

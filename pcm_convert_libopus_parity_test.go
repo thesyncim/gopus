@@ -1,7 +1,6 @@
 package gopus
 
 import (
-	"os"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -9,11 +8,7 @@ import (
 )
 
 func probeLibopusFloatQuant(mode uint32, samples []float32) ([]int16, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	return libopustest.ProbeFloatQuant(wd, mode, samples)
+	return libopustest.ProbeFloatQuant(mode, samples)
 }
 
 func TestFloat32ToInt16MatchesLibopusFLOAT2INT16ExhaustiveGrid(t *testing.T) {

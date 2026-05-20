@@ -4,21 +4,10 @@
 package bwe
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
-
-func repoRootForBWEFloatQuantTest(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	return filepath.Clean(filepath.Join(wd, "..", "..", ".."))
-}
 
 func TestBWEFloatToInt16MatchesLibopusOutputScaleCGrid(t *testing.T) {
 	samples := make([]float32, 0, 2*65540)
@@ -26,7 +15,7 @@ func TestBWEFloatToInt16MatchesLibopusOutputScaleCGrid(t *testing.T) {
 		samples = append(samples, float32(raw)*(1.0/32768.0))
 		samples = append(samples, float32(float64(raw)+0.5)*(1.0/32768.0))
 	}
-	want, err := libopustest.ProbeFloatQuant(repoRootForBWEFloatQuantTest(t), libopustest.FloatQuantModeOSCEOutputScale, samples)
+	want, err := libopustest.ProbeFloatQuant(libopustest.FloatQuantModeOSCEOutputScale, samples)
 	if err != nil {
 		t.Skipf("libopus float quant helper unavailable: %v", err)
 	}

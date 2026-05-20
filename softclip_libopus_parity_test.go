@@ -1,10 +1,8 @@
-//go:build gopus_dred || gopus_extra_controls
-// +build gopus_dred gopus_extra_controls
-
 package gopus
 
 import (
 	"fmt"
+	"math"
 	"sync"
 	"testing"
 
@@ -24,7 +22,13 @@ var (
 
 func getLibopusSoftClipHelperPath() (string, error) {
 	libopusSoftClipHelperOnce.Do(func() {
-		libopusSoftClipHelperPath, libopusSoftClipHelperErr = buildLibopusDREDHelper("libopus_softclip_info.c", "gopus_libopus_softclip", false)
+		libopusSoftClipHelperPath, libopusSoftClipHelperErr = libopustest.BuildCHelper(libopustest.CHelperConfig{
+			Label:      "softclip",
+			OutputBase: "gopus_libopus_softclip",
+			SourceFile: "libopus_softclip_info.c",
+			CFlags:     []string{"-DHAVE_CONFIG_H"},
+			Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+		})
 	})
 	if libopusSoftClipHelperErr != nil {
 		return "", libopusSoftClipHelperErr
@@ -45,11 +49,7 @@ func probeLibopusSoftClip(n, channels int, samples, mem []float32) ([]float32, [
 		payload.Float32(v)
 	}
 
-	data, err := libopustest.RunHelper(binPath, payload.Bytes())
-	if err != nil {
-		return nil, nil, fmt.Errorf("run softclip helper: %w", err)
-	}
-	reader, err := libopustest.NewOracleReader("softclip", libopusSoftClipOutputMagic, data)
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "softclip", libopusSoftClipOutputMagic)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -74,7 +74,20 @@ func probeLibopusSoftClip(n, channels int, samples, mem []float32) ([]float32, [
 	return out, outMem, nil
 }
 
+func assertSoftClipFloat32BitsEqual(t *testing.T, got, want []float32, label string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
+	}
+	for i := range got {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("%s[%d]=%g want %g", label, i, got[i], want[i])
+		}
+	}
+}
+
 func TestOpusPCMSoftClipMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name     string
 		n        int
@@ -123,18 +136,19 @@ func TestOpusPCMSoftClipMatchesLibopus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			want, wantMem, err := probeLibopusSoftClip(tc.n, tc.channels, tc.samples, tc.mem)
 			if err != nil {
-				t.Skipf("libopus softclip helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "softclip", err)
 			}
 			got := append([]float32(nil), tc.samples...)
 			gotMem := append([]float32(nil), tc.mem...)
 			opusPCMSoftClip(got, tc.n, tc.channels, gotMem)
-			assertFloat32BitsEqual(t, got, want, "pcm")
-			assertFloat32BitsEqual(t, gotMem, wantMem, "mem")
+			assertSoftClipFloat32BitsEqual(t, got, want, "pcm")
+			assertSoftClipFloat32BitsEqual(t, gotMem, wantMem, "mem")
 		})
 	}
 }
 
 func TestSoftClipAndFloat32ToInt16MatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	n := 8
 	channels := 2
 	mem := []float32{-0.08, 0.11}
@@ -151,11 +165,11 @@ func TestSoftClipAndFloat32ToInt16MatchesLibopus(t *testing.T) {
 
 	wantFloat, wantMem, err := probeLibopusSoftClip(n, channels, src, mem)
 	if err != nil {
-		t.Skipf("libopus softclip helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "softclip", err)
 	}
 	want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeFloat2Int16, wantFloat)
 	if err != nil {
-		t.Skipf("libopus float quant helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "float quant", err)
 	}
 
 	gotSrc := append([]float32(nil), src...)
@@ -168,6 +182,6 @@ func TestSoftClipAndFloat32ToInt16MatchesLibopus(t *testing.T) {
 			t.Fatalf("sample[%d]=%d want %d", i, got[i], want[i])
 		}
 	}
-	assertFloat32BitsEqual(t, gotSrc, wantFloat, "softclipped pcm")
-	assertFloat32BitsEqual(t, gotMem, wantMem, "mem")
+	assertSoftClipFloat32BitsEqual(t, gotSrc, wantFloat, "softclipped pcm")
+	assertSoftClipFloat32BitsEqual(t, gotMem, wantMem, "mem")
 }

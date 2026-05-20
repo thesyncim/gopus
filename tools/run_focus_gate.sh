@@ -58,6 +58,7 @@ dred_multistream_recovery_internal='TestDecoderDREDRecoveryBlendFollowsLifecycle
 qext_packet_extension_root='Test(GeneratePacketExtensionsMatchesLibopusCases|PacketExtensionIteratorParseAndCount|PacketExtensionIteratorRepeatExpansion|PacketExtensionIteratorRejectsInvalidSeparator|MultistreamPacketPadUnpadSelfDelimitedRoundTrip|MultistreamPacketPadUnpadThreeStreamsRoundTrip|RepacketizerPreservesPacketExtensions|PacketPadPreservesPacketExtensions|SelfDelimitedPacketPreservesPacketExtensions|DecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding)'
 qext_packet_extension_multistream='Test(SelfDelimitedPacketPreservesPacketExtensions|DecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding)'
 qext_libopus_tooling='TestFindQEXTLibopusToolForOSUsesSeparateSourceTree'
+core_oracles_root='Test(Float32ToInt16MatchesLibopusFLOAT2INT16|OpusPCMSoftClipMatchesLibopus|SoftClipAndFloat32ToInt16MatchesLibopus)'
 core_oracles_celt='TestCELT(Log2|Exp2)MatchesLibopusFloatApprox|TestCELTBitexact(Cos|Log2Tan)MatchesLibopus|TestCELTIntegerMathMatchesLibopus'
 core_oracles_silk='TestSILK(Lin2Log|Log2Lin|Fixed|NLSF|A2|NLSF2A|Gains|Stereo|LTP|QuantLTPGains)'
 core_oracles_range='TestRangeCoderMatchesLibopusOracle'
@@ -110,6 +111,7 @@ gate_qext_parity() {
 }
 
 gate_core_oracles_parity() {
+	run_parity . -run "$core_oracles_root" -count=1
 	run_parity ./celt -run "$core_oracles_celt" -count=1
 	run_parity ./rangecoding -run "$core_oracles_range" -count=1
 	run_parity ./silk -run "$core_oracles_silk" -count=1

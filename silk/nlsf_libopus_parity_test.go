@@ -74,11 +74,7 @@ func probeLibopusSILKNLSF(mode uint32, records [][]uint32) ([][]int16, error) {
 		}
 	}
 
-	data, err := libopustest.RunHelper(binPath, payload.Bytes())
-	if err != nil {
-		return nil, fmt.Errorf("run silk nlsf helper: %w", err)
-	}
-	reader, err := libopustest.NewOracleReader("silk nlsf", libopusSILKNLSFOutputMagic, data)
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk nlsf", libopusSILKNLSFOutputMagic)
 	if err != nil {
 		return nil, err
 	}

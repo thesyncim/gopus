@@ -4,25 +4,14 @@
 package encoder
 
 import (
-	"os"
-	"path/filepath"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-func repoRootForEncoderTest(t *testing.T) string {
-	t.Helper()
-	wd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	return filepath.Clean(filepath.Join(wd, ".."))
-}
-
 func libopusFloat2Int16ForEncoderTest(t *testing.T, samples []float32) []int16 {
 	t.Helper()
-	want, err := libopustest.ProbeFloatQuant(repoRootForEncoderTest(t), libopustest.FloatQuantModeFloat2Int16, samples)
+	want, err := libopustest.ProbeFloatQuant(libopustest.FloatQuantModeFloat2Int16, samples)
 	if err != nil {
 		t.Skipf("libopus float quant helper unavailable: %v", err)
 	}
