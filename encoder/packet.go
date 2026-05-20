@@ -440,16 +440,20 @@ func writeFrameLength(dst []byte, length int) int {
 }
 
 func packetExtensionLength(id int, data []byte, last bool) int {
+	return packetExtensionDataLength(id, len(data), last)
+}
+
+func packetExtensionDataLength(id int, dataLen int, last bool) int {
 	if id < 3 || id > 127 {
 		return 0
 	}
 	if id < 32 {
-		return 1 + len(data)
+		return 1 + dataLen
 	}
 	if last {
-		return 1 + len(data)
+		return 1 + dataLen
 	}
-	return 2 + len(data)/255 + len(data)
+	return 2 + dataLen/255 + dataLen
 }
 
 func writePacketExtension(dst []byte, pos int, id int, data []byte, last bool) (int, error) {

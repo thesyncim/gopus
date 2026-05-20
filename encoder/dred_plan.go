@@ -231,7 +231,15 @@ func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan d
 	return budget
 }
 
-func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode Mode, packetBW types.Bandwidth, frameSize int, stereo bool) ([]byte, bool, error) {
+func packetExtensionsLengthBeforeDRED(extensions []packetExtension) int {
+	total := 0
+	for _, ext := range extensions {
+		total += packetExtensionDataLength(ext.ID, len(ext.Data), false)
+	}
+	return total
+}
+
+func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode Mode, packetBW types.Bandwidth, frameSize int, stereo bool, prefixExtensions []packetExtension) ([]byte, bool, error) {
 	if !extsupport.DREDRuntime {
 		return nil, false, nil
 	}
@@ -251,14 +259,19 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 		return nil, false, nil
 	}
 
-	dredBytesLeft := targetSize - baseLen - 3
+	prefixExtLen := packetExtensionsLengthBeforeDRED(prefixExtensions)
+	dredBytesLeft := targetSize - baseLen - 3 - prefixExtLen
 	if !withPadding {
-		dredBytesLeft = len(e.scratchPacket) - baseLen - 3
+		dredBytesLeft = len(e.scratchPacket) - baseLen - 3 - prefixExtLen
 	}
 	if dredBytesLeft > internaldred.MaxDataSize {
 		dredBytesLeft = internaldred.MaxDataSize
 	}
-	dredBytesLeft -= (dredBytesLeft + 1 + internaldred.ExperimentalHeaderBytes) / 255
+	continuationOverheadInput := dredBytesLeft + 1 + internaldred.ExperimentalHeaderBytes
+	if prefixExtLen > 0 {
+		continuationOverheadInput += prefixExtLen
+	}
+	dredBytesLeft -= continuationOverheadInput / 255
 	if dredBytesLeft < internaldred.MinBytes+internaldred.ExperimentalHeaderBytes {
 		return nil, false, nil
 	}
@@ -278,15 +291,22 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 		return nil, false, nil
 	}
 
-	packetLen, err := buildPacketWithSingleExtensionInto(
+	var extensions [4]packetExtension
+	extCount := copy(extensions[:], prefixExtensions)
+	if extCount >= len(extensions) {
+		return nil, false, ErrInvalidConfig
+	}
+	extensions[extCount] = packetExtension{ID: internaldred.ExtensionID, Data: runtime.payload[:n]}
+	extCount++
+
+	packetLen, err := buildPacketWithExtensionsInto(
 		e.scratchPacket,
 		frameData,
 		modeToTypes(actualMode),
 		packetBW,
 		frameSize,
 		stereo,
-		internaldred.ExtensionID,
-		runtime.payload[:n],
+		extensions[:extCount],
 		targetSize,
 		withPadding,
 	)

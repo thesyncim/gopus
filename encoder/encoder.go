@@ -984,6 +984,12 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analy
 	if extsupport.QEXT && actualMode == ModeCELT && e.celtEncoder != nil {
 		qextPayload = e.lastQEXTPayload()
 	}
+	var qextExtensionBuf [1]packetExtension
+	qextExtensions := []packetExtension(nil)
+	if len(qextPayload) > 0 {
+		qextExtensionBuf[0] = packetExtension{ID: qextExtensionID, Data: qextPayload}
+		qextExtensions = qextExtensionBuf[:]
+	}
 	dredPacketBuilt := false
 	if packet == nil {
 		stereo := e.packetStereoForMode(actualMode)
@@ -991,8 +997,8 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analy
 		if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 			packetBW = types.BandwidthWideband
 		}
-		if e.dredEncodingActive() && len(qextPayload) == 0 {
-			if dredPacket, ok, dredErr := e.maybeBuildSingleFrameDREDPacket(frameData, actualMode, packetBW, frameSize, stereo); dredErr != nil {
+		if e.dredEncodingActive() {
+			if dredPacket, ok, dredErr := e.maybeBuildSingleFrameDREDPacket(frameData, actualMode, packetBW, frameSize, stereo, qextExtensions); dredErr != nil {
 				return nil, dredErr
 			} else if ok {
 				packet = dredPacket

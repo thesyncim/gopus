@@ -564,7 +564,7 @@ func TestMaybeBuildSingleFrameDREDPacketCarriesExtension(t *testing.T) {
 	runtime.latentOffset = 0
 
 	frameData := make([]byte, 40)
-	packet, ok, err := enc.maybeBuildSingleFrameDREDPacket(frameData, ModeSILK, types.BandwidthWideband, 960, false)
+	packet, ok, err := enc.maybeBuildSingleFrameDREDPacket(frameData, ModeSILK, types.BandwidthWideband, 960, false, nil)
 	if err != nil {
 		t.Fatalf("maybeBuildSingleFrameDREDPacket() error: %v", err)
 	}

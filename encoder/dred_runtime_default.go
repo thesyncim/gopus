@@ -65,7 +65,7 @@ func (e *Encoder) previewDREDPacketExtensionPadding(_ int) int {
 	return 0
 }
 
-func (e *Encoder) maybeBuildSingleFrameDREDPacket(_ []byte, _ Mode, _ types.Bandwidth, _ int, _ bool) ([]byte, bool, error) {
+func (e *Encoder) maybeBuildSingleFrameDREDPacket(_ []byte, _ Mode, _ types.Bandwidth, _ int, _ bool, _ []packetExtension) ([]byte, bool, error) {
 	return nil, false, nil
 }
 
