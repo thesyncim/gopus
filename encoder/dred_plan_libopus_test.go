@@ -136,11 +136,13 @@ func newDREDPlanTestEncoder(sampleRate, bitrate, packetLoss, duration int) *Enco
 		sampleRate: sampleRate,
 		bitrate:    bitrate,
 		packetLoss: packetLoss,
-		dred: &dredEncoderExtras{
-			duration: duration,
-			models: dredEncoderModels{
-				encoder: &rdovae.EncoderModel{},
-				pitch:   &lpcnetplc.PitchDNNModel{},
+		encoderDREDFields: encoderDREDFields{
+			dred: &dredEncoderExtras{
+				duration: duration,
+				models: dredEncoderModels{
+					encoder: &rdovae.EncoderModel{},
+					pitch:   &lpcnetplc.PitchDNNModel{},
+				},
 			},
 		},
 	}

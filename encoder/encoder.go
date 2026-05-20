@@ -156,9 +156,7 @@ type Encoder struct {
 	// dnnBlob retains a validated USE_WEIGHTS_FILE blob for future optional
 	// extension paths (DRED/OSCE). Keeping it here mirrors libopus ctl lifetime.
 	dnnBlob *dnnblob.Blob
-	// dred owns all optional DRED encoder controls/runtime so the main encoder
-	// stays effectively zero-cost when extras are not armed.
-	dred *dredEncoderExtras
+	encoderDREDFields
 
 	// DC rejection filter state
 	hpMem [4]float32

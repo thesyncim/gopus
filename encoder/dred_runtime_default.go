@@ -16,7 +16,6 @@ type dredEmissionPlan struct {
 
 func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
 	e.dnnBlob = blob
-	e.dred = nil
 }
 
 func (e *Encoder) dredModelsLoaded() bool {
@@ -27,9 +26,7 @@ func (e *Encoder) dredEncodingActive() bool {
 	return false
 }
 
-func (e *Encoder) resetDREDControls() {
-	e.dred = nil
-}
+func (e *Encoder) resetDREDControls() {}
 
 func (e *Encoder) clearDREDRuntime() {}
 
