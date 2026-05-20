@@ -1272,6 +1272,53 @@ func TestMultistreamDecoder_Reset(t *testing.T) {
 	t.Log("Decoder reset verified: no crashes, decoding continues normally")
 }
 
+func TestMultistreamDecoder_Controls(t *testing.T) {
+	mono := mustNewDefaultMultistreamDecoder(t, 48000, 1)
+	if !mono.PhaseInversionDisabled() {
+		t.Fatal("mono PhaseInversionDisabled()=false want true")
+	}
+	mono.SetPhaseInversionDisabled(false)
+	mono.Reset()
+	if mono.PhaseInversionDisabled() {
+		t.Fatal("mono Reset changed phase inversion control")
+	}
+
+	stereo := mustNewDefaultMultistreamDecoder(t, 48000, 2)
+	if stereo.PhaseInversionDisabled() {
+		t.Fatal("stereo PhaseInversionDisabled()=true want false")
+	}
+	stereo.SetPhaseInversionDisabled(true)
+	stereo.Reset()
+	if !stereo.PhaseInversionDisabled() {
+		t.Fatal("stereo Reset changed phase inversion control")
+	}
+
+	if err := stereo.SetGain(256); err != nil {
+		t.Fatalf("SetGain(256) error: %v", err)
+	}
+	if got := stereo.Gain(); got != 256 {
+		t.Fatalf("Gain()=%d want 256", got)
+	}
+	if err := stereo.SetGain(32768); err != ErrInvalidGain {
+		t.Fatalf("SetGain(32768) error=%v want %v", err, ErrInvalidGain)
+	}
+	if got := stereo.Gain(); got != 256 {
+		t.Fatalf("invalid SetGain changed Gain() to %d", got)
+	}
+	if got := stereo.Bandwidth(); got != BandwidthFullband {
+		t.Fatalf("Bandwidth()=%v want %v", got, BandwidthFullband)
+	}
+	if got := stereo.LastPacketDuration(); got != 960 {
+		t.Fatalf("LastPacketDuration()=%d want 960", got)
+	}
+	if got := stereo.FinalRange(); got != 0 {
+		t.Fatalf("FinalRange()=0x%08x before decode, want 0", got)
+	}
+	if got := stereo.GetFinalRange(); got != stereo.FinalRange() {
+		t.Fatalf("GetFinalRange()=0x%08x FinalRange()=0x%08x", got, stereo.FinalRange())
+	}
+}
+
 // TestMultistreamEncoder_ExplicitConstructor tests explicit encoder constructor with custom mapping.
 func TestMultistreamEncoder_ExplicitConstructor(t *testing.T) {
 	// Test creating encoder with explicit parameters (5.1 surround)

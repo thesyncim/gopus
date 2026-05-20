@@ -39,14 +39,25 @@ func NewDecoder(channels int) *Decoder {
 		// RNG state (libopus initializes to zero)
 		rng: 0,
 
-		bandwidth: CELTFullband,
-		plcState:  plc.NewState(),
+		bandwidth:              CELTFullband,
+		phaseInversionDisabled: channels == 1,
+		plcState:               plc.NewState(),
 	}
 
 	// Match libopus init/reset defaults (oldLogE/oldLogE2 = -28, buffers cleared).
 	d.Reset()
 
 	return d
+}
+
+// SetPhaseInversionDisabled toggles stereo phase inversion during CELT decoding.
+func (d *Decoder) SetPhaseInversionDisabled(disabled bool) {
+	d.phaseInversionDisabled = disabled
+}
+
+// PhaseInversionDisabled reports whether stereo phase inversion is disabled.
+func (d *Decoder) PhaseInversionDisabled() bool {
+	return d.phaseInversionDisabled
 }
 
 // Reset clears decoder state for a new stream.

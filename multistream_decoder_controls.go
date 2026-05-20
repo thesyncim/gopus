@@ -27,6 +27,49 @@ func (d *MultistreamDecoder) CoupledStreams() int {
 	return d.dec.CoupledStreams()
 }
 
+// SetGain sets output gain in Q8 dB units on all elementary stream decoders.
+func (d *MultistreamDecoder) SetGain(gainQ8 int) error {
+	if gainQ8 < -32768 || gainQ8 > 32767 {
+		return ErrInvalidGain
+	}
+	return d.dec.SetGain(gainQ8)
+}
+
+// Gain returns the output gain from the first elementary stream decoder.
+func (d *MultistreamDecoder) Gain() int {
+	return d.dec.Gain()
+}
+
+// SetPhaseInversionDisabled toggles CELT stereo phase inversion on all streams.
+func (d *MultistreamDecoder) SetPhaseInversionDisabled(disabled bool) {
+	d.dec.SetPhaseInversionDisabled(disabled)
+}
+
+// PhaseInversionDisabled reports the first stream decoder's phase inversion setting.
+func (d *MultistreamDecoder) PhaseInversionDisabled() bool {
+	return d.dec.PhaseInversionDisabled()
+}
+
+// Bandwidth returns the bandwidth of the first elementary stream decoder.
+func (d *MultistreamDecoder) Bandwidth() Bandwidth {
+	return Bandwidth(d.dec.Bandwidth())
+}
+
+// LastPacketDuration returns the last packet duration from the first stream decoder.
+func (d *MultistreamDecoder) LastPacketDuration() int {
+	return d.dec.LastPacketDuration()
+}
+
+// GetFinalRange returns the XOR of all elementary stream final range values.
+func (d *MultistreamDecoder) GetFinalRange() uint32 {
+	return d.dec.GetFinalRange()
+}
+
+// FinalRange returns the XOR of all elementary stream final range values.
+func (d *MultistreamDecoder) FinalRange() uint32 {
+	return d.GetFinalRange()
+}
+
 // SetIgnoreExtensions toggles whether unknown packet extensions should be ignored.
 func (d *MultistreamDecoder) SetIgnoreExtensions(ignore bool) {
 	d.ignoreExtensions = ignore

@@ -158,6 +158,16 @@ func (d *Decoder) SetBandwidth(bw celt.CELTBandwidth) {
 	d.celtDecoder.SetBandwidth(bw)
 }
 
+// SetPhaseInversionDisabled toggles stereo phase inversion for the CELT layer.
+func (d *Decoder) SetPhaseInversionDisabled(disabled bool) {
+	d.celtDecoder.SetPhaseInversionDisabled(disabled)
+}
+
+// PhaseInversionDisabled reports whether the CELT layer disables stereo phase inversion.
+func (d *Decoder) PhaseInversionDisabled() bool {
+	return d.celtDecoder.PhaseInversionDisabled()
+}
+
 // RecordPLCLoss advances Hybrid PLC loss cadence and returns the fade factor.
 // This is used when recovering a lost frame via SILK LBRR while CELT still
 // needs concealment for the same frame (decode_fec path).

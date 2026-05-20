@@ -113,7 +113,8 @@ type Decoder struct {
 	collapseMask uint32 // Tracks which bands received pulses (for anti-collapse)
 
 	// Bandwidth (Opus TOC-derived)
-	bandwidth CELTBandwidth
+	bandwidth              CELTBandwidth
+	phaseInversionDisabled bool
 
 	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
 	prevStreamChannels int // Previous packet's channel count (0 = uninitialized)

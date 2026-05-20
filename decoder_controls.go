@@ -53,6 +53,16 @@ func (d *Decoder) Gain() int {
 	return d.decodeGainQ8
 }
 
+// SetPhaseInversionDisabled toggles CELT stereo phase inversion during decoding.
+func (d *Decoder) SetPhaseInversionDisabled(disabled bool) {
+	d.celtDecoder.SetPhaseInversionDisabled(disabled)
+}
+
+// PhaseInversionDisabled reports whether CELT stereo phase inversion is disabled.
+func (d *Decoder) PhaseInversionDisabled() bool {
+	return d.celtDecoder.PhaseInversionDisabled()
+}
+
 // SetIgnoreExtensions toggles whether unknown packet extensions should be ignored.
 //
 // This mirrors libopus OPUS_SET_IGNORE_EXTENSIONS semantics.

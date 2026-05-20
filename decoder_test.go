@@ -1315,6 +1315,37 @@ func TestDecoder_SetGainBounds(t *testing.T) {
 	}
 }
 
+func TestDecoder_PhaseInversionControl(t *testing.T) {
+	mono := newMonoTestDecoder(t)
+	if !mono.PhaseInversionDisabled() {
+		t.Fatal("mono PhaseInversionDisabled()=false want true")
+	}
+	mono.SetPhaseInversionDisabled(false)
+	if mono.PhaseInversionDisabled() {
+		t.Fatal("mono PhaseInversionDisabled()=true after Set(false)")
+	}
+	mono.Reset()
+	if mono.PhaseInversionDisabled() {
+		t.Fatal("mono Reset changed phase inversion control")
+	}
+
+	stereo, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder stereo error: %v", err)
+	}
+	if stereo.PhaseInversionDisabled() {
+		t.Fatal("stereo PhaseInversionDisabled()=true want false")
+	}
+	stereo.SetPhaseInversionDisabled(true)
+	if !stereo.PhaseInversionDisabled() {
+		t.Fatal("stereo PhaseInversionDisabled()=false after Set(true)")
+	}
+	stereo.Reset()
+	if !stereo.PhaseInversionDisabled() {
+		t.Fatal("stereo Reset changed phase inversion control")
+	}
+}
+
 func TestDecoder_IgnoreExtensions(t *testing.T) {
 	assertIgnoreExtensionsControls(t, newMonoTestDecoder(t))
 }

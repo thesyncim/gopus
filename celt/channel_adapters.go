@@ -429,10 +429,10 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		extTotalBitsQ3 = qext.totalBitsQ3
 	}
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
-		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, origChannels == 1, &d.rng, &d.scratchBands,
+		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.phaseInversionDisabled, &d.rng, &d.scratchBands,
 		extDec, extPulses, extTotalBitsQ3)
 	if qext != nil {
-		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, origChannels == 1, qext)
+		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, d.phaseInversionDisabled, qext)
 	}
 
 	antiCollapseOn := false
@@ -840,7 +840,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	balance := allocation.balance
 	codedBands := allocation.codedBands
 
-	coeffsL, coeffsR, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, d.channels, origChannels == 1, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
+	coeffsL, coeffsR, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, d.channels, d.phaseInversionDisabled, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
 	energiesL := energies[:end]

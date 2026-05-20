@@ -46,8 +46,9 @@ func TestDefaultBuildPublicAPIContract(t *testing.T) {
 			got:  &Decoder{},
 			want: []string{
 				"Bandwidth", "Channels", "Decode", "DecodeInt16", "DecodeWithFEC", "FinalRange",
-				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "Pitch", "Reset",
-				"SampleRate", "SetDNNBlob", "SetGain", "SetIgnoreExtensions",
+				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "PhaseInversionDisabled",
+				"Pitch", "Reset", "SampleRate", "SetDNNBlob", "SetGain", "SetIgnoreExtensions",
+				"SetPhaseInversionDisabled",
 			},
 		},
 		{
@@ -70,8 +71,10 @@ func TestDefaultBuildPublicAPIContract(t *testing.T) {
 			name: "MultistreamDecoder",
 			got:  &MultistreamDecoder{},
 			want: []string{
-				"Channels", "CoupledStreams", "Decode", "DecodeInt16", "IgnoreExtensions",
-				"Reset", "SampleRate", "SetDNNBlob", "SetIgnoreExtensions", "Streams",
+				"Bandwidth", "Channels", "CoupledStreams", "Decode", "DecodeInt16", "FinalRange",
+				"Gain", "GetFinalRange", "IgnoreExtensions", "LastPacketDuration",
+				"PhaseInversionDisabled", "Reset", "SampleRate", "SetDNNBlob", "SetGain",
+				"SetIgnoreExtensions", "SetPhaseInversionDisabled", "Streams",
 			},
 		},
 		{

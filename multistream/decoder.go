@@ -200,6 +200,15 @@ func (d *streamState) Gain() int {
 	return d.decodeGainQ8
 }
 
+func (d *streamState) SetPhaseInversionDisabled(disabled bool) {
+	d.celtDec.SetPhaseInversionDisabled(disabled)
+	d.hybridDec.SetPhaseInversionDisabled(disabled)
+}
+
+func (d *streamState) PhaseInversionDisabled() bool {
+	return d.celtDec.PhaseInversionDisabled()
+}
+
 // Pitch returns the most recent CELT postfilter pitch period.
 func (d *streamState) Pitch() int {
 	return d.celtDec.PostfilterPeriod()
@@ -602,6 +611,76 @@ func (d *Decoder) SetIgnoreExtensions(ignore bool) {
 
 func (d *Decoder) IgnoreExtensions() bool {
 	return d.ignoreExtensions
+}
+
+func (d *Decoder) firstStreamState() *streamState {
+	if len(d.decoders) == 0 {
+		return nil
+	}
+	st, _ := d.decoders[0].(*streamState)
+	return st
+}
+
+func (d *Decoder) SetGain(gainQ8 int) error {
+	if gainQ8 < -32768 || gainQ8 > 32767 {
+		return ErrInvalidGain
+	}
+	for _, dec := range d.decoders {
+		if st, ok := dec.(*streamState); ok {
+			st.decodeGainQ8 = gainQ8
+		}
+	}
+	return nil
+}
+
+func (d *Decoder) Gain() int {
+	if st := d.firstStreamState(); st != nil {
+		return st.Gain()
+	}
+	return 0
+}
+
+func (d *Decoder) SetPhaseInversionDisabled(disabled bool) {
+	for _, dec := range d.decoders {
+		if st, ok := dec.(*streamState); ok {
+			st.SetPhaseInversionDisabled(disabled)
+		}
+	}
+}
+
+func (d *Decoder) PhaseInversionDisabled() bool {
+	if st := d.firstStreamState(); st != nil {
+		return st.PhaseInversionDisabled()
+	}
+	return false
+}
+
+func (d *Decoder) Bandwidth() types.Bandwidth {
+	if st := d.firstStreamState(); st != nil {
+		return st.Bandwidth()
+	}
+	return types.BandwidthFullband
+}
+
+func (d *Decoder) LastPacketDuration() int {
+	if st := d.firstStreamState(); st != nil {
+		return st.LastPacketDuration()
+	}
+	return 0
+}
+
+func (d *Decoder) GetFinalRange() uint32 {
+	var finalRange uint32
+	for _, dec := range d.decoders {
+		if st, ok := dec.(*streamState); ok {
+			finalRange ^= st.FinalRange()
+		}
+	}
+	return finalRange
+}
+
+func (d *Decoder) FinalRange() uint32 {
+	return d.GetFinalRange()
 }
 
 // Channels returns the total number of output channels.

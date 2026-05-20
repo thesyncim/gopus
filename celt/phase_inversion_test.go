@@ -53,3 +53,31 @@ func TestComputeThetaPhaseInversionDisable(t *testing.T) {
 		t.Fatalf("phase inversion bit with disable=true = %d, want 0", disabled)
 	}
 }
+
+func TestDecoderPhaseInversionDisabledDefaultsAndReset(t *testing.T) {
+	mono := NewDecoder(1)
+	if !mono.PhaseInversionDisabled() {
+		t.Fatal("mono decoder PhaseInversionDisabled() = false, want true")
+	}
+	mono.SetPhaseInversionDisabled(false)
+	if mono.PhaseInversionDisabled() {
+		t.Fatal("mono decoder PhaseInversionDisabled() = true after Set(false)")
+	}
+	mono.Reset()
+	if mono.PhaseInversionDisabled() {
+		t.Fatal("mono decoder Reset changed phase inversion control")
+	}
+
+	stereo := NewDecoder(2)
+	if stereo.PhaseInversionDisabled() {
+		t.Fatal("stereo decoder PhaseInversionDisabled() = true, want false")
+	}
+	stereo.SetPhaseInversionDisabled(true)
+	if !stereo.PhaseInversionDisabled() {
+		t.Fatal("stereo decoder PhaseInversionDisabled() = false after Set(true)")
+	}
+	stereo.Reset()
+	if !stereo.PhaseInversionDisabled() {
+		t.Fatal("stereo decoder Reset changed phase inversion control")
+	}
+}

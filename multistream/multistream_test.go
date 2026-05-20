@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/plc"
+	"github.com/thesyncim/gopus/types"
 )
 
 type streamDecoderStub struct {
@@ -28,6 +29,78 @@ func (s streamDecoderStub) Channels() int {
 }
 
 func (s streamDecoderStub) SetIgnoreExtensions(bool) {}
+
+func TestDecoderAggregateControls(t *testing.T) {
+	dec, err := NewDecoder(48000, 3, 2, 1, []byte{0, 1, 2})
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	if dec.PhaseInversionDisabled() {
+		t.Fatal("PhaseInversionDisabled()=true for first coupled stream, want false")
+	}
+	if got := dec.Bandwidth(); got != types.BandwidthFullband {
+		t.Fatalf("Bandwidth()=%v want %v", got, types.BandwidthFullband)
+	}
+	if got := dec.LastPacketDuration(); got != 960 {
+		t.Fatalf("LastPacketDuration()=%d want 960", got)
+	}
+	if got := dec.FinalRange(); got != 0 {
+		t.Fatalf("FinalRange()=0x%08x before decode, want 0", got)
+	}
+	if got := dec.GetFinalRange(); got != dec.FinalRange() {
+		t.Fatalf("GetFinalRange()=0x%08x FinalRange()=0x%08x", got, dec.FinalRange())
+	}
+
+	if err := dec.SetGain(256); err != nil {
+		t.Fatalf("SetGain(256) error: %v", err)
+	}
+	if got := dec.Gain(); got != 256 {
+		t.Fatalf("Gain()=%d want 256", got)
+	}
+	for i, stream := range dec.decoders {
+		st := stream.(*streamState)
+		if got := st.Gain(); got != 256 {
+			t.Fatalf("stream %d Gain()=%d want 256", i, got)
+		}
+	}
+	if err := dec.SetGain(32768); !errors.Is(err, ErrInvalidGain) {
+		t.Fatalf("SetGain(32768) error=%v want %v", err, ErrInvalidGain)
+	}
+	if got := dec.Gain(); got != 256 {
+		t.Fatalf("invalid SetGain changed Gain() to %d", got)
+	}
+
+	dec.SetPhaseInversionDisabled(true)
+	for i, stream := range dec.decoders {
+		st := stream.(*streamState)
+		if !st.PhaseInversionDisabled() {
+			t.Fatalf("stream %d PhaseInversionDisabled()=false want true", i)
+		}
+	}
+	dec.SetPhaseInversionDisabled(false)
+	dec.Reset()
+	if dec.PhaseInversionDisabled() {
+		t.Fatal("Reset changed first stream phase inversion control")
+	}
+	if got := dec.Gain(); got != 256 {
+		t.Fatalf("Reset changed Gain() to %d", got)
+	}
+	for i, stream := range dec.decoders {
+		st := stream.(*streamState)
+		if st.PhaseInversionDisabled() {
+			t.Fatalf("stream %d Reset changed phase inversion control", i)
+		}
+	}
+
+	mono, err := NewDecoder(48000, 1, 1, 0, []byte{0})
+	if err != nil {
+		t.Fatalf("NewDecoder mono error: %v", err)
+	}
+	if !mono.PhaseInversionDisabled() {
+		t.Fatal("mono PhaseInversionDisabled()=false want true")
+	}
+}
 
 // TestNewDecoder_ValidConfigs tests decoder creation with valid configurations.
 func TestNewDecoder_ValidConfigs(t *testing.T) {
