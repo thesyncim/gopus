@@ -88,8 +88,11 @@ type decoderOSCELACEState struct {
 	applyNumBits  [2]float32
 	applyPeriods  [osceLACESubframesPerFrame]int
 
-	// prevLACEActive mirrors libopus DecControl.prev_osce_extended_mode
-	// for the LACE/NoLACE bit. The postfilter uses it to decide when to
-	// cross-fade between enhanced and raw SILK output.
-	prevLACEActive bool
+	// prevLACEActive tracks whether the previous decoded frame ran LACE /
+	// NoLACE. laceMethod and laceResetFrames mirror libopus osce.method and
+	// features.reset: after a reset, the first eligible frame passes raw and
+	// the second eligible frame cross-fades before steady enhancement resumes.
+	prevLACEActive  bool
+	laceMethod      osceLACEMode
+	laceResetFrames [2]int
 }

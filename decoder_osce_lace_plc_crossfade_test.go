@@ -74,14 +74,16 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 	silkWBA := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
 	hybridSWB := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthSuperwideband)
 	silkWBB := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
+	silkWBC := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
 
 	pcmA := make([]float32, dec.maxPacketSamples*dec.channels)
 	pcmB := make([]float32, dec.maxPacketSamples*dec.channels)
 	pcmC := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcmD := make([]float32, dec.maxPacketSamples*dec.channels)
 
 	// Step 1: SILK WB -- LACE active. prevLACEActive must transition to
-	// true. This is the initial transition into LACE (prev was implicitly
-	// inactive at decoder reset) so the cross-fade runs here too.
+	// true. libopus keeps this first eligible frame raw after reset and
+	// leaves one reset frame pending for the next eligible frame.
 	gotA, err := dec.Decode(silkWBA, pcmA)
 	if err != nil {
 		t.Fatalf("Decode(silk WB #1): %v", err)
@@ -92,9 +94,12 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 	if dec.osceLACE == nil || !dec.osceLACE.prevLACEActive {
 		t.Fatalf("prevLACEActive=false after SILK WB decode (LACE should be active)")
 	}
+	if dec.osceLACE.laceResetFrames[0] != 1 {
+		t.Fatalf("reset countdown after first SILK WB=%d want 1", dec.osceLACE.laceResetFrames[0])
+	}
 
 	// Step 2: Hybrid SWB -- LACE inactive. prevLACEActive must clear so
-	// that the next SILK WB packet runs the cross-fade.
+	// that the next SILK WB packet starts from libopus reset semantics again.
 	gotB, err := dec.Decode(hybridSWB, pcmB)
 	if err != nil {
 		t.Fatalf("Decode(hybrid SWB): %v", err)
@@ -106,8 +111,8 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 		t.Fatalf("prevLACEActive=true after Hybrid SWB decode (LACE should be inactive)")
 	}
 
-	// Step 3: SILK WB again -- LACE active, cross-fade runs on entry.
-	// prevLACEActive must transition back to true.
+	// Step 3: SILK WB again -- LACE active but still raw because reset just
+	// restarted after the Hybrid bypass.
 	gotC, err := dec.Decode(silkWBB, pcmC)
 	if err != nil {
 		t.Fatalf("Decode(silk WB #2): %v", err)
@@ -117,6 +122,22 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 	}
 	if dec.osceLACE == nil || !dec.osceLACE.prevLACEActive {
 		t.Fatalf("prevLACEActive=false after SILK WB transition (LACE should be active)")
+	}
+	if dec.osceLACE.laceResetFrames[0] != 1 {
+		t.Fatalf("reset countdown after SILK re-entry=%d want 1", dec.osceLACE.laceResetFrames[0])
+	}
+
+	// Step 4: consecutive SILK WB -- reset reaches the libopus cross-fade
+	// frame and then clears.
+	gotD, err := dec.Decode(silkWBC, pcmD)
+	if err != nil {
+		t.Fatalf("Decode(silk WB #3): %v", err)
+	}
+	if gotD != frameSize {
+		t.Fatalf("Decode(silk WB #3) returned %d samples, want %d", gotD, frameSize)
+	}
+	if dec.osceLACE.laceResetFrames[0] != 0 {
+		t.Fatalf("reset countdown after SILK cross-fade=%d want 0", dec.osceLACE.laceResetFrames[0])
 	}
 
 	checkPCMSane := func(t *testing.T, name string, pcm []float32, n int) {
@@ -140,6 +161,7 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 	checkPCMSane(t, "silk WB #1", pcmA, gotA)
 	checkPCMSane(t, "hybrid SWB", pcmB, gotB)
 	checkPCMSane(t, "silk WB #2", pcmC, gotC)
+	checkPCMSane(t, "silk WB #3", pcmD, gotD)
 
 	// Sanity: the LACE cross-fade region (first 480 samples of the SILK
 	// re-entry frame at 48 kHz, derived from the first 160 samples of the

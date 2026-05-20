@@ -146,24 +146,15 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		}
 	})
 
-	// The real LACE/NoLACE forward pass must mutate the native 16 kHz
-	// int16 SILK lowband in place (libopus mirror: `osce_enhance_frame`
-	// overwrites psDec->outBuf with the postfilter-enhanced samples).
-	// Compare the int16 lowband produced by a LACE-off decode against
-	// the same packet decoded with LACE on.
-	//
-	// The current gopus call site invokes the postfilter AFTER
-	// silk_resampler, so the public 48 kHz `out` buffer is not yet
-	// affected -- the mutation flows through to the OSCE BWE forward
-	// pass which reads `LatestNativeMono()` downstream. Checking the
-	// int16 buffer directly keeps this smoke test independent of the
-	// call-site ordering.
-	t.Run("silk_wb_lace_mutates_native_lowband", func(t *testing.T) {
+	// libopus reset semantics keep the first eligible LACE frame raw, then
+	// cross-fade the second eligible frame before steady enhancement.
+	// The current call site still runs after silk_resampler, so this checks
+	// the native lowband that downstream OSCE BWE consumes.
+	t.Run("silk_wb_lace_reset_then_mutates_native_lowband", func(t *testing.T) {
 		const frameSize = 960 // 20 ms @ 48 kHz
-		packet := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
+		packetA := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
+		packetB := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
 
-		// Reference decode with LACE disabled to capture the
-		// pre-postfilter native lowband.
 		decRef, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 		if err != nil {
 			t.Fatalf("NewDecoder(ref): %v", err)
@@ -175,18 +166,25 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 			t.Fatalf("SetDNNBlob(ref): %v", err)
 		}
 		pcmRef := make([]float32, decRef.maxPacketSamples*decRef.channels)
-		if _, err := decRef.Decode(packet, pcmRef); err != nil {
-			t.Fatalf("Decode(ref): %v", err)
+		if _, err := decRef.Decode(packetA, pcmRef); err != nil {
+			t.Fatalf("Decode(ref #1): %v", err)
 		}
 		nativeRef, fsKHzRef := decRef.silkDecoder.LatestNativeMono()
 		if nativeRef == nil || fsKHzRef != 16 {
 			t.Fatalf("ref decode produced no 16 kHz native lowband: nativeRef=%v fsKHz=%d", nativeRef, fsKHzRef)
 		}
-		nativeRefCopy := make([]int16, osceLACEFrameSamples)
-		copy(nativeRefCopy, nativeRef[:osceLACEFrameSamples])
+		nativeRefFirst := make([]int16, osceLACEFrameSamples)
+		copy(nativeRefFirst, nativeRef[:osceLACEFrameSamples])
+		if _, err := decRef.Decode(packetB, pcmRef); err != nil {
+			t.Fatalf("Decode(ref #2): %v", err)
+		}
+		nativeRef, fsKHzRef = decRef.silkDecoder.LatestNativeMono()
+		if nativeRef == nil || fsKHzRef != 16 {
+			t.Fatalf("ref decode #2 produced no 16 kHz native lowband: nativeRef=%v fsKHz=%d", nativeRef, fsKHzRef)
+		}
+		nativeRefSecond := make([]int16, osceLACEFrameSamples)
+		copy(nativeRefSecond, nativeRef[:osceLACEFrameSamples])
 
-		// LACE-on decode using a fresh decoder so the runtime state
-		// has no carry-over from prior subtests.
 		decLACE, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 		if err != nil {
 			t.Fatalf("NewDecoder(lace): %v", err)
@@ -201,34 +199,37 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 			t.Fatalf("SetDNNBlob(lace): %v", err)
 		}
 		pcmLACE := make([]float32, decLACE.maxPacketSamples*decLACE.channels)
-		if _, err := decLACE.Decode(packet, pcmLACE); err != nil {
-			t.Fatalf("Decode(lace): %v", err)
+		if _, err := decLACE.Decode(packetA, pcmLACE); err != nil {
+			t.Fatalf("Decode(lace #1): %v", err)
 		}
 		nativeLACE, fsKHzLACE := decLACE.silkDecoder.LatestNativeMono()
 		if nativeLACE == nil || fsKHzLACE != 16 {
 			t.Fatalf("lace decode produced no 16 kHz native lowband: nativeLACE=%v fsKHz=%d", nativeLACE, fsKHzLACE)
 		}
-
-		// The 320-sample 20 ms lowband must differ on at least one
-		// sample. If the buffers are bit-identical, the LACE/NoLACE
-		// forward pass has degenerated into an identity copy and the
-		// postfilter is not actually running.
-		var diffCount int
-		var maxDiff int
-		for i := 0; i < osceLACEFrameSamples; i++ {
-			d := int(nativeLACE[i]) - int(nativeRefCopy[i])
-			if d < 0 {
-				d = -d
-			}
-			if d > maxDiff {
-				maxDiff = d
-			}
-			if d > 0 {
-				diffCount++
-			}
+		diffCount, maxDiff := int16BufferDiff(nativeLACE[:osceLACEFrameSamples], nativeRefFirst)
+		if diffCount != 0 {
+			t.Fatalf("first LACE-eligible frame differs from raw output after reset: diffCount=%d maxDiff=%d", diffCount, maxDiff)
 		}
+		if decLACE.osceLACE == nil {
+			t.Fatalf("LACE state is nil after first eligible frame")
+		}
+		if decLACE.osceLACE.laceResetFrames[0] != 1 {
+			t.Fatalf("after first LACE frame reset countdown=%d, want 1", decLACE.osceLACE.laceResetFrames[0])
+		}
+
+		if _, err := decLACE.Decode(packetB, pcmLACE); err != nil {
+			t.Fatalf("Decode(lace #2): %v", err)
+		}
+		nativeLACE, fsKHzLACE = decLACE.silkDecoder.LatestNativeMono()
+		if nativeLACE == nil || fsKHzLACE != 16 {
+			t.Fatalf("lace decode #2 produced no 16 kHz native lowband: nativeLACE=%v fsKHz=%d", nativeLACE, fsKHzLACE)
+		}
+		diffCount, maxDiff = int16BufferDiff(nativeLACE[:osceLACEFrameSamples], nativeRefSecond)
 		if diffCount == 0 {
-			t.Fatalf("LACE-on and LACE-off native int16 lowband are bit-identical: forward pass appears to be an identity copy")
+			t.Fatalf("second LACE-eligible frame is still raw: forward pass/reset cross-fade did not affect native lowband")
+		}
+		if decLACE.osceLACE.laceResetFrames[0] != 0 {
+			t.Fatalf("after second LACE frame reset countdown=%d, want 0", decLACE.osceLACE.laceResetFrames[0])
 		}
 		t.Logf("LACE postfilter altered %d/%d native int16 samples; max abs diff %d", diffCount, osceLACEFrameSamples, maxDiff)
 	})
@@ -266,4 +267,26 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 			t.Fatalf("decoded PCM silent with LACE disabled")
 		}
 	})
+}
+
+func int16BufferDiff(a, b []int16) (count, maxAbs int) {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		d := int(a[i]) - int(b[i])
+		if d < 0 {
+			d = -d
+		}
+		if d > 0 {
+			count++
+			if d > maxAbs {
+				maxAbs = d
+			}
+		}
+	}
+	count += len(a) - n
+	count += len(b) - n
+	return count, maxAbs
 }

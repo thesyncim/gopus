@@ -40,3 +40,36 @@ func TestStreamOSCELACEComplexityMode(t *testing.T) {
 		}
 	}
 }
+
+func TestStreamOSCELACEOutputResetMatchesLibopusSequence(t *testing.T) {
+	var state streamOSCEState
+	state.laceResetFrames[0] = 2
+	for i := 0; i < streamOSCELACEFrameSamples; i++ {
+		state.laceApplyInF[i] = -0.25
+		state.laceApplyOutF[i] = 0.75
+	}
+	state.applyOSCELACEOutputReset(0)
+	if state.laceResetFrames[0] != 1 {
+		t.Fatalf("after raw reset frame countdown=%d want 1", state.laceResetFrames[0])
+	}
+	for i := 0; i < streamOSCELACEFrameSamples; i++ {
+		if got := state.laceApplyOutF[i]; got != state.laceApplyInF[i] {
+			t.Fatalf("raw reset frame sample %d=%g want %g", i, got, state.laceApplyInF[i])
+		}
+		state.laceApplyOutF[i] = 0.75
+	}
+	state.applyOSCELACEOutputReset(0)
+	if state.laceResetFrames[0] != 0 {
+		t.Fatalf("after cross-fade reset frame countdown=%d want 0", state.laceResetFrames[0])
+	}
+	firstWant := streamOSCEWindow[0]*0.75 + (1.0-streamOSCEWindow[0])*(-0.25)
+	if got := state.laceApplyOutF[0]; got != firstWant {
+		t.Fatalf("cross-fade sample 0=%g want %g", got, firstWant)
+	}
+	if got := state.laceApplyOutF[159]; got == 0.75 || got == -0.25 {
+		t.Fatalf("cross-fade sample 159=%g, want blended value", got)
+	}
+	if got := state.laceApplyOutF[160]; got != 0.75 {
+		t.Fatalf("cross-fade touched trailing sample 160=%g want 0.75", got)
+	}
+}

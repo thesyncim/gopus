@@ -64,7 +64,11 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 	silkBW silk.Bandwidth,
 	packetStereoLocal bool,
 ) bool {
-	if d == nil || !d.osceLACEEnabled || !d.osceLACEModelLoaded {
+	if d == nil {
+		return false
+	}
+	if !d.osceLACEEnabled || !d.osceLACEModelLoaded {
+		d.resetOSCELACEPostfilterState(packetStereoLocal)
 		return false
 	}
 	state := d.osceLACE
@@ -72,27 +76,21 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 		// When the runtime model is not bound (e.g. blob did not carry
 		// the LACE/NoLACE manifests), keep the standard silk_resampler
 		// output untouched.
+		d.resetOSCELACEPostfilterState(packetStereoLocal)
 		return false
 	}
 	// libopus only runs LACE/NoLACE on SILK-only mode at 16 kHz internal
 	// sample rate. Hybrid keeps the postfilter off because the CELT high
 	// band would mask the model's spectral shaping.
 	if mode != ModeSILK {
-		d.osceLACE.prevLACEActive = false
+		d.resetOSCELACEPostfilterState(packetStereoLocal)
 		return false
 	}
 	pickedMode := pickOSCELACEMode(d.complexity)
 	if pickedMode == osceLACEModeNone {
-		d.osceLACE.prevLACEActive = false
+		d.resetOSCELACEPostfilterState(packetStereoLocal)
 		return false
 	}
-
-	// Snapshot the transition state BEFORE running the forward pass so
-	// the per-channel helper knows whether the current frame is the first
-	// LACE-active frame after a non-LACE frame. libopus tracks this via
-	// `psDec->osce.features.reset` set by `osce_reset` whenever the
-	// postfilter is bypassed; the gopus equivalent uses `prevLACEActive`.
-	transition := !d.osceLACE.prevLACEActive
 
 	// Stereo packet on a stereo decoder: libopus runs the postfilter
 	// independently on each channel (per `silk_channel_state.osce`); the
@@ -102,13 +100,14 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 	if packetStereoLocal && d.channels == 2 {
 		leftNative, rightNative, samplesPerChannel, fsKHz, ok := d.silkDecoder.LatestNativeStereo()
 		if !ok || fsKHz != 16 || samplesPerChannel < osceLACEFrameSamples {
-			d.osceLACE.prevLACEActive = false
+			d.resetOSCELACEPostfilterState(packetStereoLocal)
 			return false
 		}
-		ran := d.applyOSCELACEMonoChannel(leftNative, pickedMode, transition, 0)
-		ran = d.applyOSCELACEMonoChannel(rightNative, pickedMode, transition, 1) || ran
+		d.prepareOSCELACEPostfilter(pickedMode, 2)
+		ran := d.applyOSCELACEMonoChannel(leftNative, pickedMode, 0)
+		ran = d.applyOSCELACEMonoChannel(rightNative, pickedMode, 1) || ran
 		if !ran {
-			d.osceLACE.prevLACEActive = false
+			d.resetOSCELACEPostfilterState(packetStereoLocal)
 			return false
 		}
 		// `LatestNativeStereo` returns slices aliasing decoder scratch
@@ -124,11 +123,12 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 	// mono packet). Only the slot-0 runtime is used.
 	native, fsKHz := d.silkDecoder.LatestNativeMono()
 	if native == nil || fsKHz != 16 || len(native) < osceLACEFrameSamples {
-		d.osceLACE.prevLACEActive = false
+		d.resetOSCELACEPostfilterState(packetStereoLocal)
 		return false
 	}
-	if !d.applyOSCELACEMonoChannel(native, pickedMode, transition, 0) {
-		d.osceLACE.prevLACEActive = false
+	d.prepareOSCELACEPostfilter(pickedMode, 1)
+	if !d.applyOSCELACEMonoChannel(native, pickedMode, 0) {
+		d.resetOSCELACEPostfilterState(packetStereoLocal)
 		return false
 	}
 	d.osceLACE.prevLACEActive = true
@@ -140,13 +140,7 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 // applyOSCELACEMonoChannel runs the LACE / NoLACE forward pass over one
 // native-rate int16 SILK lowband channel and writes the enhanced samples
 // back into the same buffer.
-//
-// `transition` indicates the frame transitioned from non-LACE to LACE this
-// call. When set, the helper cross-fades the first 10 ms (160 samples) of
-// the enhanced output against the pre-enhancement input, mirroring the
-// `osce_cross_fade_10ms` invocation guarded by `psDec->osce.features.reset`
-// in libopus `osce_enhance_frame`.
-func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, transition bool, channelIdx int) bool {
+func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, channelIdx int) bool {
 	if d == nil || d.osceLACE == nil {
 		return false
 	}
@@ -230,6 +224,7 @@ func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, tr
 			return false
 		}
 	}
+	state.applyOSCELACEOutputReset(channelIdx)
 	// Requantise to int16 and write back into the native lowband so the
 	// downstream silk_resampler / OSCE BWE consumer reads the postfilter
 	// output. libopus mutates psDec->outBuf in place; we mirror that by
@@ -240,16 +235,53 @@ func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, tr
 		state.applyOutInt16[i] = q
 		native[i] = q
 	}
-	// On transitions from non-LACE to LACE/NoLACE-active, run the 10 ms
-	// cross-fade mirroring libopus `osce_cross_fade_10ms`. The fade-in
-	// buffer is the enhanced postfilter output (the freshly written
-	// `native`), the fade-out buffer is the pre-enhancement input
-	// captured in `applyIn16`. The cross-fade writes back into `native`
-	// so the downstream silk_resampler consumes a smooth transition.
-	if transition {
-		osceLACECrossFade10msInt16(native[:osceLACEFrameSamples], state.applyIn16[:osceLACEFrameSamples], osceLACEFrameSamples)
-	}
 	return true
+}
+
+func (d *Decoder) prepareOSCELACEPostfilter(mode osceLACEMode, channels int) {
+	if d == nil || d.osceLACE == nil {
+		return
+	}
+	state := d.osceLACE
+	if channels < 1 {
+		channels = 1
+	}
+	if channels > len(state.laceResetFrames) {
+		channels = len(state.laceResetFrames)
+	}
+	if !state.prevLACEActive || state.laceMethod != mode {
+		for ch := 0; ch < channels; ch++ {
+			state.osceLACEFeatures[ch].Reset()
+			switch mode {
+			case osceLACEModeLACE:
+				state.osceLACERuntime[ch].Reset()
+			case osceLACEModeNoLACE:
+				state.osceNoLACERuntime[ch].Reset()
+			default:
+				state.osceLACERuntime[ch].Reset()
+				state.osceNoLACERuntime[ch].Reset()
+			}
+			state.laceResetFrames[ch] = 2
+		}
+	}
+	state.laceMethod = mode
+	state.prevLACEActive = true
+}
+
+func (state *decoderOSCELACEState) applyOSCELACEOutputReset(channelIdx int) {
+	if state == nil || channelIdx < 0 || channelIdx >= len(state.laceResetFrames) {
+		return
+	}
+	switch state.laceResetFrames[channelIdx] {
+	case 0:
+		return
+	case 1:
+		osceLACECrossFade10ms(state.applyOutFloat[:osceLACEFrameSamples], state.applyInFloat[:osceLACEFrameSamples], osceLACEFrameSamples)
+		state.laceResetFrames[channelIdx] = 0
+	default:
+		copy(state.applyOutFloat[:osceLACEFrameSamples], state.applyInFloat[:osceLACEFrameSamples])
+		state.laceResetFrames[channelIdx]--
+	}
 }
 
 // osceLACEMarkInactiveIfModeIneligible clears the LACE-active flag when the
@@ -289,6 +321,8 @@ func (d *Decoder) resetOSCELACEPostfilterState(packetStereoLocal bool) {
 		d.osceLACE.osceLACEFeatures[ch].Reset()
 		d.osceLACE.osceLACERuntime[ch].Reset()
 		d.osceLACE.osceNoLACERuntime[ch].Reset()
+		d.osceLACE.laceResetFrames[ch] = 0
 	}
 	d.osceLACE.prevLACEActive = false
+	d.osceLACE.laceMethod = osceLACEModeNone
 }

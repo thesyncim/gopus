@@ -38,6 +38,8 @@ type streamOSCEState struct {
 	laceNumBits     [2]float32
 	lacePeriods     [streamOSCELACESubframesPerFrame]int
 	prevLACEActive  bool
+	laceMethod      streamOSCELACEMode
+	laceResetFrames [2]int
 
 	// OSCE BWE 16 kHz -> 48 kHz forward pass replacing `silk_resampler`.
 	bweModel      *osceBWE.Model
