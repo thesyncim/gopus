@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	encpkg "github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 // encodeUntilMultistreamDREDPacket exercises the public multistream encoder
@@ -83,6 +84,7 @@ func encodeUntilMultistreamDREDPacket(t *testing.T, mode encpkg.Mode, bandwidth 
 }
 
 func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:   960,
 		ForceMode:   ModeSILK,
@@ -91,7 +93,7 @@ func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStere
 		Multistream: true,
 	})
 	if err != nil {
-		t.Skipf("libopus stereo silk DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "stereo silk DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
@@ -124,6 +126,7 @@ func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStere
 }
 
 func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:   960,
 		ForceMode:   ModeCELT,
@@ -132,7 +135,7 @@ func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStere
 		Multistream: true,
 	})
 	if err != nil {
-		t.Skipf("libopus stereo CELT DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "stereo CELT DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
@@ -163,6 +166,7 @@ func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStere
 }
 
 func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:   960,
 		ForceMode:   ModeHybrid,
@@ -171,7 +175,7 @@ func TestMultistreamEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msSte
 		Multistream: true,
 	})
 	if err != nil {
-		t.Skipf("libopus stereo hybrid DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "stereo hybrid DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {

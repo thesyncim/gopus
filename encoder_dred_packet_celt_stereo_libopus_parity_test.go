@@ -8,9 +8,11 @@ import (
 	"testing"
 
 	encpkg "github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
 		ForceMode: ModeCELT,
@@ -18,7 +20,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereo(t *testin
 		Channels:  2,
 	})
 	if err != nil {
-		t.Skipf("libopus stereo CELT DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "stereo CELT DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {

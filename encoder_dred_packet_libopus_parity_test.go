@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	encpkg "github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 var (
@@ -64,7 +65,7 @@ func requireLibopusEncoderNeuralModelBlob(t *testing.T) []byte {
 	t.Helper()
 	blob, err := probeLibopusEncoderNeuralModelBlob()
 	if err != nil {
-		t.Skipf("libopus encoder neural model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "encoder neural model", err)
 	}
 	return blob
 }
@@ -223,6 +224,7 @@ func encodeUntilDREDPacketWithSettings(t *testing.T, settings encoderDREDPacketS
 }
 
 func TestEncoderDREDEmissionFrameIndexMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, tc := range []struct {
 		name      string
 		mode      encpkg.Mode
@@ -243,7 +245,7 @@ func TestEncoderDREDEmissionFrameIndexMatchesLibopus(t *testing.T) {
 				Channels:  tc.channels,
 			})
 			if err != nil {
-				t.Skipf("libopus DRED packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "DRED packet", err)
 			}
 			_, _, _, gotFrameIndex := encodeUntilDREDPacketWithFrameIndex(t, tc.mode, tc.bandwidth, 960, tc.channels)
 			if gotFrameIndex != packetInfo.frameIndex {
@@ -259,7 +261,7 @@ func assertSilkMonoPrimaryFrameByteExact(t *testing.T, frameSize int) {
 		FrameSize: frameSize, ForceMode: ModeSILK, Bandwidth: BandwidthWideband,
 	})
 	if err != nil {
-		t.Skipf("emit: %v", err)
+		libopustest.HelperUnavailable(t, "DRED packet", err)
 	}
 	gotPacket, _, _ := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, frameSize, 1)
 	_, gotFrames, _, _, err := parsePacketFramesAndPadding(gotPacket)
@@ -281,25 +283,29 @@ func assertSilkMonoPrimaryFrameByteExact(t *testing.T, frameSize int) {
 }
 
 func TestEncoderSilkMono20msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	assertSilkMonoPrimaryFrameByteExact(t, 960)
 }
 
 func TestEncoderSilkMono40msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	assertSilkMonoPrimaryFrameByteExact(t, 1920)
 }
 
 func TestEncoderSilkMono60msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	assertSilkMonoPrimaryFrameByteExact(t, 2880)
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
 		ForceMode: ModeSILK,
 		Bandwidth: BandwidthWideband,
 	})
 	if err != nil {
-		t.Skipf("libopus DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
@@ -326,6 +332,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms(t *testing.T) {
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msCBR(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
 		ForceMode: ModeSILK,
@@ -334,7 +341,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msCBR(t *testing.T
 		CBR:       true,
 	})
 	if err != nil {
-		t.Skipf("libopus CBR DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "CBR DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
@@ -370,13 +377,14 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msCBR(t *testing.T
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 1920,
 		ForceMode: ModeSILK,
 		Bandwidth: BandwidthWideband,
 	})
 	if err != nil {
-		t.Skipf("libopus 40 ms DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "40 ms DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
@@ -403,13 +411,14 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms(t *testing.T) {
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 2880,
 		ForceMode: ModeSILK,
 		Bandwidth: BandwidthWideband,
 	})
 	if err != nil {
-		t.Skipf("libopus 60 ms DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "60 ms DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
@@ -436,6 +445,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms(t *testing.T) {
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWidebandLongFrames(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{3840, 4800, 5760} {
 		t.Run(fmt.Sprintf("%d_samples", frameSize), func(t *testing.T) {
 			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
@@ -444,7 +454,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWidebandLongFrames(t *testin
 				Bandwidth: BandwidthWideband,
 			})
 			if err != nil {
-				t.Skipf("libopus long SILK DRED packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "long SILK DRED packet", err)
 			}
 			wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 			if err != nil {
@@ -476,13 +486,14 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWidebandLongFrames(t *testin
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msPayloadOnly(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
 		ForceMode: ModeHybrid,
 		Bandwidth: BandwidthFullband,
 	})
 	if err != nil {
-		t.Skipf("libopus hybrid DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "hybrid DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
@@ -505,13 +516,14 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msPayloadOnly(t 
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msPayloadOnly(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 1920,
 		ForceMode: ModeHybrid,
 		Bandwidth: BandwidthFullband,
 	})
 	if err != nil {
-		t.Skipf("libopus 40 ms hybrid DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "40 ms hybrid DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
@@ -534,6 +546,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msPayloadOnly(t 
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereoPayloadOnly(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 1920,
 		ForceMode: ModeHybrid,
@@ -541,7 +554,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereoPayloadO
 		Channels:  2,
 	})
 	if err != nil {
-		t.Skipf("libopus 40 ms stereo hybrid DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "40 ms stereo hybrid DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
@@ -565,13 +578,14 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereoPayloadO
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20ms(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
 		ForceMode: ModeCELT,
 		Bandwidth: BandwidthFullband,
 	})
 	if err != nil {
-		t.Skipf("libopus CELT DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "CELT DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
@@ -594,6 +608,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20ms(t *testing.T) {
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullbandLongFrames(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, tc := range []struct {
 		frameSize int
 		channels  int
@@ -611,7 +626,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullbandLongFrames(t *testin
 				Channels:  tc.channels,
 			})
 			if err != nil {
-				t.Skipf("libopus CELT DRED packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "CELT DRED packet", err)
 			}
 			wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 			if err != nil {
@@ -640,11 +655,12 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullbandLongFrames(t *testin
 }
 
 func TestEncoderSilkStereo20msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960, ForceMode: ModeSILK, Bandwidth: BandwidthWideband, Channels: 2,
 	})
 	if err != nil {
-		t.Skipf("emit: %v", err)
+		libopustest.HelperUnavailable(t, "DRED packet", err)
 	}
 	gotPacket, _, _ := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 960, 2)
 	_, gotFrames, _, _, err := parsePacketFramesAndPadding(gotPacket)
@@ -666,6 +682,7 @@ func TestEncoderSilkStereo20msPrimaryFrameByteExactMatchesLibopus(t *testing.T) 
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
 		ForceMode: ModeSILK,
@@ -673,7 +690,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo(t *testin
 		Channels:  2,
 	})
 	if err != nil {
-		t.Skipf("libopus stereo silk DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "stereo silk DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
@@ -701,6 +718,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo(t *testin
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband40msStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 1920,
 		ForceMode: ModeSILK,
@@ -708,7 +726,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband40msStereo(t *testin
 		Channels:  2,
 	})
 	if err != nil {
-		t.Skipf("libopus stereo 40 ms silk DRED packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "stereo 40 ms silk DRED packet", err)
 	}
 	wantPayload, wantOffset, ok, err := findDREDPayload(packetInfo.packet)
 	if err != nil {
