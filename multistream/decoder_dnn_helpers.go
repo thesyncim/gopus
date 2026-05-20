@@ -21,7 +21,6 @@ func (d *Decoder) SetDNNBlob(blob *dnnblob.Blob) {
 	d.farganModelLoaded = models.FARGAN
 	d.osceModelsLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
-	d.bindDREDDecoderBlob(blob, models.DRED)
 	// Fan the blob out to the child stream decoders so each stream binds its
 	// own OSCE LACE/NoLACE + OSCE BWE runtime models. Test stubs that do not
 	// implement the concrete `streamState` are skipped (they have no SILK

@@ -401,16 +401,22 @@ func TestDecoderSetDNNBlobRejectsNameOnlyModelBlob(t *testing.T) {
 	}
 }
 
-func TestDecoderSetDNNBlobRejectsNameOnlyDREDDecoderFamily(t *testing.T) {
+func TestDecoderSetDNNBlobIgnoresNameOnlyDREDDecoderFamily(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 	blob := append([]byte(nil), makeValidDecoderTestDNNBlob()...)
 	blob = append(blob, makeNameCompleteDREDDecoderTestDNNBlob()...)
 
-	if err := dec.SetDNNBlob(blob); !errors.Is(err, ErrInvalidArgument) {
-		t.Fatalf("SetDNNBlob(name-only DRED decoder family) error=%v want %v", err, ErrInvalidArgument)
+	if err := dec.SetDNNBlob(blob); err != nil {
+		t.Fatalf("SetDNNBlob(core blob with name-only DRED decoder family) error=%v want nil", err)
 	}
-	if dec.dnnBlob != nil || dec.pitchDNNLoaded || dec.plcModelLoaded || dec.farganModelLoaded {
-		t.Fatal("decoder retained blob with name-only DRED decoder family")
+	if dec.dnnBlob == nil || !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
+		t.Fatal("decoder did not retain valid core DNN blob with ignored DRED decoder extras")
+	}
+	if dec.dredPayloadScannerActive() || dec.dredCachedPayloadActive() {
+		t.Fatal("decoder armed standalone DRED payload state from ignored DRED decoder extras")
+	}
+	if state := dec.dredState(); state != nil {
+		t.Fatalf("decoder allocated DRED sidecar from ignored DRED decoder extras: %+v", state)
 	}
 }
 

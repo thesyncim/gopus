@@ -1240,7 +1240,7 @@ func TestDecoderLeavesDREDStateDormantWithoutAnySidecar(t *testing.T) {
 	}
 }
 
-func TestPublicDREDDecoderSetDNNBlobArmsDREDDecoderWhenBlobContainsModel(t *testing.T) {
+func TestPublicDecoderSetDNNBlobDoesNotArmDREDDecoderWhenBlobContainsModel(t *testing.T) {
 	base := makeValidCELTPacketForDREDTest(t)
 	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
 	extended := buildSingleFramePacketWithExtensionsForDREDTest(t, base, []packetExtensionData{
@@ -1254,16 +1254,19 @@ func TestPublicDREDDecoderSetDNNBlobArmsDREDDecoderWhenBlobContainsModel(t *test
 	if err := dec.SetDNNBlob(makeValidDecoderControlWithDREDDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
-	if s := dec.dredState(); s == nil || !s.dredModelLoaded {
-		t.Fatal("public decoder SetDNNBlob did not arm DRED decoder from combined blob")
+	if dec.dredPayloadScannerActive() {
+		t.Fatal("public decoder SetDNNBlob armed standalone DRED payload scanning")
 	}
 
 	pcm := make([]float32, 960*2)
 	if _, err := dec.Decode(extended, pcm); err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
-	if s := dec.dredState(); s == nil || s.dredCache.Empty() {
-		t.Fatal("public SetDNNBlob did not cache DRED payload")
+	if dec.dredCachedPayloadActive() {
+		t.Fatal("public decoder SetDNNBlob cached DRED payload without standalone decoder state")
+	}
+	if state := dec.dredState(); state != nil && state.decoderDREDPayloadState != nil {
+		t.Fatalf("public decoder SetDNNBlob woke DRED payload sidecar: %+v", state.decoderDREDPayloadState)
 	}
 }
 

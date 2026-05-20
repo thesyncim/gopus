@@ -46,10 +46,5 @@ func cloneDecoderDNNBlobForControl(data []byte) (*dnnblob.Blob, error) {
 	if _, err := lpcnetplc.LoadFARGANModel(blob); err != nil {
 		return nil, ErrInvalidArgument
 	}
-	if blob.SupportsDREDDecoder() {
-		if _, err := rdovae.LoadDecoder(blob); err != nil {
-			return nil, ErrInvalidArgument
-		}
-	}
 	return blob, nil
 }

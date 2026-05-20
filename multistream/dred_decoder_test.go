@@ -674,7 +674,7 @@ func TestDecoderLeavesDREDStateDormantWithOnlyMainDNNBlob(t *testing.T) {
 	}
 }
 
-func TestDecoderPublicSetDNNBlobArmsDREDDecoderWhenBlobContainsModel(t *testing.T) {
+func TestDecoderPublicSetDNNBlobDoesNotArmDREDDecoderWhenBlobContainsModel(t *testing.T) {
 	packet := makeMultistreamPacketWithDREDForTest(t, 3, 1, makeExperimentalDREDPayloadBodyForTest(t, 0, 4))
 
 	dec, err := NewDecoderDefault(48000, 3)
@@ -682,8 +682,8 @@ func TestDecoderPublicSetDNNBlobArmsDREDDecoderWhenBlobContainsModel(t *testing.
 		t.Fatalf("NewDecoderDefault error: %v", err)
 	}
 	dec.SetDNNBlob(makeLoadableDecoderDREDControlTestBlob(t))
-	if dec.dred == nil || !dec.dred.dredModelLoaded {
-		t.Fatal("public decoder SetDNNBlob did not arm DRED decoder from combined blob")
+	if dec.dred != nil && dec.dred.dredModelLoaded {
+		t.Fatal("public decoder SetDNNBlob armed standalone DRED decoder from combined blob")
 	}
 
 	samples, err := dec.Decode(packet, 960)
@@ -693,8 +693,8 @@ func TestDecoderPublicSetDNNBlobArmsDREDDecoderWhenBlobContainsModel(t *testing.
 	if len(samples) != 960*3 {
 		t.Fatalf("len(samples)=%d want %d", len(samples), 960*3)
 	}
-	if dec.dred.dredCache[1].Empty() {
-		t.Fatal("public SetDNNBlob did not cache target-stream DRED payload")
+	if dec.dred != nil && len(dec.dred.dredCache) != 0 {
+		t.Fatalf("public decoder SetDNNBlob cached DRED payload without standalone decoder state: %+v", dec.dred)
 	}
 }
 
@@ -869,11 +869,13 @@ func assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t *testing.T, label
 
 	modelBlob := makeLoadableDecoderDREDControlTestBlob(t)
 	oracle.SetDNNBlob(modelBlob)
+	oracle.setDREDDecoderBlob(modelBlob)
 	dec, err := NewDecoderDefault(48000, channels)
 	if err != nil {
 		t.Fatalf("%s NewDecoderDefault error: %v", label, err)
 	}
 	dec.SetDNNBlob(modelBlob)
+	dec.setDREDDecoderBlob(modelBlob)
 
 	samples, err := dec.Decode(packet, 960)
 	if err != nil {

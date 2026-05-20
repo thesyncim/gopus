@@ -62,13 +62,6 @@ func (d *Decoder) maybeDropDREDState() {
 	}
 }
 
-func (d *Decoder) bindDREDDecoderBlob(blob *dnnblob.Blob, supported bool) {
-	if !supported {
-		return
-	}
-	d.setDREDDecoderBlob(blob)
-}
-
 // setDREDDecoderBlob mirrors the standalone libopus OpusDREDDecoder
 // OPUS_SET_DNN_BLOB path.
 func (d *Decoder) setDREDDecoderBlob(blob *dnnblob.Blob) {

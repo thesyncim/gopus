@@ -3,11 +3,7 @@
 
 package multistream
 
-import "github.com/thesyncim/gopus/internal/dnnblob"
-
 type decoderDREDState struct{}
-
-func (d *Decoder) bindDREDDecoderBlob(_ *dnnblob.Blob, _ bool) {}
 
 func (d *Decoder) resetDREDRuntimeState() {}
 
