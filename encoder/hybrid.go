@@ -113,7 +113,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 
 	// Ensure sub-encoders exist
 	e.ensureSILKEncoder()
-	if e.channels == 2 {
+	if e.silkInternalChannels() == 2 {
 		e.ensureSILKSideEncoder()
 	}
 	e.ensureCELTEncoder()
@@ -169,7 +169,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	var redundancyPCM []float64
 	var redundantRng uint32
 	if transitionRedundancy {
-		redundancyBytes = computeRedundancyBytes(baseTargetBytes, e.bitrate, frameRate, e.channels)
+		redundancyBytes = computeRedundancyBytes(baseTargetBytes, e.bitrate, frameRate, e.celtInternalChannelsForMode(ModeHybrid))
 		if transitionCeltToHybrid && redundancyBytes > 0 {
 			// Match libopus input shaping for CELT->Hybrid redundancy:
 			// redundancy CELT sees the same HB gain contour as the main CELT path.
@@ -255,8 +255,10 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 			lookahead32[i] = float32(v)
 		}
 
-		targetLaSamples := len(lookahead) / 3
-		neededOut := targetLaSamples * e.channels
+		lookaheadFrames := len(lookahead) / e.channels
+		targetLaSamples := lookaheadFrames / 3
+		internalSilkChannels := e.silkInternalChannels()
+		neededOut := targetLaSamples * internalSilkChannels
 		if cap(e.hybridState.scratchSilkLookahead) < neededOut {
 			e.hybridState.scratchSilkLookahead = make([]float32, neededOut)
 		}
@@ -265,6 +267,15 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 		if e.channels == 1 {
 			state := e.silkResampler.State()
 			e.silkResampler.ProcessInto(lookahead32, silkLookahead)
+			e.silkResampler.SetState(state)
+		} else if internalSilkChannels == 1 {
+			if cap(e.hybridState.scratchLaLeft) < lookaheadFrames {
+				e.hybridState.scratchLaLeft = make([]float32, lookaheadFrames)
+			}
+			monoLa := e.hybridState.scratchLaLeft[:lookaheadFrames]
+			downmixStereoToSilkMonoLibopus(monoLa, lookahead32, lookaheadFrames)
+			state := e.silkResampler.State()
+			e.silkResampler.ProcessInto(monoLa, silkLookahead)
 			e.silkResampler.SetState(state)
 		} else {
 			// Stereo lookahead resampling with scratch buffers
@@ -282,7 +293,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 				rightLa[i] = lookahead32[i*2+1]
 			}
 
-			halfOut := targetLaSamples / 2
+			halfOut := targetLaSamples
 			if cap(e.hybridState.scratchLaOutLeft) < halfOut {
 				e.hybridState.scratchLaOutLeft = make([]float32, halfOut)
 			}
@@ -311,10 +322,10 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	e.silkEncoder.SetRangeEncoder(re)
 	e.silkEncoder.ResetPacketState()
 	if silkBitrate > 0 {
-		perChannel := silkBitrate / e.channels
+		perChannel := silkBitrate / e.silkInternalChannels()
 		if perChannel > 0 {
 			e.silkEncoder.SetBitrate(perChannel)
-			if e.channels == 2 {
+			if e.silkInternalChannels() == 2 {
 				e.silkSideEncoder.SetBitrate(perChannel)
 			}
 		}
@@ -359,7 +370,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 		silkMaxBits = maxSilkRate * frameSize / 48000
 	}
 	e.silkEncoder.SetMaxBits(silkMaxBits)
-	if e.channels == 2 {
+	if e.silkInternalChannels() == 2 {
 		e.silkSideEncoder.ResetPacketState()
 		e.silkSideEncoder.SetFEC(e.lbrrCoded)
 		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
@@ -745,7 +756,7 @@ func (e *Encoder) computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 
 		bitsTarget = 0
 	}
 	totalRate := bitsTarget * 48000 / frameSize // bits_to_bitrate()
-	channels := e.channels
+	channels := e.silkInternalChannels()
 	if channels < 1 {
 		channels = 1
 	}
@@ -810,7 +821,10 @@ func (e *Encoder) computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 
 // bitrate. This is used to constrain SILK's maxBits in hybrid VBR mode.
 // Matches libopus: compute_silk_rate_for_hybrid(maxBits*Fs/frame_size, ...).
 func (e *Encoder) computeSilkRateForMax(maxBitrate int, frame20ms bool) int {
-	channels := e.channels
+	channels := e.silkInternalChannels()
+	if channels < 1 {
+		channels = 1
+	}
 	ratePerChannel := maxBitrate / channels
 
 	entry := 1 // 10ms no FEC
@@ -922,6 +936,35 @@ func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []flo
 		}
 		out := e.ensureSilkResampled(targetSamples)
 		n := e.silkResampler.ProcessInto(pcm32, out)
+		return out[:n]
+	}
+
+	if e.silkInternalChannels() == 1 {
+		totalSamples := frameSize * 2
+		if totalSamples > len(samples) {
+			totalSamples = len(samples)
+			frameSize = totalSamples / 2
+		}
+		stereo32 := e.scratchPCM32[:frameSize*2]
+		stereoSamples := samples[:frameSize*2]
+		for i := 0; i < frameSize; i++ {
+			pair := stereoSamples[i*2 : i*2+2 : i*2+2]
+			outPair := stereo32[i*2 : i*2+2 : i*2+2]
+			outPair[0] = float32(pair[0])
+			outPair[1] = float32(pair[1])
+		}
+		mono := e.scratchMono[:frameSize]
+		downmixStereoToSilkMonoLibopus(mono, stereo32, frameSize)
+		out := e.ensureSilkResampled(targetSamples)
+		n := e.silkResampler.ProcessInto(mono, out)
+		if e.prevChannels == 2 && e.silkResamplerRight != nil {
+			rightOut := e.ensureSilkResampledR(targetSamples)
+			nR := e.silkResamplerRight.ProcessInto(mono, rightOut)
+			if nR < n {
+				n = nR
+			}
+			averageSilkResamplerOutputsLibopus(out, rightOut, n)
+		}
 		return out[:n]
 	}
 
@@ -1149,7 +1192,7 @@ func (e *Encoder) encodeSILKHybrid(pcm []float32, lookahead []float32, frameSize
 	// Calculate samples at 16kHz (input is at 16kHz after downsampling)
 	silkSamples := frameSize / 3 // 48kHz -> 16kHz (160 for 10ms, 320 for 20ms)
 
-	if e.channels == 1 {
+	if e.silkInternalChannels() == 1 {
 		// Mono encoding
 		e.encodeSILKHybridMono(pcm, lookahead, silkSamples, totalRateBps)
 	} else {

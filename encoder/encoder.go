@@ -1116,7 +1116,11 @@ func (e *Encoder) silkInternalChannels() int {
 	if e.channels != 2 {
 		return 1
 	}
-	if e.streamChannels <= 1 {
+	streamChannels := e.streamChannels
+	if streamChannels <= 0 {
+		streamChannels = e.channels
+	}
+	if streamChannels <= 1 {
 		return 1
 	}
 	return 2
@@ -1129,7 +1133,7 @@ func (e *Encoder) packetStereoForMode(mode Mode) bool {
 	switch mode {
 	case ModeSILK:
 		return e.silkInternalChannels() == 2
-	case ModeCELT:
+	case ModeHybrid, ModeCELT:
 		return e.celtInternalChannelsForMode(mode) == 2
 	}
 	return true
@@ -1139,7 +1143,11 @@ func (e *Encoder) celtInternalChannelsForMode(mode Mode) int {
 	if e.channels != 2 {
 		return 1
 	}
-	if mode == ModeCELT && e.streamChannels <= 1 {
+	streamChannels := e.streamChannels
+	if streamChannels <= 0 {
+		streamChannels = e.channels
+	}
+	if (mode == ModeCELT || mode == ModeHybrid) && streamChannels <= 1 {
 		return 1
 	}
 	return 2
@@ -2921,13 +2929,14 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 
 	packetBW := e.effectiveBandwidth()
 	if e.dredEncodingActive() {
-		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeHybrid, packetBW, frameSize, 960, firstFrameMaxBytes, e.channels == 2, !sameSize); err != nil {
+		stereo := e.packetStereoForMode(ModeHybrid)
+		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeHybrid, packetBW, frameSize, 960, firstFrameMaxBytes, stereo, !sameSize); err != nil {
 			return nil, err
 		} else if ok {
 			return dredPacket, nil
 		}
 	}
-	return BuildMultiFramePacket(frames, types.ModeHybrid, packetBW, 960, e.channels == 2, !sameSize)
+	return BuildMultiFramePacket(frames, types.ModeHybrid, packetBW, 960, e.packetStereoForMode(ModeHybrid), !sameSize)
 }
 
 // encodeSILKMultiFramePacket encodes 80/100/120ms SILK packets by splitting
