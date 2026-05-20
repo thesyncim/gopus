@@ -133,6 +133,64 @@ func TestEncoderDREDLongCELTLatentsUseLibopusSubframeCadence(t *testing.T) {
 	}
 }
 
+func TestEncoderDREDSetDNNBlobPreservesActiveRuntime(t *testing.T) {
+	raw := requireEncoderLibopusNeuralModelBlob(t)
+	newBlob := func() *dnnblob.Blob {
+		t.Helper()
+		blob, err := dnnblob.Clone(raw)
+		if err != nil {
+			t.Fatalf("Clone libopus encoder model blob: %v", err)
+		}
+		return blob
+	}
+
+	const (
+		sampleRate  = 16000
+		channels    = 1
+		frameSize   = 320
+		frameCount  = 7
+		reloadFrame = 3
+	)
+
+	ref := NewEncoder(sampleRate, channels)
+	ref.SetDNNBlob(newBlob())
+	if err := ref.SetDREDDuration(4); err != nil {
+		t.Fatalf("reference SetDREDDuration error: %v", err)
+	}
+	reloaded := NewEncoder(sampleRate, channels)
+	reloaded.SetDNNBlob(newBlob())
+	if err := reloaded.SetDREDDuration(4); err != nil {
+		t.Fatalf("reloaded SetDREDDuration error: %v", err)
+	}
+
+	want := make([]encoderLibopusDREDFrameTrace, frameCount)
+	got := make([]encoderLibopusDREDFrameTrace, frameCount)
+	for frameIdx := 0; frameIdx < frameCount; frameIdx++ {
+		frame := encoderLibopusDREDTraceFrame(frameIdx, frameSize, sampleRate, channels)
+		if emitted := ref.processDREDLatents(frame, 0); emitted != 1 {
+			t.Fatalf("reference frame %d emitted %d want 1", frameIdx, emitted)
+		}
+		want[frameIdx] = snapshotEncoderDREDTrace(t, ref, frameIdx)
+
+		if frameIdx == reloadFrame {
+			if reloaded.dred == nil || reloaded.dred.runtime == nil {
+				t.Fatal("reloaded encoder has no active DRED runtime before reload")
+			}
+			runtimeBeforeReload := reloaded.dred.runtime
+			reloaded.SetDNNBlob(newBlob())
+			if reloaded.dred.runtime != runtimeBeforeReload {
+				t.Fatal("SetDNNBlob replaced active DRED runtime")
+			}
+		}
+		if emitted := reloaded.processDREDLatents(frame, 0); emitted != 1 {
+			t.Fatalf("reloaded frame %d emitted %d want 1", frameIdx, emitted)
+		}
+		got[frameIdx] = snapshotEncoderDREDTrace(t, reloaded, frameIdx)
+	}
+
+	compareEncoderDREDTraces(t, got, want)
+}
+
 func snapshotEncoderDREDTrace(t *testing.T, enc *Encoder, frameIdx int) encoderLibopusDREDFrameTrace {
 	t.Helper()
 	if enc.dred == nil || enc.dred.runtime == nil {

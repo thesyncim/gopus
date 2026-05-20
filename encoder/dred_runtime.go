@@ -113,25 +113,33 @@ func (e *Encoder) clearInactiveDREDHistory() {
 // paths. A nil blob clears the retained model.
 func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
 	e.dnnBlob = blob
-	if e.dred != nil {
-		e.dred.models = dredEncoderModels{}
-		e.dred.runtime = nil
-	}
 	if !extsupport.DREDRuntime {
 		e.pruneDREDExtrasIfDormant()
 		return
 	}
 	if blob == nil {
+		if e.dred != nil {
+			e.dred.models = dredEncoderModels{}
+			e.dred.runtime = nil
+		}
 		e.pruneDREDExtrasIfDormant()
 		return
 	}
 	encModel, err := rdovae.LoadEncoder(blob)
 	if err != nil {
+		if e.dred != nil {
+			e.dred.models = dredEncoderModels{}
+			e.dred.runtime = nil
+		}
 		e.pruneDREDExtrasIfDormant()
 		return
 	}
 	pitchModel, err := lpcnetplc.LoadPitchDNNModel(blob)
 	if err != nil {
+		if e.dred != nil {
+			e.dred.models = dredEncoderModels{}
+			e.dred.runtime = nil
+		}
 		e.pruneDREDExtrasIfDormant()
 		return
 	}
@@ -141,6 +149,11 @@ func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
 	}
 	extra.models.encoder = encModel
 	extra.models.pitch = pitchModel
+	if extra.runtime != nil {
+		if err := extra.runtime.generator.SetDNNBlobPreservingState(blob); err != nil {
+			extra.runtime = nil
+		}
+	}
 }
 
 func (e *Encoder) ensureActiveDREDRuntime() *dredEncoderRuntime {

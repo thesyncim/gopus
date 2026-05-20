@@ -31,6 +31,17 @@ func (g *LatentGenerator) SetDNNBlob(blob *dnnblob.Blob) error {
 	return nil
 }
 
+// SetDNNBlobPreservingState replaces the shared pitch model family without
+// clearing retained DRED encoder state.
+func (g *LatentGenerator) SetDNNBlobPreservingState(blob *dnnblob.Blob) error {
+	if err := g.analysis.SetModelPreservingState(blob); err != nil {
+		g.Reset()
+		return err
+	}
+	g.analysis.SetDREDEncoderMode(true)
+	return nil
+}
+
 // Loaded reports whether the latent generator has the pitch-analysis model it
 // needs to mirror libopus DRED feature extraction.
 func (g *LatentGenerator) Loaded() bool {
