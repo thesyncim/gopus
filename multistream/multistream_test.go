@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"errors"
 	"testing"
+
+	"github.com/thesyncim/gopus/plc"
 )
 
 type streamDecoderStub struct {
@@ -555,6 +557,47 @@ func TestValidateStreamDurations(t *testing.T) {
 			t.Errorf("expected ErrInvalidStreamCount, got %v", err)
 		}
 	})
+}
+
+func TestDecoderDecodeRejectsPacketDurationGreaterThanFrameSize(t *testing.T) {
+	dec, err := NewDecoder(48000, 1, 1, 0, []byte{0})
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	_, err = dec.Decode([]byte{0xF8, 0xff, 0xfe}, 480)
+	if !errors.Is(err, ErrBufferTooSmall) {
+		t.Fatalf("Decode error=%v want %v", err, ErrBufferTooSmall)
+	}
+}
+
+func TestDecoderDecodeUsesPacketDurationWhenFrameSizeIsLarger(t *testing.T) {
+	var gotFrameSize int
+	dec := &Decoder{
+		sampleRate:     48000,
+		outputChannels: 1,
+		streams:        1,
+		mapping:        []byte{0},
+		decoders: []streamDecoder{streamDecoderStub{
+			channels: 1,
+			decode: func(data []byte, frameSize int) ([]float64, error) {
+				gotFrameSize = frameSize
+				return make([]float64, frameSize), nil
+			},
+		}},
+		plcState: plc.NewState(),
+	}
+
+	output, err := dec.Decode([]byte{0xF8, 0xff, 0xfe}, 1920)
+	if err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if gotFrameSize != 960 {
+		t.Fatalf("stream frameSize=%d want 960", gotFrameSize)
+	}
+	if len(output) != 960 {
+		t.Fatalf("len(output)=%d want 960", len(output))
+	}
 }
 
 // TestDecodePLC tests packet loss concealment.

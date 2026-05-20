@@ -200,6 +200,61 @@ func TestDecoder_Decode_BufferTooSmall(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsCode3DurationOver120msBeforeLocalCap(t *testing.T) {
+	cfg := DefaultDecoderConfig(48000, 1)
+	cfg.MaxPacketSamples = 7000
+	dec, err := NewDecoder(cfg)
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	pcm := make([]float32, cfg.MaxPacketSamples)
+	_, err = dec.Decode([]byte{GenerateTOC(31, false, 3), 0x07}, pcm)
+	if err != ErrInvalidPacket {
+		t.Fatalf("Decode error=%v want %v", err, ErrInvalidPacket)
+	}
+}
+
+func TestDecodeInt16RejectsCode3DurationOver120msBeforeLocalCap(t *testing.T) {
+	cfg := DefaultDecoderConfig(48000, 1)
+	cfg.MaxPacketSamples = 7000
+	dec, err := NewDecoder(cfg)
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	pcm := make([]int16, cfg.MaxPacketSamples)
+	_, err = dec.DecodeInt16([]byte{GenerateTOC(31, false, 3), 0x07}, pcm)
+	if err != ErrInvalidPacket {
+		t.Fatalf("DecodeInt16 error=%v want %v", err, ErrInvalidPacket)
+	}
+}
+
+func TestDecodeWithFECRejectsOver120msBeforeCELTPLCFallback(t *testing.T) {
+	cfg := DefaultDecoderConfig(48000, 1)
+	cfg.MaxPacketSamples = 7000
+	dec, err := NewDecoder(cfg)
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	pcm := make([]float32, cfg.MaxPacketSamples)
+	_, err = dec.DecodeWithFEC([]byte{GenerateTOC(31, false, 3), 0x07}, pcm, true)
+	if err != ErrInvalidPacket {
+		t.Fatalf("DecodeWithFEC error=%v want %v", err, ErrInvalidPacket)
+	}
+}
+
+func TestDecodeValid120msPacketUsesBufferSizeAfterProtocolCheck(t *testing.T) {
+	dec := newMonoTestDecoder(t)
+	packet := append([]byte{GenerateTOC(16, false, 3), 0x30}, make([]byte, 48)...)
+
+	_, err := dec.Decode(packet, make([]float32, 120))
+	if err != ErrBufferTooSmall {
+		t.Fatalf("Decode error=%v want %v", err, ErrBufferTooSmall)
+	}
+}
+
 func TestDecoder_Decode_PLC(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {

@@ -39,6 +39,9 @@ var (
 
 	// ErrInvalidGain indicates an invalid decoder gain value.
 	ErrInvalidGain = errors.New("multistream: invalid gain (must be -32768 to 32767)")
+
+	// ErrBufferTooSmall indicates the requested decode frame is smaller than the packet duration.
+	ErrBufferTooSmall = errors.New("multistream: output buffer too small")
 )
 
 // streamDecoder is an internal interface that wraps the different decoder types.

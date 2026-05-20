@@ -20,6 +20,9 @@ func packetFrameCount(data []byte) (TOC, int, error) {
 		if m == 0 || m > 48 {
 			return TOC{}, 0, ErrInvalidFrameCount
 		}
+		if toc.FrameSize*m > maxRepacketizerDuration48k {
+			return TOC{}, 0, ErrInvalidPacket
+		}
 		return toc, m, nil
 	default:
 		return TOC{}, 0, ErrInvalidPacket

@@ -107,10 +107,14 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	}
 
 	// Validate that all streams have consistent frame durations
-	_, err = validateStreamDurations(packets)
+	duration, err := validateStreamDurations(packets)
 	if err != nil {
 		return nil, err
 	}
+	if duration > frameSize {
+		return nil, ErrBufferTooSmall
+	}
+	decodeFrameSize := duration
 
 	// Decode each stream
 	decodedStreams := make([][]float64, d.streams)
@@ -122,7 +126,7 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 				endDREDCapture = d.beginDREDRawMonoGoodFrameCapture(i, st, toc.mode, packets[i])
 			}
 		}
-		decoded, decodeErr := d.decodeStream(i, packets[i], frameSize)
+		decoded, decodeErr := d.decodeStream(i, packets[i], decodeFrameSize)
 		if endDREDCapture != nil {
 			endDREDCapture()
 		}
@@ -143,12 +147,12 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	}
 
 	// Apply channel mapping to produce final output
-	output := applyChannelMapping(decodedStreams, d.mapping, d.coupledStreams, frameSize, d.outputChannels)
-	d.applyProjectionDemixing(output, frameSize)
+	output := applyChannelMapping(decodedStreams, d.mapping, d.coupledStreams, decodeFrameSize, d.outputChannels)
+	d.applyProjectionDemixing(output, decodeFrameSize)
 
 	// Reset PLC state after successful decode
 	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeHybrid, frameSize, d.outputChannels)
+	d.plcState.SetLastFrameParams(plc.ModeHybrid, decodeFrameSize, d.outputChannels)
 
 	return output, nil
 }

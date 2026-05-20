@@ -111,25 +111,12 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		return 0, ErrPacketTooLarge
 	}
 
-	toc := &tocTable[data[0]]
-	frameCode := data[0] & 0x03
-	frameCount := 1
-	switch frameCode {
-	case 0:
-	case 1, 2:
-		frameCount = 2
-	case 3:
-		if len(data) < 2 {
-			return 0, ErrPacketTooShort
-		}
-		m := int(data[1] & 0x3F)
-		if m == 0 || m > 48 {
-			return 0, ErrInvalidFrameCount
-		}
-		frameCount = m
-	default:
-		return 0, ErrInvalidPacket
+	tocValue, frameCount, err := packetFrameCount(data)
+	if err != nil {
+		return 0, err
 	}
+	toc := &tocValue
+	frameCode := data[0] & 0x03
 	frameSize := toc.FrameSize
 	totalSamples := frameSize * frameCount
 	if totalSamples > d.maxPacketSamples {
