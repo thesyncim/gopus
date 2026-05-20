@@ -12,6 +12,7 @@
 #include "config.h"
 #endif
 
+#include "celt/float_cast.h"
 #include "lpcnet_private.h"
 
 #define INPUT_MAGIC "GPUI"
@@ -54,10 +55,7 @@ static int write_bits_array(const float *src, int count) {
 }
 
 static opus_int16 float_to_pcm16(float x) {
-  float scaled = x * 32768.f;
-  if (scaled < -32767.f) scaled = -32767.f;
-  if (scaled > 32767.f) scaled = 32767.f;
-  return (opus_int16)floorf(.5f + scaled);
+  return FLOAT2INT16(x);
 }
 
 int main(void) {
@@ -80,7 +78,7 @@ int main(void) {
     fprintf(stderr, "invalid input magic\n");
     return 1;
   }
-  if (!read_exact(&version, sizeof(version)) || version != 1) {
+  if (!read_exact(&version, sizeof(version)) || (version != 1 && version != 2)) {
     fprintf(stderr, "unsupported input version\n");
     return 1;
   }
@@ -100,12 +98,23 @@ int main(void) {
   st.analysis_gap = analysis_gap;
   st.analysis_pos = analysis_pos;
   st.predict_pos = predict_pos;
-  if (!read_bits_array(st.pcm, PLC_BUF_SIZE) || !read_bits_array(framef, FRAME_SIZE)) {
+  if (!read_bits_array(st.pcm, PLC_BUF_SIZE)) {
     fprintf(stderr, "failed to read update payload\n");
     return 1;
   }
-  for (int i = 0; i < FRAME_SIZE; i++) {
-    frame16[i] = float_to_pcm16(framef[i]);
+  if (version == 1) {
+    if (!read_bits_array(framef, FRAME_SIZE)) {
+      fprintf(stderr, "failed to read update float frame\n");
+      return 1;
+    }
+    for (int i = 0; i < FRAME_SIZE; i++) {
+      frame16[i] = float_to_pcm16(framef[i]);
+    }
+  } else {
+    if (!read_exact(frame16, sizeof(frame16))) {
+      fprintf(stderr, "failed to read update int16 frame\n");
+      return 1;
+    }
   }
 
   lpcnet_plc_update(&st, frame16);

@@ -573,21 +573,25 @@ func (s *State) MarkUpdatedFrameFloat(frame []float32) int {
 	if s == nil || len(frame) < FrameSize {
 		return 0
 	}
-	s.ensureRuntimeInit()
-	if s.analysisPos-FrameSize >= 0 {
-		s.analysisPos -= FrameSize
-	} else {
-		s.analysisGap = 1
-	}
-	if s.predictPos-FrameSize >= 0 {
-		s.predictPos -= FrameSize
-	}
-	copy(s.pcm[:PLCBufSize-FrameSize], s.pcm[FrameSize:])
+	s.startUpdatedFrame()
 	for i := 0; i < FrameSize; i++ {
-		s.pcm[PLCBufSize-FrameSize+i] = quantizePCMInt16Like(frame[i])
+		s.pcm[PLCBufSize-FrameSize+i] = quantizePCMUpdateFloat(frame[i])
 	}
-	s.lossCount = 0
-	s.blend = 0
+	s.finishUpdatedFrame()
+	return FrameSize
+}
+
+// MarkUpdatedFrameInt16 mirrors lpcnet_plc_update() once decoded PCM already
+// exists on libopus's exact opus_int16 grid.
+func (s *State) MarkUpdatedFrameInt16(frame []int16) int {
+	if s == nil || len(frame) < FrameSize {
+		return 0
+	}
+	s.startUpdatedFrame()
+	for i := 0; i < FrameSize; i++ {
+		s.pcm[PLCBufSize-FrameSize+i] = float32(frame[i]) * (1.0 / 32768.0)
+	}
+	s.finishUpdatedFrame()
 	return FrameSize
 }
 
@@ -631,6 +635,24 @@ func (s *State) FinishConcealedFrameFloat(frame []float32) int {
 	return FrameSize
 }
 
+func (s *State) startUpdatedFrame() {
+	s.ensureRuntimeInit()
+	if s.analysisPos-FrameSize >= 0 {
+		s.analysisPos -= FrameSize
+	} else {
+		s.analysisGap = 1
+	}
+	if s.predictPos-FrameSize >= 0 {
+		s.predictPos -= FrameSize
+	}
+	copy(s.pcm[:PLCBufSize-FrameSize], s.pcm[FrameSize:])
+}
+
+func (s *State) finishUpdatedFrame() {
+	s.lossCount = 0
+	s.blend = 0
+}
+
 func maxF32(a, b float32) float32 {
 	if a > b {
 		return a
@@ -642,6 +664,21 @@ func quantizePCMInt16LikeInPlace(frame []float32) {
 	for i := range frame {
 		frame[i] = quantizePCMInt16Like(frame[i])
 	}
+}
+
+func quantizePCMUpdateFloat(sample float32) float32 {
+	return float32(float32ToOpusInt16(sample)) * (1.0 / 32768.0)
+}
+
+func float32ToOpusInt16(sample float32) int16 {
+	scaled := sample * 32768.0
+	if scaled < -32768 {
+		return -32768
+	}
+	if scaled > 32767 {
+		return 32767
+	}
+	return int16(math.RoundToEven(float64(scaled)))
 }
 
 func quantizePCMInt16Like(sample float32) float32 {

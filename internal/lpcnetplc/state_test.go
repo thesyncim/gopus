@@ -151,7 +151,7 @@ func TestMarkUpdatedAndFinishConcealedFrameFloat(t *testing.T) {
 		t.Fatalf("FillPCMHistory count=%d want %d", n, PLCBufSize)
 	}
 	for i := 0; i < FrameSize; i++ {
-		want := quantizePCMInt16Like(frame[i])
+		want := quantizePCMUpdateFloat(frame[i])
 		if gotPCM[PLCBufSize-FrameSize+i] != want {
 			t.Fatalf("pcm tail[%d]=%v want %v", i, gotPCM[PLCBufSize-FrameSize+i], want)
 		}
@@ -209,9 +209,32 @@ func TestReplaceHistoryFromFramesFloatPreservesQueuedState(t *testing.T) {
 		t.Fatalf("FillPCMHistory count=%d want %d", n, PLCBufSize)
 	}
 	for i := 0; i < len(frames); i++ {
-		want := quantizePCMInt16Like(frames[i])
+		want := quantizePCMUpdateFloat(frames[i])
 		if gotPCM[PLCBufSize-len(frames)+i] != want {
 			t.Fatalf("pcm tail[%d]=%v want %v", i, gotPCM[PLCBufSize-len(frames)+i], want)
+		}
+	}
+}
+
+func TestMarkUpdatedFrameInt16PreservesExactPCMGrid(t *testing.T) {
+	var st State
+	var frame [FrameSize]int16
+	values := []int16{-32768, -32767, -2, -1, 0, 1, 2, 32766, 32767}
+	for i := range frame {
+		frame[i] = values[i%len(values)]
+	}
+	if n := st.MarkUpdatedFrameInt16(frame[:]); n != FrameSize {
+		t.Fatalf("MarkUpdatedFrameInt16=%d want %d", n, FrameSize)
+	}
+
+	var gotPCM [PLCBufSize]float32
+	if n := st.FillPCMHistory(gotPCM[:]); n != PLCBufSize {
+		t.Fatalf("FillPCMHistory count=%d want %d", n, PLCBufSize)
+	}
+	for i := 0; i < FrameSize; i++ {
+		want := float32(frame[i]) * (1.0 / 32768.0)
+		if gotPCM[PLCBufSize-FrameSize+i] != want {
+			t.Fatalf("pcm tail[%d]=%v want %v", i, gotPCM[PLCBufSize-FrameSize+i], want)
 		}
 	}
 }

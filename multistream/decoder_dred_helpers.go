@@ -379,14 +379,9 @@ func (d *Decoder) markDREDUpdatedPCMFrame(stream int, samples []int16) {
 	if s == nil || stream < 0 || stream >= len(s.dredPLC) || stream >= len(s.dredBridge) || len(samples) < lpcnetplc.FrameSize {
 		return
 	}
-	bridge := &s.dredBridge[stream]
 	usable := len(samples) - len(samples)%lpcnetplc.FrameSize
 	for offset := 0; offset+lpcnetplc.FrameSize <= usable; offset += lpcnetplc.FrameSize {
-		frame := bridge.dredPLCUpdate[:lpcnetplc.FrameSize]
-		for i := 0; i < lpcnetplc.FrameSize; i++ {
-			frame[i] = float32(samples[offset+i]) * (1.0 / 32768.0)
-		}
-		s.dredPLC[stream].MarkUpdatedFrameFloat(frame)
+		s.dredPLC[stream].MarkUpdatedFrameInt16(samples[offset : offset+lpcnetplc.FrameSize])
 	}
 }
 

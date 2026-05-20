@@ -455,8 +455,50 @@ func probeLibopusPLCUpdate(state State, frame []float32) (libopusPLCUpdateResult
 		return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update frame: %w", err)
 	}
 
+	return runLibopusPLCUpdate(binPath, payload.Bytes())
+}
+
+func probeLibopusPLCUpdateInt16(state State, frame []int16) (libopusPLCUpdateResult, error) {
+	binPath, err := getLibopusPLCUpdateHelperPath()
+	if err != nil {
+		return libopusPLCUpdateResult{}, err
+	}
+	if len(frame) != FrameSize {
+		return libopusPLCUpdateResult{}, fmt.Errorf("invalid update helper frame size")
+	}
+	var payload bytes.Buffer
+	payload.WriteString(libopusPLCUpdateInputMagic)
+	if err := binary.Write(&payload, binary.LittleEndian, uint32(2)); err != nil {
+		return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update version: %w", err)
+	}
+	for _, v := range []int32{
+		int32(state.blend),
+		int32(state.lossCount),
+		int32(state.analysisGap),
+		int32(state.analysisPos),
+		int32(state.predictPos),
+	} {
+		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
+			return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update header: %w", err)
+		}
+	}
+	for _, v := range state.pcm {
+		if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
+			return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update pcm: %w", err)
+		}
+	}
+	for _, v := range frame[:FrameSize] {
+		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
+			return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update int16 frame: %w", err)
+		}
+	}
+
+	return runLibopusPLCUpdate(binPath, payload.Bytes())
+}
+
+func runLibopusPLCUpdate(binPath string, payload []byte) (libopusPLCUpdateResult, error) {
 	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
+	cmd.Stdin = bytes.NewReader(payload)
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &stdout

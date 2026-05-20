@@ -700,13 +700,8 @@ func (d *Decoder) updateDREDPCMHistoryInt16(frames []int16) {
 	if r == nil || n == nil || len(frames) < lpcnetplc.FrameSize {
 		return
 	}
-	const scale = float32(1.0 / 32768.0)
 	for offset := 0; offset+lpcnetplc.FrameSize <= len(frames); offset += lpcnetplc.FrameSize {
-		frame := n.dredPLCUpdate[:lpcnetplc.FrameSize]
-		for i := 0; i < lpcnetplc.FrameSize; i++ {
-			frame[i] = float32(frames[offset+i]) * scale
-		}
-		r.dredPLC.MarkUpdatedFrameFloat(frame)
+		r.dredPLC.MarkUpdatedFrameInt16(frames[offset : offset+lpcnetplc.FrameSize])
 		n.dredRawHistoryUpdated = true
 	}
 }
@@ -720,13 +715,8 @@ func (d *Decoder) primeDREDPCMHistoryInt16(frames []int16) {
 	if r == nil || n == nil || len(frames) < lpcnetplc.FrameSize {
 		return
 	}
-	const scale = float32(1.0 / 32768.0)
 	for offset := 0; offset+lpcnetplc.FrameSize <= len(frames); offset += lpcnetplc.FrameSize {
-		frame := n.dredPLCUpdate[:lpcnetplc.FrameSize]
-		for i := 0; i < lpcnetplc.FrameSize; i++ {
-			frame[i] = float32(frames[offset+i]) * scale
-		}
-		r.dredPLC.MarkUpdatedFrameFloat(frame)
+		r.dredPLC.MarkUpdatedFrameInt16(frames[offset : offset+lpcnetplc.FrameSize])
 		n.dredRawHistoryUpdated = true
 	}
 }
@@ -806,14 +796,14 @@ func (d *Decoder) refreshDREDHistoryFromSILKDecoder() bool {
 	if n == nil {
 		return false
 	}
-	const scale = float32(1.0 / 32768.0)
 	var (
 		nativeLen int
 		fsKHz     int
-		readSrc   func(dst []float32, start, count int)
+		native    []int16
 	)
 	if d.channels == 2 {
-		native, kHz := d.silkDecoder.LatestNativeMid()
+		var kHz int
+		native, kHz = d.silkDecoder.LatestNativeMid()
 		if native == nil || kHz != 16 {
 			native, kHz = d.silkDecoder.LatestNativeMono()
 		}
@@ -822,23 +812,14 @@ func (d *Decoder) refreshDREDHistoryFromSILKDecoder() bool {
 		}
 		nativeLen = len(native)
 		fsKHz = kHz
-		readSrc = func(dst []float32, start, count int) {
-			for i := 0; i < count; i++ {
-				dst[i] = float32(native[start+i]) * scale
-			}
-		}
 	} else {
-		native, kHz := d.silkDecoder.LatestNativeMono()
+		var kHz int
+		native, kHz = d.silkDecoder.LatestNativeMono()
 		if native == nil || kHz != 16 {
 			return false
 		}
 		nativeLen = len(native)
 		fsKHz = kHz
-		readSrc = func(dst []float32, start, count int) {
-			for i := 0; i < count; i++ {
-				dst[i] = float32(native[start+i]) * scale
-			}
-		}
 	}
 	if fsKHz != 16 || nativeLen <= 0 {
 		return false
@@ -853,9 +834,7 @@ func (d *Decoder) refreshDREDHistoryFromSILKDecoder() bool {
 		return false
 	}
 	start := nativeLen - usable
-	dst := n.dredPLCUpdate[:usable]
-	readSrc(dst, start, usable)
-	d.updateDREDPCMHistory(dst)
+	d.updateDREDPCMHistoryInt16(native[start : start+usable])
 	n.dredRawHistoryUpdated = true
 	return true
 }

@@ -336,9 +336,8 @@ func (d *streamState) decodeSILK(data []byte, frameSize int, packetStereo bool, 
 	if !ok {
 		return nil, fmt.Errorf("multistream: invalid SILK bandwidth: %d", opusBandwidth)
 	}
-	restoreOSCELACEHook := func() {}
 	if data != nil {
-		restoreOSCELACEHook = d.installOSCELACESilkPostfilterHook(bw, packetStereo)
+		restoreOSCELACEHook := d.installOSCELACESilkPostfilterHook(bw, packetStereo)
 		defer restoreOSCELACEHook()
 	}
 

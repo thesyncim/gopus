@@ -20,9 +20,8 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-func lpcnetplcTestQuantizePCMInt16Like(sample float32) float32 {
-	v := math.Floor(0.5 + math.Max(-32767, math.Min(32767, float64(sample)*32768)))
-	return float32(v * (1.0 / 32768.0))
+func lpcnetplcTestQuantizePCMUpdateFloat(sample float32) float32 {
+	return float32(float32ToInt16(sample)) * (1.0 / 32768.0)
 }
 
 func requireDREDRuntimeForTest(t *testing.T) {
@@ -838,8 +837,9 @@ func TestDecoderMarkDREDUpdatedPCMRefreshesNeuralHistory(t *testing.T) {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
 	var pcm [2 * lpcnetplc.FrameSize]float32
+	edge := []float32{-1.0, -0.9999847412109375, -1.5 / 32768.0, -0.5 / 32768.0, 0, 0.5 / 32768.0, 1.5 / 32768.0, 0.999969482421875, 1.0}
 	for i := range pcm {
-		pcm[i] = float32((i%19)-9) / 19
+		pcm[i] = edge[i%len(edge)]
 	}
 	dec.ensureDREDRecoveryState()
 	state := requireDecoderDREDState(t, dec)
@@ -873,7 +873,7 @@ func TestDecoderMarkDREDUpdatedPCMRefreshesNeuralHistory(t *testing.T) {
 		t.Fatalf("FillPCMHistory()=%d want %d", n, lpcnetplc.PLCBufSize)
 	}
 	for i := 0; i < len(pcm); i++ {
-		want := lpcnetplcTestQuantizePCMInt16Like(pcm[i])
+		want := lpcnetplcTestQuantizePCMUpdateFloat(pcm[i])
 		got := history[len(history)-len(pcm)+i]
 		if got != want {
 			t.Fatalf("history tail[%d]=%v want %v", i, got, want)

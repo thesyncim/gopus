@@ -407,9 +407,8 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if !ok {
 			silkBW = silk.BandwidthWideband
 		}
-		restoreOSCELACEHook := func() {}
 		if data != nil {
-			restoreOSCELACEHook = d.installOSCELACESilkPostfilterHook(mode, silkBW, packetStereoLocal)
+			restoreOSCELACEHook := d.installOSCELACESilkPostfilterHook(mode, silkBW, packetStereoLocal)
 			defer restoreOSCELACEHook()
 		}
 
