@@ -106,6 +106,7 @@ func probeLibopusCELTPLCUpdatePCM(channels int, history []float32) (libopusCELTP
 }
 
 func TestFillPLCUpdate16kMonoMatchesLibopusDerivedHelper(t *testing.T) {
+	libopustest.RequireOracle(t)
 	cases := []struct {
 		name     string
 		channels int
@@ -131,7 +132,7 @@ func TestFillPLCUpdate16kMonoMatchesLibopusDerivedHelper(t *testing.T) {
 
 			want, err := probeLibopusCELTPLCUpdatePCM(tc.channels, history)
 			if err != nil {
-				t.Skipf("celt plc update helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "celt plc update", err)
 			}
 			var got [plcUpdateSamples]float32
 			if n := d.FillPLCUpdate16kMono(got[:]); n != len(got) {
@@ -152,6 +153,7 @@ func TestFillPLCUpdate16kMonoMatchesLibopusDerivedHelper(t *testing.T) {
 }
 
 func TestFillPLCUpdate16kMonoWithPreemphasisMemMatchesLibopusDerivedHelper(t *testing.T) {
+	libopustest.RequireOracle(t)
 	d := NewDecoder(1)
 	history := make([]float32, plcDecodeBufferSize)
 	for i := 0; i < plcDecodeBufferSize; i++ {
@@ -161,7 +163,7 @@ func TestFillPLCUpdate16kMonoWithPreemphasisMemMatchesLibopusDerivedHelper(t *te
 
 	want, err := probeLibopusCELTPLCUpdatePCM(1, history)
 	if err != nil {
-		t.Skipf("celt plc update helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "celt plc update", err)
 	}
 	var got [plcUpdateSamples]float32
 	n, preemphMem := d.FillPLCUpdate16kMonoWithPreemphasisMem(got[:])

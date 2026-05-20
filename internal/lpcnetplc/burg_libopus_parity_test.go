@@ -3,9 +3,14 @@
 
 package lpcnetplc
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
+)
 
 func TestBurgCepstralAnalysisMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	var analysis Analysis
 	var frame [FrameSize]float32
 	var got [2 * NumBands]float32
@@ -14,7 +19,7 @@ func TestBurgCepstralAnalysisMatchesLibopus(t *testing.T) {
 	}
 	want, err := probeLibopusBurgCepstrum(frame[:])
 	if err != nil {
-		t.Skipf("burg helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "burg", err)
 	}
 	if n := analysis.BurgCepstralAnalysis(got[:], frame[:]); n != 2*NumBands {
 		t.Fatalf("BurgCepstralAnalysis()=%d want %d", n, 2*NumBands)
