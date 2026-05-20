@@ -1469,18 +1469,76 @@ func TestDecoder_PitchGetter(t *testing.T) {
 		t.Fatalf("Pitch()=%d want=0 before decode", got)
 	}
 
-	packet := minimalHybridTestPacket20ms()
+	celtEnc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
+	if err != nil {
+		t.Fatalf("NewEncoder CELT error: %v", err)
+	}
+	if err := celtEnc.SetMode(EncoderModeCELT); err != nil {
+		t.Fatalf("SetMode(CELT) error: %v", err)
+	}
+	packet := make([]byte, 4000)
+	n, err := celtEnc.Encode(generateSineWave(48000, 440, 960), packet)
+	if err != nil {
+		t.Fatalf("CELT Encode error: %v", err)
+	}
 	pcm := make([]float32, 960)
-	if _, err := dec.Decode(packet, pcm); err != nil {
-		t.Fatalf("Decode error: %v", err)
+	if _, err := dec.Decode(packet[:n], pcm); err != nil {
+		t.Fatalf("CELT Decode error: %v", err)
 	}
 
 	got := dec.Pitch()
 	want := dec.celtDecoder.PostfilterPeriod()
 	if got != want {
-		t.Fatalf("Pitch()=%d want=%d", got, want)
+		t.Fatalf("CELT Pitch()=%d want=%d", got, want)
 	}
 	if got < 0 {
 		t.Fatalf("Pitch() should not be negative: %d", got)
+	}
+
+	dec.Reset()
+	silkEnc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
+	if err != nil {
+		t.Fatalf("NewEncoder SILK error: %v", err)
+	}
+	if err := silkEnc.SetMode(EncoderModeSILK); err != nil {
+		t.Fatalf("SetMode(SILK) error: %v", err)
+	}
+	if err := silkEnc.SetBandwidth(BandwidthWideband); err != nil {
+		t.Fatalf("SetBandwidth(WB) error: %v", err)
+	}
+	if err := silkEnc.SetSignal(SignalVoice); err != nil {
+		t.Fatalf("SetSignal(Voice) error: %v", err)
+	}
+	n, err = silkEnc.Encode(generateSineWave(48000, 200, 960), packet)
+	if err != nil {
+		t.Fatalf("SILK Encode error: %v", err)
+	}
+	if _, err := dec.Decode(packet[:n], pcm); err != nil {
+		t.Fatalf("SILK Decode error: %v", err)
+	}
+	want = 0
+	if dec.silkDecoder.GetLastSignalType() == 2 {
+		want = dec.silkDecoder.GetLagPrev() * 3
+		if want <= 0 {
+			t.Fatalf("SILK lagPrev=%d produced invalid pitch", dec.silkDecoder.GetLagPrev())
+		}
+	}
+	if got := dec.Pitch(); got != want {
+		t.Fatalf("SILK Pitch()=%d want=%d", got, want)
+	}
+
+	for _, tc := range []struct {
+		bandwidth Bandwidth
+		want      int
+	}{
+		{BandwidthNarrowband, 6},
+		{BandwidthMediumband, 4},
+		{BandwidthWideband, 3},
+		{BandwidthSuperwideband, 3},
+		{BandwidthFullband, 3},
+	} {
+		if got := silkPitchScale(tc.bandwidth); got != tc.want {
+			t.Fatalf("silkPitchScale(%v)=%d want=%d", tc.bandwidth, got, tc.want)
+		}
 	}
 }

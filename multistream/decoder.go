@@ -231,9 +231,26 @@ func (d *streamState) Complexity() int {
 	return d.complexity
 }
 
-// Pitch returns the most recent CELT postfilter pitch period.
+// Pitch returns the most recent decoded pitch period.
 func (d *streamState) Pitch() int {
-	return d.celtDec.PostfilterPeriod()
+	if d.lastMode == streamModeCELT {
+		return d.celtDec.PostfilterPeriod()
+	}
+	if d.silkDec.GetLastSignalType() != 2 {
+		return 0
+	}
+	return d.silkDec.GetLagPrev() * streamSilkPitchScale(d.lastBandwidth)
+}
+
+func streamSilkPitchScale(bandwidth int) int {
+	switch types.Bandwidth(bandwidth) {
+	case types.BandwidthNarrowband:
+		return 6
+	case types.BandwidthMediumband:
+		return 4
+	default:
+		return 3
+	}
 }
 
 // Bandwidth returns the bandwidth of the last successfully decoded packet.
