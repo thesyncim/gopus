@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
@@ -238,11 +239,11 @@ func prepareDecoderForNeuralConcealmentParityForFrameSize(t *testing.T, frameSiz
 
 	modelBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
-		t.Skipf("libopus dred model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred model", err)
 	}
 	packetInfo, err := emitLibopusDREDPacketWithFrameSize(frameSize)
 	if err != nil {
-		t.Skipf("libopus dred packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred packet", err)
 	}
 
 	channels := 1
@@ -291,12 +292,13 @@ func setDREDDecoderBlobFromBytesForTest(t *testing.T, dec *Decoder, modelBlob []
 }
 
 func TestDecoderFirstLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 	nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, 480)
 
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
 	if err != nil {
-		t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
 	if want.carrierParseRet < 0 {
 		t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
@@ -333,12 +335,13 @@ func TestDecoderFirstLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
 }
 
 func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 	nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, 480)
 
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
 	if err != nil {
-		t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
 	if want.carrierParseRet < 0 {
 		t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
@@ -387,6 +390,7 @@ func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 }
 
 func TestDecoderFirstLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
@@ -395,7 +399,7 @@ func TestDecoderFirstLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOrac
 
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
@@ -435,6 +439,7 @@ func TestDecoderFirstLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOrac
 }
 
 func TestDecoderSecondLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
@@ -443,7 +448,7 @@ func TestDecoderSecondLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOra
 
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)

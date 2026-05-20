@@ -12,6 +12,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
@@ -292,11 +293,12 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 }
 
 func TestDecoderFirstLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, false)
 	if err != nil {
-		t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
 	if want.carrierParseRet < 0 {
 		t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
@@ -320,6 +322,7 @@ func TestDecoderFirstLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T
 }
 
 func TestDecoderSecondLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 
 	if _, err := dec.Decode(nil, pcm); err != nil {
@@ -328,7 +331,7 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.
 
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, false)
 	if err != nil {
-		t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
 	if want.carrierParseRet < 0 {
 		t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
@@ -355,6 +358,7 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.
 }
 
 func TestDecoderFirstLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
@@ -362,7 +366,7 @@ func TestDecoderFirstLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceO
 
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, false)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
@@ -389,6 +393,7 @@ func TestDecoderFirstLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceO
 }
 
 func TestDecoderSecondLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
@@ -400,7 +405,7 @@ func TestDecoderSecondLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequence
 
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, false)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
