@@ -151,8 +151,7 @@ type Encoder struct {
 	// celtEnergyMask carries per-band surround masking into CELT dynalloc control.
 	celtEnergyMask []float64
 
-	// qextEnabled mirrors libopus OPUS_SET_QEXT and is applied lazily to CELT.
-	qextEnabled bool
+	encoderQEXTFields
 
 	// dnnBlob retains a validated USE_WEIGHTS_FILE blob for future optional
 	// extension paths (DRED/OSCE). Keeping it here mirrors libopus ctl lifetime.
@@ -2733,7 +2732,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM []float64
 	if frameCount > 2 {
 		maxHeaderBytes = 2 + (frameCount-1)*2
 	}
-	if extsupport.QEXT && e.qextEnabled {
+	if extsupport.QEXT && e.qextActive() {
 		maxHeaderBytes += frameCount
 	}
 	maxLenSum := frameCount + packetTargetBytes - maxHeaderBytes
