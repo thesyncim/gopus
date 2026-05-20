@@ -86,7 +86,6 @@ func (a *Analysis) SetModel(blob *dnnblob.Blob) error {
 // analysis state.
 func (a *Analysis) SetModelPreservingState(blob *dnnblob.Blob) error {
 	if err := a.pitch.SetModelPreservingState(blob); err != nil {
-		a.Reset()
 		return err
 	}
 	return nil

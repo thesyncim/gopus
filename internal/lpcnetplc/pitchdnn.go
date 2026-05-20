@@ -246,8 +246,6 @@ func (p *PitchDNN) SetModel(blob *dnnblob.Blob) error {
 func (p *PitchDNN) SetModelPreservingState(blob *dnnblob.Blob) error {
 	model, err := LoadPitchDNNModel(blob)
 	if err != nil {
-		p.model = nil
-		p.Reset()
 		return err
 	}
 	p.model = model

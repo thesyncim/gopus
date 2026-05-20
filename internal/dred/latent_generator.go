@@ -35,7 +35,6 @@ func (g *LatentGenerator) SetDNNBlob(blob *dnnblob.Blob) error {
 // clearing retained DRED encoder state.
 func (g *LatentGenerator) SetDNNBlobPreservingState(blob *dnnblob.Blob) error {
 	if err := g.analysis.SetModelPreservingState(blob); err != nil {
-		g.Reset()
 		return err
 	}
 	g.analysis.SetDREDEncoderMode(true)

@@ -60,8 +60,6 @@ func (p *Predictor) SetModel(blob *dnnblob.Blob) error {
 func (p *Predictor) SetModelPreservingState(blob *dnnblob.Blob) error {
 	model, err := LoadModel(blob)
 	if err != nil {
-		p.model = nil
-		p.Reset()
 		return err
 	}
 	p.model = model

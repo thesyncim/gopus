@@ -62,6 +62,40 @@ func TestEncoderDREDRuntimeStaysDormantUntilReady(t *testing.T) {
 	}
 }
 
+func TestEncoderDREDSetDNNBlobRejectsBadReplacementWithoutClearing(t *testing.T) {
+	enc := NewEncoder(16000, 1)
+	good := mustMakeLoadableDREDEncoderBlob(t)
+	enc.SetDNNBlob(good)
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+	frame := make([]float64, 320)
+	if got := enc.processDREDLatents(frame, 0); got != 1 {
+		t.Fatalf("processDREDLatents()=%d want 1", got)
+	}
+	runtime := enc.dred.runtime
+	if runtime == nil {
+		t.Fatal("DRED runtime did not materialize")
+	}
+	runtime.latentsFill = 3
+	runtime.activity[0] = 1
+
+	enc.SetDNNBlob(mustMakeManifestOnlyDREDEncoderBlob(t))
+
+	if enc.dnnBlob != good {
+		t.Fatal("bad replacement blob replaced retained encoder blob")
+	}
+	if !enc.DREDModelLoaded() || !enc.DREDReady() {
+		t.Fatal("bad replacement blob cleared active DRED model")
+	}
+	if enc.dred.runtime != runtime {
+		t.Fatal("bad replacement blob replaced active DRED runtime")
+	}
+	if runtime.latentsFill != 3 || runtime.activity[0] != 1 {
+		t.Fatal("bad replacement blob reset active DRED runtime state")
+	}
+}
+
 func TestEncoderDREDEncodingActiveRequiresModelAndDuration(t *testing.T) {
 	enc := NewEncoder(16000, 1)
 	if enc.dredEncodingActive() {
@@ -573,6 +607,19 @@ func mustMakeLoadableDREDEncoderBlob(t *testing.T) *dnnblob.Blob {
 	blob, err := dnnblob.Clone(raw)
 	if err != nil {
 		t.Fatalf("Clone error: %v", err)
+	}
+	return blob
+}
+
+func mustMakeManifestOnlyDREDEncoderBlob(t *testing.T) *dnnblob.Blob {
+	t.Helper()
+	var raw []byte
+	for _, name := range dnnblob.RequiredEncoderControlRecordNames() {
+		raw = appendTestBlobRecord(raw, name, 0, 4)
+	}
+	blob, err := dnnblob.Clone(raw)
+	if err != nil {
+		t.Fatalf("Clone(manifest-only) error: %v", err)
 	}
 	return blob
 }

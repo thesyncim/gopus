@@ -112,12 +112,13 @@ func (e *Encoder) clearInactiveDREDHistory() {
 // SetDNNBlob retains a validated USE_WEIGHTS_FILE blob for optional extension
 // paths. A nil blob clears the retained model.
 func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
-	e.dnnBlob = blob
 	if !extsupport.DREDRuntime {
+		e.dnnBlob = blob
 		e.pruneDREDExtrasIfDormant()
 		return
 	}
 	if blob == nil {
+		e.dnnBlob = nil
 		if e.dred != nil {
 			e.dred.models = dredEncoderModels{}
 			e.dred.runtime = nil
@@ -127,33 +128,30 @@ func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
 	}
 	encModel, err := rdovae.LoadEncoder(blob)
 	if err != nil {
-		if e.dred != nil {
-			e.dred.models = dredEncoderModels{}
-			e.dred.runtime = nil
+		if e.dnnBlob == nil {
+			e.dnnBlob = blob
 		}
-		e.pruneDREDExtrasIfDormant()
 		return
 	}
 	pitchModel, err := lpcnetplc.LoadPitchDNNModel(blob)
 	if err != nil {
-		if e.dred != nil {
-			e.dred.models = dredEncoderModels{}
-			e.dred.runtime = nil
+		if e.dnnBlob == nil {
+			e.dnnBlob = blob
 		}
-		e.pruneDREDExtrasIfDormant()
 		return
 	}
 	extra := e.ensureDREDExtras()
 	if extra == nil {
 		return
 	}
-	extra.models.encoder = encModel
-	extra.models.pitch = pitchModel
 	if extra.runtime != nil {
 		if err := extra.runtime.generator.SetDNNBlobPreservingState(blob); err != nil {
-			extra.runtime = nil
+			return
 		}
 	}
+	e.dnnBlob = blob
+	extra.models.encoder = encModel
+	extra.models.pitch = pitchModel
 }
 
 func (e *Encoder) ensureActiveDREDRuntime() *dredEncoderRuntime {

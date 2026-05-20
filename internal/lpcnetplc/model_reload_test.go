@@ -57,3 +57,47 @@ func TestSetModelPreservingStateKeepsRuntimeState(t *testing.T) {
 		t.Fatalf("fargan reload reset state: loaded=%v state=%+v", fargan.Loaded(), fargan.state)
 	}
 }
+
+func TestSetModelPreservingStateRejectsInvalidWithoutClearing(t *testing.T) {
+	pitchBlob := makePitchDNNTestBlob(t)
+	var analysis Analysis
+	if err := analysis.SetModel(pitchBlob); err != nil {
+		t.Fatalf("Analysis.SetModel error: %v", err)
+	}
+	analysis.memPreemph = 0.25
+	analysis.pitch.state.gruState[0] = 0.5
+	analysis.pitch.state.xcorrMem1[0] = -0.25
+	beforeMem := analysis.memPreemph
+	beforePitch := analysis.pitch.state
+	if err := analysis.SetModelPreservingState(nil); err == nil {
+		t.Fatal("Analysis.SetModelPreservingState(nil) error=nil want non-nil")
+	}
+	if !analysis.Loaded() || analysis.memPreemph != beforeMem || analysis.pitch.state != beforePitch {
+		t.Fatalf("analysis invalid reload cleared state: loaded=%v mem=%v pitch=%+v", analysis.Loaded(), analysis.memPreemph, analysis.pitch.state)
+	}
+
+	predictor := newPredictorForTest(t)
+	predictor.state.gru1[0] = 0.125
+	predictor.state.gru2[0] = -0.375
+	beforePredictor := predictor.state
+	if err := predictor.SetModelPreservingState(nil); err == nil {
+		t.Fatal("Predictor.SetModelPreservingState(nil) error=nil want non-nil")
+	}
+	if !predictor.Loaded() || predictor.state != beforePredictor {
+		t.Fatalf("predictor invalid reload cleared state: loaded=%v state=%+v", predictor.Loaded(), predictor.state)
+	}
+
+	fargan := newFARGANForTest(t)
+	fargan.state.contInitialized = true
+	fargan.state.deemphMem = 0.625
+	fargan.state.pitchBuf[0] = -0.125
+	fargan.state.condConv1State[0] = 0.75
+	fargan.state.lastPeriod = 48
+	beforeFARGAN := fargan.state
+	if err := fargan.SetModelPreservingState(nil); err == nil {
+		t.Fatal("FARGAN.SetModelPreservingState(nil) error=nil want non-nil")
+	}
+	if !fargan.Loaded() || fargan.state != beforeFARGAN {
+		t.Fatalf("fargan invalid reload cleared state: loaded=%v state=%+v", fargan.Loaded(), fargan.state)
+	}
+}

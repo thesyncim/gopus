@@ -342,8 +342,6 @@ func (f *FARGAN) SetModel(blob *dnnblob.Blob) error {
 func (f *FARGAN) SetModelPreservingState(blob *dnnblob.Blob) error {
 	model, err := LoadFARGANModel(blob)
 	if err != nil {
-		f.model = nil
-		f.Reset()
 		return err
 	}
 	f.model = model
