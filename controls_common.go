@@ -26,6 +26,9 @@ func validApplication(application Application) bool {
 }
 
 func validateBitrate(bitrate, max int) error {
+	if bitrate == BitrateAuto || bitrate == BitrateMax {
+		return nil
+	}
 	if bitrate < 6000 || bitrate > max {
 		return ErrInvalidBitrate
 	}

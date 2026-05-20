@@ -561,6 +561,18 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	if err := enc.SetBitrate(5999); err != ErrInvalidBitrate {
 		t.Errorf("SetBitrate(below minimum) error = %v, want %v", err, ErrInvalidBitrate)
 	}
+	if err := enc.SetBitrate(BitrateAuto); err != nil {
+		t.Errorf("SetBitrate(BitrateAuto) error: %v", err)
+	}
+	if got := enc.Bitrate(); got != BitrateAuto {
+		t.Errorf("Bitrate() = %d, want BitrateAuto", got)
+	}
+	if err := enc.SetBitrate(BitrateMax); err != nil {
+		t.Errorf("SetBitrate(BitrateMax) error: %v", err)
+	}
+	if got := enc.Bitrate(); got != BitrateMax {
+		t.Errorf("Bitrate() = %d, want BitrateMax", got)
+	}
 
 	// Test SetComplexity
 	err = enc.SetComplexity(8)

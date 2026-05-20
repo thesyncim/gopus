@@ -596,8 +596,36 @@ func (e *Encoder) bitrateForAllocation(frameSize int) int {
 		nbUncoupled = 0
 	}
 	nbNormal := 2*e.coupledStreams + nbUncoupled
+	if e.bitrate == encoder.BitrateMax {
+		return nbNormal*750000 + nbLFE*128000
+	}
 	channelOffset := 40 * maxInt(50, fs/frameSize)
 	return nbNormal*(channelOffset+fs+10000) + 8000*nbLFE
+}
+
+func (e *Encoder) ambisonicsBitrateForAllocation(frameSize int) int {
+	if e.bitrate > 0 {
+		return e.bitrate
+	}
+	if frameSize <= 0 {
+		frameSize = 960
+	}
+	fs := e.sampleRate
+	if fs <= 0 {
+		fs = 48000
+	}
+	nbChannels := e.streams + e.coupledStreams
+	if e.bitrate == encoder.BitrateMax {
+		return nbChannels * 750000
+	}
+	return (e.coupledStreams+e.streams)*(fs+60*fs/frameSize) + e.streams*15000
+}
+
+func (e *Encoder) totalBitrateForAllocation(frameSize int) int {
+	if e.isAmbisonicsMapping() {
+		return e.ambisonicsBitrateForAllocation(frameSize)
+	}
+	return e.bitrateForAllocation(frameSize)
 }
 
 func (e *Encoder) allocateSurroundRates(rates []int, frameSize int) {
@@ -672,7 +700,7 @@ func (e *Encoder) allocateRates(frameSize int) []int {
 
 	switch {
 	case e.isAmbisonicsMapping():
-		totalRate := e.bitrateForAllocation(frameSize)
+		totalRate := e.ambisonicsBitrateForAllocation(frameSize)
 		per := totalRate / maxInt(1, e.streams)
 		per = maxInt(per, 500)
 		for i := 0; i < e.streams; i++ {
@@ -1073,7 +1101,7 @@ func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float64) {
 	}
 	cvbrBoundScale := 1.0
 	if len(e.encoders) > 0 && e.encoders[0].GetBitrateMode() == encoder.ModeCVBR {
-		cvbrBoundScale = multistreamCVBRBoundScale(e.bitrateForAllocation(frameSize), e.sampleRate, frameSize)
+		cvbrBoundScale = multistreamCVBRBoundScale(e.totalBitrateForAllocation(frameSize), e.sampleRate, frameSize)
 	}
 
 	surroundBandwidth := e.surroundBandwidth(frameSize)

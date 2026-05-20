@@ -645,6 +645,57 @@ func TestEncoderSetBitrate(t *testing.T) {
 	// Total: 2*76800 + 2*51200 = 153600 + 102400 = 256000
 }
 
+func TestEncoderSetBitrateSentinels(t *testing.T) {
+	enc, err := NewEncoderDefault(48000, 6)
+	if err != nil {
+		t.Fatalf("NewEncoderDefault error: %v", err)
+	}
+
+	enc.SetBitrate(encpkg.BitrateAuto)
+	if got := enc.Bitrate(); got != encpkg.BitrateAuto {
+		t.Fatalf("Bitrate()=%d want=%d", got, encpkg.BitrateAuto)
+	}
+	nbLFE := 0
+	if enc.lfeStream >= 0 {
+		nbLFE = 1
+	}
+	nbUncoupled := enc.streams - enc.coupledStreams - nbLFE
+	nbNormal := 2*enc.coupledStreams + nbUncoupled
+	channelOffset := 40 * maxInt(50, enc.sampleRate/960)
+	wantAuto := nbNormal*(channelOffset+enc.sampleRate+10000) + 8000*nbLFE
+	if got := enc.bitrateForAllocation(960); got != wantAuto {
+		t.Fatalf("auto allocation bitrate=%d want=%d", got, wantAuto)
+	}
+
+	enc.SetBitrate(encpkg.BitrateMax)
+	if got := enc.Bitrate(); got != encpkg.BitrateMax {
+		t.Fatalf("Bitrate()=%d want=%d", got, encpkg.BitrateMax)
+	}
+	wantMax := nbNormal*750000 + nbLFE*128000
+	if got := enc.bitrateForAllocation(960); got != wantMax {
+		t.Fatalf("max allocation bitrate=%d want=%d", got, wantMax)
+	}
+}
+
+func TestAmbisonicsBitrateSentinels(t *testing.T) {
+	enc, err := NewEncoderAmbisonics(48000, 4, 2)
+	if err != nil {
+		t.Fatalf("NewEncoderAmbisonics error: %v", err)
+	}
+
+	enc.SetBitrate(encpkg.BitrateAuto)
+	wantAuto := (enc.coupledStreams+enc.streams)*(enc.sampleRate+60*enc.sampleRate/960) + enc.streams*15000
+	if got := enc.ambisonicsBitrateForAllocation(960); got != wantAuto {
+		t.Fatalf("ambisonics auto bitrate=%d want=%d", got, wantAuto)
+	}
+
+	enc.SetBitrate(encpkg.BitrateMax)
+	wantMax := (enc.streams + enc.coupledStreams) * 750000
+	if got := enc.ambisonicsBitrateForAllocation(960); got != wantMax {
+		t.Fatalf("ambisonics max bitrate=%d want=%d", got, wantMax)
+	}
+}
+
 // TestEncoderReset tests encoder reset functionality.
 func TestEncoderReset(t *testing.T) {
 	enc, err := NewEncoderDefault(48000, 2)

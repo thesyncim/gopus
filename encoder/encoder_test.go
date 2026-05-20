@@ -587,13 +587,15 @@ func TestBitrateLimits(t *testing.T) {
 		bitrate int
 		valid   bool
 	}{
+		{encoder.BitrateAuto, true},
+		{encoder.BitrateMax, true},
 		{encoder.MinBitrate - 1, false},
 		{encoder.MinBitrate, true},
 		{64000, true},
 		{encoder.MaxBitrate, true},
 		{encoder.MaxBitrate + 1, false},
 		{0, false},
-		{-1, false},
+		{-2, false},
 	}
 
 	for _, tt := range tests {
@@ -608,13 +610,15 @@ func TestBitrateLimits(t *testing.T) {
 		input    int
 		expected int
 	}{
+		{encoder.BitrateAuto, encoder.BitrateAuto},
+		{encoder.BitrateMax, encoder.BitrateMax},
 		{encoder.MinBitrate - 1000, encoder.MinBitrate},
 		{encoder.MinBitrate, encoder.MinBitrate},
 		{64000, 64000},
 		{encoder.MaxBitrate, encoder.MaxBitrate},
 		{encoder.MaxBitrate + 100000, encoder.MaxBitrate},
 		{0, encoder.MinBitrate},
-		{-1, encoder.MinBitrate},
+		{-2, encoder.MinBitrate},
 	}
 
 	for _, tt := range clampTests {
@@ -764,6 +768,16 @@ func TestBitrateRange(t *testing.T) {
 	if enc.Bitrate() != 64000 {
 		t.Errorf("SetBitrate(64000) = %d, want 64000", enc.Bitrate())
 	}
+
+	enc.SetBitrate(encoder.BitrateAuto)
+	if enc.Bitrate() != encoder.BitrateAuto {
+		t.Errorf("SetBitrate(BitrateAuto) = %d, want %d", enc.Bitrate(), encoder.BitrateAuto)
+	}
+
+	enc.SetBitrate(encoder.BitrateMax)
+	if enc.Bitrate() != encoder.BitrateMax {
+		t.Errorf("SetBitrate(BitrateMax) = %d, want %d", enc.Bitrate(), encoder.BitrateMax)
+	}
 }
 
 // TestTargetBytesForBitrate tests the bitrate to bytes conversion.
@@ -786,6 +800,34 @@ func TestTargetBytesForBitrate(t *testing.T) {
 			t.Errorf("targetBytesForBitrate(%d, %d) = %d, want %d",
 				tt.bitrate, tt.frameSize, got, tt.expected)
 		}
+	}
+}
+
+func TestResolveUserBitrateLibopusSentinels(t *testing.T) {
+	const maxDataBytes = 1275
+
+	tests := []struct {
+		name       string
+		user       int
+		sampleRate int
+		channels   int
+		frameSize  int
+		want       int
+	}{
+		{"auto_mono_20ms", encoder.BitrateAuto, 48000, 1, 960, 51000},
+		{"auto_stereo_20ms", encoder.BitrateAuto, 48000, 2, 960, 99000},
+		{"max_20ms", encoder.BitrateMax, 48000, 2, 960, 510000},
+		{"max_10ms", encoder.BitrateMax, 48000, 2, 480, 1020000},
+		{"explicit_packet_cap", 750000, 48000, 2, 960, 510000},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := encoder.ResolveUserBitrate(tt.user, tt.sampleRate, tt.channels, tt.frameSize, maxDataBytes)
+			if got != tt.want {
+				t.Fatalf("ResolveUserBitrate()=%d want=%d", got, tt.want)
+			}
+		})
 	}
 }
 

@@ -18,6 +18,9 @@ func (e *Encoder) Downsample48to16Hybrid(samples []float64, frameSize int) []flo
 // TargetBytesForBitrate exports targetBytesForBitrate for testing.
 var TargetBytesForBitrate = targetBytesForBitrate
 
+// ResolveUserBitrate exports resolveUserBitrate for testing.
+var ResolveUserBitrate = resolveUserBitrate
+
 // ClassifySignal exports classifySignal for testing.
 var ClassifySignal = classifySignal
 

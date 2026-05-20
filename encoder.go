@@ -59,6 +59,11 @@ const (
 )
 
 const (
+	// BitrateAuto uses libopus OPUS_AUTO bitrate selection.
+	BitrateAuto = encoder.BitrateAuto
+	// BitrateMax uses libopus OPUS_BITRATE_MAX packet budgeting.
+	BitrateMax = encoder.BitrateMax
+
 	InBandFECDisabled  = encoder.InBandFECDisabled
 	InBandFECEnabled   = encoder.InBandFECEnabled
 	InBandFECMusicSafe = encoder.InBandFECMusicSafe

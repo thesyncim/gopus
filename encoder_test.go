@@ -260,7 +260,7 @@ func TestEncoder_SetBitrate(t *testing.T) {
 	}
 
 	// Valid bitrates
-	validBitrates := []int{6000, 12000, 32000, 64000, 128000, 256000, 510000}
+	validBitrates := []int{BitrateAuto, BitrateMax, 6000, 12000, 32000, 64000, 128000, 256000, 510000}
 	for _, br := range validBitrates {
 		t.Run(fmt.Sprintf("bitrate_%d", br), func(t *testing.T) {
 			err := enc.SetBitrate(br)
@@ -274,7 +274,7 @@ func TestEncoder_SetBitrate(t *testing.T) {
 	}
 
 	// Invalid bitrates
-	invalidBitrates := []int{0, 5999, 510001, -1, 1000000}
+	invalidBitrates := []int{0, 5999, 510001, -2, -1001, 1000000}
 	for _, br := range invalidBitrates {
 		t.Run(fmt.Sprintf("invalid_bitrate_%d", br), func(t *testing.T) {
 			err := enc.SetBitrate(br)

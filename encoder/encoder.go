@@ -618,6 +618,10 @@ func (e *Encoder) Bitrate() int {
 	return e.bitrate
 }
 
+func (e *Encoder) resolvedBitrateForFrame(frameSize, maxDataBytes int) int {
+	return resolveUserBitrate(e.bitrate, e.sampleRate, e.channels, frameSize, maxDataBytes)
+}
+
 func bitrateToBits(bitrate int, frameSize int) int {
 	return (bitrate * frameSize) / 48000
 }
@@ -672,6 +676,14 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	expectedLen := frameSize * e.channels
 	if len(pcm) != expectedLen {
 		return nil, ErrInvalidFrameSize
+	}
+	userBitrate := e.bitrate
+	resolvedBitrate := e.resolvedBitrateForFrame(frameSize, maxSilkPacketBytes)
+	if resolvedBitrate != userBitrate {
+		e.bitrate = resolvedBitrate
+		defer func() {
+			e.bitrate = userBitrate
+		}()
 	}
 	e.hasCELTPrefill = false
 	defer func() {

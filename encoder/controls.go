@@ -26,6 +26,9 @@ const (
 
 // Bitrate limits per RFC 6716
 const (
+	BitrateAuto = -1000
+	BitrateMax  = -1
+
 	MinBitrate = 6000   // 6 kbps minimum
 	MaxBitrate = 510000 // 510 kbps maximum
 
@@ -46,11 +49,14 @@ const CVBRTolerance = 0.15 // +/- 15%
 
 // ValidBitrate returns true if the bitrate is within Opus limits.
 func ValidBitrate(bitrate int) bool {
-	return bitrate >= MinBitrate && bitrate <= MaxBitrate
+	return bitrate == BitrateAuto || bitrate == BitrateMax || (bitrate >= MinBitrate && bitrate <= MaxBitrate)
 }
 
 // ClampBitrate ensures bitrate is within valid range.
 func ClampBitrate(bitrate int) int {
+	if bitrate == BitrateAuto || bitrate == BitrateMax {
+		return bitrate
+	}
 	if bitrate < MinBitrate {
 		return MinBitrate
 	}
@@ -75,6 +81,32 @@ func targetBytesForBitrate(bitrate, frameSize int) int {
 	}
 	bits := bitrate * 6 / unitsPerFrame
 	return (bits + 4) / 8
+}
+
+func resolveUserBitrate(userBitrate, sampleRate, channels, frameSize, maxDataBytes int) int {
+	if sampleRate <= 0 {
+		sampleRate = 48000
+	}
+	if channels <= 0 {
+		channels = 1
+	}
+	if frameSize <= 0 {
+		frameSize = sampleRate / 400
+	}
+	maxBitrate := maxDataBytes * 8 * sampleRate / frameSize
+	user := userBitrate
+	switch userBitrate {
+	case BitrateAuto:
+		user = 60*sampleRate/frameSize + sampleRate*channels
+	case BitrateMax:
+		user = 1500000
+	default:
+		user = ClampBitrate(userBitrate)
+	}
+	if user > maxBitrate {
+		return maxBitrate
+	}
+	return user
 }
 
 // silkPayloadMaxBits mirrors libopus SILK maxBits budgeting:
