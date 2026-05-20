@@ -125,10 +125,8 @@ func (d *Decoder) ensureEnergyState(channels int) {
 		}
 		d.backgroundEnergy = prev
 	}
-	if extsupport.QEXT && d.qext != nil && len(d.qext.oldBandE) > 0 && len(d.qext.oldBandE) < needed {
-		prev := make([]float64, needed)
-		copy(prev, d.qext.oldBandE)
-		d.qext.oldBandE = prev
+	if extsupport.QEXT {
+		d.growQEXTOldBandE(needed)
 	}
 }
 

@@ -1526,7 +1526,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if extsupport.QEXT && qextEnc != nil {
 		qextEnc.Done()
 		e.setLastQEXTPayload(qextEnc.Buffer()[:qextEnc.Storage()])
-		if e.qext != nil && len(e.qext.lastPayload) > 0 {
+		if e.lastQEXTPayloadNonEmpty() {
 			e.rng ^= qextEnc.Range()
 		}
 	}

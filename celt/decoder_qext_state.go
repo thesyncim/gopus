@@ -16,10 +16,3 @@ type decoderQEXTState struct {
 
 	rangeDecoderScratch rangecoding.Decoder
 }
-
-func (d *Decoder) ensureQEXTState() *decoderQEXTState {
-	if d.qext == nil {
-		d.qext = &decoderQEXTState{}
-	}
-	return d.qext
-}

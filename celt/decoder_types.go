@@ -123,7 +123,7 @@ type Decoder struct {
 	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
 	prevStreamChannels int // Previous packet's channel count (0 = uninitialized)
 	directOutPCM       []float32
-	qext               *decoderQEXTState
+	decoderQEXTFields
 
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
 	scratchPrevEnergy     []float64

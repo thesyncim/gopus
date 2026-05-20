@@ -89,7 +89,7 @@ type Encoder struct {
 	vbrDrift     int
 	vbrCount     int
 
-	qext *encoderQEXTState
+	encoderQEXTFields
 
 	// Complexity control (0-10)
 	complexity int
@@ -1187,7 +1187,7 @@ type encoderScratch struct {
 	allocTrim     []int
 	allocCaps     []int
 	allocResult   AllocationResult // Pre-allocated result struct
-	qext          *encoderQEXTScratch
+	encoderQEXTScratchFields
 
 	// MDCT input buffer for ComputeMDCTWithHistory
 	mdctInput []float64

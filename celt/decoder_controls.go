@@ -27,11 +27,12 @@ func (d *Decoder) takeQEXTPayload() []byte {
 	if !extsupport.QEXT {
 		return nil
 	}
-	if d.qext == nil {
+	state := d.qextState()
+	if state == nil {
 		return nil
 	}
-	payload := d.qext.pendingPayload
-	d.qext.pendingPayload = nil
+	payload := state.pendingPayload
+	state.pendingPayload = nil
 	return payload
 }
 

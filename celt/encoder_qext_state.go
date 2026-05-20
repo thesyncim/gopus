@@ -1,9 +1,6 @@
 package celt
 
-import (
-	"github.com/thesyncim/gopus/internal/extsupport"
-	"github.com/thesyncim/gopus/rangecoding"
-)
+import "github.com/thesyncim/gopus/rangecoding"
 
 type encoderQEXTState struct {
 	enabled     bool
@@ -22,38 +19,4 @@ type encoderQEXTScratch struct {
 	normL     []float64
 	normR     []float64
 	encoder   rangecoding.Encoder
-}
-
-func (e *Encoder) ensureQEXTState() *encoderQEXTState {
-	if e.qext == nil {
-		e.qext = &encoderQEXTState{}
-	}
-	return e.qext
-}
-
-func (e *Encoder) qextActive() bool {
-	return extsupport.QEXT && e.qext != nil && e.qext.enabled
-}
-
-func (e *Encoder) clearLastQEXTPayload() {
-	if !extsupport.QEXT {
-		return
-	}
-	if e.qext != nil {
-		e.qext.lastPayload = e.qext.lastPayload[:0]
-	}
-}
-
-func (e *Encoder) setLastQEXTPayload(payload []byte) {
-	if !extsupport.QEXT {
-		return
-	}
-	e.ensureQEXTState().lastPayload = payload
-}
-
-func (s *encoderScratch) ensureQEXTScratch() *encoderQEXTScratch {
-	if s.qext == nil {
-		s.qext = &encoderQEXTScratch{}
-	}
-	return s.qext
 }
