@@ -366,6 +366,47 @@ func TestEncoderProcessDREDLatentsTracksOffsets(t *testing.T) {
 	}
 }
 
+func TestEncoderBackfillsDREDActivityFromSILKNoDecision(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetBandwidth(types.BandwidthWideband)
+	enc.SetBitrate(16000)
+	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+
+	frame := make([]float64, 4800)
+	for i := range frame {
+		frame[i] = 2e-5
+		if i&1 != 0 {
+			frame[i] = -frame[i]
+		}
+	}
+	packet, err := enc.Encode(frame, 4800)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+	if len(packet) == 0 {
+		t.Fatal("Encode returned empty packet")
+	}
+	signalType, _ := enc.silkEncoder.LastEncodedSignalInfo()
+	if signalType != 0 {
+		t.Fatalf("SILK signalType=%d want no-voice test frame", signalType)
+	}
+	if enc.dred == nil || enc.dred.runtime == nil {
+		t.Fatal("DRED runtime did not materialize")
+	}
+	if enc.dred.runtime.emitted != 5 {
+		t.Fatalf("DRED emitted=%d want 5 subframes", enc.dred.runtime.emitted)
+	}
+	for i := 0; i < 8; i++ {
+		if enc.dred.runtime.activity[i] != 0 {
+			t.Fatalf("activity[%d]=%d want 0 after SILK no-voice backfill", i, enc.dred.runtime.activity[i])
+		}
+	}
+}
+
 func TestEncoderProcessDREDLatentsDoesNotAllocate48k(t *testing.T) {
 	enc := NewEncoder(48000, 1)
 	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))

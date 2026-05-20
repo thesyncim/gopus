@@ -43,6 +43,8 @@ func (e *Encoder) processDREDLatentsWithActivity(_ []float64, _ int, _ bool) int
 	return 0
 }
 
+func (e *Encoder) backfillDREDActivityForFrame(_ int, _ bool) {}
+
 func (e *Encoder) processDREDLatentsForPacket(_ []float64, _ int, _ int, _ Mode) int {
 	return 0
 }

@@ -209,6 +209,26 @@ func (e *Encoder) processDREDLatentsWithActivity(framePCM []float64, extraDelay 
 	return emitted
 }
 
+func (e *Encoder) backfillDREDActivityForFrame(frameSize int, active bool) {
+	if !extsupport.DREDRuntime || e.dred == nil || e.dred.runtime == nil || e.sampleRate <= 0 {
+		return
+	}
+	frameActivity := frameSize * 400 / e.sampleRate
+	if frameActivity <= 0 {
+		return
+	}
+	if frameActivity > len(e.dred.runtime.activity) {
+		frameActivity = len(e.dred.runtime.activity)
+	}
+	var v byte
+	if active {
+		v = 1
+	}
+	for i := 0; i < frameActivity; i++ {
+		e.dred.runtime.activity[i] = v
+	}
+}
+
 func (e *Encoder) processDREDLatentsForPacket(framePCM []float64, frameSize, extraDelay int, mode Mode) int {
 	if !extsupport.DREDRuntime {
 		return 0

@@ -809,8 +809,10 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 	if !e.lowDelay {
 		dredExtraDelay = e.sampleRate / 250
 	}
-	celtLongDREDInSubframes := actualMode == ModeCELT && frameSize > 960 && frameSize%960 == 0
-	if e.dredEncodingActive() && !celtLongDREDInSubframes {
+	dredInSubframes := (actualMode == ModeCELT && frameSize > 960 && frameSize%960 == 0) ||
+		(actualMode == ModeHybrid && frameSize > 960 && frameSize%960 == 0) ||
+		(actualMode == ModeSILK && frameSize > 2880)
+	if e.dredEncodingActive() && !dredInSubframes {
 		e.processDREDLatentsForPacket(framePCM, frameSize, dredExtraDelay, actualMode)
 	} else if !e.dredEncodingActive() {
 		e.clearInactiveDREDHistory()
@@ -841,7 +843,7 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 		return e.buildDTXPacketForMode(frameSize, actualMode)
 	}
 
-	if actualMode == ModeSILK || (actualMode == ModeHybrid && frameSize <= 960) {
+	if (actualMode == ModeSILK && frameSize <= 2880) || (actualMode == ModeHybrid && frameSize <= 960) {
 		// Match libopus application semantics:
 		// explicit ModeSILK mirrors restricted-silk, where Opus-level activity
 		// stays VAD_NO_DECISION except true digital-silence input, which libopus
@@ -882,12 +884,13 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 	case ModeSILK:
 		e.maybePrefillSILKOnModeTransition(actualMode)
 		if frameSize > 2880 {
-			packet, err = e.encodeSILKMultiFramePacket(framePCM, frameSize, e.bitrate, encodingBitrate, dredBitrate)
+			packet, err = e.encodeSILKMultiFramePacket(framePCM, rawPCM, frameSize, e.bitrate, encodingBitrate, dredBitrate, dredExtraDelay)
 		} else {
 			originalBitrate := e.bitrate
 			if encodingBitrate != originalBitrate {
 				e.bitrate = encodingBitrate
 			}
+			dredNoDecision := e.dredEncodingActive() && !e.lastOpusVADValid
 			frameData, err = e.encodeSILKFrameWithDRED(framePCM, lookaheadSlice, frameSize, originalBitrate, dredBitrate)
 			if encodingBitrate != originalBitrate {
 				e.bitrate = originalBitrate
@@ -896,6 +899,10 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 				// Match libopus opus_encoder.c SILK-only behavior:
 				// strip trailing zero bytes after range coder finalization.
 				frameData = trimSilkTrailingZeros(frameData)
+				if dredNoDecision {
+					silkSignalType, _ := e.silkEncoder.LastEncodedSignalInfo()
+					e.backfillDREDActivityForFrame(frameSize, silkSignalType != 0)
+				}
 			}
 		}
 		e.updateDelayBuffer(framePCM, frameSize)
@@ -904,7 +911,7 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 			delayState := e.ensureDelayState(len(e.delayBuffer))
 			copy(delayState, e.delayBuffer)
 			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
-			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, rawPCM, lookaheadSlice, delayState, frameSize, transitionToCELT, e.bitrate, encodingBitrate, dredBitrate)
+			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, rawPCM, lookaheadSlice, delayState, frameSize, transitionToCELT, e.bitrate, encodingBitrate, dredBitrate, dredExtraDelay)
 		} else {
 			e.maybePrefillSILKOnModeTransition(actualMode)
 			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
@@ -916,9 +923,14 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 				}
 				e.bitrate = encodingBitrate
 			}
+			dredNoDecision := e.dredEncodingActive() && !e.lastOpusVADValid
 			frameData, err = e.encodeHybridFrameWithMaxPacketAndTransition(framePCM, celtPCM, lookaheadSlice, frameSize, maxPacketBytes, dredBitrate, false, true, transitionToCELT, false)
 			if encodingBitrate != originalBitrate {
 				e.bitrate = originalBitrate
+			}
+			if err == nil && dredNoDecision {
+				silkSignalType, _ := e.silkEncoder.LastEncodedSignalInfo()
+				e.backfillDREDActivityForFrame(frameSize, silkSignalType != 0)
 			}
 		}
 	case ModeCELT:
@@ -2795,7 +2807,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM []float64
 
 // encodeHybridMultiFramePacket encodes long hybrid packets by splitting into
 // 20ms hybrid frames and packing them using code-3 framing.
-func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, rawPCM []float64, lookahead []float64, delayState []float64, frameSize int, transitionToCELT bool, originalBitrate, encodingBitrate, dredBitrate int) ([]byte, error) {
+func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, rawPCM []float64, lookahead []float64, delayState []float64, frameSize int, transitionToCELT bool, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
 	if frameSize <= 960 || frameSize%960 != 0 {
 		return nil, ErrInvalidFrameSize
 	}
@@ -2850,6 +2862,10 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	totSize := 0
 	firstFrameMaxBytes := 0
 	packetPrefillFromCELT := e.shouldPrefillSILKOnModeTransition(ModeHybrid)
+	dredActive := e.dredEncodingActive()
+	if dredActive {
+		e.clearDREDPacketSnapshot()
+	}
 	savedBitrate := e.bitrate
 	e.bitrate = subframeBitrate
 	for i := 0; i < frameCount; i++ {
@@ -2860,6 +2876,14 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 		subCELTPCM := celtPCM[start:end]
 		subRawPCM := rawPCM[start:end]
 
+		// Match libopus long-packet cadence: compute DRED activity from the
+		// same per-subframe analysis snapshot used by the primary frame.
+		e.updateOpusVAD(subRawPCM, 960)
+		dredNoDecision := !e.lastOpusVADValid
+		if dredActive {
+			e.processDREDLatentsWithActivity(subPCM, dredExtraDelay, e.lastOpusVADActive)
+		}
+
 		if packetPrefillFromCELT {
 			// libopus keeps the packet-level CELT->SILK/HYBRID prefill active for
 			// each 20 ms internal frame of long packets. The first subframe also
@@ -2867,10 +2891,6 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 			// the SILK state from the rolling delay history.
 			e.maybePrefillSILKOnModeTransitionWithOptions(ModeHybrid, i > 0, i == 0)
 		}
-
-		// Match libopus long-packet cadence: activity for hybrid subframes is
-		// evaluated per 20ms frame with subframe analysis info.
-		e.updateOpusVAD(subRawPCM, 960)
 
 		// Hybrid subframes in multi-frame packets should be encoded exactly like
 		// independent 20ms frames. Do not leak future subframe samples as lookahead.
@@ -2912,6 +2932,13 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 			e.bitrate = savedBitrate
 			return nil, err
 		}
+		if dredActive && dredNoDecision {
+			silkSignalType, _ := e.silkEncoder.LastEncodedSignalInfo()
+			e.backfillDREDActivityForFrame(960, silkSignalType != 0)
+		}
+		if dredActive && i == 0 {
+			e.snapshotDREDPacketState()
+		}
 		// Keep a stable copy because encoder scratch buffers are reused.
 		frameCopy := append([]byte(nil), frameData...)
 		frames[i] = frameCopy
@@ -2941,8 +2968,8 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 
 // encodeSILKMultiFramePacket encodes 80/100/120ms SILK packets by splitting
 // them into libopus-compatible 20/40/60ms SILK frames and repacketizing them.
-func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int, originalBitrate, encodingBitrate, dredBitrate int) ([]byte, error) {
-	if len(pcm) != frameSize*e.channels {
+func (e *Encoder) encodeSILKMultiFramePacket(pcm, rawPCM []float64, frameSize int, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
+	if len(pcm) != frameSize*e.channels || len(rawPCM) != frameSize*e.channels {
 		return nil, ErrInvalidFrameSize
 	}
 
@@ -2992,6 +3019,10 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int, origi
 	if dredBitrate > 0 {
 		dredBytes = bitrateToBits(dredBitrate, frameSize) / 8
 	}
+	dredActive := e.dredEncodingActive()
+	if dredActive {
+		e.clearDREDPacketSnapshot()
+	}
 	totSize := 0
 	firstFrameMaxBytes := 0
 	savedBitrate := e.bitrate
@@ -3001,6 +3032,18 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int, origi
 		e.primeSubframeAnalysis(encFrameSize)
 		start := i * frameStride
 		end := start + frameStride
+		subPCM := pcm[start:end]
+		subRawPCM := rawPCM[start:end]
+
+		if e.mode == ModeSILK {
+			e.updateRestrictedSilkOpusVAD(subRawPCM, encFrameSize)
+		} else {
+			e.updateOpusVAD(subRawPCM, encFrameSize)
+		}
+		dredNoDecision := !e.lastOpusVADValid
+		if dredActive {
+			e.processDREDLatentsWithActivity(subPCM, dredExtraDelay, e.lastOpusVADActive)
+		}
 
 		currMax := currMaxByRate
 		capPerFrame := maxLenSum / frameCount
@@ -3029,10 +3072,17 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int, origi
 		if i == 0 {
 			firstFrameMaxBytes = currMax
 		}
-		frameData, err := e.encodeSILKFrameWithDREDAndMax(pcm[start:end], nil, encFrameSize, originalBitrate, dredBitrate, currMax)
+		frameData, err := e.encodeSILKFrameWithDREDAndMax(subPCM, nil, encFrameSize, originalBitrate, dredBitrate, currMax)
 		if err != nil {
 			e.bitrate = savedBitrate
 			return nil, err
+		}
+		if dredActive && dredNoDecision {
+			silkSignalType, _ := e.silkEncoder.LastEncodedSignalInfo()
+			e.backfillDREDActivityForFrame(encFrameSize, silkSignalType != 0)
+		}
+		if dredActive && i == 0 {
+			e.snapshotDREDPacketState()
 		}
 		frameCopy := append([]byte(nil), trimSilkTrailingZeros(frameData)...)
 		frames[i] = frameCopy
