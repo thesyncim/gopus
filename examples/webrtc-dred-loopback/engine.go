@@ -650,6 +650,13 @@ func (e *engine) receiveRTP(remote rtpReader) {
 		if err != nil {
 			return
 		}
+		sequenceDelta := uint16(0)
+		if haveExpected {
+			sequenceDelta = pkt.SequenceNumber - expected
+			if sequenceDelta >= 0x8000 {
+				continue
+			}
+		}
 		payload := pkt.Payload
 		var redBlocks []redBlock
 		redEnabled := e.redEnabled() && pkt.PayloadType == redPayloadType
@@ -667,7 +674,7 @@ func (e *engine) receiveRTP(remote rtpReader) {
 		}
 
 		if haveExpected {
-			missing := int(pkt.SequenceNumber - expected)
+			missing := int(sequenceDelta)
 			if missing > 0 && missing < 100 {
 				if malformedRED {
 					for range missing {

@@ -92,6 +92,34 @@ func TestParseREDPayloadRejectsUnexpectedPayloadTypes(t *testing.T) {
 	}
 }
 
+func TestParseREDPayloadRejectsMalformedPayloads(t *testing.T) {
+	tooManyHeaders := make([]byte, 0, (maxREDDepth+1)*4+1)
+	for i := 0; i < maxREDDepth+1; i++ {
+		tooManyHeaders = append(tooManyHeaders, 0x80|redOpusPayloadType, 0x00, 0x04, 0x01)
+	}
+	tooManyHeaders = append(tooManyHeaders, redOpusPayloadType)
+
+	tests := []struct {
+		name    string
+		payload []byte
+	}{
+		{name: "empty", payload: nil},
+		{name: "truncated_redundant_header", payload: []byte{0x80 | redOpusPayloadType, 0x00}},
+		{name: "zero_offset", payload: []byte{0x80 | redOpusPayloadType, 0x00, 0x00, 0x01, redOpusPayloadType, 0xaa, 0xbb}},
+		{name: "zero_length", payload: []byte{0x80 | redOpusPayloadType, 0x00, 0x04, 0x00, redOpusPayloadType, 0xaa}},
+		{name: "too_many_headers", payload: tooManyHeaders},
+		{name: "truncated_redundant_payload", payload: []byte{0x80 | redOpusPayloadType, 0x00, 0x04, 0x02, redOpusPayloadType, 0xaa}},
+		{name: "missing_primary", payload: []byte{redOpusPayloadType}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := parseREDPayload(tc.payload); err == nil {
+				t.Fatal("parseREDPayload accepted malformed payload")
+			}
+		})
+	}
+}
+
 func TestReceiveLoopMissingPacketsUsePLC(t *testing.T) {
 	var calls []decodeKind
 	e := newReceiveLoopTestEngine(engineConfig{})
@@ -113,6 +141,51 @@ func TestReceiveLoopMissingPacketsUsePLC(t *testing.T) {
 	stats := e.Stats()
 	if stats.LossPathFrames != 1 || stats.ConcealedFrames != 1 || stats.PacketsReceived != 2 {
 		t.Fatalf("stats loss=%d concealed=%d received=%d, want 1/1/2", stats.LossPathFrames, stats.ConcealedFrames, stats.PacketsReceived)
+	}
+}
+
+func TestReceiveLoopMultipleMissingPacketsUseMatchingREDBlocks(t *testing.T) {
+	var calls []string
+	var recovered [][]byte
+	e := newReceiveLoopTestEngine(engineConfig{RED: true})
+	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+		calls = append(calls, kind.String())
+		e.bumpDecodeStats(kind)
+		return true
+	}
+	e.decodeREDHook = func(payload []byte) bool {
+		calls = append(calls, "red")
+		recovered = append(recovered, append([]byte(nil), payload...))
+		e.bumpDecodeStats(decodeRED)
+		return true
+	}
+
+	redPayload, _ := buildREDPayload(
+		[]byte{0xb3},
+		103*frameSamples,
+		[]redHistoryFrame{
+			{timestamp: 102 * frameSamples, payload: []byte{0xa2}},
+			{timestamp: 101 * frameSamples, payload: []byte{0xa1}},
+		},
+		2,
+		frameSamples,
+	)
+	runReceiveLoopTest(t, e,
+		testPacket(100, redOpusPayloadType, []byte{0x01}),
+		testPacket(103, redPayloadType, redPayload),
+	)
+
+	wantCalls := []string{decodeNormal.String(), "red", "red", decodeNormal.String()}
+	if !sameStrings(calls, wantCalls) {
+		t.Fatalf("calls=%v want %v", calls, wantCalls)
+	}
+	if len(recovered) != 2 || string(recovered[0]) != string([]byte{0xa1}) || string(recovered[1]) != string([]byte{0xa2}) {
+		t.Fatalf("recovered=%x want [a1 a2]", recovered)
+	}
+	stats := e.Stats()
+	if stats.REDFrames != 2 || stats.REDRecoveryAttempts != 2 || stats.LossPathFrames != 0 || stats.FECRecoveryAttempts != 0 || stats.DREDRecoveryAttempts != 0 {
+		t.Fatalf("stats red=%d/%d plc=%d fec=%d dred=%d, want red 2/2 only",
+			stats.REDFrames, stats.REDRecoveryAttempts, stats.LossPathFrames, stats.FECRecoveryAttempts, stats.DREDRecoveryAttempts)
 	}
 }
 
@@ -140,6 +213,44 @@ func TestReceiveLoopMalformedREDConcealsWithoutPoisoningSequenceAccounting(t *te
 	want := []decodeKind{decodeLossPath, decodeNormal}
 	if !sameDecodeKinds(calls, want) {
 		t.Fatalf("decode calls=%v want %v", calls, want)
+	}
+}
+
+func TestReceiveLoopMalformedREDWithGapUsesPLCOnly(t *testing.T) {
+	var calls []decodeKind
+	e := newReceiveLoopTestEngine(engineConfig{RED: true, FEC: true, DRED: true})
+	e.fecEnabledHook = func(_ []byte) bool {
+		t.Fatal("FEC should not inspect malformed RED")
+		return false
+	}
+	e.prepareDREDHook = func(_ []byte, _ int) (int, bool) {
+		t.Fatal("DRED should not prepare from malformed RED")
+		return 0, false
+	}
+	e.decodeREDHook = func(_ []byte) bool {
+		t.Fatal("RED should not decode malformed RED")
+		return false
+	}
+	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+		calls = append(calls, kind)
+		e.bumpDecodeStats(kind)
+		return true
+	}
+
+	runReceiveLoopTest(t, e,
+		testPacket(10, redPayloadType, mustREDPayload(t, []byte{0x01}, nil)),
+		testPacket(12, redPayloadType, []byte{0x80 | redOpusPayloadType, 0x00, 0x00, 0x01}),
+		testPacket(13, redPayloadType, mustREDPayload(t, []byte{0x03}, nil)),
+	)
+
+	want := []decodeKind{decodeNormal, decodeLossPath, decodeLossPath, decodeNormal}
+	if !sameDecodeKinds(calls, want) {
+		t.Fatalf("decode calls=%v want %v", calls, want)
+	}
+	stats := e.Stats()
+	if stats.DecodeErrors != 1 || stats.REDFallbackFrames != 1 || stats.LossPathFrames != 2 || stats.ConcealedFrames != 2 {
+		t.Fatalf("stats decodeErrors=%d redFallback=%d loss=%d concealed=%d, want 1/1/2/2",
+			stats.DecodeErrors, stats.REDFallbackFrames, stats.LossPathFrames, stats.ConcealedFrames)
 	}
 }
 
@@ -196,6 +307,64 @@ func TestReceiveLoopREDFECDREDPriority(t *testing.T) {
 	}
 }
 
+func TestReceiveLoopREDDecodeFailureFallsBackThroughFECAndDRED(t *testing.T) {
+	var calls []string
+	e := newReceiveLoopTestEngine(engineConfig{RED: true, FEC: true, DRED: true})
+	e.fecEnabledHook = func(_ []byte) bool { return true }
+	e.prepareDREDHook = func(_ []byte, maxDREDSamples int) (int, bool) {
+		calls = append(calls, "prepare-dred")
+		return maxDREDSamples, true
+	}
+	e.decodeREDHook = func(_ []byte) bool {
+		calls = append(calls, "red")
+		e.mu.Lock()
+		e.stats.REDRecoveryAttempts++
+		e.mu.Unlock()
+		return false
+	}
+	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+		calls = append(calls, kind.String())
+		if kind == decodeFEC {
+			e.mu.Lock()
+			e.stats.FECRecoveryAttempts++
+			e.mu.Unlock()
+			return false
+		}
+		if kind == decodeLossPath {
+			t.Fatal("PLC should not run after DRED recovers the packet")
+		}
+		e.bumpDecodeStats(kind)
+		return true
+	}
+	e.decodeDREDHook = func(int) bool {
+		calls = append(calls, "dred")
+		e.bumpDecodeStats(decodeDRED)
+		return true
+	}
+
+	redPayload, _ := buildREDPayload(
+		[]byte{0xb2},
+		102*frameSamples,
+		[]redHistoryFrame{{timestamp: 101 * frameSamples, payload: []byte{0xa1}}},
+		1,
+		frameSamples,
+	)
+	runReceiveLoopTest(t, e,
+		testPacket(100, redPayloadType, mustREDPayload(t, []byte{0x01}, nil)),
+		testPacket(102, redPayloadType, redPayload),
+	)
+
+	want := []string{decodeNormal.String(), "prepare-dred", "red", decodeFEC.String(), "dred", decodeNormal.String()}
+	if !sameStrings(calls, want) {
+		t.Fatalf("calls=%v want %v", calls, want)
+	}
+	stats := e.Stats()
+	if stats.REDFallbackFrames != 1 || stats.FECFallbackFrames != 1 || stats.DREDFrames != 1 || stats.DREDRecoveryAttempts != 1 || stats.LossPathFrames != 0 {
+		t.Fatalf("stats redFallback=%d fecFallback=%d dred=%d/%d plc=%d, want 1/1/1/1/0",
+			stats.REDFallbackFrames, stats.FECFallbackFrames, stats.DREDFrames, stats.DREDRecoveryAttempts, stats.LossPathFrames)
+	}
+}
+
 func TestReceiveLoopFECFallsBackToDREDWhenNoREDBlock(t *testing.T) {
 	var calls []string
 	e := newReceiveLoopTestEngine(engineConfig{RED: true, FEC: true, DRED: true})
@@ -245,6 +414,135 @@ func TestReceiveLoopFECFallsBackToDREDWhenNoREDBlock(t *testing.T) {
 	if stats.FECRecoveryAttempts != 1 || stats.FECFallbackFrames != 1 || stats.DREDRecoveryAttempts != 1 || stats.DREDFrames != 1 || stats.REDRecoveryAttempts != 0 || stats.LossPathFrames != 0 {
 		t.Fatalf("stats fec=%d/%d dred=%d/%d red=%d plc=%d, want fec 1/1 dred 1/1 red 0 plc 0",
 			stats.FECRecoveryAttempts, stats.FECFallbackFrames, stats.DREDRecoveryAttempts, stats.DREDFrames, stats.REDRecoveryAttempts, stats.LossPathFrames)
+	}
+}
+
+func TestReceiveLoopREDPayloadTypeParsesPrimaryWhenREDRecoveryDisabled(t *testing.T) {
+	var calls []decodeKind
+	var normalPayloads [][]byte
+	e := newReceiveLoopTestEngine(engineConfig{RED: false})
+	e.decodeREDHook = func(_ []byte) bool {
+		t.Fatal("RED recovery should stay disabled")
+		return false
+	}
+	e.decodeHook = func(payload []byte, kind decodeKind) bool {
+		calls = append(calls, kind)
+		if kind == decodeNormal {
+			normalPayloads = append(normalPayloads, append([]byte(nil), payload...))
+		}
+		e.bumpDecodeStats(kind)
+		return true
+	}
+
+	redPayload, _ := buildREDPayload(
+		[]byte{0x02},
+		12*frameSamples,
+		[]redHistoryFrame{{timestamp: 11 * frameSamples, payload: []byte{0xa1}}},
+		1,
+		frameSamples,
+	)
+	runReceiveLoopTest(t, e,
+		testPacket(10, redPayloadType, mustREDPayload(t, []byte{0x01}, nil)),
+		testPacket(12, redPayloadType, redPayload),
+	)
+
+	want := []decodeKind{decodeNormal, decodeLossPath, decodeNormal}
+	if !sameDecodeKinds(calls, want) {
+		t.Fatalf("decode calls=%v want %v", calls, want)
+	}
+	if len(normalPayloads) != 2 || string(normalPayloads[0]) != string([]byte{0x01}) || string(normalPayloads[1]) != string([]byte{0x02}) {
+		t.Fatalf("normal payloads=%x want [01 02]", normalPayloads)
+	}
+	stats := e.Stats()
+	if stats.REDRecoveryAttempts != 0 || stats.REDFallbackFrames != 0 || stats.LossPathFrames != 1 {
+		t.Fatalf("stats red=%d fallback=%d loss=%d, want 0/0/1", stats.REDRecoveryAttempts, stats.REDFallbackFrames, stats.LossPathFrames)
+	}
+}
+
+func TestReceiveLoopIgnoresStalePacketsWithoutRewindingExpectedSequence(t *testing.T) {
+	var calls []decodeKind
+	e := newReceiveLoopTestEngine(engineConfig{})
+	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+		calls = append(calls, kind)
+		e.bumpDecodeStats(kind)
+		return true
+	}
+
+	runReceiveLoopTest(t, e,
+		testPacket(10, redOpusPayloadType, []byte{0x10}),
+		testPacket(11, redOpusPayloadType, []byte{0x11}),
+		testPacket(10, redOpusPayloadType, []byte{0x10}),
+		testPacket(12, redOpusPayloadType, []byte{0x12}),
+	)
+
+	want := []decodeKind{decodeNormal, decodeNormal, decodeNormal}
+	if !sameDecodeKinds(calls, want) {
+		t.Fatalf("decode calls=%v want %v", calls, want)
+	}
+	stats := e.Stats()
+	if stats.LossPathFrames != 0 || stats.PacketsReceived != 3 {
+		t.Fatalf("stats loss=%d received=%d, want 0/3", stats.LossPathFrames, stats.PacketsReceived)
+	}
+}
+
+func TestReceiveLoopSequenceWraparoundDoesNotTriggerLoss(t *testing.T) {
+	var calls []decodeKind
+	e := newReceiveLoopTestEngine(engineConfig{})
+	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+		calls = append(calls, kind)
+		e.bumpDecodeStats(kind)
+		return true
+	}
+
+	runReceiveLoopTest(t, e,
+		testPacket(65535, redOpusPayloadType, []byte{0xff}),
+		testPacket(0, redOpusPayloadType, []byte{0x00}),
+	)
+
+	want := []decodeKind{decodeNormal, decodeNormal}
+	if !sameDecodeKinds(calls, want) {
+		t.Fatalf("decode calls=%v want %v", calls, want)
+	}
+	stats := e.Stats()
+	if stats.LossPathFrames != 0 || stats.PacketsReceived != 2 {
+		t.Fatalf("stats loss=%d received=%d, want 0/2", stats.LossPathFrames, stats.PacketsReceived)
+	}
+}
+
+func TestReceiveLoopHugeForwardJumpSkipsRecoverySearch(t *testing.T) {
+	var calls []decodeKind
+	e := newReceiveLoopTestEngine(engineConfig{RED: true, FEC: true, DRED: true})
+	e.fecEnabledHook = func(_ []byte) bool {
+		t.Fatal("FEC should not run for huge sequence jumps")
+		return false
+	}
+	e.prepareDREDHook = func(_ []byte, _ int) (int, bool) {
+		t.Fatal("DRED should not prepare for huge sequence jumps")
+		return 0, false
+	}
+	e.decodeREDHook = func(_ []byte) bool {
+		t.Fatal("RED should not run for huge sequence jumps")
+		return false
+	}
+	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+		calls = append(calls, kind)
+		e.bumpDecodeStats(kind)
+		return true
+	}
+
+	runReceiveLoopTest(t, e,
+		testPacket(10, redPayloadType, mustREDPayload(t, []byte{0x10}, nil)),
+		testPacket(200, redPayloadType, mustREDPayload(t, []byte{0x20}, nil)),
+	)
+
+	want := []decodeKind{decodeNormal, decodeNormal}
+	if !sameDecodeKinds(calls, want) {
+		t.Fatalf("decode calls=%v want %v", calls, want)
+	}
+	stats := e.Stats()
+	if stats.LossPathFrames != 0 || stats.FECRecoveryAttempts != 0 || stats.REDRecoveryAttempts != 0 || stats.DREDRecoveryAttempts != 0 {
+		t.Fatalf("stats loss=%d fec=%d red=%d dred=%d, want all recovery 0",
+			stats.LossPathFrames, stats.FECRecoveryAttempts, stats.REDRecoveryAttempts, stats.DREDRecoveryAttempts)
 	}
 }
 
