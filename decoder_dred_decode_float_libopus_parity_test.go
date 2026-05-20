@@ -13,6 +13,7 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
+	silkpkg "github.com/thesyncim/gopus/silk"
 )
 
 const (
@@ -324,6 +325,30 @@ func assertDecoderDREDCELT48kBridgeApproxEqualWithin(t *testing.T, dec *Decoder,
 		t.Fatalf("%s lastNeural=%v want %v (lastFrameType=%d)", label, lastNeural, wantNeural, want.LastFrameType)
 	}
 	assertFloat32ApproxEqual(t, plcPCM[:], want.PLCPCM[:], label+" plc pcm", tol)
+}
+
+func assertDecoderDREDSILKStateApproxEqualWithin(t *testing.T, dec *Decoder, want libopusDecoderDREDSILKSnapshot, bandwidth silkpkg.Bandwidth, label string, tol float64) {
+	t.Helper()
+	if dec == nil || dec.silkDecoder == nil {
+		t.Fatalf("%s missing SILK decoder", label)
+	}
+	got := dec.silkDecoder.SnapshotDecoderState(bandwidth, 0)
+	if got.LagPrev != want.LagPrev ||
+		got.LastGainIndex != want.LastGainIndex ||
+		got.LossCount != want.LossCount ||
+		got.PrevSignalType != want.PrevSignalType {
+		t.Fatalf("%s header={LagPrev:%d LastGainIndex:%d LossCount:%d PrevSignalType:%d} want {LagPrev:%d LastGainIndex:%d LossCount:%d PrevSignalType:%d}",
+			label,
+			got.LagPrev, got.LastGainIndex, got.LossCount, got.PrevSignalType,
+			want.LagPrev, want.LastGainIndex, want.LossCount, want.PrevSignalType)
+	}
+	assertFloat32ApproxEqual(t, got.SMid[:], want.SMid[:], label+" smid", tol)
+	assertFloat32ApproxEqual(t, got.OutBuf[:], want.OutBuf[:], label+" outbuf", tol)
+	assertFloat32ApproxEqual(t, got.SLPCQ14[:], want.SLPCQ14[:], label+" slpc_q14", tol)
+	assertFloat32ApproxEqual(t, got.ExcQ14[:], want.ExcQ14[:], label+" exc_q14", tol)
+	assertFloat32ApproxEqual(t, got.ResamplerIIR[:], want.ResamplerIIR[:], label+" resampler iir", tol)
+	assertFloat32ApproxEqual(t, got.ResamplerFIR[:], want.ResamplerFIR[:], label+" resampler fir", tol)
+	assertFloat32ApproxEqual(t, got.ResamplerDelay[:], want.ResamplerDelay[:], label+" resampler delay", tol)
 }
 
 func snapshotDecoderDREDCELT48kForTest(t *testing.T, dec *Decoder) libopusDecoderDREDCELTSnapshot {
@@ -4653,6 +4678,10 @@ func TestDecoderExplicitSILKDREDDecodeMatchesLibopus(t *testing.T) {
 	}
 
 	assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "explicit silk libopus pcm", 1e-4)
+	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "explicit silk libopus plc")
+	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "explicit silk libopus fargan")
+	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "explicit silk libopus celt")
+	assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.silk, silkpkg.BandwidthWideband, "explicit silk libopus silk", 1e-4)
 }
 
 // TestDecoderExplicit16kSILKDREDDecodeMatchesLibopus mirrors the 48 kHz SILK
@@ -4694,6 +4723,10 @@ func TestDecoderExplicit16kSILKDREDDecodeMatchesLibopus(t *testing.T) {
 	}
 
 	assertFloat32ApproxEqual(t, pcm[:n], want.pcm[:n], "explicit 16k silk libopus pcm", 1e-4)
+	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "explicit 16k silk libopus plc")
+	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "explicit 16k silk libopus fargan")
+	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.celt48k, "explicit 16k silk libopus celt")
+	assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.silk, silkpkg.BandwidthWideband, "explicit 16k silk libopus silk", 1e-4)
 }
 
 // TestDecoderExplicitSILKDREDDecodeStereoMatchesLibopus mirrors
@@ -4764,5 +4797,7 @@ func TestDecoderExplicitSILKDREDDecodeStereoMatchesLibopus(t *testing.T) {
 	const stereoDREDPCMTol = 1e-4
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "explicit stereo SILK libopus plc", stereoDREDStateTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "explicit stereo SILK libopus fargan", stereoDREDStateTol)
+	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.celt48k, "explicit stereo SILK libopus celt", stereoDREDStateTol)
+	assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.silk, silkpkg.BandwidthWideband, "explicit stereo SILK libopus silk", stereoDREDStateTol)
 	assertFloat32ApproxEqual(t, pcm[:n*dec.channels], want.pcm[:n*dec.channels], "explicit stereo SILK libopus pcm", stereoDREDPCMTol)
 }

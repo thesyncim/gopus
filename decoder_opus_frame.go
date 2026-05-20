@@ -595,7 +595,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 
 	if mode != ModeSILK && data == nil {
 		// No extra work for PLC in CELT/Hybrid modes.
-	} else if mode == ModeSILK && d.prevMode == ModeHybrid && !(redundancy && celtToSilk && d.prevRedundancy) {
+	} else if d.haveDecoded && mode == ModeSILK && d.prevMode == ModeHybrid && !(redundancy && celtToSilk && d.prevRedundancy) {
 		samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(celtSilenceFrame2B[:], F2_5, packetStereoLocal)
 		if err != nil {
 			return 0, err

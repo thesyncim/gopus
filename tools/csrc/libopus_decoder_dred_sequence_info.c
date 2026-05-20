@@ -126,6 +126,8 @@ typedef struct {
   int silk_prev_signal_type;
   float silk_smid[2];
   float silk_outbuf[MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH];
+  float silk_slpc_q14[MAX_LPC_ORDER];
+  float silk_exc_q14[MAX_FRAME_LENGTH];
   float silk_resampler_iir[SILK_RESAMPLER_MAX_IIR_ORDER];
   float silk_resampler_fir[RESAMPLER_ORDER_FIR_12];
   float silk_resampler_delay[96];
@@ -259,6 +261,12 @@ static void capture_snapshot(OpusDecoder *dec, int ret, GopusSequenceSnapshot *s
     for (i = 0; i < MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH; i++) {
       snap->silk_outbuf[i] = (1.0f / 32768.0f) * silk_state->outBuf[i];
     }
+    for (i = 0; i < MAX_LPC_ORDER; i++) {
+      snap->silk_slpc_q14[i] = (float)silk_state->sLPC_Q14_buf[i];
+    }
+    for (i = 0; i < MAX_FRAME_LENGTH; i++) {
+      snap->silk_exc_q14[i] = (float)silk_state->exc_Q14[i];
+    }
     for (i = 0; i < SILK_RESAMPLER_MAX_IIR_ORDER; i++) {
       snap->silk_resampler_iir[i] = (float)silk_state->resampler_state.sIIR[i];
     }
@@ -314,6 +322,8 @@ static int write_snapshot(const GopusSequenceSnapshot *snap) {
       write_i32(snap->silk_prev_signal_type) &&
       write_f32_array(snap->silk_smid, 2) &&
       write_f32_array(snap->silk_outbuf, MAX_FRAME_LENGTH + 2 * MAX_SUB_FRAME_LENGTH) &&
+      write_f32_array(snap->silk_slpc_q14, MAX_LPC_ORDER) &&
+      write_f32_array(snap->silk_exc_q14, MAX_FRAME_LENGTH) &&
       write_f32_array(snap->silk_resampler_iir, SILK_RESAMPLER_MAX_IIR_ORDER) &&
       write_f32_array(snap->silk_resampler_fir, RESAMPLER_ORDER_FIR_12) &&
       write_f32_array(snap->silk_resampler_delay, 96);
