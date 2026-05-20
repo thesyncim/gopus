@@ -544,9 +544,7 @@ func assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracleWithTolerances(t *
 	if err != nil {
 		libopustest.HelperUnavailable(t, label+" decoder DRED sequence", err)
 	}
-	if want.carrierParseRet < 0 {
-		t.Skipf("%s libopus cached DRED sequence parse failed: %d", label, want.carrierParseRet)
-	}
+	requireLibopusDREDSequenceParsed(t, want, label+" cached first-loss")
 	if want.step0.ret != n {
 		t.Fatalf("%s libopus cached decoder first-loss ret=%d want %d", label, want.step0.ret, n)
 	}
@@ -579,9 +577,7 @@ func assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t 
 	if err != nil {
 		libopustest.HelperUnavailable(t, label+" decoder DRED sequence", err)
 	}
-	if want.carrierParseRet < 0 {
-		t.Skipf("%s libopus cached DRED sequence parse failed: %d", label, want.carrierParseRet)
-	}
+	requireLibopusDREDSequenceParsed(t, want, label+" cached second-loss")
 	if want.step0.ret != n {
 		t.Fatalf("%s libopus cached decoder first warmup ret=%d want %d", label, want.step0.ret, n)
 	}
@@ -670,9 +666,7 @@ func TestDecoderCachedStereoDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
-	if want.carrierParseRet < 0 {
-		t.Skipf("libopus cached stereo DRED sequence parse failed: %d", want.carrierParseRet)
-	}
+	requireLibopusDREDSequenceParsed(t, want, "cached stereo first-loss")
 	if want.channels != 2 {
 		t.Fatalf("libopus cached stereo DRED channels=%d want 2", want.channels)
 	}
@@ -730,9 +724,7 @@ func TestDecoderCachedStereoDREDSecondLossMatchesLiveSequenceOracle(t *testing.T
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
-	if want.carrierParseRet < 0 {
-		t.Skipf("libopus cached stereo DRED sequence parse failed: %d", want.carrierParseRet)
-	}
+	requireLibopusDREDSequenceParsed(t, want, "cached stereo second-loss")
 	if want.channels != 2 {
 		t.Fatalf("libopus cached stereo DRED channels=%d want 2", want.channels)
 	}
@@ -796,9 +788,7 @@ func TestDecoderCachedStereoDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
-	if want.carrierParseRet < 0 {
-		t.Skipf("libopus cached stereo DRED sequence parse failed: %d", want.carrierParseRet)
-	}
+	requireLibopusDREDSequenceParsed(t, want, "cached stereo first-loss next-packet")
 	if want.channels != 2 {
 		t.Fatalf("libopus cached stereo DRED channels=%d want 2", want.channels)
 	}
@@ -863,9 +853,7 @@ func TestDecoderCachedStereoDREDSecondLossThenNextPacketMatchesLiveSequenceOracl
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
-	if want.carrierParseRet < 0 {
-		t.Skipf("libopus cached stereo DRED sequence parse failed: %d", want.carrierParseRet)
-	}
+	requireLibopusDREDSequenceParsed(t, want, "cached stereo second-loss next-packet")
 	if want.channels != 2 {
 		t.Fatalf("libopus cached stereo DRED channels=%d want 2", want.channels)
 	}
@@ -1001,9 +989,7 @@ func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label
 	if err != nil {
 		libopustest.HelperUnavailable(t, label+" decoder DRED sequence", err)
 	}
-	if want.carrierParseRet < 0 {
-		t.Skipf("%s libopus cached stereo DRED sequence parse failed: %d", label, want.carrierParseRet)
-	}
+	requireLibopusDREDSequenceParsed(t, want, label+" cached stereo first-loss")
 	if want.channels != 2 {
 		t.Fatalf("%s libopus cached stereo DRED channels=%d want 2", label, want.channels)
 	}
@@ -1200,9 +1186,7 @@ func TestDecoderCachedDREDThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus cached CELT DRED sequence parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, fmt.Sprintf("cached CELT first-loss next-packet frame_size_%d", frameSize))
 			if want.step0.ret != n {
 				t.Fatalf("libopus cached CELT decoder first-loss ret=%d want %d", want.step0.ret, n)
 			}
@@ -1261,9 +1245,7 @@ func TestDecoderCachedDREDThenNextPacketCELTSuperwidebandMatchesLiveSequenceOrac
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus cached CELT SWB DRED sequence parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, fmt.Sprintf("cached CELT SWB first-loss next-packet frame_size_%d", frameSize))
 			if want.step0.ret != n {
 				t.Fatalf("libopus cached CELT SWB decoder first-loss ret=%d want %d", want.step0.ret, n)
 			}
@@ -1360,9 +1342,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketMatchesLiveSequenceOracle(t *t
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus cached CELT DRED sequence parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, fmt.Sprintf("cached CELT second-loss next-packet frame_size_%d", frameSize))
 			if want.step0.ret != n {
 				t.Fatalf("libopus cached CELT decoder first warmup ret=%d want %d", want.step0.ret, n)
 			}
@@ -1434,9 +1414,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTSuperwidebandMatchesLiveSe
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus cached CELT SWB DRED sequence parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, fmt.Sprintf("cached CELT SWB second-loss next-packet frame_size_%d", frameSize))
 			if want.step0.ret != n {
 				t.Fatalf("libopus cached CELT SWB decoder first warmup ret=%d want %d", want.step0.ret, n)
 			}
@@ -2013,9 +1991,7 @@ func TestDecoderCachedHybridDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, "cached hybrid first-loss next-packet "+tc.name)
 			if want.step0.ret != n {
 				t.Fatalf("libopus cached hybrid decoder first-loss ret=%d want %d", want.step0.ret, n)
 			}
@@ -2110,9 +2086,7 @@ func TestDecoderCachedHybridSecondLossThenNextPacketMatchesLiveSequenceOracle(t 
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, "cached hybrid second-loss next-packet "+tc.name)
 			if want.step0.ret != n {
 				t.Fatalf("libopus cached hybrid decoder first warmup ret=%d want %d", want.step0.ret, n)
 			}
@@ -2192,9 +2166,7 @@ func TestDecoderCachedHybridDRED16kDecodeMatrixMatchesLiveSequenceOracle(t *test
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus 16k cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, "16k cached hybrid first-loss "+tc.name)
 			if want.step0.ret != n {
 				t.Fatalf("libopus 16k cached hybrid decoder first-loss ret=%d want %d", want.step0.ret, n)
 			}
@@ -2250,9 +2222,7 @@ func TestDecoderCachedHybridDRED16kThenNextPacketMatchesLiveSequenceOracle(t *te
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus 16k cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, "16k cached hybrid first-loss next-packet "+tc.name)
 			if want.step0.ret != n {
 				t.Fatalf("libopus 16k cached hybrid decoder first-loss ret=%d want %d", want.step0.ret, n)
 			}
@@ -2319,9 +2289,7 @@ func TestDecoderCachedHybridDRED16kSecondLossMatchesLiveSequenceOracle(t *testin
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus 16k cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, "16k cached hybrid second-loss "+tc.name)
 			if want.step0.ret != n {
 				t.Fatalf("libopus 16k cached hybrid decoder first warmup ret=%d want %d", want.step0.ret, n)
 			}
@@ -2393,9 +2361,7 @@ func TestDecoderCachedHybridDRED16kSecondLossThenNextPacketMatchesLiveSequenceOr
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus 16k cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, "16k cached hybrid second-loss next-packet "+tc.name)
 			if want.step0.ret != n {
 				t.Fatalf("libopus 16k cached hybrid decoder first warmup ret=%d want %d", want.step0.ret, n)
 			}
@@ -4348,9 +4314,7 @@ func TestDecoderCachedDREDThenNextPacketCELTWidebandMatchesLiveSequenceOracle(t 
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus cached CELT WB DRED sequence parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, fmt.Sprintf("cached CELT WB first-loss next-packet frame_size_%d", frameSize))
 			if want.step0.ret != n {
 				t.Fatalf("libopus cached CELT WB decoder first-loss ret=%d want %d", want.step0.ret, n)
 			}
@@ -4428,9 +4392,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTWidebandMatchesLiveSequenc
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus cached CELT WB DRED sequence parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, fmt.Sprintf("cached CELT WB second-loss next-packet frame_size_%d", frameSize))
 			if want.step0.ret != n {
 				t.Fatalf("libopus cached CELT WB decoder first warmup ret=%d want %d", want.step0.ret, n)
 			}
