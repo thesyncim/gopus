@@ -166,6 +166,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	transitionRedundancy := transitionCeltToHybrid || transitionSilkToCELT
 	redundancyBytes := 0
 	var redundancyData []byte
+	var redundantRng uint32
 	if transitionRedundancy {
 		redundancyBytes = computeRedundancyBytes(baseTargetBytes, e.bitrate, frameRate, e.channels)
 		if transitionCeltToHybrid && redundancyBytes > 0 {
@@ -174,11 +175,12 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 			_, _, celtBitrateHBGainRed := e.computeHybridBitAllocationWithBudget(frameSize, baseTargetBytes, redundancyBytes)
 			hbGainRed := e.computeHBGain(celtBitrateHBGainRed)
 			redundancyPCM := e.prepareCELTTransitionRedundancyInput(celtPCM, hbGainRed)
-			data, err := e.encodeCELTTransitionRedundancy(redundancyPCM, frameSize, redundancyBytes)
+			data, rng, err := e.encodeCELTTransitionRedundancy(redundancyPCM, frameSize, redundancyBytes)
 			if err != nil {
 				return nil, err
 			}
 			redundancyData = data
+			redundantRng = rng
 			redundancyBytes = len(redundancyData)
 		}
 	}
@@ -470,6 +472,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 		hybridCELTTargetBytes = maxTargetBytes
 	}
 	e.encodeCELTHybridImproved(celtInput, frameSize, hybridCELTTargetBytes, silkSignalType, silkOffset, useFinalHybridVBRTarget, !useFinalHybridVBRTarget && maxPacketBytes == 0)
+	mainRng := e.celtEncoder.FinalRange()
 
 	// Update state for next frame
 	e.hybridState.prevHBGain = hbGain
@@ -477,11 +480,12 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	// Finalize and append optional transition redundancy payload.
 	mainPayload := re.Done()
 	if !redundancyActive {
+		e.hybridFinalRange = mainRng
 		return mainPayload, nil
 	}
 	if transitionSilkToCELT {
 		var err error
-		redundancyData, err = e.encodeCELTSilkToCELTRedundancy(celtInput, frameSize, redundancyBytes)
+		redundancyData, redundantRng, err = e.encodeCELTSilkToCELTRedundancy(celtInput, frameSize, redundancyBytes)
 		if err != nil {
 			return nil, err
 		}
@@ -495,6 +499,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	out := e.hybridState.scratchPacket[:len(mainPayload)+len(redundancyData)]
 	copy(out, mainPayload)
 	copy(out[len(mainPayload):], redundancyData)
+	e.hybridFinalRange = mainRng ^ redundantRng
 	return out, nil
 }
 
@@ -533,17 +538,17 @@ func computeRedundancyBytes(maxDataBytes, bitrateBps, frameRate, channels int) i
 
 // encodeCELTTransitionRedundancy encodes the 5ms CELT redundancy frame used for
 // CELT->SILK/Hybrid transitions.
-func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []float64, frameSize, redundancyBytes int) ([]byte, error) {
+func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []float64, frameSize, redundancyBytes int) ([]byte, uint32, error) {
 	if redundancyBytes < 2 || frameSize <= 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	redundancyFrameSize := e.sampleRate / 200 // 5 ms at 48 kHz
 	if redundancyFrameSize <= 0 || frameSize < redundancyFrameSize {
-		return nil, nil
+		return nil, 0, nil
 	}
 	redundancySamples := redundancyFrameSize * e.channels
 	if redundancySamples <= 0 || len(celtPCM) < redundancySamples {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	e.ensureCELTEncoder()
@@ -559,38 +564,39 @@ func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []float64, frameSize, r
 	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
 	redundancyData, err := e.celtEncoder.EncodeFrame(celtPCM[:redundancySamples], redundancyFrameSize)
+	redundantRng := e.celtEncoder.FinalRange()
 	e.celtEncoder.SetMaxPayloadBytes(0)
 	// libopus resets CELT after CELT->SILK redundancy generation.
 	e.celtEncoder.Reset()
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if len(redundancyData) < 2 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	if len(redundancyData) > len(e.hybridState.scratchRedundancy) {
-		return nil, ErrEncodingFailed
+		return nil, 0, ErrEncodingFailed
 	}
 	out := e.hybridState.scratchRedundancy[:len(redundancyData)]
 	copy(out, redundancyData)
-	return out, nil
+	return out, redundantRng, nil
 }
 
 // encodeCELTSilkToCELTRedundancy matches libopus SILK/Hybrid->CELT transition
 // redundancy: reset CELT, prefill with 2.5 ms from the frame tail, then encode a
 // 5 ms redundant CELT frame from the end of the current frame.
-func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []float64, frameSize, redundancyBytes int) ([]byte, error) {
+func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []float64, frameSize, redundancyBytes int) ([]byte, uint32, error) {
 	if redundancyBytes < 2 || frameSize <= 0 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	n2 := e.sampleRate / 200 // 5 ms at 48 kHz
 	n4 := e.sampleRate / 400 // 2.5 ms at 48 kHz
 	if n2 <= 0 || n4 <= 0 || frameSize < n2+n4 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	frameSamples := frameSize * e.channels
 	if frameSamples <= 0 || len(celtPCM) < frameSamples {
-		return nil, nil
+		return nil, 0, nil
 	}
 	prefillSamples := n4 * e.channels
 	redundancySamples := n2 * e.channels
@@ -599,7 +605,7 @@ func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []float64, frameSize, r
 	redundancyStart := frameSamples - redundancySamples
 	redundancyEnd := redundancyStart + redundancySamples
 	if prefillStart < 0 || prefillEnd > len(celtPCM) || redundancyStart < 0 || redundancyEnd > len(celtPCM) {
-		return nil, nil
+		return nil, 0, nil
 	}
 
 	e.ensureCELTEncoder()
@@ -623,19 +629,20 @@ func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []float64, frameSize, r
 
 	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
 	redundancyData, err := e.celtEncoder.EncodeFrame(celtPCM[redundancyStart:redundancyEnd], n2)
+	redundantRng := e.celtEncoder.FinalRange()
 	e.celtEncoder.SetMaxPayloadBytes(0)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	if len(redundancyData) < 2 {
-		return nil, nil
+		return nil, 0, nil
 	}
 	if len(redundancyData) > len(e.hybridState.scratchRedundancy) {
-		return nil, ErrEncodingFailed
+		return nil, 0, ErrEncodingFailed
 	}
 	out := e.hybridState.scratchRedundancy[:len(redundancyData)]
 	copy(out, redundancyData)
-	return out, nil
+	return out, redundantRng, nil
 }
 
 // prepareCELTTransitionRedundancyInput shapes the 5 ms transition input with the

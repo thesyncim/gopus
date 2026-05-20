@@ -116,6 +116,9 @@ type Encoder struct {
 	dtx        *dtxState
 	rng        uint32 // RNG for comfort noise
 	finalRange uint32
+	// hybridFinalRange stores the libopus final range for the last hybrid frame,
+	// including any CELT transition redundancy range.
+	hybridFinalRange uint32
 
 	// Complexity control (0-10, higher = better quality but slower)
 	complexity int
@@ -552,6 +555,9 @@ func (e *Encoder) currentFinalRange(mode Mode) uint32 {
 			return e.silkEncoder.FinalRange()
 		}
 	case ModeHybrid, ModeCELT:
+		if mode == ModeHybrid {
+			return e.hybridFinalRange
+		}
 		if e.celtEncoder != nil {
 			return e.celtEncoder.FinalRange()
 		}
