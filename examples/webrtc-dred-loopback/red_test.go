@@ -310,6 +310,73 @@ func TestReceiveLoopREDFECDREDPriority(t *testing.T) {
 	}
 }
 
+func TestReceiveLoopMixedGapUsesREDThenFECWithoutDRED(t *testing.T) {
+	var calls []string
+	var redPayloads [][]byte
+	var fecPayload []byte
+	e := newReceiveLoopTestEngine(engineConfig{RED: true, FEC: true, DRED: true})
+	e.fecEnabledHook = func(payload []byte) bool {
+		if string(payload) != string([]byte{0xb3}) {
+			t.Fatalf("FEC probe payload=%x want parsed RED primary b3", payload)
+		}
+		return true
+	}
+	e.prepareDREDHook = func(_ []byte, _ int) (int, bool) {
+		t.Fatal("DRED should not prepare after RED and FEC recover the gap")
+		return 0, false
+	}
+	e.decodeDREDHook = func(int) bool {
+		t.Fatal("DRED should not run after RED and FEC recover the gap")
+		return false
+	}
+	e.decodeHook = func(payload []byte, kind decodeKind) bool {
+		calls = append(calls, kind.String())
+		if kind == decodeFEC {
+			fecPayload = append([]byte(nil), payload...)
+		}
+		e.bumpDecodeStats(kind)
+		return true
+	}
+	e.decodeREDHook = func(payload []byte) bool {
+		calls = append(calls, "red")
+		redPayloads = append(redPayloads, append([]byte(nil), payload...))
+		e.bumpDecodeStats(decodeRED)
+		return true
+	}
+
+	redPayload, _ := buildREDPayload(
+		[]byte{0xb3},
+		103*frameSamples,
+		[]redHistoryFrame{{timestamp: 101 * frameSamples, payload: []byte{0xa1}}},
+		2,
+		frameSamples,
+	)
+	runReceiveLoopTest(t, e,
+		testPacket(100, redPayloadType, mustREDPayload(t, []byte{0x01}, nil)),
+		testPacket(103, redPayloadType, redPayload),
+	)
+
+	want := []string{decodeNormal.String(), "red", decodeFEC.String(), decodeNormal.String()}
+	if !sameStrings(calls, want) {
+		t.Fatalf("calls=%v want %v", calls, want)
+	}
+	if len(redPayloads) != 1 || string(redPayloads[0]) != string([]byte{0xa1}) {
+		t.Fatalf("RED payloads=%x want [a1]", redPayloads)
+	}
+	if string(fecPayload) != string([]byte{0xb3}) {
+		t.Fatalf("FEC payload=%x want parsed RED primary b3", fecPayload)
+	}
+	stats := e.Stats()
+	if stats.REDFrames != 1 || stats.REDRecoveryAttempts != 1 || stats.FECFrames != 1 || stats.FECRecoveryAttempts != 1 ||
+		stats.DREDRecoveryAttempts != 0 || stats.DREDFrames != 0 || stats.LossPathFrames != 0 ||
+		stats.REDFallbackFrames != 0 || stats.FECFallbackFrames != 0 || stats.DREDFallbackFrames != 0 {
+		t.Fatalf("stats red=%d/%d fec=%d/%d dred=%d/%d plc=%d fallbacks=%d/%d/%d, want red 1/1 fec 1/1 only",
+			stats.REDFrames, stats.REDRecoveryAttempts, stats.FECFrames, stats.FECRecoveryAttempts,
+			stats.DREDFrames, stats.DREDRecoveryAttempts, stats.LossPathFrames,
+			stats.REDFallbackFrames, stats.FECFallbackFrames, stats.DREDFallbackFrames)
+	}
+}
+
 func TestReceiveLoopREDDecodeFailureFallsBackThroughFECAndDRED(t *testing.T) {
 	var calls []string
 	var fecPayload []byte
