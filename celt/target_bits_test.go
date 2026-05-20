@@ -82,3 +82,28 @@ func TestComputeVBRTargetMatchesLibopusLowTonalityTransient(t *testing.T) {
 		t.Fatalf("computeVBRTarget low-tonality transient=%d want %d", got, want)
 	}
 }
+
+func TestCBRPayloadBytesDoesNotApplyVBR510kCap(t *testing.T) {
+	tests := []struct {
+		name      string
+		channels  int
+		bitrate   int
+		frameSize int
+		want      int
+	}{
+		{name: "stereo_10ms_packet_cap", channels: 2, bitrate: 1020000, frameSize: 480, want: 1274},
+		{name: "stereo_5ms_bitrate_max", channels: 2, bitrate: 1500000, frameSize: 240, want: 937},
+		{name: "mono_2_5ms_bitrate_max", channels: 1, bitrate: 1500000, frameSize: 120, want: 468},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enc := NewEncoder(tt.channels)
+			enc.SetVBR(false)
+			enc.SetBitrate(tt.bitrate)
+			if got := enc.cbrPayloadBytes(tt.frameSize); got != tt.want {
+				t.Fatalf("cbrPayloadBytes()=%d want %d", got, tt.want)
+			}
+		})
+	}
+}

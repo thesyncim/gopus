@@ -87,6 +87,49 @@ func TestRoundTrip_Mono_Float32(t *testing.T) {
 	}
 }
 
+func TestRestrictedCELTCBRBitrateMaxUsesFullCELTPayload(t *testing.T) {
+	const frameSize = 480
+
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationRestrictedCelt})
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	if err := enc.SetFrameSize(frameSize); err != nil {
+		t.Fatalf("SetFrameSize error: %v", err)
+	}
+	if err := enc.SetBitrate(BitrateMax); err != nil {
+		t.Fatalf("SetBitrate error: %v", err)
+	}
+	if err := enc.SetBitrateMode(BitrateModeCBR); err != nil {
+		t.Fatalf("SetBitrateMode error: %v", err)
+	}
+
+	pcm := generateSineWaveFloat32(48000, 1000, frameSize, 2)
+	packet := make([]byte, 1275)
+	n, err := enc.Encode(pcm, packet)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+	packet = packet[:n]
+	if len(packet) != 1275 {
+		t.Fatalf("packet length=%d want 1275", len(packet))
+	}
+
+	info, err := ParsePacket(packet)
+	if err != nil {
+		t.Fatalf("ParsePacket error: %v", err)
+	}
+	if info.TOC.Mode != ModeCELT || info.TOC.Bandwidth != BandwidthFullband || info.TOC.FrameSize != frameSize {
+		t.Fatalf("TOC=%+v want fullband CELT frameSize=%d", info.TOC, frameSize)
+	}
+	if info.FrameCount != 1 || len(info.FrameSizes) != 1 {
+		t.Fatalf("parsed frames=%d sizes=%v want one frame", info.FrameCount, info.FrameSizes)
+	}
+	if got := info.FrameSizes[0]; got != 1274 {
+		t.Fatalf("primary CELT frame size=%d want 1274", got)
+	}
+}
+
 // TestRoundTrip_Stereo_Float32 tests stereo float32 encode/decode round-trip.
 func TestRoundTrip_Stereo_Float32(t *testing.T) {
 	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})

@@ -8,6 +8,8 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+const opusBitrateMax = -1
+
 // Encoder encodes audio frames using CELT transform coding.
 // It maintains state across frames for proper audio continuity via energy
 // prediction and overlap-add analysis.

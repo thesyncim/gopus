@@ -1931,6 +1931,20 @@ func (e *Encoder) bitrateToBits(frameSize int) int {
 func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 	const fs = 48000
 	bitrate := e.targetBitrate
+	if bitrate == opusBitrateMax {
+		packetSizeCap := 1275
+		if e.qextActive() && !e.hybrid {
+			packetSizeCap = qextPacketSizeCap
+		}
+		payload := packetSizeCap - 1
+		if e.maxPayloadBytes > 0 && payload > e.maxPayloadBytes {
+			payload = e.maxPayloadBytes
+		}
+		if payload < 0 {
+			payload = 0
+		}
+		return payload
+	}
 	if bitrate <= 0 {
 		if e.channels == 2 {
 			bitrate = 128000
@@ -1940,9 +1954,6 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 	}
 	if bitrate < 6000 {
 		bitrate = 6000
-	}
-	if bitrate > 510000 {
-		bitrate = 510000
 	}
 	nbCompressed := (bitrate*frameSize + 4*fs) / (8 * fs)
 	if nbCompressed < 2 {
