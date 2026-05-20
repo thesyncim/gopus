@@ -130,13 +130,7 @@ type streamState struct {
 	ignoreExtensions   bool
 	complexity         int
 
-	// osceLACEEnabled / osceBWEEnabled mirror the libopus DecControl bits
-	// (osce_method != OSCE_METHOD_NONE / enable_osce_bwe) fanned out by the
-	// multistream Decoder. Storage of the model-loaded flags lives in
-	// `osceState` (allocated lazily under the extra-controls build).
-	osceLACEEnabled bool
-	osceBWEEnabled  bool
-	osceState       *streamOSCEState
+	streamOSCEFields
 }
 
 func newStreamDecoder(sampleRate, channels int) *streamState {
@@ -560,15 +554,11 @@ type Decoder struct {
 	projectionScratch  []float64
 	ignoreExtensions   bool
 	dnnBlob            *dnnblob.Blob
-	dredDNNBlob        *dnnblob.Blob
-	pitchDNNLoaded     bool
-	plcModelLoaded     bool
-	farganModelLoaded  bool
-	osceModelsLoaded   bool
-	osceBWEModelLoaded bool
-	osceBWEEnabled     bool
-	osceLACEEnabled    bool
-	dred               *decoderDREDState
+	decoderDREDFields
+	decoderOSCEFields
+	pitchDNNLoaded    bool
+	plcModelLoaded    bool
+	farganModelLoaded bool
 }
 
 // NewDecoder creates a new multistream decoder.

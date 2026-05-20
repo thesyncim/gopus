@@ -50,26 +50,26 @@ func TestNewDecoderLeavesDREDSidecarDormant(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewDecoderDefault error: %v", err)
 			}
-			if dec.dred != nil {
-				t.Fatalf("default build allocated multistream DRED sidecar after construction: %+v", dec.dred)
+			if dec.dredState() != nil {
+				t.Fatalf("default build allocated multistream DRED sidecar after construction: %+v", dec.dredState())
 			}
 
 			dec.SetDNNBlob(nil)
-			if dec.dred != nil {
-				t.Fatalf("default SetDNNBlob(nil) allocated multistream DRED sidecar: %+v", dec.dred)
+			if dec.dredState() != nil {
+				t.Fatalf("default SetDNNBlob(nil) allocated multistream DRED sidecar: %+v", dec.dredState())
 			}
 
 			// Reset must not stir the dormant sidecar awake on default builds.
 			dec.Reset()
-			if dec.dred != nil {
-				t.Fatalf("Reset awakened dormant DRED sidecar: %+v", dec.dred)
+			if dec.dredState() != nil {
+				t.Fatalf("Reset awakened dormant DRED sidecar: %+v", dec.dredState())
 			}
 
 			// A second SetDNNBlob(nil) / Reset cycle must remain dormant.
 			dec.SetDNNBlob(nil)
 			dec.Reset()
-			if dec.dred != nil {
-				t.Fatalf("repeated nil-blob/Reset cycle awakened DRED sidecar: %+v", dec.dred)
+			if dec.dredState() != nil {
+				t.Fatalf("repeated nil-blob/Reset cycle awakened DRED sidecar: %+v", dec.dredState())
 			}
 		})
 	}
@@ -133,8 +133,8 @@ func TestDefaultBuildMultistreamDecoderRealBlobDormant(t *testing.T) {
 	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
 		t.Fatal("SetDNNBlob did not flip model-loaded flags for a validated decoder blob")
 	}
-	if dec.dred != nil {
-		t.Fatalf("default build SetDNNBlob(real blob) allocated DRED sidecar: %+v", dec.dred)
+	if dec.dredState() != nil {
+		t.Fatalf("default build SetDNNBlob(real blob) allocated DRED sidecar: %+v", dec.dredState())
 	}
 
 	// Encode a real multistream packet so we can drive Decode end-to-end.
@@ -155,16 +155,16 @@ func TestDefaultBuildMultistreamDecoderRealBlobDormant(t *testing.T) {
 	if len(out) != frameSize*channels {
 		t.Fatalf("Decode produced %d samples, want %d", len(out), frameSize*channels)
 	}
-	if dec.dred != nil {
-		t.Fatalf("default build Decode after real-blob SetDNNBlob allocated DRED sidecar: %+v", dec.dred)
+	if dec.dredState() != nil {
+		t.Fatalf("default build Decode after real-blob SetDNNBlob allocated DRED sidecar: %+v", dec.dredState())
 	}
 
 	// Drive PLC and confirm the dormant sidecar stays nil.
 	if _, err := dec.Decode(nil, frameSize); err != nil {
 		t.Fatalf("Decode(nil) error: %v", err)
 	}
-	if dec.dred != nil {
-		t.Fatalf("default build Decode(nil) after real-blob SetDNNBlob allocated DRED sidecar: %+v", dec.dred)
+	if dec.dredState() != nil {
+		t.Fatalf("default build Decode(nil) after real-blob SetDNNBlob allocated DRED sidecar: %+v", dec.dredState())
 	}
 
 	// Reset must not stir the dormant sidecar, and the retained blob/flags
@@ -176,8 +176,8 @@ func TestDefaultBuildMultistreamDecoderRealBlobDormant(t *testing.T) {
 	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
 		t.Fatal("Reset cleared multistream decoder model-loaded flags")
 	}
-	if dec.dred != nil {
-		t.Fatalf("default build Reset after real-blob SetDNNBlob allocated DRED sidecar: %+v", dec.dred)
+	if dec.dredState() != nil {
+		t.Fatalf("default build Reset after real-blob SetDNNBlob allocated DRED sidecar: %+v", dec.dredState())
 	}
 
 	// A second Decode/Decode(nil) cycle after Reset must remain dormant.
@@ -187,8 +187,8 @@ func TestDefaultBuildMultistreamDecoderRealBlobDormant(t *testing.T) {
 	if _, err := dec.Decode(nil, frameSize); err != nil {
 		t.Fatalf("Decode(nil) after Reset error: %v", err)
 	}
-	if dec.dred != nil {
-		t.Fatalf("default build Decode cycle after Reset awakened DRED sidecar: %+v", dec.dred)
+	if dec.dredState() != nil {
+		t.Fatalf("default build Decode cycle after Reset awakened DRED sidecar: %+v", dec.dredState())
 	}
 
 	// Allocation guard: Decode(nil) on the armed decoder must not allocate any
@@ -214,8 +214,8 @@ func TestDefaultBuildMultistreamDecoderRealBlobDormant(t *testing.T) {
 	if armedAllocs > baselineAllocs {
 		t.Fatalf("default build Decode(nil) after SetDNNBlob allocs/op = %.2f, want at most baseline %.2f", armedAllocs, baselineAllocs)
 	}
-	if dec.dred != nil {
-		t.Fatalf("default build allocation guard awakened DRED sidecar: %+v", dec.dred)
+	if dec.dredState() != nil {
+		t.Fatalf("default build allocation guard awakened DRED sidecar: %+v", dec.dredState())
 	}
 }
 
@@ -244,8 +244,8 @@ func TestDefaultBuildMultistreamDecoderDecodeAllocGuard(t *testing.T) {
 		t.Fatalf("armed NewDecoderDefault error: %v", err)
 	}
 	armed.SetDNNBlob(blob)
-	if armed.dred != nil {
-		t.Fatalf("default build SetDNNBlob(real blob) allocated multistream DRED sidecar: %+v", armed.dred)
+	if armed.dredState() != nil {
+		t.Fatalf("default build SetDNNBlob(real blob) allocated multistream DRED sidecar: %+v", armed.dredState())
 	}
 
 	// Build a real stereo CELT packet via the multistream encoder default
@@ -282,8 +282,8 @@ func TestDefaultBuildMultistreamDecoderDecodeAllocGuard(t *testing.T) {
 	if armedAllocs > baselineAllocs {
 		t.Fatalf("default build Decode after SetDNNBlob allocs/op = %.2f, want at most baseline %.2f", armedAllocs, baselineAllocs)
 	}
-	if armed.dred != nil {
-		t.Fatalf("default build Decode alloc guard awakened multistream DRED sidecar: %+v", armed.dred)
+	if armed.dredState() != nil {
+		t.Fatalf("default build Decode alloc guard awakened multistream DRED sidecar: %+v", armed.dredState())
 	}
 }
 

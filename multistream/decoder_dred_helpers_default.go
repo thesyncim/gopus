@@ -5,6 +5,10 @@ package multistream
 
 type decoderDREDState struct{}
 
+func (d *Decoder) dredState() *decoderDREDState {
+	return nil
+}
+
 func (d *Decoder) resetDREDRuntimeState() {}
 
 func (d *Decoder) dredSidecarActive() bool {

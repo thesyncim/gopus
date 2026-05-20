@@ -82,10 +82,12 @@ func TestStreamOSCEInactiveMarkClearsNonSILKState(t *testing.T) {
 	st := &streamState{
 		channels:   2,
 		sampleRate: 48000,
-		osceState: &streamOSCEState{
-			prevLACEActive: true,
-			prevBWEActive:  true,
-			laceMethod:     streamOSCELACEModeLACE,
+		streamOSCEFields: streamOSCEFields{
+			osceState: &streamOSCEState{
+				prevLACEActive: true,
+				prevBWEActive:  true,
+				laceMethod:     streamOSCELACEModeLACE,
+			},
 		},
 	}
 	st.osceState.laceResetFrames[0] = 2
@@ -108,10 +110,12 @@ func TestStreamOSCEInactiveMarkKeepsSILKWBState(t *testing.T) {
 	st := &streamState{
 		channels:   1,
 		sampleRate: 48000,
-		osceState: &streamOSCEState{
-			prevLACEActive: true,
-			prevBWEActive:  true,
-			laceMethod:     streamOSCELACEModeLACE,
+		streamOSCEFields: streamOSCEFields{
+			osceState: &streamOSCEState{
+				prevLACEActive: true,
+				prevBWEActive:  true,
+				laceMethod:     streamOSCELACEModeLACE,
+			},
 		},
 	}
 
@@ -127,14 +131,16 @@ func TestStreamOSCEInactiveMarkKeepsSILKWBState(t *testing.T) {
 
 func TestStreamOSCEPLCSilkResetsLACEAndClearsInactiveBWE(t *testing.T) {
 	st := &streamState{
-		channels:        1,
-		sampleRate:      48000,
-		osceLACEEnabled: true,
-		osceBWEEnabled:  true,
-		osceState: &streamOSCEState{
-			prevLACEActive: true,
-			prevBWEActive:  true,
-			laceMethod:     streamOSCELACEModeLACE,
+		channels:   1,
+		sampleRate: 48000,
+		streamOSCEFields: streamOSCEFields{
+			osceLACEEnabled: true,
+			osceBWEEnabled:  true,
+			osceState: &streamOSCEState{
+				prevLACEActive: true,
+				prevBWEActive:  true,
+				laceMethod:     streamOSCELACEModeLACE,
+			},
 		},
 	}
 
