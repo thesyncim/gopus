@@ -94,7 +94,7 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			refOut, err := runOSCELACEForwardHelper(binPath, inputLen, tc.mode)
 			if err != nil {
-				t.Skipf("libopus OSCE %s forward helper run failed: %v", tc.mode, err)
+				t.Fatalf("libopus OSCE %s forward helper run failed: %v", tc.mode, err)
 			}
 			if len(refOut) != inputLen {
 				t.Fatalf("libopus reference output: got %d samples, want %d", len(refOut), inputLen)
@@ -211,7 +211,7 @@ func TestOSCELACEForwardTraceLocatesFirstDivergence(t *testing.T) {
 
 	refRecords, err := runOSCELACEForwardTraceHelper(binPath, inputLen, "lace")
 	if err != nil {
-		t.Skipf("libopus OSCE LACE trace helper run failed: %v", err)
+		t.Fatalf("libopus OSCE LACE trace helper run failed: %v", err)
 	}
 
 	var state osceLACE.LACEState

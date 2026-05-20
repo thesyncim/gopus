@@ -82,7 +82,7 @@ func TestOSCEBWEForwardPassMatchesLibopusNumericalParity(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			refFeatures, refOut, err := runOSCEBWEForwardHelper(binPath, tc.numIn16)
 			if err != nil {
-				t.Skipf("libopus OSCE BWE forward helper run failed: %v", err)
+				t.Fatalf("libopus OSCE BWE forward helper run failed: %v", err)
 			}
 			if len(refFeatures) != tc.numFrames*osceBWE.FeatureDim {
 				t.Fatalf("libopus reference features: got %d floats, want %d", len(refFeatures), tc.numFrames*osceBWE.FeatureDim)
@@ -236,7 +236,7 @@ func TestOSCEBWERawSignalNetMatchesLibopus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			refFeatures, refOut, err := runOSCEBWEForwardHelperMode(binPath, tc.numIn16, tc.mode)
 			if err != nil {
-				t.Skipf("libopus OSCE BWE raw helper failed: %v", err)
+				t.Fatalf("libopus OSCE BWE raw helper failed: %v", err)
 			}
 			if len(refOut) != 3*tc.numIn16 {
 				t.Fatalf("libopus raw output: got %d samples, want %d", len(refOut), 3*tc.numIn16)
@@ -261,7 +261,7 @@ func TestOSCEBWERawSignalNetMatchesLibopus(t *testing.T) {
 			if tc.mode == "raw-consecutive" {
 				firstFeatures, _, err := runOSCEBWEForwardHelperMode(binPath, tc.numIn16, "raw")
 				if err != nil {
-					t.Skipf("libopus OSCE BWE first-frame raw helper failed: %v", err)
+					t.Fatalf("libopus OSCE BWE first-frame raw helper failed: %v", err)
 				}
 				scratch := make([]float32, 3*tc.numIn16)
 				if err := state.Process(in16f, scratch, firstFeatures); err != nil {
@@ -336,7 +336,7 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 
 	refFeatures, refOut, err := runOSCEBWEForwardHelperMode(binPath, numIn16, "consecutive")
 	if err != nil {
-		t.Skipf("libopus OSCE BWE consecutive helper failed: %v", err)
+		t.Fatalf("libopus OSCE BWE consecutive helper failed: %v", err)
 	}
 	if len(refFeatures) != numFrames*osceBWE.FeatureDim {
 		t.Fatalf("libopus consecutive features: got %d floats, want %d", len(refFeatures), numFrames*osceBWE.FeatureDim)
@@ -427,7 +427,7 @@ func TestOSCEBWEForwardPassPLCContinuityMatchesLibopus(t *testing.T) {
 	// First frame: libopus features (snapshot from a fresh feature state).
 	refFeatures1, _, err := runOSCEBWEForwardHelperMode(binPath, numIn16, "")
 	if err != nil {
-		t.Skipf("libopus OSCE BWE forward helper failed: %v", err)
+		t.Fatalf("libopus OSCE BWE forward helper failed: %v", err)
 	}
 	scratch := make([]float32, 3*numIn16)
 	if err := state2.ProcessDelayed(in16f, scratch, refFeatures1); err != nil {
@@ -483,7 +483,7 @@ func TestOSCEBWECrossFade10msMatchesLibopus(t *testing.T) {
 	const numIn16 = 160
 	_, refOut, err := runOSCEBWEForwardHelperMode(binPath, numIn16, "crossfade")
 	if err != nil {
-		t.Skipf("libopus OSCE BWE crossfade helper failed: %v", err)
+		t.Fatalf("libopus OSCE BWE crossfade helper failed: %v", err)
 	}
 	if len(refOut) != 480 {
 		t.Fatalf("libopus crossfade output: got %d samples, want 480", len(refOut))
