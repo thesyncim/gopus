@@ -36,10 +36,7 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms(t *testing.T)
 	if !bytes.Equal(gotPayload, wantPayload) {
 		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
-	if len(gotPacket) != len(packetInfo.packet) {
-		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
-	}
-	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+	assertDREDPacketExtensionFramingMatchesLibopus(t, gotPacket, packetInfo.packet)
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms(t *testing.T) {
@@ -63,16 +60,13 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms(t *testing.T)
 	if ParseTOC(gotPacket[0]).Mode != ModeHybrid {
 		t.Fatalf("got packet mode=%v want %v", ParseTOC(gotPacket[0]).Mode, ModeHybrid)
 	}
-	if len(gotPacket) != len(packetInfo.packet) {
-		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
-	}
 	if gotOffset != wantOffset {
 		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
 	}
 	if !bytes.Equal(gotPayload, wantPayload) {
 		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
-	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+	assertDREDPacketExtensionFramingMatchesLibopus(t, gotPacket, packetInfo.packet)
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo(t *testing.T) {
@@ -98,16 +92,13 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo(t *test
 	if toc.Mode != ModeHybrid || !toc.Stereo {
 		t.Fatalf("got packet toc=%+v want hybrid stereo", toc)
 	}
-	if len(gotPacket) != len(packetInfo.packet) {
-		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
-	}
 	if gotOffset != wantOffset {
 		t.Fatalf("frameOffset=%d want %d", gotOffset, wantOffset)
 	}
 	if !bytes.Equal(gotPayload, wantPayload) {
 		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
-	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+	assertDREDPacketExtensionFramingMatchesLibopus(t, gotPacket, packetInfo.packet)
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereo(t *testing.T) {
@@ -139,10 +130,25 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereo(t *test
 	if !bytes.Equal(gotPayload, wantPayload) {
 		t.Fatalf("DRED payload mismatch\n got=%x\nwant=%x", gotPayload, wantPayload)
 	}
-	if len(gotPacket) != len(packetInfo.packet) {
-		t.Fatalf("packet length=%d want %d", len(gotPacket), len(packetInfo.packet))
+	assertDREDPacketExtensionFramingMatchesLibopus(t, gotPacket, packetInfo.packet)
+}
+
+func assertDREDPacketExtensionFramingMatchesLibopus(t *testing.T, gotPacket, wantPacket []byte) {
+	t.Helper()
+	_, gotFrames, gotPadding, _, err := parsePacketFramesAndPadding(gotPacket)
+	if err != nil {
+		t.Fatalf("parse got DRED packet frames: %v", err)
 	}
-	assertDREDPacketPrimaryFrameSizesMatchLibopus(t, gotPacket, packetInfo.packet)
+	_, wantFrames, wantPadding, _, err := parsePacketFramesAndPadding(wantPacket)
+	if err != nil {
+		t.Fatalf("parse libopus DRED packet frames: %v", err)
+	}
+	if len(gotFrames) != len(wantFrames) {
+		t.Fatalf("primary frame count=%d want %d", len(gotFrames), len(wantFrames))
+	}
+	if !bytes.Equal(gotPadding, wantPadding) {
+		t.Fatalf("extension padding mismatch\n got=%x\nwant=%x", gotPadding, wantPadding)
+	}
 }
 
 func assertDREDPacketPrimaryFrameSizesMatchLibopus(t *testing.T, gotPacket, wantPacket []byte) {

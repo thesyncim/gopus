@@ -106,7 +106,7 @@ func resolveUserBitrate(userBitrate, sampleRate, channels, frameSize, maxDataByt
 		frameSize = sampleRate / 400
 	}
 	maxBitrate := maxDataBytes * 8 * sampleRate / frameSize
-	user := userBitrate
+	var user int
 	switch userBitrate {
 	case BitrateAuto:
 		user = 60*sampleRate/frameSize + sampleRate*channels

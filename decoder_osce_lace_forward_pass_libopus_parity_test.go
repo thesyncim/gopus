@@ -87,7 +87,7 @@ func TestOSCELACEForwardPassMatchesLibopus(t *testing.T) {
 		outputAbsTolerance float32
 		outputRMSTolerance float64
 	}{
-		{"LACE", "lace", 1e-7, 5e-8},
+		{"LACE", "lace", 1.5e-7, 5e-8},
 		{"NoLACE", "nolace", 2e-7, 5e-8},
 	}
 

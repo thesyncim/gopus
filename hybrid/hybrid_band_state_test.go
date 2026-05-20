@@ -57,31 +57,29 @@ func TestHybridStartEndBandState(t *testing.T) {
 	dec := NewDecoder(2)
 	const eps = 1e-9
 
-	for _, pkt := range candidates {
-		dec.Reset()
-		dec.SetBandwidth(pkt.bw)
-		if _, err := dec.DecodeWithPacketStereo(pkt.payload, pkt.frameSize, pkt.stereo); err != nil {
-			t.Fatalf("%s hybrid decode failed: %v", pkt.name, err)
-		}
+	pkt := candidates[0]
+	dec.Reset()
+	dec.SetBandwidth(pkt.bw)
+	if _, err := dec.DecodeWithPacketStereo(pkt.payload, pkt.frameSize, pkt.stereo); err != nil {
+		t.Fatalf("%s hybrid decode failed: %v", pkt.name, err)
+	}
 
-		start := HybridCELTStartBand
-		end := celt.EffectiveBandsForFrameSize(pkt.bw, pkt.frameSize)
-		energies := dec.celtDecoder.PrevEnergy()
+	start := HybridCELTStartBand
+	end := celt.EffectiveBandsForFrameSize(pkt.bw, pkt.frameSize)
+	energies := dec.celtDecoder.PrevEnergy()
 
-		for c := 0; c < dec.channels; c++ {
-			base := c * celt.MaxBands
-			for b := 0; b < start; b++ {
-				if math.Abs(energies[base+b]) > eps {
-					t.Fatalf("%s band %d (ch %d) not cleared below start=%d: %.6f", pkt.name, b, c, start, energies[base+b])
-				}
-			}
-			for b := end; b < celt.MaxBands; b++ {
-				if math.Abs(energies[base+b]) > eps {
-					t.Fatalf("%s band %d (ch %d) not cleared above end=%d: %.6f", pkt.name, b, c, end, energies[base+b])
-				}
+	for c := 0; c < dec.channels; c++ {
+		base := c * celt.MaxBands
+		for b := 0; b < start; b++ {
+			if math.Abs(energies[base+b]) > eps {
+				t.Fatalf("%s band %d (ch %d) not cleared below start=%d: %.6f", pkt.name, b, c, start, energies[base+b])
 			}
 		}
-		return
+		for b := end; b < celt.MaxBands; b++ {
+			if math.Abs(energies[base+b]) > eps {
+				t.Fatalf("%s band %d (ch %d) not cleared above end=%d: %.6f", pkt.name, b, c, end, energies[base+b])
+			}
+		}
 	}
 }
 
