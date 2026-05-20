@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	oggcontainer "github.com/thesyncim/gopus/container/ogg"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 // Ogg CRC-32 lookup table (polynomial 0x04c11db7)
@@ -552,6 +553,7 @@ func expectedDecodedSampleCount(numFrames, frameSize, channels int) int {
 
 func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 	t.Helper()
+	libopustest.RequireOracle(t)
 
 	enc, err := NewEncoderDefault(48000, channels)
 	if err != nil {
@@ -653,7 +655,7 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 		packets,
 	)
 	if err != nil {
-		t.Skipf("libopus reference decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "reference decode", err)
 	}
 
 	preSkip := int(head.PreSkip) * channels
@@ -693,6 +695,7 @@ func TestLibopus_71Surround(t *testing.T) {
 // TestLibopus_DefaultMappingMatrix validates all default mapping-family channel layouts
 // (1..8 channels) against libopus decode and checks internal decoder agreement.
 func TestLibopus_DefaultMappingMatrix(t *testing.T) {
+	libopustest.RequireOracle(t)
 	cases := []struct {
 		name     string
 		channels int
@@ -793,7 +796,7 @@ func TestLibopus_DefaultMappingMatrix(t *testing.T) {
 				packets,
 			)
 			if err != nil {
-				t.Skipf("libopus reference decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "reference decode", err)
 			}
 
 			preSkip := int(head.PreSkip) * tc.channels
@@ -823,6 +826,7 @@ func TestLibopus_DefaultMappingMatrix(t *testing.T) {
 // TestLibopus_FrameDurationMatrix validates multistream libopus compatibility
 // across long/short Opus frame durations.
 func TestLibopus_FrameDurationMatrix(t *testing.T) {
+	libopustest.RequireOracle(t)
 	layouts := []struct {
 		name     string
 		channels int
@@ -911,7 +915,7 @@ func TestLibopus_FrameDurationMatrix(t *testing.T) {
 					packets,
 				)
 				if err != nil {
-					t.Skipf("libopus reference decode helper unavailable: %v", err)
+					libopustest.HelperUnavailable(t, "reference decode", err)
 				}
 
 				preSkip := int(head.PreSkip) * layout.channels
@@ -940,6 +944,7 @@ func TestLibopus_FrameDurationMatrix(t *testing.T) {
 
 func runLibopusAmbisonicsParityCase(t *testing.T, mappingFamily, channels, bitrate int) {
 	t.Helper()
+	libopustest.RequireOracle(t)
 
 	enc, err := NewEncoderAmbisonics(48000, channels, mappingFamily)
 	if err != nil {
@@ -1038,7 +1043,7 @@ func runLibopusAmbisonicsParityCase(t *testing.T, mappingFamily, channels, bitra
 		packets,
 	)
 	if err != nil {
-		t.Skipf("libopus reference decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "reference decode", err)
 	}
 
 	preSkip := int(head.PreSkip) * channels

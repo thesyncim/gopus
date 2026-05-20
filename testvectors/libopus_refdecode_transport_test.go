@@ -3,11 +3,14 @@ package testvectors
 import (
 	"encoding/hex"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestLibopusReferenceSingleDecodeBinaryTransport(t *testing.T) {
+	libopustest.RequireOracle(t)
 	if _, err := getLibopusRefdecodeSinglePath(); err != nil {
-		t.Skipf("libopus reference decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "reference decode", err)
 	}
 
 	packet, err := hex.DecodeString("f07e205545fdb24e3ed7bb68fd783712689ec4cd56eb3186ae9077b60aa0dfda515e3aa4db52bcac855cbcb57b8a61115f6c799313ad2fd8306bc44685533557c03ac9eceef1a589935c62d82d5fb4ea")
