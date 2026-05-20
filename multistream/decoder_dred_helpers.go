@@ -192,7 +192,7 @@ func (d *Decoder) dredPayloadScannerActive() bool {
 
 func (d *Decoder) clearDREDPayloadState() {
 	s := d.dredState()
-	if s == nil || len(s.dredCache) == 0 {
+	if s == nil {
 		return
 	}
 	for i := range s.dredCache {
@@ -203,6 +203,9 @@ func (d *Decoder) clearDREDPayloadState() {
 			s.dredRecovery[i] = 0
 		}
 		s.dredBlend[i] = s.dredPLC[i].Blend()
+	}
+	for i := range s.dredBridge {
+		s.dredBridge[i] = decoderDRED48kBridgeState{}
 	}
 }
 

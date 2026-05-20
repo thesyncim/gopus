@@ -1128,6 +1128,35 @@ func TestDecoderDREDCacheFollowsStandaloneModelAndIgnoreExtensions(t *testing.T)
 	}
 }
 
+func TestDecoderSetIgnoreExtensionsClearsDREDNeuralBridge(t *testing.T) {
+	dec, err := NewDecoderDefault(48000, 3)
+	if err != nil {
+		t.Fatalf("NewDecoderDefault error: %v", err)
+	}
+	setStandaloneDREDDecoderBlobForTest(t, dec)
+	dec.ensureDREDSidecar()
+	if dec.dred == nil || len(dec.dred.dredBridge) < 2 {
+		t.Fatalf("DRED sidecar not initialized: %+v", dec.dred)
+	}
+
+	dec.dred.dredBridge[1].dredLastNeural = true
+	dec.dred.dredBridge[1].dredPLCFill = 7
+	dec.dred.dredBridge[1].dredPLCPreemphMem = 0.25
+	dec.dred.dredBridge[1].dredPLCPCM[0] = 0.5
+	dec.dred.dredBridge[1].dredPLCUpdate[0] = -0.5
+	if !dec.dredSidecarActive() {
+		t.Fatal("expected DRED bridge to mark sidecar active")
+	}
+
+	dec.SetIgnoreExtensions(true)
+	if got := dec.dred.dredBridge[1]; got != (decoderDRED48kBridgeState{}) {
+		t.Fatalf("SetIgnoreExtensions(true) left DRED bridge=%+v want zero state", got)
+	}
+	if dec.dredSidecarActive() {
+		t.Fatalf("SetIgnoreExtensions(true) left DRED sidecar active: %+v", dec.dred)
+	}
+}
+
 func TestDecoderDoesNotCachePartialDREDStateWhenLaterStreamFails(t *testing.T) {
 	packet := makeMultistreamPacketWithDREDForTest(t, 3, 0, makeExperimentalDREDPayloadBodyForTest(t, 0, 4))
 
