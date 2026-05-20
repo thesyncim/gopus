@@ -46,6 +46,7 @@ go test -tags gopus_extra_controls ./...
 
 ```sh
 make test-dnn-blob-parity
+make test-core-oracles-parity
 make test-qext-parity
 make test-dred-tag
 make test-extra-controls-parity
