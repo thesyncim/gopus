@@ -14,6 +14,7 @@ import (
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
@@ -424,11 +425,11 @@ func prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t *testin
 
 	packetInfo, err := emitLibopusDREDPacketWithConfig(packetCfg)
 	if err != nil {
-		t.Skipf("libopus dred packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred packet", err)
 	}
 	modelBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
-		t.Skipf("libopus dred model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred model", err)
 	}
 	channels := 1
 	toc := ParseTOC(packetInfo.packet[0])
@@ -498,7 +499,7 @@ func prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t *te
 	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
 	modelBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
-		t.Skipf("libopus dred model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred model", err)
 	}
 
 	channels := 1
@@ -552,7 +553,7 @@ func assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracleWithTolerances(t *
 	dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, false)
 	if err != nil {
-		t.Skipf("%s libopus decoder DRED sequence helper unavailable: %v", label, err)
+		libopustest.HelperUnavailable(t, label+" decoder DRED sequence", err)
 	}
 	if want.carrierParseRet < 0 {
 		t.Skipf("%s libopus cached DRED sequence parse failed: %d", label, want.carrierParseRet)
@@ -587,7 +588,7 @@ func assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t 
 	dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, false)
 	if err != nil {
-		t.Skipf("%s libopus decoder DRED sequence helper unavailable: %v", label, err)
+		libopustest.HelperUnavailable(t, label+" decoder DRED sequence", err)
 	}
 	if want.carrierParseRet < 0 {
 		t.Skipf("%s libopus cached DRED sequence parse failed: %d", label, want.carrierParseRet)
@@ -637,6 +638,7 @@ func decoderDREDLiveSequenceTolerances(frameSize int) (pcmTol, plcTol, farganTol
 }
 
 func TestDecoderCachedDREDDecodeMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -646,7 +648,7 @@ func TestDecoderCachedDREDDecodeMatrixMatchesLiveSequenceOracle(t *testing.T) {
 				Bandwidth: BandwidthFullband,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
 			assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracleWithTolerances(t, "cached CELT", packetInfo, pcmTol, plcTol, farganTol, celtTol)
@@ -655,6 +657,7 @@ func TestDecoderCachedDREDDecodeMatrixMatchesLiveSequenceOracle(t *testing.T) {
 }
 
 func TestDecoderCachedStereoDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	const frameSize = 960
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:     frameSize,
@@ -664,7 +667,7 @@ func TestDecoderCachedStereoDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 		ForceChannels: 2,
 	})
 	if err != nil {
-		t.Skipf("libopus dred packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred packet", err)
 	}
 	if toc := ParseTOC(packetInfo.packet[0]); !toc.Stereo {
 		t.Fatalf("cached stereo DRED parity forced mono packet, got TOC=%#x", packetInfo.packet[0])
@@ -676,7 +679,7 @@ func TestDecoderCachedStereoDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 	}
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, false)
 	if err != nil {
-		t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
 	if want.carrierParseRet < 0 {
 		t.Skipf("libopus cached stereo DRED sequence parse failed: %d", want.carrierParseRet)
@@ -714,6 +717,7 @@ func TestDecoderCachedStereoDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 }
 
 func TestDecoderCachedStereoDREDSecondLossMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	const frameSize = 960
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:     frameSize,
@@ -723,7 +727,7 @@ func TestDecoderCachedStereoDREDSecondLossMatchesLiveSequenceOracle(t *testing.T
 		ForceChannels: 2,
 	})
 	if err != nil {
-		t.Skipf("libopus dred packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred packet", err)
 	}
 	if toc := ParseTOC(packetInfo.packet[0]); !toc.Stereo {
 		t.Fatalf("cached stereo DRED parity forced mono packet, got TOC=%#x", packetInfo.packet[0])
@@ -735,7 +739,7 @@ func TestDecoderCachedStereoDREDSecondLossMatchesLiveSequenceOracle(t *testing.T
 	}
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, false)
 	if err != nil {
-		t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
 	if want.carrierParseRet < 0 {
 		t.Skipf("libopus cached stereo DRED sequence parse failed: %d", want.carrierParseRet)
@@ -778,6 +782,7 @@ func TestDecoderCachedStereoDREDSecondLossMatchesLiveSequenceOracle(t *testing.T
 }
 
 func TestDecoderCachedStereoDREDThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	const frameSize = 960
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:     frameSize,
@@ -787,7 +792,7 @@ func TestDecoderCachedStereoDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 		ForceChannels: 2,
 	})
 	if err != nil {
-		t.Skipf("libopus dred packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred packet", err)
 	}
 	if toc := ParseTOC(packetInfo.packet[0]); !toc.Stereo {
 		t.Fatalf("cached stereo DRED parity forced mono packet, got TOC=%#x", packetInfo.packet[0])
@@ -800,7 +805,7 @@ func TestDecoderCachedStereoDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 	}
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
 	if err != nil {
-		t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
 	if want.carrierParseRet < 0 {
 		t.Skipf("libopus cached stereo DRED sequence parse failed: %d", want.carrierParseRet)
@@ -844,6 +849,7 @@ func TestDecoderCachedStereoDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 }
 
 func TestDecoderCachedStereoDREDSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	const frameSize = 960
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:     frameSize,
@@ -853,7 +859,7 @@ func TestDecoderCachedStereoDREDSecondLossThenNextPacketMatchesLiveSequenceOracl
 		ForceChannels: 2,
 	})
 	if err != nil {
-		t.Skipf("libopus dred packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred packet", err)
 	}
 	if toc := ParseTOC(packetInfo.packet[0]); !toc.Stereo {
 		t.Fatalf("cached stereo DRED parity forced mono packet, got TOC=%#x", packetInfo.packet[0])
@@ -866,7 +872,7 @@ func TestDecoderCachedStereoDREDSecondLossThenNextPacketMatchesLiveSequenceOracl
 	}
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
 	if err != nil {
-		t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
 	if want.carrierParseRet < 0 {
 		t.Skipf("libopus cached stereo DRED sequence parse failed: %d", want.carrierParseRet)
@@ -979,7 +985,7 @@ func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label
 	packetCfg.ForceChannels = 2
 	packetInfo, err := emitLibopusDREDPacketWithConfig(packetCfg)
 	if err != nil {
-		t.Skipf("%s libopus dred packet helper unavailable: %v", label, err)
+		libopustest.HelperUnavailable(t, label+" dred packet", err)
 	}
 	toc := ParseTOC(packetInfo.packet[0])
 	if !toc.Stereo || toc.Mode != packetCfg.ForceMode || toc.Bandwidth != packetCfg.Bandwidth || toc.FrameSize != packetCfg.FrameSize {
@@ -1004,7 +1010,7 @@ func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label
 	}
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, step1Source, 2*n, decodeNext)
 	if err != nil {
-		t.Skipf("%s libopus decoder DRED sequence helper unavailable: %v", label, err)
+		libopustest.HelperUnavailable(t, label+" decoder DRED sequence", err)
 	}
 	if want.carrierParseRet < 0 {
 		t.Skipf("%s libopus cached stereo DRED sequence parse failed: %d", label, want.carrierParseRet)
@@ -1082,6 +1088,7 @@ func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label
 }
 
 func TestDecoderCachedStereoDREDCELTMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -1126,6 +1133,7 @@ func TestDecoderCachedStereoDREDCELTMatrixMatchesLiveSequenceOracle(t *testing.T
 }
 
 func TestDecoderCachedStereoDREDHybridMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -1162,6 +1170,7 @@ func TestDecoderCachedStereoDREDHybridMatrixMatchesLiveSequenceOracle(t *testing
 }
 
 func TestDecoderCachedDREDDecodeCELTSuperwidebandMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -1171,7 +1180,7 @@ func TestDecoderCachedDREDDecodeCELTSuperwidebandMatrixMatchesLiveSequenceOracle
 				Bandwidth: BandwidthSuperwideband,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
 			assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracleWithTolerances(t, "cached CELT SWB", packetInfo, pcmTol, plcTol, farganTol, celtTol)
@@ -1180,6 +1189,7 @@ func TestDecoderCachedDREDDecodeCELTSuperwidebandMatrixMatchesLiveSequenceOracle
 }
 
 func TestDecoderCachedDREDThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -1189,7 +1199,7 @@ func TestDecoderCachedDREDThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 				Bandwidth: BandwidthFullband,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, frameSize)
 
@@ -1199,7 +1209,7 @@ func TestDecoderCachedDREDThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus cached CELT DRED sequence parse failed: %d", want.carrierParseRet)
@@ -1240,6 +1250,7 @@ func TestDecoderCachedDREDThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 }
 
 func TestDecoderCachedDREDThenNextPacketCELTSuperwidebandMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -1249,7 +1260,7 @@ func TestDecoderCachedDREDThenNextPacketCELTSuperwidebandMatchesLiveSequenceOrac
 				Bandwidth: BandwidthSuperwideband,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			nextPacket := makeValidMonoCELTPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthSuperwideband)
 
@@ -1259,7 +1270,7 @@ func TestDecoderCachedDREDThenNextPacketCELTSuperwidebandMatchesLiveSequenceOrac
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus cached CELT SWB DRED sequence parse failed: %d", want.carrierParseRet)
@@ -1300,6 +1311,7 @@ func TestDecoderCachedDREDThenNextPacketCELTSuperwidebandMatchesLiveSequenceOrac
 }
 
 func TestDecoderCachedDREDSecondLossMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -1309,7 +1321,7 @@ func TestDecoderCachedDREDSecondLossMatchesLiveSequenceOracle(t *testing.T) {
 				Bandwidth: BandwidthFullband,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
 			assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t, "cached CELT", packetInfo, pcmTol, plcTol, farganTol, celtTol)
@@ -1318,6 +1330,7 @@ func TestDecoderCachedDREDSecondLossMatchesLiveSequenceOracle(t *testing.T) {
 }
 
 func TestDecoderCachedDREDSecondLossCELTSuperwidebandMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -1327,7 +1340,7 @@ func TestDecoderCachedDREDSecondLossCELTSuperwidebandMatchesLiveSequenceOracle(t
 				Bandwidth: BandwidthSuperwideband,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
 			assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t, "cached CELT SWB", packetInfo, pcmTol, plcTol, farganTol, celtTol)
@@ -1336,6 +1349,7 @@ func TestDecoderCachedDREDSecondLossCELTSuperwidebandMatchesLiveSequenceOracle(t
 }
 
 func TestDecoderCachedDREDSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -1345,7 +1359,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketMatchesLiveSequenceOracle(t *t
 				Bandwidth: BandwidthFullband,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, frameSize)
 
@@ -1355,7 +1369,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketMatchesLiveSequenceOracle(t *t
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus cached CELT DRED sequence parse failed: %d", want.carrierParseRet)
@@ -1409,6 +1423,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketMatchesLiveSequenceOracle(t *t
 }
 
 func TestDecoderCachedDREDSecondLossThenNextPacketCELTSuperwidebandMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -1418,7 +1433,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTSuperwidebandMatchesLiveSe
 				Bandwidth: BandwidthSuperwideband,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			nextPacket := makeValidMonoCELTPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthSuperwideband)
 
@@ -1428,7 +1443,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTSuperwidebandMatchesLiveSe
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus cached CELT SWB DRED sequence parse failed: %d", want.carrierParseRet)
@@ -1482,6 +1497,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTSuperwidebandMatchesLiveSe
 }
 
 func TestDecoderExplicitHybridDREDDecodeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -1506,7 +1522,7 @@ func TestDecoderExplicitHybridDREDDecodeMatrixMatchesLibopus(t *testing.T) {
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder hybrid DRED parse failed: %d", want.parseRet)
@@ -1533,6 +1549,7 @@ func TestDecoderExplicitHybridDREDDecodeMatrixMatchesLibopus(t *testing.T) {
 }
 
 func TestDecoderExplicitHybridDREDDecode16kMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -1557,7 +1574,7 @@ func TestDecoderExplicitHybridDREDDecode16kMatrixMatchesLibopus(t *testing.T) {
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
@@ -1584,6 +1601,7 @@ func TestDecoderExplicitHybridDREDDecode16kMatrixMatchesLibopus(t *testing.T) {
 }
 
 func TestDecoderExplicitHybridDREDDecodeThenNextPacketMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -1611,7 +1629,7 @@ func TestDecoderExplicitHybridDREDDecodeThenNextPacketMatchesLibopus(t *testing.
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder hybrid DRED parse failed: %d", want.parseRet)
@@ -1641,6 +1659,7 @@ func TestDecoderExplicitHybridDREDDecodeThenNextPacketMatchesLibopus(t *testing.
 }
 
 func TestDecoderExplicitHybridDREDDecodeThenNextPacket16kMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -1668,7 +1687,7 @@ func TestDecoderExplicitHybridDREDDecodeThenNextPacket16kMatchesLibopus(t *testi
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
@@ -1698,6 +1717,7 @@ func TestDecoderExplicitHybridDREDDecodeThenNextPacket16kMatchesLibopus(t *testi
 }
 
 func TestDecoderExplicitHybridDREDDecodeSecondLossMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -1724,7 +1744,7 @@ func TestDecoderExplicitHybridDREDDecodeSecondLossMatrixMatchesLibopus(t *testin
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder hybrid DRED parse failed: %d", want.parseRet)
@@ -1754,6 +1774,7 @@ func TestDecoderExplicitHybridDREDDecodeSecondLossMatrixMatchesLibopus(t *testin
 }
 
 func TestDecoderExplicitHybridDREDDecodeSecondLoss16kMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -1780,7 +1801,7 @@ func TestDecoderExplicitHybridDREDDecodeSecondLoss16kMatrixMatchesLibopus(t *tes
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
@@ -1810,6 +1831,7 @@ func TestDecoderExplicitHybridDREDDecodeSecondLoss16kMatrixMatchesLibopus(t *tes
 }
 
 func TestDecoderExplicitHybridDREDDecodeSecondLossThenNextPacketMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -1841,7 +1863,7 @@ func TestDecoderExplicitHybridDREDDecodeSecondLossThenNextPacketMatrixMatchesLib
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder hybrid DRED parse failed: %d", want.parseRet)
@@ -1874,6 +1896,7 @@ func TestDecoderExplicitHybridDREDDecodeSecondLossThenNextPacketMatrixMatchesLib
 }
 
 func TestDecoderExplicitHybridDREDDecodeSecondLossThenNextPacket16kMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -1905,7 +1928,7 @@ func TestDecoderExplicitHybridDREDDecodeSecondLossThenNextPacket16kMatrixMatches
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
@@ -1943,6 +1966,7 @@ func cachedHybridLiveSequenceTolerances(_ Bandwidth, frameSize int) (pcmTol, plc
 }
 
 func TestDecoderCachedHybridDREDDecodeMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -1962,7 +1986,7 @@ func TestDecoderCachedHybridDREDDecodeMatrixMatchesLiveSequenceOracle(t *testing
 				Bandwidth: tc.bandwidth,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			pcmTol, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
 			assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracleWithTolerances(t, "cached hybrid", packetInfo, pcmTol, plcTol, farganTol, celtTol)
@@ -1971,6 +1995,7 @@ func TestDecoderCachedHybridDREDDecodeMatrixMatchesLiveSequenceOracle(t *testing
 }
 
 func TestDecoderCachedHybridDREDThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -1990,14 +2015,14 @@ func TestDecoderCachedHybridDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 				Bandwidth: tc.bandwidth,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			nextPacket := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, tc.frameSize, tc.bandwidth)
 
 			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
@@ -2038,6 +2063,7 @@ func TestDecoderCachedHybridDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 }
 
 func TestDecoderCachedHybridDREDSecondLossMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -2057,7 +2083,7 @@ func TestDecoderCachedHybridDREDSecondLossMatchesLiveSequenceOracle(t *testing.T
 				Bandwidth: tc.bandwidth,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			pcmTol, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
 			assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t, "cached hybrid", packetInfo, pcmTol, plcTol, farganTol, celtTol)
@@ -2066,6 +2092,7 @@ func TestDecoderCachedHybridDREDSecondLossMatchesLiveSequenceOracle(t *testing.T
 }
 
 func TestDecoderCachedHybridSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -2085,14 +2112,14 @@ func TestDecoderCachedHybridSecondLossThenNextPacketMatchesLiveSequenceOracle(t 
 				Bandwidth: tc.bandwidth,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			nextPacket := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, tc.frameSize, tc.bandwidth)
 
 			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
@@ -2146,6 +2173,7 @@ func TestDecoderCachedHybridSecondLossThenNextPacketMatchesLiveSequenceOracle(t 
 }
 
 func TestDecoderCachedHybridDRED16kDecodeMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -2165,7 +2193,7 @@ func TestDecoderCachedHybridDRED16kDecodeMatrixMatchesLiveSequenceOracle(t *test
 				Bandwidth: tc.bandwidth,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, 16000, packetInfo)
 			if packetInfo.sampleRate != 48000 || n != tc.frameSize {
@@ -2173,7 +2201,7 @@ func TestDecoderCachedHybridDRED16kDecodeMatrixMatchesLiveSequenceOracle(t *test
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, false)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus 16k cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
@@ -2201,6 +2229,7 @@ func TestDecoderCachedHybridDRED16kDecodeMatrixMatchesLiveSequenceOracle(t *test
 }
 
 func TestDecoderCachedHybridDRED16kThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -2220,7 +2249,7 @@ func TestDecoderCachedHybridDRED16kThenNextPacketMatchesLiveSequenceOracle(t *te
 				Bandwidth: tc.bandwidth,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			nextPacket := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, tc.frameSize, tc.bandwidth)
 
@@ -2230,7 +2259,7 @@ func TestDecoderCachedHybridDRED16kThenNextPacketMatchesLiveSequenceOracle(t *te
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus 16k cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
@@ -2271,6 +2300,7 @@ func TestDecoderCachedHybridDRED16kThenNextPacketMatchesLiveSequenceOracle(t *te
 }
 
 func TestDecoderCachedHybridDRED16kSecondLossMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -2290,7 +2320,7 @@ func TestDecoderCachedHybridDRED16kSecondLossMatchesLiveSequenceOracle(t *testin
 				Bandwidth: tc.bandwidth,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, 16000, packetInfo)
 			if packetInfo.sampleRate != 48000 || n != tc.frameSize {
@@ -2298,7 +2328,7 @@ func TestDecoderCachedHybridDRED16kSecondLossMatchesLiveSequenceOracle(t *testin
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, false)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus 16k cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
@@ -2342,6 +2372,7 @@ func TestDecoderCachedHybridDRED16kSecondLossMatchesLiveSequenceOracle(t *testin
 }
 
 func TestDecoderCachedHybridDRED16kSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -2361,7 +2392,7 @@ func TestDecoderCachedHybridDRED16kSecondLossThenNextPacketMatchesLiveSequenceOr
 				Bandwidth: tc.bandwidth,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			nextPacket := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, tc.frameSize, tc.bandwidth)
 
@@ -2371,7 +2402,7 @@ func TestDecoderCachedHybridDRED16kSecondLossThenNextPacketMatchesLiveSequenceOr
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus 16k cached hybrid DRED sequence parse failed: %d", want.carrierParseRet)
@@ -2426,13 +2457,14 @@ func TestDecoderCachedHybridDRED16kSecondLossThenNextPacketMatchesLiveSequenceOr
 }
 
 func TestDecoderExplicitDREDWarmup48kStateMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, _, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n <= 0 {
 		t.Skipf("48 kHz warmup parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
 	}
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if dec.celtDecoder == nil {
 		t.Fatal("decoder missing CELT state after seed packet")
@@ -2451,6 +2483,7 @@ func TestDecoderExplicitDREDWarmup48kStateMatchesLibopus(t *testing.T) {
 // live-sequence and explicit libopus oracles.
 
 func TestDecoderExplicitDREDFirstConcealFrameBootstraps48kRuntime(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n < lpcnetplc.FrameSize {
 		t.Skipf("48 kHz bootstrap regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", lpcnetplc.FrameSize, packetInfo.sampleRate, n)
@@ -2469,6 +2502,7 @@ func TestDecoderExplicitDREDFirstConcealFrameBootstraps48kRuntime(t *testing.T) 
 }
 
 func TestDecoderExplicitDREDThreeConcealFramesBootstraps48kRuntime(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n < 3*lpcnetplc.FrameSize {
 		t.Skipf("48 kHz triple-frame regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", 3*lpcnetplc.FrameSize, packetInfo.sampleRate, n)
@@ -2489,6 +2523,7 @@ func TestDecoderExplicitDREDThreeConcealFramesBootstraps48kRuntime(t *testing.T)
 }
 
 func TestDecoderExplicitDREDThreeConcealFramesManualStep48kRuntime(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n < 3*lpcnetplc.FrameSize {
 		t.Skipf("48 kHz manual-step regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", 3*lpcnetplc.FrameSize, packetInfo.sampleRate, n)
@@ -2521,6 +2556,7 @@ func TestDecoderExplicitDREDThreeConcealFramesManualStep48kRuntime(t *testing.T)
 }
 
 func TestDecoderExplicitDREDThreeConcealFramesMixedHelpers48kRuntime(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, _, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n < 3*lpcnetplc.FrameSize {
 		t.Skipf("48 kHz mixed-helper regression requires 48 kHz packet and >=%d samples, got sampleRate=%d frame=%d", 3*lpcnetplc.FrameSize, packetInfo.sampleRate, n)
@@ -2552,11 +2588,12 @@ func TestDecoderExplicitDREDThreeConcealFramesMixedHelpers48kRuntime(t *testing.
 }
 
 func TestDecoderExplicitDREDDecodeMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -2586,6 +2623,7 @@ func TestDecoderExplicitDREDDecodeMatchesLibopus(t *testing.T) {
 // runtime against libopus. The neural signal is mono, while CELT stereo state
 // and overlap crossfade still follow celt_decode_lost().
 func TestDecoderExplicitStereoDREDDecodeMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 48000, libopusDREDPacketConfig{
 		FrameSize: 960,
 		ForceMode: ModeCELT,
@@ -2598,7 +2636,7 @@ func TestDecoderExplicitStereoDREDDecodeMatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder stereo DRED parse failed: %d", want.parseRet)
@@ -2640,6 +2678,7 @@ func TestDecoderExplicitStereoDREDDecodeMatchesLibopus(t *testing.T) {
 // TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus covers the same CELT
 // stereo DRED path through the 16 kHz decoder API.
 func TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	// Force stereo at the libopus encoder control layer so this exercises a
 	// real 16 kHz stereo carrier instead of the encoder's auto mono choice.
 	probeInfo, probeErr := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
@@ -2650,7 +2689,7 @@ func TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus(t *testing.T) {
 		ForceChannels: 2,
 	})
 	if probeErr != nil {
-		t.Skipf("libopus dred packet helper unavailable: %v", probeErr)
+		libopustest.HelperUnavailable(t, "dred packet", probeErr)
 	}
 	if !ParseTOC(probeInfo.packet[0]).Stereo {
 		t.Skipf("libopus dred emit helper produced mono TOC at 480-sample CELT FB despite forced channels (toc=0x%02x)", probeInfo.packet[0])
@@ -2669,7 +2708,7 @@ func TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder stereo 16k DRED parse failed: %d", want.parseRet)
@@ -2714,6 +2753,7 @@ func TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus(t *testing.T) {
 // (10 ms / 480 samples) instead of CELT FB. Libopus leaves tiny L/R drift on
 // this forced Hybrid seam, so the duplicate-shape check is numerical.
 func TestDecoderExplicitStereoHybridDRED16kDecodeMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	// Force stereo at the libopus encoder control layer so this exercises a
 	// real 16 kHz stereo carrier instead of the encoder's auto mono choice.
 	probeInfo, probeErr := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
@@ -2724,7 +2764,7 @@ func TestDecoderExplicitStereoHybridDRED16kDecodeMatchesLibopus(t *testing.T) {
 		ForceChannels: 2,
 	})
 	if probeErr != nil {
-		t.Skipf("libopus dred packet helper unavailable: %v", probeErr)
+		libopustest.HelperUnavailable(t, "dred packet", probeErr)
 	}
 	if !ParseTOC(probeInfo.packet[0]).Stereo {
 		t.Skipf("libopus dred emit helper produced mono TOC at 480-sample Hybrid SWB despite forced channels (toc=0x%02x)", probeInfo.packet[0])
@@ -2743,7 +2783,7 @@ func TestDecoderExplicitStereoHybridDRED16kDecodeMatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder stereo Hybrid 16k DRED parse failed: %d", want.parseRet)
@@ -2782,6 +2822,7 @@ func TestDecoderExplicitStereoHybridDRED16kDecodeMatchesLibopus(t *testing.T) {
 }
 
 func TestDecoderExplicit16kHybridDREDDecodeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -2804,7 +2845,7 @@ func TestDecoderExplicit16kHybridDREDDecodeMatrixMatchesLibopus(t *testing.T) {
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
@@ -2831,11 +2872,12 @@ func TestDecoderExplicit16kHybridDREDDecodeMatrixMatchesLibopus(t *testing.T) {
 }
 
 func TestDecoderExplicitDREDDecode16kMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState16k(t)
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -2863,6 +2905,7 @@ func TestDecoderExplicitDREDDecode16kMatchesLibopus(t *testing.T) {
 }
 
 func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusFirstLoss(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n <= 0 {
 		t.Skipf("48 kHz explicit bridge parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
@@ -2870,7 +2913,7 @@ func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusFirstLoss(t *testing.T) {
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 || want.ret != n {
 		t.Skipf("libopus decoder DRED decode not available: parse=%d ret=%d", want.parseRet, want.ret)
@@ -2884,6 +2927,7 @@ func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusFirstLoss(t *testing.T) {
 }
 
 func TestDecoderExplicitDREDDecodeSecondLossMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 
 	pcm0 := make([]float32, dec.maxPacketSamples)
@@ -2893,7 +2937,7 @@ func TestDecoderExplicitDREDDecodeSecondLossMatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -2923,6 +2967,7 @@ func TestDecoderExplicitDREDDecodeSecondLossMatchesLibopus(t *testing.T) {
 }
 
 func TestDecoderExplicitDREDDecodeSecondLossGainTransitionMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	const gainA = 256
 	const gainB = -512
@@ -2932,7 +2977,7 @@ func TestDecoderExplicitDREDDecodeSecondLossGainTransitionMatchesLibopus(t *test
 	}
 	wantFirst, err := probeLibopusDecoderDREDDecodeFloatWithGain(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n, gainA)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if wantFirst.parseRet < 0 {
 		t.Skipf("libopus decoder DRED parse failed: %d", wantFirst.parseRet)
@@ -2959,7 +3004,7 @@ func TestDecoderExplicitDREDDecodeSecondLossGainTransitionMatchesLibopus(t *test
 	}
 	wantSecond, err := probeLibopusDecoderDREDDecodeFloatWithGain(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n, gainB)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if wantSecond.parseRet < 0 {
 		t.Skipf("libopus decoder DRED parse failed: %d", wantSecond.parseRet)
@@ -2987,6 +3032,7 @@ func TestDecoderExplicitDREDDecodeSecondLossGainTransitionMatchesLibopus(t *test
 }
 
 func TestDecoderExplicitDREDDecodeSecondLoss16kMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState16k(t)
 
 	pcm0 := make([]float32, dec.maxPacketSamples)
@@ -2996,7 +3042,7 @@ func TestDecoderExplicitDREDDecodeSecondLoss16kMatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -3027,6 +3073,7 @@ func TestDecoderExplicitDREDDecodeSecondLoss16kMatchesLibopus(t *testing.T) {
 }
 
 func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusSecondLoss(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n <= 0 {
 		t.Skipf("48 kHz explicit bridge parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
@@ -3038,7 +3085,7 @@ func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusSecondLoss(t *testing.T) 
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 || want.ret != n {
 		t.Skipf("libopus decoder DRED second decode not available: parse=%d ret=%d", want.parseRet, want.ret)
@@ -3052,6 +3099,7 @@ func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusSecondLoss(t *testing.T) 
 }
 
 func TestDecoderExplicitDREDDecodeThenNextPacketMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n <= 0 {
 		t.Skipf("48 kHz explicit follow-up parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
@@ -3065,7 +3113,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketMatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -3093,6 +3141,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketMatchesLibopus(t *testing.T) {
 }
 
 func TestDecoderExplicitDREDDecodeThenNextPacket16kMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState16k(t)
 	nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, 480)
 
@@ -3103,7 +3152,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kMatchesLibopus(t *testing.T) 
 
 	want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -3131,13 +3180,14 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kMatchesLibopus(t *testing.T) 
 }
 
 func TestDecoderExplicitDREDDecode16kFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{480, 960} {
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
 			dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState16kForFrameSize(t, frameSize)
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -3164,6 +3214,7 @@ func TestDecoderExplicitDREDDecode16kFrameSizeMatrixMatchesLibopus(t *testing.T)
 }
 
 func TestDecoderExplicitDREDDecodeThenNextPacket16kFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
@@ -3177,7 +3228,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kFrameSizeMatrixMatchesLibopus
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -3207,6 +3258,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kFrameSizeMatrixMatchesLibopus
 }
 
 func TestDecoderExplicitDREDDecode16kCELTSuperwidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
@@ -3218,7 +3270,7 @@ func TestDecoderExplicitDREDDecode16kCELTSuperwidebandFrameSizeMatrixMatchesLibo
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
@@ -3245,6 +3297,7 @@ func TestDecoderExplicitDREDDecode16kCELTSuperwidebandFrameSizeMatrixMatchesLibo
 }
 
 func TestDecoderExplicitDREDDecodeThenNextPacket16kCELTSuperwidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
@@ -3262,7 +3315,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kCELTSuperwidebandFrameSizeMat
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
@@ -3292,6 +3345,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kCELTSuperwidebandFrameSizeMat
 }
 
 func TestDecoderExplicitDREDDecode16kCELTWidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
@@ -3303,7 +3357,7 @@ func TestDecoderExplicitDREDDecode16kCELTWidebandFrameSizeMatrixMatchesLibopus(t
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT WB DRED parse failed: %d", want.parseRet)
@@ -3330,6 +3384,7 @@ func TestDecoderExplicitDREDDecode16kCELTWidebandFrameSizeMatrixMatchesLibopus(t
 }
 
 func TestDecoderExplicitDREDDecodeThenNextPacket16kCELTWidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
@@ -3347,7 +3402,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kCELTWidebandFrameSizeMatrixMa
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT WB DRED parse failed: %d", want.parseRet)
@@ -3377,6 +3432,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacket16kCELTWidebandFrameSizeMatrixMa
 }
 
 func TestDecoderExplicitSecondLossThenNextPacket16kMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState16k(t)
 	nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, 480)
 
@@ -3391,7 +3447,7 @@ func TestDecoderExplicitSecondLossThenNextPacket16kMatchesLibopus(t *testing.T) 
 
 	want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -3422,6 +3478,7 @@ func TestDecoderExplicitSecondLossThenNextPacket16kMatchesLibopus(t *testing.T) 
 }
 
 func TestDecoderExplicitSecondLossThenNextPacketMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	if packetInfo.sampleRate != 48000 || n <= 0 {
 		t.Skipf("48 kHz explicit second-loss follow-up parity requires 48 kHz packet, got sampleRate=%d frame=%d", packetInfo.sampleRate, n)
@@ -3439,7 +3496,7 @@ func TestDecoderExplicitSecondLossThenNextPacketMatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -3470,6 +3527,7 @@ func TestDecoderExplicitSecondLossThenNextPacketMatchesLibopus(t *testing.T) {
 }
 
 func TestDecoderExplicitDREDDecodeOffsetMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
 	_, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
 	boundary := -dred.Parsed().Header.OffsetSamples(packetInfo.sampleRate)
@@ -3490,7 +3548,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixMatchesLibopus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, tc.dredOffset, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -3537,6 +3595,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixMatchesLibopus(t *testing.T) {
 }
 
 func TestDecoderExplicitDREDDecodeOffsetMatrixCELTSuperwidebandMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
 	_, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 48000, libopusDREDPacketConfig{
 		FrameSize: 960,
@@ -3561,7 +3620,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixCELTSuperwidebandMatchesLibopus(t 
 		t.Run(tc.name, func(t *testing.T) {
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, tc.dredOffset, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
@@ -3608,6 +3667,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixCELTSuperwidebandMatchesLibopus(t 
 }
 
 func TestDecoderExplicitDREDDecodeOffsetMatrixHybridSuperwidebandMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
 	_, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 48000, libopusDREDPacketConfig{
 		FrameSize: 960,
@@ -3632,7 +3692,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixHybridSuperwidebandMatchesLibopus(
 		t.Run(tc.name, func(t *testing.T) {
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, tc.dredOffset, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder hybrid SWB DRED parse failed: %d", want.parseRet)
@@ -3679,6 +3739,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixHybridSuperwidebandMatchesLibopus(
 }
 
 func TestDecoderExplicitDREDDecodeOffsetMatrixHybridFullbandMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
 	_, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 48000, libopusDREDPacketConfig{
 		FrameSize: 960,
@@ -3703,7 +3764,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixHybridFullbandMatchesLibopus(t *te
 		t.Run(tc.name, func(t *testing.T) {
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, tc.dredOffset, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder hybrid FB DRED parse failed: %d", want.parseRet)
@@ -3750,6 +3811,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixHybridFullbandMatchesLibopus(t *te
 }
 
 func TestDecoderExplicitDREDDecodeOffsetMatrix16kHybridMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name      string
 		bandwidth Bandwidth
@@ -3795,7 +3857,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrix16kHybridMatchesLibopus(t *testing
 					}
 					want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, localPacketInfo.packet, localPacketInfo.maxDREDSamples, localPacketInfo.sampleRate, -1, offset.dredOffset, n)
 					if err != nil {
-						t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+						libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 					}
 					if want.parseRet < 0 {
 						t.Skipf("libopus decoder 16k hybrid DRED parse failed: %d", want.parseRet)
@@ -3827,6 +3889,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrix16kHybridMatchesLibopus(t *testing
 }
 
 func TestDecoderExplicitDREDDecodeFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -3837,7 +3900,7 @@ func TestDecoderExplicitDREDDecodeFrameSizeMatrixMatchesLibopus(t *testing.T) {
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -3864,6 +3927,7 @@ func TestDecoderExplicitDREDDecodeFrameSizeMatrixMatchesLibopus(t *testing.T) {
 }
 
 func TestDecoderExplicitDREDDecodeCELTSuperwidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -3878,7 +3942,7 @@ func TestDecoderExplicitDREDDecodeCELTSuperwidebandFrameSizeMatrixMatchesLibopus
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
@@ -3905,6 +3969,7 @@ func TestDecoderExplicitDREDDecodeCELTSuperwidebandFrameSizeMatrixMatchesLibopus
 }
 
 func TestDecoderExplicitDREDDecodeCELTWidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -3919,7 +3984,7 @@ func TestDecoderExplicitDREDDecodeCELTWidebandFrameSizeMatrixMatchesLibopus(t *t
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT WB DRED parse failed: %d", want.parseRet)
@@ -3946,6 +4011,7 @@ func TestDecoderExplicitDREDDecodeCELTWidebandFrameSizeMatrixMatchesLibopus(t *t
 }
 
 func TestDecoderExplicitDREDDecodeSecondLossFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -3961,7 +4027,7 @@ func TestDecoderExplicitDREDDecodeSecondLossFrameSizeMatrixMatchesLibopus(t *tes
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -3991,6 +4057,7 @@ func TestDecoderExplicitDREDDecodeSecondLossFrameSizeMatrixMatchesLibopus(t *tes
 }
 
 func TestDecoderExplicitDREDDecodeSecondLossCELTSuperwidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -4010,7 +4077,7 @@ func TestDecoderExplicitDREDDecodeSecondLossCELTSuperwidebandFrameSizeMatrixMatc
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
@@ -4040,6 +4107,7 @@ func TestDecoderExplicitDREDDecodeSecondLossCELTSuperwidebandFrameSizeMatrixMatc
 }
 
 func TestDecoderExplicitDREDDecodeThenNextPacketFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -4056,7 +4124,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketFrameSizeMatrixMatchesLibopus(t 
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -4086,6 +4154,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketFrameSizeMatrixMatchesLibopus(t 
 }
 
 func TestDecoderExplicitDREDDecodeThenNextPacketCELTSuperwidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -4106,7 +4175,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketCELTSuperwidebandFrameSizeMatrix
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
@@ -4136,6 +4205,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketCELTSuperwidebandFrameSizeMatrix
 }
 
 func TestDecoderExplicitSecondLossThenNextPacketFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -4156,7 +4226,7 @@ func TestDecoderExplicitSecondLossThenNextPacketFrameSizeMatrixMatchesLibopus(t 
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder DRED parse failed: %d", want.parseRet)
@@ -4189,6 +4259,7 @@ func TestDecoderExplicitSecondLossThenNextPacketFrameSizeMatrixMatchesLibopus(t 
 }
 
 func TestDecoderExplicitSecondLossThenNextPacketCELTSuperwidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -4213,7 +4284,7 @@ func TestDecoderExplicitSecondLossThenNextPacketCELTSuperwidebandFrameSizeMatrix
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT SWB DRED parse failed: %d", want.parseRet)
@@ -4246,6 +4317,7 @@ func TestDecoderExplicitSecondLossThenNextPacketCELTSuperwidebandFrameSizeMatrix
 }
 
 func TestDecoderCachedDREDDecodeCELTWidebandMatrixMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -4255,7 +4327,7 @@ func TestDecoderCachedDREDDecodeCELTWidebandMatrixMatchesLiveSequenceOracle(t *t
 				Bandwidth: BandwidthWideband,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
 			assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracleWithTolerances(t, "cached CELT WB", packetInfo, pcmTol, plcTol, farganTol, celtTol)
@@ -4264,6 +4336,7 @@ func TestDecoderCachedDREDDecodeCELTWidebandMatrixMatchesLiveSequenceOracle(t *t
 }
 
 func TestDecoderCachedDREDThenNextPacketCELTWidebandMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -4273,7 +4346,7 @@ func TestDecoderCachedDREDThenNextPacketCELTWidebandMatchesLiveSequenceOracle(t 
 				Bandwidth: BandwidthWideband,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			nextPacket := makeValidMonoCELTPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
 
@@ -4283,7 +4356,7 @@ func TestDecoderCachedDREDThenNextPacketCELTWidebandMatchesLiveSequenceOracle(t 
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus cached CELT WB DRED sequence parse failed: %d", want.carrierParseRet)
@@ -4324,6 +4397,7 @@ func TestDecoderCachedDREDThenNextPacketCELTWidebandMatchesLiveSequenceOracle(t 
 }
 
 func TestDecoderCachedDREDSecondLossCELTWidebandMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -4333,7 +4407,7 @@ func TestDecoderCachedDREDSecondLossCELTWidebandMatchesLiveSequenceOracle(t *tes
 				Bandwidth: BandwidthWideband,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
 			assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t, "cached CELT WB", packetInfo, pcmTol, plcTol, farganTol, celtTol)
@@ -4342,6 +4416,7 @@ func TestDecoderCachedDREDSecondLossCELTWidebandMatchesLiveSequenceOracle(t *tes
 }
 
 func TestDecoderCachedDREDSecondLossThenNextPacketCELTWidebandMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -4351,7 +4426,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTWidebandMatchesLiveSequenc
 				Bandwidth: BandwidthWideband,
 			})
 			if err != nil {
-				t.Skipf("libopus dred packet helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			nextPacket := makeValidMonoCELTPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
 
@@ -4361,7 +4436,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTWidebandMatchesLiveSequenc
 			}
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
 			if err != nil {
-				t.Skipf("libopus decoder DRED sequence helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
 			if want.carrierParseRet < 0 {
 				t.Skipf("libopus cached CELT WB DRED sequence parse failed: %d", want.carrierParseRet)
@@ -4415,6 +4490,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTWidebandMatchesLiveSequenc
 }
 
 func TestDecoderExplicitDREDDecodeSecondLossCELTWidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -4434,7 +4510,7 @@ func TestDecoderExplicitDREDDecodeSecondLossCELTWidebandFrameSizeMatrixMatchesLi
 
 			want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT WB DRED parse failed: %d", want.parseRet)
@@ -4464,6 +4540,7 @@ func TestDecoderExplicitDREDDecodeSecondLossCELTWidebandFrameSizeMatrixMatchesLi
 }
 
 func TestDecoderExplicitDREDDecodeThenNextPacketCELTWidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -4484,7 +4561,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketCELTWidebandFrameSizeMatrixMatch
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT WB DRED parse failed: %d", want.parseRet)
@@ -4514,6 +4591,7 @@ func TestDecoderExplicitDREDDecodeThenNextPacketCELTWidebandFrameSizeMatrixMatch
 }
 
 func TestDecoderExplicitSecondLossThenNextPacketCELTWidebandFrameSizeMatrixMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{120, 240, 480, 960} {
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
@@ -4538,7 +4616,7 @@ func TestDecoderExplicitSecondLossThenNextPacketCELTWidebandFrameSizeMatrixMatch
 
 			want, err := probeLibopusDecoderDREDDecodeAndNextFloat(seedPacket, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 2*n, n)
 			if err != nil {
-				t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 			}
 			if want.parseRet < 0 {
 				t.Skipf("libopus decoder CELT WB DRED parse failed: %d", want.parseRet)
@@ -4578,6 +4656,7 @@ func TestDecoderExplicitSecondLossThenNextPacketCELTWidebandFrameSizeMatrixMatch
 // the same DeepPLC hook around a standard PLC chunk decode after priming the
 // LPCNet/FARGAN entry history from the prior SILK native lowband.
 func TestDecoderExplicitSILKDREDDecodeMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(
 		t, 48000, libopusDREDPacketConfig{
 			FrameSize: 960,
@@ -4587,7 +4666,7 @@ func TestDecoderExplicitSILKDREDDecodeMatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder SILK DRED parse failed: %d", want.parseRet)
@@ -4618,6 +4697,7 @@ func TestDecoderExplicitSILKDREDDecodeMatchesLibopus(t *testing.T) {
 // libopus's opus_decoder_dred_decode_float supports this path at any internal
 // SR including 16 kHz.
 func TestDecoderExplicit16kSILKDREDDecodeMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(
 		t, 16000, libopusDREDPacketConfig{
 			FrameSize: 960,
@@ -4627,7 +4707,7 @@ func TestDecoderExplicit16kSILKDREDDecodeMatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder 16k SILK DRED parse failed: %d", want.parseRet)
@@ -4656,6 +4736,7 @@ func TestDecoderExplicit16kSILKDREDDecodeMatchesLibopus(t *testing.T) {
 // runtime path. libopus routes DRED through one lpcnet state on SILK channel 0
 // and exposes duplicated L=R PCM on the API side for this fixture.
 func TestDecoderExplicitSILKDREDDecodeStereoMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	probeInfo, probeErr := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:     960,
 		ForceMode:     ModeSILK,
@@ -4664,7 +4745,7 @@ func TestDecoderExplicitSILKDREDDecodeStereoMatchesLibopus(t *testing.T) {
 		ForceChannels: 2,
 	})
 	if probeErr != nil {
-		t.Skipf("libopus dred packet helper unavailable: %v", probeErr)
+		libopustest.HelperUnavailable(t, "dred packet", probeErr)
 	}
 	if !ParseTOC(probeInfo.packet[0]).Stereo {
 		t.Fatalf("forced stereo SILK DRED packet produced mono TOC at 960-sample WB (toc=0x%02x)", probeInfo.packet[0])
@@ -4684,7 +4765,7 @@ func TestDecoderExplicitSILKDREDDecodeStereoMatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusDecoderDREDDecodeFloat(seedPacket, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, -1, n, n)
 	if err != nil {
-		t.Skipf("libopus decoder DRED decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder DRED decode", err)
 	}
 	if want.parseRet < 0 {
 		t.Skipf("libopus decoder stereo SILK DRED parse failed: %d", want.parseRet)
