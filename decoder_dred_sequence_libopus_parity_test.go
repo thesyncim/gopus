@@ -234,6 +234,16 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 	return info, nil
 }
 
+func requireLibopusDREDSequenceParsed(t testing.TB, info libopusDecoderDREDSequenceInfo, label string) {
+	t.Helper()
+	if info.carrierParseRet <= 0 {
+		t.Fatalf("%s libopus DRED carrier parse ret=%d want >0 (dredEnd=%d)", label, info.carrierParseRet, info.carrierDredEnd)
+	}
+	if info.carrierParseRet < info.carrierDredEnd {
+		t.Fatalf("%s libopus DRED carrier parse ret=%d before dredEnd=%d", label, info.carrierParseRet, info.carrierDredEnd)
+	}
+}
+
 func TestDecoderFirstLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
@@ -242,9 +252,7 @@ func TestDecoderFirstLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
-	if want.carrierParseRet < 0 {
-		t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
-	}
+	requireLibopusDREDSequenceParsed(t, want, "first-loss")
 	if want.step0.ret != n {
 		t.Fatalf("libopus decoder DRED first-loss ret=%d want %d", want.step0.ret, n)
 	}
@@ -276,9 +284,7 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
-	if want.carrierParseRet < 0 {
-		t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
-	}
+	requireLibopusDREDSequenceParsed(t, want, "second-loss")
 	if want.step0.ret != n {
 		t.Fatalf("libopus decoder DRED first warmup ret=%d want %d", want.step0.ret, n)
 	}
@@ -312,9 +318,7 @@ func TestDecoderFirstLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceO
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, fmt.Sprintf("first-loss carrier_%d", frameSize))
 			if want.step0.ret != n {
 				t.Fatalf("libopus decoder DRED first-loss ret=%d want %d", want.step0.ret, n)
 			}
@@ -352,9 +356,7 @@ func TestDecoderSecondLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequence
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, fmt.Sprintf("second-loss carrier_%d", frameSize))
 			if want.step0.ret != n {
 				t.Fatalf("libopus decoder DRED first warmup ret=%d want %d", want.step0.ret, n)
 			}

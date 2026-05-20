@@ -261,9 +261,7 @@ func TestDecoderFirstLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
-	if want.carrierParseRet < 0 {
-		t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
-	}
+	requireLibopusDREDSequenceParsed(t, want, "first-loss next-packet")
 	if want.step0.ret != n {
 		t.Fatalf("libopus decoder DRED first-loss ret=%d want %d", want.step0.ret, n)
 	}
@@ -304,9 +302,7 @@ func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
-	if want.carrierParseRet < 0 {
-		t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
-	}
+	requireLibopusDREDSequenceParsed(t, want, "second-loss next-packet")
 	if want.step0.ret != n {
 		t.Fatalf("libopus decoder DRED first warmup ret=%d want %d", want.step0.ret, n)
 	}
@@ -362,9 +358,7 @@ func TestDecoderFirstLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOrac
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, fmt.Sprintf("first-loss next-packet carrier_%d", frameSize))
 			if want.step0.ret != n {
 				t.Fatalf("libopus decoder DRED first-loss ret=%d want %d", want.step0.ret, n)
 			}
@@ -411,9 +405,7 @@ func TestDecoderSecondLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOra
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
-			if want.carrierParseRet < 0 {
-				t.Skipf("libopus decoder DRED sequence carrier parse failed: %d", want.carrierParseRet)
-			}
+			requireLibopusDREDSequenceParsed(t, want, fmt.Sprintf("second-loss next-packet carrier_%d", frameSize))
 			if want.step0.ret != n {
 				t.Fatalf("libopus decoder DRED first warmup ret=%d want %d", want.step0.ret, n)
 			}
