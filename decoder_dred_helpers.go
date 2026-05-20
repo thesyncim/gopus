@@ -1,5 +1,5 @@
-//go:build gopus_dred || gopus_unsupported_controls
-// +build gopus_dred gopus_unsupported_controls
+//go:build gopus_dred || gopus_extra_controls
+// +build gopus_dred gopus_extra_controls
 
 package gopus
 
@@ -311,7 +311,7 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	d.osceLACEModelLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
 	// Bind the quarantined OSCE BWE model when its weights are present. The
-	// helper is a no-op outside of `gopus_unsupported_controls` builds so the
+	// helper is a no-op outside of `gopus_extra_controls` builds so the
 	// shared DRED path remains untouched.
 	if err := d.bindOSCEBWEModel(blob, models.OSCEBWE); err != nil {
 		return err

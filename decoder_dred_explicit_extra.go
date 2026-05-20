@@ -1,5 +1,5 @@
-//go:build gopus_unsupported_controls || gopus_dred
-// +build gopus_unsupported_controls gopus_dred
+//go:build gopus_extra_controls || gopus_dred
+// +build gopus_extra_controls gopus_dred
 
 package gopus
 
@@ -47,7 +47,7 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		return 0, ErrInvalidArgument
 	}
 	if !d.dredNeuralConcealmentReady() {
-		return 0, ErrUnsupportedExtension
+		return 0, ErrExtraExtensionUnavailable
 	}
 	r := d.dredRecoveryState()
 	n := d.dredNeuralState()

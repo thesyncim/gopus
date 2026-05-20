@@ -1,5 +1,5 @@
-//go:build gopus_unsupported_controls
-// +build gopus_unsupported_controls
+//go:build gopus_extra_controls
+// +build gopus_extra_controls
 
 package multistream
 
@@ -20,7 +20,7 @@ func exportedMethodNames(v any) map[string]struct{} {
 	return names
 }
 
-func TestUnsupportedControlsBuildExposesQuarantinedControls(t *testing.T) {
+func TestExtraControlsBuildExposesControls(t *testing.T) {
 	enc, err := NewEncoderDefault(48000, 2)
 	if err != nil {
 		t.Fatalf("NewEncoderDefault error: %v", err)
@@ -32,12 +32,12 @@ func TestUnsupportedControlsBuildExposesQuarantinedControls(t *testing.T) {
 
 	for _, name := range []string{"DREDDuration", "DREDModelLoaded", "DREDReady", "SetDREDDuration"} {
 		if _, ok := exportedMethodNames(enc)[name]; !ok {
-			t.Fatalf("unsupported-controls build does not expose encoder %s", name)
+			t.Fatalf("extra-controls build does not expose encoder %s", name)
 		}
 	}
-	for _, name := range []string{"DREDModelLoaded", "OSCEBWEModelLoaded", "OSCEModelsLoaded"} {
+	for _, name := range []string{"DREDModelLoaded", "OSCEBWEModelLoaded", "OSCEModelsLoaded", "OSCEBWE", "OSCELACE", "SetOSCEBWE", "SetOSCELACE"} {
 		if _, ok := exportedMethodNames(dec)[name]; !ok {
-			t.Fatalf("unsupported-controls build does not expose decoder %s", name)
+			t.Fatalf("extra-controls build does not expose decoder %s", name)
 		}
 	}
 }
@@ -131,5 +131,31 @@ func TestDecoderOSCEBWEState(t *testing.T) {
 	dec.SetOSCEBWE(false)
 	if dec.OSCEBWE() {
 		t.Fatal("OSCEBWE()=true after SetOSCEBWE(false)")
+	}
+}
+
+func TestDecoderOSCELACEState(t *testing.T) {
+	dec, err := NewDecoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewDecoderDefault error: %v", err)
+	}
+
+	if dec.OSCELACE() {
+		t.Fatal("fresh decoder unexpectedly reports OSCE LACE enabled")
+	}
+
+	dec.SetOSCELACE(true)
+	if !dec.OSCELACE() {
+		t.Fatal("OSCELACE()=false after SetOSCELACE(true)")
+	}
+
+	dec.Reset()
+	if !dec.OSCELACE() {
+		t.Fatal("Reset unexpectedly cleared OSCE LACE control state")
+	}
+
+	dec.SetOSCELACE(false)
+	if dec.OSCELACE() {
+		t.Fatal("OSCELACE()=true after SetOSCELACE(false)")
 	}
 }

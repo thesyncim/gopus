@@ -1,5 +1,5 @@
-//go:build gopus_unsupported_controls || gopus_dred
-// +build gopus_unsupported_controls gopus_dred
+//go:build gopus_extra_controls || gopus_dred
+// +build gopus_extra_controls gopus_dred
 
 package encoder
 

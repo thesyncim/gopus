@@ -1,5 +1,5 @@
-//go:build gopus_unsupported_controls
-// +build gopus_unsupported_controls
+//go:build gopus_extra_controls
+// +build gopus_extra_controls
 
 package gopus
 
@@ -48,9 +48,9 @@ func TestOSCEBWEModelForwardPassMatchesLibopus(t *testing.T) {
 	}
 
 	cases := []struct {
-		name       string
-		inputLen   int
-		numFrames  int
+		name        string
+		inputLen    int
+		numFrames   int
 		expectedOut int
 	}{
 		{name: "10ms", inputLen: 160, numFrames: 1, expectedOut: 480},

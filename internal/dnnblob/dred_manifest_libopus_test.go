@@ -1,12 +1,12 @@
 package dnnblob
 
 import (
-	"path/filepath"
 	"reflect"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestDREDModelManifestsMatchLibopusReference(t *testing.T) {
@@ -17,23 +17,13 @@ func TestDREDModelManifestsMatchLibopusReference(t *testing.T) {
 func assertDREDManifestMatchesLibopus(t *testing.T, label, fileName, arrayName string, got []string) {
 	t.Helper()
 
-	path := filepath.Join(repoRootForDREDManifestTest(t), "tmp_check", "opus-1.6.1", "dnn", fileName)
-	data := readLibopusRefFileOrSkip(t, path, label+" manifest")
+	data := libopustest.ReadRefFileOrSkip(t, label+" manifest", "dnn", fileName)
 
 	want := sortedRecordNames(parseLibopusWeightArrayNames(t, string(data), arrayName))
 	got = sortedRecordNames(got)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%s DRED manifest mismatch\n got=%q\nwant=%q", label, got, want)
 	}
-}
-
-func repoRootForDREDManifestTest(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 }
 
 func parseLibopusWeightArrayNames(t *testing.T, source, arrayName string) []string {

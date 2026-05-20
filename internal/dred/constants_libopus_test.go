@@ -4,14 +4,13 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestDREDConstantsMatchLibopusReference(t *testing.T) {
@@ -63,13 +62,7 @@ func TestDREDConstantsMatchLibopusReference(t *testing.T) {
 func readLibopusDefines(t *testing.T, elem ...string) map[string]string {
 	t.Helper()
 
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	path := filepath.Join(append([]string{repoRoot, "tmp_check", "opus-1.6.1"}, elem...)...)
-	data := readLibopusRefFileOrSkip(t, path, "defines")
+	data := libopustest.ReadRefFileOrSkip(t, "defines", elem...)
 
 	defines := make(map[string]string)
 	re := regexp.MustCompile(`(?m)^#define\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*$`)

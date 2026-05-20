@@ -1,10 +1,10 @@
-//go:build gopus_unsupported_controls
-// +build gopus_unsupported_controls
+//go:build gopus_extra_controls
+// +build gopus_extra_controls
 
 package gopus
 
-// SetOSCEBWE exposes the unsupported libopus ENABLE_OSCE_BWE control only
-// when built with -tags gopus_unsupported_controls.
+// SetOSCEBWE exposes the extra libopus ENABLE_OSCE_BWE control only
+// when built with -tags gopus_extra_controls.
 //
 // The default gopus build keeps this quarantined from the public API surface.
 func (d *Decoder) SetOSCEBWE(enabled bool) error {
@@ -18,8 +18,8 @@ func (d *Decoder) OSCEBWE() (bool, error) {
 	return d.osceBWEEnabled, nil
 }
 
-// SetOSCELACE exposes the unsupported libopus OSCE LACE/NoLACE postfilter
-// activation control only when built with -tags gopus_unsupported_controls.
+// SetOSCELACE exposes the extra libopus OSCE LACE/NoLACE postfilter
+// activation control only when built with -tags gopus_extra_controls.
 //
 // The default gopus build keeps this quarantined from the public API surface.
 // libopus selects between OSCE_METHOD_NONE / OSCE_METHOD_LACE / OSCE_METHOD_NOLACE

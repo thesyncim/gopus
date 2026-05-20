@@ -1,5 +1,5 @@
-//go:build gopus_unsupported_controls
-// +build gopus_unsupported_controls
+//go:build gopus_extra_controls
+// +build gopus_extra_controls
 
 package lace
 
@@ -32,7 +32,7 @@ const (
 
 // TraceRecord captures one opt-in LACE diagnostic checkpoint. These records are
 // intentionally allocated and are only built by ProcessTrace under the
-// unsupported-controls build tag.
+// extra-controls build tag.
 type TraceRecord struct {
 	Stage             TraceStage
 	Subframe          int

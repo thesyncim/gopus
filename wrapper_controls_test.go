@@ -27,14 +27,19 @@ type optionalDecoderControl interface {
 	SetDNNBlob([]byte) error
 }
 
-type unsupportedDREDControl interface {
+type extraDREDControl interface {
 	SetDREDDuration(int) error
 	DREDDuration() (int, error)
 }
 
-type unsupportedOSCEBWEControl interface {
+type extraOSCEBWEControl interface {
 	SetOSCEBWE(bool) error
 	OSCEBWE() (bool, error)
+}
+
+type extraOSCELACEControl interface {
+	SetOSCELACE(bool) error
+	OSCELACE() (bool, error)
 }
 
 type ignoreExtensionsControl interface {
@@ -79,7 +84,7 @@ func assertOptionalEncoderControls(t *testing.T, enc optionalEncoderControl) {
 	}
 }
 
-func assertWorkingDREDControl(t *testing.T, enc unsupportedDREDControl) {
+func assertWorkingDREDControl(t *testing.T, enc extraDREDControl) {
 	t.Helper()
 
 	if err := enc.SetDREDDuration(4); err != nil {
@@ -130,7 +135,7 @@ func assertOptionalDecoderControls(t *testing.T, dec optionalDecoderControl) {
 	}
 }
 
-func assertWorkingOSCEBWEControl(t *testing.T, dec unsupportedOSCEBWEControl) {
+func assertWorkingOSCEBWEControl(t *testing.T, dec extraOSCEBWEControl) {
 	t.Helper()
 
 	if err := dec.SetOSCEBWE(true); err != nil {
@@ -144,6 +149,23 @@ func assertWorkingOSCEBWEControl(t *testing.T, dec unsupportedOSCEBWEControl) {
 	}
 	if got, err := dec.OSCEBWE(); err != nil || got {
 		t.Fatalf("OSCEBWE()=(%v,%v) want=(false,nil)", got, err)
+	}
+}
+
+func assertWorkingOSCELACEControl(t *testing.T, dec extraOSCELACEControl) {
+	t.Helper()
+
+	if err := dec.SetOSCELACE(true); err != nil {
+		t.Fatalf("SetOSCELACE(true) error: %v", err)
+	}
+	if got, err := dec.OSCELACE(); err != nil || !got {
+		t.Fatalf("OSCELACE()=(%v,%v) want=(true,nil)", got, err)
+	}
+	if err := dec.SetOSCELACE(false); err != nil {
+		t.Fatalf("SetOSCELACE(false) error: %v", err)
+	}
+	if got, err := dec.OSCELACE(); err != nil || got {
+		t.Fatalf("OSCELACE()=(%v,%v) want=(false,nil)", got, err)
 	}
 }
 

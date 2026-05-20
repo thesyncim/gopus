@@ -505,7 +505,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// silk_resampler upsamples to the public sample rate (and
 		// before the OSCE BWE 16 kHz -> 48 kHz pass when both are
 		// active). Helper is a no-op outside of
-		// `gopus_unsupported_controls`; under the quarantine build it
+		// `gopus_extra_controls`; under the quarantine build it
 		// also short-circuits when the LACE control is disabled or no
 		// LACE/NoLACE model is loaded, so the standard silk_resampler
 		// output is retained for every existing decode path. The call
@@ -520,7 +520,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// OSCE_MODE_SILK_BBWE which replaces the silk_resampler upsampling
 		// with an ML-based 16 kHz -> 48 kHz bandwidth extension.
 		//
-		// The helper is a no-op outside of `gopus_unsupported_controls` and
+		// The helper is a no-op outside of `gopus_extra_controls` and
 		// short-circuits when the BWE control is disabled / no BWE model is
 		// loaded, so the standard silk_resampler output is retained for
 		// every existing decode path.

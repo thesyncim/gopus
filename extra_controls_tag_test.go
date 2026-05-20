@@ -1,5 +1,5 @@
-//go:build gopus_unsupported_controls
-// +build gopus_unsupported_controls
+//go:build gopus_extra_controls
+// +build gopus_extra_controls
 
 package gopus
 
@@ -9,7 +9,7 @@ import (
 	"github.com/thesyncim/gopus/internal/extsupport"
 )
 
-func TestUnsupportedControlsBuildExposesQuarantinedTopLevelControls(t *testing.T) {
+func TestExtraControlsBuildExposesTopLevelControls(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
 	assertOptionalEncoderControls(t, enc)
 	qext, qextOK := any(enc).(qextEncoderControl)
@@ -21,9 +21,9 @@ func TestUnsupportedControlsBuildExposesQuarantinedTopLevelControls(t *testing.T
 	} else if qextOK {
 		t.Fatal("non-QEXT build unexpectedly exposes encoder QEXT control")
 	}
-	dred, ok := any(enc).(unsupportedDREDControl)
+	dred, ok := any(enc).(extraDREDControl)
 	if !ok {
-		t.Fatal("unsupported-controls build does not expose encoder DRED control")
+		t.Fatal("extra-controls build does not expose encoder DRED control")
 	}
 	assertWorkingDREDControl(t, dred)
 	if !enc.enc.DREDModelLoaded() {
@@ -32,11 +32,16 @@ func TestUnsupportedControlsBuildExposesQuarantinedTopLevelControls(t *testing.T
 
 	dec := newMonoTestDecoder(t)
 	assertOptionalDecoderControls(t, dec)
-	osce, ok := any(dec).(unsupportedOSCEBWEControl)
+	osce, ok := any(dec).(extraOSCEBWEControl)
 	if !ok {
-		t.Fatal("unsupported-controls build does not expose decoder OSCE BWE control")
+		t.Fatal("extra-controls build does not expose decoder OSCE BWE control")
 	}
 	assertWorkingOSCEBWEControl(t, osce)
+	lace, ok := any(dec).(extraOSCELACEControl)
+	if !ok {
+		t.Fatal("extra-controls build does not expose decoder OSCE LACE control")
+	}
+	assertWorkingOSCELACEControl(t, lace)
 	standaloneDRED := NewDREDDecoder()
 	if standaloneDRED == nil {
 		t.Fatal("NewDREDDecoder returned nil")
@@ -62,9 +67,9 @@ func TestUnsupportedControlsBuildExposesQuarantinedTopLevelControls(t *testing.T
 	} else if msQEXTOK {
 		t.Fatal("non-QEXT build unexpectedly exposes multistream encoder QEXT control")
 	}
-	msDred, ok := any(msEnc).(unsupportedDREDControl)
+	msDred, ok := any(msEnc).(extraDREDControl)
 	if !ok {
-		t.Fatal("unsupported-controls build does not expose multistream encoder DRED control")
+		t.Fatal("extra-controls build does not expose multistream encoder DRED control")
 	}
 	assertWorkingDREDControl(t, msDred)
 	if !msEnc.enc.DREDModelLoaded() {
@@ -73,9 +78,14 @@ func TestUnsupportedControlsBuildExposesQuarantinedTopLevelControls(t *testing.T
 
 	msDec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
 	assertOptionalDecoderControls(t, msDec)
-	msOSCE, ok := any(msDec).(unsupportedOSCEBWEControl)
+	msOSCE, ok := any(msDec).(extraOSCEBWEControl)
 	if !ok {
-		t.Fatal("unsupported-controls build does not expose multistream decoder OSCE BWE control")
+		t.Fatal("extra-controls build does not expose multistream decoder OSCE BWE control")
 	}
 	assertWorkingOSCEBWEControl(t, msOSCE)
+	msLACE, ok := any(msDec).(extraOSCELACEControl)
+	if !ok {
+		t.Fatal("extra-controls build does not expose multistream decoder OSCE LACE control")
+	}
+	assertWorkingOSCELACEControl(t, msLACE)
 }

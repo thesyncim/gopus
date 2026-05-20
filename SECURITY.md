@@ -36,12 +36,12 @@ Use private reporting for:
   optional-extension control paths.
 - Supply-chain, release-integrity, CI-token, provenance, or dependency-update
   concerns.
-- Cases where an explicitly unsupported or quarantine-gated feature is reachable
-  in a way that can affect ordinary users.
+- Cases where an extra-control or quarantine-gated feature is reachable in a way
+  that can affect ordinary users.
 - Any report that includes a weaponized sample or exploit instructions.
 
 Public issues are appropriate for ordinary correctness bugs, documentation gaps,
-or unsupported-feature requests that do not expose users to security risk.
+or extra-feature requests that do not expose users to security risk.
 
 ## Response Windows
 

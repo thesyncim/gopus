@@ -1,5 +1,5 @@
-//go:build !gopus_unsupported_controls && !gopus_dred && !gopus_qext
-// +build !gopus_unsupported_controls,!gopus_dred,!gopus_qext
+//go:build !gopus_extra_controls && !gopus_dred && !gopus_qext
+// +build !gopus_extra_controls,!gopus_dred,!gopus_qext
 
 package encoder_test
 
@@ -19,7 +19,7 @@ func exportedMethodNames(v any) map[string]struct{} {
 	return names
 }
 
-func TestDefaultBuildQuarantinesUnsupportedControls(t *testing.T) {
+func TestDefaultBuildQuarantinesExtraControls(t *testing.T) {
 	methods := exportedMethodNames(encoder.NewEncoder(48000, 1))
 	for _, name := range []string{"DREDDuration", "DREDModelLoaded", "DREDReady", "QEXT", "SetDREDDuration", "SetQEXT"} {
 		if _, ok := methods[name]; ok {

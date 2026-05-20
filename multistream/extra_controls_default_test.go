@@ -1,5 +1,5 @@
-//go:build !gopus_unsupported_controls && !gopus_dred && !gopus_qext
-// +build !gopus_unsupported_controls,!gopus_dred,!gopus_qext
+//go:build !gopus_extra_controls && !gopus_dred && !gopus_qext
+// +build !gopus_extra_controls,!gopus_dred,!gopus_qext
 
 package multistream
 
@@ -21,7 +21,7 @@ func exportedMethodNames(v any) map[string]struct{} {
 	return names
 }
 
-func TestDefaultBuildQuarantinesUnsupportedControls(t *testing.T) {
+func TestDefaultBuildHidesExtraControls(t *testing.T) {
 	enc, err := NewEncoderDefault(48000, 2)
 	if err != nil {
 		t.Fatalf("NewEncoderDefault error: %v", err)
@@ -36,7 +36,7 @@ func TestDefaultBuildQuarantinesUnsupportedControls(t *testing.T) {
 			t.Fatalf("default build unexpectedly exposes encoder %s", name)
 		}
 	}
-	for _, name := range []string{"DREDModelLoaded", "OSCEBWEModelLoaded", "OSCEModelsLoaded"} {
+	for _, name := range []string{"DREDModelLoaded", "OSCEBWEModelLoaded", "OSCEModelsLoaded", "OSCEBWE", "OSCELACE", "SetOSCEBWE", "SetOSCELACE"} {
 		if _, ok := exportedMethodNames(dec)[name]; ok {
 			t.Fatalf("default build unexpectedly exposes decoder %s", name)
 		}

@@ -1,11 +1,11 @@
 package dnnblob
 
 import (
-	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestDNNBlobConstantsMatchLibopusReference(t *testing.T) {
@@ -34,13 +34,7 @@ func TestDNNBlobConstantsMatchLibopusReference(t *testing.T) {
 
 func readLibopusNNetDefines(t *testing.T) map[string]int32 {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	path := filepath.Join(repoRoot, "tmp_check", "opus-1.6.1", "dnn", "nnet.h")
-	data := readLibopusRefFileOrSkip(t, path, "nnet.h")
+	data := libopustest.ReadRefFileOrSkip(t, "nnet.h", "dnn", "nnet.h")
 
 	defs := make(map[string]int32)
 	re := regexp.MustCompile(`(?m)^#define\s+(WEIGHT_(?:BLOCK_SIZE|TYPE_[A-Za-z0-9_]+))\s+([0-9]+)\s*$`)

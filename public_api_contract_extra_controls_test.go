@@ -1,5 +1,5 @@
-//go:build gopus_dred && !gopus_extra_controls && !gopus_qext
-// +build gopus_dred,!gopus_extra_controls,!gopus_qext
+//go:build gopus_extra_controls && !gopus_qext
+// +build gopus_extra_controls,!gopus_qext
 
 package gopus
 
@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-func exportedMethodNames(v any) []string {
+func exportedMethodNamesExtra(v any) []string {
 	t := reflect.TypeOf(v)
 	names := make([]string, 0, t.NumMethod())
 	for i := 0; i < t.NumMethod(); i++ {
@@ -19,7 +19,7 @@ func exportedMethodNames(v any) []string {
 	return names
 }
 
-func TestDREDBuildPublicAPIContract(t *testing.T) {
+func TestExtraControlsBuildPublicAPIContract(t *testing.T) {
 	tests := []struct {
 		name string
 		got  any
@@ -47,9 +47,10 @@ func TestDREDBuildPublicAPIContract(t *testing.T) {
 			got:  &Decoder{},
 			want: []string{
 				"Bandwidth", "Channels", "Complexity", "Decode", "DecodeDRED", "DecodeInt16", "DecodeWithFEC", "FinalRange",
-				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "PhaseInversionDisabled",
-				"Pitch", "Reset", "SampleRate", "SetComplexity", "SetDNNBlob", "SetGain",
-				"SetIgnoreExtensions", "SetPhaseInversionDisabled",
+				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "OSCEBWE", "OSCELACE",
+				"PhaseInversionDisabled", "Pitch", "Reset", "SampleRate", "SetComplexity",
+				"SetDNNBlob", "SetGain", "SetIgnoreExtensions", "SetOSCEBWE", "SetOSCELACE",
+				"SetPhaseInversionDisabled",
 			},
 		},
 		{
@@ -74,9 +75,10 @@ func TestDREDBuildPublicAPIContract(t *testing.T) {
 			got:  &MultistreamDecoder{},
 			want: []string{
 				"Bandwidth", "Channels", "Complexity", "CoupledStreams", "Decode", "DecodeInt16", "FinalRange",
-				"Gain", "GetFinalRange", "IgnoreExtensions", "LastPacketDuration",
-				"PhaseInversionDisabled", "Reset", "SampleRate", "SetComplexity", "SetDNNBlob",
-				"SetGain", "SetIgnoreExtensions", "SetPhaseInversionDisabled", "Streams",
+				"Gain", "GetFinalRange", "IgnoreExtensions", "LastPacketDuration", "OSCEBWE",
+				"OSCELACE", "PhaseInversionDisabled", "Reset", "SampleRate", "SetComplexity",
+				"SetDNNBlob", "SetGain", "SetIgnoreExtensions", "SetOSCEBWE", "SetOSCELACE",
+				"SetPhaseInversionDisabled", "Streams",
 			},
 		},
 		{
@@ -94,11 +96,26 @@ func TestDREDBuildPublicAPIContract(t *testing.T) {
 				"ProcessStage", "Processed", "RawProcessStage", "Result",
 			},
 		},
+		{
+			name: "Reader",
+			got:  &Reader{},
+			want: []string{
+				"Channels", "LastGranulePos", "Read", "Reset", "SampleRate",
+			},
+		},
+		{
+			name: "Writer",
+			got:  &Writer{},
+			want: []string{
+				"Channels", "Close", "Flush", "Reset", "SampleRate", "SetBitrate",
+				"SetComplexity", "SetDTX", "SetFEC", "Write",
+			},
+		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := exportedMethodNames(tc.got)
+			got := exportedMethodNamesExtra(tc.got)
 			if !slices.Equal(got, tc.want) {
 				t.Fatalf("%s methods mismatch\n got: %v\nwant: %v", tc.name, got, tc.want)
 			}

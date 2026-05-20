@@ -1,12 +1,12 @@
-//go:build !gopus_unsupported_controls
-// +build !gopus_unsupported_controls
+//go:build !gopus_extra_controls
+// +build !gopus_extra_controls
 
 package multistream
 
 import "github.com/thesyncim/gopus/internal/dnnblob"
 
 // setOSCELACEEnabled / setOSCEBWEEnabled / bindOSCEModels are no-ops outside
-// of the explicit `gopus_unsupported_controls` build. The fanout call sites in
+// of the explicit `gopus_extra_controls` build. The fanout call sites in
 // the multistream Decoder always invoke them so the shared code compiles on
 // both builds; under the default tag they collapse to nothing.
 

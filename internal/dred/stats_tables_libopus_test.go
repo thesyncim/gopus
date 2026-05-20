@@ -1,13 +1,13 @@
 package dred
 
 import (
-	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 	"unicode"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestDREDStatsTablesMatchLibopusReference(t *testing.T) {
@@ -41,13 +41,7 @@ func TestDREDStatsTablesMatchLibopusReference(t *testing.T) {
 
 func readLibopusDREDStatsSource(t *testing.T) string {
 	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
-	path := filepath.Join(repoRoot, "tmp_check", "opus-1.6.1", "dnn", "dred_rdovae_stats_data.c")
-	data := readLibopusRefFileOrSkip(t, path, "DRED stats source")
+	data := libopustest.ReadRefFileOrSkip(t, "DRED stats source", "dnn", "dred_rdovae_stats_data.c")
 	return string(data)
 }
 

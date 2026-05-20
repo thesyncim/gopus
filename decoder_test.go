@@ -1393,7 +1393,7 @@ func TestDecoder_OptionalExtensionControls(t *testing.T) {
 	dec := newMonoTestDecoder(t)
 
 	assertOptionalDecoderControls(t, dec)
-	if osce, ok := any(dec).(unsupportedOSCEBWEControl); ok {
+	if osce, ok := any(dec).(extraOSCEBWEControl); ok {
 		if extsupport.OSCEBWERuntime {
 			assertWorkingOSCEBWEControl(t, osce)
 		} else {

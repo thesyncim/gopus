@@ -36,7 +36,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		{name: "DNN blob loading", ext: OptionalExtensionDNNBlob, status: "Supported by default"},
 		{name: "QEXT", ext: OptionalExtensionQEXT, status: "Tagged support"},
 		{name: "DRED", ext: OptionalExtensionDRED, status: "Tagged control/standalone support"},
-		{name: "OSCE BWE", ext: OptionalExtensionOSCEBWE, status: "Unsupported and quarantined"},
+		{name: "OSCE BWE", ext: OptionalExtensionOSCEBWE, status: "Extra-control parity only"},
 	} {
 		wantLine := fmt.Sprintf("| %s | %s | `%s` |", tc.name, tc.status, optionalExtensionDocSymbol(tc.ext))
 		if !containsDocText(optionalDoc, wantLine) {
@@ -47,12 +47,12 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"Default builds support `SetDNNBlob(...)` only.",
 		"QEXT and DRED require build tags.",
-		"OSCE BWE remains quarantine-only and unsupported outside quarantine builds.",
+		"OSCE BWE remains quarantine-only and absent outside quarantine builds.",
 		"make test-dnn-blob-parity",
 		"make test-qext-parity",
 		"make test-dred-tag",
-		"make test-unsupported-controls-parity",
-		"does not make unsupported features part of the public support claim",
+		"make test-extra-controls-parity",
+		"does not make extra features part of the public support claim",
 	} {
 		if !containsDocText(optionalDoc, needle) {
 			t.Fatalf("README.md missing %q", needle)
@@ -64,7 +64,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"Default builds support `SetDNNBlob(...)` only.",
 		"QEXT requires `-tags gopus_qext`",
 		"DRED control/standalone surfaces require `-tags gopus_dred`",
-		"OSCE BWE remains quarantine-only and unsupported outside quarantine builds",
+		"OSCE BWE remains quarantine-only and absent outside quarantine builds",
 	} {
 		if !containsDocText(optionalDoc, needle) {
 			t.Fatalf("README.md missing %q", needle)
@@ -96,10 +96,10 @@ func assertOptionalExtensionDocsMatchSupport(t *testing.T, optionalDoc string) {
 	t.Helper()
 
 	if !SupportsOptionalExtension(OptionalExtensionDNNBlob) {
-		t.Fatalf("%s documented as default-supported but current build reports unsupported", optionalExtensionDocSymbol(OptionalExtensionDNNBlob))
+		t.Fatalf("%s documented as default-supported but current build does not report support", optionalExtensionDocSymbol(OptionalExtensionDNNBlob))
 	}
 	if SupportsOptionalExtension(OptionalExtensionOSCEBWE) {
-		t.Fatal("OptionalExtensionOSCEBWE documented as unsupported but current build reports supported")
+		t.Fatal("OptionalExtensionOSCEBWE documented as extra-control parity only but current build reports support")
 	}
 
 	if SupportsOptionalExtension(OptionalExtensionQEXT) && !strings.Contains(optionalDoc, "go test -tags gopus_qext ./...") {

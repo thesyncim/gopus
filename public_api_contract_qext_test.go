@@ -1,5 +1,5 @@
-//go:build gopus_qext && !gopus_dred && !gopus_unsupported_controls
-// +build gopus_qext,!gopus_dred,!gopus_unsupported_controls
+//go:build gopus_qext && !gopus_dred && !gopus_extra_controls
+// +build gopus_qext,!gopus_dred,!gopus_extra_controls
 
 package gopus
 

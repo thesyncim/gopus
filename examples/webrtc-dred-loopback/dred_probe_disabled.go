@@ -1,5 +1,5 @@
-//go:build !gopus_dred && !gopus_unsupported_controls
-// +build !gopus_dred,!gopus_unsupported_controls
+//go:build !gopus_dred && !gopus_extra_controls
+// +build !gopus_dred,!gopus_extra_controls
 
 package main
 
@@ -20,5 +20,5 @@ func (p *dredPacketProbe) prepareRecovery(_ []byte, _ int) (int, bool) {
 }
 
 func (p *dredPacketProbe) decodeRecovery(_ *gopus.Decoder, _ int, _ []float32, _ int) (int, error) {
-	return 0, gopus.ErrUnsupportedExtension
+	return 0, gopus.ErrExtraExtensionUnavailable
 }

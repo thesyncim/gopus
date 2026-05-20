@@ -1,5 +1,5 @@
-//go:build gopus_dred && !gopus_unsupported_controls
-// +build gopus_dred,!gopus_unsupported_controls
+//go:build gopus_dred && !gopus_extra_controls
+// +build gopus_dred,!gopus_extra_controls
 
 package gopus
 
@@ -15,7 +15,7 @@ func TestDREDBuildTagExposesSupportedTopLevelControls(t *testing.T) {
 
 	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
 	assertOptionalEncoderControls(t, enc)
-	dred, ok := any(enc).(unsupportedDREDControl)
+	dred, ok := any(enc).(extraDREDControl)
 	if !ok {
 		t.Fatal("gopus_dred build does not expose encoder DRED control")
 	}
@@ -26,7 +26,7 @@ func TestDREDBuildTagExposesSupportedTopLevelControls(t *testing.T) {
 
 	dec := newMonoTestDecoder(t)
 	assertOptionalDecoderControls(t, dec)
-	if _, ok := any(dec).(unsupportedOSCEBWEControl); ok {
+	if _, ok := any(dec).(extraOSCEBWEControl); ok {
 		t.Fatal("gopus_dred build unexpectedly exposes decoder OSCE BWE control")
 	}
 	standaloneDRED := NewDREDDecoder()
@@ -45,7 +45,7 @@ func TestDREDBuildTagExposesSupportedTopLevelControls(t *testing.T) {
 
 	msEnc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
 	assertOptionalEncoderControls(t, msEnc)
-	msDred, ok := any(msEnc).(unsupportedDREDControl)
+	msDred, ok := any(msEnc).(extraDREDControl)
 	if !ok {
 		t.Fatal("gopus_dred build does not expose multistream encoder DRED control")
 	}
@@ -56,7 +56,7 @@ func TestDREDBuildTagExposesSupportedTopLevelControls(t *testing.T) {
 
 	msDec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
 	assertOptionalDecoderControls(t, msDec)
-	if _, ok := any(msDec).(unsupportedOSCEBWEControl); ok {
+	if _, ok := any(msDec).(extraOSCEBWEControl); ok {
 		t.Fatal("gopus_dred build unexpectedly exposes multistream decoder OSCE BWE control")
 	}
 }

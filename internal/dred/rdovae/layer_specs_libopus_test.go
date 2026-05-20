@@ -1,13 +1,13 @@
 package rdovae
 
 import (
-	"path/filepath"
 	"reflect"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestRDOVAELayerSpecsMatchLibopusReference(t *testing.T) {
@@ -18,21 +18,11 @@ func TestRDOVAELayerSpecsMatchLibopusReference(t *testing.T) {
 func assertLayerSpecsMatchLibopus(t *testing.T, label, fileName, initName string, got []LinearLayerSpec) {
 	t.Helper()
 
-	path := filepath.Join(repoRootForLayerSpecTest(t), "tmp_check", "opus-1.6.1", "dnn", fileName)
-	data := readLibopusRefFileOrSkip(t, path, label+" layer specs")
+	data := libopustest.ReadRefFileOrSkip(t, label+" layer specs", "dnn", fileName)
 	want := parseLibopusLinearInitSpecs(t, string(data), initName)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%s layer specs mismatch\n got=%#v\nwant=%#v", label, got, want)
 	}
-}
-
-func repoRootForLayerSpecTest(t *testing.T) string {
-	t.Helper()
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
 }
 
 func parseLibopusLinearInitSpecs(t *testing.T, source, initName string) []LinearLayerSpec {

@@ -18,13 +18,13 @@ const (
 	OptionalExtensionQEXT OptionalExtension = "qext"
 
 	// OptionalExtensionOSCEBWE identifies decoder-side OSCE BWE controls, which
-	// remain unsupported in the default build and quarantine builds.
+	// remain parity-only extra controls rather than supported release surface.
 	OptionalExtensionOSCEBWE OptionalExtension = "osce_bwe"
 )
 
 // SupportsOptionalExtension reports whether the current build makes ext part of
-// the supported release surface for this build. Experimental/quarantine
-// controls may be compiled for parity work while still reporting false here.
+// the supported release surface for this build. Extra controls may be compiled
+// for parity work while still reporting false here.
 func SupportsOptionalExtension(ext OptionalExtension) bool {
 	switch ext {
 	case OptionalExtensionDRED:

@@ -29,30 +29,30 @@ uncertain, match libopus unless fixture evidence says otherwise.
 
 Default builds support `SetDNNBlob(...)` only. QEXT and DRED require build tags.
 QEXT requires `-tags gopus_qext`, and DRED control/standalone surfaces require `-tags gopus_dred`.
-OSCE BWE remains quarantine-only and unsupported outside quarantine builds.
+OSCE BWE remains quarantine-only and absent outside quarantine builds.
 
 | Extension | Status | Probe |
 | --- | --- | --- |
 | DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` |
 | QEXT | Tagged support | `OptionalExtensionQEXT` |
 | DRED | Tagged control/standalone support | `OptionalExtensionDRED` |
-| OSCE BWE | Unsupported and quarantined | `OptionalExtensionOSCEBWE` |
+| OSCE BWE | Extra-control parity only | `OptionalExtensionOSCEBWE` |
 
 ```sh
 go test -tags gopus_qext ./...
 go test -tags gopus_dred ./...
-go test -tags gopus_unsupported_controls ./...
+go test -tags gopus_extra_controls ./...
 ```
 
 ```sh
 make test-dnn-blob-parity
 make test-qext-parity
 make test-dred-tag
-make test-unsupported-controls-parity
+make test-extra-controls-parity
 ```
 
-The `gopus_unsupported_controls` tag can expose parity helpers, but it does not
-make unsupported features part of the public support claim.
+The `gopus_extra_controls` tag can expose parity helpers, but it does not
+make extra features part of the public support claim.
 
 ## Verification
 

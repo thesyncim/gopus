@@ -1,5 +1,5 @@
-//go:build gopus_dred && !gopus_unsupported_controls
-// +build gopus_dred,!gopus_unsupported_controls
+//go:build gopus_dred && !gopus_extra_controls
+// +build gopus_dred,!gopus_extra_controls
 
 package multistream
 
@@ -35,7 +35,7 @@ func TestDREDBuildTagExposesEncoderControlsOnly(t *testing.T) {
 	if _, ok := dredBuildTagMethodNames(dec)["DREDModelLoaded"]; !ok {
 		t.Fatal("gopus_dred build does not expose decoder DREDModelLoaded")
 	}
-	for _, name := range []string{"OSCEBWEModelLoaded", "OSCEModelsLoaded", "OSCEBWE", "SetOSCEBWE"} {
+	for _, name := range []string{"OSCEBWEModelLoaded", "OSCEModelsLoaded", "OSCEBWE", "OSCELACE", "SetOSCEBWE", "SetOSCELACE"} {
 		if _, ok := dredBuildTagMethodNames(dec)[name]; ok {
 			t.Fatalf("gopus_dred build unexpectedly exposes decoder %s", name)
 		}

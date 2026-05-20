@@ -1,13 +1,13 @@
-//go:build !gopus_unsupported_controls && !gopus_dred && !gopus_qext
-// +build !gopus_unsupported_controls,!gopus_dred,!gopus_qext
+//go:build !gopus_extra_controls && !gopus_dred && !gopus_qext
+// +build !gopus_extra_controls,!gopus_dred,!gopus_qext
 
 package gopus
 
 import "testing"
 
-func TestDefaultBuildQuarantinesUnsupportedControls(t *testing.T) {
+func TestDefaultBuildHidesExtraControls(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
-	if _, ok := any(enc).(unsupportedDREDControl); ok {
+	if _, ok := any(enc).(extraDREDControl); ok {
 		t.Fatal("Encoder unexpectedly exposes DRED control in the default build")
 	}
 	if _, ok := any(enc).(qextEncoderControl); ok {
@@ -15,12 +15,15 @@ func TestDefaultBuildQuarantinesUnsupportedControls(t *testing.T) {
 	}
 
 	dec := newMonoTestDecoder(t)
-	if _, ok := any(dec).(unsupportedOSCEBWEControl); ok {
+	if _, ok := any(dec).(extraOSCEBWEControl); ok {
 		t.Fatal("Decoder unexpectedly exposes OSCE BWE control in the default build")
+	}
+	if _, ok := any(dec).(extraOSCELACEControl); ok {
+		t.Fatal("Decoder unexpectedly exposes OSCE LACE control in the default build")
 	}
 
 	msEnc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
-	if _, ok := any(msEnc).(unsupportedDREDControl); ok {
+	if _, ok := any(msEnc).(extraDREDControl); ok {
 		t.Fatal("MultistreamEncoder unexpectedly exposes DRED control in the default build")
 	}
 	if _, ok := any(msEnc).(qextEncoderControl); ok {
@@ -28,8 +31,11 @@ func TestDefaultBuildQuarantinesUnsupportedControls(t *testing.T) {
 	}
 
 	msDec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
-	if _, ok := any(msDec).(unsupportedOSCEBWEControl); ok {
+	if _, ok := any(msDec).(extraOSCEBWEControl); ok {
 		t.Fatal("MultistreamDecoder unexpectedly exposes OSCE BWE control in the default build")
+	}
+	if _, ok := any(msDec).(extraOSCELACEControl); ok {
+		t.Fatal("MultistreamDecoder unexpectedly exposes OSCE LACE control in the default build")
 	}
 }
 

@@ -1,5 +1,5 @@
-//go:build gopus_dred || gopus_unsupported_controls
-// +build gopus_dred gopus_unsupported_controls
+//go:build gopus_dred || gopus_extra_controls
+// +build gopus_dred gopus_extra_controls
 
 package gopus
 
@@ -217,7 +217,7 @@ func libopusDREDForceModeEnv(mode Mode) (string, error) {
 	case ModeSILK:
 		return "silk", nil
 	default:
-		return "", fmt.Errorf("unsupported libopus dred packet force mode %v", mode)
+		return "", fmt.Errorf("extra libopus dred packet force mode %v", mode)
 	}
 }
 
@@ -230,6 +230,6 @@ func libopusDREDBandwidthEnv(bandwidth Bandwidth) (string, error) {
 	case BandwidthFullband:
 		return "fb", nil
 	default:
-		return "", fmt.Errorf("unsupported libopus dred packet bandwidth %v", bandwidth)
+		return "", fmt.Errorf("extra libopus dred packet bandwidth %v", bandwidth)
 	}
 }

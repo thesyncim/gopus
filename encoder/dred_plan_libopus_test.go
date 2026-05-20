@@ -1,21 +1,19 @@
-//go:build gopus_dred || gopus_unsupported_controls
-// +build gopus_dred gopus_unsupported_controls
+//go:build gopus_dred || gopus_extra_controls
+// +build gopus_dred gopus_extra_controls
 
 package encoder
 
 import (
 	"math"
 	"math/bits"
-	"os"
-	"path/filepath"
 	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"testing"
 
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
@@ -271,16 +269,7 @@ func libopusMinFloat32(a, b float32) float32 {
 func readLibopusDREDBitsTable(t *testing.T) []float32 {
 	t.Helper()
 
-	_, file, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller failed")
-	}
-	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), ".."))
-	path := filepath.Join(repoRoot, "tmp_check", "opus-1.6.1", "src", "opus_encoder.c")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read libopus opus_encoder.c: %v", err)
-	}
+	data := libopustest.ReadRefFileOrSkip(t, "opus_encoder.c", "src", "opus_encoder.c")
 
 	re := regexp.MustCompile(`(?s)static\s+const\s+float\s+dred_bits_table\[16\]\s*=\s*\{([^}]*)\}`)
 	m := re.FindSubmatch(data)

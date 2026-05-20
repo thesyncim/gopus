@@ -1,5 +1,5 @@
-//go:build gopus_unsupported_controls && !gopus_qext
-// +build gopus_unsupported_controls,!gopus_qext
+//go:build gopus_extra_controls && gopus_qext
+// +build gopus_extra_controls,gopus_qext
 
 package gopus
 
@@ -9,17 +9,74 @@ import (
 	"testing"
 )
 
-func exportedMethodNamesUnsupported(v any) []string {
-	t := reflect.TypeOf(v)
-	names := make([]string, 0, t.NumMethod())
-	for i := 0; i < t.NumMethod(); i++ {
-		names = append(names, t.Method(i).Name)
+func TestQEXTExtraControlsBuildOptionalExtensionContract(t *testing.T) {
+	if !SupportsOptionalExtension(OptionalExtensionDNNBlob) {
+		t.Fatal("gopus_extra_controls,gopus_qext build does not report DNN blob support")
 	}
-	slices.Sort(names)
-	return names
+	if SupportsOptionalExtension(OptionalExtensionDRED) {
+		t.Fatal("gopus_extra_controls,gopus_qext build unexpectedly reports DRED support")
+	}
+	if !SupportsOptionalExtension(OptionalExtensionQEXT) {
+		t.Fatal("gopus_extra_controls,gopus_qext build does not report QEXT support")
+	}
+	if SupportsOptionalExtension(OptionalExtensionOSCEBWE) {
+		t.Fatal("gopus_extra_controls,gopus_qext build unexpectedly reports OSCE BWE support")
+	}
+
+	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
+	assertOptionalEncoderControls(t, enc)
+	dred, ok := any(enc).(extraDREDControl)
+	if !ok {
+		t.Fatal("combined quarantine build does not expose encoder DRED control")
+	}
+	assertWorkingDREDControl(t, dred)
+	qext, ok := any(enc).(qextEncoderControl)
+	if !ok {
+		t.Fatal("combined quarantine build does not expose encoder QEXT control")
+	}
+	assertSupportedQEXTControl(t, qext)
+
+	dec := newMonoTestDecoder(t)
+	assertOptionalDecoderControls(t, dec)
+	osce, ok := any(dec).(extraOSCEBWEControl)
+	if !ok {
+		t.Fatal("combined quarantine build does not expose decoder OSCE BWE control")
+	}
+	assertWorkingOSCEBWEControl(t, osce)
+	lace, ok := any(dec).(extraOSCELACEControl)
+	if !ok {
+		t.Fatal("combined quarantine build does not expose decoder OSCE LACE control")
+	}
+	assertWorkingOSCELACEControl(t, lace)
+
+	msEnc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
+	assertOptionalEncoderControls(t, msEnc)
+	msDred, ok := any(msEnc).(extraDREDControl)
+	if !ok {
+		t.Fatal("combined quarantine build does not expose multistream encoder DRED control")
+	}
+	assertWorkingDREDControl(t, msDred)
+	msQEXT, ok := any(msEnc).(qextEncoderControl)
+	if !ok {
+		t.Fatal("combined quarantine build does not expose multistream encoder QEXT control")
+	}
+	assertSupportedQEXTControl(t, msQEXT)
+
+	msDec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
+	assertOptionalDecoderControls(t, msDec)
+	msOSCE, ok := any(msDec).(extraOSCEBWEControl)
+	if !ok {
+		t.Fatal("combined quarantine build does not expose multistream decoder OSCE BWE control")
+	}
+	assertWorkingOSCEBWEControl(t, msOSCE)
+	msLACE, ok := any(msDec).(extraOSCELACEControl)
+	if !ok {
+		t.Fatal("combined quarantine build does not expose multistream decoder OSCE LACE control")
+	}
+	assertWorkingOSCELACEControl(t, msLACE)
 }
 
-func TestUnsupportedControlsBuildPublicAPIContract(t *testing.T) {
+func TestQEXTExtraControlsBuildPublicAPIContract(t *testing.T) {
 	tests := []struct {
 		name string
 		got  any
@@ -34,11 +91,11 @@ func TestUnsupportedControlsBuildPublicAPIContract(t *testing.T) {
 				"EncodeInt16Slice", "EncodeInt24", "EncodeInt24Slice", "ExpertFrameDuration",
 				"FECEnabled", "FinalRange", "ForceChannels", "FrameSize", "InBandFEC", "InDTX", "LSBDepth",
 				"Lookahead", "MaxBandwidth", "Mode", "PacketLoss", "PhaseInversionDisabled",
-				"PredictionDisabled", "Reset", "SampleRate", "SetApplication",
+				"PredictionDisabled", "QEXT", "Reset", "SampleRate", "SetApplication",
 				"SetBandwidth", "SetBandwidthAuto", "SetBitrate", "SetBitrateMode", "SetComplexity", "SetDNNBlob",
 				"SetDREDDuration", "SetDTX", "SetExpertFrameDuration", "SetFEC",
 				"SetForceChannels", "SetFrameSize", "SetInBandFEC", "SetLSBDepth", "SetMaxBandwidth",
-				"SetMode", "SetPacketLoss", "SetPhaseInversionDisabled", "SetPredictionDisabled",
+				"SetMode", "SetPacketLoss", "SetPhaseInversionDisabled", "SetPredictionDisabled", "SetQEXT",
 				"SetSignal", "SetVBR", "SetVBRConstraint", "Signal", "VADActivity", "VBR", "VBRConstraint",
 			},
 		},
@@ -62,11 +119,11 @@ func TestUnsupportedControlsBuildPublicAPIContract(t *testing.T) {
 				"EncodeInt16", "EncodeInt16Slice", "EncodeInt24", "EncodeInt24Slice",
 				"ExpertFrameDuration", "FECEnabled", "FinalRange", "ForceChannels", "FrameSize",
 				"GetFinalRange", "InBandFEC", "LSBDepth", "Lookahead", "MaxBandwidth", "Mode", "PacketLoss",
-				"PhaseInversionDisabled", "PredictionDisabled", "Reset", "SampleRate",
+				"PhaseInversionDisabled", "PredictionDisabled", "QEXT", "Reset", "SampleRate",
 				"SetApplication", "SetBandwidth", "SetBandwidthAuto", "SetBitrate", "SetBitrateMode", "SetComplexity",
 				"SetDNNBlob", "SetDREDDuration", "SetDTX", "SetExpertFrameDuration", "SetFEC",
 				"SetForceChannels", "SetFrameSize", "SetInBandFEC", "SetLSBDepth", "SetMaxBandwidth",
-				"SetMode", "SetPacketLoss", "SetPhaseInversionDisabled", "SetPredictionDisabled",
+				"SetMode", "SetPacketLoss", "SetPhaseInversionDisabled", "SetPredictionDisabled", "SetQEXT",
 				"SetSignal", "SetVBR", "SetVBRConstraint", "Signal", "Streams", "VBR", "VBRConstraint",
 			},
 		},
@@ -115,10 +172,20 @@ func TestUnsupportedControlsBuildPublicAPIContract(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got := exportedMethodNamesUnsupported(tc.got)
+			got := qextExtraBuildMethodNames(tc.got)
 			if !slices.Equal(got, tc.want) {
 				t.Fatalf("%s methods mismatch\n got: %v\nwant: %v", tc.name, got, tc.want)
 			}
 		})
 	}
+}
+
+func qextExtraBuildMethodNames(v any) []string {
+	t := reflect.TypeOf(v)
+	names := make([]string, 0, t.NumMethod())
+	for i := 0; i < t.NumMethod(); i++ {
+		names = append(names, t.Method(i).Name)
+	}
+	slices.Sort(names)
+	return names
 }

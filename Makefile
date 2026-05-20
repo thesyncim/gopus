@@ -1,4 +1,4 @@
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke test-doc-contract test-dnn-blob-parity test-dred-tag test-qext-parity test-unsupported-controls-tag test-unsupported-controls-parity test-unsupported-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke test-doc-contract test-dnn-blob-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-extra-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -6,6 +6,7 @@ GOLANGCI_LINT ?= golangci-lint
 GOLANGCI_LINT_VERSION ?= v1.64.8
 GO_RUNNABLE_TEST ?= bash ./tools/run_go_test_runnable.sh
 ASSEMBLY_SAFETY_MATRIX ?= bash ./tools/run_assembly_safety_matrix.sh
+FOCUS_GATE ?= bash ./tools/run_focus_gate.sh
 PGO_FILE ?= default.pgo
 PGO_FLAG ?= -pgo=$(PGO_FILE)
 PGO_GENERATE_FLAG ?= -pgo=off
@@ -65,25 +66,6 @@ GO_TEST_PARITY_EXACT = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_L
 GO_TEST_EXHAUSTIVE = GOPUS_TEST_TIER=exhaustive $(GO_WORK_ENV) $(GO) test
 RUNNABLE_FAST = GOPUS_TEST_TIER=fast $(GO_RUNNABLE_TEST)
 RUNNABLE_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABLE_TEST)
-DNN_BLOB_DEFAULT_ROOT_RUN = 'Test(DefaultBuildDNNBlobKeepsDREDRuntimeDormant|DefaultBuildEncoderDNNBlobKeepsDREDDormant|HotPathAllocsDecodePLCDNNReadyAtMostBaseline|EncoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobStereoRuntimeRetainedAcrossReset|MultistreamEncoderSetDNNBlobRetainedAcrossReset|MultistreamDecoderSetDNNBlobRetainedAcrossReset|ValidEncoderTestDNNBlobShape|ValidDecoderTestDNNBlobShape)'
-DNN_BLOB_DEFAULT_MULTISTREAM_RUN = 'Test(DefaultBuildMultistreamDecoderRealBlobDormant|DefaultBuildMultistreamEncoderDNNBlobKeepsAllocsFlat)'
-UNSUPPORTED_CONTROLS_CORE_ROOT_RUN = 'Test(SupportsOptionalExtension|UnsupportedControlsBuildExposesQuarantinedTopLevelControls|UnsupportedControlsBuildPublicAPIContract|PublicDRED|DREDDecoderParseRequiresModel|DREDDecoderParseAndProcessRetainsMetadata|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderParseClearsStateOnMalformedPacket|StandaloneDREDParseMatchesLibopus|StandaloneDREDProcessMatchesLibopusOnRealPacket|StandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket|StandaloneDREDRecoveryWindowMatchesLibopus|StandaloneDREDRecoveryQueueMatchesLibopus|DecoderCoreDNNBlobDoesNotArmGoodPacketDREDWork|DecoderCachedDREDRecoveryMatchesLibopusLifecycle|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELT|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kHybrid|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELT|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid|DecoderExplicitDREDWarmup48kStateMatchesLibopus)|ExampleSupportsOptionalExtension'
-DRED_STEREO_RECOVERY_ROOT_RUN = 'Test(DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELTStereo|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELTStereo|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybridStereo)'
-DRED_LATENTS_TRACE_RUN = 'TestLibopusDREDLatentsTraceStereoDivergesFromMono'
-DRED_DECODER_DORMANCY_ROOT_RUN = 'Test(DecoderCoreDNNBlobDoesNotArmGoodPacketDREDWork|NewDecoderLeavesDREDPayloadBufferDormant|StandaloneDREDArmKeepsRecoveryNeuralAnd48kBridgeDormant|MainDecoderDNNBlobKeepsRecoveryAndPayloadDormant|MainDecoder48kDNNBlobKeepsRecoveryAndBridgeDormant|MainDecoder16kDNNBlobGoodDecodeKeepsRecoveryDormantUntilLoss|MainDecoder48kDNNBlobGoodDecodeKeepsRecoveryDormantUntilLoss|MainDecoder48kDNNBlobGoodSILKHybridDecodeKeepsRecoveryDormantUntilLoss|ClearingStandaloneDREDPreservesMainNeuralState|DecoderCachesDREDPayloadWhenDREDModelLoaded|DecoderCachesDREDSampleTimingForLaterFrame|DecoderLeavesDREDPayloadDormantWithoutDREDModel|DecoderLeavesDREDStateDormantWithoutAnySidecar|PublicDecoderSetDNNBlobDoesNotArmDREDDecoderWhenBlobContainsModel|DecoderLeavesDREDPayloadDormantWhenIgnoringExtensions|DecoderDREDCacheFollowsStandaloneModelAndIgnoreExtensions|DecoderResetDropsActivatedDREDRuntimeBackToDormant)'
-DRED_DECODER_RECOVERY_INTERNAL_ROOT_RUN = 'Test(DecoderDREDRecoveryBlendFollowsLifecycle|DecoderMarkDREDUpdatedPCMRefreshesNeuralHistory|DecoderMarkDREDUpdatedPCMCELTKeepsBridgeOwnedHistory|DecoderMarkDREDUpdatedPCMDormantWithoutSidecar|DecoderMarkDREDUpdatedPCMDoesNotTrackHistoryWithoutNeuralConcealment|DecoderPrimeDREDCELTEntryHistoryUsesCELTBridge|DecoderPrimeDREDCELTEntryHistoryStaysDormantWithoutNeuralConcealment|DecoderDecodePLCAppliesNeuralConcealmentWhenReady)'
-DRED_ENCODER_RUNTIME_INTERNAL_RUN = 'Test(EncoderDREDInitialLatentsTraceMatchesLibopus|EncoderProcessDREDLatentsDownmixesStereo16k|EncoderProcessDREDLatentsSupportsRateConversion|EncoderProcessDREDLatentsBuffers48k10msFrames|EncoderProcessDREDLatentsTracksHistoryWindow|EncoderProcessDREDLatentsTracksOffsets|EncoderBuildDREDExperimentalPayloadUsesRuntimeHistory|EncoderBuildDREDExperimentalPayloadDoesNotAllocate|EncoderSetDREDDurationGrowsScratchPacketWhenArmed)'
-DRED_PAYLOAD_PARSER_ROOT_RUN = 'TestFindDREDPayload'
-DRED_QUALITY_ROOT_RUN = 'TestExplicitDRED(ImprovesConcealedAudioQualityAtSixtyPercentLoss|QualityTracksLibopusAtSixtyPercentLoss)'
-DRED_MULTISTREAM_DORMANCY_RUN = 'Test(NewDecoderLeavesDREDSidecarDormant|DecoderCachesDREDPayloadPerStreamWhenModelLoaded|DecoderCachesDREDSampleTimingForLaterStreamFrame|DecoderLeavesDREDPayloadDormantWithoutDREDModel|DecoderLeavesDREDStateDormantWithoutAnySidecar|DecoderLeavesDREDStateDormantWithOnlyMainDNNBlob|DecoderLeavesDREDPayloadDormantWhenIgnoringExtensions|DecoderDREDCacheFollowsStandaloneModelAndIgnoreExtensions|DecoderDoesNotCachePartialDREDStateWhenLaterStreamFails|DREDBuildTagExposesEncoderControlsOnlyReadyRequiresEveryStream)'
-UNSUPPORTED_CONTROLS_MULTISTREAM_DORMANCY_RUN = 'Test(NewDecoderLeavesDREDSidecarDormant|DecoderCachesDREDPayloadPerStreamWhenModelLoaded|DecoderCachesDREDSampleTimingForLaterStreamFrame|DecoderLeavesDREDPayloadDormantWithoutDREDModel|DecoderLeavesDREDStateDormantWithoutAnySidecar|DecoderLeavesDREDStateDormantWithOnlyMainDNNBlob|DecoderLeavesDREDPayloadDormantWhenIgnoringExtensions|DecoderDREDCacheFollowsStandaloneModelAndIgnoreExtensions|DecoderDoesNotCachePartialDREDStateWhenLaterStreamFails|EncoderDREDReadyRequiresModelAndDurationOnEveryStream)'
-DRED_MULTISTREAM_RECOVERY_INTERNAL_RUN = 'TestDecoderDREDRecoveryBlendFollowsLifecycle'
-QEXT_PACKET_EXTENSION_ROOT_RUN = 'Test(GeneratePacketExtensionsMatchesLibopusCases|PacketExtensionIteratorParseAndCount|PacketExtensionIteratorRepeatExpansion|PacketExtensionIteratorRejectsInvalidSeparator|MultistreamPacketPadUnpadSelfDelimitedRoundTrip|MultistreamPacketPadUnpadThreeStreamsRoundTrip|RepacketizerPreservesPacketExtensions|PacketPadPreservesPacketExtensions|SelfDelimitedPacketPreservesPacketExtensions|DecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding)'
-QEXT_PACKET_EXTENSION_MULTISTREAM_RUN = 'Test(SelfDelimitedPacketPreservesPacketExtensions|DecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding)'
-QEXT_LIBOPUS_TOOLING_RUN = 'TestFindQEXTLibopusToolForOSUsesSeparateSourceTree'
-UNSUPPORTED_CONTROLS_PARITY_ROOT_RUN = 'Test(ParsedDREDAvailabilityMatchesLibopus)'
-UNSUPPORTED_CONTROLS_PARITY_SILK_DRED_ROOT_RUN = 'Test(DecoderExplicitSILKDREDDecodeMatchesLibopus|DecoderExplicit16kSILKDREDDecodeMatchesLibopus)'
-UNSUPPORTED_CONTROLS_PARITY_DECODER_ROOT_RUN = 'Test(DecoderCachedDREDDecodeMatrixMatchesLiveSequenceOracle|DecoderCachedStereoDREDDecodeMatchesLiveSequenceOracle|DecoderCachedStereoDREDCELTMatrixMatchesLiveSequenceOracle|DecoderCachedStereoDREDHybridMatrixMatchesLiveSequenceOracle|DecoderCachedStereoDREDSecondLossMatchesLiveSequenceOracle|DecoderCachedStereoDREDThenNextPacketMatchesLiveSequenceOracle|DecoderCachedStereoDREDSecondLossThenNextPacketMatchesLiveSequenceOracle|DecoderCachedDREDDecodeCELTSuperwidebandMatrixMatchesLiveSequenceOracle|DecoderCachedDREDDecodeCELTWidebandMatrixMatchesLiveSequenceOracle|DecoderCachedDREDThenNextPacketMatchesLiveSequenceOracle|DecoderCachedDREDThenNextPacketCELTSuperwidebandMatchesLiveSequenceOracle|DecoderCachedDREDThenNextPacketCELTWidebandMatchesLiveSequenceOracle|DecoderCachedDREDSecondLossMatchesLiveSequenceOracle|DecoderCachedDREDSecondLossCELTSuperwidebandMatchesLiveSequenceOracle|DecoderCachedDREDSecondLossCELTWidebandMatchesLiveSequenceOracle|DecoderCachedDREDSecondLossThenNextPacketMatchesLiveSequenceOracle|DecoderCachedDREDSecondLossThenNextPacketCELTSuperwidebandMatchesLiveSequenceOracle|DecoderCachedDREDSecondLossThenNextPacketCELTWidebandMatchesLiveSequenceOracle|DecoderCachedHybridDREDDecodeMatrixMatchesLiveSequenceOracle|DecoderCachedHybridDRED16kDecodeMatrixMatchesLiveSequenceOracle|DecoderCachedHybridDREDThenNextPacketMatchesLiveSequenceOracle|DecoderCachedHybridDRED16kThenNextPacketMatchesLiveSequenceOracle|DecoderCachedHybridDREDSecondLossMatchesLiveSequenceOracle|DecoderCachedHybridDRED16kSecondLossMatchesLiveSequenceOracle|DecoderCachedHybridSecondLossThenNextPacketMatchesLiveSequenceOracle|DecoderCachedHybridDRED16kSecondLossThenNextPacketMatchesLiveSequenceOracle|DecoderFirstLossNeuralConcealmentMatchesLiveSequenceOracle|DecoderFirstLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceOracle|DecoderFirstLossThenNextPacketMatchesLiveSequenceOracle|DecoderFirstLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOracle|DecoderSecondLossNeuralConcealmentMatchesLiveSequenceOracle|DecoderSecondLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceOracle|DecoderSecondLossThenNextPacketMatchesLiveSequenceOracle|DecoderSecondLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOracle|DecoderExplicitDREDCELT48kBridgeMatchesLibopusFirstLoss|DecoderExplicitDREDCELT48kBridgeMatchesLibopusSecondLoss|DecoderExplicitDREDDecodeMatchesLibopus|DecoderExplicitStereoDREDDecodeMatchesLibopus|DecoderExplicitStereoDRED16kDecodeMatchesLibopus|DecoderExplicitStereoHybridDRED16kDecodeMatchesLibopus|DecoderExplicitSILKDREDDecodeStereoMatchesLibopus|DecoderExplicitDREDDecode16kMatchesLibopus|DecoderExplicitDREDDecode16kCELTSuperwidebandFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecode16kCELTWidebandFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecodeSecondLossMatchesLibopus|DecoderExplicitDREDDecodeSecondLossGainTransitionMatchesLibopus|DecoderExplicitDREDDecodeSecondLoss16kMatchesLibopus|DecoderExplicitDREDDecodeOffsetMatrixMatchesLibopus|DecoderExplicitDREDDecodeOffsetMatrixCELTSuperwidebandMatchesLibopus|DecoderExplicitDREDDecodeOffsetMatrixHybridSuperwidebandMatchesLibopus|DecoderExplicitDREDDecodeOffsetMatrixHybridFullbandMatchesLibopus|DecoderExplicitDREDDecodeOffsetMatrix16kHybridMatchesLibopus|DecoderExplicitDREDDecodeThenNextPacketMatchesLibopus|DecoderExplicitDREDDecodeThenNextPacket16kMatchesLibopus|DecoderExplicitDREDDecodeThenNextPacket16kFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecodeThenNextPacket16kCELTSuperwidebandFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecodeThenNextPacket16kCELTWidebandFrameSizeMatrixMatchesLibopus|DecoderExplicitHybridDREDDecodeMatrixMatchesLibopus|DecoderExplicitHybridDREDDecode16kMatrixMatchesLibopus|DecoderExplicit16kHybridDREDDecodeMatrixMatchesLibopus|DecoderExplicitHybridDREDDecodeThenNextPacketMatchesLibopus|DecoderExplicitHybridDREDDecodeThenNextPacket16kMatchesLibopus|DecoderExplicitHybridDREDDecodeSecondLossMatrixMatchesLibopus|DecoderExplicitHybridDREDDecodeSecondLoss16kMatrixMatchesLibopus|DecoderExplicitHybridDREDDecodeSecondLossThenNextPacketMatrixMatchesLibopus|DecoderExplicitHybridDREDDecodeSecondLossThenNextPacket16kMatrixMatchesLibopus|DecoderExplicitSecondLossThenNextPacketMatchesLibopus|DecoderExplicitSecondLossThenNextPacket16kMatchesLibopus|DecoderExplicitDREDDecodeFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecodeCELTSuperwidebandFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecodeCELTWidebandFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecode16kFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecodeSecondLossFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecodeSecondLossCELTSuperwidebandFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecodeSecondLossCELTWidebandFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecodeThenNextPacketFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecodeThenNextPacketCELTSuperwidebandFrameSizeMatrixMatchesLibopus|DecoderExplicitDREDDecodeThenNextPacketCELTWidebandFrameSizeMatrixMatchesLibopus|DecoderExplicitSecondLossThenNextPacketFrameSizeMatrixMatchesLibopus|DecoderExplicitSecondLossThenNextPacketCELTWidebandFrameSizeMatrixMatchesLibopus)'
 
 # Run golangci-lint
 lint:
@@ -148,169 +130,30 @@ test-doc-contract:
 # Default-supported DNN blob control parity against libopus USE_WEIGHTS_FILE
 # model blobs. The target fails if the required libopus-backed test is skipped.
 test-dnn-blob-parity: ensure-libopus
-	@json_out="$$(mktemp)"; \
-	json_part="$$json_out.part"; \
-	trap 'rm -f "$$json_out" "$$json_part"' EXIT; \
-	run_json() { \
-		if ! "$$@" -json > "$$json_part"; then \
-			cat "$$json_part"; \
-			cat "$$json_part" >> "$$json_out"; \
-			exit 1; \
-		fi; \
-		cat "$$json_part"; \
-		cat "$$json_part" >> "$$json_out"; \
-		: > "$$json_part"; \
-	}; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test . -run 'Test(DNNBlobControlAcceptsLibopusModelBlobs|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DREDControlModelBlobsMatchPinnedLibopusDigests)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test . -run $(DNN_BLOB_DEFAULT_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./multistream -run $(DNN_BLOB_DEFAULT_MULTISTREAM_RUN) -count=1; \
-	if grep -q '"Action":"skip"' "$$json_out"; then \
-		echo "Unexpected skip detected in required DNN blob parity gate:"; \
-		grep '"Action":"skip"' "$$json_out"; \
-		exit 1; \
-	fi
+	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) dnn-blob-parity
 
-# Supported DRED feature-tag smoke. The unsupported-controls tag remains a
+# Supported DRED feature-tag smoke. The extra-controls tag remains a
 # quarantine umbrella; this target verifies the supported DRED surface by itself.
 test-dred-tag: ensure-libopus
-	@json_out="$$(mktemp)"; \
-	json_part="$$json_out.part"; \
-	trap 'rm -f "$$json_out" "$$json_part"' EXIT; \
-	run_json() { \
-		if ! "$$@" -json > "$$json_part"; then \
-			cat "$$json_part"; \
-			cat "$$json_part" >> "$$json_out"; \
-			exit 1; \
-		fi; \
-		cat "$$json_part"; \
-		cat "$$json_part" >> "$$json_out"; \
-		: > "$$json_part"; \
-	}; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(OptionalExtensionDocsContract|SupportsOptionalExtension|DREDBuildTagExposesSupportedTopLevelControls|DREDBuildPublicAPIContract|PublicDRED|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls)|ExampleSupportsOptionalExtension' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DREDDecoderParseRequiresModel|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderProcessRejectsEmptyState|DREDDecoderProcessDoesNotAllocate|DREDDecoderParseAndProcessDoesNotAllocate|DREDDecoderParseClearsStateOnMalformedPacket)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DREDDecoderParseAndProcessRetainsMetadata|StandaloneDREDParseMatchesLibopus)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(StandaloneDREDProcessMatchesLibopusOnRealPacket|StandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(StandaloneDREDRecoveryWindowMatchesLibopus|StandaloneDREDRecoveryQueueMatchesLibopus)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run $(DRED_PAYLOAD_PARSER_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred ./internal/dred -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run $(DRED_DECODER_DORMANCY_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run $(DRED_DECODER_RECOVERY_INTERNAL_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run $(DRED_QUALITY_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(DecoderCachedDREDRecoveryMatchesLibopusLifecycle|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELT|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kHybrid|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses|DecoderCachedDREDRecoveryCursorAdvancesAcrossLosses48kCELT|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run $(DRED_STEREO_RECOVERY_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run 'Test(ProbeEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereo|EncoderSilkMono20msPrimaryFrameByteExactMatchesLibopus|EncoderSilkMono40msPrimaryFrameByteExactMatchesLibopus|EncoderSilkMono60msPrimaryFrameByteExactMatchesLibopus|EncoderSilkStereo20msPrimaryFrameByteExactMatchesLibopus|EncoderCarriedDREDPayloadMatchesLibopusCELTFullband20ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msPayloadOnly|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereo|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo|MultistreamEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo|MultistreamEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereo|MultistreamEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred ./encoder -run 'Test(DREDRuntimeBuildExposesEncoderControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDRuntimeStaysDormantUntilReady|EncoderDREDEncodingActiveRequiresModelAndDuration|EncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed|EncoderProcessDREDLatentsDoesNotAllocate|EncoderProcessDREDLatentsDoesNotAllocate48k|MaybeBuildSingleFrameDREDPacketCarriesExtension)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred ./encoder -run $(DRED_ENCODER_RUNTIME_INTERNAL_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred ./multistream -run $(DRED_MULTISTREAM_DORMANCY_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred ./multistream -run $(DRED_MULTISTREAM_RECOVERY_INTERNAL_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_dred ./multistream -run 'Test(DREDBuildTagExposesEncoderControlsOnly|DecoderPublicSetDNNBlobDoesNotArmDREDDecoderWhenBlobContainsModel|DecoderDecodeNilConsumesMultistreamDREDNeuralStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTNonFinalMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTFinalSecondMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridNonFinalMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridFinalSecondMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKNonFinalMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKFinalSecondMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTFinalStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTFinalSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridFinalStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridFinalSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKFinalStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKFinalSecondCoupledStream)' -count=1; \
-	if grep -q '"Action":"skip"' "$$json_out"; then \
-		echo "Unexpected skip detected in required DRED tag gate:"; \
-		grep '"Action":"skip"' "$$json_out"; \
-		exit 1; \
-	fi
+	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) dred-tag
 
 # Supported QEXT feature-tag parity. The default build keeps QEXT controls
 # absent and leaves packet-extension payload plumbing behind compile-time gates.
 test-qext-parity: ensure-libopus-qext
-	@json_out="$$(mktemp)"; \
-	json_part="$$json_out.part"; \
-	trap 'rm -f "$$json_out" "$$json_part"' EXIT; \
-	run_json() { \
-		if ! "$$@" -json > "$$json_part"; then \
-			cat "$$json_part"; \
-			cat "$$json_part" >> "$$json_out"; \
-			exit 1; \
-		fi; \
-		cat "$$json_part"; \
-		cat "$$json_part" >> "$$json_out"; \
-		: > "$$json_part"; \
-	}; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_qext . -run 'Test(OptionalExtensionDocsContract|SupportsOptionalExtension|QEXTBuildPublicAPIContract|QEXTBuildTagExposesSupportedTopLevelControls|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls|DecodeGopusQEXTPacketMatchesLibopus|DecodeLibopusQEXTPacketMatchesLibopus|DecodeLibopusQEXTPacketFinalRangeMatchesLibopus|DecodeLibopusQEXTPacketIgnoreExtensionsMatchesInactiveCELT|DecodeLibopusQEXTOpaquePaddingMatchesInactiveCELT|DecodeLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPayloads|DecodeLibopusQEXTMultiFramePacketMatchesExplicitPayloads|DecodeLibopusQEXTMultiFrameIgnoreExtensionsMatchesInactivePayloads|DecodeLibopusQEXTPacketCELTFloat32FastPathMatchesFloat64|DecodeLibopusQEXTPacketWrapperMatchesDirectCELT|DecodeHybridLibopusQEXTPacketMatchesLibopus|DecodeHybridLibopusQEXTPacketIgnoreExtensionsMatchesInactiveHybrid|DecodeHybridLibopusQEXTOpaquePaddingMatchesInactiveHybrid|DecodeHybridLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPayloads|DecodeStereoLibopusQEXTPacketToMonoMatchesLibopus|DecodeLibopusRestrictedCELTPacketMatchesLibopus|DecodeLibopusQEXTChannelTransitionSequenceMatchesLibopus)|ExampleSupportsOptionalExtension' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_qext . -run $(QEXT_PACKET_EXTENSION_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test ./internal/libopustooling -run $(QEXT_LIBOPUS_TOOLING_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_qext ./encoder ./celt ./multistream -run 'QEXT' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_qext ./multistream -run $(QEXT_PACKET_EXTENSION_MULTISTREAM_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags 'gopus_dred gopus_qext' . -run 'Test(CombinedDREDQEXTBuildOptionalExtensionContract|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags 'gopus_unsupported_controls gopus_qext' . -run 'Test(QEXTUnsupportedControlsBuildOptionalExtensionContract|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1; \
-	if grep -q '"Action":"skip"' "$$json_out"; then \
-		echo "Unexpected skip detected in required QEXT parity gate:"; \
-		grep '"Action":"skip"' "$$json_out"; \
-		exit 1; \
-	fi
+	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) qext-parity
 
-# Quarantine build smoke for unsupported controls that should never leak into the default surface.
-test-unsupported-controls-tag: ensure-libopus
-	@json_out="$$(mktemp)"; \
-	json_part="$$json_out.part"; \
-	trap 'rm -f "$$json_out" "$$json_part"' EXIT; \
-	run_json() { \
-		if ! "$$@" -json > "$$json_part"; then \
-			cat "$$json_part"; \
-			cat "$$json_part" >> "$$json_out"; \
-			exit 1; \
-		fi; \
-		cat "$$json_part"; \
-		cat "$$json_part" >> "$$json_out"; \
-		: > "$$json_part"; \
-	}; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_CORE_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(DRED_PAYLOAD_PARSER_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(DRED_DECODER_DORMANCY_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(DRED_DECODER_RECOVERY_INTERNAL_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(DRED_QUALITY_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(DRED_STEREO_RECOVERY_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./encoder ./multistream -run 'Test(DREDRuntimeBuildExposesEncoderControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDEncodingActiveRequiresModelAndDuration|EncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./encoder -run $(DRED_ENCODER_RUNTIME_INTERNAL_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./multistream -run $(UNSUPPORTED_CONTROLS_MULTISTREAM_DORMANCY_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./multistream -run $(DRED_MULTISTREAM_RECOVERY_INTERNAL_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./multistream -run 'Test(DecoderPublicSetDNNBlobDoesNotArmDREDDecoderWhenBlobContainsModel|DecoderDecodeNilConsumesMultistreamDREDNeuralStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTNonFinalMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTFinalSecondMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridNonFinalMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridFinalSecondMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKNonFinalMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKFinalSecondMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTFinalStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTFinalSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridFinalStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridFinalSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKFinalStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKFinalSecondCoupledStream)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/dred -run 'Test(EncodeExperimentalPayloadMatchesLibopus|EncodeExperimentalPayloadMatchesLibopusDelayedOffset)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/dred -run $(DRED_LATENTS_TRACE_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/lpcnetplc -run 'Test(PredictorMatchesLibopusOnRealModel|FARGANConditionerMatchesLibopusOnRealModel|FARGANPrimeContinuityMatchesLibopusOnRealModel|FARGANSynthesizeMatchesLibopusOnRealModel|MarkUpdatedFrameFloatMatchesLibopus|PrefillAndConcealmentFeatureStepMatchLibopus|BoundedConcealFrameFloatMatchesLibopus|ConcealFrameFloatWithAnalysisMatchesLibopusColdStart)' -count=1; \
-	if grep -q '"Action":"skip"' "$$json_out"; then \
-		echo "Unexpected skip detected in required unsupported-controls tag gate:"; \
-		grep '"Action":"skip"' "$$json_out"; \
-		exit 1; \
-	fi
+# Quarantine build smoke for extra controls that should never leak into the default surface.
+test-extra-controls-tag: ensure-libopus
+	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) extra-controls-tag
 
 # Required tag-gated DRED parity sweep. Keep it separate from the quarantine API
 # smoke so support claims stay seam-scoped.
-test-unsupported-controls-parity: ensure-libopus
-	@json_out="$$(mktemp)"; \
-	json_part="$$json_out.part"; \
-	trap 'rm -f "$$json_out" "$$json_part"' EXIT; \
-	run_json() { \
-		if ! "$$@" -json > "$$json_part"; then \
-			cat "$$json_part"; \
-			cat "$$json_part" >> "$$json_out"; \
-			exit 1; \
-		fi; \
-		cat "$$json_part"; \
-		cat "$$json_part" >> "$$json_out"; \
-		: > "$$json_part"; \
-	}; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_PARITY_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(OSCEBWEForwardPassMatchesLibopusNumericalParity|OSCEBWERawSignalNetMatchesLibopus|OSCEBWEForwardPassPLCContinuityMatchesLibopus|OSCEBWECrossFade10msMatchesLibopus|OSCEBWEModelForwardPassMatchesLibopus|OSCEBWEInt8LibopusKernelParity|OSCEBWEForwardPassInt8KernelReproducible|OSCELACEForwardPassMatchesLibopus|DecoderOSCEBWERuntimeIntegration|DecoderOSCELACERuntimeIntegration|DecoderOSCEBWECrossFadeTransition|DecoderOSCEBWEPLC|DecoderOSCELACECrossFadeTransition|DecoderOSCELACEPLC|MultistreamDecoderOSCEBWELACERuntimeIntegration|MultistreamDecoderOSCEBWEMatchesSingleStreamDecoder)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./multistream -run 'Test(DecoderDecodeNilConsumesMultistreamDREDNeuralStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTNonFinalMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTFinalSecondMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridNonFinalMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridFinalSecondMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKNonFinalMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKFinalSecondMonoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTFinalStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralCELTFinalSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridFinalStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralHybridFinalSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKFinalStereoStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKSecondCoupledStream|DecoderDecodeNilConsumesMultistreamDREDNeuralSILKFinalSecondCoupledStream)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/dred -run 'Test(ConvertTo16kMonoFloat64MatchesLibopus|ConvertTo16kMonoFloat64MatchesLibopusAcrossCalls|EncodeExperimentalPayloadMatchesLibopusLargeLaplaceContinuation|RDOVAEEncoderMatchesLibopusOnRealModel)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/dred -run $(DRED_LATENTS_TRACE_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls ./internal/lpcnetplc -run 'Test(LPCNetSingleFrameFeaturesFloatMatchesLibopusColdStart|LPCNetSingleFrameFeaturesFloatMatchesLibopusStatefulSequence|BurgCepstralAnalysisMatchesLibopus|PitchDNNMatchesLibopusOnRealModel|ConcealFrameFloatWithAnalysisMatchesLibopus)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(ProbeEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereo|EncoderSilkMono20msPrimaryFrameByteExactMatchesLibopus|EncoderSilkMono40msPrimaryFrameByteExactMatchesLibopus|EncoderSilkMono60msPrimaryFrameByteExactMatchesLibopus|EncoderSilkStereo20msPrimaryFrameByteExactMatchesLibopus|EncoderCarriedDREDPayloadMatchesLibopusCELTFullband20ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband40ms|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband60ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msPayloadOnly|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband40ms|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo|EncoderCarriedDREDPayloadMatchesLibopusHybridFullband40msStereo|EncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo|MultistreamEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo|MultistreamEncoderCarriedDREDPayloadMatchesLibopusCELTFullband20msStereo|MultistreamEncoderCarriedDREDPayloadMatchesLibopusHybridFullband20msStereo)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run 'Test(DecoderExplicitDREDFirstConcealFrameBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesManualStep48kRuntime|DecoderExplicitDREDThreeConcealFramesMixedHelpers48kRuntime)' -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(DRED_STEREO_RECOVERY_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_PARITY_SILK_DRED_ROOT_RUN) -count=1; \
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test -tags gopus_unsupported_controls . -run $(UNSUPPORTED_CONTROLS_PARITY_DECODER_ROOT_RUN) -count=1; \
-	if grep -q '"Action":"skip"' "$$json_out"; then \
-		echo "Unexpected skip detected in required unsupported-controls parity gate:"; \
-		grep '"Action":"skip"' "$$json_out"; \
-		exit 1; \
-	fi
+test-extra-controls-parity: ensure-libopus
+	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) extra-controls-parity
 
 # Legacy alias for older automation; Hybrid DRED packet-shape exactness now
 # lives in the required supported-tag and quarantine parity gates.
-test-unsupported-controls-parity-experimental: test-unsupported-controls-parity
+test-extra-controls-parity-experimental: test-extra-controls-parity
 
 # Primary libopus-facing focused gate.
 test-quality: ensure-testvectors
@@ -370,8 +213,8 @@ verify-production: ensure-libopus
 	$(MAKE) test-dnn-blob-parity
 	$(MAKE) test-dred-tag
 	$(MAKE) test-qext-parity
-	$(MAKE) test-unsupported-controls-tag
-	$(MAKE) test-unsupported-controls-parity
+	$(MAKE) test-extra-controls-tag
+	$(MAKE) test-extra-controls-parity
 	$(MAKE) bench-guard
 	$(MAKE) bench-libopus-guard
 	$(MAKE) test-race

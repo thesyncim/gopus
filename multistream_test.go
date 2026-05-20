@@ -1161,7 +1161,7 @@ func TestMultistreamEncoder_OptionalExtensionControls(t *testing.T) {
 	enc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
 
 	assertOptionalEncoderControls(t, enc)
-	dred, ok := any(enc).(unsupportedDREDControl)
+	dred, ok := any(enc).(extraDREDControl)
 	if extsupport.DRED {
 		if !ok {
 			t.Fatal("gopus_dred build does not expose DRED control")
@@ -1190,7 +1190,7 @@ func TestMultistreamDecoder_OptionalExtensionControls(t *testing.T) {
 	dec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
 
 	assertOptionalDecoderControls(t, dec)
-	if osce, ok := any(dec).(unsupportedOSCEBWEControl); ok {
+	if osce, ok := any(dec).(extraOSCEBWEControl); ok {
 		if extsupport.OSCEBWERuntime {
 			assertWorkingOSCEBWEControl(t, osce)
 		} else {

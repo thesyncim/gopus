@@ -1089,7 +1089,7 @@ func TestEncoder_OptionalExtensionControls(t *testing.T) {
 			}
 
 			assertOptionalEncoderControls(t, enc)
-			dred, ok := any(enc).(unsupportedDREDControl)
+			dred, ok := any(enc).(extraDREDControl)
 			if extsupport.DRED {
 				if !ok {
 					t.Fatal("gopus_dred build does not expose DRED control")
