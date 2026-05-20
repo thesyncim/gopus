@@ -417,6 +417,35 @@ func TestReceiveLoopFECFallsBackToDREDWhenNoREDBlock(t *testing.T) {
 	}
 }
 
+func TestReceiveLoopDREDFailureCountsErrorAndFallsBack(t *testing.T) {
+	var calls []decodeKind
+	e := newReceiveLoopTestEngine(engineConfig{DRED: true})
+	e.dredProbe = &dredPacketProbe{}
+	e.prepareDREDHook = func(_ []byte, maxDREDSamples int) (int, bool) {
+		return maxDREDSamples, true
+	}
+	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+		calls = append(calls, kind)
+		e.bumpDecodeStats(kind)
+		return true
+	}
+
+	runReceiveLoopTest(t, e,
+		testPacket(100, redOpusPayloadType, []byte{0x01}),
+		testPacket(102, redOpusPayloadType, []byte{0x02}),
+	)
+
+	want := []decodeKind{decodeNormal, decodeLossPath, decodeNormal}
+	if !sameDecodeKinds(calls, want) {
+		t.Fatalf("decode calls=%v want %v", calls, want)
+	}
+	stats := e.Stats()
+	if stats.DREDRecoveryAttempts != 1 || stats.DecodeErrors != 1 || stats.DREDFallbackFrames != 1 || stats.LossPathFrames != 1 || stats.DREDFrames != 0 {
+		t.Fatalf("stats dredAttempts=%d decodeErrors=%d dredFallback=%d loss=%d dredFrames=%d, want 1/1/1/1/0",
+			stats.DREDRecoveryAttempts, stats.DecodeErrors, stats.DREDFallbackFrames, stats.LossPathFrames, stats.DREDFrames)
+	}
+}
+
 func TestReceiveLoopREDPayloadTypeParsesPrimaryWhenREDRecoveryDisabled(t *testing.T) {
 	var calls []decodeKind
 	var normalPayloads [][]byte

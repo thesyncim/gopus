@@ -792,6 +792,7 @@ func (e *engine) decodeDREDAndOutput(dredOffsetSamples int, pcm []float32) bool 
 	e.stats.DREDRecoveryAttempts++
 	samples, err := e.dredProbe.decodeRecovery(e.dec, dredOffsetSamples, pcm, frameSamples)
 	if err != nil {
+		e.stats.DecodeErrors++
 		e.mu.Unlock()
 		return false
 	}
