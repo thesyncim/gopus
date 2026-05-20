@@ -12,10 +12,7 @@ type decoderDREDRecoveryState struct {
 }
 
 func (d *Decoder) dredState() *decoderDREDState {
-	if d == nil {
-		return nil
-	}
-	return d.dred
+	return nil
 }
 
 func (d *Decoder) dredRecoveryState() *decoderDREDRecoveryState {

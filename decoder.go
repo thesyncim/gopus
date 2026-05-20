@@ -89,7 +89,7 @@ type Decoder struct {
 	// Soft clipping memory (float decode uses none; int16 decode uses this)
 	softClipMem [2]float32
 	dnnBlob     *dnnblob.Blob
-	dred        *decoderDREDState
+	decoderDREDFields
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
 	// by OPUS_SET_DNN_BLOB so optional paths can stay dormant until they are real.
