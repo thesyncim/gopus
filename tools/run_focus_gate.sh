@@ -20,6 +20,12 @@ run_json() {
 		cat "$json_part" >>"$json_out"
 		exit 1
 	fi
+	if ! grep -q '"Action":"run"' "$json_part"; then
+		cat "$json_part"
+		echo "Focused gate command matched no tests: $*"
+		cat "$json_part" >>"$json_out"
+		exit 1
+	fi
 	cat "$json_part"
 	cat "$json_part" >>"$json_out"
 	: >"$json_part"
