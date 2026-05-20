@@ -204,6 +204,10 @@ func toneLPCRetryNeeded(lpc0, lpc1 float32, success bool) bool {
 // toneLPCRetry48kMono fuses the 48 kHz mono retry-delay correlations while
 // preserving the ascending accumulation order used by separate toneLPC calls.
 func toneLPCRetry48kMono(x []float32, maxDelay int) (float32, float32, bool, int) {
+	if !toneLPCRetry48kMonoUseFused {
+		return toneLPCRetry48kMonoSequential(x, maxDelay)
+	}
+
 	n := len(x)
 	_ = x[n-1]
 	cnt2 := n - 4
@@ -306,6 +310,24 @@ func toneLPCRetry48kMono(x []float32, maxDelay int) (float32, float32, bool, int
 	}
 	delay = 32
 	lpc0, lpc1, success = toneLPCSolveFromCorr(x, delay, r0032, r0132, r0232)
+	return lpc0, lpc1, success, delay
+}
+
+func toneLPCRetry48kMonoSequential(x []float32, maxDelay int) (float32, float32, bool, int) {
+	n := len(x)
+	delay := 1
+	var lpc0, lpc1 float32
+	var success bool
+	for delay <= maxDelay {
+		delay *= 2
+		if 2*delay >= n {
+			break
+		}
+		lpc0, lpc1, success = toneLPC(x, delay, false)
+		if !toneLPCRetryNeeded(lpc0, lpc1, success) {
+			break
+		}
+	}
 	return lpc0, lpc1, success, delay
 }
 
