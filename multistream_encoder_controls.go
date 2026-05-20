@@ -34,7 +34,7 @@ func (e *MultistreamEncoder) SetDNNBlob(data []byte) error {
 
 // SetExpertFrameDuration sets the preferred frame duration policy for multistream encoding.
 func (e *MultistreamEncoder) SetExpertFrameDuration(duration ExpertFrameDuration) error {
-	return setExpertFrameDuration(duration, &e.expertFrameDuration, e.SetFrameSize)
+	return setMultistreamExpertFrameDuration(duration, &e.expertFrameDuration)
 }
 
 // ExpertFrameDuration returns the current multistream expert frame duration policy.

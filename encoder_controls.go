@@ -164,10 +164,10 @@ func (e *Encoder) SetDNNBlob(data []byte) error {
 
 // SetExpertFrameDuration sets the preferred frame duration policy.
 //
-// `ExpertFrameDurationArg` keeps using the current `FrameSize()` value.
-// Any fixed duration also updates `FrameSize()` to the matching 48 kHz sample count.
+// `ExpertFrameDurationArg` keeps using the current `FrameSize()` value. Fixed
+// durations are applied during Encode when they fit within the current frame.
 func (e *Encoder) SetExpertFrameDuration(duration ExpertFrameDuration) error {
-	return setExpertFrameDuration(duration, &e.expertFrameDuration, e.SetFrameSize)
+	return setExpertFrameDuration(duration, &e.expertFrameDuration)
 }
 
 // ExpertFrameDuration returns the current expert frame duration policy.

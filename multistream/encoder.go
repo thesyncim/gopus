@@ -1214,11 +1214,24 @@ func (e *Encoder) initProjectionMixingDefaults() error {
 //
 // Reference: RFC 6716 Appendix B, RFC 7845 Section 5.1.1
 func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
+	return e.EncodeWithAnalysis(pcm, frameSize, pcm)
+}
+
+// EncodeWithAnalysis encodes the selected frame while letting child encoders
+// analyze the full caller frame selected by expert-frame-duration controls.
+func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM []float64) ([]byte, error) {
 	// Validate input length
 	expectedLen := frameSize * e.inputChannels
 	if len(pcm) != expectedLen {
 		return nil, fmt.Errorf("%w: got %d samples, expected %d (frameSize=%d, channels=%d)",
 			ErrInvalidInput, len(pcm), expectedLen, frameSize, e.inputChannels)
+	}
+	if analysisPCM == nil {
+		analysisPCM = pcm
+	}
+	if len(analysisPCM) < expectedLen || len(analysisPCM)%e.inputChannels != 0 {
+		return nil, fmt.Errorf("%w: got %d analysis samples for frameSize=%d channels=%d",
+			ErrInvalidInput, len(analysisPCM), frameSize, e.inputChannels)
 	}
 
 	// Mirror libopus per-stream rate/control policy ahead of stream encodes.
@@ -1231,6 +1244,15 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Route input channels to stream buffers
 	streamBuffers := routeChannelsToStreams(inputPCM, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
+	analysisStreamBuffers := streamBuffers
+	if len(analysisPCM) != len(pcm) {
+		analysisFrameSize := len(analysisPCM) / e.inputChannels
+		analysisInputPCM := analysisPCM
+		if e.mappingFamily == 3 {
+			analysisInputPCM = e.applyProjectionMixing(analysisPCM, analysisFrameSize)
+		}
+		analysisStreamBuffers = routeChannelsToStreams(analysisInputPCM, e.mapping, e.coupledStreams, analysisFrameSize, e.inputChannels, e.streams)
+	}
 	floatInputStreams := e.routeFloatInputToStreams(frameSize)
 
 	// Encode each stream
@@ -1242,7 +1264,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 		if floatInputStreams != nil {
 			enc.SetFloatInputFrame(floatInputStreams[i])
 		}
-		packet, err := enc.Encode(streamBuffers[i], frameSize)
+		packet, err := enc.EncodeWithAnalysis(streamBuffers[i], frameSize, analysisStreamBuffers[i])
 		if floatInputStreams != nil {
 			enc.ClearFloatInputFrame()
 		}

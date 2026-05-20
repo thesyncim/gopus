@@ -15,6 +15,11 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
+	frameSize, err := selectExpertFrameSize(e.frameSize, e.expertFrameDuration, e.application)
+	if err != nil {
+		return 0, err
+	}
+	inputSamples := frameSize * e.channels
 	e.enc.SetFloatInputFrame(pcm)
 
 	pcm64 := e.scratchPCM64[:len(pcm)]
@@ -22,7 +27,7 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 		pcm64[i] = float64(v)
 	}
 
-	packet, err := e.enc.Encode(pcm64, e.frameSize)
+	packet, err := e.enc.EncodeWithAnalysis(pcm64[:inputSamples], frameSize, pcm64)
 	e.enc.ClearFloatInputFrame()
 	if err != nil {
 		return 0, err
@@ -69,13 +74,18 @@ func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
+	frameSize, err := selectExpertFrameSize(e.frameSize, e.expertFrameDuration, e.application)
+	if err != nil {
+		return 0, err
+	}
+	inputSamples := frameSize * e.channels
 
 	pcm64 := e.scratchPCM64[:len(pcm)]
 	for i, v := range pcm {
 		pcm64[i] = float64(v) / 8388608.0
 	}
 
-	packet, err := e.enc.Encode(pcm64, e.frameSize)
+	packet, err := e.enc.EncodeWithAnalysis(pcm64[:inputSamples], frameSize, pcm64)
 	if err != nil {
 		return 0, err
 	}

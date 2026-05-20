@@ -47,7 +47,7 @@ func routeChannelsToStreams(
 }
 
 func (e *Encoder) routeFloatInputToStreams(frameSize int) [][]float32 {
-	if e == nil || len(e.floatInputFrame) != frameSize*e.inputChannels {
+	if e == nil || len(e.floatInputFrame) < frameSize*e.inputChannels {
 		return nil
 	}
 	if cap(e.floatInputStreams) < e.streams {

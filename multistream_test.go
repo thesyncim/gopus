@@ -737,8 +737,8 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	if err := enc.SetExpertFrameDuration(ExpertFrameDuration120Ms); err != nil {
 		t.Errorf("SetExpertFrameDuration(120ms) error: %v", err)
 	}
-	if got := enc.FrameSize(); got != 5760 {
-		t.Errorf("FrameSize() after 120ms = %d, want 5760", got)
+	if got := enc.FrameSize(); got != 960 {
+		t.Errorf("FrameSize() after 120ms = %d, want 960", got)
 	}
 	if got := enc.ExpertFrameDuration(); got != ExpertFrameDuration120Ms {
 		t.Errorf("ExpertFrameDuration() after 120ms = %v, want %v", got, ExpertFrameDuration120Ms)
@@ -746,8 +746,17 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	if err := enc.SetExpertFrameDuration(ExpertFrameDurationArg); err != nil {
 		t.Errorf("SetExpertFrameDuration(arg) error: %v", err)
 	}
-	if err := enc.SetExpertFrameDuration(ExpertFrameDuration(0)); err != ErrInvalidArgument {
-		t.Errorf("SetExpertFrameDuration(invalid) error = %v, want %v", err, ErrInvalidArgument)
+	if err := enc.SetExpertFrameDuration(ExpertFrameDuration(0)); err != nil {
+		t.Errorf("SetExpertFrameDuration(invalid) error = %v, want nil", err)
+	}
+	if got := enc.ExpertFrameDuration(); got != ExpertFrameDuration(0) {
+		t.Errorf("ExpertFrameDuration() after invalid value = %v, want 0", got)
+	}
+	if n, err := enc.Encode(generateSurroundTestSignal(48000, enc.FrameSize(), enc.Channels()), make([]byte, 4000)); n != 0 || err != ErrInvalidFrameSize {
+		t.Errorf("Encode with invalid expert duration = (%d, %v), want (0, %v)", n, err, ErrInvalidFrameSize)
+	}
+	if err := enc.SetExpertFrameDuration(ExpertFrameDurationArg); err != nil {
+		t.Errorf("SetExpertFrameDuration(arg restore) error: %v", err)
 	}
 
 	// Test force channels control
@@ -821,6 +830,31 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 
 	t.Logf("Controls verified: app=%v bitrate=%d complexity=%d mode=%v FEC=%v DTX=%v",
 		enc.Application(), enc.Bitrate(), enc.Complexity(), enc.BitrateMode(), enc.FECEnabled(), enc.DTXEnabled())
+}
+
+func TestMultistreamEncoder_ExpertFrameDurationSelectsEncodeFrame(t *testing.T) {
+	enc, err := NewMultistreamEncoder(48000, 2, 1, 1, []byte{0, 1}, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoder error: %v", err)
+	}
+	if err := enc.SetFrameSize(5760); err != nil {
+		t.Fatalf("SetFrameSize(5760) error: %v", err)
+	}
+	if err := enc.SetExpertFrameDuration(ExpertFrameDuration20Ms); err != nil {
+		t.Fatalf("SetExpertFrameDuration(20ms) error: %v", err)
+	}
+
+	data := make([]byte, 4000)
+	n, err := enc.Encode(generateSurroundTestSignal(48000, 5760, 2), data)
+	if err != nil {
+		t.Fatalf("Encode error: %v", err)
+	}
+	if n == 0 {
+		t.Fatalf("Encode returned empty packet")
+	}
+	if got := ParseTOC(data[0]).FrameSize; got != 960 {
+		t.Fatalf("TOC frame size = %d, want 960 from fixed 20ms duration", got)
+	}
 }
 
 func TestMultistreamEncoderForceChannelsStereoAllowedWhenAllStreamsCoupled(t *testing.T) {

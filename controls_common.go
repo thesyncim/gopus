@@ -173,15 +173,37 @@ func expertFrameDurationFrameSize(duration ExpertFrameDuration) int {
 	}
 }
 
-func setExpertFrameDuration(duration ExpertFrameDuration, current *ExpertFrameDuration, setFrameSize func(int) error) error {
+func setExpertFrameDuration(duration ExpertFrameDuration, current *ExpertFrameDuration) error {
 	if !validExpertFrameDuration(duration) {
 		return ErrInvalidArgument
 	}
 	*current = duration
-	if duration == ExpertFrameDurationArg {
-		return nil
+	return nil
+}
+
+func setMultistreamExpertFrameDuration(duration ExpertFrameDuration, current *ExpertFrameDuration) error {
+	*current = duration
+	return nil
+}
+
+func selectExpertFrameSize(inputFrameSize int, duration ExpertFrameDuration, application Application) (int, error) {
+	if inputFrameSize < 120 {
+		return 0, ErrInvalidFrameSize
 	}
-	return setFrameSize(expertFrameDurationFrameSize(duration))
+	selected := inputFrameSize
+	if duration != ExpertFrameDurationArg {
+		if !validExpertFrameDuration(duration) {
+			return 0, ErrInvalidFrameSize
+		}
+		selected = expertFrameDurationFrameSize(duration)
+	}
+	if selected > inputFrameSize || !validFrameSize(selected) {
+		return 0, ErrInvalidFrameSize
+	}
+	if application == ApplicationRestrictedSilk && selected < 480 {
+		return 0, ErrInvalidFrameSize
+	}
+	return selected, nil
 }
 
 func lookaheadSamples(sampleRate int, application Application) int {

@@ -687,8 +687,20 @@ func (e *Encoder) computeEquivRate(bitrate int, channels int, frameRate int, vbr
 
 // Encode encodes a frame of PCM audio to an Opus packet.
 func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
+	return e.EncodeWithAnalysis(pcm, frameSize, pcm)
+}
+
+// EncodeWithAnalysis encodes the selected frame while allowing analysis to see
+// a larger caller frame, matching libopus expert-frame-duration handling.
+func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM []float64) ([]byte, error) {
 	expectedLen := frameSize * e.channels
 	if len(pcm) != expectedLen {
+		return nil, ErrInvalidFrameSize
+	}
+	if analysisPCM == nil {
+		analysisPCM = pcm
+	}
+	if len(analysisPCM) < expectedLen || len(analysisPCM)%e.channels != 0 {
 		return nil, ErrInvalidFrameSize
 	}
 	userBitrate := e.bitrate
@@ -706,7 +718,7 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	}()
 	// Run Opus analysis on the original input frame (before top-level dc_reject
 	// and LSB quantization) to match libopus run_analysis ordering.
-	rawPCM := pcm
+	rawPCM := analysisPCM
 	e.refreshFrameAnalysis(rawPCM, frameSize)
 	lookaheadSamples := 0
 	pcm = e.quantizeInputToLSBDepth(pcm)
