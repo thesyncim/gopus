@@ -85,16 +85,18 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		// `silk_decode_frame` calls `osce_reset` on the lost branch.
 		// Keep that state transition here before optional BWE runs on the
 		// concealed SILK lowband.
-		packetStereoLocal := d.prevPacketStereo
-		if d.lastPacketMode == ModeSILK &&
-			d.lastBandwidth == BandwidthWideband &&
-			d.sampleRate == 48000 && d.osceLACEEnabled {
-			d.resetOSCELACEPostfilterState(packetStereoLocal)
-		}
-		if !usedNeuralConcealment && d.lastPacketMode == ModeSILK &&
-			d.lastBandwidth == BandwidthWideband &&
-			d.sampleRate == 48000 && d.osceBWEEnabled {
-			d.maybeApplyOSCEBWEPostSilk(pcm[:frameSize*d.channels], frameSize, ModeSILK, silk.BandwidthWideband, packetStereoLocal)
+		if extsupport.OSCERuntime {
+			packetStereoLocal := d.prevPacketStereo
+			if d.lastPacketMode == ModeSILK &&
+				d.lastBandwidth == BandwidthWideband &&
+				d.sampleRate == 48000 && d.osceLACEEnabled {
+				d.resetOSCELACEPostfilterState(packetStereoLocal)
+			}
+			if !usedNeuralConcealment && d.lastPacketMode == ModeSILK &&
+				d.lastBandwidth == BandwidthWideband &&
+				d.sampleRate == 48000 && d.osceBWEEnabled {
+				d.maybeApplyOSCEBWEPostSilk(pcm[:frameSize*d.channels], frameSize, ModeSILK, silk.BandwidthWideband, packetStereoLocal)
+			}
 		}
 		d.applyOutputGain(pcm[:frameSize*d.channels])
 
@@ -162,14 +164,18 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 	// erroneously fade in. The SILK-only post-decode hook handles the
 	// SILK -> SILK cross-fade itself; this catches Hybrid and CELT
 	// transitions where the SILK helper is not invoked.
-	d.osceBWEMarkInactiveIfModeIneligible(toc.Mode, toc.Bandwidth, pcm[:totalSamples*d.channels], totalSamples, toc.Stereo)
+	if extsupport.OSCERuntime {
+		d.osceBWEMarkInactiveIfModeIneligible(toc.Mode, toc.Bandwidth, pcm[:totalSamples*d.channels], totalSamples, toc.Stereo)
+	}
 
 	// OSCE LACE/NoLACE transition bookkeeping: clear the previous-LACE-
 	// active flag when the current packet bypasses the postfilter (Hybrid
 	// or CELT). Mirrors libopus `osce_reset` which gets called whenever
 	// `osce_enhance_frame` exits early (e.g. fs_kHz != 16), priming the
 	// reset counter so the next LACE-active frame runs the cross-fade.
-	d.osceLACEMarkInactiveIfModeIneligible(toc.Mode, toc.Bandwidth)
+	if extsupport.OSCERuntime {
+		d.osceLACEMarkInactiveIfModeIneligible(toc.Mode, toc.Bandwidth)
+	}
 
 	d.lastFrameSize = frameSize
 	d.lastPacketDuration = totalSamples

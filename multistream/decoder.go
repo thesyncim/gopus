@@ -337,7 +337,7 @@ func (d *streamState) decodeSILK(data []byte, frameSize int, packetStereo bool, 
 	if !ok {
 		return nil, fmt.Errorf("multistream: invalid SILK bandwidth: %d", opusBandwidth)
 	}
-	if data != nil {
+	if extsupport.OSCERuntime && data != nil {
 		restoreOSCELACEHook := d.installOSCELACESilkPostfilterHook(bw, packetStereo)
 		defer restoreOSCELACEHook()
 	}
@@ -365,10 +365,12 @@ func (d *streamState) decodeSILK(data []byte, frameSize int, packetStereo bool, 
 	// so the standard silk_resampler output is retained for every existing
 	// decode path. The call MUST run before the float32->float64 conversion
 	// so the BWE forward pass can overwrite the `out32` slice in place.
-	if data != nil {
-		d.applyOSCEPostSilk(out32, frameSize, bw, packetStereo)
-	} else {
-		d.applyOSCEPLCSilk(out32, frameSize, bw, packetStereo)
+	if extsupport.OSCERuntime {
+		if data != nil {
+			d.applyOSCEPostSilk(out32, frameSize, bw, packetStereo)
+		} else {
+			d.applyOSCEPLCSilk(out32, frameSize, bw, packetStereo)
+		}
 	}
 
 	return float32ToFloat64Slice(out32), nil
@@ -399,7 +401,9 @@ func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc stream
 		return nil, err
 	}
 
-	d.markOSCEInactiveIfModeIneligible(toc, out, frameSize)
+	if extsupport.OSCERuntime {
+		d.markOSCEInactiveIfModeIneligible(toc, out, frameSize)
+	}
 	d.recordDecodedTOC(toc)
 	return out, nil
 }
@@ -416,14 +420,14 @@ func (d *streamState) decodePLC(frameSize int) ([]float64, error) {
 		return d.finishDecode(d.decodeSILK(nil, frameSize, d.lastPacketStereo, d.lastBandwidth))
 	case streamModeHybrid:
 		out, err := d.finishDecode(d.hybridDec.DecodeWithPacketStereo(nil, frameSize, d.lastPacketStereo))
-		if err == nil {
+		if extsupport.OSCERuntime && err == nil {
 			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeHybrid, bandwidth: d.lastBandwidth, stereo: d.lastPacketStereo}, out, frameSize)
 		}
 		return out, err
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(d.lastBandwidth))
 		out, err := d.finishDecode(d.celtDec.DecodeFrameWithPacketStereo(nil, frameSize, d.lastPacketStereo))
-		if err == nil {
+		if extsupport.OSCERuntime && err == nil {
 			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: d.lastBandwidth, stereo: d.lastPacketStereo}, out, frameSize)
 		}
 		return out, err

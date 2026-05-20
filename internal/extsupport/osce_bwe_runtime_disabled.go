@@ -4,4 +4,7 @@
 package extsupport
 
 // OSCEBWERuntime reports whether OSCE BWE controls/helpers are compiled in.
-const OSCEBWERuntime = false
+const (
+	OSCEBWERuntime = false
+	OSCERuntime    = false
+)

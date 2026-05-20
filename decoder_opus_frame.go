@@ -407,7 +407,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if !ok {
 			silkBW = silk.BandwidthWideband
 		}
-		if data != nil {
+		if extsupport.OSCERuntime && data != nil {
 			restoreOSCELACEHook := d.installOSCELACESilkPostfilterHook(mode, silkBW, packetStereoLocal)
 			defer restoreOSCELACEHook()
 		}
@@ -512,7 +512,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// short-circuits when the BWE control is disabled / no BWE model is
 		// loaded, so the standard silk_resampler output is retained for
 		// every existing decode path.
-		if data != nil {
+		if extsupport.OSCERuntime && data != nil {
 			d.maybeApplyOSCEBWEPostSilk(out, frameSize, mode, silkBW, packetStereoLocal)
 		}
 
