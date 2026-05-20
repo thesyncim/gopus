@@ -4,14 +4,11 @@
 package gopus
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"math"
-	"os/exec"
 	"sync"
 
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 type libopusDREDProcessInfo struct {
@@ -101,15 +98,11 @@ func probeLibopusDREDModelBlob() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(binPath)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run dred model blob helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelper(binPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("run dred model blob helper: %w", err)
 	}
-	return stdout.Bytes(), nil
+	return out, nil
 }
 
 func probeLibopusDREDProcess(packet []byte, maxDREDSamples, sampleRate int) (libopusDREDProcessInfo, error) {
@@ -118,79 +111,54 @@ func probeLibopusDREDProcess(packet []byte, maxDREDSamples, sampleRate int) (lib
 		return libopusDREDProcessInfo{}, err
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusDREDParseInputMagic)
-	for _, v := range []uint32{1, uint32(sampleRate), uint32(maxDREDSamples), uint32(len(packet))} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusDREDProcessInfo{}, fmt.Errorf("encode dred process helper header: %w", err)
-		}
-	}
-	if _, err := payload.Write(packet); err != nil {
-		return libopusDREDProcessInfo{}, fmt.Errorf("encode dred process helper packet: %w", err)
-	}
+	payload := libopustest.NewOraclePayload(libopusDREDParseInputMagic, uint32(sampleRate), uint32(maxDREDSamples), uint32(len(packet)))
+	payload.Raw(packet)
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusDREDProcessInfo{}, fmt.Errorf("run dred process helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return libopusDREDProcessInfo{}, fmt.Errorf("run dred process helper: %w", err)
 	}
-
-	out := stdout.Bytes()
-	headerBytes := 4 + 4 + 16*4
-	if len(out) < headerBytes || string(out[:4]) != libopusDREDParseOutputMagic {
-		return libopusDREDProcessInfo{}, fmt.Errorf("unexpected dred process helper output")
+	reader, err := libopustest.NewOracleReader("dred process", libopusDREDParseOutputMagic, out)
+	if err != nil {
+		return libopusDREDProcessInfo{}, err
 	}
 
 	info := libopusDREDProcessInfo{
-		availableSamples:  int(int32(binary.LittleEndian.Uint32(out[8:12]))),
-		dredEndSamples:    int(int32(binary.LittleEndian.Uint32(out[12:16]))),
-		processRet:        int(int32(binary.LittleEndian.Uint32(out[16:20]))),
-		processStage:      int(int32(binary.LittleEndian.Uint32(out[20:24]))),
-		nbLatents:         int(int32(binary.LittleEndian.Uint32(out[24:28]))),
-		dredOffset:        int(int32(binary.LittleEndian.Uint32(out[28:32]))),
-		secondProcessRet:  int(int32(binary.LittleEndian.Uint32(out[32:36]))),
-		secondStage:       int(int32(binary.LittleEndian.Uint32(out[36:40]))),
-		cloneProcessRet:   int(int32(binary.LittleEndian.Uint32(out[40:44]))),
-		cloneStage:        int(int32(binary.LittleEndian.Uint32(out[44:48]))),
-		secondStateHash:   binary.LittleEndian.Uint32(out[48:52]),
-		secondLatentHash:  binary.LittleEndian.Uint32(out[52:56]),
-		secondFeatureHash: binary.LittleEndian.Uint32(out[56:60]),
-		cloneStateHash:    binary.LittleEndian.Uint32(out[60:64]),
-		cloneLatentHash:   binary.LittleEndian.Uint32(out[64:68]),
-		cloneFeatureHash:  binary.LittleEndian.Uint32(out[68:72]),
+		availableSamples:  int(reader.I32()),
+		dredEndSamples:    int(reader.I32()),
+		processRet:        int(reader.I32()),
+		processStage:      int(reader.I32()),
+		nbLatents:         int(reader.I32()),
+		dredOffset:        int(reader.I32()),
+		secondProcessRet:  int(reader.I32()),
+		secondStage:       int(reader.I32()),
+		cloneProcessRet:   int(reader.I32()),
+		cloneStage:        int(reader.I32()),
+		secondStateHash:   reader.U32(),
+		secondLatentHash:  reader.U32(),
+		secondFeatureHash: reader.U32(),
+		cloneStateHash:    reader.U32(),
+		cloneLatentHash:   reader.U32(),
+		cloneFeatureHash:  reader.U32(),
 	}
 
-	offset := 72
 	for i := range info.state {
-		if len(out) < offset+4 {
-			return libopusDREDProcessInfo{}, fmt.Errorf("truncated dred process state")
-		}
-		info.state[i] = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
-		offset += 4
+		info.state[i] = reader.Float32()
 	}
 
 	latentValues := info.nbLatents * internaldred.LatentStride
 	info.latents = make([]float32, latentValues)
 	for i := 0; i < latentValues; i++ {
-		if len(out) < offset+4 {
-			return libopusDREDProcessInfo{}, fmt.Errorf("truncated dred process latents")
-		}
-		info.latents[i] = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
-		offset += 4
+		info.latents[i] = reader.Float32()
 	}
 
 	featureValues := info.nbLatents * 4 * internaldred.NumFeatures
 	info.features = make([]float32, featureValues)
 	for i := 0; i < featureValues; i++ {
-		if len(out) < offset+4 {
-			return libopusDREDProcessInfo{}, fmt.Errorf("truncated dred process features")
-		}
-		info.features[i] = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
-		offset += 4
+		info.features[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDREDProcessInfo{}, err
 	}
 	return info, nil
 }
@@ -201,68 +169,51 @@ func probeLibopusDREDRecoveryWindow(packet []byte, maxDREDSamples, sampleRate, f
 		return libopusDREDRecoveryWindowInfo{}, err
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusDREDParseInputMagic)
 	var blendFlag uint32
 	if blend {
 		blendFlag = 1
 	}
-	for _, v := range []uint32{
-		1,
+	payload := libopustest.NewOraclePayload(
+		libopusDREDParseInputMagic,
 		uint32(sampleRate),
 		uint32(maxDREDSamples),
 		uint32(frameSizeSamples),
 		uint32(int32(decodeOffsetSamples)),
 		blendFlag,
 		uint32(len(packet)),
-	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusDREDRecoveryWindowInfo{}, fmt.Errorf("encode dred recovery helper header: %w", err)
-		}
-	}
-	if _, err := payload.Write(packet); err != nil {
-		return libopusDREDRecoveryWindowInfo{}, fmt.Errorf("encode dred recovery helper packet: %w", err)
-	}
+	)
+	payload.Raw(packet)
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusDREDRecoveryWindowInfo{}, fmt.Errorf("run dred recovery helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return libopusDREDRecoveryWindowInfo{}, fmt.Errorf("run dred recovery helper: %w", err)
 	}
-
-	out := stdout.Bytes()
-	headerBytes := 4 + 4 + 12*4
-	if len(out) < headerBytes || string(out[:4]) != libopusDREDParseOutputMagic {
-		return libopusDREDRecoveryWindowInfo{}, fmt.Errorf("unexpected dred recovery helper output")
+	reader, err := libopustest.NewOracleReader("dred recovery", libopusDREDParseOutputMagic, out)
+	if err != nil {
+		return libopusDREDRecoveryWindowInfo{}, err
 	}
 
 	info := libopusDREDRecoveryWindowInfo{
-		availableSamples:         int(int32(binary.LittleEndian.Uint32(out[8:12]))),
-		dredEndSamples:           int(int32(binary.LittleEndian.Uint32(out[12:16]))),
-		processRet:               int(int32(binary.LittleEndian.Uint32(out[16:20]))),
-		processStage:             int(int32(binary.LittleEndian.Uint32(out[20:24]))),
-		nbLatents:                int(int32(binary.LittleEndian.Uint32(out[24:28]))),
-		dredOffset:               int(int32(binary.LittleEndian.Uint32(out[28:32]))),
-		featuresPerFrame:         int(int32(binary.LittleEndian.Uint32(out[32:36]))),
-		neededFeatureFrames:      int(int32(binary.LittleEndian.Uint32(out[36:40]))),
-		featureOffsetBase:        int(int32(binary.LittleEndian.Uint32(out[40:44]))),
-		maxFeatureIndex:          int(int32(binary.LittleEndian.Uint32(out[44:48]))),
-		recoverableFeatureFrames: int(int32(binary.LittleEndian.Uint32(out[48:52]))),
-		missingPositiveFrames:    int(int32(binary.LittleEndian.Uint32(out[52:56]))),
+		availableSamples:         int(reader.I32()),
+		dredEndSamples:           int(reader.I32()),
+		processRet:               int(reader.I32()),
+		processStage:             int(reader.I32()),
+		nbLatents:                int(reader.I32()),
+		dredOffset:               int(reader.I32()),
+		featuresPerFrame:         int(reader.I32()),
+		neededFeatureFrames:      int(reader.I32()),
+		featureOffsetBase:        int(reader.I32()),
+		maxFeatureIndex:          int(reader.I32()),
+		recoverableFeatureFrames: int(reader.I32()),
+		missingPositiveFrames:    int(reader.I32()),
 	}
 
-	offset := 56
 	info.featureOffsets = make([]int, info.neededFeatureFrames)
 	for i := range info.featureOffsets {
-		if len(out) < offset+4 {
-			return libopusDREDRecoveryWindowInfo{}, fmt.Errorf("truncated dred recovery helper offsets")
-		}
-		info.featureOffsets[i] = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
+		info.featureOffsets[i] = int(reader.I32())
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDREDRecoveryWindowInfo{}, err
 	}
 	return info, nil
 }

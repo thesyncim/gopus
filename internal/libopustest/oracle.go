@@ -140,8 +140,15 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 }
 
 func RunHelper(binPath string, input []byte) ([]byte, error) {
+	return RunHelperEnv(binPath, input, nil)
+}
+
+func RunHelperEnv(binPath string, input []byte, env []string) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 	cmd := exec.Command(binPath)
+	if len(env) > 0 {
+		cmd.Env = append(os.Environ(), env...)
+	}
 	cmd.Stdin = bytes.NewReader(input)
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

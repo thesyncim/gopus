@@ -4,13 +4,12 @@
 package gopus
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
-	"os"
-	"os/exec"
 	"sync"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 const libopusDREDPacketOutputMagic = "GODP"
@@ -107,53 +106,50 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 	if err != nil {
 		return libopusDREDPacket{}, err
 	}
-	cmd := exec.Command(binPath)
-	cmd.Env = append(os.Environ(),
+	env := []string{
 		fmt.Sprintf("GOPUS_DRED_FRAME_SIZE=%d", cfg.FrameSize),
 		fmt.Sprintf("GOPUS_DRED_CHANNELS=%d", cfg.Channels),
 		fmt.Sprintf("GOPUS_DRED_FORCE_MODE=%s", forceModeEnv),
 		fmt.Sprintf("GOPUS_DRED_BANDWIDTH=%s", bandwidthEnv),
 		fmt.Sprintf("GOPUS_DRED_BITRATE=%d", cfg.Bitrate),
 		"GOPUS_DRED_PCM_STDIN=1",
-	)
+	}
 	if cfg.CBR {
-		cmd.Env = append(cmd.Env, "GOPUS_DRED_CBR=1")
+		env = append(env, "GOPUS_DRED_CBR=1")
 	}
 	if cfg.ForceChannels != 0 {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("GOPUS_DRED_FORCE_CHANNELS=%d", cfg.ForceChannels))
+		env = append(env, fmt.Sprintf("GOPUS_DRED_FORCE_CHANNELS=%d", cfg.ForceChannels))
 	}
 	if cfg.Multistream {
-		cmd.Env = append(cmd.Env, "GOPUS_DRED_MULTISTREAM=1")
+		env = append(env, "GOPUS_DRED_MULTISTREAM=1")
 	}
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdin = bytes.NewReader(libopusDREDPacketPCMInput(cfg, libopusDREDPacketMaxFramesToTry))
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusDREDPacket{}, fmt.Errorf("run dred emit helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelperEnv(binPath, libopusDREDPacketPCMInput(cfg, libopusDREDPacketMaxFramesToTry), env)
+	if err != nil {
+		return libopusDREDPacket{}, fmt.Errorf("run dred emit helper: %w", err)
 	}
 
-	out := stdout.Bytes()
-	if len(out) < 20 || string(out[:4]) != libopusDREDPacketOutputMagic {
-		return libopusDREDPacket{}, fmt.Errorf("unexpected dred emit helper output")
+	reader, version, err := libopustest.NewOracleReaderVersion("dred emit", libopusDREDPacketOutputMagic, out)
+	if err != nil {
+		return libopusDREDPacket{}, err
 	}
-	version := binary.LittleEndian.Uint32(out[4:8])
-	headerLen := 20
-	if version >= 2 {
-		headerLen = 24
-	}
-	packetLen := int(binary.LittleEndian.Uint32(out[16:20]))
-	if len(out) != headerLen+packetLen {
-		return libopusDREDPacket{}, fmt.Errorf("truncated dred packet output")
+	if version != 1 && version != 2 {
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper version=%d want 1 or 2", version)
 	}
 	info := libopusDREDPacket{
-		sampleRate:     int(binary.LittleEndian.Uint32(out[8:12])),
-		maxDREDSamples: int(binary.LittleEndian.Uint32(out[12:16])),
-		packet:         append([]byte(nil), out[headerLen:]...),
+		sampleRate:     int(reader.U32()),
+		maxDREDSamples: int(reader.U32()),
 	}
+	packetLen := int(reader.U32())
 	if version >= 2 {
-		info.frameIndex = int(binary.LittleEndian.Uint32(out[20:24]))
+		info.frameIndex = int(reader.U32())
+	}
+	packet := reader.Bytes(packetLen)
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDREDPacket{}, err
+	}
+	info.packet = append([]byte(nil), packet...)
+	if len(info.packet) == 0 {
+		return libopusDREDPacket{}, fmt.Errorf("dred emit helper returned an empty packet")
 	}
 	toc := ParseTOC(info.packet[0])
 	if toc.Mode != cfg.ForceMode {

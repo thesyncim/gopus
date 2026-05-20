@@ -10,20 +10,22 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestStandaloneDREDProcessMatchesLibopusOnRealPacket(t *testing.T) {
+	libopustest.RequireOracle(t)
 	modelBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
-		t.Skipf("libopus dred model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred model", err)
 	}
 	packetInfo, err := emitLibopusDREDPacket()
 	if err != nil {
-		t.Skipf("libopus dred packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred packet", err)
 	}
 	want, err := probeLibopusDREDProcess(packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate)
 	if err != nil {
-		t.Skipf("libopus dred process helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred process", err)
 	}
 	if want.availableSamples < 0 {
 		t.Fatalf("libopus dred parse returned error %d", want.availableSamples)
@@ -96,17 +98,18 @@ func TestStandaloneDREDProcessMatchesLibopusOnRealPacket(t *testing.T) {
 }
 
 func TestStandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket(t *testing.T) {
+	libopustest.RequireOracle(t)
 	modelBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
-		t.Skipf("libopus dred model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred model", err)
 	}
 	packetInfo, err := emitLibopusDREDPacket()
 	if err != nil {
-		t.Skipf("libopus dred packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred packet", err)
 	}
 	want, err := probeLibopusDREDProcess(packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate)
 	if err != nil {
-		t.Skipf("libopus dred process helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred process", err)
 	}
 	if want.processRet != 0 || want.processStage != 2 {
 		t.Fatalf("libopus process=(ret=%d, stage=%d) want (0,2)", want.processRet, want.processStage)

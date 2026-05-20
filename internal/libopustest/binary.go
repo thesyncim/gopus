@@ -67,17 +67,25 @@ type OracleReader struct {
 }
 
 func NewOracleReader(label, outputMagic string, data []byte) (*OracleReader, error) {
-	if len(outputMagic) != 4 {
-		return nil, fmt.Errorf("oracle magic %q must be four bytes", outputMagic)
+	reader, version, err := NewOracleReaderVersion(label, outputMagic, data)
+	if err != nil {
+		return nil, err
 	}
-	if len(data) < 8 || string(data[:4]) != outputMagic {
-		return nil, fmt.Errorf("unexpected %s helper output", label)
-	}
-	version := binary.LittleEndian.Uint32(data[4:8])
 	if version != 1 {
 		return nil, fmt.Errorf("%s helper version=%d want 1", label, version)
 	}
-	return &OracleReader{label: label, data: data, offset: 8}, nil
+	return reader, nil
+}
+
+func NewOracleReaderVersion(label, outputMagic string, data []byte) (*OracleReader, uint32, error) {
+	if len(outputMagic) != 4 {
+		return nil, 0, fmt.Errorf("oracle magic %q must be four bytes", outputMagic)
+	}
+	if len(data) < 8 || string(data[:4]) != outputMagic {
+		return nil, 0, fmt.Errorf("unexpected %s helper output", label)
+	}
+	version := binary.LittleEndian.Uint32(data[4:8])
+	return &OracleReader{label: label, data: data, offset: 8}, version, nil
 }
 
 func (r *OracleReader) Count(want int) int {
