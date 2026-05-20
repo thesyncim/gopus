@@ -4,9 +4,7 @@
 package gopus
 
 import (
-	"bytes"
 	"fmt"
-	"os/exec"
 	"sync"
 	"testing"
 
@@ -58,15 +56,11 @@ func getLibopusFARGANModelBlobHelperPath() (string, error) {
 }
 
 func runModelBlobHelper(binPath string) ([]byte, error) {
-	cmd := exec.Command(binPath)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run model blob helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelper(binPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("run model blob helper: %w", err)
 	}
-	return stdout.Bytes(), nil
+	return out, nil
 }
 
 func probeLibopusDecoderNeuralModelBlob() ([]byte, error) {

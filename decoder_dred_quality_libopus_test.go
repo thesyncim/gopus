@@ -4,11 +4,7 @@
 package gopus
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"math"
-	"os/exec"
 	"sync"
 	"testing"
 
@@ -114,14 +110,11 @@ func decodeLibopusDREDQualityPackets(t *testing.T, packets [][]byte, reference [
 		libopustest.HelperUnavailable(t, "DRED quality sequence", err)
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusDREDQualitySequenceInputMagic)
 	useDREDFlag := uint32(0)
 	if useDRED {
 		useDREDFlag = 1
 	}
-	for _, v := range []uint32{
-		1,
+	payload := libopustest.NewOraclePayload(libopusDREDQualitySequenceInputMagic,
 		dredQualitySampleRate,
 		dredQualityChannels,
 		dredQualityFrameSize,
@@ -129,53 +122,35 @@ func decodeLibopusDREDQualityPackets(t *testing.T, packets [][]byte, reference [
 		useDREDFlag,
 		uint32(len(decoderBlob)),
 		uint32(len(dredDecoderBlob)),
-	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			t.Fatalf("encode libopus quality helper header: %v", err)
-		}
-	}
-	payload.Write(decoderBlob)
-	payload.Write(dredDecoderBlob)
+	)
+	payload.Raw(decoderBlob)
+	payload.Raw(dredDecoderBlob)
 	for frame, packet := range packets {
 		delivered := uint32(0)
 		if dredQualityPacketDelivered(frame) {
 			delivered = 1
 		}
-		for _, v := range []uint32{delivered, uint32(len(packet))} {
-			if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-				t.Fatalf("encode libopus quality helper packet header: %v", err)
-			}
-		}
-		payload.Write(packet)
+		payload.U32s(delivered, uint32(len(packet)))
+		payload.Raw(packet)
 	}
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("run libopus DRED quality sequence helper: %v (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "DRED quality sequence", libopusDREDQualitySequenceOutputMagic)
+	if err != nil {
+		t.Fatalf("run libopus DRED quality sequence helper: %v", err)
 	}
 
-	out := stdout.Bytes()
-	const headerSize = 4 + 8*4
-	if len(out) < headerSize || string(out[:4]) != libopusDREDQualitySequenceOutputMagic {
-		t.Fatalf("unexpected libopus quality helper output")
-	}
-	if got := binary.LittleEndian.Uint32(out[4:8]); got != 1 {
-		t.Fatalf("unexpected libopus quality helper version=%d", got)
-	}
 	run := dredQualityRun{
-		lossFrames:     int(int32(binary.LittleEndian.Uint32(out[8:12]))),
-		dredFrames:     int(int32(binary.LittleEndian.Uint32(out[12:16]))),
-		fallbackFrames: int(int32(binary.LittleEndian.Uint32(out[16:20]))),
+		lossFrames:     int(reader.I32()),
+		dredFrames:     int(reader.I32()),
+		fallbackFrames: int(reader.I32()),
 	}
-	channels := int(int32(binary.LittleEndian.Uint32(out[20:24])))
-	sampleRate := int(int32(binary.LittleEndian.Uint32(out[24:28])))
-	frameSize := int(int32(binary.LittleEndian.Uint32(out[28:32])))
-	sampleCount := int(int32(binary.LittleEndian.Uint32(out[32:36])))
+	channels := int(reader.I32())
+	sampleRate := int(reader.I32())
+	frameSize := int(reader.I32())
+	sampleCount := int(reader.I32())
+	if err := reader.Err(); err != nil {
+		t.Fatalf("read libopus quality helper header: %v", err)
+	}
 	if channels != dredQualityChannels || sampleRate != dredQualitySampleRate || frameSize != dredQualityFrameSize {
 		t.Fatalf("libopus helper shape=(channels=%d sampleRate=%d frameSize=%d) want (%d,%d,%d)",
 			channels, sampleRate, frameSize, dredQualityChannels, dredQualitySampleRate, dredQualityFrameSize)
@@ -183,17 +158,12 @@ func decodeLibopusDREDQualityPackets(t *testing.T, packets [][]byte, reference [
 	if sampleCount != run.lossFrames*dredQualityFrameSize*dredQualityChannels {
 		t.Fatalf("libopus helper sample count=%d want %d", sampleCount, run.lossFrames*dredQualityFrameSize*dredQualityChannels)
 	}
-	offset := headerSize
 	run.lossDecoded = make([]float32, sampleCount)
 	for i := range run.lossDecoded {
-		if offset+4 > len(out) {
-			t.Fatalf("truncated libopus helper PCM")
-		}
-		run.lossDecoded[i] = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
-		offset += 4
+		run.lossDecoded[i] = reader.Float32()
 	}
-	if offset != len(out) {
-		t.Fatalf("unexpected trailing libopus helper bytes: %d", len(out)-offset)
+	if err := reader.ExpectConsumed(); err != nil {
+		t.Fatalf("read libopus quality helper PCM: %v", err)
 	}
 	run.lossReference = dredQualityLossReference(t, reference, len(packets))
 	if len(run.lossReference) != len(run.lossDecoded) {

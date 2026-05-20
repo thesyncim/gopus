@@ -268,11 +268,26 @@ func RunOracle(binPath string, input []byte, label, outputMagic string) (*Oracle
 }
 
 func RunOracleEnv(binPath string, input []byte, label, outputMagic string, env []string) (*OracleReader, error) {
+	return RunOracleVersionEnv(binPath, input, label, outputMagic, 1, env)
+}
+
+func RunOracleVersion(binPath string, input []byte, label, outputMagic string, wantVersion uint32) (*OracleReader, error) {
+	return RunOracleVersionEnv(binPath, input, label, outputMagic, wantVersion, nil)
+}
+
+func RunOracleVersionEnv(binPath string, input []byte, label, outputMagic string, wantVersion uint32, env []string) (*OracleReader, error) {
 	data, err := RunHelperEnv(binPath, input, env)
 	if err != nil {
 		return nil, fmt.Errorf("run %s helper: %w", label, err)
 	}
-	return NewOracleReader(label, outputMagic, data)
+	reader, version, err := NewOracleReaderVersion(label, outputMagic, data)
+	if err != nil {
+		return nil, err
+	}
+	if version != wantVersion {
+		return nil, fmt.Errorf("%s helper version=%d want %d", label, version, wantVersion)
+	}
+	return reader, nil
 }
 
 func ProbeFloatQuant(mode uint32, samples []float32) ([]int16, error) {

@@ -4,11 +4,7 @@
 package gopus
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"math"
-	"os/exec"
 	"sync"
 	"testing"
 
@@ -86,10 +82,7 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 		return libopusDecoderDREDSequenceInfo{}, err
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusDecoderDREDSequenceInputMagic)
-	for _, v := range []uint32{
-		1,
+	payload := libopustest.NewOraclePayload(libopusDecoderDREDSequenceInputMagic,
 		uint32(sampleRate),
 		uint32(maxDREDSamples),
 		uint32(frameSizeSamples),
@@ -99,27 +92,15 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 		uint32(len(decoderModelBlob)),
 		uint32(len(dredModelBlob)),
 		uint32(step0Source),
-	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper header: %w", err)
-		}
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(step0OffsetSamples)); err != nil {
-		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper step0 offset: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(step1Source)); err != nil {
-		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper step1 source: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(step1OffsetSamples)); err != nil {
-		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper step1 offset: %w", err)
-	}
+	)
+	payload.I32(int32(step0OffsetSamples))
+	payload.U32(uint32(step1Source))
+	payload.I32(int32(step1OffsetSamples))
 	var nextFlag uint32
 	if decodeNextPacket {
 		nextFlag = 1
 	}
-	if err := binary.Write(&payload, binary.LittleEndian, nextFlag); err != nil {
-		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper decode-next flag: %w", err)
-	}
+	payload.U32(nextFlag)
 	for _, chunk := range [][]byte{
 		seedPacket,
 		carrierPacket,
@@ -127,46 +108,31 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 		decoderModelBlob,
 		dredModelBlob,
 	} {
-		if _, err := payload.Write(chunk); err != nil {
-			return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("encode decoder dred sequence helper payload: %w", err)
-		}
+		payload.Raw(chunk)
 	}
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("run decoder dred sequence helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-
-	out := stdout.Bytes()
-	const headerSize = 44
-	if len(out) < headerSize || string(out[:4]) != libopusDecoderDREDSequenceOutputMagic {
-		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("unexpected decoder dred sequence helper output")
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "decoder dred sequence", libopusDecoderDREDSequenceOutputMagic)
+	if err != nil {
+		return libopusDecoderDREDSequenceInfo{}, err
 	}
 	info := libopusDecoderDREDSequenceInfo{
-		carrierParseRet: int(int32(binary.LittleEndian.Uint32(out[8:12]))),
-		carrierDredEnd:  int(int32(binary.LittleEndian.Uint32(out[12:16]))),
-		nextParseRet:    int(int32(binary.LittleEndian.Uint32(out[16:20]))),
-		nextDredEnd:     int(int32(binary.LittleEndian.Uint32(out[20:24]))),
-		carrierRet:      int(int32(binary.LittleEndian.Uint32(out[24:28]))),
-		channels:        int(int32(binary.LittleEndian.Uint32(out[40:44]))),
+		carrierParseRet: int(reader.I32()),
+		carrierDredEnd:  int(reader.I32()),
+		nextParseRet:    int(reader.I32()),
+		nextDredEnd:     int(reader.I32()),
+		carrierRet:      int(reader.I32()),
 	}
-	info.step0.ret = int(int32(binary.LittleEndian.Uint32(out[28:32])))
-	info.step1.ret = int(int32(binary.LittleEndian.Uint32(out[32:36])))
-	info.next.ret = int(int32(binary.LittleEndian.Uint32(out[36:40])))
+	info.step0.ret = int(reader.I32())
+	info.step1.ret = int(reader.I32())
+	info.next.ret = int(reader.I32())
+	info.channels = int(reader.I32())
 
-	offset := headerSize
 	readBits := func(dst []float32) error {
 		for i := range dst {
-			if offset+4 > len(out) {
-				return fmt.Errorf("truncated decoder dred sequence helper payload")
-			}
-			dst[i] = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
-			offset += 4
+			dst[i] = reader.Float32()
+		}
+		if err := reader.Err(); err != nil {
+			return err
 		}
 		return nil
 	}
@@ -181,41 +147,22 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 		return dst, nil
 	}
 	parseSnapshot := func(step *libopusDecoderDREDSequenceStepInfo) error {
-		if offset+64 > len(out) {
-			return fmt.Errorf("truncated decoder dred sequence helper snapshot header")
-		}
-		step.ret = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.state.Blend = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.state.LossCount = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.state.AnalysisGap = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.state.AnalysisPos = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.state.PredictPos = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.state.FECReadPos = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.state.FECFillPos = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.state.FECSkip = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.fargan.ContInitialized = int32(binary.LittleEndian.Uint32(out[offset:offset+4])) != 0
-		offset += 4
-		step.fargan.LastPeriod = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.celt48k.LastFrameType = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.celt48k.PLCFill = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.celt48k.PLCDuration = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.celt48k.SkipPLC = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.celt48k.PLCPreemphasisMem = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
-		offset += 4
+		step.ret = int(reader.I32())
+		step.state.Blend = int(reader.I32())
+		step.state.LossCount = int(reader.I32())
+		step.state.AnalysisGap = int(reader.I32())
+		step.state.AnalysisPos = int(reader.I32())
+		step.state.PredictPos = int(reader.I32())
+		step.state.FECReadPos = int(reader.I32())
+		step.state.FECFillPos = int(reader.I32())
+		step.state.FECSkip = int(reader.I32())
+		step.fargan.ContInitialized = reader.I32() != 0
+		step.fargan.LastPeriod = int(reader.I32())
+		step.celt48k.LastFrameType = int(reader.I32())
+		step.celt48k.PLCFill = int(reader.I32())
+		step.celt48k.PLCDuration = int(reader.I32())
+		step.celt48k.SkipPLC = int(reader.I32())
+		step.celt48k.PLCPreemphasisMem = reader.Float32()
 		for _, dst := range [][]float32{
 			step.state.Features[:],
 			step.state.Cont[:],
@@ -231,11 +178,7 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 				return err
 			}
 		}
-		if offset+4 > len(out) {
-			return fmt.Errorf("truncated decoder dred sequence helper deemph")
-		}
-		step.fargan.DeemphMem = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
-		offset += 4
+		step.fargan.DeemphMem = reader.Float32()
 		for _, dst := range [][]float32{
 			step.fargan.PitchBuf[:],
 			step.fargan.CondConv1State[:],
@@ -250,17 +193,10 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 				return err
 			}
 		}
-		if offset+16 > len(out) {
-			return fmt.Errorf("truncated decoder dred sequence helper silk header")
-		}
-		step.silk.LagPrev = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.silk.LastGainIndex = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.silk.LossCount = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
-		step.silk.PrevSignalType = int(int32(binary.LittleEndian.Uint32(out[offset : offset+4])))
-		offset += 4
+		step.silk.LagPrev = int(reader.I32())
+		step.silk.LastGainIndex = int(reader.I32())
+		step.silk.LossCount = int(reader.I32())
+		step.silk.PrevSignalType = int(reader.I32())
 		for _, dst := range [][]float32{
 			step.silk.SMid[:],
 			step.silk.OutBuf[:],
@@ -288,6 +224,9 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 		if err := parseSnapshot(step); err != nil {
 			return libopusDecoderDREDSequenceInfo{}, err
 		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDecoderDREDSequenceInfo{}, err
 	}
 	return info, nil
 }

@@ -4,11 +4,8 @@
 package gopus
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"math"
-	"os/exec"
 	"sync"
 	"testing"
 
@@ -95,100 +92,68 @@ func probeLibopusDecoderDREDDecodeAndNextFloatWithGain(seedPacket, packet, nextP
 		return libopusDecoderDREDDecodeFloatInfo{}, err
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusDecoderDREDDecodeFloatInputMagic)
-	for _, v := range []uint32{
-		7,
+	payload := libopustest.NewOraclePayloadVersion(libopusDecoderDREDDecodeFloatInputMagic, 7,
 		uint32(sampleRate),
 		uint32(maxDREDSamples),
 		uint32(warmupDREDOffsetSamples),
 		uint32(dredOffsetSamples),
 		uint32(frameSizeSamples),
-	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper header: %w", err)
-		}
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(gain)); err != nil {
-		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper header: %w", err)
-	}
-	for _, v := range []uint32{
+	)
+	payload.I32(int32(gain))
+	payload.U32s(
 		uint32(len(seedPacket)),
 		uint32(len(packet)),
 		uint32(len(nextPacket)),
 		uint32(len(decoderModelBlob)),
 		uint32(len(dredModelBlob)),
+	)
+	for _, chunk := range [][]byte{
+		seedPacket,
+		packet,
+		nextPacket,
+		decoderModelBlob,
+		dredModelBlob,
 	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper header: %w", err)
-		}
-	}
-	if _, err := payload.Write(seedPacket); err != nil {
-		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper seed packet: %w", err)
-	}
-	if _, err := payload.Write(packet); err != nil {
-		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper packet: %w", err)
-	}
-	if _, err := payload.Write(nextPacket); err != nil {
-		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper next packet: %w", err)
-	}
-	if _, err := payload.Write(decoderModelBlob); err != nil {
-		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper decoder model blob: %w", err)
-	}
-	if _, err := payload.Write(dredModelBlob); err != nil {
-		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("encode decoder dred decode helper dred model blob: %w", err)
+		payload.Raw(chunk)
 	}
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("run decoder dred decode helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-
-	out := stdout.Bytes()
-	const headerSize = 108
-	if len(out) < headerSize || string(out[:4]) != libopusDecoderDREDDecodeFloatOutputMagic {
-		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("unexpected decoder dred decode helper output")
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "decoder dred decode", libopusDecoderDREDDecodeFloatOutputMagic, 5)
+	if err != nil {
+		return libopusDecoderDREDDecodeFloatInfo{}, err
 	}
 	info := libopusDecoderDREDDecodeFloatInfo{
-		parseRet:  int(int32(binary.LittleEndian.Uint32(out[8:12]))),
-		dredEnd:   int(int32(binary.LittleEndian.Uint32(out[12:16]))),
-		warmupRet: int(int32(binary.LittleEndian.Uint32(out[16:20]))),
-		ret:       int(int32(binary.LittleEndian.Uint32(out[20:24]))),
-		nextRet:   int(int32(binary.LittleEndian.Uint32(out[24:28]))),
-		channels:  int(int32(binary.LittleEndian.Uint32(out[28:32]))),
+		parseRet:  int(reader.I32()),
+		dredEnd:   int(reader.I32()),
+		warmupRet: int(reader.I32()),
+		ret:       int(reader.I32()),
+		nextRet:   int(reader.I32()),
+		channels:  int(reader.I32()),
 	}
-	info.state.Blend = int(int32(binary.LittleEndian.Uint32(out[32:36])))
-	info.state.LossCount = int(int32(binary.LittleEndian.Uint32(out[36:40])))
-	info.state.AnalysisGap = int(int32(binary.LittleEndian.Uint32(out[40:44])))
-	info.state.AnalysisPos = int(int32(binary.LittleEndian.Uint32(out[44:48])))
-	info.state.PredictPos = int(int32(binary.LittleEndian.Uint32(out[48:52])))
-	info.state.FECReadPos = int(int32(binary.LittleEndian.Uint32(out[52:56])))
-	info.state.FECFillPos = int(int32(binary.LittleEndian.Uint32(out[56:60])))
-	info.state.FECSkip = int(int32(binary.LittleEndian.Uint32(out[60:64])))
-	info.fargan.ContInitialized = int32(binary.LittleEndian.Uint32(out[64:68])) != 0
-	info.fargan.LastPeriod = int(int32(binary.LittleEndian.Uint32(out[68:72])))
-	info.celt48k.LastFrameType = int(int32(binary.LittleEndian.Uint32(out[72:76])))
-	info.celt48k.PLCFill = int(int32(binary.LittleEndian.Uint32(out[76:80])))
-	info.celt48k.PLCDuration = int(int32(binary.LittleEndian.Uint32(out[80:84])))
-	info.celt48k.SkipPLC = int(int32(binary.LittleEndian.Uint32(out[84:88])))
-	info.celt48k.PLCPreemphasisMem = math.Float32frombits(binary.LittleEndian.Uint32(out[88:92]))
-	info.silk.LagPrev = int(int32(binary.LittleEndian.Uint32(out[92:96])))
-	info.silk.LastGainIndex = int(int32(binary.LittleEndian.Uint32(out[96:100])))
-	info.silk.LossCount = int(int32(binary.LittleEndian.Uint32(out[100:104])))
-	info.silk.PrevSignalType = int(int32(binary.LittleEndian.Uint32(out[104:108])))
-	offset := headerSize
+	info.state.Blend = int(reader.I32())
+	info.state.LossCount = int(reader.I32())
+	info.state.AnalysisGap = int(reader.I32())
+	info.state.AnalysisPos = int(reader.I32())
+	info.state.PredictPos = int(reader.I32())
+	info.state.FECReadPos = int(reader.I32())
+	info.state.FECFillPos = int(reader.I32())
+	info.state.FECSkip = int(reader.I32())
+	info.fargan.ContInitialized = reader.I32() != 0
+	info.fargan.LastPeriod = int(reader.I32())
+	info.celt48k.LastFrameType = int(reader.I32())
+	info.celt48k.PLCFill = int(reader.I32())
+	info.celt48k.PLCDuration = int(reader.I32())
+	info.celt48k.SkipPLC = int(reader.I32())
+	info.celt48k.PLCPreemphasisMem = reader.Float32()
+	info.silk.LagPrev = int(reader.I32())
+	info.silk.LastGainIndex = int(reader.I32())
+	info.silk.LossCount = int(reader.I32())
+	info.silk.PrevSignalType = int(reader.I32())
 	readBits := func(dst []float32) error {
 		for i := range dst {
-			if offset+4 > len(out) {
-				return fmt.Errorf("truncated decoder dred decode helper payload")
-			}
-			dst[i] = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
-			offset += 4
+			dst[i] = reader.Float32()
+		}
+		if err := reader.Err(); err != nil {
+			return err
 		}
 		return nil
 	}
@@ -219,11 +184,7 @@ func probeLibopusDecoderDREDDecodeAndNextFloatWithGain(seedPacket, packet, nextP
 			return libopusDecoderDREDDecodeFloatInfo{}, err
 		}
 	}
-	if offset+4 > len(out) {
-		return libopusDecoderDREDDecodeFloatInfo{}, fmt.Errorf("truncated decoder dred decode helper deemph")
-	}
-	info.fargan.DeemphMem = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
-	offset += 4
+	info.fargan.DeemphMem = reader.Float32()
 	for _, dst := range [][]float32{
 		info.fargan.PitchBuf[:],
 		info.fargan.CondConv1State[:],
@@ -257,7 +218,7 @@ func probeLibopusDecoderDREDDecodeAndNextFloatWithGain(seedPacket, packet, nextP
 			return libopusDecoderDREDDecodeFloatInfo{}, err
 		}
 	}
-	if offset+4*(2+1+len(info.celt48k.WarmupPLCUpdate)) <= len(out) {
+	if reader.Remaining() >= 4*(2+1+len(info.celt48k.WarmupPLCUpdate)) {
 		warmupPLCPreemph := []float32{0}
 		for _, dst := range [][]float32{
 			info.celt48k.WarmupPreemphMem[:],
@@ -269,6 +230,9 @@ func probeLibopusDecoderDREDDecodeAndNextFloatWithGain(seedPacket, packet, nextP
 			}
 		}
 		info.celt48k.WarmupPLCPreemph = warmupPLCPreemph[0]
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDecoderDREDDecodeFloatInfo{}, err
 	}
 	return info, nil
 }

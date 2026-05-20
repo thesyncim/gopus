@@ -11,9 +11,13 @@ type OraclePayload struct {
 }
 
 func NewOraclePayload(inputMagic string, header ...uint32) *OraclePayload {
+	return NewOraclePayloadVersion(inputMagic, 1, header...)
+}
+
+func NewOraclePayloadVersion(inputMagic string, version uint32, header ...uint32) *OraclePayload {
 	p := &OraclePayload{}
 	p.Magic(inputMagic)
-	p.U32(1)
+	p.U32(version)
 	p.U32s(header...)
 	return p
 }
@@ -37,6 +41,12 @@ func (p *OraclePayload) I32(v int32) {
 
 func (p *OraclePayload) Float32(v float32) {
 	p.U32(math.Float32bits(v))
+}
+
+func (p *OraclePayload) Float32s(values ...float32) {
+	for _, v := range values {
+		p.Float32(v)
+	}
 }
 
 func (p *OraclePayload) U32s(values ...uint32) {
@@ -170,6 +180,13 @@ func (r *OracleReader) ExpectRemaining(n int) {
 
 func (r *OracleReader) Err() error {
 	return r.err
+}
+
+func (r *OracleReader) Remaining() int {
+	if r.err != nil {
+		return 0
+	}
+	return len(r.data) - r.offset
 }
 
 func (r *OracleReader) ExpectConsumed() error {

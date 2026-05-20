@@ -4,11 +4,7 @@
 package gopus
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"math"
-	"os/exec"
 	"sync"
 	"testing"
 
@@ -60,12 +56,8 @@ func probeLibopusDecoderPLCConcealQueue(state lpcnetplc.StateSnapshot, fargan lp
 		}
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusPLCConcealInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(2)); err != nil {
-		return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal version: %w", err)
-	}
-	for _, v := range []int32{
+	payload := libopustest.NewOraclePayloadVersion(libopusPLCConcealInputMagic, 2)
+	payload.I32s(
 		int32(state.Blend),
 		int32(state.LossCount),
 		int32(state.AnalysisGap),
@@ -74,18 +66,11 @@ func probeLibopusDecoderPLCConcealQueue(state lpcnetplc.StateSnapshot, fargan lp
 		int32(state.FECReadPos),
 		int32(state.FECFillPos),
 		int32(state.FECSkip),
-	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal header: %w", err)
-		}
-	}
-	writeBits := func(values []float32) error {
+	)
+	writeBits := func(values []float32) {
 		for _, v := range values {
-			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-				return err
-			}
+			payload.Float32(v)
 		}
-		return nil
 	}
 	for _, values := range [][]float32{
 		state.Features[:],
@@ -98,23 +83,13 @@ func probeLibopusDecoderPLCConcealQueue(state lpcnetplc.StateSnapshot, fargan lp
 		state.PLCBak[1].GRU1[:],
 		state.PLCBak[1].GRU2[:],
 	} {
-		if err := writeBits(values); err != nil {
-			return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal state: %w", err)
-		}
+		writeBits(values)
 	}
 	var contInitialized int32
 	if fargan.ContInitialized {
 		contInitialized = 1
 	}
-	if err := binary.Write(&payload, binary.LittleEndian, contInitialized); err != nil {
-		return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal fargan flag: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(fargan.LastPeriod)); err != nil {
-		return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal fargan last period: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(len(queue))); err != nil {
-		return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal queue count: %w", err)
-	}
+	payload.I32s(contInitialized, int32(fargan.LastPeriod), int32(len(queue)))
 	for _, values := range [][]float32{
 		{fargan.DeemphMem},
 		fargan.PitchBuf[:],
@@ -124,52 +99,35 @@ func probeLibopusDecoderPLCConcealQueue(state lpcnetplc.StateSnapshot, fargan lp
 		fargan.GRU2State[:],
 		fargan.GRU3State[:],
 	} {
-		if err := writeBits(values); err != nil {
-			return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal fargan payload: %w", err)
-		}
+		writeBits(values)
 	}
 	for _, features := range queue {
-		if err := writeBits(features); err != nil {
-			return libopusDecoderPLCConcealResult{}, fmt.Errorf("encode plc conceal queue payload: %w", err)
-		}
+		writeBits(features)
 	}
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusDecoderPLCConcealResult{}, fmt.Errorf("run plc conceal helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-
-	data := stdout.Bytes()
-	const header = 48
-	if len(data) < header || string(data[:4]) != libopusPLCConcealOutputMagic {
-		return libopusDecoderPLCConcealResult{}, fmt.Errorf("unexpected plc conceal helper output")
+	reader, err := libopustest.RunOracleVersion(binPath, payload.Bytes(), "plc conceal", libopusPLCConcealOutputMagic, 2)
+	if err != nil {
+		return libopusDecoderPLCConcealResult{}, err
 	}
 	result := libopusDecoderPLCConcealResult{
-		GotFEC: data[8] != 0,
+		GotFEC: reader.I32() != 0,
 	}
-	result.State.Blend = int(int32(binary.LittleEndian.Uint32(data[12:16])))
-	result.State.LossCount = int(int32(binary.LittleEndian.Uint32(data[16:20])))
-	result.State.AnalysisGap = int(int32(binary.LittleEndian.Uint32(data[20:24])))
-	result.State.AnalysisPos = int(int32(binary.LittleEndian.Uint32(data[24:28])))
-	result.State.PredictPos = int(int32(binary.LittleEndian.Uint32(data[28:32])))
-	result.State.FECReadPos = int(int32(binary.LittleEndian.Uint32(data[32:36])))
-	result.State.FECSkip = int(int32(binary.LittleEndian.Uint32(data[36:40])))
-	result.FARGAN.ContInitialized = int32(binary.LittleEndian.Uint32(data[40:44])) != 0
-	result.FARGAN.LastPeriod = int(int32(binary.LittleEndian.Uint32(data[44:48])))
+	result.State.Blend = int(reader.I32())
+	result.State.LossCount = int(reader.I32())
+	result.State.AnalysisGap = int(reader.I32())
+	result.State.AnalysisPos = int(reader.I32())
+	result.State.PredictPos = int(reader.I32())
+	result.State.FECReadPos = int(reader.I32())
+	result.State.FECSkip = int(reader.I32())
+	result.FARGAN.ContInitialized = reader.I32() != 0
+	result.FARGAN.LastPeriod = int(reader.I32())
 
-	offset := header
 	readBits := func(dst []float32) error {
 		for i := range dst {
-			if len(data) < offset+4 {
-				return fmt.Errorf("truncated plc conceal helper output")
-			}
-			dst[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-			offset += 4
+			dst[i] = reader.Float32()
+		}
+		if err := reader.Err(); err != nil {
+			return err
 		}
 		return nil
 	}
@@ -224,6 +182,9 @@ func probeLibopusDecoderPLCConcealQueue(state lpcnetplc.StateSnapshot, fargan lp
 		return libopusDecoderPLCConcealResult{}, err
 	}
 	if err := readBits(result.FARGAN.GRU3State[:]); err != nil {
+		return libopusDecoderPLCConcealResult{}, err
+	}
+	if err := reader.ExpectConsumed(); err != nil {
 		return libopusDecoderPLCConcealResult{}, err
 	}
 	return result, nil
