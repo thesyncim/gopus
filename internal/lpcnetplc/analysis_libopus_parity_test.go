@@ -9,12 +9,14 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestLPCNetSingleFrameFeaturesFloatMatchesLibopusColdStart(t *testing.T) {
+	libopustest.RequireOracle(t)
 	raw, err := probeLibopusPitchDNNModelBlob()
 	if err != nil {
-		t.Skipf("pitchdnn model blob helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "pitchdnn model", err)
 	}
 	blob, err := dnnblob.Clone(raw)
 	if err != nil {
@@ -32,7 +34,7 @@ func TestLPCNetSingleFrameFeaturesFloatMatchesLibopusColdStart(t *testing.T) {
 	}
 	want, err := probeLibopusLPCNetFeatures(frame[:])
 	if err != nil {
-		t.Skipf("lpcnet features helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "lpcnet features", err)
 	}
 
 	var got [NumTotalFeatures]float32
@@ -44,9 +46,10 @@ func TestLPCNetSingleFrameFeaturesFloatMatchesLibopusColdStart(t *testing.T) {
 }
 
 func TestLPCNetSingleFrameFeaturesFloatMatchesLibopusStatefulSequence(t *testing.T) {
+	libopustest.RequireOracle(t)
 	raw, err := probeLibopusPitchDNNModelBlob()
 	if err != nil {
-		t.Skipf("pitchdnn model blob helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "pitchdnn model", err)
 	}
 	blob, err := dnnblob.Clone(raw)
 	if err != nil {
@@ -64,7 +67,7 @@ func TestLPCNetSingleFrameFeaturesFloatMatchesLibopusStatefulSequence(t *testing
 	}
 	want, err := probeLibopusLPCNetFeatures(frames)
 	if err != nil {
-		t.Skipf("lpcnet features helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "lpcnet features", err)
 	}
 	for i := 0; i < len(frames); i += FrameSize {
 		var got [NumTotalFeatures]float32
@@ -78,9 +81,10 @@ func TestLPCNetSingleFrameFeaturesFloatMatchesLibopusStatefulSequence(t *testing
 }
 
 func TestLPCNetDREDSequenceMatchesLibopusTightly(t *testing.T) {
+	libopustest.RequireOracle(t)
 	raw, err := probeLibopusPitchDNNModelBlob()
 	if err != nil {
-		t.Skipf("pitchdnn model blob helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "pitchdnn model", err)
 	}
 	blob, err := dnnblob.Clone(raw)
 	if err != nil {
@@ -101,7 +105,7 @@ func TestLPCNetDREDSequenceMatchesLibopusTightly(t *testing.T) {
 			frames := dredParityAnalysisFrames(4, frameSize)
 			want, err := probeLibopusLPCNetFeatures(frames)
 			if err != nil {
-				t.Skipf("lpcnet features helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "lpcnet features", err)
 			}
 			for frame := 0; frame < len(frames)/FrameSize; frame++ {
 				var got [NumTotalFeatures]float32

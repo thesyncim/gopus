@@ -7,12 +7,14 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestBoundedConcealFrameFloatMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	plcModelBlob, err := probeLibopusPLCModelBlob()
 	if err != nil {
-		t.Skipf("libopus plc model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "plc model", err)
 	}
 	plcBlob, err := dnnblob.Clone(plcModelBlob)
 	if err != nil {
@@ -20,7 +22,7 @@ func TestBoundedConcealFrameFloatMatchesLibopus(t *testing.T) {
 	}
 	farganModelBlob, err := probeLibopusFARGANModelBlob()
 	if err != nil {
-		t.Skipf("libopus fargan model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "fargan model", err)
 	}
 	farganBlob, err := dnnblob.Clone(farganModelBlob)
 	if err != nil {
@@ -42,7 +44,7 @@ func TestBoundedConcealFrameFloatMatchesLibopus(t *testing.T) {
 
 	want1, err := probeLibopusPLCConceal(st, fargan.state, fec0[:], fec1[:])
 	if err != nil {
-		t.Skipf("libopus plc conceal helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "plc conceal", err)
 	}
 
 	var frame1 [FrameSize]float32
@@ -56,7 +58,7 @@ func TestBoundedConcealFrameFloatMatchesLibopus(t *testing.T) {
 	fargan2 := farganStateFromLibopusResult(want1.FARGAN)
 	want2, err := probeLibopusPLCConceal(state2, fargan2, fec0[:], fec1[:])
 	if err != nil {
-		t.Skipf("libopus plc conceal helper unavailable on second step: %v", err)
+		libopustest.HelperUnavailable(t, "plc conceal second step", err)
 	}
 
 	var predictor2 Predictor
@@ -74,9 +76,10 @@ func TestBoundedConcealFrameFloatMatchesLibopus(t *testing.T) {
 }
 
 func TestConcealFrameFloatWithAnalysisMatchesLibopusColdStart(t *testing.T) {
+	libopustest.RequireOracle(t)
 	plcModelBlob, err := probeLibopusPLCModelBlob()
 	if err != nil {
-		t.Skipf("libopus plc model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "plc model", err)
 	}
 	plcBlob, err := dnnblob.Clone(plcModelBlob)
 	if err != nil {
@@ -84,7 +87,7 @@ func TestConcealFrameFloatWithAnalysisMatchesLibopusColdStart(t *testing.T) {
 	}
 	farganModelBlob, err := probeLibopusFARGANModelBlob()
 	if err != nil {
-		t.Skipf("libopus fargan model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "fargan model", err)
 	}
 	farganBlob, err := dnnblob.Clone(farganModelBlob)
 	if err != nil {
@@ -92,7 +95,7 @@ func TestConcealFrameFloatWithAnalysisMatchesLibopusColdStart(t *testing.T) {
 	}
 	pitchModelBlob, err := probeLibopusPitchDNNModelBlob()
 	if err != nil {
-		t.Skipf("libopus pitchdnn model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "pitchdnn model", err)
 	}
 	pitchBlob, err := dnnblob.Clone(pitchModelBlob)
 	if err != nil {
@@ -117,7 +120,7 @@ func TestConcealFrameFloatWithAnalysisMatchesLibopusColdStart(t *testing.T) {
 
 	want, err := probeLibopusPLCConceal(st, fargan.state, fec0[:], fec1[:])
 	if err != nil {
-		t.Skipf("libopus plc conceal helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "plc conceal", err)
 	}
 
 	var frame [FrameSize]float32

@@ -8,12 +8,14 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestPredictorMatchesLibopusOnRealModel(t *testing.T) {
+	libopustest.RequireOracle(t)
 	modelBlob, err := probeLibopusPLCModelBlob()
 	if err != nil {
-		t.Skipf("libopus plc model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "plc model", err)
 	}
 	blob, err := dnnblob.Clone(modelBlob)
 	if err != nil {
@@ -37,7 +39,7 @@ func TestPredictorMatchesLibopusOnRealModel(t *testing.T) {
 
 	want1, wantGRU1, wantGRU2, err := probeLibopusPLCPredict(input1[:], zeroGRU1[:], zeroGRU2[:])
 	if err != nil {
-		t.Skipf("libopus plc predict helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "plc predict", err)
 	}
 	if n := predictor.Predict(out[:], input1[:]); n != NumFeatures {
 		t.Fatalf("Predict(input1)=%d want %d", n, NumFeatures)
@@ -48,7 +50,7 @@ func TestPredictorMatchesLibopusOnRealModel(t *testing.T) {
 
 	want2, wantGRU1b, wantGRU2b, err := probeLibopusPLCPredict(input2[:], wantGRU1, wantGRU2)
 	if err != nil {
-		t.Skipf("libopus plc predict helper unavailable on second step: %v", err)
+		libopustest.HelperUnavailable(t, "plc predict second step", err)
 	}
 	if n := predictor.Predict(out[:], input2[:]); n != NumFeatures {
 		t.Fatalf("Predict(input2)=%d want %d", n, NumFeatures)

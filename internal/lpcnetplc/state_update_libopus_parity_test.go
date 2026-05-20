@@ -3,9 +3,14 @@
 
 package lpcnetplc
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
+)
 
 func TestMarkUpdatedFrameFloatMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	var st State
 	st.runtimeInit = true
 	st.blend = 1
@@ -36,7 +41,7 @@ func TestMarkUpdatedFrameFloatMatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusPLCUpdate(st, frame[:])
 	if err != nil {
-		t.Skipf("libopus plc update helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "plc update", err)
 	}
 
 	if n := st.MarkUpdatedFrameFloat(frame[:]); n != FrameSize {
@@ -61,6 +66,7 @@ func TestMarkUpdatedFrameFloatMatchesLibopus(t *testing.T) {
 }
 
 func TestMarkUpdatedFrameInt16MatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	var st State
 	st.runtimeInit = true
 	st.blend = 1
@@ -79,7 +85,7 @@ func TestMarkUpdatedFrameInt16MatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusPLCUpdateInt16(st, frame[:])
 	if err != nil {
-		t.Skipf("libopus plc update helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "plc update", err)
 	}
 
 	if n := st.MarkUpdatedFrameInt16(frame[:]); n != FrameSize {

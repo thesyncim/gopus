@@ -8,20 +8,22 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestConcealFrameFloatWithAnalysisMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	pitchRaw, err := probeLibopusPitchDNNModelBlob()
 	if err != nil {
-		t.Skipf("pitchdnn model blob helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "pitchdnn model", err)
 	}
 	plcRaw, err := probeLibopusPLCModelBlob()
 	if err != nil {
-		t.Skipf("plc model blob helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "plc model", err)
 	}
 	farganRaw, err := probeLibopusFARGANModelBlob()
 	if err != nil {
-		t.Skipf("fargan model blob helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "fargan model", err)
 	}
 
 	pitchBlob, err := dnnblob.Clone(pitchRaw)
@@ -81,7 +83,7 @@ func TestConcealFrameFloatWithAnalysisMatchesLibopus(t *testing.T) {
 
 	want, err := probeLibopusPLCConcealWithAnalysis(&state, &fargan, &analysis)
 	if err != nil {
-		t.Skipf("libopus conceal-analysis helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "conceal analysis", err)
 	}
 
 	var frame [FrameSize]float32

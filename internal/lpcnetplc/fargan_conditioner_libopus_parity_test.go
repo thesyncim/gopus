@@ -7,12 +7,14 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestFARGANConditionerMatchesLibopusOnRealModel(t *testing.T) {
+	libopustest.RequireOracle(t)
 	modelBlob, err := probeLibopusFARGANModelBlob()
 	if err != nil {
-		t.Skipf("libopus fargan model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "fargan model", err)
 	}
 	blob, err := dnnblob.Clone(modelBlob)
 	if err != nil {
@@ -37,7 +39,7 @@ func TestFARGANConditionerMatchesLibopusOnRealModel(t *testing.T) {
 	var zeroState [FARGANCondConv1State]float32
 	want1, wantState1, err := probeLibopusFARGANCond(features1[:], period1, zeroState[:])
 	if err != nil {
-		t.Skipf("libopus fargan cond helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "fargan conditioner", err)
 	}
 	var cond [FARGANCondDense2Size]float32
 	if n := conditioner.Compute(cond[:], features1[:]); n != FARGANCondDense2Size {
@@ -50,7 +52,7 @@ func TestFARGANConditionerMatchesLibopusOnRealModel(t *testing.T) {
 
 	want2, wantState2, err := probeLibopusFARGANCond(features2[:], period2, wantState1)
 	if err != nil {
-		t.Skipf("libopus fargan cond helper unavailable on second step: %v", err)
+		libopustest.HelperUnavailable(t, "fargan conditioner second step", err)
 	}
 	if n := conditioner.Compute(cond[:], features2[:]); n != FARGANCondDense2Size {
 		t.Fatalf("Compute(features2)=%d want %d", n, FARGANCondDense2Size)

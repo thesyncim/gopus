@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 const (
@@ -19,9 +20,10 @@ const (
 )
 
 func TestFARGANPrimeContinuityMatchesLibopusOnRealModel(t *testing.T) {
+	libopustest.RequireOracle(t)
 	modelBlob, err := probeLibopusFARGANModelBlob()
 	if err != nil {
-		t.Skipf("libopus fargan model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "fargan model", err)
 	}
 	blob, err := dnnblob.Clone(modelBlob)
 	if err != nil {
@@ -38,7 +40,7 @@ func TestFARGANPrimeContinuityMatchesLibopusOnRealModel(t *testing.T) {
 
 	want, err := probeLibopusFARGANContinuity(pcm0[:], contFeatures[:])
 	if err != nil {
-		t.Skipf("libopus fargan continuity helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "fargan continuity", err)
 	}
 	if n := runtime.PrimeContinuity(pcm0[:], contFeatures[:]); n != FARGANContSamples {
 		t.Fatalf("PrimeContinuity()=%d want %d", n, FARGANContSamples)
@@ -47,9 +49,10 @@ func TestFARGANPrimeContinuityMatchesLibopusOnRealModel(t *testing.T) {
 }
 
 func TestFARGANSynthesizeMatchesLibopusOnRealModel(t *testing.T) {
+	libopustest.RequireOracle(t)
 	modelBlob, err := probeLibopusFARGANModelBlob()
 	if err != nil {
-		t.Skipf("libopus fargan model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "fargan model", err)
 	}
 	blob, err := dnnblob.Clone(modelBlob)
 	if err != nil {
@@ -69,14 +72,14 @@ func TestFARGANSynthesizeMatchesLibopusOnRealModel(t *testing.T) {
 
 	wantCont, err := probeLibopusFARGANContinuity(pcm0[:], contFeatures[:])
 	if err != nil {
-		t.Skipf("libopus fargan continuity helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "fargan continuity", err)
 	}
 	if n := runtime.PrimeContinuity(pcm0[:], contFeatures[:]); n != FARGANContSamples {
 		t.Fatalf("PrimeContinuity()=%d want %d", n, FARGANContSamples)
 	}
 	wantSynth, err := probeLibopusFARGANSynthesize(farganStateFromLibopusResult(wantCont), frameFeatures[:])
 	if err != nil {
-		t.Skipf("libopus fargan synth helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "fargan synth", err)
 	}
 	if n := runtime.Synthesize(out[:], frameFeatures[:]); n != FARGANFrameSize {
 		t.Fatalf("Synthesize()=%d want %d", n, FARGANFrameSize)

@@ -7,12 +7,14 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestPitchDNNMatchesLibopusOnRealModel(t *testing.T) {
+	libopustest.RequireOracle(t)
 	raw, err := probeLibopusPitchDNNModelBlob()
 	if err != nil {
-		t.Skipf("pitchdnn model blob helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "pitchdnn model", err)
 	}
 	blob, err := dnnblob.Clone(raw)
 	if err != nil {
@@ -39,7 +41,7 @@ func TestPitchDNNMatchesLibopusOnRealModel(t *testing.T) {
 
 	wantPitch1, wantState1, err := probeLibopusPitchDNN(if1[:], xcorr1[:], pitchDNNState{})
 	if err != nil {
-		t.Skipf("pitchdnn helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "pitchdnn", err)
 	}
 	gotPitch1 := pitch.Compute(if1[:], xcorr1[:])
 	assertFloat32Close(t, []float32{gotPitch1}, []float32{wantPitch1}, 1e-3, "pitch value 1")

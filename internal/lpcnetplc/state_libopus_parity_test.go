@@ -7,12 +7,14 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestPrefillAndConcealmentFeatureStepMatchLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	modelBlob, err := probeLibopusPLCModelBlob()
 	if err != nil {
-		t.Skipf("libopus plc model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "plc model", err)
 	}
 	blob, err := dnnblob.Clone(modelBlob)
 	if err != nil {
@@ -56,7 +58,7 @@ func TestPrefillAndConcealmentFeatureStepMatchLibopus(t *testing.T) {
 	copy(cont[:], st.cont[:])
 	want, err := probeLibopusPLCPrefill(features[:], cont[:], fec0[:], fec1[:], st.plcNet, st.plcBak, 2, 0, st.lossCount, true, true)
 	if err != nil {
-		t.Skipf("libopus plc prefill helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "plc prefill", err)
 	}
 
 	if n := st.PrimeFirstLossPrefill(&predictor); n != 2 {
