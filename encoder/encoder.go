@@ -2733,6 +2733,9 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM []float64
 	if frameCount > 2 {
 		maxHeaderBytes = 2 + (frameCount-1)*2
 	}
+	if extsupport.QEXT && e.qextEnabled {
+		maxHeaderBytes += frameCount
+	}
 	maxLenSum := frameCount + packetTargetBytes - maxHeaderBytes
 	if maxLenSum < frameCount {
 		maxLenSum = frameCount
@@ -2755,6 +2758,8 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM []float64
 	}
 	totSize := 0
 	firstFrameMaxBytes := 0
+	var qextExtensions [6]packetExtension
+	qextExtensionCount := 0
 	savedBitrate := e.bitrate
 	e.bitrate = subframeBitrate
 	for i := 0; i < frameCount; i++ {
@@ -2807,6 +2812,17 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM []float64
 		// Keep a stable copy because the range coder output buffer is reused.
 		frameCopy := append([]byte(nil), frameData...)
 		frames[i] = frameCopy
+		if extsupport.QEXT && e.celtEncoder != nil {
+			qextPayload := e.lastQEXTPayload()
+			if len(qextPayload) > 0 {
+				qextExtensions[qextExtensionCount] = packetExtension{
+					ID:    qextExtensionID,
+					Data:  append([]byte(nil), qextPayload...),
+					Frame: i,
+				}
+				qextExtensionCount++
+			}
+		}
 		if prevSize >= 0 && len(frameCopy) != prevSize {
 			sameSize = false
 		}
@@ -2816,11 +2832,29 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM []float64
 	e.analysisReadBakSet = false
 
 	if e.dredEncodingActive() {
-		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeCELT, e.effectiveBandwidth(), frameSize, 960, firstFrameMaxBytes, e.packetStereoForMode(ModeCELT), !sameSize); err != nil {
+		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeCELT, e.effectiveBandwidth(), frameSize, 960, firstFrameMaxBytes, e.packetStereoForMode(ModeCELT), !sameSize, qextExtensions[:qextExtensionCount]); err != nil {
 			return nil, err
 		} else if ok {
 			return dredPacket, nil
 		}
+	}
+	if qextExtensionCount > 0 {
+		packetLen, err := buildMultiFramePacketWithExtensionsInto(
+			e.scratchPacket,
+			frames,
+			types.ModeCELT,
+			e.effectiveBandwidth(),
+			960,
+			e.packetStereoForMode(ModeCELT),
+			!sameSize,
+			qextExtensions[:qextExtensionCount],
+			0,
+			false,
+		)
+		if err != nil {
+			return nil, err
+		}
+		return e.scratchPacket[:packetLen], nil
 	}
 	return BuildMultiFramePacket(
 		frames,
@@ -2984,7 +3018,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64,
 	packetBW := e.effectiveBandwidth()
 	if e.dredEncodingActive() {
 		stereo := e.packetStereoForMode(ModeHybrid)
-		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeHybrid, packetBW, frameSize, 960, firstFrameMaxBytes, stereo, !sameSize); err != nil {
+		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeHybrid, packetBW, frameSize, 960, firstFrameMaxBytes, stereo, !sameSize, nil); err != nil {
 			return nil, err
 		} else if ok {
 			return dredPacket, nil
@@ -3127,7 +3161,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm, rawPCM []float64, frameSize in
 		packetBW = types.BandwidthWideband
 	}
 	if e.dredEncodingActive() {
-		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeSILK, packetBW, frameSize, encFrameSize, firstFrameMaxBytes, e.packetStereoForMode(ModeSILK), !sameSize); err != nil {
+		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeSILK, packetBW, frameSize, encFrameSize, firstFrameMaxBytes, e.packetStereoForMode(ModeSILK), !sameSize, nil); err != nil {
 			return nil, err
 		} else if ok {
 			return dredPacket, nil

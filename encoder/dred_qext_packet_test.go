@@ -32,20 +32,22 @@ func seedDREDPacketRuntimeForQEXTTest(t *testing.T, enc *Encoder) {
 	runtime.latentOffset = 0
 }
 
-func assertPacketCarriesQEXTBeforeDRED(t *testing.T, packet, qextPayload []byte) {
+func assertPacketCarriesDREDBeforeQEXT(t *testing.T, packet, qextPayload []byte) {
 	t.Helper()
-	qextNeedle := append([]byte{byte(qextExtensionID<<1) | 1, byte(len(qextPayload))}, qextPayload...)
-	qextAt := bytes.Index(packet, qextNeedle)
+	qextAt := bytes.Index(packet, append([]byte{byte(qextExtensionID << 1)}, qextPayload...))
 	if qextAt < 0 {
-		t.Fatalf("packet missing non-final QEXT extension:\npacket=%x\nqext=%x", packet, qextPayload)
+		qextAt = bytes.Index(packet, append([]byte{byte(qextExtensionID<<1) | 1, byte(len(qextPayload))}, qextPayload...))
 	}
-	dredNeedle := []byte{byte(internaldred.ExtensionID << 1), 'D', internaldred.ExperimentalVersion}
+	if qextAt < 0 {
+		t.Fatalf("packet missing QEXT extension:\npacket=%x\nqext=%x", packet, qextPayload)
+	}
+	dredNeedle := []byte{'D', internaldred.ExperimentalVersion}
 	dredAt := bytes.Index(packet, dredNeedle)
 	if dredAt < 0 {
 		t.Fatalf("packet missing final DRED extension:\npacket=%x", packet)
 	}
-	if qextAt > dredAt {
-		t.Fatalf("QEXT extension offset=%d after DRED offset=%d", qextAt, dredAt)
+	if dredAt > qextAt {
+		t.Fatalf("DRED extension offset=%d after QEXT offset=%d", dredAt, qextAt)
 	}
 }
 
@@ -83,7 +85,7 @@ func TestMaybeBuildSingleFrameDREDPacketCarriesQEXTAndDRED(t *testing.T) {
 	if packet[1]&0x40 == 0 {
 		t.Fatalf("count byte=0x%02x missing padding flag", packet[1])
 	}
-	assertPacketCarriesQEXTBeforeDRED(t, packet, qextPayload)
+	assertPacketCarriesDREDBeforeQEXT(t, packet, qextPayload)
 }
 
 func TestEncodeCELTDREDQEXTPacketCarriesBothExtensions(t *testing.T) {
@@ -113,5 +115,64 @@ func TestEncodeCELTDREDQEXTPacketCarriesBothExtensions(t *testing.T) {
 	if len(qextPayload) == 0 {
 		t.Fatal("CELT encoder retained empty QEXT payload")
 	}
-	assertPacketCarriesQEXTBeforeDRED(t, packet, qextPayload)
+	assertPacketCarriesDREDBeforeQEXT(t, packet, qextPayload)
+}
+
+func TestMaybeBuildLongCELTDREDQEXTPacketCarriesBothExtensions(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeCELT)
+	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetBitrate(256000)
+	enc.SetPacketLoss(20)
+	enc.SetQEXT(true)
+	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+	if err := enc.SetDREDDuration(8); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+	seedDREDPacketRuntimeForQEXTTest(t, enc)
+
+	framesIn := [][]byte{
+		bytes.Repeat([]byte{0xAA}, 40),
+		bytes.Repeat([]byte{0xBB}, 42),
+	}
+	qextExtensions := []packetExtension{
+		{ID: qextExtensionID, Data: []byte{0x11, 0x22}, Frame: 0},
+		{ID: qextExtensionID, Data: []byte{0x33, 0x44, 0x55}, Frame: 1},
+	}
+
+	packet, ok, err := enc.maybeBuildMultiFrameDREDPacket(
+		framesIn,
+		ModeCELT,
+		types.BandwidthFullband,
+		1920,
+		960,
+		300,
+		false,
+		true,
+		qextExtensions,
+	)
+	if err != nil {
+		t.Fatalf("maybeBuildMultiFrameDREDPacket: %v", err)
+	}
+	if !ok {
+		t.Fatal("maybeBuildMultiFrameDREDPacket()=false want true")
+	}
+	padding, frames := code3PaddingForEncoderTest(t, packet)
+	if frames != 2 {
+		t.Fatalf("frames=%d want=2", frames)
+	}
+	dredAt := bytes.Index(padding, []byte{'D', internaldred.ExperimentalVersion})
+	if dredAt < 0 {
+		t.Fatalf("packet padding missing DRED extension:\npacket=%x\npadding=%x", packet, padding)
+	}
+	qextAt := bytes.Index(padding, []byte{byte(qextExtensionID<<1) | 1})
+	if qextAt < 0 {
+		t.Fatalf("packet padding missing frame-0 QEXT extension:\npacket=%x\npadding=%x", packet, padding)
+	}
+	if dredAt > qextAt {
+		t.Fatalf("DRED extension offset=%d after QEXT offset=%d in padding=%x", dredAt, qextAt, padding)
+	}
+	if !bytes.Contains(padding, qextExtensions[1].Data) {
+		t.Fatalf("padding missing frame-1 QEXT payload:\npadding=%x\npayload=%x", padding, qextExtensions[1].Data)
+	}
 }

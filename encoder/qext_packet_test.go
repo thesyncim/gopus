@@ -113,6 +113,28 @@ func TestBuildPacketWithMultipleExtensionsIntoTargetLen(t *testing.T) {
 	}
 }
 
+func TestBuildMultiFramePacketWithFrameExtensionsInto(t *testing.T) {
+	frames := [][]byte{{0xAA}, {0xBB}}
+	dst := make([]byte, 32)
+	extensions := []packetExtension{
+		{ID: qextExtensionID, Data: []byte{0x11, 0x22}, Frame: 0},
+		{ID: qextExtensionID, Data: []byte{0x33, 0x44, 0x55}, Frame: 1},
+	}
+
+	n, err := buildMultiFramePacketWithExtensionsInto(dst, frames, types.ModeCELT, types.BandwidthFullband, 960, false, false, extensions, 0, false)
+	if err != nil {
+		t.Fatalf("buildMultiFramePacketWithExtensionsInto: %v", err)
+	}
+
+	want := []byte{0xFB, 0x42, 0x08, 0xAA, 0xBB, 0xF9, 0x02, 0x11, 0x22, 0x04, 0x33, 0x44, 0x55}
+	if n != len(want) {
+		t.Fatalf("len=%d want=%d", n, len(want))
+	}
+	if got := dst[:n]; !bytes.Equal(got, want) {
+		t.Fatalf("packet=%x want=%x", got, want)
+	}
+}
+
 func TestEncodeCELTPacketCarriesQEXTPayload(t *testing.T) {
 	enc := NewEncoder(48000, 2)
 	enc.SetMode(ModeCELT)
@@ -155,6 +177,78 @@ func TestEncodeCELTPacketCarriesQEXTPayload(t *testing.T) {
 	if !bytes.Equal(packet[extStart+1:], payload) {
 		t.Fatalf("packet tail payload mismatch:\ngot=%x\nwant=%x", packet[extStart+1:], payload)
 	}
+}
+
+func TestEncodeLongCELTPacketCarriesQEXTPayloads(t *testing.T) {
+	enc := NewEncoder(48000, 2)
+	enc.SetMode(ModeCELT)
+	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetBitrate(256000)
+	enc.SetQEXT(true)
+
+	const frameSize = 1920
+	pcm := make([]float64, frameSize*2)
+	for i := 0; i < frameSize; i++ {
+		phase := 2 * math.Pi * 997 * float64(i) / 48000.0
+		pcm[2*i] = 0.45 * math.Sin(phase)
+		pcm[2*i+1] = 0.35 * math.Sin(phase+0.37)
+	}
+
+	packet, err := enc.Encode(pcm, frameSize)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	if packet[0]&0x03 != 0x03 {
+		t.Fatalf("toc code=%d want=3", packet[0]&0x03)
+	}
+	padding, frames := code3PaddingForEncoderTest(t, packet)
+	if frames != 2 {
+		t.Fatalf("frames=%d want=2", frames)
+	}
+	if len(padding) == 0 {
+		t.Fatal("long CELT QEXT packet has no extension padding")
+	}
+	if !bytes.Contains(padding, []byte{byte(qextExtensionID<<1) | 1}) {
+		t.Fatalf("padding missing non-final QEXT header: %x", padding)
+	}
+	if !bytes.Contains(padding, []byte{0x04}) {
+		t.Fatalf("padding missing libopus repeat-final marker: %x", padding)
+	}
+	if payload := enc.celtEncoder.LastQEXTPayload(); len(payload) == 0 || !bytes.Contains(padding, payload) {
+		t.Fatalf("padding missing retained last QEXT payload:\npadding=%x\npayload=%x", padding, payload)
+	}
+}
+
+func code3PaddingForEncoderTest(t *testing.T, packet []byte) ([]byte, int) {
+	t.Helper()
+	if len(packet) < 2 || packet[0]&0x03 != 0x03 {
+		t.Fatalf("packet is not code 3: %x", packet)
+	}
+	countByte := packet[1]
+	frameCount := int(countByte & 0x3F)
+	if frameCount <= 0 {
+		t.Fatalf("invalid frame count byte=0x%02x", countByte)
+	}
+	if countByte&0x40 == 0 {
+		return nil, frameCount
+	}
+	offset := 2
+	paddingLen := 0
+	for {
+		if offset >= len(packet) {
+			t.Fatalf("packet truncated in padding length: %x", packet)
+		}
+		b := int(packet[offset])
+		offset++
+		paddingLen += b
+		if b != 255 {
+			break
+		}
+	}
+	if paddingLen <= 0 || paddingLen > len(packet)-offset {
+		t.Fatalf("invalid paddingLen=%d offset=%d len=%d", paddingLen, offset, len(packet))
+	}
+	return packet[len(packet)-paddingLen:], frameCount
 }
 
 func TestEncodeCELTPacketCarriesQEXTPayloadLibopusDecode(t *testing.T) {

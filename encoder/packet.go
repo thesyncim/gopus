@@ -13,8 +13,9 @@ import (
 const qextExtensionID = 124
 
 type packetExtension struct {
-	ID   int
-	Data []byte
+	ID    int
+	Data  []byte
+	Frame int
 }
 
 // Packet assembly errors.
@@ -125,6 +126,10 @@ func buildPacketWithSingleExtensionInto(dst, frameData []byte, mode types.Mode, 
 }
 
 func buildMultiFramePacketWithSingleFrame0ExtensionInto(dst []byte, frames [][]byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool, vbr bool, extID int, extData []byte, targetLen int, withPadding bool) (int, error) {
+	return buildMultiFramePacketWithExtensionsInto(dst, frames, mode, bandwidth, frameSize, stereo, vbr, []packetExtension{{ID: extID, Data: extData, Frame: 0}}, targetLen, withPadding)
+}
+
+func buildMultiFramePacketWithExtensionsInto(dst []byte, frames [][]byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool, vbr bool, extensions []packetExtension, targetLen int, withPadding bool) (int, error) {
 	if len(frames) == 0 || len(frames) > 48 {
 		return 0, ErrInvalidFrameCount
 	}
@@ -133,8 +138,10 @@ func buildMultiFramePacketWithSingleFrame0ExtensionInto(dst []byte, frames [][]b
 	if config < 0 {
 		return 0, ErrInvalidConfig
 	}
-	if extID < 3 || extID > 127 {
-		return 0, ErrInvalidConfig
+	for _, ext := range extensions {
+		if ext.ID < 3 || ext.ID > 127 || ext.Frame < 0 || ext.Frame >= len(frames) {
+			return 0, ErrInvalidConfig
+		}
 	}
 
 	baseLen := 2
@@ -156,13 +163,20 @@ func buildMultiFramePacketWithSingleFrame0ExtensionInto(dst []byte, frames [][]b
 		maxLen = targetLen
 	}
 
-	extLen := packetExtensionLength(extID, extData, true)
+	extLen := 0
+	if len(extensions) > 0 {
+		var err error
+		extLen, err = generatePacketExtensions(nil, maxLen-baseLen, extensions, len(frames), false)
+		if err != nil {
+			return 0, err
+		}
+	}
 	paddingAmount := 0
 	extBegin := 0
 	onesBegin := 0
 	onesEnd := 0
 
-	if extLen > 0 && !withPadding {
+	if len(extensions) > 0 && !withPadding {
 		paddingAmount = extLen + (extLen+253)/254
 	}
 	if withPadding {
@@ -209,9 +223,7 @@ func buildMultiFramePacketWithSingleFrame0ExtensionInto(dst []byte, frames [][]b
 		offset += len(frame)
 	}
 	if extLen > 0 {
-		var err error
-		_, err = writePacketExtension(dst, extBegin, extID, extData, true)
-		if err != nil {
+		if _, err := generatePacketExtensions(dst[extBegin:extBegin+extLen], extLen, extensions, len(frames), false); err != nil {
 			return 0, err
 		}
 	}
@@ -456,6 +468,40 @@ func packetExtensionDataLength(id int, dataLen int, last bool) int {
 	return 2 + dataLen/255 + dataLen
 }
 
+func writePacketExtensionPayload(dst []byte, pos int, id int, data []byte, last bool) (int, error) {
+	if id < 3 || id > 127 {
+		return 0, ErrInvalidConfig
+	}
+	if id < 32 {
+		if len(data) > 1 {
+			return 0, ErrInvalidConfig
+		}
+		if len(dst)-pos < len(data) {
+			return 0, ErrInvalidConfig
+		}
+		copy(dst[pos:], data)
+		return pos + len(data), nil
+	}
+
+	lengthBytes := 1 + len(data)/255
+	if last {
+		lengthBytes = 0
+	}
+	if len(dst)-pos < lengthBytes+len(data) {
+		return 0, ErrInvalidConfig
+	}
+	if !last {
+		for j := 0; j < len(data)/255; j++ {
+			dst[pos] = 255
+			pos++
+		}
+		dst[pos] = byte(len(data) % 255)
+		pos++
+	}
+	copy(dst[pos:], data)
+	return pos + len(data), nil
+}
+
 func writePacketExtension(dst []byte, pos int, id int, data []byte, last bool) (int, error) {
 	if id < 3 || id > 127 {
 		return 0, ErrInvalidConfig
@@ -475,35 +521,191 @@ func writePacketExtension(dst []byte, pos int, id int, data []byte, last bool) (
 	}
 	dst[pos] = byte((id << 1) | lFlag)
 	pos++
+	return writePacketExtensionPayload(dst, pos, id, data, last)
+}
 
-	if id < 32 {
-		if len(dst)-pos < len(data) {
-			return 0, ErrInvalidConfig
-		}
-		copy(dst[pos:], data)
-		return pos + len(data), nil
-	}
-
-	if last {
-		if len(dst)-pos < len(data) {
-			return 0, ErrInvalidConfig
-		}
-		copy(dst[pos:], data)
-		return pos + len(data), nil
-	}
-
-	lengthBytes := 1 + len(data)/255
-	if len(dst)-pos < lengthBytes+len(data) {
+func generatePacketExtensions(dst []byte, length int, extensions []packetExtension, nbFrames int, pad bool) (int, error) {
+	if nbFrames < 0 || nbFrames > 48 || length < 0 {
 		return 0, ErrInvalidConfig
 	}
-	for j := 0; j < len(data)/255; j++ {
-		dst[pos] = 255
-		pos++
+	if dst != nil && len(dst) < length {
+		return 0, ErrInvalidConfig
 	}
-	dst[pos] = byte(len(data) % 255)
-	pos++
-	copy(dst[pos:], data)
-	return pos + len(data), nil
+
+	frameMinIdx := make([]int, nbFrames)
+	frameMaxIdx := make([]int, nbFrames)
+	frameRepeatIdx := make([]int, nbFrames)
+	for f := 0; f < nbFrames; f++ {
+		frameMinIdx[f] = len(extensions)
+	}
+
+	for i, ext := range extensions {
+		if ext.Frame < 0 || ext.Frame >= nbFrames || ext.ID < 3 || ext.ID > 127 {
+			return 0, ErrInvalidConfig
+		}
+		if i < frameMinIdx[ext.Frame] {
+			frameMinIdx[ext.Frame] = i
+		}
+		if i+1 > frameMaxIdx[ext.Frame] {
+			frameMaxIdx[ext.Frame] = i + 1
+		}
+	}
+	copy(frameRepeatIdx, frameMinIdx)
+
+	pos := 0
+	written := 0
+	currFrame := 0
+	for f := 0; f < nbFrames; f++ {
+		lastLongIdx := -1
+		repeatCount := 0
+
+		if f+1 < nbFrames {
+			for i := frameMinIdx[f]; i < frameMaxIdx[f]; i++ {
+				if extensions[i].Frame != f {
+					continue
+				}
+
+				g := f + 1
+				for ; g < nbFrames; g++ {
+					if frameRepeatIdx[g] >= frameMaxIdx[g] {
+						break
+					}
+					repeatExt := extensions[frameRepeatIdx[g]]
+					if repeatExt.ID != extensions[i].ID {
+						break
+					}
+					if repeatExt.ID < 32 && len(repeatExt.Data) != len(extensions[i].Data) {
+						break
+					}
+				}
+				if g < nbFrames {
+					break
+				}
+
+				if extensions[i].ID >= 32 {
+					lastLongIdx = frameRepeatIdx[nbFrames-1]
+				}
+				for g = f + 1; g < nbFrames; g++ {
+					j := frameRepeatIdx[g] + 1
+					for ; j < frameMaxIdx[g] && extensions[j].Frame != g; j++ {
+					}
+					frameRepeatIdx[g] = j
+				}
+				repeatCount++
+				frameRepeatIdx[f] = i
+			}
+		}
+
+		for i := frameMinIdx[f]; i < frameMaxIdx[f]; i++ {
+			if extensions[i].Frame != f {
+				continue
+			}
+
+			if f != currFrame {
+				diff := f - currFrame
+				if diff <= 0 || length-pos < 2 {
+					return 0, ErrInvalidConfig
+				}
+				if dst != nil {
+					if diff == 1 {
+						dst[pos] = 0x02
+					} else {
+						dst[pos] = 0x03
+						dst[pos+1] = byte(diff)
+					}
+				}
+				if diff == 1 {
+					pos++
+				} else {
+					pos += 2
+				}
+				currFrame = f
+			}
+
+			last := written == len(extensions)-1
+			if dst != nil {
+				var err error
+				pos, err = writePacketExtension(dst, pos, extensions[i].ID, extensions[i].Data, last)
+				if err != nil {
+					return 0, err
+				}
+			} else {
+				size := packetExtensionDataLength(extensions[i].ID, len(extensions[i].Data), last)
+				if length-pos < size {
+					return 0, ErrInvalidConfig
+				}
+				pos += size
+			}
+			written++
+
+			if repeatCount > 0 && frameRepeatIdx[f] == i {
+				nbRepeated := repeatCount * (nbFrames - (f + 1))
+				last := written+nbRepeated == len(extensions) || (lastLongIdx < 0 && i+1 >= frameMaxIdx[f])
+				if length-pos < 1 {
+					return 0, ErrInvalidConfig
+				}
+				if dst != nil {
+					if last {
+						dst[pos] = 0x04
+					} else {
+						dst[pos] = 0x05
+					}
+				}
+				pos++
+
+				for g := f + 1; g < nbFrames; g++ {
+					j := frameMinIdx[g]
+					for ; j < frameRepeatIdx[g]; j++ {
+						if extensions[j].Frame != g {
+							continue
+						}
+						if dst != nil {
+							var err error
+							pos, err = writePacketExtensionPayload(dst, pos, extensions[j].ID, extensions[j].Data, last && j == lastLongIdx)
+							if err != nil {
+								return 0, err
+							}
+						} else {
+							size := len(extensions[j].Data)
+							if extensions[j].ID < 32 {
+								if size > 1 {
+									return 0, ErrInvalidConfig
+								}
+							} else if !last || j != lastLongIdx {
+								size += 1 + len(extensions[j].Data)/255
+							}
+							if length-pos < size {
+								return 0, ErrInvalidConfig
+							}
+							pos += size
+						}
+						written++
+					}
+					frameMinIdx[g] = j
+				}
+				if last {
+					currFrame++
+				}
+			}
+		}
+	}
+
+	if written != len(extensions) {
+		return 0, ErrInvalidConfig
+	}
+
+	if pad && pos < length {
+		padding := length - pos
+		if dst != nil {
+			copy(dst[padding:], dst[:pos])
+			for i := 0; i < padding; i++ {
+				dst[i] = 0x01
+			}
+		}
+		pos += padding
+	}
+
+	return pos, nil
 }
 
 func paddingLengthBytes(extra int) int {

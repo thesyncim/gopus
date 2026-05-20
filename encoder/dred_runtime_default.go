@@ -69,6 +69,6 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(_ []byte, _ Mode, _ types.Band
 	return nil, false, nil
 }
 
-func (e *Encoder) maybeBuildMultiFrameDREDPacket(_ [][]byte, _ Mode, _ types.Bandwidth, _ int, _ int, _ int, _ bool, _ bool) ([]byte, bool, error) {
+func (e *Encoder) maybeBuildMultiFrameDREDPacket(_ [][]byte, _ Mode, _ types.Bandwidth, _ int, _ int, _ int, _ bool, _ bool, _ []packetExtension) ([]byte, bool, error) {
 	return nil, false, nil
 }
