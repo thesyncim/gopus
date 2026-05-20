@@ -7,17 +7,19 @@ import (
 	"testing"
 
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/lpcnetplc"
 )
 
 func TestStandaloneDREDRecoveryQueueMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	modelBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
-		t.Skipf("libopus dred model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred model", err)
 	}
 	packetInfo, err := emitLibopusDREDPacket()
 	if err != nil {
-		t.Skipf("libopus dred packet helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred packet", err)
 	}
 
 	dec := NewDREDDecoder()
@@ -56,7 +58,7 @@ func TestStandaloneDREDRecoveryQueueMatchesLibopus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			want, err := probeLibopusDREDRecoveryWindow(packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, tc.frameSizeSamples, tc.decodeOffsetSamples, tc.blend)
 			if err != nil {
-				t.Skipf("libopus dred recovery helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred recovery", err)
 			}
 			if want.availableSamples != available {
 				t.Fatalf("available=%d want %d", available, want.availableSamples)

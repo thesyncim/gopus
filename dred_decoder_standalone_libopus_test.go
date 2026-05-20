@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestDREDDecoderParseAndProcessRetainsMetadata(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec := NewDREDDecoder()
 	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
@@ -41,7 +43,7 @@ func TestDREDDecoderParseAndProcessRetainsMetadata(t *testing.T) {
 	}
 	decodeWant, err := probeLibopusDREDDecode(packet, 960, 48000)
 	if err != nil {
-		t.Skipf("libopus dred decode helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred decode", err)
 	}
 	if decodeWant.availableSamples < 0 {
 		t.Fatalf("libopus dred decode returned error %d", decodeWant.availableSamples)
@@ -120,6 +122,7 @@ func TestDREDDecoderParseAndProcessRetainsMetadata(t *testing.T) {
 }
 
 func TestStandaloneDREDParseMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	dec := NewDREDDecoder()
 	if err := dec.SetDNNBlob(makeValidDREDDecoderTestDNNBlob()); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
@@ -168,7 +171,7 @@ func TestStandaloneDREDParseMatchesLibopus(t *testing.T) {
 
 			want, err := probeLibopusDREDParse(tc.packet, tc.maxDREDSamples, 48000)
 			if err != nil {
-				t.Skipf("libopus dred helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred parse", err)
 			}
 			if want.availableSamples < 0 {
 				t.Fatalf("libopus dred parse returned error %d", want.availableSamples)
@@ -182,7 +185,7 @@ func TestStandaloneDREDParseMatchesLibopus(t *testing.T) {
 
 			decodeWant, err := probeLibopusDREDDecode(tc.packet, tc.maxDREDSamples, 48000)
 			if err != nil {
-				t.Skipf("libopus dred decode helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred decode", err)
 			}
 			if decodeWant.availableSamples < 0 {
 				t.Fatalf("libopus dred decode returned error %d", decodeWant.availableSamples)

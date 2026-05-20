@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"sync"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 var (
@@ -103,7 +105,7 @@ func requireLibopusDecoderNeuralModelBlob(t *testing.T) []byte {
 	t.Helper()
 	blob, err := probeLibopusDecoderNeuralModelBlob()
 	if err != nil {
-		t.Skipf("libopus decoder neural model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "decoder neural model", err)
 	}
 	return blob
 }

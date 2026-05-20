@@ -7,9 +7,11 @@ import (
 	"testing"
 
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestParsedDREDAvailabilityMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	base := makeValidCELTPacketForDREDTest(t)
 	if len(base) < 2 {
 		t.Fatal("base packet too short")
@@ -81,7 +83,7 @@ func TestParsedDREDAvailabilityMatchesLibopus(t *testing.T) {
 
 			want, err := probeLibopusDREDParse(tc.packet, tc.maxDREDSamples, 48000)
 			if err != nil {
-				t.Skipf("libopus dred helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "dred parse", err)
 			}
 			if want.availableSamples < 0 {
 				t.Fatalf("libopus dred parse returned error %d", want.availableSamples)
