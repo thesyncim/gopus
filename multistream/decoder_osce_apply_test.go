@@ -3,7 +3,11 @@
 
 package multistream
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/thesyncim/gopus/silk"
+)
 
 func TestStreamOSCEFloatToInt16MatchesLibopusScaleOutput(t *testing.T) {
 	for _, tc := range []struct {
@@ -71,5 +75,75 @@ func TestStreamOSCELACEOutputResetMatchesLibopusSequence(t *testing.T) {
 	}
 	if got := state.laceApplyOutF[160]; got != 0.75 {
 		t.Fatalf("cross-fade touched trailing sample 160=%g want 0.75", got)
+	}
+}
+
+func TestStreamOSCEInactiveMarkClearsNonSILKState(t *testing.T) {
+	st := &streamState{
+		channels:   2,
+		sampleRate: 48000,
+		osceState: &streamOSCEState{
+			prevLACEActive: true,
+			prevBWEActive:  true,
+			laceMethod:     streamOSCELACEModeLACE,
+		},
+	}
+	st.osceState.laceResetFrames[0] = 2
+	st.osceState.laceResetFrames[1] = 2
+
+	st.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: 4, stereo: true}, make([]float64, 960*2), 960)
+
+	if st.osceState.prevLACEActive {
+		t.Fatal("CELT transition left LACE active")
+	}
+	if st.osceState.prevBWEActive {
+		t.Fatal("CELT transition left BWE active")
+	}
+	if st.osceState.laceMethod != streamOSCELACEModeNone {
+		t.Fatalf("laceMethod=%v want none", st.osceState.laceMethod)
+	}
+}
+
+func TestStreamOSCEInactiveMarkKeepsSILKWBState(t *testing.T) {
+	st := &streamState{
+		channels:   1,
+		sampleRate: 48000,
+		osceState: &streamOSCEState{
+			prevLACEActive: true,
+			prevBWEActive:  true,
+			laceMethod:     streamOSCELACEModeLACE,
+		},
+	}
+
+	st.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeSILK, bandwidth: 2}, make([]float64, 960), 960)
+
+	if !st.osceState.prevLACEActive {
+		t.Fatal("SILK WB transition unexpectedly cleared LACE")
+	}
+	if !st.osceState.prevBWEActive {
+		t.Fatal("SILK WB transition unexpectedly cleared BWE")
+	}
+}
+
+func TestStreamOSCEPLCSilkResetsLACEAndClearsInactiveBWE(t *testing.T) {
+	st := &streamState{
+		channels:        1,
+		sampleRate:      48000,
+		osceLACEEnabled: true,
+		osceBWEEnabled:  true,
+		osceState: &streamOSCEState{
+			prevLACEActive: true,
+			prevBWEActive:  true,
+			laceMethod:     streamOSCELACEModeLACE,
+		},
+	}
+
+	st.applyOSCEPLCSilk(make([]float32, 960), 960, silk.BandwidthWideband, false)
+
+	if st.osceState.prevLACEActive {
+		t.Fatal("SILK WB PLC left LACE active")
+	}
+	if st.osceState.prevBWEActive {
+		t.Fatal("SILK WB PLC without model left BWE active")
 	}
 }

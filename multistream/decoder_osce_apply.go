@@ -25,6 +25,26 @@ func (d *streamState) applyOSCEPostSilk(out []float32, frameSize int, silkBW sil
 	d.applyOSCEBWE(out, frameSize, silkBW, packetStereo)
 }
 
+func (d *streamState) applyOSCEPLCSilk(out []float32, frameSize int, silkBW silk.Bandwidth, packetStereo bool) {
+	if d == nil || d.osceState == nil {
+		return
+	}
+	if d.sampleRate == 48000 && silkBW == silk.BandwidthWideband {
+		if d.osceLACEEnabled {
+			d.resetOSCELACEState(packetStereo)
+		}
+		if d.osceBWEEnabled {
+			d.applyOSCEBWE(out, frameSize, silkBW, packetStereo)
+		}
+		return
+	}
+	d.markOSCEInactiveIfModeIneligible(streamTOC{
+		mode:      streamModeSILK,
+		bandwidth: int(silkBW),
+		stereo:    packetStereo,
+	}, nil, frameSize)
+}
+
 func (d *streamState) installOSCELACESilkPostfilterHook(silkBW silk.Bandwidth, packetStereo bool) func() {
 	if d == nil || d.silkDec == nil {
 		return func() {}
@@ -233,19 +253,29 @@ func (state *streamOSCEState) applyOSCELACEOutputReset(channelIdx int) {
 }
 
 func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Bandwidth, packetStereo bool) bool {
-	if d == nil || !d.osceBWEEnabled || d.osceState == nil {
+	if d == nil || d.osceState == nil {
 		return false
 	}
 	state := d.osceState
-	if state.bweModel == nil {
+	if !d.osceBWEEnabled || state.bweModel == nil {
+		if state.prevBWEActive {
+			d.applyOSCEBWEFadeOut(out, frameSize, packetStereo)
+		}
+		state.prevBWEActive = false
 		return false
 	}
 	if d.complexity < 4 || d.sampleRate != 48000 || silkBW != silk.BandwidthWideband {
+		if state.prevBWEActive {
+			d.applyOSCEBWEFadeOut(out, frameSize, packetStereo)
+		}
 		state.prevBWEActive = false
 		return false
 	}
 	in48Per := frameSize
 	if in48Per != 480 && in48Per != 960 {
+		if state.prevBWEActive {
+			d.applyOSCEBWEFadeOut(out, frameSize, packetStereo)
+		}
 		state.prevBWEActive = false
 		return false
 	}
@@ -369,6 +399,107 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 	}
 	state.prevBWEActive = true
 	return true
+}
+
+func (d *streamState) markOSCEInactiveIfModeIneligible(toc streamTOC, out []float64, frameSize int) {
+	if d == nil || d.osceState == nil {
+		return
+	}
+	if toc.mode == streamModeSILK && toc.bandwidth == 2 {
+		return
+	}
+	d.resetOSCEInactiveState(toc.stereo)
+}
+
+func (d *streamState) resetOSCEInactiveState(packetStereo bool) {
+	if d == nil || d.osceState == nil {
+		return
+	}
+	if d.osceState.prevLACEActive {
+		d.resetOSCELACEState(packetStereo)
+	}
+	d.osceState.prevBWEActive = false
+}
+
+func (d *streamState) applyOSCEBWEFadeOut(out []float32, frameSize int, packetStereo bool) {
+	if d == nil || d.osceState == nil || d.silkDec == nil || !d.osceState.bweRuntime[0].Loaded() {
+		return
+	}
+	if d.sampleRate != 48000 {
+		return
+	}
+	in48Per := frameSize
+	if in48Per != 480 && in48Per != 960 {
+		return
+	}
+	in16Per := in48Per / 3
+	state := d.osceState
+	numFrames := in16Per / 160
+
+	runChannel := func(native []int16, channelIdx int) bool {
+		if channelIdx < 0 || channelIdx > 1 || !state.bweRuntime[channelIdx].Loaded() || len(native) < in16Per {
+			return false
+		}
+		for i := 0; i < in16Per; i++ {
+			state.bweIn16Int[i] = native[i]
+			state.bweIn16[i] = float32(native[i]) / 32768.0
+		}
+		state.bweFeatures[channelIdx].CalculateFeatures(
+			state.bweFeatBuf[:numFrames*osceBWE.FeatureDim],
+			state.bweIn16Int[:in16Per],
+		)
+		return state.bweRuntime[channelIdx].ProcessDelayed(
+			state.bweIn16[:in16Per],
+			state.bweOut48[:in48Per],
+			state.bweFeatBuf[:numFrames*osceBWE.FeatureDim],
+		) == nil
+	}
+
+	if packetStereo && d.channels == 2 {
+		leftNative, rightNative, samplesPerChannel, fsKHz, ok := d.silkDec.LatestNativeStereo()
+		if !ok || fsKHz != 16 || samplesPerChannel < in16Per {
+			return
+		}
+		if runChannel(leftNative, 0) {
+			for i := 0; i < in48Per; i++ {
+				state.bweFadeout48[i] = out[2*i]
+			}
+			streamOSCEBWECrossFade10ms(state.bweFadeout48[:in48Per], state.bweOut48[:in48Per], 480)
+			for i := 0; i < in48Per; i++ {
+				out[2*i] = state.bweFadeout48[i]
+			}
+		}
+		if runChannel(rightNative, 1) {
+			for i := 0; i < in48Per; i++ {
+				state.bweFadeout48[i] = out[2*i+1]
+			}
+			streamOSCEBWECrossFade10ms(state.bweFadeout48[:in48Per], state.bweOut48[:in48Per], 480)
+			for i := 0; i < in48Per; i++ {
+				out[2*i+1] = state.bweFadeout48[i]
+			}
+		}
+		return
+	}
+
+	native, fsKHz := d.silkDec.LatestNativeMono()
+	if native == nil || fsKHz != 16 || !runChannel(native, 0) {
+		return
+	}
+	if d.channels == 1 {
+		streamOSCEBWECrossFade10ms(out[:in48Per], state.bweOut48[:in48Per], 480)
+		return
+	}
+	if d.channels == 2 {
+		for i := 0; i < in48Per; i++ {
+			state.bweFadeout48[i] = out[2*i]
+		}
+		streamOSCEBWECrossFade10ms(state.bweFadeout48[:in48Per], state.bweOut48[:in48Per], 480)
+		for i := 0; i < in48Per; i++ {
+			v := state.bweFadeout48[i]
+			out[2*i] = v
+			out[2*i+1] = v
+		}
+	}
 }
 
 // streamOSCEBWECrossFade10ms mirrors libopus dnn/osce_features.c

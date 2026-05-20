@@ -367,6 +367,8 @@ func (d *streamState) decodeSILK(data []byte, frameSize int, packetStereo bool, 
 	// so the BWE forward pass can overwrite the `out32` slice in place.
 	if data != nil {
 		d.applyOSCEPostSilk(out32, frameSize, bw, packetStereo)
+	} else {
+		d.applyOSCEPLCSilk(out32, frameSize, bw, packetStereo)
 	}
 
 	return float32ToFloat64Slice(out32), nil
@@ -397,6 +399,7 @@ func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc stream
 		return nil, err
 	}
 
+	d.markOSCEInactiveIfModeIneligible(toc, out, frameSize)
 	d.recordDecodedTOC(toc)
 	return out, nil
 }
@@ -412,10 +415,18 @@ func (d *streamState) decodePLC(frameSize int) ([]float64, error) {
 	case streamModeSILK:
 		return d.finishDecode(d.decodeSILK(nil, frameSize, d.lastPacketStereo, d.lastBandwidth))
 	case streamModeHybrid:
-		return d.finishDecode(d.hybridDec.DecodeWithPacketStereo(nil, frameSize, d.lastPacketStereo))
+		out, err := d.finishDecode(d.hybridDec.DecodeWithPacketStereo(nil, frameSize, d.lastPacketStereo))
+		if err == nil {
+			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeHybrid, bandwidth: d.lastBandwidth, stereo: d.lastPacketStereo}, out, frameSize)
+		}
+		return out, err
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(d.lastBandwidth))
-		return d.finishDecode(d.celtDec.DecodeFrameWithPacketStereo(nil, frameSize, d.lastPacketStereo))
+		out, err := d.finishDecode(d.celtDec.DecodeFrameWithPacketStereo(nil, frameSize, d.lastPacketStereo))
+		if err == nil {
+			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: d.lastBandwidth, stereo: d.lastPacketStereo}, out, frameSize)
+		}
+		return out, err
 	default:
 		return make([]float64, frameSize*d.channels), nil
 	}
