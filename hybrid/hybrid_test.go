@@ -394,6 +394,8 @@ func TestFloat64ToInt16(t *testing.T) {
 		{2.0, 32767},   // Clamped
 		{-2.0, -32768}, // Clamped
 		{0.5, 16384},
+		{math.Nextafter(0.5/32768.0, 1), 0},
+		{math.Nextafter(-0.5/32768.0, -1), 0},
 	}
 
 	for _, tt := range tests {

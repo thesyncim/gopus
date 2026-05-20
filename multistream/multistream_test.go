@@ -3,6 +3,7 @@ package multistream
 import (
 	"bytes"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/plc"
@@ -844,6 +845,8 @@ func TestFloat64ToInt16(t *testing.T) {
 		{0.5, 16384},
 		{2.0, 32767},   // Clamped to max
 		{-2.0, -32768}, // Clamped to min
+		{math.Nextafter(0.5/32768.0, 1), 0},
+		{math.Nextafter(-0.5/32768.0, -1), 0},
 	}
 
 	for _, tc := range tests {
