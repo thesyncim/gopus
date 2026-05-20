@@ -4,12 +4,8 @@
 package dred
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 
@@ -59,64 +55,30 @@ func probeLibopusDREDConvert16k(sampleRate, channels int, mem [ResamplingOrder +
 	}
 
 	frameSamples := len(input) / channels
-	var payload bytes.Buffer
-	payload.WriteString(libopusDREDConvertInputMagic)
-	for _, v := range []uint32{1, uint32(sampleRate), uint32(channels), uint32(frameSamples)} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return nil, [ResamplingOrder + 1]float32{}, fmt.Errorf("encode convert header: %w", err)
-		}
+	payload := libopustest.NewOraclePayload(libopusDREDConvertInputMagic, uint32(sampleRate), uint32(channels), uint32(frameSamples))
+	for _, v := range mem {
+		payload.Float32(v)
 	}
-	writeBits := func(values []float32) error {
-		for _, v := range values {
-			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := writeBits(mem[:]); err != nil {
-		return nil, [ResamplingOrder + 1]float32{}, fmt.Errorf("encode convert mem: %w", err)
-	}
-	if err := writeBits(input); err != nil {
-		return nil, [ResamplingOrder + 1]float32{}, fmt.Errorf("encode convert input: %w", err)
+	for _, v := range input {
+		payload.Float32(v)
 	}
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, [ResamplingOrder + 1]float32{}, fmt.Errorf("run convert helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-
-	data := stdout.Bytes()
-	if len(data) < 12 || string(data[:4]) != libopusDREDConvertOutputMagic {
-		return nil, [ResamplingOrder + 1]float32{}, fmt.Errorf("unexpected convert helper output")
-	}
-	outLen := int(binary.LittleEndian.Uint32(data[8:12]))
-	offset := 12
-	readBits := func(count int) ([]float32, error) {
-		values := make([]float32, count)
-		for i := 0; i < count; i++ {
-			if len(data) < offset+4 {
-				return nil, fmt.Errorf("truncated convert helper output")
-			}
-			values[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-			offset += 4
-		}
-		return values, nil
-	}
-	output, err := readBits(outLen)
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "dred convert16k", libopusDREDConvertOutputMagic)
 	if err != nil {
 		return nil, [ResamplingOrder + 1]float32{}, err
 	}
-	nextMemBits, err := readBits(ResamplingOrder + 1)
-	if err != nil {
-		return nil, [ResamplingOrder + 1]float32{}, err
+	outLen := reader.Count(-1)
+	reader.ExpectRemaining(4 * (outLen + ResamplingOrder + 1))
+	output := make([]float32, outLen)
+	for i := range output {
+		output[i] = reader.Float32()
 	}
 	var nextMem [ResamplingOrder + 1]float32
-	copy(nextMem[:], nextMemBits)
+	for i := range nextMem {
+		nextMem[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, [ResamplingOrder + 1]float32{}, err
+	}
 	return output, nextMem, nil
 }
