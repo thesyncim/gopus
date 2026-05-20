@@ -51,6 +51,10 @@ func (p *OraclePayload) I32s(values ...int32) {
 	}
 }
 
+func (p *OraclePayload) Raw(data []byte) {
+	p.data = append(p.data, data...)
+}
+
 func (p *OraclePayload) Bytes() []byte {
 	return p.data
 }

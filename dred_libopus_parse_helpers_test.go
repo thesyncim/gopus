@@ -4,14 +4,11 @@
 package gopus
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"math"
-	"os/exec"
 	"sync"
 
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 const (
@@ -70,34 +67,23 @@ func probeLibopusDREDParse(packet []byte, maxDREDSamples, sampleRate int) (libop
 		return libopusDREDParseInfo{}, err
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusDREDParseInputMagic)
-	for _, v := range []uint32{1, uint32(sampleRate), uint32(maxDREDSamples), uint32(len(packet))} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusDREDParseInfo{}, fmt.Errorf("encode dred helper header: %w", err)
-		}
-	}
-	if _, err := payload.Write(packet); err != nil {
-		return libopusDREDParseInfo{}, fmt.Errorf("encode dred helper packet: %w", err)
-	}
+	payload := libopustest.NewOraclePayload(libopusDREDParseInputMagic, uint32(sampleRate), uint32(maxDREDSamples), uint32(len(packet)))
+	payload.Raw(packet)
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusDREDParseInfo{}, fmt.Errorf("run dred helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return libopusDREDParseInfo{}, fmt.Errorf("run dred helper: %w", err)
 	}
-
-	out := stdout.Bytes()
-	if len(out) < 16 || string(out[:4]) != libopusDREDParseOutputMagic {
-		return libopusDREDParseInfo{}, fmt.Errorf("unexpected dred helper output")
+	reader, err := libopustest.NewOracleReader("dred parse", libopusDREDParseOutputMagic, out)
+	if err != nil {
+		return libopusDREDParseInfo{}, err
 	}
-
-	ret := int(int32(binary.LittleEndian.Uint32(out[8:12])))
-	dredEnd := int(int32(binary.LittleEndian.Uint32(out[12:16])))
+	reader.ExpectRemaining(8)
+	ret := int(reader.I32())
+	dredEnd := int(reader.I32())
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDREDParseInfo{}, err
+	}
 	return libopusDREDParseInfo{
 		availableSamples: ret,
 		dredEndSamples:   dredEnd,
@@ -110,58 +96,37 @@ func probeLibopusDREDDecode(packet []byte, maxDREDSamples, sampleRate int) (libo
 		return libopusDREDDecodeInfo{}, err
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusDREDParseInputMagic)
-	for _, v := range []uint32{1, uint32(sampleRate), uint32(maxDREDSamples), uint32(len(packet))} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusDREDDecodeInfo{}, fmt.Errorf("encode dred decode helper header: %w", err)
-		}
-	}
-	if _, err := payload.Write(packet); err != nil {
-		return libopusDREDDecodeInfo{}, fmt.Errorf("encode dred decode helper packet: %w", err)
-	}
+	payload := libopustest.NewOraclePayload(libopusDREDParseInputMagic, uint32(sampleRate), uint32(maxDREDSamples), uint32(len(packet)))
+	payload.Raw(packet)
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusDREDDecodeInfo{}, fmt.Errorf("run dred decode helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return libopusDREDDecodeInfo{}, fmt.Errorf("run dred decode helper: %w", err)
 	}
-
-	out := stdout.Bytes()
-	headerBytes := 4 + 4 + 4 + 4 + 4 + 4 + 4
-	if len(out) < headerBytes || string(out[:4]) != libopusDREDParseOutputMagic {
-		return libopusDREDDecodeInfo{}, fmt.Errorf("unexpected dred decode helper output")
+	reader, err := libopustest.NewOracleReader("dred decode", libopusDREDParseOutputMagic, out)
+	if err != nil {
+		return libopusDREDDecodeInfo{}, err
 	}
 
 	info := libopusDREDDecodeInfo{
-		availableSamples: int(int32(binary.LittleEndian.Uint32(out[8:12]))),
-		dredEndSamples:   int(int32(binary.LittleEndian.Uint32(out[12:16]))),
-		processStage:     int(int32(binary.LittleEndian.Uint32(out[16:20]))),
-		nbLatents:        int(int32(binary.LittleEndian.Uint32(out[20:24]))),
-		dredOffset:       int(int32(binary.LittleEndian.Uint32(out[24:28]))),
+		availableSamples: int(reader.I32()),
+		dredEndSamples:   int(reader.I32()),
+		processStage:     int(reader.I32()),
+		nbLatents:        int(reader.I32()),
+		dredOffset:       int(reader.I32()),
 	}
 
-	offset := 28
 	for i := range info.state {
-		if len(out) < offset+4 {
-			return libopusDREDDecodeInfo{}, fmt.Errorf("truncated dred decode helper state")
-		}
-		info.state[i] = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
-		offset += 4
+		info.state[i] = reader.Float32()
 	}
 
 	latentValues := info.nbLatents * internaldred.LatentStride
 	info.latents = make([]float32, latentValues)
 	for i := 0; i < latentValues; i++ {
-		if len(out) < offset+4 {
-			return libopusDREDDecodeInfo{}, fmt.Errorf("truncated dred decode helper latents")
-		}
-		info.latents[i] = math.Float32frombits(binary.LittleEndian.Uint32(out[offset : offset+4]))
-		offset += 4
+		info.latents[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDREDDecodeInfo{}, err
 	}
 	return info, nil
 }

@@ -4,11 +4,7 @@
 package gopus
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"math"
-	"os/exec"
 	"sync"
 	"testing"
 
@@ -41,56 +37,39 @@ func probeLibopusSoftClip(n, channels int, samples, mem []float32) ([]float32, [
 	if err != nil {
 		return nil, nil, err
 	}
-	var payload bytes.Buffer
-	payload.WriteString(libopusSoftClipInputMagic)
-	for _, v := range []uint32{1, uint32(n), uint32(channels)} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return nil, nil, err
-		}
-	}
+	payload := libopustest.NewOraclePayload(libopusSoftClipInputMagic, uint32(n), uint32(channels))
 	for _, v := range mem {
-		if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-			return nil, nil, err
-		}
+		payload.Float32(v)
 	}
 	for _, v := range samples {
-		if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-			return nil, nil, err
-		}
+		payload.Float32(v)
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(binPath)
-	cmd.Stdin = &payload
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, nil, fmt.Errorf("run softclip helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	data, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return nil, nil, fmt.Errorf("run softclip helper: %w", err)
 	}
-	data := stdout.Bytes()
-	if len(data) < 16 || string(data[:4]) != libopusSoftClipOutputMagic {
-		return nil, nil, fmt.Errorf("unexpected softclip helper output")
+	reader, err := libopustest.NewOracleReader("softclip", libopusSoftClipOutputMagic, data)
+	if err != nil {
+		return nil, nil, err
 	}
-	countN := int(binary.LittleEndian.Uint32(data[8:12]))
-	countC := int(binary.LittleEndian.Uint32(data[12:16]))
+	countN := int(reader.U32())
+	countC := int(reader.U32())
 	if countN != n || countC != channels {
 		return nil, nil, fmt.Errorf("helper shape=%dx%d want %dx%d", countN, countC, n, channels)
 	}
 	total := countN * countC
-	wantLen := 16 + 4*countC + 4*total
-	if len(data) != wantLen {
-		return nil, nil, fmt.Errorf("helper output length=%d want %d", len(data), wantLen)
-	}
-	offset := 16
+	reader.ExpectRemaining(4*countC + 4*total)
 	outMem := make([]float32, countC)
 	for i := range outMem {
-		outMem[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset:]))
-		offset += 4
+		outMem[i] = reader.Float32()
 	}
 	out := make([]float32, total)
 	for i := range out {
-		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset:]))
-		offset += 4
+		out[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, nil, err
 	}
 	return out, outMem, nil
 }
