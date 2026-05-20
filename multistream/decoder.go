@@ -40,6 +40,9 @@ var (
 	// ErrInvalidGain indicates an invalid decoder gain value.
 	ErrInvalidGain = errors.New("multistream: invalid gain (must be -32768 to 32767)")
 
+	// ErrInvalidComplexity indicates an invalid decoder complexity value.
+	ErrInvalidComplexity = errors.New("multistream: invalid complexity (must be 0-10)")
+
 	// ErrBufferTooSmall indicates the requested decode frame is smaller than the packet duration.
 	ErrBufferTooSmall = errors.New("multistream: output buffer too small")
 )
@@ -125,6 +128,7 @@ type streamState struct {
 	lastDataLen        int
 	decodeGainQ8       int
 	ignoreExtensions   bool
+	complexity         int
 
 	// osceLACEEnabled / osceBWEEnabled mirror the libopus DecControl bits
 	// (osce_method != OSCE_METHOD_NONE / enable_osce_bwe) fanned out by the
@@ -207,6 +211,24 @@ func (d *streamState) SetPhaseInversionDisabled(disabled bool) {
 
 func (d *streamState) PhaseInversionDisabled() bool {
 	return d.celtDec.PhaseInversionDisabled()
+}
+
+func (d *streamState) SetComplexity(complexity int) error {
+	if complexity < 0 || complexity > 10 {
+		return ErrInvalidComplexity
+	}
+	if err := d.celtDec.SetComplexity(complexity); err != nil {
+		return err
+	}
+	if err := d.hybridDec.SetComplexity(complexity); err != nil {
+		return err
+	}
+	d.complexity = complexity
+	return nil
+}
+
+func (d *streamState) Complexity() int {
+	return d.complexity
 }
 
 // Pitch returns the most recent CELT postfilter pitch period.
@@ -653,6 +675,27 @@ func (d *Decoder) PhaseInversionDisabled() bool {
 		return st.PhaseInversionDisabled()
 	}
 	return false
+}
+
+func (d *Decoder) SetComplexity(complexity int) error {
+	if complexity < 0 || complexity > 10 {
+		return ErrInvalidComplexity
+	}
+	for _, dec := range d.decoders {
+		if st, ok := dec.(*streamState); ok {
+			if err := st.SetComplexity(complexity); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func (d *Decoder) Complexity() int {
+	if st := d.firstStreamState(); st != nil {
+		return st.Complexity()
+	}
+	return 0
 }
 
 func (d *Decoder) Bandwidth() types.Bandwidth {

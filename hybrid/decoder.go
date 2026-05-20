@@ -168,6 +168,16 @@ func (d *Decoder) PhaseInversionDisabled() bool {
 	return d.celtDecoder.PhaseInversionDisabled()
 }
 
+// SetComplexity sets CELT decoder complexity for the Hybrid highband layer.
+func (d *Decoder) SetComplexity(complexity int) error {
+	return d.celtDecoder.SetComplexity(complexity)
+}
+
+// Complexity returns the Hybrid highband CELT decoder complexity setting.
+func (d *Decoder) Complexity() int {
+	return d.celtDecoder.Complexity()
+}
+
 // RecordPLCLoss advances Hybrid PLC loss cadence and returns the fade factor.
 // This is used when recovering a lost frame via SILK LBRR while CELT still
 // needs concealment for the same frame (decode_fec path).

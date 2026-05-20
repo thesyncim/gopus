@@ -29,6 +29,9 @@ var (
 
 	// ErrNilDecoder indicates a nil range decoder was passed.
 	ErrNilDecoder = errors.New("celt: nil range decoder")
+
+	// ErrInvalidComplexity indicates the decoder complexity is out of range.
+	ErrInvalidComplexity = errors.New("celt: invalid complexity (must be 0-10)")
 )
 
 // Decoder decodes CELT frames from an Opus packet.
@@ -115,6 +118,7 @@ type Decoder struct {
 	// Bandwidth (Opus TOC-derived)
 	bandwidth              CELTBandwidth
 	phaseInversionDisabled bool
+	complexity             int
 
 	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
 	prevStreamChannels int // Previous packet's channel count (0 = uninitialized)

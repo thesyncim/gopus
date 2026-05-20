@@ -1,12 +1,56 @@
 package celt
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/rangecoding"
 )
+
+func TestDecoderComplexityControl(t *testing.T) {
+	dec := NewDecoder(1)
+	if got := dec.Complexity(); got != 0 {
+		t.Fatalf("Complexity() default=%d want 0", got)
+	}
+
+	if dec.chooseLostFrameType(0, true, false) == framePLCNeural {
+		t.Fatal("default complexity selected neural PLC")
+	}
+	dec.plcSkip = false
+
+	if err := dec.SetComplexity(5); err != nil {
+		t.Fatalf("SetComplexity(5) error: %v", err)
+	}
+	if got := dec.Complexity(); got != 5 {
+		t.Fatalf("Complexity()=%d want 5", got)
+	}
+	if got := dec.chooseLostFrameType(0, true, false); got != framePLCNeural {
+		t.Fatalf("complexity 5 lost frame type=%d want neural", got)
+	}
+
+	if err := dec.SetComplexity(4); err != nil {
+		t.Fatalf("SetComplexity(4) error: %v", err)
+	}
+	if got := dec.chooseLostFrameType(0, true, false); got == framePLCNeural {
+		t.Fatal("complexity 4 selected neural PLC")
+	}
+	if got := dec.chooseLostFrameType(0, true, true); got != frameDRED {
+		t.Fatalf("DRED lost frame type=%d want DRED", got)
+	}
+
+	if err := dec.SetComplexity(11); !errors.Is(err, ErrInvalidComplexity) {
+		t.Fatalf("SetComplexity(11) error=%v want %v", err, ErrInvalidComplexity)
+	}
+	if got := dec.Complexity(); got != 4 {
+		t.Fatalf("invalid complexity changed setting to %d", got)
+	}
+	dec.Reset()
+	if got := dec.Complexity(); got != 4 {
+		t.Fatalf("Reset changed Complexity() to %d", got)
+	}
+}
 
 // TestDecodeFrame_SampleCount verifies DecodeFrame produces correct sample counts.
 // This is an integration test confirming the full decode pipeline

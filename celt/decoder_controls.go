@@ -90,6 +90,20 @@ func (d *Decoder) Bandwidth() CELTBandwidth {
 	return d.bandwidth
 }
 
+// SetComplexity sets decoder complexity (0-10).
+func (d *Decoder) SetComplexity(complexity int) error {
+	if complexity < 0 || complexity > 10 {
+		return ErrInvalidComplexity
+	}
+	d.complexity = complexity
+	return nil
+}
+
+// Complexity returns the current decoder complexity setting.
+func (d *Decoder) Complexity() int {
+	return d.complexity
+}
+
 // SampleRate returns the output sample rate (always 48000 for CELT).
 func (d *Decoder) SampleRate() int {
 	return d.sampleRate

@@ -45,10 +45,10 @@ func TestQEXTBuildPublicAPIContract(t *testing.T) {
 			name: "Decoder",
 			got:  &Decoder{},
 			want: []string{
-				"Bandwidth", "Channels", "Decode", "DecodeInt16", "DecodeWithFEC", "FinalRange",
+				"Bandwidth", "Channels", "Complexity", "Decode", "DecodeInt16", "DecodeWithFEC", "FinalRange",
 				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "PhaseInversionDisabled",
-				"Pitch", "Reset", "SampleRate", "SetDNNBlob", "SetGain", "SetIgnoreExtensions",
-				"SetPhaseInversionDisabled",
+				"Pitch", "Reset", "SampleRate", "SetComplexity", "SetDNNBlob", "SetGain",
+				"SetIgnoreExtensions", "SetPhaseInversionDisabled",
 			},
 		},
 		{
@@ -71,10 +71,10 @@ func TestQEXTBuildPublicAPIContract(t *testing.T) {
 			name: "MultistreamDecoder",
 			got:  &MultistreamDecoder{},
 			want: []string{
-				"Bandwidth", "Channels", "CoupledStreams", "Decode", "DecodeInt16", "FinalRange",
+				"Bandwidth", "Channels", "Complexity", "CoupledStreams", "Decode", "DecodeInt16", "FinalRange",
 				"Gain", "GetFinalRange", "IgnoreExtensions", "LastPacketDuration",
-				"PhaseInversionDisabled", "Reset", "SampleRate", "SetDNNBlob", "SetGain",
-				"SetIgnoreExtensions", "SetPhaseInversionDisabled", "Streams",
+				"PhaseInversionDisabled", "Reset", "SampleRate", "SetComplexity", "SetDNNBlob",
+				"SetGain", "SetIgnoreExtensions", "SetPhaseInversionDisabled", "Streams",
 			},
 		},
 		{

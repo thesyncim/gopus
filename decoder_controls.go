@@ -63,6 +63,26 @@ func (d *Decoder) PhaseInversionDisabled() bool {
 	return d.celtDecoder.PhaseInversionDisabled()
 }
 
+// SetComplexity sets decoder complexity (0-10).
+func (d *Decoder) SetComplexity(complexity int) error {
+	if err := validateComplexity(complexity); err != nil {
+		return err
+	}
+	if err := d.celtDecoder.SetComplexity(complexity); err != nil {
+		return err
+	}
+	if err := d.hybridDecoder.SetComplexity(complexity); err != nil {
+		return err
+	}
+	d.complexity = complexity
+	return nil
+}
+
+// Complexity returns the current decoder complexity setting.
+func (d *Decoder) Complexity() int {
+	return d.complexity
+}
+
 // SetIgnoreExtensions toggles whether unknown packet extensions should be ignored.
 //
 // This mirrors libopus OPUS_SET_IGNORE_EXTENSIONS semantics.

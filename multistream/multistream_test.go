@@ -39,6 +39,9 @@ func TestDecoderAggregateControls(t *testing.T) {
 	if dec.PhaseInversionDisabled() {
 		t.Fatal("PhaseInversionDisabled()=true for first coupled stream, want false")
 	}
+	if got := dec.Complexity(); got != 0 {
+		t.Fatalf("Complexity() default=%d want 0", got)
+	}
 	if got := dec.Bandwidth(); got != types.BandwidthFullband {
 		t.Fatalf("Bandwidth()=%v want %v", got, types.BandwidthFullband)
 	}
@@ -71,6 +74,31 @@ func TestDecoderAggregateControls(t *testing.T) {
 		t.Fatalf("invalid SetGain changed Gain() to %d", got)
 	}
 
+	if err := dec.SetComplexity(6); err != nil {
+		t.Fatalf("SetComplexity(6) error: %v", err)
+	}
+	if got := dec.Complexity(); got != 6 {
+		t.Fatalf("Complexity()=%d want 6", got)
+	}
+	for i, stream := range dec.decoders {
+		st := stream.(*streamState)
+		if got := st.Complexity(); got != 6 {
+			t.Fatalf("stream %d Complexity()=%d want 6", i, got)
+		}
+		if got := st.celtDec.Complexity(); got != 6 {
+			t.Fatalf("stream %d CELT Complexity()=%d want 6", i, got)
+		}
+		if got := st.hybridDec.Complexity(); got != 6 {
+			t.Fatalf("stream %d Hybrid Complexity()=%d want 6", i, got)
+		}
+	}
+	if err := dec.SetComplexity(-1); !errors.Is(err, ErrInvalidComplexity) {
+		t.Fatalf("SetComplexity(-1) error=%v want %v", err, ErrInvalidComplexity)
+	}
+	if got := dec.Complexity(); got != 6 {
+		t.Fatalf("invalid SetComplexity changed Complexity() to %d", got)
+	}
+
 	dec.SetPhaseInversionDisabled(true)
 	for i, stream := range dec.decoders {
 		st := stream.(*streamState)
@@ -85,6 +113,9 @@ func TestDecoderAggregateControls(t *testing.T) {
 	}
 	if got := dec.Gain(); got != 256 {
 		t.Fatalf("Reset changed Gain() to %d", got)
+	}
+	if got := dec.Complexity(); got != 6 {
+		t.Fatalf("Reset changed Complexity() to %d", got)
 	}
 	for i, stream := range dec.decoders {
 		st := stream.(*streamState)

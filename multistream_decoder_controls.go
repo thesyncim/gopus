@@ -50,6 +50,19 @@ func (d *MultistreamDecoder) PhaseInversionDisabled() bool {
 	return d.dec.PhaseInversionDisabled()
 }
 
+// SetComplexity sets decoder complexity (0-10) on all elementary streams.
+func (d *MultistreamDecoder) SetComplexity(complexity int) error {
+	if err := validateComplexity(complexity); err != nil {
+		return err
+	}
+	return d.dec.SetComplexity(complexity)
+}
+
+// Complexity returns the decoder complexity from the first elementary stream.
+func (d *MultistreamDecoder) Complexity() int {
+	return d.dec.Complexity()
+}
+
 // Bandwidth returns the bandwidth of the first elementary stream decoder.
 func (d *MultistreamDecoder) Bandwidth() Bandwidth {
 	return Bandwidth(d.dec.Bandwidth())

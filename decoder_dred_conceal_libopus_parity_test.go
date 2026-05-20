@@ -257,6 +257,7 @@ func prepareDecoderForNeuralConcealmentParityForFrameSize(t *testing.T, frameSiz
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
+	setDecoderComplexityForLibopusDREDParityTest(t, dec)
 	if err := dec.SetDNNBlob(requireLibopusDecoderNeuralModelBlob(t)); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}

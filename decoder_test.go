@@ -1315,6 +1315,38 @@ func TestDecoder_SetGainBounds(t *testing.T) {
 	}
 }
 
+func TestDecoder_ComplexityControl(t *testing.T) {
+	dec := newMonoTestDecoder(t)
+	if got := dec.Complexity(); got != 0 {
+		t.Fatalf("Complexity() default=%d want 0", got)
+	}
+
+	if err := dec.SetComplexity(7); err != nil {
+		t.Fatalf("SetComplexity(7) error: %v", err)
+	}
+	if got := dec.Complexity(); got != 7 {
+		t.Fatalf("Complexity()=%d want 7", got)
+	}
+	if got := dec.celtDecoder.Complexity(); got != 7 {
+		t.Fatalf("CELT Complexity()=%d want 7", got)
+	}
+	if got := dec.hybridDecoder.Complexity(); got != 7 {
+		t.Fatalf("Hybrid Complexity()=%d want 7", got)
+	}
+
+	if err := dec.SetComplexity(11); err != ErrInvalidComplexity {
+		t.Fatalf("SetComplexity(11) error=%v want %v", err, ErrInvalidComplexity)
+	}
+	if got := dec.Complexity(); got != 7 {
+		t.Fatalf("invalid SetComplexity changed setting to %d", got)
+	}
+
+	dec.Reset()
+	if got := dec.Complexity(); got != 7 {
+		t.Fatalf("Reset changed Complexity() to %d", got)
+	}
+}
+
 func TestDecoder_PhaseInversionControl(t *testing.T) {
 	mono := newMonoTestDecoder(t)
 	if !mono.PhaseInversionDisabled() {

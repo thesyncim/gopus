@@ -46,10 +46,11 @@ func TestUnsupportedControlsBuildPublicAPIContract(t *testing.T) {
 			name: "Decoder",
 			got:  &Decoder{},
 			want: []string{
-				"Bandwidth", "Channels", "Decode", "DecodeDRED", "DecodeInt16", "DecodeWithFEC", "FinalRange",
+				"Bandwidth", "Channels", "Complexity", "Decode", "DecodeDRED", "DecodeInt16", "DecodeWithFEC", "FinalRange",
 				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "OSCEBWE", "OSCELACE",
-				"PhaseInversionDisabled", "Pitch", "Reset", "SampleRate", "SetDNNBlob", "SetGain",
-				"SetIgnoreExtensions", "SetOSCEBWE", "SetOSCELACE", "SetPhaseInversionDisabled",
+				"PhaseInversionDisabled", "Pitch", "Reset", "SampleRate", "SetComplexity",
+				"SetDNNBlob", "SetGain", "SetIgnoreExtensions", "SetOSCEBWE", "SetOSCELACE",
+				"SetPhaseInversionDisabled",
 			},
 		},
 		{
@@ -73,10 +74,10 @@ func TestUnsupportedControlsBuildPublicAPIContract(t *testing.T) {
 			name: "MultistreamDecoder",
 			got:  &MultistreamDecoder{},
 			want: []string{
-				"Bandwidth", "Channels", "CoupledStreams", "Decode", "DecodeInt16", "FinalRange",
+				"Bandwidth", "Channels", "Complexity", "CoupledStreams", "Decode", "DecodeInt16", "FinalRange",
 				"Gain", "GetFinalRange", "IgnoreExtensions", "LastPacketDuration", "OSCEBWE",
-				"OSCELACE", "PhaseInversionDisabled", "Reset", "SampleRate", "SetDNNBlob",
-				"SetGain", "SetIgnoreExtensions", "SetOSCEBWE", "SetOSCELACE",
+				"OSCELACE", "PhaseInversionDisabled", "Reset", "SampleRate", "SetComplexity",
+				"SetDNNBlob", "SetGain", "SetIgnoreExtensions", "SetOSCEBWE", "SetOSCELACE",
 				"SetPhaseInversionDisabled", "Streams",
 			},
 		},

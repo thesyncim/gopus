@@ -149,6 +149,7 @@ func decodeDREDQualityPackets(t *testing.T, packets [][]byte, reference []float3
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
+	setDecoderComplexityForLibopusDREDParityTest(t, dec)
 	if err := dec.SetDNNBlob(decoderBlob); err != nil {
 		t.Fatalf("SetDNNBlob decoder error: %v", err)
 	}

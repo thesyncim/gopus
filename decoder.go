@@ -70,6 +70,7 @@ type Decoder struct {
 	mainDecodeRng      uint32 // Final range from main decode (before any redundancy processing)
 	decodeGainQ8       int    // Output gain in Q8 dB (libopus OPUS_SET_GAIN semantics)
 	ignoreExtensions   bool   // libopus OPUS_SET_IGNORE_EXTENSIONS semantics
+	complexity         int    // libopus decoder complexity, default 0
 
 	// FEC (Forward Error Correction) state
 	// Stores LBRR data from the current packet for use by the next packet's FEC decode.

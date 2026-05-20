@@ -1305,6 +1305,25 @@ func TestMultistreamDecoder_Controls(t *testing.T) {
 	if got := stereo.Gain(); got != 256 {
 		t.Fatalf("invalid SetGain changed Gain() to %d", got)
 	}
+	if got := stereo.Complexity(); got != 0 {
+		t.Fatalf("Complexity() default=%d want 0", got)
+	}
+	if err := stereo.SetComplexity(6); err != nil {
+		t.Fatalf("SetComplexity(6) error: %v", err)
+	}
+	if got := stereo.Complexity(); got != 6 {
+		t.Fatalf("Complexity()=%d want 6", got)
+	}
+	if err := stereo.SetComplexity(-1); err != ErrInvalidComplexity {
+		t.Fatalf("SetComplexity(-1) error=%v want %v", err, ErrInvalidComplexity)
+	}
+	if got := stereo.Complexity(); got != 6 {
+		t.Fatalf("invalid SetComplexity changed Complexity() to %d", got)
+	}
+	stereo.Reset()
+	if got := stereo.Complexity(); got != 6 {
+		t.Fatalf("Reset changed Complexity() to %d", got)
+	}
 	if got := stereo.Bandwidth(); got != BandwidthFullband {
 		t.Fatalf("Bandwidth()=%v want %v", got, BandwidthFullband)
 	}

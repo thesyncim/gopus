@@ -87,6 +87,7 @@ func assertDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T, label 
 	if err != nil {
 		t.Fatalf("%s NewDecoder error: %v", label, err)
 	}
+	setDecoderComplexityForLibopusDREDParityTest(t, dec)
 	if err := dec.SetDNNBlob(decoderBlob); err != nil {
 		t.Fatalf("%s SetDNNBlob error: %v", label, err)
 	}
@@ -228,6 +229,7 @@ func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label strin
 	if err != nil {
 		t.Fatalf("%s NewDecoder error: %v", label, err)
 	}
+	setDecoderComplexityForLibopusDREDParityTest(t, dec)
 	if err := dec.SetDNNBlob(decoderBlob); err != nil {
 		t.Fatalf("%s SetDNNBlob error: %v", label, err)
 	}

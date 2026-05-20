@@ -451,6 +451,7 @@ func prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t *testin
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
+	setDecoderComplexityForLibopusDREDParityTest(t, dec)
 	if err := dec.SetDNNBlob(decoderBlob); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
@@ -513,6 +514,7 @@ func prepareCachedDREDDecodeParityStateForDecoderRateAndPacketWithChannels(t *te
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
+	setDecoderComplexityForLibopusDREDParityTest(t, dec)
 	if err := dec.SetDNNBlob(decoderBlob); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
@@ -3501,6 +3503,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixMatchesLibopus(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewDecoder error: %v", err)
 			}
+			setDecoderComplexityForLibopusDREDParityTest(t, localDec)
 			if err := localDec.SetDNNBlob(decoderBlob); err != nil {
 				t.Fatalf("SetDNNBlob error: %v", err)
 			}
@@ -3571,6 +3574,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixCELTSuperwidebandMatchesLibopus(t 
 			if err != nil {
 				t.Fatalf("NewDecoder error: %v", err)
 			}
+			setDecoderComplexityForLibopusDREDParityTest(t, localDec)
 			if err := localDec.SetDNNBlob(decoderBlob); err != nil {
 				t.Fatalf("SetDNNBlob error: %v", err)
 			}
@@ -3641,6 +3645,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixHybridSuperwidebandMatchesLibopus(
 			if err != nil {
 				t.Fatalf("NewDecoder error: %v", err)
 			}
+			setDecoderComplexityForLibopusDREDParityTest(t, localDec)
 			if err := localDec.SetDNNBlob(decoderBlob); err != nil {
 				t.Fatalf("SetDNNBlob error: %v", err)
 			}
@@ -3711,6 +3716,7 @@ func TestDecoderExplicitDREDDecodeOffsetMatrixHybridFullbandMatchesLibopus(t *te
 			if err != nil {
 				t.Fatalf("NewDecoder error: %v", err)
 			}
+			setDecoderComplexityForLibopusDREDParityTest(t, localDec)
 			if err := localDec.SetDNNBlob(decoderBlob); err != nil {
 				t.Fatalf("SetDNNBlob error: %v", err)
 			}

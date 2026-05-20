@@ -178,11 +178,19 @@ func encodeTestInt32Payload(values []int32) []byte {
 func setStandaloneDREDDecoderBlobForTest(t *testing.T, dec *Decoder) {
 	t.Helper()
 
+	setDecoderComplexityForDREDParityTest(t, dec)
 	blob := makeDecoderBlobForDREDTest(t, true)
 	if err := blob.ValidateDREDDecoderControl(); err != nil {
 		t.Fatalf("ValidateDREDDecoderControl error: %v", err)
 	}
 	dec.setDREDDecoderBlob(blob)
+}
+
+func setDecoderComplexityForDREDParityTest(t *testing.T, dec *Decoder) {
+	t.Helper()
+	if err := dec.SetComplexity(10); err != nil {
+		t.Fatalf("SetComplexity(10) error: %v", err)
+	}
 }
 
 func addDREDExtensionToOpusPacketForTest(t *testing.T, packet []byte, body []byte) []byte {
@@ -866,6 +874,7 @@ func assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t *testing.T, label
 	if err != nil {
 		t.Fatalf("%s oracle NewDecoder error: %v", label, err)
 	}
+	setDecoderComplexityForDREDParityTest(t, oracle)
 
 	modelBlob := makeLoadableDecoderDREDControlTestBlob(t)
 	oracle.SetDNNBlob(modelBlob)
@@ -874,6 +883,7 @@ func assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t *testing.T, label
 	if err != nil {
 		t.Fatalf("%s NewDecoderDefault error: %v", label, err)
 	}
+	setDecoderComplexityForDREDParityTest(t, dec)
 	dec.SetDNNBlob(modelBlob)
 	dec.setDREDDecoderBlob(modelBlob)
 
