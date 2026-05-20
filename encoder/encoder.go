@@ -805,6 +805,8 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 	celtLongDREDInSubframes := actualMode == ModeCELT && frameSize > 960 && frameSize%960 == 0
 	if e.dredEncodingActive() && !celtLongDREDInSubframes {
 		e.processDREDLatentsForPacket(framePCM, frameSize, dredExtraDelay, actualMode)
+	} else if !e.dredEncodingActive() {
+		e.clearInactiveDREDHistory()
 	}
 
 	suppressFrame, _ := e.shouldUseDTX(framePCM)

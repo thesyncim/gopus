@@ -33,6 +33,8 @@ func (e *Encoder) resetDREDControls() {
 
 func (e *Encoder) clearDREDRuntime() {}
 
+func (e *Encoder) clearInactiveDREDHistory() {}
+
 func (e *Encoder) processDREDLatents(_ []float64, _ int) int {
 	return 0
 }

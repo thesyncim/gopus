@@ -99,6 +99,16 @@ func (e *Encoder) clearDREDRuntime() {
 	}
 }
 
+func (e *Encoder) clearInactiveDREDHistory() {
+	if !extsupport.DREDRuntime || e.dred == nil || e.dred.runtime == nil {
+		return
+	}
+	runtime := e.dred.runtime
+	runtime.latentsFill = 0
+	runtime.activity = [internaldred.ActivityHistorySize]byte{}
+	runtime.packetSnapshot.valid = false
+}
+
 // SetDNNBlob retains a validated USE_WEIGHTS_FILE blob for optional extension
 // paths. A nil blob clears the retained model.
 func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {

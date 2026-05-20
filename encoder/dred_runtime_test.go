@@ -54,8 +54,11 @@ func TestEncoderDREDRuntimeStaysDormantUntilReady(t *testing.T) {
 	if err := enc.SetDREDDuration(0); err != nil {
 		t.Fatalf("SetDREDDuration(0) error: %v", err)
 	}
-	if enc.dred.runtime != nil {
-		t.Fatal("disabling DRED did not drop the runtime back to dormant state")
+	if enc.dred.runtime == nil {
+		t.Fatal("disabling DRED dropped the runtime instead of preserving libopus control state")
+	}
+	if enc.dred.runtime.latentsFill != 1 {
+		t.Fatalf("latentsFill after SetDREDDuration(0)=%d want preserved 1", enc.dred.runtime.latentsFill)
 	}
 }
 
@@ -79,6 +82,57 @@ func TestEncoderDREDEncodingActiveRequiresModelAndDuration(t *testing.T) {
 	}
 	if enc.dredEncodingActive() {
 		t.Fatal("DRED encoding active after duration cleared")
+	}
+}
+
+func TestEncoderInactiveDREDEncodeClearsHistory(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetBitrate(40000)
+	enc.SetDNNBlob(mustMakeLoadableDREDEncoderBlob(t))
+	if err := enc.SetDREDDuration(4); err != nil {
+		t.Fatalf("SetDREDDuration error: %v", err)
+	}
+
+	frame := make([]float64, 960)
+	for i := range frame {
+		frame[i] = 0.1
+	}
+	if got := enc.processDREDLatents(frame, 0); got != 1 {
+		t.Fatalf("processDREDLatents()=%d want 1", got)
+	}
+	runtime := enc.dred.runtime
+	if runtime == nil {
+		t.Fatal("DRED runtime did not materialize")
+	}
+	for i := range runtime.activity {
+		runtime.activity[i] = 1
+	}
+	runtime.packetSnapshot.valid = true
+	if err := enc.SetDREDDuration(0); err != nil {
+		t.Fatalf("SetDREDDuration(0) error: %v", err)
+	}
+	if enc.dred.runtime != runtime {
+		t.Fatal("SetDREDDuration(0) replaced runtime")
+	}
+	if packet, err := enc.Encode(frame, 960); err != nil {
+		t.Fatalf("Encode after disabling DRED error: %v", err)
+	} else if len(packet) == 0 {
+		t.Fatal("Encode after disabling DRED returned empty packet")
+	}
+	if enc.dred.runtime != runtime {
+		t.Fatal("inactive Encode replaced runtime")
+	}
+	if runtime.latentsFill != 0 {
+		t.Fatalf("latentsFill after inactive Encode=%d want 0", runtime.latentsFill)
+	}
+	for i, v := range runtime.activity {
+		if v != 0 {
+			t.Fatalf("activity[%d]=%d after inactive Encode, want 0", i, v)
+		}
+	}
+	if runtime.packetSnapshot.valid {
+		t.Fatal("inactive Encode kept stale packet snapshot")
 	}
 }
 

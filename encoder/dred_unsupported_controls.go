@@ -15,7 +15,7 @@ func (e *Encoder) DREDReady() bool {
 	return e.dredModelsLoaded() && e.DREDDuration() > 0
 }
 
-// SetDREDDuration stores libopus-style DRED redundancy depth in 2.5 ms units.
+// SetDREDDuration stores libopus-style DRED redundancy depth in 10 ms units.
 func (e *Encoder) SetDREDDuration(duration int) error {
 	if duration < 0 || duration > internaldred.MaxFrames {
 		return ErrInvalidDREDDuration
@@ -29,13 +29,12 @@ func (e *Encoder) SetDREDDuration(duration int) error {
 	extra := e.ensureDREDExtras()
 	extra.duration = duration
 	if duration == 0 {
-		extra.runtime = nil
 		e.pruneDREDExtrasIfDormant()
 	}
 	return nil
 }
 
-// DREDDuration reports the stored DRED redundancy depth in 2.5 ms units.
+// DREDDuration reports the stored DRED redundancy depth in 10 ms units.
 func (e *Encoder) DREDDuration() int {
 	if e.dred == nil {
 		return 0
