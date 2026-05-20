@@ -174,6 +174,7 @@ func (d *streamState) Reset() {
 	d.lastFrameSize = 960
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
+	d.resetOSCEPostfilterState()
 }
 
 func (d *streamState) SetIgnoreExtensions(ignore bool) {

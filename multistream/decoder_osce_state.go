@@ -27,19 +27,20 @@ const (
 // NoLACE state and per-stream `silk_OSCE_BWE_struct`).
 type streamOSCEState struct {
 	// LACE/NoLACE postfilter on the SILK 16 kHz lowband.
-	laceModel       *osceLACE.Model
-	laceRuntime     [2]osceLACE.LACEState
-	noLACERuntime   [2]osceLACE.NoLACEState
-	laceApplyIn16   [streamOSCELACEFrameSamples]int16
-	laceApplyInF    [streamOSCELACEFrameSamples]float32
-	laceApplyOutF   [streamOSCELACEFrameSamples]float32
-	laceApplyOutI16 [streamOSCELACEFrameSamples]int16
-	laceFeatures    [streamOSCELACESubframesPerFrame * streamOSCELACEFeatureDim]float32
-	laceNumBits     [2]float32
-	lacePeriods     [streamOSCELACESubframesPerFrame]int
-	prevLACEActive  bool
-	laceMethod      streamOSCELACEMode
-	laceResetFrames [2]int
+	laceModel        *osceLACE.Model
+	laceRuntime      [2]osceLACE.LACEState
+	noLACERuntime    [2]osceLACE.NoLACEState
+	laceFeatureState [2]osceLACE.FeatureState
+	laceApplyIn16    [streamOSCELACEFrameSamples]int16
+	laceApplyInF     [streamOSCELACEFrameSamples]float32
+	laceApplyOutF    [streamOSCELACEFrameSamples]float32
+	laceApplyOutI16  [streamOSCELACEFrameSamples]int16
+	laceFeatures     [streamOSCELACESubframesPerFrame * streamOSCELACEFeatureDim]float32
+	laceNumBits      [2]float32
+	lacePeriods      [streamOSCELACESubframesPerFrame]int
+	prevLACEActive   bool
+	laceMethod       streamOSCELACEMode
+	laceResetFrames  [2]int
 
 	// OSCE BWE 16 kHz -> 48 kHz forward pass replacing `silk_resampler`.
 	bweModel      *osceBWE.Model

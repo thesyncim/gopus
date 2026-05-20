@@ -283,6 +283,117 @@ func TestMultistreamDecoderOSCEBWEMatchesSingleStreamDecoder(t *testing.T) {
 	}
 }
 
+func TestMultistreamDecoderOSCELACEMatchesSingleStreamDecoder(t *testing.T) {
+	coreBlob := requireLibopusDecoderNeuralModelBlob(t)
+	laceBlob := requireLibopusOSCELACEModelBlob(t)
+
+	merged := make([]byte, 0, len(coreBlob)+len(laceBlob))
+	merged = append(merged, coreBlob...)
+	merged = append(merged, laceBlob...)
+
+	const (
+		sampleRate = 48000
+		channels   = 2
+		frameSize  = 960
+	)
+
+	packetA := makeMultistreamStereoSILKWBPacket(t, sampleRate, channels, frameSize)
+	packetB := makeMultistreamStereoSILKWBPacket(t, sampleRate, channels, frameSize)
+
+	decSingle, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder(single): %v", err)
+	}
+	if err := decSingle.SetComplexity(6); err != nil {
+		t.Fatalf("single.SetComplexity(6): %v", err)
+	}
+	if err := decSingle.SetOSCEBWE(false); err != nil {
+		t.Fatalf("single.SetOSCEBWE(false): %v", err)
+	}
+	if err := decSingle.SetOSCELACE(true); err != nil {
+		t.Fatalf("single.SetOSCELACE(true): %v", err)
+	}
+	if err := decSingle.SetDNNBlob(merged); err != nil {
+		t.Fatalf("single.SetDNNBlob(merged): %v", err)
+	}
+
+	decMS := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+	if err := decMS.SetComplexity(6); err != nil {
+		t.Fatalf("multistream.SetComplexity(6): %v", err)
+	}
+	if err := decMS.SetOSCEBWE(false); err != nil {
+		t.Fatalf("multistream.SetOSCEBWE(false): %v", err)
+	}
+	if err := decMS.SetOSCELACE(true); err != nil {
+		t.Fatalf("multistream.SetOSCELACE(true): %v", err)
+	}
+	if err := decMS.SetDNNBlob(merged); err != nil {
+		t.Fatalf("multistream.SetDNNBlob(merged): %v", err)
+	}
+
+	pcmSingle := make([]float32, frameSize*channels)
+	pcmMS := make([]float32, frameSize*channels)
+	if n, err := decSingle.Decode(packetA, pcmSingle); err != nil {
+		t.Fatalf("single.Decode #1: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("single.Decode #1 returned %d samples/ch, want %d", n, frameSize)
+	}
+	if n, err := decMS.Decode(packetA, pcmMS); err != nil {
+		t.Fatalf("multistream.Decode #1: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("multistream.Decode #1 returned %d samples/ch, want %d", n, frameSize)
+	}
+	for i := range pcmSingle {
+		if got, want := math.Float32bits(pcmMS[i]), math.Float32bits(pcmSingle[i]); got != want {
+			t.Fatalf("multistream LACE first-frame sample %d bits=0x%08x want single-stream 0x%08x (values %g vs %g)",
+				i, got, want, pcmMS[i], pcmSingle[i])
+		}
+	}
+
+	if n, err := decSingle.Decode(packetB, pcmSingle); err != nil {
+		t.Fatalf("single.Decode #2: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("single.Decode #2 returned %d samples/ch, want %d", n, frameSize)
+	}
+	if n, err := decMS.Decode(packetB, pcmMS); err != nil {
+		t.Fatalf("multistream.Decode #2: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("multistream.Decode #2 returned %d samples/ch, want %d", n, frameSize)
+	}
+	var diffCount int
+	for i := range pcmSingle {
+		if got, want := math.Float32bits(pcmMS[i]), math.Float32bits(pcmSingle[i]); got != want {
+			t.Fatalf("multistream LACE second-frame sample %d bits=0x%08x want single-stream 0x%08x (values %g vs %g)",
+				i, got, want, pcmMS[i], pcmSingle[i])
+		}
+		if pcmMS[i] != 0 {
+			diffCount++
+		}
+	}
+	if diffCount == 0 {
+		t.Fatal("second LACE frame is silent")
+	}
+
+	decSingle.Reset()
+	decMS.Reset()
+	if n, err := decSingle.Decode(packetA, pcmSingle); err != nil {
+		t.Fatalf("single.Decode after Reset: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("single.Decode after Reset returned %d samples/ch, want %d", n, frameSize)
+	}
+	if n, err := decMS.Decode(packetA, pcmMS); err != nil {
+		t.Fatalf("multistream.Decode after Reset: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("multistream.Decode after Reset returned %d samples/ch, want %d", n, frameSize)
+	}
+	for i := range pcmSingle {
+		if got, want := math.Float32bits(pcmMS[i]), math.Float32bits(pcmSingle[i]); got != want {
+			t.Fatalf("multistream LACE post-Reset sample %d bits=0x%08x want single-stream 0x%08x (values %g vs %g)",
+				i, got, want, pcmMS[i], pcmSingle[i])
+		}
+	}
+}
+
 // makeMultistreamStereoSILKWBPacket encodes a stereo SILK WB test packet via
 // the public MultistreamEncoder. The default 2-channel mapping produces a
 // single coupled stream, so the multistream packet payload is the same as a

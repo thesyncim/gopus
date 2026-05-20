@@ -19,3 +19,5 @@ func (d *streamState) bindOSCEModels(_ *dnnblob.Blob) error { return nil }
 func (d *streamState) osceLACERuntimeLoaded() bool { return false }
 
 func (d *streamState) osceBWERuntimeLoaded() bool { return false }
+
+func (d *streamState) resetOSCEPostfilterState() {}

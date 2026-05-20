@@ -86,6 +86,8 @@ func (d *streamState) bindOSCEModels(blob *dnnblob.Blob) error {
 				return err
 			}
 		}
+		d.osceState.laceFeatureState[0].Reset()
+		d.osceState.laceFeatureState[1].Reset()
 	}
 
 	// OSCE BWE binding.
@@ -148,4 +150,16 @@ func (d *streamState) osceBWERuntimeLoaded() bool {
 		return false
 	}
 	return d.osceState.bweModel != nil && d.osceState.bweRuntime[0].Loaded()
+}
+
+func (d *streamState) resetOSCEPostfilterState() {
+	if d == nil || d.osceState == nil {
+		return
+	}
+	d.resetOSCELACEState(d.channels == 2)
+	for ch := range d.osceState.bweRuntime {
+		d.osceState.bweRuntime[ch].Reset()
+		d.osceState.bweFeatures[ch].Reset()
+	}
+	d.osceState.prevBWEActive = false
 }

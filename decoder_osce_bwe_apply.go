@@ -284,6 +284,17 @@ func (d *Decoder) osceBWEMarkInactiveIfModeIneligible(mode Mode, bandwidth Bandw
 	d.osceBWE.prevBWEActive = false
 }
 
+func (d *Decoder) resetOSCEBWEPostfilterState() {
+	if d == nil || d.osceBWE == nil {
+		return
+	}
+	for ch := range d.osceBWE.osceBWERuntime {
+		d.osceBWE.osceBWERuntime[ch].Reset()
+		d.osceBWE.osceBWEFeatures[ch].Reset()
+	}
+	d.osceBWE.prevBWEActive = false
+}
+
 // applyOSCEBWEFadeOut runs a fade-out cross-fade when leaving BWE: BWE on the
 // previous lowband -> standard upsampled `out`. Mirrors the second branch of
 // the libopus dec_API.c BWE handler where, after a BWE-active frame, the new

@@ -22,6 +22,8 @@ func (d *Decoder) Reset() {
 	d.clearDREDPayloadState()
 	d.resetDREDRuntimeState()
 	d.resetDRED48kNeuralBridge()
+	d.resetOSCELACEPostfilterState(d.channels == 2)
+	d.resetOSCEBWEPostfilterState()
 
 	// Clear FEC state
 	d.clearFECState()

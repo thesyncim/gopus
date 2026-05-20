@@ -237,11 +237,32 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		if publicDiffCount == 0 {
 			t.Fatalf("second LACE-eligible public PCM is still raw: native postfilter did not feed silk_resampler")
 		}
+		secondNativeDiff, secondNativeMax := diffCount, maxDiff
+		secondPublicDiff, secondPublicMax := publicDiffCount, publicMaxDiff
 		if decLACE.osceLACE.laceResetFrames[0] != 0 {
 			t.Fatalf("after second LACE frame reset countdown=%d, want 0", decLACE.osceLACE.laceResetFrames[0])
 		}
+		decLACE.Reset()
+		if _, err := decLACE.Decode(packetA, pcmLACE); err != nil {
+			t.Fatalf("Decode(lace after Reset): %v", err)
+		}
+		publicDiffCount, publicMaxDiff = float32BufferDiff(pcmLACE[:frameSize], pcmRefFirst)
+		if publicDiffCount != 0 {
+			t.Fatalf("post-Reset LACE public PCM differs from raw output: diffCount=%d maxDiff=%g", publicDiffCount, publicMaxDiff)
+		}
+		nativeLACE, fsKHzLACE = decLACE.silkDecoder.LatestNativeMono()
+		if nativeLACE == nil || fsKHzLACE != 16 {
+			t.Fatalf("lace post-Reset decode produced no 16 kHz native lowband: nativeLACE=%v fsKHz=%d", nativeLACE, fsKHzLACE)
+		}
+		diffCount, maxDiff = int16BufferDiff(nativeLACE[:osceLACEFrameSamples], nativeRefFirst)
+		if diffCount != 0 {
+			t.Fatalf("post-Reset LACE native frame differs from raw output: diffCount=%d maxDiff=%d", diffCount, maxDiff)
+		}
+		if decLACE.osceLACE.laceResetFrames[0] != 1 {
+			t.Fatalf("after post-Reset LACE frame reset countdown=%d, want 1", decLACE.osceLACE.laceResetFrames[0])
+		}
 		t.Logf("LACE postfilter altered %d/%d native int16 samples (max %d) and %d/%d public PCM samples (max %g)",
-			diffCount, osceLACEFrameSamples, maxDiff, publicDiffCount, frameSize, publicMaxDiff)
+			secondNativeDiff, osceLACEFrameSamples, secondNativeMax, secondPublicDiff, frameSize, secondPublicMax)
 	})
 
 	// SetOSCELACE(false) disables the helper at runtime; the SILK WB

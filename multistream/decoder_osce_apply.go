@@ -7,6 +7,7 @@ import (
 	"math"
 
 	osceBWE "github.com/thesyncim/gopus/internal/osce/bwe"
+	osceLACE "github.com/thesyncim/gopus/internal/osce/lace"
 	"github.com/thesyncim/gopus/silk"
 )
 
@@ -63,7 +64,7 @@ func (d *streamState) installOSCELACESilkPostfilterHook(silkBW silk.Bandwidth, p
 			d.resetOSCELACEState(packetStereo)
 			return false
 		}
-		if !d.runOSCELACEChannel(samples, mode, channel) {
+		if !d.runOSCELACEChannel(samples, mode, channel, ctrl, true) {
 			d.resetOSCELACEState(packetStereo)
 			return false
 		}
@@ -90,7 +91,7 @@ func pickStreamOSCELACEMode(complexity int) streamOSCELACEMode {
 	return streamOSCELACEModeNone
 }
 
-func (d *streamState) runOSCELACEChannel(native []int16, mode streamOSCELACEMode, channelIdx int) bool {
+func (d *streamState) runOSCELACEChannel(native []int16, mode streamOSCELACEMode, channelIdx int, ctrl silk.LatestDecoderControl, ctrlOK bool) bool {
 	if d == nil || d.osceState == nil {
 		return false
 	}
@@ -110,6 +111,30 @@ func (d *streamState) runOSCELACEChannel(native []int16, mode streamOSCELACEMode
 	}
 	for i := range state.lacePeriods {
 		state.lacePeriods[i] = 7
+	}
+	if ctrlOK && ctrl.FsKHz == 16 && ctrl.NbSubfr == streamOSCELACESubframesPerFrame {
+		var fc osceLACE.FeatureControl
+		fc.LPCOrder = ctrl.LPCOrder
+		fc.PredCoefQ12[0] = ctrl.PredCoefQ12[0]
+		fc.PredCoefQ12[1] = ctrl.PredCoefQ12[1]
+		fc.LTPCoefQ14 = ctrl.LTPCoefQ14
+		for sf := 0; sf < streamOSCELACESubframesPerFrame; sf++ {
+			fc.GainsQ16[sf] = ctrl.GainsQ16[sf]
+			fc.PitchL[sf] = ctrl.PitchL[sf]
+		}
+		fc.SignalType = ctrl.SignalType
+		numBits := ctrl.NumBits
+		if numBits < 0 {
+			numBits = 0
+		}
+		state.laceFeatureState[channelIdx].CalculateFeatures(
+			state.laceFeatures[:],
+			state.laceNumBits[:],
+			state.lacePeriods[:],
+			state.laceApplyIn16[:streamOSCELACEFrameSamples],
+			&fc,
+			int32(numBits),
+		)
 	}
 	switch mode {
 	case streamOSCELACEModeNoLACE:
@@ -155,6 +180,7 @@ func (d *streamState) prepareOSCELACEState(mode streamOSCELACEMode, channels int
 	}
 	if !state.prevLACEActive || state.laceMethod != mode {
 		for ch := 0; ch < channels; ch++ {
+			state.laceFeatureState[ch].Reset()
 			switch mode {
 			case streamOSCELACEModeLACE:
 				state.laceRuntime[ch].Reset()
@@ -181,6 +207,7 @@ func (d *streamState) resetOSCELACEState(packetStereo bool) {
 		channels = 2
 	}
 	for ch := 0; ch < channels; ch++ {
+		state.laceFeatureState[ch].Reset()
 		state.laceRuntime[ch].Reset()
 		state.noLACERuntime[ch].Reset()
 		state.laceResetFrames[ch] = 0
