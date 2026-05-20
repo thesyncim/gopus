@@ -5,7 +5,7 @@ package celt
 
 import "testing"
 
-func TestQuantizePLCPCM16kFrameMatchesLibopusInt16Grid(t *testing.T) {
+func TestQuantizePLCPCM16kFrameMatchesLibopusFARGANIntGrid(t *testing.T) {
 	frame := []float32{
 		0,
 		float32(0.5 / 32768),
@@ -17,9 +17,9 @@ func TestQuantizePLCPCM16kFrameMatchesLibopusInt16Grid(t *testing.T) {
 	}
 	want := []float32{
 		0,
-		0,
+		1.0 / 32768.0,
 		2.0 / 32768.0,
-		-2.0 / 32768.0,
+		-1.0 / 32768.0,
 		32767.0 / 32768.0,
 		32767.0 / 32768.0,
 		-32767.0 / 32768.0,

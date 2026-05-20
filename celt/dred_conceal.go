@@ -3,7 +3,11 @@
 
 package celt
 
-import "github.com/thesyncim/gopus/plc"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/plc"
+)
 
 const (
 	dred48kSincOrder = 48
@@ -22,8 +26,19 @@ var dred48kSincFilter = [...]float32{
 
 func quantizePLCPCM16kFrame(frame []float32) {
 	for i := range frame {
-		frame[i] = quantizedRawPCM16GridSample(frame[i] * 32768)
+		frame[i] = quantizedFARGANPCM16GridSample(frame[i])
 	}
+}
+
+func quantizedFARGANPCM16GridSample(sample float32) float32 {
+	v := sample * 32768
+	if v < -32767 {
+		v = -32767
+	}
+	if v > 32767 {
+		v = 32767
+	}
+	return float32(math.Floor(0.5+float64(v))) * (1.0 / 32768.0)
 }
 
 // ConcealPLCNeural48kMonoToFloat32 mirrors the libopus FRAME_PLC_NEURAL
