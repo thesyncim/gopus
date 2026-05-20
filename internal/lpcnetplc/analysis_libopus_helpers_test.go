@@ -4,12 +4,10 @@
 package lpcnetplc
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"math"
-	"os/exec"
 	"sync"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 const (
@@ -84,15 +82,11 @@ func probeLibopusPitchDNNModelBlob() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(binPath)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run pitchdnn model blob helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelper(binPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("run pitchdnn model blob helper: %w", err)
 	}
-	return stdout.Bytes(), nil
+	return out, nil
 }
 
 func probeLibopusPitchDNN(ifFeatures, xcorrFeatures []float32, state pitchDNNState) (float32, pitchDNNState, error) {
@@ -103,19 +97,7 @@ func probeLibopusPitchDNN(ifFeatures, xcorrFeatures []float32, state pitchDNNSta
 	if len(ifFeatures) != pitchIFFeatures || len(xcorrFeatures) != pitchXcorrFeatures {
 		return 0, pitchDNNState{}, fmt.Errorf("invalid pitchdnn helper input sizes")
 	}
-	var payload bytes.Buffer
-	payload.WriteString(libopusPitchDNNInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
-		return 0, pitchDNNState{}, fmt.Errorf("encode pitchdnn helper version: %w", err)
-	}
-	writeBits := func(values []float32) error {
-		for _, v := range values {
-			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
+	payload := libopustest.NewOraclePayload(libopusPitchDNNInputMagic)
 	for _, values := range [][]float32{
 		ifFeatures,
 		xcorrFeatures,
@@ -124,55 +106,35 @@ func probeLibopusPitchDNN(ifFeatures, xcorrFeatures []float32, state pitchDNNSta
 		state.xcorrMem2[:],
 		state.xcorrMem3[:],
 	} {
-		if err := writeBits(values); err != nil {
-			return 0, pitchDNNState{}, fmt.Errorf("encode pitchdnn helper payload: %w", err)
-		}
+		payload.Float32s(values...)
 	}
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return 0, pitchDNNState{}, fmt.Errorf("run pitchdnn helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-
-	data := stdout.Bytes()
-	if len(data) < 8 || string(data[:4]) != libopusPitchDNNOutputMagic {
-		return 0, pitchDNNState{}, fmt.Errorf("unexpected pitchdnn helper output")
-	}
-	offset := 8
-	readBits := func(count int) ([]float32, error) {
-		values := make([]float32, count)
-		for i := 0; i < count; i++ {
-			if len(data) < offset+4 {
-				return nil, fmt.Errorf("truncated pitchdnn helper output")
-			}
-			values[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-			offset += 4
-		}
-		return values, nil
-	}
-	pitchValues, err := readBits(1)
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "pitchdnn", libopusPitchDNNOutputMagic)
 	if err != nil {
 		return 0, pitchDNNState{}, err
 	}
+	pitch := reader.Float32()
 	var next pitchDNNState
+	readBits := func(dst []float32) error {
+		for i := range dst {
+			dst[i] = reader.Float32()
+		}
+		return reader.Err()
+	}
 	for _, dst := range [][]float32{
 		next.gruState[:],
 		next.xcorrMem1[:],
 		next.xcorrMem2[:],
 		next.xcorrMem3[:],
 	} {
-		values, readErr := readBits(len(dst))
-		if readErr != nil {
-			return 0, pitchDNNState{}, readErr
+		if err := readBits(dst); err != nil {
+			return 0, pitchDNNState{}, err
 		}
-		copy(dst, values)
 	}
-	return pitchValues[0], next, nil
+	if err := reader.ExpectConsumed(); err != nil {
+		return 0, pitchDNNState{}, err
+	}
+	return pitch, next, nil
 }
 
 type libopusLPCNetFeaturesResult struct {
@@ -202,47 +164,24 @@ func probeLibopusLPCNetFeatures(frames []float32) (libopusLPCNetFeaturesResult, 
 	}
 	frameCount := len(frames) / FrameSize
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusLPCNetFeaturesInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
-		return libopusLPCNetFeaturesResult{}, fmt.Errorf("encode lpcnet helper version: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(frameCount)); err != nil {
-		return libopusLPCNetFeaturesResult{}, fmt.Errorf("encode lpcnet helper frame count: %w", err)
-	}
-	for _, v := range frames {
-		if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-			return libopusLPCNetFeaturesResult{}, fmt.Errorf("encode lpcnet helper frames: %w", err)
-		}
-	}
+	payload := libopustest.NewOraclePayload(libopusLPCNetFeaturesInputMagic, uint32(frameCount))
+	payload.Float32s(frames...)
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusLPCNetFeaturesResult{}, fmt.Errorf("run lpcnet helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "lpcnet features", libopusLPCNetFeaturesOutputMagic)
+	if err != nil {
+		return libopusLPCNetFeaturesResult{}, err
 	}
-
-	data := stdout.Bytes()
-	if len(data) < 12 || string(data[:4]) != libopusLPCNetFeaturesOutputMagic {
-		return libopusLPCNetFeaturesResult{}, fmt.Errorf("unexpected lpcnet helper output")
-	}
-	gotFrameCount := int(binary.LittleEndian.Uint32(data[8:12]))
+	gotFrameCount := reader.Count(frameCount)
 	if gotFrameCount != frameCount {
 		return libopusLPCNetFeaturesResult{}, fmt.Errorf("lpcnet helper frame count=%d want %d", gotFrameCount, frameCount)
 	}
-	offset := 12
 	readBits := func(count int) ([]float32, error) {
 		values := make([]float32, count)
 		for i := 0; i < count; i++ {
-			if len(data) < offset+4 {
-				return nil, fmt.Errorf("truncated lpcnet helper output")
-			}
-			values[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-			offset += 4
+			values[i] = reader.Float32()
+		}
+		if err := reader.Err(); err != nil {
+			return nil, err
 		}
 		return values, nil
 	}
@@ -320,6 +259,9 @@ func probeLibopusLPCNetFeatures(frames []float32) (libopusLPCNetFeaturesResult, 
 		}
 		copy(dst, values)
 	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusLPCNetFeaturesResult{}, err
+	}
 	return result, nil
 }
 
@@ -331,38 +273,20 @@ func probeLibopusBurgCepstrum(frame []float32) ([]float32, error) {
 	if len(frame) != FrameSize {
 		return nil, fmt.Errorf("burg helper frame length=%d want %d", len(frame), FrameSize)
 	}
-	var payload bytes.Buffer
-	payload.WriteString(libopusBurgInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
-		return nil, fmt.Errorf("encode burg helper version: %w", err)
-	}
-	for _, v := range frame {
-		if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-			return nil, fmt.Errorf("encode burg helper frame: %w", err)
-		}
-	}
+	payload := libopustest.NewOraclePayload(libopusBurgInputMagic)
+	payload.Float32s(frame...)
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run burg helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "burg cepstrum", libopusBurgOutputMagic)
+	if err != nil {
+		return nil, err
 	}
-	data := stdout.Bytes()
-	if len(data) < 8 || string(data[:4]) != libopusBurgOutputMagic {
-		return nil, fmt.Errorf("unexpected burg helper output")
-	}
-	offset := 8
+	reader.ExpectRemaining(2 * NumBands * 4)
 	out := make([]float32, 2*NumBands)
 	for i := range out {
-		if len(data) < offset+4 {
-			return nil, fmt.Errorf("truncated burg helper output")
-		}
-		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-		offset += 4
+		out[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

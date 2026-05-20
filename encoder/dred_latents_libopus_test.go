@@ -4,12 +4,10 @@
 package encoder
 
 import (
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -316,15 +314,11 @@ func probeEncoderLibopusDREDLatentsTraceWithChunkSize(t *testing.T, channels, fr
 	if err != nil {
 		libopustest.HelperUnavailable(t, "DRED latents trace", err)
 	}
-	cmd := exec.Command(binPath, fmt.Sprintf("%d", channels), fmt.Sprintf("%d", frameSize), fmt.Sprintf("%d", chunkSize))
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("run libopus DRED latents trace helper: %v (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	data, err := libopustest.RunHelperArgs(binPath, nil, fmt.Sprintf("%d", channels), fmt.Sprintf("%d", frameSize), fmt.Sprintf("%d", chunkSize))
+	if err != nil {
+		t.Fatalf("run libopus DRED latents trace helper: %v", err)
 	}
-	return parseEncoderLibopusDREDLatentsTrace(t, stdout.Bytes())
+	return parseEncoderLibopusDREDLatentsTrace(t, data)
 }
 
 func parseEncoderLibopusDREDLatentsTrace(t *testing.T, data []byte) []encoderLibopusDREDFrameTrace {
@@ -369,15 +363,11 @@ func getEncoderLibopusDREDLatentsTracePath() (string, error) {
 }
 
 func runEncoderLibopusModelBlobHelper(binPath string) ([]byte, error) {
-	cmd := exec.Command(binPath)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run model blob helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelper(binPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("run model blob helper: %w", err)
 	}
-	return stdout.Bytes(), nil
+	return out, nil
 }
 
 func buildEncoderLibopusDREDHelper(sourceFile, outputBase string, includeInternal bool) (string, error) {

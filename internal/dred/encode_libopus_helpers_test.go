@@ -4,12 +4,10 @@
 package dred
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
-	"math"
-	"os/exec"
 	"sync"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 const (
@@ -47,10 +45,7 @@ func probeLibopusDREDEncodePayload(q0, dQ, qmax, maxChunks, maxBytes, latentsFil
 		return libopusDREDEncodePayloadInfo{}, fmt.Errorf("insufficient state/latent history")
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusDREDEncodePayloadInputMagic)
-	for _, v := range []uint32{
-		1,
+	payload := libopustest.NewOraclePayload(libopusDREDEncodePayloadInputMagic,
 		uint32(q0),
 		uint32(dQ),
 		uint32(qmax),
@@ -60,50 +55,22 @@ func probeLibopusDREDEncodePayload(q0, dQ, qmax, maxChunks, maxBytes, latentsFil
 		uint32(dredOffset),
 		uint32(latentOffset),
 		uint32(lastExtraDREDOffset),
-	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusDREDEncodePayloadInfo{}, fmt.Errorf("encode helper header: %w", err)
-		}
-	}
-	writeBits := func(values []float32) error {
-		for _, v := range values {
-			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := writeBits(state[:MaxFrames*StateDim]); err != nil {
-		return libopusDREDEncodePayloadInfo{}, fmt.Errorf("encode helper state: %w", err)
-	}
-	if err := writeBits(latents[:MaxFrames*LatentDim]); err != nil {
-		return libopusDREDEncodePayloadInfo{}, fmt.Errorf("encode helper latents: %w", err)
-	}
-	if _, err := payload.Write(activity[:]); err != nil {
-		return libopusDREDEncodePayloadInfo{}, fmt.Errorf("encode helper activity: %w", err)
-	}
+	)
+	payload.Float32s(state[:MaxFrames*StateDim]...)
+	payload.Float32s(latents[:MaxFrames*LatentDim]...)
+	payload.Raw(activity[:])
 
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusDREDEncodePayloadInfo{}, fmt.Errorf("run encode helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-
-	out := stdout.Bytes()
-	if len(out) < 16 || string(out[:4]) != libopusDREDEncodePayloadOutputMagic {
-		return libopusDREDEncodePayloadInfo{}, fmt.Errorf("unexpected encode helper output")
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "dred encode", libopusDREDEncodePayloadOutputMagic)
+	if err != nil {
+		return libopusDREDEncodePayloadInfo{}, err
 	}
 	info := libopusDREDEncodePayloadInfo{
-		LastExtraDREDOffset: int(binary.LittleEndian.Uint32(out[8:12])),
+		LastExtraDREDOffset: int(reader.U32()),
 	}
-	n := int(binary.LittleEndian.Uint32(out[12:16]))
-	if len(out) < 16+n {
-		return libopusDREDEncodePayloadInfo{}, fmt.Errorf("truncated encode helper payload")
+	n := int(reader.U32())
+	info.Payload = append([]byte(nil), reader.Bytes(n)...)
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusDREDEncodePayloadInfo{}, err
 	}
-	info.Payload = append([]byte(nil), out[16:16+n]...)
 	return info, nil
 }
