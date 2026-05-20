@@ -21,6 +21,7 @@ const (
 	libopusCELTMathModeISqrt32         = uint32(5)
 	libopusCELTMathModeUdiv            = uint32(6)
 	libopusCELTMathModeSudiv           = uint32(7)
+	libopusCELTMathModeLog2TanTheta    = uint32(8)
 )
 
 var (
@@ -216,6 +217,24 @@ func TestCELTBitexactLog2TanMatchesLibopus(t *testing.T) {
 		got := bitexactLog2tan(p.isin, p.icos)
 		if got != int(int32(want[i])) {
 			t.Fatalf("bitexactLog2tan(%d,%d)=%d want %d", p.isin, p.icos, got, int32(want[i]))
+		}
+	}
+}
+
+func TestCELTBitexactLog2TanThetaTableMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	inputs := make([]uint32, 0, 16320-64+1)
+	for theta := 64; theta <= 16320; theta++ {
+		inputs = append(inputs, uint32(theta))
+	}
+	want, err := probeLibopusCELTMathWords(libopusCELTMathModeLog2TanTheta, len(inputs), inputs)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt math", err)
+	}
+	for i, theta := range inputs {
+		got := bitexactLog2tanTheta(int(theta))
+		if got != int(int32(want[i])) {
+			t.Fatalf("bitexactLog2tanTheta(%d)=%d want %d", theta, got, int32(want[i]))
 		}
 	}
 }
