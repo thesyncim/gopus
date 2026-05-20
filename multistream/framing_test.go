@@ -160,6 +160,54 @@ func TestParseOpusPacketRejectsLibopusEnvelopeViolations(t *testing.T) {
 	}
 }
 
+func TestParseOpusPacketSelfDelimitedRejectsInvalidLengthFraming(t *testing.T) {
+	tests := []struct {
+		name   string
+		packet []byte
+	}{
+		{
+			name:   "code0_declared_length_overrun",
+			packet: []byte{0xF8, 10, 0xAA},
+		},
+		{
+			name:   "code0_truncated_two_byte_length",
+			packet: []byte{0xF8, 252},
+		},
+		{
+			name:   "code1_declared_length_overrun",
+			packet: []byte{0xF9, 2, 0xAA},
+		},
+		{
+			name:   "code2_truncated_first_length",
+			packet: []byte{0xFA, 252},
+		},
+		{
+			name:   "code2_truncated_second_length",
+			packet: []byte{0xFA, 1, 252},
+		},
+		{
+			name:   "code3_missing_frame_count",
+			packet: []byte{0xFB},
+		},
+		{
+			name:   "code3_padding_overrun",
+			packet: []byte{0xFB, 0x41, 255},
+		},
+		{
+			name:   "code3_cbr_declared_length_overrun",
+			packet: []byte{0xFB, 0x01, 10, 0xAA},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := parseOpusPacket(tc.packet, true); err != ErrInvalidPacket {
+				t.Fatalf("parseOpusPacket(self-delimited) error=%v want %v", err, ErrInvalidPacket)
+			}
+		})
+	}
+}
+
 func TestPacketDurationRejectsLibopusEnvelopeViolation(t *testing.T) {
 	if _, err := PacketDuration([]byte{0xFB, 0x07}, 1); err != ErrInvalidPacket {
 		t.Fatalf("PacketDuration error=%v want %v", err, ErrInvalidPacket)

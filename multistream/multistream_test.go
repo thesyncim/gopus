@@ -484,8 +484,16 @@ func TestParseMultistreamPacket(t *testing.T) {
 		// Self-delimited frame length says 10 bytes but only 1 byte follows.
 		data := []byte{0xF8, 10, 0x01, 0xF8, 0x02}
 		_, err := parseMultistreamPacket(data, 2)
-		if !errors.Is(err, ErrPacketTooShort) {
-			t.Errorf("expected ErrPacketTooShort, got %v", err)
+		if !errors.Is(err, ErrInvalidPacket) {
+			t.Errorf("expected ErrInvalidPacket, got %v", err)
+		}
+	})
+
+	t.Run("malformed self-delimited first stream", func(t *testing.T) {
+		data := []byte{0xF8, 252, 0xF8, 0x02}
+		_, err := parseMultistreamPacket(data, 2)
+		if !errors.Is(err, ErrInvalidPacket) {
+			t.Errorf("expected ErrInvalidPacket, got %v", err)
 		}
 	})
 }

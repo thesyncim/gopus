@@ -182,7 +182,7 @@ func parseSelfDelimitedPacketAndPadding(data []byte) (tocBase byte, frames [][]b
 	case 0:
 		length, bytesRead, err := parseFrameLength(data, offset)
 		if err != nil {
-			return 0, nil, nil, 0, 0, err
+			return 0, nil, nil, 0, 0, ErrInvalidPacket
 		}
 		offset += bytesRead
 		frameSizes = append(frameSizes, length)
@@ -190,7 +190,7 @@ func parseSelfDelimitedPacketAndPadding(data []byte) (tocBase byte, frames [][]b
 	case 1:
 		length, bytesRead, err := parseFrameLength(data, offset)
 		if err != nil {
-			return 0, nil, nil, 0, 0, err
+			return 0, nil, nil, 0, 0, ErrInvalidPacket
 		}
 		offset += bytesRead
 		frameCount = 2
@@ -199,13 +199,13 @@ func parseSelfDelimitedPacketAndPadding(data []byte) (tocBase byte, frames [][]b
 	case 2:
 		length0, bytesRead, err := parseFrameLength(data, offset)
 		if err != nil {
-			return 0, nil, nil, 0, 0, err
+			return 0, nil, nil, 0, 0, ErrInvalidPacket
 		}
 		offset += bytesRead
 
 		length1, bytesRead, err := parseFrameLength(data, offset)
 		if err != nil {
-			return 0, nil, nil, 0, 0, err
+			return 0, nil, nil, 0, 0, ErrInvalidPacket
 		}
 		offset += bytesRead
 
@@ -214,7 +214,7 @@ func parseSelfDelimitedPacketAndPadding(data []byte) (tocBase byte, frames [][]b
 
 	case 3:
 		if offset >= len(data) {
-			return 0, nil, nil, 0, 0, ErrPacketTooShort
+			return 0, nil, nil, 0, 0, ErrInvalidPacket
 		}
 		frameCountByte := data[offset]
 		offset++
@@ -233,7 +233,7 @@ func parseSelfDelimitedPacketAndPadding(data []byte) (tocBase byte, frames [][]b
 		if hasPadding {
 			for {
 				if offset >= len(data) {
-					return 0, nil, nil, 0, 0, ErrPacketTooShort
+					return 0, nil, nil, 0, 0, ErrInvalidPacket
 				}
 				padByte := int(data[offset])
 				offset++
@@ -250,7 +250,7 @@ func parseSelfDelimitedPacketAndPadding(data []byte) (tocBase byte, frames [][]b
 			for i := 0; i < frameCount-1; i++ {
 				length, bytesRead, err := parseFrameLength(data, offset)
 				if err != nil {
-					return 0, nil, nil, 0, 0, err
+					return 0, nil, nil, 0, 0, ErrInvalidPacket
 				}
 				offset += bytesRead
 				frameSizes[i] = length
@@ -259,7 +259,7 @@ func parseSelfDelimitedPacketAndPadding(data []byte) (tocBase byte, frames [][]b
 
 		lastSize, bytesRead, err := parseFrameLength(data, offset)
 		if err != nil {
-			return 0, nil, nil, 0, 0, err
+			return 0, nil, nil, 0, 0, ErrInvalidPacket
 		}
 		offset += bytesRead
 
@@ -285,7 +285,7 @@ func parseSelfDelimitedPacketAndPadding(data []byte) (tocBase byte, frames [][]b
 
 	consumed = offset + totalFrameBytes + paddingLen
 	if consumed > len(data) {
-		return 0, nil, nil, 0, 0, ErrPacketTooShort
+		return 0, nil, nil, 0, 0, ErrInvalidPacket
 	}
 
 	frames = make([][]byte, frameCount)

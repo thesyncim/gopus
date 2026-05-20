@@ -94,16 +94,53 @@ func TestMultistreamPacketPadRejectsInvalidSelfDelimited(t *testing.T) {
 	copy(buf, invalid)
 
 	err := MultistreamPacketPad(buf, len(invalid), len(invalid)+8, 2)
-	if !errors.Is(err, ErrPacketTooShort) {
-		t.Fatalf("MultistreamPacketPad err=%v want=%v", err, ErrPacketTooShort)
+	if !errors.Is(err, ErrInvalidPacket) {
+		t.Fatalf("MultistreamPacketPad err=%v want=%v", err, ErrInvalidPacket)
 	}
 }
 
 func TestMultistreamPacketUnpadRejectsInvalidSelfDelimited(t *testing.T) {
 	invalid := []byte{GenerateTOC(31, false, 0), 10, 0xAA, GenerateTOC(31, false, 0), 0xBB}
 	_, err := MultistreamPacketUnpad(invalid, len(invalid), 2)
-	if !errors.Is(err, ErrPacketTooShort) {
-		t.Fatalf("MultistreamPacketUnpad err=%v want=%v", err, ErrPacketTooShort)
+	if !errors.Is(err, ErrInvalidPacket) {
+		t.Fatalf("MultistreamPacketUnpad err=%v want=%v", err, ErrInvalidPacket)
+	}
+}
+
+func TestDecodeSelfDelimitedPacketRejectsLibopusInvalidLengthFraming(t *testing.T) {
+	tests := []struct {
+		name string
+		data []byte
+	}{
+		{
+			name: "code0_declared_length_overrun",
+			data: []byte{GenerateTOC(31, false, 0), 10, 0xAA},
+		},
+		{
+			name: "code0_truncated_two_byte_length",
+			data: []byte{GenerateTOC(31, false, 0), 252},
+		},
+		{
+			name: "code3_missing_frame_count",
+			data: []byte{GenerateTOC(31, false, 3)},
+		},
+		{
+			name: "code3_padding_overrun",
+			data: []byte{GenerateTOC(31, false, 3), 0x41, 255},
+		},
+		{
+			name: "code3_missing_last_frame_length",
+			data: []byte{GenerateTOC(31, false, 3), 0x01},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := decodeSelfDelimitedPacket(tt.data)
+			if !errors.Is(err, ErrInvalidPacket) {
+				t.Fatalf("decodeSelfDelimitedPacket err=%v want=%v", err, ErrInvalidPacket)
+			}
+		})
 	}
 }
 

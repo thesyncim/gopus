@@ -18,6 +18,9 @@ type parsedOpusPacket struct {
 // packets and this function consumes exactly one self-delimited packet.
 func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) {
 	if len(data) < 1 {
+		if selfDelimited {
+			return parsedOpusPacket{}, ErrInvalidPacket
+		}
 		return parsedOpusPacket{}, ErrPacketTooShort
 	}
 
@@ -34,7 +37,7 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 		if selfDelimited {
 			length, consumed, err := parseSelfDelimitedLength(data[offset:])
 			if err != nil {
-				return parsedOpusPacket{}, err
+				return parsedOpusPacket{}, ErrInvalidPacket
 			}
 			offset += consumed
 			frameSizes = append(frameSizes, length)
@@ -51,7 +54,7 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 		if selfDelimited {
 			length, consumed, err := parseSelfDelimitedLength(data[offset:])
 			if err != nil {
-				return parsedOpusPacket{}, err
+				return parsedOpusPacket{}, ErrInvalidPacket
 			}
 			offset += consumed
 			frameSizes = append(frameSizes, length, length)
@@ -70,6 +73,9 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 	case 2:
 		length0, consumed, err := parseSelfDelimitedLength(data[offset:])
 		if err != nil {
+			if selfDelimited {
+				return parsedOpusPacket{}, ErrInvalidPacket
+			}
 			return parsedOpusPacket{}, err
 		}
 		offset += consumed
@@ -78,7 +84,7 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 		if selfDelimited {
 			length1, consumed, err = parseSelfDelimitedLength(data[offset:])
 			if err != nil {
-				return parsedOpusPacket{}, err
+				return parsedOpusPacket{}, ErrInvalidPacket
 			}
 			offset += consumed
 		} else {
@@ -96,6 +102,9 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 
 	case 3:
 		if offset >= len(data) {
+			if selfDelimited {
+				return parsedOpusPacket{}, ErrInvalidPacket
+			}
 			return parsedOpusPacket{}, ErrPacketTooShort
 		}
 
@@ -115,6 +124,9 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 		if hasPadding {
 			for {
 				if offset >= len(data) {
+					if selfDelimited {
+						return parsedOpusPacket{}, ErrInvalidPacket
+					}
 					return parsedOpusPacket{}, ErrPacketTooShort
 				}
 				padByte := int(data[offset])
@@ -133,6 +145,9 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 			for i := 0; i < frameCount-1; i++ {
 				frameLen, consumed, err := parseSelfDelimitedLength(data[offset:])
 				if err != nil {
+					if selfDelimited {
+						return parsedOpusPacket{}, ErrInvalidPacket
+					}
 					return parsedOpusPacket{}, err
 				}
 				offset += consumed
@@ -143,7 +158,7 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 			if selfDelimited {
 				lastLen, consumed, err := parseSelfDelimitedLength(data[offset:])
 				if err != nil {
-					return parsedOpusPacket{}, err
+					return parsedOpusPacket{}, ErrInvalidPacket
 				}
 				offset += consumed
 				frameSizes[frameCount-1] = lastLen
@@ -161,7 +176,7 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 			if selfDelimited {
 				frameLen, consumed, err := parseSelfDelimitedLength(data[offset:])
 				if err != nil {
-					return parsedOpusPacket{}, err
+					return parsedOpusPacket{}, ErrInvalidPacket
 				}
 				offset += consumed
 				for i := 0; i < frameCount; i++ {
@@ -196,6 +211,9 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 
 	consumed := offset + frameBytes + padding
 	if consumed > len(data) {
+		if selfDelimited {
+			return parsedOpusPacket{}, ErrInvalidPacket
+		}
 		return parsedOpusPacket{}, ErrPacketTooShort
 	}
 	if !selfDelimited && consumed != len(data) {
