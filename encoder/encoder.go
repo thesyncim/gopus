@@ -3270,6 +3270,7 @@ func (e *Encoder) ensureCELTEncoder() {
 	e.celtEncoder.SetEnergyMask(e.celtEnergyMask)
 	e.celtEncoder.SetConstrainedVBRBoundScale(e.celtCVBRBoundScale)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
+	e.celtEncoder.SetPacketLoss(e.packetLoss)
 }
 
 // silkBandwidth converts the Opus bandwidth to SILK bandwidth.
