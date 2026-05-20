@@ -23,7 +23,7 @@ func (d *Decoder) OSCEBWE() (bool, error) {
 //
 // The default gopus build keeps this quarantined from the public API surface.
 // libopus selects between OSCE_METHOD_NONE / OSCE_METHOD_LACE / OSCE_METHOD_NOLACE
-// based on encoder complexity (>=6 enables LACE, >=7 enables NoLACE); this
+// based on decoder complexity (>=6 enables LACE, >=7 enables NoLACE); this
 // boolean control gates whether the gopus decoder runs either postfilter on
 // the SILK lowband output before the silk_resampler / OSCE BWE stages.
 func (d *Decoder) SetOSCELACE(enabled bool) error {

@@ -62,7 +62,7 @@ func (d *Decoder) maybeApplyOSCEBWEPostSilk(
 	// around `OSCE_MODE_SILK_BBWE`. PLC re-uses this same gate (the caller
 	// passes the previous packet's mode/bandwidth, which is how libopus
 	// derives the BWE eligibility on `data == NULL`).
-	if mode != ModeSILK || d.sampleRate != 48000 || silkBW != silk.BandwidthWideband {
+	if d.complexity < 4 || mode != ModeSILK || d.sampleRate != 48000 || silkBW != silk.BandwidthWideband {
 		// BWE is inactive this frame. If the previous frame ran BWE we still
 		// need a cross-fade so the resampler/BWE boundary is not audible.
 		if d.osceBWE.prevBWEActive {

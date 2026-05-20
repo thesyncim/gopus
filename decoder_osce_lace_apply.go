@@ -8,17 +8,7 @@ import (
 	"github.com/thesyncim/gopus/silk"
 )
 
-// osceLACEMode picks between LACE and NoLACE for a given SILK internal
-// bandwidth. libopus selects via DecControl.osce_method (driven by encoder
-// complexity); the gopus wiring honours the task spec which is mode-aware
-// over the SILK bandwidth:
-//
-//   - SILK NB (8 kHz internal) -> LACE
-//   - SILK MB / WB / Hybrid (12-16 kHz internal) -> NoLACE
-//
-// In libopus the LACE / NoLACE postfilter only runs at fs_kHz == 16 (see
-// `dnn/osce.c::osce_enhance_frame` early return); the gate downstream of
-// this helper enforces the same restriction.
+// osceLACEMode picks the decoder-complexity selected OSCE method.
 type osceLACEMode int
 
 const (
@@ -27,17 +17,14 @@ const (
 	osceLACEModeNoLACE osceLACEMode = 2
 )
 
-// pickOSCELACEMode mirrors the libopus complexity-based mode selection,
-// projected onto the SILK internal bandwidth.
-func pickOSCELACEMode(silkBW silk.Bandwidth) osceLACEMode {
-	switch silkBW {
-	case silk.BandwidthNarrowband:
-		return osceLACEModeLACE
-	case silk.BandwidthMediumband, silk.BandwidthWideband:
+func pickOSCELACEMode(complexity int) osceLACEMode {
+	if complexity >= 7 {
 		return osceLACEModeNoLACE
-	default:
-		return osceLACEModeNone
 	}
+	if complexity >= 6 {
+		return osceLACEModeLACE
+	}
+	return osceLACEModeNone
 }
 
 // maybeApplyOSCELACEPostSilk runs the OSCE LACE / NoLACE postfilter forward
@@ -94,7 +81,7 @@ func (d *Decoder) maybeApplyOSCELACEPostSilk(
 		d.osceLACE.prevLACEActive = false
 		return false
 	}
-	pickedMode := pickOSCELACEMode(silkBW)
+	pickedMode := pickOSCELACEMode(d.complexity)
 	if pickedMode == osceLACEModeNone {
 		d.osceLACE.prevLACEActive = false
 		return false

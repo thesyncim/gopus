@@ -23,6 +23,22 @@ import (
 	"testing"
 )
 
+func TestDecoderOSCELACEComplexityMode(t *testing.T) {
+	for _, tc := range []struct {
+		complexity int
+		want       osceLACEMode
+	}{
+		{complexity: 5, want: osceLACEModeNone},
+		{complexity: 6, want: osceLACEModeLACE},
+		{complexity: 7, want: osceLACEModeNoLACE},
+		{complexity: 10, want: osceLACEModeNoLACE},
+	} {
+		if got := pickOSCELACEMode(tc.complexity); got != tc.want {
+			t.Fatalf("pickOSCELACEMode(%d)=%v want %v", tc.complexity, got, tc.want)
+		}
+	}
+}
+
 func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 	coreBlob := requireLibopusDecoderNeuralModelBlob(t)
 	laceBlob := requireLibopusOSCELACEModelBlob(t)
@@ -34,6 +50,9 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatalf("NewDecoder(mono 48kHz): %v", err)
+	}
+	if err := dec.SetComplexity(6); err != nil {
+		t.Fatalf("SetComplexity(6): %v", err)
 	}
 
 	if err := dec.SetOSCELACE(true); err != nil {
@@ -171,6 +190,9 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		decLACE, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 		if err != nil {
 			t.Fatalf("NewDecoder(lace): %v", err)
+		}
+		if err := decLACE.SetComplexity(6); err != nil {
+			t.Fatalf("SetComplexity(6): %v", err)
 		}
 		if err := decLACE.SetOSCELACE(true); err != nil {
 			t.Fatalf("SetOSCELACE(true): %v", err)

@@ -41,7 +41,7 @@ func (d *streamState) applyOSCELACE(out []float32, frameSize int, silkBW silk.Ba
 		return false
 	}
 
-	mode := pickStreamOSCELACEMode(silkBW)
+	mode := pickStreamOSCELACEMode(d.complexity)
 	if mode == streamOSCELACEModeNone {
 		state.prevLACEActive = false
 		return false
@@ -85,16 +85,14 @@ const (
 	streamOSCELACEModeNoLACE streamOSCELACEMode = 2
 )
 
-// pickStreamOSCELACEMode mirrors `pickOSCELACEMode` in package gopus.
-func pickStreamOSCELACEMode(silkBW silk.Bandwidth) streamOSCELACEMode {
-	switch silkBW {
-	case silk.BandwidthNarrowband:
-		return streamOSCELACEModeLACE
-	case silk.BandwidthMediumband, silk.BandwidthWideband:
+func pickStreamOSCELACEMode(complexity int) streamOSCELACEMode {
+	if complexity >= 7 {
 		return streamOSCELACEModeNoLACE
-	default:
-		return streamOSCELACEModeNone
 	}
+	if complexity >= 6 {
+		return streamOSCELACEModeLACE
+	}
+	return streamOSCELACEModeNone
 }
 
 func (d *streamState) runOSCELACEChannel(native []int16, mode streamOSCELACEMode, transition bool, channelIdx int) bool {
@@ -164,7 +162,7 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 	if state.bweModel == nil {
 		return false
 	}
-	if d.sampleRate != 48000 || silkBW != silk.BandwidthWideband {
+	if d.complexity < 4 || d.sampleRate != 48000 || silkBW != silk.BandwidthWideband {
 		state.prevBWEActive = false
 		return false
 	}

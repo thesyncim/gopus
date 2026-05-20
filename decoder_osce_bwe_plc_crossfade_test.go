@@ -35,6 +35,9 @@ func TestDecoderOSCEBWECrossFadeTransition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoder(mono 48kHz): %v", err)
 	}
+	if err := dec.SetComplexity(4); err != nil {
+		t.Fatalf("SetComplexity(4): %v", err)
+	}
 	if err := dec.SetOSCEBWE(true); err != nil {
 		t.Fatalf("SetOSCEBWE(true): %v", err)
 	}
@@ -165,6 +168,9 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoder(mono 48kHz): %v", err)
 	}
+	if err := dec.SetComplexity(4); err != nil {
+		t.Fatalf("SetComplexity(4): %v", err)
+	}
 	if err := dec.SetOSCEBWE(true); err != nil {
 		t.Fatalf("SetOSCEBWE(true): %v", err)
 	}
@@ -226,6 +232,9 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 		dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
 		if err != nil {
 			t.Fatalf("NewDecoder(stereo 48kHz): %v", err)
+		}
+		if err := dec.SetComplexity(4); err != nil {
+			t.Fatalf("SetComplexity(4): %v", err)
 		}
 		if err := dec.SetOSCEBWE(true); err != nil {
 			t.Fatalf("SetOSCEBWE(true): %v", err)

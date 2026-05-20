@@ -59,6 +59,9 @@ func TestMultistreamDecoderOSCEBWELACERuntimeIntegration(t *testing.T) {
 	// Reference decode: OSCE disabled. The standard silk_resampler output
 	// is the baseline against which the OSCE-enabled run is compared.
 	decRef := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+	if err := decRef.SetComplexity(7); err != nil {
+		t.Fatalf("decRef.SetComplexity(7): %v", err)
+	}
 	if err := decRef.SetDNNBlob(merged); err != nil {
 		t.Fatalf("SetDNNBlob(decRef): %v", err)
 	}
@@ -77,6 +80,9 @@ func TestMultistreamDecoderOSCEBWELACERuntimeIntegration(t *testing.T) {
 
 	// Active decode: enable OSCE BWE + LACE, bind the merged model blob.
 	dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+	if err := dec.SetComplexity(7); err != nil {
+		t.Fatalf("SetComplexity(7): %v", err)
+	}
 	if err := dec.SetOSCEBWE(true); err != nil {
 		t.Fatalf("SetOSCEBWE(true): %v", err)
 	}
@@ -157,6 +163,9 @@ func TestMultistreamDecoderOSCEBWEMatchesSingleStreamDecoder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoder(single): %v", err)
 	}
+	if err := decSingle.SetComplexity(4); err != nil {
+		t.Fatalf("single.SetComplexity(4): %v", err)
+	}
 	if err := decSingle.SetOSCEBWE(true); err != nil {
 		t.Fatalf("single.SetOSCEBWE(true): %v", err)
 	}
@@ -174,6 +183,9 @@ func TestMultistreamDecoderOSCEBWEMatchesSingleStreamDecoder(t *testing.T) {
 	}
 
 	decMS := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+	if err := decMS.SetComplexity(4); err != nil {
+		t.Fatalf("multistream.SetComplexity(4): %v", err)
+	}
 	if err := decMS.SetOSCEBWE(true); err != nil {
 		t.Fatalf("multistream.SetOSCEBWE(true): %v", err)
 	}

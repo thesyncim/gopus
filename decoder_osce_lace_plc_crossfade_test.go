@@ -37,6 +37,9 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoder(mono 48kHz): %v", err)
 	}
+	if err := dec.SetComplexity(6); err != nil {
+		t.Fatalf("SetComplexity(6): %v", err)
+	}
 	if err := dec.SetOSCELACE(true); err != nil {
 		t.Fatalf("SetOSCELACE(true): %v", err)
 	}
@@ -160,6 +163,9 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoder(mono 48kHz): %v", err)
 	}
+	if err := dec.SetComplexity(6); err != nil {
+		t.Fatalf("SetComplexity(6): %v", err)
+	}
 	if err := dec.SetOSCELACE(true); err != nil {
 		t.Fatalf("SetOSCELACE(true): %v", err)
 	}
@@ -223,6 +229,9 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 		dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
 		if err != nil {
 			t.Fatalf("NewDecoder(stereo 48kHz): %v", err)
+		}
+		if err := dec.SetComplexity(6); err != nil {
+			t.Fatalf("SetComplexity(6): %v", err)
 		}
 		if err := dec.SetOSCELACE(true); err != nil {
 			t.Fatalf("SetOSCELACE(true): %v", err)

@@ -38,6 +38,9 @@ func TestDecoderOSCEBWERuntimeIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoder(stereo 48kHz): %v", err)
 	}
+	if err := dec.SetComplexity(4); err != nil {
+		t.Fatalf("SetComplexity(4): %v", err)
+	}
 
 	if err := dec.SetOSCEBWE(true); err != nil {
 		t.Fatalf("SetOSCEBWE(true): %v", err)
@@ -190,6 +193,53 @@ func TestDecoderOSCEBWERuntimeIntegration(t *testing.T) {
 			t.Fatalf("decoded stereo PCM is mono (left == right) after stereo BWE pass -- side-channel runtime not invoked?")
 		}
 	})
+}
+
+func TestDecoderOSCEBWEComplexityGate(t *testing.T) {
+	coreBlob := requireLibopusDecoderNeuralModelBlob(t)
+	bweBlob := requireLibopusOSCEBWEModelBlob(t)
+
+	merged := make([]byte, 0, len(coreBlob)+len(bweBlob))
+	merged = append(merged, coreBlob...)
+	merged = append(merged, bweBlob...)
+
+	const frameSize = 960
+	packet := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
+
+	for _, tc := range []struct {
+		name       string
+		complexity int
+		wantActive bool
+	}{
+		{name: "below_gate", complexity: 3, wantActive: false},
+		{name: "at_gate", complexity: 4, wantActive: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			if err := dec.SetComplexity(tc.complexity); err != nil {
+				t.Fatalf("SetComplexity(%d): %v", tc.complexity, err)
+			}
+			if err := dec.SetOSCEBWE(true); err != nil {
+				t.Fatalf("SetOSCEBWE(true): %v", err)
+			}
+			if err := dec.SetDNNBlob(merged); err != nil {
+				t.Fatalf("SetDNNBlob(merged core+BWE): %v", err)
+			}
+			pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+			if got, err := dec.Decode(packet, pcm); err != nil {
+				t.Fatalf("Decode(silk WB): %v", err)
+			} else if got != frameSize {
+				t.Fatalf("Decode returned %d samples per channel, want %d", got, frameSize)
+			}
+			gotActive := dec.osceBWE != nil && dec.osceBWE.prevBWEActive
+			if gotActive != tc.wantActive {
+				t.Fatalf("prevBWEActive=%v want %v at complexity %d", gotActive, tc.wantActive, tc.complexity)
+			}
+		})
+	}
 }
 
 // makeValidStereoSILKPacketForFrameSizeBandwidthForOSCEBWETest synthesises a
