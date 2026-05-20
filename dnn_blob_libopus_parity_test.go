@@ -1,26 +1,17 @@
 package gopus
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
-	"github.com/thesyncim/gopus/internal/libopustooling"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 var (
-	defaultLibopusDNNBuildOnce      sync.Once
-	defaultLibopusDNNBuildSourceDir string
-	defaultLibopusDNNBuildDir       string
-	defaultLibopusDNNBuildErr       error
-
 	defaultLibopusPitchDNNBlobHelperOnce sync.Once
 	defaultLibopusPitchDNNBlobHelperPath string
 	defaultLibopusPitchDNNBlobHelperErr  error
@@ -218,152 +209,17 @@ func runDefaultLibopusDREDEncoderBlobHelper() ([]byte, error) {
 }
 
 func runDefaultLibopusDNNBlobHelper(binPath string) ([]byte, error) {
-	cmd := exec.Command(binPath)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run model blob helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelper(binPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("run model blob helper: %w", err)
 	}
-	return stdout.Bytes(), nil
+	return out, nil
 }
 
 func buildDefaultLibopusDNNHelper(sourceFile, outputBase string) (string, error) {
-	ccPath, err := libopustooling.FindCCompiler()
-	if err != nil {
-		return "", fmt.Errorf("cc not available: %w", err)
-	}
-
 	repoRoot, err := os.Getwd()
 	if err != nil {
 		return "", fmt.Errorf("getwd: %w", err)
 	}
-	repoRoot = filepath.Clean(repoRoot)
-
-	sourceDir, buildDir, err := ensureDefaultLibopusDNNBuild(repoRoot)
-	if err != nil {
-		return "", err
-	}
-
-	srcPath := filepath.Join(repoRoot, "tools", "csrc", sourceFile)
-	if _, err := os.Stat(srcPath); err != nil {
-		return "", fmt.Errorf("DNN blob helper source not found: %w", err)
-	}
-
-	libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
-	if _, err := os.Stat(libopusStatic); err != nil {
-		return "", fmt.Errorf("DNN blob libopus static library not found: %w", err)
-	}
-
-	outPath := filepath.Join(buildDir, fmt.Sprintf("%s_%s_%s", outputBase, runtime.GOOS, runtime.GOARCH))
-	if runtime.GOOS == "windows" {
-		outPath += ".exe"
-	}
-
-	args := []string{
-		"-std=c99",
-		"-O2",
-		"-DHAVE_CONFIG_H",
-		"-I", buildDir,
-		"-I", filepath.Join(sourceDir, "include"),
-		"-I", sourceDir,
-		"-I", filepath.Join(sourceDir, "src"),
-		"-I", filepath.Join(sourceDir, "celt"),
-		"-I", filepath.Join(sourceDir, "dnn"),
-		"-I", filepath.Join(sourceDir, "silk"),
-		srcPath,
-		libopusStatic,
-		"-lm",
-		"-o",
-		outPath,
-	}
-	cmd := exec.Command(ccPath, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build DNN blob helper %s: %w (%s)", sourceFile, err, bytes.TrimSpace(output))
-	}
-	return outPath, nil
-}
-
-func ensureDefaultLibopusDNNBuild(repoRoot string) (sourceDir, buildDir string, err error) {
-	defaultLibopusDNNBuildOnce.Do(func() {
-		sourceDir, buildDir, err := prepareDefaultLibopusDNNBuild(repoRoot)
-		defaultLibopusDNNBuildSourceDir = sourceDir
-		defaultLibopusDNNBuildDir = buildDir
-		defaultLibopusDNNBuildErr = err
-	})
-	if defaultLibopusDNNBuildErr != nil {
-		return "", "", defaultLibopusDNNBuildErr
-	}
-	return defaultLibopusDNNBuildSourceDir, defaultLibopusDNNBuildDir, nil
-}
-
-func prepareDefaultLibopusDNNBuild(repoRoot string) (sourceDir, buildDir string, err error) {
-	referenceDir := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion)
-	sourceDir = filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+"-dredsrc-clean")
-	buildDir = filepath.Join(repoRoot, "tmp_check", fmt.Sprintf("build-opus-dred-scalar-%s-%s", runtime.GOOS, runtime.GOARCH))
-	libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
-	if _, err := os.Stat(libopusStatic); err == nil && libopustooling.ScalarDNNBuildIsCurrent(buildDir) {
-		return sourceDir, buildDir, nil
-	}
-
-	if _, err := os.Stat(filepath.Join(sourceDir, "configure")); err != nil {
-		libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{repoRoot})
-		tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
-		if _, err := os.Stat(tarball); err == nil {
-			if err := os.RemoveAll(sourceDir); err != nil {
-				return "", "", fmt.Errorf("remove stale DNN source dir: %w", err)
-			}
-			if err := os.MkdirAll(sourceDir, 0o755); err != nil {
-				return "", "", fmt.Errorf("mkdir DNN source dir: %w", err)
-			}
-			cmd := exec.Command("tar", "-xzf", tarball, "-C", sourceDir, "--strip-components=1")
-			if output, err := cmd.CombinedOutput(); err != nil {
-				return "", "", fmt.Errorf("extract DNN libopus source: %w (%s)", err, bytes.TrimSpace(output))
-			}
-		} else if _, refErr := os.Stat(filepath.Join(referenceDir, "configure")); refErr == nil {
-			if _, cfgErr := os.Stat(filepath.Join(referenceDir, "Makefile")); cfgErr == nil {
-				return "", "", fmt.Errorf("clean DNN source tree unavailable: %s is already configured", referenceDir)
-			}
-			sourceDir = referenceDir
-		} else {
-			return "", "", fmt.Errorf("libopus tarball not found and no prepared source tree present: %w", err)
-		}
-	}
-
-	if err := libopustooling.ResetScalarDNNBuildIfStale(buildDir); err != nil {
-		return "", "", fmt.Errorf("reset stale DNN scalar build dir: %w", err)
-	}
-	if err := os.MkdirAll(buildDir, 0o755); err != nil {
-		return "", "", fmt.Errorf("mkdir DNN build dir: %w", err)
-	}
-
-	if _, err := os.Stat(filepath.Join(buildDir, "Makefile")); err != nil {
-		cmd := exec.Command(filepath.Join(sourceDir, "configure"),
-			"--enable-static",
-			"--disable-shared",
-			"--disable-extra-programs",
-			"--enable-dred",
-			"--disable-asm",
-			"--disable-rtcd",
-			"--disable-intrinsics",
-		)
-		cmd.Dir = buildDir
-		cmd.Env = libopustooling.ScalarDNNBuildEnv()
-		if output, err := cmd.CombinedOutput(); err != nil {
-			return "", "", fmt.Errorf("configure DNN libopus build: %w (%s)", err, bytes.TrimSpace(output))
-		}
-	}
-
-	makeCmd := exec.Command("make", fmt.Sprintf("-j%d", max(1, runtime.NumCPU())))
-	makeCmd.Dir = buildDir
-	makeCmd.Env = libopustooling.ScalarDNNBuildEnv()
-	if output, err := makeCmd.CombinedOutput(); err != nil {
-		return "", "", fmt.Errorf("build DNN libopus: %w (%s)", err, bytes.TrimSpace(output))
-	}
-	if err := libopustooling.WriteScalarDNNBuildStamp(buildDir); err != nil {
-		return "", "", fmt.Errorf("write DNN scalar build stamp: %w", err)
-	}
-
-	return sourceDir, buildDir, nil
+	return libopustest.BuildDREDHelper(repoRoot, sourceFile, outputBase, true)
 }
