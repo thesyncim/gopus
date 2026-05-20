@@ -4,14 +4,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 
-	"github.com/thesyncim/gopus/internal/libopustooling"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 const (
@@ -71,40 +67,13 @@ type rangeOracleResult struct {
 }
 
 func buildLibopusRangeHelper() (string, error) {
-	ccPath, err := libopustooling.FindCCompiler()
-	if err != nil {
-		return "", fmt.Errorf("cc not available: %w", err)
-	}
-	repoRoot := filepath.Clean("..")
-	refDir := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion)
-	if _, err := os.Stat(filepath.Join(refDir, "config.h")); err != nil {
-		libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{repoRoot})
-	}
-	srcPath := filepath.Join(repoRoot, "tools", "csrc", "libopus_range_coder_info.c")
-	outDir := filepath.Join(os.TempDir(), "gopus_range_test_helpers")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return "", fmt.Errorf("mkdir helper dir: %w", err)
-	}
-	outPath := filepath.Join(outDir, fmt.Sprintf("gopus_libopus_range_coder_%s_%s", runtime.GOOS, runtime.GOARCH))
-	if runtime.GOOS == "windows" {
-		outPath += ".exe"
-	}
-	args := []string{
-		"-std=c99",
-		"-O2",
-		"-DHAVE_CONFIG_H",
-		"-I", refDir,
-		"-I", filepath.Join(refDir, "include"),
-		"-I", filepath.Join(refDir, "celt"),
-		srcPath,
-		"-lm",
-		"-o", outPath,
-	}
-	cmd := exec.Command(ccPath, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build range helper: %w (%s)", err, bytes.TrimSpace(output))
-	}
-	return outPath, nil
+	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		Label:       "range",
+		OutputBase:  "gopus_libopus_range_coder",
+		SourceFile:  "libopus_range_coder_info.c",
+		CFlags:      []string{"-DHAVE_CONFIG_H"},
+		RefIncludes: []string{"celt"},
+	})
 }
 
 func getLibopusRangeHelperPath() (string, error) {
@@ -137,15 +106,10 @@ func probeLibopusRangeEncoder(storage uint32, ops []rangeOracleOp) (rangeOracleR
 		}
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(binPath)
-	cmd.Stdin = &payload
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return rangeOracleResult{}, fmt.Errorf("run range helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	data, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return rangeOracleResult{}, fmt.Errorf("run range helper: %w", err)
 	}
-	data := stdout.Bytes()
 	if len(data) < 16 || string(data[:4]) != libopusRangeOutputMagic {
 		return rangeOracleResult{}, fmt.Errorf("unexpected range helper output")
 	}
@@ -266,6 +230,7 @@ func verifyRangeDecodeOps(t *testing.T, packet []byte, ops []rangeOracleOp) {
 }
 
 func TestRangeCoderMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
 	cases := []struct {
 		name         string
 		storage      uint32
@@ -336,7 +301,7 @@ func TestRangeCoderMatchesLibopusOracle(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			want, err := probeLibopusRangeEncoder(tc.storage, tc.ops)
 			if err != nil {
-				t.Skipf("libopus range helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "range", err)
 			}
 			got := encodeRangeOpsWithGo(tc.storage, tc.ops)
 			if len(got.traces) != len(want.traces) {

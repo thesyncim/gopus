@@ -4,14 +4,10 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 
-	"github.com/thesyncim/gopus/internal/libopustooling"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 const (
@@ -29,42 +25,14 @@ var (
 )
 
 func buildLibopusSILKLogHelper() (string, error) {
-	ccPath, err := libopustooling.FindCCompiler()
-	if err != nil {
-		return "", fmt.Errorf("cc not available: %w", err)
-	}
-	repoRoot := filepath.Clean("..")
-	refDir := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion)
-	if _, err := os.Stat(filepath.Join(refDir, "config.h")); err != nil {
-		libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{repoRoot})
-	}
-	srcPath := filepath.Join(repoRoot, "tools", "csrc", "libopus_silk_log_info.c")
-	outDir := filepath.Join(os.TempDir(), "gopus_silk_test_helpers")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return "", fmt.Errorf("mkdir helper dir: %w", err)
-	}
-	outPath := filepath.Join(outDir, fmt.Sprintf("gopus_libopus_silk_log_%s_%s", runtime.GOOS, runtime.GOARCH))
-	if runtime.GOOS == "windows" {
-		outPath += ".exe"
-	}
-	args := []string{
-		"-std=c99",
-		"-O2",
-		"-DHAVE_CONFIG_H",
-		"-I", refDir,
-		"-I", filepath.Join(refDir, "include"),
-		"-I", filepath.Join(refDir, "silk"),
-		srcPath,
-		filepath.Join(refDir, "silk", "lin2log.c"),
-		filepath.Join(refDir, "silk", "log2lin.c"),
-		"-lm",
-		"-o", outPath,
-	}
-	cmd := exec.Command(ccPath, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build silk log helper: %w (%s)", err, bytes.TrimSpace(output))
-	}
-	return outPath, nil
+	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		Label:       "silk log",
+		OutputBase:  "gopus_libopus_silk_log",
+		SourceFile:  "libopus_silk_log_info.c",
+		CFlags:      []string{"-DHAVE_CONFIG_H"},
+		RefIncludes: []string{"celt", "silk"},
+		RefSources:  []string{"silk/lin2log.c", "silk/log2lin.c"},
+	})
 }
 
 func getLibopusSILKLogHelperPath() (string, error) {
@@ -95,15 +63,10 @@ func probeLibopusSILKLog(mode uint32, samples []int32) ([]int32, error) {
 		}
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(binPath)
-	cmd.Stdin = &payload
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run silk log helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	data, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("run silk log helper: %w", err)
 	}
-	data := stdout.Bytes()
 	if len(data) < 12 || string(data[:4]) != libopusSILKLogOutputMagic {
 		return nil, fmt.Errorf("unexpected silk log helper output")
 	}
@@ -124,6 +87,7 @@ func probeLibopusSILKLog(mode uint32, samples []int32) ([]int32, error) {
 }
 
 func TestSILKLin2LogMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	samples := []int32{1, 2, 3, 4, 5, 7, 8, 15, 16, 31, 32, 63, 64, 127, 128, 255, 256, 1024, 65535, 65536, 0x7fffffff}
 	for shift := 1; shift < 31; shift++ {
 		base := int32(1) << shift
@@ -136,7 +100,7 @@ func TestSILKLin2LogMatchesLibopus(t *testing.T) {
 	}
 	want, err := probeLibopusSILKLog(libopusSILKLogModeLin2Log, samples)
 	if err != nil {
-		t.Skipf("libopus silk log helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "silk log", err)
 	}
 	for i, sample := range samples {
 		if got := silkLin2Log(sample); got != want[i] {
@@ -146,13 +110,14 @@ func TestSILKLin2LogMatchesLibopus(t *testing.T) {
 }
 
 func TestSILKLog2LinMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	samples := []int32{-16, -1, 0, 1, 2, 63, 64, 65, 127, 128, 129, 2047, 2048, 2049, 3966, 3967, 4096}
 	for x := int32(0); x <= 3967; x++ {
 		samples = append(samples, x)
 	}
 	want, err := probeLibopusSILKLog(libopusSILKLogModeLog2Lin, samples)
 	if err != nil {
-		t.Skipf("libopus silk log helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "silk log", err)
 	}
 	for i, sample := range samples {
 		if got := silkLog2Lin(sample); got != want[i] {

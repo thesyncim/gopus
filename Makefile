@@ -132,7 +132,7 @@ test-doc-contract:
 test-dnn-blob-parity: ensure-libopus
 	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) dnn-blob-parity
 
-# Supported DRED feature-tag smoke. The extra-controls tag remains a
+# Supported DRED feature-tag parity gate. The extra-controls tag remains a
 # broader parity umbrella; this target verifies the supported DRED surface by itself.
 test-dred-tag: ensure-libopus
 	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) dred-tag
@@ -146,8 +146,8 @@ test-qext-parity: ensure-libopus-qext
 test-extra-controls-tag: ensure-libopus
 	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) extra-controls-tag
 
-# Required tag-gated DRED parity sweep. Keep it separate from the extra-controls API
-# smoke so support claims stay seam-scoped.
+# Required tag-gated DRED/OSCE oracle sweep. Keep it separate from the
+# extra-controls API smoke so support claims stay seam-scoped.
 test-extra-controls-parity: ensure-libopus
 	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) extra-controls-parity
 

@@ -8,6 +8,7 @@
 #endif
 
 #include "config.h"
+#include "celt/bands.h"
 #include "celt/entcode.h"
 #include "celt/mathops.h"
 
@@ -49,29 +50,6 @@ static int write_u32(uint32_t value) {
   return write_exact(&value, sizeof(value));
 }
 
-static opus_int16 helper_bitexact_cos(opus_int16 x)
-{
-   opus_int32 tmp;
-   opus_int16 x2;
-   tmp = (4096+((opus_int32)(x)*(x)))>>13;
-   x2 = tmp;
-   x2 = (32767-x2) + FRAC_MUL16(x2, (-7651 + FRAC_MUL16(x2, (8277 + FRAC_MUL16(-626, x2)))));
-   return 1+x2;
-}
-
-static int helper_bitexact_log2tan(int isin,int icos)
-{
-   int lc;
-   int ls;
-   lc=EC_ILOG(icos);
-   ls=EC_ILOG(isin);
-   icos<<=15-lc;
-   isin<<=15-ls;
-   return (ls-lc)*(1<<11)
-         +FRAC_MUL16(isin, FRAC_MUL16(isin, -2597) + 7932)
-         -FRAC_MUL16(icos, FRAC_MUL16(icos, -2597) + 7932);
-}
-
 static int eval_record(uint32_t mode) {
   uint32_t a;
   uint32_t b;
@@ -97,10 +75,10 @@ static int eval_record(uint32_t mode) {
       return write_u32((uint32_t)(int32_t)FRAC_MUL16((int32_t)a, (int32_t)b));
     case MODE_BITEXACT_COS:
       if (!read_u32(&a)) return 0;
-      return write_u32((uint32_t)(int32_t)helper_bitexact_cos((opus_int16)(int32_t)a));
+      return write_u32((uint32_t)(int32_t)bitexact_cos((opus_int16)(int32_t)a));
     case MODE_BITEXACT_LOG2TAN:
       if (!read_u32(&a) || !read_u32(&b)) return 0;
-      return write_u32((uint32_t)(int32_t)helper_bitexact_log2tan((int)(int32_t)a, (int)(int32_t)b));
+      return write_u32((uint32_t)(int32_t)bitexact_log2tan((int)(int32_t)a, (int)(int32_t)b));
     case MODE_ISQRT32:
       if (!read_u32(&a)) return 0;
       return write_u32(a == 0 ? 0 : (uint32_t)isqrt32(a));

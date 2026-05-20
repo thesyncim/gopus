@@ -193,7 +193,7 @@ write_summary() {
     echo "- Pass/fail summaries: see the command table above and per-command logs."
     echo "- Benchmark guardrail result: see \`make bench-guard\` and encoder/decoder \`make bench-libopus-guard\` in the Performance rows."
     echo "- Fuzz/safety summary: see \`make test-fuzz-smoke\`, \`make test-fuzz-safety\`, and \`make test-soak-safety\` in the Safety rows."
-    echo "- Parity summary: see \`make test-quality\` and \`make verify-production-exhaustive\` in the Parity and Release gate rows."
+    echo "- Parity summary: see \`make test-quality\`, focused DRED/QEXT gates, and \`make verify-production-exhaustive\` in the Parity and Release gate rows."
     echo "- Consumer-smoke result: see \`make test-consumer-smoke\` in the Consumer row."
     echo
     echo "## Bundle Files"

@@ -1,0 +1,303 @@
+package silk
+
+import (
+	"bytes"
+	"encoding/binary"
+	"fmt"
+	"math"
+	"sync"
+	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
+)
+
+const (
+	libopusSILKNLSFInputMagic  = "GSNI"
+	libopusSILKNLSFOutputMagic = "GSNO"
+
+	libopusSILKNLSFModeDecode    = uint32(0)
+	libopusSILKNLSFModeNLSF2A    = uint32(1)
+	libopusSILKNLSFModeA2NLSF    = uint32(2)
+	libopusSILKNLSFModeStabilize = uint32(3)
+
+	libopusSILKNLSFCBNBMB = uint32(0)
+	libopusSILKNLSFCBWB   = uint32(1)
+)
+
+var (
+	libopusSILKNLSFHelperOnce sync.Once
+	libopusSILKNLSFHelperPath string
+	libopusSILKNLSFHelperErr  error
+)
+
+func buildLibopusSILKNLSFHelper() (string, error) {
+	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		Label:        "silk nlsf",
+		OutputBase:   "gopus_libopus_silk_nlsf",
+		SourceFile:   "libopus_silk_nlsf_info.c",
+		ProbeRelPath: "silk/main.h",
+		RefIncludes:  []string{"celt", "silk"},
+		RefSources: []string{
+			"silk/NLSF_decode.c",
+			"silk/NLSF_unpack.c",
+			"silk/NLSF_stabilize.c",
+			"silk/NLSF2A.c",
+			"silk/A2NLSF.c",
+			"silk/LPC_fit.c",
+			"silk/LPC_inv_pred_gain.c",
+			"silk/bwexpander_32.c",
+			"silk/sort.c",
+			"silk/tables_NLSF_CB_NB_MB.c",
+			"silk/tables_NLSF_CB_WB.c",
+			"silk/table_LSF_cos.c",
+		},
+	})
+}
+
+func getLibopusSILKNLSFHelperPath() (string, error) {
+	libopusSILKNLSFHelperOnce.Do(func() {
+		libopusSILKNLSFHelperPath, libopusSILKNLSFHelperErr = buildLibopusSILKNLSFHelper()
+	})
+	if libopusSILKNLSFHelperErr != nil {
+		return "", libopusSILKNLSFHelperErr
+	}
+	return libopusSILKNLSFHelperPath, nil
+}
+
+func probeLibopusSILKNLSF(mode uint32, records [][]uint32) ([][]int16, error) {
+	binPath, err := getLibopusSILKNLSFHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	var payload bytes.Buffer
+	payload.WriteString(libopusSILKNLSFInputMagic)
+	for _, v := range []uint32{1, mode, uint32(len(records))} {
+		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
+			return nil, err
+		}
+	}
+	for _, record := range records {
+		for _, word := range record {
+			if err := binary.Write(&payload, binary.LittleEndian, word); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	data, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("run silk nlsf helper: %w", err)
+	}
+	if len(data) < 12 || string(data[:4]) != libopusSILKNLSFOutputMagic {
+		return nil, fmt.Errorf("unexpected silk nlsf helper output")
+	}
+	count := int(binary.LittleEndian.Uint32(data[8:12]))
+	if count != len(records) {
+		return nil, fmt.Errorf("helper count=%d want %d", count, len(records))
+	}
+	wantLen := 12 + count*(4+16*4)
+	if len(data) != wantLen {
+		return nil, fmt.Errorf("helper output length=%d want %d", len(data), wantLen)
+	}
+	out := make([][]int16, count)
+	offset := 12
+	for i := range out {
+		order := int(binary.LittleEndian.Uint32(data[offset:]))
+		offset += 4
+		if order != 10 && order != 16 {
+			return nil, fmt.Errorf("helper order=%d", order)
+		}
+		out[i] = make([]int16, order)
+		for j := 0; j < 16; j++ {
+			v := int32(binary.LittleEndian.Uint32(data[offset:]))
+			if j < order {
+				out[i][j] = int16(v)
+			}
+			offset += 4
+		}
+	}
+	return out, nil
+}
+
+func cbIDForNLSF(cb *nlsfCB) uint32 {
+	if cb == &silk_NLSF_CB_WB {
+		return libopusSILKNLSFCBWB
+	}
+	return libopusSILKNLSFCBNBMB
+}
+
+func uint32FromInt32(v int32) uint32 {
+	return uint32(v)
+}
+
+func TestSILKNLSFDecodeMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []struct {
+		name    string
+		cb      *nlsfCB
+		indices []int8
+	}{
+		{name: "nbmb_frame0", cb: &silk_NLSF_CB_NB_MB, indices: []int8{17, 0, -1, 0, 2, 0, 0, 0, -3, 1, -1}},
+		{name: "nbmb_frame1", cb: &silk_NLSF_CB_NB_MB, indices: []int8{23, 0, 0, -1, 1, -1, -1, -1, -2, 1, -2}},
+		{name: "nbmb_frame2", cb: &silk_NLSF_CB_NB_MB, indices: []int8{14, 0, -1, -2, 2, 1, 0, 0, -2, 1, 0}},
+		{name: "wb_low_residual", cb: &silk_NLSF_CB_WB, indices: []int8{3, 0, -1, 1, 0, 2, -2, 1, 0, -1, 1, 0, 2, -1, 0, 1, -2}},
+		{name: "wb_high_residual", cb: &silk_NLSF_CB_WB, indices: []int8{31, 1, 0, -1, 2, -2, 1, 0, -1, 2, -2, 1, 0, -1, 2, -2, 1}},
+	}
+
+	records := make([][]uint32, len(cases))
+	for i, tc := range cases {
+		record := []uint32{cbIDForNLSF(tc.cb)}
+		for _, idx := range tc.indices {
+			record = append(record, uint32FromInt32(int32(idx)))
+		}
+		records[i] = record
+	}
+	want, err := probeLibopusSILKNLSF(libopusSILKNLSFModeDecode, records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk nlsf", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make([]int16, tc.cb.order)
+			silkNLSFDecode(got, tc.indices, tc.cb)
+			if !sameInt16s(got, want[i]) {
+				t.Fatalf("silkNLSFDecode=%v want %v", got, want[i])
+			}
+		})
+	}
+}
+
+func TestSILKNLSF2AMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []struct {
+		name string
+		nlsf []int16
+	}{
+		{name: "nbmb_frame0", nlsf: []int16{2676, 3684, 7247, 12558, 14555, 16405, 18875, 19753, 26306, 27425}},
+		{name: "nbmb_interpolated", nlsf: []int16{2682, 3603, 6874, 12676, 14282, 16142, 18786, 19989, 26467, 27307}},
+		{name: "wb_even", nlsf: []int16{1200, 2600, 4300, 6100, 8200, 10100, 12200, 14300, 16400, 18600, 20700, 22800, 24900, 27000, 29100, 31200}},
+		{name: "wb_clustered", nlsf: []int16{900, 1500, 2800, 5200, 7400, 9300, 11800, 14200, 16800, 19000, 21100, 23000, 25200, 27500, 29800, 31800}},
+	}
+
+	records := make([][]uint32, len(cases))
+	for i, tc := range cases {
+		record := []uint32{uint32(len(tc.nlsf))}
+		for _, v := range tc.nlsf {
+			record = append(record, uint32FromInt32(int32(v)))
+		}
+		records[i] = record
+	}
+	want, err := probeLibopusSILKNLSF(libopusSILKNLSFModeNLSF2A, records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk nlsf", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make([]int16, len(tc.nlsf))
+			if ok := silkNLSF2A(got, tc.nlsf, len(tc.nlsf)); !ok {
+				t.Fatal("silkNLSF2A returned false")
+			}
+			if !sameInt16s(got, want[i]) {
+				t.Fatalf("silkNLSF2A=%v want %v", got, want[i])
+			}
+		})
+	}
+}
+
+func TestSILKA2NLSFMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []struct {
+		name  string
+		aQ16  []int32
+		order int
+	}{
+		{name: "order10_speech_like", order: 10, aQ16: speechLikeA2NLSFInput(10, 0.80)},
+		{name: "order16_speech_like", order: 16, aQ16: speechLikeA2NLSFInput(16, 0.85)},
+		{name: "order10_gentle", order: 10, aQ16: []int32{8192, -4096, 2731, -2048, 1638, -1365, 1170, -1024, 910, -819}},
+	}
+
+	records := make([][]uint32, len(cases))
+	for i, tc := range cases {
+		record := []uint32{uint32(tc.order)}
+		for _, v := range tc.aQ16 {
+			record = append(record, uint32FromInt32(v))
+		}
+		records[i] = record
+	}
+	want, err := probeLibopusSILKNLSF(libopusSILKNLSFModeA2NLSF, records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk nlsf", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make([]int16, tc.order)
+			aQ16 := append([]int32(nil), tc.aQ16...)
+			silkA2NLSF(got, aQ16, tc.order)
+			if !sameInt16s(got, want[i]) {
+				t.Fatalf("silkA2NLSF=%v want %v", got, want[i])
+			}
+		})
+	}
+}
+
+func TestSILKNLSFStabilizeMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []struct {
+		name string
+		cb   *nlsfCB
+		nlsf []int16
+	}{
+		{name: "nbmb_overlap", cb: &silk_NLSF_CB_NB_MB, nlsf: []int16{2701, 3363, 5756, 13031, 13464, 15353, 18521, 20697, 27019, 26883}},
+		{name: "nbmb_fallback", cb: &silk_NLSF_CB_NB_MB, nlsf: []int16{32000, 31500, 31000, 30000, 29000, 28000, 25000, 20000, 12000, 1000}},
+		{name: "wb_overlap", cb: &silk_NLSF_CB_WB, nlsf: []int16{800, 1200, 1400, 1600, 3000, 5000, 7000, 9000, 12000, 15000, 18000, 21000, 24000, 27000, 30000, 31900}},
+	}
+
+	records := make([][]uint32, len(cases))
+	for i, tc := range cases {
+		record := []uint32{cbIDForNLSF(tc.cb)}
+		for _, v := range tc.nlsf {
+			record = append(record, uint32FromInt32(int32(v)))
+		}
+		records[i] = record
+	}
+	want, err := probeLibopusSILKNLSF(libopusSILKNLSFModeStabilize, records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk nlsf", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := append([]int16(nil), tc.nlsf...)
+			silkNLSFStabilize(got, tc.cb.deltaMinQ15, tc.cb.order)
+			if !sameInt16s(got, want[i]) {
+				t.Fatalf("silkNLSFStabilize=%v want %v", got, want[i])
+			}
+		})
+	}
+}
+
+func speechLikeA2NLSFInput(order int, decay float64) []int32 {
+	aQ16 := make([]int32, order)
+	for i := 0; i < order; i++ {
+		aQ16[i] = int32(float64(1<<15) * math.Pow(decay, float64(i+1)))
+		if i%2 == 1 {
+			aQ16[i] = -aQ16[i]
+		}
+	}
+	return aQ16
+}
+
+func sameInt16s(a, b []int16) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
