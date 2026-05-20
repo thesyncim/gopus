@@ -457,13 +457,17 @@ func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error
 		return nil, ErrInvalidPacket
 	}
 
-	var qextPayloads [maxPacketExtensionFrames][]byte
+	var qextPayloads streamQEXTPayloads
 	if extsupport.QEXT && !d.ignoreExtensions && toc.mode == streamModeCELT && len(parsed.padding) > 0 {
-		collectQEXTPacketExtensions(parsed.padding, parsed.paddingFrameCount, qextPacketExtensionID, &qextPayloads)
+		qextPayloads.collect(parsed.padding, parsed.paddingFrameCount, qextPacketExtensionID)
 	}
 
 	if frameCount == 1 {
-		return d.finishDecode(d.decodeFramePayload(parsed.frames[0], frameSize, toc, qextPayloads[0]))
+		var qextPayload []byte
+		if extsupport.QEXT && !d.ignoreExtensions {
+			qextPayload = qextPayloads.frame(0)
+		}
+		return d.finishDecode(d.decodeFramePayload(parsed.frames[0], frameSize, toc, qextPayload))
 	}
 	if frameSize%frameCount != 0 {
 		return nil, fmt.Errorf("multistream: frameSize %d not divisible by packet frame count %d", frameSize, frameCount)
@@ -472,7 +476,11 @@ func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error
 	subFrameSize := frameSize / frameCount
 	out := make([]float64, 0, frameSize*d.channels)
 	for i := 0; i < frameCount; i++ {
-		frameDecoded, err := d.decodeFramePayload(parsed.frames[i], subFrameSize, toc, qextPayloads[i])
+		var qextPayload []byte
+		if extsupport.QEXT && !d.ignoreExtensions {
+			qextPayload = qextPayloads.frame(i)
+		}
+		frameDecoded, err := d.decodeFramePayload(parsed.frames[i], subFrameSize, toc, qextPayload)
 		if err != nil {
 			return nil, err
 		}

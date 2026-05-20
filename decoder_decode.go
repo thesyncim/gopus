@@ -210,11 +210,11 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 
 func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, frameCode byte, frameSize int) (int, error) {
 	offsetSamples := 0
-	var qextPayloads [maxRepacketizerFrames][]byte
+	var qextPayloads decoderQEXTPayloads
 	decodeFrame := func(frameIndex int, frameData []byte) error {
 		var qextPayload []byte
-		if extsupport.QEXT && !d.ignoreExtensions && frameIndex >= 0 && frameIndex < len(qextPayloads) {
-			qextPayload = qextPayloads[frameIndex]
+		if extsupport.QEXT && !d.ignoreExtensions {
+			qextPayload = qextPayloads.frame(frameIndex)
 		}
 		n, err := d.decodeOpusFrameIntoWithQEXT(
 			pcm[offsetSamples*d.channels:],
@@ -312,7 +312,7 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 				if padding > len(data) {
 					return 0, ErrInvalidPacket
 				}
-				collectQEXTPacketExtensions(data[len(data)-padding:], m, qextPacketExtensionID, &qextPayloads)
+				qextPayloads.collect(data[len(data)-padding:], m, qextPacketExtensionID)
 			}
 		}
 
