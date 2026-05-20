@@ -47,7 +47,7 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		return 0, ErrInvalidArgument
 	}
 	if !d.dredNeuralConcealmentReady() {
-		return 0, ErrExtraExtensionUnavailable
+		return 0, ErrOptionalExtensionUnavailable
 	}
 	r := d.dredRecoveryState()
 	n := d.dredNeuralState()

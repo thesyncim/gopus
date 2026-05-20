@@ -20,5 +20,5 @@ func (p *dredPacketProbe) prepareRecovery(_ []byte, _ int) (int, bool) {
 }
 
 func (p *dredPacketProbe) decodeRecovery(_ *gopus.Decoder, _ int, _ []float32, _ int) (int, error) {
-	return 0, gopus.ErrExtraExtensionUnavailable
+	return 0, gopus.ErrOptionalExtensionUnavailable
 }
