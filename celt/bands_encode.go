@@ -172,6 +172,30 @@ func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize in
 	}
 }
 
+func applyLFELinearBandEClamp(bandE []float64, nbBands, channels int) {
+	if nbBands <= 2 || channels <= 0 {
+		return
+	}
+	for c := 0; c < channels; c++ {
+		base := c * nbBands
+		if base+nbBands > len(bandE) {
+			return
+		}
+		limit := float32(lfeBandClamp) * float32(bandE[base])
+		for band := 2; band < nbBands; band++ {
+			idx := base + band
+			v := float32(bandE[idx])
+			if v > limit {
+				v = limit
+			}
+			if v < float32(celtFloatEpsilon) {
+				v = float32(celtFloatEpsilon)
+			}
+			bandE[idx] = float64(v)
+		}
+	}
+}
+
 // NormalizeBandsToArrayInto normalizes bands into a provided contiguous array.
 // This is the zero-allocation version - caller provides norm and bandE buffers.
 //
@@ -193,7 +217,10 @@ func NormalizeBandsToArrayInto(mdctCoeffs []float64, nbBands, frameSize int, nor
 
 	// Compute linear band amplitudes directly from MDCT coefficients
 	ComputeLinearBandAmplitudesInto(mdctCoeffs, nbBands, frameSize, bandE)
+	normalizeBandsWithBandEInto(mdctCoeffs, nbBands, frameSize, norm, bandE)
+}
 
+func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, norm, bandE []float64) {
 	offset := 0
 	for band := 0; band < nbBands; band++ {
 		n := ScaledBandWidth(band, frameSize)

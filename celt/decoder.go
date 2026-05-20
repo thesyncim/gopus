@@ -1,8 +1,8 @@
 package celt
 
 // DecodeFrame decodes a complete CELT frame from raw bytes.
-// If data is nil or empty, performs Packet Loss Concealment (PLC) instead of decoding.
-// data: raw CELT frame bytes (without Opus framing), or nil/empty for PLC
+// If data is nil, empty, or a single byte, performs Packet Loss Concealment (PLC) instead of decoding.
+// data: raw CELT frame bytes (without Opus framing), or len <= 1 for PLC
 // frameSize: expected output samples (120, 240, 480, or 960)
 // Returns: PCM samples as float64 slice, interleaved if stereo
 //
@@ -21,8 +21,8 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	d.handleChannelTransition(d.channels)
 	qextPayload := d.takeQEXTPayload()
 
-	// Handle PLC for nil/empty data (lost packet)
-	if data == nil || len(data) == 0 {
+	// Match libopus celt_decode_with_ec(): raw CELT payloads of length <= 1 are lost frames.
+	if len(data) <= 1 {
 		return d.decodePLC(frameSize)
 	}
 

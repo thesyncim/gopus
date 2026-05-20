@@ -36,7 +36,7 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize in
 	}
 
 	packetChannels := packetChannelsFromStereoFlag(packetStereo)
-	if data != nil && len(data) != 0 && packetChannels == 1 && d.channels == 2 {
+	if len(data) > 1 && packetChannels == 1 && d.channels == 2 {
 		d.directOutPCM = out[:outLen]
 		defer func() {
 			d.directOutPCM = nil
@@ -45,7 +45,7 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize in
 		return err
 	}
 
-	if data == nil || len(data) == 0 || packetChannels != d.channels {
+	if len(data) <= 1 || packetChannels != d.channels {
 		samples, err := d.DecodeFrameWithPacketStereo(data, frameSize, packetStereo)
 		if err != nil {
 			return err
@@ -65,7 +65,7 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize in
 // decodeMonoPacketToStereo decodes a mono packet and converts output to stereo.
 func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float64, error) {
 	qextPayload := d.takeQEXTPayload()
-	if data == nil || len(data) == 0 {
+	if len(data) <= 1 {
 		return d.decodePLC(frameSize)
 	}
 	if !ValidFrameSize(frameSize) {
@@ -305,7 +305,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 // decodeStereoPacketToMono decodes a stereo packet and converts output to mono.
 func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float64, error) {
 	qextPayload := d.takeQEXTPayload()
-	if data == nil || len(data) == 0 {
+	if len(data) <= 1 {
 		return d.decodePLC(frameSize)
 	}
 	if !ValidFrameSize(frameSize) {

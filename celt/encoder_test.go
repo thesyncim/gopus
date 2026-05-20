@@ -331,6 +331,85 @@ func TestEncoderSetLFE(t *testing.T) {
 	}
 }
 
+func TestLFEClampsLinearBandE(t *testing.T) {
+	bandE := []float64{2.0, 0.5, 1.0, 1e-20, 3e-4}
+	applyLFELinearBandEClamp(bandE, len(bandE), 1)
+
+	limit := float32(lfeBandClamp) * float32(2.0)
+	if got := float32(bandE[2]); got != limit {
+		t.Fatalf("bandE[2]=%g want %g", got, limit)
+	}
+	if got := float32(bandE[3]); got != float32(celtFloatEpsilon) {
+		t.Fatalf("bandE[3]=%g want %g", got, float32(celtFloatEpsilon))
+	}
+	if got := float32(bandE[4]); got != limit {
+		t.Fatalf("bandE[4]=%g want %g", got, limit)
+	}
+	if got := bandE[1]; got != 0.5 {
+		t.Fatalf("bandE[1]=%g want unchanged 0.5", got)
+	}
+}
+
+func TestLFEClampsLogBandEToLinearReference(t *testing.T) {
+	linear := []float64{2.0, 0.5, 1.0, 1e-20, 3e-4}
+	logE := make([]float64, len(linear))
+	for band, v := range linear {
+		logE[band] = float64(celtLog2(float32(v))) - eMeans[band]*DB6
+	}
+
+	applyLFEBandLogEClamp(logE, len(logE), 1)
+
+	limit := float32(lfeBandClamp) * float32(linear[0])
+	for band := 2; band < len(linear); band++ {
+		wantLinear := float32(linear[band])
+		if wantLinear > limit {
+			wantLinear = limit
+		}
+		if wantLinear < float32(celtFloatEpsilon) {
+			wantLinear = float32(celtFloatEpsilon)
+		}
+		want := float64(celtLog2(wantLinear)) - eMeans[band]*DB6
+		if math.Float64bits(logE[band]) != math.Float64bits(want) {
+			t.Fatalf("logE[%d]=%016x want %016x", band, math.Float64bits(logE[band]), math.Float64bits(want))
+		}
+	}
+	if got, want := logE[1], float64(celtLog2(float32(linear[1])))-eMeans[1]*DB6; math.Float64bits(got) != math.Float64bits(want) {
+		t.Fatalf("logE[1]=%016x want unchanged %016x", math.Float64bits(got), math.Float64bits(want))
+	}
+}
+
+func TestEncodeFrameLFEClampsHighBandEnergy(t *testing.T) {
+	const frameSize = 960
+	enc := NewEncoder(1)
+	enc.SetLFE(true)
+	enc.SetVBR(false)
+	enc.SetBitrate(128000)
+	pcm := make([]float64, frameSize)
+	for i := range pcm {
+		lo := 0.55 * math.Sin(2*math.Pi*60*float64(i)/48000)
+		hi := 0.45 * math.Sin(2*math.Pi*9000*float64(i)/48000)
+		pcm[i] = lo + hi
+	}
+
+	if _, err := enc.EncodeFrame(pcm, frameSize); err != nil {
+		t.Fatalf("EncodeFrame(LFE) failed: %v", err)
+	}
+	if len(enc.lastBandLogE) < 3 {
+		t.Fatalf("lastBandLogE length=%d want at least 3", len(enc.lastBandLogE))
+	}
+	baseAbs := enc.lastBandLogE[0] + eMeans[0]*DB6
+	highAbs := enc.lastBandLogE[2] + eMeans[2]*DB6
+	limitAbs := baseAbs + float64(celtLog2(float32(lfeBandClamp)))
+	floorAbs := float64(celtLog2(float32(celtFloatEpsilon)))
+	wantMax := limitAbs
+	if wantMax < floorAbs {
+		wantMax = floorAbs
+	}
+	if highAbs > wantMax+1e-6 {
+		t.Fatalf("LFE high-band log energy=%g want <= %g", highAbs, wantMax)
+	}
+}
+
 // TestEncoderNextRNG verifies RNG produces expected sequence.
 func TestEncoderNextRNG(t *testing.T) {
 	enc := NewEncoder(1)
@@ -489,6 +568,21 @@ func TestEncoderFrameCountAndIntraFlag(t *testing.T) {
 		if enc.FrameCount() != i+1 {
 			t.Fatalf("frame %d: FrameCount=%d, want %d", i, enc.FrameCount(), i+1)
 		}
+	}
+}
+
+func TestEncodeFrameBudgetDisabledTransientAdvancesConsecTransient(t *testing.T) {
+	enc := NewEncoder(1)
+	enc.SetComplexity(0)
+	enc.SetVBR(false)
+	enc.SetBitrate(64000)
+	enc.SetMaxPayloadBytes(2)
+
+	if _, err := enc.EncodeFrame(generateSineWave(440.0, 960), 960); err != nil {
+		t.Fatalf("EncodeFrame failed: %v", err)
+	}
+	if got := enc.ConsecTransient(); got != 1 {
+		t.Fatalf("ConsecTransient()=%d want 1", got)
 	}
 }
 

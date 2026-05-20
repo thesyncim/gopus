@@ -115,6 +115,76 @@ func TestDecodeFrame_SampleCount_Stereo(t *testing.T) {
 	}
 }
 
+func TestDecodeFrameOneBytePayloadUsesPLC(t *testing.T) {
+	const frameSize = 960
+
+	for _, channels := range []int{1, 2} {
+		t.Run(fmt.Sprintf("channels_%d", channels), func(t *testing.T) {
+			wantDec := NewDecoder(channels)
+			want, err := wantDec.DecodeFrame(nil, frameSize)
+			if err != nil {
+				t.Fatalf("DecodeFrame(nil) error: %v", err)
+			}
+
+			gotDec := NewDecoder(channels)
+			got, err := gotDec.DecodeFrame([]byte{0x7f}, frameSize)
+			if err != nil {
+				t.Fatalf("DecodeFrame(one byte) error: %v", err)
+			}
+			if len(got) != len(want) {
+				t.Fatalf("one-byte length=%d want %d", len(got), len(want))
+			}
+			for i := range want {
+				if math.Float64bits(got[i]) != math.Float64bits(want[i]) {
+					t.Fatalf("sample %d mismatch: got=%016x want=%016x", i, math.Float64bits(got[i]), math.Float64bits(want[i]))
+				}
+			}
+		})
+	}
+}
+
+func TestDecodeFrameWithPacketStereoToFloat32OneByteUsesPLC(t *testing.T) {
+	const frameSize = 960
+
+	testCases := []struct {
+		name         string
+		channels     int
+		packetStereo bool
+	}{
+		{name: "mono", channels: 1, packetStereo: false},
+		{name: "stereo", channels: 2, packetStereo: true},
+		{name: "mono_packet_to_stereo", channels: 2, packetStereo: false},
+		{name: "stereo_packet_to_mono", channels: 1, packetStereo: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			wantDec := NewDecoder(tc.channels)
+			want, err := wantDec.DecodeFrameWithPacketStereo(nil, frameSize, tc.packetStereo)
+			if err != nil {
+				t.Fatalf("DecodeFrameWithPacketStereo(nil) error: %v", err)
+			}
+
+			gotDec := NewDecoder(tc.channels)
+			got := make([]float32, frameSize*tc.channels)
+			for i := range got {
+				got[i] = math.Float32frombits(0x7fc00001)
+			}
+			if err := gotDec.DecodeFrameWithPacketStereoToFloat32([]byte{0x7f}, frameSize, tc.packetStereo, got); err != nil {
+				t.Fatalf("DecodeFrameWithPacketStereoToFloat32(one byte) error: %v", err)
+			}
+			if len(got) != len(want) {
+				t.Fatalf("one-byte length=%d want %d", len(got), len(want))
+			}
+			for i, sample := range want {
+				if math.Float32bits(got[i]) != math.Float32bits(float32(sample)) {
+					t.Fatalf("sample %d mismatch: got=%08x want=%08x", i, math.Float32bits(got[i]), math.Float32bits(float32(sample)))
+				}
+			}
+		})
+	}
+}
+
 func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
 	const frameSize = 960
 

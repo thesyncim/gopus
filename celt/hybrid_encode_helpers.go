@@ -8,6 +8,10 @@ func (e *Encoder) NormalizeBandsToArrayMonoWithBandE(mdctCoeffs []float64, nbBan
 	norm = ensureFloat64Slice(&e.scratch.normL, frameSize)
 	bandE = ensureFloat64Slice(&e.scratch.bandE, nbBands)
 	NormalizeBandsToArrayInto(mdctCoeffs, nbBands, frameSize, norm, bandE)
+	if e.lfe {
+		applyLFELinearBandEClamp(bandE, nbBands, 1)
+		normalizeBandsWithBandEInto(mdctCoeffs, nbBands, frameSize, norm, bandE)
+	}
 	return norm, bandE
 }
 
@@ -24,6 +28,11 @@ func (e *Encoder) NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight []flo
 	bandE = ensureFloat64Slice(&e.scratch.bandE, nbBands*2)
 	copy(bandE[:nbBands], bandEL)
 	copy(bandE[nbBands:], bandER)
+	if e.lfe {
+		applyLFELinearBandEClamp(bandE, nbBands, 2)
+		normalizeBandsWithBandEInto(mdctLeft, nbBands, frameSize, normL, bandE[:nbBands])
+		normalizeBandsWithBandEInto(mdctRight, nbBands, frameSize, normR, bandE[nbBands:])
+	}
 	return normL, normR, bandE
 }
 

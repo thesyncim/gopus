@@ -463,8 +463,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	// Determine short blocks based on bit budget.
-	// Match libopus transient_got_disabled cadence: if a transient was detected
-	// but disabled due bit budget, consecutive-transient history still advances.
+	// Match libopus transient_got_disabled cadence: if the transient flag cannot
+	// fit, consecutive-transient history still advances even for non-transients.
 	transientGotDisabled := false
 	shortBlocks := 1
 	if lm > 0 && re.Tell()+3 <= targetBits {
@@ -472,9 +472,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			shortBlocks = mode.ShortBlocks
 		}
 	} else {
-		if transient {
-			transientGotDisabled = true
-		}
+		transientGotDisabled = true
 		transient = false
 		shortBlocks = 1
 	}
@@ -598,6 +596,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 6: Compute band energies
 	energies := ensureFloat64Slice(&e.scratch.energies, nbBands*codedChannels)
 	computeBandEnergiesInto(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
+	if e.lfe {
+		applyLFEBandLogEClamp(energies, nbBands, codedChannels)
+	}
 	roundFloat64ToFloat32(energies)
 	if !secondMdct {
 		bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, len(energies))
@@ -673,6 +674,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			// Recompute band energies with short block coefficients
 			energies = ensureFloat64Slice(&e.scratch.energies, nbBands*codedChannels)
 			computeBandEnergiesInto(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
+			if e.lfe {
+				applyLFEBandLogEClamp(energies, nbBands, codedChannels)
+			}
 			roundFloat64ToFloat32(energies)
 			// Compensate for scaling of short vs long MDCTs (libopus adds 0.5*LM to bandLogE2)
 			if bandLogE2 != nil {
@@ -708,9 +712,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		re.EncodeBit(transientBit, 3)
 	} else if lm > 0 {
 		// Budget doesn't allow transient flag, force non-transient
-		if transient {
-			transientGotDisabled = true
-		}
+		transientGotDisabled = true
 		transient = false
 		shortBlocks = 1
 	}
@@ -1023,6 +1025,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if offsets == nil || len(offsets) < nbBands {
 		offsets = make([]int, nbBands)
 	}
+	if e.lfe && len(offsets) > 0 {
+		offsets[0] = min(8, effectiveBytes/3)
+	}
 	dynallocLogp := 6
 	totalBitsQ3ForDynalloc := targetBits << bitRes
 	totalBoost := 0
@@ -1196,6 +1201,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		} else {
 			signalBandwidth = minBandwidth
 		}
+	}
+	if e.lfe {
+		signalBandwidth = 1
 	}
 	var allocResult *AllocationResult
 	if e.IsHybrid() {

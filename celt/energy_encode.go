@@ -9,6 +9,11 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+const (
+	lfeBandClamp     = 1e-4
+	celtFloatEpsilon = 1e-15
+)
+
 // ComputeBandEnergies computes energy for each frequency band from MDCT coefficients.
 // Returns energies in log2 scale, RELATIVE TO MEAN (same as libopus).
 // energies[c*nbBands + band] = log2(amplitude) - eMeans[band]
@@ -116,6 +121,42 @@ func computeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize, channels 
 		}
 	}
 
+}
+
+func applyLFEBandLogEClamp(energies []float64, nbBands, channels int) {
+	if nbBands <= 2 || channels <= 0 {
+		return
+	}
+	limitOffset := float64(celtLog2(float32(lfeBandClamp)))
+	floorAbs := float64(celtLog2(float32(celtFloatEpsilon)))
+	for c := 0; c < channels; c++ {
+		base := c * nbBands
+		if base+nbBands > len(energies) {
+			return
+		}
+		baseAbs := energies[base]
+		if len(eMeans) > 0 {
+			baseAbs += eMeans[0] * DB6
+		}
+		limitAbs := baseAbs + limitOffset
+		for band := 2; band < nbBands; band++ {
+			idx := base + band
+			absE := energies[idx]
+			if band < len(eMeans) {
+				absE += eMeans[band] * DB6
+			}
+			if absE > limitAbs {
+				absE = limitAbs
+			}
+			if absE < floorAbs {
+				absE = floorAbs
+			}
+			if band < len(eMeans) {
+				absE -= eMeans[band] * DB6
+			}
+			energies[idx] = absE
+		}
+	}
 }
 
 // computeBandRMS computes the per-band log2 amplitude from MDCT coefficients.
