@@ -5,7 +5,6 @@ package celt
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
@@ -78,45 +78,29 @@ func probeLibopusCELTPLCUpdatePCM(channels int, history []float32) (libopusCELTP
 		return libopusCELTPLCUpdateInfo{}, fmt.Errorf("invalid history length")
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusCELTPLCUpdateInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
-		return libopusCELTPLCUpdateInfo{}, err
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(channels)); err != nil {
-		return libopusCELTPLCUpdateInfo{}, err
-	}
+	payload := libopustest.NewOraclePayload(libopusCELTPLCUpdateInputMagic, uint32(channels))
 	for _, sample := range history {
-		if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(sample)); err != nil {
-			return libopusCELTPLCUpdateInfo{}, err
-		}
+		payload.Float32(sample)
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(binPath)
-	cmd.Stdin = &payload
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusCELTPLCUpdateInfo{}, fmt.Errorf("run celt plc update helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	data, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return libopusCELTPLCUpdateInfo{}, fmt.Errorf("run celt plc update helper: %w", err)
 	}
-
-	data := stdout.Bytes()
-	header := 12
-	if len(data) < header || string(data[:4]) != libopusCELTPLCUpdateOutputMagic {
-		return libopusCELTPLCUpdateInfo{}, fmt.Errorf("unexpected helper output")
+	reader, err := libopustest.NewOracleReader("celt plc update", libopusCELTPLCUpdateOutputMagic, data)
+	if err != nil {
+		return libopusCELTPLCUpdateInfo{}, err
 	}
 	info := libopusCELTPLCUpdateInfo{
-		preemphMem: math.Float32frombits(binary.LittleEndian.Uint32(data[8:12])),
+		preemphMem: reader.Float32(),
 		pcm:        make([]int16, plcUpdateSamples),
 	}
-	offset := header
+	reader.ExpectRemaining(2 * len(info.pcm))
 	for i := range info.pcm {
-		if offset+2 > len(data) {
-			return libopusCELTPLCUpdateInfo{}, fmt.Errorf("truncated helper output")
-		}
-		info.pcm[i] = int16(binary.LittleEndian.Uint16(data[offset:]))
-		offset += 2
+		info.pcm[i] = reader.I16()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusCELTPLCUpdateInfo{}, err
 	}
 	return info, nil
 }

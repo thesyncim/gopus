@@ -4,16 +4,14 @@
 package dred
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"math"
-	"os/exec"
 	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 const (
@@ -56,15 +54,11 @@ func probeLibopusDREDDecoderModelBlob() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(binPath)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run dred decoder model blob helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelper(binPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("run dred decoder model blob helper: %w", err)
 	}
-	return stdout.Bytes(), nil
+	return out, nil
 }
 
 func probeLibopusDREDRDOVAEDec(state, latents []float32, nbLatents int) ([]float32, error) {
@@ -82,54 +76,30 @@ func probeLibopusDREDRDOVAEDec(state, latents []float32, nbLatents int) ([]float
 		return nil, fmt.Errorf("latents length=%d want %d", len(latents), nbLatents*(rdovae.LatentDim+1))
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusDREDRDOVAEDecInputMagic)
-	for _, v := range []uint32{1, uint32(nbLatents)} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return nil, fmt.Errorf("encode rdovae decoder helper header: %w", err)
-		}
+	payload := libopustest.NewOraclePayload(libopusDREDRDOVAEDecInputMagic, uint32(nbLatents))
+	for _, v := range state {
+		payload.Float32(v)
 	}
-	writeBits := func(values []float32) error {
-		for _, v := range values {
-			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := writeBits(state); err != nil {
-		return nil, fmt.Errorf("encode rdovae decoder state: %w", err)
-	}
-	if err := writeBits(latents); err != nil {
-		return nil, fmt.Errorf("encode rdovae decoder latents: %w", err)
+	for _, v := range latents {
+		payload.Float32(v)
 	}
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run rdovae decoder helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	data, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("run rdovae decoder helper: %w", err)
 	}
-
-	data := stdout.Bytes()
-	if len(data) < 12 || string(data[:4]) != libopusDREDRDOVAEDecOutputMagic {
-		return nil, fmt.Errorf("unexpected rdovae decoder helper output")
+	reader, err := libopustest.NewOracleReader("rdovae decoder", libopusDREDRDOVAEDecOutputMagic, data)
+	if err != nil {
+		return nil, err
 	}
-	gotLatents := int(binary.LittleEndian.Uint32(data[8:12]))
-	if gotLatents != nbLatents {
-		return nil, fmt.Errorf("rdovae decoder helper latent count=%d want %d", gotLatents, nbLatents)
-	}
+	reader.Count(nbLatents)
 	features := make([]float32, nbLatents*rdovae.OutputOutSize)
-	offset := 12
+	reader.ExpectRemaining(len(features) * 4)
 	for i := range features {
-		if len(data) < offset+4 {
-			return nil, fmt.Errorf("truncated rdovae decoder helper output")
-		}
-		features[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-		offset += 4
+		features[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
 	}
 	return features, nil
 }
