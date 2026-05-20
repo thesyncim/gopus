@@ -769,6 +769,7 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 		if signalHint == types.SignalAuto {
 			signalHint = e.autoSignalFromPCM(framePCM, frameSize)
 		}
+		e.updateStreamChannelsForFrame(frameSize)
 		requestedMode = e.selectMode(frameSize, signalHint)
 		if e.lfe {
 			requestedMode = ModeCELT
@@ -3340,7 +3341,7 @@ func (e *Encoder) ensureCELTEncoder() {
 	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)
 	e.celtEncoder.SetEnergyMask(e.celtEnergyMask)
 	e.celtEncoder.SetConstrainedVBRBoundScale(e.celtCVBRBoundScale)
-	e.celtEncoder.SetStreamChannels(e.channels)
+	e.celtEncoder.SetStreamChannels(e.streamChannels)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
 }

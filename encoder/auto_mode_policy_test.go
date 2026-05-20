@@ -45,3 +45,47 @@ func TestAutoSignalFromPCMAnalyzerUnavailableFallsBackToAuto(t *testing.T) {
 		t.Fatalf("autoSignalFromPCM(no-analyzer) = %v, want %v", got, types.SignalAuto)
 	}
 }
+
+func TestNonAutoEncodeUpdatesStreamChannelsForCELTState(t *testing.T) {
+	pcm := make([]float64, 960*2)
+	for i := 0; i < 960; i++ {
+		pcm[2*i] = 0.2 * math.Sin(2*math.Pi*440*float64(i)/48000)
+		pcm[2*i+1] = 0.2 * math.Sin(2*math.Pi*660*float64(i)/48000)
+	}
+
+	tests := []struct {
+		name          string
+		bitrate       int
+		signal        types.Signal
+		forceChannels int
+		want          int
+	}{
+		{name: "music_threshold_mono", bitrate: 16000, signal: types.SignalMusic, forceChannels: -1, want: 1},
+		{name: "voice_threshold_stereo", bitrate: 20000, signal: types.SignalVoice, forceChannels: -1, want: 2},
+		{name: "forced_mono", bitrate: 64000, signal: types.SignalAuto, forceChannels: 1, want: 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			enc := NewEncoder(48000, 2)
+			enc.SetMode(ModeCELT)
+			enc.SetBandwidth(types.BandwidthFullband)
+			enc.SetBitrate(tt.bitrate)
+			enc.signalType = tt.signal
+			enc.SetForceChannels(tt.forceChannels)
+
+			if _, err := enc.Encode(pcm, 960); err != nil {
+				t.Fatalf("Encode() error: %v", err)
+			}
+			if got := enc.streamChannels; got != tt.want {
+				t.Fatalf("streamChannels = %d, want %d", got, tt.want)
+			}
+			if enc.celtEncoder == nil {
+				t.Fatal("celt encoder was not initialized")
+			}
+			if got := enc.celtEncoder.StreamChannels(); got != tt.want {
+				t.Fatalf("CELT StreamChannels() = %d, want %d", got, tt.want)
+			}
+		})
+	}
+}

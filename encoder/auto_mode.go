@@ -301,6 +301,17 @@ func (e *Encoder) autoStreamChannelsDecision(voiceEst, equivRate int) {
 	}
 }
 
+func (e *Encoder) updateStreamChannelsForFrame(frameSize int) {
+	frameRate := e.sampleRate / frameSize
+	if frameRate <= 0 {
+		frameRate = 50
+	}
+	useVBR := e.bitrateMode != ModeCBR
+	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate,
+		useVBR, ModeAuto, e.complexity, e.packetLoss)
+	e.autoStreamChannelsDecision(e.autoVoiceEst(), equivRate)
+}
+
 // autoModeDecision selects SILK-only vs CELT-only using interpolated thresholds.
 // Matches libopus opus_encoder.c lines 1492-1527.
 func (e *Encoder) autoModeDecision(stereoWidth float64, voiceEst, equivRate, frameSize int) Mode {
