@@ -83,12 +83,12 @@ func TestBuildREDPayloadInvalidFrameSamplesKeepsREDEnvelope(t *testing.T) {
 	}
 }
 
-func TestParseREDPayloadRejectsUnsupportedPayloadTypes(t *testing.T) {
+func TestParseREDPayloadRejectsUnexpectedPayloadTypes(t *testing.T) {
 	if _, _, err := parseREDPayload([]byte{0x60, 0x01}); err == nil {
-		t.Fatal("parseREDPayload accepted unsupported primary payload type")
+		t.Fatal("parseREDPayload accepted unexpected primary payload type")
 	}
 	if _, _, err := parseREDPayload([]byte{0x80 | 0x60, 0x0f, 0x00, 0x01, redOpusPayloadType, 0xaa, 0xbb}); err == nil {
-		t.Fatal("parseREDPayload accepted unsupported redundant payload type")
+		t.Fatal("parseREDPayload accepted unexpected redundant payload type")
 	}
 }
 

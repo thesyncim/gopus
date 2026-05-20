@@ -119,7 +119,7 @@ func parseREDPayload(payload []byte) (primary []byte, blocks []redBlock, err err
 		b := payload[pos]
 		if b&0x80 == 0 {
 			if b&0x7f != redOpusPayloadType {
-				return nil, nil, errors.New("unsupported RED primary payload type")
+				return nil, nil, errors.New("unexpected RED primary payload type")
 			}
 			pos++
 			break
@@ -134,7 +134,7 @@ func parseREDPayload(payload []byte) (primary []byte, blocks []redBlock, err err
 		}
 		payloadType := b & 0x7f
 		if payloadType != redOpusPayloadType {
-			return nil, nil, errors.New("unsupported RED redundant payload type")
+			return nil, nil, errors.New("unexpected RED redundant payload type")
 		}
 		headers = append(headers, blockHeader{
 			payloadType:     payloadType,
