@@ -742,13 +742,19 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	}
 
 	// Test force channels control
-	for _, ch := range []int{1, 2, -1} {
+	for _, ch := range []int{1, -1} {
 		if err := enc.SetForceChannels(ch); err != nil {
 			t.Errorf("SetForceChannels(%d) error: %v", ch, err)
 		}
 		if got := enc.ForceChannels(); got != ch {
 			t.Errorf("ForceChannels() = %d, want %d", got, ch)
 		}
+	}
+	if err := enc.SetForceChannels(2); err != ErrInvalidForceChannels {
+		t.Errorf("SetForceChannels(2) on layout with mono streams error = %v, want %v", err, ErrInvalidForceChannels)
+	}
+	if got := enc.ForceChannels(); got != -1 {
+		t.Errorf("ForceChannels() after rejected stereo force = %d, want -1", got)
 	}
 	if err := enc.SetForceChannels(0); err != ErrInvalidForceChannels {
 		t.Errorf("SetForceChannels(0) error = %v, want %v", err, ErrInvalidForceChannels)
@@ -806,6 +812,17 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 
 	t.Logf("Controls verified: app=%v bitrate=%d complexity=%d mode=%v FEC=%v DTX=%v",
 		enc.Application(), enc.Bitrate(), enc.Complexity(), enc.BitrateMode(), enc.FECEnabled(), enc.DTXEnabled())
+}
+
+func TestMultistreamEncoderForceChannelsStereoAllowedWhenAllStreamsCoupled(t *testing.T) {
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
+
+	if err := enc.SetForceChannels(2); err != nil {
+		t.Fatalf("SetForceChannels(2) on all-coupled layout error: %v", err)
+	}
+	if got := enc.ForceChannels(); got != 2 {
+		t.Fatalf("ForceChannels() = %d, want 2", got)
+	}
 }
 
 func TestMultistreamEncoder_EncodeInt24(t *testing.T) {

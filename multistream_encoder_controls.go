@@ -202,6 +202,9 @@ func (e *MultistreamEncoder) SetForceChannels(channels int) error {
 	if err := validateForceChannels(channels); err != nil {
 		return err
 	}
+	if channels == 2 && e.enc.Streams() > e.enc.CoupledStreams() {
+		return ErrInvalidForceChannels
+	}
 	e.enc.SetForceChannels(channels)
 	return nil
 }
