@@ -342,14 +342,31 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	}
 
 	if n != nil {
-		n.pitchDNNLoaded = models.PitchDNN && analysis.Loaded()
-		n.plcModelLoaded = models.PLC && predictor.Loaded()
-		n.farganModelLoaded = models.FARGAN && fargan.Loaded()
-		n.dredAnalysis = analysis
-		n.dredPredictor = predictor
-		n.dredFARGAN = fargan
+		if models.PitchDNN {
+			if err := n.dredAnalysis.SetModelPreservingState(blob); err != nil {
+				return err
+			}
+		} else {
+			n.dredAnalysis = lpcnetplc.Analysis{}
+		}
+		if models.PLC {
+			if err := n.dredPredictor.SetModelPreservingState(blob); err != nil {
+				return err
+			}
+		} else {
+			n.dredPredictor = lpcnetplc.Predictor{}
+		}
+		if models.FARGAN {
+			if err := n.dredFARGAN.SetModelPreservingState(blob); err != nil {
+				return err
+			}
+		} else {
+			n.dredFARGAN = lpcnetplc.FARGAN{}
+		}
+		n.pitchDNNLoaded = models.PitchDNN && n.dredAnalysis.Loaded()
+		n.plcModelLoaded = models.PLC && n.dredPredictor.Loaded()
+		n.farganModelLoaded = models.FARGAN && n.dredFARGAN.Loaded()
 	}
-	d.resetDRED48kNeuralBridge()
 	return nil
 }
 

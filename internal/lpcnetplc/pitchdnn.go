@@ -241,6 +241,19 @@ func (p *PitchDNN) SetModel(blob *dnnblob.Blob) error {
 	return nil
 }
 
+// SetModelPreservingState replaces the bound model without clearing recurrent
+// state, matching libopus USE_WEIGHTS_FILE reloads.
+func (p *PitchDNN) SetModelPreservingState(blob *dnnblob.Blob) error {
+	model, err := LoadPitchDNNModel(blob)
+	if err != nil {
+		p.model = nil
+		p.Reset()
+		return err
+	}
+	p.model = model
+	return nil
+}
+
 // Loaded reports whether a pitch model is currently retained.
 func (p *PitchDNN) Loaded() bool {
 	return p != nil && p.model != nil

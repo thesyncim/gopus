@@ -82,6 +82,16 @@ func (a *Analysis) SetModel(blob *dnnblob.Blob) error {
 	return nil
 }
 
+// SetModelPreservingState replaces the pitch model without clearing retained
+// analysis state.
+func (a *Analysis) SetModelPreservingState(blob *dnnblob.Blob) error {
+	if err := a.pitch.SetModelPreservingState(blob); err != nil {
+		a.Reset()
+		return err
+	}
+	return nil
+}
+
 // Loaded reports whether the analysis runtime currently has the pitch model
 // family required by libopus.
 func (a *Analysis) Loaded() bool {

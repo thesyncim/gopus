@@ -1000,6 +1000,61 @@ func TestDecoderResetDropsActivatedDREDRuntimeBackToDormant(t *testing.T) {
 	}
 }
 
+func TestDecoderSetDNNBlobPreservesActive48kBridge(t *testing.T) {
+	requireDREDRuntimeForTest(t)
+
+	dec := mustNewTestDecoder(t, 48000, 1)
+	blob := makeValidDecoderTestDNNBlob()
+	if err := dec.SetDNNBlob(blob); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	if !dec.dredNeuralConcealmentReady() {
+		t.Fatal("decoder failed to materialize neural concealment runtime")
+	}
+	bridge := dec.dred48kBridgeState()
+	if bridge == nil {
+		t.Fatalf("decoder did not materialize 48 kHz bridge: %+v", dec.dredState())
+	}
+
+	bridge.dredPLCPCM[0] = 0.125
+	bridge.dredPLCFill = 37
+	bridge.dredPLCPreemphMem = 0.25
+	bridge.dredLastNeural = true
+
+	state := requireDecoderDREDState(t, dec)
+	var farganPCM [lpcnetplc.FARGANContSamples]float32
+	var farganFeatures [lpcnetplc.ContVectors * lpcnetplc.NumFeatures]float32
+	for i := range farganPCM {
+		farganPCM[i] = float32((i%31)-15) / 19
+	}
+	for i := range farganFeatures {
+		farganFeatures[i] = float32((i%17)-8) / 11
+	}
+	if n := state.dredFARGAN.PrimeContinuity(farganPCM[:], farganFeatures[:]); n != lpcnetplc.FARGANContSamples {
+		t.Fatalf("PrimeContinuity()=%d want %d", n, lpcnetplc.FARGANContSamples)
+	}
+	beforeFARGAN := state.dredFARGAN.Snapshot()
+
+	// libopus reloads the model in-place for OPUS_SET_DNN_BLOB; it does not
+	// reset active PLC/DRED bridge state on a successful reload.
+	if err := dec.SetDNNBlob(blob); err != nil {
+		t.Fatalf("SetDNNBlob(reload) error: %v", err)
+	}
+	got := dec.dred48kBridgeState()
+	if got != bridge {
+		t.Fatalf("SetDNNBlob(reload) replaced 48 kHz bridge: before=%p after=%p", bridge, got)
+	}
+	if got.dredPLCPCM[0] != 0.125 ||
+		got.dredPLCFill != 37 ||
+		got.dredPLCPreemphMem != 0.25 ||
+		!got.dredLastNeural {
+		t.Fatalf("SetDNNBlob(reload) reset 48 kHz bridge: %+v", got)
+	}
+	if afterFARGAN := requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(); afterFARGAN != beforeFARGAN {
+		t.Fatalf("SetDNNBlob(reload) reset FARGAN state: before=%+v after=%+v", beforeFARGAN, afterFARGAN)
+	}
+}
+
 func TestDecoderPrimeDREDCELTEntryHistoryUsesCELTBridge(t *testing.T) {
 	packet := makeValidMonoCELTPacketForDREDTest(t)
 

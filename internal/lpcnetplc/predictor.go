@@ -55,6 +55,19 @@ func (p *Predictor) SetModel(blob *dnnblob.Blob) error {
 	return nil
 }
 
+// SetModelPreservingState replaces the bound model without clearing predictor
+// state, matching libopus USE_WEIGHTS_FILE reloads.
+func (p *Predictor) SetModelPreservingState(blob *dnnblob.Blob) error {
+	model, err := LoadModel(blob)
+	if err != nil {
+		p.model = nil
+		p.Reset()
+		return err
+	}
+	p.model = model
+	return nil
+}
+
 // Loaded reports whether a PLC model is currently retained.
 func (p *Predictor) Loaded() bool {
 	return p != nil && p.model != nil
