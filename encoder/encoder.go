@@ -3340,6 +3340,7 @@ func (e *Encoder) ensureCELTEncoder() {
 	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)
 	e.celtEncoder.SetEnergyMask(e.celtEnergyMask)
 	e.celtEncoder.SetConstrainedVBRBoundScale(e.celtCVBRBoundScale)
+	e.celtEncoder.SetStreamChannels(e.channels)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetPacketLoss(e.packetLoss)
 }

@@ -26,6 +26,9 @@ func TestNewEncoder(t *testing.T) {
 			if enc.Channels() != tt.channels {
 				t.Errorf("Channels() = %d, want %d", enc.Channels(), tt.channels)
 			}
+			if enc.StreamChannels() != tt.channels {
+				t.Errorf("StreamChannels() = %d, want %d", enc.StreamChannels(), tt.channels)
+			}
 			if enc.SampleRate() != 48000 {
 				t.Errorf("SampleRate() = %d, want 48000", enc.SampleRate())
 			}
@@ -58,6 +61,27 @@ func TestNewEncoder(t *testing.T) {
 				t.Errorf("PreemphState length = %d, want %d", len(preemph), tt.channels)
 			}
 		})
+	}
+}
+
+func TestEncoderStreamChannelsControl(t *testing.T) {
+	enc := NewEncoder(2)
+	enc.SetStreamChannels(1)
+	if got := enc.StreamChannels(); got != 1 {
+		t.Fatalf("StreamChannels() = %d, want 1", got)
+	}
+	if got := enc.Channels(); got != 2 {
+		t.Fatalf("Channels() = %d, want 2", got)
+	}
+
+	enc.SetStreamChannels(3)
+	if got := enc.StreamChannels(); got != 1 {
+		t.Fatalf("invalid SetStreamChannels changed value to %d", got)
+	}
+
+	enc.Reset()
+	if got := enc.StreamChannels(); got != 1 {
+		t.Fatalf("Reset changed StreamChannels() to %d, want 1", got)
 	}
 }
 

@@ -27,10 +27,11 @@ type Encoder struct {
 	rangeEncoder *rangecoding.Encoder
 
 	// Configuration (mirrors decoder)
-	channels   int           // 1 or 2
-	sampleRate int           // Always 48000
-	lsbDepth   int           // Input LSB depth (8-24 bits)
-	bandwidth  CELTBandwidth // Active bandwidth cap (NB..FB)
+	channels       int           // 1 or 2
+	streamChannels int           // coded channels, mirrors CELT_SET_CHANNELS
+	sampleRate     int           // Always 48000
+	lsbDepth       int           // Input LSB depth (8-24 bits)
+	bandwidth      CELTBandwidth // Active bandwidth cap (NB..FB)
 
 	// Energy state (persists across frames, mirrors decoder)
 	prevEnergy  []float64 // Previous frame band energies [MaxBands * channels]
@@ -251,10 +252,11 @@ func NewEncoder(channels int) *Encoder {
 	}
 
 	e := &Encoder{
-		channels:   channels,
-		sampleRate: 48000, // CELT always operates at 48kHz internally
-		lsbDepth:   24,    // Default to full 24-bit depth
-		bandwidth:  CELTFullband,
+		channels:       channels,
+		streamChannels: channels,
+		sampleRate:     48000, // CELT always operates at 48kHz internally
+		lsbDepth:       24,    // Default to full 24-bit depth
+		bandwidth:      CELTFullband,
 
 		// Allocate energy arrays for all bands and channels
 		prevEnergy:  make([]float64, MaxBands*channels),
@@ -694,6 +696,19 @@ func (e *Encoder) RangeEncoder() *rangecoding.Encoder {
 // Channels returns the number of audio channels (1 or 2).
 func (e *Encoder) Channels() int {
 	return e.channels
+}
+
+// SetStreamChannels mirrors libopus CELT_SET_CHANNELS.
+func (e *Encoder) SetStreamChannels(channels int) {
+	if channels < 1 || channels > e.channels {
+		return
+	}
+	e.streamChannels = channels
+}
+
+// StreamChannels returns the coded channel count.
+func (e *Encoder) StreamChannels() int {
+	return e.streamChannels
 }
 
 // SampleRate returns the operating sample rate (always 48000 for CELT).
