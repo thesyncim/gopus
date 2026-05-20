@@ -203,69 +203,49 @@ func probeLibopusPLCPredict(input []float32, gru1State, gru2State []float32) (ou
 		return nil, nil, nil, fmt.Errorf("invalid helper input sizes")
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusPLCPredictInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
-		return nil, nil, nil, fmt.Errorf("encode plc helper version: %w", err)
-	}
-	writeBits := func(values []float32) error {
-		for _, v := range values {
-			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := writeBits(input); err != nil {
-		return nil, nil, nil, fmt.Errorf("encode plc helper input: %w", err)
-	}
-	if err := writeBits(gru1State); err != nil {
-		return nil, nil, nil, fmt.Errorf("encode plc helper gru1: %w", err)
-	}
-	if err := writeBits(gru2State); err != nil {
-		return nil, nil, nil, fmt.Errorf("encode plc helper gru2: %w", err)
-	}
+	payload := libopustest.NewOraclePayload(libopusPLCPredictInputMagic)
+	payload.Float32s(input...)
+	payload.Float32s(gru1State...)
+	payload.Float32s(gru2State...)
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, nil, nil, fmt.Errorf("run plc predict helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-
-	data := stdout.Bytes()
-	const header = 8
-	if len(data) < header || string(data[:4]) != libopusPLCPredictOutputMagic {
-		return nil, nil, nil, fmt.Errorf("unexpected plc predict helper output")
-	}
-	offset := header
-	readBits := func(count int) ([]float32, error) {
-		values := make([]float32, count)
-		for i := 0; i < count; i++ {
-			if len(data) < offset+4 {
-				return nil, fmt.Errorf("truncated plc predict helper output")
-			}
-			values[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-			offset += 4
-		}
-		return values, nil
-	}
-	out, err = readBits(NumFeatures)
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "plc predict", libopusPLCPredictOutputMagic)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	nextGRU1, err = readBits(GRU1Size)
+	out, err = readLibopusFloat32s(reader, NumFeatures)
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	nextGRU2, err = readBits(GRU2Size)
+	nextGRU1, err = readLibopusFloat32s(reader, GRU1Size)
 	if err != nil {
+		return nil, nil, nil, err
+	}
+	nextGRU2, err = readLibopusFloat32s(reader, GRU2Size)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if err := reader.ExpectConsumed(); err != nil {
 		return nil, nil, nil, err
 	}
 	return out, nextGRU1, nextGRU2, nil
+}
+
+func readLibopusFloat32s(reader *libopustest.OracleReader, count int) ([]float32, error) {
+	values := make([]float32, count)
+	for i := range values {
+		values[i] = reader.Float32()
+	}
+	if err := reader.Err(); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+func readLibopusFloat32Into(reader *libopustest.OracleReader, dst []float32) error {
+	for i := range dst {
+		dst[i] = reader.Float32()
+	}
+	return reader.Err()
 }
 
 type libopusPLCUpdateResult struct {
@@ -285,38 +265,18 @@ func probeLibopusPLCUpdate(state State, frame []float32) (libopusPLCUpdateResult
 	if len(frame) != FrameSize {
 		return libopusPLCUpdateResult{}, fmt.Errorf("invalid update helper frame size")
 	}
-	var payload bytes.Buffer
-	payload.WriteString(libopusPLCUpdateInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
-		return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update version: %w", err)
-	}
-	for _, v := range []int32{
+	payload := libopustest.NewOraclePayload(libopusPLCUpdateInputMagic)
+	payload.I32s(
 		int32(state.blend),
 		int32(state.lossCount),
 		int32(state.analysisGap),
 		int32(state.analysisPos),
 		int32(state.predictPos),
-	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update header: %w", err)
-		}
-	}
-	writeBits := func(values []float32) error {
-		for _, v := range values {
-			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
-	if err := writeBits(state.pcm[:]); err != nil {
-		return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update pcm: %w", err)
-	}
-	if err := writeBits(frame[:FrameSize]); err != nil {
-		return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update frame: %w", err)
-	}
+	)
+	payload.Float32s(state.pcm[:]...)
+	payload.Float32s(frame[:FrameSize]...)
 
-	return runLibopusPLCUpdate(binPath, payload.Bytes())
+	return runLibopusPLCUpdate(binPath, payload.Bytes(), 1)
 }
 
 func probeLibopusPLCUpdateInt16(state State, frame []int16) (libopusPLCUpdateResult, error) {
@@ -327,67 +287,40 @@ func probeLibopusPLCUpdateInt16(state State, frame []int16) (libopusPLCUpdateRes
 	if len(frame) != FrameSize {
 		return libopusPLCUpdateResult{}, fmt.Errorf("invalid update helper frame size")
 	}
-	var payload bytes.Buffer
-	payload.WriteString(libopusPLCUpdateInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(2)); err != nil {
-		return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update version: %w", err)
-	}
-	for _, v := range []int32{
+	payload := libopustest.NewOraclePayloadVersion(libopusPLCUpdateInputMagic, 2)
+	payload.I32s(
 		int32(state.blend),
 		int32(state.lossCount),
 		int32(state.analysisGap),
 		int32(state.analysisPos),
 		int32(state.predictPos),
-	} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update header: %w", err)
-		}
-	}
-	for _, v := range state.pcm {
-		if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-			return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update pcm: %w", err)
-		}
-	}
+	)
+	payload.Float32s(state.pcm[:]...)
 	for _, v := range frame[:FrameSize] {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return libopusPLCUpdateResult{}, fmt.Errorf("encode plc update int16 frame: %w", err)
-		}
+		payload.I16(v)
 	}
 
-	return runLibopusPLCUpdate(binPath, payload.Bytes())
+	return runLibopusPLCUpdate(binPath, payload.Bytes(), 2)
 }
 
-func runLibopusPLCUpdate(binPath string, payload []byte) (libopusPLCUpdateResult, error) {
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusPLCUpdateResult{}, fmt.Errorf("run plc update helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-
-	data := stdout.Bytes()
-	const header = 28
-	if len(data) < header || string(data[:4]) != libopusPLCUpdateOutputMagic {
-		return libopusPLCUpdateResult{}, fmt.Errorf("unexpected plc update helper output")
+func runLibopusPLCUpdate(binPath string, payload []byte, version uint32) (libopusPLCUpdateResult, error) {
+	reader, err := libopustest.RunOracleVersion(binPath, payload, "plc update", libopusPLCUpdateOutputMagic, version)
+	if err != nil {
+		return libopusPLCUpdateResult{}, err
 	}
 	result := libopusPLCUpdateResult{
-		Blend:       int(int32(binary.LittleEndian.Uint32(data[8:12]))),
-		LossCount:   int(int32(binary.LittleEndian.Uint32(data[12:16]))),
-		AnalysisGap: int(int32(binary.LittleEndian.Uint32(data[16:20]))),
-		AnalysisPos: int(int32(binary.LittleEndian.Uint32(data[20:24]))),
-		PredictPos:  int(int32(binary.LittleEndian.Uint32(data[24:28]))),
+		Blend:       int(reader.I32()),
+		LossCount:   int(reader.I32()),
+		AnalysisGap: int(reader.I32()),
+		AnalysisPos: int(reader.I32()),
+		PredictPos:  int(reader.I32()),
 	}
-	offset := header
 	result.PCM = make([]float32, PLCBufSize)
-	for i := 0; i < PLCBufSize; i++ {
-		if len(data) < offset+4 {
-			return libopusPLCUpdateResult{}, fmt.Errorf("truncated plc update helper output")
-		}
-		result.PCM[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-		offset += 4
+	if err := readLibopusFloat32Into(reader, result.PCM); err != nil {
+		return libopusPLCUpdateResult{}, err
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusPLCUpdateResult{}, err
 	}
 	return result, nil
 }
@@ -418,31 +351,8 @@ func probeLibopusPLCPrefill(features, cont, fec0, fec1 []float32, plcNet predict
 		flags |= 2
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString(libopusPLCPrefillInputMagic)
-	if err := binary.Write(&payload, binary.LittleEndian, uint32(1)); err != nil {
-		return libopusPLCPrefillResult{}, fmt.Errorf("encode plc prefill version: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, flags); err != nil {
-		return libopusPLCPrefillResult{}, fmt.Errorf("encode plc prefill flags: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(lossCount)); err != nil {
-		return libopusPLCPrefillResult{}, fmt.Errorf("encode plc prefill loss count: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(fecFillPos)); err != nil {
-		return libopusPLCPrefillResult{}, fmt.Errorf("encode plc prefill fill pos: %w", err)
-	}
-	if err := binary.Write(&payload, binary.LittleEndian, int32(fecSkip)); err != nil {
-		return libopusPLCPrefillResult{}, fmt.Errorf("encode plc prefill skip: %w", err)
-	}
-	writeBits := func(values []float32) error {
-		for _, v := range values {
-			if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(v)); err != nil {
-				return err
-			}
-		}
-		return nil
-	}
+	payload := libopustest.NewOraclePayload(libopusPLCPrefillInputMagic, flags)
+	payload.I32s(int32(lossCount), int32(fecFillPos), int32(fecSkip))
 	for _, values := range [][]float32{
 		features,
 		cont,
@@ -455,47 +365,22 @@ func probeLibopusPLCPrefill(features, cont, fec0, fec1 []float32, plcNet predict
 		fec0,
 		fec1,
 	} {
-		if err := writeBits(values); err != nil {
-			return libopusPLCPrefillResult{}, fmt.Errorf("encode plc prefill payload: %w", err)
-		}
+		payload.Float32s(values...)
 	}
 
-	cmd := exec.Command(binPath)
-	cmd.Stdin = bytes.NewReader(payload.Bytes())
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return libopusPLCPrefillResult{}, fmt.Errorf("run plc prefill helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
-	}
-
-	data := stdout.Bytes()
-	const header = 20
-	if len(data) < header || string(data[:4]) != libopusPLCPrefillOutputMagic {
-		return libopusPLCPrefillResult{}, fmt.Errorf("unexpected plc prefill helper output")
-	}
-	result := libopusPLCPrefillResult{
-		LossCount: int(int32(binary.LittleEndian.Uint32(data[8:12]))),
-		FECRead:   int(int32(binary.LittleEndian.Uint32(data[12:16]))),
-		FECSkip:   int(int32(binary.LittleEndian.Uint32(data[16:20]))),
-	}
-	offset := header
-	readBits := func(count int) ([]float32, error) {
-		values := make([]float32, count)
-		for i := 0; i < count; i++ {
-			if len(data) < offset+4 {
-				return nil, fmt.Errorf("truncated plc prefill helper output")
-			}
-			values[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset : offset+4]))
-			offset += 4
-		}
-		return values, nil
-	}
-	if result.Features, err = readBits(NumTotalFeatures); err != nil {
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "plc prefill", libopusPLCPrefillOutputMagic)
+	if err != nil {
 		return libopusPLCPrefillResult{}, err
 	}
-	if result.Cont, err = readBits(ContVectors * NumFeatures); err != nil {
+	result := libopusPLCPrefillResult{
+		LossCount: int(reader.I32()),
+		FECRead:   int(reader.I32()),
+		FECSkip:   int(reader.I32()),
+	}
+	if result.Features, err = readLibopusFloat32s(reader, NumTotalFeatures); err != nil {
+		return libopusPLCPrefillResult{}, err
+	}
+	if result.Cont, err = readLibopusFloat32s(reader, ContVectors*NumFeatures); err != nil {
 		return libopusPLCPrefillResult{}, err
 	}
 	for _, dst := range [][]float32{
@@ -506,11 +391,12 @@ func probeLibopusPLCPrefill(features, cont, fec0, fec1 []float32, plcNet predict
 		result.PLCBak[1].gru1[:],
 		result.PLCBak[1].gru2[:],
 	} {
-		values, readErr := readBits(len(dst))
-		if readErr != nil {
-			return libopusPLCPrefillResult{}, readErr
+		if err := readLibopusFloat32Into(reader, dst); err != nil {
+			return libopusPLCPrefillResult{}, err
 		}
-		copy(dst, values)
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusPLCPrefillResult{}, err
 	}
 	return result, nil
 }

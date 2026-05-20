@@ -39,6 +39,16 @@ func (p *OraclePayload) I32(v int32) {
 	p.U32(uint32(v))
 }
 
+func (p *OraclePayload) U16(v uint16) {
+	var buf [2]byte
+	binary.LittleEndian.PutUint16(buf[:], v)
+	p.data = append(p.data, buf[:]...)
+}
+
+func (p *OraclePayload) I16(v int16) {
+	p.U16(uint16(v))
+}
+
 func (p *OraclePayload) Float32(v float32) {
 	p.U32(math.Float32bits(v))
 }
