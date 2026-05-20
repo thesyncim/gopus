@@ -47,6 +47,8 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"Default builds support `SetDNNBlob(...)` only.",
 		"QEXT and DRED require build tags.",
+		"QEXT requires `-tags gopus_qext`",
+		"DRED control/standalone surfaces require `-tags gopus_dred`",
 		"OSCE BWE remains extra-controls parity only and absent outside `-tags gopus_extra_controls`.",
 		"make test-dnn-blob-parity",
 		"make test-qext-parity",
@@ -59,17 +61,6 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		}
 	}
 	assertOptionalExtensionDocsMatchSupport(t, optionalDoc)
-
-	for _, needle := range []string{
-		"Default builds support `SetDNNBlob(...)` only.",
-		"QEXT requires `-tags gopus_qext`",
-		"DRED control/standalone surfaces require `-tags gopus_dred`",
-		"OSCE BWE remains extra-controls parity only and absent outside `-tags gopus_extra_controls`",
-	} {
-		if !containsDocText(optionalDoc, needle) {
-			t.Fatalf("README.md missing %q", needle)
-		}
-	}
 
 	examples := mustReadDocForTest(t, "examples/README.md")
 	if !strings.Contains(examples, "These examples target the supported default build. QEXT examples require `-tags gopus_qext`; DRED examples require `-tags gopus_dred`; OSCE BWE remains extra-controls parity only.") {

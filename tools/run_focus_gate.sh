@@ -60,6 +60,8 @@ dred_multistream_neural_decodes='DecoderDecodeNilConsumesMultistreamDREDNeuralSt
 qext_packet_extension_root='Test(GeneratePacketExtensionsMatchesLibopusCases|PacketExtensionIteratorParseAndCount|PacketExtensionIteratorRepeatExpansion|PacketExtensionIteratorRejectsInvalidSeparator|MultistreamPacketPadUnpadSelfDelimitedRoundTrip|MultistreamPacketPadUnpadThreeStreamsRoundTrip|RepacketizerPreservesPacketExtensions|PacketPadPreservesPacketExtensions|SelfDelimitedPacketPreservesPacketExtensions|DecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding)'
 qext_packet_extension_multistream='Test(SelfDelimitedPacketPreservesPacketExtensions|DecodeSelfDelimitedPacketPreservesOpaqueMalformedPadding)'
 qext_libopus_tooling='TestFindQEXTLibopusToolForOSUsesSeparateSourceTree'
+doc_contract_root='Test(OptionalExtensionDocsContract|TrustDocsContract|ReleaseNotesSourceIsReadme)'
+doc_contract_testvectors='Test(FixtureGeneratorScriptsBuildIgnore|GeneratedFilesDeclareGeneratedMarkerBeforePackage)'
 core_oracles_root='Test(Float32ToInt16MatchesLibopusFLOAT2INT16|OpusPCMSoftClipMatchesLibopus|SoftClipAndFloat32ToInt16MatchesLibopus)'
 core_oracles_celt='TestCELT(Log2|Exp2)MatchesLibopusFloatApprox|TestCELTBitexact(Cos|Log2Tan)MatchesLibopus|TestCELTIntegerMathMatchesLibopus'
 core_oracles_silk='TestSILK(Lin2Log|Log2Lin|Fixed|NLSF|A2|NLSF2A|Gains|Stereo|LTP|QuantLTPGains)'
@@ -120,6 +122,11 @@ gate_core_oracles_parity() {
 	require_no_skips "core oracles parity"
 }
 
+gate_doc_contract() {
+	run_json env "${go_env[@]}" "$GO_BIN" test -json . -run "$doc_contract_root" -count=1
+	run_json env "${go_env[@]}" "$GO_BIN" test -json ./testvectors -run "$doc_contract_testvectors" -count=1
+}
+
 gate_extra_controls_tag() {
 	run_parity -tags gopus_extra_controls . -run "$extra_controls_core_root" -count=1
 	run_parity -tags gopus_extra_controls . -run "$dred_payload_parser_root" -count=1
@@ -161,10 +168,13 @@ gate_extra_controls_parity() {
 }
 
 usage() {
-	echo "usage: $0 {dnn-blob-parity|core-oracles-parity|dred-tag|qext-parity|extra-controls-tag|extra-controls-parity}"
+	echo "usage: $0 {doc-contract|dnn-blob-parity|core-oracles-parity|dred-tag|qext-parity|extra-controls-tag|extra-controls-parity}"
 }
 
 case "${1:-}" in
+	doc-contract)
+		gate_doc_contract
+		;;
 	dnn-blob-parity)
 		gate_dnn_blob_parity
 		;;

@@ -125,7 +125,7 @@ test-examples-smoke:
 # Docs and release-surface contracts stay focused so they do not require
 # heavyweight libopus fixture trees.
 test-doc-contract:
-	$(GO_WORK_ENV) $(GO) test . ./testvectors -run 'Test(OptionalExtensionDocsContract|TrustDocsContract|ReleaseNotesSourceIsReadme|FixtureGeneratorScriptsBuildIgnore|GeneratedFilesDeclareGeneratedMarkerBeforePackage)' -count=1
+	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) doc-contract
 
 # Default-supported DNN blob control parity against libopus USE_WEIGHTS_FILE
 # model blobs. The target fails if the required libopus-backed test is skipped.
