@@ -737,14 +737,15 @@ func incrementPacketMode(s *engineStats, mode gopus.Mode) {
 }
 
 func (e *engine) fecEnabledFor(payload []byte) bool {
-	if e.fecEnabledHook != nil {
-		return e.fecEnabledHook(payload)
-	}
 	e.mu.Lock()
 	enabled := e.cfg.FEC
+	hook := e.fecEnabledHook
 	e.mu.Unlock()
 	if !enabled || len(payload) == 0 {
 		return false
+	}
+	if hook != nil {
+		return hook(payload)
 	}
 	mode := gopus.ParseTOC(payload[0]).Mode
 	return mode == gopus.ModeSILK || mode == gopus.ModeHybrid
@@ -757,12 +758,18 @@ func (e *engine) redEnabled() bool {
 }
 
 func (e *engine) prepareDREDRecovery(payload []byte, maxDREDSamples int) (int, bool) {
-	if e.prepareDREDHook != nil {
-		return e.prepareDREDHook(payload, maxDREDSamples)
-	}
 	e.mu.Lock()
+	if !e.cfg.DRED || maxDREDSamples <= 0 {
+		e.mu.Unlock()
+		return 0, false
+	}
+	if e.prepareDREDHook != nil {
+		hook := e.prepareDREDHook
+		e.mu.Unlock()
+		return hook(payload, maxDREDSamples)
+	}
 	defer e.mu.Unlock()
-	if !e.cfg.DRED || e.dredProbe == nil || maxDREDSamples <= 0 {
+	if e.dredProbe == nil {
 		return 0, false
 	}
 	return e.dredProbe.prepareRecovery(payload, maxDREDSamples)

@@ -254,6 +254,68 @@ func TestReceiveLoopMalformedREDWithGapUsesPLCOnly(t *testing.T) {
 	}
 }
 
+func TestReceiveLoopMalformedREDVariantsUsePLC(t *testing.T) {
+	tooManyHeaders := make([]byte, 0, (maxREDDepth+1)*4+1)
+	for i := 0; i < maxREDDepth+1; i++ {
+		tooManyHeaders = append(tooManyHeaders, 0x80|redOpusPayloadType, 0x00, 0x04, 0x01)
+	}
+	tooManyHeaders = append(tooManyHeaders, redOpusPayloadType)
+
+	tests := []struct {
+		name    string
+		payload []byte
+	}{
+		{name: "unexpected_primary_pt", payload: []byte{0x60, 0x01}},
+		{name: "unexpected_redundant_pt", payload: []byte{0x80 | 0x60, 0x0f, 0x00, 0x01, redOpusPayloadType, 0xaa, 0xbb}},
+		{name: "truncated_redundant_payload", payload: []byte{0x80 | redOpusPayloadType, 0x00, 0x04, 0x02, redOpusPayloadType, 0xaa}},
+		{name: "too_many_headers", payload: tooManyHeaders},
+		{name: "missing_primary", payload: []byte{redOpusPayloadType}},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var calls []decodeKind
+			e := newReceiveLoopTestEngine(engineConfig{RED: true, FEC: true, DRED: true})
+			e.fecEnabledHook = func(_ []byte) bool {
+				t.Fatal("FEC should not inspect malformed RED")
+				return false
+			}
+			e.prepareDREDHook = func(_ []byte, _ int) (int, bool) {
+				t.Fatal("DRED should not prepare from malformed RED")
+				return 0, false
+			}
+			e.decodeREDHook = func(_ []byte) bool {
+				t.Fatal("RED should not decode malformed RED")
+				return false
+			}
+			e.decodeHook = func(_ []byte, kind decodeKind) bool {
+				calls = append(calls, kind)
+				e.bumpDecodeStats(kind)
+				return true
+			}
+
+			runReceiveLoopTest(t, e,
+				testPacket(30, redPayloadType, tc.payload),
+				testPacket(31, redPayloadType, mustREDPayload(t, []byte{0x31}, nil)),
+			)
+
+			want := []decodeKind{decodeLossPath, decodeNormal}
+			if !sameDecodeKinds(calls, want) {
+				t.Fatalf("decode calls=%v want %v", calls, want)
+			}
+			stats := e.Stats()
+			if stats.DecodeErrors != 1 || stats.REDFallbackFrames != 1 || stats.LossPathFrames != 1 || stats.ConcealedFrames != 1 || stats.PacketsReceived != 1 {
+				t.Fatalf("stats decodeErrors=%d redFallback=%d loss=%d concealed=%d received=%d, want 1/1/1/1/1",
+					stats.DecodeErrors, stats.REDFallbackFrames, stats.LossPathFrames, stats.ConcealedFrames, stats.PacketsReceived)
+			}
+			if stats.REDRecoveryAttempts != 0 || stats.FECRecoveryAttempts != 0 || stats.DREDRecoveryAttempts != 0 {
+				t.Fatalf("recovery attempts red=%d fec=%d dred=%d, want 0/0/0",
+					stats.REDRecoveryAttempts, stats.FECRecoveryAttempts, stats.DREDRecoveryAttempts)
+			}
+		})
+	}
+}
+
 func TestReceiveLoopREDFECDREDPriority(t *testing.T) {
 	var calls []string
 	e := newReceiveLoopTestEngine(engineConfig{RED: true, FEC: true, DRED: true})
@@ -374,6 +436,105 @@ func TestReceiveLoopMixedGapUsesREDThenFECWithoutDRED(t *testing.T) {
 			stats.REDFrames, stats.REDRecoveryAttempts, stats.FECFrames, stats.FECRecoveryAttempts,
 			stats.DREDFrames, stats.DREDRecoveryAttempts, stats.LossPathFrames,
 			stats.REDFallbackFrames, stats.FECFallbackFrames, stats.DREDFallbackFrames)
+	}
+}
+
+func TestReceiveLoopMultiGapUsesDREDForEveryCoveredPacket(t *testing.T) {
+	var calls []string
+	var offsets []int
+	prepareCalls := 0
+	e := newReceiveLoopTestEngine(engineConfig{DRED: true})
+	e.fecEnabledHook = func(_ []byte) bool {
+		t.Fatal("FEC should remain disabled")
+		return false
+	}
+	e.prepareDREDHook = func(_ []byte, maxDREDSamples int) (int, bool) {
+		prepareCalls++
+		if maxDREDSamples != 2*frameSamples {
+			t.Fatalf("maxDREDSamples=%d want %d", maxDREDSamples, 2*frameSamples)
+		}
+		return maxDREDSamples, true
+	}
+	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+		calls = append(calls, kind.String())
+		if kind == decodeLossPath {
+			t.Fatal("PLC should not run when DRED covers the full gap")
+		}
+		e.bumpDecodeStats(kind)
+		return true
+	}
+	e.decodeDREDHook = func(offset int) bool {
+		calls = append(calls, "dred")
+		offsets = append(offsets, offset)
+		e.bumpDecodeStats(decodeDRED)
+		return true
+	}
+
+	runReceiveLoopTest(t, e,
+		testPacket(100, redOpusPayloadType, []byte{0x01}),
+		testPacket(103, redOpusPayloadType, []byte{0x03}),
+	)
+
+	want := []string{decodeNormal.String(), "dred", "dred", decodeNormal.String()}
+	if !sameStrings(calls, want) {
+		t.Fatalf("calls=%v want %v", calls, want)
+	}
+	if prepareCalls != 1 {
+		t.Fatalf("prepareCalls=%d want 1", prepareCalls)
+	}
+	if len(offsets) != 2 || offsets[0] != 2*frameSamples || offsets[1] != frameSamples {
+		t.Fatalf("dred offsets=%v want [%d %d]", offsets, 2*frameSamples, frameSamples)
+	}
+	stats := e.Stats()
+	if stats.DREDFrames != 2 || stats.DREDRecoveryAttempts != 2 || stats.DREDFallbackFrames != 0 || stats.LossPathFrames != 0 {
+		t.Fatalf("stats dred=%d/%d fallback=%d plc=%d, want 2/2/0/0",
+			stats.DREDFrames, stats.DREDRecoveryAttempts, stats.DREDFallbackFrames, stats.LossPathFrames)
+	}
+}
+
+func TestReceiveLoopPartialDREDCoverageFallsBackPerPacket(t *testing.T) {
+	var calls []string
+	var offsets []int
+	prepareCalls := 0
+	e := newReceiveLoopTestEngine(engineConfig{DRED: true})
+	e.prepareDREDHook = func(_ []byte, maxDREDSamples int) (int, bool) {
+		prepareCalls++
+		if maxDREDSamples != 2*frameSamples {
+			t.Fatalf("maxDREDSamples=%d want %d", maxDREDSamples, 2*frameSamples)
+		}
+		return frameSamples, true
+	}
+	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+		calls = append(calls, kind.String())
+		e.bumpDecodeStats(kind)
+		return true
+	}
+	e.decodeDREDHook = func(offset int) bool {
+		calls = append(calls, "dred")
+		offsets = append(offsets, offset)
+		e.bumpDecodeStats(decodeDRED)
+		return true
+	}
+
+	runReceiveLoopTest(t, e,
+		testPacket(100, redOpusPayloadType, []byte{0x01}),
+		testPacket(103, redOpusPayloadType, []byte{0x03}),
+	)
+
+	want := []string{decodeNormal.String(), decodeLossPath.String(), "dred", decodeNormal.String()}
+	if !sameStrings(calls, want) {
+		t.Fatalf("calls=%v want %v", calls, want)
+	}
+	if prepareCalls != 1 {
+		t.Fatalf("prepareCalls=%d want 1", prepareCalls)
+	}
+	if len(offsets) != 1 || offsets[0] != frameSamples {
+		t.Fatalf("dred offsets=%v want [%d]", offsets, frameSamples)
+	}
+	stats := e.Stats()
+	if stats.DREDFallbackFrames != 1 || stats.DREDFrames != 1 || stats.DREDRecoveryAttempts != 1 || stats.LossPathFrames != 1 || stats.ConcealedFrames != 2 {
+		t.Fatalf("stats dredFallback=%d dred=%d/%d loss=%d concealed=%d, want 1/1/1/1/2",
+			stats.DREDFallbackFrames, stats.DREDFrames, stats.DREDRecoveryAttempts, stats.LossPathFrames, stats.ConcealedFrames)
 	}
 }
 
