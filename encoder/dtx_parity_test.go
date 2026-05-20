@@ -232,7 +232,7 @@ func TestDTX_InDTXGetterMatchesLibopus(t *testing.T) {
 	}
 }
 
-func TestDTX_DisableClearsVisibleState(t *testing.T) {
+func TestDTX_DisableDoesNotResetCounterUntilEncode(t *testing.T) {
 	enc := NewEncoder(48000, 1)
 	enc.SetDTX(true)
 	silence := make([]float64, 960)
@@ -248,11 +248,38 @@ func TestDTX_DisableClearsVisibleState(t *testing.T) {
 	if enc.InDTX() {
 		t.Fatal("InDTX()=true after SetDTX(false), want false")
 	}
+	if enc.dtx.noActivityMsQ1 == 0 {
+		t.Fatal("SetDTX(false) reset noActivityMsQ1; libopus only toggles use_dtx")
+	}
+
+	enc.SetDTX(true)
+	if !enc.InDTX() {
+		t.Fatal("SetDTX(true) should expose preserved DTX counter")
+	}
+}
+
+func TestDTX_DisabledEncodeClearsCounter(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetDTX(true)
+	silence := make([]float64, 960)
+
+	for i := 0; i < 11; i++ {
+		enc.shouldUseDTX(silence)
+	}
+	if !enc.InDTX() {
+		t.Fatal("should be in DTX before disabling")
+	}
+
+	enc.SetDTX(false)
+	suppress, _ := enc.shouldUseDTX(silence)
+	if suppress {
+		t.Fatal("disabled DTX suppressed a frame")
+	}
 	if enc.dtx.noActivityMsQ1 != 0 {
-		t.Fatalf("noActivityMsQ1=%d after SetDTX(false), want 0", enc.dtx.noActivityMsQ1)
+		t.Fatalf("disabled encode left noActivityMsQ1=%d want 0", enc.dtx.noActivityMsQ1)
 	}
 	if enc.dtx.inDTXMode {
-		t.Fatal("inDTXMode=true after SetDTX(false), want false")
+		t.Fatal("disabled encode left inDTXMode=true")
 	}
 }
 
@@ -475,6 +502,29 @@ func TestDTX_FullEncodeCycle(t *testing.T) {
 	}
 	if len(packet) != 1 {
 		t.Errorf("frame 31: expected 1-byte DTX (re-entry), got %d bytes", len(packet))
+	}
+}
+
+func TestDTXPacketFinalRangeIsZero(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetBandwidth(types.BandwidthWideband)
+	enc.SetDTX(true)
+
+	silence := make([]float64, 960)
+	var packet []byte
+	for i := 0; i < 11; i++ {
+		var err error
+		packet, err = enc.Encode(silence, 960)
+		if err != nil {
+			t.Fatalf("frame %d: encode error: %v", i, err)
+		}
+	}
+	if len(packet) != 1 {
+		t.Fatalf("DTX packet length=%d want 1", len(packet))
+	}
+	if got := enc.FinalRange(); got != 0 {
+		t.Fatalf("FinalRange after DTX packet=0x%08x want 0", got)
 	}
 }
 

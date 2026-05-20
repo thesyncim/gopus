@@ -112,6 +112,7 @@ type Encoder struct {
 	dtxEnabled bool
 	dtx        *dtxState
 	rng        uint32 // RNG for comfort noise
+	finalRange uint32
 
 	// Complexity control (0-10, higher = better quality but slower)
 	complexity int
@@ -410,6 +411,7 @@ func (e *Encoder) Reset() {
 	if e.dtx != nil {
 		e.dtx.reset()
 	}
+	e.finalRange = 0
 	if e.analyzer != nil {
 		e.analyzer.Reset()
 	}
@@ -490,10 +492,6 @@ func (e *Encoder) SetDTX(enabled bool) {
 	if enabled && e.dtx == nil {
 		e.dtx = newDTXState()
 	}
-	if !enabled && e.dtx != nil {
-		e.dtx.noActivityMsQ1 = 0
-		e.dtx.inDTXMode = false
-	}
 }
 
 // DTXEnabled returns whether DTX is enabled.
@@ -528,7 +526,11 @@ func (e *Encoder) Complexity() int {
 
 // FinalRange returns the final range coder state after encoding.
 func (e *Encoder) FinalRange() uint32 {
-	switch e.prevPacketMode {
+	return e.finalRange
+}
+
+func (e *Encoder) currentFinalRange(mode Mode) uint32 {
+	switch mode {
 	case ModeSILK:
 		if e.silkEncoder != nil {
 			return e.silkEncoder.FinalRange()
@@ -795,11 +797,22 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 			remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
 			e.inputBuffer = e.inputBuffer[:remaining]
 		}
+		if isConcreteMode(actualMode) {
+			e.prevPacketMode = actualMode
+		}
+		if isConcreteMode(prevModeNext) {
+			e.prevMode = prevModeNext
+			if e.mode == ModeAuto {
+				e.prevAutoMode = prevModeNext
+			}
+		}
+		e.first = false
+		e.finalRange = 0
 		// Match libopus: return a 1-byte TOC-only packet for DTX frames.
 		// The decoder triggers its own CNG when it sees a TOC with no frame data.
 		// Returning nil here would cause WebRTC to see missing packets and apply
 		// degrading PLC instead of smooth comfort noise.
-		return e.buildDTXPacket(frameSize)
+		return e.buildDTXPacketForMode(frameSize, actualMode)
 	}
 
 	if actualMode == ModeSILK || (actualMode == ModeHybrid && frameSize <= 960) {
@@ -1025,6 +1038,7 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 			packet = constrainSize(packet, targetBytesForBitrate(e.bitrate, frameSize), CVBRTolerance)
 		}
 	}
+	e.finalRange = e.currentFinalRange(actualMode)
 	return packet, nil
 }
 
@@ -1039,6 +1053,10 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 // over returning nil/0 bytes, which WebRTC interprets as packet loss.
 func (e *Encoder) buildDTXPacket(frameSize int) ([]byte, error) {
 	actualMode := e.selectMode(frameSize, e.signalType)
+	return e.buildDTXPacketForMode(frameSize, actualMode)
+}
+
+func (e *Encoder) buildDTXPacketForMode(frameSize int, actualMode Mode) ([]byte, error) {
 	packetBW := e.effectiveBandwidth()
 	if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 		packetBW = types.BandwidthWideband
