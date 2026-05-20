@@ -8,7 +8,7 @@ import (
 	osceLACE "github.com/thesyncim/gopus/internal/osce/lace"
 )
 
-// bindOSCELACEModel attaches (or detaches) the quarantined libopus OSCE
+// bindOSCELACEModel attaches (or detaches) the extra-control libopus OSCE
 // LACE/NoLACE model to the decoder's runtime state. The bound state is consumed
 // by the post-SILK OSCE LACE / NoLACE forward pass, so callers can verify both
 // upstream `lace_*` / `nolace_*` weight loading and runtime execution.

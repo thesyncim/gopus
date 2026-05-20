@@ -505,7 +505,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		// silk_resampler upsamples to the public sample rate (and
 		// before the OSCE BWE 16 kHz -> 48 kHz pass when both are
 		// active). Helper is a no-op outside of
-		// `gopus_extra_controls`; under the quarantine build it
+		// `gopus_extra_controls`; under the extra-controls build it
 		// also short-circuits when the LACE control is disabled or no
 		// LACE/NoLACE model is loaded, so the standard silk_resampler
 		// output is retained for every existing decode path. The call

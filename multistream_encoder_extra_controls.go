@@ -4,7 +4,7 @@
 package gopus
 
 // SetDREDDuration exposes the libopus ENABLE_DRED control when built with
-// -tags gopus_dred, or for quarantine parity work under
+// -tags gopus_dred, or for extra-controls parity work under
 // -tags gopus_extra_controls.
 //
 // The default gopus build keeps this absent from the public API surface.

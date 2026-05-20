@@ -6,14 +6,14 @@ package gopus
 // SetOSCEBWE exposes the extra libopus ENABLE_OSCE_BWE control only
 // when built with -tags gopus_extra_controls.
 //
-// The default gopus build keeps this quarantined from the public API surface.
+// The default gopus build keeps this outside the public API surface.
 func (d *Decoder) SetOSCEBWE(enabled bool) error {
 	d.osceBWEEnabled = enabled
 	return nil
 }
 
 // OSCEBWE reports decoder-side OSCE bandwidth-extension state for explicit
-// quarantine builds.
+// extra-controls builds.
 func (d *Decoder) OSCEBWE() (bool, error) {
 	return d.osceBWEEnabled, nil
 }
@@ -21,7 +21,7 @@ func (d *Decoder) OSCEBWE() (bool, error) {
 // SetOSCELACE exposes the extra libopus OSCE LACE/NoLACE postfilter
 // activation control only when built with -tags gopus_extra_controls.
 //
-// The default gopus build keeps this quarantined from the public API surface.
+// The default gopus build keeps this outside the public API surface.
 // libopus selects between OSCE_METHOD_NONE / OSCE_METHOD_LACE / OSCE_METHOD_NOLACE
 // based on decoder complexity (>=6 enables LACE, >=7 enables NoLACE); this
 // boolean control gates whether the gopus decoder runs either postfilter on
@@ -32,7 +32,7 @@ func (d *Decoder) SetOSCELACE(enabled bool) error {
 }
 
 // OSCELACE reports decoder-side OSCE LACE/NoLACE postfilter activation state
-// for explicit quarantine builds.
+// for explicit extra-controls builds.
 func (d *Decoder) OSCELACE() (bool, error) {
 	return d.osceLACEEnabled, nil
 }

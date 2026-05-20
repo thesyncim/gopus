@@ -69,7 +69,7 @@ func TestDNNBlobControlAcceptsLibopusModelBlobs(t *testing.T) {
 		t.Fatalf("libopus decoder blob model families=%+v, want PitchDNN/PLC/FARGAN", models)
 	}
 	if models.DRED || models.OSCE || models.OSCEBWE {
-		t.Fatalf("default libopus decoder blob unexpectedly reports quarantine-only families: %+v", models)
+		t.Fatalf("default libopus decoder blob unexpectedly reports extra-control-only families: %+v", models)
 	}
 
 	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)

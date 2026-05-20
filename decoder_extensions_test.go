@@ -160,9 +160,9 @@ func TestDecoderCELTOpaquePaddingRemainsDecodable(t *testing.T) {
 	}
 }
 
-func TestDecoderCELTUnsupportedQEXTExtensionMatchesBasePacket(t *testing.T) {
+func TestDecoderCELTExtraQEXTExtensionMatchesBasePacket(t *testing.T) {
 	if SupportsOptionalExtension(OptionalExtensionQEXT) {
-		t.Skip("test covers the default unsupported-QEXT build")
+		t.Skip("test covers the default non-QEXT build")
 	}
 
 	base := makeValidCELTPacketForExtensionTest(t)

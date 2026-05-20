@@ -10,11 +10,11 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 )
 
-// OSCE LACE/NoLACE postfilter is a quarantined libopus feature. The helpers
+// OSCE LACE/NoLACE postfilter is an extra-control libopus feature. The helpers
 // in this file build and invoke `tools/csrc/libopus_osce_lace_model_blob.c`
 // to extract the upstream `lacelayers_arrays` and `nolacelayers_arrays`
 // weight tables as a single USE_WEIGHTS_FILE-compatible blob. The blob can
-// then be fed to parity tests that exercise quarantined OSCE LACE/NoLACE
+// then be fed to parity tests that exercise extra-control OSCE LACE/NoLACE
 // behaviour.
 //
 // IMPORTANT: the libopus 1.6.1 default DRED build (configured with

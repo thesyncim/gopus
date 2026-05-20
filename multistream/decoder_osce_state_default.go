@@ -5,6 +5,6 @@ package multistream
 
 // streamOSCEState is an empty placeholder under the default build so the
 // `*streamOSCEState` field on `streamState` compiles without dragging in the
-// quarantined OSCE runtime. The single-stream decoder uses the same dual-file
+// extra-control OSCE runtime. The single-stream decoder uses the same dual-file
 // pattern (`decoder_osce_bwe_state.go` / `decoder_osce_bwe_state_default.go`).
 type streamOSCEState struct{}

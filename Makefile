@@ -133,7 +133,7 @@ test-dnn-blob-parity: ensure-libopus
 	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) dnn-blob-parity
 
 # Supported DRED feature-tag smoke. The extra-controls tag remains a
-# quarantine umbrella; this target verifies the supported DRED surface by itself.
+# broader parity umbrella; this target verifies the supported DRED surface by itself.
 test-dred-tag: ensure-libopus
 	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) dred-tag
 
@@ -142,17 +142,17 @@ test-dred-tag: ensure-libopus
 test-qext-parity: ensure-libopus-qext
 	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) qext-parity
 
-# Quarantine build smoke for extra controls that should never leak into the default surface.
+# Extra-controls build smoke for controls that should never leak into the default surface.
 test-extra-controls-tag: ensure-libopus
 	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) extra-controls-tag
 
-# Required tag-gated DRED parity sweep. Keep it separate from the quarantine API
+# Required tag-gated DRED parity sweep. Keep it separate from the extra-controls API
 # smoke so support claims stay seam-scoped.
 test-extra-controls-parity: ensure-libopus
 	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) extra-controls-parity
 
 # Legacy alias for older automation; Hybrid DRED packet-shape exactness now
-# lives in the required supported-tag and quarantine parity gates.
+# lives in the required supported-tag and extra-controls parity gates.
 test-extra-controls-parity-experimental: test-extra-controls-parity
 
 # Primary libopus-facing focused gate.

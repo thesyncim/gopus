@@ -10,11 +10,11 @@ import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 )
 
-// OSCE BWE (blind bandwidth extension) is a quarantined libopus feature. The
+// OSCE BWE (blind bandwidth extension) is an extra-control libopus feature. The
 // helpers in this file build and invoke `tools/csrc/libopus_osce_bwe_model_blob.c`
 // to extract the upstream `bbwenetlayers_arrays` weight table as a
 // USE_WEIGHTS_FILE-compatible blob. The blob can then be fed to parity tests
-// that exercise quarantined OSCE BWE behaviour.
+// that exercise extra-control OSCE BWE behaviour.
 //
 // IMPORTANT: the libopus 1.6.1 default DRED build (configured with
 // `--enable-dred` only) does NOT compile `dnn/bbwenet_data.c` into libopus.a;

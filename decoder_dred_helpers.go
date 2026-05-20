@@ -310,14 +310,14 @@ func (d *Decoder) setDNNBlob(blob *dnnblob.Blob) error {
 	d.osceModelsLoaded = models.OSCE
 	d.osceLACEModelLoaded = models.OSCE
 	d.osceBWEModelLoaded = models.OSCEBWE
-	// Bind the quarantined OSCE BWE model when its weights are present. The
+	// Bind the extra-control OSCE BWE model when its weights are present. The
 	// helper is a no-op outside of `gopus_extra_controls` builds so the
 	// shared DRED path remains untouched.
 	if err := d.bindOSCEBWEModel(blob, models.OSCEBWE); err != nil {
 		return err
 	}
-	// Bind the quarantined OSCE LACE/NoLACE postfilter models when their
-	// weights are present. Same quarantine pattern as bindOSCEBWEModel.
+	// Bind the extra-control OSCE LACE/NoLACE postfilter models when their
+	// weights are present. Same optional-model pattern as bindOSCEBWEModel.
 	if err := d.bindOSCELACEModel(blob, models.OSCE); err != nil {
 		return err
 	}

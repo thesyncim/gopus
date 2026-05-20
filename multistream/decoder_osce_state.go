@@ -17,7 +17,7 @@ const (
 )
 
 // streamOSCEState carries decoder-side OSCE LACE/NoLACE + BWE runtime
-// bookkeeping under the explicit quarantine build. It is attached to the
+// bookkeeping under the explicit extra-controls build. It is attached to the
 // per-stream `streamState` so a multistream decoder can run the libopus OSCE
 // postfilter family on its SILK lowband output, just like the single-stream
 // decoder in package gopus. The state is lazily allocated when models are

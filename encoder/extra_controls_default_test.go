@@ -19,7 +19,7 @@ func exportedMethodNames(v any) map[string]struct{} {
 	return names
 }
 
-func TestDefaultBuildQuarantinesExtraControls(t *testing.T) {
+func TestDefaultBuildHidesExtraControls(t *testing.T) {
 	methods := exportedMethodNames(encoder.NewEncoder(48000, 1))
 	for _, name := range []string{"DREDDuration", "DREDModelLoaded", "DREDReady", "QEXT", "SetDREDDuration", "SetQEXT"} {
 		if _, ok := methods[name]; ok {

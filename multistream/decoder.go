@@ -355,7 +355,7 @@ func (d *streamState) decodeSILK(data []byte, frameSize int, packetStereo bool, 
 
 	// Optional libopus OSCE LACE/NoLACE postfilter + OSCE BWE forward pass on
 	// the SILK lowband. The helper is a no-op outside of
-	// `gopus_extra_controls`; under the quarantine build it only fires
+	// `gopus_extra_controls`; under the extra-controls build it only fires
 	// when the per-stream user toggle is enabled and a valid model is bound,
 	// so the standard silk_resampler output is retained for every existing
 	// decode path. The call MUST run before the float32->float64 conversion

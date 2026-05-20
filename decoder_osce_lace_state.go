@@ -8,7 +8,7 @@ import (
 )
 
 // decoderOSCELACEState carries decoder-side OSCE LACE/NoLACE runtime
-// bookkeeping under the explicit quarantine build. The `osceLACEModel`
+// bookkeeping under the explicit extra-controls build. The `osceLACEModel`
 // field follows the same pattern as the OSCE BWE binding: it is non-nil
 // once `SetDNNBlob` has successfully bound an OSCE LACE-capable weights
 // blob.
@@ -16,7 +16,7 @@ import (
 // libopus keeps a single shared OSCEModel inside `OpusDecoder` (see
 // `dnn/osce.c`: `osce_init`) carrying both LACE and NoLACE postfilter
 // weights; the per-channel postfilter state (LACEState / NoLACEState)
-// lives in the silk decoder structs. The quarantine build mirrors that shape
+// lives in the silk decoder structs. The extra-controls build mirrors that shape
 // with one LACE and one NoLACE runtime state per channel.
 //
 // Both LACE and NoLACE operate on a 20 ms @ 16 kHz int16 frame (320

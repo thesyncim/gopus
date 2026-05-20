@@ -8,7 +8,7 @@ import (
 )
 
 // decoderOSCEBWEState carries decoder-side OSCE BWE runtime bookkeeping under
-// the explicit quarantine build. The `osceBWEModel` field follows the same
+// the explicit extra-controls build. The `osceBWEModel` field follows the same
 // pattern as the FARGAN / Predictor bindings: it is non-nil once
 // `SetDNNBlob` has successfully bound an OSCE BWE-capable weights blob.
 //

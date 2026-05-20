@@ -8,7 +8,7 @@ import (
 	osceBWE "github.com/thesyncim/gopus/internal/osce/bwe"
 )
 
-// bindOSCEBWEModel attaches (or detaches) the quarantined libopus OSCE BWE
+// bindOSCEBWEModel attaches (or detaches) the extra-control libopus OSCE BWE
 // model to the decoder's runtime state. The bound state is consumed by the
 // post-SILK OSCE BWE forward pass in `maybeApplyOSCEBWEPostSilk`, so callers can
 // verify both upstream `bbwenet_*` weight loading and runtime execution.
