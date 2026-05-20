@@ -2038,7 +2038,7 @@ func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
 	}
 	if frameSize > 960 {
 		if e.mode != ModeAuto {
-			// Hybrid 40/60ms packets are encoded as 2/3 x 20ms code-3 packets.
+			// Hybrid long packets are encoded as 20ms multi-frame packets.
 			if e.mode == ModeHybrid {
 				return ModeHybrid
 			}
@@ -2674,7 +2674,7 @@ func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []float64, fra
 }
 
 // encodeCELTMultiFramePacket encodes long CELT packets by splitting into
-// 20ms CELT frames and packing them using code-3 framing.
+// 20ms CELT frames and packing them with Opus multi-frame framing.
 func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM []float64, frameSize, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
 	if frameSize <= 960 || frameSize%960 != 0 {
 		return nil, ErrInvalidFrameSize
@@ -2806,7 +2806,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM []float64
 }
 
 // encodeHybridMultiFramePacket encodes long hybrid packets by splitting into
-// 20ms hybrid frames and packing them using code-3 framing.
+// 20ms hybrid frames and packing them with Opus multi-frame framing.
 func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, rawPCM []float64, lookahead []float64, delayState []float64, frameSize int, transitionToCELT bool, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
 	if frameSize <= 960 || frameSize%960 != 0 {
 		return nil, ErrInvalidFrameSize

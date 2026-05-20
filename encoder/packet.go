@@ -331,7 +331,7 @@ func BuildPacket(frameData []byte, mode types.Mode, bandwidth types.Bandwidth, f
 	return packet, nil
 }
 
-// BuildMultiFramePacket creates a packet with multiple frames (code 3).
+// BuildMultiFramePacket creates a packet with multiple frames.
 // frames: slice of encoded frame data
 // vbr: true for variable bitrate (different frame sizes), false for CBR
 func BuildMultiFramePacket(frames [][]byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool, vbr bool) ([]byte, error) {
@@ -342,6 +342,30 @@ func BuildMultiFramePacket(frames [][]byte, mode types.Mode, bandwidth types.Ban
 	config := configFromParams(mode, bandwidth, frameSize)
 	if config < 0 {
 		return nil, ErrInvalidConfig
+	}
+
+	if len(frames) == 1 {
+		return BuildPacket(frames[0], mode, bandwidth, frameSize, stereo)
+	}
+	if len(frames) == 2 {
+		if len(frames[0]) == len(frames[1]) {
+			toc := generateTOC(uint8(config), stereo, 1)
+			packet := make([]byte, 1+len(frames[0])+len(frames[1]))
+			packet[0] = toc
+			copy(packet[1:], frames[0])
+			copy(packet[1+len(frames[0]):], frames[1])
+			return packet, nil
+		}
+		toc := generateTOC(uint8(config), stereo, 2)
+		headerSize := 1 + frameLengthBytes(len(frames[0]))
+		packet := make([]byte, headerSize+len(frames[0])+len(frames[1]))
+		packet[0] = toc
+		offset := 1
+		offset += writeFrameLength(packet[offset:], len(frames[0]))
+		copy(packet[offset:], frames[0])
+		offset += len(frames[0])
+		copy(packet[offset:], frames[1])
+		return packet, nil
 	}
 
 	toc := generateTOC(uint8(config), stereo, 3) // Code 3

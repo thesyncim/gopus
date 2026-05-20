@@ -203,7 +203,7 @@ func TestLongFrameAbove960StabilityMatrix(t *testing.T) {
 					t.Fatalf("frame %d encoded empty packet", i)
 				}
 				toc := gopus.ParseTOC(p[0])
-				if tc.mode != encoder.ModeSILK && tc.frameSize > 960 && toc.FrameCode != 3 {
+				if tc.mode != encoder.ModeSILK && tc.frameSize > 1920 && toc.FrameCode != 3 {
 					t.Fatalf("frame %d expected frame code 3 for long packet, got %d", i, toc.FrameCode)
 				}
 			}

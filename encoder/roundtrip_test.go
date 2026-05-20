@@ -1126,7 +1126,11 @@ func TestHighLevelAudioLongFramesUseCELTAndRoundTripMusic(t *testing.T) {
 				if toc.Mode != gopus.ModeCELT {
 					t.Fatalf("frame %d mode=%v, want CELT", i, toc.Mode)
 				}
-				if toc.FrameCode != 3 {
+				if expectedFramesPerPacket == 2 {
+					if toc.FrameCode != 1 && toc.FrameCode != 2 {
+						t.Fatalf("frame %d frameCode=%d, want 1 or 2", i, toc.FrameCode)
+					}
+				} else if toc.FrameCode != 3 {
 					t.Fatalf("frame %d frameCode=%d, want 3", i, toc.FrameCode)
 				}
 				info, err := gopus.ParsePacket(packetBuf[:n])

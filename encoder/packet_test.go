@@ -170,7 +170,7 @@ func TestBuildMultiFramePacket(t *testing.T) {
 		stereo     bool
 		vbr        bool
 		wantTOC    byte
-		wantCode3  byte
+		wantHeader byte
 		wantMinLen int
 	}{
 		{
@@ -181,9 +181,8 @@ func TestBuildMultiFramePacket(t *testing.T) {
 			frameSize:  960,
 			stereo:     false,
 			vbr:        false,
-			wantTOC:    0x6B, // Config 13, mono, code 3
-			wantCode3:  0x02, // CBR, no padding, M=2
-			wantMinLen: 102,  // TOC + count + 2*50
+			wantTOC:    0x69, // Config 13, mono, code 1
+			wantMinLen: 101,  // TOC + 2*50
 		},
 		{
 			name:       "vbr_2_frames",
@@ -193,9 +192,9 @@ func TestBuildMultiFramePacket(t *testing.T) {
 			frameSize:  960,
 			stereo:     false,
 			vbr:        true,
-			wantTOC:    0x6B, // Config 13, mono, code 3
-			wantCode3:  0x82, // VBR, no padding, M=2
-			wantMinLen: 83,   // TOC + count + frame1Len(1) + 30 + 50
+			wantTOC:    0x6A, // Config 13, mono, code 2
+			wantHeader: 30,
+			wantMinLen: 82, // TOC + frame1Len(1) + 30 + 50
 		},
 		{
 			name:       "vbr_3_frames",
@@ -206,7 +205,7 @@ func TestBuildMultiFramePacket(t *testing.T) {
 			stereo:     true,
 			vbr:        true,
 			wantTOC:    0xFF, // Config 31, stereo, code 3
-			wantCode3:  0x83, // VBR, no padding, M=3
+			wantHeader: 0x83, // VBR, no padding, M=3
 			wantMinLen: 94,   // TOC + count + 2 frame lens + 20+30+40
 		},
 		{
@@ -217,9 +216,8 @@ func TestBuildMultiFramePacket(t *testing.T) {
 			frameSize:  480,
 			stereo:     false,
 			vbr:        false,
-			wantTOC:    0x73, // Config 14, mono, code 3
-			wantCode3:  0x01, // CBR, no padding, M=1
-			wantMinLen: 102,  // TOC + count + 100
+			wantTOC:    0x70, // Config 14, mono, code 0
+			wantMinLen: 101,  // TOC + 100
 		},
 	}
 
@@ -238,14 +236,14 @@ func TestBuildMultiFramePacket(t *testing.T) {
 				t.Errorf("TOC = 0x%02X, want 0x%02X", packet[0], tt.wantTOC)
 			}
 
-			if packet[1] != tt.wantCode3 {
-				t.Errorf("code3 byte = 0x%02X, want 0x%02X", packet[1], tt.wantCode3)
+			if tt.wantHeader != 0 && packet[1] != tt.wantHeader {
+				t.Errorf("header byte = 0x%02X, want 0x%02X", packet[1], tt.wantHeader)
 			}
 
 			// Verify TOC parses correctly
 			toc := gopus.ParseTOC(packet[0])
-			if toc.FrameCode != 3 {
-				t.Errorf("parsed frameCode = %d, want 3", toc.FrameCode)
+			if toc.FrameCode != tt.wantTOC&0x03 {
+				t.Errorf("parsed frameCode = %d, want %d", toc.FrameCode, tt.wantTOC&0x03)
 			}
 
 			// Verify packet can be parsed back
@@ -316,6 +314,9 @@ func TestBuildMultiFramePacketVBRTwoByteLength(t *testing.T) {
 	packet, err := encoder.BuildMultiFramePacket(frames, types.ModeHybrid, types.BandwidthSuperwideband, 960, false, true)
 	if err != nil {
 		t.Fatalf("BuildMultiFramePacket failed: %v", err)
+	}
+	if got := gopus.ParseTOC(packet[0]).FrameCode; got != 2 {
+		t.Fatalf("frame code=%d want 2", got)
 	}
 
 	// Verify packet can be parsed
