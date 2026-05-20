@@ -773,7 +773,7 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 		e.lbrrCoded = decideFEC(e.fecEnabled, e.packetLoss, e.lbrrCoded,
 			requestedMode, &bw, equivRate)
 		e.bandwidth = bw
-		if e.mode == ModeSILK && e.bandwidth > types.BandwidthWideband {
+		if requestedMode == ModeSILK && e.bandwidth > types.BandwidthWideband {
 			e.bandwidth = types.BandwidthWideband
 		} else {
 			requestedMode = autoModeFixup(requestedMode, e.bandwidth)
@@ -1917,6 +1917,12 @@ func (e *Encoder) prepareCELTPCM(framePCM []float64, frameSize int) []float64 {
 
 // selectMode determines the actual encoding mode based on settings and content.
 func (e *Encoder) selectMode(frameSize int, signalHint types.Signal) Mode {
+	if e.restrictedSilkApp {
+		return ModeSILK
+	}
+	if e.lowDelay {
+		return ModeCELT
+	}
 	if frameSize > 960 {
 		if e.mode != ModeAuto {
 			// Hybrid 40/60ms packets are encoded as 2/3 x 20ms code-3 packets.

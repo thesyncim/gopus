@@ -373,6 +373,83 @@ func TestEncoder_SetBitrateMode(t *testing.T) {
 	}
 }
 
+func TestEncoder_SetMode(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+	if got := enc.Mode(); got != EncoderModeAuto {
+		t.Fatalf("Mode() default=%v want=%v", got, EncoderModeAuto)
+	}
+
+	for _, mode := range []EncoderMode{
+		EncoderModeAuto,
+		EncoderModeSILK,
+		EncoderModeHybrid,
+		EncoderModeCELT,
+	} {
+		if err := enc.SetMode(mode); err != nil {
+			t.Fatalf("SetMode(%v) error: %v", mode, err)
+		}
+		if got := enc.Mode(); got != mode {
+			t.Fatalf("Mode()=%v want=%v", got, mode)
+		}
+		if got := enc.enc.Mode(); got != mode {
+			t.Fatalf("core Mode()=%v want=%v", got, mode)
+		}
+	}
+
+	if err := enc.SetMode(EncoderMode(99)); err != ErrInvalidArgument {
+		t.Fatalf("SetMode(invalid) error=%v want=%v", err, ErrInvalidArgument)
+	}
+	if got := enc.Mode(); got != EncoderModeCELT {
+		t.Fatalf("Mode() after invalid=%v want=%v", got, EncoderModeCELT)
+	}
+	enc.Reset()
+	if got := enc.Mode(); got != EncoderModeCELT {
+		t.Fatalf("Mode() after Reset=%v want=%v", got, EncoderModeCELT)
+	}
+}
+
+func TestEncoder_ApplicationModeRestrictionsOverrideSetMode(t *testing.T) {
+	tests := []struct {
+		name      string
+		app       Application
+		forceMode EncoderMode
+		wantTOC   Mode
+	}{
+		{"lowdelay ignores silk force", ApplicationLowDelay, EncoderModeSILK, ModeCELT},
+		{"restricted silk ignores celt force", ApplicationRestrictedSilk, EncoderModeCELT, ModeSILK},
+		{"restricted celt ignores silk force", ApplicationRestrictedCelt, EncoderModeSILK, ModeCELT},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: tc.app})
+			if err != nil {
+				t.Fatalf("NewEncoder error: %v", err)
+			}
+			if err := enc.SetMode(tc.forceMode); err != nil {
+				t.Fatalf("SetMode(%v) error: %v", tc.forceMode, err)
+			}
+			if got := enc.Mode(); got != tc.forceMode {
+				t.Fatalf("Mode()=%v want stored force mode %v", got, tc.forceMode)
+			}
+			packet := make([]byte, 4000)
+			n, err := enc.Encode(generateSineWave(48000, 440, 960), packet)
+			if err != nil {
+				t.Fatalf("Encode error: %v", err)
+			}
+			if n == 0 {
+				t.Fatal("Encode returned empty packet")
+			}
+			if got := ParseTOC(packet[0]).Mode; got != tc.wantTOC {
+				t.Fatalf("TOC mode=%v want=%v", got, tc.wantTOC)
+			}
+		})
+	}
+}
+
 func TestEncoder_SetVBRAndConstraint(t *testing.T) {
 	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationAudio})
 	if err != nil {

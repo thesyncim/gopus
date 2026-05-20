@@ -51,6 +51,15 @@ func validateBitrateMode(mode BitrateMode) error {
 	}
 }
 
+func validateEncoderMode(mode EncoderMode) error {
+	switch mode {
+	case EncoderModeAuto, EncoderModeSILK, EncoderModeHybrid, EncoderModeCELT:
+		return nil
+	default:
+		return ErrInvalidArgument
+	}
+}
+
 func validSignal(signal Signal) bool {
 	switch signal {
 	case SignalAuto, SignalVoice, SignalMusic:

@@ -97,6 +97,20 @@ func (e *MultistreamEncoder) BitrateMode() BitrateMode {
 	return e.enc.BitrateMode()
 }
 
+// SetMode sets the forced coding mode for all stream encoders.
+func (e *MultistreamEncoder) SetMode(mode EncoderMode) error {
+	if err := validateEncoderMode(mode); err != nil {
+		return err
+	}
+	e.enc.SetMode(mode)
+	return nil
+}
+
+// Mode returns the forced coding mode from the first stream encoder.
+func (e *MultistreamEncoder) Mode() EncoderMode {
+	return e.enc.Mode()
+}
+
 // SetVBR enables or disables VBR mode.
 //
 // Disabling VBR switches to CBR. Enabling VBR restores VBR while preserving

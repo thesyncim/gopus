@@ -58,6 +58,20 @@ const (
 	BitrateModeCBR = encoder.ModeCBR
 )
 
+// EncoderMode controls the encoder's forced coding mode.
+type EncoderMode = encoder.Mode
+
+const (
+	// EncoderModeAuto lets the encoder choose the coding mode.
+	EncoderModeAuto = encoder.ModeAuto
+	// EncoderModeSILK forces SILK-only encoding where the application permits it.
+	EncoderModeSILK = encoder.ModeSILK
+	// EncoderModeHybrid forces hybrid SILK+CELT encoding where valid.
+	EncoderModeHybrid = encoder.ModeHybrid
+	// EncoderModeCELT forces CELT-only encoding.
+	EncoderModeCELT = encoder.ModeCELT
+)
+
 const (
 	// BitrateAuto uses libopus OPUS_AUTO bitrate selection.
 	BitrateAuto = encoder.BitrateAuto

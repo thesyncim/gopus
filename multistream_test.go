@@ -835,6 +835,41 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 		enc.Application(), enc.Bitrate(), enc.Complexity(), enc.BitrateMode(), enc.FECEnabled(), enc.DTXEnabled())
 }
 
+func TestMultistreamEncoder_SetMode(t *testing.T) {
+	enc := mustNewDefaultMultistreamEncoder(t, 48000, 6, ApplicationAudio)
+
+	if got := enc.Mode(); got != EncoderModeAuto {
+		t.Fatalf("Mode() default=%v want=%v", got, EncoderModeAuto)
+	}
+	for _, mode := range []EncoderMode{
+		EncoderModeAuto,
+		EncoderModeSILK,
+		EncoderModeHybrid,
+		EncoderModeCELT,
+	} {
+		if err := enc.SetMode(mode); err != nil {
+			t.Fatalf("SetMode(%v) error: %v", mode, err)
+		}
+		if got := enc.Mode(); got != mode {
+			t.Fatalf("Mode()=%v want=%v", got, mode)
+		}
+		if got := enc.enc.Mode(); got != mode {
+			t.Fatalf("core Mode()=%v want=%v", got, mode)
+		}
+	}
+
+	if err := enc.SetMode(EncoderMode(99)); err != ErrInvalidArgument {
+		t.Fatalf("SetMode(invalid) error=%v want=%v", err, ErrInvalidArgument)
+	}
+	if got := enc.Mode(); got != EncoderModeCELT {
+		t.Fatalf("Mode() after invalid=%v want=%v", got, EncoderModeCELT)
+	}
+	enc.Reset()
+	if got := enc.Mode(); got != EncoderModeCELT {
+		t.Fatalf("Mode() after Reset=%v want=%v", got, EncoderModeCELT)
+	}
+}
+
 func TestMultistreamEncoder_ExpertFrameDurationSelectsEncodeFrame(t *testing.T) {
 	enc, err := NewMultistreamEncoder(48000, 2, 1, 1, []byte{0, 1}, ApplicationAudio)
 	if err != nil {

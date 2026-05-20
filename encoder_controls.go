@@ -53,6 +53,20 @@ func (e *Encoder) BitrateMode() BitrateMode {
 	return e.enc.GetBitrateMode()
 }
 
+// SetMode sets the encoder's forced coding mode.
+func (e *Encoder) SetMode(mode EncoderMode) error {
+	if err := validateEncoderMode(mode); err != nil {
+		return err
+	}
+	e.enc.SetMode(mode)
+	return nil
+}
+
+// Mode returns the current forced coding mode.
+func (e *Encoder) Mode() EncoderMode {
+	return e.enc.Mode()
+}
+
 // SetVBR enables or disables VBR mode.
 //
 // Disabling VBR switches to CBR. Enabling VBR restores VBR while preserving
