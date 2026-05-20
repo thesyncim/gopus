@@ -220,16 +220,16 @@ func TestComputeThetaDecoding(t *testing.T) {
 	imid := bitexactCos(0)
 	iside := bitexactCos(16384)
 	t.Logf("itheta=0: imid=%d, iside=%d", imid, iside)
-	if absIntLocal(imid-32768) > 2 || absIntLocal(iside-16554) > 2 {
-		t.Errorf("itheta=0 mismatch: imid=%d (expected ~32768), iside=%d (expected ~16554)", imid, iside)
+	if imid != -32768 || absIntLocal(iside-16554) > 2 {
+		t.Errorf("itheta=0 mismatch: imid=%d (expected -32768), iside=%d (expected ~16554)", imid, iside)
 	}
 
 	// Test itheta=16384
 	imid = bitexactCos(16384)
 	iside = bitexactCos(0)
 	t.Logf("itheta=16384: imid=%d, iside=%d", imid, iside)
-	if absIntLocal(iside-32768) > 2 || absIntLocal(imid-16554) > 2 {
-		t.Errorf("itheta=16384 mismatch: imid=%d (expected ~16554), iside=%d (expected ~32768)", imid, iside)
+	if iside != -32768 || absIntLocal(imid-16554) > 2 {
+		t.Errorf("itheta=16384 mismatch: imid=%d (expected ~16554), iside=%d (expected -32768)", imid, iside)
 	}
 
 	// Test itheta=8192 (45 degrees)

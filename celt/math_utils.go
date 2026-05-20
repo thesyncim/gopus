@@ -44,7 +44,7 @@ func bitexactCosCalc(x int) int {
 	tmp := (4096 + int32(x)*int32(x)) >> 13
 	x2 := int(tmp)
 	x2 = (32767 - x2) + fracMul16(x2, (-7651+fracMul16(x2, (8277+fracMul16(-626, x2)))))
-	return 1 + x2
+	return int(int16(1 + x2))
 }
 
 func bitexactLog2tan(isin, icos int) int {

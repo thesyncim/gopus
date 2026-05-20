@@ -163,8 +163,8 @@ func TestCELTExp2MatchesLibopusFloatApprox(t *testing.T) {
 
 func TestCELTBitexactCosMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
-	inputs := make([]uint32, 0, 16320-64+1)
-	for x := uint32(64); x <= 16320; x++ {
+	inputs := make([]uint32, 0, bitexactThetaMax+1)
+	for x := uint32(0); x <= bitexactThetaMax; x++ {
 		inputs = append(inputs, x)
 	}
 	want, err := probeLibopusCELTMathWords(libopusCELTMathModeBitexactCos, len(inputs), inputs)
@@ -198,6 +198,12 @@ func TestCELTBitexactLog2TanMatchesLibopus(t *testing.T) {
 			icos: bitexactCos(16384 - theta),
 		})
 	}
+	for theta := 8193; theta <= 16320; theta += 17 {
+		pairs = append(pairs, pair{
+			isin: bitexactCos(theta),
+			icos: bitexactCos(16384 - theta),
+		})
+	}
 	words := make([]uint32, 0, 2*len(pairs))
 	for _, p := range pairs {
 		words = append(words, uint32(int32(p.isin)), uint32(int32(p.icos)))
@@ -214,28 +220,43 @@ func TestCELTBitexactLog2TanMatchesLibopus(t *testing.T) {
 	}
 }
 
+func nextCELTMathWord(seed *uint32) uint32 {
+	*seed = 1664525*(*seed) + 1013904223
+	return *seed
+}
+
 func TestCELTIntegerMathMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	t.Run("fracMul16", func(t *testing.T) {
-		values := []int{-40000, -32768, -32767, -12345, -1, 0, 1, 12345, 32766, 32767, 32768, 40000}
-		words := make([]uint32, 0, 2*len(values)*len(values))
+		values := []int{
+			-1 << 31, (-1 << 31) + 1, -40000, -32769, -32768, -32767, -12345,
+			-1, 0, 1, 12345, 32766, 32767, 32768, 32769, 40000,
+			(1 << 31) - 2, (1 << 31) - 1,
+		}
+		pairs := make([][2]int, 0, len(values)*len(values)+512)
 		for _, a := range values {
 			for _, b := range values {
-				words = append(words, uint32(int32(a)), uint32(int32(b)))
+				pairs = append(pairs, [2]int{a, b})
 			}
 		}
-		want, err := probeLibopusCELTMathWords(libopusCELTMathModeFracMul16, len(words)/2, words)
+		seed := uint32(0x9e3779b9)
+		for i := 0; i < 512; i++ {
+			a := int(int32(nextCELTMathWord(&seed)))
+			b := int(int32(nextCELTMathWord(&seed)))
+			pairs = append(pairs, [2]int{a, b})
+		}
+		words := make([]uint32, 0, 2*len(pairs))
+		for _, p := range pairs {
+			words = append(words, uint32(int32(p[0])), uint32(int32(p[1])))
+		}
+		want, err := probeLibopusCELTMathWords(libopusCELTMathModeFracMul16, len(pairs), words)
 		if err != nil {
 			libopustest.HelperUnavailable(t, "celt math", err)
 		}
-		idx := 0
-		for _, a := range values {
-			for _, b := range values {
-				got := fracMul16(a, b)
-				if got != int(int32(want[idx])) {
-					t.Fatalf("fracMul16(%d,%d)=%d want %d", a, b, got, int32(want[idx]))
-				}
-				idx++
+		for i, p := range pairs {
+			got := fracMul16(p[0], p[1])
+			if got != int(int32(want[i])) {
+				t.Fatalf("fracMul16(%d,%d)=%d want %d", p[0], p[1], got, int32(want[i]))
 			}
 		}
 	})
@@ -266,17 +287,26 @@ func TestCELTIntegerMathMatchesLibopus(t *testing.T) {
 	})
 
 	t.Run("udiv", func(t *testing.T) {
-		pairs := [][2]uint32{
-			{0, 1},
-			{1, 1},
-			{2, 2},
-			{3, 2},
-			{255, 7},
-			{256, 3},
-			{65535, 257},
-			{1 << 31, 3},
-			{^uint32(0), 65535},
-			{^uint32(0), 257},
+		numerators := []uint32{
+			0, 1, 2, 3, 7, 15, 16, 17, 127, 128, 129,
+			255, 256, 257, 65535, 65536, 65537, 1 << 31,
+			(1 << 31) + 1, ^uint32(0) - 1, ^uint32(0),
+		}
+		divisors := []uint32{1, 2, 3, 5, 7, 31, 127, 128, 129, 255, 256, 257, 65535, 65536, 65537, 1 << 31, ^uint32(0)}
+		pairs := make([][2]uint32, 0, len(numerators)*len(divisors)+512)
+		for _, n := range numerators {
+			for _, d := range divisors {
+				pairs = append(pairs, [2]uint32{n, d})
+			}
+		}
+		seed := uint32(0x31415926)
+		for i := 0; i < 512; i++ {
+			n := nextCELTMathWord(&seed)
+			d := nextCELTMathWord(&seed)
+			if d == 0 {
+				d = 1
+			}
+			pairs = append(pairs, [2]uint32{n, d})
 		}
 		words := make([]uint32, 0, 2*len(pairs))
 		for _, p := range pairs {
@@ -297,13 +327,33 @@ func TestCELTIntegerMathMatchesLibopus(t *testing.T) {
 	t.Run("sudiv", func(t *testing.T) {
 		pairs := [][2]int32{
 			{-2147483647, 3},
+			{-2147483647, 1},
 			{-65536, 257},
+			{-32769, 128},
+			{-32768, 127},
+			{-32767, 129},
 			{-3, 2},
 			{-1, 2},
 			{0, 1},
 			{1, 2},
 			{3, 2},
+			{32767, 129},
+			{32768, 127},
+			{32769, 128},
 			{2147483647, 65535},
+			{2147483647, 1},
+		}
+		seed := uint32(0x27182818)
+		for i := 0; i < 512; i++ {
+			n := int32(nextCELTMathWord(&seed))
+			if n == int32(-1<<31) {
+				n++
+			}
+			d := int32(nextCELTMathWord(&seed) & 0x7fffffff)
+			if d == 0 {
+				d = 1
+			}
+			pairs = append(pairs, [2]int32{n, d})
 		}
 		words := make([]uint32, 0, 2*len(pairs))
 		for _, p := range pairs {
