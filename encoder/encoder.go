@@ -53,6 +53,9 @@ var (
 
 	// ErrInvalidFECConfig indicates an unsupported in-band FEC configuration.
 	ErrInvalidFECConfig = errors.New("encoder: invalid in-band FEC config")
+
+	// ErrInvalidVoiceRatio indicates a voice ratio outside libopus bounds.
+	ErrInvalidVoiceRatio = errors.New("encoder: invalid voice ratio")
 )
 
 const (
@@ -322,6 +325,20 @@ func (e *Encoder) SetRestrictedSilkApplication(enabled bool) {
 	e.restrictedSilkApp = enabled
 }
 
+// SetVoiceRatio sets the private libopus voice-ratio control.
+func (e *Encoder) SetVoiceRatio(ratio int) error {
+	if ratio < -1 || ratio > 100 {
+		return ErrInvalidVoiceRatio
+	}
+	e.voiceRatio = ratio
+	return nil
+}
+
+// VoiceRatio returns the current private libopus voice-ratio control value.
+func (e *Encoder) VoiceRatio() int {
+	return e.voiceRatio
+}
+
 // SetBandwidth sets the target audio bandwidth.
 func (e *Encoder) SetBandwidth(bandwidth types.Bandwidth) {
 	e.bandwidth = bandwidth
@@ -421,7 +438,6 @@ func (e *Encoder) Reset() {
 	e.prevMode = ModeAuto
 	e.prevPacketMode = ModeAuto
 	e.prevAutoMode = ModeAuto
-	e.voiceRatio = -1
 	e.detectedBandwidth = 0
 	e.streamChannels = e.channels
 	e.prevChannels = e.channels

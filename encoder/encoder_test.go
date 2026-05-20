@@ -105,6 +105,36 @@ func TestEncoderLookaheadLowDelay(t *testing.T) {
 	}
 }
 
+func TestEncoderVoiceRatioControl(t *testing.T) {
+	enc := encoder.NewEncoder(48000, 1)
+	if got := enc.VoiceRatio(); got != -1 {
+		t.Fatalf("VoiceRatio() default = %d, want -1", got)
+	}
+
+	for _, ratio := range []int{-1, 0, 50, 100} {
+		if err := enc.SetVoiceRatio(ratio); err != nil {
+			t.Fatalf("SetVoiceRatio(%d) error: %v", ratio, err)
+		}
+		if got := enc.VoiceRatio(); got != ratio {
+			t.Fatalf("VoiceRatio() = %d, want %d", got, ratio)
+		}
+	}
+
+	for _, ratio := range []int{-2, 101} {
+		if err := enc.SetVoiceRatio(ratio); err != encoder.ErrInvalidVoiceRatio {
+			t.Fatalf("SetVoiceRatio(%d) error=%v want %v", ratio, err, encoder.ErrInvalidVoiceRatio)
+		}
+	}
+	if got := enc.VoiceRatio(); got != 100 {
+		t.Fatalf("VoiceRatio() after invalid = %d, want 100", got)
+	}
+
+	enc.Reset()
+	if got := enc.VoiceRatio(); got != 100 {
+		t.Fatalf("VoiceRatio() after Reset = %d, want 100", got)
+	}
+}
+
 // TestEncoderSetBandwidth verifies bandwidth setting works correctly.
 func TestEncoderSetBandwidth(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
