@@ -141,7 +141,9 @@ func (d *Decoder) DecodeStereo(
 	// LACE / NoLACE). The libopus-style int16 view is re-derived here from
 	// the float32 native output rather than threading a second buffer
 	// through DecodeStereoFrame.
-	d.recordNativeStereoFromFloat32(leftNative, rightNative, bandwidth)
+	if nativeLowbandCaptureEnabled {
+		d.recordNativeStereoFromFloat32(leftNative, rightNative, bandwidth)
+	}
 
 	// Upsample to 48kHz using libopus-compatible resampler
 	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
@@ -167,6 +169,9 @@ func (d *Decoder) DecodeStereo(
 // expose the pre-resample SILK lowband to optional post-processing such as
 // OSCE BWE / LACE.
 func (d *Decoder) recordNativeStereoFromFloat32(leftNative, rightNative []float32, bandwidth Bandwidth) {
+	if !nativeLowbandCaptureEnabled {
+		return
+	}
 	n := len(leftNative)
 	if n > len(d.stereoLeftNative) {
 		n = len(d.stereoLeftNative)
@@ -532,8 +537,10 @@ func (d *Decoder) DecodeStereoWithDecoderInto(
 	// `leftNative` / `rightNative` slices returned by GetStereoInt16Scratch
 	// above, so the pre-resample SILK lowband is available to the caller
 	// without performing a second decode pass. Mirrors LatestNativeMono.
-	d.lastNativeStereoLen = nativeSamples
-	d.lastNativeStereoFsKHz = config.SampleRate / 1000
+	if nativeLowbandCaptureEnabled {
+		d.lastNativeStereoLen = nativeSamples
+		d.lastNativeStereoFsKHz = config.SampleRate / 1000
+	}
 	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
 	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
 	leftScratch, rightScratch, ok := d.stereoFloat32Scratch(frameSizeSamples)
@@ -1029,18 +1036,20 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	// libopus enables OSCE_MODE_SILK_BBWE on `data == NULL` whenever the
 	// internal sample rate is 16 kHz; the gopus equivalent needs access to the
 	// native-rate samples for the 16k -> 48k BWE input.
-	if cap(d.scratchOutInt16) >= len(concealed) {
-		buf := d.scratchOutInt16[:len(concealed)]
-		for i, v := range concealed {
-			buf[i] = float32ToInt16(v)
+	if nativeLowbandCaptureEnabled {
+		if cap(d.scratchOutInt16) >= len(concealed) {
+			buf := d.scratchOutInt16[:len(concealed)]
+			for i, v := range concealed {
+				buf[i] = float32ToInt16(v)
+			}
 		}
+		d.lastNativeMonoLen = len(concealed)
+		d.lastNativeMonoFsKHz = config.SampleRate / 1000
+		d.lastNativeStereoLen = 0
+		d.lastNativeStereoFsKHz = 0
+		d.lastNativeMidLen = 0
+		d.lastNativeMidFsKHz = 0
 	}
-	d.lastNativeMonoLen = len(concealed)
-	d.lastNativeMonoFsKHz = config.SampleRate / 1000
-	d.lastNativeStereoLen = 0
-	d.lastNativeStereoFsKHz = 0
-	d.lastNativeMidLen = 0
-	d.lastNativeMidFsKHz = 0
 
 	// Upsample to 48kHz using the same mono sMid buffering cadence as good frames.
 	duration := FrameDurationFromTOC(frameSizeSamples)

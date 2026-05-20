@@ -142,12 +142,14 @@ func (d *Decoder) decodeFrameRawInt16(
 	// optional OSCE BWE forward pass) can read the pre-resample lowband signal
 	// without performing a second decode pass. Mirrors libopus where BWE
 	// consumes samplesOut1_tmp directly.
-	d.lastNativeMonoLen = totalLen
-	d.lastNativeMonoFsKHz = fsKHz
-	d.lastNativeStereoLen = 0
-	d.lastNativeStereoFsKHz = 0
-	d.lastNativeMidLen = 0
-	d.lastNativeMidFsKHz = 0
+	if nativeLowbandCaptureEnabled {
+		d.lastNativeMonoLen = totalLen
+		d.lastNativeMonoFsKHz = fsKHz
+		d.lastNativeStereoLen = 0
+		d.lastNativeStereoFsKHz = 0
+		d.lastNativeMidLen = 0
+		d.lastNativeMidFsKHz = 0
+	}
 	return outInt16, nil
 }
 
@@ -211,7 +213,7 @@ func (d *Decoder) DecodeStereoFrame(
 
 		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0)
 		d.finalizeDecodedChannelFrame(0, stMid, &ctrlMid, midOut, false)
-		if len(d.stereoMidNative) >= (i+1)*frameLength {
+		if nativeLowbandCaptureEnabled && len(d.stereoMidNative) >= (i+1)*frameLength {
 			copy(d.stereoMidNative[i*frameLength:(i+1)*frameLength], midOut[:frameLength])
 		}
 
@@ -286,7 +288,7 @@ func (d *Decoder) DecodeStereoFrameInt16Into(
 
 		ctrlMid := d.decodeFrameCoreInto(stMid, rd, midOut, frameCondCoding(frameIndex), stMid.VADFlags[frameIndex] != 0)
 		d.finalizeDecodedChannelFrame(0, stMid, &ctrlMid, midOut, false)
-		if len(d.stereoMidNative) >= (i+1)*frameLength {
+		if nativeLowbandCaptureEnabled && len(d.stereoMidNative) >= (i+1)*frameLength {
 			copy(d.stereoMidNative[i*frameLength:(i+1)*frameLength], midOut[:frameLength])
 		}
 
@@ -306,11 +308,13 @@ func (d *Decoder) DecodeStereoFrameInt16Into(
 	}
 
 	d.haveDecoded = true
-	d.lastNativeMonoLen = 0
-	d.lastNativeMonoFsKHz = 0
-	if len(d.stereoMidNative) >= totalLen {
-		d.lastNativeMidLen = totalLen
-		d.lastNativeMidFsKHz = fsKHz
+	if nativeLowbandCaptureEnabled {
+		d.lastNativeMonoLen = 0
+		d.lastNativeMonoFsKHz = 0
+		if len(d.stereoMidNative) >= totalLen {
+			d.lastNativeMidLen = totalLen
+			d.lastNativeMidFsKHz = fsKHz
+		}
 	}
 	return totalLen, nil
 }

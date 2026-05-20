@@ -222,10 +222,12 @@ func NewDecoder() *Decoder {
 		buildMonoInputScratch:  make([]float32, maxOutInt16Size),
 		stereoLeftNative:       make([]int16, maxOutInt16Size),
 		stereoRightNative:      make([]int16, maxOutInt16Size),
-		stereoMidNative:        make([]int16, maxOutInt16Size),
 		stereoMidFrame:         make([]int16, maxFrameLength+2),
 		stereoSideFrame:        make([]int16, maxFrameLength+2),
 		plcState:               plc.NewState(),
+	}
+	if nativeLowbandCaptureEnabled {
+		d.stereoMidNative = make([]int16, maxOutInt16Size)
 	}
 	resetDecoderState(&d.state[0])
 	resetDecoderState(&d.state[1])
@@ -332,12 +334,14 @@ func (d *Decoder) Reset() {
 	for i := range d.scratchOutInt16 {
 		d.scratchOutInt16[i] = 0
 	}
-	d.lastNativeMonoLen = 0
-	d.lastNativeMonoFsKHz = 0
-	d.lastNativeStereoLen = 0
-	d.lastNativeStereoFsKHz = 0
-	d.lastNativeMidLen = 0
-	d.lastNativeMidFsKHz = 0
+	if nativeLowbandCaptureEnabled {
+		d.lastNativeMonoLen = 0
+		d.lastNativeMonoFsKHz = 0
+		d.lastNativeStereoLen = 0
+		d.lastNativeStereoFsKHz = 0
+		d.lastNativeMidLen = 0
+		d.lastNativeMidFsKHz = 0
+	}
 	for c := range d.lastFrameCtrl {
 		d.lastFrameCtrl[c] = decoderControl{}
 		d.lastFrameCtrlSignal[c] = 0

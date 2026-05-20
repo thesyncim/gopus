@@ -3,7 +3,10 @@
 
 package silk
 
-const dredHooksEnabled = true
+const (
+	dredHooksEnabled            = true
+	nativeLowbandCaptureEnabled = true
+)
 
 type dredHookState struct {
 	rawMonoFrameHook    RawMonoFrameHook

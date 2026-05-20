@@ -3,7 +3,10 @@
 
 package silk
 
-const dredHooksEnabled = false
+const (
+	dredHooksEnabled            = false
+	nativeLowbandCaptureEnabled = false
+)
 
 type dredHookState struct{}
 
