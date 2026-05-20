@@ -400,9 +400,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if tell == 1 {
 		if isSilence {
 			re.EncodeBit(1, 15)
-			e.rng = re.Range()
-			bytes := re.Done()
-			return bytes, nil
+			return e.finishEncodedSilenceFrame(re, frameSize, targetBytes)
 		}
 		re.EncodeBit(0, 15)
 	} else {
@@ -1867,6 +1865,67 @@ func maxAbsSliceF64(x []float64) float64 {
 		}
 	}
 	return math.Float64frombits(maxBits)
+}
+
+func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, targetBytes int) ([]byte, error) {
+	if e.vbr && e.targetBitrate != opusBitrateMax {
+		targetBytes = e.applyVBRSilenceTarget(frameSize, targetBytes)
+		re.Shrink(uint32(targetBytes))
+		if re.Error() != 0 {
+			return nil, ErrEncodingFailed
+		}
+		e.frameBits = targetBytes * 8
+	}
+	e.lastTellFrac = targetBytes * 8 << bitRes
+
+	prev1LogE := e.scratch.prev1LogE
+	if len(prev1LogE) < len(e.prevEnergy) {
+		prev1LogE = make([]float64, len(e.prevEnergy))
+		e.scratch.prev1LogE = prev1LogE
+	}
+	prev1LogE = prev1LogE[:len(e.prevEnergy)]
+	copy(prev1LogE, e.prevEnergy)
+
+	silenceE := ensureFloat64Slice(&e.scratch.quantizedEnergies, len(e.prevEnergy))
+	for i := range silenceE {
+		silenceE[i] = -28.0
+	}
+	e.SetPrevEnergyWithPrev(prev1LogE, silenceE)
+	for i := range e.energyError {
+		e.energyError[i] = 0
+	}
+	e.lastDynalloc = DynallocResult{}
+	e.lastPitchChange = false
+	e.consecTransient = 0
+	e.IncrementFrameCount()
+	e.rng = re.Range()
+	return re.Done(), nil
+}
+
+func (e *Encoder) applyVBRSilenceTarget(frameSize, targetBytes int) int {
+	if targetBytes > 2 {
+		targetBytes = 2
+	}
+	vbrRateQ3 := e.bitrateToBits(frameSize) << bitRes
+	if vbrRateQ3 <= 0 {
+		return targetBytes
+	}
+	alpha := 0.001
+	if e.vbrCount < 970 {
+		e.vbrCount++
+		alpha = 1.0 / float64(e.vbrCount+20)
+	}
+	if e.constrainedVBR {
+		targetQ3 := 2 * 8 << bitRes
+		e.vbrReservoir += targetQ3 - vbrRateQ3
+		driftDelta := -e.vbrOffset - e.vbrDrift
+		e.vbrDrift += int(alpha * float64(driftDelta))
+		e.vbrOffset = -e.vbrDrift
+		if e.vbrReservoir < 0 {
+			e.vbrReservoir = 0
+		}
+	}
+	return targetBytes
 }
 
 // EncodeFrameWithOptions encodes a frame with additional control options.

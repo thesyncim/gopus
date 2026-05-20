@@ -120,3 +120,28 @@ func TestCELTLongFrameVBRBitrateBudget(t *testing.T) {
 		})
 	}
 }
+
+func TestCELTVBRSilencePacketUsesMinimumPayload(t *testing.T) {
+	const (
+		sampleRate = 48000
+		frameSize  = 960
+		channels   = 1
+		bitrate    = 64000
+	)
+
+	enc := encoder.NewEncoder(sampleRate, channels)
+	enc.SetMode(encoder.ModeCELT)
+	enc.SetLowDelay(true)
+	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetBitrate(bitrate)
+	enc.SetBitrateMode(encoder.ModeVBR)
+	enc.SetSignalType(types.SignalMusic)
+
+	packet, err := enc.Encode(make([]float64, frameSize*channels), frameSize)
+	if err != nil {
+		t.Fatalf("Encode CELT VBR silence: %v", err)
+	}
+	if len(packet) != 3 {
+		t.Fatalf("CELT VBR silence packet length=%d want 3", len(packet))
+	}
+}

@@ -427,6 +427,29 @@ func TestEncoderFrameCountAndIntraFlag(t *testing.T) {
 	}
 }
 
+func TestVBRSilenceFrameShrinksToMinimum(t *testing.T) {
+	enc := NewEncoder(1)
+	enc.SetBitrate(64000)
+	enc.SetVBR(true)
+	enc.SetConstrainedVBR(false)
+
+	packet, err := enc.EncodeFrame(make([]float64, 960), 960)
+	if err != nil {
+		t.Fatalf("EncodeFrame silence: %v", err)
+	}
+	if len(packet) != 2 {
+		t.Fatalf("VBR silence payload length=%d want 2", len(packet))
+	}
+	if enc.FrameCount() != 1 {
+		t.Fatalf("FrameCount=%d want 1", enc.FrameCount())
+	}
+	for i, energy := range enc.PrevEnergy() {
+		if energy != -28.0 {
+			t.Fatalf("PrevEnergy[%d]=%f want -28", i, energy)
+		}
+	}
+}
+
 // TestPreemphasisDeemphasis verifies pre-emphasis -> de-emphasis round-trip.
 func TestPreemphasisDeemphasis(t *testing.T) {
 	channels := []int{1, 2}
