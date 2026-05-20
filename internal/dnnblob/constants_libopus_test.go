@@ -1,7 +1,6 @@
 package dnnblob
 
 import (
-	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -41,10 +40,7 @@ func readLibopusNNetDefines(t *testing.T) map[string]int32 {
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	path := filepath.Join(repoRoot, "tmp_check", "opus-1.6.1", "dnn", "nnet.h")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read libopus nnet.h: %v", err)
-	}
+	data := readLibopusRefFileOrSkip(t, path, "nnet.h")
 
 	defs := make(map[string]int32)
 	re := regexp.MustCompile(`(?m)^#define\s+(WEIGHT_(?:BLOCK_SIZE|TYPE_[A-Za-z0-9_]+))\s+([0-9]+)\s*$`)

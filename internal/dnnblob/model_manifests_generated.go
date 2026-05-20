@@ -1,6 +1,6 @@
-package dnnblob
-
 // Code generated from pinned libopus 1.6.1 DNN weight manifests. DO NOT EDIT.
+
+package dnnblob
 
 var pitchDNNRequiredRecordNames = []string{
 	"conv2d_1_bias",
@@ -676,4 +676,3 @@ var osceBWERequiredRecordNames = []string{
 	"bbwenet_tdshape2_alpha2_bias",
 	"bbwenet_tdshape2_alpha2_weights_float",
 }
-

@@ -1,7 +1,6 @@
 package dnnblob
 
 import (
-	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -19,10 +18,7 @@ func assertDREDManifestMatchesLibopus(t *testing.T, label, fileName, arrayName s
 	t.Helper()
 
 	path := filepath.Join(repoRootForDREDManifestTest(t), "tmp_check", "opus-1.6.1", "dnn", fileName)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read libopus %s manifest: %v", label, err)
-	}
+	data := readLibopusRefFileOrSkip(t, path, label+" manifest")
 
 	want := sortedRecordNames(parseLibopusWeightArrayNames(t, string(data), arrayName))
 	got = sortedRecordNames(got)

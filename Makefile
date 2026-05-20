@@ -130,17 +130,20 @@ test-consumer-smoke:
 	cd examples/external-consumer-smoke && $(GO_WORK_ENV) $(GO) test ./... -count=1
 
 # Compile and test maintained examples, including build-tag-only surfaces.
+# The Gio loopback example uses a headless smoke tag so Linux CI does not need
+# desktop window-system pkg-config dependencies just to compile its tests.
 test-examples-smoke:
 	$(GO_WORK_ENV) $(GO) test ./examples/... -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred ./examples/... -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_qext ./examples/... -count=1
 	tmp="$$(mktemp -d)" && trap 'rm -rf "$$tmp"' EXIT && cd examples/webrtc-control && $(GO_WORK_ENV) $(GO) build -o "$$tmp/webrtc-control" .
-	cd examples/webrtc-dred-loopback && $(GO_WORK_ENV) $(GO) test ./... -count=1
-	cd examples/webrtc-dred-loopback && $(GO_WORK_ENV) $(GO) test -tags gopus_dred ./... -count=1
+	cd examples/webrtc-dred-loopback && $(GO_WORK_ENV) $(GO) test -tags gopus_webrtc_headless ./... -count=1
+	cd examples/webrtc-dred-loopback && $(GO_WORK_ENV) $(GO) test -tags 'gopus_dred gopus_webrtc_headless' ./... -count=1
 
-# Docs and release-surface contracts run with the default package suite.
+# Docs and release-surface contracts stay focused so they do not require
+# heavyweight libopus fixture trees.
 test-doc-contract:
-	$(GO_WORK_ENV) $(GO) test ./... -count=1
+	$(GO_WORK_ENV) $(GO) test . ./testvectors -run 'Test(OptionalExtensionDocsContract|TrustDocsContract|ReleaseNotesSourceIsReadme|FixtureGeneratorScriptsBuildIgnore|GeneratedFilesDeclareGeneratedMarkerBeforePackage)' -count=1
 
 # Default-supported DNN blob control parity against libopus USE_WEIGHTS_FILE
 # model blobs. The target fails if the required libopus-backed test is skipped.

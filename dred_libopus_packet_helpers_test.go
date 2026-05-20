@@ -7,12 +7,14 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"sync"
 )
 
 const libopusDREDPacketOutputMagic = "GODP"
+const libopusDREDPacketMaxFramesToTry = 640
 
 type libopusDREDPacket struct {
 	sampleRate     int
@@ -112,6 +114,7 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 		fmt.Sprintf("GOPUS_DRED_FORCE_MODE=%s", forceModeEnv),
 		fmt.Sprintf("GOPUS_DRED_BANDWIDTH=%s", bandwidthEnv),
 		fmt.Sprintf("GOPUS_DRED_BITRATE=%d", cfg.Bitrate),
+		"GOPUS_DRED_PCM_STDIN=1",
 	)
 	if cfg.CBR {
 		cmd.Env = append(cmd.Env, "GOPUS_DRED_CBR=1")
@@ -124,6 +127,7 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
+	cmd.Stdin = bytes.NewReader(libopusDREDPacketPCMInput(cfg, libopusDREDPacketMaxFramesToTry))
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Run(); err != nil {
@@ -173,6 +177,27 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 		return libopusDREDPacket{}, fmt.Errorf("dred emit helper packet duration=%d want %d", packetDuration, cfg.FrameSize)
 	}
 	return info, nil
+}
+
+func libopusDREDPacketPCMInput(cfg libopusDREDPacketConfig, maxFrames int) []byte {
+	if cfg.FrameSize <= 0 {
+		cfg.FrameSize = 960
+	}
+	if cfg.Channels <= 0 {
+		cfg.Channels = 1
+	}
+	out := make([]byte, 0, maxFrames*cfg.FrameSize*cfg.Channels*4)
+	var tmp [4]byte
+	for frameIdx := 0; frameIdx < maxFrames; frameIdx++ {
+		for sampleIdx := 0; sampleIdx < cfg.FrameSize; sampleIdx++ {
+			bits := math.Float32bits(encoderDREDVoicedSample(frameIdx, sampleIdx, cfg.FrameSize, 48000))
+			binary.LittleEndian.PutUint32(tmp[:], bits)
+			for ch := 0; ch < cfg.Channels; ch++ {
+				out = append(out, tmp[:]...)
+			}
+		}
+	}
+	return out
 }
 
 func opusPacketDurationSamples(packet []byte) (int, error) {

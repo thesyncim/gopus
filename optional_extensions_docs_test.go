@@ -47,7 +47,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	for _, needle := range []string{
 		"Default builds support `SetDNNBlob(...)` only.",
 		"QEXT and DRED require build tags.",
-		"OSCE BWE remains quarantine-only.",
+		"OSCE BWE remains quarantine-only and unsupported outside quarantine builds.",
 		"make test-dnn-blob-parity",
 		"make test-qext-parity",
 		"make test-dred-tag",
@@ -64,7 +64,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		"Default builds support `SetDNNBlob(...)` only.",
 		"QEXT requires `-tags gopus_qext`",
 		"DRED control/standalone surfaces require `-tags gopus_dred`",
-		"OSCE BWE remains unsupported outside quarantine builds",
+		"OSCE BWE remains quarantine-only and unsupported outside quarantine builds",
 	} {
 		if !containsDocText(optionalDoc, needle) {
 			t.Fatalf("README.md missing %q", needle)

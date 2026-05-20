@@ -47,10 +47,9 @@ func main() {
 	}
 
 	var out bytes.Buffer
-	fmt.Fprintln(&out, "package dred")
+	fmt.Fprintln(&out, "// Code generated from libopus 1.6.1 dnn/dred_rdovae_stats_data.c for DRED entropy walking. DO NOT EDIT.")
 	fmt.Fprintln(&out)
-	fmt.Fprintln(&out, "// Code generated from libopus 1.6.1 dnn/dred_rdovae_stats_data.c for DRED entropy walking.")
-	fmt.Fprintln(&out, "// DO NOT EDIT.")
+	fmt.Fprintln(&out, "package dred")
 	fmt.Fprintln(&out)
 	for _, spec := range dredArrays {
 		fmt.Fprintf(&out, "var %s = [...]uint8{\n", spec.goName)

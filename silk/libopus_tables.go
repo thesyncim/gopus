@@ -1,4 +1,4 @@
-// Code generated from libopus tables. DO NOT EDIT manually.
+// Code generated from libopus tables. DO NOT EDIT.
 package silk
 
 var silk_CB_lags_stage2 = [][]int8{

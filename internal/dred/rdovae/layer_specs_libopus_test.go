@@ -1,7 +1,6 @@
 package rdovae
 
 import (
-	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -20,10 +19,7 @@ func assertLayerSpecsMatchLibopus(t *testing.T, label, fileName, initName string
 	t.Helper()
 
 	path := filepath.Join(repoRootForLayerSpecTest(t), "tmp_check", "opus-1.6.1", "dnn", fileName)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read libopus %s layer specs: %v", label, err)
-	}
+	data := readLibopusRefFileOrSkip(t, path, label+" layer specs")
 	want := parseLibopusLinearInitSpecs(t, string(data), initName)
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("%s layer specs mismatch\n got=%#v\nwant=%#v", label, got, want)

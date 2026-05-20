@@ -1,7 +1,6 @@
-package dred
+// Code generated from libopus 1.6.1 dnn/dred_rdovae_stats_data.c for DRED entropy walking. DO NOT EDIT.
 
-// Code generated from libopus 1.6.1 dnn/dred_rdovae_stats_data.c for DRED entropy walking.
-// DO NOT EDIT.
+package dred
 
 var dredStateQuantScalesQ8 = [...]uint8{
 	255, 99, 255, 255, 108, 255, 255, 255,

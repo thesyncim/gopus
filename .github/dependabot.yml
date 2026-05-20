@@ -25,6 +25,14 @@ updates:
       - "go"
 
   - package-ecosystem: "gomod"
+    directory: "/examples/webrtc-dred-loopback"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "go"
+
+  - package-ecosystem: "gomod"
     directory: "/examples/external-consumer-smoke"
     schedule:
       interval: "weekly"

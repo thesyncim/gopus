@@ -19,6 +19,7 @@ func TestFixtureGeneratorScriptsBuildIgnore(t *testing.T) {
 		filepath.Join("..", "tools", "gen_libopus_decoder_loss_fixture.go"),
 		filepath.Join("..", "tools", "gen_libopus_encoder_packet_fixture.go"),
 		filepath.Join("..", "tools", "gen_libopus_encoder_variants_fixture.go"),
+		filepath.Join("..", "tools", "gen_opusdec_crossval_fixture.go"),
 	}
 	for _, p := range paths {
 		p := p
@@ -37,6 +38,43 @@ func TestFixtureGeneratorScriptsBuildIgnore(t *testing.T) {
 			if first != "//go:build ignore" {
 				t.Fatalf("first line must be //go:build ignore in %s, got %q", p, first)
 			}
+		})
+	}
+}
+
+func TestGeneratedFilesDeclareGeneratedMarkerBeforePackage(t *testing.T) {
+	requireTestTier(t, testTierFast)
+
+	paths := []string{
+		filepath.Join("..", "celt", "kissfft32_lpcnet_320_static.go"),
+		filepath.Join("..", "celt", "math_utils_tables_static.go"),
+		filepath.Join("..", "celt", "window_tables_static.go"),
+		filepath.Join("..", "container", "ogg", "projection_demixing_defaults_data.go"),
+		filepath.Join("..", "internal", "dnnblob", "model_manifests_generated.go"),
+		filepath.Join("..", "internal", "dred", "stats_deadzone_tables.go"),
+		filepath.Join("..", "internal", "dred", "stats_tables.go"),
+		filepath.Join("..", "internal", "lpcnetplc", "analysis_tables_generated.go"),
+		filepath.Join("..", "multistream", "projection_mixing_defaults_data.go"),
+		filepath.Join("..", "silk", "libopus_tables.go"),
+	}
+	for _, p := range paths {
+		p := p
+		t.Run(filepath.Base(p), func(t *testing.T) {
+			data, err := os.ReadFile(p)
+			if err != nil {
+				t.Fatalf("read generated file: %v", err)
+			}
+			for _, line := range strings.Split(string(data), "\n") {
+				trimmed := strings.TrimSpace(line)
+				if trimmed == "" || strings.HasPrefix(trimmed, "//go:build ") || strings.HasPrefix(trimmed, "// +build ") {
+					continue
+				}
+				if !strings.HasPrefix(trimmed, "// Code generated ") || !strings.Contains(trimmed, "DO NOT EDIT.") {
+					t.Fatalf("first non-build line in %s must be a standard generated marker, got %q", p, trimmed)
+				}
+				return
+			}
+			t.Fatalf("empty generated file %s", p)
 		})
 	}
 }

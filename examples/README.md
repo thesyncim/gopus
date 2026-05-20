@@ -379,7 +379,7 @@ go build ./examples/...
 # Separate modules
 (cd examples/external-consumer-smoke && go test ./...)
 (cd examples/webrtc-control && go build .)
-(cd examples/webrtc-dred-loopback && go test ./...)
+(cd examples/webrtc-dred-loopback && go test -tags gopus_webrtc_headless ./...)
 ```
 
 ## API Overview

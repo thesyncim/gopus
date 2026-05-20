@@ -42,8 +42,8 @@ func main() {
 	}
 
 	var out bytes.Buffer
-	out.WriteString("package dnnblob\n\n")
 	out.WriteString("// Code generated from pinned libopus 1.6.1 DNN weight manifests. DO NOT EDIT.\n\n")
+	out.WriteString("package dnnblob\n\n")
 
 	for _, spec := range specs {
 		path := filepath.Join(repoRoot, spec.SourceFile)

@@ -528,6 +528,9 @@ func TestOpusdecCrossvalFixtureCoverage(t *testing.T) {
 }
 
 func TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec(t *testing.T) {
+	if testing.Short() || strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_TEST_TIER"))) == "fast" {
+		t.Skip("live opusdec fixture honesty requires parity tier")
+	}
 	if !checkOpusdecAvailable() {
 		t.Skip("opusdec not available; fixture honesty check requires live opusdec")
 	}

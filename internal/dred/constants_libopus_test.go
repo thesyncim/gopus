@@ -4,7 +4,6 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
-	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -70,10 +69,7 @@ func readLibopusDefines(t *testing.T, elem ...string) map[string]string {
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	path := filepath.Join(append([]string{repoRoot, "tmp_check", "opus-1.6.1"}, elem...)...)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read libopus defines from %s: %v", path, err)
-	}
+	data := readLibopusRefFileOrSkip(t, path, "defines")
 
 	defines := make(map[string]string)
 	re := regexp.MustCompile(`(?m)^#define\s+([A-Za-z_][A-Za-z0-9_]*)\s+(.+?)\s*$`)

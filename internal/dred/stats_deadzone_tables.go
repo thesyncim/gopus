@@ -1,7 +1,7 @@
+// Code generated from libopus 1.6.1 dnn/dred_rdovae_stats_data.c for DRED encoder dead-zone tables. DO NOT EDIT.
+
 package dred
 
-// Code generated from libopus 1.6.1 dnn/dred_rdovae_stats_data.c for DRED encoder dead-zone tables.
-// DO NOT EDIT.
 var dredLatentDeadZoneQ8 = [...]uint8{
 	37, 72, 2, 25, 24, 14, 25, 0,
 	10, 0, 0, 29, 7, 0, 11, 29,

@@ -107,6 +107,9 @@ static int parse_bandwidth_env(const char *value, int *bandwidth) {
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32
+  if (_setmode(_fileno(stdin), _O_BINARY) == -1) {
+    return 0;
+  }
   if (_setmode(_fileno(stdout), _O_BINARY) == -1) {
     return 0;
   }
@@ -139,6 +142,26 @@ static float voiced_sample(int frame_idx, int sample_idx, int frame_size, int sa
   return (float)(env * s);
 }
 
+static int read_pcm_stdin(float *pcm, int frame_size, int channels) {
+  int samples = frame_size * channels;
+  int i;
+  for (i = 0; i < samples; i++) {
+    unsigned char b[4];
+    uint32_t bits;
+    float sample;
+    if (fread(b, 1, sizeof(b), stdin) != sizeof(b)) {
+      return 0;
+    }
+    bits = ((uint32_t)b[0]) |
+           ((uint32_t)b[1] << 8) |
+           ((uint32_t)b[2] << 16) |
+           ((uint32_t)b[3] << 24);
+    memcpy(&sample, &bits, sizeof(sample));
+    pcm[i] = sample;
+  }
+  return 1;
+}
+
 int main(void) {
   const int sample_rate = 48000;
   const int max_frames_to_try = 640;
@@ -167,9 +190,11 @@ int main(void) {
   const char *multistream_env = getenv("GOPUS_DRED_MULTISTREAM");
   const char *bitrate_env = getenv("GOPUS_DRED_BITRATE");
   const char *cbr_env = getenv("GOPUS_DRED_CBR");
+  const char *pcm_stdin_env = getenv("GOPUS_DRED_PCM_STDIN");
   int force_channels = 0;
   int use_multistream = 0;
   int use_cbr = 0;
+  int use_pcm_stdin = 0;
 
   if (frame_size_env != NULL && frame_size_env[0] != '\0') {
     char *end = NULL;
@@ -235,6 +260,14 @@ int main(void) {
       use_cbr = 1;
     } else if (strcmp(cbr_env, "0") != 0 && strcmp(cbr_env, "false") != 0) {
       fprintf(stderr, "invalid GOPUS_DRED_CBR=%s\n", cbr_env);
+      return 1;
+    }
+  }
+  if (pcm_stdin_env != NULL && pcm_stdin_env[0] != '\0') {
+    if (strcmp(pcm_stdin_env, "1") == 0 || strcmp(pcm_stdin_env, "true") == 0) {
+      use_pcm_stdin = 1;
+    } else if (strcmp(pcm_stdin_env, "0") != 0 && strcmp(pcm_stdin_env, "false") != 0) {
+      fprintf(stderr, "invalid GOPUS_DRED_PCM_STDIN=%s\n", pcm_stdin_env);
       return 1;
     }
   }
@@ -323,11 +356,21 @@ int main(void) {
     int packet_len;
     int i;
     memset(dred, 0, sizeof(*dred));
-    for (i = 0; i < frame_size; i++) {
-      float sample = voiced_sample(frame_idx, i, frame_size, sample_rate);
-      int ch;
-      for (ch = 0; ch < channels; ch++) {
-        pcm[i * channels + ch] = sample;
+    if (use_pcm_stdin) {
+      if (!read_pcm_stdin(pcm, frame_size, channels)) {
+        fprintf(stderr, "failed to read GOPUS_DRED_PCM_STDIN frame %d\n", frame_idx);
+        opus_dred_free(dred);
+        opus_dred_decoder_destroy(dred_dec);
+        destroy_encoder(enc, ms_enc);
+        return 1;
+      }
+    } else {
+      for (i = 0; i < frame_size; i++) {
+        float sample = voiced_sample(frame_idx, i, frame_size, sample_rate);
+        int ch;
+        for (ch = 0; ch < channels; ch++) {
+          pcm[i * channels + ch] = sample;
+        }
       }
     }
     if (use_multistream) {

@@ -1,7 +1,6 @@
 package dred
 
 import (
-	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -48,10 +47,7 @@ func readLibopusDREDStatsSource(t *testing.T) string {
 	}
 	repoRoot := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	path := filepath.Join(repoRoot, "tmp_check", "opus-1.6.1", "dnn", "dred_rdovae_stats_data.c")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read libopus DRED stats source: %v", err)
-	}
+	data := readLibopusRefFileOrSkip(t, path, "DRED stats source")
 	return string(data)
 }
 

@@ -29,7 +29,7 @@ uncertain, match libopus unless fixture evidence says otherwise.
 
 Default builds support `SetDNNBlob(...)` only. QEXT and DRED require build tags.
 QEXT requires `-tags gopus_qext`, and DRED control/standalone surfaces require `-tags gopus_dred`.
-OSCE BWE remains quarantine-only. OSCE BWE remains unsupported outside quarantine builds.
+OSCE BWE remains quarantine-only and unsupported outside quarantine builds.
 
 | Extension | Status | Probe |
 | --- | --- | --- |

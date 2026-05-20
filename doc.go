@@ -1,30 +1,29 @@
 // Package gopus implements the Opus audio codec in pure Go.
 //
-// Opus is a lossy audio codec designed for interactive speech and music
-// transmission. This implementation supports bitrates from 6 to 510 kbit/s,
-// sampling rates from 8 to 48 kHz, standard frame sizes from 2.5 to 60 ms,
-// and libopus-compatible expert frame durations up to 120 ms.
-//
-// This implementation follows RFC 6716 and is compatible with the
-// reference libopus implementation. It requires no cgo dependencies.
+// It targets RFC 6716 compatibility with pinned libopus reference behavior,
+// uses caller-owned buffers for the main encode/decode API, and requires no cgo
+// dependency.
 //
 // # Quick Start
 //
 // Encoding:
 //
-//	enc, err := gopus.NewEncoder(gopus.EncoderConfig{SampleRate: 48000, Channels: 2, Application: gopus.ApplicationAudio})
+//	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
+//	    SampleRate:  48000,
+//	    Channels:    2,
+//	    Application: gopus.ApplicationAudio,
+//	})
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
 //
-//	pcm := make([]float32, 960*2) // 20ms stereo at 48kHz
-//	// ... fill pcm with audio samples ...
-//
-//	packetBuf := make([]byte, 4000)
-//	nPacket, err := enc.Encode(pcm, packetBuf)
+//	pcm := make([]float32, 960*2) // 20 ms stereo at 48 kHz
+//	packet := make([]byte, 4000)
+//	nPacket, err := enc.Encode(pcm, packet)
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
+//	packet = packet[:nPacket]
 //
 // Decoding:
 //
@@ -39,161 +38,53 @@
 //	if err != nil {
 //	    log.Fatal(err)
 //	}
+//	pcmOut = pcmOut[:n*cfg.Channels]
 //
-// # Opus Modes
+// # PCM And Buffers
 //
-// Opus operates in three modes:
-//   - SILK: speech-optimized, 8-24 kHz bandwidth
-//   - CELT: audio-optimized, full 48 kHz bandwidth
-//   - Hybrid: SILK for low frequencies + CELT for high frequencies
+// Float32 samples are normalized to [-1.0, 1.0]. Int16 helpers are available
+// for common audio APIs. Stereo and multichannel PCM is interleaved.
 //
-// The encoder automatically selects the appropriate mode based on the
-// Application hint provided to NewEncoder:
-//   - ApplicationVoIP: Prefers SILK for speech
-//   - ApplicationAudio: Prefers CELT/Hybrid for music
-//   - ApplicationLowDelay: Uses CELT for minimum latency
+// Decode output needs room for up to 5760 samples per channel, the default
+// 120 ms cap at 48 kHz. A 4000-byte encode buffer is sufficient for any Opus
+// packet.
 //
-// # Sample Formats
+// # Packet Loss
 //
-// Both int16 and float32 PCM formats are supported. float32 is the
-// internal format and avoids conversion overhead. int16 is provided
-// for compatibility with common audio APIs.
+// Pass nil packet data to Decode to run packet loss concealment:
 //
-// For float32, samples should be normalized to [-1.0, 1.0].
-// For int16, the full range [-32768, 32767] is used.
+//	if packetLost {
+//	    n, err = dec.Decode(nil, pcmOut)
+//	} else {
+//	    n, err = dec.Decode(packet, pcmOut)
+//	}
 //
-// Stereo audio uses interleaved samples: L0, R0, L1, R1, ...
+// # Controls And Extensions
 //
-// # Supported Default Build
+// Standard Opus controls such as bitrate, complexity, bandwidth, FEC, DTX,
+// gain, frame size, packet parsing, and multistream helpers are exposed on the
+// top-level types.
 //
-// The default build is the supported public surface for gopus before v0.1.
-// Its primary contract is the core encoder/decoder API plus the standard
-// Opus controls documented in this package, such as bitrate, complexity,
-// bandwidth, FEC, DTX, gain, packet parsing, and multistream helpers.
-//
-// Some libopus build-time extension hooks are build dependent. Supported
-// optional controls in the default build currently include SetDNNBlob only.
-// That default control surface is parity-gated by make test-dnn-blob-parity
-// against pinned libopus USE_WEIGHTS_FILE model blobs and fails on skipped
-// helper coverage.
-// QEXT controls are supported only in builds using `-tags gopus_qext`.
-// That tag-gated surface is parity-gated by make test-qext-parity, which fails
-// on skipped libopus-helper coverage.
-// DRED control and standalone surfaces are supported only in builds using
-// `-tags gopus_dred`. Quarantine builds using
-// `-tags gopus_unsupported_controls` may also expose DRED controls/helpers for
-// parity work, but they do not report DRED support.
-// The supported DRED gate uses make test-dred-tag, and the quarantine parity
-// lane uses make test-unsupported-controls-parity; required DRED parity gates
-// fail on skipped libopus-helper coverage.
-// Supported feature tags may be combined; quarantine combinations still report
-// only the explicitly supported tagged surfaces.
-// Use SupportsOptionalExtension to probe whether an extension-backed surface is
-// enabled in the current build before relying on it.
+// Optional extension support is build dependent. Use SupportsOptionalExtension
+// before relying on an extension surface, and treat README.md as the support
+// matrix source of truth.
 //
 //	if SupportsOptionalExtension(OptionalExtensionQEXT) {
 //	    _ = enc.SetQEXT(true)
 //	}
 //
-// OSCE BWE remains quarantined from the default API surface. Experimental
-// quarantine helpers are exposed only when building with
-// `-tags gopus_unsupported_controls`, and that tag does not itself report
-// supported feature availability.
+// # Multistream
 //
-// # Thread Safety
+// NewMultistreamEncoderDefault and NewMultistreamDecoderDefault support 1-8
+// channels with the standard Vorbis-style channel mappings used by Ogg Opus.
+// Use the explicit multistream constructors for custom mappings.
 //
-// Encoder and Decoder instances are NOT safe for concurrent use.
-// Each goroutine should create its own instance.
+// # Package Boundaries
 //
-// # Buffer Sizing
+// Most applications should use the top-level gopus API plus container/ogg.
+// Low-level packages such as celt, silk, hybrid, rangecoding, plc, and
+// multistream are advanced implementation surfaces and may change before the
+// first tagged release.
 //
-// For caller-provided buffers:
-//   - Decode output: max 5760 * channels samples (120ms at 48kHz, default cap)
-//   - Encode output: 4000 bytes is sufficient for any Opus packet
-//
-// # Packet Loss Concealment
-//
-// When a packet is lost, pass nil to Decode to trigger packet loss
-// concealment (PLC). The decoder will generate audio to conceal the gap:
-//
-//	if packetLost {
-//	    n, err = dec.Decode(nil, pcmOut) // PLC
-//	} else {
-//	    n, err = dec.Decode(packet, pcmOut)
-//	}
-//
-// # Packet Structure
-//
-// Each Opus packet starts with a TOC (Table of Contents) byte:
-//   - Bits 7-3: Configuration (0-31)
-//   - Bit 2: Stereo flag
-//   - Bits 1-0: Frame count code (0-3)
-//
-// Use ParseTOC to extract these fields, and ParsePacket to determine
-// the frame boundaries within a packet.
-//
-// # Configuration
-//
-// The encoder supports various configuration options:
-//
-//	enc.SetBitrate(64000)     // Target bitrate
-//	enc.SetComplexity(10)     // Quality vs CPU (0-10)
-//	enc.SetFEC(true)          // Forward error correction
-//	enc.SetDTX(true)          // Discontinuous transmission
-//	enc.SetFrameSize(480)     // Frame size (120-5760 samples)
-//
-// # Multistream (Surround Sound)
-//
-// For surround sound applications (5.1, 7.1, etc.), use MultistreamEncoder
-// and MultistreamDecoder. The default constructors support 1-8 channels with
-// standard Vorbis-style channel mapping per RFC 7845. For larger or custom
-// layouts, use the explicit multistream constructors with a caller-supplied
-// mapping table.
-//
-// Multistream encoding example (5.1 surround):
-//
-//	enc, err := gopus.NewMultistreamEncoderDefault(48000, 6, gopus.ApplicationAudio)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	pcm := make([]float32, 960*6) // 20ms of 6-channel audio at 48kHz
-//	// ... fill pcm with interleaved samples: FL, C, FR, RL, RR, LFE ...
-//
-//	packetBuf := make([]byte, 4000)
-//	nPacket, err := enc.Encode(pcm, packetBuf)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-// Multistream decoding example:
-//
-//	dec, err := gopus.NewMultistreamDecoderDefault(48000, 6)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-//	pcmOut := make([]float32, 960*6)
-//	_, err = dec.Decode(packet, pcmOut)
-//	if err != nil {
-//	    log.Fatal(err)
-//	}
-//
-// Supported channel configurations:
-//   - 1: mono (1 stream, 0 coupled)
-//   - 2: stereo (1 stream, 1 coupled)
-//   - 3: 3.0 (2 streams, 1 coupled)
-//   - 4: quad (2 streams, 2 coupled)
-//   - 5: 5.0 (3 streams, 2 coupled)
-//   - 6: 5.1 surround (4 streams, 2 coupled)
-//   - 7: 6.1 surround (5 streams, 2 coupled)
-//   - 8: 7.1 surround (5 streams, 3 coupled)
-//
-// For custom channel mappings, use NewMultistreamEncoder and NewMultistreamDecoder
-// with explicit stream and mapping parameters.
-//
-// Most applications should use the top-level `gopus` API plus `container/ogg`.
-// Low-level subpackages such as `celt`, `silk`, `hybrid`, `rangecoding`, `plc`,
-// and `multistream` are advanced implementation surfaces and may change before
-// the first tagged release.
+// Encoder and Decoder instances are not safe for concurrent use.
 package gopus
