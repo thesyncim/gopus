@@ -29,21 +29,27 @@ type CHelperConfig struct {
 }
 
 func OracleEnabled() bool {
+	if !StrictRefRequired() {
+		switch strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_LIBOPUS_ORACLE"))) {
+		case "0", "false", "off", "skip":
+			return false
+		}
+	}
 	if oracleBuildTagEnabled || StrictRefRequired() {
 		return true
 	}
 	switch strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_TEST_TIER"))) {
-	case "parity", "exactness", "exhaustive":
-		return true
-	default:
+	case "fast", "smoke":
 		return false
+	default:
+		return true
 	}
 }
 
 func RequireOracle(t testing.TB) {
 	t.Helper()
 	if !OracleEnabled() {
-		t.Skip("libopus oracle disabled; set GOPUS_TEST_TIER=parity, GOPUS_STRICT_LIBOPUS_REF=1, or build with -tags gopus_libopus_oracle")
+		t.Skip("libopus oracle disabled for this test tier")
 	}
 }
 

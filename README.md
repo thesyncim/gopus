@@ -75,7 +75,8 @@ make release-evidence
 
 `make release-evidence` must produce a PASS summary before a tag is published.
 Current focused gates cover tagged DRED/QEXT seams, RED recovery ordering,
-CELT/range-coder math oracles, and SILK NLSF/LPC/gain/stereo internals.
+CELT/range-coder math oracles, and SILK NLSF/LPC/gain/stereo/LTP internals.
+Core libopus oracles run in normal `go test`; strict gates only make setup failures fatal.
 
 ## Trust And Verification
 
