@@ -4,18 +4,12 @@
 package celt
 
 import (
-	"bytes"
 	"fmt"
 	"math"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
-	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
@@ -30,25 +24,11 @@ var (
 )
 
 func buildLibopusCELTPLCUpdateHelper() (string, error) {
-	ccPath, err := libopustooling.FindCCompiler()
-	if err != nil {
-		return "", fmt.Errorf("cc not available: %w", err)
-	}
-	repoRoot := filepath.Clean("..")
-	srcPath := filepath.Join(repoRoot, "tools", "csrc", "libopus_celt_plc_update_pcm.c")
-	outDir := filepath.Join(os.TempDir(), "gopus_celt_test_helpers")
-	if err := os.MkdirAll(outDir, 0o755); err != nil {
-		return "", fmt.Errorf("mkdir helper dir: %w", err)
-	}
-	outPath := filepath.Join(outDir, fmt.Sprintf("gopus_libopus_celt_plc_update_%s_%s", runtime.GOOS, runtime.GOARCH))
-	if runtime.GOOS == "windows" {
-		outPath += ".exe"
-	}
-	cmd := exec.Command(ccPath, "-std=c99", "-O2", srcPath, "-lm", "-o", outPath)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build celt plc update helper: %w (%s)", err, bytes.TrimSpace(output))
-	}
-	return outPath, nil
+	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		Label:      "celt plc update",
+		OutputBase: "gopus_libopus_celt_plc_update",
+		SourceFile: "libopus_celt_plc_update_pcm.c",
+	})
 }
 
 func getLibopusCELTPLCUpdateHelperPath() (string, error) {
