@@ -1,6 +1,3 @@
-//go:build gopus_dred || gopus_extra_controls
-// +build gopus_dred gopus_extra_controls
-
 package gopus
 
 import (
@@ -8,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 func probeLibopusFloatQuant(mode uint32, samples []float32) ([]int16, error) {
@@ -19,23 +17,29 @@ func probeLibopusFloatQuant(mode uint32, samples []float32) ([]int16, error) {
 }
 
 func TestFloat32ToInt16MatchesLibopusFLOAT2INT16ExhaustiveGrid(t *testing.T) {
+	libopustest.RequireOracle(t)
 	samples := make([]float32, 0, 65536)
 	for i := -32768; i <= 32767; i++ {
 		samples = append(samples, float32(i)*(1.0/32768.0))
 	}
 	want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeFloat2Int16, samples)
 	if err != nil {
-		t.Skipf("libopus float quant helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "float quant", err)
 	}
 	for i, sample := range samples {
 		if got := float32ToInt16(sample); got != want[i] {
 			raw := i - 32768
 			t.Fatalf("float32ToInt16(%d/32768)=%d want %d", raw, got, want[i])
 		}
+		if got := opusmath.Float32ToInt16(sample); got != want[i] {
+			raw := i - 32768
+			t.Fatalf("opusmath.Float32ToInt16(%d/32768)=%d want %d", raw, got, want[i])
+		}
 	}
 }
 
 func TestFloat32ToInt16MatchesLibopusFLOAT2INT16TiesAndClamps(t *testing.T) {
+	libopustest.RequireOracle(t)
 	samples := []float32{
 		float32(-32769.0 / 32768.0),
 		-1,
@@ -56,11 +60,14 @@ func TestFloat32ToInt16MatchesLibopusFLOAT2INT16TiesAndClamps(t *testing.T) {
 	}
 	want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeFloat2Int16, samples)
 	if err != nil {
-		t.Skipf("libopus float quant helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "float quant", err)
 	}
 	for i, sample := range samples {
 		if got := float32ToInt16(sample); got != want[i] {
 			t.Fatalf("float32ToInt16(%0.10g)=%d want %d", sample, got, want[i])
+		}
+		if got := opusmath.Float32ToInt16(sample); got != want[i] {
+			t.Fatalf("opusmath.Float32ToInt16(%0.10g)=%d want %d", sample, got, want[i])
 		}
 	}
 }

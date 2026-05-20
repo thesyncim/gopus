@@ -143,9 +143,14 @@ func BuildDREDHelper(repoRoot, sourceFile, outputBase string, includeInternal bo
 	return outPath, nil
 }
 
-func ProbeFloatQuant(repoRoot string, mode uint32, samples []float32) ([]int16, error) {
+func ProbeFloatQuant(_ string, mode uint32, samples []float32) ([]int16, error) {
 	floatQuantHelperOnce.Do(func() {
-		floatQuantHelperPath, floatQuantHelperErr = BuildDREDHelper(repoRoot, "libopus_float_quant_info.c", "gopus_shared_float_quant", true)
+		floatQuantHelperPath, floatQuantHelperErr = BuildCHelper(CHelperConfig{
+			Label:       "float quant",
+			OutputBase:  "gopus_shared_float_quant",
+			SourceFile:  "libopus_float_quant_info.c",
+			RefIncludes: []string{"celt"},
+		})
 	})
 	if floatQuantHelperErr != nil {
 		return nil, floatQuantHelperErr
