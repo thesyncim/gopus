@@ -314,7 +314,7 @@ func (e *Encoder) updateStreamChannelsForFrame(frameSize int) {
 
 // autoModeDecision selects SILK-only vs CELT-only using interpolated thresholds.
 // Matches libopus opus_encoder.c lines 1492-1527.
-func (e *Encoder) autoModeDecision(stereoWidth float64, voiceEst, equivRate, frameSize int) Mode {
+func (e *Encoder) autoModeDecision(stereoWidth float64, voiceEst, equivRate, frameSize, maxDataBytes int) Mode {
 	// Interpolate mode thresholds based on stereo width.
 	modeVoice := int(math.Round(
 		(1.0-stereoWidth)*float64(autoModeThresholds[0][0]) +
@@ -353,20 +353,33 @@ func (e *Encoder) autoModeDecision(stereoWidth float64, voiceEst, equivRate, fra
 		mode = ModeSILK
 	}
 
-	// Low-rate CELT fallback: if max_data_bytes < threshold, use CELT.
-	// In gopus we use frame-rate based heuristic matching libopus line 1525-1527.
-	frameRate := e.sampleRate / frameSize
-	minRate := 6000
-	if frameRate > 50 {
-		minRate = 9000
-	}
-	targetBytes := targetBytesForBitrate(e.bitrate, frameSize)
-	minBytes := targetBytesForBitrate(minRate, frameSize)
-	if targetBytes < minBytes {
+	// Low-rate CELT fallback. libopus checks the packet byte budget, not the
+	// configured target bitrate.
+	if maxDataBytes < lowRateCELTByteThreshold(e.sampleRate, frameSize) {
 		mode = ModeCELT
 	}
 
 	return mode
+}
+
+func lowRateCELTByteThreshold(sampleRate, frameSize int) int {
+	frameRate := sampleRate / frameSize
+	minRate := 6000
+	if frameRate > 50 {
+		minRate = 9000
+	}
+	return bitrateBitsForFrame(minRate, sampleRate, frameSize) / 8
+}
+
+func bitrateBitsForFrame(bitrate, sampleRate, frameSize int) int {
+	if sampleRate <= 0 || frameSize <= 0 {
+		return 0
+	}
+	unitsPerFrame := 6 * sampleRate / frameSize
+	if unitsPerFrame <= 0 {
+		return 0
+	}
+	return bitrate * 6 / unitsPerFrame
 }
 
 // autoSelectBandwidth implements the libopus auto-bandwidth selection loop.
@@ -546,7 +559,7 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []float64, frameSize, maxData
 		ModeAuto, e.complexity, e.packetLoss)
 
 	// Step 9: Mode selection with interpolated thresholds (lines 1492-1527).
-	mode := e.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize)
+	mode := e.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes)
 
 	// Step 10: Frame size constraint (lines 1533-1537).
 	if mode != ModeCELT && frameSize < e.sampleRate/100 {

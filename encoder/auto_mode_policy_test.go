@@ -93,6 +93,53 @@ func TestAutoClampBandwidthUsesPacketBudgetMaxRate(t *testing.T) {
 	}
 }
 
+func TestAutoModeLowRateCELTFallbackUsesPacketBudget(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeAuto)
+	enc.bitrate = 4000
+
+	const (
+		frameSize       = 960
+		silkEquivRate   = 0
+		voiceEst        = 128
+		monoStereoWidth = 0
+	)
+	threshold := lowRateCELTByteThreshold(enc.sampleRate, frameSize)
+	if threshold != 15 {
+		t.Fatalf("lowRateCELTByteThreshold(20ms) = %d, want 15", threshold)
+	}
+
+	if got := enc.autoModeDecision(monoStereoWidth, voiceEst, silkEquivRate, frameSize, threshold-1); got != ModeCELT {
+		t.Fatalf("autoModeDecision(low packet budget) = %v, want %v", got, ModeCELT)
+	}
+	if got := enc.autoModeDecision(monoStereoWidth, voiceEst, silkEquivRate, frameSize, threshold); got != ModeSILK {
+		t.Fatalf("autoModeDecision(exact packet budget) = %v, want %v", got, ModeSILK)
+	}
+}
+
+func TestLowRateCELTByteThresholdMatchesLibopusIntegerDivision(t *testing.T) {
+	tests := []struct {
+		name       string
+		sampleRate int
+		frameSize  int
+		want       int
+	}{
+		{name: "20ms_48k", sampleRate: 48000, frameSize: 960, want: 15},
+		{name: "10ms_48k", sampleRate: 48000, frameSize: 480, want: 11},
+		{name: "5ms_48k", sampleRate: 48000, frameSize: 240, want: 5},
+		{name: "20ms_16k", sampleRate: 16000, frameSize: 320, want: 15},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := lowRateCELTByteThreshold(tt.sampleRate, tt.frameSize); got != tt.want {
+				t.Fatalf("lowRateCELTByteThreshold(%d, %d) = %d, want %d",
+					tt.sampleRate, tt.frameSize, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestNonAutoEncodeUpdatesStreamChannelsForCELTState(t *testing.T) {
 	pcm := make([]float64, 960*2)
 	for i := 0; i < 960; i++ {
