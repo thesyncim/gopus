@@ -11,10 +11,9 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sync"
 
-	"github.com/thesyncim/gopus/internal/libopustooling"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 const (
@@ -35,12 +34,6 @@ const (
 )
 
 var (
-	libopusPLCBuildOnce sync.Once
-	libopusPLCRepoRoot  string
-	libopusPLCSourceDir string
-	libopusPLCBuildDir  string
-	libopusPLCBuildErr  error
-
 	libopusPLCModelBlobHelperOnce sync.Once
 	libopusPLCModelBlobHelperPath string
 	libopusPLCModelBlobHelperErr  error
@@ -78,137 +71,13 @@ var (
 	libopusFARGANSynthHelperErr  error
 )
 
-func ensureLibopusPLCBuild() (sourceDir, buildDir string, err error) {
-	libopusPLCBuildOnce.Do(func() {
-		repoRoot, err := os.Getwd()
-		if err != nil {
-			libopusPLCBuildErr = fmt.Errorf("getwd: %w", err)
-			return
-		}
-		repoRoot = filepath.Clean(filepath.Join(repoRoot, "..", ".."))
-		libopusPLCRepoRoot = repoRoot
-		referenceDir := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion)
-		sourceDir = filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+"-dredsrc-clean")
-		buildDir = filepath.Join(repoRoot, "tmp_check", fmt.Sprintf("build-opus-dred-scalar-%s-%s", runtime.GOOS, runtime.GOARCH))
-		libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
-		if _, err := os.Stat(libopusStatic); err == nil && libopustooling.ScalarDNNBuildIsCurrent(buildDir) {
-			libopusPLCSourceDir = sourceDir
-			libopusPLCBuildDir = buildDir
-			return
-		}
-
-		if _, err := os.Stat(filepath.Join(sourceDir, "configure")); err != nil {
-			libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{repoRoot})
-			tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
-			if _, err := os.Stat(tarball); err == nil {
-				if err := os.RemoveAll(sourceDir); err != nil {
-					libopusPLCBuildErr = fmt.Errorf("remove stale libopus source dir: %w", err)
-					return
-				}
-				if err := os.MkdirAll(sourceDir, 0o755); err != nil {
-					libopusPLCBuildErr = fmt.Errorf("mkdir libopus source dir: %w", err)
-					return
-				}
-				cmd := exec.Command("tar", "-xzf", tarball, "-C", sourceDir, "--strip-components=1")
-				if output, err := cmd.CombinedOutput(); err != nil {
-					libopusPLCBuildErr = fmt.Errorf("extract libopus source: %w (%s)", err, bytes.TrimSpace(output))
-					return
-				}
-			} else if _, refErr := os.Stat(filepath.Join(referenceDir, "configure")); refErr == nil {
-				if _, cfgErr := os.Stat(filepath.Join(referenceDir, "Makefile")); cfgErr == nil {
-					libopusPLCBuildErr = fmt.Errorf("clean libopus source tree unavailable: %s is already configured", referenceDir)
-					return
-				}
-				sourceDir = referenceDir
-			} else {
-				libopusPLCBuildErr = fmt.Errorf("libopus tarball not found and no prepared source tree present: %w", err)
-				return
-			}
-		}
-		if err := libopustooling.ResetScalarDNNBuildIfStale(buildDir); err != nil {
-			libopusPLCBuildErr = fmt.Errorf("reset stale libopus scalar build dir: %w", err)
-			return
-		}
-		if err := os.MkdirAll(buildDir, 0o755); err != nil {
-			libopusPLCBuildErr = fmt.Errorf("mkdir libopus build dir: %w", err)
-			return
-		}
-		if _, err := os.Stat(filepath.Join(buildDir, "Makefile")); err != nil {
-			cmd := exec.Command(filepath.Join(sourceDir, "configure"),
-				"--enable-static",
-				"--disable-shared",
-				"--disable-extra-programs",
-				"--enable-dred",
-				"--disable-asm",
-				"--disable-rtcd",
-				"--disable-intrinsics",
-			)
-			cmd.Dir = buildDir
-			cmd.Env = libopustooling.ScalarDNNBuildEnv()
-			if output, err := cmd.CombinedOutput(); err != nil {
-				libopusPLCBuildErr = fmt.Errorf("configure libopus build: %w (%s)", err, bytes.TrimSpace(output))
-				return
-			}
-		}
-		makeCmd := exec.Command("make", fmt.Sprintf("-j%d", max(1, runtime.NumCPU())))
-		makeCmd.Dir = buildDir
-		makeCmd.Env = libopustooling.ScalarDNNBuildEnv()
-		if output, err := makeCmd.CombinedOutput(); err != nil {
-			libopusPLCBuildErr = fmt.Errorf("build libopus: %w (%s)", err, bytes.TrimSpace(output))
-			return
-		}
-		if err := libopustooling.WriteScalarDNNBuildStamp(buildDir); err != nil {
-			libopusPLCBuildErr = fmt.Errorf("write libopus scalar build stamp: %w", err)
-			return
-		}
-		libopusPLCSourceDir = sourceDir
-		libopusPLCBuildDir = buildDir
-	})
-	if libopusPLCBuildErr != nil {
-		return "", "", libopusPLCBuildErr
-	}
-	return libopusPLCSourceDir, libopusPLCBuildDir, nil
-}
-
 func buildLibopusPLCHelper(sourceFile, outputBase string) (string, error) {
-	ccPath, err := libopustooling.FindCCompiler()
+	cwd, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("cc not available: %w", err)
+		return "", fmt.Errorf("getwd: %w", err)
 	}
-	sourceDir, buildDir, err := ensureLibopusPLCBuild()
-	if err != nil {
-		return "", err
-	}
-	srcPath := filepath.Join(libopusPLCRepoRoot, "tools", "csrc", sourceFile)
-	if _, err := os.Stat(srcPath); err != nil {
-		return "", fmt.Errorf("plc helper source not found: %w", err)
-	}
-	libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
-	outPath := filepath.Join(buildDir, fmt.Sprintf("%s_%s_%s", outputBase, runtime.GOOS, runtime.GOARCH))
-	if runtime.GOOS == "windows" {
-		outPath += ".exe"
-	}
-	args := []string{
-		"-std=c99",
-		"-O2",
-		"-DHAVE_CONFIG_H",
-		"-I", buildDir,
-		"-I", filepath.Join(sourceDir, "include"),
-		"-I", sourceDir,
-		"-I", filepath.Join(sourceDir, "celt"),
-		"-I", filepath.Join(sourceDir, "dnn"),
-		"-I", filepath.Join(sourceDir, "silk"),
-		srcPath,
-		libopusStatic,
-		"-lm",
-		"-o",
-		outPath,
-	}
-	cmd := exec.Command(ccPath, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build plc helper %s: %w (%s)", sourceFile, err, bytes.TrimSpace(output))
-	}
-	return outPath, nil
+	repoRoot := filepath.Clean(filepath.Join(cwd, "..", ".."))
+	return libopustest.BuildDREDHelper(repoRoot, sourceFile, outputBase, true)
 }
 
 func getLibopusPLCModelBlobHelperPath() (string, error) {
@@ -306,15 +175,11 @@ func probeLibopusPLCModelBlob() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(binPath)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run plc model blob helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelper(binPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("run plc model blob helper: %w", err)
 	}
-	return stdout.Bytes(), nil
+	return out, nil
 }
 
 func probeLibopusFARGANModelBlob() ([]byte, error) {
@@ -322,15 +187,11 @@ func probeLibopusFARGANModelBlob() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	cmd := exec.Command(binPath)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run fargan model blob helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	out, err := libopustest.RunHelper(binPath, nil)
+	if err != nil {
+		return nil, fmt.Errorf("run fargan model blob helper: %w", err)
 	}
-	return stdout.Bytes(), nil
+	return out, nil
 }
 
 func probeLibopusPLCPredict(input []float32, gru1State, gru2State []float32) (out, nextGRU1, nextGRU2 []float32, err error) {
