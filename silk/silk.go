@@ -964,13 +964,13 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	var concealed []float32
 	hookLagPrev := 0
 	usedDeepPLCHook := false
-	if d.deepPLCLossMonoHook != nil {
+	if dredHooksEnabled && d.hasDeepPLCLossMonoHook() {
 		if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
 			concealed = d.scratchOutput[:nativeSamples]
 		} else {
 			concealed = make([]float32, nativeSamples)
 		}
-		ok, lagPrev := d.deepPLCLossMonoHook(concealed)
+		ok, lagPrev := d.fireDeepPLCLossMonoHook(concealed)
 		if ok {
 			usedDeepPLCHook = true
 			hookLagPrev = lagPrev
@@ -1063,7 +1063,7 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 		if start < 0 || end > len(concealed) || frameLength == 0 {
 			break
 		}
-		if d.deepPLCLossMonoHook != nil && len(d.scratchOutInt16) >= end {
+		if dredHooksEnabled && usedDeepPLCHook && len(d.scratchOutInt16) >= end {
 			frameQ0 := d.scratchOutInt16[start:end]
 			resamplerInput := d.BuildMonoResamplerInputInt16(frameQ0)
 			outputOffset += resampler.ProcessInt16Into(resamplerInput, output[outputOffset:])
@@ -1262,8 +1262,8 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	sideView := d.plcDecoderView(1)
 	usedDeepPLCHook := false
 	hookLagPrev := 0
-	if d.deepPLCLossMonoHook != nil {
-		ok, lagPrev := d.deepPLCLossMonoHook(mid)
+	if dredHooksEnabled && d.hasDeepPLCLossMonoHook() {
+		ok, lagPrev := d.fireDeepPLCLossMonoHook(mid)
 		if ok {
 			usedDeepPLCHook = true
 			hookLagPrev = lagPrev

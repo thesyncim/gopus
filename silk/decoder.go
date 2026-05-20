@@ -107,13 +107,7 @@ type Decoder struct {
 	// Scratch buffer for upsampleTo48k
 	upsampleScratch []float32 // Size: maxFramesPerPacket * maxFrameLength * 6 = 5760
 
-	// Optional hook fired on mono/mid 10 ms raw good-frame chunks at 16 kHz
-	// before CNG/glue mutates the frame buffer.
-	rawMonoFrameHook RawMonoFrameHook
-
-	// Optional hook fired on mono PLC concealment at 16 kHz before SILK records
-	// the lost-frame state. Used by optional deep-PLC/DRED paths.
-	deepPLCLossMonoHook DeepPLCLossMonoHook
+	dredHookState
 
 	nativePostfilter nativePostfilterExtras
 
@@ -761,31 +755,6 @@ type RawMonoFrameHook func(samples []int16)
 // frame in normalized float32 units and may optionally return a lagPrev value
 // to retain for the next good packet.
 type DeepPLCLossMonoHook func(concealed []float32) (ok bool, lagPrev int)
-
-// SetRawMonoFrameHook installs a callback fired on raw mono/mid 10 ms chunks
-// before CNG/glue. Pass nil to disable.
-func (d *Decoder) SetRawMonoFrameHook(hook RawMonoFrameHook) {
-	d.rawMonoFrameHook = hook
-}
-
-// SetDeepPLCLossMonoHook installs a mono 16 kHz PLC concealment hook used by
-// optional deep-PLC/DRED experiments. Pass nil to disable.
-func (d *Decoder) SetDeepPLCLossMonoHook(hook DeepPLCLossMonoHook) {
-	d.deepPLCLossMonoHook = hook
-}
-
-func (d *Decoder) fireRawMonoFrameHook(channel int, st *decoderState, frameOut []int16) {
-	if d == nil || d.rawMonoFrameHook == nil || channel != 0 || st == nil || st.fsKHz != 16 || st.subfrLength <= 0 {
-		return
-	}
-	chunkSamples := 2 * st.subfrLength
-	if chunkSamples <= 0 || len(frameOut) < chunkSamples {
-		return
-	}
-	for offset := 0; offset+chunkSamples <= len(frameOut); offset += chunkSamples {
-		d.rawMonoFrameHook(frameOut[offset : offset+chunkSamples])
-	}
-}
 
 type resamplerPair struct {
 	left  *LibopusResampler

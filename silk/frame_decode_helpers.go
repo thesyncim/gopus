@@ -181,7 +181,9 @@ func (d *Decoder) finalizeDecodedChannelFrame(channel int, st *decoderState, ctr
 		d.fireNativePostfilterHook(channel, st, ctrl, frameOut)
 	}
 	d.updateSILKPLCStateFromCtrl(channel, st, ctrl)
-	d.fireRawMonoFrameHook(channel, st, frameOut)
+	if dredHooksEnabled {
+		d.fireRawMonoFrameHook(channel, st, frameOut)
+	}
 
 	st.lossCnt = 0
 	st.prevSignalType = int(st.indices.signalType)
