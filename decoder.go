@@ -103,8 +103,8 @@ type Decoder struct {
 	osceLACE           *decoderOSCELACEState
 	// osceLACEModelLoaded mirrors `osceModelsLoaded` (LACE/NoLACE manifest
 	// presence in the bound DNN blob) but is exposed as a dedicated field so
-	// the maybeApplyOSCELACEPostSilk gate matches the libopus OPUS_SET_DNN_BLOB
-	// shape (separate blob-presence vs. user-toggle bits).
+	// the native SILK postfilter gate matches the libopus OPUS_SET_DNN_BLOB
+	// shape.
 	osceLACEModelLoaded bool
 	// osceLACEEnabled mirrors libopus DecControl.osce_method != OSCE_METHOD_NONE
 	// in the same way osceBWEEnabled mirrors DecControl.enable_osce_bwe. The

@@ -143,6 +143,79 @@ func TestMultistreamDecoderOSCEBWELACERuntimeIntegration(t *testing.T) {
 		diffCount, len(pcm), maxAbsDiff)
 }
 
+func TestMultistreamDecoderOSCELACEFeedsPublicPCM(t *testing.T) {
+	coreBlob := requireLibopusDecoderNeuralModelBlob(t)
+	laceBlob := requireLibopusOSCELACEModelBlob(t)
+	merged := make([]byte, 0, len(coreBlob)+len(laceBlob))
+	merged = append(merged, coreBlob...)
+	merged = append(merged, laceBlob...)
+
+	const (
+		sampleRate = 48000
+		channels   = 2
+		frameSize  = 960
+	)
+	packetA := makeMultistreamStereoSILKWBPacket(t, sampleRate, channels, frameSize)
+	packetB := makeMultistreamStereoSILKWBPacket(t, sampleRate, channels, frameSize)
+
+	decRef := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+	if err := decRef.SetComplexity(6); err != nil {
+		t.Fatalf("decRef.SetComplexity(6): %v", err)
+	}
+	if err := decRef.SetDNNBlob(merged); err != nil {
+		t.Fatalf("decRef.SetDNNBlob(merged): %v", err)
+	}
+	if err := decRef.SetOSCELACE(false); err != nil {
+		t.Fatalf("decRef.SetOSCELACE(false): %v", err)
+	}
+	pcmRef := make([]float32, frameSize*channels)
+	if n, err := decRef.Decode(packetA, pcmRef); err != nil {
+		t.Fatalf("decRef.Decode #1: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("decRef.Decode #1 samples=%d want %d", n, frameSize)
+	}
+	refFirst := append([]float32(nil), pcmRef...)
+	if n, err := decRef.Decode(packetB, pcmRef); err != nil {
+		t.Fatalf("decRef.Decode #2: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("decRef.Decode #2 samples=%d want %d", n, frameSize)
+	}
+
+	dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+	if err := dec.SetComplexity(6); err != nil {
+		t.Fatalf("dec.SetComplexity(6): %v", err)
+	}
+	if err := dec.SetDNNBlob(merged); err != nil {
+		t.Fatalf("dec.SetDNNBlob(merged): %v", err)
+	}
+	if err := dec.SetOSCEBWE(false); err != nil {
+		t.Fatalf("dec.SetOSCEBWE(false): %v", err)
+	}
+	if err := dec.SetOSCELACE(true); err != nil {
+		t.Fatalf("dec.SetOSCELACE(true): %v", err)
+	}
+	pcm := make([]float32, frameSize*channels)
+	if n, err := dec.Decode(packetA, pcm); err != nil {
+		t.Fatalf("dec.Decode #1: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("dec.Decode #1 samples=%d want %d", n, frameSize)
+	}
+	firstDiff, firstMax := float32BufferDiff(pcm, refFirst)
+	if firstDiff != 0 {
+		t.Fatalf("first LACE-eligible multistream PCM differs after reset: diffCount=%d maxDiff=%g", firstDiff, firstMax)
+	}
+	if n, err := dec.Decode(packetB, pcm); err != nil {
+		t.Fatalf("dec.Decode #2: %v", err)
+	} else if n != frameSize {
+		t.Fatalf("dec.Decode #2 samples=%d want %d", n, frameSize)
+	}
+	secondDiff, secondMax := float32BufferDiff(pcm, pcmRef)
+	if secondDiff == 0 {
+		t.Fatal("second LACE-eligible multistream PCM is still raw")
+	}
+	t.Logf("multistream LACE altered %d/%d public PCM samples; max abs diff %g", secondDiff, len(pcm), secondMax)
+}
+
 func TestMultistreamDecoderOSCEBWEMatchesSingleStreamDecoder(t *testing.T) {
 	coreBlob := requireLibopusDecoderNeuralModelBlob(t)
 	bweBlob := requireLibopusOSCEBWEModelBlob(t)

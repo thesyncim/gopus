@@ -11,3 +11,7 @@ import "github.com/thesyncim/gopus/silk"
 // both builds; under the default tag it collapses to nothing.
 func (d *streamState) applyOSCEPostSilk(_ []float32, _ int, _ silk.Bandwidth, _ bool) {
 }
+
+func (d *streamState) installOSCELACESilkPostfilterHook(_ silk.Bandwidth, _ bool) func() {
+	return func() {}
+}

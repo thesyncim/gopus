@@ -177,6 +177,9 @@ func (d *Decoder) finalizeDecodedChannelFrame(channel int, st *decoderState, ctr
 		d.updateHistoryInt16(frameOut)
 	}
 	silkUpdateOutBuf(st, frameOut)
+	if nativePostfilterEnabled {
+		d.fireNativePostfilterHook(channel, st, ctrl, frameOut)
+	}
 	d.updateSILKPLCStateFromCtrl(channel, st, ctrl)
 	d.fireRawMonoFrameHook(channel, st, frameOut)
 

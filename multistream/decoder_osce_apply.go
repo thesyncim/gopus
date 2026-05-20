@@ -10,11 +10,9 @@ import (
 	"github.com/thesyncim/gopus/silk"
 )
 
-// applyOSCEPostSilk runs the libopus OSCE LACE/NoLACE postfilter and the OSCE
-// BWE 16 kHz -> 48 kHz forward pass on the SILK lowband output of this stream
-// decoder. Mirrors `maybeApplyOSCELACEPostSilk` + `maybeApplyOSCEBWEPostSilk`
-// in package gopus. `out` is the float32 PCM buffer the SILK decoder has just
-// written (frameSize * channels samples @ 48 kHz, interleaved when stereo).
+// applyOSCEPostSilk runs the OSCE BWE 16 kHz -> 48 kHz forward pass on the
+// SILK lowband output of this stream decoder. LACE/NoLACE is installed as a
+// native SILK postfilter hook before decode so it feeds the normal resampler.
 // `out` is overwritten in place by the BWE forward pass when its gates fire.
 //
 // Both postfilters are SILK-only at 16 kHz internal sample rate. The helper
@@ -23,64 +21,55 @@ func (d *streamState) applyOSCEPostSilk(out []float32, frameSize int, silkBW sil
 	if d == nil || d.osceState == nil {
 		return
 	}
-	// LACE / NoLACE runs first so the BWE pass can consume the postfilter-
-	// enhanced native lowband. The helper short-circuits when the user
-	// toggle is disabled or no model is bound.
-	d.applyOSCELACE(out, frameSize, silkBW, packetStereo)
 	d.applyOSCEBWE(out, frameSize, silkBW, packetStereo)
 }
 
-func (d *streamState) applyOSCELACE(out []float32, frameSize int, silkBW silk.Bandwidth, packetStereo bool) bool {
-	_ = out
-	_ = frameSize
-	if d == nil || d.osceState == nil {
-		return false
+func (d *streamState) installOSCELACESilkPostfilterHook(silkBW silk.Bandwidth, packetStereo bool) func() {
+	if d == nil || d.silkDec == nil {
+		return func() {}
+	}
+	restore := func() {
+		d.silkDec.SetNativePostfilterHook(nil)
 	}
 	if !d.osceLACEEnabled {
 		d.resetOSCELACEState(packetStereo)
-		return false
+		return restore
 	}
 	state := d.osceState
-	if state.laceModel == nil || !state.laceModel.Loaded() {
+	if state == nil || state.laceModel == nil || !state.laceModel.Loaded() {
 		d.resetOSCELACEState(packetStereo)
-		return false
+		return restore
 	}
-
+	if silkBW != silk.BandwidthWideband {
+		d.resetOSCELACEState(packetStereo)
+		return restore
+	}
 	mode := pickStreamOSCELACEMode(d.complexity)
 	if mode == streamOSCELACEModeNone {
 		d.resetOSCELACEState(packetStereo)
-		return false
+		return restore
 	}
 
+	channels := 1
 	if packetStereo && d.channels == 2 {
-		leftNative, rightNative, samplesPerChannel, fsKHz, ok := d.silkDec.LatestNativeStereo()
-		if !ok || fsKHz != 16 || samplesPerChannel < streamOSCELACEFrameSamples {
+		channels = 2
+	}
+	d.prepareOSCELACEState(mode, channels)
+	d.silkDec.SetNativePostfilterHook(func(channel int, samples []int16, ctrl silk.LatestDecoderControl) bool {
+		if channel < 0 || channel >= channels {
+			return false
+		}
+		if ctrl.FsKHz != 16 || ctrl.NbSubfr != streamOSCELACESubframesPerFrame || len(samples) < streamOSCELACEFrameSamples {
 			d.resetOSCELACEState(packetStereo)
 			return false
 		}
-		d.prepareOSCELACEState(mode, 2)
-		ran := d.runOSCELACEChannel(leftNative, mode, 0)
-		ran = d.runOSCELACEChannel(rightNative, mode, 1) || ran
-		if !ran {
+		if !d.runOSCELACEChannel(samples, mode, channel) {
 			d.resetOSCELACEState(packetStereo)
 			return false
 		}
-		state.prevLACEActive = true
 		return true
-	}
-
-	native, fsKHz := d.silkDec.LatestNativeMono()
-	if native == nil || fsKHz != 16 || len(native) < streamOSCELACEFrameSamples {
-		d.resetOSCELACEState(packetStereo)
-		return false
-	}
-	d.prepareOSCELACEState(mode, 1)
-	if !d.runOSCELACEChannel(native, mode, 0) {
-		d.resetOSCELACEState(packetStereo)
-		return false
-	}
-	state.prevLACEActive = true
-	return true
+	})
+	return restore
 }
 
 type streamOSCELACEMode int

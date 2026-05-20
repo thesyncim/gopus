@@ -5,18 +5,8 @@ package gopus
 
 import "github.com/thesyncim/gopus/silk"
 
-// maybeApplyOSCELACEPostSilk is a no-op outside of the explicit
-// `gopus_extra_controls` build. Default builds keep the OSCE
-// LACE/NoLACE postfilter outside default builds so the standard silk_resampler
-// output is always used.
-func (d *Decoder) maybeApplyOSCELACEPostSilk(
-	_ []float32,
-	_ int,
-	_ Mode,
-	_ silk.Bandwidth,
-	_ bool,
-) bool {
-	return false
+func (d *Decoder) installOSCELACESilkPostfilterHook(_ Mode, _ silk.Bandwidth, _ bool) func() {
+	return func() {}
 }
 
 // osceLACEMarkInactiveIfModeIneligible is a no-op stub on the default

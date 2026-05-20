@@ -115,6 +115,8 @@ type Decoder struct {
 	// the lost-frame state. Used by optional deep-PLC/DRED paths.
 	deepPLCLossMonoHook DeepPLCLossMonoHook
 
+	nativePostfilter nativePostfilterExtras
+
 	// Scratch buffers for applyMonoDelay
 	monoResamplerIn []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
 	monoOutput      []int16 // Size: maxFramesPerPacket * maxFrameLength = 960

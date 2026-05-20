@@ -407,6 +407,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if !ok {
 			silkBW = silk.BandwidthWideband
 		}
+		restoreOSCELACEHook := func() {}
+		if data != nil {
+			restoreOSCELACEHook = d.installOSCELACESilkPostfilterHook(mode, silkBW, packetStereoLocal)
+			defer restoreOSCELACEHook()
+		}
 
 		silkDecodeSize := frameSize
 		if silkDecodeSize < F10 {
@@ -498,22 +503,6 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			return 0, err
 		}
 		_ = silkSamples // Used for tracking decode size
-
-		// Optional libopus OSCE LACE / NoLACE postfilter on the SILK
-		// lowband. Mirrors `osce_enhance_frame` in libopus dnn/osce.c
-		// which runs on the 16 kHz int16 SILK output before
-		// silk_resampler upsamples to the public sample rate (and
-		// before the OSCE BWE 16 kHz -> 48 kHz pass when both are
-		// active). Helper is a no-op outside of
-		// `gopus_extra_controls`; under the extra-controls build it
-		// also short-circuits when the LACE control is disabled or no
-		// LACE/NoLACE model is loaded, so the standard silk_resampler
-		// output is retained for every existing decode path. The call
-		// MUST run before maybeApplyOSCEBWEPostSilk so the BWE forward
-		// pass consumes the postfilter-enhanced lowband.
-		if data != nil {
-			d.maybeApplyOSCELACEPostSilk(out, frameSize, mode, silkBW, packetStereoLocal)
-		}
 
 		// Optional libopus OSCE BWE forward pass for SILK-only mode at 48 kHz
 		// API with WB internal sample rate. Mirrors libopus

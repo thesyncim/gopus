@@ -27,120 +27,66 @@ func pickOSCELACEMode(complexity int) osceLACEMode {
 	return osceLACEModeNone
 }
 
-// maybeApplyOSCELACEPostSilk runs the OSCE LACE / NoLACE postfilter forward
-// pass on the SILK lowband output, before the silk_resampler upsamples to
-// 48 kHz and before the OSCE BWE 16 kHz -> 48 kHz forward pass (when both
-// are active). The helper mirrors the libopus invocation site:
-//
-//	silk/decode_frame.c::silk_decode_frame
-//	    -> osce_enhance_frame(model, psDec, psDecCtrl, pOut, ...)
-//
-// which runs after the SILK CNG / glue stage and before the PLC update,
-// mutating the int16 lowband samples in `pOut` in place. The gopus
-// equivalent reads the latest native int16 lowband from
-// `silk.Decoder.LatestNativeMono()` / `LatestNativeStereo()`, runs the
-// LACE / NoLACE forward pass, and writes the enhanced lowband back so the
-// downstream stages (silk_resampler and optional OSCE BWE) consume the
-// postfilter-enhanced signal.
-//
-// Gates (all must hold for the postfilter to run):
-//   - `osceLACEEnabled` (user toggle via SetOSCELACE)
-//   - `osceLACEModelLoaded` (blob contains LACE/NoLACE manifests)
-//   - `state.Loaded()` (the runtime model was successfully bound)
-//   - SILK-only mode and SILK internal sample rate of 16 kHz (libopus
-//     `osce_enhance_frame` early-returns when fs_kHz != 16)
-//   - frame size of 20 ms (320 native samples per channel; matches
-//     libopus `psDec->nb_subfr == 4`)
-//
-// `out` is the gopus output buffer holding `frameSize * channels` float32
-// samples in [-1, 1]. Returns true when the postfilter pass executed and
-// the native lowband / `out` buffer was overwritten; returns false when
-// conditions are not met (callers keep the standard silk_resampler output
-// untouched).
-func (d *Decoder) maybeApplyOSCELACEPostSilk(
-	out []float32,
-	frameSize int,
-	mode Mode,
-	silkBW silk.Bandwidth,
-	packetStereoLocal bool,
-) bool {
-	if d == nil {
-		return false
+func (d *Decoder) installOSCELACESilkPostfilterHook(mode Mode, silkBW silk.Bandwidth, packetStereoLocal bool) func() {
+	if d == nil || d.silkDecoder == nil {
+		return func() {}
+	}
+	restore := func() {
+		d.silkDecoder.SetNativePostfilterHook(nil)
 	}
 	if !d.osceLACEEnabled || !d.osceLACEModelLoaded {
 		d.resetOSCELACEPostfilterState(packetStereoLocal)
-		return false
+		return restore
 	}
 	state := d.osceLACE
 	if state == nil || state.osceLACEModel == nil || !state.osceLACEModel.Loaded() {
-		// When the runtime model is not bound (e.g. blob did not carry
-		// the LACE/NoLACE manifests), keep the standard silk_resampler
-		// output untouched.
 		d.resetOSCELACEPostfilterState(packetStereoLocal)
-		return false
+		return restore
 	}
-	// libopus only runs LACE/NoLACE on SILK-only mode at 16 kHz internal
-	// sample rate. Hybrid keeps the postfilter off because the CELT high
-	// band would mask the model's spectral shaping.
-	if mode != ModeSILK {
+	if mode != ModeSILK || silkBW != silk.BandwidthWideband {
 		d.resetOSCELACEPostfilterState(packetStereoLocal)
-		return false
+		return restore
 	}
 	pickedMode := pickOSCELACEMode(d.complexity)
 	if pickedMode == osceLACEModeNone {
 		d.resetOSCELACEPostfilterState(packetStereoLocal)
-		return false
+		return restore
 	}
 
-	// Stereo packet on a stereo decoder: libopus runs the postfilter
-	// independently on each channel (per `silk_channel_state.osce`); the
-	// gopus equivalent reads both native lowband channels from
-	// `LatestNativeStereo`. When either runtime fails, leave the standard
-	// silk_resampler output untouched.
+	channels := 1
 	if packetStereoLocal && d.channels == 2 {
-		leftNative, rightNative, samplesPerChannel, fsKHz, ok := d.silkDecoder.LatestNativeStereo()
-		if !ok || fsKHz != 16 || samplesPerChannel < osceLACEFrameSamples {
+		channels = 2
+	}
+	d.prepareOSCELACEPostfilter(pickedMode, channels)
+	d.silkDecoder.SetNativePostfilterHook(func(channel int, samples []int16, ctrl silk.LatestDecoderControl) bool {
+		if channel < 0 || channel >= channels {
+			return false
+		}
+		if ctrl.FsKHz != 16 || ctrl.NbSubfr != osceLACESubframesPerFrame || len(samples) < osceLACEFrameSamples {
 			d.resetOSCELACEPostfilterState(packetStereoLocal)
 			return false
 		}
-		d.prepareOSCELACEPostfilter(pickedMode, 2)
-		ran := d.applyOSCELACEMonoChannel(leftNative, pickedMode, 0)
-		ran = d.applyOSCELACEMonoChannel(rightNative, pickedMode, 1) || ran
-		if !ran {
+		if !d.applyOSCELACEMonoChannelWithControl(samples, pickedMode, channel, ctrl, true) {
 			d.resetOSCELACEPostfilterState(packetStereoLocal)
 			return false
 		}
-		// `LatestNativeStereo` returns slices aliasing decoder scratch
-		// storage, so the downstream OSCE BWE call consumes the enhanced
-		// lowband as in libopus.
-		d.osceLACE.prevLACEActive = true
-		_ = out
-		_ = frameSize
 		return true
-	}
-
-	// Mono SILK packet path (mono decoder or stereo decoder up-mixing a
-	// mono packet). Only the slot-0 runtime is used.
-	native, fsKHz := d.silkDecoder.LatestNativeMono()
-	if native == nil || fsKHz != 16 || len(native) < osceLACEFrameSamples {
-		d.resetOSCELACEPostfilterState(packetStereoLocal)
-		return false
-	}
-	d.prepareOSCELACEPostfilter(pickedMode, 1)
-	if !d.applyOSCELACEMonoChannel(native, pickedMode, 0) {
-		d.resetOSCELACEPostfilterState(packetStereoLocal)
-		return false
-	}
-	d.osceLACE.prevLACEActive = true
-	_ = out
-	_ = frameSize
-	return true
+	})
+	return restore
 }
 
 // applyOSCELACEMonoChannel runs the LACE / NoLACE forward pass over one
 // native-rate int16 SILK lowband channel and writes the enhanced samples
 // back into the same buffer.
 func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, channelIdx int) bool {
+	if d == nil || d.silkDecoder == nil {
+		return false
+	}
+	ctrl, ok := d.silkDecoder.LatestDecoderControl(channelIdx)
+	return d.applyOSCELACEMonoChannelWithControl(native, mode, channelIdx, ctrl, ok)
+}
+
+func (d *Decoder) applyOSCELACEMonoChannelWithControl(native []int16, mode osceLACEMode, channelIdx int, ctrl silk.LatestDecoderControl, ctrlOK bool) bool {
 	if d == nil || d.osceLACE == nil {
 		return false
 	}
@@ -178,7 +124,7 @@ func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, ch
 	for i := range state.applyPeriods {
 		state.applyPeriods[i] = 7
 	}
-	if ctrl, ok := d.silkDecoder.LatestDecoderControl(channelIdx); ok && ctrl.FsKHz == 16 && ctrl.NbSubfr == osceLACESubframesPerFrame {
+	if ctrlOK && ctrl.FsKHz == 16 && ctrl.NbSubfr == osceLACESubframesPerFrame {
 		var fc osceLACE.FeatureControl
 		fc.LPCOrder = ctrl.LPCOrder
 		fc.PredCoefQ12[0] = ctrl.PredCoefQ12[0]
@@ -287,20 +233,19 @@ func (state *decoderOSCELACEState) applyOSCELACEOutputReset(channelIdx int) {
 // osceLACEMarkInactiveIfModeIneligible clears the LACE-active flag when the
 // current packet's mode/bandwidth does not satisfy the LACE/NoLACE gate
 // (SILK-only at 16 kHz internal). This catches Hybrid / CELT / SILK-NB
-// packets where maybeApplyOSCELACEPostSilk is not invoked but the
+// packets where the native SILK postfilter hook is not installed but the
 // `prevLACEActive` transition tracking still needs to be updated.
 //
-// Without this clearing the next SILK WB/MB packet would incorrectly skip
+// Without this clearing the next SILK WB packet would incorrectly skip
 // the LACE fade-in cross-fade because `prevLACEActive` could still be true
 // from many packets ago.
 func (d *Decoder) osceLACEMarkInactiveIfModeIneligible(mode Mode, bandwidth Bandwidth) {
 	if d == nil || d.osceLACE == nil {
 		return
 	}
-	// LACE/NoLACE runs in SILK-only mode at WB or MB (the LACE NB mode
-	// covers NB but with the same `prevLACEActive` flag); Hybrid and CELT
-	// always bypass the postfilter so we must clear the prev flag.
-	if mode == ModeSILK && (bandwidth == BandwidthWideband || bandwidth == BandwidthMediumband || bandwidth == BandwidthNarrowband) {
+	// LACE/NoLACE runs in SILK-only mode at 16 kHz internal sample rate.
+	// Hybrid, CELT, and lower-bandwidth SILK bypass the postfilter.
+	if mode == ModeSILK && bandwidth == BandwidthWideband {
 		// SILK packet with a LACE-eligible bandwidth: the SILK-only post-
 		// decode hook handles the flag itself based on the actual SILK
 		// internal bandwidth.

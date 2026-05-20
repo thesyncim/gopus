@@ -169,6 +169,7 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		if _, err := decRef.Decode(packetA, pcmRef); err != nil {
 			t.Fatalf("Decode(ref #1): %v", err)
 		}
+		pcmRefFirst := append([]float32(nil), pcmRef[:frameSize]...)
 		nativeRef, fsKHzRef := decRef.silkDecoder.LatestNativeMono()
 		if nativeRef == nil || fsKHzRef != 16 {
 			t.Fatalf("ref decode produced no 16 kHz native lowband: nativeRef=%v fsKHz=%d", nativeRef, fsKHzRef)
@@ -202,6 +203,10 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		if _, err := decLACE.Decode(packetA, pcmLACE); err != nil {
 			t.Fatalf("Decode(lace #1): %v", err)
 		}
+		publicDiffCount, publicMaxDiff := float32BufferDiff(pcmLACE[:frameSize], pcmRefFirst)
+		if publicDiffCount != 0 {
+			t.Fatalf("first LACE-eligible public PCM differs from raw output after reset: diffCount=%d maxDiff=%g", publicDiffCount, publicMaxDiff)
+		}
 		nativeLACE, fsKHzLACE := decLACE.silkDecoder.LatestNativeMono()
 		if nativeLACE == nil || fsKHzLACE != 16 {
 			t.Fatalf("lace decode produced no 16 kHz native lowband: nativeLACE=%v fsKHz=%d", nativeLACE, fsKHzLACE)
@@ -228,10 +233,15 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		if diffCount == 0 {
 			t.Fatalf("second LACE-eligible frame is still raw: forward pass/reset cross-fade did not affect native lowband")
 		}
+		publicDiffCount, publicMaxDiff = float32BufferDiff(pcmLACE[:frameSize], pcmRef[:frameSize])
+		if publicDiffCount == 0 {
+			t.Fatalf("second LACE-eligible public PCM is still raw: native postfilter did not feed silk_resampler")
+		}
 		if decLACE.osceLACE.laceResetFrames[0] != 0 {
 			t.Fatalf("after second LACE frame reset countdown=%d, want 0", decLACE.osceLACE.laceResetFrames[0])
 		}
-		t.Logf("LACE postfilter altered %d/%d native int16 samples; max abs diff %d", diffCount, osceLACEFrameSamples, maxDiff)
+		t.Logf("LACE postfilter altered %d/%d native int16 samples (max %d) and %d/%d public PCM samples (max %g)",
+			diffCount, osceLACEFrameSamples, maxDiff, publicDiffCount, frameSize, publicMaxDiff)
 	})
 
 	// SetOSCELACE(false) disables the helper at runtime; the SILK WB
@@ -276,6 +286,28 @@ func int16BufferDiff(a, b []int16) (count, maxAbs int) {
 	}
 	for i := 0; i < n; i++ {
 		d := int(a[i]) - int(b[i])
+		if d < 0 {
+			d = -d
+		}
+		if d > 0 {
+			count++
+			if d > maxAbs {
+				maxAbs = d
+			}
+		}
+	}
+	count += len(a) - n
+	count += len(b) - n
+	return count, maxAbs
+}
+
+func float32BufferDiff(a, b []float32) (count int, maxAbs float32) {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	for i := 0; i < n; i++ {
+		d := a[i] - b[i]
 		if d < 0 {
 			d = -d
 		}
