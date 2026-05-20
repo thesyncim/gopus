@@ -1,25 +1,15 @@
 package gopus
 
-import "math"
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 func float32ToInt16(sample float32) int16 {
-	scaled := sample * 32768.0
-	if scaled > 32767.0 {
-		return 32767
-	}
-	if scaled < -32768.0 {
-		return -32768
-	}
-	return int16(math.RoundToEven(float64(scaled)))
+	return opusFloatToInt16(sample)
 }
 
 func float64ToInt16(sample float64) int16 {
-	scaled := sample * 32768.0
-	if scaled > 32767.0 {
-		return 32767
-	}
-	if scaled < -32768.0 {
-		return -32768
-	}
-	return int16(math.RoundToEven(scaled))
+	return opusFloatToInt16(float32(sample))
+}
+
+func opusFloatToInt16(sample float32) int16 {
+	return opusmath.Float32ToInt16(sample)
 }

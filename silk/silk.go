@@ -4,6 +4,7 @@ import (
 	"errors"
 	"math"
 
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
 )
@@ -892,16 +893,7 @@ func (d *Decoder) DecodeToInt16(
 
 	output := make([]int16, len(samples))
 	for i, s := range samples {
-		scaled := float64(s) * 32768.0
-		if scaled > 32767.0 {
-			output[i] = 32767
-			continue
-		}
-		if scaled < -32768.0 {
-			output[i] = -32768
-			continue
-		}
-		output[i] = int16(math.RoundToEven(scaled))
+		output[i] = float32ToInt16(s)
 	}
 
 	return output, nil
@@ -922,16 +914,7 @@ func (d *Decoder) DecodeStereoToInt16(
 
 	output := make([]int16, len(samples))
 	for i, s := range samples {
-		scaled := float64(s) * 32768.0
-		if scaled > 32767.0 {
-			output[i] = 32767
-			continue
-		}
-		if scaled < -32768.0 {
-			output[i] = -32768
-			continue
-		}
-		output[i] = int16(math.RoundToEven(scaled))
+		output[i] = float32ToInt16(s)
 	}
 
 	return output, nil
@@ -1367,14 +1350,5 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 }
 
 func float32ToInt16(v float32) int16 {
-	// Match libopus FLOAT2INT16 path: keep scaling/clamping in float32,
-	// then round-to-nearest-even at conversion.
-	scaled := v * 32768.0
-	if scaled > 32767.0 {
-		return 32767
-	}
-	if scaled < -32768.0 {
-		return -32768
-	}
-	return int16(math.RoundToEven(float64(scaled)))
+	return opusmath.Float32ToInt16(v)
 }

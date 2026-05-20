@@ -13,6 +13,7 @@ import (
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
 )
@@ -1391,30 +1392,16 @@ func (e *Encoder) syncCELTAnalysisToCELT() {
 }
 
 func quantizeFloat32ToInt16InPlace(samples []float32) {
-	const scale = float32(32768.0)
 	const invScale = float32(1.0 / 32768.0)
 	for i, v := range samples {
-		scaled := float64(v * scale)
-		if scaled > 32767.0 {
-			scaled = 32767.0
-		} else if scaled < -32768.0 {
-			scaled = -32768.0
-		}
-		samples[i] = float32(math.RoundToEven(scaled)) * invScale
+		samples[i] = float32(opusmath.Float32ToInt16(v)) * invScale
 	}
 }
 
 func quantizeFloat32ToInt16LibopusInPlace(samples []float32) {
-	const scale = float32(32768.0)
 	const invScale = float32(1.0 / 32768.0)
 	for i, v := range samples {
-		scaled := float64(v * scale)
-		if scaled > 32767.0 {
-			scaled = 32767.0
-		} else if scaled < -32768.0 {
-			scaled = -32768.0
-		}
-		samples[i] = float32(math.RoundToEven(scaled)) * invScale
+		samples[i] = float32(opusmath.Float32ToInt16(v)) * invScale
 	}
 }
 
@@ -1436,14 +1423,7 @@ func averageSilkResamplerOutputsLibopus(dst, right []float32, samples int) {
 }
 
 func float32ToInt16Libopus(v float32) int32 {
-	const scale = float32(32768.0)
-	scaled := float64(v * scale)
-	if scaled > 32767.0 {
-		scaled = 32767.0
-	} else if scaled < -32768.0 {
-		scaled = -32768.0
-	}
-	return int32(math.RoundToEven(scaled))
+	return int32(opusmath.Float32ToInt16(v))
 }
 
 func silkRShiftRound1(v int32) int32 {

@@ -1,6 +1,7 @@
 package hybrid
 
 import (
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/silk"
@@ -209,28 +210,9 @@ func (d *Decoder) DecodeStereoWithDecoder(rd *rangecoding.Decoder, frameSize int
 func float64ToInt16(samples []float64) []int16 {
 	output := make([]int16, len(samples))
 	for i, s := range samples {
-		output[i] = libopusFloat32ToInt16(float32(s))
+		output[i] = opusmath.Float32ToInt16(float32(s))
 	}
 	return output
-}
-
-func libopusFloat32ToInt16(x float32) int16 {
-	y := x * 32768.0
-	if y > 32767.0 {
-		return 32767
-	}
-	if y < -32768.0 {
-		return -32768
-	}
-
-	i := int32(y)
-	frac := y - float32(i)
-	if frac > 0.5 || (frac == 0.5 && (i&1) != 0) {
-		i++
-	} else if frac < -0.5 || (frac == -0.5 && (i&1) != 0) {
-		i--
-	}
-	return int16(i)
 }
 
 // float64ToFloat32 converts float64 samples to float32.
