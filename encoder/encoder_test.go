@@ -88,6 +88,23 @@ func TestEncoderSetMode(t *testing.T) {
 	}
 }
 
+func TestEncoderLookaheadLowDelay(t *testing.T) {
+	enc := encoder.NewEncoder(48000, 2)
+	if got := enc.Lookahead(); got != 312 {
+		t.Fatalf("Lookahead() default = %d, want 312", got)
+	}
+
+	enc.SetLowDelay(true)
+	if got := enc.Lookahead(); got != 120 {
+		t.Fatalf("Lookahead() low-delay = %d, want 120", got)
+	}
+
+	enc.SetLowDelay(false)
+	if got := enc.Lookahead(); got != 312 {
+		t.Fatalf("Lookahead() restored = %d, want 312", got)
+	}
+}
+
 // TestEncoderSetBandwidth verifies bandwidth setting works correctly.
 func TestEncoderSetBandwidth(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)

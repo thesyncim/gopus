@@ -3440,7 +3440,9 @@ func (e *Encoder) LFE() bool {
 // Lookahead returns the encoder's algorithmic delay in samples at 48kHz.
 func (e *Encoder) Lookahead() int {
 	baseLookahead := e.sampleRate / 400
-	// libopus: delay_compensation = Fs/250 (4 ms)
+	if e.lowDelay {
+		return baseLookahead
+	}
 	delayComp := e.sampleRate / 250
 	return baseLookahead + delayComp
 }
