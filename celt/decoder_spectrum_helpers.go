@@ -20,14 +20,14 @@ func (d *Decoder) decodeFrameSpectrum(qextPayload []byte, rd *rangecoding.Decode
 	if extsupport.QEXT {
 		spectrum.qext = d.prepareQEXTDecode(qextPayload, rd, end, lm, frameSize)
 	}
-	if spectrum.qext != nil {
+	if extsupport.QEXT && spectrum.qext != nil {
 		d.decodeFineEnergyWithDecoderPrev(spectrum.qext.dec, energies, end, fineQuant, spectrum.qext.extraQuant[:end])
 	}
 
 	var extDec *rangecoding.Decoder
 	var extPulses []int
 	extTotalBitsQ3 := 0
-	if spectrum.qext != nil {
+	if extsupport.QEXT && spectrum.qext != nil {
 		extDec = spectrum.qext.dec
 		extPulses = spectrum.qext.extraPulses[:end]
 		extTotalBitsQ3 = spectrum.qext.totalBitsQ3
@@ -35,7 +35,7 @@ func (d *Decoder) decodeFrameSpectrum(qextPayload []byte, rd *rangecoding.Decode
 	spectrum.coeffsL, spectrum.coeffsR, spectrum.collapse = quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.phaseInversionDisabled, &d.rng, &d.scratchBands,
 		extDec, extPulses, extTotalBitsQ3)
-	if spectrum.qext != nil {
+	if extsupport.QEXT && spectrum.qext != nil {
 		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, d.phaseInversionDisabled, spectrum.qext)
 	}
 

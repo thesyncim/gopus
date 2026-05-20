@@ -10,7 +10,7 @@ func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decod
 	if extsupport.QEXT {
 		qext = d.prepareQEXTDecodeRange(qextPayload, rd, start, end, lm, frameSize)
 	}
-	if qext != nil {
+	if extsupport.QEXT && qext != nil {
 		oldRD := d.rangeDecoder
 		d.rangeDecoder = qext.dec
 		d.decodeFineEnergyRange(energies, start, end, fineQuant, qext.extraQuant)
@@ -20,7 +20,7 @@ func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decod
 	var extDec *rangecoding.Decoder
 	var extPulses []int
 	extTotalBitsQ3 := 0
-	if qext != nil {
+	if extsupport.QEXT && qext != nil {
 		extDec = qext.dec
 		extPulses = qext.extraPulses[:end]
 		extTotalBitsQ3 = qext.totalBitsQ3
@@ -28,7 +28,7 @@ func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decod
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, disableInv, &d.rng, &d.scratchBands,
 		extDec, extPulses, extTotalBitsQ3)
-	if qext != nil {
+	if extsupport.QEXT && qext != nil {
 		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, disableInv, qext)
 	}
 
@@ -57,7 +57,7 @@ func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBin
 	if d.channels == 2 {
 		energiesL := energies[:end]
 		energiesR := energies[end:]
-		if qext != nil && qext.end > 0 {
+		if extsupport.QEXT && qext != nil && qext.end > 0 {
 			qextState := d.ensureQEXTState()
 			specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
 			specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
@@ -93,7 +93,7 @@ func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBin
 		}
 		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 	} else {
-		if qext != nil && qext.end > 0 {
+		if extsupport.QEXT && qext != nil && qext.end > 0 {
 			qextState := d.ensureQEXTState()
 			specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
 			denormalizeBandsPackedInto(specL, coeffsL, energies, HybridCELTStartBand, end, modeLM, EBands[:])

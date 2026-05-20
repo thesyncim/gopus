@@ -193,14 +193,14 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	if extsupport.QEXT {
 		qext = d.prepareQEXTDecode(qextPayload, rd, end, lm, frameSize)
 	}
-	if qext != nil {
+	if extsupport.QEXT && qext != nil {
 		d.decodeFineEnergyWithDecoderPrev(qext.dec, monoEnergies, end, fineQuant, qext.extraQuant[:end])
 	}
 
 	var extDec *rangecoding.Decoder
 	var extPulses []int
 	extTotalBitsQ3 := 0
-	if qext != nil {
+	if extsupport.QEXT && qext != nil {
 		extDec = qext.dec
 		extPulses = qext.extraPulses[:end]
 		extTotalBitsQ3 = qext.totalBitsQ3
@@ -208,7 +208,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	coeffsMono, _, collapse := quantAllBandsDecodeWithScratch(rd, 1, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, false, &d.rng, &d.scratchBands,
 		extDec, extPulses, extTotalBitsQ3)
-	if qext != nil {
+	if extsupport.QEXT && qext != nil {
 		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, false, qext)
 	}
 
@@ -228,7 +228,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		antiCollapse(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 
-	if qext != nil && qext.end > 0 {
+	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		qextState := d.ensureQEXTState()
 		specMono := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsMono))
 		denormalizeBandsPackedInto(specMono, coeffsMono, monoEnergies, 0, end, lm, EBands[:])
@@ -293,7 +293,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, origChannels)
 
-	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
+	if extsupport.QEXT && qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
 		return nil, ErrInvalidFrame
 	}
 	d.rng = combineFinalRange(rd, extDec)
@@ -416,14 +416,14 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	if extsupport.QEXT {
 		qext = d.prepareQEXTDecode(qextPayload, rd, end, lm, frameSize)
 	}
-	if qext != nil {
+	if extsupport.QEXT && qext != nil {
 		d.decodeFineEnergyWithDecoderPrev(qext.dec, energies, end, fineQuant, qext.extraQuant[:end])
 	}
 
 	var extDec *rangecoding.Decoder
 	var extPulses []int
 	extTotalBitsQ3 := 0
-	if qext != nil {
+	if extsupport.QEXT && qext != nil {
 		extDec = qext.dec
 		extPulses = qext.extraPulses[:end]
 		extTotalBitsQ3 = qext.totalBitsQ3
@@ -431,7 +431,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.phaseInversionDisabled, &d.rng, &d.scratchBands,
 		extDec, extPulses, extTotalBitsQ3)
-	if qext != nil {
+	if extsupport.QEXT && qext != nil {
 		d.decodeQEXTBands(frameSize, lm, shortBlocks, spread, d.phaseInversionDisabled, qext)
 	}
 
@@ -453,7 +453,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 
 	energiesL := energies[:end]
 	energiesR := energies[end:]
-	if qext != nil && qext.end > 0 {
+	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		qextState := d.ensureQEXTState()
 		specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
 		specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
@@ -480,7 +480,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	d.SetPrevEnergyWithPrev(prev1Energy, energies)
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, 2)
-	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
+	if extsupport.QEXT && qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
 		return nil, ErrInvalidFrame
 	}
 	d.rng = combineFinalRange(rd, extDec)
@@ -656,7 +656,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 
 	coeffsMono, _, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, 1, false, monoEnergies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 
-	if qext != nil && qext.end > 0 {
+	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		qextState := d.ensureQEXTState()
 		specMono := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsMono))
 		denormalizeBandsPackedInto(specMono, coeffsMono, monoEnergies, HybridCELTStartBand, end, lm, EBands[:])
@@ -714,9 +714,9 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, origChannels)
 	var extDec *rangecoding.Decoder
-	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
+	if extsupport.QEXT && qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
 		return nil, ErrInvalidFrame
-	} else if qext != nil {
+	} else if extsupport.QEXT && qext != nil {
 		extDec = qext.dec
 	}
 
@@ -845,7 +845,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
 	energiesL := energies[:end]
 	energiesR := energies[end:]
-	if qext != nil && qext.end > 0 {
+	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		qextState := d.ensureQEXTState()
 		specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
 		specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
@@ -880,9 +880,9 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, 2)
 	var extDec *rangecoding.Decoder
-	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
+	if extsupport.QEXT && qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
 		return nil, ErrInvalidFrame
-	} else if qext != nil {
+	} else if extsupport.QEXT && qext != nil {
 		extDec = qext.dec
 	}
 	d.rng = combineFinalRange(rd, extDec)

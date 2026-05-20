@@ -1,6 +1,9 @@
 package celt
 
-import "github.com/thesyncim/gopus/plc"
+import (
+	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/plc"
+)
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
 // Valid channel counts are 1 (mono) or 2 (stereo).
@@ -107,7 +110,7 @@ func (d *Decoder) Reset() {
 
 	// Clear range decoder reference
 	d.rangeDecoder = nil
-	if d.qext != nil {
+	if extsupport.QEXT && d.qext != nil {
 		d.qext.pendingPayload = nil
 		for i := range d.qext.oldBandE {
 			d.qext.oldBandE[i] = 0

@@ -1,6 +1,9 @@
 package celt
 
-import "github.com/thesyncim/gopus/rangecoding"
+import (
+	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/rangecoding"
+)
 
 func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float64, postfilterTapset int, energies, coeffsL, coeffsR []float64, qext *preparedQEXTDecode) []float64 {
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
@@ -16,7 +19,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	if d.channels == 2 {
 		energiesL := energies[:end]
 		energiesR := energies[end:]
-		if qext != nil && qext.end > 0 {
+		if extsupport.QEXT && qext != nil && qext.end > 0 {
 			qextState := d.ensureQEXTState()
 			specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
 			specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
@@ -50,7 +53,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 			samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 		}
 	} else {
-		if qext != nil && qext.end > 0 {
+		if extsupport.QEXT && qext != nil && qext.end > 0 {
 			qextState := d.ensureQEXTState()
 			specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
 			denormalizeBandsPackedInto(specL, coeffsL, energies, 0, end, lm, EBands[:])
@@ -94,12 +97,12 @@ func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, trans
 
 	// Mirror libopus: clear energies/logs outside [start,end).
 	d.clearFrameHistoryOutsideRange(start, end, d.channels)
-	if qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
+	if extsupport.QEXT && qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
 		return ErrInvalidFrame
 	}
 
 	var extDec *rangecoding.Decoder
-	if qext != nil {
+	if extsupport.QEXT && qext != nil {
 		extDec = qext.dec
 	}
 	d.rng = combineFinalRange(rd, extDec)

@@ -25,9 +25,6 @@ func (d *Decoder) FinalRange() uint32 {
 
 func (d *Decoder) takeQEXTPayload() []byte {
 	if !extsupport.QEXT {
-		if d.qext != nil {
-			d.qext.pendingPayload = nil
-		}
 		return nil
 	}
 	if d.qext == nil {

@@ -36,12 +36,18 @@ func (e *Encoder) qextActive() bool {
 }
 
 func (e *Encoder) clearLastQEXTPayload() {
+	if !extsupport.QEXT {
+		return
+	}
 	if e.qext != nil {
 		e.qext.lastPayload = e.qext.lastPayload[:0]
 	}
 }
 
 func (e *Encoder) setLastQEXTPayload(payload []byte) {
+	if !extsupport.QEXT {
+		return
+	}
 	e.ensureQEXTState().lastPayload = payload
 }
 

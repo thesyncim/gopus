@@ -7,6 +7,7 @@ import (
 	"errors"
 	"math"
 
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -1155,7 +1156,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	var qextExtraBits []int
 	var qextFineBits []int
 	qextPayloadBytes := 0
-	if e.qextActive() && !e.IsHybrid() {
+	if extsupport.QEXT && e.qextActive() && !e.IsHybrid() {
 		minAllowed := ((re.TellFrac() + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
 		mainBytes, payloadBytes, _ := computeQEXTReservation(targetBytes, minAllowed, frameSize, codedChannels, toneishness)
 		qextPayloadBytes = payloadBytes
@@ -1277,7 +1278,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	var qextError []float64
 	var qextNormL []float64
 	var qextNormR []float64
-	if qextEnc != nil {
+	if extsupport.QEXT && qextEnc != nil {
 		if cfg, ok := computeQEXTModeConfig(e.sampleRate, qextShortMDCTSize(frameSize)); ok && end == nbBands {
 			qextCfg = cfg
 			qextEnd = qextCfg.EffBands
@@ -1522,7 +1523,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// ec_enc_done() flushes the remaining bytes.
 	e.rng = re.Range()
 	bytes := re.Done()
-	if qextEnc != nil {
+	if extsupport.QEXT && qextEnc != nil {
 		qextEnc.Done()
 		e.setLastQEXTPayload(qextEnc.Buffer()[:qextEnc.Storage()])
 		if e.qext != nil && len(e.qext.lastPayload) > 0 {
@@ -2061,7 +2062,7 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 	bitrate := e.targetBitrate
 	if bitrate == opusBitrateMax {
 		packetSizeCap := 1275
-		if e.qextActive() && !e.hybrid {
+		if extsupport.QEXT && e.qextActive() && !e.hybrid {
 			packetSizeCap = qextPacketSizeCap
 		}
 		payload := packetSizeCap - 1
@@ -2088,7 +2089,7 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 		nbCompressed = 2
 	}
 	packetSizeCap := 1275
-	if e.qextActive() && !e.hybrid {
+	if extsupport.QEXT && e.qextActive() && !e.hybrid {
 		packetSizeCap = qextPacketSizeCap
 	}
 	if nbCompressed > packetSizeCap {
@@ -2108,7 +2109,7 @@ func (e *Encoder) vbrMaxPayloadBytes(frameSize int) int {
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
 	packetSizeCap := 1275
-	if e.qextActive() && !e.hybrid {
+	if extsupport.QEXT && e.qextActive() && !e.hybrid {
 		packetSizeCap = qextPacketSizeCap
 	}
 	maxBytes := (packetSizeCap >> (3 - lm)) - 1
@@ -2260,7 +2261,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	// In libopus VBR mode, nbCompressedBytes is the buffer cap (not bitrate-derived).
 	// The per-bitrate constraint comes from CVBR reservoir tracking.
 	packetSizeCap := 1275
-	if e.qextActive() && !e.hybrid {
+	if extsupport.QEXT && e.qextActive() && !e.hybrid {
 		packetSizeCap = qextPacketSizeCap
 	}
 	vbrMaxBytes := (packetSizeCap >> (3 - lm)) - 1
@@ -2492,7 +2493,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	// floor_depth limit from maxDepth.
 	maxDepth := e.lastDynalloc.MaxDepth
 	bins := 0
-	if e.qextActive() && !e.hybrid {
+	if extsupport.QEXT && e.qextActive() && !e.hybrid {
 		bins = qextShortMDCTSize(frameSize) << lm
 	} else if nbBands >= 2 {
 		bins = EBands[nbBands-2] << lm

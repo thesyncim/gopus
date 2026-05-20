@@ -1,5 +1,7 @@
 package celt
 
+import "github.com/thesyncim/gopus/internal/extsupport"
+
 // handleChannelTransition detects and handles mono-to-stereo channel transitions.
 // When transitioning from mono to stereo, the right channel overlap buffer must be
 // initialized from the left channel to match libopus behavior.
@@ -123,7 +125,7 @@ func (d *Decoder) ensureEnergyState(channels int) {
 		}
 		d.backgroundEnergy = prev
 	}
-	if d.qext != nil && len(d.qext.oldBandE) > 0 && len(d.qext.oldBandE) < needed {
+	if extsupport.QEXT && d.qext != nil && len(d.qext.oldBandE) > 0 && len(d.qext.oldBandE) < needed {
 		prev := make([]float64, needed)
 		copy(prev, d.qext.oldBandE)
 		d.qext.oldBandE = prev

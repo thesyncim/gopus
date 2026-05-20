@@ -5,6 +5,7 @@
 package celt
 
 import (
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -1296,7 +1297,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	if len(s.reBuf) < bufSize {
 		s.reBuf = make([]byte, bufSize)
 	}
-	if e.qextActive() {
+	if extsupport.QEXT && e.qextActive() {
 		qs := s.ensureQEXTScratch()
 		qs.buf = ensureByteSlice(&qs.buf, qextPacketSizeCap)
 	}
@@ -1372,7 +1373,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.allocFinePrio = ensureIntSlice(&s.allocFinePrio, MaxBands)
 	s.allocThresh = ensureIntSlice(&s.allocThresh, MaxBands)
 	s.allocTrim = ensureIntSlice(&s.allocTrim, MaxBands)
-	if e.qextActive() {
+	if extsupport.QEXT && e.qextActive() {
 		qs := s.ensureQEXTScratch()
 		qs.extraBits = ensureIntSlice(&qs.extraBits, MaxBands+nbQEXTBands)
 		qs.fineBits = ensureIntSlice(&qs.fineBits, MaxBands+nbQEXTBands)
