@@ -209,7 +209,7 @@ func TestNewEncoderDefault(t *testing.T) {
 		{6, 4, 2, 6, nil}, // 5.1
 		{7, 4, 3, 7, nil}, // 6.1
 		{8, 5, 3, 8, nil}, // 7.1
-		{9, 0, 0, 0, ErrUnsupportedChannels},
+		{9, 0, 0, 0, ErrInvalidDefaultMappingChannels},
 		{0, 0, 0, 0, ErrInvalidChannels},
 	}
 

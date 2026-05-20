@@ -31,7 +31,7 @@ var (
 	// ErrAmbisonicsChannelsTooHigh indicates too many channels for ambisonics (max 227).
 	ErrAmbisonicsChannelsTooHigh = errors.New("multistream: ambisonics channel count exceeds maximum (227)")
 
-	// ErrInvalidMappingFamily indicates an unsupported mapping family.
+	// ErrInvalidMappingFamily indicates an invalid mapping family.
 	ErrInvalidMappingFamily = errors.New("multistream: invalid mapping family for ambisonics (must be 2 or 3)")
 )
 

@@ -299,8 +299,8 @@ func TestDefaultMapping(t *testing.T) {
 	// Test invalid channel counts
 	for _, ch := range []int{0, 9, 100, -1} {
 		_, _, _, err := DefaultMapping(ch)
-		if !errors.Is(err, ErrUnsupportedChannels) {
-			t.Errorf("DefaultMapping(%d) should return ErrUnsupportedChannels, got %v", ch, err)
+		if !errors.Is(err, ErrInvalidDefaultMappingChannels) {
+			t.Errorf("DefaultMapping(%d) should return ErrInvalidDefaultMappingChannels, got %v", ch, err)
 		}
 	}
 }

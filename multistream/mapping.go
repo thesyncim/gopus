@@ -7,8 +7,8 @@ package multistream
 
 import "errors"
 
-// ErrUnsupportedChannels indicates a channel count that doesn't have a default mapping.
-var ErrUnsupportedChannels = errors.New("multistream: unsupported channel count for default mapping (must be 1-8)")
+// ErrInvalidDefaultMappingChannels indicates a channel count outside the default mapping range.
+var ErrInvalidDefaultMappingChannels = errors.New("multistream: invalid default mapping channel count (must be 1-8)")
 
 // DefaultMapping returns the default Vorbis-style (mapping family 1) configuration
 // for a given channel count.
@@ -17,7 +17,7 @@ var ErrUnsupportedChannels = errors.New("multistream: unsupported channel count 
 //   - streams: total number of elementary Opus streams (N)
 //   - coupledStreams: number of coupled (stereo) streams (M), where first M streams are stereo
 //   - mapping: channel mapping table where mapping[i] indicates the source for output channel i
-//   - err: error if channel count is not supported (must be 1-8)
+//   - err: error if channel count is invalid for the default mapping (must be 1-8)
 //
 // The mapping table encodes which decoded channel feeds each output channel:
 //   - Values 0 to 2*M-1: from coupled streams (even=left, odd=right of stereo pair)
@@ -69,7 +69,7 @@ func DefaultMapping(channels int) (streams, coupledStreams int, mapping []byte, 
 		// Streams: 0=FL/FR, 1=SL/SR, 2=RL/RR (coupled), 3=C, 4=LFE (mono)
 		return 5, 3, []byte{0, 6, 1, 2, 3, 4, 5, 7}, nil
 	default:
-		return 0, 0, nil, ErrUnsupportedChannels
+		return 0, 0, nil, ErrInvalidDefaultMappingChannels
 	}
 }
 

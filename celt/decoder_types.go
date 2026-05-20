@@ -21,7 +21,7 @@ var (
 	// ErrInvalidFrame indicates the frame data is invalid or corrupted.
 	ErrInvalidFrame = errors.New("celt: invalid frame data")
 
-	// ErrInvalidFrameSize indicates an unsupported frame size.
+	// ErrInvalidFrameSize indicates an invalid frame size.
 	ErrInvalidFrameSize = errors.New("celt: invalid frame size")
 
 	// ErrOutputTooSmall indicates the caller-provided PCM buffer is too small.

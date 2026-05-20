@@ -33,13 +33,13 @@ const (
 
 // Errors for the encoder.
 var (
-	// ErrInvalidSampleRate indicates an unsupported sample rate.
+	// ErrInvalidSampleRate indicates a sample rate outside the Opus API set.
 	ErrInvalidSampleRate = errors.New("encoder: invalid sample rate (must be 8000, 12000, 16000, 24000, or 48000)")
 
-	// ErrInvalidChannels indicates an unsupported channel count.
+	// ErrInvalidChannels indicates an invalid channel count.
 	ErrInvalidChannels = errors.New("encoder: invalid channels (must be 1 or 2)")
 
-	// ErrInvalidFrameSize indicates an unsupported frame size.
+	// ErrInvalidFrameSize indicates an invalid frame size.
 	ErrInvalidFrameSize = errors.New("encoder: invalid frame size")
 
 	// ErrInvalidHybridFrameSize indicates a frame size invalid for hybrid mode.
@@ -51,7 +51,7 @@ var (
 	// ErrInvalidDREDDuration indicates DRED duration is outside libopus bounds.
 	ErrInvalidDREDDuration = errors.New("encoder: invalid DRED duration")
 
-	// ErrInvalidFECConfig indicates an unsupported in-band FEC configuration.
+	// ErrInvalidFECConfig indicates an invalid in-band FEC configuration.
 	ErrInvalidFECConfig = errors.New("encoder: invalid in-band FEC config")
 
 	// ErrInvalidVoiceRatio indicates a voice ratio outside libopus bounds.

@@ -6,15 +6,15 @@ import "errors"
 
 // Public error types for encoding and decoding operations.
 var (
-	// ErrInvalidSampleRate indicates an unsupported sample rate.
+	// ErrInvalidSampleRate indicates a sample rate outside the Opus API set.
 	// Valid sample rates are: 8000, 12000, 16000, 24000, 48000.
 	ErrInvalidSampleRate = errors.New("gopus: invalid sample rate (must be 8000, 12000, 16000, 24000, or 48000)")
 
-	// ErrInvalidChannels indicates an unsupported channel count.
+	// ErrInvalidChannels indicates an invalid channel count.
 	// See the relevant constructor or control for the supported range.
 	ErrInvalidChannels = errors.New("gopus: invalid channels")
 
-	// ErrInvalidSampleFormat indicates an unsupported streaming PCM format.
+	// ErrInvalidSampleFormat indicates an invalid streaming PCM format.
 	ErrInvalidSampleFormat = errors.New("gopus: invalid sample format")
 
 	// ErrInvalidMaxPacketSamples indicates an invalid max packet sample cap.
@@ -55,7 +55,7 @@ var (
 	// Valid range is 0 to 100.
 	ErrInvalidPacketLoss = errors.New("gopus: invalid packet loss percentage (must be 0-100)")
 
-	// ErrInvalidFECConfig indicates an unsupported in-band FEC configuration.
+	// ErrInvalidFECConfig indicates an invalid in-band FEC configuration.
 	ErrInvalidFECConfig = errors.New("gopus: invalid in-band FEC config")
 
 	// ErrInvalidStreams indicates an invalid stream count for multistream encoding/decoding.

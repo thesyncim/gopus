@@ -28,7 +28,7 @@ const (
 
 // Errors for Hybrid decoding
 var (
-	// ErrInvalidFrameSize indicates an unsupported frame size for hybrid mode.
+	// ErrInvalidFrameSize indicates a frame size invalid for hybrid mode.
 	// Hybrid only supports 10ms (480 samples) and 20ms (960 samples) frames.
 	ErrInvalidFrameSize = errors.New("hybrid: invalid frame size (only 10ms/20ms supported)")
 
