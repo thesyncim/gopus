@@ -16,6 +16,7 @@ const (
 
 	libopusSILKStereoModeQuantPred     = uint32(0)
 	libopusSILKStereoModeFindPredictor = uint32(1)
+	libopusSILKStereoModeLRToMS        = uint32(2)
 )
 
 var (
@@ -41,11 +42,32 @@ func buildLibopusSILKStereoHelper() (string, error) {
 		RefSources: []string{
 			"silk/stereo_quant_pred.c",
 			"silk/stereo_find_predictor.c",
+			"silk/stereo_LR_to_MS.c",
 			"silk/sum_sqr_shift.c",
 			"silk/inner_prod_aligned.c",
 			"silk/tables_other.c",
 		},
 	})
+}
+
+type libopusSILKLRToMSRecord struct {
+	midOnly  int32
+	midRate  int32
+	sideRate int32
+	ix       [6]int32
+	state    libopusSILKStereoState
+	mid      []int16
+	side     []int16
+}
+
+type libopusSILKStereoState struct {
+	predPrevQ13   [2]int32
+	sMid          [2]int32
+	sSide         [2]int32
+	midSideAmpQ0  [4]int32
+	smthWidthQ14  int32
+	widthPrevQ14  int32
+	silentSideLen int32
 }
 
 func getLibopusSILKStereoHelperPath() (string, error) {
@@ -104,6 +126,125 @@ func probeLibopusSILKStereo(mode uint32, records [][]int32) ([]libopusSILKStereo
 			out[i].extra[j] = int32(binary.LittleEndian.Uint32(data[offset:]))
 			offset += 4
 		}
+	}
+	return out, nil
+}
+
+func probeLibopusSILKLRToMS(records [][]int32, frameLengths []int) ([]libopusSILKLRToMSRecord, error) {
+	binPath, err := getLibopusSILKStereoHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	var payload bytes.Buffer
+	payload.WriteString(libopusSILKStereoInputMagic)
+	for _, v := range []uint32{1, libopusSILKStereoModeLRToMS, uint32(len(records))} {
+		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
+			return nil, err
+		}
+	}
+	for _, record := range records {
+		for _, word := range record {
+			if err := binary.Write(&payload, binary.LittleEndian, uint32(word)); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	data, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("run silk lr-to-ms helper: %w", err)
+	}
+	if len(data) < 12 || string(data[:4]) != libopusSILKStereoOutputMagic {
+		return nil, fmt.Errorf("unexpected silk lr-to-ms helper output")
+	}
+	count := int(binary.LittleEndian.Uint32(data[8:12]))
+	if count != len(records) {
+		return nil, fmt.Errorf("helper count=%d want %d", count, len(records))
+	}
+	out := make([]libopusSILKLRToMSRecord, count)
+	offset := 12
+	readI32 := func() (int32, error) {
+		if offset+4 > len(data) {
+			return 0, fmt.Errorf("truncated silk lr-to-ms helper output")
+		}
+		v := int32(binary.LittleEndian.Uint32(data[offset:]))
+		offset += 4
+		return v, nil
+	}
+	for i := range out {
+		out[i].midOnly, err = readI32()
+		if err != nil {
+			return nil, err
+		}
+		out[i].midRate, err = readI32()
+		if err != nil {
+			return nil, err
+		}
+		out[i].sideRate, err = readI32()
+		if err != nil {
+			return nil, err
+		}
+		for j := range out[i].ix {
+			out[i].ix[j], err = readI32()
+			if err != nil {
+				return nil, err
+			}
+		}
+		for j := range out[i].state.predPrevQ13 {
+			out[i].state.predPrevQ13[j], err = readI32()
+			if err != nil {
+				return nil, err
+			}
+		}
+		for j := range out[i].state.sMid {
+			out[i].state.sMid[j], err = readI32()
+			if err != nil {
+				return nil, err
+			}
+		}
+		for j := range out[i].state.sSide {
+			out[i].state.sSide[j], err = readI32()
+			if err != nil {
+				return nil, err
+			}
+		}
+		for j := range out[i].state.midSideAmpQ0 {
+			out[i].state.midSideAmpQ0[j], err = readI32()
+			if err != nil {
+				return nil, err
+			}
+		}
+		out[i].state.smthWidthQ14, err = readI32()
+		if err != nil {
+			return nil, err
+		}
+		out[i].state.widthPrevQ14, err = readI32()
+		if err != nil {
+			return nil, err
+		}
+		out[i].state.silentSideLen, err = readI32()
+		if err != nil {
+			return nil, err
+		}
+		out[i].mid = make([]int16, frameLengths[i])
+		out[i].side = make([]int16, frameLengths[i])
+		for j := range out[i].mid {
+			v, err := readI32()
+			if err != nil {
+				return nil, err
+			}
+			out[i].mid[j] = int16(v)
+		}
+		for j := range out[i].side {
+			v, err := readI32()
+			if err != nil {
+				return nil, err
+			}
+			out[i].side[j] = int16(v)
+		}
+	}
+	if offset != len(data) {
+		return nil, fmt.Errorf("helper output has %d trailing bytes", len(data)-offset)
 	}
 	return out, nil
 }
@@ -193,6 +334,132 @@ func TestSILKStereoFindPredictorMatchesLibopusOracle(t *testing.T) {
 	}
 }
 
+func TestSILKStereoLRToMSMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []struct {
+		name         string
+		frameLength  int
+		fsKHz        int
+		totalRateBps int
+		speechActQ8  int
+		toMono       bool
+		state        libopusSILKStereoState
+		left         []int16
+		right        []int16
+	}{
+		{
+			name:         "full_width_20ms",
+			frameLength:  320,
+			fsKHz:        16,
+			totalRateBps: 32000,
+			speechActQ8:  180,
+			state: libopusSILKStereoState{
+				midSideAmpQ0: [4]int32{0, 1, 0, 1},
+				smthWidthQ14: 16384,
+				widthPrevQ14: 16384,
+			},
+			left:  stereoWave(320, 1200, 37, 23),
+			right: stereoWave(320, -900, 29, 17),
+		},
+		{
+			name:         "reduced_width_10ms",
+			frameLength:  160,
+			fsKHz:        16,
+			totalRateBps: 13200,
+			speechActQ8:  96,
+			state: libopusSILKStereoState{
+				predPrevQ13:  [2]int32{360, -120},
+				sMid:         [2]int32{11, -12},
+				sSide:        [2]int32{7, -5},
+				midSideAmpQ0: [4]int32{300, 80, 70, 20},
+				smthWidthQ14: 6000,
+				widthPrevQ14: 5000,
+			},
+			left:  stereoWave(160, 450, 43, 19),
+			right: stereoWave(160, 420, 41, 13),
+		},
+		{
+			name:         "to_mono_transition",
+			frameLength:  320,
+			fsKHz:        16,
+			totalRateBps: 18000,
+			speechActQ8:  140,
+			toMono:       true,
+			state: libopusSILKStereoState{
+				predPrevQ13:  [2]int32{420, 90},
+				midSideAmpQ0: [4]int32{700, 300, 180, 90},
+				smthWidthQ14: 10000,
+				widthPrevQ14: 12000,
+			},
+			left:  stereoWave(320, -600, 31, 11),
+			right: stereoWave(320, 700, 27, 7),
+		},
+	}
+
+	records := make([][]int32, len(cases))
+	frameLengths := make([]int, len(cases))
+	for i, tc := range cases {
+		frameLengths[i] = tc.frameLength
+		record := []int32{
+			int32(tc.frameLength), int32(tc.fsKHz), int32(tc.totalRateBps),
+			int32(tc.speechActQ8), boolWord(tc.toMono),
+			tc.state.predPrevQ13[0], tc.state.predPrevQ13[1],
+			tc.state.sMid[0], tc.state.sMid[1],
+			tc.state.sSide[0], tc.state.sSide[1],
+		}
+		record = append(record, tc.state.midSideAmpQ0[:]...)
+		record = append(record, tc.state.smthWidthQ14, tc.state.widthPrevQ14, tc.state.silentSideLen)
+		for _, v := range tc.left {
+			record = append(record, int32(v))
+		}
+		for _, v := range tc.right {
+			record = append(record, int32(v))
+		}
+		records[i] = record
+	}
+	want, err := probeLibopusSILKLRToMS(records, frameLengths)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk lr-to-ms", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var enc Encoder
+			setStereoStateFromOracle(&enc.stereo, tc.state)
+			mid, side, ix, midOnly, midRate, sideRate, widthQ14 := enc.StereoLRToMSWithRates(
+				int16PCMToFloat32(tc.left), int16PCMToFloat32(tc.right),
+				tc.frameLength, tc.fsKHz, tc.totalRateBps, tc.speechActQ8, tc.toMono,
+			)
+			if boolWord(midOnly) != want[i].midOnly {
+				t.Fatalf("midOnly=%v want %d", midOnly, want[i].midOnly)
+			}
+			if int32(midRate) != want[i].midRate || int32(sideRate) != want[i].sideRate {
+				t.Fatalf("rates=%d/%d want %d/%d", midRate, sideRate, want[i].midRate, want[i].sideRate)
+			}
+			if int32(widthQ14) != want[i].state.widthPrevQ14 {
+				t.Fatalf("widthQ14=%d want %d", widthQ14, want[i].state.widthPrevQ14)
+			}
+			gotIx := [6]int32{
+				int32(ix.Ix[0][0]), int32(ix.Ix[0][1]), int32(ix.Ix[0][2]),
+				int32(ix.Ix[1][0]), int32(ix.Ix[1][1]), int32(ix.Ix[1][2]),
+			}
+			if gotIx != want[i].ix {
+				t.Fatalf("ix=%v want %v", gotIx, want[i].ix)
+			}
+			gotState := stereoStateForOracle(enc.stereo)
+			if gotState != want[i].state {
+				t.Fatalf("state=%+v want %+v", gotState, want[i].state)
+			}
+			if !samePCM16FromFloat(mid, want[i].mid) {
+				t.Fatalf("mid output mismatch")
+			}
+			if !samePCM16FromFloat(side, want[i].side) {
+				t.Fatalf("side output mismatch")
+			}
+		})
+	}
+}
+
 func stereoRamp(n int, start, step int16) []int16 {
 	out := make([]int16, n)
 	v := int32(start)
@@ -201,6 +468,75 @@ func stereoRamp(n int, start, step int16) []int16 {
 		v += int32(step)
 	}
 	return out
+}
+
+func stereoWave(n int, offset, step, wobble int16) []int16 {
+	out := make([]int16, n)
+	v := int32(offset)
+	for i := range out {
+		v += int32(step)
+		if i%5 == 0 {
+			v -= int32(wobble) * 3
+		} else {
+			v += int32(wobble)
+		}
+		if v > 18000 {
+			v -= 24000
+		}
+		if v < -18000 {
+			v += 24000
+		}
+		out[i] = int16(v)
+	}
+	return out
+}
+
+func int16PCMToFloat32(in []int16) []float32 {
+	out := make([]float32, len(in))
+	for i, v := range in {
+		out[i] = float32(v) / 32768.0
+	}
+	return out
+}
+
+func pcmFloat32ToInt16Exact(v float32) int16 {
+	return int16(int32(v * 32768.0))
+}
+
+func samePCM16FromFloat(got []float32, want []int16) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if pcmFloat32ToInt16Exact(got[i]) != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func setStereoStateFromOracle(st *stereoEncState, src libopusSILKStereoState) {
+	st.predPrevQ13 = src.predPrevQ13
+	st.sMid = [2]int16{int16(src.sMid[0]), int16(src.sMid[1])}
+	st.sSide = [2]int16{int16(src.sSide[0]), int16(src.sSide[1])}
+	st.widthPrevQ14 = int16(src.widthPrevQ14)
+	st.smthWidthQ14 = int16(src.smthWidthQ14)
+	st.silentSideLen = src.silentSideLen
+	for i := range st.midSideAmpQ0 {
+		st.midSideAmpQ0[i] = float64(src.midSideAmpQ0[i])
+	}
+}
+
+func stereoStateForOracle(st stereoEncState) libopusSILKStereoState {
+	return libopusSILKStereoState{
+		predPrevQ13:   st.predPrevQ13,
+		sMid:          [2]int32{int32(st.sMid[0]), int32(st.sMid[1])},
+		sSide:         [2]int32{int32(st.sSide[0]), int32(st.sSide[1])},
+		midSideAmpQ0:  [4]int32{int32(st.midSideAmpQ0[0]), int32(st.midSideAmpQ0[1]), int32(st.midSideAmpQ0[2]), int32(st.midSideAmpQ0[3])},
+		smthWidthQ14:  int32(st.smthWidthQ14),
+		widthPrevQ14:  int32(st.widthPrevQ14),
+		silentSideLen: st.silentSideLen,
+	}
 }
 
 func stereoScaledRamp(n int, start, step, num, den int16) []int16 {

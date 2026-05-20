@@ -609,17 +609,18 @@ func (e *Encoder) StereoLRToMSWithRates(
 	if midRate < minMidRate {
 		midRate = minMidRate
 		sideRate = total - midRate
-		widthQ14 = int16(silkDiv32VarQ(
+		widthQ14Raw := silkDiv32VarQ(
 			silkLSHIFT(int32(sideRate), 1)-int32(minMidRate),
 			silkSMULWB(int32(silkFixConst(1, 16))+frac3Q16, int32(minMidRate)),
 			14+2,
-		))
-		if widthQ14 < 0 {
-			widthQ14 = 0
+		)
+		if widthQ14Raw < 0 {
+			widthQ14Raw = 0
 		}
-		if widthQ14 > int16(silkFixConst(1, 14)) {
-			widthQ14 = int16(silkFixConst(1, 14))
+		if widthQ14Raw > int32(silkFixConst(1, 14)) {
+			widthQ14Raw = int32(silkFixConst(1, 14))
 		}
+		widthQ14 = int16(widthQ14Raw)
 	} else {
 		sideRate = total - midRate
 		widthQ14 = 16384
