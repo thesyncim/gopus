@@ -1,6 +1,7 @@
 package multistream
 
 import (
+	"bytes"
 	"errors"
 	"testing"
 )
@@ -41,7 +42,7 @@ func TestNewDecoder_ValidConfigs(t *testing.T) {
 		{"quad", 4, 2, 2, 4},
 		{"5.0 surround", 5, 3, 2, 5},
 		{"5.1 surround", 6, 4, 2, 6},
-		{"6.1 surround", 7, 5, 2, 7},
+		{"6.1 surround", 7, 4, 3, 7},
 		{"7.1 surround", 8, 5, 3, 8},
 	}
 
@@ -160,16 +161,16 @@ func TestDefaultMapping(t *testing.T) {
 		channels    int
 		wantStreams int
 		wantCoupled int
-		wantMapLen  int
+		wantMapping []byte
 	}{
-		{1, 1, 0, 1}, // mono
-		{2, 1, 1, 2}, // stereo
-		{3, 2, 1, 3}, // 3.0
-		{4, 2, 2, 4}, // quad
-		{5, 3, 2, 5}, // 5.0
-		{6, 4, 2, 6}, // 5.1
-		{7, 5, 2, 7}, // 6.1
-		{8, 5, 3, 8}, // 7.1
+		{1, 1, 0, []byte{0}},                      // mono
+		{2, 1, 1, []byte{0, 1}},                   // stereo
+		{3, 2, 1, []byte{0, 2, 1}},                // 3.0
+		{4, 2, 2, []byte{0, 1, 2, 3}},             // quad
+		{5, 3, 2, []byte{0, 4, 1, 2, 3}},          // 5.0
+		{6, 4, 2, []byte{0, 4, 1, 2, 3, 5}},       // 5.1
+		{7, 4, 3, []byte{0, 4, 1, 2, 3, 5, 6}},    // 6.1
+		{8, 5, 3, []byte{0, 6, 1, 2, 3, 4, 5, 7}}, // 7.1
 	}
 
 	for _, tc := range tests {
@@ -184,8 +185,8 @@ func TestDefaultMapping(t *testing.T) {
 		if coupled != tc.wantCoupled {
 			t.Errorf("DefaultMapping(%d) coupled = %d, want %d", tc.channels, coupled, tc.wantCoupled)
 		}
-		if len(mapping) != tc.wantMapLen {
-			t.Errorf("DefaultMapping(%d) mapping len = %d, want %d", tc.channels, len(mapping), tc.wantMapLen)
+		if !bytes.Equal(mapping, tc.wantMapping) {
+			t.Errorf("DefaultMapping(%d) mapping = %v, want %v", tc.channels, mapping, tc.wantMapping)
 		}
 	}
 

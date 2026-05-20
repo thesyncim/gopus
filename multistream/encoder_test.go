@@ -102,6 +102,15 @@ func TestNewEncoder(t *testing.T) {
 			wantErr:        ErrTooManyChannels,
 		},
 		{
+			name:           "invalid streams plus coupled exceeds channels",
+			sampleRate:     48000,
+			channels:       2,
+			streams:        2,
+			coupledStreams: 1,
+			mapping:        []byte{0, 1},
+			wantErr:        ErrInvalidLayout,
+		},
+		{
 			name:           "invalid mapping too short",
 			sampleRate:     48000,
 			channels:       2,
@@ -127,6 +136,15 @@ func TestNewEncoder(t *testing.T) {
 			coupledStreams: 0,
 			mapping:        []byte{0, 255}, // Second channel is silent
 			wantErr:        nil,
+		},
+		{
+			name:           "invalid unused mono stream",
+			sampleRate:     48000,
+			channels:       2,
+			streams:        2,
+			coupledStreams: 0,
+			mapping:        []byte{0, 255},
+			wantErr:        ErrInvalidLayout,
 		},
 	}
 
@@ -189,7 +207,7 @@ func TestNewEncoderDefault(t *testing.T) {
 		{4, 2, 2, 4, nil}, // Quad
 		{5, 3, 2, 5, nil}, // 5.0
 		{6, 4, 2, 6, nil}, // 5.1
-		{7, 5, 2, 7, nil}, // 6.1
+		{7, 4, 3, 7, nil}, // 6.1
 		{8, 5, 3, 8, nil}, // 7.1
 		{9, 0, 0, 0, ErrUnsupportedChannels},
 		{0, 0, 0, 0, ErrInvalidChannels},
@@ -1011,7 +1029,7 @@ func TestNewEncoderDefault_SetsLFEFlags(t *testing.T) {
 		lfe      int
 	}{
 		{name: "5.1", channels: 6, lfe: 3},
-		{name: "6.1", channels: 7, lfe: 4},
+		{name: "6.1", channels: 7, lfe: 3},
 		{name: "7.1", channels: 8, lfe: 4},
 	}
 
@@ -1629,62 +1647,78 @@ func TestValidateEncoderLayout(t *testing.T) {
 	tests := []struct {
 		name           string
 		mapping        []byte
+		streams        int
 		coupledStreams int
 		wantErr        bool
 	}{
 		{
 			name:           "valid stereo",
 			mapping:        []byte{0, 1},
+			streams:        1,
 			coupledStreams: 1,
 			wantErr:        false,
 		},
 		{
 			name:           "valid 5.1",
 			mapping:        []byte{0, 4, 1, 2, 3, 5},
+			streams:        4,
 			coupledStreams: 2,
 			wantErr:        false,
 		},
 		{
 			name:           "valid 7.1",
 			mapping:        []byte{0, 6, 1, 2, 3, 4, 5, 7},
+			streams:        5,
 			coupledStreams: 3,
 			wantErr:        false,
 		},
 		{
 			name:           "valid mono",
 			mapping:        []byte{0},
+			streams:        1,
 			coupledStreams: 0,
 			wantErr:        false,
 		},
 		{
 			name:           "missing right channel",
 			mapping:        []byte{0, 255}, // Left mapped, right silent
+			streams:        1,
 			coupledStreams: 1,
 			wantErr:        true,
 		},
 		{
 			name:           "missing left channel",
 			mapping:        []byte{255, 1}, // Left silent, right mapped
+			streams:        1,
 			coupledStreams: 1,
 			wantErr:        true,
 		},
 		{
 			name:           "both channels silent",
 			mapping:        []byte{255, 255},
+			streams:        1,
 			coupledStreams: 1,
 			wantErr:        true,
 		},
 		{
 			name:           "second coupled stream incomplete",
 			mapping:        []byte{0, 1, 2, 255}, // Stream 0 complete, stream 1 missing right
+			streams:        2,
 			coupledStreams: 2,
+			wantErr:        true,
+		},
+		{
+			name:           "mono stream unmapped",
+			mapping:        []byte{0, 255},
+			streams:        2,
+			coupledStreams: 0,
 			wantErr:        true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := validateEncoderLayout(tt.mapping, tt.coupledStreams)
+			err := validateEncoderLayout(tt.mapping, tt.streams, tt.coupledStreams)
 			if tt.wantErr && err == nil {
 				t.Error("expected error, got nil")
 			}

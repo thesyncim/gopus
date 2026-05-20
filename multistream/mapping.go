@@ -59,10 +59,10 @@ func DefaultMapping(channels int) (streams, coupledStreams int, mapping []byte, 
 		// Streams: 0=FL/FR (coupled), 1=RL/RR (coupled), 2=C (mono), 3=LFE (mono)
 		return 4, 2, []byte{0, 4, 1, 2, 3, 5}, nil
 	case 7:
-		// 6.1 surround: 2 coupled + 3 uncoupled (C, RC, LFE)
+		// 6.1 surround: 3 coupled + 1 uncoupled (LFE)
 		// Output order: FL, C, FR, SL, SR, RC, LFE
-		// Streams: 0=FL/FR, 1=SL/SR (coupled), 2=C, 3=RC, 4=LFE (mono)
-		return 5, 2, []byte{0, 4, 1, 2, 3, 5, 6}, nil
+		// Streams: 0=FL/FR, 1=SL/SR, 2=C/RC (coupled), 3=LFE (mono)
+		return 4, 3, []byte{0, 4, 1, 2, 3, 5, 6}, nil
 	case 8:
 		// 7.1 surround: 3 coupled + 2 uncoupled (C, LFE)
 		// Output order: FL, C, FR, SL, SR, RL, RR, LFE

@@ -634,7 +634,7 @@ func (d *Decoder) CoupledStreams() int {
 //   - 4: quad (2 streams, 2 coupled)
 //   - 5: 5.0 (3 streams, 2 coupled)
 //   - 6: 5.1 surround (4 streams, 2 coupled)
-//   - 7: 6.1 surround (5 streams, 2 coupled)
+//   - 7: 6.1 surround (4 streams, 3 coupled)
 //   - 8: 7.1 surround (5 streams, 3 coupled)
 func NewDecoderDefault(sampleRate, channels int) (*Decoder, error) {
 	streams, coupledStreams, mapping, err := DefaultMapping(channels)

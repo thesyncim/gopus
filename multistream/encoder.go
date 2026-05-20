@@ -234,8 +234,8 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		}
 	}
 
-	// Validate layout: ensure coupled streams have valid L/R pairs
-	if err := validateEncoderLayout(mapping, coupledStreams); err != nil {
+	// Validate layout: ensure every encoder stream has at least one input.
+	if err := validateEncoderLayout(mapping, streams, coupledStreams); err != nil {
 		return nil, err
 	}
 
@@ -297,7 +297,7 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 //   - 4: quad (2 streams, 2 coupled)
 //   - 5: 5.0 (3 streams, 2 coupled)
 //   - 6: 5.1 surround (4 streams, 2 coupled)
-//   - 7: 6.1 surround (5 streams, 2 coupled)
+//   - 7: 6.1 surround (4 streams, 3 coupled)
 //   - 8: 7.1 surround (5 streams, 3 coupled)
 func NewEncoderDefault(sampleRate, channels int) (*Encoder, error) {
 	streams, coupledStreams, mapping, err := DefaultMapping(channels)
@@ -1531,38 +1531,34 @@ func (e *Encoder) LSBDepth() int {
 	return 24 // Default
 }
 
-// validateEncoderLayout verifies that all coupled streams have valid L/R pairs.
-// For a coupled stream to be valid, both the left channel (even index) and
-// right channel (odd index) must be mapped to an input channel (not silent).
-// This catches invalid configurations early during encoder creation.
-func validateEncoderLayout(mapping []byte, coupledStreams int) error {
-	// Track which coupled stream channels are mapped
-	// For each coupled stream, we need both left (even) and right (odd)
-	leftMapped := make([]bool, coupledStreams)
-	rightMapped := make([]bool, coupledStreams)
+// validateEncoderLayout mirrors libopus validate_encoder_layout.
+func validateEncoderLayout(mapping []byte, streams, coupledStreams int) error {
+	if streams+coupledStreams > len(mapping) {
+		return fmt.Errorf("%w: streams + coupledStreams exceeds channels", ErrInvalidLayout)
+	}
+
+	mapped := make([]bool, streams+coupledStreams)
 
 	for _, m := range mapping {
 		if m == 255 {
-			continue // Silent channel, skip
+			continue
 		}
 
 		idx := int(m)
-		if idx < 2*coupledStreams {
-			// This is a coupled stream channel
-			streamIdx := idx / 2
-			if idx%2 == 0 {
-				leftMapped[streamIdx] = true
-			} else {
-				rightMapped[streamIdx] = true
-			}
+		if idx >= 0 && idx < len(mapped) {
+			mapped[idx] = true
 		}
-		// Uncoupled streams don't need validation - mono is always valid
 	}
 
-	// Verify each coupled stream has both channels mapped
-	for i := 0; i < coupledStreams; i++ {
-		if !leftMapped[i] || !rightMapped[i] {
-			return fmt.Errorf("%w: coupled stream %d", ErrInvalidLayout, i)
+	for s := 0; s < streams; s++ {
+		if s < coupledStreams {
+			if !mapped[2*s] || !mapped[2*s+1] {
+				return fmt.Errorf("%w: coupled stream %d", ErrInvalidLayout, s)
+			}
+			continue
+		}
+		if !mapped[s+coupledStreams] {
+			return fmt.Errorf("%w: uncoupled stream %d", ErrInvalidLayout, s)
 		}
 	}
 
