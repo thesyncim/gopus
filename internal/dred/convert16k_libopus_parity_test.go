@@ -6,9 +6,12 @@ package dred
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestConvertTo16kMonoFloat64MatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name              string
 		sampleRate        int
@@ -30,7 +33,7 @@ func TestConvertTo16kMonoFloat64MatchesLibopus(t *testing.T) {
 
 			want, wantMem, err := probeLibopusDREDConvert16k(tc.sampleRate, tc.channels, [ResamplingOrder + 1]float32{}, in32)
 			if err != nil {
-				t.Skipf("libopus convert helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "convert", err)
 			}
 
 			var gotMem [ResamplingOrder + 1]float32
@@ -46,6 +49,7 @@ func TestConvertTo16kMonoFloat64MatchesLibopus(t *testing.T) {
 }
 
 func TestConvertTo16kMonoFloat64MatchesLibopusAcrossCalls(t *testing.T) {
+	libopustest.RequireOracle(t)
 	tests := []struct {
 		name              string
 		sampleRate        int
@@ -66,7 +70,7 @@ func TestConvertTo16kMonoFloat64MatchesLibopusAcrossCalls(t *testing.T) {
 			var helperMem [ResamplingOrder + 1]float32
 			wantFirst, helperMem, err := probeLibopusDREDConvert16k(tc.sampleRate, tc.channels, helperMem, first32)
 			if err != nil {
-				t.Skipf("libopus convert helper unavailable: %v", err)
+				libopustest.HelperUnavailable(t, "convert", err)
 			}
 			wantSecond, helperMem, err := probeLibopusDREDConvert16k(tc.sampleRate, tc.channels, helperMem, second32)
 			if err != nil {

@@ -105,9 +105,10 @@ func probeLibopusDREDRDOVAEDec(state, latents []float32, nbLatents int) ([]float
 }
 
 func TestRDOVAEDecoderMatchesLibopusOnRealModel(t *testing.T) {
+	libopustest.RequireOracle(t)
 	raw, err := probeLibopusDREDDecoderModelBlob()
 	if err != nil {
-		t.Skipf("dred decoder model blob helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred decoder model blob", err)
 	}
 	blob, err := dnnblob.Clone(raw)
 	if err != nil {
@@ -135,7 +136,7 @@ func TestRDOVAEDecoderMatchesLibopusOnRealModel(t *testing.T) {
 				latents := tc.latents(nbLatents)
 				want, err := probeLibopusDREDRDOVAEDec(state, latents, nbLatents)
 				if err != nil {
-					t.Skipf("rdovae decoder helper unavailable: %v", err)
+					libopustest.HelperUnavailable(t, "rdovae decoder", err)
 				}
 
 				got := make([]float32, len(want))

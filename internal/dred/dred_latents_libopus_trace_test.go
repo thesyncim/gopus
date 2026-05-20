@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 var (
@@ -43,7 +44,7 @@ func probeLibopusDREDLatentsTrace(t *testing.T, channels int) []libopusDREDFrame
 	t.Helper()
 	binPath, err := getLibopusDREDLatentsTraceHelperPath()
 	if err != nil {
-		t.Skipf("libopus dred latents trace helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "dred latents trace", err)
 	}
 	cmd := exec.Command(binPath, fmt.Sprintf("%d", channels))
 	var stdout bytes.Buffer
@@ -93,6 +94,7 @@ func probeLibopusDREDLatentsTrace(t *testing.T, channels int) []libopusDREDFrame
 // between stereo and mono since the first iter shares the same starting
 // pointer; DFrame 2 onwards diverges because of the under-advanced pointer.
 func TestLibopusDREDLatentsTraceStereoDivergesFromMono(t *testing.T) {
+	libopustest.RequireOracle(t)
 	monoTraces := probeLibopusDREDLatentsTrace(t, 1)
 	stereoTraces := probeLibopusDREDLatentsTrace(t, 2)
 	if len(monoTraces) < 2 || len(stereoTraces) < 2 {

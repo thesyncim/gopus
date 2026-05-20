@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestDREDRDOVAEModelBlobsMatchPinnedLibopusDigests(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, tc := range []struct {
 		name        string
 		probe       func() ([]byte, error)
@@ -40,7 +42,7 @@ func TestDREDRDOVAEModelBlobsMatchPinnedLibopusDigests(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			raw, err := tc.probe()
 			if err != nil {
-				t.Skipf("dred %s model blob helper unavailable: %v", tc.name, err)
+				libopustest.HelperUnavailable(t, "dred "+tc.name+" model blob", err)
 			}
 			blob, err := dnnblob.Clone(raw)
 			if err != nil {
