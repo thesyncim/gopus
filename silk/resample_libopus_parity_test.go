@@ -23,6 +23,7 @@ var (
 type libopusSILKResamplerRecord struct {
 	fsIn   int
 	fsOut  int
+	forEnc bool
 	frames [][]int16
 }
 
@@ -68,6 +69,11 @@ func probeLibopusSILKResampler(records []libopusSILKResamplerRecord) ([][]int16,
 		frameSamples := len(record.frames[0])
 		payload.U32(uint32(record.fsIn))
 		payload.U32(uint32(record.fsOut))
+		if record.forEnc {
+			payload.U32(1)
+		} else {
+			payload.U32(0)
+		}
 		payload.U32(uint32(frameSamples))
 		payload.U32(uint32(len(record.frames)))
 		for _, frame := range record.frames {
@@ -97,6 +103,45 @@ func probeLibopusSILKResampler(records []libopusSILKResamplerRecord) ([][]int16,
 		return nil, err
 	}
 	return out, nil
+}
+
+func TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	records := []libopusSILKResamplerRecord{
+		{fsIn: 24000, fsOut: 8000, forEnc: true, frames: makeSILKResamplerFrames(240, 6, 0x0f1e2d3c)},
+		{fsIn: 24000, fsOut: 12000, forEnc: true, frames: makeSILKResamplerFrames(240, 6, 0x10293847)},
+		{fsIn: 24000, fsOut: 16000, forEnc: true, frames: makeSILKResamplerFrames(240, 6, 0x55667788)},
+		{fsIn: 48000, fsOut: 8000, forEnc: true, frames: makeSILKResamplerFrames(480, 6, 0x89abcdef)},
+		{fsIn: 48000, fsOut: 12000, forEnc: true, frames: makeSILKResamplerFrames(480, 6, 0xdecafbad)},
+		{fsIn: 48000, fsOut: 16000, forEnc: true, frames: makeSILKResamplerFrames(480, 6, 0xc001d00d)},
+	}
+	want, err := probeLibopusSILKResampler(records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk encoder resampler", err)
+	}
+
+	for recIdx, record := range records {
+		t.Run(fmt.Sprintf("%d_to_%d_%dms", record.fsIn, record.fsOut, len(record.frames[0])*1000/record.fsIn), func(t *testing.T) {
+			resampler := NewDownsamplingResampler(record.fsIn, record.fsOut)
+			frameOut := len(record.frames[0]) * record.fsOut / record.fsIn
+			out := make([]int16, frameOut)
+			wantOffset := 0
+			for frameIdx, frame := range record.frames {
+				clear(out)
+				resampler.processWithDelay(out, frame)
+				for i, got := range out {
+					wantSample := want[recIdx][wantOffset+i]
+					if got != wantSample {
+						t.Fatalf("frame %d sample %d got %d want %d", frameIdx, i, got, wantSample)
+					}
+				}
+				wantOffset += frameOut
+			}
+			if wantOffset != len(want[recIdx]) {
+				t.Fatalf("checked %d output samples want %d", wantOffset, len(want[recIdx]))
+			}
+		})
+	}
 }
 
 func makeSILKResamplerFrames(frameSamples, frameCount int, seed uint32) [][]int16 {

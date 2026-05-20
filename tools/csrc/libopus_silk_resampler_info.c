@@ -38,15 +38,33 @@ static int write_u32(uint32_t value) {
   return write_exact(&value, sizeof(value));
 }
 
-static int valid_decoder_rate(uint32_t fs_in, uint32_t fs_out) {
+static int valid_resampler_rate(uint32_t fs_in, uint32_t fs_out, uint32_t for_enc) {
+  if (for_enc) {
+    if (fs_in != 8000 && fs_in != 12000 && fs_in != 16000 && fs_in != 24000 && fs_in != 48000
+#ifdef ENABLE_QEXT
+        && fs_in != 96000
+#endif
+    ) {
+      return 0;
+    }
+    if (fs_out != 8000 && fs_out != 12000 && fs_out != 16000) return 0;
+    return 1;
+  }
   if (fs_in != 8000 && fs_in != 12000 && fs_in != 16000) return 0;
-  if (fs_out != 8000 && fs_out != 12000 && fs_out != 16000 && fs_out != 24000 && fs_out != 48000) return 0;
+  if (fs_out != 8000 && fs_out != 12000 && fs_out != 16000 && fs_out != 24000 && fs_out != 48000
+#ifdef ENABLE_QEXT
+      && fs_out != 96000
+#endif
+  ) {
+    return 0;
+  }
   return 1;
 }
 
 static int eval_record(void) {
   uint32_t fs_in;
   uint32_t fs_out;
+  uint32_t for_enc;
   uint32_t frame_samples;
   uint32_t frame_count;
   uint32_t frame;
@@ -56,8 +74,8 @@ static int eval_record(void) {
   opus_int16 *out = NULL;
   silk_resampler_state_struct state;
 
-  if (!read_u32(&fs_in) || !read_u32(&fs_out) || !read_u32(&frame_samples) || !read_u32(&frame_count)) return 0;
-  if (!valid_decoder_rate(fs_in, fs_out)) return 0;
+  if (!read_u32(&fs_in) || !read_u32(&fs_out) || !read_u32(&for_enc) || !read_u32(&frame_samples) || !read_u32(&frame_count)) return 0;
+  if (!valid_resampler_rate(fs_in, fs_out, for_enc)) return 0;
   if (frame_samples < fs_in / 1000 || frame_samples > fs_in * 60 / 1000 || frame_count == 0 || frame_count > 64) return 0;
   if (((uint64_t)frame_samples * fs_out) % fs_in != 0) return 0;
   out_samples = (uint32_t)(((uint64_t)frame_samples * fs_out) / fs_in);
@@ -72,7 +90,7 @@ static int eval_record(void) {
     free(out);
     return 0;
   }
-  if (silk_resampler_init(&state, (opus_int32)fs_in, (opus_int32)fs_out, 0) != 0) {
+  if (silk_resampler_init(&state, (opus_int32)fs_in, (opus_int32)fs_out, for_enc != 0) != 0) {
     free(in);
     free(out);
     return 0;
