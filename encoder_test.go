@@ -321,6 +321,9 @@ func TestEncoder_SetComplexity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
+	if got := enc.Complexity(); got != 9 {
+		t.Fatalf("Complexity() default = %d, want 9", got)
+	}
 
 	// Valid complexity values
 	for c := 0; c <= 10; c++ {

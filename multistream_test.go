@@ -584,6 +584,9 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	}
 
 	// Test SetComplexity
+	if got := enc.Complexity(); got != 9 {
+		t.Errorf("Complexity() default = %d, want 9", got)
+	}
 	err = enc.SetComplexity(8)
 	if err != nil {
 		t.Errorf("SetComplexity(8) error: %v", err)

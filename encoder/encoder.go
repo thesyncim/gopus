@@ -258,7 +258,7 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		dtxEnabled:             false,
 		dtx:                    newDTXState(),
 		rng:                    22222,
-		complexity:             10,
+		complexity:             9,
 		signalType:             types.SignalAuto,
 		maxBandwidth:           types.BandwidthFullband,
 		forceChannels:          -1,
