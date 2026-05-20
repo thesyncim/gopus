@@ -1,8 +1,6 @@
 package silk
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"sync"
 	"testing"
@@ -50,38 +48,27 @@ func probeLibopusSILKLog(mode uint32, samples []int32) ([]int32, error) {
 	if err != nil {
 		return nil, err
 	}
-	var payload bytes.Buffer
-	payload.WriteString(libopusSILKLogInputMagic)
-	for _, v := range []uint32{1, mode, uint32(len(samples))} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return nil, err
-		}
-	}
+	payload := libopustest.NewOraclePayload(libopusSILKLogInputMagic, mode, uint32(len(samples)))
 	for _, sample := range samples {
-		if err := binary.Write(&payload, binary.LittleEndian, sample); err != nil {
-			return nil, err
-		}
+		payload.I32(sample)
 	}
 
 	data, err := libopustest.RunHelper(binPath, payload.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("run silk log helper: %w", err)
 	}
-	if len(data) < 12 || string(data[:4]) != libopusSILKLogOutputMagic {
-		return nil, fmt.Errorf("unexpected silk log helper output")
+	reader, err := libopustest.NewOracleReader("silk log", libopusSILKLogOutputMagic, data)
+	if err != nil {
+		return nil, err
 	}
-	count := int(binary.LittleEndian.Uint32(data[8:12]))
-	if count != len(samples) {
-		return nil, fmt.Errorf("helper count=%d want %d", count, len(samples))
-	}
-	if len(data) != 12+4*count {
-		return nil, fmt.Errorf("helper output length=%d want %d", len(data), 12+4*count)
-	}
+	count := reader.Count(len(samples))
+	reader.ExpectRemaining(4 * count)
 	out := make([]int32, count)
-	offset := 12
 	for i := range out {
-		out[i] = int32(binary.LittleEndian.Uint32(data[offset:]))
-		offset += 4
+		out[i] = reader.I32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"sync"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 const (
@@ -172,7 +174,7 @@ func TestSoftClipAndFloat32ToInt16MatchesLibopus(t *testing.T) {
 	if err != nil {
 		t.Skipf("libopus softclip helper unavailable: %v", err)
 	}
-	want, err := probeLibopusFloatQuant(libopusFloatQuantModeFloat2Int16, wantFloat)
+	want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeFloat2Int16, wantFloat)
 	if err != nil {
 		t.Skipf("libopus float quant helper unavailable: %v", err)
 	}

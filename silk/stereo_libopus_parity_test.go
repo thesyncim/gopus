@@ -1,8 +1,6 @@
 package silk
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"sync"
 	"testing"
@@ -85,18 +83,10 @@ func probeLibopusSILKStereo(mode uint32, records [][]int32) ([]libopusSILKStereo
 	if err != nil {
 		return nil, err
 	}
-	var payload bytes.Buffer
-	payload.WriteString(libopusSILKStereoInputMagic)
-	for _, v := range []uint32{1, mode, uint32(len(records))} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return nil, err
-		}
-	}
+	payload := libopustest.NewOraclePayload(libopusSILKStereoInputMagic, mode, uint32(len(records)))
 	for _, record := range records {
 		for _, word := range record {
-			if err := binary.Write(&payload, binary.LittleEndian, uint32(word)); err != nil {
-				return nil, err
-			}
+			payload.I32(word)
 		}
 	}
 
@@ -104,28 +94,22 @@ func probeLibopusSILKStereo(mode uint32, records [][]int32) ([]libopusSILKStereo
 	if err != nil {
 		return nil, fmt.Errorf("run silk stereo helper: %w", err)
 	}
-	if len(data) < 12 || string(data[:4]) != libopusSILKStereoOutputMagic {
-		return nil, fmt.Errorf("unexpected silk stereo helper output")
+	reader, err := libopustest.NewOracleReader("silk stereo", libopusSILKStereoOutputMagic, data)
+	if err != nil {
+		return nil, err
 	}
-	count := int(binary.LittleEndian.Uint32(data[8:12]))
-	if count != len(records) {
-		return nil, fmt.Errorf("helper count=%d want %d", count, len(records))
-	}
-	wantLen := 12 + count*32
-	if len(data) != wantLen {
-		return nil, fmt.Errorf("helper output length=%d want %d", len(data), wantLen)
-	}
+	count := reader.Count(len(records))
+	reader.ExpectRemaining(count * 32)
 	out := make([]libopusSILKStereoRecord, count)
-	offset := 12
 	for i := range out {
-		out[i].first = int32(binary.LittleEndian.Uint32(data[offset:]))
-		offset += 4
-		out[i].second = int32(binary.LittleEndian.Uint32(data[offset:]))
-		offset += 4
+		out[i].first = reader.I32()
+		out[i].second = reader.I32()
 		for j := range out[i].extra {
-			out[i].extra[j] = int32(binary.LittleEndian.Uint32(data[offset:]))
-			offset += 4
+			out[i].extra[j] = reader.I32()
 		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -135,18 +119,10 @@ func probeLibopusSILKLRToMS(records [][]int32, frameLengths []int) ([]libopusSIL
 	if err != nil {
 		return nil, err
 	}
-	var payload bytes.Buffer
-	payload.WriteString(libopusSILKStereoInputMagic)
-	for _, v := range []uint32{1, libopusSILKStereoModeLRToMS, uint32(len(records))} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return nil, err
-		}
-	}
+	payload := libopustest.NewOraclePayload(libopusSILKStereoInputMagic, libopusSILKStereoModeLRToMS, uint32(len(records)))
 	for _, record := range records {
 		for _, word := range record {
-			if err := binary.Write(&payload, binary.LittleEndian, uint32(word)); err != nil {
-				return nil, err
-			}
+			payload.I32(word)
 		}
 	}
 
@@ -154,97 +130,45 @@ func probeLibopusSILKLRToMS(records [][]int32, frameLengths []int) ([]libopusSIL
 	if err != nil {
 		return nil, fmt.Errorf("run silk lr-to-ms helper: %w", err)
 	}
-	if len(data) < 12 || string(data[:4]) != libopusSILKStereoOutputMagic {
-		return nil, fmt.Errorf("unexpected silk lr-to-ms helper output")
+	reader, err := libopustest.NewOracleReader("silk lr-to-ms", libopusSILKStereoOutputMagic, data)
+	if err != nil {
+		return nil, err
 	}
-	count := int(binary.LittleEndian.Uint32(data[8:12]))
-	if count != len(records) {
-		return nil, fmt.Errorf("helper count=%d want %d", count, len(records))
-	}
+	count := reader.Count(len(records))
 	out := make([]libopusSILKLRToMSRecord, count)
-	offset := 12
-	readI32 := func() (int32, error) {
-		if offset+4 > len(data) {
-			return 0, fmt.Errorf("truncated silk lr-to-ms helper output")
-		}
-		v := int32(binary.LittleEndian.Uint32(data[offset:]))
-		offset += 4
-		return v, nil
-	}
 	for i := range out {
-		out[i].midOnly, err = readI32()
-		if err != nil {
-			return nil, err
-		}
-		out[i].midRate, err = readI32()
-		if err != nil {
-			return nil, err
-		}
-		out[i].sideRate, err = readI32()
-		if err != nil {
-			return nil, err
-		}
+		out[i].midOnly = reader.I32()
+		out[i].midRate = reader.I32()
+		out[i].sideRate = reader.I32()
 		for j := range out[i].ix {
-			out[i].ix[j], err = readI32()
-			if err != nil {
-				return nil, err
-			}
+			out[i].ix[j] = reader.I32()
 		}
 		for j := range out[i].state.predPrevQ13 {
-			out[i].state.predPrevQ13[j], err = readI32()
-			if err != nil {
-				return nil, err
-			}
+			out[i].state.predPrevQ13[j] = reader.I32()
 		}
 		for j := range out[i].state.sMid {
-			out[i].state.sMid[j], err = readI32()
-			if err != nil {
-				return nil, err
-			}
+			out[i].state.sMid[j] = reader.I32()
 		}
 		for j := range out[i].state.sSide {
-			out[i].state.sSide[j], err = readI32()
-			if err != nil {
-				return nil, err
-			}
+			out[i].state.sSide[j] = reader.I32()
 		}
 		for j := range out[i].state.midSideAmpQ0 {
-			out[i].state.midSideAmpQ0[j], err = readI32()
-			if err != nil {
-				return nil, err
-			}
+			out[i].state.midSideAmpQ0[j] = reader.I32()
 		}
-		out[i].state.smthWidthQ14, err = readI32()
-		if err != nil {
-			return nil, err
-		}
-		out[i].state.widthPrevQ14, err = readI32()
-		if err != nil {
-			return nil, err
-		}
-		out[i].state.silentSideLen, err = readI32()
-		if err != nil {
-			return nil, err
-		}
+		out[i].state.smthWidthQ14 = reader.I32()
+		out[i].state.widthPrevQ14 = reader.I32()
+		out[i].state.silentSideLen = reader.I32()
 		out[i].mid = make([]int16, frameLengths[i])
 		out[i].side = make([]int16, frameLengths[i])
 		for j := range out[i].mid {
-			v, err := readI32()
-			if err != nil {
-				return nil, err
-			}
-			out[i].mid[j] = int16(v)
+			out[i].mid[j] = int16(reader.I32())
 		}
 		for j := range out[i].side {
-			v, err := readI32()
-			if err != nil {
-				return nil, err
-			}
-			out[i].side[j] = int16(v)
+			out[i].side[j] = int16(reader.I32())
 		}
 	}
-	if offset != len(data) {
-		return nil, fmt.Errorf("helper output has %d trailing bytes", len(data)-offset)
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

@@ -2,9 +2,7 @@ package libopustest
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
-	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -153,43 +151,27 @@ func ProbeFloatQuant(repoRoot string, mode uint32, samples []float32) ([]int16, 
 		return nil, floatQuantHelperErr
 	}
 
-	var payload bytes.Buffer
-	payload.WriteString("GFQI")
-	for _, v := range []uint32{1, mode, uint32(len(samples))} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return nil, err
-		}
-	}
+	payload := NewOraclePayload("GFQI", mode, uint32(len(samples)))
 	for _, sample := range samples {
-		if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(sample)); err != nil {
-			return nil, err
-		}
+		payload.Float32(sample)
 	}
 
-	var stdout, stderr bytes.Buffer
-	cmd := exec.Command(floatQuantHelperPath)
-	cmd.Stdin = &payload
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run float quant helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	data, err := RunHelper(floatQuantHelperPath, payload.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("run float quant helper: %w", err)
 	}
-	data := stdout.Bytes()
-	if len(data) < 12 || string(data[:4]) != "GFQO" {
-		return nil, fmt.Errorf("unexpected float quant helper output")
+	reader, err := NewOracleReader("float quant", "GFQO", data)
+	if err != nil {
+		return nil, err
 	}
-	count := int(binary.LittleEndian.Uint32(data[8:12]))
-	if count != len(samples) {
-		return nil, fmt.Errorf("helper count=%d want %d", count, len(samples))
-	}
-	if len(data) != 12+2*count {
-		return nil, fmt.Errorf("helper output length=%d want %d", len(data), 12+2*count)
-	}
+	count := reader.Count(len(samples))
+	reader.ExpectRemaining(2 * count)
 	out := make([]int16, count)
-	offset := 12
 	for i := range out {
-		out[i] = int16(binary.LittleEndian.Uint16(data[offset:]))
-		offset += 2
+		out[i] = reader.I16()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

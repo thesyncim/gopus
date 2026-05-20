@@ -1,8 +1,6 @@
 package celt
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"math"
 	"sync"
@@ -59,38 +57,27 @@ func probeLibopusCELTMath(mode uint32, samples []float32) ([]float32, error) {
 	if err != nil {
 		return nil, err
 	}
-	var payload bytes.Buffer
-	payload.WriteString(libopusCELTMathInputMagic)
-	for _, v := range []uint32{1, mode, uint32(len(samples))} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return nil, err
-		}
-	}
+	payload := libopustest.NewOraclePayload(libopusCELTMathInputMagic, mode, uint32(len(samples)))
 	for _, sample := range samples {
-		if err := binary.Write(&payload, binary.LittleEndian, math.Float32bits(sample)); err != nil {
-			return nil, err
-		}
+		payload.Float32(sample)
 	}
 
 	data, err := libopustest.RunHelper(binPath, payload.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("run celt math helper: %w", err)
 	}
-	if len(data) < 12 || string(data[:4]) != libopusCELTMathOutputMagic {
-		return nil, fmt.Errorf("unexpected celt math helper output")
+	reader, err := libopustest.NewOracleReader("celt math", libopusCELTMathOutputMagic, data)
+	if err != nil {
+		return nil, err
 	}
-	count := int(binary.LittleEndian.Uint32(data[8:12]))
-	if count != len(samples) {
-		return nil, fmt.Errorf("helper count=%d want %d", count, len(samples))
-	}
-	if len(data) != 12+4*count {
-		return nil, fmt.Errorf("helper output length=%d want %d", len(data), 12+4*count)
-	}
+	count := reader.Count(len(samples))
+	reader.ExpectRemaining(4 * count)
 	out := make([]float32, count)
-	offset := 12
 	for i := range out {
-		out[i] = math.Float32frombits(binary.LittleEndian.Uint32(data[offset:]))
-		offset += 4
+		out[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -100,38 +87,27 @@ func probeLibopusCELTMathWords(mode uint32, count int, words []uint32) ([]uint32
 	if err != nil {
 		return nil, err
 	}
-	var payload bytes.Buffer
-	payload.WriteString(libopusCELTMathInputMagic)
-	for _, v := range []uint32{1, mode, uint32(count)} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return nil, err
-		}
-	}
+	payload := libopustest.NewOraclePayload(libopusCELTMathInputMagic, mode, uint32(count))
 	for _, word := range words {
-		if err := binary.Write(&payload, binary.LittleEndian, word); err != nil {
-			return nil, err
-		}
+		payload.U32(word)
 	}
 
 	data, err := libopustest.RunHelper(binPath, payload.Bytes())
 	if err != nil {
 		return nil, fmt.Errorf("run celt math helper: %w", err)
 	}
-	if len(data) < 12 || string(data[:4]) != libopusCELTMathOutputMagic {
-		return nil, fmt.Errorf("unexpected celt math helper output")
+	reader, err := libopustest.NewOracleReader("celt math", libopusCELTMathOutputMagic, data)
+	if err != nil {
+		return nil, err
 	}
-	gotCount := int(binary.LittleEndian.Uint32(data[8:12]))
-	if gotCount != count {
-		return nil, fmt.Errorf("helper count=%d want %d", gotCount, count)
-	}
-	if len(data) != 12+4*gotCount {
-		return nil, fmt.Errorf("helper output length=%d want %d", len(data), 12+4*gotCount)
-	}
+	gotCount := reader.Count(count)
+	reader.ExpectRemaining(4 * gotCount)
 	out := make([]uint32, gotCount)
-	offset := 12
 	for i := range out {
-		out[i] = binary.LittleEndian.Uint32(data[offset:])
-		offset += 4
+		out[i] = reader.U32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }

@@ -2,7 +2,6 @@ package rangecoding
 
 import (
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"sync"
 	"testing"
@@ -91,55 +90,39 @@ func probeLibopusRangeEncoder(storage uint32, ops []rangeOracleOp) (rangeOracleR
 	if err != nil {
 		return rangeOracleResult{}, err
 	}
-	var payload bytes.Buffer
-	payload.WriteString(libopusRangeInputMagic)
-	for _, v := range []uint32{1, storage, uint32(len(ops))} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return rangeOracleResult{}, err
-		}
-	}
+	payload := libopustest.NewOraclePayload(libopusRangeInputMagic, storage, uint32(len(ops)))
 	for _, op := range ops {
-		for _, v := range []uint32{op.kind, op.a, op.b, op.c, op.d} {
-			if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-				return rangeOracleResult{}, err
-			}
-		}
+		payload.U32s(op.kind, op.a, op.b, op.c, op.d)
 	}
 
 	data, err := libopustest.RunHelper(binPath, payload.Bytes())
 	if err != nil {
 		return rangeOracleResult{}, fmt.Errorf("run range helper: %w", err)
 	}
-	if len(data) < 16 || string(data[:4]) != libopusRangeOutputMagic {
-		return rangeOracleResult{}, fmt.Errorf("unexpected range helper output")
+	reader, err := libopustest.NewOracleReader("range", libopusRangeOutputMagic, data)
+	if err != nil {
+		return rangeOracleResult{}, err
 	}
-	if version := binary.LittleEndian.Uint32(data[4:8]); version != 1 {
-		return rangeOracleResult{}, fmt.Errorf("range helper version=%d want 1", version)
-	}
-	traceCount := int(binary.LittleEndian.Uint32(data[8:12]))
-	packetLen := int(binary.LittleEndian.Uint32(data[12:16]))
-	if traceCount != len(ops) {
-		return rangeOracleResult{}, fmt.Errorf("range helper traces=%d want %d", traceCount, len(ops))
-	}
-	offset := 16
-	if len(data) < offset+traceCount*32+packetLen {
-		return rangeOracleResult{}, fmt.Errorf("truncated range helper output")
-	}
+	traceCount := reader.Count(len(ops))
+	packetLen := int(reader.U32())
+	reader.ExpectRemaining(traceCount*32 + packetLen)
 	result := rangeOracleResult{traces: make([]rangeOracleTrace, traceCount)}
 	for i := range result.traces {
 		result.traces[i] = rangeOracleTrace{
-			tell:       binary.LittleEndian.Uint32(data[offset:]),
-			tellFrac:   binary.LittleEndian.Uint32(data[offset+4:]),
-			rangeBytes: binary.LittleEndian.Uint32(data[offset+8:]),
-			rng:        binary.LittleEndian.Uint32(data[offset+12:]),
-			val:        binary.LittleEndian.Uint32(data[offset+16:]),
-			rem:        binary.LittleEndian.Uint32(data[offset+20:]),
-			ext:        binary.LittleEndian.Uint32(data[offset+24:]),
-			err:        binary.LittleEndian.Uint32(data[offset+28:]),
+			tell:       reader.U32(),
+			tellFrac:   reader.U32(),
+			rangeBytes: reader.U32(),
+			rng:        reader.U32(),
+			val:        reader.U32(),
+			rem:        reader.U32(),
+			ext:        reader.U32(),
+			err:        reader.U32(),
 		}
-		offset += 32
 	}
-	result.packet = append([]byte(nil), data[offset:offset+packetLen]...)
+	result.packet = append([]byte(nil), reader.Bytes(packetLen)...)
+	if err := reader.ExpectConsumed(); err != nil {
+		return rangeOracleResult{}, err
+	}
 	return result, nil
 }
 

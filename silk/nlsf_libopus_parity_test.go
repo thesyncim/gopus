@@ -1,8 +1,6 @@
 package silk
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"math"
 	"sync"
@@ -69,18 +67,10 @@ func probeLibopusSILKNLSF(mode uint32, records [][]uint32) ([][]int16, error) {
 	if err != nil {
 		return nil, err
 	}
-	var payload bytes.Buffer
-	payload.WriteString(libopusSILKNLSFInputMagic)
-	for _, v := range []uint32{1, mode, uint32(len(records))} {
-		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
-			return nil, err
-		}
-	}
+	payload := libopustest.NewOraclePayload(libopusSILKNLSFInputMagic, mode, uint32(len(records)))
 	for _, record := range records {
 		for _, word := range record {
-			if err := binary.Write(&payload, binary.LittleEndian, word); err != nil {
-				return nil, err
-			}
+			payload.U32(word)
 		}
 	}
 
@@ -88,33 +78,29 @@ func probeLibopusSILKNLSF(mode uint32, records [][]uint32) ([][]int16, error) {
 	if err != nil {
 		return nil, fmt.Errorf("run silk nlsf helper: %w", err)
 	}
-	if len(data) < 12 || string(data[:4]) != libopusSILKNLSFOutputMagic {
-		return nil, fmt.Errorf("unexpected silk nlsf helper output")
+	reader, err := libopustest.NewOracleReader("silk nlsf", libopusSILKNLSFOutputMagic, data)
+	if err != nil {
+		return nil, err
 	}
-	count := int(binary.LittleEndian.Uint32(data[8:12]))
-	if count != len(records) {
-		return nil, fmt.Errorf("helper count=%d want %d", count, len(records))
-	}
-	wantLen := 12 + count*(4+16*4)
-	if len(data) != wantLen {
-		return nil, fmt.Errorf("helper output length=%d want %d", len(data), wantLen)
-	}
+	count := reader.Count(len(records))
+	reader.ExpectRemaining(count * (4 + 16*4))
 	out := make([][]int16, count)
-	offset := 12
 	for i := range out {
-		order := int(binary.LittleEndian.Uint32(data[offset:]))
-		offset += 4
+		order := int(reader.U32())
 		if order != 10 && order != 16 {
 			return nil, fmt.Errorf("helper order=%d", order)
 		}
 		out[i] = make([]int16, order)
 		for j := 0; j < 16; j++ {
-			v := int32(binary.LittleEndian.Uint32(data[offset:]))
 			if j < order {
-				out[i][j] = int16(v)
+				out[i][j] = int16(reader.I32())
+			} else {
+				reader.I32()
 			}
-			offset += 4
 		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
