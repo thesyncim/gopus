@@ -166,6 +166,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	transitionRedundancy := transitionCeltToHybrid || transitionSilkToCELT
 	redundancyBytes := 0
 	var redundancyData []byte
+	var redundancyPCM []float64
 	var redundantRng uint32
 	if transitionRedundancy {
 		redundancyBytes = computeRedundancyBytes(baseTargetBytes, e.bitrate, frameRate, e.channels)
@@ -174,14 +175,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 			// redundancy CELT sees the same HB gain contour as the main CELT path.
 			_, _, celtBitrateHBGainRed := e.computeHybridBitAllocationWithBudget(frameSize, baseTargetBytes, redundancyBytes)
 			hbGainRed := e.computeHBGain(celtBitrateHBGainRed)
-			redundancyPCM := e.prepareCELTTransitionRedundancyInput(celtPCM, hbGainRed)
-			data, rng, err := e.encodeCELTTransitionRedundancy(redundancyPCM, frameSize, redundancyBytes)
-			if err != nil {
-				return nil, err
-			}
-			redundancyData = data
-			redundantRng = rng
-			redundancyBytes = len(redundancyData)
+			redundancyPCM = e.prepareCELTTransitionRedundancyInput(celtPCM, hbGainRed)
 		}
 	}
 
@@ -387,14 +381,28 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	redundancyActive := false
 	if re.Tell()+17+20 <= 8*payloadTarget {
 		if transitionRedundancy && redundancyBytes >= 2 {
-			redundancyActive = true
-			re.EncodeBit(1, 12) // redundancy = 1
+			redundancyBytes = clampRedundancyBytesAfterSilk(baseTargetBytes, re.Tell(), redundancyBytes, true)
 			if transitionCeltToHybrid {
-				re.EncodeBit(1, 1) // celt_to_silk = 1
-			} else {
-				re.EncodeBit(0, 1) // celt_to_silk = 0
+				data, rng, err := e.encodeCELTTransitionRedundancy(redundancyPCM, frameSize, redundancyBytes)
+				if err != nil {
+					return nil, err
+				}
+				redundancyData = data
+				redundantRng = rng
+				redundancyBytes = len(redundancyData)
 			}
-			re.EncodeUniform(uint32(redundancyBytes-2), 256) // redundancy length
+			if redundancyBytes >= 2 {
+				redundancyActive = true
+				re.EncodeBit(1, 12) // redundancy = 1
+				if transitionCeltToHybrid {
+					re.EncodeBit(1, 1) // celt_to_silk = 1
+				} else {
+					re.EncodeBit(0, 1) // celt_to_silk = 0
+				}
+				re.EncodeUniform(uint32(redundancyBytes-2), 256) // redundancy length
+			} else {
+				re.EncodeBit(0, 12)
+			}
 		} else {
 			re.EncodeBit(0, 12)
 		}
@@ -534,6 +542,28 @@ func computeRedundancyBytes(maxDataBytes, bitrateBps, frameRate, channels int) i
 		return redundancyBytes
 	}
 	return 0
+}
+
+func clampRedundancyBytesAfterSilk(maxDataBytes, tellBits, redundancyBytes int, hybrid bool) int {
+	if redundancyBytes <= 0 {
+		return 0
+	}
+	maxRedundancy := 0
+	if hybrid {
+		maxRedundancy = (maxDataBytes - 1) - ((tellBits + 8 + 3 + 7) >> 3)
+	} else {
+		maxRedundancy = (maxDataBytes - 1) - ((tellBits + 7) >> 3)
+	}
+	if redundancyBytes > maxRedundancy {
+		redundancyBytes = maxRedundancy
+	}
+	if redundancyBytes < 2 {
+		redundancyBytes = 2
+	}
+	if redundancyBytes > 257 {
+		redundancyBytes = 257
+	}
+	return redundancyBytes
 }
 
 // encodeCELTTransitionRedundancy encodes the 5ms CELT redundancy frame used for
