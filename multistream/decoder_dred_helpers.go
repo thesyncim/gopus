@@ -161,9 +161,28 @@ func (d *Decoder) dredSidecarActive() bool {
 	if s == nil {
 		return false
 	}
-	// Keep the sidecar dormant until a stream actually caches a DRED
-	// payload; the per-stream neural consumer is entered from the PLC path.
-	return len(s.dredCache) != 0
+	for i := range s.dredCache {
+		if !s.dredCache[i].Empty() {
+			return true
+		}
+	}
+	for i := range s.dredRecovery {
+		if s.dredRecovery[i] != 0 {
+			return true
+		}
+	}
+	for i := range s.dredBridge {
+		b := &s.dredBridge[i]
+		if b.dredLastNeural || b.dredPLCFill != 0 || b.dredPLCPreemphMem != 0 {
+			return true
+		}
+	}
+	for i := range s.dredPLC {
+		if s.dredPLC[i].FECFillPos() != 0 || s.dredPLC[i].FECSkip() != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (d *Decoder) dredPayloadScannerActive() bool {

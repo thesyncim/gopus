@@ -1083,6 +1083,9 @@ func TestDecoderDREDCacheFollowsStandaloneModelAndIgnoreExtensions(t *testing.T)
 	if dec.dred.dredCache[1].Empty() {
 		t.Fatal("expected cached DRED payload before main blob change")
 	}
+	if !dec.dredSidecarActive() {
+		t.Fatal("expected DRED sidecar active while cache is populated")
+	}
 
 	dec.SetDNNBlob(makeDecoderBlobForDREDTest(t, false))
 	if dec.dred == nil || !dec.dred.dredModelLoaded {
@@ -1103,11 +1106,25 @@ func TestDecoderDREDCacheFollowsStandaloneModelAndIgnoreExtensions(t *testing.T)
 	if dec.dred.dredCache[1].Empty() {
 		t.Fatal("expected cached DRED payload before ignore toggle")
 	}
+	if !dec.dredSidecarActive() {
+		t.Fatal("expected DRED sidecar active before ignore toggle")
+	}
 	dec.SetIgnoreExtensions(true)
 	for i := range dec.dred.dredCache {
 		if dec.dred.dredCache[i] != (internaldred.Cache{}) {
 			t.Fatalf("SetIgnoreExtensions(true) left stream %d DRED cache=%+v want zero state", i, dec.dred.dredCache[i])
 		}
+	}
+	if dec.dredSidecarActive() {
+		t.Fatalf("SetIgnoreExtensions(true) left DRED sidecar active: %+v", dec.dred)
+	}
+
+	dec.SetIgnoreExtensions(false)
+	if _, err := dec.Decode(packet, 960); err != nil {
+		t.Fatalf("Decode after ignore re-enable error: %v", err)
+	}
+	if dec.dred.dredCache[1].Empty() || !dec.dredSidecarActive() {
+		t.Fatalf("DRED sidecar did not rebuild after ignore re-enable: %+v", dec.dred)
 	}
 }
 
