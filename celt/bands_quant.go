@@ -2,6 +2,7 @@ package celt
 
 import (
 	"math"
+	"runtime"
 
 	"github.com/thesyncim/gopus/rangecoding"
 )
@@ -1522,56 +1523,42 @@ func stereoIthetaQ30(x, y []float64, stereo bool) int {
 	_ = x[n-1]
 	_ = y[n-1]
 
-	var emid, eside float64
+	var emid, eside float32
 	if stereo {
 		i := 0
-		for ; i+3 < n; i += 4 {
-			x0 := x[i]
-			y0 := y[i]
-			m0 := x0 + y0
-			s0 := y0 - x0
-
-			x1 := x[i+1]
-			y1 := y[i+1]
-			m1 := x1 + y1
-			s1 := y1 - x1
-
-			x2 := x[i+2]
-			y2 := y[i+2]
-			m2 := x2 + y2
-			s2 := y2 - x2
-
-			x3 := x[i+3]
-			y3 := y[i+3]
-			m3 := x3 + y3
-			s3 := y3 - x3
-
-			emid += m0*m0 + m1*m1 + m2*m2 + m3*m3
-			eside += s0*s0 + s1*s1 + s2*s2 + s3*s3
+		if celtUseFusedFloatMath {
+			for ; i+3 < n; i += 4 {
+				x0 := float32(x[i])
+				y0 := float32(y[i])
+				x1 := float32(x[i+1])
+				y1 := float32(y[i+1])
+				x2 := float32(x[i+2])
+				y2 := float32(y[i+2])
+				x3 := float32(x[i+3])
+				y3 := float32(y[i+3])
+				emid = celtAddSquares4(emid, x0+y0, x1+y1, x2+y2, x3+y3)
+				eside = celtAddSquares4(eside, x0-y0, x1-y1, x2-y2, x3-y3)
+			}
 		}
 		for ; i < n; i++ {
-			m := x[i] + y[i]
-			s := y[i] - x[i]
-			emid += m * m
-			eside += s * s
+			xv := float32(x[i])
+			yv := float32(y[i])
+			m := xv + yv
+			s := xv - yv
+			emid = celtFloatMulAdd(m, m, emid)
+			eside = celtFloatMulAdd(s, s, eside)
 		}
 	} else {
-		i := 0
-		for ; i+3 < n; i += 4 {
-			x0 := x[i]
-			x1 := x[i+1]
-			x2 := x[i+2]
-			x3 := x[i+3]
-			y0 := y[i]
-			y1 := y[i+1]
-			y2 := y[i+2]
-			y3 := y[i+3]
-			emid += x0*x0 + x1*x1 + x2*x2 + x3*x3
-			eside += y0*y0 + y1*y1 + y2*y2 + y3*y3
-		}
-		for ; i < n; i++ {
-			emid += x[i] * x[i]
-			eside += y[i] * y[i]
+		if celtUseFusedFloatMath {
+			emid = celtInnerProdNeonStyle(x[:n], x[:n])
+			eside = celtInnerProdNeonStyle(y[:n], y[:n])
+		} else {
+			for i := 0; i < n; i++ {
+				xv := float32(x[i])
+				yv := float32(y[i])
+				emid = celtFloatMulAdd(xv, xv, emid)
+				eside = celtFloatMulAdd(yv, yv, eside)
+			}
 		}
 	}
 
@@ -1580,39 +1567,16 @@ func stereoIthetaQ30(x, y []float64, stereo bool) int {
 	}
 
 	// Compute mid and side magnitudes
-	mid := math.Sqrt(emid)
-	side := math.Sqrt(eside)
-
-	// Compute atan2(side, mid) * 2/pi in Q30 format
-	// This matches libopus: itheta = floor(0.5 + 65536 * 16384 * atan2p_norm(side, mid))
-	// where atan2p_norm returns atan2(y,x) * 2/pi
-	atan2pNorm := celtAtan2pNorm(side, mid)
-
-	// Scale to Q30: multiply by 2^30 (1073741824)
-	// libopus float path: itheta = (int)floor(.5f + 65536.f * 16384 * celt_atan2p_norm(side, mid))
-	// 65536 * 16384 = 2^30
-	ithetaQ30 := int(math.Floor(0.5 + 1073741824.0*atan2pNorm))
-	if ithetaQ30 < 0 {
-		ithetaQ30 = 0
-	}
-	if ithetaQ30 > 1073741824 { // 1 << 30
-		ithetaQ30 = 1073741824
-	}
-	return ithetaQ30
+	mid := float32(math.Sqrt(float64(emid)))
+	side := float32(math.Sqrt(float64(eside)))
+	theta := float32(0.5) + (float32(65536)*float32(16384))*celtAtan2pNormF32(side, mid)
+	return int(math.Floor(float64(theta)))
 }
 
 // celtAtan2pNorm computes atan2(y, x) * 2/pi for non-negative x, y.
 // Returns a value in [0, 1] representing the angle as a fraction of pi/2.
 func celtAtan2pNorm(y, x float64) float64 {
-	// For very small values, return 0
-	if (x*x + y*y) < 1e-18 {
-		return 0
-	}
-
-	if y < x {
-		return celtAtanNorm(y / x)
-	}
-	return 1.0 - celtAtanNorm(x/y)
+	return float64(celtAtan2pNormF32(float32(y), float32(x)))
 }
 
 // celtAtan2pNormF32 matches libopus float-path arithmetic more closely.
@@ -1629,21 +1593,54 @@ func celtAtan2pNormF32(y, x float32) float32 {
 // celtAtanNorm computes atan(x) * 2/pi using polynomial approximation.
 // Matches libopus celt_atan_norm() for float path.
 func celtAtanNorm(x float64) float64 {
-	// Match libopus float celt_atan_norm() polynomial from celt/mathops.h.
-	// return A1 * (x + x*x^2*(A03 + x^2*(A05 + ... + A15*x^2))).
-	const (
-		a1  = 0.636619772367581
-		a3  = -0.3333165943622589
-		a5  = 0.19962704181671143
-		a7  = -0.13976582884788513
-		a9  = 0.09794234484434128
-		a11 = -0.057773590087890625
-		a13 = 0.023040136322379112
-		a15 = -0.0043554059229791164
-	)
+	return float64(celtAtanNormF32(float32(x)))
+}
 
-	xSq := x * x
-	return a1 * (x + x*xSq*(a3+xSq*(a5+xSq*(a7+xSq*(a9+xSq*(a11+xSq*(a13+xSq*a15)))))))
+const celtUseFusedFloatMath = runtime.GOARCH == "arm64"
+
+func celtFloatMulAdd(a, b, c float32) float32 {
+	if celtUseFusedFloatMath {
+		return float32(float64(a)*float64(b) + float64(c))
+	}
+	return a*b + c
+}
+
+func celtAddSquares4(sum, x0, x1, x2, x3 float32) float32 {
+	p0 := math.Float32frombits(math.Float32bits(x0 * x0))
+	p1 := math.Float32frombits(math.Float32bits(x1 * x1))
+	p2 := math.Float32frombits(math.Float32bits(x2 * x2))
+	p3 := math.Float32frombits(math.Float32bits(x3 * x3))
+	sum = math.Float32frombits(math.Float32bits(sum + p0))
+	sum = math.Float32frombits(math.Float32bits(sum + p1))
+	sum = math.Float32frombits(math.Float32bits(sum + p2))
+	sum = math.Float32frombits(math.Float32bits(sum + p3))
+	return sum
+}
+
+func celtInnerProdNeonStyle(x, y []float64) float32 {
+	var acc [4]float32
+	i := 0
+	for ; i < len(x)-7; i += 8 {
+		for lane := 0; lane < 4; lane++ {
+			acc[lane] = celtFloatMulAdd(float32(x[i+lane]), float32(y[i+lane]), acc[lane])
+		}
+		for lane := 0; lane < 4; lane++ {
+			acc[lane] = celtFloatMulAdd(float32(x[i+4+lane]), float32(y[i+4+lane]), acc[lane])
+		}
+	}
+	if len(x)-i >= 4 {
+		for lane := 0; lane < 4; lane++ {
+			acc[lane] = celtFloatMulAdd(float32(x[i+lane]), float32(y[i+lane]), acc[lane])
+		}
+		i += 4
+	}
+	sum0 := math.Float32frombits(math.Float32bits(acc[0] + acc[2]))
+	sum1 := math.Float32frombits(math.Float32bits(acc[1] + acc[3]))
+	sum := math.Float32frombits(math.Float32bits(sum0 + sum1))
+	for ; i < len(x); i++ {
+		sum = celtFloatMulAdd(float32(x[i]), float32(y[i]), sum)
+	}
+	return sum
 }
 
 func celtAtanNormF32(x float32) float32 {
@@ -1658,32 +1655,39 @@ func celtAtanNormF32(x float32) float32 {
 		a15 float32 = -0.0043554059229791164
 	)
 	xSq := x * x
-	return a1 * (x + x*xSq*(a3+xSq*(a5+xSq*(a7+xSq*(a9+xSq*(a11+xSq*(a13+xSq*a15)))))))
+	p := celtFloatMulAdd(xSq, a15, a13)
+	p = celtFloatMulAdd(xSq, p, a11)
+	p = celtFloatMulAdd(xSq, p, a9)
+	p = celtFloatMulAdd(xSq, p, a7)
+	p = celtFloatMulAdd(xSq, p, a5)
+	p = celtFloatMulAdd(xSq, p, a3)
+	return a1 * celtFloatMulAdd(x*xSq, p, x)
 }
 
 // celtCosNorm2 computes cos(pi/2 * x) for x in [0, 1].
 // This is used for extended precision mid/side computation from Q30 theta.
 // Matches libopus celt_cos_norm2().
 func celtCosNorm2(x float64) float64 {
-	// Restrict x to [-1, 3] then to [-1, 1]
-	x -= 4 * math.Floor(0.25*(x+1))
-	outputSign := 1.0
-	if x > 1 {
-		outputSign = -1.0
-		x -= 2
+	xf := float32(x)
+	xf = float32(float64(xf) - 4*math.Floor(0.25*float64(float32(xf+1))))
+	outputSign := float32(1)
+	if xf > 1 {
+		outputSign = -1
+		xf -= 2
 	}
-
-	// Polynomial coefficients from libopus
 	const (
-		cosA0 = 9.999999403953552246093750000000e-01
-		cosA2 = -1.233698248863220214843750000000
-		cosA4 = 2.536507546901702880859375000000e-01
-		cosA6 = -2.08106283098459243774414062500e-02
-		cosA8 = 8.581906440667808055877685546875e-04
+		cosA0 float32 = 9.999999403953552246093750000000e-01
+		cosA2 float32 = -1.233698248863220214843750000000000
+		cosA4 float32 = 2.536507546901702880859375000000e-01
+		cosA6 float32 = -2.08106283098459243774414062500e-02
+		cosA8 float32 = 8.581906440667808055877685546875e-04
 	)
-
-	xSq := x * x
-	return outputSign * (cosA0 + xSq*(cosA2+xSq*(cosA4+xSq*(cosA6+xSq*cosA8))))
+	xSq := xf * xf
+	p := celtFloatMulAdd(xSq, cosA8, cosA6)
+	p = celtFloatMulAdd(xSq, p, cosA4)
+	p = celtFloatMulAdd(xSq, p, cosA2)
+	p = celtFloatMulAdd(xSq, p, cosA0)
+	return float64(outputSign * p)
 }
 
 func thetaUsesQEXT(ctx *bandCtx) bool {

@@ -22,6 +22,10 @@ const (
 	libopusCELTMathModeUdiv            = uint32(6)
 	libopusCELTMathModeSudiv           = uint32(7)
 	libopusCELTMathModeLog2TanTheta    = uint32(8)
+	libopusCELTMathModeAtanNorm        = uint32(9)
+	libopusCELTMathModeAtan2pNorm      = uint32(10)
+	libopusCELTMathModeCosNorm2        = uint32(11)
+	libopusCELTMathModeStereoIthetaQ30 = uint32(12)
 )
 
 var (
@@ -30,14 +34,20 @@ var (
 	libopusCELTMathHelperErr  error
 )
 
+type libopusCELTStereoIthetaCase struct {
+	stereo bool
+	x      []float32
+	y      []float32
+}
+
 func buildLibopusCELTMathHelper() (string, error) {
 	return libopustest.BuildCHelper(libopustest.CHelperConfig{
 		Label:       "celt math",
 		OutputBase:  "gopus_libopus_celt_math",
 		SourceFile:  "libopus_celt_math_info.c",
-		CFlags:      []string{"-DHAVE_CONFIG_H"},
-		RefIncludes: []string{"celt"},
-		RefSources:  []string{"celt/mathops.c", "celt/bands.c"},
+		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+		RefIncludes: []string{"celt", "silk"},
+		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
 	})
 }
@@ -104,6 +114,43 @@ func probeLibopusCELTMathWords(mode uint32, count int, words []uint32) ([]uint32
 	return out, nil
 }
 
+func probeLibopusCELTStereoIthetaQ30(cases []libopusCELTStereoIthetaCase) ([]uint32, error) {
+	binPath, err := getLibopusCELTMathHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusCELTMathInputMagic, libopusCELTMathModeStereoIthetaQ30, uint32(len(cases)))
+	for _, tc := range cases {
+		if tc.stereo {
+			payload.U32(1)
+		} else {
+			payload.U32(0)
+		}
+		payload.U32(uint32(len(tc.x)))
+		for _, v := range tc.x {
+			payload.Float32(v)
+		}
+		for _, v := range tc.y {
+			payload.Float32(v)
+		}
+	}
+
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "celt math", libopusCELTMathOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(cases))
+	reader.ExpectRemaining(4 * count)
+	out := make([]uint32, count)
+	for i := range out {
+		out[i] = reader.U32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func TestCELTLog2MatchesLibopusFloatApprox(t *testing.T) {
 	libopustest.RequireOracle(t)
 	samples := []float32{
@@ -160,6 +207,156 @@ func TestCELTExp2MatchesLibopusFloatApprox(t *testing.T) {
 			)
 		}
 	}
+}
+
+func TestCELTAngleMathMatchesLibopusFloatPath(t *testing.T) {
+	libopustest.RequireOracle(t)
+	angleSamples := []float32{
+		-1.25, -1, -0.5, -0.001, 0, 1e-20, 1e-10, 1e-5,
+		0.001, 0.03125, 0.125, 0.25, 0.5, 0.75, 0.875,
+		0.99999994, 1, 1.0000001, 1.25, 2, 3.75,
+	}
+	seed := uint32(0x6d2b79f5)
+	for i := 0; i < 128; i++ {
+		word := nextCELTMathWord(&seed)
+		sample := float32(int32(word%20001)-10000) / 8192
+		angleSamples = append(angleSamples, sample)
+	}
+
+	t.Run("atanNorm", func(t *testing.T) {
+		inputs := make([]float32, 0, len(angleSamples))
+		for _, sample := range angleSamples {
+			if sample >= 0 && sample <= 1 {
+				inputs = append(inputs, sample)
+			}
+		}
+		want, err := probeLibopusCELTMath(libopusCELTMathModeAtanNorm, inputs)
+		if err != nil {
+			libopustest.HelperUnavailable(t, "celt math", err)
+		}
+		for i, sample := range inputs {
+			got := celtAtanNormF32(sample)
+			if math.Float32bits(got) != math.Float32bits(want[i]) {
+				t.Fatalf("celtAtanNormF32(%g)=%08x(%g) want %08x(%g)",
+					sample,
+					math.Float32bits(got), got,
+					math.Float32bits(want[i]), want[i],
+				)
+			}
+			got64 := float32(celtAtanNorm(float64(sample)))
+			if math.Float32bits(got64) != math.Float32bits(want[i]) {
+				t.Fatalf("celtAtanNorm(%g)=%08x(%g) want %08x(%g)",
+					sample,
+					math.Float32bits(got64), got64,
+					math.Float32bits(want[i]), want[i],
+				)
+			}
+		}
+	})
+
+	t.Run("atan2pNorm", func(t *testing.T) {
+		type pair struct {
+			y float32
+			x float32
+		}
+		pairs := []pair{
+			{0, 0}, {0, 1}, {1, 0}, {1, 1},
+			{1e-10, 1e-10}, {1e-5, 0.25}, {0.25, 1e-5},
+			{0.125, 0.875}, {0.875, 0.125}, {0.99999994, 1},
+		}
+		seed := uint32(0x1234abcd)
+		for i := 0; i < 128; i++ {
+			y := float32(nextCELTMathWord(&seed)%20001) / 8192
+			x := float32(nextCELTMathWord(&seed)%20001) / 8192
+			pairs = append(pairs, pair{y: y, x: x})
+		}
+		words := make([]uint32, 0, 2*len(pairs))
+		for _, p := range pairs {
+			words = append(words, math.Float32bits(p.x), math.Float32bits(p.y))
+		}
+		want, err := probeLibopusCELTMathWords(libopusCELTMathModeAtan2pNorm, len(pairs), words)
+		if err != nil {
+			libopustest.HelperUnavailable(t, "celt math", err)
+		}
+		for i, p := range pairs {
+			got := celtAtan2pNormF32(p.y, p.x)
+			if math.Float32bits(got) != want[i] {
+				t.Fatalf("celtAtan2pNormF32(%g,%g)=%08x(%g) want %08x(%g)",
+					p.y, p.x,
+					math.Float32bits(got), got,
+					want[i], math.Float32frombits(want[i]),
+				)
+			}
+			got64 := float32(celtAtan2pNorm(float64(p.y), float64(p.x)))
+			if math.Float32bits(got64) != want[i] {
+				t.Fatalf("celtAtan2pNorm(%g,%g)=%08x(%g) want %08x(%g)",
+					p.y, p.x,
+					math.Float32bits(got64), got64,
+					want[i], math.Float32frombits(want[i]),
+				)
+			}
+		}
+	})
+
+	t.Run("cosNorm2", func(t *testing.T) {
+		want, err := probeLibopusCELTMath(libopusCELTMathModeCosNorm2, angleSamples)
+		if err != nil {
+			libopustest.HelperUnavailable(t, "celt math", err)
+		}
+		for i, sample := range angleSamples {
+			got := float32(celtCosNorm2(float64(sample)))
+			if math.Float32bits(got) != math.Float32bits(want[i]) {
+				t.Fatalf("celtCosNorm2(%g)=%08x(%g) want %08x(%g)",
+					sample,
+					math.Float32bits(got), got,
+					math.Float32bits(want[i]), want[i],
+				)
+			}
+		}
+	})
+}
+
+func TestCELTStereoIthetaQ30MatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusCELTStereoIthetaCase{
+		{stereo: false, x: []float32{1}, y: []float32{0}},
+		{stereo: false, x: []float32{0}, y: []float32{1}},
+		{stereo: false, x: []float32{0.70710677}, y: []float32{0.70710677}},
+		{stereo: true, x: []float32{1, 0.5, -0.25, 0.125}, y: []float32{1, -0.5, 0.25, -0.125}},
+		{stereo: true, x: []float32{0.25, -0.5, 0.75, -1}, y: []float32{-0.25, 0.5, -0.75, 1}},
+	}
+	seed := uint32(0x89abcdef)
+	for _, n := range []int{1, 2, 3, 5, 16, 31, 64} {
+		for _, stereo := range []bool{false, true} {
+			x := make([]float32, n)
+			y := make([]float32, n)
+			for i := 0; i < n; i++ {
+				x[i] = float32(int32(nextCELTMathWord(&seed)%20001)-10000) / 10000
+				y[i] = float32(int32(nextCELTMathWord(&seed)%20001)-10000) / 10000
+			}
+			cases = append(cases, libopusCELTStereoIthetaCase{stereo: stereo, x: x, y: y})
+		}
+	}
+
+	want, err := probeLibopusCELTStereoIthetaQ30(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt math", err)
+	}
+	for i, tc := range cases {
+		got := stereoIthetaQ30(float32SliceToFloat64(tc.x), float32SliceToFloat64(tc.y), tc.stereo)
+		if int32(got) != int32(want[i]) {
+			t.Fatalf("case %d stereo=%v n=%d stereoIthetaQ30=%d want %d",
+				i, tc.stereo, len(tc.x), got, int32(want[i]))
+		}
+	}
+}
+
+func float32SliceToFloat64(in []float32) []float64 {
+	out := make([]float64, len(in))
+	for i, v := range in {
+		out[i] = float64(v)
+	}
+	return out
 }
 
 func TestCELTBitexactCosMatchesLibopus(t *testing.T) {

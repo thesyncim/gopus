@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef _WIN32
@@ -11,6 +12,7 @@
 #include "celt/bands.h"
 #include "celt/entcode.h"
 #include "celt/mathops.h"
+#include "celt/vq.h"
 
 #define INPUT_MAGIC "GCMI"
 #define OUTPUT_MAGIC "GCMO"
@@ -24,7 +26,11 @@ enum {
   MODE_ISQRT32 = 5,
   MODE_CELT_UDIV = 6,
   MODE_CELT_SUDIV = 7,
-  MODE_BITEXACT_LOG2TAN_THETA = 8
+  MODE_BITEXACT_LOG2TAN_THETA = 8,
+  MODE_ATAN_NORM = 9,
+  MODE_ATAN2P_NORM = 10,
+  MODE_COS_NORM2 = 11,
+  MODE_STEREO_ITHETA_Q30 = 12
 };
 
 static int set_binary_stdio(void) {
@@ -55,8 +61,13 @@ static int eval_record(uint32_t mode) {
   uint32_t a;
   uint32_t b;
   uint32_t out_bits;
+  uint32_t n;
+  uint32_t stereo;
   float x;
   float y;
+  celt_norm *vx;
+  celt_norm *vy;
+  uint32_t i;
 
   switch (mode) {
     case MODE_LOG2:
@@ -94,6 +105,54 @@ static int eval_record(uint32_t mode) {
       return write_u32((uint32_t)(int32_t)bitexact_log2tan(
           bitexact_cos((opus_int16)(16384 - (int32_t)a)),
           bitexact_cos((opus_int16)(int32_t)a)));
+    case MODE_ATAN_NORM:
+      if (!read_u32(&a)) return 0;
+      memcpy(&x, &a, sizeof(x));
+      y = celt_atan_norm(x);
+      memcpy(&out_bits, &y, sizeof(out_bits));
+      return write_u32(out_bits);
+    case MODE_ATAN2P_NORM:
+      if (!read_u32(&a) || !read_u32(&b)) return 0;
+      memcpy(&x, &a, sizeof(x));
+      memcpy(&y, &b, sizeof(y));
+      x = celt_atan2p_norm(y, x);
+      memcpy(&out_bits, &x, sizeof(out_bits));
+      return write_u32(out_bits);
+    case MODE_COS_NORM2:
+      if (!read_u32(&a)) return 0;
+      memcpy(&x, &a, sizeof(x));
+      y = celt_cos_norm2(x);
+      memcpy(&out_bits, &y, sizeof(out_bits));
+      return write_u32(out_bits);
+    case MODE_STEREO_ITHETA_Q30:
+      if (!read_u32(&stereo) || !read_u32(&n) || n == 0 || n > 256) return 0;
+      vx = (celt_norm *)malloc(n * sizeof(*vx));
+      vy = (celt_norm *)malloc(n * sizeof(*vy));
+      if (vx == NULL || vy == NULL) {
+        free(vx);
+        free(vy);
+        return 0;
+      }
+      for (i = 0; i < n; i++) {
+        if (!read_u32(&a)) {
+          free(vx);
+          free(vy);
+          return 0;
+        }
+        memcpy(&vx[i], &a, sizeof(vx[i]));
+      }
+      for (i = 0; i < n; i++) {
+        if (!read_u32(&a)) {
+          free(vx);
+          free(vy);
+          return 0;
+        }
+        memcpy(&vy[i], &a, sizeof(vy[i]));
+      }
+      out_bits = (uint32_t)(int32_t)stereo_itheta(vx, vy, stereo != 0, (int)n, 0);
+      free(vx);
+      free(vy);
+      return write_u32(out_bits);
   }
   return 0;
 }
@@ -108,7 +167,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_BITEXACT_LOG2TAN_THETA) return 1;
+  if (mode > MODE_STEREO_ITHETA_Q30) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {
