@@ -64,7 +64,10 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize in
 
 // decodeMonoPacketToStereo decodes a mono packet and converts output to stereo.
 func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float64, error) {
-	qextPayload := d.takeQEXTPayload()
+	var qextPayload []byte
+	if extsupport.QEXT {
+		qextPayload = d.takeQEXTPayload()
+	}
 	if len(data) <= 1 {
 		return d.decodePLC(frameSize)
 	}
@@ -304,7 +307,10 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 
 // decodeStereoPacketToMono decodes a stereo packet and converts output to mono.
 func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float64, error) {
-	qextPayload := d.takeQEXTPayload()
+	var qextPayload []byte
+	if extsupport.QEXT {
+		qextPayload = d.takeQEXTPayload()
+	}
 	if len(data) <= 1 {
 		return d.decodePLC(frameSize)
 	}
@@ -567,7 +573,10 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	}()
 
 	d.SetRangeDecoder(rd)
-	qextPayload := d.takeQEXTPayload()
+	var qextPayload []byte
+	if extsupport.QEXT {
+		qextPayload = d.takeQEXTPayload()
+	}
 
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
@@ -745,7 +754,10 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	}()
 
 	d.SetRangeDecoder(rd)
-	qextPayload := d.takeQEXTPayload()
+	var qextPayload []byte
+	if extsupport.QEXT {
+		qextPayload = d.takeQEXTPayload()
+	}
 
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM

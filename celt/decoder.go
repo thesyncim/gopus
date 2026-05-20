@@ -1,5 +1,7 @@
 package celt
 
+import "github.com/thesyncim/gopus/internal/extsupport"
+
 // DecodeFrame decodes a complete CELT frame from raw bytes.
 // If data is nil, empty, or a single byte, performs Packet Loss Concealment (PLC) instead of decoding.
 // data: raw CELT frame bytes (without Opus framing), or len <= 1 for PLC
@@ -19,7 +21,10 @@ package celt
 func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	// Track channel count for transition detection (normal decode uses decoder's channels)
 	d.handleChannelTransition(d.channels)
-	qextPayload := d.takeQEXTPayload()
+	var qextPayload []byte
+	if extsupport.QEXT {
+		qextPayload = d.takeQEXTPayload()
+	}
 
 	// Match libopus celt_decode_with_ec(): raw CELT payloads of length <= 1 are lost frames.
 	if len(data) <= 1 {

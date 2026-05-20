@@ -66,7 +66,7 @@ func combineFinalRange(mainRD, extRD *rangecoding.Decoder) uint32 {
 		return 0
 	}
 	rng := mainRD.Range()
-	if extRD != nil {
+	if extsupport.QEXT && extRD != nil {
 		rng ^= extRD.Range()
 	}
 	return rng

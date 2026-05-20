@@ -1,6 +1,9 @@
 package celt
 
-import "github.com/thesyncim/gopus/rangecoding"
+import (
+	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/rangecoding"
+)
 
 // DecodeFrameWithDecoder decodes a frame using a pre-initialized range decoder.
 // This is useful when the range decoder is shared with other layers (e.g., SILK in hybrid mode).
@@ -113,7 +116,10 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	d.beginDecodedPacketPLCState()
 	d.SetRangeDecoder(rd)
 	d.prepareMonoEnergyFromStereo()
-	qextPayload := d.takeQEXTPayload()
+	var qextPayload []byte
+	if extsupport.QEXT {
+		qextPayload = d.takeQEXTPayload()
+	}
 
 	// Get mode configuration
 	mode := GetModeConfig(frameSize)
