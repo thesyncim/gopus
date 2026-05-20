@@ -51,7 +51,7 @@ func (e *Encoder) ComputeAllocationHybridScratch(re *rangecoding.Encoder, totalB
 	if nbBands < 0 {
 		nbBands = 0
 	}
-	channels := e.channels
+	channels := e.codedChannels()
 	if channels < 1 {
 		channels = 1
 	}

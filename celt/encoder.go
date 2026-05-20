@@ -711,6 +711,17 @@ func (e *Encoder) StreamChannels() int {
 	return e.streamChannels
 }
 
+func (e *Encoder) codedChannels() int {
+	channels := e.streamChannels
+	if channels < 1 {
+		channels = 1
+	}
+	if channels > e.channels {
+		channels = e.channels
+	}
+	return channels
+}
+
 // SampleRate returns the operating sample rate (always 48000 for CELT).
 func (e *Encoder) SampleRate() int {
 	return e.sampleRate
@@ -1413,7 +1424,7 @@ func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3,
 	if nbBands < 0 {
 		nbBands = 0
 	}
-	channels := e.channels
+	channels := e.codedChannels()
 	if channels < 1 {
 		channels = 1
 	}

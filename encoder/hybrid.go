@@ -117,6 +117,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 		e.ensureSILKSideEncoder()
 	}
 	e.ensureCELTEncoder()
+	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeHybrid))
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 
@@ -546,6 +547,7 @@ func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []float64, frameSize, r
 	}
 
 	e.ensureCELTEncoder()
+	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeHybrid))
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetHybrid(false)
 	e.celtEncoder.SetTopLevelDelayCompensatedInput(true)
@@ -601,6 +603,7 @@ func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []float64, frameSize, r
 	}
 
 	e.ensureCELTEncoder()
+	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeCELT))
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.Reset()
 	e.celtEncoder.SetRangeEncoder(nil)
@@ -1367,6 +1370,7 @@ func celtBandwidthFromTypes(bw types.Bandwidth) celt.CELTBandwidth {
 func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetPayloadBytes int, silkSignalType, silkOffset int, useFinalVBRTarget, useInitialVBRAdjust bool) {
 	// Set hybrid mode flag on CELT encoder
 	e.celtEncoder.SetHybrid(true)
+	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeHybrid))
 	e.celtEncoder.SetSilkInfo(silkSignalType, silkOffset)
 	e.celtEncoder.SetPrediction(e.celtPredictionModeForFrame())
 

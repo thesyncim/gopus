@@ -263,6 +263,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	mode := GetModeConfig(frameSize)
 	nbBands := e.effectiveBandCount(frameSize)
 	lm := mode.LM
+	codedChannels := e.codedChannels()
 
 	// Ensure scratch buffers are properly sized for this frame
 	e.ensureScratch(frameSize)
@@ -422,7 +423,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	prefilterTapset := e.TapsetDecision()
 	// Match libopus run_prefilter enable gating.
 	enabled := start == 0 &&
-		(targetBytes > 12*e.channels || (e.lfe && targetBytes > 3)) &&
+		(targetBytes > 12*codedChannels || (e.lfe && targetBytes > 3)) &&
 		!e.IsHybrid() &&
 		!isSilence &&
 		re.Tell()+16 <= targetBits &&
@@ -497,8 +498,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			copy(hist, mdctPrevL[:overlap])
 			mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
-			bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*e.channels)
-			e.ComputeBandEnergiesInto(mdctLong, nbBands, frameSize, bandLogE2)
+			bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*codedChannels)
+			computeBandEnergiesInto(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
 			roundFloat64ToFloat32(bandLogE2)
 		} else {
 			left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
@@ -523,19 +524,22 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			copy(rightHist, mdctPrevR[:overlap])
 			mdctLeftLong := computeMDCTWithHistoryScratchStereoL(left, leftHist, 1, &e.scratch)
 			mdctRightLong := computeMDCTWithHistoryScratchStereoR(right, rightHist, 1, &e.scratch)
-			// Use scratch for combined mdct
-			mdctLongLen := len(mdctLeftLong) + len(mdctRightLong)
 			mdctLong := e.scratch.mdctCoeffs
-			if len(mdctLong) < mdctLongLen {
-				mdctLong = make([]float64, mdctLongLen)
-				e.scratch.mdctCoeffs = mdctLong
+			if codedChannels == 1 {
+				mdctLong = foldStereoMDCTToMono(mdctLong, mdctLeftLong, mdctRightLong)
+			} else {
+				mdctLongLen := len(mdctLeftLong) + len(mdctRightLong)
+				if len(mdctLong) < mdctLongLen {
+					mdctLong = make([]float64, mdctLongLen)
+					e.scratch.mdctCoeffs = mdctLong
+				}
+				mdctLong = mdctLong[:mdctLongLen]
+				copy(mdctLong, mdctLeftLong)
+				copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
 			}
-			mdctLong = mdctLong[:mdctLongLen]
-			copy(mdctLong, mdctLeftLong)
-			copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
-			bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*e.channels)
-			e.ComputeBandEnergiesInto(mdctLong, nbBands, frameSize, bandLogE2)
+			bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*codedChannels)
+			computeBandEnergiesInto(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
 			roundFloat64ToFloat32(bandLogE2)
 		}
 		if bandLogE2 != nil {
@@ -575,20 +579,25 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHistory, shortBlocks, &e.scratch)
 		mdctRight = computeMDCTWithHistoryScratchStereoR(right, rightHistory, shortBlocks, &e.scratch)
 
-		// Concatenate: [left coeffs][right coeffs] - use scratch buffer
-		coeffsLen := len(mdctLeft) + len(mdctRight)
 		mdctCoeffs = e.scratch.mdctCoeffs
-		if len(mdctCoeffs) < coeffsLen {
-			mdctCoeffs = make([]float64, coeffsLen)
-			e.scratch.mdctCoeffs = mdctCoeffs
+		if codedChannels == 1 {
+			mdctCoeffs = foldStereoMDCTToMono(mdctCoeffs, mdctLeft, mdctRight)
+			tfChannel = 0
+		} else {
+			coeffsLen := len(mdctLeft) + len(mdctRight)
+			if len(mdctCoeffs) < coeffsLen {
+				mdctCoeffs = make([]float64, coeffsLen)
+				e.scratch.mdctCoeffs = mdctCoeffs
+			}
+			mdctCoeffs = mdctCoeffs[:coeffsLen]
+			copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
+			copy(mdctCoeffs[len(mdctLeft):], mdctRight)
 		}
-		mdctCoeffs = mdctCoeffs[:coeffsLen]
-		copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
-		copy(mdctCoeffs[len(mdctLeft):], mdctRight)
 	}
 
 	// Step 6: Compute band energies
-	energies := e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+	energies := ensureFloat64Slice(&e.scratch.energies, nbBands*codedChannels)
+	computeBandEnergiesInto(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
 	roundFloat64ToFloat32(energies)
 	if !secondMdct {
 		bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, len(energies))
@@ -606,7 +615,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		oldBandE := e.prevEnergy
 
 		spreadOld := ensureFloat64Slice(&e.scratch.transientSpreadOld, end)
-		if PatchTransientDecisionWithScratch(energies, oldBandE, nbBands, 0, end, e.channels, spreadOld) {
+		if PatchTransientDecisionWithScratch(energies, oldBandE, nbBands, 0, end, codedChannels, spreadOld) {
 			// Transient patched! Need to recompute MDCT with short blocks
 			transient = true
 			shortBlocks = mode.ShortBlocks
@@ -645,20 +654,25 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				copy(rightHist, mdctPrevR[:overlap])
 				mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHist, shortBlocks, &e.scratch)
 				mdctRight = computeMDCTWithHistoryScratchStereoR(right, rightHist, shortBlocks, &e.scratch)
-				// Use scratch buffer for combined coefficients
-				coeffsLen := len(mdctLeft) + len(mdctRight)
 				mdctCoeffs = e.scratch.mdctCoeffs
-				if len(mdctCoeffs) < coeffsLen {
-					mdctCoeffs = make([]float64, coeffsLen)
-					e.scratch.mdctCoeffs = mdctCoeffs
+				if codedChannels == 1 {
+					mdctCoeffs = foldStereoMDCTToMono(mdctCoeffs, mdctLeft, mdctRight)
+					tfChannel = 0
+				} else {
+					coeffsLen := len(mdctLeft) + len(mdctRight)
+					if len(mdctCoeffs) < coeffsLen {
+						mdctCoeffs = make([]float64, coeffsLen)
+						e.scratch.mdctCoeffs = mdctCoeffs
+					}
+					mdctCoeffs = mdctCoeffs[:coeffsLen]
+					copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
+					copy(mdctCoeffs[len(mdctLeft):], mdctRight)
 				}
-				mdctCoeffs = mdctCoeffs[:coeffsLen]
-				copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
-				copy(mdctCoeffs[len(mdctLeft):], mdctRight)
 			}
 
 			// Recompute band energies with short block coefficients
-			energies = e.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
+			energies = ensureFloat64Slice(&e.scratch.energies, nbBands*codedChannels)
+			computeBandEnergiesInto(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
 			roundFloat64ToFloat32(energies)
 			// Compensate for scaling of short vs long MDCTs (libopus adds 0.5*LM to bandLogE2)
 			if bandLogE2 != nil {
@@ -722,7 +736,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// if abs(bandLogE-oldBandE) < 2, bias current energy toward previous quant error.
 	// Keep this feedback path in float32 precision to mirror libopus float behavior.
 	// Reference: celt_encoder.c before quant_coarse_energy().
-	for c := 0; c < e.channels; c++ {
+	for c := 0; c < codedChannels; c++ {
 		baseState := c * MaxBands
 		baseFrame := c * nbBands
 		for band := 0; band < nbBands; band++ {
@@ -766,7 +780,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	var normL, normR []float64
 	var bandE []float64
 	var normBandEScratch []float64
-	if e.channels == 1 {
+	if codedChannels == 1 {
 		normL, bandE = e.NormalizeBandsToArrayMonoWithBandE(mdctCoeffs, nbBands, frameSize)
 		normBandEScratch = bandE
 	} else {
@@ -802,7 +816,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			} else {
 				follow = v
 			}
-			if e.channels == 2 && nbBands+i < len(analysisEnergies) {
+			if codedChannels == 2 && nbBands+i < len(analysisEnergies) {
 				v2 := analysisEnergies[nbBands+i] - offset
 				if v2 > follow {
 					follow = v2
@@ -833,7 +847,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	} else {
 		effectiveBytes = e.cbrPayloadBytes(frameSize)
 	}
-	equivRate := ComputeEquivRate(effectiveBytes, e.channels, lm, e.targetBitrate)
+	equivRate := ComputeEquivRate(effectiveBytes, codedChannels, lm, e.targetBitrate)
 
 	// Step 11.0.7: Compute dynalloc analysis for VBR and bit allocation
 	// This computes maxDepth, offsets, importance, and spread_weight.
@@ -860,7 +874,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if bandLogE2 != nil {
 		bandLogE2Use = bandLogE2
 	}
-	oldBandELen := nbBands * e.channels
+	oldBandELen := nbBands * codedChannels
 	if oldBandELen > len(prev1LogE) {
 		oldBandELen = len(prev1LogE)
 	}
@@ -873,7 +887,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	dynallocResult := DynallocAnalysisWithScratch(
 		analysisEnergies, bandLogE2Use, prev1LogE[:oldBandELen],
-		nbBands, start, end, e.channels, lsbDepth, lm,
+		nbBands, start, end, codedChannels, lsbDepth, lm,
 		logN,
 		effectiveBytes,
 		transient, isVBR, isConstrainedVBR, e.lfe,
@@ -890,7 +904,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Reference: libopus enable_tf_analysis = effectiveBytes>=15*C && !hybrid && st->complexity>=2 && !st->lfe && toneishness < QCONST32(.98f, 29)
 	// Note: libopus does NOT have an LM>0 check here - TF analysis runs for all frame sizes including LM=0
 	// CRITICAL: toneishness >= 0.98 disables TF analysis (pure tones use simple fallback)
-	enableTFAnalysis := effectiveBytes >= 15*e.channels && !e.IsHybrid() && e.complexity >= 2 && !e.lfe && toneishness < 0.98
+	enableTFAnalysis := effectiveBytes >= 15*codedChannels && !e.IsHybrid() && e.complexity >= 2 && !e.lfe && toneishness < 0.98
 
 	var tfRes []int
 	var tfSelect int
@@ -904,7 +918,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Use the normalized coefficients for TF analysis (zero-alloc version).
 		// In stereo, match libopus by selecting the channel flagged by transient analysis.
 		tfInput := normL
-		if e.channels == 2 && tfChannel == 1 {
+		if codedChannels == 2 && tfChannel == 1 {
 			tfInput = normR
 		}
 		tfRes, tfSelect = TFAnalysisWithScratch(tfInput, len(tfInput), nbBands, transient, lm, tfEstimate, effectiveBytes, importance, &e.tfScratch)
@@ -944,7 +958,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Match libopus gating: only encode if there's budget for the decision.
 	// Reference: libopus celt_encoder.c line 2302-2345
 	normSpread := normL
-	if e.channels == 2 {
+	if codedChannels == 2 {
 		// spreading_decision() expects both channels in one contiguous buffer.
 		normSpread = ensureFloat64Slice(&e.scratch.normStereo, len(normL)+len(normR))
 		copy(normSpread[:len(normL)], normL)
@@ -966,7 +980,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			} else {
 				spread = spreadAggressive
 			}
-		} else if shortBlocks > 1 || e.complexity < 3 || effectiveBytes < 10*e.channels {
+		} else if shortBlocks > 1 || e.complexity < 3 || effectiveBytes < 10*codedChannels {
 			if e.complexity == 0 {
 				spread = spreadNone
 			} else {
@@ -982,9 +996,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			spreadWeights := dynallocResult.SpreadWeight
 			if len(spreadWeights) < nbBands {
 				// Defensive fallback for unexpected sizing issues.
-				spreadWeights = computeSpreadWeights(analysisEnergies, nbBands, e.channels, lsbDepth)
+				spreadWeights = computeSpreadWeights(analysisEnergies, nbBands, codedChannels, lsbDepth)
 			}
-			spread = e.SpreadingDecisionWithWeights(normSpread, nbBands, e.channels, frameSize, updateHF, spreadWeights)
+			spread = e.SpreadingDecisionWithWeights(normSpread, nbBands, codedChannels, frameSize, updateHF, spreadWeights)
 		}
 		re.EncodeICDF(spread, spreadICDF, 5)
 	} else {
@@ -992,7 +1006,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	// Step 11.3: Initialize caps for allocation (zero-alloc)
 	caps := ensureIntSlice(&e.scratch.caps, nbBands)
-	initCapsInto(caps, nbBands, lm, e.channels)
+	initCapsInto(caps, nbBands, lm, codedChannels)
 
 	// Step 11.4: Encode dynamic allocation
 	// Reference: libopus celt/celt_encoder.c lines 2356-2389
@@ -1020,7 +1034,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		// Compute band width and quanta (how many bits per boost step)
 		// Reference: libopus lines 2366-2369
 		// width = C*(eBands[i+1]-eBands[i])<<LM
-		width := e.channels * ScaledBandWidth(i, 120<<lm)
+		width := codedChannels * ScaledBandWidth(i, 120<<lm)
 		if width <= 0 {
 			width = 1
 		}
@@ -1067,7 +1081,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		offsets[i] = boost
 	}
 	// Step 11.4.5: Decide stereo mode parameters (libopus hysteresis + stereo analysis).
-	if e.channels == 2 {
+	if codedChannels == 2 {
 		// Always use MS for LM=0 (2.5ms), matching libopus.
 		if lm != 0 {
 			dualStereo = stereoAnalysisDecision(normL, normR, lm, nbBands)
@@ -1109,7 +1123,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				trimBandLogE,
 				nbBands,
 				lm,
-				e.channels,
+				codedChannels,
 				normR,
 				intensity,
 				tfEstimate,
@@ -1117,7 +1131,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				surroundTrimForAlloc,
 				tonalitySlope,
 			)
-			if e.channels == 2 {
+			if codedChannels == 2 {
 				e.lastStereoSaving = UpdateStereoSaving(e.lastStereoSaving, normL, normR, nbBands, lm, intensity)
 			}
 		}
@@ -1138,7 +1152,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	qextPayloadBytes := 0
 	if e.qextActive() && !e.IsHybrid() {
 		minAllowed := ((re.TellFrac() + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
-		mainBytes, payloadBytes, _ := computeQEXTReservation(targetBytes, minAllowed, frameSize, e.channels, toneishness)
+		mainBytes, payloadBytes, _ := computeQEXTReservation(targetBytes, minAllowed, frameSize, codedChannels, toneishness)
 		qextPayloadBytes = payloadBytes
 		if qextPayloadBytes > 0 && mainBytes > 0 {
 			qs := e.scratch.ensureQEXTScratch()
@@ -1176,7 +1190,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		signalBandwidth = 0
 	}
 	if e.analysisValid {
-		minBandwidth := celtMinSignalBandwidth(equivRate, e.channels)
+		minBandwidth := celtMinSignalBandwidth(equivRate, codedChannels)
 		if e.analysisBandwidth > minBandwidth {
 			signalBandwidth = e.analysisBandwidth
 		} else {
@@ -1218,7 +1232,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	} else {
 		e.lastCodedBands = allocResult.CodedBands
 	}
-	if e.channels == 2 {
+	if codedChannels == 2 {
 		e.intensity = allocResult.Intensity
 		intensity = allocResult.Intensity
 	}
@@ -1231,8 +1245,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// by coarse quantization. This mirrors libopus quant_fine_energy() ->
 	// quant_energy_finalise() operating on the same error[] buffer.
 	coarseResidual := e.scratch.coarseError
-	if len(coarseResidual) >= nbBands*e.channels {
-		coarseResidual = coarseResidual[:nbBands*e.channels]
+	if len(coarseResidual) >= nbBands*codedChannels {
+		coarseResidual = coarseResidual[:nbBands*codedChannels]
 		if start > 0 {
 			e.EncodeFineEnergyRangeFromError(quantizedEnergies, start, nbBands, allocResult.FineBits)
 		} else {
@@ -1263,11 +1277,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		}
 		if qextActive {
 			qs := e.scratch.ensureQEXTScratch()
-			qextBandLogE = qs.bandLogE[:qextEnd*e.channels]
-			qextBandE = qs.bandE[:qextEnd*e.channels]
+			qextBandLogE = qs.bandLogE[:qextEnd*codedChannels]
+			qextBandE = qs.bandE[:qextEnd*codedChannels]
 			clear(qextBandLogE)
 			clear(qextBandE)
-			if e.channels == 1 {
+			if codedChannels == 1 {
 				computeQEXTBandLogEInto(mdctCoeffs, &qextCfg, qextEnd, lm, qextBandE, qextBandLogE)
 				qextNormL = qs.normL[:frameSize]
 				normalizeQEXTBandsInto(mdctCoeffs, &qextCfg, qextEnd, lm, qextBandE, qextNormL)
@@ -1283,15 +1297,15 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			hdr := qextHeader{
 				EndBands: qextEnd,
 			}
-			if e.channels == 2 {
+			if codedChannels == 2 {
 				hdr.Intensity = qextEnd
 				hdr.DualStereo = allocResult.DualStereo
 			}
-			encodeQEXTHeader(qextEnc, e.channels, hdr)
+			encodeQEXTHeader(qextEnc, codedChannels, hdr)
 
-			qextQuantized = qs.quantized[:qextEnd*e.channels]
-			qextError = qs.qerr[:qextEnd*e.channels]
-			qextOldBandE := qs.oldBandE[:MaxBands*e.channels]
+			qextQuantized = qs.quantized[:qextEnd*codedChannels]
+			qextError = qs.qerr[:qextEnd*codedChannels]
+			qextOldBandE := qs.oldBandE[:MaxBands*codedChannels]
 			clear(qextQuantized)
 			clear(qextError)
 			clear(qextOldBandE)
@@ -1308,7 +1322,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			end,
 			qextEnd,
 			qextBitsQ3,
-			e.channels,
+			codedChannels,
 			lm,
 			analysisEnergies,
 			qextBandLogE,
@@ -1324,7 +1338,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			qextExtraBits,
 			qextFineBits,
 		)
-		if len(coarseResidual) >= nbBands*e.channels {
+		if len(coarseResidual) >= nbBands*codedChannels {
 			if start > 0 {
 				e.encodeFineEnergyRangeFromErrorWithEncoder(qextEnc, quantizedEnergies, start, nbBands, qextFineBits)
 			} else {
@@ -1349,7 +1363,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	tapset := e.TapsetDecision()
 	quantAllBandsEncodeScratch(
 		re,
-		e.channels,
+		codedChannels,
 		frameSize,
 		lm,
 		start,
@@ -1386,7 +1400,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		qextBalance := qextTotalBitsQ3 - qextEnc.TellFrac()
 		fineQ3 := 0
 		if qextEnd > 1 {
-			fineQ3 = e.channels * (qextBandBits[1] << bitRes)
+			fineQ3 = codedChannels * (qextBandBits[1] << bitRes)
 		}
 		for i := 0; i < qextEnd; i++ {
 			qextBalance -= qextExtraBits[MaxBands+i]
@@ -1404,7 +1418,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		dummyEnc.Init(nil)
 		quantAllBandsEncodeScratchWithMode(
 			qextEnc,
-			e.channels,
+			codedChannels,
 			frameSize,
 			lm,
 			0,
@@ -1448,7 +1462,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if bitsLeft < 0 {
 		bitsLeft = 0
 	}
-	if len(coarseResidual) >= nbBands*e.channels {
+	if len(coarseResidual) >= nbBands*codedChannels {
 		if start > 0 {
 			e.EncodeEnergyFinaliseRangeFromError(quantizedEnergies, start, nbBands, allocResult.FineBits, allocResult.FinePriority, bitsLeft)
 		} else {
@@ -1466,21 +1480,19 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// next-frame stabilization.
 	// Keep this in float32 precision to mirror libopus float behavior.
 	// Reference: celt_encoder.c after quant_energy_finalise().
-	for c := 0; c < e.channels; c++ {
+	for i := range e.energyError {
+		e.energyError[i] = 0
+	}
+	for c := 0; c < codedChannels; c++ {
 		baseState := c * MaxBands
 		baseFrame := c * nbBands
-		for band := 0; band < MaxBands; band++ {
+		for band := 0; band < nbBands; band++ {
 			stateIdx := baseState + band
 			if stateIdx >= len(e.energyError) {
 				continue
 			}
-			if band >= nbBands {
-				e.energyError[stateIdx] = 0
-				continue
-			}
 			frameIdx := baseFrame + band
 			if frameIdx >= len(energies) || frameIdx >= len(quantizedEnergies) {
-				e.energyError[stateIdx] = 0
 				continue
 			}
 			err := float32(energies[frameIdx] - quantizedEnergies[frameIdx])
@@ -1509,7 +1521,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			e.rng ^= qextEnc.Range()
 		}
 	}
-	e.SetPrevEnergyWithPrev(prev1LogE, quantizedEnergies)
+	e.setPrevEnergyWithPrevCoded(prev1LogE, quantizedEnergies, nbBands, codedChannels)
 	e.IncrementFrameCount()
 	if transient || transientGotDisabled {
 		e.consecTransient++
@@ -1518,6 +1530,55 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	return bytes, nil
+}
+
+func foldStereoMDCTToMono(dst, left, right []float64) []float64 {
+	n := len(left)
+	if len(right) < n {
+		n = len(right)
+	}
+	if len(dst) < n {
+		dst = make([]float64, n)
+	}
+	dst = dst[:n]
+	for i := 0; i < n; i++ {
+		dst[i] = float64(0.5*float32(left[i]) + 0.5*float32(right[i]))
+	}
+	return dst
+}
+
+func (e *Encoder) setPrevEnergyWithPrevCoded(prev, energies []float64, nbBands, codedChannels int) {
+	if len(prev) == len(e.prevEnergy2) {
+		copy(e.prevEnergy2, prev)
+	} else {
+		copy(e.prevEnergy2, e.prevEnergy)
+	}
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	if codedChannels < 1 {
+		codedChannels = 1
+	}
+	if codedChannels > e.channels {
+		codedChannels = e.channels
+	}
+	for c := 0; c < codedChannels; c++ {
+		for band := 0; band < nbBands; band++ {
+			src := c*nbBands + band
+			dst := c*MaxBands + band
+			if src < len(energies) && dst < len(e.prevEnergy) {
+				e.prevEnergy[dst] = energies[src]
+			}
+		}
+	}
+	if e.channels == 2 && codedChannels == 1 {
+		for band := 0; band < nbBands; band++ {
+			e.prevEnergy[MaxBands+band] = e.prevEnergy[band]
+		}
+	}
 }
 
 // ComputeMDCTWithHistory computes MDCT using a history buffer for overlap.
@@ -2089,9 +2150,10 @@ func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float64, 
 	}
 
 	vbrRateQ3 := e.bitrateToBits(frameSize) << bitRes
-	overheadQ3 := (40*e.channels + 20) << bitRes
+	channels := e.codedChannels()
+	overheadQ3 := (40*channels + 20) << bitRes
 	if e.hybrid {
-		overheadQ3 = (9*e.channels + 4) << bitRes
+		overheadQ3 = (9*channels + 4) << bitRes
 	}
 	baseTargetQ3 := vbrRateQ3 - overheadQ3
 	if baseTargetQ3 < 0 {
@@ -2205,7 +2267,8 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	// Compute base_target with overhead subtraction
 	// Reference: libopus celt_encoder.c line 2448
 	// base_target = vbr_rate - ((40*C+20)<<BITRES)
-	overheadQ3 := (40*e.channels + 20) << bitRes
+	channels := e.codedChannels()
+	overheadQ3 := (40*channels + 20) << bitRes
 	baseTargetQ3 := vbrRateQ3 - overheadQ3
 	if baseTargetQ3 < 0 {
 		baseTargetQ3 = 0
@@ -2329,6 +2392,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
 	nbBands := e.effectiveBandCount(frameSize)
+	channels := e.codedChannels()
 
 	codedBands := nbBands
 	if e.lastCodedBands > 0 && e.lastCodedBands < nbBands {
@@ -2341,7 +2405,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 		codedBands = len(EBands) - 1
 	}
 	codedBins := EBands[codedBands] << lm
-	if e.channels == 2 {
+	if channels == 2 {
 		codedStereoBands := codedBands
 		if e.intensity < codedStereoBands {
 			codedStereoBands = e.intensity
@@ -2358,7 +2422,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	}
 
 	// Stereo savings (libopus compute_vbr(): applied before dynalloc boost).
-	if e.channels == 2 && codedBins > 0 {
+	if channels == 2 && codedBins > 0 {
 		codedStereoBands := codedBands
 		if e.intensity < codedStereoBands {
 			codedStereoBands = e.intensity
@@ -2425,7 +2489,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	} else if nbBands >= 2 {
 		bins = EBands[nbBands-2] << lm
 	}
-	floorDepth := int(float64((e.channels*bins)<<bitRes) * maxDepth)
+	floorDepth := int(float64((channels*bins)<<bitRes) * maxDepth)
 	if floorDepth < (targetQ3 >> 2) {
 		floorDepth = targetQ3 >> 2
 	}

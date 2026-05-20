@@ -34,24 +34,34 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize i
 // ComputeBandEnergiesInto computes band energies into the provided destination buffer.
 // Use this instead of ComputeBandEnergies when you need to avoid buffer aliasing.
 func (e *Encoder) ComputeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize int, dst []float64) {
+	computeBandEnergiesInto(mdctCoeffs, nbBands, frameSize, e.channels, dst)
+}
+
+func computeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize, channels int, dst []float64) {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
 	if nbBands < 0 {
 		nbBands = 0
 	}
+	if channels < 1 {
+		channels = 1
+	}
+	if channels > 2 {
+		channels = 2
+	}
 
-	// Determine number of channels from coefficient length
-	channels := e.channels
 	coeffsPerChannel := frameSize
 	if len(mdctCoeffs) < coeffsPerChannel*channels {
-		// Handle mono or incomplete data
 		if len(mdctCoeffs) < coeffsPerChannel {
 			channels = 1
 			coeffsPerChannel = len(mdctCoeffs)
 		} else {
 			channels = 1
 		}
+	}
+	if len(dst) < nbBands*channels {
+		return
 	}
 
 	energies := dst
@@ -396,8 +406,11 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 		lm = 3
 	}
 
-	channels := e.channels
+	channels := e.codedChannels()
 	if channels < 1 {
+		channels = 1
+	}
+	if len(energies) < nbBands*channels {
 		channels = 1
 	}
 

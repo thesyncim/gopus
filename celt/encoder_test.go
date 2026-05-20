@@ -85,6 +85,47 @@ func TestEncoderStreamChannelsControl(t *testing.T) {
 	}
 }
 
+func TestFoldStereoMDCTToMonoMatchesLibopusAverage(t *testing.T) {
+	left := []float64{1, -2, 3.5, 1.0 / 3.0}
+	right := []float64{3, 4, -1.5, -2.0 / 3.0}
+	dst := make([]float64, len(left))
+
+	got := foldStereoMDCTToMono(dst, left, right)
+	for i := range got {
+		want := float64(0.5*float32(left[i]) + 0.5*float32(right[i]))
+		if got[i] != want {
+			t.Fatalf("folded[%d] = %v, want %v", i, got[i], want)
+		}
+	}
+}
+
+func TestEncodeFrameStereoAPIInternalMonoMirrorsEnergyState(t *testing.T) {
+	const frameSize = 960
+	enc := NewEncoder(2)
+	enc.SetStreamChannels(1)
+	enc.SetDelayCompensationEnabled(false)
+	enc.SetDCRejectEnabled(false)
+	enc.SetLSBQuantizationEnabled(false)
+	enc.SetVBR(false)
+	enc.SetBitrate(64000)
+
+	pcm := make([]float64, frameSize*2)
+	for i := 0; i < frameSize; i++ {
+		pcm[2*i] = 0.22 * math.Sin(2*math.Pi*440*float64(i)/48000)
+		pcm[2*i+1] = 0.17 * math.Sin(2*math.Pi*660*float64(i)/48000)
+	}
+
+	if _, err := enc.EncodeFrame(pcm, frameSize); err != nil {
+		t.Fatalf("EncodeFrame() error: %v", err)
+	}
+	prev := enc.PrevEnergy()
+	for band := 0; band < MaxBands; band++ {
+		if prev[band] != prev[MaxBands+band] {
+			t.Fatalf("band %d right energy = %v, want left %v", band, prev[MaxBands+band], prev[band])
+		}
+	}
+}
+
 // TestEncoderMatchesDecoder verifies encoder state matches decoder state.
 func TestEncoderMatchesDecoder(t *testing.T) {
 	channels := 2

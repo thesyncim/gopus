@@ -1120,10 +1120,23 @@ func (e *Encoder) packetStereoForMode(mode Mode) bool {
 	if e.channels != 2 {
 		return false
 	}
-	if mode == ModeSILK {
+	switch mode {
+	case ModeSILK:
 		return e.silkInternalChannels() == 2
+	case ModeCELT:
+		return e.celtInternalChannelsForMode(mode) == 2
 	}
 	return true
+}
+
+func (e *Encoder) celtInternalChannelsForMode(mode Mode) int {
+	if e.channels != 2 {
+		return 1
+	}
+	if mode == ModeCELT && e.streamChannels <= 1 {
+		return 1
+	}
+	return 2
 }
 
 // dcReject applies a DC rejection filter (1st-order high-pass filter at 3Hz).
@@ -1528,6 +1541,7 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 	e.ensureCELTEncoder()
 	e.celtEncoder.Reset()
 	e.celtEncoder.SetHybrid(actualMode == ModeHybrid)
+	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(actualMode))
 	e.celtEncoder.SetTopLevelDelayCompensatedInput(true)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	// libopus re-drives CELT from the Opus wrapper after reset, so the
@@ -2607,6 +2621,7 @@ func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []float64, fra
 	e.ensureCELTEncoder()
 	e.syncQEXTToCELT()
 	e.syncCELTAnalysisToCELT()
+	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeCELT))
 	e.celtEncoder.SetBitrate(bitrate)
 	maxPayloadBytes = celtDREDPayloadCap(maxPayloadBytes, dredBitrate, frameSize)
 	e.celtEncoder.SetMaxPayloadBytes(maxPayloadBytes)
@@ -2748,7 +2763,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM []float64
 	e.analysisReadBakSet = false
 
 	if e.dredEncodingActive() {
-		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeCELT, e.effectiveBandwidth(), frameSize, 960, firstFrameMaxBytes, e.channels == 2, !sameSize); err != nil {
+		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeCELT, e.effectiveBandwidth(), frameSize, 960, firstFrameMaxBytes, e.packetStereoForMode(ModeCELT), !sameSize); err != nil {
 			return nil, err
 		} else if ok {
 			return dredPacket, nil
@@ -2759,7 +2774,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM []float64
 		types.ModeCELT,
 		e.effectiveBandwidth(),
 		960,
-		e.channels == 2,
+		e.packetStereoForMode(ModeCELT),
 		!sameSize,
 	)
 }
