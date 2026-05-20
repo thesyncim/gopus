@@ -21,11 +21,28 @@ const (
 	libopusSILKFixedModeSAT16RShiftRound10 = uint32(2)
 	libopusSILKFixedModeSAT16RShiftRound15 = uint32(3)
 	libopusSILKFixedModeLShiftSAT32        = uint32(4)
+	libopusSILKFixedModeSMULWB             = uint32(5)
+	libopusSILKFixedModeSMLAWB             = uint32(6)
+	libopusSILKFixedModeSMULWW             = uint32(7)
+	libopusSILKFixedModeSMMUL              = uint32(8)
+	libopusSILKFixedModeAddSat32           = uint32(9)
+	libopusSILKFixedModeSubSat32           = uint32(10)
+	libopusSILKFixedModeDiv32_16           = uint32(11)
+	libopusSILKFixedModeDiv32VarQ          = uint32(12)
+	libopusSILKFixedModeInverse32VarQ      = uint32(13)
+	libopusSILKFixedModeCLZ32              = uint32(14)
 )
 
 type libopusSILKFixedRecord struct {
 	value int32
 	shift uint32
+}
+
+type libopusSILKFixedOpRecord struct {
+	a int32
+	b int32
+	c int32
+	q uint32
 }
 
 var (
@@ -63,6 +80,35 @@ func probeLibopusSILKFixed(mode uint32, records []libopusSILKFixedRecord) ([]int
 	for _, record := range records {
 		payload.I32(record.value)
 		payload.U32(record.shift)
+	}
+
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk fixed", libopusSILKFixedOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(records))
+	reader.ExpectRemaining(4 * count)
+	out := make([]int32, count)
+	for i := range out {
+		out[i] = reader.I32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusSILKFixedOps(mode uint32, records []libopusSILKFixedOpRecord) ([]int32, error) {
+	binPath, err := getLibopusSILKFixedHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKFixedInputMagic, mode, uint32(len(records)))
+	for _, record := range records {
+		payload.I32(record.a)
+		payload.I32(record.b)
+		payload.I32(record.c)
+		payload.U32(record.q)
 	}
 
 	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk fixed", libopusSILKFixedOutputMagic)
@@ -168,5 +214,172 @@ func TestSILKFixedLShiftSAT32MatchesLibopus(t *testing.T) {
 		if got := silkLShiftSAT32(record.value, int(record.shift)); got != want[i] {
 			t.Fatalf("silkLShiftSAT32(%d,%d)=%d want %d", record.value, record.shift, got, want[i])
 		}
+	}
+}
+
+func TestSILKFixedMultiplyAndSaturatingOpsMatchLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	mulValues := []int32{
+		-1073741824, -8388608, -65537, -65536, -32769, -32768, -32767,
+		-2, -1, 0, 1, 2, 32766, 32767, 32768, 32769, 65535, 65536,
+		8388607, 1073741823,
+	}
+	mulRecords := make([]libopusSILKFixedOpRecord, 0, len(mulValues)*len(mulValues))
+	for _, a := range mulValues {
+		for _, b := range mulValues {
+			mulRecords = append(mulRecords, libopusSILKFixedOpRecord{a: a, b: b})
+		}
+	}
+
+	smlawbRecords := make([]libopusSILKFixedOpRecord, 0, 512)
+	accValues := []int32{-268435456, -65536, -1, 0, 1, 65536, 268435456}
+	cValues := []int32{-32768, -32767, -1, 0, 1, 32766, 32767, 32768, 65535}
+	for _, a := range accValues {
+		for _, b := range mulValues {
+			for _, c := range cValues {
+				smlawbRecords = append(smlawbRecords, libopusSILKFixedOpRecord{a: a, b: b, c: c})
+			}
+		}
+	}
+
+	satRecords := []libopusSILKFixedOpRecord{
+		{a: fixedTestMinInt32, b: -1},
+		{a: fixedTestMinInt32, b: 0},
+		{a: fixedTestMinInt32, b: 1},
+		{a: fixedTestMinInt32 + 1, b: -2},
+		{a: -1073741824, b: -1073741824},
+		{a: -65536, b: 65535},
+		{a: -1, b: -1},
+		{a: -1, b: 1},
+		{a: 0, b: fixedTestMinInt32},
+		{a: 0, b: fixedTestMaxInt32},
+		{a: 1, b: -1},
+		{a: 1, b: 1},
+		{a: 65535, b: -65536},
+		{a: 1073741823, b: 1073741824},
+		{a: fixedTestMaxInt32 - 1, b: 2},
+		{a: fixedTestMaxInt32, b: -1},
+		{a: fixedTestMaxInt32, b: 0},
+		{a: fixedTestMaxInt32, b: 1},
+	}
+
+	tests := []struct {
+		name    string
+		mode    uint32
+		records []libopusSILKFixedOpRecord
+		got     func(libopusSILKFixedOpRecord) int32
+	}{
+		{name: "smulwb", mode: libopusSILKFixedModeSMULWB, records: mulRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkSMULWB(r.a, r.b)
+		}},
+		{name: "smlawb", mode: libopusSILKFixedModeSMLAWB, records: smlawbRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkSMLAWB(r.a, r.b, r.c)
+		}},
+		{name: "smulww", mode: libopusSILKFixedModeSMULWW, records: mulRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkSMULWW(r.a, r.b)
+		}},
+		{name: "smmul", mode: libopusSILKFixedModeSMMUL, records: mulRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkSMMUL(r.a, r.b)
+		}},
+		{name: "add_sat32", mode: libopusSILKFixedModeAddSat32, records: satRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkAddSat32(r.a, r.b)
+		}},
+		{name: "sub_sat32", mode: libopusSILKFixedModeSubSat32, records: satRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkSubSat32(r.a, r.b)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			want, err := probeLibopusSILKFixedOps(tc.mode, tc.records)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "silk fixed", err)
+			}
+			for i, record := range tc.records {
+				if got := tc.got(record); got != want[i] {
+					t.Fatalf("%s(%d,%d,%d,q=%d)=%d want %d", tc.name, record.a, record.b, record.c, record.q, got, want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestSILKFixedDivisionAndCLZOpsMatchLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	divValues := []int32{
+		-2147483647, -1073741824, -65536, -32769, -32768, -32767,
+		-2, -1, 0, 1, 2, 32766, 32767, 32768, 65535, 65536,
+		1073741823, fixedTestMaxInt32,
+	}
+	divisors16 := []int32{-32768, -30000, -2, -1, 1, 2, 30000, 32767}
+	div32_16Records := make([]libopusSILKFixedOpRecord, 0, len(divValues)*len(divisors16))
+	for _, a := range divValues {
+		for _, b := range divisors16 {
+			if a == fixedTestMinInt32 && b == -1 {
+				continue
+			}
+			div32_16Records = append(div32_16Records, libopusSILKFixedOpRecord{a: a, b: b})
+		}
+	}
+
+	varQRecords := make([]libopusSILKFixedOpRecord, 0, 512)
+	varQValues := []int32{-1073741824, -16777216, -65536, -1, 1, 65536, 16777216, 1073741823}
+	varQShifts := []uint32{0, 8, 13, 16, 24, 30}
+	for _, a := range varQValues {
+		for _, b := range varQValues {
+			for _, q := range varQShifts {
+				varQRecords = append(varQRecords, libopusSILKFixedOpRecord{a: a, b: b, q: q})
+			}
+		}
+	}
+
+	inverseRecords := make([]libopusSILKFixedOpRecord, 0, 256)
+	inverseValues := []int32{-1073741824, -16777216, -65536, -32768, -1, 1, 32767, 65536, 16777216, 1073741823}
+	inverseShifts := []uint32{1, 8, 16, 30, 47}
+	for _, a := range inverseValues {
+		for _, q := range inverseShifts {
+			inverseRecords = append(inverseRecords, libopusSILKFixedOpRecord{a: a, q: q})
+		}
+	}
+
+	clzRecords := make([]libopusSILKFixedOpRecord, 0, 128)
+	for _, a := range []int32{
+		fixedTestMinInt32, fixedTestMinInt32 + 1, -1073741824, -1,
+		0, 1, 2, 3, 15, 16, 17, 255, 256, 257,
+		65535, 65536, 65537, 1073741823, fixedTestMaxInt32,
+	} {
+		clzRecords = append(clzRecords, libopusSILKFixedOpRecord{a: a})
+	}
+
+	tests := []struct {
+		name    string
+		mode    uint32
+		records []libopusSILKFixedOpRecord
+		got     func(libopusSILKFixedOpRecord) int32
+	}{
+		{name: "div32_16", mode: libopusSILKFixedModeDiv32_16, records: div32_16Records, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkDiv32_16(r.a, r.b)
+		}},
+		{name: "div32_var_q", mode: libopusSILKFixedModeDiv32VarQ, records: varQRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkDiv32VarQ(r.a, r.b, int(r.q))
+		}},
+		{name: "inverse32_var_q", mode: libopusSILKFixedModeInverse32VarQ, records: inverseRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkInverse32VarQ(r.a, int(r.q))
+		}},
+		{name: "clz32", mode: libopusSILKFixedModeCLZ32, records: clzRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkCLZ32(r.a)
+		}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			want, err := probeLibopusSILKFixedOps(tc.mode, tc.records)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "silk fixed", err)
+			}
+			for i, record := range tc.records {
+				if got := tc.got(record); got != want[i] {
+					t.Fatalf("%s(%d,%d,%d,q=%d)=%d want %d", tc.name, record.a, record.b, record.c, record.q, got, want[i])
+				}
+			}
+		})
 	}
 }
