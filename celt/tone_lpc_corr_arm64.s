@@ -12,7 +12,7 @@
 //   FADDP V0.4S, V17.4S, V17.4S = 0x6E31D620
 //   FADDP V0.4S, V18.4S, V18.4S = 0x6E32D640
 //   FADDP V0.4S, V0.4S, V0.4S   = 0x6E20D400
-TEXT ·toneLPCCorr(SB), NOSPLIT, $0-56
+TEXT ·toneLPCCorr(SB), NOSPLIT, $0-60
 	MOVD  x_base+0(FP), R0
 	MOVD  cnt+24(FP), R1
 	MOVD  delay+32(FP), R2
@@ -73,7 +73,7 @@ tail:
 	BNE   tail
 
 store:
-	FMOVS F3, ret+48(FP)
-	FMOVS F4, ret1+52(FP)
-	FMOVS F5, ret2+56(FP)
+	FMOVS F3, r00+48(FP)
+	FMOVS F4, r01+52(FP)
+	FMOVS F5, r02+56(FP)
 	RET

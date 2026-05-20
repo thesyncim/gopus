@@ -49,6 +49,14 @@ case "${host_arch}" in
     done
     ;;
   arm64)
+    run_lane "arm64 assembly vet" \
+      env GOWORK=off go vet . ./celt ./silk ./internal/dnnmath
+    run_lane "linux/arm64 assembly vet" \
+      env GOWORK=off GOOS=linux GOARCH=arm64 go vet . ./celt ./silk ./internal/dnnmath
+    run_lane "arm64 opt-in tone LPC assembly vet" \
+      env GOWORK=off go vet -tags=gopus_neon_tone_lpc_corr ./celt
+    run_lane "linux/arm64 opt-in tone LPC assembly vet" \
+      env GOWORK=off GOOS=linux GOARCH=arm64 go vet -tags=gopus_neon_tone_lpc_corr ./celt
     run_lane "arm64 root assembly contract" \
       env GOWORK=off go test . -run "${ROOT_ASM_RE}" -count=1
     run_lane "arm64 celt assembly parity" \
