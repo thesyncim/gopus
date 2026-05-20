@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	encpkg "github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
@@ -41,11 +42,12 @@ type dredQualityMetrics struct {
 }
 
 func TestExplicitDREDImprovesConcealedAudioQualityAtSixtyPercentLoss(t *testing.T) {
+	libopustest.RequireOracle(t)
 	encoderBlob := requireLibopusEncoderNeuralModelBlob(t)
 	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
 	dredDecoderBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
-		t.Skipf("libopus DRED decoder model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "DRED decoder model", err)
 	}
 	decoderBlob = append(append([]byte(nil), decoderBlob...), dredDecoderBlob...)
 

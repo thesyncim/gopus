@@ -11,6 +11,8 @@ import (
 	"os/exec"
 	"sync"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 const (
@@ -25,11 +27,12 @@ var (
 )
 
 func TestExplicitDREDQualityTracksLibopusAtSixtyPercentLoss(t *testing.T) {
+	libopustest.RequireOracle(t)
 	encoderBlob := requireLibopusEncoderNeuralModelBlob(t)
 	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
 	dredDecoderBlob, err := probeLibopusDREDModelBlob()
 	if err != nil {
-		t.Skipf("libopus DRED decoder model helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "DRED decoder model", err)
 	}
 	goDecoderBlob := append(append([]byte(nil), decoderBlob...), dredDecoderBlob...)
 
@@ -108,7 +111,7 @@ func decodeLibopusDREDQualityPackets(t *testing.T, packets [][]byte, reference [
 
 	binPath, err := getLibopusDREDQualitySequenceHelperPath()
 	if err != nil {
-		t.Skipf("libopus DRED quality sequence helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "DRED quality sequence", err)
 	}
 
 	var payload bytes.Buffer
