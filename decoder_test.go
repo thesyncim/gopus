@@ -1264,6 +1264,9 @@ func TestDecodeWithFEC_ResetClearsFEC(t *testing.T) {
 
 func TestDecoder_BandwidthAndLastPacketDuration(t *testing.T) {
 	dec := newMonoTestDecoder(t)
+	if got := dec.LastPacketDuration(); got != 0 {
+		t.Fatalf("LastPacketDuration() before decode=%d want=0", got)
+	}
 	n := decodeMinimalHybrid20ms(t, dec)
 	if n != 960 {
 		t.Fatalf("Decode returned %d samples, want 960", n)
@@ -1274,6 +1277,10 @@ func TestDecoder_BandwidthAndLastPacketDuration(t *testing.T) {
 	}
 	if got := dec.LastPacketDuration(); got != 960 {
 		t.Fatalf("LastPacketDuration()=%d want=960", got)
+	}
+	dec.Reset()
+	if got := dec.LastPacketDuration(); got != 0 {
+		t.Fatalf("LastPacketDuration() after Reset=%d want=0", got)
 	}
 }
 

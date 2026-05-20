@@ -1362,8 +1362,8 @@ func TestMultistreamDecoder_Controls(t *testing.T) {
 	if got := stereo.Bandwidth(); got != BandwidthFullband {
 		t.Fatalf("Bandwidth()=%v want %v", got, BandwidthFullband)
 	}
-	if got := stereo.LastPacketDuration(); got != 960 {
-		t.Fatalf("LastPacketDuration()=%d want 960", got)
+	if got := stereo.LastPacketDuration(); got != 0 {
+		t.Fatalf("LastPacketDuration()=%d want 0", got)
 	}
 	if got := stereo.FinalRange(); got != 0 {
 		t.Fatalf("FinalRange()=0x%08x before decode, want 0", got)

@@ -132,10 +132,7 @@ func (d *Decoder) Bandwidth() Bandwidth {
 // LastPacketDuration returns the duration (in samples per channel at 48kHz scale)
 // of the last decoded packet.
 func (d *Decoder) LastPacketDuration() int {
-	if d.lastPacketDuration > 0 {
-		return d.lastPacketDuration
-	}
-	return d.lastFrameSize
+	return d.lastPacketDuration
 }
 
 // InDTX reports whether the most recently decoded packet was a DTX packet.

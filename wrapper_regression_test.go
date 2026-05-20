@@ -63,8 +63,8 @@ func TestDecoderResetClearsReportedState(t *testing.T) {
 	if got := dec.FinalRange(); got != 0 {
 		t.Fatalf("FinalRange() = 0x%08X after Reset, want 0", got)
 	}
-	if got := dec.LastPacketDuration(); got != 960 {
-		t.Fatalf("LastPacketDuration() = %d after Reset, want 960", got)
+	if got := dec.LastPacketDuration(); got != 0 {
+		t.Fatalf("LastPacketDuration() = %d after Reset, want 0", got)
 	}
 }
 

@@ -45,8 +45,8 @@ func TestDecoderAggregateControls(t *testing.T) {
 	if got := dec.Bandwidth(); got != types.BandwidthFullband {
 		t.Fatalf("Bandwidth()=%v want %v", got, types.BandwidthFullband)
 	}
-	if got := dec.LastPacketDuration(); got != 960 {
-		t.Fatalf("LastPacketDuration()=%d want 960", got)
+	if got := dec.LastPacketDuration(); got != 0 {
+		t.Fatalf("LastPacketDuration()=%d want 0", got)
 	}
 	if got := dec.FinalRange(); got != 0 {
 		t.Fatalf("FinalRange()=0x%08x before decode, want 0", got)

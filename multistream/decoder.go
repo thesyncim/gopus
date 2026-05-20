@@ -243,10 +243,7 @@ func (d *streamState) Bandwidth() types.Bandwidth {
 
 // LastPacketDuration returns the last decoded packet duration in 48 kHz samples.
 func (d *streamState) LastPacketDuration() int {
-	if d.lastPacketDuration > 0 {
-		return d.lastPacketDuration
-	}
-	return d.lastFrameSize
+	return d.lastPacketDuration
 }
 
 // InDTX reports whether the most recently decoded packet was DTX.
