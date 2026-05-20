@@ -2,10 +2,10 @@ package gopus
 
 // SetBitrate sets the target bitrate in bits per second.
 //
-// Valid range is 6000 to 510000 (6 kbps to 510 kbps).
-// Returns ErrInvalidBitrate if out of range.
+// Positive bitrates are clamped to the libopus range.
+// Returns ErrInvalidBitrate for non-positive non-sentinel values.
 func (e *Encoder) SetBitrate(bitrate int) error {
-	if err := validateBitrate(bitrate, 510000); err != nil {
+	if err := validateBitrate(bitrate); err != nil {
 		return err
 	}
 	e.enc.SetBitrate(bitrate)

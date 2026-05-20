@@ -25,11 +25,11 @@ func validApplication(application Application) bool {
 	}
 }
 
-func validateBitrate(bitrate, max int) error {
+func validateBitrate(bitrate int) error {
 	if bitrate == BitrateAuto || bitrate == BitrateMax {
 		return nil
 	}
-	if bitrate < 6000 || bitrate > max {
+	if bitrate <= 0 {
 		return ErrInvalidBitrate
 	}
 	return nil

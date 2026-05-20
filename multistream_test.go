@@ -549,17 +549,26 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	if enc.Bitrate() != 256000 {
 		t.Errorf("Bitrate() = %d, want 256000", enc.Bitrate())
 	}
-	if err := enc.SetBitrate(510000 * channels); err != nil {
+	if err := enc.SetBitrate(750000 * channels); err != nil {
 		t.Errorf("SetBitrate(max total) error: %v", err)
 	}
-	if got := enc.Bitrate(); got != 510000*channels {
-		t.Errorf("Bitrate() = %d, want %d after max total bitrate", got, 510000*channels)
+	if got := enc.Bitrate(); got != 750000*channels {
+		t.Errorf("Bitrate() = %d, want %d after max total bitrate", got, 750000*channels)
 	}
-	if err := enc.SetBitrate(510000*channels + 1); err != ErrInvalidBitrate {
-		t.Errorf("SetBitrate(above max total) error = %v, want %v", err, ErrInvalidBitrate)
+	if err := enc.SetBitrate(750000*channels + 1); err != nil {
+		t.Errorf("SetBitrate(above max total) error: %v", err)
 	}
-	if err := enc.SetBitrate(5999); err != ErrInvalidBitrate {
-		t.Errorf("SetBitrate(below minimum) error = %v, want %v", err, ErrInvalidBitrate)
+	if got := enc.Bitrate(); got != 750000*channels {
+		t.Errorf("Bitrate() = %d, want %d after above-max clamp", got, 750000*channels)
+	}
+	if err := enc.SetBitrate(1); err != nil {
+		t.Errorf("SetBitrate(1) error: %v", err)
+	}
+	if got := enc.Bitrate(); got != 500*channels {
+		t.Errorf("Bitrate() = %d, want %d after minimum clamp", got, 500*channels)
+	}
+	if err := enc.SetBitrate(0); err != ErrInvalidBitrate {
+		t.Errorf("SetBitrate(0) error = %v, want %v", err, ErrInvalidBitrate)
 	}
 	if err := enc.SetBitrate(BitrateAuto); err != nil {
 		t.Errorf("SetBitrate(BitrateAuto) error: %v", err)

@@ -458,7 +458,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	if e.bitrateMode == ModeCBR {
 		// Match libopus hybrid CBR path: CELT stays at OPUS_BITRATE_MAX and
 		// packet-level range limits enforce the actual budget.
-		e.celtEncoder.SetBitrate(MaxBitrate)
+		e.celtEncoder.SetBitrate(CELTMaxBitrate)
 	} else {
 		e.celtEncoder.SetBitrate(celtBitrate)
 	}
@@ -549,7 +549,7 @@ func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []float64, frameSize, r
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetHybrid(false)
 	e.celtEncoder.SetTopLevelDelayCompensatedInput(true)
-	e.celtEncoder.SetBitrate(MaxBitrate)
+	e.celtEncoder.SetBitrate(CELTMaxBitrate)
 	e.celtEncoder.SetVBR(false)
 	e.celtEncoder.SetConstrainedVBR(false)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
@@ -609,7 +609,7 @@ func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []float64, frameSize, r
 	e.celtEncoder.SetPrediction(0)
 	e.celtEncoder.SetVBR(false)
 	e.celtEncoder.SetConstrainedVBR(false)
-	e.celtEncoder.SetBitrate(MaxBitrate)
+	e.celtEncoder.SetBitrate(CELTMaxBitrate)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
 	e.celtEncoder.SetDCRejectEnabled(false)

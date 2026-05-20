@@ -619,7 +619,7 @@ func modeFromVBRFlags(useVBR, vbrConstraint bool) BitrateMode {
 
 // SetBitrate sets the target bitrate in bits per second.
 func (e *Encoder) SetBitrate(bitrate int) {
-	e.bitrate = ClampBitrate(bitrate)
+	e.bitrate = clampBitrateForChannels(bitrate, e.channels)
 }
 
 // SetAllocatedBitrate sets a bitrate allocated by the multistream encoder.
@@ -1437,7 +1437,7 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 
 	switch actualMode {
 	case ModeHybrid:
-		e.celtEncoder.SetBitrate(MaxBitrate)
+		e.celtEncoder.SetBitrate(CELTMaxBitrate)
 		if e.bitrateMode == ModeCBR {
 			e.celtEncoder.SetVBR(false)
 			e.celtEncoder.SetConstrainedVBR(false)
@@ -1446,7 +1446,7 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []fl
 			e.celtEncoder.SetConstrainedVBR(false)
 		}
 	case ModeCELT:
-		e.celtEncoder.SetBitrate(MaxBitrate)
+		e.celtEncoder.SetBitrate(CELTMaxBitrate)
 		switch e.bitrateMode {
 		case ModeCBR:
 			e.celtEncoder.SetVBR(false)

@@ -29,8 +29,8 @@ const (
 	BitrateAuto = -1000
 	BitrateMax  = -1
 
-	MinBitrate = 6000   // 6 kbps minimum
-	MaxBitrate = 510000 // 510 kbps maximum
+	MinBitrate = 500    // libopus OPUS_SET_BITRATE minimum
+	MaxBitrate = 750000 // libopus OPUS_SET_BITRATE per-channel maximum
 
 	// Mode-specific typical ranges
 	SILKMinBitrate   = 6000   // 6 kbps
@@ -54,33 +54,28 @@ func ValidBitrate(bitrate int) bool {
 
 // ClampBitrate ensures bitrate is within valid range.
 func ClampBitrate(bitrate int) int {
-	if bitrate == BitrateAuto || bitrate == BitrateMax {
-		return bitrate
-	}
-	if bitrate < MinBitrate {
-		return MinBitrate
-	}
-	if bitrate > MaxBitrate {
-		return MaxBitrate
-	}
-	return bitrate
+	return clampBitrateForChannels(bitrate, 1)
 }
 
-func clampAllocatedBitrate(bitrate, channels int) int {
+func clampBitrateForChannels(bitrate, channels int) int {
 	if bitrate == BitrateAuto || bitrate == BitrateMax {
 		return bitrate
 	}
 	if channels < 1 {
 		channels = 1
 	}
-	if bitrate < 500 {
-		return 500
+	if bitrate < MinBitrate {
+		return MinBitrate
 	}
-	maxBitrate := 750000 * channels
+	maxBitrate := MaxBitrate * channels
 	if bitrate > maxBitrate {
 		return maxBitrate
 	}
 	return bitrate
+}
+
+func clampAllocatedBitrate(bitrate, channels int) int {
+	return clampBitrateForChannels(bitrate, channels)
 }
 
 // frameDurationMs returns frame duration in milliseconds.
@@ -118,7 +113,7 @@ func resolveUserBitrate(userBitrate, sampleRate, channels, frameSize, maxDataByt
 	case BitrateMax:
 		user = 1500000
 	default:
-		user = ClampBitrate(userBitrate)
+		user = clampBitrateForChannels(userBitrate, channels)
 	}
 	if user > maxBitrate {
 		return maxBitrate

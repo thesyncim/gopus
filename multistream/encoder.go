@@ -454,7 +454,7 @@ func (e *Encoder) MappingFamily() int {
 //   - Coupled streams: 3 units (e.g., 96 kbps at typical settings)
 //   - Mono streams: 2 units (e.g., 64 kbps at typical settings)
 func (e *Encoder) SetBitrate(totalBitrate int) {
-	e.bitrate = totalBitrate
+	e.bitrate = clampTotalBitrate(totalBitrate, e.inputChannels)
 	rates := e.allocateRates(960)
 	for i := 0; i < e.streams && i < len(rates); i++ {
 		e.encoders[i].SetAllocatedBitrate(rates[i])
@@ -464,6 +464,24 @@ func (e *Encoder) SetBitrate(totalBitrate int) {
 // Bitrate returns the total bitrate in bits per second.
 func (e *Encoder) Bitrate() int {
 	return e.bitrate
+}
+
+func clampTotalBitrate(bitrate, channels int) int {
+	if bitrate == encoder.BitrateAuto || bitrate == encoder.BitrateMax {
+		return bitrate
+	}
+	if channels < 1 {
+		channels = 1
+	}
+	minBitrate := encoder.MinBitrate * channels
+	if bitrate < minBitrate {
+		return minBitrate
+	}
+	maxBitrate := encoder.MaxBitrate * channels
+	if bitrate > maxBitrate {
+		return maxBitrate
+	}
+	return bitrate
 }
 
 // SetMode sets the base mode for all stream encoders.

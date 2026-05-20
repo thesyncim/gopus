@@ -259,22 +259,39 @@ func TestEncoder_SetBitrate(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
-	// Valid bitrates
-	validBitrates := []int{BitrateAuto, BitrateMax, 6000, 12000, 32000, 64000, 128000, 256000, 510000}
-	for _, br := range validBitrates {
-		t.Run(fmt.Sprintf("bitrate_%d", br), func(t *testing.T) {
+	validBitrates := []struct {
+		input int
+		want  int
+	}{
+		{BitrateAuto, BitrateAuto},
+		{BitrateMax, BitrateMax},
+		{1, 500},
+		{500, 500},
+		{5999, 5999},
+		{6000, 6000},
+		{12000, 12000},
+		{32000, 32000},
+		{64000, 64000},
+		{128000, 128000},
+		{256000, 256000},
+		{750000, 750000},
+		{750001, 750000},
+	}
+	for _, tc := range validBitrates {
+		t.Run(fmt.Sprintf("bitrate_%d", tc.input), func(t *testing.T) {
+			br := tc.input
 			err := enc.SetBitrate(br)
 			if err != nil {
 				t.Errorf("SetBitrate(%d) error: %v", br, err)
 			}
-			if enc.Bitrate() != br {
-				t.Errorf("Bitrate() = %d, want %d", enc.Bitrate(), br)
+			if enc.Bitrate() != tc.want {
+				t.Errorf("Bitrate() = %d, want %d", enc.Bitrate(), tc.want)
 			}
 		})
 	}
 
 	// Invalid bitrates
-	invalidBitrates := []int{0, 5999, 510001, -2, -1001, 1000000}
+	invalidBitrates := []int{0, -2, -1001}
 	for _, br := range invalidBitrates {
 		t.Run(fmt.Sprintf("invalid_bitrate_%d", br), func(t *testing.T) {
 			err := enc.SetBitrate(br)
@@ -282,6 +299,20 @@ func TestEncoder_SetBitrate(t *testing.T) {
 				t.Errorf("SetBitrate(%d) error = %v, want ErrInvalidBitrate", br, err)
 			}
 		})
+	}
+}
+
+func TestEncoder_SetBitrateStereoClampsPerChannel(t *testing.T) {
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 2, Application: ApplicationAudio})
+	if err != nil {
+		t.Fatalf("NewEncoder error: %v", err)
+	}
+
+	if err := enc.SetBitrate(1500001); err != nil {
+		t.Fatalf("SetBitrate(1500001) error: %v", err)
+	}
+	if got := enc.Bitrate(); got != 1500000 {
+		t.Fatalf("Bitrate() = %d, want 1500000", got)
 	}
 }
 

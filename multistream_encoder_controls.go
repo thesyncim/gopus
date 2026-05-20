@@ -47,9 +47,9 @@ func (e *MultistreamEncoder) ExpertFrameDuration() ExpertFrameDuration {
 // The bitrate is distributed across streams with coupled streams getting
 // proportionally more bits than mono streams.
 //
-// Valid total range is 6000 to 510000*channels bits per second.
+// Positive bitrates are clamped to 500*channels through 750000*channels.
 func (e *MultistreamEncoder) SetBitrate(bitrate int) error {
-	if err := validateBitrate(bitrate, 510000*e.channels); err != nil {
+	if err := validateBitrate(bitrate); err != nil {
 		return err
 	}
 	e.enc.SetBitrate(bitrate)
