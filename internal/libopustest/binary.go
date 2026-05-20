@@ -91,11 +91,19 @@ func NewOracleReaderVersion(label, outputMagic string, data []byte) (*OracleRead
 	if len(outputMagic) != 4 {
 		return nil, 0, fmt.Errorf("oracle magic %q must be four bytes", outputMagic)
 	}
-	if len(data) < 8 || string(data[:4]) != outputMagic {
+	return NewOracleReaderMagicVersion(label, outputMagic, data)
+}
+
+func NewOracleReaderMagicVersion(label, outputMagic string, data []byte) (*OracleReader, uint32, error) {
+	if len(outputMagic) == 0 {
+		return nil, 0, fmt.Errorf("oracle magic must not be empty")
+	}
+	headerLen := len(outputMagic) + 4
+	if len(data) < headerLen || string(data[:len(outputMagic)]) != outputMagic {
 		return nil, 0, fmt.Errorf("unexpected %s helper output", label)
 	}
-	version := binary.LittleEndian.Uint32(data[4:8])
-	return &OracleReader{label: label, data: data, offset: 8}, version, nil
+	version := binary.LittleEndian.Uint32(data[len(outputMagic):headerLen])
+	return &OracleReader{label: label, data: data, offset: headerLen}, version, nil
 }
 
 func (r *OracleReader) Count(want int) int {

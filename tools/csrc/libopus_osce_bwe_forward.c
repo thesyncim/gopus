@@ -24,6 +24,7 @@
  *
  * Output format on stdout (binary):
  *   8-byte ASCII tag "OSCEBWE\0"
+ *   int32 version (== 1)
  *   int32 num_frames (1 for 160, 2 for 320)
  *   int32 num_subframes (== 2 * num_frames)
  *   int32 num_out_samples (== 3 * NUM_SAMPLES_16K)
@@ -264,11 +265,12 @@ int main(int argc, char *argv[]) {
   /* Emit header + binary payload. */
   static const char tag[8] = {'O','S','C','E','B','W','E','\0'};
   if (fwrite(tag, 1, sizeof(tag), stdout) != sizeof(tag)) goto write_err;
-  int32_t hdr[3];
-  hdr[0] = num_frames;
-  hdr[1] = num_subframes;
-  hdr[2] = num_out;
-  if (fwrite(hdr, sizeof(int32_t), 3, stdout) != 3) goto write_err;
+  int32_t hdr[4];
+  hdr[0] = 1;
+  hdr[1] = num_frames;
+  hdr[2] = num_subframes;
+  hdr[3] = num_out;
+  if (fwrite(hdr, sizeof(int32_t), 4, stdout) != 4) goto write_err;
   if (fwrite(features, sizeof(float), num_frames * OSCE_BWE_FEATURE_DIM, stdout)
       != (size_t)(num_frames * OSCE_BWE_FEATURE_DIM)) goto write_err;
   static float xq48f[3 * 320];

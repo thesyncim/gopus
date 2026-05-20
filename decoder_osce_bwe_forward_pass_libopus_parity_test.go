@@ -4,11 +4,8 @@
 package gopus
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"math"
-	"os/exec"
 	"sync"
 	"testing"
 
@@ -596,43 +593,34 @@ func runOSCEBWEForwardHelperMode(binPath string, numIn16 int, mode string) (feat
 	if mode != "" {
 		args = append(args, mode)
 	}
-	cmd := exec.Command(binPath, args...)
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, nil, fmt.Errorf("run libopus OSCE BWE forward helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	payload, err := libopustest.RunHelperArgs(binPath, nil, args...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("run libopus OSCE BWE forward helper: %w", err)
 	}
-	payload := stdout.Bytes()
-	const tagLen = 8
-	if len(payload) < tagLen+3*4 {
-		return nil, nil, fmt.Errorf("libopus OSCE BWE forward output too short: %d bytes", len(payload))
+	reader, version, err := libopustest.NewOracleReaderMagicVersion("OSCE BWE forward", "OSCEBWE\x00", payload)
+	if err != nil {
+		return nil, nil, err
 	}
-	if string(payload[:tagLen]) != "OSCEBWE\x00" {
-		return nil, nil, fmt.Errorf("libopus OSCE BWE forward output missing tag, got %q", payload[:tagLen])
+	if version != 1 {
+		return nil, nil, fmt.Errorf("libopus OSCE BWE forward version=%d, want 1", version)
 	}
-	off := tagLen
-	numFrames := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-	off += 4
-	_ = int(int32(binary.LittleEndian.Uint32(payload[off:]))) // num_subframes (not used directly here)
-	off += 4
-	numOut := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-	off += 4
+	numFrames := int(reader.I32())
+	_ = int(reader.I32()) // num_subframes (not used directly here)
+	numOut := int(reader.I32())
 
 	featBytes := numFrames * osceBWE.FeatureDim * 4
 	outBytes := numOut * 4
-	if len(payload)-off < featBytes+outBytes {
-		return nil, nil, fmt.Errorf("libopus OSCE BWE forward output truncated: have %d bytes for %d features + %d output", len(payload)-off, featBytes, outBytes)
-	}
+	reader.ExpectRemaining(featBytes + outBytes)
 	features = make([]float32, numFrames*osceBWE.FeatureDim)
 	for i := range features {
-		features[i] = math.Float32frombits(binary.LittleEndian.Uint32(payload[off+4*i:]))
+		features[i] = reader.Float32()
 	}
-	off += featBytes
 	out48k = make([]float32, numOut)
 	for i := range out48k {
-		out48k[i] = math.Float32frombits(binary.LittleEndian.Uint32(payload[off+4*i:]))
+		out48k[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, nil, err
 	}
 	return features, out48k, nil
 }

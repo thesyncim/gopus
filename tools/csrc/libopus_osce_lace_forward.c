@@ -35,6 +35,7 @@
  *
  * Output format on stdout (binary):
  *   8-byte ASCII tag "OSCELAC\0"
+ *   int32 version        (== 1)
  *   int32 mode_id        (0 = LACE, 1 = NoLACE)
  *   int32 num_out_samples (== NUM_SAMPLES_16K, == 320)
  *   float32[num_out_samples] x_out (16 kHz, float in [-1, 1])
@@ -495,10 +496,11 @@ int main(int argc, char *argv[]) {
   /* Emit header + binary payload. */
   static const char tag[8] = {'O','S','C','E','L','A','C','\0'};
   if (fwrite(tag, 1, sizeof(tag), stdout) != sizeof(tag)) goto write_err;
-  int32_t hdr[2];
-  hdr[0] = mode_id;
-  hdr[1] = num_samples;
-  if (fwrite(hdr, sizeof(int32_t), 2, stdout) != 2) goto write_err;
+  int32_t hdr[3];
+  hdr[0] = 1;
+  hdr[1] = mode_id;
+  hdr[2] = num_samples;
+  if (fwrite(hdr, sizeof(int32_t), 3, stdout) != 3) goto write_err;
   if (fwrite(x_out, sizeof(float), (size_t)num_samples, stdout) != (size_t)num_samples) goto write_err;
 
   free(model);

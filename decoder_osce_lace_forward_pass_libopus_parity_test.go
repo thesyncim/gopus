@@ -4,12 +4,9 @@
 package gopus
 
 import (
-	"bytes"
-	"encoding/binary"
 	"fmt"
 	"math"
 	"os"
-	"os/exec"
 	"sync"
 	"testing"
 
@@ -283,26 +280,18 @@ func getLibopusOSCELACEForwardHelperPath() (string, error) {
 // or "nolace"), parses the binary payload, and returns the libopus 16 kHz
 // float output.
 func runOSCELACEForwardHelper(binPath string, numIn16 int, mode string) (out16k []float32, err error) {
-	cmd := exec.Command(binPath, fmt.Sprintf("%d", numIn16))
-	cmd.Env = append(cmd.Env, fmt.Sprintf("MODE=%s", mode))
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run libopus OSCE LACE forward helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	payload, err := libopustest.RunHelperArgsEnv(binPath, nil, []string{fmt.Sprintf("MODE=%s", mode)}, fmt.Sprintf("%d", numIn16))
+	if err != nil {
+		return nil, fmt.Errorf("run libopus OSCE LACE forward helper: %w", err)
 	}
-	payload := stdout.Bytes()
-	const tagLen = 8
-	if len(payload) < tagLen+2*4 {
-		return nil, fmt.Errorf("libopus OSCE LACE forward output too short: %d bytes", len(payload))
+	reader, version, err := libopustest.NewOracleReaderMagicVersion("OSCE LACE forward", "OSCELAC\x00", payload)
+	if err != nil {
+		return nil, err
 	}
-	if string(payload[:tagLen]) != "OSCELAC\x00" {
-		return nil, fmt.Errorf("libopus OSCE LACE forward output missing tag, got %q", payload[:tagLen])
+	if version != 1 {
+		return nil, fmt.Errorf("libopus OSCE LACE forward version=%d, want 1", version)
 	}
-	off := tagLen
-	modeID := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-	off += 4
+	modeID := int(reader.I32())
 	wantModeID := 0
 	if mode == "nolace" {
 		wantModeID = 1
@@ -310,54 +299,36 @@ func runOSCELACEForwardHelper(binPath string, numIn16 int, mode string) (out16k 
 	if modeID != wantModeID {
 		return nil, fmt.Errorf("libopus OSCE LACE forward output: mode_id=%d, want %d for mode %q", modeID, wantModeID, mode)
 	}
-	numOut := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-	off += 4
+	numOut := int(reader.I32())
 	if numOut != numIn16 {
 		return nil, fmt.Errorf("libopus OSCE LACE forward output: num_out=%d != num_in=%d", numOut, numIn16)
 	}
 
 	outBytes := numOut * 4
-	if len(payload)-off < outBytes {
-		return nil, fmt.Errorf("libopus OSCE LACE forward output truncated: have %d bytes for %d samples", len(payload)-off, numOut)
-	}
-	if len(payload)-off != outBytes {
-		return nil, fmt.Errorf("libopus OSCE LACE forward output has %d trailing bytes", len(payload)-off-outBytes)
-	}
+	reader.ExpectRemaining(outBytes)
 	out16k = make([]float32, numOut)
 	for i := range out16k {
-		out16k[i] = math.Float32frombits(binary.LittleEndian.Uint32(payload[off+4*i:]))
+		out16k[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
 	}
 	return out16k, nil
 }
 
 func runOSCELACEForwardTraceHelper(binPath string, numIn16 int, mode string) ([]osceLACE.TraceRecord, error) {
-	cmd := exec.Command(binPath, fmt.Sprintf("%d", numIn16))
-	cmd.Env = append(cmd.Env, fmt.Sprintf("MODE=%s", mode), "TRACE=1")
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return nil, fmt.Errorf("run libopus OSCE LACE trace helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	payload, err := libopustest.RunHelperArgsEnv(binPath, nil, []string{fmt.Sprintf("MODE=%s", mode), "TRACE=1"}, fmt.Sprintf("%d", numIn16))
+	if err != nil {
+		return nil, fmt.Errorf("run libopus OSCE LACE trace helper: %w", err)
 	}
-
-	payload := stdout.Bytes()
-	const tagLen = 8
-	const headerWords = 6
-	if len(payload) < tagLen+headerWords*4 {
-		return nil, fmt.Errorf("libopus OSCE LACE trace output too short: %d bytes", len(payload))
+	reader, version, err := libopustest.NewOracleReaderMagicVersion("OSCE LACE trace", "OSCELTR\x00", payload)
+	if err != nil {
+		return nil, err
 	}
-	if string(payload[:tagLen]) != "OSCELTR\x00" {
-		return nil, fmt.Errorf("libopus OSCE LACE trace output missing tag, got %q", payload[:tagLen])
-	}
-	off := tagLen
-	version := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-	off += 4
 	if version != 1 {
 		return nil, fmt.Errorf("libopus OSCE LACE trace version=%d, want 1", version)
 	}
-	modeID := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-	off += 4
+	modeID := int(reader.I32())
 	wantModeID := 0
 	if mode == "nolace" {
 		wantModeID = 1
@@ -365,55 +336,40 @@ func runOSCELACEForwardTraceHelper(binPath string, numIn16 int, mode string) ([]
 	if modeID != wantModeID {
 		return nil, fmt.Errorf("libopus OSCE LACE trace mode_id=%d, want %d", modeID, wantModeID)
 	}
-	sampleRate := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-	off += 4
+	sampleRate := int(reader.I32())
 	if sampleRate != 16000 {
 		return nil, fmt.Errorf("libopus OSCE LACE trace sample_rate=%d, want 16000", sampleRate)
 	}
-	frameSamples := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-	off += 4
+	frameSamples := int(reader.I32())
 	if frameSamples != numIn16 {
 		return nil, fmt.Errorf("libopus OSCE LACE trace frame_samples=%d, want %d", frameSamples, numIn16)
 	}
-	subframes := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-	off += 4
+	subframes := int(reader.I32())
 	if subframes != 4 {
 		return nil, fmt.Errorf("libopus OSCE LACE trace subframes=%d, want 4", subframes)
 	}
-	stageCount := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-	off += 4
+	stageCount := int(reader.I32())
 	if stageCount < 0 {
 		return nil, fmt.Errorf("libopus OSCE LACE trace invalid stage_count=%d", stageCount)
 	}
 
 	records := make([]osceLACE.TraceRecord, 0, stageCount)
 	for rec := 0; rec < stageCount; rec++ {
-		const recordHeaderWords = 5
-		if len(payload)-off < recordHeaderWords*4 {
-			return nil, fmt.Errorf("libopus OSCE LACE trace record %d truncated before header", rec)
-		}
-		stage := osceLACE.TraceStage(int(int32(binary.LittleEndian.Uint32(payload[off:]))))
-		off += 4
-		subframe := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-		off += 4
-		channels := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-		off += 4
-		samplesPerChannel := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-		off += 4
-		valuesLen := int(int32(binary.LittleEndian.Uint32(payload[off:])))
-		off += 4
+		stage := osceLACE.TraceStage(int(reader.I32()))
+		subframe := int(reader.I32())
+		channels := int(reader.I32())
+		samplesPerChannel := int(reader.I32())
+		valuesLen := int(reader.I32())
 		if valuesLen < 0 {
 			return nil, fmt.Errorf("libopus OSCE LACE trace record %d invalid values_len=%d", rec, valuesLen)
 		}
-		valuesBytes := valuesLen * 4
-		if len(payload)-off < valuesBytes {
-			return nil, fmt.Errorf("libopus OSCE LACE trace record %d truncated: have %d bytes for %d values", rec, len(payload)-off, valuesLen)
-		}
 		values := make([]float32, valuesLen)
 		for i := range values {
-			values[i] = math.Float32frombits(binary.LittleEndian.Uint32(payload[off+4*i:]))
+			values[i] = reader.Float32()
 		}
-		off += valuesBytes
+		if err := reader.Err(); err != nil {
+			return nil, fmt.Errorf("libopus OSCE LACE trace record %d: %w", rec, err)
+		}
 		records = append(records, osceLACE.TraceRecord{
 			Stage:             stage,
 			Subframe:          subframe,
@@ -422,8 +378,8 @@ func runOSCELACEForwardTraceHelper(binPath string, numIn16 int, mode string) ([]
 			Values:            values,
 		})
 	}
-	if len(payload) != off {
-		return nil, fmt.Errorf("libopus OSCE LACE trace output has %d trailing bytes", len(payload)-off)
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
 	}
 	return records, nil
 }

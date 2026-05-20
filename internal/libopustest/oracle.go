@@ -151,6 +151,10 @@ func RunHelperEnv(binPath string, input []byte, env []string) ([]byte, error) {
 	return runHelper(binPath, input, env, nil)
 }
 
+func RunHelperArgsEnv(binPath string, input []byte, env []string, args ...string) ([]byte, error) {
+	return runHelper(binPath, input, env, args)
+}
+
 func runHelper(binPath string, input []byte, env []string, args []string) ([]byte, error) {
 	var stdout, stderr bytes.Buffer
 	cmd := exec.Command(binPath, args...)
