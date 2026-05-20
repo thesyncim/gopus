@@ -826,6 +826,7 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 			}
 		}
 		e.first = false
+		e.prevChannels = e.streamChannels
 		e.finalRange = 0
 		// Match libopus: return a 1-byte TOC-only packet for DTX frames.
 		// The decoder triggers its own CNG when it sees a TOC with no frame data.
@@ -946,7 +947,7 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 	}
 	dredPacketBuilt := false
 	if packet == nil {
-		stereo := e.channels == 2
+		stereo := e.packetStereoForMode(actualMode)
 		packetBW := e.effectiveBandwidth()
 		if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 			packetBW = types.BandwidthWideband
@@ -1029,7 +1030,7 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 		}
 		targetSize := targetBytesForBitrate(e.bitrate, frameSize)
 		if len(qextPayload) > 0 && len(packet) < targetSize {
-			stereo := e.channels == 2
+			stereo := e.packetStereoForMode(actualMode)
 			packetBW := e.effectiveBandwidth()
 			if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 				packetBW = types.BandwidthWideband
@@ -1057,6 +1058,7 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 			packet = constrainSize(packet, targetBytesForBitrate(e.bitrate, frameSize), CVBRTolerance)
 		}
 	}
+	e.prevChannels = e.streamChannels
 	e.finalRange = e.currentFinalRange(actualMode)
 	return packet, nil
 }
@@ -1080,7 +1082,7 @@ func (e *Encoder) buildDTXPacketForMode(frameSize int, actualMode Mode) ([]byte,
 	if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 		packetBW = types.BandwidthWideband
 	}
-	stereo := e.channels == 2
+	stereo := e.packetStereoForMode(actualMode)
 
 	// Build TOC-only packet (no frame data) into scratch buffer.
 	n, err := BuildPacketInto(e.scratchPacket, nil, modeToTypes(actualMode), packetBW, frameSize, stereo)
@@ -1102,6 +1104,26 @@ func modeToTypes(m Mode) types.Mode {
 	default:
 		return types.ModeCELT
 	}
+}
+
+func (e *Encoder) silkInternalChannels() int {
+	if e.channels != 2 {
+		return 1
+	}
+	if e.streamChannels <= 1 {
+		return 1
+	}
+	return 2
+}
+
+func (e *Encoder) packetStereoForMode(mode Mode) bool {
+	if e.channels != 2 {
+		return false
+	}
+	if mode == ModeSILK {
+		return e.silkInternalChannels() == 2
+	}
+	return true
 }
 
 // dcReject applies a DC rejection filter (1st-order high-pass filter at 3Hz).
@@ -1331,6 +1353,38 @@ func quantizeFloat32ToInt16LibopusInPlace(samples []float32) {
 		}
 		samples[i] = float32(math.RoundToEven(scaled)) * invScale
 	}
+}
+
+func downmixStereoToSilkMonoLibopus(dst, interleaved []float32, samples int) {
+	const invScale = float32(1.0 / 32768.0)
+	for i := 0; i < samples; i++ {
+		sum := float32ToInt16Libopus(interleaved[2*i] + interleaved[2*i+1])
+		dst[i] = float32(silkRShiftRound1(sum)) * invScale
+	}
+}
+
+func averageSilkResamplerOutputsLibopus(dst, right []float32, samples int) {
+	const invScale = float32(1.0 / 32768.0)
+	for i := 0; i < samples; i++ {
+		leftQ0 := float32ToInt16Libopus(dst[i])
+		rightQ0 := float32ToInt16Libopus(right[i])
+		dst[i] = float32((leftQ0+rightQ0)>>1) * invScale
+	}
+}
+
+func float32ToInt16Libopus(v float32) int32 {
+	const scale = float32(32768.0)
+	scaled := float64(v * scale)
+	if scaled > 32767.0 {
+		scaled = 32767.0
+	} else if scaled < -32768.0 {
+		scaled = -32768.0
+	}
+	return int32(math.RoundToEven(scaled))
+}
+
+func silkRShiftRound1(v int32) int32 {
+	return (v >> 1) + (v & 1)
 }
 
 func (e *Encoder) ensureDelayedPCM(size int) []float64 {
@@ -2275,6 +2329,7 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []float64, lookahead []float
 			lookahead32[i] = float32(v)
 		}
 	}
+	internalChannels := e.silkInternalChannels()
 	if e.channels != 2 {
 		// Match libopus enc_API.c float path: quantize to int16 precision
 		// before SILK resampling/input buffering. Stereo uses its own
@@ -2292,7 +2347,7 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []float64, lookahead []float
 	if targetSamples <= 0 {
 		targetSamples = len(pcm32)
 	}
-	if e.channels == 2 {
+	if e.channels == 2 && internalChannels == 2 {
 		// Set bitrates: total rate on mid encoder (StereoLRToMSWithRates splits it),
 		// per-channel rate on side encoder for its own SNR control.
 		totalSilkRate := e.silkInputBitrate(frameSize)
@@ -2387,10 +2442,31 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []float64, lookahead []float
 			sideAnalyzer,
 		)
 	}
+	if e.channels == 2 {
+		mono := e.scratchMono[:frameSize]
+		downmixStereoToSilkMonoLibopus(mono, pcm32, frameSize)
+		pcm32 = mono
+		if len(lookahead32) > 0 {
+			lookaheadSize := len(lookahead32) / 2
+			monoLookahead := e.scratchLeft[:lookaheadSize]
+			downmixStereoToSilkMonoLibopus(monoLookahead, lookahead32, lookaheadSize)
+			lookahead32 = monoLookahead
+		} else {
+			lookahead32 = nil
+		}
+	}
 	var lookaheadOut []float32
 	if targetRate != 48000 {
 		out := e.ensureSilkResampled(targetSamples)
 		n := e.silkResampler.ProcessInto(pcm32, out)
+		if e.channels == 2 && internalChannels == 1 && e.prevChannels == 2 && e.silkResamplerRight != nil {
+			rightOut := e.ensureSilkResampledR(targetSamples)
+			nR := e.silkResamplerRight.ProcessInto(pcm32, rightOut)
+			if nR < n {
+				n = nR
+			}
+			averageSilkResamplerOutputsLibopus(out, rightOut, n)
+		}
 		if n < len(out) {
 			out = out[:n]
 		}
@@ -2411,13 +2487,13 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []float64, lookahead []float
 	// Match libopus mono SILK buffering path (enc_API.c):
 	// mono internal channels use sStereo.sMid history across frames.
 	// This applies to all SILK internal rates (8/12/16 kHz), not only WB.
-	if e.channels == 1 {
+	if internalChannels == 1 {
 		pcm32 = e.alignSilkMonoInput(pcm32)
 	}
 	quantizeFloat32ToInt16LibopusInPlace(pcm32)
 	perChannelRate := 0
 	if e.bitrate > 0 {
-		perChannelRate = e.silkInputBitrate(frameSize) / e.channels
+		perChannelRate = e.silkInputBitrate(frameSize) / internalChannels
 		if perChannelRate > 0 {
 			e.silkEncoder.SetBitrate(perChannelRate)
 		}
@@ -2944,13 +3020,13 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []float64, frameSize int, origi
 		packetBW = types.BandwidthWideband
 	}
 	if e.dredEncodingActive() {
-		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeSILK, packetBW, frameSize, encFrameSize, firstFrameMaxBytes, e.channels == 2, !sameSize); err != nil {
+		if dredPacket, ok, err := e.maybeBuildMultiFrameDREDPacket(frames, ModeSILK, packetBW, frameSize, encFrameSize, firstFrameMaxBytes, e.packetStereoForMode(ModeSILK), !sameSize); err != nil {
 			return nil, err
 		} else if ok {
 			return dredPacket, nil
 		}
 	}
-	return BuildMultiFramePacket(frames, types.ModeSILK, packetBW, encFrameSize, e.channels == 2, !sameSize)
+	return BuildMultiFramePacket(frames, types.ModeSILK, packetBW, encFrameSize, e.packetStereoForMode(ModeSILK), !sameSize)
 }
 
 // ensureSILKEncoder creates the SILK encoder if it doesn't exist.
