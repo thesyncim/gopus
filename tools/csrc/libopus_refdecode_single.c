@@ -175,7 +175,7 @@ int main(void) {
 
   opus_decoder_destroy(dec);
 
-  if (!write_exact(GOSO_MAGIC, 4) || decoded_len > UINT32_MAX || !write_u32((uint32_t)decoded_len) ||
+  if (!write_exact(GOSO_MAGIC, 4) || decoded_len > UINT32_MAX || !write_u32(1) || !write_u32((uint32_t)decoded_len) ||
       !write_exact(decoded, decoded_len * sizeof(float))) {
     fprintf(stderr, "failed to write output\n");
     free(frame);

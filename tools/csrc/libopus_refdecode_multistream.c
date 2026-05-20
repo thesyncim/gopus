@@ -300,7 +300,7 @@ int main(void) {
     return 1;
   }
 
-  if (!write_exact(GMSO_MAGIC, 4) || !write_u32((uint32_t)decoded_len) ||
+  if (!write_exact(GMSO_MAGIC, 4) || !write_u32(1) || !write_u32((uint32_t)decoded_len) ||
       (decoded_len > 0 && !write_exact(decoded, decoded_len * sizeof(float)))) {
     fprintf(stderr, "failed to write output\n");
     free(mapping);
