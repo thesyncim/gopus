@@ -1009,11 +1009,17 @@ func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int, mode 
 	}
 	r.dredPLC.ClearBlend()
 	if mode == ModeSILK && d.sampleRate == 16000 && samplesPerChannel >= lpcnetplc.FrameSize && samplesPerChannel%lpcnetplc.FrameSize == 0 {
+		n := d.dredNeuralState()
+		if n != nil && n.dredRawHistoryUpdated {
+			return
+		}
+		if d.refreshDREDHistoryFromSILKDecoder() {
+			return
+		}
 		switch {
 		case d.channels == 1 && len(pcm) >= samplesPerChannel:
 			d.updateDREDPCMHistory(pcm[:samplesPerChannel])
 		case d.channels == 2 && len(pcm) >= 2*samplesPerChannel:
-			n := d.dredNeuralState()
 			if n == nil || samplesPerChannel > len(n.dredPLCUpdate) {
 				return
 			}

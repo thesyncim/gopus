@@ -884,6 +884,50 @@ func TestDecoderMarkDREDUpdatedPCMRefreshesNeuralHistory(t *testing.T) {
 	}
 }
 
+func TestDecoderMarkDREDUpdatedPCMSkipsPublicFallbackAfterRawHistory(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	dec.ensureDREDRecoveryState()
+	state := requireDecoderDREDState(t, dec)
+	var raw [lpcnetplc.FrameSize]int16
+	for i := range raw {
+		raw[i] = int16((i%17 - 8) * 321)
+	}
+	dec.primeDREDPCMHistoryInt16(raw[:])
+	before := state.dredPLC.Snapshot()
+	var beforeHistory [lpcnetplc.PLCBufSize]float32
+	if n := state.dredPLC.FillPCMHistory(beforeHistory[:]); n != lpcnetplc.PLCBufSize {
+		t.Fatalf("FillPCMHistory(before)=%d want %d", n, lpcnetplc.PLCBufSize)
+	}
+	state.dredPLC.MarkConcealed()
+
+	public := make([]float32, 2*lpcnetplc.FrameSize)
+	for i := range public {
+		public[i] = float32((i%31)-15) / 7
+	}
+	dec.markDREDUpdatedPCM(public, lpcnetplc.FrameSize, ModeSILK)
+
+	after := state.dredPLC.Snapshot()
+	if after.Blend != 0 {
+		t.Fatalf("Blend=%d want 0", after.Blend)
+	}
+	if after.AnalysisPos != before.AnalysisPos || after.PredictPos != before.PredictPos || after.LossCount != before.LossCount {
+		t.Fatalf("public fallback advanced raw-updated history: before=%+v after=%+v", before, after)
+	}
+	var afterHistory [lpcnetplc.PLCBufSize]float32
+	if n := state.dredPLC.FillPCMHistory(afterHistory[:]); n != lpcnetplc.PLCBufSize {
+		t.Fatalf("FillPCMHistory(after)=%d want %d", n, lpcnetplc.PLCBufSize)
+	}
+	if !slices.Equal(afterHistory[:], beforeHistory[:]) {
+		t.Fatal("public fallback rewrote raw-updated DRED PCM history")
+	}
+}
+
 func TestDecoderMarkDREDUpdatedPCMCELTKeepsBridgeOwnedHistory(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(16000, 1))
 	if err != nil {
