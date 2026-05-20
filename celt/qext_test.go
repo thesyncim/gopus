@@ -74,7 +74,7 @@ func TestComputeQEXTModeConfig180Path(t *testing.T) {
 	}
 }
 
-func TestComputeQEXTModeConfigRejectsUnsupportedMode(t *testing.T) {
+func TestComputeQEXTModeConfigRejectsUnknownModeConfig(t *testing.T) {
 	if _, ok := computeQEXTModeConfig(48000, 96); ok {
 		t.Fatal("computeQEXTModeConfig(48000,96)=true want false")
 	}

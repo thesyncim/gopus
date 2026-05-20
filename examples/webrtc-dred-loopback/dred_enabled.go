@@ -17,7 +17,7 @@ func dredBuildStatus() string {
 	if gopus.SupportsOptionalExtension(gopus.OptionalExtensionDRED) {
 		return "DRED controls: gopus_dred"
 	}
-	return "DRED controls: quarantine build"
+	return "DRED controls: extra-controls parity build"
 }
 
 func setEncoderDRED(enc *gopus.Encoder, enabled bool, duration int) error {

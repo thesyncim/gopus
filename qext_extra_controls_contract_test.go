@@ -27,12 +27,12 @@ func TestQEXTExtraControlsBuildOptionalExtensionContract(t *testing.T) {
 	assertOptionalEncoderControls(t, enc)
 	dred, ok := any(enc).(extraDREDControl)
 	if !ok {
-		t.Fatal("combined extra-controls build does not expose encoder DRED control")
+		t.Fatal("QEXT+extra-controls build does not expose encoder DRED control")
 	}
 	assertWorkingDREDControl(t, dred)
 	qext, ok := any(enc).(qextEncoderControl)
 	if !ok {
-		t.Fatal("combined extra-controls build does not expose encoder QEXT control")
+		t.Fatal("QEXT+extra-controls build does not expose encoder QEXT control")
 	}
 	assertSupportedQEXTControl(t, qext)
 
@@ -40,12 +40,12 @@ func TestQEXTExtraControlsBuildOptionalExtensionContract(t *testing.T) {
 	assertOptionalDecoderControls(t, dec)
 	osce, ok := any(dec).(extraOSCEBWEControl)
 	if !ok {
-		t.Fatal("combined extra-controls build does not expose decoder OSCE BWE control")
+		t.Fatal("QEXT+extra-controls build does not expose decoder OSCE BWE control")
 	}
 	assertWorkingOSCEBWEControl(t, osce)
 	lace, ok := any(dec).(extraOSCELACEControl)
 	if !ok {
-		t.Fatal("combined extra-controls build does not expose decoder OSCE LACE control")
+		t.Fatal("QEXT+extra-controls build does not expose decoder OSCE LACE control")
 	}
 	assertWorkingOSCELACEControl(t, lace)
 
@@ -53,12 +53,12 @@ func TestQEXTExtraControlsBuildOptionalExtensionContract(t *testing.T) {
 	assertOptionalEncoderControls(t, msEnc)
 	msDred, ok := any(msEnc).(extraDREDControl)
 	if !ok {
-		t.Fatal("combined extra-controls build does not expose multistream encoder DRED control")
+		t.Fatal("QEXT+extra-controls build does not expose multistream encoder DRED control")
 	}
 	assertWorkingDREDControl(t, msDred)
 	msQEXT, ok := any(msEnc).(qextEncoderControl)
 	if !ok {
-		t.Fatal("combined extra-controls build does not expose multistream encoder QEXT control")
+		t.Fatal("QEXT+extra-controls build does not expose multistream encoder QEXT control")
 	}
 	assertSupportedQEXTControl(t, msQEXT)
 
@@ -66,12 +66,12 @@ func TestQEXTExtraControlsBuildOptionalExtensionContract(t *testing.T) {
 	assertOptionalDecoderControls(t, msDec)
 	msOSCE, ok := any(msDec).(extraOSCEBWEControl)
 	if !ok {
-		t.Fatal("combined extra-controls build does not expose multistream decoder OSCE BWE control")
+		t.Fatal("QEXT+extra-controls build does not expose multistream decoder OSCE BWE control")
 	}
 	assertWorkingOSCEBWEControl(t, msOSCE)
 	msLACE, ok := any(msDec).(extraOSCELACEControl)
 	if !ok {
-		t.Fatal("combined extra-controls build does not expose multistream decoder OSCE LACE control")
+		t.Fatal("QEXT+extra-controls build does not expose multistream decoder OSCE LACE control")
 	}
 	assertWorkingOSCELACEControl(t, msLACE)
 }
