@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <math.h>
 
@@ -10,6 +11,8 @@
 
 #include "config.h"
 #include "celt/float_cast.h"
+#include "celt/mathops.h"
+#include "celt/cpu_support.h"
 
 #define INPUT_MAGIC "GFQI"
 #define OUTPUT_MAGIC "GFQO"
@@ -18,7 +21,8 @@ enum {
   MODE_FLOAT2INT16 = 0,
   MODE_OSCE_OUTPUT_SCALE = 1,
   MODE_FARGAN_SYNTH_INT = 2,
-  MODE_CELT_RAW_32767_FLOAT2INT = 3
+  MODE_CELT_RAW_32767_FLOAT2INT = 3,
+  MODE_CELT_FLOAT2INT16_DISPATCH = 4
 };
 
 static int set_binary_stdio(void) {
@@ -80,6 +84,39 @@ static int16_t convert_sample(uint32_t mode, float x) {
   }
 }
 
+static int convert_dispatch(uint32_t count) {
+  float *in = NULL;
+  int16_t *out = NULL;
+  uint32_t i;
+
+  if (count == 0) return 1;
+  in = (float *)malloc(count * sizeof(*in));
+  out = (int16_t *)malloc(count * sizeof(*out));
+  if (in == NULL || out == NULL) {
+    free(in);
+    free(out);
+    return 0;
+  }
+  for (i = 0; i < count; i++) {
+    uint32_t bits;
+    if (!read_u32(&bits)) {
+      free(in);
+      free(out);
+      return 0;
+    }
+    memcpy(&in[i], &bits, sizeof(in[i]));
+  }
+  celt_float2int16(in, out, (int)count, opus_select_arch());
+  if (!write_exact(out, count * sizeof(*out))) {
+    free(in);
+    free(out);
+    return 0;
+  }
+  free(in);
+  free(out);
+  return 1;
+}
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -99,7 +136,7 @@ int main(void) {
     fprintf(stderr, "failed to read header\n");
     return 1;
   }
-  if (mode > MODE_CELT_RAW_32767_FLOAT2INT) {
+  if (mode > MODE_CELT_FLOAT2INT16_DISPATCH) {
     fprintf(stderr, "invalid mode\n");
     return 1;
   }
@@ -108,6 +145,14 @@ int main(void) {
     fprintf(stderr, "failed to write output header\n");
     return 1;
   }
+  if (mode == MODE_CELT_FLOAT2INT16_DISPATCH) {
+    if (!convert_dispatch(count)) {
+      fprintf(stderr, "failed to convert dispatch vector\n");
+      return 1;
+    }
+    return 0;
+  }
+
   for (i = 0; i < count; i++) {
     uint32_t bits;
     float x;

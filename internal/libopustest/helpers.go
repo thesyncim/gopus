@@ -17,6 +17,7 @@ const (
 	FloatQuantModeOSCEOutputScale   = uint32(1)
 	FloatQuantModeFARGANSynthInt    = uint32(2)
 	FloatQuantModeCELTRaw32767Round = uint32(3)
+	FloatQuantModeCELTDispatch      = uint32(4)
 )
 
 var (
@@ -292,11 +293,17 @@ func RunOracleVersionEnv(binPath string, input []byte, label, outputMagic string
 
 func ProbeFloatQuant(mode uint32, samples []float32) ([]int16, error) {
 	floatQuantHelperOnce.Do(func() {
+		root := repoRoot()
+		libopusStatic := RefPath(".libs", "libopus.a")
+		if _, err := os.Stat(libopusStatic); err != nil {
+			libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{root})
+		}
 		floatQuantHelperPath, floatQuantHelperErr = BuildCHelper(CHelperConfig{
 			Label:       "float quant",
 			OutputBase:  "gopus_shared_float_quant",
 			SourceFile:  "libopus_float_quant_info.c",
 			RefIncludes: []string{"celt"},
+			Libs:        []string{libopusStatic, "-lm"},
 		})
 	})
 	if floatQuantHelperErr != nil {

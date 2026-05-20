@@ -212,7 +212,7 @@ func TestSoftClipAndFloat32ToInt16MatchesLibopus(t *testing.T) {
 			if err != nil {
 				libopustest.HelperUnavailable(t, "softclip", err)
 			}
-			want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeFloat2Int16, wantFloat)
+			want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeCELTDispatch, wantFloat)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "float quant", err)
 			}

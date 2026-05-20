@@ -1,6 +1,7 @@
 package gopus
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -64,5 +65,50 @@ func TestFloat32ToInt16MatchesLibopusFLOAT2INT16TiesAndClamps(t *testing.T) {
 		if got := opusmath.Float32ToInt16(sample); got != want[i] {
 			t.Fatalf("opusmath.Float32ToInt16(%0.10g)=%d want %d", sample, got, want[i])
 		}
+	}
+}
+
+func TestFloat32ToInt16MatchesLibopusCELTDispatchBlocks(t *testing.T) {
+	libopustest.RequireOracle(t)
+	lengths := []int{15, 16, 17, 31, 32}
+	pattern := []float32{
+		float32(-32767.5 / 32768.0),
+		float32(-3.5 / 32768.0),
+		float32(-2.5 / 32768.0),
+		float32(-1.5 / 32768.0),
+		float32(-0.5 / 32768.0),
+		0,
+		float32(0.5 / 32768.0),
+		float32(1.5 / 32768.0),
+		float32(2.5 / 32768.0),
+		float32(3.5 / 32768.0),
+		float32(32766.5 / 32768.0),
+		float32(32767.0 / 32768.0),
+		-1,
+		1,
+		float32(-1234.5 / 32768.0),
+		float32(1234.5 / 32768.0),
+		float32(-1235.5 / 32768.0),
+		float32(1235.5 / 32768.0),
+	}
+	for _, length := range lengths {
+		t.Run(fmt.Sprintf("len_%d", length), func(t *testing.T) {
+			samples := make([]float32, length)
+			for i := range samples {
+				samples[i] = pattern[i%len(pattern)]
+			}
+			want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeCELTDispatch, samples)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "float quant dispatch", err)
+			}
+			got := make([]int16, length)
+			src := append([]float32(nil), samples...)
+			softClipAndFloat32ToInt16(got, src, length, 1, []float32{0})
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("len=%d sample[%d]=%d want %d input=%0.10g", length, i, got[i], want[i], samples[i])
+				}
+			}
+		})
 	}
 }
