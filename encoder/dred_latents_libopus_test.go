@@ -11,22 +11,15 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
-	"github.com/thesyncim/gopus/internal/libopustooling"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 var (
-	encoderLibopusDREDBuildOnce sync.Once
-	encoderLibopusDREDRepoRoot  string
-	encoderLibopusDREDSourceDir string
-	encoderLibopusDREDBuildDir  string
-	encoderLibopusDREDBuildErr  error
-
 	encoderLibopusLatentsTraceOnce sync.Once
 	encoderLibopusLatentsTracePath string
 	encoderLibopusLatentsTraceErr  error
@@ -49,6 +42,7 @@ type encoderLibopusDREDFrameTrace struct {
 }
 
 func TestEncoderDREDInitialLatentsTraceMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, channels := range []int{1, 2} {
 		for _, frameSize := range []int{960, 1920, 2880} {
 			channels := channels
@@ -92,6 +86,7 @@ func TestEncoderDREDInitialLatentsTraceMatchesLibopus(t *testing.T) {
 }
 
 func TestEncoderDREDLongCELTLatentsUseLibopusSubframeCadence(t *testing.T) {
+	libopustest.RequireOracle(t)
 	for _, channels := range []int{1, 2} {
 		channels := channels
 		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
@@ -134,6 +129,7 @@ func TestEncoderDREDLongCELTLatentsUseLibopusSubframeCadence(t *testing.T) {
 }
 
 func TestEncoderDREDSetDNNBlobPreservesActiveRuntime(t *testing.T) {
+	libopustest.RequireOracle(t)
 	raw := requireEncoderLibopusNeuralModelBlob(t)
 	newBlob := func() *dnnblob.Blob {
 		t.Helper()
@@ -289,7 +285,7 @@ func probeEncoderLibopusPitchDNNBlob(t *testing.T) []byte {
 		encoderLibopusPitchBlob, encoderLibopusPitchBlobErr = runEncoderLibopusModelBlobHelper(binPath)
 	})
 	if encoderLibopusPitchBlobErr != nil {
-		t.Skipf("libopus pitch model blob helper unavailable: %v", encoderLibopusPitchBlobErr)
+		libopustest.HelperUnavailable(t, "pitch model blob", encoderLibopusPitchBlobErr)
 	}
 	return encoderLibopusPitchBlob
 }
@@ -305,7 +301,7 @@ func probeEncoderLibopusDREDEncoderBlob(t *testing.T) []byte {
 		encoderLibopusDREDBlob, encoderLibopusDREDBlobErr = runEncoderLibopusModelBlobHelper(binPath)
 	})
 	if encoderLibopusDREDBlobErr != nil {
-		t.Skipf("libopus DRED encoder model blob helper unavailable: %v", encoderLibopusDREDBlobErr)
+		libopustest.HelperUnavailable(t, "DRED encoder model blob", encoderLibopusDREDBlobErr)
 	}
 	return encoderLibopusDREDBlob
 }
@@ -318,7 +314,7 @@ func probeEncoderLibopusDREDLatentsTraceWithChunkSize(t *testing.T, channels, fr
 	t.Helper()
 	binPath, err := getEncoderLibopusDREDLatentsTracePath()
 	if err != nil {
-		t.Skipf("libopus DRED latents trace helper unavailable: %v", err)
+		libopustest.HelperUnavailable(t, "DRED latents trace", err)
 	}
 	cmd := exec.Command(binPath, fmt.Sprintf("%d", channels), fmt.Sprintf("%d", frameSize), fmt.Sprintf("%d", chunkSize))
 	var stdout bytes.Buffer
@@ -385,141 +381,10 @@ func runEncoderLibopusModelBlobHelper(binPath string) ([]byte, error) {
 }
 
 func buildEncoderLibopusDREDHelper(sourceFile, outputBase string, includeInternal bool) (string, error) {
-	ccPath, err := libopustooling.FindCCompiler()
+	wd, err := os.Getwd()
 	if err != nil {
-		return "", fmt.Errorf("cc not available: %w", err)
+		return "", fmt.Errorf("getwd: %w", err)
 	}
-	sourceDir, buildDir, err := ensureEncoderLibopusDREDBuild()
-	if err != nil {
-		return "", err
-	}
-	srcPath := filepath.Join(encoderLibopusDREDRepoRoot, "tools", "csrc", sourceFile)
-	if _, err := os.Stat(srcPath); err != nil {
-		return "", fmt.Errorf("DRED helper source not found: %w", err)
-	}
-	libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
-	if _, err := os.Stat(libopusStatic); err != nil {
-		return "", fmt.Errorf("DRED libopus static library not found: %w", err)
-	}
-
-	outPath := filepath.Join(buildDir, fmt.Sprintf("%s_%s_%s", outputBase, runtime.GOOS, runtime.GOARCH))
-	if runtime.GOOS == "windows" {
-		outPath += ".exe"
-	}
-	args := []string{
-		"-std=c99",
-		"-O2",
-		"-DHAVE_CONFIG_H",
-		"-I", buildDir,
-		"-I", filepath.Join(sourceDir, "include"),
-	}
-	if includeInternal {
-		args = append(args,
-			"-I", sourceDir,
-			"-I", filepath.Join(sourceDir, "src"),
-			"-I", filepath.Join(sourceDir, "celt"),
-			"-I", filepath.Join(sourceDir, "dnn"),
-			"-I", filepath.Join(sourceDir, "silk"),
-		)
-	}
-	args = append(args, srcPath, libopusStatic, "-lm", "-o", outPath)
-
-	cmd := exec.Command(ccPath, args...)
-	if output, err := cmd.CombinedOutput(); err != nil {
-		return "", fmt.Errorf("build DRED helper %s: %w (%s)", sourceFile, err, bytes.TrimSpace(output))
-	}
-	return outPath, nil
-}
-
-func ensureEncoderLibopusDREDBuild() (sourceDir, buildDir string, err error) {
-	encoderLibopusDREDBuildOnce.Do(func() {
-		wd, err := os.Getwd()
-		if err != nil {
-			encoderLibopusDREDBuildErr = fmt.Errorf("getwd: %w", err)
-			return
-		}
-		repoRoot := filepath.Clean(filepath.Join(wd, ".."))
-		encoderLibopusDREDRepoRoot = repoRoot
-		referenceDir := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion)
-		sourceDir = filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+"-dredsrc-clean")
-		buildDir = filepath.Join(repoRoot, "tmp_check", fmt.Sprintf("build-opus-dred-scalar-%s-%s", runtime.GOOS, runtime.GOARCH))
-		libopusStatic := filepath.Join(buildDir, ".libs", "libopus.a")
-		if _, err := os.Stat(libopusStatic); err == nil && libopustooling.ScalarDNNBuildIsCurrent(buildDir) {
-			encoderLibopusDREDSourceDir = sourceDir
-			encoderLibopusDREDBuildDir = buildDir
-			return
-		}
-
-		if _, err := os.Stat(filepath.Join(sourceDir, "configure")); err != nil {
-			libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{repoRoot})
-			tarball := filepath.Join(repoRoot, "tmp_check", "opus-"+libopustooling.DefaultVersion+".tar.gz")
-			if _, err := os.Stat(tarball); err == nil {
-				if err := os.RemoveAll(sourceDir); err != nil {
-					encoderLibopusDREDBuildErr = fmt.Errorf("remove stale DRED source dir: %w", err)
-					return
-				}
-				if err := os.MkdirAll(sourceDir, 0o755); err != nil {
-					encoderLibopusDREDBuildErr = fmt.Errorf("mkdir DRED source dir: %w", err)
-					return
-				}
-				cmd := exec.Command("tar", "-xzf", tarball, "-C", sourceDir, "--strip-components=1")
-				if output, err := cmd.CombinedOutput(); err != nil {
-					encoderLibopusDREDBuildErr = fmt.Errorf("extract DRED libopus source: %w (%s)", err, bytes.TrimSpace(output))
-					return
-				}
-			} else if _, refErr := os.Stat(filepath.Join(referenceDir, "configure")); refErr == nil {
-				if _, cfgErr := os.Stat(filepath.Join(referenceDir, "Makefile")); cfgErr == nil {
-					encoderLibopusDREDBuildErr = fmt.Errorf("clean DRED source tree unavailable: %s is already configured", referenceDir)
-					return
-				}
-				sourceDir = referenceDir
-			} else {
-				encoderLibopusDREDBuildErr = fmt.Errorf("libopus tarball not found and no prepared source tree present: %w", err)
-				return
-			}
-		}
-
-		if err := libopustooling.ResetScalarDNNBuildIfStale(buildDir); err != nil {
-			encoderLibopusDREDBuildErr = fmt.Errorf("reset stale DRED scalar build dir: %w", err)
-			return
-		}
-		if err := os.MkdirAll(buildDir, 0o755); err != nil {
-			encoderLibopusDREDBuildErr = fmt.Errorf("mkdir DRED build dir: %w", err)
-			return
-		}
-		if _, err := os.Stat(filepath.Join(buildDir, "Makefile")); err != nil {
-			cmd := exec.Command(filepath.Join(sourceDir, "configure"),
-				"--enable-static",
-				"--disable-shared",
-				"--disable-extra-programs",
-				"--enable-dred",
-				"--disable-asm",
-				"--disable-rtcd",
-				"--disable-intrinsics",
-			)
-			cmd.Dir = buildDir
-			cmd.Env = libopustooling.ScalarDNNBuildEnv()
-			if output, err := cmd.CombinedOutput(); err != nil {
-				encoderLibopusDREDBuildErr = fmt.Errorf("configure DRED libopus build: %w (%s)", err, bytes.TrimSpace(output))
-				return
-			}
-		}
-		makeCmd := exec.Command("make", fmt.Sprintf("-j%d", max(1, runtime.NumCPU())))
-		makeCmd.Dir = buildDir
-		makeCmd.Env = libopustooling.ScalarDNNBuildEnv()
-		if output, err := makeCmd.CombinedOutput(); err != nil {
-			encoderLibopusDREDBuildErr = fmt.Errorf("build DRED libopus: %w (%s)", err, bytes.TrimSpace(output))
-			return
-		}
-		if err := libopustooling.WriteScalarDNNBuildStamp(buildDir); err != nil {
-			encoderLibopusDREDBuildErr = fmt.Errorf("write DRED scalar build stamp: %w", err)
-			return
-		}
-		encoderLibopusDREDSourceDir = sourceDir
-		encoderLibopusDREDBuildDir = buildDir
-	})
-	if encoderLibopusDREDBuildErr != nil {
-		return "", "", encoderLibopusDREDBuildErr
-	}
-	return encoderLibopusDREDSourceDir, encoderLibopusDREDBuildDir, nil
+	repoRoot := filepath.Clean(filepath.Join(wd, ".."))
+	return libopustest.BuildDREDHelper(repoRoot, sourceFile, outputBase, includeInternal)
 }
