@@ -8,6 +8,7 @@
 #endif
 
 #include "config.h"
+#include "celt/entcode.h"
 #include "celt/mathops.h"
 
 #define INPUT_MAGIC "GCMI"
@@ -15,7 +16,13 @@
 
 enum {
   MODE_LOG2 = 0,
-  MODE_EXP2 = 1
+  MODE_EXP2 = 1,
+  MODE_FRAC_MUL16 = 2,
+  MODE_BITEXACT_COS = 3,
+  MODE_BITEXACT_LOG2TAN = 4,
+  MODE_ISQRT32 = 5,
+  MODE_CELT_UDIV = 6,
+  MODE_CELT_SUDIV = 7
 };
 
 static int set_binary_stdio(void) {
@@ -42,15 +49,69 @@ static int write_u32(uint32_t value) {
   return write_exact(&value, sizeof(value));
 }
 
-static float eval_sample(uint32_t mode, float x) {
+static opus_int16 helper_bitexact_cos(opus_int16 x)
+{
+   opus_int32 tmp;
+   opus_int16 x2;
+   tmp = (4096+((opus_int32)(x)*(x)))>>13;
+   x2 = tmp;
+   x2 = (32767-x2) + FRAC_MUL16(x2, (-7651 + FRAC_MUL16(x2, (8277 + FRAC_MUL16(-626, x2)))));
+   return 1+x2;
+}
+
+static int helper_bitexact_log2tan(int isin,int icos)
+{
+   int lc;
+   int ls;
+   lc=EC_ILOG(icos);
+   ls=EC_ILOG(isin);
+   icos<<=15-lc;
+   isin<<=15-ls;
+   return (ls-lc)*(1<<11)
+         +FRAC_MUL16(isin, FRAC_MUL16(isin, -2597) + 7932)
+         -FRAC_MUL16(icos, FRAC_MUL16(icos, -2597) + 7932);
+}
+
+static int eval_record(uint32_t mode) {
+  uint32_t a;
+  uint32_t b;
+  uint32_t out_bits;
+  float x;
+  float y;
+
   switch (mode) {
     case MODE_LOG2:
-      return celt_log2(x);
+      if (!read_u32(&a)) return 0;
+      memcpy(&x, &a, sizeof(x));
+      y = celt_log2(x);
+      memcpy(&out_bits, &y, sizeof(out_bits));
+      return write_u32(out_bits);
     case MODE_EXP2:
-      return celt_exp2(x);
-    default:
-      return 0;
+      if (!read_u32(&a)) return 0;
+      memcpy(&x, &a, sizeof(x));
+      y = celt_exp2(x);
+      memcpy(&out_bits, &y, sizeof(out_bits));
+      return write_u32(out_bits);
+    case MODE_FRAC_MUL16:
+      if (!read_u32(&a) || !read_u32(&b)) return 0;
+      return write_u32((uint32_t)(int32_t)FRAC_MUL16((int32_t)a, (int32_t)b));
+    case MODE_BITEXACT_COS:
+      if (!read_u32(&a)) return 0;
+      return write_u32((uint32_t)(int32_t)helper_bitexact_cos((opus_int16)(int32_t)a));
+    case MODE_BITEXACT_LOG2TAN:
+      if (!read_u32(&a) || !read_u32(&b)) return 0;
+      return write_u32((uint32_t)(int32_t)helper_bitexact_log2tan((int)(int32_t)a, (int)(int32_t)b));
+    case MODE_ISQRT32:
+      if (!read_u32(&a)) return 0;
+      return write_u32(a == 0 ? 0 : (uint32_t)isqrt32(a));
+    case MODE_CELT_UDIV:
+      if (!read_u32(&a) || !read_u32(&b) || b == 0) return 0;
+      return write_u32(celt_udiv(a, b));
+    case MODE_CELT_SUDIV:
+      if (!read_u32(&a) || !read_u32(&b) || b == 0) return 0;
+      return write_u32((uint32_t)(int32_t)celt_sudiv((int32_t)a, (int32_t)b));
   }
+  return 0;
 }
 
 int main(void) {
@@ -63,19 +124,11 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_EXP2) return 1;
+  if (mode > MODE_CELT_SUDIV) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {
-    uint32_t bits;
-    float x;
-    float y;
-    uint32_t out_bits;
-    if (!read_u32(&bits)) return 1;
-    memcpy(&x, &bits, sizeof(x));
-    y = eval_sample(mode, x);
-    memcpy(&out_bits, &y, sizeof(out_bits));
-    if (!write_u32(out_bits)) return 1;
+    if (!eval_record(mode)) return 1;
   }
   return 0;
 }

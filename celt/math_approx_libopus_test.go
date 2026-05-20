@@ -21,6 +21,13 @@ const (
 
 	libopusCELTMathModeLog2 = uint32(0)
 	libopusCELTMathModeExp2 = uint32(1)
+
+	libopusCELTMathModeFracMul16       = uint32(2)
+	libopusCELTMathModeBitexactCos     = uint32(3)
+	libopusCELTMathModeBitexactLog2Tan = uint32(4)
+	libopusCELTMathModeISqrt32         = uint32(5)
+	libopusCELTMathModeUdiv            = uint32(6)
+	libopusCELTMathModeSudiv           = uint32(7)
 )
 
 var (
@@ -56,6 +63,7 @@ func buildLibopusCELTMathHelper() (string, error) {
 		"-I", filepath.Join(refDir, "include"),
 		"-I", filepath.Join(refDir, "celt"),
 		srcPath,
+		filepath.Join(refDir, "celt", "mathops.c"),
 		"-lm",
 		"-o", outPath,
 	}
@@ -122,6 +130,52 @@ func probeLibopusCELTMath(mode uint32, samples []float32) ([]float32, error) {
 	return out, nil
 }
 
+func probeLibopusCELTMathWords(mode uint32, count int, words []uint32) ([]uint32, error) {
+	binPath, err := getLibopusCELTMathHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	var payload bytes.Buffer
+	payload.WriteString(libopusCELTMathInputMagic)
+	for _, v := range []uint32{1, mode, uint32(count)} {
+		if err := binary.Write(&payload, binary.LittleEndian, v); err != nil {
+			return nil, err
+		}
+	}
+	for _, word := range words {
+		if err := binary.Write(&payload, binary.LittleEndian, word); err != nil {
+			return nil, err
+		}
+	}
+
+	var stdout, stderr bytes.Buffer
+	cmd := exec.Command(binPath)
+	cmd.Stdin = &payload
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		return nil, fmt.Errorf("run celt math helper: %w (%s)", err, bytes.TrimSpace(stderr.Bytes()))
+	}
+	data := stdout.Bytes()
+	if len(data) < 12 || string(data[:4]) != libopusCELTMathOutputMagic {
+		return nil, fmt.Errorf("unexpected celt math helper output")
+	}
+	gotCount := int(binary.LittleEndian.Uint32(data[8:12]))
+	if gotCount != count {
+		return nil, fmt.Errorf("helper count=%d want %d", gotCount, count)
+	}
+	if len(data) != 12+4*gotCount {
+		return nil, fmt.Errorf("helper output length=%d want %d", len(data), 12+4*gotCount)
+	}
+	out := make([]uint32, gotCount)
+	offset := 12
+	for i := range out {
+		out[i] = binary.LittleEndian.Uint32(data[offset:])
+		offset += 4
+	}
+	return out, nil
+}
+
 func TestCELTLog2MatchesLibopusFloatApprox(t *testing.T) {
 	samples := []float32{
 		math.SmallestNonzeroFloat32,
@@ -176,4 +230,162 @@ func TestCELTExp2MatchesLibopusFloatApprox(t *testing.T) {
 			)
 		}
 	}
+}
+
+func TestCELTBitexactCosMatchesLibopus(t *testing.T) {
+	inputs := make([]uint32, 0, 16320-64+1)
+	for x := uint32(64); x <= 16320; x++ {
+		inputs = append(inputs, x)
+	}
+	want, err := probeLibopusCELTMathWords(libopusCELTMathModeBitexactCos, len(inputs), inputs)
+	if err != nil {
+		t.Skipf("libopus celt math helper unavailable: %v", err)
+	}
+	for i, x := range inputs {
+		got := bitexactCos(int(x))
+		if got != int(int32(want[i])) {
+			t.Fatalf("bitexactCos(%d)=%d want %d", x, got, int32(want[i]))
+		}
+	}
+}
+
+func TestCELTBitexactLog2TanMatchesLibopus(t *testing.T) {
+	type pair struct {
+		isin int
+		icos int
+	}
+	pairs := []pair{
+		{isin: 32767, icos: 200},
+		{isin: 30274, icos: 12540},
+		{isin: 23171, icos: 23171},
+		{isin: 200, icos: 32767},
+		{isin: 12540, icos: 30274},
+	}
+	for theta := 64; theta <= 8192; theta++ {
+		pairs = append(pairs, pair{
+			isin: bitexactCos(theta),
+			icos: bitexactCos(16384 - theta),
+		})
+	}
+	words := make([]uint32, 0, 2*len(pairs))
+	for _, p := range pairs {
+		words = append(words, uint32(int32(p.isin)), uint32(int32(p.icos)))
+	}
+	want, err := probeLibopusCELTMathWords(libopusCELTMathModeBitexactLog2Tan, len(pairs), words)
+	if err != nil {
+		t.Skipf("libopus celt math helper unavailable: %v", err)
+	}
+	for i, p := range pairs {
+		got := bitexactLog2tan(p.isin, p.icos)
+		if got != int(int32(want[i])) {
+			t.Fatalf("bitexactLog2tan(%d,%d)=%d want %d", p.isin, p.icos, got, int32(want[i]))
+		}
+	}
+}
+
+func TestCELTIntegerMathMatchesLibopus(t *testing.T) {
+	t.Run("fracMul16", func(t *testing.T) {
+		values := []int{-40000, -32768, -32767, -12345, -1, 0, 1, 12345, 32766, 32767, 32768, 40000}
+		words := make([]uint32, 0, 2*len(values)*len(values))
+		for _, a := range values {
+			for _, b := range values {
+				words = append(words, uint32(int32(a)), uint32(int32(b)))
+			}
+		}
+		want, err := probeLibopusCELTMathWords(libopusCELTMathModeFracMul16, len(words)/2, words)
+		if err != nil {
+			t.Skipf("libopus celt math helper unavailable: %v", err)
+		}
+		idx := 0
+		for _, a := range values {
+			for _, b := range values {
+				got := fracMul16(a, b)
+				if got != int(int32(want[idx])) {
+					t.Fatalf("fracMul16(%d,%d)=%d want %d", a, b, got, int32(want[idx]))
+				}
+				idx++
+			}
+		}
+	})
+
+	t.Run("isqrt32", func(t *testing.T) {
+		inputs := []uint32{
+			1, 2, 3, 4, 15, 16, 17,
+			(1 << 16) - 1, 1 << 16, (1 << 16) + 1,
+			(1 << 24) - 1, 1 << 24, (1 << 24) + 1,
+			^uint32(0) - 2, ^uint32(0) - 1, ^uint32(0),
+		}
+		for i := uint32(1); i < 65536; i += 257 {
+			inputs = append(inputs, i*i, i*i+1)
+			if i > 0 {
+				inputs = append(inputs, i*i-1)
+			}
+		}
+		want, err := probeLibopusCELTMathWords(libopusCELTMathModeISqrt32, len(inputs), inputs)
+		if err != nil {
+			t.Skipf("libopus celt math helper unavailable: %v", err)
+		}
+		for i, x := range inputs {
+			got := isqrt32(x)
+			if got != want[i] {
+				t.Fatalf("isqrt32(%d)=%d want %d", x, got, want[i])
+			}
+		}
+	})
+
+	t.Run("udiv", func(t *testing.T) {
+		pairs := [][2]uint32{
+			{0, 1},
+			{1, 1},
+			{2, 2},
+			{3, 2},
+			{255, 7},
+			{256, 3},
+			{65535, 257},
+			{1 << 31, 3},
+			{^uint32(0), 65535},
+			{^uint32(0), 257},
+		}
+		words := make([]uint32, 0, 2*len(pairs))
+		for _, p := range pairs {
+			words = append(words, p[0], p[1])
+		}
+		want, err := probeLibopusCELTMathWords(libopusCELTMathModeUdiv, len(pairs), words)
+		if err != nil {
+			t.Skipf("libopus celt math helper unavailable: %v", err)
+		}
+		for i, p := range pairs {
+			got := celtUdiv(int(p[0]), int(p[1]))
+			if uint32(got) != want[i] {
+				t.Fatalf("celtUdiv(%d,%d)=%d want %d", p[0], p[1], got, want[i])
+			}
+		}
+	})
+
+	t.Run("sudiv", func(t *testing.T) {
+		pairs := [][2]int32{
+			{-2147483647, 3},
+			{-65536, 257},
+			{-3, 2},
+			{-1, 2},
+			{0, 1},
+			{1, 2},
+			{3, 2},
+			{2147483647, 65535},
+		}
+		words := make([]uint32, 0, 2*len(pairs))
+		for _, p := range pairs {
+			words = append(words, uint32(p[0]), uint32(p[1]))
+		}
+		want, err := probeLibopusCELTMathWords(libopusCELTMathModeSudiv, len(pairs), words)
+		if err != nil {
+			t.Skipf("libopus celt math helper unavailable: %v", err)
+		}
+		for i, p := range pairs {
+			got := celtSudiv(int(p[0]), int(p[1]))
+			if int32(got) != int32(want[i]) {
+				t.Fatalf("celtSudiv(%d,%d)=%d want %d", p[0], p[1], got, int32(want[i]))
+			}
+		}
+	})
 }
