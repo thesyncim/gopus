@@ -1,5 +1,11 @@
 package silk
 
+const (
+	speechActivityDTXThresholdQ8   = 13   // SILK_FIX_CONST(0.05, 8)
+	bandwidthSwitchDelaySlopeQ24Q8 = 3188 // SILK_FIX_CONST((1 - 0.05) / 5000, 24)
+	maxBandwidthSwitchDelayMS      = 5000
+)
+
 // EncodeFrame encodes a complete SILK frame to bitstream.
 // Returns encoded bytes. If a range encoder was pre-set via SetRangeEncoder(),
 // it will be used (for hybrid mode) and nil is returned since the caller
@@ -184,6 +190,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			speechActivityQ8 = 50
 		}
 	}
+	e.lastSpeechActivityQ8 = speechActivityQ8
 
 	// Step 1.1: Update noise shaping lookahead buffer and select delayed frame
 	framePCM := e.updateShapeBuffer(pcm, frameSamples)
@@ -679,8 +686,30 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			e.nBitsExceeded = 10000
 		}
 	}
+	e.updateAllowBandwidthSwitch(payloadSizeMs)
 	e.rangeEncoder = nil
 	return result
+}
+
+func (e *Encoder) updateAllowBandwidthSwitch(payloadSizeMs int) {
+	if payloadSizeMs <= 0 {
+		return
+	}
+	thresholdQ8 := int(silkSMLAWB(
+		int32(speechActivityDTXThresholdQ8),
+		int32(e.timeSinceSwitchAllowedMS),
+		int32(bandwidthSwitchDelaySlopeQ24Q8),
+	))
+	if e.lastSpeechActivityQ8 < thresholdQ8 {
+		e.allowBandwidthSwitch = true
+		e.timeSinceSwitchAllowedMS = 0
+		return
+	}
+	e.allowBandwidthSwitch = false
+	e.timeSinceSwitchAllowedMS += payloadSizeMs
+	if e.timeSinceSwitchAllowedMS < 0 {
+		e.timeSinceSwitchAllowedMS = maxBandwidthSwitchDelayMS
+	}
 }
 
 // PrefillFrame primes SILK analysis/history buffers without coding a payload.
@@ -998,6 +1027,8 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 			}
 		}
 	}
+	payloadSizeMs := (nFrames * frameSamples * 1000) / config.SampleRate
+	e.updateAllowBandwidthSwitch(payloadSizeMs)
 	e.rangeEncoder = nil
 	return result
 }

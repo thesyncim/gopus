@@ -75,7 +75,7 @@ func TestSetBandwidthAutoRestoresAutoClamp(t *testing.T) {
 	}
 
 	enc.SetMaxBandwidth(types.BandwidthWideband)
-	if got := enc.autoClampBandwidth(types.BandwidthFullband, ModeCELT, 64000); got != types.BandwidthWideband {
+	if got := enc.autoClampBandwidth(types.BandwidthFullband, ModeCELT, 64000, enc.maxRateForFrame(960, maxSilkPacketBytes)); got != types.BandwidthWideband {
 		t.Fatalf("autoClampBandwidth()=%v want %v", got, types.BandwidthWideband)
 	}
 }

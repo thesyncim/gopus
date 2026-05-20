@@ -660,6 +660,13 @@ func (e *Encoder) resolvedBitrateForFrame(frameSize, maxDataBytes int) int {
 	return resolveUserBitrate(e.bitrate, e.sampleRate, e.channels, frameSize, maxDataBytes)
 }
 
+func (e *Encoder) maxRateForFrame(frameSize, maxDataBytes int) int {
+	if frameSize <= 0 || maxDataBytes <= 0 {
+		return 0
+	}
+	return maxDataBytes * 8 * e.sampleRate / frameSize
+}
+
 func bitrateToBits(bitrate int, frameSize int) int {
 	return (bitrate * frameSize) / 48000
 }
@@ -717,6 +724,12 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 // EncodeWithAnalysis encodes the selected frame while allowing analysis to see
 // a larger caller frame, matching libopus expert-frame-duration handling.
 func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM []float64) ([]byte, error) {
+	return e.EncodeWithAnalysisMaxBytes(pcm, frameSize, analysisPCM, maxSilkPacketBytes)
+}
+
+// EncodeWithAnalysisMaxBytes encodes with a caller output budget. maxDataBytes
+// mirrors libopus max_data_bytes after packet-size-cap clamping.
+func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analysisPCM []float64, maxDataBytes int) ([]byte, error) {
 	expectedLen := frameSize * e.channels
 	if len(pcm) != expectedLen {
 		return nil, ErrInvalidFrameSize
@@ -727,14 +740,22 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 	if len(analysisPCM) < expectedLen || len(analysisPCM)%e.channels != 0 {
 		return nil, ErrInvalidFrameSize
 	}
+	if maxDataBytes <= 0 {
+		return nil, ErrEncodingFailed
+	}
+	packetCapBytes := maxSilkPacketBytes * 6
+	if maxDataBytes > packetCapBytes {
+		maxDataBytes = packetCapBytes
+	}
 	userBitrate := e.bitrate
-	resolvedBitrate := e.resolvedBitrateForFrame(frameSize, maxSilkPacketBytes)
+	resolvedBitrate := e.resolvedBitrateForFrame(frameSize, maxDataBytes)
 	if resolvedBitrate != userBitrate {
 		e.bitrate = resolvedBitrate
 		defer func() {
 			e.bitrate = userBitrate
 		}()
 	}
+	isSilence := isDigitalSilence(pcm[:expectedLen], e.lsbDepth)
 	e.hasCELTPrefill = false
 	defer func() {
 		e.analysisReadBakSet = false
@@ -769,7 +790,7 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 		// Full libopus auto-mode decision chain: voice_ratio, stereo_width,
 		// stream_channels, mode threshold interpolation, auto-bandwidth,
 		// bandwidth clamping, decide_fec, mode fixup.
-		requestedMode = e.autoModeAndBandwidthDecision(framePCM, frameSize)
+		requestedMode = e.autoModeAndBandwidthDecision(framePCM, frameSize, maxDataBytes, isSilence)
 	} else {
 		signalHint := e.signalType
 		if signalHint == types.SignalAuto {
@@ -791,7 +812,7 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 		useVBR := e.bitrateMode != ModeCBR
 		equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate,
 			useVBR, requestedMode, e.complexity, e.packetLoss)
-		e.bandwidth = e.autoClampBandwidth(e.bandwidth, requestedMode, equivRate)
+		e.bandwidth = e.autoClampBandwidth(e.bandwidth, requestedMode, equivRate, e.maxRateForFrame(frameSize, maxDataBytes))
 		bw := e.bandwidth
 		e.lbrrCoded = decideFEC(e.fecEnabled, e.packetLoss, e.lbrrCoded,
 			requestedMode, &bw, equivRate)

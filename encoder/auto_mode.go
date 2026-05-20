@@ -418,7 +418,7 @@ func (e *Encoder) autoSelectBandwidth(voiceEst, equivRate int) types.Bandwidth {
 
 // autoClampBandwidth applies bandwidth clamping rules.
 // Matches libopus opus_encoder.c lines 1629-1684.
-func (e *Encoder) autoClampBandwidth(bandwidth types.Bandwidth, mode Mode, equivRate int) types.Bandwidth {
+func (e *Encoder) autoClampBandwidth(bandwidth types.Bandwidth, mode Mode, equivRate, maxRate int) types.Bandwidth {
 	// Max bandwidth limit.
 	if bandwidth > e.maxBandwidth {
 		bandwidth = e.maxBandwidth
@@ -431,8 +431,6 @@ func (e *Encoder) autoClampBandwidth(bandwidth types.Bandwidth, mode Mode, equiv
 
 	// Prevent hybrid at unsafe CBR/max rates (line 1636-1639).
 	if mode != ModeCELT {
-		// Approximate max_rate from target bytes.
-		maxRate := e.bitrate // Simple approximation.
 		if maxRate < 15000 {
 			if bandwidth > types.BandwidthWideband {
 				bandwidth = types.BandwidthWideband
@@ -508,16 +506,18 @@ func autoModeFixup(mode Mode, bandwidth types.Bandwidth) Mode {
 // Updates e.bandwidth, e.streamChannels, e.voiceRatio, e.detectedBandwidth,
 // e.autoBandwidth, e.first.
 // Returns the selected mode.
-func (e *Encoder) autoModeAndBandwidthDecision(pcm []float64, frameSize int) Mode {
+func (e *Encoder) autoModeAndBandwidthDecision(pcm []float64, frameSize, maxDataBytes int, isSilence bool) Mode {
 	frameRate := e.sampleRate / frameSize
 	if frameRate <= 0 {
 		frameRate = 50
 	}
 	useVBR := e.bitrateMode != ModeCBR
+	maxRate := e.maxRateForFrame(frameSize, maxDataBytes)
 
 	// Step 1: Reset voice_ratio for non-silent frames (line 1275-1276).
-	// Since we don't track silence explicitly, always reset.
-	e.voiceRatio = -1
+	if !isSilence {
+		e.voiceRatio = -1
+	}
 
 	// Step 2: Compute voice_ratio from analysis (lines 1279-1291).
 	e.autoVoiceRatioFromAnalysis()
@@ -587,7 +587,7 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []float64, frameSize int) Mod
 	}
 
 	// Step 14: Bandwidth clamping (lines 1629-1684).
-	e.bandwidth = e.autoClampBandwidth(e.bandwidth, mode, equivRate)
+	e.bandwidth = e.autoClampBandwidth(e.bandwidth, mode, equivRate, maxRate)
 
 	// Step 15: decide_fec (line 1675-1676).
 	bw := e.bandwidth
@@ -613,10 +613,7 @@ func (e *Encoder) silkAllowBandwidthSwitch() bool {
 	if e.silkEncoder == nil {
 		return false
 	}
-	// SILK allows bandwidth switch when its internal rate is below the Opus API rate
-	// and it has completed encoding (2 subframes for 10ms, signaling readiness).
-	silkRate := e.silkEncoder.SampleRate()
-	return silkRate > 0 && e.sampleRate/1000 > silkRate/1000
+	return e.silkEncoder.AllowBandwidthSwitch()
 }
 
 // silkInWBModeWithoutVariableLP checks if SILK is in WB mode with LP filter inactive.

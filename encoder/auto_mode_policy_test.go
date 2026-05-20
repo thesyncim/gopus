@@ -46,6 +46,53 @@ func TestAutoSignalFromPCMAnalyzerUnavailableFallsBackToAuto(t *testing.T) {
 	}
 }
 
+func TestAutoModePreservesVoiceRatioOnDigitalSilence(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeAuto)
+	enc.SetBitrate(24000)
+	enc.SetBitrateMode(ModeVBR)
+	enc.analyzer = nil
+	enc.voiceRatio = 73
+
+	pcm := make([]float64, 960)
+	_ = enc.autoModeAndBandwidthDecision(pcm, 960, maxSilkPacketBytes, true)
+
+	if got := enc.voiceRatio; got != 73 {
+		t.Fatalf("voiceRatio on silence = %d, want preserved 73", got)
+	}
+}
+
+func TestAutoModeResetsVoiceRatioOnNonSilentFrame(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeAuto)
+	enc.SetBitrate(24000)
+	enc.SetBitrateMode(ModeVBR)
+	enc.analyzer = nil
+	enc.voiceRatio = 73
+
+	pcm := make([]float64, 960)
+	pcm[0] = 1.0 / (1 << 12)
+	_ = enc.autoModeAndBandwidthDecision(pcm, 960, maxSilkPacketBytes, false)
+
+	if got := enc.voiceRatio; got != -1 {
+		t.Fatalf("voiceRatio on non-silence = %d, want reset -1", got)
+	}
+}
+
+func TestAutoClampBandwidthUsesPacketBudgetMaxRate(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetBandwidthAuto()
+	enc.SetMaxBandwidth(types.BandwidthFullband)
+	enc.SetBitrate(64000)
+
+	if got := enc.autoClampBandwidth(types.BandwidthFullband, ModeHybrid, 64000, enc.maxRateForFrame(960, 37)); got != types.BandwidthWideband {
+		t.Fatalf("autoClampBandwidth(low max_rate) = %v, want %v", got, types.BandwidthWideband)
+	}
+	if got := enc.autoClampBandwidth(types.BandwidthFullband, ModeHybrid, 64000, enc.maxRateForFrame(960, 38)); got != types.BandwidthFullband {
+		t.Fatalf("autoClampBandwidth(safe max_rate) = %v, want %v", got, types.BandwidthFullband)
+	}
+}
+
 func TestNonAutoEncodeUpdatesStreamChannelsForCELTState(t *testing.T) {
 	pcm := make([]float64, 960*2)
 	for i := 0; i < 960; i++ {

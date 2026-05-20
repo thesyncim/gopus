@@ -59,6 +59,7 @@ type Encoder struct {
 	inputTiltQ15         int    // Spectral tilt in Q15 from VAD
 	inputQualityBandsQ15 [4]int // Quality in each VAD band (Q15)
 	speechActivitySet    bool   // Whether VAD-derived state was explicitly set
+	lastSpeechActivityQ8 int    // Most recent encoded frame activity, for packet-level switch gating
 
 	// NSQ (Noise Shaping Quantization) state
 	nsqState        *NSQState        // Noise shaping quantizer state for proper libopus-matching
@@ -241,6 +242,10 @@ type Encoder struct {
 
 	// LP variable cutoff filter scratch buffer
 	scratchLPInt16 []int16 // LP filter: int16 conversion for biquad filter
+
+	// Opus-level bandwidth switch gate mirrored from silk/enc_API.c.
+	timeSinceSwitchAllowedMS int
+	allowBandwidthSwitch     bool
 
 	// Output buffer scratch (standalone SILK mode)
 	scratchOutput       []byte              // EncodeFrame: range encoder output
@@ -446,9 +451,12 @@ func (e *Encoder) Reset() {
 	e.prevStereoWeights = [2]int16{0, 0}
 	resetStereoEncState(&e.stereo)
 	e.speechActivityQ8 = 0
+	e.lastSpeechActivityQ8 = 0
 	e.inputTiltQ15 = 0
 	e.inputQualityBandsQ15 = [4]int{}
 	e.speechActivitySet = false
+	e.timeSinceSwitchAllowedMS = 0
+	e.allowBandwidthSwitch = false
 	// Keep reset parity with libopus: prevLag resets to 0.
 	e.pitchState = PitchAnalysisState{prevLag: 0}
 	for i := range e.pitchAnalysisBuf {
@@ -696,6 +704,12 @@ func (e *Encoder) InWBModeWithoutVariableLP() bool {
 	return e.sampleRate == 16000 && e.lpState.Mode == 0
 }
 
+// AllowBandwidthSwitch reports the libopus SILK packet-level
+// allowBandwidthSwitch gate used by Opus auto-bandwidth selection.
+func (e *Encoder) AllowBandwidthSwitch() bool {
+	return e.allowBandwidthSwitch
+}
+
 // PreviousLogGain returns the previous frame's log gain value.
 func (e *Encoder) PreviousLogGain() int32 {
 	return e.previousLogGain
@@ -811,16 +825,19 @@ func (e *Encoder) SetPreAdjustedTargetRateBps(bitrate int) {
 // UpdatePacketBitsExceeded applies libopus packet-level nBitsExceeded update.
 // This must be called once per packet when shared range coding is used.
 func (e *Encoder) UpdatePacketBitsExceeded(nBytesOut, payloadSizeMs, bitRateBps int) {
-	if bitRateBps <= 0 || payloadSizeMs <= 0 {
+	if payloadSizeMs <= 0 {
 		return
 	}
-	e.nBitsExceeded += nBytesOut * 8
-	e.nBitsExceeded -= (bitRateBps * payloadSizeMs) / 1000
-	if e.nBitsExceeded < 0 {
-		e.nBitsExceeded = 0
-	} else if e.nBitsExceeded > 10000 {
-		e.nBitsExceeded = 10000
+	if bitRateBps > 0 {
+		e.nBitsExceeded += nBytesOut * 8
+		e.nBitsExceeded -= (bitRateBps * payloadSizeMs) / 1000
+		if e.nBitsExceeded < 0 {
+			e.nBitsExceeded = 0
+		} else if e.nBitsExceeded > 10000 {
+			e.nBitsExceeded = 10000
+		}
 	}
+	e.updateAllowBandwidthSwitch(payloadSizeMs)
 }
 
 // SetBitsExceeded sets packet-level bit reservoir excess state.

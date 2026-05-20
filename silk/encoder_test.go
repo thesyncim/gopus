@@ -54,6 +54,8 @@ func TestEncoderReset(t *testing.T) {
 	enc.SetPreviousLogGain(100)
 	enc.SetPreviousFrameVoiced(true)
 	enc.SetPrevStereoWeights([2]int16{1000, 2000})
+	enc.lastSpeechActivityQ8 = 12
+	enc.updateAllowBandwidthSwitch(20)
 
 	// Verify modifications
 	if !enc.HaveEncoded() {
@@ -85,6 +87,44 @@ func TestEncoderReset(t *testing.T) {
 	}
 	if enc.nsqState == nil || enc.nsqState.lagPrev != 0 {
 		t.Errorf("nsqState.lagPrev should be 0 after Reset, got %d", enc.nsqState.lagPrev)
+	}
+	if enc.AllowBandwidthSwitch() {
+		t.Error("AllowBandwidthSwitch should be false after Reset")
+	}
+	if enc.timeSinceSwitchAllowedMS != 0 {
+		t.Errorf("timeSinceSwitchAllowedMS should be 0 after Reset, got %d", enc.timeSinceSwitchAllowedMS)
+	}
+}
+
+func TestAllowBandwidthSwitchMatchesLibopusThreshold(t *testing.T) {
+	enc := NewEncoder(BandwidthWideband)
+
+	enc.lastSpeechActivityQ8 = speechActivityDTXThresholdQ8 - 1
+	enc.updateAllowBandwidthSwitch(20)
+	if !enc.AllowBandwidthSwitch() {
+		t.Fatal("low activity should allow bandwidth switching")
+	}
+	if enc.timeSinceSwitchAllowedMS != 0 {
+		t.Fatalf("timeSinceSwitchAllowedMS=%d want reset 0", enc.timeSinceSwitchAllowedMS)
+	}
+
+	enc.lastSpeechActivityQ8 = speechActivityDTXThresholdQ8
+	enc.updateAllowBandwidthSwitch(20)
+	if enc.AllowBandwidthSwitch() {
+		t.Fatal("activity at threshold should not allow bandwidth switching")
+	}
+	if enc.timeSinceSwitchAllowedMS != 20 {
+		t.Fatalf("timeSinceSwitchAllowedMS=%d want 20", enc.timeSinceSwitchAllowedMS)
+	}
+
+	enc.lastSpeechActivityQ8 = 255
+	enc.timeSinceSwitchAllowedMS = maxBandwidthSwitchDelayMS
+	enc.updateAllowBandwidthSwitch(20)
+	if !enc.AllowBandwidthSwitch() {
+		t.Fatal("full delay threshold should allow even max Q8 activity")
+	}
+	if enc.timeSinceSwitchAllowedMS != 0 {
+		t.Fatalf("timeSinceSwitchAllowedMS after delayed switch=%d want 0", enc.timeSinceSwitchAllowedMS)
 	}
 }
 
