@@ -518,7 +518,6 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 	d.scratchPLCExc = ensureFloat64Slice(&d.scratchPLCExc, maxPeriod+celtPLCLPCOrder)
 	d.scratchPLCFIRTmp = ensureFloat64Slice(&d.scratchPLCFIRTmp, excLength)
 	d.scratchPLCBuf = ensureFloat64Slice(&d.scratchPLCBuf, plcDecodeBufferSize+Overlap)
-	d.scratchPLCIIRMem = ensureFloat64Slice(&d.scratchPLCIIRMem, celtPLCLPCOrder)
 
 	window := GetWindowBuffer(Overlap)
 	continuePeriodic = lossCount > 1 && continuePeriodic
@@ -529,6 +528,10 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 
 		exc := d.scratchPLCExc[:maxPeriod+celtPLCLPCOrder]
 		copy(exc, hist[plcDecodeBufferSize-maxPeriod-celtPLCLPCOrder:])
+		exc32 := ensureFloat32Slice(&d.scratchPLCExc32, len(exc))
+		for i := range exc {
+			exc32[i] = float32(exc[i])
+		}
 
 		if !continuePeriodic {
 			d.computePLCLPC(exc[celtPLCLPCOrder:], lpc, window)
@@ -536,19 +539,12 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 
 		firStart := celtPLCLPCOrder + maxPeriod - excLength
 		firTmp := d.scratchPLCFIRTmp[:excLength]
+		celtFIRFloat32(firTmp, exc32, firStart, excLength, lpc)
 		for i := 0; i < excLength; i++ {
-			idx := firStart + i
-			sum := float32(exc[idx])
-			// Match libopus celt_fir() accumulation order in float path:
-			// rnum[j]=lpc[ord-1-j], x[i+j-ord].
-			for j := 0; j < celtPLCLPCOrder; j++ {
-				coeff := float32(lpc[celtPLCLPCOrder-1-j])
-				sample := float32(exc[idx-celtPLCLPCOrder+j])
-				sum += coeff * sample
-			}
-			firTmp[i] = float64(sum)
+			v := float32(firTmp[i])
+			exc[firStart+i] = float64(v)
+			exc32[firStart+i] = v
 		}
-		copy(exc[firStart:firStart+excLength], firTmp)
 
 		decay := float32(1.0)
 		decayLength := excLength >> 1
@@ -593,25 +589,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 			j++
 		}
 
-		// Match libopus celt_iir()'s sample-by-sample state updates during
-		// periodic PLC synthesis.
-		ord := celtPLCLPCOrder
-		iirMem := d.scratchPLCIIRMem[:ord]
-		memBase := plcDecodeBufferSize - 1
-		for i := 0; i < ord; i++ {
-			iirMem[i] = hist[memBase-i]
-		}
-		for i := 0; i < totalSamples; i++ {
-			sum := float32(chOut[i])
-			for j := 0; j < ord; j++ {
-				sum -= float32(lpc[j]) * float32(iirMem[j])
-			}
-			for j := ord - 1; j >= 1; j-- {
-				iirMem[j] = iirMem[j-1]
-			}
-			iirMem[0] = float64(sum)
-			chOut[i] = float64(sum)
-		}
+		d.celtIIRFloat32(chOut, hist, lpc, totalSamples)
 
 		s2 := float32(0)
 		for i := 0; i < totalSamples; i++ {

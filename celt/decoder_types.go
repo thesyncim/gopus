@@ -155,8 +155,9 @@ type Decoder struct {
 	scratchPLCPitchLP     []float64
 	scratchPLCPitchSearch encoderScratch
 	scratchPLCFIRTmp      []float64
+	scratchPLCExc32       []float32
 	scratchPLCWindowed    []float64
-	scratchPLCIIRMem      []float64
+	scratchPLCIIRY        []float32
 	scratchPLCBuf         []float64
 	scratchPLCExc         []float64
 	decoderDREDState
