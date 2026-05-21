@@ -335,8 +335,8 @@ func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesFloat64(t *testing.T)
 			t.Fatalf("sample %d mismatch: got=%08x want=%08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
 		}
 	}
-	if math.Float64bits(current.preemphState[0]) != math.Float64bits(legacy.preemphState[0]) {
-		t.Fatalf("state mismatch: got=%016x want=%016x", math.Float64bits(current.preemphState[0]), math.Float64bits(legacy.preemphState[0]))
+	if math.Float32bits(current.preemphState[0]) != math.Float32bits(legacy.preemphState[0]) {
+		t.Fatalf("state mismatch: got=%08x want=%08x", math.Float32bits(current.preemphState[0]), math.Float32bits(legacy.preemphState[0]))
 	}
 }
 
@@ -369,11 +369,11 @@ func TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesFloat64(t *te
 			t.Fatalf("sample %d mismatch: got=%08x want=%08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
 		}
 	}
-	if math.Float64bits(current.preemphState[0]) != math.Float64bits(legacy.preemphState[0]) ||
-		math.Float64bits(current.preemphState[1]) != math.Float64bits(legacy.preemphState[1]) {
-		t.Fatalf("state mismatch: got=(%016x,%016x) want=(%016x,%016x)",
-			math.Float64bits(current.preemphState[0]), math.Float64bits(current.preemphState[1]),
-			math.Float64bits(legacy.preemphState[0]), math.Float64bits(legacy.preemphState[1]))
+	if math.Float32bits(current.preemphState[0]) != math.Float32bits(legacy.preemphState[0]) ||
+		math.Float32bits(current.preemphState[1]) != math.Float32bits(legacy.preemphState[1]) {
+		t.Fatalf("state mismatch: got=(%08x,%08x) want=(%08x,%08x)",
+			math.Float32bits(current.preemphState[0]), math.Float32bits(current.preemphState[1]),
+			math.Float32bits(legacy.preemphState[0]), math.Float32bits(legacy.preemphState[1]))
 	}
 }
 
@@ -436,8 +436,8 @@ func TestSynthesizeMonoLongToFloat32MatchesSynthesize(t *testing.T) {
 	current := NewDecoder(1)
 	for i := range legacy.overlapBuffer {
 		v := 0.4*math.Sin(float64(i+1)*0.051) + float64((i%7)-3)/19.0
-		legacy.overlapBuffer[i] = v
-		current.overlapBuffer[i] = v
+		legacy.overlapBuffer[i] = celtSig(v)
+		current.overlapBuffer[i] = celtSig(v)
 	}
 
 	coeffs := make([]float64, 960)
@@ -454,7 +454,7 @@ func TestSynthesizeMonoLongToFloat32MatchesSynthesize(t *testing.T) {
 		}
 	}
 	for i := range legacy.overlapBuffer {
-		if math.Float64bits(current.overlapBuffer[i]) != math.Float64bits(legacy.overlapBuffer[i]) {
+		if math.Float32bits(current.overlapBuffer[i]) != math.Float32bits(legacy.overlapBuffer[i]) {
 			t.Fatalf("overlap[%d] mismatch", i)
 		}
 	}

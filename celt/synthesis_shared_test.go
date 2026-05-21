@@ -16,8 +16,8 @@ func TestSynthesizeStereoPlanarFromMonoLongMatchesDuplicatedStereo(t *testing.T)
 		shared := NewDecoder(2)
 		for i := 0; i < Overlap*2; i++ {
 			v := float64((i%23)-11) * 0.03125
-			legacy.overlapBuffer[i] = v
-			shared.overlapBuffer[i] = v
+			legacy.overlapBuffer[i] = celtSig(v)
+			shared.overlapBuffer[i] = celtSig(v)
 		}
 
 		coeffsR := make([]float64, len(coeffs))
@@ -37,7 +37,7 @@ func TestSynthesizeStereoPlanarFromMonoLongMatchesDuplicatedStereo(t *testing.T)
 			}
 		}
 		for i := range legacy.overlapBuffer {
-			if !nearlyEqualSynthesis(shared.overlapBuffer[i], legacy.overlapBuffer[i]) {
+			if !nearlyEqualSynthesis(float64(shared.overlapBuffer[i]), float64(legacy.overlapBuffer[i])) {
 				t.Fatalf("frameSize=%d overlap[%d] got %.17g want %.17g", frameSize, i, shared.overlapBuffer[i], legacy.overlapBuffer[i])
 			}
 		}

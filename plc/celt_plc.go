@@ -29,6 +29,10 @@ type CELTDecoderState interface {
 	SetOverlapBuffer(samples []float64)
 }
 
+type celtPreemphSetter interface {
+	SetPreemphState(samples []float64)
+}
+
 // CELTBandInfo provides band configuration for CELT PLC.
 type CELTBandInfo struct {
 	// MaxBands is the maximum number of frequency bands.
@@ -230,7 +234,7 @@ func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fad
 	}
 
 	// Apply de-emphasis to maintain filter state continuity
-	applyDeemphasisPLC(samples, dec.PreemphState(), channels)
+	applyDeemphasisPLCToDecoder(samples, dec, channels)
 
 	// Update decoder energy state for next concealment
 	dec.SetPrevEnergy(concealEnergy)
@@ -262,7 +266,7 @@ func ConcealCELTInto(dst []float64, dec CELTDecoderState, synth CELTSynthesizer,
 		return
 	}
 	// Apply de-emphasis to maintain filter state continuity.
-	applyDeemphasisPLC(dst[:outLen], dec.PreemphState(), channels)
+	applyDeemphasisPLCToDecoder(dst[:outLen], dec, channels)
 }
 
 // ConcealCELTRawInto generates concealment audio into a pre-allocated buffer
@@ -397,6 +401,17 @@ func applyDeemphasisPLC(samples []float64, state []float64, channels int) {
 	}
 }
 
+func applyDeemphasisPLCToDecoder(samples []float64, dec CELTDecoderState, channels int) {
+	if dec == nil {
+		return
+	}
+	state := dec.PreemphState()
+	applyDeemphasisPLC(samples, state, channels)
+	if setter, ok := dec.(celtPreemphSetter); ok {
+		setter.SetPreemphState(state)
+	}
+}
+
 // ConcealCELTHybrid generates concealment for CELT in hybrid mode.
 // Only bands 17-21 are filled with noise (bands 0-16 are handled by SILK).
 //
@@ -419,7 +434,7 @@ func ConcealCELTHybrid(dec CELTDecoderState, synth CELTSynthesizer, frameSize in
 		outLen = len(out)
 	}
 	if outLen > 0 {
-		applyDeemphasisPLC(out[:outLen], dec.PreemphState(), channels)
+		applyDeemphasisPLCToDecoder(out[:outLen], dec, channels)
 	}
 	return out
 }

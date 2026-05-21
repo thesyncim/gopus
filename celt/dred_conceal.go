@@ -339,16 +339,16 @@ func (d *Decoder) advanceDeemphasisStateStereo(samples []float64) {
 	}
 	const verySmall float32 = 1e-30
 	const coef float32 = float32(PreemphCoef)
-	stateL := float32(d.preemphState[0])
-	stateR := float32(d.preemphState[1])
+	stateL := d.preemphState[0]
+	stateR := d.preemphState[1]
 	for i := 0; i+1 < len(samples); i += 2 {
 		tmpL := float32(samples[i]) + verySmall + stateL
 		stateL = coef * tmpL
 		tmpR := float32(samples[i+1]) + verySmall + stateR
 		stateR = coef * tmpR
 	}
-	d.preemphState[0] = float64(stateL)
-	d.preemphState[1] = float64(stateR)
+	d.preemphState[0] = stateL
+	d.preemphState[1] = stateR
 }
 
 // ConcealPLCNeural48kMonoStateOnly updates retained CELT 48 kHz mono neural

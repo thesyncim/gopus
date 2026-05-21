@@ -29,10 +29,10 @@ func NewDecoder(channels int) *Decoder {
 		backgroundEnergy: make([]celtGLog, MaxBands*channels),
 
 		// Overlap buffer for CELT (full overlap per channel)
-		overlapBuffer: make([]float64, Overlap*channels),
+		overlapBuffer: make([]celtSig, Overlap*channels),
 
 		// De-emphasis filter state, one per channel
-		preemphState: make([]float64, channels),
+		preemphState: make([]celtSig, channels),
 
 		// Postfilter history buffer for comb filter
 		postfilterMem: make([]float64, combFilterHistory*channels),

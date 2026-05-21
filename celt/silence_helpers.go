@@ -36,7 +36,7 @@ func (d *Decoder) synthesizeSilenceMono(frameSize int) []float64 {
 		return out
 	}
 	if len(d.overlapBuffer) < Overlap {
-		buf := make([]float64, Overlap)
+		buf := make([]celtSig, Overlap)
 		copy(buf, d.overlapBuffer)
 		d.overlapBuffer = buf
 	}
@@ -63,7 +63,7 @@ func (d *Decoder) synthesizeSilenceStereo(frameSize int) []float64 {
 		return nil
 	}
 	if len(d.overlapBuffer) < Overlap*2 {
-		buf := make([]float64, Overlap*2)
+		buf := make([]celtSig, Overlap*2)
 		copy(buf, d.overlapBuffer)
 		d.overlapBuffer = buf
 	}

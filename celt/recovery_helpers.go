@@ -118,7 +118,7 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 		dst := d.scratchPLCFoldDst[:bufLen]
 
 		copy(src[:history], hist[plcDecodeBufferSize-history:])
-		copy(src[history:], overlap)
+		copySigToFloat64(src[history:], overlap)
 
 		combFilterWithInputF32(
 			dst, src, history,
@@ -135,7 +135,7 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 			w1 := float32(window[segLen-1-i])
 			x0 := float32(etmp[segLen-1-i])
 			x1 := float32(etmp[i])
-			overlap[i] = float64(w0*x0 + w1*x1)
+			overlap[i] = celtSig(w0*x0 + w1*x1)
 		}
 	}
 }
@@ -722,18 +722,18 @@ func (d *Decoder) updatePLCOverlapBuffer(plcSamples []float64, frameSize int) {
 
 	overlapNeeded := Overlap * channels
 	if len(d.overlapBuffer) < overlapNeeded {
-		d.overlapBuffer = make([]float64, overlapNeeded)
+		d.overlapBuffer = make([]celtSig, overlapNeeded)
 	}
 
 	if channels == 1 {
-		copy(d.overlapBuffer[:Overlap], plcSamples[frameSize:frameSize+Overlap])
+		copyFloat64ToSig(d.overlapBuffer[:Overlap], plcSamples[frameSize:frameSize+Overlap])
 		return
 	}
 
 	src := frameSize * channels
 	for i := 0; i < Overlap; i++ {
-		d.overlapBuffer[i] = plcSamples[src+i*channels]
-		d.overlapBuffer[Overlap+i] = plcSamples[src+i*channels+1]
+		d.overlapBuffer[i] = celtSig(plcSamples[src+i*channels])
+		d.overlapBuffer[Overlap+i] = celtSig(plcSamples[src+i*channels+1])
 	}
 }
 

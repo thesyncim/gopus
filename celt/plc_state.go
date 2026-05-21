@@ -37,10 +37,10 @@ func (d *Decoder) SnapshotPreemphasisState() [2]float32 {
 	}
 	var out [2]float32
 	if len(d.preemphState) > 0 {
-		out[0] = float32(d.preemphState[0] * (1.0 / 32768.0))
+		out[0] = d.preemphState[0] * (1.0 / 32768.0)
 	}
 	if len(d.preemphState) > 1 {
-		out[1] = float32(d.preemphState[1] * (1.0 / 32768.0))
+		out[1] = d.preemphState[1] * (1.0 / 32768.0)
 	}
 	return out
 }

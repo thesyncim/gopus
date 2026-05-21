@@ -338,7 +338,7 @@ func imdctOverlapWithPrevScratch(out []float64, spectrum []float64, prevOverlap 
 	// Output is already in out.
 }
 
-func imdctOverlapWithPrevScratchF32Output(spectrum []float64, prevOverlap []float64, overlap int, scratch *imdctScratchF32) []float32 {
+func imdctOverlapWithPrevScratchF32Output[S ~float32 | ~float64](spectrum []float64, prevOverlap []S, overlap int, scratch *imdctScratchF32) []float32 {
 	n2 := len(spectrum)
 	if n2 == 0 {
 		return nil
@@ -467,7 +467,7 @@ func imdctCoreScratchF32(spectrum []float64, scratch *imdctScratchF32) []float32
 	return buf[:n2:n2]
 }
 
-func overlapIMDCTF32WithPrevToFloat64(out []float64, imdct []float32, prevOverlap []float64, overlap int) {
+func overlapIMDCTF32WithPrevToFloat64[S ~float32 | ~float64](out []float64, imdct []float32, prevOverlap []S, overlap int) {
 	n2 := len(imdct)
 	if n2 == 0 || overlap < 0 {
 		return
@@ -480,7 +480,7 @@ func overlapIMDCTF32WithPrevToFloat64(out []float64, imdct []float32, prevOverla
 	if start > 0 {
 		copyLen := min(len(prevOverlap), start)
 		for i := 0; i < copyLen; i++ {
-			out[i] = prevOverlap[i]
+			out[i] = float64(prevOverlap[i])
 		}
 		if copyLen < start {
 			clear(out[copyLen:start])
@@ -533,7 +533,7 @@ func overlapIMDCTF32WithPrevToFloat64(out []float64, imdct []float32, prevOverla
 
 // imdctOverlapWithPrevScratchF32 performs IMDCT using float32 precision to match libopus.
 // This is used for long (non-transient) blocks.
-func imdctOverlapWithPrevScratchF32(out []float64, spectrum []float64, prevOverlap []float64, overlap int, scratch *imdctScratchF32) {
+func imdctOverlapWithPrevScratchF32[S ~float32 | ~float64](out []float64, spectrum []float64, prevOverlap []S, overlap int, scratch *imdctScratchF32) {
 	n2 := len(spectrum)
 	if n2 == 0 {
 		return

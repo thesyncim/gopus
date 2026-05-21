@@ -3,18 +3,27 @@ package celt
 // OverlapBuffer returns the overlap buffer for CELT overlap.
 // Size is Overlap * channels samples.
 func (d *Decoder) OverlapBuffer() []float64 {
-	return d.overlapBuffer
+	out := ensureFloat64Slice(&d.scratchOverlapPublic, len(d.overlapBuffer))
+	copySigToFloat64(out, d.overlapBuffer)
+	return out
 }
 
 // SetOverlapBuffer copies the given samples to the overlap buffer.
 func (d *Decoder) SetOverlapBuffer(samples []float64) {
-	copy(d.overlapBuffer, samples)
+	copyFloat64ToSig(d.overlapBuffer, samples)
 }
 
 // PreemphState returns the de-emphasis filter state.
 // One value per channel.
 func (d *Decoder) PreemphState() []float64 {
-	return d.preemphState
+	out := ensureFloat64Slice(&d.scratchPreemphPublic, len(d.preemphState))
+	copySigToFloat64(out, d.preemphState)
+	return out
+}
+
+// SetPreemphState copies the given samples to the de-emphasis memory.
+func (d *Decoder) SetPreemphState(samples []float64) {
+	copyFloat64ToSig(d.preemphState, samples)
 }
 
 // PostfilterPeriod returns the pitch period for the postfilter.

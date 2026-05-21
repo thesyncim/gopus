@@ -377,6 +377,27 @@ func TestDecoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 	}
 }
 
+func TestDecoderSigStateMatchesLibopusFloatSize(t *testing.T) {
+	libopustest.RequireOracle(t)
+	sizes, err := probeLibopusCELTTypeSizes()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	dec := NewDecoder(2)
+	got := []struct {
+		name string
+		size uintptr
+	}{
+		{"overlapBuffer", unsafe.Sizeof(dec.overlapBuffer[0])},
+		{"preemphState", unsafe.Sizeof(dec.preemphState[0])},
+	}
+	for _, tc := range got {
+		if tc.size != uintptr(sizes.celtSig) {
+			t.Fatalf("%s element size=%d want libopus celt_sig size %d", tc.name, tc.size, sizes.celtSig)
+		}
+	}
+}
+
 func TestEncodePulsesPayloadMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	pulseVectors := [][]int{

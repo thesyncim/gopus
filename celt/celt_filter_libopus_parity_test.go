@@ -102,7 +102,7 @@ func TestApplyDeemphasisAndScaleToFloat32MatchesLibopus(t *testing.T) {
 	want := probeLibopusDeemphasis(t, 1, [][]float32{samples32}, initialMem)
 
 	dec := NewDecoder(1)
-	dec.preemphState[0] = float64(initialMem[0])
+	dec.preemphState[0] = initialMem[0]
 	got := make([]float32, n)
 	dec.applyDeemphasisAndScaleToFloat32(got, samples, 1.0/32768.0)
 
@@ -113,8 +113,8 @@ func TestApplyDeemphasisAndScaleToFloat32MatchesLibopus(t *testing.T) {
 				math.Float32bits(samples32[i]), samples32[i])
 		}
 	}
-	if math.Float32bits(float32(dec.preemphState[0])) != math.Float32bits(want.mem[0]) {
-		t.Fatalf("mem=%08x want %08x", math.Float32bits(float32(dec.preemphState[0])), math.Float32bits(want.mem[0]))
+	if math.Float32bits(dec.preemphState[0]) != math.Float32bits(want.mem[0]) {
+		t.Fatalf("mem=%08x want %08x", math.Float32bits(dec.preemphState[0]), math.Float32bits(want.mem[0]))
 	}
 }
 
@@ -132,8 +132,8 @@ func TestApplyDeemphasisAndScaleToFloat32StereoMatchesLibopus(t *testing.T) {
 	want := probeLibopusDeemphasis(t, 2, [][]float32{left, right}, initialMem)
 
 	dec := NewDecoder(2)
-	dec.preemphState[0] = float64(initialMem[0])
-	dec.preemphState[1] = float64(initialMem[1])
+	dec.preemphState[0] = initialMem[0]
+	dec.preemphState[1] = initialMem[1]
 	got := make([]float32, n*2)
 	dec.applyDeemphasisAndScaleToFloat32(got, interleaved, 1.0/32768.0)
 
@@ -153,7 +153,7 @@ func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesLibopus(t *testing.T)
 	want := probeLibopusDeemphasis(t, 1, [][]float32{samples}, initialMem)
 
 	dec := NewDecoder(1)
-	dec.preemphState[0] = float64(initialMem[0])
+	dec.preemphState[0] = initialMem[0]
 	got := make([]float32, n)
 	dec.applyDeemphasisAndScaleMonoFloat32ToFloat32(got, samples, 1.0/32768.0)
 
@@ -164,8 +164,8 @@ func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesLibopus(t *testing.T)
 				math.Float32bits(samples[i]), samples[i])
 		}
 	}
-	if math.Float32bits(float32(dec.preemphState[0])) != math.Float32bits(want.mem[0]) {
-		t.Fatalf("mem=%08x want %08x", math.Float32bits(float32(dec.preemphState[0])), math.Float32bits(want.mem[0]))
+	if math.Float32bits(dec.preemphState[0]) != math.Float32bits(want.mem[0]) {
+		t.Fatalf("mem=%08x want %08x", math.Float32bits(dec.preemphState[0]), math.Float32bits(want.mem[0]))
 	}
 }
 
@@ -183,8 +183,8 @@ func TestApplyDeemphasisAndScaleInPlaceMatchesLibopus(t *testing.T) {
 	want := probeLibopusDeemphasis(t, 2, [][]float32{left, right}, initialMem)
 
 	dec := NewDecoder(2)
-	dec.preemphState[0] = float64(initialMem[0])
-	dec.preemphState[1] = float64(initialMem[1])
+	dec.preemphState[0] = initialMem[0]
+	dec.preemphState[1] = initialMem[1]
 	dec.applyDeemphasisAndScale(samples, 1.0/32768.0)
 
 	got := make([]float32, len(samples))
@@ -210,8 +210,8 @@ func TestApplyDeemphasisAndScaleStereoPlanarToFloat32MatchesLibopus(t *testing.T
 	want := probeLibopusDeemphasis(t, 2, [][]float32{left32, right32}, initialMem)
 
 	dec := NewDecoder(2)
-	dec.preemphState[0] = float64(initialMem[0])
-	dec.preemphState[1] = float64(initialMem[1])
+	dec.preemphState[0] = initialMem[0]
+	dec.preemphState[1] = initialMem[1]
 	got := make([]float32, n*2)
 	dec.applyDeemphasisAndScaleStereoPlanarToFloat32(got, left, right, 1.0/32768.0)
 
@@ -228,8 +228,8 @@ func TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesLibopus(t *te
 	want := probeLibopusDeemphasis(t, 2, [][]float32{left, right}, initialMem)
 
 	dec := NewDecoder(2)
-	dec.preemphState[0] = float64(initialMem[0])
-	dec.preemphState[1] = float64(initialMem[1])
+	dec.preemphState[0] = initialMem[0]
+	dec.preemphState[1] = initialMem[1]
 	got := make([]float32, n*2)
 	dec.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(got, left, right, 1.0/32768.0)
 
@@ -262,8 +262,8 @@ func assertCELTFilterFloat32Bits(t *testing.T, label string, got, want []float32
 func assertCELTFilterMemBits(t *testing.T, dec *Decoder, want []float32) {
 	t.Helper()
 	for i := range want {
-		if math.Float32bits(float32(dec.preemphState[i])) != math.Float32bits(want[i]) {
-			t.Fatalf("mem[%d]=%08x want %08x", i, math.Float32bits(float32(dec.preemphState[i])), math.Float32bits(want[i]))
+		if math.Float32bits(dec.preemphState[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("mem[%d]=%08x want %08x", i, math.Float32bits(dec.preemphState[i]), math.Float32bits(want[i]))
 		}
 	}
 }

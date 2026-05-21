@@ -67,8 +67,8 @@ type Decoder struct {
 	backgroundEnergy []celtGLog
 
 	// Synthesis state (persists for overlap-add)
-	overlapBuffer []float64 // Previous frame overlap tail [Overlap * channels]
-	preemphState  []float64 // De-emphasis filter state [channels]
+	overlapBuffer []celtSig // Previous frame overlap tail [Overlap * channels]
+	preemphState  []celtSig // De-emphasis filter state [channels]
 
 	// Postfilter state (pitch-based comb filter)
 	postfilterPeriod int     // Pitch period for comb filter
@@ -129,6 +129,8 @@ type Decoder struct {
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
 	scratchPrevEnergy     []float64
 	scratchPrevEnergyGLog []celtGLog
+	scratchOverlapPublic  []float64
+	scratchPreemphPublic  []float64
 	scratchPrevLogE       []float64
 	scratchPrevLogE2      []float64
 	scratchEnergies       []float64

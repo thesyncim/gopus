@@ -20,11 +20,11 @@ func (d *Decoder) CommitDRED48kMonoConcealment(frame, overlap []float32) {
 	d.updatePostfilterHistoryMonoFromFloat32(frame, frameSize, combFilterHistory)
 	d.updatePLCDecodeHistoryMonoFromFloat32(frame, frameSize, plcDecodeBufferSize)
 	if len(overlap) >= Overlap {
-		copyFloat32ToFloat64(d.overlapBuffer[:Overlap], overlap[:Overlap])
+		copy(d.overlapBuffer[:Overlap], overlap[:Overlap])
 	}
 
 	last := float32(frame[frameSize-1])
-	d.preemphState[0] = float64(float32(PreemphCoef) * (last * 32768))
+	d.preemphState[0] = celtSig(float32(PreemphCoef) * (last * 32768))
 	d.plcLossDuration = 0
 	d.plcDuration = 0
 	d.plcLastFrameType = frameDRED

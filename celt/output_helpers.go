@@ -58,7 +58,7 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float64) {
 
 	if d.channels == 1 {
 		// Mono de-emphasis - use float32 precision for state
-		state := float32(d.preemphState[0])
+		state := d.preemphState[0]
 		n := len(samples)
 		samples = samples[:n:n]
 		_ = samples[n-1]
@@ -118,11 +118,11 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float64) {
 			state = noFMA32Mul(coef, tmp)
 			samples[i] = float64(tmp * scale32)
 		}
-		d.preemphState[0] = float64(state)
+		d.preemphState[0] = state
 	} else {
 		// Stereo de-emphasis (interleaved samples) - use float32 precision
-		stateL := float32(d.preemphState[0])
-		stateR := float32(d.preemphState[1])
+		stateL := d.preemphState[0]
+		stateR := d.preemphState[1]
 		n := len(samples)
 		samples = samples[:n:n]
 		_ = samples[n-1]
@@ -187,8 +187,8 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float64) {
 			samples[i+1] = float64(tmpR * scale32)
 		}
 
-		d.preemphState[0] = float64(stateL)
-		d.preemphState[1] = float64(stateR)
+		d.preemphState[0] = stateL
+		d.preemphState[1] = stateR
 	}
 }
 
@@ -232,12 +232,12 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarToFloat32(dst []float32, le
 	const coef float32 = float32(PreemphCoef)
 	scale32 := float32(scale)
 
-	stateL := float32(d.preemphState[0])
-	stateR := float32(d.preemphState[1])
+	stateL := d.preemphState[0]
+	stateR := d.preemphState[1]
 	stateL, stateR = deemphasisStereoPlanarF64ToF32Core(dst, left, right, n, scale32, stateL, stateR, coef, verySmall)
 
-	d.preemphState[0] = float64(stateL)
-	d.preemphState[1] = float64(stateR)
+	d.preemphState[0] = stateL
+	d.preemphState[1] = stateR
 }
 
 func (d *Decoder) applyDeemphasisAndScaleMonoFloat32ToFloat32(dst []float32, samples []float32, scale float64) {
@@ -272,7 +272,7 @@ func (d *Decoder) applyDeemphasisAndScaleMonoFloat32ToFloat32(dst []float32, sam
 	const coef float32 = float32(PreemphCoef)
 	scale32 := float32(scale)
 
-	state := float32(d.preemphState[0])
+	state := d.preemphState[0]
 	_ = samples[n-1]
 	_ = dst[n-1]
 	i := 0
@@ -331,7 +331,7 @@ func (d *Decoder) applyDeemphasisAndScaleMonoFloat32ToFloat32(dst []float32, sam
 		state = noFMA32Mul(coef, tmp)
 		dst[i] = tmp * scale32
 	}
-	d.preemphState[0] = float64(state)
+	d.preemphState[0] = state
 }
 
 func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(dst []float32, left, right []float32, scale float64) {
@@ -373,12 +373,12 @@ func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(dst []floa
 	const verySmall float32 = 1e-30
 	const coef float32 = float32(PreemphCoef)
 	scale32 := float32(scale)
-	stateL := float32(d.preemphState[0])
-	stateR := float32(d.preemphState[1])
+	stateL := d.preemphState[0]
+	stateR := d.preemphState[1]
 	stateL, stateR = deemphasisStereoPlanarF32Core(dst, left, right, n, scale32, stateL, stateR, coef, verySmall)
 
-	d.preemphState[0] = float64(stateL)
-	d.preemphState[1] = float64(stateR)
+	d.preemphState[0] = stateL
+	d.preemphState[1] = stateR
 }
 
 func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []float64, scale float64) {
@@ -421,7 +421,7 @@ func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []floa
 	scale32 := float32(scale)
 
 	if d.channels == 1 {
-		state := float32(d.preemphState[0])
+		state := d.preemphState[0]
 		_ = samples[n-1]
 		_ = dst[n-1]
 		i := 0
@@ -480,12 +480,12 @@ func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []floa
 			state = noFMA32Mul(coef, tmp)
 			dst[i] = tmp * scale32
 		}
-		d.preemphState[0] = float64(state)
+		d.preemphState[0] = state
 		return
 	}
 
-	stateL := float32(d.preemphState[0])
-	stateR := float32(d.preemphState[1])
+	stateL := d.preemphState[0]
+	stateR := d.preemphState[1]
 	_ = samples[n-1]
 	_ = dst[n-1]
 	i := 0
@@ -549,8 +549,8 @@ func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []floa
 		dst[i+1] = tmpR * scale32
 	}
 
-	d.preemphState[0] = float64(stateL)
-	d.preemphState[1] = float64(stateR)
+	d.preemphState[0] = stateL
+	d.preemphState[1] = stateR
 }
 
 func (d *Decoder) advanceDeemphasisStateMono(samples []float64) {
@@ -572,12 +572,12 @@ func (d *Decoder) advanceDeemphasisStateMono(samples []float64) {
 	}
 	const verySmall float32 = 1e-30
 	const coef float32 = float32(PreemphCoef)
-	state := float32(d.preemphState[0])
+	state := d.preemphState[0]
 	for i := 0; i < n; i++ {
 		tmp := float32(samples[i]) + verySmall + state
 		state = noFMA32Mul(coef, tmp)
 	}
-	d.preemphState[0] = float64(state)
+	d.preemphState[0] = state
 }
 
 func copyFloat64ToFloat32(dst []float32, src []float64) {

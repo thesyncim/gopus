@@ -31,10 +31,10 @@ func cloneDecoderStateForSilenceTest(src *Decoder) *Decoder {
 
 func seedDecoderStateForSilenceTest(d *Decoder) {
 	for i := range d.overlapBuffer {
-		d.overlapBuffer[i] = math.Sin(float64(i+3)*0.17) * 0.12
+		d.overlapBuffer[i] = celtSig(math.Sin(float64(i+3)*0.17) * 0.12)
 	}
 	for i := range d.preemphState {
-		d.preemphState[i] = math.Cos(float64(i+1)*0.73) * 0.07
+		d.preemphState[i] = celtSig(math.Cos(float64(i+1)*0.73) * 0.07)
 	}
 	for i := range d.postfilterMem {
 		d.postfilterMem[i] = math.Sin(float64(i+11)*0.03) * 0.03
@@ -72,13 +72,13 @@ func decodeSilenceFrameReferenceForTest(d *Decoder, frameSize int, newPeriod int
 	return out
 }
 
-func requireFloatSliceClose(t *testing.T, name string, got, want []float64, tol float64) {
+func requireFloatSliceClose[T, U ~float32 | ~float64](t *testing.T, name string, got []T, want []U, tol float64) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("%s length mismatch: got=%d want=%d", name, len(got), len(want))
 	}
 	for i := range got {
-		if math.Abs(got[i]-want[i]) > tol {
+		if math.Abs(float64(got[i])-float64(want[i])) > tol {
 			t.Fatalf("%s mismatch at %d: got=%v want=%v", name, i, got[i], want[i])
 		}
 	}

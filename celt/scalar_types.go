@@ -6,6 +6,33 @@ type celtNorm = float32
 type celtSig = float32
 type celtGLog = float32
 
+func ensureSigSlice(buf *[]celtSig, n int) []celtSig {
+	if n <= 0 {
+		return nil
+	}
+	if cap(*buf) < n {
+		*buf = make([]celtSig, n)
+	} else {
+		*buf = (*buf)[:n]
+		clear(*buf)
+	}
+	return (*buf)[:n]
+}
+
+func copySigToFloat64(dst []float64, src []celtSig) {
+	n := min(len(dst), len(src))
+	for i := 0; i < n; i++ {
+		dst[i] = float64(src[i])
+	}
+}
+
+func copyFloat64ToSig(dst []celtSig, src []float64) {
+	n := min(len(dst), len(src))
+	for i := 0; i < n; i++ {
+		dst[i] = celtSig(src[i])
+	}
+}
+
 func ensureGLogSlice(buf *[]celtGLog, n int) []celtGLog {
 	if n <= 0 {
 		return nil
