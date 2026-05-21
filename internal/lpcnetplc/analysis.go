@@ -734,10 +734,6 @@ func innerProdFloatNEON(x, y []float32, length int) float32 {
 	return sum
 }
 
-func fma32(a, b, c float32) float32 {
-	return float32(math.FMA(float64(a), float64(b), float64(c)))
-}
-
 func log10f(x float32) float32 {
 	return 0.3010299957 * opusmath.CeltLog2(x)
 }

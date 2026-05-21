@@ -200,7 +200,7 @@ func sgemvFused(out []float32, weights dnnblob.Float32View, rows, cols, colStrid
 		var sum float32
 		for j := 0; j < cols; j++ {
 			w := weights.At(j*colStride + i)
-			sum = float32(math.FMA(float64(w), float64(x[j]), float64(sum)))
+			sum = fma32(w, x[j], sum)
 		}
 		out[i] = sum
 	}
