@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/thesyncim/gopus/internal/libopustooling"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 var (
@@ -76,20 +77,7 @@ func writePCM16LE(path string, samples []int16) error {
 }
 
 func clampFloat32ToInt16(sample float32) int16 {
-	if sample >= 1.0 {
-		return math.MaxInt16
-	}
-	if sample <= -1.0 {
-		return math.MinInt16
-	}
-	v := int32(math.Round(float64(sample) * 32768.0))
-	if v > math.MaxInt16 {
-		return math.MaxInt16
-	}
-	if v < math.MinInt16 {
-		return math.MinInt16
-	}
-	return int16(v)
+	return opusmath.Float32ToInt16(sample)
 }
 
 func float32ToPCM16(samples []float32) []int16 {

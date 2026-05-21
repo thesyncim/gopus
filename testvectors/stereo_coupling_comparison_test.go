@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // TestStereoCouplingVsLibopus compares stereo decoding with libopus per-frame.
@@ -154,18 +155,7 @@ func TestStereoCouplingVsLibopus(t *testing.T) {
 
 // quantizeTo16 matches opus_demo 16-bit PCM output for comparison.
 func quantizeTo16(x float32) float32 {
-	if x > 1.0 {
-		x = 1.0
-	} else if x < -1.0 {
-		x = -1.0
-	}
-	q := int32(math.Round(float64(x * 32768.0)))
-	if q > 32767 {
-		q = 32767
-	} else if q < -32768 {
-		q = -32768
-	}
-	return float32(int16(q)) / 32768.0
+	return float32(opusmath.Float32ToInt16(x)) / 32768.0
 }
 
 // TestStereoCouplingTestvector07 specifically tests testvector07 which has mixed content.
