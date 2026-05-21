@@ -31,16 +31,31 @@ run_json() {
 	: >"$json_part"
 }
 
+run_go_test_json() {
+	local -a cmd_env=()
+	while (($#)) && [[ "$1" =~ ^[A-Za-z_][A-Za-z0-9_]*= ]]; do
+		cmd_env+=("$1")
+		shift
+	done
+	run_json env "${cmd_env[@]}" "${go_env[@]}" "$GO_BIN" test -json "$@"
+}
+
 run_parity() {
-	run_json env GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 "${go_env[@]}" "$GO_BIN" test -json "$@"
+	run_go_test_json GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 "$@"
 }
 
 run_exactness() {
-	run_json env GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_EXACTNESS=1 "${go_env[@]}" "$GO_BIN" test -json "$@"
+	run_go_test_json GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_EXACTNESS=1 "$@"
 }
 
 run_exhaustive() {
-	run_json env GOPUS_TEST_TIER=exhaustive "${go_env[@]}" "$GO_BIN" test -json "$@"
+	run_go_test_json GOPUS_TEST_TIER=exhaustive "$@"
+}
+
+run_tagged_parity() {
+	local tags="$1"
+	shift
+	run_parity -tags "$tags" "$@"
 }
 
 require_no_skips() {
@@ -51,6 +66,13 @@ require_no_skips() {
 		exit 1
 	fi
 }
+
+tag_dred='gopus_dred'
+tag_qext='gopus_qext'
+tag_extra_controls='gopus_extra_controls'
+tag_dred_qext='gopus_dred gopus_qext'
+tag_extra_controls_qext='gopus_extra_controls gopus_qext'
+tag_all_optional='gopus_dred gopus_extra_controls gopus_qext'
 
 dnn_blob_default_root='Test(DefaultBuildDNNBlobKeepsDREDRuntimeDormant|DefaultBuildEncoderDNNBlobKeepsDREDDormant|HotPathAllocsDecodePLCDNNReadyAtMostBaseline|EncoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobStereoRuntimeRetainedAcrossReset|MultistreamEncoderSetDNNBlobRetainedAcrossReset|MultistreamDecoderSetDNNBlobRetainedAcrossReset|ValidEncoderTestDNNBlobShape|ValidDecoderTestDNNBlobShape)'
 dnn_blob_default_multistream='Test(DefaultBuildMultistreamDecoderRealBlobDormant|DefaultBuildMultistreamDecoderDecodeAllocGuard|DefaultBuildMultistreamEncoderDNNBlobKeepsAllocsFlat)'
@@ -90,45 +112,45 @@ extra_controls_parity_decoder_root='Test(DecoderCachedDREDDecodeMatrixMatchesLiv
 
 gate_dnn_blob_parity() {
 	run_parity . -run 'Test(DNNBlobControlAcceptsLibopusModelBlobs|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
-	run_parity -tags gopus_dred . -run 'Test(DREDControlModelBlobsMatchPinnedLibopusDigests)' -count=1
+	run_tagged_parity "$tag_dred" . -run 'Test(DREDControlModelBlobsMatchPinnedLibopusDigests)' -count=1
 	run_parity . -run "$dnn_blob_default_root" -count=1
 	run_parity ./multistream -run "$dnn_blob_default_multistream" -count=1
 	require_no_skips "DNN blob parity"
 }
 
 gate_dred_tag() {
-	run_parity -tags gopus_dred . -run 'Test(OptionalExtensionDocsContract|SupportsOptionalExtension|DREDBuildTagExposesSupportedTopLevelControls|DREDBuildPublicAPIContract|PublicDRED|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls)|ExampleSupportsOptionalExtension' -count=1
-	run_parity -tags gopus_dred . -run 'Test(DREDDecoderParseRequiresModel|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderProcessRejectsEmptyState|DREDDecoderProcessDoesNotAllocate|DREDDecoderParseAndProcessDoesNotAllocate|DREDDecoderParseClearsStateOnMalformedPacket)' -count=1
-	run_parity -tags gopus_dred . -run 'Test(DREDDecoderParseAndProcessRetainsMetadata|StandaloneDREDParseMatchesLibopus)' -count=1
-	run_parity -tags gopus_dred . -run 'Test(StandaloneDREDProcessMatchesLibopusOnRealPacket|StandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket)' -count=1
-	run_parity -tags gopus_dred . -run 'Test(StandaloneDREDRecoveryWindowMatchesLibopus|StandaloneDREDRecoveryQueueMatchesLibopus)' -count=1
-	run_parity -tags gopus_dred . -run "$dred_payload_parser_root" -count=1
-	run_parity -tags gopus_dred ./internal/dred -count=1
-	run_parity -tags gopus_dred ./internal/dnnblob -run "$dred_reference_dnnblob" -count=1
-	run_parity -tags gopus_dred ./internal/dred/rdovae -run "$dred_reference_rdovae" -count=1
-	run_parity -tags gopus_dred . -run "$dred_decoder_dormancy_root" -count=1
-	run_parity -tags gopus_dred . -run "$dred_decoder_recovery_internal_root" -count=1
-	run_parity -tags gopus_dred . -run "$dred_quality_root" -count=1
-	run_parity -tags gopus_dred . -run 'Test(DecoderCachedDREDRecoveryMatchesLibopusLifecycle|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELT|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kHybrid|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kCELT|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid)' -count=1
-	run_parity -tags gopus_dred . -run "$dred_stereo_recovery_root" -count=1
-	run_parity -tags gopus_dred . -run "$dred_encoder_payload_root" -count=1
-	run_parity -tags gopus_dred ./encoder -run 'Test(DREDBitsTableMatchesLibopusReference|ComputeDREDEmissionPlanMatchesLibopusFormula|ComputeDREDEmissionPlanUsesFECControlFlag|DREDMaxChunksOnlyCapsVBR|DREDRuntimeBuildExposesEncoderControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDRuntimeStaysDormantUntilReady|EncoderDREDEncodingActiveRequiresModelAndDuration|EncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed|EncoderProcessDREDLatentsDoesNotAllocate|EncoderProcessDREDLatentsDoesNotAllocate48k|MaybeBuildSingleFrameDREDPacketCarriesExtension)' -count=1
-	run_parity -tags gopus_dred ./encoder -run "$dred_encoder_runtime_internal" -count=1
-	run_parity -tags gopus_dred ./multistream -run "$dred_multistream_dormancy" -count=1
-	run_parity -tags gopus_dred ./multistream -run "$dred_multistream_recovery_internal" -count=1
-	run_parity -tags gopus_dred ./multistream -run "Test(DREDBuildTagExposesEncoderControlsOnly|DecoderPublicSetDNNBlobDoesNotArmDREDDecoderWhenBlobContainsModel|$dred_multistream_neural_decodes)" -count=1
+	run_tagged_parity "$tag_dred" . -run 'Test(OptionalExtensionDocsContract|SupportsOptionalExtension|DREDBuildTagExposesSupportedTopLevelControls|DREDBuildPublicAPIContract|PublicDRED|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls)|ExampleSupportsOptionalExtension' -count=1
+	run_tagged_parity "$tag_dred" . -run 'Test(DREDDecoderParseRequiresModel|DREDDecoderParseClearsStateWhenPacketHasNoDRED|DREDDecoderProcessRejectsEmptyState|DREDDecoderProcessDoesNotAllocate|DREDDecoderParseAndProcessDoesNotAllocate|DREDDecoderParseClearsStateOnMalformedPacket)' -count=1
+	run_tagged_parity "$tag_dred" . -run 'Test(DREDDecoderParseAndProcessRetainsMetadata|StandaloneDREDParseMatchesLibopus)' -count=1
+	run_tagged_parity "$tag_dred" . -run 'Test(StandaloneDREDProcessMatchesLibopusOnRealPacket|StandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket)' -count=1
+	run_tagged_parity "$tag_dred" . -run 'Test(StandaloneDREDRecoveryWindowMatchesLibopus|StandaloneDREDRecoveryQueueMatchesLibopus)' -count=1
+	run_tagged_parity "$tag_dred" . -run "$dred_payload_parser_root" -count=1
+	run_tagged_parity "$tag_dred" ./internal/dred -count=1
+	run_tagged_parity "$tag_dred" ./internal/dnnblob -run "$dred_reference_dnnblob" -count=1
+	run_tagged_parity "$tag_dred" ./internal/dred/rdovae -run "$dred_reference_rdovae" -count=1
+	run_tagged_parity "$tag_dred" . -run "$dred_decoder_dormancy_root" -count=1
+	run_tagged_parity "$tag_dred" . -run "$dred_decoder_recovery_internal_root" -count=1
+	run_tagged_parity "$tag_dred" . -run "$dred_quality_root" -count=1
+	run_tagged_parity "$tag_dred" . -run 'Test(DecoderCachedDREDRecoveryMatchesLibopusLifecycle|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELT|DecoderCachedDREDRecoveryMatchesLibopusLifecycle48kHybrid|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kCELT|DecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid)' -count=1
+	run_tagged_parity "$tag_dred" . -run "$dred_stereo_recovery_root" -count=1
+	run_tagged_parity "$tag_dred" . -run "$dred_encoder_payload_root" -count=1
+	run_tagged_parity "$tag_dred" ./encoder -run 'Test(DREDBitsTableMatchesLibopusReference|ComputeDREDEmissionPlanMatchesLibopusFormula|ComputeDREDEmissionPlanUsesFECControlFlag|DREDMaxChunksOnlyCapsVBR|DREDRuntimeBuildExposesEncoderControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDRuntimeStaysDormantUntilReady|EncoderDREDEncodingActiveRequiresModelAndDuration|EncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed|EncoderProcessDREDLatentsDoesNotAllocate|EncoderProcessDREDLatentsDoesNotAllocate48k|MaybeBuildSingleFrameDREDPacketCarriesExtension)' -count=1
+	run_tagged_parity "$tag_dred" ./encoder -run "$dred_encoder_runtime_internal" -count=1
+	run_tagged_parity "$tag_dred" ./multistream -run "$dred_multistream_dormancy" -count=1
+	run_tagged_parity "$tag_dred" ./multistream -run "$dred_multistream_recovery_internal" -count=1
+	run_tagged_parity "$tag_dred" ./multistream -run "Test(DREDBuildTagExposesEncoderControlsOnly|DecoderPublicSetDNNBlobDoesNotArmDREDDecoderWhenBlobContainsModel|$dred_multistream_neural_decodes)" -count=1
 	require_no_skips "DRED tag"
 }
 
 gate_qext_parity() {
-	run_parity -tags gopus_qext . -run 'Test(OptionalExtensionDocsContract|SupportsOptionalExtension|QEXTBuildPublicAPIContract|QEXTBuildTagExposesSupportedTopLevelControls|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls|DecodeGopusQEXTPacketMatchesLibopus|DecodeLibopusQEXTPacketMatchesLibopus|DecodeLibopusQEXTPacketFinalRangeMatchesLibopus|DecodeLibopusQEXTPacketIgnoreExtensionsMatchesInactiveCELT|DecodeLibopusQEXTOpaquePaddingMatchesInactiveCELT|DecodeLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPayloads|DecodeLibopusQEXTMultiFramePacketMatchesExplicitPayloads|DecodeLibopusQEXTMultiFrameIgnoreExtensionsMatchesInactivePayloads|DecodeLibopusQEXTPacketCELTFloat32FastPathMatchesFloat64|DecodeLibopusQEXTPacketWrapperMatchesDirectCELT|DecodeHybridLibopusQEXTPacketMatchesLibopus|DecodeHybridLibopusQEXTPacketIgnoreExtensionsMatchesInactiveHybrid|DecodeHybridLibopusQEXTOpaquePaddingMatchesInactiveHybrid|DecodeHybridLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPayloads|DecodeStereoLibopusQEXTPacketToMonoMatchesLibopus|DecodeLibopusRestrictedCELTPacketMatchesLibopus|DecodeLibopusQEXTChannelTransitionSequenceMatchesLibopus)|ExampleSupportsOptionalExtension' -count=1
-	run_parity -tags gopus_qext . -run "$qext_packet_extension_root" -count=1
+	run_tagged_parity "$tag_qext" . -run 'Test(OptionalExtensionDocsContract|SupportsOptionalExtension|QEXTBuildPublicAPIContract|QEXTBuildTagExposesSupportedTopLevelControls|Encoder_OptionalExtensionControls|MultistreamEncoder_OptionalExtensionControls|DecodeGopusQEXTPacketMatchesLibopus|DecodeLibopusQEXTPacketMatchesLibopus|DecodeLibopusQEXTPacketFinalRangeMatchesLibopus|DecodeLibopusQEXTPacketIgnoreExtensionsMatchesInactiveCELT|DecodeLibopusQEXTOpaquePaddingMatchesInactiveCELT|DecodeLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPayloads|DecodeLibopusQEXTMultiFramePacketMatchesExplicitPayloads|DecodeLibopusQEXTMultiFrameIgnoreExtensionsMatchesInactivePayloads|DecodeLibopusQEXTPacketCELTFloat32FastPathMatchesFloat64|DecodeLibopusQEXTPacketWrapperMatchesDirectCELT|DecodeHybridLibopusQEXTPacketMatchesLibopus|DecodeHybridLibopusQEXTPacketIgnoreExtensionsMatchesInactiveHybrid|DecodeHybridLibopusQEXTOpaquePaddingMatchesInactiveHybrid|DecodeHybridLibopusQEXTIgnoreExtensionsToggleSequenceMatchesExplicitPayloads|DecodeStereoLibopusQEXTPacketToMonoMatchesLibopus|DecodeLibopusRestrictedCELTPacketMatchesLibopus|DecodeLibopusQEXTChannelTransitionSequenceMatchesLibopus)|ExampleSupportsOptionalExtension' -count=1
+	run_tagged_parity "$tag_qext" . -run "$qext_packet_extension_root" -count=1
 	run_parity ./internal/libopustooling -run "$qext_libopus_tooling" -count=1
-	run_parity -tags gopus_qext ./encoder ./celt ./multistream -run 'QEXT' -count=1
-	run_parity -tags gopus_qext ./multistream -run "$qext_packet_extension_multistream" -count=1
-	run_parity -tags 'gopus_dred gopus_qext' . -run 'Test(CombinedDREDQEXTBuildOptionalExtensionContract|CombinedDREDQEXTBuildPublicAPIContract|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
-	run_parity -tags 'gopus_extra_controls gopus_qext' . -run 'Test(QEXTExtraControlsBuildOptionalExtensionContract|QEXTExtraControlsBuildPublicAPIContract|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
-	run_parity -tags 'gopus_dred gopus_extra_controls gopus_qext' . -run 'TestSupportsOptionalExtension' -count=1
+	run_tagged_parity "$tag_qext" ./encoder ./celt ./multistream -run 'QEXT' -count=1
+	run_tagged_parity "$tag_qext" ./multistream -run "$qext_packet_extension_multistream" -count=1
+	run_tagged_parity "$tag_dred_qext" . -run 'Test(CombinedDREDQEXTBuildOptionalExtensionContract|CombinedDREDQEXTBuildPublicAPIContract|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
+	run_tagged_parity "$tag_extra_controls_qext" . -run 'Test(QEXTExtraControlsBuildOptionalExtensionContract|QEXTExtraControlsBuildPublicAPIContract|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
+	run_tagged_parity "$tag_all_optional" . -run 'TestSupportsOptionalExtension' -count=1
 	require_no_skips "QEXT parity"
 }
 
@@ -141,47 +163,47 @@ gate_core_oracles_parity() {
 }
 
 gate_doc_contract() {
-	run_json env "${go_env[@]}" "$GO_BIN" test -json . -run "$doc_contract_root" -count=1
-	run_json env "${go_env[@]}" "$GO_BIN" test -json ./testvectors -run "$doc_contract_testvectors" -count=1
+	run_go_test_json . -run "$doc_contract_root" -count=1
+	run_go_test_json ./testvectors -run "$doc_contract_testvectors" -count=1
 }
 
 gate_extra_controls_tag() {
-	run_parity -tags gopus_extra_controls . -run "$extra_controls_core_root" -count=1
-	run_parity -tags gopus_extra_controls . -run "$dred_payload_parser_root" -count=1
-	run_parity -tags gopus_extra_controls . -run "$dred_decoder_dormancy_root" -count=1
-	run_parity -tags gopus_extra_controls . -run "$dred_decoder_recovery_internal_root" -count=1
-	run_parity -tags gopus_extra_controls . -run "$dred_quality_root" -count=1
-	run_parity -tags gopus_extra_controls . -run "$dred_stereo_recovery_root" -count=1
-	run_parity -tags gopus_extra_controls ./encoder ./multistream -run 'Test(DREDRuntimeBuildExposesEncoderControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDEncodingActiveRequiresModelAndDuration|EncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed)' -count=1
-	run_parity -tags gopus_extra_controls ./encoder -run "$dred_encoder_runtime_internal" -count=1
-	run_parity -tags gopus_extra_controls ./multistream -run "$extra_controls_multistream_dormancy" -count=1
-	run_parity -tags gopus_extra_controls ./multistream -run "$dred_multistream_recovery_internal" -count=1
-	run_parity -tags gopus_extra_controls ./multistream -run "Test(DecoderPublicSetDNNBlobDoesNotArmDREDDecoderWhenBlobContainsModel|$dred_multistream_neural_decodes)" -count=1
-	run_parity -tags gopus_extra_controls ./internal/dred -run 'Test(EncodeExperimentalPayloadMatchesLibopus|EncodeExperimentalPayloadMatchesLibopusDelayedOffset|EncodeExperimentalPayloadMatchesLibopusMatrix)' -count=1
-	run_parity -tags gopus_extra_controls ./internal/dnnblob -run "$dred_reference_dnnblob" -count=1
-	run_parity -tags gopus_extra_controls ./internal/dred -run "$dred_reference_internal" -count=1
-	run_parity -tags gopus_extra_controls ./internal/dred/rdovae -run "$dred_reference_rdovae" -count=1
-	run_parity -tags gopus_extra_controls ./internal/dred -run "$dred_latents_trace" -count=1
-	run_parity -tags gopus_extra_controls ./internal/lpcnetplc -run 'Test(PredictorMatchesLibopusOnRealModel|FARGANConditionerMatchesLibopusOnRealModel|FARGANPrimeContinuityMatchesLibopusOnRealModel|FARGANSynthesizeMatchesLibopusOnRealModel|LPCNetDREDSequenceMatchesLibopusTightly|MarkUpdatedFrameFloatMatchesLibopus|MarkUpdatedFrameInt16MatchesLibopus|PrefillAndConcealmentFeatureStepMatchLibopus|BoundedConcealFrameFloatMatchesLibopus|ConcealFrameFloatWithAnalysisMatchesLibopusColdStart)' -count=1
+	run_tagged_parity "$tag_extra_controls" . -run "$extra_controls_core_root" -count=1
+	run_tagged_parity "$tag_extra_controls" . -run "$dred_payload_parser_root" -count=1
+	run_tagged_parity "$tag_extra_controls" . -run "$dred_decoder_dormancy_root" -count=1
+	run_tagged_parity "$tag_extra_controls" . -run "$dred_decoder_recovery_internal_root" -count=1
+	run_tagged_parity "$tag_extra_controls" . -run "$dred_quality_root" -count=1
+	run_tagged_parity "$tag_extra_controls" . -run "$dred_stereo_recovery_root" -count=1
+	run_tagged_parity "$tag_extra_controls" ./encoder ./multistream -run 'Test(DREDRuntimeBuildExposesEncoderControls|EncoderDREDDuration|EncoderResetClearsDREDDuration|EncoderDREDReadyRequiresModelAndDuration|EncoderDREDEncodingActiveRequiresModelAndDuration|EncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed)' -count=1
+	run_tagged_parity "$tag_extra_controls" ./encoder -run "$dred_encoder_runtime_internal" -count=1
+	run_tagged_parity "$tag_extra_controls" ./multistream -run "$extra_controls_multistream_dormancy" -count=1
+	run_tagged_parity "$tag_extra_controls" ./multistream -run "$dred_multistream_recovery_internal" -count=1
+	run_tagged_parity "$tag_extra_controls" ./multistream -run "Test(DecoderPublicSetDNNBlobDoesNotArmDREDDecoderWhenBlobContainsModel|$dred_multistream_neural_decodes)" -count=1
+	run_tagged_parity "$tag_extra_controls" ./internal/dred -run 'Test(EncodeExperimentalPayloadMatchesLibopus|EncodeExperimentalPayloadMatchesLibopusDelayedOffset|EncodeExperimentalPayloadMatchesLibopusMatrix)' -count=1
+	run_tagged_parity "$tag_extra_controls" ./internal/dnnblob -run "$dred_reference_dnnblob" -count=1
+	run_tagged_parity "$tag_extra_controls" ./internal/dred -run "$dred_reference_internal" -count=1
+	run_tagged_parity "$tag_extra_controls" ./internal/dred/rdovae -run "$dred_reference_rdovae" -count=1
+	run_tagged_parity "$tag_extra_controls" ./internal/dred -run "$dred_latents_trace" -count=1
+	run_tagged_parity "$tag_extra_controls" ./internal/lpcnetplc -run 'Test(PredictorMatchesLibopusOnRealModel|FARGANConditionerMatchesLibopusOnRealModel|FARGANPrimeContinuityMatchesLibopusOnRealModel|FARGANSynthesizeMatchesLibopusOnRealModel|LPCNetDREDSequenceMatchesLibopusTightly|MarkUpdatedFrameFloatMatchesLibopus|MarkUpdatedFrameInt16MatchesLibopus|PrefillAndConcealmentFeatureStepMatchLibopus|BoundedConcealFrameFloatMatchesLibopus|ConcealFrameFloatWithAnalysisMatchesLibopusColdStart)' -count=1
 	require_no_skips "extra-controls tag"
 }
 
 gate_extra_controls_parity() {
-	run_parity -tags gopus_extra_controls . -run "$extra_controls_parity_root" -count=1
-	run_parity -tags gopus_extra_controls . -run 'Test(OSCEBWEForwardPassMatchesLibopusNumericalParity|OSCEBWERawSignalNetMatchesLibopus|OSCEBWEForwardPassPLCContinuityMatchesLibopus|OSCEBWECrossFade10msMatchesLibopus|OSCEBWEModelForwardPassMatchesLibopus|OSCEBWEInt8LibopusKernelParity|OSCEBWEForwardPassInt8KernelReproducible|OSCELACEForwardPassMatchesLibopus|DecoderOSCEFloatToInt16MatchesLibopusScaleOutput|DecoderOSCEBWERuntimeIntegration|DecoderOSCELACERuntimeIntegration|DecoderOSCEBWECrossFadeTransition|DecoderOSCEBWEPLC|DecoderOSCELACECrossFadeTransition|DecoderOSCELACEPLC|MultistreamDecoderOSCEBWELACERuntimeIntegration|MultistreamDecoderOSCEBWEMatchesSingleStreamDecoder|MultistreamDecoderOSCELACEFeedsPublicPCM|MultistreamDecoderOSCELACEMatchesSingleStreamDecoder)' -count=1
-	run_parity -tags gopus_extra_controls ./multistream -run 'TestStreamOSCEFloatToInt16MatchesLibopusScaleOutput' -count=1
-	run_parity -tags gopus_extra_controls ./multistream -run "Test($dred_multistream_neural_decodes)" -count=1
-	run_parity -tags gopus_extra_controls ./internal/dnnblob -run "$dred_reference_dnnblob" -count=1
-	run_parity -tags gopus_extra_controls ./internal/dred -run "$dred_reference_internal" -count=1
-	run_parity -tags gopus_extra_controls ./internal/dred/rdovae -run "$dred_reference_rdovae" -count=1
-	run_parity -tags gopus_extra_controls ./internal/dred -run "Test(ConvertTo16kMonoFloat64MatchesLibopus|ConvertTo16kMonoFloat64MatchesLibopusAcrossCalls|EncodeExperimentalPayloadMatchesLibopusMatrix|EncodeExperimentalPayloadMatchesLibopusLargeLaplaceContinuation)|$dred_rdovae_real_model" -count=1
-	run_parity -tags gopus_extra_controls ./internal/dred -run "$dred_latents_trace" -count=1
-	run_parity -tags gopus_extra_controls ./internal/lpcnetplc -run 'Test(LPCNetSingleFrameFeaturesFloatMatchesLibopusColdStart|LPCNetSingleFrameFeaturesFloatMatchesLibopusStatefulSequence|LPCNetDREDSequenceMatchesLibopusTightly|BurgCepstralAnalysisMatchesLibopus|PitchDNNMatchesLibopusOnRealModel|MarkUpdatedFrameInt16MatchesLibopus|ConcealFrameFloatWithAnalysisMatchesLibopus)' -count=1
-	run_parity -tags gopus_extra_controls . -run "$dred_encoder_payload_root" -count=1
-	run_parity -tags gopus_extra_controls . -run 'Test(DecoderExplicitDREDFirstConcealFrameBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesManualStep48kRuntime|DecoderExplicitDREDThreeConcealFramesMixedHelpers48kRuntime)' -count=1
-	run_parity -tags gopus_extra_controls . -run "$dred_stereo_recovery_root" -count=1
-	run_parity -tags gopus_extra_controls . -run "$extra_controls_parity_silk_dred_root" -count=1
-	run_parity -tags gopus_extra_controls . -run "$extra_controls_parity_decoder_root" -count=1
+	run_tagged_parity "$tag_extra_controls" . -run "$extra_controls_parity_root" -count=1
+	run_tagged_parity "$tag_extra_controls" . -run 'Test(OSCEBWEForwardPassMatchesLibopusNumericalParity|OSCEBWERawSignalNetMatchesLibopus|OSCEBWEForwardPassPLCContinuityMatchesLibopus|OSCEBWECrossFade10msMatchesLibopus|OSCEBWEModelForwardPassMatchesLibopus|OSCEBWEInt8LibopusKernelParity|OSCEBWEForwardPassInt8KernelReproducible|OSCELACEForwardPassMatchesLibopus|DecoderOSCEFloatToInt16MatchesLibopusScaleOutput|DecoderOSCEBWERuntimeIntegration|DecoderOSCELACERuntimeIntegration|DecoderOSCEBWECrossFadeTransition|DecoderOSCEBWEPLC|DecoderOSCELACECrossFadeTransition|DecoderOSCELACEPLC|MultistreamDecoderOSCEBWELACERuntimeIntegration|MultistreamDecoderOSCEBWEMatchesSingleStreamDecoder|MultistreamDecoderOSCELACEFeedsPublicPCM|MultistreamDecoderOSCELACEMatchesSingleStreamDecoder)' -count=1
+	run_tagged_parity "$tag_extra_controls" ./multistream -run 'TestStreamOSCEFloatToInt16MatchesLibopusScaleOutput' -count=1
+	run_tagged_parity "$tag_extra_controls" ./multistream -run "Test($dred_multistream_neural_decodes)" -count=1
+	run_tagged_parity "$tag_extra_controls" ./internal/dnnblob -run "$dred_reference_dnnblob" -count=1
+	run_tagged_parity "$tag_extra_controls" ./internal/dred -run "$dred_reference_internal" -count=1
+	run_tagged_parity "$tag_extra_controls" ./internal/dred/rdovae -run "$dred_reference_rdovae" -count=1
+	run_tagged_parity "$tag_extra_controls" ./internal/dred -run "Test(ConvertTo16kMonoFloat64MatchesLibopus|ConvertTo16kMonoFloat64MatchesLibopusAcrossCalls|EncodeExperimentalPayloadMatchesLibopusMatrix|EncodeExperimentalPayloadMatchesLibopusLargeLaplaceContinuation)|$dred_rdovae_real_model" -count=1
+	run_tagged_parity "$tag_extra_controls" ./internal/dred -run "$dred_latents_trace" -count=1
+	run_tagged_parity "$tag_extra_controls" ./internal/lpcnetplc -run 'Test(LPCNetSingleFrameFeaturesFloatMatchesLibopusColdStart|LPCNetSingleFrameFeaturesFloatMatchesLibopusStatefulSequence|LPCNetDREDSequenceMatchesLibopusTightly|BurgCepstralAnalysisMatchesLibopus|PitchDNNMatchesLibopusOnRealModel|MarkUpdatedFrameInt16MatchesLibopus|ConcealFrameFloatWithAnalysisMatchesLibopus)' -count=1
+	run_tagged_parity "$tag_extra_controls" . -run "$dred_encoder_payload_root" -count=1
+	run_tagged_parity "$tag_extra_controls" . -run 'Test(DecoderExplicitDREDFirstConcealFrameBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesManualStep48kRuntime|DecoderExplicitDREDThreeConcealFramesMixedHelpers48kRuntime)' -count=1
+	run_tagged_parity "$tag_extra_controls" . -run "$dred_stereo_recovery_root" -count=1
+	run_tagged_parity "$tag_extra_controls" . -run "$extra_controls_parity_silk_dred_root" -count=1
+	run_tagged_parity "$tag_extra_controls" . -run "$extra_controls_parity_decoder_root" -count=1
 	require_no_skips "extra-controls parity"
 }
 

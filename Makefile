@@ -1,4 +1,6 @@
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-extra-controls-parity-experimental test-quality test-exactness quality-report test-exhaustive test-provenance test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-exactness test-exhaustive test-provenance
+
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) test-extra-controls-parity-experimental quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -122,35 +124,28 @@ test-examples-smoke:
 # Docs and release-surface contracts stay focused so they do not require
 # heavyweight libopus fixture trees.
 test-doc-contract:
-	$(FOCUS_GATE_CMD) doc-contract
 
 # Default-supported DNN blob control parity against libopus USE_WEIGHTS_FILE
 # model blobs. The target fails if the required libopus-backed test is skipped.
 test-dnn-blob-parity: ensure-libopus
-	$(FOCUS_GATE_CMD) dnn-blob-parity
 
 # Pinned low-level CELT/range/SILK internal oracles.
 test-core-oracles-parity: ensure-libopus
-	$(FOCUS_GATE_CMD) core-oracles-parity
 
 # Supported DRED feature-tag parity gate. The extra-controls tag remains a
 # broader parity umbrella; this target verifies the supported DRED surface by itself.
 test-dred-tag: ensure-libopus
-	$(FOCUS_GATE_CMD) dred-tag
 
 # Supported QEXT feature-tag parity. The default build keeps QEXT controls
 # absent and leaves packet-extension payload plumbing behind compile-time gates.
 test-qext-parity: ensure-libopus-qext
-	$(FOCUS_GATE_CMD) qext-parity
 
 # Extra-controls build smoke for controls that should never leak into the default surface.
 test-extra-controls-tag: ensure-libopus
-	$(FOCUS_GATE_CMD) extra-controls-tag
 
 # Required tag-gated DRED/OSCE oracle sweep. Keep it separate from the
 # extra-controls API smoke so support claims stay seam-scoped.
 test-extra-controls-parity: ensure-libopus
-	$(FOCUS_GATE_CMD) extra-controls-parity
 
 # Legacy alias for older automation; Hybrid DRED packet-shape exactness now
 # lives in the required supported-tag and extra-controls parity gates.
@@ -158,13 +153,14 @@ test-extra-controls-parity-experimental: test-extra-controls-parity
 
 # Primary libopus-facing focused gate.
 test-quality: ensure-testvectors
-	$(FOCUS_GATE_CMD) quality
 
 # Optional libopus-internal exactness checks. These are intentionally not part
 # of the default production gate so math optimizations can move while quality
 # and interoperability stay enforced.
 test-exactness:
-	$(FOCUS_GATE_CMD) exactness
+
+$(FOCUS_GATE_TARGETS):
+	$(FOCUS_GATE_CMD) $(patsubst test-%,%,$@)
 
 # Compact markdown summary for the quality + compatibility gates.
 quality-report: ensure-libopus
@@ -362,11 +358,9 @@ docker-shell: docker-build
 
 # Exhaustive tier includes fixture honesty checks against pinned tmp_check opus_demo/opusdec.
 test-exhaustive: ensure-libopus
-	$(FOCUS_GATE_CMD) exhaustive
 
 # Exhaustive provenance audit for encoder variant parity.
 test-provenance: ensure-libopus
-	$(FOCUS_GATE_CMD) provenance
 
 # Regenerate fixture files from tmp_check/opus-$(LIBOPUS_VERSION)/opus_demo.
 fixtures-gen: ensure-libopus fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants

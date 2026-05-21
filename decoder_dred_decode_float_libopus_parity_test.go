@@ -646,6 +646,7 @@ func TestDecoderCachedSILKDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 		decoderSampleRate int
 	}{
 		{name: "decoder_48000", decoderSampleRate: 48000},
+		{name: "decoder_16000", decoderSampleRate: 16000},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -664,8 +665,10 @@ func TestDecoderCachedSILKDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 			}
 
 			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, tc.decoderSampleRate, packetInfo)
-			maxDREDSamples, sequenceSampleRate := libopusDREDRequestForDecoder(packetInfo, tc.decoderSampleRate)
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDREDSamples, sequenceSampleRate, n, 1, n, 0, 0, false)
+			if packetInfo.sampleRate != 48000 || n != frameSize {
+				t.Skipf("cached SILK live-sequence parity requires 48 kHz frame=%d packet-domain decode, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+			}
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, false)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
