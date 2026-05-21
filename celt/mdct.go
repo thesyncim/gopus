@@ -405,8 +405,8 @@ func imdctOverlapWithPrevScratchF32Output(spectrum []float64, prevOverlap []floa
 		for ; i+1 < limit; i += 2 {
 			x1 := outF32[xp1]
 			x2 := outF32[yp1]
-			outF32[yp1] = x2*windowF32[wp2] - x1*windowF32[wp1]
-			outF32[xp1] = x2*windowF32[wp1] + x1*windowF32[wp2]
+			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
 			yp1++
 			xp1--
 			wp1++
@@ -414,8 +414,8 @@ func imdctOverlapWithPrevScratchF32Output(spectrum []float64, prevOverlap []floa
 
 			x1 = outF32[xp1]
 			x2 = outF32[yp1]
-			outF32[yp1] = x2*windowF32[wp2] - x1*windowF32[wp1]
-			outF32[xp1] = x2*windowF32[wp1] + x1*windowF32[wp2]
+			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
 			yp1++
 			xp1--
 			wp1++
@@ -424,8 +424,8 @@ func imdctOverlapWithPrevScratchF32Output(spectrum []float64, prevOverlap []floa
 		for ; i < limit; i++ {
 			x1 := outF32[xp1]
 			x2 := outF32[yp1]
-			outF32[yp1] = x2*windowF32[wp2] - x1*windowF32[wp1]
-			outF32[xp1] = x2*windowF32[wp1] + x1*windowF32[wp2]
+			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
 			yp1++
 			xp1--
 			wp1++
@@ -502,8 +502,8 @@ func overlapIMDCTF32WithPrevToFloat64(out []float64, imdct []float32, prevOverla
 		for ; i+1 < limit; i += 2 {
 			x1 := float32(out[xp1])
 			x2 := float32(out[yp1])
-			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
-			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
+			out[xp1] = float64(mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2]))
 			yp1++
 			xp1--
 			wp1++
@@ -511,8 +511,8 @@ func overlapIMDCTF32WithPrevToFloat64(out []float64, imdct []float32, prevOverla
 
 			x1 = float32(out[xp1])
 			x2 = float32(out[yp1])
-			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
-			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
+			out[xp1] = float64(mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2]))
 			yp1++
 			xp1--
 			wp1++
@@ -521,8 +521,8 @@ func overlapIMDCTF32WithPrevToFloat64(out []float64, imdct []float32, prevOverla
 		for ; i < limit; i++ {
 			x1 := float32(out[xp1])
 			x2 := float32(out[yp1])
-			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
-			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
+			out[xp1] = float64(mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2]))
 			yp1++
 			xp1--
 			wp1++
@@ -738,8 +738,8 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 			bufIdx := xp1 - start
 			x1 := buf[bufIdx]
 			x2 := float32(out[yp1])
-			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
-			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
+			out[xp1] = float64(mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2]))
 			yp1++
 			xp1--
 			wp1++
@@ -748,8 +748,8 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 			bufIdx = xp1 - start
 			x1 = buf[bufIdx]
 			x2 = float32(out[yp1])
-			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
-			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
+			out[xp1] = float64(mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2]))
 			yp1++
 			xp1--
 			wp1++
@@ -759,8 +759,8 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 			bufIdx := xp1 - start
 			x1 := buf[bufIdx]
 			x2 := float32(out[yp1])
-			out[yp1] = float64(x2*windowF32[wp2] - x1*windowF32[wp1])
-			out[xp1] = float64(x2*windowF32[wp1] + x1*windowF32[wp2])
+			out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
+			out[xp1] = float64(mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2]))
 			yp1++
 			xp1--
 			wp1++

@@ -74,8 +74,8 @@ func imdctOverlapWithPrevScratchF32LegacyBufferCopy(out []float64, spectrum []fl
 		for ; i+1 < limit; i += 2 {
 			x1 := outF32[xp1]
 			x2 := outF32[yp1]
-			outF32[yp1] = x2*windowF32[wp2] - x1*windowF32[wp1]
-			outF32[xp1] = x2*windowF32[wp1] + x1*windowF32[wp2]
+			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
 			yp1++
 			xp1--
 			wp1++
@@ -83,8 +83,8 @@ func imdctOverlapWithPrevScratchF32LegacyBufferCopy(out []float64, spectrum []fl
 
 			x1 = outF32[xp1]
 			x2 = outF32[yp1]
-			outF32[yp1] = x2*windowF32[wp2] - x1*windowF32[wp1]
-			outF32[xp1] = x2*windowF32[wp1] + x1*windowF32[wp2]
+			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
 			yp1++
 			xp1--
 			wp1++
@@ -93,8 +93,8 @@ func imdctOverlapWithPrevScratchF32LegacyBufferCopy(out []float64, spectrum []fl
 		for ; i < limit; i++ {
 			x1 := outF32[xp1]
 			x2 := outF32[yp1]
-			outF32[yp1] = x2*windowF32[wp2] - x1*windowF32[wp1]
-			outF32[xp1] = x2*windowF32[wp1] + x1*windowF32[wp2]
+			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
 			yp1++
 			xp1--
 			wp1++
