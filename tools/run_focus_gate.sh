@@ -103,7 +103,10 @@ core_oracles_root='Test(Float32ToInt16MatchesLibopusFLOAT2INT16|OpusPCMSoftClipM
 core_oracles_celt='TestCELT(Log2|Exp2)MatchesLibopusFloatApprox|TestCELTAngleMathMatchesLibopusFloatPath|TestCELTStereoIthetaQ30MatchesLibopus|TestCELTBitexact(Cos|Log2Tan)MatchesLibopus|TestCELTBitexactLog2TanThetaTableMatchesLibopus|TestCELTIntegerMathMatchesLibopus'
 core_oracles_dnnmath='TestCeltMathMatchesLibopusCELTOracle'
 core_oracles_encoder='TestHybridCELTExp2ApproxMatchesLibopus'
-core_oracles_silk='TestSILK(Lin2Log|Log2Lin|Fixed|NLSF|A2|NLSF2A|Gains|Stereo|LTP|QuantLTPGains|.*Resampler)'
+core_oracles_lpcnetplc='TestLPCNetLog10fUsesLibopusCELTLog2Oracle'
+core_oracles_multistream='TestAmbisonicsIsqrt32MatchesLibopusCELTOracle'
+core_oracles_opusmath='TestCELT(Log2|Exp2|ISqrt32)MatchesLibopusOracle'
+core_oracles_silk='TestSILK(Lin2Log|Log2Lin|Fixed|NLSF|A2|NLSF2A|Gains|Stereo|LTP|QuantLTPGains|Isqrt32|.*Resampler)'
 core_oracles_range='TestRangeCoderMatchesLibopusOracle'
 quality_testvectors='TestFinalRangeVerification|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderVariantCELTAllocationParityAgainstFixture|TestEncoderVariantCELTHeaderParityAgainstFixture|TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity'
 exactness_encoder='TestModeFixtureParityWithLibopus|TestAnalysisFixtureParityWithLibopus'
@@ -162,6 +165,9 @@ gate_core_oracles_parity() {
 	run_parity ./celt -run "$core_oracles_celt" -count=1
 	run_parity ./internal/dnnmath -run "$core_oracles_dnnmath" -count=1
 	run_parity ./encoder -run "$core_oracles_encoder" -count=1
+	run_parity ./internal/lpcnetplc -run "$core_oracles_lpcnetplc" -count=1
+	run_parity ./multistream -run "$core_oracles_multistream" -count=1
+	run_parity ./internal/opusmath -run "$core_oracles_opusmath" -count=1
 	run_parity ./rangecoding -run "$core_oracles_range" -count=1
 	run_parity ./silk -run "$core_oracles_silk" -count=1
 	require_no_skips "core oracles parity"

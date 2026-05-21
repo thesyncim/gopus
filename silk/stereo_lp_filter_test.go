@@ -3,6 +3,8 @@ package silk
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestStereoLPFilter(t *testing.T) {
@@ -212,6 +214,26 @@ func TestIsqrt32(t *testing.T) {
 		got := isqrt32(tt.input)
 		if got != tt.expected {
 			t.Errorf("isqrt32(%d) = %d, want %d", tt.input, got, tt.expected)
+		}
+	}
+}
+
+func TestSILKIsqrt32MatchesLibopusCELTOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	inputs := []uint32{
+		0, 1, 2, 3, 4, 15, 16, 17,
+		(1 << 16) - 1, 1 << 16, (1 << 16) + 1,
+		(1 << 24) - 1, 1 << 24, (1 << 24) + 1,
+		1000000, ^uint32(0) - 2, ^uint32(0) - 1, ^uint32(0),
+	}
+	want, err := libopustest.ProbeCELTMathWords(libopustest.CELTMathModeISqrt32, len(inputs), inputs)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt math", err)
+	}
+	for i, x := range inputs {
+		got := isqrt32(x)
+		if got != want[i] {
+			t.Fatalf("isqrt32(%d)=%d want %d", x, got, want[i])
 		}
 	}
 }

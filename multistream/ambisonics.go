@@ -20,7 +20,11 @@
 
 package multistream
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // Errors for ambisonics validation.
 var (
@@ -35,42 +39,11 @@ var (
 	ErrInvalidMappingFamily = errors.New("multistream: invalid mapping family for ambisonics (must be 2 or 3)")
 )
 
-// isqrt32 computes the integer square root of n using the algorithm from libopus.
-// It returns floor(sqrt(n)) for all n > 0, and 0 for n <= 0.
-//
-// This implementation uses a binary search approach from:
-// http://www.azillionmonkeys.com/qed/sqroot.html
-//
-// Reference: libopus celt/mathops.c:isqrt32
 func isqrt32(n int) int {
 	if n <= 0 {
 		return 0
 	}
-
-	// Find the highest bit position
-	val := uint32(n)
-	g := uint32(0)
-
-	// Find bshift: (floor(log2(val)) >> 1)
-	bshift := 0
-	for temp := val; temp > 1; temp >>= 1 {
-		bshift++
-	}
-	bshift >>= 1
-
-	b := uint32(1) << bshift
-
-	for bshift >= 0 {
-		t := ((g << 1) + b) << bshift
-		if t <= val {
-			g += b
-			val -= t
-		}
-		b >>= 1
-		bshift--
-	}
-
-	return int(g)
+	return int(opusmath.ISqrt32(uint32(n)))
 }
 
 // ValidateAmbisonics validates that the channel count is valid for ambisonics

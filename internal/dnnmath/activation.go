@@ -3,6 +3,8 @@ package dnnmath
 import (
 	"math"
 	"runtime"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 var useNEONApproxActivation = runtime.GOARCH == "arm64"
@@ -180,7 +182,7 @@ func SoftmaxApprox(out, in []float32, n int) {
 // CeltLog mirrors libopus' floating-point celt_log() macro when FLOAT_APPROX
 // is enabled in the reference build.
 func CeltLog(x float32) float32 {
-	return celtLog2(x) * 0.6931471805599453
+	return opusmath.CeltLog2(x) * 0.6931471805599453
 }
 
 // CeltSin mirrors libopus' floating-point celt_sin() macro.
@@ -205,48 +207,6 @@ func celtCosNorm2(x float32) float32 {
 	)
 	return outputSign * (a0 + x2*(a2+x2*(a4+x2*(a6+x2*a8))))
 }
-
-func celtLog2(x float32) float32 {
-	bits := math.Float32bits(x)
-	integer := int32(bits>>23) - 127
-	bits = uint32(int32(bits) - int32(uint32(integer)<<23))
-
-	rangeIdx := (bits >> 20) & 0x7
-	f := math.Float32frombits(bits)
-	f = f*celtLog2XNormCoeff[rangeIdx] - 1.0625
-	f = celtLog2CoeffA0 + f*(celtLog2CoeffA1+f*(celtLog2CoeffA2+f*(celtLog2CoeffA3+f*celtLog2CoeffA4)))
-	return float32(integer) + f + celtLog2YNormCoeff[rangeIdx]
-}
-
-var celtLog2XNormCoeff = [8]float32{
-	1.0000000000000000000000000000,
-	8.88888895511627197265625e-01,
-	8.00000000000000000000000e-01,
-	7.27272748947143554687500e-01,
-	6.66666686534881591796875e-01,
-	6.15384638309478759765625e-01,
-	5.71428596973419189453125e-01,
-	5.33333361148834228515625e-01,
-}
-
-var celtLog2YNormCoeff = [8]float32{
-	0.0000000000000000000000000000,
-	1.699250042438507080078125e-01,
-	3.219280838966369628906250e-01,
-	4.594316184520721435546875e-01,
-	5.849624872207641601562500e-01,
-	7.004396915435791015625000e-01,
-	8.073549270629882812500000e-01,
-	9.068905711174011230468750e-01,
-}
-
-const (
-	celtLog2CoeffA0 float32 = 8.74628424644470214843750000e-02
-	celtLog2CoeffA1 float32 = 1.357829570770263671875000000000
-	celtLog2CoeffA2 float32 = -6.3897705078125000000000000e-01
-	celtLog2CoeffA3 float32 = 4.01971250772476196289062500e-01
-	celtLog2CoeffA4 float32 = -2.8415444493293762207031250e-01
-)
 
 func sigmoidApproxNEON(x float32) float32 {
 	const (

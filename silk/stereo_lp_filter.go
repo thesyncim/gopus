@@ -1,6 +1,10 @@
 package silk
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // stereo_lp_filter.go implements LP/HP filtering for stereo mid/side channels.
 // This matches libopus silk/stereo_LR_to_MS.c and silk/stereo_MS_to_LR.c.
@@ -296,20 +300,6 @@ func stereoFindPredictorQ13WithRatioQ14(x, y []int16, length int, midResAmpQ0 *[
 	return predQ13, ratioQ14
 }
 
-// isqrt32 computes integer square root of a 32-bit unsigned integer.
 func isqrt32(n uint32) uint32 {
-	if n == 0 {
-		return 0
-	}
-
-	// Newton's method
-	x := n
-	y := (x + 1) >> 1
-
-	for y < x {
-		x = y
-		y = (x + n/x) >> 1
-	}
-
-	return x
+	return opusmath.ISqrt32(n)
 }

@@ -1,8 +1,9 @@
 package celt
 
 import (
-	"math"
 	"math/bits"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 const bitexactThetaMax = 16384
@@ -74,16 +75,8 @@ func bitexactLog2tanTheta(itheta int) int {
 	return bitexactLog2tan(iside, imid)
 }
 
-// isqrt32 computes floor(sqrt(val)) with exact arithmetic.
 func isqrt32(val uint32) uint32 {
-	r := uint32(math.Sqrt(float64(val)))
-	for uint64(r+1)*uint64(r+1) <= uint64(val) {
-		r++
-	}
-	for uint64(r)*uint64(r) > uint64(val) {
-		r--
-	}
-	return r
+	return opusmath.ISqrt32(val)
 }
 
 func ilog32(x uint32) int {

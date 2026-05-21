@@ -6,6 +6,7 @@ import (
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 const (
@@ -738,7 +739,7 @@ func fma32(a, b, c float32) float32 {
 }
 
 func log10f(x float32) float32 {
-	return 0.3010299957 * celtLog2Approx(x)
+	return 0.3010299957 * opusmath.CeltLog2(x)
 }
 
 func clampUnit(x float32) float32 {
@@ -762,47 +763,3 @@ var analysisBandEdges = [...]int{
 var analysisCompensation = [...]float32{
 	0.8, 1, 1, 1, 1, 1, 1, 1, 0.666667, 0.5, 0.5, 0.5, 0.333333, 0.25, 0.25, 0.2, 0.166667, 0.173913,
 }
-
-func celtLog2Approx(x float32) float32 {
-	bits := math.Float32bits(x)
-	integer := int32(bits>>23) - 127
-	bitsInt := int32(bits)
-	bitsInt -= int32(uint32(integer) << 23)
-	bits = uint32(bitsInt)
-
-	rangeIdx := (bits >> 20) & 0x7
-	f := math.Float32frombits(bits)
-	f = f*analysisLog2XNormCoeff[rangeIdx] - 1.0625
-	f = analysisLog2CoeffA0 + f*(analysisLog2CoeffA1+f*(analysisLog2CoeffA2+f*(analysisLog2CoeffA3+f*analysisLog2CoeffA4)))
-	return float32(integer) + f + analysisLog2YNormCoeff[rangeIdx]
-}
-
-var analysisLog2XNormCoeff = [8]float32{
-	1.0000000000000000000000000000,
-	8.88888895511627197265625e-01,
-	8.00000000000000000000000e-01,
-	7.27272748947143554687500e-01,
-	6.66666686534881591796875e-01,
-	6.15384638309478759765625e-01,
-	5.71428596973419189453125e-01,
-	5.33333361148834228515625e-01,
-}
-
-var analysisLog2YNormCoeff = [8]float32{
-	0.0000000000000000000000000000,
-	1.699250042438507080078125e-01,
-	3.219280838966369628906250e-01,
-	4.594316184520721435546875e-01,
-	5.849624872207641601562500e-01,
-	7.004396915435791015625000e-01,
-	8.073549270629882812500000e-01,
-	9.068905711174011230468750e-01,
-}
-
-const (
-	analysisLog2CoeffA0 float32 = 8.74628424644470214843750000e-02
-	analysisLog2CoeffA1 float32 = 1.357829570770263671875000000000
-	analysisLog2CoeffA2 float32 = -6.3897705078125000000000000e-01
-	analysisLog2CoeffA3 float32 = 4.01971250772476196289062500e-01
-	analysisLog2CoeffA4 float32 = -2.8415444493293762207031250e-01
-)

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	encpkg "github.com/thesyncim/gopus/encoder"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func assertAmbisonicsMapping(t *testing.T, name string, channels int, want []byte, fn func(int) ([]byte, error)) {
@@ -167,6 +168,26 @@ func TestIsqrt32_MatchesMath(t *testing.T) {
 		want := int(math.Sqrt(float64(i)))
 		if got != want {
 			t.Errorf("isqrt32(%d) = %d, want %d (from math.Sqrt)", i, got, want)
+		}
+	}
+}
+
+func TestAmbisonicsIsqrt32MatchesLibopusCELTOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	inputs := []uint32{
+		0, 1, 2, 3, 4, 15, 16, 17,
+		63, 64, 65, 80, 81, 99, 100, 120, 121,
+		143, 144, 168, 169, 195, 196, 224, 225, 227,
+		255, 256, 257, 1000, 10000, 65536, 1<<31 - 1,
+	}
+	want, err := libopustest.ProbeCELTMathWords(libopustest.CELTMathModeISqrt32, len(inputs), inputs)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt math", err)
+	}
+	for i, x := range inputs {
+		got := isqrt32(int(x))
+		if got != int(want[i]) {
+			t.Fatalf("isqrt32(%d)=%d want %d", x, got, want[i])
 		}
 	}
 }
