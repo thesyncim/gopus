@@ -5,7 +5,6 @@ package lpcnetplc
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
@@ -20,61 +19,26 @@ const (
 )
 
 var (
-	libopusPitchDNNModelBlobHelperOnce sync.Once
-	libopusPitchDNNModelBlobHelperPath string
-	libopusPitchDNNModelBlobHelperErr  error
-
-	libopusPitchDNNHelperOnce sync.Once
-	libopusPitchDNNHelperPath string
-	libopusPitchDNNHelperErr  error
-
-	libopusLPCNetFeaturesHelperOnce sync.Once
-	libopusLPCNetFeaturesHelperPath string
-	libopusLPCNetFeaturesHelperErr  error
-
-	libopusBurgHelperOnce sync.Once
-	libopusBurgHelperPath string
-	libopusBurgHelperErr  error
+	libopusPitchDNNModelHelper  libopustest.HelperCache
+	libopusPitchDNNHelper       libopustest.HelperCache
+	libopusLPCNetFeaturesHelper libopustest.HelperCache
+	libopusBurgHelper           libopustest.HelperCache
 )
 
 func getLibopusPitchDNNModelBlobHelperPath() (string, error) {
-	libopusPitchDNNModelBlobHelperOnce.Do(func() {
-		libopusPitchDNNModelBlobHelperPath, libopusPitchDNNModelBlobHelperErr = buildLibopusPLCHelper("libopus_pitchdnn_model_blob.c", "gopus_libopus_pitchdnn_model_blob")
-	})
-	if libopusPitchDNNModelBlobHelperErr != nil {
-		return "", libopusPitchDNNModelBlobHelperErr
-	}
-	return libopusPitchDNNModelBlobHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusPitchDNNModelHelper, "libopus_pitchdnn_model_blob.c", "gopus_libopus_pitchdnn_model_blob")
 }
 
 func getLibopusPitchDNNHelperPath() (string, error) {
-	libopusPitchDNNHelperOnce.Do(func() {
-		libopusPitchDNNHelperPath, libopusPitchDNNHelperErr = buildLibopusPLCHelper("libopus_pitchdnn_info.c", "gopus_libopus_pitchdnn")
-	})
-	if libopusPitchDNNHelperErr != nil {
-		return "", libopusPitchDNNHelperErr
-	}
-	return libopusPitchDNNHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusPitchDNNHelper, "libopus_pitchdnn_info.c", "gopus_libopus_pitchdnn")
 }
 
 func getLibopusLPCNetFeaturesHelperPath() (string, error) {
-	libopusLPCNetFeaturesHelperOnce.Do(func() {
-		libopusLPCNetFeaturesHelperPath, libopusLPCNetFeaturesHelperErr = buildLibopusPLCHelper("libopus_lpcnet_features_info.c", "gopus_libopus_lpcnet_features")
-	})
-	if libopusLPCNetFeaturesHelperErr != nil {
-		return "", libopusLPCNetFeaturesHelperErr
-	}
-	return libopusLPCNetFeaturesHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusLPCNetFeaturesHelper, "libopus_lpcnet_features_info.c", "gopus_libopus_lpcnet_features")
 }
 
 func getLibopusBurgHelperPath() (string, error) {
-	libopusBurgHelperOnce.Do(func() {
-		libopusBurgHelperPath, libopusBurgHelperErr = buildLibopusPLCHelper("libopus_burg_cepstrum_info.c", "gopus_libopus_burg_cepstrum")
-	})
-	if libopusBurgHelperErr != nil {
-		return "", libopusBurgHelperErr
-	}
-	return libopusBurgHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusBurgHelper, "libopus_burg_cepstrum_info.c", "gopus_libopus_burg_cepstrum")
 }
 
 func probeLibopusPitchDNNModelBlob() ([]byte, error) {

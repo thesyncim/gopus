@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
@@ -30,41 +29,15 @@ const (
 )
 
 var (
-	libopusPLCModelBlobHelperOnce sync.Once
-	libopusPLCModelBlobHelperPath string
-	libopusPLCModelBlobHelperErr  error
-
-	libopusPLCPredictHelperOnce sync.Once
-	libopusPLCPredictHelperPath string
-	libopusPLCPredictHelperErr  error
-
-	libopusPLCUpdateHelperOnce sync.Once
-	libopusPLCUpdateHelperPath string
-	libopusPLCUpdateHelperErr  error
-
-	libopusPLCPrefillHelperOnce sync.Once
-	libopusPLCPrefillHelperPath string
-	libopusPLCPrefillHelperErr  error
-
-	libopusPLCConcealHelperOnce sync.Once
-	libopusPLCConcealHelperPath string
-	libopusPLCConcealHelperErr  error
-
-	libopusFARGANModelBlobHelperOnce sync.Once
-	libopusFARGANModelBlobHelperPath string
-	libopusFARGANModelBlobHelperErr  error
-
-	libopusFARGANCondHelperOnce sync.Once
-	libopusFARGANCondHelperPath string
-	libopusFARGANCondHelperErr  error
-
-	libopusFARGANContHelperOnce sync.Once
-	libopusFARGANContHelperPath string
-	libopusFARGANContHelperErr  error
-
-	libopusFARGANSynthHelperOnce sync.Once
-	libopusFARGANSynthHelperPath string
-	libopusFARGANSynthHelperErr  error
+	libopusPLCModelBlobHelper libopustest.HelperCache
+	libopusPLCPredictHelper   libopustest.HelperCache
+	libopusPLCUpdateHelper    libopustest.HelperCache
+	libopusPLCPrefillHelper   libopustest.HelperCache
+	libopusPLCConcealHelper   libopustest.HelperCache
+	libopusFARGANModelHelper  libopustest.HelperCache
+	libopusFARGANCondHelper   libopustest.HelperCache
+	libopusFARGANContHelper   libopustest.HelperCache
+	libopusFARGANSynthHelper  libopustest.HelperCache
 )
 
 func buildLibopusPLCHelper(sourceFile, outputBase string) (string, error) {
@@ -76,94 +49,46 @@ func buildLibopusPLCHelper(sourceFile, outputBase string) (string, error) {
 	return libopustest.BuildDREDHelper(repoRoot, sourceFile, outputBase, true)
 }
 
-func getLibopusPLCModelBlobHelperPath() (string, error) {
-	libopusPLCModelBlobHelperOnce.Do(func() {
-		libopusPLCModelBlobHelperPath, libopusPLCModelBlobHelperErr = buildLibopusPLCHelper("libopus_plc_model_blob.c", "gopus_libopus_plc_model_blob")
+func cachedLibopusPLCHelperPath(cache *libopustest.HelperCache, sourceFile, outputBase string) (string, error) {
+	return cache.Path(func() (string, error) {
+		return buildLibopusPLCHelper(sourceFile, outputBase)
 	})
-	if libopusPLCModelBlobHelperErr != nil {
-		return "", libopusPLCModelBlobHelperErr
-	}
-	return libopusPLCModelBlobHelperPath, nil
+}
+
+func getLibopusPLCModelBlobHelperPath() (string, error) {
+	return cachedLibopusPLCHelperPath(&libopusPLCModelBlobHelper, "libopus_plc_model_blob.c", "gopus_libopus_plc_model_blob")
 }
 
 func getLibopusPLCPredictHelperPath() (string, error) {
-	libopusPLCPredictHelperOnce.Do(func() {
-		libopusPLCPredictHelperPath, libopusPLCPredictHelperErr = buildLibopusPLCHelper("libopus_plc_pred_info.c", "gopus_libopus_plc_pred")
-	})
-	if libopusPLCPredictHelperErr != nil {
-		return "", libopusPLCPredictHelperErr
-	}
-	return libopusPLCPredictHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusPLCPredictHelper, "libopus_plc_pred_info.c", "gopus_libopus_plc_pred")
 }
 
 func getLibopusPLCUpdateHelperPath() (string, error) {
-	libopusPLCUpdateHelperOnce.Do(func() {
-		libopusPLCUpdateHelperPath, libopusPLCUpdateHelperErr = buildLibopusPLCHelper("libopus_plc_update_info.c", "gopus_libopus_plc_update")
-	})
-	if libopusPLCUpdateHelperErr != nil {
-		return "", libopusPLCUpdateHelperErr
-	}
-	return libopusPLCUpdateHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusPLCUpdateHelper, "libopus_plc_update_info.c", "gopus_libopus_plc_update")
 }
 
 func getLibopusPLCPrefillHelperPath() (string, error) {
-	libopusPLCPrefillHelperOnce.Do(func() {
-		libopusPLCPrefillHelperPath, libopusPLCPrefillHelperErr = buildLibopusPLCHelper("libopus_plc_prefill_info.c", "gopus_libopus_plc_prefill")
-	})
-	if libopusPLCPrefillHelperErr != nil {
-		return "", libopusPLCPrefillHelperErr
-	}
-	return libopusPLCPrefillHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusPLCPrefillHelper, "libopus_plc_prefill_info.c", "gopus_libopus_plc_prefill")
 }
 
 func getLibopusPLCConcealHelperPath() (string, error) {
-	libopusPLCConcealHelperOnce.Do(func() {
-		libopusPLCConcealHelperPath, libopusPLCConcealHelperErr = buildLibopusPLCHelper("libopus_plc_conceal_info.c", "gopus_libopus_plc_conceal")
-	})
-	if libopusPLCConcealHelperErr != nil {
-		return "", libopusPLCConcealHelperErr
-	}
-	return libopusPLCConcealHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusPLCConcealHelper, "libopus_plc_conceal_info.c", "gopus_libopus_plc_conceal")
 }
 
 func getLibopusFARGANModelBlobHelperPath() (string, error) {
-	libopusFARGANModelBlobHelperOnce.Do(func() {
-		libopusFARGANModelBlobHelperPath, libopusFARGANModelBlobHelperErr = buildLibopusPLCHelper("libopus_fargan_model_blob.c", "gopus_libopus_fargan_model_blob")
-	})
-	if libopusFARGANModelBlobHelperErr != nil {
-		return "", libopusFARGANModelBlobHelperErr
-	}
-	return libopusFARGANModelBlobHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusFARGANModelHelper, "libopus_fargan_model_blob.c", "gopus_libopus_fargan_model_blob")
 }
 
 func getLibopusFARGANCondHelperPath() (string, error) {
-	libopusFARGANCondHelperOnce.Do(func() {
-		libopusFARGANCondHelperPath, libopusFARGANCondHelperErr = buildLibopusPLCHelper("libopus_fargan_cond_info.c", "gopus_libopus_fargan_cond")
-	})
-	if libopusFARGANCondHelperErr != nil {
-		return "", libopusFARGANCondHelperErr
-	}
-	return libopusFARGANCondHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusFARGANCondHelper, "libopus_fargan_cond_info.c", "gopus_libopus_fargan_cond")
 }
 
 func getLibopusFARGANContHelperPath() (string, error) {
-	libopusFARGANContHelperOnce.Do(func() {
-		libopusFARGANContHelperPath, libopusFARGANContHelperErr = buildLibopusPLCHelper("libopus_fargan_cont_info.c", "gopus_libopus_fargan_cont")
-	})
-	if libopusFARGANContHelperErr != nil {
-		return "", libopusFARGANContHelperErr
-	}
-	return libopusFARGANContHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusFARGANContHelper, "libopus_fargan_cont_info.c", "gopus_libopus_fargan_cont")
 }
 
 func getLibopusFARGANSynthHelperPath() (string, error) {
-	libopusFARGANSynthHelperOnce.Do(func() {
-		libopusFARGANSynthHelperPath, libopusFARGANSynthHelperErr = buildLibopusPLCHelper("libopus_fargan_synth_info.c", "gopus_libopus_fargan_synth")
-	})
-	if libopusFARGANSynthHelperErr != nil {
-		return "", libopusFARGANSynthHelperErr
-	}
-	return libopusFARGANSynthHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusFARGANSynthHelper, "libopus_fargan_synth_info.c", "gopus_libopus_fargan_synth")
 }
 
 func probeLibopusPLCModelBlob() ([]byte, error) {

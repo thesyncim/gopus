@@ -5,7 +5,6 @@ package lpcnetplc
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
@@ -15,11 +14,7 @@ const (
 	libopusPLCConcealAnalysisOutputMagic = "GPAO"
 )
 
-var (
-	libopusPLCConcealAnalysisHelperOnce sync.Once
-	libopusPLCConcealAnalysisHelperPath string
-	libopusPLCConcealAnalysisHelperErr  error
-)
+var libopusPLCConcealAnalysisHelper libopustest.HelperCache
 
 type libopusPLCConcealWithAnalysisResult struct {
 	GotFEC   bool
@@ -30,13 +25,7 @@ type libopusPLCConcealWithAnalysisResult struct {
 }
 
 func getLibopusPLCConcealAnalysisHelperPath() (string, error) {
-	libopusPLCConcealAnalysisHelperOnce.Do(func() {
-		libopusPLCConcealAnalysisHelperPath, libopusPLCConcealAnalysisHelperErr = buildLibopusPLCHelper("libopus_plc_conceal_analysis_info.c", "gopus_libopus_plc_conceal_analysis")
-	})
-	if libopusPLCConcealAnalysisHelperErr != nil {
-		return "", libopusPLCConcealAnalysisHelperErr
-	}
-	return libopusPLCConcealAnalysisHelperPath, nil
+	return cachedLibopusPLCHelperPath(&libopusPLCConcealAnalysisHelper, "libopus_plc_conceal_analysis_info.c", "gopus_libopus_plc_conceal_analysis")
 }
 
 func probeLibopusPLCConcealWithAnalysis(st *State, f *FARGAN, a *Analysis) (libopusPLCConcealWithAnalysisResult, error) {
