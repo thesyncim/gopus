@@ -23,6 +23,7 @@ import (
 	"math"
 
 	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
@@ -883,31 +884,8 @@ func (e *Encoder) computeHBGain(celtBitrate int) float64 {
 }
 
 func celtExp2Approx(x float32) float32 {
-	integer := int32(math.Floor(float64(x)))
-	if integer < -50 {
-		return 0
-	}
-	frac := x - float32(integer)
-
-	res := hbExp2CoeffA0 + frac*(hbExp2CoeffA1+
-		frac*(hbExp2CoeffA2+
-			frac*(hbExp2CoeffA3+
-				frac*(hbExp2CoeffA4+
-					frac*hbExp2CoeffA5))))
-
-	bits := math.Float32bits(res)
-	bits = uint32(int32(bits)+int32(uint32(integer)<<23)) & 0x7fffffff
-	return math.Float32frombits(bits)
+	return opusmath.CeltExp2(x)
 }
-
-const (
-	hbExp2CoeffA0 float32 = 9.999999403953552246093750000000e-01
-	hbExp2CoeffA1 float32 = 6.931530833244323730468750000000e-01
-	hbExp2CoeffA2 float32 = 2.401536107063293457031250000000e-01
-	hbExp2CoeffA3 float32 = 5.582631751894950866699218750000e-02
-	hbExp2CoeffA4 float32 = 8.989339694380760192871093750000e-03
-	hbExp2CoeffA5 float32 = 1.877576694823801517486572265625e-03
-)
 
 // downsample48to16Hybrid downsamples from 48kHz to 16kHz using the
 // libopus-matching SILK downsampler (AR2 + FIR).

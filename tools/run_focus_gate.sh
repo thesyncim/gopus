@@ -102,6 +102,7 @@ doc_contract_testvectors='Test(FixtureGeneratorScriptsBuildIgnore|GeneratedFiles
 core_oracles_root='Test(Float32ToInt16MatchesLibopusFLOAT2INT16|OpusPCMSoftClipMatchesLibopus|SoftClipAndFloat32ToInt16MatchesLibopus)'
 core_oracles_celt='TestCELT(Log2|Exp2)MatchesLibopusFloatApprox|TestCELTAngleMathMatchesLibopusFloatPath|TestCELTStereoIthetaQ30MatchesLibopus|TestCELTBitexact(Cos|Log2Tan)MatchesLibopus|TestCELTBitexactLog2TanThetaTableMatchesLibopus|TestCELTIntegerMathMatchesLibopus'
 core_oracles_dnnmath='TestCeltMathMatchesLibopusCELTOracle'
+core_oracles_encoder='TestHybridCELTExp2ApproxMatchesLibopus'
 core_oracles_silk='TestSILK(Lin2Log|Log2Lin|Fixed|NLSF|A2|NLSF2A|Gains|Stereo|LTP|QuantLTPGains|.*Resampler)'
 core_oracles_range='TestRangeCoderMatchesLibopusOracle'
 quality_testvectors='TestFinalRangeVerification|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderVariantCELTAllocationParityAgainstFixture|TestEncoderVariantCELTHeaderParityAgainstFixture|TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity'
@@ -160,6 +161,7 @@ gate_core_oracles_parity() {
 	run_parity . -run "$core_oracles_root" -count=1
 	run_parity ./celt -run "$core_oracles_celt" -count=1
 	run_parity ./internal/dnnmath -run "$core_oracles_dnnmath" -count=1
+	run_parity ./encoder -run "$core_oracles_encoder" -count=1
 	run_parity ./rangecoding -run "$core_oracles_range" -count=1
 	run_parity ./silk -run "$core_oracles_silk" -count=1
 	require_no_skips "core oracles parity"

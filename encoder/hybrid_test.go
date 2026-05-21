@@ -8,6 +8,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -179,6 +180,34 @@ func TestHBGainComputation(t *testing.T) {
 					gain, tc.expectedMinGain, tc.expectedMaxGain)
 			}
 		})
+	}
+}
+
+func TestHybridCELTExp2ApproxMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	samples := []float32{
+		-60, -51, -50.5, -50, -24, -10,
+		-1.75, -1.5, -1.25, -1, -0.75, -0.5, -0.25,
+		0, 0.25, 0.5, 0.75, 1, 1.25, 2, 5, 10, 24,
+	}
+	for integer := int32(-12); integer <= 12; integer++ {
+		for _, frac := range []float32{0, 0.0625, 0.125, 0.33325195, 0.5, 0.875, 0.99902344} {
+			samples = append(samples, float32(integer)+frac)
+		}
+	}
+	want, err := libopustest.ProbeCELTMath(libopustest.CELTMathModeExp2, samples)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt math", err)
+	}
+	for i, sample := range samples {
+		got := celtExp2Approx(sample)
+		if math.Float32bits(got) != math.Float32bits(want[i]) {
+			t.Fatalf("celtExp2Approx(%g)=%08x(%g) want %08x(%g)",
+				sample,
+				math.Float32bits(got), got,
+				math.Float32bits(want[i]), want[i],
+			)
+		}
 	}
 }
 
