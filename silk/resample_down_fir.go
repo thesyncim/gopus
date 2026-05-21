@@ -132,6 +132,14 @@ func (r *DownsamplingResampler) SetState(s DownsamplingResamplerState) {
 // NewDownsamplingResampler creates a new downsampling resampler for encoder mode.
 // Supports: 48kHz -> 8/12/16 kHz, 24kHz -> 8/12/16 kHz, etc.
 func NewDownsamplingResampler(fsIn, fsOut int) *DownsamplingResampler {
+	return newDownsamplingResampler(fsIn, fsOut, true)
+}
+
+func newDecoderDownsamplingResampler(fsIn, fsOut int) *DownsamplingResampler {
+	return newDownsamplingResampler(fsIn, fsOut, false)
+}
+
+func newDownsamplingResampler(fsIn, fsOut int, forEncoder bool) *DownsamplingResampler {
 	r := &DownsamplingResampler{
 		fsInKHz:  int32(fsIn / 1000),
 		fsOutKHz: int32(fsOut / 1000),
@@ -140,11 +148,18 @@ func NewDownsamplingResampler(fsIn, fsOut int) *DownsamplingResampler {
 	// Batch size: 10ms of input data
 	r.batchSize = r.fsInKHz * 10 // RESAMPLER_MAX_BATCH_SIZE_MS = 10
 
-	// Get encoder delay from delay matrix
-	inIdx := rateIDEnc(fsIn)
-	outIdx := rateIDEnc(fsOut)
-	if inIdx >= 0 && inIdx < 6 && outIdx >= 0 && outIdx < 3 {
-		r.inputDelay = int32(delayMatrixEnc[inIdx][outIdx])
+	if forEncoder {
+		inIdx := rateIDEnc(fsIn)
+		outIdx := rateIDEnc(fsOut)
+		if inIdx >= 0 && inIdx < 6 && outIdx >= 0 && outIdx < 3 {
+			r.inputDelay = int32(delayMatrixEnc[inIdx][outIdx])
+		}
+	} else {
+		inIdx := rateID(fsIn)
+		outIdx := rateID(fsOut)
+		if inIdx >= 0 && inIdx < 3 && outIdx >= 0 && outIdx < 5 {
+			r.inputDelay = int32(delayMatrixDec[inIdx][outIdx])
+		}
 	}
 
 	// Select coefficients based on ratio
@@ -198,6 +213,30 @@ func NewDownsamplingResampler(fsIn, fsOut int) *DownsamplingResampler {
 	r.scratchBuf = make([]int32, int(r.batchSize)+r.firOrder)
 
 	return r
+}
+
+func (r *DownsamplingResampler) CopyFrom(src *DownsamplingResampler) {
+	if r == nil || src == nil {
+		return
+	}
+	r.sIIR = src.sIIR
+	r.fsInKHz = src.fsInKHz
+	r.fsOutKHz = src.fsOutKHz
+	r.batchSize = src.batchSize
+	r.inputDelay = src.inputDelay
+	r.invRatioQ16 = src.invRatioQ16
+	r.firOrder = src.firOrder
+	r.firFracs = src.firFracs
+	r.coefs = src.coefs
+	r.firCoefs = src.firCoefs
+	if len(r.sFIR) != len(src.sFIR) {
+		r.sFIR = make([]int32, len(src.sFIR))
+	}
+	copy(r.sFIR, src.sFIR)
+	if len(r.delayBuf) != len(src.delayBuf) {
+		r.delayBuf = make([]int16, len(src.delayBuf))
+	}
+	copy(r.delayBuf, src.delayBuf)
 }
 
 // rateIDEnc converts sample rate to index for encoder delay matrix
@@ -284,6 +323,40 @@ func (r *DownsamplingResampler) ProcessInto(in []float32, out []float32) int {
 		out[i] = float32(outInt[i]) / 32768.0
 	}
 	return outLen
+}
+
+func (r *DownsamplingResampler) ProcessInt16Into(in []int16, out []float32) int {
+	if len(in) == 0 {
+		return 0
+	}
+	inLen := len(in)
+	inNeeded := inLen
+	if inNeeded < int(r.fsInKHz) {
+		inNeeded = int(r.fsInKHz)
+	}
+	var inInt []int16
+	if inNeeded == len(in) {
+		inInt = in
+	} else {
+		if cap(r.scratchIn) < inNeeded {
+			r.scratchIn = make([]int16, inNeeded)
+		}
+		inInt = r.scratchIn[:inNeeded]
+		clear(inInt)
+		copy(inInt, in)
+		inLen = inNeeded
+	}
+
+	outLen := int(int64(inLen) * int64(r.fsOutKHz) / int64(r.fsInKHz))
+	if outLen > len(out) {
+		outLen = len(out)
+	}
+	if cap(r.scratchOut) < outLen {
+		r.scratchOut = make([]int16, outLen)
+	}
+	outInt := r.scratchOut[:outLen]
+	r.processWithDelay(outInt, inInt)
+	return writeInt16AsFloat32(out, outInt)
 }
 
 // processWithDelay matches libopus silk_resampler() for encoder downsampling.

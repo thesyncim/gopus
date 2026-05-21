@@ -51,7 +51,7 @@ func (d *Decoder) decodeAndFinishPacket(
 	if data == nil || len(data) == 0 {
 		return d.decodePLC(frameSize, packetStereo)
 	}
-	if !ValidHybridFrameSize(frameSize) {
+	if !ValidHybridFrameSize(d.frameSize48FromAPI(frameSize)) {
 		return nil, ErrInvalidFrameSize
 	}
 
@@ -227,7 +227,9 @@ func float64ToFloat32(samples []float64) []float32 {
 // decodePLC generates concealment audio for a lost Hybrid packet.
 // Coordinates both SILK PLC and CELT PLC for the full hybrid output.
 func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
-	if !ValidHybridFrameSize(frameSize) && frameSize != 120 && frameSize != 240 {
+	frameSizeAPI := frameSize
+	frameSize48 := d.frameSize48FromAPI(frameSizeAPI)
+	if !ValidHybridFrameSize(frameSize48) && frameSize48 != 120 && frameSize48 != 240 {
 		return nil, ErrInvalidFrameSize
 	}
 
@@ -235,12 +237,16 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 	fadeFactor := d.plcState.RecordLoss()
 
 	// Total samples for output
-	totalSamples := frameSize * d.channels
+	totalSamples := frameSizeAPI * d.channels
 
 	// SILK PLC cannot produce less than 10ms; use 10ms and trim if needed.
-	plcSilkFrameSize := frameSize
-	if plcSilkFrameSize < 480 {
-		plcSilkFrameSize = 480
+	plcSilkFrameSize := frameSizeAPI
+	minSilkFrameSize := d.apiSampleRate / 100
+	if minSilkFrameSize <= 0 {
+		minSilkFrameSize = 480
+	}
+	if plcSilkFrameSize < minSilkFrameSize {
+		plcSilkFrameSize = minSilkFrameSize
 	}
 
 	// If fade is exhausted, return silence
@@ -292,9 +298,9 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 	// decoder-owned hybrid PLC path to match libopus transition synthesis.
 	celtScale := 1.0 / 32768.0
 	var celtConcealed []float64
-	if frameSize == 240 || frameSize == 480 || frameSize == 960 {
+	if frameSize48 == 240 || frameSize48 == 480 || frameSize48 == 960 {
 		var err error
-		celtConcealed, err = d.celtDecoder.DecodeHybridFECPLC(frameSize)
+		celtConcealed, err = d.celtDecoder.DecodeHybridFECPLC(frameSize48)
 		if err != nil {
 			return nil, err
 		}
@@ -302,23 +308,32 @@ func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
 	} else {
 		// Fallback for non-hybrid frame sizes used by internal cadence paths.
 		// Pass celtDecoder as both state and synthesizer (implements both interfaces).
-		celtConcealed = plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, frameSize, fadeFactor)
+		celtConcealed = plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, frameSize48, fadeFactor)
 	}
 
 	// Combine SILK and CELT
 	output := make([]float64, totalSamples)
-	for i := 0; i < totalSamples; i++ {
-		silkSample := float64(0)
-		celtSample := float64(0)
-
-		if i < len(silkAligned) {
-			silkSample = silkAligned[i]
+	factor := 1
+	if d.apiSampleRate > 0 {
+		factor = 48000 / d.apiSampleRate
+	}
+	if factor < 1 {
+		factor = 1
+	}
+	for i := 0; i < frameSizeAPI; i++ {
+		for c := 0; c < d.channels; c++ {
+			idx := i*d.channels + c
+			silkSample := float64(0)
+			celtSample := float64(0)
+			if idx < len(silkAligned) {
+				silkSample = silkAligned[idx]
+			}
+			celtIdx := i*factor*d.channels + c
+			if celtIdx < len(celtConcealed) {
+				celtSample = celtConcealed[celtIdx] * celtScale
+			}
+			output[idx] = silkSample + celtSample
 		}
-		if i < len(celtConcealed) {
-			celtSample = celtConcealed[i] * celtScale
-		}
-
-		output[i] = silkSample + celtSample
 	}
 
 	return output, nil

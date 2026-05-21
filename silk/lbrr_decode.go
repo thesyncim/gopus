@@ -11,11 +11,11 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
-func preparePacketRangeDecoder(data []byte, frameSizeSamples int) (rangecoding.Decoder, int, int, error) {
+func preparePacketRangeDecoder(data []byte, frameSizeSamples, sampleRate int) (rangecoding.Decoder, int, int, error) {
 	var rd rangecoding.Decoder
 	rd.Init(data)
 
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	duration := FrameDurationFromSamples(frameSizeSamples, sampleRate)
 	framesPerPacket, nbSubfr, err := frameParams(duration)
 	if err != nil {
 		return rangecoding.Decoder{}, 0, 0, err
@@ -51,7 +51,7 @@ func (d *Decoder) DecodeFEC(
 	// Keep SILK bandwidth/resampler transition cadence aligned with normal decode.
 	d.NotifyBandwidthChange(bandwidth)
 
-	rd, framesPerPacket, nbSubfr, err := preparePacketRangeDecoder(data, frameSizeSamples)
+	rd, framesPerPacket, nbSubfr, err := preparePacketRangeDecoder(data, frameSizeSamples, d.outputSampleRate())
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func (d *Decoder) HasLBRR(data []byte, bandwidth Bandwidth, frameSizeSamples int
 		return false
 	}
 
-	rd, framesPerPacket, _, err := preparePacketRangeDecoder(data, frameSizeSamples)
+	rd, framesPerPacket, _, err := preparePacketRangeDecoder(data, frameSizeSamples, d.outputSampleRate())
 	if err != nil {
 		return false
 	}

@@ -103,6 +103,37 @@ func (d *Decoder) downsampleFrame48ToAPI(dst, src []float32, frameSize int) {
 	}
 }
 
+func (d *Decoder) decodeCELTFrameToAPIScratch(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
+	celtFrameSize := frameSize
+	celtOut := d.scratchRedundant[:0]
+	if d.sampleRate != 48000 {
+		celtFrameSize = d.frameSize48FromAPI(frameSize)
+		needed48 := celtFrameSize * d.channels
+		if len(d.scratchFrame48) < needed48 {
+			return nil, ErrBufferTooSmall
+		}
+		celtOut = d.scratchFrame48[:needed48]
+	} else {
+		needed := frameSize * d.channels
+		if len(d.scratchRedundant) < needed {
+			return nil, ErrBufferTooSmall
+		}
+		celtOut = d.scratchRedundant[:needed]
+	}
+	if err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32(data, celtFrameSize, packetStereo, celtOut); err != nil {
+		return nil, err
+	}
+	needed := frameSize * d.channels
+	if len(d.scratchRedundant) < needed {
+		return nil, ErrBufferTooSmall
+	}
+	out := d.scratchRedundant[:needed]
+	if d.sampleRate != 48000 {
+		d.downsampleFrame48ToAPI(out, celtOut, frameSize)
+	}
+	return out, nil
+}
+
 func (d *Decoder) prepareStereoTransition(packetStereo bool, bandwidth silk.Bandwidth) {
 	if !packetStereo || d.channels != 2 || d.prevPacketStereo {
 		return
@@ -123,6 +154,16 @@ func addFloat64ToFloat32(dst []float32, src []float64) {
 	}
 	for i := 0; i < n; i++ {
 		dst[i] += float32(src[i])
+	}
+}
+
+func addFloat32ToFloat32(dst []float32, src []float32) {
+	n := len(dst)
+	if len(src) < n {
+		n = len(src)
+	}
+	for i := 0; i < n; i++ {
+		dst[i] += src[i]
 	}
 }
 
@@ -211,7 +252,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	qextPayload []byte,
 ) (int, error) {
 	fs := 48000
-	if packetMode == ModeSILK || packetMode == ModeCELT {
+	if packetMode == ModeSILK || packetMode == ModeCELT || packetMode == ModeHybrid {
 		fs = d.sampleRate
 	}
 	F20 := fs / 50
@@ -338,22 +379,13 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	needCeltReset := d.haveDecoded && mode != d.prevMode && !d.prevRedundancy
 
 	decodeRedundantCELT := func(redundancyData []byte) ([]float32, error) {
-		samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(redundancyData, F5, packetStereoLocal)
+		samples, err := d.decodeCELTFrameToAPIScratch(redundancyData, F5, packetStereoLocal)
 		if err != nil {
 			return nil, err
 		}
 		// Capture the final range from decoding the redundancy frame
 		redundantRng = d.celtDecoder.FinalRange()
-		if len(d.scratchRedundant) < len(samples) {
-			return nil, ErrBufferTooSmall
-		}
-		for i := 0; i < len(samples); i++ {
-			d.scratchRedundant[i] = float32(samples[i])
-		}
-		if len(samples) < len(d.scratchRedundant) {
-			clear(d.scratchRedundant[len(samples):])
-		}
-		return d.scratchRedundant[:len(samples)], nil
+		return samples, nil
 	}
 
 	switch mode {
@@ -638,11 +670,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	if mode != ModeSILK && data == nil {
 		// No extra work for PLC in CELT/Hybrid modes.
 	} else if d.haveDecoded && mode == ModeSILK && d.prevMode == ModeHybrid && !(redundancy && celtToSilk && d.prevRedundancy) {
-		samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(celtSilenceFrame2B[:], F2_5, packetStereoLocal)
+		samples, err := d.decodeCELTFrameToAPIScratch(celtSilenceFrame2B[:], F2_5, packetStereoLocal)
 		if err != nil {
 			return 0, err
 		}
-		addFloat64ToFloat32(out, samples)
+		addFloat32ToFloat32(out, samples)
 	}
 
 	if redundancy && !celtToSilk && data != nil && redundancyBytes > 0 && mainLen >= 0 && mainLen+redundancyBytes <= len(data) {

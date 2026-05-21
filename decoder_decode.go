@@ -136,7 +136,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	toc := &tocValue
 	frameCode := data[0] & 0x03
 	frameSize := toc.FrameSize
-	if toc.Mode == ModeSILK || toc.Mode == ModeCELT {
+	if toc.Mode == ModeSILK || toc.Mode == ModeCELT || toc.Mode == ModeHybrid {
 		frameSize = packetTOCSamplesPerFrameAtRate(data[0], d.sampleRate)
 	}
 	totalSamples := frameSize * frameCount
@@ -441,7 +441,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 			return 0, err
 		}
 		frameSize := toc.FrameSize
-		if toc.Mode == ModeSILK || toc.Mode == ModeCELT {
+		if toc.Mode == ModeSILK || toc.Mode == ModeCELT || toc.Mode == ModeHybrid {
 			frameSize = packetTOCSamplesPerFrameAtRate(data[0], d.sampleRate)
 		}
 		if frameSize <= 0 {
@@ -528,7 +528,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		return 0, err
 	}
 	frameSize := toc.FrameSize
-	if toc.Mode == ModeSILK || toc.Mode == ModeCELT {
+	if toc.Mode == ModeSILK || toc.Mode == ModeCELT || toc.Mode == ModeHybrid {
 		frameSize = packetTOCSamplesPerFrameAtRate(data[0], d.sampleRate)
 	}
 	totalSamples := frameSize * frameCount

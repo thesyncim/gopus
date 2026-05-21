@@ -130,6 +130,7 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	celtDec := celt.NewDecoder(cfg.Channels)
 	celtDec.SetDownsample(48000 / cfg.SampleRate)
 	hybridDec := hybrid.NewDecoderWithSharedDecoders(cfg.Channels, silkDec, celtDec)
+	hybridDec.SetAPISampleRate(cfg.SampleRate)
 
 	transitionSamples := 48000 / 200 // 5ms at 48kHz
 	scratchFrame48Samples := maxPacketSamples * 48000 / cfg.SampleRate

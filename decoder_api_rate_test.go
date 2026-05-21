@@ -204,6 +204,147 @@ func TestDecodeCELTAPIRatePCMMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecodeHybridUsesAPIRatePacketDuration(t *testing.T) {
+	for _, channels := range []int{1, 2} {
+		packet := encodeAPIRateHybridPacket(t, channels)
+		toc := ParseTOC(packet[0])
+		if toc.Mode != ModeHybrid {
+			t.Fatalf("channels=%d test packet mode=%v want Hybrid", channels, toc.Mode)
+		}
+		if toc.Stereo != (channels == 2) {
+			t.Fatalf("channels=%d packet stereo=%v", channels, toc.Stereo)
+		}
+
+		for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+			t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+				want, err := packetSamplesAtRate(packet, sampleRate)
+				if err != nil {
+					t.Fatalf("packetSamplesAtRate: %v", err)
+				}
+
+				dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+				if err != nil {
+					t.Fatalf("NewDecoder: %v", err)
+				}
+				pcm := make([]float32, want*channels)
+				n, err := dec.Decode(packet, pcm)
+				if err != nil {
+					t.Fatalf("Decode: %v", err)
+				}
+				if n != want {
+					t.Fatalf("Decode samples=%d want %d", n, want)
+				}
+
+				plc := make([]float32, want*channels)
+				n, err = dec.Decode(nil, plc)
+				if err != nil {
+					t.Fatalf("Decode PLC: %v", err)
+				}
+				if n != want {
+					t.Fatalf("Decode PLC samples=%d want %d", n, want)
+				}
+
+				intDec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+				if err != nil {
+					t.Fatalf("NewDecoder int16: %v", err)
+				}
+				pcm16 := make([]int16, want*channels)
+				n, err = intDec.DecodeInt16(packet, pcm16)
+				if err != nil {
+					t.Fatalf("DecodeInt16: %v", err)
+				}
+				if n != want {
+					t.Fatalf("DecodeInt16 samples=%d want %d", n, want)
+				}
+
+				fecDec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+				if err != nil {
+					t.Fatalf("NewDecoder fec: %v", err)
+				}
+				fecPCM := make([]float32, want*channels)
+				n, err = fecDec.DecodeWithFEC(packet, fecPCM, true)
+				if err != nil {
+					t.Fatalf("DecodeWithFEC(no LBRR): %v", err)
+				}
+				if n != want {
+					t.Fatalf("DecodeWithFEC(no LBRR) samples=%d want %d", n, want)
+				}
+			})
+		}
+	}
+}
+
+func TestDecodeHybridFECUsesAPIRatePacketDurationForTenMs(t *testing.T) {
+	for _, channels := range []int{1, 2} {
+		packet := encodeAPIRateHybridPacketFrameSize(t, channels, 480)
+		toc := ParseTOC(packet[0])
+		if toc.Mode != ModeHybrid || toc.FrameSize != 480 {
+			t.Fatalf("channels=%d test packet mode=%v frame=%d want Hybrid 10ms", channels, toc.Mode, toc.FrameSize)
+		}
+
+		for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+			t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+				want, err := packetSamplesAtRate(packet, sampleRate)
+				if err != nil {
+					t.Fatalf("packetSamplesAtRate: %v", err)
+				}
+
+				dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+				if err != nil {
+					t.Fatalf("NewDecoder: %v", err)
+				}
+				pcm := make([]float32, want*channels)
+				n, err := dec.DecodeWithFEC(packet, pcm, true)
+				if err != nil {
+					t.Fatalf("DecodeWithFEC(no LBRR): %v", err)
+				}
+				if n != want {
+					t.Fatalf("DecodeWithFEC(no LBRR) samples=%d want %d", n, want)
+				}
+			})
+		}
+	}
+}
+
+func TestDecodeHybridAPIRatePCMMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, channels := range []int{1, 2} {
+		packet := encodeAPIRateHybridPacket(t, channels)
+		for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+			t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+				frameSize, err := packetSamplesAtRate(packet, sampleRate)
+				if err != nil {
+					t.Fatalf("packetSamplesAtRate: %v", err)
+				}
+
+				sequence := [][]byte{packet, nil}
+				want, err := decodeWithLibopusReferenceAPIRateFloat32(sampleRate, channels, frameSize, sequence)
+				if err != nil {
+					libopustest.HelperUnavailable(t, "api-rate reference decode", err)
+				}
+
+				dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+				if err != nil {
+					t.Fatalf("NewDecoder: %v", err)
+				}
+				got := make([]float32, 0, len(want))
+				frame := make([]float32, frameSize*channels)
+				for i, pkt := range sequence {
+					n, err := dec.Decode(pkt, frame)
+					if err != nil {
+						t.Fatalf("Decode sequence[%d]: %v", i, err)
+					}
+					if n != frameSize {
+						t.Fatalf("Decode sequence[%d] samples=%d want %d", i, n, frameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+				}
+				assertAPIRateFloat32Close(t, got, want, "Hybrid api-rate decode", 1e-2)
+			})
+		}
+	}
+}
+
 func encodeAPIRateSILKPacket(t *testing.T, channels int) []byte {
 	t.Helper()
 	const (
@@ -286,6 +427,60 @@ func encodeAPIRateCELTPacket(t *testing.T, channels int) []byte {
 		pcm[i*channels] = left
 		if channels == 2 {
 			pcm[i*channels+1] = 0.19 * float32(math.Sin(2*math.Pi*1900*float64(i)/sampleRate))
+		}
+	}
+	packet, err := enc.EncodeFloat32(pcm)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	return packet
+}
+
+func encodeAPIRateHybridPacket(t *testing.T, channels int) []byte {
+	t.Helper()
+	return encodeAPIRateHybridPacketFrameSize(t, channels, 960)
+}
+
+func encodeAPIRateHybridPacketFrameSize(t *testing.T, channels, frameSize int) []byte {
+	t.Helper()
+	const sampleRate = 48000
+	enc, err := NewEncoder(EncoderConfig{
+		SampleRate:  sampleRate,
+		Channels:    channels,
+		Application: ApplicationVoIP,
+	})
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+	if err := enc.SetMode(EncoderModeHybrid); err != nil {
+		t.Fatalf("SetMode(Hybrid): %v", err)
+	}
+	if err := enc.SetFrameSize(frameSize); err != nil {
+		t.Fatalf("SetFrameSize: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+		t.Fatalf("SetBandwidth: %v", err)
+	}
+	if err := enc.SetBitrate(64000 * channels); err != nil {
+		t.Fatalf("SetBitrate: %v", err)
+	}
+	if err := enc.SetInBandFEC(InBandFECDisabled); err != nil {
+		t.Fatalf("SetInBandFEC: %v", err)
+	}
+	if channels == 2 {
+		if err := enc.SetForceChannels(2); err != nil {
+			t.Fatalf("SetForceChannels: %v", err)
+		}
+	}
+
+	pcm := make([]float32, frameSize*channels)
+	for i := 0; i < frameSize; i++ {
+		tm := float64(i) / sampleRate
+		pcm[i*channels] = 0.24*float32(math.Sin(2*math.Pi*220*tm)) +
+			0.12*float32(math.Sin(2*math.Pi*1300*tm+0.17))
+		if channels == 2 {
+			pcm[i*channels+1] = 0.21*float32(math.Sin(2*math.Pi*330*tm+0.09)) +
+				0.10*float32(math.Sin(2*math.Pi*1700*tm+0.31))
 		}
 	}
 	packet, err := enc.EncodeFloat32(pcm)

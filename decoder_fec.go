@@ -326,13 +326,29 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 		d.celtDecoder.SetBandwidth(celtBW)
 	}
 	d.hybridDecoder.RecordPLCLoss()
-	celtSamples, err := d.celtDecoder.DecodeHybridFECPLC(min(frameSize, 48000/50))
+	celtFrameSize := d.frameSize48FromAPI(frameSize)
+	celtSamples, err := d.celtDecoder.DecodeHybridFECPLC(min(celtFrameSize, 48000/50))
 	if err != nil {
 		return 0, err
 	}
-	n := min(needed, len(celtSamples))
-	for i := 0; i < n; i++ {
-		pcm[i] += float32(celtSamples[i])
+	factor := 1
+	if d.sampleRate > 0 {
+		factor = 48000 / d.sampleRate
+	}
+	if factor < 1 {
+		factor = 1
+	}
+	for i := 0; i < frameSize; i++ {
+		for c := 0; c < d.channels; c++ {
+			idx := i*d.channels + c
+			if idx >= needed {
+				break
+			}
+			celtIdx := i*factor*d.channels + c
+			if celtIdx < len(celtSamples) {
+				pcm[idx] += float32(celtSamples[celtIdx])
+			}
+		}
 	}
 	d.mainDecodeRng = d.celtDecoder.FinalRange()
 

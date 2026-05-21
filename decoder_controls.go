@@ -6,7 +6,7 @@ func (d *Decoder) Reset() {
 	d.silkDecoder.Reset()
 	d.celtDecoder.Reset()
 	d.hybridDecoder.Reset()
-	d.lastFrameSize = 960
+	d.lastFrameSize = d.sampleRate / 50
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
 	d.mainDecodeRng = 0
@@ -149,8 +149,7 @@ func (d *Decoder) Bandwidth() Bandwidth {
 	return d.lastBandwidth
 }
 
-// LastPacketDuration returns the duration (in samples per channel at 48kHz scale)
-// of the last decoded packet.
+// LastPacketDuration returns the duration in samples per channel at the decoder API rate.
 func (d *Decoder) LastPacketDuration() int {
 	return d.lastPacketDuration
 }

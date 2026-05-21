@@ -161,9 +161,16 @@ func TestSILKDecoderResamplerProcessInt16IntoMatchesLibopusOracle(t *testing.T) 
 	records := []libopusSILKResamplerRecord{
 		{fsIn: 8000, fsOut: 48000, frames: makeSILKResamplerFrames(80, 8, 0x13579bdf)},
 		{fsIn: 8000, fsOut: 48000, frames: makeSILKResamplerFrames(160, 5, 0x2468ace0)},
+		{fsIn: 8000, fsOut: 8000, frames: makeSILKResamplerFrames(160, 5, 0x0f1e2d3c)},
 		{fsIn: 12000, fsOut: 48000, frames: makeSILKResamplerFrames(120, 8, 0x10203040)},
+		{fsIn: 12000, fsOut: 8000, frames: makeSILKResamplerFrames(240, 5, 0x45670123)},
+		{fsIn: 12000, fsOut: 12000, frames: makeSILKResamplerFrames(240, 5, 0x76543210)},
 		{fsIn: 16000, fsOut: 48000, frames: makeSILKResamplerFrames(160, 8, 0x55667788)},
 		{fsIn: 16000, fsOut: 48000, frames: makeSILKResamplerFrames(320, 5, 0xa5a55a5a)},
+		{fsIn: 16000, fsOut: 8000, frames: makeSILKResamplerFrames(320, 5, 0x31415926)},
+		{fsIn: 16000, fsOut: 12000, frames: makeSILKResamplerFrames(320, 5, 0x27182818)},
+		{fsIn: 16000, fsOut: 16000, frames: makeSILKResamplerFrames(320, 5, 0xabcdef01)},
+		{fsIn: 16000, fsOut: 24000, frames: makeSILKResamplerFrames(320, 5, 0x1234fedc)},
 	}
 	want, err := probeLibopusSILKResampler(records)
 	if err != nil {
