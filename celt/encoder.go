@@ -187,7 +187,7 @@ type Encoder struct {
 	// Prefilter (comb filter) state for postfilter signaling.
 	// These mirror libopus CELT encoder fields used by run_prefilter().
 	prefilterPeriod int
-	prefilterGain   float64
+	prefilterGain   float32
 	prefilterTapset int
 	prefilterMem    []float64
 	// Packet loss expectation (0-100) for prefilter gain scaling.
@@ -1095,10 +1095,10 @@ type encoderScratch struct {
 	// Prefilter (comb filter) scratch buffers
 	prefilterPre      []float64
 	prefilterOut      []float64
-	prefilterPitchBuf []float64
-	prefilterXLP4     []float64
-	prefilterYLP4     []float64
-	prefilterXcorr    []float64
+	prefilterPitchBuf []float32
+	prefilterXLP4     []float32
+	prefilterYLP4     []float32
+	prefilterXcorr    []float32
 	prefilterYYLookup []float32
 
 	// MDCT coefficient buffers
@@ -1251,23 +1251,23 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	if pitchBufLen < 1 {
 		pitchBufLen = 1
 	}
-	s.prefilterPitchBuf = ensureFloat64Slice(&s.prefilterPitchBuf, pitchBufLen)
+	s.prefilterPitchBuf = ensureFloat32Slice(&s.prefilterPitchBuf, pitchBufLen)
 	maxPitch := maxPeriod - 3*combFilterMinPeriod
 	if maxPitch < 1 {
 		maxPitch = 1
 	}
-	s.prefilterXcorr = ensureFloat64Slice(&s.prefilterXcorr, maxPitch>>1)
+	s.prefilterXcorr = ensureFloat32Slice(&s.prefilterXcorr, maxPitch>>1)
 	xlp4Len := frameSize >> 2
 	if xlp4Len < 1 {
 		xlp4Len = 1
 	}
-	s.prefilterXLP4 = ensureFloat64Slice(&s.prefilterXLP4, xlp4Len)
+	s.prefilterXLP4 = ensureFloat32Slice(&s.prefilterXLP4, xlp4Len)
 	lag := frameSize + maxPitch
 	ylp4Len := lag >> 2
 	if ylp4Len < 1 {
 		ylp4Len = 1
 	}
-	s.prefilterYLP4 = ensureFloat64Slice(&s.prefilterYLP4, ylp4Len)
+	s.prefilterYLP4 = ensureFloat32Slice(&s.prefilterYLP4, ylp4Len)
 	yyLookupLen := (maxPeriod >> 1) + 1
 	if yyLookupLen < 1 {
 		yyLookupLen = 1

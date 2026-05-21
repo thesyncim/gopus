@@ -58,13 +58,13 @@ func TestPitchSearchMatchesLegacy(t *testing.T) {
 	for iter := 0; iter < 200; iter++ {
 		length := 480
 		maxPitch := combFilterMaxPeriod - 3*combFilterMinPeriod
-		xLP := make([]float64, length)
-		y := make([]float64, length+maxPitch)
+		xLP := make([]float32, length)
+		y := make([]float32, length+maxPitch)
 		for i := range xLP {
-			xLP[i] = rng.Float64()*2 - 1
+			xLP[i] = float32(rng.Float64()*2 - 1)
 		}
 		for i := range y {
-			y[i] = rng.Float64()*2 - 1
+			y[i] = float32(rng.Float64()*2 - 1)
 		}
 
 		var scratchCurrent, scratchLegacy encoderScratch

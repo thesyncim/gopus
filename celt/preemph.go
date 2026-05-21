@@ -34,10 +34,8 @@ func updateMaxAbsBits(maxBits uint64, v float64) uint64 {
 	return maxBits
 }
 
-// noFMA32Mul forces float32 multiplication with an intermediate rounding step.
-// This matches libopus float paths that perform mul and add/sub as separate ops.
 func noFMA32Mul(a, b float32) float32 {
-	return float32(float64(a) * float64(b))
+	return mul32(a, b)
 }
 
 // ApplyPreemphasis applies the pre-emphasis filter to PCM input samples.

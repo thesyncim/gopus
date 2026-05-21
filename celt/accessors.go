@@ -2,28 +2,24 @@ package celt
 
 // OverlapBuffer returns the overlap buffer for CELT overlap.
 // Size is Overlap * channels samples.
-func (d *Decoder) OverlapBuffer() []float64 {
-	out := ensureFloat64Slice(&d.scratchOverlapPublic, len(d.overlapBuffer))
-	copySigToFloat64(out, d.overlapBuffer)
-	return out
+func (d *Decoder) OverlapBuffer() []float32 {
+	return d.overlapBuffer
 }
 
 // SetOverlapBuffer copies the given samples to the overlap buffer.
-func (d *Decoder) SetOverlapBuffer(samples []float64) {
-	copyFloat64ToSig(d.overlapBuffer, samples)
+func (d *Decoder) SetOverlapBuffer(samples []float32) {
+	copy(d.overlapBuffer, samples)
 }
 
 // PreemphState returns the de-emphasis filter state.
 // One value per channel.
-func (d *Decoder) PreemphState() []float64 {
-	out := ensureFloat64Slice(&d.scratchPreemphPublic, len(d.preemphState))
-	copySigToFloat64(out, d.preemphState)
-	return out
+func (d *Decoder) PreemphState() []float32 {
+	return d.preemphState
 }
 
 // SetPreemphState copies the given samples to the de-emphasis memory.
-func (d *Decoder) SetPreemphState(samples []float64) {
-	copyFloat64ToSig(d.preemphState, samples)
+func (d *Decoder) SetPreemphState(samples []float32) {
+	copy(d.preemphState, samples)
 }
 
 // PostfilterPeriod returns the pitch period for the postfilter.
@@ -32,7 +28,7 @@ func (d *Decoder) PostfilterPeriod() int {
 }
 
 // PostfilterGain returns the comb filter gain.
-func (d *Decoder) PostfilterGain() float64 {
+func (d *Decoder) PostfilterGain() float32 {
 	return d.postfilterGain
 }
 
@@ -42,7 +38,7 @@ func (d *Decoder) PostfilterTapset() int {
 }
 
 // SetPostfilter sets the postfilter parameters.
-func (d *Decoder) SetPostfilter(period int, gain float64, tapset int) {
+func (d *Decoder) SetPostfilter(period int, gain float32, tapset int) {
 	d.postfilterPeriod = period
 	d.postfilterGain = gain
 	d.postfilterTapset = tapset

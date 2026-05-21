@@ -72,21 +72,21 @@ type Decoder struct {
 
 	// Postfilter state (pitch-based comb filter)
 	postfilterPeriod int     // Pitch period for comb filter
-	postfilterGain   float64 // Comb filter gain
+	postfilterGain   float32 // Comb filter gain
 	postfilterTapset int     // Filter tap configuration (0, 1, or 2)
 	// Previous postfilter state for overlap cross-fade
 	postfilterPeriodOld int
-	postfilterGainOld   float64
+	postfilterGainOld   float32
 	postfilterTapsetOld int
 	// Postfilter history buffer (per-channel)
-	postfilterMem []float64
+	postfilterMem []celtSig
 	// On no-gain frames, postfilter history can be lazily reconstructed from
 	// the longer PLC decode history, avoiding a duplicate history shift.
 	postfilterMemFromPLC   bool
 	postfilterMemPLCBacked bool
 	// PLC decode history buffer (per-channel), sized to match libopus
 	// DECODE_BUFFER_SIZE cadence used by celt_plc_pitch_search().
-	plcDecodeMem []float64
+	plcDecodeMem []celtSig
 	// Stereo planar decode keeps PLC history as a ring during good packets and
 	// materializes it only before PLC consumers need contiguous libopus layout.
 	plcDecodeMemRingActive bool
@@ -111,7 +111,7 @@ type Decoder struct {
 	// Mirrors libopus prefilter_and_fold cadence after periodic PLC.
 	plcPrefilterAndFoldPending bool
 	// Stored LPC coefficients per channel for periodic PLC continuation.
-	plcLPC []float64
+	plcLPC []float32
 
 	// Band processing state
 	collapseMask uint32 // Tracks which bands received pulses (for anti-collapse)
@@ -129,8 +129,6 @@ type Decoder struct {
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
 	scratchPrevEnergy     []float64
 	scratchPrevEnergyGLog []celtGLog
-	scratchOverlapPublic  []float64
-	scratchPreemphPublic  []float64
 	scratchPrevLogE       []float64
 	scratchPrevLogE2      []float64
 	scratchEnergies       []float64
@@ -155,17 +153,17 @@ type Decoder struct {
 	scratchMonoMix        []float64 // For coeffsMono in decodeStereoPacketToMono (must not alias scratchShortCoeffs used by Synthesize)
 	postfilterScratch     []float64
 	scratchPLC            []float64 // Scratch buffer for PLC concealment samples
-	scratchPLCPitchLP     []float64
-	scratchPLCPitchSearch encoderScratch
-	scratchPLCFIRTmp      []float64
+	scratchPLCPitchLP     []float32
+	scratchPLCPitchSearch plcPitchSearchScratch
+	scratchPLCFIRTmp      []celtSig
 	scratchPLCExc32       []float32
-	scratchPLCWindowed    []float64
+	scratchPLCWindowed    []celtSig
 	scratchPLCIIRY        []float32
-	scratchPLCBuf         []float64
-	scratchPLCExc         []float64
+	scratchPLCBuf         []celtSig
+	scratchPLCExc         []celtSig
 	decoderDREDState
-	scratchPLCFoldSrc     []float64
-	scratchPLCFoldDst     []float64
+	scratchPLCFoldSrc     []celtSig
+	scratchPLCFoldDst     []celtSig
 	scratchPLCHybridNormL []float64
 	scratchPLCHybridNormR []float64
 }

@@ -33,6 +33,20 @@ func copyFloat64ToSig(dst []celtSig, src []float64) {
 	}
 }
 
+func copyFloat32ToSig(dst []celtSig, src []float32) {
+	n := min(len(dst), len(src))
+	for i := 0; i < n; i++ {
+		dst[i] = celtSig(src[i])
+	}
+}
+
+func copySigToFloat32(dst []float32, src []celtSig) {
+	n := min(len(dst), len(src))
+	for i := 0; i < n; i++ {
+		dst[i] = float32(src[i])
+	}
+}
+
 func ensureGLogSlice(buf *[]celtGLog, n int) []celtGLog {
 	if n <= 0 {
 		return nil

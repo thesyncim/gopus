@@ -166,7 +166,7 @@ func xcorrKernel4Float64(x, y []float64, sum *[4]float32, length int) {
 	}
 }
 
-func celtFIRFloat32(dst []float64, exc []float32, start, length int, lpc []float64) {
+func celtFIRFloat32(dst []celtSig, exc []float32, start, length int, lpc []float32) {
 	const ord = celtPLCLPCOrder
 	if length <= 0 || len(dst) < length || start-ord < 0 || start+length > len(exc) || len(lpc) < ord {
 		return
@@ -184,21 +184,21 @@ func celtFIRFloat32(dst []float64, exc []float32, start, length int, lpc []float
 			exc[start+i+3],
 		}
 		xcorrKernel4Float32(rnum[:], exc[start+i-ord:], &sum, ord)
-		dst[i] = float64(sum[0])
-		dst[i+1] = float64(sum[1])
-		dst[i+2] = float64(sum[2])
-		dst[i+3] = float64(sum[3])
+		dst[i] = celtSig(sum[0])
+		dst[i+1] = celtSig(sum[1])
+		dst[i+2] = celtSig(sum[2])
+		dst[i+3] = celtSig(sum[3])
 	}
 	for ; i < length; i++ {
 		sum := float32(exc[start+i])
 		for j := 0; j < ord; j++ {
 			sum += rnum[j] * exc[start+i+j-ord]
 		}
-		dst[i] = float64(sum)
+		dst[i] = celtSig(sum)
 	}
 }
 
-func (d *Decoder) celtIIRFloat32(dst []float64, hist []float64, lpc []float64, length int) {
+func (d *Decoder) celtIIRFloat32(dst []celtSig, hist []celtSig, lpc []float32, length int) {
 	const ord = celtPLCLPCOrder
 	if length <= 0 || len(dst) < length || len(hist) < plcDecodeBufferSize || len(lpc) < ord {
 		return
@@ -226,22 +226,22 @@ func (d *Decoder) celtIIRFloat32(dst []float64, hist []float64, lpc []float64, l
 		xcorrKernel4Float32(rden[:], y[i:], &sum, ord)
 
 		y[i+ord] = -sum[0]
-		dst[i] = float64(sum[0])
+		dst[i] = celtSig(sum[0])
 
 		sum[1] += y[i+ord] * float32(lpc[0])
 		y[i+ord+1] = -sum[1]
-		dst[i+1] = float64(sum[1])
+		dst[i+1] = celtSig(sum[1])
 
 		sum[2] += y[i+ord+1] * float32(lpc[0])
 		sum[2] += y[i+ord] * float32(lpc[1])
 		y[i+ord+2] = -sum[2]
-		dst[i+2] = float64(sum[2])
+		dst[i+2] = celtSig(sum[2])
 
 		sum[3] += y[i+ord+2] * float32(lpc[0])
 		sum[3] += y[i+ord+1] * float32(lpc[1])
 		sum[3] += y[i+ord] * float32(lpc[2])
 		y[i+ord+3] = -sum[3]
-		dst[i+3] = float64(sum[3])
+		dst[i+3] = celtSig(sum[3])
 	}
 	for ; i < length; i++ {
 		sum := float32(dst[i])
@@ -249,6 +249,6 @@ func (d *Decoder) celtIIRFloat32(dst []float64, hist []float64, lpc []float64, l
 			sum -= rden[j] * y[i+j]
 		}
 		y[i+ord] = sum
-		dst[i] = float64(sum)
+		dst[i] = celtSig(sum)
 	}
 }

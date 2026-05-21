@@ -1,7 +1,5 @@
 package celt
 
-import "math"
-
 const (
 	combFilterMinPeriod = 15
 	combFilterMaxPeriod = 1024
@@ -16,8 +14,8 @@ var combFilterGains = [3][3]float64{
 	{0.7998046875, 0.1000976562, 0.0000000000},
 }
 
-func fma32(a, b, c float32) float32 {
-	return float32(math.FMA(float64(a), float64(b), float64(c)))
+func combGain32(g float64, tapset, tap int) float32 {
+	return float32(g) * float32(combFilterGains[tapset][tap])
 }
 
 func (d *Decoder) resetPostfilterState() {
@@ -82,11 +80,11 @@ func (d *Decoder) updatePostfilterHistory(samples []float64, frameSize int, hist
 	if d.channels <= 1 {
 		hist := d.postfilterMem[:history]
 		if frameSize >= history {
-			copy(hist, samples[frameSize-history:frameSize])
+			copyFloat64ToSig(hist, samples[frameSize-history:frameSize])
 			return
 		}
 		copy(hist, hist[frameSize:])
-		copy(hist[history-frameSize:], samples[:frameSize])
+		copyFloat64ToSig(hist[history-frameSize:], samples[:frameSize])
 		return
 	}
 	if d.channels == 2 {
@@ -94,13 +92,22 @@ func (d *Decoder) updatePostfilterHistory(samples []float64, frameSize int, hist
 		histR := d.postfilterMem[history : 2*history]
 		if frameSize >= history {
 			src := (frameSize - history) * 2
-			DeinterleaveStereoInto(samples[src:src+history*2], histL, histR)
+			for i := 0; i < history; i++ {
+				histL[i] = celtSig(samples[src])
+				histR[i] = celtSig(samples[src+1])
+				src += 2
+			}
 			return
 		}
 		copy(histL, histL[frameSize:])
 		copy(histR, histR[frameSize:])
 		dst := history - frameSize
-		DeinterleaveStereoInto(samples[:frameSize*2], histL[dst:], histR[dst:])
+		src := 0
+		for i := 0; i < frameSize; i++ {
+			histL[dst+i] = celtSig(samples[src])
+			histR[dst+i] = celtSig(samples[src+1])
+			src += 2
+		}
 		return
 	}
 
@@ -110,7 +117,7 @@ func (d *Decoder) updatePostfilterHistory(samples []float64, frameSize int, hist
 		if frameSize >= history {
 			src := (frameSize-history)*channels + ch
 			for i := 0; i < history; i++ {
-				hist[i] = samples[src]
+				hist[i] = celtSig(samples[src])
 				src += channels
 			}
 			continue
@@ -119,7 +126,7 @@ func (d *Decoder) updatePostfilterHistory(samples []float64, frameSize int, hist
 		src := ch
 		dst := history - frameSize
 		for i := 0; i < frameSize; i++ {
-			hist[dst+i] = samples[src]
+			hist[dst+i] = celtSig(samples[src])
 			src += channels
 		}
 	}
@@ -132,7 +139,7 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float64, frameSize int, histo
 	d.postfilterMemFromPLC = false
 	d.postfilterMemPLCBacked = false
 	if len(d.plcDecodeMem) != history*d.channels {
-		d.plcDecodeMem = make([]float64, history*d.channels)
+		d.plcDecodeMem = make([]celtSig, history*d.channels)
 		d.plcDecodeMemRingActive = false
 		d.plcDecodeMemRingStart = 0
 	}
@@ -141,7 +148,11 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float64, frameSize int, histo
 		histR := d.plcDecodeMem[history : 2*history]
 		if frameSize >= history {
 			src := (frameSize - history) * 2
-			DeinterleaveStereoInto(samples[src:src+history*2], histL, histR)
+			for i := 0; i < history; i++ {
+				histL[i] = celtSig(samples[src])
+				histR[i] = celtSig(samples[src+1])
+				src += 2
+			}
 			d.plcDecodeMemRingActive = false
 			d.plcDecodeMemRingStart = 0
 			return
@@ -150,7 +161,7 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float64, frameSize int, histo
 		if !d.plcDecodeMemRingActive {
 			start = 0
 		}
-		updateInterleavedStereoHistoryRing(histL, histR, samples, frameSize, history, start)
+		updateInterleavedStereoHistoryRingSig(histL, histR, samples, frameSize, history, start)
 		start += frameSize
 		if start >= history {
 			start %= history
@@ -163,11 +174,11 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float64, frameSize int, histo
 	if d.channels <= 1 {
 		hist := d.plcDecodeMem[:history]
 		if frameSize >= history {
-			copy(hist, samples[frameSize-history:frameSize])
+			copyFloat64ToSig(hist, samples[frameSize-history:frameSize])
 			return
 		}
 		copy(hist, hist[frameSize:])
-		copy(hist[history-frameSize:], samples[:frameSize])
+		copyFloat64ToSig(hist[history-frameSize:], samples[:frameSize])
 		return
 	}
 	if d.channels == 2 {
@@ -175,13 +186,22 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float64, frameSize int, histo
 		histR := d.plcDecodeMem[history : 2*history]
 		if frameSize >= history {
 			src := (frameSize - history) * 2
-			DeinterleaveStereoInto(samples[src:src+history*2], histL, histR)
+			for i := 0; i < history; i++ {
+				histL[i] = celtSig(samples[src])
+				histR[i] = celtSig(samples[src+1])
+				src += 2
+			}
 			return
 		}
 		copy(histL, histL[frameSize:])
 		copy(histR, histR[frameSize:])
 		dst := history - frameSize
-		DeinterleaveStereoInto(samples[:frameSize*2], histL[dst:], histR[dst:])
+		src := 0
+		for i := 0; i < frameSize; i++ {
+			histL[dst+i] = celtSig(samples[src])
+			histR[dst+i] = celtSig(samples[src+1])
+			src += 2
+		}
 		return
 	}
 
@@ -191,7 +211,7 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float64, frameSize int, histo
 		if frameSize >= history {
 			src := (frameSize-history)*channels + ch
 			for i := 0; i < history; i++ {
-				hist[i] = samples[src]
+				hist[i] = celtSig(samples[src])
 				src += channels
 			}
 			continue
@@ -200,7 +220,7 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float64, frameSize int, histo
 		src := ch
 		dst := history - frameSize
 		for i := 0; i < frameSize; i++ {
-			hist[dst+i] = samples[src]
+			hist[dst+i] = celtSig(samples[src])
 			src += channels
 		}
 	}
@@ -213,6 +233,24 @@ func updatePlanarHistory(hist, samples []float64, frameSize, history int) {
 	}
 	slidePlanarHistoryPrefix(hist, frameSize, history)
 	copy(hist[history-frameSize:], samples[:frameSize])
+}
+
+func updatePlanarHistorySig(hist []celtSig, samples []float64, frameSize, history int) {
+	if frameSize >= history {
+		copyFloat64ToSig(hist, samples[frameSize-history:frameSize])
+		return
+	}
+	slidePlanarHistoryPrefixSig(hist, frameSize, history)
+	copyFloat64ToSig(hist[history-frameSize:], samples[:frameSize])
+}
+
+func updatePlanarHistorySigFromFloat32(hist []celtSig, samples []float32, frameSize, history int) {
+	if frameSize >= history {
+		copyFloat32ToSig(hist, samples[frameSize-history:frameSize])
+		return
+	}
+	slidePlanarHistoryPrefixSig(hist, frameSize, history)
+	copyFloat32ToSig(hist[history-frameSize:], samples[:frameSize])
 }
 
 func slidePlanarHistoryPrefix(hist []float64, frameSize, history int) {
@@ -234,6 +272,24 @@ func slidePlanarHistoryPrefix(hist []float64, frameSize, history int) {
 	slidePlanarHistoryPrefixLarge(hist, frameSize, keep)
 }
 
+func slidePlanarHistoryPrefixSig(hist []celtSig, frameSize, history int) {
+	keep := history - frameSize
+	if keep <= 0 {
+		return
+	}
+	if keep <= 128 {
+		_ = hist[frameSize+keep-1]
+		_ = hist[keep-1]
+		for i := 0; i < keep; i++ {
+			hist[i] = hist[frameSize+i]
+		}
+		return
+	}
+	_ = hist[frameSize+keep-1]
+	_ = hist[keep-1]
+	copy(hist[:keep], hist[frameSize:frameSize+keep])
+}
+
 func reverseFloat64InPlace(x []float64) {
 	for i, j := 0, len(x)-1; i < j; i, j = i+1, j-1 {
 		x[i], x[j] = x[j], x[i]
@@ -253,6 +309,25 @@ func rotateFloat64LeftInPlace(x []float64, n int) {
 	reverseFloat64InPlace(x)
 }
 
+func reverseSigInPlace(x []celtSig) {
+	for i, j := 0, len(x)-1; i < j; i, j = i+1, j-1 {
+		x[i], x[j] = x[j], x[i]
+	}
+}
+
+func rotateSigLeftInPlace(x []celtSig, n int) {
+	if len(x) == 0 {
+		return
+	}
+	n %= len(x)
+	if n == 0 {
+		return
+	}
+	reverseSigInPlace(x[:n])
+	reverseSigInPlace(x[n:])
+	reverseSigInPlace(x)
+}
+
 func updatePlanarHistoryRing(hist, samples []float64, frameSize, history, start int) {
 	if frameSize >= history {
 		copy(hist, samples[frameSize-history:frameSize])
@@ -267,6 +342,38 @@ func updatePlanarHistoryRing(hist, samples []float64, frameSize, history, start 
 	}
 	copy(hist[start:start+first], samples[:first])
 	copy(hist[:frameSize-first], samples[first:frameSize])
+}
+
+func updatePlanarHistoryRingSig(hist []celtSig, samples []float64, frameSize, history, start int) {
+	if frameSize >= history {
+		copyFloat64ToSig(hist, samples[frameSize-history:frameSize])
+		return
+	}
+	if start < 0 || start >= history {
+		start = 0
+	}
+	first := history - start
+	if first > frameSize {
+		first = frameSize
+	}
+	copyFloat64ToSig(hist[start:start+first], samples[:first])
+	copyFloat64ToSig(hist[:frameSize-first], samples[first:frameSize])
+}
+
+func updatePlanarHistoryRingSigFromFloat32(hist []celtSig, samples []float32, frameSize, history, start int) {
+	if frameSize >= history {
+		copyFloat32ToSig(hist, samples[frameSize-history:frameSize])
+		return
+	}
+	if start < 0 || start >= history {
+		start = 0
+	}
+	first := history - start
+	if first > frameSize {
+		first = frameSize
+	}
+	copyFloat32ToSig(hist[start:start+first], samples[:first])
+	copyFloat32ToSig(hist[:frameSize-first], samples[first:frameSize])
 }
 
 func updateInterleavedStereoHistoryRing(histL, histR, samples []float64, frameSize, history, start int) {
@@ -290,6 +397,27 @@ func updateInterleavedStereoHistoryRing(histL, histR, samples []float64, frameSi
 	}
 }
 
+func updateInterleavedStereoHistoryRingSig(histL, histR []celtSig, samples []float64, frameSize, history, start int) {
+	if start < 0 || start >= history {
+		start = 0
+	}
+	first := history - start
+	if first > frameSize {
+		first = frameSize
+	}
+	src := 0
+	for i := 0; i < first; i++ {
+		histL[start+i] = celtSig(samples[src])
+		histR[start+i] = celtSig(samples[src+1])
+		src += 2
+	}
+	for i := 0; i < frameSize-first; i++ {
+		histL[i] = celtSig(samples[src])
+		histR[i] = celtSig(samples[src+1])
+		src += 2
+	}
+}
+
 func (d *Decoder) materializePLCDecodeHistory() {
 	if d == nil || !d.plcDecodeMemRingActive {
 		return
@@ -309,7 +437,7 @@ func (d *Decoder) materializePLCDecodeHistory() {
 	}
 	for ch := 0; ch < channels; ch++ {
 		hist := d.plcDecodeMem[ch*history : (ch+1)*history]
-		rotateFloat64LeftInPlace(hist, start)
+		rotateSigLeftInPlace(hist, start)
 	}
 	d.plcDecodeMemRingActive = false
 	d.plcDecodeMemRingStart = 0
@@ -337,7 +465,7 @@ func (d *Decoder) materializePostfilterHistoryFromPLC() {
 	}
 	history := combFilterHistory
 	if len(d.postfilterMem) != history*channels {
-		d.postfilterMem = make([]float64, history*channels)
+		d.postfilterMem = make([]celtSig, history*channels)
 	}
 	if len(d.plcDecodeMem) < plcDecodeBufferSize*channels {
 		d.postfilterMemFromPLC = false
@@ -388,7 +516,7 @@ func (d *Decoder) materializePostfilterHistorySuffixFromPLC(need int) {
 		return
 	}
 	if len(d.postfilterMem) != history*channels {
-		d.postfilterMem = make([]float64, history*channels)
+		d.postfilterMem = make([]celtSig, history*channels)
 	}
 	if len(d.plcDecodeMem) < plcDecodeBufferSize*channels {
 		d.postfilterMemFromPLC = false
@@ -441,36 +569,36 @@ func postfilterHistoryNeed(t0, t1, t1b, t2 int) int {
 	return need
 }
 
-func updateMonoHistoryFromFloat32(hist []float64, samples []float32, frameSize, history int) {
+func updateMonoHistoryFromFloat32(hist []celtSig, samples []float32, frameSize, history int) {
 	if frameSize <= 0 || history <= 0 {
 		return
 	}
 	if frameSize >= history {
-		copyFloat32ToFloat64(hist[:history], samples[frameSize-history:frameSize])
+		copyFloat32ToSig(hist[:history], samples[frameSize-history:frameSize])
 		return
 	}
-	slidePlanarHistoryPrefix(hist, frameSize, history)
-	copyFloat32ToFloat64(hist[history-frameSize:history], samples[:frameSize])
+	slidePlanarHistoryPrefixSig(hist, frameSize, history)
+	copyFloat32ToSig(hist[history-frameSize:history], samples[:frameSize])
 }
 
-func updatePlanarHistoryFromFloat32(hist []float64, samples []float32, frameSize, history int) {
+func updatePlanarHistoryFromFloat32(hist []celtSig, samples []float32, frameSize, history int) {
 	if frameSize <= 0 || history <= 0 {
 		return
 	}
 	if frameSize >= history {
-		copyFloat32ToFloat64(hist[:history], samples[frameSize-history:frameSize])
+		copyFloat32ToSig(hist[:history], samples[frameSize-history:frameSize])
 		return
 	}
-	slidePlanarHistoryPrefix(hist, frameSize, history)
-	copyFloat32ToFloat64(hist[history-frameSize:history], samples[:frameSize])
+	slidePlanarHistoryPrefixSig(hist, frameSize, history)
+	copyFloat32ToSig(hist[history-frameSize:history], samples[:frameSize])
 }
 
-func updatePlanarHistoryRingFromFloat32(hist []float64, samples []float32, frameSize, history, start int) {
+func updatePlanarHistoryRingFromFloat32(hist []celtSig, samples []float32, frameSize, history, start int) {
 	if frameSize <= 0 || history <= 0 {
 		return
 	}
 	if frameSize >= history {
-		copyFloat32ToFloat64(hist[:history], samples[frameSize-history:frameSize])
+		copyFloat32ToSig(hist[:history], samples[frameSize-history:frameSize])
 		return
 	}
 	if start < 0 || start >= history {
@@ -480,8 +608,8 @@ func updatePlanarHistoryRingFromFloat32(hist []float64, samples []float32, frame
 	if first > frameSize {
 		first = frameSize
 	}
-	copyFloat32ToFloat64(hist[start:start+first], samples[:first])
-	copyFloat32ToFloat64(hist[:frameSize-first], samples[first:frameSize])
+	copyFloat32ToSig(hist[start:start+first], samples[:first])
+	copyFloat32ToSig(hist[:frameSize-first], samples[first:frameSize])
 }
 
 func (d *Decoder) updatePostfilterHistoryStereoPlanar(left, right []float64, frameSize int, history int) {
@@ -493,8 +621,8 @@ func (d *Decoder) updatePostfilterHistoryStereoPlanar(left, right []float64, fra
 	d.postfilterMemPLCBacked = false
 	histL := d.postfilterMem[:history]
 	histR := d.postfilterMem[history : 2*history]
-	updatePlanarHistory(histL, left, frameSize, history)
-	updatePlanarHistory(histR, right, frameSize, history)
+	updatePlanarHistorySig(histL, left, frameSize, history)
+	updatePlanarHistorySig(histR, right, frameSize, history)
 }
 
 func (d *Decoder) updatePostfilterHistoryStereoPlanarFromFloat32(left, right []float32, frameSize int, history int) {
@@ -517,7 +645,7 @@ func (d *Decoder) updatePLCDecodeHistoryStereoPlanar(left, right []float64, fram
 	d.postfilterMemFromPLC = false
 	d.postfilterMemPLCBacked = false
 	if len(d.plcDecodeMem) != history*d.channels {
-		d.plcDecodeMem = make([]float64, history*d.channels)
+		d.plcDecodeMem = make([]celtSig, history*d.channels)
 		d.plcDecodeMemRingActive = false
 		d.plcDecodeMemRingStart = 0
 	}
@@ -525,13 +653,13 @@ func (d *Decoder) updatePLCDecodeHistoryStereoPlanar(left, right []float64, fram
 	histR := d.plcDecodeMem[history : 2*history]
 	if history != plcDecodeBufferSize || d.channels != 2 {
 		d.materializePLCDecodeHistory()
-		updatePlanarHistory(histL, left, frameSize, history)
-		updatePlanarHistory(histR, right, frameSize, history)
+		updatePlanarHistorySig(histL, left, frameSize, history)
+		updatePlanarHistorySig(histR, right, frameSize, history)
 		return
 	}
 	if frameSize >= history {
-		copy(histL, left[frameSize-history:frameSize])
-		copy(histR, right[frameSize-history:frameSize])
+		copyFloat64ToSig(histL, left[frameSize-history:frameSize])
+		copyFloat64ToSig(histR, right[frameSize-history:frameSize])
 		d.plcDecodeMemRingActive = false
 		d.plcDecodeMemRingStart = 0
 		return
@@ -540,8 +668,8 @@ func (d *Decoder) updatePLCDecodeHistoryStereoPlanar(left, right []float64, fram
 	if !d.plcDecodeMemRingActive {
 		start = 0
 	}
-	updatePlanarHistoryRing(histL, left, frameSize, history, start)
-	updatePlanarHistoryRing(histR, right, frameSize, history, start)
+	updatePlanarHistoryRingSig(histL, left, frameSize, history, start)
+	updatePlanarHistoryRingSig(histR, right, frameSize, history, start)
 	start += frameSize
 	if start >= history {
 		start %= history
@@ -557,7 +685,7 @@ func (d *Decoder) updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right []fl
 	d.postfilterMemFromPLC = false
 	d.postfilterMemPLCBacked = false
 	if len(d.plcDecodeMem) != history*d.channels {
-		d.plcDecodeMem = make([]float64, history*d.channels)
+		d.plcDecodeMem = make([]celtSig, history*d.channels)
 		d.plcDecodeMemRingActive = false
 		d.plcDecodeMemRingStart = 0
 	}
@@ -570,8 +698,8 @@ func (d *Decoder) updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right []fl
 		return
 	}
 	if frameSize >= history {
-		copyFloat32ToFloat64(histL, left[frameSize-history:frameSize])
-		copyFloat32ToFloat64(histR, right[frameSize-history:frameSize])
+		copyFloat32ToSig(histL, left[frameSize-history:frameSize])
+		copyFloat32ToSig(histR, right[frameSize-history:frameSize])
 		d.plcDecodeMemRingActive = false
 		d.plcDecodeMemRingStart = 0
 		return
@@ -608,7 +736,7 @@ func (d *Decoder) updatePLCDecodeHistoryMonoFromFloat32(samples []float32, frame
 	d.postfilterMemPLCBacked = false
 	d.materializePLCDecodeHistory()
 	if len(d.plcDecodeMem) != history*d.channels {
-		d.plcDecodeMem = make([]float64, history*d.channels)
+		d.plcDecodeMem = make([]celtSig, history*d.channels)
 		d.plcDecodeMemRingActive = false
 		d.plcDecodeMemRingStart = 0
 	}
@@ -620,7 +748,7 @@ func (d *Decoder) commitPostfilterStateNoGain(lm int, newPeriod int, newGain flo
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
 	d.postfilterPeriod = newPeriod
-	d.postfilterGain = newGain
+	d.postfilterGain = float32(newGain)
 	d.postfilterTapset = newTapset
 	if lm != 0 {
 		d.postfilterPeriodOld = d.postfilterPeriod
@@ -635,7 +763,7 @@ func (d *Decoder) applyPostfilterNoGainMonoFromFloat32(samples []float32, frameS
 	}
 	history := combFilterHistory
 	if len(d.postfilterMem) != history*d.channels {
-		d.postfilterMem = make([]float64, history*d.channels)
+		d.postfilterMem = make([]celtSig, history*d.channels)
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 	}
@@ -650,7 +778,7 @@ func (d *Decoder) applyPostfilterNoGainStereoPlanarFromFloat32(left, right []flo
 	}
 	history := combFilterHistory
 	if len(d.postfilterMem) != history*2 {
-		d.postfilterMem = make([]float64, history*2)
+		d.postfilterMem = make([]celtSig, history*2)
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 	}
@@ -659,7 +787,7 @@ func (d *Decoder) applyPostfilterNoGainStereoPlanarFromFloat32(left, right []flo
 	d.commitPostfilterStateNoGain(lm, newPeriod, newGain, newTapset)
 }
 
-func applyPostfilterChannelInPlace(samples, hist []float64, frameSize, history, lm int, t0, t1, t1b, t2 int, g0, g1, g2 float64, tap0, tap1, tap1b, tap2 int, window, windowSq []float64) {
+func applyPostfilterChannelInPlace(samples []float64, hist []celtSig, frameSize, history, lm int, t0, t1, t1b, t2 int, g0, g1, g2 float64, tap0, tap1, tap1b, tap2 int, window, windowSq []float64) {
 	shortMdctSize := frameSize >> uint(lm)
 	if shortMdctSize <= 0 || shortMdctSize > frameSize {
 		shortMdctSize = frameSize
@@ -671,7 +799,7 @@ func applyPostfilterChannelInPlace(samples, hist []float64, frameSize, history, 
 	}
 }
 
-func applyPostfilterChannelInPlaceFloat32(samples []float32, hist []float64, frameSize, history, lm int, t0, t1, t1b, t2 int, g0, g1, g2 float64, tap0, tap1, tap1b, tap2 int, window, windowSq []float64) {
+func applyPostfilterChannelInPlaceFloat32(samples []float32, hist []celtSig, frameSize, history, lm int, t0, t1, t1b, t2 int, g0, g1, g2 float64, tap0, tap1, tap1b, tap2 int, window, windowSq []float64) {
 	shortMdctSize := frameSize >> uint(lm)
 	if shortMdctSize <= 0 || shortMdctSize > frameSize {
 		shortMdctSize = frameSize
@@ -690,7 +818,7 @@ func (d *Decoder) applyPostfilterStereoPlanar(left, right []float64, frameSize, 
 
 	history := combFilterHistory
 	if len(d.postfilterMem) != history*2 {
-		d.postfilterMem = make([]float64, history*2)
+		d.postfilterMem = make([]celtSig, history*2)
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 	}
@@ -703,8 +831,8 @@ func (d *Decoder) applyPostfilterStereoPlanar(left, right []float64, frameSize, 
 
 	t0 := d.postfilterPeriodOld
 	t1 := d.postfilterPeriod
-	g0 := d.postfilterGainOld
-	g1 := d.postfilterGain
+	g0 := float64(d.postfilterGainOld)
+	g1 := float64(d.postfilterGain)
 	tap0 := d.postfilterTapsetOld
 	tap1 := d.postfilterTapset
 	t2 := newPeriod
@@ -728,7 +856,7 @@ func (d *Decoder) applyPostfilterStereoPlanar(left, right []float64, frameSize, 
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
 	d.postfilterPeriod = newPeriod
-	d.postfilterGain = newGain
+	d.postfilterGain = float32(newGain)
 	d.postfilterTapset = newTapset
 	if lm != 0 {
 		d.postfilterPeriodOld = d.postfilterPeriod
@@ -744,7 +872,7 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 
 	history := combFilterHistory
 	if len(d.postfilterMem) != history*2 {
-		d.postfilterMem = make([]float64, history*2)
+		d.postfilterMem = make([]celtSig, history*2)
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 	}
@@ -757,8 +885,8 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 
 	t0 := d.postfilterPeriodOld
 	t1 := d.postfilterPeriod
-	g0 := d.postfilterGainOld
-	g1 := d.postfilterGain
+	g0 := float64(d.postfilterGainOld)
+	g1 := float64(d.postfilterGain)
 	tap0 := d.postfilterTapsetOld
 	tap1 := d.postfilterTapset
 	t2 := newPeriod
@@ -782,7 +910,7 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
 	d.postfilterPeriod = newPeriod
-	d.postfilterGain = newGain
+	d.postfilterGain = float32(newGain)
 	d.postfilterTapset = newTapset
 	if lm != 0 {
 		d.postfilterPeriodOld = d.postfilterPeriod
@@ -805,7 +933,7 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 
 	history := combFilterHistory
 	if len(d.postfilterMem) != history*d.channels {
-		d.postfilterMem = make([]float64, history*d.channels)
+		d.postfilterMem = make([]celtSig, history*d.channels)
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 	}
@@ -825,8 +953,8 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 
 	t0 := d.postfilterPeriodOld
 	t1 := d.postfilterPeriod
-	g0 := d.postfilterGainOld
-	g1 := d.postfilterGain
+	g0 := float64(d.postfilterGainOld)
+	g1 := float64(d.postfilterGain)
 	tap0 := d.postfilterTapsetOld
 	tap1 := d.postfilterTapset
 	t2 := newPeriod
@@ -848,7 +976,7 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 	if d.channels == 1 {
 		hist := d.postfilterMem[:history]
 		buf := d.postfilterScratch[:needed]
-		copy(buf, hist)
+		copySigToFloat64(buf, hist)
 		copy(buf[history:], samples[:frameSize])
 
 		combFilterWithSquare(buf, history, t0, t1, shortMdctSize, g0, g1, tap0, tap1, window, windowSq, Overlap)
@@ -862,7 +990,7 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 		for ch := 0; ch < channels; ch++ {
 			hist := d.postfilterMem[ch*history : (ch+1)*history]
 			buf := d.postfilterScratch[:needed]
-			copy(buf, hist)
+			copySigToFloat64(buf, hist)
 
 			j := ch
 			i := 0
@@ -911,7 +1039,7 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
 	d.postfilterPeriod = newPeriod
-	d.postfilterGain = newGain
+	d.postfilterGain = float32(newGain)
 	d.postfilterTapset = newTapset
 	if lm != 0 {
 		d.postfilterPeriodOld = d.postfilterPeriod
@@ -959,27 +1087,12 @@ func combFilterWithSquare(buf []float64, start int, t0, t1, n int, g0, g1 float6
 		tapset1 = 0
 	}
 
-	gain0 := combFilterGains[0]
-	switch tapset0 {
-	case 1:
-		gain0 = combFilterGains[1]
-	case 2:
-		gain0 = combFilterGains[2]
-	}
-	gain1 := combFilterGains[0]
-	switch tapset1 {
-	case 1:
-		gain1 = combFilterGains[1]
-	case 2:
-		gain1 = combFilterGains[2]
-	}
-
-	g00 := float32(g0 * gain0[0])
-	g01 := float32(g0 * gain0[1])
-	g02 := float32(g0 * gain0[2])
-	g10 := float32(g1 * gain1[0])
-	g11 := float32(g1 * gain1[1])
-	g12 := float32(g1 * gain1[2])
+	g00 := combGain32(g0, tapset0, 0)
+	g01 := combGain32(g0, tapset0, 1)
+	g02 := combGain32(g0, tapset0, 2)
+	g10 := combGain32(g1, tapset1, 0)
+	g11 := combGain32(g1, tapset1, 1)
+	g12 := combGain32(g1, tapset1, 2)
 
 	frame := buf[start : start+n]
 	delay1 := buf[start-t1-2 : start-t1+n+2]
@@ -1046,14 +1159,14 @@ func combFilterWithSquare(buf []float64, start int, t0, t1, n int, g0, g1 float6
 	}
 }
 
-func combPlanarAt(samples, hist []float64, history, pos int) float32 {
+func combPlanarAt(samples []float64, hist []celtSig, history, pos int) float32 {
 	if pos < history {
 		return float32(hist[pos])
 	}
 	return float32(samples[pos-history])
 }
 
-func combPlanarAtFloat32(samples []float32, hist []float64, history, pos int) float32 {
+func combPlanarAtFloat32(samples []float32, hist []celtSig, history, pos int) float32 {
 	if pos < history {
 		return float32(hist[pos])
 	}
@@ -1102,7 +1215,49 @@ func combFilterConstFloat64(dst, delay []float64, g10, g11, g12 float32, x4, x3,
 	return x4, x3, x2, x1
 }
 
-func combFilterConstFloat32Hist(dst []float32, delay []float64, g10, g11, g12 float32, x4, x3, x2, x1 float32) (float32, float32, float32, float32) {
+func combFilterConstFloat64Hist(dst []float64, delay []celtSig, g10, g11, g12 float32, x4, x3, x2, x1 float32) (float32, float32, float32, float32) {
+	n := len(dst)
+	if n == 0 {
+		return x4, x3, x2, x1
+	}
+	delay = delay[:n:n]
+	_ = dst[n-1]
+	_ = delay[n-1]
+	i := 0
+	for ; i+4 < n; i += 5 {
+		x0 := float32(delay[i])
+		sum := float32(dst[i]) + g10*x2 + g11*(x3+x1) + g12*(x4+x0)
+		dst[i] = float64(sum)
+
+		x4 = float32(delay[i+1])
+		sum = float32(dst[i+1]) + g10*x1 + g11*(x2+x0) + g12*(x3+x4)
+		dst[i+1] = float64(sum)
+
+		x3 = float32(delay[i+2])
+		sum = float32(dst[i+2]) + g10*x0 + g11*(x4+x1) + g12*(x2+x3)
+		dst[i+2] = float64(sum)
+
+		x2 = float32(delay[i+3])
+		sum = float32(dst[i+3]) + g10*x4 + g11*(x3+x0) + g12*(x1+x2)
+		dst[i+3] = float64(sum)
+
+		x1 = float32(delay[i+4])
+		sum = float32(dst[i+4]) + g10*x3 + g11*(x2+x4) + g12*(x0+x1)
+		dst[i+4] = float64(sum)
+	}
+	for ; i < n; i++ {
+		x0 := float32(delay[i])
+		sum := float32(dst[i]) + g10*x2 + g11*(x3+x1) + g12*(x4+x0)
+		dst[i] = float64(sum)
+		x4 = x3
+		x3 = x2
+		x2 = x1
+		x1 = x0
+	}
+	return x4, x3, x2, x1
+}
+
+func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 float32, x4, x3, x2, x1 float32) (float32, float32, float32, float32) {
 	n := len(dst)
 	if n == 0 {
 		return x4, x3, x2, x1
@@ -1174,7 +1329,7 @@ func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3,
 	return x4, x3, x2, x1
 }
 
-func combFilterWithSquarePlanarFloat32(samples []float32, hist []float64, history, frameOffset int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window, windowSq []float64, overlap int) {
+func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, history, frameOffset int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window, windowSq []float64, overlap int) {
 	if n <= 0 {
 		return
 	}
@@ -1206,27 +1361,12 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []float64, histor
 		tapset1 = 0
 	}
 
-	gain0 := combFilterGains[0]
-	switch tapset0 {
-	case 1:
-		gain0 = combFilterGains[1]
-	case 2:
-		gain0 = combFilterGains[2]
-	}
-	gain1 := combFilterGains[0]
-	switch tapset1 {
-	case 1:
-		gain1 = combFilterGains[1]
-	case 2:
-		gain1 = combFilterGains[2]
-	}
-
-	g00 := float32(g0 * gain0[0])
-	g01 := float32(g0 * gain0[1])
-	g02 := float32(g0 * gain0[2])
-	g10 := float32(g1 * gain1[0])
-	g11 := float32(g1 * gain1[1])
-	g12 := float32(g1 * gain1[2])
+	g00 := combGain32(g0, tapset0, 0)
+	g01 := combGain32(g0, tapset0, 1)
+	g02 := combGain32(g0, tapset0, 2)
+	g10 := combGain32(g1, tapset1, 0)
+	g11 := combGain32(g1, tapset1, 1)
+	g12 := combGain32(g1, tapset1, 2)
 
 	start := history + frameOffset
 	base1 := start - t1 - 2
@@ -1333,7 +1473,7 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []float64, histor
 	}
 }
 
-func combFilterWithSquarePlanar(samples, hist []float64, history, frameOffset int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window, windowSq []float64, overlap int) {
+func combFilterWithSquarePlanar(samples []float64, hist []celtSig, history, frameOffset int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window, windowSq []float64, overlap int) {
 	if n <= 0 {
 		return
 	}
@@ -1365,27 +1505,12 @@ func combFilterWithSquarePlanar(samples, hist []float64, history, frameOffset in
 		tapset1 = 0
 	}
 
-	gain0 := combFilterGains[0]
-	switch tapset0 {
-	case 1:
-		gain0 = combFilterGains[1]
-	case 2:
-		gain0 = combFilterGains[2]
-	}
-	gain1 := combFilterGains[0]
-	switch tapset1 {
-	case 1:
-		gain1 = combFilterGains[1]
-	case 2:
-		gain1 = combFilterGains[2]
-	}
-
-	g00 := float32(g0 * gain0[0])
-	g01 := float32(g0 * gain0[1])
-	g02 := float32(g0 * gain0[2])
-	g10 := float32(g1 * gain1[0])
-	g11 := float32(g1 * gain1[1])
-	g12 := float32(g1 * gain1[2])
+	g00 := combGain32(g0, tapset0, 0)
+	g01 := combGain32(g0, tapset0, 1)
+	g02 := combGain32(g0, tapset0, 2)
+	g10 := combGain32(g1, tapset1, 0)
+	g11 := combGain32(g1, tapset1, 1)
+	g12 := combGain32(g1, tapset1, 2)
 
 	start := history + frameOffset
 	base1 := start - t1 - 2
@@ -1482,7 +1607,7 @@ func combFilterWithSquarePlanar(samples, hist []float64, history, frameOffset in
 	if i < histLimit {
 		dst := samples[frameOffset+i : frameOffset+histLimit]
 		delay := hist[base1+i+4 : base1+histLimit+4]
-		x4, x3, x2, x1 = combFilterConstFloat64(dst, delay, g10, g11, g12, x4, x3, x2, x1)
+		x4, x3, x2, x1 = combFilterConstFloat64Hist(dst, delay, g10, g11, g12, x4, x3, x2, x1)
 		i = histLimit
 	}
 	if i < n {
@@ -1621,12 +1746,12 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 		tapset1 = 0
 	}
 
-	g00 := float32(g0 * combFilterGains[tapset0][0])
-	g01 := float32(g0 * combFilterGains[tapset0][1])
-	g02 := float32(g0 * combFilterGains[tapset0][2])
-	g10 := float32(g1 * combFilterGains[tapset1][0])
-	g11 := float32(g1 * combFilterGains[tapset1][1])
-	g12 := float32(g1 * combFilterGains[tapset1][2])
+	g00 := combGain32(g0, tapset0, 0)
+	g01 := combGain32(g0, tapset0, 1)
+	g02 := combGain32(g0, tapset0, 2)
+	g10 := combGain32(g1, tapset1, 0)
+	g11 := combGain32(g1, tapset1, 1)
+	g12 := combGain32(g1, tapset1, 2)
 
 	srcFrame := src[start:]
 	dstFrame := dst[start:]
@@ -1684,6 +1809,108 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 			g11*(x3+x1) +
 			g12*(x4+x0)
 		dstFrame[i] = float64(sum)
+
+		x4 = x3
+		x3 = x2
+		x2 = x1
+		x1 = x0
+	}
+}
+
+func combFilterWithInputSig(dst, src []celtSig, start int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window []float64, overlap int) {
+	if n <= 0 {
+		return
+	}
+	if g0 == 0 && g1 == 0 {
+		copy(dst[start:start+n], src[start:start+n])
+		return
+	}
+
+	if t0 < combFilterMinPeriod {
+		t0 = combFilterMinPeriod
+	}
+	if t1 < combFilterMinPeriod {
+		t1 = combFilterMinPeriod
+	}
+
+	if window == nil {
+		overlap = 0
+	}
+	if overlap > n {
+		overlap = n
+	}
+	if window != nil && overlap > len(window) {
+		overlap = len(window)
+	}
+
+	if tapset0 < 0 || tapset0 >= len(combFilterGains) {
+		tapset0 = 0
+	}
+	if tapset1 < 0 || tapset1 >= len(combFilterGains) {
+		tapset1 = 0
+	}
+
+	g00 := combGain32(g0, tapset0, 0)
+	g01 := combGain32(g0, tapset0, 1)
+	g02 := combGain32(g0, tapset0, 2)
+	g10 := combGain32(g1, tapset1, 0)
+	g11 := combGain32(g1, tapset1, 1)
+	g12 := combGain32(g1, tapset1, 2)
+
+	srcFrame := src[start:]
+	dstFrame := dst[start:]
+	delay1 := src[start-t1-2:]
+	x1 := float32(delay1[3])
+	x2 := float32(delay1[2])
+	x3 := float32(delay1[1])
+	x4 := float32(delay1[0])
+	var delay0 []celtSig
+
+	if g0 == g1 && t0 == t1 && tapset0 == tapset1 {
+		overlap = 0
+	} else if overlap > 0 {
+		delay0 = src[start-t0-2:]
+	}
+
+	i := 0
+	for ; i < overlap; i++ {
+		w := float32(window[i])
+		f := noFMA32Mul(w, w)
+		oneMinus := float32(1.0) - f
+		x0 := float32(delay1[i+4])
+		sum := float32(srcFrame[i]) +
+			(oneMinus*g00)*float32(delay0[i+2]) +
+			(oneMinus*g01)*(float32(delay0[i+1])+float32(delay0[i+3])) +
+			(oneMinus*g02)*(float32(delay0[i])+float32(delay0[i+4])) +
+			(f*g10)*x2 +
+			(f*g11)*(x1+x3) +
+			(f*g12)*(x0+x4)
+		dstFrame[i] = celtSig(sum)
+
+		x4 = x3
+		x3 = x2
+		x2 = x1
+		x1 = x0
+	}
+
+	if g1 == 0 {
+		if i < n {
+			copy(dstFrame[i:n], srcFrame[i:n])
+		}
+		return
+	}
+
+	x4 = float32(delay1[i])
+	x3 = float32(delay1[i+1])
+	x2 = float32(delay1[i+2])
+	x1 = float32(delay1[i+3])
+	for ; i < n; i++ {
+		x0 := float32(delay1[i+4])
+		sum := float32(srcFrame[i]) +
+			g10*x2 +
+			g11*(x3+x1) +
+			g12*(x4+x0)
+		dstFrame[i] = celtSig(sum)
 
 		x4 = x3
 		x3 = x2

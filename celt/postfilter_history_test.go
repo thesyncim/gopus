@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func updateStereoHistoryLegacy(mem, samples []float64, frameSize, history int) {
+func updateStereoHistoryLegacy(mem []celtSig, samples []float64, frameSize, history int) {
 	histL := mem[:history]
 	histR := mem[history : 2*history]
 	if frameSize >= history {
 		src := (frameSize - history) * 2
 		for i := 0; i < history; i++ {
-			histL[i] = samples[src]
-			histR[i] = samples[src+1]
+			histL[i] = celtSig(samples[src])
+			histR[i] = celtSig(samples[src+1])
 			src += 2
 		}
 		return
@@ -23,8 +23,8 @@ func updateStereoHistoryLegacy(mem, samples []float64, frameSize, history int) {
 	src := 0
 	dst := history - frameSize
 	for i := 0; i < frameSize; i++ {
-		histL[dst+i] = samples[src]
-		histR[dst+i] = samples[src+1]
+		histL[dst+i] = celtSig(samples[src])
+		histR[dst+i] = celtSig(samples[src+1])
 		src += 2
 	}
 }
@@ -37,6 +37,18 @@ func requireFloat64BitsEqual(t *testing.T, got, want []float64) {
 	for i := range got {
 		if math.Float64bits(got[i]) != math.Float64bits(want[i]) {
 			t.Fatalf("mismatch at %d: got=0x%x want=0x%x", i, math.Float64bits(got[i]), math.Float64bits(want[i]))
+		}
+	}
+}
+
+func requireSigBitsEqual(t *testing.T, got, want []celtSig) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("length mismatch: got %d want %d", len(got), len(want))
+	}
+	for i := range got {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("mismatch at %d: got=0x%x want=0x%x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
 		}
 	}
 }
@@ -66,28 +78,28 @@ func TestStereoHistoryHelpersMatchLegacy(t *testing.T) {
 
 				current := NewDecoder(2)
 				legacy := NewDecoder(2)
-				current.postfilterMem = make([]float64, combFilterHistory*2)
-				legacy.postfilterMem = append([]float64(nil), current.postfilterMem...)
-				current.plcDecodeMem = make([]float64, plcDecodeBufferSize*2)
-				legacy.plcDecodeMem = append([]float64(nil), current.plcDecodeMem...)
+				current.postfilterMem = make([]celtSig, combFilterHistory*2)
+				legacy.postfilterMem = append([]celtSig(nil), current.postfilterMem...)
+				current.plcDecodeMem = make([]celtSig, plcDecodeBufferSize*2)
+				legacy.plcDecodeMem = append([]celtSig(nil), current.plcDecodeMem...)
 				for i := range current.postfilterMem {
-					current.postfilterMem[i] = float64(i%17) * -0.25
+					current.postfilterMem[i] = celtSig(float64(i%17) * -0.25)
 				}
 				copy(legacy.postfilterMem, current.postfilterMem)
 				for i := range current.plcDecodeMem {
-					current.plcDecodeMem[i] = float64(i%19) * 0.375
+					current.plcDecodeMem[i] = celtSig(float64(i%19) * 0.375)
 				}
 				copy(legacy.plcDecodeMem, current.plcDecodeMem)
 
 				if history == combFilterHistory {
 					current.updatePostfilterHistory(samples, frameSize, history)
 					updateStereoHistoryLegacy(legacy.postfilterMem, samples, frameSize, history)
-					requireFloat64BitsEqual(t, current.postfilterMem, legacy.postfilterMem)
+					requireSigBitsEqual(t, current.postfilterMem, legacy.postfilterMem)
 				} else {
 					current.updatePLCDecodeHistory(samples, frameSize, history)
 					updateStereoHistoryLegacy(legacy.plcDecodeMem, samples, frameSize, history)
 					current.materializePLCDecodeHistory()
-					requireFloat64BitsEqual(t, current.plcDecodeMem, legacy.plcDecodeMem)
+					requireSigBitsEqual(t, current.plcDecodeMem, legacy.plcDecodeMem)
 				}
 			})
 		}
@@ -109,18 +121,18 @@ func TestApplyPostfilterStereoPlanarMatchesInterleaved(t *testing.T) {
 
 	current := NewDecoder(2)
 	legacy := NewDecoder(2)
-	current.postfilterMem = make([]float64, combFilterHistory*2)
-	legacy.postfilterMem = make([]float64, combFilterHistory*2)
-	current.plcDecodeMem = make([]float64, plcDecodeBufferSize*2)
-	legacy.plcDecodeMem = make([]float64, plcDecodeBufferSize*2)
+	current.postfilterMem = make([]celtSig, combFilterHistory*2)
+	legacy.postfilterMem = make([]celtSig, combFilterHistory*2)
+	current.plcDecodeMem = make([]celtSig, plcDecodeBufferSize*2)
+	legacy.plcDecodeMem = make([]celtSig, plcDecodeBufferSize*2)
 	current.postfilterScratch = make([]float64, combFilterHistory+frameSize)
 	legacy.postfilterScratch = make([]float64, combFilterHistory+frameSize)
 	for i := range current.postfilterMem {
-		current.postfilterMem[i] = float64((i%23)-11) * 0.125
+		current.postfilterMem[i] = celtSig(float64((i%23)-11) * 0.125)
 	}
 	copy(legacy.postfilterMem, current.postfilterMem)
 	for i := range current.plcDecodeMem {
-		current.plcDecodeMem[i] = float64((i%19)-9) * 0.25
+		current.plcDecodeMem[i] = celtSig(float64((i%19)-9) * 0.25)
 	}
 	copy(legacy.plcDecodeMem, current.plcDecodeMem)
 
@@ -151,15 +163,15 @@ func TestApplyPostfilterStereoPlanarMatchesInterleaved(t *testing.T) {
 	current.materializePostfilterHistoryFromPLC()
 	legacy.materializePostfilterHistoryFromPLC()
 	requireFloat64BitsEqual(t, got, want)
-	requireFloat64BitsEqual(t, current.postfilterMem, legacy.postfilterMem)
-	requireFloat64BitsEqual(t, current.plcDecodeMem, legacy.plcDecodeMem)
+	requireSigBitsEqual(t, current.postfilterMem, legacy.postfilterMem)
+	requireSigBitsEqual(t, current.plcDecodeMem, legacy.plcDecodeMem)
 
 	if current.postfilterPeriodOld != legacy.postfilterPeriodOld ||
 		current.postfilterPeriod != legacy.postfilterPeriod ||
 		current.postfilterTapsetOld != legacy.postfilterTapsetOld ||
 		current.postfilterTapset != legacy.postfilterTapset ||
-		math.Float64bits(current.postfilterGainOld) != math.Float64bits(legacy.postfilterGainOld) ||
-		math.Float64bits(current.postfilterGain) != math.Float64bits(legacy.postfilterGain) {
+		math.Float32bits(current.postfilterGainOld) != math.Float32bits(legacy.postfilterGainOld) ||
+		math.Float32bits(current.postfilterGain) != math.Float32bits(legacy.postfilterGain) {
 		t.Fatalf("postfilter state mismatch after planar path")
 	}
 }
@@ -196,14 +208,14 @@ func benchmarkUpdateStereoHistory(b *testing.B, history int, fn func(*Decoder, [
 		samples[i] = float64((i%23)-11) * 0.125
 	}
 	if history == combFilterHistory {
-		d.postfilterMem = make([]float64, history*2)
+		d.postfilterMem = make([]celtSig, history*2)
 		for i := range d.postfilterMem {
-			d.postfilterMem[i] = float64(i%29) * -0.25
+			d.postfilterMem[i] = celtSig(float64(i%29) * -0.25)
 		}
 	} else {
-		d.plcDecodeMem = make([]float64, history*2)
+		d.plcDecodeMem = make([]celtSig, history*2)
 		for i := range d.plcDecodeMem {
-			d.plcDecodeMem[i] = float64(i%31) * 0.375
+			d.plcDecodeMem[i] = celtSig(float64(i%31) * 0.375)
 		}
 	}
 

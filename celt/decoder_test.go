@@ -391,13 +391,13 @@ func TestApplyPostfilterNoGainMonoFromFloat32MatchesFloat64(t *testing.T) {
 
 	for i := range legacy.postfilterMem {
 		v := 0.35*math.Sin(float64(i+5)*0.013) + float64((i%9)-4)/17.0
-		legacy.postfilterMem[i] = v
-		current.postfilterMem[i] = v
+		legacy.postfilterMem[i] = celtSig(v)
+		current.postfilterMem[i] = celtSig(v)
 	}
 	for i := range legacy.plcDecodeMem {
 		v := 0.2*math.Cos(float64(i+9)*0.009) + float64((i%11)-5)/23.0
-		legacy.plcDecodeMem[i] = v
-		current.plcDecodeMem[i] = v
+		legacy.plcDecodeMem[i] = celtSig(v)
+		current.plcDecodeMem[i] = celtSig(v)
 	}
 
 	frameSize := 960
@@ -412,12 +412,12 @@ func TestApplyPostfilterNoGainMonoFromFloat32MatchesFloat64(t *testing.T) {
 	current.applyPostfilterNoGainMonoFromFloat32(samplesF32, frameSize, 0, 61, 0, 2)
 
 	for i := range legacy.postfilterMem {
-		if math.Float64bits(current.postfilterMem[i]) != math.Float64bits(legacy.postfilterMem[i]) {
+		if math.Float32bits(current.postfilterMem[i]) != math.Float32bits(legacy.postfilterMem[i]) {
 			t.Fatalf("postfilterMem[%d] mismatch", i)
 		}
 	}
 	for i := range legacy.plcDecodeMem {
-		if math.Float64bits(current.plcDecodeMem[i]) != math.Float64bits(legacy.plcDecodeMem[i]) {
+		if math.Float32bits(current.plcDecodeMem[i]) != math.Float32bits(legacy.plcDecodeMem[i]) {
 			t.Fatalf("plcDecodeMem[%d] mismatch", i)
 		}
 	}
@@ -425,8 +425,8 @@ func TestApplyPostfilterNoGainMonoFromFloat32MatchesFloat64(t *testing.T) {
 		current.postfilterPeriodOld != legacy.postfilterPeriodOld ||
 		current.postfilterTapset != legacy.postfilterTapset ||
 		current.postfilterTapsetOld != legacy.postfilterTapsetOld ||
-		math.Float64bits(current.postfilterGain) != math.Float64bits(legacy.postfilterGain) ||
-		math.Float64bits(current.postfilterGainOld) != math.Float64bits(legacy.postfilterGainOld) {
+		math.Float32bits(current.postfilterGain) != math.Float32bits(legacy.postfilterGain) ||
+		math.Float32bits(current.postfilterGainOld) != math.Float32bits(legacy.postfilterGainOld) {
 		t.Fatalf("postfilter state mismatch")
 	}
 }

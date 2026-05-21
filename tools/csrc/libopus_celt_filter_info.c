@@ -20,7 +20,8 @@
 
 enum {
   MODE_DEEMPHASIS = 0,
-  MODE_COMB_FILTER = 1
+  MODE_COMB_FILTER = 1,
+  MODE_COMB_FILTER_INPUT = 2
 };
 
 void deemphasis(celt_sig *in[], opus_res *pcm, int N, int C, int downsample, const opus_val16 *coef, celt_sig *mem, int accum);
@@ -158,7 +159,7 @@ static int run_deemphasis(void) {
   return 1;
 }
 
-static int run_comb_filter(void) {
+static int run_comb_filter(int separate_input) {
   uint32_t start = 0;
   uint32_t n = 0;
   uint32_t t0 = 0;
@@ -170,6 +171,7 @@ static int run_comb_filter(void) {
   float g0f = 0;
   float g1f = 0;
   opus_val32 *buf = NULL;
+  opus_val32 *y = NULL;
   celt_coef *window = NULL;
   uint32_t i;
 
@@ -190,9 +192,11 @@ static int run_comb_filter(void) {
   total = start + n + 2;
   window = (celt_coef *)malloc((size_t)overlap * sizeof(celt_coef));
   buf = (opus_val32 *)malloc((size_t)total * sizeof(opus_val32));
-  if ((overlap > 0 && window == NULL) || buf == NULL) {
+  y = separate_input ? (opus_val32 *)malloc((size_t)n * sizeof(opus_val32)) : NULL;
+  if ((overlap > 0 && window == NULL) || buf == NULL || (separate_input && y == NULL)) {
     free(window);
     free(buf);
+    free(y);
     return 0;
   }
   for (i = 0; i < overlap; i++) {
@@ -200,6 +204,7 @@ static int run_comb_filter(void) {
     if (!read_float(&v)) {
       free(window);
       free(buf);
+      free(y);
       return 0;
     }
     window[i] = (celt_coef)v;
@@ -209,30 +214,34 @@ static int run_comb_filter(void) {
     if (!read_float(&v)) {
       free(window);
       free(buf);
+      free(y);
       return 0;
     }
     buf[i] = (opus_val32)v;
   }
 
-  comb_filter(buf + start, buf + start, (int)t0, (int)t1, (int)n,
+  comb_filter(separate_input ? y : buf + start, buf + start, (int)t0, (int)t1, (int)n,
       (opus_val16)g0f, (opus_val16)g1f, (int)tapset0, (int)tapset1,
       overlap > 0 ? window : NULL, (int)overlap, 0);
 
   if (!write_u32(n)) {
     free(window);
     free(buf);
+    free(y);
     return 0;
   }
   for (i = 0; i < n; i++) {
-    if (!write_float((float)buf[start + i])) {
+    if (!write_float((float)(separate_input ? y[i] : buf[start + i]))) {
       free(window);
       free(buf);
+      free(y);
       return 0;
     }
   }
 
   free(window);
   free(buf);
+  free(y);
   return 1;
 }
 
@@ -259,7 +268,9 @@ int main(void) {
   if (mode == MODE_DEEMPHASIS) {
     ok = run_deemphasis();
   } else if (mode == MODE_COMB_FILTER) {
-    ok = run_comb_filter();
+    ok = run_comb_filter(0);
+  } else if (mode == MODE_COMB_FILTER_INPUT) {
+    ok = run_comb_filter(1);
   } else {
     fprintf(stderr, "unsupported mode\n");
     return 1;

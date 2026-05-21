@@ -482,9 +482,9 @@ func TestApplyPostfilterNoGainBypassMono(t *testing.T) {
 	copy(samplesBefore, samples)
 
 	for i := range d.postfilterMem {
-		d.postfilterMem[i] = float64(i+1) * 0.001
+		d.postfilterMem[i] = celtSig(float64(i+1) * 0.001)
 	}
-	histBefore := make([]float64, len(d.postfilterMem))
+	histBefore := make([]celtSig, len(d.postfilterMem))
 	copy(histBefore, d.postfilterMem)
 	copy(d.plcDecodeMem[plcDecodeBufferSize-combFilterHistory:], histBefore)
 
@@ -504,9 +504,9 @@ func TestApplyPostfilterNoGainBypassMono(t *testing.T) {
 	}
 
 	history := combFilterHistory
-	expectedHist := make([]float64, history)
+	expectedHist := make([]celtSig, history)
 	copy(expectedHist, histBefore[frameSize:])
-	copy(expectedHist[history-frameSize:], samplesBefore)
+	copyFloat64ToSig(expectedHist[history-frameSize:], samplesBefore)
 	if !d.postfilterMemFromPLC {
 		t.Fatal("postfilter history should be lazy-backed by PLC history")
 	}
@@ -537,9 +537,9 @@ func TestApplyPostfilterNoGainBypassStereo(t *testing.T) {
 	copy(samplesBefore, samples)
 
 	for i := range d.postfilterMem {
-		d.postfilterMem[i] = float64(i+1) * 0.001
+		d.postfilterMem[i] = celtSig(float64(i+1) * 0.001)
 	}
-	histBefore := make([]float64, len(d.postfilterMem))
+	histBefore := make([]celtSig, len(d.postfilterMem))
 	copy(histBefore, d.postfilterMem)
 	for ch := 0; ch < 2; ch++ {
 		copy(
@@ -564,7 +564,7 @@ func TestApplyPostfilterNoGainBypassStereo(t *testing.T) {
 	}
 
 	history := combFilterHistory
-	expected := make([]float64, history*2)
+	expected := make([]celtSig, history*2)
 	for ch := 0; ch < 2; ch++ {
 		oldHist := histBefore[ch*history : (ch+1)*history]
 		expHist := expected[ch*history : (ch+1)*history]
@@ -572,7 +572,7 @@ func TestApplyPostfilterNoGainBypassStereo(t *testing.T) {
 		src := ch
 		dst := history - frameSize
 		for i := 0; i < frameSize; i++ {
-			expHist[dst+i] = samplesBefore[src]
+			expHist[dst+i] = celtSig(samplesBefore[src])
 			src += 2
 		}
 	}

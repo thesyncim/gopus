@@ -133,7 +133,7 @@ func TestRunPrefilterParityAgainstLibopusFixture(t *testing.T) {
 	for _, c := range fixture.Cases {
 		enc := NewEncoder(c.Channels)
 		enc.prefilterPeriod = c.PrevPeriod
-		enc.prefilterGain = c.PrevGain
+		enc.prefilterGain = float32(c.PrevGain)
 		enc.prefilterTapset = c.PrevTapset
 		enc.complexity = c.Complexity
 
@@ -157,7 +157,7 @@ func TestRunPrefilterParityAgainstLibopusFixture(t *testing.T) {
 		if got.qg != c.ExpectedQG {
 			qgMismatch++
 		}
-		gd := math.Abs(got.gain - c.ExpectedGain)
+		gd := math.Abs(float64(got.gain) - c.ExpectedGain)
 		if gd > 1e-5 {
 			gainMismatch++
 			if gd > maxGainDiff {

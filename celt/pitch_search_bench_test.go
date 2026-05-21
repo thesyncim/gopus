@@ -9,15 +9,15 @@ import (
 
 var pitchSearchSink int
 
-func pitchSearchLegacy(xLP []float64, y []float64, length, maxPitch int, scratch *encoderScratch) int {
+func pitchSearchLegacy(xLP []float32, y []float32, length, maxPitch int, scratch *encoderScratch) int {
 	if length <= 0 || maxPitch <= 0 {
 		return 0
 	}
 	lag := length + maxPitch
 
-	xLP4 := ensureFloat64Slice(&scratch.prefilterXLP4, length>>2)
-	yLP4 := ensureFloat64Slice(&scratch.prefilterYLP4, lag>>2)
-	xcorr := ensureFloat64Slice(&scratch.prefilterXcorr, maxPitch>>1)
+	xLP4 := ensureFloat32Slice(&scratch.prefilterXLP4, length>>2)
+	yLP4 := ensureFloat32Slice(&scratch.prefilterYLP4, lag>>2)
+	xcorr := ensureFloat32Slice(&scratch.prefilterXcorr, maxPitch>>1)
 
 	for j := 0; j < length>>2; j++ {
 		xLP4[j] = xLP[2*j]
@@ -26,22 +26,22 @@ func pitchSearchLegacy(xLP []float64, y []float64, length, maxPitch int, scratch
 		yLP4[j] = y[2*j]
 	}
 
-	prefilterPitchXcorr(xLP4, yLP4, xcorr, length>>2, maxPitch>>2)
+	pitchXCorrFloat32(xLP4, yLP4, xcorr, length>>2, maxPitch>>2)
 	bestPitch := [2]int{0, 0}
-	findBestPitch(xcorr, yLP4, length>>2, maxPitch>>2, &bestPitch)
+	findBestPitchF32(xcorr, yLP4, length>>2, maxPitch>>2, &bestPitch)
 
 	for i := 0; i < maxPitch>>1; i++ {
 		xcorr[i] = 0
 		if util.Abs(i-2*bestPitch[0]) > 2 && util.Abs(i-2*bestPitch[1]) > 2 {
 			continue
 		}
-		sum := prefilterInnerProd(xLP, y[i:], length>>1)
+		sum := innerProdFloat32(xLP, y[i:], length>>1)
 		if sum < -1 {
 			sum = -1
 		}
 		xcorr[i] = sum
 	}
-	findBestPitch(xcorr, y, length>>1, maxPitch>>1, &bestPitch)
+	findBestPitchF32(xcorr, y, length>>1, maxPitch>>1, &bestPitch)
 
 	offset := 0
 	if bestPitch[0] > 0 && bestPitch[0] < (maxPitch>>1)-1 {
@@ -57,17 +57,17 @@ func pitchSearchLegacy(xLP []float64, y []float64, length, maxPitch int, scratch
 	return 2*bestPitch[0] - offset
 }
 
-func benchmarkPitchSearch(b *testing.B, fn func([]float64, []float64, int, int, *encoderScratch) int) {
+func benchmarkPitchSearch(b *testing.B, fn func([]float32, []float32, int, int, *encoderScratch) int) {
 	rng := rand.New(rand.NewSource(42))
 	length := 480
 	maxPitch := combFilterMaxPeriod - 3*combFilterMinPeriod
-	xLP := make([]float64, length)
-	y := make([]float64, length+maxPitch)
+	xLP := make([]float32, length)
+	y := make([]float32, length+maxPitch)
 	for i := range xLP {
-		xLP[i] = rng.Float64()*2 - 1
+		xLP[i] = float32(rng.Float64()*2 - 1)
 	}
 	for i := range y {
-		y[i] = rng.Float64()*2 - 1
+		y[i] = float32(rng.Float64()*2 - 1)
 	}
 	var scratch encoderScratch
 	b.ResetTimer()

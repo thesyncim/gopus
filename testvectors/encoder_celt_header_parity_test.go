@@ -121,9 +121,9 @@ func decodeCELTPostfilterHeader(dec *celt.Decoder, packet []byte, frameSize int)
 	}, nil
 }
 
-func qgFromPostfilterGain(gain float64) int {
+func qgFromPostfilterGain(gain float32) int {
 	if gain <= 0 {
 		return 0
 	}
-	return int(math.Round(gain/0.09375)) - 1
+	return int(math.Round(float64(gain)/0.09375)) - 1
 }

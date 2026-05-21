@@ -22,15 +22,15 @@ type CELTDecoderState interface {
 	// SetRNG sets the RNG state.
 	SetRNG(seed uint32)
 	// PreemphState returns the de-emphasis filter state.
-	PreemphState() []float64
+	PreemphState() []float32
 	// OverlapBuffer returns the overlap buffer for synthesis.
-	OverlapBuffer() []float64
+	OverlapBuffer() []float32
 	// SetOverlapBuffer sets the overlap buffer.
-	SetOverlapBuffer(samples []float64)
+	SetOverlapBuffer(samples []float32)
 }
 
 type celtPreemphSetter interface {
-	SetPreemphState(samples []float64)
+	SetPreemphState(samples []float32)
 }
 
 // CELTBandInfo provides band configuration for CELT PLC.
@@ -365,20 +365,21 @@ func normalizeVector(v []float64) {
 
 // applyDeemphasisPLC applies de-emphasis filter during PLC.
 // This maintains the filter state for seamless transition to next good frame.
-func applyDeemphasisPLC(samples []float64, state []float64, channels int) {
+func applyDeemphasisPLC(samples []float64, state []float32, channels int) {
 	if len(samples) == 0 || len(state) < channels {
 		return
 	}
 
 	// De-emphasis coefficient (same as in decoder)
-	const preemphCoef = 0.85
+	const preemphCoef = float32(0.85)
 
 	if channels == 1 {
 		// Mono de-emphasis
 		s := state[0]
 		for i := range samples {
-			samples[i] = samples[i] + preemphCoef*s
-			s = samples[i]
+			tmp := float32(samples[i]) + preemphCoef*s
+			samples[i] = float64(tmp)
+			s = tmp
 		}
 		state[0] = s
 	} else {
@@ -388,12 +389,14 @@ func applyDeemphasisPLC(samples []float64, state []float64, channels int) {
 
 		for i := 0; i < len(samples)-1; i += 2 {
 			// Left channel
-			samples[i] = samples[i] + preemphCoef*stateL
-			stateL = samples[i]
+			left := float32(samples[i]) + preemphCoef*stateL
+			samples[i] = float64(left)
+			stateL = left
 
 			// Right channel
-			samples[i+1] = samples[i+1] + preemphCoef*stateR
-			stateR = samples[i+1]
+			right := float32(samples[i+1]) + preemphCoef*stateR
+			samples[i+1] = float64(right)
+			stateR = right
 		}
 
 		state[0] = stateL

@@ -634,14 +634,14 @@ func TestPreemphasisDeemphasis(t *testing.T) {
 
 			// De-emphasis: y[n] = x[n] + PreemphCoef * y[n-1]
 			if ch == 1 {
-				state := dec.PreemphState()[0]
+				state := float64(dec.PreemphState()[0])
 				for i := range output {
 					output[i] = output[i] + PreemphCoef*state
 					state = output[i]
 				}
 			} else {
-				stateL := dec.PreemphState()[0]
-				stateR := dec.PreemphState()[1]
+				stateL := float64(dec.PreemphState()[0])
+				stateR := float64(dec.PreemphState()[1])
 				for i := 0; i < len(output)-1; i += 2 {
 					output[i] = output[i] + PreemphCoef*stateL
 					stateL = output[i]

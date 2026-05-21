@@ -8,8 +8,9 @@ import (
 )
 
 const (
-	libopusCELTFilterModeDeemphasis = uint32(0)
-	libopusCELTFilterModeCombFilter = uint32(1)
+	libopusCELTFilterModeDeemphasis      = uint32(0)
+	libopusCELTFilterModeCombFilter      = uint32(1)
+	libopusCELTFilterModeCombFilterInput = uint32(2)
 )
 
 var libopusCELTFilterHelper libopustest.HelperCache
@@ -270,7 +271,17 @@ func assertCELTFilterMemBits(t *testing.T, dec *Decoder, want []float32) {
 
 func probeLibopusCombFilter(t *testing.T, start, n, t0, t1, tapset0, tapset1, overlap int, g0, g1 float32, window []float32, buf []float64) []float32 {
 	t.Helper()
-	payload := libopustest.NewOraclePayload("GCFI", libopusCELTFilterModeCombFilter)
+	return probeLibopusCombFilterMode(t, libopusCELTFilterModeCombFilter, start, n, t0, t1, tapset0, tapset1, overlap, g0, g1, window, buf)
+}
+
+func probeLibopusCombFilterInput(t *testing.T, start, n, t0, t1, tapset0, tapset1, overlap int, g0, g1 float32, window []float32, buf []float64) []float32 {
+	t.Helper()
+	return probeLibopusCombFilterMode(t, libopusCELTFilterModeCombFilterInput, start, n, t0, t1, tapset0, tapset1, overlap, g0, g1, window, buf)
+}
+
+func probeLibopusCombFilterMode(t *testing.T, mode uint32, start, n, t0, t1, tapset0, tapset1, overlap int, g0, g1 float32, window []float32, buf []float64) []float32 {
+	t.Helper()
+	payload := libopustest.NewOraclePayload("GCFI", mode)
 	payload.U32(uint32(start))
 	payload.U32(uint32(n))
 	payload.U32(uint32(t0))
@@ -287,8 +298,8 @@ func probeLibopusCombFilter(t *testing.T, start, n, t0, t1, tapset0, tapset1, ov
 		payload.Float32(float32(sample))
 	}
 	reader := runLibopusCELTFilter(t, payload)
-	if gotMode := reader.U32(); gotMode != libopusCELTFilterModeCombFilter {
-		t.Fatalf("helper mode=%d want %d", gotMode, libopusCELTFilterModeCombFilter)
+	if gotMode := reader.U32(); gotMode != mode {
+		t.Fatalf("helper mode=%d want %d", gotMode, mode)
 	}
 	count := int(reader.U32())
 	reader.ExpectRemaining(count * 4)
@@ -328,5 +339,55 @@ func TestCombFilterWithSquareMatchesLibopus(t *testing.T) {
 		if math.Float32bits(got32) != math.Float32bits(want[i]) {
 			t.Fatalf("sample[%d]=%08x want %08x", i, math.Float32bits(got32), math.Float32bits(want[i]))
 		}
+	}
+}
+
+func TestCombFilterWithInputF32MatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	window32 := GetWindowBufferF32(Overlap)
+	window64 := GetWindowBuffer(Overlap)
+	cases := []struct {
+		name      string
+		seed      uint32
+		n         int
+		t0        int
+		t1        int
+		g0        float32
+		g1        float32
+		tapset0   int
+		tapset1   int
+		overlap   int
+		useWindow bool
+	}{
+		{"changed_filter_overlap", 0xabc101, 480, 151, 143, 0.21875, 0.34375, 0, 1, Overlap, true},
+		{"steady_filter_no_overlap", 0xabc102, 960, 320, 320, 0.4375, 0.4375, 2, 2, 0, false},
+		{"g1_zero_tail_copy", 0xabc103, 240, 77, 97, 0.3125, 0, 1, 0, 120, true},
+		{"short_frame", 0xabc104, 120, 47, 91, -0.125, 0.5625, 2, 0, 64, true},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			start := combFilterHistory
+			srcSig := makeCELTPLCTestSignal(start+tc.n+2, tc.seed, 1.0)
+			src := make([]float64, len(srcSig))
+			for i := range srcSig {
+				src[i] = float64(srcSig[i])
+			}
+			overlap := tc.overlap
+			var win32 []float32
+			var win64 []float64
+			if tc.useWindow {
+				win32 = window32
+				win64 = window64
+			} else {
+				overlap = 0
+			}
+
+			want := probeLibopusCombFilterInput(t, start, tc.n, tc.t0, tc.t1, tc.tapset0, tc.tapset1, overlap, tc.g0, tc.g1, win32, src)
+			got := append([]float64(nil), src...)
+			combFilterWithInputF32(got, src, start, tc.t0, tc.t1, tc.n, float64(tc.g0), float64(tc.g1), tc.tapset0, tc.tapset1, win64, overlap)
+			assertFloat64AsFloat32Bits(t, "comb", got[start:start+tc.n], want)
+		})
 	}
 }

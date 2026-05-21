@@ -35,10 +35,10 @@ func NewDecoder(channels int) *Decoder {
 		preemphState: make([]celtSig, channels),
 
 		// Postfilter history buffer for comb filter
-		postfilterMem: make([]float64, combFilterHistory*channels),
+		postfilterMem: make([]celtSig, combFilterHistory*channels),
 		// PLC decode history sized to libopus DEC_PITCH_BUF_SIZE.
-		plcDecodeMem: make([]float64, plcDecodeBufferSize*channels),
-		plcLPC:       make([]float64, celtPLCLPCOrder*channels),
+		plcDecodeMem: make([]celtSig, plcDecodeBufferSize*channels),
+		plcLPC:       make([]float32, celtPLCLPCOrder*channels),
 
 		// RNG state (libopus initializes to zero)
 		rng: 0,

@@ -390,10 +390,34 @@ func TestDecoderSigStateMatchesLibopusFloatSize(t *testing.T) {
 	}{
 		{"overlapBuffer", unsafe.Sizeof(dec.overlapBuffer[0])},
 		{"preemphState", unsafe.Sizeof(dec.preemphState[0])},
+		{"postfilterMem", unsafe.Sizeof(dec.postfilterMem[0])},
+		{"plcDecodeMem", unsafe.Sizeof(dec.plcDecodeMem[0])},
 	}
 	for _, tc := range got {
 		if tc.size != uintptr(sizes.celtSig) {
 			t.Fatalf("%s element size=%d want libopus celt_sig size %d", tc.name, tc.size, sizes.celtSig)
+		}
+	}
+}
+
+func TestDecoderPostfilterStateMatchesLibopusFloatSize(t *testing.T) {
+	libopustest.RequireOracle(t)
+	sizes, err := probeLibopusCELTTypeSizes()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	dec := NewDecoder(2)
+	got := []struct {
+		name string
+		size uintptr
+	}{
+		{"postfilterGain", unsafe.Sizeof(dec.postfilterGain)},
+		{"postfilterGainOld", unsafe.Sizeof(dec.postfilterGainOld)},
+		{"plcLPC", unsafe.Sizeof(dec.plcLPC[0])},
+	}
+	for _, tc := range got {
+		if tc.size != uintptr(sizes.opusVal16) {
+			t.Fatalf("%s element size=%d want libopus opus_val16 size %d", tc.name, tc.size, sizes.opusVal16)
 		}
 	}
 }

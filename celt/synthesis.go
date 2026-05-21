@@ -399,7 +399,7 @@ func (d *Decoder) WindowAndOverlap(imdctOut []float64) []float64 {
 
 	output := imdctOut[:frameSize]
 	if frameSize+Overlap <= len(imdctOut) {
-		d.SetOverlapBuffer(imdctOut[frameSize : frameSize+Overlap])
+		copyFloat64ToSig(d.overlapBuffer, imdctOut[frameSize:frameSize+Overlap])
 	}
 
 	return output

@@ -106,8 +106,8 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 	}
 
 	bufLen := history + segLen
-	d.scratchPLCFoldSrc = ensureFloat64Slice(&d.scratchPLCFoldSrc, bufLen)
-	d.scratchPLCFoldDst = ensureFloat64Slice(&d.scratchPLCFoldDst, bufLen)
+	d.scratchPLCFoldSrc = ensureSigSlice(&d.scratchPLCFoldSrc, bufLen)
+	d.scratchPLCFoldDst = ensureSigSlice(&d.scratchPLCFoldDst, bufLen)
 	window := GetWindowBuffer(segLen)
 	half := segLen >> 1
 
@@ -118,12 +118,12 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 		dst := d.scratchPLCFoldDst[:bufLen]
 
 		copy(src[:history], hist[plcDecodeBufferSize-history:])
-		copySigToFloat64(src[history:], overlap)
+		copy(src[history:], overlap)
 
-		combFilterWithInputF32(
+		combFilterWithInputSig(
 			dst, src, history,
 			d.postfilterPeriodOld, d.postfilterPeriod, segLen,
-			-d.postfilterGainOld, -d.postfilterGain,
+			-float64(d.postfilterGainOld), -float64(d.postfilterGain),
 			d.postfilterTapsetOld, d.postfilterTapset,
 			nil, 0,
 		)
@@ -314,7 +314,7 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 	d.SetPrevEnergy(concealEnergy)
 	d.rng = seed
 
-	d.applyPostfilter(d.scratchPLC[:outLen], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
+	d.applyPostfilter(d.scratchPLC[:outLen], frameSize, mode.LM, d.postfilterPeriod, float64(d.postfilterGain), d.postfilterTapset)
 	d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
 
 	return d.scratchPLC[:outLen], nil
@@ -457,7 +457,7 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 	d.SetPrevEnergy(concealEnergy)
 	d.rng = seed
 
-	d.applyPostfilter(dst[:frameSize*d.channels], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
+	d.applyPostfilter(dst[:frameSize*d.channels], frameSize, mode.LM, d.postfilterPeriod, float64(d.postfilterGain), d.postfilterTapset)
 	if len(d.directOutPCM) >= frameSize*d.channels {
 		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:frameSize*d.channels], dst[:frameSize*d.channels], 1.0/32768.0)
 		return
@@ -515,9 +515,9 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 		return false
 	}
 
-	d.scratchPLCExc = ensureFloat64Slice(&d.scratchPLCExc, maxPeriod+celtPLCLPCOrder)
-	d.scratchPLCFIRTmp = ensureFloat64Slice(&d.scratchPLCFIRTmp, excLength)
-	d.scratchPLCBuf = ensureFloat64Slice(&d.scratchPLCBuf, plcDecodeBufferSize+Overlap)
+	d.scratchPLCExc = ensureSigSlice(&d.scratchPLCExc, maxPeriod+celtPLCLPCOrder)
+	d.scratchPLCFIRTmp = ensureSigSlice(&d.scratchPLCFIRTmp, excLength)
+	d.scratchPLCBuf = ensureSigSlice(&d.scratchPLCBuf, plcDecodeBufferSize+Overlap)
 
 	window := GetWindowBuffer(Overlap)
 	continuePeriodic = lossCount > 1 && continuePeriodic
@@ -542,7 +542,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 		celtFIRFloat32(firTmp, exc32, firStart, excLength, lpc)
 		for i := 0; i < excLength; i++ {
 			v := float32(firTmp[i])
-			exc[firStart+i] = float64(v)
+			exc[firStart+i] = celtSig(v)
 			exc32[firStart+i] = v
 		}
 
@@ -580,7 +580,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 				j = 0
 				attenuation *= decay
 			}
-			chOut[i] = float64(attenuation * float32(exc[celtPLCLPCOrder+extrapolationOffset+j]))
+			chOut[i] = celtSig(attenuation * float32(exc[celtPLCLPCOrder+extrapolationOffset+j]))
 			srcIdx := s1Base + j
 			if srcIdx >= 0 && srcIdx < len(hist) {
 				v := float32(hist[srcIdx])
@@ -605,15 +605,15 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 			blend := min(Overlap, totalSamples)
 			for i := 0; i < blend; i++ {
 				g := float32(1.0) - float32(window[i])*(float32(1.0)-ratio)
-				chOut[i] = float64(float32(chOut[i]) * g)
+				chOut[i] = celtSig(float32(chOut[i]) * g)
 			}
 			for i := blend; i < totalSamples; i++ {
-				chOut[i] = float64(float32(chOut[i]) * ratio)
+				chOut[i] = celtSig(float32(chOut[i]) * ratio)
 			}
 		}
 
 		for i := 0; i < totalSamples; i++ {
-			dst[i*channels+ch] = chOut[i]
+			dst[i*channels+ch] = float64(chOut[i])
 		}
 	}
 
@@ -624,15 +624,24 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 	return true
 }
 
-func (d *Decoder) computePLCLPC(frame, lpc, window []float64) {
-	n := len(frame)
-	if n <= 0 {
-		for i := range lpc {
-			lpc[i] = 0
-		}
+func (d *Decoder) computePLCLPC(frame []celtSig, lpc []float32, window []float64) {
+	var ac [celtPLCLPCOrder + 1]float32
+	d.computePLCAutocorr(frame, window, ac[:])
+	plcLPCFromAutocorr(ac[:], lpc)
+}
+
+func (d *Decoder) computePLCAutocorr(frame []celtSig, window []float64, ac []float32) {
+	if len(ac) < celtPLCLPCOrder+1 {
 		return
 	}
-	d.scratchPLCWindowed = ensureFloat64Slice(&d.scratchPLCWindowed, n)
+	for i := 0; i <= celtPLCLPCOrder; i++ {
+		ac[i] = 0
+	}
+	n := len(frame)
+	if n <= 0 {
+		return
+	}
+	d.scratchPLCWindowed = ensureSigSlice(&d.scratchPLCWindowed, n)
 	x := d.scratchPLCWindowed[:n]
 	copy(x, frame)
 
@@ -642,34 +651,54 @@ func (d *Decoder) computePLCLPC(frame, lpc, window []float64) {
 	}
 	for i := 0; i < overlap && i < len(window); i++ {
 		w := float32(window[i])
-		x[i] = float64(float32(x[i]) * w)
-		x[n-1-i] = float64(float32(x[n-1-i]) * w)
+		x[i] = celtSig(float32(x[i]) * w)
+		x[n-1-i] = celtSig(float32(x[n-1-i]) * w)
 	}
 
 	fastN := n - celtPLCLPCOrder
 	if fastN < 0 {
 		fastN = 0
 	}
-	var ac [celtPLCLPCOrder + 1]float64
-	pitchXCorrFloat32(x, x, ac[:], fastN, celtPLCLPCOrder+1)
+	pitchXCorrSig(x, x, ac[:celtPLCLPCOrder+1], fastN, celtPLCLPCOrder+1)
 	for lag := 0; lag <= celtPLCLPCOrder; lag++ {
 		tail := float32(0)
 		for i := lag + fastN; i < n; i++ {
 			tail += float32(x[i]) * float32(x[i-lag])
 		}
-		ac[lag] = float64(float32(ac[lag]) + tail)
+		ac[lag] += tail
 	}
 
-	// Match libopus float path: add a tiny noise floor and lag windowing.
-	ac[0] = float64(float32(ac[0]) * float32(1.0001))
-	for i := 1; i <= celtPLCLPCOrder; i++ {
-		f := float32(0.008) * float32(i)
-		ac[i] = float64(float32(ac[i]) - float32(ac[i])*f*f)
-	}
-	plcLPCFromAutocorr(ac[:], lpc)
+	applyCELTAutocorrNoiseAndLagWindow32(ac[:], celtPLCLPCOrder)
 }
 
-func plcLPCFromAutocorr(ac []float64, lpc []float64) {
+func applyCELTAutocorrNoiseAndLagWindow(ac []float64, order int) {
+	if len(ac) <= order {
+		return
+	}
+	ac[0] = float64(float32(ac[0]) * float32(1.0001))
+	lagBase := float32(0.008) * float32(0.008)
+	for i := 1; i <= order; i++ {
+		ai := float32(ac[i])
+		lag := ai * lagBase
+		lag *= float32(i * i)
+		ac[i] = float64(ai - lag)
+	}
+}
+
+func applyCELTAutocorrNoiseAndLagWindow32(ac []float32, order int) {
+	if len(ac) <= order {
+		return
+	}
+	ac[0] *= float32(1.0001)
+	lagBase := float32(0.008) * float32(0.008)
+	for i := 1; i <= order; i++ {
+		lag := ac[i] * lagBase
+		lag *= float32(i * i)
+		ac[i] -= lag
+	}
+}
+
+func plcLPCFromAutocorr(ac []float32, lpc []float32) {
 	for i := range lpc {
 		lpc[i] = 0
 	}
@@ -678,36 +707,68 @@ func plcLPCFromAutocorr(ac []float64, lpc []float64) {
 	}
 
 	var lpc32 [celtPLCLPCOrder]float32
-	base := float32(ac[0])
+	base := ac[0]
 	errorPower := base
 	for i := 0; i < len(lpc); i++ {
-		if errorPower <= 0 {
-			break
-		}
-		rr := float32(0)
-		for j := 0; j < i; j++ {
-			rr += lpc32[j] * float32(ac[i-j])
-		}
-		rr += float32(ac[i+1])
+		rr := plcLPCReflectionSum(lpc32[:], ac, i)
+		rr += ac[i+1]
 		r := -rr / errorPower
-		if math.IsNaN(float64(r)) || math.IsInf(float64(r), 0) {
-			break
-		}
 		lpc32[i] = r
 		for j := 0; j < (i+1)>>1; j++ {
 			tmp1 := lpc32[j]
 			tmp2 := lpc32[i-1-j]
-			lpc32[j] = tmp1 + r*tmp2
-			lpc32[i-1-j] = tmp2 + r*tmp1
+			lpc32[j] = fma32(r, tmp2, tmp1)
+			lpc32[i-1-j] = fma32(r, tmp1, tmp2)
 		}
-		errorPower -= (r * r) * errorPower
+		errorPower = fma32(-(r * r), errorPower, errorPower)
 		if errorPower <= float32(0.001)*base {
 			break
 		}
 	}
 	for i := range lpc {
-		lpc[i] = float64(lpc32[i])
+		lpc[i] = lpc32[i]
 	}
+}
+
+func plcLPCReflectionSum(lpc []float32, ac []float32, i int) float32 {
+	if !libopusFloatInnerProdUsesNeonOrder {
+		rr := float32(0)
+		for j := 0; j < i; j++ {
+			rr += lpc[j] * ac[i-j]
+		}
+		return rr
+	}
+
+	rr := float32(0)
+	j := 0
+	for ; j <= i-16; j += 16 {
+		rr += mul32(lpc[j+0], ac[i-j-0])
+		rr += mul32(lpc[j+1], ac[i-j-1])
+		rr += mul32(lpc[j+2], ac[i-j-2])
+		rr += mul32(lpc[j+3], ac[i-j-3])
+		rr += mul32(lpc[j+4], ac[i-j-4])
+		rr += mul32(lpc[j+5], ac[i-j-5])
+		rr += mul32(lpc[j+6], ac[i-j-6])
+		rr += mul32(lpc[j+7], ac[i-j-7])
+		rr += mul32(lpc[j+8], ac[i-j-8])
+		rr += mul32(lpc[j+9], ac[i-j-9])
+		rr += mul32(lpc[j+10], ac[i-j-10])
+		rr += mul32(lpc[j+11], ac[i-j-11])
+		rr += mul32(lpc[j+12], ac[i-j-12])
+		rr += mul32(lpc[j+13], ac[i-j-13])
+		rr += mul32(lpc[j+14], ac[i-j-14])
+		rr += mul32(lpc[j+15], ac[i-j-15])
+	}
+	for ; j <= i-4; j += 4 {
+		rr += mul32(lpc[j+0], ac[i-j-0])
+		rr += mul32(lpc[j+1], ac[i-j-1])
+		rr += mul32(lpc[j+2], ac[i-j-2])
+		rr += mul32(lpc[j+3], ac[i-j-3])
+	}
+	for ; j < i; j++ {
+		rr = fma32(lpc[j], ac[i-j], rr)
+	}
+	return rr
 }
 
 func (d *Decoder) updatePLCOverlapBuffer(plcSamples []float64, frameSize int) {
@@ -737,7 +798,13 @@ func (d *Decoder) updatePLCOverlapBuffer(plcSamples []float64, frameSize int) {
 	}
 }
 
-func pitchXCorrFloat32(x, y, xcorr []float64, length, maxPitch int) {
+type plcPitchSearchScratch struct {
+	xLP4  []float32
+	yLP4  []float32
+	xcorr []float32
+}
+
+func pitchXCorrFloat32(x, y, xcorr []float32, length, maxPitch int) {
 	if length <= 0 || maxPitch <= 0 {
 		return
 	}
@@ -747,39 +814,137 @@ func pitchXCorrFloat32(x, y, xcorr []float64, length, maxPitch int) {
 	i := 0
 	for ; i < maxPitch-3; i += 4 {
 		var sum [4]float32
-		xcorrKernel4Float64(x, y[i:], &sum, length)
-		xcorr[i] = float64(sum[0])
-		xcorr[i+1] = float64(sum[1])
-		xcorr[i+2] = float64(sum[2])
-		xcorr[i+3] = float64(sum[3])
+		xcorrKernel4Float32(x, y[i:], &sum, length)
+		xcorr[i] = sum[0]
+		xcorr[i+1] = sum[1]
+		xcorr[i+2] = sum[2]
+		xcorr[i+3] = sum[3]
 	}
 	for ; i < maxPitch; i++ {
 		xcorr[i] = innerProdFloat32(x, y[i:], length)
 	}
 }
 
-func innerProdFloat32(x, y []float64, length int) float64 {
+func pitchXCorrSig(x, y []celtSig, xcorr []float32, length, maxPitch int) {
+	if length <= 0 || maxPitch <= 0 {
+		return
+	}
+	_ = x[length-1]
+	_ = y[maxPitch+length-2]
+	_ = xcorr[maxPitch-1]
+	i := 0
+	for ; i < maxPitch-3; i += 4 {
+		var sum [4]float32
+		xcorrKernel4Float32(x, y[i:], &sum, length)
+		xcorr[i] = sum[0]
+		xcorr[i+1] = sum[1]
+		xcorr[i+2] = sum[2]
+		xcorr[i+3] = sum[3]
+	}
+	for ; i < maxPitch; i++ {
+		xcorr[i] = innerProdSig(x, y[i:], length)
+	}
+}
+
+func innerProdSig(x, y []celtSig, length int) float32 {
 	if length <= 0 {
 		return 0
 	}
 	_ = x[length-1]
 	_ = y[length-1]
+	if libopusFloatInnerProdUsesNeonOrder {
+		return innerProdSigNeonOrder(x, y, length)
+	}
 	sum := float32(0)
 	for i := 0; i < length; i++ {
 		sum += float32(x[i]) * float32(y[i])
 	}
-	return float64(sum)
+	return sum
 }
 
-func pitchSearchPLC(xLP []float64, y []float64, length, maxPitch int, scratch *encoderScratch) int {
+func innerProdFloat32(x, y []float32, length int) float32 {
+	if length <= 0 {
+		return 0
+	}
+	_ = x[length-1]
+	_ = y[length-1]
+	if libopusFloatInnerProdUsesNeonOrder {
+		return innerProdFloat32NeonOrder(x, y, length)
+	}
+	sum := float32(0)
+	for i := 0; i < length; i++ {
+		sum += x[i] * y[i]
+	}
+	return sum
+}
+
+func innerProdSigNeonOrder(x, y []celtSig, length int) float32 {
+	var acc [4]float32
+	i := 0
+	for ; i < length-7; i += 8 {
+		acc[0] = fma32(float32(x[i]), float32(y[i]), acc[0])
+		acc[1] = fma32(float32(x[i+1]), float32(y[i+1]), acc[1])
+		acc[2] = fma32(float32(x[i+2]), float32(y[i+2]), acc[2])
+		acc[3] = fma32(float32(x[i+3]), float32(y[i+3]), acc[3])
+		acc[0] = fma32(float32(x[i+4]), float32(y[i+4]), acc[0])
+		acc[1] = fma32(float32(x[i+5]), float32(y[i+5]), acc[1])
+		acc[2] = fma32(float32(x[i+6]), float32(y[i+6]), acc[2])
+		acc[3] = fma32(float32(x[i+7]), float32(y[i+7]), acc[3])
+	}
+	if length-i >= 4 {
+		acc[0] = fma32(float32(x[i]), float32(y[i]), acc[0])
+		acc[1] = fma32(float32(x[i+1]), float32(y[i+1]), acc[1])
+		acc[2] = fma32(float32(x[i+2]), float32(y[i+2]), acc[2])
+		acc[3] = fma32(float32(x[i+3]), float32(y[i+3]), acc[3])
+		i += 4
+	}
+	xy0 := acc[0] + acc[2]
+	xy1 := acc[1] + acc[3]
+	sum := xy0 + xy1
+	for ; i < length; i++ {
+		sum += float32(x[i]) * float32(y[i])
+	}
+	return sum
+}
+
+func innerProdFloat32NeonOrder(x, y []float32, length int) float32 {
+	var acc [4]float32
+	i := 0
+	for ; i < length-7; i += 8 {
+		acc[0] = fma32(x[i], y[i], acc[0])
+		acc[1] = fma32(x[i+1], y[i+1], acc[1])
+		acc[2] = fma32(x[i+2], y[i+2], acc[2])
+		acc[3] = fma32(x[i+3], y[i+3], acc[3])
+		acc[0] = fma32(x[i+4], y[i+4], acc[0])
+		acc[1] = fma32(x[i+5], y[i+5], acc[1])
+		acc[2] = fma32(x[i+6], y[i+6], acc[2])
+		acc[3] = fma32(x[i+7], y[i+7], acc[3])
+	}
+	if length-i >= 4 {
+		acc[0] = fma32(x[i], y[i], acc[0])
+		acc[1] = fma32(x[i+1], y[i+1], acc[1])
+		acc[2] = fma32(x[i+2], y[i+2], acc[2])
+		acc[3] = fma32(x[i+3], y[i+3], acc[3])
+		i += 4
+	}
+	xy0 := acc[0] + acc[2]
+	xy1 := acc[1] + acc[3]
+	sum := xy0 + xy1
+	for ; i < length; i++ {
+		sum += x[i] * y[i]
+	}
+	return sum
+}
+
+func pitchSearchPLC(xLP []float32, y []float32, length, maxPitch int, scratch *plcPitchSearchScratch) int {
 	if length <= 0 || maxPitch <= 0 {
 		return 0
 	}
 	lag := length + maxPitch
 
-	xLP4 := ensureFloat64Slice(&scratch.prefilterXLP4, length>>2)
-	yLP4 := ensureFloat64Slice(&scratch.prefilterYLP4, lag>>2)
-	xcorr := ensureFloat64Slice(&scratch.prefilterXcorr, maxPitch>>1)
+	xLP4 := ensureFloat32Slice(&scratch.xLP4, length>>2)
+	yLP4 := ensureFloat32Slice(&scratch.yLP4, lag>>2)
+	xcorr := ensureFloat32Slice(&scratch.xcorr, maxPitch>>1)
 
 	for j := 0; j < length>>2; j++ {
 		xLP4[j] = xLP[2*j]
@@ -790,10 +955,11 @@ func pitchSearchPLC(xLP []float64, y []float64, length, maxPitch int, scratch *e
 
 	pitchXCorrFloat32(xLP4, yLP4, xcorr, length>>2, maxPitch>>2)
 	bestPitch := [2]int{0, 0}
-	findBestPitch(xcorr, yLP4, length>>2, maxPitch>>2, &bestPitch)
+	findBestPitchF32(xcorr, yLP4, length>>2, maxPitch>>2, &bestPitch)
 
 	halfPitch := maxPitch >> 1
 	ranges := pitchSearchFineRanges(bestPitch, halfPitch)
+	clear(xcorr[:halfPitch])
 	halfLen := length >> 1
 	Syy := float32(1)
 	for j := 0; j < halfLen; j++ {
@@ -823,8 +989,7 @@ func pitchSearchPLC(xLP []float64, y []float64, length, maxPitch int, scratch *e
 			}
 			xcorr[i] = sum
 			if sum > 0 {
-				xc := float32(sum)
-				xcorr16 := xc * pitchSearchXcorrScale
+				xcorr16 := sum * pitchSearchXcorrScale
 				num := xcorr16 * xcorr16
 				if num*bestDen[1] > bestNum[1]*Syy {
 					if num*bestDen[0] > bestNum[0]*Syy {
@@ -888,8 +1053,8 @@ func (d *Decoder) searchPLCPitchPeriod() int {
 	if lpLen <= (plcPitchLagMax >> 1) {
 		return 0
 	}
-	d.scratchPLCPitchLP = ensureFloat64Slice(&d.scratchPLCPitchLP, lpLen)
-	pitchDownsample(d.plcDecodeMem, d.scratchPLCPitchLP, lpLen, channels, 2)
+	d.scratchPLCPitchLP = ensureFloat32Slice(&d.scratchPLCPitchLP, lpLen)
+	pitchDownsampleSig(d.plcDecodeMem, d.scratchPLCPitchLP, lpLen, channels, 2)
 
 	searchOut := pitchSearchPLC(
 		d.scratchPLCPitchLP[plcPitchLagMax>>1:],

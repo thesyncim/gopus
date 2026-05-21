@@ -11,7 +11,7 @@ type prefilterResult struct {
 	pitch  int
 	qg     int
 	tapset int
-	gain   float64
+	gain   float32
 }
 
 // runPrefilter applies the CELT prefilter (comb filter) and returns the
@@ -75,7 +75,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	needStateRound := false
 
 	pitchIndex := minPeriod
-	gain1 := 0.0
+	gain1 := float32(0)
 	qg := 0
 	pfOn := false
 
@@ -102,7 +102,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		if pitchBufLen < 1 {
 			pitchBufLen = 1
 		}
-		pitchBuf := ensureFloat64Slice(&e.scratch.prefilterPitchBuf, pitchBufLen)
+		pitchBuf := ensureFloat32Slice(&e.scratch.prefilterPitchBuf, pitchBufLen)
 		pitchDownsample(pre, pitchBuf, pitchBufLen, channels, 2)
 		maxPitch := maxPeriod - 3*minPeriod
 		if maxPitch < 1 {
@@ -136,10 +136,10 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	if maxPitchRatio > 1 {
 		maxPitchRatio = 1
 	}
-	gain1 *= maxPitchRatio
+	gain1 *= float32(maxPitchRatio)
 
 	// Gain threshold for enabling the prefilter/postfilter
-	pfThreshold := 0.2
+	pfThreshold := float32(0.2)
 	if util.Abs(pitchIndex-e.prefilterPeriod)*10 > pitchIndex {
 		pfThreshold += 0.2
 		if tfEstimate > 0.98 {
@@ -166,17 +166,17 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		pfOn = false
 		qg = 0
 	} else {
-		if math.Abs(gain1-e.prefilterGain) < 0.1 {
+		if abs32(gain1-e.prefilterGain) < 0.1 {
 			gain1 = e.prefilterGain
 		}
-		qg = int(math.Floor(0.5+gain1*32.0/3.0)) - 1
+		qg = int(math.Floor(0.5+float64(gain1)*32.0/3.0)) - 1
 		if qg < 0 {
 			qg = 0
 		}
 		if qg > 7 {
 			qg = 7
 		}
-		gain1 = 0.09375 * float64(qg+1)
+		gain1 = float32(0.09375) * float32(qg+1)
 		pfOn = true
 	}
 
@@ -210,17 +210,18 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		preSub := preCh[maxPeriod : maxPeriod+frameSize]
 		before[ch] = absSum(preSub)
 		if offset > 0 {
-			combFilterWithInputF32(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
+			combFilterWithInputF32(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -float64(e.prefilterGain), -float64(e.prefilterGain), prevTapset, prevTapset, nil, 0)
 		}
-		combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
+		combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -float64(e.prefilterGain), -float64(gain1), prevTapset, tapset, window, overlap)
 		outSub := outCh[maxPeriod : maxPeriod+frameSize]
 		after[ch] = absSum(outSub)
 	}
 
 	cancelPitch := false
 	if channels == 2 {
-		thresh0 := 0.25*gain1*before[0] + 0.01*before[1]
-		thresh1 := 0.25*gain1*before[1] + 0.01*before[0]
+		gain64 := float64(gain1)
+		thresh0 := 0.25*gain64*before[0] + 0.01*before[1]
+		thresh1 := 0.25*gain64*before[1] + 0.01*before[0]
 		if after[0]-before[0] > thresh0 || after[1]-before[1] > thresh1 {
 			cancelPitch = true
 		}
@@ -238,7 +239,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 			outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 			copy(outCh[maxPeriod:maxPeriod+frameSize], preCh[maxPeriod:maxPeriod+frameSize])
-			combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, -0, prevTapset, tapset, window, overlap)
+			combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -float64(e.prefilterGain), 0, prevTapset, tapset, window, overlap)
 		}
 		gain1 = 0
 		pfOn = false
@@ -321,6 +322,13 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	return result
 }
 
+func abs32(x float32) float32 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
 func (e *Encoder) updatePrefilterNoopState(pre []float64, perChanLen, frameSize, channels, overlap int) {
 	if channels <= 0 || frameSize <= 0 || len(pre) < perChanLen*channels {
 		return
@@ -351,7 +359,7 @@ func (e *Encoder) updatePrefilterNoopState(pre []float64, perChanLen, frameSize,
 	}
 }
 
-func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
+func pitchDownsample(x []float64, xLP []float32, length, channels, factor int) {
 	if length <= 0 || factor <= 0 || len(xLP) < length {
 		return
 	}
@@ -365,10 +373,10 @@ func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
 			idx := 2
 			for i := 1; i < length; i++ {
 				v := firQuarter*float32(x[idx-1]) + firQuarter*float32(x[idx+1]) + firHalf*float32(x[idx])
-				xLP[i] = float64(v)
+				xLP[i] = v
 				idx += 2
 			}
-			xLP[0] = float64(firQuarter*float32(x[1]) + firHalf*float32(x[0]))
+			xLP[0] = firQuarter*float32(x[1]) + firHalf*float32(x[0])
 		} else if channels == 2 {
 			chStride := len(x) / 2
 			x0 := x[:chStride]
@@ -377,11 +385,14 @@ func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
 			for i := 1; i < length; i++ {
 				v0 := firQuarter*float32(x0[idx-1]) + firQuarter*float32(x0[idx+1]) + firHalf*float32(x0[idx])
 				v1 := firQuarter*float32(x1[idx-1]) + firQuarter*float32(x1[idx+1]) + firHalf*float32(x1[idx])
-				xLP[i] = float64(v0 + v1)
+				xLP[i] = v0
+				xLP[i] += v1
 				idx += 2
 			}
-			xLP[0] = float64(firQuarter*float32(x0[1]) + firHalf*float32(x0[0]) +
-				firQuarter*float32(x1[1]) + firHalf*float32(x1[0]))
+			v0 := firQuarter*float32(x0[1]) + firHalf*float32(x0[0])
+			v1 := firQuarter*float32(x1[1]) + firHalf*float32(x1[0])
+			xLP[0] = v0
+			xLP[0] += v1
 		}
 		handled = true
 	}
@@ -395,9 +406,9 @@ func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
 			v := firQuarter*float32(x[idx-offset]) +
 				firQuarter*float32(x[idx+offset]) +
 				firHalf*float32(x[idx])
-			xLP[i] = float64(v)
+			xLP[i] = v
 		}
-		xLP[0] = float64(firQuarter*float32(x[offset]) + firHalf*float32(x[0]))
+		xLP[0] = firQuarter*float32(x[offset]) + firHalf*float32(x[0])
 		if channels == 2 {
 			chStride := len(x) / 2
 			x1 := x[chStride:]
@@ -406,42 +417,125 @@ func pitchDownsample(x []float64, xLP []float64, length, channels, factor int) {
 				v := firQuarter*float32(x1[idx-offset]) +
 					firQuarter*float32(x1[idx+offset]) +
 					firHalf*float32(x1[idx])
-				xLP[i] = float64(float32(xLP[i]) + v)
+				xLP[i] += v
 			}
-			xLP[0] = float64(float32(xLP[0]) + firQuarter*float32(x1[offset]) + firHalf*float32(x1[0]))
+			v := firQuarter*float32(x1[offset]) + firHalf*float32(x1[0])
+			xLP[0] += v
 		}
 	}
 
 	// Match libopus _celt_autocorr() order for lag=4, overlap=0.
 	// This preserves float-path accumulation behavior used by tone/pitch analysis.
-	var ac [5]float64
-	lp := xLP[:length]
-	pitchAutocorr5(lp, length, &ac)
+	var ac [5]float32
+	pitchAutocorr5F32(xLP[:length], length, &ac)
 
-	ac[0] = float64(float32(ac[0]) * float32(1.0001))
-	for i := 1; i <= 4; i++ {
-		f := float32(0.008) * float32(i)
-		ac[i] = float64(float32(ac[i]) - float32(ac[i])*f*f)
-	}
+	applyCELTAutocorrNoiseAndLagWindow32(ac[:], 4)
 
-	lpc := lpcFromAutocorr(ac)
+	lpc := lpcFromAutocorr32(ac)
 	tmp := float32(1.0)
 	for i := 0; i < 4; i++ {
 		tmp *= float32(0.9)
-		lpc[i] = float64(float32(lpc[i]) * tmp)
+		lpc[i] *= tmp
 	}
 	c1 := float32(0.8)
-	lpc2 := [5]float64{
-		float64(float32(lpc[0]) + float32(0.8)),
-		float64(float32(lpc[1]) + c1*float32(lpc[0])),
-		float64(float32(lpc[2]) + c1*float32(lpc[1])),
-		float64(float32(lpc[3]) + c1*float32(lpc[2])),
-		float64(c1 * float32(lpc[3])),
+	lpc2 := [5]float32{
+		lpc[0] + float32(0.8),
+		lpc[1] + c1*lpc[0],
+		lpc[2] + c1*lpc[1],
+		lpc[3] + c1*lpc[2],
+		c1 * lpc[3],
 	}
-	celtFIR5(xLP, lpc2)
+	celtFIR5F32(xLP, lpc2)
 }
 
-func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *encoderScratch) int {
+func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int) {
+	if length <= 0 || factor <= 0 || len(xLP) < length {
+		return
+	}
+	const (
+		firQuarter = float32(0.25)
+		firHalf    = float32(0.5)
+	)
+	handled := false
+	if factor == 2 {
+		if channels == 1 {
+			idx := 2
+			for i := 1; i < length; i++ {
+				v := firQuarter*float32(x[idx-1]) + firQuarter*float32(x[idx+1]) + firHalf*float32(x[idx])
+				xLP[i] = v
+				idx += 2
+			}
+			xLP[0] = firQuarter*float32(x[1]) + firHalf*float32(x[0])
+		} else if channels == 2 {
+			chStride := len(x) / 2
+			x0 := x[:chStride]
+			x1 := x[chStride:]
+			idx := 2
+			for i := 1; i < length; i++ {
+				v0 := firQuarter*float32(x0[idx-1]) + firQuarter*float32(x0[idx+1]) + firHalf*float32(x0[idx])
+				v1 := firQuarter*float32(x1[idx-1]) + firQuarter*float32(x1[idx+1]) + firHalf*float32(x1[idx])
+				xLP[i] = v0
+				xLP[i] += v1
+				idx += 2
+			}
+			v0 := firQuarter*float32(x0[1]) + firHalf*float32(x0[0])
+			v1 := firQuarter*float32(x1[1]) + firHalf*float32(x1[0])
+			xLP[0] = v0
+			xLP[0] += v1
+		}
+		handled = true
+	}
+	if !handled {
+		offset := factor / 2
+		if offset < 1 {
+			offset = 1
+		}
+		for i := 1; i < length; i++ {
+			idx := factor * i
+			v := firQuarter*float32(x[idx-offset]) +
+				firQuarter*float32(x[idx+offset]) +
+				firHalf*float32(x[idx])
+			xLP[i] = v
+		}
+		xLP[0] = firQuarter*float32(x[offset]) + firHalf*float32(x[0])
+		if channels == 2 {
+			chStride := len(x) / 2
+			x1 := x[chStride:]
+			for i := 1; i < length; i++ {
+				idx := factor * i
+				v := firQuarter*float32(x1[idx-offset]) +
+					firQuarter*float32(x1[idx+offset]) +
+					firHalf*float32(x1[idx])
+				xLP[i] += v
+			}
+			v := firQuarter*float32(x1[offset]) + firHalf*float32(x1[0])
+			xLP[0] += v
+		}
+	}
+
+	var ac [5]float32
+	pitchAutocorr5F32(xLP[:length], length, &ac)
+
+	applyCELTAutocorrNoiseAndLagWindow32(ac[:], 4)
+
+	lpc := lpcFromAutocorr32(ac)
+	tmp := float32(1.0)
+	for i := 0; i < 4; i++ {
+		tmp *= float32(0.9)
+		lpc[i] *= tmp
+	}
+	c1 := float32(0.8)
+	lpc2 := [5]float32{
+		lpc[0] + float32(0.8),
+		lpc[1] + c1*lpc[0],
+		lpc[2] + c1*lpc[1],
+		lpc[3] + c1*lpc[2],
+		c1 * lpc[3],
+	}
+	celtFIR5F32(xLP, lpc2)
+}
+
+func pitchSearch(xLP []float32, y []float32, length, maxPitch int, scratch *encoderScratch) int {
 	if length <= 0 || maxPitch <= 0 {
 		return 0
 	}
@@ -452,9 +546,9 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 	halfLen := length >> 1
 	halfPitch := maxPitch >> 1
 
-	xLP4 := ensureFloat64Slice(&scratch.prefilterXLP4, quarterLen)
-	yLP4 := ensureFloat64Slice(&scratch.prefilterYLP4, quarterLag)
-	xcorr := ensureFloat64Slice(&scratch.prefilterXcorr, halfPitch)
+	xLP4 := ensureFloat32Slice(&scratch.prefilterXLP4, quarterLen)
+	yLP4 := ensureFloat32Slice(&scratch.prefilterYLP4, quarterLag)
+	xcorr := ensureFloat32Slice(&scratch.prefilterXcorr, halfPitch)
 
 	for j, idx := 0, 0; j < quarterLen; j, idx = j+1, idx+2 {
 		xLP4[j] = xLP[idx]
@@ -463,9 +557,9 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 		yLP4[j] = y[idx]
 	}
 
-	prefilterPitchXcorrFast(xLP4, yLP4, xcorr, quarterLen, quarterPitch)
+	pitchXCorrFloat32(xLP4, yLP4, xcorr, quarterLen, quarterPitch)
 	bestPitch := [2]int{0, 0}
-	findBestPitch(xcorr, yLP4, quarterLen, quarterPitch, &bestPitch)
+	findBestPitchF32(xcorr, yLP4, quarterLen, quarterPitch, &bestPitch)
 
 	ranges := pitchSearchFineRanges(bestPitch, halfPitch)
 	for _, r := range ranges {
@@ -504,14 +598,13 @@ func pitchSearch(xLP []float64, y []float64, length, maxPitch int, scratch *enco
 			}
 		}
 		n := r.hi - r.lo + 1
-		prefilterPitchXcorrFast(xLP, y[r.lo:], xcorr[r.lo:], halfLen, n)
+		pitchXCorrFloat32(xLP, y[r.lo:], xcorr[r.lo:], halfLen, n)
 		for ; i <= r.hi; i++ {
 			if xcorr[i] < -1 {
 				xcorr[i] = -1
 			}
 			if xv := xcorr[i]; xv > 0 {
-				xc := float32(xv)
-				xcorr16 := xc * pitchSearchXcorrScale
+				xcorr16 := xv * pitchSearchXcorrScale
 				num := xcorr16 * xcorr16
 				if num*bestDen[1] > bestNum[1]*Syy {
 					if num*bestDen[0] > bestNum[0]*Syy {
@@ -587,6 +680,46 @@ func findBestPitch(xcorr []float64, y []float64, length, maxPitch int, bestPitch
 		}
 		yi := float32(y[i])
 		yil := float32(y[i+length])
+		Syy += yil*yil - yi*yi
+		if Syy < 1 {
+			Syy = 1
+		}
+	}
+}
+
+func findBestPitchF32(xcorr []float32, y []float32, length, maxPitch int, bestPitch *[2]int) {
+	Syy := float32(1)
+	bestNum := [2]float32{-1, -1}
+	bestDen := [2]float32{0, 0}
+	bestPitch[0] = 0
+	bestPitch[1] = 1
+	_ = y[length+maxPitch-1]
+	_ = xcorr[maxPitch-1]
+	for j := 0; j < length; j++ {
+		Syy += y[j] * y[j]
+	}
+	const xcorrScale = float32(1e-12)
+	for i := 0; i < maxPitch; i++ {
+		if xv := xcorr[i]; xv > 0 {
+			xcorr16 := xv * xcorrScale
+			num := xcorr16 * xcorr16
+			if num*bestDen[1] > bestNum[1]*Syy {
+				if num*bestDen[0] > bestNum[0]*Syy {
+					bestNum[1] = bestNum[0]
+					bestDen[1] = bestDen[0]
+					bestPitch[1] = bestPitch[0]
+					bestNum[0] = num
+					bestDen[0] = Syy
+					bestPitch[0] = i
+				} else {
+					bestNum[1] = num
+					bestDen[1] = Syy
+					bestPitch[1] = i
+				}
+			}
+		}
+		yi := y[i]
+		yil := y[i+length]
 		Syy += yil*yil - yi*yi
 		if Syy < 1 {
 			Syy = 1
@@ -692,7 +825,58 @@ func findBestPitchInRanges(xcorr []float64, y []float64, length int, ranges [2]p
 	}
 }
 
-func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPeriod int, prevGain float64, scratch *encoderScratch) float64 {
+func findBestPitchInRangesF32(xcorr []float32, y []float32, length int, ranges [2]pitchSearchRange, bestPitch *[2]int) {
+	Syy := float32(1)
+	bestNum := [2]float32{-1, -1}
+	bestDen := [2]float32{0, 0}
+	bestPitch[0] = 0
+	bestPitch[1] = 1
+	for j := 0; j < length; j++ {
+		Syy += y[j] * y[j]
+	}
+	i := 0
+	for _, r := range ranges {
+		if r.hi < r.lo {
+			continue
+		}
+		for ; i < r.lo; i++ {
+			yi := y[i]
+			yil := y[i+length]
+			Syy += yil*yil - yi*yi
+			if Syy < 1 {
+				Syy = 1
+			}
+		}
+		for ; i <= r.hi; i++ {
+			if xv := xcorr[i]; xv > 0 {
+				xcorr16 := xv * pitchSearchXcorrScale
+				num := xcorr16 * xcorr16
+				if num*bestDen[1] > bestNum[1]*Syy {
+					if num*bestDen[0] > bestNum[0]*Syy {
+						bestNum[1] = bestNum[0]
+						bestDen[1] = bestDen[0]
+						bestPitch[1] = bestPitch[0]
+						bestNum[0] = num
+						bestDen[0] = Syy
+						bestPitch[0] = i
+					} else {
+						bestNum[1] = num
+						bestDen[1] = Syy
+						bestPitch[1] = i
+					}
+				}
+			}
+			yi := y[i]
+			yil := y[i+length]
+			Syy += yil*yil - yi*yi
+			if Syy < 1 {
+				Syy = 1
+			}
+		}
+	}
+}
+
+func removeDoubling(x []float32, maxPeriod, minPeriod, N int, T0 *int, prevPeriod int, prevGain float32, scratch *encoderScratch) float32 {
 	minPeriod0 := minPeriod
 	maxPeriod >>= 1
 	minPeriod >>= 1
@@ -709,21 +893,17 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	}
 	T0val := *T0
 	x0 := xBase[maxPeriod:]
-	xx64, xy64 := prefilterDualInnerProd(x0, x0, xBase[maxPeriod-T0val:maxPeriod-T0val+N], N)
-	xx := float32(xx64)
-	xy := float32(xy64)
+	xx, xy := prefilterDualInnerProdF32(x0, x0, xBase[maxPeriod-T0val:maxPeriod-T0val+N], N)
 
 	yyLookup := ensureFloat32Slice(&scratch.prefilterYYLookup, maxPeriod+1)
 	yy := xx
 	yyLookup[0] = yy
 	for i := 1; i <= maxPeriod; i++ {
-		v1 := float32(xBase[maxPeriod-i])
-		v2 := float32(xBase[maxPeriod+N-i])
-		yy += v1*v1 - v2*v2
-		if yy < 0 {
-			yy = 0
-		}
-		yyLookup[i] = yy
+		v1 := xBase[maxPeriod-i]
+		v2 := xBase[maxPeriod+N-i]
+		yy += v1 * v1
+		yy -= v2 * v2
+		yyLookup[i] = maxFloat32(0, yy)
 	}
 
 	yy = yyLookup[T0val]
@@ -748,15 +928,15 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 		} else {
 			T1b = (2*secondCheck[k]*T0val + k) / (2 * k)
 		}
-		xy1, xy2 := prefilterDualInnerProd(x0, xBase[maxPeriod-T1:maxPeriod-T1+N], xBase[maxPeriod-T1b:maxPeriod-T1b+N], N)
-		xy = float32(0.5) * (float32(xy1) + float32(xy2))
+		xy1, xy2 := prefilterDualInnerProdF32(x0, xBase[maxPeriod-T1:maxPeriod-T1+N], xBase[maxPeriod-T1b:maxPeriod-T1b+N], N)
+		xy = float32(0.5) * (xy1 + xy2)
 		yy = float32(0.5) * (yyLookup[T1] + yyLookup[T1b])
 		g1 := computePitchGain(xy, xx, yy)
 		cont := float32(0)
 		if util.Abs(T1-prevPeriod) <= 1 {
-			cont = float32(prevGain)
+			cont = prevGain
 		} else if util.Abs(T1-prevPeriod) <= 2 && 5*k*k < T0val {
-			cont = float32(0.5) * float32(prevGain)
+			cont = float32(0.5) * prevGain
 		}
 		thresh := maxFloat32(float32(0.3), float32(0.7)*g0-cont)
 		if T1 < 3*minPeriod {
@@ -777,20 +957,16 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	}
 	pg := g
 	if bestYY > bestXY {
-		pg = bestXY / (bestYY + float32(1))
+		pg = float32(float64(bestXY) / float64(bestYY+float32(1)))
 		if pg > g {
 			pg = g
 		}
 	}
 
-	prev, mid, next := tripleInnerProd(
-		x0,
-		xBase[maxPeriod-(T-1):maxPeriod-(T-1)+N],
-		xBase[maxPeriod-T:maxPeriod-T+N],
-		xBase[maxPeriod-(T+1):maxPeriod-(T+1)+N],
-		N,
-	)
-	xcorr := [3]float32{float32(prev), float32(mid), float32(next)}
+	prev := innerProdFloat32(x0, xBase[maxPeriod-(T-1):maxPeriod-(T-1)+N], N)
+	mid := innerProdFloat32(x0, xBase[maxPeriod-T:maxPeriod-T+N], N)
+	next := innerProdFloat32(x0, xBase[maxPeriod-(T+1):maxPeriod-(T+1)+N], N)
+	xcorr := [3]float32{prev, mid, next}
 	offset := 0
 	if (xcorr[2] - xcorr[0]) > float32(0.7)*(xcorr[1]-xcorr[0]) {
 		offset = 1
@@ -801,7 +977,7 @@ func removeDoubling(x []float64, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	if *T0 < minPeriod0 {
 		*T0 = minPeriod0
 	}
-	return float64(pg)
+	return pg
 }
 
 func maxFloat32(a, b float32) float32 {
@@ -811,11 +987,78 @@ func maxFloat32(a, b float32) float32 {
 	return b
 }
 
+func prefilterDualInnerProdF32(x, y1, y2 []float32, length int) (float32, float32) {
+	if length <= 0 {
+		return 0, 0
+	}
+	_ = x[length-1]
+	_ = y1[length-1]
+	_ = y2[length-1]
+	if libopusFloatInnerProdUsesNeonOrder {
+		return prefilterDualInnerProdF32NeonOrder(x, y1, y2, length)
+	}
+	sum1 := float32(0)
+	sum2 := float32(0)
+	for i := 0; i < length; i++ {
+		xi := x[i]
+		sum1 += xi * y1[i]
+		sum2 += xi * y2[i]
+	}
+	return sum1, sum2
+}
+
+func prefilterDualInnerProdF32NeonOrder(x, y1, y2 []float32, length int) (float32, float32) {
+	var acc1 [4]float32
+	var acc2 [4]float32
+	i := 0
+	for ; i < length-7; i += 8 {
+		acc1[0] = fma32(x[i], y1[i], acc1[0])
+		acc1[1] = fma32(x[i+1], y1[i+1], acc1[1])
+		acc1[2] = fma32(x[i+2], y1[i+2], acc1[2])
+		acc1[3] = fma32(x[i+3], y1[i+3], acc1[3])
+		acc2[0] = fma32(x[i], y2[i], acc2[0])
+		acc2[1] = fma32(x[i+1], y2[i+1], acc2[1])
+		acc2[2] = fma32(x[i+2], y2[i+2], acc2[2])
+		acc2[3] = fma32(x[i+3], y2[i+3], acc2[3])
+
+		acc1[0] = fma32(x[i+4], y1[i+4], acc1[0])
+		acc1[1] = fma32(x[i+5], y1[i+5], acc1[1])
+		acc1[2] = fma32(x[i+6], y1[i+6], acc1[2])
+		acc1[3] = fma32(x[i+7], y1[i+7], acc1[3])
+		acc2[0] = fma32(x[i+4], y2[i+4], acc2[0])
+		acc2[1] = fma32(x[i+5], y2[i+5], acc2[1])
+		acc2[2] = fma32(x[i+6], y2[i+6], acc2[2])
+		acc2[3] = fma32(x[i+7], y2[i+7], acc2[3])
+	}
+	if length-i >= 4 {
+		acc1[0] = fma32(x[i], y1[i], acc1[0])
+		acc1[1] = fma32(x[i+1], y1[i+1], acc1[1])
+		acc1[2] = fma32(x[i+2], y1[i+2], acc1[2])
+		acc1[3] = fma32(x[i+3], y1[i+3], acc1[3])
+		acc2[0] = fma32(x[i], y2[i], acc2[0])
+		acc2[1] = fma32(x[i+1], y2[i+1], acc2[1])
+		acc2[2] = fma32(x[i+2], y2[i+2], acc2[2])
+		acc2[3] = fma32(x[i+3], y2[i+3], acc2[3])
+		i += 4
+	}
+	xy10 := acc1[0] + acc1[2]
+	xy11 := acc1[1] + acc1[3]
+	xy20 := acc2[0] + acc2[2]
+	xy21 := acc2[1] + acc2[3]
+	sum1 := xy10 + xy11
+	sum2 := xy20 + xy21
+	for ; i < length; i++ {
+		sum1 += x[i] * y1[i]
+		sum2 += x[i] * y2[i]
+	}
+	return sum1, sum2
+}
+
 func computePitchGain(xy, xx, yy float32) float32 {
 	if xy == 0 || xx == 0 || yy == 0 {
 		return 0
 	}
-	return xy / float32(math.Sqrt(float64(1+xx*yy)))
+	return xy / float32(math.Sqrt(float64(fma32(xx, yy, 1))))
 }
 
 func celtFIR5(x []float64, num [5]float64) {
@@ -855,6 +1098,43 @@ func celtFIR5(x []float64, num [5]float64) {
 	}
 }
 
+func celtFIR5F32(x []float32, num [5]float32) {
+	n0 := num[0]
+	n1 := num[1]
+	n2 := num[2]
+	n3 := num[3]
+	n4 := num[4]
+	mem0 := float32(0)
+	mem1 := float32(0)
+	mem2 := float32(0)
+	mem3 := float32(0)
+	mem4 := float32(0)
+	i := 0
+	for ; i+1 < len(x); i += 2 {
+		x0 := x[i]
+		sum0 := x0 + n0*mem0 + n1*mem1 + n2*mem2 + n3*mem3 + n4*mem4
+		x1 := x[i+1]
+		sum1 := x1 + n0*x0 + n1*mem0 + n2*mem1 + n3*mem2 + n4*mem3
+		x[i] = sum0
+		x[i+1] = sum1
+		mem4 = mem2
+		mem3 = mem1
+		mem2 = mem0
+		mem1 = x0
+		mem0 = x1
+	}
+	for ; i < len(x); i++ {
+		xi := x[i]
+		sum := xi + n0*mem0 + n1*mem1 + n2*mem2 + n3*mem3 + n4*mem4
+		mem4 = mem3
+		mem3 = mem2
+		mem2 = mem1
+		mem1 = mem0
+		mem0 = xi
+		x[i] = sum
+	}
+}
+
 func lpcFromAutocorr(ac [5]float64) [4]float64 {
 	var lpc [4]float64
 	if ac[0] <= 1e-10 {
@@ -886,6 +1166,27 @@ func lpcFromAutocorr(ac [5]float64) [4]float64 {
 		lpc[i] = float64(lpc32[i])
 	}
 	return lpc
+}
+
+func lpcFromAutocorr32(ac [5]float32) [4]float32 {
+	var lpc [4]float32
+	plcLPCFromAutocorr(ac[:], lpc[:])
+	return lpc
+}
+
+func pitchAutocorr5F32(lp []float32, length int, ac *[5]float32) {
+	fastN := length - 4
+	if fastN < 0 {
+		fastN = 0
+	}
+	pitchXCorrFloat32(lp, lp, ac[:], fastN, 5)
+	for lag := 0; lag <= 4; lag++ {
+		tail := float32(0)
+		for i := lag + fastN; i < length; i++ {
+			tail += lp[i] * lp[i-lag]
+		}
+		ac[lag] += tail
+	}
 }
 
 // prefilterInnerProd and prefilterDualInnerProd are implemented in:

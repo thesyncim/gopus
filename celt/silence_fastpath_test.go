@@ -37,7 +37,7 @@ func seedDecoderStateForSilenceTest(d *Decoder) {
 		d.preemphState[i] = celtSig(math.Cos(float64(i+1)*0.73) * 0.07)
 	}
 	for i := range d.postfilterMem {
-		d.postfilterMem[i] = math.Sin(float64(i+11)*0.03) * 0.03
+		d.postfilterMem[i] = celtSig(math.Sin(float64(i+11)*0.03) * 0.03)
 	}
 	for i := range d.prevEnergy {
 		d.prevEnergy[i] = celtGLog(math.Sin(float64(i+1)*0.11) * 2)
@@ -108,8 +108,8 @@ func TestDecodeSilenceFrameFastPathParityMono(t *testing.T) {
 		gotDec.postfilterPeriodOld != ref.postfilterPeriodOld ||
 		gotDec.postfilterTapset != ref.postfilterTapset ||
 		gotDec.postfilterTapsetOld != ref.postfilterTapsetOld ||
-		math.Abs(gotDec.postfilterGain-ref.postfilterGain) > 1e-12 ||
-		math.Abs(gotDec.postfilterGainOld-ref.postfilterGainOld) > 1e-12 {
+		math.Abs(float64(gotDec.postfilterGain-ref.postfilterGain)) > 1e-12 ||
+		math.Abs(float64(gotDec.postfilterGainOld-ref.postfilterGainOld)) > 1e-12 {
 		t.Fatalf("postfilter state mismatch")
 	}
 }
@@ -138,8 +138,8 @@ func TestDecodeSilenceFrameFastPathParityStereo(t *testing.T) {
 		gotDec.postfilterPeriodOld != ref.postfilterPeriodOld ||
 		gotDec.postfilterTapset != ref.postfilterTapset ||
 		gotDec.postfilterTapsetOld != ref.postfilterTapsetOld ||
-		math.Abs(gotDec.postfilterGain-ref.postfilterGain) > 1e-12 ||
-		math.Abs(gotDec.postfilterGainOld-ref.postfilterGainOld) > 1e-12 {
+		math.Abs(float64(gotDec.postfilterGain-ref.postfilterGain)) > 1e-12 ||
+		math.Abs(float64(gotDec.postfilterGainOld-ref.postfilterGainOld)) > 1e-12 {
 		t.Fatalf("postfilter state mismatch")
 	}
 }

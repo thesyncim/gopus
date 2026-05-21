@@ -306,7 +306,7 @@ func (d *Decoder) updateStereoDREDNeuralHistories(samples []float64, frameSize i
 	d.plcDecodeMemRingStart = 0
 }
 
-func (d *Decoder) updateStereoDREDNeuralHistory(hist []float64, frameSize, history int, samples []float64) {
+func (d *Decoder) updateStereoDREDNeuralHistory(hist []celtSig, frameSize, history int, samples []float64) {
 	if d == nil || frameSize <= 0 || history <= 0 || len(hist) < history*2 || len(samples) < frameSize*2 {
 		return
 	}
@@ -315,8 +315,8 @@ func (d *Decoder) updateStereoDREDNeuralHistory(hist []float64, frameSize, histo
 	if frameSize >= history {
 		src := (frameSize - history) * 2
 		for i := 0; i < history; i++ {
-			histL[i] = samples[src]
-			histR[i] = samples[src+1]
+			histL[i] = celtSig(samples[src])
+			histR[i] = celtSig(samples[src+1])
 			src += 2
 		}
 		return
@@ -327,8 +327,8 @@ func (d *Decoder) updateStereoDREDNeuralHistory(hist []float64, frameSize, histo
 	copy(histR[:dst], histL[:dst])
 	src := 0
 	for i := 0; i < frameSize; i++ {
-		histL[dst+i] = samples[src]
-		histR[dst+i] = samples[src+1]
+		histL[dst+i] = celtSig(samples[src])
+		histR[dst+i] = celtSig(samples[src+1])
 		src += 2
 	}
 }
