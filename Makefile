@@ -7,6 +7,7 @@ GOLANGCI_LINT_VERSION ?= v1.64.8
 GO_RUNNABLE_TEST ?= bash ./tools/run_go_test_runnable.sh
 ASSEMBLY_SAFETY_MATRIX ?= bash ./tools/run_assembly_safety_matrix.sh
 FOCUS_GATE ?= bash ./tools/run_focus_gate.sh
+FOCUS_GATE_CMD = GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE)
 PGO_FILE ?= default.pgo
 PGO_FLAG ?= -pgo=$(PGO_FILE)
 PGO_GENERATE_FLAG ?= -pgo=off
@@ -60,10 +61,6 @@ BENCH_ENCODER_LIBOPUS_GUARD_ALLOCS ?= 0
 BENCH_ENCODER_LIBOPUS_GUARD_CASES ?= all
 TEST_VECTOR_URL ?= https://opus-codec.org/static/testvectors/opus_testvectors-rfc8251.tar.gz
 TEST_VECTOR_FALLBACK_URL ?= https://www.ietf.org/proceedings/98/slides/materials-98-codec-opus-newvectors-00.tar.gz
-GO_TEST_FAST = GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test
-GO_TEST_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_WORK_ENV) $(GO) test
-GO_TEST_PARITY_EXACT = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test
-GO_TEST_EXHAUSTIVE = GOPUS_TEST_TIER=exhaustive $(GO_WORK_ENV) $(GO) test
 RUNNABLE_FAST = GOPUS_TEST_TIER=fast $(GO_RUNNABLE_TEST)
 RUNNABLE_PARITY = GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO_RUNNABLE_TEST)
 
@@ -125,35 +122,35 @@ test-examples-smoke:
 # Docs and release-surface contracts stay focused so they do not require
 # heavyweight libopus fixture trees.
 test-doc-contract:
-	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) doc-contract
+	$(FOCUS_GATE_CMD) doc-contract
 
 # Default-supported DNN blob control parity against libopus USE_WEIGHTS_FILE
 # model blobs. The target fails if the required libopus-backed test is skipped.
 test-dnn-blob-parity: ensure-libopus
-	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) dnn-blob-parity
+	$(FOCUS_GATE_CMD) dnn-blob-parity
 
 # Pinned low-level CELT/range/SILK internal oracles.
 test-core-oracles-parity: ensure-libopus
-	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) core-oracles-parity
+	$(FOCUS_GATE_CMD) core-oracles-parity
 
 # Supported DRED feature-tag parity gate. The extra-controls tag remains a
 # broader parity umbrella; this target verifies the supported DRED surface by itself.
 test-dred-tag: ensure-libopus
-	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) dred-tag
+	$(FOCUS_GATE_CMD) dred-tag
 
 # Supported QEXT feature-tag parity. The default build keeps QEXT controls
 # absent and leaves packet-extension payload plumbing behind compile-time gates.
 test-qext-parity: ensure-libopus-qext
-	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) qext-parity
+	$(FOCUS_GATE_CMD) qext-parity
 
 # Extra-controls build smoke for controls that should never leak into the default surface.
 test-extra-controls-tag: ensure-libopus
-	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) extra-controls-tag
+	$(FOCUS_GATE_CMD) extra-controls-tag
 
 # Required tag-gated DRED/OSCE oracle sweep. Keep it separate from the
 # extra-controls API smoke so support claims stay seam-scoped.
 test-extra-controls-parity: ensure-libopus
-	GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE) extra-controls-parity
+	$(FOCUS_GATE_CMD) extra-controls-parity
 
 # Legacy alias for older automation; Hybrid DRED packet-shape exactness now
 # lives in the required supported-tag and extra-controls parity gates.
@@ -161,13 +158,13 @@ test-extra-controls-parity-experimental: test-extra-controls-parity
 
 # Primary libopus-facing focused gate.
 test-quality: ensure-testvectors
-	$(GO_TEST_PARITY) ./testvectors -run 'TestFinalRangeVerification|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderVariantCELTAllocationParityAgainstFixture|TestEncoderVariantCELTHeaderParityAgainstFixture|TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity' -count=1 -v
+	$(FOCUS_GATE_CMD) quality
 
 # Optional libopus-internal exactness checks. These are intentionally not part
 # of the default production gate so math optimizations can move while quality
 # and interoperability stay enforced.
 test-exactness:
-	GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_EXACTNESS=1 $(GO_WORK_ENV) $(GO) test ./encoder -run 'TestModeFixtureParityWithLibopus|TestAnalysisFixtureParityWithLibopus' -count=1
+	$(FOCUS_GATE_CMD) exactness
 
 # Compact markdown summary for the quality + compatibility gates.
 quality-report: ensure-libopus
@@ -347,7 +344,7 @@ docker-test-exhaustive: docker-build-exhaustive
 		-e GOPUS_DISABLE_OPUSDEC=$(DOCKER_DISABLE_OPUSDEC) \
 		-e GOPUS_DISABLE_OPUSENC=$(DOCKER_DISABLE_OPUSENC) \
 	$(DOCKER_IMAGE) \
-		bash -c "make ensure-libopus && GOPUS_TEST_TIER=exhaustive go test ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestDecoderLossFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1"
+		bash -c "make test-exhaustive"
 
 # Open an interactive shell with the same cached Docker environment.
 docker-shell: docker-build
@@ -365,11 +362,11 @@ docker-shell: docker-build
 
 # Exhaustive tier includes fixture honesty checks against pinned tmp_check opus_demo/opusdec.
 test-exhaustive: ensure-libopus
-	$(GO_TEST_EXHAUSTIVE) ./testvectors -run 'TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestDecoderLossFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec' -count=1
+	$(FOCUS_GATE_CMD) exhaustive
 
 # Exhaustive provenance audit for encoder variant parity.
 test-provenance: ensure-libopus
-	$(GO_TEST_EXHAUSTIVE) ./testvectors -run 'TestEncoderVariantProfileProvenanceAudit' -count=1
+	$(FOCUS_GATE_CMD) provenance
 
 # Regenerate fixture files from tmp_check/opus-$(LIBOPUS_VERSION)/opus_demo.
 fixtures-gen: ensure-libopus fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants
