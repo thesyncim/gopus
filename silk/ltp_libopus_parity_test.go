@@ -13,6 +13,7 @@ const (
 
 	libopusSILKLTPModeQuant = uint32(0)
 	libopusSILKLTPModeVQ    = uint32(1)
+	libopusSILKLTPModePitch = uint32(2)
 )
 
 var libopusSILKLTPHelper libopustest.HelperCache
@@ -43,6 +44,8 @@ func buildLibopusSILKLTPHelper() (string, error) {
 		RefSources: []string{
 			"silk/quant_LTP_gains.c",
 			"silk/VQ_WMat_EC.c",
+			"silk/decode_pitch.c",
+			"silk/pitch_est_tables.c",
 			"silk/tables_LTP.c",
 			"silk/lin2log.c",
 			"silk/log2lin.c",
@@ -109,6 +112,29 @@ func probeLibopusSILKLTPVQ(records [][]int32) ([]libopusSILKLTPVQRecord, error) 
 	return out, nil
 }
 
+func probeLibopusSILKDecodePitch(records [][]int32) ([][maxNbSubfr]int32, error) {
+	data, err := runLibopusSILKLTPHelper(libopusSILKLTPModePitch, records)
+	if err != nil {
+		return nil, err
+	}
+	reader, err := libopustest.NewOracleReader("silk ltp", libopusSILKLTPOutputMagic, data)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(records))
+	reader.ExpectRemaining(count * maxNbSubfr * 4)
+	out := make([][maxNbSubfr]int32, count)
+	for i := range out {
+		for j := range out[i] {
+			out[i][j] = reader.I32()
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func runLibopusSILKLTPHelper(mode uint32, records [][]int32) ([]byte, error) {
 	binPath, err := getLibopusSILKLTPHelperPath()
 	if err != nil {
@@ -125,6 +151,70 @@ func runLibopusSILKLTPHelper(mode uint32, records [][]int32) ([]byte, error) {
 		return nil, fmt.Errorf("run silk ltp helper: %w", err)
 	}
 	return data, nil
+}
+
+func TestSILKDecodePitchMatchesLibopusOracleExhaustive(t *testing.T) {
+	libopustest.RequireOracle(t)
+	type pitchCase struct {
+		lagIndex     int
+		contourIndex int
+		fsKHz        int
+		nbSubfr      int
+	}
+	cases := make([]pitchCase, 0, 24000)
+	for _, fsKHz := range []int{8, 12, 16} {
+		for _, nbSubfr := range []int{2, 4} {
+			cbkSize := decodePitchContourCodebookSize(fsKHz, nbSubfr)
+			maxLagIndex := (peMaxLagMs - peMinLagMs) * fsKHz
+			for lagIndex := 0; lagIndex <= maxLagIndex; lagIndex++ {
+				for contourIndex := 0; contourIndex < cbkSize; contourIndex++ {
+					cases = append(cases, pitchCase{
+						lagIndex:     lagIndex,
+						contourIndex: contourIndex,
+						fsKHz:        fsKHz,
+						nbSubfr:      nbSubfr,
+					})
+				}
+			}
+		}
+	}
+	records := make([][]int32, len(cases))
+	for i, tc := range cases {
+		records[i] = []int32{
+			int32(tc.lagIndex),
+			int32(tc.contourIndex),
+			int32(tc.fsKHz),
+			int32(tc.nbSubfr),
+		}
+	}
+	want, err := probeLibopusSILKDecodePitch(records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk decode pitch", err)
+	}
+
+	for i, tc := range cases {
+		var got [maxNbSubfr]int
+		silkDecodePitch(int16(tc.lagIndex), int8(tc.contourIndex), got[:], tc.fsKHz, tc.nbSubfr)
+		for sf := 0; sf < tc.nbSubfr; sf++ {
+			if int32(got[sf]) != want[i][sf] {
+				t.Fatalf("fs=%d nbSubfr=%d lagIndex=%d contour=%d subframe=%d got=%d want=%d",
+					tc.fsKHz, tc.nbSubfr, tc.lagIndex, tc.contourIndex, sf, got[sf], want[i][sf])
+			}
+		}
+	}
+}
+
+func decodePitchContourCodebookSize(fsKHz, nbSubfr int) int {
+	if fsKHz == 8 {
+		if nbSubfr == peMaxNbSubfr {
+			return peNbCbksStage2Ext
+		}
+		return peNbCbksStage2_10ms
+	}
+	if nbSubfr == peMaxNbSubfr {
+		return peNbCbksStage3Max
+	}
+	return peNbCbksStage3_10ms
 }
 
 func TestSILKLTPVQMatchesLibopusOracle(t *testing.T) {

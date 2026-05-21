@@ -14,7 +14,8 @@
 
 enum {
   MODE_LTP_QUANT = 0,
-  MODE_LTP_VQ = 1
+  MODE_LTP_VQ = 1,
+  MODE_DECODE_PITCH = 2
 };
 
 static int set_binary_stdio(void) {
@@ -142,10 +143,38 @@ static int eval_vq(void) {
   return write_i32((int32_t)gain_Q7);
 }
 
+static int eval_decode_pitch(void) {
+  int32_t raw;
+  opus_int16 lag_index;
+  opus_int8 contour_index;
+  int fs_khz;
+  int nb_subfr;
+  opus_int pitch_lags[MAX_NB_SUBFR] = {0};
+  int i;
+
+  if (!read_i32(&raw)) return 0;
+  lag_index = (opus_int16)raw;
+  if (!read_i32(&raw)) return 0;
+  contour_index = (opus_int8)raw;
+  if (!read_i32(&raw)) return 0;
+  fs_khz = (int)raw;
+  if (fs_khz != 8 && fs_khz != 12 && fs_khz != 16) return 0;
+  if (!read_i32(&raw)) return 0;
+  nb_subfr = (int)raw;
+  if (nb_subfr != 2 && nb_subfr != 4) return 0;
+
+  silk_decode_pitch(lag_index, contour_index, pitch_lags, fs_khz, nb_subfr);
+  for (i = 0; i < MAX_NB_SUBFR; i++) {
+    if (!write_i32((int32_t)pitch_lags[i])) return 0;
+  }
+  return 1;
+}
+
 static int eval_record(uint32_t mode) {
   switch (mode) {
     case MODE_LTP_QUANT: return eval_quant();
     case MODE_LTP_VQ: return eval_vq();
+    case MODE_DECODE_PITCH: return eval_decode_pitch();
   }
   return 0;
 }
@@ -160,7 +189,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_LTP_VQ) return 1;
+  if (mode > MODE_DECODE_PITCH) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {
