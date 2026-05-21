@@ -54,21 +54,15 @@ var (
 )
 
 func getLibopusDREDModelBlobHelperPath() (string, error) {
-	return libopusDREDModelBlobHelper.Path(func() (string, error) {
-		return buildLibopusDREDHelper("libopus_dred_model_blob.c", "gopus_libopus_dred_model_blob", true)
-	})
+	return cachedLibopusDREDHelperPath(&libopusDREDModelBlobHelper, "libopus_dred_model_blob.c", "gopus_libopus_dred_model_blob", true)
 }
 
 func getLibopusDREDProcessHelperPath() (string, error) {
-	return libopusDREDProcessHelper.Path(func() (string, error) {
-		return buildLibopusDREDHelper("libopus_dred_process_info.c", "gopus_libopus_dred_process", true)
-	})
+	return cachedLibopusDREDHelperPath(&libopusDREDProcessHelper, "libopus_dred_process_info.c", "gopus_libopus_dred_process", true)
 }
 
 func getLibopusDREDRecoveryWindowHelperPath() (string, error) {
-	return libopusDREDRecoveryWindowHelper.Path(func() (string, error) {
-		return buildLibopusDREDHelper("libopus_dred_recovery_window_info.c", "gopus_libopus_dred_recovery_window", true)
-	})
+	return cachedLibopusDREDHelperPath(&libopusDREDRecoveryWindowHelper, "libopus_dred_recovery_window_info.c", "gopus_libopus_dred_recovery_window", true)
 }
 
 func probeLibopusDREDModelBlob() ([]byte, error) {

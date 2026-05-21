@@ -53,9 +53,7 @@ type libopusDREDPacketConfig struct {
 var libopusDREDEmitPacketHelper libopustest.HelperCache
 
 func getLibopusDREDEmitPacketHelperPath() (string, error) {
-	return libopusDREDEmitPacketHelper.Path(func() (string, error) {
-		return buildLibopusDREDHelper("libopus_dred_emit_packet.c", "gopus_libopus_dred_emit_packet", true)
-	})
+	return cachedLibopusDREDHelperPath(&libopusDREDEmitPacketHelper, "libopus_dred_emit_packet.c", "gopus_libopus_dred_emit_packet", true)
 }
 
 func emitLibopusDREDPacket() (libopusDREDPacket, error) {

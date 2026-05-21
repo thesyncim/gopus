@@ -35,15 +35,11 @@ var (
 )
 
 func getLibopusDREDParseHelperPath() (string, error) {
-	return libopusDREDParseHelper.Path(func() (string, error) {
-		return buildLibopusDREDHelper("libopus_dred_parse_info.c", "gopus_libopus_dred_parse", false)
-	})
+	return cachedLibopusDREDHelperPath(&libopusDREDParseHelper, "libopus_dred_parse_info.c", "gopus_libopus_dred_parse", false)
 }
 
 func getLibopusDREDDecodeHelperPath() (string, error) {
-	return libopusDREDDecodeHelper.Path(func() (string, error) {
-		return buildLibopusDREDHelper("libopus_dred_decode_info.c", "gopus_libopus_dred_decode", true)
-	})
+	return cachedLibopusDREDHelperPath(&libopusDREDDecodeHelper, "libopus_dred_decode_info.c", "gopus_libopus_dred_decode", true)
 }
 
 func probeLibopusDREDParse(packet []byte, maxDREDSamples, sampleRate int) (libopusDREDParseInfo, error) {

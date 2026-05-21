@@ -16,21 +16,15 @@ var (
 )
 
 func getLibopusPitchDNNModelBlobHelperPath() (string, error) {
-	return libopusPitchDNNModelBlobHelper.Path(func() (string, error) {
-		return buildLibopusDREDHelper("libopus_pitchdnn_model_blob.c", "gopus_libopus_pitchdnn_model_blob", true)
-	})
+	return cachedLibopusDREDHelperPath(&libopusPitchDNNModelBlobHelper, "libopus_pitchdnn_model_blob.c", "gopus_libopus_pitchdnn_model_blob", true)
 }
 
 func getLibopusPLCModelBlobHelperPath() (string, error) {
-	return libopusPLCModelBlobHelper.Path(func() (string, error) {
-		return buildLibopusDREDHelper("libopus_plc_model_blob.c", "gopus_libopus_plc_model_blob", true)
-	})
+	return cachedLibopusDREDHelperPath(&libopusPLCModelBlobHelper, "libopus_plc_model_blob.c", "gopus_libopus_plc_model_blob", true)
 }
 
 func getLibopusFARGANModelBlobHelperPath() (string, error) {
-	return libopusFARGANModelBlobHelper.Path(func() (string, error) {
-		return buildLibopusDREDHelper("libopus_fargan_model_blob.c", "gopus_libopus_fargan_model_blob", true)
-	})
+	return cachedLibopusDREDHelperPath(&libopusFARGANModelBlobHelper, "libopus_fargan_model_blob.c", "gopus_libopus_fargan_model_blob", true)
 }
 
 func runModelBlobHelper(binPath string) ([]byte, error) {

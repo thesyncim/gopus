@@ -34,13 +34,7 @@ var libopusOSCELACEModelBlobHelper libopustest.HelperCache
 // blob extractor helper against the project's DRED scalar libopus build and
 // returns the resulting binary path.
 func getLibopusOSCELACEModelBlobHelperPath() (string, error) {
-	return libopusOSCELACEModelBlobHelper.Path(func() (string, error) {
-		return buildLibopusDREDHelper(
-			"libopus_osce_lace_model_blob.c",
-			"gopus_libopus_osce_lace_model_blob",
-			true,
-		)
-	})
+	return cachedLibopusDREDHelperPath(&libopusOSCELACEModelBlobHelper, "libopus_osce_lace_model_blob.c", "gopus_libopus_osce_lace_model_blob", true)
 }
 
 // probeLibopusOSCELACEModelBlob builds (lazily) and runs the OSCE LACE/NoLACE

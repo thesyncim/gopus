@@ -32,13 +32,7 @@ var libopusOSCEBWEModelBlobHelper libopustest.HelperCache
 // extractor helper against the project's DRED scalar libopus build and
 // returns the resulting binary path.
 func getLibopusOSCEBWEModelBlobHelperPath() (string, error) {
-	return libopusOSCEBWEModelBlobHelper.Path(func() (string, error) {
-		return buildLibopusDREDHelper(
-			"libopus_osce_bwe_model_blob.c",
-			"gopus_libopus_osce_bwe_model_blob",
-			true,
-		)
-	})
+	return cachedLibopusDREDHelperPath(&libopusOSCEBWEModelBlobHelper, "libopus_osce_bwe_model_blob.c", "gopus_libopus_osce_bwe_model_blob", true)
 }
 
 // probeLibopusOSCEBWEModelBlob builds (lazily) and runs the OSCE BWE blob
