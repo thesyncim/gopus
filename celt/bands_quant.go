@@ -1047,6 +1047,18 @@ func renormalizeVectorWithEnergy(x []float64, gain, energy float64) {
 	}
 }
 
+func scaleLowbandOutForFolding(dst, src []float64, n int) {
+	if n <= 0 {
+		return
+	}
+	dst = dst[:n:n]
+	src = src[:n:n]
+	scale := float32(math.Sqrt(float64(n)))
+	for i := 0; i < n; i++ {
+		dst[i] = float64(scale * float32(src[i]))
+	}
+}
+
 // seededZeroPulseResynth fuses zero-pulse fill/fold generation with the
 // exact same energy accumulation order used by renormalizeVector.
 func seededZeroPulseResynth(x, lowband []float64, seed *uint32, gain float64) bool {
@@ -3114,8 +3126,7 @@ func quantBandPreparedLowbandWithExtBudget(ctx *bandCtx, x []float64, n, b, B in
 		B <<= recombine
 
 		if lowbandOut != nil && len(lowbandOut) >= N0 {
-			norm := math.Sqrt(float64(N0))
-			scaleFloat64Into(lowbandOut, x, norm, N0)
+			scaleLowbandOutForFolding(lowbandOut, x, N0)
 		}
 		cm &= (1 << B) - 1
 	}
@@ -3248,8 +3259,7 @@ func quantBandDecodeNoExtFast(ctx *bandCtx, x []float64, n, b, B int, lowband []
 		B <<= recombine
 
 		if lowbandOut != nil && len(lowbandOut) >= N0 {
-			norm := math.Sqrt(float64(N0))
-			scaleFloat64Into(lowbandOut, x, norm, N0)
+			scaleLowbandOutForFolding(lowbandOut, x, N0)
 		}
 		cm &= (1 << B) - 1
 	}
@@ -3350,8 +3360,7 @@ func quantBandDecodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, lowban
 		B <<= recombine
 
 		if lowbandOut != nil && len(lowbandOut) >= N0 {
-			norm := math.Sqrt(float64(N0))
-			scaleFloat64Into(lowbandOut, x, norm, N0)
+			scaleLowbandOutForFolding(lowbandOut, x, N0)
 		}
 		cm &= (1 << B) - 1
 	}

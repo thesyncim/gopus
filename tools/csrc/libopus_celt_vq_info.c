@@ -12,6 +12,7 @@
 #include "opus.h"
 #include "celt/bands.h"
 #include "celt/cwrs.h"
+#include "celt/mathops.h"
 #include "celt/modes.h"
 #include "celt/vq.h"
 
@@ -24,7 +25,8 @@ enum {
   MODE_DENORMALISE_BANDS = 2,
   MODE_ALG_UNQUANT = 3,
   MODE_ENCODE_PULSES = 4,
-  MODE_TYPE_SIZES = 5
+  MODE_TYPE_SIZES = 5,
+  MODE_LOWBAND_OUT_SCALE = 6
 };
 
 static int set_binary_stdio(void) {
@@ -318,6 +320,37 @@ static int eval_type_sizes(void) {
       write_u32((uint32_t)sizeof(opus_val32));
 }
 
+static int eval_lowband_out_scale(void) {
+  uint32_t len_u;
+  celt_norm *x;
+  opus_val16 n;
+  uint32_t i;
+
+  if (!read_u32(&len_u)) return 0;
+  if (len_u == 0 || len_u > 512) return 0;
+  x = (celt_norm *)malloc((size_t)len_u * sizeof(*x));
+  if (x == NULL) return 0;
+  for (i = 0; i < len_u; i++) {
+    if (!read_float(&x[i])) {
+      free(x);
+      return 0;
+    }
+  }
+  n = celt_sqrt(SHL32(EXTEND32(len_u),22));
+  if (!write_u32(len_u)) {
+    free(x);
+    return 0;
+  }
+  for (i = 0; i < len_u; i++) {
+    if (!write_float(MULT16_32_Q15(n, x[i]))) {
+      free(x);
+      return 0;
+    }
+  }
+  free(x);
+  return 1;
+}
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -328,7 +361,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_TYPE_SIZES) return 1;
+  if (mode > MODE_LOWBAND_OUT_SCALE) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) ||
       !write_u32(mode) || !write_u32(count)) {
@@ -345,8 +378,10 @@ int main(void) {
       if (!eval_alg_unquant()) return 1;
     } else if (mode == MODE_ENCODE_PULSES) {
       if (!eval_encode_pulses()) return 1;
-    } else {
+    } else if (mode == MODE_TYPE_SIZES) {
       if (!eval_type_sizes()) return 1;
+    } else {
+      if (!eval_lowband_out_scale()) return 1;
     }
   }
   return 0;

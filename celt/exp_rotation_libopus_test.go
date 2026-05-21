@@ -16,6 +16,7 @@ const (
 	celtVQModeAlgUnquant        = uint32(3)
 	celtVQModeEncodePulses      = uint32(4)
 	celtVQModeTypeSizes         = uint32(5)
+	celtVQModeLowbandOutScale   = uint32(6)
 )
 
 var libopusCELTVQHelper libopustest.HelperCache
@@ -44,6 +45,10 @@ type denormaliseOracleCase struct {
 	silence    bool
 }
 
+type lowbandOutScaleOracleCase struct {
+	x []float32
+}
+
 type algUnquantOracleCase struct {
 	payload []byte
 	n       int
@@ -64,6 +69,41 @@ type libopusCELTTypeSizes struct {
 	celtGLog  int
 	opusVal16 int
 	opusVal32 int
+}
+
+func probeLibopusLowbandOutScale(cases []lowbandOutScaleOracleCase) ([][]float32, error) {
+	binPath, err := libopusCELTVQHelper.Path(buildLibopusCELTVQHelper)
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload("GVCI", celtVQModeLowbandOutScale, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.U32(uint32(len(tc.x)))
+		for _, sample := range tc.x {
+			payload.U32(math.Float32bits(sample))
+		}
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "celt vq", "GVCO")
+	if err != nil {
+		return nil, err
+	}
+	mode := reader.U32()
+	if mode != celtVQModeLowbandOutScale {
+		return nil, err
+	}
+	count := reader.Count(len(cases))
+	out := make([][]float32, count)
+	for i := range out {
+		n := int(reader.U32())
+		out[i] = make([]float32, n)
+		for j := range out[i] {
+			out[i][j] = reader.Float32()
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func buildLibopusCELTVQHelper() (string, error) {
@@ -472,6 +512,37 @@ func TestRenormalizeVectorMatchesLibopusFloatPath(t *testing.T) {
 			got[i] = float64(sample)
 		}
 		renormalizeVector(got, float64(tc.gain))
+		for i := range got {
+			gotSample := float32(got[i])
+			if math.Float32bits(gotSample) != math.Float32bits(want[ci][i]) {
+				t.Fatalf("case %d x[%d]=%08x %.10g want %08x %.10g",
+					ci, i,
+					math.Float32bits(gotSample), gotSample,
+					math.Float32bits(want[ci][i]), want[ci][i])
+			}
+		}
+	}
+}
+
+func TestLowbandOutScaleMatchesLibopusFloatPath(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []lowbandOutScaleOracleCase{
+		{fixtureExpRotationVector(8, 0x7a5a0001)},
+		{fixtureExpRotationVector(21, 0x7a5a0002)},
+		{fixtureExpRotationVector(48, 0x7a5a0003)},
+		{fixtureExpRotationVector(176, 0x7a5a0004)},
+	}
+	want, err := probeLibopusLowbandOutScale(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	for ci, tc := range cases {
+		src := make([]float64, len(tc.x))
+		got := make([]float64, len(tc.x))
+		for i, sample := range tc.x {
+			src[i] = float64(sample)
+		}
+		scaleLowbandOutForFolding(got, src, len(src))
 		for i := range got {
 			gotSample := float32(got[i])
 			if math.Float32bits(gotSample) != math.Float32bits(want[ci][i]) {

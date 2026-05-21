@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "celt/celt_lpc.h"
+#include "celt/cpu_support.h"
 #include "celt/pitch.h"
 
 #define INPUT_MAGIC "GCPI"
@@ -93,6 +94,7 @@ static int write_float_array(const float *src, uint32_t n) {
 }
 
 static int run_lpc(void) {
+  int arch = opus_select_arch();
   uint32_t n = 0;
   uint32_t overlap = 0;
   opus_val16 *x = NULL;
@@ -122,7 +124,7 @@ static int run_lpc(void) {
     return 0;
   }
 
-  _celt_autocorr(x, ac, window, (int)overlap, PLC_LPC_ORDER, (int)n, 0);
+  _celt_autocorr(x, ac, window, (int)overlap, PLC_LPC_ORDER, (int)n, arch);
   ac[0] *= 1.0001f;
   for (i = 1; i <= PLC_LPC_ORDER; i++) {
     ac[i] -= ac[i] * (0.008f * 0.008f) * (float)(i * i);
@@ -155,6 +157,7 @@ static int run_lpc(void) {
 }
 
 static int run_fir(void) {
+  int arch = opus_select_arch();
   uint32_t total = 0;
   uint32_t start = 0;
   uint32_t n = 0;
@@ -177,7 +180,7 @@ static int run_fir(void) {
     return 0;
   }
 
-  celt_fir(x + start, lpc, y, (int)n, PLC_LPC_ORDER, 0);
+  celt_fir(x + start, lpc, y, (int)n, PLC_LPC_ORDER, arch);
   if (!write_u32(n) || !write_float_array((const float *)y, n)) {
     free(x);
     free(y);
@@ -189,6 +192,7 @@ static int run_fir(void) {
 }
 
 static int run_iir(void) {
+  int arch = opus_select_arch();
   uint32_t n = 0;
   uint32_t hist_n = 0;
   opus_val32 *x = NULL;
@@ -219,7 +223,7 @@ static int run_iir(void) {
     return 0;
   }
 
-  celt_iir(x, lpc, x, (int)n, PLC_LPC_ORDER, mem, 0);
+  celt_iir(x, lpc, x, (int)n, PLC_LPC_ORDER, mem, arch);
   if (!write_u32(n) || !write_float_array((const float *)x, n)) {
     free(x);
     return 0;
@@ -229,6 +233,7 @@ static int run_iir(void) {
 }
 
 static int run_pitch_downsample(void) {
+  int arch = opus_select_arch();
   uint32_t channels = 0;
   uint32_t len = 0;
   uint32_t factor = 0;
@@ -255,7 +260,7 @@ static int run_pitch_downsample(void) {
   planes[0] = input;
   if (channels == 2) planes[1] = input + in_per_channel;
 
-  pitch_downsample(planes, x_lp, (int)len, (int)channels, (int)factor, 0);
+  pitch_downsample(planes, x_lp, (int)len, (int)channels, (int)factor, arch);
   if (!write_u32(len) || !write_float_array((const float *)x_lp, len)) {
     free(input);
     free(x_lp);
@@ -267,6 +272,7 @@ static int run_pitch_downsample(void) {
 }
 
 static int run_pitch_search(void) {
+  int arch = opus_select_arch();
   uint32_t len = 0;
   uint32_t max_pitch = 0;
   opus_val16 *x_lp = NULL;
@@ -287,7 +293,7 @@ static int run_pitch_search(void) {
     free(y);
     return 0;
   }
-  pitch_search(x_lp, y, (int)len, (int)max_pitch, &pitch, 0);
+  pitch_search(x_lp, y, (int)len, (int)max_pitch, &pitch, arch);
   if (!write_u32((uint32_t)(int32_t)pitch)) {
     free(x_lp);
     free(y);
@@ -299,6 +305,7 @@ static int run_pitch_search(void) {
 }
 
 static int run_remove_doubling(void) {
+  int arch = opus_select_arch();
   uint32_t total = 0;
   uint32_t maxperiod = 0;
   uint32_t minperiod = 0;
@@ -328,7 +335,7 @@ static int run_remove_doubling(void) {
 
   t0 = (int)(int32_t)t0_u32;
   gain = remove_doubling(x, (int)maxperiod, (int)minperiod, (int)n,
-                         &t0, (int)prev_period, prev_gain, 0);
+                         &t0, (int)prev_period, prev_gain, arch);
   if (!write_u32((uint32_t)(int32_t)t0) || !write_float((float)gain)) {
     free(x);
     return 0;

@@ -2,6 +2,7 @@ package celt
 
 import (
 	"math"
+	"strconv"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -342,16 +343,20 @@ func TestCELTPLCIIRMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	hist := makeCELTPLCTestSignal(plcDecodeBufferSize, 0x11a5011, 1300)
-	in := makeCELTPLCTestSignal(360, 0x119911, 900)
 	lpc := makeCELTPLPCTestCoeffs()
-	want := probeLibopusPLCIIR(t, in, hist, lpc)
+	for _, length := range []int{360, 1080} {
+		t.Run(strconv.Itoa(length), func(t *testing.T) {
+			in := makeCELTPLCTestSignal(length, 0x119911+uint32(length), 900)
+			want := probeLibopusPLCIIR(t, in, hist, lpc)
 
-	dec := NewDecoder(1)
-	gotSig := append([]celtSig(nil), in...)
-	dec.celtIIRFloat32(gotSig, hist, lpc, len(gotSig))
-	got := make([]float32, len(gotSig))
-	copySigToFloat32(got, gotSig)
-	assertFloat32Bits(t, "iir", got, want)
+			dec := NewDecoder(1)
+			gotSig := append([]celtSig(nil), in...)
+			dec.celtIIRFloat32(gotSig, hist, lpc, len(gotSig))
+			got := make([]float32, len(gotSig))
+			copySigToFloat32(got, gotSig)
+			assertFloat32Bits(t, "iir", got, want)
+		})
+	}
 }
 
 func makeCELTPLCTestSignal(n int, seed uint32, scale float32) []celtSig {
