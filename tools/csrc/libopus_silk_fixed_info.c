@@ -30,7 +30,8 @@ enum {
   MODE_DIV32_VAR_Q = 12,
   MODE_INVERSE32_VAR_Q = 13,
   MODE_CLZ32 = 14,
-  MODE_RSHIFT_ROUND64_TO_32 = 15
+  MODE_RSHIFT_ROUND64_TO_32 = 15,
+  MODE_ADD_POS_SAT32 = 16
 };
 
 static int set_binary_stdio(void) {
@@ -102,6 +103,8 @@ static int32_t eval_op_sample(uint32_t mode, int32_t a, int32_t b, int32_t c, ui
       bits = ((uint64_t)(uint32_t)a << 32) | (uint32_t)b;
       memcpy(&x64, &bits, sizeof(x64));
       return (opus_int32)silk_RSHIFT_ROUND64(x64, (int)q);
+    case MODE_ADD_POS_SAT32:
+      return silk_ADD_POS_SAT32(a, b);
     default:
       return 0;
   }
@@ -117,7 +120,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_RSHIFT_ROUND64_TO_32) return 1;
+  if (mode > MODE_ADD_POS_SAT32) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {

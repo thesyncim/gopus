@@ -31,6 +31,7 @@ const (
 	libopusSILKFixedModeInverse32VarQ      = uint32(13)
 	libopusSILKFixedModeCLZ32              = uint32(14)
 	libopusSILKFixedModeRShiftRound64To32  = uint32(15)
+	libopusSILKFixedModeAddPosSat32        = uint32(16)
 )
 
 type libopusSILKFixedRecord struct {
@@ -252,6 +253,23 @@ func TestSILKFixedMultiplyAndSaturatingOpsMatchLibopus(t *testing.T) {
 		{a: fixedTestMaxInt32, b: 0},
 		{a: fixedTestMaxInt32, b: 1},
 	}
+	posSatRecords := []libopusSILKFixedOpRecord{
+		{a: 0, b: 0},
+		{a: 0, b: 1},
+		{a: 1, b: 0},
+		{a: 1, b: 1},
+		{a: 32767, b: 32768},
+		{a: 65535, b: 65536},
+		{a: 1073741823, b: 1},
+		{a: 1073741823, b: 1073741823},
+		{a: 1073741824, b: 1073741823},
+		{a: 1073741824, b: 1073741824},
+		{a: fixedTestMaxInt32 - 2, b: 1},
+		{a: fixedTestMaxInt32 - 1, b: 1},
+		{a: fixedTestMaxInt32, b: 0},
+		{a: fixedTestMaxInt32, b: 1},
+		{a: fixedTestMaxInt32, b: fixedTestMaxInt32},
+	}
 
 	tests := []struct {
 		name    string
@@ -276,6 +294,9 @@ func TestSILKFixedMultiplyAndSaturatingOpsMatchLibopus(t *testing.T) {
 		}},
 		{name: "sub_sat32", mode: libopusSILKFixedModeSubSat32, records: satRecords, got: func(r libopusSILKFixedOpRecord) int32 {
 			return silkSubSat32(r.a, r.b)
+		}},
+		{name: "add_pos_sat32", mode: libopusSILKFixedModeAddPosSat32, records: posSatRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkAddPosSat32(r.a, r.b)
 		}},
 	}
 	for _, tc := range tests {

@@ -70,7 +70,7 @@ func TestFloat32ToInt16MatchesLibopusFLOAT2INT16TiesAndClamps(t *testing.T) {
 
 func TestFloat32ToInt16MatchesLibopusCELTDispatchBlocks(t *testing.T) {
 	libopustest.RequireOracle(t)
-	lengths := []int{15, 16, 17, 31, 32}
+	lengths := []int{15, 16, 17, 31, 32, 33}
 	pattern := []float32{
 		float32(-32767.5 / 32768.0),
 		float32(-3.5 / 32768.0),
