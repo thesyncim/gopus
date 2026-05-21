@@ -395,17 +395,24 @@ func TestCELTBitexactLog2TanMatchesLibopus(t *testing.T) {
 		{isin: 200, icos: 32767},
 		{isin: 12540, icos: 30274},
 	}
-	for theta := 64; theta <= 8192; theta++ {
-		pairs = append(pairs, pair{
-			isin: bitexactCos(theta),
-			icos: bitexactCos(16384 - theta),
-		})
+	edgeValues := []int{
+		1, 2, 3, 15, 16, 17, 31, 32, 33, 63, 64, 65,
+		127, 128, 129, 199, 200, 201, 255, 256, 257,
+		511, 512, 513, 1023, 1024, 1025, 2047, 2048, 2049,
+		4095, 4096, 4097, 8191, 8192, 8193, 12539, 12540, 12541,
+		16383, 16384, 16385, 23170, 23171, 23172, 30273, 30274, 30275,
+		32765, 32766, 32767,
 	}
-	for theta := 8193; theta <= 16320; theta += 17 {
-		pairs = append(pairs, pair{
-			isin: bitexactCos(theta),
-			icos: bitexactCos(16384 - theta),
-		})
+	for _, isin := range edgeValues {
+		for _, icos := range edgeValues {
+			pairs = append(pairs, pair{isin: isin, icos: icos})
+		}
+	}
+	seed := uint32(0x5eed1234)
+	for i := 0; i < 2048; i++ {
+		isin := int(nextCELTMathWord(&seed)%32767) + 1
+		icos := int(nextCELTMathWord(&seed)%32767) + 1
+		pairs = append(pairs, pair{isin: isin, icos: icos})
 	}
 	words := make([]uint32, 0, 2*len(pairs))
 	for _, p := range pairs {
