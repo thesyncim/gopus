@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"math"
 	"slices"
 	"testing"
@@ -850,6 +851,11 @@ func assertFloat64ExactForTest(t *testing.T, got, want []float64, label string) 
 
 func assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t *testing.T, label string, packet []byte, channels, targetStream int) {
 	t.Helper()
+	assertDecoderDecodeNilConsumesMultistreamDREDNeuralModeAtRate(t, label, packet, channels, targetStream, 48000)
+}
+
+func assertDecoderDecodeNilConsumesMultistreamDREDNeuralModeAtRate(t *testing.T, label string, packet []byte, channels, targetStream, sampleRate int) {
+	t.Helper()
 
 	streams, coupledStreams, mapping, err := DefaultMapping(channels)
 	if err != nil {
@@ -869,7 +875,7 @@ func assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t *testing.T, label
 		targetCoupled = 1
 		targetMapping = []byte{0, 1}
 	}
-	oracle, err := NewDecoder(48000, targetChannels, 1, targetCoupled, targetMapping)
+	oracle, err := NewDecoder(sampleRate, targetChannels, 1, targetCoupled, targetMapping)
 	if err != nil {
 		t.Fatalf("%s oracle NewDecoder error: %v", label, err)
 	}
@@ -878,7 +884,7 @@ func assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t *testing.T, label
 	modelBlob := makeLoadableDecoderDREDControlTestBlob(t)
 	oracle.SetDNNBlob(modelBlob)
 	oracle.setDREDDecoderBlob(modelBlob)
-	dec, err := NewDecoderDefault(48000, channels)
+	dec, err := NewDecoderDefault(sampleRate, channels)
 	if err != nil {
 		t.Fatalf("%s NewDecoderDefault error: %v", label, err)
 	}
@@ -886,38 +892,39 @@ func assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t *testing.T, label
 	dec.SetDNNBlob(modelBlob)
 	dec.setDREDDecoderBlob(modelBlob)
 
-	samples, err := dec.Decode(packet, 960)
+	frameSize := sampleRate / 50
+	samples, err := dec.Decode(packet, frameSize)
 	if err != nil {
 		t.Fatalf("%s Decode error: %v", label, err)
 	}
-	if len(samples) != 960*channels {
-		t.Fatalf("%s len(samples)=%d want %d", label, len(samples), 960*channels)
+	if len(samples) != frameSize*channels {
+		t.Fatalf("%s len(samples)=%d want %d", label, len(samples), frameSize*channels)
 	}
-	oracleSamples, err := oracle.Decode(packets[targetStream], 960)
+	oracleSamples, err := oracle.Decode(packets[targetStream], frameSize)
 	if err != nil {
 		t.Fatalf("%s oracle Decode error: %v", label, err)
 	}
-	targetSamples := extractMappedStreamSamplesForTest(t, samples, 960, channels, mapping, coupledStreams, targetStream)
+	targetSamples := extractMappedStreamSamplesForTest(t, samples, frameSize, channels, mapping, coupledStreams, targetStream)
 	assertFloat64ExactForTest(t, targetSamples, oracleSamples, label+" target good packet vs single-stream oracle")
 	if dec.dred == nil || dec.dred.dredCache[targetStream].Empty() {
 		t.Fatalf("%s Decode did not cache target-stream DRED payload", label)
 	}
 
-	plcSamples, err := dec.Decode(nil, 960)
+	plcSamples, err := dec.Decode(nil, frameSize)
 	if err != nil {
 		t.Fatalf("%s Decode(nil) error: %v", label, err)
 	}
-	if len(plcSamples) != 960*channels {
-		t.Fatalf("%s len(plcSamples)=%d want %d", label, len(plcSamples), 960*channels)
+	if len(plcSamples) != frameSize*channels {
+		t.Fatalf("%s len(plcSamples)=%d want %d", label, len(plcSamples), frameSize*channels)
 	}
-	oraclePLCSamples, err := oracle.Decode(nil, 960)
+	oraclePLCSamples, err := oracle.Decode(nil, frameSize)
 	if err != nil {
 		t.Fatalf("%s oracle Decode(nil) error: %v", label, err)
 	}
-	targetPLCSamples := extractMappedStreamSamplesForTest(t, plcSamples, 960, channels, mapping, coupledStreams, targetStream)
+	targetPLCSamples := extractMappedStreamSamplesForTest(t, plcSamples, frameSize, channels, mapping, coupledStreams, targetStream)
 	assertFloat64ExactForTest(t, targetPLCSamples, oraclePLCSamples, label+" target DRED PLC vs single-stream oracle")
-	if got := dec.dred.dredRecovery[targetStream]; got != 960 {
-		t.Fatalf("%s target stream dredRecovery=%d want 960", label, got)
+	if got := dec.dred.dredRecovery[targetStream]; got != frameSize {
+		t.Fatalf("%s target stream dredRecovery=%d want %d", label, got, frameSize)
 	}
 	for stream, got := range dec.dred.dredRecovery {
 		if stream == targetStream {
@@ -1078,6 +1085,19 @@ func TestDecoderDecodeNilConsumesMultistreamDREDNeuralSILKFinalSecondCoupledStre
 	packet := makeModeMultistreamPacketWithDREDForTest(t, channels, targetStream, internalenc.ModeSILK, types.BandwidthWideband, 96000, body)
 
 	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "silk final second coupled", packet, channels, targetStream)
+}
+
+func TestDecoderDecodeNilConsumesMultistreamDREDNeuralSILKAPIRateStream(t *testing.T) {
+	const channels = 3
+	const targetStream = 0
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeModeMultistreamPacketWithDREDForTest(t, channels, targetStream, internalenc.ModeSILK, types.BandwidthWideband, 96000, body)
+
+	for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+		t.Run(fmt.Sprintf("fs_%d", sampleRate), func(t *testing.T) {
+			assertDecoderDecodeNilConsumesMultistreamDREDNeuralModeAtRate(t, "silk api-rate", packet, channels, targetStream, sampleRate)
+		})
+	}
 }
 
 func TestDecoderLeavesDREDPayloadDormantWhenIgnoringExtensions(t *testing.T) {

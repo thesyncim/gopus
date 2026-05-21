@@ -361,7 +361,6 @@ func (d *Decoder) queueCachedDREDRecovery(stream, maxDredSamples, decodeOffsetSa
 
 func (d *Decoder) dredNeuralConcealmentAvailable() bool {
 	return d != nil &&
-		d.sampleRate == 48000 &&
 		d.dnnBlob != nil &&
 		d.pitchDNNLoaded &&
 		d.plcModelLoaded &&
@@ -553,12 +552,17 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float64, bool, e
 		s.dredCache[stream].Empty() ||
 		!s.dredModelLoaded ||
 		d.ignoreExtensions ||
-		!d.dredNeuralConcealmentAvailable() ||
-		!d.ensureDREDNeuralRuntime(stream) {
+		!d.dredNeuralConcealmentAvailable() {
 		return nil, false, nil
 	}
 	st, ok := d.decoders[stream].(*streamState)
 	if !ok || st == nil || st.channels < 1 || st.channels > 2 {
+		return nil, false, nil
+	}
+	if st.lastMode == streamModeCELT && d.sampleRate != 48000 {
+		return nil, false, nil
+	}
+	if !d.ensureDREDNeuralRuntime(stream) {
 		return nil, false, nil
 	}
 	if st.lastMode == streamModeSILK || st.lastMode == streamModeHybrid {
