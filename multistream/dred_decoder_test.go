@@ -1201,7 +1201,7 @@ func TestDecoderSetIgnoreExtensionsClearsDREDNeuralBridge(t *testing.T) {
 	dec.dred.dredBridge[1].dredLastNeural = true
 	dec.dred.dredBridge[1].dredPLCFill = 7
 	dec.dred.dredBridge[1].dredPLCPreemphMem = 0.25
-	dec.dred.dredBridge[1].dredPLCPCM[0] = 0.5
+	dec.dred.dredBridge[1].dredPLCPCM[0] = 16384
 	dec.dred.dredBridge[1].dredPLCUpdate[0] = -0.5
 	if !dec.dredSidecarActive() {
 		t.Fatal("expected DRED bridge to mark sidecar active")

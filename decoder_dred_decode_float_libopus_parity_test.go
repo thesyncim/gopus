@@ -316,7 +316,7 @@ func assertDecoderDREDCELT48kBridgeApproxEqualWithin(t *testing.T, dec *Decoder,
 		plcFill = bridge.dredPLCFill
 		plcPreemphasisMem = bridge.dredPLCPreemphMem
 		lastNeural = bridge.dredLastNeural
-		plcPCM = bridge.dredPLCPCM
+		copyDREDPLCPCMInt16ToFloat32(&plcPCM, &bridge.dredPLCPCM)
 	}
 	if plcState.LastFrameType != want.LastFrameType || plcState.PLCDuration != want.PLCDuration || plcState.SkipPLC != (want.SkipPLC != 0) {
 		t.Fatalf("%s celt plc state=%+v want {LastFrameType:%d PLCDuration:%d SkipPLC:%t}", label, plcState, want.LastFrameType, want.PLCDuration, want.SkipPLC != 0)
@@ -376,9 +376,15 @@ func snapshotDecoderDREDCELT48kForTest(t *testing.T, dec *Decoder) libopusDecode
 	if bridge := dec.dred48kBridgeState(); bridge != nil {
 		snap.PLCFill = bridge.dredPLCFill
 		snap.PLCPreemphasisMem = bridge.dredPLCPreemphMem
-		snap.PLCPCM = bridge.dredPLCPCM
+		copyDREDPLCPCMInt16ToFloat32(&snap.PLCPCM, &bridge.dredPLCPCM)
 	}
 	return snap
+}
+
+func copyDREDPLCPCMInt16ToFloat32(dst *[4 * lpcnetplc.FrameSize]float32, src *[4 * lpcnetplc.FrameSize]int16) {
+	for i := range src {
+		dst[i] = float32(src[i]) * (1.0 / 32768.0)
+	}
 }
 
 func prepareExplicitDREDDecodeParityState(t *testing.T) (*Decoder, *DRED, libopusDREDPacket, []byte, int) {

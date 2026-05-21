@@ -40,7 +40,7 @@ type decoderDREDNeuralState struct {
 }
 
 type decoderDRED48kBridgeState struct {
-	dredPLCPCM        [4 * lpcnetplc.FrameSize]float32
+	dredPLCPCM        [4 * lpcnetplc.FrameSize]int16
 	dredPLCFill       int
 	dredPLCPreemphMem float32
 	dredLastNeural    bool

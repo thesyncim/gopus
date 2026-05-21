@@ -39,6 +39,17 @@ func TestFARGANPCM16GridSampleMatchesCGrid(t *testing.T) {
 	}
 }
 
+func TestQuantizePLCPCM16kSampleMatchesCFARGANIntGrid(t *testing.T) {
+	libopustest.RequireOracle(t)
+	samples := celtPCMGrid()
+	want := probeLibopusCELTFloatQuant(t, libopustest.FloatQuantModeFARGANSynthInt, samples)
+	for i, sample := range samples {
+		if got := quantizePLCPCM16kSample(sample); got != want[i] {
+			t.Fatalf("quantizePLCPCM16kSample(%0.10g)=%d want %d", sample, got, want[i])
+		}
+	}
+}
+
 func TestQuantizePLCPCM16kFrameMatchesCFARGANGrid(t *testing.T) {
 	libopustest.RequireOracle(t)
 	samples := celtPCMGrid()

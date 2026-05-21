@@ -29,7 +29,7 @@ type decoderDREDState struct {
 }
 
 type decoderDRED48kBridgeState struct {
-	dredPLCPCM        [4 * lpcnetplc.FrameSize]float32
+	dredPLCPCM        [4 * lpcnetplc.FrameSize]int16
 	dredPLCUpdate     [4 * lpcnetplc.FrameSize]float32
 	dredPLCFill       int
 	dredPLCPreemphMem float32

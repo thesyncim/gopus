@@ -1059,7 +1059,7 @@ func TestDecoderSetDNNBlobPreservesActive48kBridge(t *testing.T) {
 		t.Fatalf("decoder did not materialize 48 kHz bridge: %+v", dec.dredState())
 	}
 
-	bridge.dredPLCPCM[0] = 0.125
+	bridge.dredPLCPCM[0] = 4096
 	bridge.dredPLCFill = 37
 	bridge.dredPLCPreemphMem = 0.25
 	bridge.dredLastNeural = true
@@ -1087,7 +1087,7 @@ func TestDecoderSetDNNBlobPreservesActive48kBridge(t *testing.T) {
 	if got != bridge {
 		t.Fatalf("SetDNNBlob(reload) replaced 48 kHz bridge: before=%p after=%p", bridge, got)
 	}
-	if got.dredPLCPCM[0] != 0.125 ||
+	if got.dredPLCPCM[0] != 4096 ||
 		got.dredPLCFill != 37 ||
 		got.dredPLCPreemphMem != 0.25 ||
 		!got.dredLastNeural {

@@ -25,11 +25,11 @@ var dred48kSincFilter = [...]float32{
 
 func quantizePLCPCM16kFrame(frame []float32) {
 	for i := range frame {
-		frame[i] = quantizedFARGANPCM16GridSample(frame[i])
+		frame[i] = float32(quantizePLCPCM16kSample(frame[i])) * (1.0 / 32768.0)
 	}
 }
 
-func quantizedFARGANPCM16GridSample(sample float32) float32 {
+func quantizePLCPCM16kSample(sample float32) int16 {
 	v := sample * 32768
 	if v < -32767 {
 		v = -32767
@@ -37,7 +37,11 @@ func quantizedFARGANPCM16GridSample(sample float32) float32 {
 	if v > 32767 {
 		v = 32767
 	}
-	return float32(math.Floor(0.5+float64(v))) * (1.0 / 32768.0)
+	return int16(math.Floor(0.5 + float64(v)))
+}
+
+func quantizedFARGANPCM16GridSample(sample float32) float32 {
+	return float32(quantizePLCPCM16kSample(sample)) * (1.0 / 32768.0)
 }
 
 // ConcealPLCNeural48kMonoToFloat32 mirrors the libopus FRAME_PLC_NEURAL
@@ -49,7 +53,7 @@ func (d *Decoder) ConcealPLCNeural48kMonoToFloat32(
 	out []float32,
 	frameSize int,
 	lastNeural *bool,
-	plcPCM []float32,
+	plcPCM []int16,
 	plcFill *int,
 	plcPreemphMem *float32,
 	generate func([]float32) bool,
@@ -71,7 +75,7 @@ func (d *Decoder) ConcealDRED48kMonoToFloat32(
 	out []float32,
 	frameSize int,
 	lastNeural *bool,
-	plcPCM []float32,
+	plcPCM []int16,
 	plcFill *int,
 	plcPreemphMem *float32,
 	generate func([]float32) bool,
@@ -98,7 +102,7 @@ func (d *Decoder) ConcealDRED48kToFloat32(
 	out []float32,
 	frameSize int,
 	lastNeural *bool,
-	plcPCM []float32,
+	plcPCM []int16,
 	plcFill *int,
 	plcPreemphMem *float32,
 	generate func([]float32) bool,
@@ -128,7 +132,7 @@ func (d *Decoder) ConcealPLCNeural48kToFloat32(
 	out []float32,
 	frameSize int,
 	lastNeural *bool,
-	plcPCM []float32,
+	plcPCM []int16,
 	plcFill *int,
 	plcPreemphMem *float32,
 	generate func([]float32) bool,
@@ -159,7 +163,7 @@ func (d *Decoder) runStereoDREDConceal(
 	out []float32,
 	frameSize int,
 	lastNeural *bool,
-	plcPCM []float32,
+	plcPCM []int16,
 	plcFill *int,
 	plcPreemphMem *float32,
 	generate func([]float32) bool,
@@ -208,11 +212,13 @@ func (d *Decoder) runStereoDREDConceal(
 		if *plcFill+160 > len(plcPCM) {
 			return false
 		}
-		frame := plcPCM[*plcFill : *plcFill+160]
+		frame := ensureFloat32Slice(&d.scratchPLCDREDFrame, 160)
 		if !generate(frame) {
 			return false
 		}
-		quantizePLCPCM16kFrame(frame)
+		for i, sample := range frame[:160] {
+			plcPCM[*plcFill+i] = quantizePLCPCM16kSample(sample)
+		}
 		*plcFill += 160
 	}
 
@@ -220,17 +226,17 @@ func (d *Decoder) runStereoDREDConceal(
 	for i := 0; i < totalSamples/3; i++ {
 		var sum float32
 		for j := 0; j < 17; j++ {
-			sum += 3 * (plcPCM[i+j] * 32768) * dred48kSincFilter[3*j]
+			sum += 3 * float32(plcPCM[i+j]) * dred48kSincFilter[3*j]
 		}
 		neural[3*i] = sum
 		sum = 0
 		for j := 0; j < 16; j++ {
-			sum += 3 * (plcPCM[i+j+1] * 32768) * dred48kSincFilter[3*j+2]
+			sum += 3 * float32(plcPCM[i+j+1]) * dred48kSincFilter[3*j+2]
 		}
 		neural[3*i+1] = sum
 		sum = 0
 		for j := 0; j < 16; j++ {
-			sum += 3 * (plcPCM[i+j+1] * 32768) * dred48kSincFilter[3*j+1]
+			sum += 3 * float32(plcPCM[i+j+1]) * dred48kSincFilter[3*j+1]
 		}
 		neural[3*i+2] = sum
 	}
@@ -357,7 +363,7 @@ func (d *Decoder) advanceDeemphasisStateStereo(samples []float64) {
 func (d *Decoder) ConcealPLCNeural48kMonoStateOnly(
 	frameSize int,
 	lastNeural *bool,
-	plcPCM []float32,
+	plcPCM []int16,
 	plcFill *int,
 	plcPreemphMem *float32,
 	generate func([]float32) bool,
@@ -376,7 +382,7 @@ func (d *Decoder) ConcealPLCNeural48kMonoStateOnly(
 func (d *Decoder) ConcealDRED48kMonoStateOnly(
 	frameSize int,
 	lastNeural *bool,
-	plcPCM []float32,
+	plcPCM []int16,
 	plcFill *int,
 	plcPreemphMem *float32,
 	generate func([]float32) bool,
@@ -391,7 +397,7 @@ func (d *Decoder) concealNeural48kMono(
 	out []float32,
 	frameSize int,
 	lastNeural *bool,
-	plcPCM []float32,
+	plcPCM []int16,
 	plcFill *int,
 	plcPreemphMem *float32,
 	generate func([]float32) bool,
@@ -428,11 +434,13 @@ func (d *Decoder) concealNeural48kMono(
 		if *plcFill+160 > len(plcPCM) {
 			return false
 		}
-		frame := plcPCM[*plcFill : *plcFill+160]
+		frame := ensureFloat32Slice(&d.scratchPLCDREDFrame, 160)
 		if !generate(frame) {
 			return false
 		}
-		quantizePLCPCM16kFrame(frame)
+		for i, sample := range frame[:160] {
+			plcPCM[*plcFill+i] = quantizePLCPCM16kSample(sample)
+		}
 		*plcFill += 160
 	}
 
@@ -440,17 +448,17 @@ func (d *Decoder) concealNeural48kMono(
 	for i := 0; i < totalSamples/3; i++ {
 		var sum float32
 		for j := 0; j < 17; j++ {
-			sum += 3 * (plcPCM[i+j] * 32768) * dred48kSincFilter[3*j]
+			sum += 3 * float32(plcPCM[i+j]) * dred48kSincFilter[3*j]
 		}
 		neural[3*i] = sum
 		sum = 0
 		for j := 0; j < 16; j++ {
-			sum += 3 * (plcPCM[i+j+1] * 32768) * dred48kSincFilter[3*j+2]
+			sum += 3 * float32(plcPCM[i+j+1]) * dred48kSincFilter[3*j+2]
 		}
 		neural[3*i+1] = sum
 		sum = 0
 		for j := 0; j < 16; j++ {
-			sum += 3 * (plcPCM[i+j+1] * 32768) * dred48kSincFilter[3*j+1]
+			sum += 3 * float32(plcPCM[i+j+1]) * dred48kSincFilter[3*j+1]
 		}
 		neural[3*i+2] = sum
 	}

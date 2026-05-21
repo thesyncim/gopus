@@ -220,7 +220,7 @@ func sigmoidApproxNEON(x float32) float32 {
 	x2 := x * x
 	num := fma32(x2, fma32(n2, x2, n1), n0)
 	den := fma32(x2, fma32(d2, x2, d1), d0)
-	y := float32(0.5) + (num*x)*reciprocalEstimate32(den)
+	y := fma32(num*x, reciprocalEstimate32(den), 0.5)
 	if y < 0 {
 		return 0
 	}
