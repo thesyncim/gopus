@@ -933,6 +933,46 @@ func assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t *testing.T, label
 	}
 }
 
+func TestDecoderDREDPLCStreamCELTUsesSidecarScratch(t *testing.T) {
+	const channels = 3
+	const targetStream = 1
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeCELTMultistreamPacketWithDREDForTest(t, channels, targetStream, body)
+
+	dec, err := NewDecoderDefault(48000, channels)
+	if err != nil {
+		t.Fatalf("NewDecoderDefault error: %v", err)
+	}
+	setDecoderComplexityForDREDParityTest(t, dec)
+	modelBlob := makeLoadableDecoderDREDControlTestBlob(t)
+	dec.SetDNNBlob(modelBlob)
+	dec.setDREDDecoderBlob(modelBlob)
+	if _, err := dec.Decode(packet, 960); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+	if dec.dred == nil || dec.dred.dredCache[targetStream].Empty() {
+		t.Fatal("Decode did not cache target-stream DRED payload")
+	}
+
+	wantSamples := 960 * streamChannels(targetStream, dec.coupledStreams)
+	decoded, ok, err := dec.decodeDREDPLCStream(targetStream, 960)
+	if err != nil {
+		t.Fatalf("warm decodeDREDPLCStream error: %v", err)
+	}
+	if !ok || len(decoded) != wantSamples {
+		t.Fatalf("decodeDREDPLCStream ok=%v len=%d want %d", ok, len(decoded), wantSamples)
+	}
+	if len(dec.dred.dredPCM32[targetStream]) < wantSamples {
+		t.Fatalf("dredPCM32 scratch len=%d want at least %d", len(dec.dred.dredPCM32[targetStream]), wantSamples)
+	}
+	if len(dec.dred.dredPCM64[targetStream]) < wantSamples {
+		t.Fatalf("dredPCM64 scratch len=%d want at least %d", len(dec.dred.dredPCM64[targetStream]), wantSamples)
+	}
+	if len(decoded) > 0 && &decoded[0] != &dec.dred.dredPCM64[targetStream][0] {
+		t.Fatal("decodeDREDPLCStream returned non-sidecar float64 scratch")
+	}
+}
+
 func TestDecoderDecodeNilConsumesMultistreamDREDNeuralCELTStereoStream(t *testing.T) {
 	const channels = 3
 	const targetStream = 0

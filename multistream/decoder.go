@@ -300,10 +300,14 @@ func (d *streamState) applyOutputGain(samples []float64) {
 
 func float32ToFloat64Slice(in []float32) []float64 {
 	out := make([]float64, len(in))
+	float32ToFloat64Into(out, in)
+	return out
+}
+
+func float32ToFloat64Into(out []float64, in []float32) {
 	for i := range in {
 		out[i] = float64(in[i])
 	}
-	return out
 }
 
 func (d *streamState) recordDecodedTOC(toc streamTOC) {

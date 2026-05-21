@@ -25,6 +25,8 @@ type decoderDREDState struct {
 	dredPredictor   []lpcnetplc.Predictor
 	dredFARGAN      []lpcnetplc.FARGAN
 	dredBridge      []decoderDRED48kBridgeState
+	dredPCM32       [][]float32
+	dredPCM64       [][]float64
 }
 
 type decoderDRED48kBridgeState struct {
@@ -107,6 +109,8 @@ func (d *Decoder) ensureDREDSidecar() {
 	s.dredPredictor = make([]lpcnetplc.Predictor, streams)
 	s.dredFARGAN = make([]lpcnetplc.FARGAN, streams)
 	s.dredBridge = make([]decoderDRED48kBridgeState, streams)
+	s.dredPCM32 = makeDREDPCM32Scratch(streams, d.coupledStreams)
+	s.dredPCM64 = makeDREDPCM64Scratch(streams, d.coupledStreams)
 	s.dredData = makeDREDBuffers(streams)
 	s.dredCache = make([]internaldred.Cache, streams)
 }
@@ -125,6 +129,8 @@ func (d *Decoder) releaseDREDSidecar() {
 	s.dredPredictor = nil
 	s.dredFARGAN = nil
 	s.dredBridge = nil
+	s.dredPCM32 = nil
+	s.dredPCM64 = nil
 	s.dredData = nil
 	s.dredCache = nil
 }
@@ -152,6 +158,28 @@ func makeDREDBuffers(streams int) [][]byte {
 	bufs := make([][]byte, streams)
 	for i := range bufs {
 		bufs[i] = make([]byte, internaldred.MaxDataSize)
+	}
+	return bufs
+}
+
+func makeDREDPCM32Scratch(streams, coupledStreams int) [][]float32 {
+	if streams <= 0 {
+		return nil
+	}
+	bufs := make([][]float32, streams)
+	for i := range bufs {
+		bufs[i] = make([]float32, maxOpusPacketDuration48*streamChannels(i, coupledStreams))
+	}
+	return bufs
+}
+
+func makeDREDPCM64Scratch(streams, coupledStreams int) [][]float64 {
+	if streams <= 0 {
+		return nil
+	}
+	bufs := make([][]float64, streams)
+	for i := range bufs {
+		bufs[i] = make([]float64, maxOpusPacketDuration48*streamChannels(i, coupledStreams))
 	}
 	return bufs
 }
@@ -554,7 +582,13 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float64, bool, e
 	if frameSize <= 0 {
 		frameSize = 960
 	}
-	out := make([]float32, frameSize*st.channels)
+	samples := frameSize * st.channels
+	var out []float32
+	if stream < len(s.dredPCM32) && len(s.dredPCM32[stream]) >= samples {
+		out = s.dredPCM32[stream][:samples]
+	} else {
+		out = make([]float32, samples)
+	}
 	bridge := &s.dredBridge[stream]
 	plc := &s.dredPLC[stream]
 	analysis := &s.dredAnalysis[stream]
@@ -585,7 +619,13 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float64, bool, e
 		s.dredRecovery[stream] += frameSize
 	}
 	st.recordDecodeCall(frameSize, 0)
-	decoded := float32ToFloat64Slice(out)
+	var decoded []float64
+	if stream < len(s.dredPCM64) && len(s.dredPCM64[stream]) >= len(out) {
+		decoded = s.dredPCM64[stream][:len(out)]
+	} else {
+		decoded = make([]float64, len(out))
+	}
+	float32ToFloat64Into(decoded, out)
 	st.applyOutputGain(decoded)
 	return decoded, true, nil
 }
