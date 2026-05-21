@@ -455,6 +455,58 @@ func TestDecodeWithFECNoLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecodeWithFECNilAPIRatePCMMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range apiRatePLCDurationCases() {
+		for _, channels := range []int{1, 2} {
+			packet := tc.packet(t, channels)
+			for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+				t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+					frameSize, err := packetSamplesAtRate(packet, sampleRate)
+					if err != nil {
+						t.Fatalf("packetSamplesAtRate: %v", err)
+					}
+
+					steps := []libopusAPIRateDecodeStep{
+						{packet: packet},
+						{fec: true},
+					}
+					want, err := decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, frameSize, steps)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "api-rate nil FEC reference decode", err)
+					}
+
+					dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+					if err != nil {
+						t.Fatalf("NewDecoder: %v", err)
+					}
+					got := make([]float32, 0, len(want))
+					frame := make([]float32, frameSize*channels)
+					n, err := dec.Decode(packet, frame)
+					if err != nil {
+						t.Fatalf("Decode seed: %v", err)
+					}
+					if n != frameSize {
+						t.Fatalf("Decode seed samples=%d want %d", n, frameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					n, err = dec.DecodeWithFEC(nil, frame, true)
+					if err != nil {
+						t.Fatalf("DecodeWithFEC(nil): %v", err)
+					}
+					if n != frameSize {
+						t.Fatalf("DecodeWithFEC(nil) samples=%d want %d", n, frameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					assertAPIRateFloat32Close(t, got, want, tc.name+" api-rate nil FEC decode", tc.tolerance)
+				})
+			}
+		}
+	}
+}
+
 func TestDecodePLCDurationAPIRatePCMMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, tc := range apiRatePLCDurationCases() {

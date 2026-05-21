@@ -593,8 +593,9 @@ func TestDecodeWithFEC_CELTNoFEC(t *testing.T) {
 	t.Logf("DecodeWithFEC correctly fell back to PLC for CELT mode")
 }
 
-// TestDecodeWithFEC_SILKStoresFEC verifies that SILK packets store FEC data.
-func TestDecodeWithFEC_SILKStoresFEC(t *testing.T) {
+// TestDecodeWithFEC_SILKNoLBRRDoesNotStoreFEC verifies that SILK packets only
+// arm FEC state when their LBRR flag is present.
+func TestDecodeWithFEC_SILKNoLBRRDoesNotStoreFEC(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
@@ -616,15 +617,11 @@ func TestDecodeWithFEC_SILKStoresFEC(t *testing.T) {
 		t.Fatalf("Decode SILK packet error: %v", err)
 	}
 
-	// Check that FEC data was stored (SILK packets can have LBRR)
-	if !dec.hasFEC {
-		t.Error("hasFEC should be true after SILK packet decode")
-	}
-	if dec.fecMode != ModeSILK {
-		t.Errorf("fecMode = %v, want ModeSILK", dec.fecMode)
+	if dec.hasFEC {
+		t.Error("hasFEC should be false after SILK packet without LBRR")
 	}
 
-	t.Log("DecodeWithFEC correctly stored FEC data for SILK mode")
+	t.Log("DecodeWithFEC correctly left FEC state clear for SILK without LBRR")
 }
 
 func TestStoreFECData_ReusesBackingBuffer(t *testing.T) {
@@ -652,6 +649,8 @@ func TestStoreFECData_ReusesBackingBuffer(t *testing.T) {
 	for i := range packetLarge {
 		packetLarge[i] = byte(255 - (i % 255))
 	}
+	packetSmall[0] |= 0x40
+	packetLarge[0] |= 0x40
 
 	dec.storeFECData(packetSmall, toc, 1, 960)
 	if cap(dec.fecData) != initialCap {
@@ -667,6 +666,26 @@ func TestStoreFECData_ReusesBackingBuffer(t *testing.T) {
 	}
 	if dec.fecData[0] != packetLarge[0] || dec.fecData[len(dec.fecData)-1] != packetLarge[len(packetLarge)-1] {
 		t.Fatal("fecData content mismatch after copy")
+	}
+}
+
+func TestStoreFECData_NoLBRRClearsState(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	dec.hasFEC = true
+	dec.fecData = append(dec.fecData[:0], 0x40, 0x01)
+	dec.fecMode = ModeSILK
+
+	toc := TOC{
+		Mode:      ModeSILK,
+		Bandwidth: BandwidthWideband,
+		FrameSize: 960,
+	}
+	dec.storeFECData([]byte{0x00, 0x01}, toc, 1, 960)
+	if dec.hasFEC {
+		t.Fatal("storeFECData kept FEC armed for packet without LBRR")
 	}
 }
 
@@ -693,7 +712,8 @@ func TestDecodeFECFrame_BufferSizingUsesSingleFrame(t *testing.T) {
 	}
 }
 
-// TestDecodeWithFEC_HybridStoresFEC verifies that Hybrid packets store FEC data.
+// TestDecodeWithFEC_HybridStoresFEC verifies that Hybrid packets with LBRR
+// arm FEC state.
 func TestDecodeWithFEC_HybridStoresFEC(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {
@@ -711,9 +731,8 @@ func TestDecodeWithFEC_HybridStoresFEC(t *testing.T) {
 		t.Fatalf("Decode Hybrid packet error: %v", err)
 	}
 
-	// Check that FEC data was stored (Hybrid packets can have LBRR)
 	if !dec.hasFEC {
-		t.Error("hasFEC should be true after Hybrid packet decode")
+		t.Error("hasFEC should be true after Hybrid packet with LBRR")
 	}
 	if dec.fecMode != ModeHybrid {
 		t.Errorf("fecMode = %v, want ModeHybrid", dec.fecMode)

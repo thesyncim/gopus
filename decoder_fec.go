@@ -209,6 +209,10 @@ func packetHasLBRR(firstFrameData []byte, toc TOC) bool {
 // storeFECData stores the current packet's information for FEC recovery.
 // This is called after successfully decoding a SILK or Hybrid packet.
 func (d *Decoder) storeFECData(data []byte, toc TOC, frameCount, frameSize int) {
+	if !packetHasLBRR(data, toc) {
+		d.clearFECState()
+		return
+	}
 	if cap(d.fecData) < len(data) {
 		d.fecData = make([]byte, len(data))
 	} else {
