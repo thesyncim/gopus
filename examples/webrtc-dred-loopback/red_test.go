@@ -36,6 +36,28 @@ func TestREDPayloadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestREDPayloadRoundTripAcrossTimestampWrap(t *testing.T) {
+	primary := []byte{0xaa, 0xbb}
+	primaryTimestamp := uint32(480)
+	history := []redHistoryFrame{
+		{timestamp: primaryTimestamp - uint32(frameSamples), payload: []byte{0x11, 0x22}},
+	}
+	payload, redundantBytes := buildREDPayload(primary, primaryTimestamp, history, 1, frameSamples)
+	if redundantBytes != len(history[0].payload) {
+		t.Fatalf("redundantBytes=%d want %d", redundantBytes, len(history[0].payload))
+	}
+	gotPrimary, blocks, err := parseREDPayload(payload)
+	if err != nil {
+		t.Fatalf("parseREDPayload error: %v", err)
+	}
+	if string(gotPrimary) != string(primary) {
+		t.Fatalf("primary=%x want %x", gotPrimary, primary)
+	}
+	if got := findREDRecoveryBlock(blocks, 1, frameSamples); string(got) != string(history[0].payload) {
+		t.Fatalf("wrapped timestamp recovery payload=%x want %x", got, history[0].payload)
+	}
+}
+
 func TestREDPrimaryOnlyRoundTrip(t *testing.T) {
 	primary := []byte{0xf8, 0xff, 0xfe}
 	payload, redundantBytes := buildREDPayload(primary, 960, nil, 2, 960)
@@ -141,6 +163,46 @@ func TestReceiveLoopMissingPacketsUsePLC(t *testing.T) {
 	stats := e.Stats()
 	if stats.LossPathFrames != 1 || stats.ConcealedFrames != 1 || stats.PacketsReceived != 2 {
 		t.Fatalf("stats loss=%d concealed=%d received=%d, want 1/1/2", stats.LossPathFrames, stats.ConcealedFrames, stats.PacketsReceived)
+	}
+}
+
+func TestReceiveLoopREDRecoveryAcrossTimestampWrap(t *testing.T) {
+	var calls []string
+	var recovered [][]byte
+	e := newReceiveLoopTestEngine(engineConfig{RED: true})
+	e.decodeHook = func(_ []byte, kind decodeKind) bool {
+		calls = append(calls, kind.String())
+		e.bumpDecodeStats(kind)
+		return true
+	}
+	e.decodeREDHook = func(payload []byte) bool {
+		calls = append(calls, "red")
+		recovered = append(recovered, append([]byte(nil), payload...))
+		e.bumpDecodeStats(decodeRED)
+		return true
+	}
+
+	wrappedPrimaryTimestamp := uint32(480)
+	wrappedHistory := []redHistoryFrame{
+		{timestamp: wrappedPrimaryTimestamp - uint32(frameSamples), payload: []byte{0xa1}},
+	}
+	redPayload, _ := buildREDPayload([]byte{0xb2}, wrappedPrimaryTimestamp, wrappedHistory, 1, frameSamples)
+	runReceiveLoopTest(t, e,
+		testPacketAt(10, wrappedHistory[0].timestamp, redOpusPayloadType, []byte{0x01}),
+		testPacketAt(12, wrappedPrimaryTimestamp, redPayloadType, redPayload),
+	)
+
+	wantCalls := []string{decodeNormal.String(), "red", decodeNormal.String()}
+	if !sameStrings(calls, wantCalls) {
+		t.Fatalf("calls=%v want %v", calls, wantCalls)
+	}
+	if len(recovered) != 1 || string(recovered[0]) != string([]byte{0xa1}) {
+		t.Fatalf("recovered=%x want [a1]", recovered)
+	}
+	stats := e.Stats()
+	if stats.REDFrames != 1 || stats.REDRecoveryAttempts != 1 || stats.LossPathFrames != 0 || stats.PacketsReceived != 2 {
+		t.Fatalf("stats red=%d/%d plc=%d received=%d, want red 1/1 plc 0 received 2",
+			stats.REDFrames, stats.REDRecoveryAttempts, stats.LossPathFrames, stats.PacketsReceived)
 	}
 }
 
@@ -1178,12 +1240,16 @@ func runReceiveLoopTest(t *testing.T, e *engine, packets ...*rtp.Packet) {
 }
 
 func testPacket(seq uint16, payloadType uint8, payload []byte) *rtp.Packet {
+	return testPacketAt(seq, uint32(seq)*frameSamples, payloadType, payload)
+}
+
+func testPacketAt(seq uint16, timestamp uint32, payloadType uint8, payload []byte) *rtp.Packet {
 	return &rtp.Packet{
 		Header: rtp.Header{
 			Version:        2,
 			PayloadType:    payloadType,
 			SequenceNumber: seq,
-			Timestamp:      uint32(seq) * frameSamples,
+			Timestamp:      timestamp,
 		},
 		Payload: payload,
 	}
