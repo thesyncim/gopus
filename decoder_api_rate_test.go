@@ -450,11 +450,17 @@ func TestDecodeWithFECLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 		bandwidth Bandwidth
 		bitrate   int
 		tolerance float64
+		channels  []int
 	}{
-		{name: "silk", mode: EncoderModeSILK, wantMode: ModeSILK, bandwidth: BandwidthWideband, bitrate: 24000, tolerance: 8e-3},
+		{name: "silk_mb_stereo", mode: EncoderModeSILK, wantMode: ModeSILK, bandwidth: BandwidthMediumband, bitrate: 18000, tolerance: 8e-3, channels: []int{2}},
+		{name: "silk_wb", mode: EncoderModeSILK, wantMode: ModeSILK, bandwidth: BandwidthWideband, bitrate: 24000, tolerance: 8e-3},
 		{name: "hybrid", mode: EncoderModeHybrid, wantMode: ModeHybrid, bandwidth: BandwidthFullband, bitrate: 64000, tolerance: 1.2e-2},
 	} {
-		for _, channels := range []int{1, 2} {
+		channelsSet := tc.channels
+		if len(channelsSet) == 0 {
+			channelsSet = []int{1, 2}
+		}
+		for _, channels := range channelsSet {
 			seedPacket, recoveryPacket := encodeAPIRateFECSequence(t, tc.mode, tc.wantMode, tc.bandwidth, tc.bitrate, channels, 960)
 			for _, sampleRate := range []int{8000, 16000, 48000} {
 				t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {

@@ -67,10 +67,10 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 
 	// Explicit DRED queues FEC features before concealment; analysis priming is
 	// only for non-FEC neural PLC entry history.
-	if d.sampleRate == 48000 || d.sampleRate == 16000 {
-		if d.prevMode == ModeHybrid && d.channels >= 1 && d.channels <= 2 {
-			return d.decodeExplicitHybridDREDFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
-		}
+	if (d.sampleRate == 48000 || d.sampleRate == 16000) && d.prevMode == ModeHybrid && d.channels >= 1 && d.channels <= 2 {
+		return d.decodeExplicitHybridDREDFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
+	}
+	if d.prevMode == ModeSILK && (d.channels == 1 || d.channels == 2) {
 		// SILK-only previous mode: libopus runs the standard SILK PLC path
 		// with lpcnet FEC features queued; the SILK DeepPLC hook produces
 		// the 16 kHz neural concealment lowband and SILK upsamples to the
@@ -81,9 +81,7 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		// Stereo SILK DRED uses libopus's single LPCNetPLCState path: seed
 		// from native SILK channel 0 and let SILK PLC/resampling emit the API
 		// channels.
-		if d.prevMode == ModeSILK && (d.channels == 1 || d.channels == 2) {
-			return d.decodeExplicitSILKDREDFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
-		}
+		return d.decodeExplicitSILKDREDFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
 	}
 	if d.sampleRate == 48000 {
 		d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
@@ -228,7 +226,7 @@ func (d *Decoder) decodeCachedSILKDREDNeuralPLCInto(pcm []float32, frameSizeSamp
 	if d == nil || state.mode != ModeSILK || d.silkDecoder == nil || !d.dredNeuralConcealmentAvailable() {
 		return 0, false, nil
 	}
-	if (d.sampleRate != 48000 && d.sampleRate != 16000) || d.channels < 1 || d.channels > 2 {
+	if d.channels < 1 || d.channels > 2 {
 		return 0, false, nil
 	}
 	needed := frameSizeSamples * d.channels

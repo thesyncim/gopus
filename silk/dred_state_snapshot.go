@@ -53,6 +53,33 @@ func (d *Decoder) SnapshotDecoderState(bandwidth Bandwidth, channel int) Decoder
 	if resampler == nil {
 		return snap
 	}
+	if resampler.down != nil {
+		down := resampler.down.State()
+		for i := range down.sIIR {
+			if i >= len(snap.ResamplerIIR) {
+				break
+			}
+			snap.ResamplerIIR[i] = float32(down.sIIR[i])
+		}
+		for i := range snap.ResamplerFIR {
+			src := i >> 1
+			if src >= len(down.sFIR) {
+				break
+			}
+			v := down.sFIR[src]
+			if i&1 != 0 {
+				v >>= 16
+			}
+			snap.ResamplerFIR[i] = float32(int16(v)) * (1.0 / 32768.0)
+		}
+		for i := range down.delayBuf {
+			if i >= len(snap.ResamplerDelay) {
+				break
+			}
+			snap.ResamplerDelay[i] = float32(down.delayBuf[i]) * (1.0 / 32768.0)
+		}
+		return snap
+	}
 	for i := range resampler.sIIR {
 		snap.ResamplerIIR[i] = float32(resampler.sIIR[i])
 	}

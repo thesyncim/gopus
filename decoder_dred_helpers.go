@@ -626,6 +626,10 @@ func (d *Decoder) hybridDREDLowbandEligible() bool {
 	return d != nil && d.silkDecoder != nil && d.channels >= 1 && d.channels <= 2 && (d.sampleRate == 48000 || d.sampleRate == 16000)
 }
 
+func (d *Decoder) silkDREDLowbandHookEligible() bool {
+	return d != nil && d.silkDecoder != nil && d.channels >= 1 && d.channels <= 2 && d.dredNeuralConfigEligible()
+}
+
 func (d *Decoder) hybridDREDLowbandSamples(frameSizeSamples int) (int, bool) {
 	if !d.hybridDREDLowbandEligible() || frameSizeSamples <= 0 {
 		return 0, false
@@ -645,7 +649,7 @@ func (d *Decoder) beginHybridDREDLowbandHook() (cleanup func(), used func() bool
 	}
 	r := d.dredRecoveryState()
 	n := d.dredNeuralState()
-	if !d.hybridDREDLowbandEligible() || r == nil || n == nil {
+	if !d.silkDREDLowbandHookEligible() || r == nil || n == nil {
 		return func() {}, func() bool { return false }
 	}
 	directUsed := false

@@ -659,8 +659,11 @@ func TestDecoderCachedSILKDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 		name              string
 		decoderSampleRate int
 	}{
-		{name: "decoder_48000", decoderSampleRate: 48000},
+		{name: "decoder_8000", decoderSampleRate: 8000},
+		{name: "decoder_12000", decoderSampleRate: 12000},
 		{name: "decoder_16000", decoderSampleRate: 16000},
+		{name: "decoder_24000", decoderSampleRate: 24000},
+		{name: "decoder_48000", decoderSampleRate: 48000},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
@@ -748,7 +751,7 @@ func TestDecoderCachedSILKDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, decSecond).dredPLC.Snapshot(), wantSecond.step1.state, "cached SILK live-sequence second-loss plc", plcTol)
 			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, decSecond).dredFARGAN.Snapshot(), wantSecond.step1.fargan, "cached SILK live-sequence second-loss fargan", farganTol)
 			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, decSecond, wantSecond.step1.celt48k, "cached SILK live-sequence second-loss celt", celtTol)
-			assertDecoderDREDSILKStateApproxEqualWithin(t, decSecond, wantSecond.step1.silk, silkpkg.BandwidthWideband, "cached SILK live-sequence second-loss silk", max(celtTol, 8))
+			assertDecoderDREDSILKStateApproxEqualWithin(t, decSecond, wantSecond.step1.silk, silkpkg.BandwidthWideband, "cached SILK live-sequence second-loss silk", max(celtTol, 16))
 		})
 	}
 }

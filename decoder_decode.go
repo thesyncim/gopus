@@ -46,7 +46,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		n := frameSize
 		usedNeuralConcealment := false
 		var err error
-		if neuralReady && d.prevMode == ModeSILK && d.channels >= 1 && d.channels <= 2 && (d.sampleRate == 48000 || d.sampleRate == 16000) {
+		if neuralReady && d.prevMode == ModeSILK && d.channels >= 1 && d.channels <= 2 {
 			n, usedNeuralConcealment, err = d.decodeCachedSILKDREDNeuralPLCInto(pcm, frameSize, plcDecodeState{
 				packetFrameSize:    d.lastFrameSize,
 				mode:               d.prevMode,
@@ -85,7 +85,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 			return 0, err
 		}
 		frameSize = n
-		if neuralReady && !usedNeuralConcealment && d.prevMode != ModeHybrid {
+		if neuralReady && !usedNeuralConcealment && d.prevMode == ModeCELT {
 			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
 		}
 		// libopus enables OSCE_MODE_SILK_BBWE during PLC whenever the

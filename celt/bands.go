@@ -106,12 +106,11 @@ func (d *Decoder) DecodeBands(
 		if e > 32*DB6 {
 			e = 32 * DB6
 		}
-		// Use celtExp2 to match libopus decoder float precision.
-		gain := float64(celtExp2(float32(e / DB6)))
+		gain := celtExp2(float32(e / DB6))
 
 		// Apply gain to shape and write to output
 		for i := 0; i < n && i < len(shape); i++ {
-			coeffs[offset+i] = shape[i] * gain
+			coeffs[offset+i] = denormalizeMulFloat32(shape[i], gain)
 		}
 
 		offset += n
@@ -277,14 +276,14 @@ func (d *Decoder) DecodeBandsStereo(
 		if eR > 32*DB6 {
 			eR = 32 * DB6
 		}
-		gainL := float64(celtExp2(float32(eL / DB6)))
-		gainR := float64(celtExp2(float32(eR / DB6)))
+		gainL := celtExp2(float32(eL / DB6))
+		gainR := celtExp2(float32(eR / DB6))
 
 		for i := 0; i < n && i < len(shapeL); i++ {
-			left[offset+i] = shapeL[i] * gainL
+			left[offset+i] = denormalizeMulFloat32(shapeL[i], gainL)
 		}
 		for i := 0; i < n && i < len(shapeR); i++ {
-			right[offset+i] = shapeR[i] * gainR
+			right[offset+i] = denormalizeMulFloat32(shapeR[i], gainR)
 		}
 
 		offset += n
@@ -443,11 +442,10 @@ func DenormalizeBand(shape []float64, energy float64) []float64 {
 	if e > 32 {
 		e = 32
 	}
-	// Use celtExp2 to match libopus decoder float precision.
-	gain := float64(celtExp2(float32(e / DB6)))
+	gain := celtExp2(float32(e / DB6))
 	result := make([]float64, len(shape))
 	for i, x := range shape {
-		result[i] = x * gain
+		result[i] = denormalizeMulFloat32(x, gain)
 	}
 	return result
 }
@@ -489,14 +487,13 @@ func denormalizeCoeffsInto(dst, src []float64, energies []float64, nbBands, fram
 		if e > 32 {
 			e = 32
 		}
-		// Use celtExp2 to match libopus decoder float precision.
-		gain := float64(celtExp2(float32(e / DB6)))
+		gain := celtExp2(float32(e / DB6))
 		end := offset + width
 		if end > coeffsLen {
 			end = coeffsLen
 		}
 		if end > offset {
-			scaleFloat64Into(dst[offset:end], src[offset:end], gain, end-offset)
+			scaleDenormalizedFloat32Into(dst[offset:end], src[offset:end], gain, end-offset)
 		}
 		offset += width
 	}
@@ -543,9 +540,9 @@ func denormalizeCoeffsWithModeInto(dst, src []float64, energies []float64, nbBan
 		if e > 32 {
 			e = 32
 		}
-		gain := float64(celtExp2(float32(e / DB6)))
+		gain := celtExp2(float32(e / DB6))
 		for i := start; i < end; i++ {
-			dst[i] = src[i] * gain
+			dst[i] = denormalizeMulFloat32(src[i], gain)
 		}
 	}
 }
@@ -610,9 +607,9 @@ func denormalizeBandsPackedDownsampleInto(dst, src []float64, energies []float64
 		if e > 32 {
 			e = 32
 		}
-		gain := float64(celtExp2(float32(e / DB6)))
+		gain := celtExp2(float32(e / DB6))
 		for ; j < bandEnd && f < len(dst); j++ {
-			dst[f] = src[j] * gain
+			dst[f] = denormalizeMulFloat32(src[j], gain)
 			f++
 		}
 	}
@@ -634,6 +631,21 @@ func clearDenormalizedDownsampleTail(coeffs []float64, nbBands, scaleWidth, down
 	}
 	if bound < len(coeffs) {
 		clear(coeffs[bound:])
+	}
+}
+
+func denormalizeMulFloat32(x float64, gain float32) float64 {
+	return float64(float32(x) * gain)
+}
+
+func scaleDenormalizedFloat32Into(dst, src []float64, gain float32, n int) {
+	if n <= 0 {
+		return
+	}
+	dst = dst[:n:n]
+	src = src[:n:n]
+	for i := 0; i < n; i++ {
+		dst[i] = denormalizeMulFloat32(src[i], gain)
 	}
 }
 
