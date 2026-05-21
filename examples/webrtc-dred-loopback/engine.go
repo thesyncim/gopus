@@ -775,7 +775,7 @@ func (e *engine) redEnabled() bool {
 
 func (e *engine) prepareDREDRecovery(payload []byte, maxDREDSamples int) (int, bool, error) {
 	e.mu.Lock()
-	if !e.cfg.DRED || maxDREDSamples <= 0 {
+	if !e.cfg.DRED || len(payload) == 0 || maxDREDSamples <= 0 {
 		e.mu.Unlock()
 		return 0, false, nil
 	}
