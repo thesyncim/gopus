@@ -259,7 +259,12 @@ func (d *Decoder) dredNeuralConfigEligible() bool {
 	if d == nil || d.channels < 1 || d.channels > 2 {
 		return false
 	}
-	return d.sampleRate == 16000 || d.sampleRate == 48000
+	switch d.sampleRate {
+	case 8000, 12000, 16000, 24000, 48000:
+		return true
+	default:
+		return false
+	}
 }
 
 func (d *Decoder) dredRuntimeSampleRate() int {
@@ -513,7 +518,7 @@ func (d *Decoder) ensureDREDNeuralConcealmentRuntime() bool {
 	if r == nil {
 		return false
 	}
-	if (d.sampleRate == 48000 || d.sampleRate == 16000) && d.ensureDRED48kBridgeState() == nil {
+	if d.ensureDRED48kBridgeState() == nil {
 		return false
 	}
 	return true
@@ -726,7 +731,7 @@ func (d *Decoder) recordDREDRawMonoGoodFrame(samples []int16) {
 }
 
 func (d *Decoder) beginDREDRawMonoGoodFrameCapture(mode Mode) func() {
-	if !d.hybridDREDLowbandEligible() {
+	if d == nil || d.silkDecoder == nil || d.channels < 1 || d.channels > 2 {
 		return nil
 	}
 	if mode != ModeHybrid && mode != ModeSILK {
@@ -946,7 +951,7 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 	if len(pcm) < samplesPerChannel {
 		return false
 	}
-	if b != nil && (d.sampleRate == 48000 || d.sampleRate == 16000) {
+	if b != nil {
 		d.prepareDRED48kNeuralEntry(samplesPerChannel, d.prevMode, false)
 		if !d.applyDREDNeuralConcealment48kMono(pcm, samplesPerChannel) {
 			return false
@@ -1005,12 +1010,15 @@ func (d *Decoder) markDREDUpdatedPCM(pcm []float32, samplesPerChannel int, mode 
 		return
 	}
 	r.dredPLC.ClearBlend()
-	if mode == ModeSILK && d.sampleRate == 16000 && samplesPerChannel >= lpcnetplc.FrameSize && samplesPerChannel%lpcnetplc.FrameSize == 0 {
+	if mode == ModeSILK {
 		n := d.dredNeuralState()
 		if n != nil && n.dredRawHistoryUpdated {
 			return
 		}
 		if d.refreshDREDHistoryFromSILKDecoder() {
+			return
+		}
+		if d.sampleRate != 16000 || samplesPerChannel < lpcnetplc.FrameSize || samplesPerChannel%lpcnetplc.FrameSize != 0 {
 			return
 		}
 		switch {

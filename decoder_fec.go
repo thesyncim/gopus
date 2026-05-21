@@ -233,6 +233,12 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 		return 0, ErrBufferTooSmall
 	}
 
+	if extsupport.DREDRuntime {
+		if endRawDREDCapture := d.beginDREDRawMonoGoodFrameCapture(d.fecMode); endRawDREDCapture != nil {
+			defer endRawDREDCapture()
+		}
+	}
+
 	n, err := d.decodeLBRRFrames(pcm, frameSize)
 	if err != nil {
 		return 0, err
@@ -331,24 +337,41 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	factor := 1
-	if d.sampleRate > 0 {
-		factor = 48000 / d.sampleRate
+
+	neededAPI := frameSize * d.channels
+	if len(d.scratchRedundant) < neededAPI {
+		d.scratchRedundant = make([]float32, neededAPI)
 	}
-	if factor < 1 {
-		factor = 1
-	}
-	for i := 0; i < frameSize; i++ {
-		for c := 0; c < d.channels; c++ {
-			idx := i*d.channels + c
-			if idx >= needed {
-				break
-			}
-			celtIdx := i*factor*d.channels + c
-			if celtIdx < len(celtSamples) {
-				pcm[idx] += float32(celtSamples[celtIdx])
+	celtAPI := d.scratchRedundant[:neededAPI]
+	if d.sampleRate == 48000 {
+		for i := range celtAPI {
+			if i < len(celtSamples) {
+				celtAPI[i] = float32(celtSamples[i])
+			} else {
+				celtAPI[i] = 0
 			}
 		}
+	} else {
+		needed48 := celtFrameSize * d.channels
+		if len(d.scratchFrame48) < needed48 {
+			return 0, ErrBufferTooSmall
+		}
+		celt48 := d.scratchFrame48[:needed48]
+		for i := range celt48 {
+			if i < len(celtSamples) {
+				celt48[i] = float32(celtSamples[i])
+			} else {
+				celt48[i] = 0
+			}
+		}
+		d.downsampleFrame48ToAPI(celtAPI, celt48, frameSize)
+	}
+	limit := frameSize * d.channels
+	if needed < limit {
+		limit = needed
+	}
+	for i := 0; i < limit; i++ {
+		pcm[i] += celtAPI[i]
 	}
 	d.mainDecodeRng = d.celtDecoder.FinalRange()
 

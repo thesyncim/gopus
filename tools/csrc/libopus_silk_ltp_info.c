@@ -12,6 +12,16 @@
 #define INPUT_MAGIC "GSLT"
 #define OUTPUT_MAGIC "GSLU"
 
+#if defined(ENABLE_ASSERTIONS) || defined(ENABLE_HARDENING)
+#include <stdlib.h>
+void celt_fatal(const char *str, const char *file, int line) {
+  (void)str;
+  (void)file;
+  (void)line;
+  abort();
+}
+#endif
+
 enum {
   MODE_LTP_QUANT = 0,
   MODE_LTP_VQ = 1,

@@ -30,11 +30,11 @@ func preparePacketRangeDecoder(data []byte, frameSizeSamples, sampleRate int) (r
 // Parameters:
 //   - data: The Opus packet data containing LBRR
 //   - bandwidth: Audio bandwidth (NB/MB/WB)
-//   - frameSizeSamples: Expected frame size in samples at 48kHz
+//   - frameSizeSamples: Expected frame size in samples at the decoder API rate
 //   - stereo: Whether the packet contains stereo data
 //   - outputChannels: Number of output channels (1 or 2)
 //
-// Returns decoded samples at 48kHz, or an error if no LBRR data available.
+// Returns decoded samples at the decoder API rate, or an error if no LBRR data available.
 //
 // Reference: libopus silk/dec_API.c silk_Decode with lostFlag=FLAG_DECODE_LBRR
 func (d *Decoder) DecodeFEC(
@@ -63,17 +63,16 @@ func (d *Decoder) DecodeFEC(
 	stMid := &d.state[0]
 	initFrameDecodeState(stMid, fsKHz, framesPerPacket, nbSubfr)
 
-	if stereo && outputChannels == 2 {
+	if stereo {
 		stSide := &d.state[1]
 		initFrameDecodeState(stSide, fsKHz, framesPerPacket, nbSubfr)
+		decodeVADAndLBRRFlags(&rd, stMid, framesPerPacket)
+		decodeVADAndLBRRFlags(&rd, &d.state[1], framesPerPacket)
+		return d.decodeStereoFECFrames(&rd, stMid, stSide, bandwidth, framesPerPacket, frameSizeSamples, outputChannels)
 	}
 
 	// Decode VAD and LBRR flags
 	decodeVADAndLBRRFlags(&rd, stMid, framesPerPacket)
-
-	if stereo && outputChannels == 2 {
-		decodeVADAndLBRRFlags(&rd, &d.state[1], framesPerPacket)
-	}
 
 	// Decode FEC/LBRR frames. Match libopus decode_fec cadence:
 	// if a packet frame has no LBRR, decode that frame as loss concealment.
@@ -88,20 +87,11 @@ func (d *Decoder) DecodeFEC(
 	for i := 0; i < framesPerPacket; i++ {
 		if stMid.LBRRFlags[i] == 0 {
 			frameOut := outInt16[i*frameLength : (i+1)*frameLength]
-			d.decodeFECLostMonoFrameInto(stMid, frameOut)
+			d.decodeFECLostFrameInto(0, stMid, frameOut)
 			d.syncLegacyPLCState(stMid, frameOut)
 			stMid.nFramesDecoded++
 			lastFrameLost = true
 			continue
-		}
-
-		// Stereo: decode stereo predictor for LBRR
-		if stereo && outputChannels == 2 {
-			var predQ13 [2]int32
-			silkStereoDecodePred(&rd, predQ13[:])
-			if d.state[1].LBRRFlags[i] == 0 {
-				_ = silkStereoDecodeMidOnly(&rd)
-			}
 		}
 
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
@@ -155,7 +145,143 @@ func (d *Decoder) DecodeFEC(
 	return output, nil
 }
 
-func (d *Decoder) decodeFECLostMonoFrameInto(st *decoderState, frameOut []int16) {
+func (d *Decoder) decodeStereoFECFrames(
+	rd *rangecoding.Decoder,
+	stMid, stSide *decoderState,
+	bandwidth Bandwidth,
+	framesPerPacket, frameSizeSamples, outputChannels int,
+) ([]float32, error) {
+	if rd == nil || stMid == nil || stSide == nil || framesPerPacket <= 0 {
+		return nil, ErrDecodeFailed
+	}
+	frameLength := stMid.frameLength
+	totalLen := framesPerPacket * frameLength
+	if frameLength <= 0 || totalLen <= 0 {
+		return nil, ErrDecodeFailed
+	}
+
+	config := GetBandwidthConfig(bandwidth)
+	fsKHz := config.SampleRate / 1000
+	if stMid.fsKHz > 0 {
+		fsKHz = stMid.fsKHz
+	}
+
+	leftNative, rightNative, ok := d.GetStereoInt16Scratch(totalLen)
+	if !ok {
+		return nil, ErrDecodeFailed
+	}
+	lastFrameLost := false
+
+	for i := 0; i < framesPerPacket; i++ {
+		frameIndex := stMid.nFramesDecoded
+		if frameIndex < 0 || frameIndex >= maxFramesPerPacket {
+			return nil, ErrDecodeFailed
+		}
+
+		var predQ13 [2]int32
+		decodeOnlyMiddle := 0
+		if stMid.LBRRFlags[frameIndex] != 0 {
+			silkStereoDecodePred(rd, predQ13[:])
+			if stSide.LBRRFlags[frameIndex] == 0 {
+				decodeOnlyMiddle = silkStereoDecodeMidOnly(rd)
+			}
+		} else {
+			predQ13 = d.stereo.predPrevQ13
+		}
+		d.maybeResetStereoSideChannel(decodeOnlyMiddle, stSide)
+
+		hasSide := d.prevDecodeOnlyMiddle == 0 || stSide.LBRRFlags[frameIndex] != 0
+		midFrame, sideFrame, ok := d.stereoFrameScratch(frameLength)
+		if !ok {
+			return nil, ErrDecodeFailed
+		}
+		clear(midFrame)
+		clear(sideFrame)
+		midOut := midFrame[2:]
+		sideOut := sideFrame[2:]
+
+		midRecovered := stMid.LBRRFlags[frameIndex] != 0
+		if midRecovered {
+			d.decodeLBRRFrameInto(0, stMid, rd, frameIndex, midOut, true)
+		} else {
+			d.decodeFECLostFrameInto(0, stMid, midOut)
+			d.syncLegacyPLCState(stMid, midOut)
+			stMid.nFramesDecoded++
+		}
+
+		if hasSide {
+			sideFrameIndex := stSide.nFramesDecoded
+			if sideFrameIndex < 0 || sideFrameIndex >= maxFramesPerPacket {
+				return nil, ErrDecodeFailed
+			}
+			if stSide.LBRRFlags[sideFrameIndex] != 0 {
+				d.decodeLBRRFrameInto(1, stSide, rd, sideFrameIndex, sideOut, true)
+			} else {
+				d.decodeFECLostFrameInto(1, stSide, sideOut)
+				stSide.nFramesDecoded++
+			}
+		} else {
+			clear(sideOut)
+			stSide.nFramesDecoded++
+		}
+
+		start := i * frameLength
+		if outputChannels == 2 {
+			silkStereoMSToLR(&d.stereo, midFrame, sideFrame, predQ13[:], fsKHz, frameLength)
+			copy(leftNative[start:start+frameLength], midFrame[1:frameLength+1])
+			copy(rightNative[start:start+frameLength], sideFrame[1:frameLength+1])
+		} else {
+			copy(leftNative[start:start+frameLength], midOut[:frameLength])
+		}
+		d.prevDecodeOnlyMiddle = decodeOnlyMiddle
+		lastFrameLost = !midRecovered
+	}
+
+	var output []float32
+	if outputChannels == 2 {
+		leftResampler := d.GetResamplerForChannel(bandwidth, 0)
+		rightResampler := d.GetResamplerForChannel(bandwidth, 1)
+		leftScratch, rightScratch, ok := d.stereoFloat32Scratch(frameSizeSamples)
+		if !ok {
+			return nil, ErrDecodeFailed
+		}
+		nLeft := leftResampler.ProcessInt16Into(leftNative[:totalLen], leftScratch)
+		nRight := rightResampler.ProcessInt16Into(rightNative[:totalLen], rightScratch)
+		n := nLeft
+		if nRight < n {
+			n = nRight
+		}
+		if n < 0 {
+			return nil, ErrDecodeFailed
+		}
+		output = make([]float32, n*2)
+		for i := 0; i < n; i++ {
+			output[i*2] = leftScratch[i]
+			output[i*2+1] = rightScratch[i]
+		}
+	} else {
+		resampler := d.GetResampler(bandwidth)
+		output = make([]float32, frameSizeSamples)
+		outputOffset := 0
+		for f := 0; f < framesPerPacket; f++ {
+			start := f * frameLength
+			end := start + frameLength
+			resamplerInput := d.BuildMonoResamplerInputInt16(leftNative[start:end])
+			outputOffset += resampler.ProcessInt16Into(resamplerInput, output[outputOffset:])
+		}
+		output = output[:outputOffset]
+	}
+
+	if d.plcState != nil && !lastFrameLost {
+		d.plcState.Reset()
+		d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, outputChannels)
+	}
+
+	d.haveDecoded = true
+	return output, nil
+}
+
+func (d *Decoder) decodeFECLostFrameInto(channel int, st *decoderState, frameOut []int16) {
 	if st == nil || len(frameOut) == 0 {
 		return
 	}
@@ -175,8 +301,12 @@ func (d *Decoder) decodeFECLostMonoFrameInto(st *decoderState, frameOut []int16)
 		concealed = make([]float32, frameLength)
 	}
 
-	if state := d.ensureSILKPLCState(0); state != nil && st.nbSubfr > 0 {
-		concealedQ0 := plc.ConcealSILKWithLTP(d, state, lossCnt, frameLength)
+	if state := d.ensureSILKPLCState(channel); state != nil && st.nbSubfr > 0 {
+		view := d.plcDecoderView(channel)
+		if view == nil {
+			return
+		}
+		concealedQ0 := plc.ConcealSILKWithLTP(view, state, lossCnt, frameLength)
 		const scale = float32(1.0 / 32768.0)
 		n := len(concealedQ0)
 		if n > frameLength {

@@ -105,7 +105,7 @@ func (d *Decoder) downsampleFrame48ToAPI(dst, src []float32, frameSize int) {
 
 func (d *Decoder) decodeCELTFrameToAPIScratch(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
 	celtFrameSize := frameSize
-	celtOut := d.scratchRedundant[:0]
+	var celtOut []float32
 	if d.sampleRate != 48000 {
 		celtFrameSize = d.frameSize48FromAPI(frameSize)
 		needed48 := celtFrameSize * d.channels

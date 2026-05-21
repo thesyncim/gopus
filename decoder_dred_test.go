@@ -1184,13 +1184,14 @@ func TestDecoderDecodePLCAppliesNeuralConcealmentWhenReady(t *testing.T) {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
 
-	pcm := make([]float32, 960)
+	frameSize := 16000 / 50
+	pcm := make([]float32, frameSize)
 	n, err := dec.Decode(packet, pcm)
 	if err != nil {
 		t.Fatalf("Decode error: %v", err)
 	}
-	if n != 960 {
-		t.Fatalf("Decode()=%d want 960", n)
+	if n != frameSize {
+		t.Fatalf("Decode()=%d want %d", n, frameSize)
 	}
 	if state := dec.dredState(); state != nil {
 		if state.decoderDREDRecoveryState != nil {
@@ -1206,8 +1207,8 @@ func TestDecoderDecodePLCAppliesNeuralConcealmentWhenReady(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode(nil) error: %v", err)
 	}
-	if n != 960 {
-		t.Fatalf("Decode(nil)=%d want 960", n)
+	if n != frameSize {
+		t.Fatalf("Decode(nil)=%d want %d", n, frameSize)
 	}
 	state := requireDecoderDREDState(t, dec)
 	if got := state.dredPLC.Blend(); got != 1 {

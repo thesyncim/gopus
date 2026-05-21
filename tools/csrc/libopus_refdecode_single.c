@@ -119,7 +119,7 @@ int main(void) {
       fprintf(stderr, "failed to read sample format\n");
       return 1;
     }
-    if (version == 3 && !read_u32(&sample_rate)) {
+    if (version >= 3 && !read_u32(&sample_rate)) {
       fprintf(stderr, "failed to read sample rate\n");
       return 1;
     }
