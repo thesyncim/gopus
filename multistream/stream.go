@@ -118,6 +118,19 @@ func getFrameDuration(packet []byte) int {
 	return opusSamplesPerFrame48k(packet[0]) * len(parsed.frames)
 }
 
+func getFrameDurationAtRate(packet []byte, sampleRate int) int {
+	if len(packet) == 0 {
+		return 0
+	}
+
+	parsed, err := parseOpusPacket(packet, false)
+	if err != nil || len(parsed.frames) == 0 {
+		return 0
+	}
+
+	return opusSamplesPerFrameAtRate(packet[0], sampleRate) * len(parsed.frames)
+}
+
 func opusSamplesPerFrame48k(toc byte) int {
 	// TOC byte structure: config (5 bits) | stereo (1 bit) | code (2 bits).
 	config := toc >> 3
@@ -136,6 +149,24 @@ func opusSamplesPerFrame48k(toc byte) int {
 		120, 240, 480, 960,
 	}
 	return frameSizeTable[config]
+}
+
+func opusSamplesPerFrameAtRate(toc byte, sampleRate int) int {
+	if toc&0x80 != 0 {
+		audioSize := int((toc >> 3) & 0x3)
+		return (sampleRate << audioSize) / 400
+	}
+	if toc&0x60 == 0x60 {
+		if toc&0x08 != 0 {
+			return sampleRate / 50
+		}
+		return sampleRate / 100
+	}
+	audioSize := int((toc >> 3) & 0x3)
+	if audioSize == 3 {
+		return sampleRate * 60 / 1000
+	}
+	return (sampleRate << audioSize) / 100
 }
 
 // validateStreamDurations checks that all stream packets have the same frame duration.
@@ -160,6 +191,29 @@ func validateStreamDurations(packets [][]byte) (int, error) {
 	return duration, nil
 }
 
+func validateStreamDurationsAtRate(packets [][]byte, sampleRate int) (int, error) {
+	if len(packets) == 0 {
+		return 0, ErrInvalidStreamCount
+	}
+
+	duration := getFrameDurationAtRate(packets[0], sampleRate)
+	if duration == 0 {
+		return 0, ErrPacketTooShort
+	}
+
+	for i := 1; i < len(packets); i++ {
+		streamDuration := getFrameDurationAtRate(packets[i], sampleRate)
+		if streamDuration != duration {
+			return 0, ErrDurationMismatch
+		}
+	}
+	if duration*25 > sampleRate*3 {
+		return 0, ErrInvalidPacket
+	}
+
+	return duration, nil
+}
+
 // PacketDuration returns the common packet duration for a multistream packet in
 // 48 kHz samples per channel.
 func PacketDuration(data []byte, numStreams int) (int, error) {
@@ -168,4 +222,14 @@ func PacketDuration(data []byte, numStreams int) (int, error) {
 		return 0, err
 	}
 	return validateStreamDurations(packets)
+}
+
+// PacketDurationAtRate returns the common packet duration in samples per
+// channel at sampleRate, matching opus_packet_get_nb_samples().
+func PacketDurationAtRate(data []byte, numStreams, sampleRate int) (int, error) {
+	packets, err := parseMultistreamPacket(data, numStreams)
+	if err != nil {
+		return 0, err
+	}
+	return validateStreamDurationsAtRate(packets, sampleRate)
 }

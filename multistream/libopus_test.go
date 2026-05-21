@@ -646,6 +646,7 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 
 	libopusRefDecoded, err := decodeWithLibopusReferencePackets(
 		1,
+		48000,
 		channels,
 		streams,
 		coupled,
@@ -787,6 +788,7 @@ func TestLibopus_DefaultMappingMatrix(t *testing.T) {
 
 			libopusRefDecoded, err := decodeWithLibopusReferencePackets(
 				1,
+				48000,
 				tc.channels,
 				streams,
 				coupled,
@@ -906,6 +908,7 @@ func TestLibopus_FrameDurationMatrix(t *testing.T) {
 
 				libopusRefDecoded, err := decodeWithLibopusReferencePackets(
 					1,
+					48000,
 					layout.channels,
 					streams,
 					coupled,
@@ -1034,6 +1037,7 @@ func runLibopusAmbisonicsParityCase(t *testing.T, mappingFamily, channels, bitra
 
 	libopusDecoded, err := decodeWithLibopusReferencePackets(
 		mappingFamily,
+		48000,
 		channels,
 		enc.Streams(),
 		enc.CoupledStreams(),

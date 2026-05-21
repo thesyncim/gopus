@@ -52,6 +52,11 @@ static int set_binary_stdio(void) {
   return 1;
 }
 
+static int valid_sample_rate(uint32_t sample_rate) {
+  return sample_rate == 8000 || sample_rate == 12000 || sample_rate == 16000 || sample_rate == 24000 ||
+         sample_rate == 48000;
+}
+
 static int append_floats(float **out, size_t *out_len, size_t *out_cap, const float *src, size_t n) {
   if (n == 0) {
     return 1;
@@ -86,6 +91,7 @@ static int append_floats(float **out, size_t *out_len, size_t *out_cap, const fl
 int main(void) {
   unsigned char magic[4];
   uint32_t version = 0;
+  uint32_t sample_rate = 48000;
   uint32_t family = 0;
   uint32_t channels = 0;
   uint32_t streams = 0;
@@ -112,14 +118,28 @@ int main(void) {
     return 1;
   }
 
-  if (!read_u32(&version) || version != 1 || !read_u32(&family) || !read_u32(&channels) || !read_u32(&streams) ||
-      !read_u32(&coupled) || !read_u32(&frame_size) || !read_u32(&packet_count) || !read_u32(&mapping_len) ||
-      !read_u32(&demix_len)) {
+  if (!read_u32(&version)) {
     fprintf(stderr, "failed to read header\n");
     return 1;
   }
 
-  if (channels == 0 || streams == 0 || frame_size == 0) {
+  if (version == 2) {
+    if (!read_u32(&sample_rate)) {
+      fprintf(stderr, "failed to read sample rate\n");
+      return 1;
+    }
+  } else if (version != 1) {
+    fprintf(stderr, "unsupported input version: %u\n", version);
+    return 1;
+  }
+
+  if (!read_u32(&family) || !read_u32(&channels) || !read_u32(&streams) || !read_u32(&coupled) ||
+      !read_u32(&frame_size) || !read_u32(&packet_count) || !read_u32(&mapping_len) || !read_u32(&demix_len)) {
+    fprintf(stderr, "failed to read header\n");
+    return 1;
+  }
+
+  if (!valid_sample_rate(sample_rate) || channels == 0 || streams == 0 || frame_size == 0) {
     fprintf(stderr, "invalid decoder dimensions\n");
     return 1;
   }
@@ -161,7 +181,7 @@ int main(void) {
   if (family == 3) {
     int err = OPUS_OK;
     OpusProjectionDecoder *dec = opus_projection_decoder_create(
-        48000, (int)channels, (int)streams, (int)coupled, demixing, (opus_int32)demix_len, &err);
+        (opus_int32)sample_rate, (int)channels, (int)streams, (int)coupled, demixing, (opus_int32)demix_len, &err);
     if (dec == NULL || err != OPUS_OK) {
       fprintf(stderr, "opus_projection_decoder_create failed: %d\n", err);
       free(mapping);
@@ -226,7 +246,8 @@ int main(void) {
     opus_projection_decoder_destroy(dec);
   } else {
     int err = OPUS_OK;
-    OpusMSDecoder *dec = opus_multistream_decoder_create(48000, (int)channels, (int)streams, (int)coupled, mapping, &err);
+    OpusMSDecoder *dec =
+        opus_multistream_decoder_create((opus_int32)sample_rate, (int)channels, (int)streams, (int)coupled, mapping, &err);
     if (dec == NULL || err != OPUS_OK) {
       fprintf(stderr, "opus_multistream_decoder_create failed: %d\n", err);
       free(mapping);

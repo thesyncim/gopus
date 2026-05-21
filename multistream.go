@@ -243,7 +243,7 @@ func NewMultistreamDecoder(sampleRate, channels, streams, coupledStreams int, ma
 		dec:           dec,
 		sampleRate:    sampleRate,
 		channels:      channels,
-		lastFrameSize: 960, // Default 20ms at 48kHz
+		lastFrameSize: sampleRate / 50,
 	}, nil
 }
 
@@ -281,6 +281,6 @@ func NewMultistreamDecoderDefault(sampleRate, channels int) (*MultistreamDecoder
 		dec:           dec,
 		sampleRate:    sampleRate,
 		channels:      channels,
-		lastFrameSize: 960, // Default 20ms at 48kHz
+		lastFrameSize: sampleRate / 50,
 	}, nil
 }

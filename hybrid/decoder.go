@@ -137,11 +137,17 @@ func (d *Decoder) SetAPISampleRate(sampleRate int) {
 	switch sampleRate {
 	case 8000, 12000, 16000, 24000, 48000:
 		d.apiSampleRate = sampleRate
+		if d.silkDecoder != nil {
+			d.silkDecoder.SetAPISampleRate(sampleRate)
+		}
 		if d.celtDecoder != nil {
 			d.celtDecoder.SetDownsample(48000 / sampleRate)
 		}
 	default:
 		d.apiSampleRate = 48000
+		if d.silkDecoder != nil {
+			d.silkDecoder.SetAPISampleRate(48000)
+		}
 		if d.celtDecoder != nil {
 			d.celtDecoder.SetDownsample(1)
 		}

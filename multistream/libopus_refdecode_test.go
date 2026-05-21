@@ -35,7 +35,7 @@ func getLibopusRefdecodePath() (string, error) {
 }
 
 func decodeWithLibopusReferencePackets(
-	mappingFamily, channels, streams, coupled, frameSize int,
+	mappingFamily, sampleRate, channels, streams, coupled, frameSize int,
 	mapping []byte,
 	demixingMatrix []byte,
 	packets [][]byte,
@@ -49,8 +49,10 @@ func decodeWithLibopusReferencePackets(
 		return nil, fmt.Errorf("unsupported mapping family: %d", mappingFamily)
 	}
 
-	payload := libopustest.NewOraclePayload(
+	payload := libopustest.NewOraclePayloadVersion(
 		"GMSI",
+		2,
+		uint32(sampleRate),
 		uint32(mappingFamily),
 		uint32(channels),
 		uint32(streams),

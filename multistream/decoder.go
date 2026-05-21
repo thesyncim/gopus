@@ -134,15 +134,21 @@ type streamState struct {
 }
 
 func newStreamDecoder(sampleRate, channels int) *streamState {
+	silkDec := silk.NewDecoder()
+	silkDec.SetAPISampleRate(sampleRate)
+	celtDec := celt.NewDecoder(channels)
+	celtDec.SetDownsample(48000 / sampleRate)
+	hybridDec := hybrid.NewDecoder(channels)
+	hybridDec.SetAPISampleRate(sampleRate)
 	return &streamState{
 		sampleRate:    sampleRate,
 		channels:      channels,
-		hybridDec:     hybrid.NewDecoder(channels),
-		celtDec:       celt.NewDecoder(channels),
-		silkDec:       silk.NewDecoder(),
+		hybridDec:     hybridDec,
+		celtDec:       celtDec,
+		silkDec:       silkDec,
 		lastMode:      streamModeHybrid,
 		lastBandwidth: int(types.BandwidthFullband),
-		lastFrameSize: 960,
+		lastFrameSize: sampleRate / 50,
 	}
 }
 
@@ -165,7 +171,7 @@ func (d *streamState) Reset() {
 	d.lastBandwidth = int(types.BandwidthFullband)
 	d.lastPacketStereo = false
 	d.haveDecoded = false
-	d.lastFrameSize = 960
+	d.lastFrameSize = d.sampleRate / 50
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
 	d.resetOSCEPostfilterState()
@@ -253,7 +259,7 @@ func (d *streamState) Bandwidth() types.Bandwidth {
 	return types.Bandwidth(d.lastBandwidth)
 }
 
-// LastPacketDuration returns the last decoded packet duration in 48 kHz samples.
+// LastPacketDuration returns the last decoded packet duration at the decoder API rate.
 func (d *streamState) LastPacketDuration() int {
 	return d.lastPacketDuration
 }
@@ -296,6 +302,32 @@ func (d *streamState) applyOutputGain(samples []float64) {
 	for i := range samples {
 		samples[i] *= gain
 	}
+}
+
+func (d *streamState) frameSize48FromAPI(frameSize int) int {
+	if d.sampleRate <= 0 || d.sampleRate == 48000 {
+		return frameSize
+	}
+	return frameSize * 48000 / d.sampleRate
+}
+
+func (d *streamState) downsampleFrame48ToAPI(samples []float64, frameSize int) []float64 {
+	if d.sampleRate == 48000 {
+		return samples
+	}
+	factor := 48000 / d.sampleRate
+	if factor <= 1 {
+		return samples
+	}
+	out := make([]float64, frameSize*d.channels)
+	for i := 0; i < frameSize; i++ {
+		srcBase := i * factor * d.channels
+		dstBase := i * d.channels
+		for c := 0; c < d.channels; c++ {
+			out[dstBase+c] = samples[srcBase+c]
+		}
+	}
+	return out
 }
 
 func float32ToFloat64Slice(in []float32) []float64 {
@@ -382,7 +414,7 @@ func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc stream
 	case streamModeSILK:
 		out, err = d.decodeSILK(frame, frameSize, toc.stereo, toc.bandwidth)
 	case streamModeHybrid:
-		if !hybrid.ValidHybridFrameSize(frameSize) {
+		if !hybrid.ValidHybridFrameSize(d.frameSize48FromAPI(frameSize)) {
 			return nil, fmt.Errorf("multistream: invalid hybrid frame size %d", frameSize)
 		}
 		out, err = d.hybridDec.DecodeWithPacketStereo(frame, frameSize, toc.stereo)
@@ -391,7 +423,10 @@ func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc stream
 		if extsupport.QEXT {
 			d.setCELTQEXTPayload(qextPayload)
 		}
-		out, err = d.celtDec.DecodeFrameWithPacketStereo(frame, frameSize, toc.stereo)
+		out, err = d.celtDec.DecodeFrameWithPacketStereo(frame, d.frameSize48FromAPI(frameSize), toc.stereo)
+		if err == nil {
+			out = d.downsampleFrame48ToAPI(out, frameSize)
+		}
 	default:
 		return nil, ErrInvalidPacket
 	}
@@ -407,11 +442,11 @@ func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc stream
 }
 
 func (d *streamState) decodePLC(frameSize int) ([]float64, error) {
+	d.recordDecodeCall(frameSize, 0)
+
 	if !d.haveDecoded {
 		return make([]float64, frameSize*d.channels), nil
 	}
-
-	d.recordDecodeCall(frameSize, 0)
 
 	switch d.lastMode {
 	case streamModeSILK:
@@ -424,7 +459,11 @@ func (d *streamState) decodePLC(frameSize int) ([]float64, error) {
 		return out, err
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(d.lastBandwidth))
-		out, err := d.finishDecode(d.celtDec.DecodeFrameWithPacketStereo(nil, frameSize, d.lastPacketStereo))
+		out, err := d.celtDec.DecodeFrameWithPacketStereo(nil, d.frameSize48FromAPI(frameSize), d.lastPacketStereo)
+		if err == nil {
+			out = d.downsampleFrame48ToAPI(out, frameSize)
+		}
+		out, err = d.finishDecode(out, err)
 		if extsupport.OSCERuntime && err == nil {
 			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: d.lastBandwidth, stereo: d.lastPacketStereo}, out, frameSize)
 		}

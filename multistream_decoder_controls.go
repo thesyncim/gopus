@@ -4,7 +4,7 @@ package gopus
 // Call this when starting to decode a new audio stream.
 func (d *MultistreamDecoder) Reset() {
 	d.dec.Reset()
-	d.lastFrameSize = 960
+	d.lastFrameSize = d.sampleRate / 50
 }
 
 // Channels returns the number of audio channels.

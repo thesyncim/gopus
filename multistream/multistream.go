@@ -71,18 +71,10 @@ func (d *Decoder) decodeStream(stream int, packet []byte, frameSize int) ([]floa
 //
 // Parameters:
 //   - data: raw multistream packet data, or nil for PLC
-//   - frameSize: frame size in samples at 48kHz per channel (e.g., 960 for 20ms)
+//   - frameSize: frame size in samples at the decoder sample rate
 //
 // Returns sample-interleaved float64 samples: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]
 // where N is the number of output channels.
-//
-// The frameSize parameter specifies samples per channel at 48kHz. For example:
-//   - 120 samples = 2.5ms
-//   - 240 samples = 5ms
-//   - 480 samples = 10ms
-//   - 960 samples = 20ms
-//   - 1920 samples = 40ms
-//   - 2880 samples = 60ms
 //
 // All elementary streams within the packet must have the same frame duration.
 // If durations differ, ErrDurationMismatch is returned.
@@ -107,7 +99,7 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
 	}
 
 	// Validate that all streams have consistent frame durations
-	duration, err := validateStreamDurations(packets)
+	duration, err := validateStreamDurationsAtRate(packets, d.sampleRate)
 	if err != nil {
 		return nil, err
 	}
@@ -203,7 +195,7 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 //
 // Parameters:
 //   - data: raw multistream packet data, or nil for PLC
-//   - frameSize: frame size in samples at 48kHz per channel
+//   - frameSize: frame size in samples at the decoder sample rate
 //
 // Returns sample-interleaved int16 samples in range [-32768, 32767].
 // The output format is: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]
@@ -221,7 +213,7 @@ func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 //
 // Parameters:
 //   - data: raw multistream packet data, or nil for PLC
-//   - frameSize: frame size in samples at 48kHz per channel
+//   - frameSize: frame size in samples at the decoder sample rate
 //
 // Returns sample-interleaved float32 samples in approximate range [-1, 1].
 // The output format is: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]

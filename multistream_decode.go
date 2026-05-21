@@ -9,7 +9,7 @@ func (d *MultistreamDecoder) decodeFrameSize(data []byte) (int, error) {
 	if len(data) == 0 {
 		return 0, multistream.ErrPacketTooShort
 	}
-	return multistream.PacketDuration(data, d.dec.Streams())
+	return multistream.PacketDurationAtRate(data, d.dec.Streams(), d.sampleRate)
 }
 
 // Decode decodes an Opus multistream packet into float32 PCM samples.
