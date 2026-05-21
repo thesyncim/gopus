@@ -3059,6 +3059,93 @@ func TestDecoderExplicitDREDDecode16kMatchesLibopus(t *testing.T) {
 	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.celt48k, "explicit 16k libopus celt", celtTol)
 }
 
+func TestDecoderPublicDecodeDRED16kMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	tests := []struct {
+		name      string
+		cfg       libopusDREDPacketConfig
+		pcmTol    float64
+		plcTol    float64
+		farganTol float64
+		celtTol   float64
+	}{
+		{
+			name: "celt_fb_mono",
+			cfg: libopusDREDPacketConfig{
+				FrameSize: 480,
+				ForceMode: ModeCELT,
+				Bandwidth: BandwidthFullband,
+			},
+		},
+		{
+			name: "celt_fb_stereo",
+			cfg: libopusDREDPacketConfig{
+				FrameSize:     480,
+				ForceMode:     ModeCELT,
+				Bandwidth:     BandwidthFullband,
+				Channels:      2,
+				ForceChannels: 2,
+			},
+		},
+		{
+			name: "hybrid_swb_mono",
+			cfg: libopusDREDPacketConfig{
+				FrameSize: 960,
+				ForceMode: ModeHybrid,
+				Bandwidth: BandwidthSuperwideband,
+			},
+			pcmTol:    1e-4,
+			plcTol:    1e-4,
+			farganTol: 1e-4,
+			celtTol:   1e-4,
+		},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 16000, tc.cfg)
+			want, err := probeLibopusDecoderDREDDecodeFloatForDecoder(seedPacket, packetInfo, 16000, -1, n, n)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
+			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus public decoder DRED")
+			if want.ret != n {
+				t.Fatalf("libopus public 16k decoder DRED decode ret=%d want %d", want.ret, n)
+			}
+			if want.channels != dec.channels {
+				t.Fatalf("libopus public 16k decoder DRED channels=%d want %d", want.channels, dec.channels)
+			}
+
+			pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+			got, err := dec.DecodeDRED(dred, n, pcm, n)
+			if err != nil {
+				t.Fatalf("DecodeDRED error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("DecodeDRED=%d want %d", got, n)
+			}
+			if gotDuration := dec.LastPacketDuration(); gotDuration != n {
+				t.Fatalf("LastPacketDuration()=%d want API-rate frame %d", gotDuration, n)
+			}
+
+			pcmTol, plcTol, farganTol, celtTol := tc.pcmTol, tc.plcTol, tc.farganTol, tc.celtTol
+			if pcmTol == 0 {
+				pcmTol, plcTol, farganTol, celtTol = decoderDREDLiveSequenceTolerances(tc.cfg.FrameSize)
+			}
+			gotPCM := pcm[:got*dec.channels]
+			wantPCM := want.pcm[:got*dec.channels]
+			if dec.channels == 2 {
+				assertInterleavedStereoApproxDuplicated(t, gotPCM, got, "public 16k DecodeDRED", 1e-2)
+				assertInterleavedStereoApproxDuplicated(t, wantPCM, got, "libopus public 16k DecodeDRED", 1e-2)
+			}
+			assertFloat32ApproxEqual(t, gotPCM, wantPCM, "public 16k DecodeDRED pcm", pcmTol)
+			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "public 16k DecodeDRED plc", plcTol)
+			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "public 16k DecodeDRED fargan", farganTol)
+			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.celt48k, "public 16k DecodeDRED celt", celtTol)
+		})
+	}
+}
+
 func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusFirstLoss(t *testing.T) {
 	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)
