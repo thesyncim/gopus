@@ -23,6 +23,11 @@
 #define INPUT_MAGIC "GDSI"
 #define OUTPUT_MAGIC "GDSO"
 
+enum {
+  SAMPLE_FORMAT_FLOAT32 = 0,
+  SAMPLE_FORMAT_INT16 = 1
+};
+
 #ifndef ENABLE_DEEP_PLC
 #error "ENABLE_DEEP_PLC is required for decoder DRED sequence parity"
 #endif
@@ -165,6 +170,17 @@ static int write_i32(int32_t v) {
   return write_u32((uint32_t)v);
 }
 
+static int write_u16(uint16_t v) {
+  unsigned char b[2];
+  b[0] = (unsigned char)(v & 0xFF);
+  b[1] = (unsigned char)((v >> 8) & 0xFF);
+  return write_exact(b, sizeof(b));
+}
+
+static int write_i16(int16_t v) {
+  return write_u16((uint16_t)v);
+}
+
 static int write_f32(float v) {
   union {
     float f;
@@ -178,6 +194,14 @@ static int write_f32_array(const float *src, int count) {
   int i;
   for (i = 0; i < count; i++) {
     if (!write_f32(src[i])) return 0;
+  }
+  return 1;
+}
+
+static int write_i16_array(const opus_int16 *src, int count) {
+  int i;
+  for (i = 0; i < count; i++) {
+    if (!write_i16(src[i])) return 0;
   }
   return 1;
 }
@@ -337,9 +361,18 @@ static int run_lost_step(OpusDecoder *dec, int frame_size, float *out_pcm) {
   return opus_decode_float(dec, NULL, 0, out_pcm, frame_size, 0);
 }
 
+static int run_step_int16(OpusDecoder *dec, const OpusDRED *dred, int dred_offset, int frame_size, opus_int16 *out_pcm) {
+  return opus_decoder_dred_decode(dec, dred, dred_offset, out_pcm, frame_size);
+}
+
+static int run_lost_step_int16(OpusDecoder *dec, int frame_size, opus_int16 *out_pcm) {
+  return opus_decode(dec, NULL, 0, out_pcm, frame_size, 0);
+}
+
 int main(void) {
   unsigned char magic[4];
   uint32_t version = 0;
+  uint32_t sample_format = SAMPLE_FORMAT_FLOAT32;
   uint32_t sample_rate = 0;
   uint32_t max_dred_samples = 0;
   uint32_t frame_size = 0;
@@ -367,6 +400,11 @@ int main(void) {
   float *step0_pcm = NULL;
   float *step1_pcm = NULL;
   float *next_pcm = NULL;
+  opus_int16 *seed_pcm16 = NULL;
+  opus_int16 *carrier_pcm16 = NULL;
+  opus_int16 *step0_pcm16 = NULL;
+  opus_int16 *step1_pcm16 = NULL;
+  opus_int16 *next_pcm16 = NULL;
   GopusSequenceSnapshot step0_snap;
   GopusSequenceSnapshot step1_snap;
   GopusSequenceSnapshot next_snap;
@@ -397,7 +435,7 @@ int main(void) {
     fprintf(stderr, "invalid input magic\n");
     return 1;
   }
-  if (!read_u32(&version) || version != 1 ||
+  if (!read_u32(&version) || (version != 1 && version != 2) ||
       !read_u32(&sample_rate) ||
       !read_u32(&max_dred_samples) ||
       !read_u32(&frame_size) ||
@@ -412,6 +450,14 @@ int main(void) {
       !read_i32(&step1_dred_offset) ||
       !read_u32(&decode_next_packet)) {
     fprintf(stderr, "failed to read helper header\n");
+    return 1;
+  }
+  if (version >= 2 && !read_u32(&sample_format)) {
+    fprintf(stderr, "failed to read helper sample format\n");
+    return 1;
+  }
+  if (sample_format != SAMPLE_FORMAT_FLOAT32 && sample_format != SAMPLE_FORMAT_INT16) {
+    fprintf(stderr, "invalid helper sample format\n");
     return 1;
   }
 
@@ -569,12 +615,21 @@ int main(void) {
   if (seed_packet != NULL && seed_packet_len > 0) {
     seed_packet_samples = opus_decoder_get_nb_samples(dec, seed_packet, (opus_int32)seed_packet_len);
     if (seed_packet_samples > 0) {
-      seed_pcm = (float *)calloc((size_t)seed_packet_samples * channels, sizeof(float));
-      if (seed_pcm == NULL) {
-        fprintf(stderr, "seed buffer alloc failed\n");
-        goto cleanup_fail;
+      if (sample_format == SAMPLE_FORMAT_INT16) {
+        seed_pcm16 = (opus_int16 *)calloc((size_t)seed_packet_samples * channels, sizeof(*seed_pcm16));
+        if (seed_pcm16 == NULL) {
+          fprintf(stderr, "seed int16 buffer alloc failed\n");
+          goto cleanup_fail;
+        }
+        err = opus_decode(dec, seed_packet, (opus_int32)seed_packet_len, seed_pcm16, seed_packet_samples, 0);
+      } else {
+        seed_pcm = (float *)calloc((size_t)seed_packet_samples * channels, sizeof(*seed_pcm));
+        if (seed_pcm == NULL) {
+          fprintf(stderr, "seed buffer alloc failed\n");
+          goto cleanup_fail;
+        }
+        err = opus_decode_float(dec, seed_packet, (opus_int32)seed_packet_len, seed_pcm, seed_packet_samples, 0);
       }
-      err = opus_decode_float(dec, seed_packet, (opus_int32)seed_packet_len, seed_pcm, seed_packet_samples, 0);
       if (err < 0) {
         goto cleanup_fail;
       }
@@ -586,12 +641,21 @@ int main(void) {
     fprintf(stderr, "failed to get carrier packet samples\n");
     goto cleanup_fail;
   }
-  carrier_pcm = (float *)calloc((size_t)carrier_packet_samples * channels, sizeof(float));
-  if (carrier_pcm == NULL) {
-    fprintf(stderr, "carrier buffer alloc failed\n");
-    goto cleanup_fail;
+  if (sample_format == SAMPLE_FORMAT_INT16) {
+    carrier_pcm16 = (opus_int16 *)calloc((size_t)carrier_packet_samples * channels, sizeof(*carrier_pcm16));
+    if (carrier_pcm16 == NULL) {
+      fprintf(stderr, "carrier int16 buffer alloc failed\n");
+      goto cleanup_fail;
+    }
+    carrier_ret = opus_decode(dec, carrier_packet, (opus_int32)carrier_packet_len, carrier_pcm16, carrier_packet_samples, 0);
+  } else {
+    carrier_pcm = (float *)calloc((size_t)carrier_packet_samples * channels, sizeof(*carrier_pcm));
+    if (carrier_pcm == NULL) {
+      fprintf(stderr, "carrier buffer alloc failed\n");
+      goto cleanup_fail;
+    }
+    carrier_ret = opus_decode_float(dec, carrier_packet, (opus_int32)carrier_packet_len, carrier_pcm, carrier_packet_samples, 0);
   }
-  carrier_ret = opus_decode_float(dec, carrier_packet, (opus_int32)carrier_packet_len, carrier_pcm, carrier_packet_samples, 0);
   if (carrier_ret < 0) {
     fprintf(stderr, "carrier decode failed: %d\n", carrier_ret);
     goto cleanup_fail;
@@ -603,11 +667,20 @@ int main(void) {
   }
 
   if (frame_size > 0) {
-    step0_pcm = (float *)calloc((size_t)frame_size * channels, sizeof(float));
-    step1_pcm = (float *)calloc((size_t)frame_size * channels, sizeof(float));
-    if (step0_pcm == NULL || step1_pcm == NULL) {
-      fprintf(stderr, "step buffer alloc failed\n");
-      goto cleanup_fail;
+    if (sample_format == SAMPLE_FORMAT_INT16) {
+      step0_pcm16 = (opus_int16 *)calloc((size_t)frame_size * channels, sizeof(*step0_pcm16));
+      step1_pcm16 = (opus_int16 *)calloc((size_t)frame_size * channels, sizeof(*step1_pcm16));
+      if (step0_pcm16 == NULL || step1_pcm16 == NULL) {
+        fprintf(stderr, "step int16 buffer alloc failed\n");
+        goto cleanup_fail;
+      }
+    } else {
+      step0_pcm = (float *)calloc((size_t)frame_size * channels, sizeof(*step0_pcm));
+      step1_pcm = (float *)calloc((size_t)frame_size * channels, sizeof(*step1_pcm));
+      if (step0_pcm == NULL || step1_pcm == NULL) {
+        fprintf(stderr, "step buffer alloc failed\n");
+        goto cleanup_fail;
+      }
     }
   }
 
@@ -618,6 +691,8 @@ int main(void) {
     case 1:
       if (carrier_parse_ret < 0) {
         step0_ret = carrier_parse_ret;
+      } else if (sample_format == SAMPLE_FORMAT_INT16) {
+        step0_ret = run_lost_step_int16(dec, (int)frame_size, step0_pcm16);
       } else {
         step0_ret = run_lost_step(dec, (int)frame_size, step0_pcm);
       }
@@ -625,6 +700,9 @@ int main(void) {
     case 2:
       if (next_parse_ret < 0) {
         step0_ret = next_parse_ret;
+      } else if (sample_format == SAMPLE_FORMAT_INT16) {
+        step_dred = next_dred;
+        step0_ret = run_step_int16(dec, step_dred, step0_dred_offset, (int)frame_size, step0_pcm16);
       } else {
         step_dred = next_dred;
         step0_ret = run_step(dec, step_dred, step0_dred_offset, (int)frame_size, step0_pcm);
@@ -643,6 +721,8 @@ int main(void) {
     case 1:
       if (carrier_parse_ret < 0) {
         step1_ret = carrier_parse_ret;
+      } else if (sample_format == SAMPLE_FORMAT_INT16) {
+        step1_ret = run_lost_step_int16(dec, (int)frame_size, step1_pcm16);
       } else {
         step1_ret = run_lost_step(dec, (int)frame_size, step1_pcm);
       }
@@ -650,6 +730,8 @@ int main(void) {
     case 2:
       if (next_parse_ret < 0) {
         step1_ret = next_parse_ret;
+      } else if (sample_format == SAMPLE_FORMAT_INT16) {
+        step1_ret = run_step_int16(dec, next_dred, step1_dred_offset, (int)frame_size, step1_pcm16);
       } else {
         step1_ret = run_step(dec, next_dred, step1_dred_offset, (int)frame_size, step1_pcm);
       }
@@ -663,12 +745,21 @@ int main(void) {
   if (decode_next_packet && next_packet != NULL && next_packet_len > 0) {
     next_packet_samples = opus_decoder_get_nb_samples(dec, next_packet, (opus_int32)next_packet_len);
     if (next_packet_samples > 0) {
-      next_pcm = (float *)calloc((size_t)next_packet_samples * channels, sizeof(float));
-      if (next_pcm == NULL) {
-        fprintf(stderr, "next buffer alloc failed\n");
-        goto cleanup_fail;
+      if (sample_format == SAMPLE_FORMAT_INT16) {
+        next_pcm16 = (opus_int16 *)calloc((size_t)next_packet_samples * channels, sizeof(*next_pcm16));
+        if (next_pcm16 == NULL) {
+          fprintf(stderr, "next int16 buffer alloc failed\n");
+          goto cleanup_fail;
+        }
+        next_ret = opus_decode(dec, next_packet, (opus_int32)next_packet_len, next_pcm16, next_packet_samples, 0);
+      } else {
+        next_pcm = (float *)calloc((size_t)next_packet_samples * channels, sizeof(*next_pcm));
+        if (next_pcm == NULL) {
+          fprintf(stderr, "next buffer alloc failed\n");
+          goto cleanup_fail;
+        }
+        next_ret = opus_decode_float(dec, next_packet, (opus_int32)next_packet_len, next_pcm, next_packet_samples, 0);
       }
-      next_ret = opus_decode_float(dec, next_packet, (opus_int32)next_packet_len, next_pcm, next_packet_samples, 0);
     }
   }
   capture_snapshot(dec, next_ret, &next_snap);
@@ -688,19 +779,19 @@ int main(void) {
     goto cleanup_fail;
   }
   if (step0_ret > 0) {
-    if (!write_f32_array(step0_pcm, step0_ret * channels)) {
+    if (sample_format == SAMPLE_FORMAT_INT16 ? !write_i16_array(step0_pcm16, step0_ret * channels) : !write_f32_array(step0_pcm, step0_ret * channels)) {
       fprintf(stderr, "failed to write step0 pcm\n");
       goto cleanup_fail;
     }
   }
   if (step1_ret > 0) {
-    if (!write_f32_array(step1_pcm, step1_ret * channels)) {
+    if (sample_format == SAMPLE_FORMAT_INT16 ? !write_i16_array(step1_pcm16, step1_ret * channels) : !write_f32_array(step1_pcm, step1_ret * channels)) {
       fprintf(stderr, "failed to write step1 pcm\n");
       goto cleanup_fail;
     }
   }
   if (next_ret > 0) {
-    if (!write_f32_array(next_pcm, next_ret * channels)) {
+    if (sample_format == SAMPLE_FORMAT_INT16 ? !write_i16_array(next_pcm16, next_ret * channels) : !write_f32_array(next_pcm, next_ret * channels)) {
       fprintf(stderr, "failed to write next pcm\n");
       goto cleanup_fail;
     }
@@ -710,6 +801,11 @@ int main(void) {
     goto cleanup_fail;
   }
 
+  free(next_pcm16);
+  free(step1_pcm16);
+  free(step0_pcm16);
+  free(carrier_pcm16);
+  free(seed_pcm16);
   free(next_pcm);
   free(step1_pcm);
   free(step0_pcm);
@@ -727,6 +823,11 @@ int main(void) {
   return 0;
 
 cleanup_fail:
+  free(next_pcm16);
+  free(step1_pcm16);
+  free(step0_pcm16);
+  free(carrier_pcm16);
+  free(seed_pcm16);
   free(next_pcm);
   free(step1_pcm);
   free(step0_pcm);

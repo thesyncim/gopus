@@ -14,6 +14,9 @@ import (
 const (
 	libopusDecoderDREDSequenceInputMagic  = "GDSI"
 	libopusDecoderDREDSequenceOutputMagic = "GDSO"
+
+	libopusDecoderDREDSequenceSampleFormatFloat32 = uint32(0)
+	libopusDecoderDREDSequenceSampleFormatInt16   = uint32(1)
 )
 
 type libopusDecoderDREDSequenceStepInfo struct {
@@ -23,6 +26,7 @@ type libopusDecoderDREDSequenceStepInfo struct {
 	celt48k libopusDecoderDREDCELTSnapshot
 	silk    libopusDecoderDREDSILKSnapshot
 	pcm     []float32
+	pcm16   []int16
 }
 
 type libopusDecoderDREDSILKSnapshot struct {
@@ -58,9 +62,20 @@ func getLibopusDecoderDREDSequenceHelperPath() (string, error) {
 }
 
 func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byte, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples int, decodeNextPacket bool) (libopusDecoderDREDSequenceInfo, error) {
+	return probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, nextPacket, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples, decodeNextPacket, libopusDecoderDREDSequenceSampleFormatFloat32)
+}
+
+func probeLibopusDecoderDREDSequenceInt16(seedPacket, carrierPacket, nextPacket []byte, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples int, decodeNextPacket bool) (libopusDecoderDREDSequenceInfo, error) {
+	return probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, nextPacket, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples, decodeNextPacket, libopusDecoderDREDSequenceSampleFormatInt16)
+}
+
+func probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, nextPacket []byte, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples int, decodeNextPacket bool, sampleFormat uint32) (libopusDecoderDREDSequenceInfo, error) {
 	binPath, err := getLibopusDecoderDREDSequenceHelperPath()
 	if err != nil {
 		return libopusDecoderDREDSequenceInfo{}, err
+	}
+	if sampleFormat != libopusDecoderDREDSequenceSampleFormatFloat32 && sampleFormat != libopusDecoderDREDSequenceSampleFormatInt16 {
+		return libopusDecoderDREDSequenceInfo{}, fmt.Errorf("invalid decoder DRED sequence sample format %d", sampleFormat)
 	}
 	decoderModelBlob, err := probeLibopusDecoderNeuralModelBlob()
 	if err != nil {
@@ -71,7 +86,11 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 		return libopusDecoderDREDSequenceInfo{}, err
 	}
 
-	payload := libopustest.NewOraclePayload(libopusDecoderDREDSequenceInputMagic,
+	payloadVersion := uint32(1)
+	if sampleFormat != libopusDecoderDREDSequenceSampleFormatFloat32 {
+		payloadVersion = 2
+	}
+	payload := libopustest.NewOraclePayloadVersion(libopusDecoderDREDSequenceInputMagic, payloadVersion,
 		uint32(sampleRate),
 		uint32(maxDREDSamples),
 		uint32(frameSizeSamples),
@@ -90,6 +109,9 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 		nextFlag = 1
 	}
 	payload.U32(nextFlag)
+	if payloadVersion >= 2 {
+		payload.U32(sampleFormat)
+	}
 	for _, chunk := range [][]byte{
 		seedPacket,
 		carrierPacket,
@@ -131,6 +153,19 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 		}
 		dst := make([]float32, ret*info.channels)
 		if err := readBits(dst); err != nil {
+			return nil, err
+		}
+		return dst, nil
+	}
+	readPCM16 := func(ret int) ([]int16, error) {
+		if ret <= 0 || info.channels <= 0 {
+			return nil, nil
+		}
+		dst := make([]int16, ret*info.channels)
+		for i := range dst {
+			dst[i] = reader.I16()
+		}
+		if err := reader.Err(); err != nil {
 			return nil, err
 		}
 		return dst, nil
@@ -202,14 +237,26 @@ func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byt
 		return nil
 	}
 
-	if info.step0.pcm, err = readPCM(info.step0.ret); err != nil {
-		return libopusDecoderDREDSequenceInfo{}, err
-	}
-	if info.step1.pcm, err = readPCM(info.step1.ret); err != nil {
-		return libopusDecoderDREDSequenceInfo{}, err
-	}
-	if info.next.pcm, err = readPCM(info.next.ret); err != nil {
-		return libopusDecoderDREDSequenceInfo{}, err
+	if sampleFormat == libopusDecoderDREDSequenceSampleFormatInt16 {
+		if info.step0.pcm16, err = readPCM16(info.step0.ret); err != nil {
+			return libopusDecoderDREDSequenceInfo{}, err
+		}
+		if info.step1.pcm16, err = readPCM16(info.step1.ret); err != nil {
+			return libopusDecoderDREDSequenceInfo{}, err
+		}
+		if info.next.pcm16, err = readPCM16(info.next.ret); err != nil {
+			return libopusDecoderDREDSequenceInfo{}, err
+		}
+	} else {
+		if info.step0.pcm, err = readPCM(info.step0.ret); err != nil {
+			return libopusDecoderDREDSequenceInfo{}, err
+		}
+		if info.step1.pcm, err = readPCM(info.step1.ret); err != nil {
+			return libopusDecoderDREDSequenceInfo{}, err
+		}
+		if info.next.pcm, err = readPCM(info.next.ret); err != nil {
+			return libopusDecoderDREDSequenceInfo{}, err
+		}
 	}
 	for _, step := range []*libopusDecoderDREDSequenceStepInfo{&info.step0, &info.step1, &info.next} {
 		if err := parseSnapshot(step); err != nil {
@@ -229,6 +276,169 @@ func requireLibopusDREDSequenceParsed(t testing.TB, info libopusDecoderDREDSeque
 	}
 	if info.carrierParseRet < info.carrierDredEnd {
 		t.Fatalf("%s libopus DRED carrier parse ret=%d before dredEnd=%d", label, info.carrierParseRet, info.carrierDredEnd)
+	}
+}
+
+func prepareCachedDREDDecodeInt16ParityStateForDecoderRateAndPacketWithChannels(t *testing.T, decoderSampleRate int, packetInfo libopusDREDPacket, wantChannels int) (*Decoder, int) {
+	t.Helper()
+
+	modelBlob, err := probeLibopusDREDModelBlob()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred model", err)
+	}
+	toc := ParseTOC(packetInfo.packet[0])
+	channels := 1
+	if toc.Stereo {
+		channels = 2
+	}
+	if wantChannels > 0 && channels != wantChannels {
+		t.Skipf("cached DRED int16 parity requires %d-channel packet, got sampleRate=%d channels=%d", wantChannels, packetInfo.sampleRate, channels)
+	}
+
+	dec, err := NewDecoder(DefaultDecoderConfig(decoderSampleRate, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	setDecoderComplexityForLibopusDREDParityTest(t, dec)
+	if err := dec.SetDNNBlob(requireLibopusDecoderNeuralModelBlob(t)); err != nil {
+		t.Fatalf("SetDNNBlob error: %v", err)
+	}
+	setDREDDecoderBlobFromBytesForTest(t, dec, modelBlob)
+
+	pcm := make([]int16, dec.maxPacketSamples*channels)
+	n, err := dec.DecodeInt16(packetInfo.packet, pcm)
+	if err != nil {
+		t.Fatalf("DecodeInt16(DRED packet) error: %v", err)
+	}
+	if n <= 0 {
+		t.Fatal("DecodeInt16(DRED packet) returned no audio")
+	}
+	if state := requireDecoderDREDState(t, dec); state.dredCache.Empty() || state.dredDecoded.NbLatents <= 0 {
+		t.Fatal("DecodeInt16(DRED packet) did not retain processed DRED state")
+	}
+	return dec, n
+}
+
+func assertDecoderCachedDREDDecodeInt16LossesMatchLiveSequenceOracle(t *testing.T, label string, decoderSampleRate int, packetInfo libopusDREDPacket, wantChannels, maxDiff int) {
+	t.Helper()
+
+	dec, n := prepareCachedDREDDecodeInt16ParityStateForDecoderRateAndPacketWithChannels(t, decoderSampleRate, packetInfo, wantChannels)
+	wantFrame, err := packetSamplesAtRate(packetInfo.packet, decoderSampleRate)
+	if err != nil {
+		t.Fatalf("%s packetSamplesAtRate: %v", label, err)
+	}
+	if n != wantFrame {
+		t.Fatalf("%s warmup samples=%d want %d at %d Hz", label, n, wantFrame, decoderSampleRate)
+	}
+
+	maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, decoderSampleRate)
+	want, err := probeLibopusDecoderDREDSequenceInt16(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, 1, n, 1, 2*n, false)
+	if err != nil {
+		libopustest.HelperUnavailable(t, label+" decoder DRED int16 sequence", err)
+	}
+	requireLibopusDREDSequenceParsed(t, want, label+" int16 cached losses")
+	if want.channels != wantChannels {
+		t.Fatalf("%s libopus channels=%d want %d", label, want.channels, wantChannels)
+	}
+	if want.step0.ret != n || want.step1.ret != n {
+		t.Fatalf("%s libopus cached int16 ret=(%d,%d) want (%d,%d)", label, want.step0.ret, want.step1.ret, n, n)
+	}
+
+	pcm0 := make([]int16, dec.maxPacketSamples*dec.channels)
+	got0, err := dec.DecodeInt16(nil, pcm0)
+	if err != nil {
+		t.Fatalf("%s DecodeInt16(nil, first) error: %v", label, err)
+	}
+	if got0 != n {
+		t.Fatalf("%s DecodeInt16(nil, first)=%d want %d", label, got0, n)
+	}
+	assertInt16WithinLSB(t, pcm0[:got0*dec.channels], want.step0.pcm16[:got0*dec.channels], maxDiff, label+" cached first-loss int16")
+
+	pcm1 := make([]int16, dec.maxPacketSamples*dec.channels)
+	got1, err := dec.DecodeInt16(nil, pcm1)
+	if err != nil {
+		t.Fatalf("%s DecodeInt16(nil, second) error: %v", label, err)
+	}
+	if got1 != n {
+		t.Fatalf("%s DecodeInt16(nil, second)=%d want %d", label, got1, n)
+	}
+	assertInt16WithinLSB(t, pcm1[:got1*dec.channels], want.step1.pcm16[:got1*dec.channels], maxDiff, label+" cached second-loss int16")
+}
+
+func assertInt16WithinLSB(t *testing.T, got, want []int16, maxDiff int, label string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
+	}
+	worstIdx := -1
+	worstDiff := 0
+	for i := range got {
+		diff := int(got[i]) - int(want[i])
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > worstDiff {
+			worstIdx = i
+			worstDiff = diff
+		}
+	}
+	if worstDiff > maxDiff {
+		t.Fatalf("%s[%d]=%d want %d (max diff=%d > %d)", label, worstIdx, got[worstIdx], want[worstIdx], worstDiff, maxDiff)
+	}
+}
+
+func TestDecoderCachedSILKDREDDecodeInt16MatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const frameSize = 960
+	for _, channels := range []int{1, 2} {
+		channels := channels
+		packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+			FrameSize:     frameSize,
+			ForceMode:     ModeSILK,
+			Bandwidth:     BandwidthWideband,
+			Channels:      channels,
+			ForceChannels: channels,
+		})
+		if err != nil {
+			libopustest.HelperUnavailable(t, "SILK DRED int16 packet", err)
+		}
+		toc := ParseTOC(packetInfo.packet[0])
+		if toc.Mode != ModeSILK || toc.Bandwidth != BandwidthWideband || toc.Stereo != (channels == 2) {
+			t.Fatalf("SILK DRED int16 packet TOC=%+v, want channels=%d SILK WB", toc, channels)
+		}
+		for _, sampleRate := range []int{8000, 16000, 48000} {
+			sampleRate := sampleRate
+			t.Run(fmt.Sprintf("channels_%d_decoder_%d", channels, sampleRate), func(t *testing.T) {
+				label := fmt.Sprintf("cached SILK int16 channels=%d decoder=%d", channels, sampleRate)
+				assertDecoderCachedDREDDecodeInt16LossesMatchLiveSequenceOracle(t, label, sampleRate, packetInfo, channels, 1)
+			})
+		}
+	}
+}
+
+func TestDecoderCachedCELTDREDDecodeInt16TracksLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const frameSize = 960
+	for _, channels := range []int{1, 2} {
+		channels := channels
+		packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+			FrameSize:     frameSize,
+			ForceMode:     ModeCELT,
+			Bandwidth:     BandwidthFullband,
+			Channels:      channels,
+			ForceChannels: channels,
+		})
+		if err != nil {
+			libopustest.HelperUnavailable(t, "CELT DRED int16 packet", err)
+		}
+		toc := ParseTOC(packetInfo.packet[0])
+		if toc.Mode != ModeCELT || toc.Bandwidth != BandwidthFullband || toc.Stereo != (channels == 2) {
+			t.Fatalf("CELT DRED int16 packet TOC=%+v, want channels=%d CELT FB", toc, channels)
+		}
+		t.Run(fmt.Sprintf("channels_%d_decoder_48000", channels), func(t *testing.T) {
+			label := fmt.Sprintf("cached CELT int16 channels=%d decoder=48000", channels)
+			assertDecoderCachedDREDDecodeInt16LossesMatchLiveSequenceOracle(t, label, 48000, packetInfo, channels, 192)
+		})
 	}
 }
 
