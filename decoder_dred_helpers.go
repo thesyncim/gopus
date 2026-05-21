@@ -262,15 +262,9 @@ func (d *Decoder) dredNeuralConfigEligible() bool {
 	return d.sampleRate == 16000 || d.sampleRate == 48000
 }
 
-// DRED decode/recovery bookkeeping follows Opus's internal 48 kHz frame-size
-// domain for the exercised mono decoder path, even when the public decoder was
-// created for 16 kHz output.
 func (d *Decoder) dredRuntimeSampleRate() int {
 	if d == nil {
 		return 0
-	}
-	if d.sampleRate == 16000 && d.dredNeuralConfigEligible() {
-		return 48000
 	}
 	return d.sampleRate
 }
@@ -948,7 +942,7 @@ func (d *Decoder) applyDREDNeuralConcealment(pcm []float32, samplesPerChannel in
 	}
 	if b != nil && (d.sampleRate == 48000 || d.sampleRate == 16000) {
 		d.prepareDRED48kNeuralEntry(samplesPerChannel, d.prevMode, false)
-		if !d.applyPLCNeuralConcealment48kMono(pcm, samplesPerChannel) {
+		if !d.applyDREDNeuralConcealment48kMono(pcm, samplesPerChannel) {
 			return false
 		}
 		return true

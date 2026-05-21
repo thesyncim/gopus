@@ -125,7 +125,7 @@ func assertDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T, label 
 		t.Fatalf("%s Blend after good decode=%d want 0", label, got)
 	}
 
-	assertDecoderCachedDREDRecoveryMatchesLibopus(t, dec, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, false)
+	assertDecoderCachedDREDRecoveryMatchesLibopus(t, dec, packetInfo, false)
 
 	if _, err := dec.Decode(nil, pcm); err != nil {
 		t.Fatalf("%s Decode(nil) error: %v", label, err)
@@ -143,7 +143,7 @@ func assertDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T, label 
 	if requireDecoderDREDState(t, dec).dredCache.Empty() {
 		t.Fatalf("%s Decode after PLC did not re-retain DRED payload", label)
 	}
-	assertDecoderCachedDREDRecoveryMatchesLibopus(t, dec, packetInfo.packet, packetInfo.maxDREDSamples, packetInfo.sampleRate, true)
+	assertDecoderCachedDREDRecoveryMatchesLibopus(t, dec, packetInfo, true)
 }
 
 func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses(t *testing.T) {
@@ -288,33 +288,36 @@ func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label strin
 	}
 }
 
-func assertDecoderCachedDREDRecoveryMatchesLibopus(t *testing.T, dec *Decoder, packet []byte, maxDREDSamples, sampleRate int, blend bool) {
+func assertDecoderCachedDREDRecoveryMatchesLibopus(t *testing.T, dec *Decoder, packetInfo libopusDREDPacket, blend bool) {
 	t.Helper()
 
 	tests := []struct {
-		name                string
-		decodeOffsetSamples int
-		frameSizeSamples    int
+		name            string
+		decodeOffset48k int
+		frameSize48k    int
 	}{
-		{name: "negative_offset", decodeOffsetSamples: -480, frameSizeSamples: 960},
-		{name: "negative_full_frame", decodeOffsetSamples: -960, frameSizeSamples: 960},
-		{name: "current_frame", decodeOffsetSamples: 0, frameSizeSamples: 960},
-		{name: "current_10ms", decodeOffsetSamples: 0, frameSizeSamples: 480},
-		{name: "current_60ms", decodeOffsetSamples: 0, frameSizeSamples: 2880},
-		{name: "late_recovery", decodeOffsetSamples: 3840, frameSizeSamples: 960},
-		{name: "beyond_payload", decodeOffsetSamples: 9600, frameSizeSamples: 960},
-		{name: "half_frame", decodeOffsetSamples: 960, frameSizeSamples: 480},
-		{name: "late_10ms", decodeOffsetSamples: 1920, frameSizeSamples: 480},
+		{name: "negative_offset", decodeOffset48k: -480, frameSize48k: 960},
+		{name: "negative_full_frame", decodeOffset48k: -960, frameSize48k: 960},
+		{name: "current_frame", decodeOffset48k: 0, frameSize48k: 960},
+		{name: "current_10ms", decodeOffset48k: 0, frameSize48k: 480},
+		{name: "current_60ms", decodeOffset48k: 0, frameSize48k: 2880},
+		{name: "late_recovery", decodeOffset48k: 3840, frameSize48k: 960},
+		{name: "beyond_payload", decodeOffset48k: 9600, frameSize48k: 960},
+		{name: "half_frame", decodeOffset48k: 960, frameSize48k: 480},
+		{name: "late_10ms", decodeOffset48k: 1920, frameSize48k: 480},
 	}
 
+	maxDREDSamples, sampleRate := libopusDREDRequestForDecoder(packetInfo, dec.SampleRate())
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			want, err := probeLibopusDREDRecoveryWindow(packet, maxDREDSamples, sampleRate, tc.frameSizeSamples, tc.decodeOffsetSamples, blend)
+			frameSizeSamples := scaleDREDSampleCount(tc.frameSize48k, 48000, sampleRate)
+			decodeOffsetSamples := scaleDREDSampleOffset(tc.decodeOffset48k, 48000, sampleRate)
+			want, err := probeLibopusDREDRecoveryWindow(packetInfo.packet, maxDREDSamples, sampleRate, frameSizeSamples, decodeOffsetSamples, blend)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "dred recovery", err)
 			}
 
-			got := dec.cachedDREDRecoveryWindow(maxDREDSamples, tc.decodeOffsetSamples, tc.frameSizeSamples)
+			got := dec.cachedDREDRecoveryWindow(maxDREDSamples, decodeOffsetSamples, frameSizeSamples)
 			if got.FeaturesPerFrame != want.featuresPerFrame ||
 				got.NeededFeatureFrames != want.neededFeatureFrames ||
 				got.FeatureOffsetBase != want.featureOffsetBase ||
@@ -324,7 +327,7 @@ func assertDecoderCachedDREDRecoveryMatchesLibopus(t *testing.T, dec *Decoder, p
 				t.Fatalf("cachedDREDRecoveryWindow=%+v want %+v", got, want)
 			}
 
-			queued := dec.queueCachedDREDRecovery(maxDREDSamples, tc.decodeOffsetSamples, tc.frameSizeSamples)
+			queued := dec.queueCachedDREDRecovery(maxDREDSamples, decodeOffsetSamples, frameSizeSamples)
 			if queued != got {
 				t.Fatalf("queueCachedDREDRecovery=%+v want %+v", queued, got)
 			}

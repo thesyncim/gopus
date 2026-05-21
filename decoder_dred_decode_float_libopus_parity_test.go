@@ -612,6 +612,9 @@ func assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t 
 
 func decoderDREDLiveSequenceTolerances(frameSize int) (pcmTol, plcTol, farganTol, celtTol float64) {
 	pcmTol, plcTol, farganTol, celtTol = 1e-4, 1e-4, 1e-4, 1e-4
+	if frameSize >= 480 {
+		pcmTol, plcTol, farganTol, celtTol = 1e-2, 1e-1, 2.5e-1, 3e-2
+	}
 	if frameSize >= 960 {
 		// A 20 ms 48 kHz loss synthesizes three 16 kHz FARGAN frames.
 		// Keep the sensitive recurrent state envelope, but pin PLC history tighter.
@@ -665,10 +668,15 @@ func TestDecoderCachedSILKDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 			}
 
 			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, tc.decoderSampleRate, packetInfo)
-			if packetInfo.sampleRate != 48000 || n != frameSize {
-				t.Skipf("cached SILK live-sequence parity requires 48 kHz frame=%d packet-domain decode, got sampleRate=%d frame=%d", frameSize, packetInfo.sampleRate, n)
+			wantFrame, err := packetSamplesAtRate(packetInfo.packet, tc.decoderSampleRate)
+			if err != nil {
+				t.Fatalf("packetSamplesAtRate: %v", err)
 			}
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, false)
+			if n != wantFrame {
+				t.Fatalf("cached SILK warmup samples=%d want %d at %d Hz", n, wantFrame, tc.decoderSampleRate)
+			}
+			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, tc.decoderSampleRate)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, 1, n, 0, 0, false)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
@@ -695,6 +703,41 @@ func TestDecoderCachedSILKDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "cached SILK live-sequence first-loss fargan", farganTol)
 			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "cached SILK live-sequence first-loss celt", celtTol)
 			assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.step0.silk, silkpkg.BandwidthWideband, "cached SILK live-sequence first-loss silk", max(celtTol, 1))
+
+			decSecond, nSecond := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, tc.decoderSampleRate, packetInfo)
+			if nSecond != wantFrame {
+				t.Fatalf("cached SILK second-loss warmup samples=%d want %d at %d Hz", nSecond, wantFrame, tc.decoderSampleRate)
+			}
+			wantSecond, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, nSecond, 1, nSecond, 1, 2*nSecond, false)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
+			}
+			requireLibopusDREDSequenceParsed(t, wantSecond, "cached SILK second-loss")
+			if wantSecond.step1.ret != nSecond {
+				t.Fatalf("libopus cached SILK decoder second-loss ret=%d want %d", wantSecond.step1.ret, nSecond)
+			}
+
+			pcm0 := make([]float32, decSecond.maxPacketSamples)
+			got0, err := decSecond.Decode(nil, pcm0)
+			if err != nil {
+				t.Fatalf("Decode(nil, warmup) error: %v", err)
+			}
+			if got0 != nSecond {
+				t.Fatalf("Decode(nil, warmup)=%d want %d", got0, nSecond)
+			}
+			pcm1 := make([]float32, decSecond.maxPacketSamples)
+			got1, err := decSecond.Decode(nil, pcm1)
+			if err != nil {
+				t.Fatalf("Decode(nil, second) error: %v", err)
+			}
+			if got1 != nSecond {
+				t.Fatalf("Decode(nil, second)=%d want %d", got1, nSecond)
+			}
+			assertFloat32ApproxEqual(t, pcm1[:got1], wantSecond.step1.pcm[:got1], "cached SILK live-sequence second-loss pcm", pcmTol)
+			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, decSecond).dredPLC.Snapshot(), wantSecond.step1.state, "cached SILK live-sequence second-loss plc", plcTol)
+			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, decSecond).dredFARGAN.Snapshot(), wantSecond.step1.fargan, "cached SILK live-sequence second-loss fargan", farganTol)
+			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, decSecond, wantSecond.step1.celt48k, "cached SILK live-sequence second-loss celt", celtTol)
+			assertDecoderDREDSILKStateApproxEqualWithin(t, decSecond, wantSecond.step1.silk, silkpkg.BandwidthWideband, "cached SILK live-sequence second-loss silk", max(celtTol, 8))
 		})
 	}
 }

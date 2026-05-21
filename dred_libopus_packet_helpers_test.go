@@ -27,6 +27,13 @@ func scaleDREDSampleCount(samples, fromRate, toRate int) int {
 	return samples * toRate / fromRate
 }
 
+func scaleDREDSampleOffset(samples, fromRate, toRate int) int {
+	if samples == 0 || fromRate <= 0 || toRate <= 0 || fromRate == toRate {
+		return samples
+	}
+	return samples * toRate / fromRate
+}
+
 func libopusDREDRequestForDecoder(packetInfo libopusDREDPacket, decoderSampleRate int) (maxDREDSamples, sampleRate int) {
 	sampleRate = decoderSampleRate
 	if sampleRate <= 0 {

@@ -245,7 +245,8 @@ func TestDecoderFirstLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 	nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, 480)
 
-	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
+	maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, dec.SampleRate())
+	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, maxDRED, oracleRate, n, 1, n, 0, 0, true)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
@@ -256,6 +257,8 @@ func TestDecoderFirstLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
 	if want.next.ret <= 0 {
 		t.Fatalf("libopus decoder DRED next ret=%d want >0", want.next.ret)
 	}
+	frameSize48 := n * 48000 / dec.SampleRate()
+	pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize48)
 
 	gotN, err := dec.Decode(nil, pcm)
 	if err != nil {
@@ -264,7 +267,7 @@ func TestDecoderFirstLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
 	if gotN != n {
 		t.Fatalf("Decode(nil)=%d want %d", gotN, n)
 	}
-	assertFloat32ApproxEqual(t, pcm[:n], want.step0.pcm[:n], "first-loss live-sequence pcm", 1e-4)
+	assertFloat32ApproxEqual(t, pcm[:n], want.step0.pcm[:n], "first-loss live-sequence pcm", pcmTol)
 
 	nextPCM := make([]float32, dec.maxPacketSamples)
 	gotNext, err := dec.Decode(nextPacket, nextPCM)
@@ -275,10 +278,10 @@ func TestDecoderFirstLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
 		t.Fatalf("Decode(next packet)=%d want %d", gotNext, want.next.ret)
 	}
 
-	assertFloat32ApproxEqual(t, nextPCM[:gotNext], want.next.pcm[:gotNext], "first-loss next packet live-sequence pcm", 1e-4)
-	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "first-loss next packet live-sequence plc")
-	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "first-loss next packet live-sequence fargan")
-	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.next.celt48k, "first-loss next packet live-sequence celt")
+	assertFloat32ApproxEqual(t, nextPCM[:gotNext], want.next.pcm[:gotNext], "first-loss next packet live-sequence pcm", pcmTol)
+	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "first-loss next packet live-sequence plc", plcTol)
+	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "first-loss next packet live-sequence fargan", farganTol)
+	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "first-loss next packet live-sequence celt", celtTol)
 }
 
 func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) {
@@ -286,7 +289,8 @@ func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
 	nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, 480)
 
-	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
+	maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, dec.SampleRate())
+	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, maxDRED, oracleRate, n, 1, n, 1, 2*n, true)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 	}
@@ -300,6 +304,8 @@ func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 	if want.next.ret <= 0 {
 		t.Fatalf("libopus decoder DRED next ret=%d want >0", want.next.ret)
 	}
+	frameSize48 := n * 48000 / dec.SampleRate()
+	pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize48)
 
 	gotN, err := dec.Decode(nil, pcm)
 	if err != nil {
@@ -308,7 +314,7 @@ func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 	if gotN != n {
 		t.Fatalf("Decode(nil, first)=%d want %d", gotN, n)
 	}
-	assertFloat32ApproxEqual(t, pcm[:n], want.step0.pcm[:n], "second-loss warmup live-sequence pcm", 1e-4)
+	assertFloat32ApproxEqual(t, pcm[:n], want.step0.pcm[:n], "second-loss warmup live-sequence pcm", pcmTol)
 
 	gotN, err = dec.Decode(nil, pcm)
 	if err != nil {
@@ -317,7 +323,7 @@ func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 	if gotN != n {
 		t.Fatalf("Decode(nil, second)=%d want %d", gotN, n)
 	}
-	assertFloat32ApproxEqual(t, pcm[:n], want.step1.pcm[:n], "second-loss live-sequence pcm", 1e-4)
+	assertFloat32ApproxEqual(t, pcm[:n], want.step1.pcm[:n], "second-loss live-sequence pcm", pcmTol)
 
 	nextPCM := make([]float32, dec.maxPacketSamples)
 	gotNext, err := dec.Decode(nextPacket, nextPCM)
@@ -328,10 +334,10 @@ func TestDecoderSecondLossThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 		t.Fatalf("Decode(next packet)=%d want %d", gotNext, want.next.ret)
 	}
 
-	assertFloat32ApproxEqual(t, nextPCM[:gotNext], want.next.pcm[:gotNext], "second-loss next packet live-sequence pcm", 1e-4)
-	assertDecoderDREDPLCStateApproxEqual(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "second-loss next packet live-sequence plc")
-	assertDecoderDREDFARGANStateApproxEqual(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "second-loss next packet live-sequence fargan")
-	assertDecoderDREDCELT48kBridgeApproxEqual(t, dec, want.next.celt48k, "second-loss next packet live-sequence celt")
+	assertFloat32ApproxEqual(t, nextPCM[:gotNext], want.next.pcm[:gotNext], "second-loss next packet live-sequence pcm", pcmTol)
+	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.next.state, "second-loss next packet live-sequence plc", plcTol)
+	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.next.fargan, "second-loss next packet live-sequence fargan", farganTol)
+	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.next.celt48k, "second-loss next packet live-sequence celt", celtTol)
 }
 
 func TestDecoderFirstLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOracle(t *testing.T) {
@@ -342,7 +348,8 @@ func TestDecoderFirstLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOrac
 			dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParityForFrameSize(t, frameSize)
 			nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, frameSize)
 
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
+			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, dec.SampleRate())
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, maxDRED, oracleRate, n, 1, n, 0, 0, true)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
@@ -389,7 +396,8 @@ func TestDecoderSecondLossThenNextPacket16kFrameSizeMatrixMatchesLiveSequenceOra
 			dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParityForFrameSize(t, frameSize)
 			nextPacket := makeValidMonoCELTPacketForFrameSizeForDREDTest(t, frameSize)
 
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
+			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, dec.SampleRate())
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, maxDRED, oracleRate, n, 1, n, 1, 2*n, true)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
