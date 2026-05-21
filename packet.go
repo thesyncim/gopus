@@ -145,3 +145,61 @@ func ValidConfig(config uint8) bool {
 func ParseTOC(b byte) TOC {
 	return tocTable[b]
 }
+
+func packetSamplesPerFrameAtRate(data []byte, sampleRate int) (int, error) {
+	if len(data) < 1 {
+		return 0, ErrPacketTooShort
+	}
+	return packetTOCSamplesPerFrameAtRate(data[0], sampleRate), nil
+}
+
+func packetTOCSamplesPerFrameAtRate(toc byte, sampleRate int) int {
+	if toc&0x80 != 0 {
+		audioSize := int((toc >> 3) & 0x3)
+		return (sampleRate << audioSize) / 400
+	}
+	if toc&0x60 == 0x60 {
+		if toc&0x08 != 0 {
+			return sampleRate / 50
+		}
+		return sampleRate / 100
+	}
+	audioSize := int((toc >> 3) & 0x3)
+	if audioSize == 3 {
+		return sampleRate * 60 / 1000
+	}
+	return (sampleRate << audioSize) / 100
+}
+
+func packetFrameCountLibopus(data []byte) (int, error) {
+	if len(data) < 1 {
+		return 0, ErrPacketTooShort
+	}
+	count := data[0] & 0x3
+	if count == 0 {
+		return 1, nil
+	}
+	if count != 3 {
+		return 2, nil
+	}
+	if len(data) < 2 {
+		return 0, ErrPacketTooShort
+	}
+	return int(data[1] & 0x3F), nil
+}
+
+func packetSamplesAtRate(data []byte, sampleRate int) (int, error) {
+	count, err := packetFrameCountLibopus(data)
+	if err != nil {
+		return 0, err
+	}
+	frameSize, err := packetSamplesPerFrameAtRate(data, sampleRate)
+	if err != nil {
+		return 0, err
+	}
+	samples := count * frameSize
+	if samples*25 > sampleRate*3 {
+		return 0, ErrInvalidPacket
+	}
+	return samples, nil
+}
