@@ -182,6 +182,36 @@ func TestDecoder_Decode_Int16(t *testing.T) {
 	}
 }
 
+func TestDecodeFloatClearsSoftClipMemOnPacket(t *testing.T) {
+	dec := newMonoTestDecoder(t)
+	dec.softClipMem[0] = 0.25
+
+	pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+	if _, err := dec.Decode(minimalHybridTestPacket20ms(), pcm); err != nil {
+		t.Fatalf("Decode packet error: %v", err)
+	}
+	if dec.softClipMem[0] != 0 || dec.softClipMem[1] != 0 {
+		t.Fatalf("Decode packet softClipMem=%v want zeroed", dec.softClipMem)
+	}
+}
+
+func TestDecodeInt16PLCPreservesSoftClipMem(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 2))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	want := [2]float32{0.25, -0.125}
+	dec.softClipMem = want
+
+	pcm := make([]int16, dec.maxPacketSamples*dec.channels)
+	if _, err := dec.DecodeInt16(nil, pcm); err != nil {
+		t.Fatalf("DecodeInt16 PLC error: %v", err)
+	}
+	if dec.softClipMem != want {
+		t.Fatalf("DecodeInt16 PLC softClipMem=%v want %v", dec.softClipMem, want)
+	}
+}
+
 func TestDecoder_Decode_BufferTooSmall(t *testing.T) {
 	dec := newMonoTestDecoder(t)
 

@@ -216,6 +216,28 @@ fallback:
 	}
 }
 
+func float32ToInt16NoSoftClip(dst []int16, src []float32, n, channels int) {
+	if channels < 1 || n < 1 || len(src) == 0 || len(dst) == 0 {
+		return
+	}
+	total := n * channels
+	if total > len(src) {
+		total = len(src)
+	}
+	if total > len(dst) {
+		total = len(dst)
+	}
+	if total <= 0 {
+		return
+	}
+	if convertFloat32ToInt16Unit(dst, src, total) {
+		return
+	}
+	for i := 0; i < total; i++ {
+		dst[i] = float32ToInt16(src[i])
+	}
+}
+
 func float32Abs(v float32) float32 {
 	if v < 0 {
 		return -v

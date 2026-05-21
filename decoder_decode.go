@@ -28,6 +28,10 @@ import (
 //   - Code 2: 2 different-sized frames
 //   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
+	return d.decodeFloat32(data, pcm, true)
+}
+
+func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacket bool) (int, error) {
 	dredPossible := false
 	if extsupport.DREDRuntime {
 		dredPossible = d.dredDecodeSidecarPossible()
@@ -205,6 +209,9 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 		}
 	}
 	d.applyOutputGain(pcm[:totalSamples*d.channels])
+	if clearSoftClipOnPacket {
+		d.clearSoftClipMem()
+	}
 	return totalSamples, nil
 }
 
@@ -477,11 +484,11 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 			return 0, ErrBufferTooSmall
 		}
 
-		n, err := d.Decode(data, d.scratchPCM)
+		n, err := d.decodeFloat32(data, d.scratchPCM, false)
 		if err != nil {
 			return 0, err
 		}
-		softClipAndFloat32ToInt16(pcm, d.scratchPCM, n, d.channels, d.softClipMem[:])
+		float32ToInt16NoSoftClip(pcm, d.scratchPCM, n, d.channels)
 		return n, nil
 	}
 
@@ -490,7 +497,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	}
 
 	if len(pcm) >= d.maxPacketSamples*d.channels {
-		n, err := d.Decode(data, d.scratchPCM)
+		n, err := d.decodeFloat32(data, d.scratchPCM, false)
 		if err != nil {
 			return 0, err
 		}
@@ -511,7 +518,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		return 0, ErrBufferTooSmall
 	}
 
-	n, err := d.Decode(data, d.scratchPCM)
+	n, err := d.decodeFloat32(data, d.scratchPCM, false)
 	if err != nil {
 		return 0, err
 	}

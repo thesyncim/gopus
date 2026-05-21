@@ -17,8 +17,7 @@ func (d *Decoder) Reset() {
 	d.prevRedundancy = false
 	d.prevPacketStereo = false
 	d.haveDecoded = false
-	d.softClipMem[0] = 0
-	d.softClipMem[1] = 0
+	d.clearSoftClipMem()
 	d.clearDREDPayloadState()
 	d.resetDREDRuntimeState()
 	d.resetDRED48kNeuralBridge()
@@ -27,6 +26,11 @@ func (d *Decoder) Reset() {
 
 	// Clear FEC state
 	d.clearFECState()
+}
+
+func (d *Decoder) clearSoftClipMem() {
+	d.softClipMem[0] = 0
+	d.softClipMem[1] = 0
 }
 
 // Channels returns the number of audio channels (1 or 2).
