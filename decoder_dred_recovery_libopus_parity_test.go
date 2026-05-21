@@ -20,6 +20,42 @@ func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T) {
 	assertDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t, "16k_celt_10ms", packetInfo, 16000)
 }
 
+func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle16kCELTStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize:     960,
+		ForceMode:     ModeCELT,
+		Bandwidth:     BandwidthFullband,
+		Channels:      2,
+		ForceChannels: 2,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo dred packet", err)
+	}
+	if !ParseTOC(packetInfo.packet[0]).Stereo {
+		t.Fatalf("forced stereo CELT recovery lifecycle packet produced mono TOC (toc=0x%02x)", packetInfo.packet[0])
+	}
+	assertDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t, "16k_celt_stereo", packetInfo, 16000)
+}
+
+func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle16kHybrid(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, frameSize := range []int{480, 960} {
+		frameSize := frameSize
+		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
+			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+				FrameSize: frameSize,
+				ForceMode: ModeHybrid,
+				Bandwidth: BandwidthFullband,
+			})
+			if err != nil {
+				libopustest.HelperUnavailable(t, "dred packet", err)
+			}
+			assertDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t, "16k_hybrid", packetInfo, 16000)
+		})
+	}
+}
+
 func TestDecoderCachedDREDRecoveryMatchesLibopusLifecycle48kCELT(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, frameSize := range []int{480, 960} {
@@ -153,6 +189,55 @@ func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses(t *testing.T) {
 		libopustest.HelperUnavailable(t, "dred packet", err)
 	}
 	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "16k_celt", packetInfo, 16000)
+}
+
+func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses16kCELTStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize:     960,
+		ForceMode:     ModeCELT,
+		Bandwidth:     BandwidthFullband,
+		Channels:      2,
+		ForceChannels: 2,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo dred packet", err)
+	}
+	if !ParseTOC(packetInfo.packet[0]).Stereo {
+		t.Fatalf("forced stereo CELT recovery cursor packet produced mono TOC (toc=0x%02x)", packetInfo.packet[0])
+	}
+	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "16k_celt_stereo", packetInfo, 16000)
+}
+
+func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses16kHybrid(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeHybrid,
+		Bandwidth: BandwidthFullband,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred packet", err)
+	}
+	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "16k_hybrid", packetInfo, 16000)
+}
+
+func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses16kHybridStereo(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize:     960,
+		ForceMode:     ModeHybrid,
+		Bandwidth:     BandwidthFullband,
+		Channels:      2,
+		ForceChannels: 2,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo hybrid dred packet", err)
+	}
+	if !ParseTOC(packetInfo.packet[0]).Stereo {
+		t.Fatalf("forced stereo Hybrid recovery cursor packet produced mono TOC (toc=0x%02x)", packetInfo.packet[0])
+	}
+	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "16k_hybrid_stereo", packetInfo, 16000)
 }
 
 func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kCELT(t *testing.T) {
