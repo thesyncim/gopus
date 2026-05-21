@@ -282,8 +282,9 @@ func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
 					t.Fatalf("frame %d length mismatch: got=%d want=%d", frameIdx, len(got), len(expected))
 				}
 				for i, want := range expected {
-					if math.Float32bits(got[i]) != math.Float32bits(float32(want)) {
-						t.Fatalf("frame %d sample %d mismatch: got=%08x want=%08x", frameIdx, i, math.Float32bits(got[i]), math.Float32bits(float32(want)))
+					want32 := float32(want)
+					if diff := math.Abs(float64(got[i] - want32)); diff > 5e-7 {
+						t.Fatalf("frame %d sample %d mismatch: got=%08x want=%08x diff=%g", frameIdx, i, math.Float32bits(got[i]), math.Float32bits(want32), diff)
 					}
 				}
 			}

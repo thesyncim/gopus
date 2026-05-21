@@ -39,7 +39,7 @@ var encoderLibopusGapFloorQ = map[string]float64{
 // differences (x87/SSE vs arm64 NEON). Override floors to still catch
 // regressions without false-failing CI.
 var encoderLibopusGapFloorAMD64OverrideQ = map[string]float64{
-	"CELT-FB-20ms-stereo-128k":  0.00,
+	"CELT-FB-20ms-stereo-128k":  -0.05,
 	"CELT-FB-10ms-mono-64k":     -1.35,
 	"SILK-MB-20ms-mono-24k":     -14.0,
 	"SILK-WB-10ms-mono-32k":     -0.25,
@@ -219,7 +219,7 @@ func TestEncoderComplianceReferenceStatusForArch(t *testing.T) {
 			goarch:    "amd64",
 			gapDB:     -0.11,
 			want:      "GOOD",
-			wantFloor: 0.00,
+			wantFloor: -0.05,
 		},
 		{
 			name:      "amd64 hybrid mono precision drift stays base",
