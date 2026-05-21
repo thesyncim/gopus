@@ -1549,7 +1549,10 @@ func stereoIthetaQ30(x, y []float64, stereo bool) int {
 			eside = celtFloatMulAdd(s, s, eside)
 		}
 	} else {
-		if celtUseFusedFloatMath {
+		if celtUseSSEFloatMath {
+			emid = celtInnerProdSSEStyle(x[:n], x[:n])
+			eside = celtInnerProdSSEStyle(y[:n], y[:n])
+		} else if celtUseFusedFloatMath {
 			emid = celtInnerProdNeonStyle(x[:n], x[:n])
 			eside = celtInnerProdNeonStyle(y[:n], y[:n])
 		} else {
@@ -1597,6 +1600,7 @@ func celtAtanNorm(x float64) float64 {
 }
 
 const celtUseFusedFloatMath = runtime.GOARCH == "arm64"
+const celtUseSSEFloatMath = runtime.GOOS == "windows" && runtime.GOARCH == "amd64"
 
 func celtFloatMulAdd(a, b, c float32) float32 {
 	if celtUseFusedFloatMath {
@@ -1614,6 +1618,24 @@ func celtAddSquares4(sum, x0, x1, x2, x3 float32) float32 {
 	sum = math.Float32frombits(math.Float32bits(sum + p1))
 	sum = math.Float32frombits(math.Float32bits(sum + p2))
 	sum = math.Float32frombits(math.Float32bits(sum + p3))
+	return sum
+}
+
+func celtInnerProdSSEStyle(x, y []float64) float32 {
+	var acc [4]float32
+	i := 0
+	for ; i < len(x)-3; i += 4 {
+		for lane := 0; lane < 4; lane++ {
+			product := math.Float32frombits(math.Float32bits(float32(x[i+lane]) * float32(y[i+lane])))
+			acc[lane] = math.Float32frombits(math.Float32bits(acc[lane] + product))
+		}
+	}
+	sum0 := math.Float32frombits(math.Float32bits(acc[0] + acc[2]))
+	sum1 := math.Float32frombits(math.Float32bits(acc[1] + acc[3]))
+	sum := math.Float32frombits(math.Float32bits(sum0 + sum1))
+	for ; i < len(x); i++ {
+		sum = celtFloatMulAdd(float32(x[i]), float32(y[i]), sum)
+	}
 	return sum
 }
 
