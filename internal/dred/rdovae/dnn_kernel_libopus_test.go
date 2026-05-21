@@ -1,4 +1,4 @@
-package lpcnetplc
+package rdovae
 
 import (
 	"encoding/binary"
@@ -11,7 +11,7 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-func TestSGEMVFusedMatchesLibopusNEONOracle(t *testing.T) {
+func TestRDOVAESGEMVFusedMatchesLibopusNEONOracle(t *testing.T) {
 	if runtime.GOARCH != "arm64" {
 		t.Skip("NEON sgemv path is arm64-only")
 	}
@@ -27,13 +27,13 @@ func TestSGEMVFusedMatchesLibopusNEONOracle(t *testing.T) {
 	} {
 		t.Run(fmt.Sprintf("rows_%d_cols_%d", tc.rows, tc.cols), func(t *testing.T) {
 			colStride := tc.rows
-			weights := deterministicSGEMVFloats(tc.cols * colStride)
-			x := deterministicSGEMVFloats(tc.cols)
+			weights := deterministicDNNFloats(tc.cols * colStride)
+			x := deterministicDNNFloats(tc.cols)
 			want, err := libopustest.ProbeDNNKernelSGEMV(tc.rows, tc.cols, colStride, weights, x)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "dnn sgemv", err)
 			}
-			view, err := dnnblob.Float32ViewFromBytes(float32Bytes(weights), int32(4*len(weights)))
+			view, err := dnnblob.Float32ViewFromBytes(float32DNNBytes(weights), int32(4*len(weights)))
 			if err != nil {
 				t.Fatalf("Float32ViewFromBytes error: %v", err)
 			}
@@ -41,14 +41,14 @@ func TestSGEMVFusedMatchesLibopusNEONOracle(t *testing.T) {
 			sgemvFused(got, view, tc.rows, tc.cols, colStride, x)
 			for i := range got {
 				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
-					t.Fatalf("out[%d]=%s want %s", i, formatSGEMVFloat(got[i]), formatSGEMVFloat(want[i]))
+					t.Fatalf("out[%d]=%s want %s", i, formatDNNKernelFloat(got[i]), formatDNNKernelFloat(want[i]))
 				}
 			}
 		})
 	}
 }
 
-func TestCGEMV8x4MatchesLibopusNEONOracle(t *testing.T) {
+func TestRDOVAECGEMV8x4MatchesLibopusNEONOracle(t *testing.T) {
 	if runtime.GOARCH != "arm64" {
 		t.Skip("NEON cgemv8x4 path is arm64-only")
 	}
@@ -62,9 +62,9 @@ func TestCGEMV8x4MatchesLibopusNEONOracle(t *testing.T) {
 		{rows: 16, cols: 16},
 	} {
 		t.Run(fmt.Sprintf("rows_%d_cols_%d", tc.rows, tc.cols), func(t *testing.T) {
-			weights := deterministicInt8Weights(tc.rows * tc.cols)
-			scale := deterministicSGEMVFloats(tc.rows)
-			x := deterministicSGEMVFloats(tc.cols)
+			weights := deterministicDNNInt8Weights(tc.rows * tc.cols)
+			scale := deterministicDNNFloats(tc.rows)
+			x := deterministicDNNFloats(tc.cols)
 			want, err := libopustest.ProbeDNNKernelCGEMV8x4(tc.rows, tc.cols, weights, scale, x)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "dnn cgemv8x4", err)
@@ -73,23 +73,23 @@ func TestCGEMV8x4MatchesLibopusNEONOracle(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Int8ViewFromBytes error: %v", err)
 			}
-			scaleView, err := dnnblob.Float32ViewFromBytes(float32Bytes(scale), int32(4*len(scale)))
+			scaleView, err := dnnblob.Float32ViewFromBytes(float32DNNBytes(scale), int32(4*len(scale)))
 			if err != nil {
 				t.Fatalf("Float32ViewFromBytes(scale) error: %v", err)
 			}
 			got := make([]float32, tc.rows)
-			quant := make([]int16, tc.cols)
+			quant := make([]int8, tc.cols)
 			cgemv8x4(got, weightView, scaleView, tc.rows, tc.cols, x, quant)
 			for i := range got {
 				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
-					t.Fatalf("out[%d]=%s want %s", i, formatSGEMVFloat(got[i]), formatSGEMVFloat(want[i]))
+					t.Fatalf("out[%d]=%s want %s", i, formatDNNKernelFloat(got[i]), formatDNNKernelFloat(want[i]))
 				}
 			}
 		})
 	}
 }
 
-func deterministicSGEMVFloats(n int) []float32 {
+func deterministicDNNFloats(n int) []float32 {
 	out := make([]float32, n)
 	seed := uint32(0x9e3779b9)
 	for i := range out {
@@ -99,7 +99,7 @@ func deterministicSGEMVFloats(n int) []float32 {
 	return out
 }
 
-func deterministicInt8Weights(n int) []byte {
+func deterministicDNNInt8Weights(n int) []byte {
 	out := make([]byte, n)
 	seed := uint32(0x243f6a88)
 	for i := range out {
@@ -109,7 +109,7 @@ func deterministicInt8Weights(n int) []byte {
 	return out
 }
 
-func float32Bytes(values []float32) []byte {
+func float32DNNBytes(values []float32) []byte {
 	out := make([]byte, 4*len(values))
 	for i, v := range values {
 		binary.LittleEndian.PutUint32(out[4*i:4*i+4], math.Float32bits(v))
@@ -117,6 +117,6 @@ func float32Bytes(values []float32) []byte {
 	return out
 }
 
-func formatSGEMVFloat(v float32) string {
+func formatDNNKernelFloat(v float32) string {
 	return fmt.Sprintf("0x%08x(%0.10g)", math.Float32bits(v), v)
 }

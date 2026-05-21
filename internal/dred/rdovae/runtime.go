@@ -263,6 +263,25 @@ func computeLinear(layer *LinearLayer, out, in []float32, scratch *runtimeScratc
 }
 
 func sgemv(out []float32, weights FloatTensor, rows, cols, colStride int, x []float32) {
+	if useArm64DNNVectorKernels {
+		sgemvFused(out, weights, rows, cols, colStride, x)
+		return
+	}
+	sgemvSplit(out, weights, rows, cols, colStride, x)
+}
+
+func sgemvFused(out []float32, weights FloatTensor, rows, cols, colStride int, x []float32) {
+	clear(out[:rows])
+	for i := 0; i < rows; i++ {
+		var sum float32
+		for j := 0; j < cols; j++ {
+			sum = fma32(weights.At(j*colStride+i), x[j], sum)
+		}
+		out[i] = sum
+	}
+}
+
+func sgemvSplit(out []float32, weights FloatTensor, rows, cols, colStride int, x []float32) {
 	clear(out[:rows])
 	for i := 0; i < rows; i++ {
 		var sum float32
