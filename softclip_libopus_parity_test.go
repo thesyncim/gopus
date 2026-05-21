@@ -16,14 +16,12 @@ const (
 var libopusSoftClipHelper libopustest.HelperCache
 
 func getLibopusSoftClipHelperPath() (string, error) {
-	return libopusSoftClipHelper.Path(func() (string, error) {
-		return libopustest.BuildCHelper(libopustest.CHelperConfig{
-			Label:      "softclip",
-			OutputBase: "gopus_libopus_softclip",
-			SourceFile: "libopus_softclip_info.c",
-			CFlags:     []string{"-DHAVE_CONFIG_H"},
-			Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
-		})
+	return libopusSoftClipHelper.CHelperPath(libopustest.CHelperConfig{
+		Label:      "softclip",
+		OutputBase: "gopus_libopus_softclip",
+		SourceFile: "libopus_softclip_info.c",
+		CFlags:     []string{"-DHAVE_CONFIG_H"},
+		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 	})
 }
 

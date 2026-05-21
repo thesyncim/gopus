@@ -20,8 +20,8 @@ type libopusPacketDurationResult struct {
 
 var libopusPacketDurationHelper libopustest.HelperCache
 
-func buildLibopusPacketDurationHelper() (string, error) {
-	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+func getLibopusPacketDurationHelperPath() (string, error) {
+	return libopusPacketDurationHelper.CHelperPath(libopustest.CHelperConfig{
 		Label:      "packet duration",
 		OutputBase: "gopus_libopus_packet_duration",
 		SourceFile: "libopus_packet_duration_info.c",
@@ -32,7 +32,7 @@ func buildLibopusPacketDurationHelper() (string, error) {
 }
 
 func probeLibopusPacketDurations(cases []libopusPacketDurationCase) ([]libopusPacketDurationResult, error) {
-	binPath, err := libopusPacketDurationHelper.Path(buildLibopusPacketDurationHelper)
+	binPath, err := getLibopusPacketDurationHelperPath()
 	if err != nil {
 		return nil, err
 	}

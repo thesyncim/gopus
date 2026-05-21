@@ -32,7 +32,8 @@ enum {
   MODE_COS_NORM2 = 11,
   MODE_STEREO_ITHETA_Q30 = 12,
   MODE_LOG = 13,
-  MODE_SIN = 14
+  MODE_SIN = 14,
+  MODE_BITEXACT_THETA_PAIR = 15
 };
 
 static int set_binary_stdio(void) {
@@ -167,6 +168,12 @@ static int eval_record(uint32_t mode) {
       y = celt_sin(x);
       memcpy(&out_bits, &y, sizeof(out_bits));
       return write_u32(out_bits);
+    case MODE_BITEXACT_THETA_PAIR:
+      if (!read_u32(&a)) return 0;
+      b = (uint32_t)(int32_t)bitexact_cos((opus_int16)(int32_t)a);
+      out_bits = (uint32_t)(int32_t)bitexact_cos((opus_int16)(16384 - (int32_t)a));
+      return write_u32(b) && write_u32(out_bits) &&
+             write_u32((uint32_t)(int32_t)bitexact_log2tan((int)(int32_t)out_bits, (int)(int32_t)b));
   }
   return 0;
 }
@@ -181,7 +188,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_SIN) return 1;
+  if (mode > MODE_BITEXACT_THETA_PAIR) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {

@@ -8,6 +8,55 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
+const celtMathModeBitexactThetaPair = uint32(15)
+
+var celtBitexactThetaPairHelper libopustest.HelperCache
+
+type celtBitexactThetaPair struct {
+	mid   int
+	side  int
+	delta int
+}
+
+func probeLibopusCELTBitexactThetaPairs(inputs []uint32) ([]celtBitexactThetaPair, error) {
+	binPath, err := celtBitexactThetaPairHelper.Path(func() (string, error) {
+		return libopustest.BuildCHelper(libopustest.CHelperConfig{
+			Label:       "celt bitexact theta",
+			OutputBase:  "gopus_libopus_celt_bitexact_theta",
+			SourceFile:  "libopus_celt_math_info.c",
+			CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+			RefIncludes: []string{"celt", "silk"},
+			Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+			DeadStrip:   true,
+		})
+	})
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload("GCMI", celtMathModeBitexactThetaPair, uint32(len(inputs)))
+	for _, input := range inputs {
+		payload.U32(input)
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "celt bitexact theta", "GCMO")
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(inputs))
+	reader.ExpectRemaining(12 * count)
+	out := make([]celtBitexactThetaPair, count)
+	for i := range out {
+		out[i] = celtBitexactThetaPair{
+			mid:   int(int32(reader.U32())),
+			side:  int(int32(reader.U32())),
+			delta: int(int32(reader.U32())),
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func TestCELTLog2MatchesLibopusFloatApprox(t *testing.T) {
 	libopustest.RequireOracle(t)
 	samples := []float32{
@@ -303,14 +352,22 @@ func TestCELTBitexactLog2TanThetaTableMatchesLibopus(t *testing.T) {
 	for theta := 64; theta <= 16320; theta++ {
 		inputs = append(inputs, uint32(theta))
 	}
-	want, err := libopustest.ProbeCELTMathWords(libopustest.CELTMathModeLog2TanTheta, len(inputs), inputs)
+	want, err := probeLibopusCELTBitexactThetaPairs(inputs)
 	if err != nil {
-		libopustest.HelperUnavailable(t, "celt math", err)
+		libopustest.HelperUnavailable(t, "celt bitexact theta", err)
 	}
 	for i, theta := range inputs {
-		got := bitexactLog2tanTheta(int(theta))
-		if got != int(int32(want[i])) {
-			t.Fatalf("bitexactLog2tanTheta(%d)=%d want %d", theta, got, int32(want[i]))
+		gotMid := bitexactCos(int(theta))
+		if gotMid != want[i].mid {
+			t.Fatalf("bitexactCos(%d)=%d want %d", theta, gotMid, want[i].mid)
+		}
+		gotSide := bitexactCos(16384 - int(theta))
+		if gotSide != want[i].side {
+			t.Fatalf("bitexactCos(%d)=%d want %d", 16384-int(theta), gotSide, want[i].side)
+		}
+		gotDelta := bitexactLog2tanTheta(int(theta))
+		if gotDelta != want[i].delta {
+			t.Fatalf("bitexactLog2tanTheta(%d)=%d want %d", theta, gotDelta, want[i].delta)
 		}
 	}
 }

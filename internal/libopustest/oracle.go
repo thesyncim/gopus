@@ -47,6 +47,13 @@ func (c *HelperCache) Path(build func() (string, error)) (string, error) {
 	return c.path, nil
 }
 
+// CHelperPath returns the cached path for a C oracle helper built from cfg.
+func (c *HelperCache) CHelperPath(cfg CHelperConfig) (string, error) {
+	return c.Path(func() (string, error) {
+		return BuildCHelper(cfg)
+	})
+}
+
 func OracleEnabled() bool {
 	if !StrictRefRequired() {
 		switch strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_LIBOPUS_ORACLE"))) {

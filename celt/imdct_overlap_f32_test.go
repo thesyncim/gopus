@@ -3,9 +3,64 @@ package celt
 import (
 	"fmt"
 	"math"
-	"runtime"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
+
+const (
+	libopusCELTIMDCTModeLong      = uint32(0)
+	libopusCELTIMDCTModeTransient = uint32(1)
+	libopusCELTIMDCTModeFFT       = uint32(2)
+)
+
+var libopusCELTIMDCTHelper libopustest.HelperCache
+
+func buildLibopusCELTIMDCTHelper() (string, error) {
+	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		Label:       "CELT IMDCT",
+		OutputBase:  "gopus_libopus_celt_imdct",
+		SourceFile:  "libopus_celt_imdct_info.c",
+		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
+		RefIncludes: []string{"src", "celt", "silk", "silk/float"},
+		RefSources:  []string{"celt/mdct.c", "celt/kiss_fft.c", "celt/modes.c"},
+		Libs:        []string{"-lm"},
+		DeadStrip:   true,
+	})
+}
+
+func probeLibopusCELTIMDCT(t *testing.T, mode uint32, frameSize, overlap, shortBlocks int, spectrum, prevOverlap []float32) []float32 {
+	t.Helper()
+	payload := libopustest.NewOraclePayload("GCII", mode, uint32(frameSize), uint32(overlap), uint32(shortBlocks))
+	for i := 0; i < overlap; i++ {
+		payload.Float32(prevOverlap[i])
+	}
+	for i := 0; i < frameSize; i++ {
+		payload.Float32(spectrum[i])
+	}
+
+	binPath, err := libopusCELTIMDCTHelper.Path(buildLibopusCELTIMDCTHelper)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT IMDCT", err)
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "CELT IMDCT", "GCIO")
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT IMDCT", err)
+	}
+	if gotMode := reader.U32(); gotMode != mode {
+		t.Fatalf("helper mode=%d want %d", gotMode, mode)
+	}
+	count := int(reader.U32())
+	out := make([]float32, count)
+	reader.ExpectRemaining(count * 4)
+	for i := range out {
+		out[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
 
 func imdctOverlapWithPrevScratchF32LegacyBufferCopy(out []float64, spectrum []float64, prevOverlap []float64, overlap int, scratch *imdctScratchF32) {
 	n2 := len(spectrum)
@@ -154,7 +209,9 @@ func TestIMDCTOverlapWithPrevScratchF32MatchesLegacyBufferCopy(t *testing.T) {
 	}
 }
 
-func TestIMDCTOverlapWithPrevScratchF32MatchesLibopusReference(t *testing.T) {
+func TestIMDCTOverlapWithPrevScratchF32MatchesLibopusC(t *testing.T) {
+	libopustest.RequireOracle(t)
+
 	testCases := []struct {
 		frameSize int
 		overlap   int
@@ -166,70 +223,99 @@ func TestIMDCTOverlapWithPrevScratchF32MatchesLibopusReference(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		for seed := 1; seed <= 4; seed++ {
+		for seed := 1; seed <= 3; seed++ {
 			t.Run(fmt.Sprintf("frame=%d/seed=%d", tc.frameSize, seed), func(t *testing.T) {
 				spectrum := make([]float64, tc.frameSize)
 				spectrumF32 := make([]float32, tc.frameSize)
 				prevOverlap := make([]float64, tc.overlap)
 				prevOverlapF32 := make([]float32, tc.overlap)
-				for i := range spectrum {
-					sine := math.Sin(float64(i+seed*11) * 0.063)
-					cosine := math.Cos(float64((i+1)*(seed+5)) * 0.017)
-					step := float64((i*13+seed*29)%23-11) / 28.0
-					v := 0.6*sine + 0.25*cosine + step
-					spectrum[i] = v
-					spectrumF32[i] = float32(v)
-				}
-				for i := range prevOverlap {
-					sine := math.Sin(float64(i+seed*3) * 0.041)
-					step := float64((i*7+seed*19)%17-8) / 20.0
-					v := 0.7*sine + step
-					prevOverlap[i] = v
-					prevOverlapF32[i] = float32(v)
-				}
+				fillIMDCTOracleInput(spectrum, spectrumF32, prevOverlap, prevOverlapF32, seed)
 
 				got := imdctOverlapWithPrevScratchF32Output(spectrum, prevOverlap, tc.overlap, &imdctScratchF32{})
-				want := LibopusIMDCTF32(spectrumF32, prevOverlapF32, tc.overlap)
-				if len(got) != len(want) {
-					t.Fatalf("len(got)=%d want %d", len(got), len(want))
-				}
-				maxDiff := 0.0
-				var errPow float64
-				var sigPow float64
-				for i := range want {
-					diff := math.Abs(float64(got[i] - want[i]))
-					if diff > maxDiff {
-						maxDiff = diff
-					}
-					d := float64(got[i] - want[i])
-					errPow += d * d
-					s := float64(want[i])
-					sigPow += s * s
-				}
-				snr := 200.0
-				if errPow > 1e-30 && sigPow > 1e-30 {
-					snr = 10 * math.Log10(sigPow/errPow)
-				}
-				t.Logf("max abs diff vs libopus-style f32 reference: %.3g, snr=%.2f dB", maxDiff, snr)
-				if maxDiff > imdctLibopusReferenceToleranceF32() {
-					t.Fatalf("max abs diff %.3g exceeds threshold %.3g (snr=%.2f dB)", maxDiff, imdctLibopusReferenceToleranceF32(), snr)
-				}
-				if snr < 70 {
-					t.Fatalf("snr %.2f dB below threshold 70 dB", snr)
-				}
+				want := probeLibopusCELTIMDCT(t, libopusCELTIMDCTModeLong, tc.frameSize, tc.overlap, 0, spectrumF32, prevOverlapF32)
+				assertFloat32Bits(t, "imdct", got, want)
 			})
 		}
 	}
 }
 
-func imdctLibopusReferenceToleranceF32() float64 {
-	if runtime.GOARCH == "arm64" || runtime.GOARCH == "amd64" {
-		// The optimized FFT/IMDCT path stays numerically close to the libopus-style
-		// float32 reference on the mainstream CI architectures, but it is not
-		// sample-bit-exact on every case.
-		return 1e-2
+func TestIMDCTTransientInPlaceScratchF32MatchesLibopusC(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	testCases := []struct {
+		frameSize   int
+		overlap     int
+		shortBlocks int
+	}{
+		{frameSize: 240, overlap: 120, shortBlocks: 2},
+		{frameSize: 480, overlap: 120, shortBlocks: 4},
+		{frameSize: 960, overlap: 120, shortBlocks: 8},
 	}
-	return 3e-6
+
+	for _, tc := range testCases {
+		for seed := 1; seed <= 3; seed++ {
+			t.Run(fmt.Sprintf("frame=%d/blocks=%d/seed=%d", tc.frameSize, tc.shortBlocks, seed), func(t *testing.T) {
+				spectrum := make([]float64, tc.frameSize)
+				spectrumF32 := make([]float32, tc.frameSize)
+				prevOverlap := make([]float64, tc.overlap)
+				prevOverlapF32 := make([]float32, tc.overlap)
+				fillIMDCTOracleInput(spectrum, spectrumF32, prevOverlap, prevOverlapF32, seed+9)
+
+				out := make([]float64, tc.frameSize+tc.overlap)
+				copy(out[:tc.overlap], prevOverlap)
+				shortSize := tc.frameSize / tc.shortBlocks
+				shortCoeffs := make([]float64, shortSize)
+				var scratch imdctScratchF32
+				for b := 0; b < tc.shortBlocks; b++ {
+					idx := b
+					for i := 0; i < shortSize; i++ {
+						shortCoeffs[i] = spectrum[idx]
+						idx += tc.shortBlocks
+					}
+					imdctInPlaceScratchF32(shortCoeffs, out, b*shortSize, tc.overlap, &scratch)
+				}
+
+				got := make([]float32, len(out))
+				for i := range out {
+					got[i] = float32(out[i])
+				}
+				want := probeLibopusCELTIMDCT(t, libopusCELTIMDCTModeTransient, tc.frameSize, tc.overlap, tc.shortBlocks, spectrumF32, prevOverlapF32)
+				assertFloat32Bits(t, "transient imdct", got, want)
+			})
+		}
+	}
+}
+
+func fillIMDCTOracleInput(spectrum []float64, spectrumF32 []float32, prevOverlap []float64, prevOverlapF32 []float32, seed int) {
+	for i := range spectrum {
+		sine := math.Sin(float64(i+seed*11) * 0.063)
+		cosine := math.Cos(float64((i+1)*(seed+5)) * 0.017)
+		step := float64((i*13+seed*29)%23-11) / 28.0
+		v := float32(0.6*sine + 0.25*cosine + step)
+		spectrum[i] = float64(v)
+		spectrumF32[i] = v
+	}
+	for i := range prevOverlap {
+		sine := math.Sin(float64(i+seed*3) * 0.041)
+		step := float64((i*7+seed*19)%17-8) / 20.0
+		v := float32(0.7*sine + step)
+		prevOverlap[i] = float64(v)
+		prevOverlapF32[i] = v
+	}
+}
+
+func assertFloat32Bits(t *testing.T, label string, got, want []float32) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
+	}
+	for i := range want {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("%s[%d]=%08x %.9g want %08x %.9g ulp=%d",
+				label, i, math.Float32bits(got[i]), got[i],
+				math.Float32bits(want[i]), want[i], ulpDiffFloat32(got[i], want[i]))
+		}
+	}
 }
 
 func ulpDiffFloat32(a, b float32) uint32 {

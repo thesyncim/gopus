@@ -741,8 +741,8 @@ type libopusAPIRateDecodeStep struct {
 	fec    bool
 }
 
-func buildLibopusAPIRateRefdecodeHelper() (string, error) {
-	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+func getLibopusAPIRateRefdecodeHelperPath() (string, error) {
+	return libopusAPIRateRefdecodeHelper.CHelperPath(libopustest.CHelperConfig{
 		Label:      "api-rate reference decode",
 		OutputBase: "gopus_libopus_refdecode_api_rate",
 		SourceFile: "libopus_refdecode_single.c",
@@ -760,7 +760,7 @@ func decodeWithLibopusReferenceAPIRateFloat32(sampleRate, channels, frameSize in
 }
 
 func decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, frameSize int, steps []libopusAPIRateDecodeStep) ([]float32, error) {
-	binPath, err := libopusAPIRateRefdecodeHelper.Path(buildLibopusAPIRateRefdecodeHelper)
+	binPath, err := getLibopusAPIRateRefdecodeHelperPath()
 	if err != nil {
 		return nil, err
 	}
@@ -799,7 +799,7 @@ func decodeWithLibopusReferenceAPIRateInt16(sampleRate, channels, frameSize int,
 }
 
 func decodeWithLibopusReferenceAPIRateInt16Steps(sampleRate, channels, frameSize int, steps []libopusAPIRateDecodeStep) ([]int16, error) {
-	binPath, err := libopusAPIRateRefdecodeHelper.Path(buildLibopusAPIRateRefdecodeHelper)
+	binPath, err := getLibopusAPIRateRefdecodeHelperPath()
 	if err != nil {
 		return nil, err
 	}

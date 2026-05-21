@@ -457,26 +457,26 @@ func kfBfly2(fout []kissCpx, m, N int) {
 		fout[0].r += t.r
 		fout[0].i += t.i
 
-		t.r = (fout2[1].r + fout2[1].i) * tw
-		t.i = (fout2[1].i - fout2[1].r) * tw
-		fout2[1].r = fout[1].r - t.r
-		fout2[1].i = fout[1].i - t.i
-		fout[1].r += t.r
-		fout[1].i += t.i
+		t.r = kissScaleMul(kissAdd(fout2[1].r, fout2[1].i), tw)
+		t.i = kissScaleMul(kissSub(fout2[1].i, fout2[1].r), tw)
+		fout2[1].r = kissSub(fout[1].r, t.r)
+		fout2[1].i = kissSub(fout[1].i, t.i)
+		fout[1].r = kissAdd(fout[1].r, t.r)
+		fout[1].i = kissAdd(fout[1].i, t.i)
 
 		t.r = fout2[2].i
 		t.i = -fout2[2].r
-		fout2[2].r = fout[2].r - t.r
-		fout2[2].i = fout[2].i - t.i
-		fout[2].r += t.r
-		fout[2].i += t.i
+		fout2[2].r = kissSub(fout[2].r, t.r)
+		fout2[2].i = kissSub(fout[2].i, t.i)
+		fout[2].r = kissAdd(fout[2].r, t.r)
+		fout[2].i = kissAdd(fout[2].i, t.i)
 
-		t.r = (fout2[3].i - fout2[3].r) * tw
-		t.i = -(fout2[3].i + fout2[3].r) * tw
-		fout2[3].r = fout[3].r - t.r
-		fout2[3].i = fout[3].i - t.i
-		fout[3].r += t.r
-		fout[3].i += t.i
+		t.r = kissScaleMul(kissSub(fout2[3].i, fout2[3].r), tw)
+		t.i = -kissScaleMul(kissAdd(fout2[3].i, fout2[3].r), tw)
+		fout2[3].r = kissSub(fout[3].r, t.r)
+		fout2[3].i = kissSub(fout[3].i, t.i)
+		fout[3].r = kissAdd(fout[3].r, t.r)
+		fout[3].i = kissAdd(fout[3].i, t.i)
 
 		fout = fout[8:]
 	}
@@ -502,7 +502,7 @@ func kfBfly3(fout []kissCpx, fstride int, st *kissFFTState, m, N, mm int) {
 		return
 	}
 	if kissFFTCOrder120Enabled && st.nfft == 120 {
-		kfBfly3InnerCOrder(fout, st.w, m, N, mm, fstride)
+		kfBfly3InnerCOrderGeneric(fout, st.w, m, N, mm, fstride)
 		return
 	}
 	kfBfly3Inner(fout, st.w, m, N, mm, fstride)
