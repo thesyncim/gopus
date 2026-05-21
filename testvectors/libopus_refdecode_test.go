@@ -125,6 +125,44 @@ func TestLibopusReferenceDecodeInt16Helper(t *testing.T) {
 	}
 }
 
+func TestDecodeInt16ColdPLCMatchesLibopusReference(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		name     string
+		channels int
+	}{
+		{name: "mono", channels: 1},
+		{name: "stereo", channels: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const frameSize = 960
+			want, err := decodeWithLibopusReferencePacketsSingleInt16(tc.channels, frameSize, [][]byte{nil})
+			if err != nil {
+				libopustest.HelperUnavailable(t, "single reference decode int16 plc", err)
+			}
+
+			dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, tc.channels))
+			if err != nil {
+				t.Fatalf("create decoder: %v", err)
+			}
+			got := make([]int16, frameSize*tc.channels)
+			n, err := dec.DecodeInt16(nil, got)
+			if err != nil {
+				t.Fatalf("DecodeInt16(nil): %v", err)
+			}
+			got = got[:n*tc.channels]
+			if len(got) != len(want) {
+				t.Fatalf("DecodeInt16(nil) samples=%d want %d", len(got), len(want))
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("DecodeInt16(nil) sample[%d]=%d want %d", i, got[i], want[i])
+				}
+			}
+		})
+	}
+}
+
 func encodeReferenceDecodePackets(t *testing.T, channels, frameSize, frames int) [][]byte {
 	t.Helper()
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
