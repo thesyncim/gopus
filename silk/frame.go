@@ -61,14 +61,21 @@ func getSamplesPerSubframe(bandwidth Bandwidth) int {
 // FrameDurationFromTOC extracts frame duration from TOC frame size value.
 // TOC frame sizes at 48kHz: 480=10ms, 960=20ms, 1920=40ms, 2880=60ms
 func FrameDurationFromTOC(tocFrameSize int) FrameDuration {
-	switch tocFrameSize {
-	case 480:
-		return Frame10ms
-	case 960:
+	return FrameDurationFromSamples(tocFrameSize, 48000)
+}
+
+func FrameDurationFromSamples(samples, sampleRate int) FrameDuration {
+	if sampleRate <= 0 {
 		return Frame20ms
-	case 1920:
+	}
+	switch samples * 1000 / sampleRate {
+	case 10:
+		return Frame10ms
+	case 20:
+		return Frame20ms
+	case 40:
 		return Frame40ms
-	case 2880:
+	case 60:
 		return Frame60ms
 	default:
 		return Frame20ms // Default

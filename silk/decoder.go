@@ -18,7 +18,8 @@ import (
 // Reference: RFC 6716 Section 4.2
 type Decoder struct {
 	// Range decoder reference (set per frame)
-	rangeDecoder *rangecoding.Decoder
+	rangeDecoder  *rangecoding.Decoder
+	apiSampleRate int
 
 	// Frame state (persists across frames)
 	haveDecoded           bool  // True after first frame decoded
@@ -191,6 +192,7 @@ func NewDecoder() *Decoder {
 	)
 
 	d := &Decoder{
+		apiSampleRate: 48000,
 		prevLPCValues: make([]float32, 16),  // Max for WB (d_LPC = 16)
 		prevLSFQ15:    make([]int16, 16),    // Max for WB (d_LPC = 16)
 		outputHistory: make([]float32, 322), // Max pitch lag (288) + LTP taps (5) + margin
@@ -236,6 +238,29 @@ func NewDecoder() *Decoder {
 	d.setupScratchBuffers()
 
 	return d
+}
+
+// SetAPISampleRate sets the decoder output rate used by the libopus SILK
+// resampler. It must be called before decoding any packets.
+func (d *Decoder) SetAPISampleRate(sampleRate int) {
+	switch sampleRate {
+	case 8000, 12000, 16000, 24000, 48000:
+		d.apiSampleRate = sampleRate
+	default:
+		d.apiSampleRate = 48000
+	}
+	d.resamplers = nil
+}
+
+func (d *Decoder) outputSampleRate() int {
+	if d.apiSampleRate == 0 {
+		return 48000
+	}
+	return d.apiSampleRate
+}
+
+func (d *Decoder) frameDurationFromAPISamples(samples int) FrameDuration {
+	return FrameDurationFromSamples(samples, d.outputSampleRate())
 }
 
 // setupScratchBuffers wires the pre-allocated scratch buffers to both decoderState instances.
@@ -802,13 +827,13 @@ func (d *Decoder) GetResamplerForChannel(bandwidth Bandwidth, channel int) *Libo
 	config := GetBandwidthConfig(bandwidth)
 	if channel == 1 {
 		if pair.right == nil {
-			pair.right = NewLibopusResampler(config.SampleRate, 48000)
+			pair.right = NewLibopusResampler(config.SampleRate, d.outputSampleRate())
 		}
 		return pair.right
 	}
 
 	if pair.left == nil {
-		pair.left = NewLibopusResampler(config.SampleRate, 48000)
+		pair.left = NewLibopusResampler(config.SampleRate, d.outputSampleRate())
 	}
 	return pair.left
 }

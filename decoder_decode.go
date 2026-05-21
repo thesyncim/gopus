@@ -136,6 +136,9 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	toc := &tocValue
 	frameCode := data[0] & 0x03
 	frameSize := toc.FrameSize
+	if toc.Mode == ModeSILK {
+		frameSize = packetTOCSamplesPerFrameAtRate(data[0], d.sampleRate)
+	}
 	totalSamples := frameSize * frameCount
 	if totalSamples > d.maxPacketSamples {
 		return 0, ErrPacketTooLarge
@@ -438,11 +441,14 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 			return 0, err
 		}
 		frameSize := toc.FrameSize
+		if toc.Mode == ModeSILK {
+			frameSize = packetTOCSamplesPerFrameAtRate(data[0], d.sampleRate)
+		}
 		if frameSize <= 0 {
 			frameSize = d.lastFrameSize
 		}
 		if frameSize <= 0 {
-			frameSize = 960
+			frameSize = d.sampleRate / 50
 		}
 
 		prevPacketMode := d.lastPacketMode
@@ -486,7 +492,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	if data == nil || len(data) == 0 {
 		frameSize := d.lastFrameSize
 		if frameSize <= 0 {
-			frameSize = 960
+			frameSize = d.sampleRate / 50
 		}
 		if frameSize > d.maxPacketSamples {
 			return 0, ErrPacketTooLarge
@@ -521,7 +527,11 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	totalSamples := toc.FrameSize * frameCount
+	frameSize := toc.FrameSize
+	if toc.Mode == ModeSILK {
+		frameSize = packetTOCSamplesPerFrameAtRate(data[0], d.sampleRate)
+	}
+	totalSamples := frameSize * frameCount
 	if totalSamples > d.maxPacketSamples {
 		return 0, ErrPacketTooLarge
 	}

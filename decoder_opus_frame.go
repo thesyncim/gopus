@@ -185,6 +185,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	qextPayload []byte,
 ) (int, error) {
 	fs := 48000
+	if packetMode == ModeSILK {
+		fs = d.sampleRate
+	}
 	F20 := fs / 50
 	F10 := F20 >> 1
 	F5 := F10 >> 1

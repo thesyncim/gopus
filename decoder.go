@@ -125,6 +125,7 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	}
 
 	silkDec := silk.NewDecoder()
+	silkDec.SetAPISampleRate(cfg.SampleRate)
 	celtDec := celt.NewDecoder(cfg.Channels)
 	hybridDec := hybrid.NewDecoderWithSharedDecoders(cfg.Channels, silkDec, celtDec)
 
@@ -141,8 +142,8 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		scratchPCM:        make([]float32, maxPacketSamples*cfg.Channels),
 		scratchTransition: make([]float32, transitionSamples*cfg.Channels),
 		scratchRedundant:  make([]float32, transitionSamples*cfg.Channels),
-		lastFrameSize:     960,        // Default 20ms at 48kHz
-		prevMode:          ModeHybrid, // Default for PLC until first decode
+		lastFrameSize:     cfg.SampleRate / 50, // Default 20ms at the API rate
+		prevMode:          ModeHybrid,          // Default for PLC until first decode
 		lastPacketMode:    ModeHybrid,
 		lastBandwidth:     BandwidthFullband,
 		fecData:           make([]byte, maxPacketBytes),

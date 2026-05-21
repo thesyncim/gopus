@@ -222,7 +222,7 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 		frameSize = d.lastFrameSize
 	}
 	if frameSize <= 0 {
-		frameSize = 960
+		frameSize = d.sampleRate / 50
 	}
 	if frameSize > d.maxPacketSamples {
 		return 0, ErrPacketTooLarge

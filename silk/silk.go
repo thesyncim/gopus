@@ -20,16 +20,16 @@ func (d *Decoder) finalizeSuccessfulDecode(frameSizeSamples, channels int) {
 	d.plcState.SetLastFrameParams(plc.ModeSILK, frameSizeSamples, channels)
 }
 
-// Decode decodes a SILK mono frame and returns 48kHz PCM samples.
+// Decode decodes a SILK mono frame and returns PCM at the decoder API rate.
 // If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
 //
 // Parameters:
 //   - data: raw SILK frame data (without TOC byte), or nil for PLC
 //   - bandwidth: NB, MB, or WB (from TOC)
-//   - frameSizeSamples: frame size in samples at 48kHz (from TOC)
+//   - frameSizeSamples: frame size in samples at the decoder API rate
 //   - vadFlag: voice activity flag (from bitstream header)
 //
-// Returns float32 samples in range [-1, 1] at 48kHz.
+// Returns float32 samples in range [-1, 1] at the decoder API rate.
 func (d *Decoder) Decode(
 	data []byte,
 	bandwidth Bandwidth,
@@ -50,14 +50,14 @@ func (d *Decoder) Decode(
 	}
 
 	// Convert TOC frame size to duration
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 
 	// Initialize range decoder
 	var rd rangecoding.Decoder
 	rd.Init(data)
 
 	// Decode frame at native rate (without delay compensation, since we'll handle
-	// sMid buffering in BuildMonoResamplerInput before resampling to 48kHz)
+	// sMid buffering in BuildMonoResamplerInput before resampling to the API rate)
 	nativeSamples, err := d.DecodeFrameRaw(&rd, bandwidth, duration, vadFlag)
 	if err != nil {
 		return nil, err
@@ -99,10 +99,10 @@ func (d *Decoder) Decode(
 	return output, nil
 }
 
-// DecodeStereo decodes a SILK stereo frame and returns 48kHz PCM samples.
+// DecodeStereo decodes a SILK stereo frame and returns PCM at the decoder API rate.
 // If data is nil, performs Packet Loss Concealment (PLC) instead of decoding.
 //
-// Returns interleaved stereo samples [L0, R0, L1, R1, ...] at 48kHz.
+// Returns interleaved stereo samples [L0, R0, L1, R1, ...] at the decoder API rate.
 func (d *Decoder) DecodeStereo(
 	data []byte,
 	bandwidth Bandwidth,
@@ -123,7 +123,7 @@ func (d *Decoder) DecodeStereo(
 	}
 
 	// Convert TOC frame size to duration
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 
 	// Initialize range decoder
 	var rd rangecoding.Decoder
@@ -146,7 +146,7 @@ func (d *Decoder) DecodeStereo(
 		d.recordNativeStereoFromFloat32(leftNative, rightNative, bandwidth)
 	}
 
-	// Upsample to 48kHz using libopus-compatible resampler
+	// Resample to the decoder API rate using the libopus-compatible resampler.
 	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
 	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
 	left := leftResampler.Process(leftNative)
@@ -207,7 +207,7 @@ func (d *Decoder) recordNativeStereoFromFloat32(leftNative, rightNative []float3
 	d.lastNativeMidFsKHz = 0
 }
 
-// DecodeStereoToMono decodes a SILK stereo frame and returns mono 48kHz PCM samples.
+// DecodeStereoToMono decodes a SILK stereo frame and returns mono PCM at the decoder API rate.
 // This matches libopus behavior when the decoder is configured for mono output.
 func (d *Decoder) DecodeStereoToMono(
 	data []byte,
@@ -229,7 +229,7 @@ func (d *Decoder) DecodeStereoToMono(
 	}
 
 	// Convert TOC frame size to duration
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 
 	// Initialize range decoder
 	var rd rangecoding.Decoder
@@ -241,7 +241,7 @@ func (d *Decoder) DecodeStereoToMono(
 		return nil, err
 	}
 
-	// Upsample to 48kHz using libopus-compatible resampler and sMid buffering
+	// Resample to the decoder API rate using libopus-compatible resampler and sMid buffering.
 	framesPerPacket := 0
 	if frameLength > 0 {
 		framesPerPacket = len(midNative) / frameLength
@@ -273,7 +273,7 @@ func (d *Decoder) DecodeStereoToMono(
 	return output, nil
 }
 
-// DecodeMonoToStereo decodes a mono SILK frame and returns stereo 48kHz PCM samples.
+// DecodeMonoToStereo decodes a mono SILK frame and returns stereo PCM at the decoder API rate.
 // When stereoToMono is true (stereo -> mono transition), the right channel is
 // resampled using its own resampler state instead of simple duplication to
 // match libopus behavior.
@@ -305,7 +305,7 @@ func (d *Decoder) DecodeMonoToStereo(
 		return d.decodePLCStereo(bandwidth, frameSizeSamples)
 	}
 
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 
 	var rd rangecoding.Decoder
 	rd.Init(data)
@@ -392,7 +392,7 @@ func (d *Decoder) DecodeWithDecoder(
 	// Handle bandwidth changes - reset sMid state when sample rate changes
 	d.handleBandwidthChange(bandwidth)
 
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 
 	// Decode at native rate without delay compensation (sMid buffering happens before resampler)
 	nativeSamples, err := d.DecodeFrameRaw(rd, bandwidth, duration, vadFlag)
@@ -453,7 +453,7 @@ func (d *Decoder) DecodeWithDecoderInto(
 	// Handle bandwidth changes - reset sMid state when sample rate changes
 	d.handleBandwidthChange(bandwidth)
 
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 
 	// Decode at native rate without delay compensation (sMid buffering happens before resampler).
 	// Use int16-native path to avoid float32->int16 reconversion before resampling.
@@ -516,7 +516,7 @@ func (d *Decoder) DecodeStereoWithDecoderInto(
 
 	d.handleBandwidthChange(bandwidth)
 
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 	framesPerPacket, nbSubfr, err := frameParams(duration)
 	if err != nil {
 		return 0, err
@@ -584,7 +584,7 @@ func (d *Decoder) DecodeStereoWithDecoder(
 	// Handle bandwidth changes - reset sMid state when sample rate changes
 	d.handleBandwidthChange(bandwidth)
 
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 
 	leftNative, rightNative, err := d.DecodeStereoFrame(rd, bandwidth, duration, vadFlag)
 	if err != nil {
@@ -624,7 +624,7 @@ func (d *Decoder) DecodeStereoToMonoWithDecoder(
 		return nil, ErrDecodeFailed
 	}
 
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 
 	midNative, frameLength, err := d.decodeStereoMidNative(rd, bandwidth, duration, vadFlag)
 	if err != nil {
@@ -682,7 +682,7 @@ func (d *Decoder) DecodeMonoToStereoWithDecoder(
 	// Handle bandwidth changes - reset sMid state when sample rate changes
 	d.handleBandwidthChange(bandwidth)
 
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 
 	// Decode at native rate without delay compensation (sMid buffering happens before resampler)
 	nativeSamples, err := d.DecodeFrameRaw(rd, bandwidth, duration, vadFlag)
@@ -771,7 +771,7 @@ func (d *Decoder) DecodeMonoToStereoWithDecoderInto(
 
 	d.handleBandwidthChange(bandwidth)
 
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 	nativeSamples, err := d.decodeFrameRawInt16(rd, bandwidth, duration, vadFlag)
 	if err != nil {
 		return 0, err
@@ -944,9 +944,9 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	// Match libopus silk_PLC_conceal() input cadence: use decoder-state lossCnt.
 	lossCnt := d.state[0].lossCnt
 
-	// Get native sample count from 48kHz frame size
+	// Get native sample count from the API-rate frame size.
 	config := GetBandwidthConfig(bandwidth)
-	nativeSamples := frameSizeSamples * config.SampleRate / 48000
+	nativeSamples := frameSizeSamples * config.SampleRate / d.outputSampleRate()
 
 	// Generate concealment at native rate.
 	// Use LTP-aware concealment whenever per-channel SILK PLC state is valid.
@@ -1034,8 +1034,8 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 		d.lastNativeMidFsKHz = 0
 	}
 
-	// Upsample to 48kHz using the same mono sMid buffering cadence as good frames.
-	duration := FrameDurationFromTOC(frameSizeSamples)
+	// Resample to the decoder API rate using the same mono sMid buffering cadence as good frames.
+	duration := d.frameDurationFromAPISamples(frameSizeSamples)
 	framesPerPacket, nbSubfr, err := frameParams(duration)
 	if err != nil || framesPerPacket <= 0 {
 		resampler := d.GetResampler(bandwidth)
@@ -1237,9 +1237,9 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	// Match libopus silk_PLC_conceal() input cadence: use decoder-state lossCnt.
 	lossCnt := d.state[0].lossCnt
 
-	// Get native sample count from 48kHz frame size
+	// Get native sample count from the API-rate frame size.
 	config := GetBandwidthConfig(bandwidth)
-	nativeSamples := frameSizeSamples * config.SampleRate / 48000
+	nativeSamples := frameSizeSamples * config.SampleRate / d.outputSampleRate()
 
 	// libopus stereo PLC keeps operating in mid/side space and only converts
 	// back to left/right through silk_stereo_MS_to_LR before resampling.
