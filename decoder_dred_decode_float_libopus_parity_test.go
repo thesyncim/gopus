@@ -5,7 +5,6 @@ package gopus
 import (
 	"fmt"
 	"math"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/celt"
@@ -50,20 +49,10 @@ type libopusDecoderDREDCELTSnapshot struct {
 	WarmupPLCUpdate   [4 * lpcnetplc.FrameSize]float32
 }
 
-var (
-	libopusDecoderDREDDecodeFloatHelperOnce sync.Once
-	libopusDecoderDREDDecodeFloatHelperPath string
-	libopusDecoderDREDDecodeFloatHelperErr  error
-)
+var libopusDecoderDREDDecodeFloatHelper libopustest.HelperCache
 
 func getLibopusDecoderDREDDecodeFloatHelperPath() (string, error) {
-	libopusDecoderDREDDecodeFloatHelperOnce.Do(func() {
-		libopusDecoderDREDDecodeFloatHelperPath, libopusDecoderDREDDecodeFloatHelperErr = buildLibopusDREDHelper("libopus_decoder_dred_decode_float_info.c", "gopus_libopus_decoder_dred_decode_float", true)
-	})
-	if libopusDecoderDREDDecodeFloatHelperErr != nil {
-		return "", libopusDecoderDREDDecodeFloatHelperErr
-	}
-	return libopusDecoderDREDDecodeFloatHelperPath, nil
+	return cachedLibopusDREDHelperPath(&libopusDecoderDREDDecodeFloatHelper, "libopus_decoder_dred_decode_float_info.c", "gopus_libopus_decoder_dred_decode_float", true)
 }
 
 func probeLibopusDecoderDREDDecodeFloat(seedPacket, packet []byte, maxDREDSamples, sampleRate, warmupDREDOffsetSamples, dredOffsetSamples, frameSizeSamples int) (libopusDecoderDREDDecodeFloatInfo, error) {

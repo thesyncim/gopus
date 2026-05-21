@@ -4,7 +4,6 @@ package gopus
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -52,20 +51,10 @@ type libopusDecoderDREDSequenceInfo struct {
 	next            libopusDecoderDREDSequenceStepInfo
 }
 
-var (
-	libopusDecoderDREDSequenceHelperOnce sync.Once
-	libopusDecoderDREDSequenceHelperPath string
-	libopusDecoderDREDSequenceHelperErr  error
-)
+var libopusDecoderDREDSequenceHelper libopustest.HelperCache
 
 func getLibopusDecoderDREDSequenceHelperPath() (string, error) {
-	libopusDecoderDREDSequenceHelperOnce.Do(func() {
-		libopusDecoderDREDSequenceHelperPath, libopusDecoderDREDSequenceHelperErr = buildLibopusDREDHelper("libopus_decoder_dred_sequence_info.c", "gopus_libopus_decoder_dred_sequence", true)
-	})
-	if libopusDecoderDREDSequenceHelperErr != nil {
-		return "", libopusDecoderDREDSequenceHelperErr
-	}
-	return libopusDecoderDREDSequenceHelperPath, nil
+	return cachedLibopusDREDHelperPath(&libopusDecoderDREDSequenceHelper, "libopus_decoder_dred_sequence_info.c", "gopus_libopus_decoder_dred_sequence", true)
 }
 
 func probeLibopusDecoderDREDSequence(seedPacket, carrierPacket, nextPacket []byte, maxDREDSamples, sampleRate, frameSizeSamples, step0Source, step0OffsetSamples, step1Source, step1OffsetSamples int, decodeNextPacket bool) (libopusDecoderDREDSequenceInfo, error) {

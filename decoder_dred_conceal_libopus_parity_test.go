@@ -4,7 +4,6 @@ package gopus
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -24,20 +23,10 @@ type libopusDecoderPLCConcealResult struct {
 	FARGAN lpcnetplc.FARGANSnapshot
 }
 
-var (
-	libopusPLCConcealHelperOnce sync.Once
-	libopusPLCConcealHelperPath string
-	libopusPLCConcealHelperErr  error
-)
+var libopusPLCConcealHelper libopustest.HelperCache
 
 func getLibopusPLCConcealHelperPath() (string, error) {
-	libopusPLCConcealHelperOnce.Do(func() {
-		libopusPLCConcealHelperPath, libopusPLCConcealHelperErr = buildLibopusDREDHelper("libopus_plc_conceal_info.c", "gopus_libopus_plc_conceal", true)
-	})
-	if libopusPLCConcealHelperErr != nil {
-		return "", libopusPLCConcealHelperErr
-	}
-	return libopusPLCConcealHelperPath, nil
+	return cachedLibopusDREDHelperPath(&libopusPLCConcealHelper, "libopus_plc_conceal_info.c", "gopus_libopus_plc_conceal", true)
 }
 
 func probeLibopusDecoderPLCConceal(state lpcnetplc.StateSnapshot, fargan lpcnetplc.FARGANSnapshot, fec0, fec1 []float32) (libopusDecoderPLCConcealResult, error) {

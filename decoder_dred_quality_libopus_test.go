@@ -4,7 +4,6 @@ package gopus
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -15,11 +14,7 @@ const (
 	libopusDREDQualitySequenceOutputMagic = "GDQO"
 )
 
-var (
-	libopusDREDQualitySequenceHelperOnce sync.Once
-	libopusDREDQualitySequenceHelperPath string
-	libopusDREDQualitySequenceHelperErr  error
-)
+var libopusDREDQualitySequenceHelper libopustest.HelperCache
 
 func TestExplicitDREDQualityTracksLibopusAtSixtyPercentLoss(t *testing.T) {
 	libopustest.RequireOracle(t)
@@ -92,13 +87,7 @@ func TestExplicitDREDQualityTracksLibopusAtSixtyPercentLoss(t *testing.T) {
 }
 
 func getLibopusDREDQualitySequenceHelperPath() (string, error) {
-	libopusDREDQualitySequenceHelperOnce.Do(func() {
-		libopusDREDQualitySequenceHelperPath, libopusDREDQualitySequenceHelperErr = buildLibopusDREDHelper("libopus_decoder_dred_quality_sequence.c", "gopus_libopus_decoder_dred_quality_sequence", true)
-	})
-	if libopusDREDQualitySequenceHelperErr != nil {
-		return "", libopusDREDQualitySequenceHelperErr
-	}
-	return libopusDREDQualitySequenceHelperPath, nil
+	return cachedLibopusDREDHelperPath(&libopusDREDQualitySequenceHelper, "libopus_decoder_dred_quality_sequence.c", "gopus_libopus_decoder_dred_quality_sequence", true)
 }
 
 func decodeLibopusDREDQualityPackets(t *testing.T, packets [][]byte, reference []float32, decoderBlob, dredDecoderBlob []byte, useDRED bool) dredQualityRun {

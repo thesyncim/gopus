@@ -16,3 +16,9 @@ func buildLibopusDREDHelper(sourceFile, outputBase string, includeInternal bool)
 	}
 	return libopustest.BuildDREDHelper(repoRoot, sourceFile, outputBase, includeInternal)
 }
+
+func cachedLibopusDREDHelperPath(cache *libopustest.HelperCache, sourceFile, outputBase string, includeInternal bool) (string, error) {
+	return cache.Path(func() (string, error) {
+		return buildLibopusDREDHelper(sourceFile, outputBase, includeInternal)
+	})
+}

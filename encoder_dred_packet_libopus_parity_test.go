@@ -6,27 +6,16 @@ import (
 	"bytes"
 	"fmt"
 	"math"
-	"sync"
 	"testing"
 
 	encpkg "github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-var (
-	libopusDREDEncoderModelBlobHelperOnce sync.Once
-	libopusDREDEncoderModelBlobHelperPath string
-	libopusDREDEncoderModelBlobHelperErr  error
-)
+var libopusDREDEncoderModelBlobHelper libopustest.HelperCache
 
 func getLibopusDREDEncoderModelBlobHelperPath() (string, error) {
-	libopusDREDEncoderModelBlobHelperOnce.Do(func() {
-		libopusDREDEncoderModelBlobHelperPath, libopusDREDEncoderModelBlobHelperErr = buildLibopusDREDHelper("libopus_dred_encoder_model_blob.c", "gopus_libopus_dred_encoder_model_blob", true)
-	})
-	if libopusDREDEncoderModelBlobHelperErr != nil {
-		return "", libopusDREDEncoderModelBlobHelperErr
-	}
-	return libopusDREDEncoderModelBlobHelperPath, nil
+	return cachedLibopusDREDHelperPath(&libopusDREDEncoderModelBlobHelper, "libopus_dred_encoder_model_blob.c", "gopus_libopus_dred_encoder_model_blob", true)
 }
 
 func probeLibopusDREDEncoderModelBlob() ([]byte, error) {
