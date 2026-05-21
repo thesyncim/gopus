@@ -241,25 +241,34 @@ func readCELTPLCFloat32Vector(t *testing.T, reader *libopustest.OracleReader) []
 func TestConcealPeriodicPLCMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
-	const frameSize = 960
-	for _, channels := range []int{1, 2} {
-		t.Run(map[int]string{1: "mono", 2: "stereo"}[channels], func(t *testing.T) {
-			hist := makeCELTPLCTestSignal(plcDecodeBufferSize*channels, 0x9000+uint32(channels), 2400)
-			want := probeLibopusPLCPeriodicConceal(t, hist, channels, frameSize)
+	for _, tc := range []struct {
+		name      string
+		frameSize int
+		channels  int
+	}{
+		{name: "frame_120_mono", frameSize: 120, channels: 1},
+		{name: "frame_120_stereo", frameSize: 120, channels: 2},
+		{name: "frame_240_mono", frameSize: 240, channels: 1},
+		{name: "frame_480_stereo", frameSize: 480, channels: 2},
+		{name: "frame_960_mono", frameSize: 960, channels: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hist := makeCELTPLCTestSignal(plcDecodeBufferSize*tc.channels, 0x9000+uint32(tc.frameSize)+uint32(tc.channels), 2400)
+			want := probeLibopusPLCPeriodicConceal(t, hist, tc.channels, tc.frameSize)
 
-			dec := NewDecoder(channels)
+			dec := NewDecoder(tc.channels)
 			dec.plcDecodeMem = append(dec.plcDecodeMem[:0], hist...)
-			dec.plcLPC = make([]float32, celtPLCLPCOrder*channels)
-			gotInterleaved := make([]float64, (frameSize+Overlap)*channels)
-			if !dec.concealPeriodicPLC(gotInterleaved, frameSize, 1, false, false) {
+			dec.plcLPC = make([]float32, celtPLCLPCOrder*tc.channels)
+			gotInterleaved := make([]float64, (tc.frameSize+Overlap)*tc.channels)
+			if !dec.concealPeriodicPLC(gotInterleaved, tc.frameSize, 1, false, false) {
 				t.Fatal("concealPeriodicPLC returned false")
 			}
 			if dec.plcLastPitchPeriod != want.period {
 				t.Fatalf("period=%d want libopus %d", dec.plcLastPitchPeriod, want.period)
 			}
-			for ch := 0; ch < channels; ch++ {
+			for ch := 0; ch < tc.channels; ch++ {
 				for i, wantSample := range want.out[ch] {
-					got := float32(gotInterleaved[i*channels+ch])
+					got := float32(gotInterleaved[i*tc.channels+ch])
 					if math.Float32bits(got) != math.Float32bits(wantSample) {
 						t.Fatalf("ch=%d out[%d]=%08x %.10g want %08x %.10g",
 							ch, i,
@@ -379,19 +388,33 @@ func TestRemoveDoublingMatchesLibopus(t *testing.T) {
 func TestComputePLCLPCMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
-	frame := makeCELTPLCTestSignal(combFilterMaxPeriod, 0x42504c43, 1800)
-	window32 := GetWindowBufferF32(Overlap)
-	want := probeLibopusPLCLPC(t, frame, window32)
+	for _, tc := range []struct {
+		name  string
+		seed  uint32
+		scale float32
+	}{
+		{name: "baseline", seed: 0x42504c43, scale: 1800},
+		{name: "plc_frame_120_stereo_ch0", seed: 0x9000 + 120 + 2, scale: 2400},
+		{name: "plc_frame_240_stereo_ch0", seed: 0x9000 + 240 + 2, scale: 2400},
+		{name: "plc_frame_480_mono", seed: 0x9000 + 480 + 1, scale: 2400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hist := makeCELTPLCTestSignal(plcDecodeBufferSize, tc.seed, tc.scale)
+			frame := hist[plcDecodeBufferSize-combFilterMaxPeriod:]
+			window32 := GetWindowBufferF32(Overlap)
+			want := probeLibopusPLCLPC(t, frame, window32)
 
-	dec := NewDecoder(1)
-	window64 := GetWindowBuffer(Overlap)
-	gotAC := make([]float32, celtPLCLPCOrder+1)
-	dec.computePLCAutocorr(frame, window64, gotAC)
-	assertFloat32Bits(t, "ac", gotAC, want.ac)
+			dec := NewDecoder(1)
+			window64 := GetWindowBuffer(Overlap)
+			gotAC := make([]float32, celtPLCLPCOrder+1)
+			dec.computePLCAutocorr(frame, window64, gotAC)
+			assertFloat32Bits(t, "ac", gotAC, want.ac)
 
-	got := make([]float32, celtPLCLPCOrder)
-	dec.computePLCLPC(frame, got, window64)
-	assertFloat32Bits(t, "lpc", got, want.lpc)
+			got := make([]float32, celtPLCLPCOrder)
+			dec.computePLCLPC(frame, got, window64)
+			assertFloat32Bits(t, "lpc", got, want.lpc)
+		})
+	}
 }
 
 func TestCELTPLCFIRMatchesLibopus(t *testing.T) {
@@ -403,14 +426,18 @@ func TestCELTPLCFIRMatchesLibopus(t *testing.T) {
 		exc32[i] = float32(exc[i])
 	}
 	lpc := makeCELTPLPCTestCoeffs()
-	start := celtPLCLPCOrder + combFilterMaxPeriod - 320
-	want := probeLibopusPLCFIR(t, exc32, start, 320, lpc)
+	for _, length := range []int{200, 320, 360, 600, 720, 1024} {
+		t.Run(strconv.Itoa(length), func(t *testing.T) {
+			start := celtPLCLPCOrder + combFilterMaxPeriod - length
+			want := probeLibopusPLCFIR(t, exc32, start, length, lpc)
 
-	gotSig := make([]celtSig, 320)
-	celtFIRFloat32(gotSig, exc32, start, 320, lpc)
-	got := make([]float32, len(gotSig))
-	copySigToFloat32(got, gotSig)
-	assertFloat32Bits(t, "fir", got, want)
+			gotSig := make([]celtSig, length)
+			celtFIRFloat32(gotSig, exc32, start, length, lpc)
+			got := make([]float32, len(gotSig))
+			copySigToFloat32(got, gotSig)
+			assertFloat32Bits(t, "fir", got, want)
+		})
+	}
 }
 
 func TestCELTPLCIIRMatchesLibopus(t *testing.T) {
@@ -418,7 +445,7 @@ func TestCELTPLCIIRMatchesLibopus(t *testing.T) {
 
 	hist := makeCELTPLCTestSignal(plcDecodeBufferSize, 0x11a5011, 1300)
 	lpc := makeCELTPLPCTestCoeffs()
-	for _, length := range []int{360, 1080} {
+	for _, length := range []int{240, 360, 600, 1080} {
 		t.Run(strconv.Itoa(length), func(t *testing.T) {
 			in := makeCELTPLCTestSignal(length, 0x119911+uint32(length), 900)
 			want := probeLibopusPLCIIR(t, in, hist, lpc)
@@ -429,6 +456,49 @@ func TestCELTPLCIIRMatchesLibopus(t *testing.T) {
 			got := make([]float32, len(gotSig))
 			copySigToFloat32(got, gotSig)
 			assertFloat32Bits(t, "iir", got, want)
+		})
+	}
+}
+
+func TestCELTPLCFIRActualPeriodicPLCInputsMatchLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	for _, tc := range []struct {
+		name      string
+		frameSize int
+		channels  int
+	}{
+		{name: "frame_120_stereo_ch0", frameSize: 120, channels: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			histAll := makeCELTPLCTestSignal(plcDecodeBufferSize*tc.channels, 0x9000+uint32(tc.frameSize)+uint32(tc.channels), 2400)
+			hist := histAll[:plcDecodeBufferSize]
+
+			dec := NewDecoder(tc.channels)
+			dec.plcDecodeMem = append(dec.plcDecodeMem[:0], histAll...)
+			period := dec.searchPLCPitchPeriod()
+			if period <= 0 {
+				t.Fatal("no PLC pitch period")
+			}
+
+			lpc := make([]float32, celtPLCLPCOrder)
+			dec.computePLCLPC(hist[plcDecodeBufferSize-combFilterMaxPeriod:], lpc, GetWindowBuffer(Overlap))
+
+			const maxPeriod = combFilterMaxPeriod
+			excLength := min(2*period, maxPeriod)
+			exc := makeCELTPLCTestSignal(0, 0, 0)
+			exc = append(exc, hist[plcDecodeBufferSize-maxPeriod-celtPLCLPCOrder:]...)
+			exc32 := make([]float32, len(exc))
+			for i := range exc {
+				exc32[i] = float32(exc[i])
+			}
+			firStart := celtPLCLPCOrder + maxPeriod - excLength
+			wantFIR := probeLibopusPLCFIR(t, exc32, firStart, excLength, lpc)
+			firTmp := make([]celtSig, excLength)
+			celtFIRFloat32(firTmp, exc32, firStart, excLength, lpc)
+			gotFIR := make([]float32, len(firTmp))
+			copySigToFloat32(gotFIR, firTmp)
+			assertFloat32Bits(t, "actual periodic fir", gotFIR, wantFIR)
 		})
 	}
 }

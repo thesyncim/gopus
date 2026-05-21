@@ -520,6 +520,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 	d.scratchPLCBuf = ensureSigSlice(&d.scratchPLCBuf, plcDecodeBufferSize+Overlap)
 
 	window := GetWindowBuffer(Overlap)
+	window32 := GetWindowBufferF32(Overlap)
 	continuePeriodic = lossCount > 1 && continuePeriodic
 	channels := d.channels
 	for ch := 0; ch < channels; ch++ {
@@ -584,7 +585,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 			srcIdx := s1Base + j
 			if srcIdx >= 0 && srcIdx < len(buf) {
 				v := float32(buf[srcIdx])
-				s1 += v * v
+				s1 = noFMA32Add(s1, noFMA32Mul(v, v))
 			}
 			j++
 		}
@@ -594,7 +595,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 		s2 := float32(0)
 		for i := 0; i < totalSamples; i++ {
 			v := float32(chOut[i])
-			s2 += v * v
+			s2 = noFMA32Add(s2, noFMA32Mul(v, v))
 		}
 		if !(s1 > float32(0.2)*s2) {
 			for i := 0; i < totalSamples; i++ {
@@ -604,7 +605,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 			ratio := float32(math.Sqrt(float64((s1 + 1.0) / (s2 + 1.0))))
 			blend := min(Overlap, totalSamples)
 			for i := 0; i < blend; i++ {
-				g := float32(1.0) - float32(window[i])*(float32(1.0)-ratio)
+				g := float32(1.0) - window32[i]*(float32(1.0)-ratio)
 				chOut[i] = celtSig(float32(chOut[i]) * g)
 			}
 			for i := blend; i < totalSamples; i++ {
