@@ -5,7 +5,6 @@ package dred
 import (
 	"fmt"
 	"math"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -24,33 +23,16 @@ type libopusDREDRDOVAEEncInfo struct {
 }
 
 var (
-	libopusDREDEncoderModelBlobHelperOnce sync.Once
-	libopusDREDEncoderModelBlobHelperPath string
-	libopusDREDEncoderModelBlobHelperErr  error
-
-	libopusDREDRDOVAEEncHelperOnce sync.Once
-	libopusDREDRDOVAEEncHelperPath string
-	libopusDREDRDOVAEEncHelperErr  error
+	libopusDREDEncoderModelBlobHelper libopustest.HelperCache
+	libopusDREDRDOVAEEncHelper        libopustest.HelperCache
 )
 
 func getLibopusDREDEncoderModelBlobHelperPath() (string, error) {
-	libopusDREDEncoderModelBlobHelperOnce.Do(func() {
-		libopusDREDEncoderModelBlobHelperPath, libopusDREDEncoderModelBlobHelperErr = buildLibopusDREDHelper("libopus_dred_encoder_model_blob.c", "gopus_libopus_dred_encoder_model_blob")
-	})
-	if libopusDREDEncoderModelBlobHelperErr != nil {
-		return "", libopusDREDEncoderModelBlobHelperErr
-	}
-	return libopusDREDEncoderModelBlobHelperPath, nil
+	return cachedLibopusDREDHelperPath(&libopusDREDEncoderModelBlobHelper, "libopus_dred_encoder_model_blob.c", "gopus_libopus_dred_encoder_model_blob")
 }
 
 func getLibopusDREDRDOVAEEncHelperPath() (string, error) {
-	libopusDREDRDOVAEEncHelperOnce.Do(func() {
-		libopusDREDRDOVAEEncHelperPath, libopusDREDRDOVAEEncHelperErr = buildLibopusDREDHelper("libopus_dred_rdovae_enc_info.c", "gopus_libopus_dred_rdovae_enc")
-	})
-	if libopusDREDRDOVAEEncHelperErr != nil {
-		return "", libopusDREDRDOVAEEncHelperErr
-	}
-	return libopusDREDRDOVAEEncHelperPath, nil
+	return cachedLibopusDREDHelperPath(&libopusDREDRDOVAEEncHelper, "libopus_dred_rdovae_enc_info.c", "gopus_libopus_dred_rdovae_enc")
 }
 
 func probeLibopusDREDEncoderModelBlob() ([]byte, error) {

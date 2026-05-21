@@ -6,27 +6,16 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dred/rdovae"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-var (
-	libopusDREDLatentsTraceHelperOnce sync.Once
-	libopusDREDLatentsTraceHelperPath string
-	libopusDREDLatentsTraceHelperErr  error
-)
+var libopusDREDLatentsTraceHelper libopustest.HelperCache
 
 func getLibopusDREDLatentsTraceHelperPath() (string, error) {
-	libopusDREDLatentsTraceHelperOnce.Do(func() {
-		libopusDREDLatentsTraceHelperPath, libopusDREDLatentsTraceHelperErr = buildLibopusDREDHelper("libopus_dred_latents_trace.c", "gopus_libopus_dred_latents_trace")
-	})
-	if libopusDREDLatentsTraceHelperErr != nil {
-		return "", libopusDREDLatentsTraceHelperErr
-	}
-	return libopusDREDLatentsTraceHelperPath, nil
+	return cachedLibopusDREDHelperPath(&libopusDREDLatentsTraceHelper, "libopus_dred_latents_trace.c", "gopus_libopus_dred_latents_trace")
 }
 
 type libopusDREDFrameTrace struct {

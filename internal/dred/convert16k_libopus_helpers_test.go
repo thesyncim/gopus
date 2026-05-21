@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sync"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
@@ -16,11 +15,7 @@ const (
 	libopusDREDConvertOutputMagic = "GDCO"
 )
 
-var (
-	libopusDREDConvertHelperOnce sync.Once
-	libopusDREDConvertHelperPath string
-	libopusDREDConvertHelperErr  error
-)
+var libopusDREDConvertHelper libopustest.HelperCache
 
 func buildLibopusDREDHelper(sourceFile, outputBase string) (string, error) {
 	cwd, err := os.Getwd()
@@ -31,14 +26,14 @@ func buildLibopusDREDHelper(sourceFile, outputBase string) (string, error) {
 	return libopustest.BuildDREDHelper(repoRoot, sourceFile, outputBase, true)
 }
 
-func getLibopusDREDConvertHelperPath() (string, error) {
-	libopusDREDConvertHelperOnce.Do(func() {
-		libopusDREDConvertHelperPath, libopusDREDConvertHelperErr = buildLibopusDREDHelper("libopus_dred_convert16k_info.c", "gopus_libopus_dred_convert16k")
+func cachedLibopusDREDHelperPath(cache *libopustest.HelperCache, sourceFile, outputBase string) (string, error) {
+	return cache.Path(func() (string, error) {
+		return buildLibopusDREDHelper(sourceFile, outputBase)
 	})
-	if libopusDREDConvertHelperErr != nil {
-		return "", libopusDREDConvertHelperErr
-	}
-	return libopusDREDConvertHelperPath, nil
+}
+
+func getLibopusDREDConvertHelperPath() (string, error) {
+	return cachedLibopusDREDHelperPath(&libopusDREDConvertHelper, "libopus_dred_convert16k_info.c", "gopus_libopus_dred_convert16k")
 }
 
 func probeLibopusDREDConvert16k(sampleRate, channels int, mem [ResamplingOrder + 1]float32, input []float32) ([]float32, [ResamplingOrder + 1]float32, error) {

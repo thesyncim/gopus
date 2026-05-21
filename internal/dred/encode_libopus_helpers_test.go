@@ -4,7 +4,6 @@ package dred
 
 import (
 	"fmt"
-	"sync"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
@@ -19,20 +18,10 @@ type libopusDREDEncodePayloadInfo struct {
 	LastExtraDREDOffset int
 }
 
-var (
-	libopusDREDEncodePayloadHelperOnce sync.Once
-	libopusDREDEncodePayloadHelperPath string
-	libopusDREDEncodePayloadHelperErr  error
-)
+var libopusDREDEncodePayloadHelper libopustest.HelperCache
 
 func getLibopusDREDEncodePayloadHelperPath() (string, error) {
-	libopusDREDEncodePayloadHelperOnce.Do(func() {
-		libopusDREDEncodePayloadHelperPath, libopusDREDEncodePayloadHelperErr = buildLibopusDREDHelper("libopus_dred_encode_payload_info.c", "gopus_libopus_dred_encode_payload")
-	})
-	if libopusDREDEncodePayloadHelperErr != nil {
-		return "", libopusDREDEncodePayloadHelperErr
-	}
-	return libopusDREDEncodePayloadHelperPath, nil
+	return cachedLibopusDREDHelperPath(&libopusDREDEncodePayloadHelper, "libopus_dred_encode_payload_info.c", "gopus_libopus_dred_encode_payload")
 }
 
 func probeLibopusDREDEncodePayload(q0, dQ, qmax, maxChunks, maxBytes, latentsFill, dredOffset, latentOffset, lastExtraDREDOffset int, state, latents []float32, activity [ActivityHistorySize]byte) (libopusDREDEncodePayloadInfo, error) {
