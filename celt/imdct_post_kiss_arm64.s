@@ -7,8 +7,8 @@
 // Equivalent to interleaving fft into buf and then calling imdctPostRotateF32,
 // but reads kissCpx scratch directly:
 //   re = fft[i].i, im = fft[i].r
-//   yr = round(round(re*t0) + im*t1)
-//   yi = round(round(re*t1) - im*t0)
+//   yr = round(re*t0 + round(im*t1))
+//   yi = round(re*t1 + round(-(im*t0)))
 TEXT ·imdctPostRotateF32FromKiss(SB), NOSPLIT, $0-88
 	MOVD buf_base+0(FP), R0
 	MOVD fft_base+24(FP), R14
@@ -59,11 +59,12 @@ post_kiss_loop2:
 	FMOVS (R7), F2
 	FMOVS (R8), F3
 
-	FMULS F2, F0, F4
-	FMADDS F3, F4, F1, F4
+	FMULS F3, F1, F4
+	FMADDS F2, F4, F0, F4
 
-	FMULS F3, F0, F5
-	FMSUBS F2, F5, F1, F5
+	FMULS F2, F1, F5
+	FNEGS F5, F5
+	FMADDS F3, F5, F0, F5
 
 	// --- Backward rotation from fft[n4-1-i] ---
 	ADD  R0, R6, R13
@@ -76,11 +77,12 @@ post_kiss_loop2:
 	FMOVS (R9), F2
 	FMOVS (R10), F3
 
-	FMULS F2, F6, F4
-	FMADDS F3, F4, F7, F4
+	FMULS F3, F7, F4
+	FMADDS F2, F4, F6, F4
 
-	FMULS F3, F6, F5
-	FMSUBS F2, F5, F7, F5
+	FMULS F2, F7, F5
+	FNEGS F5, F5
+	FMADDS F3, F5, F6, F5
 
 	FMOVS F4, (R13)
 	FMOVS F5, 4(R12)
@@ -101,11 +103,12 @@ post_kiss_loop2:
 	FMOVS (R7), F2
 	FMOVS (R8), F3
 
-	FMULS F2, F0, F4
-	FMADDS F3, F4, F1, F4
+	FMULS F3, F1, F4
+	FMADDS F2, F4, F0, F4
 
-	FMULS F3, F0, F5
-	FMSUBS F2, F5, F1, F5
+	FMULS F2, F1, F5
+	FNEGS F5, F5
+	FMADDS F3, F5, F0, F5
 
 	ADD  R0, R6, R13
 	FMOVS 4(R16), F6
@@ -117,11 +120,12 @@ post_kiss_loop2:
 	FMOVS (R9), F2
 	FMOVS (R10), F3
 
-	FMULS F2, F6, F4
-	FMADDS F3, F4, F7, F4
+	FMULS F3, F7, F4
+	FMADDS F2, F4, F6, F4
 
-	FMULS F3, F6, F5
-	FMSUBS F2, F5, F7, F5
+	FMULS F2, F7, F5
+	FNEGS F5, F5
+	FMADDS F3, F5, F6, F5
 
 	FMOVS F4, (R13)
 	FMOVS F5, 4(R12)
@@ -149,11 +153,12 @@ post_kiss_tail_check:
 	FMOVS (R7), F2
 	FMOVS (R8), F3
 
-	FMULS F2, F0, F4
-	FMADDS F3, F4, F1, F4
+	FMULS F3, F1, F4
+	FMADDS F2, F4, F0, F4
 
-	FMULS F3, F0, F5
-	FMSUBS F2, F5, F1, F5
+	FMULS F2, F1, F5
+	FNEGS F5, F5
+	FMADDS F3, F5, F0, F5
 
 	ADD  R0, R6, R13
 	FMOVS 4(R16), F6
@@ -165,11 +170,12 @@ post_kiss_tail_check:
 	FMOVS (R9), F2
 	FMOVS (R10), F3
 
-	FMULS F2, F6, F4
-	FMADDS F3, F4, F7, F4
+	FMULS F3, F7, F4
+	FMADDS F2, F4, F6, F4
 
-	FMULS F3, F6, F5
-	FMSUBS F2, F5, F7, F5
+	FMULS F2, F7, F5
+	FNEGS F5, F5
+	FMADDS F3, F5, F6, F5
 
 	FMOVS F4, (R13)
 	FMOVS F5, 4(R12)

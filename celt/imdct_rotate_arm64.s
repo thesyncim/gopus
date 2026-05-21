@@ -56,12 +56,13 @@ pre_loop2:
 	FMOVS (R11), F3          // t1 = trig[n4+i]
 
 	// out[2*i] = x1*t0 - x2*t1
-	FMULS F2, F0, F4         // F4 = x1*t0
-	FMSUBS F3, F4, F1, F4    // F4 = F4 - x2*t1
+	FMULS F3, F1, F4
+	FNEGS F4, F4
+	FMADDS F2, F4, F0, F4
 
 	// out[2*i+1] = x2*t0 + x1*t1
-	FMULS F2, F1, F5         // F5 = x2*t0
-	FMADDS F3, F5, F0, F5    // F5 = F5 + x1*t1
+	FMULS F3, F0, F5
+	FMADDS F2, F5, F1, F5
 
 	// Store pair
 	FMOVS F4, (R7)
@@ -75,10 +76,11 @@ pre_loop2:
 	FMOVS 4(R10), F2
 	FMOVS 4(R11), F3
 
-	FMULS F2, F0, F4
-	FMSUBS F3, F4, F1, F4
-	FMULS F2, F1, F5
-	FMADDS F3, F5, F0, F5
+	FMULS F3, F1, F4
+	FNEGS F4, F4
+	FMADDS F2, F4, F0, F4
+	FMULS F3, F0, F5
+	FMADDS F2, F5, F1, F5
 
 	FMOVS F4, 8(R7)
 	FMOVS F5, 12(R7)
@@ -105,10 +107,11 @@ pre_tail_check:
 	FMOVS (R10), F2
 	FMOVS (R11), F3
 
-	FMULS F2, F0, F4
-	FMSUBS F3, F4, F1, F4
-	FMULS F2, F1, F5
-	FMADDS F3, F5, F0, F5
+	FMULS F3, F1, F4
+	FNEGS F4, F4
+	FMADDS F2, F4, F0, F4
+	FMULS F3, F0, F5
+	FMADDS F2, F5, F1, F5
 
 	FMOVS F4, (R7)
 	FMOVS F5, 4(R7)
@@ -171,12 +174,13 @@ post_loop:
 	FMOVS (R8), F3          // t1 = trig[n4+i]
 
 	// yr = re*t0 + im*t1
-	FMULS F2, F0, F4
-	FMADDS F3, F4, F1, F4
+	FMULS F3, F1, F4
+	FMADDS F2, F4, F0, F4
 
 	// yi = re*t1 - im*t0
-	FMULS F3, F0, F5
-	FMSUBS F2, F5, F1, F5
+	FMULS F2, F1, F5
+	FNEGS F5, F5
+	FMADDS F3, F5, F0, F5
 
 	// --- Backward rotation (yp1): read before write ---
 	ADD  R0, R6, R13         // &buf[yp1]
@@ -191,12 +195,13 @@ post_loop:
 	FMOVS (R10), F3         // t1 = trig[n2-i-1]
 
 	// yr2 = re2*t0 + im2*t1
-	FMULS F2, F6, F4
-	FMADDS F3, F4, F7, F4
+	FMULS F3, F7, F4
+	FMADDS F2, F4, F6, F4
 
 	// yi2 = re2*t1 - im2*t0
-	FMULS F3, F6, F5
-	FMSUBS F2, F5, F7, F5
+	FMULS F2, F7, F5
+	FNEGS F5, F5
+	FMADDS F3, F5, F6, F5
 
 	// Store backward results
 	FMOVS F4, (R13)         // buf[yp1] = yr2
