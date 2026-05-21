@@ -45,7 +45,16 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize in
 		return err
 	}
 
-	if len(data) <= 1 || packetChannels != d.channels {
+	if len(data) <= 1 {
+		d.directOutPCM = out[:outLen]
+		defer func() {
+			d.directOutPCM = nil
+		}()
+		_, err := d.DecodeFrameWithPacketStereo(data, frameSize, packetStereo)
+		return err
+	}
+
+	if packetChannels != d.channels {
 		samples, err := d.DecodeFrameWithPacketStereo(data, frameSize, packetStereo)
 		if err != nil {
 			return err

@@ -379,6 +379,10 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 		d.finishLostFrame(framePLCPeriodic, frameSize)
 		d.plcPrefilterAndFoldPending = true
 		d.updatePLCOverlapBuffer(d.scratchPLC[:plcLen], frameSize)
+		if len(d.directOutPCM) >= outLen {
+			d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:outLen], d.scratchPLC[:outLen], 1.0/32768.0)
+			return d.scratchPLC[:outLen], nil
+		}
 		d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
 		return d.scratchPLC[:outLen], nil
 	}
@@ -454,6 +458,10 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 	d.rng = seed
 
 	d.applyPostfilter(dst[:frameSize*d.channels], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
+	if len(d.directOutPCM) >= frameSize*d.channels {
+		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:frameSize*d.channels], dst[:frameSize*d.channels], 1.0/32768.0)
+		return
+	}
 	d.applyDeemphasisAndScale(dst[:frameSize*d.channels], 1.0/32768.0)
 }
 
