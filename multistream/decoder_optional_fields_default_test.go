@@ -18,4 +18,7 @@ func TestDefaultBuildOptionalFieldsAreZeroSize(t *testing.T) {
 	if got := unsafe.Sizeof(streamOSCEFields{}); got != 0 {
 		t.Fatalf("streamOSCEFields size = %d, want 0", got)
 	}
+	if got := unsafe.Sizeof(streamOSCEState{}); got != 0 {
+		t.Fatalf("streamOSCEState size = %d, want 0", got)
+	}
 }
