@@ -2,7 +2,6 @@ package silk
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -17,11 +16,7 @@ const (
 	libopusSILKGainModeID      = uint32(2)
 )
 
-var (
-	libopusSILKGainHelperOnce sync.Once
-	libopusSILKGainHelperPath string
-	libopusSILKGainHelperErr  error
-)
+var libopusSILKGainHelper libopustest.HelperCache
 
 type libopusSILKGainRecord struct {
 	first int32
@@ -42,13 +37,7 @@ func buildLibopusSILKGainHelper() (string, error) {
 }
 
 func getLibopusSILKGainHelperPath() (string, error) {
-	libopusSILKGainHelperOnce.Do(func() {
-		libopusSILKGainHelperPath, libopusSILKGainHelperErr = buildLibopusSILKGainHelper()
-	})
-	if libopusSILKGainHelperErr != nil {
-		return "", libopusSILKGainHelperErr
-	}
-	return libopusSILKGainHelperPath, nil
+	return libopusSILKGainHelper.Path(buildLibopusSILKGainHelper)
 }
 
 func probeLibopusSILKGain(mode uint32, records [][]int32) ([]libopusSILKGainRecord, error) {

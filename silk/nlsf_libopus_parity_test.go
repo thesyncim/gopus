@@ -3,7 +3,6 @@ package silk
 import (
 	"fmt"
 	"math"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -22,11 +21,7 @@ const (
 	libopusSILKNLSFCBWB   = uint32(1)
 )
 
-var (
-	libopusSILKNLSFHelperOnce sync.Once
-	libopusSILKNLSFHelperPath string
-	libopusSILKNLSFHelperErr  error
-)
+var libopusSILKNLSFHelper libopustest.HelperCache
 
 func buildLibopusSILKNLSFHelper() (string, error) {
 	return libopustest.BuildCHelper(libopustest.CHelperConfig{
@@ -53,13 +48,7 @@ func buildLibopusSILKNLSFHelper() (string, error) {
 }
 
 func getLibopusSILKNLSFHelperPath() (string, error) {
-	libopusSILKNLSFHelperOnce.Do(func() {
-		libopusSILKNLSFHelperPath, libopusSILKNLSFHelperErr = buildLibopusSILKNLSFHelper()
-	})
-	if libopusSILKNLSFHelperErr != nil {
-		return "", libopusSILKNLSFHelperErr
-	}
-	return libopusSILKNLSFHelperPath, nil
+	return libopusSILKNLSFHelper.Path(buildLibopusSILKNLSFHelper)
 }
 
 func probeLibopusSILKNLSF(mode uint32, records [][]uint32) ([][]int16, error) {

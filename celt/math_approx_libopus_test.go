@@ -2,7 +2,6 @@ package celt
 
 import (
 	"math"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -28,11 +27,7 @@ const (
 	libopusCELTMathModeStereoIthetaQ30 = uint32(12)
 )
 
-var (
-	libopusCELTMathHelperOnce sync.Once
-	libopusCELTMathHelperPath string
-	libopusCELTMathHelperErr  error
-)
+var libopusCELTMathHelper libopustest.HelperCache
 
 type libopusCELTStereoIthetaCase struct {
 	stereo bool
@@ -53,13 +48,7 @@ func buildLibopusCELTMathHelper() (string, error) {
 }
 
 func getLibopusCELTMathHelperPath() (string, error) {
-	libopusCELTMathHelperOnce.Do(func() {
-		libopusCELTMathHelperPath, libopusCELTMathHelperErr = buildLibopusCELTMathHelper()
-	})
-	if libopusCELTMathHelperErr != nil {
-		return "", libopusCELTMathHelperErr
-	}
-	return libopusCELTMathHelperPath, nil
+	return libopusCELTMathHelper.Path(buildLibopusCELTMathHelper)
 }
 
 func probeLibopusCELTMath(mode uint32, samples []float32) ([]float32, error) {

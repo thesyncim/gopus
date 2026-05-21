@@ -2,7 +2,6 @@ package silk
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -16,11 +15,7 @@ const (
 	libopusSILKLogModeLog2Lin = uint32(1)
 )
 
-var (
-	libopusSILKLogHelperOnce sync.Once
-	libopusSILKLogHelperPath string
-	libopusSILKLogHelperErr  error
-)
+var libopusSILKLogHelper libopustest.HelperCache
 
 func buildLibopusSILKLogHelper() (string, error) {
 	return libopustest.BuildCHelper(libopustest.CHelperConfig{
@@ -34,13 +29,7 @@ func buildLibopusSILKLogHelper() (string, error) {
 }
 
 func getLibopusSILKLogHelperPath() (string, error) {
-	libopusSILKLogHelperOnce.Do(func() {
-		libopusSILKLogHelperPath, libopusSILKLogHelperErr = buildLibopusSILKLogHelper()
-	})
-	if libopusSILKLogHelperErr != nil {
-		return "", libopusSILKLogHelperErr
-	}
-	return libopusSILKLogHelperPath, nil
+	return libopusSILKLogHelper.Path(buildLibopusSILKLogHelper)
 }
 
 func probeLibopusSILKLog(mode uint32, samples []int32) ([]int32, error) {

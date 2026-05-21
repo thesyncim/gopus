@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustooling"
@@ -26,6 +27,24 @@ type CHelperConfig struct {
 	Libs         []string
 	LDFlags      []string
 	DeadStrip    bool
+}
+
+// HelperCache caches a lazily built helper binary path for oracle tests.
+type HelperCache struct {
+	once sync.Once
+	path string
+	err  error
+}
+
+// Path returns the cached helper path, building it on the first call.
+func (c *HelperCache) Path(build func() (string, error)) (string, error) {
+	c.once.Do(func() {
+		c.path, c.err = build()
+	})
+	if c.err != nil {
+		return "", c.err
+	}
+	return c.path, nil
 }
 
 func OracleEnabled() bool {

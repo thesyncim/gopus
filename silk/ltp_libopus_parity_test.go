@@ -2,7 +2,6 @@ package silk
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -16,11 +15,7 @@ const (
 	libopusSILKLTPModeVQ    = uint32(1)
 )
 
-var (
-	libopusSILKLTPHelperOnce sync.Once
-	libopusSILKLTPHelperPath string
-	libopusSILKLTPHelperErr  error
-)
+var libopusSILKLTPHelper libopustest.HelperCache
 
 type libopusSILKLTPQuantRecord struct {
 	periodicityIndex int32
@@ -56,13 +51,7 @@ func buildLibopusSILKLTPHelper() (string, error) {
 }
 
 func getLibopusSILKLTPHelperPath() (string, error) {
-	libopusSILKLTPHelperOnce.Do(func() {
-		libopusSILKLTPHelperPath, libopusSILKLTPHelperErr = buildLibopusSILKLTPHelper()
-	})
-	if libopusSILKLTPHelperErr != nil {
-		return "", libopusSILKLTPHelperErr
-	}
-	return libopusSILKLTPHelperPath, nil
+	return libopusSILKLTPHelper.Path(buildLibopusSILKLTPHelper)
 }
 
 func probeLibopusSILKLTPQuant(records [][]int32) ([]libopusSILKLTPQuantRecord, error) {

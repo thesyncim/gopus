@@ -3,7 +3,6 @@ package silk
 import (
 	"fmt"
 	"math"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -14,11 +13,7 @@ const (
 	libopusSILKResamplerOutputMagic = "GSRO"
 )
 
-var (
-	libopusSILKResamplerHelperOnce sync.Once
-	libopusSILKResamplerHelperPath string
-	libopusSILKResamplerHelperErr  error
-)
+var libopusSILKResamplerHelper libopustest.HelperCache
 
 type libopusSILKResamplerRecord struct {
 	fsIn   int
@@ -47,13 +42,7 @@ func buildLibopusSILKResamplerHelper() (string, error) {
 }
 
 func getLibopusSILKResamplerHelperPath() (string, error) {
-	libopusSILKResamplerHelperOnce.Do(func() {
-		libopusSILKResamplerHelperPath, libopusSILKResamplerHelperErr = buildLibopusSILKResamplerHelper()
-	})
-	if libopusSILKResamplerHelperErr != nil {
-		return "", libopusSILKResamplerHelperErr
-	}
-	return libopusSILKResamplerHelperPath, nil
+	return libopusSILKResamplerHelper.Path(buildLibopusSILKResamplerHelper)
 }
 
 func probeLibopusSILKResampler(records []libopusSILKResamplerRecord) ([][]int16, error) {

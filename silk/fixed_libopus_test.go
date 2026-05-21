@@ -1,7 +1,6 @@
 package silk
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -46,11 +45,7 @@ type libopusSILKFixedOpRecord struct {
 	q uint32
 }
 
-var (
-	libopusSILKFixedHelperOnce sync.Once
-	libopusSILKFixedHelperPath string
-	libopusSILKFixedHelperErr  error
-)
+var libopusSILKFixedHelper libopustest.HelperCache
 
 func buildLibopusSILKFixedHelper() (string, error) {
 	return libopustest.BuildCHelper(libopustest.CHelperConfig{
@@ -63,13 +58,7 @@ func buildLibopusSILKFixedHelper() (string, error) {
 }
 
 func getLibopusSILKFixedHelperPath() (string, error) {
-	libopusSILKFixedHelperOnce.Do(func() {
-		libopusSILKFixedHelperPath, libopusSILKFixedHelperErr = buildLibopusSILKFixedHelper()
-	})
-	if libopusSILKFixedHelperErr != nil {
-		return "", libopusSILKFixedHelperErr
-	}
-	return libopusSILKFixedHelperPath, nil
+	return libopusSILKFixedHelper.Path(buildLibopusSILKFixedHelper)
 }
 
 func probeLibopusSILKFixed(mode uint32, records []libopusSILKFixedRecord) ([]int32, error) {

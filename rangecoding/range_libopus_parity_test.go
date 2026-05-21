@@ -3,7 +3,6 @@ package rangecoding
 import (
 	"bytes"
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -26,9 +25,7 @@ const (
 )
 
 var (
-	libopusRangeHelperOnce sync.Once
-	libopusRangeHelperPath string
-	libopusRangeHelperErr  error
+	libopusRangeHelper libopustest.HelperCache
 
 	rangeICDF8Tables = [][]uint8{
 		{128, 0},
@@ -76,13 +73,7 @@ func buildLibopusRangeHelper() (string, error) {
 }
 
 func getLibopusRangeHelperPath() (string, error) {
-	libopusRangeHelperOnce.Do(func() {
-		libopusRangeHelperPath, libopusRangeHelperErr = buildLibopusRangeHelper()
-	})
-	if libopusRangeHelperErr != nil {
-		return "", libopusRangeHelperErr
-	}
-	return libopusRangeHelperPath, nil
+	return libopusRangeHelper.Path(buildLibopusRangeHelper)
 }
 
 func probeLibopusRangeEncoder(storage uint32, ops []rangeOracleOp) (rangeOracleResult, error) {

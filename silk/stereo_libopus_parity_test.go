@@ -2,7 +2,6 @@ package silk
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -17,11 +16,7 @@ const (
 	libopusSILKStereoModeLRToMS        = uint32(2)
 )
 
-var (
-	libopusSILKStereoHelperOnce sync.Once
-	libopusSILKStereoHelperPath string
-	libopusSILKStereoHelperErr  error
-)
+var libopusSILKStereoHelper libopustest.HelperCache
 
 type libopusSILKStereoRecord struct {
 	first  int32
@@ -69,13 +64,7 @@ type libopusSILKStereoState struct {
 }
 
 func getLibopusSILKStereoHelperPath() (string, error) {
-	libopusSILKStereoHelperOnce.Do(func() {
-		libopusSILKStereoHelperPath, libopusSILKStereoHelperErr = buildLibopusSILKStereoHelper()
-	})
-	if libopusSILKStereoHelperErr != nil {
-		return "", libopusSILKStereoHelperErr
-	}
-	return libopusSILKStereoHelperPath, nil
+	return libopusSILKStereoHelper.Path(buildLibopusSILKStereoHelper)
 }
 
 func probeLibopusSILKStereo(mode uint32, records [][]int32) ([]libopusSILKStereoRecord, error) {
