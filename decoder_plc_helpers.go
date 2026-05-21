@@ -10,6 +10,16 @@ type plcDecodeState struct {
 	useDecoderPLCState bool
 }
 
+func (d *Decoder) plcFrameSize() int {
+	if d.lastPacketDuration > 0 {
+		return d.lastPacketDuration
+	}
+	if d.lastFrameSize > 0 {
+		return d.lastFrameSize
+	}
+	return d.sampleRate / 50
+}
+
 func nextPLCChunkSamples(sampleRate int, mode Mode, remaining int) int {
 	if sampleRate <= 0 || remaining <= 0 {
 		return 0

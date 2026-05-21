@@ -14,6 +14,28 @@ const (
 
 var libopusAPIRateRefdecodeHelper libopustest.HelperCache
 
+type apiRatePacketParityCase struct {
+	name      string
+	packet    func(t *testing.T, channels int) []byte
+	tolerance float64
+}
+
+func apiRatePLCDurationCases() []apiRatePacketParityCase {
+	return []apiRatePacketParityCase{
+		{name: "silk_10ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateSILKPacketFrameSize(t, channels, 480) }, tolerance: 8e-3},
+		{name: "silk_40ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateSILKPacketFrameSize(t, channels, 1920) }, tolerance: 8e-3},
+		{name: "silk_60ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateSILKPacketFrameSize(t, channels, 2880) }, tolerance: 8e-3},
+		{name: "celt_2p5ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateCELTPacketFrameSize(t, channels, 120) }, tolerance: 3e-3},
+		{name: "celt_5ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateCELTPacketFrameSize(t, channels, 240) }, tolerance: 3e-3},
+		{name: "celt_10ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateCELTPacketFrameSize(t, channels, 480) }, tolerance: 3e-3},
+		{name: "celt_40ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateCELTPacketFrameSize(t, channels, 1920) }, tolerance: 3e-3},
+		{name: "celt_60ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateCELTPacketFrameSize(t, channels, 2880) }, tolerance: 3e-3},
+		{name: "hybrid_10ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateHybridPacketFrameSize(t, channels, 480) }, tolerance: 1e-2},
+		{name: "hybrid_40ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateHybridPacketFrameSize(t, channels, 1920) }, tolerance: 1e-2},
+		{name: "hybrid_60ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateHybridPacketFrameSize(t, channels, 2880) }, tolerance: 1e-2},
+	}
+}
+
 func TestDecodeSILKUsesAPIRatePacketDuration(t *testing.T) {
 	for _, channels := range []int{1, 2} {
 		packet := encodeAPIRateSILKPacket(t, channels)
@@ -66,6 +88,45 @@ func TestDecodeSILKUsesAPIRatePacketDuration(t *testing.T) {
 				if n != want {
 					t.Fatalf("Decode PLC samples=%d want %d", n, want)
 				}
+			})
+		}
+	}
+}
+
+func TestDecodeSILKAPIRatePCMMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, channels := range []int{1, 2} {
+		packet := encodeAPIRateSILKPacket(t, channels)
+		for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+			t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+				frameSize, err := packetSamplesAtRate(packet, sampleRate)
+				if err != nil {
+					t.Fatalf("packetSamplesAtRate: %v", err)
+				}
+
+				sequence := [][]byte{packet, nil}
+				want, err := decodeWithLibopusReferenceAPIRateFloat32(sampleRate, channels, frameSize, sequence)
+				if err != nil {
+					libopustest.HelperUnavailable(t, "api-rate SILK reference decode", err)
+				}
+
+				dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+				if err != nil {
+					t.Fatalf("NewDecoder: %v", err)
+				}
+				got := make([]float32, 0, len(want))
+				frame := make([]float32, frameSize*channels)
+				for i, pkt := range sequence {
+					n, err := dec.Decode(pkt, frame)
+					if err != nil {
+						t.Fatalf("Decode sequence[%d]: %v", i, err)
+					}
+					if n != frameSize {
+						t.Fatalf("Decode sequence[%d] samples=%d want %d", i, n, frameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+				}
+				assertAPIRateFloat32Close(t, got, want, "SILK api-rate decode", 8e-3)
 			})
 		}
 	}
@@ -309,6 +370,133 @@ func TestDecodeHybridFECUsesAPIRatePacketDurationForTenMs(t *testing.T) {
 	}
 }
 
+func TestDecodeWithFECNoLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		name      string
+		packet    func(t *testing.T, channels int) []byte
+		tolerance float64
+	}{
+		{name: "silk_20ms", packet: encodeAPIRateSILKPacket, tolerance: 8e-3},
+		{name: "silk_40ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateSILKPacketFrameSize(t, channels, 1920) }, tolerance: 8e-3},
+		{name: "silk_60ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateSILKPacketFrameSize(t, channels, 2880) }, tolerance: 8e-3},
+		{name: "celt_20ms", packet: encodeAPIRateCELTPacket, tolerance: 3e-3},
+		{name: "celt_40ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateCELTPacketFrameSize(t, channels, 1920) }, tolerance: 3e-3},
+		{name: "celt_60ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateCELTPacketFrameSize(t, channels, 2880) }, tolerance: 3e-3},
+		{name: "hybrid_20ms", packet: encodeAPIRateHybridPacket, tolerance: 1e-2},
+		{name: "hybrid_40ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateHybridPacketFrameSize(t, channels, 1920) }, tolerance: 1e-2},
+		{name: "hybrid_60ms", packet: func(t *testing.T, channels int) []byte { return encodeAPIRateHybridPacketFrameSize(t, channels, 2880) }, tolerance: 1e-2},
+	} {
+		for _, channels := range []int{1, 2} {
+			packet := tc.packet(t, channels)
+			toc := ParseTOC(packet[0])
+			if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
+				firstFrameData, err := extractFirstFramePayload(packet, toc)
+				if err != nil {
+					t.Fatalf("%s ch=%d extract first frame: %v", tc.name, channels, err)
+				}
+				if packetHasLBRR(firstFrameData, toc) {
+					t.Fatalf("%s ch=%d test packet unexpectedly contains LBRR", tc.name, channels)
+				}
+			}
+
+			for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+				t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+					frameSize, err := packetSamplesAtRate(packet, sampleRate)
+					if err != nil {
+						t.Fatalf("packetSamplesAtRate: %v", err)
+					}
+
+					steps := []libopusAPIRateDecodeStep{
+						{packet: packet},
+						{packet: packet, fec: true},
+					}
+					want, err := decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, frameSize, steps)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "api-rate no-LBRR FEC reference decode", err)
+					}
+					fecFrameSize := len(want)/channels - frameSize
+					if fecFrameSize <= 0 {
+						t.Fatalf("api-rate no-LBRR FEC reference decoded %d samples after seed, want positive", fecFrameSize)
+					}
+
+					dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+					if err != nil {
+						t.Fatalf("NewDecoder: %v", err)
+					}
+					got := make([]float32, 0, len(want))
+					frameCapacity := frameSize
+					if fecFrameSize > frameCapacity {
+						frameCapacity = fecFrameSize
+					}
+					frame := make([]float32, frameCapacity*channels)
+					n, err := dec.Decode(packet, frame)
+					if err != nil {
+						t.Fatalf("Decode seed: %v", err)
+					}
+					if n != frameSize {
+						t.Fatalf("Decode seed samples=%d want %d", n, frameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					n, err = dec.DecodeWithFEC(packet, frame, true)
+					if err != nil {
+						t.Fatalf("DecodeWithFEC(no LBRR): %v", err)
+					}
+					if n != fecFrameSize {
+						t.Fatalf("DecodeWithFEC(no LBRR) samples=%d want %d", n, fecFrameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					assertAPIRateFloat32Close(t, got, want, tc.name+" api-rate no-LBRR FEC decode", tc.tolerance)
+				})
+			}
+		}
+	}
+}
+
+func TestDecodePLCDurationAPIRatePCMMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range apiRatePLCDurationCases() {
+		for _, channels := range []int{1, 2} {
+			packet := tc.packet(t, channels)
+			for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+				t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+					frameSize, err := packetSamplesAtRate(packet, sampleRate)
+					if err != nil {
+						t.Fatalf("packetSamplesAtRate: %v", err)
+					}
+
+					sequence := [][]byte{packet, nil}
+					want, err := decodeWithLibopusReferenceAPIRateFloat32(sampleRate, channels, frameSize, sequence)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "api-rate PLC duration reference decode", err)
+					}
+
+					dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+					if err != nil {
+						t.Fatalf("NewDecoder: %v", err)
+					}
+					got := make([]float32, 0, len(want))
+					frame := make([]float32, frameSize*channels)
+					for i, pkt := range sequence {
+						n, err := dec.Decode(pkt, frame)
+						if err != nil {
+							t.Fatalf("Decode sequence[%d]: %v", i, err)
+						}
+						if n != frameSize {
+							t.Fatalf("Decode sequence[%d] samples=%d want %d", i, n, frameSize)
+						}
+						got = append(got, frame[:n*channels]...)
+					}
+
+					assertAPIRateFloat32Close(t, got, want, tc.name+" api-rate PLC duration decode", tc.tolerance)
+				})
+			}
+		}
+	}
+}
+
 func TestDecodeHybridAPIRatePCMMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, channels := range []int{1, 2} {
@@ -360,7 +548,7 @@ func TestDecodeInt16APIRatePCMMatchesLibopus(t *testing.T) {
 	} {
 		for _, channels := range []int{1, 2} {
 			packet := tc.packet(t, channels)
-			for _, sampleRate := range []int{8000, 16000, 48000} {
+			for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
 				t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
 					frameSize, err := packetSamplesAtRate(packet, sampleRate)
 					if err != nil {
@@ -521,10 +709,12 @@ func TestDecodeWithFECLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 
 func encodeAPIRateSILKPacket(t *testing.T, channels int) []byte {
 	t.Helper()
-	const (
-		sampleRate = 48000
-		frameSize  = 960
-	)
+	return encodeAPIRateSILKPacketFrameSize(t, channels, 960)
+}
+
+func encodeAPIRateSILKPacketFrameSize(t *testing.T, channels, frameSize int) []byte {
+	t.Helper()
+	const sampleRate = 48000
 	enc, err := NewEncoder(EncoderConfig{
 		SampleRate:  sampleRate,
 		Channels:    channels,
@@ -568,10 +758,12 @@ func encodeAPIRateSILKPacket(t *testing.T, channels int) []byte {
 
 func encodeAPIRateCELTPacket(t *testing.T, channels int) []byte {
 	t.Helper()
-	const (
-		sampleRate = 48000
-		frameSize  = 960
-	)
+	return encodeAPIRateCELTPacketFrameSize(t, channels, 960)
+}
+
+func encodeAPIRateCELTPacketFrameSize(t *testing.T, channels, frameSize int) []byte {
+	t.Helper()
+	const sampleRate = 48000
 	enc, err := NewEncoder(EncoderConfig{
 		SampleRate:  sampleRate,
 		Channels:    channels,
