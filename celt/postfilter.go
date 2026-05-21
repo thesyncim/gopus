@@ -33,6 +33,15 @@ func (d *Decoder) resetPostfilterState() {
 	d.postfilterMemPLCBacked = false
 }
 
+func (d *Decoder) clampDecodePostfilterPeriods() {
+	if d.postfilterPeriod < combFilterMinPeriod {
+		d.postfilterPeriod = combFilterMinPeriod
+	}
+	if d.postfilterPeriodOld < combFilterMinPeriod {
+		d.postfilterPeriodOld = combFilterMinPeriod
+	}
+}
+
 func sanitizePostfilterParams(t0, t1 int, g0, g1 float64, tap0, tap1 int) (int, int, int, int) {
 	if t0 < combFilterMinPeriod || t0 > combFilterMaxPeriod {
 		t0 = t1
@@ -767,6 +776,7 @@ func (d *Decoder) applyPostfilterNoGainMonoFromFloat32(samples []float32, frameS
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 	}
+	d.clampDecodePostfilterPeriods()
 	d.updatePLCDecodeHistoryMonoFromFloat32(samples, frameSize, plcDecodeBufferSize)
 	d.markPostfilterHistoryFromPLC()
 	d.commitPostfilterStateNoGain(lm, newPeriod, newGain, newTapset)
@@ -782,6 +792,7 @@ func (d *Decoder) applyPostfilterNoGainStereoPlanarFromFloat32(left, right []flo
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 	}
+	d.clampDecodePostfilterPeriods()
 	d.updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right, frameSize, plcDecodeBufferSize)
 	d.markPostfilterHistoryFromPLC()
 	d.commitPostfilterStateNoGain(lm, newPeriod, newGain, newTapset)
@@ -822,6 +833,7 @@ func (d *Decoder) applyPostfilterStereoPlanar(left, right []float64, frameSize, 
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 	}
+	d.clampDecodePostfilterPeriods()
 	if d.postfilterGainOld == 0 && d.postfilterGain == 0 && newGain == 0 {
 		d.updatePLCDecodeHistoryStereoPlanar(left, right, frameSize, plcDecodeBufferSize)
 		d.markPostfilterHistoryFromPLC()
@@ -876,6 +888,7 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 	}
+	d.clampDecodePostfilterPeriods()
 	if d.postfilterGainOld == 0 && d.postfilterGain == 0 && newGain == 0 {
 		d.updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right, frameSize, plcDecodeBufferSize)
 		d.markPostfilterHistoryFromPLC()
@@ -937,6 +950,7 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 	}
+	d.clampDecodePostfilterPeriods()
 	if d.postfilterGainOld == 0 && d.postfilterGain == 0 && newGain == 0 {
 		d.updatePLCDecodeHistory(samples, frameSize, plcDecodeBufferSize)
 		d.markPostfilterHistoryFromPLC()

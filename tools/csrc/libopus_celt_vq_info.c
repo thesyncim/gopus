@@ -14,6 +14,7 @@
 #include "celt/cwrs.h"
 #include "celt/mathops.h"
 #include "celt/modes.h"
+#include "celt/pitch.h"
 #include "celt/vq.h"
 
 #define INPUT_MAGIC "GVCI"
@@ -26,7 +27,9 @@ enum {
   MODE_ALG_UNQUANT = 3,
   MODE_ENCODE_PULSES = 4,
   MODE_TYPE_SIZES = 5,
-  MODE_LOWBAND_OUT_SCALE = 6
+  MODE_LOWBAND_OUT_SCALE = 6,
+  MODE_MULT32_32_Q31 = 7,
+  MODE_STEREO_MERGE = 8
 };
 
 static int set_binary_stdio(void) {
@@ -351,6 +354,104 @@ static int eval_lowband_out_scale(void) {
   return 1;
 }
 
+static int eval_mult32_32_q31(void) {
+  opus_val32 a;
+  opus_val32 b;
+  float af;
+  float bf;
+
+  if (!read_float(&af) || !read_float(&bf)) return 0;
+  a = af;
+  b = bf;
+  return write_float(MULT32_32_Q31(a, b));
+}
+
+static int eval_stereo_merge(void) {
+  uint32_t len_u;
+  float mid_f;
+  celt_norm *x;
+  celt_norm *y;
+  opus_val32 mid;
+  opus_val32 xp;
+  opus_val32 side;
+  opus_val32 el;
+  opus_val32 er;
+  opus_val32 t;
+  opus_val32 lgain;
+  opus_val32 rgain;
+  uint32_t i;
+
+  if (!read_u32(&len_u) || !read_float(&mid_f)) return 0;
+  if (len_u == 0 || len_u > 512) return 0;
+  x = (celt_norm *)malloc((size_t)len_u * sizeof(*x));
+  y = (celt_norm *)malloc((size_t)len_u * sizeof(*y));
+  if (x == NULL || y == NULL) {
+    free(x);
+    free(y);
+    return 0;
+  }
+  for (i = 0; i < len_u; i++) {
+    if (!read_float(&x[i])) {
+      free(x);
+      free(y);
+      return 0;
+    }
+  }
+  for (i = 0; i < len_u; i++) {
+    if (!read_float(&y[i])) {
+      free(x);
+      free(y);
+      return 0;
+    }
+  }
+
+  mid = mid_f;
+  xp = celt_inner_prod_norm_shift(y, x, (int)len_u, 0);
+  side = celt_inner_prod_norm_shift(y, y, (int)len_u, 0);
+  xp = MULT32_32_Q31(mid, xp);
+  el = SHR32(MULT32_32_Q31(mid, mid), 3) + side - 2*xp;
+  er = SHR32(MULT32_32_Q31(mid, mid), 3) + side + 2*xp;
+  if (er < QCONST32(6e-4f, 28) || el < QCONST32(6e-4f, 28)) {
+    memcpy(y, x, (size_t)len_u * sizeof(*y));
+  } else {
+    t = VSHR32(el, -29);
+    lgain = celt_rsqrt_norm32(t);
+    t = VSHR32(er, -29);
+    rgain = celt_rsqrt_norm32(t);
+    for (i = 0; i < len_u; i++) {
+      celt_norm r;
+      celt_norm l;
+      l = MULT32_32_Q31(mid, x[i]);
+      r = y[i];
+      x[i] = VSHR32(MULT32_32_Q31(lgain, SUB32(l, r)), -15);
+      y[i] = VSHR32(MULT32_32_Q31(rgain, ADD32(l, r)), -15);
+    }
+  }
+
+  if (!write_u32(len_u)) {
+    free(x);
+    free(y);
+    return 0;
+  }
+  for (i = 0; i < len_u; i++) {
+    if (!write_float(x[i])) {
+      free(x);
+      free(y);
+      return 0;
+    }
+  }
+  for (i = 0; i < len_u; i++) {
+    if (!write_float(y[i])) {
+      free(x);
+      free(y);
+      return 0;
+    }
+  }
+  free(x);
+  free(y);
+  return 1;
+}
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -361,7 +462,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_LOWBAND_OUT_SCALE) return 1;
+  if (mode > MODE_STEREO_MERGE) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) ||
       !write_u32(mode) || !write_u32(count)) {
@@ -380,8 +481,12 @@ int main(void) {
       if (!eval_encode_pulses()) return 1;
     } else if (mode == MODE_TYPE_SIZES) {
       if (!eval_type_sizes()) return 1;
-    } else {
+    } else if (mode == MODE_LOWBAND_OUT_SCALE) {
       if (!eval_lowband_out_scale()) return 1;
+    } else if (mode == MODE_MULT32_32_Q31) {
+      if (!eval_mult32_32_q31()) return 1;
+    } else {
+      if (!eval_stereo_merge()) return 1;
     }
   }
   return 0;

@@ -517,7 +517,7 @@ func TestApplyPostfilterNoGainBypassMono(t *testing.T) {
 		}
 	}
 
-	if d.postfilterPeriodOld != 0 || d.postfilterGainOld != 0 || d.postfilterTapsetOld != 0 {
+	if d.postfilterPeriodOld != combFilterMinPeriod || d.postfilterGainOld != 0 || d.postfilterTapsetOld != 0 {
 		t.Fatalf("unexpected old state: period=%d gain=%v tap=%d", d.postfilterPeriodOld, d.postfilterGainOld, d.postfilterTapsetOld)
 	}
 	if d.postfilterPeriod != 88 || d.postfilterGain != 0 || d.postfilterTapset != 2 {

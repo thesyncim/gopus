@@ -3,6 +3,8 @@ package celt
 import (
 	"math"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 // TestStereoMergeVsLibopus validates stereoMerge matches libopus stereo_merge.
@@ -23,75 +25,66 @@ import (
 // Note: In libopus the mid value passed to stereo_merge is derived from imid/32768
 // where imid comes from bitexactCos(itheta). The mid passed is the actual scaling factor.
 func TestStereoMergeVsLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
 	testCases := []struct {
 		name string
-		x    []float64 // mid coefficients (already normalized to unit energy)
-		y    []float64 // side coefficients (already scaled by side gain)
-		mid  float64   // mid scaling factor (imid/32768)
+		x    []float32
+		y    []float32
+		mid  float32
 	}{
 		{
 			name: "simple N=4",
-			x:    []float64{0.5, 0.5, 0.5, 0.5},
-			y:    []float64{0.1, -0.1, 0.1, -0.1},
+			x:    []float32{0.5, 0.5, 0.5, 0.5},
+			y:    []float32{0.1, -0.1, 0.1, -0.1},
 			mid:  0.7071067811865476, // cos(45 deg) = sqrt(2)/2
 		},
 		{
 			name: "mono-dominant",
-			x:    []float64{0.8, 0.4, 0.2, 0.2},
-			y:    []float64{0.01, 0.01, -0.01, -0.01},
+			x:    []float32{0.8, 0.4, 0.2, 0.2},
+			y:    []float32{0.01, 0.01, -0.01, -0.01},
 			mid:  0.95,
 		},
 		{
 			name: "balanced stereo",
-			x:    []float64{0.6, 0.4, 0.3, 0.2},
-			y:    []float64{0.3, -0.2, 0.15, -0.1},
+			x:    []float32{0.6, 0.4, 0.3, 0.2},
+			y:    []float32{0.3, -0.2, 0.15, -0.1},
 			mid:  0.7071067811865476,
 		},
 	}
 
-	for _, tc := range testCases {
+	oracleCases := make([]stereoMergeOracleCase, len(testCases))
+	for i, tc := range testCases {
+		oracleCases[i] = stereoMergeOracleCase{
+			x:   append([]float32(nil), tc.x...),
+			y:   append([]float32(nil), tc.y...),
+			mid: tc.mid,
+		}
+	}
+	want, err := probeLibopusStereoMerge(oracleCases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+
+	for ci, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Make copies to avoid modifying test data
 			xGo := make([]float64, len(tc.x))
 			yGo := make([]float64, len(tc.y))
-			copy(xGo, tc.x)
-			copy(yGo, tc.y)
-
-			// Run Go implementation
-			stereoMerge(xGo, yGo, tc.mid)
-
-			// Compute expected result using libopus-style algorithm
-			xExpected := make([]float64, len(tc.x))
-			yExpected := make([]float64, len(tc.y))
-			copy(xExpected, tc.x)
-			copy(yExpected, tc.y)
-			stereoMergeLibopus(xExpected, yExpected, tc.mid)
-
-			// Compare results
-			maxDiffX := 0.0
-			maxDiffY := 0.0
-			for i := range xGo {
-				diffX := math.Abs(xGo[i] - xExpected[i])
-				diffY := math.Abs(yGo[i] - yExpected[i])
-				if diffX > maxDiffX {
-					maxDiffX = diffX
-				}
-				if diffY > maxDiffY {
-					maxDiffY = diffY
-				}
+			for i := range tc.x {
+				xGo[i] = float64(tc.x[i])
+				yGo[i] = float64(tc.y[i])
 			}
-
-			t.Logf("Max diff X (left): %e", maxDiffX)
-			t.Logf("Max diff Y (right): %e", maxDiffY)
-
-			// Check threshold
-			const threshold = 1e-10
-			if maxDiffX > threshold || maxDiffY > threshold {
-				t.Errorf("stereoMerge mismatch:")
-				t.Errorf("  Go X:       %v", xGo)
-				t.Errorf("  Expected X: %v", xExpected)
-				t.Errorf("  Go Y:       %v", yGo)
-				t.Errorf("  Expected Y: %v", yExpected)
+			stereoMerge(xGo, yGo, float64(tc.mid))
+			for i := range xGo {
+				gotX := float32(xGo[i])
+				gotY := float32(yGo[i])
+				if math.Abs(float64(gotX-want[ci].x[i])) > 6e-8 {
+					t.Fatalf("X[%d]=%08x %.10g want %08x %.10g",
+						i, math.Float32bits(gotX), gotX, math.Float32bits(want[ci].x[i]), want[ci].x[i])
+				}
+				if math.Abs(float64(gotY-want[ci].y[i])) > 6e-8 {
+					t.Fatalf("Y[%d]=%08x %.10g want %08x %.10g",
+						i, math.Float32bits(gotY), gotY, math.Float32bits(want[ci].y[i]), want[ci].y[i])
+				}
 			}
 		})
 	}

@@ -17,6 +17,13 @@ type libopusCELTTrace struct {
 	decodeBuffer    int
 	channel         int
 	start           int
+	finalRange      uint32
+	celtRng         uint32
+	lossDuration    int
+	plcDuration     int
+	postfilter      int
+	postfilterOld   int
+	oldBandE        []float32
 	final           []float32
 	preDeemphasis   []float32
 }
@@ -65,14 +72,25 @@ func traceLibopusCELT(sampleRate, channels, frameSize, targetStep, targetChannel
 		start:           int(reader.U32()),
 	}
 	outCount := int(reader.U32())
+	trace.finalRange = reader.U32()
+	trace.celtRng = reader.U32()
+	trace.lossDuration = int(reader.U32())
+	trace.plcDuration = int(reader.U32())
+	trace.postfilter = int(reader.U32())
+	trace.postfilterOld = int(reader.U32())
+	oldBandECount := int(reader.U32())
 	trace.final = make([]float32, outCount)
 	trace.preDeemphasis = make([]float32, outCount)
-	reader.ExpectRemaining(outCount * 2 * 4)
+	trace.oldBandE = make([]float32, oldBandECount)
+	reader.ExpectRemaining((outCount*2 + oldBandECount) * 4)
 	for i := range trace.final {
 		trace.final[i] = reader.Float32()
 	}
 	for i := range trace.preDeemphasis {
 		trace.preDeemphasis[i] = reader.Float32()
+	}
+	for i := range trace.oldBandE {
+		trace.oldBandE[i] = reader.Float32()
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err
@@ -124,5 +142,121 @@ func TestLibopusCELTTraceMatchesReferenceDecodeWindow(t *testing.T) {
 	}
 	if !nonZero {
 		t.Fatal("trace pre-deemphasis window is silent")
+	}
+}
+
+func TestLibopusCELTTraceFinalRangeMatchesDecoder(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	packet := encodeAPIRateCELTPacket(t, 1)
+	const (
+		sampleRate = 48000
+		channels   = 1
+		frameSize  = 960
+	)
+	trace, err := traceLibopusCELT(sampleRate, channels, frameSize, 0, 0, 0, 1, []libopusAPIRateDecodeStep{{packet: packet}})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT decode trace", err)
+	}
+
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	out := make([]float32, frameSize)
+	n, err := dec.Decode(packet, out)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if n != frameSize {
+		t.Fatalf("Decode samples=%d want %d", n, frameSize)
+	}
+	if got := dec.FinalRange(); got != trace.finalRange {
+		t.Fatalf("FinalRange()=0x%08x want libopus 0x%08x", got, trace.finalRange)
+	}
+	if trace.lossDuration != 0 || trace.plcDuration != 0 {
+		t.Fatalf("unexpected good-frame loss state: loss=%d plc=%d", trace.lossDuration, trace.plcDuration)
+	}
+}
+
+func TestLibopusCELTTracePostfilterStateMatchesDecoder(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	packet := encodeAPIRateCELTPacket(t, 1)
+	const (
+		sampleRate = 48000
+		channels   = 1
+		frameSize  = 960
+	)
+	steps := []libopusAPIRateDecodeStep{{packet: packet}, {}}
+	goodTrace, err := traceLibopusCELT(sampleRate, channels, frameSize, 0, 0, 0, 1, steps)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT decode trace", err)
+	}
+	lossTrace, err := traceLibopusCELT(sampleRate, channels, frameSize, 1, 0, 0, 1, steps)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT decode trace", err)
+	}
+
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	out := make([]float32, frameSize)
+	if _, err := dec.Decode(packet, out); err != nil {
+		t.Fatalf("Decode good: %v", err)
+	}
+	if got, want := dec.celtDecoder.PostfilterPeriod(), goodTrace.postfilter; got != want {
+		t.Fatalf("good postfilterPeriod=%d want libopus %d", got, want)
+	}
+	if got, want := dec.celtDecoder.PostfilterPeriodOld(), goodTrace.postfilterOld; got != want {
+		t.Fatalf("good postfilterPeriodOld=%d want libopus %d", got, want)
+	}
+	if _, err := dec.Decode(nil, out); err != nil {
+		t.Fatalf("Decode loss: %v", err)
+	}
+	if got, want := dec.celtDecoder.PostfilterPeriod(), lossTrace.postfilter; got != want {
+		t.Fatalf("loss postfilterPeriod=%d want libopus %d", got, want)
+	}
+	if got, want := dec.celtDecoder.PostfilterPeriodOld(), lossTrace.postfilterOld; got != want {
+		t.Fatalf("loss postfilterPeriodOld=%d want libopus %d", got, want)
+	}
+}
+
+func TestLibopusCELTTraceEnergyStateMatchesDecoder(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	packet := encodeAPIRateCELTPacket(t, 1)
+	const (
+		sampleRate = 48000
+		channels   = 1
+		frameSize  = 960
+	)
+	trace, err := traceLibopusCELT(sampleRate, channels, frameSize, 0, 0, 0, 1, []libopusAPIRateDecodeStep{{packet: packet}})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT decode trace", err)
+	}
+
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	out := make([]float32, frameSize)
+	if _, err := dec.Decode(packet, out); err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	gotEnergy := dec.celtDecoder.PrevEnergy()
+	if len(trace.oldBandE) < len(gotEnergy) {
+		t.Fatalf("trace oldBandE len=%d want at least %d", len(trace.oldBandE), len(gotEnergy))
+	}
+	for i, got := range gotEnergy {
+		got32 := float32(got)
+		want := trace.oldBandE[i]
+		if math.Float32bits(got32) != math.Float32bits(want) {
+			t.Fatalf("oldBandE[%d]=%08x %.10g want %08x %.10g",
+				i,
+				math.Float32bits(got32), got32,
+				math.Float32bits(want), want)
+		}
 	}
 }

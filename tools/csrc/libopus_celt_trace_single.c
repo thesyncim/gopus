@@ -121,6 +121,7 @@ int main(void) {
   float *frame = NULL;
   float *final_window = NULL;
   float *pre_window = NULL;
+  float *old_band_e = NULL;
   OpusDecoder *dec = NULL;
   int err = OPUS_OK;
   uint32_t found = 0;
@@ -129,6 +130,13 @@ int main(void) {
   uint32_t trace_downsample = 0;
   uint32_t trace_overlap = 0;
   uint32_t trace_decode_buffer = 0;
+  uint32_t trace_final_range = 0;
+  uint32_t trace_celt_rng = 0;
+  uint32_t trace_loss_duration = 0;
+  uint32_t trace_plc_duration = 0;
+  uint32_t trace_postfilter_period = 0;
+  uint32_t trace_postfilter_period_old = 0;
+  uint32_t trace_old_band_e_count = 0;
   uint32_t i;
 
   if (!set_binary_stdio()) {
@@ -173,11 +181,13 @@ int main(void) {
   frame = (float *)malloc((size_t)channels * (size_t)frame_size * sizeof(float));
   final_window = (float *)malloc((size_t)sample_count * sizeof(float));
   pre_window = (float *)malloc((size_t)sample_count * sizeof(float));
-  if (frame == NULL || final_window == NULL || pre_window == NULL) {
+  old_band_e = (float *)malloc(42 * sizeof(float));
+  if (frame == NULL || final_window == NULL || pre_window == NULL || old_band_e == NULL) {
     fprintf(stderr, "failed to allocate trace buffers\n");
     free(frame);
     free(final_window);
     free(pre_window);
+    free(old_band_e);
     return 1;
   }
 
@@ -187,6 +197,7 @@ int main(void) {
     free(frame);
     free(final_window);
     free(pre_window);
+    free(old_band_e);
     return 1;
   }
 
@@ -202,6 +213,7 @@ int main(void) {
       free(frame);
       free(final_window);
       free(pre_window);
+      free(old_band_e);
       return 1;
     }
     if (packet_len > 0) {
@@ -213,6 +225,7 @@ int main(void) {
         free(frame);
         free(final_window);
         free(pre_window);
+        free(old_band_e);
         return 1;
       }
     }
@@ -225,17 +238,20 @@ int main(void) {
       free(frame);
       free(final_window);
       free(pre_window);
+      free(old_band_e);
       return 1;
     }
 
     if (i == target_step) {
       OpusDecoderPrefix *prefix = (OpusDecoderPrefix *)dec;
       CELTDecoderTraceView *celt = (CELTDecoderTraceView *)((char *)dec + prefix->celt_dec_offset);
+      opus_uint32 final_range = 0;
       int downsample = celt->downsample;
       int internal_samples = decoded_samples * downsample;
       int decode_buffer_size = celt_decode_buffer_size(celt);
       int stride = decode_buffer_size + celt->overlap;
       celt_sig *pre = celt->_decode_mem + (int)target_channel * stride + decode_buffer_size - internal_samples;
+      celt_glog *bands = (celt_glog *)(celt->_decode_mem + celt->channels * stride);
       uint32_t j;
 
       if (downsample <= 0 || internal_samples <= 0 || start_sample + sample_count > (uint32_t)decoded_samples) {
@@ -244,6 +260,7 @@ int main(void) {
         free(frame);
         free(final_window);
         free(pre_window);
+        free(old_band_e);
         return 1;
       }
       if (downsample != 1) {
@@ -252,6 +269,7 @@ int main(void) {
         free(frame);
         free(final_window);
         free(pre_window);
+        free(old_band_e);
         return 1;
       }
 
@@ -266,6 +284,19 @@ int main(void) {
       trace_downsample = (uint32_t)downsample;
       trace_overlap = (uint32_t)celt->overlap;
       trace_decode_buffer = (uint32_t)decode_buffer_size;
+      if (opus_decoder_ctl(dec, OPUS_GET_FINAL_RANGE(&final_range)) == OPUS_OK) {
+        trace_final_range = final_range;
+      }
+      trace_celt_rng = celt->rng;
+      trace_loss_duration = (uint32_t)celt->loss_duration;
+      trace_plc_duration = (uint32_t)celt->plc_duration;
+      trace_postfilter_period = (uint32_t)celt->postfilter_period;
+      trace_postfilter_period_old = (uint32_t)celt->postfilter_period_old;
+      trace_old_band_e_count = (uint32_t)(2 * celt->mode->nbEBands);
+      if (trace_old_band_e_count > 42) trace_old_band_e_count = 42;
+      for (j = 0; j < trace_old_band_e_count; j++) {
+        old_band_e[j] = bands[j];
+      }
     }
   }
 
@@ -276,6 +307,7 @@ int main(void) {
     free(frame);
     free(final_window);
     free(pre_window);
+    free(old_band_e);
     return 1;
   }
 
@@ -283,11 +315,16 @@ int main(void) {
       !write_u32(trace_decoded_samples) || !write_u32(trace_internal_samples) ||
       !write_u32(trace_downsample) || !write_u32(trace_overlap) ||
       !write_u32(trace_decode_buffer) || !write_u32(target_channel) ||
-      !write_u32(start_sample) || !write_u32(sample_count)) {
+      !write_u32(start_sample) || !write_u32(sample_count) ||
+      !write_u32(trace_final_range) || !write_u32(trace_celt_rng) ||
+      !write_u32(trace_loss_duration) || !write_u32(trace_plc_duration) ||
+      !write_u32(trace_postfilter_period) || !write_u32(trace_postfilter_period_old) ||
+      !write_u32(trace_old_band_e_count)) {
     fprintf(stderr, "failed to write output header\n");
     free(frame);
     free(final_window);
     free(pre_window);
+    free(old_band_e);
     return 1;
   }
   for (i = 0; i < sample_count; i++) {
@@ -296,6 +333,7 @@ int main(void) {
       free(frame);
       free(final_window);
       free(pre_window);
+      free(old_band_e);
       return 1;
     }
   }
@@ -305,6 +343,17 @@ int main(void) {
       free(frame);
       free(final_window);
       free(pre_window);
+      free(old_band_e);
+      return 1;
+    }
+  }
+  for (i = 0; i < trace_old_band_e_count; i++) {
+    if (!write_float(old_band_e[i])) {
+      fprintf(stderr, "failed to write oldBandE\n");
+      free(frame);
+      free(final_window);
+      free(pre_window);
+      free(old_band_e);
       return 1;
     }
   }
@@ -312,5 +361,6 @@ int main(void) {
   free(frame);
   free(final_window);
   free(pre_window);
+  free(old_band_e);
   return 0;
 }

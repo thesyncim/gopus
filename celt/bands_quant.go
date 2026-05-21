@@ -1017,6 +1017,10 @@ func celtRSqrt(x float32) float32 {
 	return float32(1) / float32(math.Sqrt(float64(x)))
 }
 
+func celtMul32(a, b float64) float64 {
+	return float64(float32(a) * float32(b))
+}
+
 func renormalizeVector(x []float64, gain float64) {
 	if len(x) == 0 {
 		return
@@ -1135,65 +1139,60 @@ func stereoMerge(x, y []float64, mid float64) {
 	y = y[:n:n]
 	_ = x[n-1]
 	_ = y[n-1]
-	xp := 0.0
-	side := 0.0
-	i := 0
-	for ; i+3 < n; i += 4 {
-		x0 := x[i]
-		y0 := y[i]
-		x1 := x[i+1]
-		y1 := y[i+1]
-		x2 := x[i+2]
-		y2 := y[i+2]
-		x3 := x[i+3]
-		y3 := y[i+3]
-
-		xp += y0*x0 + y1*x1 + y2*x2 + y3*x3
-		side += y0*y0 + y1*y1 + y2*y2 + y3*y3
+	mid32 := float32(mid)
+	xp := float32(0)
+	side := float32(0)
+	if celtUseFusedFloatMath {
+		xp = celtInnerProdNeonStyle(y, x)
+		side = celtInnerProdNeonStyle(y, y)
+	} else if celtUseSSEFloatMath {
+		xp = celtInnerProdSSEStyle(y, x)
+		side = celtInnerProdSSEStyle(y, y)
+	} else {
+		for i := 0; i < n; i++ {
+			xv := float32(x[i])
+			yv := float32(y[i])
+			xp = celtFloatMulAdd(yv, xv, xp)
+			side = celtFloatMulAdd(yv, yv, side)
+		}
 	}
-	for ; i < n; i++ {
-		xv := x[i]
-		yv := y[i]
-		xp += yv * xv
-		side += yv * yv
-	}
-	xp *= mid
-	mid2 := mid * mid
-	el := mid2 + side - 2.0*xp
-	er := mid2 + side + 2.0*xp
-	if el < 6e-4 || er < 6e-4 {
+	xp *= mid32
+	mid2 := mid32 * mid32
+	el := mid2 + side - float32(2)*xp
+	er := mid2 + side + float32(2)*xp
+	if el < float32(6e-4) || er < float32(6e-4) {
 		copy(y, x[:n])
 		return
 	}
-	lgain := 1.0 / math.Sqrt(el)
-	rgain := 1.0 / math.Sqrt(er)
-	i = 0
+	lgain := float32(1.0 / math.Sqrt(float64(el)))
+	rgain := float32(1.0 / math.Sqrt(float64(er)))
+	i := 0
 	for ; i+3 < n; i += 4 {
-		l0 := mid * x[i]
-		r0 := y[i]
-		x[i] = (l0 - r0) * lgain
-		y[i] = (l0 + r0) * rgain
+		l0 := mid32 * float32(x[i])
+		r0 := float32(y[i])
+		x[i] = float64((l0 - r0) * lgain)
+		y[i] = float64((l0 + r0) * rgain)
 
-		l1 := mid * x[i+1]
-		r1 := y[i+1]
-		x[i+1] = (l1 - r1) * lgain
-		y[i+1] = (l1 + r1) * rgain
+		l1 := mid32 * float32(x[i+1])
+		r1 := float32(y[i+1])
+		x[i+1] = float64((l1 - r1) * lgain)
+		y[i+1] = float64((l1 + r1) * rgain)
 
-		l2 := mid * x[i+2]
-		r2 := y[i+2]
-		x[i+2] = (l2 - r2) * lgain
-		y[i+2] = (l2 + r2) * rgain
+		l2 := mid32 * float32(x[i+2])
+		r2 := float32(y[i+2])
+		x[i+2] = float64((l2 - r2) * lgain)
+		y[i+2] = float64((l2 + r2) * rgain)
 
-		l3 := mid * x[i+3]
-		r3 := y[i+3]
-		x[i+3] = (l3 - r3) * lgain
-		y[i+3] = (l3 + r3) * rgain
+		l3 := mid32 * float32(x[i+3])
+		r3 := float32(y[i+3])
+		x[i+3] = float64((l3 - r3) * lgain)
+		y[i+3] = float64((l3 + r3) * rgain)
 	}
 	for ; i < n; i++ {
-		l := mid * x[i]
-		r := y[i]
-		x[i] = (l - r) * lgain
-		y[i] = (l + r) * rgain
+		l := mid32 * float32(x[i])
+		r := float32(y[i])
+		x[i] = float64((l - r) * lgain)
+		y[i] = float64((l + r) * rgain)
 	}
 }
 
@@ -2420,24 +2419,24 @@ func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, l
 		rebalance := ctx.remainingBits
 		var cm int
 		if mbits >= sbits {
-			midGain := gain * mid
+			midGain := celtMul32(gain, mid)
 			cm, _ = quantPartitionEncodeWithExtBudget(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, midGain, fill, extBudget/2)
 			rebalance = mbits - (rebalance - ctx.remainingBits)
 			if rebalance > 3<<bitRes && sctx.itheta != 0 {
 				sbits += rebalance - (3 << bitRes)
 			}
-			sideGain := gain * side
+			sideGain := celtMul32(gain, side)
 			scm, _ := quantPartitionEncodeWithExtBudget(ctx, y, nHalf, sbits, B, lowband2, lm, sideGain, fill>>B, extBudget/2)
 			cm |= scm << (B0 >> 1)
 		} else {
-			sideGain := gain * side
+			sideGain := celtMul32(gain, side)
 			cm, _ = quantPartitionEncodeWithExtBudget(ctx, y, nHalf, sbits, B, lowband2, lm, sideGain, fill>>B, extBudget/2)
 			cm <<= B0 >> 1
 			rebalance = sbits - (rebalance - ctx.remainingBits)
 			if rebalance > 3<<bitRes && sctx.itheta != 16384 {
 				mbits += rebalance - (3 << bitRes)
 			}
-			midGain := gain * mid
+			midGain := celtMul32(gain, mid)
 			scm, _ := quantPartitionEncodeWithExtBudget(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, midGain, fill, extBudget/2)
 			cm |= scm
 		}
@@ -2620,21 +2619,21 @@ func quantPartitionDecodeNoExt(ctx *bandCtx, x []float64, n, b, B int, lowband [
 		rebalance := ctx.remainingBits
 		var cm int
 		if mbits >= sbits {
-			cm = quantPartitionDecodeNoExt(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, gain*mid, fill)
+			cm = quantPartitionDecodeNoExt(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, celtMul32(gain, mid), fill)
 			rebalance = mbits - (rebalance - ctx.remainingBits)
 			if rebalance > 3<<bitRes && sctx.itheta != 0 {
 				sbits += rebalance - (3 << bitRes)
 			}
-			scm := quantPartitionDecodeNoExt(ctx, y, nHalf, sbits, B, lowband2, lm, gain*side, fill>>B)
+			scm := quantPartitionDecodeNoExt(ctx, y, nHalf, sbits, B, lowband2, lm, celtMul32(gain, side), fill>>B)
 			cm |= scm << (B0 >> 1)
 		} else {
-			cm = quantPartitionDecodeNoExt(ctx, y, nHalf, sbits, B, lowband2, lm, gain*side, fill>>B)
+			cm = quantPartitionDecodeNoExt(ctx, y, nHalf, sbits, B, lowband2, lm, celtMul32(gain, side), fill>>B)
 			cm <<= B0 >> 1
 			rebalance = sbits - (rebalance - ctx.remainingBits)
 			if rebalance > 3<<bitRes && sctx.itheta != 16384 {
 				mbits += rebalance - (3 << bitRes)
 			}
-			scm := quantPartitionDecodeNoExt(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, gain*mid, fill)
+			scm := quantPartitionDecodeNoExt(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, celtMul32(gain, mid), fill)
 			cm |= scm
 		}
 		return cm
@@ -2798,21 +2797,21 @@ func quantPartitionDecodeWithExtBudget(ctx *bandCtx, x []float64, n, b, B int, l
 		rebalance := ctx.remainingBits
 		var cm int
 		if mbits >= sbits {
-			cm = quantPartitionDecodeWithExtBudget(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, gain*mid, fill, extBudget/2)
+			cm = quantPartitionDecodeWithExtBudget(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, celtMul32(gain, mid), fill, extBudget/2)
 			rebalance = mbits - (rebalance - ctx.remainingBits)
 			if rebalance > 3<<bitRes && sctx.itheta != 0 {
 				sbits += rebalance - (3 << bitRes)
 			}
-			scm := quantPartitionDecodeWithExtBudget(ctx, y, nHalf, sbits, B, lowband2, lm, gain*side, fill>>B, extBudget/2)
+			scm := quantPartitionDecodeWithExtBudget(ctx, y, nHalf, sbits, B, lowband2, lm, celtMul32(gain, side), fill>>B, extBudget/2)
 			cm |= scm << (B0 >> 1)
 		} else {
-			cm = quantPartitionDecodeWithExtBudget(ctx, y, nHalf, sbits, B, lowband2, lm, gain*side, fill>>B, extBudget/2)
+			cm = quantPartitionDecodeWithExtBudget(ctx, y, nHalf, sbits, B, lowband2, lm, celtMul32(gain, side), fill>>B, extBudget/2)
 			cm <<= B0 >> 1
 			rebalance = sbits - (rebalance - ctx.remainingBits)
 			if rebalance > 3<<bitRes && sctx.itheta != 16384 {
 				mbits += rebalance - (3 << bitRes)
 			}
-			scm := quantPartitionDecodeWithExtBudget(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, gain*mid, fill, extBudget/2)
+			scm := quantPartitionDecodeWithExtBudget(ctx, x[:nHalf], nHalf, mbits, B, lowband1, lm, celtMul32(gain, mid), fill, extBudget/2)
 			cm |= scm
 		}
 		return cm
@@ -3435,7 +3434,7 @@ func quantBandStereoPreparedLowbandWithExtBudget(ctx *bandCtx, x, y []float64, n
 			if ctx.encode {
 				if ctx.re != nil {
 					bit := 0
-					if x2[0]*y2[1]-x2[1]*y2[0] < 0 {
+					if celtMul32(x2[0], y2[1])-celtMul32(x2[1], y2[0]) < 0 {
 						bit = 1
 					}
 					ctx.re.EncodeRawBits(uint32(bit), 1)
@@ -3450,19 +3449,22 @@ func quantBandStereoPreparedLowbandWithExtBudget(ctx *bandCtx, x, y []float64, n
 			}
 		}
 		cm := quantBandPreparedLowbandWithExtBudget(ctx, x2, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, origFill, lowbandPrepared, extBudget)
-		y2[0] = float64(sign) * (-x2[1])
-		y2[1] = float64(sign) * x2[0]
+		sign32 := float32(sign)
+		y2[0] = float64(-sign32 * float32(x2[1]))
+		y2[1] = float64(sign32 * float32(x2[0]))
 		if ctx.resynth {
-			x[0] *= mid
-			x[1] *= mid
-			y[0] *= side
-			y[1] *= side
-			tmp := x[0]
-			x[0] = tmp - y[0]
-			y[0] = tmp + y[0]
-			tmp = x[1]
-			x[1] = tmp - y[1]
-			y[1] = tmp + y[1]
+			x[0] = celtMul32(mid, x[0])
+			x[1] = celtMul32(mid, x[1])
+			y[0] = celtMul32(side, y[0])
+			y[1] = celtMul32(side, y[1])
+			tmp := float32(x[0])
+			y0 := float32(y[0])
+			x[0] = float64(tmp - y0)
+			y[0] = float64(tmp + y0)
+			tmp = float32(x[1])
+			y1 := float32(y[1])
+			x[1] = float64(tmp - y1)
+			y[1] = float64(tmp + y1)
 			// Apply inv negation (same as common resynth path)
 			if sctx.inv != 0 {
 				y[0] = -y[0]
@@ -3571,19 +3573,22 @@ func quantBandStereoDecodeNoExtFast(ctx *bandCtx, x, y []float64, n, b, B int, l
 			}
 		}
 		cm := quantBandDecodeNoExtFast(ctx, x2, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, origFill)
-		y2[0] = float64(sign) * (-x2[1])
-		y2[1] = float64(sign) * x2[0]
+		sign32 := float32(sign)
+		y2[0] = float64(-sign32 * float32(x2[1]))
+		y2[1] = float64(sign32 * float32(x2[0]))
 		if ctx.resynth {
-			x[0] *= mid
-			x[1] *= mid
-			y[0] *= side
-			y[1] *= side
-			tmp := x[0]
-			x[0] = tmp - y[0]
-			y[0] = tmp + y[0]
-			tmp = x[1]
-			x[1] = tmp - y[1]
-			y[1] = tmp + y[1]
+			x[0] = celtMul32(mid, x[0])
+			x[1] = celtMul32(mid, x[1])
+			y[0] = celtMul32(side, y[0])
+			y[1] = celtMul32(side, y[1])
+			tmp := float32(x[0])
+			y0 := float32(y[0])
+			x[0] = float64(tmp - y0)
+			y[0] = float64(tmp + y0)
+			tmp = float32(x[1])
+			y1 := float32(y[1])
+			x[1] = float64(tmp - y1)
+			y[1] = float64(tmp + y1)
 			if sctx.inv != 0 {
 				y[0] = -y[0]
 				y[1] = -y[1]
@@ -3672,19 +3677,22 @@ func quantBandStereoDecodeWithExtBudget(ctx *bandCtx, x, y []float64, n, b, B in
 			}
 		}
 		cm := quantBandDecodeWithExtBudget(ctx, x2, n, mbits, B, lowband, lm, lowbandOut, 1.0, lowbandScratch, origFill, extBudget)
-		y2[0] = float64(sign) * (-x2[1])
-		y2[1] = float64(sign) * x2[0]
+		sign32 := float32(sign)
+		y2[0] = float64(-sign32 * float32(x2[1]))
+		y2[1] = float64(sign32 * float32(x2[0]))
 		if ctx.resynth {
-			x[0] *= mid
-			x[1] *= mid
-			y[0] *= side
-			y[1] *= side
-			tmp := x[0]
-			x[0] = tmp - y[0]
-			y[0] = tmp + y[0]
-			tmp = x[1]
-			x[1] = tmp - y[1]
-			y[1] = tmp + y[1]
+			x[0] = celtMul32(mid, x[0])
+			x[1] = celtMul32(mid, x[1])
+			y[0] = celtMul32(side, y[0])
+			y[1] = celtMul32(side, y[1])
+			tmp := float32(x[0])
+			y0 := float32(y[0])
+			x[0] = float64(tmp - y0)
+			y[0] = float64(tmp + y0)
+			tmp = float32(x[1])
+			y1 := float32(y[1])
+			x[1] = float64(tmp - y1)
+			y[1] = float64(tmp + y1)
 			if sctx.inv != 0 {
 				y[0] = -y[0]
 				y[1] = -y[1]
@@ -3983,7 +3991,7 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 					mergeLimit = len(norm2)
 				}
 				for j := 0; j < mergeLimit; j++ {
-					norm[j] = 0.5 * (norm[j] + norm2[j])
+					norm[j] = float64(float32(0.5) * (float32(norm[j]) + float32(norm2[j])))
 				}
 			}
 		}
@@ -4317,7 +4325,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 					mergeLimit = len(norm2)
 				}
 				for j := 0; j < mergeLimit; j++ {
-					norm[j] = 0.5 * (norm[j] + norm2[j])
+					norm[j] = float64(float32(0.5) * (float32(norm[j]) + float32(norm2[j])))
 				}
 			}
 		}
