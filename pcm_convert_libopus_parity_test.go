@@ -2,6 +2,8 @@ package gopus
 
 import (
 	"fmt"
+	"math"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -110,5 +112,106 @@ func TestFloat32ToInt16MatchesLibopusCELTDispatchBlocks(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestFloat32ToInt16NoSoftClipMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	pattern := []float32{
+		float32(-32767.5 / 32768.0),
+		float32(-3.5 / 32768.0),
+		float32(-2.5 / 32768.0),
+		float32(-1.5 / 32768.0),
+		float32(-0.5 / 32768.0),
+		0,
+		float32(0.5 / 32768.0),
+		float32(1.5 / 32768.0),
+		float32(2.5 / 32768.0),
+		float32(3.5 / 32768.0),
+		float32(32766.5 / 32768.0),
+		float32(32767.0 / 32768.0),
+		-1,
+		1,
+		float32(-1234.5 / 32768.0),
+		float32(1234.5 / 32768.0),
+		float32(-1235.5 / 32768.0),
+		float32(1235.5 / 32768.0),
+	}
+	for _, tc := range []struct {
+		name     string
+		n        int
+		channels int
+	}{
+		{name: "tail_15_mono", n: 15, channels: 1},
+		{name: "block_16_mono", n: 16, channels: 1},
+		{name: "block_tail_17_mono", n: 17, channels: 1},
+		{name: "block_tail_31_mono", n: 31, channels: 1},
+		{name: "two_blocks_32_mono", n: 32, channels: 1},
+		{name: "two_blocks_tail_33_mono", n: 33, channels: 1},
+		{name: "interleaved_33_three_channel", n: 11, channels: 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			total := tc.n * tc.channels
+			samples := make([]float32, total)
+			for i := range samples {
+				samples[i] = pattern[i%len(pattern)]
+			}
+			mode := libopustest.FloatQuantModeFloat2Int16
+			if runtime.GOARCH == "arm64" && !testPuregoBuild {
+				mode = libopustest.FloatQuantModeCELTDispatch
+			}
+			want, err := probeLibopusFloatQuant(mode, samples)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "float quant", err)
+			}
+			got := make([]int16, total)
+			src := append([]float32(nil), samples...)
+			float32ToInt16NoSoftClip(got, src, tc.n, tc.channels)
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("sample[%d]=%d want %d input=%0.10g", i, got[i], want[i], samples[i])
+				}
+			}
+			for i := range src {
+				if src[i] != samples[i] {
+					t.Fatalf("src[%d] mutated to %0.10g want %0.10g", i, src[i], samples[i])
+				}
+			}
+		})
+	}
+}
+
+func TestFloat32ToInt16NoSoftClipOutOfRangeUsesLibopusScalar(t *testing.T) {
+	libopustest.RequireOracle(t)
+	samples := []float32{
+		math.Nextafter32(-1, float32(math.Inf(-1))),
+		-1,
+		float32(-32767.5 / 32768.0),
+		float32(-1.5 / 32768.0),
+		float32(-0.5 / 32768.0),
+		0,
+		float32(0.5 / 32768.0),
+		float32(1.5 / 32768.0),
+		float32(32767.5 / 32768.0),
+		1,
+		math.Nextafter32(1, float32(math.Inf(1))),
+		float32(-40000.0 / 32768.0),
+		float32(40000.0 / 32768.0),
+		float32(-1234.5 / 32768.0),
+		float32(1234.5 / 32768.0),
+		float32(-1235.5 / 32768.0),
+		float32(1235.5 / 32768.0),
+	}
+	want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeFloat2Int16, samples)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "float quant", err)
+	}
+	got := make([]int16, len(samples))
+	src := append([]float32(nil), samples...)
+	float32ToInt16NoSoftClip(got, src, len(samples), 1)
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("sample[%d]=%d want %d input=%0.10g", i, got[i], want[i], samples[i])
+		}
 	}
 }
