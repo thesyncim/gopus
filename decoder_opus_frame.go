@@ -77,6 +77,32 @@ func copyFloat64ToFloat32(dst []float32, src []float64) {
 	}
 }
 
+func (d *Decoder) frameSize48FromAPI(frameSize int) int {
+	if d.sampleRate <= 0 || d.sampleRate == 48000 {
+		return frameSize
+	}
+	return frameSize * 48000 / d.sampleRate
+}
+
+func (d *Decoder) downsampleFrame48ToAPI(dst, src []float32, frameSize int) {
+	if d.sampleRate == 48000 {
+		copyFloat32(dst[:frameSize*d.channels], src[:frameSize*d.channels])
+		return
+	}
+	factor := 48000 / d.sampleRate
+	if factor <= 1 {
+		copyFloat32(dst[:frameSize*d.channels], src[:frameSize*d.channels])
+		return
+	}
+	for i := 0; i < frameSize; i++ {
+		srcBase := i * factor * d.channels
+		dstBase := i * d.channels
+		for c := 0; c < d.channels; c++ {
+			dst[dstBase+c] = src[srcBase+c]
+		}
+	}
+}
+
 func (d *Decoder) prepareStereoTransition(packetStereo bool, bandwidth silk.Bandwidth) {
 	if !packetStereo || d.channels != 2 || d.prevPacketStereo {
 		return
@@ -185,7 +211,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	qextPayload []byte,
 ) (int, error) {
 	fs := 48000
-	if packetMode == ModeSILK {
+	if packetMode == ModeSILK || packetMode == ModeCELT {
 		fs = d.sampleRate
 	}
 	F20 := fs / 50
@@ -566,17 +592,30 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if extsupport.QEXT {
 			d.setCELTQEXTPayload(qextPayload)
 		}
+		celtFrameSize := frameSize
+		celtOut := out
+		if d.sampleRate != 48000 {
+			celtFrameSize = d.frameSize48FromAPI(frameSize)
+			needed48 := celtFrameSize * d.channels
+			if len(d.scratchFrame48) < needed48 {
+				return 0, ErrBufferTooSmall
+			}
+			celtOut = d.scratchFrame48[:needed48]
+		}
 		if extsupport.DREDRuntime && d.dredNeedsCELTFloatPath() {
-			samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, min(F20, frameSize), packetStereoLocal)
+			samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, min(48000/50, celtFrameSize), packetStereoLocal)
 			if err != nil {
 				return 0, err
 			}
-			copyFloat64ToFloat32(out, samples)
+			copyFloat64ToFloat32(celtOut, samples)
 		} else {
-			err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32(data, min(F20, frameSize), packetStereoLocal, out)
+			err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32(data, min(48000/50, celtFrameSize), packetStereoLocal, celtOut)
 			if err != nil {
 				return 0, err
 			}
+		}
+		if d.sampleRate != 48000 {
+			d.downsampleFrame48ToAPI(out, celtOut, frameSize)
 		}
 		// Capture the main decode's FinalRange (no redundancy post-processing for CELT-only)
 		d.mainDecodeRng = d.celtDecoder.FinalRange()

@@ -54,6 +54,7 @@ func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decod
 
 func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBinStart, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float64, postfilterTapset int, energies, coeffsL, coeffsR []float64, qext *preparedQEXTDecode) []float64 {
 	var samples []float64
+	downsample := d.downsampleFactor()
 	if d.channels == 2 {
 		energiesL := energies[:end]
 		energiesR := energies[end:]
@@ -61,19 +62,19 @@ func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBin
 			qextState := d.ensureQEXTState()
 			specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
 			specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
-			denormalizeBandsPackedInto(specL, coeffsL, energiesL, HybridCELTStartBand, end, modeLM, EBands[:])
-			denormalizeBandsPackedInto(specR, coeffsR, energiesR, HybridCELTStartBand, end, modeLM, EBands[:])
+			denormalizeBandsPackedDownsampleInto(specL, coeffsL, energiesL, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
+			denormalizeBandsPackedDownsampleInto(specR, coeffsR, energiesR, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
 			if qext.coeffsL != nil {
-				denormalizeBandsPackedInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, modeLM, qext.cfg.EBands)
+				denormalizeBandsPackedDownsampleInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, modeLM, qext.cfg.EBands, downsample)
 			}
 			if qext.coeffsR != nil {
-				denormalizeBandsPackedInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, modeLM, qext.cfg.EBands)
+				denormalizeBandsPackedDownsampleInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, modeLM, qext.cfg.EBands, downsample)
 			}
 			coeffsL = specL
 			coeffsR = specR
 		} else {
-			denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
-			denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
+			denormalizeCoeffsDownsample(coeffsL, energiesL, end, frameSize, downsample)
+			denormalizeCoeffsDownsample(coeffsR, energiesR, end, frameSize, downsample)
 			for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
 				coeffsL[i] = 0
 			}
@@ -96,13 +97,13 @@ func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBin
 		if extsupport.QEXT && qext != nil && qext.end > 0 {
 			qextState := d.ensureQEXTState()
 			specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
-			denormalizeBandsPackedInto(specL, coeffsL, energies, HybridCELTStartBand, end, modeLM, EBands[:])
+			denormalizeBandsPackedDownsampleInto(specL, coeffsL, energies, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
 			if qext.coeffsL != nil {
-				denormalizeBandsPackedInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, modeLM, qext.cfg.EBands)
+				denormalizeBandsPackedDownsampleInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, modeLM, qext.cfg.EBands, downsample)
 			}
 			coeffsL = specL
 		} else {
-			denormalizeCoeffs(coeffsL, energies, end, frameSize)
+			denormalizeCoeffsDownsample(coeffsL, energies, end, frameSize, downsample)
 			for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
 				coeffsL[i] = 0
 			}

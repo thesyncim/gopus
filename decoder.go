@@ -55,6 +55,7 @@ type Decoder struct {
 	maxPacketSamples   int
 	maxPacketBytes     int
 	scratchPCM         []float32
+	scratchFrame48     []float32
 	scratchTransition  []float32
 	scratchRedundant   []float32
 	lastFrameSize      int
@@ -127,9 +128,17 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	silkDec := silk.NewDecoder()
 	silkDec.SetAPISampleRate(cfg.SampleRate)
 	celtDec := celt.NewDecoder(cfg.Channels)
+	celtDec.SetDownsample(48000 / cfg.SampleRate)
 	hybridDec := hybrid.NewDecoderWithSharedDecoders(cfg.Channels, silkDec, celtDec)
 
 	transitionSamples := 48000 / 200 // 5ms at 48kHz
+	scratchFrame48Samples := maxPacketSamples * 48000 / cfg.SampleRate
+	if scratchFrame48Samples > defaultMaxPacketSamples {
+		scratchFrame48Samples = defaultMaxPacketSamples
+	}
+	if scratchFrame48Samples < maxPacketSamples {
+		scratchFrame48Samples = maxPacketSamples
+	}
 
 	return &Decoder{
 		silkDecoder:       silkDec,
@@ -140,6 +149,7 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		maxPacketSamples:  maxPacketSamples,
 		maxPacketBytes:    maxPacketBytes,
 		scratchPCM:        make([]float32, maxPacketSamples*cfg.Channels),
+		scratchFrame48:    make([]float32, scratchFrame48Samples*cfg.Channels),
 		scratchTransition: make([]float32, transitionSamples*cfg.Channels),
 		scratchRedundant:  make([]float32, transitionSamples*cfg.Channels),
 		lastFrameSize:     cfg.SampleRate / 50, // Default 20ms at the API rate

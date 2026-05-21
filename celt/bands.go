@@ -506,6 +506,11 @@ func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize 
 	denormalizeCoeffsInto(coeffs, coeffs, energies, nbBands, frameSize)
 }
 
+func denormalizeCoeffsDownsample(coeffs []float64, energies []float64, nbBands, frameSize, downsample int) {
+	denormalizeCoeffs(coeffs, energies, nbBands, frameSize)
+	clearDenormalizedDownsampleTail(coeffs, nbBands, frameSize/Overlap, downsample, EBands[:])
+}
+
 func denormalizeCoeffsWithModeInto(dst, src []float64, energies []float64, nbBands, lm int, edges []int) {
 	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || nbBands <= 0 || len(edges) < nbBands+1 {
 		return
@@ -550,6 +555,10 @@ func denormalizeCoeffsWithMode(coeffs []float64, energies []float64, nbBands, lm
 }
 
 func denormalizeBandsPackedInto(dst, src []float64, energies []float64, start, end, lm int, edges []int) {
+	denormalizeBandsPackedDownsampleInto(dst, src, energies, start, end, lm, edges, 1)
+}
+
+func denormalizeBandsPackedDownsampleInto(dst, src []float64, energies []float64, start, end, lm int, edges []int, downsample int) {
 	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || end <= start || len(edges) < end+1 {
 		return
 	}
@@ -565,6 +574,11 @@ func denormalizeBandsPackedInto(dst, src []float64, energies []float64, start, e
 
 	M := 1 << lm
 	bound := edges[end] * M
+	if downsample > 1 {
+		if limit := len(dst) / downsample; bound > limit {
+			bound = limit
+		}
+	}
 	if bound > len(dst) {
 		bound = len(dst)
 	}
@@ -604,6 +618,22 @@ func denormalizeBandsPackedInto(dst, src []float64, energies []float64, start, e
 	}
 	if bound < len(dst) {
 		clear(dst[bound:])
+	}
+}
+
+func clearDenormalizedDownsampleTail(coeffs []float64, nbBands, scaleWidth, downsample int, edges []int) {
+	if downsample <= 1 || len(coeffs) == 0 || nbBands <= 0 || scaleWidth <= 0 || len(edges) < nbBands+1 {
+		return
+	}
+	bound := edges[nbBands] * scaleWidth
+	if limit := len(coeffs) / downsample; bound > limit {
+		bound = limit
+	}
+	if bound < 0 {
+		bound = 0
+	}
+	if bound < len(coeffs) {
+		clear(coeffs[bound:])
 	}
 }
 

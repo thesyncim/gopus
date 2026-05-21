@@ -106,3 +106,21 @@ func (d *Decoder) Complexity() int {
 func (d *Decoder) SampleRate() int {
 	return d.sampleRate
 }
+
+// SetDownsample sets the libopus CELT downsample factor used for lower-rate
+// Opus decoder APIs. Invalid factors fall back to the 48 kHz path.
+func (d *Decoder) SetDownsample(factor int) {
+	switch factor {
+	case 1, 2, 3, 4, 6:
+		d.downsample = factor
+	default:
+		d.downsample = 1
+	}
+}
+
+func (d *Decoder) downsampleFactor() int {
+	if d == nil || d.downsample <= 0 {
+		return 1
+	}
+	return d.downsample
+}

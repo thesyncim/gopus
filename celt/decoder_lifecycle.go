@@ -19,6 +19,7 @@ func NewDecoder(channels int) *Decoder {
 	d := &Decoder{
 		channels:   channels,
 		sampleRate: 48000, // CELT always operates at 48kHz internally
+		downsample: 1,
 
 		// Allocate energy arrays for all bands and channels
 		prevEnergy:       make([]float64, MaxBands*channels),

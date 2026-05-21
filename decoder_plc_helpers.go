@@ -48,7 +48,7 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 	remaining := frameSize
 	offset := 0
 	chunkRate := 48000
-	if state.mode == ModeSILK {
+	if state.mode == ModeSILK || state.mode == ModeCELT {
 		chunkRate = d.sampleRate
 	}
 	for remaining > 0 {

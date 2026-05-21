@@ -51,6 +51,7 @@ type Decoder struct {
 	// Configuration
 	channels   int // 1 or 2
 	sampleRate int // Output sample rate (typically 48000)
+	downsample int // libopus CELT downsample factor, 1 at 48 kHz
 
 	// Range decoder (set per frame)
 	rangeDecoder *rangecoding.Decoder

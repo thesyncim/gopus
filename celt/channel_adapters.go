@@ -231,16 +231,17 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		antiCollapse(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 
+	downsample := d.downsampleFactor()
 	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		qextState := d.ensureQEXTState()
 		specMono := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsMono))
-		denormalizeBandsPackedInto(specMono, coeffsMono, monoEnergies, 0, end, lm, EBands[:])
+		denormalizeBandsPackedDownsampleInto(specMono, coeffsMono, monoEnergies, 0, end, lm, EBands[:], downsample)
 		if qext.coeffsL != nil {
-			denormalizeBandsPackedInto(specMono, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
+			denormalizeBandsPackedDownsampleInto(specMono, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
 		}
 		coeffsMono = specMono
 	} else {
-		denormalizeCoeffs(coeffsMono, monoEnergies, end, frameSize)
+		denormalizeCoeffsDownsample(coeffsMono, monoEnergies, end, frameSize, downsample)
 	}
 
 	d.channels = origChannels
@@ -459,23 +460,24 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 
 	energiesL := energies[:end]
 	energiesR := energies[end:]
+	downsample := d.downsampleFactor()
 	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		qextState := d.ensureQEXTState()
 		specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
 		specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
-		denormalizeBandsPackedInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:])
-		denormalizeBandsPackedInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:])
+		denormalizeBandsPackedDownsampleInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
+		denormalizeBandsPackedDownsampleInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
 		if qext.coeffsL != nil {
-			denormalizeBandsPackedInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
+			denormalizeBandsPackedDownsampleInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
 		}
 		if qext.coeffsR != nil {
-			denormalizeBandsPackedInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands)
+			denormalizeBandsPackedDownsampleInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands, downsample)
 		}
 		coeffsL = specL
 		coeffsR = specR
 	} else {
-		denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
-		denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
+		denormalizeCoeffsDownsample(coeffsL, energiesL, end, frameSize, downsample)
+		denormalizeCoeffsDownsample(coeffsR, energiesR, end, frameSize, downsample)
 	}
 	coeffsMono := ensureFloat64Slice(&d.scratchMonoMix, len(coeffsL))
 	for i := range coeffsMono {
@@ -665,16 +667,17 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 
 	coeffsMono, _, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, 1, false, monoEnergies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 
+	downsample := d.downsampleFactor()
 	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		qextState := d.ensureQEXTState()
 		specMono := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsMono))
-		denormalizeBandsPackedInto(specMono, coeffsMono, monoEnergies, HybridCELTStartBand, end, lm, EBands[:])
+		denormalizeBandsPackedDownsampleInto(specMono, coeffsMono, monoEnergies, HybridCELTStartBand, end, lm, EBands[:], downsample)
 		if qext.coeffsL != nil {
-			denormalizeBandsPackedInto(specMono, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
+			denormalizeBandsPackedDownsampleInto(specMono, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
 		}
 		coeffsMono = specMono
 	} else {
-		denormalizeCoeffs(coeffsMono, monoEnergies, end, frameSize)
+		denormalizeCoeffsDownsample(coeffsMono, monoEnergies, end, frameSize, downsample)
 	}
 
 	d.channels = origChannels
@@ -857,23 +860,24 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
 	energiesL := energies[:end]
 	energiesR := energies[end:]
+	downsample := d.downsampleFactor()
 	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		qextState := d.ensureQEXTState()
 		specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
 		specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
-		denormalizeBandsPackedInto(specL, coeffsL, energiesL, HybridCELTStartBand, end, lm, EBands[:])
-		denormalizeBandsPackedInto(specR, coeffsR, energiesR, HybridCELTStartBand, end, lm, EBands[:])
+		denormalizeBandsPackedDownsampleInto(specL, coeffsL, energiesL, HybridCELTStartBand, end, lm, EBands[:], downsample)
+		denormalizeBandsPackedDownsampleInto(specR, coeffsR, energiesR, HybridCELTStartBand, end, lm, EBands[:], downsample)
 		if qext.coeffsL != nil {
-			denormalizeBandsPackedInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
+			denormalizeBandsPackedDownsampleInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
 		}
 		if qext.coeffsR != nil {
-			denormalizeBandsPackedInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands)
+			denormalizeBandsPackedDownsampleInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands, downsample)
 		}
 		coeffsL = specL
 		coeffsR = specR
 	} else {
-		denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
-		denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
+		denormalizeCoeffsDownsample(coeffsL, energiesL, end, frameSize, downsample)
+		denormalizeCoeffsDownsample(coeffsR, energiesR, end, frameSize, downsample)
 		for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
 			coeffsL[i] = 0
 		}

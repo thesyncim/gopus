@@ -298,8 +298,8 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 		clear(coeffsR)
 		fillHybridPLCNoiseCoeffs(coeffsL, frameSize, start, end, &seed)
 		fillHybridPLCNoiseCoeffs(coeffsR, frameSize, start, end, &seed)
-		denormalizeCoeffs(coeffsL, concealEnergy[:MaxBands], end, frameSize)
-		denormalizeCoeffs(coeffsR, concealEnergy[MaxBands:], end, frameSize)
+		denormalizeCoeffsDownsample(coeffsL, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
+		denormalizeCoeffsDownsample(coeffsR, concealEnergy[MaxBands:], end, frameSize, d.downsampleFactor())
 		samples := d.SynthesizeStereo(coeffsL, coeffsR, false, 1)
 		copy(d.scratchPLC[:outLen], samples[:min(outLen, len(samples))])
 	} else {
@@ -307,7 +307,7 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 		coeffs := d.scratchPLCHybridNormL[:frameSize]
 		clear(coeffs)
 		fillHybridPLCNoiseCoeffs(coeffs, frameSize, start, end, &seed)
-		denormalizeCoeffs(coeffs, concealEnergy[:MaxBands], end, frameSize)
+		denormalizeCoeffsDownsample(coeffs, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
 		samples := d.Synthesize(coeffs, false, 1)
 		copy(d.scratchPLC[:outLen], samples[:min(outLen, len(samples))])
 	}
@@ -437,8 +437,8 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 		clear(coeffsR)
 		fillHybridPLCNoiseCoeffs(coeffsL, frameSize, start, end, &seed)
 		fillHybridPLCNoiseCoeffs(coeffsR, frameSize, start, end, &seed)
-		denormalizeCoeffs(coeffsL, concealEnergy[:MaxBands], end, frameSize)
-		denormalizeCoeffs(coeffsR, concealEnergy[MaxBands:], end, frameSize)
+		denormalizeCoeffsDownsample(coeffsL, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
+		denormalizeCoeffsDownsample(coeffsR, concealEnergy[MaxBands:], end, frameSize, d.downsampleFactor())
 		samples := d.SynthesizeStereo(coeffsL, coeffsR, false, 1)
 		copy(dst[:frameSize*d.channels], samples[:min(len(samples), frameSize*d.channels)])
 	} else {
@@ -446,7 +446,7 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 		coeffs := d.scratchPLCHybridNormL[:frameSize]
 		clear(coeffs)
 		fillHybridPLCNoiseCoeffs(coeffs, frameSize, start, end, &seed)
-		denormalizeCoeffs(coeffs, concealEnergy[:MaxBands], end, frameSize)
+		denormalizeCoeffsDownsample(coeffs, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
 		samples := d.Synthesize(coeffs, false, 1)
 		copy(dst[:frameSize*d.channels], samples[:min(len(samples), frameSize*d.channels)])
 	}

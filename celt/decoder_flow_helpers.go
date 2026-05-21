@@ -8,6 +8,7 @@ import (
 func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float64, postfilterTapset int, energies, coeffsL, coeffsR []float64, qext *preparedQEXTDecode) []float64 {
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
 	var samples []float64
+	downsample := d.downsampleFactor()
 	directStereoFloat32 := d.channels == 2 && len(d.directOutPCM) >= frameSize*2
 	directMonoFloat32 := d.channels == 1 &&
 		len(d.directOutPCM) >= frameSize &&
@@ -23,19 +24,19 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 			qextState := d.ensureQEXTState()
 			specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
 			specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
-			denormalizeBandsPackedInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:])
-			denormalizeBandsPackedInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:])
+			denormalizeBandsPackedDownsampleInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
+			denormalizeBandsPackedDownsampleInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
 			if qext.coeffsL != nil {
-				denormalizeBandsPackedInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
+				denormalizeBandsPackedDownsampleInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
 			}
 			if qext.coeffsR != nil {
-				denormalizeBandsPackedInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands)
+				denormalizeBandsPackedDownsampleInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands, downsample)
 			}
 			coeffsL = specL
 			coeffsR = specR
 		} else {
-			denormalizeCoeffs(coeffsL, energiesL, end, frameSize)
-			denormalizeCoeffs(coeffsR, energiesR, end, frameSize)
+			denormalizeCoeffsDownsample(coeffsL, energiesL, end, frameSize, downsample)
+			denormalizeCoeffsDownsample(coeffsR, energiesR, end, frameSize, downsample)
 		}
 		if directStereoFloat32 && !transient {
 			samplesL, samplesR := d.synthesizeStereoPlanarLongToFloat32(coeffsL, coeffsR)
@@ -56,13 +57,13 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 		if extsupport.QEXT && qext != nil && qext.end > 0 {
 			qextState := d.ensureQEXTState()
 			specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
-			denormalizeBandsPackedInto(specL, coeffsL, energies, 0, end, lm, EBands[:])
+			denormalizeBandsPackedDownsampleInto(specL, coeffsL, energies, 0, end, lm, EBands[:], downsample)
 			if qext.coeffsL != nil {
-				denormalizeBandsPackedInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands)
+				denormalizeBandsPackedDownsampleInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
 			}
 			coeffsL = specL
 		} else {
-			denormalizeCoeffs(coeffsL, energies, end, frameSize)
+			denormalizeCoeffsDownsample(coeffsL, energies, end, frameSize, downsample)
 		}
 		if directMonoFloat32 {
 			samplesF32 := d.synthesizeMonoLongToFloat32(coeffsL)

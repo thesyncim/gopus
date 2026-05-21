@@ -85,6 +85,7 @@ int main(void) {
   unsigned char magic[4];
   uint32_t version = 0;
   uint32_t sample_format = SAMPLE_FORMAT_FLOAT32;
+  uint32_t sample_rate = 48000;
   uint32_t channels = 0;
   uint32_t frame_size = 0;
   uint32_t packet_count = 0;
@@ -113,9 +114,13 @@ int main(void) {
   }
   if (version == 1) {
     sample_format = SAMPLE_FORMAT_FLOAT32;
-  } else if (version == 2) {
+  } else if (version == 2 || version == 3) {
     if (!read_u32(&sample_format)) {
       fprintf(stderr, "failed to read sample format\n");
+      return 1;
+    }
+    if (version == 3 && !read_u32(&sample_rate)) {
+      fprintf(stderr, "failed to read sample rate\n");
       return 1;
     }
   } else {
@@ -132,6 +137,10 @@ int main(void) {
   }
   if (channels == 0 || channels > 2 || frame_size == 0) {
     fprintf(stderr, "invalid decoder dimensions\n");
+    return 1;
+  }
+  if (sample_rate != 8000 && sample_rate != 12000 && sample_rate != 16000 && sample_rate != 24000 && sample_rate != 48000) {
+    fprintf(stderr, "invalid sample rate\n");
     return 1;
   }
 
@@ -151,7 +160,7 @@ int main(void) {
     return 1;
   }
 
-  dec = opus_decoder_create(48000, (int)channels, &err);
+  dec = opus_decoder_create((opus_int32)sample_rate, (int)channels, &err);
   if (dec == NULL || err != OPUS_OK) {
     fprintf(stderr, "opus_decoder_create failed: %d\n", err);
     free(frame);
