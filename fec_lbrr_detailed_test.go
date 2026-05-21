@@ -12,167 +12,83 @@ func logFECQualityStatus(t *testing.T) {
 	t.Helper()
 	fecQualityOnce.Do(func() {
 		t.Log("FEC/LBRR STATUS: LBRR recovery is active in focused tests; keep correlation and energy checks as regression sentinels.")
-		t.Log("COVERED: provided-packet recovery, no-LBRR PLC fallback, stored FEC state, and packet-mode gating.")
+		t.Log("COVERED: provided-packet recovery, nil-packet PLC fallback, no-LBRR PLC fallback, and packet-mode gating.")
 		t.Log("WATCH: low-bitrate/no-LBRR packet mixes can still fall back to PLC by design; broaden claims only with libopus-backed seams.")
 	})
 }
 
-// TestFEC_LBRRActualRecovery verifies that actual LBRR data is recovered,
-// not just PLC fallback. This test compares the recovered signal with
-// the original encoded signal.
+// TestFEC_LBRRActualRecovery verifies that provided-packet LBRR recovery
+// produces a non-silent concealment frame.
 func TestFEC_LBRRActualRecovery(t *testing.T) {
 	logFECQualityStatus(t)
 
-	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
-	if err != nil {
-		t.Fatalf("NewEncoder error: %v", err)
-	}
-	enc.SetFEC(true)
-	if err := enc.SetPacketLoss(15); err != nil {
-		t.Fatalf("SetPacketLoss error: %v", err)
-	}
-
-	frameSize := 960
-	numFrames := 10
-
-	// Generate and encode frames
-	originalPCM := make([][]float32, numFrames)
-	packets := make([][]byte, numFrames)
-
-	for i := 0; i < numFrames; i++ {
-		pcm := make([]float32, frameSize)
-		for j := 0; j < frameSize; j++ {
-			sampleIdx := i*frameSize + j
-			// Use distinct frequency per frame for easier identification
-			freq := 440.0 + float64(i)*20.0 // 440Hz, 460Hz, 480Hz, etc.
-			pcm[j] = float32(0.5 * math.Sin(2*math.Pi*freq*float64(sampleIdx)/48000))
-		}
-		originalPCM[i] = pcm
-
-		packet, err := enc.EncodeFloat32(pcm)
-		if err != nil {
-			t.Fatalf("Encode frame %d error: %v", i, err)
-		}
-		packets[i] = make([]byte, len(packet))
-		copy(packets[i], packet)
-		t.Logf("Frame %d: encoded %d bytes (freq=%.0fHz)", i, len(packet), 440.0+float64(i)*20.0)
-	}
-
-	// Create two decoders: one for FEC recovery, one for baseline comparison
-	dec, _ := NewDecoder(DefaultDecoderConfig(48000, 1))
-	decBaseline, _ := NewDecoder(DefaultDecoderConfig(48000, 1))
-
-	// Decode frames 0-4 with both decoders
-	for i := 0; i < 5; i++ {
-		pcm := make([]float32, frameSize)
-		pcmBaseline := make([]float32, frameSize)
-		dec.Decode(packets[i], pcm)
-		decBaseline.Decode(packets[i], pcmBaseline)
-	}
+	const frameSize = 960
+	seedPacket, recoveryPacket := encodeAPIRateFECSequence(t, EncoderModeSILK, ModeSILK, BandwidthWideband, 24000, 1, frameSize)
 
 	t.Log("\n=== Testing LBRR recovery for frame 5 ===")
 
-	// Frame 5 is "lost" - recover with FEC
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+	pcmSeed := make([]float32, frameSize)
+	if _, err := dec.Decode(seedPacket, pcmSeed); err != nil {
+		t.Fatalf("Decode seed error: %v", err)
+	}
+
 	pcmFEC := make([]float32, frameSize)
-	n, err := dec.DecodeWithFEC(nil, pcmFEC, true)
+	n, err := dec.DecodeWithFEC(recoveryPacket, pcmFEC, true)
 	if err != nil {
 		t.Fatalf("DecodeWithFEC error: %v", err)
 	}
 	t.Logf("FEC recovered %d samples for lost frame 5", n)
 
-	// For baseline, decode frame 5 normally
-	pcmBaseline := make([]float32, frameSize)
-	decBaseline.Decode(packets[5], pcmBaseline)
+	pcmRecovery := make([]float32, frameSize)
+	if _, err := dec.Decode(recoveryPacket, pcmRecovery); err != nil {
+		t.Fatalf("Decode recovery packet error: %v", err)
+	}
 
-	// Calculate correlation between FEC recovered signal and baseline
-	// High correlation indicates LBRR contains useful data
-	var sumFEC, sumBaseline, sumProduct float64
-	var sqSumFEC, sqSumBaseline float64
+	var sqSumFEC, sqSumRecovery float64
 
 	for i := 0; i < frameSize; i++ {
-		sumFEC += float64(pcmFEC[i])
-		sumBaseline += float64(pcmBaseline[i])
-		sumProduct += float64(pcmFEC[i]) * float64(pcmBaseline[i])
 		sqSumFEC += float64(pcmFEC[i]) * float64(pcmFEC[i])
-		sqSumBaseline += float64(pcmBaseline[i]) * float64(pcmBaseline[i])
+		sqSumRecovery += float64(pcmRecovery[i]) * float64(pcmRecovery[i])
 	}
 
 	n64 := float64(frameSize)
-	numerator := n64*sumProduct - sumFEC*sumBaseline
-	denominator := math.Sqrt((n64*sqSumFEC - sumFEC*sumFEC) * (n64*sqSumBaseline - sumBaseline*sumBaseline))
-
-	correlation := 0.0
-	if denominator > 0 {
-		correlation = numerator / denominator
-	}
-
-	// Calculate RMS energy for both
 	energyFEC := math.Sqrt(sqSumFEC / n64)
-	energyBaseline := math.Sqrt(sqSumBaseline / n64)
+	energyRecovery := math.Sqrt(sqSumRecovery / n64)
 
 	t.Logf("FEC recovery RMS energy: %.6f", energyFEC)
-	t.Logf("Baseline decode RMS energy: %.6f", energyBaseline)
-	t.Logf("Correlation between FEC and baseline: %.4f", correlation)
+	t.Logf("Recovery-packet decode RMS energy: %.6f", energyRecovery)
 
-	// FEC should produce non-zero signal
 	if energyFEC < 0.001 {
 		t.Error("FEC recovery produced near-silence - LBRR may not be working")
 	}
 
-	// Note: LBRR is encoded at lower quality, so we don't expect perfect match,
-	// but correlation should be positive and energy should be in similar range
-	if correlation < 0 {
-		t.Log("Warning: Negative correlation suggests LBRR may not contain useful data")
-	} else if correlation > 0.5 {
-		t.Log("Good: High correlation suggests LBRR recovery is working well")
-	} else if correlation > 0 {
-		t.Log("Moderate: Some correlation - LBRR provides partial recovery")
-	}
-
-	// Print first few samples for visual inspection
 	t.Log("\nFirst 10 samples comparison:")
 	for i := 0; i < 10 && i < frameSize; i++ {
-		t.Logf("  [%d] FEC=%.4f, Baseline=%.4f", i, pcmFEC[i], pcmBaseline[i])
+		t.Logf("  [%d] FEC=%.4f, Recovery=%.4f", i, pcmFEC[i], pcmRecovery[i])
 	}
 }
 
-// TestFEC_HasLBRRCheck verifies the SILK decoder's HasLBRR function
+// TestFEC_HasLBRRCheck verifies packet-level LBRR detection.
 func TestFEC_HasLBRRCheck(t *testing.T) {
-	enc, _ := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: 1, Application: ApplicationVoIP})
-	if err := enc.SetBandwidth(BandwidthWideband); err != nil {
-		t.Fatalf("SetBandwidth error: %v", err)
-	}
-	enc.SetFEC(true)
-	if err := enc.SetPacketLoss(15); err != nil {
-		t.Fatalf("SetPacketLoss error: %v", err)
+	_, recoveryPacket := encodeAPIRateFECSequence(t, EncoderModeSILK, ModeSILK, BandwidthWideband, 24000, 1, 960)
+	if !packetHasInBandFEC(t, recoveryPacket) {
+		t.Fatal("recovery packet should carry LBRR")
 	}
 
-	dec, _ := NewDecoder(DefaultDecoderConfig(48000, 1))
-
-	// Generate and encode a few frames
-	frameSize := 960
-	for i := 0; i < 3; i++ {
-		pcm := make([]float32, frameSize)
-		for j := 0; j < frameSize; j++ {
-			pcm[j] = float32(0.5 * math.Sin(2*math.Pi*440*float64(i*frameSize+j)/48000))
-		}
-		packet, _ := enc.EncodeFloat32(pcm)
-
-		// Decode the packet
-		out := make([]float32, frameSize)
-		dec.Decode(packet, out)
-
-		// Check if FEC data is stored
-		t.Logf("After frame %d: hasFEC=%v, fecMode=%v, fecFrameSize=%d",
-			i, dec.hasFEC, dec.fecMode, dec.fecFrameSize)
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
 	}
-
-	// After SILK decode, hasFEC should be true
-	if !dec.hasFEC {
-		t.Error("hasFEC should be true after decoding SILK packets")
+	out := make([]float32, 960)
+	if _, err := dec.Decode(recoveryPacket, out); err != nil {
+		t.Fatalf("Decode recovery packet error: %v", err)
 	}
-	if dec.fecMode != ModeSILK {
-		t.Errorf("fecMode should be ModeSILK (0), got %v", dec.fecMode)
+	if dec.hasFEC {
+		t.Fatal("normal decode should not cache LBRR for nil decode_fec")
 	}
 }
 

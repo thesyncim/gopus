@@ -588,6 +588,103 @@ func TestDecodeHybridAPIRatePCMMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecodeMultiFrameAPIRatePCMMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []apiRatePacketParityCase{
+		{
+			name: "silk_code1_two_equal",
+			packet: func(t *testing.T, channels int) []byte {
+				packet := encodeAPIRateSILKPacketFrameSize(t, channels, 960)
+				frame := firstAPIRateFramePayload(t, packet)
+				return buildAPIRateMultiFramePacket(t, packet, [][]byte{frame, frame}, 1)
+			},
+			tolerance: 8e-3,
+		},
+		{
+			name: "hybrid_code1_two_equal",
+			packet: func(t *testing.T, channels int) []byte {
+				packet := encodeAPIRateHybridPacketFrameSize(t, channels, 960)
+				frame := firstAPIRateFramePayload(t, packet)
+				return buildAPIRateMultiFramePacket(t, packet, [][]byte{frame, frame}, 1)
+			},
+			tolerance: 1e-2,
+		},
+		{
+			name: "celt_code1_two_equal",
+			packet: func(t *testing.T, channels int) []byte {
+				packet := encodeAPIRateCELTPacketFrameSizeVariant(t, channels, 480, 64000, 0)
+				frame := firstAPIRateFramePayload(t, packet)
+				return buildAPIRateMultiFramePacket(t, packet, [][]byte{frame, frame}, 1)
+			},
+			tolerance: 3e-3,
+		},
+		{
+			name: "celt_code2_two_vbr",
+			packet: func(t *testing.T, channels int) []byte {
+				packets := encodeAPIRateCELTPacketVariants(t, channels, 480, []int{64000, 96000}, 2)
+				frames := firstAPIRateFramePayloads(t, packets)
+				return buildAPIRateMultiFramePacket(t, packets[0], frames, 2)
+			},
+			tolerance: 3e-3,
+		},
+		{
+			name: "celt_code3_three_cbr",
+			packet: func(t *testing.T, channels int) []byte {
+				packet := encodeAPIRateCELTPacketFrameSizeVariant(t, channels, 480, 64000, 1)
+				frame := firstAPIRateFramePayload(t, packet)
+				return buildAPIRateMultiFramePacket(t, packet, [][]byte{frame, frame, frame}, 3)
+			},
+			tolerance: 3e-3,
+		},
+		{
+			name: "celt_code3_three_vbr",
+			packet: func(t *testing.T, channels int) []byte {
+				packets := encodeAPIRateCELTPacketVariants(t, channels, 480, []int{64000, 96000, 128000}, 3)
+				frames := firstAPIRateFramePayloads(t, packets)
+				return buildAPIRateMultiFramePacket(t, packets[0], frames, 3)
+			},
+			tolerance: 3e-3,
+		},
+	} {
+		for _, channels := range []int{1, 2} {
+			packet := tc.packet(t, channels)
+			for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+				t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+					frameSize, err := packetSamplesAtRate(packet, sampleRate)
+					if err != nil {
+						t.Fatalf("packetSamplesAtRate: %v", err)
+					}
+
+					sequence := [][]byte{packet, nil}
+					want, err := decodeWithLibopusReferenceAPIRateFloat32(sampleRate, channels, frameSize, sequence)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "api-rate multi-frame reference decode", err)
+					}
+
+					dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+					if err != nil {
+						t.Fatalf("NewDecoder: %v", err)
+					}
+					got := make([]float32, 0, len(want))
+					frame := make([]float32, frameSize*channels)
+					for i, pkt := range sequence {
+						n, err := dec.Decode(pkt, frame)
+						if err != nil {
+							t.Fatalf("Decode sequence[%d]: %v", i, err)
+						}
+						if n != frameSize {
+							t.Fatalf("Decode sequence[%d] samples=%d want %d", i, n, frameSize)
+						}
+						got = append(got, frame[:n*channels]...)
+					}
+
+					assertAPIRateFloat32Close(t, got, want, tc.name+" api-rate multi-frame decode", tc.tolerance)
+				})
+			}
+		}
+	}
+}
+
 func TestDecodeInt16APIRatePCMMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, tc := range []struct {
@@ -759,6 +856,76 @@ func TestDecodeWithFECLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecodeWithFECNilAfterLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		name      string
+		mode      EncoderMode
+		wantMode  Mode
+		bandwidth Bandwidth
+		bitrate   int
+		tolerance float64
+		channels  []int
+	}{
+		{name: "silk_wb", mode: EncoderModeSILK, wantMode: ModeSILK, bandwidth: BandwidthWideband, bitrate: 24000, tolerance: 8e-3},
+		{name: "hybrid", mode: EncoderModeHybrid, wantMode: ModeHybrid, bandwidth: BandwidthFullband, bitrate: 64000, tolerance: 1.2e-2},
+	} {
+		channelsSet := tc.channels
+		if len(channelsSet) == 0 {
+			channelsSet = []int{1, 2}
+		}
+		for _, channels := range channelsSet {
+			seedPacket, recoveryPacket := encodeAPIRateFECSequence(t, tc.mode, tc.wantMode, tc.bandwidth, tc.bitrate, channels, 960)
+			for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+				t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+					frameSize, err := packetSamplesAtRate(recoveryPacket, sampleRate)
+					if err != nil {
+						t.Fatalf("packetSamplesAtRate: %v", err)
+					}
+
+					steps := []libopusAPIRateDecodeStep{
+						{packet: seedPacket},
+						{packet: recoveryPacket},
+						{fec: true},
+					}
+					want, err := decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, frameSize, steps)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "api-rate nil FEC after LBRR reference decode", err)
+					}
+
+					dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+					if err != nil {
+						t.Fatalf("NewDecoder: %v", err)
+					}
+					got := make([]float32, 0, len(want))
+					frame := make([]float32, frameSize*channels)
+					for i, packet := range [][]byte{seedPacket, recoveryPacket} {
+						n, err := dec.Decode(packet, frame)
+						if err != nil {
+							t.Fatalf("Decode packet[%d]: %v", i, err)
+						}
+						if n != frameSize {
+							t.Fatalf("Decode packet[%d] samples=%d want %d", i, n, frameSize)
+						}
+						got = append(got, frame[:n*channels]...)
+					}
+
+					n, err := dec.DecodeWithFEC(nil, frame, true)
+					if err != nil {
+						t.Fatalf("DecodeWithFEC(nil): %v", err)
+					}
+					if n != frameSize {
+						t.Fatalf("DecodeWithFEC(nil) samples=%d want %d", n, frameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					assertAPIRateFloat32Close(t, got, want, tc.name+" api-rate nil FEC after LBRR decode", tc.tolerance)
+				})
+			}
+		}
+	}
+}
+
 func encodeAPIRateSILKPacket(t *testing.T, channels int) []byte {
 	t.Helper()
 	return encodeAPIRateSILKPacketFrameSize(t, channels, 960)
@@ -852,6 +1019,75 @@ func encodeAPIRateCELTPacketFrameSize(t *testing.T, channels, frameSize int) []b
 		t.Fatalf("Encode: %v", err)
 	}
 	return packet
+}
+
+func encodeAPIRateCELTPacketFrameSizeVariant(t *testing.T, channels, frameSize, bitrate, variant int) []byte {
+	t.Helper()
+	const sampleRate = 48000
+	enc, err := NewEncoder(EncoderConfig{
+		SampleRate:  sampleRate,
+		Channels:    channels,
+		Application: ApplicationRestrictedCelt,
+	})
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+	if err := enc.SetFrameSize(frameSize); err != nil {
+		t.Fatalf("SetFrameSize: %v", err)
+	}
+	if err := enc.SetBandwidth(BandwidthFullband); err != nil {
+		t.Fatalf("SetBandwidth: %v", err)
+	}
+	if err := enc.SetBitrate(bitrate); err != nil {
+		t.Fatalf("SetBitrate: %v", err)
+	}
+	if err := enc.SetBitrateMode(BitrateModeVBR); err != nil {
+		t.Fatalf("SetBitrateMode(VBR): %v", err)
+	}
+	enc.SetVBRConstraint(false)
+	if channels == 2 {
+		if err := enc.SetForceChannels(2); err != nil {
+			t.Fatalf("SetForceChannels: %v", err)
+		}
+	}
+
+	pcm := make([]float32, frameSize*channels)
+	for i := 0; i < frameSize; i++ {
+		tm := float64(variant*frameSize+i) / sampleRate
+		left := 0.28*float32(math.Sin(2*math.Pi*(1200+float64(variant)*137)*tm+float64(variant)*0.11)) +
+			0.05*float32(math.Sin(2*math.Pi*(2300+float64(variant)*91)*tm+0.23))
+		pcm[i*channels] = left
+		if channels == 2 {
+			pcm[i*channels+1] = 0.19*float32(math.Sin(2*math.Pi*(1900+float64(variant)*151)*tm+0.31)) +
+				0.04*float32(math.Sin(2*math.Pi*(3100+float64(variant)*73)*tm+0.07))
+		}
+	}
+	packet, err := enc.EncodeFloat32(pcm)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	return packet
+}
+
+func encodeAPIRateCELTPacketVariants(t *testing.T, channels, frameSize int, bitrates []int, count int) [][]byte {
+	t.Helper()
+	packets := make([][]byte, 0, 16)
+	for variant := 0; variant < 16; variant++ {
+		bitrate := bitrates[variant%len(bitrates)]
+		packet := encodeAPIRateCELTPacketFrameSizeVariant(t, channels, frameSize, bitrate, variant)
+		if len(packets) > 0 && packet[0]&0xFC != packets[0][0]&0xFC {
+			t.Fatalf("variant TOC base=0x%02x want 0x%02x", packet[0]&0xFC, packets[0][0]&0xFC)
+		}
+		packets = append(packets, packet)
+		for start := 0; start+count <= len(packets); start++ {
+			window := packets[start : start+count]
+			if apiRatePacketsHaveUnequalPayloadSizes(window) {
+				return append([][]byte(nil), window...)
+			}
+		}
+	}
+	t.Fatalf("failed to generate %d CELT VBR frames with unequal payload sizes", count)
+	return nil
 }
 
 func encodeAPIRateHybridPacket(t *testing.T, channels int) []byte {
@@ -978,6 +1214,75 @@ func encodeAPIRateFECSequence(t *testing.T, mode EncoderMode, wantMode Mode, ban
 	}
 	t.Fatalf("failed to generate %v packet carrying LBRR", wantMode)
 	return nil, nil
+}
+
+func firstAPIRateFramePayload(t *testing.T, packet []byte) []byte {
+	t.Helper()
+	_, frames, err := parsePacketFrames(packet)
+	if err != nil {
+		t.Fatalf("parsePacketFrames: %v", err)
+	}
+	if len(frames) != 1 {
+		t.Fatalf("single-frame packet has %d frames", len(frames))
+	}
+	return append([]byte(nil), frames[0]...)
+}
+
+func firstAPIRateFramePayloads(t *testing.T, packets [][]byte) [][]byte {
+	t.Helper()
+	frames := make([][]byte, len(packets))
+	for i, packet := range packets {
+		frames[i] = firstAPIRateFramePayload(t, packet)
+	}
+	return frames
+}
+
+func buildAPIRateMultiFramePacket(t *testing.T, basePacket []byte, frames [][]byte, wantFrameCode byte) []byte {
+	t.Helper()
+	data := make([]byte, maxPacketBytesPerStream)
+	n, err := buildRepacketizedPacketWithOptions(basePacket[0]&0xFC, frames, data, 0, false, nil)
+	if err != nil {
+		t.Fatalf("buildRepacketizedPacketWithOptions: %v", err)
+	}
+	packet := append([]byte(nil), data[:n]...)
+	info, parsed, err := parsePacketFrames(packet)
+	if err != nil {
+		t.Fatalf("parse repacketized packet: %v", err)
+	}
+	if info.TOC.FrameCode != wantFrameCode {
+		t.Fatalf("frame code=%d want %d", info.TOC.FrameCode, wantFrameCode)
+	}
+	if len(parsed) != len(frames) {
+		t.Fatalf("frame count=%d want %d", len(parsed), len(frames))
+	}
+	return packet
+}
+
+func apiRatePacketsHaveUnequalPayloadSizes(packets [][]byte) bool {
+	if len(packets) < 2 {
+		return false
+	}
+	firstLen := len(firstPacketPayloadForSizeCheck(packets[0]))
+	for _, packet := range packets[1:] {
+		if len(firstPacketPayloadForSizeCheck(packet)) != firstLen {
+			return true
+		}
+	}
+	return false
+}
+
+func firstPacketPayloadForSizeCheck(packet []byte) []byte {
+	if len(packet) == 0 {
+		return nil
+	}
+	if packet[0]&0x03 == 0 {
+		return packet[1:]
+	}
+	_, frames, err := parsePacketFrames(packet)
+	if err != nil || len(frames) == 0 {
+		return nil
+	}
+	return frames[0]
 }
 
 type libopusAPIRateDecodeStep struct {

@@ -202,15 +202,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	d.lastPacketMode = toc.Mode
 	d.lastDataLen = len(data)
 
-	if toc.Mode == ModeSILK || toc.Mode == ModeHybrid {
-		firstFrameData, err := extractFirstFramePayload(data, *toc)
-		if err != nil {
-			return 0, err
-		}
-		d.storeFECData(firstFrameData, *toc, frameCount, frameSize)
-	} else {
-		d.hasFEC = false
-	}
+	d.clearFECState()
 
 	if dredPossible {
 		if d.dredPayloadScannerActive() {
@@ -476,14 +468,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		return d.decodePLCForFECWithState(pcm, totalSamples, toc.Mode, toc.Bandwidth, toc.Stereo)
 	}
 
-	if d.hasFEC && len(d.fecData) > 0 {
-		n, err := d.decodeFECFrame(pcm)
-		if err == nil {
-			return n, nil
-		}
-		d.clearFECState()
-	}
-
+	d.clearFECState()
 	return d.decodePLCForFEC(pcm, d.plcFrameSize())
 }
 

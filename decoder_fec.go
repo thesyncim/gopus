@@ -206,8 +206,8 @@ func packetHasLBRR(firstFrameData []byte, toc TOC) bool {
 	return lbrr != 0
 }
 
-// storeFECData stores the current packet's information for FEC recovery.
-// This is called after successfully decoding a SILK or Hybrid packet.
+// storeFECData prepares the current packet's first-frame LBRR payload for one
+// provided-packet decode_fec call.
 func (d *Decoder) storeFECData(data []byte, toc TOC, frameCount, frameSize int) {
 	if !packetHasLBRR(data, toc) {
 		d.clearFECState()

@@ -712,9 +712,9 @@ func TestDecodeFECFrame_BufferSizingUsesSingleFrame(t *testing.T) {
 	}
 }
 
-// TestDecodeWithFEC_HybridStoresFEC verifies that Hybrid packets with LBRR
-// arm FEC state.
-func TestDecodeWithFEC_HybridStoresFEC(t *testing.T) {
+// TestDecodeWithFEC_HybridLBRRNormalDecodeDoesNotCacheFEC verifies that normal
+// decode skips LBRR instead of caching it for a later nil decode_fec call.
+func TestDecodeWithFEC_HybridLBRRNormalDecodeDoesNotCacheFEC(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {
 		t.Fatalf("NewDecoder error: %v", err)
@@ -731,14 +731,9 @@ func TestDecodeWithFEC_HybridStoresFEC(t *testing.T) {
 		t.Fatalf("Decode Hybrid packet error: %v", err)
 	}
 
-	if !dec.hasFEC {
-		t.Error("hasFEC should be true after Hybrid packet with LBRR")
+	if dec.hasFEC {
+		t.Error("hasFEC should be false after normal Hybrid decode")
 	}
-	if dec.fecMode != ModeHybrid {
-		t.Errorf("fecMode = %v, want ModeHybrid", dec.fecMode)
-	}
-
-	t.Log("DecodeWithFEC correctly stored FEC data for Hybrid mode")
 }
 
 // TestDecodeWithFEC_Recovery tests FEC recovery flow.
@@ -960,21 +955,12 @@ func TestDecodeWithFEC_ProvidedCELTPacketClearsStoredFECState(t *testing.T) {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
 
-	// Seed FEC state from a SILK packet.
-	silkPacket := make([]byte, 100)
-	silkPacket[0] = GenerateTOC(9, false, 0)
-	for i := 1; i < len(silkPacket); i++ {
-		silkPacket[i] = byte(i)
-	}
+	dec.hasFEC = true
+	dec.fecData = append(dec.fecData[:0], 0x40, 0x01)
+	dec.fecMode = ModeSILK
+	dec.fecFrameSize = 960
 	pcm := make([]float32, 960)
-	if _, err := dec.Decode(silkPacket, pcm); err != nil {
-		t.Fatalf("Decode SILK packet error: %v", err)
-	}
-	if !dec.hasFEC {
-		t.Fatalf("hasFEC should be true after SILK decode")
-	}
 
-	// CELT packet should fallback PLC and clear stale stored FEC state.
 	celtPacket := make([]byte, 100)
 	celtPacket[0] = GenerateTOC(31, false, 0)
 	for i := 1; i < len(celtPacket); i++ {
@@ -1205,9 +1191,6 @@ func TestDecodeCode3VBROneFramePaddingRegression(t *testing.T) {
 	if n <= 0 || n > cfg.MaxPacketSamples {
 		t.Fatalf("Decode samples=%d outside (0,%d]", n, cfg.MaxPacketSamples)
 	}
-	if !dec.hasFEC {
-		t.Fatal("Decode did not retain first-frame payload for FEC")
-	}
 }
 
 func TestDecodeWithFEC_PLCWithProvidedStateUsesProvidedMode(t *testing.T) {
@@ -1283,19 +1266,10 @@ func TestDecodeWithFEC_ResetClearsFEC(t *testing.T) {
 		t.Fatalf("NewDecoder error: %v", err)
 	}
 
-	// Decode a SILK packet to store FEC data
-	silkPacket := make([]byte, 100)
-	silkPacket[0] = GenerateTOC(9, false, 0)
-	for i := 1; i < len(silkPacket); i++ {
-		silkPacket[i] = byte(i)
-	}
-
-	pcm := make([]float32, 960)
-	_, _ = dec.Decode(silkPacket, pcm)
-
-	if !dec.hasFEC {
-		t.Fatal("FEC data should be stored after SILK decode")
-	}
+	dec.hasFEC = true
+	dec.fecData = append(dec.fecData[:0], 0x40, 0x01)
+	dec.fecMode = ModeSILK
+	dec.fecFrameSize = 960
 
 	// Reset the decoder
 	dec.Reset()
