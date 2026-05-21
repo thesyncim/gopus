@@ -622,7 +622,13 @@ func (d *Decoder) hybridDREDLowbandEligible() bool {
 }
 
 func (d *Decoder) hybridDREDLowbandSamples(frameSizeSamples int) (int, bool) {
-	if !d.hybridDREDLowbandEligible() || frameSizeSamples <= 0 || frameSizeSamples%3 != 0 {
+	if !d.hybridDREDLowbandEligible() || frameSizeSamples <= 0 {
+		return 0, false
+	}
+	if d.sampleRate == 16000 {
+		return frameSizeSamples, true
+	}
+	if frameSizeSamples%3 != 0 {
 		return 0, false
 	}
 	return frameSizeSamples / 3, true
