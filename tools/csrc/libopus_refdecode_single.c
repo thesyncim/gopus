@@ -114,7 +114,7 @@ int main(void) {
   }
   if (version == 1) {
     sample_format = SAMPLE_FORMAT_FLOAT32;
-  } else if (version == 2 || version == 3) {
+  } else if (version == 2 || version == 3 || version == 4) {
     if (!read_u32(&sample_format)) {
       fprintf(stderr, "failed to read sample format\n");
       return 1;
@@ -169,9 +169,24 @@ int main(void) {
 
   for (i = 0; i < packet_count; i++) {
     uint32_t packet_len = 0;
+    uint32_t decode_fec = 0;
     unsigned char *packet = NULL;
     int decoded_samples = 0;
 
+    if (version >= 4 && !read_u32(&decode_fec)) {
+      fprintf(stderr, "failed to read decode_fec flag\n");
+      opus_decoder_destroy(dec);
+      free(frame);
+      free(decoded);
+      return 1;
+    }
+    if (decode_fec > 1) {
+      fprintf(stderr, "invalid decode_fec flag\n");
+      opus_decoder_destroy(dec);
+      free(frame);
+      free(decoded);
+      return 1;
+    }
     if (!read_u32(&packet_len)) {
       fprintf(stderr, "failed to read packet length\n");
       opus_decoder_destroy(dec);
@@ -192,9 +207,9 @@ int main(void) {
     }
 
     if (sample_format == SAMPLE_FORMAT_INT16) {
-      decoded_samples = opus_decode(dec, packet, (opus_int32)packet_len, (opus_int16 *)frame, (int)frame_size, 0);
+      decoded_samples = opus_decode(dec, packet, (opus_int32)packet_len, (opus_int16 *)frame, (int)frame_size, (int)decode_fec);
     } else {
-      decoded_samples = opus_decode_float(dec, packet, (opus_int32)packet_len, (float *)frame, (int)frame_size, 0);
+      decoded_samples = opus_decode_float(dec, packet, (opus_int32)packet_len, (float *)frame, (int)frame_size, (int)decode_fec);
     }
     free(packet);
 

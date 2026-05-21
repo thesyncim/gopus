@@ -345,6 +345,78 @@ func TestDecodeHybridAPIRatePCMMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecodeWithFECLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		name      string
+		mode      EncoderMode
+		wantMode  Mode
+		bandwidth Bandwidth
+		bitrate   int
+		tolerance float64
+	}{
+		{name: "silk", mode: EncoderModeSILK, wantMode: ModeSILK, bandwidth: BandwidthWideband, bitrate: 24000, tolerance: 8e-3},
+		{name: "hybrid", mode: EncoderModeHybrid, wantMode: ModeHybrid, bandwidth: BandwidthFullband, bitrate: 64000, tolerance: 1.2e-2},
+	} {
+		for _, channels := range []int{1, 2} {
+			seedPacket, recoveryPacket := encodeAPIRateFECSequence(t, tc.mode, tc.wantMode, tc.bandwidth, tc.bitrate, channels, 960)
+			for _, sampleRate := range []int{8000, 16000, 48000} {
+				t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+					frameSize, err := packetSamplesAtRate(recoveryPacket, sampleRate)
+					if err != nil {
+						t.Fatalf("packetSamplesAtRate: %v", err)
+					}
+
+					steps := []libopusAPIRateDecodeStep{
+						{packet: seedPacket},
+						{packet: recoveryPacket, fec: true},
+						{packet: recoveryPacket},
+					}
+					want, err := decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, frameSize, steps)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "api-rate FEC reference decode", err)
+					}
+
+					dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+					if err != nil {
+						t.Fatalf("NewDecoder: %v", err)
+					}
+					got := make([]float32, 0, len(want))
+					frame := make([]float32, frameSize*channels)
+					n, err := dec.Decode(seedPacket, frame)
+					if err != nil {
+						t.Fatalf("Decode seed: %v", err)
+					}
+					if n != frameSize {
+						t.Fatalf("Decode seed samples=%d want %d", n, frameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					n, err = dec.DecodeWithFEC(recoveryPacket, frame, true)
+					if err != nil {
+						t.Fatalf("DecodeWithFEC recovery: %v", err)
+					}
+					if n != frameSize {
+						t.Fatalf("DecodeWithFEC samples=%d want %d", n, frameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					n, err = dec.Decode(recoveryPacket, frame)
+					if err != nil {
+						t.Fatalf("Decode recovery packet: %v", err)
+					}
+					if n != frameSize {
+						t.Fatalf("Decode recovery packet samples=%d want %d", n, frameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					assertAPIRateFloat32Close(t, got, want, tc.name+" api-rate FEC decode", tc.tolerance)
+				})
+			}
+		}
+	}
+}
+
 func encodeAPIRateSILKPacket(t *testing.T, channels int) []byte {
 	t.Helper()
 	const (
@@ -490,6 +562,83 @@ func encodeAPIRateHybridPacketFrameSize(t *testing.T, channels, frameSize int) [
 	return packet
 }
 
+func encodeAPIRateFECSequence(t *testing.T, mode EncoderMode, wantMode Mode, bandwidth Bandwidth, bitrate, channels, frameSize int) ([]byte, []byte) {
+	t.Helper()
+	const sampleRate = 48000
+	app := ApplicationVoIP
+	if mode == EncoderModeSILK {
+		app = ApplicationRestrictedSilk
+	}
+	enc, err := NewEncoder(EncoderConfig{
+		SampleRate:  sampleRate,
+		Channels:    channels,
+		Application: app,
+	})
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+	if err := enc.SetMode(mode); err != nil {
+		t.Fatalf("SetMode: %v", err)
+	}
+	if err := enc.SetFrameSize(frameSize); err != nil {
+		t.Fatalf("SetFrameSize: %v", err)
+	}
+	if err := enc.SetBandwidth(bandwidth); err != nil {
+		t.Fatalf("SetBandwidth: %v", err)
+	}
+	if err := enc.SetBitrate(bitrate * channels); err != nil {
+		t.Fatalf("SetBitrate: %v", err)
+	}
+	if err := enc.SetSignal(SignalVoice); err != nil {
+		t.Fatalf("SetSignal: %v", err)
+	}
+	enc.SetFEC(true)
+	if err := enc.SetPacketLoss(20); err != nil {
+		t.Fatalf("SetPacketLoss: %v", err)
+	}
+	if channels == 2 {
+		if err := enc.SetForceChannels(2); err != nil {
+			t.Fatalf("SetForceChannels: %v", err)
+		}
+	}
+
+	packets := make([][]byte, 0, 12)
+	for frameIndex := 0; frameIndex < 12; frameIndex++ {
+		pcm := make([]float32, frameSize*channels)
+		for i := 0; i < frameSize; i++ {
+			tm := float64(frameIndex*frameSize+i) / sampleRate
+			pcm[i*channels] = 0.38*float32(math.Sin(2*math.Pi*220*tm)) +
+				0.14*float32(math.Sin(2*math.Pi*440*tm+0.11))
+			if channels == 2 {
+				pcm[i*channels+1] = 0.33*float32(math.Sin(2*math.Pi*330*tm+0.07)) +
+					0.12*float32(math.Sin(2*math.Pi*660*tm+0.19))
+			}
+		}
+		packet, err := enc.EncodeFloat32(pcm)
+		if err != nil {
+			t.Fatalf("Encode frame %d: %v", frameIndex, err)
+		}
+		if len(packet) == 0 {
+			t.Fatalf("Encode frame %d produced no packet", frameIndex)
+		}
+		toc := ParseTOC(packet[0])
+		if toc.Mode != wantMode {
+			t.Fatalf("Encode frame %d mode=%v want %v", frameIndex, toc.Mode, wantMode)
+		}
+		packets = append(packets, append([]byte(nil), packet...))
+		if len(packets) >= 3 && packetHasInBandFEC(t, packet) {
+			return packets[len(packets)-3], packet
+		}
+	}
+	t.Fatalf("failed to generate %v packet carrying LBRR", wantMode)
+	return nil, nil
+}
+
+type libopusAPIRateDecodeStep struct {
+	packet []byte
+	fec    bool
+}
+
 func buildLibopusAPIRateRefdecodeHelper() (string, error) {
 	return libopustest.BuildCHelper(libopustest.CHelperConfig{
 		Label:      "api-rate reference decode",
@@ -501,14 +650,27 @@ func buildLibopusAPIRateRefdecodeHelper() (string, error) {
 }
 
 func decodeWithLibopusReferenceAPIRateFloat32(sampleRate, channels, frameSize int, packets [][]byte) ([]float32, error) {
+	steps := make([]libopusAPIRateDecodeStep, len(packets))
+	for i, packet := range packets {
+		steps[i] = libopusAPIRateDecodeStep{packet: packet}
+	}
+	return decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, frameSize, steps)
+}
+
+func decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, frameSize int, steps []libopusAPIRateDecodeStep) ([]float32, error) {
 	binPath, err := libopusAPIRateRefdecodeHelper.Path(buildLibopusAPIRateRefdecodeHelper)
 	if err != nil {
 		return nil, err
 	}
-	payload := libopustest.NewOraclePayloadVersion("GOSI", 3, libopusRefdecodeSingleFormatFloat32, uint32(sampleRate), uint32(channels), uint32(frameSize), uint32(len(packets)))
-	for _, packet := range packets {
-		payload.U32(uint32(len(packet)))
-		payload.Raw(packet)
+	payload := libopustest.NewOraclePayloadVersion("GOSI", 4, libopusRefdecodeSingleFormatFloat32, uint32(sampleRate), uint32(channels), uint32(frameSize), uint32(len(steps)))
+	for _, step := range steps {
+		if step.fec {
+			payload.U32(1)
+		} else {
+			payload.U32(0)
+		}
+		payload.U32(uint32(len(step.packet)))
+		payload.Raw(step.packet)
 	}
 	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "api-rate reference decode", "GOSO")
 	if err != nil {
