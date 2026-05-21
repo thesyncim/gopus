@@ -147,13 +147,13 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 	}
 
 	// Get prediction coefficients
-	var alpha, beta float64
+	var alpha, beta float32
 	if intra {
 		alpha = 0.0
-		beta = BetaIntra
+		beta = float32(BetaIntra)
 	} else {
-		alpha = AlphaCoef[lm]
-		beta = BetaCoefInter[lm]
+		alpha = float32(AlphaCoef[lm])
+		beta = float32(BetaCoefInter[lm])
 	}
 
 	prob := eProbModel[lm][0]
@@ -164,10 +164,7 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 	budget := rd.StorageBits()
 
 	// Decode band-major to match libopus ordering.
-	prevBandEnergy := ensureFloat64Slice(&d.scratchPrevBandEnergy, d.channels)
-	for i := range prevBandEnergy {
-		prevBandEnergy[i] = 0
-	}
+	var prevBandEnergy [2]float32
 	for band := 0; band < nbBands; band++ {
 		for c := 0; c < d.channels; c++ {
 			// Decode Laplace-distributed residual
@@ -193,19 +190,18 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 
 			// Apply prediction
 			// pred = alpha * prevEnergy[band] + prevBandEnergy
-			prevFrameEnergy := d.prevEnergy[c*MaxBands+band]
-			minEnergy := -9.0 * DB6
+			prevFrameEnergy := float32(d.prevEnergy[c*MaxBands+band])
+			minEnergy := float32(-9.0 * DB6)
 			if prevFrameEnergy < minEnergy {
 				prevFrameEnergy = minEnergy
 			}
-			pred := alpha*prevFrameEnergy + prevBandEnergy[c]
 
 			// Compute energy: pred + qi * DB6 (6 dB per step)
-			q := float64(qi) * DB6
-			energy := pred + q
+			q := float32(qi) * float32(DB6)
+			energy := alpha*prevFrameEnergy + prevBandEnergy[c] + q
 
 			// Store result
-			dst[c*nbBands+band] = energy
+			dst[c*nbBands+band] = float64(energy)
 
 			// Update prev band energy for next band's inter-band prediction.
 			// Per libopus: prev is filtered by the quantized delta.
@@ -254,13 +250,13 @@ func (d *Decoder) decodeCoarseEnergyRange(start, end int, intra bool, lm int, en
 	rd := d.rangeDecoder
 
 	// Prediction coefficients
-	var alpha, beta float64
+	var alpha, beta float32
 	if intra {
 		alpha = 0.0
-		beta = BetaIntra
+		beta = float32(BetaIntra)
 	} else {
-		alpha = AlphaCoef[lm]
-		beta = BetaCoefInter[lm]
+		alpha = float32(AlphaCoef[lm])
+		beta = float32(BetaCoefInter[lm])
 	}
 
 	prob := eProbModel[lm][0]
@@ -271,10 +267,7 @@ func (d *Decoder) decodeCoarseEnergyRange(start, end int, intra bool, lm int, en
 	budget := rd.StorageBits()
 
 	// Inter-band prediction state starts at 0 (matches libopus).
-	prevBandEnergy := ensureFloat64Slice(&d.scratchPrevBandEnergy, d.channels)
-	for i := range prevBandEnergy {
-		prevBandEnergy[i] = 0
-	}
+	var prevBandEnergy [2]float32
 	for band := start; band < end; band++ {
 		for c := 0; c < d.channels; c++ {
 			tell := rd.Tell()
@@ -297,17 +290,16 @@ func (d *Decoder) decodeCoarseEnergyRange(start, end int, intra bool, lm int, en
 				qi = -1
 			}
 
-			prevFrameEnergy := d.prevEnergy[c*MaxBands+band]
-			minEnergy := -9.0 * DB6
+			prevFrameEnergy := float32(d.prevEnergy[c*MaxBands+band])
+			minEnergy := float32(-9.0 * DB6)
 			if prevFrameEnergy < minEnergy {
 				prevFrameEnergy = minEnergy
 			}
-			pred := alpha*prevFrameEnergy + prevBandEnergy[c]
 
-			q := float64(qi) * DB6
-			energy := pred + q
+			q := float32(qi) * float32(DB6)
+			energy := alpha*prevFrameEnergy + prevBandEnergy[c] + q
 
-			energies[c*end+band] = energy
+			energies[c*end+band] = float64(energy)
 			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
 		}
 	}
@@ -387,17 +379,14 @@ func (d *Decoder) decodeFineEnergyRange(energies []float64, start, end int, prev
 			prev = prevQuant[band]
 		}
 
-		scale := float64(uint(1) << extra)
 		for c := 0; c < d.channels; c++ {
 			q2 := rd.DecodeRawBits(uint(extra))
-			offset := (float64(q2)+0.5)/scale - 0.5
-			if prev > 0 {
-				offset /= float64(uint(1) << prev)
-			}
+			offset := (float32(q2)+float32(0.5))*float32(uint(1)<<uint(14-extra))*float32(1.0/16384.0) - float32(0.5)
+			offset *= float32(uint(1)<<uint(14-prev)) * float32(1.0/16384.0)
 
 			idx := c*end + band
 			if idx < len(energies) {
-				energies[idx] += offset * DB6
+				energies[idx] = float64(float32(energies[idx]) + offset)
 			}
 		}
 	}
@@ -493,9 +482,9 @@ func (d *Decoder) DecodeEnergyFinaliseRange(start, end int, energies []float64, 
 			for c := 0; c < d.channels; c++ {
 				q2 := d.rangeDecoder.DecodeRawBits(1)
 				if apply {
-					offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
+					offset := (float32(q2) - float32(0.5)) * float32(uint(1)<<uint(14-fineQuant[band]-1)) * float32(1.0/16384.0)
 					idx := c*end + band
-					energies[idx] += offset * DB6
+					energies[idx] = float64(float32(energies[idx]) + offset)
 				}
 				bitsLeft--
 			}

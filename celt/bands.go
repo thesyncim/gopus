@@ -96,17 +96,7 @@ func (d *Decoder) DecodeBands(
 		// Store vector reference for potential folding by later bands
 		bandVectors[band] = shape
 
-		// Denormalize: scale shape by energy (log2 units, 1 = 6 dB).
-		// Add per-band mean energy (log2 units) to recover absolute level.
-		// Clamp energy to prevent overflow (libopus clamps to 32).
-		e := energies[band]
-		if band < len(eMeans) {
-			e += eMeans[band] * DB6
-		}
-		if e > 32*DB6 {
-			e = 32 * DB6
-		}
-		gain := celtExp2(float32(e / DB6))
+		gain := denormalizeBandGain(energies, band)
 
 		// Apply gain to shape and write to output
 		for i := 0; i < n && i < len(shape); i++ {
@@ -259,25 +249,8 @@ func (d *Decoder) DecodeBandsStereo(
 		bandVectorsL[band] = shapeL
 		bandVectorsR[band] = shapeR
 
-		// Denormalize: scale by energy (log2 units, 1 = 6 dB).
-		// Add per-band mean energy (log2 units) to recover absolute level.
-		// Clamp energy to prevent overflow (libopus clamps to 32).
-		eL := energiesL[band]
-		if band < len(eMeans) {
-			eL += eMeans[band] * DB6
-		}
-		if eL > 32*DB6 {
-			eL = 32 * DB6
-		}
-		eR := energiesR[band]
-		if band < len(eMeans) {
-			eR += eMeans[band] * DB6
-		}
-		if eR > 32*DB6 {
-			eR = 32 * DB6
-		}
-		gainL := celtExp2(float32(eL / DB6))
-		gainR := celtExp2(float32(eR / DB6))
+		gainL := denormalizeBandGain(energiesL, band)
+		gainR := denormalizeBandGain(energiesR, band)
 
 		for i := 0; i < n && i < len(shapeL); i++ {
 			left[offset+i] = denormalizeMulFloat32(shapeL[i], gainL)
@@ -437,12 +410,7 @@ func DenormalizeBand(shape []float64, energy float64) []float64 {
 		return nil
 	}
 
-	// Clamp energy to prevent overflow (libopus clamps to 32).
-	e := energy
-	if e > 32 {
-		e = 32
-	}
-	gain := celtExp2(float32(e / DB6))
+	gain := denormalizeEnergyGain(energy)
 	result := make([]float64, len(shape))
 	for i, x := range shape {
 		result[i] = denormalizeMulFloat32(x, gain)
@@ -480,14 +448,7 @@ func denormalizeCoeffsInto(dst, src []float64, energies []float64, nbBands, fram
 		if width <= 0 {
 			continue
 		}
-		e := energies[band]
-		if band < len(eMeans) {
-			e += eMeans[band] * DB6
-		}
-		if e > 32 {
-			e = 32
-		}
-		gain := celtExp2(float32(e / DB6))
+		gain := denormalizeBandGain(energies, band)
 		end := offset + width
 		if end > coeffsLen {
 			end = coeffsLen
@@ -533,14 +494,7 @@ func denormalizeCoeffsWithModeInto(dst, src []float64, energies []float64, nbBan
 		if start >= end {
 			continue
 		}
-		e := energies[band]
-		if band < len(eMeans) {
-			e += eMeans[band] * DB6
-		}
-		if e > 32 {
-			e = 32
-		}
-		gain := celtExp2(float32(e / DB6))
+		gain := denormalizeBandGain(energies, band)
 		for i := start; i < end; i++ {
 			dst[i] = denormalizeMulFloat32(src[i], gain)
 		}
@@ -600,14 +554,7 @@ func denormalizeBandsPackedDownsampleInto(dst, src []float64, energies []float64
 		if bandEnd > len(src) {
 			bandEnd = len(src)
 		}
-		e := energies[band]
-		if band < len(eMeans) {
-			e += eMeans[band] * DB6
-		}
-		if e > 32 {
-			e = 32
-		}
-		gain := celtExp2(float32(e / DB6))
+		gain := denormalizeBandGain(energies, band)
 		for ; j < bandEnd && f < len(dst); j++ {
 			dst[f] = denormalizeMulFloat32(src[j], gain)
 			f++
@@ -619,12 +566,14 @@ func denormalizeBandsPackedDownsampleInto(dst, src []float64, energies []float64
 }
 
 func clearDenormalizedDownsampleTail(coeffs []float64, nbBands, scaleWidth, downsample int, edges []int) {
-	if downsample <= 1 || len(coeffs) == 0 || nbBands <= 0 || scaleWidth <= 0 || len(edges) < nbBands+1 {
+	if len(coeffs) == 0 || nbBands <= 0 || scaleWidth <= 0 || len(edges) < nbBands+1 {
 		return
 	}
 	bound := edges[nbBands] * scaleWidth
-	if limit := len(coeffs) / downsample; bound > limit {
-		bound = limit
+	if downsample > 1 {
+		if limit := len(coeffs) / downsample; bound > limit {
+			bound = limit
+		}
 	}
 	if bound < 0 {
 		bound = 0
@@ -636,6 +585,25 @@ func clearDenormalizedDownsampleTail(coeffs []float64, nbBands, scaleWidth, down
 
 func denormalizeMulFloat32(x float64, gain float32) float64 {
 	return float64(float32(x) * gain)
+}
+
+func denormalizeBandGain(energies []float64, band int) float32 {
+	e := float32(energies[band])
+	if band < len(eMeans) {
+		e += float32(eMeans[band])
+	}
+	if e > 32 {
+		e = 32
+	}
+	return celtExp2(e)
+}
+
+func denormalizeEnergyGain(energy float64) float32 {
+	e := float32(energy)
+	if e > 32 {
+		e = 32
+	}
+	return celtExp2(e)
 }
 
 func scaleDenormalizedFloat32Into(dst, src []float64, gain float32, n int) {

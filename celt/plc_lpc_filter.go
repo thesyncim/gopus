@@ -83,6 +83,89 @@ func xcorrKernel4Float32(x, y []float32, sum *[4]float32, length int) {
 	}
 }
 
+func xcorrKernel4Float64(x, y []float64, sum *[4]float32, length int) {
+	if length <= 0 {
+		return
+	}
+	xi := 0
+	yi := 0
+	y3 := float32(0)
+	y0 := float32(y[yi])
+	yi++
+	y1 := float32(y[yi])
+	yi++
+	y2 := float32(y[yi])
+	yi++
+	j := 0
+	for ; j < length-3; j += 4 {
+		tmp := float32(x[xi])
+		xi++
+		y3 = float32(y[yi])
+		yi++
+		sum[0] += tmp * y0
+		sum[1] += tmp * y1
+		sum[2] += tmp * y2
+		sum[3] += tmp * y3
+
+		tmp = float32(x[xi])
+		xi++
+		y0 = float32(y[yi])
+		yi++
+		sum[0] += tmp * y1
+		sum[1] += tmp * y2
+		sum[2] += tmp * y3
+		sum[3] += tmp * y0
+
+		tmp = float32(x[xi])
+		xi++
+		y1 = float32(y[yi])
+		yi++
+		sum[0] += tmp * y2
+		sum[1] += tmp * y3
+		sum[2] += tmp * y0
+		sum[3] += tmp * y1
+
+		tmp = float32(x[xi])
+		xi++
+		y2 = float32(y[yi])
+		yi++
+		sum[0] += tmp * y3
+		sum[1] += tmp * y0
+		sum[2] += tmp * y1
+		sum[3] += tmp * y2
+	}
+	if j < length {
+		j++
+		tmp := float32(x[xi])
+		xi++
+		y3 = float32(y[yi])
+		yi++
+		sum[0] += tmp * y0
+		sum[1] += tmp * y1
+		sum[2] += tmp * y2
+		sum[3] += tmp * y3
+	}
+	if j < length {
+		j++
+		tmp := float32(x[xi])
+		xi++
+		y0 = float32(y[yi])
+		yi++
+		sum[0] += tmp * y1
+		sum[1] += tmp * y2
+		sum[2] += tmp * y3
+		sum[3] += tmp * y0
+	}
+	if j < length {
+		tmp := float32(x[xi])
+		y1 = float32(y[yi])
+		sum[0] += tmp * y2
+		sum[1] += tmp * y3
+		sum[2] += tmp * y0
+		sum[3] += tmp * y1
+	}
+}
+
 func celtFIRFloat32(dst []float64, exc []float32, start, length int, lpc []float64) {
 	const ord = celtPLCLPCOrder
 	if length <= 0 || len(dst) < length || start-ord < 0 || start+length > len(exc) || len(lpc) < ord {

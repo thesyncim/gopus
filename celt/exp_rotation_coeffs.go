@@ -3,6 +3,7 @@ package celt
 import "math"
 
 const maxExpRotationLength = maxBandWidth
+const libopusHalfPi = 0.5 * 3.1415926535897931
 
 var expRotationSpreadFactors = [3]int{15, 10, 5}
 
@@ -24,8 +25,8 @@ func init() {
 				gain := float32(length) / float32(length+spreadFactor*k)
 				theta := 0.5 * gain * gain
 				expRotationCoeffTable[spreadIdx][length][k] = expRotationCoeff{
-					c: float32(math.Cos(0.5 * math.Pi * float64(theta))),
-					s: float32(math.Sin(0.5 * math.Pi * float64(theta))),
+					c: float32(math.Cos(libopusHalfPi * float64(theta))),
+					s: float32(math.Cos(libopusHalfPi * float64(float32(1)-theta))),
 				}
 			}
 		}

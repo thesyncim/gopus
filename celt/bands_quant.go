@@ -680,45 +680,39 @@ func expRotation1(x []float64, length, stride int, c, s float64) {
 	}
 	x = x[:length:length]
 	_ = x[length-1]
-	ms := -s
-
-	// Hot-path specializations for common strides reduce index arithmetic while
-	// preserving the same operation order as the generic implementation.
-	if stride == 1 {
-		expRotation1Stride1(x, length, c, s)
-		return
-	}
-
-	if stride == 2 {
-		expRotation1Stride2(x, length, c, s)
-		return
-	}
+	c32 := float32(c)
+	s32 := float32(s)
+	ms32 := -s32
 
 	end := length - stride
 	i := 0
 	for ; i+1 < end; i += 2 {
-		x1 := x[i]
-		x2 := x[i+stride]
-		x[i+stride] = c*x2 + s*x1
-		x[i] = c*x1 + ms*x2
+		x1 := float32(x[i])
+		x2 := float32(x[i+stride])
+		x[i+stride] = float64(expRotationMac32(c32, x2, s32, x1))
+		x[i] = float64(expRotationMac32(c32, x1, ms32, x2))
 
-		x3 := x[i+1]
-		x4 := x[i+1+stride]
-		x[i+1+stride] = c*x4 + s*x3
-		x[i+1] = c*x3 + ms*x4
+		x3 := float32(x[i+1])
+		x4 := float32(x[i+1+stride])
+		x[i+1+stride] = float64(expRotationMac32(c32, x4, s32, x3))
+		x[i+1] = float64(expRotationMac32(c32, x3, ms32, x4))
 	}
 	for ; i < end; i++ {
-		x1 := x[i]
-		x2 := x[i+stride]
-		x[i+stride] = c*x2 + s*x1
-		x[i] = c*x1 + ms*x2
+		x1 := float32(x[i])
+		x2 := float32(x[i+stride])
+		x[i+stride] = float64(expRotationMac32(c32, x2, s32, x1))
+		x[i] = float64(expRotationMac32(c32, x1, ms32, x2))
 	}
 	for i := length - 2*stride - 1; i >= 0; i-- {
-		x1 := x[i]
-		x2 := x[i+stride]
-		x[i+stride] = c*x2 + s*x1
-		x[i] = c*x1 + ms*x2
+		x1 := float32(x[i])
+		x2 := float32(x[i+stride])
+		x[i+stride] = float64(expRotationMac32(c32, x2, s32, x1))
+		x[i] = float64(expRotationMac32(c32, x1, ms32, x2))
 	}
+}
+
+func expRotationMac32(a, b, c, d float32) float32 {
+	return fma32(a, b, noFMA32Mul(c, d))
 }
 
 func expRotation(x []float64, length, dir, stride, k, spread int) {
@@ -730,8 +724,8 @@ func expRotation(x []float64, length, dir, stride, k, spread int) {
 		spreadFactor := expRotationSpreadFactors[spread-1]
 		gain := float32(length) / float32(length+spreadFactor*k)
 		theta := 0.5 * gain * gain
-		c = float64(float32(math.Cos(0.5 * math.Pi * float64(theta))))
-		s = float64(float32(math.Sin(0.5 * math.Pi * float64(theta))))
+		c = float64(float32(math.Cos(libopusHalfPi * float64(theta))))
+		s = float64(float32(math.Cos(libopusHalfPi * float64(float32(1)-theta))))
 	}
 
 	stride2 := 0
@@ -809,36 +803,36 @@ func normalizeResidualInto(out []float64, pulses []int, gain float64, yy float64
 	}
 	out = out[:n:n]
 	pulses = pulses[:n:n]
-	energy := yy
+	energy := float32(yy)
 	if energy <= 0 {
-		// Fall back to computing energy from pulses
+		// Fall back to computing energy from pulses.
 		i := 0
 		for ; i+3 < n; i += 4 {
-			v0 := pulses[i]
-			v1 := pulses[i+1]
-			v2 := pulses[i+2]
-			v3 := pulses[i+3]
-			energy += float64(v0*v0 + v1*v1 + v2*v2 + v3*v3)
+			v0 := float32(pulses[i])
+			v1 := float32(pulses[i+1])
+			v2 := float32(pulses[i+2])
+			v3 := float32(pulses[i+3])
+			energy += v0*v0 + v1*v1 + v2*v2 + v3*v3
 		}
 		for ; i < n; i++ {
-			v := pulses[i]
-			energy += float64(v * v)
+			v := float32(pulses[i])
+			energy += v * v
 		}
 	}
 	if energy <= 0 {
 		clear(out[:n])
 		return
 	}
-	scale := gain / math.Sqrt(energy)
+	scale := celtRSqrt(energy) * float32(gain)
 	i := 0
 	for ; i+3 < n; i += 4 {
-		out[i] = float64(pulses[i]) * scale
-		out[i+1] = float64(pulses[i+1]) * scale
-		out[i+2] = float64(pulses[i+2]) * scale
-		out[i+3] = float64(pulses[i+3]) * scale
+		out[i] = float64(float32(pulses[i]) * scale)
+		out[i+1] = float64(float32(pulses[i+1]) * scale)
+		out[i+2] = float64(float32(pulses[i+2]) * scale)
+		out[i+3] = float64(float32(pulses[i+3]) * scale)
 	}
 	for ; i < n; i++ {
-		out[i] = float64(pulses[i]) * scale
+		out[i] = float64(float32(pulses[i]) * scale)
 	}
 }
 
@@ -851,20 +845,20 @@ func normalizeResidualIntoAndCollapse(out []float64, pulses []int, gain float64,
 	}
 	out = out[:n:n]
 	pulses = pulses[:n:n]
-	energy := yy
+	energy := float32(yy)
 	if energy <= 0 {
-		// Fall back to computing energy from pulses
+		// Fall back to computing energy from pulses.
 		i := 0
 		for ; i+3 < n; i += 4 {
-			v0 := pulses[i]
-			v1 := pulses[i+1]
-			v2 := pulses[i+2]
-			v3 := pulses[i+3]
-			energy += float64(v0*v0 + v1*v1 + v2*v2 + v3*v3)
+			v0 := float32(pulses[i])
+			v1 := float32(pulses[i+1])
+			v2 := float32(pulses[i+2])
+			v3 := float32(pulses[i+3])
+			energy += v0*v0 + v1*v1 + v2*v2 + v3*v3
 		}
 		for ; i < n; i++ {
-			v := pulses[i]
-			energy += float64(v * v)
+			v := float32(pulses[i])
+			energy += v * v
 		}
 	}
 	if energy <= 0 {
@@ -874,25 +868,39 @@ func normalizeResidualIntoAndCollapse(out []float64, pulses []int, gain float64,
 		}
 		return 0
 	}
-	return normalizeResidualKnownEnergyIntoAndCollapse(out, pulses, gain, energy, b)
+	return normalizeResidualKnownEnergyIntoAndCollapse(out, pulses, gain, float64(energy), b)
 }
 
 func normalizeResidualKnownEnergyIntoAndCollapse(out []float64, pulses []int, gain float64, energy float64, b int) int {
 	n := len(pulses)
 	out = out[:n:n]
 	pulses = pulses[:n:n]
-	scale := gain / math.Sqrt(energy)
+	energy32 := float32(energy)
+	if energy32 <= 0 {
+		for i := 0; i < n; i++ {
+			v := float32(pulses[i])
+			energy32 += v * v
+		}
+	}
+	if energy32 <= 0 {
+		clear(out[:n])
+		if b <= 1 {
+			return 1
+		}
+		return 0
+	}
+	scale := celtRSqrt(energy32) * float32(gain)
 
 	if b <= 1 {
 		i := 0
 		for ; i+3 < n; i += 4 {
-			out[i] = float64(pulses[i]) * scale
-			out[i+1] = float64(pulses[i+1]) * scale
-			out[i+2] = float64(pulses[i+2]) * scale
-			out[i+3] = float64(pulses[i+3]) * scale
+			out[i] = float64(float32(pulses[i]) * scale)
+			out[i+1] = float64(float32(pulses[i+1]) * scale)
+			out[i+2] = float64(float32(pulses[i+2]) * scale)
+			out[i+3] = float64(float32(pulses[i+3]) * scale)
 		}
 		for ; i < n; i++ {
-			out[i] = float64(pulses[i]) * scale
+			out[i] = float64(float32(pulses[i]) * scale)
 		}
 		return 1
 	}
@@ -910,7 +918,7 @@ func normalizeResidualKnownEnergyIntoAndCollapse(out []float64, pulses []int, ga
 		end := base + n0
 		for i := base; i < end; i++ {
 			v := pulses[i]
-			out[i] = float64(v) * scale
+			out[i] = float64(float32(v) * scale)
 			tmp |= v
 		}
 		if tmp != 0 {
@@ -920,7 +928,7 @@ func normalizeResidualKnownEnergyIntoAndCollapse(out []float64, pulses []int, ga
 	}
 	// Handle any remaining tail elements when n is not divisible by b.
 	for i := base; i < n; i++ {
-		out[i] = float64(pulses[i]) * scale
+		out[i] = float64(float32(pulses[i]) * scale)
 	}
 	return mask
 }
@@ -929,18 +937,32 @@ func normalizeResidualKnownEnergyIntoAndCollapse32(out []float64, pulses []int32
 	n := len(pulses)
 	out = out[:n:n]
 	pulses = pulses[:n:n]
-	scale := gain / math.Sqrt(energy)
+	energy32 := float32(energy)
+	if energy32 <= 0 {
+		for i := 0; i < n; i++ {
+			v := float32(pulses[i])
+			energy32 += v * v
+		}
+	}
+	if energy32 <= 0 {
+		clear(out[:n])
+		if b <= 1 {
+			return 1
+		}
+		return 0
+	}
+	scale := celtRSqrt(energy32) * float32(gain)
 
 	if b <= 1 {
 		i := 0
 		for ; i+3 < n; i += 4 {
-			out[i] = float64(pulses[i]) * scale
-			out[i+1] = float64(pulses[i+1]) * scale
-			out[i+2] = float64(pulses[i+2]) * scale
-			out[i+3] = float64(pulses[i+3]) * scale
+			out[i] = float64(float32(pulses[i]) * scale)
+			out[i+1] = float64(float32(pulses[i+1]) * scale)
+			out[i+2] = float64(float32(pulses[i+2]) * scale)
+			out[i+3] = float64(float32(pulses[i+3]) * scale)
 		}
 		for ; i < n; i++ {
-			out[i] = float64(pulses[i]) * scale
+			out[i] = float64(float32(pulses[i]) * scale)
 		}
 		return 1
 	}
@@ -962,15 +984,15 @@ func normalizeResidualKnownEnergyIntoAndCollapse32(out []float64, pulses []int32
 			v1 := pulses[i+1]
 			v2 := pulses[i+2]
 			v3 := pulses[i+3]
-			out[i] = float64(v0) * scale
-			out[i+1] = float64(v1) * scale
-			out[i+2] = float64(v2) * scale
-			out[i+3] = float64(v3) * scale
+			out[i] = float64(float32(v0) * scale)
+			out[i+1] = float64(float32(v1) * scale)
+			out[i+2] = float64(float32(v2) * scale)
+			out[i+3] = float64(float32(v3) * scale)
 			tmp |= v0 | v1 | v2 | v3
 		}
 		for ; i < end; i++ {
 			v := pulses[i]
-			out[i] = float64(v) * scale
+			out[i] = float64(float32(v) * scale)
 			tmp |= v
 		}
 		if tmp != 0 {
@@ -980,15 +1002,19 @@ func normalizeResidualKnownEnergyIntoAndCollapse32(out []float64, pulses []int32
 	}
 	i := base
 	for ; i+3 < n; i += 4 {
-		out[i] = float64(pulses[i]) * scale
-		out[i+1] = float64(pulses[i+1]) * scale
-		out[i+2] = float64(pulses[i+2]) * scale
-		out[i+3] = float64(pulses[i+3]) * scale
+		out[i] = float64(float32(pulses[i]) * scale)
+		out[i+1] = float64(float32(pulses[i+1]) * scale)
+		out[i+2] = float64(float32(pulses[i+2]) * scale)
+		out[i+3] = float64(float32(pulses[i+3]) * scale)
 	}
 	for ; i < n; i++ {
-		out[i] = float64(pulses[i]) * scale
+		out[i] = float64(float32(pulses[i]) * scale)
 	}
 	return mask
+}
+
+func celtRSqrt(x float32) float32 {
+	return float32(1) / float32(math.Sqrt(float64(x)))
 }
 
 func renormalizeVector(x []float64, gain float64) {
@@ -997,21 +1023,8 @@ func renormalizeVector(x []float64, gain float64) {
 	}
 	n := len(x)
 	x = x[:n:n]
-	_ = x[n-1]
-	energy := 0.0
-	i := 0
-	for ; i+3 < n; i += 4 {
-		v0 := x[i]
-		v1 := x[i+1]
-		v2 := x[i+2]
-		v3 := x[i+3]
-		energy += v0*v0 + v1*v1 + v2*v2 + v3*v3
-	}
-	for ; i < n; i++ {
-		v := x[i]
-		energy += v * v
-	}
-	renormalizeVectorWithEnergy(x, gain, energy)
+	energy := float32(1e-15) + float32(sumOfSquaresF64toF32(x, n))
+	renormalizeVectorWithEnergy(x, gain, float64(energy))
 }
 
 func renormalizeVectorWithEnergy(x []float64, gain, energy float64) {
@@ -1021,16 +1034,16 @@ func renormalizeVectorWithEnergy(x []float64, gain, energy float64) {
 	n := len(x)
 	x = x[:n:n]
 	_ = x[n-1]
-	scale := gain / math.Sqrt(energy)
+	scale := celtRSqrt(float32(energy)) * float32(gain)
 	i := 0
 	for ; i+3 < n; i += 4 {
-		x[i] *= scale
-		x[i+1] *= scale
-		x[i+2] *= scale
-		x[i+3] *= scale
+		x[i] = float64(float32(x[i]) * scale)
+		x[i+1] = float64(float32(x[i+1]) * scale)
+		x[i+2] = float64(float32(x[i+2]) * scale)
+		x[i+3] = float64(float32(x[i+3]) * scale)
 	}
 	for ; i < n; i++ {
-		x[i] *= scale
+		x[i] = float64(float32(x[i]) * scale)
 	}
 }
 
@@ -1048,37 +1061,27 @@ func seededZeroPulseResynth(x, lowband []float64, seed *uint32, gain float64) bo
 	_ = x[n-1]
 
 	seedVal := *seed
-	energy := 0.0
-
 	if lowband == nil {
 		i := 0
 		for ; i+3 < n; i += 4 {
 			seedVal = seedVal*1664525 + 1013904223
-			v0 := float64(int32(seedVal) >> 20)
-			x[i] = v0
+			x[i] = float64(float32(int32(seedVal) >> 20))
 
 			seedVal = seedVal*1664525 + 1013904223
-			v1 := float64(int32(seedVal) >> 20)
-			x[i+1] = v1
+			x[i+1] = float64(float32(int32(seedVal) >> 20))
 
 			seedVal = seedVal*1664525 + 1013904223
-			v2 := float64(int32(seedVal) >> 20)
-			x[i+2] = v2
+			x[i+2] = float64(float32(int32(seedVal) >> 20))
 
 			seedVal = seedVal*1664525 + 1013904223
-			v3 := float64(int32(seedVal) >> 20)
-			x[i+3] = v3
-
-			energy += v0*v0 + v1*v1 + v2*v2 + v3*v3
+			x[i+3] = float64(float32(int32(seedVal) >> 20))
 		}
 		for ; i < n; i++ {
 			seedVal = seedVal*1664525 + 1013904223
-			v := float64(int32(seedVal) >> 20)
-			x[i] = v
-			energy += v * v
+			x[i] = float64(float32(int32(seedVal) >> 20))
 		}
 		*seed = seedVal
-		renormalizeVectorWithEnergy(x, gain, energy)
+		renormalizeVector(x, gain)
 		return true
 	}
 
@@ -1091,31 +1094,23 @@ func seededZeroPulseResynth(x, lowband []float64, seed *uint32, gain float64) bo
 	i := 0
 	for ; i+3 < n; i += 4 {
 		seedVal = seedVal*1664525 + 1013904223
-		v0 := lowband[i] + foldNoise*float64(int32(((seedVal>>15)&1)<<1)-1)
-		x[i] = v0
+		x[i] = float64(float32(lowband[i]) + float32(foldNoise)*float32(int32(((seedVal>>15)&1)<<1)-1))
 
 		seedVal = seedVal*1664525 + 1013904223
-		v1 := lowband[i+1] + foldNoise*float64(int32(((seedVal>>15)&1)<<1)-1)
-		x[i+1] = v1
+		x[i+1] = float64(float32(lowband[i+1]) + float32(foldNoise)*float32(int32(((seedVal>>15)&1)<<1)-1))
 
 		seedVal = seedVal*1664525 + 1013904223
-		v2 := lowband[i+2] + foldNoise*float64(int32(((seedVal>>15)&1)<<1)-1)
-		x[i+2] = v2
+		x[i+2] = float64(float32(lowband[i+2]) + float32(foldNoise)*float32(int32(((seedVal>>15)&1)<<1)-1))
 
 		seedVal = seedVal*1664525 + 1013904223
-		v3 := lowband[i+3] + foldNoise*float64(int32(((seedVal>>15)&1)<<1)-1)
-		x[i+3] = v3
-
-		energy += v0*v0 + v1*v1 + v2*v2 + v3*v3
+		x[i+3] = float64(float32(lowband[i+3]) + float32(foldNoise)*float32(int32(((seedVal>>15)&1)<<1)-1))
 	}
 	for ; i < n; i++ {
 		seedVal = seedVal*1664525 + 1013904223
-		v := lowband[i] + foldNoise*float64(int32(((seedVal>>15)&1)<<1)-1)
-		x[i] = v
-		energy += v * v
+		x[i] = float64(float32(lowband[i]) + float32(foldNoise)*float32(int32(((seedVal>>15)&1)<<1)-1))
 	}
 	*seed = seedVal
-	renormalizeVectorWithEnergy(x, gain, energy)
+	renormalizeVector(x, gain)
 	return true
 }
 
@@ -1250,8 +1245,8 @@ func algUnquantNoExtInto(shape []float64, rd *rangecoding.Decoder, n, k, spread,
 	} else {
 		pulses = make([]int32, n)
 	}
-	yy := float64(decodePulsesInto32(idx, n, k, pulses, scratch))
-	cm := normalizeResidualKnownEnergyIntoAndCollapse32(shape, pulses, gain, yy, b)
+	yy := float32(decodePulsesInto32(idx, n, k, pulses, scratch))
+	cm := normalizeResidualKnownEnergyIntoAndCollapse32(shape, pulses, gain, float64(yy), b)
 	expRotation(shape, n, -1, b, k, spread)
 	return cm
 }
@@ -1293,7 +1288,7 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 	} else {
 		pulses = make([]int, n)
 	}
-	yy := float64(decodePulsesInto(idx, n, k, pulses, scratch))
+	yy := float64(float32(decodePulsesInto(idx, n, k, pulses, scratch)))
 	if extraBits >= 2 && extDec != nil {
 		up := (1 << extraBits) - 1
 		if n == 2 {

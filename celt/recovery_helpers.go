@@ -646,21 +646,18 @@ func (d *Decoder) computePLCLPC(frame, lpc, window []float64) {
 		x[n-1-i] = float64(float32(x[n-1-i]) * w)
 	}
 
-	var ac [celtPLCLPCOrder + 1]float64
 	fastN := n - celtPLCLPCOrder
 	if fastN < 0 {
 		fastN = 0
 	}
+	var ac [celtPLCLPCOrder + 1]float64
+	pitchXCorrFloat32(x, x, ac[:], fastN, celtPLCLPCOrder+1)
 	for lag := 0; lag <= celtPLCLPCOrder; lag++ {
-		sum := float32(0)
-		for i := 0; i < fastN; i++ {
-			sum += float32(x[i]) * float32(x[i+lag])
-		}
 		tail := float32(0)
 		for i := lag + fastN; i < n; i++ {
 			tail += float32(x[i]) * float32(x[i-lag])
 		}
-		ac[lag] = float64(sum + tail)
+		ac[lag] = float64(float32(ac[lag]) + tail)
 	}
 
 	// Match libopus float path: add a tiny noise floor and lag windowing.
@@ -747,12 +744,17 @@ func pitchXCorrFloat32(x, y, xcorr []float64, length, maxPitch int) {
 	_ = x[length-1]
 	_ = y[maxPitch+length-2]
 	_ = xcorr[maxPitch-1]
-	for i := 0; i < maxPitch; i++ {
-		sum := float32(0)
-		for j := 0; j < length; j++ {
-			sum += float32(x[j]) * float32(y[i+j])
-		}
-		xcorr[i] = float64(sum)
+	i := 0
+	for ; i < maxPitch-3; i += 4 {
+		var sum [4]float32
+		xcorrKernel4Float64(x, y[i:], &sum, length)
+		xcorr[i] = float64(sum[0])
+		xcorr[i+1] = float64(sum[1])
+		xcorr[i+2] = float64(sum[2])
+		xcorr[i+3] = float64(sum[3])
+	}
+	for ; i < maxPitch; i++ {
+		xcorr[i] = innerProdFloat32(x, y[i:], length)
 	}
 }
 
