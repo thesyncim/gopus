@@ -61,7 +61,7 @@ func (d *Decoder) GetEnergy(band, channel int) float64 {
 	if band < 0 || band >= MaxBands || channel < 0 || channel >= d.channels {
 		return 0
 	}
-	return d.prevEnergy[channel*MaxBands+band]
+	return float64(d.prevEnergy[channel*MaxBands+band])
 }
 
 // SetEnergy sets the energy for a specific band and channel.
@@ -69,5 +69,5 @@ func (d *Decoder) SetEnergy(band, channel int, energy float64) {
 	if band < 0 || band >= MaxBands || channel < 0 || channel >= d.channels {
 		return
 	}
-	d.prevEnergy[channel*MaxBands+band] = energy
+	d.prevEnergy[channel*MaxBands+band] = celtGLog(energy)
 }

@@ -21,7 +21,7 @@ func TestExpRotationCoefficientsMatchDirectComputation(t *testing.T) {
 				gain := float32(length) / float32(length+spreadFactor*k)
 				theta := 0.5 * gain * gain
 				wantC := float64(float32(math.Cos(0.5 * math.Pi * float64(theta))))
-				wantS := float64(float32(math.Sin(0.5 * math.Pi * float64(theta))))
+				wantS := float64(float32(math.Cos(0.5 * math.Pi * float64(float32(1)-theta))))
 				if gotC != wantC || gotS != wantS {
 					t.Fatalf("length=%d k=%d spread=%d got=(%0.17g,%0.17g) want=(%0.17g,%0.17g)", length, k, spread, gotC, gotS, wantC, wantS)
 				}

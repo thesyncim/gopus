@@ -40,10 +40,10 @@ func seedDecoderStateForSilenceTest(d *Decoder) {
 		d.postfilterMem[i] = math.Sin(float64(i+11)*0.03) * 0.03
 	}
 	for i := range d.prevEnergy {
-		d.prevEnergy[i] = math.Sin(float64(i+1)*0.11) * 2
-		d.prevEnergy2[i] = math.Cos(float64(i+1)*0.05) * 2
-		d.prevLogE[i] = -20.0 + 0.01*float64(i)
-		d.prevLogE2[i] = -22.0 + 0.01*float64(i)
+		d.prevEnergy[i] = celtGLog(math.Sin(float64(i+1)*0.11) * 2)
+		d.prevEnergy2[i] = celtGLog(math.Cos(float64(i+1)*0.05) * 2)
+		d.prevLogE[i] = celtGLog(-20.0 + 0.01*float64(i))
+		d.prevLogE2[i] = celtGLog(-22.0 + 0.01*float64(i))
 	}
 	d.postfilterPeriodOld = 91
 	d.postfilterGainOld = 0.33

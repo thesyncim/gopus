@@ -3,6 +3,7 @@ package celt
 import (
 	"math"
 	"testing"
+	"unsafe"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -349,6 +350,30 @@ func TestLibopusCELTFloatTypeSizes(t *testing.T) {
 		sizes.opusVal16 != 4 || sizes.opusVal32 != 4 {
 		t.Fatalf("libopus CELT float sizes: celt_norm=%d celt_sig=%d celt_glog=%d opus_val16=%d opus_val32=%d, want all 4",
 			sizes.celtNorm, sizes.celtSig, sizes.celtGLog, sizes.opusVal16, sizes.opusVal32)
+	}
+}
+
+func TestDecoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
+	libopustest.RequireOracle(t)
+	sizes, err := probeLibopusCELTTypeSizes()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	dec := NewDecoder(2)
+	got := []struct {
+		name string
+		size uintptr
+	}{
+		{"prevEnergy", unsafe.Sizeof(dec.prevEnergy[0])},
+		{"prevEnergy2", unsafe.Sizeof(dec.prevEnergy2[0])},
+		{"prevLogE", unsafe.Sizeof(dec.prevLogE[0])},
+		{"prevLogE2", unsafe.Sizeof(dec.prevLogE2[0])},
+		{"backgroundEnergy", unsafe.Sizeof(dec.backgroundEnergy[0])},
+	}
+	for _, tc := range got {
+		if tc.size != uintptr(sizes.celtGLog) {
+			t.Fatalf("%s element size=%d want libopus celt_glog size %d", tc.name, tc.size, sizes.celtGLog)
+		}
 	}
 }
 

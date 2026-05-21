@@ -73,7 +73,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	coeffsL := spectrum.coeffsL
 	coeffsR := spectrum.coeffsR
 	if spectrum.antiCollapseOn {
-		antiCollapse(coeffsL, coeffsR, spectrum.collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+		antiCollapseGLog(coeffsL, coeffsR, spectrum.collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 	d.applyPendingPLCPrefilterAndFold()
 	samples := d.synthesizeDecodedFrame(frameSize, mode.LM, end, lm, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset, energies, coeffsL, coeffsR, nil)
@@ -193,7 +193,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	energies := ensureFloat64Slice(&d.scratchEnergies, end*d.channels)
 	for c := 0; c < d.channels; c++ {
 		for band := 0; band < end; band++ {
-			energies[c*end+band] = d.prevEnergy[c*MaxBands+band]
+			energies[c*end+band] = float64(d.prevEnergy[c*MaxBands+band])
 		}
 	}
 	d.decodeCoarseEnergyRange(start, end, intra, lm, energies)

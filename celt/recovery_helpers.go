@@ -196,9 +196,9 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 		}
 		for i := start; i < end; i++ {
 			idx := base + i
-			e0 := d.prevEnergy[idx]
-			e1 := d.prevLogE[idx]
-			e2 := d.prevLogE2[idx]
+			e0 := float64(d.prevEnergy[idx])
+			e1 := float64(d.prevLogE[idx])
+			e2 := float64(d.prevLogE2[idx])
 
 			maxPrev := e1
 			if e2 > maxPrev {
@@ -229,7 +229,7 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 					e0 = e2
 				}
 			}
-			d.prevEnergy[idx] = e0 - safety
+			d.prevEnergy[idx] = celtGLog(e0 - safety)
 		}
 	}
 }
@@ -263,7 +263,7 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 	d.ensureBackgroundEnergyState()
 	d.scratchPrevEnergy = ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
 	concealEnergy := d.scratchPrevEnergy[:len(d.prevEnergy)]
-	copy(concealEnergy, d.prevEnergy)
+	copyGLogToFloat64(concealEnergy, d.prevEnergy)
 
 	// Match libopus celt_decode_lost() noise PLC cadence: in hybrid mode,
 	// only the coded CELT band range [start,end) gets decayed/floored.
@@ -280,9 +280,9 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 		base := c * MaxBands
 		for band := start; band < end; band++ {
 			idx := base + band
-			e := d.prevEnergy[idx] - decayDB
-			if d.backgroundEnergy[idx] > e {
-				e = d.backgroundEnergy[idx]
+			e := float64(d.prevEnergy[idx]) - decayDB
+			if bg := float64(d.backgroundEnergy[idx]); bg > e {
+				e = bg
 			}
 			concealEnergy[idx] = e
 		}
@@ -405,7 +405,7 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 	d.ensureBackgroundEnergyState()
 	d.scratchPrevEnergy = ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
 	concealEnergy := d.scratchPrevEnergy[:len(d.prevEnergy)]
-	copy(concealEnergy, d.prevEnergy)
+	copyGLogToFloat64(concealEnergy, d.prevEnergy)
 
 	decayDB := 0.5
 	if prevLossDuration == 0 {
@@ -423,9 +423,9 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 		base := c * MaxBands
 		for band := start; band < end; band++ {
 			idx := base + band
-			e := d.prevEnergy[idx] - decayDB
-			if d.backgroundEnergy[idx] > e {
-				e = d.backgroundEnergy[idx]
+			e := float64(d.prevEnergy[idx]) - decayDB
+			if bg := float64(d.backgroundEnergy[idx]); bg > e {
+				e = bg
 			}
 			concealEnergy[idx] = e
 		}

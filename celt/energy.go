@@ -213,7 +213,7 @@ func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool,
 	// Update previous frame energy for next frame's inter-frame prediction
 	for c := 0; c < d.channels; c++ {
 		for band := 0; band < nbBands; band++ {
-			d.prevEnergy[c*MaxBands+band] = dst[c*nbBands+band]
+			d.prevEnergy[c*MaxBands+band] = celtGLog(dst[c*nbBands+band])
 		}
 	}
 

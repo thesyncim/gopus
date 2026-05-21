@@ -8,8 +8,8 @@ type preparedDecodeFrame struct {
 	lm          int
 	end         int
 	prev1Energy []float64
-	prev1LogE   []float64
-	prev2LogE   []float64
+	prev1LogE   []celtGLog
+	prev2LogE   []celtGLog
 }
 
 func (d *Decoder) prepareDecodeFrame(data []byte, frameSize int) (preparedDecodeFrame, error) {

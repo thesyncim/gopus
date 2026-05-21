@@ -5,7 +5,7 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
-func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels int, disableInv bool, energies, prev1LogE, prev2LogE []float64, pulses, fineQuant, finePriority, tfRes []int, intensity, dualStereo, balance, codedBands int) (coeffsL, coeffsR []float64, qext *preparedQEXTDecode) {
+func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels int, disableInv bool, energies []float64, prev1LogE, prev2LogE []celtGLog, pulses, fineQuant, finePriority, tfRes []int, intensity, dualStereo, balance, codedBands int) (coeffsL, coeffsR []float64, qext *preparedQEXTDecode) {
 	d.DecodeFineEnergyRange(energies, start, end, fineQuant)
 	if extsupport.QEXT {
 		qext = d.prepareQEXTDecodeRange(qextPayload, rd, start, end, lm, frameSize)
@@ -46,7 +46,7 @@ func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decod
 	}
 
 	if antiCollapseOn {
-		antiCollapse(coeffsL, coeffsR, collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+		antiCollapseGLog(coeffsL, coeffsR, collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 
 	return coeffsL, coeffsR, qext

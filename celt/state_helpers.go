@@ -92,17 +92,17 @@ func (d *Decoder) ensureEnergyState(channels int) {
 	}
 	needed := MaxBands * channels
 	if len(d.prevEnergy) < needed {
-		prev := make([]float64, needed)
+		prev := make([]celtGLog, needed)
 		copy(prev, d.prevEnergy)
 		d.prevEnergy = prev
 	}
 	if len(d.prevEnergy2) < needed {
-		prev := make([]float64, needed)
+		prev := make([]celtGLog, needed)
 		copy(prev, d.prevEnergy2)
 		d.prevEnergy2 = prev
 	}
 	if len(d.prevLogE) < needed {
-		prev := make([]float64, needed)
+		prev := make([]celtGLog, needed)
 		copy(prev, d.prevLogE)
 		for i := len(d.prevLogE); i < needed; i++ {
 			prev[i] = -28.0
@@ -110,7 +110,7 @@ func (d *Decoder) ensureEnergyState(channels int) {
 		d.prevLogE = prev
 	}
 	if len(d.prevLogE2) < needed {
-		prev := make([]float64, needed)
+		prev := make([]celtGLog, needed)
 		copy(prev, d.prevLogE2)
 		for i := len(d.prevLogE2); i < needed; i++ {
 			prev[i] = -28.0
@@ -118,7 +118,7 @@ func (d *Decoder) ensureEnergyState(channels int) {
 		d.prevLogE2 = prev
 	}
 	if len(d.backgroundEnergy) < needed {
-		prev := make([]float64, needed)
+		prev := make([]celtGLog, needed)
 		copy(prev, d.backgroundEnergy)
 		for i := len(d.backgroundEnergy); i < needed; i++ {
 			prev[i] = 0
@@ -145,14 +145,10 @@ func (d *Decoder) allocationScratch() []int {
 	return ensureIntSlice(&d.scratchAllocWork, MaxBands*5)
 }
 
-func (d *Decoder) snapshotDecodeHistory() ([]float64, []float64, []float64) {
+func (d *Decoder) snapshotDecodeHistory() ([]float64, []celtGLog, []celtGLog) {
 	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	copy(prev1Energy, d.prevEnergy)
-	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
-	copy(prev1LogE, d.prevLogE)
-	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
-	copy(prev2LogE, d.prevLogE2)
-	return prev1Energy, prev1LogE, prev2LogE
+	copyGLogToFloat64(prev1Energy, d.prevEnergy)
+	return prev1Energy, d.prevLogE, d.prevLogE2
 }
 
 // prepareMonoEnergyFromStereo mirrors libopus behavior for mono streams by
@@ -173,13 +169,17 @@ func (d *Decoder) prepareMonoEnergyFromStereo() {
 // Used for inter-frame energy prediction in coarse energy decoding.
 // Layout: [band0_ch0, band1_ch0, ..., band20_ch0, band0_ch1, ..., band20_ch1]
 func (d *Decoder) PrevEnergy() []float64 {
-	return d.prevEnergy
+	out := make([]float64, len(d.prevEnergy))
+	copyGLogToFloat64(out, d.prevEnergy)
+	return out
 }
 
 // PrevEnergy2 returns the band energies from two frames ago.
 // Used for anti-collapse detection.
 func (d *Decoder) PrevEnergy2() []float64 {
-	return d.prevEnergy2
+	out := make([]float64, len(d.prevEnergy2))
+	copyGLogToFloat64(out, d.prevEnergy2)
+	return out
 }
 
 // SetPrevEnergy copies the given energies to the previous energy buffer.
@@ -188,7 +188,7 @@ func (d *Decoder) SetPrevEnergy(energies []float64) {
 	// Shift: current prev becomes prev2
 	copy(d.prevEnergy2, d.prevEnergy)
 	// Copy new energies to prev
-	copy(d.prevEnergy, energies)
+	copyFloat64ToGLog(d.prevEnergy, energies)
 }
 
 // SetPrevEnergyWithPrev updates prevEnergy using the provided previous state.
@@ -197,7 +197,7 @@ func (d *Decoder) SetPrevEnergy(energies []float64) {
 // The prevEnergy array uses full layout [L0..L20, R0..R20] where 21 = MaxBands.
 func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float64) {
 	if len(prev) == len(d.prevEnergy2) {
-		copy(d.prevEnergy2, prev)
+		copyFloat64ToGLog(d.prevEnergy2, prev)
 	} else {
 		copy(d.prevEnergy2, d.prevEnergy)
 	}
@@ -214,7 +214,7 @@ func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float64) {
 			src := c*nbBands + band
 			dst := c*MaxBands + band
 			if src < len(energies) {
-				d.prevEnergy[dst] = energies[src]
+				d.prevEnergy[dst] = celtGLog(energies[src])
 			}
 		}
 	}
@@ -242,7 +242,7 @@ func (d *Decoder) updateLogE(energies []float64, nbBands int, transient bool) {
 		for band := 0; band < nbBands; band++ {
 			src := c*nbBands + band
 			dst := base + band
-			e := energies[src]
+			e := celtGLog(energies[src])
 			if transient {
 				if e < d.prevLogE[dst] {
 					d.prevLogE[dst] = e
@@ -259,7 +259,7 @@ func (d *Decoder) ensureBackgroundEnergyState() {
 		return
 	}
 	if len(d.backgroundEnergy) < len(d.prevEnergy) {
-		prev := make([]float64, len(d.prevEnergy))
+		prev := make([]celtGLog, len(d.prevEnergy))
 		copy(prev, d.backgroundEnergy)
 		for i := len(d.backgroundEnergy); i < len(prev); i++ {
 			prev[i] = 0
@@ -283,7 +283,7 @@ func (d *Decoder) updateBackgroundEnergy(lm int) {
 	if maxIncUnits > 160 {
 		maxIncUnits = 160
 	}
-	maxBackgroundIncrease := float64(maxIncUnits) * 0.001
+	maxBackgroundIncrease := celtGLog(float32(maxIncUnits) * 0.001)
 	for i := range d.backgroundEnergy {
 		bg := d.backgroundEnergy[i] + maxBackgroundIncrease
 		e := d.prevEnergy[i]

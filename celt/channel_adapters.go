@@ -103,12 +103,9 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 	start := 0
 
-	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, MaxBands)
-	prev1Energy = prev1Energy[:MaxBands]
-	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
-	copy(prev1LogE, d.prevLogE)
-	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
-	copy(prev2LogE, d.prevLogE2)
+	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergyGLog, MaxBands)
+	prev1LogE := d.prevLogE
+	prev2LogE := d.prevLogE2
 	for i := 0; i < MaxBands; i++ {
 		left := d.prevEnergy[i]
 		if origChannels > 1 && len(d.prevEnergy) >= MaxBands*2 {
@@ -237,7 +234,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 
 	if antiCollapseOn {
-		antiCollapse(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
+		antiCollapseGLog(coeffsMono, nil, collapse, lm, 1, start, end, monoEnergies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 
 	downsample := d.downsampleFactor()
@@ -300,8 +297,8 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 
 	d.updateLogE(stereoEnergies, end, transient)
 	for i := 0; i < MaxBands; i++ {
-		d.prevEnergy[i] = stereoEnergies[i]
-		d.prevEnergy[MaxBands+i] = stereoEnergies[MaxBands+i]
+		d.prevEnergy[i] = celtGLog(stereoEnergies[i])
+		d.prevEnergy[MaxBands+i] = celtGLog(stereoEnergies[MaxBands+i])
 	}
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, origChannels)
@@ -352,11 +349,9 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	}
 	start := 0
 	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	copy(prev1Energy, d.prevEnergy)
-	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
-	copy(prev1LogE, d.prevLogE)
-	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
-	copy(prev2LogE, d.prevLogE2)
+	copyGLogToFloat64(prev1Energy, d.prevEnergy)
+	prev1LogE := d.prevLogE
+	prev2LogE := d.prevLogE2
 
 	totalBits := len(data) * 8
 	tell := rd.Tell()
@@ -464,7 +459,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	}
 
 	if antiCollapseOn {
-		antiCollapse(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+		antiCollapseGLog(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 
 	energiesL := energies[:end]
@@ -560,11 +555,10 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	origChannels := d.channels
 	d.channels = 1
 
-	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, MaxBands)
-	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
-	copy(prev1LogE, d.prevLogE)
-	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
-	copy(prev2LogE, d.prevLogE2)
+	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergyGLog, MaxBands)
+	prev1EnergyHistory := ensureFloat64Slice(&d.scratchPrevEnergy, MaxBands)
+	prev1LogE := d.prevLogE
+	prev2LogE := d.prevLogE2
 	for i := 0; i < MaxBands; i++ {
 		left := d.prevEnergy[i]
 		if origChannels > 1 && len(d.prevEnergy) >= MaxBands*2 {
@@ -574,6 +568,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 			}
 		}
 		prev1Energy[i] = left
+		prev1EnergyHistory[i] = float64(left)
 	}
 	origPrevEnergy := d.prevEnergy
 	d.prevEnergy = prev1Energy
@@ -658,7 +653,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 
 	monoEnergies := ensureFloat64Slice(&d.scratchEnergies, end*d.channels)
 	for band := 0; band < end; band++ {
-		monoEnergies[band] = d.prevEnergy[band]
+		monoEnergies[band] = float64(d.prevEnergy[band])
 	}
 	d.decodeCoarseEnergyRange(start, end, intra, lm, monoEnergies)
 
@@ -731,7 +726,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	}
 
 	d.updateLogE(stereoEnergies, end, transient)
-	d.SetPrevEnergyWithPrev(prev1Energy, stereoEnergies)
+	d.SetPrevEnergyWithPrev(prev1EnergyHistory, stereoEnergies)
 	d.updateBackgroundEnergy(lm)
 	d.clearFrameHistoryOutsideRange(start, end, origChannels)
 	var extDec *rangecoding.Decoder
@@ -782,11 +777,9 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	}
 	start := HybridCELTStartBand
 	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	copy(prev1Energy, d.prevEnergy)
-	prev1LogE := ensureFloat64Slice(&d.scratchPrevLogE, len(d.prevLogE))
-	copy(prev1LogE, d.prevLogE)
-	prev2LogE := ensureFloat64Slice(&d.scratchPrevLogE2, len(d.prevLogE2))
-	copy(prev2LogE, d.prevLogE2)
+	copyGLogToFloat64(prev1Energy, d.prevEnergy)
+	prev1LogE := d.prevLogE
+	prev2LogE := d.prevLogE2
 
 	totalBits := rd.StorageBits()
 	tell := rd.Tell()
@@ -847,7 +840,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	energies := ensureFloat64Slice(&d.scratchEnergies, end*d.channels)
 	for c := 0; c < d.channels; c++ {
 		for band := 0; band < end; band++ {
-			energies[c*end+band] = d.prevEnergy[c*MaxBands+band]
+			energies[c*end+band] = float64(d.prevEnergy[c*MaxBands+band])
 		}
 	}
 	d.decodeCoarseEnergyRange(start, end, intra, lm, energies)

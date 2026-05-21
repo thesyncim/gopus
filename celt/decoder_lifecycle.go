@@ -22,11 +22,11 @@ func NewDecoder(channels int) *Decoder {
 		downsample: 1,
 
 		// Allocate energy arrays for all bands and channels
-		prevEnergy:       make([]float64, MaxBands*channels),
-		prevEnergy2:      make([]float64, MaxBands*channels),
-		prevLogE:         make([]float64, MaxBands*channels),
-		prevLogE2:        make([]float64, MaxBands*channels),
-		backgroundEnergy: make([]float64, MaxBands*channels),
+		prevEnergy:       make([]celtGLog, MaxBands*channels),
+		prevEnergy2:      make([]celtGLog, MaxBands*channels),
+		prevLogE:         make([]celtGLog, MaxBands*channels),
+		prevLogE2:        make([]celtGLog, MaxBands*channels),
+		backgroundEnergy: make([]celtGLog, MaxBands*channels),
 
 		// Overlap buffer for CELT (full overlap per channel)
 		overlapBuffer: make([]float64, Overlap*channels),

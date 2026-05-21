@@ -2,19 +2,6 @@ package celt
 
 import "math"
 
-// antiCollapse mirrors libopus celt/bands.c anti_collapse() for float builds.
-// It injects shaped noise into collapsed bands for transient frames.
-//
-// Parameters:
-// - coeffsL, coeffsR: normalized coefficients for left and right channels
-// - collapse: collapse mask per band*channel (from quantAllBandsDecode)
-// - lm: log mode (0=2.5ms, 1=5ms, 2=10ms, 3=20ms)
-// - channels: number of channels (1 or 2)
-// - start, end: band range to process
-// - logE: current frame's log energies (end bands per channel, indexed as c*end+band)
-// - prev1LogE, prev2LogE: previous frames' log energies (MaxBands per channel, indexed as c*MaxBands+band)
-// - pulses: bit allocation per band
-// - seed: RNG seed for noise generation
 func antiCollapse(
 	coeffsL, coeffsR []float64,
 	collapse []byte,
@@ -22,6 +9,36 @@ func antiCollapse(
 	channels int,
 	start, end int,
 	logE, prev1LogE, prev2LogE []float64,
+	pulses []int,
+	seed uint32,
+) {
+	antiCollapseTyped(coeffsL, coeffsR, collapse, lm, channels, start, end, logE, prev1LogE, prev2LogE, pulses, seed)
+}
+
+func antiCollapseGLog(
+	coeffsL, coeffsR []float64,
+	collapse []byte,
+	lm int,
+	channels int,
+	start, end int,
+	logE []float64,
+	prev1LogE, prev2LogE []celtGLog,
+	pulses []int,
+	seed uint32,
+) {
+	antiCollapseTyped(coeffsL, coeffsR, collapse, lm, channels, start, end, logE, prev1LogE, prev2LogE, pulses, seed)
+}
+
+// antiCollapseTyped mirrors libopus celt/bands.c anti_collapse() for float builds.
+// It keeps previous log-energy history at celt_glog width in decoder paths.
+func antiCollapseTyped[T ~float32 | ~float64](
+	coeffsL, coeffsR []float64,
+	collapse []byte,
+	lm int,
+	channels int,
+	start, end int,
+	logE []float64,
+	prev1LogE, prev2LogE []T,
 	pulses []int,
 	seed uint32,
 ) {
@@ -84,17 +101,17 @@ func antiCollapse(
 				continue
 			}
 
-			prev1 := prev1LogE[prevIdx]
-			prev2 := prev2LogE[prevIdx]
+			prev1 := float64(prev1LogE[prevIdx])
+			prev2 := float64(prev2LogE[prevIdx])
 			// For mono decoding in a stereo stream, use the max of both channels
 			// to match libopus anti_collapse() behavior.
 			// This is triggered when C==1 but prev arrays have 2*MaxBands entries.
 			if channels == 1 && len(prev1LogE) >= 2*MaxBands && len(prev2LogE) >= 2*MaxBands {
-				alt1 := prev1LogE[MaxBands+band]
+				alt1 := float64(prev1LogE[MaxBands+band])
 				if alt1 > prev1 {
 					prev1 = alt1
 				}
-				alt2 := prev2LogE[MaxBands+band]
+				alt2 := float64(prev2LogE[MaxBands+band])
 				if alt2 > prev2 {
 					prev2 = alt2
 				}

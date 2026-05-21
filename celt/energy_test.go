@@ -68,7 +68,7 @@ func TestDecodeCoarseEnergyPrediction(t *testing.T) {
 
 	// Set known previous energies
 	for band := 0; band < MaxBands; band++ {
-		dec.prevEnergy[band] = float64(band) * 2.0 // 0, 2, 4, 6, ...
+		dec.prevEnergy[band] = celtGLog(float64(band) * 2.0) // 0, 2, 4, 6, ...
 	}
 
 	// Create range decoder
