@@ -3,7 +3,6 @@ package gopus
 import (
 	"fmt"
 	"math"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -14,15 +13,11 @@ const (
 	libopusSoftClipOutputMagic = "GSCO"
 )
 
-var (
-	libopusSoftClipHelperOnce sync.Once
-	libopusSoftClipHelperPath string
-	libopusSoftClipHelperErr  error
-)
+var libopusSoftClipHelper libopustest.HelperCache
 
 func getLibopusSoftClipHelperPath() (string, error) {
-	libopusSoftClipHelperOnce.Do(func() {
-		libopusSoftClipHelperPath, libopusSoftClipHelperErr = libopustest.BuildCHelper(libopustest.CHelperConfig{
+	return libopusSoftClipHelper.Path(func() (string, error) {
+		return libopustest.BuildCHelper(libopustest.CHelperConfig{
 			Label:      "softclip",
 			OutputBase: "gopus_libopus_softclip",
 			SourceFile: "libopus_softclip_info.c",
@@ -30,10 +25,6 @@ func getLibopusSoftClipHelperPath() (string, error) {
 			Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		})
 	})
-	if libopusSoftClipHelperErr != nil {
-		return "", libopusSoftClipHelperErr
-	}
-	return libopusSoftClipHelperPath, nil
 }
 
 func probeLibopusSoftClip(n, channels int, samples, mem []float32) ([]float32, []float32, error) {

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -12,25 +11,14 @@ import (
 )
 
 var (
-	defaultLibopusPitchDNNBlobHelperOnce sync.Once
-	defaultLibopusPitchDNNBlobHelperPath string
-	defaultLibopusPitchDNNBlobHelperErr  error
-
-	defaultLibopusPLCBlobHelperOnce sync.Once
-	defaultLibopusPLCBlobHelperPath string
-	defaultLibopusPLCBlobHelperErr  error
-
-	defaultLibopusFARGANBlobHelperOnce sync.Once
-	defaultLibopusFARGANBlobHelperPath string
-	defaultLibopusFARGANBlobHelperErr  error
-
-	defaultLibopusDREDEncoderBlobHelperOnce sync.Once
-	defaultLibopusDREDEncoderBlobHelperPath string
-	defaultLibopusDREDEncoderBlobHelperErr  error
+	defaultLibopusPitchDNNBlobHelper    libopustest.HelperCache
+	defaultLibopusPLCBlobHelper         libopustest.HelperCache
+	defaultLibopusFARGANBlobHelper      libopustest.HelperCache
+	defaultLibopusDREDEncoderBlobHelper libopustest.HelperCache
 )
 
 func TestDNNBlobControlAcceptsLibopusModelBlobs(t *testing.T) {
-	if os.Getenv("GOPUS_STRICT_LIBOPUS_REF") != "1" {
+	if !libopustest.StrictRefRequired() {
 		t.Skip("requires GOPUS_STRICT_LIBOPUS_REF=1")
 	}
 
@@ -169,43 +157,29 @@ func probeDefaultLibopusDecoderDNNBlob() ([]byte, error) {
 }
 
 func runDefaultLibopusPitchDNNBlobHelper() ([]byte, error) {
-	defaultLibopusPitchDNNBlobHelperOnce.Do(func() {
-		defaultLibopusPitchDNNBlobHelperPath, defaultLibopusPitchDNNBlobHelperErr = buildDefaultLibopusDNNHelper("libopus_pitchdnn_model_blob.c", "gopus_default_libopus_pitchdnn_model_blob")
-	})
-	if defaultLibopusPitchDNNBlobHelperErr != nil {
-		return nil, defaultLibopusPitchDNNBlobHelperErr
-	}
-	return runDefaultLibopusDNNBlobHelper(defaultLibopusPitchDNNBlobHelperPath)
+	return runCachedDefaultLibopusDNNBlobHelper(&defaultLibopusPitchDNNBlobHelper, "libopus_pitchdnn_model_blob.c", "gopus_default_libopus_pitchdnn_model_blob")
 }
 
 func runDefaultLibopusPLCBlobHelper() ([]byte, error) {
-	defaultLibopusPLCBlobHelperOnce.Do(func() {
-		defaultLibopusPLCBlobHelperPath, defaultLibopusPLCBlobHelperErr = buildDefaultLibopusDNNHelper("libopus_plc_model_blob.c", "gopus_default_libopus_plc_model_blob")
-	})
-	if defaultLibopusPLCBlobHelperErr != nil {
-		return nil, defaultLibopusPLCBlobHelperErr
-	}
-	return runDefaultLibopusDNNBlobHelper(defaultLibopusPLCBlobHelperPath)
+	return runCachedDefaultLibopusDNNBlobHelper(&defaultLibopusPLCBlobHelper, "libopus_plc_model_blob.c", "gopus_default_libopus_plc_model_blob")
 }
 
 func runDefaultLibopusFARGANBlobHelper() ([]byte, error) {
-	defaultLibopusFARGANBlobHelperOnce.Do(func() {
-		defaultLibopusFARGANBlobHelperPath, defaultLibopusFARGANBlobHelperErr = buildDefaultLibopusDNNHelper("libopus_fargan_model_blob.c", "gopus_default_libopus_fargan_model_blob")
-	})
-	if defaultLibopusFARGANBlobHelperErr != nil {
-		return nil, defaultLibopusFARGANBlobHelperErr
-	}
-	return runDefaultLibopusDNNBlobHelper(defaultLibopusFARGANBlobHelperPath)
+	return runCachedDefaultLibopusDNNBlobHelper(&defaultLibopusFARGANBlobHelper, "libopus_fargan_model_blob.c", "gopus_default_libopus_fargan_model_blob")
 }
 
 func runDefaultLibopusDREDEncoderBlobHelper() ([]byte, error) {
-	defaultLibopusDREDEncoderBlobHelperOnce.Do(func() {
-		defaultLibopusDREDEncoderBlobHelperPath, defaultLibopusDREDEncoderBlobHelperErr = buildDefaultLibopusDNNHelper("libopus_dred_encoder_model_blob.c", "gopus_default_libopus_dred_encoder_model_blob")
+	return runCachedDefaultLibopusDNNBlobHelper(&defaultLibopusDREDEncoderBlobHelper, "libopus_dred_encoder_model_blob.c", "gopus_default_libopus_dred_encoder_model_blob")
+}
+
+func runCachedDefaultLibopusDNNBlobHelper(cache *libopustest.HelperCache, sourceFile, outputBase string) ([]byte, error) {
+	binPath, err := cache.Path(func() (string, error) {
+		return buildDefaultLibopusDNNHelper(sourceFile, outputBase)
 	})
-	if defaultLibopusDREDEncoderBlobHelperErr != nil {
-		return nil, defaultLibopusDREDEncoderBlobHelperErr
+	if err != nil {
+		return nil, err
 	}
-	return runDefaultLibopusDNNBlobHelper(defaultLibopusDREDEncoderBlobHelperPath)
+	return runDefaultLibopusDNNBlobHelper(binPath)
 }
 
 func runDefaultLibopusDNNBlobHelper(binPath string) ([]byte, error) {
