@@ -2335,10 +2335,15 @@ func TestDecoderCachedHybridDRED16kDecodeMatrixMatchesLiveSequenceOracle(t *test
 				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, 16000, packetInfo)
-			if packetInfo.sampleRate != 48000 || n != tc.frameSize {
-				t.Skipf("16 kHz cached hybrid live-sequence parity requires 48 kHz frame=%d packet-domain decode, got sampleRate=%d frame=%d", tc.frameSize, packetInfo.sampleRate, n)
+			wantFrame, err := packetSamplesAtRate(packetInfo.packet, 16000)
+			if err != nil {
+				t.Fatalf("packetSamplesAtRate: %v", err)
 			}
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, false)
+			if n != wantFrame {
+				t.Fatalf("16 kHz cached hybrid warmup samples=%d want %d", n, wantFrame)
+			}
+			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, 16000)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, 1, n, 0, 0, false)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
@@ -2391,10 +2396,15 @@ func TestDecoderCachedHybridDRED16kThenNextPacketMatchesLiveSequenceOracle(t *te
 			nextPacket := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, tc.frameSize, tc.bandwidth)
 
 			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, 16000, packetInfo)
-			if packetInfo.sampleRate != 48000 || n != tc.frameSize {
-				t.Skipf("16 kHz cached hybrid live-sequence parity requires 48 kHz frame=%d packet-domain decode, got sampleRate=%d frame=%d", tc.frameSize, packetInfo.sampleRate, n)
+			wantFrame, err := packetSamplesAtRate(packetInfo.packet, 16000)
+			if err != nil {
+				t.Fatalf("packetSamplesAtRate: %v", err)
 			}
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 0, 0, true)
+			if n != wantFrame {
+				t.Fatalf("16 kHz cached hybrid warmup samples=%d want %d", n, wantFrame)
+			}
+			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, 16000)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, maxDRED, oracleRate, n, 1, n, 0, 0, true)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
@@ -2458,10 +2468,15 @@ func TestDecoderCachedHybridDRED16kSecondLossMatchesLiveSequenceOracle(t *testin
 				libopustest.HelperUnavailable(t, "dred packet", err)
 			}
 			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, 16000, packetInfo)
-			if packetInfo.sampleRate != 48000 || n != tc.frameSize {
-				t.Skipf("16 kHz cached hybrid second-loss live-sequence parity requires 48 kHz frame=%d packet-domain decode, got sampleRate=%d frame=%d", tc.frameSize, packetInfo.sampleRate, n)
+			wantFrame, err := packetSamplesAtRate(packetInfo.packet, 16000)
+			if err != nil {
+				t.Fatalf("packetSamplesAtRate: %v", err)
 			}
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, false)
+			if n != wantFrame {
+				t.Fatalf("16 kHz cached hybrid warmup samples=%d want %d", n, wantFrame)
+			}
+			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, 16000)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, 1, n, 1, 2*n, false)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
@@ -2530,10 +2545,15 @@ func TestDecoderCachedHybridDRED16kSecondLossThenNextPacketMatchesLiveSequenceOr
 			nextPacket := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, tc.frameSize, tc.bandwidth)
 
 			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, 16000, packetInfo)
-			if packetInfo.sampleRate != 48000 || n != tc.frameSize {
-				t.Skipf("16 kHz cached hybrid second-loss live-sequence parity requires 48 kHz frame=%d packet-domain decode, got sampleRate=%d frame=%d", tc.frameSize, packetInfo.sampleRate, n)
+			wantFrame, err := packetSamplesAtRate(packetInfo.packet, 16000)
+			if err != nil {
+				t.Fatalf("packetSamplesAtRate: %v", err)
 			}
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, packetInfo.maxDREDSamples, packetInfo.sampleRate, n, 1, n, 1, 2*n, true)
+			if n != wantFrame {
+				t.Fatalf("16 kHz cached hybrid warmup samples=%d want %d", n, wantFrame)
+			}
+			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, 16000)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nextPacket, maxDRED, oracleRate, n, 1, n, 1, 2*n, true)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
