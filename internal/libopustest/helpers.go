@@ -176,10 +176,7 @@ func buildScalarDNNHelper(repoRoot, sourceFile, outputBase string, includeIntern
 		return "", fmt.Errorf("%s libopus static library not found: %w", cfg.label, err)
 	}
 
-	outPath := filepath.Join(buildDir, fmt.Sprintf("%s_%s_%s", outputBase, runtime.GOOS, runtime.GOARCH))
-	if runtime.GOOS == "windows" {
-		outPath += ".exe"
-	}
+	outPath := helperOutputPath(buildDir, outputBase, sourceFile, cfg.label)
 	args := []string{
 		"-std=c99",
 		"-O2",

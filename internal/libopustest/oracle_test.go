@@ -1,6 +1,9 @@
 package libopustest
 
-import "testing"
+import (
+	"path/filepath"
+	"testing"
+)
 
 func TestOracleEnabledEnvironmentMatrix(t *testing.T) {
 	tests := []struct {
@@ -29,5 +32,29 @@ func TestOracleEnabledEnvironmentMatrix(t *testing.T) {
 				t.Fatalf("OracleEnabled()=%v want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestHelperOutputPathIncludesSourceAndFlavor(t *testing.T) {
+	got := helperOutputPathForGOOS("/tmp/helpers", "gopus_helper", "tools/csrc/a.c", "ref", "linux", "amd64")
+	if filepath.Base(got) != "gopus_helper_a_ref_linux_amd64" {
+		t.Fatalf("helperOutputPathForGOOS()=%q", got)
+	}
+
+	otherSource := helperOutputPathForGOOS("/tmp/helpers", "gopus_helper", "tools/csrc/b.c", "ref", "linux", "amd64")
+	if got == otherSource {
+		t.Fatalf("source stem did not affect helper path: %q", got)
+	}
+
+	otherFlavor := helperOutputPathForGOOS("/tmp/helpers", "gopus_helper", "tools/csrc/a.c", "dred", "linux", "amd64")
+	if got == otherFlavor {
+		t.Fatalf("flavor did not affect helper path: %q", got)
+	}
+}
+
+func TestHelperOutputPathUsesWindowsSuffix(t *testing.T) {
+	got := helperOutputPathForGOOS("/tmp/helpers", "gopus_helper", "tools/csrc/a.c", "ref", "windows", "arm64")
+	if filepath.Base(got) != "gopus_helper_a_ref_windows_arm64.exe" {
+		t.Fatalf("helperOutputPathForGOOS(windows)=%q", got)
 	}
 }

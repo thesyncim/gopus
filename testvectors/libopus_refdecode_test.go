@@ -163,18 +163,85 @@ func TestDecodeInt16ColdPLCMatchesLibopusReference(t *testing.T) {
 	}
 }
 
+func TestDecodeInt16WarmedSILKPLCMatchesLibopusReference(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		name     string
+		channels int
+	}{
+		{name: "mono", channels: 1},
+		{name: "stereo", channels: 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			const frameSize = 960
+			packets := encodeReferenceDecodePacketsWithConfig(t, tc.channels, frameSize, 1, gopus.ApplicationRestrictedSilk, func(enc *gopus.Encoder) {
+				if err := enc.SetBandwidth(gopus.BandwidthWideband); err != nil {
+					t.Fatalf("set bandwidth: %v", err)
+				}
+				if tc.channels == 2 {
+					if err := enc.SetForceChannels(2); err != nil {
+						t.Fatalf("force stereo: %v", err)
+					}
+				}
+			})
+			toc := gopus.ParseTOC(packets[0][0])
+			if toc.Mode != gopus.ModeSILK || toc.Bandwidth != gopus.BandwidthWideband || toc.FrameSize != frameSize {
+				t.Fatalf("test packet TOC=%+v, want SILK WB %d-sample frame", toc, frameSize)
+			}
+			if tc.channels == 2 && !toc.Stereo {
+				t.Fatalf("test packet TOC=%+v, want stereo", toc)
+			}
+
+			sequence := [][]byte{packets[0], nil}
+			want, err := decodeWithLibopusReferencePacketsSingleInt16(tc.channels, frameSize, sequence)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "single reference decode int16 warmed plc", err)
+			}
+
+			dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, tc.channels))
+			if err != nil {
+				t.Fatalf("create decoder: %v", err)
+			}
+			got := make([]int16, 0, len(want))
+			frameBuf := make([]int16, frameSize*tc.channels)
+			for i, packet := range sequence {
+				n, err := dec.DecodeInt16(packet, frameBuf)
+				if err != nil {
+					t.Fatalf("DecodeInt16 sequence[%d]: %v", i, err)
+				}
+				got = append(got, frameBuf[:n*tc.channels]...)
+			}
+			if len(got) != len(want) {
+				t.Fatalf("DecodeInt16 sequence samples=%d want %d", len(got), len(want))
+			}
+			for i := range want {
+				if got[i] != want[i] {
+					t.Fatalf("DecodeInt16 sequence sample[%d]=%d want %d", i, got[i], want[i])
+				}
+			}
+		})
+	}
+}
+
 func encodeReferenceDecodePackets(t *testing.T, channels, frameSize, frames int) [][]byte {
+	return encodeReferenceDecodePacketsWithConfig(t, channels, frameSize, frames, gopus.ApplicationAudio, nil)
+}
+
+func encodeReferenceDecodePacketsWithConfig(t *testing.T, channels, frameSize, frames int, application gopus.Application, configure func(*gopus.Encoder)) [][]byte {
 	t.Helper()
 	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
 		SampleRate:  48000,
 		Channels:    channels,
-		Application: gopus.ApplicationAudio,
+		Application: application,
 	})
 	if err != nil {
 		t.Fatalf("create encoder: %v", err)
 	}
 	if err := enc.SetFrameSize(frameSize); err != nil {
 		t.Fatalf("set frame size: %v", err)
+	}
+	if configure != nil {
+		configure(enc)
 	}
 
 	pcm := make([]float32, frameSize*channels)

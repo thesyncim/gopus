@@ -114,10 +114,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir helper dir: %w", err)
 	}
-	outPath := filepath.Join(outDir, fmt.Sprintf("%s_%s_%s", cfg.OutputBase, runtime.GOOS, runtime.GOARCH))
-	if runtime.GOOS == "windows" {
-		outPath += ".exe"
-	}
+	outPath := helperOutputPath(outDir, cfg.OutputBase, cfg.SourceFile, "ref")
 
 	args := []string{"-std=c99", "-O2"}
 	if cfg.DeadStrip {
@@ -156,6 +153,19 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		return "", fmt.Errorf("build %s helper: %w (%s)", cfg.Label, err, bytes.TrimSpace(output))
 	}
 	return outPath, nil
+}
+
+func helperOutputPath(dir, outputBase, sourceFile, flavor string) string {
+	return helperOutputPathForGOOS(dir, outputBase, sourceFile, flavor, runtime.GOOS, runtime.GOARCH)
+}
+
+func helperOutputPathForGOOS(dir, outputBase, sourceFile, flavor, goos, goarch string) string {
+	stem := strings.TrimSuffix(filepath.Base(filepath.FromSlash(sourceFile)), filepath.Ext(sourceFile))
+	base := fmt.Sprintf("%s_%s_%s_%s_%s", outputBase, stem, flavor, goos, goarch)
+	if goos == "windows" {
+		base += ".exe"
+	}
+	return filepath.Join(dir, base)
 }
 
 func RunHelper(binPath string, input []byte) ([]byte, error) {
