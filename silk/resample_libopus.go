@@ -1,7 +1,7 @@
 package silk
 
 // LibopusResampler implements the exact SILK resampler from libopus.
-// This uses a combination of 2x allpass upsampling followed by FIR interpolation.
+// It follows libopus' copy, direct 2x, IIR/FIR upsampling, and downsampling paths.
 type LibopusResampler struct {
 	// IIR state for 2x upsampler (6 elements for 3rd order allpass)
 	sIIR [6]int32
@@ -25,17 +25,19 @@ type LibopusResampler struct {
 	scratchOut    []int16   // Size: max output samples
 	scratchResult []float32 // Size: max output samples
 
-	copyMode bool
-	down     *DownsamplingResampler
+	copyMode  bool
+	up2HQMode bool
+	down      *DownsamplingResampler
 }
 
 type libopusResamplerSnapshot struct {
-	sIIR     [6]int32
-	sFIR     [8]int16
-	delayBuf []int16
-	down     DownsamplingResamplerState
-	hasDown  bool
-	copyMode bool
+	sIIR      [6]int32
+	sFIR      [8]int16
+	delayBuf  []int16
+	down      DownsamplingResamplerState
+	hasDown   bool
+	copyMode  bool
+	up2HQMode bool
 }
 
 func (r *LibopusResampler) snapshot() libopusResamplerSnapshot {
@@ -43,9 +45,10 @@ func (r *LibopusResampler) snapshot() libopusResamplerSnapshot {
 		return libopusResamplerSnapshot{}
 	}
 	s := libopusResamplerSnapshot{
-		sIIR:     r.sIIR,
-		sFIR:     r.sFIR,
-		copyMode: r.copyMode,
+		sIIR:      r.sIIR,
+		sFIR:      r.sFIR,
+		copyMode:  r.copyMode,
+		up2HQMode: r.up2HQMode,
 	}
 	if len(r.delayBuf) != 0 {
 		s.delayBuf = append([]int16(nil), r.delayBuf...)
@@ -64,6 +67,7 @@ func (r *LibopusResampler) restore(s libopusResamplerSnapshot) {
 	r.sIIR = s.sIIR
 	r.sFIR = s.sFIR
 	r.copyMode = s.copyMode
+	r.up2HQMode = s.up2HQMode
 	if len(s.delayBuf) == 0 {
 		r.delayBuf = nil
 	} else {
@@ -262,6 +266,16 @@ func NewLibopusResampler(fsIn, fsOut int) *LibopusResampler {
 		r.scratchResult = make([]float32, maxInputSamples)
 		return r
 	}
+	if fsOut == fsIn*2 {
+		r.up2HQMode = true
+		r.delayBuf = make([]int16, r.fsInKHz)
+		maxInputSamples := int(r.fsInKHz * resamplerMaxFrameMs)
+		maxOutputSamples := int(r.fsOutKHz * resamplerMaxFrameMs)
+		r.scratchIn = make([]int16, maxInputSamples)
+		r.scratchOut = make([]int16, maxOutputSamples)
+		r.scratchResult = make([]float32, maxOutputSamples)
+		return r
+	}
 
 	// Batch size
 	r.batchSize = r.fsInKHz * resamplerMaxBatchSizeMs
@@ -352,6 +366,7 @@ func (r *LibopusResampler) CopyFrom(src *LibopusResampler) {
 	r.fsInKHz = src.fsInKHz
 	r.fsOutKHz = src.fsOutKHz
 	r.copyMode = src.copyMode
+	r.up2HQMode = src.up2HQMode
 
 	if src.delayBuf == nil {
 		r.delayBuf = nil
@@ -432,6 +447,28 @@ func (r *LibopusResampler) processInt16Core(in []int16, inLen int32) []int16 {
 		if inLen > r.fsInKHz {
 			copy(outInt16[int(r.fsOutKHz):], in[int(nSamples):int(nSamples+inLen-r.fsInKHz)])
 		}
+		if r.inputDelay > 0 {
+			copy(r.delayBuf[:int(r.inputDelay)], in[int(inLen-r.inputDelay):int(inLen)])
+		}
+		return outInt16
+	}
+
+	if r.up2HQMode {
+		nSamples := r.fsInKHz - r.inputDelay
+		copy(r.delayBuf[int(r.inputDelay):], in[:int(nSamples)])
+		r.up2HQ(outInt16[:int(r.fsOutKHz)], r.delayBuf[:int(r.fsInKHz)])
+
+		if inLen > r.fsInKHz {
+			end := inLen - r.inputDelay
+			if end < nSamples {
+				end = nSamples
+			}
+			if end > inLen {
+				end = inLen
+			}
+			r.up2HQ(outInt16[int(r.fsOutKHz):], in[int(nSamples):int(end)])
+		}
+
 		if r.inputDelay > 0 {
 			copy(r.delayBuf[:int(r.inputDelay)], in[int(inLen-r.inputDelay):int(inLen)])
 		}

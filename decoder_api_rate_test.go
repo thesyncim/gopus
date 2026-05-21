@@ -462,7 +462,7 @@ func TestDecodeWithFECLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 		}
 		for _, channels := range channelsSet {
 			seedPacket, recoveryPacket := encodeAPIRateFECSequence(t, tc.mode, tc.wantMode, tc.bandwidth, tc.bitrate, channels, 960)
-			for _, sampleRate := range []int{8000, 16000, 48000} {
+			for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
 				t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
 					frameSize, err := packetSamplesAtRate(recoveryPacket, sampleRate)
 					if err != nil {

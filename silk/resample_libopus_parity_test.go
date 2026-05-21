@@ -165,6 +165,7 @@ func TestSILKDecoderResamplerProcessInt16IntoMatchesLibopusOracle(t *testing.T) 
 		{fsIn: 12000, fsOut: 48000, frames: makeSILKResamplerFrames(120, 8, 0x10203040)},
 		{fsIn: 12000, fsOut: 8000, frames: makeSILKResamplerFrames(240, 5, 0x45670123)},
 		{fsIn: 12000, fsOut: 12000, frames: makeSILKResamplerFrames(240, 5, 0x76543210)},
+		{fsIn: 12000, fsOut: 24000, frames: makeSILKResamplerFrames(240, 5, 0x6789abcd)},
 		{fsIn: 16000, fsOut: 48000, frames: makeSILKResamplerFrames(160, 8, 0x55667788)},
 		{fsIn: 16000, fsOut: 48000, frames: makeSILKResamplerFrames(320, 5, 0xa5a55a5a)},
 		{fsIn: 16000, fsOut: 8000, frames: makeSILKResamplerFrames(320, 5, 0x31415926)},
