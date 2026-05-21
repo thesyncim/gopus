@@ -5,7 +5,6 @@ package gopus
 
 import (
 	"fmt"
-	"sync"
 
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -50,47 +49,27 @@ type libopusDREDRecoveryWindowInfo struct {
 }
 
 var (
-	libopusDREDModelBlobHelperOnce sync.Once
-	libopusDREDModelBlobHelperPath string
-	libopusDREDModelBlobHelperErr  error
-
-	libopusDREDProcessHelperOnce sync.Once
-	libopusDREDProcessHelperPath string
-	libopusDREDProcessHelperErr  error
-
-	libopusDREDRecoveryWindowHelperOnce sync.Once
-	libopusDREDRecoveryWindowHelperPath string
-	libopusDREDRecoveryWindowHelperErr  error
+	libopusDREDModelBlobHelper      libopustest.HelperCache
+	libopusDREDProcessHelper        libopustest.HelperCache
+	libopusDREDRecoveryWindowHelper libopustest.HelperCache
 )
 
 func getLibopusDREDModelBlobHelperPath() (string, error) {
-	libopusDREDModelBlobHelperOnce.Do(func() {
-		libopusDREDModelBlobHelperPath, libopusDREDModelBlobHelperErr = buildLibopusDREDHelper("libopus_dred_model_blob.c", "gopus_libopus_dred_model_blob", true)
+	return libopusDREDModelBlobHelper.Path(func() (string, error) {
+		return buildLibopusDREDHelper("libopus_dred_model_blob.c", "gopus_libopus_dred_model_blob", true)
 	})
-	if libopusDREDModelBlobHelperErr != nil {
-		return "", libopusDREDModelBlobHelperErr
-	}
-	return libopusDREDModelBlobHelperPath, nil
 }
 
 func getLibopusDREDProcessHelperPath() (string, error) {
-	libopusDREDProcessHelperOnce.Do(func() {
-		libopusDREDProcessHelperPath, libopusDREDProcessHelperErr = buildLibopusDREDHelper("libopus_dred_process_info.c", "gopus_libopus_dred_process", true)
+	return libopusDREDProcessHelper.Path(func() (string, error) {
+		return buildLibopusDREDHelper("libopus_dred_process_info.c", "gopus_libopus_dred_process", true)
 	})
-	if libopusDREDProcessHelperErr != nil {
-		return "", libopusDREDProcessHelperErr
-	}
-	return libopusDREDProcessHelperPath, nil
 }
 
 func getLibopusDREDRecoveryWindowHelperPath() (string, error) {
-	libopusDREDRecoveryWindowHelperOnce.Do(func() {
-		libopusDREDRecoveryWindowHelperPath, libopusDREDRecoveryWindowHelperErr = buildLibopusDREDHelper("libopus_dred_recovery_window_info.c", "gopus_libopus_dred_recovery_window", true)
+	return libopusDREDRecoveryWindowHelper.Path(func() (string, error) {
+		return buildLibopusDREDHelper("libopus_dred_recovery_window_info.c", "gopus_libopus_dred_recovery_window", true)
 	})
-	if libopusDREDRecoveryWindowHelperErr != nil {
-		return "", libopusDREDRecoveryWindowHelperErr
-	}
-	return libopusDREDRecoveryWindowHelperPath, nil
 }
 
 func probeLibopusDREDModelBlob() ([]byte, error) {

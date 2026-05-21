@@ -7,7 +7,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"sync"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
@@ -52,20 +51,12 @@ type libopusDREDPacketConfig struct {
 	Multistream   bool
 }
 
-var (
-	libopusDREDEmitPacketHelperOnce sync.Once
-	libopusDREDEmitPacketHelperPath string
-	libopusDREDEmitPacketHelperErr  error
-)
+var libopusDREDEmitPacketHelper libopustest.HelperCache
 
 func getLibopusDREDEmitPacketHelperPath() (string, error) {
-	libopusDREDEmitPacketHelperOnce.Do(func() {
-		libopusDREDEmitPacketHelperPath, libopusDREDEmitPacketHelperErr = buildLibopusDREDHelper("libopus_dred_emit_packet.c", "gopus_libopus_dred_emit_packet", true)
+	return libopusDREDEmitPacketHelper.Path(func() (string, error) {
+		return buildLibopusDREDHelper("libopus_dred_emit_packet.c", "gopus_libopus_dred_emit_packet", true)
 	})
-	if libopusDREDEmitPacketHelperErr != nil {
-		return "", libopusDREDEmitPacketHelperErr
-	}
-	return libopusDREDEmitPacketHelperPath, nil
 }
 
 func emitLibopusDREDPacket() (libopusDREDPacket, error) {

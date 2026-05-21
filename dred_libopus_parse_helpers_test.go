@@ -5,7 +5,6 @@ package gopus
 
 import (
 	"fmt"
-	"sync"
 
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -32,33 +31,20 @@ type libopusDREDDecodeInfo struct {
 }
 
 var (
-	libopusDREDParseHelperOnce sync.Once
-	libopusDREDParseHelperPath string
-	libopusDREDParseHelperErr  error
-
-	libopusDREDDecodeHelperOnce sync.Once
-	libopusDREDDecodeHelperPath string
-	libopusDREDDecodeHelperErr  error
+	libopusDREDParseHelper  libopustest.HelperCache
+	libopusDREDDecodeHelper libopustest.HelperCache
 )
 
 func getLibopusDREDParseHelperPath() (string, error) {
-	libopusDREDParseHelperOnce.Do(func() {
-		libopusDREDParseHelperPath, libopusDREDParseHelperErr = buildLibopusDREDHelper("libopus_dred_parse_info.c", "gopus_libopus_dred_parse", false)
+	return libopusDREDParseHelper.Path(func() (string, error) {
+		return buildLibopusDREDHelper("libopus_dred_parse_info.c", "gopus_libopus_dred_parse", false)
 	})
-	if libopusDREDParseHelperErr != nil {
-		return "", libopusDREDParseHelperErr
-	}
-	return libopusDREDParseHelperPath, nil
 }
 
 func getLibopusDREDDecodeHelperPath() (string, error) {
-	libopusDREDDecodeHelperOnce.Do(func() {
-		libopusDREDDecodeHelperPath, libopusDREDDecodeHelperErr = buildLibopusDREDHelper("libopus_dred_decode_info.c", "gopus_libopus_dred_decode", true)
+	return libopusDREDDecodeHelper.Path(func() (string, error) {
+		return buildLibopusDREDHelper("libopus_dred_decode_info.c", "gopus_libopus_dred_decode", true)
 	})
-	if libopusDREDDecodeHelperErr != nil {
-		return "", libopusDREDDecodeHelperErr
-	}
-	return libopusDREDDecodeHelperPath, nil
 }
 
 func probeLibopusDREDParse(packet []byte, maxDREDSamples, sampleRate int) (libopusDREDParseInfo, error) {

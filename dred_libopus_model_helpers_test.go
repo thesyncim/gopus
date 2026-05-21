@@ -5,54 +5,33 @@ package gopus
 
 import (
 	"fmt"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 var (
-	libopusPitchDNNModelBlobHelperOnce sync.Once
-	libopusPitchDNNModelBlobHelperPath string
-	libopusPitchDNNModelBlobHelperErr  error
-
-	libopusPLCModelBlobHelperOnce sync.Once
-	libopusPLCModelBlobHelperPath string
-	libopusPLCModelBlobHelperErr  error
-
-	libopusFARGANModelBlobHelperOnce sync.Once
-	libopusFARGANModelBlobHelperPath string
-	libopusFARGANModelBlobHelperErr  error
+	libopusPitchDNNModelBlobHelper libopustest.HelperCache
+	libopusPLCModelBlobHelper      libopustest.HelperCache
+	libopusFARGANModelBlobHelper   libopustest.HelperCache
 )
 
 func getLibopusPitchDNNModelBlobHelperPath() (string, error) {
-	libopusPitchDNNModelBlobHelperOnce.Do(func() {
-		libopusPitchDNNModelBlobHelperPath, libopusPitchDNNModelBlobHelperErr = buildLibopusDREDHelper("libopus_pitchdnn_model_blob.c", "gopus_libopus_pitchdnn_model_blob", true)
+	return libopusPitchDNNModelBlobHelper.Path(func() (string, error) {
+		return buildLibopusDREDHelper("libopus_pitchdnn_model_blob.c", "gopus_libopus_pitchdnn_model_blob", true)
 	})
-	if libopusPitchDNNModelBlobHelperErr != nil {
-		return "", libopusPitchDNNModelBlobHelperErr
-	}
-	return libopusPitchDNNModelBlobHelperPath, nil
 }
 
 func getLibopusPLCModelBlobHelperPath() (string, error) {
-	libopusPLCModelBlobHelperOnce.Do(func() {
-		libopusPLCModelBlobHelperPath, libopusPLCModelBlobHelperErr = buildLibopusDREDHelper("libopus_plc_model_blob.c", "gopus_libopus_plc_model_blob", true)
+	return libopusPLCModelBlobHelper.Path(func() (string, error) {
+		return buildLibopusDREDHelper("libopus_plc_model_blob.c", "gopus_libopus_plc_model_blob", true)
 	})
-	if libopusPLCModelBlobHelperErr != nil {
-		return "", libopusPLCModelBlobHelperErr
-	}
-	return libopusPLCModelBlobHelperPath, nil
 }
 
 func getLibopusFARGANModelBlobHelperPath() (string, error) {
-	libopusFARGANModelBlobHelperOnce.Do(func() {
-		libopusFARGANModelBlobHelperPath, libopusFARGANModelBlobHelperErr = buildLibopusDREDHelper("libopus_fargan_model_blob.c", "gopus_libopus_fargan_model_blob", true)
+	return libopusFARGANModelBlobHelper.Path(func() (string, error) {
+		return buildLibopusDREDHelper("libopus_fargan_model_blob.c", "gopus_libopus_fargan_model_blob", true)
 	})
-	if libopusFARGANModelBlobHelperErr != nil {
-		return "", libopusFARGANModelBlobHelperErr
-	}
-	return libopusFARGANModelBlobHelperPath, nil
 }
 
 func runModelBlobHelper(binPath string) ([]byte, error) {

@@ -4,7 +4,6 @@
 package gopus
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -28,27 +27,19 @@ import (
 // either depend on its own OSCE-enabled libopus build or fall back to bundling
 // `nnet.c` directly into the helper TU.
 
-var (
-	libopusOSCEBWEModelBlobHelperOnce sync.Once
-	libopusOSCEBWEModelBlobHelperPath string
-	libopusOSCEBWEModelBlobHelperErr  error
-)
+var libopusOSCEBWEModelBlobHelper libopustest.HelperCache
 
 // getLibopusOSCEBWEModelBlobHelperPath compiles (once) the OSCE BWE blob
 // extractor helper against the project's DRED scalar libopus build and
 // returns the resulting binary path.
 func getLibopusOSCEBWEModelBlobHelperPath() (string, error) {
-	libopusOSCEBWEModelBlobHelperOnce.Do(func() {
-		libopusOSCEBWEModelBlobHelperPath, libopusOSCEBWEModelBlobHelperErr = buildLibopusDREDHelper(
+	return libopusOSCEBWEModelBlobHelper.Path(func() (string, error) {
+		return buildLibopusDREDHelper(
 			"libopus_osce_bwe_model_blob.c",
 			"gopus_libopus_osce_bwe_model_blob",
 			true,
 		)
 	})
-	if libopusOSCEBWEModelBlobHelperErr != nil {
-		return "", libopusOSCEBWEModelBlobHelperErr
-	}
-	return libopusOSCEBWEModelBlobHelperPath, nil
 }
 
 // probeLibopusOSCEBWEModelBlob builds (lazily) and runs the OSCE BWE blob
