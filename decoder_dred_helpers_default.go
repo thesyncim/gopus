@@ -85,6 +85,10 @@ func (d *Decoder) applyDREDNeuralConcealment(_ []float32, _ int) bool {
 	return false
 }
 
+func (d *Decoder) decodeCachedSILKDREDNeuralPLCInto(_ []float32, _ int, _ plcDecodeState) (int, bool, error) {
+	return 0, false, nil
+}
+
 func (d *Decoder) beginHybridDREDLowbandHook() (cleanup func(), used func() bool) {
 	return func() {}, func() bool { return false }
 }

@@ -224,6 +224,42 @@ func (d *Decoder) decodeExplicitSILKDREDFloat(dred *DRED, dredOffsetSamples int,
 	return n, nil
 }
 
+func (d *Decoder) decodeCachedSILKDREDNeuralPLCInto(pcm []float32, frameSizeSamples int, state plcDecodeState) (int, bool, error) {
+	if d == nil || state.mode != ModeSILK || d.silkDecoder == nil || !d.dredNeuralConcealmentAvailable() {
+		return 0, false, nil
+	}
+	if (d.sampleRate != 48000 && d.sampleRate != 16000) || d.channels < 1 || d.channels > 2 {
+		return 0, false, nil
+	}
+	needed := frameSizeSamples * d.channels
+	if frameSizeSamples <= 0 || len(pcm) < needed {
+		return 0, false, ErrBufferTooSmall
+	}
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return 0, false, nil
+	}
+
+	d.primeExplicitSILKDREDEntryHistory()
+	cleanupHook, usedHook := d.beginHybridDREDLowbandHook()
+	defer cleanupHook()
+
+	n, err := d.decodePLCChunksInto(pcm[:needed], frameSizeSamples, state)
+	if err != nil {
+		return n, false, err
+	}
+	if usedHook() {
+		d.finishActiveDREDRecovery(n)
+	}
+	if d.channels == 2 && n > 0 && len(pcm) >= 2*n {
+		for i := 0; i < n; i++ {
+			mid := 0.5 * (pcm[2*i] + pcm[2*i+1])
+			pcm[2*i] = mid
+			pcm[2*i+1] = mid
+		}
+	}
+	return n, usedHook(), nil
+}
+
 // primeExplicitSILKDREDEntryHistory seeds the DRED neural concealment entry
 // history from the SILK-only native lowband produced by the previous decode.
 // Without this priming, the FARGAN renderer enters concealment with a zeroed

@@ -46,7 +46,19 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		n := frameSize
 		usedNeuralConcealment := false
 		var err error
-		if neuralReady && d.sampleRate == 16000 && d.channels >= 1 && d.channels <= 2 && d.prevMode != ModeHybrid {
+		if neuralReady && d.prevMode == ModeSILK && d.channels >= 1 && d.channels <= 2 && (d.sampleRate == 48000 || d.sampleRate == 16000) {
+			n, usedNeuralConcealment, err = d.decodeCachedSILKDREDNeuralPLCInto(pcm, frameSize, plcDecodeState{
+				packetFrameSize:    d.lastFrameSize,
+				mode:               d.prevMode,
+				bandwidth:          d.lastBandwidth,
+				packetStereo:       d.prevPacketStereo,
+				useDecoderPLCState: true,
+			})
+		}
+		if err != nil {
+			return 0, err
+		}
+		if !usedNeuralConcealment && neuralReady && d.sampleRate == 16000 && d.channels >= 1 && d.channels <= 2 && d.prevMode != ModeHybrid && d.prevMode != ModeSILK {
 			if len(pcm) < frameSize*d.channels {
 				return 0, ErrBufferTooSmall
 			}

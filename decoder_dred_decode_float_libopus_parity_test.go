@@ -639,6 +639,63 @@ func TestDecoderCachedDREDDecodeMatrixMatchesLiveSequenceOracle(t *testing.T) {
 	}
 }
 
+func TestDecoderCachedSILKDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		name              string
+		decoderSampleRate int
+	}{
+		{name: "decoder_48000", decoderSampleRate: 48000},
+	} {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			const frameSize = 960
+			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+				FrameSize: frameSize,
+				ForceMode: ModeSILK,
+				Bandwidth: BandwidthWideband,
+			})
+			if err != nil {
+				libopustest.HelperUnavailable(t, "dred packet", err)
+			}
+			toc := ParseTOC(packetInfo.packet[0])
+			if toc.Mode != ModeSILK || toc.Bandwidth != BandwidthWideband {
+				t.Fatalf("cached SILK DRED test packet TOC=%+v, want SILK WB", toc)
+			}
+
+			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, tc.decoderSampleRate, packetInfo)
+			maxDREDSamples, sequenceSampleRate := libopusDREDRequestForDecoder(packetInfo, tc.decoderSampleRate)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDREDSamples, sequenceSampleRate, n, 1, n, 0, 0, false)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
+			}
+			requireLibopusDREDSequenceParsed(t, want, "cached SILK first-loss")
+			if want.step0.ret != n {
+				t.Fatalf("libopus cached SILK decoder first-loss ret=%d want %d", want.step0.ret, n)
+			}
+			if want.channels != 1 {
+				t.Fatalf("libopus cached SILK decoder channels=%d want 1", want.channels)
+			}
+
+			pcm := make([]float32, dec.maxPacketSamples)
+			got, err := dec.Decode(nil, pcm)
+			if err != nil {
+				t.Fatalf("Decode(nil) error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("Decode(nil)=%d want %d", got, n)
+			}
+
+			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
+			assertFloat32ApproxEqual(t, pcm[:got], want.step0.pcm[:got], "cached SILK live-sequence first-loss pcm", pcmTol)
+			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "cached SILK live-sequence first-loss plc", plcTol)
+			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "cached SILK live-sequence first-loss fargan", farganTol)
+			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "cached SILK live-sequence first-loss celt", celtTol)
+			assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.step0.silk, silkpkg.BandwidthWideband, "cached SILK live-sequence first-loss silk", max(celtTol, 1))
+		})
+	}
+}
+
 func TestDecoderCachedStereoDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const frameSize = 960
