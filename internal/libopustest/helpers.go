@@ -18,6 +18,7 @@ const (
 	FloatQuantModeFARGANSynthInt    = uint32(2)
 	FloatQuantModeCELTRaw32767Round = uint32(3)
 	FloatQuantModeCELTDispatch      = uint32(4)
+	FloatQuantModeSILKFloat2Short   = uint32(5)
 )
 
 var (
@@ -240,7 +241,7 @@ func ProbeFloatQuant(mode uint32, samples []float32) ([]int16, error) {
 			Label:       "float quant",
 			OutputBase:  "gopus_shared_float_quant",
 			SourceFile:  "libopus_float_quant_info.c",
-			RefIncludes: []string{"celt"},
+			RefIncludes: []string{"celt", "silk", "silk/float"},
 			Libs:        []string{libopusStatic, "-lm"},
 		})
 	})
