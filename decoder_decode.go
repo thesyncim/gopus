@@ -431,10 +431,6 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		return d.Decode(data, pcm)
 	}
 
-	if extsupport.DREDRuntime && data != nil && len(data) > 0 && d.dredCachedPayloadActive() {
-		d.invalidateDREDPayloadState()
-	}
-
 	if data != nil && len(data) > 0 {
 		toc, frameCount, err := packetFrameCount(data)
 		if err != nil {

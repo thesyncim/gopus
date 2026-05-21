@@ -21,14 +21,28 @@ func (d *Decoder) decodePLCForFECWithState(
 	usedNeuralConcealment := false
 	var n int
 	var err error
-	if extsupport.DREDRuntime {
-		n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
+	if neuralReady && mode == ModeSILK && d.channels >= 1 && d.channels <= 2 {
+		n, usedNeuralConcealment, err = d.decodeCachedSILKDREDNeuralPLCInto(pcm, frameSize, plcDecodeState{
 			packetFrameSize:    frameSize,
 			mode:               mode,
 			bandwidth:          bandwidth,
 			packetStereo:       packetStereo,
 			useDecoderPLCState: false,
 		})
+		if err != nil {
+			return 0, err
+		}
+	}
+	if extsupport.DREDRuntime {
+		if !usedNeuralConcealment {
+			n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
+				packetFrameSize:    frameSize,
+				mode:               mode,
+				bandwidth:          bandwidth,
+				packetStereo:       packetStereo,
+				useDecoderPLCState: false,
+			})
+		}
 	} else {
 		n, err = d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
 			packetFrameSize:    frameSize,

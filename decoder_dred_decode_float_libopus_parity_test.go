@@ -756,6 +756,70 @@ func TestDecoderCachedSILKDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 	}
 }
 
+func TestDecoderCachedSILKDREDDecodeWithFECFallbackMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, sampleRate := range []int{8000, 16000, 48000} {
+		sampleRate := sampleRate
+		t.Run(fmt.Sprintf("decoder_%d", sampleRate), func(t *testing.T) {
+			const frameSize = 960
+			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+				FrameSize: frameSize,
+				ForceMode: ModeSILK,
+				Bandwidth: BandwidthWideband,
+			})
+			if err != nil {
+				libopustest.HelperUnavailable(t, "dred packet", err)
+			}
+			toc := ParseTOC(packetInfo.packet[0])
+			if toc.Mode != ModeSILK || toc.Bandwidth != BandwidthWideband {
+				t.Fatalf("cached SILK DRED FEC-fallback packet TOC=%+v, want SILK WB", toc)
+			}
+			firstFrameData, err := extractFirstFramePayload(packetInfo.packet, toc)
+			if err != nil {
+				t.Fatalf("extractFirstFramePayload: %v", err)
+			}
+			if packetHasLBRR(firstFrameData, toc) {
+				t.Skip("cached SILK DRED FEC-fallback fixture unexpectedly carries LBRR")
+			}
+
+			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, sampleRate, packetInfo)
+			wantFrame, err := packetSamplesAtRate(packetInfo.packet, sampleRate)
+			if err != nil {
+				t.Fatalf("packetSamplesAtRate: %v", err)
+			}
+			if n != wantFrame {
+				t.Fatalf("cached SILK warmup samples=%d want %d at %d Hz", n, wantFrame, sampleRate)
+			}
+
+			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, sampleRate)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, 1, n, 0, 0, false)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
+			}
+			requireLibopusDREDSequenceParsed(t, want, "cached SILK FEC-fallback first-loss")
+			if want.step0.ret != n {
+				t.Fatalf("libopus cached SILK FEC-fallback first-loss ret=%d want %d", want.step0.ret, n)
+			}
+
+			pcm := make([]float32, dec.maxPacketSamples)
+			got, err := dec.DecodeWithFEC(packetInfo.packet, pcm, true)
+			if err != nil {
+				t.Fatalf("DecodeWithFEC(no LBRR) error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("DecodeWithFEC(no LBRR)=%d want %d", got, n)
+			}
+
+			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
+			assertFloat32ApproxEqual(t, pcm[:got], want.step0.pcm[:got], "cached SILK FEC-fallback live-sequence pcm", pcmTol)
+			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "cached SILK FEC-fallback live-sequence plc", plcTol)
+			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "cached SILK FEC-fallback live-sequence fargan", farganTol)
+			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "cached SILK FEC-fallback live-sequence celt", celtTol)
+			assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.step0.silk, silkpkg.BandwidthWideband, "cached SILK FEC-fallback live-sequence silk", max(celtTol, 1))
+		})
+	}
+}
+
 func TestDecoderCachedStereoSILKDREDAPIRateMatchesLiveSequenceOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const frameSize = 960
