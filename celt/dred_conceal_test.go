@@ -33,7 +33,7 @@ func TestQuantizePLCPCM16kFrameMatchesLibopusFARGANIntGrid(t *testing.T) {
 	}
 }
 
-func TestUpdateStereoDREDNeuralHistoryPreservesRightShift(t *testing.T) {
+func TestUpdateStereoDREDNeuralHistoryMirrorsPreservedPrefix(t *testing.T) {
 	d := NewDecoder(2)
 	const history = 6
 	const frameSize = 2
@@ -50,7 +50,7 @@ func TestUpdateStereoDREDNeuralHistoryPreservesRightShift(t *testing.T) {
 	d.updateStereoDREDNeuralHistory(hist, frameSize, history, samples)
 
 	wantL := []float64{12, 13, 14, 15, 100, 101}
-	wantR := []float64{22, 23, 24, 25, 200, 201}
+	wantR := []float64{12, 13, 14, 15, 200, 201}
 	for i, want := range wantL {
 		if hist[i] != want {
 			t.Fatalf("left[%d]=%v want %v", i, hist[i], want)

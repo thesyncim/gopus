@@ -322,8 +322,9 @@ func (d *Decoder) updateStereoDREDNeuralHistory(hist []float64, frameSize, histo
 		return
 	}
 	copy(histL, histL[frameSize:])
-	copy(histR, histR[frameSize:])
 	dst := history - frameSize
+	// libopus copies channel-0 decode memory over channel 1 before the neural crossfade.
+	copy(histR[:dst], histL[:dst])
 	src := 0
 	for i := 0; i < frameSize; i++ {
 		histL[dst+i] = samples[src]
