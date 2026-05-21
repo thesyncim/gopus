@@ -141,9 +141,17 @@ func TestStandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket(t *testing.T) 
 	if got := dred.ProcessStage(); got != DREDProcessStageProcessed {
 		t.Fatalf("ProcessStage()=%d want %d", got, DREDProcessStageProcessed)
 	}
+	if got := dred.decoded.NbLatents; got != want.nbLatents {
+		t.Fatalf("second NbLatents=%d want %d", got, want.nbLatents)
+	}
+	secondLatents := dred.decoded.Latents[:dred.decoded.NbLatents*internaldred.LatentStride]
+	secondFeatures := dred.decoded.Features[:dred.decoded.NbLatents*4*internaldred.NumFeatures]
+	assertLibopusDREDFloat32Hash(t, "second state", dred.decoded.State[:], want.secondStateHash)
+	assertLibopusDREDFloat32Hash(t, "second latents", secondLatents, want.secondLatentHash)
+	assertLibopusDREDFloat32Hash(t, "second features", secondFeatures, want.secondFeatureHash)
 	assertFloat32BitsEqual(t, dred.decoded.State[:], firstState, "second state")
-	assertFloat32BitsEqual(t, dred.decoded.Latents[:dred.decoded.NbLatents*internaldred.LatentStride], firstLatents, "second latents")
-	assertFloat32BitsEqual(t, dred.decoded.Features[:dred.decoded.NbLatents*4*internaldred.NumFeatures], firstFeatures, "second features")
+	assertFloat32BitsEqual(t, secondLatents, firstLatents, "second latents")
+	assertFloat32BitsEqual(t, secondFeatures, firstFeatures, "second features")
 
 	clone := NewDRED()
 	if err := dec.Process(dred, clone); err != nil {
@@ -152,9 +160,33 @@ func TestStandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket(t *testing.T) 
 	if got := clone.ProcessStage(); got != DREDProcessStageProcessed {
 		t.Fatalf("clone ProcessStage()=%d want %d", got, DREDProcessStageProcessed)
 	}
+	if got := clone.decoded.NbLatents; got != want.nbLatents {
+		t.Fatalf("clone NbLatents=%d want %d", got, want.nbLatents)
+	}
+	cloneLatents := clone.decoded.Latents[:clone.decoded.NbLatents*internaldred.LatentStride]
+	cloneFeatures := clone.decoded.Features[:clone.decoded.NbLatents*4*internaldred.NumFeatures]
+	assertLibopusDREDFloat32Hash(t, "clone state", clone.decoded.State[:], want.cloneStateHash)
+	assertLibopusDREDFloat32Hash(t, "clone latents", cloneLatents, want.cloneLatentHash)
+	assertLibopusDREDFloat32Hash(t, "clone features", cloneFeatures, want.cloneFeatureHash)
 	assertFloat32BitsEqual(t, clone.decoded.State[:], firstState, "clone state")
-	assertFloat32BitsEqual(t, clone.decoded.Latents[:clone.decoded.NbLatents*internaldred.LatentStride], firstLatents, "clone latents")
-	assertFloat32BitsEqual(t, clone.decoded.Features[:clone.decoded.NbLatents*4*internaldred.NumFeatures], firstFeatures, "clone features")
+	assertFloat32BitsEqual(t, cloneLatents, firstLatents, "clone latents")
+	assertFloat32BitsEqual(t, cloneFeatures, firstFeatures, "clone features")
+}
+
+func assertLibopusDREDFloat32Hash(t *testing.T, label string, data []float32, want uint32) {
+	t.Helper()
+	if got := libopusDREDFloat32Hash(data); got != want {
+		t.Fatalf("%s hash=0x%08x want 0x%08x", label, got, want)
+	}
+}
+
+func libopusDREDFloat32Hash(data []float32) uint32 {
+	h := uint32(2166136261)
+	for _, sample := range data {
+		h ^= math.Float32bits(sample)
+		h *= 16777619
+	}
+	return h
 }
 
 func assertFloat32ApproxEqual(t *testing.T, got, want []float32, label string, tol float64) {
