@@ -4,6 +4,8 @@ import (
 	"math"
 	"runtime"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func TestExpApproxMatchesLibopusScalarBits(t *testing.T) {
@@ -201,6 +203,62 @@ func TestCeltMathMatchesLibopusFloatBits(t *testing.T) {
 	for _, tc := range sinTests {
 		if got := math.Float32bits(CeltSin(tc.x)); got != tc.bits {
 			t.Fatalf("CeltSin(%g) bits=0x%08x want 0x%08x", tc.x, got, tc.bits)
+		}
+	}
+}
+
+func TestCeltMathMatchesLibopusCELTOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	logInputs := []float32{
+		math.SmallestNonzeroFloat32,
+		1e-30, 1e-20, 1e-10, 1e-6, 1.52587890625e-05,
+		0.03125, 0.125, 0.5, 0.75, 0.99999994, 1,
+		1.0000001, 1.25, 1.5, 1.875, 2, 3.5, 8, 1024,
+	}
+	for exp := int32(-12); exp <= 12; exp++ {
+		for mant := uint32(0); mant < 8; mant++ {
+			bits := uint32(exp+127)<<23 | mant<<20 | 0x54321
+			logInputs = append(logInputs, math.Float32frombits(bits))
+		}
+	}
+	wantLog, err := libopustest.ProbeCELTMath(libopustest.CELTMathModeLog, logInputs)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt math", err)
+	}
+	for i, x := range logInputs {
+		got := CeltLog(x)
+		if math.Float32bits(got) != math.Float32bits(wantLog[i]) {
+			t.Fatalf("CeltLog(%g)=%08x(%g) want %08x(%g)",
+				x,
+				math.Float32bits(got), got,
+				math.Float32bits(wantLog[i]), wantLog[i],
+			)
+		}
+	}
+
+	sinInputs := []float32{
+		-10, -3.5, -1.25, -1, -0.5, -0.001, 0, 0.001,
+		0.125, 0.25, 0.5, 0.75, 0.99999994, 1, 1.0000001,
+		1.25, 2, 3, 3.75, 10,
+	}
+	seed := uint32(0x6d2b79f5)
+	for i := 0; i < 128; i++ {
+		seed = 1664525*seed + 1013904223
+		sinInputs = append(sinInputs, float32(int32(seed%20001)-10000)/8192)
+	}
+	wantSin, err := libopustest.ProbeCELTMath(libopustest.CELTMathModeSin, sinInputs)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt math", err)
+	}
+	for i, x := range sinInputs {
+		got := CeltSin(x)
+		if math.Float32bits(got) != math.Float32bits(wantSin[i]) {
+			t.Fatalf("CeltSin(%g)=%08x(%g) want %08x(%g)",
+				x,
+				math.Float32bits(got), got,
+				math.Float32bits(wantSin[i]), wantSin[i],
+			)
 		}
 	}
 }

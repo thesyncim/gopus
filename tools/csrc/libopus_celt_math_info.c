@@ -30,7 +30,9 @@ enum {
   MODE_ATAN_NORM = 9,
   MODE_ATAN2P_NORM = 10,
   MODE_COS_NORM2 = 11,
-  MODE_STEREO_ITHETA_Q30 = 12
+  MODE_STEREO_ITHETA_Q30 = 12,
+  MODE_LOG = 13,
+  MODE_SIN = 14
 };
 
 static int set_binary_stdio(void) {
@@ -153,6 +155,18 @@ static int eval_record(uint32_t mode) {
       free(vx);
       free(vy);
       return write_u32(out_bits);
+    case MODE_LOG:
+      if (!read_u32(&a)) return 0;
+      memcpy(&x, &a, sizeof(x));
+      y = celt_log(x);
+      memcpy(&out_bits, &y, sizeof(out_bits));
+      return write_u32(out_bits);
+    case MODE_SIN:
+      if (!read_u32(&a)) return 0;
+      memcpy(&x, &a, sizeof(x));
+      y = celt_sin(x);
+      memcpy(&out_bits, &y, sizeof(out_bits));
+      return write_u32(out_bits);
   }
   return 0;
 }
@@ -167,7 +181,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_STEREO_ITHETA_Q30) return 1;
+  if (mode > MODE_SIN) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {
