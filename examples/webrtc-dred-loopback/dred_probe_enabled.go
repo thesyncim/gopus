@@ -30,12 +30,15 @@ func (p *dredPacketProbe) packetHasDRED(packet []byte, frameSamples int) bool {
 	return err == nil && available > 0
 }
 
-func (p *dredPacketProbe) prepareRecovery(packet []byte, maxDREDSamples int) (int, bool) {
+func (p *dredPacketProbe) prepareRecovery(packet []byte, maxDREDSamples int) (int, bool, error) {
 	if p == nil || p.decoder == nil || p.recoveryState == nil || len(packet) == 0 || maxDREDSamples <= 0 {
-		return 0, false
+		return 0, false, nil
 	}
 	available, _, err := p.decoder.Parse(p.recoveryState, packet, maxDREDSamples, audioSampleRate, false)
-	return available, err == nil && available > 0 && p.recoveryState.Processed()
+	if err != nil {
+		return available, false, err
+	}
+	return available, available > 0 && p.recoveryState.Processed(), nil
 }
 
 func (p *dredPacketProbe) decodeRecovery(dec *gopus.Decoder, dredOffsetSamples int, pcm []float32, frameSamples int) (int, error) {

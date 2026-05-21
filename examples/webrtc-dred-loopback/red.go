@@ -164,11 +164,14 @@ func parseREDPayload(payload []byte) (primary []byte, blocks []redBlock, err err
 	return payload[pos:], blocks, nil
 }
 
-func findREDRecoveryBlock(blocks []redBlock, lostAgo, frameSamples int) []byte {
+func findREDRecoveryBlock(blocks []redBlock, lostAgo, frameSamples int, currentTimestamp, missingTimestamp uint32) []byte {
 	if lostAgo <= 0 || frameSamples <= 0 {
 		return nil
 	}
 	wantOffset := lostAgo * frameSamples
+	if int(currentTimestamp-missingTimestamp) != wantOffset {
+		return nil
+	}
 	for _, block := range blocks {
 		if block.payloadType == redOpusPayloadType && block.timestampOffset == wantOffset {
 			return block.payload

@@ -130,7 +130,7 @@ type engine struct {
 	decodeHook      func([]byte, decodeKind) bool
 	decodeREDHook   func([]byte) bool
 	fecEnabledHook  func([]byte) bool
-	prepareDREDHook func([]byte, int) (int, bool)
+	prepareDREDHook func([]byte, int) (int, bool, error)
 	decodeDREDHook  func(int) bool
 }
 
@@ -637,6 +637,7 @@ func (e *engine) receiveRTP(remote rtpReader) {
 
 	pcm := make([]float32, 5760*audioChannels)
 	var expected uint16
+	var expectedTimestamp uint32
 	haveExpected := false
 
 	for {
@@ -685,8 +686,10 @@ func (e *engine) receiveRTP(remote rtpReader) {
 					dredReady := false
 					dredPrepared := false
 					for lostAgo := missing; lostAgo >= 1; lostAgo-- {
+						missingTimestamp := expectedTimestamp + uint32((missing-lostAgo)*frameSamples)
 						if redEnabled {
-							if redPayload := findREDRecoveryBlock(redBlocks, lostAgo, frameSamples); len(redPayload) > 0 {
+							redPayload := findREDRecoveryBlock(redBlocks, lostAgo, frameSamples, pkt.Timestamp, missingTimestamp)
+							if len(redPayload) > 0 {
 								if e.decodeREDAndOutput(redPayload, pcm) {
 									continue
 								}
@@ -700,8 +703,15 @@ func (e *engine) receiveRTP(remote rtpReader) {
 							e.bump(func(s *engineStats) { s.FECFallbackFrames++ })
 						}
 						if !dredPrepared {
-							dredAvailable, dredReady = e.prepareDREDRecovery(payload, missing*frameSamples)
+							var prepareErr error
+							dredAvailable, dredReady, prepareErr = e.prepareDREDRecovery(payload, missing*frameSamples)
 							dredPrepared = true
+							if prepareErr != nil {
+								e.bump(func(s *engineStats) {
+									s.DecodeErrors++
+									s.DREDFallbackFrames++
+								})
+							}
 						}
 						if dredReady && dredAvailable >= lostAgo*frameSamples && e.decodeDREDAndOutput(lostAgo*frameSamples, pcm) {
 							continue
@@ -715,9 +725,15 @@ func (e *engine) receiveRTP(remote rtpReader) {
 			}
 		}
 		expected = pkt.SequenceNumber + 1
+		expectedTimestamp = pkt.Timestamp + uint32(frameSamples)
 		haveExpected = true
 
 		if malformedRED {
+			e.decodeAndOutput(nil, pcm, decodeLossPath)
+			continue
+		}
+		if len(payload) == 0 {
+			e.bump(func(s *engineStats) { s.DecodeErrors++ })
 			e.decodeAndOutput(nil, pcm, decodeLossPath)
 			continue
 		}
@@ -757,11 +773,11 @@ func (e *engine) redEnabled() bool {
 	return e.cfg.RED
 }
 
-func (e *engine) prepareDREDRecovery(payload []byte, maxDREDSamples int) (int, bool) {
+func (e *engine) prepareDREDRecovery(payload []byte, maxDREDSamples int) (int, bool, error) {
 	e.mu.Lock()
 	if !e.cfg.DRED || maxDREDSamples <= 0 {
 		e.mu.Unlock()
-		return 0, false
+		return 0, false, nil
 	}
 	if e.prepareDREDHook != nil {
 		hook := e.prepareDREDHook
@@ -770,7 +786,7 @@ func (e *engine) prepareDREDRecovery(payload []byte, maxDREDSamples int) (int, b
 	}
 	defer e.mu.Unlock()
 	if e.dredProbe == nil {
-		return 0, false
+		return 0, false, nil
 	}
 	return e.dredProbe.prepareRecovery(payload, maxDREDSamples)
 }
