@@ -33,6 +33,34 @@ func TestResultFeatureWindowRecoverable(t *testing.T) {
 	}
 }
 
+func TestResultFeatureWindowRecoverable16k(t *testing.T) {
+	payload := makeHeaderPayloadForTest(t, 6, 3, 9, 0, 0, 4)
+	parsed, err := ParsePayload(payload, 0)
+	if err != nil {
+		t.Fatalf("ParsePayload error: %v", err)
+	}
+	result := parsed.ForRequest(Request{MaxDREDSamples: 320, SampleRate: 16000})
+	window := result.FeatureWindow(320, 320, 0)
+
+	if window.FeaturesPerFrame != 2 || window.NeededFeatureFrames != 2 {
+		t.Fatalf("FeatureWindow frame counts=(%d,%d) want (2,2)", window.FeaturesPerFrame, window.NeededFeatureFrames)
+	}
+	if window.FeatureOffsetBase != 1 || window.MaxFeatureIndex != -1 {
+		t.Fatalf("FeatureWindow offsets=(base=%d max=%d) want (1,-1)", window.FeatureOffsetBase, window.MaxFeatureIndex)
+	}
+	if window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
+		t.Fatalf("FeatureWindow recoverable/missing=(%d,%d) want (0,2)", window.RecoverableFeatureFrames, window.MissingPositiveFrames)
+	}
+	got := make([]int, 2)
+	if n := window.FillFeatureOffsets(got); n != len(got) {
+		t.Fatalf("FillFeatureOffsets count=%d want %d", n, len(got))
+	}
+	want := []int{1, 0}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FillFeatureOffsets=%v want %v", got, want)
+	}
+}
+
 func TestResultFeatureWindowMissingPositiveAndNegative(t *testing.T) {
 	payload := makeHeaderPayloadForTest(t, 6, 3, 9, 0, 8, -4)
 	parsed, err := ParsePayload(payload, 8)

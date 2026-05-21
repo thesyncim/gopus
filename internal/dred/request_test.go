@@ -14,6 +14,7 @@ func TestRequestedFeatureFrames(t *testing.T) {
 	}{
 		{name: "zero_request", maxDredSamples: 0, sampleRate: 48000, want: 2},
 		{name: "small_window", maxDredSamples: 960, sampleRate: 48000, want: 4},
+		{name: "small_window_16k", maxDredSamples: 320, sampleRate: 16000, want: 4},
 		{name: "cap_to_max_frames", maxDredSamples: 50000, sampleRate: 48000, want: MaxFrames},
 		{name: "invalid_rate", maxDredSamples: 960, sampleRate: 0, want: 0},
 		{name: "negative_request", maxDredSamples: -1, sampleRate: 48000, want: 0},
@@ -35,7 +36,9 @@ func TestMaxLatentsForRequest(t *testing.T) {
 	}{
 		{name: "two_feature_frames", maxDredSamples: 0, sampleRate: 48000, want: 1},
 		{name: "four_feature_frames", maxDredSamples: 960, sampleRate: 48000, want: 1},
+		{name: "four_feature_frames_16k", maxDredSamples: 320, sampleRate: 16000, want: 1},
 		{name: "five_feature_frames", maxDredSamples: 1440, sampleRate: 48000, want: 2},
+		{name: "five_feature_frames_16k", maxDredSamples: 480, sampleRate: 16000, want: 2},
 		{name: "cap_to_max_latents", maxDredSamples: 50000, sampleRate: 48000, want: MaxLatents},
 		{name: "invalid_request", maxDredSamples: 960, sampleRate: 0, want: 0},
 	} {
@@ -64,6 +67,9 @@ func TestHeaderMaxAvailableSamples(t *testing.T) {
 	h := Header{DredOffset: 4}
 	if got := h.MaxAvailableSamples(960, 48000); got != 1440 {
 		t.Fatalf("MaxAvailableSamples=%d want 1440", got)
+	}
+	if got := h.MaxAvailableSamples(320, 16000); got != 480 {
+		t.Fatalf("MaxAvailableSamples(16k)=%d want 480", got)
 	}
 	if got := h.MaxAvailableSamples(0, 48000); got != 1440 {
 		t.Fatalf("MaxAvailableSamples(zero_request)=%d want 1440", got)
