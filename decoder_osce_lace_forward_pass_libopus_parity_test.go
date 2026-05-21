@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -251,27 +250,13 @@ func TestOSCELACEForwardTraceLocatesFirstDivergence(t *testing.T) {
 	}
 }
 
-var (
-	libopusOSCELACEForwardHelperOnce sync.Once
-	libopusOSCELACEForwardHelperPath string
-	libopusOSCELACEForwardHelperErr  error
-)
+var libopusOSCELACEForwardHelper libopustest.HelperCache
 
 // getLibopusOSCELACEForwardHelperPath lazily builds (against the OSCE-enabled
 // libopus build) the C reference helper `libopus_osce_lace_forward.c` and
 // caches the binary path for the lifetime of the test process.
 func getLibopusOSCELACEForwardHelperPath() (string, error) {
-	libopusOSCELACEForwardHelperOnce.Do(func() {
-		libopusOSCELACEForwardHelperPath, libopusOSCELACEForwardHelperErr = buildLibopusOSCEHelper(
-			"libopus_osce_lace_forward.c",
-			"gopus_libopus_osce_lace_forward",
-			true,
-		)
-	})
-	if libopusOSCELACEForwardHelperErr != nil {
-		return "", libopusOSCELACEForwardHelperErr
-	}
-	return libopusOSCELACEForwardHelperPath, nil
+	return cachedLibopusOSCEHelperPath(&libopusOSCELACEForwardHelper, "libopus_osce_lace_forward.c", "gopus_libopus_osce_lace_forward", true)
 }
 
 // runOSCELACEForwardHelper invokes the libopus OSCE LACE/NoLACE forward

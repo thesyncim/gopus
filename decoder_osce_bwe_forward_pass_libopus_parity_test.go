@@ -5,7 +5,6 @@ package gopus
 import (
 	"fmt"
 	"math"
-	"sync"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -549,27 +548,13 @@ func rmsOfFloat32(x []float32) float64 {
 	return math.Sqrt(s / float64(len(x)))
 }
 
-var (
-	libopusOSCEBWEForwardHelperOnce sync.Once
-	libopusOSCEBWEForwardHelperPath string
-	libopusOSCEBWEForwardHelperErr  error
-)
+var libopusOSCEBWEForwardHelper libopustest.HelperCache
 
 // getLibopusOSCEBWEForwardHelperPath lazily builds (against the OSCE-enabled
 // libopus build) the C reference helper `libopus_osce_bwe_forward.c` and
 // caches the binary path for the lifetime of the test process.
 func getLibopusOSCEBWEForwardHelperPath() (string, error) {
-	libopusOSCEBWEForwardHelperOnce.Do(func() {
-		libopusOSCEBWEForwardHelperPath, libopusOSCEBWEForwardHelperErr = buildLibopusOSCEHelper(
-			"libopus_osce_bwe_forward.c",
-			"gopus_libopus_osce_bwe_forward",
-			true,
-		)
-	})
-	if libopusOSCEBWEForwardHelperErr != nil {
-		return "", libopusOSCEBWEForwardHelperErr
-	}
-	return libopusOSCEBWEForwardHelperPath, nil
+	return cachedLibopusOSCEHelperPath(&libopusOSCEBWEForwardHelper, "libopus_osce_bwe_forward.c", "gopus_libopus_osce_bwe_forward", true)
 }
 
 // runOSCEBWEForwardHelper invokes the libopus OSCE BWE forward helper with
