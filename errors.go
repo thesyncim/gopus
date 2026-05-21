@@ -106,9 +106,6 @@ var (
 	// build-time extension is not enabled in the current gopus build.
 	ErrOptionalExtensionUnavailable = errors.New("gopus: optional extension unavailable in this build")
 
-	// ErrExtraExtensionUnavailable is kept as an alias for older callers.
-	ErrExtraExtensionUnavailable = ErrOptionalExtensionUnavailable
-
 	// ErrUnimplemented indicates the requested functionality is not implemented yet.
 	ErrUnimplemented = errors.New("gopus: feature not implemented")
 )

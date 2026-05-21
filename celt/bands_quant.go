@@ -664,10 +664,7 @@ func haar1(x []float64, n0, stride int) {
 		idx0 := i
 		idx1 := i + stride
 		for j := 0; j < n0; j++ {
-			tmp1 := invSqrt2 * float32(x[idx0])
-			tmp2 := invSqrt2 * float32(x[idx1])
-			x[idx0] = float64(tmp1 + tmp2)
-			x[idx1] = float64(tmp1 - tmp2)
+			haar1Pair(x, idx0, idx1, invSqrt2)
 			idx0 += step
 			idx1 += step
 		}
@@ -1164,35 +1161,36 @@ func stereoMerge(x, y []float64, mid float64) {
 		copy(y, x[:n])
 		return
 	}
-	lgain := float32(1.0 / math.Sqrt(float64(el)))
-	rgain := float32(1.0 / math.Sqrt(float64(er)))
+	lgain := celtRSqrt(el)
+	rgain := celtRSqrt(er)
 	i := 0
 	for ; i+3 < n; i += 4 {
-		l0 := mid32 * float32(x[i])
+		// libopus rounds l before ADD32/SUB32; keep arm64 from contracting mid*x +/- r.
+		l0 := noFMA32Mul(mid32, float32(x[i]))
 		r0 := float32(y[i])
-		x[i] = float64((l0 - r0) * lgain)
-		y[i] = float64((l0 + r0) * rgain)
+		x[i] = float64(noFMA32Mul(lgain, noFMA32Sub(l0, r0)))
+		y[i] = float64(noFMA32Mul(rgain, noFMA32Add(l0, r0)))
 
-		l1 := mid32 * float32(x[i+1])
+		l1 := noFMA32Mul(mid32, float32(x[i+1]))
 		r1 := float32(y[i+1])
-		x[i+1] = float64((l1 - r1) * lgain)
-		y[i+1] = float64((l1 + r1) * rgain)
+		x[i+1] = float64(noFMA32Mul(lgain, noFMA32Sub(l1, r1)))
+		y[i+1] = float64(noFMA32Mul(rgain, noFMA32Add(l1, r1)))
 
-		l2 := mid32 * float32(x[i+2])
+		l2 := noFMA32Mul(mid32, float32(x[i+2]))
 		r2 := float32(y[i+2])
-		x[i+2] = float64((l2 - r2) * lgain)
-		y[i+2] = float64((l2 + r2) * rgain)
+		x[i+2] = float64(noFMA32Mul(lgain, noFMA32Sub(l2, r2)))
+		y[i+2] = float64(noFMA32Mul(rgain, noFMA32Add(l2, r2)))
 
-		l3 := mid32 * float32(x[i+3])
+		l3 := noFMA32Mul(mid32, float32(x[i+3]))
 		r3 := float32(y[i+3])
-		x[i+3] = float64((l3 - r3) * lgain)
-		y[i+3] = float64((l3 + r3) * rgain)
+		x[i+3] = float64(noFMA32Mul(lgain, noFMA32Sub(l3, r3)))
+		y[i+3] = float64(noFMA32Mul(rgain, noFMA32Add(l3, r3)))
 	}
 	for ; i < n; i++ {
-		l := mid32 * float32(x[i])
+		l := noFMA32Mul(mid32, float32(x[i]))
 		r := float32(y[i])
-		x[i] = float64((l - r) * lgain)
-		y[i] = float64((l + r) * rgain)
+		x[i] = float64(noFMA32Mul(lgain, noFMA32Sub(l, r)))
+		y[i] = float64(noFMA32Mul(rgain, noFMA32Add(l, r)))
 	}
 }
 
@@ -1610,7 +1608,7 @@ const celtUseSSEFloatMath = runtime.GOOS == "windows" && runtime.GOARCH == "amd6
 
 func celtFloatMulAdd(a, b, c float32) float32 {
 	if celtUseFusedFloatMath {
-		return float32(float64(a)*float64(b) + float64(c))
+		return float32(math.FMA(float64(a), float64(b), float64(c)))
 	}
 	return a*b + c
 }
@@ -1745,8 +1743,8 @@ func stereoSplit(x, y []float64) {
 	for i := 0; i < n; i++ {
 		l := invSqrt2 * float32(x[i])
 		r := invSqrt2 * float32(y[i])
-		x[i] = float64(l + r)
-		y[i] = float64(r - l)
+		x[i] = float64(noFMA32Add(l, r))
+		y[i] = float64(noFMA32Sub(r, l))
 	}
 }
 
@@ -1773,7 +1771,7 @@ func intensityStereoWeighted(x, y []float64, leftEnergy, rightEnergy float64) {
 	a1 := left / norm
 	a2 := right / norm
 	for i := 0; i < n; i++ {
-		x[i] = float64(a1*float32(x[i]) + a2*float32(y[i]))
+		x[i] = float64(noFMA32Add(noFMA32Mul(a1, float32(x[i])), noFMA32Mul(a2, float32(y[i]))))
 	}
 }
 
@@ -3459,12 +3457,12 @@ func quantBandStereoPreparedLowbandWithExtBudget(ctx *bandCtx, x, y []float64, n
 			y[1] = celtMul32(side, y[1])
 			tmp := float32(x[0])
 			y0 := float32(y[0])
-			x[0] = float64(tmp - y0)
-			y[0] = float64(tmp + y0)
+			x[0] = float64(noFMA32Sub(tmp, y0))
+			y[0] = float64(noFMA32Add(tmp, y0))
 			tmp = float32(x[1])
 			y1 := float32(y[1])
-			x[1] = float64(tmp - y1)
-			y[1] = float64(tmp + y1)
+			x[1] = float64(noFMA32Sub(tmp, y1))
+			y[1] = float64(noFMA32Add(tmp, y1))
 			// Apply inv negation (same as common resynth path)
 			if sctx.inv != 0 {
 				y[0] = -y[0]
@@ -3583,12 +3581,12 @@ func quantBandStereoDecodeNoExtFast(ctx *bandCtx, x, y []float64, n, b, B int, l
 			y[1] = celtMul32(side, y[1])
 			tmp := float32(x[0])
 			y0 := float32(y[0])
-			x[0] = float64(tmp - y0)
-			y[0] = float64(tmp + y0)
+			x[0] = float64(noFMA32Sub(tmp, y0))
+			y[0] = float64(noFMA32Add(tmp, y0))
 			tmp = float32(x[1])
 			y1 := float32(y[1])
-			x[1] = float64(tmp - y1)
-			y[1] = float64(tmp + y1)
+			x[1] = float64(noFMA32Sub(tmp, y1))
+			y[1] = float64(noFMA32Add(tmp, y1))
 			if sctx.inv != 0 {
 				y[0] = -y[0]
 				y[1] = -y[1]
@@ -3687,12 +3685,12 @@ func quantBandStereoDecodeWithExtBudget(ctx *bandCtx, x, y []float64, n, b, B in
 			y[1] = celtMul32(side, y[1])
 			tmp := float32(x[0])
 			y0 := float32(y[0])
-			x[0] = float64(tmp - y0)
-			y[0] = float64(tmp + y0)
+			x[0] = float64(noFMA32Sub(tmp, y0))
+			y[0] = float64(noFMA32Add(tmp, y0))
 			tmp = float32(x[1])
 			y1 := float32(y[1])
-			x[1] = float64(tmp - y1)
-			y[1] = float64(tmp + y1)
+			x[1] = float64(noFMA32Sub(tmp, y1))
+			y[1] = float64(noFMA32Add(tmp, y1))
 			if sctx.inv != 0 {
 				y[0] = -y[0]
 				y[1] = -y[1]

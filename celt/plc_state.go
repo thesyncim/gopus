@@ -3,9 +3,12 @@ package celt
 // PLCStateSnapshot exposes the libopus-shaped CELT PLC cadence state needed by
 // parity tests around periodic/noise/neural/DRED concealment.
 type PLCStateSnapshot struct {
-	LastFrameType int
-	PLCDuration   int
-	SkipPLC       bool
+	LastFrameType    int
+	LossDuration     int
+	PLCDuration      int
+	LastPitchPeriod  int
+	SkipPLC          bool
+	PrefilterAndFold bool
 }
 
 // SnapshotPLCState returns the current CELT PLC cadence state.
@@ -14,9 +17,12 @@ func (d *Decoder) SnapshotPLCState() PLCStateSnapshot {
 		return PLCStateSnapshot{}
 	}
 	return PLCStateSnapshot{
-		LastFrameType: d.plcLastFrameType,
-		PLCDuration:   d.plcDuration,
-		SkipPLC:       d.plcSkip,
+		LastFrameType:    d.plcLastFrameType,
+		LossDuration:     d.plcLossDuration,
+		PLCDuration:      d.plcDuration,
+		LastPitchPeriod:  d.plcLastPitchPeriod,
+		SkipPLC:          d.plcSkip,
+		PrefilterAndFold: d.plcPrefilterAndFoldPending,
 	}
 }
 

@@ -27,17 +27,9 @@ func (d *Decoder) PostfilterPeriod() int {
 	return d.postfilterPeriod
 }
 
-func (d *Decoder) PostfilterPeriodOld() int {
-	return d.postfilterPeriodOld
-}
-
 // PostfilterGain returns the comb filter gain.
 func (d *Decoder) PostfilterGain() float32 {
 	return d.postfilterGain
-}
-
-func (d *Decoder) PostfilterGainOld() float32 {
-	return d.postfilterGainOld
 }
 
 // PostfilterTapset returns the filter tap configuration.
@@ -45,8 +37,27 @@ func (d *Decoder) PostfilterTapset() int {
 	return d.postfilterTapset
 }
 
-func (d *Decoder) PostfilterTapsetOld() int {
-	return d.postfilterTapsetOld
+type PostfilterState struct {
+	Period         int
+	Gain           float32
+	Tapset         int
+	PreviousPeriod int
+	PreviousGain   float32
+	PreviousTapset int
+}
+
+func (d *Decoder) PostfilterState() PostfilterState {
+	if d == nil {
+		return PostfilterState{}
+	}
+	return PostfilterState{
+		Period:         d.postfilterPeriod,
+		Gain:           d.postfilterGain,
+		Tapset:         d.postfilterTapset,
+		PreviousPeriod: d.postfilterPeriodOld,
+		PreviousGain:   d.postfilterGainOld,
+		PreviousTapset: d.postfilterTapsetOld,
+	}
 }
 
 // SetPostfilter sets the postfilter parameters.

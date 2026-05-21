@@ -1,8 +1,12 @@
 package celt
 
 import (
+	"fmt"
+	"math"
 	"reflect"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 func haar1LegacyGeneric(x []float64, n0, stride int) {
@@ -16,14 +20,60 @@ func haar1LegacyGeneric(x []float64, n0, stride int) {
 		idx0 := i
 		idx1 := i + stride
 		for j := 0; j < n0; j++ {
-			tmp1 := invSqrt2 * float32(x[idx0])
-			tmp2 := invSqrt2 * float32(x[idx1])
-			x[idx0] = float64(tmp1 + tmp2)
-			x[idx1] = float64(tmp1 - tmp2)
+			haar1Pair(x, idx0, idx1, invSqrt2)
 			idx0 += step
 			idx1 += step
 		}
 	}
+}
+
+func TestHaar1MatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	makeInput := func(n int, seed uint32) []float32 {
+		x := make([]float32, n)
+		for i := range x {
+			seed = seed*1664525 + 1013904223
+			v := float32(int32(seed>>8)%4000-2000) / 1536
+			if i%7 == 0 {
+				v *= 1.0 / 1024
+			}
+			x[i] = v
+		}
+		return x
+	}
+	cases := []haar1OracleCase{
+		{nameHaarCase(4, 1), makeInput(4, 0x1001), 4, 1},
+		{nameHaarCase(8, 2), makeInput(16, 0x1002), 8, 2},
+		{nameHaarCase(16, 4), makeInput(64, 0x1004), 16, 4},
+		{nameHaarCase(48, 6), makeInput(288, 0x1006), 48, 6},
+		{nameHaarCase(120, 8), makeInput(960, 0x1008), 120, 8},
+		{nameHaarCase(120, 12), makeInput(1440, 0x1012), 120, 12},
+	}
+	want, err := probeLibopusHaar1(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	for ci, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make([]float64, len(tc.x))
+			for i := range tc.x {
+				got[i] = float64(tc.x[i])
+			}
+			haar1(got, tc.n0, tc.stride)
+			for i := range got {
+				got32 := float32(got[i])
+				if math.Float32bits(got32) != math.Float32bits(want[ci][i]) {
+					t.Fatalf("x[%d]=%08x %.10g want %08x %.10g",
+						i, math.Float32bits(got32), got32,
+						math.Float32bits(want[ci][i]), want[ci][i])
+				}
+			}
+		})
+	}
+}
+
+func nameHaarCase(n0, stride int) string {
+	return fmt.Sprintf("n0_%d_stride_%d", n0, stride)
 }
 
 func TestHaar1SpecializedMatchesGeneric(t *testing.T) {

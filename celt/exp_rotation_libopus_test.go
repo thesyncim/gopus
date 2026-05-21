@@ -1,6 +1,7 @@
 package celt
 
 import (
+	"fmt"
 	"math"
 	"testing"
 	"unsafe"
@@ -19,6 +20,7 @@ const (
 	celtVQModeLowbandOutScale   = uint32(6)
 	celtVQModeMult32_32Q31      = uint32(7)
 	celtVQModeStereoMerge       = uint32(8)
+	celtVQModeHaar1             = uint32(9)
 )
 
 var libopusCELTVQHelper libopustest.HelperCache
@@ -60,6 +62,13 @@ type stereoMergeOracleCase struct {
 	x   []float32
 	y   []float32
 	mid float32
+}
+
+type haar1OracleCase struct {
+	name   string
+	x      []float32
+	n0     int
+	stride int
 }
 
 type algUnquantOracleCase struct {
@@ -154,6 +163,43 @@ func probeLibopusStereoMerge(cases []stereoMergeOracleCase) ([]stereoMergeOracle
 		}
 		for j := range out[i].y {
 			out[i].y[j] = reader.Float32()
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusHaar1(cases []haar1OracleCase) ([][]float32, error) {
+	binPath, err := libopusCELTVQHelper.Path(buildLibopusCELTVQHelper)
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload("GVCI", celtVQModeHaar1, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.U32(uint32(tc.n0))
+		payload.U32(uint32(tc.stride))
+		payload.U32(uint32(len(tc.x)))
+		for _, sample := range tc.x {
+			payload.U32(math.Float32bits(sample))
+		}
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "celt vq", "GVCO")
+	if err != nil {
+		return nil, err
+	}
+	mode := reader.U32()
+	if mode != celtVQModeHaar1 {
+		return nil, fmt.Errorf("celt vq helper mode=%d want %d", mode, celtVQModeHaar1)
+	}
+	count := reader.Count(len(cases))
+	out := make([][]float32, count)
+	for i := range out {
+		n := int(reader.U32())
+		out[i] = make([]float32, n)
+		for j := range out[i] {
+			out[i][j] = reader.Float32()
 		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {

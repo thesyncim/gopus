@@ -29,7 +29,8 @@ enum {
   MODE_TYPE_SIZES = 5,
   MODE_LOWBAND_OUT_SCALE = 6,
   MODE_MULT32_32_Q31 = 7,
-  MODE_STEREO_MERGE = 8
+  MODE_STEREO_MERGE = 8,
+  MODE_HAAR1 = 9
 };
 
 static int set_binary_stdio(void) {
@@ -452,6 +453,41 @@ static int eval_stereo_merge(void) {
   return 1;
 }
 
+static int eval_haar1(void) {
+  uint32_t n0_u;
+  uint32_t stride_u;
+  uint32_t len_u;
+  celt_norm *x;
+  uint32_t i;
+
+  if (!read_u32(&n0_u) || !read_u32(&stride_u) || !read_u32(&len_u)) return 0;
+  if (n0_u == 0 || n0_u > 512 || stride_u == 0 || stride_u > 32 ||
+      len_u == 0 || len_u > 4096 || len_u != n0_u * stride_u) {
+    return 0;
+  }
+  x = (celt_norm *)malloc((size_t)len_u * sizeof(*x));
+  if (x == NULL) return 0;
+  for (i = 0; i < len_u; i++) {
+    if (!read_float(&x[i])) {
+      free(x);
+      return 0;
+    }
+  }
+  haar1(x, (int)n0_u, (int)stride_u);
+  if (!write_u32(len_u)) {
+    free(x);
+    return 0;
+  }
+  for (i = 0; i < len_u; i++) {
+    if (!write_float(x[i])) {
+      free(x);
+      return 0;
+    }
+  }
+  free(x);
+  return 1;
+}
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -462,7 +498,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_STEREO_MERGE) return 1;
+  if (mode > MODE_HAAR1) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) ||
       !write_u32(mode) || !write_u32(count)) {
@@ -485,8 +521,10 @@ int main(void) {
       if (!eval_lowband_out_scale()) return 1;
     } else if (mode == MODE_MULT32_32_Q31) {
       if (!eval_mult32_32_q31()) return 1;
-    } else {
+    } else if (mode == MODE_STEREO_MERGE) {
       if (!eval_stereo_merge()) return 1;
+    } else {
+      if (!eval_haar1()) return 1;
     }
   }
   return 0;

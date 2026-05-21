@@ -38,6 +38,14 @@ func noFMA32Mul(a, b float32) float32 {
 	return mul32(a, b)
 }
 
+func noFMA32Add(a, b float32) float32 {
+	return add32(a, b)
+}
+
+func noFMA32Sub(a, b float32) float32 {
+	return sub32(a, b)
+}
+
 // ApplyPreemphasis applies the pre-emphasis filter to PCM input samples.
 // Pre-emphasis boosts high frequencies to improve coding efficiency.
 //

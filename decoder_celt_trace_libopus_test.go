@@ -10,22 +10,30 @@ import (
 var libopusCELTTraceHelper libopustest.HelperCache
 
 type libopusCELTTrace struct {
-	decodedSamples  int
-	internalSamples int
-	downsample      int
-	overlap         int
-	decodeBuffer    int
-	channel         int
-	start           int
-	finalRange      uint32
-	celtRng         uint32
-	lossDuration    int
-	plcDuration     int
-	postfilter      int
-	postfilterOld   int
-	oldBandE        []float32
-	final           []float32
-	preDeemphasis   []float32
+	decodedSamples      int
+	internalSamples     int
+	downsample          int
+	overlap             int
+	decodeBuffer        int
+	channel             int
+	start               int
+	finalRange          uint32
+	celtRng             uint32
+	lossDuration        int
+	plcDuration         int
+	postfilter          int
+	postfilterOld       int
+	postfilterGain      float32
+	postfilterGainOld   float32
+	postfilterTapset    int
+	postfilterTapsetOld int
+	lastPitchPeriod     int
+	lastFrameType       int
+	skipPLC             bool
+	prefilterFold       bool
+	oldBandE            []float32
+	final               []float32
+	preDeemphasis       []float32
 }
 
 func buildLibopusCELTTraceHelper() (string, error) {
@@ -78,6 +86,14 @@ func traceLibopusCELT(sampleRate, channels, frameSize, targetStep, targetChannel
 	trace.plcDuration = int(reader.U32())
 	trace.postfilter = int(reader.U32())
 	trace.postfilterOld = int(reader.U32())
+	trace.postfilterGain = reader.Float32()
+	trace.postfilterGainOld = reader.Float32()
+	trace.postfilterTapset = int(reader.U32())
+	trace.postfilterTapsetOld = int(reader.U32())
+	trace.lastPitchPeriod = int(reader.U32())
+	trace.lastFrameType = int(reader.U32())
+	trace.skipPLC = reader.U32() != 0
+	trace.prefilterFold = reader.U32() != 0
 	oldBandECount := int(reader.U32())
 	trace.final = make([]float32, outCount)
 	trace.preDeemphasis = make([]float32, outCount)
@@ -206,20 +222,94 @@ func TestLibopusCELTTracePostfilterStateMatchesDecoder(t *testing.T) {
 	if _, err := dec.Decode(packet, out); err != nil {
 		t.Fatalf("Decode good: %v", err)
 	}
-	if got, want := dec.celtDecoder.PostfilterPeriod(), goodTrace.postfilter; got != want {
+	goodState := dec.celtDecoder.PostfilterState()
+	if got, want := goodState.Period, goodTrace.postfilter; got != want {
 		t.Fatalf("good postfilterPeriod=%d want libopus %d", got, want)
 	}
-	if got, want := dec.celtDecoder.PostfilterPeriodOld(), goodTrace.postfilterOld; got != want {
+	if got, want := goodState.PreviousPeriod, goodTrace.postfilterOld; got != want {
 		t.Fatalf("good postfilterPeriodOld=%d want libopus %d", got, want)
+	}
+	if got, want := goodState.Gain, goodTrace.postfilterGain; math.Float32bits(got) != math.Float32bits(want) {
+		t.Fatalf("good postfilterGain=%08x want libopus %08x", math.Float32bits(got), math.Float32bits(want))
+	}
+	if got, want := goodState.PreviousGain, goodTrace.postfilterGainOld; math.Float32bits(got) != math.Float32bits(want) {
+		t.Fatalf("good postfilterGainOld=%08x want libopus %08x", math.Float32bits(got), math.Float32bits(want))
+	}
+	if got, want := goodState.Tapset, goodTrace.postfilterTapset; got != want {
+		t.Fatalf("good postfilterTapset=%d want libopus %d", got, want)
+	}
+	if got, want := goodState.PreviousTapset, goodTrace.postfilterTapsetOld; got != want {
+		t.Fatalf("good postfilterTapsetOld=%d want libopus %d", got, want)
 	}
 	if _, err := dec.Decode(nil, out); err != nil {
 		t.Fatalf("Decode loss: %v", err)
 	}
-	if got, want := dec.celtDecoder.PostfilterPeriod(), lossTrace.postfilter; got != want {
+	lossState := dec.celtDecoder.PostfilterState()
+	if got, want := lossState.Period, lossTrace.postfilter; got != want {
 		t.Fatalf("loss postfilterPeriod=%d want libopus %d", got, want)
 	}
-	if got, want := dec.celtDecoder.PostfilterPeriodOld(), lossTrace.postfilterOld; got != want {
+	if got, want := lossState.PreviousPeriod, lossTrace.postfilterOld; got != want {
 		t.Fatalf("loss postfilterPeriodOld=%d want libopus %d", got, want)
+	}
+	if got, want := lossState.Gain, lossTrace.postfilterGain; math.Float32bits(got) != math.Float32bits(want) {
+		t.Fatalf("loss postfilterGain=%08x want libopus %08x", math.Float32bits(got), math.Float32bits(want))
+	}
+	if got, want := lossState.PreviousGain, lossTrace.postfilterGainOld; math.Float32bits(got) != math.Float32bits(want) {
+		t.Fatalf("loss postfilterGainOld=%08x want libopus %08x", math.Float32bits(got), math.Float32bits(want))
+	}
+	if got, want := lossState.Tapset, lossTrace.postfilterTapset; got != want {
+		t.Fatalf("loss postfilterTapset=%d want libopus %d", got, want)
+	}
+	if got, want := lossState.PreviousTapset, lossTrace.postfilterTapsetOld; got != want {
+		t.Fatalf("loss postfilterTapsetOld=%d want libopus %d", got, want)
+	}
+}
+
+func TestLibopusCELTTracePLCStateMatchesDecoder(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	packet := encodeAPIRateCELTPacket(t, 2)
+	const (
+		sampleRate = 48000
+		channels   = 2
+		frameSize  = 960
+	)
+	steps := []libopusAPIRateDecodeStep{{packet: packet}, {}}
+	trace, err := traceLibopusCELT(sampleRate, channels, frameSize, 1, 1, 0, 1, steps)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT decode trace", err)
+	}
+
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	out := make([]float32, frameSize*channels)
+	if _, err := dec.Decode(packet, out); err != nil {
+		t.Fatalf("Decode good: %v", err)
+	}
+	if _, err := dec.Decode(nil, out); err != nil {
+		t.Fatalf("Decode loss: %v", err)
+	}
+
+	state := dec.celtDecoder.SnapshotPLCState()
+	if state.LossDuration != trace.lossDuration {
+		t.Fatalf("lossDuration=%d want libopus %d", state.LossDuration, trace.lossDuration)
+	}
+	if state.PLCDuration != trace.plcDuration {
+		t.Fatalf("plcDuration=%d want libopus %d", state.PLCDuration, trace.plcDuration)
+	}
+	if state.LastFrameType != trace.lastFrameType {
+		t.Fatalf("lastFrameType=%d want libopus %d", state.LastFrameType, trace.lastFrameType)
+	}
+	if state.LastPitchPeriod != trace.lastPitchPeriod {
+		t.Fatalf("lastPitchPeriod=%d want libopus %d", state.LastPitchPeriod, trace.lastPitchPeriod)
+	}
+	if state.SkipPLC != trace.skipPLC {
+		t.Fatalf("skipPLC=%v want libopus %v", state.SkipPLC, trace.skipPLC)
+	}
+	if state.PrefilterAndFold != trace.prefilterFold {
+		t.Fatalf("prefilterAndFold=%v want libopus %v", state.PrefilterAndFold, trace.prefilterFold)
 	}
 }
 

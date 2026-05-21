@@ -957,7 +957,7 @@ func removeDoubling(x []float32, maxPeriod, minPeriod, N int, T0 *int, prevPerio
 	}
 	pg := g
 	if bestYY > bestXY {
-		pg = float32(float64(bestXY) / float64(bestYY+float32(1)))
+		pg = bestXY / noFMA32Add(bestYY, 1)
 		if pg > g {
 			pg = g
 		}
@@ -1058,7 +1058,8 @@ func computePitchGain(xy, xx, yy float32) float32 {
 	if xy == 0 || xx == 0 || yy == 0 {
 		return 0
 	}
-	return xy / float32(math.Sqrt(float64(fma32(xx, yy, 1))))
+	den := noFMA32Add(1, noFMA32Mul(xx, yy))
+	return xy / float32(math.Sqrt(float64(den)))
 }
 
 func celtFIR5(x []float64, num [5]float64) {

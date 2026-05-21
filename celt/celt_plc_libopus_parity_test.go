@@ -15,6 +15,7 @@ const (
 	libopusCELTPLCModePitchDownsample = uint32(3)
 	libopusCELTPLCModePitchSearch     = uint32(4)
 	libopusCELTPLCModeRemoveDoubling  = uint32(5)
+	libopusCELTPLCModePeriodicConceal = uint32(6)
 )
 
 var libopusCELTPLCHelper libopustest.HelperCache
@@ -184,6 +185,45 @@ func probeLibopusRemoveDoubling(t *testing.T, x []float32, maxPeriod, minPeriod,
 	return outT0, gain
 }
 
+type libopusPLCPeriodicConcealResult struct {
+	period int
+	out    [][]float32
+}
+
+func probeLibopusPLCPeriodicConceal(t *testing.T, hist []celtSig, channels, frameSize int) libopusPLCPeriodicConcealResult {
+	t.Helper()
+	payload := libopustest.NewOraclePayload("GCPI", libopusCELTPLCModePeriodicConceal)
+	payload.U32(uint32(channels))
+	payload.U32(uint32(frameSize))
+	payload.U32(uint32(Overlap))
+	payload.U32(0)
+	payload.U32(0)
+	for _, w := range GetWindowBufferF32(Overlap) {
+		payload.Float32(w)
+	}
+	for _, sample := range hist {
+		payload.Float32(float32(sample))
+	}
+	reader := runLibopusCELTPLC(t, payload)
+	if gotMode := reader.U32(); gotMode != libopusCELTPLCModePeriodicConceal {
+		t.Fatalf("helper mode=%d want %d", gotMode, libopusCELTPLCModePeriodicConceal)
+	}
+	period := int(reader.U32())
+	count := int(reader.U32())
+	out := make([][]float32, channels)
+	reader.ExpectRemaining(channels * count * 4)
+	for ch := 0; ch < channels; ch++ {
+		out[ch] = make([]float32, count)
+		for i := range out[ch] {
+			out[ch][i] = reader.Float32()
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		t.Fatal(err)
+	}
+	return libopusPLCPeriodicConcealResult{period: period, out: out}
+}
+
 func readCELTPLCFloat32Vector(t *testing.T, reader *libopustest.OracleReader) []float32 {
 	t.Helper()
 	count := int(reader.U32())
@@ -196,6 +236,40 @@ func readCELTPLCFloat32Vector(t *testing.T, reader *libopustest.OracleReader) []
 		t.Fatal(err)
 	}
 	return out
+}
+
+func TestConcealPeriodicPLCMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	const frameSize = 960
+	for _, channels := range []int{1, 2} {
+		t.Run(map[int]string{1: "mono", 2: "stereo"}[channels], func(t *testing.T) {
+			hist := makeCELTPLCTestSignal(plcDecodeBufferSize*channels, 0x9000+uint32(channels), 2400)
+			want := probeLibopusPLCPeriodicConceal(t, hist, channels, frameSize)
+
+			dec := NewDecoder(channels)
+			dec.plcDecodeMem = append(dec.plcDecodeMem[:0], hist...)
+			dec.plcLPC = make([]float32, celtPLCLPCOrder*channels)
+			gotInterleaved := make([]float64, (frameSize+Overlap)*channels)
+			if !dec.concealPeriodicPLC(gotInterleaved, frameSize, 1, false, false) {
+				t.Fatal("concealPeriodicPLC returned false")
+			}
+			if dec.plcLastPitchPeriod != want.period {
+				t.Fatalf("period=%d want libopus %d", dec.plcLastPitchPeriod, want.period)
+			}
+			for ch := 0; ch < channels; ch++ {
+				for i, wantSample := range want.out[ch] {
+					got := float32(gotInterleaved[i*channels+ch])
+					if math.Float32bits(got) != math.Float32bits(wantSample) {
+						t.Fatalf("ch=%d out[%d]=%08x %.10g want %08x %.10g",
+							ch, i,
+							math.Float32bits(got), got,
+							math.Float32bits(wantSample), wantSample)
+					}
+				}
+			}
+		})
+	}
 }
 
 func TestPitchDownsampleSigMatchesLibopus(t *testing.T) {

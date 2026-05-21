@@ -556,8 +556,8 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 			for i := 0; i < decayLength; i++ {
 				v1 := float32(exc[base1+i])
 				v2 := float32(exc[base2+i])
-				e1 += v1 * v1
-				e2 += v2 * v2
+				e1 += noFMA32Mul(v1, v1)
+				e2 += noFMA32Mul(v2, v2)
 			}
 			if e1 > e2 {
 				e1 = e2
@@ -573,7 +573,7 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 		copy(buf[:plcDecodeBufferSize-frameSize], buf[frameSize:plcDecodeBufferSize])
 		chOut := buf[plcDecodeBufferSize-frameSize : plcDecodeBufferSize-frameSize+totalSamples]
 		s1 := float32(0)
-		s1Base := plcDecodeBufferSize - maxPeriod + extrapolationOffset
+		s1Base := plcDecodeBufferSize - maxPeriod - frameSize + extrapolationOffset
 		j := 0
 		for i := 0; i < totalSamples; i++ {
 			if j >= period {
@@ -582,8 +582,8 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 			}
 			chOut[i] = celtSig(attenuation * float32(exc[celtPLCLPCOrder+extrapolationOffset+j]))
 			srcIdx := s1Base + j
-			if srcIdx >= 0 && srcIdx < len(hist) {
-				v := float32(hist[srcIdx])
+			if srcIdx >= 0 && srcIdx < len(buf) {
+				v := float32(buf[srcIdx])
 				s1 += v * v
 			}
 			j++

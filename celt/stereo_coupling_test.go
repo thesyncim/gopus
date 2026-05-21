@@ -7,25 +7,19 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-// TestStereoMergeVsLibopus validates stereoMerge matches libopus stereo_merge.
-// The stereo_merge function converts mid (X) and side (Y) to left (X) and right (Y).
-//
-// Libopus stereo_merge algorithm (float):
-//
-//	xp = dot(Y, X)                    // inner product
-//	side = dot(Y, Y)                  // side energy
-//	xp = mid * xp                     // compensate for mid normalization
-//	El = mid^2 + side - 2*xp          // left energy
-//	Er = mid^2 + side + 2*xp          // right energy
-//	lgain = 1 / sqrt(El)
-//	rgain = 1 / sqrt(Er)
-//	X[j] = lgain * (mid * X[j] - Y[j])  // left
-//	Y[j] = rgain * (mid * X[j] + Y[j])  // right
-//
-// Note: In libopus the mid value passed to stereo_merge is derived from imid/32768
-// where imid comes from bitexactCos(itheta). The mid passed is the actual scaling factor.
 func TestStereoMergeVsLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	makeVector := func(n int, seed uint32) ([]float32, []float32) {
+		x := make([]float32, n)
+		y := make([]float32, n)
+		for i := range x {
+			seed = seed*1664525 + 1013904223
+			x[i] = float32(int32(seed>>9)%2000-1000) / 1000
+			seed = seed*1664525 + 1013904223
+			y[i] = float32(int32(seed>>9)%1600-800) / 1600
+		}
+		return x, y
+	}
 	testCases := []struct {
 		name string
 		x    []float32
@@ -50,6 +44,24 @@ func TestStereoMergeVsLibopus(t *testing.T) {
 			y:    []float32{0.3, -0.2, 0.15, -0.1},
 			mid:  0.7071067811865476,
 		},
+	}
+	for _, tc := range []struct {
+		name string
+		n    int
+		mid  float32
+		seed uint32
+	}{
+		{"neon_8", 8, 0.8125, 0x5108},
+		{"neon_tail_9", 9, 0.671875, 0x5109},
+		{"neon_tail_17", 17, 0.9375, 0x5117},
+	} {
+		x, y := makeVector(tc.n, tc.seed)
+		testCases = append(testCases, struct {
+			name string
+			x    []float32
+			y    []float32
+			mid  float32
+		}{tc.name, x, y, tc.mid})
 	}
 
 	oracleCases := make([]stereoMergeOracleCase, len(testCases))
@@ -77,58 +89,16 @@ func TestStereoMergeVsLibopus(t *testing.T) {
 			for i := range xGo {
 				gotX := float32(xGo[i])
 				gotY := float32(yGo[i])
-				if math.Abs(float64(gotX-want[ci].x[i])) > 6e-8 {
+				if math.Float32bits(gotX) != math.Float32bits(want[ci].x[i]) {
 					t.Fatalf("X[%d]=%08x %.10g want %08x %.10g",
 						i, math.Float32bits(gotX), gotX, math.Float32bits(want[ci].x[i]), want[ci].x[i])
 				}
-				if math.Abs(float64(gotY-want[ci].y[i])) > 6e-8 {
+				if math.Float32bits(gotY) != math.Float32bits(want[ci].y[i]) {
 					t.Fatalf("Y[%d]=%08x %.10g want %08x %.10g",
 						i, math.Float32bits(gotY), gotY, math.Float32bits(want[ci].y[i]), want[ci].y[i])
 				}
 			}
 		})
-	}
-}
-
-// stereoMergeLibopus is a reference implementation matching libopus bands.c stereo_merge.
-func stereoMergeLibopus(x, y []float64, mid float64) {
-	n := len(x)
-	if n == 0 || len(y) < n {
-		return
-	}
-
-	// Compute xp = dot(Y, X) and side = dot(Y, Y)
-	xp := 0.0
-	side := 0.0
-	for i := 0; i < n; i++ {
-		xp += y[i] * x[i]
-		side += y[i] * y[i]
-	}
-
-	// Compensate for mid normalization
-	xp *= mid
-
-	// Compute left and right energies
-	mid2 := mid * mid
-	el := mid2 + side - 2.0*xp
-	er := mid2 + side + 2.0*xp
-
-	// Early exit for very small energies
-	if el < 6e-4 || er < 6e-4 {
-		copy(y, x[:n])
-		return
-	}
-
-	// Compute normalization gains
-	lgain := 1.0 / math.Sqrt(el)
-	rgain := 1.0 / math.Sqrt(er)
-
-	// Apply transformation
-	for i := 0; i < n; i++ {
-		l := mid * x[i]
-		r := y[i]
-		x[i] = (l - r) * lgain
-		y[i] = (l + r) * rgain
 	}
 }
 

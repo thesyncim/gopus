@@ -136,6 +136,14 @@ int main(void) {
   uint32_t trace_plc_duration = 0;
   uint32_t trace_postfilter_period = 0;
   uint32_t trace_postfilter_period_old = 0;
+  float trace_postfilter_gain = 0;
+  float trace_postfilter_gain_old = 0;
+  uint32_t trace_postfilter_tapset = 0;
+  uint32_t trace_postfilter_tapset_old = 0;
+  uint32_t trace_last_pitch_index = 0;
+  uint32_t trace_last_frame_type = 0;
+  uint32_t trace_skip_plc = 0;
+  uint32_t trace_prefilter_and_fold = 0;
   uint32_t trace_old_band_e_count = 0;
   uint32_t i;
 
@@ -292,6 +300,14 @@ int main(void) {
       trace_plc_duration = (uint32_t)celt->plc_duration;
       trace_postfilter_period = (uint32_t)celt->postfilter_period;
       trace_postfilter_period_old = (uint32_t)celt->postfilter_period_old;
+      trace_postfilter_gain = celt->postfilter_gain;
+      trace_postfilter_gain_old = celt->postfilter_gain_old;
+      trace_postfilter_tapset = (uint32_t)celt->postfilter_tapset;
+      trace_postfilter_tapset_old = (uint32_t)celt->postfilter_tapset_old;
+      trace_last_pitch_index = (uint32_t)celt->last_pitch_index;
+      trace_last_frame_type = (uint32_t)celt->last_frame_type;
+      trace_skip_plc = (uint32_t)celt->skip_plc;
+      trace_prefilter_and_fold = (uint32_t)celt->prefilter_and_fold;
       trace_old_band_e_count = (uint32_t)(2 * celt->mode->nbEBands);
       if (trace_old_band_e_count > 42) trace_old_band_e_count = 42;
       for (j = 0; j < trace_old_band_e_count; j++) {
@@ -319,6 +335,10 @@ int main(void) {
       !write_u32(trace_final_range) || !write_u32(trace_celt_rng) ||
       !write_u32(trace_loss_duration) || !write_u32(trace_plc_duration) ||
       !write_u32(trace_postfilter_period) || !write_u32(trace_postfilter_period_old) ||
+      !write_float(trace_postfilter_gain) || !write_float(trace_postfilter_gain_old) ||
+      !write_u32(trace_postfilter_tapset) || !write_u32(trace_postfilter_tapset_old) ||
+      !write_u32(trace_last_pitch_index) || !write_u32(trace_last_frame_type) ||
+      !write_u32(trace_skip_plc) || !write_u32(trace_prefilter_and_fold) ||
       !write_u32(trace_old_band_e_count)) {
     fprintf(stderr, "failed to write output header\n");
     free(frame);
