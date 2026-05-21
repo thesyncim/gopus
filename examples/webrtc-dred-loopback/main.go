@@ -1,5 +1,4 @@
 //go:build !gopus_webrtc_headless
-// +build !gopus_webrtc_headless
 
 package main
 

@@ -1,5 +1,4 @@
 //go:build !gopus_extra_controls && !gopus_dred && !gopus_qext
-// +build !gopus_extra_controls,!gopus_dred,!gopus_qext
 
 package encoder_test
 

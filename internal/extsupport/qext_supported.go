@@ -1,5 +1,4 @@
 //go:build gopus_qext
-// +build gopus_qext
 
 package extsupport
 

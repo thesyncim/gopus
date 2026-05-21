@@ -1,5 +1,4 @@
 //go:build gopus_extra_controls
-// +build gopus_extra_controls
 
 package multistream
 

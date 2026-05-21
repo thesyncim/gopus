@@ -1,5 +1,4 @@
 //go:build gopus_dred || gopus_extra_controls
-// +build gopus_dred gopus_extra_controls
 
 // Code generated from tmp_check/opus-1.6.1/dnn/lpcnet_tables.c; DO NOT EDIT.
 

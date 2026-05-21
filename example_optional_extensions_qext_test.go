@@ -1,5 +1,4 @@
 //go:build gopus_qext && !gopus_dred
-// +build gopus_qext,!gopus_dred
 
 package gopus_test
 

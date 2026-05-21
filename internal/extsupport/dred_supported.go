@@ -1,5 +1,4 @@
 //go:build gopus_dred
-// +build gopus_dred
 
 package extsupport
 

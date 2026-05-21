@@ -1,5 +1,4 @@
 //go:build gopus_extra_controls && !gopus_qext
-// +build gopus_extra_controls,!gopus_qext
 
 package gopus
 
