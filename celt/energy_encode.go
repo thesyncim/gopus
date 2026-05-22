@@ -1451,9 +1451,9 @@ func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []float64
 				}
 				re.EncodeRawBits(uint32(q2), 1)
 
-				offset := (float64(q2) - 0.5) / float64(uint(1)<<(fineQuant[band]+1))
-				quantizedEnergies[idx] += offset
-				errorVals[idx] -= offset
+				offset := (float32(q2) - 0.5) / float32(uint(1)<<(fineQuant[band]+1))
+				quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
+				errorVals[idx] = float64(float32(errorVals[idx]) - offset)
 				bitsLeft--
 			}
 		}
