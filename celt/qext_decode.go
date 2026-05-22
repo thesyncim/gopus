@@ -16,7 +16,7 @@ type preparedQEXTDecode struct {
 	coeffsR     []float64
 }
 
-func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []float64, nbBands int, intra bool, lm int, prevState []float64, prevStride int, rd *rangecoding.Decoder) []float64 {
+func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []float64, nbBands int, intra bool, lm int, prevState []celtGLog, prevStride int, rd *rangecoding.Decoder) []float64 {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
@@ -45,13 +45,13 @@ func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []float64, nbBands int
 		d.rangeDecoder = oldRD
 	}()
 
-	var alpha, beta float64
+	var alpha, beta float32
 	if intra {
 		alpha = 0.0
-		beta = BetaIntra
+		beta = float32(BetaIntra)
 	} else {
-		alpha = AlphaCoef[lm]
-		beta = BetaCoefInter[lm]
+		alpha = float32(AlphaCoef[lm])
+		beta = float32(BetaCoefInter[lm])
 	}
 
 	prob := eProbModel[lm][0]
@@ -60,7 +60,7 @@ func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []float64, nbBands int
 	}
 
 	budget := rd.StorageBits()
-	prevBandEnergy := ensureFloat64Slice(&d.scratchPrevBandEnergy, d.channels)
+	prevBandEnergy := ensureFloat32Slice(&d.scratchPrevBandEnergy, d.channels)
 	for i := range prevBandEnergy {
 		prevBandEnergy[i] = 0
 	}
@@ -87,20 +87,20 @@ func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []float64, nbBands int
 				qi = -1
 			}
 
-			prevFrameEnergy := 0.0
+			prevFrameEnergy := float32(0)
 			idx := c*prevStride + band
 			if idx >= 0 && idx < len(prevState) {
-				prevFrameEnergy = prevState[idx]
+				prevFrameEnergy = float32(prevState[idx])
 			}
-			minEnergy := -9.0 * DB6
+			minEnergy := float32(-9.0 * DB6)
 			if prevFrameEnergy < minEnergy {
 				prevFrameEnergy = minEnergy
 			}
 			pred := alpha*prevFrameEnergy + prevBandEnergy[c]
-			q := float64(qi) * DB6
+			q := float32(qi) * float32(DB6)
 			energy := pred + q
 
-			dst[c*nbBands+band] = energy
+			dst[c*nbBands+band] = float64(energy)
 			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
 		}
 	}
@@ -116,7 +116,9 @@ func (d *Decoder) storeQEXTEnergyState(energies []float64, nbBands int) {
 	for c := 0; c < d.channels; c++ {
 		base := c * MaxBands
 		src := energies[c*nbBands : c*nbBands+nbBands]
-		copy(oldBandE[base:base+nbBands], src)
+		for band, energy := range src {
+			oldBandE[base+band] = celtGLog(energy)
+		}
 		for band := nbBands; band < MaxBands; band++ {
 			oldBandE[base+band] = 0
 		}

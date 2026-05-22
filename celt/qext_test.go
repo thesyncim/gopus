@@ -653,9 +653,9 @@ func TestHandleChannelTransitionLeavesQEXTOldBandEMonoToStereoUnchanged(t *testi
 
 	dec.ensureQEXTState()
 	dec.prevStreamChannels = 1
-	dec.qext.oldBandE = make([]float64, MaxBands)
+	dec.qext.oldBandE = make([]celtGLog, MaxBands)
 	for i := 0; i < MaxBands; i++ {
-		dec.qext.oldBandE[i] = float64(i+1) * 0.125
+		dec.qext.oldBandE[i] = celtGLog(float32(i+1) * 0.125)
 	}
 
 	if got := dec.handleChannelTransition(2); !got {
@@ -666,7 +666,7 @@ func TestHandleChannelTransitionLeavesQEXTOldBandEMonoToStereoUnchanged(t *testi
 		t.Fatalf("oldBandE len=%d want %d", len(dec.qext.oldBandE), MaxBands)
 	}
 	for i := 0; i < MaxBands; i++ {
-		want := float64(i+1) * 0.125
+		want := celtGLog(float32(i+1) * 0.125)
 		if got := dec.qext.oldBandE[i]; got != want {
 			t.Fatalf("oldBandE[%d]=%v want %v", i, got, want)
 		}
@@ -678,10 +678,10 @@ func TestHandleChannelTransitionStereoToMonoLeavesQEXTOldBandEUnchanged(t *testi
 
 	dec.ensureQEXTState()
 	dec.prevStreamChannels = 2
-	dec.qext.oldBandE = make([]float64, MaxBands*2)
+	dec.qext.oldBandE = make([]celtGLog, MaxBands*2)
 	for i := 0; i < MaxBands; i++ {
-		dec.qext.oldBandE[i] = float64(i)
-		dec.qext.oldBandE[MaxBands+i] = float64(MaxBands - i)
+		dec.qext.oldBandE[i] = celtGLog(i)
+		dec.qext.oldBandE[MaxBands+i] = celtGLog(MaxBands - i)
 	}
 
 	if got := dec.handleChannelTransition(1); !got {
@@ -692,8 +692,8 @@ func TestHandleChannelTransitionStereoToMonoLeavesQEXTOldBandEUnchanged(t *testi
 		t.Fatalf("oldBandE len=%d want %d", len(dec.qext.oldBandE), MaxBands*2)
 	}
 	for i := 0; i < MaxBands; i++ {
-		left := float64(i)
-		right := float64(MaxBands - i)
+		left := celtGLog(i)
+		right := celtGLog(MaxBands - i)
 		if got := dec.qext.oldBandE[i]; got != left {
 			t.Fatalf("oldBandE[%d]=%v want %v", i, got, left)
 		}

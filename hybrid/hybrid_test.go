@@ -419,6 +419,78 @@ func TestDecodeToFloat32(t *testing.T) {
 	}
 }
 
+func TestDecodeToFloat32MatchesDirectFloat32Path(t *testing.T) {
+	for _, tt := range []struct {
+		name         string
+		channels     int
+		packetStereo bool
+		frameSize    int
+	}{
+		{name: "mono_packet", channels: 1, packetStereo: false, frameSize: 480},
+		{name: "stereo_packet", channels: 2, packetStereo: true, frameSize: 960},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			packet := createMinimalHybridPacket(tt.frameSize)
+
+			publicDec := NewDecoder(tt.channels)
+			got, err := publicDec.DecodeToFloat32WithPacketStereo(packet, tt.frameSize, tt.packetStereo)
+			if err != nil {
+				t.Fatalf("DecodeToFloat32WithPacketStereo failed: %v", err)
+			}
+
+			directDec := NewDecoder(tt.channels)
+			rd := &rangecoding.Decoder{}
+			rd.Init(packet)
+			want := make([]float32, tt.frameSize*tt.channels)
+			if err := directDec.DecodeWithDecoderHookToFloat32(rd, tt.frameSize, tt.packetStereo, nil, want); err != nil {
+				t.Fatalf("DecodeWithDecoderHookToFloat32 failed: %v", err)
+			}
+
+			if len(got) != len(want) {
+				t.Fatalf("DecodeToFloat32 length = %d, want %d", len(got), len(want))
+			}
+			for i := range got {
+				if got[i] != want[i] {
+					t.Fatalf("sample %d = %08x, want %08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+				}
+			}
+		})
+	}
+}
+
+func TestDecodePLCFloat32MatchesLegacyLeafWiden(t *testing.T) {
+	const frameSize = 480
+	packet := createMinimalHybridPacket(frameSize)
+
+	floatDec := NewDecoder(1)
+	if _, err := floatDec.DecodeToFloat32(packet, frameSize); err != nil {
+		t.Fatalf("seed DecodeToFloat32 failed: %v", err)
+	}
+	got, err := floatDec.DecodeToFloat32(nil, frameSize)
+	if err != nil {
+		t.Fatalf("DecodeToFloat32 PLC failed: %v", err)
+	}
+
+	legacyDec := NewDecoder(1)
+	if _, err := legacyDec.Decode(packet, frameSize); err != nil {
+		t.Fatalf("seed Decode failed: %v", err)
+	}
+	legacy, err := legacyDec.Decode(nil, frameSize)
+	if err != nil {
+		t.Fatalf("Decode PLC failed: %v", err)
+	}
+
+	if len(got) != len(legacy) {
+		t.Fatalf("PLC length = %d, want %d", len(got), len(legacy))
+	}
+	for i := range got {
+		want := float32(legacy[i])
+		if got[i] != want {
+			t.Fatalf("PLC sample %d = %08x, want legacy leaf-widen %08x", i, math.Float32bits(got[i]), math.Float32bits(want))
+		}
+	}
+}
+
 func TestDecodeToInt16(t *testing.T) {
 	d := NewDecoder(1)
 	testData := make([]byte, 64)

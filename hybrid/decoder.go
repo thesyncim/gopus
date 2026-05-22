@@ -268,7 +268,7 @@ func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetSter
 
 // decodeFrameWithHook decodes a single hybrid frame and allows a hook after SILK decode.
 func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float64, error) {
-	return d.decodeFrameWithHookToFloat32(rd, frameSize, packetStereo, afterSilk, nil)
+	return d.decodedFloat64(d.decodeFrameWithHookFloat32(rd, frameSize, packetStereo, afterSilk, nil))
 }
 
 // DecodeWithDecoderHookToFloat32 decodes a hybrid frame and writes the final
@@ -277,11 +277,11 @@ func (d *Decoder) DecodeWithDecoderHookToFloat32(rd *rangecoding.Decoder, frameS
 	if len(out) < frameSize*d.channels {
 		return ErrDecodeFailed
 	}
-	_, err := d.decodeFrameWithHookToFloat32(rd, frameSize, packetStereo, afterSilk, out[:frameSize*d.channels])
+	_, err := d.decodeFrameWithHookFloat32(rd, frameSize, packetStereo, afterSilk, out[:frameSize*d.channels])
 	return err
 }
 
-func (d *Decoder) decodeFrameWithHookToFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error, out []float32) ([]float64, error) {
+func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error, out []float32) ([]float32, error) {
 	if rd == nil {
 		return nil, ErrNilDecoder
 	}
@@ -440,54 +440,31 @@ func (d *Decoder) decodeFrameWithHookToFloat32(rd *rangecoding.Decoder, frameSiz
 	// The delay compensation is handled internally by the SILK resampler,
 	// matching libopus behavior where SILK outputs at API rate with proper alignment.
 
-	// Step 4: Sum SILK and CELT outputs into scratch buffer
-	if len(out) >= totalSamples {
-		out = out[:totalSamples]
-		// Step 2: Decode CELT layer (8-20kHz, bands 17-21 only)
-		// CELT reads from the same range decoder (SILK already consumed its portion).
-		celtAPI, err := d.decodeCELTHybridToAPI(rd, frameSizeAPI, frameSize48, packetStereo)
-		if err != nil {
-			return nil, err
-		}
-		i := 0
-		for ; i+3 < totalSamples; i += 4 {
-			out[i] = celtAPI[i] + silkUpsampled[i]
-			out[i+1] = celtAPI[i+1] + silkUpsampled[i+1]
-			out[i+2] = celtAPI[i+2] + silkUpsampled[i+2]
-			out[i+3] = celtAPI[i+3] + silkUpsampled[i+3]
-		}
-		for ; i < totalSamples; i++ {
-			out[i] = celtAPI[i] + silkUpsampled[i]
-		}
-
-		_ = silkSamples
-		d.prevPacketStereo = packetStereo
-		return nil, nil
-	}
-
 	// Step 2: Decode CELT layer (8-20kHz, bands 17-21 only)
 	// CELT reads from the same range decoder (SILK already consumed its portion).
-	celtOutput, err := d.decodeCELTHybridToAPI(rd, frameSizeAPI, frameSize48, packetStereo)
+	celtAPI, err := d.decodeCELTHybridToAPI(rd, frameSizeAPI, frameSize48, packetStereo)
 	if err != nil {
 		return nil, err
 	}
 
-	output := d.ensureOutput(totalSamples)
-
-	for i := 0; i < totalSamples; i++ {
-		silkSample := float64(0)
-		celtSample := float64(0)
-
-		silkSample = float64(silkUpsampled[i])
-		if i < len(celtOutput) {
-			celtSample = float64(celtOutput[i])
-		}
-
-		output[i] = silkSample + celtSample
+	if len(out) < totalSamples {
+		out = make([]float32, totalSamples)
+	} else {
+		out = out[:totalSamples]
+	}
+	i := 0
+	for ; i+3 < totalSamples; i += 4 {
+		out[i] = celtAPI[i] + silkUpsampled[i]
+		out[i+1] = celtAPI[i+1] + silkUpsampled[i+1]
+		out[i+2] = celtAPI[i+2] + silkUpsampled[i+2]
+		out[i+3] = celtAPI[i+3] + silkUpsampled[i+3]
+	}
+	for ; i < totalSamples; i++ {
+		out[i] = celtAPI[i] + silkUpsampled[i]
 	}
 
 	d.prevPacketStereo = packetStereo
-	return output, nil
+	return out, nil
 }
 
 func (d *Decoder) decodeCELTHybridToAPI(rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) ([]float32, error) {
