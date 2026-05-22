@@ -553,6 +553,239 @@ func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []floa
 	d.preemphState[1] = stateR
 }
 
+func (d *Decoder) applyDeemphasisAndScaleDownsampleToFloat32(dst []float32, samples []float64, downsample int, scale float64) {
+	if downsample <= 1 {
+		d.applyDeemphasisAndScaleToFloat32(dst, samples, scale)
+		return
+	}
+	if len(samples) == 0 || len(dst) == 0 {
+		return
+	}
+	const verySmall float32 = 1e-30
+	const coef float32 = float32(PreemphCoef)
+	scale32 := float32(scale)
+
+	if d.channels == 1 {
+		n := len(samples) / downsample
+		if len(dst) < n {
+			n = len(dst)
+		}
+		if n <= 0 {
+			return
+		}
+		internal := n * downsample
+		if d.preemphState[0] == 0 {
+			allZero := true
+			for i := 0; i < internal; i++ {
+				if samples[i] != 0 {
+					allZero = false
+					break
+				}
+			}
+			if allZero {
+				clear(dst[:n])
+				return
+			}
+		}
+		state := d.preemphState[0]
+		out := 0
+		for i := 0; i < internal; i++ {
+			tmp := float32(samples[i]) + verySmall + state
+			state = noFMA32Mul(coef, tmp)
+			if i%downsample == 0 {
+				dst[out] = tmp * scale32
+				out++
+			}
+		}
+		d.preemphState[0] = state
+		return
+	}
+
+	frames := len(samples) / 2
+	n := frames / downsample
+	if len(dst)/2 < n {
+		n = len(dst) / 2
+	}
+	if n <= 0 {
+		return
+	}
+	internal := n * downsample
+	if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
+		allZero := true
+		for i := 0; i < internal*2; i++ {
+			if samples[i] != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero {
+			clear(dst[:n*2])
+			return
+		}
+	}
+	stateL := d.preemphState[0]
+	stateR := d.preemphState[1]
+	out := 0
+	for i := 0; i < internal; i++ {
+		base := i * 2
+		tmpL := float32(samples[base]) + verySmall + stateL
+		stateL = noFMA32Mul(coef, tmpL)
+		tmpR := float32(samples[base+1]) + verySmall + stateR
+		stateR = noFMA32Mul(coef, tmpR)
+		if i%downsample == 0 {
+			dst[out] = tmpL * scale32
+			dst[out+1] = tmpR * scale32
+			out += 2
+		}
+	}
+	d.preemphState[0] = stateL
+	d.preemphState[1] = stateR
+}
+
+func (d *Decoder) applyDeemphasisAndScaleMonoFloat32DownsampleToFloat32(dst []float32, samples []float32, downsample int, scale float64) {
+	if downsample <= 1 {
+		d.applyDeemphasisAndScaleMonoFloat32ToFloat32(dst, samples, scale)
+		return
+	}
+	n := len(samples) / downsample
+	if len(dst) < n {
+		n = len(dst)
+	}
+	if n <= 0 {
+		return
+	}
+	internal := n * downsample
+	if d.preemphState[0] == 0 {
+		allZero := true
+		for i := 0; i < internal; i++ {
+			if samples[i] != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero {
+			clear(dst[:n])
+			return
+		}
+	}
+	const verySmall float32 = 1e-30
+	const coef float32 = float32(PreemphCoef)
+	scale32 := float32(scale)
+	state := d.preemphState[0]
+	out := 0
+	for i := 0; i < internal; i++ {
+		tmp := samples[i] + verySmall + state
+		state = noFMA32Mul(coef, tmp)
+		if i%downsample == 0 {
+			dst[out] = tmp * scale32
+			out++
+		}
+	}
+	d.preemphState[0] = state
+}
+
+func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(dst []float32, left, right []float32, downsample int, scale float64) {
+	if downsample <= 1 {
+		d.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(dst, left, right, scale)
+		return
+	}
+	frames := len(left)
+	if len(right) < frames {
+		frames = len(right)
+	}
+	n := frames / downsample
+	if len(dst)/2 < n {
+		n = len(dst) / 2
+	}
+	if n <= 0 {
+		return
+	}
+	internal := n * downsample
+	if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
+		allZero := true
+		for i := 0; i < internal; i++ {
+			if left[i] != 0 || right[i] != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero {
+			clear(dst[:n*2])
+			return
+		}
+	}
+	const verySmall float32 = 1e-30
+	const coef float32 = float32(PreemphCoef)
+	scale32 := float32(scale)
+	stateL := d.preemphState[0]
+	stateR := d.preemphState[1]
+	out := 0
+	for i := 0; i < internal; i++ {
+		tmpL := left[i] + verySmall + stateL
+		stateL = noFMA32Mul(coef, tmpL)
+		tmpR := right[i] + verySmall + stateR
+		stateR = noFMA32Mul(coef, tmpR)
+		if i%downsample == 0 {
+			dst[out] = tmpL * scale32
+			dst[out+1] = tmpR * scale32
+			out += 2
+		}
+	}
+	d.preemphState[0] = stateL
+	d.preemphState[1] = stateR
+}
+
+func (d *Decoder) applyDeemphasisAndScaleStereoPlanarDownsampleToFloat32(dst []float32, left, right []float64, downsample int, scale float64) {
+	if downsample <= 1 {
+		d.applyDeemphasisAndScaleStereoPlanarToFloat32(dst, left, right, scale)
+		return
+	}
+	frames := len(left)
+	if len(right) < frames {
+		frames = len(right)
+	}
+	n := frames / downsample
+	if len(dst)/2 < n {
+		n = len(dst) / 2
+	}
+	if n <= 0 {
+		return
+	}
+	internal := n * downsample
+	if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
+		allZero := true
+		for i := 0; i < internal; i++ {
+			if left[i] != 0 || right[i] != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero {
+			clear(dst[:n*2])
+			return
+		}
+	}
+	const verySmall float32 = 1e-30
+	const coef float32 = float32(PreemphCoef)
+	scale32 := float32(scale)
+	stateL := d.preemphState[0]
+	stateR := d.preemphState[1]
+	out := 0
+	for i := 0; i < internal; i++ {
+		tmpL := float32(left[i]) + verySmall + stateL
+		stateL = noFMA32Mul(coef, tmpL)
+		tmpR := float32(right[i]) + verySmall + stateR
+		stateR = noFMA32Mul(coef, tmpR)
+		if i%downsample == 0 {
+			dst[out] = tmpL * scale32
+			dst[out+1] = tmpR * scale32
+			out += 2
+		}
+	}
+	d.preemphState[0] = stateL
+	d.preemphState[1] = stateR
+}
+
 func (d *Decoder) advanceDeemphasisStateMono(samples []float64) {
 	n := len(samples)
 	if d == nil || d.channels != 1 || n == 0 {

@@ -9,9 +9,18 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
 	var samples []float64
 	downsample := d.downsampleFactor()
-	directStereoFloat32 := d.channels == 2 && len(d.directOutPCM) >= frameSize*2
+	outputFrameSize := frameSize
+	downsampleOutput := false
+	if downsample > 1 && frameSize%downsample == 0 {
+		apiFrameSize := frameSize / downsample
+		if len(d.directOutPCM) < frameSize*d.channels && len(d.directOutPCM) >= apiFrameSize*d.channels {
+			outputFrameSize = apiFrameSize
+			downsampleOutput = true
+		}
+	}
+	directStereoFloat32 := d.channels == 2 && len(d.directOutPCM) >= outputFrameSize*2
 	directMonoFloat32 := d.channels == 1 &&
-		len(d.directOutPCM) >= frameSize &&
+		len(d.directOutPCM) >= outputFrameSize &&
 		!transient &&
 		d.postfilterGainOld == 0 &&
 		d.postfilterGain == 0 &&
@@ -45,11 +54,19 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 			} else {
 				d.applyPostfilterStereoPlanarFromFloat32(samplesL[:frameSize], samplesR[:frameSize], frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 			}
-			d.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(d.directOutPCM[:frameSize*2], samplesL[:frameSize], samplesR[:frameSize], 1.0/32768.0)
+			if downsampleOutput {
+				d.applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(d.directOutPCM[:outputFrameSize*2], samplesL[:frameSize], samplesR[:frameSize], downsample, 1.0/32768.0)
+			} else {
+				d.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(d.directOutPCM[:frameSize*2], samplesL[:frameSize], samplesR[:frameSize], 1.0/32768.0)
+			}
 		} else if directStereoFloat32 {
 			samplesL, samplesR := d.synthesizeStereoPlanar(coeffsL, coeffsR, transient, shortBlocks)
 			d.applyPostfilterStereoPlanar(samplesL, samplesR, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
-			d.applyDeemphasisAndScaleStereoPlanarToFloat32(d.directOutPCM[:frameSize*2], samplesL, samplesR, 1.0/32768.0)
+			if downsampleOutput {
+				d.applyDeemphasisAndScaleStereoPlanarDownsampleToFloat32(d.directOutPCM[:outputFrameSize*2], samplesL, samplesR, downsample, 1.0/32768.0)
+			} else {
+				d.applyDeemphasisAndScaleStereoPlanarToFloat32(d.directOutPCM[:frameSize*2], samplesL, samplesR, 1.0/32768.0)
+			}
 		} else {
 			samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 		}
@@ -68,7 +85,11 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 		if directMonoFloat32 {
 			samplesF32 := d.synthesizeMonoLongToFloat32(coeffsL)
 			d.applyPostfilterNoGainMonoFromFloat32(samplesF32, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
-			d.applyDeemphasisAndScaleMonoFloat32ToFloat32(d.directOutPCM[:frameSize], samplesF32, 1.0/32768.0)
+			if downsampleOutput {
+				d.applyDeemphasisAndScaleMonoFloat32DownsampleToFloat32(d.directOutPCM[:outputFrameSize], samplesF32, downsample, 1.0/32768.0)
+			} else {
+				d.applyDeemphasisAndScaleMonoFloat32ToFloat32(d.directOutPCM[:frameSize], samplesF32, 1.0/32768.0)
+			}
 		} else {
 			samples = d.Synthesize(coeffsL, transient, shortBlocks)
 		}
@@ -81,7 +102,10 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	d.applyPostfilter(samples, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	// Step 7: Apply de-emphasis filter
-	if len(d.directOutPCM) >= len(samples) {
+	if downsampleOutput && len(d.directOutPCM) >= outputFrameSize*d.channels {
+		d.applyDeemphasisAndScaleDownsampleToFloat32(d.directOutPCM[:outputFrameSize*d.channels], samples, downsample, 1.0/32768.0)
+		return nil
+	} else if len(d.directOutPCM) >= len(samples) {
 		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:len(samples)], samples, 1.0/32768.0)
 	} else {
 		d.applyDeemphasisAndScale(samples, 1.0/32768.0)

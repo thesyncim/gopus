@@ -71,6 +71,96 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize in
 	return err
 }
 
+func (d *Decoder) DecodeFrameAtAPIRate(data []byte, frameSize int) ([]float64, error) {
+	return d.DecodeFrameWithPacketStereoAtAPIRate(data, frameSize, d.channels == 2)
+}
+
+func (d *Decoder) DecodeFrameWithPacketStereoAtAPIRate(data []byte, frameSize int, packetStereo bool) ([]float64, error) {
+	downsample := d.downsampleFactor()
+	if downsample <= 1 {
+		return d.DecodeFrameWithPacketStereo(data, frameSize, packetStereo)
+	}
+	if frameSize <= 0 || frameSize*downsample/downsample != frameSize {
+		return nil, ErrInvalidFrameSize
+	}
+	internalFrameSize := frameSize * downsample
+	if !ValidFrameSize(internalFrameSize) {
+		return nil, ErrInvalidFrameSize
+	}
+	outLen := frameSize * d.channels
+	samples, err := d.DecodeFrameWithPacketStereo(data, internalFrameSize, packetStereo)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]float64, outLen)
+	copyDownsampledFloat64(out, samples, frameSize, d.channels, downsample)
+	return out, nil
+}
+
+func (d *Decoder) DecodeFrameWithPacketStereoToFloat32AtAPIRate(data []byte, frameSize int, packetStereo bool, out []float32) error {
+	downsample := d.downsampleFactor()
+	if downsample <= 1 {
+		return d.DecodeFrameWithPacketStereoToFloat32(data, frameSize, packetStereo, out)
+	}
+	if frameSize <= 0 || frameSize*downsample/downsample != frameSize {
+		return ErrInvalidFrameSize
+	}
+	internalFrameSize := frameSize * downsample
+	if !ValidFrameSize(internalFrameSize) {
+		return ErrInvalidFrameSize
+	}
+	outLen := frameSize * d.channels
+	if len(out) < outLen {
+		return ErrOutputTooSmall
+	}
+
+	d.directOutPCM = out[:outLen]
+	defer func() {
+		d.directOutPCM = nil
+	}()
+
+	samples, err := d.DecodeFrameWithPacketStereo(data, internalFrameSize, packetStereo)
+	if err != nil {
+		return err
+	}
+	if len(samples) != 0 {
+		copyDownsampledFloat64ToFloat32(out[:outLen], samples, frameSize, d.channels, downsample)
+	}
+	return nil
+}
+
+func copyDownsampledFloat64(dst []float64, src []float64, frameSize, channels, downsample int) {
+	if frameSize <= 0 || channels <= 0 || downsample <= 0 {
+		return
+	}
+	for i := 0; i < frameSize; i++ {
+		srcBase := i * downsample * channels
+		dstBase := i * channels
+		for c := 0; c < channels; c++ {
+			if srcBase+c >= len(src) || dstBase+c >= len(dst) {
+				return
+			}
+			dst[dstBase+c] = src[srcBase+c]
+		}
+	}
+}
+
+func copyDownsampledFloat64ToFloat32(dst []float32, src []float64, frameSize, channels, downsample int) {
+	if frameSize <= 0 || channels <= 0 || downsample <= 0 {
+		return
+	}
+	for i := 0; i < frameSize; i++ {
+		srcBase := i * downsample * channels
+		dstBase := i * channels
+		for c := 0; c < channels; c++ {
+			if srcBase+c >= len(src) || dstBase+c >= len(dst) {
+				return
+			}
+			dst[dstBase+c] = float32(src[srcBase+c])
+		}
+	}
+}
+
 // decodeMonoPacketToStereo decodes a mono packet and converts output to stereo.
 func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float64, error) {
 	var qextPayload []byte

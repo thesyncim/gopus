@@ -104,32 +104,13 @@ func (d *Decoder) downsampleFrame48ToAPI(dst, src []float32, frameSize int) {
 }
 
 func (d *Decoder) decodeCELTFrameToAPIScratch(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
-	celtFrameSize := frameSize
-	var celtOut []float32
-	if d.sampleRate != 48000 {
-		celtFrameSize = d.frameSize48FromAPI(frameSize)
-		needed48 := celtFrameSize * d.channels
-		if len(d.scratchFrame48) < needed48 {
-			return nil, ErrBufferTooSmall
-		}
-		celtOut = d.scratchFrame48[:needed48]
-	} else {
-		needed := frameSize * d.channels
-		if len(d.scratchRedundant) < needed {
-			return nil, ErrBufferTooSmall
-		}
-		celtOut = d.scratchRedundant[:needed]
-	}
-	if err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32(data, celtFrameSize, packetStereo, celtOut); err != nil {
-		return nil, err
-	}
 	needed := frameSize * d.channels
 	if len(d.scratchRedundant) < needed {
 		return nil, ErrBufferTooSmall
 	}
 	out := d.scratchRedundant[:needed]
-	if d.sampleRate != 48000 {
-		d.downsampleFrame48ToAPI(out, celtOut, frameSize)
+	if err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32AtAPIRate(data, frameSize, packetStereo, out); err != nil {
+		return nil, err
 	}
 	return out, nil
 }
@@ -624,30 +605,29 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if extsupport.QEXT {
 			d.setCELTQEXTPayload(qextPayload)
 		}
-		celtFrameSize := frameSize
-		celtOut := out
-		if d.sampleRate != 48000 {
-			celtFrameSize = d.frameSize48FromAPI(frameSize)
-			needed48 := celtFrameSize * d.channels
-			if len(d.scratchFrame48) < needed48 {
-				return 0, ErrBufferTooSmall
-			}
-			celtOut = d.scratchFrame48[:needed48]
-		}
 		if extsupport.DREDRuntime && d.dredNeedsCELTFloatPath() {
+			celtFrameSize := d.frameSize48FromAPI(frameSize)
+			celtOut := out
+			if d.sampleRate != 48000 {
+				needed48 := celtFrameSize * d.channels
+				if len(d.scratchFrame48) < needed48 {
+					return 0, ErrBufferTooSmall
+				}
+				celtOut = d.scratchFrame48[:needed48]
+			}
 			samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, min(48000/50, celtFrameSize), packetStereoLocal)
 			if err != nil {
 				return 0, err
 			}
 			copyFloat64ToFloat32(celtOut, samples)
+			if d.sampleRate != 48000 {
+				d.downsampleFrame48ToAPI(out, celtOut, frameSize)
+			}
 		} else {
-			err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32(data, min(48000/50, celtFrameSize), packetStereoLocal, celtOut)
+			err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32AtAPIRate(data, min(F20, frameSize), packetStereoLocal, out)
 			if err != nil {
 				return 0, err
 			}
-		}
-		if d.sampleRate != 48000 {
-			d.downsampleFrame48ToAPI(out, celtOut, frameSize)
 		}
 		// Capture the main decode's FinalRange (no redundancy post-processing for CELT-only)
 		d.mainDecodeRng = d.celtDecoder.FinalRange()

@@ -102,9 +102,33 @@ func (d *Decoder) Complexity() int {
 	return d.complexity
 }
 
-// SampleRate returns the output sample rate (always 48000 for CELT).
+// SampleRate returns the configured API output sample rate.
 func (d *Decoder) SampleRate() int {
 	return d.sampleRate
+}
+
+// SetAPISampleRate sets the Opus API sample rate used by CELT downsampling.
+func (d *Decoder) SetAPISampleRate(sampleRate int) error {
+	switch sampleRate {
+	case 48000:
+		d.sampleRate = sampleRate
+		d.downsample = 1
+	case 24000:
+		d.sampleRate = sampleRate
+		d.downsample = 2
+	case 16000:
+		d.sampleRate = sampleRate
+		d.downsample = 3
+	case 12000:
+		d.sampleRate = sampleRate
+		d.downsample = 4
+	case 8000:
+		d.sampleRate = sampleRate
+		d.downsample = 6
+	default:
+		return ErrInvalidSampleRate
+	}
+	return nil
 }
 
 // SetDownsample sets the libopus CELT downsample factor used for lower-rate
@@ -113,8 +137,10 @@ func (d *Decoder) SetDownsample(factor int) {
 	switch factor {
 	case 1, 2, 3, 4, 6:
 		d.downsample = factor
+		d.sampleRate = 48000 / factor
 	default:
 		d.downsample = 1
+		d.sampleRate = 48000
 	}
 }
 

@@ -476,6 +476,50 @@ func TestDecodeFrame_InvalidFrameSizeRejected(t *testing.T) {
 	}
 }
 
+func TestDecoderSetAPISampleRateSetsDownsample(t *testing.T) {
+	for _, tc := range []struct {
+		sampleRate int
+		downsample int
+	}{
+		{48000, 1},
+		{24000, 2},
+		{16000, 3},
+		{12000, 4},
+		{8000, 6},
+	} {
+		t.Run(fmt.Sprintf("%d", tc.sampleRate), func(t *testing.T) {
+			d := NewDecoder(1)
+			if err := d.SetAPISampleRate(tc.sampleRate); err != nil {
+				t.Fatalf("SetAPISampleRate: %v", err)
+			}
+			if got := d.SampleRate(); got != tc.sampleRate {
+				t.Fatalf("SampleRate()=%d want %d", got, tc.sampleRate)
+			}
+			if got := d.downsampleFactor(); got != tc.downsample {
+				t.Fatalf("downsampleFactor()=%d want %d", got, tc.downsample)
+			}
+		})
+	}
+
+	d := NewDecoder(1)
+	if err := d.SetAPISampleRate(44100); err != ErrInvalidSampleRate {
+		t.Fatalf("SetAPISampleRate(44100)=%v want %v", err, ErrInvalidSampleRate)
+	}
+}
+
+func TestDecodeFrameWithPacketStereoToFloat32AtAPIRateRejectsInvalidCalls(t *testing.T) {
+	d := NewDecoder(1)
+	if err := d.SetAPISampleRate(16000); err != nil {
+		t.Fatalf("SetAPISampleRate: %v", err)
+	}
+	if err := d.DecodeFrameWithPacketStereoToFloat32AtAPIRate(nil, 320, false, make([]float32, 319)); err != ErrOutputTooSmall {
+		t.Fatalf("small buffer error=%v want %v", err, ErrOutputTooSmall)
+	}
+	if err := d.DecodeFrameWithPacketStereoToFloat32AtAPIRate(nil, 321, false, make([]float32, 321)); err != ErrInvalidFrameSize {
+		t.Fatalf("invalid API frame error=%v want %v", err, ErrInvalidFrameSize)
+	}
+}
+
 // TestDecodeFrame_ConsecutiveFrames verifies sample counts remain consistent across frames.
 // After 14-02 fix, DecodeFrame consistently returns frameSize samples.
 func TestDecodeFrame_ConsecutiveFrames(t *testing.T) {

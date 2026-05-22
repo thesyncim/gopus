@@ -128,7 +128,9 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 	silkDec := silk.NewDecoder()
 	silkDec.SetAPISampleRate(cfg.SampleRate)
 	celtDec := celt.NewDecoder(cfg.Channels)
-	celtDec.SetDownsample(48000 / cfg.SampleRate)
+	if err := celtDec.SetAPISampleRate(cfg.SampleRate); err != nil {
+		return nil, err
+	}
 	hybridDec := hybrid.NewDecoderWithSharedDecoders(cfg.Channels, silkDec, celtDec)
 	hybridDec.SetAPISampleRate(cfg.SampleRate)
 

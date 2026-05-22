@@ -24,6 +24,9 @@ var (
 	// ErrInvalidFrameSize indicates an invalid frame size.
 	ErrInvalidFrameSize = errors.New("celt: invalid frame size")
 
+	// ErrInvalidSampleRate indicates a sample rate outside the Opus API set.
+	ErrInvalidSampleRate = errors.New("celt: invalid sample rate")
+
 	// ErrOutputTooSmall indicates the caller-provided PCM buffer is too small.
 	ErrOutputTooSmall = errors.New("celt: output buffer too small")
 
