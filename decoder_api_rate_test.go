@@ -268,6 +268,160 @@ func TestDecodeCELTAPIRatePCMMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecodeCELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, channels := range []int{1, 2} {
+		packet := encodeAPIRateCELTPacket(t, channels)
+		for _, sampleRate := range []int{8000, 16000, 48000} {
+			packetFrameSize, err := packetSamplesAtRate(packet, sampleRate)
+			if err != nil {
+				t.Fatalf("packetSamplesAtRate: %v", err)
+			}
+			for _, requestedFrameSize := range []int{sampleRate / 25, sampleRate * 3 / 50} {
+				t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate)+"_request_"+itoaSmall(requestedFrameSize), func(t *testing.T) {
+					sequence := [][]byte{packet, nil}
+					want, err := decodeWithLibopusReferenceAPIRateFloat32(sampleRate, channels, requestedFrameSize, sequence)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "api-rate requested CELT PLC reference decode", err)
+					}
+
+					dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+					if err != nil {
+						t.Fatalf("NewDecoder: %v", err)
+					}
+					got := make([]float32, 0, len(want))
+					frame := make([]float32, requestedFrameSize*channels)
+
+					n, err := dec.Decode(packet, frame)
+					if err != nil {
+						t.Fatalf("Decode packet: %v", err)
+					}
+					if n != packetFrameSize {
+						t.Fatalf("Decode packet samples=%d want %d", n, packetFrameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					clear(frame)
+					n, err = dec.Decode(nil, frame)
+					if err != nil {
+						t.Fatalf("Decode(nil): %v", err)
+					}
+					if n != requestedFrameSize {
+						t.Fatalf("Decode(nil) samples=%d want requested %d", n, requestedFrameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					assertAPIRateFloat32Close(t, got, want, "CELT requested PLC duration", 3e-3)
+				})
+			}
+		}
+	}
+}
+
+func TestDecodeWithFECCELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, channels := range []int{1, 2} {
+		seedPacket := encodeAPIRateCELTPacket(t, channels)
+		recoveryPacket := encodeAPIRateCELTPacketFrameSize(t, channels, 960)
+		for _, sampleRate := range []int{8000, 16000, 48000} {
+			packetFrameSize, err := packetSamplesAtRate(seedPacket, sampleRate)
+			if err != nil {
+				t.Fatalf("packetSamplesAtRate: %v", err)
+			}
+			for _, requestedFrameSize := range []int{sampleRate / 25, sampleRate * 3 / 50} {
+				t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate)+"_request_"+itoaSmall(requestedFrameSize), func(t *testing.T) {
+					steps := []libopusAPIRateDecodeStep{
+						{packet: seedPacket},
+						{packet: recoveryPacket, fec: true},
+					}
+					want, err := decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, requestedFrameSize, steps)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "api-rate requested CELT FEC reference decode", err)
+					}
+
+					dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+					if err != nil {
+						t.Fatalf("NewDecoder: %v", err)
+					}
+					got := make([]float32, 0, len(want))
+					frame := make([]float32, requestedFrameSize*channels)
+
+					n, err := dec.Decode(seedPacket, frame)
+					if err != nil {
+						t.Fatalf("Decode seed: %v", err)
+					}
+					if n != packetFrameSize {
+						t.Fatalf("Decode seed samples=%d want %d", n, packetFrameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					clear(frame)
+					n, err = dec.DecodeWithFEC(recoveryPacket, frame, true)
+					if err != nil {
+						t.Fatalf("DecodeWithFEC recovery: %v", err)
+					}
+					if n != requestedFrameSize {
+						t.Fatalf("DecodeWithFEC samples=%d want requested %d", n, requestedFrameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					assertAPIRateFloat32Close(t, got, want, "CELT requested FEC duration", 3e-3)
+				})
+			}
+		}
+	}
+}
+
+func TestDecodeInt16CELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, channels := range []int{1, 2} {
+		packet := encodeAPIRateCELTPacket(t, channels)
+		for _, sampleRate := range []int{8000, 16000, 48000} {
+			packetFrameSize, err := packetSamplesAtRate(packet, sampleRate)
+			if err != nil {
+				t.Fatalf("packetSamplesAtRate: %v", err)
+			}
+			for _, requestedFrameSize := range []int{sampleRate / 25, sampleRate * 3 / 50} {
+				t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate)+"_request_"+itoaSmall(requestedFrameSize), func(t *testing.T) {
+					sequence := [][]byte{packet, nil}
+					want, err := decodeWithLibopusReferenceAPIRateInt16(sampleRate, channels, requestedFrameSize, sequence)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "api-rate requested CELT int16 PLC reference decode", err)
+					}
+
+					dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+					if err != nil {
+						t.Fatalf("NewDecoder: %v", err)
+					}
+					got := make([]int16, 0, len(want))
+					frame := make([]int16, requestedFrameSize*channels)
+
+					n, err := dec.DecodeInt16(packet, frame)
+					if err != nil {
+						t.Fatalf("DecodeInt16 packet: %v", err)
+					}
+					if n != packetFrameSize {
+						t.Fatalf("DecodeInt16 packet samples=%d want %d", n, packetFrameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					clear(frame)
+					n, err = dec.DecodeInt16(nil, frame)
+					if err != nil {
+						t.Fatalf("DecodeInt16(nil): %v", err)
+					}
+					if n != requestedFrameSize {
+						t.Fatalf("DecodeInt16(nil) samples=%d want requested %d", n, requestedFrameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+
+					assertAPIRateInt16Equal(t, got, want, "CELT requested int16 PLC duration")
+				})
+			}
+		}
+	}
+}
+
 func TestDecodeHybridUsesAPIRatePacketDuration(t *testing.T) {
 	for _, channels := range []int{1, 2} {
 		packet := encodeAPIRateHybridPacket(t, channels)

@@ -20,6 +20,20 @@ func (d *Decoder) plcFrameSize() int {
 	return d.sampleRate / 50
 }
 
+func (d *Decoder) requestedOutputFrameSize(sampleCount int) (int, error) {
+	if d.channels <= 0 {
+		return 0, ErrInvalidChannels
+	}
+	frameSize := sampleCount / d.channels
+	if frameSize <= 0 {
+		return 0, ErrBufferTooSmall
+	}
+	if frameSize > d.maxPacketSamples {
+		return 0, ErrPacketTooLarge
+	}
+	return frameSize, nil
+}
+
 func nextPLCChunkSamples(sampleRate int, mode Mode, remaining int) int {
 	if sampleRate <= 0 || remaining <= 0 {
 		return 0

@@ -41,11 +41,13 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	}
 
 	if data == nil || len(data) == 0 {
-		frameSize := d.plcFrameSize()
+		frameSize, err := d.requestedOutputFrameSize(len(pcm))
+		if err != nil {
+			return 0, err
+		}
 		neuralReady := dredPossible && d.dredNeuralConcealmentAvailable()
 		n := frameSize
 		usedNeuralConcealment := false
-		var err error
 		if neuralReady && d.prevMode == ModeSILK && d.channels >= 1 && d.channels <= 2 {
 			n, usedNeuralConcealment, err = d.decodeCachedSILKDREDNeuralPLCInto(pcm, frameSize, plcDecodeState{
 				packetFrameSize:    d.lastFrameSize,
@@ -424,6 +426,10 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 	}
 
 	if data != nil && len(data) > 0 {
+		requestedFrameSize, err := d.requestedOutputFrameSize(len(pcm))
+		if err != nil {
+			return 0, err
+		}
 		toc, frameCount, err := packetFrameCount(data)
 		if err != nil {
 			return 0, err
@@ -432,21 +438,17 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		if toc.Mode == ModeSILK || toc.Mode == ModeCELT || toc.Mode == ModeHybrid {
 			frameSize = packetTOCSamplesPerFrameAtRate(data[0], d.sampleRate)
 		}
-		totalSamples := frameSize * frameCount
 		if frameSize <= 0 {
 			frameSize = d.lastFrameSize
 		}
 		if frameSize <= 0 {
 			frameSize = d.sampleRate / 50
 		}
-		if totalSamples <= 0 {
-			totalSamples = frameSize
-		}
 
 		prevPacketMode := d.lastPacketMode
 		if toc.Mode == ModeCELT || prevPacketMode == ModeCELT {
 			d.clearFECState()
-			return d.decodePLCForFEC(pcm, totalSamples)
+			return d.decodePLCForFEC(pcm, requestedFrameSize)
 		}
 		d.lastPacketMode = toc.Mode
 
@@ -457,7 +459,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 			}
 			if !packetHasLBRR(firstFrameData, toc) {
 				d.clearFECState()
-				return d.decodePLCForFECWithState(pcm, totalSamples, toc.Mode, toc.Bandwidth, toc.Stereo)
+				return d.decodePLCForFECWithState(pcm, requestedFrameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
 			}
 			d.storeFECData(firstFrameData, toc, frameCount, frameSize)
 			if n, err := d.decodeFECFrame(pcm); err == nil {
@@ -465,26 +467,26 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 			}
 			d.clearFECState()
 		}
-		return d.decodePLCForFECWithState(pcm, totalSamples, toc.Mode, toc.Bandwidth, toc.Stereo)
+		return d.decodePLCForFECWithState(pcm, requestedFrameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
 	}
 
 	d.clearFECState()
-	return d.decodePLCForFEC(pcm, d.plcFrameSize())
+	frameSize, err := d.requestedOutputFrameSize(len(pcm))
+	if err != nil {
+		return 0, err
+	}
+	return d.decodePLCForFEC(pcm, frameSize)
 }
 
 // DecodeInt16 decodes an Opus packet into int16 PCM samples.
 func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	if data == nil || len(data) == 0 {
-		frameSize := d.plcFrameSize()
-		if frameSize > d.maxPacketSamples {
-			return 0, ErrPacketTooLarge
-		}
-		needed := frameSize * d.channels
-		if len(pcm) < needed {
-			return 0, ErrBufferTooSmall
+		frameSize, err := d.requestedOutputFrameSize(len(pcm))
+		if err != nil {
+			return 0, err
 		}
 
-		n, err := d.decodeFloat32(data, d.scratchPCM, false)
+		n, err := d.decodeFloat32(data, d.scratchPCM[:frameSize*d.channels], false)
 		if err != nil {
 			return 0, err
 		}
