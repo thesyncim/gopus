@@ -1130,7 +1130,7 @@ func TestDecodeWithFEC_ProvidedPacketWithoutLBRRUsesDirectPLCFallback(t *testing
 	}
 
 	pcmExpected := make([]float32, frameSize)
-	nExpected, err := decExpected.decodePLCForFECWithState(pcmExpected, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
+	nExpected, err := decExpected.decodePLCForFECWithState(pcmExpected, frameSize, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
 	if err != nil {
 		t.Fatalf("decodePLCForFECWithState(expected) error: %v", err)
 	}
@@ -1213,7 +1213,7 @@ func TestDecodeWithFEC_PLCWithProvidedStateUsesProvidedMode(t *testing.T) {
 	dec.haveDecoded = true
 
 	pcmPLC := make([]float32, frameSize)
-	n, err := dec.decodePLCForFECWithState(pcmPLC, frameSize, ModeHybrid, BandwidthFullband, false)
+	n, err := dec.decodePLCForFECWithState(pcmPLC, frameSize, frameSize, ModeHybrid, BandwidthFullband, false)
 	if err != nil {
 		t.Fatalf("decodePLCForFECWithState error: %v", err)
 	}

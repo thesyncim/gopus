@@ -416,6 +416,77 @@ func TestDecoderCachedSILKDREDDecodeInt16MatchesLiveSequenceOracle(t *testing.T)
 	}
 }
 
+func TestDecoderCachedSILKDREDDecodeInt16RequestedPLCDurationMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const frameSize = 960
+	for _, channels := range []int{1} {
+		channels := channels
+		packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+			FrameSize:     frameSize,
+			ForceMode:     ModeSILK,
+			Bandwidth:     BandwidthWideband,
+			Channels:      channels,
+			ForceChannels: channels,
+		})
+		if err != nil {
+			libopustest.HelperUnavailable(t, "SILK DRED int16 requested packet", err)
+		}
+		toc := ParseTOC(packetInfo.packet[0])
+		if toc.Mode != ModeSILK || toc.Bandwidth != BandwidthWideband || toc.Stereo != (channels == 2) {
+			t.Fatalf("SILK DRED int16 requested packet TOC=%+v, want channels=%d SILK WB", toc, channels)
+		}
+		for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+			sampleRate := sampleRate
+			for _, requested := range []int{sampleRate / 25, sampleRate * 3 / 50} {
+				requested := requested
+				t.Run(fmt.Sprintf("channels_%d_decoder_%d_request_%d", channels, sampleRate, requested), func(t *testing.T) {
+					dec, n := prepareCachedDREDDecodeInt16ParityStateForDecoderRateAndPacketWithChannels(t, sampleRate, packetInfo, channels)
+					packetFrame, err := packetSamplesAtRate(packetInfo.packet, sampleRate)
+					if err != nil {
+						t.Fatalf("packetSamplesAtRate: %v", err)
+					}
+					if n != packetFrame {
+						t.Fatalf("cached SILK int16 requested warmup samples=%d want %d at %d Hz", n, packetFrame, sampleRate)
+					}
+
+					maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, sampleRate)
+					want, err := probeLibopusDecoderDREDSequenceInt16(nil, packetInfo.packet, nil, maxDRED, oracleRate, requested, 1, requested, 1, 2*requested, false)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "cached SILK int16 requested decoder DRED sequence", err)
+					}
+					requireLibopusDREDSequenceParsed(t, want, "cached SILK int16 requested losses")
+					if want.channels != channels {
+						t.Fatalf("libopus cached SILK int16 requested channels=%d want %d", want.channels, channels)
+					}
+					if want.step0.ret != requested || want.step1.ret != requested {
+						t.Fatalf("libopus cached SILK int16 requested ret=(%d,%d) want (%d,%d)", want.step0.ret, want.step1.ret, requested, requested)
+					}
+
+					pcm0 := make([]int16, requested*dec.channels)
+					got0, err := dec.DecodeInt16(nil, pcm0)
+					if err != nil {
+						t.Fatalf("DecodeInt16(nil, requested first) error: %v", err)
+					}
+					if got0 != requested {
+						t.Fatalf("DecodeInt16(nil, requested first)=%d want %d", got0, requested)
+					}
+					assertInt16WithinLSB(t, pcm0[:got0*dec.channels], want.step0.pcm16[:got0*dec.channels], 1, "cached SILK int16 requested first-loss")
+
+					pcm1 := make([]int16, requested*dec.channels)
+					got1, err := dec.DecodeInt16(nil, pcm1)
+					if err != nil {
+						t.Fatalf("DecodeInt16(nil, requested second) error: %v", err)
+					}
+					if got1 != requested {
+						t.Fatalf("DecodeInt16(nil, requested second)=%d want %d", got1, requested)
+					}
+					assertInt16WithinLSB(t, pcm1[:got1*dec.channels], want.step1.pcm16[:got1*dec.channels], 1, "cached SILK int16 requested second-loss")
+				})
+			}
+		}
+	}
+}
+
 func TestDecoderCachedCELTDREDDecodeInt16TracksLiveSequenceOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const frameSize = 960

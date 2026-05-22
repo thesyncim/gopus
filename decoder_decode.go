@@ -45,12 +45,16 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		if err != nil {
 			return 0, err
 		}
+		packetFrameSize := d.lastFrameSize
+		if packetFrameSize <= 0 {
+			packetFrameSize = frameSize
+		}
 		neuralReady := dredPossible && d.dredNeuralConcealmentAvailable()
 		n := frameSize
 		usedNeuralConcealment := false
 		if neuralReady && d.prevMode == ModeSILK && d.channels >= 1 && d.channels <= 2 {
 			n, usedNeuralConcealment, err = d.decodeCachedSILKDREDNeuralPLCInto(pcm, frameSize, plcDecodeState{
-				packetFrameSize:    d.lastFrameSize,
+				packetFrameSize:    packetFrameSize,
 				mode:               d.prevMode,
 				bandwidth:          d.lastBandwidth,
 				packetStereo:       d.prevPacketStereo,
@@ -68,7 +72,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		}
 		if !usedNeuralConcealment && dredPossible {
 			n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
-				packetFrameSize:    d.lastFrameSize,
+				packetFrameSize:    packetFrameSize,
 				mode:               d.prevMode,
 				bandwidth:          d.lastBandwidth,
 				packetStereo:       d.prevPacketStereo,
@@ -76,7 +80,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 			})
 		} else if !usedNeuralConcealment {
 			n, err = d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
-				packetFrameSize:    d.lastFrameSize,
+				packetFrameSize:    packetFrameSize,
 				mode:               d.prevMode,
 				bandwidth:          d.lastBandwidth,
 				packetStereo:       d.prevPacketStereo,
@@ -118,7 +122,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		}
 		d.applyOutputGain(pcm[:frameSize*d.channels])
 
-		d.lastFrameSize = frameSize
+		d.lastFrameSize = packetFrameSize
 		d.lastPacketDuration = frameSize
 		d.lastDataLen = 0
 		if dredPossible && !usedNeuralConcealment && d.dredGoodPacketMarkerActive() {
@@ -459,7 +463,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 			}
 			if !packetHasLBRR(firstFrameData, toc) {
 				d.clearFECState()
-				return d.decodePLCForFECWithState(pcm, requestedFrameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
+				return d.decodePLCForFECWithState(pcm, requestedFrameSize, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
 			}
 			d.storeFECData(firstFrameData, toc, frameCount, frameSize)
 			if n, err := d.decodeFECFrame(pcm, requestedFrameSize); err == nil {
@@ -467,7 +471,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 			}
 			d.clearFECState()
 		}
-		return d.decodePLCForFECWithState(pcm, requestedFrameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
+		return d.decodePLCForFECWithState(pcm, requestedFrameSize, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
 	}
 
 	d.clearFECState()

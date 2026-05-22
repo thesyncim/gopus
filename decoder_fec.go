@@ -7,23 +7,31 @@ import (
 )
 
 func (d *Decoder) decodePLCForFEC(pcm []float32, frameSize int) (int, error) {
-	return d.decodePLCForFECWithState(pcm, frameSize, d.prevMode, d.lastBandwidth, d.prevPacketStereo)
+	packetFrameSize := d.lastFrameSize
+	if packetFrameSize <= 0 {
+		packetFrameSize = frameSize
+	}
+	return d.decodePLCForFECWithState(pcm, frameSize, packetFrameSize, d.prevMode, d.lastBandwidth, d.prevPacketStereo)
 }
 
 func (d *Decoder) decodePLCForFECWithState(
 	pcm []float32,
 	frameSize int,
+	packetFrameSize int,
 	mode Mode,
 	bandwidth Bandwidth,
 	packetStereo bool,
 ) (int, error) {
+	if packetFrameSize <= 0 {
+		packetFrameSize = frameSize
+	}
 	neuralReady := extsupport.DREDRuntime && d.dredNeuralConcealmentAvailable()
 	usedNeuralConcealment := false
 	var n int
 	var err error
 	if neuralReady && mode == ModeSILK && d.channels >= 1 && d.channels <= 2 {
 		n, usedNeuralConcealment, err = d.decodeCachedSILKDREDNeuralPLCInto(pcm, frameSize, plcDecodeState{
-			packetFrameSize:    frameSize,
+			packetFrameSize:    packetFrameSize,
 			mode:               mode,
 			bandwidth:          bandwidth,
 			packetStereo:       packetStereo,
@@ -36,7 +44,7 @@ func (d *Decoder) decodePLCForFECWithState(
 	if extsupport.DREDRuntime {
 		if !usedNeuralConcealment {
 			n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
-				packetFrameSize:    frameSize,
+				packetFrameSize:    packetFrameSize,
 				mode:               mode,
 				bandwidth:          bandwidth,
 				packetStereo:       packetStereo,
@@ -45,7 +53,7 @@ func (d *Decoder) decodePLCForFECWithState(
 		}
 	} else {
 		n, err = d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
-			packetFrameSize:    frameSize,
+			packetFrameSize:    packetFrameSize,
 			mode:               mode,
 			bandwidth:          bandwidth,
 			packetStereo:       packetStereo,
@@ -61,7 +69,7 @@ func (d *Decoder) decodePLCForFECWithState(
 		usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
 	}
 	d.applyOutputGain(pcm[:frameSize*d.channels])
-	d.lastFrameSize = frameSize
+	d.lastFrameSize = packetFrameSize
 	d.lastPacketDuration = frameSize
 	d.lastDataLen = 0
 	if extsupport.DREDRuntime && !usedNeuralConcealment && d.dredGoodPacketMarkerActive() {
