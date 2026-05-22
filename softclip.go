@@ -211,6 +211,9 @@ func softClipAndFloat32ToInt16(dst []int16, src []float32, n, channels int, decl
 
 fallback:
 	opusPCMSoftClip(src[:total], n, channels, declipMem)
+	if convertFloat32ToInt16Unit(dst, src, total) {
+		return
+	}
 	for i := 0; i < total; i++ {
 		dst[i] = float32ToInt16(src[i])
 	}

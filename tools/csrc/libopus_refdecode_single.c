@@ -86,6 +86,7 @@ int main(void) {
   uint32_t version = 0;
   uint32_t sample_format = SAMPLE_FORMAT_FLOAT32;
   uint32_t sample_rate = 48000;
+  int32_t decode_gain = 0;
   uint32_t channels = 0;
   uint32_t frame_size = 0;
   uint32_t packet_count = 0;
@@ -114,7 +115,7 @@ int main(void) {
   }
   if (version == 1) {
     sample_format = SAMPLE_FORMAT_FLOAT32;
-  } else if (version == 2 || version == 3 || version == 4) {
+  } else if (version == 2 || version == 3 || version == 4 || version == 5) {
     if (!read_u32(&sample_format)) {
       fprintf(stderr, "failed to read sample format\n");
       return 1;
@@ -122,6 +123,14 @@ int main(void) {
     if (version >= 3 && !read_u32(&sample_rate)) {
       fprintf(stderr, "failed to read sample rate\n");
       return 1;
+    }
+    if (version >= 5) {
+      uint32_t raw_gain = 0;
+      if (!read_u32(&raw_gain)) {
+        fprintf(stderr, "failed to read decode gain\n");
+        return 1;
+      }
+      decode_gain = (int32_t)raw_gain;
     }
   } else {
     fprintf(stderr, "unsupported input version\n");
@@ -165,6 +174,15 @@ int main(void) {
     fprintf(stderr, "opus_decoder_create failed: %d\n", err);
     free(frame);
     return 1;
+  }
+  if (decode_gain != 0) {
+    err = opus_decoder_ctl(dec, OPUS_SET_GAIN(decode_gain));
+    if (err != OPUS_OK) {
+      fprintf(stderr, "opus_decoder_ctl(OPUS_SET_GAIN) failed: %d\n", err);
+      opus_decoder_destroy(dec);
+      free(frame);
+      return 1;
+    }
   }
 
   for (i = 0; i < packet_count; i++) {

@@ -446,6 +446,99 @@ func TestDecodeInt16CELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecodeInt16PLCNoSoftClipMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const (
+		sampleRate = 48000
+		frameSize  = 960
+		gainQ8     = 8192
+	)
+	for _, channels := range []int{1, 2} {
+		t.Run("ch_"+itoaSmall(channels), func(t *testing.T) {
+			packet := encodeAPIRateCELTPacket(t, channels)
+			steps := []libopusAPIRateDecodeStep{{packet: packet}, {}}
+			want, err := decodeWithLibopusReferenceAPIRateInt16StepsGain(sampleRate, channels, frameSize, gainQ8, steps)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "api-rate int16 PLC reference decode", err)
+			}
+
+			dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			if err := dec.SetGain(gainQ8); err != nil {
+				t.Fatalf("SetGain(%d): %v", gainQ8, err)
+			}
+
+			got := make([]int16, 0, len(want))
+			frame := make([]int16, frameSize*channels)
+			n, err := dec.DecodeInt16(packet, frame)
+			if err != nil {
+				t.Fatalf("DecodeInt16 packet: %v", err)
+			}
+			if n != frameSize {
+				t.Fatalf("DecodeInt16 packet samples=%d want %d", n, frameSize)
+			}
+			got = append(got, frame[:n*channels]...)
+
+			clear(frame)
+			n, err = dec.DecodeInt16(nil, frame)
+			if err != nil {
+				t.Fatalf("DecodeInt16(nil): %v", err)
+			}
+			if n != frameSize {
+				t.Fatalf("DecodeInt16(nil) samples=%d want %d", n, frameSize)
+			}
+			got = append(got, frame[:n*channels]...)
+
+			assertAPIRateInt16Equal(t, got, want, "high-gain int16 PLC")
+		})
+	}
+}
+
+func TestDecodeOutputGainFloat32MatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const (
+		sampleRate = 48000
+		frameSize  = 960
+		gainQ8     = 8192
+	)
+	for _, channels := range []int{1, 2} {
+		t.Run("ch_"+itoaSmall(channels), func(t *testing.T) {
+			packet := encodeAPIRateCELTPacket(t, channels)
+			steps := []libopusAPIRateDecodeStep{{packet: packet}, {}}
+			want, err := decodeWithLibopusReferenceAPIRateFloat32StepsGain(sampleRate, channels, frameSize, gainQ8, steps)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "api-rate float32 output gain reference decode", err)
+			}
+
+			dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			if err := dec.SetGain(gainQ8); err != nil {
+				t.Fatalf("SetGain(%d): %v", gainQ8, err)
+			}
+
+			got := make([]float32, 0, len(want))
+			frame := make([]float32, frameSize*channels)
+			n, err := dec.Decode(packet, frame)
+			if err != nil {
+				t.Fatalf("Decode packet: %v", err)
+			}
+			got = append(got, frame[:n*channels]...)
+			clear(frame)
+			n, err = dec.Decode(nil, frame)
+			if err != nil {
+				t.Fatalf("Decode(nil): %v", err)
+			}
+			got = append(got, frame[:n*channels]...)
+
+			assertAPIRateFloat32Close(t, got, want, "high-gain float32 output", 0)
+		})
+	}
+}
+
 func TestDecodeHybridUsesAPIRatePacketDuration(t *testing.T) {
 	for _, channels := range []int{1, 2} {
 		packet := encodeAPIRateHybridPacket(t, channels)
@@ -1756,11 +1849,15 @@ func decodeWithLibopusReferenceAPIRateFloat32(sampleRate, channels, frameSize in
 }
 
 func decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, frameSize int, steps []libopusAPIRateDecodeStep) ([]float32, error) {
+	return decodeWithLibopusReferenceAPIRateFloat32StepsGain(sampleRate, channels, frameSize, 0, steps)
+}
+
+func decodeWithLibopusReferenceAPIRateFloat32StepsGain(sampleRate, channels, frameSize, gainQ8 int, steps []libopusAPIRateDecodeStep) ([]float32, error) {
 	binPath, err := getLibopusAPIRateRefdecodeHelperPath()
 	if err != nil {
 		return nil, err
 	}
-	payload := libopustest.NewOraclePayloadVersion("GOSI", 4, libopusRefdecodeSingleFormatFloat32, uint32(sampleRate), uint32(channels), uint32(frameSize), uint32(len(steps)))
+	payload := libopustest.NewOraclePayloadVersion("GOSI", 5, libopusRefdecodeSingleFormatFloat32, uint32(sampleRate), uint32(int32(gainQ8)), uint32(channels), uint32(frameSize), uint32(len(steps)))
 	for _, step := range steps {
 		if step.fec {
 			payload.U32(1)
@@ -1795,11 +1892,15 @@ func decodeWithLibopusReferenceAPIRateInt16(sampleRate, channels, frameSize int,
 }
 
 func decodeWithLibopusReferenceAPIRateInt16Steps(sampleRate, channels, frameSize int, steps []libopusAPIRateDecodeStep) ([]int16, error) {
+	return decodeWithLibopusReferenceAPIRateInt16StepsGain(sampleRate, channels, frameSize, 0, steps)
+}
+
+func decodeWithLibopusReferenceAPIRateInt16StepsGain(sampleRate, channels, frameSize, gainQ8 int, steps []libopusAPIRateDecodeStep) ([]int16, error) {
 	binPath, err := getLibopusAPIRateRefdecodeHelperPath()
 	if err != nil {
 		return nil, err
 	}
-	payload := libopustest.NewOraclePayloadVersion("GOSI", 4, libopusRefdecodeSingleFormatInt16, uint32(sampleRate), uint32(channels), uint32(frameSize), uint32(len(steps)))
+	payload := libopustest.NewOraclePayloadVersion("GOSI", 5, libopusRefdecodeSingleFormatInt16, uint32(sampleRate), uint32(int32(gainQ8)), uint32(channels), uint32(frameSize), uint32(len(steps)))
 	for _, step := range steps {
 		if step.fec {
 			payload.U32(1)
