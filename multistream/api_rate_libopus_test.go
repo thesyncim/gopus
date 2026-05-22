@@ -2,9 +2,12 @@ package multistream
 
 import (
 	"math"
+	"strconv"
 	"testing"
 
+	internalenc "github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/types"
 )
 
 func TestLibopus_APIRateMultistreamDecodeMatchesReference(t *testing.T) {
@@ -66,5 +69,76 @@ func TestLibopus_APIRateMultistreamDecodeMatchesReference(t *testing.T) {
 	_, maxAbsDiff := computeDiffStatsF32(got, want)
 	if maxAbsDiff > 5e-4 {
 		t.Fatalf("api-rate multistream max abs diff=%g want <=5e-4", maxAbsDiff)
+	}
+}
+
+func TestLibopus_APIRateMultistreamCELTDecodeAndPLCMatchesReference(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const (
+		encoderSampleRate = 48000
+		channels          = 3
+		encoderFrameSize  = encoderSampleRate / 50
+	)
+	streams, coupled, mapping, err := DefaultMapping(channels)
+	if err != nil {
+		t.Fatalf("DefaultMapping: %v", err)
+	}
+
+	enc, err := NewEncoder(encoderSampleRate, channels, streams, coupled, mapping)
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+	enc.SetMode(internalenc.ModeCELT)
+	enc.SetLowDelay(true)
+	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetBitrate(256000)
+	pcm := generateTestSignal(channels, encoderFrameSize, encoderSampleRate, 997)
+	packet, err := enc.Encode(pcm, encoderFrameSize)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	streamPackets, err := parseMultistreamPacket(packet, streams)
+	if err != nil {
+		t.Fatalf("parseMultistreamPacket: %v", err)
+	}
+	for i, streamPacket := range streamPackets {
+		if got := parseStreamTOC(streamPacket[0]).mode; got != streamModeCELT {
+			t.Fatalf("stream %d mode=%d want CELT", i, got)
+		}
+	}
+
+	for _, sampleRate := range []int{8000, 16000, 24000} {
+		frameSize := encoderFrameSize * sampleRate / encoderSampleRate
+		t.Run("fs_"+strconv.Itoa(sampleRate), func(t *testing.T) {
+			sequence := [][]byte{packet, nil}
+			want, err := decodeWithLibopusReferencePackets(1, sampleRate, channels, streams, coupled, frameSize, mapping, nil, sequence)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "reference decode", err)
+			}
+
+			dec, err := NewDecoder(sampleRate, channels, streams, coupled, mapping)
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			got64 := make([]float64, 0, len(want))
+			for i, pkt := range sequence {
+				frame, err := dec.Decode(pkt, frameSize)
+				if err != nil {
+					t.Fatalf("Decode sequence[%d]: %v", i, err)
+				}
+				if len(frame) != frameSize*channels {
+					t.Fatalf("Decode sequence[%d] samples=%d want %d", i, len(frame)/channels, frameSize)
+				}
+				got64 = append(got64, frame...)
+			}
+			got := make([]float32, len(got64))
+			for i, v := range got64 {
+				got[i] = float32(v)
+			}
+			_, maxAbsDiff := computeDiffStatsF32(got, want)
+			if maxAbsDiff > 3e-3 {
+				t.Fatalf("api-rate CELT multistream max abs diff=%g want <=3e-3", maxAbsDiff)
+			}
+		})
 	}
 }

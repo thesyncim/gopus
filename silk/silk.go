@@ -954,47 +954,38 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	var concealed []float32
 	hookLagPrev := 0
 	usedDeepPLCHook := false
-	if dredHooksEnabled && d.hasDeepPLCLossMonoHook() {
+	if state := d.ensureSILKPLCState(0); state != nil && d.state[0].nbSubfr > 0 {
+		concealedQ0 := plc.ConcealSILKWithLTP(d, state, lossCnt, nativeSamples)
 		if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
 			concealed = d.scratchOutput[:nativeSamples]
 		} else {
 			concealed = make([]float32, nativeSamples)
 		}
+		// ConcealSILKWithLTP already applies libopus PLC attenuation cadence.
+		// Keep only Q0 -> float scaling here (no extra external fade).
+		scale := float32(1.0 / 32768.0)
+		for i := 0; i < nativeSamples && i < len(concealedQ0); i++ {
+			concealed[i] = float32(concealedQ0[i]) * scale
+		}
+		if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
+			hookLagPrev = lag
+		}
+	} else {
+		concealed = plc.ConcealSILK(d, nativeSamples, fadeFactor)
+	}
+	if dredHooksEnabled && d.hasDeepPLCLossMonoHook() {
+		if len(concealed) < nativeSamples {
+			concealed = make([]float32, nativeSamples)
+		}
 		ok, lagPrev := d.fireDeepPLCLossMonoHook(concealed)
 		if ok {
 			usedDeepPLCHook = true
-			hookLagPrev = lagPrev
-			if state := d.ensureSILKPLCState(0); state != nil && d.state[0].nbSubfr > 0 {
-				_ = plc.ConcealSILKWithLTP(d, state, lossCnt, nativeSamples)
-				if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
-					hookLagPrev = lag
-				}
+			if lagPrev > 0 {
+				hookLagPrev = lagPrev
 			}
-		} else {
-			concealed = nil
 		}
 	}
-	if concealed == nil {
-		if state := d.ensureSILKPLCState(0); state != nil && d.state[0].nbSubfr > 0 {
-			concealedQ0 := plc.ConcealSILKWithLTP(d, state, lossCnt, nativeSamples)
-			if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
-				concealed = d.scratchOutput[:nativeSamples]
-			} else {
-				concealed = make([]float32, nativeSamples)
-			}
-			// ConcealSILKWithLTP already applies libopus PLC attenuation cadence.
-			// Keep only Q0 -> float scaling here (no extra external fade).
-			scale := float32(1.0 / 32768.0)
-			for i := 0; i < nativeSamples && i < len(concealedQ0); i++ {
-				concealed[i] = float32(concealedQ0[i]) * scale
-			}
-			if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
-				d.state[0].lagPrev = lag
-			}
-		} else {
-			concealed = plc.ConcealSILK(d, nativeSamples, fadeFactor)
-		}
-	} else if hookLagPrev > 0 {
+	if hookLagPrev > 0 {
 		d.state[0].lagPrev = hookLagPrev
 	} else if state := d.ensureSILKPLCState(0); state != nil {
 		if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
@@ -1149,8 +1140,8 @@ func (d *Decoder) applyDeepPLCHistoryMono(st *decoderState, concealed []float32)
 	historyIdx := 0
 	for i := start; i < len(concealed) && historyIdx < order; i++ {
 		sampleQ0 := int32(float32ToInt16(concealed[i]))
-		scaled := (float64(sampleQ0) * (1 << 24)) / float64(prevGainQ10)
-		history[historyIdx] = int32(math.Floor(0.5 + scaled))
+		scaled := float32(sampleQ0) * float32(1<<24) / float32(prevGainQ10)
+		history[historyIdx] = int32(math.Floor(0.5 + float64(scaled)))
 		historyIdx++
 	}
 	if historyIdx == 0 {
@@ -1254,31 +1245,16 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	sideView := d.plcDecoderView(1)
 	usedDeepPLCHook := false
 	hookLagPrev := 0
-	if dredHooksEnabled && d.hasDeepPLCLossMonoHook() {
-		ok, lagPrev := d.fireDeepPLCLossMonoHook(mid)
-		if ok {
-			usedDeepPLCHook = true
-			hookLagPrev = lagPrev
-			if midState != nil && midView != nil && d.state[0].nbSubfr > 0 {
-				_ = plc.ConcealSILKWithLTP(midView, midState, lossCnt, nativeSamples)
-				if lag := int((midState.PitchLQ8 + 128) >> 8); lag > 0 {
-					hookLagPrev = lag
-				}
-			}
-		} else {
-			clear(mid)
-		}
-	}
-	if !usedDeepPLCHook && midState != nil && midView != nil && d.state[0].nbSubfr > 0 {
+	if midState != nil && midView != nil && d.state[0].nbSubfr > 0 {
 		midQ0 := plc.ConcealSILKWithLTP(midView, midState, lossCnt, nativeSamples)
 		scale := float32(1.0 / 32768.0)
 		for i := 0; i < nativeSamples && i < len(midQ0); i++ {
 			mid[i] = float32(midQ0[i]) * scale
 		}
 		if lag := int((midState.PitchLQ8 + 128) >> 8); lag > 0 {
-			d.state[0].lagPrev = lag
+			hookLagPrev = lag
 		}
-	} else if !usedDeepPLCHook && (midState == nil || midView == nil || d.state[0].nbSubfr <= 0) {
+	} else {
 		// Legacy fallback when richer PLC state is unavailable.
 		left, right := plc.ConcealSILKStereo(d, nativeSamples, fadeFactor)
 		copy(mid, left)
@@ -1286,7 +1262,18 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 			copy(side, right)
 		}
 	}
+	if dredHooksEnabled && d.hasDeepPLCLossMonoHook() {
+		ok, lagPrev := d.fireDeepPLCLossMonoHook(mid)
+		if ok {
+			usedDeepPLCHook = true
+			if lagPrev > 0 {
+				hookLagPrev = lagPrev
+			}
+		}
+	}
 	if usedDeepPLCHook && hookLagPrev > 0 {
+		d.state[0].lagPrev = hookLagPrev
+	} else if !usedDeepPLCHook && hookLagPrev > 0 {
 		d.state[0].lagPrev = hookLagPrev
 	}
 	if hasSide && sideState != nil && sideView != nil && d.state[1].nbSubfr > 0 {

@@ -311,25 +311,6 @@ func (d *streamState) frameSize48FromAPI(frameSize int) int {
 	return frameSize * 48000 / d.sampleRate
 }
 
-func (d *streamState) downsampleFrame48ToAPI(samples []float64, frameSize int) []float64 {
-	if d.sampleRate == 48000 {
-		return samples
-	}
-	factor := 48000 / d.sampleRate
-	if factor <= 1 {
-		return samples
-	}
-	out := make([]float64, frameSize*d.channels)
-	for i := 0; i < frameSize; i++ {
-		srcBase := i * factor * d.channels
-		dstBase := i * d.channels
-		for c := 0; c < d.channels; c++ {
-			out[dstBase+c] = samples[srcBase+c]
-		}
-	}
-	return out
-}
-
 func float32ToFloat64Slice(in []float32) []float64 {
 	out := make([]float64, len(in))
 	float32ToFloat64Into(out, in)
@@ -423,10 +404,7 @@ func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc stream
 		if extsupport.QEXT {
 			d.setCELTQEXTPayload(qextPayload)
 		}
-		out, err = d.celtDec.DecodeFrameWithPacketStereo(frame, d.frameSize48FromAPI(frameSize), toc.stereo)
-		if err == nil {
-			out = d.downsampleFrame48ToAPI(out, frameSize)
-		}
+		out, err = d.celtDec.DecodeFrameWithPacketStereoAtAPIRate(frame, frameSize, toc.stereo)
 	default:
 		return nil, ErrInvalidPacket
 	}
@@ -459,10 +437,7 @@ func (d *streamState) decodePLC(frameSize int) ([]float64, error) {
 		return out, err
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(d.lastBandwidth))
-		out, err := d.celtDec.DecodeFrameWithPacketStereo(nil, d.frameSize48FromAPI(frameSize), d.lastPacketStereo)
-		if err == nil {
-			out = d.downsampleFrame48ToAPI(out, frameSize)
-		}
+		out, err := d.celtDec.DecodeFrameWithPacketStereoAtAPIRate(nil, frameSize, d.lastPacketStereo)
 		out, err = d.finishDecode(out, err)
 		if extsupport.OSCERuntime && err == nil {
 			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: d.lastBandwidth, stereo: d.lastPacketStereo}, out, frameSize)

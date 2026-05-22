@@ -605,29 +605,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if extsupport.QEXT {
 			d.setCELTQEXTPayload(qextPayload)
 		}
-		if extsupport.DREDRuntime && d.dredNeedsCELTFloatPath() {
-			celtFrameSize := d.frameSize48FromAPI(frameSize)
-			celtOut := out
-			if d.sampleRate != 48000 {
-				needed48 := celtFrameSize * d.channels
-				if len(d.scratchFrame48) < needed48 {
-					return 0, ErrBufferTooSmall
-				}
-				celtOut = d.scratchFrame48[:needed48]
-			}
-			samples, err := d.celtDecoder.DecodeFrameWithPacketStereo(data, min(48000/50, celtFrameSize), packetStereoLocal)
-			if err != nil {
-				return 0, err
-			}
-			copyFloat64ToFloat32(celtOut, samples)
-			if d.sampleRate != 48000 {
-				d.downsampleFrame48ToAPI(out, celtOut, frameSize)
-			}
-		} else {
-			err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32AtAPIRate(data, min(F20, frameSize), packetStereoLocal, out)
-			if err != nil {
-				return 0, err
-			}
+		err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32AtAPIRate(data, min(F20, frameSize), packetStereoLocal, out)
+		if err != nil {
+			return 0, err
 		}
 		// Capture the main decode's FinalRange (no redundancy post-processing for CELT-only)
 		d.mainDecodeRng = d.celtDecoder.FinalRange()
