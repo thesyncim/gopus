@@ -40,6 +40,15 @@ func decodeWithLibopusReferencePackets(
 	demixingMatrix []byte,
 	packets [][]byte,
 ) ([]float32, error) {
+	return decodeWithLibopusReferencePacketsGain(mappingFamily, sampleRate, channels, streams, coupled, frameSize, 0, mapping, demixingMatrix, packets)
+}
+
+func decodeWithLibopusReferencePacketsGain(
+	mappingFamily, sampleRate, channels, streams, coupled, frameSize, gainQ8 int,
+	mapping []byte,
+	demixingMatrix []byte,
+	packets [][]byte,
+) ([]float32, error) {
 	binPath, err := getLibopusRefdecodePath()
 	if err != nil {
 		return nil, err
@@ -51,8 +60,9 @@ func decodeWithLibopusReferencePackets(
 
 	payload := libopustest.NewOraclePayloadVersion(
 		"GMSI",
-		2,
+		3,
 		uint32(sampleRate),
+		uint32(int32(gainQ8)),
 		uint32(mappingFamily),
 		uint32(channels),
 		uint32(streams),

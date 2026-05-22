@@ -3,12 +3,12 @@ package multistream
 import (
 	"errors"
 	"fmt"
-	"math"
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/hybrid"
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/plc"
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
@@ -287,11 +287,11 @@ func (d *streamState) FinalRange() uint32 {
 	}
 }
 
-func streamDecodeGainLinear(gainQ8 int) float64 {
+func streamDecodeGainLinear(gainQ8 int) float32 {
 	if gainQ8 == 0 {
 		return 1
 	}
-	return math.Exp(float64(gainQ8) * math.Ln10 / (20.0 * 256.0))
+	return opusmath.CeltExp2(float32(6.48814081e-4) * float32(gainQ8))
 }
 
 func (d *streamState) applyOutputGain(samples []float64) {
@@ -300,7 +300,7 @@ func (d *streamState) applyOutputGain(samples []float64) {
 	}
 	gain := streamDecodeGainLinear(d.decodeGainQ8)
 	for i := range samples {
-		samples[i] *= gain
+		samples[i] = float64(float32(samples[i]) * gain)
 	}
 }
 

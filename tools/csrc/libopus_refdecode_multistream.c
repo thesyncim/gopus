@@ -92,6 +92,7 @@ int main(void) {
   unsigned char magic[4];
   uint32_t version = 0;
   uint32_t sample_rate = 48000;
+  int32_t decode_gain = 0;
   uint32_t family = 0;
   uint32_t channels = 0;
   uint32_t streams = 0;
@@ -123,10 +124,18 @@ int main(void) {
     return 1;
   }
 
-  if (version == 2) {
+  if (version == 2 || version == 3) {
     if (!read_u32(&sample_rate)) {
       fprintf(stderr, "failed to read sample rate\n");
       return 1;
+    }
+    if (version >= 3) {
+      uint32_t raw_gain = 0;
+      if (!read_u32(&raw_gain)) {
+        fprintf(stderr, "failed to read decode gain\n");
+        return 1;
+      }
+      decode_gain = (int32_t)raw_gain;
     }
   } else if (version != 1) {
     fprintf(stderr, "unsupported input version: %u\n", version);
@@ -188,6 +197,17 @@ int main(void) {
       free(demixing);
       free(frame);
       return 1;
+    }
+    if (decode_gain != 0) {
+      err = opus_projection_decoder_ctl(dec, OPUS_SET_GAIN(decode_gain));
+      if (err != OPUS_OK) {
+        fprintf(stderr, "opus_projection_decoder_ctl(OPUS_SET_GAIN) failed: %d\n", err);
+        opus_projection_decoder_destroy(dec);
+        free(mapping);
+        free(demixing);
+        free(frame);
+        return 1;
+      }
     }
 
     for (uint32_t i = 0; i < packet_count; i++) {
@@ -254,6 +274,17 @@ int main(void) {
       free(demixing);
       free(frame);
       return 1;
+    }
+    if (decode_gain != 0) {
+      err = opus_multistream_decoder_ctl(dec, OPUS_SET_GAIN(decode_gain));
+      if (err != OPUS_OK) {
+        fprintf(stderr, "opus_multistream_decoder_ctl(OPUS_SET_GAIN) failed: %d\n", err);
+        opus_multistream_decoder_destroy(dec);
+        free(mapping);
+        free(demixing);
+        free(frame);
+        return 1;
+      }
     }
 
     for (uint32_t i = 0; i < packet_count; i++) {

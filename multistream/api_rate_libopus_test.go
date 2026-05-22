@@ -72,6 +72,59 @@ func TestLibopus_APIRateMultistreamDecodeMatchesReference(t *testing.T) {
 	}
 }
 
+func TestLibopus_APIRateMultistreamOutputGainMatchesReference(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const (
+		sampleRate       = 48000
+		channels         = 3
+		frameSize        = sampleRate / 50
+		gainQ8           = 8192
+		encoderBitrate   = 256000
+		encoderFrequency = 997
+	)
+	streams, coupled, mapping, err := DefaultMapping(channels)
+	if err != nil {
+		t.Fatalf("DefaultMapping: %v", err)
+	}
+
+	enc, err := NewEncoder(sampleRate, channels, streams, coupled, mapping)
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+	enc.SetMode(internalenc.ModeCELT)
+	enc.SetLowDelay(true)
+	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetBitrate(encoderBitrate)
+	packet, err := enc.Encode(generateTestSignal(channels, frameSize, sampleRate, encoderFrequency), frameSize)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+
+	want, err := decodeWithLibopusReferencePacketsGain(1, sampleRate, channels, streams, coupled, frameSize, gainQ8, mapping, nil, [][]byte{packet})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "reference decode gain", err)
+	}
+	dec, err := NewDecoder(sampleRate, channels, streams, coupled, mapping)
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	if err := dec.SetGain(gainQ8); err != nil {
+		t.Fatalf("SetGain(%d): %v", gainQ8, err)
+	}
+	got64, err := dec.Decode(packet, frameSize)
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	got := make([]float32, len(got64))
+	for i, v := range got64 {
+		got[i] = float32(v)
+	}
+	_, maxAbsDiff := computeDiffStatsF32(got, want)
+	if maxAbsDiff != 0 {
+		t.Fatalf("api-rate multistream gain max abs diff=%g want 0", maxAbsDiff)
+	}
+}
+
 func TestLibopus_APIRateMultistreamCELTDecodeAndPLCMatchesReference(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const (
