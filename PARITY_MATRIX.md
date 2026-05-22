@@ -27,7 +27,7 @@ Pinned behavior wins unless a curated fixture documents an intentional divergenc
 | --- | --- | --- | --- | --- | --- |
 | SILK | Y | Y | Y (compliance + decoder matrix) | ~ (NLSF, gain, LTP, stereo oracles) | Auto mode selection vs libopus on edge signals; long-frame stereo DRED carriers; 16 kHz API-path explicit DRED |
 | CELT | Y | Y | Y (compliance + matrix) | ~ (PVQ, bands, MDCT, PLC oracles) | 2.5/5 ms variant byte ratchets; arm64 MDCT flag drift on some fixtures |
-| Hybrid | Y | Y | ~ (matrix + compliance; looser thresholds) | ~ (float32 sum path now native) | SWB/FB stereo DRED byte layout; 16 kHz hybrid explicit decode; QEXT on hybrid wrapper |
+| Hybrid | Y | Y | ~ (matrix + compliance; looser thresholds) | ~ (float32 sum path native; Hybrid QEXT vs libopus int16) | SWB/FB stereo DRED byte layout; 16 kHz hybrid explicit decode; QEXT extension byte parity |
 | Auto | Y | Y (TOC-driven) | ~ (mode fixtures, analysis) | N | Full cross-product of application × rate × frame × signal class |
 
 ---
@@ -38,7 +38,7 @@ Pinned behavior wins unless a curated fixture documents an intentional divergenc
 | --- | --- | --- | --- | --- | --- |
 | 48 kHz | Y | Y | Y | Decoder matrix, compliance, DRED 48 kHz oracles | — |
 | 24 kHz | Y | Y | Y | Compliance (SILK MB), DRED convert16k | Decoder matrix is 48 kHz only; explicit DRED offset matrices thin |
-| 16 kHz | Y | Y | Y | SILK NB paths, DRED convert16k (bit-exact float64; ~ float32) | Hybrid/SWB explicit DRED; cached multistream 16 kHz matrices partial |
+| 16 kHz | Y | Y | Y | SILK NB paths, DRED `ConvertTo16kMonoFloat64`/`Float32` (bit-exact) | Hybrid/SWB explicit DRED; cached multistream 16 kHz matrices partial |
 | 12 kHz | Y | Y | Y | DRED convert16k oracle | No dedicated decoder-matrix cases at 12 kHz |
 | 8 kHz | Y | Y | Y | DRED convert16k, SILK NB | NB resampler regression guards only |
 
@@ -69,7 +69,7 @@ Valid sizes depend on mode (`encoder.ValidFrameSize`). Compliance summary uses 4
 | 10 ms | Y | Y | Y | Y | Y (silk/hybrid/celt) | — |
 | 20 ms | Y | Y | Y | Y | Y | — |
 | 40 ms | Y | Y | Y | long-frame fixture | partial (silk/hybrid in matrix) | SILK stereo 40 ms DRED carrier; hybrid 40 ms stereo DRED |
-| 60 ms | Y | Y | Y | long-frame + summary | partial | SILK stereo 60 ms DRED; hybrid 60 ms summary only |
+| 60 ms | Y | Y | Y | long-frame + summary | Y (`silk-*-60ms`, `celt-fb-60ms-mono-64k`) | libopus `audio@FB` 60 ms encodes CELT (matrix row documents that); Hybrid 60 ms compliance only; SILK stereo 60 ms DRED |
 | 80 / 100 / 120 ms | Y | Y | Y | encode valid | N in matrix | Decoder matrix + loss fixtures; compliance ref-Q |
 
 ---
@@ -105,8 +105,8 @@ Recovery ordering in the WebRTC example: **RED → FEC → DRED → PLC** (examp
 
 | Extension | Build | Encode attach | Decode | Parity today | Gaps for 100% |
 | --- | --- | --- | --- | --- | --- |
-| QEXT | `gopus_qext` | T | T | ~ (hybrid wrapper routing; `celtGLog` energy state) | Full-packet byte parity all modes/frames; multistream QEXT |
-| DRED | `gopus_dred` | T | T (+ standalone `DREDDecoder`) | ~ (RDOVAE, convert16k bit-exact, process parity) | Encoder carrier bytes per matrix cell; explicit decode grid; `SetDREDDuration` multistream |
+| QEXT | `gopus_qext` | T | T | ~ (`celtGLog` energy; Hybrid QEXT decode vs libopus) | Full-packet byte parity all modes/frames; multistream QEXT |
+| DRED | `gopus_dred` | T | T (+ standalone `DREDDecoder`) | ~ (RDOVAE; `ConvertTo16kMonoFloat32` bit-exact; process parity) | Encoder carrier bytes per matrix cell; explicit decode grid; `SetDREDDuration` multistream |
 | OSCE BWE | `gopus_extra_controls` | N | T (CTL only) | Numeric forward-pass + model blob oracles | End-to-end decode apply; feature extractor; PLC crossfade sample parity |
 | LACE / NoLACE | `gopus_extra_controls` | N | T (CTL + multistream) | Forward-pass stage parity (~) | Sample-level decode path; multistream per-stream parity |
 
@@ -134,9 +134,9 @@ Default build: **DNN blob** load only (`SetDNNBlob`).
 | Asset | Status | Role | Gaps for 100% |
 | --- | --- | --- | --- |
 | Ogg Opus read/write (`container/ogg`, `stream`) | Y | Demux/mux, projection headers | Fuzz corpus vs libopus ogg decode |
-| RFC 6716 / libopus vectors (`testvectors/`) | ~ | Decoder matrix, loss, compliance, variants | Expand matrix: rates, 80–120 ms, RED, multistream |
+| RFC 6716 / libopus vectors (`testvectors/`) | ~ | Decoder matrix (23 cases incl. `celt-fb-60ms-mono-64k`), loss, compliance, variants | Expand matrix: API rates, 80–120 ms, RED, multistream |
 | `opus_compare` quality oracle | Y | Primary encoder/decoder quality gate | Broader corpus than summary cases |
-| `opusdec` crossval fixture | ~ | CELT cross-validation | Fixture stale (regenerate with `GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE=1`) |
+| `opusdec` crossval fixture | Y | CELT cross-validation (`celt/testdata/opusdec_crossval_fixture.json`) | Regenerate when scenario Ogg hashes change (`GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE=1`) |
 | libopus C oracles (`tools/csrc`, `make test-*-parity`) | ~ | Submodule numerical probes | CI mandatory on all platforms |
 
 ---
@@ -155,13 +155,13 @@ Release bar: `make verify-production` (+ optional `verify-production-exhaustive`
 
 ## Priority backlog (highest impact for “100% parity”)
 
-1. **Decoder matrix** — add 8/12/16/24 kHz rows, 80/120 ms, multistream, and loss+FEC+DRED combinations.  
+1. **Decoder matrix** — add 8/12/16/24 kHz rows, 80/120 ms, multistream, and loss+FEC+DRED combinations (60 ms CELT row landed).  
 2. **DRED** — close SILK explicit decode, stereo/long-frame carriers, 16 kHz hybrid, multistream encoder attach.  
 3. **RED** — promote WebRTC RED helpers to tested public API or document permanent example-only scope.  
 4. **Byte-exact encode** — CBR/CVBR/VBR grid per `encoderComplianceSummaryCases` + variants ratchet.  
 5. **OSCE** — wire BWE/LACE decode apply with sample-level libopus oracles (not only forward-pass).  
-6. **QEXT** — full extension byte parity on hybrid + stereo; float32 energy path already aligned (`celtGLog`).  
-7. **Crossval fixture** — refresh `opusdec_crossval_fixture.json` to match live `opusdec`.  
+6. **QEXT** — extension byte parity beyond Hybrid waveform gates; multistream QEXT.  
+7. **Hybrid long frames** — find libopus `opus_demo` params that emit true Hybrid at 40/60 ms for matrix rows (today `audio@FB` 60 ms is CELT).  
 
 ---
 
