@@ -1,0 +1,53 @@
+package gopus
+
+import (
+	"encoding/json"
+	"os"
+	"strings"
+	"testing"
+)
+
+// TestParityMatrixDocsStayInSyncWithFixtureCoverage guards PARITY_MATRIX.md
+// against silent drift when parity fixtures or oracles move forward.
+func TestParityMatrixDocsStayInSyncWithFixtureCoverage(t *testing.T) {
+	doc := mustReadDocForTest(t, "PARITY_MATRIX.md")
+
+	for _, needle := range []string{
+		"`celt-fb-60ms-mono-64k`",
+		"opusdec_crossval_fixture.json",
+		"ConvertTo16kMonoFloat32",
+		"bit-exact",
+		"Hybrid QEXT",
+	} {
+		if !containsDocText(doc, needle) {
+			t.Fatalf("PARITY_MATRIX.md missing %q (update matrix when closing parity gaps)", needle)
+		}
+	}
+
+	if strings.Contains(doc, "Fixture stale") {
+		t.Fatal("PARITY_MATRIX.md still documents opusdec crossval as stale; refresh the matrix after regenerating the fixture")
+	}
+
+	data, err := os.ReadFile("testvectors/testdata/libopus_decoder_matrix_fixture.json")
+	if err != nil {
+		t.Fatalf("read decoder matrix fixture: %v", err)
+	}
+	var fixture struct {
+		Cases []struct {
+			Name string `json:"name"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatalf("decode decoder matrix fixture: %v", err)
+	}
+	found60ms := false
+	for _, c := range fixture.Cases {
+		if c.Name == "celt-fb-60ms-mono-64k" {
+			found60ms = true
+			break
+		}
+	}
+	if !found60ms {
+		t.Fatal("decoder matrix fixture missing celt-fb-60ms-mono-64k; update PARITY_MATRIX.md after regenerating the fixture")
+	}
+}

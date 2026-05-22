@@ -130,8 +130,8 @@ func TestConvertTo16kMonoFloat32MatchesLibopus(t *testing.T) {
 			if n != len(want) {
 				t.Fatalf("ConvertTo16kMonoFloat32 length=%d want %d", n, len(want))
 			}
-			assertFloat32SliceNear(t, got[:n], want, 2e-6, "output")
-			assertFloat32SliceNear(t, gotMem[:], wantMem[:], 2e-6, "mem")
+			assertFloat32SliceBits(t, got[:n], want, "output")
+			assertFloat32SliceBits(t, gotMem[:], wantMem[:], "mem")
 		})
 	}
 }
@@ -175,15 +175,15 @@ func TestConvertTo16kMonoFloat32MatchesLibopusAcrossCalls(t *testing.T) {
 			if nFirst != len(wantFirst) {
 				t.Fatalf("first ConvertTo16kMonoFloat32 length=%d want %d", nFirst, len(wantFirst))
 			}
-			assertFloat32SliceNear(t, gotFirst[:nFirst], wantFirst, 2e-6, "first output")
+			assertFloat32SliceBits(t, gotFirst[:nFirst], wantFirst, "first output")
 
 			gotSecond := make([]float32, len(wantSecond))
 			nSecond := ConvertTo16kMonoFloat32(gotSecond, &gotMem, second32, tc.sampleRate, tc.channels)
 			if nSecond != len(wantSecond) {
 				t.Fatalf("second ConvertTo16kMonoFloat32 length=%d want %d", nSecond, len(wantSecond))
 			}
-			assertFloat32SliceNear(t, gotSecond[:nSecond], wantSecond, 2e-6, "second output")
-			assertFloat32SliceNear(t, gotMem[:], helperMem[:], 2e-6, "final mem")
+			assertFloat32SliceBits(t, gotSecond[:nSecond], wantSecond, "second output")
+			assertFloat32SliceBits(t, gotMem[:], helperMem[:], "final mem")
 		})
 	}
 }
