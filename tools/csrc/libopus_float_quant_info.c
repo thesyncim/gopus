@@ -24,7 +24,8 @@ enum {
   MODE_FARGAN_SYNTH_INT = 2,
   MODE_CELT_RAW_32767_FLOAT2INT = 3,
   MODE_CELT_FLOAT2INT16_DISPATCH = 4,
-  MODE_SILK_FLOAT2SHORT_ARRAY = 5
+  MODE_SILK_FLOAT2SHORT_ARRAY = 5,
+  MODE_SILK_FLOAT2INT_SCALE = 6
 };
 
 static int set_binary_stdio(void) {
@@ -127,6 +128,26 @@ static int convert_dispatch(uint32_t count) {
   return 1;
 }
 
+static int convert_scaled_float2int(uint32_t count) {
+  uint32_t scale_bits;
+  float scale;
+  uint32_t i;
+
+  if (!read_u32(&scale_bits)) return 0;
+  memcpy(&scale, &scale_bits, sizeof(scale));
+
+  for (i = 0; i < count; i++) {
+    uint32_t bits;
+    float x;
+    int32_t y;
+    if (!read_u32(&bits)) return 0;
+    memcpy(&x, &bits, sizeof(x));
+    y = silk_float2int(x * scale);
+    if (!write_exact(&y, sizeof(y))) return 0;
+  }
+  return 1;
+}
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -146,7 +167,7 @@ int main(void) {
     fprintf(stderr, "failed to read header\n");
     return 1;
   }
-  if (mode > MODE_SILK_FLOAT2SHORT_ARRAY) {
+  if (mode > MODE_SILK_FLOAT2INT_SCALE) {
     fprintf(stderr, "invalid mode\n");
     return 1;
   }
@@ -158,6 +179,13 @@ int main(void) {
   if (mode == MODE_CELT_FLOAT2INT16_DISPATCH) {
     if (!convert_dispatch(count)) {
       fprintf(stderr, "failed to convert dispatch vector\n");
+      return 1;
+    }
+    return 0;
+  }
+  if (mode == MODE_SILK_FLOAT2INT_SCALE) {
+    if (!convert_scaled_float2int(count)) {
+      fprintf(stderr, "failed to convert scaled float2int vector\n");
       return 1;
     }
     return 0;

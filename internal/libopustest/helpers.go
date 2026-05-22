@@ -13,12 +13,13 @@ import (
 )
 
 const (
-	FloatQuantModeFloat2Int16       = uint32(0)
-	FloatQuantModeOSCEOutputScale   = uint32(1)
-	FloatQuantModeFARGANSynthInt    = uint32(2)
-	FloatQuantModeCELTRaw32767Round = uint32(3)
-	FloatQuantModeCELTDispatch      = uint32(4)
-	FloatQuantModeSILKFloat2Short   = uint32(5)
+	FloatQuantModeFloat2Int16        = uint32(0)
+	FloatQuantModeOSCEOutputScale    = uint32(1)
+	FloatQuantModeFARGANSynthInt     = uint32(2)
+	FloatQuantModeCELTRaw32767Round  = uint32(3)
+	FloatQuantModeCELTDispatch       = uint32(4)
+	FloatQuantModeSILKFloat2Short    = uint32(5)
+	FloatQuantModeSILKFloat2IntScale = uint32(6)
 )
 
 var (
@@ -231,6 +232,61 @@ func RunOracleVersionEnv(binPath string, input []byte, label, outputMagic string
 }
 
 func ProbeFloatQuant(mode uint32, samples []float32) ([]int16, error) {
+	helperPath, err := floatQuantHelper()
+	if err != nil {
+		return nil, err
+	}
+
+	payload := NewOraclePayload("GFQI", mode, uint32(len(samples)))
+	for _, sample := range samples {
+		payload.Float32(sample)
+	}
+
+	reader, err := RunOracle(helperPath, payload.Bytes(), "float quant", "GFQO")
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(samples))
+	reader.ExpectRemaining(2 * count)
+	out := make([]int16, count)
+	for i := range out {
+		out[i] = reader.I16()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func ProbeFloatQuantScaledInt32(scale float32, samples []float32) ([]int32, error) {
+	helperPath, err := floatQuantHelper()
+	if err != nil {
+		return nil, err
+	}
+
+	payload := NewOraclePayload("GFQI", FloatQuantModeSILKFloat2IntScale, uint32(len(samples)))
+	payload.Float32(scale)
+	for _, sample := range samples {
+		payload.Float32(sample)
+	}
+
+	reader, err := RunOracle(helperPath, payload.Bytes(), "float quant", "GFQO")
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(samples))
+	reader.ExpectRemaining(4 * count)
+	out := make([]int32, count)
+	for i := range out {
+		out[i] = reader.I32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func floatQuantHelper() (string, error) {
 	floatQuantHelperOnce.Do(func() {
 		root := repoRoot()
 		libopusStatic := RefPath(".libs", "libopus.a")
@@ -246,26 +302,7 @@ func ProbeFloatQuant(mode uint32, samples []float32) ([]int16, error) {
 		})
 	})
 	if floatQuantHelperErr != nil {
-		return nil, floatQuantHelperErr
+		return "", floatQuantHelperErr
 	}
-
-	payload := NewOraclePayload("GFQI", mode, uint32(len(samples)))
-	for _, sample := range samples {
-		payload.Float32(sample)
-	}
-
-	reader, err := RunOracle(floatQuantHelperPath, payload.Bytes(), "float quant", "GFQO")
-	if err != nil {
-		return nil, err
-	}
-	count := reader.Count(len(samples))
-	reader.ExpectRemaining(2 * count)
-	out := make([]int16, count)
-	for i := range out {
-		out[i] = reader.I16()
-	}
-	if err := reader.ExpectConsumed(); err != nil {
-		return nil, err
-	}
-	return out, nil
+	return floatQuantHelperPath, nil
 }

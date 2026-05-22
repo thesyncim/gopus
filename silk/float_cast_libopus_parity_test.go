@@ -70,6 +70,26 @@ func TestSILKFloatToInt16SliceScaledMatchesLibopusFloat2ShortArray(t *testing.T)
 	}
 }
 
+func TestSILKFloatToInt32ScaledMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, scale := range []float32{1024, 4096, 8192, 16384, 65536, 131072} {
+		t.Run("scale_"+itoaFloatScale(scale), func(t *testing.T) {
+			samples := silkFloat2IntScaledOracleSamples(scale)
+			want, err := libopustest.ProbeFloatQuantScaledInt32(scale, samples)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "silk scaled float2int", err)
+			}
+			for i, sample := range samples {
+				got := float64ToInt32Round(float64(sample * scale))
+				if got != want[i] {
+					t.Fatalf("scale=%0.10g sample[%d]=%0.10g scaled=%0.10g got=%d want %d",
+						scale, i, sample, sample*scale, got, want[i])
+				}
+			}
+		})
+	}
+}
+
 func silkFloat2ShortOracleSamples() []float32 {
 	return []float32{
 		float32(-40000),
@@ -100,14 +120,58 @@ func silkFloat2ShortOracleSamples() []float32 {
 	}
 }
 
+func silkFloat2IntScaledOracleSamples(scale float32) []float32 {
+	targets := []float32{
+		-131073.5,
+		-65536.5,
+		-32768.5,
+		-1235.5,
+		-1234.5,
+		-3.5,
+		-2.5,
+		-1.5,
+		-0.5,
+		0,
+		0.5,
+		1.5,
+		2.5,
+		3.5,
+		1234.5,
+		1235.5,
+		32767.5,
+		65535.5,
+		131071.5,
+	}
+	out := make([]float32, 0, len(targets)*3)
+	for _, target := range targets {
+		sample := target / scale
+		out = append(out,
+			math.Nextafter32(sample, float32(math.Inf(-1))),
+			sample,
+			math.Nextafter32(sample, float32(math.Inf(1))),
+		)
+	}
+	return out
+}
+
 func itoaFloatScale(scale float32) string {
 	switch scale {
 	case 1:
 		return "1"
+	case 1024:
+		return "1024"
+	case 4096:
+		return "4096"
+	case 8192:
+		return "8192"
 	case float32(silkSampleScale):
 		return "32768"
 	case float32(silkSampleScale / 2):
 		return "16384"
+	case 65536:
+		return "65536"
+	case 131072:
+		return "131072"
 	default:
 		return "custom"
 	}
