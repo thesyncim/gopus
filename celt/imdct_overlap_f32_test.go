@@ -12,6 +12,7 @@ const (
 	libopusCELTIMDCTModeLong      = uint32(0)
 	libopusCELTIMDCTModeTransient = uint32(1)
 	libopusCELTIMDCTModeFFT       = uint32(2)
+	libopusCELTIMDCTModeForward   = uint32(3)
 )
 
 var libopusCELTIMDCTHelper libopustest.HelperCache
@@ -286,6 +287,70 @@ func TestIMDCTTransientInPlaceScratchF32MatchesLibopusC(t *testing.T) {
 	}
 }
 
+func TestMDCTForwardOverlapF32MatchesLibopusC(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	testCases := []struct {
+		frameSize int
+		overlap   int
+	}{
+		{frameSize: 120, overlap: 120},
+		{frameSize: 240, overlap: 120},
+		{frameSize: 480, overlap: 120},
+		{frameSize: 960, overlap: 120},
+	}
+
+	for _, tc := range testCases {
+		for seed := 1; seed <= 3; seed++ {
+			t.Run(fmt.Sprintf("frame=%d/seed=%d", tc.frameSize, seed), func(t *testing.T) {
+				input := make([]float64, tc.frameSize+tc.overlap)
+				inputF32 := make([]float32, tc.frameSize+tc.overlap)
+				fillMDCTForwardOracleInput(input, inputF32, seed)
+
+				coeffs := make([]float64, tc.frameSize)
+				mdctForwardOverlapF32Scratch(input, tc.overlap, coeffs, nil, nil, nil, nil)
+				got := make([]float32, len(coeffs))
+				for i := range coeffs {
+					got[i] = float32(coeffs[i])
+				}
+
+				want := probeLibopusCELTMDCTForward(t, tc.frameSize, tc.overlap, inputF32)
+				assertFloat32Bits(t, "forward mdct", got, want)
+			})
+		}
+	}
+}
+
+func probeLibopusCELTMDCTForward(t *testing.T, frameSize, overlap int, input []float32) []float32 {
+	t.Helper()
+	payload := libopustest.NewOraclePayload("GCII", libopusCELTIMDCTModeForward, uint32(frameSize), uint32(overlap), uint32(0))
+	for i := 0; i < frameSize+overlap; i++ {
+		payload.Float32(input[i])
+	}
+
+	binPath, err := libopusCELTIMDCTHelper.Path(buildLibopusCELTIMDCTHelper)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT forward MDCT", err)
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "CELT forward MDCT", "GCIO")
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT forward MDCT", err)
+	}
+	if gotMode := reader.U32(); gotMode != libopusCELTIMDCTModeForward {
+		t.Fatalf("helper mode=%d want %d", gotMode, libopusCELTIMDCTModeForward)
+	}
+	count := int(reader.U32())
+	out := make([]float32, count)
+	reader.ExpectRemaining(count * 4)
+	for i := range out {
+		out[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
 func fillIMDCTOracleInput(spectrum []float64, spectrumF32 []float32, prevOverlap []float64, prevOverlapF32 []float32, seed int) {
 	for i := range spectrum {
 		sine := math.Sin(float64(i+seed*11) * 0.063)
@@ -301,6 +366,17 @@ func fillIMDCTOracleInput(spectrum []float64, spectrumF32 []float32, prevOverlap
 		v := float32(0.7*sine + step)
 		prevOverlap[i] = float64(v)
 		prevOverlapF32[i] = v
+	}
+}
+
+func fillMDCTForwardOracleInput(input []float64, inputF32 []float32, seed int) {
+	for i := range input {
+		sine := math.Sin(float64(i+seed*13) * 0.057)
+		cosine := math.Cos(float64((i+3)*(seed+7)) * 0.023)
+		step := float64((i*17+seed*31)%29-14) / 31.0
+		v := float32(0.52*sine + 0.31*cosine + step)
+		input[i] = float64(v)
+		inputF32[i] = v
 	}
 }
 

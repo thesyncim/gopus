@@ -32,7 +32,8 @@ void celt_fatal(const char *str, const char *file, int line) {
 enum {
   MODE_LONG = 0,
   MODE_TRANSIENT = 1,
-  MODE_FFT = 2
+  MODE_FFT = 2,
+  MODE_FORWARD = 3
 };
 
 static int read_exact(void *dst, size_t n) {
@@ -187,6 +188,41 @@ static int run_transient(const CELTMode *mode, uint32_t frame_size, uint32_t ove
   return ok;
 }
 
+static int run_forward(const CELTMode *mode, uint32_t frame_size, uint32_t overlap) {
+  celt_sig *in = NULL;
+  celt_sig *out = NULL;
+  uint32_t needed;
+  int lm;
+  int shift;
+  int ok;
+
+  lm = frame_lm(frame_size);
+  if (lm < 0 || overlap != (uint32_t)mode->overlap) {
+    fprintf(stderr, "invalid forward MDCT dimensions\n");
+    return 0;
+  }
+  shift = mode->maxLM - lm;
+  needed = frame_size + overlap;
+
+  in = (celt_sig *)malloc((size_t)needed * sizeof(celt_sig));
+  out = (celt_sig *)calloc((size_t)frame_size, sizeof(celt_sig));
+  if (in == NULL || out == NULL) {
+    free(in);
+    free(out);
+    return 0;
+  }
+
+  ok = read_float_array(in, needed);
+  if (ok) {
+    clt_mdct_forward(&mode->mdct, in, out, mode->window, (int)overlap, shift, 1, 0);
+    ok = write_u32(frame_size) && write_float_array(out, frame_size);
+  }
+
+  free(in);
+  free(out);
+  return ok;
+}
+
 static int fft_shift_for_nfft(uint32_t nfft) {
   if (nfft == 480) return 0;
   if (nfft == 240) return 1;
@@ -286,8 +322,10 @@ int main(void) {
     ok = run_transient(mode, frame_size, overlap, short_blocks);
   } else if (mode_id == MODE_FFT) {
     ok = run_fft(mode, frame_size);
+  } else if (mode_id == MODE_FORWARD) {
+    ok = run_forward(mode, frame_size, overlap);
   } else {
-    fprintf(stderr, "unsupported mode\n");
+    fprintf(stderr, "unknown mode\n");
     return 1;
   }
   if (!ok) return 1;

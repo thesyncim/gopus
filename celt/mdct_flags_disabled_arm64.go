@@ -10,6 +10,6 @@ const mdctUseF64MixEnabled = false
 // CELT MDCT mixes. This closes real packet-decision drift on parity fixtures.
 const mdctUseFMALikeMixEnabled = true
 
-const mdctUseNativeMulShort240Enabled = true
-
+// 5 ms forward MDCT matches the same fused-like mix path as the other CELT sizes.
+const mdctUseNativeMulShort240Enabled = false
 const mdctUseFMALikeMixShort240Enabled = true
