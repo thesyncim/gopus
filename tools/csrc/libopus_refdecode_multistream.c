@@ -14,6 +14,11 @@
 #define GMSI_MAGIC "GMSI"
 #define GMSO_MAGIC "GMSO"
 
+enum {
+  SAMPLE_FORMAT_FLOAT32 = 0,
+  SAMPLE_FORMAT_INT16 = 1
+};
+
 static int read_exact(void *dst, size_t n) {
   return fread(dst, 1, n, stdin) == n;
 }
@@ -57,7 +62,7 @@ static int valid_sample_rate(uint32_t sample_rate) {
          sample_rate == 48000;
 }
 
-static int append_floats(float **out, size_t *out_len, size_t *out_cap, const float *src, size_t n) {
+static int append_items(void **out, size_t *out_len, size_t *out_cap, const void *src, size_t n, size_t item_size) {
   if (n == 0) {
     return 1;
   }
@@ -66,6 +71,9 @@ static int append_floats(float **out, size_t *out_len, size_t *out_cap, const fl
     return 0;
   }
   size_t need = *out_len + n;
+  if (need > SIZE_MAX / item_size) {
+    return 0;
+  }
   if (need > *out_cap) {
     size_t new_cap = *out_cap ? *out_cap : 1024;
     while (new_cap < need) {
@@ -75,7 +83,10 @@ static int append_floats(float **out, size_t *out_len, size_t *out_cap, const fl
       }
       new_cap *= 2;
     }
-    float *resized = (float *)realloc(*out, new_cap * sizeof(float));
+    if (new_cap > SIZE_MAX / item_size) {
+      return 0;
+    }
+    void *resized = realloc(*out, new_cap * item_size);
     if (resized == NULL) {
       return 0;
     }
@@ -83,7 +94,7 @@ static int append_floats(float **out, size_t *out_len, size_t *out_cap, const fl
     *out_cap = new_cap;
   }
 
-  memcpy(*out + *out_len, src, n * sizeof(float));
+  memcpy((unsigned char *)(*out) + *out_len * item_size, src, n * item_size);
   *out_len = need;
   return 1;
 }
@@ -93,6 +104,7 @@ int main(void) {
   uint32_t version = 0;
   uint32_t sample_rate = 48000;
   int32_t decode_gain = 0;
+  uint32_t sample_format = SAMPLE_FORMAT_FLOAT32;
   uint32_t family = 0;
   uint32_t channels = 0;
   uint32_t streams = 0;
@@ -104,10 +116,11 @@ int main(void) {
 
   unsigned char *mapping = NULL;
   unsigned char *demixing = NULL;
-  float *frame = NULL;
-  float *decoded = NULL;
+  void *frame = NULL;
+  void *decoded = NULL;
   size_t decoded_len = 0;
   size_t decoded_cap = 0;
+  size_t item_size = sizeof(float);
 
   if (!set_binary_stdio()) {
     fprintf(stderr, "failed to set binary stdio mode\n");
@@ -124,7 +137,7 @@ int main(void) {
     return 1;
   }
 
-  if (version == 2 || version == 3) {
+  if (version == 2 || version == 3 || version == 4) {
     if (!read_u32(&sample_rate)) {
       fprintf(stderr, "failed to read sample rate\n");
       return 1;
@@ -137,6 +150,10 @@ int main(void) {
       }
       decode_gain = (int32_t)raw_gain;
     }
+    if (version >= 4 && !read_u32(&sample_format)) {
+      fprintf(stderr, "failed to read sample format\n");
+      return 1;
+    }
   } else if (version != 1) {
     fprintf(stderr, "unsupported input version: %u\n", version);
     return 1;
@@ -148,7 +165,8 @@ int main(void) {
     return 1;
   }
 
-  if (!valid_sample_rate(sample_rate) || channels == 0 || streams == 0 || frame_size == 0) {
+  if (!valid_sample_rate(sample_rate) || channels == 0 || streams == 0 || frame_size == 0 ||
+      (sample_format != SAMPLE_FORMAT_FLOAT32 && sample_format != SAMPLE_FORMAT_INT16)) {
     fprintf(stderr, "invalid decoder dimensions\n");
     return 1;
   }
@@ -172,14 +190,15 @@ int main(void) {
     }
   }
 
-  if (channels > SIZE_MAX / frame_size || (size_t)channels * (size_t)frame_size > SIZE_MAX / sizeof(float)) {
+  item_size = sample_format == SAMPLE_FORMAT_INT16 ? sizeof(opus_int16) : sizeof(float);
+  if (channels > SIZE_MAX / frame_size || (size_t)channels * (size_t)frame_size > SIZE_MAX / item_size) {
     fprintf(stderr, "frame buffer overflow\n");
     free(mapping);
     free(demixing);
     return 1;
   }
 
-  frame = (float *)malloc((size_t)channels * (size_t)frame_size * sizeof(float));
+  frame = malloc((size_t)channels * (size_t)frame_size * item_size);
   if (frame == NULL) {
     fprintf(stderr, "failed to allocate frame buffer\n");
     free(mapping);
@@ -239,7 +258,11 @@ int main(void) {
         }
       }
 
-      decoded_samples = opus_projection_decode_float(dec, packet, (opus_int32)packet_len, frame, (int)frame_size, 0);
+      if (sample_format == SAMPLE_FORMAT_INT16) {
+        decoded_samples = opus_projection_decode(dec, packet, (opus_int32)packet_len, (opus_int16 *)frame, (int)frame_size, 0);
+      } else {
+        decoded_samples = opus_projection_decode_float(dec, packet, (opus_int32)packet_len, (float *)frame, (int)frame_size, 0);
+      }
       free(packet);
 
       if (decoded_samples < 0) {
@@ -252,7 +275,7 @@ int main(void) {
         return 1;
       }
 
-      if (!append_floats(&decoded, &decoded_len, &decoded_cap, frame, (size_t)decoded_samples * (size_t)channels)) {
+      if (!append_items(&decoded, &decoded_len, &decoded_cap, frame, (size_t)decoded_samples * (size_t)channels, item_size)) {
         fprintf(stderr, "failed to append decoded samples\n");
         opus_projection_decoder_destroy(dec);
         free(mapping);
@@ -316,7 +339,11 @@ int main(void) {
         }
       }
 
-      decoded_samples = opus_multistream_decode_float(dec, packet, (opus_int32)packet_len, frame, (int)frame_size, 0);
+      if (sample_format == SAMPLE_FORMAT_INT16) {
+        decoded_samples = opus_multistream_decode(dec, packet, (opus_int32)packet_len, (opus_int16 *)frame, (int)frame_size, 0);
+      } else {
+        decoded_samples = opus_multistream_decode_float(dec, packet, (opus_int32)packet_len, (float *)frame, (int)frame_size, 0);
+      }
       free(packet);
 
       if (decoded_samples < 0) {
@@ -329,7 +356,7 @@ int main(void) {
         return 1;
       }
 
-      if (!append_floats(&decoded, &decoded_len, &decoded_cap, frame, (size_t)decoded_samples * (size_t)channels)) {
+      if (!append_items(&decoded, &decoded_len, &decoded_cap, frame, (size_t)decoded_samples * (size_t)channels, item_size)) {
         fprintf(stderr, "failed to append decoded samples\n");
         opus_multistream_decoder_destroy(dec);
         free(mapping);
@@ -353,7 +380,7 @@ int main(void) {
   }
 
   if (!write_exact(GMSO_MAGIC, 4) || !write_u32(1) || !write_u32((uint32_t)decoded_len) ||
-      (decoded_len > 0 && !write_exact(decoded, decoded_len * sizeof(float)))) {
+      (decoded_len > 0 && !write_exact(decoded, decoded_len * item_size))) {
     fprintf(stderr, "failed to write output\n");
     free(mapping);
     free(demixing);

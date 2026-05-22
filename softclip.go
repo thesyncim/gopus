@@ -219,6 +219,26 @@ fallback:
 	}
 }
 
+func softClipAndFloat32ToInt16Scalar(dst []int16, src []float32, n, channels int, declipMem []float32) {
+	if channels < 1 || n < 1 || len(src) == 0 || len(dst) == 0 {
+		return
+	}
+	total := n * channels
+	if total > len(src) {
+		total = len(src)
+	}
+	if total > len(dst) {
+		total = len(dst)
+	}
+	if total <= 0 {
+		return
+	}
+	opusPCMSoftClip(src[:total], n, channels, declipMem)
+	for i := 0; i < total; i++ {
+		dst[i] = float32ToInt16(src[i])
+	}
+}
+
 func float32ToInt16NoSoftClip(dst []int16, src []float32, n, channels int) {
 	if channels < 1 || n < 1 || len(src) == 0 || len(dst) == 0 {
 		return
@@ -235,6 +255,22 @@ func float32ToInt16NoSoftClip(dst []int16, src []float32, n, channels int) {
 	}
 	if convertFloat32ToInt16Unit(dst, src, total) {
 		return
+	}
+	for i := 0; i < total; i++ {
+		dst[i] = float32ToInt16(src[i])
+	}
+}
+
+func float32ToInt16NoSoftClipScalar(dst []int16, src []float32, n, channels int) {
+	if channels < 1 || n < 1 || len(src) == 0 || len(dst) == 0 {
+		return
+	}
+	total := n * channels
+	if total > len(src) {
+		total = len(src)
+	}
+	if total > len(dst) {
+		total = len(dst)
 	}
 	for i := 0; i < total; i++ {
 		dst[i] = float32ToInt16(src[i])

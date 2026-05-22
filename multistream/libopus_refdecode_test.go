@@ -14,6 +14,11 @@ var (
 	libopusRefdecodeErr  error
 )
 
+const (
+	libopusRefdecodeFormatFloat32 = uint32(0)
+	libopusRefdecodeFormatInt16   = uint32(1)
+)
+
 func getLibopusRefdecodePath() (string, error) {
 	libopusRefdecodeOnce.Do(func() {
 		if _, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); !ok {
@@ -60,9 +65,10 @@ func decodeWithLibopusReferencePacketsGain(
 
 	payload := libopustest.NewOraclePayloadVersion(
 		"GMSI",
-		3,
+		4,
 		uint32(sampleRate),
 		uint32(int32(gainQ8)),
+		libopusRefdecodeFormatFloat32,
 		uint32(mappingFamily),
 		uint32(channels),
 		uint32(streams),
@@ -88,6 +94,59 @@ func decodeWithLibopusReferencePacketsGain(
 	decoded := make([]float32, nSamples)
 	for i := range decoded {
 		decoded[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return decoded, nil
+}
+
+func decodeWithLibopusReferencePacketsInt16Gain(
+	mappingFamily, sampleRate, channels, streams, coupled, frameSize, gainQ8 int,
+	mapping []byte,
+	demixingMatrix []byte,
+	packets [][]byte,
+) ([]int16, error) {
+	binPath, err := getLibopusRefdecodePath()
+	if err != nil {
+		return nil, err
+	}
+
+	if mappingFamily < 1 || mappingFamily > 3 {
+		return nil, fmt.Errorf("unsupported mapping family: %d", mappingFamily)
+	}
+
+	payload := libopustest.NewOraclePayloadVersion(
+		"GMSI",
+		4,
+		uint32(sampleRate),
+		uint32(int32(gainQ8)),
+		libopusRefdecodeFormatInt16,
+		uint32(mappingFamily),
+		uint32(channels),
+		uint32(streams),
+		uint32(coupled),
+		uint32(frameSize),
+		uint32(len(packets)),
+		uint32(len(mapping)),
+		uint32(len(demixingMatrix)),
+	)
+	payload.Raw(mapping)
+	payload.Raw(demixingMatrix)
+	for _, packet := range packets {
+		payload.U32(uint32(len(packet)))
+		payload.Raw(packet)
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "multistream reference decode", "GMSO")
+	if err != nil {
+		return nil, err
+	}
+
+	nSamples := reader.Count(-1)
+	reader.ExpectRemaining(nSamples * 2)
+	decoded := make([]int16, nSamples)
+	for i := range decoded {
+		decoded[i] = reader.I16()
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err

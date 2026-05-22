@@ -5,6 +5,7 @@ package gopus
 func (d *MultistreamDecoder) Reset() {
 	d.dec.Reset()
 	d.lastFrameSize = d.sampleRate / 50
+	clear(d.softClipMem)
 }
 
 // Channels returns the number of audio channels.

@@ -62,18 +62,21 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 		return 0, ErrBufferTooSmall
 	}
 
-	samples, err := d.dec.Decode(data, frameSize)
+	samples, err := d.dec.DecodeToFloat32(data, frameSize)
 	if err != nil {
 		return 0, err
 	}
 
-	for i := 0; i < frameSize*d.channels; i++ {
-		pcm[i] = float64ToInt16(samples[i])
+	total := frameSize * d.channels
+	if data == nil || len(data) == 0 {
+		float32ToInt16NoSoftClipScalar(pcm, samples, frameSize, d.channels)
+	} else {
+		softClipAndFloat32ToInt16Scalar(pcm, samples, frameSize, d.channels, d.softClipMem)
 	}
 
 	if data != nil && len(data) > 0 {
 		d.lastFrameSize = frameSize
 	}
 
-	return len(samples) / d.channels, nil
+	return total / d.channels, nil
 }

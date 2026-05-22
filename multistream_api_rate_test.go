@@ -3,8 +3,59 @@ package gopus
 import (
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/libopustest"
 	mspkg "github.com/thesyncim/gopus/multistream"
 )
+
+var multistreamRefdecodeHelper libopustest.HelperCache
+
+func decodeLibopusMultistreamInt16Gain(sampleRate, channels, streams, coupled, frameSize, gainQ8 int, mapping []byte, packets [][]byte) ([]int16, error) {
+	binPath, err := multistreamRefdecodeHelper.CHelperPath(libopustest.CHelperConfig{
+		Label:      "multistream reference decode",
+		OutputBase: "gopus_libopus_refdecode_public_multistream",
+		SourceFile: "libopus_refdecode_multistream.c",
+		CFlags:     []string{"-O3", "-DNDEBUG"},
+		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	payload := libopustest.NewOraclePayloadVersion(
+		"GMSI",
+		4,
+		uint32(sampleRate),
+		uint32(int32(gainQ8)),
+		1,
+		1,
+		uint32(channels),
+		uint32(streams),
+		uint32(coupled),
+		uint32(frameSize),
+		uint32(len(packets)),
+		uint32(len(mapping)),
+		0,
+	)
+	payload.Raw(mapping)
+	for _, packet := range packets {
+		payload.U32(uint32(len(packet)))
+		payload.Raw(packet)
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "multistream reference decode", "GMSO")
+	if err != nil {
+		return nil, err
+	}
+	nSamples := reader.Count(-1)
+	reader.ExpectRemaining(nSamples * 2)
+	out := make([]int16, nSamples)
+	for i := range out {
+		out[i] = reader.I16()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
 
 func TestMultistreamDecodeUsesAPIRatePacketDuration(t *testing.T) {
 	modes := []struct {
@@ -74,6 +125,53 @@ func TestMultistreamDecodeUsesAPIRatePacketDuration(t *testing.T) {
 			}
 		}
 	}
+}
+
+func TestMultistreamDecodeInt16HighGainMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const (
+		sampleRate = 48000
+		channels   = 2
+		streams    = 1
+		coupled    = 1
+		frameSize  = sampleRate / 50
+		gainQ8     = 8192
+	)
+	mapping := []byte{0, 1}
+	packet := encodeAPIRateCELTPacket(t, channels)
+	sequence := [][]byte{packet, nil}
+	want, err := decodeLibopusMultistreamInt16Gain(sampleRate, channels, streams, coupled, frameSize, gainQ8, mapping, sequence)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "multistream int16 gain reference decode", err)
+	}
+
+	dec, err := NewMultistreamDecoder(sampleRate, channels, streams, coupled, mapping)
+	if err != nil {
+		t.Fatalf("NewMultistreamDecoder: %v", err)
+	}
+	if err := dec.SetGain(gainQ8); err != nil {
+		t.Fatalf("SetGain(%d): %v", gainQ8, err)
+	}
+	got := make([]int16, 0, len(want))
+	frame := make([]int16, frameSize*channels)
+	n, err := dec.DecodeInt16(packet, frame)
+	if err != nil {
+		t.Fatalf("DecodeInt16(packet): %v", err)
+	}
+	if n != frameSize {
+		t.Fatalf("DecodeInt16(packet)=%d want %d", n, frameSize)
+	}
+	got = append(got, frame[:n*channels]...)
+	clear(frame)
+	n, err = dec.DecodeInt16(nil, frame)
+	if err != nil {
+		t.Fatalf("DecodeInt16(nil): %v", err)
+	}
+	if n != frameSize {
+		t.Fatalf("DecodeInt16(nil)=%d want %d", n, frameSize)
+	}
+	got = append(got, frame[:n*channels]...)
+	assertAPIRateInt16Equal(t, got, want, "multistream high-gain int16")
 }
 
 func TestMultistreamColdPLCAfterResetUsesAPIRateDefault(t *testing.T) {

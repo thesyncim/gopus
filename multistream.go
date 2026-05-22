@@ -195,6 +195,7 @@ type MultistreamDecoder struct {
 	lastFrameSize    int
 	ignoreExtensions bool
 	dnnBlob          *dnnblob.Blob
+	softClipMem      []float32
 }
 
 // NewMultistreamDecoder creates a new multistream decoder with explicit configuration.
@@ -244,6 +245,7 @@ func NewMultistreamDecoder(sampleRate, channels, streams, coupledStreams int, ma
 		sampleRate:    sampleRate,
 		channels:      channels,
 		lastFrameSize: sampleRate / 50,
+		softClipMem:   make([]float32, channels),
 	}, nil
 }
 
@@ -282,5 +284,6 @@ func NewMultistreamDecoderDefault(sampleRate, channels int) (*MultistreamDecoder
 		sampleRate:    sampleRate,
 		channels:      channels,
 		lastFrameSize: sampleRate / 50,
+		softClipMem:   make([]float32, channels),
 	}, nil
 }
