@@ -79,13 +79,12 @@ type Encoder struct {
 	// lfeStream is the stream index that carries LFE, or -1 when absent.
 	lfeStream int
 
-	// Optional projection-family mixing matrix coefficients (column-major).
-	// Coefficients are normalized to [-1, 1) by dividing S16 entries by 32768.
-	projectionMixing  []float64
+	// Optional projection-family mixing matrix coefficients (column-major S16).
+	projectionMixing  []int16
 	projectionCols    int
 	projectionRows    int
 	projectionScratch []float64
-	projectionFrame   []float64
+	projectionFrame   []float32
 
 	// streamBitrates stores per-stream rates computed by allocation policy.
 	streamBitrates []int
@@ -1184,12 +1183,10 @@ func (e *Encoder) initProjectionMixingDefaults() error {
 
 	needed := len(matrix)
 	if cap(e.projectionMixing) < needed {
-		e.projectionMixing = make([]float64, needed)
+		e.projectionMixing = make([]int16, needed)
 	}
 	coeffs := e.projectionMixing[:needed]
-	for i, v := range matrix {
-		coeffs[i] = float64(v) / 32768.0
-	}
+	copy(coeffs, matrix)
 
 	e.projectionRows = e.inputChannels
 	e.projectionCols = e.inputChannels

@@ -66,16 +66,17 @@ func TestNewEncoderAmbisonicsFamily3InitializesProjectionMixing(t *testing.T) {
 
 func TestApplyProjectionMixingSwapsChannels(t *testing.T) {
 	enc := &Encoder{
-		projectionMixing: []float64{0, 1, 1, 0},
+		projectionMixing: []int16{0, 32767, 32767, 0},
 		projectionRows:   2,
 		projectionCols:   2,
 	}
 
 	in := []float64{1, 2, 3, 4}
 	out := enc.applyProjectionMixing(in, 2)
-	want := []float64{2, 1, 4, 3}
+	scale := 32767.0 / 32768.0
+	want := []float64{2 * scale, 1 * scale, 4 * scale, 3 * scale}
 	for i := range want {
-		if math.Abs(out[i]-want[i]) > 1e-9 {
+		if math.Abs(out[i]-want[i]) > 1e-6 {
 			t.Fatalf("out[%d] = %f, want %f", i, out[i], want[i])
 		}
 	}

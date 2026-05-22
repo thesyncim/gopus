@@ -34,12 +34,11 @@ func (d *Decoder) SetProjectionDemixingMatrix(matrix []byte) error {
 
 	needed := rows * cols
 	if cap(d.projectionDemixing) < needed {
-		d.projectionDemixing = make([]float64, needed)
+		d.projectionDemixing = make([]int16, needed)
 	}
 	coeffs := d.projectionDemixing[:needed]
 	for i := 0; i < needed; i++ {
-		v := int16(uint16(matrix[2*i]) | (uint16(matrix[2*i+1]) << 8))
-		coeffs[i] = float64(v) / 32768.0
+		coeffs[i] = int16(uint16(matrix[2*i]) | (uint16(matrix[2*i+1]) << 8))
 	}
 	d.projectionCols = cols
 	return nil
@@ -53,7 +52,21 @@ func (d *Decoder) applyProjectionDemixing(output []float64, frameSize int) {
 	}
 
 	if cap(d.projectionScratch) < cols {
-		d.projectionScratch = make([]float64, cols)
+		d.projectionScratch = make([]float32, cols)
 	}
-	applyProjectionMatrix(output, output, d.projectionDemixing, d.projectionScratch[:cols], frameSize, rows, cols)
+	applyProjectionDemixingMatrix(output, output, d.projectionDemixing, d.projectionScratch[:cols], frameSize, rows, cols)
+}
+
+func (d *Decoder) applyProjectionDemixingInt16(output []int16, input []float64, frameSize int) {
+	rows := d.outputChannels
+	cols := d.projectionCols
+	if len(d.projectionDemixing) == 0 || cols <= 0 || rows <= 0 || cols > rows {
+		copy(output, float64ToInt16(input))
+		return
+	}
+
+	if cap(d.projectionScratch) < cols {
+		d.projectionScratch = make([]float32, cols)
+	}
+	applyProjectionDemixingMatrixInt16(output, input, d.projectionDemixing, d.projectionScratch[:cols], frameSize, rows, cols)
 }

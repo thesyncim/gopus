@@ -19,8 +19,15 @@ const (
 	CELTMathModeStereoIthetaQ30    = uint32(12)
 	CELTMathModeLog                = uint32(13)
 	CELTMathModeSin                = uint32(14)
+	CELTMathModeBitexactThetaPair  = uint32(15)
 	CELTMathModeDynallocImportance = uint32(16)
 )
+
+type CELTBitexactThetaPair struct {
+	Mid   int
+	Side  int
+	Delta int
+}
 
 type CELTStereoIthetaCase struct {
 	Stereo bool
@@ -91,6 +98,36 @@ func ProbeCELTMathWords(mode uint32, count int, words []uint32) ([]uint32, error
 	out := make([]uint32, gotCount)
 	for i := range out {
 		out[i] = reader.U32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func ProbeCELTBitexactThetaPairs(inputs []uint32) ([]CELTBitexactThetaPair, error) {
+	binPath, err := getCELTMathHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := NewOraclePayload(celtMathInputMagic, CELTMathModeBitexactThetaPair, uint32(len(inputs)))
+	for _, input := range inputs {
+		payload.U32(input)
+	}
+
+	reader, err := RunOracle(binPath, payload.Bytes(), "celt math", celtMathOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(inputs))
+	reader.ExpectRemaining(12 * count)
+	out := make([]CELTBitexactThetaPair, count)
+	for i := range out {
+		out[i] = CELTBitexactThetaPair{
+			Mid:   int(int32(reader.U32())),
+			Side:  int(int32(reader.U32())),
+			Delta: int(int32(reader.U32())),
+		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err

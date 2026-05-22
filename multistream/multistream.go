@@ -205,7 +205,15 @@ func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 		return nil, err
 	}
 
-	return float64ToInt16(samples), nil
+	if len(d.projectionDemixing) != 0 && d.projectionCols > 0 {
+		output := make([]int16, len(samples))
+		d.applyProjectionDemixingInt16(output, samples, len(samples)/d.outputChannels)
+		return output, nil
+	}
+	if data == nil || len(data) == 0 {
+		return float64ToInt16(samples), nil
+	}
+	return float64ToInt16SoftClip(samples, len(samples)/d.outputChannels, d.outputChannels, d.softClipMem), nil
 }
 
 // DecodeToFloat32 decodes a multistream packet and converts to float32 PCM.
@@ -232,6 +240,192 @@ func float64ToInt16(samples []float64) []int16 {
 		output[i] = opusmath.Float32ToInt16(float32(s))
 	}
 	return output
+}
+
+func float64ToInt16SoftClip(samples []float64, n, channels int, declipMem []float32) []int16 {
+	output := make([]int16, len(samples))
+	if channels < 1 || n < 1 || len(samples) == 0 || len(declipMem) < channels {
+		return output
+	}
+	total := n * channels
+	if total > len(samples) {
+		total = len(samples)
+	}
+	if total <= 0 {
+		return output
+	}
+
+	tmp := make([]float32, total)
+	for i := 0; i < total; i++ {
+		tmp[i] = float32(samples[i])
+	}
+	multistreamPCMSoftClip(tmp, n, channels, declipMem)
+	for i := 0; i < total; i++ {
+		output[i] = opusmath.Float32ToInt16(tmp[i])
+	}
+	return output
+}
+
+func multistreamPCMSoftClip(x []float32, n, channels int, declipMem []float32) {
+	if channels < 1 || n < 1 || len(x) == 0 || len(declipMem) < channels {
+		return
+	}
+
+	total := n * channels
+	if total > len(x) {
+		total = len(x)
+	}
+
+	allWithinNeg1Pos1 := true
+	for i := 0; i < total; i++ {
+		v := x[i]
+		if v > 2 {
+			x[i] = 2
+			allWithinNeg1Pos1 = false
+		} else if v < -2 {
+			x[i] = -2
+			allWithinNeg1Pos1 = false
+		} else if v > 1 || v < -1 {
+			allWithinNeg1Pos1 = false
+		}
+	}
+	if allWithinNeg1Pos1 {
+		for c := 0; c < channels; c++ {
+			if declipMem[c] != 0 {
+				goto applySoftClip
+			}
+		}
+		return
+	}
+
+applySoftClip:
+	for c := 0; c < channels; c++ {
+		a := declipMem[c]
+		for i := 0; i < n; i++ {
+			idx := i*channels + c
+			if idx >= len(x) {
+				break
+			}
+			v := x[idx]
+			if v*a >= 0 {
+				break
+			}
+			x[idx] = v + a*v*v
+		}
+
+		curr := 0
+		if c >= len(x) {
+			declipMem[c] = a
+			continue
+		}
+		x0 := x[c]
+
+		for {
+			var i int
+			if allWithinNeg1Pos1 {
+				i = n
+			} else {
+				for i = curr; i < n; i++ {
+					idx := i*channels + c
+					if idx >= len(x) {
+						i = n
+						break
+					}
+					v := x[idx]
+					if v > 1 || v < -1 {
+						break
+					}
+				}
+			}
+			if i == n {
+				a = 0
+				break
+			}
+
+			peakPos := i
+			start := i
+			end := i
+			idx := i*channels + c
+			if idx >= len(x) {
+				a = 0
+				break
+			}
+			vref := x[idx]
+			maxval := multistreamFloat32Abs(vref)
+
+			for start > 0 {
+				idxPrev := (start-1)*channels + c
+				if idxPrev >= len(x) || vref*x[idxPrev] < 0 {
+					break
+				}
+				start--
+			}
+			for end < n {
+				idxEnd := end*channels + c
+				if idxEnd >= len(x) || vref*x[idxEnd] < 0 {
+					break
+				}
+				val := multistreamFloat32Abs(x[idxEnd])
+				if val > maxval {
+					maxval = val
+					peakPos = end
+				}
+				end++
+			}
+
+			special := start == 0 && vref*x[c] >= 0
+			if maxval > 0 {
+				a = (maxval - 1) / (maxval * maxval)
+				a += a * 2.4e-7
+				if vref > 0 {
+					a = -a
+				}
+			} else {
+				a = 0
+			}
+
+			for i = start; i < end; i++ {
+				idx2 := i*channels + c
+				if idx2 >= len(x) {
+					break
+				}
+				v := x[idx2]
+				x[idx2] = v + a*v*v
+			}
+
+			if special && peakPos >= 2 {
+				offset := x0 - x[c]
+				delta := offset / float32(peakPos)
+				for i = curr; i < peakPos; i++ {
+					offset -= delta
+					idx2 := i*channels + c
+					if idx2 >= len(x) {
+						break
+					}
+					v := x[idx2] + offset
+					if v > 1 {
+						v = 1
+					} else if v < -1 {
+						v = -1
+					}
+					x[idx2] = v
+				}
+			}
+
+			curr = end
+			if curr == n {
+				break
+			}
+		}
+		declipMem[c] = a
+	}
+}
+
+func multistreamFloat32Abs(v float32) float32 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 // float64ToFloat32 converts float64 samples to float32.

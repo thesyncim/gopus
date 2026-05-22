@@ -565,11 +565,11 @@ type Decoder struct {
 	// Per-decoder PLC state (do not share across decoder instances).
 	plcState *plc.State
 
-	// Optional projection demixing matrix in column-major layout.
-	// Coefficients are normalized to [-1, 1) by dividing S16 entries by 32768.
-	projectionDemixing []float64
+	// Optional projection demixing matrix in column-major S16 layout.
+	projectionDemixing []int16
 	projectionCols     int
-	projectionScratch  []float64
+	projectionScratch  []float32
+	softClipMem        []float32
 	ignoreExtensions   bool
 	dnnBlob            *dnnblob.Blob
 	decoderDREDFields
@@ -653,6 +653,7 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		mapping:        mappingCopy,
 		decoders:       decoders,
 		plcState:       plc.NewState(),
+		softClipMem:    make([]float32, channels),
 	}, nil
 }
 
@@ -667,6 +668,7 @@ func (d *Decoder) Reset() {
 		d.plcState = plc.NewState()
 	}
 	d.plcState.Reset()
+	clear(d.softClipMem)
 	d.clearDREDPayloadState()
 	d.resetDREDRuntimeState()
 }

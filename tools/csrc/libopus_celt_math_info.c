@@ -172,6 +172,7 @@ static int eval_record(uint32_t mode) {
       return write_u32(out_bits);
     case MODE_BITEXACT_THETA_PAIR:
       if (!read_u32(&a)) return 0;
+      /* bitexact_cos and bitexact_log2tan are exported by celt/bands.h. */
       b = (uint32_t)(int32_t)bitexact_cos((opus_int16)(int32_t)a);
       out_bits = (uint32_t)(int32_t)bitexact_cos((opus_int16)(16384 - (int32_t)a));
       return write_u32(b) && write_u32(out_bits) &&

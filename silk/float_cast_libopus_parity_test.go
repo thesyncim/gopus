@@ -24,6 +24,44 @@ func TestSILKFloatToInt16MatchesLibopusFloat2ShortArray(t *testing.T) {
 	}
 }
 
+func TestSILKFloatToInt16TieGridMatchesLibopusFloat2ShortArray(t *testing.T) {
+	libopustest.RequireOracle(t)
+	samples := []float32{
+		-32769,
+		-32768.75,
+		-32768.5,
+		-32768.25,
+		-32768,
+		-32767.75,
+		-32767.5,
+		32766.5,
+		32766.75,
+		32767,
+		32767.25,
+		32767.5,
+		32768,
+	}
+	for n := -64; n <= 64; n++ {
+		base := float32(n)
+		samples = appendFloat32Neighbors(samples, base-0.5)
+		samples = appendFloat32Neighbors(samples, base)
+		samples = appendFloat32Neighbors(samples, base+0.5)
+	}
+
+	want, err := libopustest.ProbeFloatQuant(libopustest.FloatQuantModeSILKFloat2Short, samples)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk float2short", err)
+	}
+	for i, sample := range samples {
+		if got := floatToInt16Round(sample); got != want[i] {
+			t.Fatalf("floatToInt16Round(sample[%d]=%0.10g)=%d want %d", i, sample, got, want[i])
+		}
+		if got := float64ToInt16Round(float64(sample)); got != want[i] {
+			t.Fatalf("float64ToInt16Round(sample[%d]=%0.10g)=%d want %d", i, sample, got, want[i])
+		}
+	}
+}
+
 func TestSILKFloatToInt16SliceScaledMatchesLibopusFloat2ShortArray(t *testing.T) {
 	libopustest.RequireOracle(t)
 	input := []float32{
@@ -88,6 +126,14 @@ func TestSILKFloatToInt32ScaledMatchesLibopus(t *testing.T) {
 			}
 		})
 	}
+}
+
+func appendFloat32Neighbors(dst []float32, sample float32) []float32 {
+	return append(dst,
+		math.Nextafter32(sample, float32(math.Inf(-1))),
+		sample,
+		math.Nextafter32(sample, float32(math.Inf(1))),
+	)
 }
 
 func silkFloat2ShortOracleSamples() []float32 {

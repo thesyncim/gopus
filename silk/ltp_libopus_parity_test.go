@@ -204,6 +204,71 @@ func TestSILKDecodePitchMatchesLibopusOracleExhaustive(t *testing.T) {
 	}
 }
 
+func TestSILKDecodePitchLagClampEdgesMatchLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	type pitchCase struct {
+		name         string
+		lagIndex     int
+		contourIndex int
+		fsKHz        int
+		nbSubfr      int
+	}
+	var cases []pitchCase
+	for _, fsKHz := range []int{8, 12, 16} {
+		for _, nbSubfr := range []int{2, 4} {
+			cbkSize := decodePitchContourCodebookSize(fsKHz, nbSubfr)
+			maxLagIndex := (peMaxLagMs - peMinLagMs) * fsKHz
+			contours := []int{0, cbkSize / 2, cbkSize - 1}
+			lagIndices := []int{
+				-32768,
+				-maxLagIndex - 8,
+				-2,
+				-1,
+				maxLagIndex + 1,
+				maxLagIndex + 8,
+				32767,
+			}
+			for _, lagIndex := range lagIndices {
+				for _, contourIndex := range contours {
+					cases = append(cases, pitchCase{
+						name:         fmt.Sprintf("fs%d_subfr%d_lag%d_contour%d", fsKHz, nbSubfr, lagIndex, contourIndex),
+						lagIndex:     lagIndex,
+						contourIndex: contourIndex,
+						fsKHz:        fsKHz,
+						nbSubfr:      nbSubfr,
+					})
+				}
+			}
+		}
+	}
+
+	records := make([][]int32, len(cases))
+	for i, tc := range cases {
+		records[i] = []int32{
+			int32(tc.lagIndex),
+			int32(tc.contourIndex),
+			int32(tc.fsKHz),
+			int32(tc.nbSubfr),
+		}
+	}
+	want, err := probeLibopusSILKDecodePitch(records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk decode pitch", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got [maxNbSubfr]int
+			silkDecodePitch(int16(tc.lagIndex), int8(tc.contourIndex), got[:], tc.fsKHz, tc.nbSubfr)
+			for sf := 0; sf < tc.nbSubfr; sf++ {
+				if int32(got[sf]) != want[i][sf] {
+					t.Fatalf("subframe=%d got=%d want=%d", sf, got[sf], want[i][sf])
+				}
+			}
+		})
+	}
+}
+
 func decodePitchContourCodebookSize(fsKHz, nbSubfr int) int {
 	if fsKHz == 8 {
 		if nbSubfr == peMaxNbSubfr {

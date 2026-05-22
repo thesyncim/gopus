@@ -125,6 +125,67 @@ func TestLibopus_APIRateMultistreamOutputGainMatchesReference(t *testing.T) {
 	}
 }
 
+func TestLibopus_APIRateMultistreamDecodeToInt16MatchesReference(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const (
+		sampleRate       = 48000
+		channels         = 3
+		frameSize        = sampleRate / 50
+		gainQ8           = 8192
+		encoderBitrate   = 256000
+		encoderFrequency = 997
+	)
+	streams, coupled, mapping, err := DefaultMapping(channels)
+	if err != nil {
+		t.Fatalf("DefaultMapping: %v", err)
+	}
+
+	enc, err := NewEncoder(sampleRate, channels, streams, coupled, mapping)
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+	enc.SetMode(internalenc.ModeCELT)
+	enc.SetLowDelay(true)
+	enc.SetBandwidth(types.BandwidthFullband)
+	enc.SetBitrate(encoderBitrate)
+	packets := make([][]byte, 2)
+	for i := range packets {
+		packet, err := enc.Encode(generateTestSignal(channels, frameSize, sampleRate, encoderFrequency+float64(i)*113), frameSize)
+		if err != nil {
+			t.Fatalf("Encode packet %d: %v", i, err)
+		}
+		packets[i] = packet
+	}
+
+	want, err := decodeWithLibopusReferencePacketsInt16Gain(1, sampleRate, channels, streams, coupled, frameSize, gainQ8, mapping, nil, packets)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "reference int16 decode gain", err)
+	}
+	dec, err := NewDecoder(sampleRate, channels, streams, coupled, mapping)
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	if err := dec.SetGain(gainQ8); err != nil {
+		t.Fatalf("SetGain(%d): %v", gainQ8, err)
+	}
+	got := make([]int16, 0, len(want))
+	for i, packet := range packets {
+		frame, err := dec.DecodeToInt16(packet, frameSize)
+		if err != nil {
+			t.Fatalf("DecodeToInt16 packet %d: %v", i, err)
+		}
+		got = append(got, frame...)
+	}
+	if len(got) != len(want) {
+		t.Fatalf("DecodeToInt16 sample count=%d want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("DecodeToInt16 sample[%d]=%d want %d", i, got[i], want[i])
+		}
+	}
+}
+
 func TestLibopus_APIRateMultistreamCELTDecodeAndPLCMatchesReference(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const (
