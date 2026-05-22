@@ -41,6 +41,25 @@ func invalidAPIRateRequestedFrameSizes(sampleRate int) []int {
 	return []int{quantum + 1, sampleRate/50 - 1, sampleRate/50 + 1}
 }
 
+func TestDecodeGainLinearMatchesLibopusCELTExp2(t *testing.T) {
+	libopustest.RequireOracle(t)
+	gains := []int{-32768, -8192, -4096, -256, 256, 4096, 8192, 32767}
+	inputs := make([]float32, len(gains))
+	for i, gain := range gains {
+		inputs[i] = float32(6.48814081e-4) * float32(gain)
+	}
+	want, err := libopustest.ProbeCELTMath(libopustest.CELTMathModeExp2, inputs)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "CELT exp2 decode gain", err)
+	}
+	for i, gain := range gains {
+		got := decodeGainLinear(gain)
+		if math.Float32bits(got) != math.Float32bits(want[i]) {
+			t.Fatalf("decodeGainLinear(%d)=%08x(%g) want %08x(%g)", gain, math.Float32bits(got), got, math.Float32bits(want[i]), want[i])
+		}
+	}
+}
+
 func TestDecodeSILKUsesAPIRatePacketDuration(t *testing.T) {
 	for _, channels := range []int{1, 2} {
 		packet := encodeAPIRateSILKPacket(t, channels)

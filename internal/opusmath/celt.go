@@ -23,11 +23,9 @@ func CeltExp2(x float32) float32 {
 	}
 	frac := x - float32(integer)
 
-	res := celtExp2CoeffA0 + frac*(celtExp2CoeffA1+
-		frac*(celtExp2CoeffA2+
-			frac*(celtExp2CoeffA3+
-				frac*(celtExp2CoeffA4+
-					frac*celtExp2CoeffA5))))
+	res := fma32(frac, fma32(frac, fma32(frac, fma32(frac, fma32(frac,
+		celtExp2CoeffA5, celtExp2CoeffA4), celtExp2CoeffA3), celtExp2CoeffA2),
+		celtExp2CoeffA1), celtExp2CoeffA0)
 
 	bits := math.Float32bits(res)
 	bits = uint32(int32(bits)+int32(uint32(integer)<<23)) & 0x7fffffff

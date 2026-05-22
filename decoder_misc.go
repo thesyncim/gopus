@@ -1,6 +1,6 @@
 package gopus
 
-import "math"
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 func packetFrameCount(data []byte) (TOC, int, error) {
 	if len(data) < 1 {
@@ -30,7 +30,7 @@ func packetFrameCount(data []byte) (TOC, int, error) {
 }
 
 func decodeGainLinear(gainQ8 int) float32 {
-	return float32(math.Pow(10.0, float64(gainQ8)/(20.0*256.0)))
+	return opusmath.CeltExp2(float32(6.48814081e-4) * float32(gainQ8))
 }
 
 func (d *Decoder) applyOutputGain(samples []float32) {
