@@ -446,7 +446,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		}
 
 		prevPacketMode := d.lastPacketMode
-		if toc.Mode == ModeCELT || prevPacketMode == ModeCELT {
+		if requestedFrameSize < frameSize || toc.Mode == ModeCELT || prevPacketMode == ModeCELT {
 			d.clearFECState()
 			return d.decodePLCForFEC(pcm, requestedFrameSize)
 		}
@@ -462,7 +462,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 				return d.decodePLCForFECWithState(pcm, requestedFrameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
 			}
 			d.storeFECData(firstFrameData, toc, frameCount, frameSize)
-			if n, err := d.decodeFECFrame(pcm); err == nil {
+			if n, err := d.decodeFECFrame(pcm, requestedFrameSize); err == nil {
 				return n, nil
 			}
 			d.clearFECState()

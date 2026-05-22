@@ -706,7 +706,7 @@ func TestDecodeFECFrame_BufferSizingUsesSingleFrame(t *testing.T) {
 	dec.fecFrameCount = 2
 
 	pcm := make([]float32, 960)
-	_, err = dec.decodeFECFrame(pcm)
+	_, err = dec.decodeFECFrame(pcm, 0)
 	if err == ErrBufferTooSmall {
 		t.Fatal("decodeFECFrame rejected single-frame output buffer for multi-frame packet metadata")
 	}
@@ -901,8 +901,9 @@ func TestDecodeWithFEC_FrameSizeTransitionUsesProvidedPacketGranularity(t *testi
 	}
 
 	// Recover the missing 20ms packet from packet2 LBRR while previous decode
-	// state still reflects a 40ms frame.
-	pcmFEC := make([]float32, 1920)
+	// state still reflects a 40ms frame. The output buffer length is the
+	// caller's requested decode_fec frame size, matching libopus' frame_size.
+	pcmFEC := make([]float32, 960)
 	nFEC, err := dec.DecodeWithFEC(packet2, pcmFEC, true)
 	if err != nil {
 		t.Fatalf("DecodeWithFEC(packet2, fec=true) error: %v", err)

@@ -1010,6 +1010,71 @@ func TestDecodeWithFECLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecodeWithFECLBRRRequestedDurationMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		name      string
+		mode      EncoderMode
+		wantMode  Mode
+		bandwidth Bandwidth
+		bitrate   int
+		tolerance float64
+	}{
+		{name: "silk_wb", mode: EncoderModeSILK, wantMode: ModeSILK, bandwidth: BandwidthWideband, bitrate: 24000, tolerance: 8e-3},
+		{name: "hybrid", mode: EncoderModeHybrid, wantMode: ModeHybrid, bandwidth: BandwidthFullband, bitrate: 64000, tolerance: 1.2e-2},
+	} {
+		for _, channels := range []int{1, 2} {
+			seedPacket, recoveryPacket := encodeAPIRateFECSequence(t, tc.mode, tc.wantMode, tc.bandwidth, tc.bitrate, channels, 960)
+			for _, sampleRate := range []int{8000, 16000, 48000} {
+				packetFrameSize, err := packetSamplesAtRate(recoveryPacket, sampleRate)
+				if err != nil {
+					t.Fatalf("packetSamplesAtRate: %v", err)
+				}
+				for _, requestedFrameSize := range []int{sampleRate / 25, sampleRate * 3 / 50} {
+					t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate)+"_request_"+itoaSmall(requestedFrameSize), func(t *testing.T) {
+						steps := []libopusAPIRateDecodeStep{
+							{packet: seedPacket},
+							{packet: recoveryPacket, fec: true},
+						}
+						want, err := decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, requestedFrameSize, steps)
+						if err != nil {
+							libopustest.HelperUnavailable(t, "api-rate requested LBRR reference decode", err)
+						}
+
+						dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+						if err != nil {
+							t.Fatalf("NewDecoder: %v", err)
+						}
+						got := make([]float32, 0, len(want))
+						frame := make([]float32, requestedFrameSize*channels)
+
+						n, err := dec.Decode(seedPacket, frame)
+						if err != nil {
+							t.Fatalf("Decode seed: %v", err)
+						}
+						if n != packetFrameSize {
+							t.Fatalf("Decode seed samples=%d want %d", n, packetFrameSize)
+						}
+						got = append(got, frame[:n*channels]...)
+
+						clear(frame)
+						n, err = dec.DecodeWithFEC(recoveryPacket, frame, true)
+						if err != nil {
+							t.Fatalf("DecodeWithFEC recovery: %v", err)
+						}
+						if n != requestedFrameSize {
+							t.Fatalf("DecodeWithFEC samples=%d want requested %d", n, requestedFrameSize)
+						}
+						got = append(got, frame[:n*channels]...)
+
+						assertAPIRateFloat32Close(t, got, want, tc.name+" requested LBRR duration", tc.tolerance)
+					})
+				}
+			}
+		}
+	}
+}
+
 func TestDecodeWithFECNilAfterLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, tc := range []struct {

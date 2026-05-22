@@ -230,17 +230,25 @@ func (d *Decoder) storeFECData(data []byte, toc TOC, frameCount, frameSize int) 
 
 // decodeFECFrame decodes LBRR data from the stored FEC packet.
 // This is used to recover a lost frame using forward error correction.
-func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
+func (d *Decoder) decodeFECFrame(pcm []float32, requestedFrameSize int) (int, error) {
 	if !d.hasFEC || len(d.fecData) == 0 {
 		return 0, errNoFECData
 	}
 
-	frameSize := d.fecFrameSize
-	if frameSize <= 0 {
-		frameSize = d.lastFrameSize
+	packetFrameSize := d.fecFrameSize
+	if packetFrameSize <= 0 {
+		packetFrameSize = d.lastFrameSize
 	}
+	if packetFrameSize <= 0 {
+		packetFrameSize = d.sampleRate / 50
+	}
+	if packetFrameSize > d.maxPacketSamples {
+		return 0, ErrPacketTooLarge
+	}
+
+	frameSize := requestedFrameSize
 	if frameSize <= 0 {
-		frameSize = d.sampleRate / 50
+		frameSize = packetFrameSize
 	}
 	if frameSize > d.maxPacketSamples {
 		return 0, ErrPacketTooLarge
@@ -251,31 +259,59 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 		return 0, ErrBufferTooSmall
 	}
 
+	if frameSize < packetFrameSize {
+		d.clearFECState()
+		return d.decodePLCForFEC(pcm, frameSize)
+	}
+
+	prefixSize := frameSize - packetFrameSize
+	if prefixSize > 0 {
+		prefixPacketFrameSize := d.lastFrameSize
+		if prefixPacketFrameSize <= 0 {
+			prefixPacketFrameSize = packetFrameSize
+		}
+		n, err := d.decodePLCChunksInto(pcm, prefixSize, plcDecodeState{
+			packetFrameSize:    prefixPacketFrameSize,
+			mode:               d.prevMode,
+			bandwidth:          d.lastBandwidth,
+			packetStereo:       d.prevPacketStereo,
+			useDecoderPLCState: true,
+		})
+		if err != nil {
+			return 0, err
+		}
+		if n != prefixSize {
+			return 0, ErrInvalidFrameSize
+		}
+	}
+
+	fecPCM := pcm[prefixSize*d.channels:]
 	if extsupport.DREDRuntime {
 		if endRawDREDCapture := d.beginDREDRawMonoGoodFrameCapture(d.fecMode); endRawDREDCapture != nil {
 			defer endRawDREDCapture()
 		}
 	}
 
-	n, err := d.decodeLBRRFrames(pcm, frameSize)
+	n, err := d.decodeLBRRFrames(fecPCM, packetFrameSize)
 	if err != nil {
 		return 0, err
 	}
+	frameSize = prefixSize + n
 	if extsupport.DREDRuntime {
 		if d.dredGoodPacketMarkerActive() {
 			if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
 				r.dredRecovery = 0
 			}
-			d.markDREDUpdatedPCM(pcm[:n*d.channels], n, d.fecMode)
+			d.markDREDUpdatedPCM(pcm[:frameSize*d.channels], frameSize, d.fecMode)
 		}
 	}
-	d.applyOutputGain(pcm[:n*d.channels])
+	d.applyOutputGain(pcm[:frameSize*d.channels])
 
 	d.prevMode = d.fecMode
 	d.lastPacketMode = d.fecMode
 	d.lastBandwidth = d.fecBandwidth
 	d.prevPacketStereo = d.fecStereo
-	d.lastFrameSize = frameSize
+	d.lastFrameSize = packetFrameSize
 	d.lastPacketDuration = frameSize
 	d.lastDataLen = len(d.fecData)
 	d.prevRedundancy = false
@@ -283,7 +319,7 @@ func (d *Decoder) decodeFECFrame(pcm []float32) (int, error) {
 
 	d.clearFECState()
 
-	return n, nil
+	return frameSize, nil
 }
 
 func (d *Decoder) clearFECState() {
