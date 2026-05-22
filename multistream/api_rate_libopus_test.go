@@ -107,7 +107,7 @@ func TestLibopus_APIRateMultistreamCELTDecodeAndPLCMatchesReference(t *testing.T
 		}
 	}
 
-	for _, sampleRate := range []int{8000, 16000, 24000} {
+	for _, sampleRate := range []int{8000, 12000, 16000, 24000} {
 		frameSize := encoderFrameSize * sampleRate / encoderSampleRate
 		t.Run("fs_"+strconv.Itoa(sampleRate), func(t *testing.T) {
 			sequence := [][]byte{packet, nil}

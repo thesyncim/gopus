@@ -463,7 +463,10 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 			}
 			if !packetHasLBRR(firstFrameData, toc) {
 				d.clearFECState()
-				return d.decodePLCForFECWithState(pcm, requestedFrameSize, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
+				if extsupport.DREDRuntime && d.dredCachedPayloadActive() {
+					return d.decodePLCForFECWithState(pcm, requestedFrameSize, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
+				}
+				return d.decodeNoLBRRFECFallback(pcm, requestedFrameSize, frameSize, toc.Mode, toc.Bandwidth, toc.Stereo)
 			}
 			d.storeFECData(firstFrameData, toc, frameCount, frameSize)
 			if n, err := d.decodeFECFrame(pcm, requestedFrameSize); err == nil {

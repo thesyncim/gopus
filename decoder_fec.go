@@ -78,6 +78,65 @@ func (d *Decoder) decodePLCForFECWithState(
 	return frameSize, nil
 }
 
+func (d *Decoder) decodeNoLBRRFECFallback(
+	pcm []float32,
+	requestedFrameSize int,
+	packetFrameSize int,
+	mode Mode,
+	bandwidth Bandwidth,
+	packetStereo bool,
+) (int, error) {
+	if packetFrameSize <= 0 {
+		packetFrameSize = d.lastFrameSize
+	}
+	if packetFrameSize <= 0 {
+		packetFrameSize = d.sampleRate / 50
+	}
+	if requestedFrameSize <= packetFrameSize {
+		return d.decodePLCForFECWithState(pcm, requestedFrameSize, packetFrameSize, mode, bandwidth, packetStereo)
+	}
+	if requestedFrameSize > d.maxPacketSamples {
+		return 0, ErrPacketTooLarge
+	}
+	needed := requestedFrameSize * d.channels
+	if len(pcm) < needed {
+		return 0, ErrBufferTooSmall
+	}
+
+	prefixSize := requestedFrameSize - packetFrameSize
+	prefixPacketFrameSize := d.lastFrameSize
+	if prefixPacketFrameSize <= 0 {
+		prefixPacketFrameSize = packetFrameSize
+	}
+	n, err := d.decodePLCChunksInto(pcm, prefixSize, plcDecodeState{
+		packetFrameSize:    prefixPacketFrameSize,
+		mode:               d.prevMode,
+		bandwidth:          d.lastBandwidth,
+		packetStereo:       d.prevPacketStereo,
+		useDecoderPLCState: true,
+	})
+	if err != nil {
+		return 0, err
+	}
+	if n != prefixSize {
+		return 0, ErrInvalidFrameSize
+	}
+	if d.decodeGainQ8 != 0 {
+		d.applyOutputGain(pcm[:prefixSize*d.channels])
+	}
+
+	suffix := pcm[prefixSize*d.channels : requestedFrameSize*d.channels]
+	n, err = d.decodePLCForFECWithState(suffix, packetFrameSize, packetFrameSize, mode, bandwidth, packetStereo)
+	if err != nil {
+		return 0, err
+	}
+	if n != packetFrameSize {
+		return 0, ErrInvalidFrameSize
+	}
+	d.lastPacketDuration = requestedFrameSize
+	return requestedFrameSize, nil
+}
+
 // extractFirstFramePayload extracts the first Opus frame payload bytes from
 // a packet. This excludes packet-level TOC and framing headers.
 func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {

@@ -609,6 +609,89 @@ func TestDecodeWithFECNoLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecodeWithFECNoLBRRRequestedDurationMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, tc := range []struct {
+		name      string
+		seed      func(t *testing.T, channels int) []byte
+		recovery  func(t *testing.T, channels int) []byte
+		tolerance float64
+	}{
+		{name: "celt_to_silk", seed: encodeAPIRateCELTPacket, recovery: encodeAPIRateSILKPacket, tolerance: 1e-2},
+		{name: "silk_to_hybrid", seed: encodeAPIRateSILKPacket, recovery: encodeAPIRateHybridPacket, tolerance: 1.2e-2},
+	} {
+		for _, channels := range []int{1, 2} {
+			seedPacket := tc.seed(t, channels)
+			recoveryPacket := tc.recovery(t, channels)
+			toc := ParseTOC(recoveryPacket[0])
+			if toc.Mode != ModeSILK && toc.Mode != ModeHybrid {
+				t.Fatalf("%s recovery mode=%v want SILK or Hybrid", tc.name, toc.Mode)
+			}
+			firstFrameData, err := extractFirstFramePayload(recoveryPacket, toc)
+			if err != nil {
+				t.Fatalf("%s ch=%d extract first frame: %v", tc.name, channels, err)
+			}
+			if packetHasLBRR(firstFrameData, toc) {
+				t.Fatalf("%s ch=%d recovery packet unexpectedly contains LBRR", tc.name, channels)
+			}
+
+			for _, sampleRate := range []int{8000, 16000, 48000} {
+				packetFrameSize, err := packetSamplesAtRate(recoveryPacket, sampleRate)
+				if err != nil {
+					t.Fatalf("packetSamplesAtRate: %v", err)
+				}
+				for _, requestedFrameSize := range []int{sampleRate / 25, sampleRate * 3 / 50} {
+					t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate)+"_request_"+itoaSmall(requestedFrameSize), func(t *testing.T) {
+						if requestedFrameSize <= packetFrameSize {
+							t.Fatalf("requestedFrameSize=%d want > packetFrameSize=%d", requestedFrameSize, packetFrameSize)
+						}
+						steps := []libopusAPIRateDecodeStep{
+							{packet: seedPacket},
+							{packet: recoveryPacket, fec: true},
+						}
+						want, err := decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, requestedFrameSize, steps)
+						if err != nil {
+							libopustest.HelperUnavailable(t, "api-rate requested no-LBRR reference decode", err)
+						}
+
+						dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+						if err != nil {
+							t.Fatalf("NewDecoder: %v", err)
+						}
+						got := make([]float32, 0, len(want))
+						frame := make([]float32, requestedFrameSize*channels)
+
+						seedSamples, err := packetSamplesAtRate(seedPacket, sampleRate)
+						if err != nil {
+							t.Fatalf("seed packetSamplesAtRate: %v", err)
+						}
+						n, err := dec.Decode(seedPacket, frame)
+						if err != nil {
+							t.Fatalf("Decode seed: %v", err)
+						}
+						if n != seedSamples {
+							t.Fatalf("Decode seed samples=%d want %d", n, seedSamples)
+						}
+						got = append(got, frame[:n*channels]...)
+
+						clear(frame)
+						n, err = dec.DecodeWithFEC(recoveryPacket, frame, true)
+						if err != nil {
+							t.Fatalf("DecodeWithFEC(no LBRR): %v", err)
+						}
+						if n != requestedFrameSize {
+							t.Fatalf("DecodeWithFEC(no LBRR) samples=%d want requested %d", n, requestedFrameSize)
+						}
+						got = append(got, frame[:n*channels]...)
+
+						assertAPIRateFloat32Close(t, got, want, tc.name+" requested no-LBRR duration", tc.tolerance)
+					})
+				}
+			}
+		}
+	}
+}
+
 func TestDecodeWithFECNilAPIRatePCMMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	for _, tc := range apiRatePLCDurationCases() {
