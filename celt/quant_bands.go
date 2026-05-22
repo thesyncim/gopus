@@ -513,8 +513,8 @@ func QuantFineEnergy(
 			// Quantize error to extra_quant[i] bits
 			// libopus float: q2 = (int)floor((error[i+c*m->nbEBands]*(1<<prev)+.5f)*extra)
 			// where extra = 1 << extra_quant[i]
-			scaledError := errorVal[idx]*float64(uint(1)<<prev) + 0.5
-			q2 := int(math.Floor(scaledError * float64(extraLevels)))
+			scaledError := float32(errorVal[idx])*float32(uint(1)<<prev) + 0.5
+			q2 := int(math.Floor(float64(scaledError * float32(extraLevels))))
 
 			// Clamp to valid range
 			if q2 > extraLevels-1 {
@@ -530,11 +530,11 @@ func QuantFineEnergy(
 			// Compute offset and update energies
 			// libopus float: offset = (q2+.5f)*(1<<(14-extra_quant[i]))*(1.f/16384) - .5f
 			//                offset *= (1<<(14-prev))*(1.f/16384)
-			offset := (float64(q2)+0.5)*float64(uint(1)<<(14-extra))/16384.0 - 0.5
-			offset *= float64(uint(1)<<(14-prev)) / 16384.0
+			offset := (float32(q2)+0.5)*float32(uint(1)<<(14-extra))*(1.0/16384.0) - 0.5
+			offset *= float32(uint(1)<<(14-prev)) * (1.0 / 16384.0)
 
-			oldEBands[idx] += offset
-			errorVal[idx] -= offset
+			oldEBands[idx] = float64(float32(oldEBands[idx]) + offset)
+			errorVal[idx] = float64(float32(errorVal[idx]) - offset)
 		}
 	}
 }
@@ -585,17 +585,18 @@ func QuantEnergyFinalise(
 
 				// Encode 1 bit based on error sign
 				q2 := 0
-				if errorVal[idx] >= 0 {
+				err := float32(errorVal[idx])
+				if err >= 0 {
 					q2 = 1
 				}
 				re.EncodeRawBits(uint32(q2), 1)
 
 				// Compute offset
 				// libopus float: offset = (q2-.5f)*(1<<(14-fine_quant[i]-1))*(1.f/16384)
-				offset := (float64(q2) - 0.5) * float64(uint(1)<<(14-fineQuant[i]-1)) / 16384.0
+				offset := (float32(q2) - 0.5) * float32(uint(1)<<(14-fineQuant[i]-1)) * (1.0 / 16384.0)
 
-				oldEBands[idx] += offset
-				errorVal[idx] -= offset
+				oldEBands[idx] = float64(float32(oldEBands[idx]) + offset)
+				errorVal[idx] = float64(err - offset)
 				bitsLeft--
 			}
 		}
