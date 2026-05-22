@@ -1,0 +1,7 @@
+#!/bin/sh
+# Strip IDE-injected co-author trailers from commit messages.
+msgfile=$1
+[ -f "$msgfile" ] || exit 0
+tmp=$(mktemp)
+grep -v '^Co-authored-by: Cursor <cursoragent@cursor.com>$' "$msgfile" >"$tmp" || true
+mv "$tmp" "$msgfile"
