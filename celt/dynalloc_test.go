@@ -711,16 +711,7 @@ func TestOffsetComputation(t *testing.T) {
 	}
 }
 
-// TestBoostBitsCalculation verifies boost_bits formula.
-// Reference: libopus celt_encoder.c lines 1232-1265
-//
-// In float mode, the formula is:
-//
-//	follower = min(follower, 4.0)
-//	follower = SHR32(follower, 8) = follower / 256
-//	boost = (int)SHR32(follower * factor, DB_SHIFT-8) = (int)(follower * factor / 128)
-//
-// This produces very small boost values (often 0) which is correct for float mode.
+// TestBoostBitsCalculation covers the libopus float-mode boost branches.
 func TestBoostBitsCalculation(t *testing.T) {
 	lm := 3 // 20ms frame
 	C := 1  // mono
@@ -750,22 +741,15 @@ func TestBoostBitsCalculation(t *testing.T) {
 			follower = 4.0
 		}
 
-		// SHR32(follower, 8) in float mode = divide by 256
-		followerScaled := follower / 256.0
-
 		var boost, boostBits int
-		// Each case: boost = SHR32(followerScaled * factor, DB_SHIFT-8) = followerScaled * factor / 128
 		if width < 6 {
-			// boost = SHR32(follower, DB_SHIFT-8) = followerScaled / 128
-			boost = int(followerScaled / 128.0)
+			boost = int(follower)
 			boostBits = boost * width << bitRes
 		} else if width > 48 {
-			// boost = SHR32(follower * 8, DB_SHIFT-8) = followerScaled * 8 / 128
-			boost = int(followerScaled * 8.0 / 128.0)
+			boost = int(follower * 8.0)
 			boostBits = (boost * width << bitRes) / 8
 		} else {
-			// boost = SHR32(follower * width / 6, DB_SHIFT-8) = followerScaled * width / 6 / 128
-			boost = int(followerScaled * float64(width) / 6.0 / 128.0)
+			boost = int(follower * float64(width) / 6.0)
 			boostBits = boost * 6 << bitRes
 		}
 
