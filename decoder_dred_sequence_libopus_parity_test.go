@@ -344,7 +344,7 @@ func assertDecoderCachedDREDDecodeInt16LossesMatchLiveSequenceOracle(t *testing.
 		t.Fatalf("%s libopus cached int16 ret=(%d,%d) want (%d,%d)", label, want.step0.ret, want.step1.ret, n, n)
 	}
 
-	pcm0 := make([]int16, dec.maxPacketSamples*dec.channels)
+	pcm0 := make([]int16, n*dec.channels)
 	got0, err := dec.DecodeInt16(nil, pcm0)
 	if err != nil {
 		t.Fatalf("%s DecodeInt16(nil, first) error: %v", label, err)
@@ -354,7 +354,7 @@ func assertDecoderCachedDREDDecodeInt16LossesMatchLiveSequenceOracle(t *testing.
 	}
 	assertInt16WithinLSB(t, pcm0[:got0*dec.channels], want.step0.pcm16[:got0*dec.channels], maxDiff, label+" cached first-loss int16")
 
-	pcm1 := make([]int16, dec.maxPacketSamples*dec.channels)
+	pcm1 := make([]int16, n*dec.channels)
 	got1, err := dec.DecodeInt16(nil, pcm1)
 	if err != nil {
 		t.Fatalf("%s DecodeInt16(nil, second) error: %v", label, err)
@@ -406,7 +406,7 @@ func TestDecoderCachedSILKDREDDecodeInt16MatchesLiveSequenceOracle(t *testing.T)
 		if toc.Mode != ModeSILK || toc.Bandwidth != BandwidthWideband || toc.Stereo != (channels == 2) {
 			t.Fatalf("SILK DRED int16 packet TOC=%+v, want channels=%d SILK WB", toc, channels)
 		}
-		for _, sampleRate := range []int{8000, 16000, 48000} {
+		for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
 			sampleRate := sampleRate
 			t.Run(fmt.Sprintf("channels_%d_decoder_%d", channels, sampleRate), func(t *testing.T) {
 				label := fmt.Sprintf("cached SILK int16 channels=%d decoder=%d", channels, sampleRate)

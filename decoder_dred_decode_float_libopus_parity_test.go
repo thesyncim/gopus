@@ -708,7 +708,7 @@ func TestDecoderCachedSILKDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 				t.Fatalf("libopus cached SILK decoder channels=%d want 1", want.channels)
 			}
 
-			pcm := make([]float32, dec.maxPacketSamples)
+			pcm := make([]float32, n*dec.channels)
 			got, err := dec.Decode(nil, pcm)
 			if err != nil {
 				t.Fatalf("Decode(nil) error: %v", err)
@@ -737,7 +737,7 @@ func TestDecoderCachedSILKDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 				t.Fatalf("libopus cached SILK decoder second-loss ret=%d want %d", wantSecond.step1.ret, nSecond)
 			}
 
-			pcm0 := make([]float32, decSecond.maxPacketSamples)
+			pcm0 := make([]float32, nSecond*decSecond.channels)
 			got0, err := decSecond.Decode(nil, pcm0)
 			if err != nil {
 				t.Fatalf("Decode(nil, warmup) error: %v", err)
@@ -745,7 +745,7 @@ func TestDecoderCachedSILKDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 			if got0 != nSecond {
 				t.Fatalf("Decode(nil, warmup)=%d want %d", got0, nSecond)
 			}
-			pcm1 := make([]float32, decSecond.maxPacketSamples)
+			pcm1 := make([]float32, nSecond*decSecond.channels)
 			got1, err := decSecond.Decode(nil, pcm1)
 			if err != nil {
 				t.Fatalf("Decode(nil, second) error: %v", err)
@@ -764,7 +764,7 @@ func TestDecoderCachedSILKDREDDecodeMatchesLiveSequenceOracle(t *testing.T) {
 
 func TestDecoderCachedSILKDREDDecodeWithFECFallbackMatchesLiveSequenceOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
-	for _, sampleRate := range []int{8000, 16000, 48000} {
+	for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
 		sampleRate := sampleRate
 		t.Run(fmt.Sprintf("decoder_%d", sampleRate), func(t *testing.T) {
 			const frameSize = 960
@@ -798,7 +798,7 @@ func TestDecoderCachedSILKDREDDecodeWithFECFallbackMatchesLiveSequenceOracle(t *
 			}
 
 			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, sampleRate)
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, 1, n, 0, 0, false)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, 1, n, 1, 2*n, false)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
 			}
@@ -806,8 +806,11 @@ func TestDecoderCachedSILKDREDDecodeWithFECFallbackMatchesLiveSequenceOracle(t *
 			if want.step0.ret != n {
 				t.Fatalf("libopus cached SILK FEC-fallback first-loss ret=%d want %d", want.step0.ret, n)
 			}
+			if want.step1.ret != n {
+				t.Fatalf("libopus cached SILK FEC-fallback second-loss ret=%d want %d", want.step1.ret, n)
+			}
 
-			pcm := make([]float32, dec.maxPacketSamples)
+			pcm := make([]float32, n*dec.channels)
 			got, err := dec.DecodeWithFEC(packetInfo.packet, pcm, true)
 			if err != nil {
 				t.Fatalf("DecodeWithFEC(no LBRR) error: %v", err)
@@ -822,6 +825,20 @@ func TestDecoderCachedSILKDREDDecodeWithFECFallbackMatchesLiveSequenceOracle(t *
 			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "cached SILK FEC-fallback live-sequence fargan", farganTol)
 			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "cached SILK FEC-fallback live-sequence celt", celtTol)
 			assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.step0.silk, silkpkg.BandwidthWideband, "cached SILK FEC-fallback live-sequence silk", max(celtTol, 1))
+
+			pcmSecond := make([]float32, n*dec.channels)
+			gotSecond, err := dec.Decode(nil, pcmSecond)
+			if err != nil {
+				t.Fatalf("Decode(nil, second) error: %v", err)
+			}
+			if gotSecond != n {
+				t.Fatalf("Decode(nil, second)=%d want %d", gotSecond, n)
+			}
+			assertFloat32ApproxEqual(t, pcmSecond[:gotSecond], want.step1.pcm[:gotSecond], "cached SILK FEC-fallback second-loss live-sequence pcm", pcmTol)
+			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "cached SILK FEC-fallback second-loss live-sequence plc", plcTol)
+			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "cached SILK FEC-fallback second-loss live-sequence fargan", farganTol)
+			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step1.celt48k, "cached SILK FEC-fallback second-loss live-sequence celt", celtTol)
+			assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.step1.silk, silkpkg.BandwidthWideband, "cached SILK FEC-fallback second-loss live-sequence silk", max(celtTol, 16))
 		})
 	}
 }
