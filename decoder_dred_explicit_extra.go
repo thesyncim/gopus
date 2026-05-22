@@ -206,15 +206,6 @@ func (d *Decoder) decodeExplicitSILKDREDFloat(dred *DRED, dredOffsetSamples int,
 			_ = d.generateDREDNeuralFrames16k(nil, nativeSamples)
 		}
 	}
-	// The API-visible stereo DRED signal is one neural stream duplicated to
-	// both channels.
-	if d.channels == 2 && n > 0 && len(pcm) >= 2*n {
-		for i := 0; i < n; i++ {
-			mid := 0.5 * (pcm[2*i] + pcm[2*i+1])
-			pcm[2*i] = mid
-			pcm[2*i+1] = mid
-		}
-	}
 	d.applyOutputGain(pcm[:n*d.channels])
 	d.lastFrameSize = n
 	d.lastPacketDuration = n
@@ -247,13 +238,6 @@ func (d *Decoder) decodeCachedSILKDREDNeuralPLCInto(pcm []float32, frameSizeSamp
 	}
 	if usedHook() {
 		d.finishActiveDREDRecovery(n)
-	}
-	if d.channels == 2 && n > 0 && len(pcm) >= 2*n {
-		for i := 0; i < n; i++ {
-			mid := 0.5 * (pcm[2*i] + pcm[2*i+1])
-			pcm[2*i] = mid
-			pcm[2*i+1] = mid
-		}
 	}
 	return n, usedHook(), nil
 }

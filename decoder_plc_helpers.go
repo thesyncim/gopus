@@ -31,6 +31,10 @@ func (d *Decoder) requestedOutputFrameSize(sampleCount int) (int, error) {
 	if frameSize > d.maxPacketSamples {
 		return 0, ErrPacketTooLarge
 	}
+	quantum := d.sampleRate / 400
+	if quantum <= 0 || frameSize%quantum != 0 {
+		return 0, ErrInvalidFrameSize
+	}
 	return frameSize, nil
 }
 
