@@ -4,7 +4,7 @@ import "github.com/thesyncim/gopus/rangecoding"
 
 type decoderQEXTState struct {
 	pendingPayload []byte
-	oldBandE       []float64
+	oldBandE       []celtGLog
 
 	scratchEnergies  []float64
 	scratchSpectrumL []float64

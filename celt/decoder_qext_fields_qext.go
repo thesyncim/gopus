@@ -31,7 +31,7 @@ func (d *Decoder) growQEXTOldBandE(needed int) {
 	if d.qext == nil || len(d.qext.oldBandE) == 0 || len(d.qext.oldBandE) >= needed {
 		return
 	}
-	prev := make([]float64, needed)
+	prev := make([]celtGLog, needed)
 	copy(prev, d.qext.oldBandE)
 	d.qext.oldBandE = prev
 }

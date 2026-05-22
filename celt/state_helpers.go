@@ -130,11 +130,11 @@ func (d *Decoder) ensureEnergyState(channels int) {
 	}
 }
 
-func (d *Decoder) ensureQEXTOldBandE() []float64 {
+func (d *Decoder) ensureQEXTOldBandE() []celtGLog {
 	needed := MaxBands * d.channels
 	qextState := d.ensureQEXTState()
 	if len(qextState.oldBandE) < needed {
-		prev := make([]float64, needed)
+		prev := make([]celtGLog, needed)
 		copy(prev, qextState.oldBandE)
 		qextState.oldBandE = prev
 	}

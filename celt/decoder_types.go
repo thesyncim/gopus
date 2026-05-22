@@ -140,7 +140,7 @@ type Decoder struct {
 	scratchPulses         []int
 	scratchFineQuant      []int
 	scratchFinePriority   []int
-	scratchPrevBandEnergy []float64
+	scratchPrevBandEnergy []float32
 	scratchSilenceE       []float64
 	scratchCaps           []int
 	scratchAllocWork      []int

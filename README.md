@@ -113,6 +113,7 @@ Consumer smoke test: [examples/external-consumer-smoke/smoke_test.go](examples/e
 
 ## Public Docs
 
+- [PARITY_MATRIX.md](PARITY_MATRIX.md) — libopus 1.6.1 coverage and remaining gaps
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [SECURITY.md](SECURITY.md)
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
