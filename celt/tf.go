@@ -193,23 +193,8 @@ func ComputeImportance(bandLogE, oldBandE []float64, nbBands, channels, lm, lsbD
 
 	// Convert follower to importance
 	// libopus: importance[i] = floor(0.5 + 13 * celt_exp2_db(min(follower[i], 4.0)))
-	// celt_exp2_db is just exp2 (2^x) for float builds
 	for i := 0; i < nbBands; i++ {
-		f := follower[i]
-		if f > 4.0 {
-			f = 4.0
-		}
-		// exp2(f) where f is in "dB-like" log2 units
-		// When f=0, importance=13. When f=4, importance=13*16=208
-		imp := 13.0 * math.Exp2(f)
-		importance[i] = int(math.Floor(0.5 + imp))
-		// Clamp to reasonable range
-		if importance[i] < 1 {
-			importance[i] = 1
-		}
-		if importance[i] > 255 {
-			importance[i] = 255
-		}
+		importance[i] = dynallocImportanceFromFollower(float32(follower[i]))
 	}
 
 	return importance

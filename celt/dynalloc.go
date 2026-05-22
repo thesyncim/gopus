@@ -48,6 +48,14 @@ func maxF32(a, b float32) float32 {
 	return b
 }
 
+func dynallocImportanceFromFollower(follower float32) int {
+	if follower > 4.0 {
+		follower = 4.0
+	}
+	imp := float32(0.5) + float32(13.0)*celtExp2(follower)
+	return int(math.Floor(float64(imp)))
+}
+
 // applyLeakBoostApprox derives a leak_boost proxy from current CELT band energies
 // using the same leakage_from/leakage_to equations as libopus analysis.c.
 func applyLeakBoostApprox(
@@ -533,12 +541,7 @@ func DynallocAnalysis(
 
 		// Compute importance weights
 		for i := start; i < end; i++ {
-			expArg := follower[i]
-			if expArg > 4.0 {
-				expArg = 4.0
-			}
-			imp := 13.0 * float64(celtExp2(expArg))
-			result.Importance[i] = int(math.Floor(0.5 + imp))
+			result.Importance[i] = dynallocImportanceFromFollower(follower[i])
 		}
 
 		// For non-transient CBR/CVBR frames, libopus halves dynalloc.
@@ -1144,12 +1147,7 @@ func DynallocAnalysisWithScratch(
 		}
 
 		for i := start; i < end; i++ {
-			expArg := follower[i]
-			if expArg > 4.0 {
-				expArg = 4.0
-			}
-			imp := 13.0 * float64(celtExp2(expArg))
-			result.Importance[i] = int(math.Floor(0.5 + imp))
+			result.Importance[i] = dynallocImportanceFromFollower(follower[i])
 		}
 
 		// For non-transient CBR/CVBR frames, libopus halves dynalloc.
