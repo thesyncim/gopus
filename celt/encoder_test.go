@@ -633,20 +633,24 @@ func TestPreemphasisDeemphasis(t *testing.T) {
 			copy(output, preemph)
 
 			// De-emphasis: y[n] = x[n] + PreemphCoef * y[n-1]
+			coef := float32(PreemphCoef)
 			if ch == 1 {
-				state := float64(dec.PreemphState()[0])
+				state := dec.PreemphState()[0]
 				for i := range output {
-					output[i] = output[i] + PreemphCoef*state
-					state = output[i]
+					y := float32(output[i]) + coef*state
+					output[i] = float64(y)
+					state = y
 				}
 			} else {
-				stateL := float64(dec.PreemphState()[0])
-				stateR := float64(dec.PreemphState()[1])
+				stateL := dec.PreemphState()[0]
+				stateR := dec.PreemphState()[1]
 				for i := 0; i < len(output)-1; i += 2 {
-					output[i] = output[i] + PreemphCoef*stateL
-					stateL = output[i]
-					output[i+1] = output[i+1] + PreemphCoef*stateR
-					stateR = output[i+1]
+					yL := float32(output[i]) + coef*stateL
+					output[i] = float64(yL)
+					stateL = yL
+					yR := float32(output[i+1]) + coef*stateR
+					output[i+1] = float64(yR)
+					stateR = yR
 				}
 			}
 
@@ -655,14 +659,14 @@ func TestPreemphasisDeemphasis(t *testing.T) {
 			startCompare := ch // Skip first sample(s)
 			var maxDiff float64
 			for i := startCompare; i < len(input); i++ {
-				diff := math.Abs(input[i] - output[i])
+				diff := math.Abs(float64(float32(input[i])) - output[i])
 				if diff > maxDiff {
 					maxDiff = diff
 				}
 			}
 
-			// Should be very close (within floating-point precision)
-			if maxDiff > 1e-10 {
+			// The CELT float path keeps this state in float width.
+			if maxDiff > 1e-6 {
 				t.Errorf("pre-emphasis/de-emphasis round-trip error: maxDiff=%e", maxDiff)
 			}
 		})
@@ -677,9 +681,9 @@ func TestPreemphasisState(t *testing.T) {
 	input1 := []float64{1.0, 2.0, 3.0}
 	_ = enc.ApplyPreemphasis(input1)
 
-	// State tracks PreemphCoef * last input sample.
-	expectedState := PreemphCoef * 3.0
-	if math.Abs(enc.PreemphState()[0]-expectedState) > 1e-10 {
+	// State tracks PreemphCoef * last input sample in CELT float width.
+	expectedState := float32(PreemphCoef) * float32(3.0)
+	if math.Float32bits(enc.PreemphState()[0]) != math.Float32bits(expectedState) {
 		t.Errorf("PreemphState after first call = %f, want %f", enc.PreemphState()[0], expectedState)
 	}
 
@@ -688,8 +692,8 @@ func TestPreemphasisState(t *testing.T) {
 	output2 := enc.ApplyPreemphasis(input2)
 
 	// First output should be: 4.0 - 0.85*3.0 = 1.45
-	expected := 4.0 - PreemphCoef*3.0
-	if math.Abs(output2[0]-expected) > 1e-10 {
+	expected := float32(4.0) - expectedState
+	if math.Float32bits(float32(output2[0])) != math.Float32bits(expected) {
 		t.Errorf("First sample of second call = %f, want %f", output2[0], expected)
 	}
 }

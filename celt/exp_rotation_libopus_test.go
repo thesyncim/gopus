@@ -571,6 +571,18 @@ func TestDecoderSigStateMatchesLibopusFloatSize(t *testing.T) {
 	}
 }
 
+func TestEncoderPreemphStateMatchesLibopusFloatSize(t *testing.T) {
+	libopustest.RequireOracle(t)
+	sizes, err := probeLibopusCELTTypeSizes()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	enc := NewEncoder(2)
+	if got := unsafe.Sizeof(enc.preemphState[0]); got != uintptr(sizes.celtSig) {
+		t.Fatalf("preemphState element size=%d want libopus celt_sig size %d", got, sizes.celtSig)
+	}
+}
+
 func TestDecoderPostfilterStateMatchesLibopusFloatSize(t *testing.T) {
 	libopustest.RequireOracle(t)
 	sizes, err := probeLibopusCELTTypeSizes()

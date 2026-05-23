@@ -73,34 +73,35 @@ func (e *Encoder) ApplyPreemphasis(pcm []float64) []float64 {
 
 	output := make([]float64, len(pcm))
 
+	coef := float32(PreemphCoef)
 	if e.channels == 1 {
 		// Mono pre-emphasis
-		state := e.preemphState[0]
+		state := float32(e.preemphState[0])
 		for i := range pcm {
-			x := pcm[i]
-			output[i] = x - state
-			state = PreemphCoef * x
+			x := float32(pcm[i])
+			output[i] = float64(x - state)
+			state = coef * x
 		}
-		e.preemphState[0] = state
+		e.preemphState[0] = celtSig(state)
 	} else {
 		// Stereo pre-emphasis (interleaved samples)
-		stateL := e.preemphState[0]
-		stateR := e.preemphState[1]
+		stateL := float32(e.preemphState[0])
+		stateR := float32(e.preemphState[1])
 
 		for i := 0; i < len(pcm)-1; i += 2 {
 			// Left channel
-			xL := pcm[i]
-			output[i] = xL - stateL
-			stateL = PreemphCoef * xL
+			xL := float32(pcm[i])
+			output[i] = float64(xL - stateL)
+			stateL = coef * xL
 
 			// Right channel
-			xR := pcm[i+1]
-			output[i+1] = xR - stateR
-			stateR = PreemphCoef * xR
+			xR := float32(pcm[i+1])
+			output[i+1] = float64(xR - stateR)
+			stateR = coef * xR
 		}
 
-		e.preemphState[0] = stateL
-		e.preemphState[1] = stateR
+		e.preemphState[0] = celtSig(stateL)
+		e.preemphState[1] = celtSig(stateR)
 	}
 
 	return output
@@ -113,34 +114,35 @@ func (e *Encoder) ApplyPreemphasisInPlace(pcm []float64) {
 		return
 	}
 
+	coef := float32(PreemphCoef)
 	if e.channels == 1 {
 		// Mono pre-emphasis
-		state := e.preemphState[0]
+		state := float32(e.preemphState[0])
 		for i := range pcm {
-			x := pcm[i]
-			pcm[i] = x - state
-			state = PreemphCoef * x
+			x := float32(pcm[i])
+			pcm[i] = float64(x - state)
+			state = coef * x
 		}
-		e.preemphState[0] = state
+		e.preemphState[0] = celtSig(state)
 	} else {
 		// Stereo pre-emphasis (interleaved samples)
-		stateL := e.preemphState[0]
-		stateR := e.preemphState[1]
+		stateL := float32(e.preemphState[0])
+		stateR := float32(e.preemphState[1])
 
 		for i := 0; i < len(pcm)-1; i += 2 {
 			// Left channel
-			xL := pcm[i]
-			pcm[i] = xL - stateL
-			stateL = PreemphCoef * xL
+			xL := float32(pcm[i])
+			pcm[i] = float64(xL - stateL)
+			stateL = coef * xL
 
 			// Right channel
-			xR := pcm[i+1]
-			pcm[i+1] = xR - stateR
-			stateR = PreemphCoef * xR
+			xR := float32(pcm[i+1])
+			pcm[i+1] = float64(xR - stateR)
+			stateR = coef * xR
 		}
 
-		e.preemphState[0] = stateL
-		e.preemphState[1] = stateR
+		e.preemphState[0] = celtSig(stateL)
+		e.preemphState[1] = celtSig(stateR)
 	}
 }
 
@@ -161,7 +163,7 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 			output[i] = float64(scaled - state)
 			state = coef * scaled
 		}
-		e.preemphState[0] = float64(state)
+		e.preemphState[0] = celtSig(state)
 	} else {
 		// Stereo pre-emphasis (interleaved samples) with scaling
 		stateL := float32(e.preemphState[0])
@@ -179,8 +181,8 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 			stateR = coef * scaledR
 		}
 
-		e.preemphState[0] = float64(stateL)
-		e.preemphState[1] = float64(stateR)
+		e.preemphState[0] = celtSig(stateL)
+		e.preemphState[1] = celtSig(stateR)
 	}
 }
 
@@ -240,7 +242,7 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCoreF32(pcm, output []flo
 			output[i] = float64(scaled - state)
 			state = coef * scaled
 		}
-		e.preemphState[0] = float64(state)
+		e.preemphState[0] = celtSig(state)
 	} else if !writeF32 {
 		stateL := float32(e.preemphState[0])
 		stateR := float32(e.preemphState[1])
@@ -273,8 +275,8 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCoreF32(pcm, output []flo
 			output[i+1] = float64(scaledR - stateR)
 			stateR = coef * scaledR
 		}
-		e.preemphState[0] = float64(stateL)
-		e.preemphState[1] = float64(stateR)
+		e.preemphState[0] = celtSig(stateL)
+		e.preemphState[1] = celtSig(stateR)
 	} else if channels == 1 {
 		state := float32(e.preemphState[0])
 		for i := 0; i < split; i++ {
@@ -295,7 +297,7 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCoreF32(pcm, output []flo
 			outputF32[i] = y
 			state = coef * scaled
 		}
-		e.preemphState[0] = float64(state)
+		e.preemphState[0] = celtSig(state)
 	} else {
 		stateL := float32(e.preemphState[0])
 		stateR := float32(e.preemphState[1])
@@ -336,8 +338,8 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCoreF32(pcm, output []flo
 			outputF32[i+1] = yR
 			stateR = coef * scaledR
 		}
-		e.preemphState[0] = float64(stateL)
-		e.preemphState[1] = float64(stateR)
+		e.preemphState[0] = celtSig(stateL)
+		e.preemphState[1] = celtSig(stateR)
 	}
 
 	sampleMax := e.overlapMax

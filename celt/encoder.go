@@ -41,7 +41,7 @@ type Encoder struct {
 
 	// Analysis state for overlap (mirrors decoder's synthesis state)
 	overlapBuffer []float64 // MDCT overlap [Overlap * channels]
-	preemphState  []float64 // Pre-emphasis filter state [channels]
+	preemphState  []celtSig // Pre-emphasis filter state [channels]
 	// overlapMax mirrors libopus st->overlap_max for CELT silence detection.
 	// It tracks max absolute amplitude over the last overlap region.
 	overlapMax float64
@@ -269,7 +269,7 @@ func NewEncoder(channels int) *Encoder {
 		overlapBuffer: make([]float64, Overlap*channels),
 
 		// Pre-emphasis filter state, one per channel
-		preemphState: make([]float64, channels),
+		preemphState: make([]celtSig, channels),
 
 		// Initialize RNG to zero (libopus default)
 		rng: 0,
@@ -774,7 +774,7 @@ func (e *Encoder) SetOverlapBuffer(samples []float64) {
 
 // PreemphState returns the pre-emphasis filter state.
 // One value per channel.
-func (e *Encoder) PreemphState() []float64 {
+func (e *Encoder) PreemphState() []float32 {
 	return e.preemphState
 }
 
