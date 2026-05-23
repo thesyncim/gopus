@@ -18,7 +18,7 @@ func TestApplyHybridPrefilterMatchesDisabledRunPrefilter(t *testing.T) {
 			cur.prefilterMem[i] = float64(i-120) / 512.0
 		}
 		for i := range cur.overlapBuffer {
-			cur.overlapBuffer[i] = float64(60-i) / 256.0
+			cur.overlapBuffer[i] = celtSig(float64(60-i) / 256.0)
 		}
 	}
 

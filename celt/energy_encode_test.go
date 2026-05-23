@@ -203,7 +203,7 @@ func TestCoarseEnergyEncoderProducesValidOutput(t *testing.T) {
 
 				// Verify prevEnergy was updated
 				for band := 0; band < nbBands && band < MaxBands; band++ {
-					if enc.prevEnergy[band] != quantizedEnc[band] {
+					if enc.prevEnergy[band] != celtGLog(quantizedEnc[band]) {
 						t.Errorf("Band %d: prevEnergy not updated", band)
 					}
 				}
@@ -538,7 +538,7 @@ func TestEncoderStateUpdates(t *testing.T) {
 
 		// Verify prevEnergy was updated with quantized values
 		for band := 0; band < nbBands && band < MaxBands; band++ {
-			if enc.prevEnergy[band] != quantizedEnc[band] {
+			if enc.prevEnergy[band] != celtGLog(quantizedEnc[band]) {
 				t.Errorf("Frame %d, band %d: prevEnergy=%f, expected=%f",
 					frame, band, enc.prevEnergy[band], quantizedEnc[band])
 			}
@@ -566,7 +566,7 @@ func TestEncodeCoarseEnergyRangeUpdatesDelayedIntra(t *testing.T) {
 		energies := make([]float64, nbBands)
 		for band := 0; band < nbBands; band++ {
 			base := 0.02 * float64(band+1)
-			enc.prevEnergy[band] = base
+			enc.prevEnergy[band] = celtGLog(base)
 			energies[band] = base
 			if band >= start {
 				energies[band] += 0.75 + 0.01*float64(band-start)

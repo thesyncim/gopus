@@ -186,7 +186,7 @@ func celtAbsInt(v int) int {
 
 // coarseLossDistortion mirrors libopus loss_distortion() for float mode.
 // Keep the accumulator in float32 so delayedIntra matches libopus state carry.
-func coarseLossDistortion(energies, oldEBands []float64, nbBands, channels int) float32 {
+func coarseLossDistortion(energies []float64, oldEBands []celtGLog, nbBands, channels int) float32 {
 	if nbBands <= 0 || channels <= 0 {
 		return 0
 	}
@@ -200,7 +200,7 @@ func coarseLossDistortion(energies, oldEBands []float64, nbBands, channels int) 
 			if idx >= len(energies) || oldIdx >= len(oldEBands) {
 				continue
 			}
-			d := float32(energies[idx] - oldEBands[oldIdx])
+			d := float32(energies[idx]) - float32(oldEBands[oldIdx])
 			dist += d * d
 		}
 	}
@@ -213,7 +213,7 @@ func coarseLossDistortion(energies, oldEBands []float64, nbBands, channels int) 
 
 // coarseLossDistortionRange mirrors libopus loss_distortion() when coarse
 // quantization operates on a band subset [start,end) (hybrid mode).
-func coarseLossDistortionRange(energies, oldEBands []float64, start, end, nbBands, channels int) float32 {
+func coarseLossDistortionRange(energies []float64, oldEBands []celtGLog, start, end, nbBands, channels int) float32 {
 	if nbBands <= 0 || channels <= 0 {
 		return 0
 	}
@@ -236,7 +236,7 @@ func coarseLossDistortionRange(energies, oldEBands []float64, start, end, nbBand
 			if idx >= len(energies) || oldIdx >= len(oldEBands) {
 				continue
 			}
-			d := float32(energies[idx] - oldEBands[oldIdx])
+			d := float32(energies[idx]) - float32(oldEBands[oldIdx])
 			dist += d * d
 		}
 	}
@@ -401,7 +401,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 			if idx >= len(quantizedEnergies) {
 				continue
 			}
-			e.prevEnergy[c*MaxBands+band] = quantizedEnergies[idx]
+			e.prevEnergy[c*MaxBands+band] = celtGLog(quantizedEnergies[idx])
 		}
 	}
 
@@ -503,7 +503,7 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 	e.rangeEncoder.SaveStateInto(startState)
 
 	oldStart := ensureFloat64Slice(&e.scratch.coarseOldStart, len(e.prevEnergy))
-	copy(oldStart, e.prevEnergy)
+	copyGLogToFloat64(oldStart, e.prevEnergy)
 
 	probIntra := eProbModel[lm][1][:]
 	probInter := eProbModel[lm][0][:]
@@ -547,7 +547,7 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 	)
 	tellIntra := e.rangeEncoder.TellFrac()
 	e.rangeEncoder.RestoreState(startState)
-	copy(e.prevEnergy, oldStart)
+	copyFloat64ToGLog(e.prevEnergy, oldStart)
 
 	copy(workOldE, oldStart)
 	if tell+3 <= budget {
@@ -574,7 +574,7 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 		useIntra = true
 	}
 	e.rangeEncoder.RestoreState(startState)
-	copy(e.prevEnergy, oldStart)
+	copyFloat64ToGLog(e.prevEnergy, oldStart)
 	return useIntra
 }
 
@@ -680,7 +680,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 		basePrev := c * MaxBands
 		base := c * nbBands
 		for band := 0; band < nbBands; band++ {
-			quantizedEnergies[base+band] = e.prevEnergy[basePrev+band]
+			quantizedEnergies[base+band] = float64(e.prevEnergy[basePrev+band])
 		}
 	}
 
@@ -721,7 +721,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 
 	if nbBands == MaxBands {
 		quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, len(e.prevEnergy))
-		copy(quantizedEnergies, e.prevEnergy)
+		copyGLogToFloat64(quantizedEnergies, e.prevEnergy)
 		coarseError := ensureFloat64Slice(&e.scratch.coarseError, len(e.prevEnergy))
 		for i := range coarseError {
 			coarseError[i] = 0
@@ -749,7 +749,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 			e.lfe,
 		)
 
-		copy(e.prevEnergy, quantizedEnergies[:len(e.prevEnergy)])
+		copyFloat64ToGLog(e.prevEnergy, quantizedEnergies[:len(e.prevEnergy)])
 
 		alpha32 := float32(AlphaCoef[lm])
 		if intra {

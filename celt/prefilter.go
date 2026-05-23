@@ -72,8 +72,6 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		frame := pre[ch*perChanLen+maxPeriod : ch*perChanLen+maxPeriod+frameSize]
 		roundFloat64ToFloat32(frame)
 	}
-	needStateRound := false
-
 	pitchIndex := minPeriod
 	gain1 := float32(0)
 	qg := 0
@@ -249,7 +247,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	if overlap > 0 {
 		need := channels * overlap
 		if len(e.overlapBuffer) < need {
-			newBuf := make([]float64, need)
+			newBuf := make([]celtSig, need)
 			copy(newBuf, e.overlapBuffer)
 			e.overlapBuffer = newBuf
 		}
@@ -265,17 +263,11 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			copy(mem, mem[frameSize:])
 			copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
 		}
-		if needStateRound {
-			roundFloat64ToFloat32(mem)
-		}
 		outSub2 := outCh[maxPeriod : maxPeriod+frameSize]
 		copy(preemph[:frameSize], outSub2)
 		if overlap > 0 && len(e.overlapBuffer) >= overlap && frameSize >= overlap {
 			hist := e.overlapBuffer[:overlap]
-			copy(hist, outSub2[frameSize-overlap:])
-			if needStateRound {
-				roundFloat64ToFloat32(hist)
-			}
+			copyFloat64ToSig(hist, outSub2[frameSize-overlap:])
 		}
 	} else {
 		preL := pre[:perChanLen]
@@ -293,20 +285,12 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			copy(memR, memR[frameSize:])
 			copy(memR[maxPeriod-frameSize:], preR[maxPeriod:maxPeriod+frameSize])
 		}
-		if needStateRound {
-			roundFloat64ToFloat32(memL)
-			roundFloat64ToFloat32(memR)
-		}
 		InterleaveStereoInto(outL, outR, preemph[:frameSize*2])
 		if overlap > 0 && len(e.overlapBuffer) >= channels*overlap && frameSize >= overlap {
 			histL := e.overlapBuffer[:overlap]
 			histR := e.overlapBuffer[overlap : 2*overlap]
-			copy(histL, outL[frameSize-overlap:])
-			copy(histR, outR[frameSize-overlap:])
-			if needStateRound {
-				roundFloat64ToFloat32(histL)
-				roundFloat64ToFloat32(histR)
-			}
+			copyFloat64ToSig(histL, outL[frameSize-overlap:])
+			copyFloat64ToSig(histR, outR[frameSize-overlap:])
 		}
 	}
 
@@ -337,7 +321,7 @@ func (e *Encoder) updatePrefilterNoopState(pre []float64, perChanLen, frameSize,
 	if overlap > 0 {
 		need := channels * overlap
 		if len(e.overlapBuffer) < need {
-			newBuf := make([]float64, need)
+			newBuf := make([]celtSig, need)
 			copy(newBuf, e.overlapBuffer)
 			e.overlapBuffer = newBuf
 		}
@@ -354,7 +338,7 @@ func (e *Encoder) updatePrefilterNoopState(pre []float64, perChanLen, frameSize,
 		}
 		if overlap > 0 && frameSize >= overlap && len(e.overlapBuffer) >= (ch+1)*overlap {
 			hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
-			copy(hist, preCh[maxPeriod+frameSize-overlap:maxPeriod+frameSize])
+			copyFloat64ToSig(hist, preCh[maxPeriod+frameSize-overlap:maxPeriod+frameSize])
 		}
 	}
 }

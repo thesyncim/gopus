@@ -571,15 +571,48 @@ func TestDecoderSigStateMatchesLibopusFloatSize(t *testing.T) {
 	}
 }
 
-func TestEncoderPreemphStateMatchesLibopusFloatSize(t *testing.T) {
+func TestEncoderSigStateMatchesLibopusFloatSize(t *testing.T) {
 	libopustest.RequireOracle(t)
 	sizes, err := probeLibopusCELTTypeSizes()
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	enc := NewEncoder(2)
-	if got := unsafe.Sizeof(enc.preemphState[0]); got != uintptr(sizes.celtSig) {
-		t.Fatalf("preemphState element size=%d want libopus celt_sig size %d", got, sizes.celtSig)
+	got := []struct {
+		name string
+		size uintptr
+	}{
+		{"overlapBuffer", unsafe.Sizeof(enc.overlapBuffer[0])},
+		{"preemphState", unsafe.Sizeof(enc.preemphState[0])},
+	}
+	for _, tc := range got {
+		if tc.size != uintptr(sizes.celtSig) {
+			t.Fatalf("%s element size=%d want libopus celt_sig size %d", tc.name, tc.size, sizes.celtSig)
+		}
+	}
+}
+
+func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
+	libopustest.RequireOracle(t)
+	sizes, err := probeLibopusCELTTypeSizes()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	enc := NewEncoder(2)
+	enc.SetEnergyMask(make([]float64, MaxBands*2))
+	got := []struct {
+		name string
+		size uintptr
+	}{
+		{"prevEnergy", unsafe.Sizeof(enc.prevEnergy[0])},
+		{"prevEnergy2", unsafe.Sizeof(enc.prevEnergy2[0])},
+		{"energyError", unsafe.Sizeof(enc.energyError[0])},
+		{"energyMask", unsafe.Sizeof(enc.energyMask[0])},
+	}
+	for _, tc := range got {
+		if tc.size != uintptr(sizes.celtGLog) {
+			t.Fatalf("%s element size=%d want libopus celt_glog size %d", tc.name, tc.size, sizes.celtGLog)
+		}
 	}
 }
 

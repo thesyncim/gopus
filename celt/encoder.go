@@ -35,12 +35,12 @@ type Encoder struct {
 	bandwidth      CELTBandwidth // Active bandwidth cap (NB..FB)
 
 	// Energy state (persists across frames, mirrors decoder)
-	prevEnergy  []float64 // Previous frame band energies [MaxBands * channels]
-	prevEnergy2 []float64 // Two frames ago energies (for anti-collapse)
-	energyError []float64 // Previous coarse quantization residuals [MaxBands * channels]
+	prevEnergy  []celtGLog // Previous frame band energies [MaxBands * channels]
+	prevEnergy2 []celtGLog // Two frames ago energies (for anti-collapse)
+	energyError []celtGLog // Previous coarse quantization residuals [MaxBands * channels]
 
 	// Analysis state for overlap (mirrors decoder's synthesis state)
-	overlapBuffer []float64 // MDCT overlap [Overlap * channels]
+	overlapBuffer []celtSig // MDCT overlap [Overlap * channels]
 	preemphState  []celtSig // Pre-emphasis filter state [channels]
 	// overlapMax mirrors libopus st->overlap_max for CELT silence detection.
 	// It tracks max absolute amplitude over the last overlap region.
@@ -124,7 +124,7 @@ type Encoder struct {
 
 	// energyMask stores per-band surround masking provided by multistream control.
 	// Layout matches libopus OPUS_SET_ENERGY_MASK: [21] for mono, [42] for stereo.
-	energyMask []float64
+	energyMask []celtGLog
 
 	// Dynamic allocation analysis state (for VBR decisions)
 	// These are computed from the previous frame and used for current frame's VBR target.
@@ -260,13 +260,13 @@ func NewEncoder(channels int) *Encoder {
 		bandwidth:      CELTFullband,
 
 		// Allocate energy arrays for all bands and channels
-		prevEnergy:  make([]float64, MaxBands*channels),
-		prevEnergy2: make([]float64, MaxBands*channels),
-		energyError: make([]float64, MaxBands*channels),
+		prevEnergy:  make([]celtGLog, MaxBands*channels),
+		prevEnergy2: make([]celtGLog, MaxBands*channels),
+		energyError: make([]celtGLog, MaxBands*channels),
 
 		// Overlap buffer for MDCT overlap-add analysis
 		// Size is Overlap (120) samples per channel
-		overlapBuffer: make([]float64, Overlap*channels),
+		overlapBuffer: make([]celtSig, Overlap*channels),
 
 		// Pre-emphasis filter state, one per channel
 		preemphState: make([]celtSig, channels),
@@ -554,17 +554,18 @@ func (e *Encoder) SetEnergyMask(mask []float64) {
 		return
 	}
 	if cap(e.energyMask) < needed {
-		e.energyMask = make([]float64, needed)
+		e.energyMask = make([]celtGLog, needed)
 	} else {
 		e.energyMask = e.energyMask[:needed]
 	}
-	copy(e.energyMask, mask[:needed])
+	copyFloat64ToGLog(e.energyMask, mask[:needed])
 }
 
 // EnergyMask returns the current per-band surround mask.
-// The returned slice aliases encoder state and must not be modified by callers.
 func (e *Encoder) EnergyMask() []float64 {
-	return e.energyMask
+	out := make([]float64, len(e.energyMask))
+	copyGLogToFloat64(out, e.energyMask)
+	return out
 }
 
 // SetComplexity sets encoder complexity (0-10).
@@ -732,13 +733,17 @@ func (e *Encoder) SampleRate() int {
 // Used for inter-frame energy prediction in coarse energy encoding.
 // Layout: [band0_ch0, band1_ch0, ..., band20_ch0, band0_ch1, ..., band20_ch1]
 func (e *Encoder) PrevEnergy() []float64 {
-	return e.prevEnergy
+	out := make([]float64, len(e.prevEnergy))
+	copyGLogToFloat64(out, e.prevEnergy)
+	return out
 }
 
 // PrevEnergy2 returns the band energies from two frames ago.
 // Used for anti-collapse detection.
 func (e *Encoder) PrevEnergy2() []float64 {
-	return e.prevEnergy2
+	out := make([]float64, len(e.prevEnergy2))
+	copyGLogToFloat64(out, e.prevEnergy2)
+	return out
 }
 
 // SetPrevEnergy shifts current prev to prev2 and sets new prev energies.
@@ -747,29 +752,31 @@ func (e *Encoder) SetPrevEnergy(energies []float64) {
 	// Shift: current prev becomes prev2
 	copy(e.prevEnergy2, e.prevEnergy)
 	// Copy new energies to prev
-	copy(e.prevEnergy, energies)
+	copyFloat64ToGLog(e.prevEnergy, energies)
 }
 
 // SetPrevEnergyWithPrev updates prevEnergy using the provided previous state.
 // This avoids losing the prior frame when prevEnergy is updated during encoding.
 func (e *Encoder) SetPrevEnergyWithPrev(prev, energies []float64) {
 	if len(prev) == len(e.prevEnergy2) {
-		copy(e.prevEnergy2, prev)
+		copyFloat64ToGLog(e.prevEnergy2, prev)
 	} else {
 		copy(e.prevEnergy2, e.prevEnergy)
 	}
-	copy(e.prevEnergy, energies)
+	copyFloat64ToGLog(e.prevEnergy, energies)
 }
 
 // OverlapBuffer returns the overlap buffer for MDCT analysis.
 // Size is Overlap * channels samples.
 func (e *Encoder) OverlapBuffer() []float64 {
-	return e.overlapBuffer
+	out := make([]float64, len(e.overlapBuffer))
+	copySigToFloat64(out, e.overlapBuffer)
+	return out
 }
 
 // SetOverlapBuffer copies the given samples to the overlap buffer.
 func (e *Encoder) SetOverlapBuffer(samples []float64) {
-	copy(e.overlapBuffer, samples)
+	copyFloat64ToSig(e.overlapBuffer, samples)
 }
 
 // PreemphState returns the pre-emphasis filter state.
@@ -808,7 +815,7 @@ func (e *Encoder) GetEnergy(band, channel int) float64 {
 	if band < 0 || band >= MaxBands || channel < 0 || channel >= e.channels {
 		return 0
 	}
-	return e.prevEnergy[channel*MaxBands+band]
+	return float64(e.prevEnergy[channel*MaxBands+band])
 }
 
 // SetEnergy sets the energy for a specific band and channel.
@@ -816,7 +823,7 @@ func (e *Encoder) SetEnergy(band, channel int, energy float64) {
 	if band < 0 || band >= MaxBands || channel < 0 || channel >= e.channels {
 		return
 	}
-	e.prevEnergy[channel*MaxBands+band] = energy
+	e.prevEnergy[channel*MaxBands+band] = celtGLog(energy)
 }
 
 // IsIntraFrame returns a conservative pre-encode advisory value.

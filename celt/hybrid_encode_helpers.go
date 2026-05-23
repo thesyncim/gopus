@@ -294,7 +294,7 @@ func (e *Encoder) UpdateEnergyErrorHybrid(energies, quantizedEnergies []float64,
 			} else if err > 0.5 {
 				err = 0.5
 			}
-			e.energyError[stateIdx] = float64(err)
+			e.energyError[stateIdx] = celtGLog(err)
 		}
 	}
 }
@@ -344,7 +344,7 @@ func (e *Encoder) UpdateEnergyErrorHybridFromError(start, end, nbBands int) {
 			} else if err > 0.5 {
 				err = 0.5
 			}
-			e.energyError[stateIdx] = float64(err)
+			e.energyError[stateIdx] = celtGLog(err)
 		}
 	}
 }
@@ -441,7 +441,7 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 			e.scratch.leftHist = hist
 		}
 		hist = hist[:overlap]
-		copy(hist, e.overlapBuffer[:overlap])
+		copySigToFloat64(hist, e.overlapBuffer[:overlap])
 		mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
 		bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*e.channels)
 		e.ComputeBandEnergiesInto(mdctLong, nbBands, frameSize, bandLogE2)
@@ -449,7 +449,7 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 	} else {
 		left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 		if len(e.overlapBuffer) < 2*overlap {
-			newBuf := make([]float64, 2*overlap)
+			newBuf := make([]celtSig, 2*overlap)
 			if len(e.overlapBuffer) > 0 {
 				copy(newBuf, e.overlapBuffer)
 			}
@@ -467,8 +467,8 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 		}
 		leftHist = leftHist[:overlap]
 		rightHist = rightHist[:overlap]
-		copy(leftHist, e.overlapBuffer[:overlap])
-		copy(rightHist, e.overlapBuffer[overlap:2*overlap])
+		copySigToFloat64(leftHist, e.overlapBuffer[:overlap])
+		copySigToFloat64(rightHist, e.overlapBuffer[overlap:2*overlap])
 		mdctLeftLong := computeMDCTWithHistoryScratchStereoL(left, leftHist, 1, &e.scratch)
 		mdctRightLong := computeMDCTWithHistoryScratchStereoR(right, rightHist, 1, &e.scratch)
 		mdctLongLen := len(mdctLeftLong) + len(mdctRightLong)

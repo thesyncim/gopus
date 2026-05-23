@@ -115,7 +115,9 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	}()
 
 	e.rangeEncoder = re
-	e.prevEnergy = oldBandEState
+	qextOldBandE := make([]celtGLog, len(oldBandEState))
+	copyFloat64ToGLog(qextOldBandE, oldBandEState)
+	e.prevEnergy = qextOldBandE
 	if delayedIntra != nil {
 		e.delayedIntra = *delayedIntra
 	} else {

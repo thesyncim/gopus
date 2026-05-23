@@ -35,8 +35,7 @@ func (e *Encoder) fillMDCTHistoryFromPrefilter(channel, overlap int, dst []float
 	start := channel * overlap
 	src := e.overlapBuffer[start : start+overlap]
 	for i := 0; i < overlap; i++ {
-		// libopus keeps this state in float; quantize to float32 when feeding MDCT history.
-		dst[i] = float64(float32(src[i]))
+		dst[i] = float64(src[i])
 	}
 }
 
@@ -146,7 +145,7 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []float64) (f
 	for c := 0; c < e.channels; c++ {
 		base := c * maskBands
 		for i := 0; i < maskEnd; i++ {
-			mask := e.energyMask[base+i]
+			mask := float64(e.energyMask[base+i])
 			if mask > 0.25 {
 				mask = 0.25
 			}
@@ -189,9 +188,9 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []float64) (f
 	countDynalloc := 0
 	for i := 0; i < maskEnd; i++ {
 		lin := maskAvg + diff*float64(i-midband)
-		unmask := e.energyMask[i]
+		unmask := float64(e.energyMask[i])
 		if e.channels == 2 {
-			other := e.energyMask[maskBands+i]
+			other := float64(e.energyMask[maskBands+i])
 			if other > unmask {
 				unmask = other
 			}
@@ -614,7 +613,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	end := nbBands
 	if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() && !e.lfe {
 		// Get previous frame's band energies (oldBandE in libopus)
-		oldBandE := e.prevEnergy
+		oldBandE := ensureFloat64Slice(&e.scratch.coarseOldStart, len(e.prevEnergy))
+		copyGLogToFloat64(oldBandE, e.prevEnergy)
 
 		spreadOld := ensureFloat64Slice(&e.scratch.transientSpreadOld, end)
 		if PatchTransientDecisionWithScratch(energies, oldBandE, nbBands, 0, end, codedChannels, spreadOld) {
@@ -729,7 +729,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		e.scratch.prev1LogE = prev1LogE
 	}
 	prev1LogE = prev1LogE[:len(e.prevEnergy)]
-	copy(prev1LogE, e.prevEnergy)
+	copyGLogToFloat64(prev1LogE, e.prevEnergy)
 
 	// dynalloc/spread analysis in libopus uses pre-stabilization energies.
 	analysisEnergies := ensureFloat64Slice(&e.scratch.analysisEnergies, len(energies))
@@ -1513,7 +1513,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			} else if err > 0.5 {
 				err = 0.5
 			}
-			e.energyError[stateIdx] = float64(err)
+			e.energyError[stateIdx] = celtGLog(err)
 		}
 	}
 
@@ -1558,7 +1558,7 @@ func foldStereoMDCTToMono(dst, left, right []float64) []float64 {
 
 func (e *Encoder) setPrevEnergyWithPrevCoded(prev, energies []float64, nbBands, codedChannels int) {
 	if len(prev) == len(e.prevEnergy2) {
-		copy(e.prevEnergy2, prev)
+		copyFloat64ToGLog(e.prevEnergy2, prev)
 	} else {
 		copy(e.prevEnergy2, e.prevEnergy)
 	}
@@ -1579,7 +1579,7 @@ func (e *Encoder) setPrevEnergyWithPrevCoded(prev, energies []float64, nbBands, 
 			src := c*nbBands + band
 			dst := c*MaxBands + band
 			if src < len(energies) && dst < len(e.prevEnergy) {
-				e.prevEnergy[dst] = energies[src]
+				e.prevEnergy[dst] = celtGLog(energies[src])
 			}
 		}
 	}
@@ -1954,7 +1954,7 @@ func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, 
 		e.scratch.prev1LogE = prev1LogE
 	}
 	prev1LogE = prev1LogE[:len(e.prevEnergy)]
-	copy(prev1LogE, e.prevEnergy)
+	copyGLogToFloat64(prev1LogE, e.prevEnergy)
 
 	silenceE := ensureFloat64Slice(&e.scratch.quantizedEnergies, len(e.prevEnergy))
 	for i := range silenceE {

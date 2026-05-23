@@ -15,8 +15,9 @@ func TestEncoderSetEnergyMask(t *testing.T) {
 		t.Fatalf("EnergyMask len=%d want=%d", len(got), len(mask))
 	}
 	for i := range mask {
-		if got[i] != mask[i] {
-			t.Fatalf("EnergyMask[%d]=%f want=%f", i, got[i], mask[i])
+		want := float64(celtGLog(mask[i]))
+		if got[i] != want {
+			t.Fatalf("EnergyMask[%d]=%f want=%f", i, got[i], want)
 		}
 	}
 
