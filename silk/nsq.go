@@ -902,7 +902,22 @@ func silk_SUB32_ovflw(a, b int32) int32 {
 }
 
 func silk_LIMIT_32(val, minVal, maxVal int32) int32 {
-	return max(minVal, min(val, maxVal))
+	if minVal > maxVal {
+		if val > minVal {
+			return minVal
+		}
+		if val < maxVal {
+			return maxVal
+		}
+		return val
+	}
+	if val > maxVal {
+		return maxVal
+	}
+	if val < minVal {
+		return minVal
+	}
+	return val
 }
 
 func silk_SAT16(a int32) int32 {

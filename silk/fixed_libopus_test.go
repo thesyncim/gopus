@@ -32,6 +32,16 @@ const (
 	libopusSILKFixedModeCLZ32              = uint32(14)
 	libopusSILKFixedModeRShiftRound64To32  = uint32(15)
 	libopusSILKFixedModeAddPosSat32        = uint32(16)
+	libopusSILKFixedModeRAND               = uint32(17)
+	libopusSILKFixedModeSMLAWT             = uint32(18)
+	libopusSILKFixedModeSMLAWW             = uint32(19)
+	libopusSILKFixedModeLShift32           = uint32(20)
+	libopusSILKFixedModeRShift             = uint32(21)
+	libopusSILKFixedModeAddLShift32        = uint32(22)
+	libopusSILKFixedModeSubLShift32        = uint32(23)
+	libopusSILKFixedModeAdd32Ovflw         = uint32(24)
+	libopusSILKFixedModeSub32Ovflw         = uint32(25)
+	libopusSILKFixedModeLimit32            = uint32(26)
 )
 
 type libopusSILKFixedRecord struct {
@@ -299,6 +309,133 @@ func TestSILKFixedMultiplyAndSaturatingOpsMatchLibopus(t *testing.T) {
 			return silkAddPosSat32(r.a, r.b)
 		}},
 	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			want, err := probeLibopusSILKFixedOps(tc.mode, tc.records)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "silk fixed", err)
+			}
+			for i, record := range tc.records {
+				if got := tc.got(record); got != want[i] {
+					t.Fatalf("%s(%d,%d,%d,q=%d)=%d want %d", tc.name, record.a, record.b, record.c, record.q, got, want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestSILKFixedNSQHelpersMatchLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	values := []int32{
+		fixedTestMinInt32, fixedTestMinInt32 + 1, -1073741824, -65537, -65536, -32769,
+		-32768, -32767, -2, -1, 0, 1, 2, 32766, 32767, 32768, 32769,
+		65535, 65536, 65537, 1073741823, fixedTestMaxInt32 - 1, fixedTestMaxInt32,
+	}
+	smallValues := []int32{
+		-268435456, -65536, -32769, -32768, -1, 0, 1, 32767, 32768, 65535, 65536, 268435455,
+	}
+	qValues := []uint32{0, 1, 2, 4, 8, 12, 15, 16, 24, 30, 31}
+
+	randRecords := make([]libopusSILKFixedOpRecord, 0, len(values))
+	for _, seed := range values {
+		randRecords = append(randRecords, libopusSILKFixedOpRecord{a: seed})
+	}
+
+	smlawtRecords := make([]libopusSILKFixedOpRecord, 0, len(smallValues)*len(smallValues))
+	smlawwRecords := make([]libopusSILKFixedOpRecord, 0, len(smallValues)*len(smallValues))
+	for _, b := range smallValues {
+		for _, c := range smallValues {
+			smlawtRecords = append(smlawtRecords, libopusSILKFixedOpRecord{a: 0, b: b, c: c})
+			smlawwRecords = append(smlawwRecords, libopusSILKFixedOpRecord{a: 0, b: b, c: c})
+		}
+	}
+
+	shiftRecords := make([]libopusSILKFixedOpRecord, 0, len(values)*len(qValues))
+	for _, value := range values {
+		for _, q := range qValues {
+			shiftRecords = append(shiftRecords, libopusSILKFixedOpRecord{a: value, q: q})
+		}
+	}
+
+	addShiftRecords := []libopusSILKFixedOpRecord{
+		{a: -4096, b: -64, q: 0}, {a: -4096, b: 64, q: 0},
+		{a: 4096, b: -64, q: 0}, {a: 4096, b: 64, q: 0},
+		{a: -1048576, b: -1024, q: 4}, {a: -1048576, b: 1024, q: 4},
+		{a: 1048576, b: -1024, q: 4}, {a: 1048576, b: 1024, q: 4},
+		{a: -268435456, b: -1024, q: 12}, {a: -268435456, b: 1024, q: 12},
+		{a: 268435456, b: -1024, q: 12}, {a: 268435456, b: 1024, q: 12},
+	}
+
+	overflowRecords := []libopusSILKFixedOpRecord{
+		{a: fixedTestMinInt32, b: -1},
+		{a: fixedTestMinInt32, b: 1},
+		{a: fixedTestMinInt32 + 1, b: -2},
+		{a: -1073741824, b: -1073741824},
+		{a: -1, b: -1},
+		{a: -1, b: 1},
+		{a: 0, b: fixedTestMinInt32},
+		{a: 0, b: fixedTestMaxInt32},
+		{a: 1, b: -1},
+		{a: 1, b: 1},
+		{a: 1073741823, b: 1073741824},
+		{a: fixedTestMaxInt32 - 1, b: 2},
+		{a: fixedTestMaxInt32, b: -1},
+		{a: fixedTestMaxInt32, b: 1},
+	}
+
+	limitRecords := []libopusSILKFixedOpRecord{
+		{a: -200, b: -100, c: 100},
+		{a: -100, b: -100, c: 100},
+		{a: 0, b: -100, c: 100},
+		{a: 100, b: -100, c: 100},
+		{a: 200, b: -100, c: 100},
+		{a: -200, b: 100, c: -100},
+		{a: -100, b: 100, c: -100},
+		{a: 0, b: 100, c: -100},
+		{a: 100, b: 100, c: -100},
+		{a: 200, b: 100, c: -100},
+		{a: fixedTestMinInt32, b: fixedTestMaxInt32, c: fixedTestMinInt32 + 1},
+		{a: fixedTestMaxInt32, b: fixedTestMaxInt32 - 1, c: fixedTestMinInt32},
+	}
+
+	tests := []struct {
+		name    string
+		mode    uint32
+		records []libopusSILKFixedOpRecord
+		got     func(libopusSILKFixedOpRecord) int32
+	}{
+		{name: "rand", mode: libopusSILKFixedModeRAND, records: randRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silk_RAND(r.a)
+		}},
+		{name: "smlawt", mode: libopusSILKFixedModeSMLAWT, records: smlawtRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silk_SMLAWT(r.a, r.b, r.c)
+		}},
+		{name: "smlaww", mode: libopusSILKFixedModeSMLAWW, records: smlawwRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silk_SMLAWW_int32(r.a, r.b, r.c)
+		}},
+		{name: "lshift32", mode: libopusSILKFixedModeLShift32, records: shiftRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silk_LSHIFT32(r.a, int(r.q))
+		}},
+		{name: "rshift", mode: libopusSILKFixedModeRShift, records: shiftRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silk_RSHIFT(r.a, int(r.q))
+		}},
+		{name: "add_lshift32", mode: libopusSILKFixedModeAddLShift32, records: addShiftRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silk_ADD_LSHIFT32(r.a, r.b, int(r.q))
+		}},
+		{name: "sub_lshift32", mode: libopusSILKFixedModeSubLShift32, records: addShiftRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silk_SUB_LSHIFT32(r.a, r.b, int(r.q))
+		}},
+		{name: "add32_ovflw", mode: libopusSILKFixedModeAdd32Ovflw, records: overflowRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silk_ADD32_ovflw(r.a, r.b)
+		}},
+		{name: "sub32_ovflw", mode: libopusSILKFixedModeSub32Ovflw, records: overflowRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silk_SUB32_ovflw(r.a, r.b)
+		}},
+		{name: "limit32", mode: libopusSILKFixedModeLimit32, records: limitRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silk_LIMIT_32(r.a, r.b, r.c)
+		}},
+	}
+
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			want, err := probeLibopusSILKFixedOps(tc.mode, tc.records)

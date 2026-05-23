@@ -31,7 +31,17 @@ enum {
   MODE_INVERSE32_VAR_Q = 13,
   MODE_CLZ32 = 14,
   MODE_RSHIFT_ROUND64_TO_32 = 15,
-  MODE_ADD_POS_SAT32 = 16
+  MODE_ADD_POS_SAT32 = 16,
+  MODE_RAND = 17,
+  MODE_SMLAWT = 18,
+  MODE_SMLAWW = 19,
+  MODE_LSHIFT32 = 20,
+  MODE_RSHIFT = 21,
+  MODE_ADD_LSHIFT32 = 22,
+  MODE_SUB_LSHIFT32 = 23,
+  MODE_ADD32_OVFLW = 24,
+  MODE_SUB32_OVFLW = 25,
+  MODE_LIMIT32 = 26
 };
 
 static int set_binary_stdio(void) {
@@ -105,6 +115,26 @@ static int32_t eval_op_sample(uint32_t mode, int32_t a, int32_t b, int32_t c, ui
       return (opus_int32)silk_RSHIFT_ROUND64(x64, (int)q);
     case MODE_ADD_POS_SAT32:
       return silk_ADD_POS_SAT32(a, b);
+    case MODE_RAND:
+      return silk_RAND(a);
+    case MODE_SMLAWT:
+      return silk_SMLAWT(a, b, c);
+    case MODE_SMLAWW:
+      return silk_SMLAWW(a, b, c);
+    case MODE_LSHIFT32:
+      return silk_LSHIFT32(a, (int)q);
+    case MODE_RSHIFT:
+      return silk_RSHIFT(a, (int)q);
+    case MODE_ADD_LSHIFT32:
+      return silk_ADD_LSHIFT32(a, b, (int)q);
+    case MODE_SUB_LSHIFT32:
+      return silk_SUB_LSHIFT32(a, b, (int)q);
+    case MODE_ADD32_OVFLW:
+      return silk_ADD32_ovflw(a, b);
+    case MODE_SUB32_OVFLW:
+      return silk_SUB32_ovflw(a, b);
+    case MODE_LIMIT32:
+      return silk_LIMIT_32(a, b, c);
     default:
       return 0;
   }
@@ -120,7 +150,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_ADD_POS_SAT32) return 1;
+  if (mode > MODE_LIMIT32) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {
