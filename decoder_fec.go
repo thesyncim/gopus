@@ -453,6 +453,8 @@ func (d *Decoder) decodeSILKFEC(pcm []float32, frameSize int) (int, error) {
 	if _, err := d.decodeFECViaSILK(pcm, frameSize); err != nil {
 		return 0, err
 	}
+	d.mainDecodeRng = d.silkDecoder.FinalRange()
+	d.redundantRng = 0
 	return frameSize, nil
 }
 
@@ -512,6 +514,7 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 		pcm[i] += celtAPI[i]
 	}
 	d.mainDecodeRng = d.celtDecoder.FinalRange()
+	d.redundantRng = 0
 
 	return frameSize, nil
 }

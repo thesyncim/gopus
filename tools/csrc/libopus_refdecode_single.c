@@ -94,6 +94,7 @@ int main(void) {
   size_t item_size = sizeof(float);
   void *frame = NULL;
   void *decoded = NULL;
+  opus_uint32 *ranges = NULL;
   size_t decoded_len = 0;
   size_t decoded_cap = 0;
   OpusDecoder *dec = NULL;
@@ -115,7 +116,7 @@ int main(void) {
   }
   if (version == 1) {
     sample_format = SAMPLE_FORMAT_FLOAT32;
-  } else if (version == 2 || version == 3 || version == 4 || version == 5) {
+  } else if (version == 2 || version == 3 || version == 4 || version == 5 || version == 6) {
     if (!read_u32(&sample_format)) {
       fprintf(stderr, "failed to read sample format\n");
       return 1;
@@ -184,6 +185,15 @@ int main(void) {
       return 1;
     }
   }
+  if (version >= 6 && packet_count > 0) {
+    ranges = (opus_uint32 *)calloc(packet_count, sizeof(*ranges));
+    if (ranges == NULL) {
+      fprintf(stderr, "failed to allocate final range buffer\n");
+      opus_decoder_destroy(dec);
+      free(frame);
+      return 1;
+    }
+  }
 
   for (i = 0; i < packet_count; i++) {
     uint32_t packet_len = 0;
@@ -236,33 +246,60 @@ int main(void) {
       opus_decoder_destroy(dec);
       free(frame);
       free(decoded);
+      free(ranges);
       return 1;
+    }
+    if (version >= 6) {
+      opus_uint32 final_range = 0;
+      if (opus_decoder_ctl(dec, OPUS_GET_FINAL_RANGE(&final_range)) != OPUS_OK) {
+        fprintf(stderr, "OPUS_GET_FINAL_RANGE failed\n");
+        opus_decoder_destroy(dec);
+        free(frame);
+        free(decoded);
+        free(ranges);
+        return 1;
+      }
+      ranges[i] = final_range;
     }
     if (!append_items(&decoded, &decoded_len, &decoded_cap, frame, (size_t)decoded_samples * (size_t)channels, item_size)) {
       fprintf(stderr, "failed to append decoded samples\n");
       opus_decoder_destroy(dec);
       free(frame);
       free(decoded);
+      free(ranges);
       return 1;
     }
   }
 
   opus_decoder_destroy(dec);
 
-  if (!write_exact(GOSO_MAGIC, 4) || decoded_len > UINT32_MAX || !write_u32(1) || !write_u32((uint32_t)decoded_len)) {
+  if (!write_exact(GOSO_MAGIC, 4) || decoded_len > UINT32_MAX ||
+      !write_u32(version >= 6 ? 2 : 1) || !write_u32((uint32_t)decoded_len)) {
     fprintf(stderr, "failed to write output header\n");
     free(frame);
     free(decoded);
+    free(ranges);
     return 1;
   }
   if (decoded_len > 0 && !write_exact(decoded, decoded_len * item_size)) {
     fprintf(stderr, "failed to write output samples\n");
     free(frame);
     free(decoded);
+    free(ranges);
     return 1;
+  }
+  if (version >= 6) {
+    if (!write_u32(packet_count) || (packet_count > 0 && !write_exact(ranges, packet_count * sizeof(*ranges)))) {
+      fprintf(stderr, "failed to write final ranges\n");
+      free(frame);
+      free(decoded);
+      free(ranges);
+      return 1;
+    }
   }
 
   free(frame);
   free(decoded);
+  free(ranges);
   return 0;
 }
