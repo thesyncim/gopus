@@ -70,7 +70,7 @@ Valid sizes depend on mode (`encoder.ValidFrameSize`). Compliance summary uses 4
 | 20 ms | Y | Y | Y | Y | Y | — |
 | 40 ms | Y | Y | Y | long-frame fixture | partial (silk/hybrid in matrix) | SILK stereo 40 ms DRED carrier; hybrid 40 ms stereo DRED |
 | 60 ms | Y | Y | Y | long-frame + summary | Y (`silk-*-60ms`, `celt-fb-60ms-mono-64k`) | libopus `audio@FB` 60 ms encodes CELT (matrix row documents that); Hybrid 60 ms compliance only; SILK stereo 60 ms DRED |
-| 80 / 100 / 120 ms | Y | Y | Y | encode valid | N in matrix | Decoder matrix + loss fixtures; compliance ref-Q |
+| 80 / 100 / 120 ms | Y | Y | Y | encode valid | Y (`silk-wb-80ms`, `celt-fb-80ms`, `silk-wb-120ms`) | 100 ms matrix row; loss fixtures beyond 60 ms |
 
 ---
 
@@ -90,8 +90,8 @@ Valid sizes depend on mode (`encoder.ValidFrameSize`). Compliance summary uses 4
 
 | Path | Decode | Encode trigger | Parity | Gaps for 100% |
 | --- | --- | --- | --- | --- |
-| PLC (`Decode(nil,…)`) | Y | — | Y (loss fixture, CELT PLC oracle) | Periodic PLC IIR edge cases; hybrid float32 PLC vs legacy widen (guarded in hybrid tests) |
-| LBRR / in-band FEC | Y | Y | Y (decoder loss fixture, FEC tests) | Stereo FEC + DRED interaction; music-safe FEC matrix |
+| PLC (`Decode(nil,…)`) | Y | Y (frame_size from buffer; loss tests use last-packet duration like `opus_demo`) | Y (loss fixture, CELT PLC oracle) | Periodic PLC IIR edge cases; hybrid float32 PLC vs legacy widen (guarded in hybrid tests) |
+| LBRR / in-band FEC | Y | Y | Y (decoder loss fixture, FEC tests; cadence matches `opus_demo` lossfile) | Mono first packets and stereo warm LBRR packet byte-exact; LBRR gain bump aligned with per-packet `silk_setup_LBRR` |
 | RTP RED | E | E | E (`examples/webrtc-dred-loopback`) | **No public `gopus` RED parse/recover API**; no RFC RED vectors in CI |
 | DRED extension | T | T | ~ (process/queue/window oracles; explicit decode partial) | SILK explicit decoder; 16 kHz; stereo carriers; live-sequence vs cached oracle; multistream encoder attach |
 | Cached DRED recovery | T | — | ~ (48 kHz mono/stereo probes) | 16 kHz cached matrices; CELT NB/SWB explicit; hybrid stereo half-byte divergence |
@@ -134,7 +134,7 @@ Default build: **DNN blob** load only (`SetDNNBlob`).
 | Asset | Status | Role | Gaps for 100% |
 | --- | --- | --- | --- |
 | Ogg Opus read/write (`container/ogg`, `stream`) | Y | Demux/mux, projection headers | Fuzz corpus vs libopus ogg decode |
-| RFC 6716 / libopus vectors (`testvectors/`) | ~ | Decoder matrix (23 cases incl. `celt-fb-60ms-mono-64k`), loss, compliance, variants | Expand matrix: API rates, 80–120 ms, RED, multistream |
+| RFC 6716 / libopus vectors (`testvectors/`) | ~ | Decoder matrix (26 cases incl. `celt-fb-60ms-mono-64k`, `silk-wb-80ms`, `celt-fb-80ms`, `silk-wb-120ms`), loss, compliance, variants | Expand matrix: API decode rates 8–24 kHz, RED, multistream |
 | `opus_compare` quality oracle | Y | Primary encoder/decoder quality gate | Broader corpus than summary cases |
 | `opusdec` crossval fixture | Y | CELT cross-validation (`celt/testdata/opusdec_crossval_fixture.json`) | Regenerate when scenario Ogg hashes change (`GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE=1`) |
 | libopus C oracles (`tools/csrc`, `make test-*-parity`) | ~ | Submodule numerical probes | CI mandatory on all platforms |

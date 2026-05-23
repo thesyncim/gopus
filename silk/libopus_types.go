@@ -125,6 +125,9 @@ type stereoEncState struct {
 	// Tracks whether the previous coded frame collapsed to mid-only so the
 	// first returning side frame can reset state like libopus enc_API.c.
 	prevDecodeOnlyMiddle int
+	// Per-frame stereo metadata for LBRR in the next packet (set during frame encode).
+	lbrrStereoIx  [maxFramesPerPacket]StereoQuantIndices
+	lbrrMidOnly   [maxFramesPerPacket]int
 	// Smoothed mid/residual amplitudes for LP/HP (float domain).
 	// Matches mid_side_amp_Q0 in libopus but stored as float for simplicity.
 	midSideAmpQ0 [4]float64

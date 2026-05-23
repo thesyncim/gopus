@@ -642,15 +642,15 @@ func TestEncoderCarriedDREDPayloadMatchesLibopusCELTFullbandLongFrames(t *testin
 	}
 }
 
-func TestEncoderSilkStereo20msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
-	libopustest.RequireOracle(t)
+func assertSilkStereoPrimaryFrameByteExact(t *testing.T, frameSize int) {
+	t.Helper()
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
-		FrameSize: 960, ForceMode: ModeSILK, Bandwidth: BandwidthWideband, Channels: 2,
+		FrameSize: frameSize, ForceMode: ModeSILK, Bandwidth: BandwidthWideband, Channels: 2,
 	})
 	if err != nil {
 		libopustest.HelperUnavailable(t, "DRED packet", err)
 	}
-	gotPacket, _, _ := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, 960, 2)
+	gotPacket, _, _ := encodeUntilDREDPacket(t, encpkg.ModeSILK, BandwidthWideband, frameSize, 2)
 	_, gotFrames, _, _, err := parsePacketFramesAndPadding(gotPacket)
 	if err != nil {
 		t.Fatalf("parsePacketFramesAndPadding(got): %v", err)
@@ -667,6 +667,21 @@ func TestEncoderSilkStereo20msPrimaryFrameByteExactMatchesLibopus(t *testing.T) 
 			t.Fatalf("frame %d DIVERGES\n got=%x\nwant=%x", i, gotFrames[i], wantFrames[i])
 		}
 	}
+}
+
+func TestEncoderSilkStereo20msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	assertSilkStereoPrimaryFrameByteExact(t, 960)
+}
+
+func TestEncoderSilkStereo40msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	assertSilkStereoPrimaryFrameByteExact(t, 1920)
+}
+
+func TestEncoderSilkStereo60msPrimaryFrameByteExactMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	assertSilkStereoPrimaryFrameByteExact(t, 2880)
 }
 
 func TestEncoderCarriedDREDPayloadMatchesLibopusSilkWideband20msStereo(t *testing.T) {

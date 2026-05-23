@@ -225,6 +225,30 @@ func EncodeStereoIndices(enc *rangecoding.Encoder, ix StereoQuantIndices) {
 	stereoEncodePred(enc, ix)
 }
 
+// stereoSelectCondCoding matches libopus enc_API.c condCoding selection, which keys
+// off the mid encoder's nFramesEncoded at the start of the current 20 ms block
+// (before either channel is encoded in that block).
+func stereoSelectCondCoding(midFramesEncodedInPacket, channelIdx, prevDecodeOnlyMiddle int) int {
+	if midFramesEncodedInPacket-channelIdx <= 0 {
+		return codeIndependently
+	}
+	if channelIdx > 0 && prevDecodeOnlyMiddle != 0 {
+		return codeIndependentlyNoLtpScaling
+	}
+	return codeConditionally
+}
+
+func (s *stereoEncState) saveLBRRStereoMeta(frameIdx int, ix StereoQuantIndices, midOnly bool) {
+	if s == nil || frameIdx < 0 || frameIdx >= maxFramesPerPacket {
+		return
+	}
+	s.lbrrStereoIx[frameIdx] = ix
+	s.lbrrMidOnly[frameIdx] = 0
+	if midOnly {
+		s.lbrrMidOnly[frameIdx] = 1
+	}
+}
+
 // EncodeStereoMidOnly encodes the stereo "mid-only" flag.
 // This is only encoded when the side channel VAD flag is inactive.
 // midOnly=1 means side channel is not coded.

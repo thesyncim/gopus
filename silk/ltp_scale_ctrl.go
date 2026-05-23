@@ -11,7 +11,7 @@ func (e *Encoder) computeLTPScaleIndex(ltpPredGainQ7 int32, condCoding int) int 
 	if roundLoss < 0 {
 		roundLoss = 0
 	}
-	if e.lbrrEnabled {
+	if e.lbrrLTPRoundLoss {
 		roundLoss = 2 + (roundLoss*roundLoss)/100
 	}
 

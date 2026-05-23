@@ -1,3 +1,5 @@
+//go:build libopus_oracle
+
 package silk
 
 import (
@@ -315,7 +317,7 @@ func TestSILKStereoLRToMSMatchesLibopusOracle(t *testing.T) {
 		frameLengths[i] = tc.frameLength
 		record := []int32{
 			int32(tc.frameLength), int32(tc.fsKHz), int32(tc.totalRateBps),
-			int32(tc.speechActQ8), boolWord(tc.toMono),
+			int32(tc.speechActQ8), LibopusGainBoolWord(tc.toMono),
 			tc.state.predPrevQ13[0], tc.state.predPrevQ13[1],
 			tc.state.sMid[0], tc.state.sMid[1],
 			tc.state.sSide[0], tc.state.sSide[1],
@@ -343,7 +345,7 @@ func TestSILKStereoLRToMSMatchesLibopusOracle(t *testing.T) {
 				int16PCMToFloat32(tc.left), int16PCMToFloat32(tc.right),
 				tc.frameLength, tc.fsKHz, tc.totalRateBps, tc.speechActQ8, tc.toMono,
 			)
-			if boolWord(midOnly) != want[i].midOnly {
+			if LibopusGainBoolWord(midOnly) != want[i].midOnly {
 				t.Fatalf("midOnly=%v want %d", midOnly, want[i].midOnly)
 			}
 			if int32(midRate) != want[i].midRate || int32(sideRate) != want[i].sideRate {

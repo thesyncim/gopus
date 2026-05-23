@@ -315,6 +315,29 @@ func TestDecoder_Decode_PLC(t *testing.T) {
 	t.Logf("PLC produced %d samples", n)
 }
 
+func TestDecoder_DecodePLCUsesRequestedBufferFrameSize(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder error: %v", err)
+	}
+
+	packet := minimalHybridTestPacket20ms()
+	if _, err := dec.Decode(packet, make([]float32, 960)); err != nil {
+		t.Fatalf("Decode error: %v", err)
+	}
+
+	for _, requested := range []int{960, 1920} {
+		pcmPLC := make([]float32, requested)
+		n, err := dec.Decode(nil, pcmPLC)
+		if err != nil {
+			t.Fatalf("Decode PLC request=%d: %v", requested, err)
+		}
+		if n != requested {
+			t.Fatalf("PLC request=%d returned %d samples per channel", requested, n)
+		}
+	}
+}
+
 func TestDecoder_Reset(t *testing.T) {
 	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
 	if err != nil {

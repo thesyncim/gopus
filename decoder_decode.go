@@ -41,7 +41,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	}
 
 	if data == nil || len(data) == 0 {
-		frameSize, err := d.requestedOutputFrameSize(len(pcm))
+		frameSize, err := d.plcOutputFrameSize(len(pcm))
 		if err != nil {
 			return 0, err
 		}
@@ -430,11 +430,11 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 	}
 
 	if data != nil && len(data) > 0 {
-		requestedFrameSize, err := d.requestedOutputFrameSize(len(pcm))
+		toc, frameCount, err := packetFrameCount(data)
 		if err != nil {
 			return 0, err
 		}
-		toc, frameCount, err := packetFrameCount(data)
+		requestedFrameSize, err := d.requestedOutputFrameSize(len(pcm))
 		if err != nil {
 			return 0, err
 		}
@@ -452,7 +452,11 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		prevPacketMode := d.lastPacketMode
 		if requestedFrameSize < frameSize || toc.Mode == ModeCELT || prevPacketMode == ModeCELT {
 			d.clearFECState()
-			return d.decodePLCForFEC(pcm, requestedFrameSize)
+			plcSize, err := d.plcOutputFrameSize(len(pcm))
+			if err != nil {
+				return 0, err
+			}
+			return d.decodePLCForFEC(pcm, plcSize)
 		}
 		d.lastPacketMode = toc.Mode
 
@@ -478,7 +482,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 	}
 
 	d.clearFECState()
-	frameSize, err := d.requestedOutputFrameSize(len(pcm))
+	frameSize, err := d.plcOutputFrameSize(len(pcm))
 	if err != nil {
 		return 0, err
 	}
@@ -488,7 +492,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 // DecodeInt16 decodes an Opus packet into int16 PCM samples.
 func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	if data == nil || len(data) == 0 {
-		frameSize, err := d.requestedOutputFrameSize(len(pcm))
+		frameSize, err := d.plcOutputFrameSize(len(pcm))
 		if err != nil {
 			return 0, err
 		}

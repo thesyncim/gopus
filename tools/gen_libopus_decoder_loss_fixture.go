@@ -369,7 +369,7 @@ func main() {
 		Cases:      make([]decoderLossCase, 0, len(caseSpecs)),
 		Patterns:   []string{"single_mid", "burst2_mid", "periodic9"},
 		Notes: map[string]interface{}{
-			"flow": "opus_demo decode-only with lossfile; parity tests mirror opus_demo loss->fec/plc decode cadence",
+			"flow": "opus_demo decode-only with lossfile; parity tests mirror opus_demo (skip lost packets; recovery uses LastPacketDuration-sized PLC/FEC only when LBRR present)",
 		},
 	}
 

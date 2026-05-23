@@ -108,9 +108,10 @@ func ExampleDecoder_Decode_packetLoss() {
 		log.Fatal(err)
 	}
 
-	// Simulate packet loss by passing nil
-	// Decoder uses PLC to generate concealment audio
-	n, err := dec.Decode(nil, pcmOut)
+	// Simulate packet loss by passing nil. Request one frame of PLC output
+	// (buffer sized to the last packet duration, matching libopus frame_size).
+	plcBuf := make([]float32, 960*cfg.Channels)
+	n, err := dec.Decode(nil, plcBuf)
 	if err != nil {
 		log.Fatal(err)
 	}

@@ -40,14 +40,22 @@ func TestParityMatrixDocsStayInSyncWithFixtureCoverage(t *testing.T) {
 	if err := json.Unmarshal(data, &fixture); err != nil {
 		t.Fatalf("decode decoder matrix fixture: %v", err)
 	}
-	found60ms := false
+	requiredCases := []string{
+		"celt-fb-60ms-mono-64k",
+		"silk-wb-80ms-mono-32k",
+		"celt-fb-80ms-mono-64k",
+		"silk-wb-120ms-mono-32k",
+	}
+	names := make(map[string]struct{}, len(fixture.Cases))
 	for _, c := range fixture.Cases {
-		if c.Name == "celt-fb-60ms-mono-64k" {
-			found60ms = true
-			break
+		names[c.Name] = struct{}{}
+	}
+	for _, want := range requiredCases {
+		if _, ok := names[want]; !ok {
+			t.Fatalf("decoder matrix fixture missing %q; update PARITY_MATRIX.md after regenerating the fixture", want)
 		}
 	}
-	if !found60ms {
-		t.Fatal("decoder matrix fixture missing celt-fb-60ms-mono-64k; update PARITY_MATRIX.md after regenerating the fixture")
+	if len(fixture.Cases) < 26 {
+		t.Fatalf("decoder matrix fixture has %d cases, want at least 26", len(fixture.Cases))
 	}
 }

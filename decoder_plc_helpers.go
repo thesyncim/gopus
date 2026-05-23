@@ -20,6 +20,12 @@ func (d *Decoder) plcFrameSize() int {
 	return d.sampleRate / 50
 }
 
+// plcOutputFrameSize returns the per-channel frame size requested for PLC/FEC
+// concealment, derived from the output buffer length (libopus frame_size arg).
+func (d *Decoder) plcOutputFrameSize(pcmSampleCount int) (int, error) {
+	return d.requestedOutputFrameSize(pcmSampleCount)
+}
+
 func (d *Decoder) requestedOutputFrameSize(sampleCount int) (int, error) {
 	if d.channels <= 0 {
 		return 0, ErrInvalidChannels

@@ -245,6 +245,23 @@ func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
 	}
 }
 
+// PacketHasLBRR reports whether an Opus packet carries in-band LBRR data for
+// FEC recovery. It mirrors libopus opus_packet_has_lbrr().
+func PacketHasLBRR(data []byte) bool {
+	if len(data) == 0 {
+		return false
+	}
+	toc, _, err := packetFrameCount(data)
+	if err != nil {
+		return false
+	}
+	firstFrameData, err := extractFirstFramePayload(data, toc)
+	if err != nil {
+		return false
+	}
+	return packetHasLBRR(firstFrameData, toc)
+}
+
 // packetHasLBRR mirrors libopus opus_packet_has_lbrr() semantics for Opus
 // frame payload bytes (first frame only).
 func packetHasLBRR(firstFrameData []byte, toc TOC) bool {

@@ -165,9 +165,14 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		e.encodeLBRRData(e.rangeEncoder, 1, true)
 	}
 
-	condCoding := codeIndependently
-	if e.nFramesEncoded > 0 {
-		condCoding = codeConditionally
+	var condCoding int
+	if e.stereoCondMid != nil {
+		condCoding = stereoSelectCondCoding(e.stereoCondMidFramesEncoded, e.stereoChannelIdx, e.stereoPrevDecodeOnlyMiddle)
+	} else {
+		condCoding = codeIndependently
+		if e.nFramesEncoded > 0 {
+			condCoding = codeConditionally
+		}
 	}
 
 	// Step 1: Determine activity and defaults
@@ -206,13 +211,11 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	predGainQ7 := int32(0)
 	residual, residual32, resStart, _ := e.computePitchResidual(numSubframes)
 	if signalType != typeNoVoiceActivity {
-		// Match libopus: search_thres1 = pitchEstimationThreshold_Q16 / 65536.0f — silk_float.
 		searchThres1 := float64(float32(e.pitchEstimationThresholdQ16) / 65536.0)
 		prevSignalType := 0
 		if e.isPreviousFrameVoiced {
 			prevSignalType = 2
 		}
-		// Match libopus find_pitch_lags_FLP: thrhld is silk_float (float32).
 		thrhldF32 := float32(0.6)
 		thrhldF32 -= float32(0.004) * float32(e.pitchEstimationLPCOrder)
 		thrhldF32 -= float32(0.1) * float32(speechActivityQ8) * (1.0 / 256.0)
@@ -225,7 +228,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			thrhld = 1
 		}
 		if firstFrameAfterReset {
-			// Match libopus: skip pitch analysis on the first frame after reset.
 			pitchLags = make([]int, numSubframes)
 			e.ltpCorr = 0
 			e.pitchState.ltpCorr = 0
@@ -292,6 +294,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	// Step 7: Prepare indices and gains for bitrate control loop.
 	seed := e.frameCounter & 3
 	maxBits := e.maxBits
+	if !vadFlag && e.lastControlTargetRateBps > 0 && payloadSizeMs > 0 {
+		rateCap := e.lastControlTargetRateBps * payloadSizeMs / 1000
+		if rateCap > 0 && (maxBits <= 0 || maxBits > rateCap) {
+			maxBits = rateCap
+		}
+	}
 	if maxBits <= 0 {
 		// Derive from target rate: bits = targetRate * frameDuration_ms / 1000
 		// This matches libopus where opus_encoder.c computes maxBits from the
@@ -343,11 +351,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		frameIndices.GainsIndices[i] = gainIndices[i]
 	}
 
-	// Prepare LBRR data for the next packet if FEC is enabled (before bitrate loop).
-	// Pass currentPrevInd (the current frame's quantized gain index) matching libopus
-	// which reads sShape.LastGainIndex (already updated by silk_gains_quant).
+	// LBRR uses pre-NSQ indices/NSQ state (libopus silk_LBRR_encode_FLP before the bitrate loop).
 	if e.lbrrEnabled {
-		e.lbrrEncode(framePCM, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8, currentPrevInd)
+		e.lbrrEncode(framePCM, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8, currentPrevInd, condCoding)
 	}
 
 	ltpScaleQ14 := 0
@@ -687,6 +693,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		}
 	}
 	e.updateAllowBandwidthSwitch(payloadSizeMs)
+	e.finishLBRRPacket()
 	e.rangeEncoder = nil
 	return result
 }
@@ -1029,6 +1036,7 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 	}
 	payloadSizeMs := (nFrames * frameSamples * 1000) / config.SampleRate
 	e.updateAllowBandwidthSwitch(payloadSizeMs)
+	e.finishLBRRPacket()
 	e.rangeEncoder = nil
 	return result
 }

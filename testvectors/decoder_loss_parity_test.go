@@ -90,6 +90,18 @@ func decodeWithInternalDecoderLossPattern(
 	var decoded []float32
 	lostCount := 0
 
+	lossPCM := func() []float32 {
+		// Mirror opus_demo: concealment decodes request the last packet duration.
+		n := dec.LastPacketDuration()
+		if n <= 0 {
+			n = sampleRate / 50
+		}
+		if n > 5760 {
+			n = 5760
+		}
+		return make([]float32, n*channels)
+	}
+
 	for i := range packets {
 		if i < len(loss) && loss[i] {
 			lostCount++
@@ -100,25 +112,30 @@ func decodeWithInternalDecoderLossPattern(
 		if lostCount > 0 {
 			runDecoder += lostCount
 		}
+		hasLBRR := gopus.PacketHasLBRR(packets[i])
 
 		for fr := 0; fr < runDecoder; fr++ {
 			var (
+				buf []float32
 				n   int
 				err error
 			)
 			switch {
-			case fr == lostCount-1 && lostCount > 0:
-				n, err = dec.DecodeWithFEC(packets[i], outBuf, true)
+			case fr == lostCount-1 && lostCount > 0 && hasLBRR:
+				buf = lossPCM()
+				n, err = dec.DecodeWithFEC(packets[i], buf, true)
 			case fr < lostCount:
-				n, err = dec.Decode(nil, outBuf)
+				buf = lossPCM()
+				n, err = dec.Decode(nil, buf)
 			default:
-				n, err = dec.Decode(packets[i], outBuf)
+				buf = outBuf
+				n, err = dec.Decode(packets[i], buf)
 			}
 			if err != nil {
 				t.Fatalf("decode failure at packet=%d fr=%d lostCount=%d: %v", i, fr, lostCount, err)
 			}
 			if n > 0 {
-				decoded = append(decoded, outBuf[:n*channels]...)
+				decoded = append(decoded, buf[:n*channels]...)
 			}
 		}
 

@@ -209,44 +209,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	}
 	re.EncodeICDF16(0, iCDF, 8)
 
-	// Encode LBRR data for mid channel.
-	// For now, just encode empty LBRR flags (no FEC data).
-	midLBRRSymbol := 0
-	for i := 0; i < nFrames; i++ {
-		midLBRRSymbol |= enc.lbrrFlags[i] << i
-	}
-	midLBRRFlag := 0
-	if midLBRRSymbol > 0 {
-		midLBRRFlag = 1
-	}
-	enc.lbrrFlag = midLBRRFlag
-
-	sideLBRRSymbol := 0
-	for i := 0; i < nFrames; i++ {
-		sideLBRRSymbol |= sideEnc.lbrrFlags[i] << i
-	}
-	sideLBRRFlag := 0
-	if sideLBRRSymbol > 0 {
-		sideLBRRFlag = 1
-	}
-	sideEnc.lbrrFlag = sideLBRRFlag
-
-	// Encode LBRR flags and data for mid
-	if midLBRRFlag != 0 && nFrames > 1 {
-		re.EncodeICDF(midLBRRSymbol-1, silk_LBRR_flags_iCDF_ptr[nFrames-2], 8)
-	}
-	// Encode LBRR flags and data for side
-	if sideLBRRFlag != 0 && nFrames > 1 {
-		re.EncodeICDF(sideLBRRSymbol-1, silk_LBRR_flags_iCDF_ptr[nFrames-2], 8)
-	}
-
-	// Clear LBRR flags after encoding
-	for i := range enc.lbrrFlags {
-		enc.lbrrFlags[i] = 0
-	}
-	for i := range sideEnc.lbrrFlags {
-		sideEnc.lbrrFlags[i] = 0
-	}
+	encodeStereoLBRRPacket(re, enc, sideEnc, nFrames, &enc.stereo)
 
 	var midVAD [maxFramesPerPacket]int
 	var sideVAD [maxFramesPerPacket]int
@@ -274,7 +237,9 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 			leftFrame, rightFrame, frameLength, fsKHz,
 			totalRate, speechActQ8, false,
 		)
+		enc.stereo.saveLBRRStereoMeta(i, ix, midOnly)
 		prevDecodeOnlyMiddle := enc.stereo.prevDecodeOnlyMiddle
+		midFramesEncodedInPacket := enc.nFramesEncoded
 		EncodeStereoIndices(re, ix)
 
 		// Match libopus stereo control flow: apply the per-channel
@@ -360,8 +325,10 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 					midMaxBits = 1
 				}
 			}
+			if rem := stereoRemainingPacketBits(re.Tell(), basePacketMaxBits); rem > 0 && midMaxBits > rem {
+				midMaxBits = rem
+			}
 			enc.maxBits = midMaxBits
-			sideEnc.maxBits = sideMaxBits
 		}
 		frameUseCBR := baseMidUseCBR && i == nFrames-1
 		enc.blockUseCBR = frameUseCBR
@@ -372,9 +339,15 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 
 		if midState.Valid {
 			enc.SetVADState(midState.SpeechActivityQ8, midState.InputTiltQ15, midState.InputQualityBandsQ15)
+		} else if !midFrameVAD {
+			enc.SetVADState(speechActivityDTXThresholdQ8-1, 0, [4]int{-1, -1, -1, -1})
 		}
 
 		// Set up shared range encoder for mid channel encoding.
+		enc.stereoCondMid = enc
+		enc.stereoCondMidFramesEncoded = midFramesEncodedInPacket
+		enc.stereoChannelIdx = 0
+		enc.stereoPrevDecodeOnlyMiddle = prevDecodeOnlyMiddle
 		enc.SetRangeEncoder(re)
 		_ = enc.EncodeFrame(midOut, nil, midFrameVAD)
 
@@ -387,9 +360,31 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 			}
 			if sideState.Valid {
 				sideEnc.SetVADState(sideState.SpeechActivityQ8, sideState.InputTiltQ15, sideState.InputQualityBandsQ15)
+			} else if !sideFrameVAD {
+				sideEnc.SetVADState(speechActivityDTXThresholdQ8-1, 0, [4]int{-1, -1, -1, -1})
+			}
+			sideEnc.stereoCondMid = enc
+			sideEnc.stereoCondMidFramesEncoded = midFramesEncodedInPacket
+			sideEnc.stereoChannelIdx = 1
+			sideEnc.stereoPrevDecodeOnlyMiddle = prevDecodeOnlyMiddle
+			if sideMaxBits > 0 {
+				if rem := stereoRemainingPacketBits(re.Tell(), basePacketMaxBits); rem > 0 && sideMaxBits > rem {
+					sideMaxBits = rem
+				}
+				if !sideFrameVAD && sideRate > 0 {
+					if chCap := stereoChannelBudgetBits(sideRate, frameLength, config.SampleRate); chCap > 0 && sideMaxBits > chCap {
+						sideMaxBits = chCap
+					}
+				}
+				sideEnc.maxBits = sideMaxBits
 			}
 			sideEnc.SetRangeEncoder(re)
 			_ = sideEnc.EncodeFrame(sideOut, nil, sideFrameVAD)
+		}
+		// libopus enc_API.c increments nFramesEncoded on every channel each 20 ms
+		// block, even when the side frame is not coded (mid-only).
+		if sideEnc.nFramesEncoded < enc.nFramesEncoded {
+			sideEnc.nFramesEncoded = enc.nFramesEncoded
 		}
 
 		speechActQ8 = enc.speechActivityQ8
@@ -414,11 +409,11 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	for i := 0; i < nFrames; i++ {
 		flags = (flags << 1) | uint32(midVAD[i]&1)
 	}
-	flags = (flags << 1) | uint32(midLBRRFlag&1)
+	flags = (flags << 1) | uint32(enc.lbrrFlag&1)
 	for i := 0; i < nFrames; i++ {
 		flags = (flags << 1) | uint32(sideVAD[i]&1)
 	}
-	flags = (flags << 1) | uint32(sideLBRRFlag&1)
+	flags = (flags << 1) | uint32(sideEnc.lbrrFlag&1)
 	re.PatchInitialBits(flags, uint(headerBits))
 
 	// Capture final range state.
@@ -446,12 +441,38 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	}
 	enc.UpdatePacketBitsExceeded(nBytesOut, payloadSizeMs, packetBitrate)
 	sideEnc.SetBitsExceeded(enc.BitsExceeded())
+	enc.finishLBRRPacket()
+	sideEnc.finishLBRRPacket()
 
 	// Clean up shared encoder references.
 	enc.rangeEncoder = nil
 	sideEnc.rangeEncoder = nil
 
 	return result, nil
+}
+
+// stereoChannelBudgetBits is the per-20ms channel bit budget from controlSNR rate.
+func stereoChannelBudgetBits(rateBps, frameSamples, sampleRate int) int {
+	if rateBps <= 0 || frameSamples <= 0 || sampleRate <= 0 {
+		return 0
+	}
+	payloadMs := frameSamples * 1000 / sampleRate
+	bits := rateBps * payloadMs / 1000
+	if bits < 1 {
+		return 1
+	}
+	return bits
+}
+
+// stereoRemainingPacketBits returns bits left in the shared stereo payload budget.
+func stereoRemainingPacketBits(bitsUsed, packetMaxBits int) int {
+	if packetMaxBits <= 0 {
+		return 0
+	}
+	if bitsUsed >= packetMaxBits {
+		return 1
+	}
+	return packetMaxBits - bitsUsed
 }
 
 func stereoAllocationTargetRate(enc *Encoder, targetRateBps, frameLength, bitsUsedSoFar int) int {

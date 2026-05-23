@@ -40,6 +40,7 @@ func (e *Encoder) lbrrEncode(
 	numSubframes, subframeSamples, frameSamples int,
 	speechActivityQ8 int,
 	currentLastGainIndex int8,
+	condCoding int,
 ) {
 	if !e.lbrrEnabled {
 		return
@@ -60,12 +61,6 @@ func (e *Encoder) lbrrEncode(
 	e.lbrrFrameLength[frameIdx] = frameSamples
 	e.lbrrNbSubfr[frameIdx] = numSubframes
 
-	// Determine if we need independent or conditional coding for LBRR
-	lbrrCondCoding := codeIndependently
-	if frameIdx > 0 && e.lbrrFlags[frameIdx-1] != 0 {
-		lbrrCondCoding = codeConditionally
-	}
-
 	// For first LBRR frame or after non-LBRR, increase first gain
 	if frameIdx == 0 || e.lbrrFlags[frameIdx-1] == 0 {
 		// Save current frame's gain index for next LBRR frame.
@@ -84,24 +79,24 @@ func (e *Encoder) lbrrEncode(
 		}
 		e.lbrrIndices[frameIdx].GainsIndices[0] = int8(gainIdx)
 	}
-
-	// Dequantize LBRR gains to get actual values for NSQ
-	lbrrGainsQ16 := ensureInt32Slice(&e.scratchGainsQ16, numSubframes)
-	e.decodeLBRRGains(lbrrGainsQ16, lbrrCondCoding, numSubframes)
+	// Dequantize LBRR gains for NSQ using the primary frame's condCoding,
+	// matching libopus silk_LBRR_encode_FLP (not the LBRR payload condCoding).
+	lbrrGainsQ16 := ensureInt32Slice(&e.scratchLBRRGainsQ16, numSubframes)
+	e.decodeLBRRGains(lbrrGainsQ16, condCoding, numSubframes)
 
 	if frameSamples <= 0 {
 		return
 	}
 
-	// Compute LBRR excitation using NSQ with higher gains
-	lbrrNSQ := *e.nsqState
+	// Deep-copy NSQ state so LBRR quantization cannot alias the primary path.
+	lbrrNSQ := e.nsqState.Clone()
 	signalType := int(e.lbrrIndices[frameIdx].signalType)
 	quantOffset := int(e.lbrrIndices[frameIdx].quantOffsetType)
 	ltpScaleQ14 := 0
 	if signalType == typeVoiced {
 		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
-	pulses, seedOut := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, lbrrGainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, &lbrrNSQ)
+	pulses, seedOut := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, lbrrGainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, lbrrNSQ)
 	e.lbrrIndices[frameIdx].Seed = int8(seedOut)
 
 	lbrrPulses := e.lbrrPulses[frameIdx]
@@ -213,6 +208,84 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 // If includeHeader is false, the caller is responsible for reserving header bits.
 func (e *Encoder) EncodeLBRRData(re *rangecoding.Encoder, nChannels int, includeHeader bool) {
 	e.encodeLBRRData(re, nChannels, includeHeader)
+}
+
+// encodeLBRRFlagSymbol writes per-frame LBRR flags for one channel and returns the flag.
+func encodeLBRRFlagSymbol(re *rangecoding.Encoder, enc *Encoder, nFrames int) int {
+	lbrrSymbol := 0
+	for i := 0; i < nFrames; i++ {
+		lbrrSymbol |= enc.lbrrFlags[i] << i
+	}
+	lbrrFlag := 0
+	if lbrrSymbol > 0 {
+		lbrrFlag = 1
+	}
+	enc.lbrrFlag = lbrrFlag
+	if lbrrFlag != 0 && nFrames > 1 {
+		re.EncodeICDF(lbrrSymbol-1, silk_LBRR_flags_iCDF_ptr[nFrames-2], 8)
+	}
+	return lbrrFlag
+}
+
+// encodeStereoLBRRPacket encodes stereo LBRR flags and payloads at packet start.
+// Order matches skipStereoLBRRFrames / libopus enc_API.c.
+func encodeStereoLBRRPacket(
+	re *rangecoding.Encoder,
+	midEnc, sideEnc *Encoder,
+	nFrames int,
+	stereo *stereoEncState,
+) {
+	if re == nil || midEnc == nil || sideEnc == nil || stereo == nil {
+		return
+	}
+
+	lbrrBitsStart := re.Tell()
+	encodeLBRRFlagSymbol(re, midEnc, nFrames)
+	encodeLBRRFlagSymbol(re, sideEnc, nFrames)
+
+	var midPrevSignalType, midPrevLagIndex int
+	var sidePrevSignalType, sidePrevLagIndex int
+	channels := []*Encoder{midEnc, sideEnc}
+	for i := 0; i < nFrames; i++ {
+		for ch, enc := range channels {
+			if enc.lbrrFlags[i] == 0 {
+				continue
+			}
+			if ch == 0 {
+				EncodeStereoIndices(re, stereo.lbrrStereoIx[i])
+				if sideEnc.lbrrFlags[i] == 0 {
+					EncodeStereoMidOnly(re, stereo.lbrrMidOnly[i])
+				}
+			}
+			condCoding := codeIndependently
+			if i > 0 && enc.lbrrFlags[i-1] != 0 {
+				condCoding = codeConditionally
+			}
+			if ch == 0 {
+				midEnc.encodeLBRRIndices(re, i, condCoding, &midPrevSignalType, &midPrevLagIndex)
+				midEnc.encodeLBRRPulses(re, i)
+			} else {
+				sideEnc.encodeLBRRIndices(re, i, condCoding, &sidePrevSignalType, &sidePrevLagIndex)
+				sideEnc.encodeLBRRPulses(re, i)
+			}
+		}
+	}
+
+	currNBitsUsedLBRR := re.Tell() - lbrrBitsStart
+	if currNBitsUsedLBRR < 10 {
+		midEnc.nBitsUsedLBRR = 0
+	} else if midEnc.nBitsUsedLBRR < 10 {
+		midEnc.nBitsUsedLBRR = currNBitsUsedLBRR
+	} else {
+		midEnc.nBitsUsedLBRR = (midEnc.nBitsUsedLBRR + currNBitsUsedLBRR) / 2
+	}
+
+	for i := range midEnc.lbrrFlags {
+		midEnc.lbrrFlags[i] = 0
+	}
+	for i := range sideEnc.lbrrFlags {
+		sideEnc.lbrrFlags[i] = 0
+	}
 }
 
 // encodeLBRRIndices encodes the LBRR indices for a single frame.
@@ -420,8 +493,11 @@ func (e *Encoder) encodeLBRRPulses(re *rangecoding.Encoder, frameIdx int) {
 		pulsesInt32[i] = int32(p)
 	}
 
-	// Use the standard pulse encoding
+	// Use the standard pulse encoding on the active packet range encoder.
+	prevRE := e.rangeEncoder
+	e.rangeEncoder = re
 	e.encodePulses(pulsesInt32, signalType, quantOffset)
+	e.rangeEncoder = prevRE
 }
 
 // hasLBRRData returns true if there is LBRR data to encode.

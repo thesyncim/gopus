@@ -292,6 +292,9 @@ func main() {
 		{Name: "hybrid-fb-20ms-stereo-24k", Application: "audio", Bandwidth: "FB", FrameSize: 960, Channels: 2, Bitrate: 24000, ExpectedMode: "hybrid"},
 		// libopus audio@FB 60 ms selects CELT at 64 kb/s; still exercises long-frame decode.
 		{Name: "celt-fb-60ms-mono-64k", Application: "audio", Bandwidth: "FB", FrameSize: 2880, Channels: 1, Bitrate: 64000, ExpectedMode: "celt"},
+		{Name: "silk-wb-80ms-mono-32k", Application: "restricted-silk", Bandwidth: "WB", FrameSize: 3840, Channels: 1, Bitrate: 32000, ExpectedMode: "silk"},
+		{Name: "celt-fb-80ms-mono-64k", Application: "restricted-celt", Bandwidth: "FB", FrameSize: 3840, Channels: 1, Bitrate: 64000, ExpectedMode: "celt"},
+		{Name: "silk-wb-120ms-mono-32k", Application: "restricted-silk", Bandwidth: "WB", FrameSize: 5760, Channels: 1, Bitrate: 32000, ExpectedMode: "silk"},
 	}
 
 	tmpDir, err := os.MkdirTemp("", "gopus-decoder-fixture-*")
