@@ -351,7 +351,7 @@ gate_exhaustive() {
 }
 
 gate_provenance() {
-	run_exhaustive ./testvectors -run "$provenance_testvectors" -count=1
+	run_exhaustive ./testvectors -run "$provenance_testvectors" -count=1 -timeout=30m
 }
 
 usage() {

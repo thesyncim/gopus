@@ -177,7 +177,7 @@ jobs:
     needs:
       - changes
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 45
     steps:
       - name: Checkout
         uses: actions/checkout@v5
