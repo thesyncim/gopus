@@ -49,10 +49,6 @@ type Encoder struct {
 	// RNG state (for deterministic folding decisions)
 	rng uint32
 
-	// Analysis buffers (encoder-specific)
-	inputBuffer []float64 // Input sample lookahead buffer
-	mdctBuffer  []float64 // MDCT output working buffer
-
 	// Frame counting for intra mode decisions
 	frameCount int // Number of frames encoded (0 = first frame uses intra mode)
 	// Coarse-energy intra/inter decision state (libopus delayedIntra).
@@ -146,13 +142,6 @@ type Encoder struct {
 	// When true, encoder applies low-frequency-effects constraints.
 	lfe bool
 
-	// Pre-emphasized signal buffer for transient analysis overlap
-	// Stores the previous frame's pre-emphasized samples (last Overlap samples per channel)
-	// This matches libopus behavior where transient_analysis() is called with
-	// N+overlap samples of pre-emphasized signal.
-	// Reference: libopus celt_encoder.c line 2030
-	preemphBuffer []float64
-
 	// Phase inversion disabled for stereo encoding
 	// When true, disables stereo phase inversion decorrelation
 	phaseInversionDisabled bool
@@ -211,30 +200,6 @@ type Encoder struct {
 
 	// Scratch buffers for dynalloc analysis (zero-alloc)
 	dynallocScratch DynallocScratch
-
-	// Transient detection state (persisted across frames for better attack detection)
-	// These are used to track attack characteristics across frame boundaries.
-	// Reference: libopus celt_encoder.c transient_analysis() and attack_duration tracking
-
-	// transientHPMem stores high-pass filter memory for transient analysis.
-	// Using float32 to match libopus floating-point precision.
-	// The HP filter is: (1 - 2*z^-1 + z^-2) / (1 - z^-1 + 0.5*z^-2)
-	// Persisting this state improves detection of attacks that span frame boundaries.
-	transientHPMem [2][2]float32 // [channel][mem0, mem1]
-
-	// attackDuration counts consecutive frames with detected transients.
-	// This helps identify sustained percussive passages vs. isolated attacks.
-	// A value > 1 indicates ongoing percussive activity.
-	// Reference: libopus attack_duration tracking for hybrid mode decisions
-	attackDuration int
-
-	// lastMaskMetric stores the mask_metric from the previous frame.
-	// Used for hysteresis to prevent rapid toggling between transient/non-transient.
-	lastMaskMetric float64
-
-	// peakEnergy tracks the maximum frame energy for adaptive thresholding.
-	// This helps detect transients in both loud and quiet passages.
-	peakEnergy float64
 }
 
 // NewEncoder creates a new CELT encoder with the given number of channels.
@@ -274,10 +239,6 @@ func NewEncoder(channels int) *Encoder {
 		// Initialize RNG to zero (libopus default)
 		rng: 0,
 
-		// Analysis buffers
-		inputBuffer: make([]float64, 0),
-		mdctBuffer:  make([]float64, 0),
-
 		// Complexity defaults to max quality (libopus default)
 		complexity: 10,
 		// libopus initializes delayedIntra to 1.
@@ -301,10 +262,6 @@ func NewEncoder(channels int) *Encoder {
 		analysisTonality:      0.0,
 		analysisTonalitySlope: 0.0,
 		analysisMaxPitchRatio: 0.0,
-
-		// Pre-emphasized signal buffer for transient analysis overlap
-		// Size is Overlap samples per channel (interleaved for stereo)
-		preemphBuffer: make([]float64, Overlap*channels),
 
 		// DC rejection (high-pass) filter memory, one per channel
 		hpMem: make([]opusVal32, channels),
@@ -457,10 +414,6 @@ func (e *Encoder) Reset() {
 	// Clear range encoder reference
 	e.rangeEncoder = nil
 
-	// Clear analysis buffers
-	e.inputBuffer = e.inputBuffer[:0]
-	e.mdctBuffer = e.mdctBuffer[:0]
-
 	// Reset frame counter
 	e.frameCount = 0
 	e.frameBits = 0
@@ -505,11 +458,6 @@ func (e *Encoder) Reset() {
 		e.energyMask = e.energyMask[:0]
 	}
 
-	// Clear pre-emphasis buffer for transient analysis
-	for i := range e.preemphBuffer {
-		e.preemphBuffer[i] = 0
-	}
-
 	// Clear DC rejection filter state
 	for i := range e.hpMem {
 		e.hpMem[i] = 0
@@ -520,14 +468,6 @@ func (e *Encoder) Reset() {
 		e.delayBuffer[i] = 0
 	}
 
-	// Reset transient detection state
-	for c := 0; c < 2; c++ {
-		e.transientHPMem[c][0] = 0
-		e.transientHPMem[c][1] = 0
-	}
-	e.attackDuration = 0
-	e.lastMaskMetric = 0
-	e.peakEnergy = 0
 }
 
 // SetSurroundTrim sets the surround trim adjustment used by alloc_trim analysis.
