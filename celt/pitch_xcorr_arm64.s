@@ -1,4 +1,4 @@
-//go:build arm64 && !purego
+//go:build arm64 && !purego && gopus_legacy_float64_asm
 #include "textflag.h"
 
 // func celtPitchXcorr(x []float64, y []float64, xcorr []float64, length, maxPitch int)

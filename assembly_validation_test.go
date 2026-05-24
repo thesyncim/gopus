@@ -56,6 +56,25 @@ func TestAssemblyValidationContract(t *testing.T) {
 	}
 }
 
+func TestCELTLegacyFloat64AssemblyRequiresOptInTag(t *testing.T) {
+	legacyFloat64ASM := []string{
+		"celt/abs_sum_asm.go",
+		"celt/abs_sum_arm64.s",
+		"celt/pitch_xcorr_asm.go",
+		"celt/pitch_xcorr_arm64.s",
+		"celt/exp_rotation_asm.go",
+		"celt/exp_rotation_arm64.s",
+		"celt/scale_float64_arm64.go",
+		"celt/scale_float64_arm64.s",
+	}
+	for _, path := range legacyFloat64ASM {
+		first := firstLine(t, path)
+		if !strings.Contains(first, "gopus_legacy_float64_asm") {
+			t.Fatalf("%s build tag %q must require gopus_legacy_float64_asm", path, first)
+		}
+	}
+}
+
 func firstLine(t *testing.T, path string) string {
 	t.Helper()
 	raw, err := os.ReadFile(path)

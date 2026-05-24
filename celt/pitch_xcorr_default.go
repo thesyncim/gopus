@@ -1,4 +1,4 @@
-//go:build (!arm64 && !amd64) || purego
+//go:build (!amd64 && (!arm64 || !gopus_legacy_float64_asm)) || purego
 
 package celt
 

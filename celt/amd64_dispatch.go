@@ -10,6 +10,8 @@ var amd64UseAVX2FMA = cpufeat.AMD64.HasAVX2 && cpufeat.AMD64.HasFMA
 // exposure. These helpers feed encoded postfilter headers, and SIMD
 // reassociation can flip tied pitch choices by one sample against the pinned
 // amd64 fixtures.
+var amd64UseAbsSumAVX2FMA = false
+var amd64UsePitchXcorrAVX2FMA = false
 var amd64UsePrefilterAVX2FMA = false
 var amd64UsePitchAutocorrAVX2FMA = false
 var amd64UseToneLPCCorrAVX2FMA = false
@@ -18,7 +20,7 @@ var amd64UseToneLPCCorrAVX2FMA = false
 func absSumAVX(x []float64) float64
 
 func absSum(x []float64) float64 {
-	if amd64UseAVX2FMA {
+	if amd64UseAbsSumAVX2FMA && amd64UseAVX2FMA {
 		return absSumAVX(x)
 	}
 	return absSumGeneric(x)
@@ -39,7 +41,7 @@ func roundFloat64ToFloat32(x []float64) {
 func celtPitchXcorrAVX2FMA(x []float64, y []float64, xcorr []float64, length, maxPitch int)
 
 func celtPitchXcorr(x, y, xcorr []float64, length, maxPitch int) {
-	if amd64UseAVX2FMA {
+	if amd64UsePitchXcorrAVX2FMA && amd64UseAVX2FMA {
 		celtPitchXcorrAVX2FMA(x, y, xcorr, length, maxPitch)
 		return
 	}

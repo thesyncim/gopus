@@ -1,4 +1,4 @@
-//go:build arm64 && !purego
+//go:build arm64 && !purego && gopus_legacy_float64_asm
 #include "textflag.h"
 
 // func absSum(x []float64) float64
