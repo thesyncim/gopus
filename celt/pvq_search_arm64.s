@@ -1,7 +1,7 @@
 //go:build arm64 && !purego
 #include "textflag.h"
 
-// func pvqSearchBestPos(absX []float32, y []float32, xy float64, yy float64, n int) int
+// func pvqSearchBestPos(absX []float32, y []float32, xy float32, yy float32, n int) int
 //
 // Finds the position (0..n-1) with the best rate-distortion score for
 // placing a pulse in the PVQ greedy search. Uses scalar float32 arithmetic.
@@ -17,14 +17,12 @@
 //   F12 = bestNum
 //   F13 = bestDen
 //   F0-F5 = temporaries
-TEXT ·pvqSearchBestPos(SB), NOSPLIT, $0-80
+TEXT ·pvqSearchBestPos(SB), NOSPLIT, $0-72
 	MOVD  absX_base+0(FP), R0
 	MOVD  y_base+24(FP), R1
-	FMOVD xy+48(FP), F10
-	FCVTDS F10, F10               // float64 -> float32
-	FMOVD yy+56(FP), F11
-	FCVTDS F11, F11               // float64 -> float32
-	MOVD  n+64(FP), R2
+	FMOVS xy+48(FP), F10
+	FMOVS yy+52(FP), F11
+	MOVD  n+56(FP), R2
 
 	// If n <= 0, return 0
 	CMP  $1, R2
@@ -64,14 +62,14 @@ pvq_next:
 	BLT  pvq_loop
 
 pvq_done:
-	MOVD R4, ret+72(FP)
+	MOVD R4, ret+64(FP)
 	RET
 
 pvq_ret_zero:
-	MOVD ZR, ret+72(FP)
+	MOVD ZR, ret+64(FP)
 	RET
 
-// func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float64, n, pulsesLeft int) (float64, float64)
+// func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32)
 //
 // Places pulsesLeft pulses one at a time, merging the outer pulse loop and
 // inner position search into a single assembly call.
@@ -80,12 +78,12 @@ pvq_ret_zero:
 //   absX:       0(FP)  = base+0, len+8, cap+16   (24 bytes)
 //   y:          24(FP) = base+24, len+32, cap+40  (24 bytes)
 //   iy:         48(FP) = base+48, len+56, cap+64  (24 bytes)
-//   xy:         72(FP) (float64)
-//   yy:         80(FP) (float64)
-//   n:          88(FP) (int)
-//   pulsesLeft: 96(FP) (int)
-//   ret0 (xy):  104(FP) (float64)
-//   ret1 (yy):  112(FP) (float64)
+//   xy:         72(FP) (float32)
+//   yy:         76(FP) (float32)
+//   n:          80(FP) (int)
+//   pulsesLeft: 88(FP) (int)
+//   ret0 (xy):  96(FP) (float32)
+//   ret1 (yy):  100(FP) (float32)
 //
 // Register allocation:
 //   R0  = absX base
@@ -103,16 +101,14 @@ pvq_ret_zero:
 //   F20 = constant 1.0f
 //   F21 = constant 2.0f
 //   F0-F5 = temporaries
-TEXT ·pvqSearchPulseLoop(SB), NOSPLIT, $0-120
+TEXT ·pvqSearchPulseLoop(SB), NOSPLIT, $0-104
 	MOVD  absX_base+0(FP), R0
 	MOVD  y_base+24(FP), R1
 	MOVD  iy_base+48(FP), R2
-	FMOVD xy+72(FP), F16
-	FCVTDS F16, F16               // float64 -> float32
-	FMOVD yy+80(FP), F17
-	FCVTDS F17, F17               // float64 -> float32
-	MOVD  n+88(FP), R3
-	MOVD  pulsesLeft+96(FP), R4
+	FMOVS xy+72(FP), F16
+	FMOVS yy+76(FP), F17
+	MOVD  n+80(FP), R3
+	MOVD  pulsesLeft+88(FP), R4
 
 	// Load constants
 	FMOVS $1.0, F20               // 1.0f
@@ -225,11 +221,8 @@ pl_update:
 	CBNZ  R4, pl_outer
 
 pl_done:
-	// Convert float32 results back to float64
-	FCVTSD F16, F16
-	FCVTSD F17, F17
-	FMOVD  F16, ret+104(FP)
-	FMOVD  F17, ret1+112(FP)
+	FMOVS  F16, ret+96(FP)
+	FMOVS  F17, ret1+100(FP)
 	RET
 
 // func pvqExtractAbsSignAsm(x []float64, absX []float32, y []float32, signx []byte, iy []int, n int)

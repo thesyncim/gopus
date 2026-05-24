@@ -2,7 +2,7 @@
 
 #include "textflag.h"
 
-// func pvqSearchBestPos(absX []float32, y []float32, xy float64, yy float64, n int) int
+// func pvqSearchBestPos(absX []float32, y []float32, xy float32, yy float32, n int) int
 //
 // Finds the position (0..n-1) with the best rate-distortion score for
 // placing a pulse in the PVQ greedy search. Uses scalar float32 arithmetic
@@ -19,14 +19,12 @@
 //   X12 = bestNum
 //   X13 = bestDen
 //   X0-X5 = temporaries
-TEXT ·pvqSearchBestPosAVX(SB), NOSPLIT, $0-80
+TEXT ·pvqSearchBestPosAVX(SB), NOSPLIT, $0-72
 	MOVQ  absX_base+0(FP), AX
 	MOVQ  y_base+24(FP), BX
-	VMOVSD xy+48(FP), X10
-	VCVTSD2SS X10, X10, X10      // float64 -> float32
-	VMOVSD yy+56(FP), X11
-	VCVTSD2SS X11, X11, X11      // float64 -> float32
-	MOVQ  n+64(FP), CX
+	VMOVSS xy+48(FP), X10
+	VMOVSS yy+52(FP), X11
+	MOVQ  n+56(FP), CX
 
 	// If n <= 0, return 0
 	TESTQ CX, CX
@@ -107,16 +105,16 @@ pvq_tail:
 	MOVQ   DX, R8
 
 pvq_done:
-	MOVQ R8, ret+72(FP)
+	MOVQ R8, ret+64(FP)
 	VZEROUPPER
 	RET
 
 pvq_ret_zero:
-	MOVQ $0, ret+72(FP)
+	MOVQ $0, ret+64(FP)
 	VZEROUPPER
 	RET
 
-// func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float64, n, pulsesLeft int) (float64, float64)
+// func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32)
 //
 // Places pulsesLeft pulses one at a time, merging the outer pulse loop and
 // inner position search into a single assembly call.
@@ -125,12 +123,12 @@ pvq_ret_zero:
 //   absX:       0(FP)  = base+0, len+8, cap+16   (24 bytes)
 //   y:          24(FP) = base+24, len+32, cap+40  (24 bytes)
 //   iy:         48(FP) = base+48, len+56, cap+64  (24 bytes)
-//   xy:         72(FP) (float64)
-//   yy:         80(FP) (float64)
-//   n:          88(FP) (int)
-//   pulsesLeft: 96(FP) (int)
-//   ret0 (xy):  104(FP) (float64)
-//   ret1 (yy):  112(FP) (float64)
+//   xy:         72(FP) (float32)
+//   yy:         76(FP) (float32)
+//   n:          80(FP) (int)
+//   pulsesLeft: 88(FP) (int)
+//   ret0 (xy):  96(FP) (float32)
+//   ret1 (yy):  100(FP) (float32)
 //
 // Register allocation:
 //   AX   = absX base
@@ -148,16 +146,14 @@ pvq_ret_zero:
 //   X8   = constant 1.0f
 //   X9   = constant 2.0f
 //   X0-X5 = temporaries
-TEXT ·pvqSearchPulseLoopAVX(SB), NOSPLIT, $0-120
+TEXT ·pvqSearchPulseLoopAVX(SB), NOSPLIT, $0-104
 	MOVQ  absX_base+0(FP), AX
 	MOVQ  y_base+24(FP), BX
 	MOVQ  iy_base+48(FP), R9
-	VMOVSD xy+72(FP), X14
-	VCVTSD2SS X14, X14, X14      // float64 -> float32
-	VMOVSD yy+80(FP), X15
-	VCVTSD2SS X15, X15, X15      // float64 -> float32
-	MOVQ  n+88(FP), CX
-	MOVQ  pulsesLeft+96(FP), R10
+	VMOVSS xy+72(FP), X14
+	VMOVSS yy+76(FP), X15
+	MOVQ  n+80(FP), CX
+	MOVQ  pulsesLeft+88(FP), R10
 
 	// Load constants
 	MOVL  $0x3F800000, R11       // 1.0f
@@ -270,11 +266,8 @@ ppl_update:
 	JNZ   ppl_outer
 
 ppl_done:
-	// Convert float32 results back to float64
-	VCVTSS2SD X14, X14, X14
-	VCVTSS2SD X15, X15, X15
-	VMOVSD X14, ret+104(FP)
-	VMOVSD X15, ret1+112(FP)
+	VMOVSS X14, ret+96(FP)
+	VMOVSS X15, ret1+100(FP)
 	VZEROUPPER
 	RET
 

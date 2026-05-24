@@ -5,20 +5,18 @@ import (
 	"testing"
 )
 
-func pvqSearchBestPosRef(absX, y []float32, xy, yy float64, n int) int {
+func pvqSearchBestPosRef(absX, y []float32, xy, yy float32, n int) int {
 	if n <= 0 {
 		return 0
 	}
-	xyf := float32(xy)
-	yyf := float32(yy)
 	bestID := 0
-	rxy := xyf + absX[0]
-	ryy := yyf + y[0]
+	rxy := xy + absX[0]
+	ryy := yy + y[0]
 	bestNum := rxy * rxy
 	bestDen := ryy
 	for j := 1; j < n; j++ {
-		rxy = xyf + absX[j]
-		ryy = yyf + y[j]
+		rxy = xy + absX[j]
+		ryy = yy + y[j]
 		num := rxy * rxy
 		if bestDen*num > ryy*bestNum {
 			bestDen = ryy
@@ -29,20 +27,18 @@ func pvqSearchBestPosRef(absX, y []float32, xy, yy float64, n int) int {
 	return bestID
 }
 
-func pvqSearchPulseLoopRef(absX, y []float32, iy []int, xy, yy float64, n, pulsesLeft int) (float64, float64) {
-	xyf := float32(xy)
-	yyf := float32(yy)
+func pvqSearchPulseLoopRef(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32) {
 	for i := 0; i < pulsesLeft; i++ {
-		yyf += 1
+		yy += 1
 
 		bestID := 0
-		rxy := xyf + absX[0]
-		ryy := yyf + y[0]
+		rxy := xy + absX[0]
+		ryy := yy + y[0]
 		bestNum := rxy * rxy
 		bestDen := ryy
 		for j := 1; j < n; j++ {
-			rxy = xyf + absX[j]
-			ryy = yyf + y[j]
+			rxy = xy + absX[j]
+			ryy = yy + y[j]
 			num := rxy * rxy
 			if bestDen*num > ryy*bestNum {
 				bestDen = ryy
@@ -51,12 +47,12 @@ func pvqSearchPulseLoopRef(absX, y []float32, iy []int, xy, yy float64, n, pulse
 			}
 		}
 
-		xyf += absX[bestID]
-		yyf += y[bestID]
+		xy += absX[bestID]
+		yy += y[bestID]
 		y[bestID] += 2
 		iy[bestID]++
 	}
-	return float64(xyf), float64(yyf)
+	return xy, yy
 }
 
 func pvqExtractAbsSignRef(x []float64, absX []float32, y []float32, signx []byte, iy []int, n int) {

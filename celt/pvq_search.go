@@ -167,9 +167,7 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf
 	// pvqSearchPulseLoop (assembly on arm64/amd64) to eliminate per-pulse
 	// Go→asm transition overhead.
 	if pulsesLeft > 0 && n > 0 {
-		xyOut, yyOut := pvqSearchPulseLoop(absX[:n], y[:n], iy[:n], float64(xy), float64(yy), n, pulsesLeft)
-		xy = float32(xyOut)
-		yy = float32(yyOut)
+		xy, yy = pvqSearchPulseLoop(absX[:n], y[:n], iy[:n], xy, yy, n, pulsesLeft)
 	}
 
 	// Put the original signs back

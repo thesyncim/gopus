@@ -67,9 +67,9 @@ func prefilterDualInnerProd(x, y1, y2 []float64, length int) (float64, float64) 
 }
 
 //go:noescape
-func pvqSearchBestPosAVX(absX, y []float32, xy, yy float64, n int) int
+func pvqSearchBestPosAVX(absX, y []float32, xy, yy float32, n int) int
 
-func pvqSearchBestPos(absX, y []float32, xy, yy float64, n int) int {
+func pvqSearchBestPos(absX, y []float32, xy, yy float32, n int) int {
 	if amd64UseAVX2FMA {
 		return pvqSearchBestPosAVX(absX, y, xy, yy, n)
 	}
@@ -77,9 +77,9 @@ func pvqSearchBestPos(absX, y []float32, xy, yy float64, n int) int {
 }
 
 //go:noescape
-func pvqSearchPulseLoopAVX(absX, y []float32, iy []int, xy, yy float64, n, pulsesLeft int) (float64, float64)
+func pvqSearchPulseLoopAVX(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32)
 
-func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float64, n, pulsesLeft int) (float64, float64) {
+func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32) {
 	if amd64UseAVX2FMA {
 		return pvqSearchPulseLoopAVX(absX, y, iy, xy, yy, n, pulsesLeft)
 	}

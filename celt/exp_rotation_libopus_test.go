@@ -21,6 +21,7 @@ const (
 	celtVQModeMult32_32Q31      = uint32(7)
 	celtVQModeStereoMerge       = uint32(8)
 	celtVQModeHaar1             = uint32(9)
+	celtVQModeOPPVQSearch       = uint32(10)
 )
 
 var libopusCELTVQHelper libopustest.HelperCache
@@ -69,6 +70,17 @@ type haar1OracleCase struct {
 	x      []float32
 	n0     int
 	stride int
+}
+
+type pvqSearchOracleCase struct {
+	name string
+	x    []float32
+	k    int
+}
+
+type pvqSearchOracleResult struct {
+	yy float32
+	iy []int
 }
 
 type algUnquantOracleCase struct {
@@ -325,6 +337,43 @@ func probeLibopusEncodePulses(pulseVectors [][]int) ([][]byte, error) {
 	for i := range out {
 		n := int(reader.U32())
 		out[i] = append([]byte(nil), reader.Bytes(n)...)
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusOPPVQSearch(cases []pvqSearchOracleCase) ([]pvqSearchOracleResult, error) {
+	binPath, err := libopusCELTVQHelper.Path(buildLibopusCELTVQHelper)
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload("GVCI", celtVQModeOPPVQSearch, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.U32(uint32(len(tc.x)))
+		payload.U32(uint32(tc.k))
+		for _, v := range tc.x {
+			payload.U32(math.Float32bits(v))
+		}
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "celt vq", "GVCO")
+	if err != nil {
+		return nil, err
+	}
+	mode := reader.U32()
+	if mode != celtVQModeOPPVQSearch {
+		return nil, fmt.Errorf("celt vq mode=%d want %d", mode, celtVQModeOPPVQSearch)
+	}
+	count := reader.Count(len(cases))
+	out := make([]pvqSearchOracleResult, count)
+	for i := range out {
+		out[i].yy = reader.Float32()
+		n := int(reader.U32())
+		out[i].iy = make([]int, n)
+		for j := range out[i].iy {
+			out[i].iy[j] = int(reader.I32())
+		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err
@@ -725,6 +774,44 @@ func TestEncodePulsesPayloadMatchesLibopus(t *testing.T) {
 		got := enc.Done()
 		if string(got) != string(want[ci]) {
 			t.Fatalf("case %d payload=%x want %x", ci, got, want[ci])
+		}
+	}
+}
+
+func TestOPPVQSearchMatchesLibopusFloatPath(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []pvqSearchOracleCase{
+		{name: "low_k", x: []float32{0.42, -0.31, 0.17, -0.09, 0.53, -0.23, 0.08, -0.44}, k: 3},
+		{name: "high_k", x: []float32{0.12, -0.71, 0.38, 0.19, -0.27, 0.55, -0.06, 0.44}, k: 9},
+		{name: "silence_high_k", x: []float32{0, 0, 0, 0, 0, 0}, k: 7},
+		{name: "near_zero", x: []float32{1e-20, -2e-20, 3e-20, -4e-20, 5e-20}, k: 4},
+		{name: "wide_band", x: fixtureExpRotationVector(32, 0x70767173), k: 18},
+		{name: "large_k", x: fixtureExpRotationVector(48, 0x80818283), k: 35},
+	}
+	want, err := probeLibopusOPPVQSearch(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	for ci, tc := range cases {
+		x := make([]float64, len(tc.x))
+		for i, sample := range tc.x {
+			x[i] = float64(sample)
+		}
+		gotPulses, gotYY := opPVQSearch(x, tc.k)
+		if len(gotPulses) != len(want[ci].iy) {
+			t.Fatalf("%s pulses len=%d want %d", tc.name, len(gotPulses), len(want[ci].iy))
+		}
+		for i := range gotPulses {
+			if gotPulses[i] != want[ci].iy[i] {
+				t.Fatalf("%s pulse[%d]=%d want %d", tc.name, i, gotPulses[i], want[ci].iy[i])
+			}
+		}
+		gotYY32 := float32(gotYY)
+		if math.Float32bits(gotYY32) != math.Float32bits(want[ci].yy) {
+			t.Fatalf("%s yy=%08x %.10g want %08x %.10g",
+				tc.name,
+				math.Float32bits(gotYY32), gotYY32,
+				math.Float32bits(want[ci].yy), want[ci].yy)
 		}
 	}
 }

@@ -4,20 +4,18 @@ package celt
 
 // pvqSearchBestPos finds the position with the best rate-distortion score
 // for placing a pulse.
-func pvqSearchBestPos(absX, y []float32, xy, yy float64, n int) int {
+func pvqSearchBestPos(absX, y []float32, xy, yy float32, n int) int {
 	if n <= 0 {
 		return 0
 	}
-	xyf := float32(xy)
-	yyf := float32(yy)
 	bestID := 0
-	rxy := xyf + absX[0]
-	ryy := yyf + y[0]
+	rxy := xy + absX[0]
+	ryy := yy + y[0]
 	bestNum := rxy * rxy
 	bestDen := ryy
 	for j := 1; j < n; j++ {
-		rxy = xyf + absX[j]
-		ryy = yyf + y[j]
+		rxy = xy + absX[j]
+		ryy = yy + y[j]
 		num := rxy * rxy
 		if bestDen*num > ryy*bestNum {
 			bestDen = ryy
@@ -30,21 +28,19 @@ func pvqSearchBestPos(absX, y []float32, xy, yy float64, n int) int {
 
 // pvqSearchPulseLoop places pulsesLeft pulses using the rate-distortion
 // criterion. Go fallback for non-SIMD architectures.
-func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float64, n, pulsesLeft int) (float64, float64) {
-	xyf := float32(xy)
-	yyf := float32(yy)
+func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32) {
 	for i := 0; i < pulsesLeft; i++ {
-		yyf += 1
+		yy += 1
 
 		// Find best position
 		bestID := 0
-		rxy := xyf + absX[0]
-		ryy := yyf + y[0]
+		rxy := xy + absX[0]
+		ryy := yy + y[0]
 		bestNum := rxy * rxy
 		bestDen := ryy
 		for j := 1; j < n; j++ {
-			rxy = xyf + absX[j]
-			ryy = yyf + y[j]
+			rxy = xy + absX[j]
+			ryy = yy + y[j]
 			num := rxy * rxy
 			if bestDen*num > ryy*bestNum {
 				bestDen = ryy
@@ -54,12 +50,12 @@ func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float64, n, pulsesLe
 		}
 
 		// Update state
-		xyf += absX[bestID]
-		yyf += y[bestID]
+		xy += absX[bestID]
+		yy += y[bestID]
 		y[bestID] += 2
 		iy[bestID]++
 	}
-	return float64(xyf), float64(yyf)
+	return xy, yy
 }
 
 // pvqExtractAbsSign converts float64 input to float32 abs values and extracts signs.

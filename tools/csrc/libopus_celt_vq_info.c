@@ -31,7 +31,8 @@ enum {
   MODE_LOWBAND_OUT_SCALE = 6,
   MODE_MULT32_32_Q31 = 7,
   MODE_STEREO_MERGE = 8,
-  MODE_HAAR1 = 9
+  MODE_HAAR1 = 9,
+  MODE_OP_PVQ_SEARCH = 10
 };
 
 static int set_binary_stdio(void) {
@@ -491,6 +492,48 @@ static int eval_haar1(void) {
   return 1;
 }
 
+static int eval_op_pvq_search(void) {
+  uint32_t n_u;
+  uint32_t k_u;
+  celt_norm *x;
+  int *iy;
+  opus_val16 yy;
+  uint32_t i;
+
+  if (!read_u32(&n_u) || !read_u32(&k_u)) return 0;
+  if (n_u == 0 || n_u > 512 || k_u == 0 || k_u > 512) return 0;
+  x = (celt_norm *)malloc((size_t)n_u * sizeof(*x));
+  iy = (int *)calloc(n_u, sizeof(*iy));
+  if (x == NULL || iy == NULL) {
+    free(x);
+    free(iy);
+    return 0;
+  }
+  for (i = 0; i < n_u; i++) {
+    if (!read_float(&x[i])) {
+      free(x);
+      free(iy);
+      return 0;
+    }
+  }
+  yy = op_pvq_search_c(x, iy, (int)k_u, (int)n_u, 0);
+  if (!write_float(yy) || !write_u32(n_u)) {
+    free(x);
+    free(iy);
+    return 0;
+  }
+  for (i = 0; i < n_u; i++) {
+    if (!write_u32((uint32_t)(int32_t)iy[i])) {
+      free(x);
+      free(iy);
+      return 0;
+    }
+  }
+  free(x);
+  free(iy);
+  return 1;
+}
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -501,7 +544,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_HAAR1) return 1;
+  if (mode > MODE_OP_PVQ_SEARCH) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) ||
       !write_u32(mode) || !write_u32(count)) {
@@ -526,8 +569,10 @@ int main(void) {
       if (!eval_mult32_32_q31()) return 1;
     } else if (mode == MODE_STEREO_MERGE) {
       if (!eval_stereo_merge()) return 1;
-    } else {
+    } else if (mode == MODE_HAAR1) {
       if (!eval_haar1()) return 1;
+    } else {
+      if (!eval_op_pvq_search()) return 1;
     }
   }
   return 0;
