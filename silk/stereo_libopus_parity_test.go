@@ -2,10 +2,12 @@ package silk
 
 import (
 	"fmt"
+	"math"
 	"testing"
 	"unsafe"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/testsignal"
 )
 
 const (
@@ -293,6 +295,7 @@ func TestSILKStereoFindPredictorMatchesLibopusOracle(t *testing.T) {
 
 func TestSILKStereoLRToMSMatchesLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
+	fixtureLeft, fixtureRight := chirpSweepWB20msStereo48kPacket0LRToMSInput(t)
 	cases := []struct {
 		name         string
 		frameLength  int
@@ -350,6 +353,15 @@ func TestSILKStereoLRToMSMatchesLibopusOracle(t *testing.T) {
 			},
 			left:  stereoWave(320, -600, 31, 11),
 			right: stereoWave(320, 700, 27, 7),
+		},
+		{
+			name:         "chirp_sweep_v1_wb_20ms_stereo_48k_packet0",
+			frameLength:  320,
+			fsKHz:        16,
+			totalRateBps: 47600,
+			speechActQ8:  0,
+			left:         fixtureLeft,
+			right:        fixtureRight,
 		},
 	}
 
@@ -414,6 +426,58 @@ func TestSILKStereoLRToMSMatchesLibopusOracle(t *testing.T) {
 				t.Fatalf("side output mismatch")
 			}
 		})
+	}
+}
+
+func chirpSweepWB20msStereo48kPacket0LRToMSInput(t testing.TB) ([]int16, []int16) {
+	t.Helper()
+	const (
+		sampleRate   = 48000
+		channels     = 2
+		frameSize48  = 960
+		frameSize16  = 320
+		signalFrames = sampleRate / frameSize48
+	)
+	signal, err := testsignal.GenerateEncoderSignalVariant(
+		testsignal.EncoderVariantChirpSweepV1,
+		sampleRate,
+		signalFrames*frameSize48*channels,
+		channels,
+	)
+	if err != nil {
+		t.Fatalf("generate chirp sweep fixture signal: %v", err)
+	}
+	quantizeOpusDemoF32InPlace(signal)
+
+	left48 := make([]float32, frameSize48)
+	right48 := make([]float32, frameSize48)
+	for i := 0; i < frameSize48; i++ {
+		left48[i] = signal[2*i]
+		right48[i] = signal[2*i+1]
+	}
+	left16 := make([]float32, frameSize16)
+	right16 := make([]float32, frameSize16)
+	if n := NewLibopusResampler(sampleRate, 16000).ProcessInto(left48, left16); n != frameSize16 {
+		t.Fatalf("left resampler output=%d want %d", n, frameSize16)
+	}
+	if n := NewLibopusResampler(sampleRate, 16000).ProcessInto(right48, right16); n != frameSize16 {
+		t.Fatalf("right resampler output=%d want %d", n, frameSize16)
+	}
+
+	left := make([]int16, frameSize16)
+	right := make([]int16, frameSize16)
+	for i := 0; i < frameSize16; i++ {
+		left[i] = float32ToInt16(left16[i])
+		right[i] = float32ToInt16(right16[i])
+	}
+	return left, right
+}
+
+func quantizeOpusDemoF32InPlace(in []float32) {
+	const inv24 = 1.0 / 8388608.0
+	for i, s := range in {
+		q := math.Floor(0.5 + float64(s)*8388608.0)
+		in[i] = float32(q * inv24)
 	}
 }
 

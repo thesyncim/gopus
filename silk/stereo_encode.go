@@ -687,7 +687,7 @@ func (e *Encoder) StereoLRToMSWithRates(
 		silentSideLen := int32(e.stereo.silentSideLen) + int32(frameLength-stereoInterpLenMs*fsKHz)
 		if silentSideLen < int32(laShapeMs*fsKHz) {
 			midOnly = false
-		} else if silentSideLen > 10000 {
+		} else {
 			silentSideLen = 10000
 		}
 		e.stereo.silentSideLen = int16(silentSideLen)
