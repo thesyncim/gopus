@@ -192,7 +192,6 @@ type Encoder struct {
 	scratchBurgResult    []float32 // burgModifiedFLPZeroAlloc: result (silk_float)
 
 	// LTP analysis scratch buffers
-	scratchLtpRes       []float64 // LTP analysis: LPC residual
 	scratchPitchRes32   []float32 // Pitch analysis: residual as float32
 	scratchPitchInput32 []float32 // Pitch analysis: input buffer (float32)
 	scratchPitchWsig32  []float32 // Pitch analysis: windowed signal (float32)
@@ -202,7 +201,7 @@ type Encoder struct {
 
 	scratchLtpResF32    []float32 // LTP analysis: LTP residual with pre-length
 	scratchLpcResF32    []float32 // Residual energy: LPC residual scratch (float32)
-	scratchResNrg       []float64 // Gain processing: residual energies
+	scratchResNrg       []float32 // Gain processing: residual energies (silk_float)
 	scratchPredCoefF32A []float32 // Gain processing: LPC coeffs (first half, float32)
 	scratchPredCoefF32B []float32 // Gain processing: LPC coeffs (second half, float32)
 
@@ -388,7 +387,6 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		nsqState:          NewNSQState(),                    // Initialize NSQ state
 		noiseShapeState:   NewNoiseShapeState(),             // Initialize noise shaping state
 		pitchAnalysisBuf:  make([]float32, pitchBufSamples), // Pitch analysis buffer
-		scratchLtpRes:     make([]float64, pitchResSamples),
 		scratchPitchRes32: make([]float32, pitchResSamples),
 		bandwidth:         bandwidth,
 		sampleRate:        config.SampleRate,

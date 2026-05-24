@@ -246,10 +246,10 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 	return lpcQ12, lsfQ15, interpIdx
 }
 
-func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16, interpIdx int, gains []float32, numSubframes, subframeSamples int) []float64 {
+func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16, interpIdx int, gains []float32, numSubframes, subframeSamples int) []float32 {
 	order := e.lpcOrder
 	subfrLen := subframeSamples + order
-	resNrg := ensureFloat64Slice(&e.scratchResNrg, numSubframes)
+	resNrg := ensureFloat32Slice(&e.scratchResNrg, numSubframes)
 	for i := range resNrg {
 		resNrg[i] = 0
 	}
@@ -304,7 +304,7 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 			}
 			energy *= float64(gainSq)
 			// Match libopus residual_energy_FLP output type (silk_float).
-			resNrg[k] = float64(float32(energy))
+			resNrg[k] = float32(energy)
 		}
 	}
 
@@ -332,7 +332,7 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 				}
 				energy *= float64(gainSq)
 				// Match libopus residual_energy_FLP output type (silk_float).
-				resNrg[idx] = float64(float32(energy))
+				resNrg[idx] = float32(energy)
 			}
 		}
 	}
@@ -340,7 +340,7 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 	return resNrg
 }
 
-func applyGainProcessing(gains []float32, resNrg []float64, predGainQ7 int32, snrDBQ7 int, signalType int, inputTiltQ15 int, subframeSamples int) int {
+func applyGainProcessing(gains []float32, resNrg []float32, predGainQ7 int32, snrDBQ7 int, signalType int, inputTiltQ15 int, subframeSamples int) int {
 	quantOffsetType := 0
 	if signalType == typeVoiced {
 		predGainDB := float32(predGainQ7) / 128.0
@@ -374,7 +374,7 @@ func applyGainProcessing(gains []float32, resNrg []float64, predGainQ7 int32, sn
 	for k := range gains {
 		energy := gains[k] * gains[k]
 		if k < len(resNrg) {
-			energy += float32(resNrg[k]) * invMaxSqrVal
+			energy += resNrg[k] * invMaxSqrVal
 		}
 		g := float32(math.Sqrt(float64(energy)))
 		if g > 32767.0 {

@@ -7,7 +7,7 @@ import "math"
 // silk_noise_shape_analysis_FLP.c.
 func (e *Encoder) noiseShapeAnalysis(
 	pcm []float32,
-	pitchRes []float64,
+	pitchRes []float32,
 	pitchResStart int,
 	signalType int,
 	speechActivityQ8 int,
@@ -94,7 +94,7 @@ func (e *Encoder) noiseShapeAnalysis(
 	return params, gains, quantOffsetType
 }
 
-func computeSparsenessQuantOffset(pitchRes []float64, start, fsKHz, numSubframes int) (int, bool) {
+func computeSparsenessQuantOffset(pitchRes []float32, start, fsKHz, numSubframes int) (int, bool) {
 	if fsKHz <= 0 || numSubframes <= 0 {
 		return 0, false
 	}
@@ -134,7 +134,7 @@ func computeSparsenessQuantOffset(pitchRes []float64, start, fsKHz, numSubframes
 	for k := 0; k < nSegs; k++ {
 		seg := pitchResFrame[k*nSamples : (k+1)*nSamples]
 		// libopus: nrg = (silk_float)nSamples + (silk_float)silk_energy_FLP(...)
-		nrg := float32(nSamples) + float32(energyF64(seg, nSamples))
+		nrg := float32(nSamples) + float32(energyF32Libopus(seg, nSamples))
 		// libopus: silk_log2() returns silk_float = (silk_float)(3.32192809488736 * log10(x))
 		logEnergy := float32(3.32192809488736 * math.Log10(float64(nrg)))
 		if k > 0 {

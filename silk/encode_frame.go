@@ -209,7 +209,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	var ltpIndices [maxNbSubfr]int8
 	perIndex := 0
 	predGainQ7 := int32(0)
-	residual, residual32, resStart, _ := e.computePitchResidual(numSubframes)
+	pitchRes, resStart, _ := e.computePitchResidual(numSubframes)
 	if signalType != typeNoVoiceActivity {
 		searchThres1 := float64(float32(e.pitchEstimationThresholdQ16) / 65536.0)
 		prevSignalType := 0
@@ -232,7 +232,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			e.ltpCorr = 0
 			e.pitchState.ltpCorr = 0
 		} else {
-			pitchLags, lagIndex, contourIndex = e.detectPitch(residual32, numSubframes, searchThres1, thrhld)
+			pitchLags, lagIndex, contourIndex = e.detectPitch(pitchRes, numSubframes, searchThres1, thrhld)
 			e.ltpCorr = e.pitchState.ltpCorr
 			if e.ltpCorr > 1.0 {
 				e.ltpCorr = 1.0
@@ -240,7 +240,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			if e.ltpCorr > 0 {
 				signalType = typeVoiced
 				pitchParams = e.preparePitchLags(pitchLags, numSubframes, lagIndex, contourIndex)
-				ltpCoeffs, ltpIndices, perIndex, predGainQ7 = e.analyzeLTPQuantized(residual32, resStart, pitchLags, numSubframes, subframeSamples)
+				ltpCoeffs, ltpIndices, perIndex, predGainQ7 = e.analyzeLTPQuantized(pitchRes, resStart, pitchLags, numSubframes, subframeSamples)
 				ltpScaleIndex = e.computeLTPScaleIndex(predGainQ7, condCoding)
 			} else {
 				signalType = typeUnvoiced
@@ -255,7 +255,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	}
 
 	// Step 3: Noise shaping analysis
-	noiseParams, gains, quantOffset := e.noiseShapeAnalysis(framePCM, residual, resStart, signalType, speechActivityQ8, e.lastLPCGain, pitchLags, quantOffset, numSubframes, subframeSamples)
+	noiseParams, gains, quantOffset := e.noiseShapeAnalysis(framePCM, pitchRes, resStart, signalType, speechActivityQ8, e.lastLPCGain, pitchLags, quantOffset, numSubframes, subframeSamples)
 
 	// Step 4: Build LTP residual and compute LPC
 	fsKHz := config.SampleRate / 1000

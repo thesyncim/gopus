@@ -262,13 +262,13 @@ func bwexpanderFLP(ar []float64, order int, chirp float64) {
 	}
 }
 
-func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, int, int) {
+func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int) {
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 	subframeSamples := config.SubframeSamples
 	frameSamples := numSubframes * subframeSamples
 	if frameSamples <= 0 {
-		return nil, nil, 0, 0
+		return nil, 0, 0
 	}
 
 	ltpMemSamples := ltpMemLengthMs * fsKHz
@@ -307,15 +307,11 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 	if order <= 0 {
 		residual32 := ensureFloat32Slice(&e.scratchPitchRes32, needed)
 		copy(residual32, input32)
-		residual := ensureFloat64Slice(&e.scratchLtpRes, needed)
-		for i := 0; i < needed; i++ {
-			residual[i] = float64(residual32[i])
-		}
 		resStart := histLen - frameSamples
 		if resStart < 0 {
 			resStart = 0
 		}
-		return residual, residual32, resStart, frameSamples
+		return residual32, resStart, frameSamples
 	}
 
 	pitchWinMs := findPitchLpcWinMs
@@ -369,23 +365,11 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float64, []float32, 
 
 	residual32 := ensureFloat32Slice(&e.scratchPitchRes32, needed)
 	lpcAnalysisFilterF32(residual32, a, input32, needed, order)
-	residual := ensureFloat64Slice(&e.scratchLtpRes, needed)
-	// 4x unrolled float32->float64 conversion.
-	i := 0
-	for ; i < needed-3; i += 4 {
-		residual[i+0] = float64(residual32[i+0])
-		residual[i+1] = float64(residual32[i+1])
-		residual[i+2] = float64(residual32[i+2])
-		residual[i+3] = float64(residual32[i+3])
-	}
-	for ; i < needed; i++ {
-		residual[i] = float64(residual32[i])
-	}
 
 	resStart := histLen - frameSamples
 	if resStart < 0 {
 		resStart = 0
 	}
 
-	return residual, residual32, resStart, frameSamples
+	return residual32, resStart, frameSamples
 }
