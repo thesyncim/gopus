@@ -277,8 +277,8 @@ func TestNoiseShapeQuantizeBasic(t *testing.T) {
 	ltpCoefQ14 := make([]int16, numSubfr*ltpOrderConst)
 
 	// Other parameters
-	harmShapeGainQ14 := make([]int, numSubfr)
-	tiltQ14 := make([]int, numSubfr)
+	harmShapeGainQ14 := make([]int32, numSubfr)
+	tiltQ14 := make([]int32, numSubfr)
 	lfShpQ14 := make([]int32, numSubfr)
 
 	params := &NSQParams{
@@ -377,8 +377,8 @@ func TestNSQVoicedFrame(t *testing.T) {
 		ltpCoefQ14[sf*ltpOrderConst+2] = 8192 // 0.5 in Q14
 	}
 
-	harmShapeGainQ14 := make([]int, numSubfr)
-	tiltQ14 := make([]int, numSubfr)
+	harmShapeGainQ14 := make([]int32, numSubfr)
+	tiltQ14 := make([]int32, numSubfr)
 	lfShpQ14 := make([]int32, numSubfr)
 	for sf := 0; sf < numSubfr; sf++ {
 		harmShapeGainQ14[sf] = 4096
@@ -442,8 +442,8 @@ func TestNSQDithering(t *testing.T) {
 			PredCoefQ12:      make([]int16, 2*maxLPCOrder),
 			LTPCoefQ14:       make([]int16, numSubfr*ltpOrderConst),
 			ARShpQ13:         make([]int16, numSubfr*maxShapeLpcOrder),
-			HarmShapeGainQ14: make([]int, numSubfr),
-			TiltQ14:          make([]int, numSubfr),
+			HarmShapeGainQ14: make([]int32, numSubfr),
+			TiltQ14:          make([]int32, numSubfr),
 			LFShpQ14:         make([]int32, numSubfr),
 			GainsQ16:         []int32{65536, 65536, 65536, 65536},
 			PitchL:           make([]int, numSubfr),
@@ -494,8 +494,8 @@ func BenchmarkNSQ(b *testing.B) {
 		PredCoefQ12:      make([]int16, 2*maxLPCOrder),
 		LTPCoefQ14:       make([]int16, numSubfr*ltpOrderConst),
 		ARShpQ13:         make([]int16, numSubfr*maxShapeLpcOrder),
-		HarmShapeGainQ14: make([]int, numSubfr),
-		TiltQ14:          make([]int, numSubfr),
+		HarmShapeGainQ14: make([]int32, numSubfr),
+		TiltQ14:          make([]int32, numSubfr),
 		LFShpQ14:         make([]int32, numSubfr),
 		GainsQ16:         []int32{65536, 65536, 65536, 65536},
 		PitchL:           make([]int, numSubfr),

@@ -227,7 +227,19 @@ func (d *Decoder) decodePVQInto(band, n, k int, dst []float64) {
 		return
 	}
 
-	// Read CWRS index from range coder
+	norm := d.scratchBands.ensurePVQNorm(n)
+	d.decodePVQNormInto(band, n, k, norm)
+	copyNormToFloat64(dst[:n], norm)
+}
+
+func (d *Decoder) decodePVQNormInto(band, n, k int, dst []celtNorm) {
+	if k == 0 || n <= 0 || len(dst) < n {
+		for i := 0; i < n && i < len(dst); i++ {
+			dst[i] = 0
+		}
+		return
+	}
+
 	vSize := PVQ_V(n, k)
 	if vSize == 0 {
 		for i := 0; i < n; i++ {
@@ -243,17 +255,18 @@ func (d *Decoder) decodePVQInto(band, n, k int, dst []float64) {
 	decodePulsesInto(index, n, k, pulses, &d.scratchBands)
 
 	// Convert to float and normalize directly into dst
-	var energy float64
+	var energy opusVal16
 	for i := 0; i < n; i++ {
-		dst[i] = float64(pulses[i])
-		energy += dst[i] * dst[i]
+		pulse := float32(pulses[i])
+		dst[i] = celtNorm(pulse)
+		energy = opusVal16(float32(energy) + pulse*pulse)
 	}
 
 	// Normalize to unit L2 energy
 	if energy >= 1e-15 {
-		scale := 1.0 / math.Sqrt(energy)
+		scale := celtRSqrt(float32(energy))
 		for i := 0; i < n; i++ {
-			dst[i] *= scale
+			dst[i] = celtNorm(float32(dst[i]) * scale)
 		}
 	}
 }
@@ -283,6 +296,24 @@ func (d *Decoder) decodeIntensityStereoInto(mid, left, right []float64) {
 	}
 }
 
+func (d *Decoder) decodeIntensityStereoNormInto(mid, left, right []celtNorm) {
+	n := len(mid)
+	if len(left) < n || len(right) < n {
+		return
+	}
+
+	inv := d.rangeDecoder.DecodeBit(1) == 1
+	if inv {
+		for i := 0; i < n; i++ {
+			left[i] = mid[i]
+			right[i] = -mid[i]
+		}
+		return
+	}
+	copy(left[:n], mid)
+	copy(right[:n], mid)
+}
+
 // applyMidSideRotationInto rotates mid-side vectors directly into left-right buffers.
 // mid, side: input vectors
 // midGain, sideGain: rotation gains from theta
@@ -298,5 +329,21 @@ func applyMidSideRotationInto(mid, side []float64, midGain, sideGain float64, le
 		// Right = mid*cos(theta) - side*sin(theta)
 		left[i] = midGain*mid[i] + sideGain*side[i]
 		right[i] = midGain*mid[i] - sideGain*side[i]
+	}
+}
+
+func applyMidSideRotationNormInto(mid, side []celtNorm, midGain, sideGain opusVal16, left, right []celtNorm) {
+	n := len(mid)
+	if len(side) != n || len(left) < n || len(right) < n {
+		return
+	}
+
+	mg := float32(midGain)
+	sg := float32(sideGain)
+	for i := 0; i < n; i++ {
+		m := float32(mid[i])
+		s := float32(side[i])
+		left[i] = celtNorm(mg*m + sg*s)
+		right[i] = celtNorm(mg*m - sg*s)
 	}
 }

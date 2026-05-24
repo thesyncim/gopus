@@ -38,18 +38,6 @@ func ensureByteSlice(buf *[]byte, n int) []byte {
 	return *buf
 }
 
-func ensureComplexSlice(buf *[]complex128, n int) []complex128 {
-	if n < 0 {
-		n = 0
-	}
-	if cap(*buf) < n {
-		*buf = make([]complex128, n)
-	} else {
-		*buf = (*buf)[:n]
-	}
-	return *buf
-}
-
 func ensureComplex64Slice(buf *[]complex64, n int) []complex64 {
 	if n < 0 {
 		n = 0
@@ -106,24 +94,24 @@ type bandDecodeScratch struct {
 	lowband  []float64
 
 	// Pre-allocated buffers for DecodeBands hot path (eliminates per-frame allocations)
-	coeffs       []float64   // MDCT coefficients output buffer (size: frameSize or 2*frameSize for stereo)
-	bandVectors  [][]float64 // Per-band decoded vectors for folding (size: MaxBands)
-	bandVectorsL [][]float64 // Left channel band vectors for stereo (size: MaxBands)
-	bandVectorsR [][]float64 // Right channel band vectors for stereo (size: MaxBands)
+	coeffs       []float64    // MDCT coefficients output buffer (size: frameSize or 2*frameSize for stereo)
+	bandVectors  [][]celtNorm // Per-band decoded vectors for folding (size: MaxBands)
+	bandVectorsL [][]celtNorm // Left channel band vectors for stereo (size: MaxBands)
+	bandVectorsR [][]celtNorm // Right channel band vectors for stereo (size: MaxBands)
 
 	// Individual band vector storage - flat storage to avoid slice-of-slice allocations
 	// Each band can have up to maxBandWidth bins (scaled band 20 at 20ms = 176 bins)
-	bandStorage  [MaxBands][]float64 // Pre-allocated storage for each band vector
-	bandStorageL [MaxBands][]float64 // Left channel band storage
-	bandStorageR [MaxBands][]float64 // Right channel band storage
+	bandStorage  [MaxBands][]celtNorm // Pre-allocated storage for each band vector
+	bandStorageL [MaxBands][]celtNorm // Left channel band storage
+	bandStorageR [MaxBands][]celtNorm // Right channel band storage
 
 	// Scratch buffers for PVQ/folding operations
-	pvqPulses  []int     // Pulse vector from CWRS decode
-	pvqRefine  []int     // QEXT PVQ refinement values
-	pvqNorm    []float64 // Normalized PVQ vector
+	pvqPulses  []int // Pulse vector from CWRS decode
+	pvqRefine  []int // QEXT PVQ refinement values
+	pvqNorm    []celtNorm
 	pvqNorm32  []celtNorm
-	foldResult []float64 // Folded band result
-	cwrsU      []uint32  // CWRS u-row scratch buffer
+	foldResult []celtNorm
+	cwrsU      []uint32 // CWRS u-row scratch buffer
 
 	// Scratch buffers for Hadamard interleave/deinterleave (eliminates per-call allocations)
 	hadamardTmp []float64 // Temporary buffer for Hadamard transforms
@@ -252,13 +240,13 @@ func (s *bandDecodeScratch) ensureCoeffs(n int) []float64 {
 // ensureBandVectors returns a pre-allocated slice of band vector pointers.
 // The returned slice has length nbBands, with each element pointing to
 // pre-allocated storage in bandStorage.
-func (s *bandDecodeScratch) ensureBandVectors(nbBands int) [][]float64 {
+func (s *bandDecodeScratch) ensureBandVectors(nbBands int) [][]celtNorm {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
 	// Ensure the slice of slices has enough capacity
 	if cap(s.bandVectors) < nbBands {
-		s.bandVectors = make([][]float64, nbBands)
+		s.bandVectors = make([][]celtNorm, nbBands)
 	} else {
 		s.bandVectors = s.bandVectors[:nbBands]
 	}
@@ -270,19 +258,19 @@ func (s *bandDecodeScratch) ensureBandVectors(nbBands int) [][]float64 {
 }
 
 // ensureBandVectorsStereo returns pre-allocated slices for left and right channel band vectors.
-func (s *bandDecodeScratch) ensureBandVectorsStereo(nbBands int) (left, right [][]float64) {
+func (s *bandDecodeScratch) ensureBandVectorsStereo(nbBands int) (left, right [][]celtNorm) {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
 	// Ensure left channel slice
 	if cap(s.bandVectorsL) < nbBands {
-		s.bandVectorsL = make([][]float64, nbBands)
+		s.bandVectorsL = make([][]celtNorm, nbBands)
 	} else {
 		s.bandVectorsL = s.bandVectorsL[:nbBands]
 	}
 	// Ensure right channel slice
 	if cap(s.bandVectorsR) < nbBands {
-		s.bandVectorsR = make([][]float64, nbBands)
+		s.bandVectorsR = make([][]celtNorm, nbBands)
 	} else {
 		s.bandVectorsR = s.bandVectorsR[:nbBands]
 	}
@@ -296,27 +284,27 @@ func (s *bandDecodeScratch) ensureBandVectorsStereo(nbBands int) (left, right []
 
 // getBandStorage returns a pre-allocated buffer for storing a band vector.
 // The buffer is sized to fit n elements.
-func (s *bandDecodeScratch) getBandStorage(band, n int) []float64 {
+func (s *bandDecodeScratch) getBandStorage(band, n int) []celtNorm {
 	if band < 0 || band >= MaxBands || n <= 0 {
 		return nil
 	}
-	return ensureFloat64Slice(&s.bandStorage[band], n)
+	return ensureNormSlice(&s.bandStorage[band], n)
 }
 
 // getBandStorageL returns a pre-allocated buffer for left channel band vector.
-func (s *bandDecodeScratch) getBandStorageL(band, n int) []float64 {
+func (s *bandDecodeScratch) getBandStorageL(band, n int) []celtNorm {
 	if band < 0 || band >= MaxBands || n <= 0 {
 		return nil
 	}
-	return ensureFloat64Slice(&s.bandStorageL[band], n)
+	return ensureNormSlice(&s.bandStorageL[band], n)
 }
 
 // getBandStorageR returns a pre-allocated buffer for right channel band vector.
-func (s *bandDecodeScratch) getBandStorageR(band, n int) []float64 {
+func (s *bandDecodeScratch) getBandStorageR(band, n int) []celtNorm {
 	if band < 0 || band >= MaxBands || n <= 0 {
 		return nil
 	}
-	return ensureFloat64Slice(&s.bandStorageR[band], n)
+	return ensureNormSlice(&s.bandStorageR[band], n)
 }
 
 // ensurePVQPulses returns a pre-allocated buffer for PVQ pulse vector.
@@ -330,8 +318,8 @@ func (s *bandDecodeScratch) ensurePVQRefine(n int) []int {
 }
 
 // ensurePVQNorm returns a pre-allocated buffer for normalized vector.
-func (s *bandDecodeScratch) ensurePVQNorm(n int) []float64 {
-	return ensureFloat64Slice(&s.pvqNorm, n)
+func (s *bandDecodeScratch) ensurePVQNorm(n int) []celtNorm {
+	return ensureNormSlice(&s.pvqNorm, n)
 }
 
 func (s *bandDecodeScratch) ensurePVQNorm32(n int) []celtNorm {
@@ -339,8 +327,8 @@ func (s *bandDecodeScratch) ensurePVQNorm32(n int) []celtNorm {
 }
 
 // ensureFoldResult returns a pre-allocated buffer for fold result.
-func (s *bandDecodeScratch) ensureFoldResult(n int) []float64 {
-	return ensureFloat64Slice(&s.foldResult, n)
+func (s *bandDecodeScratch) ensureFoldResult(n int) []celtNorm {
+	return ensureNormSlice(&s.foldResult, n)
 }
 
 // ensureCWRSU returns a pre-allocated buffer for CWRS u-row.
@@ -358,11 +346,7 @@ func (s *bandDecodeScratch) ensureQuantWork(n int) []float64 {
 	return ensureFloat64Slice(&s.quantWork, n)
 }
 
-type imdctScratch struct {
-	fftIn  []complex128
-	fftOut []complex128
-	buf    []float64
-}
+type imdctScratch = imdctScratchF32
 
 // imdctScratchF32 holds scratch buffers for float32 IMDCT to avoid per-call allocations.
 type imdctScratchF32 struct {

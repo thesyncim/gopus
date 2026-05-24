@@ -150,8 +150,8 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 		B_Q14 := params.LTPCoefQ14[k*ltpOrderConst:]
 		AR_shp_Q13 := params.ARShpQ13[k*maxShapeLpcOrder:]
 
-		harmShapeFIRPackedQ14 := int32(silk_RSHIFT(int32(params.HarmShapeGainQ14[k]), 2))
-		harmShapeFIRPackedQ14 |= silk_LSHIFT32(int32(silk_RSHIFT(int32(params.HarmShapeGainQ14[k]), 1)), 16)
+		harmShapeFIRPackedQ14 := silk_RSHIFT(params.HarmShapeGainQ14[k], 2)
+		harmShapeFIRPackedQ14 |= silk_LSHIFT32(silk_RSHIFT(params.HarmShapeGainQ14[k], 1), 16)
 
 		nsq.rewhiteFlag = 0
 		if params.SignalType == typeVoiced {
@@ -276,7 +276,7 @@ func nsqDelDecScaleStates(
 	sLTPQ15 []int32,
 	subfr int,
 	nStatesDelayedDecision int,
-	ltpScaleQ14 int,
+	ltpScaleQ14 int32,
 	gainsQ16 []int32,
 	pitchL []int,
 	signalType int,
@@ -291,7 +291,7 @@ func nsqDelDecScaleStates(
 	}
 	if nsq.rewhiteFlag != 0 {
 		if subfr == 0 {
-			invGainQ31 = silk_LSHIFT32(silk_SMULWB(invGainQ31, int32(ltpScaleQ14)), 2)
+			invGainQ31 = silk_LSHIFT32(silk_SMULWB(invGainQ31, ltpScaleQ14), 2)
 		}
 		start := nsq.sLTPBufIdx - lag - ltpOrderConst/2
 		if start < 0 {
@@ -378,10 +378,10 @@ func noiseShapeQuantizerDelDec(
 	arShpQ13 []int16,
 	lag int,
 	harmShapeFIRPackedQ14 int32,
-	tiltQ14 int,
+	tiltQ14 int32,
 	lfShpQ14 int32,
 	gainQ16 int32,
-	lambdaQ10 int,
+	lambdaQ10 int32,
 	offsetQ10 int,
 	length int,
 	subfr int,

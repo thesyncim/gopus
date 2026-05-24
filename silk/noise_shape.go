@@ -62,8 +62,8 @@ type NoiseShapeState struct {
 	LastGainIndex int8
 
 	// Pre-allocated parameter buffers (max 4 subframes)
-	harmBuf [4]int
-	tiltBuf [4]int
+	harmBuf [4]int32
+	tiltBuf [4]int32
 	lfBuf   [4]int32
 
 	// Embedded params to avoid heap allocation
@@ -73,20 +73,20 @@ type NoiseShapeState struct {
 // NoiseShapeParams holds the computed noise shaping parameters for a frame.
 type NoiseShapeParams struct {
 	// Per-subframe parameters
-	HarmShapeGainQ14 []int   // Harmonic shaping gain (Q14)
-	TiltQ14          []int   // Spectral tilt (Q14)
+	HarmShapeGainQ14 []int32 // Harmonic shaping gain (Q14, opus_int-width)
+	TiltQ14          []int32 // Spectral tilt (Q14, opus_int-width)
 	LFShpQ14         []int32 // Low-frequency shaping (packed MA/AR, Q14)
 	ARShpQ13         []int16 // Noise shaping AR coefficients (Q13, per subframe)
 
 	// Frame-level parameters
-	LambdaQ10     int     // Rate-distortion tradeoff (Q10)
+	LambdaQ10     int32   // Rate-distortion tradeoff (Q10, opus_int-width)
 	CodingQuality float32 // Coding quality [0, 1]
 	InputQuality  float32 // Input quality [0, 1]
 }
 
 // computeLambdaQ10 recomputes the Lambda (rate-distortion tradeoff) using the
 // provided quantization offset type. This mirrors the logic in ComputeNoiseShapeParams.
-func computeLambdaQ10(signalType, speechActivityQ8, quantOffsetType, nStatesDelayedDecision int, codingQuality, inputQuality float32) int {
+func computeLambdaQ10(signalType, speechActivityQ8, quantOffsetType, nStatesDelayedDecision int, codingQuality, inputQuality float32) int32 {
 	quantOffset := float32(silk_Quantization_Offsets_Q10[signalType>>1][quantOffsetType]) / 1024.0
 	lambda := lambdaOffset +
 		lambdaDelayedDecisions*float32(nStatesDelayedDecision) +
@@ -102,7 +102,7 @@ func computeLambdaQ10(signalType, speechActivityQ8, quantOffsetType, nStatesDela
 	if lambda > 2.0 {
 		lambda = 2.0
 	}
-	return int(float64ToInt32Round(float64(lambda * 1024.0)))
+	return float32ToInt32RoundEven(lambda * 1024.0)
 }
 
 // ComputeNoiseShapeParams computes adaptive noise shaping parameters.
@@ -169,7 +169,7 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	if lambda > 2.0 {
 		lambda = 2.0
 	}
-	params.LambdaQ10 = int(float64ToInt32Round(float64(lambda * 1024.0)))
+	params.LambdaQ10 = float32ToInt32RoundEven(lambda * 1024.0)
 
 	// Compute Tilt (spectral noise tilt)
 	// Match libopus float precision: intermediate products in float32 (not constant-folded).
@@ -214,11 +214,11 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	for k := 0; k < numSubframes; k++ {
 		// Smooth harmonic shaping gain
 		s.HarmShapeGainSmth += noFMA32(float32(subfrSmthCoef), harmShapeGain-s.HarmShapeGainSmth)
-		params.HarmShapeGainQ14[k] = int(float64ToInt32Round(float64(s.HarmShapeGainSmth * 16384.0)))
+		params.HarmShapeGainQ14[k] = float32ToInt32RoundEven(s.HarmShapeGainSmth * 16384.0)
 
 		// Smooth tilt
 		s.TiltSmth += noFMA32(float32(subfrSmthCoef), tilt-s.TiltSmth)
-		params.TiltQ14[k] = int(float64ToInt32Round(float64(s.TiltSmth * 16384.0)))
+		params.TiltQ14[k] = float32ToInt32RoundEven(s.TiltSmth * 16384.0)
 
 		// LF shaping depends on pitch lag
 		var lfMaShp, lfArShp float32

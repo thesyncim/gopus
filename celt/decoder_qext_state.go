@@ -6,7 +6,7 @@ type decoderQEXTState struct {
 	pendingPayload []byte
 	oldBandE       []celtGLog
 
-	scratchEnergies  []float64
+	scratchEnergies  []celtGLog
 	scratchSpectrumL []float64
 	scratchSpectrumR []float64
 	scratchDecode    preparedQEXTDecode

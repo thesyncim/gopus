@@ -249,8 +249,8 @@ func (d *Decoder) runStereoDREDConceal(
 		return false
 	}
 
-	baseline := ensureFloat64Slice(&d.scratchPLCDREDBase, Overlap*2)
-	copy(baseline[:Overlap*2], d.scratchPLC[:Overlap*2])
+	baseline := ensureSigSlice(&d.scratchPLCDREDBase, Overlap*2)
+	copyFloat64ToSig(baseline[:Overlap*2], d.scratchPLC[:Overlap*2])
 
 	samplesNeeded16k := (frameSize + dred48kSincOrder + Overlap) / 3
 	if !*lastNeural {
@@ -480,8 +480,8 @@ func (d *Decoder) concealNeural48kMono(
 		return false
 	}
 
-	baseline := ensureFloat64Slice(&d.scratchPLCDREDBase, Overlap)
-	copy(baseline[:Overlap], d.scratchPLC[:Overlap])
+	baseline := ensureSigSlice(&d.scratchPLCDREDBase, Overlap)
+	copyFloat64ToSig(baseline[:Overlap], d.scratchPLC[:Overlap])
 
 	samplesNeeded16k := (frameSize + dred48kSincOrder + Overlap) / 3
 	if !*lastNeural {

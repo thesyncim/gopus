@@ -1145,8 +1145,9 @@ type encoderScratch struct {
 	rangeEncoder rangecoding.Encoder
 
 	// Coarse-energy two-pass scratch
-	coarseStartState rangecoding.EncoderState
-	coarseOldStart   []float64
+	coarseStartState   rangecoding.EncoderState
+	coarseOldStart     []float64
+	coarseOldStartGLog []celtGLog
 }
 
 // EnsureScratch ensures all scratch buffers are properly sized for the given frame size.
@@ -1317,8 +1318,8 @@ func (e *Encoder) ensureScratch(frameSize int) {
 		qs.bandE = ensureFloat64Slice(&qs.bandE, nbQEXTBands*channels)
 		qs.bandLogE = ensureFloat64Slice(&qs.bandLogE, nbQEXTBands*channels)
 		qs.quantized = ensureFloat64Slice(&qs.quantized, nbQEXTBands*channels)
-		qs.qerr = ensureFloat64Slice(&qs.qerr, nbQEXTBands*channels)
-		qs.oldBandE = ensureFloat64Slice(&qs.oldBandE, MaxBands*channels)
+		qs.qerr = ensureGLogSlice(&qs.qerr, nbQEXTBands*channels)
+		qs.oldBandE = ensureGLogSlice(&qs.oldBandE, MaxBands*channels)
 		qs.normL = ensureFloat64Slice(&qs.normL, frameSize)
 		qs.normR = ensureFloat64Slice(&qs.normR, frameSize)
 	}

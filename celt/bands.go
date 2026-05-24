@@ -80,16 +80,16 @@ func (d *Decoder) DecodeBands(
 		shape := d.scratchBands.getBandStorage(band, n)
 		if k > 0 {
 			// Decode PVQ vector for this band into the pre-allocated buffer.
-			d.decodePVQInto(band, n, k, shape)
+			d.decodePVQNormInto(band, n, k, shape)
 			UpdateCollapseMask(&collapseMask, band)
 		} else {
 			// No pulses - fold from lower band into pre-allocated buffer
 			srcBand := FindFoldSource(band, collapseMask, nil)
 			if srcBand >= 0 && bandVectors[srcBand] != nil {
-				d.foldBandInto(bandVectors[srcBand], n, shape)
+				d.foldBandNormInto(bandVectors[srcBand], n, shape)
 			} else {
 				// No source - generate noise into pre-allocated buffer
-				d.foldBandInto(nil, n, shape)
+				d.foldBandNormInto(nil, n, shape)
 			}
 		}
 
@@ -98,10 +98,10 @@ func (d *Decoder) DecodeBands(
 
 		gain := denormalizeBandGain(energies, band)
 
-		// Apply gain to shape and write to output
-		for i := 0; i < n && i < len(shape); i++ {
-			coeffs[offset+i] = denormalizeMulFloat32(shape[i], gain)
-		}
+		// Apply gain to shape and write to output.
+		out := coeffs[offset : offset+n]
+		copyNormToFloat64(out, shape[:n])
+		scaleDenormalizedFloat32Into(out, out, gain, n)
 
 		offset += n
 	}
@@ -185,19 +185,19 @@ func (d *Decoder) DecodeBandsStereo(
 			if k > 0 {
 				// Use pvqNorm as temporary for mid shape
 				shapeMid := d.scratchBands.ensurePVQNorm(n)
-				d.decodePVQInto(band, n, k, shapeMid)
-				d.decodeIntensityStereoInto(shapeMid, shapeL, shapeR)
+				d.decodePVQNormInto(band, n, k, shapeMid)
+				d.decodeIntensityStereoNormInto(shapeMid, shapeL, shapeR)
 				UpdateCollapseMask(&collapseMask, band)
 			} else {
 				// Fold from lower band
 				srcBand := FindFoldSource(band, collapseMask, nil)
-				var src []float64
+				var src []celtNorm
 				if srcBand >= 0 {
 					src = bandVectorsL[srcBand]
 				}
 				// Use foldResult as temporary for mid shape
 				shapeMid := d.scratchBands.ensureFoldResult(n)
-				d.foldBandInto(src, n, shapeMid)
+				d.foldBandNormInto(src, n, shapeMid)
 				copy(shapeL, shapeMid)
 				copy(shapeR, shapeMid)
 			}
@@ -213,12 +213,12 @@ func (d *Decoder) DecodeBandsStereo(
 
 			// Use pvqNorm as temporary for mid shape
 			shapeMid := d.scratchBands.ensurePVQNorm(n)
-			d.decodePVQInto(band, n, kMid, shapeMid)
+			d.decodePVQNormInto(band, n, kMid, shapeMid)
 
 			// Use foldResult as temporary for side shape
 			shapeSide := d.scratchBands.ensureFoldResult(n)
 			if kSide > 0 {
-				d.decodePVQInto(band, n, kSide, shapeSide)
+				d.decodePVQNormInto(band, n, kSide, shapeSide)
 			} else {
 				for i := 0; i < n; i++ {
 					shapeSide[i] = 0
@@ -230,19 +230,19 @@ func (d *Decoder) DecodeBandsStereo(
 			midGain, sideGain := ThetaToGains(itheta, 8)
 
 			// Apply rotation directly into pre-allocated buffers
-			applyMidSideRotationInto(shapeMid, shapeSide, midGain, sideGain, shapeL, shapeR)
+			applyMidSideRotationNormInto(shapeMid, shapeSide, opusVal16(midGain), opusVal16(sideGain), shapeL, shapeR)
 
 			UpdateCollapseMask(&collapseMask, band)
 		} else {
 			// Fold from lower band into pre-allocated buffers
 			srcBand := FindFoldSource(band, collapseMask, nil)
-			var srcL, srcR []float64
+			var srcL, srcR []celtNorm
 			if srcBand >= 0 {
 				srcL = bandVectorsL[srcBand]
 				srcR = bandVectorsR[srcBand]
 			}
-			d.foldBandInto(srcL, n, shapeL)
-			d.foldBandInto(srcR, n, shapeR)
+			d.foldBandNormInto(srcL, n, shapeL)
+			d.foldBandNormInto(srcR, n, shapeR)
 		}
 
 		// Store vector references for folding
@@ -252,12 +252,12 @@ func (d *Decoder) DecodeBandsStereo(
 		gainL := denormalizeBandGain(energiesL, band)
 		gainR := denormalizeBandGain(energiesR, band)
 
-		for i := 0; i < n && i < len(shapeL); i++ {
-			left[offset+i] = denormalizeMulFloat32(shapeL[i], gainL)
-		}
-		for i := 0; i < n && i < len(shapeR); i++ {
-			right[offset+i] = denormalizeMulFloat32(shapeR[i], gainR)
-		}
+		leftOut := left[offset : offset+n]
+		copyNormToFloat64(leftOut, shapeL[:n])
+		scaleDenormalizedFloat32Into(leftOut, leftOut, gainL, n)
+		rightOut := right[offset : offset+n]
+		copyNormToFloat64(rightOut, shapeR[:n])
+		scaleDenormalizedFloat32Into(rightOut, rightOut, gainR, n)
 
 		offset += n
 	}
@@ -509,7 +509,7 @@ func denormalizeBandsPackedInto(dst, src []float64, energies []float64, start, e
 	denormalizeBandsPackedDownsampleInto(dst, src, energies, start, end, lm, edges, 1)
 }
 
-func denormalizeBandsPackedDownsampleInto(dst, src []float64, energies []float64, start, end, lm int, edges []int, downsample int) {
+func denormalizeBandsPackedDownsampleInto[E ~float32 | ~float64](dst, src []float64, energies []E, start, end, lm int, edges []int, downsample int) {
 	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || end <= start || len(edges) < end+1 {
 		return
 	}
@@ -587,7 +587,7 @@ func denormalizeMulFloat32(x float64, gain float32) float64 {
 	return float64(float32(x) * gain)
 }
 
-func denormalizeBandGain(energies []float64, band int) float32 {
+func denormalizeBandGain[E ~float32 | ~float64](energies []E, band int) float32 {
 	e := float32(energies[band])
 	if band < len(eMeans) {
 		e += float32(eMeans[band])

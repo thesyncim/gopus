@@ -92,9 +92,9 @@ func (e *Encoder) lbrrEncode(
 	lbrrNSQ := e.nsqState.Clone()
 	signalType := int(e.lbrrIndices[frameIdx].signalType)
 	quantOffset := int(e.lbrrIndices[frameIdx].quantOffsetType)
-	ltpScaleQ14 := 0
+	ltpScaleQ14 := int32(0)
 	if signalType == typeVoiced {
-		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
+		ltpScaleQ14 = int32(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
 	pulses, seedOut := e.computeNSQExcitation(pcm, lpcQ12, predCoefQ12, interpIdx, lbrrGainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, seed, numSubframes, subframeSamples, frameSamples, lbrrNSQ)
 	e.lbrrIndices[frameIdx].Seed = int8(seedOut)

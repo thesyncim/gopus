@@ -106,13 +106,13 @@ func TestNSQExcitationScalingWithProperGain(t *testing.T) {
 		NLSFInterpCoefQ2: 4,                 // No interpolation
 		LTPCoefQ14:       make([]int16, 20), // No LTP
 		ARShpQ13:         make([]int16, 96), // No shaping
-		HarmShapeGainQ14: make([]int, 4),    // No harmonic shaping
-		TiltQ14:          make([]int, 4),    // No tilt
+		HarmShapeGainQ14: make([]int32, 4),  // No harmonic shaping
+		TiltQ14:          make([]int32, 4),  // No tilt
 		LFShpQ14:         make([]int32, 4),  // No LF shaping
 		GainsQ16:         []int32{gainQ16},  // PROPER GAIN
 		PitchL:           make([]int, 4),    // No pitch
 		LambdaQ10:        1024,              // R-D tradeoff
-		LTPScaleQ14:      int(silk_LTPScales_table_Q14[1]),
+		LTPScaleQ14:      int32(silk_LTPScales_table_Q14[1]),
 		FrameLength:      subfrLength,
 		SubfrLength:      subfrLength,
 		NbSubfr:          1,
@@ -264,13 +264,13 @@ func TestPulseExcitationRoundtrip_WithLPC(t *testing.T) {
 		NLSFInterpCoefQ2: 4, // No interpolation
 		LTPCoefQ14:       make([]int16, 20),
 		ARShpQ13:         make([]int16, 96),
-		HarmShapeGainQ14: make([]int, 4),
-		TiltQ14:          make([]int, 4),
+		HarmShapeGainQ14: make([]int32, 4),
+		TiltQ14:          make([]int32, 4),
 		LFShpQ14:         make([]int32, 4),
 		GainsQ16:         []int32{gainQ16},
 		PitchL:           make([]int, 4),
 		LambdaQ10:        1024,
-		LTPScaleQ14:      int(silk_LTPScales_table_Q14[1]),
+		LTPScaleQ14:      int32(silk_LTPScales_table_Q14[1]),
 		FrameLength:      subfrLength,
 		SubfrLength:      subfrLength,
 		NbSubfr:          1,

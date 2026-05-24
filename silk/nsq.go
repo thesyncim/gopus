@@ -173,10 +173,10 @@ type NSQParams struct {
 	ARShpQ13 []int16
 
 	// Harmonic shaping gain (Q14)
-	HarmShapeGainQ14 []int
+	HarmShapeGainQ14 []int32
 
 	// Spectral tilt (Q14)
-	TiltQ14 []int
+	TiltQ14 []int32
 
 	// Low-frequency shaping (Q14)
 	LFShpQ14 []int32
@@ -188,10 +188,10 @@ type NSQParams struct {
 	PitchL []int
 
 	// Rate/distortion tradeoff (Lambda, Q10)
-	LambdaQ10 int
+	LambdaQ10 int32
 
 	// LTP scale (Q14) for first subframe
-	LTPScaleQ14 int
+	LTPScaleQ14 int32
 
 	// Frame configuration
 	FrameLength            int
@@ -316,8 +316,8 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 		arShpQ13 := params.ARShpQ13[k*maxShapeLpcOrder : (k+1)*maxShapeLpcOrder]
 
 		// Pack harmonic shape FIR coefficients
-		harmShapeFIRPackedQ14 := int32(params.HarmShapeGainQ14[k]>>2) |
-			(int32(params.HarmShapeGainQ14[k]>>1) << 16)
+		harmShapeFIRPackedQ14 := (params.HarmShapeGainQ14[k] >> 2) |
+			((params.HarmShapeGainQ14[k] >> 1) << 16)
 
 		nsq.rewhiteFlag = 0
 		if params.SignalType == typeVoiced {
@@ -401,10 +401,10 @@ func noiseShapeQuantizerSubframe(
 	arShpQ13 []int16,
 	lag int,
 	harmShapeFIRPackedQ14 int32,
-	tiltQ14 int,
+	tiltQ14 int32,
 	lfShpQ14 int32,
 	gainQ16 int32,
-	lambdaQ10 int,
+	lambdaQ10 int32,
 	offsetQ10 int,
 	length int,
 	shapingLPCOrder int,
@@ -603,13 +603,13 @@ func noiseShapeFeedback(sDiffShpQ14 int32, sAR2Q14 []int32, arShpQ13 []int16, or
 }
 
 // computeRDQuantization finds two quantization candidates with R-D cost.
-func computeRDQuantization(rQ10 int32, offsetQ10, lambdaQ10 int) (q1Q10, q2Q10, rd1Q20, rd2Q20 int32) {
+func computeRDQuantization(rQ10 int32, offsetQ10 int, lambdaQ10 int32) (q1Q10, q2Q10, rd1Q20, rd2Q20 int32) {
 	q1Q10 = silk_SUB32(rQ10, int32(offsetQ10))
 	q1Q0 := silk_RSHIFT(q1Q10, 10)
 
 	// For aggressive RDO, adjust bias
 	if lambdaQ10 > 2048 {
-		rdoOffset := int32(lambdaQ10/2 - 512)
+		rdoOffset := lambdaQ10/2 - 512
 		if q1Q10 > rdoOffset {
 			q1Q0 = silk_RSHIFT(q1Q10-rdoOffset, 10)
 		} else if q1Q10 < -rdoOffset {
@@ -625,24 +625,24 @@ func computeRDQuantization(rQ10 int32, offsetQ10, lambdaQ10 int) (q1Q10, q2Q10, 
 		q1Q10 = silk_SUB32(silk_LSHIFT32(q1Q0, 10), quantLevelAdjQ10)
 		q1Q10 = silk_ADD32(q1Q10, int32(offsetQ10))
 		q2Q10 = silk_ADD32(q1Q10, 1024)
-		rd1Q20 = silk_SMULBB(q1Q10, int32(lambdaQ10))
-		rd2Q20 = silk_SMULBB(q2Q10, int32(lambdaQ10))
+		rd1Q20 = silk_SMULBB(q1Q10, lambdaQ10)
+		rd2Q20 = silk_SMULBB(q2Q10, lambdaQ10)
 	} else if q1Q0 == 0 {
 		q1Q10 = int32(offsetQ10)
 		q2Q10 = silk_ADD32(q1Q10, 1024-quantLevelAdjQ10)
-		rd1Q20 = silk_SMULBB(q1Q10, int32(lambdaQ10))
-		rd2Q20 = silk_SMULBB(q2Q10, int32(lambdaQ10))
+		rd1Q20 = silk_SMULBB(q1Q10, lambdaQ10)
+		rd2Q20 = silk_SMULBB(q2Q10, lambdaQ10)
 	} else if q1Q0 == -1 {
 		q2Q10 = int32(offsetQ10)
 		q1Q10 = silk_SUB32(q2Q10, 1024-quantLevelAdjQ10)
-		rd1Q20 = silk_SMULBB(-q1Q10, int32(lambdaQ10))
-		rd2Q20 = silk_SMULBB(q2Q10, int32(lambdaQ10))
+		rd1Q20 = silk_SMULBB(-q1Q10, lambdaQ10)
+		rd2Q20 = silk_SMULBB(q2Q10, lambdaQ10)
 	} else {
 		q1Q10 = silk_ADD32(silk_LSHIFT32(q1Q0, 10), quantLevelAdjQ10)
 		q1Q10 = silk_ADD32(q1Q10, int32(offsetQ10))
 		q2Q10 = silk_ADD32(q1Q10, 1024)
-		rd1Q20 = silk_SMULBB(-q1Q10, int32(lambdaQ10))
-		rd2Q20 = silk_SMULBB(-q2Q10, int32(lambdaQ10))
+		rd1Q20 = silk_SMULBB(-q1Q10, lambdaQ10)
+		rd2Q20 = silk_SMULBB(-q2Q10, lambdaQ10)
 	}
 
 	return q1Q10, q2Q10, rd1Q20, rd2Q20
@@ -657,7 +657,7 @@ func scaleNSQStates(
 	sLTP []int16,
 	sLTPQ15 []int32,
 	subfr int,
-	ltpScaleQ14 int,
+	ltpScaleQ14 int32,
 	gainsQ16 []int32,
 	pitchL []int,
 	signalType int,
@@ -680,7 +680,7 @@ func scaleNSQStates(
 	if nsq.rewhiteFlag != 0 {
 		if subfr == 0 {
 			// LTP downscaling for first subframe
-			invGainQ31 = silk_LSHIFT32(silk_SMULWB(invGainQ31, int32(ltpScaleQ14)), 2)
+			invGainQ31 = silk_LSHIFT32(silk_SMULWB(invGainQ31, ltpScaleQ14), 2)
 		}
 		startIdx := nsq.sLTPBufIdx - lag - ltpOrderConst/2
 		if startIdx < 0 {

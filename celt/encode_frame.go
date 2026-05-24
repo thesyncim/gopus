@@ -1275,7 +1275,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	var qextBandE []float64
 	var qextBandLogE []float64
 	var qextQuantized []float64
-	var qextError []float64
+	var qextError []celtGLog
 	var qextNormL []float64
 	var qextNormR []float64
 	if extsupport.QEXT && qextEnc != nil {

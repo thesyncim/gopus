@@ -64,20 +64,35 @@ func (d *Decoder) foldBandInto(lowband []float64, n int, dst []float64) {
 		return
 	}
 
+	tmp := d.scratchBands.ensureFoldResult(n)
+	var lowbandNorm []celtNorm
+	if len(lowband) > 0 {
+		lowbandNorm = d.scratchBands.ensurePVQNorm(len(lowband))
+		copyFloat64ToNorm(lowbandNorm, lowband)
+	}
+	d.foldBandNormInto(lowbandNorm, n, tmp)
+	copyNormToFloat64(dst[:n], tmp)
+}
+
+func (d *Decoder) foldBandNormInto(lowband []celtNorm, n int, dst []celtNorm) {
+	if n <= 0 || len(dst) < n {
+		return
+	}
+
 	if len(lowband) == 0 {
 		// No source band available - generate pseudo-random noise
 		// Uses LCG (Linear Congruential Generator) matching libopus
 		for i := 0; i < n; i++ {
 			d.rng = d.rng*1664525 + 1013904223 // LCG constants
 			// Convert to signed float in approximately [-1, 1]
-			dst[i] = float64(int32(d.rng)) / float64(1<<31)
+			dst[i] = celtNorm(float32(int32(d.rng)) / float32(1<<31))
 		}
 	} else {
 		// Copy from lower band with pseudo-random sign flips
 		// The sign is determined by bit 15 of the RNG state
 		for i := 0; i < n; i++ {
 			// Determine sign from current seed
-			sign := 1.0
+			sign := float32(1.0)
 			if d.rng&0x8000 != 0 {
 				sign = -1.0
 			}
@@ -85,12 +100,33 @@ func (d *Decoder) foldBandInto(lowband []float64, n int, dst []float64) {
 			d.rng = d.rng*1664525 + 1013904223
 
 			// Copy from lowband with wrapping if target is larger
-			dst[i] = sign * lowband[i%len(lowband)]
+			dst[i] = celtNorm(sign * float32(lowband[i%len(lowband)]))
 		}
 	}
 
 	// Normalize to unit energy in place
-	normalizeVectorInPlace(dst[:n])
+	normalizeNormVectorInPlace(dst[:n])
+}
+
+func normalizeNormVectorInPlace(v []celtNorm) {
+	if len(v) == 0 {
+		return
+	}
+
+	var energy opusVal16
+	for _, x := range v {
+		xf := float32(x)
+		energy = opusVal16(float32(energy) + xf*xf)
+	}
+
+	if energy < 1e-15 {
+		return
+	}
+
+	scale := celtRSqrt(float32(energy))
+	for i := range v {
+		v[i] = celtNorm(float32(v[i]) * scale)
+	}
 }
 
 // normalizeVectorInPlace scales vector to unit L2 norm in place.

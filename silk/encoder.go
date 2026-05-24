@@ -174,8 +174,8 @@ type Encoder struct {
 	scratchArShpQ13         []int16 // AR shaping coefficients
 	scratchLtpCoefQ14       []int16 // LTP coefficients
 	scratchPredCoefQ12      []int16 // prediction coefficients
-	scratchHarmShapeGainQ14 []int   // harmonic shaping gain
-	scratchTiltQ14          []int   // tilt values
+	scratchHarmShapeGainQ14 []int32 // harmonic shaping gain (opus_int-width)
+	scratchTiltQ14          []int32 // tilt values (opus_int-width)
 	scratchLfShpQ14         []int32 // low-frequency shaping
 	scratchExcitation       []int32 // excitation output
 	scratchPulses32         []int32 // LBRR pulse conversion

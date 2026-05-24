@@ -332,6 +332,14 @@ func (d *Decoder) DecodeFineEnergyWithDecoder(rd *rangecoding.Decoder, energies 
 	d.decodeFineEnergyRange(energies, 0, nbBands, nil, fineBits)
 }
 
+func (d *Decoder) decodeFineEnergyGLogWithDecoder(rd *rangecoding.Decoder, energies []celtGLog, nbBands int, fineBits []int) {
+	oldRD := d.rangeDecoder
+	d.rangeDecoder = rd
+	defer func() { d.rangeDecoder = oldRD }()
+
+	d.decodeFineEnergyGLogRange(energies, 0, nbBands, nil, fineBits)
+}
+
 // DecodeFineEnergyRange adds fine energy precision for bands in [start, end).
 // For hybrid mode, start should be HybridCELTStartBand (17), matching libopus
 // unquant_fine_energy().
@@ -387,6 +395,51 @@ func (d *Decoder) decodeFineEnergyRange(energies []float64, start, end int, prev
 			idx := c*end + band
 			if idx < len(energies) {
 				energies[idx] = float64(float32(energies[idx]) + offset)
+			}
+		}
+	}
+}
+
+func (d *Decoder) decodeFineEnergyGLogRange(energies []celtGLog, start, end int, prevQuant, extraQuant []int) {
+	if d.rangeDecoder == nil {
+		return
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > MaxBands {
+		end = MaxBands
+	}
+	if end > len(extraQuant) {
+		end = len(extraQuant)
+	}
+	if end <= start {
+		return
+	}
+
+	rd := d.rangeDecoder
+	for band := start; band < end; band++ {
+		extra := extraQuant[band]
+		if extra <= 0 {
+			continue
+		}
+		if rd.Tell()+d.channels*extra > rd.StorageBits() {
+			continue
+		}
+
+		prev := 0
+		if prevQuant != nil && band < len(prevQuant) {
+			prev = prevQuant[band]
+		}
+
+		for c := 0; c < d.channels; c++ {
+			q2 := rd.DecodeRawBits(uint(extra))
+			offset := (float32(q2)+float32(0.5))*float32(uint(1)<<uint(14-extra))*float32(1.0/16384.0) - float32(0.5)
+			offset *= float32(uint(1)<<uint(14-prev)) * float32(1.0/16384.0)
+
+			idx := c*end + band
+			if idx < len(energies) {
+				energies[idx] = celtGLog(float32(energies[idx]) + offset)
 			}
 		}
 	}

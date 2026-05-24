@@ -11,12 +11,12 @@ type preparedQEXTDecode struct {
 	dualStereo  int
 	extraPulses []int
 	extraQuant  []int
-	energies    []float64
+	energies    []celtGLog
 	coeffsL     []float64
 	coeffsR     []float64
 }
 
-func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []float64, nbBands int, intra bool, lm int, prevState []celtGLog, prevStride int, rd *rangecoding.Decoder) []float64 {
+func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []celtGLog, nbBands int, intra bool, lm int, prevState []celtGLog, prevStride int, rd *rangecoding.Decoder) []celtGLog {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
@@ -32,7 +32,7 @@ func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []float64, nbBands int
 
 	needed := nbBands * d.channels
 	if len(dst) < needed {
-		dst = make([]float64, needed)
+		dst = make([]celtGLog, needed)
 	} else {
 		dst = dst[:needed]
 	}
@@ -100,7 +100,7 @@ func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []float64, nbBands int
 			q := float32(qi) * float32(DB6)
 			energy := pred + q
 
-			dst[c*nbBands+band] = float64(energy)
+			dst[c*nbBands+band] = celtGLog(energy)
 			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
 		}
 	}
@@ -108,7 +108,7 @@ func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []float64, nbBands int
 	return dst
 }
 
-func (d *Decoder) storeQEXTEnergyState(energies []float64, nbBands int) {
+func (d *Decoder) storeQEXTEnergyState(energies []celtGLog, nbBands int) {
 	if nbBands <= 0 || len(energies) < nbBands*d.channels {
 		return
 	}
@@ -117,7 +117,7 @@ func (d *Decoder) storeQEXTEnergyState(energies []float64, nbBands int) {
 		base := c * MaxBands
 		src := energies[c*nbBands : c*nbBands+nbBands]
 		for band, energy := range src {
-			oldBandE[base+band] = celtGLog(energy)
+			oldBandE[base+band] = energy
 		}
 		for band := nbBands; band < MaxBands; band++ {
 			oldBandE[base+band] = 0
@@ -171,7 +171,7 @@ func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Dec
 					qext.dualStereo = 1
 				}
 
-				qext.energies = ensureFloat64Slice(&qextState.scratchEnergies, qext.end*d.channels)
+				qext.energies = ensureGLogSlice(&qextState.scratchEnergies, qext.end*d.channels)
 				qext.energies = qext.energies[:qext.end*d.channels]
 				intra := extDec.Tell()+3 <= extDec.StorageBits() && extDec.DecodeBit(3) == 1
 				qext.energies = d.decodeCoarseEnergyIntoWithPrevState(qext.energies, qext.end, intra, lm, d.ensureQEXTOldBandE(), MaxBands, extDec)
@@ -208,7 +208,7 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 		extBalance = 0
 	}
 
-	d.DecodeFineEnergyWithDecoder(qext.dec, qext.energies, qext.end, qext.extraQuant[MaxBands:MaxBands+qext.end])
+	d.decodeFineEnergyGLogWithDecoder(qext.dec, qext.energies, qext.end, qext.extraQuant[MaxBands:MaxBands+qext.end])
 	zeros := ensureIntSlice(&d.scratchTFRes, qext.end)
 	for i := 0; i < qext.end; i++ {
 		zeros[i] = 0

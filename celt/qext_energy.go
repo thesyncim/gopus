@@ -85,7 +85,7 @@ func normalizeQEXTBandsInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm i
 	}
 }
 
-func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, energies []float64, nbBands, lm, nbAvailableBytes int, oldBandEState, quantizedEnergies, errorVals []float64, delayedIntra *float32) bool {
+func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, energies []float64, nbBands, lm, nbAvailableBytes int, oldBandEState []celtGLog, quantizedEnergies []float64, errorVals []celtGLog, delayedIntra *float32) bool {
 	if re == nil || nbBands <= 0 {
 		return false
 	}
@@ -104,11 +104,7 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	savedFrameBits := e.frameBits
 	savedQuant := e.scratch.quantizedEnergies
 	savedErr := e.scratch.coarseError
-	qextErr := appendFloat64AsGLog(nil, errorVals[:needed])
 	defer func() {
-		for i := 0; i < needed; i++ {
-			errorVals[i] = float64(qextErr[i])
-		}
 		e.rangeEncoder = savedRE
 		e.prevEnergy = savedPrev
 		e.delayedIntra = savedDelayed
@@ -119,9 +115,7 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	}()
 
 	e.rangeEncoder = re
-	qextOldBandE := make([]celtGLog, len(oldBandEState))
-	copyFloat64ToGLog(qextOldBandE, oldBandEState)
-	e.prevEnergy = qextOldBandE
+	e.prevEnergy = oldBandEState
 	if delayedIntra != nil {
 		e.delayedIntra = opusVal32(*delayedIntra)
 	} else {
@@ -130,7 +124,7 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	e.coarseAvailableBytes = nbAvailableBytes
 	e.frameBits = re.StorageBits()
 	e.scratch.quantizedEnergies = quantizedEnergies[:needed]
-	e.scratch.coarseError = qextErr
+	e.scratch.coarseError = errorVals[:needed]
 
 	clear(e.scratch.quantizedEnergies)
 	clear(e.scratch.coarseError)

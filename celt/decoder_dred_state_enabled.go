@@ -6,5 +6,5 @@ type decoderDREDState struct {
 	scratchPLCUpdate48k  []float32
 	scratchPLCDREDNeural []float32
 	scratchPLCDREDFrame  []float32
-	scratchPLCDREDBase   []float64
+	scratchPLCDREDBase   []celtSig
 }

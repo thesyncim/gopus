@@ -502,8 +502,8 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 	startState := &e.scratch.coarseStartState
 	e.rangeEncoder.SaveStateInto(startState)
 
-	oldStart := ensureFloat64Slice(&e.scratch.coarseOldStart, len(e.prevEnergy))
-	copyGLogToFloat64(oldStart, e.prevEnergy)
+	oldStart := ensureGLogSlice(&e.scratch.coarseOldStartGLog, len(e.prevEnergy))
+	copy(oldStart, e.prevEnergy)
 
 	probIntra := eProbModel[lm][1][:]
 	probInter := eProbModel[lm][0][:]
@@ -525,7 +525,7 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 		}
 	}
 
-	copy(workOldE, oldStart)
+	copyGLogToFloat64(workOldE, oldStart)
 	if tell+3 <= budget {
 		e.rangeEncoder.EncodeBit(1, 3)
 	}
@@ -547,9 +547,9 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 	)
 	tellIntra := e.rangeEncoder.TellFrac()
 	e.rangeEncoder.RestoreState(startState)
-	copyFloat64ToGLog(e.prevEnergy, oldStart)
+	copy(e.prevEnergy, oldStart)
 
-	copy(workOldE, oldStart)
+	copyGLogToFloat64(workOldE, oldStart)
 	if tell+3 <= budget {
 		e.rangeEncoder.EncodeBit(0, 3)
 	}
@@ -574,7 +574,7 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 		useIntra = true
 	}
 	e.rangeEncoder.RestoreState(startState)
-	copyFloat64ToGLog(e.prevEnergy, oldStart)
+	copy(e.prevEnergy, oldStart)
 	return useIntra
 }
 
@@ -1479,14 +1479,12 @@ func (e *Encoder) EncodeFineEnergyWithEncoder(re *rangecoding.Encoder, energies 
 	e.EncodeFineEnergy(energies, quantizedCoarse, nbBands, fineBits)
 }
 
-func (e *Encoder) encodeFineEnergyFromErrorWithEncoder(re *rangecoding.Encoder, quantizedEnergies []float64, nbBands int, fineBits []int, errorVals []float64) {
+func (e *Encoder) encodeFineEnergyFromErrorWithEncoder(re *rangecoding.Encoder, quantizedEnergies []float64, nbBands int, fineBits []int, errorVals []celtGLog) {
 	oldRE := e.rangeEncoder
 	e.rangeEncoder = re
 	defer func() { e.rangeEncoder = oldRE }()
 
-	errScratch := appendFloat64AsGLog(nil, errorVals)
-	e.encodeFineEnergyFromError(quantizedEnergies, nbBands, fineBits, errScratch)
-	copyGLogToFloat64(errorVals, errScratch)
+	e.encodeFineEnergyFromError(quantizedEnergies, nbBands, fineBits, errorVals)
 }
 
 // encodeFineEnergyFromErrorWithPrev mirrors libopus quant_fine_energy() when

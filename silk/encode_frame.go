@@ -353,9 +353,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		e.lbrrEncode(framePCM, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8, currentPrevInd, condCoding)
 	}
 
-	ltpScaleQ14 := 0
+	ltpScaleQ14 := int32(0)
 	if signalType == typeVoiced {
-		ltpScaleQ14 = int(silk_LTPScales_table_Q14[ltpScaleIndex])
+		ltpScaleQ14 = int32(silk_LTPScales_table_Q14[ltpScaleIndex])
 	}
 
 	// Bitrate control: multi-pass NSQ + index encoding.
@@ -775,7 +775,7 @@ func (e *Encoder) PrefillFrame(pcm []float32) {
 	e.frameCounter++
 }
 
-func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int, signalType, quantOffset, speechActivityQ8 int, noiseParams *NoiseShapeParams, seed, numSubframes, subframeSamples, frameSamples int, nsqState *NSQState) ([]int8, int) {
+func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int32, signalType, quantOffset, speechActivityQ8 int, noiseParams *NoiseShapeParams, seed, numSubframes, subframeSamples, frameSamples int, nsqState *NSQState) ([]int8, int) {
 	inputQ0 := ensureInt16Slice(&e.scratchInputQ0, frameSamples)
 	for i := 0; i < frameSamples && i < len(pcm); i++ {
 		inputQ0[i] = float32ToInt16(pcm[i])
@@ -860,8 +860,8 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		snrDB := float32(e.snrDBQ7) * (1.0 / 128.0)
 		noiseParams = e.noiseShapeState.ComputeNoiseShapeParams(signalType, speechActivityQ8, e.ltpCorr, pitchLags, snrDB, quantOffset, inputQualityBandsQ15, numSubframes, fsKHz, e.nStatesDelayedDecision)
 	}
-	harmShapeGainQ14 := ensureIntSlice(&e.scratchHarmShapeGainQ14, numSubframes)
-	tiltQ14 := ensureIntSlice(&e.scratchTiltQ14, numSubframes)
+	harmShapeGainQ14 := ensureInt32Slice(&e.scratchHarmShapeGainQ14, numSubframes)
+	tiltQ14 := ensureInt32Slice(&e.scratchTiltQ14, numSubframes)
 	lfShpQ14 := ensureInt32Slice(&e.scratchLfShpQ14, numSubframes)
 	copy(harmShapeGainQ14, noiseParams.HarmShapeGainQ14)
 	copy(tiltQ14, noiseParams.TiltQ14)
@@ -884,7 +884,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		GainsQ16:               gainsQ16,
 		PitchL:                 pitchL,
 		LambdaQ10:              lambdaQ10,
-		LTPScaleQ14:            int(ltpScaleQ14),
+		LTPScaleQ14:            ltpScaleQ14,
 		FrameLength:            frameSamples,
 		SubfrLength:            subframeSamples,
 		NbSubfr:                numSubframes,

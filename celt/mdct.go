@@ -224,118 +224,15 @@ func imdctOverlapWithPrevScratch(out []float64, spectrum []float64, prevOverlap 
 		overlap = 0
 	}
 
-	n := n2 * 2
-	n4 := n2 / 2
 	needed := n2 + overlap
 	if len(out) < needed {
 		return
 	}
-	// Clear output; preserves no stale data.
-	for i := 0; i < needed; i++ {
-		out[i] = 0
+	outF32 := imdctOverlapWithPrevScratchF32Output(spectrum, prevOverlap, overlap, scratch)
+	if len(outF32) < needed {
+		return
 	}
-
-	// Copy the full prevOverlap to out[0:overlap].
-	// The IMDCT will overwrite out[overlap/2:...], but the TDAC needs
-	// out[0:overlap/2] from prevOverlap.
-	if overlap > 0 && len(prevOverlap) > 0 {
-		copyLen := min(len(prevOverlap), overlap)
-		copy(out[:copyLen], prevOverlap[:copyLen])
-	}
-
-	trig := getMDCTTrig(n)
-
-	var fftIn []complex128
-	var fftOut []complex128
-	var buf []float64
-	if scratch == nil {
-		fftIn = make([]complex128, n4)
-		fftOut = make([]complex128, n4)
-		buf = make([]float64, n2)
-	} else {
-		fftIn = ensureComplexSlice(&scratch.fftIn, n4)
-		fftOut = ensureComplexSlice(&scratch.fftOut, n4)
-		buf = ensureFloat64Slice(&scratch.buf, n2)
-	}
-	for i := 0; i < n4; i++ {
-		x1 := spectrum[2*i]
-		x2 := spectrum[n2-1-2*i]
-		t0 := trig[i]
-		t1 := trig[n4+i]
-		yr := x2*t0 + x1*t1
-		yi := x1*t0 - x2*t1
-		// Swap real/imag because we use an FFT instead of an IFFT.
-		fftIn[i] = complex(yi, yr)
-	}
-
-	dftTo(fftOut, fftIn)
-	for i := 0; i < n4; i++ {
-		v := fftOut[i]
-		buf[2*i] = real(v)
-		buf[2*i+1] = imag(v)
-	}
-
-	yp0 := 0
-	yp1 := n2 - 2
-	for i := 0; i < (n4+1)>>1; i++ {
-		re := buf[yp0+1]
-		im := buf[yp0]
-		t0 := trig[i]
-		t1 := trig[n4+i]
-		yr := re*t0 + im*t1
-		yi := re*t1 - im*t0
-		re2 := buf[yp1+1]
-		im2 := buf[yp1]
-		buf[yp0] = yr
-		buf[yp1+1] = yi
-
-		t0 = trig[n4-i-1]
-		t1 = trig[n2-i-1]
-		yr = re2*t0 + im2*t1
-		yi = re2*t1 - im2*t0
-		buf[yp1] = yr
-		buf[yp0+1] = yi
-		yp0 += 2
-		yp1 -= 2
-	}
-
-	// Copy IMDCT output to out, starting at overlap/2.
-	// This leaves out[0:overlap/2] with prevOverlap data for TDAC.
-	start := overlap / 2
-	if start+n2 <= len(out) {
-		copy(out[start:start+n2], buf)
-	}
-
-	// TDAC windowing blends out[0:overlap]
-	if overlap > 0 {
-		window := GetWindowBuffer(overlap)
-		xp1 := overlap - 1
-		yp1 := 0
-		wp1 := 0
-		wp2 := overlap - 1
-		for i := 0; i < overlap/2; i++ {
-			x1 := out[xp1]
-			x2 := out[yp1]
-			out[yp1] = x2*window[wp2] - x1*window[wp1]
-			out[xp1] = x2*window[wp1] + x1*window[wp2]
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-		}
-	}
-
-	// The output now has:
-	// - out[0:overlap] = TDAC windowed region
-	// - out[overlap:n2+overlap/2] = IMDCT output
-	// - out[n2+overlap/2:n2+overlap] = zeros (initialized by make)
-	//
-	// The caller extracts out[n2:n2+overlap] for the next frame's overlap:
-	// - out[n2:n2+overlap/2] = last overlap/2 samples of IMDCT (for next TDAC's prev)
-	// - out[n2+overlap/2:n2+overlap] = zeros (will be overwritten by next IMDCT's first overlap/2)
-	//
-	// This is correct - the zeros will be replaced during the next frame's IMDCT.
-	// Output is already in out.
+	copyFloat32ToFloat64(out[:needed], outF32[:needed])
 }
 
 func imdctOverlapWithPrevScratchF32Output[S ~float32 | ~float64](spectrum []float64, prevOverlap []S, overlap int, scratch *imdctScratchF32) []float32 {
@@ -578,100 +475,7 @@ func imdctInPlaceScratch(spectrum []float64, out []float64, blockStart, overlap 
 		overlap = 0
 	}
 
-	n := n2 * 2
-	n4 := n2 / 2
-
-	trig := getMDCTTrig(n)
-
-	// Pre-rotate with twiddles
-	var fftIn []complex128
-	var fftOut []complex128
-	var buf []float64
-	if scratch == nil {
-		fftIn = make([]complex128, n4)
-		fftOut = make([]complex128, n4)
-		buf = make([]float64, n2)
-	} else {
-		fftIn = ensureComplexSlice(&scratch.fftIn, n4)
-		fftOut = ensureComplexSlice(&scratch.fftOut, n4)
-		buf = ensureFloat64Slice(&scratch.buf, n2)
-	}
-	for i := 0; i < n4; i++ {
-		x1 := spectrum[2*i]
-		x2 := spectrum[n2-1-2*i]
-		t0 := trig[i]
-		t1 := trig[n4+i]
-		yr := x2*t0 + x1*t1
-		yi := x1*t0 - x2*t1
-		fftIn[i] = complex(yi, yr)
-	}
-
-	// FFT
-	dftTo(fftOut, fftIn)
-
-	// Post-rotate
-	for i := 0; i < n4; i++ {
-		v := fftOut[i]
-		buf[2*i] = real(v)
-		buf[2*i+1] = imag(v)
-	}
-
-	yp0 := 0
-	yp1 := n2 - 2
-	for i := 0; i < (n4+1)>>1; i++ {
-		re := buf[yp0+1]
-		im := buf[yp0]
-		t0 := trig[i]
-		t1 := trig[n4+i]
-		yr := re*t0 + im*t1
-		yi := re*t1 - im*t0
-		re2 := buf[yp1+1]
-		im2 := buf[yp1]
-		buf[yp0] = yr
-		buf[yp1+1] = yi
-
-		t0 = trig[n4-i-1]
-		t1 = trig[n2-i-1]
-		yr = re2*t0 + im2*t1
-		yi = re2*t1 - im2*t0
-		buf[yp1] = yr
-		buf[yp0+1] = yi
-		yp0 += 2
-		yp1 -= 2
-	}
-
-	// Write IMDCT output to shared buffer starting at blockStart + overlap/2
-	// This is the key difference from imdctOverlapWithPrev - we write directly
-	// to the shared buffer, preserving whatever is in out[blockStart:blockStart+overlap/2]
-	start := blockStart + overlap/2
-	end := start + n2
-	if end > len(out) {
-		end = len(out)
-	}
-	for i := start; i < end; i++ {
-		out[i] = buf[i-start]
-	}
-
-	// TDAC windowing blends out[blockStart:blockStart+overlap]
-	// The first half (out[blockStart:blockStart+overlap/2]) contains previous data
-	// The second half (out[blockStart+overlap/2:blockStart+overlap]) is IMDCT output
-	if overlap > 0 {
-		window := GetWindowBuffer(overlap)
-		xp1 := blockStart + overlap - 1
-		yp1 := blockStart
-		wp1 := 0
-		wp2 := overlap - 1
-		for i := 0; i < overlap/2; i++ {
-			x1 := out[xp1]
-			x2 := out[yp1]
-			out[yp1] = x2*window[wp2] - x1*window[wp1]
-			out[xp1] = x2*window[wp1] + x1*window[wp2]
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-		}
-	}
+	imdctInPlaceScratchF32(spectrum, out, blockStart, overlap, scratch)
 }
 
 // ImdctInPlaceExported exports imdctInPlace for testing.
