@@ -388,7 +388,7 @@ fixtures-gen-linux-amd64: docker-build-exhaustive
 			GOPUS_DECODER_LOSS_FIXTURE_OUT=testvectors/testdata/libopus_decoder_loss_fixture_linux_amd64.json go run tools/gen_libopus_decoder_loss_fixture.go && \
 			GOPUS_ENCODER_PACKETS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_packets_fixture_linux_amd64.json go run tools/gen_libopus_encoder_packet_fixture.go && \
 			GOPUS_ENCODER_VARIANTS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_variants_fixture_linux_amd64.json go run tools/gen_libopus_encoder_variants_fixture.go && \
-			GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT=celt/testdata/opusdec_crossval_fixture_linux_amd64.json go run tools/gen_opusdec_crossval_fixture.go"
+			GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT=celt/testdata/opusdec_crossval_fixture_amd64.json go run tools/gen_opusdec_crossval_fixture.go"
 
 # Build with profile-guided optimization.
 build:

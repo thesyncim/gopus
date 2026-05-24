@@ -678,5 +678,5 @@ jobs:
         run: make ensure-libopus
 
       - name: Run test suite
-        shell: pwsh
-        run: $env:GOPUS_TEST_TIER="fast"; $env:GOPUS_LIBOPUS_ORACLE="0"; go test ./... -count=1 -timeout=25m
+        shell: msys2 {0}
+        run: GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_ORACLE=0 go test ./... -count=1 -timeout=25m

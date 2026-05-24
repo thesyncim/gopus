@@ -35,6 +35,9 @@ type finalRangeVariantFixturePacket struct {
 }
 
 func TestSILKFinalRangeUsesLastPacketModeWithCELTSidecar(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("exact final-range fixture needs a Windows-generated libopus fixture")
+	}
 	const (
 		caseName = "SILK-NB-20ms-mono-16k"
 		variant  = testsignal.EncoderVariantImpulseTrainV1
