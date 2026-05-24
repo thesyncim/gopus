@@ -28,6 +28,10 @@ void celt_fatal(const char *str, const char *file, int line) {
   abort();
 }
 
+opus_val16 op_pvq_search_sse2(celt_norm *x, int *iy, int k, int n, int arch) {
+  return op_pvq_search_c(x, iy, k, n, arch);
+}
+
 enum {
   MODE_EXP_ROTATION = 0,
   MODE_RENORMALISE_VECTOR = 1,
