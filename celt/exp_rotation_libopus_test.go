@@ -615,6 +615,7 @@ func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 		{"energyMask", unsafe.Sizeof(enc.energyMask[0])},
 		{"specAvg", unsafe.Sizeof(enc.specAvg)},
 		{"surroundTrim", unsafe.Sizeof(enc.surroundTrim)},
+		{"lastTemporalVBR", unsafe.Sizeof(enc.lastTemporalVBR)},
 	}
 	for _, tc := range got {
 		if tc.size != uintptr(sizes.celtGLog) {

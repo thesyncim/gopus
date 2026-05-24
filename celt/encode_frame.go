@@ -838,7 +838,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			temporalVBR = -1.5
 		}
 		e.specAvg = celtGLog(float32(e.specAvg) + float32(0.02)*float32(temporalVBR))
-		e.lastTemporalVBR = temporalVBR
+		e.lastTemporalVBR = celtGLog(temporalVBR)
 	}
 
 	// Step 11.1: Compute and encode TF (time-frequency) resolution
@@ -2525,7 +2525,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 			clampedBR = 32000
 		}
 		amount := 0.0000031 * float64(clampedBR)
-		targetQ3 += int(e.lastTemporalVBR * amount * float64(targetQ3))
+		targetQ3 += int(float64(e.lastTemporalVBR) * amount * float64(targetQ3))
 	}
 
 	// Don't allow more than doubling the base target.

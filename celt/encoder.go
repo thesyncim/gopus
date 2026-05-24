@@ -106,7 +106,7 @@ type Encoder struct {
 	lastStereoSaving  opusVal16 // Running stereo_saving estimate from alloc_trim analysis
 	lastPitchChange   bool      // Previous frame pitch_change flag for VBR targeting
 	specAvg           celtGLog  // Smoothed spectral average for temporal VBR (libopus st->spec_avg)
-	lastTemporalVBR   float64   // Previous frame's temporal_vbr for VBR target adjustment
+	lastTemporalVBR   celtGLog  // Previous frame's temporal_vbr for VBR target adjustment
 	lastTellFrac      int       // Previous frame's ec_tell_frac at VBR point (for tell estimation)
 
 	// Analysis bandwidth state used by bit allocation gating.
