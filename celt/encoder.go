@@ -101,13 +101,13 @@ type Encoder struct {
 	tapsetDecision int // Tapset decision (0, 1, or 2)
 
 	// Tonality analysis state (for VBR decisions)
-	prevBandLogEnergy []float64 // Previous frame log-energy per band for spectral flux
-	lastTonality      opusVal16 // Running average tonality for smoothing
-	lastStereoSaving  opusVal16 // Running stereo_saving estimate from alloc_trim analysis
-	lastPitchChange   bool      // Previous frame pitch_change flag for VBR targeting
-	specAvg           celtGLog  // Smoothed spectral average for temporal VBR (libopus st->spec_avg)
-	lastTemporalVBR   celtGLog  // Previous frame's temporal_vbr for VBR target adjustment
-	lastTellFrac      int       // Previous frame's ec_tell_frac at VBR point (for tell estimation)
+	prevBandLogEnergy []celtGLog // Previous frame log-energy per band for spectral flux
+	lastTonality      opusVal16  // Running average tonality for smoothing
+	lastStereoSaving  opusVal16  // Running stereo_saving estimate from alloc_trim analysis
+	lastPitchChange   bool       // Previous frame pitch_change flag for VBR targeting
+	specAvg           celtGLog   // Smoothed spectral average for temporal VBR (libopus st->spec_avg)
+	lastTemporalVBR   celtGLog   // Previous frame's temporal_vbr for VBR target adjustment
+	lastTellFrac      int        // Previous frame's ec_tell_frac at VBR point (for tell estimation)
 
 	// Analysis bandwidth state used by bit allocation gating.
 	// This mirrors libopus use of st->analysis.bandwidth for clt_compute_allocation().
@@ -291,7 +291,7 @@ func NewEncoder(channels int) *Encoder {
 		tapsetDecision: 0,
 
 		// Initialize tonality analysis state
-		prevBandLogEnergy:     make([]float64, MaxBands*channels),
+		prevBandLogEnergy:     make([]celtGLog, MaxBands*channels),
 		lastTonality:          opusVal16(0.5), // Start with neutral tonality estimate
 		lastStereoSaving:      0.0,
 		lastPitchChange:       false,
@@ -1047,7 +1047,9 @@ func (e *Encoder) SetLastTonality(tonality float64) {
 // PrevBandLogEnergy returns the previous frame's band log-energies.
 // Used for spectral flux computation in tonality analysis.
 func (e *Encoder) PrevBandLogEnergy() []float64 {
-	return e.prevBandLogEnergy
+	out := make([]float64, len(e.prevBandLogEnergy))
+	copyGLogToFloat64(out, e.prevBandLogEnergy)
+	return out
 }
 
 // GetLastDynalloc returns the last computed dynalloc result.

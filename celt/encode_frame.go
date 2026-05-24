@@ -2557,10 +2557,12 @@ func (e *Encoder) updateTonalityAnalysis(normCoeffs, energies []float64, nbBands
 	tonalityResult := computeTonalityWithBandsScratch(normCoeffs, nbBands, frameSize, &e.tonalityScratch)
 
 	// Compute spectral flux (frame-to-frame change) for smoothing decisions
-	spectralFlux := computeSpectralFlux(energies, e.prevBandLogEnergy, nbBands)
+	spectralFlux := computeSpectralFluxGLog(energies, e.prevBandLogEnergy, nbBands)
 
 	// Update previous band log-energies for next frame's flux computation
-	copy(e.prevBandLogEnergy, energies)
+	for i := 0; i < nbBands && i < len(energies) && i < len(e.prevBandLogEnergy); i++ {
+		e.prevBandLogEnergy[i] = celtGLog(energies[i])
+	}
 
 	// Apply smoothing to tonality estimate
 	// High spectral flux (transients) should reduce the smoothing factor

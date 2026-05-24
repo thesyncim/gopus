@@ -676,6 +676,29 @@ func TestSpectralFluxEmpty(t *testing.T) {
 	}
 }
 
+func TestUpdateTonalityStoresPrevBandLogEnergyAsGLog(t *testing.T) {
+	enc := NewEncoder(1)
+	frameSize := 480
+	nbBands := getNbBandsForFrameSize(frameSize)
+	norm := make([]float64, frameSize)
+	for i := range norm {
+		norm[i] = 0.125
+	}
+	energies := make([]float64, nbBands)
+	for i := range energies {
+		energies[i] = float64(i+1) + 1.0/3.0
+	}
+
+	enc.updateTonalityAnalysis(norm, energies, nbBands, frameSize)
+	got := enc.PrevBandLogEnergy()
+	for i := 0; i < nbBands; i++ {
+		want := float64(celtGLog(energies[i]))
+		if got[i] != want {
+			t.Fatalf("PrevBandLogEnergy()[%d]=%0.9g want celt_glog %0.9g", i, got[i], want)
+		}
+	}
+}
+
 // =============================================================================
 // Edge Case Tests
 // =============================================================================

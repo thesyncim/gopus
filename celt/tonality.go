@@ -279,6 +279,33 @@ func computeSpectralFlux(currentEnergies, previousEnergies []float64, nbBands in
 	return normalizedFlux
 }
 
+func computeSpectralFluxGLog(currentEnergies []float64, previousEnergies []celtGLog, nbBands int) float64 {
+	if len(currentEnergies) == 0 || len(previousEnergies) == 0 || nbBands <= 0 {
+		return 0.0
+	}
+
+	var flux float64
+	var count int
+	for i := 0; i < nbBands; i++ {
+		if i >= len(currentEnergies) || i >= len(previousEnergies) {
+			break
+		}
+		const epsilon = 1e-10
+		currentLog := safeLog(currentEnergies[i] + epsilon)
+		prevLog := safeLog(float64(previousEnergies[i]) + epsilon)
+		diff := currentLog - prevLog
+		flux += diff * diff
+		count++
+	}
+	if count == 0 {
+		return 0.0
+	}
+
+	flux = flux / float64(count)
+	const fluxScale = 4.0
+	return 1.0 - math.Exp(-flux/fluxScale)
+}
+
 // computeSpectralFlatness computes the Spectral Flatness Measure (SFM).
 // SFM = geometric_mean(|X|^2) / arithmetic_mean(|X|^2)
 // For computational stability, this is computed as:
