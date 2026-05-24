@@ -2,6 +2,7 @@ package silk
 
 import (
 	"fmt"
+	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -14,6 +15,7 @@ const (
 	libopusSILKLTPModeQuant = uint32(0)
 	libopusSILKLTPModeVQ    = uint32(1)
 	libopusSILKLTPModePitch = uint32(2)
+	libopusSILKLTPModeFind  = uint32(3)
 )
 
 var libopusSILKLTPHelper libopustest.HelperCache
@@ -33,14 +35,28 @@ type libopusSILKLTPVQRecord struct {
 	gainQ7     int32
 }
 
+type libopusSILKLTPFindCase struct {
+	name       string
+	nbSubfr    int
+	subfrLen   int
+	resStart   int
+	lags       [maxNbSubfr]int
+	residual32 []float32
+}
+
+type libopusSILKLTPFindRecord struct {
+	XX []float32
+	xX []float32
+}
+
 func buildLibopusSILKLTPHelper() (string, error) {
 	return libopustest.BuildCHelper(libopustest.CHelperConfig{
 		Label:        "silk ltp",
 		OutputBase:   "gopus_libopus_silk_ltp",
 		SourceFile:   "libopus_silk_ltp_info.c",
-		ProbeRelPath: "silk/main.h",
-		CFlags:       []string{"-DHAVE_CONFIG_H"},
-		RefIncludes:  []string{"celt", "silk"},
+		ProbeRelPath: "silk/float/main_FLP.h",
+		CFlags:       []string{"-DHAVE_CONFIG_H", "-ffp-contract=off"},
+		RefIncludes:  []string{"celt", "silk", "silk/float"},
 		RefSources: []string{
 			"silk/quant_LTP_gains.c",
 			"silk/VQ_WMat_EC.c",
@@ -49,6 +65,11 @@ func buildLibopusSILKLTPHelper() (string, error) {
 			"silk/tables_LTP.c",
 			"silk/lin2log.c",
 			"silk/log2lin.c",
+			"silk/float/corrMatrix_FLP.c",
+			"silk/float/energy_FLP.c",
+			"silk/float/find_LTP_FLP.c",
+			"silk/float/inner_product_FLP.c",
+			"silk/float/scale_vector_FLP.c",
 		},
 	})
 }
@@ -127,6 +148,50 @@ func probeLibopusSILKDecodePitch(records [][]int32) ([][maxNbSubfr]int32, error)
 	for i := range out {
 		for j := range out[i] {
 			out[i][j] = reader.I32()
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusSILKFindLTPFLP(cases []libopusSILKLTPFindCase) ([]libopusSILKLTPFindRecord, error) {
+	binPath, err := getLibopusSILKLTPHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKLTPInputMagic, libopusSILKLTPModeFind, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.I32(int32(tc.nbSubfr))
+		payload.I32(int32(tc.subfrLen))
+		payload.I32(int32(tc.resStart))
+		payload.I32(int32(len(tc.residual32)))
+		for _, lag := range tc.lags {
+			payload.I32(int32(lag))
+		}
+		payload.Float32s(tc.residual32...)
+	}
+	data, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return nil, fmt.Errorf("run silk find ltp helper: %w", err)
+	}
+	reader, err := libopustest.NewOracleReader("silk find ltp", libopusSILKLTPOutputMagic, data)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(cases))
+	out := make([]libopusSILKLTPFindRecord, count)
+	for i := range out {
+		xxLen := cases[i].nbSubfr * ltpOrderConst * ltpOrderConst
+		xXLen := cases[i].nbSubfr * ltpOrderConst
+		out[i].XX = make([]float32, xxLen)
+		out[i].xX = make([]float32, xXLen)
+		for j := range out[i].XX {
+			out[i].XX[j] = reader.Float32()
+		}
+		for j := range out[i].xX {
+			out[i].xX[j] = reader.Float32()
 		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {
@@ -269,6 +334,43 @@ func TestSILKDecodePitchLagClampEdgesMatchLibopusOracle(t *testing.T) {
 	}
 }
 
+func TestSILKFindLTPFLPMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusSILKLTPFindCase{
+		makeLibopusSILKFindLTPCase("two_subframes_40", 2, 40, 64, [maxNbSubfr]int{18, 22}, 0x10203040, 512),
+		makeLibopusSILKFindLTPCase("four_subframes_80", 4, 80, 120, [maxNbSubfr]int{32, 45, 50, 28}, 0x20304050, 4096),
+		makeLibopusSILKFindLTPCase("four_subframes_120", 4, 120, 160, [maxNbSubfr]int{56, 72, 40, 88}, 0x30405060, 32768),
+	}
+	want, err := probeLibopusSILKFindLTPFLP(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk find ltp", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotXX := make([]float32, tc.nbSubfr*ltpOrderConst*ltpOrderConst)
+			gotxX := make([]float32, tc.nbSubfr*ltpOrderConst)
+			findLTPFLP(gotXX, gotxX, tc.residual32, tc.resStart, tc.lags[:tc.nbSubfr], tc.subfrLen, tc.nbSubfr)
+			for j := range gotXX {
+				if math.Float32bits(gotXX[j]) != math.Float32bits(want[i].XX[j]) {
+					t.Fatalf("XX[%d]=%08x %.10g want %08x %.10g",
+						j,
+						math.Float32bits(gotXX[j]), gotXX[j],
+						math.Float32bits(want[i].XX[j]), want[i].XX[j])
+				}
+			}
+			for j := range gotxX {
+				if math.Float32bits(gotxX[j]) != math.Float32bits(want[i].xX[j]) {
+					t.Fatalf("xX[%d]=%08x %.10g want %08x %.10g",
+						j,
+						math.Float32bits(gotxX[j]), gotxX[j],
+						math.Float32bits(want[i].xX[j]), want[i].xX[j])
+				}
+			}
+		})
+	}
+}
+
 func decodePitchContourCodebookSize(fsKHz, nbSubfr int) int {
 	if fsKHz == 8 {
 		if nbSubfr == peMaxNbSubfr {
@@ -280,6 +382,30 @@ func decodePitchContourCodebookSize(fsKHz, nbSubfr int) int {
 		return peNbCbksStage3Max
 	}
 	return peNbCbksStage3_10ms
+}
+
+func makeLibopusSILKFindLTPCase(name string, nbSubfr, subfrLen, resStart int, lags [maxNbSubfr]int, seed uint32, scale float32) libopusSILKLTPFindCase {
+	residualLen := resStart + nbSubfr*subfrLen + ltpOrderConst
+	return libopusSILKLTPFindCase{
+		name:       name,
+		nbSubfr:    nbSubfr,
+		subfrLen:   subfrLen,
+		resStart:   resStart,
+		lags:       lags,
+		residual32: ltpFindResidualPattern(residualLen, seed, scale),
+	}
+}
+
+func ltpFindResidualPattern(n int, seed uint32, scale float32) []float32 {
+	out := make([]float32, n)
+	state := seed
+	for i := range out {
+		state = state*1664525 + 1013904223
+		noise := float32(int32(state>>8)&0xffff-32768) / 32768.0
+		ramp := float32((i%17)-8) * (1.0 / 32.0)
+		out[i] = scale * (0.75*noise + ramp)
+	}
+	return out
 }
 
 func TestSILKLTPVQMatchesLibopusOracle(t *testing.T) {

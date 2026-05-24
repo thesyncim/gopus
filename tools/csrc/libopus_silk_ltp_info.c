@@ -7,7 +7,7 @@
 #include <io.h>
 #endif
 
-#include "silk/main.h"
+#include "silk/float/main_FLP.h"
 
 #define INPUT_MAGIC "GSLT"
 #define OUTPUT_MAGIC "GSLU"
@@ -25,7 +25,8 @@ void celt_fatal(const char *str, const char *file, int line) {
 enum {
   MODE_LTP_QUANT = 0,
   MODE_LTP_VQ = 1,
-  MODE_DECODE_PITCH = 2
+  MODE_DECODE_PITCH = 2,
+  MODE_FIND_LTP_FLP = 3
 };
 
 static int set_binary_stdio(void) {
@@ -61,6 +62,19 @@ static int write_u32(uint32_t value) {
 
 static int write_i32(int32_t value) {
   return write_exact(&value, sizeof(value));
+}
+
+static int read_float(silk_float *out) {
+  uint32_t raw;
+  if (!read_u32(&raw)) return 0;
+  memcpy(out, &raw, sizeof(*out));
+  return 1;
+}
+
+static int write_float(silk_float value) {
+  uint32_t raw;
+  memcpy(&raw, &value, sizeof(raw));
+  return write_u32(raw);
 }
 
 static int read_i32_vector(opus_int32 *out, int n) {
@@ -180,11 +194,60 @@ static int eval_decode_pitch(void) {
   return 1;
 }
 
+static int eval_find_ltp_flp(void) {
+  int32_t raw;
+  int nb_subfr;
+  int subfr_len;
+  int res_start;
+  int residual_len;
+  int i;
+  opus_int lag[MAX_NB_SUBFR] = {0};
+  silk_float residual[1024];
+  silk_float XX[MAX_NB_SUBFR * LTP_ORDER * LTP_ORDER] = {0};
+  silk_float xX[MAX_NB_SUBFR * LTP_ORDER] = {0};
+
+  if (!read_i32(&raw)) return 0;
+  nb_subfr = (int)raw;
+  if (nb_subfr != 2 && nb_subfr != 4) return 0;
+  if (!read_i32(&raw)) return 0;
+  subfr_len = (int)raw;
+  if (subfr_len <= 0 || subfr_len > 240) return 0;
+  if (!read_i32(&raw)) return 0;
+  res_start = (int)raw;
+  if (!read_i32(&raw)) return 0;
+  residual_len = (int)raw;
+  if (residual_len <= 0 || residual_len > 1024) return 0;
+  for (i = 0; i < MAX_NB_SUBFR; i++) {
+    if (!read_i32(&raw)) return 0;
+    lag[i] = (opus_int)raw;
+  }
+  for (i = 0; i < residual_len; i++) {
+    if (!read_float(&residual[i])) return 0;
+  }
+  if (res_start < 0 || res_start >= residual_len) return 0;
+  for (i = 0; i < nb_subfr; i++) {
+    int lag_start = res_start + i * subfr_len - (lag[i] + LTP_ORDER / 2);
+    int r_end = res_start + i * subfr_len + subfr_len + LTP_ORDER;
+    int lag_end = lag_start + subfr_len + LTP_ORDER;
+    if (lag_start < 0 || r_end > residual_len || lag_end > residual_len) return 0;
+  }
+
+  silk_find_LTP_FLP(XX, xX, &residual[res_start], lag, subfr_len, nb_subfr, 0);
+  for (i = 0; i < nb_subfr * LTP_ORDER * LTP_ORDER; i++) {
+    if (!write_float(XX[i])) return 0;
+  }
+  for (i = 0; i < nb_subfr * LTP_ORDER; i++) {
+    if (!write_float(xX[i])) return 0;
+  }
+  return 1;
+}
+
 static int eval_record(uint32_t mode) {
   switch (mode) {
     case MODE_LTP_QUANT: return eval_quant();
     case MODE_LTP_VQ: return eval_vq();
     case MODE_DECODE_PITCH: return eval_decode_pitch();
+    case MODE_FIND_LTP_FLP: return eval_find_ltp_flp();
   }
   return 0;
 }
@@ -199,7 +262,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_DECODE_PITCH) return 1;
+  if (mode > MODE_FIND_LTP_FLP) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {

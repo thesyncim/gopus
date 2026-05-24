@@ -240,7 +240,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			if e.ltpCorr > 0 {
 				signalType = typeVoiced
 				pitchParams = e.preparePitchLags(pitchLags, numSubframes, lagIndex, contourIndex)
-				ltpCoeffs, ltpIndices, perIndex, predGainQ7 = e.analyzeLTPQuantized(residual, resStart, pitchLags, numSubframes, subframeSamples)
+				ltpCoeffs, ltpIndices, perIndex, predGainQ7 = e.analyzeLTPQuantized(residual32, resStart, pitchLags, numSubframes, subframeSamples)
 				ltpScaleIndex = e.computeLTPScaleIndex(predGainQ7, condCoding)
 			} else {
 				signalType = typeUnvoiced
