@@ -1,6 +1,9 @@
 package gopus
 
-import "github.com/thesyncim/gopus/internal/extsupport"
+import (
+	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/silk"
+)
 
 type plcDecodeState struct {
 	packetFrameSize    int
@@ -124,6 +127,12 @@ func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state pl
 		n, err := d.decodePLCChunksInto(out, frameSize, state)
 		return n, false, err
 	}
+	d.primeHybridDREDEntryHistory(frameSize)
+	queued := d.prepareCachedDREDNeuralConcealment(frameSize)
+	var lowbandSnapshot *silk.DeepPLCLowbandSnapshot
+	if d.dredNeuralConcealmentAvailable() && d.silkDecoder != nil {
+		lowbandSnapshot = d.silkDecoder.SnapshotDeepPLCLowbandMono()
+	}
 	cleanupHook, usedHook := d.beginHybridDREDLowbandHook()
 	defer cleanupHook()
 	n, err := d.decodePLCChunksInto(out, frameSize, state)
@@ -131,7 +140,13 @@ func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state pl
 		return 0, false, err
 	}
 	if usedHook() {
+		d.finishActiveDREDRecovery(n)
 		return n, true, nil
+	}
+	if queued.NeededFeatureFrames > 0 || queued.RecoverableFeatureFrames > 0 || queued.MissingPositiveFrames > 0 {
+		if d.advanceHybridDREDLowbandState(n, lowbandSnapshot) {
+			return n, true, nil
+		}
 	}
 	return n, false, nil
 }

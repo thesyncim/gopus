@@ -5,6 +5,7 @@ package gopus
 import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	internaldred "github.com/thesyncim/gopus/internal/dred"
+	"github.com/thesyncim/gopus/silk"
 )
 
 type decoderDREDState struct{}
@@ -92,7 +93,17 @@ func (d *Decoder) prepareDRED48kNeuralEntry(_ int, _ Mode, _ bool) internaldred.
 	return internaldred.FeatureWindow{}
 }
 
+func (d *Decoder) prepareCachedDREDNeuralConcealment(_ int) internaldred.FeatureWindow {
+	return internaldred.FeatureWindow{}
+}
+
 func (d *Decoder) applyPreparedDREDNeuralConcealment(_ []float32, _ int) bool {
+	return false
+}
+
+func (d *Decoder) primeHybridDREDEntryHistory(_ int) {}
+
+func (d *Decoder) advanceHybridDREDLowbandState(_ int, _ *silk.DeepPLCLowbandSnapshot) bool {
 	return false
 }
 

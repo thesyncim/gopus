@@ -111,7 +111,7 @@ func (d *Decoder) decodeExplicitHybridDREDFloat(dred *DRED, dredOffsetSamples in
 	if d == nil {
 		return 0, ErrInvalidArgument
 	}
-	d.primeExplicitHybridDREDEntryHistory(frameSizeSamples)
+	d.primeHybridDREDEntryHistory(frameSizeSamples)
 	queued := d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
 	var lowbandSnapshot *silk.DeepPLCLowbandSnapshot
 	cleanupHook := func() {}
@@ -143,7 +143,7 @@ func (d *Decoder) decodeExplicitHybridDREDFloat(dred *DRED, dredOffsetSamples in
 	return n, nil
 }
 
-func (d *Decoder) primeExplicitHybridDREDEntryHistory(frameSizeSamples int) {
+func (d *Decoder) primeHybridDREDEntryHistory(frameSizeSamples int) {
 	if d == nil || d.silkDecoder == nil {
 		return
 	}

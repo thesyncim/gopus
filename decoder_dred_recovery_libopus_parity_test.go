@@ -182,7 +182,7 @@ func assertDecoderCachedDREDRecoveryMatchesLibopusLifecycle(t *testing.T, label 
 	assertDecoderCachedDREDRecoveryMatchesLibopus(t, dec, packetInfo, true)
 }
 
-func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses(t *testing.T) {
+func TestDecoderCachedDREDRecoveryCursorTracksLosses16kCELT(t *testing.T) {
 	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacket()
 	if err != nil {
@@ -191,7 +191,7 @@ func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses(t *testing.T) {
 	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "16k_celt", packetInfo, 16000)
 }
 
-func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses16kCELTStereo(t *testing.T) {
+func TestDecoderCachedDREDRecoveryCursorTracksLosses16kCELTStereo(t *testing.T) {
 	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:     960,
@@ -209,7 +209,7 @@ func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses16kCELTStereo(t *te
 	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "16k_celt_stereo", packetInfo, 16000)
 }
 
-func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses16kHybrid(t *testing.T) {
+func TestDecoderCachedDREDRecoveryCursorTracksLosses16kHybrid(t *testing.T) {
 	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
@@ -222,7 +222,7 @@ func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses16kHybrid(t *testin
 	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "16k_hybrid", packetInfo, 16000)
 }
 
-func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses16kHybridStereo(t *testing.T) {
+func TestDecoderCachedDREDRecoveryCursorTracksLosses16kHybridStereo(t *testing.T) {
 	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:     960,
@@ -240,7 +240,7 @@ func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses16kHybridStereo(t *
 	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "16k_hybrid_stereo", packetInfo, 16000)
 }
 
-func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kCELT(t *testing.T) {
+func TestDecoderCachedDREDRecoveryCursorTracksLosses48kCELT(t *testing.T) {
 	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
@@ -253,7 +253,7 @@ func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kCELT(t *testing.
 	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_celt", packetInfo, packetInfo.sampleRate)
 }
 
-func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kCELTStereo(t *testing.T) {
+func TestDecoderCachedDREDRecoveryCursorTracksLosses48kCELTStereo(t *testing.T) {
 	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:     960,
@@ -271,7 +271,7 @@ func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kCELTStereo(t *te
 	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_celt_stereo", packetInfo, packetInfo.sampleRate)
 }
 
-func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid(t *testing.T) {
+func TestDecoderCachedDREDRecoveryCursorTracksLosses48kHybrid(t *testing.T) {
 	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize: 960,
@@ -281,12 +281,10 @@ func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybrid(t *testin
 	if err != nil {
 		libopustest.HelperUnavailable(t, "dred packet", err)
 	}
-	// Ordinary cached Hybrid Decode(nil) follows libopus live loss semantics:
-	// the lowband hook may run, but cached DRED recovery is not queued.
 	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_hybrid", packetInfo, packetInfo.sampleRate)
 }
 
-func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybridStereo(t *testing.T) {
+func TestDecoderCachedDREDRecoveryCursorTracksLosses48kHybridStereo(t *testing.T) {
 	libopustest.RequireOracle(t)
 	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
 		FrameSize:     960,
@@ -301,8 +299,6 @@ func TestDecoderCachedDREDRecoveryCursorStaysIdleAcrossLosses48kHybridStereo(t *
 	if !ParseTOC(packetInfo.packet[0]).Stereo {
 		t.Fatalf("forced stereo Hybrid recovery cursor packet produced mono TOC (toc=0x%02x)", packetInfo.packet[0])
 	}
-	// Ordinary cached Hybrid Decode(nil) follows libopus live loss semantics:
-	// cached DRED recovery is not queued even after the stereo runtime gate is lifted.
 	assertDecoderCachedDREDRecoveryCursorAcrossLosses(t, "48k_hybrid_stereo", packetInfo, packetInfo.sampleRate)
 }
 
@@ -319,7 +315,7 @@ func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label strin
 	if toc.Stereo {
 		channels = 2
 	}
-	wantQueuedFEC := toc.Mode == ModeCELT
+	wantQueuedFEC := true
 
 	dec, err := NewDecoder(DefaultDecoderConfig(decoderSampleRate, channels))
 	if err != nil {
@@ -339,25 +335,28 @@ func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label strin
 	dec.setDREDDecoderBlob(blob)
 
 	pcm := make([]float32, dec.maxPacketSamples*channels)
-	if _, err := dec.Decode(packetInfo.packet, pcm); err != nil {
+	n, err := dec.Decode(packetInfo.packet, pcm)
+	if err != nil {
 		t.Fatalf("%s Decode error: %v", label, err)
 	}
 	if requireDecoderDREDState(t, dec).dredRecovery != 0 {
 		t.Fatalf("%s dredRecovery after good decode=%d want 0", label, requireDecoderDREDState(t, dec).dredRecovery)
 	}
 
-	if _, err := dec.Decode(nil, pcm); err != nil {
+	lossPCM := pcm[:n*channels]
+	if _, err := dec.Decode(nil, lossPCM); err != nil {
 		t.Fatalf("%s Decode(nil, first) error: %v", label, err)
 	}
-	wantRecovery := 0
+	wantRecovery := n
 	if requireDecoderDREDState(t, dec).dredRecovery != wantRecovery {
 		t.Fatalf("%s dredRecovery after first loss=%d want %d", label, requireDecoderDREDState(t, dec).dredRecovery, wantRecovery)
 	}
 	assertCachedDREDLossFECCursor(t, label, "first", dec, wantQueuedFEC)
 
-	if _, err := dec.Decode(nil, pcm); err != nil {
+	if _, err := dec.Decode(nil, lossPCM); err != nil {
 		t.Fatalf("%s Decode(nil, second) error: %v", label, err)
 	}
+	wantRecovery = 2 * n
 	if requireDecoderDREDState(t, dec).dredRecovery != wantRecovery {
 		t.Fatalf("%s dredRecovery after second loss=%d want %d", label, requireDecoderDREDState(t, dec).dredRecovery, wantRecovery)
 	}

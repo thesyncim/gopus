@@ -579,6 +579,22 @@ func (d *Decoder) cachedDREDResult(maxDredSamples int) internaldred.Result {
 	})
 }
 
+func (d *Decoder) maxCachedDREDSamples() int {
+	if d == nil {
+		return 0
+	}
+	maxDredSamples := d.maxPacketSamples
+	if maxDredSamples <= 0 {
+		maxDredSamples = defaultMaxPacketSamples
+	}
+	if d.sampleRate > 0 && d.sampleRate != 48000 && maxDredSamples == defaultMaxPacketSamples {
+		if scaled := maxDredSamples * d.sampleRate / 48000; scaled > 0 {
+			return scaled
+		}
+	}
+	return maxDredSamples
+}
+
 func (d *Decoder) cachedDREDFeatureWindow(maxDredSamples, decodeOffsetSamples, frameSizeSamples, initFrames int) internaldred.FeatureWindow {
 	p := d.dredPayloadState()
 	if p == nil {
@@ -912,7 +928,7 @@ func (d *Decoder) prepareCachedDREDNeuralConcealment(frameSizeSamples int) inter
 		return internaldred.FeatureWindow{}
 	}
 	decodeOffsetSamples := r.dredRecovery + frameSizeSamples
-	maxDredSamples := d.maxPacketSamples
+	maxDredSamples := d.maxCachedDREDSamples()
 	if maxDredSamples <= 0 {
 		maxDredSamples = frameSizeSamples
 	}

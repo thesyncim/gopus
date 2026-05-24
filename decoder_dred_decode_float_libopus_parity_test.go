@@ -2846,7 +2846,7 @@ func TestDecoderCachedHybridDRED16kDecodeMatrixMatchesLiveSequenceOracle(t *test
 			}
 
 			pcmTol, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
-			pcm := make([]float32, dec.maxPacketSamples)
+			pcm := make([]float32, n*dec.channels)
 			got, err := dec.Decode(nil, pcm)
 			if err != nil {
 				t.Fatalf("Decode(nil) error: %v", err)
@@ -2909,7 +2909,7 @@ func TestDecoderCachedHybridDRED16kThenNextPacketMatchesLiveSequenceOracle(t *te
 				t.Fatalf("libopus 16k cached hybrid decoder follow-up ret=%d want >0", want.next.ret)
 			}
 
-			pcm := make([]float32, dec.maxPacketSamples)
+			pcm := make([]float32, n*dec.channels)
 			got, err := dec.Decode(nil, pcm)
 			if err != nil {
 				t.Fatalf("Decode(nil) error: %v", err)
@@ -2983,7 +2983,7 @@ func TestDecoderCachedHybridDRED16kSecondLossMatchesLiveSequenceOracle(t *testin
 
 			pcmTol, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
 
-			pcm0 := make([]float32, dec.maxPacketSamples)
+			pcm0 := make([]float32, n*dec.channels)
 			got, err := dec.Decode(nil, pcm0)
 			if err != nil {
 				t.Fatalf("Decode(nil, first) error: %v", err)
@@ -2996,7 +2996,7 @@ func TestDecoderCachedHybridDRED16kSecondLossMatchesLiveSequenceOracle(t *testin
 			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "16k cached hybrid warmup live-sequence fargan", farganTol)
 			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "16k cached hybrid warmup live-sequence celt", celtTol)
 
-			pcm1 := make([]float32, dec.maxPacketSamples)
+			pcm1 := make([]float32, n*dec.channels)
 			got, err = dec.Decode(nil, pcm1)
 			if err != nil {
 				t.Fatalf("Decode(nil, second) error: %v", err)
@@ -3063,7 +3063,7 @@ func TestDecoderCachedHybridDRED16kSecondLossThenNextPacketMatchesLiveSequenceOr
 
 			pcmTol, plcTol, farganTol, celtTol := cachedHybridLiveSequenceTolerances(tc.bandwidth, tc.frameSize)
 
-			pcm0 := make([]float32, dec.maxPacketSamples)
+			pcm0 := make([]float32, n*dec.channels)
 			got, err := dec.Decode(nil, pcm0)
 			if err != nil {
 				t.Fatalf("Decode(nil, first) error: %v", err)
@@ -3073,7 +3073,7 @@ func TestDecoderCachedHybridDRED16kSecondLossThenNextPacketMatchesLiveSequenceOr
 			}
 			assertFloat32ApproxEqual(t, pcm0[:got], want.step0.pcm[:got], "16k cached hybrid live-sequence warmup pcm", pcmTol)
 
-			pcm1 := make([]float32, dec.maxPacketSamples)
+			pcm1 := make([]float32, n*dec.channels)
 			got, err = dec.Decode(nil, pcm1)
 			if err != nil {
 				t.Fatalf("Decode(nil, second) error: %v", err)
