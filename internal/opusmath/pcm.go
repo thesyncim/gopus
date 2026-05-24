@@ -2,6 +2,10 @@ package opusmath
 
 func Float32ToInt16(x float32) int16 {
 	y := x * 32768.0
+	return Float32ToInt16Raw(y)
+}
+
+func Float32ToInt16Raw(y float32) int16 {
 	if y > 32767.0 {
 		return 32767
 	}

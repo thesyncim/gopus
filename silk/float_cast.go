@@ -1,6 +1,10 @@
 package silk
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // noFMA32 returns a*b as a float32, with guaranteed intermediate rounding.
 // Go's compiler may fuse a multiply followed by an add into a single FMA
@@ -35,11 +39,5 @@ func float64ToInt32Round(x float64) int32 {
 }
 
 func float64ToInt16Round(x float64) int16 {
-	if x > math.MaxInt16 {
-		return math.MaxInt16
-	}
-	if x < math.MinInt16 {
-		return math.MinInt16
-	}
-	return int16(math.RoundToEven(x))
+	return opusmath.Float32ToInt16Raw(float32(x))
 }

@@ -1,6 +1,6 @@
 package silk
 
-import "math"
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 const (
 	resamplerDown2_0 = 9872
@@ -14,14 +14,7 @@ var resampler23CoefsLQ = [6]int16{
 }
 
 func floatToInt16Round(x float32) int16 {
-	// Match libopus FLOAT2INT16: clamp, then round using lrintf (RoundToEven).
-	if x > 32767 {
-		return 32767
-	}
-	if x < -32768 {
-		return -32768
-	}
-	return int16(math.RoundToEven(float64(x)))
+	return opusmath.Float32ToInt16Raw(x)
 }
 
 func floatToInt16SliceScaled(out []int16, in []float32, scale float32) {
@@ -35,7 +28,7 @@ func floatToInt16SliceScaled(out []int16, in []float32, scale float32) {
 	_ = in[n-1]  // BCE hint
 	_ = out[n-1] // BCE hint
 	for i := 0; i < n; i++ {
-		out[i] = float64ToInt16Round(float64(in[i] * scale))
+		out[i] = opusmath.Float32ToInt16Raw(in[i] * scale)
 	}
 }
 

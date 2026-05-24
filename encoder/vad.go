@@ -16,6 +16,8 @@ package encoder
 import (
 	"math"
 	"math/bits"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // VAD Constants matching libopus silk/define.h
@@ -192,9 +194,7 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 	_ = pcm[frameLength-1]
 	_ = input[frameLength-1]
 	for i := 0; i < frameLength; i++ {
-		// Clamp to int16 range
-		sample := float64(pcm[i]) * 32768.0
-		input[i] = float64ToInt16Round(sample)
+		input[i] = opusmath.Float32ToInt16Raw(pcm[i] * 32768.0)
 	}
 
 	// Calculate decimated frame lengths
@@ -555,16 +555,6 @@ func rshiftRound(a int32, shift int) int32 {
 		return (a >> 1) + (a & 1)
 	}
 	return ((a >> (shift - 1)) + 1) >> 1
-}
-
-func float64ToInt16Round(x float64) int16 {
-	if x > 32767 {
-		return 32767
-	}
-	if x < -32768 {
-		return -32768
-	}
-	return int16(math.RoundToEven(x))
 }
 
 var sigmLUTSlopeQ10 = [6]int32{237, 153, 73, 30, 12, 7}
