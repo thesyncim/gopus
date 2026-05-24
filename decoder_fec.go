@@ -30,7 +30,7 @@ func (d *Decoder) decodePLCForFECWithState(
 	var n int
 	var err error
 	if neuralReady && mode == ModeSILK && d.channels >= 1 && d.channels <= 2 {
-		n, usedNeuralConcealment, err = d.decodeCachedSILKDREDNeuralPLCInto(pcm, frameSize, plcDecodeState{
+		n, usedNeuralConcealment, err = d.decodeSILKNeuralPLCInto(pcm, frameSize, plcDecodeState{
 			packetFrameSize:    packetFrameSize,
 			mode:               mode,
 			bandwidth:          bandwidth,

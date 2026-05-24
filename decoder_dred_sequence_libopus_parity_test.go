@@ -337,7 +337,13 @@ func assertDecoderCachedDREDDecodeInt16LossesMatchLiveSequenceOracle(t *testing.
 	}
 
 	maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, decoderSampleRate)
-	want, err := probeLibopusDecoderDREDSequenceInt16(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceCarrierDRED, 2*n, false)
+	step0Source := libopusDecoderDREDSequenceSourceCarrierDRED
+	step1Source := libopusDecoderDREDSequenceSourceCarrierDRED
+	if toc := ParseTOC(packetInfo.packet[0]); toc.Mode == ModeSILK {
+		step0Source = libopusDecoderDREDSequenceSourceLost
+		step1Source = libopusDecoderDREDSequenceSourceLost
+	}
+	want, err := probeLibopusDecoderDREDSequenceInt16(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, step0Source, n, step1Source, 2*n, false)
 	if err != nil {
 		libopustest.HelperUnavailable(t, label+" decoder DRED int16 sequence", err)
 	}
@@ -392,7 +398,7 @@ func assertInt16WithinLSB(t *testing.T, got, want []int16, maxDiff int, label st
 	}
 }
 
-func TestDecoderCachedSILKDREDDecodeInt16MatchesLiveSequenceOracle(t *testing.T) {
+func TestDecoderSILKDecodeInt16NilWithCachedDREDLossesMatchLiveLostSequenceOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const frameSize = 960
 	for _, channels := range []int{1, 2} {
@@ -421,7 +427,7 @@ func TestDecoderCachedSILKDREDDecodeInt16MatchesLiveSequenceOracle(t *testing.T)
 	}
 }
 
-func TestDecoderCachedSILKDREDDecodeInt16RequestedPLCDurationMatchesLiveSequenceOracle(t *testing.T) {
+func TestDecoderSILKDecodeInt16NilWithCachedDREDRequestedPLCDurationMatchesLiveLostSequenceOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const frameSize = 960
 	for _, channels := range []int{1} {
@@ -455,7 +461,7 @@ func TestDecoderCachedSILKDREDDecodeInt16RequestedPLCDurationMatchesLiveSequence
 					}
 
 					maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, sampleRate)
-					want, err := probeLibopusDecoderDREDSequenceInt16(nil, packetInfo.packet, nil, maxDRED, oracleRate, requested, libopusDecoderDREDSequenceSourceCarrierDRED, requested, libopusDecoderDREDSequenceSourceCarrierDRED, 2*requested, false)
+					want, err := probeLibopusDecoderDREDSequenceInt16(nil, packetInfo.packet, nil, maxDRED, oracleRate, requested, libopusDecoderDREDSequenceSourceLost, requested, libopusDecoderDREDSequenceSourceLost, 2*requested, false)
 					if err != nil {
 						libopustest.HelperUnavailable(t, "cached SILK int16 requested decoder DRED sequence", err)
 					}

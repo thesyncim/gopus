@@ -109,7 +109,7 @@ func (d *Decoder) advanceHybridDREDLowbandState(_ int, _ *silk.DeepPLCLowbandSna
 
 func (d *Decoder) finishActiveDREDRecovery(_ int) {}
 
-func (d *Decoder) decodeCachedSILKDREDNeuralPLCInto(_ []float32, _ int, _ plcDecodeState) (int, bool, error) {
+func (d *Decoder) decodeSILKNeuralPLCInto(_ []float32, _ int, _ plcDecodeState) (int, bool, error) {
 	return 0, false, nil
 }
 
