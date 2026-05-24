@@ -32,6 +32,7 @@
 #endif
 
 #include "nnet.h"
+#include "libopus_dnn_blob_io.h"
 
 #undef HAVE_CONFIG_H
 #ifdef USE_WEIGHTS_FILE
@@ -46,33 +47,6 @@ static int set_binary_stdio(void) {
     return 0;
   }
 #endif
-  return 1;
-}
-
-static int write_weights(FILE *out, const WeightArray *list) {
-  unsigned char zeros[WEIGHT_BLOCK_SIZE] = {0};
-  int i = 0;
-  while (list[i].name != NULL) {
-    WeightHead h;
-    memset(&h, 0, sizeof(h));
-    memcpy(h.head, "DNNw", 4);
-    h.version = WEIGHT_BLOB_VERSION;
-    h.type = list[i].type;
-    h.size = list[i].size;
-    h.block_size = (h.size + WEIGHT_BLOCK_SIZE - 1) / WEIGHT_BLOCK_SIZE * WEIGHT_BLOCK_SIZE;
-    strncpy(h.name, list[i].name, sizeof(h.name) - 1);
-    if (fwrite(&h, 1, sizeof(h), out) != sizeof(h)) {
-      return 0;
-    }
-    if (h.size > 0 && fwrite(list[i].data, 1, h.size, out) != (size_t)h.size) {
-      return 0;
-    }
-    if (h.block_size > h.size &&
-        fwrite(zeros, 1, (size_t)(h.block_size - h.size), out) != (size_t)(h.block_size - h.size)) {
-      return 0;
-    }
-    i++;
-  }
   return 1;
 }
 

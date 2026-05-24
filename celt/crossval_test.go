@@ -369,13 +369,11 @@ func shouldSkipMissingOpusdecFixture(err error) bool {
 	if err == nil {
 		return false
 	}
-	if runtime.GOOS != "windows" {
-		return false
-	}
 	if !strings.Contains(err.Error(), "missing opusdec fixture for ogg sha256=") {
 		return false
 	}
-	if checkOpusdecAvailable() || checkFFmpegAvailable() {
+	opusdecEnabled := strings.TrimSpace(os.Getenv("GOPUS_DISABLE_OPUSDEC")) != "1"
+	if (opusdecEnabled && checkOpusdecAvailable()) || checkFFmpegAvailable() {
 		return false
 	}
 	return true
