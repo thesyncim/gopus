@@ -2,7 +2,10 @@ package libopustest
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
+	"hash"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -101,6 +104,11 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 
 	root := repoRoot()
 	refDir := RefPath()
+	if helperNeedsConfig(cfg.CFlags) {
+		if _, err := os.Stat(filepath.Join(refDir, "config.h")); err != nil {
+			libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{root})
+		}
+	}
 	probeRel := cfg.ProbeRelPath
 	if probeRel == "" {
 		probeRel = "config.h"
@@ -121,7 +129,23 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		return "", fmt.Errorf("mkdir helper dir: %w", err)
 	}
-	outPath := helperOutputPath(outDir, cfg.OutputBase, cfg.SourceFile, "ref")
+	digest := helperConfigDigest(cfg, refDir, srcPath)
+	outPath := helperOutputPathWithDigest(outDir, cfg.OutputBase, cfg.SourceFile, "ref", digest)
+	tmpFile, err := os.CreateTemp(outDir, filepath.Base(outPath)+".*.tmp")
+	if err != nil {
+		return "", fmt.Errorf("create helper temp output: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	if err := tmpFile.Close(); err != nil {
+		_ = os.Remove(tmpPath)
+		return "", fmt.Errorf("close helper temp output: %w", err)
+	}
+	if err := os.Remove(tmpPath); err != nil {
+		return "", fmt.Errorf("remove helper temp placeholder: %w", err)
+	}
+	defer func() {
+		_ = os.Remove(tmpPath)
+	}()
 
 	args := []string{"-std=c99", "-O2"}
 	if cfg.DeadStrip {
@@ -153,11 +177,17 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		}
 	}
 	args = append(args, cfg.LDFlags...)
-	args = append(args, "-o", outPath)
+	args = append(args, "-o", tmpPath)
 
 	cmd := exec.Command(ccPath, args...)
 	if output, err := cmd.CombinedOutput(); err != nil {
 		return "", fmt.Errorf("build %s helper: %w (%s)", cfg.Label, err, bytes.TrimSpace(output))
+	}
+	if runtime.GOOS == "windows" {
+		_ = os.Remove(outPath)
+	}
+	if err := os.Rename(tmpPath, outPath); err != nil {
+		return "", fmt.Errorf("install %s helper: %w", cfg.Label, err)
 	}
 	return outPath, nil
 }
@@ -166,13 +196,82 @@ func helperOutputPath(dir, outputBase, sourceFile, flavor string) string {
 	return helperOutputPathForGOOS(dir, outputBase, sourceFile, flavor, runtime.GOOS, runtime.GOARCH)
 }
 
+func helperOutputPathWithDigest(dir, outputBase, sourceFile, flavor, digest string) string {
+	return helperOutputPathForGOOSWithDigest(dir, outputBase, sourceFile, flavor, runtime.GOOS, runtime.GOARCH, digest)
+}
+
 func helperOutputPathForGOOS(dir, outputBase, sourceFile, flavor, goos, goarch string) string {
+	return helperOutputPathForGOOSWithDigest(dir, outputBase, sourceFile, flavor, goos, goarch, "")
+}
+
+func helperOutputPathForGOOSWithDigest(dir, outputBase, sourceFile, flavor, goos, goarch, digest string) string {
 	stem := strings.TrimSuffix(filepath.Base(filepath.FromSlash(sourceFile)), filepath.Ext(sourceFile))
 	base := fmt.Sprintf("%s_%s_%s_%s_%s", outputBase, stem, flavor, goos, goarch)
+	if digest != "" {
+		base += "_" + digest
+	}
 	if goos == "windows" {
 		base += ".exe"
 	}
 	return filepath.Join(dir, base)
+}
+
+func helperNeedsConfig(cflags []string) bool {
+	for _, flag := range cflags {
+		if flag == "-DHAVE_CONFIG_H" || flag == "-DHAVE_CONFIG_H=1" {
+			return true
+		}
+	}
+	return false
+}
+
+func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
+	h := sha256.New()
+	helperHashString(h, "v2")
+	helperHashString(h, cfg.OutputBase)
+	helperHashString(h, cfg.SourceFile)
+	helperHashString(h, fmt.Sprintf("dead-strip=%t", cfg.DeadStrip))
+	helperHashStrings(h, "cflags", cfg.CFlags)
+	helperHashStrings(h, "ref-includes", cfg.RefIncludes)
+	helperHashStrings(h, "include-dirs", cfg.IncludeDirs)
+	helperHashStrings(h, "ref-sources", cfg.RefSources)
+	helperHashStrings(h, "sources", cfg.Sources)
+	helperHashStrings(h, "libs", cfg.Libs)
+	helperHashStrings(h, "ldflags", cfg.LDFlags)
+	helperHashFile(h, "source", srcPath)
+	helperHashFile(h, "config", filepath.Join(refDir, "config.h"))
+	for _, rel := range cfg.RefSources {
+		helperHashFile(h, "ref-source", filepath.Join(refDir, filepath.FromSlash(rel)))
+	}
+	for _, src := range cfg.Sources {
+		helperHashFile(h, "source-extra", src)
+	}
+	return hex.EncodeToString(h.Sum(nil))[:12]
+}
+
+func helperHashStrings(h hash.Hash, label string, values []string) {
+	helperHashString(h, label)
+	for _, value := range values {
+		helperHashString(h, value)
+	}
+}
+
+func helperHashString(h hash.Hash, value string) {
+	_, _ = h.Write([]byte(value))
+	_, _ = h.Write([]byte{0})
+}
+
+func helperHashFile(h hash.Hash, label, path string) {
+	helperHashString(h, label)
+	helperHashString(h, path)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		helperHashString(h, "missing")
+		helperHashString(h, err.Error())
+		return
+	}
+	_, _ = h.Write(data)
+	_, _ = h.Write([]byte{0})
 }
 
 func RunHelper(binPath string, input []byte) ([]byte, error) {
