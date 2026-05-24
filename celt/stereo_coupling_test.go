@@ -109,7 +109,6 @@ func TestStereoMergeVsLibopus(t *testing.T) {
 //	bitexact_cos(16320) == 200
 //	bitexact_cos(8192) == 23171
 func TestBitexactCos(t *testing.T) {
-	// Test cases from libopus validation (test_unit_mathops.c)
 	testCases := []struct {
 		itheta   int
 		expected int
@@ -121,13 +120,8 @@ func TestBitexactCos(t *testing.T) {
 
 	for _, tc := range testCases {
 		result := bitexactCos(tc.itheta)
-		// Allow small tolerance for bit-exact matching
-		diff := absIntLocal(result - tc.expected)
-		if diff > 2 {
-			t.Errorf("bitexactCos(%d) = %d, expected %d (diff=%d)",
-				tc.itheta, result, tc.expected, diff)
-		} else {
-			t.Logf("bitexactCos(%d) = %d (expected %d) OK", tc.itheta, result, tc.expected)
+		if result != tc.expected {
+			t.Errorf("bitexactCos(%d) = %d, expected %d", tc.itheta, result, tc.expected)
 		}
 	}
 }
@@ -150,12 +144,9 @@ func TestBitexactLog2tan(t *testing.T) {
 
 	for _, tc := range testCases {
 		result := bitexactLog2tan(tc.isin, tc.icos)
-		diff := absIntLocal(result - tc.expected)
-		if diff > 2 {
-			t.Errorf("bitexactLog2tan(%d, %d) = %d, expected %d (diff=%d)",
-				tc.isin, tc.icos, result, tc.expected, diff)
-		} else {
-			t.Logf("bitexactLog2tan(%d, %d) = %d (expected %d) OK", tc.isin, tc.icos, result, tc.expected)
+		if result != tc.expected {
+			t.Errorf("bitexactLog2tan(%d, %d) = %d, expected %d",
+				tc.isin, tc.icos, result, tc.expected)
 		}
 	}
 }
@@ -176,34 +167,22 @@ func TestThetaToGainsConsistency(t *testing.T) {
 
 // TestComputeThetaDecoding validates theta decoding.
 func TestComputeThetaDecoding(t *testing.T) {
-	// Test compute_theta output matching based on bitexactCos.
-	// bitexactCos is defined to be bit-exact to libopus.
-
-	// Test itheta=0
 	imid := bitexactCos(0)
 	iside := bitexactCos(16384)
-	t.Logf("itheta=0: imid=%d, iside=%d", imid, iside)
-	if imid != -32768 || absIntLocal(iside-16554) > 2 {
-		t.Errorf("itheta=0 mismatch: imid=%d (expected -32768), iside=%d (expected ~16554)", imid, iside)
+	if imid != -32768 || iside != 16554 {
+		t.Errorf("itheta=0 mismatch: imid=%d, iside=%d", imid, iside)
 	}
 
-	// Test itheta=16384
 	imid = bitexactCos(16384)
 	iside = bitexactCos(0)
-	t.Logf("itheta=16384: imid=%d, iside=%d", imid, iside)
-	if iside != -32768 || absIntLocal(imid-16554) > 2 {
-		t.Errorf("itheta=16384 mismatch: imid=%d (expected ~16554), iside=%d (expected -32768)", imid, iside)
+	if imid != 16554 || iside != -32768 {
+		t.Errorf("itheta=16384 mismatch: imid=%d, iside=%d", imid, iside)
 	}
 
-	// Test itheta=8192 (45 degrees)
 	imid = bitexactCos(8192)
 	iside = bitexactCos(8192)
-	t.Logf("itheta=8192: imid=%d, iside=%d", imid, iside)
-	// Both should be around 23170 (cos(45) * 32768)
-	expectedMidSide := 23170
-	if absIntLocal(imid-expectedMidSide) > 100 || absIntLocal(iside-expectedMidSide) > 100 {
-		t.Errorf("itheta=8192 mismatch: imid=%d, iside=%d (expected ~%d)",
-			imid, iside, expectedMidSide)
+	if imid != 23171 || iside != 23171 {
+		t.Errorf("itheta=8192 mismatch: imid=%d, iside=%d", imid, iside)
 	}
 }
 
