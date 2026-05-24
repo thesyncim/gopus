@@ -1575,34 +1575,8 @@ encoder/hybrid.go	4	fafcbeb55bf1c74b852cbf3e30ab3a8a11b821d311c29e7c25a02c8b6be3
 encoder/scalar_types.go	1	0c0a0663423849ad524632773448a5f9e2b36bf1ee3b5009d78e414f94e071aa	legacy-current	func copyFloat64ToOpusRes(dst []opusRes, src []float64) {
 encoder/scalar_types.go	1	7aaf769ea64593d552ccc6147480d21443b76a3b1971c054bd1fa0ea60ced074	legacy-current	func copyOpusResToFloat64(dst []float64, src []opusRes) {
 encoder/scalar_types.go	1	beea720c8de54da8545efc993c92e9c60c4d4c58cb139234868d65b042e94e76	legacy-current	dst[i] = float64(src[i])
-hybrid/decoder.go	1	02ab09de62918442c9357f50f4a11df9f83e505350f74a89da8efb235e4520cb	legacy-current	output := make([]float64, len(samples)*3)
-hybrid/decoder.go	1	4556e9d3832d0f8c4dd175114abee7638b0a1debf7754e6247adfecfd03274c1	legacy-current	curr := float64(samples[i])
-hybrid/decoder.go	1	474f99e02642bb4e058eb4e32a063ae8c05b66562f099fb3d6e7a2a698e6b8e0	legacy-current	next = float64(samples[i+1])
-hybrid/decoder.go	1	4f4c268d7d635d8c572c965d4fa39308113645416e79b5febad052c2c4abbb66	legacy-current	func (d *Decoder) ensureOutput(n int) []float64 {
-hybrid/decoder.go	1	5d5ef53ec5305ac3567cc39cf69d6107b477df00b31af9db557aa1aa4f8f27fe	legacy-current	d.scratchOutput = make([]float64, n)
-hybrid/decoder.go	1	7377191cf0c13c19c549929c0875fd94ec8413f94cf7b0076c3107e4bef89a1c	legacy-current	scratchOutput: make([]float64, maxSamples),
-hybrid/decoder.go	1	7b9972784534f3af31f1c796f8363459bf191381da7463212a4c6ee77d2aaf09	legacy-current	scratchOutput []float64 // Final output buffer (max 960*2 for stereo 20ms)
-hybrid/decoder.go	1	80404970dc510a285bdb75454771a6fb9727408eda6a37c61d6305a3ac0ec857	legacy-current	func upsample3x(samples []float32) []float64 {
-hybrid/decoder.go	1	894c91a76deed51719ef4a10c0ad381e3cded86c6a880666490fe3d1dd7c40c4	legacy-current	func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float64, error) {
-hybrid/decoder.go	1	9e26be796cb84d05581bbb85c5eb19c55aa4a5b2a3cf13c6f2a4ee06f12ece2a	legacy-current	var next float64
 hybrid/decoder.go	1	c71830725d4132fdeaf59769540011e55c2db1f1a2509fc7a670a465b10dc766	legacy-current	func (d *Decoder) RecordPLCLoss() float64 {
-hybrid/decoder.go	1	e4e278477917bf564016d35eedf93f83e2bc3dbd6eedc0e641e73670e646693c	legacy-current	func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetStereo bool) ([]float64, error) {
-hybrid/decoder.go	1	faa7c54ae0ade0db467e4fe8e3a31269e443066fc2827a197914852b63ded847	legacy-current	// Returns: PCM samples as float64 slice at 48kHz
-hybrid/hybrid.go	1	0f03564460606412a80b1d89f87d005bafdcab46b8872a04fd828ece41cfbfae	legacy-current	output[i] = float64(s)
-hybrid/hybrid.go	1	21c0e88e689c4c91e457e426806c0810cae2163584dc394986797339b16a83e9	legacy-current	func (d *Decoder) DecodeStereoWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
-hybrid/hybrid.go	1	272a3a9290d646159c66478de4f206052a099e33cc22781b2213320e15af139a	legacy-current	func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float64, error) {
-hybrid/hybrid.go	1	30709bd4845ad98a6011bcc60004f62587aa22aa49e66fa92c63a6ce83818c29	legacy-current	// Returns interleaved float64 samples at 48kHz.
 hybrid/hybrid.go	1	3659c2eb06635ff9ba37f9f6507ade412e0eb1bb3e65a2d7309ba6cb060a9ca8	legacy-current	var celtConcealed []float64
-hybrid/hybrid.go	1	37c272bf1b51699f069730204fc17548f2f87117e9b8c78efeb4053be9c97207	legacy-current	func float64ToInt16(samples []float64) []int16 {
-hybrid/hybrid.go	1	524f8314b2c553b3297ba4a6e6b51d1dde5c4956096393fe25dc75137d1b1ab2	legacy-current	func (d *Decoder) DecodeWithDecoderHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float64, error) {
-hybrid/hybrid.go	1	81ff0fa64a66d3217e4ba2346b771cbd0d0c2f849f75c045309129980f31dc64	legacy-current	func (d *Decoder) float32ToFloat64(samples []float32) []float64 {
-hybrid/hybrid.go	1	a711829ac3d403bd6f9df9afd52863084909bd812eb16e87d6e0e567a376c32e	legacy-current	func (d *Decoder) DecodeWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
-hybrid/hybrid.go	1	ad3fc134777f3e2ec9d3b518959e53db30bbd91d515af1d71b3542c920056ee7	legacy-current	func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
-hybrid/hybrid.go	1	b16c7d8175c82f3395e65afcf246e0243c8612e6ded71eaef73265f498720a7e	legacy-current	func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
-hybrid/hybrid.go	2	b3589ea282a0bb3a7d2efe32109012c08817a067d8469a6c33072ca17f21594e	legacy-current	// Returns float64 samples at 48kHz.
-hybrid/hybrid.go	1	b58943c3fc60c944670790b60e46cd674d53a2b4461298ccf8a6628803675bd4	legacy-current	func (d *Decoder) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
-hybrid/hybrid.go	1	c5b19f9f6ec9fdb84e558ef6968c354a34b20d3906d2c996190ce18064dfbc7d	legacy-current	func (d *Decoder) decodedFloat64(samples []float32, err error) ([]float64, error) {
-hybrid/hybrid.go	3	dd724ebffa8d89e777800e8ccdf7b888f088ffdc1a98a26f8fb298ec93a215d2	legacy-current	) ([]float64, error) {
 internal/lpcnetplc/analysis.go	1	0a50dc44c424b9913f0c2c89c571098693ece9485671f88c64de01db7c22901b	legacy-current	var nrgF float64
 internal/lpcnetplc/analysis.go	1	0e4b638261c0ff8bed0339f1a6224809e5dcabca1bc850c7d1ea6af2c4fe9476	legacy-current	scratch.lpcEx[i] = float32(math.Pow(10, float64(scratch.lpcEx[i])) * float64(analysisCompensation[i]))
 internal/lpcnetplc/analysis.go	1	109702ae88e36cacc7cb337dcf912e7b08c89e3a66aa408de6f686dd53d41592	legacy-current	tmp1 += float64(xPtr[n-k-1]) * atmp
@@ -1657,16 +1631,11 @@ internal/osce/bwe/runtime.go	1	9603ba59915a848c623e9057e3d0891bcdef85b6c3c7cf246
 internal/osce/bwe/runtime.go	1	c46e46c8cfaba31c1aa6a7f52505b81b52341533b2c97cc91074b95354a86729	legacy-current	gainBuf[i] = float32(math.Exp(float64(filterGainA*gainBuf[i] + filterGainB)))
 internal/osce/bwe/runtime.go	1	f7ccaffe7cf782f16e2adf9f603ffe9240d92634080d43bf446a6554e4a1f3e6	legacy-current	v = float32(0.2 * float64(v))
 internal/osce/bwe/runtime.go	1	fa21599cedcfee83faa20a3e146e4530d379f43ff723ffcf52113df4d1f82222	legacy-current	invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
-internal/osce/lace/features.go	3	09ecd366e6b5b764f7c1abdd80ed616bf93d565b269f97326a27ad941c115d48	legacy-current	fftIn, fftOut []complex128,
-internal/osce/lace/features.go	1	34a04a5be579e32f593389b20d997f579f0b725b2d4780d09635c613f5185d78	legacy-current	fftIn[n] = complex(float64(in[n]), 0)
 internal/osce/lace/features.go	1	68f278b18708262d6cfc67dc1ab2897b5ac76f530961eceb20ee915ad9395e26	legacy-current	acorr[k+2] = xy / float32(math.Sqrt(float64(xx*yy)+1e-9))
 internal/osce/lace/features.go	1	8f417420cb94b790cf579c22a87b6cb31d30d98ab86336843f722d204768f4e1	legacy-current	out[k] = float32(specWindowSize) * float32(math.Sqrt(float64(re*re+im*im)))
-internal/osce/lace/features.go	1	97c6e88017aa6b0604090fe7dfd22255a89bad053fb8c696ef6565478268e072	legacy-current	fftOut [specWindowSize]complex128
-internal/osce/lace/features.go	3	b1f8d9dc6a46ac5e17b0e58aa6d7112e65aa15614b1ee3fb9494a124683f51cb	legacy-current	fftState *celt.KissFFT64State,
 internal/osce/lace/features.go	1	bb45f207328a9131ee3a54193ddc3e220a89ccb5e4848a9bb3eb2bb7b9578a6b	legacy-current	scale := float32(math.Sqrt(2.0 / float64(noisySpecNumBands)))
 internal/osce/lace/features.go	1	bf1d180eac9dab823a1792066ce622843de12064e439600e4e78ab9102ec7217	legacy-current	specBuf[n] = float32(math.Log(float64(specBuf[n]) + 1e-9))
 internal/osce/lace/features.go	1	cad93a19c0eda31cc161e260bcab2a26638f2302c046cee316f5313eb01efc1b	legacy-current	pfeatures[logGainStart] = float32(math.Log(float64(gain) + 1e-9))
-internal/osce/lace/features.go	1	df26fc74052b4021dde93b3c633a5730ad18519d251745dc656b15a1c62a7d26	legacy-current	fftIn [specWindowSize]complex128
 internal/osce/lace/features.go	1	e00c98039b3694cbd9d10a8c5e609a1f7fe6e410528310f8f1f3a722a5a1d9ca	legacy-current	spec[i] = 0.3 * float32(math.Log(float64(spec[i])+1e-9))
 internal/osce/lace/runtime.go	1	20cfee0fd546b6517eed59eca0324ccb94f071a1a4638e5cd4d8f69a0d148e4a	legacy-current	window[i] = float32(0.5 + 0.5*math.Cos(float64(arg)))
 internal/osce/lace/runtime.go	1	4615f35d8d35ce5ca7d9e3617e3e7d032cef0f300908c9f83d1ba52955a95f3d	legacy-current	return float32(math.FMA(float64(a), float64(b), float64(c)))

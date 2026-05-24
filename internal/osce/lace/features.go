@@ -71,10 +71,10 @@ const (
 	specNumFreqs   = 161 // OSCE_SPEC_NUM_FREQS
 
 	// Pitch post-processing constants.
-	noPitchValue   = 7 // OSCE_NO_PITCH_VALUE
-	pitchHangover  = 0 // OSCE_PITCH_HANGOVER (disabled in libopus 1.6.1)
-	typeUnvoiced   = 0 // SILK signalType TYPE_NO_VOICE_ACTIVITY/TYPE_UNVOICED placeholders
-	typeVoiced     = 2 // SILK TYPE_VOICED
+	noPitchValue  = 7 // OSCE_NO_PITCH_VALUE
+	pitchHangover = 0 // OSCE_PITCH_HANGOVER (disabled in libopus 1.6.1)
+	typeUnvoiced  = 0 // SILK signalType TYPE_NO_VOICE_ACTIVITY/TYPE_UNVOICED placeholders
+	typeVoiced    = 2 // SILK TYPE_VOICED
 )
 
 // centerBinsClean is the 64-band clean filterbank centre-bin layout from
@@ -383,10 +383,10 @@ func (s *FeatureState) CalculateFeatures(
 		buffer[FeaturesMaxHistory+n] = float32(xq16k[n]) / 32768.0
 	}
 
-	fftState := celt.GetKissFFT64State(specWindowSize)
 	var (
-		fftIn  [specWindowSize]complex128
-		fftOut [specWindowSize]complex128
+		fftIn  [specWindowSize]complex64
+		fftOut [specWindowSize]complex64
+		fftTmp [specWindowSize]celt.KissCpx
 		// Reused buffers across subframes.
 		magBuf  [specWindowSize]float32
 		invBuf  [specNumFreqs]float32
@@ -411,7 +411,7 @@ func (s *FeatureState) CalculateFeatures(
 				pfeatures[cleanSpecStart:cleanSpecStart+cleanSpecLength],
 				ctrl.PredCoefQ12[k>>1][:],
 				ctrl.LPCOrder,
-				fftState, fftIn[:], fftOut[:], magBuf[:], invBuf[:],
+				fftIn[:], fftOut[:], fftTmp[:], magBuf[:], invBuf[:],
 			)
 		} else {
 			// Copy from previous subframe slot (which is exactly FeatureDim
@@ -430,7 +430,7 @@ func (s *FeatureState) CalculateFeatures(
 			calculateCepstrum(
 				pfeatures[noisyCepstrumStart:noisyCepstrumStart+noisyCepstrumLen],
 				buffer[frameOffset-160:frameOffset-160+specWindowSize],
-				fftState, fftIn[:], fftOut[:], magBuf[:], cepBuf[:], specBuf[:],
+				fftIn[:], fftOut[:], fftTmp[:], magBuf[:], cepBuf[:], specBuf[:],
 			)
 		} else {
 			copy(
@@ -477,8 +477,8 @@ func calculateLogSpectrumFromLPC(
 	spec []float32,
 	aQ12 []int16,
 	lpcOrder int,
-	fftState *celt.KissFFT64State,
-	fftIn, fftOut []complex128,
+	fftIn, fftOut []complex64,
+	fftTmp []celt.KissCpx,
 	magBuf []float32,
 	invBuf []float32,
 ) {
@@ -493,7 +493,7 @@ func calculateLogSpectrumFromLPC(
 
 	// One-sided magnitude spectrum scaled by N (matches libopus
 	// `mag_spec_320_onesided`: each bin is N*|X[k]|).
-	magSpec320OneSided(magBuf[:specNumFreqs], magBuf, fftState, fftIn, fftOut)
+	magSpec320OneSided(magBuf[:specNumFreqs], magBuf, fftIn, fftOut, fftTmp)
 
 	// Invert magnitude spectrum with the libopus 1e-9 bias.
 	for i := 0; i < specNumFreqs; i++ {
@@ -516,8 +516,8 @@ func calculateLogSpectrumFromLPC(
 func calculateCepstrum(
 	cepstrum []float32,
 	signal []float32, // length specWindowSize
-	fftState *celt.KissFFT64State,
-	fftIn, fftOut []complex128,
+	fftIn, fftOut []complex64,
+	fftTmp []celt.KissCpx,
 	magBuf []float32,
 	cepBuf []float32, // length noisySpecNumBands
 	specBuf []float32, // length noisySpecNumBands
@@ -528,7 +528,7 @@ func calculateCepstrum(
 	}
 
 	// One-sided magnitude spectrum (writes to magBuf[:161]).
-	magSpec320OneSided(magBuf[:specNumFreqs], magBuf, fftState, fftIn, fftOut)
+	magSpec320OneSided(magBuf[:specNumFreqs], magBuf, fftIn, fftOut, fftTmp)
 
 	// 18-band noisy filterbank.
 	applyFilterbankNoisy(specBuf, magBuf[:specNumFreqs])
@@ -556,16 +556,17 @@ func calculateCepstrum(
 func magSpec320OneSided(
 	out []float32,
 	in []float32,
-	fftState *celt.KissFFT64State,
-	fftIn, fftOut []complex128,
+	fftIn, fftOut []complex64,
+	fftTmp []celt.KissCpx,
 ) {
+	const fftScale = float32(1.0 / specWindowSize)
 	for n := 0; n < specWindowSize; n++ {
-		fftIn[n] = complex(float64(in[n]), 0)
+		fftIn[n] = complex(in[n]*fftScale, 0)
 	}
-	fftState.KissFFT(fftIn, fftOut)
+	celt.KissFFT32ToWithScratch(fftOut, fftIn, fftTmp)
 	for k := 0; k < specNumFreqs; k++ {
-		re := float32(real(fftOut[k]))
-		im := float32(imag(fftOut[k]))
+		re := real(fftOut[k])
+		im := imag(fftOut[k])
 		out[k] = float32(specWindowSize) * float32(math.Sqrt(float64(re*re+im*im)))
 	}
 }

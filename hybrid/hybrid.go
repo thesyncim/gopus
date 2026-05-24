@@ -26,23 +26,7 @@ func decodedInt16FromFloat32(samples []float32, err error) ([]int16, error) {
 	return float32ToInt16(samples), nil
 }
 
-func (d *Decoder) decodedFloat64(samples []float32, err error) ([]float64, error) {
-	if err != nil {
-		return nil, err
-	}
-	return d.float32ToFloat64(samples), nil
-}
-
 func (d *Decoder) decodeWithRangeDecoder(
-	rd *rangecoding.Decoder,
-	frameSize int,
-	packetStereo bool,
-	afterSilk func(*rangecoding.Decoder) error,
-) ([]float64, error) {
-	return d.decodedFloat64(d.decodeWithRangeDecoderToFloat32(rd, frameSize, packetStereo, afterSilk))
-}
-
-func (d *Decoder) decodeWithRangeDecoderToFloat32(
 	rd *rangecoding.Decoder,
 	frameSize int,
 	packetStereo bool,
@@ -52,15 +36,6 @@ func (d *Decoder) decodeWithRangeDecoderToFloat32(
 }
 
 func (d *Decoder) decodeAndFinishPacket(
-	data []byte,
-	frameSize int,
-	packetStereo bool,
-	lastFrameChannels int,
-) ([]float64, error) {
-	return d.decodedFloat64(d.decodeAndFinishPacketToFloat32(data, frameSize, packetStereo, lastFrameChannels))
-}
-
-func (d *Decoder) decodeAndFinishPacketToFloat32(
 	data []byte,
 	frameSize int,
 	packetStereo bool,
@@ -76,7 +51,7 @@ func (d *Decoder) decodeAndFinishPacketToFloat32(
 	var rd rangecoding.Decoder
 	rd.Init(data)
 
-	samples, err := d.decodeWithRangeDecoderToFloat32(&rd, frameSize, packetStereo, nil)
+	samples, err := d.decodeWithRangeDecoder(&rd, frameSize, packetStereo, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -91,18 +66,8 @@ func (d *Decoder) decodeAndFinishWithRangeDecoder(
 	packetStereo bool,
 	lastFrameChannels int,
 	afterSilk func(*rangecoding.Decoder) error,
-) ([]float64, error) {
-	return d.decodedFloat64(d.decodeAndFinishWithRangeDecoderToFloat32(rd, frameSize, packetStereo, lastFrameChannels, afterSilk))
-}
-
-func (d *Decoder) decodeAndFinishWithRangeDecoderToFloat32(
-	rd *rangecoding.Decoder,
-	frameSize int,
-	packetStereo bool,
-	lastFrameChannels int,
-	afterSilk func(*rangecoding.Decoder) error,
 ) ([]float32, error) {
-	samples, err := d.decodeWithRangeDecoderToFloat32(rd, frameSize, packetStereo, afterSilk)
+	samples, err := d.decodeWithRangeDecoder(rd, frameSize, packetStereo, afterSilk)
 	if err != nil {
 		return nil, err
 	}
@@ -118,17 +83,17 @@ func (d *Decoder) decodeAndFinishWithRangeDecoderToFloat32(
 //   - data: raw Opus frame data (without TOC byte), or nil for PLC
 //   - frameSize: frame size in samples at 48kHz (480 for 10ms, 960 for 20ms)
 //
-// Returns float64 samples at 48kHz.
+// Returns float32 samples at 48kHz.
 //
 // Hybrid mode combines SILK (0-8kHz) and CELT (8-20kHz) for high-quality
 // wideband speech at medium bitrates. Only 10ms and 20ms frames are supported.
-func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
+func (d *Decoder) Decode(data []byte, frameSize int) ([]float32, error) {
 	return d.decodeAndFinishPacket(data, frameSize, false, 1)
 }
 
 // DecodeWithPacketStereo decodes a Hybrid frame and honors the packet stereo flag.
 // This is used when the output channels (decoder configuration) differ from the packet channels.
-func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float64, error) {
+func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
 	return d.decodeAndFinishPacket(data, frameSize, packetStereo, d.channels)
 }
 
@@ -158,8 +123,8 @@ func (d *Decoder) SetDeepPLCLossMonoHook(hook silk.DeepPLCLossMonoHook) {
 //   - data: raw Opus frame data (without TOC byte), or nil for PLC
 //   - frameSize: frame size in samples at 48kHz (480 for 10ms, 960 for 20ms)
 //
-// Returns interleaved float64 samples at 48kHz.
-func (d *Decoder) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
+// Returns interleaved float32 samples at 48kHz.
+func (d *Decoder) DecodeStereo(data []byte, frameSize int) ([]float32, error) {
 	if err := d.requireStereoDecoder(); err != nil {
 		return nil, err
 	}
@@ -176,7 +141,7 @@ func (d *Decoder) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
 //
 // Returns int16 samples at 48kHz in range [-32768, 32767].
 func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
-	return decodedInt16FromFloat32(d.decodeAndFinishPacketToFloat32(data, frameSize, false, 1))
+	return decodedInt16FromFloat32(d.decodeAndFinishPacket(data, frameSize, false, 1))
 }
 
 // DecodeStereoToInt16 decodes stereo and converts to int16 PCM.
@@ -186,7 +151,7 @@ func (d *Decoder) DecodeStereoToInt16(data []byte, frameSize int) ([]int16, erro
 		return nil, err
 	}
 
-	return decodedInt16FromFloat32(d.decodeAndFinishPacketToFloat32(data, frameSize, true, 2))
+	return decodedInt16FromFloat32(d.decodeAndFinishPacket(data, frameSize, true, 2))
 }
 
 // DecodeToFloat32 decodes and converts to float32 PCM.
@@ -198,12 +163,12 @@ func (d *Decoder) DecodeStereoToInt16(data []byte, frameSize int) ([]int16, erro
 //
 // Returns float32 samples at 48kHz in approximate range [-1, 1].
 func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error) {
-	return d.decodeAndFinishPacketToFloat32(data, frameSize, false, 1)
+	return d.decodeAndFinishPacket(data, frameSize, false, 1)
 }
 
 // DecodeToFloat32WithPacketStereo decodes with packet stereo flag and converts to float32.
 func (d *Decoder) DecodeToFloat32WithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
-	return d.decodeAndFinishPacketToFloat32(data, frameSize, packetStereo, d.channels)
+	return d.decodeAndFinishPacket(data, frameSize, packetStereo, d.channels)
 }
 
 // DecodeStereoToFloat32 decodes stereo and converts to float32 PCM.
@@ -213,7 +178,7 @@ func (d *Decoder) DecodeStereoToFloat32(data []byte, frameSize int) ([]float32, 
 		return nil, err
 	}
 
-	return d.decodeAndFinishPacketToFloat32(data, frameSize, true, 2)
+	return d.decodeAndFinishPacket(data, frameSize, true, 2)
 }
 
 // DecodeWithDecoder decodes using a pre-initialized range decoder.
@@ -224,31 +189,23 @@ func (d *Decoder) DecodeStereoToFloat32(data []byte, frameSize int) ([]float32, 
 //   - rd: Pre-initialized range decoder
 //   - frameSize: frame size in samples at 48kHz (480 for 10ms, 960 for 20ms)
 //
-// Returns float64 samples at 48kHz.
-func (d *Decoder) DecodeWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
+// Returns float32 samples at 48kHz.
+func (d *Decoder) DecodeWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float32, error) {
 	return d.decodeWithRangeDecoder(rd, frameSize, false, nil)
 }
 
 // DecodeWithDecoderHook decodes using a pre-initialized range decoder and an optional hook.
 // The hook runs after SILK decode and before CELT decode, allowing Opus-layer parsing.
-func (d *Decoder) DecodeWithDecoderHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float64, error) {
+func (d *Decoder) DecodeWithDecoderHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float32, error) {
 	return d.decodeAndFinishWithRangeDecoder(rd, frameSize, packetStereo, d.channels, afterSilk)
 }
 
 // DecodeStereoWithDecoder decodes stereo using a pre-initialized range decoder.
-func (d *Decoder) DecodeStereoWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
+func (d *Decoder) DecodeStereoWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float32, error) {
 	if err := d.requireStereoDecoder(); err != nil {
 		return nil, err
 	}
 	return d.decodeWithRangeDecoder(rd, frameSize, true, nil)
-}
-
-func float64ToInt16(samples []float64) []int16 {
-	output := make([]int16, len(samples))
-	for i, s := range samples {
-		output[i] = opusmath.Float32ToInt16(float32(s))
-	}
-	return output
 }
 
 func float32ToInt16(samples []float32) []int16 {
@@ -259,18 +216,10 @@ func float32ToInt16(samples []float32) []int16 {
 	return output
 }
 
-func (d *Decoder) float32ToFloat64(samples []float32) []float64 {
-	output := d.ensureOutput(len(samples))
-	for i, s := range samples {
-		output[i] = float64(s)
-	}
-	return output
-}
-
 // decodePLC generates concealment audio for a lost Hybrid packet.
 // Coordinates both SILK PLC and CELT PLC for the full hybrid output.
-func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float64, error) {
-	return d.decodedFloat64(d.decodePLCToFloat32(frameSize, stereo))
+func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float32, error) {
+	return d.decodePLCToFloat32(frameSize, stereo)
 }
 
 func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, error) {

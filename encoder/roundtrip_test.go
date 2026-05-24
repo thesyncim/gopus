@@ -231,6 +231,17 @@ func maxAmplitude(samples []float64) float64 {
 	return maxVal
 }
 
+func maxAmplitudeF32(samples []float32) float64 {
+	maxVal := 0.0
+	for _, s := range samples {
+		abs := math.Abs(float64(s))
+		if abs > maxVal {
+			maxVal = abs
+		}
+	}
+	return maxVal
+}
+
 // =============================================================================
 // Mode-Specific Round-Trip Tests
 // =============================================================================
@@ -434,7 +445,7 @@ func TestRoundTripHybridSWB(t *testing.T) {
 				}
 
 				if len(decoded) > 0 {
-					maxDec := maxAmplitude(decoded)
+					maxDec := maxAmplitudeF32(decoded)
 					t.Logf("Decoded max amplitude: %.4f", maxDec)
 				}
 			}

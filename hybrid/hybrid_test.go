@@ -4,6 +4,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -160,10 +161,11 @@ func TestHybridOutputRange(t *testing.T) {
 
 			var maxAbs float64
 			for i, sample := range output {
-				if math.IsNaN(sample) || math.IsInf(sample, 0) {
+				sample64 := float64(sample)
+				if math.IsNaN(sample64) || math.IsInf(sample64, 0) {
 					t.Fatalf("output[%d] is invalid: %f", i, sample)
 				}
-				if abs := math.Abs(sample); abs > maxAbs {
+				if abs := math.Abs(sample64); abs > maxAbs {
 					maxAbs = abs
 				}
 			}
@@ -295,6 +297,14 @@ func TestUpsample3xEmpty(t *testing.T) {
 	}
 }
 
+func float64ToInt16ForTest(samples []float64) []int16 {
+	output := make([]int16, len(samples))
+	for i, s := range samples {
+		output[i] = opusmath.Float32ToInt16(float32(s))
+	}
+	return output
+}
+
 // TestFloat64ToInt16 verifies conversion and clamping.
 func TestFloat64ToInt16(t *testing.T) {
 	tests := []struct {
@@ -313,7 +323,7 @@ func TestFloat64ToInt16(t *testing.T) {
 
 	for _, tt := range tests {
 		input := []float64{tt.input}
-		output := float64ToInt16(input)
+		output := float64ToInt16ForTest(input)
 		if output[0] != tt.expected {
 			t.Errorf("float64ToInt16(%f) = %d, want %d", tt.input, output[0], tt.expected)
 		}
@@ -446,11 +456,12 @@ func TestHybridRealPacketDecode(t *testing.T) {
 
 	// Verify output is within reasonable range (not NaN/Inf)
 	for i, s := range output {
-		if math.IsNaN(s) {
+		s64 := float64(s)
+		if math.IsNaN(s64) {
 			t.Errorf("output[%d] is NaN", i)
 			break
 		}
-		if math.IsInf(s, 0) {
+		if math.IsInf(s64, 0) {
 			t.Errorf("output[%d] is Inf", i)
 			break
 		}
@@ -484,7 +495,8 @@ func TestHybridRealPacket10ms(t *testing.T) {
 
 	// Verify output is within reasonable range
 	for i, s := range output {
-		if math.IsNaN(s) || math.IsInf(s, 0) {
+		s64 := float64(s)
+		if math.IsNaN(s64) || math.IsInf(s64, 0) {
 			t.Errorf("output[%d] is %f (invalid)", i, s)
 			break
 		}
@@ -519,7 +531,8 @@ func TestHybridRealPacketStereo(t *testing.T) {
 
 	// Verify output is within reasonable range
 	for i, s := range output {
-		if math.IsNaN(s) || math.IsInf(s, 0) {
+		s64 := float64(s)
+		if math.IsNaN(s64) || math.IsInf(s64, 0) {
 			t.Errorf("output[%d] is %f (invalid)", i, s)
 			break
 		}
@@ -550,7 +563,8 @@ func TestHybridRealPacketWithPublicAPI(t *testing.T) {
 	// Check for valid samples
 	invalidCount := 0
 	for _, s := range output {
-		if math.IsNaN(s) || math.IsInf(s, 0) {
+		s64 := float64(s)
+		if math.IsNaN(s64) || math.IsInf(s64, 0) {
 			invalidCount++
 		}
 	}
@@ -635,7 +649,7 @@ func TestHybridOutputSampleRange(t *testing.T) {
 	// Calculate max absolute value
 	var maxAbs float64
 	for _, s := range output {
-		abs := math.Abs(s)
+		abs := math.Abs(float64(s))
 		if abs > maxAbs {
 			maxAbs = abs
 		}

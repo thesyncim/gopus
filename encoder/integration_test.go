@@ -142,7 +142,7 @@ func TestEncoderHybridRoundTrip(t *testing.T) {
 			frameData := packet[1:]
 			stereo := tc.channels == 2
 
-			var decoded []float64
+			var decoded []float32
 			if stereo {
 				decoded, err = dec.DecodeStereo(frameData, tc.frameSize)
 			} else {
@@ -154,7 +154,7 @@ func TestEncoderHybridRoundTrip(t *testing.T) {
 
 			// Verify signal energy is preserved
 			inputEnergy := computeEnergyIntegration(pcm)
-			outputEnergy := computeEnergyIntegration(decoded)
+			outputEnergy := computeEnergyIntegrationF32(decoded)
 
 			ratio := 0.0
 			if inputEnergy > 0 {
@@ -591,6 +591,18 @@ func computeEnergyIntegration(samples []float64) float64 {
 	var sum float64
 	for _, s := range samples {
 		sum += s * s
+	}
+	return sum / float64(len(samples))
+}
+
+func computeEnergyIntegrationF32(samples []float32) float64 {
+	if len(samples) == 0 {
+		return 0
+	}
+	var sum float64
+	for _, s := range samples {
+		s64 := float64(s)
+		sum += s64 * s64
 	}
 	return sum / float64(len(samples))
 }

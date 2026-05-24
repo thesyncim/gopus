@@ -291,6 +291,15 @@ func computeEnergy(samples []float64) float64 {
 	return energy / float64(len(samples))
 }
 
+func computeEnergyF32(samples []float32) float64 {
+	var energy float64
+	for _, s := range samples {
+		s64 := float64(s)
+		energy += s64 * s64
+	}
+	return energy / float64(len(samples))
+}
+
 // TestHybridEncode10ms tests 480-sample (10ms) hybrid frame encoding.
 func TestHybridEncode10ms(t *testing.T) {
 	enc := encoder.NewEncoder(48000, 1)
@@ -417,7 +426,7 @@ func TestHybridRoundTrip(t *testing.T) {
 
 	if len(decoded) > 0 {
 		// Verify output has energy (not silence)
-		energy := computeEnergy(decoded)
+		energy := computeEnergyF32(decoded)
 		t.Logf("Decoded signal energy: %f", energy)
 
 		if energy > 0.0001 {

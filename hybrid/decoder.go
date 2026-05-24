@@ -73,7 +73,6 @@ type Decoder struct {
 	scratchSilkUpsampled []float32 // SILK upsampled output (max 960*2 for stereo 20ms)
 	scratchCELT48        []float32
 	scratchCELTAPI       []float32
-	scratchOutput        []float64 // Final output buffer (max 960*2 for stereo 20ms)
 }
 
 // NewDecoder creates a new Hybrid decoder with the given number of channels.
@@ -105,7 +104,6 @@ func NewDecoder(channels int) *Decoder {
 		scratchSilkUpsampled: make([]float32, maxSamples),
 		scratchCELT48:        make([]float32, maxSamples),
 		scratchCELTAPI:       make([]float32, maxSamples),
-		scratchOutput:        make([]float64, maxSamples),
 	}
 }
 
@@ -246,14 +244,14 @@ func (d *Decoder) downsampleFrame48ToAPI(dst, src []float32, frameSize int) {
 //   - frameSize: Expected output samples at 48kHz (480 or 960)
 //   - stereo: True for stereo decoding
 //
-// Returns: PCM samples as float64 slice at 48kHz
-func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetStereo bool) ([]float64, error) {
+// Returns: PCM samples as float32 slice at 48kHz
+func (d *Decoder) decodeFrame(rd *rangecoding.Decoder, frameSize int, packetStereo bool) ([]float32, error) {
 	return d.decodeFrameWithHook(rd, frameSize, packetStereo, nil)
 }
 
 // decodeFrameWithHook decodes a single hybrid frame and allows a hook after SILK decode.
-func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float64, error) {
-	return d.decodedFloat64(d.decodeFrameWithHookFloat32(rd, frameSize, packetStereo, afterSilk, nil))
+func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float32, error) {
+	return d.decodeFrameWithHookFloat32(rd, frameSize, packetStereo, afterSilk, nil)
 }
 
 // DecodeWithDecoderHookToFloat32 decodes a hybrid frame and writes the final
@@ -483,30 +481,20 @@ func (d *Decoder) ensureSilkUpsampled(n int) []float32 {
 	return d.scratchSilkUpsampled
 }
 
-// ensureOutput returns a pre-allocated buffer for final output.
-func (d *Decoder) ensureOutput(n int) []float64 {
-	if cap(d.scratchOutput) < n {
-		d.scratchOutput = make([]float64, n)
-	} else {
-		d.scratchOutput = d.scratchOutput[:n]
-	}
-	return d.scratchOutput
-}
-
 // upsample3x upsamples SILK output from 16kHz to 48kHz using linear interpolation.
 // Retained for test helpers.
-func upsample3x(samples []float32) []float64 {
+func upsample3x(samples []float32) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
 
-	output := make([]float64, len(samples)*3)
+	output := make([]float32, len(samples)*3)
 
 	for i := 0; i < len(samples); i++ {
-		curr := float64(samples[i])
-		var next float64
+		curr := samples[i]
+		var next float32
 		if i+1 < len(samples) {
-			next = float64(samples[i+1])
+			next = samples[i+1]
 		} else {
 			next = curr
 		}
