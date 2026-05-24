@@ -25,6 +25,7 @@ When a change touches codec behavior:
 
 - Cross-check codec math and bitstream decisions against libopus 1.6.1 before changing behavior.
 - Prefer matching libopus over heuristic fixes unless fixture evidence justifies a divergence.
+- Match libopus scalar widths for runtime state, signal buffers, and scratch buffers. Run `make test-type-parity`; do not refresh the baseline to hide new `float64`/`complex128` debt.
 - Preserve zero allocations in the real-time encode/decode hot paths.
 - Treat `testvectors/testdata/` and `tmp_check/` as fixed references unless the change is explicitly about fixtures or the pinned libopus snapshot.
 
@@ -42,6 +43,7 @@ Common commands:
 
 ```bash
 go test ./...
+make test-type-parity
 make test-quality
 make bench-guard
 make verify-production

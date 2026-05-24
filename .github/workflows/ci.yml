@@ -88,6 +88,9 @@ jobs:
       - name: Run docs contract
         run: make test-doc-contract
 
+      - name: Run libopus type parity guard
+        run: make test-type-parity
+
       - name: Install golangci-lint
         run: |
           GOWORK=off go install github.com/golangci/golangci-lint/cmd/golangci-lint@${GOLANGCI_LINT_VERSION}

@@ -81,6 +81,18 @@ Hard rule:
 - Reusable struct fields, local `make([]float64, ...)` buffers, conversion scratch, temporary output buffers, and "only a cache" buffers all count. Any one of them can change branch decisions, PVQ pulse choices, energy quantization, or range-final parity.
 - `ensureFloat64Slice` and `ensureComplexSlice` are transition debt in runtime codec code. They should disappear from runtime paths or be replaced by type-specific helpers such as `ensureSigSlice`, `ensureNormSlice`, `ensureGLogSlice`, `ensureOpusResSlice`, and fixed-width integer helpers.
 
+## Enforcement
+
+The repo now has a ratcheting guard for this rule:
+
+```sh
+make test-type-parity
+```
+
+The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review.
+
+Agents must not run `make update-type-parity-baseline` to hide new debt. Refresh the baseline only after migrating runtime code to libopus-width types, or when a remaining `float64` is tied to a specific libopus C `double` helper with a source citation.
+
 ## Current Surface Area
 
 These are rough grep counts from non-test Go files on 2026-05-24. They are a burn-down metric, not a proof of incorrectness.

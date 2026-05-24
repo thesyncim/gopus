@@ -1,6 +1,6 @@
 FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-exactness test-exhaustive test-provenance
 
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-type-parity update-type-parity-baseline test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -10,6 +10,7 @@ GO_RUNNABLE_TEST ?= bash ./tools/run_go_test_runnable.sh
 ASSEMBLY_SAFETY_MATRIX ?= bash ./tools/run_assembly_safety_matrix.sh
 FOCUS_GATE ?= bash ./tools/run_focus_gate.sh
 FOCUS_GATE_CMD = GO=$(GO) GO_WORK_ENV="$(GO_WORK_ENV)" $(FOCUS_GATE)
+TYPE_PARITY_GUARD ?= python3 ./tools/check_type_parity.py
 PGO_FILE ?= default.pgo
 PGO_FLAG ?= -pgo=$(PGO_FILE)
 PGO_GENERATE_FLAG ?= -pgo=off
@@ -87,6 +88,15 @@ test-fast:
 # Race detector sweep across all packages at fast test tier (keeps runtime bounded).
 test-race:
 	$(RUNNABLE_FAST) -race -count=1 -timeout=20m
+
+# Runtime libopus scalar-width guard. This is a ratchet over the current
+# legacy debt: new float64/complex128 codec-domain findings fail, and removed
+# findings require updating the baseline so cleanup stays review-visible.
+test-type-parity:
+	$(TYPE_PARITY_GUARD)
+
+update-type-parity-baseline:
+	$(TYPE_PARITY_GUARD) --update
 
 # Fuzz smoke run for packet/fixture parsers.
 test-fuzz-smoke:
@@ -200,6 +210,7 @@ bench-testvectors-report: ensure-libopus ensure-testvectors
 
 # Default production verification gate.
 verify-production: ensure-libopus
+	$(MAKE) test-type-parity
 	$(RUNNABLE_PARITY) -count=1 -timeout=25m
 	$(MAKE) test-consumer-smoke
 	$(MAKE) test-examples-smoke

@@ -37,7 +37,14 @@ run_go_test_json() {
 		cmd_env+=("$1")
 		shift
 	done
-	run_json env "${cmd_env[@]}" "${go_env[@]}" "$GO_BIN" test -json "$@"
+	local -a env_args=()
+	if ((${#cmd_env[@]})); then
+		env_args+=("${cmd_env[@]}")
+	fi
+	if ((${#go_env[@]})); then
+		env_args+=("${go_env[@]}")
+	fi
+	run_json env "${env_args[@]}" "$GO_BIN" test -json "$@"
 }
 
 run_parity() {
