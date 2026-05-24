@@ -1239,7 +1239,7 @@ func TestEncode_SurroundBandSMRProduced(t *testing.T) {
 		row := enc.surroundBandSMR[ch*surroundBands : (ch+1)*surroundBands]
 		rowNonZero := false
 		for _, v := range row {
-			if math.Abs(v) > 1e-6 {
+			if v < -1e-6 || v > 1e-6 {
 				rowNonZero = true
 				break
 			}
@@ -1254,7 +1254,7 @@ func TestEncode_SurroundBandSMRProduced(t *testing.T) {
 
 	lfeRow := enc.surroundBandSMR[5*surroundBands : 6*surroundBands]
 	for i, v := range lfeRow {
-		if math.Abs(v) > 1e-9 {
+		if v < -1e-9 || v > 1e-9 {
 			t.Fatalf("LFE surroundBandSMR[%d]=%f want=0", i, v)
 		}
 	}

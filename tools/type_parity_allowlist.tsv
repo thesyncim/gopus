@@ -909,6 +909,7 @@ celt/mdct.go	1	fc58c3290c83b2874f8337196dd5b54552633b893f5eb891545cc0431c85c135	
 celt/mdct_encode.go	2	0433b73c54f255c86e6a2324ddb886d35dc26a4263631af7bb192cc800eccf84	legacy-current	return float32(float64(a)*float64(c) + float64(t))
 celt/mdct_encode.go	1	0a5e78337b64994e76848d4fbd4b75abf8021a8b84342d2406edb126b83c244e	legacy-current	func mdctCoreCompute(samples []float64, coeffs []float64, scale float64) {
 celt/mdct_encode.go	1	0cb342d5fee27e9b3c242619c0913e8550ac61c9bc3c1f752f118b0b409a3254	legacy-current	yr := float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
+celt/mdct_encode.go	1	10bda4437680a9d24fa1de1c921e040f5d6f8d536050b05b4902461bddb892a6	legacy-current	func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](samples []S, overlap int, coeffs []C, f []float32, fftIn []complex64, fftOut []complex64, fftTmp []kissCpx) {
 celt/mdct_encode.go	1	10d37d4abcf8e0ecb229d74959dfb45a489fc51b791aec0f25e849506278b5cd	legacy-current	func mdctForwardOverlapScratch(samples []float64, overlap int, scratch *encoderScratch) []float64 {
 celt/mdct_encode.go	1	1e56dc654b03e49b100c63c0aaff96c228577c5b92ecfde81e33eabdc4f97f55	legacy-current	func mdctShortScratch(samples []float64, shortBlocks int, scratch *encoderScratch) []float64 {
 celt/mdct_encode.go	2	27a548f4d7e30e449636a1c70f9b8fce24d3304ce595a9333c12e64fec48f011	legacy-current	return float32(float64(a)*float64(c) - float64(t))
@@ -916,7 +917,6 @@ celt/mdct_encode.go	1	2cd097fb76aa9a7c38b7f2aeff1661230659c0b5c2ee8d39fb0148eaaf
 celt/mdct_encode.go	1	3426b234a2218c3592926add897aeb1183e10302dbb77c5dc1e855321554b7ff	legacy-current	func mdctScratchInto(samples []float64, coeffs []float64, scratch *encoderScratch) []float64 {
 celt/mdct_encode.go	2	3af9bc082f23004974c7f866c5a5e44adf15eb2ed8903515a4674c82e240f1f3	legacy-current	yi := float32(float64(re)*float64(t1) + float64(mdctMulWith(useNativeMul, im, t0)))
 celt/mdct_encode.go	2	41b46686abbfcad460d967ffce04663eff2cd50508a8458dcdafbfd66236c129	legacy-current	coeffs := make([]float64, N)
-celt/mdct_encode.go	4	42ea60a1d4dfcfcbd7c3c98f96de05486e039fb508c32b78161b491e4cccdabf	legacy-current	coeffs[hi] = float64(yi)
 celt/mdct_encode.go	1	4aae5f3b412442601e0cf7da8f4be161644f8d5a61b77ab1f9ea812c050f62ff	legacy-current	output := ensureFloat64Slice(&scratch.mdctCoeffs, frameSize)
 celt/mdct_encode.go	2	52e6df8a1e1d3b288c22290f204c8e1a432a83588ea1c53bbd8641e431951161	legacy-current	blockCoeffs := ensureFloat64Slice(&scratch.mdctBlockCoeffs, shortSize)
 celt/mdct_encode.go	1	58a2aa6813a31c1b6d2c998b744258fdfea8d43e10a7ea1d50991c0c3b61e9fe	legacy-current	func mdctShortBlocksCore(samples []float64, overlap, shortBlocks, shortSize int, output, blockCoeffs []float64, blockMDCT func(block, coeffs []float64)) {
@@ -928,9 +928,7 @@ celt/mdct_encode.go	1	62b3e5f8d9478038a418884f150abc15a6d9016ac14d020cf51f862798
 celt/mdct_encode.go	1	6443d207f9442477043bb2db7b36e94af6010cc79efa1a3f2942602cd3d3c599	legacy-current	angle := math.Pi / float64(N) * nPlus * kPlus
 celt/mdct_encode.go	1	66b199698cbcb78687f60b0fb5737ba5844ec146d78d77d9b3dfbb17eb735de3	legacy-current	yi := float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
 celt/mdct_encode.go	1	6d38deb699455659ac719e9536d4b8788373db28d2e6c48a85f999bbb48be3d8	legacy-current	func mdctForwardOverlapF32(samples []float64, overlap int) []float64 {
-celt/mdct_encode.go	4	6fd5f7dfba250d1b6fa3191e26ec1a06ddf98f3be63484f1a664a6630923c88b	legacy-current	coeffs[lo] = float64(yr)
 celt/mdct_encode.go	2	748992ea01fd2d0a5b7eb48dc4e096fb8a1e11f61f64af6d5bc58f767aa0c0aa	legacy-current	return float32(float64(a)*float64(c) + float64(b)*float64(d))
-celt/mdct_encode.go	1	7c1d16cbf1c75c4e6dd8fefd16877c32b5f0e6555dc2d5b6fd3f642bd90d0f8c	legacy-current	coeffs = make([]float64, n2)
 celt/mdct_encode.go	1	840830c3e219b29e4ee1d785cfba50f876443e3b2be74ddefc5bc7c0b1e2d886	legacy-current	func MDCT(samples []float64) []float64 {
 celt/mdct_encode.go	1	8567b0d6cdc4491f0d62062478c1f55dcf3d9a5e9a656c0e2d495783cbdcd305	legacy-current	func mdctForwardShortOverlap(samples []float64, overlap, shortBlocks int) []float64 {
 celt/mdct_encode.go	2	86b8fcd7676c237f3b6c6e747765444f84ece1d95f7edca5eec5b8e1bd8ba8a3	legacy-current	return float32(float64(t) - float64(b)*float64(d))
@@ -942,7 +940,6 @@ celt/mdct_encode.go	1	9fd2a8ea635eb41baebc1412301532ac52c339494501d283ccfcb24730
 celt/mdct_encode.go	1	a35d84417ee17c3608c82149ca21b1eeca17a0d7af511f90f68ad00e29d9de2e	legacy-current	func mdctForwardOverlap(samples []float64, overlap int) []float64 {
 celt/mdct_encode.go	1	a3805d070d4df5a48dcb13e135bd4a8a99e6f072673c2320d348dbbcb48161ca	legacy-current	kPlus := float64(k) + 0.5
 celt/mdct_encode.go	1	a569949f2971d97db86a9d21f1fa5dbf3d4d9637d096cc58f9134df077b8b750	legacy-current	func mdctShortScratchInto(samples []float64, shortBlocks int, output []float64, scratch *encoderScratch) []float64 {
-celt/mdct_encode.go	1	b0e34c17bf6edf40e53a9dbbc0d60c5599cae4659907dc3f5025c98532f92900	legacy-current	func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float64, f []float32, fftIn []complex64, fftOut []complex64, fftTmp []kissCpx) {
 celt/mdct_encode.go	2	c43ca42c2ba5962ac0906c1365d7d92f33a5aadd164fc346bc5934258c9bcc12	legacy-current	yi := float32(float64(im)*float64(t0) + float64(mdctMulWith(useNativeMul, re, t1)))
 celt/mdct_encode.go	1	c84307dea8f13825c0b6624b3516377c0231b3899efc1b3aeaef81d3943ea37d	legacy-current	func applyMDCTWindow(samples []float64) {
 celt/mdct_encode.go	1	cc90f83fd04a8fb5e870edb054b73b33bd99f1b27f83c07269b07c7d811d3e6d	legacy-current	func MDCTForwardWithOverlap(samples []float64, overlap int) []float64 {
@@ -1712,37 +1709,14 @@ multistream/decoder_osce_apply.go	1	77fc3480a79f4ef2d1546f7eefe276c977313b089706
 multistream/decoder_osce_apply.go	1	ca1ff93a7bfc25a8507115773d45c137f71c10c3833cb0893c29c008ebb885f7	legacy-current	func (d *streamState) markOSCEInactiveIfModeIneligible(toc streamTOC, out []float64, frameSize int) {
 multistream/decoder_osce_apply_default.go	1	796295867d83c198e329652d1cb8867714d368db11b2d9acdf524c9af3034c3e	legacy-current	func (d *streamState) markOSCEInactiveIfModeIneligible(_ streamTOC, _ []float64, _ int) {
 multistream/encoder.go	1	06b42cc4ad5da03aa34b0e87611d7a6e56a1833f63d082744a5facedf868ba35	legacy-current	func multistreamCVBRBoundScale(totalBitrate, sampleRate, frameSize int) float64 {
-multistream/encoder.go	1	0aec19d6afbc14edea1941906663c30a90cb768396593e5e58c7fecdc2bc4ac9	legacy-current	e.surroundWindowMem = make([]float64, e.inputChannels*overlap)
-multistream/encoder.go	1	1b91eea3dd2cab371b089440d4d38ad5b3b51db6a64e73e68702e20db2010adc	legacy-current	maskAvg = maskAvg/float64(count) + 0.2
-multistream/encoder.go	1	241144552c06b20c0af302b23b2ade817f2326d76faf65fd43e798a844701ef2	legacy-current	in[overlap+i*upsample] = float64(pcm[i*e.inputChannels+ch] * float32(celt.CELTSigScale))
-multistream/encoder.go	1	27abac7de9cedb46fdee08446ce57329da3332764868eeaa4dbd4ceacc67fd91	legacy-current	func copyFloat64ToFloat32(dst []float32, src []float64) {
-multistream/encoder.go	1	27f2ffc0461a8209fcfc5ee52f76d03ee0aaa498d17fbf07382b33199d93a6c3	legacy-current	maskAvg += m * float64(width)
-multistream/encoder.go	1	29cc84f211c950d70f241893d2a3ebf66272fbf9cace509604e366139e848b77	legacy-current	func (e *Encoder) ensureSurroundInputScratch(size int) []float64 {
-multistream/encoder.go	1	2b43f10cd9a52702c8f777f4dbda9b34b02c1dae97da3806b5ba675f05b0621c	legacy-current	e.surroundInputScratch = make([]float64, size)
-multistream/encoder.go	1	2da7d1e26ad2126828814ea01f0263fdda0ebd7f45e0159725d51f3d7267ab99	legacy-current	surroundBandSMR []float64
-multistream/encoder.go	1	40173eb0ff5bcfd7f872a0acfc1fe6766c1d1182a430f9d7e99c5f2fe2bf75a5	legacy-current	e.surroundPreemphMem = make([]float64, e.inputChannels)
-multistream/encoder.go	1	4559c4e08d0218529fa5f258625dc3dc090588533e1e5c0385cedcd120dfb934	legacy-current	surroundInputScratch []float64
 multistream/encoder.go	1	47bf3538038b841ae1f49bfb3050f0f95fdd849456ed8699b68fe67ddf131952	legacy-current	func logSum(a, b float64) float64 {
-multistream/encoder.go	1	4d4ac7fa9773b91beae8ba37f6a25f26aa75892d8c3f4782be1c72b35a7a4ebc	legacy-current	surroundWindowMem []float64
-multistream/encoder.go	1	5162b0fc2b9eb15a9888e198ea93fdd2855ba227e64e04022835ee0790b47aee	legacy-current	var tmp [surroundBands]float64
-multistream/encoder.go	1	57b377bc6434816124108e9365903e5674fefae4f8acdc6263335a241f445764	legacy-current	surroundBandScratch [surroundBands]float64
-multistream/encoder.go	1	57d25810d55aa1830397d265fdf89d8d453e97bf2a3273fee64cb11ba03cd5ce	legacy-current	channelOffset := 0.5 * math.Log2(2.0/float64(e.inputChannels-1))
-multistream/encoder.go	1	58cbe57dc4df83a6c0d339f64f3097dede4770bf2ddbad1ddf16ffe5899a89a6	legacy-current	diff += m * float64(1+2*i-maskEnd)
-multistream/encoder.go	1	5c8b2c2e26106c88e91c915c31b6a4e48f68923596855600da37a21a8bd703f3	legacy-current	surroundBandSMR: make([]float64, channels*surroundBands),
-multistream/encoder.go	1	5fc86e09598133146b66d663af2643fef20d87233941b14ce307a7e6c833f949	legacy-current	surroundPreemphMem: make([]float64, channels),
-multistream/encoder.go	1	62aab1977003a9df188a76c49373c2de6e1c507d2ee508385e469c5f92c91765	legacy-current	e.surroundBandSMR = make([]float64, needed)
+multistream/encoder.go	1	685e7ff5cf43162a5e2443a8edf72a23bdf5f0fc013b9a51b43cfb4e3cc5396a	legacy-current	channelOffset := float32(0.5 * math.Log2(2.0/float64(e.inputChannels-1)))
 multistream/encoder.go	1	7168bdc66291c10c23a0ab0fbdf51861253597db2c19c80bf93fcc40d526bd57	legacy-current	func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM []float64) ([]byte, error) {
 multistream/encoder.go	1	877c91f295f3f21d6eb5d6db49e5f76754beb005d1989420142d3ed9445d022b	legacy-current	burstMultiple := float64(maxBurstBytes) / float64(targetBytes)
 multistream/encoder.go	1	8fcd860f63b516852e83a71c7873b9b39239a596b6d0d3e9e122044155ac7944	legacy-current	func clampFloat(v, lo, hi float64) float64 {
-multistream/encoder.go	1	99a558be48ce680d1a209cbc1fd042ab84238e093693fa2375069a70439584aa	legacy-current	func surroundTrimFromMask(maskL, maskR []float64) float64 {
-multistream/encoder.go	1	a34d773649c3503b597113fa9aadec0d9fbb337fd3cf53d9960332a944e5a55a	legacy-current	surroundWindowMem: make([]float64, channels*celt.Overlap),
-multistream/encoder.go	1	af601b43944efe2f544a2622c7c20a8c05d54096ab3fd77eec969eab05542d61	legacy-current	func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR []float64) bool {
-multistream/encoder.go	1	af90de3a25b272ce68bb30883c92a5ea7f7eb7488d5d757851c00f75f5c0774a	legacy-current	coeffs[i] *= float64(upsample)
-multistream/encoder.go	1	bb4699e5d51a539170c468b5b0784562c3929c9cedfe835e1f7ca754a10cd433	legacy-current	surroundPreemphMem []float64
 multistream/encoder.go	1	bbbd460aa7149ce1976e96b72f14116a814daf3a6431943030e6c96574d38aa3	legacy-current	func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
-multistream/encoder.go	1	d03a50d86d39e3d80ea39522749e8871632f5f0ffbc59e7ed2f85fce93fdc7ea	legacy-current	denom := float64(channels * (maskEnd - 1) * (maskEnd + 1) * maskEnd)
+multistream/encoder.go	1	c0ca7259b9436c38f3119fef92e952cd9335702f668e03849b62a3778ebf8f05	legacy-current	return a + 0.5*float32(math.Log2(1.0+math.Exp2(float64(2.0*(b-a)))))
 multistream/encoder.go	1	fd75720f7395eaedc3a720819a1f0e4ca5fef697cb266899f34d1cf6ebb56eb0	legacy-current	// - pcm: input samples as float64, sample-interleaved [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
-multistream/encoder.go	1	fe738dd8d09e61d51820c3114cb1720ea36f3e758073961848bfc44994686952	legacy-current	var maskLogE [3][surroundBands]float64
 multistream/multistream.go	1	020c91550db62c814c505f9eab31e708fca9a2bb3fadfa659b78ec3b883d9767	legacy-current	decoded = make([]float64, frameSize*channels)
 multistream/multistream.go	1	08bd3e6b1df90a3f8a7b311e1c98c6d4923db76c0314e7a6c5b0daecf9bc4f4f	legacy-current	func (d *Decoder) decodeStream(stream int, packet []byte, frameSize int) ([]float64, error) {
 multistream/multistream.go	2	1c600a61d9befdb933ed0a5f5a0a01492538e9f6fdf70ebe7b200d86ac36f03b	legacy-current	decodedStreams := make([][]float64, d.streams)

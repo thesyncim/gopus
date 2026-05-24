@@ -42,6 +42,12 @@ func (e *Encoder) ComputeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSi
 	computeBandEnergiesInto(mdctCoeffs, nbBands, frameSize, e.channels, dst)
 }
 
+// ComputeBandEnergiesFloat32Into computes CELT band energies in libopus
+// float-build storage for callers that already carry celt_sig/celt_glog data.
+func (e *Encoder) ComputeBandEnergiesFloat32Into(mdctCoeffs []float32, nbBands, frameSize int, dst []float32) {
+	computeBandEnergiesFloat32Into(mdctCoeffs, nbBands, frameSize, e.channels, dst)
+}
+
 func computeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize, channels int, dst []float64) {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
@@ -123,6 +129,75 @@ func computeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize, channels 
 
 }
 
+func computeBandEnergiesFloat32Into(mdctCoeffs []float32, nbBands, frameSize, channels int, dst []float32) {
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	if channels < 1 {
+		channels = 1
+	}
+	if channels > 2 {
+		channels = 2
+	}
+
+	coeffsPerChannel := frameSize
+	if len(mdctCoeffs) < coeffsPerChannel*channels {
+		if len(mdctCoeffs) < coeffsPerChannel {
+			channels = 1
+			coeffsPerChannel = len(mdctCoeffs)
+		} else {
+			channels = 1
+		}
+	}
+	if len(dst) < nbBands*channels {
+		return
+	}
+
+	silence := float32(0.5) * celtLog2(float32(1e-27))
+	for c := 0; c < channels; c++ {
+		channelStart := c * coeffsPerChannel
+		channelEnd := channelStart + coeffsPerChannel
+		if channelEnd > len(mdctCoeffs) {
+			channelEnd = len(mdctCoeffs)
+		}
+		channelCoeffs := mdctCoeffs[channelStart:channelEnd]
+
+		for band := 0; band < nbBands; band++ {
+			start := ScaledBandStart(band, frameSize)
+			end := ScaledBandEnd(band, frameSize)
+
+			if start >= len(channelCoeffs) {
+				energy := silence
+				if band < len(eMeans) {
+					energy -= float32(eMeans[band] * DB6)
+				}
+				dst[c*nbBands+band] = energy
+				continue
+			}
+			if end > len(channelCoeffs) {
+				end = len(channelCoeffs)
+			}
+			if end <= start {
+				energy := silence
+				if band < len(eMeans) {
+					energy -= float32(eMeans[band] * DB6)
+				}
+				dst[c*nbBands+band] = energy
+				continue
+			}
+
+			energy := computeBandRMSFloat32(channelCoeffs, start, end)
+			if band < len(eMeans) {
+				energy -= float32(eMeans[band] * DB6)
+			}
+			dst[c*nbBands+band] = energy
+		}
+	}
+}
+
 func applyLFEBandLogEClamp(energies []float64, nbBands, channels int) {
 	if nbBands <= 2 || channels <= 0 {
 		return
@@ -175,6 +250,18 @@ func computeBandRMS(coeffs []float64, start, end int) float64 {
 	// Keep the existing float32 shortcut: strict libopus-backed quality
 	// fixtures regress on this tree when using sqrt(sumSq) before celtLog2.
 	return 0.5 * float64(celtLog2(sumSq))
+}
+
+func computeBandRMSFloat32(coeffs []float32, start, end int) float32 {
+	if end <= start || start < 0 || end > len(coeffs) {
+		return float32(0.5) * celtLog2(float32(1e-27))
+	}
+	c := coeffs[start:end:end]
+	sumSq := float32(1e-27)
+	for i := range c {
+		sumSq += c[i] * c[i]
+	}
+	return float32(0.5) * celtLog2(sumSq)
 }
 
 func celtAbsInt(v int) int {

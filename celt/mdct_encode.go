@@ -291,6 +291,17 @@ func MDCTForwardWithOverlap(samples []float64, overlap int) []float64 {
 	return mdctForwardOverlap(samples, overlap)
 }
 
+// MDCTForwardWithOverlapFloat32 computes the CELT float-build MDCT without
+// widening caller-owned signal scratch.
+func MDCTForwardWithOverlapFloat32(samples []float32, overlap int) []float32 {
+	if len(samples) <= overlap {
+		return nil
+	}
+	coeffs := make([]float32, len(samples)-overlap)
+	mdctForwardOverlapF32Scratch(samples, overlap, coeffs, nil, nil, nil, nil)
+	return coeffs
+}
+
 // mdctForwardOverlap implements the CELT short-overlap MDCT (libopus clt_mdct_forward)
 // for a single block. Input length must be frameSize+overlap.
 // This uses float32 arithmetic internally to match libopus float precision.
@@ -306,7 +317,7 @@ func mdctForwardOverlapF32(samples []float64, overlap int) []float64 {
 }
 
 // mdctForwardOverlapF32Scratch is the scratch-aware version that avoids allocations.
-func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float64, f []float32, fftIn []complex64, fftOut []complex64, fftTmp []kissCpx) {
+func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](samples []S, overlap int, coeffs []C, f []float32, fftIn []complex64, fftOut []complex64, fftTmp []kissCpx) {
 	if len(samples) == 0 {
 		return
 	}
@@ -358,7 +369,7 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 		fftTmp = make([]kissCpx, n4)
 	}
 	if coeffs == nil || len(coeffs) < n2 {
-		coeffs = make([]float64, n2)
+		coeffs = make([]C, n2)
 	}
 
 	xp1 := overlap / 2
@@ -555,8 +566,8 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				t1 := trigHi[i]
 				yr := float32(float64(im)*float64(t1) - float64(mdctMulWith(useNativeMul, re, t0)))
 				yi := float32(float64(re)*float64(t1) + float64(mdctMulWith(useNativeMul, im, t0)))
-				coeffs[lo] = float64(yr)
-				coeffs[hi] = float64(yi)
+				coeffs[lo] = C(yr)
+				coeffs[hi] = C(yi)
 				lo += 2
 				hi -= 2
 			}
@@ -568,8 +579,8 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				t1 := trigHi[i]
 				yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
 				yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
-				coeffs[lo] = float64(yr)
-				coeffs[hi] = float64(yi)
+				coeffs[lo] = C(yr)
+				coeffs[hi] = C(yi)
 				lo += 2
 				hi -= 2
 			}
@@ -587,8 +598,8 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				t1 := trigHi[i]
 				yr := float32(float64(im)*float64(t1) - float64(mdctMulWith(useNativeMul, re, t0)))
 				yi := float32(float64(re)*float64(t1) + float64(mdctMulWith(useNativeMul, im, t0)))
-				coeffs[lo] = float64(yr)
-				coeffs[hi] = float64(yi)
+				coeffs[lo] = C(yr)
+				coeffs[hi] = C(yi)
 				lo += 2
 				hi -= 2
 			}
@@ -600,8 +611,8 @@ func mdctForwardOverlapF32Scratch(samples []float64, overlap int, coeffs []float
 				t1 := trigHi[i]
 				yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
 				yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
-				coeffs[lo] = float64(yr)
-				coeffs[hi] = float64(yi)
+				coeffs[lo] = C(yr)
+				coeffs[hi] = C(yi)
 				lo += 2
 				hi -= 2
 			}
