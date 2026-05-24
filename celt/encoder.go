@@ -1174,13 +1174,6 @@ type encoderScratch struct {
 	// CWRS encoding scratch
 	cwrsU []uint32
 
-	// TF analysis scratch
-	tfMetric []int     // Per-band metric (size: nbEBands)
-	tfTmp    []float64 // Band coefficients (size: max band width)
-	tfTmp1   []float64 // Copy for transient analysis (size: max band width)
-	tfPath0  []int     // Viterbi path state 0 (size: nbEBands)
-	tfPath1  []int     // Viterbi path state 1 (size: nbEBands)
-
 	// Dynalloc analysis scratch
 	dynallocFollower   []float64
 	dynallocNoise      []float64
@@ -1359,15 +1352,6 @@ func (e *Encoder) ensureScratch(frameSize int) {
 
 	// CWRS encoding scratch (k can be up to ~128 for typical encoding)
 	s.cwrsU = ensureUint32Slice(&s.cwrsU, 256)
-
-	// TF analysis scratch
-	s.tfMetric = ensureIntSlice(&s.tfMetric, MaxBands)
-	// Max band width is ~176 bins (band 20 at LM=3), but we need 2x for safety
-	const maxTFBandWidth = 384
-	s.tfTmp = ensureFloat64Slice(&s.tfTmp, maxTFBandWidth)
-	s.tfTmp1 = ensureFloat64Slice(&s.tfTmp1, maxTFBandWidth)
-	s.tfPath0 = ensureIntSlice(&s.tfPath0, MaxBands)
-	s.tfPath1 = ensureIntSlice(&s.tfPath1, MaxBands)
 
 	// Dynalloc analysis scratch
 	s.dynallocFollower = ensureFloat64Slice(&s.dynallocFollower, MaxBands)

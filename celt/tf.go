@@ -215,6 +215,39 @@ func l1Metric(tmp []float64, N int, LM int, bias float64) float64 {
 	return float64(L1)
 }
 
+func l1MetricNorm(tmp []celtNorm, N int, LM int, bias float32) float32 {
+	var L1 float32
+	for i := 0; i < N && i < len(tmp); i++ {
+		v := float32(tmp[i])
+		if v < 0 {
+			v = -v
+		}
+		L1 += v
+	}
+	return L1 + float32(LM)*bias*L1
+}
+
+func haar1Norm(x []celtNorm, n0, stride int) {
+	n0 >>= 1
+	if n0 <= 0 || stride <= 0 {
+		return
+	}
+	const invSqrt2 = float32(0.7071067811865476)
+	step := stride * 2
+	for i := 0; i < stride; i++ {
+		idx0 := i
+		idx1 := i + stride
+		for j := 0; j < n0; j++ {
+			tmp1 := noFMA32Mul(invSqrt2, float32(x[idx0]))
+			tmp2 := noFMA32Mul(invSqrt2, float32(x[idx1]))
+			x[idx0] = celtNorm(noFMA32Add(tmp1, tmp2))
+			x[idx1] = celtNorm(noFMA32Sub(tmp1, tmp2))
+			idx0 += step
+			idx1 += step
+		}
+	}
+}
+
 // TFAnalysis performs time-frequency analysis to determine optimal TF resolution per band.
 // It uses a Viterbi algorithm to find the best TF resolution settings.
 //
@@ -443,12 +476,12 @@ func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstim
 
 // TFAnalysisScratch holds pre-allocated buffers for TF analysis.
 type TFAnalysisScratch struct {
-	Metric []int     // Per-band metric (size: nbEBands)
-	Tmp    []float64 // Band coefficients working buffer
-	Tmp1   []float64 // Copy for transient analysis
-	Path0  []int     // Viterbi path state 0
-	Path1  []int     // Viterbi path state 1
-	TfRes  []int     // Output buffer
+	Metric []int      // Per-band metric (size: nbEBands)
+	Tmp    []celtNorm // Band coefficients working buffer
+	Tmp1   []celtNorm // Copy for transient analysis
+	Path0  []int      // Viterbi path state 0
+	Path1  []int      // Viterbi path state 1
+	TfRes  []int      // Output buffer
 }
 
 // EnsureTFAnalysisScratch ensures scratch buffers are large enough.
@@ -459,10 +492,14 @@ func (s *TFAnalysisScratch) EnsureTFAnalysisScratch(nbEBands, maxBandWidth int) 
 		s.Metric = s.Metric[:nbEBands]
 	}
 	if cap(s.Tmp) < maxBandWidth {
-		s.Tmp = make([]float64, maxBandWidth)
+		s.Tmp = make([]celtNorm, maxBandWidth)
+	} else {
+		s.Tmp = s.Tmp[:maxBandWidth]
 	}
 	if cap(s.Tmp1) < maxBandWidth {
-		s.Tmp1 = make([]float64, maxBandWidth)
+		s.Tmp1 = make([]celtNorm, maxBandWidth)
+	} else {
+		s.Tmp1 = s.Tmp1[:maxBandWidth]
 	}
 	if cap(s.Path0) < nbEBands {
 		s.Path0 = make([]int, nbEBands)
@@ -509,7 +546,7 @@ func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm i
 	}
 
 	// Keep TF metric arithmetic in float32 to mirror libopus float path.
-	bias := float64(float32(0.04 * math.Max(-0.25, 0.5-tfEstimate)))
+	bias := float32(0.04 * math.Max(-0.25, 0.5-tfEstimate))
 
 	metric := scratch.Metric[:nbEBands]
 	tmp := scratch.Tmp
@@ -524,14 +561,14 @@ func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm i
 		// Use scratch buffer
 		tmpSlice := tmp[:N]
 		for j := 0; j < N && bandStart+j < len(X); j++ {
-			tmpSlice[j] = X[bandStart+j]
+			tmpSlice[j] = celtNorm(X[bandStart+j])
 		}
 
 		var initLM int
 		if isTransient {
 			initLM = lm
 		}
-		L1 := l1Metric(tmpSlice, N, initLM, bias)
+		L1 := l1MetricNorm(tmpSlice, N, initLM, bias)
 		bestL1 := L1
 		bestLevel := 0
 
@@ -539,8 +576,8 @@ func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm i
 			// Use scratch tmp1 instead of allocating
 			tmp1 := scratch.Tmp1[:N]
 			copy(tmp1, tmpSlice)
-			haar1(tmp1, N>>lm, 1<<lm)
-			L1 = l1Metric(tmp1, N, lm+1, bias)
+			haar1Norm(tmp1, N>>lm, 1<<lm)
+			L1 = l1MetricNorm(tmp1, N, lm+1, bias)
 			if L1 < bestL1 {
 				bestL1 = L1
 				bestLevel = -1
@@ -559,8 +596,8 @@ func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm i
 				B = k + 1
 			}
 
-			haar1(tmpSlice, N>>k, 1<<k)
-			L1 = l1Metric(tmpSlice, N, B, bias)
+			haar1Norm(tmpSlice, N>>k, 1<<k)
+			L1 = l1MetricNorm(tmpSlice, N, B, bias)
 
 			if L1 < bestL1 {
 				bestL1 = L1

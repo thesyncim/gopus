@@ -72,6 +72,50 @@ func TestHaar1MatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestHaar1NormMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []haar1OracleCase{
+		{nameHaarCase(8, 1), []float32{0.25, -0.5, 0.75, -1, 0.125, -0.25, 0.5, -0.75}, 8, 1},
+		{nameHaarCase(16, 2), makeHaarNormInput(32, 0x5012), 16, 2},
+		{nameHaarCase(48, 6), makeHaarNormInput(288, 0x5016), 48, 6},
+		{nameHaarCase(120, 12), makeHaarNormInput(1440, 0x5020), 120, 12},
+	}
+	want, err := probeLibopusHaar1(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	for ci, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make([]celtNorm, len(tc.x))
+			for i := range tc.x {
+				got[i] = celtNorm(tc.x[i])
+			}
+			haar1Norm(got, tc.n0, tc.stride)
+			for i := range got {
+				got32 := float32(got[i])
+				if math.Float32bits(got32) != math.Float32bits(want[ci][i]) {
+					t.Fatalf("x[%d]=%08x %.10g want %08x %.10g",
+						i, math.Float32bits(got32), got32,
+						math.Float32bits(want[ci][i]), want[ci][i])
+				}
+			}
+		})
+	}
+}
+
+func makeHaarNormInput(n int, seed uint32) []float32 {
+	x := make([]float32, n)
+	for i := range x {
+		seed = seed*1664525 + 1013904223
+		v := float32(int32(seed>>8)%3000-1500) / 2048
+		if i%11 == 0 {
+			v *= 1.0 / 4096
+		}
+		x[i] = v
+	}
+	return x
+}
+
 func nameHaarCase(n0, stride int) string {
 	return fmt.Sprintf("n0_%d_stride_%d", n0, stride)
 }
