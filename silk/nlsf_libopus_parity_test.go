@@ -18,6 +18,7 @@ const (
 	libopusSILKNLSFModeStabilize = uint32(3)
 	libopusSILKNLSFModeWeights   = uint32(4)
 	libopusSILKNLSFModeVQ        = uint32(5)
+	libopusSILKNLSFModeDelDec    = uint32(6)
 
 	libopusSILKNLSFCBNBMB = uint32(0)
 	libopusSILKNLSFCBWB   = uint32(1)
@@ -34,6 +35,7 @@ func buildLibopusSILKNLSFHelper() (string, error) {
 		RefIncludes:  []string{"celt", "silk"},
 		RefSources: []string{
 			"silk/NLSF_decode.c",
+			"silk/NLSF_del_dec_quant.c",
 			"silk/NLSF_VQ.c",
 			"silk/NLSF_VQ_weights_laroia.c",
 			"silk/NLSF_unpack.c",
@@ -122,6 +124,49 @@ func probeLibopusSILKNLSFVQ(records [][]uint32) ([][]int32, error) {
 			v := reader.I32()
 			if j < nVectors {
 				out[i][j] = v
+			}
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+type libopusSILKNLSFDelDecResult struct {
+	rdQ25   int32
+	indices []int8
+}
+
+func probeLibopusSILKNLSFDelDec(records [][]uint32) ([]libopusSILKNLSFDelDecResult, error) {
+	binPath, err := getLibopusSILKNLSFHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKNLSFInputMagic, libopusSILKNLSFModeDelDec, uint32(len(records)))
+	for _, record := range records {
+		for _, word := range record {
+			payload.U32(word)
+		}
+	}
+
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk nlsf delayed decision", libopusSILKNLSFOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(records))
+	out := make([]libopusSILKNLSFDelDecResult, count)
+	for i := range out {
+		out[i].rdQ25 = reader.I32()
+		order := int(reader.U32())
+		if order != 10 && order != 16 {
+			return nil, fmt.Errorf("helper order=%d", order)
+		}
+		out[i].indices = make([]int8, order)
+		for j := 0; j < 16; j++ {
+			v := reader.I32()
+			if j < order {
+				out[i].indices[j] = int8(v)
 			}
 		}
 	}
@@ -252,6 +297,72 @@ func TestSILKNLSFVQMatchesLibopusOracle(t *testing.T) {
 			for j := range got {
 				if got[j] != want[i][j] {
 					t.Fatalf("silkNLSFVQ[%d]=%d want %d", j, got[j], want[i][j])
+				}
+			}
+		})
+	}
+}
+
+func TestSILKNLSFDelDecQuantMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []struct {
+		name   string
+		cb     *nlsfCB
+		ind1   int
+		muQ20  int32
+		nlsf   []int16
+		weight []int16
+	}{
+		{name: "nbmb_stage3", cb: &silk_NLSF_CB_NB_MB, ind1: 3, muQ20: 3146, nlsf: []int16{2676, 3684, 7247, 12558, 14555, 16405, 18875, 19753, 26306, 27425}},
+		{name: "nbmb_stage19_active", cb: &silk_NLSF_CB_NB_MB, ind1: 19, muQ20: 1800, nlsf: []int16{128, 256, 512, 1024, 2048, 4096, 8192, 16384, 24576, 32640}},
+		{name: "wb_stage7", cb: &silk_NLSF_CB_WB, ind1: 7, muQ20: 3146, nlsf: []int16{1200, 2600, 4300, 6100, 8200, 10100, 12200, 14300, 16400, 18600, 20700, 22800, 24900, 27000, 29100, 31200}},
+		{name: "wb_stage31_active", cb: &silk_NLSF_CB_WB, ind1: 31, muQ20: 1200, nlsf: []int16{1, 2, 4, 8, 16, 64, 256, 1024, 4096, 8192, 12288, 16384, 24576, 28672, 32765, 32766}},
+	}
+	records := make([][]uint32, len(cases))
+	for i := range cases {
+		cases[i].weight = make([]int16, cases[i].cb.order)
+		silkNLSFWeightsLaroia(cases[i].weight, cases[i].nlsf, cases[i].cb.order)
+		record := []uint32{cbIDForNLSF(cases[i].cb), uint32(cases[i].ind1), uint32FromInt32(cases[i].muQ20)}
+		for _, v := range cases[i].nlsf {
+			record = append(record, uint32FromInt32(int32(v)))
+		}
+		for _, v := range cases[i].weight {
+			record = append(record, uint32FromInt32(int32(v)))
+		}
+		records[i] = record
+	}
+	want, err := probeLibopusSILKNLSFDelDec(records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk nlsf delayed decision", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			order := tc.cb.order
+			baseIdx := tc.ind1 * order
+			var resQ10 [maxLPCOrder]int16
+			var wAdjQ5 [maxLPCOrder]int16
+			var ecIx [maxLPCOrder]int16
+			var predQ8 [maxLPCOrder]uint8
+			var gotIndices [maxLPCOrder]int8
+			for j := 0; j < order; j++ {
+				wTmpQ9 := int32(tc.cb.cb1WghtQ9[baseIdx+j])
+				diff := int32(tc.nlsf[j]) - (int32(tc.cb.cb1NLSFQ8[baseIdx+j]) << 7)
+				resQ10[j] = int16(silkRSHIFT(silkSMULBB(diff, wTmpQ9), 14))
+				denom := silkSMULBB(wTmpQ9, wTmpQ9)
+				if denom == 0 {
+					denom = 1
+				}
+				wAdjQ5[j] = int16(silk_DIV32_varQ(int32(tc.weight[j]), denom, 21))
+			}
+			silkNLSFUnpack(ecIx[:order], predQ8[:order], tc.cb, tc.ind1)
+			gotRD := silkNLSFDelDecQuant(gotIndices[:], resQ10[:], wAdjQ5[:], predQ8[:], ecIx[:], tc.cb.ecRatesQ5, tc.cb.quantStepSizeQ16, tc.cb.invQuantStepSizeQ6, tc.muQ20, order)
+			if gotRD != want[i].rdQ25 {
+				t.Fatalf("RD_Q25=%d want %d", gotRD, want[i].rdQ25)
+			}
+			for j := 0; j < order; j++ {
+				if gotIndices[j] != want[i].indices[j] {
+					t.Fatalf("indices[%d]=%d want %d", j, gotIndices[j], want[i].indices[j])
 				}
 			}
 		})
