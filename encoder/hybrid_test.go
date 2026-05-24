@@ -172,10 +172,11 @@ func TestHBGainComputation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			gain := e.computeHBGain(tc.celtBitrate)
+			gain64 := float64(gain)
 
 			t.Logf("CELT bitrate: %d, HB gain: %.4f", tc.celtBitrate, gain)
 
-			if gain < tc.expectedMinGain || gain > tc.expectedMaxGain {
+			if gain64 < tc.expectedMinGain || gain64 > tc.expectedMaxGain {
 				t.Errorf("HB gain %.4f not in expected range [%.4f, %.4f]",
 					gain, tc.expectedMinGain, tc.expectedMaxGain)
 			}
@@ -218,7 +219,7 @@ func TestGainFadeSmoothing(t *testing.T) {
 	}
 
 	// Test fading from 1.0 to 0.5
-	samples := make([]float64, 960)
+	samples := make([]opusRes, 960)
 	for i := range samples {
 		samples[i] = 1.0 // Constant signal
 	}
@@ -226,7 +227,7 @@ func TestGainFadeSmoothing(t *testing.T) {
 	result := e.applyLinearGainFade(samples, 1.0, 0.5, 120)
 
 	// Check first sample uses g1
-	if math.Abs(result[0]-1.0) > 0.01 {
+	if math.Abs(float64(result[0]-1.0)) > 0.01 {
 		t.Errorf("First sample should be close to g1=1.0, got %.4f", result[0])
 	}
 
@@ -239,13 +240,13 @@ func TestGainFadeSmoothing(t *testing.T) {
 	}
 
 	// Check end of overlap uses g2
-	if math.Abs(result[119]-0.5) > 0.1 {
+	if math.Abs(float64(result[119]-0.5)) > 0.1 {
 		t.Errorf("End of overlap should be close to g2=0.5, got %.4f", result[119])
 	}
 
 	// Check rest of frame uses g2
 	for i := 120; i < 960; i++ {
-		if math.Abs(result[i]-0.5) > 0.001 {
+		if math.Abs(float64(result[i]-0.5)) > 0.001 {
 			t.Errorf("Sample %d should be g2=0.5, got %.4f", i, result[i])
 		}
 	}

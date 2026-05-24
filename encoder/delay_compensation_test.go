@@ -133,7 +133,9 @@ func runDelayCompStream(frameSize, channels, totalFrames int) ([]float64, []floa
 		start := f * frameSamples
 		end := start + frameSamples
 		block := e.applyDelayCompensation(in[start:end], frameSize)
-		out = append(out, block...)
+		for _, sample := range block {
+			out = append(out, float64(sample))
+		}
 	}
 
 	want := make([]float64, totalSamples)
@@ -191,7 +193,7 @@ func TestPrepareCELTPCM_DelayCompensationGatedByLowDelay(t *testing.T) {
 		if i >= delaySamples {
 			want = in[i-delaySamples]
 		}
-		if outNormal[i] != want {
+		if float64(outNormal[i]) != want {
 			t.Fatalf("normal sample %d: got=%.0f want=%.0f", i, outNormal[i], want)
 		}
 	}
@@ -201,7 +203,7 @@ func TestPrepareCELTPCM_DelayCompensationGatedByLowDelay(t *testing.T) {
 	lowDelay.SetLowDelay(true)
 	outLowDelay := lowDelay.prepareCELTPCM(in, frameSize)
 	for i := range outLowDelay {
-		if outLowDelay[i] != in[i] {
+		if float64(outLowDelay[i]) != in[i] {
 			t.Fatalf("lowdelay sample %d: got=%.0f want=%.0f", i, outLowDelay[i], in[i])
 		}
 	}
@@ -247,9 +249,9 @@ func TestApplyDelayCompensationMatchesLegacyState(t *testing.T) {
 					)
 					got := enc.applyDelayCompensation(pcm, frameSize)
 
-					requireEqualFloat64Slices(t, "out", got[:frameSamples], legacyOut)
+					requireEqualOpusResToFloat64Slices(t, "out", got[:frameSamples], legacyOut)
 					requireEqualOpusResToFloat64Slices(t, "delayBuffer", enc.delayBuffer, legacyDelay)
-					requireEqualFloat64Slices(t, "prefill", enc.scratchTransitionPrefill[:wantPrefillLen], legacyPrefill[:wantPrefillLen])
+					requireEqualOpusResToFloat64Slices(t, "prefill", enc.scratchTransitionPrefill[:wantPrefillLen], legacyPrefill[:wantPrefillLen])
 				}
 			})
 		}

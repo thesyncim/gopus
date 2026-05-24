@@ -57,14 +57,14 @@ var hybridRateTable = [][]int{
 type HybridState struct {
 	// prevHBGain is the high-band gain from the previous frame.
 	// Used for smooth gain fading to prevent artifacts.
-	prevHBGain float64
+	prevHBGain opusVal16
 
 	// stereoWidthQ14 is the stereo width in Q14 format.
 	// Reduced at low bitrates to improve coding efficiency.
-	stereoWidthQ14 int
+	stereoWidthQ14 int16
 	// silkStereoWidthQ14 is the current frame SILK stereo width decision (Q14).
 	// Hybrid stereo fade follows this value in libopus.
-	silkStereoWidthQ14 int
+	silkStereoWidthQ14 int16
 
 	// prevDecodeOnlyMiddle tracks the previous mid-only (no side) decision.
 	prevDecodeOnlyMiddle bool
@@ -79,7 +79,7 @@ type HybridState struct {
 	// scratchRedundancy stores CELT transition redundancy payload (2..257 bytes).
 	scratchRedundancy [257]byte
 	// scratchTransitionPCM stores gain-shaped transition redundancy input samples.
-	scratchTransitionPCM []float64
+	scratchTransitionPCM []opusRes
 
 	// Lookahead resampling scratch buffers.
 	scratchLookahead32   []float32 // float64 -> float32 conversion
@@ -106,7 +106,7 @@ type HybridState struct {
 // encodeHybridFrameWithMaxPacketAndTransition allows callers assembling long packets
 // to gate CELT transition redundancy/prefill to the correct 20ms subframe,
 // matching libopus multi-frame cadence.
-func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, celtPCM []float64, lookahead []float64, frameSize int, maxPacketBytes int, dredBitrate int, hardMaxPacketBytes bool, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) ([]byte, error) {
+func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, celtPCM []opusRes, lookahead []float64, frameSize int, maxPacketBytes int, dredBitrate int, hardMaxPacketBytes bool, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) ([]byte, error) {
 	// Validate: only 480 (10ms) or 960 (20ms) for hybrid
 	if frameSize != 480 && frameSize != 960 {
 		return nil, ErrInvalidHybridFrameSize
@@ -167,7 +167,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	transitionRedundancy := transitionCeltToHybrid || transitionSilkToCELT
 	redundancyBytes := 0
 	var redundancyData []byte
-	var redundancyPCM []float64
+	var redundancyPCM []opusRes
 	var redundantRng uint32
 	if transitionRedundancy {
 		redundancyBytes = computeRedundancyBytes(baseTargetBytes, e.bitrate, frameRate, e.celtInternalChannelsForMode(ModeHybrid))
@@ -460,7 +460,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	// in the caller (Fs/250 = 192 samples). No additional delay is needed here.
 	celtInput := e.applyHBGainFade(celtPCM, hbGain)
 	if e.channels == 2 {
-		targetWidthQ14 := 16384
+		targetWidthQ14 := int16(16384)
 		if e.hybridState != nil {
 			targetWidthQ14 = e.hybridState.silkStereoWidthQ14
 			if targetWidthQ14 < 0 {
@@ -491,7 +491,9 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 	if useFinalHybridVBRTarget {
 		hybridCELTTargetBytes = maxTargetBytes
 	}
-	e.encodeCELTHybridImproved(celtInput, frameSize, hybridCELTTargetBytes, silkSignalType, silkOffset, useFinalHybridVBRTarget, !useFinalHybridVBRTarget && maxPacketBytes == 0)
+	celtInput64 := e.ensureInputPCM64(len(celtInput))
+	copyOpusResToFloat64(celtInput64, celtInput)
+	e.encodeCELTHybridImproved(celtInput64, frameSize, hybridCELTTargetBytes, silkSignalType, silkOffset, useFinalHybridVBRTarget, !useFinalHybridVBRTarget && maxPacketBytes == 0)
 	mainRng := e.celtEncoder.FinalRange()
 
 	// Update state for next frame
@@ -580,7 +582,7 @@ func clampRedundancyBytesAfterSilk(maxDataBytes, tellBits, redundancyBytes int, 
 
 // encodeCELTTransitionRedundancy encodes the 5ms CELT redundancy frame used for
 // CELT->SILK/Hybrid transitions.
-func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []float64, frameSize, redundancyBytes int) ([]byte, uint32, error) {
+func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []opusRes, frameSize, redundancyBytes int) ([]byte, uint32, error) {
 	if redundancyBytes < 2 || frameSize <= 0 {
 		return nil, 0, nil
 	}
@@ -605,7 +607,9 @@ func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []float64, frameSize, r
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
 	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
-	redundancyData, err := e.celtEncoder.EncodeFrame(celtPCM[:redundancySamples], redundancyFrameSize)
+	redundancyPCM64 := e.ensureInputPCM64(redundancySamples)
+	copyOpusResToFloat64(redundancyPCM64, celtPCM[:redundancySamples])
+	redundancyData, err := e.celtEncoder.EncodeFrame(redundancyPCM64, redundancyFrameSize)
 	redundantRng := e.celtEncoder.FinalRange()
 	e.celtEncoder.SetMaxPayloadBytes(0)
 	// libopus resets CELT after CELT->SILK redundancy generation.
@@ -627,7 +631,7 @@ func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []float64, frameSize, r
 // encodeCELTSilkToCELTRedundancy matches libopus SILK/Hybrid->CELT transition
 // redundancy: reset CELT, prefill with 2.5 ms from the frame tail, then encode a
 // 5 ms redundant CELT frame from the end of the current frame.
-func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []float64, frameSize, redundancyBytes int) ([]byte, uint32, error) {
+func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []opusRes, frameSize, redundancyBytes int) ([]byte, uint32, error) {
 	if redundancyBytes < 2 || frameSize <= 0 {
 		return nil, 0, nil
 	}
@@ -667,10 +671,14 @@ func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []float64, frameSize, r
 
 	// Prefill 2.5 ms so CELT state matches decoder-side startup for the first CELT frame.
 	e.celtEncoder.SetMaxPayloadBytes(2)
-	_, _ = e.celtEncoder.EncodeFrame(celtPCM[prefillStart:prefillEnd], n4)
+	prefillPCM64 := e.ensureInputPCM64(prefillSamples)
+	copyOpusResToFloat64(prefillPCM64, celtPCM[prefillStart:prefillEnd])
+	_, _ = e.celtEncoder.EncodeFrame(prefillPCM64, n4)
 
 	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
-	redundancyData, err := e.celtEncoder.EncodeFrame(celtPCM[redundancyStart:redundancyEnd], n2)
+	redundancyPCM64 := e.ensureInputPCM64(redundancySamples)
+	copyOpusResToFloat64(redundancyPCM64, celtPCM[redundancyStart:redundancyEnd])
+	redundancyData, err := e.celtEncoder.EncodeFrame(redundancyPCM64, n2)
 	redundantRng := e.celtEncoder.FinalRange()
 	e.celtEncoder.SetMaxPayloadBytes(0)
 	if err != nil {
@@ -689,7 +697,7 @@ func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []float64, frameSize, r
 
 // prepareCELTTransitionRedundancyInput shapes the 5 ms transition input with the
 // same HB gain contour used by hybrid CELT coding, without mutating celtPCM.
-func (e *Encoder) prepareCELTTransitionRedundancyInput(celtPCM []float64, hbGain float64) []float64 {
+func (e *Encoder) prepareCELTTransitionRedundancyInput(celtPCM []opusRes, hbGain opusVal16) []opusRes {
 	redundancyFrameSize := e.sampleRate / 200 // 5 ms at 48 kHz
 	if redundancyFrameSize <= 0 {
 		return celtPCM
@@ -699,7 +707,7 @@ func (e *Encoder) prepareCELTTransitionRedundancyInput(celtPCM []float64, hbGain
 		return celtPCM
 	}
 
-	prevGain := 1.0
+	prevGain := opusVal16(1)
 	if e.hybridState != nil {
 		prevGain = e.hybridState.prevHBGain
 	}
@@ -708,7 +716,7 @@ func (e *Encoder) prepareCELTTransitionRedundancyInput(celtPCM []float64, hbGain
 	}
 
 	if cap(e.hybridState.scratchTransitionPCM) < redundancySamples {
-		e.hybridState.scratchTransitionPCM = make([]float64, redundancySamples)
+		e.hybridState.scratchTransitionPCM = make([]opusRes, redundancySamples)
 	}
 	out := e.hybridState.scratchTransitionPCM[:redundancySamples]
 	copy(out, celtPCM[:redundancySamples])
@@ -878,9 +886,9 @@ func (e *Encoder) computeSilkRateForMax(maxBitrate int, frame20ms bool) int {
 // computeHBGain computes the hybrid high-band attenuation gain using the
 // libopus float-path formula and exp2 approximation:
 // HB_gain = 1 - celt_exp2(-celt_rate/1024).
-func (e *Encoder) computeHBGain(celtBitrate int) float64 {
+func (e *Encoder) computeHBGain(celtBitrate int) opusVal16 {
 	expArg := -float32(celtBitrate) * (1.0 / 1024.0)
-	return 1.0 - float64(celtExp2Approx(expArg))
+	return 1.0 - opusVal16(celtExp2Approx(expArg))
 }
 
 func celtExp2Approx(x float32) float32 {
@@ -995,16 +1003,15 @@ func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []flo
 // delay-compensated by applyDelayCompensation (Fs/250 = 192 samples at 48kHz).
 // In libopus, gain_fade operates in-place on pcm_buf which already contains
 // the delay-compensated samples.
-func (e *Encoder) applyHBGainFade(pcm []float64, hbGain float64) []float64 {
+func (e *Encoder) applyHBGainFade(pcm []opusRes, hbGain opusVal16) []opusRes {
 	// Apply gain fade if gain changed
 	prevGain := e.hybridState.prevHBGain
 	if prevGain != hbGain {
 		pcm = e.applyGainFade(pcm, prevGain, hbGain)
 	} else if hbGain < 1.0 {
 		// Apply constant gain if less than 1.0
-		g := float32(hbGain)
 		for i := range pcm {
-			pcm[i] = float64(float32(pcm[i]) * g)
+			pcm[i] *= hbGain
 		}
 	}
 
@@ -1013,7 +1020,7 @@ func (e *Encoder) applyHBGainFade(pcm []float64, hbGain float64) []float64 {
 
 // applyGainFade applies a smooth window-based transition between two gain values.
 // This implements libopus gain_fade() for seamless frame boundaries.
-func (e *Encoder) applyGainFade(samples []float64, g1, g2 float64) []float64 {
+func (e *Encoder) applyGainFade(samples []opusRes, g1, g2 opusVal16) []opusRes {
 	channels := e.channels
 	frameSize := len(samples) / channels
 	overlap := hybridOverlap
@@ -1022,8 +1029,8 @@ func (e *Encoder) applyGainFade(samples []float64, g1, g2 float64) []float64 {
 		overlap = frameSize
 	}
 
-	// Generate CELT window for smooth transition
-	window := celt.GetWindow()
+	// Generate CELT window for smooth transition.
+	window := celt.GetWindowBufferF32(overlap)
 	if window == nil || len(window) < overlap {
 		// Fallback: use simple linear fade
 		return e.applyLinearGainFade(samples, g1, g2, overlap)
@@ -1031,31 +1038,27 @@ func (e *Encoder) applyGainFade(samples []float64, g1, g2 float64) []float64 {
 
 	// Apply windowed gain fade during overlap region
 	if channels == 1 {
-		g1f := float32(g1)
-		g2f := float32(g2)
 		for i := 0; i < overlap; i++ {
-			w := float32(window[i])
+			w := opusVal16(window[i])
 			w2 := w * w // Square the window (libopus does this)
-			g := g1f*(1-w2) + g2f*w2
-			samples[i] = float64(float32(samples[i]) * g)
+			g := g1*(1-w2) + g2*w2
+			samples[i] *= g
 		}
 		// Apply constant g2 for rest of frame
 		for i := overlap; i < frameSize; i++ {
-			samples[i] = float64(float32(samples[i]) * g2f)
+			samples[i] *= g2
 		}
 	} else {
-		g1f := float32(g1)
-		g2f := float32(g2)
 		for i := 0; i < overlap; i++ {
-			w := float32(window[i])
+			w := opusVal16(window[i])
 			w2 := w * w
-			g := g1f*(1-w2) + g2f*w2
-			samples[i*2] = float64(float32(samples[i*2]) * g)
-			samples[i*2+1] = float64(float32(samples[i*2+1]) * g)
+			g := g1*(1-w2) + g2*w2
+			samples[i*2] *= g
+			samples[i*2+1] *= g
 		}
 		for i := overlap; i < frameSize; i++ {
-			samples[i*2] = float64(float32(samples[i*2]) * g2f)
-			samples[i*2+1] = float64(float32(samples[i*2+1]) * g2f)
+			samples[i*2] *= g2
+			samples[i*2+1] *= g2
 		}
 	}
 
@@ -1064,7 +1067,7 @@ func (e *Encoder) applyGainFade(samples []float64, g1, g2 float64) []float64 {
 
 // applyStereoWidthFade applies stereo width reduction with smooth transition.
 // This mirrors libopus stereo_fade() for hybrid/CELT preprocessing.
-func (e *Encoder) applyStereoWidthFade(samples []float64, widthQ14Prev, widthQ14 int) []float64 {
+func (e *Encoder) applyStereoWidthFade(samples []opusRes, widthQ14Prev, widthQ14 int16) []opusRes {
 	if e.channels != 2 {
 		return samples
 	}
@@ -1089,19 +1092,19 @@ func (e *Encoder) applyStereoWidthFade(samples []float64, widthQ14Prev, widthQ14
 	}
 
 	// Convert width to "collapse factor" g (0=full width, 1=mono)
-	g1 := 1.0 - float64(widthQ14Prev)/16384.0
-	g2 := 1.0 - float64(widthQ14)/16384.0
+	g1 := opusVal16(1) - opusVal16(widthQ14Prev)*(1.0/16384.0)
+	g2 := opusVal16(1) - opusVal16(widthQ14)*(1.0/16384.0)
 
 	overlap := hybridOverlap
 	if overlap > frameSize {
 		overlap = frameSize
 	}
 
-	window := celt.GetWindow()
+	window := celt.GetWindowBufferF32(overlap)
 	if window == nil || len(window) < overlap {
 		// Fallback: no window available, apply constant g2
 		for i := 0; i < frameSize; i++ {
-			diff := 0.5 * (samples[i*2] - samples[i*2+1])
+			diff := opusVal32(0.5) * (samples[i*2] - samples[i*2+1])
 			diff *= g2
 			samples[i*2] -= diff
 			samples[i*2+1] += diff
@@ -1110,16 +1113,16 @@ func (e *Encoder) applyStereoWidthFade(samples []float64, widthQ14Prev, widthQ14
 	}
 
 	for i := 0; i < overlap; i++ {
-		w := window[i]
+		w := opusVal16(window[i])
 		w2 := w * w
 		g := g1*(1.0-w2) + g2*w2
-		diff := 0.5 * (samples[i*2] - samples[i*2+1])
+		diff := opusVal32(0.5) * (samples[i*2] - samples[i*2+1])
 		diff *= g
 		samples[i*2] -= diff
 		samples[i*2+1] += diff
 	}
 	for i := overlap; i < frameSize; i++ {
-		diff := 0.5 * (samples[i*2] - samples[i*2+1])
+		diff := opusVal32(0.5) * (samples[i*2] - samples[i*2+1])
 		diff *= g2
 		samples[i*2] -= diff
 		samples[i*2+1] += diff
@@ -1130,12 +1133,12 @@ func (e *Encoder) applyStereoWidthFade(samples []float64, widthQ14Prev, widthQ14
 
 // applyLinearGainFade applies a simple linear crossfade between gains.
 // Used as fallback when window is not available.
-func (e *Encoder) applyLinearGainFade(samples []float64, g1, g2 float64, overlap int) []float64 {
+func (e *Encoder) applyLinearGainFade(samples []opusRes, g1, g2 opusVal16, overlap int) []opusRes {
 	channels := e.channels
 	frameSize := len(samples) / channels
 
 	for i := 0; i < overlap; i++ {
-		t := float64(i) / float64(overlap)
+		t := opusVal16(i) / opusVal16(overlap)
 		g := g1*(1-t) + g2*t
 
 		for c := 0; c < channels; c++ {
@@ -1289,7 +1292,7 @@ func (e *Encoder) encodeSILKHybridStereo(pcm []float32, lookahead []float32, sil
 		left, right, silkSamples, fsKHz, totalRateBps, e.lastVADActivityQ8, false,
 	)
 	if e.hybridState != nil {
-		e.hybridState.silkStereoWidthQ14 = int(widthQ14)
+		e.hybridState.silkStereoWidthQ14 = widthQ14
 	}
 	// Apply per-channel split from stereo front-end before encoding.
 	if midRate > 0 {

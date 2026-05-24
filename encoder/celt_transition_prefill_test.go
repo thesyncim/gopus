@@ -97,8 +97,7 @@ func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 	for i := range enc.delayBuffer {
 		enc.delayBuffer[i] = opusRes(i + 1)
 	}
-	origDelay := make([]float64, len(enc.delayBuffer))
-	copyOpusResToFloat64(origDelay, enc.delayBuffer)
+	origDelay := append([]opusRes(nil), enc.delayBuffer...)
 
 	frame := make([]float64, frameSize)
 	for i := range frame {
@@ -195,7 +194,7 @@ func TestSilkTransitionPrefillLongPacketKeepsFirstCELTSnapshot(t *testing.T) {
 	if len(enc.scratchCELTPrefill) == 0 {
 		t.Fatal("expected CELT prefill snapshot")
 	}
-	want := append([]float64(nil), enc.scratchCELTPrefill...)
+	want := append([]opusRes(nil), enc.scratchCELTPrefill...)
 
 	for i := range enc.delayBuffer {
 		enc.delayBuffer[i] = opusRes(1000 + i)
