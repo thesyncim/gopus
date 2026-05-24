@@ -33,7 +33,7 @@ func init() {
 	}
 }
 
-func expRotationCoefficients(length, k, spread int) (float64, float64, bool) {
+func expRotationCoefficients(length, k, spread int) (opusVal16, opusVal16, bool) {
 	if spread < spreadLight || spread > spreadAggressive {
 		return 0, 0, false
 	}
@@ -41,5 +41,5 @@ func expRotationCoefficients(length, k, spread int) (float64, float64, bool) {
 		return 0, 0, false
 	}
 	coeff := expRotationCoeffTable[spread-1][length][k]
-	return float64(coeff.c), float64(coeff.s), true
+	return opusVal16(coeff.c), opusVal16(coeff.s), true
 }

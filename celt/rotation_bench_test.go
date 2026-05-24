@@ -14,8 +14,8 @@ func benchmarkExpRotation1(b *testing.B, length, stride int) {
 	for i := range x {
 		x[i] = math.Sin(float64(i) * 0.137)
 	}
-	c := 0.9238795325 // cos(pi/8)
-	s := 0.3826834324 // sin(pi/8)
+	c := opusVal16(0.9238795325) // cos(pi/8)
+	s := opusVal16(0.3826834324) // sin(pi/8)
 
 	b.ReportAllocs()
 	b.ResetTimer()

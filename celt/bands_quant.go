@@ -671,7 +671,7 @@ func haar1(x []float64, n0, stride int) {
 	}
 }
 
-func expRotation1(x []float64, length, stride int, c, s float64) {
+func expRotation1(x []float64, length, stride int, c, s opusVal16) {
 	if length <= 0 {
 		return
 	}
@@ -708,6 +708,43 @@ func expRotation1(x []float64, length, stride int, c, s float64) {
 	}
 }
 
+func expRotation1Norm(x []celtNorm, length, stride int, c, s opusVal16) {
+	if length <= 0 {
+		return
+	}
+	x = x[:length:length]
+	_ = x[length-1]
+	c32 := float32(c)
+	s32 := float32(s)
+	ms32 := -s32
+
+	end := length - stride
+	i := 0
+	for ; i+1 < end; i += 2 {
+		x1 := float32(x[i])
+		x2 := float32(x[i+stride])
+		x[i+stride] = celtNorm(expRotationMac32(c32, x2, s32, x1))
+		x[i] = celtNorm(expRotationMac32(c32, x1, ms32, x2))
+
+		x3 := float32(x[i+1])
+		x4 := float32(x[i+1+stride])
+		x[i+1+stride] = celtNorm(expRotationMac32(c32, x4, s32, x3))
+		x[i+1] = celtNorm(expRotationMac32(c32, x3, ms32, x4))
+	}
+	for ; i < end; i++ {
+		x1 := float32(x[i])
+		x2 := float32(x[i+stride])
+		x[i+stride] = celtNorm(expRotationMac32(c32, x2, s32, x1))
+		x[i] = celtNorm(expRotationMac32(c32, x1, ms32, x2))
+	}
+	for i := length - 2*stride - 1; i >= 0; i-- {
+		x1 := float32(x[i])
+		x2 := float32(x[i+stride])
+		x[i+stride] = celtNorm(expRotationMac32(c32, x2, s32, x1))
+		x[i] = celtNorm(expRotationMac32(c32, x1, ms32, x2))
+	}
+}
+
 func expRotationMac32(a, b, c, d float32) float32 {
 	return fma32(a, b, noFMA32Mul(c, d))
 }
@@ -721,8 +758,8 @@ func expRotation(x []float64, length, dir, stride, k, spread int) {
 		spreadFactor := expRotationSpreadFactors[spread-1]
 		gain := float32(length) / float32(length+spreadFactor*k)
 		theta := 0.5 * gain * gain
-		c = float64(float32(math.Cos(libopusHalfPi * float64(theta))))
-		s = float64(float32(math.Cos(libopusHalfPi * float64(float32(1)-theta))))
+		c = opusVal16(math.Cos(libopusHalfPi * float64(theta)))
+		s = opusVal16(math.Cos(libopusHalfPi * float64(float32(1)-theta)))
 	}
 
 	stride2 := 0
@@ -744,6 +781,43 @@ func expRotation(x []float64, length, dir, stride, k, spread int) {
 			expRotation1(x[off:], length, 1, c, -s)
 			if stride2 != 0 {
 				expRotation1(x[off:], length, stride2, s, -c)
+			}
+		}
+	}
+}
+
+func expRotationNorm(x []celtNorm, length, dir, stride, k, spread int) {
+	if 2*k >= length || spread == spreadNone {
+		return
+	}
+	c, s, ok := expRotationCoefficients(length, k, spread)
+	if !ok {
+		spreadFactor := expRotationSpreadFactors[spread-1]
+		gain := float32(length) / float32(length+spreadFactor*k)
+		theta := 0.5 * gain * gain
+		c = opusVal16(math.Cos(libopusHalfPi * float64(theta)))
+		s = opusVal16(math.Cos(libopusHalfPi * float64(float32(1)-theta)))
+	}
+
+	stride2 := 0
+	if length >= 8*stride {
+		stride2 = 1
+		for (stride2*stride2+stride2)*stride+(stride>>2) < length {
+			stride2++
+		}
+	}
+	length = celtUdiv(length, stride)
+	for i := 0; i < stride; i++ {
+		off := i * length
+		if dir < 0 {
+			if stride2 != 0 {
+				expRotation1Norm(x[off:], length, stride2, s, c)
+			}
+			expRotation1Norm(x[off:], length, 1, c, s)
+		} else {
+			expRotation1Norm(x[off:], length, 1, c, -s)
+			if stride2 != 0 {
+				expRotation1Norm(x[off:], length, stride2, s, -c)
 			}
 		}
 	}
@@ -926,6 +1000,67 @@ func normalizeResidualKnownEnergyIntoAndCollapse(out []float64, pulses []int, ga
 	// Handle any remaining tail elements when n is not divisible by b.
 	for i := base; i < n; i++ {
 		out[i] = float64(float32(pulses[i]) * scale)
+	}
+	return mask
+}
+
+func normalizeResidualKnownEnergyIntoAndCollapseNorm(out []celtNorm, pulses []int, gain opusVal16, energy opusVal16, b int) int {
+	n := len(pulses)
+	out = out[:n:n]
+	pulses = pulses[:n:n]
+	energy32 := float32(energy)
+	if energy32 <= 0 {
+		for i := 0; i < n; i++ {
+			v := float32(pulses[i])
+			energy32 += v * v
+		}
+	}
+	if energy32 <= 0 {
+		clear(out[:n])
+		if b <= 1 {
+			return 1
+		}
+		return 0
+	}
+	scale := celtRSqrt(energy32) * float32(gain)
+
+	if b <= 1 {
+		i := 0
+		for ; i+3 < n; i += 4 {
+			out[i] = celtNorm(float32(pulses[i]) * scale)
+			out[i+1] = celtNorm(float32(pulses[i+1]) * scale)
+			out[i+2] = celtNorm(float32(pulses[i+2]) * scale)
+			out[i+3] = celtNorm(float32(pulses[i+3]) * scale)
+		}
+		for ; i < n; i++ {
+			out[i] = celtNorm(float32(pulses[i]) * scale)
+		}
+		return 1
+	}
+
+	n0 := celtUdiv(n, b)
+	if n0 <= 0 {
+		clear(out[:n])
+		return 0
+	}
+
+	mask := 0
+	base := 0
+	for blk := 0; blk < b; blk++ {
+		tmp := 0
+		end := base + n0
+		for i := base; i < end; i++ {
+			v := pulses[i]
+			out[i] = celtNorm(float32(v) * scale)
+			tmp |= v
+		}
+		if tmp != 0 {
+			mask |= 1 << blk
+		}
+		base = end
+	}
+	for i := base; i < n; i++ {
+		out[i] = celtNorm(float32(pulses[i]) * scale)
 	}
 	return mask
 }
@@ -1385,15 +1520,15 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 		return 0
 	}
 
-	// Apply the same pre-rotation as the decoder's unquantization path.
-	expRotation(x, n, 1, b, k, spread)
-
 	// Quantize the vector to pulses.
 	var pulses []int
 	var upPulses []int
 	var refine []int
 	var yy float64 // Energy computed during PVQ search
 	encodedIndex := uint32(0)
+	var xNorm []celtNorm
+	var yy32 opusVal16
+	normPath := false
 
 	// Scratch buffer pointers
 	var iyBuf *[]int
@@ -1411,6 +1546,9 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 	}
 
 	if extraBits >= 2 && extEnc != nil {
+		// QEXT still uses the legacy carrier path; the default libopus alg_quant
+		// path below stays in celt_norm width through rotation/PVQ/resynthesis.
+		expRotation(x, n, 1, b, k, spread)
 		if n == 2 {
 			var refineVal int
 			up := (1 << extraBits) - 1
@@ -1450,17 +1588,16 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 			yy = 0
 		}
 	} else {
-		var xNorm []celtNorm
 		if xNormBuf != nil {
 			xNorm = ensureNormSlice(xNormBuf, n)
 		} else {
 			xNorm = make([]celtNorm, n)
 		}
 		copyFloat64ToNorm(xNorm, x[:n])
-		var yy32 opusVal16
+		expRotationNorm(xNorm, n, 1, b, k, spread)
 		pulses, yy32 = opPVQSearchScratchNormWithInputMutation(xNorm, k, iyBuf, signxBuf, yBuf, absXBuf, true)
-		copyNormToFloat64(x[:n], xNorm)
 		yy = float64(yy32)
+		normPath = true
 		index := encodePulsesFast(pulses, n, k, uBuf)
 		vSize := PVQ_V(n, k)
 		if vSize == 0 {
@@ -1481,11 +1618,21 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 		} else {
 			// In the common path, collapse-mask extraction and residual
 			// normalization can share the same scan over the pulse vector.
+			if normPath {
+				cm = normalizeResidualKnownEnergyIntoAndCollapseNorm(xNorm, pulses, opusVal16(gain), yy32, b)
+				expRotationNorm(xNorm, n, -1, b, k, spread)
+				copyNormToFloat64(x[:n], xNorm)
+				_ = encodedIndex
+				return cm
+			}
 			cm = normalizeResidualIntoAndCollapse(x, pulses, gain, yy, b)
 		}
 		expRotation(x, n, -1, b, k, spread)
 	} else if len(pulses) > 0 {
 		cm = extractCollapseMask(pulses, n, b)
+	}
+	if normPath {
+		copyNormToFloat64(x[:n], xNorm)
 	}
 	_ = encodedIndex
 

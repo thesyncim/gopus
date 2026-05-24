@@ -958,6 +958,7 @@ func TestAlgQuantMatchesLibopusFloatPath(t *testing.T) {
 		{name: "normal_resynth", x: []float32{0.12, -0.71, 0.38, 0.19, -0.27, 0.55, -0.06, 0.44}, k: 5, spread: spreadNormal, b: 1, gain: 1, resynth: true},
 		{name: "aggressive_resynth", x: fixtureExpRotationVector(16, 0x90919293), k: 6, spread: spreadAggressive, b: 1, gain: 0.75, resynth: true},
 		{name: "light_blocks", x: fixtureExpRotationVector(24, 0xa0a1a2a3), k: 9, spread: spreadLight, b: 2, gain: 1.25, resynth: true},
+		{name: "normal_stride2_resynth", x: fixtureExpRotationVector(32, 0xa4a5a6a7), k: 6, spread: spreadNormal, b: 4, gain: 0.9, resynth: true},
 	}
 	for _, tc := range cases {
 		requireDefaultLibopusPVQ(t, len(tc.x), tc.k)
