@@ -139,9 +139,11 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	minLag := peMinLagMS * fsKHz
 	minLag4kHz := peMinLagMS * 4
 	minLag8kHz := peMinLagMS * 8
-	maxLag := peMaxLagMS * fsKHz
+	maxLag := peMaxLagMS*fsKHz - 1
+	maxPitchLag := peMaxLagMS * fsKHz
 	maxLag4kHz := peMaxLagMS * 4
-	maxLag8kHz := peMaxLagMS * 8
+	maxLag8kHz := peMaxLagMS*8 - 1
+	maxPitchLag8kHz := peMaxLagMS * 8
 
 	// Ensure we have enough samples
 	if len(pcm) < frameLength {
@@ -661,8 +663,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			if pitchLags[k] < minLag {
 				pitchLags[k] = minLag
 			}
-			if pitchLags[k] > maxLag {
-				pitchLags[k] = maxLag
+			if pitchLags[k] > maxPitchLag {
+				pitchLags[k] = maxPitchLag
 			}
 		}
 		lag = lagNew
@@ -680,8 +682,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			if pitchLags[k] < minLag8kHz {
 				pitchLags[k] = minLag8kHz
 			}
-			if pitchLags[k] > maxLag8kHz {
-				pitchLags[k] = maxLag8kHz
+			if pitchLags[k] > maxPitchLag8kHz {
+				pitchLags[k] = maxPitchLag8kHz
 			}
 		}
 	}

@@ -183,6 +183,42 @@ func silkPitchAnalysisOracleCases() []libopusSILKPitchAnalysisCase {
 			frame:        silkPitchOracleWave(BandwidthWideband, 4, 170, 7600),
 		},
 		{
+			name:         "nb_max_lag_boundary_4subfr",
+			bandwidth:    BandwidthNarrowband,
+			nbSubfr:      4,
+			complexity:   2,
+			searchThres1: 0.2,
+			searchThres2: 0.15,
+			frame:        silkPitchOraclePeriodWave(BandwidthNarrowband, 4, peMaxLagMS*8, 14000),
+		},
+		{
+			name:         "mb_max_lag_boundary_4subfr",
+			bandwidth:    BandwidthMediumband,
+			nbSubfr:      4,
+			complexity:   2,
+			searchThres1: 0.2,
+			searchThres2: 0.15,
+			frame:        silkPitchOraclePeriodWave(BandwidthMediumband, 4, peMaxLagMS*12, 14000),
+		},
+		{
+			name:         "wb_max_lag_boundary_4subfr",
+			bandwidth:    BandwidthWideband,
+			nbSubfr:      4,
+			complexity:   2,
+			searchThres1: 0.2,
+			searchThres2: 0.15,
+			frame:        silkPitchOraclePeriodWave(BandwidthWideband, 4, peMaxLagMS*16, 14000),
+		},
+		{
+			name:         "wb_max_lag_boundary_2subfr",
+			bandwidth:    BandwidthWideband,
+			nbSubfr:      2,
+			complexity:   2,
+			searchThres1: 0.2,
+			searchThres2: 0.15,
+			frame:        silkPitchOraclePeriodWave(BandwidthWideband, 2, peMaxLagMS*16, 14000),
+		},
+		{
 			name:         "wb_silence",
 			bandwidth:    BandwidthWideband,
 			nbSubfr:      4,
@@ -192,6 +228,18 @@ func silkPitchAnalysisOracleCases() []libopusSILKPitchAnalysisCase {
 			frame:        make([]float32, (peLTPMemLengthMS+4*peSubfrLengthMS)*16),
 		},
 	}
+}
+
+func silkPitchOraclePeriodWave(bandwidth Bandwidth, nbSubfr, period int, amplitude float32) []float32 {
+	cfg := GetBandwidthConfig(bandwidth)
+	fsKHz := cfg.SampleRate / 1000
+	n := (peLTPMemLengthMS + nbSubfr*peSubfrLengthMS) * fsKHz
+	out := make([]float32, n)
+	for i := range out {
+		phase := 2 * math.Pi * float64(i%period) / float64(period)
+		out[i] = amplitude * float32(math.Sin(phase)+0.15*math.Sin(2*phase+0.1))
+	}
+	return out
 }
 
 func silkPitchOracleWave(bandwidth Bandwidth, nbSubfr, frequency int, amplitude float32) []float32 {
