@@ -301,7 +301,8 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 
 		// Match libopus enc_API.c channel budgeting:
 		// 1) scale block maxBits for 40/60 ms packets
-		// 2) side present => mid uses non-CBR and gives side headroom.
+		// 2) if stereo_LR_to_MS allocated side rate, mid uses non-CBR and
+		//    gives side headroom; side still receives the frame maxBits.
 		frameMaxBits := basePacketMaxBits
 		switch nFrames {
 		case 2:
@@ -318,21 +319,18 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 		midMaxBits := frameMaxBits
 		sideMaxBits := frameMaxBits
 		if frameMaxBits > 0 {
-			if !midOnly && sideRate > 0 {
+			if sideRate > 0 {
 				reserve := basePacketMaxBits / (nFrames * 2)
 				midMaxBits -= reserve
 				if midMaxBits < 1 {
 					midMaxBits = 1
 				}
 			}
-			if rem := stereoRemainingPacketBits(re.Tell(), basePacketMaxBits); rem > 0 && midMaxBits > rem {
-				midMaxBits = rem
-			}
 			enc.maxBits = midMaxBits
 		}
 		frameUseCBR := baseMidUseCBR && i == nFrames-1
 		enc.blockUseCBR = frameUseCBR
-		if !midOnly && sideRate > 0 {
+		if sideRate > 0 {
 			enc.blockUseCBR = false
 		}
 		sideEnc.blockUseCBR = baseSideUseCBR && i == nFrames-1
@@ -368,9 +366,6 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 			sideEnc.stereoChannelIdx = 1
 			sideEnc.stereoPrevDecodeOnlyMiddle = prevDecodeOnlyMiddle
 			if sideMaxBits > 0 {
-				if rem := stereoRemainingPacketBits(re.Tell(), basePacketMaxBits); rem > 0 && sideMaxBits > rem {
-					sideMaxBits = rem
-				}
 				sideEnc.maxBits = sideMaxBits
 			}
 			sideEnc.SetRangeEncoder(re)
@@ -444,17 +439,6 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	sideEnc.rangeEncoder = nil
 
 	return result, nil
-}
-
-// stereoRemainingPacketBits returns bits left in the shared stereo payload budget.
-func stereoRemainingPacketBits(bitsUsed, packetMaxBits int) int {
-	if packetMaxBits <= 0 {
-		return 0
-	}
-	if bitsUsed >= packetMaxBits {
-		return 1
-	}
-	return packetMaxBits - bitsUsed
 }
 
 func stereoAllocationTargetRate(enc *Encoder, targetRateBps, frameLength, bitsUsedSoFar int) int {
