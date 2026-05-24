@@ -384,18 +384,18 @@ func (e *Encoder) applyDCRejectCore(pcm, output []float64) {
 	verySmall := float32(1e-30) // Matches VERY_SMALL in libopus float build
 
 	if e.channels == 1 {
-		m0 := float32(e.hpMem[0])
+		m0 := e.hpMem[0]
 		for i := range pcm {
 			x := float32(pcm[i])
 			y := x - m0
 			output[i] = float64(y)
 			m0 = coef*x + verySmall + coef2*m0
 		}
-		e.hpMem[0] = float64(m0)
+		e.hpMem[0] = m0
 	} else {
 		// Stereo: interleaved samples
-		m0 := float32(e.hpMem[0])
-		m1 := float32(e.hpMem[1])
+		m0 := e.hpMem[0]
+		m1 := e.hpMem[1]
 		for i := 0; i < len(pcm)-1; i += 2 {
 			x0 := float32(pcm[i])
 			x1 := float32(pcm[i+1])
@@ -404,8 +404,8 @@ func (e *Encoder) applyDCRejectCore(pcm, output []float64) {
 			m0 = coef*x0 + verySmall + coef2*m0
 			m1 = coef*x1 + verySmall + coef2*m1
 		}
-		e.hpMem[0] = float64(m0)
-		e.hpMem[1] = float64(m1)
+		e.hpMem[0] = m0
+		e.hpMem[1] = m1
 	}
 }
 
@@ -426,7 +426,7 @@ func (e *Encoder) ApplyDCReject(pcm []float64) []float64 {
 
 	// Initialize hpMem if not already done
 	if len(e.hpMem) < e.channels {
-		e.hpMem = make([]float64, e.channels)
+		e.hpMem = make([]opusVal32, e.channels)
 	}
 
 	output := make([]float64, len(pcm))
@@ -443,7 +443,7 @@ func (e *Encoder) applyDCRejectScratch(pcm []float64) []float64 {
 
 	// Initialize hpMem if not already done
 	if len(e.hpMem) < e.channels {
-		e.hpMem = make([]float64, e.channels)
+		e.hpMem = make([]opusVal32, e.channels)
 	}
 
 	// Use scratch buffer instead of allocating

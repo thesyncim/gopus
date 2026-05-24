@@ -110,19 +110,19 @@ func (e *Encoder) quantizeInputToLSBDepthScratch(pcm []float64) []float64 {
 // externally supplied energy masks.
 func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []float64) (float64, bool) {
 	if nbBands <= 0 || len(out) < nbBands {
-		return e.surroundTrim, false
+		return float64(e.surroundTrim), false
 	}
 	for i := 0; i < nbBands; i++ {
 		out[i] = 0
 	}
 	if e.lfe || e.hybrid {
-		return e.surroundTrim, false
+		return float64(e.surroundTrim), false
 	}
 
 	maskBands := MaxBands
 	needed := maskBands * e.channels
 	if len(e.energyMask) < needed {
-		return e.surroundTrim, false
+		return float64(e.surroundTrim), false
 	}
 
 	maskEnd := e.lastCodedBands
@@ -136,7 +136,7 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []float64) (f
 		maskEnd = maskBands
 	}
 	if maskEnd <= 0 {
-		return e.surroundTrim, false
+		return float64(e.surroundTrim), false
 	}
 
 	maskAvg := 0.0
@@ -162,7 +162,7 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []float64) (f
 		}
 	}
 	if count <= 0 {
-		return e.surroundTrim, false
+		return float64(e.surroundTrim), false
 	}
 	maskAvg = maskAvg/float64(count) + 0.2
 
@@ -881,7 +881,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if oldBandELen > len(prev1LogE) {
 		oldBandELen = len(prev1LogE)
 	}
-	surroundTrimForAlloc := e.surroundTrim
+	surroundTrimForAlloc := float64(e.surroundTrim)
 	var surroundDynalloc []float64
 	var surroundDynallocScratch [MaxBands]float64
 	if trim, ok := e.computeSurroundDynallocFromMask(nbBands, surroundDynallocScratch[:nbBands]); ok {

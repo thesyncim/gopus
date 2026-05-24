@@ -120,7 +120,7 @@ type Encoder struct {
 	analysisMaxPitchRatio opusVal16
 	// Surround trim adjustment (in trim units) used by alloc_trim analysis.
 	// This mirrors libopus alloc_trim_analysis() surround_trim contribution.
-	surroundTrim float64
+	surroundTrim celtGLog
 
 	// energyMask stores per-band surround masking provided by multistream control.
 	// Layout matches libopus OPUS_SET_ENERGY_MASK: [21] for mono, [42] for stereo.
@@ -160,7 +160,7 @@ type Encoder struct {
 	// DC rejection filter state (high-pass filter to remove DC offset)
 	// libopus applies this at the Opus encoder level before CELT processing
 	// Reference: libopus src/opus_encoder.c dc_reject()
-	hpMem []float64 // High-pass filter memory [channels]
+	hpMem []opusVal32 // High-pass filter memory [channels]
 
 	// dcRejectEnabled controls whether EncodeFrame applies dc_reject().
 	// When CELT is driven by the Opus encoder, dc_reject is already applied,
@@ -307,7 +307,7 @@ func NewEncoder(channels int) *Encoder {
 		preemphBuffer: make([]float64, Overlap*channels),
 
 		// DC rejection (high-pass) filter memory, one per channel
-		hpMem: make([]float64, channels),
+		hpMem: make([]opusVal32, channels),
 
 		// Apply dc_reject by default for standalone CELT usage
 		dcRejectEnabled: true,
@@ -533,12 +533,12 @@ func (e *Encoder) Reset() {
 // SetSurroundTrim sets the surround trim adjustment used by alloc_trim analysis.
 // Positive values reduce alloc_trim (favoring higher bands), matching libopus.
 func (e *Encoder) SetSurroundTrim(trim float64) {
-	e.surroundTrim = trim
+	e.surroundTrim = celtGLog(trim)
 }
 
 // SurroundTrim returns the current surround trim adjustment.
 func (e *Encoder) SurroundTrim() float64 {
-	return e.surroundTrim
+	return float64(e.surroundTrim)
 }
 
 // SetEnergyMask sets per-band surround masking for CELT surround control.

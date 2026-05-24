@@ -612,6 +612,7 @@ func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 		{"energyError", unsafe.Sizeof(enc.energyError[0])},
 		{"energyMask", unsafe.Sizeof(enc.energyMask[0])},
 		{"specAvg", unsafe.Sizeof(enc.specAvg)},
+		{"surroundTrim", unsafe.Sizeof(enc.surroundTrim)},
 	}
 	for _, tc := range got {
 		if tc.size != uintptr(sizes.celtGLog) {
@@ -650,6 +651,7 @@ func TestEncoderOpusValStateMatchesLibopusFloatSize(t *testing.T) {
 	}{
 		{"delayedIntra", unsafe.Sizeof(enc.delayedIntra)},
 		{"overlapMax", unsafe.Sizeof(enc.overlapMax)},
+		{"hpMem", unsafe.Sizeof(enc.hpMem[0])},
 	}
 	for _, tc := range got {
 		if tc.size != uintptr(sizes.opusVal32) {
