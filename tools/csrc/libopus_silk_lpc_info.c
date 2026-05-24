@@ -48,15 +48,41 @@ static int write_exact(const void *src, size_t size) {
 }
 
 static int read_u32(uint32_t *out) {
-  return read_exact(out, sizeof(*out));
+  unsigned char b[4];
+  if (!read_exact(b, sizeof(b))) return 0;
+  *out = (uint32_t)b[0] |
+         ((uint32_t)b[1] << 8) |
+         ((uint32_t)b[2] << 16) |
+         ((uint32_t)b[3] << 24);
+  return 1;
 }
 
 static int write_u32(uint32_t value) {
-  return write_exact(&value, sizeof(value));
+  unsigned char b[4];
+  b[0] = (unsigned char)(value & 0xffu);
+  b[1] = (unsigned char)((value >> 8) & 0xffu);
+  b[2] = (unsigned char)((value >> 16) & 0xffu);
+  b[3] = (unsigned char)((value >> 24) & 0xffu);
+  return write_exact(b, sizeof(b));
+}
+
+static int write_u64(uint64_t value) {
+  unsigned char b[8];
+  b[0] = (unsigned char)(value & 0xffu);
+  b[1] = (unsigned char)((value >> 8) & 0xffu);
+  b[2] = (unsigned char)((value >> 16) & 0xffu);
+  b[3] = (unsigned char)((value >> 24) & 0xffu);
+  b[4] = (unsigned char)((value >> 32) & 0xffu);
+  b[5] = (unsigned char)((value >> 40) & 0xffu);
+  b[6] = (unsigned char)((value >> 48) & 0xffu);
+  b[7] = (unsigned char)((value >> 56) & 0xffu);
+  return write_exact(b, sizeof(b));
 }
 
 static int write_double(double value) {
-  return write_exact(&value, sizeof(value));
+  uint64_t bits;
+  memcpy(&bits, &value, sizeof(bits));
+  return write_u64(bits);
 }
 
 static int eval_burg_modified(void) {
