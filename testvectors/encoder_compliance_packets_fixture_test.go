@@ -92,7 +92,7 @@ func loadEncoderCompliancePacketsFixture() (encoderCompliancePacketsFixtureFile,
 }
 
 func encoderCompliancePacketsFixturePathForArch() string {
-	return platformFixturePath(encoderCompliancePacketsFixturePath)
+	return platformFixtureReadPath(encoderCompliancePacketsFixturePath)
 }
 
 func decodeEncoderPacketsFixturePackets(c encoderCompliancePacketsFixtureTC) ([][]byte, []uint32, error) {

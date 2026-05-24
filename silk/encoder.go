@@ -214,11 +214,9 @@ type Encoder struct {
 	// FindLPC interpolation scratch buffers
 	scratchLpcX        []float32   // FindLPC input (silk_float)
 	scratchNlsf0Q15    [16]int16   // interpolated NLSF
-	scratchLpcATmp     [16]float64 // LPC from NLSF
+	scratchLpcATmp     [16]float32 // silk_NLSF2A_FLP output (silk_float)
+	scratchLpcAQ12     [16]int16   // silk_NLSF2A_FLP fixed bridge coefficients
 	scratchLpcResidual []float32   // LPC residual for energy (silk_float)
-	scratchNlsfCos     [16]float64 // nlsfToLPCFloat: cosine values
-	scratchNlsfP       [10]float64 // nlsfToLPCFloat: P polynomial (halfOrder+2, max 10)
-	scratchNlsfQ       [10]float64 // nlsfToLPCFloat: Q polynomial (halfOrder+2, max 10)
 
 	// LSF quantization scratch buffers
 	scratchLsfResiduals   []int   // computeStage2ResidualsLibopus: residuals

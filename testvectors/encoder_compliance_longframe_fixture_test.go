@@ -65,7 +65,11 @@ func longFrameFixtureTargets() []longFrameFixtureTarget {
 }
 
 func longFrameFixturePathForArch() string {
-	return platformFixturePath(longFrameFixturePath)
+	return platformFixtureReadPath(longFrameFixturePath)
+}
+
+func longFrameFixtureWritePathForArch() string {
+	return platformFixtureWritePath(longFrameFixturePath)
 }
 
 // TestLongFrameLibopusReferenceParityFromFixture validates long-frame SILK/Hybrid
@@ -246,7 +250,7 @@ func loadLongFrameFixture() (longFrameFixtureFile, error) {
 }
 
 func writeLongFrameFixture(fixture longFrameFixtureFile) error {
-	path := filepath.Join(longFrameFixturePathForArch())
+	path := filepath.Join(longFrameFixtureWritePathForArch())
 	data, err := json.MarshalIndent(fixture, "", "  ")
 	if err != nil {
 		return err

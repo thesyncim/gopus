@@ -1119,13 +1119,16 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 
 				// Convert to LPC using scratch buffers
 				aTmp := e.scratchLpcATmp[:order]
-				nlsfToLPCFloatInto(aTmp, nlsf0Q15, order, e.scratchNlsfCos[:order], e.scratchNlsfP[:order/2+2], e.scratchNlsfQ[:order/2+2])
+				aTmpQ12 := e.scratchLpcAQ12[:order]
+				if !nlsfToLPCFloat32(aTmp, aTmpQ12, nlsf0Q15, order) {
+					for i := range aTmp {
+						aTmp[i] = 0
+					}
+				}
 
 				// Calculate residual energy with interpolation using scratch
 				lpcTmpF32 := ensureFloat32Slice(&e.scratchPredCoefF32A, order)
-				for i := 0; i < order; i++ {
-					lpcTmpF32[i] = float32(aTmp[i])
-				}
+				copy(lpcTmpF32, aTmp)
 				lpcRes := ensureFloat32Slice(&e.scratchLpcResidual, analyzeLen)
 				lpcAnalysisFilterF32(lpcRes, lpcTmpF32, xF32, analyzeLen, order)
 
@@ -1177,88 +1180,17 @@ func interpolateNLSF(out, prevNLSF, curNLSF []int16, interpCoef, order int) {
 	}
 }
 
-// nlsfToLPCFloat converts NLSF Q15 to LPC float coefficients.
-// This is a simplified version for interpolation search.
-func nlsfToLPCFloat(a []float64, nlsfQ15 []int16, order int) {
-	var cosBuf [16]float64
-	var pBuf, qBuf [10]float64
-	nlsfToLPCFloatInto(a, nlsfQ15, order, cosBuf[:order], pBuf[:order/2+2], qBuf[:order/2+2])
-}
-
-// nlsfToLPCFloatInto converts NLSF Q15 to LPC float coefficients using pre-allocated scratch buffers.
-// cos must have length >= order, P and Q must have length >= halfOrder+2.
-func nlsfToLPCFloatInto(a []float64, nlsfQ15 []int16, order int, cos, P, Q []float64) {
-	// Convert Q15 NLSF to cosines
-	cosTab := silk_LSFCosTab_FIX_Q12
-	_ = cosTab[128] // BCE hint
+// nlsfToLPCFloat32 mirrors silk_NLSF2A_FLP: call the fixed-point NLSF2A
+// bridge, then store Q12 coefficients as silk_float.
+func nlsfToLPCFloat32(a []float32, aQ12 []int16, nlsfQ15 []int16, order int) bool {
+	if len(a) < order || len(aQ12) < order {
+		return false
+	}
+	if !silkNLSF2A(aQ12[:order], nlsfQ15, order) {
+		return false
+	}
 	for i := 0; i < order; i++ {
-		// Linear interpolation in cosine table
-		idx := int(nlsfQ15[i]) >> 8
-		if idx > 127 {
-			idx = 127
-		}
-		if idx < 0 {
-			idx = 0
-		}
-		frac := float64(nlsfQ15[i]&0xFF) / 256.0
-
-		c0 := float64(cosTab[idx]) / 4096.0
-		c1 := float64(cosTab[idx+1]) / 4096.0
-		cos[i] = c0 + (c1-c0)*frac
+		a[i] = float32(aQ12[i]) * (1.0 / 4096.0)
 	}
-
-	// Build P and Q polynomials (size halfOrder+2 to avoid bounds issues)
-	halfOrder := order / 2
-
-	// Clear scratch buffers
-	for i := range P[:halfOrder+2] {
-		P[i] = 0
-	}
-	for i := range Q[:halfOrder+2] {
-		Q[i] = 0
-	}
-	P[0] = 1.0
-	Q[0] = 1.0
-
-	// Build polynomials by adding roots one at a time
-	for i := 0; i < halfOrder; i++ {
-		// Even root (P polynomial)
-		c := cos[2*i]
-		// Shift existing coefficients and subtract 2*c*x contribution
-		for j := i + 1; j >= 1; j-- {
-			P[j] = P[j] - 2*c*P[j-1]
-			if j >= 2 {
-				P[j] += P[j-2]
-			}
-		}
-
-		// Odd root (Q polynomial)
-		c = cos[2*i+1]
-		for j := i + 1; j >= 1; j-- {
-			Q[j] = Q[j] - 2*c*Q[j-1]
-			if j >= 2 {
-				Q[j] += Q[j-2]
-			}
-		}
-	}
-
-	// Combine P and Q to get LPC
-	// a[k] = 0.5 * (P[k] + P[k+1] + Q[k] - Q[k+1]) for k even
-	// a[k] = 0.5 * (P[k] + P[k+1] - Q[k] + Q[k+1]) for k odd
-	// This matches the libopus NLSF2A pattern
-	for i := 0; i < order; i++ {
-		k := i / 2
-		if k+1 > halfOrder {
-			// Avoid out of bounds
-			a[i] = 0
-			continue
-		}
-		pSum := P[k] + P[k+1]
-		qDiff := Q[k] - Q[k+1]
-		if i%2 == 0 {
-			a[i] = 0.5 * (pSum + qDiff)
-		} else {
-			a[i] = 0.5 * (pSum - qDiff)
-		}
-	}
+	return true
 }

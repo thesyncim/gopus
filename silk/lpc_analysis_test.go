@@ -776,8 +776,8 @@ func TestLPCStabilityCheck(t *testing.T) {
 	}
 }
 
-// TestNLSFToLPCFloat tests the float version of NLSF to LPC conversion
-func TestNLSFToLPCFloat(t *testing.T) {
+// TestNLSFToLPCFloat32 tests the silk_NLSF2A_FLP-style fixed bridge.
+func TestNLSFToLPCFloat32(t *testing.T) {
 	order := 10
 	nlsfQ15 := make([]int16, order)
 
@@ -786,15 +786,22 @@ func TestNLSFToLPCFloat(t *testing.T) {
 		nlsfQ15[i] = int16((i + 1) * 32767 / (order + 1))
 	}
 
-	a := make([]float64, order)
-	nlsfToLPCFloat(a, nlsfQ15, order)
+	a := make([]float32, order)
+	aQ12 := make([]int16, order)
+	if !nlsfToLPCFloat32(a, aQ12, nlsfQ15, order) {
+		t.Fatal("nlsfToLPCFloat32 returned false")
+	}
 
 	// Check coefficients are finite
 	for i, coef := range a {
-		if math.IsNaN(coef) || math.IsInf(coef, 0) {
+		if math.IsNaN(float64(coef)) || math.IsInf(float64(coef), 0) {
 			t.Errorf("LPC[%d] is invalid: %f", i, coef)
+		}
+		want := float32(aQ12[i]) * (1.0 / 4096.0)
+		if coef != want {
+			t.Errorf("LPC[%d] = %f want %f", i, coef, want)
 		}
 	}
 
-	t.Logf("NLSF to LPC float: %v", a)
+	t.Logf("NLSF to LPC float32: %v", a)
 }

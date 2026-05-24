@@ -50,7 +50,7 @@ var (
 )
 
 func libopusDecoderMatrixFixturePathForArch() string {
-	return platformFixturePath(libopusDecoderMatrixFixturePath)
+	return platformFixtureReadPath(libopusDecoderMatrixFixturePath)
 }
 
 func loadLibopusDecoderMatrixFixture() (libopusDecoderMatrixFixtureFile, error) {

@@ -26,11 +26,15 @@ const encoderVariantsBaselinePath = "testdata/encoder_compliance_variants_ratche
 const updateVariantsBaselineEnv = "GOPUS_UPDATE_VARIANT_BASELINE"
 
 func encoderComplianceVariantsFixturePathForArch() string {
-	return platformFixturePath(encoderComplianceVariantsFixturePath)
+	return platformFixtureReadPath(encoderComplianceVariantsFixturePath)
 }
 
 func encoderVariantsBaselinePathForArch() string {
-	return platformFixturePath(encoderVariantsBaselinePath)
+	return platformFixtureReadPath(encoderVariantsBaselinePath)
+}
+
+func encoderVariantsBaselineWritePathForArch() string {
+	return platformFixtureWritePath(encoderVariantsBaselinePath)
 }
 
 type encoderComplianceVariantsFixtureFile struct {
@@ -978,7 +982,7 @@ func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
 		if err != nil {
 			t.Fatalf("marshal generated baseline: %v", err)
 		}
-		baselinePath := encoderVariantsBaselinePathForArch()
+		baselinePath := encoderVariantsBaselineWritePathForArch()
 		if err := os.WriteFile(filepath.Join(baselinePath), append(data, '\n'), 0o644); err != nil {
 			t.Fatalf("write generated baseline: %v", err)
 		}

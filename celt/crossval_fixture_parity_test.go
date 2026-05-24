@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"math"
 	"os"
-	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -428,10 +427,7 @@ func regenCrossvalFixture(t *testing.T, scenarios []crossvalFixtureScenario) {
 		t.Fatalf("marshal fixture: %v", err)
 	}
 
-	path := opusdecCrossvalFixturePath
-	if runtime.GOARCH == "amd64" {
-		path = opusdecCrossvalFixturePathAMD64
-	}
+	path := opusdecCrossvalFixtureWritePath()
 	if err := os.WriteFile(path, data, 0644); err != nil {
 		t.Fatalf("write fixture: %v", err)
 	}
@@ -461,10 +457,7 @@ func TestOpusdecCrossvalFixtureCoverage(t *testing.T) {
 		}
 	}
 	if needsRegen {
-		fixturePath := opusdecCrossvalFixturePath
-		if runtime.GOARCH == "amd64" {
-			fixturePath = opusdecCrossvalFixturePathAMD64
-		}
+		fixturePath := opusdecCrossvalFixtureWritePath()
 		if !updateFixture {
 			t.Fatalf("opusdec crossval fixture %q is stale or missing; set %s=1 to regenerate", fixturePath, updateOpusdecCrossvalFixtureEnv)
 		}

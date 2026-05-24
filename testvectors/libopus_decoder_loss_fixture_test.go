@@ -58,7 +58,7 @@ var (
 )
 
 func libopusDecoderLossFixturePathForArch() string {
-	return platformFixturePath(libopusDecoderLossFixturePath)
+	return platformFixtureReadPath(libopusDecoderLossFixturePath)
 }
 
 func loadLibopusDecoderLossFixture() (libopusDecoderLossFixtureFile, error) {

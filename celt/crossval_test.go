@@ -106,10 +106,37 @@ const opusdecCrossvalFixturePath = "testdata/opusdec_crossval_fixture.json"
 const opusdecCrossvalFixturePathAMD64 = "testdata/opusdec_crossval_fixture_amd64.json"
 
 func opusdecCrossvalFixturePathForArch() string {
+	return opusdecCrossvalFixtureReadPath()
+}
+
+func opusdecCrossvalFixtureReadPath() string {
+	platformPath := opusdecCrossvalFixtureWritePath()
+	if _, err := os.Stat(platformPath); err == nil {
+		return platformPath
+	}
 	if runtime.GOARCH == "amd64" {
-		return opusdecCrossvalFixturePathAMD64
+		if _, err := os.Stat(opusdecCrossvalFixturePathAMD64); err == nil {
+			return opusdecCrossvalFixturePathAMD64
+		}
 	}
 	return opusdecCrossvalFixturePath
+}
+
+func opusdecCrossvalFixtureWritePath() string {
+	return opusdecCrossvalPlatformFixturePath(opusdecCrossvalFixturePath, runtime.GOOS, runtime.GOARCH)
+}
+
+func opusdecCrossvalPlatformFixturePath(generic, goos, goarch string) string {
+	ext := filepath.Ext(generic)
+	return strings.TrimSuffix(generic, ext) + "_" + goos + "_" + goarch + ext
+}
+
+func TestOpusdecCrossvalPlatformFixturePath(t *testing.T) {
+	got := opusdecCrossvalPlatformFixturePath("testdata/opusdec_crossval_fixture.json", "linux", "arm64")
+	want := "testdata/opusdec_crossval_fixture_linux_arm64.json"
+	if got != want {
+		t.Fatalf("platform fixture path=%q want %q", got, want)
+	}
 }
 
 type opusdecCrossvalFixtureFile struct {
