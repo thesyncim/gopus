@@ -1167,9 +1167,9 @@ func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []float64, st
 
 			re.EncodeRawBits(uint32(q2), uint(bits))
 
-			offset := (float64(q2)+0.5)/float64(extra) - 0.5
-			quantizedEnergies[idx] += offset
-			errorVals[idx] = float64(err) - offset
+			offset := (float32(q2)+0.5)/scale32 - 0.5
+			quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
+			errorVals[idx] = float64(err - offset)
 		}
 	}
 }
@@ -1542,9 +1542,9 @@ func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []float64,
 
 			re.EncodeRawBits(uint32(q2), uint(extraBits))
 
-			offset := ((float64(q2)+0.5)/float64(extra) - 0.5) / float64(uint(1)<<prevBits)
-			quantizedEnergies[idx] += offset
-			errorVals[idx] = float64(err) - offset
+			offset := ((float32(q2)+0.5)/scale32 - 0.5) / prevScale32
+			quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
+			errorVals[idx] = float64(err - offset)
 		}
 	}
 }

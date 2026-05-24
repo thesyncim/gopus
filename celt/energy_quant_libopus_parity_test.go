@@ -166,6 +166,79 @@ func TestEncoderEnergyFinaliseRangeFromErrorMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestEncoderFineEnergyRangeFromErrorMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusCELTEnergyQuantCase{
+		celtEnergyQuantFineCase("hybrid_stereo_tail", 2, HybridCELTStartBand, MaxBands, 64),
+	}
+	for i := range cases {
+		for band := range cases[i].prevQuant {
+			cases[i].prevQuant[band] = 0
+		}
+	}
+	want, err := probeLibopusCELTEnergyQuant(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt fine energy range", err)
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enc := NewEncoder(tc.channels)
+			gotOld := float32sToFloat64s(tc.oldEBands)
+			enc.scratch.coarseError = float32sToFloat64s(tc.errorVal)
+			buf := make([]byte, tc.storage)
+			var re rangecoding.Encoder
+			re.Init(buf)
+			enc.rangeEncoder = &re
+
+			enc.EncodeFineEnergyRangeFromError(gotOld, tc.start, tc.end, tc.extraQuant[:])
+
+			gotPacket := append([]byte(nil), re.Done()...)
+			if uint32(re.Error()) != want[i].encError {
+				t.Fatalf("encoder error=%d want %d", re.Error(), want[i].encError)
+			}
+			if !bytes.Equal(gotPacket, want[i].packet) {
+				t.Fatalf("packet=%x want %x", gotPacket, want[i].packet)
+			}
+			assertFloat64CarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
+			assertFloat64CarriesFloat32Bits(t, "error", enc.scratch.coarseError, want[i].errorVal)
+		})
+	}
+}
+
+func TestEncoderFineEnergyWithPrevMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusCELTEnergyQuantCase{
+		celtEnergyQuantFineCase("prev_stereo_full", 2, 0, MaxBands, 64),
+		celtEnergyQuantFineCase("prev_mono_budget_skip", 1, 0, MaxBands, 3),
+	}
+	want, err := probeLibopusCELTEnergyQuant(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt fine energy prev", err)
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			enc := NewEncoder(tc.channels)
+			gotOld := float32sToFloat64s(tc.oldEBands)
+			gotErr := float32sToFloat64s(tc.errorVal)
+			buf := make([]byte, tc.storage)
+			var re rangecoding.Encoder
+			re.Init(buf)
+
+			enc.encodeFineEnergyFromErrorWithPrevWithEncoder(&re, gotOld, MaxBands, tc.prevQuant[:], tc.extraQuant[:], gotErr)
+
+			gotPacket := append([]byte(nil), re.Done()...)
+			if uint32(re.Error()) != want[i].encError {
+				t.Fatalf("encoder error=%d want %d", re.Error(), want[i].encError)
+			}
+			if !bytes.Equal(gotPacket, want[i].packet) {
+				t.Fatalf("packet=%x want %x", gotPacket, want[i].packet)
+			}
+			assertFloat64CarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
+			assertFloat64CarriesFloat32Bits(t, "error", gotErr, want[i].errorVal)
+		})
+	}
+}
+
 func assertCELTEnergyQuantMatchesLibopus(t *testing.T, cases []libopusCELTEnergyQuantCase) {
 	t.Helper()
 	want, err := probeLibopusCELTEnergyQuant(cases)
