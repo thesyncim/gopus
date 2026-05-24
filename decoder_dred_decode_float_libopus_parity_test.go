@@ -4149,6 +4149,122 @@ func TestDecoderPublicDecodeDRED16kMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecoderPublicDecodeDREDHybridAPIRateMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	tests := []struct {
+		name       string
+		sampleRate int
+		cfg        libopusDREDPacketConfig
+	}{
+		{
+			name:       "8k_hybrid_swb_mono",
+			sampleRate: 8000,
+			cfg: libopusDREDPacketConfig{
+				FrameSize: 960,
+				ForceMode: ModeHybrid,
+				Bandwidth: BandwidthSuperwideband,
+			},
+		},
+		{
+			name:       "12k_hybrid_swb_mono",
+			sampleRate: 12000,
+			cfg: libopusDREDPacketConfig{
+				FrameSize: 960,
+				ForceMode: ModeHybrid,
+				Bandwidth: BandwidthSuperwideband,
+			},
+		},
+		{
+			name:       "24k_hybrid_swb_mono",
+			sampleRate: 24000,
+			cfg: libopusDREDPacketConfig{
+				FrameSize: 960,
+				ForceMode: ModeHybrid,
+				Bandwidth: BandwidthSuperwideband,
+			},
+		},
+		{
+			name:       "24k_hybrid_swb_stereo",
+			sampleRate: 24000,
+			cfg: libopusDREDPacketConfig{
+				FrameSize:     960,
+				ForceMode:     ModeHybrid,
+				Bandwidth:     BandwidthSuperwideband,
+				Channels:      2,
+				ForceChannels: 2,
+			},
+		},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, tc.sampleRate, tc.cfg)
+			want, err := probeLibopusDecoderDREDDecodeFloatForDecoder(seedPacket, packetInfo, tc.sampleRate, -1, n, n)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
+			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus public hybrid API-rate DRED")
+			if want.ret != n {
+				t.Fatalf("libopus public hybrid API-rate DRED ret=%d want %d", want.ret, n)
+			}
+			if want.channels != dec.channels {
+				t.Fatalf("libopus public hybrid API-rate DRED channels=%d want %d", want.channels, dec.channels)
+			}
+
+			pcm := make([]float32, n*dec.channels)
+			got, err := dec.DecodeDRED(dred, n, pcm, n)
+			if err != nil {
+				t.Fatalf("DecodeDRED error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("DecodeDRED=%d want %d", got, n)
+			}
+
+			gotPCM := pcm[:got*dec.channels]
+			wantPCM := want.pcm[:got*dec.channels]
+			assertFloat32ApproxEqual(t, gotPCM, wantPCM, "public hybrid API-rate DecodeDRED pcm", 1e-4)
+			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "public hybrid API-rate DecodeDRED plc", 1e-4)
+			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "public hybrid API-rate DecodeDRED fargan", 1e-4)
+			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.celt48k, "public hybrid API-rate DecodeDRED celt", 1e-4)
+		})
+	}
+}
+
+func TestDecoderPublicDecodeDREDOverlongRequestMatchesLibopusReturn(t *testing.T) {
+	libopustest.RequireOracle(t)
+	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 48000, libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+	})
+	requested := overlongAPIRateRequestedFrameSize(dec.SampleRate())
+	if requested <= dec.maxPacketSamples {
+		t.Fatalf("requested=%d not over max packet samples %d", requested, dec.maxPacketSamples)
+	}
+
+	want, err := probeLibopusDecoderDREDDecodeFloatForDecoder(seedPacket, packetInfo, dec.SampleRate(), -1, n, requested)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "decoder DRED overlong decode", err)
+	}
+	requireLibopusDREDDecodeParsed(t, want, "libopus public overlong DRED")
+	if want.ret != requested {
+		t.Fatalf("libopus public overlong DRED ret=%d want %d", want.ret, requested)
+	}
+
+	pcm := make([]float32, requested*dec.channels)
+	got, err := dec.DecodeDRED(dred, n, pcm, requested)
+	if err != nil {
+		t.Fatalf("DecodeDRED overlong error: %v", err)
+	}
+	if got != requested {
+		t.Fatalf("DecodeDRED overlong=%d want %d", got, requested)
+	}
+
+	if len(want.pcm) < got*dec.channels {
+		t.Fatalf("libopus public overlong DRED PCM len=%d want at least %d", len(want.pcm), got*dec.channels)
+	}
+}
+
 func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusFirstLoss(t *testing.T) {
 	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityState(t)

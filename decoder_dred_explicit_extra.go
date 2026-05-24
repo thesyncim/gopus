@@ -12,7 +12,7 @@ func (d *Decoder) explicitDREDResultForDecode(dred *DRED) internaldred.Result {
 	if d == nil || dred == nil || !dred.Processed() || sampleRate <= 0 {
 		return internaldred.Result{}
 	}
-	maxDREDSamples := d.maxPacketSamples
+	maxDREDSamples := d.maxCachedDREDSamples()
 	if maxDREDSamples <= 0 {
 		maxDREDSamples = internaldred.MaxLatents * internaldred.LatentSpanSamples(sampleRate)
 	}
@@ -53,7 +53,7 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 	if r == nil || n == nil {
 		return 0, ErrInvalidArgument
 	}
-	if frameSizeSamples <= 0 || frameSizeSamples > d.maxPacketSamples {
+	if frameSizeSamples <= 0 {
 		return 0, ErrInvalidArgument
 	}
 	lossQuantum := d.sampleRate / 400
@@ -83,22 +83,60 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 		// channels.
 		return d.decodeExplicitSILKDREDFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
 	}
-	if d.sampleRate == 48000 {
-		d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
-		d.prepareDRED48kNeuralEntry(frameSizeSamples, d.prevMode, false)
-		if !d.applyDREDNeuralConcealment48kMono(pcm[:needed], frameSizeSamples) {
-			return 0, ErrInvalidPacket
-		}
-		d.applyOutputGain(pcm[:needed])
-		d.lastFrameSize = frameSizeSamples
-		d.lastPacketDuration = frameSizeSamples
-		d.lastDataLen = 0
-		return frameSizeSamples, nil
+	return d.decodeExplicitDRED48kNeuralFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
+}
+
+func (d *Decoder) decodeExplicitDRED48kNeuralFloat(dred *DRED, dredOffsetSamples int, pcm []float32, frameSizeSamples int) (int, error) {
+	if d == nil {
+		return 0, ErrInvalidArgument
+	}
+	needed := frameSizeSamples * d.channels
+	if frameSizeSamples <= 0 || len(pcm) < needed {
+		return 0, ErrBufferTooSmall
 	}
 	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
 	d.prepareDRED48kNeuralEntry(frameSizeSamples, d.prevMode, false)
-	if !d.applyDREDNeuralConcealment48kMono(pcm[:needed], frameSizeSamples) {
-		return 0, ErrInvalidPacket
+
+	chunkLimit := d.sampleRate / 25 * 3
+	if chunkLimit <= 0 || frameSizeSamples <= chunkLimit {
+		if !d.applyDREDNeuralConcealment48kMono(pcm[:needed], frameSizeSamples) {
+			return 0, ErrInvalidPacket
+		}
+	} else {
+		remaining := frameSizeSamples
+		offset := 0
+		for remaining > 0 {
+			chunk := nextPLCChunkSamples(d.sampleRate, d.prevMode, remaining)
+			if chunk <= 0 {
+				return 0, ErrInvalidPacket
+			}
+			start := offset * d.channels
+			end := start + chunk*d.channels
+			if end > len(pcm) || !d.applyDREDNeuralConcealment48kMono(pcm[start:end], chunk) {
+				packetFrameSize := d.lastFrameSize
+				if packetFrameSize <= 0 {
+					packetFrameSize = chunk
+				}
+				n, err := d.decodePLCChunksInto(pcm[start:needed], remaining, plcDecodeState{
+					packetFrameSize:    packetFrameSize,
+					mode:               d.prevMode,
+					bandwidth:          d.lastBandwidth,
+					packetStereo:       d.prevPacketStereo,
+					useDecoderPLCState: true,
+				})
+				if err != nil {
+					return 0, err
+				}
+				offset += n
+				remaining -= n
+				break
+			}
+			offset += chunk
+			remaining -= chunk
+		}
+		if remaining != 0 {
+			return 0, ErrInvalidPacket
+		}
 	}
 	d.applyOutputGain(pcm[:needed])
 	d.lastFrameSize = frameSizeSamples
