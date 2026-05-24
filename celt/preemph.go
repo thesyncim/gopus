@@ -342,15 +342,15 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCoreF32(pcm, output []flo
 		e.preemphState[1] = celtSig(stateR)
 	}
 
-	sampleMax := e.overlapMax
+	sampleMax := float64(e.overlapMax)
 	firstMax := math.Float64frombits(firstMaxBits)
 	if firstMax > sampleMax {
 		sampleMax = firstMax
 	}
-	newOverlapMax := math.Float64frombits(overlapMaxBits)
-	e.overlapMax = newOverlapMax
-	if newOverlapMax > sampleMax {
-		sampleMax = newOverlapMax
+	newOverlapMax := float32(math.Float64frombits(overlapMaxBits))
+	e.overlapMax = opusVal32(newOverlapMax)
+	if float64(newOverlapMax) > sampleMax {
+		sampleMax = float64(newOverlapMax)
 	}
 
 	silenceThreshold := math.Ldexp(1.0, -e.lsbDepth)

@@ -580,8 +580,9 @@ func TestEncodeCoarseEnergyRangeUpdatesDelayedIntra(t *testing.T) {
 		energies := makeEnergies(enc)
 		enc.delayedIntra = 3.25
 		oldDelayed := enc.delayedIntra
-		expectedDist := float64(coarseLossDistortionRange(energies, enc.prevEnergy, start, end, nbBands, 1))
-		expected := AlphaCoef[lm]*AlphaCoef[lm]*oldDelayed + expectedDist
+		expectedDist := coarseLossDistortionRange(energies, enc.prevEnergy, start, end, nbBands, 1)
+		alpha := float32(AlphaCoef[lm])
+		expected := float64(alpha*alpha*float32(oldDelayed) + expectedDist)
 
 		buf := make([]byte, 512)
 		re := &rangecoding.Encoder{}
@@ -589,7 +590,7 @@ func TestEncodeCoarseEnergyRangeUpdatesDelayedIntra(t *testing.T) {
 		enc.SetRangeEncoder(re)
 		_ = enc.EncodeCoarseEnergyRange(energies, start, end, false, lm)
 
-		if math.Abs(enc.delayedIntra-expected) > 1e-6 {
+		if math.Abs(float64(enc.delayedIntra)-expected) > 1e-6 {
 			t.Fatalf("inter delayedIntra=%f, want %f", enc.delayedIntra, expected)
 		}
 	})
@@ -606,7 +607,7 @@ func TestEncodeCoarseEnergyRangeUpdatesDelayedIntra(t *testing.T) {
 		enc.SetRangeEncoder(re)
 		_ = enc.EncodeCoarseEnergyRange(energies, start, end, true, lm)
 
-		if math.Abs(enc.delayedIntra-expected) > 1e-6 {
+		if math.Abs(float64(enc.delayedIntra)-expected) > 1e-6 {
 			t.Fatalf("intra delayedIntra=%f, want %f", enc.delayedIntra, expected)
 		}
 	})

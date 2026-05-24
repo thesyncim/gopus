@@ -85,7 +85,7 @@ func normalizeQEXTBandsInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm i
 	}
 }
 
-func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, energies []float64, nbBands, lm, nbAvailableBytes int, oldBandEState, quantizedEnergies, errorVals []float64, delayedIntra *float64) bool {
+func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, energies []float64, nbBands, lm, nbAvailableBytes int, oldBandEState, quantizedEnergies, errorVals []float64, delayedIntra *float32) bool {
 	if re == nil || nbBands <= 0 {
 		return false
 	}
@@ -119,7 +119,7 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	copyFloat64ToGLog(qextOldBandE, oldBandEState)
 	e.prevEnergy = qextOldBandE
 	if delayedIntra != nil {
-		e.delayedIntra = *delayedIntra
+		e.delayedIntra = opusVal32(*delayedIntra)
 	} else {
 		e.delayedIntra = 0
 	}
@@ -137,7 +137,7 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	}
 	e.EncodeCoarseEnergy(energies, nbBands, intra, lm)
 	if delayedIntra != nil {
-		*delayedIntra = e.delayedIntra
+		*delayedIntra = float32(e.delayedIntra)
 	}
 	return intra
 }

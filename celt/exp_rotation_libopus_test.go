@@ -608,10 +608,35 @@ func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 		{"prevEnergy2", unsafe.Sizeof(enc.prevEnergy2[0])},
 		{"energyError", unsafe.Sizeof(enc.energyError[0])},
 		{"energyMask", unsafe.Sizeof(enc.energyMask[0])},
+		{"specAvg", unsafe.Sizeof(enc.specAvg)},
 	}
 	for _, tc := range got {
 		if tc.size != uintptr(sizes.celtGLog) {
 			t.Fatalf("%s element size=%d want libopus celt_glog size %d", tc.name, tc.size, sizes.celtGLog)
+		}
+	}
+}
+
+func TestEncoderOpusValStateMatchesLibopusFloatSize(t *testing.T) {
+	libopustest.RequireOracle(t)
+	sizes, err := probeLibopusCELTTypeSizes()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	enc := NewEncoder(2)
+	if got := unsafe.Sizeof(enc.lastStereoSaving); got != uintptr(sizes.opusVal16) {
+		t.Fatalf("lastStereoSaving element size=%d want libopus opus_val16 size %d", got, sizes.opusVal16)
+	}
+	got := []struct {
+		name string
+		size uintptr
+	}{
+		{"delayedIntra", unsafe.Sizeof(enc.delayedIntra)},
+		{"overlapMax", unsafe.Sizeof(enc.overlapMax)},
+	}
+	for _, tc := range got {
+		if tc.size != uintptr(sizes.opusVal32) {
+			t.Fatalf("%s element size=%d want libopus opus_val32 size %d", tc.name, tc.size, sizes.opusVal32)
 		}
 	}
 }

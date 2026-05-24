@@ -44,7 +44,7 @@ type Encoder struct {
 	preemphState  []celtSig // Pre-emphasis filter state [channels]
 	// overlapMax mirrors libopus st->overlap_max for CELT silence detection.
 	// It tracks max absolute amplitude over the last overlap region.
-	overlapMax float64
+	overlapMax opusVal32
 
 	// RNG state (for deterministic folding decisions)
 	rng uint32
@@ -56,7 +56,7 @@ type Encoder struct {
 	// Frame counting for intra mode decisions
 	frameCount int // Number of frames encoded (0 = first frame uses intra mode)
 	// Coarse-energy intra/inter decision state (libopus delayedIntra).
-	delayedIntra float64
+	delayedIntra opusVal32
 	forceIntra   bool
 	// CELT prediction control mirrors CELT_SET_PREDICTION:
 	// 0 => force_intra=1, disable_pf=1
@@ -103,9 +103,9 @@ type Encoder struct {
 	// Tonality analysis state (for VBR decisions)
 	prevBandLogEnergy []float64 // Previous frame log-energy per band for spectral flux
 	lastTonality      float64   // Running average tonality for smoothing
-	lastStereoSaving  float64   // Running stereo_saving estimate from alloc_trim analysis
+	lastStereoSaving  opusVal16 // Running stereo_saving estimate from alloc_trim analysis
 	lastPitchChange   bool      // Previous frame pitch_change flag for VBR targeting
-	specAvg           float64   // Smoothed spectral average for temporal VBR (libopus st->spec_avg)
+	specAvg           celtGLog  // Smoothed spectral average for temporal VBR (libopus st->spec_avg)
 	lastTemporalVBR   float64   // Previous frame's temporal_vbr for VBR target adjustment
 	lastTellFrac      int       // Previous frame's ec_tell_frac at VBR point (for tell estimation)
 

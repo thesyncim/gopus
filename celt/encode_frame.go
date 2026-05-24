@@ -830,14 +830,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		if bandEnd > start {
 			frameAvg /= float64(bandEnd - start)
 		}
-		temporalVBR := frameAvg - e.specAvg
+		temporalVBR := frameAvg - float64(e.specAvg)
 		if temporalVBR > 3.0 {
 			temporalVBR = 3.0
 		}
 		if temporalVBR < -1.5 {
 			temporalVBR = -1.5
 		}
-		e.specAvg += 0.02 * temporalVBR
+		e.specAvg = celtGLog(float32(e.specAvg) + float32(0.02)*float32(temporalVBR))
 		e.lastTemporalVBR = temporalVBR
 	}
 
@@ -1138,7 +1138,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				tonalitySlope,
 			)
 			if codedChannels == 2 {
-				e.lastStereoSaving = UpdateStereoSaving(e.lastStereoSaving, normL, normR, nbBands, lm, intensity)
+				e.lastStereoSaving = opusVal16(UpdateStereoSaving(float64(e.lastStereoSaving), normL, normR, nbBands, lm, intensity))
 			}
 		}
 		re.EncodeICDF(allocTrim, trimICDF, 7)
@@ -1318,7 +1318,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			clear(qextQuantized)
 			clear(qextError)
 			clear(qextOldBandE)
-			var qextDelayedIntra float64
+			var qextDelayedIntra float32
 			e.encodeQEXTCoarseEnergyWithEncoder(qextEnc, qextBandLogE, qextEnd, lm, qextPayloadBytes, qextOldBandE, qextQuantized, qextError, &qextDelayedIntra)
 		}
 
@@ -1866,7 +1866,7 @@ func (e *Encoder) computeSilenceFlag(pcm []float64, frameSize, overlap int) bool
 		split = total
 	}
 
-	sampleMax := e.overlapMax
+	sampleMax := float64(e.overlapMax)
 	if split > 0 {
 		firstMax := maxAbsSliceF64(pcm[:split])
 		if firstMax > sampleMax {
@@ -1874,13 +1874,13 @@ func (e *Encoder) computeSilenceFlag(pcm []float64, frameSize, overlap int) bool
 		}
 	}
 
-	newOverlapMax := 0.0
+	newOverlapMax := float32(0)
 	if split < total {
-		newOverlapMax = maxAbsSliceF64(pcm[split:total])
+		newOverlapMax = float32(maxAbsSliceF64(pcm[split:total]))
 	}
-	e.overlapMax = newOverlapMax
-	if newOverlapMax > sampleMax {
-		sampleMax = newOverlapMax
+	e.overlapMax = opusVal32(newOverlapMax)
+	if float64(newOverlapMax) > sampleMax {
+		sampleMax = float64(newOverlapMax)
 	}
 
 	silenceThreshold := math.Ldexp(1.0, -e.lsbDepth)
@@ -2442,7 +2442,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 		codedStereoDof := (EBands[codedStereoBands] << lm) - codedStereoBands
 		if codedStereoDof > 0 {
 			maxFrac := 0.8 * float64(codedStereoDof) / float64(codedBins)
-			stereoSaving := e.lastStereoSaving
+			stereoSaving := float64(e.lastStereoSaving)
 			if stereoSaving > 1 {
 				stereoSaving = 1
 			}

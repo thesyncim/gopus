@@ -632,9 +632,9 @@ func (e *Encoder) EncodeCoarseEnergy(energies []float64, nbBands int, intra bool
 
 	alpha32 := float32(AlphaCoef[lm])
 	if intra {
-		e.delayedIntra = float64(newDistortion)
+		e.delayedIntra = opusVal32(newDistortion)
 	} else {
-		e.delayedIntra = float64(alpha32*alpha32*float32(e.delayedIntra) + newDistortion)
+		e.delayedIntra = opusVal32(alpha32*alpha32*float32(e.delayedIntra) + newDistortion)
 	}
 
 	return quantizedEnergies
@@ -753,9 +753,9 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 
 		alpha32 := float32(AlphaCoef[lm])
 		if intra {
-			e.delayedIntra = float64(newDistortion)
+			e.delayedIntra = opusVal32(newDistortion)
 		} else {
-			e.delayedIntra = float64(alpha32*alpha32*float32(e.delayedIntra) + newDistortion)
+			e.delayedIntra = opusVal32(alpha32*alpha32*float32(e.delayedIntra) + newDistortion)
 		}
 
 		return quantizedEnergies[:nbBands*channels]
@@ -852,9 +852,9 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 
 	alpha32 := float32(AlphaCoef[lm])
 	if intra {
-		e.delayedIntra = float64(newDistortion)
+		e.delayedIntra = opusVal32(newDistortion)
 	} else {
-		e.delayedIntra = float64(alpha32*alpha32*float32(e.delayedIntra) + newDistortion)
+		e.delayedIntra = opusVal32(alpha32*alpha32*float32(e.delayedIntra) + newDistortion)
 	}
 
 	return quantizedEnergies
