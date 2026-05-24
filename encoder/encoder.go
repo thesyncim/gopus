@@ -179,7 +179,7 @@ type Encoder struct {
 	prevPacketMode      Mode
 	prevAutoMode        Mode
 	inputBuffer         []float64
-	delayBuffer         []float64
+	delayBuffer         []opusRes
 
 	// Auto-mode state (matching libopus OpusEncoder fields)
 	voiceRatio        int             // Persistent voice ratio (-1 = unset, 0-100)
@@ -217,7 +217,7 @@ type Encoder struct {
 	scratchSideStates [silk.MaxFramesPerPacket]silk.VADFrameState
 	scratchPacket     []byte    // Output packet buffer
 	scratchDelayedPCM []float64 // Delay-compensated CELT input
-	scratchDelayState []float64 // Packet-local delay history for transition-prefill replay
+	scratchDelayState []opusRes // Packet-local delay history for transition-prefill replay
 	// Snapshot of libopus delay-history CELT transition prefill window (Fs/400).
 	scratchTransitionPrefill []float64
 	scratchSilkPrefill       []float64
@@ -1430,9 +1430,9 @@ func (e *Encoder) ensureDelayedPCM(size int) []float64 {
 	return e.scratchDelayedPCM[:size]
 }
 
-func (e *Encoder) ensureDelayState(size int) []float64 {
+func (e *Encoder) ensureDelayState(size int) []opusRes {
 	if cap(e.scratchDelayState) < size {
-		e.scratchDelayState = make([]float64, size)
+		e.scratchDelayState = make([]opusRes, size)
 	}
 	return e.scratchDelayState[:size]
 }
@@ -1483,7 +1483,7 @@ func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []float64
 		encoderBufferSamples = delaySamples
 	}
 	if len(e.delayBuffer) != encoderBufferSamples {
-		e.delayBuffer = make([]float64, encoderBufferSamples)
+		e.delayBuffer = make([]opusRes, encoderBufferSamples)
 	}
 
 	tailStart := encoderBufferSamples - delaySamples
@@ -1495,16 +1495,16 @@ func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []float64
 	prefillStart := encoderBufferSamples - delaySamples - prefillSamples
 	if prefillSamples > 0 && prefillStart >= 0 && prefillStart+prefillSamples <= len(e.delayBuffer) {
 		prefill := e.ensureTransitionPrefill(prefillSamples)
-		copy(prefill, e.delayBuffer[prefillStart:prefillStart+prefillSamples])
+		copyOpusResToFloat64(prefill, e.delayBuffer[prefillStart:prefillStart+prefillSamples])
 	} else {
 		e.scratchTransitionPrefill = e.scratchTransitionPrefill[:0]
 	}
 
 	out := e.ensureDelayedPCM(frameSize * channels)
 	if frameSamples <= delaySamples {
-		copy(out, e.delayBuffer[tailStart:tailStart+frameSamples])
+		copyOpusResToFloat64(out, e.delayBuffer[tailStart:tailStart+frameSamples])
 	} else {
-		copy(out, e.delayBuffer[tailStart:])
+		copyOpusResToFloat64(out, e.delayBuffer[tailStart:])
 		copy(out[delaySamples:], pcm[:frameSamples-delaySamples])
 	}
 
@@ -1653,9 +1653,9 @@ func (e *Encoder) runPendingSilkTransitionPrefill(preserveLP bool, captureCELTPr
 		prefill[i] = 0
 	}
 	if len(e.delayBuffer) >= prefillSamples {
-		copy(prefill, e.delayBuffer[:prefillSamples])
+		copyOpusResToFloat64(prefill, e.delayBuffer[:prefillSamples])
 	} else if len(e.delayBuffer) > 0 {
-		copy(prefill[prefillSamples-len(e.delayBuffer):], e.delayBuffer)
+		copyOpusResToFloat64(prefill[prefillSamples-len(e.delayBuffer):], e.delayBuffer)
 	}
 	e.runSilkTransitionPrefill(prefill, preserveLP, captureCELTPrefill)
 }
@@ -1998,7 +1998,7 @@ func (e *Encoder) updateDelayBuffer(pcm []float64, frameSize int) {
 		encoderBufferSamples = delaySamples
 	}
 	if len(e.delayBuffer) != encoderBufferSamples {
-		e.delayBuffer = make([]float64, encoderBufferSamples)
+		e.delayBuffer = make([]opusRes, encoderBufferSamples)
 	}
 	e.updateDelayBufferInternal(pcm, frameSamples, encoderBufferSamples)
 }
@@ -2008,13 +2008,13 @@ func (e *Encoder) updateDelayBufferInternal(pcm []float64, frameSamples, encoder
 		return
 	}
 	if frameSamples >= encoderBufferSamples {
-		copy(e.delayBuffer, pcm[frameSamples-encoderBufferSamples:frameSamples])
+		copyFloat64ToOpusRes(e.delayBuffer, pcm[frameSamples-encoderBufferSamples:frameSamples])
 		return
 	}
 
 	keep := encoderBufferSamples - frameSamples
 	copy(e.delayBuffer[:keep], e.delayBuffer[frameSamples:frameSamples+keep])
-	copy(e.delayBuffer[keep:], pcm[:frameSamples])
+	copyFloat64ToOpusRes(e.delayBuffer[keep:], pcm[:frameSamples])
 }
 
 // prepareCELTPCM applies CELT delay compensation unless low-delay mode is active.
@@ -2838,7 +2838,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM []float64
 
 // encodeHybridMultiFramePacket encodes long hybrid packets by splitting into
 // 20ms hybrid frames and packing them with Opus multi-frame framing.
-func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, rawPCM []float64, lookahead []float64, delayState []float64, frameSize int, transitionToCELT bool, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
+func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []float64, rawPCM []float64, lookahead []float64, delayState []opusRes, frameSize int, transitionToCELT bool, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
 	if frameSize <= 960 || frameSize%960 != 0 {
 		return nil, ErrInvalidFrameSize
 	}

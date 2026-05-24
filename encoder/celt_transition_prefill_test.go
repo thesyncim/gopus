@@ -93,11 +93,12 @@ func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 		t.Fatal("invalid test setup")
 	}
 
-	enc.delayBuffer = make([]float64, encoderBuffer)
+	enc.delayBuffer = make([]opusRes, encoderBuffer)
 	for i := range enc.delayBuffer {
-		enc.delayBuffer[i] = float64(i + 1)
+		enc.delayBuffer[i] = opusRes(i + 1)
 	}
-	origDelay := append([]float64(nil), enc.delayBuffer...)
+	origDelay := make([]float64, len(enc.delayBuffer))
+	copyOpusResToFloat64(origDelay, enc.delayBuffer)
 
 	frame := make([]float64, frameSize)
 	for i := range frame {
@@ -181,9 +182,9 @@ func TestSilkTransitionPrefillLongPacketKeepsFirstCELTSnapshot(t *testing.T) {
 	enc.prevPacketMode = ModeCELT
 
 	prefillSamples := enc.sampleRate / 100
-	enc.delayBuffer = make([]float64, prefillSamples)
+	enc.delayBuffer = make([]opusRes, prefillSamples)
 	for i := range enc.delayBuffer {
-		enc.delayBuffer[i] = float64(i + 1)
+		enc.delayBuffer[i] = opusRes(i + 1)
 	}
 
 	enc.maybePrefillSILKOnModeTransitionWithOptions(ModeHybrid, false, true)
@@ -197,7 +198,7 @@ func TestSilkTransitionPrefillLongPacketKeepsFirstCELTSnapshot(t *testing.T) {
 	want := append([]float64(nil), enc.scratchCELTPrefill...)
 
 	for i := range enc.delayBuffer {
-		enc.delayBuffer[i] = float64(1000 + i)
+		enc.delayBuffer[i] = opusRes(1000 + i)
 	}
 
 	enc.maybePrefillSILKOnModeTransitionWithOptions(ModeHybrid, true, false)
@@ -222,12 +223,12 @@ func TestSilkTransitionPrefillStereoPrimesMidAndSide(t *testing.T) {
 	enc.SetBitrate(64000)
 
 	prefillSamples := enc.sampleRate / 100
-	enc.delayBuffer = make([]float64, prefillSamples*2)
+	enc.delayBuffer = make([]opusRes, prefillSamples*2)
 	for i := 0; i < prefillSamples; i++ {
 		left := 0.45 * math.Sin(2*math.Pi*440*float64(i)/48000.0)
 		right := 0.20 * math.Sin(2*math.Pi*660*float64(i)/48000.0)
-		enc.delayBuffer[2*i] = left
-		enc.delayBuffer[2*i+1] = right
+		enc.delayBuffer[2*i] = opusRes(left)
+		enc.delayBuffer[2*i+1] = opusRes(right)
 	}
 
 	enc.maybePrefillSILKOnModeTransitionWithOptions(ModeHybrid, false, false)

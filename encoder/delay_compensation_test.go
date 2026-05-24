@@ -103,6 +103,18 @@ func requireEqualFloat64Slices(t *testing.T, name string, got, want []float64) {
 	}
 }
 
+func requireEqualOpusResToFloat64Slices(t *testing.T, name string, got []opusRes, want []float64) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("%s len=%d want=%d", name, len(got), len(want))
+	}
+	for i := range got {
+		if float64(got[i]) != float64(opusRes(want[i])) {
+			t.Fatalf("%s[%d]=%.9f want %.9f", name, i, float64(got[i]), float64(opusRes(want[i])))
+		}
+	}
+}
+
 func runDelayCompStream(frameSize, channels, totalFrames int) ([]float64, []float64) {
 	e := NewEncoder(48000, channels)
 	// Disable dcReject so test exercises only delay compensation behavior.
@@ -205,11 +217,11 @@ func TestApplyDelayCompensationMatchesLegacyState(t *testing.T) {
 				prefillSamples := (enc.sampleRate / 400) * channels
 				frameSamples := frameSize * channels
 
-				enc.delayBuffer = make([]float64, encoderBufferSamples)
+				enc.delayBuffer = make([]opusRes, encoderBufferSamples)
 				legacyDelay := make([]float64, encoderBufferSamples)
 				for i := range legacyDelay {
 					v := float64((i%29)-14) / 8.0
-					enc.delayBuffer[i] = v
+					enc.delayBuffer[i] = opusRes(v)
 					legacyDelay[i] = v
 				}
 
@@ -236,7 +248,7 @@ func TestApplyDelayCompensationMatchesLegacyState(t *testing.T) {
 					got := enc.applyDelayCompensation(pcm, frameSize)
 
 					requireEqualFloat64Slices(t, "out", got[:frameSamples], legacyOut)
-					requireEqualFloat64Slices(t, "delayBuffer", enc.delayBuffer, legacyDelay)
+					requireEqualOpusResToFloat64Slices(t, "delayBuffer", enc.delayBuffer, legacyDelay)
 					requireEqualFloat64Slices(t, "prefill", enc.scratchTransitionPrefill[:wantPrefillLen], legacyPrefill[:wantPrefillLen])
 				}
 			})
@@ -262,7 +274,7 @@ func BenchmarkApplyDelayCompensation(b *testing.B) {
 			for i := range seed {
 				seed[i] = float64((i%31)-15) / 16.0
 			}
-			enc.delayBuffer = make([]float64, encoderBufferSamples)
+			enc.delayBuffer = make([]opusRes, encoderBufferSamples)
 			pcm := make([]float64, tc.frameSize*tc.channels)
 			for i := range pcm {
 				pcm[i] = float64((i%37)-18) / 16.0
@@ -270,7 +282,7 @@ func BenchmarkApplyDelayCompensation(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				copy(enc.delayBuffer, seed)
+				copyFloat64ToOpusRes(enc.delayBuffer, seed)
 				_ = enc.applyDelayCompensation(pcm, tc.frameSize)
 			}
 		})
