@@ -3,7 +3,6 @@ package silk
 import (
 	"fmt"
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -23,33 +22,13 @@ const (
 var libopusSILKLPCHelper libopustest.HelperCache
 
 func getLibopusSILKLPCHelperPath() (string, error) {
-	refSources := []string{
-		"silk/float/burg_modified_FLP.c",
-		"silk/float/energy_FLP.c",
-		"silk/float/find_LPC_FLP.c",
-		"silk/float/inner_product_FLP.c",
-		"silk/float/LPC_analysis_filter_FLP.c",
-		"silk/A2NLSF.c",
-		"silk/NLSF2A.c",
-		"silk/LPC_fit.c",
-		"silk/LPC_inv_pred_gain.c",
-		"silk/bwexpander_32.c",
-		"silk/interpolate.c",
-		"silk/sort.c",
-		"silk/table_LSF_cos.c",
-	}
-	if runtime.GOARCH == "arm" || runtime.GOARCH == "arm64" {
-		refSources = append(refSources, "silk/arm/LPC_inv_pred_gain_neon_intr.c")
-	}
-
 	return libopusSILKLPCHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:        "silk lpc",
-		OutputBase:   "gopus_libopus_silk_lpc",
-		SourceFile:   "libopus_silk_lpc_info.c",
-		ProbeRelPath: "silk/float/SigProc_FLP.h",
-		CFlags:       []string{"-DHAVE_CONFIG_H", "-O2"},
-		RefIncludes:  []string{"celt", "silk", "silk/float"},
-		RefSources:   refSources,
+		Label:       "silk lpc",
+		OutputBase:  "gopus_libopus_silk_lpc",
+		SourceFile:  "libopus_silk_lpc_info.c",
+		CFlags:      []string{"-DHAVE_CONFIG_H", "-O2"},
+		RefIncludes: []string{"celt", "silk", "silk/float"},
+		Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 	})
 }
 

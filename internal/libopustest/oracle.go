@@ -116,6 +116,9 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if _, err := os.Stat(filepath.Join(refDir, filepath.FromSlash(probeRel))); err != nil {
 		libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{root})
 	}
+	if helperReferenceLibMissing(cfg.Libs, refDir) {
+		libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{root})
+	}
 
 	srcPath := cfg.SourceFile
 	if !filepath.IsAbs(srcPath) {
@@ -219,6 +222,24 @@ func helperOutputPathForGOOSWithDigest(dir, outputBase, sourceFile, flavor, goos
 func helperNeedsConfig(cflags []string) bool {
 	for _, flag := range cflags {
 		if flag == "-DHAVE_CONFIG_H" || flag == "-DHAVE_CONFIG_H=1" {
+			return true
+		}
+	}
+	return false
+}
+
+func helperReferenceLibMissing(libs []string, refDir string) bool {
+	refDir = filepath.Clean(refDir)
+	for _, lib := range libs {
+		if lib == "" || strings.HasPrefix(lib, "-") || !filepath.IsAbs(lib) {
+			continue
+		}
+		lib = filepath.Clean(lib)
+		rel, err := filepath.Rel(refDir, lib)
+		if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+			continue
+		}
+		if _, err := os.Stat(lib); err != nil {
 			return true
 		}
 	}

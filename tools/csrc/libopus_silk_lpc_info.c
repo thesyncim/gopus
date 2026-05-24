@@ -59,39 +59,6 @@ static int write_double(double value) {
   return write_exact(&value, sizeof(value));
 }
 
-void silk_A2NLSF_FLP(
-    opus_int16 *NLSF_Q15,
-    const silk_float *pAR,
-    const opus_int LPC_order
-)
-{
-  opus_int i;
-  opus_int32 a_fix_Q16[MAX_LPC_ORDER];
-
-  for (i = 0; i < LPC_order; i++) {
-    a_fix_Q16[i] = silk_float2int(pAR[i] * 65536.0f);
-  }
-
-  silk_A2NLSF(NLSF_Q15, a_fix_Q16, LPC_order);
-}
-
-void silk_NLSF2A_FLP(
-    silk_float *pAR,
-    const opus_int16 *NLSF_Q15,
-    const opus_int LPC_order,
-    int arch
-)
-{
-  opus_int i;
-  opus_int16 a_fix_Q12[MAX_LPC_ORDER];
-
-  silk_NLSF2A(a_fix_Q12, NLSF_Q15, LPC_order, arch);
-
-  for (i = 0; i < LPC_order; i++) {
-    pAR[i] = (silk_float)a_fix_Q12[i] * (1.0f / 4096.0f);
-  }
-}
-
 static int eval_burg_modified(void) {
   uint32_t raw;
   uint32_t subfr_length;

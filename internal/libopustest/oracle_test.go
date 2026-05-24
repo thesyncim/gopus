@@ -79,6 +79,27 @@ func TestHelperNeedsConfigFollowsConfigFlag(t *testing.T) {
 	}
 }
 
+func TestHelperReferenceLibMissingOnlyTracksReferenceLibraries(t *testing.T) {
+	refDir := t.TempDir()
+	missingRefLib := filepath.Join(refDir, ".libs", "libopus.a")
+	if !helperReferenceLibMissing([]string{missingRefLib, "-lm"}, refDir) {
+		t.Fatal("missing reference lib was not detected")
+	}
+
+	if err := os.MkdirAll(filepath.Dir(missingRefLib), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(missingRefLib, []byte("archive"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if helperReferenceLibMissing([]string{missingRefLib, "-lm"}, refDir) {
+		t.Fatal("existing reference lib was reported missing")
+	}
+	if helperReferenceLibMissing([]string{filepath.Join(t.TempDir(), "libmissing.a")}, refDir) {
+		t.Fatal("external missing lib should not trigger reference bootstrap")
+	}
+}
+
 func TestHelperConfigDigestTracksBuildInputs(t *testing.T) {
 	tmp := t.TempDir()
 	refDir := filepath.Join(tmp, "ref")
