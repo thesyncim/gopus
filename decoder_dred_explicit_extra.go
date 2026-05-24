@@ -229,6 +229,7 @@ func (d *Decoder) decodeCachedSILKDREDNeuralPLCInto(pcm []float32, frameSizeSamp
 	}
 
 	d.primeExplicitSILKDREDEntryHistory()
+	queued := d.prepareCachedDREDNeuralConcealment(frameSizeSamples)
 	cleanupHook, usedHook := d.beginHybridDREDLowbandHook()
 	defer cleanupHook()
 
@@ -237,6 +238,12 @@ func (d *Decoder) decodeCachedSILKDREDNeuralPLCInto(pcm []float32, frameSizeSamp
 		return n, false, err
 	}
 	if usedHook() {
+		d.finishActiveDREDRecovery(n)
+	} else if queued.NeededFeatureFrames > 0 || queued.RecoverableFeatureFrames > 0 || queued.MissingPositiveFrames > 0 {
+		nativeSamples := n * 16000 / d.sampleRate
+		if nativeSamples > 0 && n*16000%d.sampleRate == 0 {
+			_ = d.generateDREDNeuralFrames16k(nil, nativeSamples)
+		}
 		d.finishActiveDREDRecovery(n)
 	}
 	return n, usedHook(), nil

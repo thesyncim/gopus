@@ -2,7 +2,10 @@
 
 package gopus
 
-import "github.com/thesyncim/gopus/internal/dnnblob"
+import (
+	"github.com/thesyncim/gopus/internal/dnnblob"
+	internaldred "github.com/thesyncim/gopus/internal/dred"
+)
 
 type decoderDREDState struct{}
 
@@ -84,6 +87,16 @@ func (d *Decoder) maybeDropDREDState() {}
 func (d *Decoder) applyDREDNeuralConcealment(_ []float32, _ int) bool {
 	return false
 }
+
+func (d *Decoder) prepareDRED48kNeuralEntry(_ int, _ Mode, _ bool) internaldred.FeatureWindow {
+	return internaldred.FeatureWindow{}
+}
+
+func (d *Decoder) applyPreparedDREDNeuralConcealment(_ []float32, _ int) bool {
+	return false
+}
+
+func (d *Decoder) finishActiveDREDRecovery(_ int) {}
 
 func (d *Decoder) decodeCachedSILKDREDNeuralPLCInto(_ []float32, _ int, _ plcDecodeState) (int, bool, error) {
 	return 0, false, nil

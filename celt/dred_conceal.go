@@ -64,7 +64,7 @@ func (d *Decoder) ConcealPLCNeural48kMonoToFloat32(
 	if d.chooseLostFrameType(0, true, false) != framePLCNeural {
 		return false
 	}
-	return d.concealNeural48kMono(out[:frameSize], frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, framePLCNeural)
+	return d.concealNeural48kMono(out[:frameSize], frameSize, 1, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, framePLCNeural)
 }
 
 // ConcealDRED48kMonoToFloat32 mirrors the libopus FRAME_DRED lost-frame path
@@ -86,7 +86,7 @@ func (d *Decoder) ConcealDRED48kMonoToFloat32(
 	if d.chooseLostFrameType(0, true, true) != frameDRED {
 		return false
 	}
-	return d.concealNeural48kMono(out[:frameSize], frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, frameDRED)
+	return d.concealNeural48kMono(out[:frameSize], frameSize, 1, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, frameDRED)
 }
 
 // ConcealDRED48kToFloat32 mirrors ConcealDRED48kMonoToFloat32 for both mono
@@ -107,22 +107,45 @@ func (d *Decoder) ConcealDRED48kToFloat32(
 	plcPreemphMem *float32,
 	generate func([]float32) bool,
 ) bool {
+	return d.ConcealDRED48kDownsampleToFloat32(out, frameSize, 1, lastNeural, plcPCM, plcFill, plcPreemphMem, generate)
+}
+
+func (d *Decoder) ConcealDRED48kDownsampleToFloat32(
+	out []float32,
+	frameSize int,
+	downsample int,
+	lastNeural *bool,
+	plcPCM []int16,
+	plcFill *int,
+	plcPreemphMem *float32,
+	generate func([]float32) bool,
+) bool {
 	if d == nil || frameSize <= 0 {
 		return false
 	}
+	if downsample <= 0 || frameSize%downsample != 0 {
+		return false
+	}
+	outputFrameSize := frameSize / downsample
 	if d.channels == 1 {
-		return d.ConcealDRED48kMonoToFloat32(out, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate)
+		if len(out) < outputFrameSize {
+			return false
+		}
+		if d.chooseLostFrameType(0, true, true) != frameDRED {
+			return false
+		}
+		return d.concealNeural48kMono(out[:outputFrameSize], frameSize, downsample, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, frameDRED)
 	}
 	if d.channels != 2 {
 		return false
 	}
-	if len(out) < frameSize*d.channels {
+	if len(out) < outputFrameSize*d.channels {
 		return false
 	}
 	if d.chooseLostFrameType(0, true, true) != frameDRED {
 		return false
 	}
-	return d.runStereoDREDConceal(out, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, frameDRED)
+	return d.runStereoDREDConceal(out[:outputFrameSize*d.channels], frameSize, downsample, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, frameDRED)
 }
 
 // ConcealPLCNeural48kToFloat32 mirrors ConcealPLCNeural48kMonoToFloat32 for
@@ -137,22 +160,45 @@ func (d *Decoder) ConcealPLCNeural48kToFloat32(
 	plcPreemphMem *float32,
 	generate func([]float32) bool,
 ) bool {
+	return d.ConcealPLCNeural48kDownsampleToFloat32(out, frameSize, 1, lastNeural, plcPCM, plcFill, plcPreemphMem, generate)
+}
+
+func (d *Decoder) ConcealPLCNeural48kDownsampleToFloat32(
+	out []float32,
+	frameSize int,
+	downsample int,
+	lastNeural *bool,
+	plcPCM []int16,
+	plcFill *int,
+	plcPreemphMem *float32,
+	generate func([]float32) bool,
+) bool {
 	if d == nil || frameSize <= 0 {
 		return false
 	}
+	if downsample <= 0 || frameSize%downsample != 0 {
+		return false
+	}
+	outputFrameSize := frameSize / downsample
 	if d.channels == 1 {
-		return d.ConcealPLCNeural48kMonoToFloat32(out, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate)
+		if len(out) < outputFrameSize {
+			return false
+		}
+		if d.chooseLostFrameType(0, true, false) != framePLCNeural {
+			return false
+		}
+		return d.concealNeural48kMono(out[:outputFrameSize], frameSize, downsample, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, framePLCNeural)
 	}
 	if d.channels != 2 {
 		return false
 	}
-	if len(out) < frameSize*d.channels {
+	if len(out) < outputFrameSize*d.channels {
 		return false
 	}
 	if d.chooseLostFrameType(0, true, false) != framePLCNeural {
 		return false
 	}
-	return d.runStereoDREDConceal(out, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, framePLCNeural)
+	return d.runStereoDREDConceal(out[:outputFrameSize*d.channels], frameSize, downsample, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, framePLCNeural)
 }
 
 // runStereoDREDConceal mirrors the libopus stereo neural PLC path: compute the
@@ -162,6 +208,7 @@ func (d *Decoder) ConcealPLCNeural48kToFloat32(
 func (d *Decoder) runStereoDREDConceal(
 	out []float32,
 	frameSize int,
+	downsample int,
 	lastNeural *bool,
 	plcPCM []int16,
 	plcFill *int,
@@ -170,14 +217,15 @@ func (d *Decoder) runStereoDREDConceal(
 	recordLoss bool,
 	frameType int,
 ) bool {
-	if d == nil || d.channels != 2 || frameSize <= 0 {
+	if d == nil || d.channels != 2 || frameSize <= 0 || downsample <= 0 || frameSize%downsample != 0 {
 		return false
 	}
 	if lastNeural == nil || plcFill == nil || plcPreemphMem == nil || generate == nil {
 		return false
 	}
 	// Either a real output buffer of size >= frameSize*2 or nil for state-only.
-	if out != nil && len(out) < frameSize*2 {
+	outputSamples := (frameSize / downsample) * 2
+	if out != nil && len(out) < outputSamples {
 		return false
 	}
 
@@ -280,7 +328,11 @@ func (d *Decoder) runStereoDREDConceal(
 	d.updateStereoDREDNeuralHistories(d.scratchPLC[:stereoSamples], frameSize)
 	d.updatePLCOverlapBuffer(d.scratchPLC[:stereoSamples], frameSize)
 	if out != nil {
-		d.applyDeemphasisAndScaleToFloat32(out[:frameSize*2], d.scratchPLC[:frameSize*2], 1.0/32768.0)
+		if downsample > 1 {
+			d.applyDeemphasisAndScaleDownsampleToFloat32(out[:outputSamples], d.scratchPLC[:frameSize*2], downsample, 1.0/32768.0)
+		} else {
+			d.applyDeemphasisAndScaleToFloat32(out[:outputSamples], d.scratchPLC[:frameSize*2], 1.0/32768.0)
+		}
 	} else {
 		d.advanceDeemphasisStateStereo(d.scratchPLC[:frameSize*2])
 	}
@@ -371,7 +423,7 @@ func (d *Decoder) ConcealPLCNeural48kMonoStateOnly(
 	if d == nil || d.channels != 1 || frameSize <= 0 || lastNeural == nil || plcFill == nil || plcPreemphMem == nil || generate == nil {
 		return false
 	}
-	return d.concealNeural48kMono(nil, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, false, framePLCNeural)
+	return d.concealNeural48kMono(nil, frameSize, 1, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, false, framePLCNeural)
 }
 
 // ConcealDRED48kMonoStateOnly updates retained CELT 48 kHz mono DRED state
@@ -390,12 +442,13 @@ func (d *Decoder) ConcealDRED48kMonoStateOnly(
 	if d == nil || d.channels != 1 || frameSize <= 0 || lastNeural == nil || plcFill == nil || plcPreemphMem == nil || generate == nil {
 		return false
 	}
-	return d.concealNeural48kMono(nil, frameSize, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, false, frameDRED)
+	return d.concealNeural48kMono(nil, frameSize, 1, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, false, frameDRED)
 }
 
 func (d *Decoder) concealNeural48kMono(
 	out []float32,
 	frameSize int,
+	downsample int,
 	lastNeural *bool,
 	plcPCM []int16,
 	plcFill *int,
@@ -404,7 +457,11 @@ func (d *Decoder) concealNeural48kMono(
 	recordLoss bool,
 	frameType int,
 ) bool {
-	if d == nil || d.channels != 1 || frameSize <= 0 || lastNeural == nil || plcFill == nil || plcPreemphMem == nil || generate == nil {
+	if d == nil || d.channels != 1 || frameSize <= 0 || downsample <= 0 || frameSize%downsample != 0 || lastNeural == nil || plcFill == nil || plcPreemphMem == nil || generate == nil {
+		return false
+	}
+	outputFrameSize := frameSize / downsample
+	if out != nil && len(out) < outputFrameSize {
 		return false
 	}
 	if d.plcState == nil {
@@ -497,10 +554,11 @@ func (d *Decoder) concealNeural48kMono(
 	d.updatePLCDecodeHistory(d.scratchPLC[:frameSize], frameSize, plcDecodeBufferSize)
 	d.updatePLCOverlapBuffer(d.scratchPLC[:totalSamples], frameSize)
 	if out != nil {
-		if len(out) < frameSize {
-			return false
+		if downsample > 1 {
+			d.applyDeemphasisAndScaleDownsampleToFloat32(out[:outputFrameSize], d.scratchPLC[:frameSize], downsample, 1.0/32768.0)
+		} else {
+			d.applyDeemphasisAndScaleToFloat32(out[:outputFrameSize], d.scratchPLC[:frameSize], 1.0/32768.0)
 		}
-		d.applyDeemphasisAndScaleToFloat32(out[:frameSize], d.scratchPLC[:frameSize], 1.0/32768.0)
 	} else {
 		d.advanceDeemphasisStateMono(d.scratchPLC[:frameSize])
 	}

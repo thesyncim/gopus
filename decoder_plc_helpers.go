@@ -131,6 +131,7 @@ func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state pl
 }
 
 func (d *Decoder) decodeDREDNeuralPLCChunksInto(out []float32, frameSize int, state plcDecodeState) (int, bool) {
+	queued := d.prepareDRED48kNeuralEntry(frameSize, state.mode, false)
 	remaining := frameSize
 	offset := 0
 	for remaining > 0 {
@@ -140,11 +141,14 @@ func (d *Decoder) decodeDREDNeuralPLCChunksInto(out []float32, frameSize int, st
 		}
 		chunkStart := offset * d.channels
 		chunkEnd := chunkStart + chunk*d.channels
-		if chunkEnd > len(out) || !d.applyDREDNeuralConcealment(out[chunkStart:chunkEnd], chunk) {
+		if chunkEnd > len(out) || !d.applyPreparedDREDNeuralConcealment(out[chunkStart:chunkEnd], chunk) {
 			return offset, false
 		}
 		offset += chunk
 		remaining -= chunk
+	}
+	if queued.NeededFeatureFrames > 0 || queued.RecoverableFeatureFrames > 0 || queued.MissingPositiveFrames > 0 {
+		d.finishActiveDREDRecovery(frameSize)
 	}
 	return frameSize, true
 }

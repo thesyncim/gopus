@@ -34,14 +34,11 @@ func (d *Decoder) applyDREDNeuralConcealment48kMono(pcm []float32, samplesPerCha
 		return r.dredPLC.GenerateConcealedFrameFloat(&n.dredPredictor, &n.dredFARGAN, frame[:lpcnetplc.FrameSize])
 	}
 	frameSize48 := samplesPerChannel
+	downsample := 1
 	celtPCM := pcm[:samplesPerChannel*d.channels]
 	if d.sampleRate != 48000 {
 		frameSize48 = d.frameSize48FromAPI(samplesPerChannel)
-		needed48 := frameSize48 * d.channels
-		if len(d.scratchFrame48) < needed48 {
-			return false
-		}
-		celtPCM = d.scratchFrame48[:needed48]
+		downsample = 48000 / d.sampleRate
 	}
 	// Mono-downmix-in / mono-duplicate-out: the stereo path runs the mono
 	// CELT neural concealment helper against the channel-0 slot of the CELT
@@ -49,9 +46,10 @@ func (d *Decoder) applyDREDNeuralConcealment48kMono(pcm []float32, samplesPerCha
 	// retained CELT state and the interleaved output PCM.
 	var ok bool
 	if r.dredPLC.FECFillPos() > r.dredPLC.FECReadPos() {
-		ok = d.celtDecoder.ConcealDRED48kToFloat32(
+		ok = d.celtDecoder.ConcealDRED48kDownsampleToFloat32(
 			celtPCM,
 			frameSize48,
+			downsample,
 			&b.dredLastNeural,
 			b.dredPLCPCM[:],
 			&b.dredPLCFill,
@@ -59,9 +57,10 @@ func (d *Decoder) applyDREDNeuralConcealment48kMono(pcm []float32, samplesPerCha
 			generate,
 		)
 	} else {
-		ok = d.celtDecoder.ConcealPLCNeural48kToFloat32(
+		ok = d.celtDecoder.ConcealPLCNeural48kDownsampleToFloat32(
 			celtPCM,
 			frameSize48,
+			downsample,
 			&b.dredLastNeural,
 			b.dredPLCPCM[:],
 			&b.dredPLCFill,
@@ -71,9 +70,6 @@ func (d *Decoder) applyDREDNeuralConcealment48kMono(pcm []float32, samplesPerCha
 	}
 	if !ok {
 		return false
-	}
-	if d.sampleRate != 48000 {
-		d.downsampleFrame48ToAPI(pcm, celtPCM, samplesPerChannel)
 	}
 	return true
 }
@@ -97,18 +93,16 @@ func (d *Decoder) applyPLCNeuralConcealment48kMono(pcm []float32, samplesPerChan
 	}
 
 	frameSize48 := samplesPerChannel
+	downsample := 1
 	celtPCM := pcm[:samplesPerChannel*d.channels]
 	if d.sampleRate != 48000 {
 		frameSize48 = d.frameSize48FromAPI(samplesPerChannel)
-		needed48 := frameSize48 * d.channels
-		if len(d.scratchFrame48) < needed48 {
-			return false
-		}
-		celtPCM = d.scratchFrame48[:needed48]
+		downsample = 48000 / d.sampleRate
 	}
-	if !d.celtDecoder.ConcealPLCNeural48kToFloat32(
+	if !d.celtDecoder.ConcealPLCNeural48kDownsampleToFloat32(
 		celtPCM,
 		frameSize48,
+		downsample,
 		&b.dredLastNeural,
 		b.dredPLCPCM[:],
 		&b.dredPLCFill,
@@ -124,9 +118,6 @@ func (d *Decoder) applyPLCNeuralConcealment48kMono(pcm []float32, samplesPerChan
 		},
 	) {
 		return false
-	}
-	if d.sampleRate != 48000 {
-		d.downsampleFrame48ToAPI(pcm, celtPCM, samplesPerChannel)
 	}
 	return true
 }

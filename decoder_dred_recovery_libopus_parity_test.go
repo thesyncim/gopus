@@ -315,9 +315,11 @@ func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label strin
 	}
 	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)
 	channels := 1
-	if ParseTOC(packetInfo.packet[0]).Stereo {
+	toc := ParseTOC(packetInfo.packet[0])
+	if toc.Stereo {
 		channels = 2
 	}
+	wantQueuedFEC := toc.Mode == ModeCELT
 
 	dec, err := NewDecoder(DefaultDecoderConfig(decoderSampleRate, channels))
 	if err != nil {
@@ -351,9 +353,7 @@ func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label strin
 	if requireDecoderDREDState(t, dec).dredRecovery != wantRecovery {
 		t.Fatalf("%s dredRecovery after first loss=%d want %d", label, requireDecoderDREDState(t, dec).dredRecovery, wantRecovery)
 	}
-	if requireDecoderDREDState(t, dec).dredPLC.FECFillPos() != 0 {
-		t.Fatalf("%s FECFillPos after first loss=%d want 0", label, requireDecoderDREDState(t, dec).dredPLC.FECFillPos())
-	}
+	assertCachedDREDLossFECCursor(t, label, "first", dec, wantQueuedFEC)
 
 	if _, err := dec.Decode(nil, pcm); err != nil {
 		t.Fatalf("%s Decode(nil, second) error: %v", label, err)
@@ -361,15 +361,28 @@ func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label strin
 	if requireDecoderDREDState(t, dec).dredRecovery != wantRecovery {
 		t.Fatalf("%s dredRecovery after second loss=%d want %d", label, requireDecoderDREDState(t, dec).dredRecovery, wantRecovery)
 	}
-	if requireDecoderDREDState(t, dec).dredPLC.FECFillPos() != 0 {
-		t.Fatalf("%s FECFillPos after second loss=%d want 0", label, requireDecoderDREDState(t, dec).dredPLC.FECFillPos())
-	}
+	assertCachedDREDLossFECCursor(t, label, "second", dec, wantQueuedFEC)
 
 	if _, err := dec.Decode(packetInfo.packet, pcm); err != nil {
 		t.Fatalf("%s Decode(after losses) error: %v", label, err)
 	}
 	if requireDecoderDREDState(t, dec).dredRecovery != 0 {
 		t.Fatalf("%s dredRecovery after re-decode=%d want 0", label, requireDecoderDREDState(t, dec).dredRecovery)
+	}
+}
+
+func assertCachedDREDLossFECCursor(t *testing.T, label, loss string, dec *Decoder, wantQueued bool) {
+	t.Helper()
+	state := requireDecoderDREDState(t, dec)
+	fill := state.dredPLC.FECFillPos()
+	if !wantQueued {
+		if fill != 0 {
+			t.Fatalf("%s FECFillPos after %s loss=%d want 0", label, loss, fill)
+		}
+		return
+	}
+	if fill == 0 {
+		t.Fatalf("%s FECFillPos after %s loss=0 want queued cached DRED features", label, loss)
 	}
 }
 

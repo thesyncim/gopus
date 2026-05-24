@@ -708,6 +708,17 @@ int main(void) {
         step0_ret = run_step(dec, step_dred, step0_dred_offset, (int)frame_size, step0_pcm);
       }
       break;
+    case 3:
+      if (carrier_parse_ret < 0) {
+        step0_ret = carrier_parse_ret;
+      } else if (sample_format == SAMPLE_FORMAT_INT16) {
+        step_dred = carrier_dred;
+        step0_ret = run_step_int16(dec, step_dred, step0_dred_offset, (int)frame_size, step0_pcm16);
+      } else {
+        step_dred = carrier_dred;
+        step0_ret = run_step(dec, step_dred, step0_dred_offset, (int)frame_size, step0_pcm);
+      }
+      break;
     default:
       step0_ret = 0;
       break;
@@ -734,6 +745,15 @@ int main(void) {
         step1_ret = run_step_int16(dec, next_dred, step1_dred_offset, (int)frame_size, step1_pcm16);
       } else {
         step1_ret = run_step(dec, next_dred, step1_dred_offset, (int)frame_size, step1_pcm);
+      }
+      break;
+    case 3:
+      if (carrier_parse_ret < 0) {
+        step1_ret = carrier_parse_ret;
+      } else if (sample_format == SAMPLE_FORMAT_INT16) {
+        step1_ret = run_step_int16(dec, carrier_dred, step1_dred_offset, (int)frame_size, step1_pcm16);
+      } else {
+        step1_ret = run_step(dec, carrier_dred, step1_dred_offset, (int)frame_size, step1_pcm);
       }
       break;
     default:
