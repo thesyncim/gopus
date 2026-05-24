@@ -162,9 +162,6 @@ type Encoder struct {
 	// DC rejection filter state
 	hpMem [4]float32
 
-	// Encoder state for CELT delay compensation
-	prevSamples []float64
-
 	// Hybrid mode state for improved SILK/CELT coordination
 	hybridState *HybridState
 
@@ -270,7 +267,6 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		lsbDepth:               24,
 		predictionDisabled:     false,
 		phaseInversionDisabled: false,
-		prevSamples:            make([]float64, 130*channels),
 		analyzer:               NewTonalityAnalysisState(sampleRate),
 		scratchPCM32:           make([]float32, maxSamples),
 		scratchLeft:            make([]float32, maxSamples),
@@ -398,9 +394,6 @@ func (e *Encoder) SampleRate() int {
 
 // Reset clears the encoder state for a new stream.
 func (e *Encoder) Reset() {
-	for i := range e.prevSamples {
-		e.prevSamples[i] = 0
-	}
 	if len(e.delayBuffer) > 0 {
 		clear(e.delayBuffer)
 	}

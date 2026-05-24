@@ -192,8 +192,6 @@ func TestEncoderReset(t *testing.T) {
 		t.Errorf("Mode changed after Reset, got %d", enc.Mode())
 	}
 
-	// prevSamples should be zeroed (delay buffer)
-	// Note: prevSamples is unexported, so we cannot check it directly from external test package
 	// The Reset() method is tested implicitly by other tests
 }
 
