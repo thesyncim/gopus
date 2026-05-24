@@ -103,11 +103,11 @@ func init() {
 }
 
 const opusdecCrossvalFixturePath = "testdata/opusdec_crossval_fixture.json"
-const opusdecCrossvalFixturePathAMD64 = "testdata/opusdec_crossval_fixture_amd64.json"
+const opusdecCrossvalFixturePathLinuxAMD64 = "testdata/opusdec_crossval_fixture_linux_amd64.json"
 
 func opusdecCrossvalFixturePathForArch() string {
-	if runtime.GOARCH == "amd64" {
-		return opusdecCrossvalFixturePathAMD64
+	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+		return opusdecCrossvalFixturePathLinuxAMD64
 	}
 	return opusdecCrossvalFixturePath
 }

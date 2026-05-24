@@ -8,12 +8,11 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 )
 
 const libopusDecoderLossFixturePath = "testdata/libopus_decoder_loss_fixture.json"
-const libopusDecoderLossFixturePathAMD64 = "testdata/libopus_decoder_loss_fixture_amd64.json"
+const libopusDecoderLossFixturePathLinuxAMD64 = "testdata/libopus_decoder_loss_fixture_linux_amd64.json"
 
 type libopusDecoderLossFixtureFile struct {
 	Version    int                          `json:"version"`
@@ -60,8 +59,8 @@ var (
 )
 
 func libopusDecoderLossFixturePathForArch() string {
-	if runtime.GOARCH == "amd64" {
-		return libopusDecoderLossFixturePathAMD64
+	if useLinuxAMD64Fixture() {
+		return libopusDecoderLossFixturePathLinuxAMD64
 	}
 	return libopusDecoderLossFixturePath
 }

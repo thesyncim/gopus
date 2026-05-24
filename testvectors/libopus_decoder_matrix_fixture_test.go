@@ -8,12 +8,11 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 )
 
 const libopusDecoderMatrixFixturePath = "testdata/libopus_decoder_matrix_fixture.json"
-const libopusDecoderMatrixFixturePathAMD64 = "testdata/libopus_decoder_matrix_fixture_amd64.json"
+const libopusDecoderMatrixFixturePathLinuxAMD64 = "testdata/libopus_decoder_matrix_fixture_linux_amd64.json"
 
 type libopusDecoderMatrixFixtureFile struct {
 	Version    int                            `json:"version"`
@@ -52,8 +51,8 @@ var (
 )
 
 func libopusDecoderMatrixFixturePathForArch() string {
-	if runtime.GOARCH == "amd64" {
-		return libopusDecoderMatrixFixturePathAMD64
+	if useLinuxAMD64Fixture() {
+		return libopusDecoderMatrixFixturePathLinuxAMD64
 	}
 	return libopusDecoderMatrixFixturePath
 }

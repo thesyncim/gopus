@@ -22,21 +22,21 @@ import (
 )
 
 const encoderComplianceVariantsFixturePath = "testdata/encoder_compliance_libopus_variants_fixture.json"
-const encoderComplianceVariantsFixturePathAMD64 = "testdata/encoder_compliance_libopus_variants_fixture_amd64.json"
+const encoderComplianceVariantsFixturePathLinuxAMD64 = "testdata/encoder_compliance_libopus_variants_fixture_linux_amd64.json"
 const encoderVariantsBaselinePath = "testdata/encoder_compliance_variants_ratchet_baseline.json"
-const encoderVariantsBaselinePathAMD64 = "testdata/encoder_compliance_variants_ratchet_baseline_amd64.json"
+const encoderVariantsBaselinePathLinuxAMD64 = "testdata/encoder_compliance_variants_ratchet_baseline_linux_amd64.json"
 const updateVariantsBaselineEnv = "GOPUS_UPDATE_VARIANT_BASELINE"
 
 func encoderComplianceVariantsFixturePathForArch() string {
-	if runtime.GOARCH == "amd64" {
-		return encoderComplianceVariantsFixturePathAMD64
+	if useLinuxAMD64Fixture() {
+		return encoderComplianceVariantsFixturePathLinuxAMD64
 	}
 	return encoderComplianceVariantsFixturePath
 }
 
 func encoderVariantsBaselinePathForArch() string {
-	if runtime.GOARCH == "amd64" {
-		return encoderVariantsBaselinePathAMD64
+	if useLinuxAMD64Fixture() {
+		return encoderVariantsBaselinePathLinuxAMD64
 	}
 	return encoderVariantsBaselinePath
 }

@@ -162,6 +162,13 @@ func TestDefaultSearchRootsIncludeGitHubWorkspace(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(filepath.Dir(toolPath), ".gopus-libopus-build"), []byte(stamp), 0o644); err != nil {
 		t.Fatalf("write build stamp: %v", err)
 	}
+	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatalf("mkdir tools dir: %v", err)
+	}
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 17\n"), 0o755); err != nil {
+		t.Fatalf("write failing ensure script: %v", err)
+	}
 	oldWD, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
@@ -186,6 +193,13 @@ func TestDefaultSearchRootsIncludeGitHubWorkspace(t *testing.T) {
 	}
 	if !stampedLibopusBuildPresentForPlatform(DefaultVersion, DefaultSearchRoots(), false, "windows", "amd64") {
 		t.Fatal("expected default roots to validate GITHUB_WORKSPACE stamped build")
+	}
+	got, ok = findOrEnsureOpusCompareForPlatform(DefaultVersion, DefaultSearchRoots(), "windows", "amd64")
+	if !ok {
+		t.Fatal("expected Windows stamped fallback to survive failing shell validation")
+	}
+	if got != toolPath {
+		t.Fatalf("ensured tool path mismatch: got %q want %q", got, toolPath)
 	}
 }
 

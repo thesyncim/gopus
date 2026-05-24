@@ -85,8 +85,8 @@ func TestSILKFinalRangeUsesLastPacketModeWithCELTSidecar(t *testing.T) {
 func loadFinalRangeVariantFixtureCase(t *testing.T, name, variant string) finalRangeVariantFixtureCase {
 	t.Helper()
 	path := filepath.Join("..", "testvectors", "testdata", "encoder_compliance_libopus_variants_fixture.json")
-	if runtime.GOARCH == "amd64" {
-		path = filepath.Join("..", "testvectors", "testdata", "encoder_compliance_libopus_variants_fixture_amd64.json")
+	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
+		path = filepath.Join("..", "testvectors", "testdata", "encoder_compliance_libopus_variants_fixture_linux_amd64.json")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

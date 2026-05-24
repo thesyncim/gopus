@@ -1,6 +1,6 @@
 FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-exactness test-exhaustive test-provenance
 
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -148,7 +148,7 @@ test-extra-controls-tag: ensure-libopus
 test-extra-controls-parity: ensure-libopus
 
 # Primary libopus-facing focused gate.
-test-quality: ensure-testvectors
+test-quality: ensure-libopus ensure-testvectors
 
 # Optional libopus-internal exactness checks. These are intentionally not part
 # of the default production gate so math optimizations can move while quality
@@ -373,8 +373,8 @@ fixtures-gen-encoder:
 fixtures-gen-variants:
 	$(GO_WORK_ENV) $(GO) run tools/gen_libopus_encoder_variants_fixture.go
 
-# Regenerate amd64-specific fixture files in a cached linux/amd64 container.
-fixtures-gen-amd64: docker-build-exhaustive
+# Regenerate linux/amd64-specific fixture files in a cached linux/amd64 container.
+fixtures-gen-linux-amd64: docker-build-exhaustive
 	docker run --rm --platform $(DOCKER_EXHAUSTIVE_PLATFORM) \
 		-v "$(CURDIR):/workspace" \
 		-v gopus-gomod:/go/pkg/mod \
@@ -384,11 +384,11 @@ fixtures-gen-amd64: docker-build-exhaustive
 		-e LIBOPUS_VERSION=$(LIBOPUS_VERSION) \
 		$(DOCKER_IMAGE) \
 		bash -c "make ensure-libopus && \
-			GOPUS_DECODER_MATRIX_FIXTURE_OUT=testvectors/testdata/libopus_decoder_matrix_fixture_amd64.json go run tools/gen_libopus_decoder_matrix_fixture.go && \
-			GOPUS_DECODER_LOSS_FIXTURE_OUT=testvectors/testdata/libopus_decoder_loss_fixture_amd64.json go run tools/gen_libopus_decoder_loss_fixture.go && \
-			GOPUS_ENCODER_PACKETS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_packets_fixture_amd64.json go run tools/gen_libopus_encoder_packet_fixture.go && \
-			GOPUS_ENCODER_VARIANTS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_variants_fixture_amd64.json go run tools/gen_libopus_encoder_variants_fixture.go && \
-			GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT=celt/testdata/opusdec_crossval_fixture_amd64.json go run tools/gen_opusdec_crossval_fixture.go"
+			GOPUS_DECODER_MATRIX_FIXTURE_OUT=testvectors/testdata/libopus_decoder_matrix_fixture_linux_amd64.json go run tools/gen_libopus_decoder_matrix_fixture.go && \
+			GOPUS_DECODER_LOSS_FIXTURE_OUT=testvectors/testdata/libopus_decoder_loss_fixture_linux_amd64.json go run tools/gen_libopus_decoder_loss_fixture.go && \
+			GOPUS_ENCODER_PACKETS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_packets_fixture_linux_amd64.json go run tools/gen_libopus_encoder_packet_fixture.go && \
+			GOPUS_ENCODER_VARIANTS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_variants_fixture_linux_amd64.json go run tools/gen_libopus_encoder_variants_fixture.go && \
+			GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT=celt/testdata/opusdec_crossval_fixture_linux_amd64.json go run tools/gen_opusdec_crossval_fixture.go"
 
 # Build with profile-guided optimization.
 build:

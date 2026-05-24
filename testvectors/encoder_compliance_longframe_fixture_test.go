@@ -19,9 +19,9 @@ import (
 )
 
 const (
-	longFrameFixturePath      = "testdata/encoder_compliance_longframe_libopus_ref.json"
-	longFrameFixturePathAMD64 = "testdata/encoder_compliance_longframe_libopus_ref_amd64.json"
-	updateLongFrameFixtureEnv = "GOPUS_UPDATE_LONGFRAME_FIXTURE"
+	longFrameFixturePath           = "testdata/encoder_compliance_longframe_libopus_ref.json"
+	longFrameFixturePathLinuxAMD64 = "testdata/encoder_compliance_longframe_libopus_ref_linux_amd64.json"
+	updateLongFrameFixtureEnv      = "GOPUS_UPDATE_LONGFRAME_FIXTURE"
 )
 
 var (
@@ -66,8 +66,8 @@ func longFrameFixtureTargets() []longFrameFixtureTarget {
 }
 
 func longFrameFixturePathForArch() string {
-	if runtime.GOARCH == "amd64" {
-		return longFrameFixturePathAMD64
+	if useLinuxAMD64Fixture() {
+		return longFrameFixturePathLinuxAMD64
 	}
 	return longFrameFixturePath
 }

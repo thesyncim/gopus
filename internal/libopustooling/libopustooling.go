@@ -323,7 +323,8 @@ func ensureLibopus(version string, roots []string, qext bool) bool {
 		if _, err := exec.LookPath(shell); err != nil {
 			shell = "sh"
 		}
-		cmd := exec.Command(shell, script)
+		cmd := exec.Command(shell, filepath.ToSlash(filepath.Join("tools", "ensure_libopus.sh")))
+		cmd.Dir = root
 		env := append(os.Environ(), "LIBOPUS_VERSION="+version)
 		if qext {
 			env = append(env, "LIBOPUS_ENABLE_QEXT=1")
@@ -357,10 +358,14 @@ func FindOrEnsureQEXTOpusDemo(version string, roots []string) (string, bool) {
 // FindOrEnsureOpusCompare validates the pinned libopus build, then locates
 // opus_compare.
 func FindOrEnsureOpusCompare(version string, roots []string) (string, bool) {
-	if !EnsureLibopus(version, roots) && !stampedLibopusBuildPresent(version, roots, false) {
+	return findOrEnsureOpusCompareForPlatform(version, roots, runtime.GOOS, runtime.GOARCH)
+}
+
+func findOrEnsureOpusCompareForPlatform(version string, roots []string, goos, goarch string) (string, bool) {
+	if !EnsureLibopus(version, roots) && !stampedLibopusBuildPresentForPlatform(version, roots, false, goos, goarch) {
 		return "", false
 	}
-	return FindOpusCompare(version, roots)
+	return findLibopusToolForOS(version, roots, "opus_compare", goos)
 }
 
 // FindCCompiler returns a GCC/Clang-style C compiler suitable for helper builds.
