@@ -584,6 +584,7 @@ func TestEncoderSigStateMatchesLibopusFloatSize(t *testing.T) {
 	}{
 		{"overlapBuffer", unsafe.Sizeof(enc.overlapBuffer[0])},
 		{"preemphState", unsafe.Sizeof(enc.preemphState[0])},
+		{"prefilterMem", unsafe.Sizeof(enc.prefilterMem[0])},
 	}
 	for _, tc := range got {
 		if tc.size != uintptr(sizes.celtSig) {

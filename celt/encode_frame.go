@@ -60,7 +60,7 @@ func (e *Encoder) fillTransientHistoryFromPrefilter(overlap int, dst []float64) 
 	for ch := 0; ch < e.channels; ch++ {
 		chBase := ch * maxPeriod
 		for i := 0; i < overlap; i++ {
-			dst[i*e.channels+ch] = float64(float32(e.prefilterMem[chBase+base+i]))
+			dst[i*e.channels+ch] = float64(e.prefilterMem[chBase+base+i])
 		}
 	}
 }

@@ -189,7 +189,7 @@ type Encoder struct {
 	prefilterPeriod int
 	prefilterGain   float32
 	prefilterTapset int
-	prefilterMem    []float64
+	prefilterMem    []celtSig
 	// Packet loss expectation (0-100) for prefilter gain scaling.
 	packetLoss int
 
@@ -328,7 +328,7 @@ func NewEncoder(channels int) *Encoder {
 		prefilterPeriod: 0,
 		prefilterGain:   0,
 		prefilterTapset: 0,
-		prefilterMem:    make([]float64, combFilterMaxPeriod*channels),
+		prefilterMem:    make([]celtSig, combFilterMaxPeriod*channels),
 
 		// Default to VBR enabled to mirror libopus behavior.
 		vbr:                      true,

@@ -54,15 +54,15 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	if channels == 1 {
 		hist := e.prefilterMem[:maxPeriod]
 		preCh := pre[:perChanLen]
-		copy(preCh[:maxPeriod], hist)
+		copySigToFloat64(preCh[:maxPeriod], hist)
 		copy(preCh[maxPeriod:maxPeriod+frameSize], preemph[:frameSize])
 	} else {
 		histL := e.prefilterMem[:maxPeriod]
 		histR := e.prefilterMem[maxPeriod : 2*maxPeriod]
 		preL := pre[:perChanLen]
 		preR := pre[perChanLen : 2*perChanLen]
-		copy(preL[:maxPeriod], histL)
-		copy(preR[:maxPeriod], histR)
+		copySigToFloat64(preL[:maxPeriod], histL)
+		copySigToFloat64(preR[:maxPeriod], histR)
 		DeinterleaveStereoInto(preemph[:frameSize*2], preL[maxPeriod:maxPeriod+frameSize], preR[maxPeriod:maxPeriod+frameSize])
 	}
 	// Keep prefilter inputs at float32 precision to match libopus celt_sig path.
@@ -258,10 +258,10 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		outCh := out[:perChanLen]
 		mem := e.prefilterMem[:maxPeriod]
 		if frameSize > maxPeriod {
-			copy(mem, preCh[frameSize:frameSize+maxPeriod])
+			copyFloat64ToSig(mem, preCh[frameSize:frameSize+maxPeriod])
 		} else {
 			copy(mem, mem[frameSize:])
-			copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
+			copyFloat64ToSig(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
 		}
 		outSub2 := outCh[maxPeriod : maxPeriod+frameSize]
 		copy(preemph[:frameSize], outSub2)
@@ -277,13 +277,13 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		memL := e.prefilterMem[:maxPeriod]
 		memR := e.prefilterMem[maxPeriod : 2*maxPeriod]
 		if frameSize > maxPeriod {
-			copy(memL, preL[frameSize:frameSize+maxPeriod])
-			copy(memR, preR[frameSize:frameSize+maxPeriod])
+			copyFloat64ToSig(memL, preL[frameSize:frameSize+maxPeriod])
+			copyFloat64ToSig(memR, preR[frameSize:frameSize+maxPeriod])
 		} else {
 			copy(memL, memL[frameSize:])
-			copy(memL[maxPeriod-frameSize:], preL[maxPeriod:maxPeriod+frameSize])
+			copyFloat64ToSig(memL[maxPeriod-frameSize:], preL[maxPeriod:maxPeriod+frameSize])
 			copy(memR, memR[frameSize:])
-			copy(memR[maxPeriod-frameSize:], preR[maxPeriod:maxPeriod+frameSize])
+			copyFloat64ToSig(memR[maxPeriod-frameSize:], preR[maxPeriod:maxPeriod+frameSize])
 		}
 		InterleaveStereoInto(outL, outR, preemph[:frameSize*2])
 		if overlap > 0 && len(e.overlapBuffer) >= channels*overlap && frameSize >= overlap {
@@ -331,10 +331,10 @@ func (e *Encoder) updatePrefilterNoopState(pre []float64, perChanLen, frameSize,
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		mem := e.prefilterMem[ch*maxPeriod : (ch+1)*maxPeriod]
 		if frameSize > maxPeriod {
-			copy(mem, preCh[frameSize:frameSize+maxPeriod])
+			copyFloat64ToSig(mem, preCh[frameSize:frameSize+maxPeriod])
 		} else {
 			copy(mem, mem[frameSize:])
-			copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
+			copyFloat64ToSig(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
 		}
 		if overlap > 0 && frameSize >= overlap && len(e.overlapBuffer) >= (ch+1)*overlap {
 			hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
