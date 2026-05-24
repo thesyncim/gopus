@@ -4,6 +4,7 @@ package celt
 // Keep internal aliases explicit so state storage matches libopus width.
 type celtNorm = float32
 type celtSig = float32
+type celtEner = float32
 type celtGLog = float32
 type opusVal16 = float32
 type opusVal32 = float32

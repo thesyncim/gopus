@@ -137,6 +137,7 @@ func requireDefaultLibopusPVQ(t *testing.T, n, k int) {
 type libopusCELTTypeSizes struct {
 	celtNorm  int
 	celtSig   int
+	celtEner  int
 	celtGLog  int
 	opusVal16 int
 	opusVal32 int
@@ -530,6 +531,7 @@ func probeLibopusCELTTypeSizes() (libopusCELTTypeSizes, error) {
 	sizes := libopusCELTTypeSizes{
 		celtNorm:  int(reader.U32()),
 		celtSig:   int(reader.U32()),
+		celtEner:  int(reader.U32()),
 		celtGLog:  int(reader.U32()),
 		opusVal16: int(reader.U32()),
 		opusVal32: int(reader.U32()),
@@ -701,10 +703,10 @@ func TestLibopusCELTFloatTypeSizes(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
-	if sizes.celtNorm != 4 || sizes.celtSig != 4 || sizes.celtGLog != 4 ||
+	if sizes.celtNorm != 4 || sizes.celtSig != 4 || sizes.celtEner != 4 || sizes.celtGLog != 4 ||
 		sizes.opusVal16 != 4 || sizes.opusVal32 != 4 || sizes.opusRes != 4 || sizes.analysis != 4 {
-		t.Fatalf("libopus CELT float sizes: celt_norm=%d celt_sig=%d celt_glog=%d opus_val16=%d opus_val32=%d opus_res=%d analysis=%d, want all 4",
-			sizes.celtNorm, sizes.celtSig, sizes.celtGLog, sizes.opusVal16, sizes.opusVal32, sizes.opusRes, sizes.analysis)
+		t.Fatalf("libopus CELT float sizes: celt_norm=%d celt_sig=%d celt_ener=%d celt_glog=%d opus_val16=%d opus_val32=%d opus_res=%d analysis=%d, want all 4",
+			sizes.celtNorm, sizes.celtSig, sizes.celtEner, sizes.celtGLog, sizes.opusVal16, sizes.opusVal32, sizes.opusRes, sizes.analysis)
 	}
 }
 

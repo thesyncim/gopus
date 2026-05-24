@@ -446,6 +446,7 @@ static int eval_encode_pulses(void) {
 static int eval_type_sizes(void) {
   return write_u32((uint32_t)sizeof(celt_norm)) &&
       write_u32((uint32_t)sizeof(celt_sig)) &&
+      write_u32((uint32_t)sizeof(celt_ener)) &&
       write_u32((uint32_t)sizeof(celt_glog)) &&
       write_u32((uint32_t)sizeof(opus_val16)) &&
       write_u32((uint32_t)sizeof(opus_val32)) &&
