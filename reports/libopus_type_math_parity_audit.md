@@ -92,7 +92,7 @@ The repo now has a ratcheting guard for this rule:
 make test-type-parity
 ```
 
-The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 2327 legacy findings, down from the previous 2509 baseline. CI lint/static-analysis on `49acbba3` also passed the type parity guard, but that CI run predates these local scratch reductions.
+The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 2323 legacy findings, down from the previous 2509 baseline. CI lint/static-analysis on `4de6aa4b` also passed the type parity guard.
 
 Agents must not run `make update-type-parity-baseline` to hide new debt. Refresh the baseline only after migrating runtime code to libopus-width types, or when a remaining `float64` is tied to a specific libopus C `double` helper with a source citation.
 
@@ -173,7 +173,6 @@ These are non-test runtime matches where `scratch` and `float64`/`complex128` ap
 | `celt/dred_conceal.go` | 9 |
 | `celt/synthesis.go` | 9 |
 | `celt/mdct.go` | 8 |
-| `multistream/encoder.go` | 5 |
 | `hybrid/decoder.go` | 3 |
 | `celt/decoder_qext_state.go` | 3 |
 | `celt/preemph.go` | 3 |
@@ -193,7 +192,7 @@ Every entry here must be migrated or explicitly justified against a C `double` r
 - `encoder.go`: the top-level `Encoder` no longer owns `scratchPCM64`; int16/int24 conversion scratch now stays in `[]float32` before entering the internal float32 encode path.
 - `multistream.go`: `scratchPCM64` is gone. Public multistream float32 input now calls the internal multistream float32 encode path, and int16/int24 conversion scratch stays in `[]float32`.
 - `multistream/encoder_helpers.go`: encoder-side projection mixing no longer stores a projected `[]float64` frame. It routes matrix output through `float32` per-stream buffers before the child encoder float32 entry point.
-- `multistream/encoder.go`: surround analysis now keeps `streamSurroundTrim`, `surroundInputScratch`, `surroundBandScratch`, `surroundBandSMR`, `surroundWindowMem`, and `surroundPreemphMem` in libopus-width `float32`. It uses float32-facing CELT MDCT and band-energy helpers; remaining `float64` in that slice is limited to immediate Go `math.*` round-trips for `logSum`/channel offset.
+- `multistream/encoder.go`: surround analysis now keeps `streamSurroundTrim`, `surroundInputScratch`, `surroundBandScratch`, `surroundBandSMR`, `surroundWindowMem`, and `surroundPreemphMem` in libopus-width `float32`. It uses float32-facing CELT MDCT and band-energy helpers, mirrors `src/opus_multistream_encoder.c:logSum()` with the float table approximation, and computes the channel offset through `celt_log2()`-style float32 math.
 - `multistream/decoder_dred_helpers.go`: `dredPCM64 [][]float64` should follow the canonical DRED/Opus PCM type after A01/A10.
 
 ### Unified Encoder Scratch
@@ -230,7 +229,7 @@ Every entry here must be migrated or explicitly justified against a C `double` r
 ### CELT MDCT/Synthesis/Postfilter Scratch
 
 - `celt/mdct.go`: legacy IMDCT scratch now aliases the float32 IMDCT scratch shape, removing local `complex128` work buffers from that path. IMDCT function signatures still accept/return `[]float64`, and the remaining spectrum/overlap boundaries must match `celt_sig`/`celt_norm`/`opus_res`.
-- `celt/mdct_encode.go`: `mdctScratch`, `mdctForwardOverlapScratch`, short-block scratch, `mdctBlockCoeffs`, and overlap work buffers should use CELT aliases. The current `mdctForwardOverlapF32Scratch(samples []float64, coeffs []float64, ...)` is transitional and should become fully float32.
+- `celt/mdct_encode.go`: `mdctForwardOverlapF32Scratch` is now generic over float32/float64 callers and `MDCTForwardWithOverlapFloat32` keeps surround-analysis MDCT coefficients in float-build storage. Remaining `mdctScratch`, short-block scratch, `mdctBlockCoeffs`, overlap work buffers, and public float64 boundaries should continue moving to CELT aliases.
 - `celt/synthesis.go`: synth scratch `scratchSynth`, `scratchSynthR`, `scratchShortCoeffs`, and stereo output scratch must be `opus_res`/`celt_sig`.
 - `celt/postfilter.go`, `celt/preemph.go`, `celt/prefilter.go`, and `celt/prefilter_*`: inner product and postfilter scratch must match libopus float or fixed helper types.
 - `celt/window_tables_static.go`: runtime window scratch/table values should be stored as `float32`/alias.
@@ -625,7 +624,7 @@ Verification:
 | A10 | Partial | Extensions | Convert OSCE/DRED/LPCNet codec-domain float64/complex128 to float32 unless source uses C double. | `internal/osce`, `internal/lpcnetplc`, `encoder/dred_runtime.go` |
 | A11 | Active | Oracle/build tests | Add C shim/oracle traces for type sizes, fixed macros, build provenance, and threshold-sensitive branches. | `tmp_check`, `tools`, package tests |
 | A12 | Open | Assembly cleanup | Retire or rewrite float64 assembly paths after their Go callers move to float32. | `celt/*_asm.go`, `celt/amd64_dispatch.go`, `celt/*float64*` |
-| A13 | Active | Runtime scratch enforcement | Sweep every remaining runtime `scratch` + `float64`/`complex128` match and either migrate it or cite the exact C `double` source. | `celt/scratch.go`, `celt/decoder_types.go`, `encoder/encoder.go`, `encoder/hybrid.go`, `silk/encoder.go`, `multistream/encoder.go` |
+| A13 | Active | Runtime scratch enforcement | Sweep every remaining runtime `scratch` + `float64`/`complex128` match and either migrate it or cite the exact C `double` source. | `celt/scratch.go`, `celt/decoder_types.go`, `encoder/encoder.go`, `encoder/hybrid.go`, `silk/encoder.go`, `multistream/decoder_dred_helpers.go` |
 
 Suggested coordination rule: one agent takes one lane and updates this table plus any lane-specific notes. Each lane owns scratch buffers in the files it touches. A13 is the final cross-lane validator for scratch that falls between package boundaries.
 
