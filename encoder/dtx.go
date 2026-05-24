@@ -12,8 +12,6 @@
 // Reference: RFC 6716 Section 2.1.9, libopus opus_encoder.c, silk/define.h
 package encoder
 
-import "math"
-
 // DTX Constants matching libopus silk/define.h and opus_encoder.c
 const (
 	// DTXFrameThresholdMs is the duration of silence before DTX activates.
@@ -26,12 +24,12 @@ const (
 
 	// dtxActivityThreshold matches DTX_ACTIVITY_THRESHOLD = 0.1f from silk/define.h.
 	// Used with the tonality analyzer's activity_probability.
-	dtxActivityThreshold = 0.1
+	dtxActivityThreshold opusVal16 = 0.1
 
 	// pseudoSNRThreshold matches PSEUDO_SNR_THRESHOLD = 316.23f (10^(25/10))
 	// from opus_encoder.c. If peak energy < threshold * current energy,
 	// the frame is considered active (not silence).
-	pseudoSNRThreshold = 316.23
+	pseudoSNRThreshold opusVal16 = 316.23
 )
 
 // dtxState holds state for discontinuous transmission.
@@ -50,7 +48,7 @@ type dtxState struct {
 
 	// Peak signal energy tracker (matching libopus st->peak_signal_energy).
 	// Tracks the running peak energy of active frames with slow decay (0.999).
-	peakSignalEnergy float64
+	peakSignalEnergy opusVal32
 }
 
 // newDTXState creates initial DTX state with multi-band VAD.
@@ -83,10 +81,11 @@ func isDigitalSilence(pcm []float64, lsbDepth int) bool {
 	if lsbDepth > 24 {
 		lsbDepth = 24
 	}
-	threshold := 1.0 / float64(int(1)<<lsbDepth)
+	threshold := opusVal16(1.0 / opusVal16(int(1)<<lsbDepth))
 
 	for _, s := range pcm {
-		if s > threshold || s < -threshold {
+		v := opusRes(s)
+		if v > threshold || v < -threshold {
 			return false
 		}
 	}
@@ -95,18 +94,18 @@ func isDigitalSilence(pcm []float64, lsbDepth int) bool {
 
 // computeFrameEnergy computes mean energy of the PCM frame.
 // Matches libopus compute_frame_energy() from opus_encoder.c:1107-1111.
-func computeFrameEnergy(pcm []float64) float64 {
+func computeFrameEnergy(pcm []float64) opusVal32 {
 	if len(pcm) == 0 {
 		return 0
 	}
-	var energy float64
+	var energy opusVal32
 	for _, s := range pcm {
 		// libopus float API energy path operates in float precision; match that
 		// domain before squaring to avoid threshold-side drift from float64 input.
-		v := float64(float32(s))
+		v := opusVal16(s)
 		energy += v * v
 	}
-	return energy / float64(len(pcm))
+	return energy / opusVal32(len(pcm))
 }
 
 // shouldUseDTX determines if frame should be suppressed (DTX mode).
@@ -178,7 +177,7 @@ func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
 	if shouldTrackPeak && !isSilence {
 		frameEnergy := computeFrameEnergy(pcm)
 		// Slow decay: peak = max(0.999 * peak, current_energy)
-		e.dtx.peakSignalEnergy = math.Max(0.999*e.dtx.peakSignalEnergy, frameEnergy)
+		e.dtx.peakSignalEnergy = maxf(0.999*e.dtx.peakSignalEnergy, frameEnergy)
 	}
 
 	// DTX decision logic matching libopus decide_dtx_mode (opus_encoder.c:1115)
@@ -231,16 +230,16 @@ func classifySignal(pcm []float32) (int, float32) {
 		return 0, 0
 	}
 
-	var energy float64
+	var energy opusVal32
 	for _, s := range pcm {
-		energy += float64(s) * float64(s)
+		energy += s * s
 	}
-	energy /= float64(len(pcm))
+	energy /= opusVal32(len(pcm))
 
 	const silenceThreshold = 0.0001 // ~-40 dBFS
 	if energy < silenceThreshold {
-		return 0, float32(energy)
+		return 0, energy
 	}
 
-	return 2, float32(energy)
+	return 2, energy
 }

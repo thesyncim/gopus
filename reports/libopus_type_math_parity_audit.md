@@ -11,6 +11,7 @@ Target: exact libopus parity for scalar widths, persistent state, signal buffers
 Status as of 2026-05-24:
 
 - A01 public PCM API is partial: the top-level `Encode([]float32, ...)` path now enters `encoder.Encoder` through a float32 entry point instead of setting a separate float-input side channel before widening. The deeper Opus/SILK/CELT core still carries transitional `float64` PCM buffers, so A01 is not done.
+- A02 Opus encoder state is partial: `StereoWidthMem` now mirrors libopus `StereoWidthState` with `opusVal32`/`opusVal16`, DTX `peakSignalEnergy` is `opusVal32`, frame-energy and digital-silence threshold math round inputs to the libopus float domain, and DRED/Opus-VAD activity checks no longer widen peak/energy comparisons. The remaining A02 debt is the broader `[]float64` PCM bridge, `HybridState.prevHBGain`, and encoder delay/DC/prefill/quant scratch.
 - A03 CELT core vectors are active and oracle-backed: `aa373dcd` fixes strict CELT VQ oracle cases, and the current follow-up moves CELT coarse/fine/final energy residual scratch to `[]celtGLog` with no-clear preservation for shared residual state. Broad runtime vector and scratch migration remains open. The next highest-risk CELT mismatch is still runtime log-energy storage and PVQ/band scratch that carries libopus `celt_glog`/`celt_norm` values through `float64` slices; migrate energy decode/encode, QEXT energy state, anti-collapse, folding, and PVQ search in that order.
 - A07 SILK FLP storage is active and oracle-backed: `e04a55db` links the SILK LPC oracle to the configured libopus archive and `ffa3a0d3` makes that oracle protocol endian-stable. Follow-ups split LPC/Burg boundaries so persistent `silk_float` storage and FindLPC residual/input scratch use `float32`, while true `burg_modified_FLP.c` C `double` work arrays stay `float64`; the current type-width pass also removes the widened pitch residual copy, feeds pitch analysis/LTP/noise-shaping from `[]float32`, computes sparseness with `energyF32Libopus`, keeps residual-energy/gain-processing scratch in `silk_float` storage, and replaces the FindLPC interpolation NLSF-to-LPC float64 polynomial scratch with the libopus-style `silk_NLSF2A_FLP` fixed bridge plus `silk_float` output storage. More SILK scratch remains open: legacy float stereo predictor helpers and stale double LPC/LSF helpers must either migrate to `float32`/fixed wrappers or be deleted so accidental reuse cannot reintroduce double-domain parity drift.
 - A08 fixed math is partial: `8f525312` added C-backed oracle coverage for SILK fixed wrapper primitives and corrected the reversed-bound `silk_LIMIT` behavior for `silkLimitInt`/`silkLimit32`; the current follow-up checks both `silkLShiftSAT32` and `silk_LSHIFT_SAT32` against the C oracle and fixes the `shift == 31` saturation edge.
@@ -198,7 +199,7 @@ Every entry here must be migrated or explicitly justified against a C `double` r
 - `encoder/encoder.go`: `inputBuffer []float64` should be `[]opusRes`/`[]float32`.
 - `encoder/encoder.go`: `scratchDCPCM`, `scratchDelayedPCM`, `scratchTransitionPrefill`, `scratchSilkPrefill`, `scratchCELTPrefill`, and `scratchQuantPCM` should be `[]opusRes`/`[]float32`.
 - `encoder/encoder.go`: `scratchPCM32` is named as a conversion from `float64`; after the canonical API moves to `float32`, either delete it or repurpose it as a real codec-domain buffer.
-- `encoder/dtx.go`: DTX helpers take `[]float64` and compute `float64` energy. They should take `[]opusRes`/`[]float32` and return `opus_val32`/`float32`, with only immediate `math.*` conversions if needed.
+- `encoder/dtx.go`: DTX helpers still take the transitional `[]float64` encoder-core bridge, but energy/peak math now uses `opusVal32` after rounding samples to the libopus float domain. Finish this by feeding `[]opusRes`/`[]float32` directly from the canonical PCM lane.
 - `encoder/dred_runtime.go` and `encoder/dred_runtime_default.go`: DRED latent input scratch takes `[]float64`; migrate with the main PCM lane.
 
 ### Hybrid Encoder/Decoder Scratch
@@ -398,16 +399,15 @@ Reference:
 
 Current symptoms:
 
-- `StereoWidthMem` stores all fields as `float64`.
-- `dtxState.peakSignalEnergy` is `float64`.
+- `StereoWidthMem` is now `opusVal32`/`opusVal16`; keep future edits in that domain.
+- `dtxState.peakSignalEnergy` and frame energy are now `opusVal32`; remaining DTX debt is the transitional `[]float64` input signature.
 - `HybridState.prevHBGain` is `float64`.
 - `encoder/encoder.go` carries `scratchDCPCM`, `scratchDelayedPCM`, `scratchTransitionPrefill`, `scratchSilkPrefill`, `scratchCELTPrefill`, and `scratchQuantPCM` as `[]float64`.
 - `celtCVBRBoundScale` and `celtSurroundTrim` are `float64`; verify reference type before converting.
 
 Fix direction:
 
-- Convert `StereoWidthMem` to `opusVal32`/`opusVal16` or plain `float32` with comments tying each field to C.
-- Convert DTX frame energy and peak tracking to `opusVal32`/`float32`.
+- Keep `StereoWidthMem` and DTX peak/energy math in `opusVal32`/`opusVal16`; do not regress these fields back to `float64`.
 - Convert high-band gain state/fades to `opusVal16`/`float32`; only use `float64` inside `math.*` calls if immediately rounded.
 - Convert all Opus encoder PCM scratch and delay buffers to `opusRes`/`float32`.
 
@@ -612,7 +612,7 @@ Verification:
 |---|---|---|---|---|
 | A00 | Open | Type policy and gates | Add shared aliases/docs and CI grep gates with explicit allowlists. | `celt/scalar_types.go`, new report/test helper |
 | A01 | Partial | Public PCM API | Make canonical encode/decode float API `[]float32`; isolate optional `float64` wrappers. | `encoder.go`, `encoder/encoder.go`, `hybrid/*.go`, `pcm.go`, `multistream*.go` |
-| A02 | Open | Opus encoder state | Convert width, DTX, HB gain, delay, DC reject, prefill, quantized PCM state to `float32` aliases. | `encoder/auto_mode.go`, `encoder/dtx.go`, `encoder/hybrid.go`, `encoder/encoder.go` |
+| A02 | Partial | Opus encoder state | Width and DTX peak/energy are now `float32` aliases; convert HB gain, delay, DC reject, prefill, quantized PCM state next. | `encoder/hybrid.go`, `encoder/encoder.go` |
 | A03 | Active | CELT core vectors | Convert runtime signal/norm/energy/band/PVQ vectors from `float64` to aliases. | `celt/bands_quant.go`, `celt/bands.go`, `celt/pvq*.go`, `celt/energy*.go` |
 | A04 | Open | CELT MDCT/synthesis/postfilter | Convert MDCT, synthesis, preemphasis, postfilter, windows, and scratch to `float32` aliases. | `celt/mdct*.go`, `celt/synthesis.go`, `celt/preemph.go`, `celt/postfilter.go`, `celt/window_tables_static.go` |
 | A05 | Open | CELT FFT | Remove runtime dependence on `KissFFT64State`/`complex128`. | `celt/kiss_fft.go`, `celt/kissfft32.go`, `internal/osce/lace/features.go` |

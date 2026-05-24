@@ -1576,25 +1576,13 @@ encoder/analysis.go	1	df8990d32a5d609c98c3b575718568af29b973538312729b655e9073d5
 encoder/analysis.go	1	f05e2fc7b6455845859fbe9e21e7e677a6821711860a483d87f9186a2e0d1093	legacy-current	frameLoudness = 20.0 * float32(math.Log10(float64(frameLoudness)))
 encoder/analysis.go	1	f8378d75b0d41a50ce25e812943abf4cad5316be10e9bd346602c33b12e35f17	legacy-current	stationarity := minf(0.99, L1/float32(math.Sqrt(float64(1e-15+float32(NbFrames)*L2))))
 encoder/analysis.go	1	f86b23f27e789ddf718ecf7d7f9d34efa535b4f98156dadb56f3bec69510d9f7	legacy-current	noiseFloor := float32(5.7e-4 / float64(uint(1)<<uint(max(0, lsbDepth-8))))
+encoder/auto_mode.go	1	103865e9ee4f847bcce7aaba0b78888f5015194897e4959b9d0ee095c4e86ee5	legacy-current	func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) opusVal16 {
 encoder/auto_mode.go	1	14925b2dd59567af4d6a32c880b22f49b6557f0b8e59c2329da88a7f2535f135	legacy-current	prob = float64(e.lastAnalysisInfo.MusicProbMax)
-encoder/auto_mode.go	1	186c1f595fb0b57363b3ad55493a4f307febc1514c4b108812c9d007189936a7	legacy-current	MaxFollower float64
-encoder/auto_mode.go	1	1d85c7ec14e4e59f6c1fb0fbb4cf2610a3dd63f85c95a35437902ddbd72c90c5	legacy-current	XY float64
-encoder/auto_mode.go	1	2c9b7978638da5f6a44bb3d65aa7fc88b438384f23413fd22121ed321852d85e	legacy-current	var pxx, pxy, pyy float64
-encoder/auto_mode.go	1	2f59554ef0b74a365c45003a89c4ee0ed0805259f7a42d0c16bc281c83137665	legacy-current	YY float64
-encoder/auto_mode.go	1	45c796e2917e8b666cb220770e233b69e34f8f30cded98b8a34b61cf88e85a4d	legacy-current	shortAlpha := 25.0 / float64(frameRate)
 encoder/auto_mode.go	1	4df6cfa6d9eaf14282a09e9d46d5f17b28019757e9cfe4498a28f168630425d6	legacy-current	prob = float64(e.lastAnalysisInfo.MusicProb)
-encoder/auto_mode.go	1	51c79099fcab970dd9a4994ec45522fd1a34a1788d0406a54eac4a70edcc3e29	legacy-current	func (e *Encoder) autoModeDecision(stereoWidth float64, voiceEst, equivRate, frameSize, maxDataBytes int) Mode {
-encoder/auto_mode.go	1	63608180b2d692088a97a979584a5a12480205d1eff53b790175751c01c94492	legacy-current	SmoothedWidth float64
-encoder/auto_mode.go	1	6e782730de248738ec90da13d3c4be46930dd1f84e6686d66cfa16accd90a5dd	legacy-current	stereoWidth*float64(autoModeThresholds[1][0])))
-encoder/auto_mode.go	1	80501657b6b9607ff632f6addce8b66654624cc9b6dbd4a93143c516b61bb425	legacy-current	var stereoWidth float64
-encoder/auto_mode.go	1	8063bcf20351124b304f8c86f77a26118c66cfca5e1ef951ed1b6f9d5717cc1f	legacy-current	func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) float64 {
 encoder/auto_mode.go	1	980e8870d79dd854a9f04e8d1b60a628e385a25fe1b468405c9d0ad4eff22ad2	legacy-current	prob = float64(e.lastAnalysisInfo.MusicProbMin)
+encoder/auto_mode.go	1	b73cc000f4ff10fe91c9c71bdbfce2b7af663aeeffe1151d7b89f169db777ce4	legacy-current	return opusVal32(math.Sqrt(float64(x)))
 encoder/auto_mode.go	1	ba938719471d32e5b3d22c34a3222cdb56d4b152a4e8561078ecb2d6fe2a171c	legacy-current	var prob float64
-encoder/auto_mode.go	1	c9b72ce0505a7dba002279116cdf4d598ee5fd95939d8dfce5beb40982a2b067	legacy-current	fr := float64(frameRate)
 encoder/auto_mode.go	1	e4db934426070a3d87e1ca61882383560cdd56dbb1ba9c7069622309543cf279	legacy-current	func (e *Encoder) autoModeAndBandwidthDecision(pcm []float64, frameSize, maxDataBytes int, isSilence bool) Mode {
-encoder/auto_mode.go	1	f09424adb2c2cfc1bb7a9c8bb75f7cf871f74bc8a966fbb14fc0d57e2dfc5554	legacy-current	(1.0-stereoWidth)*float64(autoModeThresholds[0][0]) +
-encoder/auto_mode.go	1	f3e46f294084dd13c0c3e9d9318d1531db5408777f557c92a42cf1ed4f864f94	legacy-current	XX float64
-encoder/auto_mode.go	1	fde62ca920821634baee2f11ccf40a0d65020f96ddfb79153289ed7745bc597d	legacy-current	var xx, xy, yy float64
 encoder/controls.go	1	5dbd20248f05809cb9509babff89a170fdf21031b040892a47d75323b1ed6426	legacy-current	maxSize := int(float64(target) * (1 + tolerance))
 encoder/controls.go	1	bd7c564bbc70db3fc6cc4885fcc445e055b079de247179099b8639f7039a3a07	legacy-current	func constrainSize(packet []byte, target int, tolerance float64) []byte {
 encoder/dred_payload.go	1	2aa8f1914d8c1c38255da6c5d92bea2f8bed792c679f86302df63041d784e205	legacy-current	func (e *Encoder) currentDREDActivity(pcm []float64) bool {
@@ -1606,15 +1594,8 @@ encoder/dred_runtime.go	1	d19678430a7786d0746ffe24e2418beeaac4bcdf7bf7efb18fdc16
 encoder/dred_runtime_default.go	1	255a8a5c4f9a50e156afdf30842a5a2500cbae380c0bc6a9b67c78866e2d0e6e	legacy-current	func (e *Encoder) processDREDLatents(_ []float64, _ int) int {
 encoder/dred_runtime_default.go	1	7bac296e94f8fab0b54515e6c8cc1b80699668711e588dc20afe7c01994486a4	legacy-current	func (e *Encoder) processDREDLatentsWithActivity(_ []float64, _ int, _ bool) int {
 encoder/dred_runtime_default.go	1	8f25003215f1b88c6514a6382cba3fd4fa104b12a1974c192facebef0f66a814	legacy-current	func (e *Encoder) processDREDLatentsForPacket(_ []float64, _ int, _ int, _ Mode) int {
-encoder/dtx.go	1	2d47e34e3b339c7d2c6c4eedd5acf023fc864cb6a4fb7822c9c1cbad3136f654	legacy-current	energy += float64(s) * float64(s)
 encoder/dtx.go	1	58c5d249238de001fe18572e15e1f9ccbfc9c41f9d1b1cfc5e3452beec3b7998	legacy-current	func isDigitalSilence(pcm []float64, lsbDepth int) bool {
-encoder/dtx.go	1	65dd568dc2c35cd41144c6e3fcc7421eff4a2fac34b11596d18caa7c4a96e044	legacy-current	func computeFrameEnergy(pcm []float64) float64 {
-encoder/dtx.go	1	6908ff8e50aedcee0b78e8645b23e537108af2d31aead273640b951364f51941	legacy-current	return energy / float64(len(pcm))
-encoder/dtx.go	1	70726936c176a9b9f62c0d5094ff84a1de00daa79a661a308f9efd942b7b41ab	legacy-current	energy /= float64(len(pcm))
-encoder/dtx.go	1	7abc2a42d129eff596fa480e7a77b7eade88ef7996739e28ab806fcb2ea9da48	legacy-current	threshold := 1.0 / float64(int(1)<<lsbDepth)
-encoder/dtx.go	2	7b100e28c0e43191c42b4f0aee968a05b2a24ae55fd0a2110ad9cdf781949d3c	legacy-current	var energy float64
-encoder/dtx.go	1	89acb4588725590eb94e82ed201b3af4c85fc9c76f54f14b5fd20f77363accfc	legacy-current	peakSignalEnergy float64
-encoder/dtx.go	1	b3c40aec8e6cb0d3d993248757a04b3b4e3b9b700435b231c7198c4c68d97ae7	legacy-current	v := float64(float32(s))
+encoder/dtx.go	1	9a446e6930471f234c9ab1632c03f0dbd17e97559f50190ff0b1772512f409ec	legacy-current	func computeFrameEnergy(pcm []float64) opusVal32 {
 encoder/dtx.go	1	c528a9f93e9f5df88c560d78b44c15bae5190afa720ac47c46db2faa9bfda8be	legacy-current	// domain before squaring to avoid threshold-side drift from float64 input.
 encoder/dtx.go	1	e2a540af7769130153c24d9d9b70f7767e8309a844604196aed041d7866b3a75	legacy-current	func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
 encoder/encoder.go	1	0032c67255d4aab354ab8d3817b15a10634d184671178fc7ac07c266452fb66c	legacy-current	func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analysisPCM []float64, maxDataBytes int) ([]byte, error) {

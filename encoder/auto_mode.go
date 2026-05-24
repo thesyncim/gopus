@@ -15,11 +15,11 @@ import (
 // StereoWidthMem holds state for the stateful compute_stereo_width() function.
 // Matches libopus StereoWidthState.
 type StereoWidthMem struct {
-	XX            float64
-	XY            float64
-	YY            float64
-	SmoothedWidth float64
-	MaxFollower   float64
+	XX            opusVal32
+	XY            opusVal32
+	YY            opusVal32
+	SmoothedWidth opusVal16
+	MaxFollower   opusVal16
 }
 
 // Bandwidth threshold tables from libopus opus_encoder.c lines 151-174.
@@ -53,7 +53,7 @@ var fecThresholdsTable = [10]int{
 // computeStereoWidthForMode implements libopus compute_stereo_width() (float-point path).
 // It updates e.widthMem and returns stereo width in [0, 1] range (Q15 scale as float).
 // Reference: opus_encoder.c lines 854-938.
-func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) float64 {
+func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) opusVal16 {
 	if e.channels != 2 || len(pcm) < frameSize*2 {
 		return 0
 	}
@@ -62,16 +62,16 @@ func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) float6
 	if frameRate < 50 {
 		frameRate = 50
 	}
-	shortAlpha := 25.0 / float64(frameRate)
+	shortAlpha := opusVal16(25.0 / opusVal16(frameRate))
 
 	// Accumulate per-frame energy and cross-correlation (unrolled by 4).
-	var xx, xy, yy float64
+	var xx, xy, yy opusVal32
 	for i, j := 0, 0; i < frameSize-3; i, j = i+4, j+8 {
-		var pxx, pxy, pyy float64
-		x0, y0 := pcm[j], pcm[j+1]
-		x1, y1 := pcm[j+2], pcm[j+3]
-		x2, y2 := pcm[j+4], pcm[j+5]
-		x3, y3 := pcm[j+6], pcm[j+7]
+		var pxx, pxy, pyy opusVal32
+		x0, y0 := opusVal16(pcm[j]), opusVal16(pcm[j+1])
+		x1, y1 := opusVal16(pcm[j+2]), opusVal16(pcm[j+3])
+		x2, y2 := opusVal16(pcm[j+4]), opusVal16(pcm[j+5])
+		x3, y3 := opusVal16(pcm[j+6]), opusVal16(pcm[j+7])
 		pxx += x0 * x0
 		pxy += x0 * y0
 		pyy += y0 * y0
@@ -90,7 +90,7 @@ func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) float6
 	}
 
 	// Safety check (float-point path, opus_encoder.c line 903-906).
-	if !(xx < 1e9) || math.IsNaN(xx) || !(yy < 1e9) || math.IsNaN(yy) {
+	if !(xx < 1e9) || xx != xx || !(yy < 1e9) || yy != yy {
 		xx = 0
 		xy = 0
 		yy = 0
@@ -119,12 +119,12 @@ func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) float6
 		maxEnergy = mem.YY
 	}
 	if maxEnergy > 8e-4 {
-		sqrtXX := math.Sqrt(mem.XX)
-		sqrtYY := math.Sqrt(mem.YY)
-		qrrtXX := math.Sqrt(sqrtXX) // fourth root
-		qrrtYY := math.Sqrt(sqrtYY)
+		sqrtXX := celtSqrtOpusVal32(mem.XX)
+		sqrtYY := celtSqrtOpusVal32(mem.YY)
+		qrrtXX := celtSqrtOpusVal32(sqrtXX) // fourth root
+		qrrtYY := celtSqrtOpusVal32(sqrtYY)
 
-		const epsilon = 1e-15
+		const epsilon opusVal32 = 1e-15
 		sqrtProd := sqrtXX * sqrtYY
 		// Clamp cross-correlation.
 		if mem.XY > sqrtProd {
@@ -133,16 +133,16 @@ func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) float6
 		// Inter-channel correlation.
 		corr := mem.XY / (epsilon + sqrtProd)
 		// Approximate loudness difference.
-		ldiff := math.Abs(qrrtXX-qrrtYY) / (epsilon + qrrtXX + qrrtYY)
+		ldiff := absOpusVal16(qrrtXX-qrrtYY) / (epsilon + qrrtXX + qrrtYY)
 		// Width = sqrt(1 - corr^2) * ldiff, clamped to [0, 1].
 		decorr := 1.0 - corr*corr
 		if decorr < 0 {
 			decorr = 0
 		}
-		width := math.Min(1.0, math.Sqrt(decorr)) * ldiff
+		width := minf(1.0, celtSqrtOpusVal32(decorr)) * ldiff
 
 		// Smoothing over one second.
-		fr := float64(frameRate)
+		fr := opusVal16(frameRate)
 		mem.SmoothedWidth += (width - mem.SmoothedWidth) / fr
 		// Peak follower.
 		followerDecay := mem.MaxFollower - 0.02/fr
@@ -161,6 +161,22 @@ func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) float6
 		result = 0
 	}
 	return result
+}
+
+// celtSqrtOpusVal32 mirrors libopus celt_sqrt() in the float build:
+// celt/mathops.h casts the C sqrt() result back to float.
+func celtSqrtOpusVal32(x opusVal32) opusVal32 {
+	if x <= 0 {
+		return 0
+	}
+	return opusVal32(math.Sqrt(float64(x)))
+}
+
+func absOpusVal16(x opusVal16) opusVal16 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
 
 // decideFEC implements libopus decide_fec() (opus_encoder.c lines 940-971).
@@ -314,11 +330,11 @@ func (e *Encoder) updateStreamChannelsForFrame(frameSize int) {
 
 // autoModeDecision selects SILK-only vs CELT-only using interpolated thresholds.
 // Matches libopus opus_encoder.c lines 1492-1527.
-func (e *Encoder) autoModeDecision(stereoWidth float64, voiceEst, equivRate, frameSize, maxDataBytes int) Mode {
+func (e *Encoder) autoModeDecision(stereoWidth opusVal16, voiceEst, equivRate, frameSize, maxDataBytes int) Mode {
 	// Interpolate mode thresholds based on stereo width.
-	modeVoice := int(math.Round(
-		(1.0-stereoWidth)*float64(autoModeThresholds[0][0]) +
-			stereoWidth*float64(autoModeThresholds[1][0])))
+	modeVoiceF := (1.0-stereoWidth)*opusVal16(autoModeThresholds[0][0]) +
+		stereoWidth*opusVal16(autoModeThresholds[1][0])
+	modeVoice := int(modeVoiceF + 0.5)
 	// Note: libopus uses [1][1] for both terms (bug/intentional since values are equal).
 	modeMusic := autoModeThresholds[1][1]
 
@@ -539,7 +555,7 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []float64, frameSize, maxData
 	e.updateDetectedBandwidth()
 
 	// Step 4: Compute stereo width (line 1322).
-	var stereoWidth float64
+	var stereoWidth opusVal16
 	if e.channels == 2 && e.forceChannels != 1 {
 		stereoWidth = e.computeStereoWidthForMode(pcm, frameSize)
 	}

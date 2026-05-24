@@ -21,7 +21,7 @@ func (e *Encoder) currentDREDActivity(pcm []float64) bool {
 		active := e.lastAnalysisInfo.VADProb >= dtxActivityThreshold
 		if !active {
 			frameEnergy := computeFrameEnergy(pcm)
-			peak := 0.0
+			peak := opusVal32(0)
 			if e.dtx != nil {
 				peak = e.dtx.peakSignalEnergy
 			}
@@ -30,7 +30,7 @@ func (e *Encoder) currentDREDActivity(pcm []float64) bool {
 		return active
 	}
 	frameEnergy := computeFrameEnergy(pcm)
-	peak := 0.0
+	peak := opusVal32(0)
 	if e.dtx != nil {
 		peak = e.dtx.peakSignalEnergy
 	}

@@ -3315,7 +3315,7 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 	// true digital silence frames.
 	if e.dtx != nil && (!analysisValid || analysisProb > DTXActivityThreshold) && !isSilence {
 		frameEnergy := computeFrameEnergy(pcm)
-		e.dtx.peakSignalEnergy = math.Max(0.999*e.dtx.peakSignalEnergy, frameEnergy)
+		e.dtx.peakSignalEnergy = maxf(0.999*e.dtx.peakSignalEnergy, frameEnergy)
 	}
 
 	e.lastOpusVADProb = analysisProb
@@ -3332,7 +3332,7 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 		// Match libopus safety net: if this "noise" frame is loud enough
 		// relative to the tracked peak, keep activity active.
 		frameEnergy := computeFrameEnergy(pcm)
-		peak := 0.0
+		peak := opusVal32(0)
 		if e.dtx != nil {
 			peak = e.dtx.peakSignalEnergy
 		}

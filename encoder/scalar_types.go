@@ -1,5 +1,7 @@
 package encoder
 
+type opusVal16 = float32
+type opusVal32 = float32
 type opusRes = float32
 
 func copyOpusResToFloat64(dst []float64, src []opusRes) {
