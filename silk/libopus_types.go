@@ -31,11 +31,11 @@ type sideInfoIndices struct {
 
 type cngState struct {
 	excBufQ14     [maxFrameLength]int32
-	smthNLSFQ15   [maxLPCOrder]int32
+	smthNLSFQ15   [maxLPCOrder]int16
 	synthStateQ14 [maxLPCOrder]int32
 	smthGainQ16   int32
 	randSeed      int32
-	fsKHz         int
+	fsKHz         int32
 }
 
 type decoderState struct {

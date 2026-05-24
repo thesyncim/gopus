@@ -13,7 +13,7 @@ func silkCNGReset(st *decoderState) {
 	accQ15 := int32(0)
 	for i := 0; i < order; i++ {
 		accQ15 += stepQ15
-		st.cng.smthNLSFQ15[i] = accQ15
+		st.cng.smthNLSFQ15[i] = int16(accQ15)
 	}
 	for i := order; i < maxLPCOrder; i++ {
 		st.cng.smthNLSFQ15[i] = 0
@@ -71,11 +71,11 @@ func cngLPCOrder(st *decoderState) int {
 }
 
 func syncCNGSampleRate(st *decoderState) {
-	if st.fsKHz == st.cng.fsKHz {
+	if int32(st.fsKHz) == st.cng.fsKHz {
 		return
 	}
 	silkCNGReset(st)
-	st.cng.fsKHz = st.fsKHz
+	st.cng.fsKHz = int32(st.fsKHz)
 }
 
 func shouldUpdateCNGHistory(st *decoderState, ctrl *decoderControl) bool {
@@ -85,8 +85,9 @@ func shouldUpdateCNGHistory(st *decoderState, ctrl *decoderControl) bool {
 func updateCNGHistory(st *decoderState, ctrl *decoderControl) {
 	order := cngLPCOrder(st)
 	for i := 0; i < order; i++ {
-		delta := int32(st.prevNLSFQ15[i]) - st.cng.smthNLSFQ15[i]
-		st.cng.smthNLSFQ15[i] += silkSMULWB(delta, cngNLSFSMthQ16)
+		smthQ15 := int32(st.cng.smthNLSFQ15[i])
+		delta := int32(st.prevNLSFQ15[i]) - smthQ15
+		st.cng.smthNLSFQ15[i] = int16(smthQ15 + silkSMULWB(delta, cngNLSFSMthQ16))
 	}
 
 	maxGainQ16 := int32(0)
@@ -149,7 +150,7 @@ func (d *Decoder) applyCNGLostFrame(channel int, st *decoderState, frame []int16
 	var aQ12 [maxLPCOrder]int16
 	var nlsfQ15 [maxLPCOrder]int16
 	for i := 0; i < order; i++ {
-		nlsfQ15[i] = int16(st.cng.smthNLSFQ15[i])
+		nlsfQ15[i] = st.cng.smthNLSFQ15[i]
 	}
 	if !silkNLSF2A(aQ12[:order], nlsfQ15[:order], order) {
 		lpc := lsfToLPCDirect(nlsfQ15[:order])
