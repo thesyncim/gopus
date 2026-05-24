@@ -27,6 +27,7 @@ const (
 )
 
 var libopusCELTVQHelper libopustest.HelperCache
+var libopusCELTQEXTVQHelper libopustest.HelperCache
 
 type expRotationOracleCase struct {
 	x      []float32
@@ -113,6 +114,24 @@ type algQuantOracleResult struct {
 	collapse int
 	packet   []byte
 	x        []float32
+}
+
+type algQuantQEXTOracleCase struct {
+	name      string
+	x         []float32
+	k         int
+	spread    int
+	b         int
+	gain      float32
+	resynth   bool
+	extraBits int
+}
+
+type algQuantQEXTOracleResult struct {
+	collapse  int
+	packet    []byte
+	extPacket []byte
+	x         []float32
 }
 
 type thetaDistOracleCase struct {
@@ -301,6 +320,25 @@ func buildLibopusCELTVQHelper() (string, error) {
 	})
 }
 
+func buildLibopusCELTQEXTVQHelper() (string, error) {
+	return libopustest.BuildCHelper(libopustest.CHelperConfig{
+		Label:       "celt qext vq",
+		OutputBase:  "gopus_libopus_celt_qext_vq",
+		SourceFile:  "libopus_celt_qext_vq_info.c",
+		CFlags:      []string{"-DHAVE_CONFIG_H", "-DENABLE_QEXT", "-O3", "-DNDEBUG", "-ffp-contract=off"},
+		RefIncludes: []string{"celt", "silk"},
+		RefSources: []string{
+			"celt/vq.c",
+			"celt/cwrs.c",
+			"celt/entenc.c",
+			"celt/entdec.c",
+			"celt/entcode.c",
+			"celt/laplace.c",
+		},
+		DeadStrip: true,
+	})
+}
+
 func probeLibopusAlgUnquant(cases []algUnquantOracleCase) ([]algUnquantOracleResult, error) {
 	binPath, err := libopusCELTVQHelper.Path(buildLibopusCELTVQHelper)
 	if err != nil {
@@ -328,6 +366,58 @@ func probeLibopusAlgUnquant(cases []algUnquantOracleCase) ([]algUnquantOracleRes
 	out := make([]algUnquantOracleResult, count)
 	for i := range out {
 		out[i].collapse = int(reader.U32())
+		n := int(reader.U32())
+		out[i].x = make([]float32, n)
+		for j := range out[i].x {
+			out[i].x[j] = reader.Float32()
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusAlgQuantQEXT(cases []algQuantQEXTOracleCase) ([]algQuantQEXTOracleResult, error) {
+	binPath, err := libopusCELTQEXTVQHelper.Path(buildLibopusCELTQEXTVQHelper)
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload("GQVI", 0, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.U32(uint32(len(tc.x)))
+		payload.U32(uint32(tc.k))
+		payload.U32(uint32(tc.spread))
+		payload.U32(uint32(tc.b))
+		if tc.resynth {
+			payload.U32(1)
+		} else {
+			payload.U32(0)
+		}
+		payload.U32(uint32(tc.extraBits))
+		payload.U32(math.Float32bits(tc.gain))
+		payload.U32(128)
+		payload.U32(128)
+		for _, v := range tc.x {
+			payload.U32(math.Float32bits(v))
+		}
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "celt qext vq", "GQVO")
+	if err != nil {
+		return nil, err
+	}
+	mode := reader.U32()
+	if mode != 0 {
+		return nil, fmt.Errorf("celt qext vq mode=%d want 0", mode)
+	}
+	count := reader.Count(len(cases))
+	out := make([]algQuantQEXTOracleResult, count)
+	for i := range out {
+		out[i].collapse = int(reader.U32())
+		packetLen := int(reader.U32())
+		out[i].packet = append([]byte(nil), reader.Bytes(packetLen)...)
+		extPacketLen := int(reader.U32())
+		out[i].extPacket = append([]byte(nil), reader.Bytes(extPacketLen)...)
 		n := int(reader.U32())
 		out[i].x = make([]float32, n)
 		for j := range out[i].x {
@@ -982,6 +1072,59 @@ func TestAlgQuantMatchesLibopusFloatPath(t *testing.T) {
 		}
 		if string(gotPacket) != string(want[ci].packet) {
 			t.Fatalf("%s packet=%x want %x", tc.name, gotPacket, want[ci].packet)
+		}
+		if len(x) != len(want[ci].x) {
+			t.Fatalf("%s x len=%d want %d", tc.name, len(x), len(want[ci].x))
+		}
+		for i := range x {
+			got := float32(x[i])
+			if math.Float32bits(got) != math.Float32bits(want[ci].x[i]) {
+				t.Fatalf("%s x[%d]=%08x %.10g want %08x %.10g",
+					tc.name, i,
+					math.Float32bits(got), got,
+					math.Float32bits(want[ci].x[i]), want[ci].x[i])
+			}
+		}
+	}
+}
+
+func TestAlgQuantQEXTMatchesLibopusSource(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []algQuantQEXTOracleCase{
+		{name: "n2_resynth", x: []float32{0.68, -0.37}, k: 7, spread: spreadNone, b: 1, gain: 0.85, resynth: true, extraBits: 4},
+		{name: "n4_no_resynth", x: []float32{0.51, -0.28, 0.42, -0.19}, k: 8, spread: spreadLight, b: 1, gain: 1, resynth: false, extraBits: 3},
+		{name: "n8_resynth", x: []float32{0.12, -0.71, 0.38, 0.19, -0.27, 0.55, -0.06, 0.44}, k: 9, spread: spreadNormal, b: 2, gain: 1.15, resynth: true, extraBits: 5},
+		{name: "wide_extra_bits", x: fixtureExpRotationVector(16, 0xd0d1d2d3), k: 12, spread: spreadAggressive, b: 4, gain: 0.75, resynth: true, extraBits: 8},
+	}
+	for _, tc := range cases {
+		requireDefaultLibopusPVQ(t, len(tc.x), tc.k)
+	}
+	want, err := probeLibopusAlgQuantQEXT(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt qext vq", err)
+	}
+	for ci, tc := range cases {
+		x := make([]float64, len(tc.x))
+		for i, sample := range tc.x {
+			x[i] = float64(sample)
+		}
+		var enc rangecoding.Encoder
+		buf := make([]byte, 128)
+		enc.Init(buf)
+		var extEnc rangecoding.Encoder
+		extBuf := make([]byte, 128)
+		extEnc.Init(extBuf)
+		gotCollapse := algQuantScratch(&enc, 0, x, len(x), tc.k, tc.spread, tc.b, float64(tc.gain), tc.resynth, &extEnc, tc.extraBits, nil)
+		gotPacket := enc.Done()
+		gotExtPacket := extEnc.Done()
+		if gotCollapse != want[ci].collapse {
+			t.Fatalf("%s collapse=%d want %d", tc.name, gotCollapse, want[ci].collapse)
+		}
+		if string(gotPacket) != string(want[ci].packet) {
+			t.Fatalf("%s packet=%x want %x", tc.name, gotPacket, want[ci].packet)
+		}
+		if string(gotExtPacket) != string(want[ci].extPacket) {
+			t.Fatalf("%s ext packet=%x want %x", tc.name, gotExtPacket, want[ci].extPacket)
 		}
 		if len(x) != len(want[ci].x) {
 			t.Fatalf("%s x len=%d want %d", tc.name, len(x), len(want[ci].x))

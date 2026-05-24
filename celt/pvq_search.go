@@ -269,26 +269,35 @@ func pvqExtractAbsSignNorm(x []celtNorm, absX []float32, y []float32, signx []by
 }
 
 func opPVQSearchN2(x []float64, k, up int) (iy []int, upIy []int, refine int) {
+	xn := make([]celtNorm, len(x))
+	copyFloat64ToNorm(xn, x)
+	iy, upIy, refine, _ = opPVQSearchN2Norm(xn, k, up)
+	return iy, upIy, refine
+}
+
+func opPVQSearchN2Norm(x []celtNorm, k, up int) (iy []int, upIy []int, refine int, yy opusVal32) {
 	iy = make([]int, 2)
 	upIy = make([]int, 2)
 	if len(x) < 2 || k <= 0 || up <= 0 {
 		if k > 0 {
 			iy[0] = k
 			upIy[0] = up * k
+			yy = opusVal32(float32(k) * float32(k) * float32(up) * float32(up))
 		}
-		return iy, upIy, 0
+		return iy, upIy, 0, yy
 	}
 
-	sum := math.Abs(x[0]) + math.Abs(x[1])
-	if sum < 1e-15 {
+	sum := absCeltNorm(x[0]) + absCeltNorm(x[1])
+	if sum < pvqEPSILON {
 		iy[0] = k
 		upIy[0] = up * k
-		return iy, upIy, 0
+		yy = opusVal32(float32(k) * float32(k) * float32(up) * float32(up))
+		return iy, upIy, 0, yy
 	}
 
-	rcp := 1.0 / sum
-	iy[0] = int(math.Floor(0.5 + float64(k)*x[0]*rcp))
-	upIy[0] = int(math.Floor(0.5 + float64(up*k)*x[0]*rcp))
+	rcp := float32(1) / sum
+	iy[0] = int(math.Floor(float64(float32(0.5) + float32(k)*float32(x[0])*rcp)))
+	upIy[0] = int(math.Floor(float64(float32(0.5) + float32(up*k)*float32(x[0])*rcp)))
 
 	low := up*iy[0] - (up-1)/2
 	high := up*iy[0] + (up-1)/2
@@ -308,20 +317,32 @@ func opPVQSearchN2(x []float64, k, up int) (iy []int, upIy []int, refine int) {
 	}
 	refine = offset
 
-	return iy, upIy, refine
+	yy0 := float32(upIy[0]) * float32(upIy[0])
+	yy1 := float32(upIy[1]) * float32(upIy[1])
+	yy = opusVal32(yy0 + yy1)
+
+	return iy, upIy, refine, yy
 }
 
 func opPVQRefine(xn []float64, iy []int, iy0 []int, k, up, margin int, same bool) bool {
+	xn32 := make([]opusVal32, len(xn))
+	for i := range xn {
+		xn32[i] = opusVal32(xn[i])
+	}
+	return opPVQRefineNorm(xn32, iy, iy0, k, up, margin, same)
+}
+
+func opPVQRefineNorm(xn []opusVal32, iy []int, iy0 []int, k, up, margin int, same bool) bool {
 	n := len(xn)
 	if n == 0 {
 		return true
 	}
-	rounding := make([]float64, n)
+	rounding := make([]opusVal32, n)
 	iysum := 0
 	for i := 0; i < n; i++ {
-		tmp := float64(k) * xn[i]
-		iy[i] = int(math.Floor(0.5 + tmp))
-		rounding[i] = tmp - float64(iy[i])
+		tmp := float32(k) * float32(xn[i])
+		iy[i] = int(math.Floor(float64(float32(0.5) + tmp)))
+		rounding[i] = opusVal32(tmp - float32(iy[i]))
 	}
 	if !same {
 		for i := 0; i < n; i++ {
@@ -345,10 +366,10 @@ func opPVQRefine(xn []float64, iy []int, iy0 []int, k, up, margin int, same bool
 		dir = 1
 	}
 	for iysum != k {
-		roundVal := -1000000.0 * float64(dir)
+		roundVal := opusVal32(float32(-1000000 * dir))
 		roundPos := 0
 		for i := 0; i < n; i++ {
-			if (rounding[i]-roundVal)*float64(dir) > 0 &&
+			if float32(rounding[i]-roundVal)*float32(dir) > 0 &&
 				util.Abs(iy[i]-up*iy0[i]) < (margin-1) &&
 				!(dir == -1 && iy[i] == 0) {
 				roundVal = rounding[i]
@@ -356,36 +377,46 @@ func opPVQRefine(xn []float64, iy []int, iy0 []int, k, up, margin int, same bool
 			}
 		}
 		iy[roundPos] += dir
-		rounding[roundPos] -= float64(dir)
+		rounding[roundPos] = opusVal32(float32(rounding[roundPos]) - float32(dir))
 		iysum += dir
 	}
 	return false
 }
 
 func opPVQSearchExtra(x []float64, k, up int) (iy []int, upIy []int, refine []int) {
+	xn := make([]celtNorm, len(x))
+	copyFloat64ToNorm(xn, x)
+	iy, upIy, refine, _ = opPVQSearchExtraNorm(xn, k, up)
+	return iy, upIy, refine
+}
+
+func opPVQSearchExtraNorm(x []celtNorm, k, up int) (iy []int, upIy []int, refine []int, yy opusVal32) {
 	n := len(x)
 	iy = make([]int, n)
 	upIy = make([]int, n)
 	refine = make([]int, n)
-
-	sum := 0.0
-	for i := 0; i < n; i++ {
-		sum += math.Abs(x[i])
+	if n == 0 || k <= 0 || up <= 0 {
+		return iy, upIy, refine, 0
 	}
-	if sum < 1e-15 {
+
+	sum := opusVal32(0)
+	for i := 0; i < n; i++ {
+		sum = opusVal32(float32(sum) + absCeltNorm(x[i]))
+	}
+	failed := sum < pvqEPSILON
+	if failed {
 		iy[0] = k
 		upIy[0] = up * k
-		return iy, upIy, refine
+	} else {
+		xn := make([]opusVal32, n)
+		rcp := opusVal32(float32(1) / float32(sum))
+		for i := 0; i < n; i++ {
+			xn[i] = opusVal32(absCeltNorm(x[i]) * float32(rcp))
+		}
+		failed = opPVQRefineNorm(xn, iy, iy, k, 1, k+1, true)
+		failed = failed || opPVQRefineNorm(xn, upIy, iy, up*k, up, up, false)
 	}
 
-	xn := make([]float64, n)
-	rcp := 1.0 / sum
-	for i := 0; i < n; i++ {
-		xn[i] = math.Abs(x[i]) * rcp
-	}
-
-	failed := opPVQRefine(xn, iy, iy, k, 1, k+1, true)
-	failed = failed || opPVQRefine(xn, upIy, iy, up*k, up, up, false)
 	if failed {
 		iy[0] = k
 		for i := 1; i < n; i++ {
@@ -398,6 +429,7 @@ func opPVQSearchExtra(x []float64, k, up int) (iy []int, upIy []int, refine []in
 	}
 
 	for i := 0; i < n; i++ {
+		yy = opusVal32(float32(yy) + float32(upIy[i])*float32(upIy[i]))
 		if x[i] < 0 {
 			iy[i] = -iy[i]
 			upIy[i] = -upIy[i]
@@ -405,7 +437,14 @@ func opPVQSearchExtra(x []float64, k, up int) (iy []int, upIy []int, refine []in
 		refine[i] = upIy[i] - up*iy[i]
 	}
 
-	return iy, upIy, refine
+	return iy, upIy, refine, yy
+}
+
+func absCeltNorm(x celtNorm) float32 {
+	if x < 0 {
+		return float32(-x)
+	}
+	return float32(x)
 }
 
 func ecEncRefine(enc *rangecoding.Encoder, refine int, up int, extraBits int, useEntropy bool) {

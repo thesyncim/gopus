@@ -1523,6 +1523,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 	// Quantize the vector to pulses.
 	var pulses []int
 	var upPulses []int
+	var collapsePulses []int
 	var refine []int
 	var yy float64 // Energy computed during PVQ search
 	encodedIndex := uint32(0)
@@ -1546,13 +1547,20 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 	}
 
 	if extraBits >= 2 && extEnc != nil {
-		// QEXT still uses the legacy carrier path; the default libopus alg_quant
-		// path below stays in celt_norm width through rotation/PVQ/resynthesis.
-		expRotation(x, n, 1, b, k, spread)
+		if xNormBuf != nil {
+			xNorm = ensureNormSlice(xNormBuf, n)
+		} else {
+			xNorm = make([]celtNorm, n)
+		}
+		copyFloat64ToNorm(xNorm, x[:n])
+		expRotationNorm(xNorm, n, 1, b, k, spread)
+		normPath = true
 		if n == 2 {
 			var refineVal int
 			up := (1 << extraBits) - 1
-			pulses, upPulses, refineVal = opPVQSearchN2(x, k, up)
+			pulses, upPulses, refineVal, yy32 = opPVQSearchN2Norm(xNorm, k, up)
+			yy = float64(yy32)
+			collapsePulses = upPulses
 			index := encodePulsesFast(pulses, n, k, uBuf)
 			vSize := PVQ_V(n, k)
 			if vSize == 0 {
@@ -1561,11 +1569,11 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 			re.EncodeUniform(index, vSize)
 			encodedIndex = index
 			extEnc.EncodeUniform(uint32(refineVal+(up-1)/2), uint32(up))
-			// For extended precision, compute energy from upPulses
-			yy = 0
 		} else {
 			up := (1 << extraBits) - 1
-			pulses, upPulses, refine = opPVQSearchExtra(x, k, up)
+			pulses, upPulses, refine, yy32 = opPVQSearchExtraNorm(xNorm, k, up)
+			yy = float64(yy32)
+			collapsePulses = upPulses
 			index := encodePulsesFast(pulses, n, k, uBuf)
 			vSize := PVQ_V(n, k)
 			if vSize == 0 {
@@ -1584,8 +1592,6 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 				}
 				extEnc.EncodeRawBits(uint32(sign), 1)
 			}
-			// For extended precision, compute energy from upPulses
-			yy = 0
 		}
 	} else {
 		if xNormBuf != nil {
@@ -1597,6 +1603,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 		expRotationNorm(xNorm, n, 1, b, k, spread)
 		pulses, yy32 = opPVQSearchScratchNormWithInputMutation(xNorm, k, iyBuf, signxBuf, yBuf, absXBuf, true)
 		yy = float64(yy32)
+		collapsePulses = pulses
 		normPath = true
 		index := encodePulsesFast(pulses, n, k, uBuf)
 		vSize := PVQ_V(n, k)
@@ -1610,11 +1617,17 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 	cm := 0
 	if resynth {
 		if len(upPulses) > 0 {
-			if len(pulses) > 0 {
-				cm = extractCollapseMask(pulses, n, b)
+			if len(collapsePulses) > 0 {
+				cm = extractCollapseMask(collapsePulses, n, b)
 			}
-			// For extended precision, normalize in place.
-			normalizeResidualInto(x, upPulses, gain, 0)
+			if normPath {
+				cm = normalizeResidualKnownEnergyIntoAndCollapseNorm(xNorm, upPulses, opusVal16(gain), yy32, b)
+				expRotationNorm(xNorm, n, -1, b, k, spread)
+				copyNormToFloat64(x[:n], xNorm)
+				_ = encodedIndex
+				return cm
+			}
+			normalizeResidualInto(x, upPulses, gain, yy)
 		} else {
 			// In the common path, collapse-mask extraction and residual
 			// normalization can share the same scan over the pulse vector.
@@ -1628,8 +1641,8 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 			cm = normalizeResidualIntoAndCollapse(x, pulses, gain, yy, b)
 		}
 		expRotation(x, n, -1, b, k, spread)
-	} else if len(pulses) > 0 {
-		cm = extractCollapseMask(pulses, n, b)
+	} else if len(collapsePulses) > 0 {
+		cm = extractCollapseMask(collapsePulses, n, b)
 	}
 	if normPath {
 		copyNormToFloat64(x[:n], xNorm)
