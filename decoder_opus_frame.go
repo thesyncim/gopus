@@ -68,31 +68,6 @@ func copyFloat32(dst []float32, src []float32) {
 	}
 }
 
-func copyFloat64ToFloat32(dst []float32, src []float64) {
-	n := len(dst)
-	if len(src) < n {
-		n = len(src)
-	}
-	if n > 0 {
-		dst = dst[:n:n]
-		src = src[:n:n]
-		_ = src[n-1]
-	}
-	i := 0
-	for ; i+3 < n; i += 4 {
-		dst[i] = float32(src[i])
-		dst[i+1] = float32(src[i+1])
-		dst[i+2] = float32(src[i+2])
-		dst[i+3] = float32(src[i+3])
-	}
-	for ; i < n; i++ {
-		dst[i] = float32(src[i])
-	}
-	if n < len(dst) {
-		clear(dst[n:])
-	}
-}
-
 func (d *Decoder) frameSize48FromAPI(frameSize int) int {
 	if d.sampleRate <= 0 || d.sampleRate == 48000 {
 		return frameSize
@@ -141,16 +116,6 @@ func (d *Decoder) prepareStereoTransition(packetStereo bool, bandwidth silk.Band
 	rightResampler := d.silkDecoder.GetResamplerRightChannel(bandwidth)
 	if rightResampler != nil && leftResampler != nil {
 		rightResampler.CopyFrom(leftResampler)
-	}
-}
-
-func addFloat64ToFloat32(dst []float32, src []float64) {
-	n := len(dst)
-	if len(src) < n {
-		n = len(src)
-	}
-	for i := 0; i < n; i++ {
-		dst[i] += float32(src[i])
 	}
 }
 
@@ -391,11 +356,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			d.silkDecoder.Reset()
 		}
 		if data == nil {
-			samples, err := d.hybridDecoder.DecodeWithPacketStereo(nil, frameSize, packetStereoLocal)
+			samples, err := d.hybridDecoder.DecodeToFloat32WithPacketStereo(nil, frameSize, packetStereoLocal)
 			if err != nil {
 				return 0, err
 			}
-			copyFloat64ToFloat32(out, samples)
+			copyFloat32(out, samples)
 			// Capture FinalRange for PLC
 			d.mainDecodeRng = d.hybridDecoder.FinalRange()
 		} else {

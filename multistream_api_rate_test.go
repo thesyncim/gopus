@@ -9,7 +9,7 @@ import (
 
 var multistreamRefdecodeHelper libopustest.HelperCache
 
-func decodeLibopusMultistreamInt16Gain(sampleRate, channels, streams, coupled, frameSize, gainQ8 int, mapping []byte, packets [][]byte) ([]int16, error) {
+func runLibopusMultistreamDecode(sampleRate, channels, streams, coupled, frameSize, gainQ8, sampleFormat int, mapping []byte, packets [][]byte) (*libopustest.OracleReader, error) {
 	binPath, err := multistreamRefdecodeHelper.CHelperPath(libopustest.CHelperConfig{
 		Label:      "multistream reference decode",
 		OutputBase: "gopus_libopus_refdecode_public_multistream",
@@ -26,7 +26,7 @@ func decodeLibopusMultistreamInt16Gain(sampleRate, channels, streams, coupled, f
 		4,
 		uint32(sampleRate),
 		uint32(int32(gainQ8)),
-		1,
+		uint32(sampleFormat),
 		1,
 		uint32(channels),
 		uint32(streams),
@@ -41,7 +41,11 @@ func decodeLibopusMultistreamInt16Gain(sampleRate, channels, streams, coupled, f
 		payload.U32(uint32(len(packet)))
 		payload.Raw(packet)
 	}
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "multistream reference decode", "GMSO")
+	return libopustest.RunOracle(binPath, payload.Bytes(), "multistream reference decode", "GMSO")
+}
+
+func decodeLibopusMultistreamInt16Gain(sampleRate, channels, streams, coupled, frameSize, gainQ8 int, mapping []byte, packets [][]byte) ([]int16, error) {
+	reader, err := runLibopusMultistreamDecode(sampleRate, channels, streams, coupled, frameSize, gainQ8, 1, mapping, packets)
 	if err != nil {
 		return nil, err
 	}
@@ -50,6 +54,23 @@ func decodeLibopusMultistreamInt16Gain(sampleRate, channels, streams, coupled, f
 	out := make([]int16, nSamples)
 	for i := range out {
 		out[i] = reader.I16()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func decodeLibopusMultistreamFloat32(sampleRate, channels, streams, coupled, frameSize int, mapping []byte, packets [][]byte) ([]float32, error) {
+	reader, err := runLibopusMultistreamDecode(sampleRate, channels, streams, coupled, frameSize, 0, 0, mapping, packets)
+	if err != nil {
+		return nil, err
+	}
+	nSamples := reader.Count(-1)
+	reader.ExpectRemaining(nSamples * 4)
+	out := make([]float32, nSamples)
+	for i := range out {
+		out[i] = reader.Float32()
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err
@@ -121,6 +142,66 @@ func TestMultistreamDecodeUsesAPIRatePacketDuration(t *testing.T) {
 					if n != want {
 						t.Fatalf("DecodeInt16 samples=%d want %d", n, want)
 					}
+				})
+			}
+		}
+	}
+}
+
+func TestMultistreamDecodeFloat32MatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	modes := []struct {
+		name      string
+		packet    func(*testing.T, int) []byte
+		tolerance float64
+	}{
+		{name: "silk", packet: encodeAPIRateSILKPacket, tolerance: 8e-3},
+		{name: "celt", packet: encodeAPIRateCELTPacket, tolerance: 3e-3},
+		{name: "hybrid", packet: encodeAPIRateHybridPacket, tolerance: 1e-2},
+	}
+	for _, mode := range modes {
+		for _, channels := range []int{1, 2} {
+			packet := mode.packet(t, channels)
+			streams := 1
+			coupled := channels - 1
+			mapping := []byte{0}
+			if channels == 2 {
+				mapping = []byte{0, 1}
+			}
+			for _, sampleRate := range []int{16000, 48000} {
+				t.Run(mode.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+					frameSize, err := packetSamplesAtRate(packet, sampleRate)
+					if err != nil {
+						t.Fatalf("packetSamplesAtRate: %v", err)
+					}
+
+					sequence := [][]byte{packet, nil}
+					want, err := decodeLibopusMultistreamFloat32(sampleRate, channels, streams, coupled, frameSize, mapping, sequence)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "multistream float32 reference decode", err)
+					}
+
+					dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+					got := make([]float32, 0, len(want))
+					frame := make([]float32, frameSize*channels)
+					n, err := dec.Decode(packet, frame)
+					if err != nil {
+						t.Fatalf("Decode(packet): %v", err)
+					}
+					if n != frameSize {
+						t.Fatalf("Decode(packet)=%d want %d", n, frameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+					clear(frame)
+					n, err = dec.Decode(nil, frame)
+					if err != nil {
+						t.Fatalf("Decode(nil): %v", err)
+					}
+					if n != frameSize {
+						t.Fatalf("Decode(nil)=%d want %d", n, frameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+					assertAPIRateFloat32Close(t, got, want, "multistream "+mode.name+" float32", mode.tolerance)
 				})
 			}
 		}

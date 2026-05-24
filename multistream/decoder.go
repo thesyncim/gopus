@@ -304,6 +304,16 @@ func (d *streamState) applyOutputGain(samples []float64) {
 	}
 }
 
+func (d *streamState) applyOutputGain32(samples []float32) {
+	if d.decodeGainQ8 == 0 {
+		return
+	}
+	gain := streamDecodeGainLinear(d.decodeGainQ8)
+	for i := range samples {
+		samples[i] *= gain
+	}
+}
+
 func (d *streamState) frameSize48FromAPI(frameSize int) int {
 	if d.sampleRate <= 0 || d.sampleRate == 48000 {
 		return frameSize
@@ -343,7 +353,14 @@ func (d *streamState) finishDecode(out []float64, err error) ([]float64, error) 
 	return out, err
 }
 
-func (d *streamState) decodeSILK(data []byte, frameSize int, packetStereo bool, opusBandwidth int) ([]float64, error) {
+func (d *streamState) finishDecode32(out []float32, err error) ([]float32, error) {
+	if err == nil {
+		d.applyOutputGain32(out)
+	}
+	return out, err
+}
+
+func (d *streamState) decodeSILKToFloat32(data []byte, frameSize int, packetStereo bool, opusBandwidth int) ([]float32, error) {
 	bw, ok := silk.BandwidthFromOpus(opusBandwidth)
 	if !ok {
 		return nil, fmt.Errorf("multistream: invalid SILK bandwidth: %d", opusBandwidth)
@@ -369,13 +386,6 @@ func (d *streamState) decodeSILK(data []byte, frameSize int, packetStereo bool, 
 		return nil, err
 	}
 
-	// Optional libopus OSCE LACE/NoLACE postfilter + OSCE BWE forward pass on
-	// the SILK lowband. The helper is a no-op outside of
-	// `gopus_extra_controls`; under the extra-controls build it only fires
-	// when the per-stream user toggle is enabled and a valid model is bound,
-	// so the standard silk_resampler output is retained for every existing
-	// decode path. The call MUST run before the float32->float64 conversion
-	// so the BWE forward pass can overwrite the `out32` slice in place.
 	if extsupport.OSCERuntime {
 		if data != nil {
 			d.applyOSCEPostSilk(out32, frameSize, bw, packetStereo)
@@ -384,27 +394,37 @@ func (d *streamState) decodeSILK(data []byte, frameSize int, packetStereo bool, 
 		}
 	}
 
-	return float32ToFloat64Slice(out32), nil
+	return out32, nil
 }
 
 func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc streamTOC, qextPayload []byte) ([]float64, error) {
-	var out []float64
+	out32, err := d.decodeFramePayloadToFloat32(frame, frameSize, toc, qextPayload)
+	if err != nil {
+		return nil, err
+	}
+	return float32ToFloat64Slice(out32), nil
+}
+
+func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, toc streamTOC, qextPayload []byte) ([]float32, error) {
+	var out []float32
 	var err error
 
 	switch toc.mode {
 	case streamModeSILK:
-		out, err = d.decodeSILK(frame, frameSize, toc.stereo, toc.bandwidth)
+		out, err = d.decodeSILKToFloat32(frame, frameSize, toc.stereo, toc.bandwidth)
 	case streamModeHybrid:
 		if !hybrid.ValidHybridFrameSize(d.frameSize48FromAPI(frameSize)) {
 			return nil, fmt.Errorf("multistream: invalid hybrid frame size %d", frameSize)
 		}
-		out, err = d.hybridDec.DecodeWithPacketStereo(frame, frameSize, toc.stereo)
+		out, err = d.hybridDec.DecodeToFloat32WithPacketStereo(frame, frameSize, toc.stereo)
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(toc.bandwidth))
 		if extsupport.QEXT {
 			d.setCELTQEXTPayload(qextPayload)
 		}
-		out, err = d.celtDec.DecodeFrameWithPacketStereoAtAPIRate(frame, frameSize, toc.stereo)
+		outLen := frameSize * d.channels
+		out = make([]float32, outLen)
+		err = d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(frame, frameSize, toc.stereo, out)
 	default:
 		return nil, ErrInvalidPacket
 	}
@@ -413,38 +433,47 @@ func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc stream
 	}
 
 	if extsupport.OSCERuntime {
-		d.markOSCEInactiveIfModeIneligible(toc, out, frameSize)
+		d.markOSCEInactiveIfModeIneligible(toc, nil, frameSize)
 	}
 	d.recordDecodedTOC(toc)
 	return out, nil
 }
 
 func (d *streamState) decodePLC(frameSize int) ([]float64, error) {
+	out32, err := d.decodePLCToFloat32(frameSize)
+	if err != nil {
+		return nil, err
+	}
+	return float32ToFloat64Slice(out32), nil
+}
+
+func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	d.recordDecodeCall(frameSize, 0)
 
 	if !d.haveDecoded {
-		return make([]float64, frameSize*d.channels), nil
+		return make([]float32, frameSize*d.channels), nil
 	}
 
 	switch d.lastMode {
 	case streamModeSILK:
-		return d.finishDecode(d.decodeSILK(nil, frameSize, d.lastPacketStereo, d.lastBandwidth))
+		return d.finishDecode32(d.decodeSILKToFloat32(nil, frameSize, d.lastPacketStereo, d.lastBandwidth))
 	case streamModeHybrid:
-		out, err := d.finishDecode(d.hybridDec.DecodeWithPacketStereo(nil, frameSize, d.lastPacketStereo))
+		out, err := d.finishDecode32(d.hybridDec.DecodeToFloat32WithPacketStereo(nil, frameSize, d.lastPacketStereo))
 		if extsupport.OSCERuntime && err == nil {
-			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeHybrid, bandwidth: d.lastBandwidth, stereo: d.lastPacketStereo}, out, frameSize)
+			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeHybrid, bandwidth: d.lastBandwidth, stereo: d.lastPacketStereo}, nil, frameSize)
 		}
 		return out, err
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(d.lastBandwidth))
-		out, err := d.celtDec.DecodeFrameWithPacketStereoAtAPIRate(nil, frameSize, d.lastPacketStereo)
-		out, err = d.finishDecode(out, err)
+		out := make([]float32, frameSize*d.channels)
+		err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(nil, frameSize, d.lastPacketStereo, out)
+		out, err = d.finishDecode32(out, err)
 		if extsupport.OSCERuntime && err == nil {
-			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: d.lastBandwidth, stereo: d.lastPacketStereo}, out, frameSize)
+			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: d.lastBandwidth, stereo: d.lastPacketStereo}, nil, frameSize)
 		}
 		return out, err
 	default:
-		return make([]float64, frameSize*d.channels), nil
+		return make([]float32, frameSize*d.channels), nil
 	}
 }
 
@@ -499,6 +528,59 @@ func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error
 		out = append(out, frameDecoded...)
 	}
 	return d.finishDecode(out, nil)
+}
+
+func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float32, error) {
+	if data == nil || len(data) == 0 {
+		return d.decodePLCToFloat32(frameSize)
+	}
+	if len(data) < 1 {
+		return nil, ErrPacketTooShort
+	}
+
+	d.recordDecodeCall(frameSize, len(data))
+
+	toc := parseStreamTOC(data[0])
+	parsed, err := parseOpusPacket(data, false)
+	if err != nil {
+		return nil, err
+	}
+
+	frameCount := len(parsed.frames)
+	if frameCount == 0 {
+		return nil, ErrInvalidPacket
+	}
+
+	var qextPayloads streamQEXTPayloads
+	if extsupport.QEXT && !d.ignoreExtensions && toc.mode == streamModeCELT && len(parsed.padding) > 0 {
+		qextPayloads.collect(parsed.padding, parsed.paddingFrameCount, qextPacketExtensionID)
+	}
+
+	if frameCount == 1 {
+		var qextPayload []byte
+		if extsupport.QEXT && !d.ignoreExtensions {
+			qextPayload = qextPayloads.frame(0)
+		}
+		return d.finishDecode32(d.decodeFramePayloadToFloat32(parsed.frames[0], frameSize, toc, qextPayload))
+	}
+	if frameSize%frameCount != 0 {
+		return nil, fmt.Errorf("multistream: frameSize %d not divisible by packet frame count %d", frameSize, frameCount)
+	}
+
+	subFrameSize := frameSize / frameCount
+	out := make([]float32, 0, frameSize*d.channels)
+	for i := 0; i < frameCount; i++ {
+		var qextPayload []byte
+		if extsupport.QEXT && !d.ignoreExtensions {
+			qextPayload = qextPayloads.frame(i)
+		}
+		frameDecoded, err := d.decodeFramePayloadToFloat32(parsed.frames[i], subFrameSize, toc, qextPayload)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, frameDecoded...)
+	}
+	return d.finishDecode32(out, nil)
 }
 
 func collectQEXTPacketExtensions(data []byte, nbFrames, id int, payloads *[maxPacketExtensionFrames][]byte) {
