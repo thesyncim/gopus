@@ -1689,6 +1689,10 @@ func stereoItheta(x, y []float64, stereo bool) int {
 // The value represents atan2(side, mid) * 2/pi, scaled to [0, 1<<30].
 // Standard itheta (14-bit) can be obtained by shifting right by 16.
 func stereoIthetaQ30(x, y []float64, stereo bool) int {
+	return stereoIthetaQ30WithScratch(x, y, stereo, nil)
+}
+
+func stereoIthetaQ30WithScratch(x, y []float64, stereo bool, scratch *bandEncodeScratch) int {
 	if len(x) == 0 || len(y) == 0 {
 		return 0
 	}
@@ -1699,8 +1703,14 @@ func stereoIthetaQ30(x, y []float64, stereo bool) int {
 	if n <= 0 {
 		return 0
 	}
-	xn := make([]celtNorm, n)
-	yn := make([]celtNorm, n)
+	var xn, yn []celtNorm
+	if scratch != nil {
+		xn = scratch.ensureThetaX(n)
+		yn = scratch.ensureThetaY(n)
+	} else {
+		xn = make([]celtNorm, n)
+		yn = make([]celtNorm, n)
+	}
 	copyFloat64ToNorm(xn, x[:n])
 	copyFloat64ToNorm(yn, y[:n])
 	return stereoIthetaQ30Norm(xn, yn, stereo)
@@ -2304,7 +2314,7 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []float64, n int, b *int
 	if ctx.encode {
 		// Match libopus: derive raw theta before qn decisions so qn==1
 		// can still drive phase inversion signaling.
-		ithetaQ30 = stereoIthetaQ30(x, y, stereo)
+		ithetaQ30 = stereoIthetaQ30WithScratch(x, y, stereo, ctx.encScratch)
 		itheta = ithetaQ30 >> 16
 		rawItheta = itheta
 	}

@@ -159,6 +159,8 @@ type bandEncodeScratch struct {
 	xResult0    []float64
 	yResult0    []float64
 	normResult0 []float64
+	thetaX      []celtNorm
+	thetaY      []celtNorm
 
 	// Theta RDO encoder state saves (reusable across bands)
 	ecSave     rangecoding.EncoderState
@@ -226,6 +228,14 @@ func (s *bandEncodeScratch) ensureYResult0(n int) []float64 {
 // ensureNormResult0 returns a pre-allocated buffer for norm result during theta RDO.
 func (s *bandEncodeScratch) ensureNormResult0(n int) []float64 {
 	return ensureFloat64Slice(&s.normResult0, n)
+}
+
+func (s *bandEncodeScratch) ensureThetaX(n int) []celtNorm {
+	return ensureNormSlice(&s.thetaX, n)
+}
+
+func (s *bandEncodeScratch) ensureThetaY(n int) []celtNorm {
+	return ensureNormSlice(&s.thetaY, n)
 }
 
 // ensureHadamardTmp returns a pre-allocated buffer for Hadamard transforms.
