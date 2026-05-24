@@ -32,7 +32,7 @@ type Encoder struct {
 	// Frame state (persists across frames, mirrors decoder)
 	haveEncoded           bool  // True after first frame encoded
 	previousLogGain       int32 // Last subframe gain (for delta coding) - legacy
-	previousGainIndex     int32 // Previous gain quantization index [0, 63] (libopus matching)
+	previousGainIndex     int8  // Previous gain quantization index [0, 63] (libopus sShape.LastGainIndex)
 	isPreviousFrameVoiced bool  // Was previous frame voiced
 	ecPrevLagIndex        int   // Previous lag index for conditional pitch coding
 	ecPrevSignalType      int   // Previous signal type for conditional pitch coding

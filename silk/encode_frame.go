@@ -345,7 +345,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	gainsQ16 := ensureInt32Slice(&e.scratchGainsQ16, numSubframes)
 	copy(gainsQ16, gainsUnqQ16)
 	gainIndices := ensureInt8Slice(&e.scratchGainInd, numSubframes)
-	lastGainIndexPrev := int8(e.previousGainIndex)
+	lastGainIndexPrev := e.previousGainIndex
 	currentPrevInd := silkGainsQuantInto(gainIndices, gainsQ16, lastGainIndexPrev, condCoding == codeConditionally, numSubframes)
 	for i := 0; i < numSubframes; i++ {
 		frameIndices.GainsIndices[i] = gainIndices[i]
@@ -616,7 +616,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		gainsID = silkGainsID(gainIndices, numSubframes)
 	}
 
-	e.previousGainIndex = int32(currentPrevInd)
+	e.previousGainIndex = currentPrevInd
 	e.previousLogGain = int32(currentPrevInd)
 	e.ecPrevSignalType = signalType
 	e.lastQuantOffsetType = int(frameIndices.quantOffsetType)

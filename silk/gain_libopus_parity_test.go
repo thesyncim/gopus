@@ -1,12 +1,23 @@
-//go:build libopus_oracle
-
 package silk
 
 import (
 	"testing"
+	"unsafe"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
+
+func TestSILKEncoderPreviousGainIndexMatchesLibopusShapeWidth(t *testing.T) {
+	libopustest.RequireOracle(t)
+	want, err := probeLibopusSILKGain(libopusSILKGainModeShapeStateSizes, [][]int32{{}})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk gain", err)
+	}
+	var enc Encoder
+	if got := unsafe.Sizeof(enc.previousGainIndex); got != uintptr(want[0].first) {
+		t.Fatalf("previousGainIndex size=%d want libopus LastGainIndex size %d", got, want[0].first)
+	}
+}
 
 func TestSILKGainsQuantMatchesLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)

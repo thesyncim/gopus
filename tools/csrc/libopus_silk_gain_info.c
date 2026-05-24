@@ -8,6 +8,7 @@
 #endif
 
 #include "silk/main.h"
+#include "silk/float/structs_FLP.h"
 
 #define INPUT_MAGIC "GSGI"
 #define OUTPUT_MAGIC "GSGO"
@@ -15,7 +16,8 @@
 enum {
   MODE_GAINS_QUANT = 0,
   MODE_GAINS_DEQUANT = 1,
-  MODE_GAINS_ID = 2
+  MODE_GAINS_ID = 2,
+  MODE_SHAPE_STATE_SIZES = 3
 };
 
 static int set_binary_stdio(void) {
@@ -130,11 +132,19 @@ static int eval_id(void) {
   return write_gain_record(gains_id, ind, gain_Q16);
 }
 
+static int eval_shape_state_sizes(void) {
+  opus_int8 ind[MAX_NB_SUBFR] = {0};
+  opus_int32 gain_Q16[MAX_NB_SUBFR] = {0};
+  gain_Q16[0] = (opus_int32)sizeof(silk_shape_state_FLP);
+  return write_gain_record((opus_int32)sizeof(((silk_shape_state_FLP *)0)->LastGainIndex), ind, gain_Q16);
+}
+
 static int eval_record(uint32_t mode) {
   switch (mode) {
     case MODE_GAINS_QUANT: return eval_quant();
     case MODE_GAINS_DEQUANT: return eval_dequant();
     case MODE_GAINS_ID: return eval_id();
+    case MODE_SHAPE_STATE_SIZES: return eval_shape_state_sizes();
   }
   return 0;
 }
@@ -149,7 +159,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_GAINS_ID) return 1;
+  if (mode > MODE_SHAPE_STATE_SIZES) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {

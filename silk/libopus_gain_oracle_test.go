@@ -1,5 +1,3 @@
-//go:build libopus_oracle
-
 package silk
 
 import (
@@ -12,9 +10,10 @@ const (
 	libopusSILKGainInputMagic  = "GSGI"
 	libopusSILKGainOutputMagic = "GSGO"
 
-	libopusSILKGainModeQuant   = uint32(0)
-	libopusSILKGainModeDequant = uint32(1)
-	libopusSILKGainModeID      = uint32(2)
+	libopusSILKGainModeQuant           = uint32(0)
+	libopusSILKGainModeDequant         = uint32(1)
+	libopusSILKGainModeID              = uint32(2)
+	libopusSILKGainModeShapeStateSizes = uint32(3)
 )
 
 var libopusSILKGainHelper libopustest.HelperCache
@@ -41,7 +40,6 @@ func getLibopusSILKGainHelperPath() (string, error) {
 	return libopusSILKGainHelper.Path(buildLibopusSILKGainHelper)
 }
 
-// LibopusGainBoolWord encodes a bool as 0/1 for libopus oracle payloads.
 func LibopusGainBoolWord(v bool) int32 {
 	if v {
 		return 1
@@ -87,7 +85,6 @@ func probeLibopusSILKGain(mode uint32, records [][]int32) ([]libopusSILKGainReco
 	return out, nil
 }
 
-// LibopusGainsQuantOracle runs libopus silk_gains_quant on the provided inputs.
 func LibopusGainsQuantOracle(nbSubfr int, prev int8, conditional bool, gainsQ16 []int32) (indices [maxNbSubfr]int8, prevOut int8, err error) {
 	if nbSubfr <= 0 || nbSubfr > maxNbSubfr {
 		return indices, prevOut, fmt.Errorf("nbSubfr=%d out of range", nbSubfr)
