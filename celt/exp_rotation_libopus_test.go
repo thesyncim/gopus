@@ -24,6 +24,7 @@ const (
 	celtVQModeOPPVQSearch       = uint32(10)
 	celtVQModeAlgQuant          = uint32(11)
 	celtVQModeThetaDist         = uint32(12)
+	celtVQModeStereoItheta      = uint32(13)
 )
 
 const (
@@ -166,6 +167,13 @@ type thetaDistOracleResult struct {
 	w0, w1 float32
 	p0, p1 float32
 	dist   float32
+}
+
+type stereoIthetaOracleCase struct {
+	name   string
+	x      []float32
+	y      []float32
+	stereo bool
 }
 
 func requireDefaultLibopusPVQ(t *testing.T, n, k int) {
@@ -535,6 +543,45 @@ func probeLibopusAlgQuant(cases []algQuantOracleCase) ([]algQuantOracleResult, e
 		for j := range out[i].x {
 			out[i].x[j] = reader.Float32()
 		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusStereoItheta(cases []stereoIthetaOracleCase) ([]int, error) {
+	binPath, err := libopusCELTVQHelper.Path(buildLibopusCELTVQHelper)
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload("GVCI", celtVQModeStereoItheta, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.U32(uint32(len(tc.x)))
+		if tc.stereo {
+			payload.U32(1)
+		} else {
+			payload.U32(0)
+		}
+		for _, sample := range tc.x {
+			payload.U32(math.Float32bits(sample))
+		}
+		for _, sample := range tc.y {
+			payload.U32(math.Float32bits(sample))
+		}
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "celt vq", "GVCO")
+	if err != nil {
+		return nil, err
+	}
+	mode := reader.U32()
+	if mode != celtVQModeStereoItheta {
+		return nil, fmt.Errorf("celt vq mode=%d want %d", mode, celtVQModeStereoItheta)
+	}
+	count := reader.Count(len(cases))
+	out := make([]int, count)
+	for i := range out {
+		out[i] = int(reader.U32())
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err
@@ -1259,6 +1306,31 @@ func TestAlgUnquantQEXTMatchesLibopusSource(t *testing.T) {
 					math.Float32bits(gotSample), gotSample,
 					math.Float32bits(want[ci].x[i]), want[ci].x[i])
 			}
+		}
+	}
+}
+
+func TestStereoIthetaMatchesLibopusFloatPath(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []stereoIthetaOracleCase{
+		{name: "n2_stereo", x: []float32{0.68, -0.37}, y: []float32{-0.23, 0.51}, stereo: true},
+		{name: "n8_stereo", x: []float32{0.12, -0.71, 0.38, 0.19, -0.27, 0.55, -0.06, 0.44}, y: []float32{-0.18, 0.63, -0.31, 0.22, 0.14, -0.49, 0.08, -0.35}, stereo: true},
+		{name: "wide_stereo", x: fixtureExpRotationVector(32, 0xe0e1e2e3), y: fixtureExpRotationVector(32, 0xe4e5e6e7), stereo: true},
+	}
+	want, err := probeLibopusStereoItheta(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	for ci, tc := range cases {
+		x := make([]float64, len(tc.x))
+		y := make([]float64, len(tc.y))
+		for i := range tc.x {
+			x[i] = float64(tc.x[i])
+			y[i] = float64(tc.y[i])
+		}
+		got := stereoIthetaQ30(x, y, tc.stereo)
+		if got != want[ci] {
+			t.Fatalf("%s itheta=%d want %d", tc.name, got, want[ci])
 		}
 	}
 }

@@ -1699,6 +1699,24 @@ func stereoIthetaQ30(x, y []float64, stereo bool) int {
 	if n <= 0 {
 		return 0
 	}
+	xn := make([]celtNorm, n)
+	yn := make([]celtNorm, n)
+	copyFloat64ToNorm(xn, x[:n])
+	copyFloat64ToNorm(yn, y[:n])
+	return stereoIthetaQ30Norm(xn, yn, stereo)
+}
+
+func stereoIthetaQ30Norm(x, y []celtNorm, stereo bool) int {
+	if len(x) == 0 || len(y) == 0 {
+		return 0
+	}
+	n := len(x)
+	if len(y) < n {
+		n = len(y)
+	}
+	if n <= 0 {
+		return 0
+	}
 	x = x[:n:n]
 	y = y[:n:n]
 	_ = x[n-1]
@@ -1731,11 +1749,11 @@ func stereoIthetaQ30(x, y []float64, stereo bool) int {
 		}
 	} else {
 		if celtUseSSEFloatMath {
-			emid = celtInnerProdSSEStyle(x[:n], x[:n])
-			eside = celtInnerProdSSEStyle(y[:n], y[:n])
+			emid = celtInnerProdSSEStyleNorm(x[:n], x[:n])
+			eside = celtInnerProdSSEStyleNorm(y[:n], y[:n])
 		} else if celtUseFusedFloatMath {
-			emid = celtInnerProdNeonStyle(x[:n], x[:n])
-			eside = celtInnerProdNeonStyle(y[:n], y[:n])
+			emid = celtInnerProdNeonStyleNorm(x[:n], x[:n])
+			eside = celtInnerProdNeonStyleNorm(y[:n], y[:n])
 		} else {
 			for i := 0; i < n; i++ {
 				xv := float32(x[i])
@@ -1820,7 +1838,51 @@ func celtInnerProdSSEStyle(x, y []float64) float32 {
 	return sum
 }
 
+func celtInnerProdSSEStyleNorm(x, y []celtNorm) float32 {
+	var acc [4]float32
+	i := 0
+	for ; i < len(x)-3; i += 4 {
+		for lane := 0; lane < 4; lane++ {
+			product := math.Float32frombits(math.Float32bits(float32(x[i+lane]) * float32(y[i+lane])))
+			acc[lane] = math.Float32frombits(math.Float32bits(acc[lane] + product))
+		}
+	}
+	sum0 := math.Float32frombits(math.Float32bits(acc[0] + acc[2]))
+	sum1 := math.Float32frombits(math.Float32bits(acc[1] + acc[3]))
+	sum := math.Float32frombits(math.Float32bits(sum0 + sum1))
+	for ; i < len(x); i++ {
+		sum = celtFloatMulAdd(float32(x[i]), float32(y[i]), sum)
+	}
+	return sum
+}
+
 func celtInnerProdNeonStyle(x, y []float64) float32 {
+	var acc [4]float32
+	i := 0
+	for ; i < len(x)-7; i += 8 {
+		for lane := 0; lane < 4; lane++ {
+			acc[lane] = celtFloatMulAdd(float32(x[i+lane]), float32(y[i+lane]), acc[lane])
+		}
+		for lane := 0; lane < 4; lane++ {
+			acc[lane] = celtFloatMulAdd(float32(x[i+4+lane]), float32(y[i+4+lane]), acc[lane])
+		}
+	}
+	if len(x)-i >= 4 {
+		for lane := 0; lane < 4; lane++ {
+			acc[lane] = celtFloatMulAdd(float32(x[i+lane]), float32(y[i+lane]), acc[lane])
+		}
+		i += 4
+	}
+	sum0 := math.Float32frombits(math.Float32bits(acc[0] + acc[2]))
+	sum1 := math.Float32frombits(math.Float32bits(acc[1] + acc[3]))
+	sum := math.Float32frombits(math.Float32bits(sum0 + sum1))
+	for ; i < len(x); i++ {
+		sum = celtFloatMulAdd(float32(x[i]), float32(y[i]), sum)
+	}
+	return sum
+}
+
+func celtInnerProdNeonStyleNorm(x, y []celtNorm) float32 {
 	var acc [4]float32
 	i := 0
 	for ; i < len(x)-7; i += 8 {

@@ -34,7 +34,8 @@ enum {
   MODE_HAAR1 = 9,
   MODE_OP_PVQ_SEARCH = 10,
   MODE_ALG_QUANT = 11,
-  MODE_THETA_DIST = 12
+  MODE_THETA_DIST = 12,
+  MODE_STEREO_ITHETA = 13
 };
 
 static int set_binary_stdio(void) {
@@ -397,6 +398,47 @@ static int eval_theta_dist(void) {
   return 1;
 }
 
+static int eval_stereo_itheta(void) {
+  uint32_t len_u, stereo_u;
+  celt_norm *x;
+  celt_norm *y;
+  opus_int32 itheta;
+  uint32_t i;
+
+  if (!read_u32(&len_u) || !read_u32(&stereo_u)) return 0;
+  if (len_u == 0 || len_u > 512 || stereo_u > 1) return 0;
+  x = (celt_norm *)malloc((size_t)len_u * sizeof(*x));
+  y = (celt_norm *)malloc((size_t)len_u * sizeof(*y));
+  if (x == NULL || y == NULL) {
+    free(x);
+    free(y);
+    return 0;
+  }
+  for (i = 0; i < len_u; i++) {
+    if (!read_float(&x[i])) {
+      free(x);
+      free(y);
+      return 0;
+    }
+  }
+  for (i = 0; i < len_u; i++) {
+    if (!read_float(&y[i])) {
+      free(x);
+      free(y);
+      return 0;
+    }
+  }
+  itheta = stereo_itheta(x, y, (int)stereo_u, (int)len_u, 0);
+  if (!write_u32((uint32_t)itheta)) {
+    free(x);
+    free(y);
+    return 0;
+  }
+  free(x);
+  free(y);
+  return 1;
+}
+
 static int eval_encode_pulses(void) {
   uint32_t n_u, k_u, storage_u;
   int *pulses;
@@ -670,7 +712,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_THETA_DIST) return 1;
+  if (mode > MODE_STEREO_ITHETA) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) ||
       !write_u32(mode) || !write_u32(count)) {
@@ -689,6 +731,8 @@ int main(void) {
       if (!eval_alg_quant()) return 1;
     } else if (mode == MODE_THETA_DIST) {
       if (!eval_theta_dist()) return 1;
+    } else if (mode == MODE_STEREO_ITHETA) {
+      if (!eval_stereo_itheta()) return 1;
     } else if (mode == MODE_ENCODE_PULSES) {
       if (!eval_encode_pulses()) return 1;
     } else if (mode == MODE_TYPE_SIZES) {
