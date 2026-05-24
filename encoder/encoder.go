@@ -150,7 +150,7 @@ type Encoder struct {
 	celtSurroundTrim float64
 
 	// celtEnergyMask carries per-band surround masking into CELT dynalloc control.
-	celtEnergyMask []float64
+	celtEnergyMask []float32
 
 	encoderQEXTFields
 
@@ -3533,7 +3533,7 @@ func (e *Encoder) ensureCELTEncoder() {
 	e.celtEncoder.SetPrediction(e.celtPredictionMode())
 	e.celtEncoder.SetLFE(e.lfe)
 	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)
-	e.celtEncoder.SetEnergyMask(e.celtEnergyMask)
+	e.syncCELTEnergyMask()
 	e.celtEncoder.SetConstrainedVBRBoundScale(e.celtCVBRBoundScale)
 	e.celtEncoder.SetStreamChannels(e.streamChannels)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
@@ -3759,18 +3759,40 @@ func (e *Encoder) SetCELTEnergyMask(mask []float64) {
 		return
 	}
 	if cap(e.celtEnergyMask) < needed {
-		e.celtEnergyMask = make([]float64, needed)
+		e.celtEnergyMask = make([]float32, needed)
 	} else {
 		e.celtEnergyMask = e.celtEnergyMask[:needed]
 	}
-	copy(e.celtEnergyMask, mask[:needed])
-	if e.celtEncoder != nil {
-		e.celtEncoder.SetEnergyMask(e.celtEnergyMask)
+	for i := 0; i < needed; i++ {
+		e.celtEnergyMask[i] = float32(mask[i])
 	}
+	e.syncCELTEnergyMask()
 }
 
 // CELTEnergyMask returns the current CELT energy mask.
-// The returned slice aliases encoder state and must not be modified by callers.
 func (e *Encoder) CELTEnergyMask() []float64 {
-	return e.celtEnergyMask
+	out := make([]float64, len(e.celtEnergyMask))
+	for i, v := range e.celtEnergyMask {
+		out[i] = float64(v)
+	}
+	return out
+}
+
+func (e *Encoder) syncCELTEnergyMask() {
+	if e.celtEncoder == nil {
+		return
+	}
+	if len(e.celtEnergyMask) == 0 {
+		e.celtEncoder.SetEnergyMask(nil)
+		return
+	}
+	var mask [celt.MaxBands * 2]float64
+	n := len(e.celtEnergyMask)
+	if n > len(mask) {
+		n = len(mask)
+	}
+	for i := 0; i < n; i++ {
+		mask[i] = float64(e.celtEnergyMask[i])
+	}
+	e.celtEncoder.SetEnergyMask(mask[:n])
 }
