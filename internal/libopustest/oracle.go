@@ -24,6 +24,7 @@ type CHelperConfig struct {
 	ProbeRelPath string
 	CFlags       []string
 	RefIncludes  []string
+	QEXTRef      bool
 	IncludeDirs  []string
 	RefSources   []string
 	Sources      []string
@@ -103,10 +104,16 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	}
 
 	root := repoRoot()
-	refDir := RefPath()
+	refDir := helperRefDir(cfg)
+	ensureRef := libopustooling.EnsureLibopus
+	flavor := "ref"
+	if cfg.QEXTRef {
+		ensureRef = libopustooling.EnsureLibopusQEXT
+		flavor = "qext"
+	}
 	if helperNeedsConfig(cfg.CFlags) {
 		if _, err := os.Stat(filepath.Join(refDir, "config.h")); err != nil {
-			libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{root})
+			ensureRef(libopustooling.DefaultVersion, []string{root})
 		}
 	}
 	probeRel := cfg.ProbeRelPath
@@ -114,10 +121,10 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		probeRel = "config.h"
 	}
 	if _, err := os.Stat(filepath.Join(refDir, filepath.FromSlash(probeRel))); err != nil {
-		libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{root})
+		ensureRef(libopustooling.DefaultVersion, []string{root})
 	}
 	if helperReferenceLibMissing(cfg.Libs, refDir) {
-		libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{root})
+		ensureRef(libopustooling.DefaultVersion, []string{root})
 	}
 
 	srcPath := cfg.SourceFile
@@ -133,7 +140,7 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 		return "", fmt.Errorf("mkdir helper dir: %w", err)
 	}
 	digest := helperConfigDigest(cfg, refDir, srcPath)
-	outPath := helperOutputPathWithDigest(outDir, cfg.OutputBase, cfg.SourceFile, "ref", digest)
+	outPath := helperOutputPathWithDigest(outDir, cfg.OutputBase, cfg.SourceFile, flavor, digest)
 	tmpFile, err := os.CreateTemp(outDir, filepath.Base(outPath)+".*.tmp")
 	if err != nil {
 		return "", fmt.Errorf("create helper temp output: %w", err)
@@ -228,6 +235,13 @@ func helperNeedsConfig(cflags []string) bool {
 	return false
 }
 
+func helperRefDir(cfg CHelperConfig) string {
+	if cfg.QEXTRef {
+		return QEXTRefPath()
+	}
+	return RefPath()
+}
+
 func helperReferenceLibMissing(libs []string, refDir string) bool {
 	refDir = filepath.Clean(refDir)
 	for _, lib := range libs {
@@ -252,6 +266,7 @@ func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
 	helperHashString(h, cfg.OutputBase)
 	helperHashString(h, cfg.SourceFile)
 	helperHashString(h, fmt.Sprintf("dead-strip=%t", cfg.DeadStrip))
+	helperHashString(h, fmt.Sprintf("qext-ref=%t", cfg.QEXTRef))
 	helperHashStrings(h, "cflags", cfg.CFlags)
 	helperHashStrings(h, "ref-includes", cfg.RefIncludes)
 	helperHashStrings(h, "include-dirs", cfg.IncludeDirs)

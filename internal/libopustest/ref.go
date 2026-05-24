@@ -16,6 +16,12 @@ func RefPath(elem ...string) string {
 	return filepath.Join(append(base, elem...)...)
 }
 
+// QEXTRefPath returns a path under the pinned QEXT-enabled libopus reference tree.
+func QEXTRefPath(elem ...string) string {
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-qext"}
+	return filepath.Join(append(base, elem...)...)
+}
+
 // ReadRefFileOrSkip reads a pinned libopus reference file. Missing references
 // skip local tests unless GOPUS_STRICT_LIBOPUS_REF asks for hard failures.
 func ReadRefFileOrSkip(t testing.TB, label string, elem ...string) []byte {

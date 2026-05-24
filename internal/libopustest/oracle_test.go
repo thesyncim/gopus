@@ -67,6 +67,17 @@ func TestHelperOutputPathPlacesDigestBeforeWindowsSuffix(t *testing.T) {
 	}
 }
 
+func TestHelperRefDirSelectsQEXTTree(t *testing.T) {
+	defaultDir := helperRefDir(CHelperConfig{})
+	qextDir := helperRefDir(CHelperConfig{QEXTRef: true})
+	if qextDir == defaultDir {
+		t.Fatal("QEXT helper ref dir did not switch trees")
+	}
+	if filepath.Base(qextDir) != "opus-1.6.1-qext" {
+		t.Fatalf("QEXT helper ref dir=%q", qextDir)
+	}
+}
+
 func TestHelperNeedsConfigFollowsConfigFlag(t *testing.T) {
 	if !helperNeedsConfig([]string{"-O2", "-DHAVE_CONFIG_H"}) {
 		t.Fatal("helperNeedsConfig missed -DHAVE_CONFIG_H")
@@ -129,10 +140,16 @@ func TestHelperConfigDigestTracksBuildInputs(t *testing.T) {
 		t.Fatal("digest did not change when C flags changed")
 	}
 	cfg.CFlags = []string{"-DHAVE_CONFIG_H"}
+	base = helperConfigDigest(cfg, refDir, srcPath)
 	if err := os.WriteFile(srcPath, []byte("int main(void) { return 2; }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if got := helperConfigDigest(cfg, refDir, srcPath); got == base {
 		t.Fatal("digest did not change when helper source changed")
+	}
+	base = helperConfigDigest(cfg, refDir, srcPath)
+	cfg.QEXTRef = true
+	if got := helperConfigDigest(cfg, refDir, srcPath); got == base {
+		t.Fatal("digest did not change when QEXT reference tree changed")
 	}
 }

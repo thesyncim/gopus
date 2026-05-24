@@ -359,15 +359,9 @@ func buildLibopusCELTQEXTVQHelper() (string, error) {
 		SourceFile:  "libopus_celt_qext_vq_info.c",
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-DENABLE_QEXT", "-O3", "-DNDEBUG", "-ffp-contract=off"},
 		RefIncludes: []string{"celt", "silk"},
-		RefSources: []string{
-			"celt/vq.c",
-			"celt/cwrs.c",
-			"celt/entenc.c",
-			"celt/entdec.c",
-			"celt/entcode.c",
-			"celt/laplace.c",
-		},
-		DeadStrip: true,
+		QEXTRef:     true,
+		Libs:        []string{libopustest.QEXTRefPath(".libs", "libopus.a"), "-lm"},
+		DeadStrip:   true,
 	})
 }
 

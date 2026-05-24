@@ -27,7 +27,34 @@ case "${LIBOPUS_ENABLE_QEXT}" in
 esac
 
 BUILD_STAMP_FILE=".gopus-libopus-build"
-BUILD_STAMP=$'gopus libopus helper build v3\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${ENABLE_QEXT}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\n'
+
+select_c_compiler() {
+  if [[ -n "${CC:-}" ]]; then
+    echo "${CC}"
+    return 0
+  fi
+  local candidate
+  for candidate in cc gcc clang; do
+    if command -v "${candidate}" >/dev/null 2>&1; then
+      echo "${candidate}"
+      return 0
+    fi
+  done
+  echo cc
+}
+
+HOST_OS="$(uname -s 2>/dev/null || echo unknown)"
+HOST_ARCH="$(uname -m 2>/dev/null || echo unknown)"
+HOST_BITS="$(getconf LONG_BIT 2>/dev/null || echo unknown)"
+LIBOPUS_CC="$(select_c_compiler)"
+LIBOPUS_LDFLAGS="${LDFLAGS:-}"
+read -r -a LIBOPUS_CC_ARGV <<< "${LIBOPUS_CC}"
+LIBOPUS_CC_DRIVER="${LIBOPUS_CC_ARGV[0]:-${LIBOPUS_CC}}"
+CC_PATH="$(command -v "${LIBOPUS_CC_DRIVER}" 2>/dev/null || printf "%s" "${LIBOPUS_CC_DRIVER}")"
+CC_TARGET="$("${LIBOPUS_CC_ARGV[@]}" -dumpmachine 2>/dev/null || true)"
+CC_VERSION="$("${LIBOPUS_CC_ARGV[@]}" --version 2>/dev/null | sed -n '1p' || true)"
+CONFIGURE_STAMP="${CONFIGURE_FLAGS[*]}"
+BUILD_STAMP=$'gopus libopus helper build v5\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${ENABLE_QEXT}"$'\nhost_os='"${HOST_OS}"$'\nhost_arch='"${HOST_ARCH}"$'\nhost_bits='"${HOST_BITS}"$'\ncc='"${LIBOPUS_CC}"$'\ncc_path='"${CC_PATH}"$'\ncc_target='"${CC_TARGET}"$'\ncc_version='"${CC_VERSION}"$'\nconfigure='"${CONFIGURE_STAMP}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\nLDFLAGS='"${LIBOPUS_LDFLAGS}"$'\n'
 LOCK_DIR="${SRC_DIR}.lock"
 
 sha256_for_version() {
@@ -113,9 +140,25 @@ find_built_tool() {
   return 1
 }
 
+find_static_lib() {
+  local candidate="${SRC_DIR}/.libs/libopus.a"
+  if [[ -f "${candidate}" && -s "${candidate}" ]]; then
+    echo "${candidate}"
+    return 0
+  fi
+  return 1
+}
+
 build_stamp_is_current() {
   local stamp="${SRC_DIR}/${BUILD_STAMP_FILE}"
   [[ -f "${stamp}" ]] && [[ "$(cat "${stamp}")"$'\n' == "${BUILD_STAMP}" ]]
+}
+
+build_outputs_are_current() {
+  OPUS_DEMO_PATH="$(find_built_tool opus_demo)" || return 1
+  OPUS_COMPARE_PATH="$(find_built_tool opus_compare)" || return 1
+  LIBOPUS_STATIC_PATH="$(find_static_lib)" || return 1
+  build_stamp_is_current
 }
 
 extract_source_to() {
@@ -133,7 +176,7 @@ extract_source_to() {
   rm -rf "${extract_dir}"
 }
 
-if OPUS_DEMO_PATH="$(find_built_tool opus_demo)" && OPUS_COMPARE_PATH="$(find_built_tool opus_compare)" && build_stamp_is_current; then
+if build_outputs_are_current; then
   echo "${OPUS_DEMO_PATH}"
   exit 0
 fi
@@ -145,7 +188,7 @@ while ! mkdir "${LOCK_DIR}" 2>/dev/null; do
 done
 trap 'rmdir "${LOCK_DIR}" 2>/dev/null || true' EXIT
 
-if OPUS_DEMO_PATH="$(find_built_tool opus_demo)" && OPUS_COMPARE_PATH="$(find_built_tool opus_compare)" && build_stamp_is_current; then
+if build_outputs_are_current; then
   echo "${OPUS_DEMO_PATH}"
   exit 0
 fi
@@ -169,7 +212,7 @@ if [[ -f Makefile ]] && ! build_stamp_is_current; then
 fi
 
 if [[ ! -f Makefile ]]; then
-  CFLAGS="${LIBOPUS_CFLAGS}" CPPFLAGS="${LIBOPUS_CPPFLAGS}" ./configure "${CONFIGURE_FLAGS[@]}"
+  CC="${LIBOPUS_CC}" CFLAGS="${LIBOPUS_CFLAGS}" CPPFLAGS="${LIBOPUS_CPPFLAGS}" LDFLAGS="${LIBOPUS_LDFLAGS}" ./configure "${CONFIGURE_FLAGS[@]}"
 fi
 
 if command -v getconf >/dev/null 2>&1; then
@@ -189,6 +232,11 @@ fi
 
 if ! OPUS_COMPARE_PATH="$(find_built_tool opus_compare)"; then
   echo "error: expected executable not produced: ${SRC_DIR}/opus_compare(.exe)" >&2
+  exit 1
+fi
+
+if ! LIBOPUS_STATIC_PATH="$(find_static_lib)"; then
+  echo "error: expected static library not produced: ${SRC_DIR}/.libs/libopus.a" >&2
   exit 1
 fi
 
