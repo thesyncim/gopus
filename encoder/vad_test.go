@@ -345,13 +345,13 @@ func TestDTXActivityDetection(t *testing.T) {
 
 	// True digital silence: all zeros, well below lsbDepth=24 threshold (5.96e-8).
 	// Matches libopus is_digital_silence() from opus_encoder.c:1060-1077.
-	silence := make([]float64, frameSize)
+	silence := make([]opusRes, frameSize)
 
 	// Process silent frames until DTX activates (should take ~11 frames: 10 for
 	// NB_SPEECH_FRAMES_BEFORE_DTX threshold + 1 to exceed it).
 	var dtxActivated bool
 	for i := 0; i < 50; i++ {
-		suppress, _ := enc.shouldUseDTX(silence)
+		suppress, _ := enc.shouldUseDTXRes(silence)
 		if suppress {
 			dtxActivated = true
 			break
@@ -368,15 +368,15 @@ func TestDTXActivityDetection(t *testing.T) {
 	}
 
 	// Generate speech-like signal (0.3 amplitude sine, well above silence threshold)
-	speech := make([]float64, frameSize)
+	speech := make([]opusRes, frameSize)
 	for i := range speech {
 		tt := float64(i) / 48000.0
-		speech[i] = 0.3 * math.Sin(2*math.Pi*200*tt)
+		speech[i] = opusRes(0.3 * math.Sin(2*math.Pi*200*tt))
 	}
 
 	// Process speech - should exit DTX immediately
 	for i := 0; i < 5; i++ {
-		enc.shouldUseDTX(speech)
+		enc.shouldUseDTXRes(speech)
 	}
 
 	if enc.InDTX() {

@@ -91,7 +91,7 @@ The repo now has a ratcheting guard for this rule:
 make test-type-parity
 ```
 
-The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 2390 legacy findings, down from the previous 2509 baseline. CI lint/static-analysis on `49acbba3` also passed the type parity guard, but that CI run predates these local scratch reductions.
+The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 2386 legacy findings, down from the previous 2509 baseline. CI lint/static-analysis on `49acbba3` also passed the type parity guard, but that CI run predates these local scratch reductions.
 
 Agents must not run `make update-type-parity-baseline` to hide new debt. Refresh the baseline only after migrating runtime code to libopus-width types, or when a remaining `float64` is tied to a specific libopus C `double` helper with a source citation.
 
@@ -105,7 +105,7 @@ These are rough grep counts from non-test Go files on 2026-05-24. They are a bur
 |---|---:|---:|
 | `celt` | 1557 | 109 |
 | `silk` | 269 | 28 |
-| `encoder` | 91 | 9 |
+| `encoder` | 87 | 8 |
 | `internal` | 166 | 20 |
 | `multistream` | 113 | 10 |
 | `plc` | 74 | 3 |
@@ -200,7 +200,7 @@ Every entry here must be migrated or explicitly justified against a C `double` r
 - `encoder/encoder.go`: `inputBuffer`, `scratchDCPCM`, `scratchInputPCM`, `scratchQuantPCM`, `scratchDelayedPCM`, `scratchTransitionPrefill`, `scratchSilkPrefill`, and `scratchCELTPrefill` now use `[]opusRes`.
 - `encoder/encoder.go`: remaining Opus wrapper scratch debt is the still-needed `scratchInputPCM64` bridge into the unmigrated CELT/SILK float64 core. Treat it as wrapper debt, not codec-domain storage to copy into new paths.
 - `encoder/encoder.go`: `scratchPCM32` is named as a conversion from `float64`; after the canonical API moves to `float32`, either delete it or repurpose it as a real codec-domain buffer.
-- `encoder/dtx.go`: production DTX now has an `[]opusRes` path for energy/peak math. The older `[]float64` helper remains only for legacy tests/transitional callers and should not receive new runtime use.
+- `encoder/dtx.go`: DTX energy/peak math and tests now use the `[]opusRes` path; the legacy runtime `[]float64` helper was removed.
 - `encoder/dred_runtime.go` and `encoder/dred_runtime_default.go`: DRED latent input now takes `[]opusRes`; keep future DRED/Opus wrapper buffers in that domain.
 
 ### Hybrid Encoder/Decoder Scratch
@@ -401,7 +401,7 @@ Reference:
 Current symptoms:
 
 - `StereoWidthMem` is now `opusVal32`/`opusVal16`; keep future edits in that domain.
-- `dtxState.peakSignalEnergy`, production frame energy, and production DTX input now use `opusVal32`/`opusRes`; keep the legacy `[]float64` helper out of new runtime paths.
+- `dtxState.peakSignalEnergy`, production frame energy, DTX tests, and production DTX input now use `opusVal32`/`opusRes`; do not reintroduce a runtime `[]float64` DTX helper.
 - `HybridState.prevHBGain` is `opusVal16`, and hybrid gain/stereo fade scratch now stays in `opusRes`.
 - `encoder/encoder.go` now carries DC-rejected input, original input scratch, LSB-quantized input, delay compensation, transition prefill, SILK prefill, CELT prefill, and the packet input queue as `[]opusRes`.
 - `celtCVBRBoundScale` and `celtSurroundTrim` are `float64`; verify reference type before converting.

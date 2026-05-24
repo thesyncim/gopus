@@ -1526,10 +1526,6 @@ encoder/auto_mode.go	1	ba938719471d32e5b3d22c34a3222cdb56d4b152a4e8561078ecb2d6f
 encoder/controls.go	1	5dbd20248f05809cb9509babff89a170fdf21031b040892a47d75323b1ed6426	legacy-current	maxSize := int(float64(target) * (1 + tolerance))
 encoder/controls.go	1	bd7c564bbc70db3fc6cc4885fcc445e055b079de247179099b8639f7039a3a07	legacy-current	func constrainSize(packet []byte, target int, tolerance float64) []byte {
 encoder/dred_plan.go	1	1b10840741d448cb396f5d637644ec8c063e4174e97bfec807be63ee7443a443	legacy-current	return int(math.Floor(float64(float32(0.5) + bitsUsed))), targetChunks
-encoder/dtx.go	1	58c5d249238de001fe18572e15e1f9ccbfc9c41f9d1b1cfc5e3452beec3b7998	legacy-current	func isDigitalSilence(pcm []float64, lsbDepth int) bool {
-encoder/dtx.go	1	9a446e6930471f234c9ab1632c03f0dbd17e97559f50190ff0b1772512f409ec	legacy-current	func computeFrameEnergy(pcm []float64) opusVal32 {
-encoder/dtx.go	1	c528a9f93e9f5df88c560d78b44c15bae5190afa720ac47c46db2faa9bfda8be	legacy-current	// domain before squaring to avoid threshold-side drift from float64 input.
-encoder/dtx.go	1	e2a540af7769130153c24d9d9b70f7767e8309a844604196aed041d7866b3a75	legacy-current	func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
 encoder/encoder.go	1	0032c67255d4aab354ab8d3817b15a10634d184671178fc7ac07c266452fb66c	legacy-current	func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analysisPCM []float64, maxDataBytes int) ([]byte, error) {
 encoder/encoder.go	1	0f5a6a3f666b6b3ca6580a76d88a65b92f3258901b811da6f7b79cfd400f948c	legacy-current	float64(e.lastAnalysisInfo.Activity),
 encoder/encoder.go	1	14925b2dd59567af4d6a32c880b22f49b6557f0b8e59c2329da88a7f2535f135	legacy-current	prob = float64(e.lastAnalysisInfo.MusicProbMax)

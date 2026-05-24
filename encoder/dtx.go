@@ -69,29 +69,11 @@ func (d *dtxState) reset() {
 	// Note: VAD state is NOT reset - noise estimates should persist
 }
 
-// isDigitalSilence checks if the PCM frame is true digital silence.
+// isDigitalSilenceRes checks if the PCM frame is true digital silence.
 // Matches libopus is_digital_silence() from opus_encoder.c:1060-1077.
 //
 // For float-point: silence = (sample_max <= 1.0 / (1 << lsb_depth))
-// At 24-bit depth: threshold ≈ 5.96e-8
-func isDigitalSilence(pcm []float64, lsbDepth int) bool {
-	if lsbDepth < 8 {
-		lsbDepth = 8
-	}
-	if lsbDepth > 24 {
-		lsbDepth = 24
-	}
-	threshold := opusVal16(1.0 / opusVal16(int(1)<<lsbDepth))
-
-	for _, s := range pcm {
-		v := opusRes(s)
-		if v > threshold || v < -threshold {
-			return false
-		}
-	}
-	return true
-}
-
+// At 24-bit depth: threshold is about 5.96e-8.
 func isDigitalSilenceRes(pcm []opusRes, lsbDepth int) bool {
 	if lsbDepth < 8 {
 		lsbDepth = 8
@@ -109,22 +91,8 @@ func isDigitalSilenceRes(pcm []opusRes, lsbDepth int) bool {
 	return true
 }
 
-// computeFrameEnergy computes mean energy of the PCM frame.
+// computeFrameEnergyRes computes mean energy of the PCM frame.
 // Matches libopus compute_frame_energy() from opus_encoder.c:1107-1111.
-func computeFrameEnergy(pcm []float64) opusVal32 {
-	if len(pcm) == 0 {
-		return 0
-	}
-	var energy opusVal32
-	for _, s := range pcm {
-		// libopus float API energy path operates in float precision; match that
-		// domain before squaring to avoid threshold-side drift from float64 input.
-		v := opusVal16(s)
-		energy += v * v
-	}
-	return energy / opusVal32(len(pcm))
-}
-
 func computeFrameEnergyRes(pcm []opusRes) opusVal32 {
 	if len(pcm) == 0 {
 		return 0
@@ -136,103 +104,17 @@ func computeFrameEnergyRes(pcm []opusRes) opusVal32 {
 	return energy / opusVal32(len(pcm))
 }
 
-// shouldUseDTX determines if frame should be suppressed (DTX mode).
+// shouldUseDTXRes determines if frame should be suppressed (DTX mode).
 //
 // Activity detection matches libopus opus_encoder.c:1911-1930:
-//  1. is_digital_silence → inactive
-//  2. analysis_info.valid → activity_probability >= DTX_ACTIVITY_THRESHOLD,
+//  1. is_digital_silence -> inactive
+//  2. analysis_info.valid -> activity_probability >= DTX_ACTIVITY_THRESHOLD,
 //     with pseudo-SNR energy check as safety net
-//  3. CELT-only fallback → peak energy vs current energy pseudo-SNR check
+//  3. CELT-only fallback -> peak energy vs current energy pseudo-SNR check
 //
 // The SILK multi-band VAD is NOT used here (it's only for SILK-internal DTX).
 //
 // Returns: (suppressFrame bool, sendComfortNoise bool)
-func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
-	if !e.dtxEnabled || e.dtx == nil {
-		if e.dtx != nil {
-			e.dtx.noActivityMsQ1 = 0
-			e.dtx.inDTXMode = false
-		}
-		return false, false
-	}
-
-	frameLength := len(pcm)
-	if e.channels == 2 {
-		frameLength /= 2
-	}
-	fsKHz := e.sampleRate / 1000
-	switch fsKHz {
-	case 8, 12, 16, 24, 48:
-	default:
-		fsKHz = 48
-	}
-	frameDurationMs := (frameLength * 1000) / (fsKHz * 1000)
-	if frameDurationMs <= 0 {
-		frameDurationMs = 20
-	}
-	e.dtx.frameDurationMs = frameDurationMs
-
-	// Step 1: Digital silence check (libopus is_digital_silence)
-	isSilence := isDigitalSilence(pcm, e.lsbDepth)
-
-	// Step 2: Determine activity using libopus logic (opus_encoder.c:1911-1930)
-	var isActive bool
-	if isSilence {
-		// True digital silence → inactive
-		isActive = false
-	} else if e.lastAnalysisValid {
-		// Analysis-based activity (libopus line 1916-1924)
-		isActive = e.lastAnalysisInfo.VADProb >= dtxActivityThreshold
-		if !isActive {
-			// Safety net: mark as active if frame energy is close to peak
-			// (the "noise" is actually loud signal, not background noise)
-			frameEnergy := computeFrameEnergy(pcm)
-			isActive = e.dtx.peakSignalEnergy < pseudoSNRThreshold*frameEnergy
-		}
-	} else {
-		// CELT-only / no-analysis fallback (libopus line 1926-1930)
-		frameEnergy := computeFrameEnergy(pcm)
-		// "Boosting peak energy a bit because we didn't just average the active frames"
-		isActive = e.dtx.peakSignalEnergy < pseudoSNRThreshold*0.5*frameEnergy
-	}
-
-	// Track peak signal energy (libopus opus_encoder.c:1312-1319)
-	// Update peak when frame is active (or analysis says active)
-	shouldTrackPeak := true
-	if e.lastAnalysisValid && e.lastAnalysisInfo.VADProb <= dtxActivityThreshold {
-		shouldTrackPeak = false
-	}
-	if shouldTrackPeak && !isSilence {
-		frameEnergy := computeFrameEnergy(pcm)
-		// Slow decay: peak = max(0.999 * peak, current_energy)
-		e.dtx.peakSignalEnergy = maxf(0.999*e.dtx.peakSignalEnergy, frameEnergy)
-	}
-
-	// DTX decision logic matching libopus decide_dtx_mode (opus_encoder.c:1115)
-	frameSizeMsQ1 := frameDurationMs * 2
-
-	if !isActive {
-		e.dtx.noActivityMsQ1 += frameSizeMsQ1
-
-		thresholdMsQ1 := NBSpeechFramesBeforeDTX * 20 * 2
-		maxDTXMsQ1 := (NBSpeechFramesBeforeDTX + MaxConsecutiveDTX) * 20 * 2
-
-		if e.dtx.noActivityMsQ1 > thresholdMsQ1 {
-			if e.dtx.noActivityMsQ1 <= maxDTXMsQ1 {
-				e.dtx.inDTXMode = true
-				return true, false
-			}
-			e.dtx.noActivityMsQ1 = thresholdMsQ1
-			e.dtx.inDTXMode = false
-		}
-	} else {
-		e.dtx.noActivityMsQ1 = 0
-		e.dtx.inDTXMode = false
-	}
-
-	return false, false
-}
-
 func (e *Encoder) shouldUseDTXRes(pcm []opusRes) (bool, bool) {
 	if !e.dtxEnabled || e.dtx == nil {
 		if e.dtx != nil {
