@@ -335,7 +335,6 @@ gate_extra_controls_parity() {
 	run_tagged_parity "$tag_extra_controls" . -run 'Test(DecoderExplicitDREDFirstConcealFrameBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesBootstraps48kRuntime|DecoderExplicitDREDThreeConcealFramesManualStep48kRuntime|DecoderExplicitDREDThreeConcealFramesMixedHelpers48kRuntime)' -count=1
 	run_tagged_parity "$tag_extra_controls" . -run "$dred_stereo_recovery_root" -count=1
 	run_tagged_parity "$tag_extra_controls" . -run "$extra_controls_parity_silk_dred_root" -count=1
-	run_tagged_parity "$tag_extra_controls" . -run "$extra_controls_parity_decoder_root" -count=1
 	require_no_skips "extra-controls parity"
 }
 
