@@ -357,6 +357,31 @@ func TestMultistreamDecodeInvalidRequestedPLCFrameSizeMatchesLibopus(t *testing.
 	}
 }
 
+func TestMultistreamDecodeRejectsNonChannelMultipleRequestedPLCBuffer(t *testing.T) {
+	for _, channels := range []int{2, 3} {
+		channels := channels
+		for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+			sampleRate := sampleRate
+			t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+				frameSize := sampleRate / 50
+				sampleCount := frameSize*channels + 1
+
+				dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+				n, err := dec.Decode(nil, make([]float32, sampleCount))
+				if n != 0 || err != ErrInvalidFrameSize {
+					t.Fatalf("Decode(nil) = (%d, %v), want (0, %v)", n, err, ErrInvalidFrameSize)
+				}
+
+				intDec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+				n, err = intDec.DecodeInt16(nil, make([]int16, sampleCount))
+				if n != 0 || err != ErrInvalidFrameSize {
+					t.Fatalf("DecodeInt16(nil) = (%d, %v), want (0, %v)", n, err, ErrInvalidFrameSize)
+				}
+			})
+		}
+	}
+}
+
 func TestMultistreamColdPLCAfterResetUsesAPIRateDefault(t *testing.T) {
 	for _, channels := range []int{1, 2} {
 		channels := channels

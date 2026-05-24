@@ -6,6 +6,12 @@ func (d *MultistreamDecoder) requestedOutputFrameSize(sampleCount int) (int, err
 	if d.channels <= 0 {
 		return 0, ErrInvalidChannels
 	}
+	if sampleCount < d.channels {
+		return 0, ErrBufferTooSmall
+	}
+	if sampleCount%d.channels != 0 {
+		return 0, ErrInvalidFrameSize
+	}
 	frameSize := sampleCount / d.channels
 	if frameSize <= 0 {
 		return 0, ErrBufferTooSmall

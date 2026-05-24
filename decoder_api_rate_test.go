@@ -1256,6 +1256,52 @@ func TestDecodeInt16InvalidRequestedPLCFrameSizeMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestDecodeRejectsNonChannelMultipleRequestedFrameBuffer(t *testing.T) {
+	const channels = 2
+	packet := encodeAPIRateSILKPacket(t, channels)
+	for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+		frameSize := sampleRate / 50
+		sampleCount := frameSize*channels + 1
+		t.Run("fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+			dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			n, err := dec.Decode(nil, make([]float32, sampleCount))
+			if n != 0 || err != ErrInvalidFrameSize {
+				t.Fatalf("Decode(nil) = (%d, %v), want (0, %v)", n, err, ErrInvalidFrameSize)
+			}
+
+			intDec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder int16: %v", err)
+			}
+			n, err = intDec.DecodeInt16(nil, make([]int16, sampleCount))
+			if n != 0 || err != ErrInvalidFrameSize {
+				t.Fatalf("DecodeInt16(nil) = (%d, %v), want (0, %v)", n, err, ErrInvalidFrameSize)
+			}
+
+			fecDec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder FEC: %v", err)
+			}
+			n, err = fecDec.DecodeWithFEC(nil, make([]float32, sampleCount), true)
+			if n != 0 || err != ErrInvalidFrameSize {
+				t.Fatalf("DecodeWithFEC(nil) = (%d, %v), want (0, %v)", n, err, ErrInvalidFrameSize)
+			}
+
+			packetFECDec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder packet FEC: %v", err)
+			}
+			n, err = packetFECDec.DecodeWithFEC(packet, make([]float32, sampleCount), true)
+			if n != 0 || err != ErrInvalidFrameSize {
+				t.Fatalf("DecodeWithFEC(packet) = (%d, %v), want (0, %v)", n, err, ErrInvalidFrameSize)
+			}
+		})
+	}
+}
+
 func TestDecodeWithFECInvalidRequestedFrameSizeMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	requireLibopusAPIRateRefdecodeHelper(t)
