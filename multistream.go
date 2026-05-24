@@ -47,7 +47,6 @@ type MultistreamEncoder struct {
 	application         Application
 	encodedOnce         bool
 	modeSet             bool
-	scratchPCM64        []float64
 	scratchPCM32        []float32
 	dnnBlob             *dnnblob.Blob
 }
@@ -115,7 +114,6 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 		frameSize:           960, // Default 20ms at 48kHz
 		expertFrameDuration: ExpertFrameDurationArg,
 		application:         application,
-		scratchPCM64:        make([]float64, 5760*channels),
 		scratchPCM32:        make([]float32, 5760*channels),
 	}
 
@@ -167,7 +165,6 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 		frameSize:           960, // Default 20ms at 48kHz
 		expertFrameDuration: ExpertFrameDurationArg,
 		application:         application,
-		scratchPCM64:        make([]float64, 5760*channels),
 		scratchPCM32:        make([]float32, 5760*channels),
 	}
 

@@ -80,17 +80,16 @@ type Encoder struct {
 	lfeStream int
 
 	// Optional projection-family mixing matrix coefficients (column-major S16).
-	projectionMixing  []int16
-	projectionCols    int
-	projectionRows    int
-	projectionScratch []float64
-	projectionFrame   []float32
+	projectionMixing []int16
+	projectionCols   int
+	projectionRows   int
+	projectionFrame  []float32
 
 	// streamBitrates stores per-stream rates computed by allocation policy.
 	streamBitrates []int
 
 	// streamSurroundTrim stores per-stream surround trim derived from surround masks.
-	streamSurroundTrim []float64
+	streamSurroundTrim []float32
 
 	// streamEnergyMask stores per-stream CELT energy masks (max 42 values/stream).
 	streamEnergyMask []float32
@@ -113,10 +112,8 @@ type Encoder struct {
 	// surroundAnalysisEncoder computes CELT band energies for surround analysis.
 	surroundAnalysisEncoder *celt.Encoder
 
-	// floatInputFrame is the current public float32 frame view, if available.
-	floatInputFrame   []float32
-	floatInputStreams [][]float32
-	floatInputScratch []float32
+	// inputScratch converts legacy callers at the package boundary.
+	inputScratch []float32
 }
 
 const surroundBands = 21
@@ -272,7 +269,7 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 		mappingFamily:           mappingFamily,
 		lfeStream:               lfeStream,
 		streamBitrates:          make([]int, streams),
-		streamSurroundTrim:      make([]float64, streams),
+		streamSurroundTrim:      make([]float32, streams),
 		streamEnergyMask:        make([]float32, streams*2*surroundBands),
 		surroundBandSMR:         make([]float64, channels*surroundBands),
 		surroundWindowMem:       make([]float64, channels*celt.Overlap),
@@ -870,7 +867,7 @@ func (e *Encoder) ensureSurroundInputScratch(size int) []float64 {
 	return e.surroundInputScratch[:size]
 }
 
-func (e *Encoder) computeSurroundBandSMR(pcm []float64, frameSize int, bandSMR []float64) bool {
+func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR []float64) bool {
 	if frameSize <= 0 || e.inputChannels < 3 || e.inputChannels > 8 {
 		return false
 	}
@@ -922,7 +919,7 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float64, frameSize int, bandSMR [
 		clear(in[overlap:])
 
 		for i := 0; i < frameSize; i++ {
-			in[overlap+i*upsample] = pcm[i*e.inputChannels+ch] * celt.CELTSigScale
+			in[overlap+i*upsample] = float64(pcm[i*e.inputChannels+ch] * float32(celt.CELTSigScale))
 		}
 
 		m := e.surroundPreemphMem[ch]
@@ -1020,9 +1017,9 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float64, frameSize int, bandSMR [
 	return true
 }
 
-func (e *Encoder) updateSurroundTrimFromPCM(pcm []float64, frameSize int) bool {
+func (e *Encoder) updateSurroundTrimFromPCM(pcm []float32, frameSize int) bool {
 	if cap(e.streamSurroundTrim) < e.streams {
-		e.streamSurroundTrim = make([]float64, e.streams)
+		e.streamSurroundTrim = make([]float32, e.streams)
 	}
 	trim := e.streamSurroundTrim[:e.streams]
 	for i := range trim {
@@ -1053,20 +1050,20 @@ func (e *Encoder) updateSurroundTrimFromPCM(pcm []float64, frameSize int) bool {
 			if left < 0 || right < 0 {
 				continue
 			}
-			trim[s] = surroundTrimFromMask(
+			trim[s] = float32(surroundTrimFromMask(
 				bandSMR[left*surroundBands:(left+1)*surroundBands],
 				bandSMR[right*surroundBands:(right+1)*surroundBands],
-			)
+			))
 		} else {
 			mappingIdx := byte(2*e.coupledStreams + (s - e.coupledStreams))
 			mono := e.inputChannelForMapping(mappingIdx)
 			if mono < 0 {
 				continue
 			}
-			trim[s] = surroundTrimFromMask(
+			trim[s] = float32(surroundTrimFromMask(
 				bandSMR[mono*surroundBands:(mono+1)*surroundBands],
 				nil,
-			)
+			))
 		}
 	}
 	return true
@@ -1101,7 +1098,7 @@ func multistreamCVBRBoundScale(totalBitrate, sampleRate, frameSize int) float64 
 	return burstMultiple - 1.0
 }
 
-func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float64) {
+func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float32) {
 	rates := e.allocateRates(frameSize)
 	hasSurroundMask := false
 	if e.isSurroundMapping() {
@@ -1242,6 +1239,33 @@ func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 // EncodeWithAnalysis encodes the selected frame while letting child encoders
 // analyze the full caller frame selected by expert-frame-duration controls.
 func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM []float64) ([]byte, error) {
+	if analysisPCM == nil {
+		analysisPCM = pcm
+	}
+	total := len(pcm) + len(analysisPCM)
+	if cap(e.inputScratch) < total {
+		e.inputScratch = make([]float32, total)
+	}
+	pcm32 := e.inputScratch[:len(pcm)]
+	for i, v := range pcm {
+		pcm32[i] = float32(v)
+	}
+	analysisPCM32 := e.inputScratch[len(pcm):total]
+	for i, v := range analysisPCM {
+		analysisPCM32[i] = float32(v)
+	}
+	return e.EncodeFloat32WithAnalysis(pcm32, frameSize, analysisPCM32)
+}
+
+// EncodeFloat32 encodes libopus float-build PCM samples to an Opus multistream packet.
+func (e *Encoder) EncodeFloat32(pcm []float32, frameSize int) ([]byte, error) {
+	return e.EncodeFloat32WithAnalysis(pcm, frameSize, pcm)
+}
+
+// EncodeFloat32WithAnalysis encodes the selected frame while letting child
+// encoders analyze the full caller frame selected by expert-frame-duration
+// controls. PCM routing and projection mixing stay in the libopus float domain.
+func (e *Encoder) EncodeFloat32WithAnalysis(pcm []float32, frameSize int, analysisPCM []float32) ([]byte, error) {
 	// Validate input length
 	expectedLen := frameSize * e.inputChannels
 	if len(pcm) != expectedLen {
@@ -1259,23 +1283,13 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 	// Mirror libopus per-stream rate/control policy ahead of stream encodes.
 	e.applyPerStreamPolicy(frameSize, pcm)
 
-	inputPCM := pcm
-	if e.mappingFamily == 3 {
-		inputPCM = e.applyProjectionMixing(pcm, frameSize)
-	}
-
 	// Route input channels to stream buffers
-	streamBuffers := routeChannelsToStreams(inputPCM, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
+	streamBuffers := e.routeInputToStreams(pcm, frameSize)
 	analysisStreamBuffers := streamBuffers
 	if len(analysisPCM) != len(pcm) {
 		analysisFrameSize := len(analysisPCM) / e.inputChannels
-		analysisInputPCM := analysisPCM
-		if e.mappingFamily == 3 {
-			analysisInputPCM = e.applyProjectionMixing(analysisPCM, analysisFrameSize)
-		}
-		analysisStreamBuffers = routeChannelsToStreams(analysisInputPCM, e.mapping, e.coupledStreams, analysisFrameSize, e.inputChannels, e.streams)
+		analysisStreamBuffers = e.routeInputToStreams(analysisPCM, analysisFrameSize)
 	}
-	floatInputStreams := e.routeFloatInputToStreams(frameSize)
 
 	// Encode each stream
 	streamPackets := make([][]byte, e.streams)
@@ -1283,13 +1297,7 @@ func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM [
 
 	for i := 0; i < e.streams; i++ {
 		enc := e.encoders[i]
-		if floatInputStreams != nil {
-			enc.SetFloatInputFrame(floatInputStreams[i])
-		}
-		packet, err := enc.EncodeWithAnalysis(streamBuffers[i], frameSize, analysisStreamBuffers[i])
-		if floatInputStreams != nil {
-			enc.ClearFloatInputFrame()
-		}
+		packet, err := enc.EncodeFloat32WithAnalysisMaxBytes(streamBuffers[i], frameSize, analysisStreamBuffers[i], maxOpusFrameBytes)
 		if err != nil {
 			return nil, fmt.Errorf("stream %d encode failed: %w", i, err)
 		}

@@ -472,13 +472,13 @@ func (e *Encoder) Reset() {
 
 // SetSurroundTrim sets the surround trim adjustment used by alloc_trim analysis.
 // Positive values reduce alloc_trim (favoring higher bands), matching libopus.
-func (e *Encoder) SetSurroundTrim(trim float64) {
-	e.surroundTrim = celtGLog(trim)
+func (e *Encoder) SetSurroundTrim(trim celtGLog) {
+	e.surroundTrim = trim
 }
 
 // SurroundTrim returns the current surround trim adjustment.
-func (e *Encoder) SurroundTrim() float64 {
-	return float64(e.surroundTrim)
+func (e *Encoder) SurroundTrim() celtGLog {
+	return e.surroundTrim
 }
 
 // SetEnergyMask sets per-band surround masking for CELT surround control.

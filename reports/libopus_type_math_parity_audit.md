@@ -91,7 +91,7 @@ The repo now has a ratcheting guard for this rule:
 make test-type-parity
 ```
 
-The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 2382 legacy findings, down from the previous 2509 baseline. CI lint/static-analysis on `49acbba3` also passed the type parity guard, but that CI run predates these local scratch reductions.
+The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 2359 legacy findings, down from the previous 2509 baseline. CI lint/static-analysis on `49acbba3` also passed the type parity guard, but that CI run predates these local scratch reductions.
 
 Agents must not run `make update-type-parity-baseline` to hide new debt. Refresh the baseline only after migrating runtime code to libopus-width types, or when a remaining `float64` is tied to a specific libopus C `double` helper with a source citation.
 
@@ -103,14 +103,14 @@ These are rough grep counts from non-test Go files on 2026-05-24. They are a bur
 
 | Area | Count | Files |
 |---|---:|---:|
-| `celt` | 1738 | 110 |
+| `celt` | 1735 | 110 |
 | `silk` | 279 | 28 |
-| `multistream` | 95 | 10 |
-| `encoder` | 87 | 8 |
+| `encoder` | 84 | 8 |
 | `internal` | 84 | 12 |
+| `multistream` | 82 | 9 |
 | `plc` | 61 | 3 |
 | `hybrid` | 31 | 2 |
-| top-level codec files | 7 | 5 |
+| top-level codec files | 3 | 3 |
 
 Examples/tools/testvectors also contain `float64`; those should be lower priority unless they drive runtime behavior.
 
@@ -190,9 +190,9 @@ Every entry here must be migrated or explicitly justified against a C `double` r
 ### Top-Level and Multistream PCM Scratch
 
 - `encoder.go`: the top-level `Encoder` no longer owns `scratchPCM64`; int16/int24 conversion scratch now stays in `[]float32` before entering the internal float32 encode path.
-- `multistream.go`: `scratchPCM64 []float64` remains as a wrapper bridge because the internal multistream encoder still exposes `[]float64` PCM entry points. Migrate the package-level multistream encoder next so this field can be deleted instead of copied into new code.
-- `multistream/encoder_helpers.go`: `projectionScratch []float64` and stream projection scratch should match the projection source/destination domain. If the matrix math intentionally uses `float32` PCM plus fixed S16 coefficients, storage must not widen by default.
-- `multistream/encoder.go`: `surroundInputScratch`, `surroundBandScratch`, `surroundBandSMR`, `surroundWindowMem`, `surroundPreemphMem`, and `streamSurroundTrim` are runtime analysis state/scratch. Match libopus surround analysis types, not convenience `float64`.
+- `multistream.go`: `scratchPCM64` is gone. Public multistream float32 input now calls the internal multistream float32 encode path, and int16/int24 conversion scratch stays in `[]float32`.
+- `multistream/encoder_helpers.go`: encoder-side projection mixing no longer stores a projected `[]float64` frame. It routes matrix output through `float32` per-stream buffers before the child encoder float32 entry point.
+- `multistream/encoder.go`: `streamSurroundTrim` now stores libopus-width `float32` before it reaches the child CELT encoder. `surroundInputScratch`, `surroundBandScratch`, `surroundBandSMR`, `surroundWindowMem`, and `surroundPreemphMem` are still runtime analysis state/scratch and must match libopus surround analysis types, not convenience `float64`.
 - `multistream/decoder_dred_helpers.go`: `dredPCM64 [][]float64` should follow the canonical DRED/Opus PCM type after A01/A10.
 
 ### Unified Encoder Scratch
@@ -279,7 +279,7 @@ Reference:
 
 Current symptoms:
 
-- Top-level `Encoder` no longer has `scratchPCM64`; the remaining top-level wrapper bridge is `MultistreamEncoder.scratchPCM64`.
+- Top-level `Encoder` and `MultistreamEncoder` no longer have `scratchPCM64`.
 - `encoder/Encoder.Encode`, `EncodeWithAnalysis`, `EncodeWithAnalysisMaxBytes`, prefill, delay-buffer, DC reject, DRED, and mode-transition paths pass `[]float64`.
 - Hybrid decode returns `[]float64` even though much of the sub-decoder work is already `[]float32`.
 
@@ -404,7 +404,7 @@ Current symptoms:
 - `dtxState.peakSignalEnergy`, production frame energy, DTX tests, and production DTX input now use `opusVal32`/`opusRes`; do not reintroduce a runtime `[]float64` DTX helper.
 - `HybridState.prevHBGain` is `opusVal16`, and hybrid gain/stereo fade scratch now stays in `opusRes`.
 - `encoder/encoder.go` now carries DC-rejected input, original input scratch, LSB-quantized input, delay compensation, transition prefill, SILK prefill, CELT prefill, and the packet input queue as `[]opusRes`.
-- `celtCVBRBoundScale` and `celtSurroundTrim` are `float64`; verify reference type before converting.
+- `celtSurroundTrim` now stays in `opusVal32`/`celtGLog` storage through the wrapper and CELT encoder. `celtCVBRBoundScale` is still `float64`; verify the reference type before converting.
 
 Fix direction:
 

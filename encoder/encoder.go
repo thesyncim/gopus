@@ -147,7 +147,7 @@ type Encoder struct {
 	phaseInversionDisabled bool
 
 	// celtSurroundTrim carries multistream surround-trim bias into CELT alloc-trim.
-	celtSurroundTrim float64
+	celtSurroundTrim opusVal32
 
 	// celtEnergyMask carries per-band surround masking into CELT dynalloc control.
 	celtEnergyMask []float32
@@ -3769,7 +3769,7 @@ func (e *Encoder) PhaseInversionDisabled() bool {
 }
 
 // SetCELTSurroundTrim sets the CELT alloc-trim surround bias.
-func (e *Encoder) SetCELTSurroundTrim(trim float64) {
+func (e *Encoder) SetCELTSurroundTrim(trim opusVal32) {
 	e.celtSurroundTrim = trim
 	if e.celtEncoder != nil {
 		e.celtEncoder.SetSurroundTrim(trim)
@@ -3777,7 +3777,7 @@ func (e *Encoder) SetCELTSurroundTrim(trim float64) {
 }
 
 // CELTSurroundTrim returns the current CELT alloc-trim surround bias.
-func (e *Encoder) CELTSurroundTrim() float64 {
+func (e *Encoder) CELTSurroundTrim() opusVal32 {
 	return e.celtSurroundTrim
 }
 

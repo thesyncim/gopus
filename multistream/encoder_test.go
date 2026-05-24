@@ -266,7 +266,7 @@ func channelConfigName(channels int) string {
 func TestRouteChannelsToStreams(t *testing.T) {
 	t.Run("mono single channel", func(t *testing.T) {
 		// 1 channel -> 1 uncoupled stream
-		input := []float64{0.1, 0.2, 0.3, 0.4}
+		input := []float32{0.1, 0.2, 0.3, 0.4}
 		mapping := []byte{0}
 		frameSize := 4
 
@@ -291,7 +291,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 		// 2 channels -> 1 coupled (stereo) stream
 		// Input: [L0, R0, L1, R1, L2, R2, L3, R3]
 		// Output: stream 0 stereo interleaved [L0, R0, L1, R1, ...]
-		input := []float64{
+		input := []float32{
 			0.1, 0.2, // L0, R0
 			0.3, 0.4, // L1, R1
 			0.5, 0.6, // L2, R2
@@ -310,7 +310,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 		}
 
 		// Check interleaved output
-		expected := []float64{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8}
+		expected := []float32{0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8}
 		for i, v := range expected {
 			if streams[0][i] != v {
 				t.Errorf("sample %d: got %f, want %f", i, streams[0][i], v)
@@ -331,7 +331,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 
 		frameSize := 2
 		// Input: FL, C, FR, RL, RR, LFE interleaved per sample
-		input := []float64{
+		input := []float32{
 			// Sample 0
 			1.0, 2.0, 3.0, 4.0, 5.0, 6.0,
 			// Sample 1
@@ -347,7 +347,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 
 		// Stream 0 (coupled): FL/FR stereo interleaved
 		// Expected: [FL0, FR0, FL1, FR1] = [1.0, 3.0, 1.1, 3.1]
-		expectedS0 := []float64{1.0, 3.0, 1.1, 3.1}
+		expectedS0 := []float32{1.0, 3.0, 1.1, 3.1}
 		if len(streams[0]) != 4 {
 			t.Fatalf("stream 0 len = %d, want 4", len(streams[0]))
 		}
@@ -359,7 +359,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 
 		// Stream 1 (coupled): RL/RR stereo interleaved
 		// Expected: [RL0, RR0, RL1, RR1] = [4.0, 5.0, 4.1, 5.1]
-		expectedS1 := []float64{4.0, 5.0, 4.1, 5.1}
+		expectedS1 := []float32{4.0, 5.0, 4.1, 5.1}
 		if len(streams[1]) != 4 {
 			t.Fatalf("stream 1 len = %d, want 4", len(streams[1]))
 		}
@@ -371,7 +371,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 
 		// Stream 2 (mono): C
 		// Expected: [C0, C1] = [2.0, 2.1]
-		expectedS2 := []float64{2.0, 2.1}
+		expectedS2 := []float32{2.0, 2.1}
 		if len(streams[2]) != 2 {
 			t.Fatalf("stream 2 len = %d, want 2", len(streams[2]))
 		}
@@ -383,7 +383,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 
 		// Stream 3 (mono): LFE
 		// Expected: [LFE0, LFE1] = [6.0, 6.1]
-		expectedS3 := []float64{6.0, 6.1}
+		expectedS3 := []float32{6.0, 6.1}
 		if len(streams[3]) != 2 {
 			t.Fatalf("stream 3 len = %d, want 2", len(streams[3]))
 		}
@@ -397,7 +397,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 	t.Run("silent channel 255", func(t *testing.T) {
 		// 2 channels, but second is silent
 		// 1 uncoupled stream should receive only first channel
-		input := []float64{
+		input := []float32{
 			1.0, 2.0, // Sample 0
 			3.0, 4.0, // Sample 1
 		}
@@ -411,7 +411,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 		}
 
 		// Stream 0 should have only the first channel (1.0, 3.0)
-		expected := []float64{1.0, 3.0}
+		expected := []float32{1.0, 3.0}
 		for i, v := range expected {
 			if streams[0][i] != v {
 				t.Errorf("stream0[%d] = %f, want %f", i, streams[0][i], v)
@@ -440,11 +440,11 @@ func TestRouteChannelsToStreams_RoundTrip(t *testing.T) {
 			frameSize := 4
 
 			// Create unique input for each channel
-			input := make([]float64, frameSize*cfg.channels)
+			input := make([]float32, frameSize*cfg.channels)
 			for ch := 0; ch < cfg.channels; ch++ {
 				for s := 0; s < frameSize; s++ {
 					// Unique value: channel*100 + sample
-					input[s*cfg.channels+ch] = float64(ch*100 + s)
+					input[s*cfg.channels+ch] = float32(ch*100 + s)
 				}
 			}
 
@@ -455,7 +455,10 @@ func TestRouteChannelsToStreams_RoundTrip(t *testing.T) {
 			// (which expects [][]float64 with interleaved stereo for coupled streams)
 			decodedStreams := make([][]float64, cfg.streams)
 			for i := 0; i < cfg.streams; i++ {
-				decodedStreams[i] = streamBuffers[i]
+				decodedStreams[i] = make([]float64, len(streamBuffers[i]))
+				for j, v := range streamBuffers[i] {
+					decodedStreams[i][j] = float64(v)
+				}
 			}
 
 			// Apply channel mapping (decoding direction)
@@ -467,7 +470,7 @@ func TestRouteChannelsToStreams_RoundTrip(t *testing.T) {
 			}
 
 			for i, v := range input {
-				if math.Abs(output[i]-v) > 1e-10 {
+				if math.Abs(output[i]-float64(v)) > 1e-10 {
 					t.Errorf("sample %d: got %f, want %f", i, output[i], v)
 				}
 			}
@@ -1195,7 +1198,7 @@ func TestEncode_SurroundTrimProduced(t *testing.T) {
 			}
 			continue
 		}
-		if math.Abs(got) > 1e-6 {
+		if got < -1e-6 || got > 1e-6 {
 			nonZero = true
 		}
 	}
@@ -1375,7 +1378,7 @@ func TestEncode_SurroundTrimProducedAt24k(t *testing.T) {
 			}
 			continue
 		}
-		if math.Abs(got) > 1e-6 {
+		if got < -1e-6 || got > 1e-6 {
 			nonZero = true
 		}
 	}

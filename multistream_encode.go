@@ -18,14 +18,7 @@ func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
 	}
 	inputSamples := frameSize * e.channels
 
-	pcm64 := e.scratchPCM64[:len(pcm)]
-	for i, v := range pcm {
-		pcm64[i] = float64(v)
-	}
-
-	e.enc.SetFloatInputFrame(pcm)
-	packet, err := e.enc.EncodeWithAnalysis(pcm64[:inputSamples], frameSize, pcm64)
-	e.enc.ClearFloatInputFrame()
+	packet, err := e.enc.EncodeFloat32WithAnalysis(pcm[:inputSamples], frameSize, pcm)
 	if err != nil {
 		return 0, err
 	}

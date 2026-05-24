@@ -283,13 +283,7 @@ func TestMultistreamEncodeFloat32DefaultLSBUsesInputPCM(t *testing.T) {
 		t.Fatal("Encode() returned an empty packet")
 	}
 
-	pcm64 := make([]float64, len(pcm))
-	for i, v := range pcm {
-		pcm64[i] = float64(v)
-	}
-	ref.enc.SetFloatInputFrame(pcm)
-	refPacket, err := ref.enc.Encode(pcm64, frameSize)
-	ref.enc.ClearFloatInputFrame()
+	refPacket, err := ref.enc.EncodeFloat32(pcm, frameSize)
 	if err != nil {
 		t.Fatalf("reference multistream Encode() error: %v", err)
 	}

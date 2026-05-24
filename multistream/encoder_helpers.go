@@ -6,18 +6,18 @@ package multistream
 // Input format: sample-interleaved [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
 // Output: slice of buffers, one per stream (stereo streams interleaved)
 func routeChannelsToStreams(
-	input []float64,
+	input []float32,
 	mapping []byte,
 	coupledStreams int,
 	frameSize int,
 	inputChannels int,
 	numStreams int,
-) [][]float64 {
+) [][]float32 {
 	// Create buffer for each stream
-	streamBuffers := make([][]float64, numStreams)
+	streamBuffers := make([][]float32, numStreams)
 	for i := 0; i < numStreams; i++ {
 		chans := streamChannels(i, coupledStreams)
-		streamBuffers[i] = make([]float64, frameSize*chans)
+		streamBuffers[i] = make([]float32, frameSize*chans)
 	}
 
 	// Route input channels to appropriate streams
@@ -46,80 +46,60 @@ func routeChannelsToStreams(
 	return streamBuffers
 }
 
-func (e *Encoder) routeFloatInputToStreams(frameSize int) [][]float32 {
-	if e == nil || len(e.floatInputFrame) < frameSize*e.inputChannels {
-		return nil
+func makeStreamBuffers(frameSize, coupledStreams, numStreams int) [][]float32 {
+	streamBuffers := make([][]float32, numStreams)
+	for i := 0; i < numStreams; i++ {
+		chans := streamChannels(i, coupledStreams)
+		streamBuffers[i] = make([]float32, frameSize*chans)
 	}
-	if cap(e.floatInputStreams) < e.streams {
-		e.floatInputStreams = make([][]float32, e.streams)
-	}
-	streams := e.floatInputStreams[:e.streams]
-
-	total := 0
-	for i := 0; i < e.streams; i++ {
-		total += frameSize * streamChannels(i, e.coupledStreams)
-	}
-	if cap(e.floatInputScratch) < total {
-		e.floatInputScratch = make([]float32, total)
-	}
-	scratch := e.floatInputScratch[:total]
-	clear(scratch)
-
-	offset := 0
-	for i := 0; i < e.streams; i++ {
-		count := frameSize * streamChannels(i, e.coupledStreams)
-		streams[i] = scratch[offset : offset+count]
-		offset += count
-	}
-
-	for outCh := 0; outCh < e.inputChannels; outCh++ {
-		mappingIdx := e.mapping[outCh]
-		if mappingIdx == 255 {
-			continue
-		}
-
-		streamIdx, chanInStream := resolveMapping(mappingIdx, e.coupledStreams)
-		if streamIdx < 0 || streamIdx >= e.streams {
-			continue
-		}
-
-		srcChannels := streamChannels(streamIdx, e.coupledStreams)
-		dst := streams[streamIdx]
-		for s := 0; s < frameSize; s++ {
-			dst[s*srcChannels+chanInStream] = e.floatInputFrame[s*e.inputChannels+outCh]
-		}
-	}
-
-	return streams
+	return streamBuffers
 }
 
-// SetFloatInputFrame exposes the current public float32 frame to stream encoders.
-func (e *Encoder) SetFloatInputFrame(pcm []float32) {
-	e.floatInputFrame = pcm
+func (e *Encoder) routeInputToStreams(pcm []float32, frameSize int) [][]float32 {
+	if e.mappingFamily == 3 {
+		return e.routeProjectionMixingToStreams(pcm, frameSize)
+	}
+	return routeChannelsToStreams(pcm, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
 }
 
-// ClearFloatInputFrame clears the per-call float32 input override.
-func (e *Encoder) ClearFloatInputFrame() {
-	e.floatInputFrame = nil
-}
-
-func (e *Encoder) applyProjectionMixing(pcm []float64, frameSize int) []float64 {
+func (e *Encoder) routeProjectionMixingToStreams(pcm []float32, frameSize int) [][]float32 {
 	rows := e.projectionRows
 	cols := e.projectionCols
 	if len(e.projectionMixing) == 0 || rows <= 0 || cols <= 0 {
-		return pcm
+		return routeChannelsToStreams(pcm, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
 	}
-
-	if cap(e.projectionScratch) < len(pcm) {
-		e.projectionScratch = make([]float64, len(pcm))
-	}
-	mixed := e.projectionScratch[:len(pcm)]
-
 	if cap(e.projectionFrame) < cols {
 		e.projectionFrame = make([]float32, cols)
 	}
-	applyProjectionMixingMatrix(mixed, pcm, e.projectionMixing, e.projectionFrame[:cols], frameSize, rows, cols)
-	return mixed
+	frame := e.projectionFrame[:cols]
+	streamBuffers := makeStreamBuffers(frameSize, e.coupledStreams, e.streams)
+
+	for s := 0; s < frameSize; s++ {
+		inBase := s * cols
+		for col := 0; col < cols; col++ {
+			frame[col] = float32(pcm[inBase+col])
+		}
+		for row := 0; row < rows && row < e.inputChannels; row++ {
+			mappingIdx := e.mapping[row]
+			if mappingIdx == 255 {
+				continue
+			}
+			streamIdx, chanInStream := resolveMapping(mappingIdx, e.coupledStreams)
+			if streamIdx < 0 || streamIdx >= e.streams {
+				continue
+			}
+
+			var sum float32
+			for col := 0; col < cols; col++ {
+				sum += float32(e.projectionMixing[col*rows+row]) * frame[col]
+			}
+			sample := (1.0 / 32768.0) * sum
+			srcChannels := streamChannels(streamIdx, e.coupledStreams)
+			streamBuffers[streamIdx][s*srcChannels+chanInStream] = sample
+		}
+	}
+
+	return streamBuffers
 }
 
 // assembleMultistreamPacket combines individual stream packets into a multistream packet.

@@ -69,14 +69,19 @@ func TestApplyProjectionMixingSwapsChannels(t *testing.T) {
 		projectionMixing: []int16{0, 32767, 32767, 0},
 		projectionRows:   2,
 		projectionCols:   2,
+		inputChannels:    2,
+		streams:          1,
+		coupledStreams:   1,
+		mapping:          []byte{0, 1},
 	}
 
-	in := []float64{1, 2, 3, 4}
-	out := enc.applyProjectionMixing(in, 2)
-	scale := 32767.0 / 32768.0
-	want := []float64{2 * scale, 1 * scale, 4 * scale, 3 * scale}
+	in := []float32{1, 2, 3, 4}
+	streams := enc.routeProjectionMixingToStreams(in, 2)
+	out := streams[0]
+	scale := float32(32767.0 / 32768.0)
+	want := []float32{2 * scale, 1 * scale, 4 * scale, 3 * scale}
 	for i := range want {
-		if math.Abs(out[i]-want[i]) > 1e-6 {
+		if math.Abs(float64(out[i]-want[i])) > 1e-6 {
 			t.Fatalf("out[%d] = %f, want %f", i, out[i], want[i])
 		}
 	}
