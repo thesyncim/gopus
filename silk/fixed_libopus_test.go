@@ -222,6 +222,9 @@ func TestSILKFixedLShiftSAT32MatchesLibopus(t *testing.T) {
 		if got := silkLShiftSAT32(record.value, int(record.shift)); got != want[i] {
 			t.Fatalf("silkLShiftSAT32(%d,%d)=%d want %d", record.value, record.shift, got, want[i])
 		}
+		if got := silk_LSHIFT_SAT32(record.value, int(record.shift)); got != want[i] {
+			t.Fatalf("silk_LSHIFT_SAT32(%d,%d)=%d want %d", record.value, record.shift, got, want[i])
+		}
 	}
 }
 

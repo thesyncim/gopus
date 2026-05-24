@@ -203,6 +203,154 @@ func TestFindOrEnsureOpusDemoRejectsExistingToolWhenValidationFails(t *testing.T
 	}
 }
 
+func TestFindOrEnsureOpusCompareAcceptsStampedBuildWhenValidationCannotRun(t *testing.T) {
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion)
+	if err := os.MkdirAll(filepath.Join(srcDir, ".libs"), 0o755); err != nil {
+		t.Fatalf("mkdir source dir: %v", err)
+	}
+	for _, tool := range []string{"opus_demo", "opus_compare", "opus_demo.exe", "opus_compare.exe"} {
+		toolPath := filepath.Join(srcDir, tool)
+		if err := os.WriteFile(toolPath, []byte("stub"), 0o755); err != nil {
+			t.Fatalf("write %s: %v", tool, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, ".libs", "libopus.a"), []byte("archive"), 0o644); err != nil {
+		t.Fatalf("write libopus archive: %v", err)
+	}
+	stamp := strings.Join([]string{
+		"gopus libopus helper build v5",
+		"version=" + DefaultVersion,
+		"qext=0",
+		"host_os=MINGW64_NT-10.0",
+		"host_arch=x86_64",
+		"host_bits=64",
+		"cc=gcc",
+		"cc_path=/usr/bin/gcc",
+		"cc_target=x86_64-w64-mingw32",
+		"cc_version=gcc test",
+		"configure=--enable-static --disable-shared",
+		"CFLAGS=-O3 -DNDEBUG",
+		"CPPFLAGS=",
+		"LDFLAGS=",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(srcDir, ".gopus-libopus-build"), []byte(stamp), 0o644); err != nil {
+		t.Fatalf("write build stamp: %v", err)
+	}
+
+	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatalf("mkdir tools dir: %v", err)
+	}
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 17\n"), 0o755); err != nil {
+		t.Fatalf("write failing ensure script: %v", err)
+	}
+
+	if !stampedLibopusBuildPresentForPlatform(DefaultVersion, []string{root}, false, "windows", "amd64") {
+		t.Fatal("expected stamped build fallback to allow opus_compare discovery")
+	}
+	got, ok := findLibopusToolForOS(DefaultVersion, []string{root}, "opus_compare", "windows")
+	if !ok {
+		t.Fatal("expected windows opus_compare discovery")
+	}
+	if !strings.Contains(filepath.Base(got), "opus_compare") {
+		t.Fatalf("got %q, want opus_compare tool", got)
+	}
+}
+
+func TestFindOrEnsureOpusCompareRejectsStampedBuildWithForeignFlags(t *testing.T) {
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion)
+	if err := os.MkdirAll(filepath.Join(srcDir, ".libs"), 0o755); err != nil {
+		t.Fatalf("mkdir source dir: %v", err)
+	}
+	for _, tool := range []string{"opus_demo", "opus_compare", "opus_demo.exe", "opus_compare.exe"} {
+		toolPath := filepath.Join(srcDir, tool)
+		if err := os.WriteFile(toolPath, []byte("stub"), 0o755); err != nil {
+			t.Fatalf("write %s: %v", tool, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, ".libs", "libopus.a"), []byte("archive"), 0o644); err != nil {
+		t.Fatalf("write libopus archive: %v", err)
+	}
+	stamp := strings.Join([]string{
+		"gopus libopus helper build v5",
+		"version=" + DefaultVersion,
+		"qext=0",
+		"host_os=MINGW64_NT-10.0",
+		"host_arch=x86_64",
+		"host_bits=64",
+		"cc=gcc",
+		"cc_path=/usr/bin/gcc",
+		"cc_target=x86_64-w64-mingw32",
+		"cc_version=gcc test",
+		"configure=--enable-static --disable-shared",
+		"CFLAGS=-O0",
+		"CPPFLAGS=",
+		"LDFLAGS=",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(srcDir, ".gopus-libopus-build"), []byte(stamp), 0o644); err != nil {
+		t.Fatalf("write build stamp: %v", err)
+	}
+	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatalf("mkdir tools dir: %v", err)
+	}
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 17\n"), 0o755); err != nil {
+		t.Fatalf("write failing ensure script: %v", err)
+	}
+
+	if stampedLibopusBuildPresentForPlatform(DefaultVersion, []string{root}, false, "windows", "amd64") {
+		t.Fatal("expected foreign stamped build to be rejected")
+	}
+}
+
+func TestStampedLibopusBuildFallbackRejectsWrongPlatformOrArch(t *testing.T) {
+	root := t.TempDir()
+	srcDir := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion)
+	if err := os.MkdirAll(filepath.Join(srcDir, ".libs"), 0o755); err != nil {
+		t.Fatalf("mkdir source dir: %v", err)
+	}
+	for _, tool := range []string{"opus_demo.exe", "opus_compare.exe"} {
+		toolPath := filepath.Join(srcDir, tool)
+		if err := os.WriteFile(toolPath, []byte("stub"), 0o755); err != nil {
+			t.Fatalf("write %s: %v", tool, err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(srcDir, ".libs", "libopus.a"), []byte("archive"), 0o644); err != nil {
+		t.Fatalf("write libopus archive: %v", err)
+	}
+	stamp := strings.Join([]string{
+		"gopus libopus helper build v5",
+		"version=" + DefaultVersion,
+		"qext=0",
+		"host_os=MINGW64_NT-10.0",
+		"host_arch=x86_64",
+		"host_bits=64",
+		"cc=gcc",
+		"cc_path=/usr/bin/gcc",
+		"cc_target=x86_64-w64-mingw32",
+		"cc_version=gcc test",
+		"configure=--enable-static --disable-shared",
+		"CFLAGS=-O3 -DNDEBUG",
+		"CPPFLAGS=",
+		"LDFLAGS=",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(srcDir, ".gopus-libopus-build"), []byte(stamp), 0o644); err != nil {
+		t.Fatalf("write build stamp: %v", err)
+	}
+
+	if stampedLibopusBuildPresentForPlatform(DefaultVersion, []string{root}, false, "linux", "amd64") {
+		t.Fatal("expected non-windows fallback to be rejected")
+	}
+	if stampedLibopusBuildPresentForPlatform(DefaultVersion, []string{root}, false, "windows", "arm64") {
+		t.Fatal("expected wrong-arch fallback to be rejected")
+	}
+}
+
 func TestScalarDNNBuildEnvPinsCompilerAndClearsUnsafeOverrides(t *testing.T) {
 	t.Setenv("CC", "/tmp/not-the-compiler")
 	t.Setenv("CFLAGS", "bad-cflags")

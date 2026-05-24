@@ -89,7 +89,7 @@ func quantCoarseEnergyImpl(
 	oldEBands []float64,
 	budget, tell int,
 	probModel []uint8,
-	error []float64,
+	error []celtGLog,
 	channels, lm int,
 	intra bool,
 	maxDecay float32,
@@ -210,7 +210,7 @@ func quantCoarseEnergyImpl(
 			}
 
 			// Store quantization error for fine energy
-			error[idx] = float64(f) - float64(qi)
+			error[idx] = celtGLog(f - float32(qi))
 
 			// Accumulate badness
 			if qi0 > qi {
@@ -367,7 +367,7 @@ func QuantCoarseEnergy(
 
 		// Allocate temporary arrays for intra encoding
 		oldEBandsIntra := make([]float64, channels*MaxBands)
-		errorIntra := make([]float64, channels*MaxBands)
+		errorIntra := make([]celtGLog, channels*MaxBands)
 		copy(oldEBandsIntra, oldEBands)
 
 		// Try intra encoding first
@@ -392,17 +392,19 @@ func QuantCoarseEnergy(
 			re.RestoreState(encStartState)
 
 			// Try inter encoding
+			errorInter := make([]celtGLog, channels*MaxBands)
 			badness2 := quantCoarseEnergyImpl(
 				re, start, end,
 				eBands, result.QuantizedEnergy,
 				budget, tell,
 				probInter[:],
-				result.Error,
+				errorInter,
 				channels, lm,
 				false, // inter
 				maxDecay,
 				params.LFE,
 			)
+			copyGLogToFloat64(result.Error, errorInter)
 
 			// Compare and choose better encoding
 			intraBias := int((float32(budget) * *delayedIntra * float32(params.LossRate)) / float32(channels*512))
@@ -412,27 +414,29 @@ func QuantCoarseEnergy(
 				// Intra was better, restore intra state
 				re.RestoreState(encIntraState)
 				copy(result.QuantizedEnergy, oldEBandsIntra)
-				copy(result.Error, errorIntra)
+				copyGLogToFloat64(result.Error, errorIntra)
 				intra = true
 			}
 		} else {
 			// Only intra was tried
 			copy(result.QuantizedEnergy, oldEBandsIntra)
-			copy(result.Error, errorIntra)
+			copyGLogToFloat64(result.Error, errorIntra)
 		}
 	} else {
 		// Only inter encoding
+		errorInter := make([]celtGLog, channels*MaxBands)
 		_ = quantCoarseEnergyImpl(
 			re, start, end,
 			eBands, result.QuantizedEnergy,
 			budget, tell,
 			probInter[:],
-			result.Error,
+			errorInter,
 			channels, lm,
 			false, // inter
 			maxDecay,
 			params.LFE,
 		)
+		copyGLogToFloat64(result.Error, errorInter)
 	}
 
 	// Update delayedIntra

@@ -182,7 +182,6 @@ type Encoder struct {
 	scratchEcBufCopy        []byte  // range encoder buffer snapshot
 
 	// LPC/Burg scratch buffers
-	scratchLpcBurg       []float64 // LPC coefficients from Burg
 	scratchWindowed      []float32 // computeLPCFromFrame: windowed PCM
 	scratchLpcQ12        []int16   // burgLPCZeroAlloc: output LPC Q12
 	scratchBurgAf        []float64 // burgModifiedFLPZeroAlloc: Af buffer
@@ -190,15 +189,10 @@ type Encoder struct {
 	scratchBurgCLastRow  []float64 // burgModifiedFLPZeroAlloc: CLastRow
 	scratchBurgCAf       []float64 // burgModifiedFLPZeroAlloc: CAf
 	scratchBurgCAb       []float64 // burgModifiedFLPZeroAlloc: CAb
-	scratchBurgResult    []float64 // burgModifiedFLPZeroAlloc: result
+	scratchBurgResult    []float32 // burgModifiedFLPZeroAlloc: result (silk_float)
 
 	// LTP analysis scratch buffers
-	scratchLtpInput     []float64 // LTP analysis: pitch analysis buffer as float64
 	scratchLtpRes       []float64 // LTP analysis: LPC residual
-	scratchPitchWsig    []float64 // Pitch analysis: windowed signal
-	scratchPitchAuto    []float64 // Pitch analysis: autocorrelation
-	scratchPitchRefl    []float64 // Pitch analysis: reflection coefficients
-	scratchPitchA       []float64 // Pitch analysis: LPC coefficients
 	scratchPitchRes32   []float32 // Pitch analysis: residual as float32
 	scratchPitchInput32 []float32 // Pitch analysis: input buffer (float32)
 	scratchPitchWsig32  []float32 // Pitch analysis: windowed signal (float32)
@@ -219,10 +213,10 @@ type Encoder struct {
 	scratchA2nlsfNLSF [16]int16 // a2nlsfFLPInto: NLSF result
 
 	// FindLPC interpolation scratch buffers
-	scratchLpcXF64     []float64   // float32->float64 conversion
+	scratchLpcX        []float32   // FindLPC input (silk_float)
 	scratchNlsf0Q15    [16]int16   // interpolated NLSF
 	scratchLpcATmp     [16]float64 // LPC from NLSF
-	scratchLpcResidual []float64   // LPC residual for energy
+	scratchLpcResidual []float32   // LPC residual for energy (silk_float)
 	scratchNlsfCos     [16]float64 // nlsfToLPCFloat: cosine values
 	scratchNlsfP       [10]float64 // nlsfToLPCFloat: P polynomial (halfOrder+2, max 10)
 	scratchNlsfQ       [10]float64 // nlsfToLPCFloat: Q polynomial (halfOrder+2, max 10)
@@ -387,11 +381,6 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 	pitchBufSamples := (ltpMemLengthMs + frameMs) * fsKHz
 	shapeBufSamples := (ltpMemLengthMs+laShapeMs)*fsKHz + frameSamples
 	pitchResSamples := pitchBufSamples + laPitchMs*fsKHz
-	maxPitchWinSamples := findPitchLpcWinMs * fsKHz
-	if maxPitchWinSamples < 1 {
-		maxPitchWinSamples = 1
-	}
-
 	enc := &Encoder{
 		prevLSFQ15:        make([]int16, config.LPCOrder),
 		inputBuffer:       make([]float32, shapeBufSamples), // Noise shaping buffer with lookahead
@@ -399,13 +388,8 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		nsqState:          NewNSQState(),                    // Initialize NSQ state
 		noiseShapeState:   NewNoiseShapeState(),             // Initialize noise shaping state
 		pitchAnalysisBuf:  make([]float32, pitchBufSamples), // Pitch analysis buffer
-		scratchLtpInput:   make([]float64, pitchResSamples),
 		scratchLtpRes:     make([]float64, pitchResSamples),
 		scratchPitchRes32: make([]float32, pitchResSamples),
-		scratchPitchWsig:  make([]float64, maxPitchWinSamples),
-		scratchPitchAuto:  make([]float64, maxFindPitchLpcOrder+1),
-		scratchPitchRefl:  make([]float64, maxFindPitchLpcOrder),
-		scratchPitchA:     make([]float64, maxFindPitchLpcOrder),
 		bandwidth:         bandwidth,
 		sampleRate:        config.SampleRate,
 		lpcOrder:          config.LPCOrder,

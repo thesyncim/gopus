@@ -1075,7 +1075,7 @@ type encoderScratch struct {
 
 	// Quantized energies
 	quantizedEnergies []float64
-	coarseError       []float64
+	coarseError       []celtGLog
 	coarseDecisionE   []float64
 	analysisEnergies  []float64
 	prev1LogE         []float64
@@ -1230,7 +1230,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.energies = ensureFloat64Slice(&s.energies, bandCount)
 	s.bandLogE2 = ensureFloat64Slice(&s.bandLogE2, bandCount)
 	s.bandE = ensureFloat64Slice(&s.bandE, bandCount)
-	s.coarseError = ensureFloat64Slice(&s.coarseError, bandCount)
+	s.coarseError = ensureGLogSlice(&s.coarseError, bandCount)
 	s.bandEL = ensureFloat64Slice(&s.bandEL, MaxBands)
 	s.bandER = ensureFloat64Slice(&s.bandER, MaxBands)
 

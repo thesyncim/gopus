@@ -207,6 +207,7 @@ type Encoder struct {
 
 	// Scratch buffers for zero-allocation encoding
 	scratchDCPCM      []float64 // DC rejected PCM buffer
+	scratchInputPCM64 []float64 // float32 public input converted for the float64 core
 	scratchPCM32      []float32 // float64 to float32 conversion buffer
 	scratchLeft       []float32 // Left channel deinterleave buffer
 	scratchRight      []float32 // Right channel deinterleave buffer
@@ -710,6 +711,40 @@ func (e *Encoder) computeEquivRate(bitrate int, channels int, frameRate int, vbr
 // Encode encodes a frame of PCM audio to an Opus packet.
 func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 	return e.EncodeWithAnalysis(pcm, frameSize, pcm)
+}
+
+// EncodeFloat32 encodes a frame of libopus float PCM audio to an Opus packet.
+func (e *Encoder) EncodeFloat32(pcm []float32, frameSize int) ([]byte, error) {
+	return e.EncodeFloat32WithAnalysisMaxBytes(pcm, frameSize, pcm, maxSilkPacketBytes)
+}
+
+// EncodeFloat32WithAnalysisMaxBytes is the float32 PCM entrypoint matching
+// libopus opus_encode_float(). The encoder core still uses float64 in places,
+// so this bridge performs the conversion at the package boundary while keeping
+// the exact float32 frame visible to analysis and input filtering.
+func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int, analysisPCM []float32, maxDataBytes int) ([]byte, error) {
+	expectedLen := frameSize * e.channels
+	if len(pcm) != expectedLen {
+		return nil, ErrInvalidFrameSize
+	}
+	if analysisPCM == nil {
+		analysisPCM = pcm
+	}
+	if len(analysisPCM) < expectedLen || len(analysisPCM)%e.channels != 0 {
+		return nil, ErrInvalidFrameSize
+	}
+	scratch := e.ensureInputPCM64(len(pcm) + len(analysisPCM))
+	pcm64 := scratch[:len(pcm)]
+	analysisPCM64 := scratch[len(pcm):]
+	for i, v := range pcm {
+		pcm64[i] = float64(v)
+	}
+	for i, v := range analysisPCM {
+		analysisPCM64[i] = float64(v)
+	}
+	e.SetFloatInputFrame(pcm)
+	defer e.ClearFloatInputFrame()
+	return e.EncodeWithAnalysisMaxBytes(pcm64, frameSize, analysisPCM64, maxDataBytes)
 }
 
 // EncodeWithAnalysis encodes the selected frame while allowing analysis to see
@@ -1295,6 +1330,13 @@ func (e *Encoder) ensureDCPCM(size int) []float64 {
 		e.scratchDCPCM = make([]float64, size)
 	}
 	return e.scratchDCPCM[:size]
+}
+
+func (e *Encoder) ensureInputPCM64(size int) []float64 {
+	if cap(e.scratchInputPCM64) < size {
+		e.scratchInputPCM64 = make([]float64, size)
+	}
+	return e.scratchInputPCM64[:size]
 }
 
 func trimSilkTrailingZeros(frameData []byte) []byte {

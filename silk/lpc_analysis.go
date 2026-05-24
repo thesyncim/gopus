@@ -656,12 +656,6 @@ func (e *Encoder) burgLPCZeroAlloc(signal []float32, order int) []int16 {
 		return lpcQ12
 	}
 
-	// Convert to float64 using scratch buffer
-	x := ensureFloat64Slice(&e.scratchLpcBurg, n)
-	for i := 0; i < n; i++ {
-		x[i] = float64(signal[i])
-	}
-
 	// Use subframe-based Burg method matching libopus
 	subfrLength := n
 	nbSubfr := 1
@@ -671,7 +665,7 @@ func (e *Encoder) burgLPCZeroAlloc(signal []float32, order int) []int16 {
 		subfrLength = n / nbSubfr
 	}
 
-	a, _ := e.burgModifiedFLPZeroAlloc(x, minInvGain, subfrLength, nbSubfr, order)
+	a, _ := e.burgModifiedFLPZeroAllocF32(signal, float32(minInvGain), subfrLength, nbSubfr, order)
 
 	// Convert to Q12 fixed-point using scratch
 	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
@@ -689,11 +683,11 @@ func (e *Encoder) burgLPCZeroAlloc(signal []float32, order int) []int16 {
 }
 
 // burgModifiedFLPZeroAlloc computes LPC using scratch buffers.
-func (e *Encoder) burgModifiedFLPZeroAlloc(x []float64, minInvGainVal float64, subfrLength, nbSubfr, order int) ([]float64, float64) {
+func (e *Encoder) burgModifiedFLPZeroAlloc(x []float64, minInvGainVal float64, subfrLength, nbSubfr, order int) ([]float32, float32) {
 	totalLen := nbSubfr * subfrLength
 	if totalLen > maxBurgFrameSize || totalLen > len(x) {
 		// Safety check - return zeros
-		result := ensureFloat64Slice(&e.scratchBurgResult, order)
+		result := ensureFloat32Slice(&e.scratchBurgResult, order)
 		for i := range result {
 			result[i] = 0
 		}
@@ -867,19 +861,19 @@ func (e *Encoder) burgModifiedFLPZeroAlloc(x []float64, minInvGainVal float64, s
 	}
 
 	// Negate coefficients for LPC convention
-	A := ensureFloat64Slice(&e.scratchBurgResult, order)
+	A := ensureFloat32Slice(&e.scratchBurgResult, order)
 	for k := 0; k < order; k++ {
-		A[k] = float64(float32(-Af[k]))
+		A[k] = float32(-Af[k])
 	}
 
-	return A, nrgF
+	return A, float32(nrgF)
 }
 
 // burgModifiedFLPZeroAllocF32 computes LPC using float32 input to match libopus float path.
-func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32, subfrLength, nbSubfr, order int) ([]float64, float64) {
+func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32, subfrLength, nbSubfr, order int) ([]float32, float32) {
 	totalLen := nbSubfr * subfrLength
 	if totalLen > maxBurgFrameSize || totalLen > len(x) {
-		result := ensureFloat64Slice(&e.scratchBurgResult, order)
+		result := ensureFloat32Slice(&e.scratchBurgResult, order)
 		for i := range result {
 			result[i] = 0
 		}
@@ -1051,12 +1045,12 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 
 	// Match libopus: A[k] = (silk_float)(-Af[k]) and return (silk_float)nrg_f.
 	// Truncate to float32 precision to match libopus silk_float output.
-	A := ensureFloat64Slice(&e.scratchBurgResult, order)
+	A := ensureFloat32Slice(&e.scratchBurgResult, order)
 	for k := 0; k < order; k++ {
-		A[k] = float64(float32(-Af[k]))
+		A[k] = float32(-Af[k])
 	}
 
-	return A, float64(float32(nrgF))
+	return A, float32(nrgF)
 }
 
 // FindLPCWithInterpolation performs LPC analysis with NLSF interpolation search.
@@ -1069,14 +1063,8 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 	// Default: no interpolation
 	interpCoef := 4
 
-	// Convert to float64 using scratch buffer
-	if cap(e.scratchLpcXF64) < len(x) {
-		e.scratchLpcXF64 = make([]float64, len(x))
-	}
-	xF64 := e.scratchLpcXF64[:len(x)]
-	for i := range x {
-		xF64[i] = float64(x[i])
-	}
+	xF32 := ensureFloat32Slice(&e.scratchLpcX, len(x))
+	copy(xF32, x)
 
 	// For Burg analysis, we need subfrLength such that subfrLength*nbSubfr <= len(x)
 	// The subfrLength already includes space for order preceding samples in libopus design
@@ -1092,22 +1080,29 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 	}
 
 	// Burg AR analysis for full frame
-	// burgModifiedFLP now returns float32-precision values matching libopus
-	a, resNrgF64 := burgModifiedFLP(xF64, minInvGain, subfrLength, nbSubfr, order)
-	resNrg := float32(resNrgF64)
+	a, resNrg := e.burgModifiedFLPZeroAllocF32(xF32, float32(minInvGain), subfrLength, nbSubfr, order)
+	var aFullCopy [maxLPCOrder]float32
+	if order <= len(aFullCopy) {
+		copy(aFullCopy[:order], a)
+		a = aFullCopy[:order]
+	}
 
 	// Check for NLSF interpolation
 	if useInterp && !firstFrame && nbSubfr == maxNbSubfr {
 		// Compute optimal solution for last 10ms (half the subframes)
 		halfOffset := (maxNbSubfr / 2) * subfrLength
-		if halfOffset+subfrLength*(maxNbSubfr/2) <= len(xF64) {
-			_, resNrgLastF64 := burgModifiedFLP(xF64[halfOffset:], minInvGain, subfrLength, maxNbSubfr/2, order)
-			resNrg -= float32(resNrgLastF64)
+		if halfOffset+subfrLength*(maxNbSubfr/2) <= len(xF32) {
+			_, resNrgLast := e.burgModifiedFLPZeroAllocF32(xF32[halfOffset:], float32(minInvGain), subfrLength, maxNbSubfr/2, order)
+			resNrg -= resNrgLast
 		}
 
 		// Convert to NLSF using scratch buffers
 		nlsfQ15 := e.scratchA2nlsfNLSF[:order]
-		a2nlsfFLPInto(nlsfQ15, e.scratchA2nlsfAQ16[:order], e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:], a, order)
+		aQ16 := e.scratchA2nlsfAQ16[:order]
+		for i := 0; i < order; i++ {
+			aQ16[i] = float64ToInt32Round(float64(a[i] * 65536.0))
+		}
+		silkA2NLSFInto(nlsfQ15, aQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
 
 		// Search for best interpolation index
 		// Match libopus: res_nrg, res_nrg_2nd, res_nrg_interp are all silk_float (float32)
@@ -1116,7 +1111,7 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 
 		// For interpolation search, we need enough signal
 		analyzeLen := 2 * subfrLength
-		if analyzeLen <= len(xF64) {
+		if analyzeLen <= len(xF32) {
 			for k := 3; k >= 0; k-- {
 				// Interpolate NLSF for first half using scratch
 				nlsf0Q15 := e.scratchNlsf0Q15[:order]
@@ -1127,17 +1122,18 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 				nlsfToLPCFloatInto(aTmp, nlsf0Q15, order, e.scratchNlsfCos[:order], e.scratchNlsfP[:order/2+2], e.scratchNlsfQ[:order/2+2])
 
 				// Calculate residual energy with interpolation using scratch
-				if cap(e.scratchLpcResidual) < analyzeLen {
-					e.scratchLpcResidual = make([]float64, analyzeLen)
+				lpcTmpF32 := ensureFloat32Slice(&e.scratchPredCoefF32A, order)
+				for i := 0; i < order; i++ {
+					lpcTmpF32[i] = float32(aTmp[i])
 				}
-				lpcRes := e.scratchLpcResidual[:analyzeLen]
-				lpcAnalysisFilterFLP(lpcRes, aTmp, xF64, analyzeLen, order)
+				lpcRes := ensureFloat32Slice(&e.scratchLpcResidual, analyzeLen)
+				lpcAnalysisFilterF32(lpcRes, lpcTmpF32, xF32, analyzeLen, order)
 
 				// Compute energy of residual (excluding initial order samples)
 				// Match libopus: res_nrg_interp = (silk_float)( energy0 + energy1 )
-				nrgAccum := energyF64(lpcRes[order:], subfrLength-order)
+				nrgAccum := energyF32Libopus(lpcRes[order:], subfrLength-order)
 				if subfrLength+order < analyzeLen {
-					nrgAccum += energyF64(lpcRes[subfrLength:], silkMinInt(subfrLength-order, analyzeLen-subfrLength))
+					nrgAccum += energyF32Libopus(lpcRes[subfrLength:], silkMinInt(subfrLength-order, analyzeLen-subfrLength))
 				}
 				resNrgInterp := float32(nrgAccum)
 
@@ -1158,7 +1154,11 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 
 	// Convert LPC to NLSF using scratch buffers
 	nlsfQ15 := e.scratchA2nlsfNLSF[:order]
-	a2nlsfFLPInto(nlsfQ15, e.scratchA2nlsfAQ16[:order], e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:], a, order)
+	aQ16 := e.scratchA2nlsfAQ16[:order]
+	for i := 0; i < order; i++ {
+		aQ16[i] = float64ToInt32Round(float64(a[i] * 65536.0))
+	}
+	silkA2NLSFInto(nlsfQ15, aQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
 	return nlsfQ15, interpCoef
 }
 

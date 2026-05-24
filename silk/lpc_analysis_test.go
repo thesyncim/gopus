@@ -648,6 +648,21 @@ func TestFindLPCWithInterpolation(t *testing.T) {
 	}
 
 	t.Logf("NLSF Q15: %v, interpIdx: %d", nlsf, interpIdx)
+
+	// Non-first-frame interpolation runs a second Burg pass; the full-frame
+	// coefficients must survive that scratch reuse for the final no-interp path.
+	nlsf, interpIdx = enc.FindLPCWithInterpolation(signal, prevNLSF, true, false, 4)
+	if len(nlsf) != enc.lpcOrder {
+		t.Errorf("non-first-frame: expected %d NLSF values, got %d", enc.lpcOrder, len(nlsf))
+	}
+	if interpIdx < 0 || interpIdx > 4 {
+		t.Errorf("non-first-frame: invalid interpolation index %d", interpIdx)
+	}
+	for i := 1; i < len(nlsf); i++ {
+		if nlsf[i] <= nlsf[i-1] {
+			t.Errorf("non-first-frame: NLSF not increasing at %d: %d <= %d", i, nlsf[i], nlsf[i-1])
+		}
+	}
 }
 
 // TestSilkA2NLSFOrders tests A2NLSF for both order 10 and order 16

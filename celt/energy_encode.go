@@ -270,7 +270,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 	}
 
 	quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, nbBands*channels)
-	coarseError := ensureFloat64Slice(&e.scratch.coarseError, nbBands*channels)
+	coarseError := ensureGLogSlice(&e.scratch.coarseError, nbBands*channels)
 	for i := range coarseError {
 		coarseError[i] = 0
 	}
@@ -387,7 +387,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []float64, startBand, nbBands 
 			badness += celtAbsInt(qi0 - qi)
 
 			q := float32(qi) * float32(DB6)
-			coarseError[idx] = float64(f - q)
+			coarseError[idx] = celtGLog(f - q)
 			quantizedEnergy := pred + q
 			quantizedEnergies[idx] = float64(quantizedEnergy)
 			betaMul := noFMA32Mul(beta32, q)
@@ -508,7 +508,7 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 	probIntra := eProbModel[lm][1][:]
 	probInter := eProbModel[lm][0][:]
 	workOldE := ensureFloat64Slice(&e.scratch.quantizedEnergies, len(e.prevEnergy))
-	workErr := ensureFloat64Slice(&e.scratch.coarseError, len(e.prevEnergy))
+	workErr := ensureGLogSlice(&e.scratch.coarseError, len(e.prevEnergy))
 	workEnergies := ensureFloat64Slice(&e.scratch.coarseDecisionE, len(e.prevEnergy))
 	for i := range workEnergies {
 		workEnergies[i] = 0
@@ -671,7 +671,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 	newDistortion := coarseLossDistortionRange(energies, e.prevEnergy, start, end, nbBands, channels)
 
 	quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, nbBands*channels)
-	coarseError := ensureFloat64Slice(&e.scratch.coarseError, nbBands*channels)
+	coarseError := ensureGLogSlice(&e.scratch.coarseError, nbBands*channels)
 	for i := range coarseError {
 		coarseError[i] = 0
 	}
@@ -722,7 +722,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 	if nbBands == MaxBands {
 		quantizedEnergies := ensureFloat64Slice(&e.scratch.quantizedEnergies, len(e.prevEnergy))
 		copyGLogToFloat64(quantizedEnergies, e.prevEnergy)
-		coarseError := ensureFloat64Slice(&e.scratch.coarseError, len(e.prevEnergy))
+		coarseError := ensureGLogSlice(&e.scratch.coarseError, len(e.prevEnergy))
 		for i := range coarseError {
 			coarseError[i] = 0
 		}
@@ -842,7 +842,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []float64, start, end int, in
 			}
 
 			q := float32(qi) * float32(DB6)
-			coarseError[idx] = float64(f - q)
+			coarseError[idx] = celtGLog(f - q)
 			energy := pred + q
 			quantizedEnergies[idx] = float64(energy)
 			betaMul := noFMA32Mul(beta32, q)
@@ -989,7 +989,7 @@ func (e *Encoder) EncodeFineEnergy(energies []float64, quantizedCoarse []float64
 // encodeFineEnergyFromError mirrors libopus quant_fine_energy() with prev_quant=NULL.
 // It consumes and updates errorVals in-place so the same residual state can be used
 // by energy finalisation and next-frame energyError clipping.
-func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []float64, nbBands int, fineBits []int, errorVals []float64) {
+func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []float64, nbBands int, fineBits []int, errorVals []celtGLog) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1040,7 +1040,7 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []float64, nbBands
 
 			offset := (float32(q2)+0.5)*float32(uint(1)<<(14-bits))*(1.0/16384.0) - 0.5
 			quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
-			errorVals[idx] = float64(err - offset)
+			errorVals[idx] = celtGLog(err - offset)
 		}
 	}
 }
@@ -1135,7 +1135,7 @@ func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []float64, st
 		required = nbBands
 	}
 
-	errorVals := ensureFloat64Slice(&e.scratch.coarseError, required)
+	errorVals := ensureGLogSliceNoClear(&e.scratch.coarseError, required)
 	re := e.rangeEncoder
 
 	for band := start; band < nbBands; band++ {
@@ -1169,7 +1169,7 @@ func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []float64, st
 
 			offset := (float32(q2)+0.5)/scale32 - 0.5
 			quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
-			errorVals[idx] = float64(err - offset)
+			errorVals[idx] = celtGLog(err - offset)
 		}
 	}
 }
@@ -1294,7 +1294,7 @@ func (e *Encoder) EncodeEnergyFinalise(energies []float64, quantizedEnergies []f
 
 // encodeEnergyFinaliseFromError mirrors libopus quant_energy_finalise().
 // It consumes the remaining bit budget using the in-place residual state.
-func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []float64, nbBands int, fineQuant []int, finePriority []int, bitsLeft int, errorVals []float64) {
+func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []float64, nbBands int, fineQuant []int, finePriority []int, bitsLeft int, errorVals []celtGLog) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1337,7 +1337,7 @@ func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []float64, nbB
 
 				offset := (float32(q2) - 0.5) * float32(uint(1)<<(14-fineQuant[band]-1)) * (1.0 / 16384.0)
 				quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
-				errorVals[idx] = float64(float32(errorVals[idx]) - offset)
+				errorVals[idx] = celtGLog(float32(errorVals[idx]) - offset)
 				bitsLeft--
 			}
 		}
@@ -1428,7 +1428,7 @@ func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []float64
 		required = nbBands
 	}
 
-	errorVals := ensureFloat64Slice(&e.scratch.coarseError, required)
+	errorVals := ensureGLogSliceNoClear(&e.scratch.coarseError, required)
 	re := e.rangeEncoder
 
 	for prio := 0; prio < 2; prio++ {
@@ -1453,7 +1453,7 @@ func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []float64
 
 				offset := (float32(q2) - 0.5) / float32(uint(1)<<(fineQuant[band]+1))
 				quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
-				errorVals[idx] = float64(float32(errorVals[idx]) - offset)
+				errorVals[idx] = celtGLog(float32(errorVals[idx]) - offset)
 				bitsLeft--
 			}
 		}
@@ -1484,12 +1484,14 @@ func (e *Encoder) encodeFineEnergyFromErrorWithEncoder(re *rangecoding.Encoder, 
 	e.rangeEncoder = re
 	defer func() { e.rangeEncoder = oldRE }()
 
-	e.encodeFineEnergyFromError(quantizedEnergies, nbBands, fineBits, errorVals)
+	errScratch := appendFloat64AsGLog(nil, errorVals)
+	e.encodeFineEnergyFromError(quantizedEnergies, nbBands, fineBits, errScratch)
+	copyGLogToFloat64(errorVals, errScratch)
 }
 
 // encodeFineEnergyFromErrorWithPrev mirrors libopus quant_fine_energy() when
 // prevQuant is non-nil and extraQuant carries the incremental QEXT refinement.
-func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []float64, nbBands int, prevQuant, extraQuant []int, errorVals []float64) {
+func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []float64, nbBands int, prevQuant, extraQuant []int, errorVals []celtGLog) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1544,12 +1546,12 @@ func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []float64,
 
 			offset := ((float32(q2)+0.5)/scale32 - 0.5) / prevScale32
 			quantizedEnergies[idx] = float64(float32(quantizedEnergies[idx]) + offset)
-			errorVals[idx] = float64(err - offset)
+			errorVals[idx] = celtGLog(err - offset)
 		}
 	}
 }
 
-func (e *Encoder) encodeFineEnergyFromErrorWithPrevWithEncoder(re *rangecoding.Encoder, quantizedEnergies []float64, nbBands int, prevQuant, extraQuant []int, errorVals []float64) {
+func (e *Encoder) encodeFineEnergyFromErrorWithPrevWithEncoder(re *rangecoding.Encoder, quantizedEnergies []float64, nbBands int, prevQuant, extraQuant []int, errorVals []celtGLog) {
 	oldRE := e.rangeEncoder
 	e.rangeEncoder = re
 	defer func() { e.rangeEncoder = oldRE }()

@@ -81,6 +81,13 @@ func findLibopusToolInSourceForOS(version string, roots []string, sourceSuffix s
 	return "", false
 }
 
+func libopusSourceDir(version string, root string, sourceSuffix string) string {
+	if version == "" {
+		version = DefaultVersion
+	}
+	return filepath.Clean(filepath.Join(root, "tmp_check", "opus-"+version+sourceSuffix))
+}
+
 func libopusToolCandidates(tool, goos string) []string {
 	if goos == "windows" && !strings.HasSuffix(strings.ToLower(tool), ".exe") {
 		return []string{tool + ".exe", tool}
@@ -112,6 +119,154 @@ func FindQEXTOpusDemo(version string, roots []string) (string, bool) {
 // FindOpusCompare returns the first executable opus_compare found under tmp_check.
 func FindOpusCompare(version string, roots []string) (string, bool) {
 	return findLibopusTool(version, roots, "opus_compare")
+}
+
+func stampedLibopusBuildPresent(version string, roots []string, qext bool) bool {
+	return stampedLibopusBuildPresentForPlatform(version, roots, qext, runtime.GOOS, runtime.GOARCH)
+}
+
+func stampedLibopusBuildPresentForPlatform(version string, roots []string, qext bool, goos, goarch string) bool {
+	// This fallback exists for Windows CI, which builds libopus under MSYS2 and
+	// then runs Go tests from PowerShell where the shell validator may not be
+	// runnable. Other platforms can run the validator directly.
+	if goos != "windows" {
+		return false
+	}
+	if version == "" {
+		version = DefaultVersion
+	}
+	if len(roots) == 0 {
+		roots = DefaultSearchRoots()
+	}
+	sourceSuffix := ""
+	qextValue := "0"
+	if qext {
+		sourceSuffix = "-qext"
+		qextValue = "1"
+	}
+	seen := make(map[string]struct{}, len(roots))
+	for _, root := range roots {
+		srcDir := libopusSourceDir(version, root, sourceSuffix)
+		if _, ok := seen[srcDir]; ok {
+			continue
+		}
+		seen[srcDir] = struct{}{}
+		if !stampedLibopusSourceDirPresent(srcDir, version, qextValue, goos, goarch) {
+			continue
+		}
+		if _, ok := findLibopusToolInSourceForOS(version, []string{root}, sourceSuffix, "opus_demo", goos); !ok {
+			continue
+		}
+		if _, ok := findLibopusToolInSourceForOS(version, []string{root}, sourceSuffix, "opus_compare", goos); !ok {
+			continue
+		}
+		if st, err := os.Stat(filepath.Join(srcDir, ".libs", "libopus.a")); err != nil || st.IsDir() || st.Size() == 0 {
+			continue
+		}
+		return true
+	}
+	return false
+}
+
+func stampedLibopusSourceDirPresent(srcDir, version, qext, goos, goarch string) bool {
+	if goos != "windows" {
+		return false
+	}
+	data, err := os.ReadFile(filepath.Join(srcDir, ".gopus-libopus-build"))
+	if err != nil {
+		return false
+	}
+	fields, ok := parseLibopusBuildStamp(string(data))
+	if !ok {
+		return false
+	}
+	configure := "--enable-static --disable-shared"
+	if qext == "1" {
+		configure += " --enable-qext"
+	}
+	required := map[string]string{
+		"version":   version,
+		"qext":      qext,
+		"configure": configure,
+		"CFLAGS":    "-O3 -DNDEBUG",
+		"CPPFLAGS":  "",
+		"LDFLAGS":   "",
+	}
+	for key, want := range required {
+		if fields[key] != want {
+			return false
+		}
+	}
+	for _, key := range []string{"host_os", "host_arch", "host_bits", "cc", "cc_path", "cc_target", "cc_version"} {
+		if _, ok := fields[key]; !ok {
+			return false
+		}
+	}
+	hostOS := fields["host_os"]
+	if !(strings.Contains(hostOS, "MINGW") ||
+		strings.Contains(hostOS, "MSYS") ||
+		strings.Contains(hostOS, "CYGWIN")) {
+		return false
+	}
+	return libopusStampArchitectureMatches(goarch, fields["host_arch"], fields["host_bits"], fields["cc_target"])
+}
+
+func libopusStampArchitectureMatches(goarch, hostArch, hostBits, ccTarget string) bool {
+	if goarch == "" {
+		return false
+	}
+	wantArch := normalizeLibopusStampArch(goarch)
+	if wantArch == "" {
+		return false
+	}
+	if normalizeLibopusStampArch(hostArch) != wantArch {
+		return false
+	}
+	if normalizeLibopusStampArch(ccTarget) != wantArch {
+		return false
+	}
+	target := strings.ToLower(ccTarget)
+	if !strings.Contains(target, "mingw") && !strings.Contains(target, "msys") && !strings.Contains(target, "cygwin") {
+		return false
+	}
+	switch wantArch {
+	case "amd64", "arm64":
+		return hostBits == "64"
+	case "386":
+		return hostBits == "32"
+	default:
+		return false
+	}
+}
+
+func normalizeLibopusStampArch(arch string) string {
+	arch = strings.ToLower(arch)
+	switch {
+	case strings.Contains(arch, "x86_64") || strings.Contains(arch, "amd64"):
+		return "amd64"
+	case strings.Contains(arch, "aarch64") || strings.Contains(arch, "arm64"):
+		return "arm64"
+	case strings.Contains(arch, "i686") || strings.Contains(arch, "i386") || arch == "386":
+		return "386"
+	default:
+		return ""
+	}
+}
+
+func parseLibopusBuildStamp(stamp string) (map[string]string, bool) {
+	lines := strings.Split(strings.TrimRight(stamp, "\n"), "\n")
+	if len(lines) == 0 || lines[0] != "gopus libopus helper build v5" {
+		return nil, false
+	}
+	fields := make(map[string]string, len(lines)-1)
+	for _, line := range lines[1:] {
+		key, value, ok := strings.Cut(line, "=")
+		if !ok || key == "" {
+			return nil, false
+		}
+		fields[key] = value
+	}
+	return fields, true
 }
 
 // EnsureLibopus invokes tools/ensure_libopus.sh from the first matching root.
@@ -164,7 +319,7 @@ func ensureLibopus(version string, roots []string, qext bool) bool {
 // opus_demo. The validation step matters for fixture generation: an existing
 // executable can be from a stale host/compiler build even when it is runnable.
 func FindOrEnsureOpusDemo(version string, roots []string) (string, bool) {
-	if !EnsureLibopus(version, roots) {
+	if !EnsureLibopus(version, roots) && !stampedLibopusBuildPresent(version, roots, false) {
 		return "", false
 	}
 	return FindOpusDemo(version, roots)
@@ -173,7 +328,7 @@ func FindOrEnsureOpusDemo(version string, roots []string) (string, bool) {
 // FindOrEnsureQEXTOpusDemo tries to locate a QEXT-enabled opus_demo and
 // validates the separate QEXT build first.
 func FindOrEnsureQEXTOpusDemo(version string, roots []string) (string, bool) {
-	if !EnsureLibopusQEXT(version, roots) {
+	if !EnsureLibopusQEXT(version, roots) && !stampedLibopusBuildPresent(version, roots, true) {
 		return "", false
 	}
 	return FindQEXTOpusDemo(version, roots)
@@ -182,7 +337,7 @@ func FindOrEnsureQEXTOpusDemo(version string, roots []string) (string, bool) {
 // FindOrEnsureOpusCompare validates the pinned libopus build, then locates
 // opus_compare.
 func FindOrEnsureOpusCompare(version string, roots []string) (string, bool) {
-	if !EnsureLibopus(version, roots) {
+	if !EnsureLibopus(version, roots) && !stampedLibopusBuildPresent(version, roots, false) {
 		return "", false
 	}
 	return FindOpusCompare(version, roots)

@@ -23,15 +23,8 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 		return 0, err
 	}
 	inputSamples := frameSize * e.channels
-	e.enc.SetFloatInputFrame(pcm)
 
-	pcm64 := e.scratchPCM64[:len(pcm)]
-	for i, v := range pcm {
-		pcm64[i] = float64(v)
-	}
-
-	packet, err := e.enc.EncodeWithAnalysisMaxBytes(pcm64[:inputSamples], frameSize, pcm64, len(data))
-	e.enc.ClearFloatInputFrame()
+	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(pcm[:inputSamples], frameSize, pcm, len(data))
 	if err != nil {
 		return 0, err
 	}

@@ -8,6 +8,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 	"github.com/thesyncim/gopus/internal/testsignal"
+	"github.com/thesyncim/gopus/rangecoding"
 )
 
 const (
@@ -18,6 +19,7 @@ const (
 	libopusSILKStereoModeFindPredictor = uint32(1)
 	libopusSILKStereoModeLRToMS        = uint32(2)
 	libopusSILKStereoModeStateSizes    = uint32(3)
+	libopusSILKStereoModePacket0       = uint32(4)
 )
 
 var libopusSILKStereoHelper libopustest.HelperCache
@@ -36,14 +38,7 @@ func buildLibopusSILKStereoHelper() (string, error) {
 		ProbeRelPath: "silk/main.h",
 		CFlags:       []string{"-DHAVE_CONFIG_H"},
 		RefIncludes:  []string{"celt", "silk"},
-		RefSources: []string{
-			"silk/stereo_quant_pred.c",
-			"silk/stereo_find_predictor.c",
-			"silk/stereo_LR_to_MS.c",
-			"silk/sum_sqr_shift.c",
-			"silk/inner_prod_aligned.c",
-			"silk/tables_other.c",
-		},
+		Libs:         []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 	})
 }
 
@@ -65,6 +60,25 @@ type libopusSILKStereoState struct {
 	smthWidthQ14  int32
 	widthPrevQ14  int32
 	silentSideLen int32
+}
+
+type libopusSILKPacket0WrapperRecord struct {
+	targetRateBps        int32
+	midTargetRateBps     int32
+	sideTargetRateBps    int32
+	midVAD               int32
+	sideVAD              int32
+	midSpeechActivityQ8  int32
+	sideSpeechActivityQ8 int32
+	midInputTiltQ15      int32
+	sideInputTiltQ15     int32
+	midSNRDBQ7           int32
+	sideSNRDBQ7          int32
+	maxBits              int32
+	useCBR               int32
+	condCoding           int32
+	tellAfterSideInfo    int32
+	midOnly              int32
 }
 
 func getLibopusSILKStereoHelperPath() (string, error) {
@@ -169,6 +183,59 @@ func probeLibopusSILKLRToMS(records [][]int32, frameLengths []int) ([]libopusSIL
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusSILKPacket0Wrapper(signal []float32, bitRate, maxBits int, useCBR bool, payloadSizeMs int, activity int) (libopusSILKPacket0WrapperRecord, error) {
+	binPath, err := getLibopusSILKStereoHelperPath()
+	if err != nil {
+		return libopusSILKPacket0WrapperRecord{}, err
+	}
+	if len(signal)%2 != 0 {
+		return libopusSILKPacket0WrapperRecord{}, fmt.Errorf("stereo signal length must be even")
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKStereoInputMagic, libopusSILKStereoModePacket0, 1)
+	payload.I32(int32(len(signal) / 2))
+	payload.I32(int32(bitRate))
+	payload.I32(int32(maxBits))
+	payload.I32(libopusStereoBoolWord(useCBR))
+	payload.I32(int32(payloadSizeMs))
+	payload.I32(int32(activity))
+	for _, sample := range signal {
+		payload.Float32(sample)
+	}
+
+	data, err := libopustest.RunHelper(binPath, payload.Bytes())
+	if err != nil {
+		return libopusSILKPacket0WrapperRecord{}, fmt.Errorf("run silk packet0 wrapper helper: %w", err)
+	}
+	reader, err := libopustest.NewOracleReader("silk packet0 wrapper", libopusSILKStereoOutputMagic, data)
+	if err != nil {
+		return libopusSILKPacket0WrapperRecord{}, err
+	}
+	count := reader.Count(1)
+	reader.ExpectRemaining(count * 16 * 4)
+	out := libopusSILKPacket0WrapperRecord{
+		targetRateBps:        reader.I32(),
+		midTargetRateBps:     reader.I32(),
+		sideTargetRateBps:    reader.I32(),
+		midVAD:               reader.I32(),
+		sideVAD:              reader.I32(),
+		midSpeechActivityQ8:  reader.I32(),
+		sideSpeechActivityQ8: reader.I32(),
+		midInputTiltQ15:      reader.I32(),
+		sideInputTiltQ15:     reader.I32(),
+		midSNRDBQ7:           reader.I32(),
+		sideSNRDBQ7:          reader.I32(),
+		maxBits:              reader.I32(),
+		useCBR:               reader.I32(),
+		condCoding:           reader.I32(),
+		tellAfterSideInfo:    reader.I32(),
+		midOnly:              reader.I32(),
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return libopusSILKPacket0WrapperRecord{}, err
 	}
 	return out, nil
 }
@@ -429,13 +496,82 @@ func TestSILKStereoLRToMSMatchesLibopusOracle(t *testing.T) {
 	}
 }
 
+func TestSILKStereoPacket0WrapperMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const (
+		bitRate       = 47600
+		maxBits       = 1275 * 8
+		payloadSizeMs = 20
+	)
+	signal := chirpSweepWB20msStereo48kPacket0Signal(t)
+	want, err := probeLibopusSILKPacket0Wrapper(signal, bitRate, maxBits, true, payloadSizeMs, 0)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk packet0 wrapper", err)
+	}
+
+	left, right := downsampleStereo48kTo16kPacket0(t, signal)
+	enc := NewEncoder(BandwidthWideband)
+	sideEnc := NewEncoder(BandwidthWideband)
+	enc.SetBitrate(bitRate)
+	sideEnc.SetBitrate(bitRate)
+	enc.SetMaxBits(maxBits)
+	sideEnc.SetMaxBits(maxBits)
+	enc.SetVBR(false)
+	sideEnc.SetVBR(false)
+	enc.ResetPacketState()
+	sideEnc.ResetPacketState()
+	enc.nFramesPerPacket = 1
+	sideEnc.nFramesPerPacket = 1
+
+	var re rangecoding.Encoder
+	re.Init(make([]byte, maxSilkPacketBytes))
+	re.EncodeICDF16(0, []uint16{256 - (256 >> 4), 0}, 8)
+	encodeStereoLBRRPacket(&re, enc, sideEnc, 1, &enc.stereo)
+	totalRate := stereoAllocationTargetRate(enc, bitRate, len(left), re.Tell())
+	midOut, sideOut, ix, _, midRate, sideRate, _ := enc.StereoLRToMSWithRates(
+		left, right, len(left), 16, totalRate, enc.speechActivityQ8, false,
+	)
+	_ = midOut
+	_ = sideOut
+	EncodeStereoIndices(&re, ix)
+	gotTell := int32(re.Tell())
+
+	if int32(totalRate) != want.targetRateBps {
+		t.Fatalf("TargetRate=%d want %d", totalRate, want.targetRateBps)
+	}
+	if int32(midRate) != want.midTargetRateBps || int32(sideRate) != want.sideTargetRateBps {
+		t.Fatalf("MStargetRates=%d/%d want %d/%d", midRate, sideRate, want.midTargetRateBps, want.sideTargetRateBps)
+	}
+	if int32(maxBits/2) != want.maxBits || want.useCBR != 0 || want.condCoding != codeIndependently {
+		t.Fatalf("frame controls maxBits/useCBR/condCoding=%d/%d/%d want %d/0/%d", maxBits/2, 0, codeIndependently, want.maxBits, codeIndependently)
+	}
+	if gotTell != want.tellAfterSideInfo {
+		t.Fatalf("tellAfterSideInfo=%d want %d (libopus midVAD=%d sideVAD=%d midOnly=%d speech=%d/%d snr=%d/%d tilt=%d/%d)",
+			gotTell, want.tellAfterSideInfo, want.midVAD, want.sideVAD, want.midOnly,
+			want.midSpeechActivityQ8, want.sideSpeechActivityQ8, want.midSNRDBQ7, want.sideSNRDBQ7,
+			want.midInputTiltQ15, want.sideInputTiltQ15)
+	}
+}
+
 func chirpSweepWB20msStereo48kPacket0LRToMSInput(t testing.TB) ([]int16, []int16) {
+	t.Helper()
+	signal := chirpSweepWB20msStereo48kPacket0Signal(t)
+	left16, right16 := downsampleStereo48kTo16kPacket0(t, signal)
+	left := make([]int16, len(left16))
+	right := make([]int16, len(right16))
+	for i := range left16 {
+		left[i] = float32ToInt16(left16[i])
+		right[i] = float32ToInt16(right16[i])
+	}
+	return left, right
+}
+
+func chirpSweepWB20msStereo48kPacket0Signal(t testing.TB) []float32 {
 	t.Helper()
 	const (
 		sampleRate   = 48000
 		channels     = 2
 		frameSize48  = 960
-		frameSize16  = 320
 		signalFrames = sampleRate / frameSize48
 	)
 	signal, err := testsignal.GenerateEncoderSignalVariant(
@@ -448,7 +584,16 @@ func chirpSweepWB20msStereo48kPacket0LRToMSInput(t testing.TB) ([]int16, []int16
 		t.Fatalf("generate chirp sweep fixture signal: %v", err)
 	}
 	quantizeOpusDemoF32InPlace(signal)
+	return signal[:frameSize48*channels]
+}
 
+func downsampleStereo48kTo16kPacket0(t testing.TB, signal []float32) ([]float32, []float32) {
+	t.Helper()
+	const (
+		sampleRate  = 48000
+		frameSize48 = 960
+		frameSize16 = 320
+	)
 	left48 := make([]float32, frameSize48)
 	right48 := make([]float32, frameSize48)
 	for i := 0; i < frameSize48; i++ {
@@ -463,14 +608,7 @@ func chirpSweepWB20msStereo48kPacket0LRToMSInput(t testing.TB) ([]int16, []int16
 	if n := NewLibopusResampler(sampleRate, 16000).ProcessInto(right48, right16); n != frameSize16 {
 		t.Fatalf("right resampler output=%d want %d", n, frameSize16)
 	}
-
-	left := make([]int16, frameSize16)
-	right := make([]int16, frameSize16)
-	for i := 0; i < frameSize16; i++ {
-		left[i] = float32ToInt16(left16[i])
-		right[i] = float32ToInt16(right16[i])
-	}
-	return left, right
+	return left16, right16
 }
 
 func quantizeOpusDemoF32InPlace(in []float32) {

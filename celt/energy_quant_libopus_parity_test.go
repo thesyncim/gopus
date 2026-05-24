@@ -142,7 +142,7 @@ func TestEncoderEnergyFinaliseRangeFromErrorMatchesLibopus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			enc := NewEncoder(tc.channels)
 			gotOld := float32sToFloat64s(tc.oldEBands)
-			enc.scratch.coarseError = float32sToFloat64s(tc.errorVal)
+			enc.scratch.coarseError = float32sToGLogs(tc.errorVal)
 			buf := make([]byte, tc.storage)
 			var re rangecoding.Encoder
 			re.Init(buf)
@@ -161,7 +161,7 @@ func TestEncoderEnergyFinaliseRangeFromErrorMatchesLibopus(t *testing.T) {
 				t.Fatalf("packet=%x want %x", gotPacket, want[i].packet)
 			}
 			assertFloat64CarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
-			assertFloat64CarriesFloat32Bits(t, "error", enc.scratch.coarseError, want[i].errorVal)
+			assertGLogCarriesFloat32Bits(t, "error", enc.scratch.coarseError, want[i].errorVal)
 		})
 	}
 }
@@ -184,7 +184,7 @@ func TestEncoderFineEnergyRangeFromErrorMatchesLibopus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			enc := NewEncoder(tc.channels)
 			gotOld := float32sToFloat64s(tc.oldEBands)
-			enc.scratch.coarseError = float32sToFloat64s(tc.errorVal)
+			enc.scratch.coarseError = float32sToGLogs(tc.errorVal)
 			buf := make([]byte, tc.storage)
 			var re rangecoding.Encoder
 			re.Init(buf)
@@ -200,7 +200,7 @@ func TestEncoderFineEnergyRangeFromErrorMatchesLibopus(t *testing.T) {
 				t.Fatalf("packet=%x want %x", gotPacket, want[i].packet)
 			}
 			assertFloat64CarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
-			assertFloat64CarriesFloat32Bits(t, "error", enc.scratch.coarseError, want[i].errorVal)
+			assertGLogCarriesFloat32Bits(t, "error", enc.scratch.coarseError, want[i].errorVal)
 		})
 	}
 }
@@ -219,7 +219,7 @@ func TestEncoderFineEnergyWithPrevMatchesLibopus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			enc := NewEncoder(tc.channels)
 			gotOld := float32sToFloat64s(tc.oldEBands)
-			gotErr := float32sToFloat64s(tc.errorVal)
+			gotErr := float32sToGLogs(tc.errorVal)
 			buf := make([]byte, tc.storage)
 			var re rangecoding.Encoder
 			re.Init(buf)
@@ -234,7 +234,7 @@ func TestEncoderFineEnergyWithPrevMatchesLibopus(t *testing.T) {
 				t.Fatalf("packet=%x want %x", gotPacket, want[i].packet)
 			}
 			assertFloat64CarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
-			assertFloat64CarriesFloat32Bits(t, "error", gotErr, want[i].errorVal)
+			assertGLogCarriesFloat32Bits(t, "error", gotErr, want[i].errorVal)
 		})
 	}
 }
@@ -288,10 +288,31 @@ func assertFloat64CarriesFloat32Bits(t *testing.T, name string, got []float64, w
 	}
 }
 
+func assertGLogCarriesFloat32Bits(t *testing.T, name string, got []celtGLog, want []float32) {
+	t.Helper()
+	if len(got) < len(want) {
+		t.Fatalf("%s length: got %d want at least %d", name, len(got), len(want))
+	}
+	for i := range want {
+		if gotBits, wantBits := math.Float32bits(float32(got[i])), math.Float32bits(want[i]); gotBits != wantBits {
+			t.Fatalf("%s[%d]=0x%08x (%g), want 0x%08x (%g)",
+				name, i, gotBits, float32(got[i]), wantBits, want[i])
+		}
+	}
+}
+
 func float32sToFloat64s(in []float32) []float64 {
 	out := make([]float64, len(in))
 	for i, v := range in {
 		out[i] = float64(v)
+	}
+	return out
+}
+
+func float32sToGLogs(in []float32) []celtGLog {
+	out := make([]celtGLog, len(in))
+	for i, v := range in {
+		out[i] = celtGLog(v)
 	}
 	return out
 }

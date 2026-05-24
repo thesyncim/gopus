@@ -327,7 +327,7 @@ func (e *Encoder) UpdateEnergyErrorHybridFromError(start, end, nbBands int) {
 	if channels < 1 {
 		channels = 1
 	}
-	errorVals := ensureFloat64Slice(&e.scratch.coarseError, nbBands*channels)
+	errorVals := ensureGLogSliceNoClear(&e.scratch.coarseError, nbBands*channels)
 
 	for c := 0; c < channels; c++ {
 		baseState := c * MaxBands

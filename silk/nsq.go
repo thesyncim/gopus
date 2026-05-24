@@ -1009,24 +1009,14 @@ func silk_LSHIFT_SAT32(a int32, shift int) int32 {
 	if shift == 0 {
 		return a
 	}
-	if shift >= 31 {
-		if a > 0 {
-			return 0x7FFFFFFF
-		}
-		if a < 0 {
-			return -0x80000000
-		}
-		return 0
-	}
-	// Match libopus: saturate before shifting.
-	min := int32(-0x80000000 >> shift)
-	max := int32(0x7FFFFFFF >> shift)
+	min := int32(-0x80000000) >> shift
+	max := int32(0x7FFFFFFF) >> shift
 	if a < min {
 		a = min
 	} else if a > max {
 		a = max
 	}
-	return a << shift
+	return silk_LSHIFT32(a, shift)
 }
 
 // silk_DIV32_16 divides int32 by int16.

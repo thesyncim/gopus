@@ -91,6 +91,18 @@ func ensureGLogSlice(buf *[]celtGLog, n int) []celtGLog {
 	return (*buf)[:n]
 }
 
+func ensureGLogSliceNoClear(buf *[]celtGLog, n int) []celtGLog {
+	if n <= 0 {
+		return nil
+	}
+	if cap(*buf) < n {
+		*buf = make([]celtGLog, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return (*buf)[:n]
+}
+
 func copyGLogToFloat64(dst []float64, src []celtGLog) {
 	n := min(len(dst), len(src))
 	for i := 0; i < n; i++ {

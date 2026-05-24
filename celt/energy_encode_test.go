@@ -363,7 +363,7 @@ func TestEncodeFineEnergyFromErrorWithPrevRoundTrip(t *testing.T) {
 	}
 
 	wantQuantized := append([]float64(nil), quantized...)
-	wantError := append([]float64(nil), errorVals...)
+	wantError := appendFloat64AsGLog(nil, errorVals)
 
 	buf := make([]byte, 128)
 	re := &rangecoding.Encoder{}

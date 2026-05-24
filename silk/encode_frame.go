@@ -292,7 +292,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	}
 
 	// Step 7: Prepare indices and gains for bitrate control loop.
+	// Match libopus silk_encode_frame_{FLP,FIX}: the frame counter advances
+	// when the entropy seed is selected, before the prefill/encode branch exits.
 	seed := e.frameCounter & 3
+	e.frameCounter++
 	maxBits := e.maxBits
 	if maxBits <= 0 {
 		// Derive from target rate: bits = targetRate * frameDuration_ms / 1000
@@ -614,7 +617,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	e.previousLogGain = int32(currentPrevInd)
 	e.ecPrevSignalType = signalType
 	e.lastQuantOffsetType = int(frameIndices.quantOffsetType)
-	e.frameCounter++
 	e.isPreviousFrameVoiced = (signalType == typeVoiced)
 	copy(e.prevLSFQ15, lsfQ15)
 
@@ -770,7 +772,6 @@ func (e *Encoder) PrefillFrame(pcm []float32) {
 		copy(e.pitchAnalysisBuf[start:], pcm[:pitchBufFrameLen])
 	}
 	e.shiftInputBuffer(frameSamples)
-	// libopus prefill still advances frameCounter before exiting encode_frame.
 	e.frameCounter++
 }
 

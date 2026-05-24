@@ -198,10 +198,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 			e.lastInvGain = fullInvGain
 			e.lastNumSamples = fullNumSamples
 
-			// Match C float -= double semantics: the float is promoted to
-			// double before subtracting the double burg result, then truncated
-			// back to float. This avoids premature truncation of resNrgLast.
-			resNrg32 = float32(float64(resNrg32) - resNrgLast)
+			resNrg32 -= resNrgLast
 			resNrg2nd := float32(math.MaxFloat32)
 			analyzeLen := 2 * subfrLen
 			if analyzeLen <= totalLen {

@@ -104,7 +104,11 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	savedFrameBits := e.frameBits
 	savedQuant := e.scratch.quantizedEnergies
 	savedErr := e.scratch.coarseError
+	qextErr := appendFloat64AsGLog(nil, errorVals[:needed])
 	defer func() {
+		for i := 0; i < needed; i++ {
+			errorVals[i] = float64(qextErr[i])
+		}
 		e.rangeEncoder = savedRE
 		e.prevEnergy = savedPrev
 		e.delayedIntra = savedDelayed
@@ -126,7 +130,7 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	e.coarseAvailableBytes = nbAvailableBytes
 	e.frameBits = re.StorageBits()
 	e.scratch.quantizedEnergies = quantizedEnergies[:needed]
-	e.scratch.coarseError = errorVals[:needed]
+	e.scratch.coarseError = qextErr
 
 	clear(e.scratch.quantizedEnergies)
 	clear(e.scratch.coarseError)
