@@ -67,7 +67,7 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 
 	// Explicit DRED queues FEC features before concealment; analysis priming is
 	// only for non-FEC neural PLC entry history.
-	if (d.sampleRate == 48000 || d.sampleRate == 16000) && d.prevMode == ModeHybrid && d.channels >= 1 && d.channels <= 2 {
+	if d.prevMode == ModeHybrid && d.channels >= 1 && d.channels <= 2 {
 		return d.decodeExplicitHybridDREDFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
 	}
 	if d.prevMode == ModeSILK && (d.channels == 1 || d.channels == 2) {
