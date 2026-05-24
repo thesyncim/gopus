@@ -96,10 +96,33 @@ jobs:
       - name: Run lint/static analysis
         run: make lint
 
+  test-linux-fast:
+    name: test-linux-fast
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run fast package sweep
+        run: make test-fast
+
   test-linux-parity:
     name: test-linux-parity
     needs:
       - changes
+    # Full libopus quality parity is the slowest regular Linux gate. PRs get
+    # the fast package sweep plus focused optional-surface gates; protected
+    # branch pushes keep the full quality gate.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -138,6 +161,9 @@ jobs:
     name: test-linux-race
     needs:
       - changes
+    # Race sweeps are expensive and duplicate broad PR coverage. Keep them on
+    # protected-branch pushes where they still guard integration into master.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -176,6 +202,10 @@ jobs:
     name: test-linux-provenance
     needs:
       - changes
+    # The provenance lane builds a pinned Docker environment and performs
+    # exhaustive fixture-honesty checks. Keep it on protected-branch pushes,
+    # while PR CI uses the faster parity/race/feature-tag gates below.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
@@ -215,6 +245,9 @@ jobs:
     name: test-linux-flake
     needs:
       - changes
+    # Shuffle+repeat flake detection is valuable but not needed on every PR
+    # attempt; run it once code lands on the protected branch.
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
@@ -448,6 +481,7 @@ jobs:
     if: always()
     needs:
       - changes
+      - test-linux-fast
       - test-linux-parity
       - test-linux-race
       - test-linux-provenance
@@ -464,10 +498,11 @@ jobs:
     steps:
       - name: Validate Linux gates
         run: |
-          echo "test-linux-parity: ${{ needs.test-linux-parity.result }}"
-          echo "test-linux-race: ${{ needs.test-linux-race.result }}"
-          echo "test-linux-provenance: ${{ needs.test-linux-provenance.result }}"
-          echo "test-linux-flake: ${{ needs.test-linux-flake.result }}"
+          echo "test-linux-fast: ${{ needs.test-linux-fast.result }}"
+          echo "test-linux-parity: ${{ needs.test-linux-parity.result }} (required on push)"
+          echo "test-linux-race: ${{ needs.test-linux-race.result }} (required on push)"
+          echo "test-linux-provenance: ${{ needs.test-linux-provenance.result }} (required on push)"
+          echo "test-linux-flake: ${{ needs.test-linux-flake.result }} (required on push)"
           echo "test-linux-fuzz-smoke: ${{ needs.test-linux-fuzz-smoke.result }}"
           echo "test-linux-consumer-smoke: ${{ needs.test-linux-consumer-smoke.result }}"
           echo "test-linux-examples-smoke: ${{ needs.test-linux-examples-smoke.result }}"
@@ -476,16 +511,19 @@ jobs:
           echo "test-linux-qext-parity: ${{ needs.test-linux-qext-parity.result }}"
           echo "test-linux-extra-controls: ${{ needs.test-linux-extra-controls.result }}"
           echo "test-linux-extra-controls-parity: ${{ needs.test-linux-extra-controls-parity.result }}"
-          if [ "${{ needs.test-linux-parity.result }}" != "success" ]; then
+          if [ "${{ needs.test-linux-fast.result }}" != "success" ]; then
             exit 1
           fi
-          if [ "${{ needs.test-linux-race.result }}" != "success" ]; then
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ needs.test-linux-parity.result }}" != "success" ]; then
             exit 1
           fi
-          if [ "${{ needs.test-linux-provenance.result }}" != "success" ]; then
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ needs.test-linux-race.result }}" != "success" ]; then
             exit 1
           fi
-          if [ "${{ needs.test-linux-flake.result }}" != "success" ]; then
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ needs.test-linux-provenance.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ github.event_name }}" = "push" ] && [ "${{ needs.test-linux-flake.result }}" != "success" ]; then
             exit 1
           fi
           if [ "${{ needs.test-linux-fuzz-smoke.result }}" != "success" ]; then
