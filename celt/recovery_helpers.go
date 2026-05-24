@@ -375,7 +375,7 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	// Match libopus decode_lost() mode cadence: favor periodic concealment in the
 	// early loss window and fall back to noise-based concealment when unavailable.
 	if currFrameType == framePLCPeriodic &&
-		d.concealPeriodicPLC(d.scratchPLC[:plcLen], frameSize, lossCount, d.lastPLCFrameWasPeriodic(), true) {
+		d.concealPeriodicPLCLimited(d.scratchPLC[:plcLen], frameSize, lossCount, d.lastPLCFrameWasPeriodic(), true) {
 		d.finishLostFrame(framePLCPeriodic, frameSize)
 		d.plcPrefilterAndFoldPending = true
 		d.updatePLCOverlapBuffer(d.scratchPLC[:plcLen], frameSize)
@@ -466,6 +466,14 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 }
 
 func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, continuePeriodic bool, commit bool) bool {
+	return d.concealPeriodicPLCWithLimit(dst, frameSize, lossCount, continuePeriodic, commit, false)
+}
+
+func (d *Decoder) concealPeriodicPLCLimited(dst []float64, frameSize, lossCount int, continuePeriodic bool, commit bool) bool {
+	return d.concealPeriodicPLCWithLimit(dst, frameSize, lossCount, continuePeriodic, commit, true)
+}
+
+func (d *Decoder) concealPeriodicPLCWithLimit(dst []float64, frameSize, lossCount int, continuePeriodic bool, commit bool, limitEarly bool) bool {
 	if frameSize <= 0 || d.channels <= 0 {
 		return false
 	}
@@ -480,10 +488,10 @@ func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, co
 	if len(d.plcLPC) < celtPLCLPCOrder*d.channels {
 		return false
 	}
-	// Match libopus: prefer periodic PLC only for the early loss window.
-	// celt_decode_lost() switches away once prior PLC duration reaches 40 units
-	// (about 100 ms at 48 kHz).
-	if lossCount > 1 && (lossCount-1)*frameSize >= 4800 {
+	// Match libopus: standalone periodic PLC is limited to the early loss
+	// window, while neural/DRED PLC still computes this pitch baseline for
+	// its crossfade after the regular periodic type would have stopped.
+	if limitEarly && lossCount > 1 && (lossCount-1)*frameSize >= 4800 {
 		return false
 	}
 

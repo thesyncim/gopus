@@ -4230,7 +4230,7 @@ func TestDecoderPublicDecodeDREDHybridAPIRateMatchesLibopus(t *testing.T) {
 	}
 }
 
-func TestDecoderPublicDecodeDREDOverlongRequestMatchesLibopusReturn(t *testing.T) {
+func TestDecoderPublicDecodeDREDOverlongRequestMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, 48000, libopusDREDPacketConfig{
 		FrameSize: 960,
@@ -4260,9 +4260,10 @@ func TestDecoderPublicDecodeDREDOverlongRequestMatchesLibopusReturn(t *testing.T
 		t.Fatalf("DecodeDRED overlong=%d want %d", got, requested)
 	}
 
-	if len(want.pcm) < got*dec.channels {
-		t.Fatalf("libopus public overlong DRED PCM len=%d want at least %d", len(want.pcm), got*dec.channels)
-	}
+	gotPCM := pcm[:got*dec.channels]
+	wantPCM := want.pcm[:got*dec.channels]
+	pcmTol, _, _, _ := decoderDREDLiveSequenceTolerances(requested)
+	assertFloat32ApproxEqual(t, gotPCM, wantPCM, "public overlong DecodeDRED pcm", pcmTol)
 }
 
 func TestDecoderExplicitDREDCELT48kBridgeMatchesLibopusFirstLoss(t *testing.T) {
