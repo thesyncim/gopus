@@ -20,6 +20,7 @@ const (
 	FloatQuantModeCELTDispatch       = uint32(4)
 	FloatQuantModeSILKFloat2Short    = uint32(5)
 	FloatQuantModeSILKFloat2IntScale = uint32(6)
+	FloatQuantModeSILKShort2Float    = uint32(7)
 )
 
 var (
@@ -279,6 +280,33 @@ func ProbeFloatQuantScaledInt32(scale float32, samples []float32) ([]int32, erro
 	out := make([]int32, count)
 	for i := range out {
 		out[i] = reader.I32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func ProbeSILKShort2Float(samples []int16) ([]float32, error) {
+	helperPath, err := floatQuantHelper()
+	if err != nil {
+		return nil, err
+	}
+
+	payload := NewOraclePayload("GFQI", FloatQuantModeSILKShort2Float, uint32(len(samples)))
+	for _, sample := range samples {
+		payload.I16(sample)
+	}
+
+	reader, err := RunOracle(helperPath, payload.Bytes(), "float quant", "GFQO")
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(samples))
+	reader.ExpectRemaining(4 * count)
+	out := make([]float32, count)
+	for i := range out {
+		out[i] = reader.Float32()
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err

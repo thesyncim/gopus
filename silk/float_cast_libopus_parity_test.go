@@ -128,12 +128,58 @@ func TestSILKFloatToInt32ScaledMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestSILKInt16ToFloat32SliceMatchesLibopusShort2FloatArray(t *testing.T) {
+	libopustest.RequireOracle(t)
+	samples := silkShort2FloatOracleSamples()
+	want, err := libopustest.ProbeSILKShort2Float(samples)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk short2float", err)
+	}
+	got := make([]float32, len(samples))
+	int16ToFloat32Slice(got, samples)
+	for i := range got {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("sample[%d]=%d got %08x %.10g want %08x %.10g",
+				i, samples[i],
+				math.Float32bits(got[i]), got[i],
+				math.Float32bits(want[i]), want[i])
+		}
+	}
+}
+
 func appendFloat32Neighbors(dst []float32, sample float32) []float32 {
 	return append(dst,
 		math.Nextafter32(sample, float32(math.Inf(-1))),
 		sample,
 		math.Nextafter32(sample, float32(math.Inf(1))),
 	)
+}
+
+func silkShort2FloatOracleSamples() []int16 {
+	samples := []int16{
+		-32768,
+		-32767,
+		-16384,
+		-4097,
+		-4096,
+		-255,
+		-2,
+		-1,
+		0,
+		1,
+		2,
+		255,
+		4095,
+		4096,
+		16383,
+		16384,
+		32766,
+		32767,
+	}
+	for v := -1024; v <= 1024; v += 17 {
+		samples = append(samples, int16(v))
+	}
+	return samples
 }
 
 func silkFloat2ShortOracleSamples() []float32 {
