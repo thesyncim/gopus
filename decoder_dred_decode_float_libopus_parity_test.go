@@ -6046,6 +6046,95 @@ func TestDecoderExplicit16kSILKDREDDecodeMatchesLibopus(t *testing.T) {
 	assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.silk, silkpkg.BandwidthWideband, "explicit 16k silk libopus silk", 1e-4)
 }
 
+func TestDecoderPublicSILKDREDAPIRateMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	tests := []struct {
+		name       string
+		sampleRate int
+		cfg        libopusDREDPacketConfig
+		pcmTol     float64
+		stateTol   float64
+	}{
+		{
+			name:       "8k_mono",
+			sampleRate: 8000,
+			cfg: libopusDREDPacketConfig{
+				FrameSize: 960,
+				ForceMode: ModeSILK,
+				Bandwidth: BandwidthWideband,
+			},
+			pcmTol:   1e-4,
+			stateTol: 1e-4,
+		},
+		{
+			name:       "12k_mono",
+			sampleRate: 12000,
+			cfg: libopusDREDPacketConfig{
+				FrameSize: 960,
+				ForceMode: ModeSILK,
+				Bandwidth: BandwidthWideband,
+			},
+			pcmTol:   1e-4,
+			stateTol: 1e-4,
+		},
+		{
+			name:       "24k_mono",
+			sampleRate: 24000,
+			cfg: libopusDREDPacketConfig{
+				FrameSize: 960,
+				ForceMode: ModeSILK,
+				Bandwidth: BandwidthWideband,
+			},
+			pcmTol:   1e-4,
+			stateTol: 1e-4,
+		},
+		{
+			name:       "24k_stereo",
+			sampleRate: 24000,
+			cfg: libopusDREDPacketConfig{
+				FrameSize:     960,
+				ForceMode:     ModeSILK,
+				Bandwidth:     BandwidthWideband,
+				Channels:      2,
+				ForceChannels: 2,
+			},
+			pcmTol:   1e-4,
+			stateTol: 1e-4,
+		},
+	}
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, tc.sampleRate, tc.cfg)
+			want, err := probeLibopusDecoderDREDDecodeFloatForDecoder(seedPacket, packetInfo, tc.sampleRate, -1, n, n)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "decoder SILK API-rate DRED decode", err)
+			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus public SILK API-rate DRED")
+			if want.ret != n {
+				t.Fatalf("libopus public SILK API-rate DRED ret=%d want %d", want.ret, n)
+			}
+			if want.channels != dec.channels {
+				t.Fatalf("libopus public SILK API-rate DRED channels=%d want %d", want.channels, dec.channels)
+			}
+
+			pcm := make([]float32, n*dec.channels)
+			got, err := dec.DecodeDRED(dred, n, pcm, n)
+			if err != nil {
+				t.Fatalf("DecodeDRED error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("DecodeDRED=%d want %d", got, n)
+			}
+
+			assertFloat32ApproxEqual(t, pcm[:got*dec.channels], want.pcm[:got*dec.channels], "public SILK API-rate DecodeDRED pcm", tc.pcmTol)
+			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.state, "public SILK API-rate DecodeDRED plc", tc.stateTol)
+			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.fargan, "public SILK API-rate DecodeDRED fargan", tc.stateTol)
+			assertDecoderDREDSILKStateApproxEqualWithin(t, dec, want.silk, silkpkg.BandwidthWideband, "public SILK API-rate DecodeDRED silk", tc.stateTol)
+		})
+	}
+}
+
 // TestDecoderExplicitSILKDREDDecodeStereoMatchesLibopus mirrors
 // TestDecoderExplicitSILKDREDDecodeMatchesLibopus for the stereo SILK DRED
 // runtime path. libopus routes DRED through one lpcnet state on SILK channel 0
