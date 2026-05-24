@@ -1015,6 +1015,19 @@ func TestDecoderDecodeNilConsumesMultistreamDREDNeuralCELTFinalSecondCoupledStre
 	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "celt final second coupled", packet, channels, targetStream)
 }
 
+func TestDecoderDecodeNilConsumesMultistreamDREDNeuralCELTAPIRateStream(t *testing.T) {
+	const channels = 3
+	const targetStream = 0
+	body := makeExperimentalDREDPayloadBodyForTest(t, 0, 4)
+	packet := makeCELTMultistreamPacketWithDREDForTest(t, channels, targetStream, body)
+
+	for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+		t.Run(fmt.Sprintf("fs_%d", sampleRate), func(t *testing.T) {
+			assertDecoderDecodeNilConsumesMultistreamDREDNeuralModeAtRate(t, "celt api-rate", packet, channels, targetStream, sampleRate)
+		})
+	}
+}
+
 func TestDecoderDecodeNilConsumesMultistreamDREDNeuralHybridStereoStream(t *testing.T) {
 	const channels = 3
 	const targetStream = 0

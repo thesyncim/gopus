@@ -559,9 +559,6 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float64, bool, e
 	if !ok || st == nil || st.channels < 1 || st.channels > 2 {
 		return nil, false, nil
 	}
-	if st.lastMode == streamModeCELT && d.sampleRate != 48000 {
-		return nil, false, nil
-	}
 	if !d.ensureDREDNeuralRuntime(stream) {
 		return nil, false, nil
 	}
@@ -584,6 +581,12 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float64, bool, e
 	}
 	if frameSize <= 0 {
 		frameSize = 960
+	}
+	frameSize48 := frameSize
+	downsample := 1
+	if st.sampleRate != 48000 {
+		frameSize48 = st.frameSize48FromAPI(frameSize)
+		downsample = 48000 / st.sampleRate
 	}
 	samples := frameSize * st.channels
 	var out []float32
@@ -611,9 +614,9 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float64, bool, e
 
 	var okConceal bool
 	if plc.FECFillPos() > plc.FECReadPos() {
-		okConceal = st.celtDec.ConcealDRED48kToFloat32(out, frameSize, &bridge.dredLastNeural, bridge.dredPLCPCM[:], &bridge.dredPLCFill, &bridge.dredPLCPreemphMem, generate)
+		okConceal = st.celtDec.ConcealDRED48kDownsampleToFloat32(out, frameSize48, downsample, &bridge.dredLastNeural, bridge.dredPLCPCM[:], &bridge.dredPLCFill, &bridge.dredPLCPreemphMem, generate)
 	} else {
-		okConceal = st.celtDec.ConcealPLCNeural48kToFloat32(out, frameSize, &bridge.dredLastNeural, bridge.dredPLCPCM[:], &bridge.dredPLCFill, &bridge.dredPLCPreemphMem, generate)
+		okConceal = st.celtDec.ConcealPLCNeural48kDownsampleToFloat32(out, frameSize48, downsample, &bridge.dredLastNeural, bridge.dredPLCPCM[:], &bridge.dredPLCFill, &bridge.dredPLCPreemphMem, generate)
 	}
 	if !okConceal {
 		return nil, false, nil
