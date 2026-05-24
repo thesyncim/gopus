@@ -222,7 +222,7 @@ func TestEncoderInterpolationState(t *testing.T) {
 	}
 
 	// Set state and verify
-	testPred := [2]int32{1234, 5678}
+	testPred := [2]int16{1234, 5678}
 	testWidth := int16(12345)
 	enc.SetInterpolationState(testPred, testWidth)
 
@@ -270,8 +270,9 @@ func TestStereoEncodeLRToMSWithInterp(t *testing.T) {
 
 	// Verify state was updated
 	gotPred, gotWidth := enc.GetInterpolationState()
-	if gotPred != predQ13_1 {
-		t.Errorf("Predictor state not updated: got %v, want %v", gotPred, predQ13_1)
+	wantPred := [2]int16{int16(predQ13_1[0]), int16(predQ13_1[1])}
+	if gotPred != wantPred {
+		t.Errorf("Predictor state not updated: got %v, want %v", gotPred, wantPred)
 	}
 	if gotWidth != widthQ14 {
 		t.Errorf("Width state not updated: got %d, want %d", gotWidth, widthQ14)

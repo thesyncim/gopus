@@ -31,8 +31,8 @@ func silkStereoMSToLR(state *stereoDecState, mid []int16, side []int16, predQ13 
 	copy(state.sMid[:], mid[frameLength:frameLength+2])
 	copy(state.sSide[:], side[frameLength:frameLength+2])
 
-	pred0 := state.predPrevQ13[0]
-	pred1 := state.predPrevQ13[1]
+	pred0 := int32(state.predPrevQ13[0])
+	pred1 := int32(state.predPrevQ13[1])
 	denomQ16 := int32((1 << 16) / (stereoInterpLenMs * fsKHz))
 	delta0 := silkRSHIFT_ROUND(silkSMULBB(predQ13[0]-pred0, denomQ16), 16)
 	delta1 := silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-pred1, denomQ16), 16)
@@ -56,8 +56,8 @@ func silkStereoMSToLR(state *stereoDecState, mid []int16, side []int16, predQ13 
 		side[n+1] = silkSAT16(silkRSHIFT_ROUND(sum, 8))
 	}
 
-	state.predPrevQ13[0] = predQ13[0]
-	state.predPrevQ13[1] = predQ13[1]
+	state.predPrevQ13[0] = int16(predQ13[0])
+	state.predPrevQ13[1] = int16(predQ13[1])
 
 	for n := 0; n < frameLength; n++ {
 		sum := int32(mid[n+1]) + int32(side[n+1])

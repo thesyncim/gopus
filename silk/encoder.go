@@ -515,7 +515,7 @@ func (e *Encoder) ResetTransitionPrefillState() {
 
 func resetStereoEncState(st *stereoEncState) {
 	*st = stereoEncState{}
-	st.midSideAmpQ0 = [4]float64{0, 1, 0, 1}
+	st.midSideAmpQ0 = [4]int32{0, 1, 0, 1}
 	st.smthWidthQ14 = 16384
 }
 

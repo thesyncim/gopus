@@ -5,6 +5,7 @@ package silk
 import (
 	"fmt"
 	"testing"
+	"unsafe"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
@@ -16,6 +17,7 @@ const (
 	libopusSILKStereoModeQuantPred     = uint32(0)
 	libopusSILKStereoModeFindPredictor = uint32(1)
 	libopusSILKStereoModeLRToMS        = uint32(2)
+	libopusSILKStereoModeStateSizes    = uint32(3)
 )
 
 var libopusSILKStereoHelper libopustest.HelperCache
@@ -202,6 +204,41 @@ func TestSILKStereoQuantPredMatchesLibopusOracle(t *testing.T) {
 				t.Fatalf("ix=%v want %v", got, want[i].extra)
 			}
 		})
+	}
+}
+
+func TestSILKStereoStateStorageMatchesLibopusTypes(t *testing.T) {
+	libopustest.RequireOracle(t)
+	records, err := probeLibopusSILKStereo(libopusSILKStereoModeStateSizes, [][]int32{{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("got %d records, want 1", len(records))
+	}
+	rec := records[0]
+	var enc stereoEncState
+	var dec stereoDecState
+	checks := []struct {
+		name string
+		got  uintptr
+		want int32
+	}{
+		{"enc.predPrevQ13", unsafe.Sizeof(enc.predPrevQ13[0]), rec.first},
+		{"enc.sMid", unsafe.Sizeof(enc.sMid[0]), rec.second},
+		{"enc.sSide", unsafe.Sizeof(enc.sSide[0]), rec.extra[0]},
+		{"enc.midSideAmpQ0", unsafe.Sizeof(enc.midSideAmpQ0[0]), rec.extra[1]},
+		{"enc.smthWidthQ14", unsafe.Sizeof(enc.smthWidthQ14), rec.extra[2]},
+		{"enc.widthPrevQ14", unsafe.Sizeof(enc.widthPrevQ14), rec.extra[3]},
+		{"enc.silentSideLen", unsafe.Sizeof(enc.silentSideLen), rec.extra[4]},
+		{"dec.predPrevQ13", unsafe.Sizeof(dec.predPrevQ13[0]), rec.first},
+		{"dec.sMid", unsafe.Sizeof(dec.sMid[0]), rec.second},
+		{"dec.sSide", unsafe.Sizeof(dec.sSide[0]), rec.extra[0]},
+	}
+	for _, check := range checks {
+		if int32(check.got) != check.want {
+			t.Fatalf("%s sizeof = %d, want libopus %d", check.name, check.got, check.want)
+		}
 	}
 }
 
@@ -431,26 +468,26 @@ func samePCM16FromFloat(got []float32, want []int16) bool {
 }
 
 func setStereoStateFromOracle(st *stereoEncState, src libopusSILKStereoState) {
-	st.predPrevQ13 = src.predPrevQ13
+	st.predPrevQ13 = [2]int16{int16(src.predPrevQ13[0]), int16(src.predPrevQ13[1])}
 	st.sMid = [2]int16{int16(src.sMid[0]), int16(src.sMid[1])}
 	st.sSide = [2]int16{int16(src.sSide[0]), int16(src.sSide[1])}
 	st.widthPrevQ14 = int16(src.widthPrevQ14)
 	st.smthWidthQ14 = int16(src.smthWidthQ14)
-	st.silentSideLen = src.silentSideLen
+	st.silentSideLen = int16(src.silentSideLen)
 	for i := range st.midSideAmpQ0 {
-		st.midSideAmpQ0[i] = float64(src.midSideAmpQ0[i])
+		st.midSideAmpQ0[i] = src.midSideAmpQ0[i]
 	}
 }
 
 func stereoStateForOracle(st stereoEncState) libopusSILKStereoState {
 	return libopusSILKStereoState{
-		predPrevQ13:   st.predPrevQ13,
+		predPrevQ13:   [2]int32{int32(st.predPrevQ13[0]), int32(st.predPrevQ13[1])},
 		sMid:          [2]int32{int32(st.sMid[0]), int32(st.sMid[1])},
 		sSide:         [2]int32{int32(st.sSide[0]), int32(st.sSide[1])},
-		midSideAmpQ0:  [4]int32{int32(st.midSideAmpQ0[0]), int32(st.midSideAmpQ0[1]), int32(st.midSideAmpQ0[2]), int32(st.midSideAmpQ0[3])},
+		midSideAmpQ0:  st.midSideAmpQ0,
 		smthWidthQ14:  int32(st.smthWidthQ14),
 		widthPrevQ14:  int32(st.widthPrevQ14),
-		silentSideLen: st.silentSideLen,
+		silentSideLen: int32(st.silentSideLen),
 	}
 }
 

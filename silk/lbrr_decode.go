@@ -187,7 +187,7 @@ func (d *Decoder) decodeStereoFECFrames(
 				decodeOnlyMiddle = silkStereoDecodeMidOnly(rd)
 			}
 		} else {
-			predQ13 = d.stereo.predPrevQ13
+			predQ13 = [2]int32{int32(d.stereo.predPrevQ13[0]), int32(d.stereo.predPrevQ13[1])}
 		}
 		d.maybeResetStereoSideChannel(decodeOnlyMiddle, stSide)
 

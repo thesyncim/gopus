@@ -215,7 +215,7 @@ func TestResetSideChannel_MonoToStereoBitstreamResetMatchesLibopus(t *testing.T)
 	d.state[1].lastGainIndex = 7
 	d.state[1].prevSignalType = 3
 	d.state[1].firstFrameAfterReset = false
-	d.stereo.predPrevQ13 = [2]int32{123, -456}
+	d.stereo.predPrevQ13 = [2]int16{123, -456}
 	d.stereo.sMid = [2]int16{11, 22}
 	d.stereo.sSide = [2]int16{33, 44}
 
@@ -233,7 +233,7 @@ func TestResetSideChannel_MonoToStereoBitstreamResetMatchesLibopus(t *testing.T)
 	if d.state[1].lastGainIndex != 0 {
 		t.Fatalf("lastGainIndex = %d, want 0 after side decoder re-init", d.state[1].lastGainIndex)
 	}
-	if d.stereo.predPrevQ13 != [2]int32{} {
+	if d.stereo.predPrevQ13 != [2]int16{} {
 		t.Fatalf("predPrevQ13 = %v, want cleared", d.stereo.predPrevQ13)
 	}
 	if d.stereo.sSide != [2]int16{} {

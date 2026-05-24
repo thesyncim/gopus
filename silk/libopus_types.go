@@ -108,7 +108,7 @@ type decoderControl struct {
 }
 
 type stereoDecState struct {
-	predPrevQ13 [2]int32
+	predPrevQ13 [2]int16
 	sMid        [2]int16
 	sSide       [2]int16
 }
@@ -116,19 +116,18 @@ type stereoDecState struct {
 // stereoEncState holds encoder-side stereo state, matching libopus stereo_enc_state.
 // This enables proper LP filtering for stereo mid/side predictor analysis.
 type stereoEncState struct {
-	predPrevQ13   [2]int32 // Previous frame prediction coefficients (Q13)
+	predPrevQ13   [2]int16 // Previous frame prediction coefficients (Q13)
 	sMid          [2]int16 // Mid signal buffer for LP filter continuity
 	sSide         [2]int16 // Side signal buffer for LP filter continuity
 	widthPrevQ14  int16    // Previous frame's stereo width (Q14)
 	smthWidthQ14  int16    // Smoothed stereo width (Q14)
-	silentSideLen int32    // Accumulated silent side length (samples)
+	silentSideLen int16    // Accumulated silent side length (samples)
 	// Tracks whether the previous coded frame collapsed to mid-only so the
 	// first returning side frame can reset state like libopus enc_API.c.
 	prevDecodeOnlyMiddle int
 	// Per-frame stereo metadata for LBRR in the next packet (set during frame encode).
-	lbrrStereoIx  [maxFramesPerPacket]StereoQuantIndices
-	lbrrMidOnly   [maxFramesPerPacket]int
-	// Smoothed mid/residual amplitudes for LP/HP (float domain).
-	// Matches mid_side_amp_Q0 in libopus but stored as float for simplicity.
-	midSideAmpQ0 [4]float64
+	lbrrStereoIx [maxFramesPerPacket]StereoQuantIndices
+	lbrrMidOnly  [maxFramesPerPacket]int
+	// Smoothed mid/residual amplitudes for LP/HP (Q0), matching libopus.
+	midSideAmpQ0 [4]int32
 }

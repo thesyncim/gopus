@@ -378,15 +378,15 @@ func (e *Encoder) StereoEncodeLRToMSWithInterp(left, right []float32, frameLengt
 	interpSamples := stereoInterpLenMs * fsKHz
 
 	// Get previous frame's predictor values (negated as in libopus)
-	pred0Q13 := -e.stereo.predPrevQ13[0]
-	pred1Q13 := -e.stereo.predPrevQ13[1]
+	pred0Q13 := -int32(e.stereo.predPrevQ13[0])
+	pred1Q13 := -int32(e.stereo.predPrevQ13[1])
 	wQ24 := int32(e.stereo.widthPrevQ14) << 10
 
 	// Compute interpolation deltas
 	// denomQ16 = 1.0 / (8ms * fsKHz) in Q16
 	denomQ16 := int32((1 << 16) / interpSamples)
-	delta0Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[0]-e.stereo.predPrevQ13[0], denomQ16), 16)
-	delta1Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-e.stereo.predPrevQ13[1], denomQ16), 16)
+	delta0Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[0]-int32(e.stereo.predPrevQ13[0]), denomQ16), 16)
+	delta1Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-int32(e.stereo.predPrevQ13[1]), denomQ16), 16)
 	deltawQ24 := int32(silkSMULWB(int32(widthQ14)-int32(e.stereo.widthPrevQ14), denomQ16)) << 10
 
 	// Process interpolation region (first 8ms)
@@ -434,8 +434,8 @@ func (e *Encoder) StereoEncodeLRToMSWithInterp(left, right []float32, frameLengt
 	}
 
 	// Update state for next frame
-	e.stereo.predPrevQ13[0] = predQ13[0]
-	e.stereo.predPrevQ13[1] = predQ13[1]
+	e.stereo.predPrevQ13[0] = int16(predQ13[0])
+	e.stereo.predPrevQ13[1] = int16(predQ13[1])
 	e.stereo.widthPrevQ14 = widthQ14
 
 	return midOut, sideOut, predQ13
@@ -469,13 +469,13 @@ func (e *Encoder) StereoEncodeLRToMSWithInterpQuantized(left, right []float32, f
 	// Apply 8ms predictor interpolation using quantized predictors
 	interpSamples := stereoInterpLenMs * fsKHz
 
-	pred0Q13 := -e.stereo.predPrevQ13[0]
-	pred1Q13 := -e.stereo.predPrevQ13[1]
+	pred0Q13 := -int32(e.stereo.predPrevQ13[0])
+	pred1Q13 := -int32(e.stereo.predPrevQ13[1])
 	wQ24 := int32(e.stereo.widthPrevQ14) << 10
 
 	denomQ16 := int32((1 << 16) / interpSamples)
-	delta0Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[0]-e.stereo.predPrevQ13[0], denomQ16), 16)
-	delta1Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-e.stereo.predPrevQ13[1], denomQ16), 16)
+	delta0Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[0]-int32(e.stereo.predPrevQ13[0]), denomQ16), 16)
+	delta1Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-int32(e.stereo.predPrevQ13[1]), denomQ16), 16)
 	deltawQ24 := int32(silkSMULWB(int32(widthQ14)-int32(e.stereo.widthPrevQ14), denomQ16)) << 10
 
 	for n := 0; n < interpSamples && n < frameLength; n++ {
@@ -514,8 +514,8 @@ func (e *Encoder) StereoEncodeLRToMSWithInterpQuantized(left, right []float32, f
 	}
 
 	// Update state for next frame (quantized predictors)
-	e.stereo.predPrevQ13[0] = predQ13[0]
-	e.stereo.predPrevQ13[1] = predQ13[1]
+	e.stereo.predPrevQ13[0] = int16(predQ13[0])
+	e.stereo.predPrevQ13[1] = int16(predQ13[1])
 	e.stereo.widthPrevQ14 = widthQ14
 	e.prevStereoWeights[0] = int16(predQ13[0] + predQ13[1])
 	e.prevStereoWeights[1] = int16(predQ13[1])
@@ -591,19 +591,19 @@ func (e *Encoder) StereoLRToMSWithRates(
 	}
 	smoothCoefQ16 = silkSMULWB(silkSMULBB(int32(prevSpeechActQ8), int32(prevSpeechActQ8)), smoothCoefQ16)
 	lpMidResQ0 := [2]int32{
-		int32(e.stereo.midSideAmpQ0[0]),
-		int32(e.stereo.midSideAmpQ0[1]),
+		e.stereo.midSideAmpQ0[0],
+		e.stereo.midSideAmpQ0[1],
 	}
 	hpMidResQ0 := [2]int32{
-		int32(e.stereo.midSideAmpQ0[2]),
-		int32(e.stereo.midSideAmpQ0[3]),
+		e.stereo.midSideAmpQ0[2],
+		e.stereo.midSideAmpQ0[3],
 	}
 
 	predLP, ratioLPQ14 := stereoFindPredictorQ13WithRatioQ14(lpMidQ0, lpSideQ0, frameLength, &lpMidResQ0, smoothCoefQ16)
 	predHP, ratioHPQ14 := stereoFindPredictorQ13WithRatioQ14(hpMidQ0, hpSideQ0, frameLength, &hpMidResQ0, smoothCoefQ16)
 
-	e.stereo.midSideAmpQ0[0], e.stereo.midSideAmpQ0[1] = float64(lpMidResQ0[0]), float64(lpMidResQ0[1])
-	e.stereo.midSideAmpQ0[2], e.stereo.midSideAmpQ0[3] = float64(hpMidResQ0[0]), float64(hpMidResQ0[1])
+	e.stereo.midSideAmpQ0[0], e.stereo.midSideAmpQ0[1] = lpMidResQ0[0], lpMidResQ0[1]
+	e.stereo.midSideAmpQ0[2], e.stereo.midSideAmpQ0[3] = hpMidResQ0[0], hpMidResQ0[1]
 
 	predQ13 := [2]int32{predLP, predHP}
 
@@ -684,12 +684,13 @@ func (e *Encoder) StereoLRToMSWithRates(
 	predQ13, ix = QuantizeStereoWeights(predQ13)
 	// Handle mid-only persistence.
 	if midOnly {
-		e.stereo.silentSideLen += int32(frameLength - stereoInterpLenMs*fsKHz)
-		if e.stereo.silentSideLen < int32(laShapeMs*fsKHz) {
+		silentSideLen := int32(e.stereo.silentSideLen) + int32(frameLength-stereoInterpLenMs*fsKHz)
+		if silentSideLen < int32(laShapeMs*fsKHz) {
 			midOnly = false
-		} else if e.stereo.silentSideLen > 10000 {
-			e.stereo.silentSideLen = 10000
+		} else if silentSideLen > 10000 {
+			silentSideLen = 10000
 		}
+		e.stereo.silentSideLen = int16(silentSideLen)
 	} else {
 		e.stereo.silentSideLen = 0
 	}
@@ -732,12 +733,12 @@ func (e *Encoder) StereoLRToMSWithRates(
 		midOut[n] = float32(midQ0[n+1]) / 32768.0
 	}
 
-	pred0Q13 := -e.stereo.predPrevQ13[0]
-	pred1Q13 := -e.stereo.predPrevQ13[1]
+	pred0Q13 := -int32(e.stereo.predPrevQ13[0])
+	pred1Q13 := -int32(e.stereo.predPrevQ13[1])
 	wQ24 := int32(e.stereo.widthPrevQ14) << 10
 	denomQ16 := int32((1 << 16) / (stereoInterpLenMs * fsKHz))
-	delta0Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[0]-e.stereo.predPrevQ13[0], denomQ16), 16)
-	delta1Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-e.stereo.predPrevQ13[1], denomQ16), 16)
+	delta0Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[0]-int32(e.stereo.predPrevQ13[0]), denomQ16), 16)
+	delta1Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-int32(e.stereo.predPrevQ13[1]), denomQ16), 16)
 	deltawQ24 := int32(silkSMULWB(int32(widthQ14)-int32(e.stereo.widthPrevQ14), denomQ16)) << 10
 
 	interpSamples := stereoInterpLenMs * fsKHz
@@ -765,8 +766,8 @@ func (e *Encoder) StereoLRToMSWithRates(
 	}
 
 	// Update state for next frame.
-	e.stereo.predPrevQ13[0] = predQ13[0]
-	e.stereo.predPrevQ13[1] = predQ13[1]
+	e.stereo.predPrevQ13[0] = int16(predQ13[0])
+	e.stereo.predPrevQ13[1] = int16(predQ13[1])
 	e.stereo.widthPrevQ14 = widthQ14
 	e.prevStereoWeights[0] = int16(predQ13[0] + predQ13[1])
 	e.prevStereoWeights[1] = int16(predQ13[1])
@@ -910,13 +911,13 @@ func (s *StereoEncStateInterp) ApplyInterpolation(currPredQ13 [2]int32, currWidt
 
 // GetInterpolationState returns the current interpolation state from the encoder.
 // This allows external code to track the interpolation state.
-func (e *Encoder) GetInterpolationState() (predPrevQ13 [2]int32, widthPrevQ14 int16) {
+func (e *Encoder) GetInterpolationState() (predPrevQ13 [2]int16, widthPrevQ14 int16) {
 	return e.stereo.predPrevQ13, e.stereo.widthPrevQ14
 }
 
 // SetInterpolationState sets the interpolation state for the encoder.
 // This is useful for testing or when restoring encoder state.
-func (e *Encoder) SetInterpolationState(predPrevQ13 [2]int32, widthPrevQ14 int16) {
+func (e *Encoder) SetInterpolationState(predPrevQ13 [2]int16, widthPrevQ14 int16) {
 	e.stereo.predPrevQ13 = predPrevQ13
 	e.stereo.widthPrevQ14 = widthPrevQ14
 }

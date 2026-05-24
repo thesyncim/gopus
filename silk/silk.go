@@ -1310,7 +1310,7 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 			sideFrame[i+2] = float32ToInt16(side[i])
 		}
 	}
-	predQ13 := []int32{d.stereo.predPrevQ13[0], d.stereo.predPrevQ13[1]}
+	predQ13 := []int32{int32(d.stereo.predPrevQ13[0]), int32(d.stereo.predPrevQ13[1])}
 	silkStereoMSToLR(&d.stereo, midFrame, sideFrame, predQ13, config.SampleRate/1000, nativeSamples)
 
 	// Resample left/right channels to API rate.

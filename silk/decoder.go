@@ -1041,7 +1041,7 @@ func (d *Decoder) stereoFrameScratch(frameLength int) (mid, side []int16, ok boo
 func (d *Decoder) ResetSideChannel() {
 	resetDecoderState(&d.state[1])
 	d.setupScratchBuffers()
-	d.stereo.predPrevQ13 = [2]int32{}
+	d.stereo.predPrevQ13 = [2]int16{}
 	d.stereo.sSide = [2]int16{}
 	if d.resamplers == nil {
 		return
