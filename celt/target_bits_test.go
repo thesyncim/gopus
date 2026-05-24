@@ -83,6 +83,23 @@ func TestComputeVBRTargetMatchesLibopusLowTonalityTransient(t *testing.T) {
 	}
 }
 
+func TestEncoderLastTonalityUsesAnalysisFloatWidth(t *testing.T) {
+	enc := NewEncoder(1)
+	enc.SetLastTonality(1.0 / 3.0)
+	if got, want := enc.LastTonality(), float64(opusVal16(1.0/3.0)); got != want {
+		t.Fatalf("LastTonality()=%0.9g want analysis float-width %0.9g", got, want)
+	}
+
+	enc.SetLastTonality(-1)
+	if got := enc.LastTonality(); got != 0 {
+		t.Fatalf("LastTonality() after low clamp=%0.9g want 0", got)
+	}
+	enc.SetLastTonality(2)
+	if got := enc.LastTonality(); got != 1 {
+		t.Fatalf("LastTonality() after high clamp=%0.9g want 1", got)
+	}
+}
+
 func TestCBRPayloadBytesDoesNotApplyVBR510kCap(t *testing.T) {
 	tests := []struct {
 		name      string

@@ -634,6 +634,9 @@ func TestEncoderOpusValStateMatchesLibopusFloatSize(t *testing.T) {
 	if got := unsafe.Sizeof(enc.lastStereoSaving); got != uintptr(sizes.opusVal16) {
 		t.Fatalf("lastStereoSaving element size=%d want libopus opus_val16 size %d", got, sizes.opusVal16)
 	}
+	if got := unsafe.Sizeof(enc.lastTonality); got != uintptr(sizes.analysis) {
+		t.Fatalf("lastTonality element size=%d want libopus AnalysisInfo float size %d", got, sizes.analysis)
+	}
 	analysisFields := []struct {
 		name string
 		size uintptr

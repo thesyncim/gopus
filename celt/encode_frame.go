@@ -2575,13 +2575,14 @@ func (e *Encoder) updateTonalityAnalysis(normCoeffs, energies []float64, nbBands
 	}
 
 	// Update tonality with smoothing
-	e.lastTonality = alpha*tonalityResult.Tonality + (1-alpha)*e.lastTonality
+	lastTonality := alpha*tonalityResult.Tonality + (1-alpha)*float64(e.lastTonality)
 
 	// Clamp to valid range
-	if e.lastTonality < 0 {
-		e.lastTonality = 0
+	if lastTonality < 0 {
+		lastTonality = 0
 	}
-	if e.lastTonality > 1 {
-		e.lastTonality = 1
+	if lastTonality > 1 {
+		lastTonality = 1
 	}
+	e.lastTonality = opusVal16(lastTonality)
 }

@@ -102,7 +102,7 @@ type Encoder struct {
 
 	// Tonality analysis state (for VBR decisions)
 	prevBandLogEnergy []float64 // Previous frame log-energy per band for spectral flux
-	lastTonality      float64   // Running average tonality for smoothing
+	lastTonality      opusVal16 // Running average tonality for smoothing
 	lastStereoSaving  opusVal16 // Running stereo_saving estimate from alloc_trim analysis
 	lastPitchChange   bool      // Previous frame pitch_change flag for VBR targeting
 	specAvg           celtGLog  // Smoothed spectral average for temporal VBR (libopus st->spec_avg)
@@ -292,7 +292,7 @@ func NewEncoder(channels int) *Encoder {
 
 		// Initialize tonality analysis state
 		prevBandLogEnergy:     make([]float64, MaxBands*channels),
-		lastTonality:          0.5, // Start with neutral tonality estimate
+		lastTonality:          opusVal16(0.5), // Start with neutral tonality estimate
 		lastStereoSaving:      0.0,
 		lastPitchChange:       false,
 		analysisBandwidth:     20,
@@ -487,7 +487,7 @@ func (e *Encoder) Reset() {
 	for i := range e.prevBandLogEnergy {
 		e.prevBandLogEnergy[i] = 0
 	}
-	e.lastTonality = 0.5
+	e.lastTonality = opusVal16(0.5)
 	e.lastStereoSaving = 0
 	e.lastPitchChange = false
 	e.analysisBandwidth = 20
@@ -1029,7 +1029,7 @@ func (e *Encoder) LFE() bool {
 // The value ranges from 0 (noise-like spectrum) to 1 (pure tone).
 // This is used by computeVBRTarget for bit allocation decisions.
 func (e *Encoder) LastTonality() float64 {
-	return e.lastTonality
+	return float64(e.lastTonality)
 }
 
 // SetLastTonality sets the tonality estimate (for testing or manual override).
@@ -1041,7 +1041,7 @@ func (e *Encoder) SetLastTonality(tonality float64) {
 	if tonality > 1 {
 		tonality = 1
 	}
-	e.lastTonality = tonality
+	e.lastTonality = opusVal16(tonality)
 }
 
 // PrevBandLogEnergy returns the previous frame's band log-energies.
