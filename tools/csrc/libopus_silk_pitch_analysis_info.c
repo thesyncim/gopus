@@ -143,6 +143,12 @@ static int eval_record(void) {
   return 1;
 }
 
+static int write_type_sizes(void) {
+  return write_u32((uint32_t)sizeof(silk_float)) &&
+      write_u32((uint32_t)sizeof(opus_val32)) &&
+      write_u32((uint32_t)sizeof(opus_int16));
+}
+
 int main(void) {
   uint32_t version;
   uint32_t count;
@@ -156,6 +162,7 @@ int main(void) {
   if (!write_exact(OUTPUT_MAGIC, 4)) return 1;
   if (!write_u32(1)) return 1;
   if (!write_u32(count)) return 1;
+  if (!write_type_sizes()) return 1;
   for (i = 0; i < count; i++) {
     if (!eval_record()) return 1;
   }

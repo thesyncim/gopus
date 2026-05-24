@@ -3,6 +3,7 @@ package silk
 import (
 	"math"
 	"testing"
+	"unsafe"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
@@ -34,6 +35,12 @@ type libopusSILKPitchAnalysisResult struct {
 	ltpCorr      float32
 }
 
+type libopusSILKPitchAnalysisTypeSizes struct {
+	silkFloat int
+	opusVal32 int
+	opusInt16 int
+}
+
 func getLibopusSILKPitchAnalysisHelperPath() (string, error) {
 	return libopusSILKPitchAnalysisHelper.CHelperPath(libopustest.CHelperConfig{
 		Label:        "silk pitch analysis",
@@ -47,10 +54,10 @@ func getLibopusSILKPitchAnalysisHelperPath() (string, error) {
 	})
 }
 
-func probeLibopusSILKPitchAnalysis(cases []libopusSILKPitchAnalysisCase) ([]libopusSILKPitchAnalysisResult, error) {
+func probeLibopusSILKPitchAnalysis(cases []libopusSILKPitchAnalysisCase) ([]libopusSILKPitchAnalysisResult, libopusSILKPitchAnalysisTypeSizes, error) {
 	binPath, err := getLibopusSILKPitchAnalysisHelperPath()
 	if err != nil {
-		return nil, err
+		return nil, libopusSILKPitchAnalysisTypeSizes{}, err
 	}
 	payload := libopustest.NewOraclePayload(libopusSILKPitchAnalysisInputMagic, uint32(len(cases)))
 	for _, tc := range cases {
@@ -68,9 +75,14 @@ func probeLibopusSILKPitchAnalysis(cases []libopusSILKPitchAnalysisCase) ([]libo
 
 	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk pitch analysis", libopusSILKPitchAnalysisOutputMagic)
 	if err != nil {
-		return nil, err
+		return nil, libopusSILKPitchAnalysisTypeSizes{}, err
 	}
 	count := reader.Count(len(cases))
+	sizes := libopusSILKPitchAnalysisTypeSizes{
+		silkFloat: int(reader.U32()),
+		opusVal32: int(reader.U32()),
+		opusInt16: int(reader.U32()),
+	}
 	reader.ExpectRemaining(count * ((1 + peMaxNbSubfr + 2 + 1) * 4))
 	out := make([]libopusSILKPitchAnalysisResult, count)
 	for i := range out {
@@ -83,15 +95,15 @@ func probeLibopusSILKPitchAnalysis(cases []libopusSILKPitchAnalysisCase) ([]libo
 		out[i].ltpCorr = reader.Float32()
 	}
 	if err := reader.ExpectConsumed(); err != nil {
-		return nil, err
+		return nil, libopusSILKPitchAnalysisTypeSizes{}, err
 	}
-	return out, nil
+	return out, sizes, nil
 }
 
 func TestSILKPitchAnalysisCoreMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	cases := silkPitchAnalysisOracleCases()
-	want, err := probeLibopusSILKPitchAnalysis(cases)
+	want, _, err := probeLibopusSILKPitchAnalysis(cases)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "silk pitch analysis", err)
 	}
@@ -130,6 +142,39 @@ func TestSILKPitchAnalysisCoreMatchesLibopus(t *testing.T) {
 					math.Float32bits(want[i].ltpCorr), want[i].ltpCorr)
 			}
 		})
+	}
+}
+
+func TestSILKPitchAnalysisScratchMatchesLibopusFloatSize(t *testing.T) {
+	libopustest.RequireOracle(t)
+	_, sizes, err := probeLibopusSILKPitchAnalysis(nil)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk pitch analysis", err)
+	}
+	if sizes.silkFloat != 4 || sizes.opusVal32 != 4 || sizes.opusInt16 != 2 {
+		t.Fatalf("libopus SILK pitch sizes: silk_float=%d opus_val32=%d opus_int16=%d",
+			sizes.silkFloat, sizes.opusVal32, sizes.opusInt16)
+	}
+
+	enc := NewEncoder(BandwidthWideband)
+	frame := silkPitchOracleWave(BandwidthWideband, 4, 200, 8000)
+	enc.detectPitch(frame, 4, 0.3, 0.2)
+
+	got := []struct {
+		name string
+		size uintptr
+		want int
+	}{
+		{"scratchPitchC", unsafe.Sizeof(enc.scratchPitchC[0]), sizes.silkFloat},
+		{"scratchPitchCorrSt3", unsafe.Sizeof(enc.scratchPitchCorrSt3[0]), sizes.silkFloat},
+		{"scratchPitchEnergySt3", unsafe.Sizeof(enc.scratchPitchEnergySt3[0]), sizes.silkFloat},
+		{"scratchPitchXcorr", unsafe.Sizeof(enc.scratchPitchXcorr[0]), sizes.opusVal32},
+		{"scratchFrame16Fix", unsafe.Sizeof(enc.scratchFrame16Fix[0]), sizes.opusInt16},
+	}
+	for _, tc := range got {
+		if tc.size != uintptr(tc.want) {
+			t.Fatalf("%s element size=%d want libopus size %d", tc.name, tc.size, tc.want)
+		}
 	}
 }
 

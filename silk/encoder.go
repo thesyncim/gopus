@@ -115,26 +115,26 @@ type Encoder struct {
 	// LBRR provides forward error correction by encoding redundant data
 	// for the previous frame at a lower quality in the current packet.
 	// Reference: libopus silk/structs.h silk_encoder_state
-	useFEC                  bool // Enable in-band FEC (LBRR)
-	lbrrEnabled             bool // LBRR currently active (depends on bitrate/loss)
-	lbrrPrevPacketHadLBRR   bool // Previous packet had LBRR enabled (silk_setup_LBRR LBRR_in_previous_packet)
-	lbrrLTPRoundLoss        bool // Use LBRR round-loss in LTP scale (previous packet had LBRR)
-	lbrrGainIncreases   int                                 // Gain increase for LBRR encoding
-	lbrrPrevLastGainIdx int8                                // Previous frame's last gain index for LBRR
-	lbrrFlags           [maxFramesPerPacket]int             // LBRR flags per frame in packet
-	lbrrFlag            int                                 // LBRR flag for current packet header
-	lbrrIndices         [maxFramesPerPacket]sideInfoIndices // LBRR indices per frame
-	lbrrPulses          [maxFramesPerPacket][]int8          // LBRR pulses per frame
-	lbrrFrameLength     [maxFramesPerPacket]int             // LBRR frame length per frame
-	lbrrNbSubfr         [maxFramesPerPacket]int             // LBRR subframe count per frame
-	packetLossPercent int // Expected packet loss (0-100)
-	nFramesEncoded      int                                 // Number of frames encoded in current packet
-	nFramesPerPacket    int                                 // Number of frames per packet
+	useFEC                bool                                // Enable in-band FEC (LBRR)
+	lbrrEnabled           bool                                // LBRR currently active (depends on bitrate/loss)
+	lbrrPrevPacketHadLBRR bool                                // Previous packet had LBRR enabled (silk_setup_LBRR LBRR_in_previous_packet)
+	lbrrLTPRoundLoss      bool                                // Use LBRR round-loss in LTP scale (previous packet had LBRR)
+	lbrrGainIncreases     int                                 // Gain increase for LBRR encoding
+	lbrrPrevLastGainIdx   int8                                // Previous frame's last gain index for LBRR
+	lbrrFlags             [maxFramesPerPacket]int             // LBRR flags per frame in packet
+	lbrrFlag              int                                 // LBRR flag for current packet header
+	lbrrIndices           [maxFramesPerPacket]sideInfoIndices // LBRR indices per frame
+	lbrrPulses            [maxFramesPerPacket][]int8          // LBRR pulses per frame
+	lbrrFrameLength       [maxFramesPerPacket]int             // LBRR frame length per frame
+	lbrrNbSubfr           [maxFramesPerPacket]int             // LBRR subframe count per frame
+	packetLossPercent     int                                 // Expected packet loss (0-100)
+	nFramesEncoded        int                                 // Number of frames encoded in current packet
+	nFramesPerPacket      int                                 // Number of frames per packet
 	// Stereo packet condCoding uses mid nFramesEncoded at block start (libopus enc_API.c).
-	stereoCondMid                 *Encoder
-	stereoCondMidFramesEncoded    int
-	stereoChannelIdx              int
-	stereoPrevDecodeOnlyMiddle    int
+	stereoCondMid              *Encoder
+	stereoCondMidFramesEncoded int
+	stereoChannelIdx           int
+	stereoPrevDecodeOnlyMiddle int
 
 	// Scratch buffers for zero-allocation encoding
 	scratchPaddedPulses []int8  // encodePulses: padded pulses
@@ -151,12 +151,12 @@ type Encoder struct {
 	scratchFrame8Fix      []int16   // detectPitch: 8kHz int16 samples
 	scratchFrame4Fix      []int16   // detectPitch: 4kHz int16 samples
 	scratchResampler      []int32   // detectPitch: resampler buffer (int32)
-	scratchPitchC         []float64 // detectPitch: autocorrelation
+	scratchPitchC         []float32 // detectPitch: autocorrelation (silk_float)
 	scratchDSrch          []int     // detectPitch: candidate lags
 	scratchDComp          []int16   // detectPitch: expanded search
 	scratchPitchLags      []int     // detectPitch: output pitch lags
-	scratchPitchCorrSt3   []float64 // detectPitch: stage3 correlations
-	scratchPitchEnergySt3 []float64 // detectPitch: stage3 energies
+	scratchPitchCorrSt3   []float32 // detectPitch: stage3 correlations (silk_float)
+	scratchPitchEnergySt3 []float32 // detectPitch: stage3 energies (silk_float)
 	scratchPitchXcorr     []float32 // detectPitch: celt_pitch_xcorr scratch
 
 	// Shell encoder scratch buffers (fixed sizes)
