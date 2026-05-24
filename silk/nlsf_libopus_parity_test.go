@@ -16,6 +16,7 @@ const (
 	libopusSILKNLSFModeNLSF2A    = uint32(1)
 	libopusSILKNLSFModeA2NLSF    = uint32(2)
 	libopusSILKNLSFModeStabilize = uint32(3)
+	libopusSILKNLSFModeWeights   = uint32(4)
 
 	libopusSILKNLSFCBNBMB = uint32(0)
 	libopusSILKNLSFCBWB   = uint32(1)
@@ -32,6 +33,7 @@ func buildLibopusSILKNLSFHelper() (string, error) {
 		RefIncludes:  []string{"celt", "silk"},
 		RefSources: []string{
 			"silk/NLSF_decode.c",
+			"silk/NLSF_VQ_weights_laroia.c",
 			"silk/NLSF_unpack.c",
 			"silk/NLSF_stabilize.c",
 			"silk/NLSF2A.c",
@@ -134,6 +136,42 @@ func TestSILKNLSFDecodeMatchesLibopusOracle(t *testing.T) {
 			silkNLSFDecode(got, tc.indices, tc.cb)
 			if !sameInt16s(got, want[i]) {
 				t.Fatalf("silkNLSFDecode=%v want %v", got, want[i])
+			}
+		})
+	}
+}
+
+func TestSILKNLSFWeightsLaroiaMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []struct {
+		name string
+		nlsf []int16
+	}{
+		{name: "nbmb_regular", nlsf: []int16{2676, 3684, 7247, 12558, 14555, 16405, 18875, 19753, 26306, 27425}},
+		{name: "nbmb_clustered", nlsf: []int16{128, 256, 512, 1024, 2048, 4096, 8192, 16384, 24576, 32640}},
+		{name: "wb_regular", nlsf: []int16{1200, 2600, 4300, 6100, 8200, 10100, 12200, 14300, 16400, 18600, 20700, 22800, 24900, 27000, 29100, 31200}},
+		{name: "wb_tight_edges", nlsf: []int16{1, 2, 4, 8, 16, 64, 256, 1024, 4096, 8192, 12288, 16384, 24576, 28672, 32765, 32766}},
+	}
+
+	records := make([][]uint32, len(cases))
+	for i, tc := range cases {
+		record := []uint32{uint32(len(tc.nlsf))}
+		for _, v := range tc.nlsf {
+			record = append(record, uint32FromInt32(int32(v)))
+		}
+		records[i] = record
+	}
+	want, err := probeLibopusSILKNLSF(libopusSILKNLSFModeWeights, records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk nlsf weights", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make([]int16, len(tc.nlsf))
+			silkNLSFWeightsLaroia(got, tc.nlsf, len(tc.nlsf))
+			if !sameInt16s(got, want[i]) {
+				t.Fatalf("silkNLSFWeightsLaroia=%v want %v", got, want[i])
 			}
 		})
 	}
