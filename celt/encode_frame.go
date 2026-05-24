@@ -2492,7 +2492,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	}
 
 	// floor_depth limit from maxDepth.
-	maxDepth := e.lastDynalloc.MaxDepth
+	maxDepth := float64(e.lastDynalloc.MaxDepth)
 	bins := 0
 	if extsupport.QEXT && e.qextActive() && !e.hybrid {
 		bins = qextShortMDCTSize(frameSize) << lm

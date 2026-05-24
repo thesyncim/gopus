@@ -621,6 +621,7 @@ func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 		{"lastTemporalVBR", unsafe.Sizeof(enc.lastTemporalVBR)},
 		{"lastBandLogE", unsafe.Sizeof(enc.lastBandLogE[0])},
 		{"lastBandLogE2", unsafe.Sizeof(enc.lastBandLogE2[0])},
+		{"lastDynalloc.MaxDepth", unsafe.Sizeof(enc.lastDynalloc.MaxDepth)},
 	}
 	for _, tc := range got {
 		if tc.size != uintptr(sizes.celtGLog) {

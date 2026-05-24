@@ -128,7 +128,7 @@ type DynallocResult struct {
 	// MaxDepth is the maximum signal level relative to noise floor (in dB).
 	// Used for floor_depth calculation in VBR.
 	// Reference: libopus celt_encoder.c lines 1682-1693
-	MaxDepth float64
+	MaxDepth celtGLog
 
 	// Offsets contains per-band allocation offsets for dynamic bit allocation.
 	// Bands with high energy variance get extra bits.
@@ -272,7 +272,7 @@ func DynallocAnalysis(
 	analysisLeakBoost []uint8,
 ) DynallocResult {
 	result := DynallocResult{
-		MaxDepth:     -31.9,
+		MaxDepth:     celtGLog(-31.9),
 		Offsets:      make([]int, nbBands),
 		SpreadWeight: make([]int, nbBands),
 		Importance:   make([]int, nbBands),
@@ -321,7 +321,7 @@ func DynallocAnalysis(
 			}
 		}
 	}
-	result.MaxDepth = float64(maxDepth32)
+	result.MaxDepth = celtGLog(maxDepth32)
 
 	// Compute spread_weight using a simple masking model
 	// Reference: libopus lines 1082-1117
@@ -876,7 +876,7 @@ func DynallocAnalysisWithScratch(
 	}
 
 	result := DynallocResult{
-		MaxDepth:     -31.9,
+		MaxDepth:     celtGLog(-31.9),
 		Offsets:      scratch.Offsets[:nbBands],
 		SpreadWeight: scratch.SpreadWeight[:nbBands],
 		Importance:   scratch.Importance[:nbBands],
@@ -941,7 +941,7 @@ func DynallocAnalysisWithScratch(
 			}
 		}
 	}
-	result.MaxDepth = float64(maxDepth32)
+	result.MaxDepth = celtGLog(maxDepth32)
 
 	// Compute spread_weight using masking model
 	mask := scratch.Mask[:nbBands]
