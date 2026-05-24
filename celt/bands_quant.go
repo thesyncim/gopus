@@ -1432,83 +1432,88 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 	} else {
 		pulses = make([]int, n)
 	}
-	yy := float64(float32(decodePulsesInto(idx, n, k, pulses, scratch)))
-	if extraBits >= 2 && extDec != nil {
-		up := (1 << extraBits) - 1
-		if n == 2 {
-			refine := int(extDec.DecodeUniform(uint32(up))) - (up-1)/2
-			pulses[0] *= up
-			pulses[1] *= up
-			if pulses[1] == 0 {
-				if pulses[0] > 0 {
-					pulses[1] = -refine
-				} else {
-					pulses[1] = refine
-				}
-				if refine*pulses[0] > 0 {
-					pulses[0] -= refine
-				} else {
-					pulses[0] += refine
-				}
-			} else if pulses[1] > 0 {
-				pulses[0] += refine
-				if pulses[0] > 0 {
-					pulses[1] -= refine
-				} else {
-					pulses[1] += refine
-				}
+	yy := opusVal16(decodePulsesInto(idx, n, k, pulses, scratch))
+	up := (1 << extraBits) - 1
+	if n == 2 {
+		refine := int(extDec.DecodeUniform(uint32(up))) - (up-1)/2
+		pulses[0] *= up
+		pulses[1] *= up
+		if pulses[1] == 0 {
+			if pulses[0] > 0 {
+				pulses[1] = -refine
 			} else {
+				pulses[1] = refine
+			}
+			if refine*pulses[0] > 0 {
 				pulses[0] -= refine
-				if pulses[0] > 0 {
-					pulses[1] -= refine
-				} else {
-					pulses[1] += refine
-				}
-			}
-			yy = float64(pulses[0])*float64(pulses[0]) + float64(pulses[1])*float64(pulses[1])
-		} else {
-			var refine []int
-			if scratch != nil {
-				refine = scratch.ensurePVQRefine(n)
 			} else {
-				refine = make([]int, n)
+				pulses[0] += refine
 			}
-			useEntropy := (extDec.StorageBits() - extDec.Tell()) > (n-1)*(extraBits+3)+1
-			for i := 0; i < n-1; i++ {
-				refine[i] = ecDecRefine(extDec, up, extraBits, useEntropy)
+		} else if pulses[1] > 0 {
+			pulses[0] += refine
+			if pulses[0] > 0 {
+				pulses[1] -= refine
+			} else {
+				pulses[1] += refine
 			}
-			sign := 0
-			if pulses[n-1] == 0 {
-				sign = int(extDec.DecodeRawBit())
-			} else if pulses[n-1] < 0 {
-				sign = 1
+		} else {
+			pulses[0] -= refine
+			if pulses[0] > 0 {
+				pulses[1] -= refine
+			} else {
+				pulses[1] += refine
 			}
-			for i := 0; i < n-1; i++ {
-				pulses[i] = pulses[i]*up + refine[i]
-			}
-			last := up * k
-			for i := 0; i < n-1; i++ {
-				v := pulses[i]
-				if v < 0 {
-					v = -v
-				}
-				last -= v
-			}
-			if sign != 0 {
-				last = -last
-			}
-			pulses[n-1] = last
-			sumSq := 0.0
-			for i := 0; i < n; i++ {
-				sumSq += float64(pulses[i]) * float64(pulses[i])
-			}
-			yy = sumSq
 		}
+		yy0 := float32(pulses[0]) * float32(pulses[0])
+		yy1 := float32(pulses[1]) * float32(pulses[1])
+		yy = opusVal16(yy0 + yy1)
+	} else {
+		var refine []int
+		if scratch != nil {
+			refine = scratch.ensurePVQRefine(n)
+		} else {
+			refine = make([]int, n)
+		}
+		useEntropy := (extDec.StorageBits() - extDec.Tell()) > (n-1)*(extraBits+3)+1
+		for i := 0; i < n-1; i++ {
+			refine[i] = ecDecRefine(extDec, up, extraBits, useEntropy)
+		}
+		sign := 0
+		if pulses[n-1] == 0 {
+			sign = int(extDec.DecodeRawBit())
+		} else if pulses[n-1] < 0 {
+			sign = 1
+		}
+		for i := 0; i < n-1; i++ {
+			pulses[i] = pulses[i]*up + refine[i]
+		}
+		last := up * k
+		for i := 0; i < n-1; i++ {
+			v := pulses[i]
+			if v < 0 {
+				v = -v
+			}
+			last -= v
+		}
+		if sign != 0 {
+			last = -last
+		}
+		pulses[n-1] = last
+		sumSq := opusVal16(0)
+		for i := 0; i < n; i++ {
+			sumSq = opusVal16(float32(sumSq) + float32(pulses[i])*float32(pulses[i]))
+		}
+		yy = sumSq
 	}
-	// CWRS decode already computes pulse energy (sum of squares), so reuse it
-	// and compute collapse mask during normalization to avoid an extra pass.
-	cm := normalizeResidualKnownEnergyIntoAndCollapse(shape, pulses, gain, yy, b)
-	expRotation(shape, n, -1, b, k, spread)
+	var norm []celtNorm
+	if scratch != nil {
+		norm = scratch.ensurePVQNorm32(n)
+	} else {
+		norm = make([]celtNorm, n)
+	}
+	cm := normalizeResidualKnownEnergyIntoAndCollapseNorm(norm, pulses, opusVal16(gain), yy, b)
+	expRotationNorm(norm, n, -1, b, k, spread)
+	copyNormToFloat64(shape, norm)
 	return cm
 }
 

@@ -134,6 +134,7 @@ type bandDecodeScratch struct {
 	pvqPulses32 []int32   // Decode-only pulse vector from CWRS decode
 	pvqRefine   []int     // QEXT PVQ refinement values
 	pvqNorm     []float64 // Normalized PVQ vector
+	pvqNorm32   []celtNorm
 	foldResult  []float64 // Folded band result
 	cwrsU       []uint32  // CWRS u-row scratch buffer
 
@@ -339,6 +340,10 @@ func (s *bandDecodeScratch) ensurePVQRefine(n int) []int {
 // ensurePVQNorm returns a pre-allocated buffer for normalized vector.
 func (s *bandDecodeScratch) ensurePVQNorm(n int) []float64 {
 	return ensureFloat64Slice(&s.pvqNorm, n)
+}
+
+func (s *bandDecodeScratch) ensurePVQNorm32(n int) []celtNorm {
+	return ensureNormSlice(&s.pvqNorm32, n)
 }
 
 // ensureFoldResult returns a pre-allocated buffer for fold result.

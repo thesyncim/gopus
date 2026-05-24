@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "celt/cwrs.h"
+#include "celt/entdec.h"
 #include "celt/entenc.h"
 #include "celt/vq.h"
 
@@ -17,7 +18,8 @@
 #define OUTPUT_MAGIC "GQVO"
 
 enum {
-  MODE_ALG_QUANT_QEXT = 0
+  MODE_ALG_QUANT_QEXT = 0,
+  MODE_ALG_UNQUANT_QEXT = 1
 };
 
 static int set_binary_stdio(void) {
@@ -160,6 +162,67 @@ static int eval_alg_quant_qext(void) {
   return 1;
 }
 
+static int eval_alg_unquant_qext(void) {
+  uint32_t n_u, k_u, spread_u, b_u, payload_len_u, ext_payload_len_u, extra_bits_u;
+  float gain;
+  unsigned char *payload;
+  unsigned char *ext_payload;
+  celt_norm *x;
+  ec_dec dec;
+  ec_dec ext_dec;
+  unsigned collapse;
+  uint32_t i;
+
+  if (!read_u32(&n_u) || !read_u32(&k_u) || !read_u32(&spread_u) ||
+      !read_u32(&b_u) || !read_u32(&extra_bits_u) || !read_float(&gain) ||
+      !read_u32(&payload_len_u) || !read_u32(&ext_payload_len_u)) {
+    return 0;
+  }
+  if (n_u <= 1 || n_u > 512 || k_u == 0 || k_u > 512 || b_u == 0 ||
+      b_u > n_u || extra_bits_u < 2 || extra_bits_u > 12 ||
+      payload_len_u == 0 || payload_len_u > 4096 ||
+      ext_payload_len_u == 0 || ext_payload_len_u > 4096) {
+    return 0;
+  }
+  payload = (unsigned char *)malloc(payload_len_u);
+  ext_payload = (unsigned char *)malloc(ext_payload_len_u);
+  x = (celt_norm *)malloc((size_t)n_u * sizeof(*x));
+  if (payload == NULL || ext_payload == NULL || x == NULL) {
+    free(payload);
+    free(ext_payload);
+    free(x);
+    return 0;
+  }
+  if (!read_exact(payload, payload_len_u) || !read_exact(ext_payload, ext_payload_len_u)) {
+    free(payload);
+    free(ext_payload);
+    free(x);
+    return 0;
+  }
+  ec_dec_init(&dec, payload, payload_len_u);
+  ec_dec_init(&ext_dec, ext_payload, ext_payload_len_u);
+  collapse = alg_unquant(x, (int)n_u, (int)k_u, (int)spread_u, (int)b_u,
+      &dec, gain, &ext_dec, (int)extra_bits_u);
+  if (!write_u32(collapse) || !write_u32(n_u)) {
+    free(payload);
+    free(ext_payload);
+    free(x);
+    return 0;
+  }
+  for (i = 0; i < n_u; i++) {
+    if (!write_float(x[i])) {
+      free(payload);
+      free(ext_payload);
+      free(x);
+      return 0;
+    }
+  }
+  free(payload);
+  free(ext_payload);
+  free(x);
+  return 1;
+}
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -170,14 +233,18 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode != MODE_ALG_QUANT_QEXT) return 1;
+  if (mode > MODE_ALG_UNQUANT_QEXT) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) ||
       !write_u32(mode) || !write_u32(count)) {
     return 1;
   }
   for (i = 0; i < count; i++) {
-    if (!eval_alg_quant_qext()) return 1;
+    if (mode == MODE_ALG_QUANT_QEXT) {
+      if (!eval_alg_quant_qext()) return 1;
+    } else {
+      if (!eval_alg_unquant_qext()) return 1;
+    }
   }
   return 0;
 }
