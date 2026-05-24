@@ -86,6 +86,34 @@ func TestNEONVectorActivationsMatchLibopusOracle(t *testing.T) {
 	}
 }
 
+func TestCgemv8x4ScalarQuantizeInputMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	weights := make([]byte, 8*8)
+	weights[0] = byte(int8(1))
+	scale := make([]float32, 8)
+	scale[0] = 1
+	cases := []float32{
+		-1,
+		float32(-2.5 / 127),
+		0,
+		float32(2.5 / 127),
+		math.Float32frombits(0x3e83060c),
+		1,
+	}
+	for _, x := range cases {
+		input := make([]float32, 8)
+		input[0] = x
+		want, err := libopustest.ProbeDNNKernelScalarCGEMV8x4(8, 8, weights, scale, input)
+		if err != nil {
+			libopustest.HelperUnavailable(t, "scalar dnn cgemv8x4", err)
+		}
+		got := float32(Cgemv8x4QuantizeInputScalar(x))
+		if math.Float32bits(got) != math.Float32bits(want[0]) {
+			t.Fatalf("scalar quantize(%g)=%s want %s", x, formatDNNFloat(got), formatDNNFloat(want[0]))
+		}
+	}
+}
+
 func formatDNNFloat(v float32) string {
 	return fmt.Sprintf("0x%08x(%0.10g)", math.Float32bits(v), v)
 }

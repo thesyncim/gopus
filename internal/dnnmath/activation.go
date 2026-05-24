@@ -164,7 +164,7 @@ func Cgemv8x4QuantizeInput(x float32) int8 {
 // Cgemv8x4QuantizeInputScalar mirrors libopus' generic cgemv8x4 input
 // quantizer.
 func Cgemv8x4QuantizeInputScalar(x float32) int8 {
-	return int8(int(math.Floor(float64(float32(0.5) + float32(127)*x))))
+	return int8(int(math.Floor(0.5 + float64(float32(127)*x))))
 }
 
 // SoftmaxApprox mirrors libopus' pinned ACTIVATION_SOFTMAX path. The 1.6.1

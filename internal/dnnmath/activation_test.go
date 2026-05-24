@@ -147,7 +147,7 @@ func TestCgemv8x4QuantizeInputMatchesActiveArch(t *testing.T) {
 		if runtime.GOARCH == "arm64" {
 			want = int8(int32(math.RoundToEven(float64(float32(127) * x))))
 		} else {
-			want = int8(int(math.Floor(float64(float32(0.5) + float32(127)*x))))
+			want = int8(int(math.Floor(0.5 + float64(float32(127)*x))))
 		}
 		if got := Cgemv8x4QuantizeInput(x); got != want {
 			t.Fatalf("Cgemv8x4QuantizeInput(%g)=%d want %d", x, got, want)
@@ -161,11 +161,12 @@ func TestCgemv8x4QuantizeInputScalarMatchesScalarReferencePath(t *testing.T) {
 		float32(-2.5 / 127),
 		0,
 		float32(2.5 / 127),
+		math.Float32frombits(0x3e83060c),
 		1,
 	}
 
 	for _, x := range cases {
-		want := int8(int(math.Floor(float64(float32(0.5) + float32(127)*x))))
+		want := int8(int(math.Floor(0.5 + float64(float32(127)*x))))
 		if got := Cgemv8x4QuantizeInputScalar(x); got != want {
 			t.Fatalf("Cgemv8x4QuantizeInputScalar(%g)=%d want %d", x, got, want)
 		}

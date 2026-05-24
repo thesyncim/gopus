@@ -1,5 +1,11 @@
 package libopustest
 
+import (
+	"strings"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
+)
+
 const (
 	DNNKernelSGEMV    = uint32(0)
 	DNNKernelCGEMV8x4 = uint32(1)
@@ -9,6 +15,7 @@ const (
 )
 
 var dnnKernelHelper HelperCache
+var dnnKernelScalarHelper HelperCache
 
 func dnnKernelHelperPath() (string, error) {
 	return dnnKernelHelper.CHelperPath(CHelperConfig{
@@ -16,6 +23,17 @@ func dnnKernelHelperPath() (string, error) {
 		OutputBase:  "gopus_libopus_dnn_kernel",
 		SourceFile:  "libopus_dnn_kernel_info.c",
 		RefIncludes: []string{"celt", "celt/x86", "dnn"},
+		Libs:        []string{"-lm"},
+	})
+}
+
+func dnnKernelScalarHelperPath() (string, error) {
+	return dnnKernelScalarHelper.CHelperPath(CHelperConfig{
+		Label:       "scalar dnn kernel",
+		OutputBase:  "gopus_libopus_dnn_kernel_scalar",
+		SourceFile:  "libopus_dnn_kernel_info.c",
+		RefIncludes: []string{"celt", "celt/x86", "dnn"},
+		CFlags:      strings.Fields(libopustooling.OSCEScalarDNNBuildCFLAGS),
 		Libs:        []string{"-lm"},
 	})
 }
@@ -33,6 +51,18 @@ func ProbeDNNKernelSGEMV(rows, cols, colStride int, weights, x []float32) ([]flo
 
 func ProbeDNNKernelCGEMV8x4(rows, cols int, weights []byte, scale, x []float32) ([]float32, error) {
 	binPath, err := dnnKernelHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := NewOraclePayload(dnnKernelInputMagic, DNNKernelCGEMV8x4, uint32(rows), uint32(cols), 0)
+	payload.Raw(weights)
+	payload.Float32s(scale...)
+	payload.Float32s(x...)
+	return readDNNKernelOracle(binPath, payload.Bytes(), rows)
+}
+
+func ProbeDNNKernelScalarCGEMV8x4(rows, cols int, weights []byte, scale, x []float32) ([]float32, error) {
+	binPath, err := dnnKernelScalarHelperPath()
 	if err != nil {
 		return nil, err
 	}

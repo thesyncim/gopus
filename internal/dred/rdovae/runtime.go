@@ -1,7 +1,6 @@
 package rdovae
 
 import (
-	"math"
 	"runtime"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -463,11 +462,9 @@ func computeActivation(output, input []float32, n, activation int) {
 
 func quantizeInput(x float32) int8 {
 	if useNearestEvenQuant {
-		scaled := float64(float32(127 * x))
-		return int8(math.RoundToEven(scaled))
+		return dnnmath.Cgemv8x4QuantizeInput(x)
 	}
-	scaled := 127 * float64(x)
-	return int8(math.Floor(0.5 + scaled))
+	return dnnmath.Cgemv8x4QuantizeInputScalar(x)
 }
 
 type FloatTensor = dnnblob.Float32View
