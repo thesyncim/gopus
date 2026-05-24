@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/testsignal"
@@ -35,7 +36,7 @@ type finalRangeVariantFixturePacket struct {
 }
 
 func TestSILKFinalRangeUsesLastPacketModeWithCELTSidecar(t *testing.T) {
-	if runtime.GOOS == "windows" {
+	if runtime.GOOS == "windows" && !finalRangePlatformFixtureExists() {
 		t.Skip("exact final-range fixture needs a Windows-generated libopus fixture")
 	}
 	const (
@@ -87,10 +88,7 @@ func TestSILKFinalRangeUsesLastPacketModeWithCELTSidecar(t *testing.T) {
 
 func loadFinalRangeVariantFixtureCase(t *testing.T, name, variant string) finalRangeVariantFixtureCase {
 	t.Helper()
-	path := filepath.Join("..", "testvectors", "testdata", "encoder_compliance_libopus_variants_fixture.json")
-	if runtime.GOOS == "linux" && runtime.GOARCH == "amd64" {
-		path = filepath.Join("..", "testvectors", "testdata", "encoder_compliance_libopus_variants_fixture_linux_amd64.json")
-	}
+	path := finalRangeVariantFixturePath()
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read variants fixture: %v", err)
@@ -106,6 +104,20 @@ func loadFinalRangeVariantFixtureCase(t *testing.T, name, variant string) finalR
 	}
 	t.Fatalf("missing variants fixture case %s/%s", name, variant)
 	return finalRangeVariantFixtureCase{}
+}
+
+func finalRangeVariantFixturePath() string {
+	generic := filepath.Join("..", "testvectors", "testdata", "encoder_compliance_libopus_variants_fixture.json")
+	ext := filepath.Ext(generic)
+	platform := strings.TrimSuffix(generic, ext) + "_" + runtime.GOOS + "_" + runtime.GOARCH + ext
+	if _, err := os.Stat(platform); err == nil {
+		return platform
+	}
+	return generic
+}
+
+func finalRangePlatformFixtureExists() bool {
+	return finalRangeVariantFixturePath() != filepath.Join("..", "testvectors", "testdata", "encoder_compliance_libopus_variants_fixture.json")
 }
 
 func encodeFinalRangeFixtureFrame(t *testing.T, enc *Encoder, frame []float32, frameSize int) []byte {

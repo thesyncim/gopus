@@ -19,9 +19,8 @@ import (
 )
 
 const (
-	longFrameFixturePath           = "testdata/encoder_compliance_longframe_libopus_ref.json"
-	longFrameFixturePathLinuxAMD64 = "testdata/encoder_compliance_longframe_libopus_ref_linux_amd64.json"
-	updateLongFrameFixtureEnv      = "GOPUS_UPDATE_LONGFRAME_FIXTURE"
+	longFrameFixturePath      = "testdata/encoder_compliance_longframe_libopus_ref.json"
+	updateLongFrameFixtureEnv = "GOPUS_UPDATE_LONGFRAME_FIXTURE"
 )
 
 var (
@@ -66,10 +65,7 @@ func longFrameFixtureTargets() []longFrameFixtureTarget {
 }
 
 func longFrameFixturePathForArch() string {
-	if useLinuxAMD64Fixture() {
-		return longFrameFixturePathLinuxAMD64
-	}
-	return longFrameFixturePath
+	return platformFixturePath(longFrameFixturePath)
 }
 
 // TestLongFrameLibopusReferenceParityFromFixture validates long-frame SILK/Hybrid

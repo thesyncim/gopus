@@ -1,6 +1,6 @@
 FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-exactness test-exhaustive test-provenance
 
-.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -372,6 +372,17 @@ fixtures-gen-encoder:
 
 fixtures-gen-variants:
 	$(GO_WORK_ENV) $(GO) run tools/gen_libopus_encoder_variants_fixture.go
+
+fixtures-gen-platform: ensure-libopus
+	@set -eu; \
+	goos="$$($(GO) env GOOS)"; \
+	goarch="$$($(GO) env GOARCH)"; \
+	suffix="$${goos}_$${goarch}"; \
+	echo "Generating native libopus fixtures for $${suffix}"; \
+	GOPUS_DECODER_MATRIX_FIXTURE_OUT="testvectors/testdata/libopus_decoder_matrix_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_decoder_matrix_fixture.go; \
+	GOPUS_DECODER_LOSS_FIXTURE_OUT="testvectors/testdata/libopus_decoder_loss_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_decoder_loss_fixture.go; \
+	GOPUS_ENCODER_PACKETS_FIXTURE_OUT="testvectors/testdata/encoder_compliance_libopus_packets_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_encoder_packet_fixture.go; \
+	GOPUS_ENCODER_VARIANTS_FIXTURE_OUT="testvectors/testdata/encoder_compliance_libopus_variants_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_encoder_variants_fixture.go
 
 # Regenerate linux/amd64-specific fixture files in a cached linux/amd64 container.
 fixtures-gen-linux-amd64: docker-build-exhaustive

@@ -330,10 +330,24 @@ func ensureLibopus(version string, roots []string, qext bool) bool {
 			env = append(env, "LIBOPUS_ENABLE_QEXT=1")
 		}
 		cmd.Env = env
-		_, err := cmd.CombinedOutput()
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "gopus: ensure libopus failed root=%q shell=%q qext=%t MSYSTEM=%q err=%v\n", root, shell, qext, os.Getenv("MSYSTEM"), err)
+			fmt.Fprintf(os.Stderr, "gopus: ensure libopus PATH=%q\n", os.Getenv("PATH"))
+			if len(out) > 0 {
+				fmt.Fprintf(os.Stderr, "gopus: ensure libopus output follows:\n%s\n", tailForLog(string(out), 64*1024))
+			}
+		}
 		return err == nil
 	}
 	return false
+}
+
+func tailForLog(s string, max int) string {
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return "... output truncated ...\n" + s[len(s)-max:]
 }
 
 // FindOrEnsureOpusDemo validates the pinned libopus build, then locates

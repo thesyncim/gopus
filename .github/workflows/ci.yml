@@ -608,6 +608,9 @@ jobs:
       - name: Bootstrap pinned libopus
         run: make ensure-libopus
 
+      - name: Generate native libopus fixtures
+        run: make fixtures-gen-platform
+
       - name: Run test suite
         run: GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_ORACLE=0 go test ./... -count=1 -timeout=25m
 
@@ -676,6 +679,10 @@ jobs:
       - name: Bootstrap pinned libopus
         shell: msys2 {0}
         run: make ensure-libopus
+
+      - name: Generate native libopus fixtures
+        shell: msys2 {0}
+        run: make fixtures-gen-platform
 
       - name: Run test suite
         shell: msys2 {0}

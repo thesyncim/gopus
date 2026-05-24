@@ -20,7 +20,6 @@ import (
 )
 
 const encoderCompliancePacketsFixturePath = "testdata/encoder_compliance_libopus_packets_fixture.json"
-const encoderCompliancePacketsFixturePathLinuxAMD64 = "testdata/encoder_compliance_libopus_packets_fixture_linux_amd64.json"
 
 type encoderCompliancePacketsFixtureFile struct {
 	Version    int                                 `json:"version"`
@@ -93,10 +92,7 @@ func loadEncoderCompliancePacketsFixture() (encoderCompliancePacketsFixtureFile,
 }
 
 func encoderCompliancePacketsFixturePathForArch() string {
-	if useLinuxAMD64Fixture() {
-		return encoderCompliancePacketsFixturePathLinuxAMD64
-	}
-	return encoderCompliancePacketsFixturePath
+	return platformFixturePath(encoderCompliancePacketsFixturePath)
 }
 
 func decodeEncoderPacketsFixturePackets(c encoderCompliancePacketsFixtureTC) ([][]byte, []uint32, error) {
