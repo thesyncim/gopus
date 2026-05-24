@@ -208,6 +208,70 @@ func TestMultistreamDecodeFloat32MatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestMultistreamDecodeRequestedPLCDurationMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	modes := []struct {
+		name      string
+		packet    func(*testing.T, int) []byte
+		tolerance float64
+	}{
+		{name: "silk", packet: encodeAPIRateSILKPacket, tolerance: 8e-3},
+		{name: "celt", packet: encodeAPIRateCELTPacket, tolerance: 3e-3},
+		{name: "hybrid", packet: encodeAPIRateHybridPacket, tolerance: 1e-2},
+	}
+	for _, mode := range modes {
+		for _, channels := range []int{1, 2} {
+			packet := mode.packet(t, channels)
+			streams := 1
+			coupled := channels - 1
+			mapping := []byte{0}
+			if channels == 2 {
+				mapping = []byte{0, 1}
+			}
+			for _, sampleRate := range []int{8000, 16000, 48000} {
+				t.Run(mode.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+					packetFrameSize, err := packetSamplesAtRate(packet, sampleRate)
+					if err != nil {
+						t.Fatalf("packetSamplesAtRate: %v", err)
+					}
+					requestedFrameSize := sampleRate / 25
+					if requestedFrameSize == packetFrameSize {
+						t.Fatalf("requestedFrameSize=%d unexpectedly equals packet frame size", requestedFrameSize)
+					}
+
+					sequence := [][]byte{packet, nil}
+					want, err := decodeLibopusMultistreamFloat32(sampleRate, channels, streams, coupled, requestedFrameSize, mapping, sequence)
+					if err != nil {
+						libopustest.HelperUnavailable(t, "multistream requested PLC reference decode", err)
+					}
+
+					dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+					got := make([]float32, 0, len(want))
+					frame := make([]float32, requestedFrameSize*channels)
+					n, err := dec.Decode(packet, frame)
+					if err != nil {
+						t.Fatalf("Decode(packet): %v", err)
+					}
+					if n != packetFrameSize {
+						t.Fatalf("Decode(packet)=%d want %d", n, packetFrameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+					clear(frame)
+					n, err = dec.Decode(nil, frame)
+					if err != nil {
+						t.Fatalf("Decode(nil): %v", err)
+					}
+					if n != requestedFrameSize {
+						t.Fatalf("Decode(nil)=%d want %d", n, requestedFrameSize)
+					}
+					got = append(got, frame[:n*channels]...)
+					assertAPIRateFloat32Close(t, got, want, "multistream "+mode.name+" requested PLC", mode.tolerance)
+				})
+			}
+		}
+	}
+}
+
 func TestMultistreamDecodeInt16HighGainMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const (
@@ -253,6 +317,44 @@ func TestMultistreamDecodeInt16HighGainMatchesLibopus(t *testing.T) {
 	}
 	got = append(got, frame[:n*channels]...)
 	assertAPIRateInt16Equal(t, got, want, "multistream high-gain int16")
+}
+
+func TestMultistreamDecodeInvalidRequestedPLCFrameSizeMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, channels := range []int{1, 2} {
+		streams := 1
+		coupled := channels - 1
+		mapping := []byte{0}
+		if channels == 2 {
+			mapping = []byte{0, 1}
+		}
+		for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
+			for _, frameSize := range invalidAPIRateRequestedFrameSizes(sampleRate) {
+				t.Run("float_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate)+"_request_"+itoaSmall(frameSize), func(t *testing.T) {
+					if _, err := decodeLibopusMultistreamFloat32(sampleRate, channels, streams, coupled, frameSize, mapping, [][]byte{nil}); err == nil {
+						t.Fatalf("libopus multistream Decode(nil) accepted frame_size=%d", frameSize)
+					}
+
+					dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+					n, err := dec.Decode(nil, make([]float32, frameSize*channels))
+					if n != 0 || err != ErrInvalidFrameSize {
+						t.Fatalf("Decode(nil) = (%d, %v), want (0, %v)", n, err, ErrInvalidFrameSize)
+					}
+				})
+				t.Run("int16_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate)+"_request_"+itoaSmall(frameSize), func(t *testing.T) {
+					if _, err := decodeLibopusMultistreamInt16Gain(sampleRate, channels, streams, coupled, frameSize, 0, mapping, [][]byte{nil}); err == nil {
+						t.Fatalf("libopus multistream DecodeInt16(nil) accepted frame_size=%d", frameSize)
+					}
+
+					dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+					n, err := dec.DecodeInt16(nil, make([]int16, frameSize*channels))
+					if n != 0 || err != ErrInvalidFrameSize {
+						t.Fatalf("DecodeInt16(nil) = (%d, %v), want (0, %v)", n, err, ErrInvalidFrameSize)
+					}
+				})
+			}
+		}
+	}
 }
 
 func TestMultistreamColdPLCAfterResetUsesAPIRateDefault(t *testing.T) {
