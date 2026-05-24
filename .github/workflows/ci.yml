@@ -227,6 +227,11 @@ jobs:
         run: |
           make docker-test-exhaustive
 
+      - name: Reset Docker-owned libopus mount point
+        run: |
+          sudo rm -rf tmp_check
+          mkdir -p tmp_check
+
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
