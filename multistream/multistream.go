@@ -201,6 +201,35 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 		return make([]float64, totalSamples), nil
 	}
 
+	maxChunk := d.sampleRate / 50
+	if maxChunk > 0 && frameSize > maxChunk {
+		output := make([]float64, totalSamples)
+		remaining := frameSize
+		offset := 0
+		for remaining > 0 {
+			chunk := maxChunk
+			if remaining < chunk {
+				chunk = remaining
+			}
+			decoded, err := d.decodePLCChunk(chunk)
+			if err != nil {
+				return nil, err
+			}
+			total := chunk * d.outputChannels
+			if len(decoded) < total {
+				return nil, ErrBufferTooSmall
+			}
+			copy(output[offset:offset+total], decoded[:total])
+			offset += total
+			remaining -= chunk
+		}
+		return output, nil
+	}
+
+	return d.decodePLCChunk(frameSize)
+}
+
+func (d *Decoder) decodePLCChunk(frameSize int) ([]float64, error) {
 	// Decode PLC for each stream
 	decodedStreams := make([][]float64, d.streams)
 	for i := 0; i < d.streams; i++ {
@@ -342,6 +371,35 @@ func (d *Decoder) decodePLCToFloat32(frameSize int) ([]float32, error) {
 		return make([]float32, totalSamples), nil
 	}
 
+	maxChunk := d.sampleRate / 50
+	if maxChunk > 0 && frameSize > maxChunk {
+		output := make([]float32, totalSamples)
+		remaining := frameSize
+		offset := 0
+		for remaining > 0 {
+			chunk := maxChunk
+			if remaining < chunk {
+				chunk = remaining
+			}
+			decoded, err := d.decodePLCChunkToFloat32(chunk)
+			if err != nil {
+				return nil, err
+			}
+			total := chunk * d.outputChannels
+			if len(decoded) < total {
+				return nil, ErrBufferTooSmall
+			}
+			copy(output[offset:offset+total], decoded[:total])
+			offset += total
+			remaining -= chunk
+		}
+		return output, nil
+	}
+
+	return d.decodePLCChunkToFloat32(frameSize)
+}
+
+func (d *Decoder) decodePLCChunkToFloat32(frameSize int) ([]float32, error) {
 	decodedStreams := make([][]float32, d.streams)
 	for i := 0; i < d.streams; i++ {
 		if extsupport.DREDRuntime {

@@ -256,3 +256,75 @@ func TestLibopus_APIRateMultistreamCELTDecodeAndPLCMatchesReference(t *testing.T
 		})
 	}
 }
+
+func TestLibopus_APIRateMultistreamSILKRequestedPLCMatchesReference(t *testing.T) {
+	libopustest.RequireOracle(t)
+	const (
+		encoderSampleRate = 48000
+		sampleRate        = 16000
+		channels          = 1
+		encoderFrameSize  = encoderSampleRate / 50
+		packetFrameSize   = sampleRate / 50
+		requestFrameSize  = sampleRate / 25
+	)
+	streams, coupled, mapping, err := DefaultMapping(channels)
+	if err != nil {
+		t.Fatalf("DefaultMapping: %v", err)
+	}
+
+	enc, err := NewEncoder(encoderSampleRate, channels, streams, coupled, mapping)
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+	enc.SetMode(internalenc.ModeSILK)
+	enc.SetBandwidth(types.BandwidthWideband)
+	enc.SetBitrate(32000)
+	packet, err := enc.Encode(generateTestSignal(channels, encoderFrameSize, encoderSampleRate, 440), encoderFrameSize)
+	if err != nil {
+		t.Fatalf("Encode: %v", err)
+	}
+	streamPackets, err := parseMultistreamPacket(packet, streams)
+	if err != nil {
+		t.Fatalf("parseMultistreamPacket: %v", err)
+	}
+	if got := parseStreamTOC(streamPackets[0][0]).mode; got != streamModeSILK {
+		t.Fatalf("stream mode=%d want SILK", got)
+	}
+
+	sequence := [][]byte{packet, nil}
+	want, err := decodeWithLibopusReferencePackets(1, sampleRate, channels, streams, coupled, requestFrameSize, mapping, nil, sequence)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "reference requested PLC decode", err)
+	}
+
+	dec, err := NewDecoder(sampleRate, channels, streams, coupled, mapping)
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	got64 := make([]float64, 0, len(want))
+	frame, err := dec.Decode(packet, requestFrameSize)
+	if err != nil {
+		t.Fatalf("Decode packet: %v", err)
+	}
+	if len(frame) != packetFrameSize*channels {
+		t.Fatalf("Decode packet samples=%d want %d", len(frame)/channels, packetFrameSize)
+	}
+	got64 = append(got64, frame...)
+	frame, err = dec.Decode(nil, requestFrameSize)
+	if err != nil {
+		t.Fatalf("Decode nil: %v", err)
+	}
+	if len(frame) != requestFrameSize*channels {
+		t.Fatalf("Decode nil samples=%d want %d", len(frame)/channels, requestFrameSize)
+	}
+	got64 = append(got64, frame...)
+
+	got := make([]float32, len(got64))
+	for i, v := range got64 {
+		got[i] = float32(v)
+	}
+	_, maxAbsDiff := computeDiffStatsF32(got, want)
+	if maxAbsDiff > 8e-3 {
+		t.Fatalf("api-rate SILK requested PLC max abs diff=%g want <=8e-3", maxAbsDiff)
+	}
+}
