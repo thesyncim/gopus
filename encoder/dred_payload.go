@@ -7,20 +7,20 @@ import (
 	"github.com/thesyncim/gopus/internal/extsupport"
 )
 
-func (e *Encoder) currentDREDActivity(pcm []float64) bool {
+func (e *Encoder) currentDREDActivity(pcm []opusRes) bool {
 	if !extsupport.DREDRuntime {
 		return false
 	}
 	if len(pcm) == 0 {
 		return true
 	}
-	if isDigitalSilence(pcm, e.lsbDepth) {
+	if isDigitalSilenceRes(pcm, e.lsbDepth) {
 		return false
 	}
 	if e.lastAnalysisValid {
 		active := e.lastAnalysisInfo.VADProb >= dtxActivityThreshold
 		if !active {
-			frameEnergy := computeFrameEnergy(pcm)
+			frameEnergy := computeFrameEnergyRes(pcm)
 			peak := opusVal32(0)
 			if e.dtx != nil {
 				peak = e.dtx.peakSignalEnergy
@@ -29,7 +29,7 @@ func (e *Encoder) currentDREDActivity(pcm []float64) bool {
 		}
 		return active
 	}
-	frameEnergy := computeFrameEnergy(pcm)
+	frameEnergy := computeFrameEnergyRes(pcm)
 	peak := opusVal32(0)
 	if e.dtx != nil {
 		peak = e.dtx.peakSignalEnergy

@@ -12,17 +12,20 @@ func TestUpdateOpusVADReusesFreshAnalysis(t *testing.T) {
 
 	enc := NewEncoder(48000, 1)
 	pcm := make([]float64, frameSize)
+	pcmRes := make([]opusRes, frameSize)
 	for i := range pcm {
-		pcm[i] = 0.25 * math.Sin(2*math.Pi*220*float64(i)/48000.0)
+		s := 0.25 * math.Sin(2*math.Pi*220*float64(i)/48000.0)
+		pcm[i] = s
+		pcmRes[i] = opusRes(s)
 	}
 
-	_ = enc.autoSignalFromPCM(pcm, frameSize)
+	_ = enc.autoSignalFromPCM(pcmRes, frameSize)
 	if !enc.lastAnalysisValid || !enc.lastAnalysisFresh {
 		t.Fatalf("expected fresh analysis after autoSignalFromPCM, valid=%v fresh=%v", enc.lastAnalysisValid, enc.lastAnalysisFresh)
 	}
 
 	countBefore := enc.analyzer.Count
-	enc.updateOpusVAD(pcm, frameSize)
+	enc.updateOpusVADRes(pcmRes, frameSize)
 	if enc.analyzer.Count != countBefore {
 		t.Fatalf("updateOpusVAD consumed fresh analysis but still advanced analyzer count: got %d want %d", enc.analyzer.Count, countBefore)
 	}
@@ -33,7 +36,7 @@ func TestUpdateOpusVADReusesFreshAnalysis(t *testing.T) {
 		t.Fatal("expected valid Opus VAD after consuming fresh analysis")
 	}
 
-	enc.updateOpusVAD(pcm, frameSize)
+	enc.updateOpusVADRes(pcmRes, frameSize)
 	if enc.analyzer.Count <= countBefore {
 		t.Fatalf("expected fallback analyzer run on second updateOpusVAD call, countBefore=%d countAfter=%d", countBefore, enc.analyzer.Count)
 	}
@@ -47,8 +50,11 @@ func TestRestrictedSilkApplicationSkipsAnalysis(t *testing.T) {
 	enc.SetRestrictedSilkApplication(true)
 
 	pcm := make([]float64, frameSize)
+	pcmRes := make([]opusRes, frameSize)
 	for i := range pcm {
-		pcm[i] = 0.25 * math.Sin(2*math.Pi*220*float64(i)/48000.0)
+		s := 0.25 * math.Sin(2*math.Pi*220*float64(i)/48000.0)
+		pcm[i] = s
+		pcmRes[i] = opusRes(s)
 	}
 
 	enc.refreshFrameAnalysis(pcm, frameSize)
@@ -59,7 +65,7 @@ func TestRestrictedSilkApplicationSkipsAnalysis(t *testing.T) {
 		t.Fatal("restricted SILK should leave analyzer reset")
 	}
 
-	if got := enc.autoSignalFromPCM(pcm, frameSize*2); got != types.SignalAuto {
+	if got := enc.autoSignalFromPCM(pcmRes, frameSize*2); got != types.SignalAuto {
 		t.Fatalf("restricted SILK autoSignalFromPCM=%v, want auto", got)
 	}
 	if enc.analyzer.Initialized {

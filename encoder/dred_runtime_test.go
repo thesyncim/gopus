@@ -26,7 +26,7 @@ func TestEncoderDREDRuntimeStaysDormantUntilReady(t *testing.T) {
 		t.Fatal("encoder should keep DRED runtime dormant until DRED is armed")
 	}
 
-	frame := make([]float64, 320)
+	frame := make([]opusRes, 320)
 	if got := enc.processDREDLatents(frame, 0); got != 0 {
 		t.Fatalf("processDREDLatents()=%d want 0 while duration is disabled", got)
 	}
@@ -68,7 +68,7 @@ func TestEncoderDREDSetDNNBlobRejectsBadReplacementWithoutClearing(t *testing.T)
 	if err := enc.SetDREDDuration(4); err != nil {
 		t.Fatalf("SetDREDDuration error: %v", err)
 	}
-	frame := make([]float64, 320)
+	frame := make([]opusRes, 320)
 	if got := enc.processDREDLatents(frame, 0); got != 1 {
 		t.Fatalf("processDREDLatents()=%d want 1", got)
 	}
@@ -128,10 +128,12 @@ func TestEncoderInactiveDREDEncodeClearsHistory(t *testing.T) {
 	}
 
 	frame := make([]float64, 960)
+	frameRes := make([]opusRes, 960)
 	for i := range frame {
 		frame[i] = 0.1
+		frameRes[i] = 0.1
 	}
-	if got := enc.processDREDLatents(frame, 0); got != 1 {
+	if got := enc.processDREDLatents(frameRes, 0); got != 1 {
 		t.Fatalf("processDREDLatents()=%d want 1", got)
 	}
 	runtime := enc.dred.runtime
@@ -221,7 +223,7 @@ func TestEncoderProcessDREDLatentsDoesNotAllocate(t *testing.T) {
 		t.Fatalf("SetDREDDuration error: %v", err)
 	}
 
-	frame := make([]float64, 320)
+	frame := make([]opusRes, 320)
 	if got := enc.processDREDLatents(frame, 0); got != 1 {
 		t.Fatalf("warm processDREDLatents()=%d want 1", got)
 	}
@@ -252,7 +254,7 @@ func TestEncoderProcessDREDLatentsDownmixesStereo16k(t *testing.T) {
 		t.Fatalf("SetDREDDuration error: %v", err)
 	}
 
-	frame := make([]float64, 640)
+	frame := make([]opusRes, 640)
 	for i := 0; i < len(frame); i += 2 {
 		frame[i] = 0.25
 		frame[i+1] = -0.25
@@ -295,7 +297,7 @@ func TestEncoderProcessDREDLatentsSupportsRateConversion(t *testing.T) {
 				t.Fatalf("SetDREDDuration error: %v", err)
 			}
 
-			frame := make([]float64, tc.frameSamplesPerCh*tc.channels)
+			frame := make([]opusRes, tc.frameSamplesPerCh*tc.channels)
 			if tc.channels == 1 {
 				for i := range frame {
 					frame[i] = 0.1
@@ -327,7 +329,7 @@ func TestEncoderProcessDREDLatentsBuffers48k10msFrames(t *testing.T) {
 		t.Fatalf("SetDREDDuration error: %v", err)
 	}
 
-	frame := make([]float64, 480)
+	frame := make([]opusRes, 480)
 	for i := range frame {
 		frame[i] = 0.05
 	}
@@ -355,7 +357,7 @@ func TestEncoderProcessDREDLatentsTracksHistoryWindow(t *testing.T) {
 		t.Fatalf("SetDREDDuration error: %v", err)
 	}
 
-	frame := make([]float64, 320)
+	frame := make([]opusRes, 320)
 	for i := 0; i < internaldred.NumRedundancyFrames+4; i++ {
 		if got := enc.processDREDLatents(frame, 0); got != 1 {
 			t.Fatalf("iteration %d processDREDLatents()=%d want 1", i, got)
@@ -376,7 +378,7 @@ func TestEncoderProcessDREDLatentsTracksOffsets(t *testing.T) {
 		t.Fatalf("SetDREDDuration error: %v", err)
 	}
 
-	frame := make([]float64, 480)
+	frame := make([]opusRes, 480)
 	if got := enc.processDREDLatents(frame, 0); got != 0 {
 		t.Fatalf("first processDREDLatents()=%d want 0", got)
 	}
@@ -447,7 +449,7 @@ func TestEncoderProcessDREDLatentsDoesNotAllocate48k(t *testing.T) {
 		t.Fatalf("SetDREDDuration error: %v", err)
 	}
 
-	frame := make([]float64, 960)
+	frame := make([]opusRes, 960)
 	if got := enc.processDREDLatents(frame, 0); got != 1 {
 		t.Fatalf("warm processDREDLatents()=%d want 1", got)
 	}

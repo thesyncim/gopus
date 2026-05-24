@@ -171,11 +171,11 @@ func (e *Encoder) ensureActiveDREDRuntime() *dredEncoderRuntime {
 	return runtime
 }
 
-func (e *Encoder) processDREDLatents(framePCM []float64, extraDelay int) int {
+func (e *Encoder) processDREDLatents(framePCM []opusRes, extraDelay int) int {
 	return e.processDREDLatentsWithActivity(framePCM, extraDelay, e.currentDREDActivity(framePCM))
 }
 
-func (e *Encoder) processDREDLatentsWithActivity(framePCM []float64, extraDelay int, active bool) int {
+func (e *Encoder) processDREDLatentsWithActivity(framePCM []opusRes, extraDelay int, active bool) int {
 	if !extsupport.DREDRuntime {
 		return 0
 	}
@@ -226,7 +226,7 @@ func (e *Encoder) backfillDREDActivityForFrame(frameSize int, active bool) {
 	}
 }
 
-func (e *Encoder) processDREDLatentsForPacket(framePCM []float64, frameSize, extraDelay int, mode Mode) int {
+func (e *Encoder) processDREDLatentsForPacket(framePCM []opusRes, frameSize, extraDelay int, mode Mode) int {
 	if !extsupport.DREDRuntime {
 		return 0
 	}
@@ -313,7 +313,7 @@ func (e *Encoder) clearDREDPacketSnapshot() {
 	e.dred.runtime.packetSnapshot.valid = false
 }
 
-func (e *Encoder) convertDREDFrameTo16k(runtime *dredEncoderRuntime, framePCM []float64) int {
+func (e *Encoder) convertDREDFrameTo16k(runtime *dredEncoderRuntime, framePCM []opusRes) int {
 	if !extsupport.DREDRuntime {
 		return 0
 	}
@@ -337,7 +337,7 @@ func (e *Encoder) convertDREDFrameTo16k(runtime *dredEncoderRuntime, framePCM []
 		if processSamples <= 0 || processSamples > len(input) {
 			return 0
 		}
-		n := internaldred.ConvertTo16kMonoFloat64(runtime.scaledPCM16k[out:], &runtime.resampleMem, input[:processSamples], e.sampleRate, e.channels)
+		n := internaldred.ConvertTo16kMonoFloat32(runtime.scaledPCM16k[out:], &runtime.resampleMem, input[:processSamples], e.sampleRate, e.channels)
 		if n != processSize16k {
 			return 0
 		}

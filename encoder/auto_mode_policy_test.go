@@ -14,9 +14,9 @@ func TestAutoSignalFromPCMAnalyzerInvalidFallsBackToAuto(t *testing.T) {
 	enc.SetBitrate(32000)
 	enc.SetBitrateMode(ModeVBR)
 
-	pcm := make([]float64, 1920)
+	pcm := make([]opusRes, 1920)
 	for i := range pcm {
-		pcm[i] = math.NaN()
+		pcm[i] = opusRes(math.NaN())
 	}
 
 	if got := enc.autoSignalFromPCM(pcm, 1920); got != types.SignalAuto {
@@ -35,10 +35,10 @@ func TestAutoSignalFromPCMAnalyzerUnavailableFallsBackToAuto(t *testing.T) {
 	enc.SetBitrateMode(ModeVBR)
 	enc.analyzer = nil
 
-	pcm := make([]float64, 960)
+	pcm := make([]opusRes, 960)
 	for i := range pcm {
 		t := float64(i) / 48000.0
-		pcm[i] = 0.8*math.Sin(2*math.Pi*3000*t) + 0.2*math.Sin(2*math.Pi*120*t)
+		pcm[i] = opusRes(0.8*math.Sin(2*math.Pi*3000*t) + 0.2*math.Sin(2*math.Pi*120*t))
 	}
 
 	if got := enc.autoSignalFromPCM(pcm, 960); got != types.SignalAuto {
@@ -54,7 +54,7 @@ func TestAutoModePreservesVoiceRatioOnDigitalSilence(t *testing.T) {
 	enc.analyzer = nil
 	enc.voiceRatio = 73
 
-	pcm := make([]float64, 960)
+	pcm := make([]opusRes, 960)
 	_ = enc.autoModeAndBandwidthDecision(pcm, 960, maxSilkPacketBytes, true)
 
 	if got := enc.voiceRatio; got != 73 {
@@ -70,8 +70,8 @@ func TestAutoModeResetsVoiceRatioOnNonSilentFrame(t *testing.T) {
 	enc.analyzer = nil
 	enc.voiceRatio = 73
 
-	pcm := make([]float64, 960)
-	pcm[0] = 1.0 / (1 << 12)
+	pcm := make([]opusRes, 960)
+	pcm[0] = opusRes(1.0 / (1 << 12))
 	_ = enc.autoModeAndBandwidthDecision(pcm, 960, maxSilkPacketBytes, false)
 
 	if got := enc.voiceRatio; got != -1 {

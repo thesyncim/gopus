@@ -306,10 +306,10 @@ func TestResamplerContinuity(t *testing.T) {
 	// Process 3 frames
 	var lastSample float32
 	for frame := 0; frame < 3; frame++ {
-		samples := make([]float64, frameSize)
+		samples := make([]opusRes, frameSize)
 		for i := 0; i < frameSize; i++ {
 			t := float64(frame*frameSize+i) / sampleRate
-			samples[i] = math.Sin(2 * math.Pi * freq * t)
+			samples[i] = opusRes(math.Sin(2 * math.Pi * freq * t))
 		}
 
 		output := e.downsample48to16Hybrid(samples, frameSize)
@@ -432,9 +432,9 @@ func BenchmarkHBGainComputation(b *testing.B) {
 func BenchmarkDownsample48to16(b *testing.B) {
 	e := NewEncoder(48000, 1)
 
-	samples := make([]float64, 960)
+	samples := make([]opusRes, 960)
 	for i := range samples {
-		samples[i] = math.Sin(float64(i) * 0.1)
+		samples[i] = opusRes(math.Sin(float64(i) * 0.1))
 	}
 
 	b.ResetTimer()

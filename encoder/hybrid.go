@@ -106,7 +106,7 @@ type HybridState struct {
 // encodeHybridFrameWithMaxPacketAndTransition allows callers assembling long packets
 // to gate CELT transition redundancy/prefill to the correct 20ms subframe,
 // matching libopus multi-frame cadence.
-func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, celtPCM []opusRes, lookahead []float64, frameSize int, maxPacketBytes int, dredBitrate int, hardMaxPacketBytes bool, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) ([]byte, error) {
+func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, celtPCM []opusRes, lookahead []opusRes, frameSize int, maxPacketBytes int, dredBitrate int, hardMaxPacketBytes bool, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) ([]byte, error) {
 	// Validate: only 480 (10ms) or 960 (20ms) for hybrid
 	if frameSize != 480 && frameSize != 960 {
 		return nil, ErrInvalidHybridFrameSize
@@ -252,9 +252,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []float64, cel
 			e.hybridState.scratchLookahead32 = make([]float32, needed)
 		}
 		lookahead32 := e.hybridState.scratchLookahead32[:needed]
-		for i, v := range lookahead {
-			lookahead32[i] = float32(v)
-		}
+		copy(lookahead32, lookahead)
 
 		lookaheadFrames := len(lookahead) / e.channels
 		targetLaSamples := lookaheadFrames / 3
@@ -897,7 +895,7 @@ func celtExp2Approx(x float32) float32 {
 
 // downsample48to16Hybrid downsamples from 48kHz to 16kHz using the
 // libopus-matching SILK downsampler (AR2 + FIR).
-func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []float32 {
+func (e *Encoder) downsample48to16Hybrid(samples []opusRes, frameSize int) []float32 {
 	if len(samples) == 0 || frameSize <= 0 {
 		return nil
 	}
@@ -917,9 +915,7 @@ func (e *Encoder) downsample48to16Hybrid(samples []float64, frameSize int) []flo
 		pcm32 := e.scratchPCM32[:frameSize]
 		_ = pcm32[frameSize-1]   // BCE hint
 		_ = samples[frameSize-1] // BCE hint
-		for i := 0; i < frameSize; i++ {
-			pcm32[i] = float32(samples[i])
-		}
+		copy(pcm32, samples[:frameSize])
 		out := e.ensureSilkResampled(targetSamples)
 		n := e.silkResampler.ProcessInto(pcm32, out)
 		return out[:n]

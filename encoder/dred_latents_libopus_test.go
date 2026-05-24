@@ -238,10 +238,10 @@ func compareEncoderDREDTraces(t *testing.T, got, want []encoderLibopusDREDFrameT
 	}
 }
 
-func encoderLibopusDREDTraceFrame(frameIdx, frameSize, sampleRate, channels int) []float64 {
-	pcm := make([]float64, frameSize*channels)
+func encoderLibopusDREDTraceFrame(frameIdx, frameSize, sampleRate, channels int) []opusRes {
+	pcm := make([]opusRes, frameSize*channels)
 	for i := 0; i < frameSize; i++ {
-		sample := float64(encoderLibopusDREDTraceSample(frameIdx, i, frameSize, sampleRate))
+		sample := opusRes(encoderLibopusDREDTraceSample(frameIdx, i, frameSize, sampleRate))
 		for ch := 0; ch < channels; ch++ {
 			pcm[i*channels+ch] = sample
 		}

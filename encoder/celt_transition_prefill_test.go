@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-func makeTransitionPCM(frameSize, channels int) []float64 {
-	pcm := make([]float64, frameSize*channels)
+func makeTransitionPCM(frameSize, channels int) []opusRes {
+	pcm := make([]opusRes, frameSize*channels)
 	for i := 0; i < frameSize; i++ {
 		s := math.Sin(2 * math.Pi * 440 * float64(i) / 48000.0)
 		for c := 0; c < channels; c++ {
-			pcm[i*channels+c] = s
+			pcm[i*channels+c] = opusRes(s)
 		}
 	}
 	return pcm
@@ -99,9 +99,9 @@ func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 	}
 	origDelay := append([]opusRes(nil), enc.delayBuffer...)
 
-	frame := make([]float64, frameSize)
+	frame := make([]opusRes, frameSize)
 	for i := range frame {
-		frame[i] = 10000 + float64(i)
+		frame[i] = opusRes(10000 + i)
 	}
 	celtPCM := enc.applyDelayCompensation(frame, frameSize)
 

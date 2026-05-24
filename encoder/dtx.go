@@ -92,6 +92,23 @@ func isDigitalSilence(pcm []float64, lsbDepth int) bool {
 	return true
 }
 
+func isDigitalSilenceRes(pcm []opusRes, lsbDepth int) bool {
+	if lsbDepth < 8 {
+		lsbDepth = 8
+	}
+	if lsbDepth > 24 {
+		lsbDepth = 24
+	}
+	threshold := opusVal16(1.0 / opusVal16(int(1)<<lsbDepth))
+
+	for _, v := range pcm {
+		if v > threshold || v < -threshold {
+			return false
+		}
+	}
+	return true
+}
+
 // computeFrameEnergy computes mean energy of the PCM frame.
 // Matches libopus compute_frame_energy() from opus_encoder.c:1107-1111.
 func computeFrameEnergy(pcm []float64) opusVal32 {
@@ -103,6 +120,17 @@ func computeFrameEnergy(pcm []float64) opusVal32 {
 		// libopus float API energy path operates in float precision; match that
 		// domain before squaring to avoid threshold-side drift from float64 input.
 		v := opusVal16(s)
+		energy += v * v
+	}
+	return energy / opusVal32(len(pcm))
+}
+
+func computeFrameEnergyRes(pcm []opusRes) opusVal32 {
+	if len(pcm) == 0 {
+		return 0
+	}
+	var energy opusVal32
+	for _, v := range pcm {
 		energy += v * v
 	}
 	return energy / opusVal32(len(pcm))
@@ -181,6 +209,80 @@ func (e *Encoder) shouldUseDTX(pcm []float64) (bool, bool) {
 	}
 
 	// DTX decision logic matching libopus decide_dtx_mode (opus_encoder.c:1115)
+	frameSizeMsQ1 := frameDurationMs * 2
+
+	if !isActive {
+		e.dtx.noActivityMsQ1 += frameSizeMsQ1
+
+		thresholdMsQ1 := NBSpeechFramesBeforeDTX * 20 * 2
+		maxDTXMsQ1 := (NBSpeechFramesBeforeDTX + MaxConsecutiveDTX) * 20 * 2
+
+		if e.dtx.noActivityMsQ1 > thresholdMsQ1 {
+			if e.dtx.noActivityMsQ1 <= maxDTXMsQ1 {
+				e.dtx.inDTXMode = true
+				return true, false
+			}
+			e.dtx.noActivityMsQ1 = thresholdMsQ1
+			e.dtx.inDTXMode = false
+		}
+	} else {
+		e.dtx.noActivityMsQ1 = 0
+		e.dtx.inDTXMode = false
+	}
+
+	return false, false
+}
+
+func (e *Encoder) shouldUseDTXRes(pcm []opusRes) (bool, bool) {
+	if !e.dtxEnabled || e.dtx == nil {
+		if e.dtx != nil {
+			e.dtx.noActivityMsQ1 = 0
+			e.dtx.inDTXMode = false
+		}
+		return false, false
+	}
+
+	frameLength := len(pcm)
+	if e.channels == 2 {
+		frameLength /= 2
+	}
+	fsKHz := e.sampleRate / 1000
+	switch fsKHz {
+	case 8, 12, 16, 24, 48:
+	default:
+		fsKHz = 48
+	}
+	frameDurationMs := (frameLength * 1000) / (fsKHz * 1000)
+	if frameDurationMs <= 0 {
+		frameDurationMs = 20
+	}
+	e.dtx.frameDurationMs = frameDurationMs
+
+	isSilence := isDigitalSilenceRes(pcm, e.lsbDepth)
+
+	var isActive bool
+	if isSilence {
+		isActive = false
+	} else if e.lastAnalysisValid {
+		isActive = e.lastAnalysisInfo.VADProb >= dtxActivityThreshold
+		if !isActive {
+			frameEnergy := computeFrameEnergyRes(pcm)
+			isActive = e.dtx.peakSignalEnergy < pseudoSNRThreshold*frameEnergy
+		}
+	} else {
+		frameEnergy := computeFrameEnergyRes(pcm)
+		isActive = e.dtx.peakSignalEnergy < pseudoSNRThreshold*0.5*frameEnergy
+	}
+
+	shouldTrackPeak := true
+	if e.lastAnalysisValid && e.lastAnalysisInfo.VADProb <= dtxActivityThreshold {
+		shouldTrackPeak = false
+	}
+	if shouldTrackPeak && !isSilence {
+		frameEnergy := computeFrameEnergyRes(pcm)
+		e.dtx.peakSignalEnergy = maxf(0.999*e.dtx.peakSignalEnergy, frameEnergy)
+	}
+
 	frameSizeMsQ1 := frameDurationMs * 2
 
 	if !isActive {

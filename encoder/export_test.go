@@ -12,7 +12,9 @@ func (e *Encoder) Downsample48to16Hybrid(samples []float64, frameSize int) []flo
 			stereoWidthQ14: 16384,
 		}
 	}
-	return e.downsample48to16Hybrid(samples, frameSize)
+	samplesRes := make([]opusRes, len(samples))
+	copyFloat64ToOpusRes(samplesRes, samples)
+	return e.downsample48to16Hybrid(samplesRes, frameSize)
 }
 
 // TargetBytesForBitrate exports targetBytesForBitrate for testing.

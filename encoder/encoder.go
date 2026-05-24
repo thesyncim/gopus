@@ -178,7 +178,7 @@ type Encoder struct {
 	prevMode            Mode
 	prevPacketMode      Mode
 	prevAutoMode        Mode
-	inputBuffer         []float64
+	inputBuffer         []opusRes
 	delayBuffer         []opusRes
 
 	// Auto-mode state (matching libopus OpusEncoder fields)
@@ -206,7 +206,8 @@ type Encoder struct {
 	scratchSilkAligned  []float32
 
 	// Scratch buffers for zero-allocation encoding
-	scratchDCPCM      []float64 // DC rejected PCM buffer
+	scratchDCPCM      []opusRes // DC rejected PCM buffer
+	scratchInputPCM   []opusRes // Public PCM rounded into the libopus opus_res domain
 	scratchInputPCM64 []float64 // float32 public input converted for the float64 core
 	scratchPCM32      []float32 // float64 to float32 conversion buffer
 	scratchLeft       []float32 // Left channel deinterleave buffer
@@ -224,7 +225,7 @@ type Encoder struct {
 	scratchSilkPrefill       []opusRes
 	scratchCELTPrefill       []opusRes // CELT transition prefill source (Fs/400 * channels)
 	hasCELTPrefill           bool
-	scratchQuantPCM          []float64 // LSB-depth quantized input
+	scratchQuantPCM          []opusRes // LSB-depth quantized input
 	floatInputFrame          []float32 // Current public float32 frame view, if available
 	floatInputExact          bool      // True when pcm originated from float32 samples
 }
@@ -781,7 +782,9 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analy
 			e.bitrate = userBitrate
 		}()
 	}
-	isSilence := isDigitalSilence(pcm[:expectedLen], e.lsbDepth)
+	inputPCM := e.ensureInputPCM(expectedLen)
+	copyFloat64ToOpusRes(inputPCM, pcm[:expectedLen])
+	isSilence := isDigitalSilenceRes(inputPCM, e.lsbDepth)
 	e.hasCELTPrefill = false
 	defer func() {
 		e.analysisReadBakSet = false
@@ -792,18 +795,19 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analy
 	rawPCM := analysisPCM
 	e.refreshFrameAnalysis(rawPCM, frameSize)
 	lookaheadSamples := 0
-	pcm = e.quantizeInputToLSBDepth(pcm)
-	pcm = e.dcReject(pcm, frameSize)
+	vadPCM := inputPCM
+	pcmRes := e.quantizeInputToLSBDepth(inputPCM)
+	pcmRes = e.dcReject(pcmRes, frameSize)
 	frameEnd := frameSize * e.channels
 	samplesNeeded := frameEnd + lookaheadSamples
 	directFrameInput := lookaheadSamples == 0 && len(e.inputBuffer) == 0
-	var framePCM []float64
-	var lookaheadSlice []float64
+	var framePCM []opusRes
+	var lookaheadSlice []opusRes
 	if directFrameInput {
-		framePCM = pcm[:frameEnd]
-		lookaheadSlice = pcm[frameEnd:frameEnd]
+		framePCM = pcmRes[:frameEnd]
+		lookaheadSlice = pcmRes[frameEnd:frameEnd]
 	} else {
-		e.inputBuffer = append(e.inputBuffer, pcm...)
+		e.inputBuffer = append(e.inputBuffer, pcmRes...)
 		if len(e.inputBuffer) < samplesNeeded {
 			return nil, nil
 		}
@@ -865,7 +869,7 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analy
 		e.clearInactiveDREDHistory()
 	}
 
-	suppressFrame, _ := e.shouldUseDTX(framePCM)
+	suppressFrame, _ := e.shouldUseDTXRes(framePCM)
 	if suppressFrame {
 		if !directFrameInput {
 			remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
@@ -896,10 +900,10 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analy
 		// stays VAD_NO_DECISION except true digital-silence input, which libopus
 		// still forwards as VAD_NO_ACTIVITY before SILK VAD runs.
 		if actualMode == ModeSILK && e.mode == ModeSILK {
-			e.updateRestrictedSilkOpusVAD(rawPCM, frameSize)
+			e.updateRestrictedSilkOpusVADRes(vadPCM, frameSize)
 		} else {
 			// Audio/VoIP SILK and short hybrid lanes still use Opus-level activity.
-			e.updateOpusVAD(rawPCM, frameSize)
+			e.updateOpusVADRes(vadPCM, frameSize)
 		}
 	}
 
@@ -931,7 +935,7 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analy
 	case ModeSILK:
 		e.maybePrefillSILKOnModeTransition(actualMode)
 		if frameSize > 2880 {
-			packet, err = e.encodeSILKMultiFramePacket(framePCM, rawPCM, frameSize, e.bitrate, encodingBitrate, dredBitrate, dredExtraDelay)
+			packet, err = e.encodeSILKMultiFramePacket(framePCM, vadPCM, frameSize, e.bitrate, encodingBitrate, dredBitrate, dredExtraDelay)
 		} else {
 			originalBitrate := e.bitrate
 			if encodingBitrate != originalBitrate {
@@ -958,7 +962,7 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analy
 			delayState := e.ensureDelayState(len(e.delayBuffer))
 			copy(delayState, e.delayBuffer)
 			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
-			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, rawPCM, lookaheadSlice, delayState, frameSize, transitionToCELT, e.bitrate, encodingBitrate, dredBitrate, dredExtraDelay)
+			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, vadPCM, lookaheadSlice, delayState, frameSize, transitionToCELT, e.bitrate, encodingBitrate, dredBitrate, dredExtraDelay)
 		} else {
 			e.maybePrefillSILKOnModeTransition(actualMode)
 			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
@@ -985,7 +989,7 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analy
 		e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
 		if frameSize > 960 {
 			// Long CELT packets are encoded as multi-frame packets.
-			packet, err = e.encodeCELTMultiFramePacket(framePCM, rawPCM, celtPCM, frameSize, e.bitrate, encodingBitrate, dredBitrate, dredExtraDelay)
+			packet, err = e.encodeCELTMultiFramePacket(framePCM, vadPCM, celtPCM, frameSize, e.bitrate, encodingBitrate, dredBitrate, dredExtraDelay)
 		} else {
 			originalBitrate := e.bitrate
 			if encodingBitrate != originalBitrate {
@@ -1219,7 +1223,7 @@ func (e *Encoder) celtInternalChannelsForMode(mode Mode) int {
 }
 
 // dcReject applies a DC rejection filter (1st-order high-pass filter at 3Hz).
-func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
+func (e *Encoder) dcReject(in []opusRes, frameSize int) []opusRes {
 	channels := e.channels
 	n := frameSize * channels
 	out := e.ensureDCPCM(n)
@@ -1245,19 +1249,19 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 				out1 := x1 - m2
 				m0 = coef*x0 + verySmall + coef2*m0
 				m2 = coef*x1 + verySmall + coef2*m2
-				out[2*i] = float64(out0)
-				out[2*i+1] = float64(out1)
+				out[2*i] = out0
+				out[2*i+1] = out1
 			}
 		} else {
 			for i := 0; i < frameSize; i++ {
-				x0 := float32(in[2*i])
-				x1 := float32(in[2*i+1])
+				x0 := in[2*i]
+				x1 := in[2*i+1]
 				out0 := x0 - m0
 				out1 := x1 - m2
 				m0 = coef*x0 + verySmall + coef2*m0
 				m2 = coef*x1 + verySmall + coef2*m2
-				out[2*i] = float64(out0)
-				out[2*i+1] = float64(out1)
+				out[2*i] = out0
+				out[2*i+1] = out1
 			}
 		}
 		e.hpMem[0] = m0
@@ -1269,14 +1273,14 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 				x := src32[i]
 				y := x - m0
 				m0 = coef*x + verySmall + coef2*m0
-				out[i] = float64(y)
+				out[i] = y
 			}
 		} else {
 			for i := 0; i < n; i++ {
-				x := float32(in[i])
+				x := in[i]
 				y := x - m0
 				m0 = coef*x + verySmall + coef2*m0
-				out[i] = float64(y)
+				out[i] = y
 			}
 		}
 		e.hpMem[0] = m0
@@ -1284,50 +1288,60 @@ func (e *Encoder) dcReject(in []float64, frameSize int) []float64 {
 	return out
 }
 
-func quantizeFloat64ToLSBDepthInPlace(samples []float64, depth int) {
+func quantizeOpusResToLSBDepthInPlace(samples []opusRes, depth int) {
 	if depth < 8 {
 		depth = 8
 	}
 	if depth > 24 {
 		depth = 24
 	}
-	scale := math.Ldexp(1.0, depth-1)
-	invScale := 1.0 / scale
+	scale := opusVal32(math.Ldexp(1.0, depth-1))
+	invScale := opusVal32(1.0) / scale
 	for i, v := range samples {
-		x := float64(float32(v))
-		samples[i] = math.Floor(0.5+x*scale) * invScale
+		x := opusVal32(v)
+		q := floorOpusVal32(opusVal32(0.5) + x*scale)
+		samples[i] = opusRes(q * invScale)
 	}
 }
 
-func (e *Encoder) quantizeInputToLSBDepth(pcm []float64) []float64 {
-	if e.LSBDepth() == 24 && (e.floatInputExact || float64SliceIsExactFloat32(pcm)) {
+func floorOpusVal32(x opusVal32) opusVal32 {
+	if x != x || x > 9.22e18 || x < -9.22e18 {
+		return x
+	}
+	i := int64(x)
+	if opusVal32(i) > x {
+		i--
+	}
+	return opusVal32(i)
+}
+
+func (e *Encoder) quantizeInputToLSBDepth(pcm []opusRes) []opusRes {
+	if e.LSBDepth() == 24 {
 		return pcm
 	}
 	out := e.ensureQuantPCM(len(pcm))
 	copy(out, pcm)
-	quantizeFloat64ToLSBDepthInPlace(out, e.LSBDepth())
+	quantizeOpusResToLSBDepthInPlace(out, e.LSBDepth())
 	return out
 }
 
-func float64SliceIsExactFloat32(samples []float64) bool {
-	for _, v := range samples {
-		if float64(float32(v)) != v {
-			return false
-		}
+func (e *Encoder) ensureInputPCM(size int) []opusRes {
+	if cap(e.scratchInputPCM) < size {
+		e.scratchInputPCM = make([]opusRes, size)
 	}
-	return true
+	return e.scratchInputPCM[:size]
 }
 
-func (e *Encoder) ensureQuantPCM(size int) []float64 {
+func (e *Encoder) ensureQuantPCM(size int) []opusRes {
 	if cap(e.scratchQuantPCM) < size {
-		e.scratchQuantPCM = make([]float64, size)
+		e.scratchQuantPCM = make([]opusRes, size)
 	}
 	return e.scratchQuantPCM[:size]
 }
 
-func (e *Encoder) ensureDCPCM(size int) []float64 {
+func (e *Encoder) ensureDCPCM(size int) []opusRes {
 	if cap(e.scratchDCPCM) < size {
-		e.scratchDCPCM = make([]float64, size)
+		e.scratchDCPCM = make([]opusRes, size)
 	}
 	return e.scratchDCPCM[:size]
 }
@@ -1503,7 +1517,7 @@ func (e *Encoder) ensureCELTPrefill(size int) []opusRes {
 // applyDelayCompensation prepends the Opus delay buffer (Fs/250) to the current frame
 // and returns a frame-sized slice for CELT processing. The delay buffer is updated
 // with the latest samples after constructing the output.
-func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []opusRes {
+func (e *Encoder) applyDelayCompensation(pcm []opusRes, frameSize int) []opusRes {
 	channels := e.channels
 	if channels < 1 {
 		channels = 1
@@ -1515,14 +1529,14 @@ func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []opusRes
 	delayComp := e.sampleRate / 250
 	if delayComp <= 0 {
 		out := e.ensureDelayedPCM(frameSamples)
-		copyFloat64ToOpusRes(out, pcm[:frameSamples])
+		copy(out, pcm[:frameSamples])
 		return out
 	}
 	delaySamples := delayComp * channels
 	encoderBufferSamples := (e.sampleRate / 100) * channels
 	if delaySamples <= 0 || frameSamples <= 0 {
 		out := e.ensureDelayedPCM(frameSamples)
-		copyFloat64ToOpusRes(out, pcm[:frameSamples])
+		copy(out, pcm[:frameSamples])
 		return out
 	}
 	if encoderBufferSamples < delaySamples {
@@ -1552,7 +1566,7 @@ func (e *Encoder) applyDelayCompensation(pcm []float64, frameSize int) []opusRes
 		clear(out[frameSamples:])
 	} else {
 		copy(out, e.delayBuffer[tailStart:])
-		copyFloat64ToOpusRes(out[delaySamples:], pcm[:frameSamples-delaySamples])
+		copy(out[delaySamples:], pcm[:frameSamples-delaySamples])
 		clear(out[frameSamples:])
 	}
 
@@ -2020,7 +2034,7 @@ func (e *Encoder) applySilkTransitionPrefillRamp(prefill []opusRes, prefillFrame
 
 // updateDelayBuffer advances the delay buffer without generating a compensated frame.
 // This keeps the delay history in sync during SILK-only frames.
-func (e *Encoder) updateDelayBuffer(pcm []float64, frameSize int) {
+func (e *Encoder) updateDelayBuffer(pcm []opusRes, frameSize int) {
 	delayComp := e.sampleRate / 250
 	if delayComp <= 0 {
 		return
@@ -2047,22 +2061,22 @@ func (e *Encoder) updateDelayBuffer(pcm []float64, frameSize int) {
 	e.updateDelayBufferInternal(pcm, frameSamples, encoderBufferSamples)
 }
 
-func (e *Encoder) updateDelayBufferInternal(pcm []float64, frameSamples, encoderBufferSamples int) {
+func (e *Encoder) updateDelayBufferInternal(pcm []opusRes, frameSamples, encoderBufferSamples int) {
 	if frameSamples <= 0 || encoderBufferSamples <= 0 {
 		return
 	}
 	if frameSamples >= encoderBufferSamples {
-		copyFloat64ToOpusRes(e.delayBuffer, pcm[frameSamples-encoderBufferSamples:frameSamples])
+		copy(e.delayBuffer, pcm[frameSamples-encoderBufferSamples:frameSamples])
 		return
 	}
 
 	keep := encoderBufferSamples - frameSamples
 	copy(e.delayBuffer[:keep], e.delayBuffer[frameSamples:frameSamples+keep])
-	copyFloat64ToOpusRes(e.delayBuffer[keep:], pcm[:frameSamples])
+	copy(e.delayBuffer[keep:], pcm[:frameSamples])
 }
 
 // prepareCELTPCM applies CELT delay compensation unless low-delay mode is active.
-func (e *Encoder) prepareCELTPCM(framePCM []float64, frameSize int) []opusRes {
+func (e *Encoder) prepareCELTPCM(framePCM []opusRes, frameSize int) []opusRes {
 	channels := e.channels
 	if channels < 1 {
 		channels = 1
@@ -2073,7 +2087,7 @@ func (e *Encoder) prepareCELTPCM(framePCM []float64, frameSize int) []opusRes {
 	}
 	if e.lowDelay {
 		out := e.ensureDelayedPCM(frameSamples)
-		copyFloat64ToOpusRes(out, framePCM[:frameSamples])
+		copy(out, framePCM[:frameSamples])
 		return out
 	}
 	return e.applyDelayCompensation(framePCM, frameSize)
@@ -2289,7 +2303,7 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 }
 
 // autoSignalFromPCM is kept for backward compatibility but RunAnalysis is preferred.
-func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
+func (e *Encoder) autoSignalFromPCM(pcm []opusRes, frameSize int) types.Signal {
 	if len(pcm) == 0 || frameSize <= 0 {
 		return types.SignalAuto
 	}
@@ -2297,15 +2311,7 @@ func (e *Encoder) autoSignalFromPCM(pcm []float64, frameSize int) types.Signal {
 		return types.SignalAuto
 	}
 	if !e.lastAnalysisFresh {
-		pcm32 := e.floatInputFrame
-		if len(pcm32) < len(pcm) {
-			pcm32 = e.scratchPCM32[:len(pcm)]
-			for i, v := range pcm {
-				pcm32[i] = float32(v)
-			}
-		} else {
-			pcm32 = pcm32[:len(pcm)]
-		}
+		pcm32 := []float32(pcm)
 		runAnalyzer := frameSize > 960
 		if !runAnalyzer && e.mode == ModeAuto && frameSize == 960 && e.effectiveBandwidth() == types.BandwidthSuperwideband {
 			runAnalyzer = true
@@ -2394,20 +2400,18 @@ func (e *Encoder) celtPredictionModeForFrame() int {
 }
 
 // encodeSILKFrame encodes a frame using SILK-only mode.
-func (e *Encoder) encodeSILKFrame(pcm []float64, lookahead []float64, frameSize int) ([]byte, error) {
+func (e *Encoder) encodeSILKFrame(pcm []opusRes, lookahead []opusRes, frameSize int) ([]byte, error) {
 	return e.encodeSILKFrameWithDRED(pcm, lookahead, frameSize, e.bitrate, 0)
 }
 
-func (e *Encoder) encodeSILKFrameWithDRED(pcm []float64, lookahead []float64, frameSize, originalBitrate, dredBitrate int) ([]byte, error) {
+func (e *Encoder) encodeSILKFrameWithDRED(pcm []opusRes, lookahead []opusRes, frameSize, originalBitrate, dredBitrate int) ([]byte, error) {
 	return e.encodeSILKFrameWithDREDAndMax(pcm, lookahead, frameSize, originalBitrate, dredBitrate, 0)
 }
 
-func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []float64, lookahead []float64, frameSize, originalBitrate, dredBitrate, maxPacketBytes int) ([]byte, error) {
+func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusRes, frameSize, originalBitrate, dredBitrate, maxPacketBytes int) ([]byte, error) {
 	e.ensureSILKEncoder()
 	pcm32 := e.scratchPCM32[:len(pcm)]
-	for i, v := range pcm {
-		pcm32[i] = float32(v)
-	}
+	copy(pcm32, pcm)
 	var lookahead32 []float32
 	if len(lookahead) > 0 {
 		start := len(pcm)
@@ -2416,9 +2420,7 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []float64, lookahead []float
 		} else {
 			lookahead32 = make([]float32, len(lookahead))
 		}
-		for i, v := range lookahead {
-			lookahead32[i] = float32(v)
-		}
+		copy(lookahead32, lookahead)
 	}
 	internalChannels := e.silkInternalChannels()
 	if e.channels != 2 {
@@ -2728,7 +2730,7 @@ func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []opusRes, fra
 
 // encodeCELTMultiFramePacket encodes long CELT packets by splitting into
 // 20ms CELT frames and packing them with Opus multi-frame framing.
-func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM []float64, celtPCM []opusRes, frameSize, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
+func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRes, celtPCM []opusRes, frameSize, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
 	if frameSize <= 960 || frameSize%960 != 0 {
 		return nil, ErrInvalidFrameSize
 	}
@@ -2736,7 +2738,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM []float64, celtPCM
 	if frameCount < 2 || frameCount > 6 {
 		return nil, ErrInvalidFrameSize
 	}
-	if len(framePCM) != frameSize*e.channels || len(rawPCM) != frameSize*e.channels || len(celtPCM) != frameSize*e.channels {
+	if len(framePCM) != frameSize*e.channels || len(vadPCM) != frameSize*e.channels || len(celtPCM) != frameSize*e.channels {
 		return nil, ErrInvalidFrameSize
 	}
 	if e.analysisReadBakSet && e.analyzer != nil {
@@ -2793,9 +2795,9 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM []float64, celtPCM
 		start := i * frameStride
 		end := start + frameStride
 		subFramePCM := framePCM[start:end]
-		subRawPCM := rawPCM[start:end]
+		subVADPCM := vadPCM[start:end]
 		if dredActive {
-			e.updateOpusVAD(subRawPCM, 960)
+			e.updateOpusVADRes(subVADPCM, 960)
 			e.processDREDLatentsWithActivity(subFramePCM, dredExtraDelay, e.lastOpusVADActive)
 			if i == 0 {
 				e.snapshotDREDPacketState()
@@ -2894,7 +2896,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM, rawPCM []float64, celtPCM
 
 // encodeHybridMultiFramePacket encodes long hybrid packets by splitting into
 // 20ms hybrid frames and packing them with Opus multi-frame framing.
-func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []opusRes, rawPCM []float64, lookahead []float64, delayState []opusRes, frameSize int, transitionToCELT bool, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
+func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes, vadPCM []opusRes, lookahead []opusRes, delayState []opusRes, frameSize int, transitionToCELT bool, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
 	if frameSize <= 960 || frameSize%960 != 0 {
 		return nil, ErrInvalidFrameSize
 	}
@@ -2902,7 +2904,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []opusRes,
 	if frameCount < 2 || frameCount > 6 {
 		return nil, ErrInvalidFrameSize
 	}
-	if len(pcm) != frameSize*e.channels || len(celtPCM) != frameSize*e.channels || len(rawPCM) != frameSize*e.channels {
+	if len(pcm) != frameSize*e.channels || len(celtPCM) != frameSize*e.channels || len(vadPCM) != frameSize*e.channels {
 		return nil, ErrInvalidFrameSize
 	}
 	if e.analysisReadBakSet && e.analyzer != nil {
@@ -2961,11 +2963,11 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []opusRes,
 		end := start + frameStride
 		subPCM := pcm[start:end]
 		subCELTPCM := celtPCM[start:end]
-		subRawPCM := rawPCM[start:end]
+		subVADPCM := vadPCM[start:end]
 
 		// Match libopus long-packet cadence: compute DRED activity from the
 		// same per-subframe analysis snapshot used by the primary frame.
-		e.updateOpusVAD(subRawPCM, 960)
+		e.updateOpusVADRes(subVADPCM, 960)
 		dredNoDecision := !e.lastOpusVADValid
 		if dredActive {
 			e.processDREDLatentsWithActivity(subPCM, dredExtraDelay, e.lastOpusVADActive)
@@ -3055,8 +3057,8 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []float64, celtPCM []opusRes,
 
 // encodeSILKMultiFramePacket encodes 80/100/120ms SILK packets by splitting
 // them into libopus-compatible 20/40/60ms SILK frames and repacketizing them.
-func (e *Encoder) encodeSILKMultiFramePacket(pcm, rawPCM []float64, frameSize int, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
-	if len(pcm) != frameSize*e.channels || len(rawPCM) != frameSize*e.channels {
+func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, frameSize int, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
+	if len(pcm) != frameSize*e.channels || len(vadPCM) != frameSize*e.channels {
 		return nil, ErrInvalidFrameSize
 	}
 
@@ -3120,12 +3122,12 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm, rawPCM []float64, frameSize in
 		start := i * frameStride
 		end := start + frameStride
 		subPCM := pcm[start:end]
-		subRawPCM := rawPCM[start:end]
+		subVADPCM := vadPCM[start:end]
 
 		if e.mode == ModeSILK {
-			e.updateRestrictedSilkOpusVAD(subRawPCM, encFrameSize)
+			e.updateRestrictedSilkOpusVADRes(subVADPCM, encFrameSize)
 		} else {
-			e.updateOpusVAD(subRawPCM, encFrameSize)
+			e.updateOpusVADRes(subVADPCM, encFrameSize)
 		}
 		dredNoDecision := !e.lastOpusVADValid
 		if dredActive {
@@ -3283,16 +3285,16 @@ func (e *Encoder) alignSilkMonoInput(in []float32) []float32 {
 	return out
 }
 
-// updateOpusVAD updates the Opus-level VAD activity state from the tonality analyzer.
+// updateOpusVADRes updates the Opus-level VAD activity state from the tonality analyzer.
 // This mirrors opus_encoder.c behavior where SILK VAD is suppressed if Opus VAD is inactive.
-func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
+func (e *Encoder) updateOpusVADRes(pcm []opusRes, frameSize int) {
 	if frameSize <= 0 || len(pcm) == 0 {
 		e.lastOpusVADValid = false
 		e.lastOpusVADActive = true
 		e.lastOpusVADProb = 1.0
 		return
 	}
-	isSilence := isDigitalSilence(pcm, e.lsbDepth)
+	isSilence := isDigitalSilenceRes(pcm, e.lsbDepth)
 	if isSilence {
 		// Match libopus opus_encoder.c: digital silence forces activity=0
 		// before any tonality/VAD analysis is considered.
@@ -3310,16 +3312,7 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 		analysisValid = e.lastAnalysisValid
 		analysisProb = e.lastAnalysisInfo.VADProb
 	} else if e.analyzer != nil {
-		pcm32 := e.floatInputFrame
-		if len(pcm32) < len(pcm) {
-			pcm32 = e.scratchPCM32[:len(pcm)]
-			for i, v := range pcm {
-				pcm32[i] = float32(v)
-			}
-		} else {
-			pcm32 = pcm32[:len(pcm)]
-		}
-		info := e.analyzer.RunAnalysis(pcm32, frameSize, e.channels)
+		info := e.analyzer.RunAnalysis(pcm, frameSize, e.channels)
 		analysisValid = info.Valid
 		analysisProb = info.VADProb
 	}
@@ -3328,7 +3321,7 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 	// Update when analysis is invalid or clearly active (> threshold), and skip
 	// true digital silence frames.
 	if e.dtx != nil && (!analysisValid || analysisProb > DTXActivityThreshold) && !isSilence {
-		frameEnergy := computeFrameEnergy(pcm)
+		frameEnergy := computeFrameEnergyRes(pcm)
 		e.dtx.peakSignalEnergy = maxf(0.999*e.dtx.peakSignalEnergy, frameEnergy)
 	}
 
@@ -3345,7 +3338,7 @@ func (e *Encoder) updateOpusVAD(pcm []float64, frameSize int) {
 	if !active {
 		// Match libopus safety net: if this "noise" frame is loud enough
 		// relative to the tracked peak, keep activity active.
-		frameEnergy := computeFrameEnergy(pcm)
+		frameEnergy := computeFrameEnergyRes(pcm)
 		peak := opusVal32(0)
 		if e.dtx != nil {
 			peak = e.dtx.peakSignalEnergy
@@ -3361,21 +3354,14 @@ func (e *Encoder) clearOpusVADDecision() {
 	e.lastOpusVADProb = 1.0
 }
 
-func (e *Encoder) updateRestrictedSilkOpusVAD(pcm []float64, frameSize int) {
-	if frameSize > 0 && len(pcm) > 0 && e.currentInputIsDigitalSilence(pcm) {
+func (e *Encoder) updateRestrictedSilkOpusVADRes(pcm []opusRes, frameSize int) {
+	if frameSize > 0 && len(pcm) > 0 && isDigitalSilenceRes(pcm, e.lsbDepth) {
 		e.lastOpusVADProb = 0
 		e.lastOpusVADValid = true
 		e.lastOpusVADActive = false
 		return
 	}
 	e.clearOpusVADDecision()
-}
-
-func (e *Encoder) currentInputIsDigitalSilence(pcm []float64) bool {
-	if e.floatInputExact && len(e.floatInputFrame) >= len(pcm) {
-		return isDigitalSilenceFloat32(e.floatInputFrame[:len(pcm)], e.lsbDepth)
-	}
-	return isDigitalSilence(pcm, e.lsbDepth)
 }
 
 func isDigitalSilenceFloat32(pcm []float32, lsbDepth int) bool {

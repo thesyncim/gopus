@@ -71,7 +71,7 @@ func TestEncoderDelayBufferMatchesLibopusOpusResSize(t *testing.T) {
 func TestEncoderDelayBufferStoresOpusResRoundedSamples(t *testing.T) {
 	enc := NewEncoder(48000, 1)
 	enc.delayBuffer = make([]opusRes, 2)
-	enc.updateDelayBufferInternal([]float64{1.0 / 3.0, 1.0 / 7.0}, 2, 2)
+	enc.updateDelayBufferInternal([]opusRes{opusRes(1.0 / 3.0), opusRes(1.0 / 7.0)}, 2, 2)
 	for i, sample := range []float64{1.0 / 3.0, 1.0 / 7.0} {
 		if got, want := float64(enc.delayBuffer[i]), float64(opusRes(sample)); got != want {
 			t.Fatalf("delayBuffer[%d]=%.17g want %.17g", i, got, want)

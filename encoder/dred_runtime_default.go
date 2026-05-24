@@ -31,17 +31,17 @@ func (e *Encoder) clearDREDRuntime() {}
 
 func (e *Encoder) clearInactiveDREDHistory() {}
 
-func (e *Encoder) processDREDLatents(_ []float64, _ int) int {
+func (e *Encoder) processDREDLatents(_ []opusRes, _ int) int {
 	return 0
 }
 
-func (e *Encoder) processDREDLatentsWithActivity(_ []float64, _ int, _ bool) int {
+func (e *Encoder) processDREDLatentsWithActivity(_ []opusRes, _ int, _ bool) int {
 	return 0
 }
 
 func (e *Encoder) backfillDREDActivityForFrame(_ int, _ bool) {}
 
-func (e *Encoder) processDREDLatentsForPacket(_ []float64, _ int, _ int, _ Mode) int {
+func (e *Encoder) processDREDLatentsForPacket(_ []opusRes, _ int, _ int, _ Mode) int {
 	return 0
 }
 

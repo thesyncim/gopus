@@ -124,15 +124,18 @@ func runDelayCompStream(frameSize, channels, totalFrames int) ([]float64, []floa
 	totalSamples := totalFrames * frameSamples
 
 	in := make([]float64, totalSamples)
+	inRes := make([]opusRes, totalSamples)
 	for i := range in {
-		in[i] = float64(i + 1)
+		v := float64(i + 1)
+		in[i] = v
+		inRes[i] = opusRes(v)
 	}
 
 	out := make([]float64, 0, totalSamples)
 	for f := 0; f < totalFrames; f++ {
 		start := f * frameSamples
 		end := start + frameSamples
-		block := e.applyDelayCompensation(in[start:end], frameSize)
+		block := e.applyDelayCompensation(inRes[start:end], frameSize)
 		for _, sample := range block {
 			out = append(out, float64(sample))
 		}
@@ -178,9 +181,9 @@ func TestDelayCompensation_StreamDelayStereo(t *testing.T) {
 
 func TestPrepareCELTPCM_DelayCompensationGatedByLowDelay(t *testing.T) {
 	const frameSize = 960
-	in := make([]float64, frameSize)
+	in := make([]opusRes, frameSize)
 	for i := range in {
-		in[i] = float64(i + 1)
+		in[i] = opusRes(i + 1)
 	}
 
 	normal := NewEncoder(48000, 1)
@@ -191,7 +194,7 @@ func TestPrepareCELTPCM_DelayCompensationGatedByLowDelay(t *testing.T) {
 	for i := range outNormal {
 		var want float64
 		if i >= delaySamples {
-			want = in[i-delaySamples]
+			want = float64(in[i-delaySamples])
 		}
 		if float64(outNormal[i]) != want {
 			t.Fatalf("normal sample %d: got=%.0f want=%.0f", i, outNormal[i], want)
@@ -203,7 +206,7 @@ func TestPrepareCELTPCM_DelayCompensationGatedByLowDelay(t *testing.T) {
 	lowDelay.SetLowDelay(true)
 	outLowDelay := lowDelay.prepareCELTPCM(in, frameSize)
 	for i := range outLowDelay {
-		if float64(outLowDelay[i]) != in[i] {
+		if outLowDelay[i] != in[i] {
 			t.Fatalf("lowdelay sample %d: got=%.0f want=%.0f", i, outLowDelay[i], in[i])
 		}
 	}
@@ -233,8 +236,11 @@ func TestApplyDelayCompensationMatchesLegacyState(t *testing.T) {
 
 				for iter := 0; iter < 12; iter++ {
 					pcm := make([]float64, frameSamples)
+					pcmRes := make([]opusRes, frameSamples)
 					for i := range pcm {
-						pcm[i] = float64((iter+1)*1000 + i*channels + 1)
+						v := float64((iter+1)*1000 + i*channels + 1)
+						pcm[i] = v
+						pcmRes[i] = opusRes(v)
 					}
 
 					wantPrefillLen := legacyApplyDelayCompensationState(
@@ -247,7 +253,7 @@ func TestApplyDelayCompensationMatchesLegacyState(t *testing.T) {
 						channels,
 						frameSize,
 					)
-					got := enc.applyDelayCompensation(pcm, frameSize)
+					got := enc.applyDelayCompensation(pcmRes, frameSize)
 
 					requireEqualOpusResToFloat64Slices(t, "out", got[:frameSamples], legacyOut)
 					requireEqualOpusResToFloat64Slices(t, "delayBuffer", enc.delayBuffer, legacyDelay)
@@ -277,9 +283,9 @@ func BenchmarkApplyDelayCompensation(b *testing.B) {
 				seed[i] = float64((i%31)-15) / 16.0
 			}
 			enc.delayBuffer = make([]opusRes, encoderBufferSamples)
-			pcm := make([]float64, tc.frameSize*tc.channels)
+			pcm := make([]opusRes, tc.frameSize*tc.channels)
 			for i := range pcm {
-				pcm[i] = float64((i%37)-18) / 16.0
+				pcm[i] = opusRes(float64((i%37)-18) / 16.0)
 			}
 			b.ReportAllocs()
 			b.ResetTimer()

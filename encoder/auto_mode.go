@@ -53,7 +53,7 @@ var fecThresholdsTable = [10]int{
 // computeStereoWidthForMode implements libopus compute_stereo_width() (float-point path).
 // It updates e.widthMem and returns stereo width in [0, 1] range (Q15 scale as float).
 // Reference: opus_encoder.c lines 854-938.
-func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) opusVal16 {
+func (e *Encoder) computeStereoWidthForMode(pcm []opusRes, frameSize int) opusVal16 {
 	if e.channels != 2 || len(pcm) < frameSize*2 {
 		return 0
 	}
@@ -68,10 +68,10 @@ func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) opusVa
 	var xx, xy, yy opusVal32
 	for i, j := 0, 0; i < frameSize-3; i, j = i+4, j+8 {
 		var pxx, pxy, pyy opusVal32
-		x0, y0 := opusVal16(pcm[j]), opusVal16(pcm[j+1])
-		x1, y1 := opusVal16(pcm[j+2]), opusVal16(pcm[j+3])
-		x2, y2 := opusVal16(pcm[j+4]), opusVal16(pcm[j+5])
-		x3, y3 := opusVal16(pcm[j+6]), opusVal16(pcm[j+7])
+		x0, y0 := pcm[j], pcm[j+1]
+		x1, y1 := pcm[j+2], pcm[j+3]
+		x2, y2 := pcm[j+4], pcm[j+5]
+		x3, y3 := pcm[j+6], pcm[j+7]
 		pxx += x0 * x0
 		pxy += x0 * y0
 		pyy += y0 * y0
@@ -539,7 +539,7 @@ func autoModeFixup(mode Mode, bandwidth types.Bandwidth) Mode {
 // Updates e.bandwidth, e.streamChannels, e.voiceRatio, e.detectedBandwidth,
 // e.autoBandwidth, e.first.
 // Returns the selected mode.
-func (e *Encoder) autoModeAndBandwidthDecision(pcm []float64, frameSize, maxDataBytes int, isSilence bool) Mode {
+func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxDataBytes int, isSilence bool) Mode {
 	frameRate := e.sampleRate / frameSize
 	if frameRate <= 0 {
 		frameRate = 50
