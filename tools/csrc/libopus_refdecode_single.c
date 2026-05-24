@@ -116,7 +116,7 @@ int main(void) {
   }
   if (version == 1) {
     sample_format = SAMPLE_FORMAT_FLOAT32;
-  } else if (version == 2 || version == 3 || version == 4 || version == 5 || version == 6) {
+  } else if (version == 2 || version == 3 || version == 4 || version == 5 || version == 6 || version == 7) {
     if (!read_u32(&sample_format)) {
       fprintf(stderr, "failed to read sample format\n");
       return 1;
@@ -185,7 +185,7 @@ int main(void) {
       return 1;
     }
   }
-  if (version >= 6 && packet_count > 0) {
+  if (version == 6 && packet_count > 0) {
     ranges = (opus_uint32 *)calloc(packet_count, sizeof(*ranges));
     if (ranges == NULL) {
       fprintf(stderr, "failed to allocate final range buffer\n");
@@ -198,6 +198,7 @@ int main(void) {
   for (i = 0; i < packet_count; i++) {
     uint32_t packet_len = 0;
     uint32_t decode_fec = 0;
+    uint32_t step_frame_size = frame_size;
     unsigned char *packet = NULL;
     int decoded_samples = 0;
 
@@ -214,6 +215,22 @@ int main(void) {
       free(frame);
       free(decoded);
       return 1;
+    }
+    if (version >= 7) {
+      if (!read_u32(&step_frame_size)) {
+        fprintf(stderr, "failed to read step frame size\n");
+        opus_decoder_destroy(dec);
+        free(frame);
+        free(decoded);
+        return 1;
+      }
+      if (step_frame_size == 0 || step_frame_size > frame_size) {
+        fprintf(stderr, "invalid step frame size\n");
+        opus_decoder_destroy(dec);
+        free(frame);
+        free(decoded);
+        return 1;
+      }
     }
     if (!read_u32(&packet_len)) {
       fprintf(stderr, "failed to read packet length\n");
@@ -235,9 +252,9 @@ int main(void) {
     }
 
     if (sample_format == SAMPLE_FORMAT_INT16) {
-      decoded_samples = opus_decode(dec, packet, (opus_int32)packet_len, (opus_int16 *)frame, (int)frame_size, (int)decode_fec);
+      decoded_samples = opus_decode(dec, packet, (opus_int32)packet_len, (opus_int16 *)frame, (int)step_frame_size, (int)decode_fec);
     } else {
-      decoded_samples = opus_decode_float(dec, packet, (opus_int32)packet_len, (float *)frame, (int)frame_size, (int)decode_fec);
+      decoded_samples = opus_decode_float(dec, packet, (opus_int32)packet_len, (float *)frame, (int)step_frame_size, (int)decode_fec);
     }
     free(packet);
 
@@ -249,7 +266,7 @@ int main(void) {
       free(ranges);
       return 1;
     }
-    if (version >= 6) {
+    if (version == 6) {
       opus_uint32 final_range = 0;
       if (opus_decoder_ctl(dec, OPUS_GET_FINAL_RANGE(&final_range)) != OPUS_OK) {
         fprintf(stderr, "OPUS_GET_FINAL_RANGE failed\n");
@@ -274,7 +291,7 @@ int main(void) {
   opus_decoder_destroy(dec);
 
   if (!write_exact(GOSO_MAGIC, 4) || decoded_len > UINT32_MAX ||
-      !write_u32(version >= 6 ? 2 : 1) || !write_u32((uint32_t)decoded_len)) {
+      !write_u32(version == 6 ? 2 : 1) || !write_u32((uint32_t)decoded_len)) {
     fprintf(stderr, "failed to write output header\n");
     free(frame);
     free(decoded);
@@ -288,7 +305,7 @@ int main(void) {
     free(ranges);
     return 1;
   }
-  if (version >= 6) {
+  if (version == 6) {
     if (!write_u32(packet_count) || (packet_count > 0 && !write_exact(ranges, packet_count * sizeof(*ranges)))) {
       fprintf(stderr, "failed to write final ranges\n");
       free(frame);

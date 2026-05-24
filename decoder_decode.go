@@ -498,11 +498,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		}
 
 		needed := frameSize * d.channels
-		if cap(d.scratchPCM) < needed {
-			d.scratchPCM = make([]float32, needed)
-		} else {
-			d.scratchPCM = d.scratchPCM[:needed]
-		}
+		d.ensureScratchPCM(needed)
 		n, err := d.decodeFloat32(data, d.scratchPCM, false)
 		if err != nil {
 			return 0, err
@@ -516,6 +512,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	}
 
 	if len(pcm) >= d.maxPacketSamples*d.channels {
+		d.ensureScratchPCM(d.maxPacketSamples * d.channels)
 		n, err := d.decodeFloat32(data, d.scratchPCM, false)
 		if err != nil {
 			return 0, err
@@ -541,10 +538,19 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		return 0, ErrBufferTooSmall
 	}
 
+	d.ensureScratchPCM(needed)
 	n, err := d.decodeFloat32(data, d.scratchPCM, false)
 	if err != nil {
 		return 0, err
 	}
 	softClipAndFloat32ToInt16(pcm, d.scratchPCM, n, d.channels, d.softClipMem[:])
 	return n, nil
+}
+
+func (d *Decoder) ensureScratchPCM(needed int) {
+	if cap(d.scratchPCM) < needed {
+		d.scratchPCM = make([]float32, needed)
+		return
+	}
+	d.scratchPCM = d.scratchPCM[:needed]
 }
