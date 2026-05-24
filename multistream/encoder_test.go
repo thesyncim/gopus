@@ -10,6 +10,30 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
+func TestSurroundLogSum32MatchesLibopusApprox(t *testing.T) {
+	tests := []struct {
+		name string
+		a    float32
+		b    float32
+		want float32
+	}{
+		{name: "same", a: 0, b: 0, want: 0.5},
+		{name: "quarter diff", a: 0.25, b: 0, want: 0.64624065},
+		{name: "four and quarter diff", a: 4.25, b: 0, want: 4.251406},
+		{name: "large diff returns max", a: 9, b: 0, want: 9},
+		{name: "negative infinity returns max", a: float32(math.Inf(-1)), b: -3, want: -3},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := logSum32(tt.a, tt.b)
+			if math.Float32bits(got) != math.Float32bits(tt.want) {
+				t.Fatalf("logSum32(%g, %g) = %08x (%g), want %08x (%g)",
+					tt.a, tt.b, math.Float32bits(got), got, math.Float32bits(tt.want), tt.want)
+			}
+		})
+	}
+}
+
 // TestNewEncoder tests encoder creation validation.
 func TestNewEncoder(t *testing.T) {
 	tests := []struct {

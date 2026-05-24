@@ -14,6 +14,7 @@ import (
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -560,16 +561,6 @@ func minInt(a, b int) int {
 	return b
 }
 
-func clampFloat(v, lo, hi float64) float64 {
-	if v < lo {
-		return lo
-	}
-	if v > hi {
-		return hi
-	}
-	return v
-}
-
 func clampFloat32(v, lo, hi float32) float32 {
 	if v < lo {
 		return lo
@@ -580,27 +571,25 @@ func clampFloat32(v, lo, hi float32) float32 {
 	return v
 }
 
-func logSum(a, b float64) float64 {
-	if a < b {
-		a, b = b, a
-	}
-	if math.IsInf(b, -1) {
-		return a
-	}
-	// Match libopus float logSum() in opus_multistream_encoder.c:
-	// log2(4^a + 4^b) / 2
-	return a + 0.5*math.Log2(1.0+math.Exp2(2.0*(b-a)))
+var surroundLogSumDiffTable = [...]float32{
+	0.5000000, 0.2924813, 0.1609640, 0.0849625,
+	0.0437314, 0.0221971, 0.0111839, 0.0056136,
+	0.0028123, 0, 0, 0, 0, 0, 0, 0, 0,
 }
 
 func logSum32(a, b float32) float32 {
-	if a < b {
-		a, b = b, a
+	maxVal := b
+	diff := b - a
+	if a > b {
+		maxVal = a
+		diff = a - b
 	}
-	if b == float32(math.Inf(-1)) {
-		return a
+	if !(diff < 8.0) {
+		return maxVal
 	}
-	// Match libopus float logSum() in opus_multistream_encoder.c.
-	return a + 0.5*float32(math.Log2(1.0+math.Exp2(float64(2.0*(b-a)))))
+	low := int(2.0 * diff)
+	frac := 2.0*diff - float32(low)
+	return maxVal + surroundLogSumDiffTable[low] + frac*(surroundLogSumDiffTable[low+1]-surroundLogSumDiffTable[low])
 }
 
 func (e *Encoder) isSurroundMapping() bool {
@@ -1016,7 +1005,7 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR [
 	for i := 0; i < surroundBands; i++ {
 		maskLogE[1][i] = min(maskLogE[0][i], maskLogE[2][i])
 	}
-	channelOffset := float32(0.5 * math.Log2(2.0/float64(e.inputChannels-1)))
+	channelOffset := 0.5 * opusmath.CeltLog2(2.0/float32(e.inputChannels-1))
 	for c := 0; c < 3; c++ {
 		for i := 0; i < surroundBands; i++ {
 			maskLogE[c][i] += channelOffset

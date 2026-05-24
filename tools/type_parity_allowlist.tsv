@@ -1709,13 +1709,9 @@ multistream/decoder_osce_apply.go	1	77fc3480a79f4ef2d1546f7eefe276c977313b089706
 multistream/decoder_osce_apply.go	1	ca1ff93a7bfc25a8507115773d45c137f71c10c3833cb0893c29c008ebb885f7	legacy-current	func (d *streamState) markOSCEInactiveIfModeIneligible(toc streamTOC, out []float64, frameSize int) {
 multistream/decoder_osce_apply_default.go	1	796295867d83c198e329652d1cb8867714d368db11b2d9acdf524c9af3034c3e	legacy-current	func (d *streamState) markOSCEInactiveIfModeIneligible(_ streamTOC, _ []float64, _ int) {
 multistream/encoder.go	1	06b42cc4ad5da03aa34b0e87611d7a6e56a1833f63d082744a5facedf868ba35	legacy-current	func multistreamCVBRBoundScale(totalBitrate, sampleRate, frameSize int) float64 {
-multistream/encoder.go	1	47bf3538038b841ae1f49bfb3050f0f95fdd849456ed8699b68fe67ddf131952	legacy-current	func logSum(a, b float64) float64 {
-multistream/encoder.go	1	685e7ff5cf43162a5e2443a8edf72a23bdf5f0fc013b9a51b43cfb4e3cc5396a	legacy-current	channelOffset := float32(0.5 * math.Log2(2.0/float64(e.inputChannels-1)))
 multistream/encoder.go	1	7168bdc66291c10c23a0ab0fbdf51861253597db2c19c80bf93fcc40d526bd57	legacy-current	func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM []float64) ([]byte, error) {
 multistream/encoder.go	1	877c91f295f3f21d6eb5d6db49e5f76754beb005d1989420142d3ed9445d022b	legacy-current	burstMultiple := float64(maxBurstBytes) / float64(targetBytes)
-multistream/encoder.go	1	8fcd860f63b516852e83a71c7873b9b39239a596b6d0d3e9e122044155ac7944	legacy-current	func clampFloat(v, lo, hi float64) float64 {
 multistream/encoder.go	1	bbbd460aa7149ce1976e96b72f14116a814daf3a6431943030e6c96574d38aa3	legacy-current	func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
-multistream/encoder.go	1	c0ca7259b9436c38f3119fef92e952cd9335702f668e03849b62a3778ebf8f05	legacy-current	return a + 0.5*float32(math.Log2(1.0+math.Exp2(float64(2.0*(b-a)))))
 multistream/encoder.go	1	fd75720f7395eaedc3a720819a1f0e4ca5fef697cb266899f34d1cf6ebb56eb0	legacy-current	// - pcm: input samples as float64, sample-interleaved [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
 multistream/multistream.go	1	020c91550db62c814c505f9eab31e708fca9a2bb3fadfa659b78ec3b883d9767	legacy-current	decoded = make([]float64, frameSize*channels)
 multistream/multistream.go	1	08bd3e6b1df90a3f8a7b311e1c98c6d4923db76c0314e7a6c5b0daecf9bc4f4f	legacy-current	func (d *Decoder) decodeStream(stream int, packet []byte, frameSize int) ([]float64, error) {
