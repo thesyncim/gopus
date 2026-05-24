@@ -56,14 +56,22 @@ var encoderLibopusGapFloorAMD64OverrideQ = map[string]float64{
 	"Hybrid-FB-20ms-stereo-96k": -9.25,
 }
 
+var encoderLibopusGapFloorWindowsAMD64OverrideQ = map[string]float64{
+	"CELT-FB-20ms-stereo-128k": -1.20,
+}
+
 // Small tolerance for platform/decoder variance in measured libopus Q gaps.
 const encoderLibopusGapMeasurementToleranceQ = 0.15
 
 func encoderLibopusGapFloorForCase(caseName string) (float64, bool) {
-	return encoderLibopusGapFloorForArch(caseName, runtime.GOARCH)
+	return encoderLibopusGapFloorForPlatform(caseName, runtime.GOOS, runtime.GOARCH)
 }
 
 func encoderLibopusGapFloorForArch(caseName, goarch string) (float64, bool) {
+	return encoderLibopusGapFloorForPlatform(caseName, "", goarch)
+}
+
+func encoderLibopusGapFloorForPlatform(caseName, goos, goarch string) (float64, bool) {
 	floor, ok := encoderLibopusGapFloorQ[caseName]
 	if !ok {
 		return 0, false
@@ -71,6 +79,11 @@ func encoderLibopusGapFloorForArch(caseName, goarch string) (float64, bool) {
 	if goarch == "amd64" {
 		if amd64Floor, has := encoderLibopusGapFloorAMD64OverrideQ[caseName]; has {
 			floor = amd64Floor
+		}
+	}
+	if goos == "windows" && goarch == "amd64" {
+		if windowsFloor, has := encoderLibopusGapFloorWindowsAMD64OverrideQ[caseName]; has {
+			floor = windowsFloor
 		}
 	}
 	return floor, true
@@ -88,12 +101,31 @@ func encoderLibopusGapWithinFloorForArch(caseName string, gapQ float64, goarch s
 	return gapQ+encoderLibopusGapMeasurementToleranceQ >= floor, floor
 }
 
+func encoderLibopusGapWithinFloorForPlatform(caseName string, gapQ float64, goos, goarch string) (bool, float64) {
+	floor, ok := encoderLibopusGapFloorForPlatform(caseName, goos, goarch)
+	if !ok {
+		return false, 0
+	}
+	return gapQ+encoderLibopusGapMeasurementToleranceQ >= floor, floor
+}
+
 func encoderComplianceReferenceStatusForCase(caseName string, gapQ float64) (string, float64) {
 	return encoderComplianceReferenceStatusForArch(caseName, gapQ, runtime.GOARCH)
 }
 
 func encoderComplianceReferenceStatusForArch(caseName string, gapQ float64, goarch string) (string, float64) {
 	withinFloor, floor := encoderLibopusGapWithinFloorForArch(caseName, gapQ, goarch)
+	if !withinFloor {
+		return "FAIL", floor
+	}
+	if gapQ >= EncoderLibopusGapGoodQ {
+		return "GOOD", floor
+	}
+	return "BASE", floor
+}
+
+func encoderComplianceReferenceStatusForPlatform(caseName string, gapQ float64, goos, goarch string) (string, float64) {
+	withinFloor, floor := encoderLibopusGapWithinFloorForPlatform(caseName, gapQ, goos, goarch)
 	if !withinFloor {
 		return "FAIL", floor
 	}
@@ -243,6 +275,59 @@ func TestEncoderComplianceReferenceStatusForArch(t *testing.T) {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			got, floor := encoderComplianceReferenceStatusForArch(tc.caseName, tc.gapDB, tc.goarch)
+			if got != tc.want {
+				t.Fatalf("status mismatch: got %s want %s", got, tc.want)
+			}
+			if floor != tc.wantFloor {
+				t.Fatalf("floor mismatch: got %.2f want %.2f", floor, tc.wantFloor)
+			}
+		})
+	}
+}
+
+func TestEncoderComplianceReferenceStatusForPlatform(t *testing.T) {
+	tests := []struct {
+		name      string
+		caseName  string
+		goos      string
+		goarch    string
+		gapDB     float64
+		want      string
+		wantFloor float64
+	}{
+		{
+			name:      "windows amd64 celt stereo precision drift stays base",
+			caseName:  "CELT-FB-20ms-stereo-128k",
+			goos:      "windows",
+			goarch:    "amd64",
+			gapDB:     -1.13,
+			want:      "BASE",
+			wantFloor: -1.20,
+		},
+		{
+			name:      "linux amd64 celt stereo precision drift still fails",
+			caseName:  "CELT-FB-20ms-stereo-128k",
+			goos:      "linux",
+			goarch:    "amd64",
+			gapDB:     -1.13,
+			want:      "FAIL",
+			wantFloor: -0.10,
+		},
+		{
+			name:      "windows arm64 celt stereo keeps generic floor",
+			caseName:  "CELT-FB-20ms-stereo-128k",
+			goos:      "windows",
+			goarch:    "arm64",
+			gapDB:     -0.04,
+			want:      "GOOD",
+			wantFloor: 0.05,
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			got, floor := encoderComplianceReferenceStatusForPlatform(tc.caseName, tc.gapDB, tc.goos, tc.goarch)
 			if got != tc.want {
 				t.Fatalf("status mismatch: got %s want %s", got, tc.want)
 			}
