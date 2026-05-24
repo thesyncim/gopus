@@ -49,6 +49,7 @@ const (
 	libopusSILKFixedModeAddRShift32        = uint32(31)
 	libopusSILKFixedModeLimitInt           = uint32(32)
 	libopusSILKFixedModeLimit32Wrapper     = uint32(33)
+	libopusSILKFixedModeNSQDelDecErrorQ10  = uint32(34)
 )
 
 type libopusSILKFixedRecord struct {
@@ -464,6 +465,46 @@ func TestSILKFixedNSQHelpersMatchLibopus(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSILKFixedNSQDelDecErrorPathMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	values := []int32{
+		fixedTestMinInt32, fixedTestMinInt32 + 1, -1073741824, -268435456,
+		-65536, -4096, -1, 0, 1, 4096, 65536, 268435456,
+		1073741823, fixedTestMaxInt32 - 1, fixedTestMaxInt32,
+	}
+	records := make([]libopusSILKFixedOpRecord, 0, len(values)*len(values)*9*9)
+	for _, nARQ14 := range values {
+		for _, nLFQ14 := range values {
+			for _, nLTPQ14 := range []int32{fixedTestMinInt32, -1073741824, -65536, -1, 0, 1, 65536, 1073741823, fixedTestMaxInt32} {
+				for _, lpcPredQ14 := range []int32{fixedTestMinInt32, -1073741824, -65536, -1, 0, 1, 65536, 1073741823, fixedTestMaxInt32} {
+					records = append(records, libopusSILKFixedOpRecord{
+						a: nARQ14,
+						b: nLFQ14,
+						c: nLTPQ14,
+						q: uint32(lpcPredQ14),
+					})
+				}
+			}
+		}
+	}
+	want, err := probeLibopusSILKFixedOps(libopusSILKFixedModeNSQDelDecErrorQ10, records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk fixed", err)
+	}
+	for i, record := range records {
+		nARQ14 := record.a
+		nLFQ14 := record.b
+		nLTPQ14 := record.c
+		lpcPredQ14 := int32(record.q)
+		shapeQ14 := silk_ADD_SAT32(nARQ14, nLFQ14)
+		predQ14 := silk_ADD32_ovflw(nLTPQ14, lpcPredQ14)
+		got := silk_RSHIFT_ROUND(silk_SUB_SAT32(predQ14, shapeQ14), 4)
+		if got != want[i] {
+			t.Fatalf("nsq_del_dec_error_q10(nAR=%d,nLF=%d,nLTP=%d,lpc=%d)=%d want %d", nARQ14, nLFQ14, nLTPQ14, lpcPredQ14, got, want[i])
+		}
 	}
 }
 

@@ -90,7 +90,7 @@ func (e *Encoder) computeStereoWidthForMode(pcm []float64, frameSize int) opusVa
 	}
 
 	// Safety check (float-point path, opus_encoder.c line 903-906).
-	if !(xx < 1e9) || xx != xx || !(yy < 1e9) || yy != yy {
+	if !(xx < 1e9) || opusVal32IsNaN(xx) || !(yy < 1e9) || opusVal32IsNaN(yy) {
 		xx = 0
 		xy = 0
 		yy = 0
@@ -177,6 +177,10 @@ func absOpusVal16(x opusVal16) opusVal16 {
 		return -x
 	}
 	return x
+}
+
+func opusVal32IsNaN(x opusVal32) bool {
+	return math.Float32bits(float32(x))&0x7fffffff > 0x7f800000
 }
 
 // decideFEC implements libopus decide_fec() (opus_encoder.c lines 940-971).

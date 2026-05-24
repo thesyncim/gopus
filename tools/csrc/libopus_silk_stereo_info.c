@@ -263,6 +263,9 @@ static int eval_packet0_wrapper(void) {
   opus_int maxBits;
   opus_int useCBR;
   opus_int condCoding;
+  opus_int32 nBytesOut = 0;
+  opus_int ret;
+  opus_int tellAfterSideInfo;
   silk_encoder *psEnc;
   silk_EncControlStruct control;
   ec_enc range_enc;
@@ -447,6 +450,11 @@ static int eval_packet0_wrapper(void) {
     silk_control_SNR(&psEnc->state_Fxx[0].sCmn, channelRate_bps);
   }
   condCoding = CODE_INDEPENDENTLY;
+  tellAfterSideInfo = ec_tell(&range_enc);
+  ret = silk_encode_frame_FLP(&psEnc->state_Fxx[0], &nBytesOut, &range_enc, condCoding, maxBits, useCBR);
+  psEnc->state_Fxx[0].sCmn.controlled_since_last_payload = 0;
+  psEnc->state_Fxx[0].sCmn.inputBufIx = 0;
+  psEnc->state_Fxx[0].sCmn.nFramesEncoded++;
 
   if (!write_i32(TargetRate_bps) ||
       !write_i32(MStargetRates_bps[0]) ||
@@ -462,8 +470,24 @@ static int eval_packet0_wrapper(void) {
       !write_i32(maxBits) ||
       !write_i32(useCBR) ||
       !write_i32(condCoding) ||
+      !write_i32(tellAfterSideInfo) ||
+      !write_i32(psEnc->sStereo.mid_only_flags[0]) ||
+      !write_i32(ret) ||
+      !write_i32(nBytesOut) ||
       !write_i32(ec_tell(&range_enc)) ||
-      !write_i32(psEnc->sStereo.mid_only_flags[0])) {
+      !write_i32((opus_int32)range_enc.rng) ||
+      !write_i32(psEnc->state_Fxx[0].sShape.LastGainIndex) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.indices.signalType) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.indices.quantOffsetType) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.indices.Seed) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.frameCounter) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.prevSignalType) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.prevLag) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.nFramesEncoded) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.input_quality_bands_Q15[0]) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.input_quality_bands_Q15[1]) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.input_quality_bands_Q15[2]) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.input_quality_bands_Q15[3])) {
     free(psEnc);
     return 0;
   }

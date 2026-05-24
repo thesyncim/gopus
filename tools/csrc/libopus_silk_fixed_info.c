@@ -48,7 +48,8 @@ enum {
   MODE_MLA = 30,
   MODE_ADD_RSHIFT32 = 31,
   MODE_LIMIT_INT = 32,
-  MODE_LIMIT_32_WRAPPER = 33
+  MODE_LIMIT_32_WRAPPER = 33,
+  MODE_NSQ_DEL_DEC_ERROR_Q10 = 34
 };
 
 static int set_binary_stdio(void) {
@@ -178,6 +179,11 @@ static int32_t eval_op_sample(uint32_t mode, int32_t a, int32_t b, int32_t c, ui
       return (int32_t)silk_LIMIT_int((int)a, (int)b, (int)c);
     case MODE_LIMIT_32_WRAPPER:
       return silk_LIMIT_32(a, b, c);
+    case MODE_NSQ_DEL_DEC_ERROR_Q10: {
+      opus_int32 shape_Q14 = silk_ADD_SAT32(a, b);
+      opus_int32 pred_Q14 = silk_ADD32_ovflw(c, (opus_int32)q);
+      return silk_RSHIFT_ROUND(silk_SUB_SAT32(pred_Q14, shape_Q14), 4);
+    }
     default:
       return 0;
   }
@@ -193,7 +199,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_LIMIT_32_WRAPPER) return 1;
+  if (mode > MODE_NSQ_DEL_DEC_ERROR_Q10) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {

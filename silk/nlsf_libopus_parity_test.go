@@ -33,7 +33,9 @@ func buildLibopusSILKNLSFHelper() (string, error) {
 		OutputBase:   "gopus_libopus_silk_nlsf",
 		SourceFile:   "libopus_silk_nlsf_info.c",
 		ProbeRelPath: "silk/main.h",
+		CFlags:       []string{"-DHAVE_CONFIG_H"},
 		RefIncludes:  []string{"celt", "silk"},
+		Libs:         []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
 		RefSources: []string{
 			"silk/NLSF_decode.c",
 			"silk/NLSF_del_dec_quant.c",
