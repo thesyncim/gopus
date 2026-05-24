@@ -25,7 +25,6 @@ const (
 	OSCEScalarDNNBuildCFLAGS = "-g -O2 -fvisibility=hidden -DDISABLE_NEON -U__ARM_NEON__ -U__ARM_NEON -U__AVX__ -U__AVX2__ -U__FMA__ -U__SSE__ -U__SSE2__ -U__SSE3__ -U__SSSE3__ -U__SSE4_1__ -U__SSE4_2__"
 
 	scalarDNNBuildStampFile = ".gopus-scalar-dnn-build"
-	scalarDNNBuildStamp     = "gopus scalar libopus DNN helper build v2\nCFLAGS=" + ScalarDNNBuildCFLAGS + "\n"
 
 	// OSCE-enabled scalar build stamp. The OSCE build pulls in additional
 	// source (`dnn/osce.c`, `dnn/osce_features.c`, `dnn/bbwenet_data.c`, ...)
@@ -34,7 +33,6 @@ const (
 	// fixtures exercise the generic DNN path on ARM too. The stamp is different
 	// so a stale plain scalar build cannot be reused as an OSCE build.
 	osceScalarDNNBuildStampFile = ".gopus-scalar-dnn-build-osce"
-	osceScalarDNNBuildStamp     = "gopus scalar libopus DNN helper build v3 (osce)\nCFLAGS=" + OSCEScalarDNNBuildCFLAGS + "\n"
 )
 
 // DefaultSearchRoots covers common invocation locations:
@@ -200,39 +198,72 @@ func FindCCompiler() (string, error) {
 }
 
 // ScalarDNNBuildEnv returns a controlled environment for libopus helper builds.
-func ScalarDNNBuildEnv() []string {
+func ScalarDNNBuildEnv() ([]string, error) {
+	return scalarDNNBuildEnv(ScalarDNNBuildCFLAGS)
+}
+
+func scalarDNNBuildEnv(cflags string) ([]string, error) {
+	cc, err := FindCCompiler()
+	if err != nil {
+		return nil, err
+	}
 	env := os.Environ()
 	dst := env[:0]
 	for _, kv := range env {
 		name, _, ok := strings.Cut(kv, "=")
-		if ok && (name == "CFLAGS" || name == "CPPFLAGS") {
+		if ok && (name == "CC" || name == "CFLAGS" || name == "CPPFLAGS" || name == "LDFLAGS") {
 			continue
 		}
 		dst = append(dst, kv)
 	}
-	return append(dst, "CFLAGS="+ScalarDNNBuildCFLAGS, "CPPFLAGS=")
+	return append(dst, "CC="+cc, "CFLAGS="+cflags, "CPPFLAGS=", "LDFLAGS="), nil
 }
 
 // OSCEScalarDNNBuildEnv returns a controlled environment for OSCE reference
 // helper builds.
-func OSCEScalarDNNBuildEnv() []string {
-	env := os.Environ()
-	dst := env[:0]
-	for _, kv := range env {
-		name, _, ok := strings.Cut(kv, "=")
-		if ok && (name == "CFLAGS" || name == "CPPFLAGS") {
-			continue
-		}
-		dst = append(dst, kv)
+func OSCEScalarDNNBuildEnv() ([]string, error) {
+	return scalarDNNBuildEnv(OSCEScalarDNNBuildCFLAGS)
+}
+
+func scalarDNNBuildStamp(cflags string) (string, error) {
+	cc, err := FindCCompiler()
+	if err != nil {
+		return "", err
 	}
-	return append(dst, "CFLAGS="+OSCEScalarDNNBuildCFLAGS, "CPPFLAGS=")
+	var b strings.Builder
+	b.WriteString("gopus scalar libopus DNN helper build v4\n")
+	b.WriteString("GOOS=" + runtime.GOOS + "\n")
+	b.WriteString("GOARCH=" + runtime.GOARCH + "\n")
+	b.WriteString("CC=" + cc + "\n")
+	b.WriteString("CC_TARGET=" + compilerStampLine(cc, "-dumpmachine") + "\n")
+	b.WriteString("CC_VERSION=" + compilerStampLine(cc, "--version") + "\n")
+	b.WriteString("CFLAGS=" + cflags + "\n")
+	b.WriteString("CPPFLAGS=\n")
+	b.WriteString("LDFLAGS=\n")
+	return b.String(), nil
+}
+
+func compilerStampLine(cc string, arg string) string {
+	out, err := exec.Command(cc, arg).CombinedOutput()
+	if err != nil {
+		return "unavailable"
+	}
+	line, _, _ := strings.Cut(strings.TrimSpace(string(out)), "\n")
+	if line == "" {
+		return "unavailable"
+	}
+	return line
 }
 
 // ScalarDNNBuildIsCurrent reports whether buildDir was produced with the
 // current scalar-DNN helper contract.
 func ScalarDNNBuildIsCurrent(buildDir string) bool {
 	data, err := os.ReadFile(filepath.Join(buildDir, scalarDNNBuildStampFile))
-	return err == nil && string(data) == scalarDNNBuildStamp
+	if err != nil {
+		return false
+	}
+	stamp, err := scalarDNNBuildStamp(ScalarDNNBuildCFLAGS)
+	return err == nil && string(data) == stamp
 }
 
 // ResetScalarDNNBuildIfStale removes buildDir when it was produced before the
@@ -253,14 +284,22 @@ func ResetScalarDNNBuildIfStale(buildDir string) error {
 // WriteScalarDNNBuildStamp records that buildDir satisfies the current
 // scalar-DNN helper contract.
 func WriteScalarDNNBuildStamp(buildDir string) error {
-	return os.WriteFile(filepath.Join(buildDir, scalarDNNBuildStampFile), []byte(scalarDNNBuildStamp), 0o644)
+	stamp, err := scalarDNNBuildStamp(ScalarDNNBuildCFLAGS)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(buildDir, scalarDNNBuildStampFile), []byte(stamp), 0o644)
 }
 
 // OSCEScalarDNNBuildIsCurrent reports whether buildDir was produced with the
 // current OSCE-enabled scalar-DNN helper contract.
 func OSCEScalarDNNBuildIsCurrent(buildDir string) bool {
 	data, err := os.ReadFile(filepath.Join(buildDir, osceScalarDNNBuildStampFile))
-	return err == nil && string(data) == osceScalarDNNBuildStamp
+	if err != nil {
+		return false
+	}
+	stamp, err := scalarDNNBuildStamp(OSCEScalarDNNBuildCFLAGS)
+	return err == nil && string(data) == stamp
 }
 
 // ResetOSCEScalarDNNBuildIfStale removes buildDir when it was produced before
@@ -280,5 +319,9 @@ func ResetOSCEScalarDNNBuildIfStale(buildDir string) error {
 // WriteOSCEScalarDNNBuildStamp records that buildDir satisfies the current
 // OSCE-enabled scalar-DNN helper contract.
 func WriteOSCEScalarDNNBuildStamp(buildDir string) error {
-	return os.WriteFile(filepath.Join(buildDir, osceScalarDNNBuildStampFile), []byte(osceScalarDNNBuildStamp), 0o644)
+	stamp, err := scalarDNNBuildStamp(OSCEScalarDNNBuildCFLAGS)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filepath.Join(buildDir, osceScalarDNNBuildStampFile), []byte(stamp), 0o644)
 }

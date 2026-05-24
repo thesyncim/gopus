@@ -35,7 +35,7 @@ type scalarDNNBuildConfig struct {
 	configureExtra []string
 	buildCurrent   func(string) bool
 	resetBuild     func(string) error
-	buildEnv       func() []string
+	buildEnv       func() ([]string, error)
 	writeStamp     func(string) error
 }
 
@@ -106,6 +106,10 @@ func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir,
 	if err := os.MkdirAll(buildDir, 0o755); err != nil {
 		return "", "", fmt.Errorf("mkdir %s build dir: %w", cfg.label, err)
 	}
+	buildEnv, err := cfg.buildEnv()
+	if err != nil {
+		return "", "", fmt.Errorf("prepare %s scalar build env: %w", cfg.label, err)
+	}
 
 	if _, err := os.Stat(filepath.Join(buildDir, "Makefile")); err != nil {
 		configureArgs := []string{
@@ -122,7 +126,7 @@ func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir,
 		)
 		cmd := exec.Command(filepath.Join(sourceDir, "configure"), configureArgs...)
 		cmd.Dir = buildDir
-		cmd.Env = cfg.buildEnv()
+		cmd.Env = buildEnv
 		if output, err := cmd.CombinedOutput(); err != nil {
 			return "", "", fmt.Errorf("configure %s libopus build: %w (%s)", cfg.label, err, bytes.TrimSpace(output))
 		}
@@ -130,7 +134,7 @@ func ensureScalarDNNBuild(repoRoot string, cfg scalarDNNBuildConfig) (sourceDir,
 
 	makeCmd := exec.Command("make", fmt.Sprintf("-j%d", max(1, runtime.NumCPU())))
 	makeCmd.Dir = buildDir
-	makeCmd.Env = cfg.buildEnv()
+	makeCmd.Env = buildEnv
 	if output, err := makeCmd.CombinedOutput(); err != nil {
 		return "", "", fmt.Errorf("build %s libopus: %w (%s)", cfg.label, err, bytes.TrimSpace(output))
 	}

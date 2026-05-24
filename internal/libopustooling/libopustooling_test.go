@@ -3,6 +3,7 @@ package libopustooling
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -120,4 +121,62 @@ func TestLibopusToolIsRunnableUsesPlatformSemantics(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestScalarDNNBuildEnvPinsCompilerAndClearsUnsafeOverrides(t *testing.T) {
+	t.Setenv("CC", "/tmp/not-the-compiler")
+	t.Setenv("CFLAGS", "bad-cflags")
+	t.Setenv("CPPFLAGS", "bad-cppflags")
+	t.Setenv("LDFLAGS", "bad-ldflags")
+
+	env, err := ScalarDNNBuildEnv()
+	if err != nil {
+		t.Skipf("no local C compiler available: %v", err)
+	}
+	values := envMap(env)
+	if values["CC"] == "" || values["CC"] == "/tmp/not-the-compiler" {
+		t.Fatalf("CC override was not replaced: %q", values["CC"])
+	}
+	if values["CFLAGS"] != ScalarDNNBuildCFLAGS {
+		t.Fatalf("CFLAGS=%q want scalar flags", values["CFLAGS"])
+	}
+	if values["CPPFLAGS"] != "" {
+		t.Fatalf("CPPFLAGS=%q want empty", values["CPPFLAGS"])
+	}
+	if values["LDFLAGS"] != "" {
+		t.Fatalf("LDFLAGS=%q want empty", values["LDFLAGS"])
+	}
+}
+
+func TestScalarDNNBuildStampIncludesNativeCompilerIdentity(t *testing.T) {
+	stamp, err := scalarDNNBuildStamp(ScalarDNNBuildCFLAGS)
+	if err != nil {
+		t.Skipf("no local C compiler available: %v", err)
+	}
+	for _, want := range []string{
+		"gopus scalar libopus DNN helper build v4\n",
+		"GOOS=",
+		"GOARCH=",
+		"CC=",
+		"CC_TARGET=",
+		"CC_VERSION=",
+		"CFLAGS=" + ScalarDNNBuildCFLAGS,
+		"CPPFLAGS=\n",
+		"LDFLAGS=\n",
+	} {
+		if !strings.Contains(stamp, want) {
+			t.Fatalf("stamp missing %q:\n%s", want, stamp)
+		}
+	}
+}
+
+func envMap(env []string) map[string]string {
+	out := make(map[string]string, len(env))
+	for _, kv := range env {
+		name, value, ok := strings.Cut(kv, "=")
+		if ok {
+			out[name] = value
+		}
+	}
+	return out
 }
