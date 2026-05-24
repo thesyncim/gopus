@@ -463,17 +463,18 @@ func TestThetaRDOTrialRestoration(t *testing.T) {
 
 			// Verify innerProduct is symmetric
 			distReverse := innerProduct(tc.enc, tc.orig)
-			if math.Abs(dist-distReverse) > 1e-10 {
+			if math.Abs(float64(dist-distReverse)) > 1e-10 {
 				t.Errorf("innerProduct not symmetric: %f != %f", dist, distReverse)
 			}
 
 			// Verify that identical vectors have maximum inner product
 			if tc.name == "identical vectors" {
-				normOrig := 0.0
+				var normOrig float32
 				for _, v := range tc.orig {
-					normOrig += v * v
+					v32 := float32(v)
+					normOrig += v32 * v32
 				}
-				if math.Abs(dist-normOrig) > 1e-10 {
+				if math.Abs(float64(dist-normOrig)) > 1e-10 {
 					t.Errorf("identical vectors: innerProduct=%f, expected %f", dist, normOrig)
 				}
 			}
@@ -505,14 +506,16 @@ func TestThetaRDOTrialRestoration(t *testing.T) {
 			}
 
 			// Verify the libopus formula: w = E + min(El, Er)/3
-			minE := tw.leftE
-			if tw.rightE < minE {
-				minE = tw.rightE
+			leftE := float32(tw.leftE)
+			rightE := float32(tw.rightE)
+			minE := leftE
+			if rightE < minE {
+				minE = rightE
 			}
-			expectedW0 := tw.leftE + minE/3.0
-			expectedW1 := tw.rightE + minE/3.0
+			expectedW0 := leftE + minE/3.0
+			expectedW1 := rightE + minE/3.0
 
-			if math.Abs(w0-expectedW0) > 1e-10 || math.Abs(w1-expectedW1) > 1e-10 {
+			if math.Abs(float64(w0-expectedW0)) > 1e-10 || math.Abs(float64(w1-expectedW1)) > 1e-10 {
 				t.Errorf("weight mismatch: got w0=%f, w1=%f; expected w0=%f, w1=%f",
 					w0, w1, expectedW0, expectedW1)
 			}

@@ -1778,31 +1778,46 @@ func intensityStereoWeighted(x, y []float64, leftEnergy, rightEnergy float64) {
 // computeChannelWeights computes channel weights for stereo RDO distortion calculation.
 // This mirrors libopus bands.c compute_channel_weights().
 // The weights account for inter-aural masking effects.
-func computeChannelWeights(ex, ey float64) (w0, w1 float64) {
-	minE := ex
-	if ey < minE {
-		minE = ey
+func computeChannelWeights(ex, ey float64) (w0, w1 float32) {
+	ex32 := float32(ex)
+	ey32 := float32(ey)
+	minE := ex32
+	if ey32 < minE {
+		minE = ey32
 	}
 	// Adjustment to make the weights a bit more conservative.
-	ex = ex + minE/3.0
-	ey = ey + minE/3.0
+	ex32 = ex32 + minE/3.0
+	ey32 = ey32 + minE/3.0
 	// Match libopus float path: no normalization, weights are raw adjusted energies.
-	return ex, ey
+	return ex32, ey32
 }
 
 // innerProduct computes the inner product of two vectors.
 // Used for distortion measurement in theta RDO.
-// Match libopus float-path behavior by accumulating in float32 precision.
-func innerProduct(x, y []float64) float64 {
+// Match libopus float-path behavior by accumulating in float32 lanes and using
+// the same four-lane reduction order as the NEON/SSE inner product paths.
+func innerProduct(x, y []float64) float32 {
 	n := len(x)
 	if len(y) < n {
 		n = len(y)
 	}
-	var sum float32
-	for i := 0; i < n; i++ {
-		sum += float32(x[i]) * float32(y[i])
+	var s0, s1, s2, s3 float32
+	i := 0
+	for ; i+3 < n; i += 4 {
+		s0 = noFMA32Add(s0, noFMA32Mul(float32(x[i]), float32(y[i])))
+		s1 = noFMA32Add(s1, noFMA32Mul(float32(x[i+1]), float32(y[i+1])))
+		s2 = noFMA32Add(s2, noFMA32Mul(float32(x[i+2]), float32(y[i+2])))
+		s3 = noFMA32Add(s3, noFMA32Mul(float32(x[i+3]), float32(y[i+3])))
 	}
-	return float64(sum)
+	sum := noFMA32Add(noFMA32Add(s0, s2), noFMA32Add(s1, s3))
+	for ; i < n; i++ {
+		sum = noFMA32Add(sum, noFMA32Mul(float32(x[i]), float32(y[i])))
+	}
+	return sum
+}
+
+func thetaRDODistortion(w0, w1 float32, xSave, xBand, ySave, yBand []float64) float32 {
+	return w0*innerProduct(xSave, xBand) + w1*innerProduct(ySave, yBand)
 }
 
 func (ctx *bandCtx) bandEnergy(channel int) float64 {
@@ -4415,7 +4430,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 					xCM0 := quantBandStereoWithExtBudget(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, cm, ctx.extBudget)
 
 					// Compute distortion for first trial
-					dist0 := w0*innerProduct(xSave, xBand) + w1*innerProduct(ySave, yBand)
+					dist0 := thetaRDODistortion(w0, w1, xSave, xBand, ySave, yBand)
 
 					var ecSave0 *rangecoding.EncoderState
 					if scratch != nil {
@@ -4477,7 +4492,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 					xCM1 := quantBandStereoWithExtBudget(&ctx, xBand, yBand, nBand, b, B, lowbandX, lm, lowbandOutX, lowbandScratch, cm, ctx.extBudget)
 
 					// Compute distortion for second trial
-					dist1 := w0*innerProduct(xSave, xBand) + w1*innerProduct(ySave, yBand)
+					dist1 := thetaRDODistortion(w0, w1, xSave, xBand, ySave, yBand)
 
 					// Pick the trial with lower distortion (higher inner product = lower distortion)
 					if dist0 >= dist1 {

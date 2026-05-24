@@ -33,7 +33,8 @@ enum {
   MODE_STEREO_MERGE = 8,
   MODE_HAAR1 = 9,
   MODE_OP_PVQ_SEARCH = 10,
-  MODE_ALG_QUANT = 11
+  MODE_ALG_QUANT = 11,
+  MODE_THETA_DIST = 12
 };
 
 static int set_binary_stdio(void) {
@@ -336,6 +337,66 @@ static int eval_alg_quant(void) {
   return 1;
 }
 
+static int eval_theta_dist(void) {
+  uint32_t n_u;
+  float ex_f, ey_f;
+  celt_ener ex, ey, min_e;
+  opus_val16 w0, w1;
+  opus_val32 p0, p1, dist;
+  celt_norm *x0;
+  celt_norm *x1;
+  celt_norm *y0;
+  celt_norm *y1;
+  uint32_t i;
+
+  if (!read_float(&ex_f) || !read_float(&ey_f) || !read_u32(&n_u)) return 0;
+  if (n_u == 0 || n_u > 512) return 0;
+  x0 = (celt_norm *)malloc((size_t)n_u * sizeof(*x0));
+  x1 = (celt_norm *)malloc((size_t)n_u * sizeof(*x1));
+  y0 = (celt_norm *)malloc((size_t)n_u * sizeof(*y0));
+  y1 = (celt_norm *)malloc((size_t)n_u * sizeof(*y1));
+  if (x0 == NULL || x1 == NULL || y0 == NULL || y1 == NULL) {
+    free(x0);
+    free(x1);
+    free(y0);
+    free(y1);
+    return 0;
+  }
+  for (i = 0; i < n_u; i++) {
+    if (!read_float(&x0[i]) || !read_float(&x1[i]) ||
+        !read_float(&y0[i]) || !read_float(&y1[i])) {
+      free(x0);
+      free(x1);
+      free(y0);
+      free(y1);
+      return 0;
+    }
+  }
+  ex = (celt_ener)ex_f;
+  ey = (celt_ener)ey_f;
+  min_e = ex < ey ? ex : ey;
+  ex = ADD32(ex, min_e/3);
+  ey = ADD32(ey, min_e/3);
+  w0 = VSHR32(ex, 0);
+  w1 = VSHR32(ey, 0);
+  p0 = celt_inner_prod_norm_shift(x0, x1, (int)n_u, 0);
+  p1 = celt_inner_prod_norm_shift(y0, y1, (int)n_u, 0);
+  dist = MULT16_32_Q15(w0, p0) + MULT16_32_Q15(w1, p1);
+  if (!write_float(w0) || !write_float(w1) ||
+      !write_float(p0) || !write_float(p1) || !write_float(dist)) {
+    free(x0);
+    free(x1);
+    free(y0);
+    free(y1);
+    return 0;
+  }
+  free(x0);
+  free(x1);
+  free(y0);
+  free(y1);
+  return 1;
+}
+
 static int eval_encode_pulses(void) {
   uint32_t n_u, k_u, storage_u;
   int *pulses;
@@ -608,7 +669,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_ALG_QUANT) return 1;
+  if (mode > MODE_THETA_DIST) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) ||
       !write_u32(mode) || !write_u32(count)) {
@@ -625,6 +686,8 @@ int main(void) {
       if (!eval_alg_unquant()) return 1;
     } else if (mode == MODE_ALG_QUANT) {
       if (!eval_alg_quant()) return 1;
+    } else if (mode == MODE_THETA_DIST) {
+      if (!eval_theta_dist()) return 1;
     } else if (mode == MODE_ENCODE_PULSES) {
       if (!eval_encode_pulses()) return 1;
     } else if (mode == MODE_TYPE_SIZES) {

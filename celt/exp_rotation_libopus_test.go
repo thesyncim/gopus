@@ -23,6 +23,7 @@ const (
 	celtVQModeHaar1             = uint32(9)
 	celtVQModeOPPVQSearch       = uint32(10)
 	celtVQModeAlgQuant          = uint32(11)
+	celtVQModeThetaDist         = uint32(12)
 )
 
 var libopusCELTVQHelper libopustest.HelperCache
@@ -112,6 +113,18 @@ type algQuantOracleResult struct {
 	collapse int
 	packet   []byte
 	x        []float32
+}
+
+type thetaDistOracleCase struct {
+	ex, ey float32
+	x0, x1 []float32
+	y0, y1 []float32
+}
+
+type thetaDistOracleResult struct {
+	w0, w1 float32
+	p0, p1 float32
+	dist   float32
 }
 
 func requireDefaultLibopusPVQ(t *testing.T, n, k int) {
@@ -366,6 +379,52 @@ func probeLibopusAlgQuant(cases []algQuantOracleCase) ([]algQuantOracleResult, e
 		out[i].x = make([]float32, n)
 		for j := range out[i].x {
 			out[i].x[j] = reader.Float32()
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusThetaDist(cases []thetaDistOracleCase) ([]thetaDistOracleResult, error) {
+	binPath, err := libopusCELTVQHelper.Path(buildLibopusCELTVQHelper)
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload("GVCI", celtVQModeThetaDist, uint32(len(cases)))
+	for _, tc := range cases {
+		n := len(tc.x0)
+		if len(tc.x1) != n || len(tc.y0) != n || len(tc.y1) != n {
+			return nil, fmt.Errorf("theta dist vector length mismatch")
+		}
+		payload.U32(math.Float32bits(tc.ex))
+		payload.U32(math.Float32bits(tc.ey))
+		payload.U32(uint32(n))
+		for i := 0; i < n; i++ {
+			payload.U32(math.Float32bits(tc.x0[i]))
+			payload.U32(math.Float32bits(tc.x1[i]))
+			payload.U32(math.Float32bits(tc.y0[i]))
+			payload.U32(math.Float32bits(tc.y1[i]))
+		}
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "celt vq", "GVCO")
+	if err != nil {
+		return nil, err
+	}
+	mode := reader.U32()
+	if mode != celtVQModeThetaDist {
+		return nil, fmt.Errorf("celt vq mode=%d want %d", mode, celtVQModeThetaDist)
+	}
+	count := reader.Count(len(cases))
+	out := make([]thetaDistOracleResult, count)
+	for i := range out {
+		out[i] = thetaDistOracleResult{
+			w0:   reader.Float32(),
+			w1:   reader.Float32(),
+			p0:   reader.Float32(),
+			p1:   reader.Float32(),
+			dist: reader.Float32(),
 		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {
@@ -932,6 +991,61 @@ func TestAlgQuantMatchesLibopusFloatPath(t *testing.T) {
 					math.Float32bits(got), got,
 					math.Float32bits(want[ci].x[i]), want[ci].x[i])
 			}
+		}
+	}
+}
+
+func TestThetaRDODistortionMatchesLibopusFloatPath(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []thetaDistOracleCase{
+		{
+			ex: 1, ey: 1,
+			x0: []float32{0.50, -0.25, 0.125, -0.75},
+			x1: []float32{0.49, -0.24, 0.120, -0.70},
+			y0: []float32{0.10, 0.40, -0.30, 0.20},
+			y1: []float32{0.08, 0.42, -0.28, 0.18},
+		},
+		{
+			ex: 0.8, ey: 0.2,
+			x0: fixtureExpRotationVector(16, 0xb0b1b2b3),
+			x1: fixtureExpRotationVector(16, 0xb4b5b6b7),
+			y0: fixtureExpRotationVector(16, 0xb8b9babb),
+			y1: fixtureExpRotationVector(16, 0xbcbdbebf),
+		},
+		{
+			ex: 1.0e-10, ey: 0.75,
+			x0: fixtureExpRotationVector(24, 0xc0c1c2c3),
+			x1: fixtureExpRotationVector(24, 0xc4c5c6c7),
+			y0: fixtureExpRotationVector(24, 0xc8c9cacb),
+			y1: fixtureExpRotationVector(24, 0xcccdcecf),
+		},
+	}
+	want, err := probeLibopusThetaDist(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	for ci, tc := range cases {
+		w0, w1 := computeChannelWeights(float64(tc.ex), float64(tc.ey))
+		if math.Float32bits(w0) != math.Float32bits(want[ci].w0) ||
+			math.Float32bits(w1) != math.Float32bits(want[ci].w1) {
+			t.Fatalf("case %d weights=(%08x,%08x) want (%08x,%08x)",
+				ci, math.Float32bits(w0), math.Float32bits(w1),
+				math.Float32bits(want[ci].w0), math.Float32bits(want[ci].w1))
+		}
+		x0 := float32SliceToFloat64(tc.x0)
+		x1 := float32SliceToFloat64(tc.x1)
+		y0 := float32SliceToFloat64(tc.y0)
+		y1 := float32SliceToFloat64(tc.y1)
+		p0 := innerProduct(x0, x1)
+		p1 := innerProduct(y0, y1)
+		dist := thetaRDODistortion(w0, w1, x0, x1, y0, y1)
+		if math.Float32bits(p0) != math.Float32bits(want[ci].p0) ||
+			math.Float32bits(p1) != math.Float32bits(want[ci].p1) ||
+			math.Float32bits(dist) != math.Float32bits(want[ci].dist) {
+			t.Fatalf("case %d p=(%08x,%08x) dist=%08x want p=(%08x,%08x) dist=%08x",
+				ci,
+				math.Float32bits(p0), math.Float32bits(p1), math.Float32bits(dist),
+				math.Float32bits(want[ci].p0), math.Float32bits(want[ci].p1), math.Float32bits(want[ci].dist))
 		}
 	}
 }
