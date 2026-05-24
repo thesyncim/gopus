@@ -182,7 +182,7 @@ type Encoder struct {
 	// libopus uses Fs/250 = 192 samples at 48kHz for delay compensation.
 	// This provides a 4ms lookahead that allows for better transient handling.
 	// Reference: libopus src/opus_encoder.c delay_compensation
-	delayBuffer []float64 // Size = delayCompensation * channels
+	delayBuffer []opusRes // Size = delayCompensation * channels
 
 	// Prefilter (comb filter) state for postfilter signaling.
 	// These mirror libopus CELT encoder fields used by run_prefilter().
@@ -321,7 +321,7 @@ func NewEncoder(channels int) *Encoder {
 
 		// Delay buffer for lookahead (192 samples at 48kHz = 4ms)
 		// This matches libopus delay_compensation
-		delayBuffer: make([]float64, DelayCompensation*channels),
+		delayBuffer: make([]opusRes, DelayCompensation*channels),
 
 		// Prefilter state (comb filter history) for postfilter signaling.
 		// libopus zero-initializes this state on reset.

@@ -7,6 +7,7 @@ type celtSig = float32
 type celtGLog = float32
 type opusVal16 = float32
 type opusVal32 = float32
+type opusRes = float32
 
 func ensureSigSlice(buf *[]celtSig, n int) []celtSig {
 	if n <= 0 {

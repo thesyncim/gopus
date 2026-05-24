@@ -91,6 +91,7 @@ type libopusCELTTypeSizes struct {
 	celtGLog  int
 	opusVal16 int
 	opusVal32 int
+	opusRes   int
 	analysis  int
 }
 
@@ -352,6 +353,7 @@ func probeLibopusCELTTypeSizes() (libopusCELTTypeSizes, error) {
 		celtGLog:  int(reader.U32()),
 		opusVal16: int(reader.U32()),
 		opusVal32: int(reader.U32()),
+		opusRes:   int(reader.U32()),
 		analysis:  int(reader.U32()),
 	}
 	if err := reader.ExpectConsumed(); err != nil {
@@ -520,9 +522,9 @@ func TestLibopusCELTFloatTypeSizes(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	if sizes.celtNorm != 4 || sizes.celtSig != 4 || sizes.celtGLog != 4 ||
-		sizes.opusVal16 != 4 || sizes.opusVal32 != 4 || sizes.analysis != 4 {
-		t.Fatalf("libopus CELT float sizes: celt_norm=%d celt_sig=%d celt_glog=%d opus_val16=%d opus_val32=%d analysis=%d, want all 4",
-			sizes.celtNorm, sizes.celtSig, sizes.celtGLog, sizes.opusVal16, sizes.opusVal32, sizes.analysis)
+		sizes.opusVal16 != 4 || sizes.opusVal32 != 4 || sizes.opusRes != 4 || sizes.analysis != 4 {
+		t.Fatalf("libopus CELT float sizes: celt_norm=%d celt_sig=%d celt_glog=%d opus_val16=%d opus_val32=%d opus_res=%d analysis=%d, want all 4",
+			sizes.celtNorm, sizes.celtSig, sizes.celtGLog, sizes.opusVal16, sizes.opusVal32, sizes.opusRes, sizes.analysis)
 	}
 }
 
@@ -657,6 +659,9 @@ func TestEncoderOpusValStateMatchesLibopusFloatSize(t *testing.T) {
 		if tc.size != uintptr(sizes.opusVal32) {
 			t.Fatalf("%s element size=%d want libopus opus_val32 size %d", tc.name, tc.size, sizes.opusVal32)
 		}
+	}
+	if got := unsafe.Sizeof(enc.delayBuffer[0]); got != uintptr(sizes.opusRes) {
+		t.Fatalf("delayBuffer element size=%d want libopus opus_res size %d", got, sizes.opusRes)
 	}
 }
 

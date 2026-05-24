@@ -674,7 +674,7 @@ func (e *Encoder) ApplyDelayCompensationScratchHybrid(pcm []float64, frameSize i
 	expectedLen := frameSize * e.channels
 	delayComp := DelayCompensation * e.channels
 	if len(e.delayBuffer) < delayComp {
-		e.delayBuffer = make([]float64, delayComp)
+		e.delayBuffer = make([]opusRes, delayComp)
 	}
 
 	combinedLen := delayComp + len(pcm)
@@ -684,12 +684,16 @@ func (e *Encoder) ApplyDelayCompensationScratchHybrid(pcm []float64, frameSize i
 		e.scratch.combinedBuf = combinedBuf
 	}
 	combinedBuf = combinedBuf[:combinedLen]
-	copy(combinedBuf[:delayComp], e.delayBuffer)
+	for i := 0; i < delayComp; i++ {
+		combinedBuf[i] = float64(e.delayBuffer[i])
+	}
 	copy(combinedBuf[delayComp:], pcm)
 
 	samplesForFrame := combinedBuf[:expectedLen]
 	delayTailStart := len(combinedBuf) - delayComp
-	copy(e.delayBuffer, combinedBuf[delayTailStart:])
+	for i := 0; i < delayComp; i++ {
+		e.delayBuffer[i] = opusRes(combinedBuf[delayTailStart+i])
+	}
 
 	return samplesForFrame
 }
