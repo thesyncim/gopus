@@ -360,7 +360,7 @@ func (e *Encoder) ApplyHybridPrefilter(preemph []float64, frameSize int, tfEstim
 	prefilterTapset := e.TapsetDecision()
 	maxPitchRatio := 1.0
 	if e.analysisValid {
-		maxPitchRatio = e.analysisMaxPitchRatio
+		maxPitchRatio = float64(e.analysisMaxPitchRatio)
 	}
 
 	prevPrefilterPeriod := e.prefilterPeriod

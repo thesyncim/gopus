@@ -91,6 +91,7 @@ type libopusCELTTypeSizes struct {
 	celtGLog  int
 	opusVal16 int
 	opusVal32 int
+	analysis  int
 }
 
 func probeLibopusLowbandOutScale(cases []lowbandOutScaleOracleCase) ([][]float32, error) {
@@ -351,6 +352,7 @@ func probeLibopusCELTTypeSizes() (libopusCELTTypeSizes, error) {
 		celtGLog:  int(reader.U32()),
 		opusVal16: int(reader.U32()),
 		opusVal32: int(reader.U32()),
+		analysis:  int(reader.U32()),
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return libopusCELTTypeSizes{}, err
@@ -518,9 +520,9 @@ func TestLibopusCELTFloatTypeSizes(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	if sizes.celtNorm != 4 || sizes.celtSig != 4 || sizes.celtGLog != 4 ||
-		sizes.opusVal16 != 4 || sizes.opusVal32 != 4 {
-		t.Fatalf("libopus CELT float sizes: celt_norm=%d celt_sig=%d celt_glog=%d opus_val16=%d opus_val32=%d, want all 4",
-			sizes.celtNorm, sizes.celtSig, sizes.celtGLog, sizes.opusVal16, sizes.opusVal32)
+		sizes.opusVal16 != 4 || sizes.opusVal32 != 4 || sizes.analysis != 4 {
+		t.Fatalf("libopus CELT float sizes: celt_norm=%d celt_sig=%d celt_glog=%d opus_val16=%d opus_val32=%d analysis=%d, want all 4",
+			sizes.celtNorm, sizes.celtSig, sizes.celtGLog, sizes.opusVal16, sizes.opusVal32, sizes.analysis)
 	}
 }
 
@@ -627,6 +629,20 @@ func TestEncoderOpusValStateMatchesLibopusFloatSize(t *testing.T) {
 	enc := NewEncoder(2)
 	if got := unsafe.Sizeof(enc.lastStereoSaving); got != uintptr(sizes.opusVal16) {
 		t.Fatalf("lastStereoSaving element size=%d want libopus opus_val16 size %d", got, sizes.opusVal16)
+	}
+	analysisFields := []struct {
+		name string
+		size uintptr
+	}{
+		{"analysisActivity", unsafe.Sizeof(enc.analysisActivity)},
+		{"analysisTonality", unsafe.Sizeof(enc.analysisTonality)},
+		{"analysisTonalitySlope", unsafe.Sizeof(enc.analysisTonalitySlope)},
+		{"analysisMaxPitchRatio", unsafe.Sizeof(enc.analysisMaxPitchRatio)},
+	}
+	for _, tc := range analysisFields {
+		if tc.size != uintptr(sizes.analysis) {
+			t.Fatalf("%s element size=%d want libopus AnalysisInfo float size %d", tc.name, tc.size, sizes.analysis)
+		}
 	}
 	got := []struct {
 		name string

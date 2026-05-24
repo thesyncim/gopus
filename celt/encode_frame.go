@@ -433,7 +433,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Match libopus run_prefilter(): scale only when analysis is valid.
 	maxPitchRatio := 1.0
 	if e.analysisValid {
-		maxPitchRatio = e.analysisMaxPitchRatio
+		maxPitchRatio = float64(e.analysisMaxPitchRatio)
 	}
 	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
 	// Keep stateful prefilter output on float32 precision to match libopus float path.
@@ -1121,7 +1121,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		} else {
 			tonalitySlope := 0.0
 			if e.analysisValid {
-				tonalitySlope = e.analysisTonalitySlope
+				tonalitySlope = float64(e.analysisTonalitySlope)
 			}
 			trimBandLogE := energies
 			allocTrim, _ = allocTrimAnalysisDetailed(
@@ -2426,8 +2426,9 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	}
 
 	targetQ3 := baseTargetQ3
-	if e.analysisValid && e.analysisActivity < 0.4 {
-		targetQ3 -= int(float64(codedBins<<bitRes) * (0.4 - e.analysisActivity))
+	activity := float64(e.analysisActivity)
+	if e.analysisValid && activity < 0.4 {
+		targetQ3 -= int(float64(codedBins<<bitRes) * (0.4 - activity))
 	}
 
 	// Stereo savings (libopus compute_vbr(): applied before dynalloc boost).
@@ -2473,7 +2474,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	targetQ3 += tfBoost
 
 	// Tonality boost.
-	tonality := e.analysisTonality
+	tonality := float64(e.analysisTonality)
 	if tonality < 0 {
 		tonality = 0
 	}

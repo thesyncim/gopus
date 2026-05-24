@@ -113,11 +113,11 @@ type Encoder struct {
 	// This mirrors libopus use of st->analysis.bandwidth for clt_compute_allocation().
 	analysisBandwidth     int  // 1..20 bandwidth index from previous frame analysis
 	analysisValid         bool // True after at least one analysis update
-	analysisActivity      float64
+	analysisActivity      opusVal16
 	analysisLeakBoost     [leakBands]uint8
-	analysisTonality      float64
-	analysisTonalitySlope float64
-	analysisMaxPitchRatio float64
+	analysisTonality      opusVal16
+	analysisTonalitySlope opusVal16
+	analysisMaxPitchRatio opusVal16
 	// Surround trim adjustment (in trim units) used by alloc_trim analysis.
 	// This mirrors libopus alloc_trim_analysis() surround_trim contribution.
 	surroundTrim float64
@@ -392,22 +392,22 @@ func (e *Encoder) SetAnalysisInfoWithTonality(bandwidth int, leakBoost [leakBand
 	}
 	e.analysisBandwidth = bandwidth
 	e.analysisValid = true
-	e.analysisActivity = activity
+	e.analysisActivity = opusVal16(activity)
 	e.analysisLeakBoost = leakBoost
 	if tonality < 0 {
 		tonality = 0
 	} else if tonality > 1 {
 		tonality = 1
 	}
-	e.analysisTonality = tonality
-	e.analysisTonalitySlope = tonalitySlope
+	e.analysisTonality = opusVal16(tonality)
+	e.analysisTonalitySlope = opusVal16(tonalitySlope)
 	if maxPitchRatio < 0 {
 		maxPitchRatio = 0
 	}
 	if maxPitchRatio > 1 {
 		maxPitchRatio = 1
 	}
-	e.analysisMaxPitchRatio = maxPitchRatio
+	e.analysisMaxPitchRatio = opusVal16(maxPitchRatio)
 }
 
 // AnalysisBandwidth returns the current analysis-derived bandwidth index.
