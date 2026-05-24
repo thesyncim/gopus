@@ -1,67 +1,11 @@
 package gopus
 
 import (
-	"fmt"
 	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
-
-const (
-	libopusSoftClipInputMagic  = "GSCI"
-	libopusSoftClipOutputMagic = "GSCO"
-)
-
-var libopusSoftClipHelper libopustest.HelperCache
-
-func getLibopusSoftClipHelperPath() (string, error) {
-	return libopusSoftClipHelper.CHelperPath(libopustest.CHelperConfig{
-		Label:      "softclip",
-		OutputBase: "gopus_libopus_softclip",
-		SourceFile: "libopus_softclip_info.c",
-		CFlags:     []string{"-DHAVE_CONFIG_H"},
-		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
-	})
-}
-
-func probeLibopusSoftClip(n, channels int, samples, mem []float32) ([]float32, []float32, error) {
-	binPath, err := getLibopusSoftClipHelperPath()
-	if err != nil {
-		return nil, nil, err
-	}
-	payload := libopustest.NewOraclePayload(libopusSoftClipInputMagic, uint32(n), uint32(channels))
-	for _, v := range mem {
-		payload.Float32(v)
-	}
-	for _, v := range samples {
-		payload.Float32(v)
-	}
-
-	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "softclip", libopusSoftClipOutputMagic)
-	if err != nil {
-		return nil, nil, err
-	}
-	countN := int(reader.U32())
-	countC := int(reader.U32())
-	if countN != n || countC != channels {
-		return nil, nil, fmt.Errorf("helper shape=%dx%d want %dx%d", countN, countC, n, channels)
-	}
-	total := countN * countC
-	reader.ExpectRemaining(4*countC + 4*total)
-	outMem := make([]float32, countC)
-	for i := range outMem {
-		outMem[i] = reader.Float32()
-	}
-	out := make([]float32, total)
-	for i := range out {
-		out[i] = reader.Float32()
-	}
-	if err := reader.ExpectConsumed(); err != nil {
-		return nil, nil, err
-	}
-	return out, outMem, nil
-}
 
 func assertSoftClipFloat32BitsEqual(t *testing.T, got, want []float32, label string) {
 	t.Helper()
@@ -123,7 +67,7 @@ func TestOpusPCMSoftClipMatchesLibopus(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			want, wantMem, err := probeLibopusSoftClip(tc.n, tc.channels, tc.samples, tc.mem)
+			want, wantMem, err := libopustest.ProbeSoftClip(tc.n, tc.channels, tc.samples, tc.mem)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "softclip", err)
 			}
@@ -197,7 +141,7 @@ func TestSoftClipAndFloat32ToInt16MatchesLibopus(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			wantFloat, wantMem, err := probeLibopusSoftClip(tc.n, tc.channels, tc.src, tc.mem)
+			wantFloat, wantMem, err := libopustest.ProbeSoftClip(tc.n, tc.channels, tc.src, tc.mem)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "softclip", err)
 			}
