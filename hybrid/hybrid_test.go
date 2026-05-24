@@ -36,9 +36,6 @@ func TestNewDecoder(t *testing.T) {
 			if d.celtDecoder == nil {
 				t.Error("celtDecoder is nil")
 			}
-			if len(d.silkDelayBuffer) != SilkCELTDelay*tt.want {
-				t.Errorf("silkDelayBuffer len = %d, want %d", len(d.silkDelayBuffer), SilkCELTDelay*tt.want)
-			}
 		})
 	}
 }
@@ -118,98 +115,14 @@ func TestHybridFrameSizes(t *testing.T) {
 	})
 }
 
-// TestHybridDelayCompensation verifies SILK is delayed 60 samples.
-func TestHybridDelayCompensation(t *testing.T) {
-	d := NewDecoder(1)
-
-	// Create a known input pattern
-	input := make([]float64, 480)
-	for i := range input {
-		input[i] = float64(i + 1) // 1, 2, 3, ...
-	}
-
-	// Apply delay
-	output := d.applyDelayMono(input)
-
-	// First 60 samples should be from delay buffer (zeros initially)
-	for i := 0; i < SilkCELTDelay; i++ {
-		if output[i] != 0 {
-			t.Errorf("output[%d] = %f, want 0 (delay buffer)", i, output[i])
-			break
-		}
-	}
-
-	// Samples after delay should be input samples (offset by delay)
-	for i := SilkCELTDelay; i < len(output); i++ {
-		expected := float64(i - SilkCELTDelay + 1) // input[0], input[1], ...
-		if output[i] != expected {
-			t.Errorf("output[%d] = %f, want %f", i, output[i], expected)
-			break
-		}
-	}
-
-	// Delay buffer should now contain the tail of input
-	// input[420:480] should be in delay buffer
-	for i := 0; i < SilkCELTDelay; i++ {
-		expected := float64(len(input) - SilkCELTDelay + i + 1)
-		if d.silkDelayBuffer[i] != expected {
-			t.Errorf("silkDelayBuffer[%d] = %f, want %f", i, d.silkDelayBuffer[i], expected)
-			break
-		}
-	}
-}
-
-// TestHybridDelayCompensationStereo verifies stereo delay compensation.
-func TestHybridDelayCompensationStereo(t *testing.T) {
-	d := NewDecoder(2)
-
-	// Create interleaved stereo pattern: [L0, R0, L1, R1, ...]
-	input := make([]float64, 960) // 480 samples * 2 channels
-	for i := 0; i < 480; i++ {
-		input[i*2] = float64(i + 1)      // Left: 1, 2, 3, ...
-		input[i*2+1] = float64(-(i + 1)) // Right: -1, -2, -3, ...
-	}
-
-	output := d.applyDelayStereo(input)
-
-	// First 120 values (60 stereo samples) should be zeros
-	delayStereoSamples := SilkCELTDelay * 2
-	for i := 0; i < delayStereoSamples; i++ {
-		if output[i] != 0 {
-			t.Errorf("output[%d] = %f, want 0 (delay buffer)", i, output[i])
-			break
-		}
-	}
-
-	// After delay, should have input samples
-	for i := delayStereoSamples; i < len(output); i++ {
-		srcIdx := i - delayStereoSamples
-		expected := input[srcIdx]
-		if output[i] != expected {
-			t.Errorf("output[%d] = %f, want %f", i, output[i], expected)
-			break
-		}
-	}
-}
-
 // TestHybridReset verifies reset clears state properly.
 func TestHybridReset(t *testing.T) {
 	d := NewDecoder(1)
-
-	// Put some data in delay buffer
-	for i := range d.silkDelayBuffer {
-		d.silkDelayBuffer[i] = float64(i + 1)
-	}
-
-	// Reset
+	d.prevPacketStereo = true
 	d.Reset()
 
-	// Delay buffer should be zeros
-	for i, v := range d.silkDelayBuffer {
-		if v != 0 {
-			t.Errorf("silkDelayBuffer[%d] = %f after reset, want 0", i, v)
-			break
-		}
+	if d.prevPacketStereo {
+		t.Error("prevPacketStereo = true after reset, want false")
 	}
 }
 
@@ -754,16 +667,5 @@ func BenchmarkUpsample3x(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = upsample3x(input)
-	}
-}
-
-// BenchmarkApplyDelayMono benchmarks delay compensation.
-func BenchmarkApplyDelayMono(b *testing.B) {
-	d := NewDecoder(1)
-	input := make([]float64, 480)
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_ = d.applyDelayMono(input)
 	}
 }

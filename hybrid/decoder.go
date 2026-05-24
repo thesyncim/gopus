@@ -20,10 +20,8 @@ const (
 	// Bands 0-16 are covered by SILK; CELT only decodes bands 17-21.
 	HybridCELTStartBand = 17
 
-	// SilkCELTDelay is the delay compensation in samples at 48kHz.
-	// SILK output must be delayed relative to CELT for proper time alignment.
-	// This matches celt.SilkCELTDelay = 60
-	SilkCELTDelay = 60
+	// SilkCELTDelay is the libopus SILK/CELT delay in samples at 48 kHz.
+	SilkCELTDelay = celt.SilkCELTDelay
 )
 
 // Errors for Hybrid decoding
@@ -46,15 +44,11 @@ var (
 // - SILK: Decodes low-frequency content at WB (16kHz), upsampled to 48kHz
 // - CELT: Decodes high-frequency content (bands 17-21) at 48kHz
 //
-// SILK output is delayed by SilkCELTDelay (60) samples before summing with CELT.
+// SILK alignment is handled by the shared SILK resampler state before summing with CELT.
 type Decoder struct {
 	// Sub-decoders
 	silkDecoder *silk.Decoder
 	celtDecoder *celt.Decoder
-
-	// Delay buffer for SILK (60 samples at 48kHz per channel)
-	// This ensures proper time alignment between SILK and CELT layers.
-	silkDelayBuffer []float64
 
 	// Note: Resamplers are NOT stored here. We use the SILK decoder's built-in
 	// resamplers via GetResampler() and GetResamplerRightChannel() to ensure
@@ -88,7 +82,6 @@ type Decoder struct {
 // The decoder initializes:
 // - SILK decoder in WB (wideband, 16kHz) mode (always WB for hybrid)
 // - CELT decoder for high-frequency bands
-// - Delay buffer for SILK-CELT time alignment
 func NewDecoder(channels int) *Decoder {
 	if channels < 1 {
 		channels = 1
@@ -103,9 +96,6 @@ func NewDecoder(channels int) *Decoder {
 	return &Decoder{
 		silkDecoder: silk.NewDecoder(),
 		celtDecoder: celt.NewDecoder(channels),
-
-		// Delay buffer: 60 samples per channel
-		silkDelayBuffer: make([]float64, SilkCELTDelay*channels),
 
 		channels:      channels,
 		apiSampleRate: 48000,
@@ -160,11 +150,6 @@ func (d *Decoder) Reset() {
 	// Reset sub-decoders
 	d.silkDecoder.Reset()
 	d.celtDecoder.Reset()
-
-	// Clear delay buffer
-	for i := range d.silkDelayBuffer {
-		d.silkDelayBuffer[i] = 0
-	}
 
 	d.prevPacketStereo = false
 	if d.plcState != nil {
@@ -506,74 +491,6 @@ func (d *Decoder) ensureOutput(n int) []float64 {
 		d.scratchOutput = d.scratchOutput[:n]
 	}
 	return d.scratchOutput
-}
-
-// applyDelayMono applies the SilkCELTDelay to mono SILK output.
-// Maintains a delay buffer of 60 samples that persists across frames.
-func (d *Decoder) applyDelayMono(input []float64) []float64 {
-	if len(input) == 0 {
-		return input
-	}
-
-	output := make([]float64, len(input))
-
-	// Output delayed samples: first 60 samples come from delay buffer
-	delayLen := SilkCELTDelay
-	if delayLen > len(input) {
-		delayLen = len(input)
-	}
-
-	// Copy delay buffer to output start
-	copy(output[:delayLen], d.silkDelayBuffer[:delayLen])
-
-	// Copy input (minus tail) to output after delay
-	if len(input) > SilkCELTDelay {
-		copy(output[SilkCELTDelay:], input[:len(input)-SilkCELTDelay])
-	}
-
-	// Update delay buffer with input tail
-	tailStart := len(input) - SilkCELTDelay
-	if tailStart < 0 {
-		tailStart = 0
-	}
-	copy(d.silkDelayBuffer, input[tailStart:])
-
-	return output
-}
-
-// applyDelayStereo applies the SilkCELTDelay to stereo SILK output.
-// Input/output are interleaved [L0, R0, L1, R1, ...].
-// Delay buffer stores 60 samples per channel (120 total).
-func (d *Decoder) applyDelayStereo(input []float64) []float64 {
-	if len(input) == 0 {
-		return input
-	}
-
-	output := make([]float64, len(input))
-
-	// Stereo delay: 60 samples per channel = 120 interleaved values
-	delaySamples := SilkCELTDelay * 2
-
-	// Copy delay buffer to output start
-	delayLen := delaySamples
-	if delayLen > len(input) {
-		delayLen = len(input)
-	}
-	copy(output[:delayLen], d.silkDelayBuffer[:delayLen])
-
-	// Copy input (minus tail) to output after delay
-	if len(input) > delaySamples {
-		copy(output[delaySamples:], input[:len(input)-delaySamples])
-	}
-
-	// Update delay buffer with input tail
-	tailStart := len(input) - delaySamples
-	if tailStart < 0 {
-		tailStart = 0
-	}
-	copy(d.silkDelayBuffer, input[tailStart:])
-
-	return output
 }
 
 // upsample3x upsamples SILK output from 16kHz to 48kHz using linear interpolation.
