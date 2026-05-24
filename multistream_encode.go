@@ -68,24 +68,11 @@ func (e *MultistreamEncoder) EncodeInt24(pcm []int32, data []byte) (int, error) 
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
-	frameSize, err := selectExpertFrameSize(e.frameSize, e.expertFrameDuration, e.application)
-	if err != nil {
-		return 0, err
-	}
-	inputSamples := frameSize * e.channels
-
-	pcm64 := e.scratchPCM64[:len(pcm)]
+	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
-		pcm64[i] = float64(v) / 8388608.0
+		pcm32[i] = float32(v) / 8388608.0
 	}
-
-	packet, err := e.enc.EncodeWithAnalysis(pcm64[:inputSamples], frameSize, pcm64)
-	if err != nil {
-		return 0, err
-	}
-	e.encodedOnce = true
-
-	return copyEncodedPacket(packet, data)
+	return e.Encode(pcm32, data)
 }
 
 // EncodeFloat32 encodes float32 PCM samples and returns a new byte slice.

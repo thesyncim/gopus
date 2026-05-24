@@ -79,12 +79,11 @@ func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	}
 	inputSamples := frameSize * e.channels
 
-	pcm64 := e.scratchPCM64[:len(pcm)]
+	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {
-		pcm64[i] = float64(v) / 8388608.0
+		pcm32[i] = float32(v) / 8388608.0
 	}
-
-	packet, err := e.enc.EncodeWithAnalysisMaxBytes(pcm64[:inputSamples], frameSize, pcm64, len(data))
+	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(pcm32[:inputSamples], frameSize, pcm32, len(data))
 	if err != nil {
 		return 0, err
 	}

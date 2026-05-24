@@ -119,7 +119,6 @@ type Encoder struct {
 	modeSet             bool
 
 	// Scratch buffers for zero-allocation encoding
-	scratchPCM64 []float64 // float32 to float64 conversion buffer
 	scratchPCM32 []float32 // int16 to float32 conversion buffer
 	dnnBlob      *dnnblob.Blob
 }
@@ -148,7 +147,6 @@ func NewEncoder(cfg EncoderConfig) (*Encoder, error) {
 		frameSize:           960, // Default 20ms at 48kHz
 		expertFrameDuration: ExpertFrameDurationArg,
 		application:         cfg.Application,
-		scratchPCM64:        make([]float64, maxSamples),
 		scratchPCM32:        make([]float32, maxSamples),
 	}
 

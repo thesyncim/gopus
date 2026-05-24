@@ -1503,8 +1503,6 @@ celt/xcorr.go	2	bd3df33535ae5483a1c53129dd8cec51f228679838067eccc5d8d85afd57b1e7
 celt/xcorr.go	2	e0c2490349f9242f45544914abe3d2a33db46f4ebb6f593d5ba4ef3e98a63ef8	legacy-current	var a0, a1, a2, a3 float64
 decoder_opus_frame.go	1	4615f35d8d35ce5ca7d9e3617e3e7d032cef0f300908c9f83d1ba52955a95f3d	legacy-current	return float32(math.FMA(float64(a), float64(b), float64(c)))
 decoder_osce_bwe_crossfade.go	1	77fc3480a79f4ef2d1546f7eefe276c977313b089706ab3cbe5f243da017af7c	legacy-current	return int16(int32(math.RoundToEven(float64(tmp))))
-encoder.go	1	05d639c1736266fd15b3a5e359db22926d9b010f7fdfd89fd255aff8444d1205	legacy-current	scratchPCM64 []float64 // float32 to float64 conversion buffer
-encoder.go	1	0e8894f46a70acdd4f69d3ad0a8ba1d18d5d63e56c0d22e07320c6895cb89465	legacy-current	scratchPCM64: make([]float64, maxSamples),
 encoder/analysis.go	1	0839a0d6e78a52bfe771927ca433dc299cca5e8d675f3b33cf0a519c36d4e688	legacy-current	if math.IsNaN(float64(real(outBuf[0]))) {
 encoder/analysis.go	1	2d6abd3ef58ac63b504bd0f55b6a307f245fea4199f5e641981fcc04a25fe0bb	legacy-current	logBandE := float32(math.Log(float64(bandE) + 1e-10))
 encoder/analysis.go	1	73f1eaa3a4acd93e70a3b93e85a9223ea8afce80d86951fd2d12cf82a7b12745	legacy-current	// Use float32 constants to avoid repeated float64 conversion
@@ -1586,7 +1584,6 @@ encoder/hybrid.go	4	fafcbeb55bf1c74b852cbf3e30ab3a8a11b821d311c29e7c25a02c8b6be3
 encoder/scalar_types.go	1	0c0a0663423849ad524632773448a5f9e2b36bf1ee3b5009d78e414f94e071aa	legacy-current	func copyFloat64ToOpusRes(dst []opusRes, src []float64) {
 encoder/scalar_types.go	1	7aaf769ea64593d552ccc6147480d21443b76a3b1971c054bd1fa0ea60ced074	legacy-current	func copyOpusResToFloat64(dst []float64, src []opusRes) {
 encoder/scalar_types.go	1	beea720c8de54da8545efc993c92e9c60c4d4c58cb139234868d65b042e94e76	legacy-current	dst[i] = float64(src[i])
-encoder_encode.go	1	cba4a60eb9dc8cff56da88b1871243866025b5cf2f52e156d3a75ee6e6dbd9c4	legacy-current	pcm64[i] = float64(v) / 8388608.0
 hybrid/decoder.go	1	02ab09de62918442c9357f50f4a11df9f83e505350f74a89da8efb235e4520cb	legacy-current	output := make([]float64, len(samples)*3)
 hybrid/decoder.go	1	4556e9d3832d0f8c4dd175114abee7638b0a1debf7754e6247adfecfd03274c1	legacy-current	curr := float64(samples[i])
 hybrid/decoder.go	1	474f99e02642bb4e058eb4e32a063ae8c05b66562f099fb3d6e7a2a698e6b8e0	legacy-current	next = float64(samples[i+1])
@@ -1789,7 +1786,6 @@ multistream/projection_matrix.go	1	9efcd09292204d0ad4834baefada6996afea9bd4761e5
 multistream/projection_matrix.go	1	d517586c89bae9032d71df76a2366a234ec7a2989ccddda3ba6d2e45bbfc1ad0	legacy-current	func applyProjectionDemixingMatrix(dst, src []float64, matrix []int16, frame []float32, frameSize, rows, cols int) {
 multistream/projection_matrix.go	1	e04b8b327bc56144e9dde7d553f152c6b052f936b26702a79a990b5753ebe3f5	legacy-current	tmp := float32(float64(matrix[col*rows+row]) * float64(inputSample) * (1.0 / 32768.0))
 multistream_encode.go	1	3fee8f9eb23c6e505041dc9226eac568af9be8c6186c6c10f4624ee36709ee9f	legacy-current	pcm64[i] = float64(v)
-multistream_encode.go	1	cba4a60eb9dc8cff56da88b1871243866025b5cf2f52e156d3a75ee6e6dbd9c4	legacy-current	pcm64[i] = float64(v) / 8388608.0
 pcm.go	1	b42062ac33ff5c5dfaa06aff81cb5e97824d8ce99278ec3c89db77cade24e72a	legacy-current	func float64ToInt16(sample float64) int16 {
 plc/celt_plc.go	1	04bd4ec8c37ef43eb37dbb720ade84ca6bdf9c299e8e5f2c163decbbdd173eb3	legacy-current	Synthesize(coeffs []float64, transient bool, shortBlocks int) []float64
 plc/celt_plc.go	2	0b0bc28e966bf3c9c31d41f287fdf15e871cdf818059a5012643af782cc8ac80	legacy-current	return make([]float64, frameSize)
