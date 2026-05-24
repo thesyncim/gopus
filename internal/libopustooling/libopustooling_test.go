@@ -2,7 +2,9 @@ package libopustooling
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -120,6 +122,84 @@ func TestLibopusToolIsRunnableUsesPlatformSemantics(t *testing.T) {
 				t.Fatalf("runnable mismatch: got %v want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+func TestFindOrEnsureOpusDemoValidatesBeforeReturningExistingTool(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell validation hook is Unix-only")
+	}
+	if _, err := exec.LookPath("bash"); err != nil {
+		if _, err := exec.LookPath("sh"); err != nil {
+			t.Skip("no shell available for ensure script")
+		}
+	}
+
+	root := t.TempDir()
+	toolPath := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion, "opus_demo")
+	if err := os.MkdirAll(filepath.Dir(toolPath), 0o755); err != nil {
+		t.Fatalf("mkdir tool dir: %v", err)
+	}
+	if err := os.WriteFile(toolPath, []byte("stale but executable"), 0o755); err != nil {
+		t.Fatalf("write stale tool: %v", err)
+	}
+
+	markerPath := filepath.Join(root, "ensure-ran")
+	t.Setenv("GOPUS_TEST_ENSURE_MARKER", markerPath)
+	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatalf("mkdir tools dir: %v", err)
+	}
+	script := "#!/bin/sh\nprintf '%s' \"$LIBOPUS_VERSION\" > \"$GOPUS_TEST_ENSURE_MARKER\"\n"
+	if err := os.WriteFile(scriptPath, []byte(script), 0o755); err != nil {
+		t.Fatalf("write ensure script: %v", err)
+	}
+
+	got, ok := FindOrEnsureOpusDemo(DefaultVersion, []string{root})
+	if !ok {
+		t.Fatal("expected FindOrEnsureOpusDemo to return existing tool after validation")
+	}
+	if got != toolPath {
+		t.Fatalf("tool path mismatch: got %q want %q", got, toolPath)
+	}
+	marker, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatalf("ensure script did not run before returning existing tool: %v", err)
+	}
+	if string(marker) != DefaultVersion {
+		t.Fatalf("ensure script LIBOPUS_VERSION=%q want %q", string(marker), DefaultVersion)
+	}
+}
+
+func TestFindOrEnsureOpusDemoRejectsExistingToolWhenValidationFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell validation hook is Unix-only")
+	}
+	if _, err := exec.LookPath("bash"); err != nil {
+		if _, err := exec.LookPath("sh"); err != nil {
+			t.Skip("no shell available for ensure script")
+		}
+	}
+
+	root := t.TempDir()
+	toolPath := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion, "opus_demo")
+	if err := os.MkdirAll(filepath.Dir(toolPath), 0o755); err != nil {
+		t.Fatalf("mkdir tool dir: %v", err)
+	}
+	if err := os.WriteFile(toolPath, []byte("stale but executable"), 0o755); err != nil {
+		t.Fatalf("write stale tool: %v", err)
+	}
+
+	scriptPath := filepath.Join(root, "tools", "ensure_libopus.sh")
+	if err := os.MkdirAll(filepath.Dir(scriptPath), 0o755); err != nil {
+		t.Fatalf("mkdir tools dir: %v", err)
+	}
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/sh\nexit 17\n"), 0o755); err != nil {
+		t.Fatalf("write failing ensure script: %v", err)
+	}
+
+	if got, ok := FindOrEnsureOpusDemo(DefaultVersion, []string{root}); ok {
+		t.Fatalf("FindOrEnsureOpusDemo returned stale tool %q after validation failure", got)
 	}
 }
 

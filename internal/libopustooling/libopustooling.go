@@ -115,17 +115,17 @@ func FindOpusCompare(version string, roots []string) (string, bool) {
 }
 
 // EnsureLibopus invokes tools/ensure_libopus.sh from the first matching root.
-func EnsureLibopus(version string, roots []string) {
-	ensureLibopus(version, roots, false)
+func EnsureLibopus(version string, roots []string) bool {
+	return ensureLibopus(version, roots, false)
 }
 
 // EnsureLibopusQEXT invokes tools/ensure_libopus.sh with ENABLE_QEXT enabled
 // from the first matching root.
-func EnsureLibopusQEXT(version string, roots []string) {
-	ensureLibopus(version, roots, true)
+func EnsureLibopusQEXT(version string, roots []string) bool {
+	return ensureLibopus(version, roots, true)
 }
 
-func ensureLibopus(version string, roots []string, qext bool) {
+func ensureLibopus(version string, roots []string, qext bool) bool {
 	if version == "" {
 		version = DefaultVersion
 	}
@@ -154,36 +154,37 @@ func ensureLibopus(version string, roots []string, qext bool) {
 			env = append(env, "LIBOPUS_ENABLE_QEXT=1")
 		}
 		cmd.Env = env
-		_, _ = cmd.CombinedOutput()
-		return
+		_, err := cmd.CombinedOutput()
+		return err == nil
 	}
+	return false
 }
 
-// FindOrEnsureOpusDemo tries to locate opus_demo and auto-bootstraps once if missing.
+// FindOrEnsureOpusDemo validates the pinned libopus build, then locates
+// opus_demo. The validation step matters for fixture generation: an existing
+// executable can be from a stale host/compiler build even when it is runnable.
 func FindOrEnsureOpusDemo(version string, roots []string) (string, bool) {
-	if p, ok := FindOpusDemo(version, roots); ok {
-		return p, true
+	if !EnsureLibopus(version, roots) {
+		return "", false
 	}
-	EnsureLibopus(version, roots)
 	return FindOpusDemo(version, roots)
 }
 
 // FindOrEnsureQEXTOpusDemo tries to locate a QEXT-enabled opus_demo and
-// auto-bootstraps once if missing.
+// validates the separate QEXT build first.
 func FindOrEnsureQEXTOpusDemo(version string, roots []string) (string, bool) {
-	if p, ok := FindQEXTOpusDemo(version, roots); ok {
-		return p, true
+	if !EnsureLibopusQEXT(version, roots) {
+		return "", false
 	}
-	EnsureLibopusQEXT(version, roots)
 	return FindQEXTOpusDemo(version, roots)
 }
 
-// FindOrEnsureOpusCompare tries to locate opus_compare and auto-bootstraps once if missing.
+// FindOrEnsureOpusCompare validates the pinned libopus build, then locates
+// opus_compare.
 func FindOrEnsureOpusCompare(version string, roots []string) (string, bool) {
-	if p, ok := FindOpusCompare(version, roots); ok {
-		return p, true
+	if !EnsureLibopus(version, roots) {
+		return "", false
 	}
-	EnsureLibopus(version, roots)
 	return FindOpusCompare(version, roots)
 }
 

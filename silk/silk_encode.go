@@ -371,11 +371,6 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 				if rem := stereoRemainingPacketBits(re.Tell(), basePacketMaxBits); rem > 0 && sideMaxBits > rem {
 					sideMaxBits = rem
 				}
-				if !sideFrameVAD && sideRate > 0 {
-					if chCap := stereoChannelBudgetBits(sideRate, frameLength, config.SampleRate); chCap > 0 && sideMaxBits > chCap {
-						sideMaxBits = chCap
-					}
-				}
 				sideEnc.maxBits = sideMaxBits
 			}
 			sideEnc.SetRangeEncoder(re)
@@ -449,19 +444,6 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	sideEnc.rangeEncoder = nil
 
 	return result, nil
-}
-
-// stereoChannelBudgetBits is the per-20ms channel bit budget from controlSNR rate.
-func stereoChannelBudgetBits(rateBps, frameSamples, sampleRate int) int {
-	if rateBps <= 0 || frameSamples <= 0 || sampleRate <= 0 {
-		return 0
-	}
-	payloadMs := frameSamples * 1000 / sampleRate
-	bits := rateBps * payloadMs / 1000
-	if bits < 1 {
-		return 1
-	}
-	return bits
 }
 
 // stereoRemainingPacketBits returns bits left in the shared stereo payload budget.

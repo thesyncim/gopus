@@ -294,12 +294,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	// Step 7: Prepare indices and gains for bitrate control loop.
 	seed := e.frameCounter & 3
 	maxBits := e.maxBits
-	if !vadFlag && e.lastControlTargetRateBps > 0 && payloadSizeMs > 0 {
-		rateCap := e.lastControlTargetRateBps * payloadSizeMs / 1000
-		if rateCap > 0 && (maxBits <= 0 || maxBits > rateCap) {
-			maxBits = rateCap
-		}
-	}
 	if maxBits <= 0 {
 		// Derive from target rate: bits = targetRate * frameDuration_ms / 1000
 		// This matches libopus where opus_encoder.c computes maxBits from the
