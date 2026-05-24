@@ -1301,8 +1301,8 @@ func TestEncode_SurroundEnergyMaskPerStream(t *testing.T) {
 			wantLeft := enc.surroundBandSMR[left*surroundBands : (left+1)*surroundBands]
 			wantRight := enc.surroundBandSMR[right*surroundBands : (right+1)*surroundBands]
 			for i := 0; i < surroundBands; i++ {
-				wantL := float64(float32(wantLeft[i]))
-				wantR := float64(float32(wantRight[i]))
+				wantL := float32(wantLeft[i])
+				wantR := float32(wantRight[i])
 				if gotMask[i] != wantL {
 					t.Fatalf("stream %d left mask[%d]=%f want=%f", s, i, gotMask[i], wantL)
 				}
@@ -1321,7 +1321,7 @@ func TestEncode_SurroundEnergyMaskPerStream(t *testing.T) {
 			}
 			wantMono := enc.surroundBandSMR[mono*surroundBands : (mono+1)*surroundBands]
 			for i := 0; i < surroundBands; i++ {
-				want := float64(float32(wantMono[i]))
+				want := float32(wantMono[i])
 				if gotMask[i] != want {
 					t.Fatalf("stream %d mono mask[%d]=%f want=%f", s, i, gotMask[i], want)
 				}

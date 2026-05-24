@@ -1192,15 +1192,11 @@ func setStreamCELTEnergyMask(enc *encoder.Encoder, mask []float32) {
 		enc.SetCELTEnergyMask(nil)
 		return
 	}
-	var widened [2 * surroundBands]float64
 	n := len(mask)
-	if n > len(widened) {
-		n = len(widened)
+	if n > 2*surroundBands {
+		n = 2 * surroundBands
 	}
-	for i := 0; i < n; i++ {
-		widened[i] = float64(mask[i])
-	}
-	enc.SetCELTEnergyMask(widened[:n])
+	enc.SetCELTEnergyMask(mask[:n])
 }
 
 func (e *Encoder) initProjectionMixingDefaults() error {

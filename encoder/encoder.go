@@ -3739,7 +3739,7 @@ func (e *Encoder) CELTSurroundTrim() float64 {
 }
 
 // SetCELTEnergyMask sets per-band CELT surround masking (21 mono, 42 stereo).
-func (e *Encoder) SetCELTEnergyMask(mask []float64) {
+func (e *Encoder) SetCELTEnergyMask(mask []float32) {
 	needed := celt.MaxBands * e.channels
 	if needed <= 0 || len(mask) < needed {
 		if len(e.celtEnergyMask) > 0 {
@@ -3756,18 +3756,14 @@ func (e *Encoder) SetCELTEnergyMask(mask []float64) {
 	} else {
 		e.celtEnergyMask = e.celtEnergyMask[:needed]
 	}
-	for i := 0; i < needed; i++ {
-		e.celtEnergyMask[i] = float32(mask[i])
-	}
+	copy(e.celtEnergyMask, mask[:needed])
 	e.syncCELTEnergyMask()
 }
 
 // CELTEnergyMask returns the current CELT energy mask.
-func (e *Encoder) CELTEnergyMask() []float64 {
-	out := make([]float64, len(e.celtEnergyMask))
-	for i, v := range e.celtEnergyMask {
-		out[i] = float64(v)
-	}
+func (e *Encoder) CELTEnergyMask() []float32 {
+	out := make([]float32, len(e.celtEnergyMask))
+	copy(out, e.celtEnergyMask)
 	return out
 }
 
@@ -3779,13 +3775,9 @@ func (e *Encoder) syncCELTEnergyMask() {
 		e.celtEncoder.SetEnergyMask(nil)
 		return
 	}
-	var mask [celt.MaxBands * 2]float64
 	n := len(e.celtEnergyMask)
-	if n > len(mask) {
-		n = len(mask)
+	if n > celt.MaxBands*2 {
+		n = celt.MaxBands * 2
 	}
-	for i := 0; i < n; i++ {
-		mask[i] = float64(e.celtEnergyMask[i])
-	}
-	e.celtEncoder.SetEnergyMask(mask[:n])
+	e.celtEncoder.SetEnergyMask(e.celtEnergyMask[:n])
 }

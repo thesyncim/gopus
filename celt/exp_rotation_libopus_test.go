@@ -784,7 +784,7 @@ func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	enc := NewEncoder(2)
-	enc.SetEnergyMask(make([]float64, MaxBands*2))
+	enc.SetEnergyMask(make([]float32, MaxBands*2))
 	enc.lastBandLogE = appendFloat64AsGLog(enc.lastBandLogE, []float64{1})
 	enc.lastBandLogE2 = appendFloat64AsGLog(enc.lastBandLogE2, []float64{1})
 	got := []struct {

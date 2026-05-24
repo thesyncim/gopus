@@ -484,7 +484,7 @@ func (e *Encoder) SurroundTrim() float64 {
 // SetEnergyMask sets per-band surround masking for CELT surround control.
 // Expected sizes: 21 values for mono, 42 values for stereo.
 // Invalid sizes clear the mask.
-func (e *Encoder) SetEnergyMask(mask []float64) {
+func (e *Encoder) SetEnergyMask(mask []float32) {
 	needed := MaxBands * e.channels
 	if needed <= 0 || len(mask) < needed {
 		if len(e.energyMask) > 0 {
@@ -498,13 +498,13 @@ func (e *Encoder) SetEnergyMask(mask []float64) {
 	} else {
 		e.energyMask = e.energyMask[:needed]
 	}
-	copyFloat64ToGLog(e.energyMask, mask[:needed])
+	copy(e.energyMask, mask[:needed])
 }
 
 // EnergyMask returns the current per-band surround mask.
-func (e *Encoder) EnergyMask() []float64 {
-	out := make([]float64, len(e.energyMask))
-	copyGLogToFloat64(out, e.energyMask)
+func (e *Encoder) EnergyMask() []float32 {
+	out := make([]float32, len(e.energyMask))
+	copy(out, e.energyMask)
 	return out
 }
 

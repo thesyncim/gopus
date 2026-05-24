@@ -9,9 +9,9 @@ import (
 
 func TestCELTEnergyMaskUsesFloat32Storage(t *testing.T) {
 	enc := NewEncoder(48000, 2)
-	mask := make([]float64, 2*celt.MaxBands)
+	mask := make([]float32, 2*celt.MaxBands)
 	for i := range mask {
-		mask[i] = float64(i)*0.01 + 0.00000013
+		mask[i] = float32(i)*0.01 + 0.00000013
 	}
 
 	enc.SetCELTEnergyMask(mask)
@@ -24,9 +24,8 @@ func TestCELTEnergyMaskUsesFloat32Storage(t *testing.T) {
 		t.Fatalf("CELTEnergyMask len=%d want %d", len(got), len(mask))
 	}
 	for i := range mask {
-		want := float64(float32(mask[i]))
-		if got[i] != want {
-			t.Fatalf("CELTEnergyMask[%d]=%0.10g want %0.10g", i, got[i], want)
+		if got[i] != mask[i] {
+			t.Fatalf("CELTEnergyMask[%d]=%0.10g want %0.10g", i, got[i], mask[i])
 		}
 	}
 
@@ -38,9 +37,9 @@ func TestCELTEnergyMaskUsesFloat32Storage(t *testing.T) {
 
 func TestCELTEnergyMaskSyncsRoundedValuesToCELT(t *testing.T) {
 	enc := NewEncoder(48000, 2)
-	mask := make([]float64, 2*celt.MaxBands)
+	mask := make([]float32, 2*celt.MaxBands)
 	for i := range mask {
-		mask[i] = -0.75 + float64(i)*0.03125 + 0.00000019
+		mask[i] = -0.75 + float32(i)*0.03125 + 0.00000019
 	}
 
 	enc.SetCELTEnergyMask(mask)
@@ -50,9 +49,8 @@ func TestCELTEnergyMaskSyncsRoundedValuesToCELT(t *testing.T) {
 		t.Fatalf("CELT EnergyMask len=%d want %d", len(got), len(mask))
 	}
 	for i := range mask {
-		want := float64(float32(mask[i]))
-		if got[i] != want {
-			t.Fatalf("CELT EnergyMask[%d]=%0.10g want %0.10g", i, got[i], want)
+		if got[i] != mask[i] {
+			t.Fatalf("CELT EnergyMask[%d]=%0.10g want %0.10g", i, got[i], mask[i])
 		}
 	}
 

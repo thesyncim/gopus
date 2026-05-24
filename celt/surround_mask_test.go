@@ -5,9 +5,9 @@ import "testing"
 func TestEncoderSetEnergyMask(t *testing.T) {
 	enc := NewEncoder(2)
 
-	mask := make([]float64, 2*MaxBands)
+	mask := make([]float32, 2*MaxBands)
 	for i := range mask {
-		mask[i] = float64(i) * 0.01
+		mask[i] = float32(i) * 0.01
 	}
 	enc.SetEnergyMask(mask)
 	got := enc.EnergyMask()
@@ -15,7 +15,7 @@ func TestEncoderSetEnergyMask(t *testing.T) {
 		t.Fatalf("EnergyMask len=%d want=%d", len(got), len(mask))
 	}
 	for i := range mask {
-		want := float64(celtGLog(mask[i]))
+		want := celtGLog(mask[i])
 		if got[i] != want {
 			t.Fatalf("EnergyMask[%d]=%f want=%f", i, got[i], want)
 		}
@@ -31,7 +31,7 @@ func TestComputeSurroundDynallocFromMask(t *testing.T) {
 	enc := NewEncoder(2)
 	enc.lastCodedBands = 17
 
-	mask := make([]float64, 2*MaxBands)
+	mask := make([]float32, 2*MaxBands)
 	for i := 0; i < MaxBands; i++ {
 		mask[i] = -2.0
 		mask[MaxBands+i] = -2.0
