@@ -1,5 +1,7 @@
 package silk
 
+import "math"
+
 const (
 	speechActivityDTXThresholdQ8   = 13   // SILK_FIX_CONST(0.05, 8)
 	bandwidthSwitchDelaySlopeQ24Q8 = 3188 // SILK_FIX_CONST((1 - 0.05) / 5000, 24)
@@ -209,7 +211,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	var ltpIndices [maxNbSubfr]int8
 	perIndex := 0
 	predGainQ7 := int32(0)
-	pitchRes, resStart, _ := e.computePitchResidual(numSubframes)
+	pitchRes, resStart, _, pitchInfo := e.computePitchResidual(numSubframes)
 	if signalType != typeNoVoiceActivity {
 		searchThres1 := float64(float32(e.pitchEstimationThresholdQ16) / 65536.0)
 		prevSignalType := 0
@@ -282,7 +284,24 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
 
 	// Step 6: Residual energy and gain processing
+	var traceGainsPreQ16, traceResNrgBits, traceGainsUnqQ16, traceGainsQuantQ16 [maxNbSubfr]int32
+	tracePredGainBits := int32(0)
+	tracePitchAutoCorr0Bits := int32(0)
+	tracePitchResNrgBits := int32(0)
+	if encodeFrameTraceEnabled {
+		tracePredGainBits = int32(math.Float32bits(pitchInfo.predGain))
+		tracePitchAutoCorr0Bits = int32(math.Float32bits(pitchInfo.autoCorr0))
+		tracePitchResNrgBits = int32(math.Float32bits(pitchInfo.resNrg))
+		for i := 0; i < numSubframes && i < maxNbSubfr && i < len(gains); i++ {
+			traceGainsPreQ16[i] = int32(gains[i] * 65536.0)
+		}
+	}
 	resNrg := e.computeResidualEnergies(ltpRes, predCoefQ12, interpIdx, gains, numSubframes, subframeSamples)
+	if encodeFrameTraceEnabled {
+		for i := 0; i < numSubframes && i < maxNbSubfr && i < len(resNrg); i++ {
+			traceResNrgBits[i] = int32(math.Float32bits(resNrg[i]))
+		}
+	}
 	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, e.inputTiltQ15, subframeSamples)
 	if signalType == typeVoiced {
 		quantOffset = processedQuantOffset
@@ -346,6 +365,16 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	currentPrevInd := silkGainsQuantInto(gainIndices, gainsQ16, lastGainIndexPrev, condCoding == codeConditionally, numSubframes)
 	for i := 0; i < numSubframes; i++ {
 		frameIndices.GainsIndices[i] = gainIndices[i]
+	}
+	if encodeFrameTraceEnabled {
+		for i := 0; i < numSubframes && i < maxNbSubfr; i++ {
+			if i < len(gainsUnqQ16) {
+				traceGainsUnqQ16[i] = gainsUnqQ16[i]
+			}
+			if i < len(gainsQ16) {
+				traceGainsQuantQ16[i] = gainsQ16[i]
+			}
+		}
 	}
 
 	// LBRR uses pre-NSQ indices/NSQ state (libopus silk_LBRR_encode_FLP before the bitrate loop).
@@ -413,24 +442,81 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			}
 
 			// Encode indices
+			var traceIndex [encodeFrameIndexTracePointCount]encodeFrameRangeTrace
 			e.encodeFrameType(vadFlag, signalType, int(frameIndices.quantOffsetType))
-			if condCoding == codeIndependently {
-				e.encodeAbsoluteGainIndex(int(frameIndices.GainsIndices[0]), signalType)
-			} else {
+			if encodeFrameTraceEnabled {
+				traceIndex[encodeFrameIndexTraceAfterType] = encodeFrameRangeTrace{
+					tell: e.rangeEncoder.Tell(),
+					rng:  e.rangeEncoder.Range(),
+				}
+			}
+			if condCoding == codeConditionally {
 				e.rangeEncoder.EncodeICDF(int(frameIndices.GainsIndices[0]), silk_delta_gain_iCDF, 8)
+			} else {
+				e.encodeAbsoluteGainIndex(int(frameIndices.GainsIndices[0]), signalType)
 			}
 			for i := 1; i < numSubframes; i++ {
 				e.rangeEncoder.EncodeICDF(int(frameIndices.GainsIndices[i]), silk_delta_gain_iCDF, 8)
 			}
+			if encodeFrameTraceEnabled {
+				traceIndex[encodeFrameIndexTraceAfterGains] = encodeFrameRangeTrace{
+					tell: e.rangeEncoder.Tell(),
+					rng:  e.rangeEncoder.Range(),
+				}
+			}
 			e.encodeLSF(stage1Idx, residuals, interpIdx, e.bandwidth, signalType, numSubframes)
+			if encodeFrameTraceEnabled {
+				traceIndex[encodeFrameIndexTraceAfterNLSF] = encodeFrameRangeTrace{
+					tell: e.rangeEncoder.Tell(),
+					rng:  e.rangeEncoder.Range(),
+				}
+			}
 			if signalType == typeVoiced {
 				e.encodePitchLagsWithParams(pitchParams, condCoding)
+				if encodeFrameTraceEnabled {
+					traceIndex[encodeFrameIndexTraceAfterPitch] = encodeFrameRangeTrace{
+						tell: e.rangeEncoder.Tell(),
+						rng:  e.rangeEncoder.Range(),
+					}
+				}
 				e.encodeLTPCoeffs(perIndex, ltpIndices[:], numSubframes)
 				if condCoding == codeIndependently {
 					e.rangeEncoder.EncodeICDF(ltpScaleIndex, silk_LTPscale_iCDF, 8)
 				}
+				if encodeFrameTraceEnabled {
+					traceIndex[encodeFrameIndexTraceAfterLTP] = encodeFrameRangeTrace{
+						tell: e.rangeEncoder.Tell(),
+						rng:  e.rangeEncoder.Range(),
+					}
+				}
+			} else if encodeFrameTraceEnabled {
+				traceIndex[encodeFrameIndexTraceAfterPitch] = traceIndex[encodeFrameIndexTraceAfterNLSF]
+				traceIndex[encodeFrameIndexTraceAfterLTP] = traceIndex[encodeFrameIndexTraceAfterNLSF]
 			}
 			e.rangeEncoder.EncodeICDF(int(frameIndices.Seed), silk_uniform4_iCDF, 8)
+			if encodeFrameTraceEnabled {
+				traceIndex[encodeFrameIndexTraceAfterSeed] = encodeFrameRangeTrace{
+					tell: e.rangeEncoder.Tell(),
+					rng:  e.rangeEncoder.Range(),
+				}
+			}
+			if encodeFrameTraceEnabled {
+				recordEncodeFrameTrace(e, encodeFrameTrace{
+					stage:              encodeFrameTraceAfterIndices,
+					iter:               iter,
+					tell:               e.rangeEncoder.Tell(),
+					rng:                e.rangeEncoder.Range(),
+					indexTrace:         traceIndex,
+					indices:            frameIndices,
+					predGainBits:       tracePredGainBits,
+					pitchAutoCorr0Bits: tracePitchAutoCorr0Bits,
+					pitchResNrgBits:    tracePitchResNrgBits,
+					gainsPreQ16:        traceGainsPreQ16,
+					resNrgBits:         traceResNrgBits,
+					gainsUnqQ16:        traceGainsUnqQ16,
+					gainsQuantQ16:      traceGainsQuantQ16,
+				})
+			}
 
 			// Encode excitation pulses
 			pulseCount := len(pulses)
@@ -439,6 +525,24 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 				pulses32[i] = int32(pulses[i])
 			}
 			e.encodePulses(pulses32, signalType, int(frameIndices.quantOffsetType))
+			if encodeFrameTraceEnabled {
+				recordEncodeFrameTrace(e, encodeFrameTrace{
+					stage:              encodeFrameTraceAfterPulses,
+					iter:               iter,
+					tell:               e.rangeEncoder.Tell(),
+					rng:                e.rangeEncoder.Range(),
+					indexTrace:         traceIndex,
+					indices:            frameIndices,
+					predGainBits:       tracePredGainBits,
+					pitchAutoCorr0Bits: tracePitchAutoCorr0Bits,
+					pitchResNrgBits:    tracePitchResNrgBits,
+					gainsPreQ16:        traceGainsPreQ16,
+					resNrgBits:         traceResNrgBits,
+					gainsUnqQ16:        traceGainsUnqQ16,
+					gainsQuantQ16:      traceGainsQuantQ16,
+					pulses:             pulses,
+				})
+			}
 
 			nBits = e.rangeEncoder.Tell()
 
@@ -461,10 +565,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 				}
 
 				e.encodeFrameType(vadFlag, signalType, int(frameIndices.quantOffsetType))
-				if condCoding == codeIndependently {
-					e.encodeAbsoluteGainIndex(int(frameIndices.GainsIndices[0]), signalType)
-				} else {
+				if condCoding == codeConditionally {
 					e.rangeEncoder.EncodeICDF(int(frameIndices.GainsIndices[0]), silk_delta_gain_iCDF, 8)
+				} else {
+					e.encodeAbsoluteGainIndex(int(frameIndices.GainsIndices[0]), signalType)
 				}
 				for i := 1; i < numSubframes; i++ {
 					e.rangeEncoder.EncodeICDF(int(frameIndices.GainsIndices[i]), silk_delta_gain_iCDF, 8)
@@ -478,12 +582,31 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 					}
 				}
 				e.rangeEncoder.EncodeICDF(int(frameIndices.Seed), silk_uniform4_iCDF, 8)
+				if encodeFrameTraceEnabled {
+					recordEncodeFrameTrace(e, encodeFrameTrace{
+						stage:   encodeFrameTraceAfterIndices,
+						iter:    iter,
+						tell:    e.rangeEncoder.Tell(),
+						rng:     e.rangeEncoder.Range(),
+						indices: frameIndices,
+					})
+				}
 				if pulses != nil {
 					pulses32 := ensureInt32Slice(&e.scratchExcitation, len(pulses))
 					for i := range pulses32 {
 						pulses32[i] = 0
 					}
 					e.encodePulses(pulses32, signalType, int(frameIndices.quantOffsetType))
+				}
+				if encodeFrameTraceEnabled {
+					recordEncodeFrameTrace(e, encodeFrameTrace{
+						stage:   encodeFrameTraceAfterPulses,
+						iter:    iter,
+						tell:    e.rangeEncoder.Tell(),
+						rng:     e.rangeEncoder.Range(),
+						indices: frameIndices,
+						pulses:  pulses,
+					})
 				}
 				nBits = e.rangeEncoder.Tell()
 			}
@@ -617,6 +740,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	e.previousLogGain = int32(currentPrevInd)
 	e.ecPrevSignalType = signalType
 	e.lastQuantOffsetType = int(frameIndices.quantOffsetType)
+	e.lastSeed = frameIndices.Seed
 	e.isPreviousFrameVoiced = (signalType == typeVoiced)
 	copy(e.prevLSFQ15, lsfQ15)
 

@@ -1305,7 +1305,8 @@ func quantizeOpusResToLSBDepthInPlace(samples []opusRes, depth int) {
 }
 
 func floorOpusVal32(x opusVal32) opusVal32 {
-	if x != x || x > 9.22e18 || x < -9.22e18 {
+	absBits := math.Float32bits(float32(x)) & 0x7fffffff
+	if absBits > 0x7f800000 || x > 9.22e18 || x < -9.22e18 {
 		return x
 	}
 	i := int64(x)

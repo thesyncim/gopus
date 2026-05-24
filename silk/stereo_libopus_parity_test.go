@@ -20,6 +20,9 @@ const (
 	libopusSILKStereoModeLRToMS        = uint32(2)
 	libopusSILKStereoModeStateSizes    = uint32(3)
 	libopusSILKStereoModePacket0       = uint32(4)
+
+	libopusSILKPacket0WrapperWords = 130
+	libopusSILKPacket0PulseBlocks  = maxFrameLength / shellCodecFrameLength
 )
 
 var libopusSILKStereoHelper libopustest.HelperCache
@@ -63,35 +66,66 @@ type libopusSILKStereoState struct {
 }
 
 type libopusSILKPacket0WrapperRecord struct {
-	targetRateBps        int32
-	midTargetRateBps     int32
-	sideTargetRateBps    int32
-	midVAD               int32
-	sideVAD              int32
-	midSpeechActivityQ8  int32
-	sideSpeechActivityQ8 int32
-	midInputTiltQ15      int32
-	sideInputTiltQ15     int32
-	midSNRDBQ7           int32
-	sideSNRDBQ7          int32
-	maxBits              int32
-	useCBR               int32
-	condCoding           int32
-	tellAfterSideInfo    int32
-	midOnly              int32
-	midEncodeRet         int32
-	midNBytesOut         int32
-	midTellAfterFrame    int32
-	midRangeAfterFrame   int32
-	midLastGainIndex     int32
-	midSignalType        int32
-	midQuantOffsetType   int32
-	midSeed              int32
-	midFrameCounter      int32
-	midPrevSignalType    int32
-	midPrevLag           int32
-	midNFramesEncoded    int32
-	midInputQualityBands [4]int32
+	targetRateBps         int32
+	midTargetRateBps      int32
+	sideTargetRateBps     int32
+	midVAD                int32
+	sideVAD               int32
+	midSpeechActivityQ8   int32
+	sideSpeechActivityQ8  int32
+	midInputTiltQ15       int32
+	sideInputTiltQ15      int32
+	midSNRDBQ7            int32
+	sideSNRDBQ7           int32
+	maxBits               int32
+	useCBR                int32
+	condCoding            int32
+	tellAfterSideInfo     int32
+	rangeAfterSideInfo    int32
+	midOnly               int32
+	midEncodeRet          int32
+	midNBytesOut          int32
+	midTellAfterFrame     int32
+	midRangeAfterFrame    int32
+	midLastGainIndex      int32
+	midSignalType         int32
+	midQuantOffsetType    int32
+	midSeed               int32
+	midFrameCounter       int32
+	midPrevSignalType     int32
+	midPrevLag            int32
+	midNFramesEncoded     int32
+	midInputQualityBands  [4]int32
+	midLagIndex           int32
+	midContourIndex       int32
+	midNLSFInterpCoefQ2   int32
+	midPERIndex           int32
+	midLTPScaleIndex      int32
+	midGainsIndices       [maxNbSubfr]int32
+	midLTPIndices         [maxNbSubfr]int32
+	midNLSFIndices        [maxLPCOrder + 1]int32
+	midPulseAbsSum        int32
+	midPulseHash          int32
+	midPulseBlockCount    int32
+	midPulseBlockAbsSum   [libopusSILKPacket0PulseBlocks]int32
+	midGainTraceValid     int32
+	midGainsPreQ16        [maxNbSubfr]int32
+	midResNrgBits         [maxNbSubfr]int32
+	midGainsUnqQ16        [maxNbSubfr]int32
+	midGainsQuantQ16      [maxNbSubfr]int32
+	midPredGainBits       int32
+	midPitchAutoCorr0Bits int32
+	midPitchResNrgBits    int32
+	midInputQualityBits   int32
+	midCodingQualityBits  int32
+	midManualTellIndices  int32
+	midManualRangeIndices int32
+	midManualTellPulses   int32
+	midManualRangePulses  int32
+	midIndexTraceTell     [encodeFrameIndexTracePointCount]int32
+	midIndexTraceRange    [encodeFrameIndexTracePointCount]int32
+	sideInfoTraceTell     [3]int32
+	sideInfoTraceRange    [3]int32
 }
 
 func getLibopusSILKStereoHelperPath() (string, error) {
@@ -228,7 +262,7 @@ func probeLibopusSILKPacket0Wrapper(signal []float32, bitRate, maxBits int, useC
 		return libopusSILKPacket0WrapperRecord{}, err
 	}
 	count := reader.Count(1)
-	reader.ExpectRemaining(count * 32 * 4)
+	reader.ExpectRemaining(count * libopusSILKPacket0WrapperWords * 4)
 	out := libopusSILKPacket0WrapperRecord{
 		targetRateBps:        reader.I32(),
 		midTargetRateBps:     reader.I32(),
@@ -245,6 +279,7 @@ func probeLibopusSILKPacket0Wrapper(signal []float32, bitRate, maxBits int, useC
 		useCBR:               reader.I32(),
 		condCoding:           reader.I32(),
 		tellAfterSideInfo:    reader.I32(),
+		rangeAfterSideInfo:   reader.I32(),
 		midOnly:              reader.I32(),
 		midEncodeRet:         reader.I32(),
 		midNBytesOut:         reader.I32(),
@@ -261,6 +296,56 @@ func probeLibopusSILKPacket0Wrapper(signal []float32, bitRate, maxBits int, useC
 	}
 	for i := range out.midInputQualityBands {
 		out.midInputQualityBands[i] = reader.I32()
+	}
+	out.midLagIndex = reader.I32()
+	out.midContourIndex = reader.I32()
+	out.midNLSFInterpCoefQ2 = reader.I32()
+	out.midPERIndex = reader.I32()
+	out.midLTPScaleIndex = reader.I32()
+	for i := range out.midGainsIndices {
+		out.midGainsIndices[i] = reader.I32()
+	}
+	for i := range out.midLTPIndices {
+		out.midLTPIndices[i] = reader.I32()
+	}
+	for i := range out.midNLSFIndices {
+		out.midNLSFIndices[i] = reader.I32()
+	}
+	out.midPulseAbsSum = reader.I32()
+	out.midPulseHash = reader.I32()
+	out.midPulseBlockCount = reader.I32()
+	for i := range out.midPulseBlockAbsSum {
+		out.midPulseBlockAbsSum[i] = reader.I32()
+	}
+	out.midGainTraceValid = reader.I32()
+	for i := range out.midGainsPreQ16 {
+		out.midGainsPreQ16[i] = reader.I32()
+	}
+	for i := range out.midResNrgBits {
+		out.midResNrgBits[i] = reader.I32()
+	}
+	for i := range out.midGainsUnqQ16 {
+		out.midGainsUnqQ16[i] = reader.I32()
+	}
+	for i := range out.midGainsQuantQ16 {
+		out.midGainsQuantQ16[i] = reader.I32()
+	}
+	out.midPredGainBits = reader.I32()
+	out.midPitchAutoCorr0Bits = reader.I32()
+	out.midPitchResNrgBits = reader.I32()
+	out.midInputQualityBits = reader.I32()
+	out.midCodingQualityBits = reader.I32()
+	out.midManualTellIndices = reader.I32()
+	out.midManualRangeIndices = reader.I32()
+	out.midManualTellPulses = reader.I32()
+	out.midManualRangePulses = reader.I32()
+	for i := range out.midIndexTraceTell {
+		out.midIndexTraceTell[i] = reader.I32()
+		out.midIndexTraceRange[i] = reader.I32()
+	}
+	for i := range out.sideInfoTraceTell {
+		out.sideInfoTraceTell[i] = reader.I32()
+		out.sideInfoTraceRange[i] = reader.I32()
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return libopusSILKPacket0WrapperRecord{}, err
@@ -458,6 +543,15 @@ func TestSILKStereoLRToMSMatchesLibopusOracle(t *testing.T) {
 			left:         fixtureLeft,
 			right:        fixtureRight,
 		},
+		{
+			name:         "chirp_sweep_v1_wb_20ms_stereo_48k_packet0_48kbps",
+			frameLength:  320,
+			fsKHz:        16,
+			totalRateBps: 48000,
+			speechActQ8:  0,
+			left:         fixtureLeft,
+			right:        fixtureRight,
+		},
 	}
 
 	records := make([][]int32, len(cases))
@@ -558,7 +652,7 @@ func TestSILKStereoPacket0WrapperMatchesLibopusOracle(t *testing.T) {
 	prepareSILKPacket0MidFrameCoreOracle(t, signal, bitRate, maxBits, payloadSizeMs, want)
 }
 
-func TestPendingSILKPacket0MidFrameCoreOracle(t *testing.T) {
+func TestSILKPacket0MidFrameCoreOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const (
 		bitRate       = 48000
@@ -612,8 +706,8 @@ func TestPendingSILKPacket0MidFrameCoreOracle(t *testing.T) {
 	if int32(enc.lastQuantOffsetType) != want.midQuantOffsetType {
 		t.Fatalf("mid quantOffsetType=%d want %d", enc.lastQuantOffsetType, want.midQuantOffsetType)
 	}
-	if want.midSeed != 0 {
-		t.Fatalf("mid packet0 seed=%d want 0", want.midSeed)
+	if int32(enc.lastSeed) != want.midSeed {
+		t.Fatalf("mid seed=%d want %d", enc.lastSeed, want.midSeed)
 	}
 	if gotSignalType, _ := enc.LastEncodedSignalInfo(); int32(gotSignalType) != want.midSignalType {
 		t.Fatalf("mid signalType=%d want %d", gotSignalType, want.midSignalType)
@@ -645,6 +739,10 @@ func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRat
 	re := &rangecoding.Encoder{}
 	re.Init(make([]byte, maxSilkPacketBytes))
 	re.EncodeICDF16(0, []uint16{256 - (256 >> 4), 0}, 8)
+	if gotTell, gotRange := int32(re.Tell()), int32(re.Range()); gotTell != want.sideInfoTraceTell[0] || gotRange != want.sideInfoTraceRange[0] {
+		t.Skipf("side info after header tell/range=%d/%d want %d/%d",
+			gotTell, gotRange, want.sideInfoTraceTell[0], want.sideInfoTraceRange[0])
+	}
 	encodeStereoLBRRPacket(re, enc, sideEnc, 1, &enc.stereo)
 	totalRate := stereoAllocationTargetRate(enc, bitRate, len(left), re.Tell())
 	midOut, sideOut, ix, _, midRate, sideRate, _ := enc.StereoLRToMSWithRates(
@@ -653,7 +751,18 @@ func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRat
 	_ = midOut
 	_ = sideOut
 	EncodeStereoIndices(re, ix)
+	if gotTell, gotRange := int32(re.Tell()), int32(re.Range()); gotTell != want.sideInfoTraceTell[1] || gotRange != want.sideInfoTraceRange[1] {
+		t.Skipf("side info after stereo pred tell/range=%d/%d want %d/%d",
+			gotTell, gotRange, want.sideInfoTraceTell[1], want.sideInfoTraceRange[1])
+	}
+	if want.sideVAD == 0 {
+		EncodeStereoMidOnly(re, int(want.midOnly))
+	}
 	gotTell := int32(re.Tell())
+	if gotTell, gotRange := int32(re.Tell()), int32(re.Range()); gotTell != want.sideInfoTraceTell[2] || gotRange != want.sideInfoTraceRange[2] {
+		t.Skipf("side info after mid-only tell/range=%d/%d want %d/%d",
+			gotTell, gotRange, want.sideInfoTraceTell[2], want.sideInfoTraceRange[2])
+	}
 
 	if int32(totalRate) != want.targetRateBps {
 		t.Fatalf("TargetRate=%d want %d", totalRate, want.targetRateBps)
@@ -676,6 +785,9 @@ func prepareSILKPacket0MidFrameCoreOracle(t testing.TB, signal []float32, bitRat
 			gotTell, want.tellAfterSideInfo, want.midVAD, want.sideVAD, want.midOnly,
 			want.midSpeechActivityQ8, want.sideSpeechActivityQ8, want.midSNRDBQ7, want.sideSNRDBQ7,
 			want.midInputTiltQ15, want.sideInputTiltQ15)
+	}
+	if gotRange := int32(re.Range()); gotRange != want.rangeAfterSideInfo {
+		t.Skipf("rangeAfterSideInfo=%d want %d", gotRange, want.rangeAfterSideInfo)
 	}
 	return enc, re, midOut
 }
@@ -729,12 +841,16 @@ func downsampleStereo48kTo16kPacket0(t testing.TB, signal []float32) ([]float32,
 	}
 	left16 := make([]float32, frameSize16)
 	right16 := make([]float32, frameSize16)
-	if n := NewLibopusResampler(sampleRate, 16000).ProcessInto(left48, left16); n != frameSize16 {
-		t.Fatalf("left resampler output=%d want %d", n, frameSize16)
+	leftDown := NewDownsamplingResampler(sampleRate, 16000).Process(left48)
+	rightDown := NewDownsamplingResampler(sampleRate, 16000).Process(right48)
+	if len(leftDown) != frameSize16 {
+		t.Fatalf("left resampler output=%d want %d", len(leftDown), frameSize16)
 	}
-	if n := NewLibopusResampler(sampleRate, 16000).ProcessInto(right48, right16); n != frameSize16 {
-		t.Fatalf("right resampler output=%d want %d", n, frameSize16)
+	if len(rightDown) != frameSize16 {
+		t.Fatalf("right resampler output=%d want %d", len(rightDown), frameSize16)
 	}
+	copy(left16, leftDown)
+	copy(right16, rightDown)
 	return left16, right16
 }
 

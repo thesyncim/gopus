@@ -37,6 +37,7 @@ type Encoder struct {
 	ecPrevLagIndex        int   // Previous lag index for conditional pitch coding
 	ecPrevSignalType      int   // Previous signal type for conditional pitch coding
 	lastQuantOffsetType   int   // Last frame's quantization offset type (for hybrid silk_info)
+	lastSeed              int8  // Last frame's encoded random seed
 	frameCounter          int   // Frame counter for seed generation (seed = frameCounter & 3)
 
 	// LPC state

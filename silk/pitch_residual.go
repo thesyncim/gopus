@@ -262,13 +262,19 @@ func bwexpanderFLP(ar []float64, order int, chirp float64) {
 	}
 }
 
-func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int) {
+type pitchResidualInfo struct {
+	predGain  float32
+	autoCorr0 float32
+	resNrg    float32
+}
+
+func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int, pitchResidualInfo) {
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 	subframeSamples := config.SubframeSamples
 	frameSamples := numSubframes * subframeSamples
 	if frameSamples <= 0 {
-		return nil, 0, 0
+		return nil, 0, 0, pitchResidualInfo{}
 	}
 
 	ltpMemSamples := ltpMemLengthMs * fsKHz
@@ -311,7 +317,7 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int) {
 		if resStart < 0 {
 			resStart = 0
 		}
-		return residual32, resStart, frameSamples
+		return residual32, resStart, frameSamples, pitchResidualInfo{}
 	}
 
 	pitchWinMs := findPitchLpcWinMs
@@ -355,6 +361,11 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int) {
 	}
 	predGainF32 := autoCorr[0] / resNrgClamped
 	e.lastLPCGain = predGainF32
+	info := pitchResidualInfo{
+		predGain:  predGainF32,
+		autoCorr0: autoCorr[0],
+		resNrg:    resNrg,
+	}
 
 	a := ensureFloat32Slice(&e.scratchPitchA32, order)
 	for i := range a {
@@ -371,5 +382,5 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int) {
 		resStart = 0
 	}
 
-	return residual32, resStart, frameSamples
+	return residual32, resStart, frameSamples, info
 }

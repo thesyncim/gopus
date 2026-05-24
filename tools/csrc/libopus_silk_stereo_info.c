@@ -16,6 +16,7 @@
 #define INPUT_MAGIC "GSSI"
 #define OUTPUT_MAGIC "GSSO"
 #define MAX_STEREO_SAMPLES 320
+#define PACKET0_INDEX_TRACE_POINTS 6
 
 enum {
   MODE_STEREO_QUANT_PRED = 0,
@@ -70,6 +71,272 @@ static int read_f32(float *out) {
 
 static int write_i32(int32_t value) {
   return write_exact(&value, sizeof(value));
+}
+
+static int32_t f32_bits(float value) {
+  union {
+    uint32_t u;
+    float f;
+  } v;
+  v.f = value;
+  return (int32_t)v.u;
+}
+
+typedef struct {
+  opus_int valid;
+  opus_int32 gains_before_process_Q16[MAX_NB_SUBFR];
+  opus_int32 res_nrg_bits[MAX_NB_SUBFR];
+  opus_int32 gains_unq_Q16[MAX_NB_SUBFR];
+  opus_int32 gains_quant_Q16[MAX_NB_SUBFR];
+  opus_int32 pred_gain_bits;
+  opus_int32 pitch_auto_corr0_bits;
+  opus_int32 pitch_res_nrg_bits;
+  opus_int32 input_quality_bits;
+  opus_int32 coding_quality_bits;
+} packet0_mid_gain_trace;
+
+static void trace_find_pitch_lags_FLP(
+    silk_encoder_state_FLP *st,
+    silk_encoder_control_FLP *ctrl,
+    silk_float res[],
+    const silk_float x[],
+    packet0_mid_gain_trace *trace
+) {
+  opus_int buf_len;
+  silk_float thrhld, res_nrg;
+  const silk_float *x_buf_ptr, *x_buf;
+  silk_float auto_corr[MAX_FIND_PITCH_LPC_ORDER + 1];
+  silk_float A[MAX_FIND_PITCH_LPC_ORDER];
+  silk_float refl_coef[MAX_FIND_PITCH_LPC_ORDER];
+  silk_float Wsig[FIND_PITCH_LPC_WIN_MAX];
+  silk_float *Wsig_ptr;
+
+  buf_len = st->sCmn.la_pitch + st->sCmn.frame_length + st->sCmn.ltp_mem_length;
+  x_buf = x - st->sCmn.ltp_mem_length;
+
+  x_buf_ptr = x_buf + buf_len - st->sCmn.pitch_LPC_win_length;
+  Wsig_ptr = Wsig;
+  silk_apply_sine_window_FLP(Wsig_ptr, x_buf_ptr, 1, st->sCmn.la_pitch);
+
+  Wsig_ptr += st->sCmn.la_pitch;
+  x_buf_ptr += st->sCmn.la_pitch;
+  silk_memcpy(Wsig_ptr, x_buf_ptr, (st->sCmn.pitch_LPC_win_length - (st->sCmn.la_pitch << 1)) * sizeof(silk_float));
+
+  Wsig_ptr += st->sCmn.pitch_LPC_win_length - (st->sCmn.la_pitch << 1);
+  x_buf_ptr += st->sCmn.pitch_LPC_win_length - (st->sCmn.la_pitch << 1);
+  silk_apply_sine_window_FLP(Wsig_ptr, x_buf_ptr, 2, st->sCmn.la_pitch);
+
+  silk_autocorrelation_FLP(auto_corr, Wsig, st->sCmn.pitch_LPC_win_length, st->sCmn.pitchEstimationLPCOrder + 1, st->sCmn.arch);
+  auto_corr[0] += auto_corr[0] * FIND_PITCH_WHITE_NOISE_FRACTION + 1;
+  res_nrg = silk_schur_FLP(refl_coef, auto_corr, st->sCmn.pitchEstimationLPCOrder);
+  ctrl->predGain = auto_corr[0] / silk_max_float(res_nrg, 1.0f);
+  trace->pitch_auto_corr0_bits = f32_bits(auto_corr[0]);
+  trace->pitch_res_nrg_bits = f32_bits(res_nrg);
+  trace->pred_gain_bits = f32_bits(ctrl->predGain);
+
+  silk_k2a_FLP(A, refl_coef, st->sCmn.pitchEstimationLPCOrder);
+  silk_bwexpander_FLP(A, st->sCmn.pitchEstimationLPCOrder, FIND_PITCH_BANDWIDTH_EXPANSION);
+  silk_LPC_analysis_filter_FLP(res, A, x_buf, buf_len, st->sCmn.pitchEstimationLPCOrder);
+
+  if (st->sCmn.indices.signalType != TYPE_NO_VOICE_ACTIVITY && st->sCmn.first_frame_after_reset == 0) {
+    thrhld = 0.6f;
+    thrhld -= 0.004f * st->sCmn.pitchEstimationLPCOrder;
+    thrhld -= 0.1f * st->sCmn.speech_activity_Q8 * (1.0f / 256.0f);
+    thrhld -= 0.15f * (st->sCmn.prevSignalType >> 1);
+    thrhld -= 0.1f * st->sCmn.input_tilt_Q15 * (1.0f / 32768.0f);
+    if (silk_pitch_analysis_core_FLP(res, ctrl->pitchL, &st->sCmn.indices.lagIndex,
+        &st->sCmn.indices.contourIndex, &st->LTPCorr, st->sCmn.prevLag,
+        st->sCmn.pitchEstimationThreshold_Q16 / 65536.0f, thrhld,
+        st->sCmn.fs_kHz, st->sCmn.pitchEstimationComplexity, st->sCmn.nb_subfr, st->sCmn.arch) == 0) {
+      st->sCmn.indices.signalType = TYPE_VOICED;
+    } else {
+      st->sCmn.indices.signalType = TYPE_UNVOICED;
+    }
+  } else {
+    silk_memset(ctrl->pitchL, 0, sizeof(ctrl->pitchL));
+    st->sCmn.indices.lagIndex = 0;
+    st->sCmn.indices.contourIndex = 0;
+    st->LTPCorr = 0;
+  }
+}
+
+static int trace_packet0_mid_gains(silk_encoder_state_FLP *src, opus_int condCoding, packet0_mid_gain_trace *trace) {
+  opus_int i;
+  silk_encoder_state_FLP st;
+  silk_encoder_control_FLP ctrl;
+  silk_float *x_frame;
+  silk_float *res_pitch_frame;
+  silk_float res_pitch[2 * MAX_FRAME_LENGTH + LA_PITCH_MAX];
+
+  memset(trace, 0, sizeof(*trace));
+  memset(&ctrl, 0, sizeof(ctrl));
+  st = *src;
+  st.sCmn.indices.Seed = st.sCmn.frameCounter++ & 3;
+  x_frame = st.x_buf + st.sCmn.ltp_mem_length;
+  res_pitch_frame = res_pitch + st.sCmn.ltp_mem_length;
+
+  silk_LP_variable_cutoff(&st.sCmn.sLP, st.sCmn.inputBuf + 1, st.sCmn.frame_length);
+  silk_short2float_array(x_frame + LA_SHAPE_MS * st.sCmn.fs_kHz, st.sCmn.inputBuf + 1, st.sCmn.frame_length);
+  for (i = 0; i < 8; i++) {
+    x_frame[LA_SHAPE_MS * st.sCmn.fs_kHz + i * (st.sCmn.frame_length >> 3)] += (1 - (i & 2)) * 1e-6f;
+  }
+  if (st.sCmn.prefillFlag) return 0;
+
+  trace_find_pitch_lags_FLP(&st, &ctrl, res_pitch, x_frame, trace);
+  silk_noise_shape_analysis_FLP(&st, &ctrl, res_pitch_frame, x_frame);
+  trace->input_quality_bits = f32_bits(ctrl.input_quality);
+  trace->coding_quality_bits = f32_bits(ctrl.coding_quality);
+  for (i = 0; i < st.sCmn.nb_subfr && i < MAX_NB_SUBFR; i++) {
+    trace->gains_before_process_Q16[i] = (opus_int32)(ctrl.Gains[i] * 65536.0f);
+  }
+  silk_find_pred_coefs_FLP(&st, &ctrl, res_pitch_frame, x_frame, condCoding);
+  for (i = 0; i < st.sCmn.nb_subfr && i < MAX_NB_SUBFR; i++) {
+    trace->res_nrg_bits[i] = f32_bits(ctrl.ResNrg[i]);
+  }
+  silk_process_gains_FLP(&st, &ctrl, condCoding);
+  for (i = 0; i < st.sCmn.nb_subfr && i < MAX_NB_SUBFR; i++) {
+    trace->gains_unq_Q16[i] = ctrl.GainsUnq_Q16[i];
+    trace->gains_quant_Q16[i] = (opus_int32)(ctrl.Gains[i] * 65536.0f);
+  }
+  trace->valid = 1;
+  return 1;
+}
+
+static uint32_t pulse_hash(const opus_int8 *pulses, opus_int frame_length) {
+  opus_int i;
+  uint32_t hash = 2166136261u;
+  for (i = 0; i < frame_length; i++) {
+    hash ^= (uint8_t)pulses[i];
+    hash *= 16777619u;
+  }
+  return hash;
+}
+
+static opus_int32 pulse_abs_sum(const opus_int8 *pulses, opus_int frame_length) {
+  opus_int i;
+  opus_int32 sum = 0;
+  for (i = 0; i < frame_length; i++) {
+    sum += abs((int)pulses[i]);
+  }
+  return sum;
+}
+
+static opus_int32 pulse_block_abs_sum(const opus_int8 *pulses, opus_int frame_length, opus_int block) {
+  opus_int i;
+  opus_int start = block * SHELL_CODEC_FRAME_LENGTH;
+  opus_int end = start + SHELL_CODEC_FRAME_LENGTH;
+  opus_int32 sum = 0;
+  if (start >= frame_length) return 0;
+  if (end > frame_length) end = frame_length;
+  for (i = start; i < end; i++) {
+    sum += abs((int)pulses[i]);
+  }
+  return sum;
+}
+
+static void capture_index_trace(ec_enc *enc, opus_int32 tell[PACKET0_INDEX_TRACE_POINTS], opus_int32 range[PACKET0_INDEX_TRACE_POINTS], opus_int idx) {
+  tell[idx] = ec_tell(enc);
+  range[idx] = (opus_int32)enc->rng;
+}
+
+static void trace_encode_indices(
+    silk_encoder_state *psEncC,
+    ec_enc *psRangeEnc,
+    opus_int FrameIndex,
+    opus_int encode_LBRR,
+    opus_int condCoding,
+    opus_int32 tell[PACKET0_INDEX_TRACE_POINTS],
+    opus_int32 range[PACKET0_INDEX_TRACE_POINTS]
+) {
+  opus_int i, k, typeOffset;
+  opus_int encode_absolute_lagIndex, delta_lagIndex;
+  opus_int16 ec_ix[MAX_LPC_ORDER];
+  opus_uint8 pred_Q8[MAX_LPC_ORDER];
+  const SideInfoIndices *psIndices;
+
+  if (encode_LBRR) {
+    psIndices = &psEncC->indices_LBRR[FrameIndex];
+  } else {
+    psIndices = &psEncC->indices;
+  }
+
+  typeOffset = 2 * psIndices->signalType + psIndices->quantOffsetType;
+  if (encode_LBRR || typeOffset >= 2) {
+    ec_enc_icdf(psRangeEnc, typeOffset - 2, silk_type_offset_VAD_iCDF, 8);
+  } else {
+    ec_enc_icdf(psRangeEnc, typeOffset, silk_type_offset_no_VAD_iCDF, 8);
+  }
+  capture_index_trace(psRangeEnc, tell, range, 0);
+
+  if (condCoding == CODE_CONDITIONALLY) {
+    ec_enc_icdf(psRangeEnc, psIndices->GainsIndices[0], silk_delta_gain_iCDF, 8);
+  } else {
+    ec_enc_icdf(psRangeEnc, silk_RSHIFT(psIndices->GainsIndices[0], 3), silk_gain_iCDF[psIndices->signalType], 8);
+    ec_enc_icdf(psRangeEnc, psIndices->GainsIndices[0] & 7, silk_uniform8_iCDF, 8);
+  }
+  for (i = 1; i < psEncC->nb_subfr; i++) {
+    ec_enc_icdf(psRangeEnc, psIndices->GainsIndices[i], silk_delta_gain_iCDF, 8);
+  }
+  capture_index_trace(psRangeEnc, tell, range, 1);
+
+  ec_enc_icdf(psRangeEnc, psIndices->NLSFIndices[0],
+      &psEncC->psNLSF_CB->CB1_iCDF[(psIndices->signalType >> 1) * psEncC->psNLSF_CB->nVectors], 8);
+  silk_NLSF_unpack(ec_ix, pred_Q8, psEncC->psNLSF_CB, psIndices->NLSFIndices[0]);
+  for (i = 0; i < psEncC->psNLSF_CB->order; i++) {
+    if (psIndices->NLSFIndices[i + 1] >= NLSF_QUANT_MAX_AMPLITUDE) {
+      ec_enc_icdf(psRangeEnc, 2 * NLSF_QUANT_MAX_AMPLITUDE, &psEncC->psNLSF_CB->ec_iCDF[ec_ix[i]], 8);
+      ec_enc_icdf(psRangeEnc, psIndices->NLSFIndices[i + 1] - NLSF_QUANT_MAX_AMPLITUDE, silk_NLSF_EXT_iCDF, 8);
+    } else if (psIndices->NLSFIndices[i + 1] <= -NLSF_QUANT_MAX_AMPLITUDE) {
+      ec_enc_icdf(psRangeEnc, 0, &psEncC->psNLSF_CB->ec_iCDF[ec_ix[i]], 8);
+      ec_enc_icdf(psRangeEnc, -psIndices->NLSFIndices[i + 1] - NLSF_QUANT_MAX_AMPLITUDE, silk_NLSF_EXT_iCDF, 8);
+    } else {
+      ec_enc_icdf(psRangeEnc, psIndices->NLSFIndices[i + 1] + NLSF_QUANT_MAX_AMPLITUDE,
+          &psEncC->psNLSF_CB->ec_iCDF[ec_ix[i]], 8);
+    }
+  }
+  if (psEncC->nb_subfr == MAX_NB_SUBFR) {
+    ec_enc_icdf(psRangeEnc, psIndices->NLSFInterpCoef_Q2, silk_NLSF_interpolation_factor_iCDF, 8);
+  }
+  capture_index_trace(psRangeEnc, tell, range, 2);
+
+  if (psIndices->signalType == TYPE_VOICED) {
+    encode_absolute_lagIndex = 1;
+    if (condCoding == CODE_CONDITIONALLY && psEncC->ec_prevSignalType == TYPE_VOICED) {
+      delta_lagIndex = psIndices->lagIndex - psEncC->ec_prevLagIndex;
+      if (delta_lagIndex < -8 || delta_lagIndex > 11) {
+        delta_lagIndex = 0;
+      } else {
+        delta_lagIndex = delta_lagIndex + 9;
+        encode_absolute_lagIndex = 0;
+      }
+      ec_enc_icdf(psRangeEnc, delta_lagIndex, silk_pitch_delta_iCDF, 8);
+    }
+    if (encode_absolute_lagIndex) {
+      opus_int32 pitch_high_bits = silk_DIV32_16(psIndices->lagIndex, silk_RSHIFT(psEncC->fs_kHz, 1));
+      opus_int32 pitch_low_bits = psIndices->lagIndex - silk_SMULBB(pitch_high_bits, silk_RSHIFT(psEncC->fs_kHz, 1));
+      ec_enc_icdf(psRangeEnc, pitch_high_bits, silk_pitch_lag_iCDF, 8);
+      ec_enc_icdf(psRangeEnc, pitch_low_bits, psEncC->pitch_lag_low_bits_iCDF, 8);
+    }
+    psEncC->ec_prevLagIndex = psIndices->lagIndex;
+    ec_enc_icdf(psRangeEnc, psIndices->contourIndex, psEncC->pitch_contour_iCDF, 8);
+    capture_index_trace(psRangeEnc, tell, range, 3);
+
+    ec_enc_icdf(psRangeEnc, psIndices->PERIndex, silk_LTP_per_index_iCDF, 8);
+    for (k = 0; k < psEncC->nb_subfr; k++) {
+      ec_enc_icdf(psRangeEnc, psIndices->LTPIndex[k], silk_LTP_gain_iCDF_ptrs[psIndices->PERIndex], 8);
+    }
+    if (condCoding == CODE_INDEPENDENTLY) {
+      ec_enc_icdf(psRangeEnc, psIndices->LTP_scaleIndex, silk_LTPscale_iCDF, 8);
+    }
+    capture_index_trace(psRangeEnc, tell, range, 4);
+  } else {
+    capture_index_trace(psRangeEnc, tell, range, 3);
+    capture_index_trace(psRangeEnc, tell, range, 4);
+  }
+
+  psEncC->ec_prevSignalType = psIndices->signalType;
+  ec_enc_icdf(psRangeEnc, psIndices->Seed, silk_uniform4_iCDF, 8);
+  capture_index_trace(psRangeEnc, tell, range, 5);
 }
 
 static int write_stereo_record(int32_t first, int32_t second, const int32_t extra[6]) {
@@ -266,12 +533,25 @@ static int eval_packet0_wrapper(void) {
   opus_int32 nBytesOut = 0;
   opus_int ret;
   opus_int tellAfterSideInfo;
+  opus_int32 rangeAfterSideInfo;
+  opus_int manualTellAfterIndices;
+  opus_int manualTellAfterPulses;
+  opus_int32 manualRangeAfterIndices;
+  opus_int32 manualRangeAfterPulses;
+  opus_int32 manualIndexTell[PACKET0_INDEX_TRACE_POINTS];
+  opus_int32 manualIndexRange[PACKET0_INDEX_TRACE_POINTS];
+  opus_int32 sideInfoTell[3];
+  opus_int32 sideInfoRange[3];
   silk_encoder *psEnc;
   silk_EncControlStruct control;
   ec_enc range_enc;
+  ec_enc range_before_frame;
+  ec_enc manual_enc;
+  silk_encoder_state manual_state;
   unsigned char payload[4000];
   opus_int16 buf[960];
   float samples[960 * 2];
+  packet0_mid_gain_trace mid_gain_trace;
 
   if (!read_i32(&raw)) return 0;
   nSamplesIn = (opus_int)raw;
@@ -396,6 +676,8 @@ static int eval_packet0_wrapper(void) {
     opus_uint8 iCDF[2] = {0, 0};
     iCDF[0] = 256 - silk_RSHIFT(256, (psEnc->state_Fxx[0].sCmn.nFramesPerPacket + 1) * control.nChannelsInternal);
     ec_enc_icdf(&range_enc, 0, iCDF, 8);
+    sideInfoTell[0] = ec_tell(&range_enc);
+    sideInfoRange[0] = (opus_int32)range_enc.rng;
     curr_nBitsUsedLBRR = ec_tell(&range_enc);
   }
   for (n = 0; n < control.nChannelsInternal; n++) {
@@ -434,9 +716,13 @@ static int eval_packet0_wrapper(void) {
     psEnc->state_Fxx[1].sCmn.VAD_flags[0] = 0;
   }
   silk_stereo_encode_pred(&range_enc, psEnc->sStereo.predIx[0]);
+  sideInfoTell[1] = ec_tell(&range_enc);
+  sideInfoRange[1] = (opus_int32)range_enc.rng;
   if (psEnc->state_Fxx[1].sCmn.VAD_flags[0] == 0) {
     silk_stereo_encode_mid_only(&range_enc, psEnc->sStereo.mid_only_flags[0]);
   }
+  sideInfoTell[2] = ec_tell(&range_enc);
+  sideInfoRange[2] = (opus_int32)range_enc.rng;
   silk_encode_do_VAD_Fxx(&psEnc->state_Fxx[0], activity);
 
   channelRate_bps = MStargetRates_bps[0];
@@ -451,7 +737,20 @@ static int eval_packet0_wrapper(void) {
   }
   condCoding = CODE_INDEPENDENTLY;
   tellAfterSideInfo = ec_tell(&range_enc);
+  rangeAfterSideInfo = (opus_int32)range_enc.rng;
+  silk_memcpy(&range_before_frame, &range_enc, sizeof(range_before_frame));
+  trace_packet0_mid_gains(&psEnc->state_Fxx[0], condCoding, &mid_gain_trace);
   ret = silk_encode_frame_FLP(&psEnc->state_Fxx[0], &nBytesOut, &range_enc, condCoding, maxBits, useCBR);
+  silk_memcpy(&manual_state, &psEnc->state_Fxx[0].sCmn, sizeof(manual_state));
+  silk_memcpy(&manual_enc, &range_before_frame, sizeof(manual_enc));
+  trace_encode_indices(&manual_state, &manual_enc, manual_state.nFramesEncoded, 0, condCoding,
+      manualIndexTell, manualIndexRange);
+  manualTellAfterIndices = ec_tell(&manual_enc);
+  manualRangeAfterIndices = (opus_int32)manual_enc.rng;
+  silk_encode_pulses(&manual_enc, manual_state.indices.signalType, manual_state.indices.quantOffsetType,
+      manual_state.pulses, manual_state.frame_length);
+  manualTellAfterPulses = ec_tell(&manual_enc);
+  manualRangeAfterPulses = (opus_int32)manual_enc.rng;
   psEnc->state_Fxx[0].sCmn.controlled_since_last_payload = 0;
   psEnc->state_Fxx[0].sCmn.inputBufIx = 0;
   psEnc->state_Fxx[0].sCmn.nFramesEncoded++;
@@ -471,6 +770,7 @@ static int eval_packet0_wrapper(void) {
       !write_i32(useCBR) ||
       !write_i32(condCoding) ||
       !write_i32(tellAfterSideInfo) ||
+      !write_i32(rangeAfterSideInfo) ||
       !write_i32(psEnc->sStereo.mid_only_flags[0]) ||
       !write_i32(ret) ||
       !write_i32(nBytesOut) ||
@@ -487,9 +787,96 @@ static int eval_packet0_wrapper(void) {
       !write_i32(psEnc->state_Fxx[0].sCmn.input_quality_bands_Q15[0]) ||
       !write_i32(psEnc->state_Fxx[0].sCmn.input_quality_bands_Q15[1]) ||
       !write_i32(psEnc->state_Fxx[0].sCmn.input_quality_bands_Q15[2]) ||
-      !write_i32(psEnc->state_Fxx[0].sCmn.input_quality_bands_Q15[3])) {
+      !write_i32(psEnc->state_Fxx[0].sCmn.input_quality_bands_Q15[3]) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.indices.lagIndex) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.indices.contourIndex) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.indices.NLSFInterpCoef_Q2) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.indices.PERIndex) ||
+      !write_i32(psEnc->state_Fxx[0].sCmn.indices.LTP_scaleIndex)) {
     free(psEnc);
     return 0;
+  }
+  for (i = 0; i < MAX_NB_SUBFR; i++) {
+    if (!write_i32(psEnc->state_Fxx[0].sCmn.indices.GainsIndices[i])) {
+      free(psEnc);
+      return 0;
+    }
+  }
+  for (i = 0; i < MAX_NB_SUBFR; i++) {
+    if (!write_i32(psEnc->state_Fxx[0].sCmn.indices.LTPIndex[i])) {
+      free(psEnc);
+      return 0;
+    }
+  }
+  for (i = 0; i < MAX_LPC_ORDER + 1; i++) {
+    if (!write_i32(psEnc->state_Fxx[0].sCmn.indices.NLSFIndices[i])) {
+      free(psEnc);
+      return 0;
+    }
+  }
+  if (!write_i32(pulse_abs_sum(psEnc->state_Fxx[0].sCmn.pulses, psEnc->state_Fxx[0].sCmn.frame_length)) ||
+      !write_i32((opus_int32)pulse_hash(psEnc->state_Fxx[0].sCmn.pulses, psEnc->state_Fxx[0].sCmn.frame_length)) ||
+      !write_i32((psEnc->state_Fxx[0].sCmn.frame_length + SHELL_CODEC_FRAME_LENGTH - 1) / SHELL_CODEC_FRAME_LENGTH)) {
+    free(psEnc);
+    return 0;
+  }
+  for (i = 0; i < MAX_FRAME_LENGTH / SHELL_CODEC_FRAME_LENGTH; i++) {
+    if (!write_i32(pulse_block_abs_sum(psEnc->state_Fxx[0].sCmn.pulses, psEnc->state_Fxx[0].sCmn.frame_length, i))) {
+      free(psEnc);
+      return 0;
+    }
+  }
+  if (!write_i32(mid_gain_trace.valid)) {
+    free(psEnc);
+    return 0;
+  }
+  for (i = 0; i < MAX_NB_SUBFR; i++) {
+    if (!write_i32(mid_gain_trace.gains_before_process_Q16[i])) {
+      free(psEnc);
+      return 0;
+    }
+  }
+  for (i = 0; i < MAX_NB_SUBFR; i++) {
+    if (!write_i32(mid_gain_trace.res_nrg_bits[i])) {
+      free(psEnc);
+      return 0;
+    }
+  }
+  for (i = 0; i < MAX_NB_SUBFR; i++) {
+    if (!write_i32(mid_gain_trace.gains_unq_Q16[i])) {
+      free(psEnc);
+      return 0;
+    }
+  }
+  for (i = 0; i < MAX_NB_SUBFR; i++) {
+    if (!write_i32(mid_gain_trace.gains_quant_Q16[i])) {
+      free(psEnc);
+      return 0;
+    }
+  }
+  if (!write_i32(mid_gain_trace.pred_gain_bits) ||
+      !write_i32(mid_gain_trace.pitch_auto_corr0_bits) ||
+      !write_i32(mid_gain_trace.pitch_res_nrg_bits) ||
+      !write_i32(mid_gain_trace.input_quality_bits) ||
+      !write_i32(mid_gain_trace.coding_quality_bits) ||
+      !write_i32(manualTellAfterIndices) ||
+      !write_i32(manualRangeAfterIndices) ||
+      !write_i32(manualTellAfterPulses) ||
+      !write_i32(manualRangeAfterPulses)) {
+    free(psEnc);
+    return 0;
+  }
+  for (i = 0; i < PACKET0_INDEX_TRACE_POINTS; i++) {
+    if (!write_i32(manualIndexTell[i]) || !write_i32(manualIndexRange[i])) {
+      free(psEnc);
+      return 0;
+    }
+  }
+  for (i = 0; i < 3; i++) {
+    if (!write_i32(sideInfoTell[i]) || !write_i32(sideInfoRange[i])) {
+      free(psEnc);
+      return 0;
+    }
   }
   free(psEnc);
   return 1;
