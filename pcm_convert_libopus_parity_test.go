@@ -181,7 +181,7 @@ func TestFloat32ToInt16NoSoftClipMatchesLibopus(t *testing.T) {
 	}
 }
 
-func TestFloat32ToInt16NoSoftClipOutOfRangeUsesLibopusScalar(t *testing.T) {
+func TestFloat32ToInt16NoSoftClipOutOfRangeMatchesLibopusDispatch(t *testing.T) {
 	libopustest.RequireOracle(t)
 	samples := []float32{
 		math.Nextafter32(-1, float32(math.Inf(-1))),
@@ -202,7 +202,11 @@ func TestFloat32ToInt16NoSoftClipOutOfRangeUsesLibopusScalar(t *testing.T) {
 		float32(-1235.5 / 32768.0),
 		float32(1235.5 / 32768.0),
 	}
-	want, err := probeLibopusFloatQuant(libopustest.FloatQuantModeFloat2Int16, samples)
+	mode := libopustest.FloatQuantModeFloat2Int16
+	if runtime.GOARCH == "arm64" && !testPuregoBuild {
+		mode = libopustest.FloatQuantModeCELTDispatch
+	}
+	want, err := probeLibopusFloatQuant(mode, samples)
 	if err != nil {
 		libopustest.HelperUnavailable(t, "float quant", err)
 	}

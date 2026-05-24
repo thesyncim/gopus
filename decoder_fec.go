@@ -95,9 +95,6 @@ func (d *Decoder) decodeNoLBRRFECFallback(
 	if requestedFrameSize <= packetFrameSize {
 		return d.decodePLCForFECWithState(pcm, requestedFrameSize, packetFrameSize, mode, bandwidth, packetStereo)
 	}
-	if requestedFrameSize > d.maxPacketSamples {
-		return 0, ErrPacketTooLarge
-	}
 	needed := requestedFrameSize * d.channels
 	if len(pcm) < needed {
 		return 0, ErrBufferTooSmall
@@ -333,9 +330,6 @@ func (d *Decoder) decodeFECFrame(pcm []float32, requestedFrameSize int) (int, er
 	frameSize := requestedFrameSize
 	if frameSize <= 0 {
 		frameSize = packetFrameSize
-	}
-	if frameSize > d.maxPacketSamples {
-		return 0, ErrPacketTooLarge
 	}
 
 	needed := frameSize * d.channels

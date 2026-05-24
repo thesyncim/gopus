@@ -43,9 +43,6 @@ func (d *Decoder) requestedOutputFrameSize(sampleCount int) (int, error) {
 	if frameSize <= 0 {
 		return 0, ErrBufferTooSmall
 	}
-	if frameSize > d.maxPacketSamples {
-		return 0, ErrPacketTooLarge
-	}
 	quantum := d.sampleRate / 400
 	if quantum <= 0 || frameSize%quantum != 0 {
 		return 0, ErrInvalidFrameSize
@@ -79,10 +76,6 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 	if frameSize <= 0 {
 		frameSize = d.sampleRate / 50
 	}
-	if frameSize > d.maxPacketSamples {
-		return 0, ErrPacketTooLarge
-	}
-
 	needed := frameSize * d.channels
 	if len(out) < needed {
 		return 0, ErrBufferTooSmall
@@ -188,10 +181,6 @@ func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state
 	if frameSize <= 0 {
 		frameSize = d.sampleRate / 50
 	}
-	if frameSize > d.maxPacketSamples {
-		return 0, false, ErrPacketTooLarge
-	}
-
 	needed := frameSize * d.channels
 	if len(out) < needed {
 		return 0, false, ErrBufferTooSmall

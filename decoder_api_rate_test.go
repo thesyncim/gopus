@@ -928,7 +928,7 @@ func TestDecodeOverlongPLCRequestAPIRatePCMMatchesLibopus(t *testing.T) {
 	} {
 		for _, channels := range []int{1, 2} {
 			packet := tc.packet(t, channels)
-			for _, sampleRate := range []int{8000, 12000, 16000, 24000} {
+			for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
 				t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
 					packetFrameSize, err := packetSamplesAtRate(packet, sampleRate)
 					if err != nil {
@@ -974,6 +974,107 @@ func TestDecodeOverlongPLCRequestAPIRatePCMMatchesLibopus(t *testing.T) {
 				})
 			}
 		}
+	}
+}
+
+func TestDecodeInt16OverlongPLCRequestAPIRatePCMMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, channels := range []int{1, 2} {
+		packet := encodeAPIRateCELTPacketFrameSize(t, channels, 960)
+		const sampleRate = 48000
+		packetFrameSize, err := packetSamplesAtRate(packet, sampleRate)
+		if err != nil {
+			t.Fatalf("packetSamplesAtRate: %v", err)
+		}
+		requestedFrameSize := overlongAPIRateRequestedFrameSize(sampleRate)
+
+		t.Run("ch_"+itoaSmall(channels), func(t *testing.T) {
+			sequence := [][]byte{packet, nil}
+			want, err := decodeWithLibopusReferenceAPIRateInt16(sampleRate, channels, requestedFrameSize, sequence)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "api-rate overlong int16 PLC reference decode", err)
+			}
+
+			dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			got := make([]int16, 0, len(want))
+			frame := make([]int16, requestedFrameSize*channels)
+			n, err := dec.DecodeInt16(packet, frame)
+			if err != nil {
+				t.Fatalf("DecodeInt16 packet: %v", err)
+			}
+			if n != packetFrameSize {
+				t.Fatalf("DecodeInt16 packet samples=%d want %d", n, packetFrameSize)
+			}
+			got = append(got, frame[:n*channels]...)
+
+			clear(frame)
+			n, err = dec.DecodeInt16(nil, frame)
+			if err != nil {
+				t.Fatalf("DecodeInt16 nil: %v", err)
+			}
+			if n != requestedFrameSize {
+				t.Fatalf("DecodeInt16 nil samples=%d want %d", n, requestedFrameSize)
+			}
+			got = append(got, frame[:n*channels]...)
+
+			assertAPIRateInt16Equal(t, got, want, "CELT overlong int16 PLC request")
+		})
+	}
+}
+
+func TestDecodeWithFECOverlongNoLBRRRequestMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, channels := range []int{1, 2} {
+		seedPacket := encodeAPIRateCELTPacket(t, channels)
+		recoveryPacket := encodeAPIRateCELTPacketFrameSize(t, channels, 960)
+		const sampleRate = 48000
+		packetFrameSize, err := packetSamplesAtRate(seedPacket, sampleRate)
+		if err != nil {
+			t.Fatalf("packetSamplesAtRate: %v", err)
+		}
+		requestedFrameSize := overlongAPIRateRequestedFrameSize(sampleRate)
+
+		t.Run("ch_"+itoaSmall(channels), func(t *testing.T) {
+			steps := []libopusAPIRateDecodeStep{
+				{packet: seedPacket},
+				{packet: recoveryPacket, fec: true},
+			}
+			want, err := decodeWithLibopusReferenceAPIRateFloat32Steps(sampleRate, channels, requestedFrameSize, steps)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "api-rate overlong no-LBRR FEC reference decode", err)
+			}
+
+			dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			got := make([]float32, 0, len(want))
+			frame := make([]float32, requestedFrameSize*channels)
+
+			n, err := dec.Decode(seedPacket, frame)
+			if err != nil {
+				t.Fatalf("Decode seed: %v", err)
+			}
+			if n != packetFrameSize {
+				t.Fatalf("Decode seed samples=%d want %d", n, packetFrameSize)
+			}
+			got = append(got, frame[:n*channels]...)
+
+			clear(frame)
+			n, err = dec.DecodeWithFEC(recoveryPacket, frame, true)
+			if err != nil {
+				t.Fatalf("DecodeWithFEC no-LBRR: %v", err)
+			}
+			if n != requestedFrameSize {
+				t.Fatalf("DecodeWithFEC no-LBRR samples=%d want %d", n, requestedFrameSize)
+			}
+			got = append(got, frame[:n*channels]...)
+
+			assertAPIRateFloat32Close(t, got, want, "CELT overlong no-LBRR FEC request", 3e-3)
+		})
 	}
 }
 

@@ -47,12 +47,7 @@ func softClipAndFloat32ToInt16(dst []int16, src []float32, n, channels int, decl
 
 fallback:
 	opusPCMSoftClip(src[:total], n, channels, declipMem)
-	if convertFloat32ToInt16Unit(dst, src, total) {
-		return
-	}
-	for i := 0; i < total; i++ {
-		dst[i] = float32ToInt16(src[i])
-	}
+	convertFloat32ToInt16NoSoftClipUnit(dst, src, total)
 }
 
 func softClipAndFloat32ToInt16Scalar(dst []int16, src []float32, n, channels int, declipMem []float32) {
@@ -89,12 +84,7 @@ func float32ToInt16NoSoftClip(dst []int16, src []float32, n, channels int) {
 	if total <= 0 {
 		return
 	}
-	if convertFloat32ToInt16Unit(dst, src, total) {
-		return
-	}
-	for i := 0; i < total; i++ {
-		dst[i] = float32ToInt16(src[i])
-	}
+	convertFloat32ToInt16NoSoftClipUnit(dst, src, total)
 }
 
 func float32ToInt16NoSoftClipScalar(dst []int16, src []float32, n, channels int) {

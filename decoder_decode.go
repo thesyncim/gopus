@@ -497,7 +497,13 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 			return 0, err
 		}
 
-		n, err := d.decodeFloat32(data, d.scratchPCM[:frameSize*d.channels], false)
+		needed := frameSize * d.channels
+		if cap(d.scratchPCM) < needed {
+			d.scratchPCM = make([]float32, needed)
+		} else {
+			d.scratchPCM = d.scratchPCM[:needed]
+		}
+		n, err := d.decodeFloat32(data, d.scratchPCM, false)
 		if err != nil {
 			return 0, err
 		}

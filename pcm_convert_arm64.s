@@ -103,3 +103,51 @@ convert_done:
 convert_fallback:
 	MOVB  ZR, ret+56(FP)
 	RET
+
+// func convertFloat32ToInt16SaturatingBlocks(dst []int16, src []float32, n int)
+//
+// Converts complete 16-sample blocks with the same block rounding and
+// saturation used by libopus' celt_float2int16_neon path.
+TEXT ·convertFloat32ToInt16SaturatingBlocks(SB), NOSPLIT, $0-56
+	MOVD  dst_base+0(FP), R0
+	MOVD  src_base+24(FP), R1
+	MOVD  n+48(FP), R2
+
+	CBZ   R2, saturating_done
+	FMOVS $32768.0, F4
+	WORD  $0x4e040484              // DUP V4.4S, V4.S[0]
+
+	CMP   $16, R2
+	BLT   saturating_done
+
+saturating_vector16_loop:
+	VLD1.P 16(R1), [V0.S4]
+	WORD   $0x6e24dc00             // FMUL V0.4S, V0.4S, V4.4S
+	WORD   $0x4e21c805             // FCVTAS V5.4S, V0.4S
+	WORD   $0x0e6148a9             // SQXTN V9.4H, V5.4S
+	VST1.P [V9.H4], 8(R0)
+
+	VLD1.P 16(R1), [V0.S4]
+	WORD   $0x6e24dc00             // FMUL V0.4S, V0.4S, V4.4S
+	WORD   $0x4e21c805             // FCVTAS V5.4S, V0.4S
+	WORD   $0x0e6148a9             // SQXTN V9.4H, V5.4S
+	VST1.P [V9.H4], 8(R0)
+
+	VLD1.P 16(R1), [V0.S4]
+	WORD   $0x6e24dc00             // FMUL V0.4S, V0.4S, V4.4S
+	WORD   $0x4e21c805             // FCVTAS V5.4S, V0.4S
+	WORD   $0x0e6148a9             // SQXTN V9.4H, V5.4S
+	VST1.P [V9.H4], 8(R0)
+
+	VLD1.P 16(R1), [V0.S4]
+	WORD   $0x6e24dc00             // FMUL V0.4S, V0.4S, V4.4S
+	WORD   $0x4e21c805             // FCVTAS V5.4S, V0.4S
+	WORD   $0x0e6148a9             // SQXTN V9.4H, V5.4S
+	VST1.P [V9.H4], 8(R0)
+
+	SUBS  $16, R2
+	CMP   $16, R2
+	BGE   saturating_vector16_loop
+
+saturating_done:
+	RET
