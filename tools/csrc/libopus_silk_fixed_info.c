@@ -61,11 +61,33 @@ static int write_exact(const void *src, size_t size) {
 }
 
 static int read_u32(uint32_t *out) {
-  return read_exact(out, sizeof(*out));
+  unsigned char b[4];
+  if (!read_exact(b, sizeof(b))) return 0;
+  *out = (uint32_t)b[0] |
+         ((uint32_t)b[1] << 8) |
+         ((uint32_t)b[2] << 16) |
+         ((uint32_t)b[3] << 24);
+  return 1;
+}
+
+static int read_i32(int32_t *out) {
+  uint32_t raw;
+  if (!read_u32(&raw)) return 0;
+  *out = (int32_t)raw;
+  return 1;
 }
 
 static int write_u32(uint32_t value) {
-  return write_exact(&value, sizeof(value));
+  unsigned char b[4];
+  b[0] = (unsigned char)(value & 0xffu);
+  b[1] = (unsigned char)((value >> 8) & 0xffu);
+  b[2] = (unsigned char)((value >> 16) & 0xffu);
+  b[3] = (unsigned char)((value >> 24) & 0xffu);
+  return write_exact(b, sizeof(b));
+}
+
+static int write_i32(int32_t value) {
+  return write_u32((uint32_t)value);
 }
 
 static int32_t eval_sample(uint32_t mode, int32_t x, uint32_t shift) {
@@ -158,18 +180,17 @@ int main(void) {
     if (mode <= MODE_LSHIFT_SAT32) {
       int32_t x;
       uint32_t shift;
-      if (!read_exact(&x, sizeof(x)) || !read_u32(&shift)) return 1;
+      if (!read_i32(&x) || !read_u32(&shift)) return 1;
       y = eval_sample(mode, x, shift);
     } else {
       int32_t a;
       int32_t b;
       int32_t c;
       uint32_t q;
-      if (!read_exact(&a, sizeof(a)) || !read_exact(&b, sizeof(b)) ||
-          !read_exact(&c, sizeof(c)) || !read_u32(&q)) return 1;
+      if (!read_i32(&a) || !read_i32(&b) || !read_i32(&c) || !read_u32(&q)) return 1;
       y = eval_op_sample(mode, a, b, c, q);
     }
-    if (!write_exact(&y, sizeof(y))) return 1;
+    if (!write_i32(y)) return 1;
   }
   return 0;
 }
