@@ -16,8 +16,12 @@ func (d *MultistreamDecoder) requestedOutputFrameSize(sampleCount int) (int, err
 	if frameSize <= 0 {
 		return 0, ErrBufferTooSmall
 	}
-	if frameSize > defaultMaxPacketSamples {
-		return 0, ErrPacketTooLarge
+	maxPLCFrameSize := d.sampleRate / 25 * 3
+	if maxPLCFrameSize <= 0 {
+		return 0, ErrInvalidFrameSize
+	}
+	if frameSize > maxPLCFrameSize {
+		return maxPLCFrameSize, nil
 	}
 	quantum := d.sampleRate / 400
 	if quantum <= 0 || frameSize%quantum != 0 {
@@ -27,11 +31,8 @@ func (d *MultistreamDecoder) requestedOutputFrameSize(sampleCount int) (int, err
 }
 
 func (d *MultistreamDecoder) decodeFrameSize(data []byte, sampleCount int) (int, error) {
-	if data == nil {
-		return d.requestedOutputFrameSize(sampleCount)
-	}
 	if len(data) == 0 {
-		return 0, multistream.ErrPacketTooShort
+		return d.requestedOutputFrameSize(sampleCount)
 	}
 	return multistream.PacketDurationAtRate(data, d.dec.Streams(), d.sampleRate)
 }
@@ -110,7 +111,7 @@ func (d *MultistreamDecoder) Decode(data []byte, pcm []float32) (int, error) {
 		return 0, ErrBufferTooSmall
 	}
 
-	if data == nil {
+	if len(data) == 0 {
 		if err := d.decodePLCFloat32Into(pcm[:needed], frameSize); err != nil {
 			return 0, err
 		}
@@ -124,7 +125,7 @@ func (d *MultistreamDecoder) Decode(data []byte, pcm []float32) (int, error) {
 
 	copy(pcm, samples)
 
-	if data != nil && len(data) > 0 {
+	if len(data) > 0 {
 		d.lastFrameSize = frameSize
 	}
 
@@ -147,7 +148,7 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 		return 0, ErrBufferTooSmall
 	}
 
-	if data == nil {
+	if len(data) == 0 {
 		if err := d.decodePLCInt16Into(pcm[:needed], frameSize); err != nil {
 			return 0, err
 		}
@@ -160,13 +161,9 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 	}
 
 	total := frameSize * d.channels
-	if data == nil || len(data) == 0 {
-		float32ToInt16NoSoftClipScalar(pcm, samples, frameSize, d.channels)
-	} else {
-		softClipAndFloat32ToInt16Scalar(pcm, samples, frameSize, d.channels, d.softClipMem)
-	}
+	softClipAndFloat32ToInt16Scalar(pcm, samples, frameSize, d.channels, d.softClipMem)
 
-	if data != nil && len(data) > 0 {
+	if len(data) > 0 {
 		d.lastFrameSize = frameSize
 	}
 

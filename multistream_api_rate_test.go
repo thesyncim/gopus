@@ -272,6 +272,85 @@ func TestMultistreamDecodeRequestedPLCDurationMatchesLibopus(t *testing.T) {
 	}
 }
 
+func TestMultistreamDecodeOverlongAndEmptyPLCMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, channels := range []int{1, 2} {
+		packet := encodeAPIRateCELTPacket(t, channels)
+		streams := 1
+		coupled := channels - 1
+		mapping := []byte{0}
+		if channels == 2 {
+			mapping = []byte{0, 1}
+		}
+		for _, sampleRate := range []int{8000, 48000} {
+			t.Run("float_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+				packetFrameSize, err := packetSamplesAtRate(packet, sampleRate)
+				if err != nil {
+					t.Fatalf("packetSamplesAtRate: %v", err)
+				}
+				requestedFrameSize := sampleRate
+				wantPLCFrameSize := sampleRate / 25 * 3
+				sequence := [][]byte{packet, []byte{}}
+				want, err := decodeLibopusMultistreamFloat32(sampleRate, channels, streams, coupled, requestedFrameSize, mapping, sequence)
+				if err != nil {
+					libopustest.HelperUnavailable(t, "multistream overlong PLC reference decode", err)
+				}
+
+				dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+				got := make([]float32, 0, len(want))
+				frame := make([]float32, requestedFrameSize*channels)
+				n, err := dec.Decode(packet, frame)
+				if err != nil {
+					t.Fatalf("Decode(packet): %v", err)
+				}
+				if n != packetFrameSize {
+					t.Fatalf("Decode(packet)=%d want %d", n, packetFrameSize)
+				}
+				got = append(got, frame[:n*channels]...)
+				clear(frame)
+				n, err = dec.Decode([]byte{}, frame)
+				if err != nil {
+					t.Fatalf("Decode(empty): %v", err)
+				}
+				if n != wantPLCFrameSize {
+					t.Fatalf("Decode(empty)=%d want clamped %d", n, wantPLCFrameSize)
+				}
+				got = append(got, frame[:n*channels]...)
+				assertAPIRateFloat32Close(t, got, want, "multistream overlong empty PLC", 3e-3)
+			})
+
+			t.Run("int16_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+				requestedFrameSize := sampleRate
+				wantPLCFrameSize := sampleRate / 25 * 3
+				sequence := [][]byte{packet, []byte{}}
+				want, err := decodeLibopusMultistreamInt16Gain(sampleRate, channels, streams, coupled, requestedFrameSize, 0, mapping, sequence)
+				if err != nil {
+					libopustest.HelperUnavailable(t, "multistream overlong PLC int16 reference decode", err)
+				}
+
+				dec := mustNewDefaultMultistreamDecoder(t, sampleRate, channels)
+				got := make([]int16, 0, len(want))
+				frame := make([]int16, requestedFrameSize*channels)
+				n, err := dec.DecodeInt16(packet, frame)
+				if err != nil {
+					t.Fatalf("DecodeInt16(packet): %v", err)
+				}
+				got = append(got, frame[:n*channels]...)
+				clear(frame)
+				n, err = dec.DecodeInt16([]byte{}, frame)
+				if err != nil {
+					t.Fatalf("DecodeInt16(empty): %v", err)
+				}
+				if n != wantPLCFrameSize {
+					t.Fatalf("DecodeInt16(empty)=%d want clamped %d", n, wantPLCFrameSize)
+				}
+				got = append(got, frame[:n*channels]...)
+				assertAPIRateInt16Equal(t, got, want, "multistream overlong empty PLC int16")
+			})
+		}
+	}
+}
+
 func TestMultistreamDecodeInt16HighGainMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const (
