@@ -508,6 +508,24 @@ func TestSILKStereoPacket0WrapperMatchesLibopusOracle(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "silk packet0 wrapper", err)
 	}
+	for _, check := range []struct {
+		name string
+		got  int32
+		want int32
+	}{
+		{"midVAD", want.midVAD, 0},
+		{"sideVAD", want.sideVAD, 0},
+		{"midSpeechActivityQ8", want.midSpeechActivityQ8, 12},
+		{"sideSpeechActivityQ8", want.sideSpeechActivityQ8, 2},
+		{"midInputTiltQ15", want.midInputTiltQ15, 32766},
+		{"sideInputTiltQ15", want.sideInputTiltQ15, 0},
+		{"midSNRDBQ7", want.midSNRDBQ7, 3129},
+		{"sideSNRDBQ7", want.sideSNRDBQ7, 0},
+	} {
+		if check.got != check.want {
+			t.Fatalf("libopus packet0 %s=%d want %d", check.name, check.got, check.want)
+		}
+	}
 
 	left, right := downsampleStereo48kTo16kPacket0(t, signal)
 	enc := NewEncoder(BandwidthWideband)
@@ -541,6 +559,13 @@ func TestSILKStereoPacket0WrapperMatchesLibopusOracle(t *testing.T) {
 	}
 	if int32(midRate) != want.midTargetRateBps || int32(sideRate) != want.sideTargetRateBps {
 		t.Fatalf("MStargetRates=%d/%d want %d/%d", midRate, sideRate, want.midTargetRateBps, want.sideTargetRateBps)
+	}
+	enc.controlSNR(midRate, maxNbSubfr)
+	if int32(enc.snrDBQ7) != want.midSNRDBQ7 {
+		t.Fatalf("mid SNR_dB_Q7=%d want %d", enc.snrDBQ7, want.midSNRDBQ7)
+	}
+	if int32(sideEnc.snrDBQ7) != want.sideSNRDBQ7 {
+		t.Fatalf("side SNR_dB_Q7=%d want %d", sideEnc.snrDBQ7, want.sideSNRDBQ7)
 	}
 	if int32(maxBits/2) != want.maxBits || want.useCBR != 0 || want.condCoding != codeIndependently {
 		t.Fatalf("frame controls maxBits/useCBR/condCoding=%d/%d/%d want %d/0/%d", maxBits/2, 0, codeIndependently, want.maxBits, codeIndependently)

@@ -11,7 +11,7 @@ func (e *Encoder) noiseShapeAnalysis(
 	pitchResStart int,
 	signalType int,
 	speechActivityQ8 int,
-	lpcPredGain float64,
+	lpcPredGain float32,
 	pitchLags []int,
 	quantOffset int,
 	numSubframes int,
@@ -70,7 +70,7 @@ func (e *Encoder) noiseShapeAnalysis(
 		speechActivityQ8,
 		e.ltpCorr,
 		pitchLags,
-		float64(snrDB),
+		snrDB,
 		quantOffsetType,
 		inputQualityBandsQ15,
 		numSubframes,
@@ -158,7 +158,7 @@ func (e *Encoder) computeShapingARAndGains(
 	pcm []float32,
 	numSubframes int,
 	subframeSamples int,
-	lpcPredGain float64,
+	lpcPredGain float32,
 	SNRAdjDB float32,
 	signalType int,
 	speechActivityQ8 int,
@@ -244,7 +244,7 @@ func (e *Encoder) computeShapingARAndGains(
 		clear(xBuf)
 	}
 	// Bandwidth expansion and warping in float32 precision to mirror libopus FLP behavior.
-	strengthF32 := float32(findPitchWhiteNoiseFraction) * float32(lpcPredGain)
+	strengthF32 := float32(findPitchWhiteNoiseFraction) * lpcPredGain
 	BWExp := float32(bandwidthExpansion) / (1.0 + strengthF32*strengthF32)
 	warping := float32(e.warpingQ16)/65536.0 + 0.01*codingQuality
 

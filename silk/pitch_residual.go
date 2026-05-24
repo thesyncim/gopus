@@ -354,7 +354,7 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int) {
 		resNrgClamped = 1.0
 	}
 	predGainF32 := autoCorr[0] / resNrgClamped
-	e.lastLPCGain = float64(predGainF32)
+	e.lastLPCGain = predGainF32
 
 	a := ensureFloat32Slice(&e.scratchPitchA32, order)
 	for i := range a {

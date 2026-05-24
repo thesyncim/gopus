@@ -121,7 +121,7 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	speechActivityQ8 int,
 	ltpCorr float32,
 	pitchLags []int,
-	originalSNR float64,
+	originalSNR float32,
 	quantOffsetType int,
 	inputQualityBandsQ15 [4]int,
 	numSubframes int,
@@ -137,7 +137,7 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 
 	// Compute coding quality from ORIGINAL SNR (sigmoid mapping)
 	// coding_quality = sigmoid(0.25 * (SNR_dB - 20))
-	params.CodingQuality = Sigmoid(0.25 * (float32(originalSNR) - 20.0))
+	params.CodingQuality = Sigmoid(0.25 * (originalSNR - 20.0))
 
 	// Input quality (average of the quality in the lowest two VAD bands)
 	var inputQualityBand0 float32

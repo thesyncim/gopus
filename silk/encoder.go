@@ -99,7 +99,7 @@ type Encoder struct {
 	// LPC analysis results (for gain computation from prediction residual)
 	lastTotalEnergy float64 // C0 from Burg analysis
 	lastInvGain     float64 // Inverse prediction gain from Burg analysis
-	lastLPCGain     float64 // Initial prediction gain from pitch analysis
+	lastLPCGain     float32 // Initial prediction gain from pitch analysis (silk_float)
 	lastNumSamples  int     // Number of samples analyzed
 
 	// Analysis buffers (encoder-specific)

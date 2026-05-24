@@ -858,7 +858,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		}
 		// Match libopus: SNR_dB = (silk_float)psEnc->sCmn.SNR_dB_Q7 * ( 1 / 128.0f ) — float32.
 		snrDB := float32(e.snrDBQ7) * (1.0 / 128.0)
-		noiseParams = e.noiseShapeState.ComputeNoiseShapeParams(signalType, speechActivityQ8, e.ltpCorr, pitchLags, float64(snrDB), quantOffset, inputQualityBandsQ15, numSubframes, fsKHz, e.nStatesDelayedDecision)
+		noiseParams = e.noiseShapeState.ComputeNoiseShapeParams(signalType, speechActivityQ8, e.ltpCorr, pitchLags, snrDB, quantOffset, inputQualityBandsQ15, numSubframes, fsKHz, e.nStatesDelayedDecision)
 	}
 	harmShapeGainQ14 := ensureIntSlice(&e.scratchHarmShapeGainQ14, numSubframes)
 	tiltQ14 := ensureIntSlice(&e.scratchTiltQ14, numSubframes)
