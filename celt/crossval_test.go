@@ -103,23 +103,31 @@ func init() {
 }
 
 const opusdecCrossvalFixturePath = "testdata/opusdec_crossval_fixture.json"
-const opusdecCrossvalFixturePathAMD64 = "testdata/opusdec_crossval_fixture_amd64.json"
+const requirePlatformFixturesEnv = "GOPUS_REQUIRE_PLATFORM_FIXTURES"
 
 func opusdecCrossvalFixturePathForArch() string {
 	return opusdecCrossvalFixtureReadPath()
 }
 
 func opusdecCrossvalFixtureReadPath() string {
-	platformPath := opusdecCrossvalFixtureWritePath()
+	return opusdecCrossvalFixtureReadPathFor(opusdecCrossvalFixturePath, runtime.GOOS, runtime.GOARCH)
+}
+
+func opusdecCrossvalFixtureReadPathFor(generic, goos, goarch string) string {
+	platformPath := opusdecCrossvalPlatformFixturePath(generic, goos, goarch)
 	if _, err := os.Stat(platformPath); err == nil {
 		return platformPath
 	}
-	if runtime.GOARCH == "amd64" {
-		if _, err := os.Stat(opusdecCrossvalFixturePathAMD64); err == nil {
-			return opusdecCrossvalFixturePathAMD64
+	if os.Getenv(requirePlatformFixturesEnv) != "" {
+		return platformPath
+	}
+	if goarch == "amd64" {
+		legacyAMD64Path := opusdecCrossvalPlatformFixturePathForArchOnly(generic, goarch)
+		if _, err := os.Stat(legacyAMD64Path); err == nil {
+			return legacyAMD64Path
 		}
 	}
-	return opusdecCrossvalFixturePath
+	return generic
 }
 
 func opusdecCrossvalFixtureWritePath() string {
@@ -131,11 +139,40 @@ func opusdecCrossvalPlatformFixturePath(generic, goos, goarch string) string {
 	return strings.TrimSuffix(generic, ext) + "_" + goos + "_" + goarch + ext
 }
 
+func opusdecCrossvalPlatformFixturePathForArchOnly(generic, goarch string) string {
+	ext := filepath.Ext(generic)
+	return strings.TrimSuffix(generic, ext) + "_" + goarch + ext
+}
+
 func TestOpusdecCrossvalPlatformFixturePath(t *testing.T) {
 	got := opusdecCrossvalPlatformFixturePath("testdata/opusdec_crossval_fixture.json", "linux", "arm64")
 	want := "testdata/opusdec_crossval_fixture_linux_arm64.json"
 	if got != want {
 		t.Fatalf("platform fixture path=%q want %q", got, want)
+	}
+}
+
+func TestOpusdecCrossvalRequirePlatformFixtureDisablesFallback(t *testing.T) {
+	t.Setenv(requirePlatformFixturesEnv, "1")
+
+	generic := filepath.Join(t.TempDir(), "opusdec_crossval_fixture.json")
+	platform := opusdecCrossvalPlatformFixturePath(generic, runtime.GOOS, runtime.GOARCH)
+	if got := opusdecCrossvalFixtureReadPathFor(generic, runtime.GOOS, runtime.GOARCH); got != platform {
+		t.Fatalf("read path with %s=%q want %q", requirePlatformFixturesEnv, got, platform)
+	}
+}
+
+func TestOpusdecCrossvalRequiredPlatformFixturePresent(t *testing.T) {
+	if os.Getenv(requirePlatformFixturesEnv) == "" {
+		t.Skipf("%s not set", requirePlatformFixturesEnv)
+	}
+	path := opusdecCrossvalFixtureWritePath()
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("required opusdec crossval platform fixture %s is missing: %v", path, err)
+	}
+	if info.Size() == 0 {
+		t.Fatalf("required opusdec crossval platform fixture %s is empty", path)
 	}
 }
 

@@ -15,13 +15,16 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strings"
 
 	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
 const (
 	defaultOpusdecCrossvalFixturePath = "celt/testdata/opusdec_crossval_fixture.json"
 	opusdecCrossvalFixtureOutEnv      = "GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT"
+	allowPathOpusdecFallbackEnv       = "GOPUS_OPUSDEC_CROSSVAL_ALLOW_PATH_FALLBACK"
 )
 
 type fixtureFile struct {
@@ -41,13 +44,14 @@ type scenario struct {
 	name       string
 	channels   int
 	numFrames  int
+	packets    [][]byte
 	oggPayload []byte
 }
 
 func main() {
-	opusdec, err := exec.LookPath("opusdec")
+	decode, err := newPinnedLibopusCrossvalDecoder()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "opusdec not found in PATH: %v\n", err)
+		fmt.Fprintf(os.Stderr, "pinned libopus reference decode unavailable: %v\n", err)
 		os.Exit(1)
 	}
 
@@ -59,9 +63,9 @@ func main() {
 
 	entries := make([]fixtureEntry, 0, len(scenarios))
 	for _, sc := range scenarios {
-		decoded, err := decodeWithOpusdec(opusdec, sc.oggPayload)
+		decoded, err := decode(sc)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "%s: opusdec decode failed: %v\n", sc.name, err)
+			fmt.Fprintf(os.Stderr, "%s: pinned libopus decode failed: %v\n", sc.name, err)
 			os.Exit(1)
 		}
 		hash := sha256.Sum256(sc.oggPayload)
@@ -115,6 +119,7 @@ func buildScenarios() ([]scenario, error) {
 			name:       name,
 			channels:   channels,
 			numFrames:  len(packets),
+			packets:    clonePacketMatrix(packets),
 			oggPayload: ogg.Bytes(),
 		}, nil
 	}
@@ -213,6 +218,14 @@ func buildScenarios() ([]scenario, error) {
 func cloneBytes(in []byte) []byte {
 	out := make([]byte, len(in))
 	copy(out, in)
+	return out
+}
+
+func clonePacketMatrix(in [][]byte) [][]byte {
+	out := make([][]byte, len(in))
+	for i := range in {
+		out[i] = cloneBytes(in[i])
+	}
 	return out
 }
 
@@ -450,6 +463,73 @@ func addCELTTOCForTest(packet []byte, channels int) []byte {
 	out[0] = toc
 	copy(out[1:], packet)
 	return out
+}
+
+type crossvalDecodeFunc func(scenario) ([]float32, error)
+
+func newPinnedLibopusCrossvalDecoder() (crossvalDecodeFunc, error) {
+	binPath, err := libopustest.BuildCHelper(libopustest.CHelperConfig{
+		Label:      "opusdec crossval reference decode",
+		OutputBase: "gopus_opusdec_crossval_refdecode",
+		SourceFile: "libopus_refdecode_single.c",
+		CFlags:     []string{"-O3", "-DNDEBUG"},
+		Libs:       []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+	})
+	if err != nil {
+		if strings.TrimSpace(os.Getenv(allowPathOpusdecFallbackEnv)) == "1" {
+			opusdec, lookErr := exec.LookPath("opusdec")
+			if lookErr != nil {
+				return nil, fmt.Errorf("%w; PATH opusdec fallback unavailable: %v", err, lookErr)
+			}
+			return func(sc scenario) ([]float32, error) {
+				return decodeWithOpusdec(opusdec, sc.oggPayload)
+			}, nil
+		}
+		return nil, err
+	}
+	return func(sc scenario) ([]float32, error) {
+		return decodeWithPinnedLibopus(binPath, sc)
+	}, nil
+}
+
+func decodeWithPinnedLibopus(binPath string, sc scenario) ([]float32, error) {
+	const (
+		frameSize       = 960
+		opusPreSkip48k  = 312
+		sampleFormatF32 = uint32(0)
+	)
+	if sc.channels != 1 && sc.channels != 2 {
+		return nil, fmt.Errorf("unsupported channel count %d", sc.channels)
+	}
+	payload := libopustest.NewOraclePayloadVersion("GOSI", 2, sampleFormatF32, uint32(sc.channels), frameSize, uint32(len(sc.packets)))
+	for _, packet := range sc.packets {
+		packetWithTOC := addCELTTOCForTest(packet, sc.channels)
+		payload.U32(uint32(len(packetWithTOC)))
+		payload.Raw(packetWithTOC)
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "opusdec crossval reference decode", "GOSO")
+	if err != nil {
+		return nil, err
+	}
+	nSamples := reader.Count(-1)
+	reader.ExpectRemaining(nSamples * 4)
+	decoded := make([]float32, nSamples)
+	for i := range decoded {
+		decoded[i] = reader.Float32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	preSkipSamples := opusPreSkip48k * sc.channels
+	if len(decoded) <= preSkipSamples {
+		return nil, fmt.Errorf("decoded samples=%d shorter than Opus pre-skip=%d", len(decoded), preSkipSamples)
+	}
+	decoded = decoded[preSkipSamples:]
+	wantSamples := (sc.numFrames*frameSize - opusPreSkip48k) * sc.channels
+	if len(decoded) != wantSamples {
+		return nil, fmt.Errorf("decoded samples after pre-skip=%d want %d", len(decoded), wantSamples)
+	}
+	return decoded, nil
 }
 
 func decodeWithOpusdec(opusdecPath string, oggData []byte) ([]float32, error) {

@@ -400,6 +400,7 @@ fixtures-gen-platform: ensure-libopus
 	GOPUS_DECODER_LOSS_FIXTURE_OUT="testvectors/testdata/libopus_decoder_loss_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_decoder_loss_fixture.go; \
 	GOPUS_ENCODER_PACKETS_FIXTURE_OUT="testvectors/testdata/encoder_compliance_libopus_packets_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_encoder_packet_fixture.go; \
 	GOPUS_ENCODER_VARIANTS_FIXTURE_OUT="testvectors/testdata/encoder_compliance_libopus_variants_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_encoder_variants_fixture.go; \
+	GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT="celt/testdata/opusdec_crossval_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_opusdec_crossval_fixture.go; \
 	make fixtures-assert-platform
 
 fixtures-assert-platform:
@@ -411,10 +412,12 @@ fixtures-assert-platform:
 		"testvectors/testdata/libopus_decoder_matrix_fixture_$${suffix}.json" \
 		"testvectors/testdata/libopus_decoder_loss_fixture_$${suffix}.json" \
 		"testvectors/testdata/encoder_compliance_libopus_packets_fixture_$${suffix}.json" \
-		"testvectors/testdata/encoder_compliance_libopus_variants_fixture_$${suffix}.json"; do \
+		"testvectors/testdata/encoder_compliance_libopus_variants_fixture_$${suffix}.json" \
+		"celt/testdata/opusdec_crossval_fixture_$${suffix}.json"; do \
 		test -s "$${path}" || { echo "missing generated platform fixture: $${path}" >&2; exit 1; }; \
 	done; \
-	GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test ./testvectors -run '^(TestRequiredPlatformFixturesPresent|TestFixtureGeneratorsUseLibopusOpusDemo|TestEncoder(PacketFixtureStableOrdering|VariantsFixtureStableOrdering)|TestPlatformFixture)' -count=1
+	GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test ./testvectors -run '^(TestRequiredPlatformFixturesPresent|TestFixtureGeneratorsUseLibopusOpusDemo|TestEncoder(PacketFixtureStableOrdering|VariantsFixtureStableOrdering)|TestPlatformFixture)' -count=1; \
+	GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=fast $(GO_WORK_ENV) $(GO) test ./celt -run '^(TestOpusdecCrossvalRequiredPlatformFixturePresent|TestOpusdecCrossvalFixtureCoverage|TestOpusdecCrossvalFixtureMatrix|TestOpusdecCrossvalPlatformFixturePath|TestOpusdecCrossvalRequirePlatformFixtureDisablesFallback)' -count=1
 
 # Regenerate linux/amd64-specific fixture files in a cached linux/amd64 container.
 fixtures-gen-linux-amd64: docker-build-exhaustive
