@@ -1448,7 +1448,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 			yy = 0
 		}
 	} else {
-		pulses, yy = opPVQSearchScratch(x, k, iyBuf, signxBuf, yBuf, absXBuf)
+		pulses, yy = opPVQSearchScratchWithInputMutation(x, k, iyBuf, signxBuf, yBuf, absXBuf, true)
 		index := encodePulsesFast(pulses, n, k, uBuf)
 		vSize := PVQ_V(n, k)
 		if vSize == 0 {

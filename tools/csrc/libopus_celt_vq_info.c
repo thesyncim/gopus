@@ -32,7 +32,8 @@ enum {
   MODE_MULT32_32_Q31 = 7,
   MODE_STEREO_MERGE = 8,
   MODE_HAAR1 = 9,
-  MODE_OP_PVQ_SEARCH = 10
+  MODE_OP_PVQ_SEARCH = 10,
+  MODE_ALG_QUANT = 11
 };
 
 static int set_binary_stdio(void) {
@@ -269,6 +270,69 @@ static int eval_alg_unquant(void) {
   }
   free(payload);
   free(x);
+  return 1;
+}
+
+static int eval_alg_quant(void) {
+  uint32_t n_u, k_u, spread_u, b_u, resynth_u, storage_u;
+  float gain;
+  celt_norm *x;
+  unsigned char *buf;
+  unsigned char *packet;
+  ec_enc enc;
+  unsigned collapse;
+  uint32_t packet_len;
+  uint32_t i;
+
+  if (!read_u32(&n_u) || !read_u32(&k_u) || !read_u32(&spread_u) ||
+      !read_u32(&b_u) || !read_u32(&resynth_u) || !read_float(&gain) ||
+      !read_u32(&storage_u)) {
+    return 0;
+  }
+  if (n_u <= 1 || n_u > 512 || k_u == 0 || k_u > 512 || b_u == 0 ||
+      b_u > n_u || resynth_u > 1 || storage_u == 0 || storage_u > 4096) {
+    return 0;
+  }
+  x = (celt_norm *)malloc((size_t)n_u * sizeof(*x));
+  buf = (unsigned char *)calloc(storage_u, 1);
+  packet = (unsigned char *)calloc(storage_u, 1);
+  if (x == NULL || buf == NULL || packet == NULL) {
+    free(x);
+    free(buf);
+    free(packet);
+    return 0;
+  }
+  for (i = 0; i < n_u; i++) {
+    if (!read_float(&x[i])) {
+      free(x);
+      free(buf);
+      free(packet);
+      return 0;
+    }
+  }
+  ec_enc_init(&enc, buf, (opus_uint32)storage_u);
+  collapse = alg_quant(x, (int)n_u, (int)k_u, (int)spread_u, (int)b_u,
+      &enc, gain, (int)resynth_u, 0);
+  ec_enc_done(&enc);
+  packet_len = compact_packet(&enc, packet);
+  if (!write_u32(collapse) || !write_u32(packet_len) ||
+      (packet_len > 0 && !write_exact(packet, packet_len)) || !write_u32(n_u)) {
+    free(x);
+    free(buf);
+    free(packet);
+    return 0;
+  }
+  for (i = 0; i < n_u; i++) {
+    if (!write_float(x[i])) {
+      free(x);
+      free(buf);
+      free(packet);
+      return 0;
+    }
+  }
+  free(x);
+  free(buf);
+  free(packet);
   return 1;
 }
 
@@ -544,7 +608,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_OP_PVQ_SEARCH) return 1;
+  if (mode > MODE_ALG_QUANT) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) ||
       !write_u32(mode) || !write_u32(count)) {
@@ -559,6 +623,8 @@ int main(void) {
       if (!eval_denormalise_bands()) return 1;
     } else if (mode == MODE_ALG_UNQUANT) {
       if (!eval_alg_unquant()) return 1;
+    } else if (mode == MODE_ALG_QUANT) {
+      if (!eval_alg_quant()) return 1;
     } else if (mode == MODE_ENCODE_PULSES) {
       if (!eval_encode_pulses()) return 1;
     } else if (mode == MODE_TYPE_SIZES) {

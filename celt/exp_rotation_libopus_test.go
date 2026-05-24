@@ -22,6 +22,7 @@ const (
 	celtVQModeStereoMerge       = uint32(8)
 	celtVQModeHaar1             = uint32(9)
 	celtVQModeOPPVQSearch       = uint32(10)
+	celtVQModeAlgQuant          = uint32(11)
 )
 
 var libopusCELTVQHelper libopustest.HelperCache
@@ -95,6 +96,29 @@ type algUnquantOracleCase struct {
 type algUnquantOracleResult struct {
 	collapse int
 	x        []float32
+}
+
+type algQuantOracleCase struct {
+	name    string
+	x       []float32
+	k       int
+	spread  int
+	b       int
+	gain    float32
+	resynth bool
+}
+
+type algQuantOracleResult struct {
+	collapse int
+	packet   []byte
+	x        []float32
+}
+
+func requireDefaultLibopusPVQ(t *testing.T, n, k int) {
+	t.Helper()
+	if k > 0 && (!pvqUHasLookup(n, k) || !pvqUHasLookup(n, k+1)) {
+		t.Fatalf("oracle case uses unsupported default libopus PVQ codebook N=%d K=%d", n, k)
+	}
 }
 
 type libopusCELTTypeSizes struct {
@@ -290,6 +314,54 @@ func probeLibopusAlgUnquant(cases []algUnquantOracleCase) ([]algUnquantOracleRes
 	out := make([]algUnquantOracleResult, count)
 	for i := range out {
 		out[i].collapse = int(reader.U32())
+		n := int(reader.U32())
+		out[i].x = make([]float32, n)
+		for j := range out[i].x {
+			out[i].x[j] = reader.Float32()
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusAlgQuant(cases []algQuantOracleCase) ([]algQuantOracleResult, error) {
+	binPath, err := libopusCELTVQHelper.Path(buildLibopusCELTVQHelper)
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload("GVCI", celtVQModeAlgQuant, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.U32(uint32(len(tc.x)))
+		payload.U32(uint32(tc.k))
+		payload.U32(uint32(tc.spread))
+		payload.U32(uint32(tc.b))
+		if tc.resynth {
+			payload.U32(1)
+		} else {
+			payload.U32(0)
+		}
+		payload.U32(math.Float32bits(tc.gain))
+		payload.U32(128)
+		for _, v := range tc.x {
+			payload.U32(math.Float32bits(v))
+		}
+	}
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "celt vq", "GVCO")
+	if err != nil {
+		return nil, err
+	}
+	mode := reader.U32()
+	if mode != celtVQModeAlgQuant {
+		return nil, fmt.Errorf("celt vq mode=%d want %d", mode, celtVQModeAlgQuant)
+	}
+	count := reader.Count(len(cases))
+	out := make([]algQuantOracleResult, count)
+	for i := range out {
+		out[i].collapse = int(reader.U32())
+		packetLen := int(reader.U32())
+		out[i].packet = append([]byte(nil), reader.Bytes(packetLen)...)
 		n := int(reader.U32())
 		out[i].x = make([]float32, n)
 		for j := range out[i].x {
@@ -752,6 +824,7 @@ func TestEncodePulsesPayloadMatchesLibopus(t *testing.T) {
 		{2, -1, 0, 0, 0, 1, 0, -1},
 		{0, 3, -2, 0, 1, 0, -1, 0, 2, 0, 0, -1},
 		{1, 0, -1, 1, 0, -1, 1, 0, 2, -1, 2, 0, -1, 1, 0, 0},
+		{1, -1, 0, 1, -1, 0, 0, 0, 1, 0, 0, -1, -1, 0, 0, 0, 0, 0, 0, -1, 0, 0, -1, 0},
 	}
 	want, err := probeLibopusEncodePulses(pulseVectors)
 	if err != nil {
@@ -766,6 +839,7 @@ func TestEncodePulsesPayloadMatchesLibopus(t *testing.T) {
 				k += pulse
 			}
 		}
+		requireDefaultLibopusPVQ(t, len(pulses), k)
 		idx := EncodePulses(pulses, len(pulses), k)
 		var enc rangecoding.Encoder
 		buf := make([]byte, 64)
@@ -812,6 +886,52 @@ func TestOPPVQSearchMatchesLibopusFloatPath(t *testing.T) {
 				tc.name,
 				math.Float32bits(gotYY32), gotYY32,
 				math.Float32bits(want[ci].yy), want[ci].yy)
+		}
+	}
+}
+
+func TestAlgQuantMatchesLibopusFloatPath(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []algQuantOracleCase{
+		{name: "normal_no_resynth", x: []float32{0.42, -0.31, 0.17, -0.09, 0.53, -0.23, 0.08, -0.44}, k: 3, spread: spreadNormal, b: 1, gain: 1, resynth: false},
+		{name: "normal_resynth", x: []float32{0.12, -0.71, 0.38, 0.19, -0.27, 0.55, -0.06, 0.44}, k: 5, spread: spreadNormal, b: 1, gain: 1, resynth: true},
+		{name: "aggressive_resynth", x: fixtureExpRotationVector(16, 0x90919293), k: 6, spread: spreadAggressive, b: 1, gain: 0.75, resynth: true},
+		{name: "light_blocks", x: fixtureExpRotationVector(24, 0xa0a1a2a3), k: 9, spread: spreadLight, b: 2, gain: 1.25, resynth: true},
+	}
+	for _, tc := range cases {
+		requireDefaultLibopusPVQ(t, len(tc.x), tc.k)
+	}
+	want, err := probeLibopusAlgQuant(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	for ci, tc := range cases {
+		x := make([]float64, len(tc.x))
+		for i, sample := range tc.x {
+			x[i] = float64(sample)
+		}
+		var enc rangecoding.Encoder
+		buf := make([]byte, 128)
+		enc.Init(buf)
+		gotCollapse := algQuantScratch(&enc, 0, x, len(x), tc.k, tc.spread, tc.b, float64(tc.gain), tc.resynth, nil, 0, nil)
+		gotPacket := enc.Done()
+		if gotCollapse != want[ci].collapse {
+			t.Fatalf("%s collapse=%d want %d", tc.name, gotCollapse, want[ci].collapse)
+		}
+		if string(gotPacket) != string(want[ci].packet) {
+			t.Fatalf("%s packet=%x want %x", tc.name, gotPacket, want[ci].packet)
+		}
+		if len(x) != len(want[ci].x) {
+			t.Fatalf("%s x len=%d want %d", tc.name, len(x), len(want[ci].x))
+		}
+		for i := range x {
+			got := float32(x[i])
+			if math.Float32bits(got) != math.Float32bits(want[ci].x[i]) {
+				t.Fatalf("%s x[%d]=%08x %.10g want %08x %.10g",
+					tc.name, i,
+					math.Float32bits(got), got,
+					math.Float32bits(want[ci].x[i]), want[ci].x[i])
+			}
 		}
 	}
 }

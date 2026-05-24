@@ -33,6 +33,10 @@ func opPVQSearch(x []float64, k int) ([]int, float64) {
 // opPVQSearchScratch is the scratch-aware version of opPVQSearch.
 // It uses pre-allocated buffers to avoid allocations in the hot path.
 func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32) ([]int, float64) {
+	return opPVQSearchScratchWithInputMutation(x, k, iyBuf, signxBuf, yBuf, absXBuf, false)
+}
+
+func opPVQSearchScratchWithInputMutation(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32, absInput bool) ([]int, float64) {
 	n := len(x)
 	const idxBias = float32(0)
 
@@ -145,6 +149,12 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf
 			// Reference: libopus vq.c line 279
 			y[j] *= 2
 			pulsesLeft -= iy[j]
+		}
+	}
+
+	if absInput {
+		for j := 0; j < n; j++ {
+			x[j] = float64(absX[j])
 		}
 	}
 
