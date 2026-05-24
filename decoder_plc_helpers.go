@@ -130,6 +130,25 @@ func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state pl
 	return n, false, nil
 }
 
+func (d *Decoder) decodeDREDNeuralPLCChunksInto(out []float32, frameSize int, state plcDecodeState) (int, bool) {
+	remaining := frameSize
+	offset := 0
+	for remaining > 0 {
+		chunk := nextPLCChunkSamples(d.sampleRate, state.mode, remaining)
+		if chunk <= 0 {
+			return offset, false
+		}
+		chunkStart := offset * d.channels
+		chunkEnd := chunkStart + chunk*d.channels
+		if chunkEnd > len(out) || !d.applyDREDNeuralConcealment(out[chunkStart:chunkEnd], chunk) {
+			return offset, false
+		}
+		offset += chunk
+		remaining -= chunk
+	}
+	return frameSize, true
+}
+
 func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state plcDecodeState) (int, bool, error) {
 	if d == nil {
 		return 0, false, ErrInvalidArgument
@@ -156,20 +175,17 @@ func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state
 		n, err := d.decodePLCChunksInto(out, frameSize, state)
 		return n, false, err
 	}
-	if (d.sampleRate != 48000 && d.sampleRate != 16000) || d.channels < 1 || d.channels > 2 || (state.mode != ModeCELT && state.mode != ModeHybrid) {
+	if d.channels < 1 || d.channels > 2 || (state.mode != ModeCELT && state.mode != ModeHybrid) {
 		n, err := d.decodePLCChunksInto(out, frameSize, state)
 		return n, false, err
 	}
 	if state.mode == ModeHybrid {
 		return d.decodeHybridDRED48kInto(out, frameSize, state)
 	}
-	if d.sampleRate != 48000 {
+	n, ok := d.decodeDREDNeuralPLCChunksInto(out[:needed], frameSize, state)
+	if !ok {
 		n, err := d.decodePLCChunksInto(out, frameSize, state)
 		return n, false, err
 	}
-	if !d.applyDREDNeuralConcealment(out[:needed], frameSize) {
-		n, err := d.decodePLCChunksInto(out, frameSize, state)
-		return n, false, err
-	}
-	return frameSize, true, nil
+	return n, true, nil
 }

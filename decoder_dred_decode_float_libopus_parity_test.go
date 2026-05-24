@@ -564,7 +564,7 @@ func assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracleWithTolerances(t *
 		t.Fatalf("%s libopus cached decoder first-loss ret=%d want %d", label, want.step0.ret, n)
 	}
 
-	pcm := make([]float32, dec.maxPacketSamples)
+	pcm := make([]float32, n*dec.channels)
 	got, err := dec.Decode(nil, pcm)
 	if err != nil {
 		t.Fatalf("%s Decode(nil) error: %v", label, err)
@@ -573,7 +573,7 @@ func assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracleWithTolerances(t *
 		t.Fatalf("%s Decode(nil)=%d want %d", label, got, n)
 	}
 
-	assertFloat32ApproxEqual(t, pcm[:got], want.step0.pcm[:got], label+" first-loss live-sequence pcm", pcmTol)
+	assertFloat32ApproxEqual(t, pcm[:got*dec.channels], want.step0.pcm[:got*dec.channels], label+" first-loss live-sequence pcm", pcmTol)
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, label+" first-loss live-sequence plc", plcTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, label+" first-loss live-sequence fargan", farganTol)
 	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, label+" first-loss live-sequence celt", celtTol)
@@ -600,7 +600,7 @@ func assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t 
 		t.Fatalf("%s libopus cached decoder second-loss ret=%d want %d", label, want.step1.ret, n)
 	}
 
-	pcm0 := make([]float32, dec.maxPacketSamples)
+	pcm0 := make([]float32, n*dec.channels)
 	got, err := dec.Decode(nil, pcm0)
 	if err != nil {
 		t.Fatalf("%s Decode(nil, first) error: %v", label, err)
@@ -608,12 +608,12 @@ func assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t 
 	if got != n {
 		t.Fatalf("%s Decode(nil, first)=%d want %d", label, got, n)
 	}
-	assertFloat32ApproxEqual(t, pcm0[:got], want.step0.pcm[:got], label+" warmup live-sequence pcm", pcmTol)
+	assertFloat32ApproxEqual(t, pcm0[:got*dec.channels], want.step0.pcm[:got*dec.channels], label+" warmup live-sequence pcm", pcmTol)
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, label+" warmup live-sequence plc", plcTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, label+" warmup live-sequence fargan", farganTol)
 	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, label+" warmup live-sequence celt", celtTol)
 
-	pcm1 := make([]float32, dec.maxPacketSamples)
+	pcm1 := make([]float32, n*dec.channels)
 	got, err = dec.Decode(nil, pcm1)
 	if err != nil {
 		t.Fatalf("%s Decode(nil, second) error: %v", label, err)
@@ -621,7 +621,7 @@ func assertDecoderCachedDREDSecondLossMatchesLiveSequenceOracleWithTolerances(t 
 	if got != n {
 		t.Fatalf("%s Decode(nil, second)=%d want %d", label, got, n)
 	}
-	assertFloat32ApproxEqual(t, pcm1[:got], want.step1.pcm[:got], label+" second-loss live-sequence pcm", pcmTol)
+	assertFloat32ApproxEqual(t, pcm1[:got*dec.channels], want.step1.pcm[:got*dec.channels], label+" second-loss live-sequence pcm", pcmTol)
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, label+" second-loss live-sequence plc", plcTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, label+" second-loss live-sequence fargan", farganTol)
 	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step1.celt48k, label+" second-loss live-sequence celt", celtTol)
@@ -655,6 +655,106 @@ func TestDecoderCachedDREDDecodeMatrixMatchesLiveSequenceOracle(t *testing.T) {
 			}
 			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
 			assertDecoderCachedDREDFirstLossMatchesLiveSequenceOracleWithTolerances(t, "cached CELT", packetInfo, pcmTol, plcTol, farganTol, celtTol)
+		})
+	}
+}
+
+func TestDecoderCachedCELTDREDAPIRateMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred packet", err)
+	}
+	toc := ParseTOC(packetInfo.packet[0])
+	if toc.Mode != ModeCELT || toc.Bandwidth != BandwidthFullband {
+		t.Fatalf("cached CELT DRED API-rate packet TOC=%+v, want CELT FB", toc)
+	}
+
+	for _, sampleRate := range []int{8000, 12000, 24000} {
+		sampleRate := sampleRate
+		t.Run(fmt.Sprintf("decoder_%d", sampleRate), func(t *testing.T) {
+			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, sampleRate, packetInfo)
+			wantFrame, err := packetSamplesAtRate(packetInfo.packet, sampleRate)
+			if err != nil {
+				t.Fatalf("packetSamplesAtRate: %v", err)
+			}
+			if n != wantFrame {
+				t.Fatalf("cached CELT warmup samples=%d want %d at %d Hz", n, wantFrame, sampleRate)
+			}
+
+			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, sampleRate)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, 1, n, 0, 0, false)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
+			}
+			requireLibopusDREDSequenceParsed(t, want, "cached CELT API-rate first-loss")
+			if want.step0.ret != n {
+				t.Fatalf("libopus cached CELT API-rate first-loss ret=%d want %d", want.step0.ret, n)
+			}
+
+			pcm := make([]float32, n*dec.channels)
+			got, err := dec.Decode(nil, pcm)
+			if err != nil {
+				t.Fatalf("Decode(nil) error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("Decode(nil)=%d want %d", got, n)
+			}
+
+			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(packetInfo.sampleRate / 50)
+			assertFloat32ApproxEqual(t, pcm[:got*dec.channels], want.step0.pcm[:got*dec.channels], "cached CELT API-rate live-sequence first-loss pcm", pcmTol)
+			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "cached CELT API-rate live-sequence first-loss plc", plcTol)
+			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "cached CELT API-rate live-sequence first-loss fargan", farganTol)
+			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "cached CELT API-rate live-sequence first-loss celt", celtTol)
+		})
+	}
+}
+
+func TestDecoderCachedCELTDREDRequestedPLCDurationMatchesLiveSequenceOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+		FrameSize: 960,
+		ForceMode: ModeCELT,
+		Bandwidth: BandwidthFullband,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred packet", err)
+	}
+
+	for _, sampleRate := range []int{8000, 48000} {
+		sampleRate := sampleRate
+		t.Run(fmt.Sprintf("decoder_%d", sampleRate), func(t *testing.T) {
+			dec, n := prepareCachedDREDDecodeParityStateForDecoderRateAndPacket(t, sampleRate, packetInfo)
+			requested := 2 * n
+			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, sampleRate)
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, requested, 1, requested, 0, 0, false)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "decoder DRED requested-duration sequence", err)
+			}
+			requireLibopusDREDSequenceParsed(t, want, "cached CELT requested-duration first-loss")
+			if want.step0.ret != requested {
+				t.Fatalf("libopus cached CELT requested-duration first-loss ret=%d want %d", want.step0.ret, requested)
+			}
+
+			pcm := make([]float32, requested*dec.channels)
+			got, err := dec.Decode(nil, pcm)
+			if err != nil {
+				t.Fatalf("Decode(nil) error: %v", err)
+			}
+			if got != requested {
+				t.Fatalf("Decode(nil)=%d want %d", got, requested)
+			}
+
+			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(packetInfo.sampleRate / 50)
+			pcmTol = max(pcmTol, 2e-2)
+			assertFloat32ApproxEqual(t, pcm[:got*dec.channels], want.step0.pcm[:got*dec.channels], "cached CELT requested-duration live-sequence first-loss pcm", pcmTol)
+			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "cached CELT requested-duration live-sequence first-loss plc", plcTol)
+			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "cached CELT requested-duration live-sequence first-loss fargan", farganTol)
+			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "cached CELT requested-duration live-sequence first-loss celt", celtTol)
 		})
 	}
 }
@@ -1707,7 +1807,7 @@ func TestDecoderCachedDREDThenNextPacketMatchesLiveSequenceOracle(t *testing.T) 
 				t.Fatalf("libopus cached CELT decoder follow-up ret=%d want >0", want.next.ret)
 			}
 
-			pcm := make([]float32, dec.maxPacketSamples)
+			pcm := make([]float32, n*dec.channels)
 			got, err := dec.Decode(nil, pcm)
 			if err != nil {
 				t.Fatalf("Decode(nil) error: %v", err)
@@ -1766,7 +1866,7 @@ func TestDecoderCachedDREDThenNextPacketCELTSuperwidebandMatchesLiveSequenceOrac
 				t.Fatalf("libopus cached CELT SWB decoder follow-up ret=%d want >0", want.next.ret)
 			}
 
-			pcm := make([]float32, dec.maxPacketSamples)
+			pcm := make([]float32, n*dec.channels)
 			got, err := dec.Decode(nil, pcm)
 			if err != nil {
 				t.Fatalf("Decode(nil) error: %v", err)
@@ -2500,7 +2600,7 @@ func TestDecoderCachedHybridDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 				t.Fatalf("libopus cached hybrid decoder follow-up ret=%d want >0", want.next.ret)
 			}
 
-			pcm := make([]float32, dec.maxPacketSamples)
+			pcm := make([]float32, n*dec.channels)
 			got, err := dec.Decode(nil, pcm)
 			if err != nil {
 				t.Fatalf("Decode(nil) error: %v", err)
@@ -4877,7 +4977,7 @@ func TestDecoderCachedDREDThenNextPacketCELTWidebandMatchesLiveSequenceOracle(t 
 				t.Fatalf("libopus cached CELT WB decoder follow-up ret=%d want >0", want.next.ret)
 			}
 
-			pcm := make([]float32, dec.maxPacketSamples)
+			pcm := make([]float32, n*dec.channels)
 			got, err := dec.Decode(nil, pcm)
 			if err != nil {
 				t.Fatalf("Decode(nil) error: %v", err)
@@ -4886,7 +4986,7 @@ func TestDecoderCachedDREDThenNextPacketCELTWidebandMatchesLiveSequenceOracle(t 
 				t.Fatalf("Decode(nil)=%d want %d", got, n)
 			}
 			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
-			assertFloat32ApproxEqual(t, pcm[:got], want.step0.pcm[:got], "cached CELT WB live-sequence first-loss pcm", pcmTol)
+			assertFloat32ApproxEqual(t, pcm[:got*dec.channels], want.step0.pcm[:got*dec.channels], "cached CELT WB live-sequence first-loss pcm", pcmTol)
 
 			nextPCM := make([]float32, dec.maxPacketSamples)
 			gotNext, err := dec.Decode(nextPacket, nextPCM)
@@ -4958,7 +5058,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTWidebandMatchesLiveSequenc
 				t.Fatalf("libopus cached CELT WB decoder follow-up ret=%d want >0", want.next.ret)
 			}
 
-			pcm0 := make([]float32, dec.maxPacketSamples)
+			pcm0 := make([]float32, n*dec.channels)
 			got, err := dec.Decode(nil, pcm0)
 			if err != nil {
 				t.Fatalf("Decode(nil, first) error: %v", err)
@@ -4967,9 +5067,9 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTWidebandMatchesLiveSequenc
 				t.Fatalf("Decode(nil, first)=%d want %d", got, n)
 			}
 			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
-			assertFloat32ApproxEqual(t, pcm0[:got], want.step0.pcm[:got], "cached CELT WB live-sequence warmup pcm", pcmTol)
+			assertFloat32ApproxEqual(t, pcm0[:got*dec.channels], want.step0.pcm[:got*dec.channels], "cached CELT WB live-sequence warmup pcm", pcmTol)
 
-			pcm1 := make([]float32, dec.maxPacketSamples)
+			pcm1 := make([]float32, n*dec.channels)
 			got, err = dec.Decode(nil, pcm1)
 			if err != nil {
 				t.Fatalf("Decode(nil, second) error: %v", err)
@@ -4977,7 +5077,7 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTWidebandMatchesLiveSequenc
 			if got != n {
 				t.Fatalf("Decode(nil, second)=%d want %d", got, n)
 			}
-			assertFloat32ApproxEqual(t, pcm1[:got], want.step1.pcm[:got], "cached CELT WB live-sequence second-loss pcm", pcmTol)
+			assertFloat32ApproxEqual(t, pcm1[:got*dec.channels], want.step1.pcm[:got*dec.channels], "cached CELT WB live-sequence second-loss pcm", pcmTol)
 
 			nextPCM := make([]float32, dec.maxPacketSamples)
 			gotNext, err := dec.Decode(nextPacket, nextPCM)
