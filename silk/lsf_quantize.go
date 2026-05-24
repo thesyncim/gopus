@@ -70,7 +70,7 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 		nSurvivors = 2
 	}
 
-	stage1Idx, residuals := e.nlsfEncode(lsfQ15, cb, wQ2, muQ20, nSurvivors, signalType)
+	stage1Idx, residuals, _ := e.nlsfEncode(lsfQ15, cb, wQ2, muQ20, nSurvivors, signalType)
 
 	return stage1Idx, residuals, interpIdx
 }
@@ -140,7 +140,7 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 		nSurvivors = 2
 	}
 
-	stage1Idx, residuals := e.nlsfEncode(lsfQ15, cb, wQ2, muQ20, nSurvivors, signalType)
+	stage1Idx, residuals, _ := e.nlsfEncode(lsfQ15, cb, wQ2, muQ20, nSurvivors, signalType)
 
 	return stage1Idx, residuals, interpIdx
 }

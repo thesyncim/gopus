@@ -19,6 +19,7 @@ const (
 	libopusSILKNLSFModeWeights   = uint32(4)
 	libopusSILKNLSFModeVQ        = uint32(5)
 	libopusSILKNLSFModeDelDec    = uint32(6)
+	libopusSILKNLSFModeEncode    = uint32(7)
 
 	libopusSILKNLSFCBNBMB = uint32(0)
 	libopusSILKNLSFCBWB   = uint32(1)
@@ -36,6 +37,7 @@ func buildLibopusSILKNLSFHelper() (string, error) {
 		RefSources: []string{
 			"silk/NLSF_decode.c",
 			"silk/NLSF_del_dec_quant.c",
+			"silk/NLSF_encode.c",
 			"silk/NLSF_VQ.c",
 			"silk/NLSF_VQ_weights_laroia.c",
 			"silk/NLSF_unpack.c",
@@ -167,6 +169,57 @@ func probeLibopusSILKNLSFDelDec(records [][]uint32) ([]libopusSILKNLSFDelDecResu
 			v := reader.I32()
 			if j < order {
 				out[i].indices[j] = int8(v)
+			}
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+type libopusSILKNLSFEncodeResult struct {
+	rdQ25   int32
+	indices []int8
+	nlsf    []int16
+}
+
+func probeLibopusSILKNLSFEncode(records [][]uint32) ([]libopusSILKNLSFEncodeResult, error) {
+	binPath, err := getLibopusSILKNLSFHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKNLSFInputMagic, libopusSILKNLSFModeEncode, uint32(len(records)))
+	for _, record := range records {
+		for _, word := range record {
+			payload.U32(word)
+		}
+	}
+
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk nlsf encode", libopusSILKNLSFOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(records))
+	out := make([]libopusSILKNLSFEncodeResult, count)
+	for i := range out {
+		out[i].rdQ25 = reader.I32()
+		order := int(reader.U32())
+		if order != 10 && order != 16 {
+			return nil, fmt.Errorf("helper order=%d", order)
+		}
+		out[i].indices = make([]int8, order+1)
+		for j := 0; j < maxLPCOrder+1; j++ {
+			v := reader.I32()
+			if j < order+1 {
+				out[i].indices[j] = int8(v)
+			}
+		}
+		out[i].nlsf = make([]int16, order)
+		for j := 0; j < 16; j++ {
+			v := reader.I32()
+			if j < order {
+				out[i].nlsf[j] = int16(v)
 			}
 		}
 	}
@@ -369,6 +422,69 @@ func TestSILKNLSFDelDecQuantMatchesLibopusOracle(t *testing.T) {
 	}
 }
 
+func TestSILKNLSFEncodeMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []struct {
+		name       string
+		cb         *nlsfCB
+		muQ20      int32
+		nSurvivors int
+		signalType int
+		nlsf       []int16
+		weight     []int16
+	}{
+		{name: "nbmb_unvoiced_four", cb: &silk_NLSF_CB_NB_MB, muQ20: 3146, nSurvivors: 4, signalType: typeUnvoiced, nlsf: []int16{2676, 3684, 7247, 12558, 14555, 16405, 18875, 19753, 26306, 27425}},
+		{name: "nbmb_inactive_two_clustered", cb: &silk_NLSF_CB_NB_MB, muQ20: 1200, nSurvivors: 2, signalType: typeNoVoiceActivity, nlsf: []int16{128, 256, 512, 1024, 2048, 4096, 8192, 16384, 24576, 32640}},
+		{name: "wb_voiced_eight", cb: &silk_NLSF_CB_WB, muQ20: 3146, nSurvivors: 8, signalType: typeVoiced, nlsf: []int16{1200, 2600, 4300, 6100, 8200, 10100, 12200, 14300, 16400, 18600, 20700, 22800, 24900, 27000, 29100, 31200}},
+		{name: "wb_voiced_sixteen_tight_edges", cb: &silk_NLSF_CB_WB, muQ20: 900, nSurvivors: 16, signalType: typeVoiced, nlsf: []int16{1, 2, 4, 8, 16, 64, 256, 1024, 4096, 8192, 12288, 16384, 24576, 28672, 32765, 32766}},
+	}
+	records := make([][]uint32, len(cases))
+	for i := range cases {
+		cases[i].weight = make([]int16, cases[i].cb.order)
+		silkNLSFWeightsLaroia(cases[i].weight, cases[i].nlsf, cases[i].cb.order)
+		record := []uint32{
+			cbIDForNLSF(cases[i].cb),
+			uint32FromInt32(cases[i].muQ20),
+			uint32(cases[i].nSurvivors),
+			uint32(cases[i].signalType),
+		}
+		for _, v := range cases[i].nlsf {
+			record = append(record, uint32FromInt32(int32(v)))
+		}
+		for _, v := range cases[i].weight {
+			record = append(record, uint32FromInt32(int32(v)))
+		}
+		records[i] = record
+	}
+	want, err := probeLibopusSILKNLSFEncode(records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk nlsf encode", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			order := tc.cb.order
+			gotNLSF := append([]int16(nil), tc.nlsf...)
+			enc := &Encoder{}
+			gotStage1, gotResiduals, gotRD := enc.nlsfEncode(gotNLSF, tc.cb, tc.weight, tc.muQ20, tc.nSurvivors, tc.signalType)
+			if gotRD != want[i].rdQ25 {
+				t.Fatalf("RD_Q25=%d want %d", gotRD, want[i].rdQ25)
+			}
+			gotIndices := make([]int8, order+1)
+			gotIndices[0] = int8(gotStage1)
+			for j := 0; j < order; j++ {
+				gotIndices[j+1] = int8(gotResiduals[j])
+			}
+			if !sameInt8s(gotIndices, want[i].indices) {
+				t.Fatalf("indices=%v want %v", gotIndices, want[i].indices)
+			}
+			if !sameInt16s(gotNLSF[:order], want[i].nlsf) {
+				t.Fatalf("quantized NLSF=%v want %v", gotNLSF[:order], want[i].nlsf)
+			}
+		})
+	}
+}
+
 func TestSILKNLSF2AMatchesLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	cases := []struct {
@@ -492,6 +608,18 @@ func speechLikeA2NLSFInput(order int, decay float64) []int32 {
 }
 
 func sameInt16s(a, b []int16) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func sameInt8s(a, b []int8) bool {
 	if len(a) != len(b) {
 		return false
 	}
