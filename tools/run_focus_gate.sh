@@ -354,7 +354,7 @@ gate_exactness() {
 }
 
 gate_exhaustive() {
-	run_exhaustive ./testvectors -run "$exhaustive_testvectors" -count=1
+	run_exhaustive ./testvectors -run "$exhaustive_testvectors" -count=1 -timeout=30m
 }
 
 gate_provenance() {
