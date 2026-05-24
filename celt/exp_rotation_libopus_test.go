@@ -605,6 +605,8 @@ func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 	}
 	enc := NewEncoder(2)
 	enc.SetEnergyMask(make([]float64, MaxBands*2))
+	enc.lastBandLogE = appendFloat64AsGLog(enc.lastBandLogE, []float64{1})
+	enc.lastBandLogE2 = appendFloat64AsGLog(enc.lastBandLogE2, []float64{1})
 	got := []struct {
 		name string
 		size uintptr
@@ -617,6 +619,8 @@ func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 		{"specAvg", unsafe.Sizeof(enc.specAvg)},
 		{"surroundTrim", unsafe.Sizeof(enc.surroundTrim)},
 		{"lastTemporalVBR", unsafe.Sizeof(enc.lastTemporalVBR)},
+		{"lastBandLogE", unsafe.Sizeof(enc.lastBandLogE[0])},
+		{"lastBandLogE2", unsafe.Sizeof(enc.lastBandLogE2[0])},
 	}
 	for _, tc := range got {
 		if tc.size != uintptr(sizes.celtGLog) {

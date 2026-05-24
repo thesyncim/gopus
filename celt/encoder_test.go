@@ -394,11 +394,12 @@ func TestEncodeFrameLFEClampsHighBandEnergy(t *testing.T) {
 	if _, err := enc.EncodeFrame(pcm, frameSize); err != nil {
 		t.Fatalf("EncodeFrame(LFE) failed: %v", err)
 	}
-	if len(enc.lastBandLogE) < 3 {
-		t.Fatalf("lastBandLogE length=%d want at least 3", len(enc.lastBandLogE))
+	lastBandLogE := enc.GetLastBandLogE()
+	if len(lastBandLogE) < 3 {
+		t.Fatalf("lastBandLogE length=%d want at least 3", len(lastBandLogE))
 	}
-	baseAbs := enc.lastBandLogE[0] + eMeans[0]*DB6
-	highAbs := enc.lastBandLogE[2] + eMeans[2]*DB6
+	baseAbs := lastBandLogE[0] + eMeans[0]*DB6
+	highAbs := lastBandLogE[2] + eMeans[2]*DB6
 	limitAbs := baseAbs + float64(celtLog2(float32(lfeBandClamp)))
 	floorAbs := float64(celtLog2(float32(celtFloatEpsilon)))
 	wantMax := limitAbs
@@ -407,6 +408,19 @@ func TestEncodeFrameLFEClampsHighBandEnergy(t *testing.T) {
 	}
 	if highAbs > wantMax+1e-6 {
 		t.Fatalf("LFE high-band log energy=%g want <= %g", highAbs, wantMax)
+	}
+}
+
+func TestLastBandLogEUsesGLogWidth(t *testing.T) {
+	enc := NewEncoder(1)
+	enc.lastBandLogE = appendFloat64AsGLog(enc.lastBandLogE, []float64{1.0 / 3.0})
+	enc.lastBandLogE2 = appendFloat64AsGLog(enc.lastBandLogE2, []float64{2.0 / 3.0})
+
+	if got, want := enc.GetLastBandLogE()[0], float64(celtGLog(1.0/3.0)); got != want {
+		t.Fatalf("GetLastBandLogE()[0]=%0.9g want celt_glog %0.9g", got, want)
+	}
+	if got, want := enc.GetLastBandLogE2()[0], float64(celtGLog(2.0/3.0)); got != want {
+		t.Fatalf("GetLastBandLogE2()[0]=%0.9g want celt_glog %0.9g", got, want)
 	}
 }
 

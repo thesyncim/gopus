@@ -194,8 +194,8 @@ type Encoder struct {
 	packetLoss int
 
 	// Last frame's band energies retained for dynalloc analysis.
-	lastBandLogE  []float64 // bandLogE (primary MDCT energies)
-	lastBandLogE2 []float64 // bandLogE2 (secondary MDCT for transients)
+	lastBandLogE  []celtGLog // bandLogE (primary MDCT energies)
+	lastBandLogE2 []celtGLog // bandLogE2 (secondary MDCT for transients)
 
 	// Scratch buffers for hot path to eliminate heap allocations
 	scratch encoderScratch
@@ -1061,13 +1061,17 @@ func (e *Encoder) GetLastDynalloc() DynallocResult {
 // GetLastBandLogE returns the last frame's primary band log-energies.
 // These are the bandLogE values passed to DynallocAnalysis.
 func (e *Encoder) GetLastBandLogE() []float64 {
-	return e.lastBandLogE
+	out := make([]float64, len(e.lastBandLogE))
+	copyGLogToFloat64(out, e.lastBandLogE)
+	return out
 }
 
 // GetLastBandLogE2 returns the last frame's secondary band log-energies.
 // For transients, this is from the long MDCT; otherwise same as bandLogE.
 func (e *Encoder) GetLastBandLogE2() []float64 {
-	return e.lastBandLogE2
+	out := make([]float64, len(e.lastBandLogE2))
+	copyGLogToFloat64(out, e.lastBandLogE2)
+	return out
 }
 
 // SetPhaseInversionDisabled disables stereo phase inversion.

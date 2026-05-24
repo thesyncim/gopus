@@ -693,9 +693,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Store band log-energies for dynalloc analysis.
 	// These are the values passed to DynallocAnalysis.
-	e.lastBandLogE = append(e.lastBandLogE[:0], energies...)
+	e.lastBandLogE = appendFloat64AsGLog(e.lastBandLogE[:0], energies)
 	if bandLogE2 != nil {
-		e.lastBandLogE2 = append(e.lastBandLogE2[:0], bandLogE2...)
+		e.lastBandLogE2 = appendFloat64AsGLog(e.lastBandLogE2[:0], bandLogE2)
 	} else {
 		e.lastBandLogE2 = e.lastBandLogE2[:0]
 	}

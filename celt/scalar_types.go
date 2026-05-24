@@ -76,3 +76,15 @@ func copyFloat64ToGLog(dst []celtGLog, src []float64) {
 		dst[i] = celtGLog(src[i])
 	}
 }
+
+func appendFloat64AsGLog(dst []celtGLog, src []float64) []celtGLog {
+	if cap(dst) < len(src) {
+		dst = make([]celtGLog, len(src))
+	} else {
+		dst = dst[:len(src)]
+	}
+	for i := range src {
+		dst[i] = celtGLog(src[i])
+	}
+	return dst
+}
