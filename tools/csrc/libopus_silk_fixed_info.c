@@ -41,7 +41,14 @@ enum {
   MODE_SUB_LSHIFT32 = 23,
   MODE_ADD32_OVFLW = 24,
   MODE_SUB32_OVFLW = 25,
-  MODE_LIMIT32 = 26
+  MODE_LIMIT32 = 26,
+  MODE_SMULBB = 27,
+  MODE_SMLABB = 28,
+  MODE_MUL = 29,
+  MODE_MLA = 30,
+  MODE_ADD_RSHIFT32 = 31,
+  MODE_LIMIT_INT = 32,
+  MODE_LIMIT_32_WRAPPER = 33
 };
 
 static int set_binary_stdio(void) {
@@ -115,8 +122,16 @@ static int32_t eval_op_sample(uint32_t mode, int32_t a, int32_t b, int32_t c, ui
       return silk_SMULWB(a, b);
     case MODE_SMLAWB:
       return silk_SMLAWB(a, b, c);
+    case MODE_SMULBB:
+      return silk_SMULBB(a, b);
+    case MODE_SMLABB:
+      return silk_SMLABB(a, b, c);
     case MODE_SMULWW:
       return silk_SMULWW(a, b);
+    case MODE_MUL:
+      return silk_MUL(a, b);
+    case MODE_MLA:
+      return silk_MLA(a, b, c);
     case MODE_SMMUL:
       return silk_SMMUL(a, b);
     case MODE_ADD_SAT32:
@@ -147,6 +162,8 @@ static int32_t eval_op_sample(uint32_t mode, int32_t a, int32_t b, int32_t c, ui
       return silk_LSHIFT32(a, (int)q);
     case MODE_RSHIFT:
       return silk_RSHIFT(a, (int)q);
+    case MODE_ADD_RSHIFT32:
+      return silk_ADD_RSHIFT32(a, b, (int)q);
     case MODE_ADD_LSHIFT32:
       return silk_ADD_LSHIFT32(a, b, (int)q);
     case MODE_SUB_LSHIFT32:
@@ -156,6 +173,10 @@ static int32_t eval_op_sample(uint32_t mode, int32_t a, int32_t b, int32_t c, ui
     case MODE_SUB32_OVFLW:
       return silk_SUB32_ovflw(a, b);
     case MODE_LIMIT32:
+      return silk_LIMIT_32(a, b, c);
+    case MODE_LIMIT_INT:
+      return (int32_t)silk_LIMIT_int((int)a, (int)b, (int)c);
+    case MODE_LIMIT_32_WRAPPER:
       return silk_LIMIT_32(a, b, c);
     default:
       return 0;
@@ -172,7 +193,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_LIMIT32) return 1;
+  if (mode > MODE_LIMIT_32_WRAPPER) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {

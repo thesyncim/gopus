@@ -42,6 +42,13 @@ const (
 	libopusSILKFixedModeAdd32Ovflw         = uint32(24)
 	libopusSILKFixedModeSub32Ovflw         = uint32(25)
 	libopusSILKFixedModeLimit32            = uint32(26)
+	libopusSILKFixedModeSMULBB             = uint32(27)
+	libopusSILKFixedModeSMLABB             = uint32(28)
+	libopusSILKFixedModeMUL                = uint32(29)
+	libopusSILKFixedModeMLA                = uint32(30)
+	libopusSILKFixedModeAddRShift32        = uint32(31)
+	libopusSILKFixedModeLimitInt           = uint32(32)
+	libopusSILKFixedModeLimit32Wrapper     = uint32(33)
 )
 
 type libopusSILKFixedRecord struct {
@@ -293,6 +300,12 @@ func TestSILKFixedMultiplyAndSaturatingOpsMatchLibopus(t *testing.T) {
 		{name: "smlawb", mode: libopusSILKFixedModeSMLAWB, records: smlawbRecords, got: func(r libopusSILKFixedOpRecord) int32 {
 			return silkSMLAWB(r.a, r.b, r.c)
 		}},
+		{name: "smulbb", mode: libopusSILKFixedModeSMULBB, records: mulRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkSMULBB(r.a, r.b)
+		}},
+		{name: "smlabb", mode: libopusSILKFixedModeSMLABB, records: smlawbRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkSMLABB(r.a, r.b, r.c)
+		}},
 		{name: "smulww", mode: libopusSILKFixedModeSMULWW, records: mulRecords, got: func(r libopusSILKFixedOpRecord) int32 {
 			return silkSMULWW(r.a, r.b)
 		}},
@@ -436,6 +449,94 @@ func TestSILKFixedNSQHelpersMatchLibopus(t *testing.T) {
 		}},
 	}
 
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			want, err := probeLibopusSILKFixedOps(tc.mode, tc.records)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "silk fixed", err)
+			}
+			for i, record := range tc.records {
+				if got := tc.got(record); got != want[i] {
+					t.Fatalf("%s(%d,%d,%d,q=%d)=%d want %d", tc.name, record.a, record.b, record.c, record.q, got, want[i])
+				}
+			}
+		})
+	}
+}
+
+func TestSILKFixedLibopusWrapperHelpersMatchLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+	boundaryValues := []int32{
+		-65537, -65536, -32769, -32768, -32767, -2, -1, 0, 1, 2,
+		32766, 32767, 32768, 32769, 65535, 65536, 65537,
+	}
+	safeMulValues := []int32{-46340, -32769, -32768, -32767, -257, -256, -255, -2, -1, 0, 1, 2, 255, 256, 257, 32766, 32767, 32768, 32769, 46340}
+	mulRecords := make([]libopusSILKFixedOpRecord, 0, len(safeMulValues)*len(safeMulValues))
+	for _, a := range safeMulValues {
+		for _, b := range safeMulValues {
+			mulRecords = append(mulRecords, libopusSILKFixedOpRecord{a: a, b: b})
+		}
+	}
+
+	mlaRecords := make([]libopusSILKFixedOpRecord, 0, len(boundaryValues)*len(boundaryValues))
+	for _, b := range []int32{-4096, -1024, -17, -1, 0, 1, 17, 1024, 4096} {
+		for _, c := range []int32{-4096, -1024, -17, -1, 0, 1, 17, 1024, 4096} {
+			prod := int64(b) * int64(c)
+			for _, a := range []int32{-65536, -1, 0, 1, 65536} {
+				sum := int64(a) + prod
+				if sum >= int64(fixedTestMinInt32) && sum <= int64(fixedTestMaxInt32) {
+					mlaRecords = append(mlaRecords, libopusSILKFixedOpRecord{a: a, b: b, c: c})
+				}
+			}
+		}
+	}
+
+	addRShiftRecords := make([]libopusSILKFixedOpRecord, 0, len(boundaryValues)*8)
+	for _, a := range boundaryValues {
+		for _, b := range boundaryValues {
+			for _, q := range []uint32{0, 1, 7, 15, 16, 30, 31} {
+				addRShiftRecords = append(addRShiftRecords, libopusSILKFixedOpRecord{a: a, b: b, q: q})
+			}
+		}
+	}
+
+	limitRecords := []libopusSILKFixedOpRecord{
+		{a: -200, b: -100, c: 100},
+		{a: -100, b: -100, c: 100},
+		{a: 0, b: -100, c: 100},
+		{a: 100, b: -100, c: 100},
+		{a: 200, b: -100, c: 100},
+		{a: -200, b: 100, c: -100},
+		{a: -100, b: 100, c: -100},
+		{a: 0, b: 100, c: -100},
+		{a: 100, b: 100, c: -100},
+		{a: 200, b: 100, c: -100},
+		{a: fixedTestMinInt32, b: fixedTestMaxInt32, c: fixedTestMinInt32 + 1},
+		{a: fixedTestMaxInt32, b: fixedTestMaxInt32 - 1, c: fixedTestMinInt32},
+	}
+
+	tests := []struct {
+		name    string
+		mode    uint32
+		records []libopusSILKFixedOpRecord
+		got     func(libopusSILKFixedOpRecord) int32
+	}{
+		{name: "mul", mode: libopusSILKFixedModeMUL, records: mulRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkMUL(r.a, r.b)
+		}},
+		{name: "mla", mode: libopusSILKFixedModeMLA, records: mlaRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkMLA(r.a, r.b, r.c)
+		}},
+		{name: "add_rshift32", mode: libopusSILKFixedModeAddRShift32, records: addRShiftRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkADD_RSHIFT32(r.a, r.b, int(r.q))
+		}},
+		{name: "limit_int", mode: libopusSILKFixedModeLimitInt, records: limitRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return int32(silkLimitInt(int(r.a), int(r.b), int(r.c)))
+		}},
+		{name: "limit32_wrapper", mode: libopusSILKFixedModeLimit32Wrapper, records: limitRecords, got: func(r libopusSILKFixedOpRecord) int32 {
+			return silkLimit32(r.a, r.b, r.c)
+		}},
+	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			want, err := probeLibopusSILKFixedOps(tc.mode, tc.records)

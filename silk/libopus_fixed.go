@@ -31,6 +31,15 @@ func silkMax32(a, b int32) int32 {
 }
 
 func silkLimitInt(x, min, max int) int {
+	if min > max {
+		if x > min {
+			return min
+		}
+		if x < max {
+			return max
+		}
+		return x
+	}
 	if x < min {
 		return min
 	}
@@ -41,6 +50,15 @@ func silkLimitInt(x, min, max int) int {
 }
 
 func silkLimit32(x, min, max int32) int32 {
+	if min > max {
+		if x > min {
+			return min
+		}
+		if x < max {
+			return max
+		}
+		return x
+	}
 	if x < min {
 		return min
 	}
