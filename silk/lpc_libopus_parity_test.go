@@ -3,6 +3,7 @@ package silk
 import (
 	"fmt"
 	"math"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -16,11 +17,31 @@ const (
 	libopusSILKLPCModeLPCAnalysisFilter = uint32(1)
 	libopusSILKLPCModeInnerProduct      = uint32(2)
 	libopusSILKLPCModeEnergy            = uint32(3)
+	libopusSILKLPCModeFindLPC           = uint32(4)
 )
 
 var libopusSILKLPCHelper libopustest.HelperCache
 
 func getLibopusSILKLPCHelperPath() (string, error) {
+	refSources := []string{
+		"silk/float/burg_modified_FLP.c",
+		"silk/float/energy_FLP.c",
+		"silk/float/find_LPC_FLP.c",
+		"silk/float/inner_product_FLP.c",
+		"silk/float/LPC_analysis_filter_FLP.c",
+		"silk/A2NLSF.c",
+		"silk/NLSF2A.c",
+		"silk/LPC_fit.c",
+		"silk/LPC_inv_pred_gain.c",
+		"silk/bwexpander_32.c",
+		"silk/interpolate.c",
+		"silk/sort.c",
+		"silk/table_LSF_cos.c",
+	}
+	if runtime.GOARCH == "arm" || runtime.GOARCH == "arm64" {
+		refSources = append(refSources, "silk/arm/LPC_inv_pred_gain_neon_intr.c")
+	}
+
 	return libopusSILKLPCHelper.CHelperPath(libopustest.CHelperConfig{
 		Label:        "silk lpc",
 		OutputBase:   "gopus_libopus_silk_lpc",
@@ -28,12 +49,7 @@ func getLibopusSILKLPCHelperPath() (string, error) {
 		ProbeRelPath: "silk/float/SigProc_FLP.h",
 		CFlags:       []string{"-DHAVE_CONFIG_H", "-O2"},
 		RefIncludes:  []string{"celt", "silk", "silk/float"},
-		RefSources: []string{
-			"silk/float/burg_modified_FLP.c",
-			"silk/float/energy_FLP.c",
-			"silk/float/inner_product_FLP.c",
-			"silk/float/LPC_analysis_filter_FLP.c",
-		},
+		RefSources:   refSources,
 	})
 }
 
@@ -67,6 +83,23 @@ type libopusSILKInnerProductCase struct {
 type libopusSILKEnergyCase struct {
 	name string
 	x    []float32
+}
+
+type libopusSILKFindLPCCase struct {
+	name                 string
+	subfrLength          int
+	nbSubfr              int
+	order                int
+	useInterpolatedNLSFs bool
+	firstFrameAfterReset bool
+	minInvGain           float32
+	prevNLSF             []int16
+	x                    []float32
+}
+
+type libopusSILKFindLPCResult struct {
+	interpIdx int
+	nlsf      []int16
 }
 
 func probeLibopusSILKBurgModified(cases []libopusSILKBurgCase) ([]libopusSILKBurgResult, error) {
@@ -200,6 +233,63 @@ func probeLibopusSILKEnergyFLP(cases []libopusSILKEnergyCase) ([]float64, error)
 	return out, nil
 }
 
+func probeLibopusSILKFindLPCFLP(cases []libopusSILKFindLPCCase) ([]libopusSILKFindLPCResult, error) {
+	binPath, err := getLibopusSILKLPCHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKLPCInputMagic, libopusSILKLPCModeFindLPC, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.U32(uint32(tc.subfrLength))
+		payload.U32(uint32(tc.nbSubfr))
+		payload.U32(uint32(tc.order))
+		if tc.useInterpolatedNLSFs {
+			payload.U32(1)
+		} else {
+			payload.U32(0)
+		}
+		if tc.firstFrameAfterReset {
+			payload.U32(1)
+		} else {
+			payload.U32(0)
+		}
+		payload.Float32(tc.minInvGain)
+		for i := 0; i < 16; i++ {
+			var v int16
+			if i < len(tc.prevNLSF) {
+				v = tc.prevNLSF[i]
+			}
+			payload.I32(int32(v))
+		}
+		payload.Float32s(tc.x...)
+	}
+
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk find lpc flp", libopusSILKLPCOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(cases))
+	out := make([]libopusSILKFindLPCResult, count)
+	for i := range out {
+		order := int(reader.U32())
+		if order != 10 && order != 16 {
+			return nil, fmt.Errorf("helper order=%d", order)
+		}
+		out[i].interpIdx = int(reader.U32())
+		out[i].nlsf = make([]int16, order)
+		for j := 0; j < 16; j++ {
+			v := int16(reader.I32())
+			if j < order {
+				out[i].nlsf[j] = v
+			}
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func TestSILKBurgModifiedFLPMatchesLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	cases := []libopusSILKBurgCase{
@@ -326,6 +416,103 @@ func TestSILKEnergyFLPMatchesLibopusOracle(t *testing.T) {
 	}
 }
 
+func TestSILKFindLPCFLPMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusSILKFindLPCCase{
+		{
+			name:                 "order10_first_frame",
+			subfrLength:          60,
+			nbSubfr:              4,
+			order:                10,
+			useInterpolatedNLSFs: true,
+			firstFrameAfterReset: true,
+			minInvGain:           1e-4,
+			prevNLSF:             silkFindLPCPrevNLSF(10, 0x12345678),
+			x:                    silkBurgOracleSignal(4*(60+10), 0x10203040),
+		},
+		{
+			name:                 "order10_interpolation_enabled",
+			subfrLength:          60,
+			nbSubfr:              4,
+			order:                10,
+			useInterpolatedNLSFs: true,
+			firstFrameAfterReset: false,
+			minInvGain:           2e-4,
+			prevNLSF:             silkFindLPCPrevNLSF(10, 0x22334455),
+			x:                    silkBurgOracleSignal(4*(60+10), 0x31415926),
+		},
+		{
+			name:                 "order16_low_complexity",
+			subfrLength:          80,
+			nbSubfr:              4,
+			order:                16,
+			useInterpolatedNLSFs: false,
+			firstFrameAfterReset: false,
+			minInvGain:           1e-4,
+			prevNLSF:             silkFindLPCPrevNLSF(16, 0xabcdef01),
+			x:                    silkBurgOracleSignal(4*(80+16), 0x50607080),
+		},
+		{
+			name:                 "order16_interpolation_enabled",
+			subfrLength:          80,
+			nbSubfr:              4,
+			order:                16,
+			useInterpolatedNLSFs: true,
+			firstFrameAfterReset: false,
+			minInvGain:           3e-4,
+			prevNLSF:             silkFindLPCPrevNLSF(16, 0x0badf00d),
+			x:                    silkBurgOracleSignal(4*(80+16), 0x90abcdef),
+		},
+		{
+			name:                 "order16_two_subframes",
+			subfrLength:          80,
+			nbSubfr:              2,
+			order:                16,
+			useInterpolatedNLSFs: true,
+			firstFrameAfterReset: false,
+			minInvGain:           5e-5,
+			prevNLSF:             silkFindLPCPrevNLSF(16, 0x13579bdf),
+			x:                    silkBurgOracleSignal(2*(80+16), 0x2468ace0),
+		},
+	}
+	want, err := probeLibopusSILKFindLPCFLP(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk find lpc flp", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			bw := BandwidthWideband
+			if tc.order == 10 {
+				bw = BandwidthMediumband
+			}
+			enc := NewEncoder(bw)
+			if tc.useInterpolatedNLSFs {
+				enc.SetComplexity(10)
+			} else {
+				enc.SetComplexity(0)
+			}
+			if !tc.firstFrameAfterReset {
+				enc.MarkEncoded()
+			}
+			copy(enc.prevLSFQ15, tc.prevNLSF)
+
+			_, gotNLSF, gotInterp := enc.computeLPCAndNLSFWithInterp(tc.x, tc.nbSubfr, tc.subfrLength, float64(tc.minInvGain))
+			if gotInterp != want[i].interpIdx {
+				t.Fatalf("interpIdx=%d want %d", gotInterp, want[i].interpIdx)
+			}
+			if len(gotNLSF) != len(want[i].nlsf) {
+				t.Fatalf("NLSF len=%d want %d", len(gotNLSF), len(want[i].nlsf))
+			}
+			for j := range gotNLSF {
+				if gotNLSF[j] != want[i].nlsf[j] {
+					t.Fatalf("NLSF[%d]=%d want %d", j, gotNLSF[j], want[i].nlsf[j])
+				}
+			}
+		})
+	}
+}
+
 func silkBurgOracleSignal(n int, seed uint32) []float32 {
 	x := make([]float32, n)
 	state := seed
@@ -336,6 +523,23 @@ func silkBurgOracleSignal(n int, seed uint32) []float32 {
 		x[i] = 0.35*noise + ramp
 	}
 	return x
+}
+
+func silkFindLPCPrevNLSF(order int, seed uint32) []int16 {
+	out := make([]int16, order)
+	state := seed
+	prev := 900
+	for i := range out {
+		state = state*1664525 + 1013904223
+		step := 1300 + int((state>>24)&0x3ff)
+		prev += step
+		limit := 32000 - (order-i-1)*700
+		if prev > limit {
+			prev = limit
+		}
+		out[i] = int16(prev)
+	}
+	return out
 }
 
 func silkFLPOracleSignal(n int, seed uint32, scale float32) []float32 {
