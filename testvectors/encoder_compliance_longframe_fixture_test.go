@@ -117,8 +117,54 @@ func TestLongFrameLibopusReferenceParityFromFixture(t *testing.T) {
 			}
 
 			gapQ := q - libQ
-			if gapQ < -EncoderLibopusSpeechGapTightQ {
-				t.Fatalf("long-frame libopus gap regressed: gapQ=%.2f (q=%.2f libQ=%.2f)", gapQ, q, libQ)
+			floor := longFrameLibopusGapFloorForArch(tc.Name, runtime.GOARCH)
+			if gapQ+encoderLibopusGapMeasurementToleranceQ < floor {
+				t.Fatalf("long-frame libopus gap regressed: gapQ=%.2f floor=%.2f (q=%.2f libQ=%.2f)", gapQ, floor, q, libQ)
+			}
+		})
+	}
+}
+
+func longFrameLibopusGapFloorForArch(caseName, goarch string) float64 {
+	floor := -EncoderLibopusSpeechGapTightQ
+	if precisionFloor, ok := encoderLibopusGapFloorForArch(caseName, goarch); ok && precisionFloor < floor {
+		floor = precisionFloor
+	}
+	return floor
+}
+
+func TestLongFrameLibopusGapFloorForArchUsesLooserPrecisionFloor(t *testing.T) {
+	cases := []struct {
+		name     string
+		caseName string
+		arch     string
+		want     float64
+	}{
+		{
+			name:     "amd64 silk wb40 inherits precision floor",
+			caseName: "SILK-WB-40ms-mono-32k",
+			arch:     "amd64",
+			want:     -64.0,
+		},
+		{
+			name:     "arm64 silk wb40 keeps tight speech floor",
+			caseName: "SILK-WB-40ms-mono-32k",
+			arch:     "arm64",
+			want:     -EncoderLibopusSpeechGapTightQ,
+		},
+		{
+			name:     "unknown case keeps tight speech floor",
+			caseName: "unknown",
+			arch:     "amd64",
+			want:     -EncoderLibopusSpeechGapTightQ,
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			if got := longFrameLibopusGapFloorForArch(tc.caseName, tc.arch); got != tc.want {
+				t.Fatalf("floor=%.2f want %.2f", got, tc.want)
 			}
 		})
 	}

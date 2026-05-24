@@ -60,6 +60,9 @@ func TestEncoderDelayBufferMatchesLibopusOpusResSize(t *testing.T) {
 		t.Fatalf("delayBuffer element size=%d want libopus opus_res size %d", got, want)
 	}
 	delayState := enc.ensureDelayState(1)
+	if len(delayState) == 0 {
+		t.Fatal("delayState unexpectedly empty")
+	}
 	if got := unsafe.Sizeof(delayState[0]); got != uintptr(want) {
 		t.Fatalf("delayState element size=%d want libopus opus_res size %d", got, want)
 	}

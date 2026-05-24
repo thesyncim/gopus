@@ -31,8 +31,11 @@ func (d *MultistreamDecoder) requestedOutputFrameSize(sampleCount int) (int, err
 }
 
 func (d *MultistreamDecoder) decodeFrameSize(data []byte, sampleCount int) (int, error) {
-	if len(data) == 0 {
+	if data == nil {
 		return d.requestedOutputFrameSize(sampleCount)
+	}
+	if len(data) == 0 {
+		return 0, multistream.ErrPacketTooShort
 	}
 	return multistream.PacketDurationAtRate(data, d.dec.Streams(), d.sampleRate)
 }
@@ -111,7 +114,7 @@ func (d *MultistreamDecoder) Decode(data []byte, pcm []float32) (int, error) {
 		return 0, ErrBufferTooSmall
 	}
 
-	if len(data) == 0 {
+	if data == nil {
 		if err := d.decodePLCFloat32Into(pcm[:needed], frameSize); err != nil {
 			return 0, err
 		}
@@ -148,7 +151,7 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 		return 0, ErrBufferTooSmall
 	}
 
-	if len(data) == 0 {
+	if data == nil {
 		if err := d.decodePLCInt16Into(pcm[:needed], frameSize); err != nil {
 			return 0, err
 		}

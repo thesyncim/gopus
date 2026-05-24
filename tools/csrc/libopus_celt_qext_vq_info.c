@@ -17,6 +17,13 @@
 #define INPUT_MAGIC "GQVI"
 #define OUTPUT_MAGIC "GQVO"
 
+void celt_fatal(const char *str, const char *file, int line) {
+  (void)str;
+  (void)file;
+  (void)line;
+  abort();
+}
+
 enum {
   MODE_ALG_QUANT_QEXT = 0,
   MODE_ALG_UNQUANT_QEXT = 1

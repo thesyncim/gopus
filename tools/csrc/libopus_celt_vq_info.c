@@ -21,6 +21,13 @@
 #define INPUT_MAGIC "GVCI"
 #define OUTPUT_MAGIC "GVCO"
 
+void celt_fatal(const char *str, const char *file, int line) {
+  (void)str;
+  (void)file;
+  (void)line;
+  abort();
+}
+
 enum {
   MODE_EXP_ROTATION = 0,
   MODE_RENORMALISE_VECTOR = 1,

@@ -67,6 +67,69 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 			want: -150.0,
 		},
 		{
+			name: "global silk stereo override",
+			tc: encoderComplianceVariantsFixtureCase{
+				Name:     "SILK-WB-20ms-stereo-48k",
+				Variant:  "chirp_sweep_v1",
+				Mode:     "silk",
+				Channels: 2,
+			},
+			arch: "arm64",
+			want: -266.5,
+		},
+		{
+			name: "amd64 silk stereo speech override",
+			tc: encoderComplianceVariantsFixtureCase{
+				Name:     "SILK-WB-20ms-stereo-48k",
+				Variant:  "speech_like_v1",
+				Mode:     "silk",
+				Channels: 2,
+			},
+			arch: "amd64",
+			want: -75.0,
+		},
+		{
+			name: "arm64 keeps default silk stereo speech floor",
+			tc: encoderComplianceVariantsFixtureCase{
+				Name:     "SILK-WB-20ms-stereo-48k",
+				Variant:  "speech_like_v1",
+				Mode:     "silk",
+				Channels: 2,
+			},
+			arch: "arm64",
+			want: -2.0,
+		},
+		{
+			name: "amd64 silk long impulse override",
+			tc: encoderComplianceVariantsFixtureCase{
+				Name:    "SILK-WB-60ms-mono-32k",
+				Variant: "impulse_train_v1",
+				Mode:    "silk",
+			},
+			arch: "amd64",
+			want: -16.0,
+		},
+		{
+			name: "arm64 keeps default silk long impulse floor",
+			tc: encoderComplianceVariantsFixtureCase{
+				Name:    "SILK-WB-60ms-mono-32k",
+				Variant: "impulse_train_v1",
+				Mode:    "silk",
+			},
+			arch: "arm64",
+			want: -2.0,
+		},
+		{
+			name: "amd64 silk wb40 chirp override",
+			tc: encoderComplianceVariantsFixtureCase{
+				Name:    "SILK-WB-40ms-mono-32k",
+				Variant: "chirp_sweep_v1",
+				Mode:    "silk",
+			},
+			arch: "amd64",
+			want: -20.5,
+		},
+		{
 			name: "amd64 hybrid stereo override",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:     "HYBRID-FB-20ms-stereo-96k",

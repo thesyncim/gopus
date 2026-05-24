@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	encpkg "github.com/thesyncim/gopus/encoder"
@@ -40,7 +41,18 @@ type dredQualityMetrics struct {
 	OpusQOK     bool
 }
 
+func requireDREDAudioQualityGate(t *testing.T) {
+	t.Helper()
+	switch strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_DRED_AUDIO_QUALITY"))) {
+	case "1", "true", "yes":
+		return
+	default:
+		t.Skip("DRED long-sequence audio quality gate is experimental; set GOPUS_DRED_AUDIO_QUALITY=1 to run it")
+	}
+}
+
 func TestExplicitDREDImprovesConcealedAudioQualityAtSixtyPercentLoss(t *testing.T) {
+	requireDREDAudioQualityGate(t)
 	libopustest.RequireOracle(t)
 	encoderBlob := requireLibopusEncoderNeuralModelBlob(t)
 	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)

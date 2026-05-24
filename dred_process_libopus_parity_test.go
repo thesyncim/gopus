@@ -96,6 +96,61 @@ func TestStandaloneDREDProcessMatchesLibopusOnRealPacket(t *testing.T) {
 	assertFloat32BitsEqual(t, features, want.features, "features")
 }
 
+func TestStandaloneDREDProcessMatchesLibopusOnQualityPacket(t *testing.T) {
+	libopustest.RequireOracle(t)
+	encoderBlob := requireLibopusEncoderNeuralModelBlob(t)
+	modelBlob, err := probeLibopusDREDModelBlob()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "dred model", err)
+	}
+	_, packets := encodeDREDQualityPackets(t, encoderBlob)
+
+	expected := 0
+	haveExpected := false
+	for frame, packet := range packets {
+		if !dredQualityPacketDelivered(frame) {
+			continue
+		}
+		if haveExpected {
+			missing := frame - expected
+			if missing > 0 {
+				want, err := probeLibopusDREDProcess(packet, missing*dredQualityFrameSize, dredQualitySampleRate)
+				if err != nil {
+					libopustest.HelperUnavailable(t, "quality dred process", err)
+				}
+				if want.availableSamples <= 0 || want.processRet != 0 || want.processStage != 2 {
+					t.Fatalf("libopus quality DRED process=(available=%d ret=%d stage=%d)", want.availableSamples, want.processRet, want.processStage)
+				}
+
+				dec := NewDREDDecoder()
+				if err := dec.SetDNNBlob(modelBlob); err != nil {
+					t.Fatalf("SetDNNBlob(real model): %v", err)
+				}
+				dred := NewDRED()
+				available, dredEnd, err := dec.Parse(dred, packet, missing*dredQualityFrameSize, dredQualitySampleRate, true)
+				if err != nil {
+					t.Fatalf("Parse quality packet frame=%d: %v", frame, err)
+				}
+				if available != want.availableSamples || dredEnd != want.dredEndSamples {
+					t.Fatalf("quality availability=(%d,%d) want (%d,%d)", available, dredEnd, want.availableSamples, want.dredEndSamples)
+				}
+				if err := dec.Process(dred, dred); err != nil {
+					t.Fatalf("Process quality packet frame=%d: %v", frame, err)
+				}
+				features := make([]float32, dred.FeatureCount())
+				if n := dred.FillFeatures(features); n != len(features) {
+					t.Fatalf("FillFeatures count=%d want %d", n, len(features))
+				}
+				assertFloat32BitsEqual(t, features, want.features, "quality features")
+				return
+			}
+		}
+		expected = frame + 1
+		haveExpected = true
+	}
+	t.Fatal("no delivered quality packet with preceding loss")
+}
+
 func TestStandaloneDREDProcessLifecycleMatchesLibopusOnRealPacket(t *testing.T) {
 	libopustest.RequireOracle(t)
 	modelBlob, err := probeLibopusDREDModelBlob()

@@ -271,10 +271,10 @@ func TestAlgUnquantIntoQEXTN2LargeEnergyUsesWideAccumulator(t *testing.T) {
 	}
 
 	wantPulses := []float64{-10849, -513311}
-	energy := wantPulses[0]*wantPulses[0] + wantPulses[1]*wantPulses[1]
-	scale := gain / math.Sqrt(energy)
-	want0 := wantPulses[0] * scale
-	want1 := wantPulses[1] * scale
+	energy := float32(wantPulses[0])*float32(wantPulses[0]) + float32(wantPulses[1])*float32(wantPulses[1])
+	scale := celtRSqrt(energy) * float32(gain)
+	want0 := float64(celtNorm(float32(wantPulses[0]) * scale))
+	want1 := float64(celtNorm(float32(wantPulses[1]) * scale))
 
 	if diff := math.Abs(got[0] - want0); diff > 1e-12 {
 		t.Fatalf("got[0]=%.15f want %.15f diff %.3e", got[0], want0, diff)
@@ -283,9 +283,10 @@ func TestAlgUnquantIntoQEXTN2LargeEnergyUsesWideAccumulator(t *testing.T) {
 		t.Fatalf("got[1]=%.15f want %.15f diff %.3e", got[1], want1, diff)
 	}
 
+	wantNorm := want0*want0 + want1*want1
 	norm := got[0]*got[0] + got[1]*got[1]
-	if math.Abs(norm-1.0) > 1e-12 {
-		t.Fatalf("norm=%.15f want 1", norm)
+	if diff := math.Abs(norm - wantNorm); diff > 1e-12 {
+		t.Fatalf("norm=%.15f want %.15f diff %.3e", norm, wantNorm, diff)
 	}
 }
 

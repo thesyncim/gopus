@@ -308,12 +308,12 @@ func TestMultistreamDecodeOverlongAndEmptyPLCMatchesLibopus(t *testing.T) {
 				}
 				got = append(got, frame[:n*channels]...)
 				clear(frame)
-				n, err = dec.Decode([]byte{}, frame)
+				n, err = dec.Decode(nil, frame)
 				if err != nil {
-					t.Fatalf("Decode(empty): %v", err)
+					t.Fatalf("Decode(nil): %v", err)
 				}
 				if n != wantPLCFrameSize {
-					t.Fatalf("Decode(empty)=%d want clamped %d", n, wantPLCFrameSize)
+					t.Fatalf("Decode(nil)=%d want clamped %d", n, wantPLCFrameSize)
 				}
 				got = append(got, frame[:n*channels]...)
 				assertAPIRateFloat32Close(t, got, want, "multistream overlong empty PLC", 3e-3)
@@ -337,12 +337,12 @@ func TestMultistreamDecodeOverlongAndEmptyPLCMatchesLibopus(t *testing.T) {
 				}
 				got = append(got, frame[:n*channels]...)
 				clear(frame)
-				n, err = dec.DecodeInt16([]byte{}, frame)
+				n, err = dec.DecodeInt16(nil, frame)
 				if err != nil {
-					t.Fatalf("DecodeInt16(empty): %v", err)
+					t.Fatalf("DecodeInt16(nil): %v", err)
 				}
 				if n != wantPLCFrameSize {
-					t.Fatalf("DecodeInt16(empty)=%d want clamped %d", n, wantPLCFrameSize)
+					t.Fatalf("DecodeInt16(nil)=%d want clamped %d", n, wantPLCFrameSize)
 				}
 				got = append(got, frame[:n*channels]...)
 				assertAPIRateInt16Equal(t, got, want, "multistream overlong empty PLC int16")

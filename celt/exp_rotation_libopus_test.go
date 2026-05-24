@@ -917,7 +917,7 @@ func TestDecoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
-	dec := NewDecoder(2)
+	var dec Decoder
 	got := []struct {
 		name string
 		size uintptr
@@ -941,7 +941,7 @@ func TestDecoderSigStateMatchesLibopusFloatSize(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
-	dec := NewDecoder(2)
+	var dec Decoder
 	got := []struct {
 		name string
 		size uintptr
@@ -964,7 +964,7 @@ func TestEncoderSigStateMatchesLibopusFloatSize(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
-	enc := NewEncoder(2)
+	var enc Encoder
 	got := []struct {
 		name string
 		size uintptr
@@ -986,10 +986,7 @@ func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
-	enc := NewEncoder(2)
-	enc.SetEnergyMask(make([]float32, MaxBands*2))
-	enc.lastBandLogE = appendFloat64AsGLog(enc.lastBandLogE, []float64{1})
-	enc.lastBandLogE2 = appendFloat64AsGLog(enc.lastBandLogE2, []float64{1})
+	var enc Encoder
 	got := []struct {
 		name string
 		size uintptr
@@ -1019,7 +1016,7 @@ func TestEncoderOpusValStateMatchesLibopusFloatSize(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
-	enc := NewEncoder(2)
+	var enc Encoder
 	if got := unsafe.Sizeof(enc.lastStereoSaving); got != uintptr(sizes.opusVal16) {
 		t.Fatalf("lastStereoSaving element size=%d want libopus opus_val16 size %d", got, sizes.opusVal16)
 	}
@@ -1064,7 +1061,7 @@ func TestDecoderPostfilterStateMatchesLibopusFloatSize(t *testing.T) {
 	if err != nil {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
-	dec := NewDecoder(2)
+	var dec Decoder
 	got := []struct {
 		name string
 		size uintptr

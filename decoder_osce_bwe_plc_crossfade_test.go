@@ -201,7 +201,7 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 	// must invoke maybeApplyOSCEBWEPostSilk after the standard PLC
 	// upsampling so the concealed lowband is bandwidth-extended like a
 	// good SILK WB frame.
-	pcmPLC := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcmPLC := make([]float32, frameSize*dec.channels)
 	gotPLC, err := dec.Decode(nil, pcmPLC)
 	if err != nil {
 		t.Fatalf("Decode(nil) PLC: %v", err)
@@ -261,7 +261,7 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 			t.Fatalf("prevBWEActive=false after stereo SILK WB decode")
 		}
 
-		pcmPLC := make([]float32, dec.maxPacketSamples*dec.channels)
+		pcmPLC := make([]float32, frameSize*dec.channels)
 		gotPLC, err := dec.Decode(nil, pcmPLC)
 		if err != nil {
 			t.Fatalf("Decode(nil) stereo PLC: %v", err)

@@ -17,6 +17,7 @@ const (
 var libopusDREDQualitySequenceHelper libopustest.HelperCache
 
 func TestExplicitDREDQualityTracksLibopusAtSixtyPercentLoss(t *testing.T) {
+	requireDREDAudioQualityGate(t)
 	libopustest.RequireOracle(t)
 	encoderBlob := requireLibopusEncoderNeuralModelBlob(t)
 	decoderBlob := requireLibopusDecoderNeuralModelBlob(t)

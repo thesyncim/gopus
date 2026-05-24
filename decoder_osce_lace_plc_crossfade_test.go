@@ -237,7 +237,7 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 	// Step 2: invoke Decode(nil) for PLC. With LACE armed, the PLC path
 	// must reset the postfilter state instead of enhancing the concealed
 	// frame, matching libopus silk_decode_frame lost-branch behavior.
-	pcmPLC := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcmPLC := make([]float32, frameSize*dec.channels)
 	gotPLC, err := dec.Decode(nil, pcmPLC)
 	if err != nil {
 		t.Fatalf("Decode(nil) PLC: %v", err)
@@ -300,7 +300,7 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 			t.Fatalf("prevLACEActive=false after stereo SILK WB decode")
 		}
 
-		pcmPLC := make([]float32, dec.maxPacketSamples*dec.channels)
+		pcmPLC := make([]float32, frameSize*dec.channels)
 		gotPLC, err := dec.Decode(nil, pcmPLC)
 		if err != nil {
 			t.Fatalf("Decode(nil) stereo PLC: %v", err)

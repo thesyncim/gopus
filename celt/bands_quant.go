@@ -1439,7 +1439,8 @@ func algUnquantInto(shape []float64, rd *rangecoding.Decoder, band, n, k, spread
 	} else {
 		pulses = make([]int, n)
 	}
-	yy := opusVal16(decodePulsesInto(idx, n, k, pulses, scratch))
+	decodePulsesInto(idx, n, k, pulses, scratch)
+	var yy opusVal16
 	up := (1 << extraBits) - 1
 	if n == 2 {
 		refine := int(extDec.DecodeUniform(uint32(up))) - (up-1)/2

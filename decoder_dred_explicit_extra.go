@@ -95,7 +95,12 @@ func (d *Decoder) decodeExplicitDRED48kNeuralFloat(dred *DRED, dredOffsetSamples
 		return 0, ErrBufferTooSmall
 	}
 	d.queueExplicitDREDRecovery(dred, dredOffsetSamples, frameSizeSamples)
-	d.prepareDRED48kNeuralEntry(frameSizeSamples, d.prevMode, false)
+	// Standalone DRED has already queued its parsed features. Keep cached
+	// sidecar scheduling out of this path so it cannot replace the explicit
+	// queue with state from the previous decoded packet.
+	if d.celtDecoder != nil && !d.celtDecoder.LastPLCFrameWasNeural() {
+		d.primeDREDCELTEntryHistory(d.prevMode, false)
+	}
 
 	chunkLimit := d.sampleRate / 25 * 3
 	if chunkLimit <= 0 || frameSizeSamples <= chunkLimit {
