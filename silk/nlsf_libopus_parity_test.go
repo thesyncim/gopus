@@ -17,6 +17,7 @@ const (
 	libopusSILKNLSFModeA2NLSF    = uint32(2)
 	libopusSILKNLSFModeStabilize = uint32(3)
 	libopusSILKNLSFModeWeights   = uint32(4)
+	libopusSILKNLSFModeVQ        = uint32(5)
 
 	libopusSILKNLSFCBNBMB = uint32(0)
 	libopusSILKNLSFCBWB   = uint32(1)
@@ -33,6 +34,7 @@ func buildLibopusSILKNLSFHelper() (string, error) {
 		RefIncludes:  []string{"celt", "silk"},
 		RefSources: []string{
 			"silk/NLSF_decode.c",
+			"silk/NLSF_VQ.c",
 			"silk/NLSF_VQ_weights_laroia.c",
 			"silk/NLSF_unpack.c",
 			"silk/NLSF_stabilize.c",
@@ -83,6 +85,43 @@ func probeLibopusSILKNLSF(mode uint32, records [][]uint32) ([][]int16, error) {
 				out[i][j] = int16(reader.I32())
 			} else {
 				reader.I32()
+			}
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusSILKNLSFVQ(records [][]uint32) ([][]int32, error) {
+	binPath, err := getLibopusSILKNLSFHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKNLSFInputMagic, libopusSILKNLSFModeVQ, uint32(len(records)))
+	for _, record := range records {
+		for _, word := range record {
+			payload.U32(word)
+		}
+	}
+
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk nlsf vq", libopusSILKNLSFOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(records))
+	out := make([][]int32, count)
+	for i := range out {
+		nVectors := int(reader.U32())
+		if nVectors <= 0 || nVectors > 32 {
+			return nil, fmt.Errorf("helper nVectors=%d", nVectors)
+		}
+		out[i] = make([]int32, nVectors)
+		for j := 0; j < 32; j++ {
+			v := reader.I32()
+			if j < nVectors {
+				out[i][j] = v
 			}
 		}
 	}
@@ -172,6 +211,48 @@ func TestSILKNLSFWeightsLaroiaMatchesLibopusOracle(t *testing.T) {
 			silkNLSFWeightsLaroia(got, tc.nlsf, len(tc.nlsf))
 			if !sameInt16s(got, want[i]) {
 				t.Fatalf("silkNLSFWeightsLaroia=%v want %v", got, want[i])
+			}
+		})
+	}
+}
+
+func TestSILKNLSFVQMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []struct {
+		name string
+		cb   *nlsfCB
+		nlsf []int16
+	}{
+		{name: "nbmb_regular", cb: &silk_NLSF_CB_NB_MB, nlsf: []int16{2676, 3684, 7247, 12558, 14555, 16405, 18875, 19753, 26306, 27425}},
+		{name: "nbmb_clustered", cb: &silk_NLSF_CB_NB_MB, nlsf: []int16{128, 256, 512, 1024, 2048, 4096, 8192, 16384, 24576, 32640}},
+		{name: "wb_regular", cb: &silk_NLSF_CB_WB, nlsf: []int16{1200, 2600, 4300, 6100, 8200, 10100, 12200, 14300, 16400, 18600, 20700, 22800, 24900, 27000, 29100, 31200}},
+		{name: "wb_tight_edges", cb: &silk_NLSF_CB_WB, nlsf: []int16{1, 2, 4, 8, 16, 64, 256, 1024, 4096, 8192, 12288, 16384, 24576, 28672, 32765, 32766}},
+	}
+
+	records := make([][]uint32, len(cases))
+	for i, tc := range cases {
+		record := []uint32{cbIDForNLSF(tc.cb)}
+		for _, v := range tc.nlsf {
+			record = append(record, uint32FromInt32(int32(v)))
+		}
+		records[i] = record
+	}
+	want, err := probeLibopusSILKNLSFVQ(records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk nlsf vq", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := make([]int32, tc.cb.nVectors)
+			silkNLSFVQ(got, tc.nlsf, tc.cb.cb1NLSFQ8, tc.cb.cb1WghtQ9, tc.cb.nVectors, tc.cb.order)
+			if len(got) != len(want[i]) {
+				t.Fatalf("silkNLSFVQ len=%d want %d", len(got), len(want[i]))
+			}
+			for j := range got {
+				if got[j] != want[i][j] {
+					t.Fatalf("silkNLSFVQ[%d]=%d want %d", j, got[j], want[i][j])
+				}
 			}
 		})
 	}

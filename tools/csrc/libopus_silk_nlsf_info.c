@@ -17,7 +17,8 @@ enum {
   MODE_NLSF2A = 1,
   MODE_A2NLSF = 2,
   MODE_NLSF_STABILIZE = 3,
-  MODE_NLSF_WEIGHTS_LAROIA = 4
+  MODE_NLSF_WEIGHTS_LAROIA = 4,
+  MODE_NLSF_VQ = 5
 };
 
 static int set_binary_stdio(void) {
@@ -148,6 +149,28 @@ static int eval_weights_laroia(void) {
   return write_i16_vector(order, weights);
 }
 
+static int eval_nlsf_vq(void) {
+  uint32_t cb_id;
+  uint32_t raw;
+  int i;
+  opus_int16 nlsf[16] = {0};
+  opus_int32 err[32] = {0};
+  const silk_NLSF_CB_struct *cb;
+  if (!read_u32(&cb_id)) return 0;
+  cb = select_cb(cb_id);
+  if (cb == NULL || cb->nVectors > 32) return 0;
+  for (i = 0; i < cb->order; i++) {
+    if (!read_u32(&raw)) return 0;
+    nlsf[i] = (opus_int16)(int32_t)raw;
+  }
+  silk_NLSF_VQ(err, nlsf, cb->CB1_NLSF_Q8, cb->CB1_Wght_Q9, cb->nVectors, cb->order);
+  if (!write_u32((uint32_t)cb->nVectors)) return 0;
+  for (i = 0; i < 32; i++) {
+    if (!write_exact(&err[i], sizeof(err[i]))) return 0;
+  }
+  return 1;
+}
+
 static int eval_record(uint32_t mode) {
   switch (mode) {
     case MODE_NLSF_DECODE: return eval_decode();
@@ -155,6 +178,7 @@ static int eval_record(uint32_t mode) {
     case MODE_A2NLSF: return eval_a2nlsf();
     case MODE_NLSF_STABILIZE: return eval_stabilize();
     case MODE_NLSF_WEIGHTS_LAROIA: return eval_weights_laroia();
+    case MODE_NLSF_VQ: return eval_nlsf_vq();
   }
   return 0;
 }
@@ -169,7 +193,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_NLSF_WEIGHTS_LAROIA) return 1;
+  if (mode > MODE_NLSF_VQ) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {
