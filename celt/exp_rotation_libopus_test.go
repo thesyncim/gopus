@@ -25,6 +25,8 @@ const (
 	celtVQModeAlgQuant          = uint32(11)
 	celtVQModeThetaDist         = uint32(12)
 	celtVQModeStereoItheta      = uint32(13)
+
+	celtVQEncodePulsesStorage = uint32(4096)
 )
 
 const (
@@ -652,7 +654,7 @@ func probeLibopusEncodePulses(pulseVectors [][]int) ([][]byte, error) {
 		}
 		payload.U32(uint32(len(pulses)))
 		payload.U32(uint32(k))
-		payload.U32(64)
+		payload.U32(celtVQEncodePulsesStorage)
 		for _, pulse := range pulses {
 			payload.U32(uint32(int32(pulse)))
 		}
@@ -1529,12 +1531,21 @@ func TestAlgUnquantMatchesLibopusFloatPath(t *testing.T) {
 		{name: "legacy_n16_sparse", pulses: []int{1, 0, -1, 1, 0, -1, 1, 0, 0, 0, -1, 0, 0, 0, 0, 0}, spread: spreadLight, b: 4, gain: 0.5},
 		{name: "legacy_n16_dense", pulses: []int{1, 0, -1, 1, 0, -1, 1, 0, 2, -1, 2, 0, -1, 1, 0, 0}, spread: spreadLight, b: 4, gain: 0.5},
 		{name: "n2_none", pulses: []int{1, -1}, spread: spreadNone, b: 1, gain: 1},
-		{name: "n24_light", pulses: makeAlgUnquantPulseVector(24, 13, 0x31415926), spread: spreadLight, b: 3, gain: 0.875},
-		{name: "n48_normal", pulses: makeAlgUnquantPulseVector(48, 21, 0xabcdef01), spread: spreadNormal, b: 6, gain: 0.625},
-		{name: "n176_aggressive", pulses: makeAlgUnquantPulseVector(176, 32, 0x0badf00d), spread: spreadAggressive, b: 8, gain: 1.25},
+		{name: "n24_light", pulses: makeAlgUnquantPulseVector(24, 9, 0x31415926), spread: spreadLight, b: 3, gain: 0.875},
+		{name: "n48_normal", pulses: makeAlgUnquantPulseVector(48, 6, 0xabcdef01), spread: spreadNormal, b: 6, gain: 0.625},
+		{name: "n176_aggressive", pulses: makeAlgUnquantPulseVector(176, 4, 0x0badf00d), spread: spreadAggressive, b: 8, gain: 1.25},
 	}
 	pulseVectors := make([][]int, len(pulseCases))
 	for i, pc := range pulseCases {
+		k := 0
+		for _, p := range pc.pulses {
+			if p < 0 {
+				k -= p
+			} else {
+				k += p
+			}
+		}
+		requireDefaultLibopusPVQ(t, len(pc.pulses), k)
 		pulseVectors[i] = pc.pulses
 	}
 	payloads, err := probeLibopusEncodePulses(pulseVectors)
