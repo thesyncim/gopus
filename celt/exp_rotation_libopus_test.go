@@ -1520,16 +1520,21 @@ func TestDenormalizeBandsMatchesLibopusFloatPath(t *testing.T) {
 func TestAlgUnquantMatchesLibopusFloatPath(t *testing.T) {
 	libopustest.RequireOracle(t)
 	type pulseCase struct {
+		name   string
 		pulses []int
 		spread int
 		b      int
 		gain   float32
 	}
 	pulseCases := []pulseCase{
-		{[]int{2, -1, 0, 0, 0, 1, 0, -1}, spreadNormal, 1, 1},
-		{[]int{0, 3, -2, 0, 1, 0, -1, 0, 2, 0, 0, -1}, spreadAggressive, 3, 0.75},
-		{[]int{1, 0, -1, 1, 0, -1, 1, 0, 0, 0, -1, 0, 0, 0, 0, 0}, spreadLight, 4, 0.5},
-		{[]int{1, 0, -1, 1, 0, -1, 1, 0, 2, -1, 2, 0, -1, 1, 0, 0}, spreadLight, 4, 0.5},
+		{name: "legacy_n8", pulses: []int{2, -1, 0, 0, 0, 1, 0, -1}, spread: spreadNormal, b: 1, gain: 1},
+		{name: "legacy_n12", pulses: []int{0, 3, -2, 0, 1, 0, -1, 0, 2, 0, 0, -1}, spread: spreadAggressive, b: 3, gain: 0.75},
+		{name: "legacy_n16_sparse", pulses: []int{1, 0, -1, 1, 0, -1, 1, 0, 0, 0, -1, 0, 0, 0, 0, 0}, spread: spreadLight, b: 4, gain: 0.5},
+		{name: "legacy_n16_dense", pulses: []int{1, 0, -1, 1, 0, -1, 1, 0, 2, -1, 2, 0, -1, 1, 0, 0}, spread: spreadLight, b: 4, gain: 0.5},
+		{name: "n2_none", pulses: []int{1, -1}, spread: spreadNone, b: 1, gain: 1},
+		{name: "n24_light", pulses: makeAlgUnquantPulseVector(24, 13, 0x31415926), spread: spreadLight, b: 3, gain: 0.875},
+		{name: "n48_normal", pulses: makeAlgUnquantPulseVector(48, 21, 0xabcdef01), spread: spreadNormal, b: 6, gain: 0.625},
+		{name: "n176_aggressive", pulses: makeAlgUnquantPulseVector(176, 32, 0x0badf00d), spread: spreadAggressive, b: 8, gain: 1.25},
 	}
 	pulseVectors := make([][]int, len(pulseCases))
 	for i, pc := range pulseCases {
@@ -1560,23 +1565,54 @@ func TestAlgUnquantMatchesLibopusFloatPath(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	for ci, tc := range cases {
-		var dec rangecoding.Decoder
-		dec.Init(tc.payload)
-		got := make([]float64, tc.n)
-		gotCollapse := algUnquantNoExtInto(got, &dec, tc.n, tc.k, tc.spread, tc.b, float64(tc.gain), nil)
-		if gotCollapse != want[ci].collapse {
-			t.Fatalf("case %d collapse=%d want %d", ci, gotCollapse, want[ci].collapse)
-		}
-		for i := range got {
-			gotSample := float32(got[i])
-			if math.Float32bits(gotSample) != math.Float32bits(want[ci].x[i]) {
-				t.Fatalf("case %d x[%d]=%08x %.10g want %08x %.10g",
-					ci, i,
-					math.Float32bits(gotSample), gotSample,
-					math.Float32bits(want[ci].x[i]), want[ci].x[i])
+		pc := pulseCases[ci]
+		t.Run(pc.name, func(t *testing.T) {
+			scratchCases := []struct {
+				name    string
+				scratch *bandDecodeScratch
+			}{
+				{name: "nil_scratch"},
+				{name: "scratch", scratch: &bandDecodeScratch{}},
 			}
+			for _, sc := range scratchCases {
+				t.Run(sc.name, func(t *testing.T) {
+					var dec rangecoding.Decoder
+					dec.Init(tc.payload)
+					got := make([]float64, tc.n)
+					gotCollapse := algUnquantNoExtInto(got, &dec, tc.n, tc.k, tc.spread, tc.b, float64(tc.gain), sc.scratch)
+					if gotCollapse != want[ci].collapse {
+						t.Fatalf("collapse=%d want %d", gotCollapse, want[ci].collapse)
+					}
+					for i := range got {
+						gotSample := float32(got[i])
+						if math.Float32bits(gotSample) != math.Float32bits(want[ci].x[i]) {
+							t.Fatalf("x[%d]=%08x %.10g want %08x %.10g",
+								i,
+								math.Float32bits(gotSample), gotSample,
+								math.Float32bits(want[ci].x[i]), want[ci].x[i])
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func makeAlgUnquantPulseVector(n, count int, seed uint32) []int {
+	pulses := make([]int, n)
+	if n == 0 {
+		return pulses
+	}
+	for i := 0; i < count; i++ {
+		seed = seed*1664525 + 1013904223
+		pos := int(seed % uint32(n))
+		if seed&0x80000000 != 0 {
+			pulses[pos]--
+		} else {
+			pulses[pos]++
 		}
 	}
+	return pulses
 }
 
 func fixtureExpRotationVector(n int, seed uint32) []float32 {

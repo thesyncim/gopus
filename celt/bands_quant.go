@@ -1383,15 +1383,22 @@ func algUnquantNoExtInto(shape []float64, rd *rangecoding.Decoder, n, k, spread,
 		idx = rd.DecodeUniform(vSize)
 	}
 
-	var pulses []int32
+	var pulses []int
 	if scratch != nil {
-		pulses = scratch.ensurePVQPulses32(n)
+		pulses = scratch.ensurePVQPulses(n)
 	} else {
-		pulses = make([]int32, n)
+		pulses = make([]int, n)
 	}
-	yy := float32(decodePulsesInto32(idx, n, k, pulses, scratch))
-	cm := normalizeResidualKnownEnergyIntoAndCollapse32(shape, pulses, gain, float64(yy), b)
-	expRotation(shape, n, -1, b, k, spread)
+	yy := opusVal16(decodePulsesInto(idx, n, k, pulses, scratch))
+	var norm []celtNorm
+	if scratch != nil {
+		norm = scratch.ensurePVQNorm32(n)
+	} else {
+		norm = make([]celtNorm, n)
+	}
+	cm := normalizeResidualKnownEnergyIntoAndCollapseNorm(norm, pulses, opusVal16(gain), yy, b)
+	expRotationNorm(norm, n, -1, b, k, spread)
+	copyNormToFloat64(shape, norm)
 	return cm
 }
 
