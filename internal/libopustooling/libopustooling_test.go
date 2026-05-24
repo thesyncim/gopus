@@ -125,6 +125,70 @@ func TestLibopusToolIsRunnableUsesPlatformSemantics(t *testing.T) {
 	}
 }
 
+func TestDefaultSearchRootsIncludeGitHubWorkspace(t *testing.T) {
+	root := t.TempDir()
+	toolPath := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion, "opus_compare")
+	if err := os.MkdirAll(filepath.Dir(toolPath), 0o755); err != nil {
+		t.Fatalf("mkdir tool dir: %v", err)
+	}
+	for _, tool := range []string{"opus_demo", "opus_compare"} {
+		if err := os.WriteFile(filepath.Join(filepath.Dir(toolPath), tool), []byte("stub"), 0o755); err != nil {
+			t.Fatalf("write %s: %v", tool, err)
+		}
+	}
+	if err := os.MkdirAll(filepath.Join(filepath.Dir(toolPath), ".libs"), 0o755); err != nil {
+		t.Fatalf("mkdir lib dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(filepath.Dir(toolPath), ".libs", "libopus.a"), []byte("archive"), 0o644); err != nil {
+		t.Fatalf("write libopus archive: %v", err)
+	}
+	stamp := strings.Join([]string{
+		"gopus libopus helper build v5",
+		"version=" + DefaultVersion,
+		"qext=0",
+		"host_os=MINGW64_NT-10.0",
+		"host_arch=x86_64",
+		"host_bits=64",
+		"cc=gcc",
+		"cc_path=/usr/bin/gcc",
+		"cc_target=x86_64-w64-mingw32",
+		"cc_version=gcc test",
+		"configure=--enable-static --disable-shared",
+		"CFLAGS=-O3 -DNDEBUG",
+		"CPPFLAGS=",
+		"LDFLAGS=",
+		"",
+	}, "\r\n")
+	if err := os.WriteFile(filepath.Join(filepath.Dir(toolPath), ".gopus-libopus-build"), []byte(stamp), 0o644); err != nil {
+		t.Fatalf("write build stamp: %v", err)
+	}
+	oldWD, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	otherWD := t.TempDir()
+	if err := os.Chdir(otherWD); err != nil {
+		t.Fatalf("chdir temp: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(oldWD); err != nil {
+			t.Fatalf("restore cwd: %v", err)
+		}
+	})
+	t.Setenv("GITHUB_WORKSPACE", root)
+
+	got, ok := FindOpusCompare(DefaultVersion, DefaultSearchRoots())
+	if !ok {
+		t.Fatal("expected default roots to find GITHUB_WORKSPACE tmp_check tool")
+	}
+	if got != toolPath {
+		t.Fatalf("tool path mismatch: got %q want %q", got, toolPath)
+	}
+	if !stampedLibopusBuildPresentForPlatform(DefaultVersion, DefaultSearchRoots(), false, "windows", "amd64") {
+		t.Fatal("expected default roots to validate GITHUB_WORKSPACE stamped build")
+	}
+}
+
 func TestFindOrEnsureOpusDemoValidatesBeforeReturningExistingTool(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("shell validation hook is Unix-only")

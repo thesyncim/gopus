@@ -38,7 +38,26 @@ const (
 // DefaultSearchRoots covers common invocation locations:
 // repository root, package subdirs (e.g. testvectors), and deeper test runs.
 func DefaultSearchRoots() []string {
-	return []string{".", "..", "../.."}
+	roots := []string{".", "..", "../.."}
+	if workspace := os.Getenv("GITHUB_WORKSPACE"); workspace != "" {
+		roots = append(roots, workspace)
+	}
+	if root, ok := sourceRepoRoot(); ok {
+		roots = append(roots, root)
+	}
+	return roots
+}
+
+func sourceRepoRoot() (string, bool) {
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		return "", false
+	}
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
+	if st, err := os.Stat(filepath.Join(root, "go.mod")); err == nil && !st.IsDir() {
+		return root, true
+	}
+	return "", false
 }
 
 func findLibopusTool(version string, roots []string, tool string) (string, bool) {
@@ -254,17 +273,18 @@ func normalizeLibopusStampArch(arch string) string {
 }
 
 func parseLibopusBuildStamp(stamp string) (map[string]string, bool) {
-	lines := strings.Split(strings.TrimRight(stamp, "\n"), "\n")
-	if len(lines) == 0 || lines[0] != "gopus libopus helper build v5" {
+	lines := strings.Split(strings.TrimRight(stamp, "\r\n"), "\n")
+	if len(lines) == 0 || strings.TrimSpace(lines[0]) != "gopus libopus helper build v5" {
 		return nil, false
 	}
 	fields := make(map[string]string, len(lines)-1)
 	for _, line := range lines[1:] {
+		line = strings.TrimRight(line, "\r")
 		key, value, ok := strings.Cut(line, "=")
 		if !ok || key == "" {
 			return nil, false
 		}
-		fields[key] = value
+		fields[key] = strings.TrimSpace(value)
 	}
 	return fields, true
 }
