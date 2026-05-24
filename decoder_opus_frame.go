@@ -1,9 +1,10 @@
 package gopus
 
-import "github.com/thesyncim/gopus/internal/extsupport"
-
 import (
+	"math"
+
 	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/silk"
 )
@@ -19,7 +20,7 @@ func smoothFade(in1, in2, out []float32, overlap, channels, sampleRate int) {
 	if inc <= 0 {
 		inc = 1
 	}
-	win := celt.GetWindowBuffer(overlap * inc)
+	win := celt.GetWindowBufferF32(overlap * inc)
 	if len(win) == 0 {
 		return
 	}
@@ -31,14 +32,29 @@ func smoothFade(in1, in2, out []float32, overlap, channels, sampleRate int) {
 	for c := 0; c < channels; c++ {
 		for i := 0; i < overlap; i++ {
 			w := win[i*inc]
-			w *= w
+			w = smoothFadeMul32(w, w)
 			idx := i*channels + c
 			if idx >= len(out) || idx >= len(in1) || idx >= len(in2) {
 				break
 			}
-			out[idx] = float32(float64(in2[idx])*w + float64(in1[idx])*(1.0-w))
+			oneMinusW := smoothFadeSub32(float32(1), w)
+			out[idx] = smoothFadeFMA32(w, in2[idx], smoothFadeMul32(oneMinusW, in1[idx]))
 		}
 	}
+}
+
+func smoothFadeFMA32(a, b, c float32) float32 {
+	return float32(math.FMA(float64(a), float64(b), float64(c)))
+}
+
+//go:noinline
+func smoothFadeMul32(a, b float32) float32 {
+	return a * b
+}
+
+//go:noinline
+func smoothFadeSub32(a, b float32) float32 {
+	return a - b
 }
 
 func copyFloat32(dst []float32, src []float32) {
