@@ -11,7 +11,7 @@ import (
 // This matches libopus celt/mathops.h EPSILON definition.
 const pvqEPSILON = 1e-15
 
-// opPVQSearch implements libopus op_pvq_search_c() (float path) with high precision.
+// opPVQSearch implements libopus op_pvq_search_c() (float path).
 // It finds the signed pulse vector iy (sum abs = K) that best matches X.
 // Returns the pulse vector and the computed energy yy (sum of squares of pulses).
 //
@@ -23,11 +23,14 @@ const pvqEPSILON = 1e-15
 // The rate-distortion criterion maximizes Rxy/sqrt(Ryy), which is equivalent to
 // maximizing Rxy^2/Ryy (avoiding the sqrt). We compare (Rxy_new)^2 * Ryy_old > (Rxy_old)^2 * Ryy_new.
 //
-// NOTE: This function does NOT modify the input x slice.
+// NOTE: This compatibility wrapper does NOT modify the input x slice.
 //
 // Reference: RFC 6716 Section 4.3.4.1, libopus celt/vq.c op_pvq_search_c()
 func opPVQSearch(x []float64, k int) ([]int, float64) {
-	return opPVQSearchScratch(x, k, nil, nil, nil, nil)
+	xn := make([]celtNorm, len(x))
+	copyFloat64ToNorm(xn, x)
+	iy, yy := opPVQSearchNorm(xn, k)
+	return iy, float64(yy)
 }
 
 // opPVQSearchScratch is the scratch-aware version of opPVQSearch.
@@ -37,6 +40,24 @@ func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf
 }
 
 func opPVQSearchScratchWithInputMutation(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32, absInput bool) ([]int, float64) {
+	xn := make([]celtNorm, len(x))
+	copyFloat64ToNorm(xn, x)
+	iy, yy := opPVQSearchScratchNormWithInputMutation(xn, k, iyBuf, signxBuf, yBuf, absXBuf, absInput)
+	if absInput {
+		copyNormToFloat64(x, xn)
+	}
+	return iy, float64(yy)
+}
+
+func opPVQSearchNorm(x []celtNorm, k int) ([]int, opusVal16) {
+	return opPVQSearchScratchNorm(x, k, nil, nil, nil, nil)
+}
+
+func opPVQSearchScratchNorm(x []celtNorm, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32) ([]int, opusVal16) {
+	return opPVQSearchScratchNormWithInputMutation(x, k, iyBuf, signxBuf, yBuf, absXBuf, false)
+}
+
+func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32, absInput bool) ([]int, opusVal16) {
 	n := len(x)
 	const idxBias = float32(0)
 
@@ -81,13 +102,12 @@ func opPVQSearchScratchWithInputMutation(x []float64, k int, iyBuf *[]int, signx
 	highPulseSearch := k > (n >> 1)
 	var highPulseSum float32
 
-	// Initialize buffers: extract abs values and signs from float64 input.
+	// Initialize buffers: extract abs values and signs from celt_norm input.
 	if idxBias == 0 {
 		if highPulseSearch {
 			highPulseSum = pvqExtractAbsSignOnlySum(x, absX, signx, n)
 		} else {
-			// Fast path: SIMD-accelerated extraction (assembly on arm64/amd64)
-			pvqExtractAbsSign(x, absX, y, signx, iy, n)
+			pvqExtractAbsSignNorm(x, absX, y, signx, iy, n)
 		}
 	} else {
 		// Slow path with optional idx bias.
@@ -103,9 +123,9 @@ func opPVQSearchScratchWithInputMutation(x []float64, k int, iyBuf *[]int, signx
 			xj := x[j]
 			if xj < 0 {
 				signx[j] = 1
-				absX[j] = float32(-xj)
+				absX[j] = -xj
 			} else {
-				absX[j] = float32(xj)
+				absX[j] = xj
 			}
 			absX[j] -= float32(j) * idxBias
 			if absX[j] < 0 {
@@ -154,7 +174,7 @@ func opPVQSearchScratchWithInputMutation(x []float64, k int, iyBuf *[]int, signx
 
 	if absInput {
 		for j := 0; j < n; j++ {
-			x[j] = float64(absX[j])
+			x[j] = celtNorm(absX[j])
 		}
 	}
 
@@ -188,10 +208,10 @@ func opPVQSearchScratchWithInputMutation(x []float64, k int, iyBuf *[]int, signx
 		iy[j] = (iy[j] ^ mask) - mask
 	}
 
-	return iy, float64(yy)
+	return iy, opusVal16(yy)
 }
 
-func pvqExtractAbsSignOnly(x []float64, absX []float32, signx []byte, n int) {
+func pvqExtractAbsSignOnly(x []celtNorm, absX []float32, signx []byte, n int) {
 	_ = x[n-1]
 	_ = absX[n-1]
 	_ = signx[n-1]
@@ -200,14 +220,14 @@ func pvqExtractAbsSignOnly(x []float64, absX []float32, signx []byte, n int) {
 		xj := x[j]
 		if xj < 0 {
 			signx[j] = 1
-			absX[j] = float32(-xj)
+			absX[j] = -xj
 		} else {
-			absX[j] = float32(xj)
+			absX[j] = xj
 		}
 	}
 }
 
-func pvqExtractAbsSignOnlySum(x []float64, absX []float32, signx []byte, n int) float32 {
+func pvqExtractAbsSignOnlySum(x []celtNorm, absX []float32, signx []byte, n int) float32 {
 	_ = x[n-1]
 	_ = absX[n-1]
 	_ = signx[n-1]
@@ -218,14 +238,34 @@ func pvqExtractAbsSignOnlySum(x []float64, absX []float32, signx []byte, n int) 
 		var ax float32
 		if xj < 0 {
 			signx[j] = 1
-			ax = float32(-xj)
+			ax = -xj
 		} else {
-			ax = float32(xj)
+			ax = xj
 		}
 		absX[j] = ax
 		sum += ax
 	}
 	return sum
+}
+
+func pvqExtractAbsSignNorm(x []celtNorm, absX []float32, y []float32, signx []byte, iy []int, n int) {
+	_ = x[n-1]
+	_ = absX[n-1]
+	_ = y[n-1]
+	_ = signx[n-1]
+	_ = iy[n-1]
+	for j := 0; j < n; j++ {
+		iy[j] = 0
+		signx[j] = 0
+		y[j] = 0
+		xj := x[j]
+		if xj < 0 {
+			signx[j] = 1
+			absX[j] = -xj
+		} else {
+			absX[j] = xj
+		}
+	}
 }
 
 func opPVQSearchN2(x []float64, k, up int) (iy []int, upIy []int, refine int) {

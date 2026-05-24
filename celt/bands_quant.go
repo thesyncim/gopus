@@ -1399,12 +1399,14 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 	var iyBuf *[]int
 	var signxBuf *[]byte
 	var yBuf, absXBuf *[]float32
+	var xNormBuf *[]celtNorm
 	var uBuf *[]uint32
 	if scratch != nil {
 		iyBuf = &scratch.pvqIy
 		signxBuf = &scratch.pvqSignx
 		yBuf = &scratch.pvqY
 		absXBuf = &scratch.pvqAbsX
+		xNormBuf = &scratch.pvqX
 		uBuf = &scratch.cwrsU
 	}
 
@@ -1448,7 +1450,17 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []float64, n, k, sprea
 			yy = 0
 		}
 	} else {
-		pulses, yy = opPVQSearchScratchWithInputMutation(x, k, iyBuf, signxBuf, yBuf, absXBuf, true)
+		var xNorm []celtNorm
+		if xNormBuf != nil {
+			xNorm = ensureNormSlice(xNormBuf, n)
+		} else {
+			xNorm = make([]celtNorm, n)
+		}
+		copyFloat64ToNorm(xNorm, x[:n])
+		var yy32 opusVal16
+		pulses, yy32 = opPVQSearchScratchNormWithInputMutation(xNorm, k, iyBuf, signxBuf, yBuf, absXBuf, true)
+		copyNormToFloat64(x[:n], xNorm)
+		yy = float64(yy32)
 		index := encodePulsesFast(pulses, n, k, uBuf)
 		vSize := PVQ_V(n, k)
 		if vSize == 0 {

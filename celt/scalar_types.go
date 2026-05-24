@@ -50,6 +50,33 @@ func copySigToFloat32(dst []float32, src []celtSig) {
 	}
 }
 
+func ensureNormSlice(buf *[]celtNorm, n int) []celtNorm {
+	if n <= 0 {
+		return nil
+	}
+	if cap(*buf) < n {
+		*buf = make([]celtNorm, n)
+	} else {
+		*buf = (*buf)[:n]
+		clear(*buf)
+	}
+	return (*buf)[:n]
+}
+
+func copyFloat64ToNorm(dst []celtNorm, src []float64) {
+	n := min(len(dst), len(src))
+	for i := 0; i < n; i++ {
+		dst[i] = celtNorm(src[i])
+	}
+}
+
+func copyNormToFloat64(dst []float64, src []celtNorm) {
+	n := min(len(dst), len(src))
+	for i := 0; i < n; i++ {
+		dst[i] = float64(src[i])
+	}
+}
+
 func ensureGLogSlice(buf *[]celtGLog, n int) []celtGLog {
 	if n <= 0 {
 		return nil

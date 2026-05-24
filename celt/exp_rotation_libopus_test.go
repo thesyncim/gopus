@@ -918,6 +918,7 @@ func TestOPPVQSearchMatchesLibopusFloatPath(t *testing.T) {
 		{name: "high_k", x: []float32{0.12, -0.71, 0.38, 0.19, -0.27, 0.55, -0.06, 0.44}, k: 9},
 		{name: "silence_high_k", x: []float32{0, 0, 0, 0, 0, 0}, k: 7},
 		{name: "near_zero", x: []float32{1e-20, -2e-20, 3e-20, -4e-20, 5e-20}, k: 4},
+		{name: "near_tie", x: []float32{0.50000006, -0.5, 0.24999997, -0.25, 0.12500001, -0.125}, k: 5},
 		{name: "wide_band", x: fixtureExpRotationVector(32, 0x70767173), k: 18},
 		{name: "large_k", x: fixtureExpRotationVector(48, 0x80818283), k: 35},
 	}
@@ -926,11 +927,11 @@ func TestOPPVQSearchMatchesLibopusFloatPath(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	for ci, tc := range cases {
-		x := make([]float64, len(tc.x))
+		x := make([]celtNorm, len(tc.x))
 		for i, sample := range tc.x {
-			x[i] = float64(sample)
+			x[i] = celtNorm(sample)
 		}
-		gotPulses, gotYY := opPVQSearch(x, tc.k)
+		gotPulses, gotYY := opPVQSearchNorm(x, tc.k)
 		if len(gotPulses) != len(want[ci].iy) {
 			t.Fatalf("%s pulses len=%d want %d", tc.name, len(gotPulses), len(want[ci].iy))
 		}
@@ -939,11 +940,10 @@ func TestOPPVQSearchMatchesLibopusFloatPath(t *testing.T) {
 				t.Fatalf("%s pulse[%d]=%d want %d", tc.name, i, gotPulses[i], want[ci].iy[i])
 			}
 		}
-		gotYY32 := float32(gotYY)
-		if math.Float32bits(gotYY32) != math.Float32bits(want[ci].yy) {
+		if math.Float32bits(gotYY) != math.Float32bits(want[ci].yy) {
 			t.Fatalf("%s yy=%08x %.10g want %08x %.10g",
 				tc.name,
-				math.Float32bits(gotYY32), gotYY32,
+				math.Float32bits(gotYY), gotYY,
 				math.Float32bits(want[ci].yy), want[ci].yy)
 		}
 	}

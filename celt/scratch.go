@@ -169,6 +169,7 @@ type bandEncodeScratch struct {
 	pvqSignx []byte
 	pvqY     []float32
 	pvqAbsX  []float32
+	pvqX     []celtNorm
 	pvqIy    []int
 
 	// CWRS scratch
