@@ -1,4 +1,4 @@
-//go:build libopus_oracle
+//go:build gopus_libopus_oracle
 
 package celt
 
