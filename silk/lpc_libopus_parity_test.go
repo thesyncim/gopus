@@ -14,6 +14,8 @@ const (
 
 	libopusSILKLPCModeBurgModified      = uint32(0)
 	libopusSILKLPCModeLPCAnalysisFilter = uint32(1)
+	libopusSILKLPCModeInnerProduct      = uint32(2)
+	libopusSILKLPCModeEnergy            = uint32(3)
 )
 
 var libopusSILKLPCHelper libopustest.HelperCache
@@ -54,6 +56,17 @@ type libopusSILKLPCFilterCase struct {
 	order int
 	pred  []float32
 	x     []float32
+}
+
+type libopusSILKInnerProductCase struct {
+	name string
+	a    []float32
+	b    []float32
+}
+
+type libopusSILKEnergyCase struct {
+	name string
+	x    []float32
 }
 
 func probeLibopusSILKBurgModified(cases []libopusSILKBurgCase) ([]libopusSILKBurgResult, error) {
@@ -131,6 +144,62 @@ func probeLibopusSILKLPCAnalysisFilter(cases []libopusSILKLPCFilterCase) ([][]fl
 	return out, nil
 }
 
+func probeLibopusSILKInnerProductFLP(cases []libopusSILKInnerProductCase) ([]float64, error) {
+	binPath, err := getLibopusSILKLPCHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKLPCInputMagic, libopusSILKLPCModeInnerProduct, uint32(len(cases)))
+	for _, tc := range cases {
+		if len(tc.a) != len(tc.b) {
+			return nil, fmt.Errorf("%s: a len=%d b len=%d", tc.name, len(tc.a), len(tc.b))
+		}
+		payload.U32(uint32(len(tc.a)))
+		payload.Float32s(tc.a...)
+		payload.Float32s(tc.b...)
+	}
+
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk inner product flp", libopusSILKLPCOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(cases))
+	out := make([]float64, count)
+	for i := range out {
+		out[i] = reader.Float64()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func probeLibopusSILKEnergyFLP(cases []libopusSILKEnergyCase) ([]float64, error) {
+	binPath, err := getLibopusSILKLPCHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := libopustest.NewOraclePayload(libopusSILKLPCInputMagic, libopusSILKLPCModeEnergy, uint32(len(cases)))
+	for _, tc := range cases {
+		payload.U32(uint32(len(tc.x)))
+		payload.Float32s(tc.x...)
+	}
+
+	reader, err := libopustest.RunOracle(binPath, payload.Bytes(), "silk energy flp", libopusSILKLPCOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(len(cases))
+	out := make([]float64, count)
+	for i := range out {
+		out[i] = reader.Float64()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func TestSILKBurgModifiedFLPMatchesLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	cases := []libopusSILKBurgCase{
@@ -201,6 +270,62 @@ func TestSILKLPCAnalysisFilterFLPMatchesLibopusOracle(t *testing.T) {
 	}
 }
 
+func TestSILKInnerProductFLPMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusSILKInnerProductCase{
+		{name: "one", a: []float32{0.25}, b: []float32{-16}},
+		{name: "four", a: silkFLPOracleSignal(4, 0xabcdef01, 1.0), b: silkFLPOracleSignal(4, 0x01020304, 0.75)},
+		{name: "five", a: silkFLPOracleSignal(5, 0xabcdef02, 1.5), b: silkFLPOracleSignal(5, 0x10203040, 0.5)},
+		{name: "pitch_len_31", a: silkFLPOracleSignal(31, 0xabcdef03, 42.0), b: silkFLPOracleSignal(31, 0x20304050, 17.0)},
+		{name: "pitch_len_80", a: silkFLPOracleSignal(80, 0xabcdef04, 32768.0), b: silkFLPOracleSignal(80, 0x30405060, 32768.0)},
+		{name: "pitch_len_120", a: silkFLPOracleSignal(120, 0xabcdef05, 4096.0), b: silkFLPOracleSignal(120, 0x40506070, 8192.0)},
+		{name: "order_sensitive", a: []float32{1e20, 1, -1e20, 1, -1e20, 1, 1e20, 1}, b: []float32{1, 1, 1, 1, 1, 1, 1, 1}},
+	}
+	want, err := probeLibopusSILKInnerProductFLP(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk inner product flp", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := innerProductFLP(tc.a, tc.b, len(tc.a))
+			if math.Float64bits(got) != math.Float64bits(want[i]) {
+				t.Fatalf("innerProduct=%016x %.17g want %016x %.17g",
+					math.Float64bits(got), got,
+					math.Float64bits(want[i]), want[i])
+			}
+		})
+	}
+}
+
+func TestSILKEnergyFLPMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	cases := []libopusSILKEnergyCase{
+		{name: "one", x: []float32{-16}},
+		{name: "four", x: silkFLPOracleSignal(4, 0x55667788, 1.0)},
+		{name: "five", x: silkFLPOracleSignal(5, 0x66778899, 1.5)},
+		{name: "pitch_len_31", x: silkFLPOracleSignal(31, 0x778899aa, 42.0)},
+		{name: "pitch_len_80", x: silkFLPOracleSignal(80, 0x8899aabb, 32768.0)},
+		{name: "pitch_len_120", x: silkFLPOracleSignal(120, 0x99aabbcc, 4096.0)},
+		{name: "wide_dynamic_range", x: []float32{1e10, 1, -1e10, 1, 1, -1e10, 1, 1e10}},
+	}
+	want, err := probeLibopusSILKEnergyFLP(cases)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk energy flp", err)
+	}
+
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := energyFLP(tc.x)
+			if math.Float64bits(got) != math.Float64bits(want[i]) {
+				t.Fatalf("energy=%016x %.17g want %016x %.17g",
+					math.Float64bits(got), got,
+					math.Float64bits(want[i]), want[i])
+			}
+		})
+	}
+}
+
 func silkBurgOracleSignal(n int, seed uint32) []float32 {
 	x := make([]float32, n)
 	state := seed
@@ -209,6 +334,17 @@ func silkBurgOracleSignal(n int, seed uint32) []float32 {
 		noise := float32(int32(state>>8)&0xffff-32768) / 32768.0
 		ramp := float32((i%31)-15) * (1.0 / 256.0)
 		x[i] = 0.35*noise + ramp
+	}
+	return x
+}
+
+func silkFLPOracleSignal(n int, seed uint32, scale float32) []float32 {
+	x := make([]float32, n)
+	state := seed
+	for i := range x {
+		state = state*1664525 + 1013904223
+		mant := int32(state>>8)&0xffff - 32768
+		x[i] = scale * float32(mant) / 32768.0
 	}
 	return x
 }

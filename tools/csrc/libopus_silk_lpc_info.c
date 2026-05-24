@@ -15,7 +15,9 @@
 
 enum {
   MODE_BURG_MODIFIED_FLP = 0,
-  MODE_LPC_ANALYSIS_FILTER_FLP = 1
+  MODE_LPC_ANALYSIS_FILTER_FLP = 1,
+  MODE_INNER_PRODUCT_FLP = 2,
+  MODE_ENERGY_FLP = 3
 };
 
 static int set_binary_stdio(void) {
@@ -39,6 +41,10 @@ static int read_u32(uint32_t *out) {
 }
 
 static int write_u32(uint32_t value) {
+  return write_exact(&value, sizeof(value));
+}
+
+static int write_double(double value) {
   return write_exact(&value, sizeof(value));
 }
 
@@ -103,10 +109,49 @@ static int eval_lpc_analysis_filter(void) {
   return 1;
 }
 
+static int eval_inner_product(void) {
+  uint32_t raw;
+  uint32_t length;
+  uint32_t i;
+  silk_float a[512];
+  silk_float b[512];
+  double v;
+  if (!read_u32(&length)) return 0;
+  if (length == 0 || length > 512) return 0;
+  for (i = 0; i < length; i++) {
+    if (!read_u32(&raw)) return 0;
+    memcpy(&a[i], &raw, sizeof(a[i]));
+  }
+  for (i = 0; i < length; i++) {
+    if (!read_u32(&raw)) return 0;
+    memcpy(&b[i], &raw, sizeof(b[i]));
+  }
+  v = silk_inner_product_FLP(a, b, (opus_int)length, 0);
+  return write_double(v);
+}
+
+static int eval_energy(void) {
+  uint32_t raw;
+  uint32_t length;
+  uint32_t i;
+  silk_float x[512];
+  double v;
+  if (!read_u32(&length)) return 0;
+  if (length == 0 || length > 512) return 0;
+  for (i = 0; i < length; i++) {
+    if (!read_u32(&raw)) return 0;
+    memcpy(&x[i], &raw, sizeof(x[i]));
+  }
+  v = silk_energy_FLP(x, (opus_int)length);
+  return write_double(v);
+}
+
 static int eval_record(uint32_t mode) {
   switch (mode) {
     case MODE_BURG_MODIFIED_FLP: return eval_burg_modified();
     case MODE_LPC_ANALYSIS_FILTER_FLP: return eval_lpc_analysis_filter();
+    case MODE_INNER_PRODUCT_FLP: return eval_inner_product();
+    case MODE_ENERGY_FLP: return eval_energy();
   }
   return 0;
 }
@@ -121,7 +166,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_LPC_ANALYSIS_FILTER_FLP) return 1;
+  if (mode > MODE_ENERGY_FLP) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {

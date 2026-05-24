@@ -35,6 +35,12 @@ func (p *OraclePayload) U32(v uint32) {
 	p.data = append(p.data, buf[:]...)
 }
 
+func (p *OraclePayload) U64(v uint64) {
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], v)
+	p.data = append(p.data, buf[:]...)
+}
+
 func (p *OraclePayload) I32(v int32) {
 	p.U32(uint32(v))
 }
@@ -51,6 +57,10 @@ func (p *OraclePayload) I16(v int16) {
 
 func (p *OraclePayload) Float32(v float32) {
 	p.U32(math.Float32bits(v))
+}
+
+func (p *OraclePayload) Float64(v float64) {
+	p.U64(math.Float64bits(v))
 }
 
 func (p *OraclePayload) Float32s(values ...float32) {
@@ -141,6 +151,19 @@ func (r *OracleReader) U32() uint32 {
 	return v
 }
 
+func (r *OracleReader) U64() uint64 {
+	if r.err != nil {
+		return 0
+	}
+	if r.offset+8 > len(r.data) {
+		r.err = fmt.Errorf("truncated %s helper output", r.label)
+		return 0
+	}
+	v := binary.LittleEndian.Uint64(r.data[r.offset:])
+	r.offset += 8
+	return v
+}
+
 func (r *OracleReader) I32() int32 {
 	return int32(r.U32())
 }
@@ -164,6 +187,10 @@ func (r *OracleReader) I16() int16 {
 
 func (r *OracleReader) Float32() float32 {
 	return math.Float32frombits(r.U32())
+}
+
+func (r *OracleReader) Float64() float64 {
+	return math.Float64frombits(r.U64())
 }
 
 func (r *OracleReader) Bytes(n int) []byte {

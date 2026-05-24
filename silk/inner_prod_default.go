@@ -25,14 +25,6 @@ func innerProductF32(a, b []float32, length int) float64 {
 	return s0 + s1 + s2 + s3
 }
 
-// innerProductFLP computes inner product of two float32 arrays.
-// Matches libopus silk_inner_product_FLP (float precision accumulation).
-func innerProductFLP(a, b []float32, length int) float64 {
-	// For now, mapping to the same implementation as innerProductF32
-	// since the Go version was identical.
-	return innerProductF32(a, b, length)
-}
-
 // energyF32 computes energy (sum of squares) of a float32 signal.
 // Accumulates in float64 precision.
 func energyF32(x []float32, length int) float64 {

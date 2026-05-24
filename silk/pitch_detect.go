@@ -821,12 +821,11 @@ func lagrangianInterpolate(corrMinus, corrCenter, corrPlus float64) float64 {
 
 // energyFLP computes sum of squares of a float32 array.
 // Matches libopus silk_energy_FLP (float precision accumulation).
-// Delegates to energyF32 which has ARM64 assembly on supported platforms.
 func energyFLP(data []float32) float64 {
-	return energyF32(data, len(data))
+	return energyF32Libopus(data, len(data))
 }
 
-// innerProductFLP is in inner_prod_asm.go (arm64) / inner_prod_default.go (other).
+// innerProductFLP is in inner_product_flp.go.
 
 func pitchStage3Index(k, j, lag int) int {
 	return (k*peNbCbksStage3Max+j)*peNbStage3Lags + lag

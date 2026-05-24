@@ -69,9 +69,6 @@ done:
 	FMOVD   F0, ret+56(FP)
 	RET
 
-TEXT ·innerProductFLP(SB), NOSPLIT, $0-64
-	B       ·innerProductF32(SB)
-
 TEXT ·energyF32(SB), NOSPLIT, $0-40
 	MOVD    x_base+0(FP), R0
 	MOVD    length+24(FP), R6
