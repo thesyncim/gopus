@@ -15,7 +15,7 @@ func TestAlphaCoef(t *testing.T) {
 	}
 
 	for lm := 0; lm < 4; lm++ {
-		if math.Abs(AlphaCoef[lm]-expected[lm]) > 1e-10 {
+		if math.Abs(float64(AlphaCoef[lm])-expected[lm]) > 1e-10 {
 			t.Errorf("AlphaCoef[%d] = %v, want %v", lm, AlphaCoef[lm], expected[lm])
 		}
 	}
@@ -31,7 +31,7 @@ func TestBetaCoefInter(t *testing.T) {
 	}
 
 	for lm := 0; lm < 4; lm++ {
-		if math.Abs(BetaCoefInter[lm]-expected[lm]) > 1e-10 {
+		if math.Abs(float64(BetaCoefInter[lm])-expected[lm]) > 1e-10 {
 			t.Errorf("BetaCoefInter[%d] = %v, want %v", lm, BetaCoefInter[lm], expected[lm])
 		}
 	}
@@ -46,7 +46,7 @@ func TestBetaCoefInter(t *testing.T) {
 
 func TestBetaIntra(t *testing.T) {
 	expected := 4915.0 / 32768.0 // 0.15
-	if math.Abs(BetaIntra-expected) > 1e-10 {
+	if math.Abs(float64(BetaIntra)-expected) > 1e-10 {
 		t.Errorf("BetaIntra = %v, want %v", BetaIntra, expected)
 	}
 }

@@ -1,7 +1,5 @@
 package celt
 
-import "math"
-
 // celtMinSignalBandwidth mirrors libopus celt_encoder.c min_bandwidth selection.
 func celtMinSignalBandwidth(equivRate, channels int) int {
 	if equivRate < 32000*channels {
@@ -21,7 +19,7 @@ func celtMinSignalBandwidth(equivRate, channels int) int {
 
 // estimateSignalBandwidthFromBandLogE estimates the analysis bandwidth index (1..20)
 // from CELT band log-energies for use on the next frame's allocation gating.
-func estimateSignalBandwidthFromBandLogE(bandLogE []float64, nbBands, channels, prev, lsbDepth int) int {
+func estimateSignalBandwidthFromBandLogE(bandLogE []celtGLog, nbBands, channels, prev, lsbDepth int) int {
 	if nbBands <= 0 || len(bandLogE) == 0 {
 		if prev > 0 {
 			return prev
@@ -41,21 +39,21 @@ func estimateSignalBandwidthFromBandLogE(bandLogE []float64, nbBands, channels, 
 
 	// Reconstruct a per-band power track (max across channels), then apply the
 	// libopus-style active-band and masking tests from analysis.c.
-	var perBandEnergy [MaxBands]float64
-	maxEnergy := 0.0
+	var perBandEnergy [MaxBands]float32
+	maxEnergy := float32(0)
 	for b := 0; b < nbBands; b++ {
-		bandEnergy := 0.0
+		bandEnergy := float32(0)
 		for c := 0; c < channels; c++ {
 			idx := c*nbBands + b
 			if idx >= len(bandLogE) {
 				break
 			}
 			// Convert from mean-relative log amplitude back to power.
-			v := bandLogE[idx]
+			v := float32(bandLogE[idx])
 			if b < len(eMeans) {
-				v += eMeans[b] * DB6
+				v += float32(eMeans[b]) * DB6
 			}
-			amp := math.Exp2(v)
+			amp := celtExp2(v)
 			power := amp * amp
 			if power > bandEnergy {
 				bandEnergy = power
@@ -78,13 +76,13 @@ func estimateSignalBandwidthFromBandLogE(bandLogE []float64, nbBands, channels, 
 	if lsbShift < 0 {
 		lsbShift = 0
 	}
-	noiseScale := float64(uint(1) << uint(lsbShift))
-	noiseFloor := 5.7e-4 / noiseScale
+	noiseScale := float32(uint(1) << uint(lsbShift))
+	noiseFloor := float32(5.7e-4) / noiseScale
 	noiseFloor *= noiseFloor
 
 	var masked [MaxBands]bool
 	bw := 0
-	bandwidthMask := 0.0
+	bandwidthMask := float32(0)
 	for b := 0; b < nbBands; b++ {
 		E := perBandEnergy[b]
 		width := 1
@@ -94,18 +92,22 @@ func estimateSignalBandwidthFromBandLogE(bandLogE []float64, nbBands, channels, 
 				width = 1
 			}
 		}
-		if E*1e9 > maxEnergy && E > noiseFloor*float64(width) {
+		if E*1e9 > maxEnergy && E > noiseFloor*float32(width) {
 			bw = b + 1
 		}
 
-		maskThresh := 0.05
+		maskThresh := float32(0.05)
 		if prev >= b+1 {
 			maskThresh = 0.01
 		}
 		if E < maskThresh*bandwidthMask {
 			masked[b] = true
 		}
-		bandwidthMask = math.Max(0.05*bandwidthMask, E)
+		if floor := float32(0.05) * bandwidthMask; floor > E {
+			bandwidthMask = floor
+		} else {
+			bandwidthMask = E
+		}
 	}
 
 	if bw == 20 && nbBands > 0 && masked[nbBands-1] {

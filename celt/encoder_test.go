@@ -398,8 +398,8 @@ func TestEncodeFrameLFEClampsHighBandEnergy(t *testing.T) {
 	if len(lastBandLogE) < 3 {
 		t.Fatalf("lastBandLogE length=%d want at least 3", len(lastBandLogE))
 	}
-	baseAbs := float64(lastBandLogE[0]) + eMeans[0]*DB6
-	highAbs := float64(lastBandLogE[2]) + eMeans[2]*DB6
+	baseAbs := float64(lastBandLogE[0]) + float64(eMeans[0]*DB6)
+	highAbs := float64(lastBandLogE[2]) + float64(eMeans[2]*DB6)
 	limitAbs := baseAbs + float64(celtLog2(float32(lfeBandClamp)))
 	floorAbs := float64(celtLog2(float32(celtFloatEpsilon)))
 	wantMax := limitAbs

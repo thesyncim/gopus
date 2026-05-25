@@ -1,10 +1,6 @@
 package celt
 
-import (
-	"math"
-
-	"github.com/thesyncim/gopus/rangecoding"
-)
+import "github.com/thesyncim/gopus/rangecoding"
 
 func cubicQEXTThresholdQ3(ctx *bandCtx, n, lm int) int {
 	if ctx == nil {
@@ -214,7 +210,7 @@ func cubicQuant(x []celtNorm, n, res, B int, enc *rangecoding.Encoder, gain opus
 
 	norm := float32(0.5) * float32(k) / (faceVal + pvqEPSILON)
 	for i := 0; i < n; i++ {
-		iy[i] = min(k-1, int(math.Floor(float64((float32(x[i])+faceVal)*norm))))
+		iy[i] = min(k-1, floor32ToInt((float32(x[i])+faceVal)*norm))
 		if i == face {
 			continue
 		}

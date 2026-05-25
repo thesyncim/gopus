@@ -53,26 +53,12 @@ func absSumSig(x []celtSig) opusVal32 {
 	return sum
 }
 
-func copySigToFloat64(dst []float64, src []celtSig) {
-	n := min(len(dst), len(src))
-	for i := 0; i < n; i++ {
-		dst[i] = float64(src[i])
-	}
-}
-
 func interleaveSigToFloat32(left, right []celtSig, dst []float32) {
 	n := min(len(left), len(right))
 	n = min(n, len(dst)/2)
 	for i := 0; i < n; i++ {
 		dst[2*i] = float32(left[i])
 		dst[2*i+1] = float32(right[i])
-	}
-}
-
-func copyFloat64ToSig(dst []celtSig, src []float64) {
-	n := min(len(dst), len(src))
-	for i := 0; i < n; i++ {
-		dst[i] = celtSig(src[i])
 	}
 }
 

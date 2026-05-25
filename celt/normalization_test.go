@@ -112,7 +112,7 @@ func TestNormalizationRoundTrip(t *testing.T) {
 		// Decoder's denormalization formula
 		e := float64(energies[band])
 		if band < len(eMeans) {
-			e += eMeans[band] * DB6
+			e += float64(eMeans[band] * DB6)
 		}
 		if e > 32*DB6 {
 			e = 32 * DB6
@@ -212,7 +212,7 @@ func TestEnergyComputationConsistency(t *testing.T) {
 		// energies[band] should be mean-relative
 		expectedMeanRelative := expectedRaw
 		if band < len(eMeans) {
-			expectedMeanRelative -= eMeans[band] * DB6
+			expectedMeanRelative -= float64(eMeans[band] * DB6)
 		}
 
 		// Check
@@ -246,7 +246,7 @@ func TestNormalizationGainValues(t *testing.T) {
 	for band := 0; band < nbBands && band < len(eMeans); band++ {
 		// What normalization does (bands_encode.go NormalizeBandsToArray):
 		eVal := energies[band]
-		eVal += eMeans[band] * DB6
+		eVal += float64(eMeans[band] * DB6)
 		if eVal > 32*DB6 {
 			eVal = 32 * DB6
 		}
@@ -257,7 +257,7 @@ func TestNormalizationGainValues(t *testing.T) {
 		// and adds eMeans. For this test, assume decoded == input energies.
 		eDecoder := energies[band]
 		if band < len(eMeans) {
-			eDecoder += eMeans[band] * DB6
+			eDecoder += float64(eMeans[band] * DB6)
 		}
 		if eDecoder > 32*DB6 {
 			eDecoder = 32 * DB6

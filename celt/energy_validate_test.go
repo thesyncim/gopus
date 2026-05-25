@@ -95,7 +95,7 @@ func TestAmplitudeComputationMatch(t *testing.T) {
 
 	for _, logE := range logEnergies {
 		for band := 0; band < min(5, len(eMeans)); band++ {
-			totalLogE := logE + eMeans[band]
+			totalLogE := logE + float64(eMeans[band])
 
 			// Both libopus and gopus use exp2(logE)
 			libAmp := math.Pow(2.0, totalLogE)
@@ -128,7 +128,7 @@ func TestEMeansTableMatch(t *testing.T) {
 			t.Errorf("eMeans too short: need index %d", i)
 			continue
 		}
-		if eMeans[i] != lib {
+		if float64(eMeans[i]) != lib {
 			t.Errorf("eMeans[%d] mismatch: gopus=%.6f, libopus=%.6f", i, eMeans[i], lib)
 		}
 	}
@@ -146,7 +146,7 @@ func TestPredictionCoefficientsMatch(t *testing.T) {
 	}
 
 	for lm, lib := range libAlpha {
-		if AlphaCoef[lm] != lib {
+		if float64(AlphaCoef[lm]) != lib {
 			t.Errorf("AlphaCoef[%d] mismatch: gopus=%.15f, libopus=%.15f", lm, AlphaCoef[lm], lib)
 		}
 	}
@@ -160,14 +160,14 @@ func TestPredictionCoefficientsMatch(t *testing.T) {
 	}
 
 	for lm, lib := range libBeta {
-		if BetaCoefInter[lm] != lib {
+		if float64(BetaCoefInter[lm]) != lib {
 			t.Errorf("BetaCoefInter[%d] mismatch: gopus=%.15f, libopus=%.15f", lm, BetaCoefInter[lm], lib)
 		}
 	}
 
 	// libopus beta_intra (float build)
 	libBetaIntra := 4915.0 / 32768.0
-	if BetaIntra != libBetaIntra {
+	if float64(BetaIntra) != libBetaIntra {
 		t.Errorf("BetaIntra mismatch: gopus=%.15f, libopus=%.15f", BetaIntra, libBetaIntra)
 	}
 
@@ -309,10 +309,10 @@ func TestCoarseEnergyPredictionFormula(t *testing.T) {
 		var coef, beta float64
 		if tc.intra {
 			coef = 0.0
-			beta = BetaIntra
+			beta = float64(BetaIntra)
 		} else {
-			coef = AlphaCoef[tc.lm]
-			beta = BetaCoefInter[tc.lm]
+			coef = float64(AlphaCoef[tc.lm])
+			beta = float64(BetaCoefInter[tc.lm])
 		}
 
 		// Clamp oldE to -9 (as libopus does)

@@ -1,8 +1,6 @@
 package celt
 
 import (
-	"math"
-
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/util"
 )
@@ -274,8 +272,8 @@ func opPVQSearchN2Norm(x []celtNorm, k, up int) (iy []int, upIy []int, refine in
 	}
 
 	rcp := float32(1) / sum
-	iy[0] = int(math.Floor(float64(float32(0.5) + float32(k)*float32(x[0])*rcp)))
-	upIy[0] = int(math.Floor(float64(float32(0.5) + float32(up*k)*float32(x[0])*rcp)))
+	iy[0] = floor32ToInt(float32(0.5) + float32(k)*float32(x[0])*rcp)
+	upIy[0] = floor32ToInt(float32(0.5) + float32(up*k)*float32(x[0])*rcp)
 
 	low := up*iy[0] - (up-1)/2
 	high := up*iy[0] + (up-1)/2
@@ -302,14 +300,6 @@ func opPVQSearchN2Norm(x []celtNorm, k, up int) (iy []int, upIy []int, refine in
 	return iy, upIy, refine, yy
 }
 
-func opPVQRefine(xn []float64, iy []int, iy0 []int, k, up, margin int, same bool) bool {
-	xn32 := make([]opusVal32, len(xn))
-	for i := range xn {
-		xn32[i] = opusVal32(xn[i])
-	}
-	return opPVQRefineNorm(xn32, iy, iy0, k, up, margin, same)
-}
-
 func opPVQRefineNorm(xn []opusVal32, iy []int, iy0 []int, k, up, margin int, same bool) bool {
 	n := len(xn)
 	if n == 0 {
@@ -319,7 +309,7 @@ func opPVQRefineNorm(xn []opusVal32, iy []int, iy0 []int, k, up, margin int, sam
 	iysum := 0
 	for i := 0; i < n; i++ {
 		tmp := float32(k) * float32(xn[i])
-		iy[i] = int(math.Floor(float64(float32(0.5) + tmp)))
+		iy[i] = floor32ToInt(float32(0.5) + tmp)
 		rounding[i] = opusVal32(tmp - float32(iy[i]))
 	}
 	if !same {

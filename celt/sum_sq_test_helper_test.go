@@ -1,9 +1,5 @@
-//go:build !arm64 || purego
-
 package celt
 
-// sumOfSquaresF64toF32 converts float64 elements to float32 and accumulates
-// the sum of squares as float32.
 func sumOfSquaresF64toF32(x []float64, n int) float64 {
 	if n <= 0 {
 		return 0

@@ -27,7 +27,7 @@ func TestComputeBandEnergies(t *testing.T) {
 		for band, e := range energies {
 			expected := silence
 			if band < len(eMeans) {
-				expected -= eMeans[band] * DB6
+				expected -= float64(eMeans[band] * DB6)
 			}
 			if math.Abs(float64(e)-expected) > 1e-6 {
 				t.Errorf("Band %d: energy = %f, want %f", band, e, expected)
@@ -60,7 +60,7 @@ func TestComputeBandEnergies(t *testing.T) {
 		// Expected log2 amplitude using FLOAT_APPROX log2.
 		expected := float64(celtLog2(float32(math.Sqrt(float64(width)))))
 		if targetBand < len(eMeans) {
-			expected -= eMeans[targetBand] * DB6
+			expected -= float64(eMeans[targetBand] * DB6)
 		}
 		if math.Abs(float64(energies[targetBand])-expected) > 0.1 {
 			t.Errorf("Target band %d: energy = %f, want %f", targetBand, energies[targetBand], expected)

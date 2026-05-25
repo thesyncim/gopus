@@ -3,10 +3,6 @@
 
 package celt
 
-import (
-	"math"
-)
-
 // EMeans contains the mean log-energy per band in libopus float-build width.
 // These values are in log2 units (1.0 = 6 dB) and represent typical
 // energy distribution across frequency bands.
@@ -53,7 +49,7 @@ func dynallocImportanceFromFollower(follower float32) int {
 		follower = 4.0
 	}
 	imp := float32(0.5) + float32(13.0)*celtExp2(follower)
-	return int(math.Floor(float64(imp)))
+	return floor32ToInt(imp)
 }
 
 // applyLeakBoostApprox derives a leak_boost proxy from current CELT band energies
@@ -372,7 +368,7 @@ func DynallocAnalysis(
 			smr := sig[i] - maskThresh
 
 			// Clamp shift to [0, 5] range
-			shift := -int(math.Floor(float64(0.5 + smr)))
+			shift := -floor32ToInt(0.5 + smr)
 			if shift < 0 {
 				shift = 0
 			}
@@ -555,7 +551,7 @@ func DynallocAnalysis(
 
 		// Compensate for Opus under-allocation on tones.
 		if toneishness > 0.98 && toneFreq >= 0 {
-			freqBin := int(0.5 + toneFreq*120.0/float32(math.Pi))
+			freqBin := floor32ToInt(0.5 + toneFreq*120.0/3.1415927)
 			for i := start; i < end; i++ {
 				if freqBin >= EBands[i] && freqBin <= EBands[i+1] {
 					follower[i] += 2.0
@@ -959,7 +955,7 @@ func DynallocAnalysisWithScratch(
 		}
 		smr := sig[i] - maskThresh
 
-		shift := -int(math.Floor(float64(0.5 + smr)))
+		shift := -floor32ToInt(0.5 + smr)
 		if shift < 0 {
 			shift = 0
 		}
@@ -1130,7 +1126,7 @@ func DynallocAnalysisWithScratch(
 		}
 
 		if toneishness > 0.98 && toneFreq >= 0 {
-			freqBin := int(0.5 + toneFreq*120.0/float32(math.Pi))
+			freqBin := floor32ToInt(0.5 + toneFreq*120.0/3.1415927)
 			for i := start; i < end; i++ {
 				if freqBin >= EBands[i] && freqBin <= EBands[i+1] {
 					follower[i] += 2.0

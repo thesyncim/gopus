@@ -10,8 +10,6 @@ celt/channel_adapters.go	1	35cda5ab8e2e2dfa035214f793bf6613a07074ba33f3b66aa76c3
 celt/deemphasis_f64_to_f32_arm64.go	1	65125e73f5f0f4d8caf11d2bd50634549daa766f31522afb5a2f34542f3694ee	legacy-current	func deemphasisStereoPlanarF64ToF32Core(dst []float32, left, right []float64, n int, scale, stateL, stateR, coef, verySmall float32) (float32, float32)
 celt/deemphasis_f64_to_f32_default.go	1	4a0051d9c8d45357003ae93d993f9797f5b20f633363ae9c4199f69aaf1f5348	legacy-current	func deemphasisStereoPlanarF64ToF32Core(dst []float32, left, right []float64, n int, scale, stateL, stateR, coef, verySmall float32) (float32, float32) {
 celt/dred_conceal.go	1	80a1e294ac0deaa431e8d7c9395a6b7c3485752d2dfb7f781ece129bb9ae707f	legacy-current	return int16(math.Floor(0.5 + float64(v)))
-celt/dynalloc.go	1	750ad0d4b7e46dd72df12a61b421d6368a7e8fc4ec3686f74dfc4690f5b36cd0	legacy-current	return int(math.Floor(float64(imp)))
-celt/dynalloc.go	2	9bed2ccfe7cc09af828aa2e52d8fc3bbf05edbe56dcb06cfdca0ec58c6ee939f	legacy-current	shift := -int(math.Floor(float64(0.5 + smr)))
 celt/exp_rotation_coeffs.go	1	29f88ba567293921c675f7d1cc62212766376b6a1e5af89f838cc69c174389a3	legacy-current	c: float32(math.Cos(libopusHalfPi * float64(theta))),
 celt/exp_rotation_coeffs.go	1	f5eaae73bfa9cc79e2845e66fe13be3b092c71aa134103f711c29b46e7d44559	legacy-current	s: float32(math.Cos(libopusHalfPi * float64(float32(1)-theta))),
 celt/exp_rotation_stride1_generic.go	1	bc81dc996ffe1814294743190c7c61c4a46d9f2c67e26a5ff827cd455f18cb02	legacy-current	func expRotation1Stride1(x []float64, length int, c, s float64) {
@@ -20,10 +18,6 @@ celt/hybrid_encode_helpers.go	1	549db166e855560a9d665e0532816af8c310aeeee281c395
 celt/hybrid_encode_helpers.go	1	e8bf7e6adf476a2d2ff407f127dc15ff739fb9ffeda0dcbda9e83cc8df28be55	legacy-current	upper := int(1.26 * float64(prevPrefilterPeriod))
 celt/imdct_rotate_asm.go	1	238f38e7d9cb8928bf0061ca3e70e82e3eabd3515fb39edc85dce209953cc37f	legacy-current	func imdctPreRotateF32(fftIn []complex64, spectrum []float64, trig []float32, n2, n4 int)
 celt/imdct_rotate_default.go	1	eea6897898eccd6413f68760c836230b6d868b267388cec37ad7bf1c8c517eb5	legacy-current	func imdctPreRotateF32(fftIn []complex64, spectrum []float64, trig []float32, n2, n4 int) {
-celt/kissfft32.go	1	57c39843d6609fd08c7fdd5042c109165e9e59d2423749b679f29b0ff189f2d5	legacy-current	return float32(float64(a)*float64(b) + float64(t))
-celt/kissfft32.go	1	5ad4afa88ad48967c5aa3e6e291e89cc9f83be380dba89c38f47662b8e6c92e6	legacy-current	wStep := complex(float32(math.Cos(float64(angle))), float32(math.Sin(float64(angle))))
-celt/kissfft32.go	1	79b9fadce9afeddd770626c69b50608a285cec038d7e282ae11a68c6cf54471e	legacy-current	phase := (-2.0 * pi / float64(nfft)) * float64(i)
-celt/kissfft32.go	1	e3e6a8d05f68549a6dcb814bee827bae21aee99986404995b72e7abb36095aa7	legacy-current	return float32(float64(a)*float64(b) - float64(t))
 celt/mdct.go	1	37464bc1f76854056975d2d0109c23574e6ff5ff4718602909de7cf2ef072f9a	legacy-current	angle := 2.0 * math.Pi * (float64(i) + 0.125) / float64(n)
 celt/mdct.go	1	5ad4afa88ad48967c5aa3e6e291e89cc9f83be380dba89c38f47662b8e6c92e6	legacy-current	wStep := complex(float32(math.Cos(float64(angle))), float32(math.Sin(float64(angle))))
 celt/modes.go	1	8a7613cc0387a276f94acefe986ed2acac6aae477db5dbfec19e717e464b02b2	legacy-current	func DurationFromFrameSize(frameSize int) float64 {
@@ -34,37 +28,12 @@ celt/plc_lpc_filter.go	1	efd33ef0caec1c7cbf64776f06fa63a602f6e263a161f7d24369255
 celt/pvq.go	1	8d445162a3d37594d7e5a69014788ab4503e371f0864afd27c824c5b08e89026	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(qn)
 celt/pvq.go	1	93a16d3a6f34a164d089a777b398e3f9438bc48acc13fb9a422eab7c5fda6e93	legacy-current	func (d *Decoder) DecodeTheta(n int) float64 {
 celt/pvq.go	1	a2ed657c3de51017b45e855f011c5981b509b9458003b68e504d50996244c4c5	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(n)
-celt/pvq_search.go	1	2eb64952756430c085299c775bf5ac91e459e1b3851169439d441907e4d92a82	legacy-current	upIy[0] = int(math.Floor(float64(float32(0.5) + float32(up*k)*float32(x[0])*rcp)))
-celt/pvq_search.go	1	54a8d35fdbc49e7fc6c6d57e0ee33979f2dcac8bee892a9d51179c6e28e606d0	legacy-current	func opPVQRefine(xn []float64, iy []int, iy0 []int, k, up, margin int, same bool) bool {
-celt/pvq_search.go	1	dab811a408290887c046232b5c9dec30b81c6c30221307831136d9329202c58d	legacy-current	iy[i] = int(math.Floor(float64(float32(0.5) + tmp)))
-celt/pvq_search.go	1	dd46a5c78ae1284e0bea4df9821b783beb7846c30b7cc431884cc19c2fb08167	legacy-current	iy[0] = int(math.Floor(float64(float32(0.5) + float32(k)*float32(x[0])*rcp)))
-celt/qext_cubic.go	1	0b32f462bcc58e657eecb855d1360028f14f642ea88fb6fe0fddf4e4f3dd4fa8	legacy-current	iy[i] = min(k-1, int(math.Floor(float64((float32(x[i])+faceVal)*norm))))
-celt/qext_energy.go	1	19264b923711da4f5007f78281ee754c1c3db7e52dccef9223bd59fecc222ce0	legacy-current	func computeQEXTBandAmplitudesInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []celtEner) {
-celt/qext_energy.go	1	557b678909b197f597b64520a69cb608b7c7c7f2650c2a32777f49f4c1ab4140	legacy-current	func normalizeQEXTBandsInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []celtEner, norm []celtNorm) {
-celt/qext_energy.go	1	88ef31ac457372fcf0734bc35a032caadff223da21d3d7d250e0df64da7e0b4a	legacy-current	func computeQEXTBandLogEInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []celtEner, bandLogE []celtGLog) {
-celt/qext_energy.go	1	a90daeb81b69a95c8b17cf1851c3436a58e50d8d6c4e619ae3654867f1eaf9ec	legacy-current	bandE[i] = celtEner(float32(math.Sqrt(float64(sum))))
-celt/scalar_types.go	1	9bdc0fb3d1ecacceda98fc7c5338f148b4d2d40eeb2c9bfcb3fb220b7b737f74	legacy-current	func copyFloat64ToSig(dst []celtSig, src []float64) {
-celt/scalar_types.go	1	beea720c8de54da8545efc993c92e9c60c4d4c58cb139234868d65b042e94e76	legacy-current	dst[i] = float64(src[i])
-celt/scalar_types.go	1	f52ac08b388aa97d4e3e29fba3ac2e8a28217d29f45a2cbbd257128a63e1148b	legacy-current	func copySigToFloat64(dst []float64, src []celtSig) {
 celt/scale_float64_arm64.go	1	ad4ee60ab03c8cba26d666f53b34d8a53c70d9450889a5e888771bfa66774d0e	legacy-current	func scaleFloat64Into(dst, src []float64, scale float64, n int)
 celt/scale_float64_default.go	1	c84a4acc11851d5f20239898c1630bda686953bf411fdbc6db2aa9615941ff54	legacy-current	func scaleFloat64Into(dst, src []float64, scale float64, n int) {
-celt/signal_bandwidth.go	1	1232999c67fa1610ab3ca0c47825d8d83e1187521a190949d2c0b30f97443558	legacy-current	var perBandEnergy [MaxBands]float64
-celt/signal_bandwidth.go	1	4cbf3d86e85afff22b78d7a09995a0f39d4c72e8d79bc96f7b4bb8eae9b20f80	legacy-current	if E*1e9 > maxEnergy && E > noiseFloor*float64(width) {
-celt/signal_bandwidth.go	1	50de372373506162ceacff7da53f4b4391d944f0a5b9133ad90cfee26f81359e	legacy-current	noiseScale := float64(uint(1) << uint(lsbShift))
-celt/signal_bandwidth.go	1	a00a2628c15ac34e408ebde2626fcb1217a1278a3c8eb9f1931fcaed705b81ba	legacy-current	func estimateSignalBandwidthFromBandLogE(bandLogE []float64, nbBands, channels, prev, lsbDepth int) int {
 celt/stereo_layout_arm64.go	1	5fc691a601e55aad6bec3cf759a62f488c9727c785b9df4d38660ecaf4d18d9b	legacy-current	func interleaveStereoIntoImpl(left, right, interleaved []float64, n int)
 celt/stereo_layout_arm64.go	1	b27310730e1a61af8c3b2d00d05995464e8cead2c5ec48b639c97b8a537703de	legacy-current	func deinterleaveStereoIntoImpl(interleaved, left, right []float64, n int)
 celt/stereo_layout_impl.go	1	31a4821fdb3065bba2a0c4c6eb33b24a1d7d37e0dd349a61e1bbd3c6ff48b620	legacy-current	func interleaveStereoIntoImpl(left, right, interleaved []float64, n int) {
 celt/stereo_layout_impl.go	1	8e5738a15ad14eca9d3f8e317460c596ebec35a8dbccd6e33d825735ac7dd959	legacy-current	func deinterleaveStereoIntoImpl(interleaved, left, right []float64, n int) {
-celt/sum_sq_arm64.go	1	166d6a1dc735850b3fbf5595bb4014196afdc832b74f0163704c50e20149260e	legacy-current	func sumOfSquaresF64toF32(x []float64, n int) float64 {
-celt/sum_sq_arm64.go	1	4ab9ef636ae9e719402c7ff3d8973701f9c9d31a94e80d30326638f74cd2d8c2	legacy-current	return float64(xy)
-celt/sum_sq_arm64.go	1	7961b50184752cd069b662108eaa48175bd5de866c587e7eabca07f8e2aed426	legacy-current	// sumOfSquaresF64toF32 converts float64 elements to float32 and accumulates
-celt/sum_sq_default.go	1	166d6a1dc735850b3fbf5595bb4014196afdc832b74f0163704c50e20149260e	legacy-current	func sumOfSquaresF64toF32(x []float64, n int) float64 {
-celt/sum_sq_default.go	1	7961b50184752cd069b662108eaa48175bd5de866c587e7eabca07f8e2aed426	legacy-current	// sumOfSquaresF64toF32 converts float64 elements to float32 and accumulates
-celt/sum_sq_default.go	1	cdaa08658078f0263bede437f09e2e0445fd217b4b88625abc797ac6ed3a7f4f	legacy-current	return float64(sum)
-celt/tables.go	1	41c6248cabf62531f6e1083055df0a686583948920bb54071c680005bb29bb35	legacy-current	var eMeans = [25]float64{
-celt/tables.go	1	660cf419425ea17be6d0564360ed1979ef679bdcc8a487bbd8bfb5b28423e276	legacy-current	var AlphaCoef = [4]float64{
-celt/tables.go	1	be854f5a1fe466c224e784b061896e0b2288ed8d152bdcf6b64529140ee718bb	legacy-current	var BetaCoefInter = [4]float64{
 celt/transient.go	1	e22fad24ac4722a682b2ae14722cbe14b69ecd7dbd8e8a0fd76229dfaeafaa3c	legacy-current	freq := float32(math.Acos(float64(float32(0.5)*lpc0)) / float64(delay))
 internal/lpcnetplc/fargan.go	1	2bff7ac96cdbcfbfcfb061acd113e7ffab9a6c29e8043e60f5e77b0bbe2c1782	legacy-current	gain := float32(math.Exp(float64(f.scratch.gain[0])))
 internal/lpcnetplc/fargan_conditioner.go	1	4807e5f47b1a63964eb2a596550decbe86da149f610e4915479c3c46540c618b	legacy-current	period := int(math.Floor(.5 + float64(PitchMaxPeriod)/math.Pow(2, (1./60.)*((float64(features[NumBands])+1.5)*60))))

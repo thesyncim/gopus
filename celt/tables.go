@@ -59,7 +59,7 @@ var eBandWidths = [MaxBands]int{
 // Index corresponds to LM: 0=2.5ms, 1=5ms, 2=10ms, 3=20ms
 //
 // Source: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c
-var AlphaCoef = [4]float64{
+var AlphaCoef = [4]opusVal16{
 	29440.0 / 32768.0, // LM=0 (2.5ms): 0.8984375
 	26112.0 / 32768.0, // LM=1 (5ms):   0.796875
 	21248.0 / 32768.0, // LM=2 (10ms):  0.6484375
@@ -68,7 +68,7 @@ var AlphaCoef = [4]float64{
 
 // BetaCoefInter contains inter-band energy prediction coefficients for INTER-frame mode.
 // Values vary by LM (log mode / frame size). Source: libopus celt/quant_bands.c
-var BetaCoefInter = [4]float64{
+var BetaCoefInter = [4]opusVal16{
 	30147.0 / 32768.0, // LM=0 (2.5ms): 0.9200744...
 	22282.0 / 32768.0, // LM=1 (5ms):   0.6800537...
 	12124.0 / 32768.0, // LM=2 (10ms):  0.3700561...
@@ -77,13 +77,13 @@ var BetaCoefInter = [4]float64{
 
 // BetaIntra is the inter-band prediction coefficient for INTRA-frame mode.
 // No inter-frame prediction, only inter-band. Source: libopus celt/quant_bands.c
-const BetaIntra = 4915.0 / 32768.0 // 0.15
+const BetaIntra opusVal16 = 4915.0 / 32768.0 // 0.15
 
 // eMeans contains the mean log-energy per band (log2 units).
 // These values are in log2 units (1.0 = 6 dB) and are added during
 // denormalization to reconstruct the absolute band energy.
 // Source: libopus celt/quant_bands.c (float eMeans table).
-var eMeans = [25]float64{
+var eMeans = [25]celtGLog{
 	6.437500, 6.250000, 5.750000, 5.312500, 5.062500,
 	4.812500, 4.500000, 4.375000, 4.875000, 4.687500,
 	4.562500, 4.437500, 4.875000, 4.625000, 4.312500,

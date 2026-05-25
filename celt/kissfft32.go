@@ -1,6 +1,6 @@
 package celt
 
-import "math"
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 // NOTE ON APPARENT CODE DUPLICATION:
 // The butterfly functions (kfBfly2, kfBfly3, kfBfly4, kfBfly5) and complex
@@ -50,7 +50,7 @@ func kissMul(a, b float32) float32 {
 func kissMulAddSource(a, b, c, d float32) float32 {
 	if kissFFTFMALikeEnabled {
 		t := noFMA32Mul(c, d)
-		return float32(float64(a)*float64(b) + float64(t))
+		return fma32(a, b, t)
 	}
 	return a*b + c*d
 }
@@ -62,7 +62,7 @@ func kissMulAddSource(a, b, c, d float32) float32 {
 func kissMulSubSource(a, b, c, d float32) float32 {
 	if kissFFTFMALikeEnabled {
 		t := noFMA32Mul(c, d)
-		return float32(float64(a)*float64(b) - float64(t))
+		return fma32(a, b, -t)
 	}
 	return a*b - c*d
 }
@@ -235,11 +235,11 @@ func kfFactor(n int) ([]int, bool) {
 
 func computeTwiddles(nfft int) []kissCpx {
 	w := make([]kissCpx, nfft)
-	const pi = 3.14159265358979323846264338327
+	const pi = float32(3.14159265358979323846264338327)
 	for i := 0; i < nfft; i++ {
-		phase := (-2.0 * pi / float64(nfft)) * float64(i)
-		w[i].r = float32(math.Cos(phase))
-		w[i].i = float32(math.Sin(phase))
+		phase := (-2.0 * pi / float32(nfft)) * float32(i)
+		w[i].r = opusmath.CosF32(phase)
+		w[i].i = opusmath.SinF32(phase)
 	}
 	return w
 }
@@ -725,10 +725,10 @@ func dft32FallbackTo(out []complex64, x []complex64) {
 		out[0] = x[0]
 		return
 	}
-	twoPi := float32(-2.0*math.Pi) / float32(n)
+	twoPi := float32(-6.2831855) / float32(n)
 	for k := 0; k < n; k++ {
 		angle := twoPi * float32(k)
-		wStep := complex(float32(math.Cos(float64(angle))), float32(math.Sin(float64(angle))))
+		wStep := complex(opusmath.CosF32(angle), opusmath.SinF32(angle))
 		w := complex(float32(1.0), float32(0.0))
 		var sum complex64
 		for t := 0; t < n; t++ {

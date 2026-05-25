@@ -212,7 +212,7 @@ func TestEMeansMatchLibopus(t *testing.T) {
 	}
 
 	for i, expected := range libopusEMeans {
-		if eMeans[i] != expected {
+		if float64(eMeans[i]) != expected {
 			t.Errorf("eMeans[%d] = %v, want %v (libopus eMeans)", i, eMeans[i], expected)
 		}
 	}
@@ -231,7 +231,7 @@ func TestPredCoefMatchLibopus(t *testing.T) {
 	}
 
 	for lm := 0; lm < 4; lm++ {
-		if AlphaCoef[lm] != libopusPredCoef[lm] {
+		if float64(AlphaCoef[lm]) != libopusPredCoef[lm] {
 			t.Errorf("AlphaCoef[%d] = %v, want %v (libopus pred_coef)", lm, AlphaCoef[lm], libopusPredCoef[lm])
 		}
 	}
@@ -250,7 +250,7 @@ func TestBetaCoefMatchLibopus(t *testing.T) {
 	}
 
 	for lm := 0; lm < 4; lm++ {
-		if BetaCoefInter[lm] != libopusBetaCoef[lm] {
+		if float64(BetaCoefInter[lm]) != libopusBetaCoef[lm] {
 			t.Errorf("BetaCoefInter[%d] = %v, want %v (libopus beta_coef)", lm, BetaCoefInter[lm], libopusBetaCoef[lm])
 		}
 	}
@@ -263,7 +263,7 @@ func TestBetaIntraMatchLibopus(t *testing.T) {
 	// static const opus_val16 beta_intra = 4915/32768.;
 	libopusBetaIntra := 4915.0 / 32768.0
 
-	if BetaIntra != libopusBetaIntra {
+	if float64(BetaIntra) != libopusBetaIntra {
 		t.Errorf("BetaIntra = %v, want %v (libopus beta_intra)", BetaIntra, libopusBetaIntra)
 	}
 }

@@ -58,7 +58,7 @@ func TestEMeansValues(t *testing.T) {
 	}
 
 	for i := 0; i < len(expected) && i < len(eMeans); i++ {
-		if math.Abs(eMeans[i]-expected[i]) > 1e-6 {
+		if math.Abs(float64(eMeans[i])-expected[i]) > 1e-6 {
 			t.Errorf("eMeans[%d] = %f, want %f", i, eMeans[i], expected[i])
 		}
 	}
@@ -122,7 +122,7 @@ func TestAmp2Log2Conversion(t *testing.T) {
 
 	// Verify a few values
 	// For bandE[4] = 2^1 = 2, log2(2) = 1, then subtract eMeans[4]
-	expected4 := 1.0 - eMeans[4]
+	expected4 := 1.0 - float64(eMeans[4])
 	if math.Abs(float64(result[4])-expected4) > 0.01 {
 		t.Errorf("Amp2Log2[4] = %f, want ~%f", result[4], expected4)
 	}

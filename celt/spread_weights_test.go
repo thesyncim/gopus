@@ -172,7 +172,7 @@ func TestComputeSpreadWeightsNoiseFloorCalculation(t *testing.T) {
 		}
 		eMean := 0.0
 		if i < len(eMeans) {
-			eMean = eMeans[i]
+			eMean = float64(eMeans[i])
 		}
 
 		expectedNoiseFloor := 0.0625*logNVal + 0.5 + float64(9-lsbDepth) - eMean + 0.0062*float64((i+5)*(i+5))
