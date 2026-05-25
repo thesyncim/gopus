@@ -1,9 +1,8 @@
 package dred
 
 import (
-	"math"
-
 	"github.com/thesyncim/gopus/internal/dnnmath"
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -123,7 +122,7 @@ func quantizeDREDLatents(q []int, x []float32, scale, dzone, rTable, p0Table []u
 			continue
 		}
 		xqi := xq[i] - delta[i]*deadzone[i]
-		q[i] = int(math.Floor(float64(float32(0.5) + xqi)))
+		q[i] = int(opusmath.FloorF32ToInt32(0.5 + xqi))
 	}
 }
 

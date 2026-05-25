@@ -140,7 +140,7 @@ func ExpVectorScalarApprox(out, in []float32, n int) {
 
 // Exp2Approx mirrors libopus' DNN lpcnet_exp2() cubic approximation.
 func Exp2Approx(x float32) float32 {
-	integer := int(math.Floor(float64(x)))
+	integer := int(opusmath.FloorF32ToInt32(x))
 	if integer < -50 {
 		return 0
 	}
@@ -156,7 +156,7 @@ func Exp2Approx(x float32) float32 {
 // float32 multiply; the scalar fallback uses floor(0.5 + 127*x).
 func Cgemv8x4QuantizeInput(x float32) int8 {
 	if useNEONCgemvQuantize {
-		return int8(int32(math.RoundToEven(float64(float32(127) * x))))
+		return int8(opusmath.RoundToEvenF32ToInt32(float32(127) * x))
 	}
 	return Cgemv8x4QuantizeInputScalar(x)
 }
@@ -164,7 +164,7 @@ func Cgemv8x4QuantizeInput(x float32) int8 {
 // Cgemv8x4QuantizeInputScalar mirrors libopus' generic cgemv8x4 input
 // quantizer.
 func Cgemv8x4QuantizeInputScalar(x float32) int8 {
-	return int8(int(math.Floor(0.5 + float64(float32(127)*x))))
+	return int8(opusmath.FloorHalfPlusF32ToInt32(float32(127) * x))
 }
 
 // SoftmaxApprox mirrors libopus' pinned ACTIVATION_SOFTMAX path. The 1.6.1
@@ -187,11 +187,11 @@ func CeltLog(x float32) float32 {
 
 // CeltSin mirrors libopus' floating-point celt_sin() macro.
 func CeltSin(x float32) float32 {
-	return celtCosNorm2(float32((0.5 * 3.1415926535897931 * float64(x)) - 1))
+	return celtCosNorm2(opusmath.CeltSinNormArg(x))
 }
 
 func celtCosNorm2(x float32) float32 {
-	x -= float32(4 * math.Floor(0.25*float64(x+1)))
+	x -= float32(4) * float32(opusmath.FloorF32ToInt32(0.25*(x+1)))
 	outputSign := float32(1)
 	if x > 1 {
 		outputSign = -1
@@ -277,5 +277,5 @@ func expApproxNEON(x float32) float32 {
 }
 
 func fma32(a, b, c float32) float32 {
-	return float32(math.FMA(float64(a), float64(b), float64(c)))
+	return a*b + c
 }

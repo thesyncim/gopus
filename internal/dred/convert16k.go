@@ -53,51 +53,9 @@ var (
 	}
 )
 
-// ConvertTo16kMonoFloat64 mirrors libopus dred_convert_to_16k() for the
-// public encoder float64 path. It writes 16 kHz mono PCM quantized to the same
-// int16 grid libopus feeds into LPCNet feature extraction.
-func ConvertTo16kMonoFloat64(dst []float32, mem *[ResamplingOrder + 1]float32, in []float64, sampleRate, channels int) int {
-	if channels != 1 && channels != 2 {
-		return 0
-	}
-	if len(in) == 0 || len(in)%channels != 0 {
-		return 0
-	}
-	inLen := len(in) / channels
-	outLen := inLen * 16000 / sampleRate
-	if outLen <= 0 || outLen > len(dst) {
-		return 0
-	}
-
-	up, ok := dred16kUpsampleFactor(sampleRate)
-	if !ok {
-		return 0
-	}
-	workLen := up * inLen
-	if workLen > MaxConvert16kBuffer {
-		return 0
-	}
-
-	switch sampleRate {
-	case 16000:
-		for i := 0; i < inLen; i++ {
-			dst[i] = dred16kDownmixSampleFloat64(in, i, channels, up)
-		}
-		return outLen
-	case 48000, 24000:
-		return dredFilterZeroStuffedTo16kFloat64(dst[:outLen], in, channels, up, workLen, 3, dred48k24kTo16kFilter, mem)
-	case 12000:
-		return dredFilterZeroStuffedTo16kFloat64(dst[:outLen], in, channels, up, workLen, 3, dred12kTo16kFilter, mem)
-	case 8000:
-		return dredFilterZeroStuffedTo16kFloat64(dst[:outLen], in, channels, up, workLen, 1, dred8kTo16kFilter, mem)
-	default:
-		return 0
-	}
-}
-
 // ConvertTo16kMonoFloat32 mirrors libopus dred_convert_to_16k() for callers
 // that already hold float32 PCM. It keeps the downmix and quantization loop in
-// float32, matching libopus' float input path without float64 roundtrips.
+// float32, matching libopus' float input path without widening roundtrips.
 func ConvertTo16kMonoFloat32(dst []float32, mem *[ResamplingOrder + 1]float32, in []float32, sampleRate, channels int) int {
 	if channels != 1 && channels != 2 {
 		return 0
@@ -154,15 +112,6 @@ func dred16kUpsampleFactor(sampleRate int) (int, bool) {
 	}
 }
 
-func dred16kDownmixSampleFloat64(in []float64, idx, channels, up int) float32 {
-	if channels == 1 {
-		return float32(dredFloatToInt16(float32(float64(up)*in[idx]))) + dredVerySmall
-	}
-	l := float32(in[2*idx])
-	r := float32(in[2*idx+1])
-	return float32(dredFloatToInt16(0.5*float32(up)*(l+r))) + dredVerySmall
-}
-
 func dred16kDownmixSampleFloat32(in []float32, idx, channels, up int) float32 {
 	if channels == 1 {
 		return float32(dredFloatToInt16(float32(up)*in[idx])) + dredVerySmall
@@ -170,31 +119,6 @@ func dred16kDownmixSampleFloat32(in []float32, idx, channels, up int) float32 {
 	l := in[2*idx]
 	r := in[2*idx+1]
 	return float32(dredFloatToInt16(0.5*float32(up)*(l+r))) + dredVerySmall
-}
-
-func dredFilterZeroStuffedTo16kFloat64(dst []float32, in []float64, channels, up, workLen, keepEvery int, spec dred16kFilterSpec, mem *[ResamplingOrder + 1]float32) int {
-	if mem == nil || keepEvery <= 0 {
-		return 0
-	}
-	out := 0
-	for i := 0; i < workLen; i++ {
-		xi := float32(0)
-		if i%up == 0 {
-			xi = dred16kDownmixSampleFloat64(in, i/up, channels, up)
-		}
-		yi := dredFilterDF2TStep(xi, spec, mem)
-		if i%keepEvery == 0 {
-			if out >= len(dst) {
-				return 0
-			}
-			dst[out] = yi
-			out++
-		}
-	}
-	if out != len(dst) {
-		return 0
-	}
-	return out
 }
 
 func dredFilterZeroStuffedTo16kFloat32(dst []float32, in []float32, channels, up, workLen, keepEvery int, spec dred16kFilterSpec, mem *[ResamplingOrder + 1]float32) int {

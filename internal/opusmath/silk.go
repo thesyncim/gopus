@@ -15,6 +15,10 @@ func RoundF32HalfAwayFromZeroToInt32(x float32) int32 {
 	return int32(math.Ceil(float64(x) - 0.5))
 }
 
+func FloorF32ToInt32(x float32) int32 {
+	return int32(math.Floor(float64(x)))
+}
+
 func ExpF32(x float32) float32 {
 	return float32(math.Exp(float64(x)))
 }

@@ -32,6 +32,11 @@ func CeltExp2(x float32) float32 {
 	return math.Float32frombits(bits)
 }
 
+// CeltSinNormArg matches libopus' celt_sin() argument reduction expression.
+func CeltSinNormArg(x float32) float32 {
+	return float32((0.5 * 3.1415926535897931 * float64(x)) - 1)
+}
+
 // ISqrt32 returns floor(sqrt(x)) for libopus CELT integer math.
 func ISqrt32(x uint32) uint32 {
 	r := uint32(math.Sqrt(float64(x)))

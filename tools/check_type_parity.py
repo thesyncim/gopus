@@ -31,6 +31,8 @@ RUNTIME_ROOTS = (
     Path("plc"),
     Path("silk"),
     Path("rangecoding"),
+    Path("internal/dnnmath"),
+    Path("internal/dred"),
     Path("internal/osce"),
     Path("internal/lpcnetplc"),
 )
