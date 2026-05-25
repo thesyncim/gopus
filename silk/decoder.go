@@ -27,7 +27,7 @@ type Decoder struct {
 	isPreviousFrameVoiced bool  // Was previous frame voiced (for LTP)
 
 	// LPC state (persists across frames)
-	lpcOrder      int       // Current LPC order (10 for NB/MB, 16 for WB)
+	lpcOrder      int32     // Current LPC order (10 for NB/MB, 16 for WB)
 	prevLPCValues []float32 // d_LPC output history for filter continuity
 
 	// LSF state (persists for interpolation)
@@ -44,7 +44,7 @@ type Decoder struct {
 	// libopus-aligned decoder state
 	state                [2]decoderState
 	stereo               stereoDecState
-	prevDecodeOnlyMiddle int
+	prevDecodeOnlyMiddle int32
 
 	// Track previous bandwidth to detect bandwidth changes.
 	// Used to reset sMid state when sample rate changes.
@@ -125,27 +125,27 @@ type Decoder struct {
 	// scratchOutInt16. Exposed via LatestNativeMono so optional decoder-side
 	// post-processing (e.g. OSCE BWE) can read the pre-resample SILK output
 	// without performing a second decode pass.
-	lastNativeMonoLen int
+	lastNativeMonoLen int32
 	// Native SILK sample rate in kHz used to produce lastNativeMonoLen samples
 	// (e.g. 16 for WB). Zero until a decode has run.
-	lastNativeMonoFsKHz int
+	lastNativeMonoFsKHz int32
 
 	// Length of the most recent native-rate int16 stereo decode written to
 	// stereoLeftNative / stereoRightNative. Exposed via LatestNativeStereo
 	// so the optional OSCE BWE forward pass can read both pre-resample SILK
 	// lowband channels (libopus runs the BWE forward pass per channel with
 	// its own BBWENet state). Zero until a stereo decode has run.
-	lastNativeStereoLen int
+	lastNativeStereoLen int32
 	// Native SILK sample rate in kHz used to produce lastNativeStereoLen
 	// samples (e.g. 16 for WB). Zero until a stereo decode has run.
-	lastNativeStereoFsKHz int
+	lastNativeStereoFsKHz int32
 
 	// Length and rate for the most recent internal stereo mid channel before
 	// MS->LR conversion. libopus feeds decoder-side DeepPLC/DRED from SILK
 	// channel 0 only, so parity paths need this native mid channel rather than
 	// post-stereo left/right output.
-	lastNativeMidLen   int
-	lastNativeMidFsKHz int
+	lastNativeMidLen   int32
+	lastNativeMidFsKHz int32
 
 	// lastFrameCtrl caches the most recent silk_decoder_control produced by
 	// `decodeFrameCoreInto` for each channel. The OSCE LACE / NoLACE
@@ -571,12 +571,12 @@ func (d *Decoder) MarkDecoded() {
 
 // LPCOrder returns the current LPC order (10 for NB/MB, 16 for WB).
 func (d *Decoder) LPCOrder() int {
-	return d.lpcOrder
+	return int(d.lpcOrder)
 }
 
 // SetLPCOrder sets the LPC order based on bandwidth.
 func (d *Decoder) SetLPCOrder(order int) {
-	d.lpcOrder = order
+	d.lpcOrder = int32(order)
 }
 
 // PrevLPCValues returns the LPC filter state for continuity.
@@ -647,11 +647,11 @@ func (d *Decoder) LatestNativeMono() ([]int16, int) {
 	if d == nil || d.lastNativeMonoLen <= 0 || d.scratchOutInt16 == nil {
 		return nil, 0
 	}
-	n := d.lastNativeMonoLen
+	n := int(d.lastNativeMonoLen)
 	if n > len(d.scratchOutInt16) {
 		n = len(d.scratchOutInt16)
 	}
-	return d.scratchOutInt16[:n], d.lastNativeMonoFsKHz
+	return d.scratchOutInt16[:n], int(d.lastNativeMonoFsKHz)
 }
 
 // LatestNativeStereo returns the most recent native-rate (pre-resample) int16
@@ -673,11 +673,11 @@ func (d *Decoder) LatestNativeStereo() (left, right []int16, samplesPerChannel, 
 	if d == nil || d.lastNativeStereoLen <= 0 {
 		return nil, nil, 0, 0, false
 	}
-	n := d.lastNativeStereoLen
+	n := int(d.lastNativeStereoLen)
 	if n > len(d.stereoLeftNative) || n > len(d.stereoRightNative) {
 		return nil, nil, 0, 0, false
 	}
-	return d.stereoLeftNative[:n], d.stereoRightNative[:n], n, d.lastNativeStereoFsKHz, true
+	return d.stereoLeftNative[:n], d.stereoRightNative[:n], n, int(d.lastNativeStereoFsKHz), true
 }
 
 // LatestNativeMid returns the most recent native-rate internal SILK channel 0
@@ -691,11 +691,11 @@ func (d *Decoder) LatestNativeMid() ([]int16, int) {
 	if d == nil || d.lastNativeMidLen <= 0 || d.stereoMidNative == nil {
 		return nil, 0
 	}
-	n := d.lastNativeMidLen
+	n := int(d.lastNativeMidLen)
 	if n > len(d.stereoMidNative) {
 		n = len(d.stereoMidNative)
 	}
-	return d.stereoMidNative[:n], d.lastNativeMidFsKHz
+	return d.stereoMidNative[:n], int(d.lastNativeMidFsKHz)
 }
 
 // LatestDecoderControl is the public view of the most recent

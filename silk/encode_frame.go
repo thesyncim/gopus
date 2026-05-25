@@ -169,7 +169,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	var condCoding int
 	if e.stereoCondMid != nil {
-		condCoding = stereoSelectCondCoding(int(e.stereoCondMidFramesEncoded), int(e.stereoChannelIdx), int(e.stereoPrevDecodeOnlyMiddle))
+		condCoding = stereoSelectCondCoding(int(e.stereoCondMidFramesEncoded), int(e.stereoChannelIdx), e.stereoPrevDecodeOnlyMiddle)
 	} else {
 		condCoding = codeIndependently
 		if e.nFramesEncoded > 0 {

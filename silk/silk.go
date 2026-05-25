@@ -198,8 +198,8 @@ func (d *Decoder) recordNativeStereoFromFloat32(leftNative, rightNative []float3
 		d.stereoLeftNative[i] = int16(l)
 		d.stereoRightNative[i] = int16(r)
 	}
-	d.lastNativeStereoLen = n
-	d.lastNativeStereoFsKHz = GetBandwidthConfig(bandwidth).SampleRate / 1000
+	d.lastNativeStereoLen = int32(n)
+	d.lastNativeStereoFsKHz = int32(GetBandwidthConfig(bandwidth).SampleRate / 1000)
 	d.lastNativeMonoLen = 0
 	d.lastNativeMonoFsKHz = 0
 	d.lastNativeMidLen = 0
@@ -538,8 +538,8 @@ func (d *Decoder) DecodeStereoWithDecoderInto(
 	// above, so the pre-resample SILK lowband is available to the caller
 	// without performing a second decode pass. Mirrors LatestNativeMono.
 	if nativeLowbandCaptureEnabled {
-		d.lastNativeStereoLen = nativeSamples
-		d.lastNativeStereoFsKHz = config.SampleRate / 1000
+		d.lastNativeStereoLen = int32(nativeSamples)
+		d.lastNativeStereoFsKHz = int32(config.SampleRate / 1000)
 	}
 	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
 	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
@@ -1016,8 +1016,8 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 				buf[i] = float32ToInt16(v)
 			}
 		}
-		d.lastNativeMonoLen = len(concealed)
-		d.lastNativeMonoFsKHz = config.SampleRate / 1000
+		d.lastNativeMonoLen = int32(len(concealed))
+		d.lastNativeMonoFsKHz = int32(config.SampleRate / 1000)
 		d.lastNativeStereoLen = 0
 		d.lastNativeStereoFsKHz = 0
 		d.lastNativeMidLen = 0
@@ -1184,11 +1184,11 @@ func (d *Decoder) syncLegacyPLCState(st *decoderState, recent []int16) {
 	}
 
 	if st.lpcOrder > 0 {
-		d.lpcOrder = int(st.lpcOrder)
+		d.lpcOrder = st.lpcOrder
 	}
 	d.isPreviousFrameVoiced = int(st.indices.signalType) == typeVoiced
 
-	order := d.lpcOrder
+	order := int(d.lpcOrder)
 	if order <= 0 {
 		return
 	}

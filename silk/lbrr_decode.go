@@ -234,7 +234,7 @@ func (d *Decoder) decodeStereoFECFrames(
 		} else {
 			copy(leftNative[start:start+frameLength], midOut[:frameLength])
 		}
-		d.prevDecodeOnlyMiddle = decodeOnlyMiddle
+		d.prevDecodeOnlyMiddle = int32(decodeOnlyMiddle)
 		lastFrameLost = !midRecovered
 	}
 

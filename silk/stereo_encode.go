@@ -226,7 +226,7 @@ func EncodeStereoIndices(enc *rangecoding.Encoder, ix StereoQuantIndices) {
 // stereoSelectCondCoding matches libopus enc_API.c condCoding selection, which keys
 // off the mid encoder's nFramesEncoded at the start of the current 20 ms block
 // (before either channel is encoded in that block).
-func stereoSelectCondCoding(midFramesEncodedInPacket, channelIdx, prevDecodeOnlyMiddle int) int {
+func stereoSelectCondCoding(midFramesEncodedInPacket, channelIdx int, prevDecodeOnlyMiddle int32) int {
 	if midFramesEncodedInPacket-channelIdx <= 0 {
 		return codeIndependently
 	}

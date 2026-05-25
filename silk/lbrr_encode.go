@@ -255,7 +255,7 @@ func encodeStereoLBRRPacket(
 			if ch == 0 {
 				EncodeStereoIndices(re, stereo.lbrrStereoIx[i])
 				if sideEnc.lbrrFlags[i] == 0 {
-					EncodeStereoMidOnly(re, stereo.lbrrMidOnly[i])
+					EncodeStereoMidOnly(re, int(stereo.lbrrMidOnly[i]))
 				}
 			}
 			condCoding := codeIndependently

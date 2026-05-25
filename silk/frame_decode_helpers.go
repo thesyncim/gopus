@@ -23,7 +23,7 @@ func lbrrCondCoding(st *decoderState, frameIndex int) int {
 	return codeIndependently
 }
 
-func sideFrameCondCoding(frameIndex, prevDecodeOnlyMiddle int) int {
+func sideFrameCondCoding(frameIndex int, prevDecodeOnlyMiddle int32) int {
 	if frameIndex == 0 {
 		return codeIndependently
 	}

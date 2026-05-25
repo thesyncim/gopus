@@ -119,10 +119,10 @@ type stereoEncState struct {
 	silentSideLen int16    // Accumulated silent side length (samples)
 	// Tracks whether the previous coded frame collapsed to mid-only so the
 	// first returning side frame can reset state like libopus enc_API.c.
-	prevDecodeOnlyMiddle int
+	prevDecodeOnlyMiddle int32
 	// Per-frame stereo metadata for LBRR in the next packet (set during frame encode).
 	lbrrStereoIx [maxFramesPerPacket]StereoQuantIndices
-	lbrrMidOnly  [maxFramesPerPacket]int
+	lbrrMidOnly  [maxFramesPerPacket]int32
 	// Smoothed mid/residual amplitudes for LP/HP (Q0), matching libopus.
 	midSideAmpQ0 [4]int32
 }

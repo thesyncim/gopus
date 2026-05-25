@@ -143,8 +143,8 @@ func (d *Decoder) decodeFrameRawInt16(
 	// without performing a second decode pass. Mirrors libopus where BWE
 	// consumes samplesOut1_tmp directly.
 	if nativeLowbandCaptureEnabled {
-		d.lastNativeMonoLen = totalLen
-		d.lastNativeMonoFsKHz = fsKHz
+		d.lastNativeMonoLen = int32(totalLen)
+		d.lastNativeMonoFsKHz = int32(fsKHz)
 		d.lastNativeStereoLen = 0
 		d.lastNativeStereoFsKHz = 0
 		d.lastNativeMidLen = 0
@@ -231,7 +231,7 @@ func (d *Decoder) DecodeStereoFrame(
 		copy(rightNative[i*frameLength:(i+1)*frameLength], sideFrame[1:frameLength+1])
 
 		// Track mid-only flag per frame (used for side-channel conditioning).
-		d.prevDecodeOnlyMiddle = decodeOnlyMiddle
+		d.prevDecodeOnlyMiddle = int32(decodeOnlyMiddle)
 	}
 
 	left = make([]float32, len(leftNative))
@@ -306,7 +306,7 @@ func (d *Decoder) DecodeStereoFrameInt16Into(
 		copy(leftNative[i*frameLength:(i+1)*frameLength], midFrame[1:frameLength+1])
 		copy(rightNative[i*frameLength:(i+1)*frameLength], sideFrame[1:frameLength+1])
 
-		d.prevDecodeOnlyMiddle = decodeOnlyMiddle
+		d.prevDecodeOnlyMiddle = int32(decodeOnlyMiddle)
 	}
 
 	d.haveDecoded = true
@@ -314,8 +314,8 @@ func (d *Decoder) DecodeStereoFrameInt16Into(
 		d.lastNativeMonoLen = 0
 		d.lastNativeMonoFsKHz = 0
 		if len(d.stereoMidNative) >= totalLen {
-			d.lastNativeMidLen = totalLen
-			d.lastNativeMidFsKHz = fsKHz
+			d.lastNativeMidLen = int32(totalLen)
+			d.lastNativeMidFsKHz = int32(fsKHz)
 		}
 	}
 	return totalLen, nil
@@ -364,7 +364,7 @@ func (d *Decoder) decodeStereoMidNative(
 		}
 
 		// Track mid-only flag per frame (used for side-channel conditioning).
-		d.prevDecodeOnlyMiddle = decodeOnlyMiddle
+		d.prevDecodeOnlyMiddle = int32(decodeOnlyMiddle)
 	}
 
 	d.haveDecoded = true
