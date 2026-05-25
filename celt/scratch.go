@@ -94,7 +94,7 @@ type bandDecodeScratch struct {
 	lowband  []celtNorm
 
 	// Pre-allocated buffers for DecodeBands hot path (eliminates per-frame allocations)
-	coeffs       []float64    // MDCT coefficients output buffer (size: frameSize or 2*frameSize for stereo)
+	coeffs       []celtNorm   // MDCT coefficients output buffer (size: frameSize or 2*frameSize for stereo)
 	bandVectors  [][]celtNorm // Per-band decoded vectors for folding (size: MaxBands)
 	bandVectorsL [][]celtNorm // Left channel band vectors for stereo (size: MaxBands)
 	bandVectorsR [][]celtNorm // Right channel band vectors for stereo (size: MaxBands)
@@ -232,8 +232,8 @@ func (s *bandEncodeScratch) ensurePVQIy(n int) []int {
 const maxBandWidth = 176
 
 // ensureCoeffs returns a pre-allocated coefficients buffer of the requested size.
-func (s *bandDecodeScratch) ensureCoeffs(n int) []float64 {
-	return ensureFloat64Slice(&s.coeffs, n)
+func (s *bandDecodeScratch) ensureCoeffs(n int) []celtNorm {
+	return ensureNormSlice(&s.coeffs, n)
 }
 
 // ensureBandVectors returns a pre-allocated slice of band vector pointers.

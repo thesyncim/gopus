@@ -27,7 +27,7 @@ func (d *Decoder) DecodeBands(
 	nbBands int,
 	stereo bool,
 	frameSize int,
-) []float64 {
+) []celtNorm {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return nil
 	}
@@ -100,8 +100,9 @@ func (d *Decoder) DecodeBands(
 
 		// Apply gain to shape and write to output.
 		out := coeffs[offset : offset+n]
-		copyNormToFloat64(out, shape[:n])
-		scaleDenormalizedFloat32Into(out, out, gain, n)
+		for i := 0; i < n; i++ {
+			out[i] = celtNorm(float32(shape[i]) * gain)
+		}
 
 		offset += n
 	}
@@ -134,7 +135,7 @@ func (d *Decoder) DecodeBandsStereo(
 	nbBands int,
 	frameSize int,
 	intensity int,
-) (left, right []float64) {
+) (left, right []celtNorm) {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return nil, nil
 	}
@@ -253,11 +254,11 @@ func (d *Decoder) DecodeBandsStereo(
 		gainR := denormalizeBandGain(energiesR, band)
 
 		leftOut := left[offset : offset+n]
-		copyNormToFloat64(leftOut, shapeL[:n])
-		scaleDenormalizedFloat32Into(leftOut, leftOut, gainL, n)
 		rightOut := right[offset : offset+n]
-		copyNormToFloat64(rightOut, shapeR[:n])
-		scaleDenormalizedFloat32Into(rightOut, rightOut, gainR, n)
+		for i := 0; i < n; i++ {
+			leftOut[i] = celtNorm(float32(shapeL[i]) * gainL)
+			rightOut[i] = celtNorm(float32(shapeR[i]) * gainR)
+		}
 
 		offset += n
 	}
