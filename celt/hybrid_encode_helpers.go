@@ -15,6 +15,19 @@ func (e *Encoder) NormalizeBandsToArrayMonoWithBandE(mdctCoeffs []float64, nbBan
 	return norm, bandE
 }
 
+// NormalizeBandsToArrayMonoWithBandEF32 normalizes float-build MDCT
+// coefficients for mono and returns normalized coefficients plus amplitudes.
+func (e *Encoder) NormalizeBandsToArrayMonoWithBandEF32(mdctCoeffs []float32, nbBands, frameSize int) (norm []celtNorm, bandE []celtEner) {
+	norm = ensureNormSlice(&e.scratch.normL, frameSize)
+	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands)
+	NormalizeBandsToArrayIntoF32(mdctCoeffs, nbBands, frameSize, norm, bandE)
+	if e.lfe {
+		applyLFELinearBandEClamp(bandE, nbBands, 1)
+		normalizeBandsWithBandEIntoF32(mdctCoeffs, nbBands, frameSize, norm, bandE)
+	}
+	return norm, bandE
+}
+
 // NormalizeBandsToArrayStereoWithBandE normalizes MDCT coefficients for stereo
 // and returns normalized L/R coefficients plus combined linear band amplitudes.
 // The bandE layout is [L bands][R bands].
@@ -32,6 +45,26 @@ func (e *Encoder) NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight []flo
 		applyLFELinearBandEClamp(bandE, nbBands, 2)
 		normalizeBandsWithBandEInto(mdctLeft, nbBands, frameSize, normL, bandE[:nbBands])
 		normalizeBandsWithBandEInto(mdctRight, nbBands, frameSize, normR, bandE[nbBands:])
+	}
+	return normL, normR, bandE
+}
+
+// NormalizeBandsToArrayStereoWithBandEF32 normalizes float-build MDCT
+// coefficients for stereo. The bandE layout is [L bands][R bands].
+func (e *Encoder) NormalizeBandsToArrayStereoWithBandEF32(mdctLeft, mdctRight []float32, nbBands, frameSize int) (normL, normR []celtNorm, bandE []celtEner) {
+	normL = ensureNormSlice(&e.scratch.normL, frameSize)
+	normR = ensureNormSlice(&e.scratch.normR, frameSize)
+	bandEL := ensureEnerSlice(&e.scratch.bandEL, nbBands)
+	bandER := ensureEnerSlice(&e.scratch.bandER, nbBands)
+	NormalizeBandsToArrayIntoF32(mdctLeft, nbBands, frameSize, normL, bandEL)
+	NormalizeBandsToArrayIntoF32(mdctRight, nbBands, frameSize, normR, bandER)
+	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands*2)
+	copy(bandE[:nbBands], bandEL)
+	copy(bandE[nbBands:], bandER)
+	if e.lfe {
+		applyLFELinearBandEClamp(bandE, nbBands, 2)
+		normalizeBandsWithBandEIntoF32(mdctLeft, nbBands, frameSize, normL, bandE[:nbBands])
+		normalizeBandsWithBandEIntoF32(mdctRight, nbBands, frameSize, normR, bandE[nbBands:])
 	}
 	return normL, normR, bandE
 }
@@ -591,6 +624,12 @@ func (e *Encoder) MDCTScratchF32(samples []float32) []float64 {
 	return mdctScratchF32(samples, &e.scratch)
 }
 
+// MDCTScratchCoeffsF32 computes float-build MDCT coefficients without widening
+// the runtime coefficient buffer.
+func (e *Encoder) MDCTScratchCoeffsF32(samples []float32) []float32 {
+	return mdctScratchF32Coeffs(samples, &e.scratch)
+}
+
 // MDCTShortScratch computes the short-block MDCT using scratch buffers.
 // This is the zero-allocation equivalent of MDCTShort.
 // EnsureScratch must have been called with an appropriate frameSize first.
@@ -601,6 +640,12 @@ func (e *Encoder) MDCTShortScratch(samples []float64, shortBlocks int) []float64
 // MDCTShortScratchF32 computes the short-block MDCT from float-build input scratch.
 func (e *Encoder) MDCTShortScratchF32(samples []float32, shortBlocks int) []float64 {
 	return mdctShortScratchF32(samples, shortBlocks, &e.scratch)
+}
+
+// MDCTShortScratchCoeffsF32 computes short-block float-build MDCT coefficients
+// without widening the runtime coefficient buffer.
+func (e *Encoder) MDCTShortScratchCoeffsF32(samples []float32, shortBlocks int) []float32 {
+	return mdctShortScratchF32Coeffs(samples, shortBlocks, &e.scratch)
 }
 
 // ComputeMDCTWithHistoryScratch computes MDCT with history using scratch buffers.

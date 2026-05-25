@@ -720,12 +720,6 @@ celt/xcorr.go	1	a65afd3127286257f69d1e3dafbefdbf467734495817744bdbdd16e89a3f0508
 celt/xcorr.go	1	b05351257b2e2da2b873131e1190eb71571ee0b141d3de3c9ec0cc564bbd71dd	legacy-current	func tripleInnerProd(x, y1, y2, y3 []float64, length int) (float64, float64, float64) {
 celt/xcorr.go	2	bd3df33535ae5483a1c53129dd8cec51f228679838067eccc5d8d85afd57b1e7	legacy-current	var b0, b1, b2, b3 float64
 celt/xcorr.go	2	e0c2490349f9242f45544914abe3d2a33db46f4ebb6f593d5ba4ef3e98a63ef8	legacy-current	var a0, a1, a2, a3 float64
-encoder/hybrid.go	1	1d102f577ed072a5667b1ead59b73bbd21dd70caf0b02708c5a77910cd01ba2c	legacy-current	tfBoost := int((tfEstimate - 0.25) * float64(50<<celt.BitRes))
-encoder/hybrid.go	2	3ac2e099c102b4860a16f3766a6b286d330a07d35f80355c70d01c0d7fb728de	legacy-current	var mdctLeft, mdctRight []float64
-encoder/hybrid.go	1	5836c65732dc998955a739845c93f9a3387a600fbd8d09897227c75c94634822	legacy-current	func computeMDCTForHybridScratch(samples []float32, frameSize, channels int, history []float32, shortBlocks int, hs *HybridState, ce *celt.Encoder) []float64 {
-encoder/hybrid.go	1	80219792b478493d8425c3e4b25328a7096871b213750692d503f13271f35946	legacy-current	scratchMDCTResult []float64 // combined L+R MDCT output
-encoder/hybrid.go	2	cb307c264810bd39dc3f2af6ab93e86e5ae4801bafc26cb6bc8bcb32d9378124	legacy-current	hs.scratchMDCTResult = make([]float64, resultLen)
-encoder/hybrid.go	1	d604d64649d277a4b06e6e0520168b79028344b240622d45da06f7d9d5e30a43	legacy-current	func (e *Encoder) computeHybridCELTVBRTargetBytes(limitBytes, frameSize int, tfEstimate float64, totalBoost, tellFrac, tell0Frac, silkOffset int) int {
 internal/lpcnetplc/analysis.go	1	0a50dc44c424b9913f0c2c89c571098693ece9485671f88c64de01db7c22901b	legacy-current	var nrgF float64
 internal/lpcnetplc/analysis.go	1	0e4b638261c0ff8bed0339f1a6224809e5dcabca1bc850c7d1ea6af2c4fe9476	legacy-current	scratch.lpcEx[i] = float32(math.Pow(10, float64(scratch.lpcEx[i])) * float64(analysisCompensation[i]))
 internal/lpcnetplc/analysis.go	1	109702ae88e36cacc7cb337dcf912e7b08c89e3a66aa408de6f686dd53d41592	legacy-current	tmp1 += float64(xPtr[n-k-1]) * atmp

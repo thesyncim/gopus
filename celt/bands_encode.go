@@ -3,7 +3,11 @@
 
 package celt
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // NormalizeBands divides each band's MDCT coefficients by its energy,
 // producing unit-norm shapes ready for PVQ quantization.
@@ -177,6 +181,38 @@ func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize in
 	}
 }
 
+// ComputeLinearBandAmplitudesIntoF32 computes float-build linear band
+// amplitudes into the provided buffer.
+func ComputeLinearBandAmplitudesIntoF32(mdctCoeffs []float32, nbBands, frameSize int, bandE []celtEner) {
+	if nbBands <= 0 || nbBands > MaxBands {
+		return
+	}
+	if frameSize <= 0 {
+		return
+	}
+	offset := 0
+
+	for band := 0; band < nbBands; band++ {
+		n := ScaledBandWidth(band, frameSize)
+		if n <= 0 {
+			bandE[band] = celtEner(1e-27)
+			continue
+		}
+		if offset+n > len(mdctCoeffs) {
+			bandE[band] = celtEner(1e-27)
+			offset += n
+			continue
+		}
+
+		sum := float32(1e-27)
+		for _, v := range mdctCoeffs[offset : offset+n] {
+			sum += v * v
+		}
+		bandE[band] = celtEner(opusmath.SqrtF32(sum))
+		offset += n
+	}
+}
+
 func applyLFELinearBandEClamp(bandE []celtEner, nbBands, channels int) {
 	if nbBands <= 2 || channels <= 0 {
 		return
@@ -225,6 +261,20 @@ func NormalizeBandsToArrayInto(mdctCoeffs []float64, nbBands, frameSize int, nor
 	normalizeBandsWithBandEInto(mdctCoeffs, nbBands, frameSize, norm, bandE)
 }
 
+// NormalizeBandsToArrayIntoF32 normalizes float-build MDCT coefficients into a
+// provided contiguous array.
+func NormalizeBandsToArrayIntoF32(mdctCoeffs []float32, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
+	if nbBands <= 0 || nbBands > MaxBands {
+		return
+	}
+	if frameSize <= 0 {
+		return
+	}
+
+	ComputeLinearBandAmplitudesIntoF32(mdctCoeffs, nbBands, frameSize, bandE)
+	normalizeBandsWithBandEIntoF32(mdctCoeffs, nbBands, frameSize, norm, bandE)
+}
+
 func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
 	offset := 0
 	for band := 0; band < nbBands; band++ {
@@ -253,6 +303,31 @@ func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, n
 		for i := 0; i < n; i++ {
 			// Match libopus float path: freq and gains are float.
 			norm[offset+i] = celtNorm(float32(mdctCoeffs[offset+i]) * g)
+		}
+		offset += n
+	}
+}
+
+func normalizeBandsWithBandEIntoF32(mdctCoeffs []float32, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
+	offset := 0
+	for band := 0; band < nbBands; band++ {
+		n := ScaledBandWidth(band, frameSize)
+		if n <= 0 {
+			continue
+		}
+		if offset+n > len(mdctCoeffs) {
+			offset += n
+			continue
+		}
+
+		amplitude := float32(bandE[band])
+		if amplitude < float32(1e-27) {
+			amplitude = float32(1e-27)
+		}
+		g := float32(1.0) / amplitude
+
+		for i := 0; i < n; i++ {
+			norm[offset+i] = celtNorm(mdctCoeffs[offset+i] * g)
 		}
 		offset += n
 	}

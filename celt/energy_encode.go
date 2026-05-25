@@ -36,10 +36,25 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize i
 	return dst
 }
 
+// ComputeBandEnergiesF32 computes CELT band energies from float-build MDCT
+// coefficients and returns the encoder scratch view.
+func (e *Encoder) ComputeBandEnergiesF32(mdctCoeffs []float32, nbBands, frameSize int) []celtGLog {
+	energiesLen := nbBands * e.channels
+	dst := ensureGLogSlice(&e.scratch.energies, energiesLen)
+	e.ComputeBandEnergiesF32Into(mdctCoeffs, nbBands, frameSize, dst)
+	return dst
+}
+
 // ComputeBandEnergiesInto computes band energies into the provided destination buffer.
 // Use this instead of ComputeBandEnergies when you need to avoid buffer aliasing.
 func (e *Encoder) ComputeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize int, dst []celtGLog) {
 	computeBandEnergiesGLogInto(mdctCoeffs, nbBands, frameSize, e.channels, dst)
+}
+
+// ComputeBandEnergiesF32Into computes CELT band energies into celt_glog-width
+// scratch for callers that already carry float-build MDCT coefficients.
+func (e *Encoder) ComputeBandEnergiesF32Into(mdctCoeffs []float32, nbBands, frameSize int, dst []celtGLog) {
+	computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, e.channels, dst)
 }
 
 // ComputeBandEnergiesFloat32Into computes CELT band energies in libopus
@@ -190,6 +205,75 @@ func computeBandEnergiesGLogInto(mdctCoeffs []float64, nbBands, frameSize, chann
 			}
 
 			energy := float32(computeBandRMS(channelCoeffs, start, end))
+			if band < len(eMeans) {
+				energy -= float32(eMeans[band] * DB6)
+			}
+			dst[c*nbBands+band] = celtGLog(energy)
+		}
+	}
+}
+
+func computeBandEnergiesGLogF32Into(mdctCoeffs []float32, nbBands, frameSize, channels int, dst []celtGLog) {
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	if channels < 1 {
+		channels = 1
+	}
+	if channels > 2 {
+		channels = 2
+	}
+
+	coeffsPerChannel := frameSize
+	if len(mdctCoeffs) < coeffsPerChannel*channels {
+		if len(mdctCoeffs) < coeffsPerChannel {
+			channels = 1
+			coeffsPerChannel = len(mdctCoeffs)
+		} else {
+			channels = 1
+		}
+	}
+	if len(dst) < nbBands*channels {
+		return
+	}
+
+	silence := float32(0.5) * celtLog2(float32(1e-27))
+	for c := 0; c < channels; c++ {
+		channelStart := c * coeffsPerChannel
+		channelEnd := channelStart + coeffsPerChannel
+		if channelEnd > len(mdctCoeffs) {
+			channelEnd = len(mdctCoeffs)
+		}
+		channelCoeffs := mdctCoeffs[channelStart:channelEnd]
+
+		for band := 0; band < nbBands; band++ {
+			start := ScaledBandStart(band, frameSize)
+			end := ScaledBandEnd(band, frameSize)
+
+			if start >= len(channelCoeffs) {
+				energy := silence
+				if band < len(eMeans) {
+					energy -= float32(eMeans[band] * DB6)
+				}
+				dst[c*nbBands+band] = celtGLog(energy)
+				continue
+			}
+			if end > len(channelCoeffs) {
+				end = len(channelCoeffs)
+			}
+			if end <= start {
+				energy := silence
+				if band < len(eMeans) {
+					energy -= float32(eMeans[band] * DB6)
+				}
+				dst[c*nbBands+band] = celtGLog(energy)
+				continue
+			}
+
+			energy := computeBandRMSFloat32(channelCoeffs, start, end)
 			if band < len(eMeans) {
 				energy -= float32(eMeans[band] * DB6)
 			}

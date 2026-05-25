@@ -1082,9 +1082,12 @@ type encoderScratch struct {
 	prefilterYYLookup []float32
 
 	// MDCT coefficient buffers
-	mdctCoeffs []float64
-	mdctLeft   []float64
-	mdctRight  []float64
+	mdctCoeffs    []float64
+	mdctLeft      []float64
+	mdctRight     []float64
+	mdctCoeffsF32 []float32
+	mdctLeftF32   []float32
+	mdctRightF32  []float32
 
 	// Band energy buffers
 	energies  []celtGLog
@@ -1248,6 +1251,9 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.mdctCoeffs = ensureFloat64Slice(&s.mdctCoeffs, frameSize*2)
 	s.mdctLeft = ensureFloat64Slice(&s.mdctLeft, frameSize)
 	s.mdctRight = ensureFloat64Slice(&s.mdctRight, frameSize)
+	s.mdctCoeffsF32 = ensureFloat32Slice(&s.mdctCoeffsF32, frameSize*2)
+	s.mdctLeftF32 = ensureFloat32Slice(&s.mdctLeftF32, frameSize)
+	s.mdctRightF32 = ensureFloat32Slice(&s.mdctRightF32, frameSize)
 
 	// Band energies
 	bandCount := MaxBands * channels
