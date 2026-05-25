@@ -494,8 +494,8 @@ func TestOverlapAdd_ZeroInput(t *testing.T) {
 
 // TestMidSideToLR_MonoCase verifies mid-side with theta=0 produces mono.
 func TestMidSideToLR_MonoCase(t *testing.T) {
-	mid := []float64{1.0, 2.0, 3.0, 4.0}
-	side := []float64{0.5, 0.5, 0.5, 0.5}
+	mid := []float32{1.0, 2.0, 3.0, 4.0}
+	side := []float32{0.5, 0.5, 0.5, 0.5}
 
 	// theta=0: cos(0)=1, sin(0)=0
 	// L = 1*mid + 0*side = mid
@@ -503,10 +503,10 @@ func TestMidSideToLR_MonoCase(t *testing.T) {
 	left, right := MidSideToLR(mid, side, 0)
 
 	for i := range left {
-		if math.Abs(left[i]-mid[i]) > 1e-10 {
+		if math.Abs(float64(left[i]-mid[i])) > 1e-6 {
 			t.Errorf("Left[%d] = %v, want %v", i, left[i], mid[i])
 		}
-		if math.Abs(right[i]-mid[i]) > 1e-10 {
+		if math.Abs(float64(right[i]-mid[i])) > 1e-6 {
 			t.Errorf("Right[%d] = %v, want %v", i, right[i], mid[i])
 		}
 	}
@@ -514,19 +514,19 @@ func TestMidSideToLR_MonoCase(t *testing.T) {
 
 // TestMidSideToLR_FullStereo verifies mid-side with theta=pi/2.
 func TestMidSideToLR_FullStereo(t *testing.T) {
-	mid := []float64{0, 0, 0, 0}
-	side := []float64{1.0, 2.0, 3.0, 4.0}
+	mid := []float32{0, 0, 0, 0}
+	side := []float32{1.0, 2.0, 3.0, 4.0}
 
 	// theta=pi/2: cos=0, sin=1
 	// L = 0*mid + 1*side = side
 	// R = 0*mid - 1*side = -side
-	left, right := MidSideToLR(mid, side, math.Pi/2)
+	left, right := MidSideToLR(mid, side, float32(math.Pi/2))
 
 	for i := range left {
-		if math.Abs(left[i]-side[i]) > 1e-10 {
+		if math.Abs(float64(left[i]-side[i])) > 1e-6 {
 			t.Errorf("Left[%d] = %v, want %v", i, left[i], side[i])
 		}
-		if math.Abs(right[i]+side[i]) > 1e-10 {
+		if math.Abs(float64(right[i]+side[i])) > 1e-6 {
 			t.Errorf("Right[%d] = %v, want %v", i, right[i], -side[i])
 		}
 	}
@@ -534,16 +534,16 @@ func TestMidSideToLR_FullStereo(t *testing.T) {
 
 // TestMidSideToLR_Inversion verifies L+R and L-R properties.
 func TestMidSideToLR_Inversion(t *testing.T) {
-	mid := []float64{1.0, 2.0, 3.0}
-	side := []float64{0.1, 0.2, 0.3}
-	theta := math.Pi / 4 // 45 degrees
+	mid := []float32{1.0, 2.0, 3.0}
+	side := []float32{0.1, 0.2, 0.3}
+	theta := float32(math.Pi / 4) // 45 degrees
 
 	left, right := MidSideToLR(mid, side, theta)
 
 	// L + R should be approximately 2*cos(theta)*mid (when side is small)
 	// L - R should be approximately 2*sin(theta)*side
-	cosT := math.Cos(theta)
-	sinT := math.Sin(theta)
+	cosT := float32(math.Cos(float64(theta)))
+	sinT := float32(math.Sin(float64(theta)))
 
 	for i := range mid {
 		sum := left[i] + right[i]
@@ -552,10 +552,10 @@ func TestMidSideToLR_Inversion(t *testing.T) {
 		expectedSum := 2 * cosT * mid[i]
 		expectedDiff := 2 * sinT * side[i]
 
-		if math.Abs(sum-expectedSum) > 1e-10 {
+		if math.Abs(float64(sum-expectedSum)) > 1e-6 {
 			t.Errorf("L+R at %d: got %v, want %v", i, sum, expectedSum)
 		}
-		if math.Abs(diff-expectedDiff) > 1e-10 {
+		if math.Abs(float64(diff-expectedDiff)) > 1e-6 {
 			t.Errorf("L-R at %d: got %v, want %v", i, diff, expectedDiff)
 		}
 	}
@@ -563,7 +563,7 @@ func TestMidSideToLR_Inversion(t *testing.T) {
 
 // TestIntensityStereo_NoInversion verifies intensity stereo without inversion.
 func TestIntensityStereo_NoInversion(t *testing.T) {
-	mono := []float64{1.0, 2.0, 3.0, 4.0}
+	mono := []float32{1.0, 2.0, 3.0, 4.0}
 
 	left, right := IntensityStereo(mono, false)
 
@@ -579,7 +579,7 @@ func TestIntensityStereo_NoInversion(t *testing.T) {
 
 // TestIntensityStereo_WithInversion verifies intensity stereo with inversion.
 func TestIntensityStereo_WithInversion(t *testing.T) {
-	mono := []float64{1.0, 2.0, 3.0, 4.0}
+	mono := []float32{1.0, 2.0, 3.0, 4.0}
 
 	left, right := IntensityStereo(mono, true)
 
@@ -884,13 +884,13 @@ func BenchmarkDecodeFrame_Stereo(b *testing.B) {
 // BenchmarkMidSideToLR benchmarks stereo conversion.
 func BenchmarkMidSideToLR(b *testing.B) {
 	n := 100
-	mid := make([]float64, n)
-	side := make([]float64, n)
+	mid := make([]float32, n)
+	side := make([]float32, n)
 	for i := range mid {
-		mid[i] = float64(i) / float64(n)
-		side[i] = float64(n-i) / float64(n)
+		mid[i] = float32(i) / float32(n)
+		side[i] = float32(n-i) / float32(n)
 	}
-	theta := math.Pi / 4
+	theta := float32(math.Pi / 4)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {

@@ -1,6 +1,10 @@
 package celt
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // Stereo processing for CELT decoding.
 // CELT supports three stereo coding modes:
@@ -53,7 +57,7 @@ func (sm StereoMode) String() string {
 //   - theta: stereo angle in radians (0 = mono, pi/2 = full stereo)
 //
 // Returns: left and right channel coefficient arrays
-func MidSideToLR(mid, side []float64, theta float64) (left, right []float64) {
+func MidSideToLR(mid, side []float32, theta float32) (left, right []float32) {
 	n := len(mid)
 	if n == 0 {
 		return nil, nil
@@ -62,14 +66,14 @@ func MidSideToLR(mid, side []float64, theta float64) (left, right []float64) {
 	// Handle mismatched lengths
 	if len(side) != n {
 		// If side is empty/shorter, treat as mono
-		side = make([]float64, n)
+		side = make([]float32, n)
 	}
 
-	left = make([]float64, n)
-	right = make([]float64, n)
+	left = make([]float32, n)
+	right = make([]float32, n)
 
-	cosT := math.Cos(theta)
-	sinT := math.Sin(theta)
+	cosT := opusmath.CosF32(theta)
+	sinT := opusmath.SinF32(theta)
 
 	for i := 0; i < n; i++ {
 		// Rotation matrix:
@@ -90,18 +94,18 @@ func MidSideToLR(mid, side []float64, theta float64) (left, right []float64) {
 //   - midGain, sideGain: rotation gains (cos(theta), sin(theta))
 //
 // Returns: left and right coefficient arrays
-func MidSideToLRGains(mid, side []float64, midGain, sideGain float64) (left, right []float64) {
+func MidSideToLRGains(mid, side []float32, midGain, sideGain float32) (left, right []float32) {
 	n := len(mid)
 	if n == 0 {
 		return nil, nil
 	}
 
 	if len(side) != n {
-		side = make([]float64, n)
+		side = make([]float32, n)
 	}
 
-	left = make([]float64, n)
-	right = make([]float64, n)
+	left = make([]float32, n)
+	right = make([]float32, n)
 
 	for i := 0; i < n; i++ {
 		left[i] = midGain*mid[i] + sideGain*side[i]
@@ -121,14 +125,14 @@ func MidSideToLRGains(mid, side []float64, midGain, sideGain float64) (left, rig
 //   - invert: if true, right channel is inverted (sign flipped)
 //
 // Returns: left and right coefficient arrays
-func IntensityStereo(mono []float64, invert bool) (left, right []float64) {
+func IntensityStereo(mono []float32, invert bool) (left, right []float32) {
 	n := len(mono)
 	if n == 0 {
 		return nil, nil
 	}
 
-	left = make([]float64, n)
-	right = make([]float64, n)
+	left = make([]float32, n)
+	right = make([]float32, n)
 
 	copy(left, mono)
 
@@ -150,9 +154,9 @@ func IntensityStereo(mono []float64, invert bool) (left, right []float64) {
 //   - coeffsL, coeffsR: independently decoded left and right coefficients
 //
 // Returns: left and right arrays (copies)
-func DualStereoSplit(coeffsL, coeffsR []float64) (left, right []float64) {
-	left = make([]float64, len(coeffsL))
-	right = make([]float64, len(coeffsR))
+func DualStereoSplit(coeffsL, coeffsR []float32) (left, right []float32) {
+	left = make([]float32, len(coeffsL))
+	right = make([]float32, len(coeffsR))
 	copy(left, coeffsL)
 	copy(right, coeffsR)
 	return left, right
@@ -193,11 +197,11 @@ func GetStereoMode(band, intensityBand int, dualStereo bool) StereoMode {
 //   - qn: number of quantization steps
 //
 // Returns: theta in radians [0, pi/2]
-func ComputeTheta(itheta, qn int) float64 {
+func ComputeTheta(itheta, qn int) float32 {
 	if qn <= 0 {
 		return 0
 	}
-	return float64(itheta) * (math.Pi / 2) / float64(qn)
+	return float32(itheta) * float32(math.Pi/2) / float32(qn)
 }
 
 // ComputeGains converts itheta to mid and side gains.
@@ -208,9 +212,9 @@ func ComputeTheta(itheta, qn int) float64 {
 //   - qn: number of quantization steps
 //
 // Returns: mid gain (cos), side gain (sin)
-func ComputeGains(itheta, qn int) (midGain, sideGain float64) {
+func ComputeGains(itheta, qn int) (midGain, sideGain float32) {
 	theta := ComputeTheta(itheta, qn)
-	return math.Cos(theta), math.Sin(theta)
+	return opusmath.CosF32(theta), opusmath.SinF32(theta)
 }
 
 // QuantizeTheta quantizes an angle to the given number of steps.
@@ -221,7 +225,7 @@ func ComputeGains(itheta, qn int) (midGain, sideGain float64) {
 //   - qn: number of quantization steps
 //
 // Returns: quantized itheta [0, qn]
-func QuantizeTheta(theta float64, qn int) int {
+func QuantizeTheta(theta float32, qn int) int {
 	if qn <= 0 {
 		return 0
 	}
@@ -229,12 +233,12 @@ func QuantizeTheta(theta float64, qn int) int {
 	if theta < 0 {
 		theta = 0
 	}
-	if theta > math.Pi/2 {
-		theta = math.Pi / 2
+	if theta > float32(math.Pi/2) {
+		theta = float32(math.Pi / 2)
 	}
 
 	// Convert to quantized value
-	itheta := int(math.Round(theta * float64(qn) / (math.Pi / 2)))
+	itheta := int(opusmath.RoundF32HalfAwayFromZeroToInt32(theta * float32(qn) / float32(math.Pi/2)))
 
 	// Clamp to valid range
 	if itheta < 0 {
@@ -255,7 +259,7 @@ func QuantizeTheta(theta float64, qn int) int {
 //   - energySide: energy of side channel
 //
 // Returns: estimated theta in radians
-func EstimateStereoAngle(energyMid, energySide float64) float64 {
+func EstimateStereoAngle(energyMid, energySide float32) float32 {
 	if energyMid <= 0 && energySide <= 0 {
 		return 0
 	}
@@ -263,24 +267,24 @@ func EstimateStereoAngle(energyMid, energySide float64) float64 {
 	// theta = atan(sqrt(energySide / energyMid))
 	// Handle edge cases
 	if energyMid <= 0 {
-		return math.Pi / 2 // Full side
+		return float32(math.Pi / 2) // Full side
 	}
 	if energySide <= 0 {
 		return 0 // Pure mono
 	}
 
-	ratio := math.Sqrt(energySide / energyMid)
-	return math.Atan(ratio)
+	ratio := opusmath.SqrtF32(energySide / energyMid)
+	return opusmath.AtanF32(ratio)
 }
 
 // StereoWidth computes the perceived stereo width from mid and side.
 // Returns a value in [0, 1] where 0 = mono, 1 = full stereo.
-func StereoWidth(mid, side []float64) float64 {
+func StereoWidth(mid, side []float32) float32 {
 	if len(mid) == 0 {
 		return 0
 	}
 
-	var energyMid, energySide float64
+	var energyMid, energySide float32
 	for i := range mid {
 		energyMid += mid[i] * mid[i]
 		if i < len(side) {
@@ -293,7 +297,7 @@ func StereoWidth(mid, side []float64) float64 {
 	}
 
 	// Width = ratio of side to total energy
-	return math.Sqrt(energySide / (energyMid + energySide))
+	return opusmath.SqrtF32(energySide / (energyMid + energySide))
 }
 
 // LRToMidSide converts left-right stereo to mid-side.
@@ -303,18 +307,18 @@ func StereoWidth(mid, side []float64) float64 {
 //   - left, right: left and right channel coefficients
 //
 // Returns: mid and side coefficient arrays
-func LRToMidSide(left, right []float64) (mid, side []float64) {
+func LRToMidSide(left, right []float32) (mid, side []float32) {
 	n := len(left)
 	if n == 0 {
 		return nil, nil
 	}
 
 	if len(right) != n {
-		right = make([]float64, n)
+		right = make([]float32, n)
 	}
 
-	mid = make([]float64, n)
-	side = make([]float64, n)
+	mid = make([]float32, n)
+	side = make([]float32, n)
 
 	for i := 0; i < n; i++ {
 		// M = (L + R) / 2
@@ -328,13 +332,13 @@ func LRToMidSide(left, right []float64) (mid, side []float64) {
 
 // ApplyIntensityStereo applies intensity stereo to a band.
 // This is a convenience function that decodes the inversion flag and applies it.
-func ApplyIntensityStereo(mono []float64, inversionFlag int) (left, right []float64) {
+func ApplyIntensityStereo(mono []float32, inversionFlag int) (left, right []float32) {
 	return IntensityStereo(mono, inversionFlag != 0)
 }
 
 // MixStereoToMono mixes stereo down to mono.
 // Useful for decoder fallback or testing.
-func MixStereoToMono(left, right []float64) []float64 {
+func MixStereoToMono(left, right []float32) []float32 {
 	n := len(left)
 	if len(right) < n {
 		n = len(right)
@@ -343,7 +347,7 @@ func MixStereoToMono(left, right []float64) []float64 {
 		return nil
 	}
 
-	mono := make([]float64, n)
+	mono := make([]float32, n)
 	for i := 0; i < n; i++ {
 		mono[i] = (left[i] + right[i]) / 2
 	}
@@ -351,10 +355,10 @@ func MixStereoToMono(left, right []float64) []float64 {
 }
 
 // DuplicateMonoToStereo creates stereo by duplicating mono to both channels.
-func DuplicateMonoToStereo(mono []float64) (left, right []float64) {
+func DuplicateMonoToStereo(mono []float32) (left, right []float32) {
 	n := len(mono)
-	left = make([]float64, n)
-	right = make([]float64, n)
+	left = make([]float32, n)
+	right = make([]float32, n)
 	copy(left, mono)
 	copy(right, mono)
 	return left, right

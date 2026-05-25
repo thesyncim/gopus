@@ -615,29 +615,6 @@ celt/silence_helpers.go	1	bf51ab0613794697a884bf9847758498322e11cf5ad7cf86d30b50
 celt/silence_helpers.go	1	d10d6a64206fc8175e4b8172d9aa3ad74b265597ca13fe7cb9ebeef11dcd27ea	legacy-current	out := ensureFloat64Slice(&d.scratchSynth, frameSize)
 celt/silence_helpers.go	1	d38279e624ace26ddacc6045d5fc6f0c6a29004a6b343ef0d8e98ebce194a033	legacy-current	func (d *Decoder) synthesizeSilenceMono(frameSize int) []float64 {
 celt/silence_helpers.go	1	f21d2770bb6345f6d1a6088ed88dc2601a5d744eb7bce3b271d6377e77c45fed	legacy-current	out := ensureFloat64Slice(&d.scratchStereo, frameSize*2)
-celt/stereo.go	1	0ae105f254eeaacdac71bb2139e76cae3e162c5957257909585c8c7957ca2a43	legacy-current	func DualStereoSplit(coeffsL, coeffsR []float64) (left, right []float64) {
-celt/stereo.go	1	0d015c729992531392b64132b8f672ae26b950854b16fc8829f1d8cd6397334c	legacy-current	right = make([]float64, len(coeffsR))
-celt/stereo.go	1	14fe372d3d8d7f95e0146e65d96533a225e73c657159adebb2cd29028e0542c2	legacy-current	func ApplyIntensityStereo(mono []float64, inversionFlag int) (left, right []float64) {
-celt/stereo.go	1	20c986f8db565b1cf1f74132c4243dc43299690bae829b01a93f3461268c622b	legacy-current	func ComputeGains(itheta, qn int) (midGain, sideGain float64) {
-celt/stereo.go	4	21db2e3b19c0815a8e4f0dddbec1ade9b8bb5430b4f21b9b4eae1f485d5fa93b	legacy-current	left = make([]float64, n)
-celt/stereo.go	1	2339353f4777e466adf72d532f9d7af6aeb7ce78e62589a108703e05a3a6f60c	legacy-current	mid = make([]float64, n)
-celt/stereo.go	1	2b3c2c6a1427038637419e4e6e96a6e81461356f94a387e692647022c63be14d	legacy-current	left = make([]float64, len(coeffsL))
-celt/stereo.go	3	2f55c23ed6b81df7446ba43cf6c912fb85947397821e24674f086ff8af6da8a0	legacy-current	side = make([]float64, n)
-celt/stereo.go	1	45e722063892d9fbad1d7bfe573092d810af2b0236742eebfad4f1e442e74c31	legacy-current	mono := make([]float64, n)
-celt/stereo.go	1	4bb077de759c2b47910b08a4bc270673844737109c1c9897ca1cead59e8a1fca	legacy-current	func DuplicateMonoToStereo(mono []float64) (left, right []float64) {
-celt/stereo.go	1	80f3551d157f4e852bdcd97d32df7968f641d6469ec7debc277ed59733757716	legacy-current	func IntensityStereo(mono []float64, invert bool) (left, right []float64) {
-celt/stereo.go	1	8cb0b80e2aca133a4b45b8a4fae889999d4fdcc37b7a9e81bdf0172915c5dd94	legacy-current	func MixStereoToMono(left, right []float64) []float64 {
-celt/stereo.go	1	946d01e5a4e2bcb88e6499a5fd651ad0b7a5f49c300daccb6f3a422955e3d746	legacy-current	func MidSideToLRGains(mid, side []float64, midGain, sideGain float64) (left, right []float64) {
-celt/stereo.go	1	9efa5d09e7af95b814d9d77e312e10ea9a0ef96c5b708450da08aebed58b89d7	legacy-current	return float64(itheta) * (math.Pi / 2) / float64(qn)
-celt/stereo.go	1	a7d441d0bd6928240553c13ffa10b6dd39fd5a00a48e193e1bb9394a1d3a2f4e	legacy-current	func EstimateStereoAngle(energyMid, energySide float64) float64 {
-celt/stereo.go	1	acbf4624beb3657557fdf167539237870d16fe15ded72c7edb3f207ba18de772	legacy-current	func ComputeTheta(itheta, qn int) float64 {
-celt/stereo.go	1	b1cda883ed3e042233aaa416b6b54132170490998fce053f89deae3d0a2e4edf	legacy-current	func MidSideToLR(mid, side []float64, theta float64) (left, right []float64) {
-celt/stereo.go	1	cc9e769d1fed7bfdcccb8550175d6ed4a51568cb24a1a6d38f3db5567b94f363	legacy-current	func QuantizeTheta(theta float64, qn int) int {
-celt/stereo.go	1	d2efac2665000fabf8c0a88e0ac285018893f82954433a8bc723488906096e0c	legacy-current	func LRToMidSide(left, right []float64) (mid, side []float64) {
-celt/stereo.go	5	d5c8d44381fc4478c1d9e3127f0945456672728014394554d3fe0baf00e165ff	legacy-current	right = make([]float64, n)
-celt/stereo.go	1	d9aa62b6b569385a9b79275eb2d62aab8ec814f85ced0770891cef865d8ab7bb	legacy-current	func StereoWidth(mid, side []float64) float64 {
-celt/stereo.go	1	de4676917a5a161abaee4a3d856570a9d2a9c1d228c11fbd20357c4edaf5e6cc	legacy-current	itheta := int(math.Round(theta * float64(qn) / (math.Pi / 2)))
-celt/stereo.go	1	e0332a011dd53f091365e41200b6618c9e1fc6cee0f0d95d133d4bd22369403d	legacy-current	var energyMid, energySide float64
 celt/stereo_encode.go	1	005a5758a4df42e525f36cb7f321654c0bc7da75a3bd98b9885b506e958412b0	legacy-current	func InterleaveStereo(left, right []float64) []float64 {
 celt/stereo_encode.go	1	10f1269d8878e042e7f76f9425f2b13e220770d785191062fdd1c17d35990fbb	legacy-current	func ComputeStereoAngle(energyL, energyR float64) float64 {
 celt/stereo_encode.go	2	21db2e3b19c0815a8e4f0dddbec1ade9b8bb5430b4f21b9b4eae1f485d5fa93b	legacy-current	left = make([]float64, n)
