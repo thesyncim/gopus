@@ -1,8 +1,6 @@
 package silk
 
 import (
-	"math"
-
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/util"
 )
@@ -36,12 +34,12 @@ func (e *Encoder) encodeStereo(left, right []float32) (mid []float32, side []flo
 	// Compute stereo prediction weights using linear regression
 	// side[n] ~= w0 * mid[n] + w1 * mid[n-1]
 	// Minimize sum((side[n] - w0*mid[n] - w1*mid[n-1])^2)
-	var sumMM, sumMS, sumM1M1, sumM1S, sumMM1 float64
+	var sumMM, sumMS, sumM1M1, sumM1S, sumMM1 float32
 
 	for i := 1; i < n; i++ {
-		m := float64(mid[i])
-		m1 := float64(mid[i-1])
-		s := float64(side[i])
+		m := mid[i]
+		m1 := mid[i-1]
+		s := side[i]
 
 		sumMM += m * m
 		sumMS += m * s
@@ -54,8 +52,8 @@ func (e *Encoder) encodeStereo(left, right []float32) (mid []float32, side []flo
 	// [sumMM   sumMM1] [w0]   [sumMS]
 	// [sumMM1 sumM1M1] [w1] = [sumM1S]
 	det := sumMM*sumM1M1 - sumMM1*sumMM1
-	var w0, w1 float64
-	if math.Abs(det) > 1e-10 {
+	var w0, w1 float32
+	if det > 1e-10 || det < -1e-10 {
 		w0 = (sumMS*sumM1M1 - sumM1S*sumMM1) / det
 		w1 = (sumMM*sumM1S - sumMM1*sumMS) / det
 	}

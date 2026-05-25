@@ -1973,15 +1973,6 @@ silk/resample_sinc.go	1	710d8ebae7fab92ce2f4f2fc491e7db0bb89a5f436a3e711cc679bad
 silk/resample_sinc.go	1	743f401121fc0993f9b0bfa84f74511f827e63811114ab1f05ac16ce4c2fc30a	legacy-current	n := float64(tap)/float64(r.filterTaps-1)*2.0 - 1.0
 silk/resample_sinc.go	1	b31016a831bca9779276457fd168e61c49e899b60c09f51362ffb9a271d9ed1e	legacy-current	func bessel0(x float64) float64 {
 silk/silk.go	1	033c6edca3c648dae42c3780eb6f692d713d53935722eb495127b517a8be952d	legacy-current	history[historyIdx] = int32(math.Floor(0.5 + float64(scaled)))
-silk/stereo_encode.go	1	24014a257b840e4ca4720812e1ffd6d0d15cbfb29ba5dc2f74bf33dc2531e607	legacy-current	var w0, w1 float64
-silk/stereo_encode.go	1	27aac2d178be92a0f3495fc05405a7049da543004ddeb14725d8f7f2106670e9	legacy-current	var sumMM, sumMS, sumM1M1, sumM1S, sumMM1 float64
-silk/stereo_encode.go	1	53cf3728fa2cd217e27d8a71aa6315ed3e244c127acda5172d7ff1300a087867	legacy-current	m1 := float64(mid[i-1])
-silk/stereo_encode.go	1	59e9f10045c695f2427cbe9790be70e55ac3dd100da3130e6a47b9f4fce42e3f	legacy-current	s := float64(side[i])
-silk/stereo_encode.go	1	920d8d912a2a91dda87a82909a79cdcab5f90f02b791d168670609bab28c2884	legacy-current	m := float64(mid[i])
-silk/stereo_lp_filter.go	1	1b3a03334899d7723a1c0816b1e28f1550443a57e9031c35b8579356d8f5fa81	legacy-current	func stereoFindPredictorFloatWithRatio(x, y []float32, length int, midResAmp *[2]float64, smoothCoef float64) (predQ13 int32, ratio float64) {
-silk/stereo_lp_filter.go	2	6032bd2899997495cb9ac379d3198b3a8956d9c7544f7c58ba6294c2e493eced	legacy-current	var nrgx, nrgy, corr float64
-silk/stereo_lp_filter.go	2	aad0f858b7e8b95cf051a75238c9949658a77fa937924ce2531958c9b8580aef	legacy-current	yi := float64(y[i])
-silk/stereo_lp_filter.go	2	f9760e48a2100648c4178e0d26a903827ba43b16760d15fe5350e83c5dbed940	legacy-current	xi := float64(x[i])
 silk/vad.go	1	1c0fdee4a1f15ef61acb5b718d5e0e213f666083095e0cf2abd69d34a4e76c52	legacy-current	func (e *Encoder) computeShortTermCorr(pcm []float32) float64 {
 silk/vad.go	1	1e0be019a8d904df1a7c97cb731f4a89fec6c0ba94d03b9c90b6127f04cc96a0	legacy-current	var corr, energy1, energy2 float64
 silk/vad.go	1	20cf6e03236999e5a317d8f12834c41603b756727b032e8029f693df968e7963	legacy-current	n := float64(len(pcm))
