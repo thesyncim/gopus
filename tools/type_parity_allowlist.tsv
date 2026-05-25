@@ -400,7 +400,6 @@ celt/encode_frame.go	1	418551ccf70a2c85c800b83f4e1e95b1ae7d7185fd09732b131c73a4a
 celt/encode_frame.go	1	423141e827f0de5a32a959118f753e80432775ca4548b9da16309411e296e97e	legacy-current	out := ensureFloat64Slice(&e.scratch.quantizedInput, len(pcm))
 celt/encode_frame.go	1	479a01a2e0c09999db75c3fad88e02574c21a7d255a8125789d814bde40c1ee1	legacy-current	energies[frameIdx] = float64(curE - 0.25*float32(e.energyError[stateIdx]))
 celt/encode_frame.go	1	488f4b40267b2fbda155ebb0a913be26273a3ff3fcf484d8972fb543de508594	legacy-current	targetQ3 = baseTargetQ3 + int(0.67*float64(targetQ3-baseTargetQ3))
-celt/encode_frame.go	1	4902c52373f034111614c4be226093fc2b6c25004a645c0962563cc5623b1bc5	legacy-current	alpha := 1.0 / float64(e.vbrCount+20)
 celt/encode_frame.go	1	4cf4e40376d2ac2fa790cef2cf724f742a47f1006dcc5cab3d4897f38d1c18e4	legacy-current	tonality := float64(e.analysisTonality)
 celt/encode_frame.go	1	4e105e94c298b53f113e2a9c00e860f6c7e55d5f6f072fd7107379e02c54cfd4	legacy-current	func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChange bool) int {
 celt/encode_frame.go	1	50f57a31e9c5d7cf805c780f0de23272b99ec214ef6c53f054e98920f1da628f	legacy-current	floorDepth := int(float64((channels*bins)<<bitRes) * maxDepth)
@@ -418,7 +417,6 @@ celt/encode_frame.go	2	66e23c55b901ffa2e80a66fccf3621fe2681119a66ea7e8ba69d858c7
 celt/encode_frame.go	1	68a503979dce11c4ec85f48a543a9cf613b2296f65cb3f6badd438c54dfa672d	legacy-current	func (e *Encoder) EncodeFrameWithOptions(pcm []float64, frameSize int, opts EncodeOptions) ([]byte, error) {
 celt/encode_frame.go	1	6d36c2e9c60aba1a8755c7a70f4eb05d2bbabd79444c2b805160a29a3a4cd0ab	legacy-current	energies := ensureFloat64Slice(&e.scratch.energies, nbBands*codedChannels)
 celt/encode_frame.go	1	71b6fdf877e26aa04227f059149e710dcf0f1c71c1e708c9240964245af1af5c	legacy-current	var qextBandLogE []float64
-celt/encode_frame.go	3	7985817c3933cb7095af7587eb78612bce04b59995355b24217fbc923920392d	legacy-current	e.vbrDrift += int(alpha * float64(driftDelta))
 celt/encode_frame.go	2	7b1320d24d92d02b34406ccfc15768c05431a9eb5720473815ebf88997769c24	legacy-current	mdctCoeffs = make([]float64, coeffsLen)
 celt/encode_frame.go	1	7b668610bad13ba2b0f08df433ddede12ca58cf3c5ba8d099df28536d23fd1ec	legacy-current	if float64(newOverlapMax) > sampleMax {
 celt/encode_frame.go	2	7b9b43b2e7b808297da2d50c74c658e548746df135bff15fa1bbe7b32bd8584f	legacy-current	rightHist = make([]float64, overlap)
@@ -429,7 +427,6 @@ celt/encode_frame.go	1	84ff80ebf22530b9c20700c0a01923bf3f60995cdd3eed2d070cf7dfd
 celt/encode_frame.go	1	8690188a67f24803a2709dedd234a0444943dbfe830cf60d91a718bb5f43435a	legacy-current	// Our encoder operates on float64 samples, so match the float path.
 celt/encode_frame.go	1	87977180373f35c0a4f94b756c4f60f23ec35f8a86d1e91cbf827b816dda6e5d	legacy-current	func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 celt/encode_frame.go	1	8d954fd8fb89fbd406d8a6228c8fc4cb7ef78920d2c70fd7a9589a03fdf3b08f	legacy-current	input := make([]float64, len(samples)+overlap)
-celt/encode_frame.go	1	917d783603f3951641de5607994b615c842c4bd06cfd6e23fa42f52b8d6cd80f	legacy-current	e.vbrDrift += int(0.001 * float64(driftDelta))
 celt/encode_frame.go	1	946bd17b6df4febb25ff4f25fcbc5b7f8dba6eff31d1a3a0745cc17c8ce817df	legacy-current	func maxAbsSliceF64(x []float64) float64 {
 celt/encode_frame.go	1	9798d47079e4a8c03b6f592bc383e0271c252b06a990d96ed5fbfb4cc7fe74de	legacy-current	func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool, totalBoost int) int {
 celt/encode_frame.go	1	98f0bd7c0c0541f38990655a1f90240e587fe047620d4326db54ed00a63b2fe3	legacy-current	dst[i] = float64(0.5*float32(left[i]) + 0.5*float32(right[i]))
@@ -437,7 +434,6 @@ celt/encode_frame.go	1	9c46b6c18e100d2c79f00df37b8a2501facc1d44aa350983f946b19b2
 celt/encode_frame.go	1	9cce45c03d83201e2ad1b15fe69a4412eb41b05b2555ffebc8632dafa6013ceb	legacy-current	mdctLong = make([]float64, mdctLongLen)
 celt/encode_frame.go	3	9e1b68c4a8abdef84e6f9e82ef69217f71ff33dda16389a8f58dee930a293e6d	legacy-current	input = make([]float64, inputLen)
 celt/encode_frame.go	1	9e8961e969892096095a166d0d1217a6f989d6d71a9c464f5ee6b55f8d906d28	legacy-current	func (e *Encoder) computeSilenceFlag(pcm []float64, frameSize, overlap int) bool {
-celt/encode_frame.go	2	a180d4b5f62d4e92f4f5a5e271ea071ac40cbf9b00d36fe97bfcdf7d05741d72	legacy-current	alpha = 1.0 / float64(e.vbrCount+20)
 celt/encode_frame.go	1	a42ad9aacd6add025736a8c050130ba94cd5abbdfe5bbaf3b7f968a0c31850fc	legacy-current	var quantizedEnergies []float64
 celt/encode_frame.go	1	aa5f956e4221fa16d5ac6549715c8c73534e20eb06cab3c55fa1ac91a468f3f2	legacy-current	func computeMDCTWithHistoryScratchStereoR(samples, history []float64, shortBlocks int, scratch *encoderScratch) []float64 {
 celt/encode_frame.go	1	aa6e5f508f7f07faec8d981197e9f5dfada11ee0cfbcc5dc28aa52882361cdbe	legacy-current	sampleMax = float64(newOverlapMax)

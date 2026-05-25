@@ -1984,16 +1984,16 @@ func (e *Encoder) applyVBRSilenceTarget(frameSize, targetBytes int) int {
 	if vbrRateQ3 <= 0 {
 		return targetBytes
 	}
-	alpha := 0.001
+	alpha := float32(0.001)
 	if e.vbrCount < 970 {
 		e.vbrCount++
-		alpha = 1.0 / float64(e.vbrCount+20)
+		alpha = 1.0 / float32(e.vbrCount+20)
 	}
 	if e.constrainedVBR {
 		targetQ3 := 2 * 8 << bitRes
-		e.vbrReservoir += targetQ3 - vbrRateQ3
-		driftDelta := -e.vbrOffset - e.vbrDrift
-		e.vbrDrift += int(alpha * float64(driftDelta))
+		e.vbrReservoir = int32(int(e.vbrReservoir) + targetQ3 - vbrRateQ3)
+		driftDelta := -int(e.vbrOffset) - int(e.vbrDrift)
+		e.vbrDrift += int32(alpha * float32(driftDelta))
 		e.vbrOffset = -e.vbrDrift
 		if e.vbrReservoir < 0 {
 			e.vbrReservoir = 0
@@ -2140,7 +2140,7 @@ func (e *Encoder) computeInitialTargetBytes(frameSize int) int {
 			boundScale = 1
 		}
 		vbrBoundQ3 := int(float32(vbrRateQ3) * boundScale)
-		maxAllowedBytes := (vbrRateQ3 + vbrBoundQ3 - e.vbrReservoir) >> (bitRes + 3)
+		maxAllowedBytes := (vbrRateQ3 + vbrBoundQ3 - int(e.vbrReservoir)) >> (bitRes + 3)
 		if maxAllowedBytes < 2 {
 			maxAllowedBytes = 2
 		}
@@ -2173,7 +2173,7 @@ func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float64, 
 		baseTargetQ3 = 0
 	}
 	if e.constrainedVBR {
-		baseTargetQ3 += e.vbrOffset >> lmDiff
+		baseTargetQ3 += int(e.vbrOffset) >> lmDiff
 	}
 
 	targetQ3 := baseTargetQ3
@@ -2218,17 +2218,17 @@ func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float64, 
 		targetQ3 = targetBytes << (bitRes + 3)
 		if e.vbrCount < 970 {
 			e.vbrCount++
-			alpha := 1.0 / float64(e.vbrCount+20)
-			driftDelta := ((deltaQ3 << lmDiff) - e.vbrOffset - e.vbrDrift)
-			e.vbrDrift += int(alpha * float64(driftDelta))
+			alpha := float32(1.0) / float32(e.vbrCount+20)
+			driftDelta := (deltaQ3 << lmDiff) - int(e.vbrOffset) - int(e.vbrDrift)
+			e.vbrDrift += int32(alpha * float32(driftDelta))
 		} else {
-			driftDelta := ((deltaQ3 << lmDiff) - e.vbrOffset - e.vbrDrift)
-			e.vbrDrift += int(0.001 * float64(driftDelta))
+			driftDelta := (deltaQ3 << lmDiff) - int(e.vbrOffset) - int(e.vbrDrift)
+			e.vbrDrift += int32(float32(0.001) * float32(driftDelta))
 		}
-		e.vbrReservoir += targetQ3 - vbrRateQ3
+		e.vbrReservoir = int32(int(e.vbrReservoir) + targetQ3 - vbrRateQ3)
 		e.vbrOffset = -e.vbrDrift
 		if e.vbrReservoir < 0 {
-			adjust := (-e.vbrReservoir) / (8 << bitRes)
+			adjust := int(-e.vbrReservoir) / (8 << bitRes)
 			targetBytes += adjust
 			e.vbrReservoir = 0
 			if targetBytes > limitBytes {
@@ -2288,7 +2288,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 	}
 	if e.constrainedVBR {
 		// libopus line 2453-2454: base_target += (vbr_offset >> lm_diff)
-		baseTargetQ3 += e.vbrOffset >> lmDiff
+		baseTargetQ3 += int(e.vbrOffset) >> lmDiff
 	}
 
 	// For VBR mode, apply boost based on signal characteristics.
@@ -2335,7 +2335,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 			boundScale = 1
 		}
 		vbrBoundQ3 := int(float32(vbrRateQ3) * boundScale)
-		maxAllowedBytes := (vbrRateQ3 + vbrBoundQ3 - e.vbrReservoir) >> (bitRes + 3)
+		maxAllowedBytes := (vbrRateQ3 + vbrBoundQ3 - int(e.vbrReservoir)) >> (bitRes + 3)
 		if maxAllowedBytes < 2 {
 			maxAllowedBytes = 2
 		}
@@ -2351,20 +2351,20 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 		if e.vbrCount < 970 {
 			e.vbrCount++
 		}
-		alpha := 0.001
+		alpha := float32(0.001)
 		if e.vbrCount < 970 {
-			alpha = 1.0 / float64(e.vbrCount+20)
+			alpha = 1.0 / float32(e.vbrCount+20)
 		}
 
 		// libopus line 2508-2517: reservoir and drift/offset update.
-		e.vbrReservoir += targetQ3 - vbrRateQ3
-		driftDelta := ((deltaQ3 << lmDiff) - e.vbrOffset - e.vbrDrift)
-		e.vbrDrift += int(alpha * float64(driftDelta))
+		e.vbrReservoir = int32(int(e.vbrReservoir) + targetQ3 - vbrRateQ3)
+		driftDelta := (deltaQ3 << lmDiff) - int(e.vbrOffset) - int(e.vbrDrift)
+		e.vbrDrift += int32(alpha * float32(driftDelta))
 		e.vbrOffset = -e.vbrDrift
 
 		// libopus line 2520-2528: refill from min reservoir if needed.
 		if e.vbrReservoir < 0 {
-			adjust := (-e.vbrReservoir) / (8 << bitRes)
+			adjust := int(-e.vbrReservoir) / (8 << bitRes)
 			targetBytes += adjust
 			e.vbrReservoir = 0
 		}

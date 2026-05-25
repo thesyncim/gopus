@@ -190,6 +190,7 @@ type libopusCELTTypeSizes struct {
 	celtSig   int
 	celtEner  int
 	celtGLog  int
+	opusInt32 int
 	opusVal16 int
 	opusVal32 int
 	opusRes   int
@@ -730,6 +731,7 @@ func probeLibopusCELTTypeSizes() (libopusCELTTypeSizes, error) {
 		celtSig:   int(reader.U32()),
 		celtEner:  int(reader.U32()),
 		celtGLog:  int(reader.U32()),
+		opusInt32: int(reader.U32()),
 		opusVal16: int(reader.U32()),
 		opusVal32: int(reader.U32()),
 		opusRes:   int(reader.U32()),
@@ -1051,6 +1053,29 @@ func TestEncoderOpusValStateMatchesLibopusFloatSize(t *testing.T) {
 	}
 	if got := unsafe.Sizeof(enc.delayBuffer[0]); got != uintptr(sizes.opusRes) {
 		t.Fatalf("delayBuffer element size=%d want libopus opus_res size %d", got, sizes.opusRes)
+	}
+}
+
+func TestEncoderVBRStateMatchesLibopusInt32Size(t *testing.T) {
+	libopustest.RequireOracle(t)
+	sizes, err := probeLibopusCELTTypeSizes()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "celt vq", err)
+	}
+	var enc Encoder
+	got := []struct {
+		name string
+		size uintptr
+	}{
+		{"vbrReservoir", unsafe.Sizeof(enc.vbrReservoir)},
+		{"vbrDrift", unsafe.Sizeof(enc.vbrDrift)},
+		{"vbrOffset", unsafe.Sizeof(enc.vbrOffset)},
+		{"vbrCount", unsafe.Sizeof(enc.vbrCount)},
+	}
+	for _, tc := range got {
+		if tc.size != uintptr(sizes.opusInt32) {
+			t.Fatalf("%s size=%d want libopus opus_int32 size %d", tc.name, tc.size, sizes.opusInt32)
+		}
 	}
 }
 

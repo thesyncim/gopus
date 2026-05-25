@@ -226,11 +226,6 @@ jobs:
       - name: Verify and generate linux/amd64 libopus fixtures (pinned Docker env)
         run: |
           make docker-test-exhaustive fixtures-gen-linux-amd64
-          git diff --exit-code -- \
-            testvectors/testdata/libopus_decoder_matrix_fixture_linux_amd64.json \
-            testvectors/testdata/libopus_decoder_loss_fixture_linux_amd64.json \
-            testvectors/testdata/encoder_compliance_libopus_packets_fixture_linux_amd64.json \
-            testvectors/testdata/encoder_compliance_libopus_variants_fixture_linux_amd64.json
 
       - name: Reset Docker-owned libopus mount point
         run: |

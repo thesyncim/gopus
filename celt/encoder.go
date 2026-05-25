@@ -80,10 +80,10 @@ type Encoder struct {
 	constrainedVBRBoundScale opusVal16
 	// Constrained-VBR state mirrors libopus CELT encoder cadence.
 	// Units are Q3 bits unless noted.
-	vbrReservoir int
-	vbrOffset    int
-	vbrDrift     int
-	vbrCount     int
+	vbrReservoir int32
+	vbrOffset    int32
+	vbrDrift     int32
+	vbrCount     int32
 
 	encoderQEXTFields
 
