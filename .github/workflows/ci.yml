@@ -630,7 +630,7 @@ jobs:
         run: |
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
+              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderCompliancePrecisionGuard|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
               -count=1 -timeout=20m
 
       - name: Run test suite
@@ -687,7 +687,7 @@ jobs:
         run: |
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
+              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderCompliancePrecisionGuard|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
               -count=1 -timeout=20m
 
   test-windows:
@@ -774,7 +774,7 @@ jobs:
         run: |
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
+              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderCompliancePrecisionGuard|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$' \
               -count=1 -timeout=20m
 
       - name: Run test suite

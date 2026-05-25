@@ -89,9 +89,9 @@ test-fast:
 test-race:
 	$(RUNNABLE_FAST) -race -count=1 -timeout=20m
 
-# Runtime libopus scalar-width guard. This is a ratchet over the current
-# legacy debt: new float64/complex128 codec-domain findings fail, and removed
-# findings require updating the baseline so cleanup stays review-visible.
+# Runtime libopus scalar-width guard. This ratchets the current legacy debt:
+# new guarded codec-domain findings fail, and removed findings require updating
+# the baseline so cleanup stays review-visible.
 test-type-parity:
 	$(TYPE_PARITY_GUARD)
 
@@ -435,10 +435,10 @@ fixtures-gen-linux-amd64: docker-build-exhaustive
 				go test -tags gopus_libopus_oracle ./testvectors \
 					-run '^(TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture)$$' \
 					-count=1 -timeout=10m && \
-			GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
-				go test -tags gopus_libopus_oracle ./testvectors \
-					-run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$$' \
-					-count=1 -timeout=20m"
+				GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
+					go test -tags gopus_libopus_oracle ./testvectors \
+						-run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderCompliancePrecisionGuard|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$$' \
+						-count=1 -timeout=20m"
 
 # Build with profile-guided optimization.
 build:

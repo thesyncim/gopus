@@ -439,16 +439,14 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 		e.rangeEncoder.EncodeBit(bit, 3)
 	}
 
-	var coef, beta float64
+	var coef32, beta32 float32
 	if intra {
-		coef = 0.0
-		beta = BetaIntra
+		coef32 = 0
+		beta32 = float32(BetaIntra)
 	} else {
-		coef = AlphaCoef[lm]
-		beta = BetaCoefInter[lm]
+		coef32 = float32(AlphaCoef[lm])
+		beta32 = float32(BetaCoefInter[lm])
 	}
-	coef32 := float32(coef)
-	beta32 := float32(beta)
 
 	prob := eProbModel[lm][0]
 	if intra {
@@ -478,7 +476,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 			predMul := noFMA32Mul(coef32, oldE)
 			pred := predMul + prevBandEnergy[c]
 			f := x - pred
-			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
+			qi := floor32ToInt(f/float32(DB6) + 0.5)
 			qi0 := qi
 
 			decayBound := oldEBand
@@ -646,7 +644,7 @@ func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, l
 	// Match libopus quant_coarse_energy(): decay clamp is based on coded span
 	// (end-start), not absolute end band index.
 	if codedBands > 10 {
-		limit := float32(0.125 * float64(nbAvailableBytes) * DB6)
+		limit := float32(0.125) * float32(nbAvailableBytes) * float32(DB6)
 		if limit < maxDecay32 {
 			maxDecay32 = limit
 		}
@@ -775,7 +773,7 @@ func (e *Encoder) EncodeCoarseEnergy(energies []celtGLog, nbBands int, intra boo
 	maxDecay32 := float32(16.0 * DB6)
 	nbAvailableBytes := e.coarseNbAvailableBytesForBudget(budget)
 	if nbBands > 10 {
-		limit := float32(0.125 * float64(nbAvailableBytes) * DB6)
+		limit := float32(0.125) * float32(nbAvailableBytes) * float32(DB6)
 		if limit < maxDecay32 {
 			maxDecay32 = limit
 		}
@@ -841,16 +839,14 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 	}
 
 	// Prediction coefficients.
-	var coef, beta float64
+	var coef32, beta32 float32
 	if intra {
-		coef = 0.0
-		beta = BetaIntra
+		coef32 = 0
+		beta32 = float32(BetaIntra)
 	} else {
-		coef = AlphaCoef[lm]
-		beta = BetaCoefInter[lm]
+		coef32 = float32(AlphaCoef[lm])
+		beta32 = float32(BetaCoefInter[lm])
 	}
-	coef32 := float32(coef)
-	beta32 := float32(beta)
 
 	prob := eProbModel[lm][0]
 	if intra {
@@ -866,7 +862,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 	maxDecay32 := float32(16.0 * DB6)
 	nbAvailableBytes := e.coarseNbAvailableBytesForBudget(budget)
 	if end-start > 10 {
-		limit := float32(0.125 * float64(nbAvailableBytes) * DB6)
+		limit := float32(0.125) * float32(nbAvailableBytes) * float32(DB6)
 		if limit < maxDecay32 {
 			maxDecay32 = limit
 		}
@@ -936,7 +932,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 			predMul := noFMA32Mul(coef32, oldE)
 			pred := predMul + prevBandEnergy[c]
 			f := x - pred
-			qi := int(math.Floor(float64(f/float32(DB6) + 0.5)))
+			qi := floor32ToInt(f/float32(DB6) + 0.5)
 
 			decayBound := oldEBand
 			minDecay := float32(-28.0 * DB6)
@@ -1122,7 +1118,7 @@ func (e *Encoder) EncodeFineEnergy(energies []celtGLog, quantizedCoarse []celtGL
 			fine := energies[idx] - quantizedCoarse[idx]
 
 			// Quantize to fineBits[band] levels
-			q := int(math.Floor(float64((fine + 0.5) * scale32)))
+			q := floor32ToInt((fine + 0.5) * scale32)
 
 			// Clamp to valid range
 			if q < 0 {
@@ -1183,8 +1179,7 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBand
 
 			// libopus float: q2 = floor((error + 0.5) * extra)
 			err := float32(errorVals[idx])
-			qExpr := float64((err + 0.5) * scale32)
-			q2 := int(math.Floor(qExpr))
+			q2 := floor32ToInt((err + 0.5) * scale32)
 			if q2 < 0 {
 				q2 = 0
 			}
@@ -1243,7 +1238,7 @@ func (e *Encoder) EncodeFineEnergyRange(energies []celtGLog, quantizedCoarse []c
 			}
 
 			fine := energies[idx] - quantizedCoarse[idx]
-			q := int(math.Floor(float64((fine + 0.5) * scale32)))
+			q := floor32ToInt((fine + 0.5) * scale32)
 
 			if q < 0 {
 				q = 0
@@ -1313,7 +1308,7 @@ func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []celtGLog, s
 			}
 
 			err := float32(errorVals[idx])
-			q2 := int(math.Floor(float64((err + 0.5) * scale32)))
+			q2 := floor32ToInt((err + 0.5) * scale32)
 			if q2 < 0 {
 				q2 = 0
 			}
@@ -1687,8 +1682,7 @@ func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []celtGLog
 			}
 
 			err := float32(errorVals[idx])
-			qExpr := float64((err*prevScale32 + 0.5) * scale32)
-			q2 := int(math.Floor(qExpr))
+			q2 := floor32ToInt((err*prevScale32 + 0.5) * scale32)
 			if q2 < 0 {
 				q2 = 0
 			}

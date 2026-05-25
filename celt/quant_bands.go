@@ -3,11 +3,7 @@
 
 package celt
 
-import (
-	"math"
-
-	"github.com/thesyncim/gopus/rangecoding"
-)
+import "github.com/thesyncim/gopus/rangecoding"
 
 // predCoef contains inter-frame energy prediction coefficients.
 // Index by LM: 0=2.5ms, 1=5ms, 2=10ms, 3=20ms.
@@ -131,7 +127,7 @@ func quantCoarseEnergyImpl(
 
 			// Quantize residual: round to nearest integer
 			// qi = floor(f + 0.5)
-			qi := int(math.Floor(float64(f) + 0.5))
+			qi := floor32ToInt(f + 0.5)
 
 			// Compute decay bound to prevent energy from dropping too quickly
 			// decay_bound = max(-28, oldEBands[i]) - max_decay
@@ -518,7 +514,7 @@ func QuantFineEnergy(
 			// libopus float: q2 = (int)floor((error[i+c*m->nbEBands]*(1<<prev)+.5f)*extra)
 			// where extra = 1 << extra_quant[i]
 			scaledError := float32(errorVal[idx])*float32(uint(1)<<prev) + 0.5
-			q2 := int(math.Floor(float64(scaledError * float32(extraLevels))))
+			q2 := floor32ToInt(scaledError * float32(extraLevels))
 
 			// Clamp to valid range
 			if q2 > extraLevels-1 {

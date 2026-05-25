@@ -361,7 +361,7 @@ func TestDecodeCoarseEnergyRangeSync(t *testing.T) {
 
 	// Verify energies are finite and reasonable
 	for i, e := range energies {
-		if e != e { // NaN check
+		if math.IsNaN(float64(e)) {
 			t.Errorf("Band %d energy is NaN", i)
 		}
 		if e < -100 || e > 100 {
