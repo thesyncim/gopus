@@ -1125,7 +1125,7 @@ type encoderScratch struct {
 	pvqSignx []byte
 	pvqY     []float32
 	pvqAbsX  []float32
-	pvqIy    []int
+	pvqIy    []int32
 
 	// Deinterleave buffers
 	deintLeft  []float32
@@ -1353,7 +1353,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.pvqSignx = ensureByteSlice(&s.pvqSignx, maxPVQN)
 	s.pvqY = ensureFloat32Slice(&s.pvqY, maxPVQN)
 	s.pvqAbsX = ensureFloat32Slice(&s.pvqAbsX, maxPVQN)
-	s.pvqIy = ensureIntSlice(&s.pvqIy, maxPVQN)
+	s.pvqIy = ensureInt32Slice(&s.pvqIy, maxPVQN)
 
 	// Band encode scratch
 	s.bandEncode.collapse = ensureByteSlice(&s.bandEncode.collapse, channels*MaxBands)
@@ -1370,7 +1370,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.bandEncode.pvqSignx = ensureByteSlice(&s.bandEncode.pvqSignx, maxPVQN)
 	s.bandEncode.pvqY = ensureFloat32Slice(&s.bandEncode.pvqY, maxPVQN)
 	s.bandEncode.pvqAbsX = ensureFloat32Slice(&s.bandEncode.pvqAbsX, maxPVQN)
-	s.bandEncode.pvqIy = ensureIntSlice(&s.bandEncode.pvqIy, maxPVQN)
+	s.bandEncode.pvqIy = ensureInt32Slice(&s.bandEncode.pvqIy, maxPVQN)
 	s.bandEncode.qextIy = ensureInt32Slice(&s.bandEncode.qextIy, maxPVQN)
 	s.bandEncode.cwrsU = ensureUint32Slice(&s.bandEncode.cwrsU, 256)
 	s.bandEncode.hadamardTmpNorm = ensureNormSlice(&s.bandEncode.hadamardTmpNorm, maxBandWidth*16)

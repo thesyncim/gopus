@@ -3,8 +3,6 @@ package celt
 import (
 	"math"
 	"testing"
-
-	"github.com/thesyncim/gopus/util"
 )
 
 // TestPVQSearchQuality tests the PVQ search algorithm quality by verifying
@@ -67,7 +65,7 @@ func TestPVQSearchQuality(t *testing.T) {
 			pulses, yy := opPVQSearch(normX, tc.k)
 
 			// Verify L1 norm equals k
-			l1 := 0
+			l1 := int32(0)
 			for _, p := range pulses {
 				if p < 0 {
 					l1 -= p
@@ -75,7 +73,7 @@ func TestPVQSearchQuality(t *testing.T) {
 					l1 += p
 				}
 			}
-			if l1 != tc.k {
+			if l1 != int32(tc.k) {
 				t.Errorf("L1 norm = %d, want %d", l1, tc.k)
 			}
 
@@ -90,7 +88,7 @@ func TestPVQSearchQuality(t *testing.T) {
 			}
 
 			// Normalize the result and check correlation with input
-			normResult := normalizeNormForTest(intToNormForTest(pulses))
+			normResult := normalizeNormForTest(int32ToNormForTest(pulses))
 			correlation := dotProductNorm(normX, normResult)
 
 			// Correlation should be positive and reasonably high
@@ -136,7 +134,7 @@ func TestPVQSearchEdgeCases(t *testing.T) {
 		x := []celtNorm{0.0, 0.0, 0.0, 0.0}
 		pulses, _ := opPVQSearch(x, 4)
 		// For zero input, libopus puts all pulses in first position
-		l1 := 0
+		l1 := int32(0)
 		for _, p := range pulses {
 			if p < 0 {
 				l1 -= p
@@ -152,7 +150,7 @@ func TestPVQSearchEdgeCases(t *testing.T) {
 	t.Run("very_small_input", func(t *testing.T) {
 		x := []celtNorm{1e-20, 1e-20, 1e-20, 1e-20}
 		pulses, _ := opPVQSearch(x, 4)
-		l1 := 0
+		l1 := int32(0)
 		for _, p := range pulses {
 			if p < 0 {
 				l1 -= p
@@ -176,7 +174,7 @@ func TestPVQSearchEdgeCases(t *testing.T) {
 	t.Run("k_equals_1", func(t *testing.T) {
 		x := []celtNorm{0.1, 0.2, 0.9, 0.1}
 		pulses, _ := opPVQSearch(x, 1)
-		l1 := 0
+		l1 := int32(0)
 		for _, p := range pulses {
 			if p < 0 {
 				l1 -= p
@@ -221,14 +219,14 @@ func TestPVQRoundtrip(t *testing.T) {
 
 			// Encode
 			pulses, _ := opPVQSearchNorm(x, tc.k)
-			index := EncodePulses(pulses, tc.n, tc.k)
+			index := encodePulsesFast32(pulses, tc.n, tc.k, nil)
 
 			// Decode
 			decoded := DecodePulses(index, tc.n, tc.k)
 
 			// Verify roundtrip
 			for i := range pulses {
-				if pulses[i] != decoded[i] {
+				if pulses[i] != int32(decoded[i]) {
 					t.Errorf("mismatch at %d: encoded=%d, decoded=%d", i, pulses[i], decoded[i])
 				}
 			}
@@ -300,19 +298,19 @@ func TestPVQSearchN2(t *testing.T) {
 			iy, upIy, refine := opPVQSearchN2(tc.x, tc.k, tc.up)
 
 			// Verify L1 norm of iy equals k
-			l1 := util.Abs(iy[0]) + util.Abs(iy[1])
-			if l1 != tc.k {
+			l1 := absInt32(iy[0]) + absInt32(iy[1])
+			if l1 != int32(tc.k) {
 				t.Errorf("L1(iy) = %d, want %d", l1, tc.k)
 			}
 
 			// Verify L1 norm of upIy equals up*k
-			l1up := util.Abs(upIy[0]) + util.Abs(upIy[1])
-			if l1up != tc.up*tc.k {
+			l1up := absInt32(upIy[0]) + absInt32(upIy[1])
+			if l1up != int32(tc.up*tc.k) {
 				t.Errorf("L1(upIy) = %d, want %d", l1up, tc.up*tc.k)
 			}
 
 			// Note: the sign handling in opPVQSearchN2 is complex, so just verify bounds.
-			if util.Abs(refine) > (tc.up-1)/2+1 {
+			if absInt32(refine) > int32((tc.up-1)/2+1) {
 				t.Errorf("refine=%d out of expected bounds", refine)
 			}
 
@@ -339,30 +337,30 @@ func TestPVQSearchExtra(t *testing.T) {
 			iy, upIy, refine := opPVQSearchExtra(normX, tc.k, tc.up)
 
 			// Verify L1 norm of iy equals k
-			l1 := 0
+			l1 := int32(0)
 			for _, v := range iy {
-				l1 += util.Abs(v)
+				l1 += absInt32(v)
 			}
-			if l1 != tc.k {
+			if l1 != int32(tc.k) {
 				t.Errorf("L1(iy) = %d, want %d", l1, tc.k)
 			}
 
 			// Verify L1 norm of upIy equals up*k
-			l1up := 0
+			l1up := int32(0)
 			for _, v := range upIy {
-				l1up += util.Abs(v)
+				l1up += absInt32(v)
 			}
-			if l1up != tc.up*tc.k {
+			if l1up != int32(tc.up*tc.k) {
 				t.Errorf("L1(upIy) = %d, want %d", l1up, tc.up*tc.k)
 			}
 
 			// Verify refine values are within bounds
 			for i, r := range refine {
-				if util.Abs(r) > tc.up {
+				if absInt32(r) > int32(tc.up) {
 					t.Errorf("refine[%d]=%d exceeds up=%d", i, r, tc.up)
 				}
 				// Verify upIy[i] = up*iy[i] + refine[i]
-				expected := tc.up*iy[i] + refine[i]
+				expected := int32(tc.up)*iy[i] + refine[i]
 				if upIy[i] != expected {
 					t.Errorf("upIy[%d]=%d != up*iy[%d]+refine[%d]=%d", i, upIy[i], i, i, expected)
 				}
@@ -435,6 +433,14 @@ func intToFloat64(v []int) []float64 {
 }
 
 func intToNormForTest(v []int) []celtNorm {
+	result := make([]celtNorm, len(v))
+	for i, x := range v {
+		result[i] = celtNorm(float32(x))
+	}
+	return result
+}
+
+func int32ToNormForTest(v []int32) []celtNorm {
 	result := make([]celtNorm, len(v))
 	for i, x := range v {
 		result[i] = celtNorm(float32(x))

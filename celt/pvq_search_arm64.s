@@ -209,12 +209,12 @@ pl_update:
 	FADDS F21, F0, F0
 	FMOVS F0, (R1)(R6<<2)
 
-	// iy[bestID]++ (int64, 8 bytes per element)
-	LSL   $3, R6, R7
+	// iy[bestID]++ (int32, 4 bytes per element)
+	LSL   $2, R6, R7
 	ADD   R2, R7
-	MOVD  (R7), R8
+	MOVW  (R7), R8
 	ADD   $1, R8
-	MOVD  R8, (R7)
+	MOVW  R8, (R7)
 
 	// Decrement outer counter
 	SUB   $1, R4

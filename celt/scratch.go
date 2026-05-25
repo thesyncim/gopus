@@ -148,7 +148,7 @@ type bandEncodeScratch struct {
 	pvqY     []float32
 	pvqAbsX  []float32
 	pvqX     []celtNorm
-	pvqIy    []int
+	pvqIy    []int32
 	qextIy   []int32 // QEXT cubic pulse scratch; libopus uses C int.
 
 	// CWRS scratch
@@ -225,8 +225,8 @@ func (s *bandEncodeScratch) ensureQuantWork(n int) []celtNorm {
 
 // ensurePVQIy returns a pre-allocated integer pulse buffer for encode-side
 // PVQ and QEXT cubic helpers.
-func (s *bandEncodeScratch) ensurePVQIy(n int) []int {
-	return ensureIntSlice(&s.pvqIy, n)
+func (s *bandEncodeScratch) ensurePVQIy(n int) []int32 {
+	return ensureInt32Slice(&s.pvqIy, n)
 }
 
 func (s *bandEncodeScratch) ensureQEXTIy(n int) []int32 {

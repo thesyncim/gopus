@@ -24,7 +24,7 @@ func pvqSearchBestPosGeneric(absX, y []float32, xy, yy float32, n int) int {
 	return bestID
 }
 
-func pvqSearchPulseLoopGeneric(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32) {
+func pvqSearchPulseLoopGeneric(absX, y []float32, iy []int32, xy, yy float32, n, pulsesLeft int) (float32, float32) {
 	for i := 0; i < pulsesLeft; i++ {
 		yy += 1
 

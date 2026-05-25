@@ -25,7 +25,7 @@ func ParsePayload(payload []byte, dredFrameOffset int) (Parsed, error) {
 
 // FillQuantizerLevels writes the request-bounded libopus quantizer schedule
 // into dst and returns the number of entries written.
-func (p Parsed) FillQuantizerLevels(dst []int, maxDredSamples, sampleRate int) int {
+func (p Parsed) FillQuantizerLevels(dst []int32, maxDredSamples, sampleRate int) int {
 	return p.ForRequest(Request{
 		MaxDREDSamples: maxDredSamples,
 		SampleRate:     sampleRate,

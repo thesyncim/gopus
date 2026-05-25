@@ -28,7 +28,7 @@ func pvqSearchBestPos(absX, y []float32, xy, yy float32, n int) int {
 
 // pvqSearchPulseLoop places pulsesLeft pulses using the rate-distortion
 // criterion. Go fallback for non-SIMD architectures.
-func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32) {
+func pvqSearchPulseLoop(absX, y []float32, iy []int32, xy, yy float32, n, pulsesLeft int) (float32, float32) {
 	for i := 0; i < pulsesLeft; i++ {
 		yy += 1
 

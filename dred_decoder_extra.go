@@ -236,7 +236,7 @@ func (d *DRED) MaxAvailableSamples(maxDredSamples, sampleRate int) int {
 
 // FillQuantizerLevels writes the request-bounded retained DRED quantizer
 // schedule into dst and returns the number of entries written.
-func (d *DRED) FillQuantizerLevels(dst []int, maxDredSamples, sampleRate int) int {
+func (d *DRED) FillQuantizerLevels(dst []int32, maxDredSamples, sampleRate int) int {
 	return d.Result(maxDredSamples, sampleRate).FillQuantizerLevels(dst)
 }
 

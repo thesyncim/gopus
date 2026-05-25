@@ -27,13 +27,13 @@ func (p Parsed) ForRequest(req Request) Result {
 
 // FillQuantizerLevels writes the request-bounded libopus quantizer schedule
 // into dst and returns the number of entries written.
-func (r Result) FillQuantizerLevels(dst []int) int {
+func (r Result) FillQuantizerLevels(dst []int32) int {
 	n := r.Availability.MaxLatents
 	if n > len(dst) {
 		n = len(dst)
 	}
 	for i := 0; i < n; i++ {
-		dst[i] = r.Parsed.Header.QuantizerLevel(i)
+		dst[i] = int32(r.Parsed.Header.QuantizerLevel(i))
 	}
 	return n
 }

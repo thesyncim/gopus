@@ -560,7 +560,7 @@ func (d *Decoder) cachedDREDAvailability(maxDredSamples int) internaldred.Availa
 	return d.cachedDREDResult(maxDredSamples).Availability
 }
 
-func (d *Decoder) fillCachedDREDQuantizerLevels(dst []int, maxDredSamples int) int {
+func (d *Decoder) fillCachedDREDQuantizerLevels(dst []int32, maxDredSamples int) int {
 	return d.cachedDREDResult(maxDredSamples).FillQuantizerLevels(dst)
 }
 

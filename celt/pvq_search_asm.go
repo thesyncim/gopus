@@ -22,7 +22,7 @@ func pvqSearchBestPos(absX, y []float32, xy, yy float32, n int) int
 //
 //	absX[0..n-1] = absolute values of input vector (read-only)
 //	y[0..n-1]    = 2*iy[j] pulse counts (modified in-place: y[bestID] += 2 per pulse)
-//	iy[0..n-1]   = integer pulse counts (modified in-place: iy[bestID]++ per pulse)
+//	iy[0..n-1]   = int32 pulse counts (modified in-place: iy[bestID]++ per pulse)
 //	xy, yy       = running cross-correlation and energy
 //	n            = vector dimension
 //	pulsesLeft   = number of pulses to place
@@ -30,4 +30,4 @@ func pvqSearchBestPos(absX, y []float32, xy, yy float32, n int) int
 // Returns updated (xy, yy).
 //
 //go:noescape
-func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32)
+func pvqSearchPulseLoop(absX, y []float32, iy []int32, xy, yy float32, n, pulsesLeft int) (float32, float32)

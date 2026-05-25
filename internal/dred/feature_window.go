@@ -60,13 +60,13 @@ func (r Result) FeatureWindow(decodeOffsetSamples, frameSizeSamples, initFrames 
 
 // FillFeatureOffsets writes the feature offsets libopus would probe, from
 // newest to oldest, into dst and returns the number of entries written.
-func (w FeatureWindow) FillFeatureOffsets(dst []int) int {
+func (w FeatureWindow) FillFeatureOffsets(dst []int32) int {
 	n := w.NeededFeatureFrames
 	if n > len(dst) {
 		n = len(dst)
 	}
 	for i := 0; i < n; i++ {
-		dst[i] = w.FeatureOffsetBase - i
+		dst[i] = int32(w.FeatureOffsetBase - i)
 	}
 	return n
 }

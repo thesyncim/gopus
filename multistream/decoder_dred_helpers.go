@@ -297,7 +297,7 @@ func (d *Decoder) cachedDREDAvailability(stream, maxDredSamples int) internaldre
 	return d.cachedDREDResult(stream, maxDredSamples).Availability
 }
 
-func (d *Decoder) fillCachedDREDQuantizerLevels(stream int, dst []int, maxDredSamples int) int {
+func (d *Decoder) fillCachedDREDQuantizerLevels(stream int, dst []int32, maxDredSamples int) int {
 	return d.cachedDREDResult(stream, maxDredSamples).FillQuantizerLevels(dst)
 }
 

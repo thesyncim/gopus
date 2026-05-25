@@ -27,9 +27,9 @@ func pvqSearchBestPos(absX, y []float32, xy, yy float32, n int) int {
 }
 
 //go:noescape
-func pvqSearchPulseLoopAVX(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32)
+func pvqSearchPulseLoopAVX(absX, y []float32, iy []int32, xy, yy float32, n, pulsesLeft int) (float32, float32)
 
-func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32) {
+func pvqSearchPulseLoop(absX, y []float32, iy []int32, xy, yy float32, n, pulsesLeft int) (float32, float32) {
 	if amd64UseAVX2FMA {
 		return pvqSearchPulseLoopAVX(absX, y, iy, xy, yy, n, pulsesLeft)
 	}
