@@ -199,7 +199,7 @@ func TestCELTRoundTripTransient(t *testing.T) {
 
 	// Create encoder and verify transient is detected
 	encoder := NewEncoder(1)
-	transient := encoder.DetectTransient(pcm, frameSize)
+	transient := encoder.DetectTransient(float32Slice(pcm), frameSize)
 	t.Logf("Transient detected: %v", transient)
 
 	// Encode
@@ -475,7 +475,7 @@ func TestTransientDetection(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			pcm := tc.generator()
-			transient := encoder.DetectTransient(pcm, frameSize)
+			transient := encoder.DetectTransient(float32Slice(pcm), frameSize)
 			t.Logf("%s: transient=%v (expected=%v)", tc.name, transient, tc.expectTransient)
 
 			// Note: We don't fail on mismatch as transient detection is heuristic

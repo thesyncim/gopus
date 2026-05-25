@@ -482,7 +482,7 @@ func lossDistortion(eBands, oldEBands []celtGLog, start, end, nbEBands, channels
 func QuantFineEnergy(
 	re *rangecoding.Encoder,
 	start, end int,
-	oldEBands, errorVal []float64,
+	oldEBands, errorVal []celtGLog,
 	prevQuant, extraQuant []int,
 	channels int,
 ) {
@@ -513,7 +513,7 @@ func QuantFineEnergy(
 			// Quantize error to extra_quant[i] bits
 			// libopus float: q2 = (int)floor((error[i+c*m->nbEBands]*(1<<prev)+.5f)*extra)
 			// where extra = 1 << extra_quant[i]
-			scaledError := float32(errorVal[idx])*float32(uint(1)<<prev) + 0.5
+			scaledError := errorVal[idx]*float32(uint(1)<<prev) + 0.5
 			q2 := floor32ToInt(scaledError * float32(extraLevels))
 
 			// Clamp to valid range
@@ -533,8 +533,8 @@ func QuantFineEnergy(
 			offset := (float32(q2)+0.5)*float32(uint(1)<<(14-extra))*(1.0/16384.0) - 0.5
 			offset *= float32(uint(1)<<(14-prev)) * (1.0 / 16384.0)
 
-			oldEBands[idx] = float64(float32(oldEBands[idx]) + offset)
-			errorVal[idx] = float64(float32(errorVal[idx]) - offset)
+			oldEBands[idx] += offset
+			errorVal[idx] -= offset
 		}
 	}
 }
@@ -556,7 +556,7 @@ func QuantFineEnergy(
 func QuantEnergyFinalise(
 	re *rangecoding.Encoder,
 	start, end int,
-	oldEBands, errorVal []float64,
+	oldEBands, errorVal []celtGLog,
 	fineQuant, finePriority []int,
 	bitsLeft, channels int,
 ) {
@@ -585,7 +585,7 @@ func QuantEnergyFinalise(
 
 				// Encode 1 bit based on error sign
 				q2 := 0
-				err := float32(errorVal[idx])
+				err := errorVal[idx]
 				if err >= 0 {
 					q2 = 1
 				}
@@ -595,8 +595,8 @@ func QuantEnergyFinalise(
 				// libopus float: offset = (q2-.5f)*(1<<(14-fine_quant[i]-1))*(1.f/16384)
 				offset := (float32(q2) - 0.5) * float32(uint(1)<<(14-fineQuant[i]-1)) * (1.0 / 16384.0)
 
-				oldEBands[idx] = float64(float32(oldEBands[idx]) + offset)
-				errorVal[idx] = float64(err - offset)
+				oldEBands[idx] += offset
+				errorVal[idx] = err - offset
 				bitsLeft--
 			}
 		}

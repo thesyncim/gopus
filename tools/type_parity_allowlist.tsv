@@ -16,26 +16,6 @@ celt/exp_rotation_coeffs.go	1	29f88ba567293921c675f7d1cc62212766376b6a1e5af89f83
 celt/exp_rotation_coeffs.go	1	f5eaae73bfa9cc79e2845e66fe13be3b092c71aa134103f711c29b46e7d44559	legacy-current	s: float32(math.Cos(libopusHalfPi * float64(float32(1)-theta))),
 celt/exp_rotation_stride1_generic.go	1	bc81dc996ffe1814294743190c7c61c4a46d9f2c67e26a5ff827cd455f18cb02	legacy-current	func expRotation1Stride1(x []float64, length int, c, s float64) {
 celt/fma32_default.go	1	4615f35d8d35ce5ca7d9e3617e3e7d032cef0f300908c9f83d1ba52955a95f3d	legacy-current	return float32(math.FMA(float64(a), float64(b), float64(c)))
-celt/haar1.go	1	3dc96edaec57510a1ab161de223ff6a33a8cb08e80c7396aa411cb97329d7ccb	legacy-current	func haar1Stride8(x []float64, n0 int) {
-celt/haar1.go	1	4c9da36d3c9e5934c5519a4133551e1cdcd5b1173575267e776c4275d0c1940f	legacy-current	func haar1Stride4(x []float64, n0 int) {
-celt/haar1.go	1	58dc4763905e23da0069b6b6575a35638ddf090c02f00e09f0cce1e1d408c21a	legacy-current	func haar1Pair(x []float64, idx0, idx1 int, invSqrt2 float32) {
-celt/haar1.go	1	5e2dc1cf9576109d13ff8662eeceba36d17a6461d331d3a8dde1cedcf2fc6a44	legacy-current	func haar1Stride12(x []float64, n0 int) {
-celt/haar1.go	1	9002d15ab1d2129b5b6ae9c9a8b71e6083611a0a6a7581d730cc8c7240234a4b	legacy-current	x[idx0] = float64(noFMA32Add(tmp1, tmp2))
-celt/haar1.go	1	94fb098584de0c7a9123dd928293149c6d404c469dba4236bd38bdf73ffe46ae	legacy-current	func haar1Stride6(x []float64, n0 int) {
-celt/haar1.go	1	985489bfdd88413a5e6685d88a259e1acd33a6f4aa64e13750da6d69522758e6	legacy-current	func haar1Stride2Generic(x []float64, n0 int) {
-celt/haar1.go	1	a141e537d093fc0bea7cc5f8f4e228ac6a27c0ac04b3db1b0912160ad902fe47	legacy-current	// then widened back to float64 for storage.
-celt/haar1.go	1	ada3008d5f08f32bfcd8505bed538ddf0c14e1fec5ea407f746a172f64a570d3	legacy-current	x[idx1] = float64(noFMA32Sub(tmp1, tmp2))
-celt/haar1.go	1	d60041fa72d74c4981c1f3c7ad7fa9a4c7197a1a56a8659d7bfc4d1fe394d080	legacy-current	func haar1Stride1Generic(x []float64, n0 int) {
-celt/haar1.go	1	e21101a85e5588c7c21c4ca041006f9908ba5e9bf9e35effb1ba3df1e4fd113a	legacy-current	// float64 values. Computation is done in float32 precision (matching libopus)
-celt/haar1_arm64.go	1	60bdba7248ff11df9fc13ce2870b1579a5a938873effd7c99523cb1b14dd4ad5	legacy-current	func haar1Stride1Asm(x []float64, n0 int)
-celt/haar1_arm64.go	1	baf58d363d82166fe4feb72d2110f4b4a6a9c13cc95c12351707c31861f47323	legacy-current	func haar1Stride2Asm(x []float64, n0 int)
-celt/haar1_arm64.go	1	e231c77d4d8e934928f68f06fe62a5628c09de52daf62ce6985761a78ac4538f	legacy-current	func haar1Stride4Asm(x []float64, n0 int)
-celt/haar1_arm64_race.go	1	639a636a1a7caa84ecab1ccd81c0290c579ce97224f8d80bbb278d20ae701987	legacy-current	func haar1Stride2Asm(x []float64, n0 int) {
-celt/haar1_arm64_race.go	1	e72a9f17c852f6ea22c73e13aeb929ef6e3d955b5e9efc163aae7fbb6955bfc1	legacy-current	func haar1Stride4Asm(x []float64, n0 int) {
-celt/haar1_arm64_race.go	1	f7c2c1acdc235e8f5b6e2bb31161583248bf0411b02f15cbb0b39212078ee1ac	legacy-current	func haar1Stride1Asm(x []float64, n0 int) {
-celt/haar1_nonarm64.go	1	639a636a1a7caa84ecab1ccd81c0290c579ce97224f8d80bbb278d20ae701987	legacy-current	func haar1Stride2Asm(x []float64, n0 int) {
-celt/haar1_nonarm64.go	1	e72a9f17c852f6ea22c73e13aeb929ef6e3d955b5e9efc163aae7fbb6955bfc1	legacy-current	func haar1Stride4Asm(x []float64, n0 int) {
-celt/haar1_nonarm64.go	1	f7c2c1acdc235e8f5b6e2bb31161583248bf0411b02f15cbb0b39212078ee1ac	legacy-current	func haar1Stride1Asm(x []float64, n0 int) {
 celt/hybrid_encode_helpers.go	1	549db166e855560a9d665e0532816af8c310aeeee281c395ef2ddcedeaa907ce	legacy-current	lower := int(0.79 * float64(prevPrefilterPeriod))
 celt/hybrid_encode_helpers.go	1	e8bf7e6adf476a2d2ff407f127dc15ff739fb9ffeda0dcbda9e83cc8df28be55	legacy-current	upper := int(1.26 * float64(prevPrefilterPeriod))
 celt/imdct_rotate_asm.go	1	238f38e7d9cb8928bf0061ca3e70e82e3eabd3515fb39edc85dce209953cc37f	legacy-current	func imdctPreRotateF32(fftIn []complex64, spectrum []float64, trig []float32, n2, n4 int)
@@ -51,17 +31,6 @@ celt/modes.go	1	9bfa1417e15479cfb7e5edb560bd7304977dbbf6ea6ba30664275cfec93fdbee
 celt/modes.go	1	efa2632f984ce6f3c4b73c6fd4e6f856b267830afa2ac248aa5ee8d515b8cd96	legacy-current	return float64(frameSize) / 48.0 // 48kHz sample rate
 celt/output_helpers.go	1	239a81bd9be3cd970f1da319a4e2325edc441d8bca0d1740dca7f31f1793c195	legacy-current	// and using float64 would cause precision drift relative to libopus.
 celt/plc_lpc_filter.go	1	efd33ef0caec1c7cbf64776f06fa63a602f6e263a161f7d243692557fe50ace6	legacy-current	func xcorrKernel4Float64(x, y []float64, sum *[4]float32, length int) {
-celt/prefilter.go	1	0469389d55fe7ae61d45819b3b1420a5d8fb8698446bc92bcee7a9b11d0ca483	legacy-current	func findBestPitchInRanges(xcorr []float64, y []float64, length int, ranges [2]pitchSearchRange, bestPitch *[2]int) {
-celt/prefilter.go	1	6a66b0356430715297ea271df77c6ee586099a70b79dd77b2f1e78c0347e24aa	legacy-current	x[i+1] = float64(sum1)
-celt/prefilter.go	1	6ed3de962819ddc200cf8b801a32b675a80400155d7ea515cb2dcd982ebc7b3f	legacy-current	x[i] = float64(sum)
-celt/prefilter.go	1	83267774050f3be75756948fe05da0668cbd413a0acd354688427763353cff6d	legacy-current	func lpcFromAutocorr(ac [5]float64) [4]float64 {
-celt/prefilter.go	1	9562a320ed4635716d1a04a9449339f3f1f6a1ad34ed47ea903342cd68c7e19f	legacy-current	func celtFIR5(x []float64, num [5]float64) {
-celt/prefilter.go	1	ab1961a01e19dbbe642895a67d6859764fc8f0d3322890f0e0806ba1678dc41f	legacy-current	var lpc [4]float64
-celt/prefilter.go	1	ad94a3def34c22286572719b2e44e232994ac7bda6ae994128da57521f3ed609	legacy-current	func pitchDownsample(x []float64, xLP []float32, length, channels, factor int) {
-celt/prefilter.go	1	b05a55fe55594cbd9a5f9a9371a73e8698391db972eaeb1e74d82daaeb129c18	legacy-current	x[i] = float64(sum0)
-celt/prefilter.go	1	d002443eddc6707e7705c52d01472d19473592d2dd3b932b631444e79a256db0	legacy-current	lpc[i] = float64(lpc32[i])
-celt/prefilter.go	1	d8c46c605bf607a073f155a55cd4109bb00d1e96d0a60a58439ee5edb642a239	legacy-current	func findBestPitch(xcorr []float64, y []float64, length, maxPitch int, bestPitch *[2]int) {
-celt/prefilter.go	1	e78d45df3ba87de334e00b257c79b14cf6444d36a6a113dbc584b54e523c3cda	legacy-current	return xy / float32(math.Sqrt(float64(den)))
 celt/pvq.go	1	8d445162a3d37594d7e5a69014788ab4503e371f0864afd27c824c5b08e89026	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(qn)
 celt/pvq.go	1	93a16d3a6f34a164d089a777b398e3f9438bc48acc13fb9a422eab7c5fda6e93	legacy-current	func (d *Decoder) DecodeTheta(n int) float64 {
 celt/pvq.go	1	a2ed657c3de51017b45e855f011c5981b509b9458003b68e504d50996244c4c5	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(n)
@@ -74,19 +43,6 @@ celt/qext_energy.go	1	19264b923711da4f5007f78281ee754c1c3db7e52dccef9223bd59fecc
 celt/qext_energy.go	1	557b678909b197f597b64520a69cb608b7c7c7f2650c2a32777f49f4c1ab4140	legacy-current	func normalizeQEXTBandsInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []celtEner, norm []celtNorm) {
 celt/qext_energy.go	1	88ef31ac457372fcf0734bc35a032caadff223da21d3d7d250e0df64da7e0b4a	legacy-current	func computeQEXTBandLogEInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []celtEner, bandLogE []celtGLog) {
 celt/qext_energy.go	1	a90daeb81b69a95c8b17cf1851c3436a58e50d8d6c4e619ae3654867f1eaf9ec	legacy-current	bandE[i] = celtEner(float32(math.Sqrt(float64(sum))))
-celt/quant_bands.go	1	3847771e4d5fc44f5b67b68e23319c8afcf88c17d5b4c05ed0e47cbfba616015	legacy-current	errorVal[idx] = float64(float32(errorVal[idx]) - offset)
-celt/quant_bands.go	2	6aa06dfc171a870e814c414b7a892a9a9eaa7274005cc3777a37e2ee0fdf30bd	legacy-current	oldEBands[idx] = float64(float32(oldEBands[idx]) + offset)
-celt/quant_bands.go	1	790370243f5008bc8e5bc2692164018f1511afd8eb8d316aaccb42d3814c7f24	legacy-current	errorVal[idx] = float64(err - offset)
-celt/quant_bands.go	2	c80552be4572199bb5da103c9ca7eedf94b28a7192b60b8f051e8e9b3140dcb3	legacy-current	oldEBands, errorVal []float64,
-celt/recovery_helpers.go	1	0199bc895a18e2f75a18b0d03ab44d959bff269e30db7730dd1fca95ce09e766	legacy-current	ac[i] = float64(ai - lag)
-celt/recovery_helpers.go	1	235197752bf59d8bf7b26ceefd33732c3ff1fd87fc27940b863a715d85812ea5	legacy-current	dec := float64(1+missing) * slope
-celt/recovery_helpers.go	1	27850c5b9c3bb66b146889b9c06b6331f690daa9041c383b132523a03ba68031	legacy-current	decay = float32(math.Sqrt(float64(e1 / e2)))
-celt/recovery_helpers.go	1	323d8a2ce382aae84d4cc9a9db26d4c33f65ccd3ccb68727c98e323d68da521c	legacy-current	func applyCELTAutocorrNoiseAndLagWindow(ac []float64, order int) {
-celt/recovery_helpers.go	1	6ce13ced7ea21b787660718909193dbbdcfe3a3aa00c78f12585771f0614612c	legacy-current	ratio := float32(math.Sqrt(float64((s1 + 1.0) / (s2 + 1.0))))
-celt/recovery_helpers.go	1	8d9cbad27fd21feb4397a84f9e4ddedfd581ae7e6e35c504f1576dda7de43979	legacy-current	e1 := float64(d.prevLogE[idx])
-celt/recovery_helpers.go	1	b21d38ab6da2ac69c74be5410fad6334d3d45ea255da12cbe39ab31ad01e6c35	legacy-current	e2 := float64(d.prevLogE2[idx])
-celt/recovery_helpers.go	1	ba95bfcd8c8103c354a6c69c8a9b1c73aef0dbb5271a5d6614fb09a096d336ec	legacy-current	ac[0] = float64(float32(ac[0]) * float32(1.0001))
-celt/recovery_helpers.go	1	e9a8baf7b79c71f790c85b46122ac214b0ebc141e73f02e1861e5de66442fb8f	legacy-current	e0 := float64(d.prevEnergy[idx])
 celt/scalar_types.go	1	9bdc0fb3d1ecacceda98fc7c5338f148b4d2d40eeb2c9bfcb3fb220b7b737f74	legacy-current	func copyFloat64ToSig(dst []celtSig, src []float64) {
 celt/scalar_types.go	1	beea720c8de54da8545efc993c92e9c60c4d4c58cb139234868d65b042e94e76	legacy-current	dst[i] = float64(src[i])
 celt/scalar_types.go	1	f52ac08b388aa97d4e3e29fba3ac2e8a28217d29f45a2cbbd257128a63e1148b	legacy-current	func copySigToFloat64(dst []float64, src []celtSig) {
@@ -109,28 +65,7 @@ celt/sum_sq_default.go	1	cdaa08658078f0263bede437f09e2e0445fd217b4b88625abc797ac
 celt/tables.go	1	41c6248cabf62531f6e1083055df0a686583948920bb54071c680005bb29bb35	legacy-current	var eMeans = [25]float64{
 celt/tables.go	1	660cf419425ea17be6d0564360ed1979ef679bdcc8a487bbd8bfb5b28423e276	legacy-current	var AlphaCoef = [4]float64{
 celt/tables.go	1	be854f5a1fe466c224e784b061896e0b2288ed8d152bdcf6b64529140ee718bb	legacy-current	var BetaCoefInter = [4]float64{
-celt/transient.go	2	286417342a69cff11d1e64f8cc01b63b58931afddb7a5d9de628085850bcbd87	legacy-current	normE := float32(float64(64*len2) / (meanGeom + epsilon))
-celt/transient.go	1	4aa7ffce43f62d3d44f61e9015210fc1b69b9cabcdc1558faba4ade94e01582f	legacy-current	normEL := float32(float64(64*len2) / (math.Sqrt(float64(meanL*maxEL*float32(0.5*float64(len2)))) + epsilon))
-celt/transient.go	2	5c1964f3ee27d3d484e775d79c28ab5a8bc4ccf3676535cdb39b02ec8d2679c4	legacy-current	meanGeom := math.Sqrt(float64(mean * maxE * float32(0.5*float64(len2))))
-celt/transient.go	1	806eee44ce5628a28e29e1323a54a0f3555a494979273cbb2812aa3a580032d8	legacy-current	func (e *Encoder) DetectTransient(pcm []float64, frameSize int) bool {
-celt/transient.go	1	954a6008b14cbf4b4ff25e7fa3c84213228d76a3d42621732c81e508a4cc4b1f	legacy-current	func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
-celt/transient.go	1	d78cd3e49b1e5096b6cead0f78cb89e60e9106eba0b5efd793ee94bd00104f8f	legacy-current	normER := float32(float64(64*len2) / (math.Sqrt(float64(meanR*maxER*float32(0.5*float64(len2)))) + epsilon))
 celt/transient.go	1	e22fad24ac4722a682b2ae14722cbe14b69ecd7dbd8e8a0fd76229dfaeafaa3c	legacy-current	freq := float32(math.Acos(float64(float32(0.5)*lpc0)) / float64(delay))
-celt/window_tables_static.go	1	0c84e385b19f7b461022b674cf1b3a703c37f2622fb92eda9d5b7dd63b8a0b3d	legacy-current	var windowBuffer120Sq = [Overlap]float64{
-celt/window_tables_static.go	1	26b6253633e429941da9322bb04db259fe7a567ee0bfaf8faf5370e36890fa70	legacy-current	var windowBuffer960Sq = [960]float64{
-celt/window_tables_static.go	1	37508bd8cfb3c551c0a4ca716689333b413c9661dca93e4ee2050e525900ee64	legacy-current	var windowBuffer480Sq = [480]float64{
-celt/window_tables_static.go	1	3b0fdfed1c574ea7fc76a86579bd70db42d7913c3ef34e785fa6b817fe0286b7	legacy-current	var windowBuffer240Sq = [240]float64{
-celt/window_tables_static.go	1	5456a30adb4f32b10a0936f201cfa8c0f0b6cbff732eaf62e137cb83628ecdc3	legacy-current	var windowBuffer240 = [240]float64{
-celt/window_tables_static.go	1	6710ab2270d39a1f7d76f3bed5e65a9723d3f96c4b55cb01faef3190234e18f9	legacy-current	var windowBuffer120 = [Overlap]float64{
-celt/window_tables_static.go	1	79283844e07b2082e09ba2a599196646d9c50f95afdac10d038471ca93209d43	legacy-current	var windowBuffer960 = [960]float64{
-celt/window_tables_static.go	1	c45ceff116b217c2d08a1cac0e54f6f6789554d4594113a15569c73773e03389	legacy-current	var windowBuffer480 = [480]float64{
-celt/xcorr.go	1	1061f1020ad1fc91500399742d5178515cc09bd182d1bce36ba202b5bdaa4a31	legacy-current	var c0, c1, c2, c3 float64
-celt/xcorr.go	1	3976cc0b645568a060024d3897400c1cee28fd704cf406288b55ba3ca5f7a5cc	legacy-current	func celtInnerProd(x, y []float64, length int) float64 {
-celt/xcorr.go	1	547a245e6b5f8d489e8f9cec76b9d1b92a8c3ebb69f7b5ff0e27c1c7adccd7f7	legacy-current	func dualInnerProd(x, y1, y2 []float64, length int) (float64, float64) {
-celt/xcorr.go	1	a65afd3127286257f69d1e3dafbefdbf467734495817744bdbdd16e89a3f0508	legacy-current	var s0, s1, s2, s3 float64
-celt/xcorr.go	1	b05351257b2e2da2b873131e1190eb71571ee0b141d3de3c9ec0cc564bbd71dd	legacy-current	func tripleInnerProd(x, y1, y2, y3 []float64, length int) (float64, float64, float64) {
-celt/xcorr.go	2	bd3df33535ae5483a1c53129dd8cec51f228679838067eccc5d8d85afd57b1e7	legacy-current	var b0, b1, b2, b3 float64
-celt/xcorr.go	2	e0c2490349f9242f45544914abe3d2a33db46f4ebb6f593d5ba4ef3e98a63ef8	legacy-current	var a0, a1, a2, a3 float64
 internal/lpcnetplc/fargan.go	1	2bff7ac96cdbcfbfcfb061acd113e7ffab9a6c29e8043e60f5e77b0bbe2c1782	legacy-current	gain := float32(math.Exp(float64(f.scratch.gain[0])))
 internal/lpcnetplc/fargan_conditioner.go	1	4807e5f47b1a63964eb2a596550decbe86da149f610e4915479c3c46540c618b	legacy-current	period := int(math.Floor(.5 + float64(PitchMaxPeriod)/math.Pow(2, (1./60.)*((float64(features[NumBands])+1.5)*60))))
 internal/lpcnetplc/fma32_default.go	1	4615f35d8d35ce5ca7d9e3617e3e7d032cef0f300908c9f83d1ba52955a95f3d	legacy-current	return float32(math.FMA(float64(a), float64(b), float64(c)))

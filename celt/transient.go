@@ -471,25 +471,14 @@ func toneDetectFloat32Mono(x []float32, sampleRate int, lane4Corr bool) (float32
 // Returns: TransientAnalysisResult with all metrics
 //
 // Reference: libopus celt/celt_encoder.c transient_analysis()
-func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
-	if len(pcm) == 0 {
-		return e.transientAnalysisScratchF32(nil, frameSize, allowWeakTransients,
-			e.scratch.transientX,
-			e.scratch.transientEnergy)
-	}
-	tmp := ensureFloat32Slice(&e.scratch.transientInput, len(pcm))
-	for i, v := range pcm {
-		tmp[i] = float32(v)
-	}
-	return e.transientAnalysisScratchF32(tmp, frameSize, allowWeakTransients,
+func (e *Encoder) TransientAnalysis(pcm []float32, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
+	return e.transientAnalysisScratchF32(pcm, frameSize, allowWeakTransients,
 		e.scratch.transientX,
 		e.scratch.transientEnergy)
 }
 
 func (e *Encoder) TransientAnalysisF32(pcm []float32, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
-	return e.transientAnalysisScratchF32(pcm, frameSize, allowWeakTransients,
-		e.scratch.transientX,
-		e.scratch.transientEnergy)
+	return e.TransientAnalysis(pcm, frameSize, allowWeakTransients)
 }
 
 func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
@@ -576,9 +565,9 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 		}
 	}
 
-	meanGeom := math.Sqrt(float64(mean * maxE * float32(0.5*float64(len2))))
+	meanGeom := opusmath.SqrtF32(mean * maxE * float32(0.5*float32(len2)))
 	const epsilon = 1e-15
-	normE := float32(float64(64*len2) / (meanGeom + epsilon))
+	normE := float32(64*len2) / (meanGeom + epsilon)
 
 	const epsF32 = float32(1e-15)
 	var unmask int
@@ -790,8 +779,8 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 		}
 
 		const epsilon = 1e-15
-		normEL := float32(float64(64*len2) / (math.Sqrt(float64(meanL*maxEL*float32(0.5*float64(len2)))) + epsilon))
-		normER := float32(float64(64*len2) / (math.Sqrt(float64(meanR*maxER*float32(0.5*float64(len2)))) + epsilon))
+		normEL := float32(64*len2) / (opusmath.SqrtF32(meanL*maxEL*float32(0.5*float32(len2))) + epsilon)
+		normER := float32(64*len2) / (opusmath.SqrtF32(meanR*maxER*float32(0.5*float32(len2))) + epsilon)
 
 		const epsF32 = float32(1e-15)
 		var unmaskL, unmaskR int
@@ -930,11 +919,11 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 
 		// Compute frame energy as geometric mean of mean and max
 		// This is a compromise between old and new transient detectors
-		meanGeom := math.Sqrt(float64(mean * maxE * float32(0.5*float64(len2))))
+		meanGeom := opusmath.SqrtF32(mean * maxE * float32(0.5*float32(len2)))
 
 		// Inverse of mean energy (with epsilon to avoid division by zero)
 		const epsilon = 1e-15
-		normE := float32(float64(64*len2) / (meanGeom + epsilon))
+		normE := float32(64*len2) / (meanGeom + epsilon)
 
 		// Compute harmonic mean using inverse table
 		// Skip unreliable boundaries, sample every 4th point
@@ -1038,7 +1027,7 @@ transientMetricsDone:
 // Returns: true if transient detected and short blocks should be used
 //
 // Reference: RFC 6716 Section 4.3.1, libopus celt/celt_encoder.c
-func (e *Encoder) DetectTransient(pcm []float64, frameSize int) bool {
+func (e *Encoder) DetectTransient(pcm []float32, frameSize int) bool {
 	return e.TransientAnalysis(pcm, frameSize, false).IsTransient
 }
 

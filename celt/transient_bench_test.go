@@ -45,8 +45,9 @@ func TestTransientAnalysisMatchesLegacy(t *testing.T) {
 				}
 			}
 
+			pcm32 := float32Slice(pcm)
 			tmp := make([]float32, samplesPerChannel)
-			got := enc.TransientAnalysis(pcm, samplesPerChannel, tc.allowWeak)
+			got := enc.TransientAnalysis(pcm32, samplesPerChannel, tc.allowWeak)
 			want := transientAnalysisLegacyBench(enc, pcm, samplesPerChannel, tc.allowWeak,
 				enc.scratch.transientX, tmp, enc.scratch.transientEnergy)
 
@@ -74,7 +75,6 @@ func TestTransientAnalysisMonoFloat32MatchesFloat64(t *testing.T) {
 			enc := NewEncoder(1)
 			enc.ensureScratch(tc.samplesPerChannel)
 			pcmF32 := make([]float32, tc.samplesPerChannel)
-			pcmF64 := make([]float64, tc.samplesPerChannel)
 			for i := range pcmF32 {
 				t0 := float64(i) / 48000.0
 				v := float32(0.4*math.Sin(2*math.Pi*440*t0) + 0.07*math.Sin(2*math.Pi*3910*t0))
@@ -82,11 +82,10 @@ func TestTransientAnalysisMonoFloat32MatchesFloat64(t *testing.T) {
 					v += 0.55
 				}
 				pcmF32[i] = v
-				pcmF64[i] = float64(v)
 			}
 
 			got := enc.transientAnalysisMonoFloat32(pcmF32, tc.samplesPerChannel, tc.allowWeak)
-			want := enc.TransientAnalysis(pcmF64, tc.samplesPerChannel, tc.allowWeak)
+			want := enc.TransientAnalysis(pcmF32, tc.samplesPerChannel, tc.allowWeak)
 			if got != want {
 				t.Fatalf("mismatch:\n got  %+v\n want %+v", got, want)
 			}
@@ -338,6 +337,7 @@ func benchmarkTransientAnalysisChannels(b *testing.B, channels int, legacy bool)
 			pcm[2*i+1] = right
 		}
 	}
+	pcm32 := float32Slice(pcm)
 
 	tmp := make([]float32, samplesPerChannel)
 
@@ -347,7 +347,7 @@ func benchmarkTransientAnalysisChannels(b *testing.B, channels int, legacy bool)
 			transientBenchSink = transientAnalysisLegacyBench(enc, pcm, samplesPerChannel, false,
 				enc.scratch.transientX, tmp, enc.scratch.transientEnergy)
 		} else {
-			transientBenchSink = enc.TransientAnalysis(pcm, samplesPerChannel, false)
+			transientBenchSink = enc.TransientAnalysis(pcm32, samplesPerChannel, false)
 		}
 	}
 }

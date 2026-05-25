@@ -1,8 +1,7 @@
 package celt
 
 import (
-	"math"
-
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/plc"
 )
 
@@ -181,7 +180,7 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 	}
 
 	missing := min(10, d.plcLossDuration>>uint(lm))
-	safety := 0.0
+	safety := celtGLog(0)
 	switch lm {
 	case 0:
 		safety = 1.5
@@ -196,9 +195,9 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 		}
 		for i := start; i < end; i++ {
 			idx := base + i
-			e0 := float64(d.prevEnergy[idx])
-			e1 := float64(d.prevLogE[idx])
-			e2 := float64(d.prevLogE2[idx])
+			e0 := d.prevEnergy[idx]
+			e1 := d.prevLogE[idx]
+			e2 := d.prevLogE2[idx]
 
 			maxPrev := e1
 			if e2 > maxPrev {
@@ -206,14 +205,14 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 			}
 			if e0 < maxPrev {
 				slope := e1 - e0
-				halfSlope := 0.5 * (e2 - e0)
+				halfSlope := celtGLog(0.5) * (e2 - e0)
 				if halfSlope > slope {
 					slope = halfSlope
 				}
 				if slope > 2.0 {
 					slope = 2.0
 				}
-				dec := float64(1+missing) * slope
+				dec := celtGLog(1+missing) * slope
 				if dec < 0 {
 					dec = 0
 				}
@@ -229,7 +228,7 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 					e0 = e2
 				}
 			}
-			d.prevEnergy[idx] = celtGLog(e0 - safety)
+			d.prevEnergy[idx] = e0 - safety
 		}
 	}
 }
@@ -568,7 +567,7 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 				e1 = e2
 			}
 			if e2 > 0 {
-				decay = float32(math.Sqrt(float64(e1 / e2)))
+				decay = opusmath.SqrtF32(e1 / e2)
 			}
 		}
 
@@ -606,7 +605,7 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 				chOut[i] = 0
 			}
 		} else if s1 < s2 {
-			ratio := float32(math.Sqrt(float64((s1 + 1.0) / (s2 + 1.0))))
+			ratio := opusmath.SqrtF32((s1 + 1.0) / (s2 + 1.0))
 			blend := min(Overlap, totalSamples)
 			for i := 0; i < blend; i++ {
 				g := float32(1.0) - window32[i]*(float32(1.0)-ratio)
@@ -674,20 +673,6 @@ func (d *Decoder) computePLCAutocorr(frame []celtSig, window []float32, ac []flo
 	}
 
 	applyCELTAutocorrNoiseAndLagWindow32(ac[:], celtPLCLPCOrder)
-}
-
-func applyCELTAutocorrNoiseAndLagWindow(ac []float64, order int) {
-	if len(ac) <= order {
-		return
-	}
-	ac[0] = float64(float32(ac[0]) * float32(1.0001))
-	lagBase := float32(0.008) * float32(0.008)
-	for i := 1; i <= order; i++ {
-		ai := float32(ac[i])
-		lag := ai * lagBase
-		lag *= float32(i * i)
-		ac[i] = float64(ai - lag)
-	}
 }
 
 func applyCELTAutocorrNoiseAndLagWindow32(ac []float32, order int) {

@@ -181,12 +181,12 @@ func TestQuantFineEnergy(t *testing.T) {
 	channels := 1
 
 	// Setup test data
-	oldEBands := make([]float64, nbBands*channels)
-	errorVal := make([]float64, nbBands*channels)
+	oldEBands := make([]celtGLog, nbBands*channels)
+	errorVal := make([]celtGLog, nbBands*channels)
 	extraQuant := make([]int, nbBands)
 
 	for i := 0; i < nbBands; i++ {
-		oldEBands[i] = float64(5 - i/4)
+		oldEBands[i] = celtGLog(5 - i/4)
 		errorVal[i] = 0.25 // Small positive error
 		if i < 15 {
 			extraQuant[i] = 2 // 2 fine bits for first 15 bands
@@ -203,7 +203,7 @@ func TestQuantFineEnergy(t *testing.T) {
 
 	// Verify that error was reduced
 	for i := 0; i < 15; i++ {
-		if math.Abs(errorVal[i]) >= 0.25 {
+		if math.Abs(float64(errorVal[i])) >= 0.25 {
 			t.Errorf("Band %d: error not reduced after fine encoding: %f", i, errorVal[i])
 		}
 	}
@@ -215,13 +215,13 @@ func TestQuantEnergyFinalise(t *testing.T) {
 	channels := 1
 
 	// Setup test data
-	oldEBands := make([]float64, nbBands*channels)
-	errorVal := make([]float64, nbBands*channels)
+	oldEBands := make([]celtGLog, nbBands*channels)
+	errorVal := make([]celtGLog, nbBands*channels)
 	fineQuant := make([]int, nbBands)
 	finePriority := make([]int, nbBands)
 
 	for i := 0; i < nbBands; i++ {
-		oldEBands[i] = float64(5 - i/4)
+		oldEBands[i] = celtGLog(5 - i/4)
 		errorVal[i] = 0.1 // Small positive error
 		fineQuant[i] = 2  // 2 bits already used
 		if i%2 == 0 {

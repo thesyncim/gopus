@@ -164,7 +164,7 @@ func TestTransientAnalysisTfEstimate(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			pcm := tc.generateSignal()
-			result := encoder.TransientAnalysis(pcm, frameSize, false)
+			result := encoder.TransientAnalysis(float32Slice(pcm), frameSize, false)
 
 			t.Logf("%s: isTransient=%v (expect=%v), tfEstimate=%.4f, maskMetric=%.2f",
 				tc.name, result.IsTransient, tc.expectTransient, result.TfEstimate, result.MaskMetric)
@@ -243,7 +243,7 @@ func TestTfEstimateStereo(t *testing.T) {
 		}
 	}
 
-	result := encoder.TransientAnalysis(pcm, frameSize, false)
+	result := encoder.TransientAnalysis(float32Slice(pcm), frameSize, false)
 
 	t.Logf("Stereo analysis: isTransient=%v, tfEstimate=%.4f, tfChannel=%d, maskMetric=%.2f",
 		result.IsTransient, result.TfEstimate, result.TfChannel, result.MaskMetric)
@@ -274,10 +274,10 @@ func TestWeakTransientMode(t *testing.T) {
 	}
 
 	// Test without weak transient allowance
-	resultNormal := encoder.TransientAnalysis(pcm, frameSize, false)
+	resultNormal := encoder.TransientAnalysis(float32Slice(pcm), frameSize, false)
 
 	// Test with weak transient allowance (simulates hybrid mode at low bitrate)
-	resultWeak := encoder.TransientAnalysis(pcm, frameSize, true)
+	resultWeak := encoder.TransientAnalysis(float32Slice(pcm), frameSize, true)
 
 	t.Logf("Normal: isTransient=%v, weakTransient=%v, maskMetric=%.2f",
 		resultNormal.IsTransient, resultNormal.WeakTransient, resultNormal.MaskMetric)

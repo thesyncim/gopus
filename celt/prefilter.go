@@ -1,8 +1,7 @@
 package celt
 
 import (
-	"math"
-
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/util"
 )
 
@@ -342,95 +341,6 @@ func (e *Encoder) updatePrefilterNoopState(pre []celtSig, perChanLen, frameSize,
 	}
 }
 
-func pitchDownsample(x []float64, xLP []float32, length, channels, factor int) {
-	if length <= 0 || factor <= 0 || len(xLP) < length {
-		return
-	}
-	const (
-		firQuarter = float32(0.25)
-		firHalf    = float32(0.5)
-	)
-	handled := false
-	if factor == 2 {
-		if channels == 1 {
-			idx := 2
-			for i := 1; i < length; i++ {
-				v := firQuarter*float32(x[idx-1]) + firQuarter*float32(x[idx+1]) + firHalf*float32(x[idx])
-				xLP[i] = v
-				idx += 2
-			}
-			xLP[0] = firQuarter*float32(x[1]) + firHalf*float32(x[0])
-		} else if channels == 2 {
-			chStride := len(x) / 2
-			x0 := x[:chStride]
-			x1 := x[chStride:]
-			idx := 2
-			for i := 1; i < length; i++ {
-				v0 := firQuarter*float32(x0[idx-1]) + firQuarter*float32(x0[idx+1]) + firHalf*float32(x0[idx])
-				v1 := firQuarter*float32(x1[idx-1]) + firQuarter*float32(x1[idx+1]) + firHalf*float32(x1[idx])
-				xLP[i] = v0
-				xLP[i] += v1
-				idx += 2
-			}
-			v0 := firQuarter*float32(x0[1]) + firHalf*float32(x0[0])
-			v1 := firQuarter*float32(x1[1]) + firHalf*float32(x1[0])
-			xLP[0] = v0
-			xLP[0] += v1
-		}
-		handled = true
-	}
-	if !handled {
-		offset := factor / 2
-		if offset < 1 {
-			offset = 1
-		}
-		for i := 1; i < length; i++ {
-			idx := factor * i
-			v := firQuarter*float32(x[idx-offset]) +
-				firQuarter*float32(x[idx+offset]) +
-				firHalf*float32(x[idx])
-			xLP[i] = v
-		}
-		xLP[0] = firQuarter*float32(x[offset]) + firHalf*float32(x[0])
-		if channels == 2 {
-			chStride := len(x) / 2
-			x1 := x[chStride:]
-			for i := 1; i < length; i++ {
-				idx := factor * i
-				v := firQuarter*float32(x1[idx-offset]) +
-					firQuarter*float32(x1[idx+offset]) +
-					firHalf*float32(x1[idx])
-				xLP[i] += v
-			}
-			v := firQuarter*float32(x1[offset]) + firHalf*float32(x1[0])
-			xLP[0] += v
-		}
-	}
-
-	// Match libopus _celt_autocorr() order for lag=4, overlap=0.
-	// This preserves float-path accumulation behavior used by tone/pitch analysis.
-	var ac [5]float32
-	pitchAutocorr5F32(xLP[:length], length, &ac)
-
-	applyCELTAutocorrNoiseAndLagWindow32(ac[:], 4)
-
-	lpc := lpcFromAutocorr32(ac)
-	tmp := float32(1.0)
-	for i := 0; i < 4; i++ {
-		tmp *= float32(0.9)
-		lpc[i] *= tmp
-	}
-	c1 := float32(0.8)
-	lpc2 := [5]float32{
-		lpc[0] + float32(0.8),
-		lpc[1] + c1*lpc[0],
-		lpc[2] + c1*lpc[1],
-		lpc[3] + c1*lpc[2],
-		c1 * lpc[3],
-	}
-	celtFIR5F32(xLP, lpc2)
-}
-
 func pitchDownsampleSig(x []celtSig, xLP []float32, length, channels, factor int) {
 	if length <= 0 || factor <= 0 || len(xLP) < length {
 		return
@@ -628,48 +538,6 @@ func pitchSearch(xLP []float32, y []float32, length, maxPitch int, scratch *enco
 	return 2*bestPitch[0] - offset
 }
 
-func findBestPitch(xcorr []float64, y []float64, length, maxPitch int, bestPitch *[2]int) {
-	Syy := float32(1)
-	bestNum := [2]float32{-1, -1}
-	bestDen := [2]float32{0, 0}
-	bestPitch[0] = 0
-	bestPitch[1] = 1
-	_ = y[length+maxPitch-1] // BCE hint
-	_ = xcorr[maxPitch-1]    // BCE hint
-	for j := 0; j < length; j++ {
-		yj := float32(y[j])
-		Syy += yj * yj
-	}
-	const xcorrScale = float32(1e-12)
-	for i := 0; i < maxPitch; i++ {
-		if xv := xcorr[i]; xv > 0 {
-			xc := float32(xv)
-			xcorr16 := xc * xcorrScale
-			num := xcorr16 * xcorr16
-			if num*bestDen[1] > bestNum[1]*Syy {
-				if num*bestDen[0] > bestNum[0]*Syy {
-					bestNum[1] = bestNum[0]
-					bestDen[1] = bestDen[0]
-					bestPitch[1] = bestPitch[0]
-					bestNum[0] = num
-					bestDen[0] = Syy
-					bestPitch[0] = i
-				} else {
-					bestNum[1] = num
-					bestDen[1] = Syy
-					bestPitch[1] = i
-				}
-			}
-		}
-		yi := float32(y[i])
-		yil := float32(y[i+length])
-		Syy += yil*yil - yi*yi
-		if Syy < 1 {
-			Syy = 1
-		}
-	}
-}
-
 func findBestPitchF32(xcorr []float32, y []float32, length, maxPitch int, bestPitch *[2]int) {
 	Syy := float32(1)
 	bestNum := [2]float32{-1, -1}
@@ -753,59 +621,6 @@ func pitchSearchFineRanges(bestPitch [2]int, halfPitch int) [2]pitchSearchRange 
 		pitchSearchRange{lo: l0, hi: h0},
 		pitchSearchRange{lo: l1, hi: h1},
 	)
-}
-
-func findBestPitchInRanges(xcorr []float64, y []float64, length int, ranges [2]pitchSearchRange, bestPitch *[2]int) {
-	Syy := float32(1)
-	bestNum := [2]float32{-1, -1}
-	bestDen := [2]float32{0, 0}
-	bestPitch[0] = 0
-	bestPitch[1] = 1
-	for j := 0; j < length; j++ {
-		yj := float32(y[j])
-		Syy += yj * yj
-	}
-	i := 0
-	for _, r := range ranges {
-		if r.hi < r.lo {
-			continue
-		}
-		for ; i < r.lo; i++ {
-			yi := float32(y[i])
-			yil := float32(y[i+length])
-			Syy += yil*yil - yi*yi
-			if Syy < 1 {
-				Syy = 1
-			}
-		}
-		for ; i <= r.hi; i++ {
-			if xv := xcorr[i]; xv > 0 {
-				xc := float32(xv)
-				xcorr16 := xc * pitchSearchXcorrScale
-				num := xcorr16 * xcorr16
-				if num*bestDen[1] > bestNum[1]*Syy {
-					if num*bestDen[0] > bestNum[0]*Syy {
-						bestNum[1] = bestNum[0]
-						bestDen[1] = bestDen[0]
-						bestPitch[1] = bestPitch[0]
-						bestNum[0] = num
-						bestDen[0] = Syy
-						bestPitch[0] = i
-					} else {
-						bestNum[1] = num
-						bestDen[1] = Syy
-						bestPitch[1] = i
-					}
-				}
-			}
-			yi := float32(y[i])
-			yil := float32(y[i+length])
-			Syy += yil*yil - yi*yi
-			if Syy < 1 {
-				Syy = 1
-			}
-		}
-	}
 }
 
 func findBestPitchInRangesF32(xcorr []float32, y []float32, length int, ranges [2]pitchSearchRange, bestPitch *[2]int) {
@@ -1042,44 +857,7 @@ func computePitchGain(xy, xx, yy float32) float32 {
 		return 0
 	}
 	den := noFMA32Add(1, noFMA32Mul(xx, yy))
-	return xy / float32(math.Sqrt(float64(den)))
-}
-
-func celtFIR5(x []float64, num [5]float64) {
-	n0 := float32(num[0])
-	n1 := float32(num[1])
-	n2 := float32(num[2])
-	n3 := float32(num[3])
-	n4 := float32(num[4])
-	mem0 := float32(0)
-	mem1 := float32(0)
-	mem2 := float32(0)
-	mem3 := float32(0)
-	mem4 := float32(0)
-	i := 0
-	for ; i+1 < len(x); i += 2 {
-		x0 := float32(x[i])
-		sum0 := x0 + n0*mem0 + n1*mem1 + n2*mem2 + n3*mem3 + n4*mem4
-		x1 := float32(x[i+1])
-		sum1 := x1 + n0*x0 + n1*mem0 + n2*mem1 + n3*mem2 + n4*mem3
-		x[i] = float64(sum0)
-		x[i+1] = float64(sum1)
-		mem4 = mem2
-		mem3 = mem1
-		mem2 = mem0
-		mem1 = x0
-		mem0 = x1
-	}
-	for ; i < len(x); i++ {
-		xi := float32(x[i])
-		sum := xi + n0*mem0 + n1*mem1 + n2*mem2 + n3*mem3 + n4*mem4
-		mem4 = mem3
-		mem3 = mem2
-		mem2 = mem1
-		mem1 = mem0
-		mem0 = xi
-		x[i] = float64(sum)
-	}
+	return xy / opusmath.SqrtF32(den)
 }
 
 func celtFIR5F32(x []float32, num [5]float32) {
@@ -1117,39 +895,6 @@ func celtFIR5F32(x []float32, num [5]float32) {
 		mem0 = xi
 		x[i] = sum
 	}
-}
-
-func lpcFromAutocorr(ac [5]float64) [4]float64 {
-	var lpc [4]float64
-	if ac[0] <= 1e-10 {
-		return lpc
-	}
-	var lpc32 [4]float32
-	ac0 := float32(ac[0])
-	err := ac0
-	for i := 0; i < 4; i++ {
-		rr := float32(0)
-		for j := 0; j < i; j++ {
-			rr += lpc32[j] * float32(ac[i-j])
-		}
-		rr += float32(ac[i+1])
-		r := -rr / err
-		lpc32[i] = r
-		for j := 0; j < (i+1)>>1; j++ {
-			tmp1 := lpc32[j]
-			tmp2 := lpc32[i-1-j]
-			lpc32[j] = tmp1 + r*tmp2
-			lpc32[i-1-j] = tmp2 + r*tmp1
-		}
-		err = err - r*r*err
-		if err <= float32(0.001)*ac0 {
-			break
-		}
-	}
-	for i := range lpc {
-		lpc[i] = float64(lpc32[i])
-	}
-	return lpc
 }
 
 func lpcFromAutocorr32(ac [5]float32) [4]float32 {

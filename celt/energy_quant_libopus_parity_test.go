@@ -247,8 +247,8 @@ func assertCELTEnergyQuantMatchesLibopus(t *testing.T, cases []libopusCELTEnergy
 	}
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			gotOld := float32sToFloat64s(tc.oldEBands)
-			gotErr := float32sToFloat64s(tc.errorVal)
+			gotOld := float32sToGLogs(tc.oldEBands)
+			gotErr := float32sToGLogs(tc.errorVal)
 			buf := make([]byte, tc.storage)
 			var re rangecoding.Encoder
 			re.Init(buf)
@@ -267,24 +267,9 @@ func assertCELTEnergyQuantMatchesLibopus(t *testing.T, cases []libopusCELTEnergy
 			if !bytes.Equal(gotPacket, want[i].packet) {
 				t.Fatalf("packet=%x want %x", gotPacket, want[i].packet)
 			}
-			assertFloat64CarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
-			assertFloat64CarriesFloat32Bits(t, "error", gotErr, want[i].errorVal)
+			assertGLogCarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
+			assertGLogCarriesFloat32Bits(t, "error", gotErr, want[i].errorVal)
 		})
-	}
-}
-
-func assertFloat64CarriesFloat32Bits(t *testing.T, name string, got []float64, want []float32) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s len=%d want %d", name, len(got), len(want))
-	}
-	for i := range got {
-		want64 := float64(want[i])
-		if got[i] != want64 {
-			t.Fatalf("%s[%d]=%08x %.10g want %08x %.10g",
-				name, i, math.Float32bits(float32(got[i])), got[i],
-				math.Float32bits(want[i]), want64)
-		}
 	}
 }
 
@@ -299,14 +284,6 @@ func assertGLogCarriesFloat32Bits(t *testing.T, name string, got []celtGLog, wan
 				name, i, gotBits, float32(got[i]), wantBits, want[i])
 		}
 	}
-}
-
-func float32sToFloat64s(in []float32) []float64 {
-	out := make([]float64, len(in))
-	for i, v := range in {
-		out[i] = float64(v)
-	}
-	return out
 }
 
 func float32sToGLogs(in []float32) []celtGLog {
