@@ -8,6 +8,12 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+func testNormFromFloat64(src []float64) []celtNorm {
+	dst := make([]celtNorm, len(src))
+	copyFloat64ToNorm(dst, src)
+	return dst
+}
+
 func TestQuantBandStereoPreparedLowbandMatchesStandard(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -44,8 +50,8 @@ func TestQuantBandStereoPreparedLowbandMatchesStandard(t *testing.T) {
 
 			x1 := append([]float64(nil), xBase...)
 			y1 := append([]float64(nil), yBase...)
-			lowband1 := append([]float64(nil), lowbandBase...)
-			out1 := make([]float64, tc.n)
+			lowband1 := testNormFromFloat64(lowbandBase)
+			out1 := make([]celtNorm, tc.n)
 			var buf1 [512]byte
 			var re1 rangecoding.Encoder
 			re1.Init(buf1[:])
@@ -70,8 +76,8 @@ func TestQuantBandStereoPreparedLowbandMatchesStandard(t *testing.T) {
 
 			x2 := append([]float64(nil), xBase...)
 			y2 := append([]float64(nil), yBase...)
-			lowband2 := append([]float64(nil), lowbandBase...)
-			out2 := make([]float64, tc.n)
+			lowband2 := testNormFromFloat64(lowbandBase)
+			out2 := make([]celtNorm, tc.n)
 			var buf2 [512]byte
 			var re2 rangecoding.Encoder
 			re2.Init(buf2[:])
@@ -139,8 +145,8 @@ func TestQuantBandStereoPreparedLowbandMatchesStandardWithQEXTBudget(t *testing.
 
 	x1 := append([]float64(nil), xBase...)
 	y1 := append([]float64(nil), yBase...)
-	lowband1 := append([]float64(nil), lowbandBase...)
-	out1 := make([]float64, 32)
+	lowband1 := testNormFromFloat64(lowbandBase)
+	out1 := make([]celtNorm, 32)
 	var buf1 [512]byte
 	var extBuf1 [256]byte
 	var re1 rangecoding.Encoder
@@ -173,8 +179,8 @@ func TestQuantBandStereoPreparedLowbandMatchesStandardWithQEXTBudget(t *testing.
 
 	x2 := append([]float64(nil), xBase...)
 	y2 := append([]float64(nil), yBase...)
-	lowband2 := append([]float64(nil), lowbandBase...)
-	out2 := make([]float64, 32)
+	lowband2 := testNormFromFloat64(lowbandBase)
+	out2 := make([]celtNorm, 32)
 	var buf2 [512]byte
 	var extBuf2 [256]byte
 	var re2 rangecoding.Encoder

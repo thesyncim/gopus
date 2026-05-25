@@ -90,8 +90,8 @@ type bandDecodeScratch struct {
 	left     []float64
 	right    []float64
 	collapse []byte
-	norm     []float64
-	lowband  []float64
+	norm     []celtNorm
+	lowband  []celtNorm
 
 	// Pre-allocated buffers for DecodeBands hot path (eliminates per-frame allocations)
 	coeffs       []float64    // MDCT coefficients output buffer (size: frameSize or 2*frameSize for stereo)
@@ -114,8 +114,9 @@ type bandDecodeScratch struct {
 	cwrsU      []uint32 // CWRS u-row scratch buffer
 
 	// Scratch buffers for Hadamard interleave/deinterleave (eliminates per-call allocations)
-	hadamardTmp []float64 // Temporary buffer for Hadamard transforms
-	quantWork   []float64 // Deinterleaved working buffer for quantBand decode
+	hadamardTmp     []float64 // Temporary buffer for Hadamard transforms
+	hadamardTmpNorm []celtNorm
+	quantWork       []float64 // Deinterleaved working buffer for quantBand decode
 
 }
 
@@ -124,16 +125,16 @@ type bandDecodeScratch struct {
 type bandEncodeScratch struct {
 	// Main buffers for quantAllBandsEncode
 	collapse       []byte
-	norm           []float64
-	lowbandScratch []float64
+	norm           []celtNorm
+	lowbandScratch []celtNorm
 
 	// Theta RDO buffers (for stereo encoding)
 	xSave       []float64
 	ySave       []float64
-	normSave    []float64
+	normSave    []celtNorm
 	xResult0    []float64
 	yResult0    []float64
-	normResult0 []float64
+	normResult0 []celtNorm
 	thetaX      []celtNorm
 	thetaY      []celtNorm
 
@@ -154,8 +155,9 @@ type bandEncodeScratch struct {
 	cwrsU []uint32
 
 	// Hadamard scratch
-	hadamardTmp []float64
-	quantWork   []float64
+	hadamardTmp     []float64
+	hadamardTmpNorm []celtNorm
+	quantWork       []float64
 }
 
 // Encoder scratch buffer methods
@@ -166,13 +168,13 @@ func (s *bandEncodeScratch) ensureCollapse(n int) []byte {
 }
 
 // ensureNorm returns a pre-allocated norm buffer.
-func (s *bandEncodeScratch) ensureNorm(n int) []float64 {
-	return ensureFloat64Slice(&s.norm, n)
+func (s *bandEncodeScratch) ensureNorm(n int) []celtNorm {
+	return ensureNormSlice(&s.norm, n)
 }
 
 // ensureLowbandScratch returns a pre-allocated lowband scratch buffer.
-func (s *bandEncodeScratch) ensureLowbandScratch(n int) []float64 {
-	return ensureFloat64Slice(&s.lowbandScratch, n)
+func (s *bandEncodeScratch) ensureLowbandScratch(n int) []celtNorm {
+	return ensureNormSlice(&s.lowbandScratch, n)
 }
 
 // ensureXSave returns a pre-allocated buffer for saving X during theta RDO.
@@ -186,8 +188,8 @@ func (s *bandEncodeScratch) ensureYSave(n int) []float64 {
 }
 
 // ensureNormSave returns a pre-allocated buffer for saving norm during theta RDO.
-func (s *bandEncodeScratch) ensureNormSave(n int) []float64 {
-	return ensureFloat64Slice(&s.normSave, n)
+func (s *bandEncodeScratch) ensureNormSave(n int) []celtNorm {
+	return ensureNormSlice(&s.normSave, n)
 }
 
 // ensureXResult0 returns a pre-allocated buffer for X result during theta RDO.
@@ -201,8 +203,8 @@ func (s *bandEncodeScratch) ensureYResult0(n int) []float64 {
 }
 
 // ensureNormResult0 returns a pre-allocated buffer for norm result during theta RDO.
-func (s *bandEncodeScratch) ensureNormResult0(n int) []float64 {
-	return ensureFloat64Slice(&s.normResult0, n)
+func (s *bandEncodeScratch) ensureNormResult0(n int) []celtNorm {
+	return ensureNormSlice(&s.normResult0, n)
 }
 
 func (s *bandEncodeScratch) ensureThetaX(n int) []celtNorm {
@@ -216,6 +218,10 @@ func (s *bandEncodeScratch) ensureThetaY(n int) []celtNorm {
 // ensureHadamardTmp returns a pre-allocated buffer for Hadamard transforms.
 func (s *bandEncodeScratch) ensureHadamardTmp(n int) []float64 {
 	return ensureFloat64Slice(&s.hadamardTmp, n)
+}
+
+func (s *bandEncodeScratch) ensureHadamardTmpNorm(n int) []celtNorm {
+	return ensureNormSlice(&s.hadamardTmpNorm, n)
 }
 
 // ensureQuantWork returns a pre-allocated deinterleaved working buffer.
@@ -339,6 +345,10 @@ func (s *bandDecodeScratch) ensureCWRSU(n int) []uint32 {
 // ensureHadamardTmp returns a pre-allocated buffer for Hadamard transforms.
 func (s *bandDecodeScratch) ensureHadamardTmp(n int) []float64 {
 	return ensureFloat64Slice(&s.hadamardTmp, n)
+}
+
+func (s *bandDecodeScratch) ensureHadamardTmpNorm(n int) []celtNorm {
+	return ensureNormSlice(&s.hadamardTmpNorm, n)
 }
 
 // ensureQuantWork returns a pre-allocated deinterleaved working buffer.

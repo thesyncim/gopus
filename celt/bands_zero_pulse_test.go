@@ -42,6 +42,13 @@ func makeLowband(n int) []float64 {
 	return lowband
 }
 
+func makeLowbandNorm(n int) []celtNorm {
+	lowband := makeLowband(n)
+	dst := make([]celtNorm, len(lowband))
+	copyFloat64ToNorm(dst, lowband)
+	return dst
+}
+
 func TestSeededZeroPulseResynthMatchesLegacy(t *testing.T) {
 	gains := []float64{0.25, 0.75, 1.0, 1.5}
 	seeds := []uint32{1, 0x8000, 0x12345678, 0xdeadbeef}
@@ -73,14 +80,16 @@ func TestSeededZeroPulseResynthMatchesLegacy(t *testing.T) {
 
 				currentFold := make([]float64, n)
 				legacyFold := make([]float64, n)
-				lowband := makeLowband(n)
+				lowbandLegacy := makeLowband(n)
+				lowband := make([]celtNorm, len(lowbandLegacy))
+				copyFloat64ToNorm(lowband, lowbandLegacy)
 				seedCurrentFold := seed0
 				seedLegacyFold := seed0
 
 				if ok := seededZeroPulseResynth(currentFold, lowband, &seedCurrentFold, gain); !ok {
 					t.Fatalf("fold fast path unexpectedly refused n=%d gain=%v", n, gain)
 				}
-				legacyZeroPulseResynth(legacyFold, lowband, &seedLegacyFold, gain)
+				legacyZeroPulseResynth(legacyFold, lowbandLegacy, &seedLegacyFold, gain)
 
 				if seedCurrentFold != seedLegacyFold {
 					t.Fatalf("fold seed mismatch n=%d gain=%v seed=%08x: got %08x want %08x",
@@ -103,7 +112,7 @@ func TestSeededZeroPulseResynthFallback(t *testing.T) {
 	if seededZeroPulseResynth(x, nil, nil, 1.0) {
 		t.Fatal("expected nil-seed call to refuse fast path")
 	}
-	if seededZeroPulseResynth(x, []float64{1, 2}, &seed, 1.0) {
+	if seededZeroPulseResynth(x, []celtNorm{1, 2}, &seed, 1.0) {
 		t.Fatal("expected short lowband to refuse fast path")
 	}
 }
@@ -111,10 +120,10 @@ func TestSeededZeroPulseResynthFallback(t *testing.T) {
 func BenchmarkZeroPulseResynthCurrent(b *testing.B) {
 	benchmarks := []struct {
 		name    string
-		lowband []float64
+		lowband []celtNorm
 	}{
 		{name: "noise", lowband: nil},
-		{name: "fold", lowband: makeLowband(32)},
+		{name: "fold", lowband: makeLowbandNorm(32)},
 	}
 
 	for _, bm := range benchmarks {

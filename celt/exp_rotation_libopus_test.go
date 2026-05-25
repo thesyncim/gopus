@@ -1430,11 +1430,11 @@ func TestLowbandOutScaleMatchesLibopusFloatPath(t *testing.T) {
 	}
 	for ci, tc := range cases {
 		src := make([]float64, len(tc.x))
-		got := make([]float64, len(tc.x))
+		got := make([]celtNorm, len(tc.x))
 		for i, sample := range tc.x {
 			src[i] = float64(sample)
 		}
-		scaleLowbandOutForFolding(got, src, len(src))
+		scaleLowbandOutForFoldingNorm(got, src, len(src))
 		for i := range got {
 			gotSample := float32(got[i])
 			if math.Float32bits(gotSample) != math.Float32bits(want[ci][i]) {

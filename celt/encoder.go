@@ -1360,21 +1360,22 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Band encode scratch
 	s.bandEncode.collapse = ensureByteSlice(&s.bandEncode.collapse, channels*MaxBands)
 	normLen := 8 * EBands[MaxBands-1] // M=8 for 20ms frames
-	s.bandEncode.norm = ensureFloat64Slice(&s.bandEncode.norm, channels*normLen)
+	s.bandEncode.norm = ensureNormSlice(&s.bandEncode.norm, channels*normLen)
 	maxBand := 8 * (EBands[MaxBands] - EBands[MaxBands-1])
-	s.bandEncode.lowbandScratch = ensureFloat64Slice(&s.bandEncode.lowbandScratch, maxBand)
+	s.bandEncode.lowbandScratch = ensureNormSlice(&s.bandEncode.lowbandScratch, maxBand)
 	s.bandEncode.xSave = ensureFloat64Slice(&s.bandEncode.xSave, maxBandWidth)
 	s.bandEncode.ySave = ensureFloat64Slice(&s.bandEncode.ySave, maxBandWidth)
-	s.bandEncode.normSave = ensureFloat64Slice(&s.bandEncode.normSave, maxBandWidth)
+	s.bandEncode.normSave = ensureNormSlice(&s.bandEncode.normSave, maxBandWidth)
 	s.bandEncode.xResult0 = ensureFloat64Slice(&s.bandEncode.xResult0, maxBandWidth)
 	s.bandEncode.yResult0 = ensureFloat64Slice(&s.bandEncode.yResult0, maxBandWidth)
-	s.bandEncode.normResult0 = ensureFloat64Slice(&s.bandEncode.normResult0, maxBandWidth)
+	s.bandEncode.normResult0 = ensureNormSlice(&s.bandEncode.normResult0, maxBandWidth)
 	s.bandEncode.pvqSignx = ensureByteSlice(&s.bandEncode.pvqSignx, maxPVQN)
 	s.bandEncode.pvqY = ensureFloat32Slice(&s.bandEncode.pvqY, maxPVQN)
 	s.bandEncode.pvqAbsX = ensureFloat32Slice(&s.bandEncode.pvqAbsX, maxPVQN)
 	s.bandEncode.pvqIy = ensureIntSlice(&s.bandEncode.pvqIy, maxPVQN)
 	s.bandEncode.cwrsU = ensureUint32Slice(&s.bandEncode.cwrsU, 256)
 	s.bandEncode.hadamardTmp = ensureFloat64Slice(&s.bandEncode.hadamardTmp, maxBandWidth*16) // For stride up to 16
+	s.bandEncode.hadamardTmpNorm = ensureNormSlice(&s.bandEncode.hadamardTmpNorm, maxBandWidth*16)
 }
 
 // computeAllocationScratch computes bit allocation using scratch buffers (zero-alloc).
