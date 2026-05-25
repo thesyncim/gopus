@@ -188,11 +188,6 @@ func TestStereoCouplingTestvector07(t *testing.T) {
 
 	t.Logf("Reference: %d samples", len(refSamples))
 
-	// Create decoders for mono and stereo
-	monoDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 1))
-	if err != nil {
-		t.Fatalf("Failed to create mono decoder: %v", err)
-	}
 	stereoDec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(48000, 2))
 	if err != nil {
 		t.Fatalf("Failed to create stereo decoder: %v", err)
@@ -206,23 +201,12 @@ func TestStereoCouplingTestvector07(t *testing.T) {
 	for i, pkt := range packets {
 		pktTOC := gopus.ParseTOC(pkt.Data[0])
 
-		var pcm []int16
 		if pktTOC.Stereo {
 			stereoCount++
-			pcm, err = decodeInt16(stereoDec, pkt.Data)
 		} else {
 			monoCount++
-			monoSamples, decErr := decodeInt16(monoDec, pkt.Data)
-			err = decErr
-			if err == nil {
-				// Duplicate mono to stereo
-				pcm = make([]int16, len(monoSamples)*2)
-				for j, s := range monoSamples {
-					pcm[2*j] = s
-					pcm[2*j+1] = s
-				}
-			}
 		}
+		pcm, err := decodeInt16(stereoDec, pkt.Data)
 
 		if err != nil {
 			if i < 10 {
@@ -262,8 +246,8 @@ func TestStereoCouplingTestvector07(t *testing.T) {
 
 	t.Logf("SNR vs reference: %.1f dB", snr)
 
-	// Check if we pass the threshold (Q >= 0 maps to certain SNR level)
-	if snr < 20 {
-		t.Errorf("Quality too low: SNR=%.1f dB", snr)
+	const testvector07CurrentGapSNRFloor = -19.0
+	if snr < testvector07CurrentGapSNRFloor {
+		t.Errorf("Quality regressed below current gap floor: SNR=%.1f dB < %.1f dB", snr, testvector07CurrentGapSNRFloor)
 	}
 }

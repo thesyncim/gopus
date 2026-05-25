@@ -540,21 +540,21 @@ func (m *mockCELTDecoder) OverlapBuffer() []float32     { return m.overlapBuf }
 func (m *mockCELTDecoder) SetOverlapBuffer(s []float32) { copy(m.overlapBuf, s) }
 
 // SynthesizeFloat32 performs a simple pass-through for testing.
-func (m *mockCELTDecoder) SynthesizeFloat32(coeffs []float32, transient bool, shortBlocks int) []float64 {
+func (m *mockCELTDecoder) SynthesizeFloat32(coeffs []float32, transient bool, shortBlocks int) []float32 {
 	// For testing, just return coefficients scaled down
-	output := make([]float64, len(coeffs))
+	output := make([]float32, len(coeffs))
 	for i, c := range coeffs {
-		output[i] = float64(c * 0.1)
+		output[i] = c * 0.1
 	}
 	return output
 }
 
 // SynthesizeStereoFloat32 performs a simple pass-through for testing.
-func (m *mockCELTDecoder) SynthesizeStereoFloat32(coeffsL, coeffsR []float32, transient bool, shortBlocks int) []float64 {
-	output := make([]float64, len(coeffsL)*2)
+func (m *mockCELTDecoder) SynthesizeStereoFloat32(coeffsL, coeffsR []float32, transient bool, shortBlocks int) []float32 {
+	output := make([]float32, len(coeffsL)*2)
 	for i := range coeffsL {
-		output[i*2] = float64(coeffsL[i] * 0.1)
-		output[i*2+1] = float64(coeffsR[i] * 0.1)
+		output[i*2] = coeffsL[i] * 0.1
+		output[i*2+1] = coeffsR[i] * 0.1
 	}
 	return output
 }
@@ -576,7 +576,7 @@ func TestCELTPLCOutput(t *testing.T) {
 	}
 
 	frameSize := 480 // 10ms at 48kHz
-	fadeFactor := 0.5
+	fadeFactor := float32(0.5)
 
 	output := ConcealCELT(dec, dec, frameSize, fadeFactor)
 
@@ -615,7 +615,7 @@ func TestCELTPLCEnergyDecay(t *testing.T) {
 	}
 
 	frameSize := 480
-	fadeFactor := 1.0 // Full fade (for testing energy decay only)
+	fadeFactor := float32(1.0) // Full fade (for testing energy decay only)
 
 	_ = ConcealCELT(dec, dec, frameSize, fadeFactor)
 
@@ -643,7 +643,7 @@ func TestCELTPLCStereo(t *testing.T) {
 	}
 
 	frameSize := 960 // 20ms at 48kHz
-	fadeFactor := 0.75
+	fadeFactor := float32(0.75)
 
 	output := ConcealCELT(dec, dec, frameSize, fadeFactor)
 
@@ -670,7 +670,7 @@ func TestCELTHybridPLC(t *testing.T) {
 	}
 
 	frameSize := 960 // 20ms - valid for hybrid
-	fadeFactor := 0.5
+	fadeFactor := float32(0.5)
 
 	output := ConcealCELTHybrid(dec, dec, frameSize, fadeFactor)
 

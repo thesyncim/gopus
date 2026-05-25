@@ -148,11 +148,17 @@ type Decoder struct {
 	scratchSynth          []float64
 	scratchSynthR         []float64
 	scratchStereo         []float64
+	scratchSynthF32       []float32
+	scratchSynthRF32      []float32
+	scratchStereoF32      []float32
+	scratchShortCoeffsF32 []float32
 	scratchShortCoeffs    []float64
 	scratchMonoToStereoR  []float64 // For coeffsR in decodeMonoPacketToStereo (must not alias scratchSynthR used by SynthesizeStereo)
 	scratchMonoMix        []float64 // For coeffsMono in decodeStereoPacketToMono (must not alias scratchShortCoeffs used by Synthesize)
 	postfilterScratch     []float64
+	postfilterScratchF32  []float32
 	scratchPLC            []float64 // Scratch buffer for PLC concealment samples
+	scratchPLCF32         []float32
 	scratchPLCPitchLP     []float32
 	scratchPLCPitchSearch plcPitchSearchScratch
 	scratchPLCFIRTmp      []celtSig

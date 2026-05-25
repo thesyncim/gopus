@@ -553,6 +553,70 @@ func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []floa
 	d.preemphState[1] = stateR
 }
 
+func (d *Decoder) applyDeemphasisAndScaleFloat32(samples []float32, scale float32) {
+	n := len(samples)
+	if n == 0 {
+		return
+	}
+
+	if d.channels == 1 {
+		if d.preemphState[0] == 0 {
+			allZero := true
+			for i := 0; i < n; i++ {
+				if samples[i] != 0 {
+					allZero = false
+					break
+				}
+			}
+			if allZero {
+				return
+			}
+		}
+	} else if d.preemphState[0] == 0 && d.preemphState[1] == 0 {
+		allZero := true
+		for i := 0; i < n; i++ {
+			if samples[i] != 0 {
+				allZero = false
+				break
+			}
+		}
+		if allZero {
+			return
+		}
+	}
+
+	const verySmall float32 = 1e-30
+	const coef float32 = float32(PreemphCoef)
+
+	if d.channels == 1 {
+		state := d.preemphState[0]
+		_ = samples[n-1]
+		for i := 0; i < n; i++ {
+			tmp := samples[i] + verySmall + state
+			state = noFMA32Mul(coef, tmp)
+			samples[i] = tmp * scale
+		}
+		d.preemphState[0] = state
+		return
+	}
+
+	stateL := d.preemphState[0]
+	stateR := d.preemphState[1]
+	_ = samples[n-1]
+	i := 0
+	for ; i+1 < n; i += 2 {
+		tmpL := samples[i] + verySmall + stateL
+		stateL = noFMA32Mul(coef, tmpL)
+		samples[i] = tmpL * scale
+
+		tmpR := samples[i+1] + verySmall + stateR
+		stateR = noFMA32Mul(coef, tmpR)
+		samples[i+1] = tmpR * scale
+	}
+	d.preemphState[0] = stateL
+	d.preemphState[1] = stateR
+}
+
 func (d *Decoder) applyDeemphasisAndScaleDownsampleToFloat32(dst []float32, samples []float64, downsample int, scale float64) {
 	if downsample <= 1 {
 		d.applyDeemphasisAndScaleToFloat32(dst, samples, scale)

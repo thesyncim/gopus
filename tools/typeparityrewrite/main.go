@@ -443,12 +443,18 @@ func rewriteFile(file string, rules []rule, allowEntries map[string]allowEntry, 
 		sliceObjects:      make(map[*ast.Object]string),
 		knownScalars:      make(map[string]string),
 		knownSlices:       make(map[string]string),
+		knownFieldScalars: make(map[string]string),
+		knownFieldSlices:  make(map[string]string),
 		knownObjects:      make(map[*ast.Object]string),
 		knownSliceObjects: make(map[*ast.Object]string),
 		funcArgs:          make(map[string]map[int]string),
 	}
 
 	rw.rewriteTypesAndConversions(parsed)
+	if rw.hasContext(ctxAssignments) || rw.hasContext(ctxCallArgs) ||
+		rw.hasContext(ctxRSqrt) || rw.hasContext(ctxSimplifyCasts) {
+		rw.collectKnownValueTypes(parsed)
+	}
 	if rw.hasContext(ctxAssignments) {
 		rw.collectChangedLocals(parsed)
 		rw.rewriteAssignments(parsed)
@@ -456,9 +462,6 @@ func rewriteFile(file string, rules []rule, allowEntries map[string]allowEntry, 
 	if rw.hasContext(ctxCallArgs) {
 		rw.collectFuncArgs(parsed)
 		rw.rewriteCallArgs(parsed)
-	}
-	if rw.hasContext(ctxRSqrt) || rw.hasContext(ctxSimplifyCasts) {
-		rw.collectKnownValueTypes(parsed)
 	}
 	if rw.hasContext(ctxRSqrt) {
 		rw.rewriteRSqrt(parsed)
@@ -502,6 +505,8 @@ type fileRewriter struct {
 	sliceObjects      map[*ast.Object]string
 	knownScalars      map[string]string
 	knownSlices       map[string]string
+	knownFieldScalars map[string]string
+	knownFieldSlices  map[string]string
 	knownObjects      map[*ast.Object]string
 	knownSliceObjects map[*ast.Object]string
 	funcArgs          map[string]map[int]string
@@ -716,7 +721,7 @@ func (rw *fileRewriter) rewriteAssignments(file *ast.File) {
 				continue
 			}
 			target := rw.assignmentTarget(lhs)
-			if target == "" || exprAlreadyTarget(assign.Rhs[i], target) {
+			if target == "" || rw.exprAlreadyTargetWidth(assign.Rhs[i], target, true) {
 				continue
 			}
 			assign.Rhs[i] = wrap(target, assign.Rhs[i])
@@ -807,7 +812,7 @@ func (rw *fileRewriter) rewriteCallArgs(file *ast.File) {
 		}
 		for i, arg := range call.Args {
 			target := targets[i]
-			if target == "" || exprAlreadyTarget(arg, target) || !rw.nodeAllowed(arg) {
+			if target == "" || rw.exprAlreadyTargetWidth(arg, target, true) || !rw.nodeAllowed(arg) {
 				continue
 			}
 			call.Args[i] = wrap(target, arg)
@@ -822,6 +827,10 @@ func (rw *fileRewriter) collectKnownValueTypes(file *ast.File) {
 		switch n := n.(type) {
 		case *ast.FuncDecl:
 			rw.collectKnownFieldTypes(n.Type.Params)
+		case *ast.TypeSpec:
+			if st, ok := n.Type.(*ast.StructType); ok {
+				rw.collectKnownStructFields(st.Fields)
+			}
 		case *ast.ValueSpec:
 			rw.recordKnownNames(n.Names, n.Type)
 		case *ast.AssignStmt:
@@ -861,6 +870,38 @@ func (rw *fileRewriter) collectKnownValueTypes(file *ast.File) {
 		}
 		return true
 	})
+}
+
+func (rw *fileRewriter) collectKnownStructFields(list *ast.FieldList) {
+	if list == nil {
+		return
+	}
+	for _, field := range list.List {
+		scalarTarget := targetScalar(field.Type)
+		sliceTarget := targetSlice(field.Type)
+		if scalarTarget == "" && sliceTarget == "" {
+			continue
+		}
+		for _, name := range field.Names {
+			if name == nil || name.Name == "_" {
+				continue
+			}
+			if scalarTarget != "" {
+				rw.recordKnownField(rw.knownFieldScalars, name.Name, scalarTarget)
+			}
+			if sliceTarget != "" {
+				rw.recordKnownField(rw.knownFieldSlices, name.Name, sliceTarget)
+			}
+		}
+	}
+}
+
+func (rw *fileRewriter) recordKnownField(fields map[string]string, name, target string) {
+	if prev, ok := fields[name]; ok && prev != target {
+		fields[name] = ""
+		return
+	}
+	fields[name] = target
 }
 
 func (rw *fileRewriter) collectKnownFieldTypes(list *ast.FieldList) {
@@ -1101,20 +1142,57 @@ func (rw *fileRewriter) exprAlreadyFloat32Width(expr ast.Expr, allowUntypedConst
 	switch expr := expr.(type) {
 	case *ast.BasicLit:
 		return allowUntypedConstant
+	case *ast.BinaryExpr:
+		left := rw.exprAlreadyFloat32Width(expr.X, allowUntypedConstant)
+		right := rw.exprAlreadyFloat32Width(expr.Y, allowUntypedConstant)
+		if !left || !right {
+			return false
+		}
+		if allowUntypedConstant {
+			return true
+		}
+		return rw.exprAlreadyFloat32Width(expr.X, false) || rw.exprAlreadyFloat32Width(expr.Y, false)
 	case *ast.CallExpr:
 		return isFloat32WidthType(exprString(token.NewFileSet(), expr.Fun))
 	case *ast.Ident:
-		return isFloat32WidthType(rw.knownScalarType(expr))
+		return isFloat32WidthType(rw.scalarType(expr))
 	case *ast.IndexExpr:
-		if id, ok := expr.X.(*ast.Ident); ok {
-			return isFloat32WidthType(rw.knownSliceType(id))
-		}
+		return isFloat32WidthType(rw.sliceElementType(expr.X))
 	case *ast.ParenExpr:
 		return rw.exprAlreadyFloat32Width(expr.X, allowUntypedConstant)
+	case *ast.SelectorExpr:
+		return isFloat32WidthType(rw.knownFieldScalars[expr.Sel.Name])
 	case *ast.UnaryExpr:
 		return rw.exprAlreadyFloat32Width(expr.X, allowUntypedConstant)
 	}
 	return false
+}
+
+func (rw *fileRewriter) exprAlreadyTargetWidth(expr ast.Expr, target string, allowUntypedConstant bool) bool {
+	if exprAlreadyTarget(expr, target) {
+		return true
+	}
+	return isFloat32WidthType(target) && rw.exprAlreadyFloat32Width(expr, allowUntypedConstant)
+}
+
+func (rw *fileRewriter) scalarType(id *ast.Ident) string {
+	if target := rw.knownScalarType(id); target != "" {
+		return target
+	}
+	return rw.changedScalarType(id)
+}
+
+func (rw *fileRewriter) sliceElementType(expr ast.Expr) string {
+	switch expr := expr.(type) {
+	case *ast.Ident:
+		if target := rw.knownSliceType(expr); target != "" {
+			return target
+		}
+		return rw.changedSliceType(expr)
+	case *ast.SelectorExpr:
+		return rw.knownFieldSlices[expr.Sel.Name]
+	}
+	return ""
 }
 
 func isFloat32WidthType(name string) bool {

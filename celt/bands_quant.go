@@ -1169,11 +1169,18 @@ func renormalizeVector(x []celtNorm, gain opusVal16) {
 	}
 	n := len(x)
 	x = x[:n:n]
-	energy := float32(1e-15)
-	for i := range x {
-		v := float32(x[i])
-		energy += v * v
+	var energy float32
+	if celtUseFusedFloatMath {
+		energy = celtInnerProdNeonStyleNorm(x, x)
+	} else if celtUseSSEFloatMath {
+		energy = celtInnerProdSSEStyleNorm(x, x)
+	} else {
+		for i := range x {
+			v := float32(x[i])
+			energy = celtFloatMulAdd(v, v, energy)
+		}
 	}
+	energy = float32(1e-15) + energy
 	renormalizeVectorWithEnergy(x, gain, opusVal16(energy))
 }
 
@@ -1184,16 +1191,16 @@ func renormalizeVectorWithEnergy(x []celtNorm, gain, energy opusVal16) {
 	n := len(x)
 	x = x[:n:n]
 	_ = x[n-1]
-	scale := celtRSqrt(float32(energy)) * float32(gain)
+	scale := noFMA32Mul(celtRSqrt(float32(energy)), float32(gain))
 	i := 0
 	for ; i+3 < n; i += 4 {
-		x[i] = celtNorm(float32(x[i]) * scale)
-		x[i+1] = celtNorm(float32(x[i+1]) * scale)
-		x[i+2] = celtNorm(float32(x[i+2]) * scale)
-		x[i+3] = celtNorm(float32(x[i+3]) * scale)
+		x[i] = celtNorm(noFMA32Mul(float32(x[i]), scale))
+		x[i+1] = celtNorm(noFMA32Mul(float32(x[i+1]), scale))
+		x[i+2] = celtNorm(noFMA32Mul(float32(x[i+2]), scale))
+		x[i+3] = celtNorm(noFMA32Mul(float32(x[i+3]), scale))
 	}
 	for ; i < n; i++ {
-		x[i] = celtNorm(float32(x[i]) * scale)
+		x[i] = celtNorm(noFMA32Mul(float32(x[i]), scale))
 	}
 }
 

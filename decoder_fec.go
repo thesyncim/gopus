@@ -480,7 +480,7 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 	if d.sampleRate == 48000 {
 		for i := range celtAPI {
 			if i < len(celtSamples) {
-				celtAPI[i] = float32(celtSamples[i])
+				celtAPI[i] = celtSamples[i]
 			} else {
 				celtAPI[i] = 0
 			}
@@ -493,7 +493,7 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 		celt48 := d.scratchFrame48[:needed48]
 		for i := range celt48 {
 			if i < len(celtSamples) {
-				celt48[i] = float32(celtSamples[i])
+				celt48[i] = celtSamples[i]
 			} else {
 				celt48[i] = 0
 			}

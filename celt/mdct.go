@@ -336,6 +336,116 @@ func imdctOverlapWithPrevScratchF32Output[S ~float32 | ~float64](spectrum []floa
 	return outF32
 }
 
+func imdctPreRotateF32Spectrum(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
+	if n4 <= 0 {
+		return
+	}
+
+	_ = spectrum[n2-1]
+	_ = trig[n2-1]
+	_ = fftIn[n4-1]
+	for i := 0; i < n4; i++ {
+		x1 := spectrum[2*i]
+		x2 := spectrum[n2-1-2*i]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		fftIn[i] = complex(
+			noFMA32Sub(noFMA32Mul(x1, t0), noFMA32Mul(x2, t1)),
+			noFMA32Add(noFMA32Mul(x2, t0), noFMA32Mul(x1, t1)),
+		)
+	}
+}
+
+func imdctOverlapWithPrevScratchF32Output32(spectrum []float32, prevOverlap []celtSig, overlap int, scratch *imdctScratchF32) []float32 {
+	n2 := len(spectrum)
+	if n2 == 0 {
+		return nil
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+
+	n := n2 * 2
+	n4 := n2 / 2
+	needed := n2 + overlap
+	start := overlap / 2
+	trig := getMDCTTrigF32(n)
+
+	var fftIn []complex64
+	var fftTmp []kissCpx
+	var outF32 []float32
+	if scratch == nil {
+		fftIn = make([]complex64, n4)
+		fftTmp = make([]kissCpx, n4)
+		outF32 = make([]float32, needed)
+	} else {
+		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
+		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
+		outF32 = ensureFloat32Slice(&scratch.out, needed)
+	}
+
+	if start+n2 < needed {
+		clear(outF32[start+n2 : needed])
+	}
+	if overlap > 0 && len(prevOverlap) > 0 {
+		copyLen := min(len(prevOverlap), overlap)
+		for i := 0; i < copyLen; i++ {
+			outF32[i] = float32(prevOverlap[i])
+		}
+		if copyLen < overlap {
+			clear(outF32[copyLen:overlap])
+		}
+	} else if overlap > 0 {
+		clear(outF32[:overlap])
+	}
+
+	buf := outF32[start : start+n2]
+	imdctPreRotateF32Spectrum(fftIn, spectrum, trig, n2, n4)
+	fftOut := kissFFT32ToScratch(fftIn, fftTmp)
+	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
+
+	if overlap > 0 {
+		windowF32 := GetWindowBufferF32(overlap)
+		xp1 := overlap - 1
+		yp1 := 0
+		wp1 := 0
+		wp2 := overlap - 1
+		limit := overlap / 2
+		i := 0
+		for ; i+1 < limit; i += 2 {
+			x1 := outF32[xp1]
+			x2 := outF32[yp1]
+			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+
+			x1 = outF32[xp1]
+			x2 = outF32[yp1]
+			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+		for ; i < limit; i++ {
+			x1 := outF32[xp1]
+			x2 := outF32[yp1]
+			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+	}
+
+	return outF32[:needed:needed]
+}
+
 func imdctCoreScratchF32(spectrum []float64, scratch *imdctScratchF32) []float32 {
 	n2 := len(spectrum)
 	if n2 == 0 {
@@ -362,6 +472,94 @@ func imdctCoreScratchF32(spectrum []float64, scratch *imdctScratchF32) []float32
 	fftOut := kissFFT32ToScratch(fftIn, fftTmp)
 	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
 	return buf[:n2:n2]
+}
+
+func imdctInPlaceScratchF32Spectrum(spectrum []float32, out []float32, blockStart, overlap int, scratch *imdctScratchF32) {
+	n2 := len(spectrum)
+	if n2 == 0 {
+		return
+	}
+	if overlap < 0 {
+		overlap = 0
+	}
+
+	n := n2 * 2
+	n4 := n2 / 2
+	trig := getMDCTTrigF32(n)
+
+	var fftIn []complex64
+	var buf []float32
+	var fftTmp []kissCpx
+	if scratch == nil {
+		fftIn = make([]complex64, n4)
+		fftTmp = make([]kissCpx, n4)
+		buf = make([]float32, n2)
+	} else {
+		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
+		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
+		buf = ensureFloat32Slice(&scratch.buf, n2)
+	}
+
+	imdctPreRotateF32Spectrum(fftIn, spectrum, trig, n2, n4)
+	fftOut := kissFFT32ToScratch(fftIn, fftTmp)
+	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
+
+	start := blockStart + overlap/2
+	if start >= len(out) {
+		return
+	}
+
+	if overlap > 0 {
+		windowF32 := GetWindowBufferF32(overlap)
+		xp1 := blockStart + overlap - 1
+		yp1 := blockStart
+		wp1 := 0
+		wp2 := overlap - 1
+		limit := overlap / 2
+		i := 0
+		for ; i+1 < limit; i += 2 {
+			bufIdx := xp1 - start
+			x1 := buf[bufIdx]
+			x2 := out[yp1]
+			out[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+			out[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+
+			bufIdx = xp1 - start
+			x1 = buf[bufIdx]
+			x2 = out[yp1]
+			out[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+			out[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+		for ; i < limit; i++ {
+			bufIdx := xp1 - start
+			x1 := buf[bufIdx]
+			x2 := out[yp1]
+			out[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+			out[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
+			yp1++
+			xp1--
+			wp1++
+			wp2--
+		}
+	}
+
+	copyStart := 0
+	if overlap > 0 {
+		copyStart = overlap / 2
+	}
+	limit := n2
+	if start+limit > len(out) {
+		limit = len(out) - start
+	}
+	copy(out[start+copyStart:start+limit], buf[copyStart:limit])
 }
 
 func overlapIMDCTF32WithPrevToFloat64[S ~float32 | ~float64](out []float64, imdct []float32, prevOverlap []S, overlap int) {

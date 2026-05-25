@@ -287,7 +287,7 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 	// For native hybrid frame sizes and the 5 ms transition cadence, use the
 	// decoder-owned hybrid PLC path to match libopus transition synthesis.
 	celtScale := float32(1.0 / 32768.0)
-	var celtConcealed []float64
+	var celtConcealed []float32
 	if frameSize48 == 240 || frameSize48 == 480 || frameSize48 == 960 {
 		var err error
 		celtConcealed, err = d.celtDecoder.DecodeHybridFECPLC(frameSize48)
@@ -298,7 +298,7 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 	} else {
 		// Fallback for non-hybrid frame sizes used by internal cadence paths.
 		// Pass celtDecoder as both state and synthesizer (implements both interfaces).
-		celtConcealed = plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, frameSize48, fadeFactor)
+		celtConcealed = plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, frameSize48, float32(fadeFactor))
 	}
 
 	// Combine SILK and CELT
@@ -320,7 +320,7 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 			}
 			celtIdx := i*factor*d.channels + c
 			if celtIdx < len(celtConcealed) {
-				celtSample = float32(celtConcealed[celtIdx]) * celtScale
+				celtSample = celtConcealed[celtIdx] * celtScale
 			}
 			output[idx] = silkSample + celtSample
 		}

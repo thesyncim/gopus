@@ -120,6 +120,51 @@ func g() {
 	if !strings.Contains(got, "func takeFloat(x float32)") {
 		t.Fatalf("float64 function parameter was not rewritten:\n%s", got)
 	}
+	if strings.Contains(got, "x = float32(1.5)") || strings.Contains(got, "takeFloat(float32(1.5))") {
+		t.Fatalf("untyped constants were wrapped even though the target supplies float32 context:\n%s", got)
+	}
+}
+
+func TestAssignmentAndCallArgRewritesAvoidEquivalentFloatWidthCasts(t *testing.T) {
+	file := writeTempGoFile(t, `package p
+
+type decoder struct {
+	prev    celtSig
+	scratch []celtSig
+}
+
+func takeNorm(x celtNorm) {}
+func external() float64 { return 0 }
+
+func f(shape []celtNorm, gain celtNorm, d *decoder) {
+	var out []celtNorm
+	var y celtNorm
+	y = shape[0] * gain
+	y = d.prev
+	out[0] = d.scratch[0] * 0.5
+	takeNorm(shape[0] * gain)
+	takeNorm(external())
+}
+`)
+	rules := []rule{mustRule(t, "float64", "celtNorm", ctxAssignments|ctxCallArgs)}
+
+	if _, _, err := rewriteFile(file, rules, nil, true); err != nil {
+		t.Fatal(err)
+	}
+	got := readFile(t, file)
+	for _, bad := range []string{
+		"y = celtNorm(shape[0] * gain)",
+		"y = celtNorm(d.prev)",
+		"out[0] = celtNorm(d.scratch[0] * 0.5)",
+		"takeNorm(celtNorm(shape[0] * gain))",
+	} {
+		if strings.Contains(got, bad) {
+			t.Fatalf("added unnecessary equivalent-width cast %q:\n%s", bad, got)
+		}
+	}
+	if !strings.Contains(got, "takeNorm(celtNorm(external()))") {
+		t.Fatalf("true float64 call result was not wrapped:\n%s", got)
+	}
 }
 
 func TestGoFilesNormalizesAbsolutePathsUnderWorkingDirectory(t *testing.T) {

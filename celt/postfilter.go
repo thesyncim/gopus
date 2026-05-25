@@ -1057,6 +1057,73 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 	}
 }
 
+func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, newPeriod int, newGain float32, newTapset int) {
+	if len(samples) == 0 || frameSize <= 0 || d.channels <= 0 {
+		return
+	}
+	if lm < 0 {
+		lm = 0
+	}
+	if d.channels == 1 {
+		if d.postfilterGainOld == 0 && d.postfilterGain == 0 && newGain == 0 {
+			d.applyPostfilterNoGainMonoFromFloat32(samples[:frameSize], frameSize, lm, newPeriod, newGain, newTapset)
+			return
+		}
+		history := combFilterHistory
+		if len(d.postfilterMem) != history {
+			d.postfilterMem = make([]celtSig, history)
+			d.postfilterMemFromPLC = false
+			d.postfilterMemPLCBacked = false
+		}
+		d.clampDecodePostfilterPeriods()
+		t0 := d.postfilterPeriodOld
+		t1 := d.postfilterPeriod
+		g0 := d.postfilterGainOld
+		g1 := d.postfilterGain
+		tap0 := d.postfilterTapsetOld
+		tap1 := d.postfilterTapset
+		t2 := newPeriod
+		g2 := newGain
+		tap2 := newTapset
+		t0, t1, tap0, tap1 = sanitizePostfilterParams(t0, t1, g0, g1, tap0, tap1)
+		t1b, t2, tap1b, tap2 := sanitizePostfilterParams(t1, t2, g1, g2, tap1, tap2)
+		d.materializePostfilterHistorySuffixFromPLC(postfilterHistoryNeed(t0, t1, t1b, t2))
+		window := GetWindowBuffer(Overlap)
+		windowSq := GetWindowSquareBuffer(Overlap)
+		applyPostfilterChannelInPlaceFloat32(samples[:frameSize], d.postfilterMem[:history], frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq)
+		d.updatePLCDecodeHistoryMonoFromFloat32(samples[:frameSize], frameSize, plcDecodeBufferSize)
+		d.markPostfilterHistoryFromPLC()
+		d.postfilterPeriodOld = d.postfilterPeriod
+		d.postfilterGainOld = d.postfilterGain
+		d.postfilterTapsetOld = d.postfilterTapset
+		d.postfilterPeriod = newPeriod
+		d.postfilterGain = newGain
+		d.postfilterTapset = newTapset
+		if lm != 0 {
+			d.postfilterPeriodOld = d.postfilterPeriod
+			d.postfilterGainOld = d.postfilterGain
+			d.postfilterTapsetOld = d.postfilterTapset
+		}
+		return
+	}
+
+	if len(samples) < frameSize*d.channels {
+		return
+	}
+	work := ensureFloat32Slice(&d.postfilterScratchF32, frameSize*2)
+	left := work[:frameSize]
+	right := work[frameSize : frameSize*2]
+	for i := 0; i < frameSize; i++ {
+		left[i] = samples[i*d.channels]
+		right[i] = samples[i*d.channels+1]
+	}
+	d.applyPostfilterStereoPlanarFromFloat32(left, right, frameSize, lm, newPeriod, newGain, newTapset)
+	for i := 0; i < frameSize; i++ {
+		samples[i*d.channels] = left[i]
+		samples[i*d.channels+1] = right[i]
+	}
+}
+
 func combFilter(buf []float64, start int, t0, t1, n int, g0, g1 float32, tapset0, tapset1 int, window []float64, overlap int) {
 	combFilterWithSquare(buf, start, t0, t1, n, g0, g1, tapset0, tapset1, window, nil, overlap)
 }

@@ -318,25 +318,40 @@ func computeSpectralFlatness(powers []float64) float64 {
 		return 1.0
 	}
 
-	const epsilon = 1e-20
+	const (
+		epsilon                 = 1e-20
+		invalidSpectralFlatness = 0.5
+		maxAnalysisBandEnergy   = 1e9
+	)
 
 	// Single-pass: accumulate both fast log2 sum and arithmetic sum.
 	var sumLog2, sum float64
 	for _, v := range powers {
+		// libopus src/analysis.c:tonality_analysis rejects NaN or >=1e9
+		// band energies before using them in later tonality math.
+		if math.IsNaN(v) || math.IsInf(v, 0) {
+			return invalidSpectralFlatness
+		}
 		if v < epsilon {
 			v = epsilon
 		}
 		sumLog2 += fastLog2(v)
 		sum += v
+		if !(sum < maxAnalysisBandEnergy) {
+			return invalidSpectralFlatness
+		}
 	}
 
 	arithMean := sum / float64(n)
-	if arithMean <= 0 {
+	if arithMean <= 0 || math.IsNaN(arithMean) || math.IsInf(arithMean, 0) {
 		return 1.0
 	}
 
 	geoMean := math.Exp2(sumLog2 / float64(n))
 	sfm := geoMean / arithMean
+	if math.IsNaN(sfm) || math.IsInf(sfm, 0) {
+		return invalidSpectralFlatness
+	}
 
 	if sfm < 0 {
 		sfm = 0

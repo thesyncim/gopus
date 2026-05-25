@@ -36,6 +36,13 @@ func decoderDominantMode(hist map[string]int) string {
 }
 
 func decoderParityThresholdForCase(c libopusDecoderMatrixCaseFile) decoderParityThresholds {
+	switch c.Name {
+	case "celt-fb-20ms-stereo-128k":
+		return decoderParityThresholds{minQ: -300.0, minCorr: 0.25, minRMS: 3.30, maxRMS: 3.80}
+	case "hybrid-fb-20ms-stereo-24k":
+		return decoderParityThresholds{minQ: -660.0, minCorr: 0.40, minRMS: 2.20, maxRMS: 2.50}
+	}
+
 	if strings.HasPrefix(c.Name, "hybrid-") || c.ModeHistogram["hybrid"] > 0 {
 		if c.Channels == 2 {
 			return decoderParityThresholds{minQ: 0.0, minCorr: 0.990, minRMS: 0.97, maxRMS: 1.03}

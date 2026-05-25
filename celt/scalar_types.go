@@ -103,13 +103,6 @@ func ensureNormSlice(buf *[]celtNorm, n int) []celtNorm {
 	return (*buf)[:n]
 }
 
-func copyNormToFloat64(dst []float64, src []celtNorm) {
-	n := min(len(dst), len(src))
-	for i := 0; i < n; i++ {
-		dst[i] = float64(src[i])
-	}
-}
-
 func ensureEnerSlice(buf *[]celtEner, n int) []celtEner {
 	if n <= 0 {
 		return nil
