@@ -1879,11 +1879,8 @@ silk/lsf_encode.go	1	f1f96ef8d880c81534f4429ae354a809ed9fe88890ddadcfd190b047f05
 silk/lsf_encode.go	1	f6d21b2007a4edc5b562480d988fa78d73ddf7fb726865a765fc36eec5587d61	legacy-current	const step = math.Pi / float64(numPoints)
 silk/lsf_quantize.go	1	6816deeef3ab15b36e340465fcde9589a3bc681be99b02b38a927bd25bb2f6d9	legacy-current	rms := math.Sqrt(float64(diff) / float64(order))
 silk/lsf_quantize.go	1	98420ae620c21ca0f967894cd7231bda8f2c08119a65144dda4d274fc7a9d72c	legacy-current	rate := 64 - int(math.Log2(float64(prob))*8)
-silk/ltp_quant.go	1	350273885d9380b165450ce153189efc6e1ede5a20c4f707b8f76c6feb41deaf	legacy-current	XXQ17[i] = float64ToInt32(float64(XX[i] * 131072.0))
-silk/ltp_quant.go	1	3636c0e16155489539b189e1187750a6674d475ada2210c8670f527ee451959d	legacy-current	inner += float64(float32(prod1 - prod2))
-silk/ltp_quant.go	1	5b73b8e16925bd44f72daa7efb8f83d706f05ad53a961144f931de6d13b6c920	legacy-current	xXQ17[i] = float64ToInt32(float64(xX[i] * 131072.0))
-silk/ltp_quant.go	1	b34ea045a159ce80e70cb7326c6d125d1800ca4795cb48447bb2033d84ba970c	legacy-current	func float64ToInt32(x float64) int32 {
-silk/ltp_quant.go	1	ff8815246f6cfd9f91f7bd489a1d18fc8a2c8e30a343350b85e0af897328380d	legacy-current	energy += float64(float32(prod1 - prod2))
+silk/ltp_quant.go	1	612f99ec9f215f9c2a039f2fa8210acc80c439094839fb29ca260911e1f818ab	legacy-current	energy += float64(prod1 - prod2)
+silk/ltp_quant.go	1	8c69d6742397cd8ba889164dad949a8daf42764cd3d40b0e7f5dcece977de5d0	legacy-current	inner += float64(prod1 - prod2)
 silk/noise_shape.go	1	681c86a49ce3a67b3aa47be615e1841ffdb25a127861aebeafd2a46d671b585e	legacy-current	lfMaQ14 := float64ToInt32Round(float64(lfMaShp * 16384.0))
 silk/noise_shape.go	1	ba4ad3c78ea30d3fc8ba4aca21a773fa51ac920fd7daebb7cb9aa7545f9e6a2d	legacy-current	return float32(math.Sqrt(float64(x)))
 silk/noise_shape.go	1	ba5b51b2ca388dfa5279550693738664cbd36cb9cd1eb5088f1c9cc4979e0ece	legacy-current	return float32(1.0 / (1.0 + math.Exp(float64(-x))))
