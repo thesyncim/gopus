@@ -486,17 +486,10 @@ func (e *Encoder) encodeLBRRPulses(re *rangecoding.Encoder, frameIdx int) {
 		frameLength = len(pulses)
 	}
 
-	// Convert int8 pulses to int32 for encoding
-	pulsesInt32 := ensureInt32Slice(&e.scratchPulses32, frameLength)
-	for i := 0; i < frameLength; i++ {
-		p := pulses[i]
-		pulsesInt32[i] = int32(p)
-	}
-
 	// Use the standard pulse encoding on the active packet range encoder.
 	prevRE := e.rangeEncoder
 	e.rangeEncoder = re
-	e.encodePulses(pulsesInt32, signalType, quantOffset)
+	e.encodePulses(pulses[:frameLength], signalType, quantOffset)
 	e.rangeEncoder = prevRE
 }
 

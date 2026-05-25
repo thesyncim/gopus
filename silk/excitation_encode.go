@@ -1,15 +1,11 @@
 package silk
 
-import (
-	"math"
-
-	"github.com/thesyncim/gopus/util"
-)
+import "math"
 
 // encodePulses encodes quantization indices of excitation for the entire frame.
 // This matches libopus silk_encode_pulses() - encoding ALL pulses at once.
 // Per RFC 6716 Section 4.2.7.8.
-func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
+func (e *Encoder) encodePulses(pulses []int8, signalType, quantOffset int) {
 	frameLength := len(pulses)
 
 	// Calculate number of shell blocks (iter)
@@ -25,35 +21,32 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 		paddedPulses[i] = 0 // Clear
 	}
 	for i := 0; i < frameLength && i < len(paddedPulses); i++ {
-		// Clamp to int8 range
-		p := pulses[i]
-		if p > 127 {
-			p = 127
-		} else if p < -128 {
-			p = -128
-		}
-		paddedPulses[i] = int8(p)
+		paddedPulses[i] = pulses[i]
 	}
 
 	// Take absolute value of pulses - use scratch buffer
-	absPulses := ensureIntSlice(&e.scratchAbsPulses, shellLen)
+	absPulses := ensureInt32Slice(&e.scratchAbsPulses, shellLen)
 	for i := 0; i < len(paddedPulses); i++ {
-		absPulses[i] = util.Abs(int(paddedPulses[i]))
+		p := int32(paddedPulses[i])
+		if p < 0 {
+			p = -p
+		}
+		absPulses[i] = p
 	}
 
 	// Calculate sum pulses per shell block with overflow handling - use scratch buffers
-	sumPulses := ensureIntSlice(&e.scratchSumPulses, iter)
-	nRshifts := ensureIntSlice(&e.scratchNRshifts, iter)
+	sumPulses := ensureInt32Slice(&e.scratchSumPulses, iter)
+	nRshifts := ensureInt32Slice(&e.scratchNRshifts, iter)
 
-	var pulsesComb [8]int
+	var pulsesComb [8]int32
 	absOffset := 0
 	for i := 0; i < iter; i++ {
 		nRshifts[i] = 0
 		for {
-			scaleDown := combineAndCheck(pulsesComb[:], absPulses[absOffset:], int(silk_max_pulses_table[0]), 8)
-			scaleDown += combineAndCheck(pulsesComb[:], pulsesComb[:], int(silk_max_pulses_table[1]), 4)
-			scaleDown += combineAndCheck(pulsesComb[:], pulsesComb[:], int(silk_max_pulses_table[2]), 2)
-			scaleDown += combineAndCheck(pulsesComb[:], pulsesComb[:], int(silk_max_pulses_table[3]), 1)
+			scaleDown := combineAndCheck(pulsesComb[:], absPulses[absOffset:], int32(silk_max_pulses_table[0]), 8)
+			scaleDown += combineAndCheck(pulsesComb[:], pulsesComb[:], int32(silk_max_pulses_table[1]), 4)
+			scaleDown += combineAndCheck(pulsesComb[:], pulsesComb[:], int32(silk_max_pulses_table[2]), 2)
+			scaleDown += combineAndCheck(pulsesComb[:], pulsesComb[:], int32(silk_max_pulses_table[3]), 1)
 
 			if scaleDown != 0 {
 				nRshifts[i]++
@@ -71,16 +64,16 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 
 	// Select rate level that minimizes total bits (libopus table-based selection).
 	rateLevelIndex := 0
-	minSumBits := int(^uint(0) >> 1)
+	minSumBits := int32(1<<31 - 1)
 	rateBits := silk_rate_levels_BITS_Q5[signalType>>1]
 	for k := 0; k < nRateLevels-1; k++ {
-		sumBits := int(rateBits[k])
+		sumBits := int32(rateBits[k])
 		nBitsPtr := silk_pulses_per_block_BITS_Q5[k]
 		for i := 0; i < iter; i++ {
 			if nRshifts[i] > 0 {
-				sumBits += int(nBitsPtr[silkMaxPulses+1])
+				sumBits += int32(nBitsPtr[silkMaxPulses+1])
 			} else {
-				sumBits += int(nBitsPtr[sumPulses[i]])
+				sumBits += int32(nBitsPtr[int(sumPulses[i])])
 			}
 		}
 		if sumBits < minSumBits {
@@ -98,14 +91,14 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 	pulseCountICDF := silk_pulses_per_block_iCDF[rateLevelIndex]
 	for i := 0; i < iter; i++ {
 		if nRshifts[i] == 0 {
-			e.rangeEncoder.EncodeICDF(sumPulses[i], pulseCountICDF, 8)
+			e.rangeEncoder.EncodeICDF(int(sumPulses[i]), pulseCountICDF, 8)
 		} else {
 			// Overflow: encode special marker, then nRshifts-1 markers, then final sum
 			e.rangeEncoder.EncodeICDF(silkMaxPulses+1, pulseCountICDF, 8)
-			for k := 0; k < nRshifts[i]-1; k++ {
+			for k := int32(0); k < nRshifts[i]-1; k++ {
 				e.rangeEncoder.EncodeICDF(silkMaxPulses+1, silk_pulses_per_block_iCDF[nRateLevels-1], 8)
 			}
-			e.rangeEncoder.EncodeICDF(sumPulses[i], silk_pulses_per_block_iCDF[nRateLevels-1], 8)
+			e.rangeEncoder.EncodeICDF(int(sumPulses[i]), silk_pulses_per_block_iCDF[nRateLevels-1], 8)
 		}
 	}
 
@@ -123,12 +116,15 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 			offset := i * shellCodecFrameLength
 			nLS := nRshifts[i] - 1
 			for k := 0; k < shellCodecFrameLength; k++ {
-				absQ := util.Abs(int(paddedPulses[offset+k]))
+				absQ := int32(paddedPulses[offset+k])
+				if absQ < 0 {
+					absQ = -absQ
+				}
 				for j := nLS; j > 0; j-- {
-					bit := (absQ >> j) & 1
+					bit := int((absQ >> j) & 1)
 					e.rangeEncoder.EncodeICDF(bit, silk_lsb_iCDF, 8)
 				}
-				bit := absQ & 1
+				bit := int(absQ & 1)
 				e.rangeEncoder.EncodeICDF(bit, silk_lsb_iCDF, 8)
 			}
 		}
@@ -141,7 +137,7 @@ func (e *Encoder) encodePulses(pulses []int32, signalType, quantOffset int) {
 // shellEncoder encodes 16 pulses using hierarchical binary splits.
 // Matches libopus silk_shell_encoder() exactly.
 // Uses scratch arrays from encoder to avoid allocations.
-func (e *Encoder) shellEncoder(pulses []int) {
+func (e *Encoder) shellEncoder(pulses []int32) {
 	// Use scratch arrays (fixed size, no allocation)
 	pulses1 := &e.scratchShellPulses1
 	pulses2 := &e.scratchShellPulses2
@@ -191,19 +187,19 @@ func (e *Encoder) shellEncoder(pulses []int) {
 // pChild1: pulse count in first child subframe
 // p: total pulse count in current subframe
 // shellTable: the shell code table to use (e.g., silk_shell_code_table0)
-func (e *Encoder) encodeShellSplitLibopus(pChild1, p int, shellTable []uint8) {
+func (e *Encoder) encodeShellSplitLibopus(pChild1, p int32, shellTable []uint8) {
 	if p > 0 {
 		// Get offset into table based on total pulse count
 		offset := int(silk_shell_code_table_offsets[p])
-		e.rangeEncoder.EncodeICDF(pChild1, shellTable[offset:], 8)
+		e.rangeEncoder.EncodeICDF(int(pChild1), shellTable[offset:], 8)
 	}
 }
 
 // encodeSigns encodes signs for non-zero pulses.
 // Matches libopus silk_encode_signs() exactly.
-func (e *Encoder) encodeSigns(pulses []int8, frameLength, signalType, quantOffset int, sumPulses []int) {
+func (e *Encoder) encodeSigns(pulses []int8, frameLength, signalType, quantOffset int, sumPulses []int32) {
 	// Build 2-element ICDF for sign encoding
-	icdf := []uint8{0, 0}
+	icdf := [2]uint8{}
 
 	// Compute index into silk_sign_iCDF table
 	// Per libopus: i = 7 * (quantOffsetType + (signalType << 1))
@@ -216,7 +212,7 @@ func (e *Encoder) encodeSigns(pulses []int8, frameLength, signalType, quantOffse
 		p := sumPulses[i]
 		if p > 0 {
 			// Set icdf[0] based on sumPulses, clamped to [0, 6]
-			pIdx := p & 0x1F
+			pIdx := int(p & 0x1F)
 			if pIdx > 6 {
 				pIdx = 6
 			}
@@ -238,14 +234,14 @@ func (e *Encoder) encodeSigns(pulses []int8, frameLength, signalType, quantOffse
 					if pulses[idx] < 0 {
 						sign = 0
 					}
-					e.rangeEncoder.EncodeICDF(sign, icdf, 8)
+					e.rangeEncoder.EncodeICDF(sign, icdf[:], 8)
 				}
 			}
 		}
 	}
 }
 
-func combineAndCheck(pulsesComb []int, pulsesIn []int, maxPulses, length int) int {
+func combineAndCheck(pulsesComb []int32, pulsesIn []int32, maxPulses int32, length int) int32 {
 	for k := 0; k < length; k++ {
 		sum := pulsesIn[2*k] + pulsesIn[2*k+1]
 		if sum > maxPulses {

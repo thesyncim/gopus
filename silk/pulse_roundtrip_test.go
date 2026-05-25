@@ -11,7 +11,7 @@ import (
 func TestPulseEncodingRoundtrip(t *testing.T) {
 	// Create a test pattern of pulses
 	frameLength := 80 // One subframe
-	testPulses := make([]int32, frameLength)
+	testPulses := make([]int8, frameLength)
 
 	// Create a pattern with various pulse magnitudes
 	for i := 0; i < frameLength; i++ {

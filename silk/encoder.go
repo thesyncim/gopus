@@ -139,9 +139,9 @@ type Encoder struct {
 
 	// Scratch buffers for zero-allocation encoding
 	scratchPaddedPulses []int8  // encodePulses: padded pulses
-	scratchAbsPulses    []int   // encodePulses: absolute value pulses
-	scratchSumPulses    []int   // encodePulses: sum per shell block
-	scratchNRshifts     []int   // encodePulses: right shifts per shell block
+	scratchAbsPulses    []int32 // encodePulses: absolute value pulses (opus_int-width)
+	scratchSumPulses    []int32 // encodePulses: sum per shell block (opus_int-width)
+	scratchNRshifts     []int32 // encodePulses: right shifts per shell block (opus_int-width)
 	scratchLSFQ15       []int16 // lpcToLSF: LSF result in Q15
 	scratchLPCQ16       []int32 // silkA2NLSF: LPC coefficients in Q16
 
@@ -161,10 +161,10 @@ type Encoder struct {
 	scratchPitchXcorr     []float32 // detectPitch: celt_pitch_xcorr scratch
 
 	// Shell encoder scratch buffers (fixed sizes)
-	scratchShellPulses1 [8]int // shellEncoder: level 1
-	scratchShellPulses2 [4]int // shellEncoder: level 2
-	scratchShellPulses3 [2]int // shellEncoder: level 3
-	scratchShellPulses4 [1]int // shellEncoder: level 4
+	scratchShellPulses1 [8]int32 // shellEncoder: level 1 (opus_int-width)
+	scratchShellPulses2 [4]int32 // shellEncoder: level 2 (opus_int-width)
+	scratchShellPulses3 [2]int32 // shellEncoder: level 3 (opus_int-width)
+	scratchShellPulses4 [1]int32 // shellEncoder: level 4 (opus_int-width)
 
 	// NSQ (computeNSQExcitation) scratch buffers
 	scratchInputQ0          []int16 // PCM converted to int16
@@ -178,8 +178,6 @@ type Encoder struct {
 	scratchHarmShapeGainQ14 []int32 // harmonic shaping gain (opus_int-width)
 	scratchTiltQ14          []int32 // tilt values (opus_int-width)
 	scratchLfShpQ14         []int32 // low-frequency shaping
-	scratchExcitation       []int32 // excitation output
-	scratchPulses32         []int32 // LBRR pulse conversion
 	scratchEcBufCopy        []byte  // range encoder buffer snapshot
 
 	// LPC/Burg scratch buffers. The Burg work arrays mirror C double arrays

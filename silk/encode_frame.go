@@ -518,12 +518,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			}
 
 			// Encode excitation pulses
-			pulseCount := len(pulses)
-			pulses32 := ensureInt32Slice(&e.scratchExcitation, pulseCount)
-			for i := 0; i < pulseCount; i++ {
-				pulses32[i] = int32(pulses[i])
-			}
-			e.encodePulses(pulses32, signalType, int(frameIndices.quantOffsetType))
+			e.encodePulses(pulses, signalType, int(frameIndices.quantOffsetType))
 			if encodeFrameTraceEnabled {
 				recordEncodeFrameTrace(e, encodeFrameTrace{
 					stage:              encodeFrameTraceAfterPulses,
@@ -591,11 +586,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 					})
 				}
 				if pulses != nil {
-					pulses32 := ensureInt32Slice(&e.scratchExcitation, len(pulses))
-					for i := range pulses32 {
-						pulses32[i] = 0
+					for i := range pulses {
+						pulses[i] = 0
 					}
-					e.encodePulses(pulses32, signalType, int(frameIndices.quantOffsetType))
+					e.encodePulses(pulses, signalType, int(frameIndices.quantOffsetType))
 				}
 				if encodeFrameTraceEnabled {
 					recordEncodeFrameTrace(e, encodeFrameTrace{
