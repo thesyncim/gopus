@@ -230,7 +230,7 @@ func (d *Decoder) DecodeBandsStereo(
 			midGain, sideGain := ThetaToGains(itheta, 8)
 
 			// Apply rotation directly into pre-allocated buffers
-			applyMidSideRotationNormInto(shapeMid, shapeSide, opusVal16(midGain), opusVal16(sideGain), shapeL, shapeR)
+			applyMidSideRotationNormInto(shapeMid, shapeSide, midGain, sideGain, shapeL, shapeR)
 
 			UpdateCollapseMask(&collapseMask, band)
 		} else {

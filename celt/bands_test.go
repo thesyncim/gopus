@@ -50,7 +50,7 @@ func TestNormalizeVector(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := NormalizeVector(tt.input)
+			result := normalizeFloat64Vector(tt.input)
 
 			if len(result) != len(tt.expected) {
 				t.Errorf("NormalizeVector length = %d, want %d", len(result), len(tt.expected))
@@ -59,7 +59,7 @@ func TestNormalizeVector(t *testing.T) {
 
 			// Check values
 			for i := range result {
-				if math.Abs(result[i]-tt.expected[i]) > 1e-10 {
+				if math.Abs(result[i]-tt.expected[i]) > 1e-6 {
 					t.Errorf("NormalizeVector[%d] = %v, want %v", i, result[i], tt.expected[i])
 				}
 			}
@@ -69,7 +69,7 @@ func TestNormalizeVector(t *testing.T) {
 			for _, x := range result {
 				length2 += float64(x) * float64(x)
 			}
-			if length2 > 1e-10 && math.Abs(length2-1.0) > 1e-10 {
+			if length2 > 1e-6 && math.Abs(length2-1.0) > 1e-6 {
 				t.Errorf("Normalized vector length^2 = %v, want 1.0", length2)
 			}
 		})
@@ -87,15 +87,15 @@ func TestNormalizeVectorUnitLength(t *testing.T) {
 	}
 
 	for _, v := range testVectors {
-		result := NormalizeVector(v)
+		result := normalizeFloat64Vector(v)
 
 		var length2 float64
 		for _, x := range result {
 			length2 += float64(x) * float64(x)
 		}
 
-		if math.Abs(length2-1.0) > 1e-9 {
-			t.Errorf("NormalizeVector(%v) has length^2 = %v, want 1.0", v, length2)
+		if math.Abs(length2-1.0) > 1e-6 {
+			t.Errorf("normalizeFloat64Vector(%v) has length^2 = %v, want 1.0", v, length2)
 		}
 	}
 }
@@ -654,23 +654,23 @@ func TestComputeBandEnergyRoundTrip(t *testing.T) {
 // TestIntToFloat verifies int to float conversion.
 func TestIntToFloat(t *testing.T) {
 	input := []int{1, -2, 3, -4, 0}
-	result := intToFloat(input)
+	result := intToNorm(input)
 
-	expected := []float64{1, -2, 3, -4, 0}
+	expected := []celtNorm{1, -2, 3, -4, 0}
 	if len(result) != len(expected) {
-		t.Errorf("intToFloat length = %d, want %d", len(result), len(expected))
+		t.Errorf("intToNorm length = %d, want %d", len(result), len(expected))
 		return
 	}
 
 	for i := range result {
 		if result[i] != expected[i] {
-			t.Errorf("intToFloat[%d] = %v, want %v", i, result[i], expected[i])
+			t.Errorf("intToNorm[%d] = %v, want %v", i, result[i], expected[i])
 		}
 	}
 
 	// Test nil input
-	if intToFloat(nil) != nil {
-		t.Error("intToFloat(nil) should return nil")
+	if intToNorm(nil) != nil {
+		t.Error("intToNorm(nil) should return nil")
 	}
 }
 
@@ -689,17 +689,17 @@ func TestThetaToGains(t *testing.T) {
 
 	for _, tt := range tests {
 		mid, side := ThetaToGains(tt.itheta, tt.qn)
-		if math.Abs(mid-tt.midExp) > 0.01 {
+		if math.Abs(float64(mid)-tt.midExp) > 0.01 {
 			t.Errorf("ThetaToGains(%d, %d) mid = %v, want ~%v", tt.itheta, tt.qn, mid, tt.midExp)
 		}
-		if math.Abs(side-tt.sideExp) > 0.01 {
+		if math.Abs(float64(side)-tt.sideExp) > 0.01 {
 			t.Errorf("ThetaToGains(%d, %d) side = %v, want ~%v", tt.itheta, tt.qn, side, tt.sideExp)
 		}
 	}
 }
 
 // BenchmarkNormalizeVector measures normalization performance.
-func BenchmarkNormalizeVector(b *testing.B) {
+func BenchmarkNormalizeFloat64Vector(b *testing.B) {
 	v := make([]float64, 100)
 	for i := range v {
 		v[i] = float64(i + 1)
@@ -707,7 +707,7 @@ func BenchmarkNormalizeVector(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = NormalizeVector(v)
+		_ = normalizeFloat64Vector(v)
 	}
 }
 
@@ -749,7 +749,7 @@ func BenchmarkDecodeBands(b *testing.B) {
 	for i := range shape {
 		shape[i] = float64(i) / 100.0
 	}
-	shape = NormalizeVector(shape)
+	shape = normalizeFloat64Vector(shape)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -985,11 +985,10 @@ func TestDecodeBandsAllocationPath(t *testing.T) {
 							}
 
 							// Verify normalization produces unit vector
-							floatPulses := intToFloat(pulses)
-							normalized := NormalizeVector(floatPulses)
+							normalized := NormalizeVector(intToNorm(pulses))
 							var norm2 float64
 							for _, x := range normalized {
-								norm2 += x * x
+								norm2 += float64(x) * float64(x)
 							}
 							if math.Abs(norm2-1.0) > 1e-6 {
 								t.Errorf("Normalized vector L2^2=%v, want 1.0 at band %d, idx %d",

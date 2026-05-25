@@ -5,6 +5,15 @@ import (
 	"testing"
 )
 
+func normalizeFloat64Vector(v []float64) []float64 {
+	norms := NormalizeVector(float64sToNorms(v))
+	out := make([]float64, len(norms))
+	for i := range norms {
+		out[i] = float64(norms[i])
+	}
+	return out
+}
+
 // TestNormalizeVectorUnit verifies various input vectors normalize to unit L2 norm.
 func TestNormalizeVectorUnit(t *testing.T) {
 	tests := []struct {
@@ -61,7 +70,7 @@ func TestNormalizeVectorUnit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := NormalizeVector(tt.input)
+			result := normalizeFloat64Vector(tt.input)
 
 			if len(result) != len(tt.input) {
 				t.Errorf("NormalizeVector length = %d, want %d", len(result), len(tt.input))
@@ -71,12 +80,12 @@ func TestNormalizeVectorUnit(t *testing.T) {
 			// Compute L2 norm
 			var norm2 float64
 			for _, x := range result {
-				norm2 += x * x
+				norm2 += float64(x) * float64(x)
 			}
 
 			// Verify unit norm (within tolerance)
-			if math.Abs(norm2-1.0) > 1e-9 {
-				t.Errorf("NormalizeVector(%v) has L2 norm^2 = %v, want 1.0", tt.input, norm2)
+			if math.Abs(norm2-1.0) > 1e-6 {
+				t.Errorf("normalizeFloat64Vector(%v) has L2 norm^2 = %v, want 1.0", tt.input, norm2)
 			}
 		})
 	}
@@ -96,7 +105,7 @@ func TestNormalizeVectorZero(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := NormalizeVector(tt.input)
+			result := normalizeFloat64Vector(tt.input)
 
 			// Should return input unchanged (no NaN or Inf)
 			if len(result) != len(tt.input) {
@@ -116,13 +125,13 @@ func TestNormalizeVectorZero(t *testing.T) {
 // TestNormalizeVectorPreservesDirection verifies normalization preserves vector direction.
 func TestNormalizeVectorPreservesDirection(t *testing.T) {
 	input := []float64{3, 4}
-	result := NormalizeVector(input)
+	result := normalizeFloat64Vector(input)
 
 	// Ratio of components should be preserved
 	expectedRatio := input[0] / input[1]
 	actualRatio := result[0] / result[1]
 
-	if math.Abs(expectedRatio-actualRatio) > 1e-10 {
+	if math.Abs(expectedRatio-actualRatio) > 1e-6 {
 		t.Errorf("Direction not preserved: expected ratio %v, got %v", expectedRatio, actualRatio)
 	}
 }
@@ -165,13 +174,12 @@ func TestPVQUnitNorm(t *testing.T) {
 				}
 
 				// Convert to float and normalize
-				floatPulses := intToFloat(pulses)
-				normalized := NormalizeVector(floatPulses)
+				normalized := NormalizeVector(intToNorm(pulses))
 
 				// Verify unit L2 norm
 				var norm2 float64
 				for _, x := range normalized {
-					norm2 += x * x
+					norm2 += float64(x) * float64(x)
 				}
 
 				if math.Abs(norm2-1.0) > 1e-6 {
@@ -382,7 +390,7 @@ func TestPVQCodebookSize(t *testing.T) {
 func BenchmarkNormalizeVectorSmall(b *testing.B) {
 	v := []float64{1, 2, 3, 4}
 	for i := 0; i < b.N; i++ {
-		_ = NormalizeVector(v)
+		_ = normalizeFloat64Vector(v)
 	}
 }
 
@@ -394,7 +402,7 @@ func BenchmarkNormalizeVectorLarge(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = NormalizeVector(v)
+		_ = normalizeFloat64Vector(v)
 	}
 }
 
@@ -406,6 +414,6 @@ func BenchmarkIntToFloat(b *testing.B) {
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = intToFloat(v)
+		_ = intToNorm(v)
 	}
 }

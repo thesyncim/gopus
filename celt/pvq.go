@@ -23,20 +23,20 @@ func decodeUniformPVQIndex(rd *rangecoding.Decoder, ft uint32) uint32 {
 // DecodePVQ decodes a PVQ codeword from the range decoder.
 // n: band width (number of MDCT bins)
 // k: number of pulses (from bit allocation)
-// Returns: normalized float64 vector of length n with unit L2 norm.
+// Returns: normalized celt_norm vector of length n with unit L2 norm.
 //
 // If k == 0, returns a zero vector (caller should fold from another band).
-func (d *Decoder) DecodePVQ(n, k int) []float64 {
+func (d *Decoder) DecodePVQ(n, k int) []celtNorm {
 	if k == 0 || n <= 0 {
 		// No pulses - return zero vector (will be folded)
-		return make([]float64, n)
+		return make([]celtNorm, n)
 	}
 
 	// Read CWRS index from range coder
 	// Index has V(n,k) possible values
 	vSize := PVQ_V(n, k)
 	if vSize == 0 {
-		return make([]float64, n)
+		return make([]celtNorm, n)
 	}
 
 	index := decodeUniformPVQIndex(d.rangeDecoder, vSize)
@@ -44,20 +44,21 @@ func (d *Decoder) DecodePVQ(n, k int) []float64 {
 	// Convert index to pulse vector using CWRS
 	pulses := DecodePulses(index, n, k)
 
-	// Normalize to unit L2 energy
-	return NormalizeVector(intToFloat(pulses))
+	out := make([]celtNorm, n)
+	normalizeResidualInto(out, pulses, 1, 0)
+	return out
 }
 
-// NormalizeVector scales vector to unit L2 norm.
+// NormalizeVector scales a CELT norm vector to unit L2 norm.
 // If the input vector has zero energy, returns the input unchanged.
-func NormalizeVector(v []float64) []float64 {
+func NormalizeVector(v []celtNorm) []celtNorm {
 	if len(v) == 0 {
 		return v
 	}
 
-	var energy float64
+	var energy float32
 	for _, x := range v {
-		energy += x * x
+		energy += float32(x) * float32(x)
 	}
 
 	if energy < 1e-15 {
@@ -65,22 +66,22 @@ func NormalizeVector(v []float64) []float64 {
 		return v
 	}
 
-	scale := 1.0 / math.Sqrt(energy)
-	result := make([]float64, len(v))
+	scale := celtRSqrt(energy)
+	result := make([]celtNorm, len(v))
 	for i, x := range v {
-		result[i] = x * scale
+		result[i] = celtNorm(float32(x) * scale)
 	}
 	return result
 }
 
-// intToFloat converts a slice of ints to float64.
-func intToFloat(v []int) []float64 {
+// intToNorm converts integer PVQ pulses to CELT norm-width values.
+func intToNorm(v []int) []celtNorm {
 	if v == nil {
 		return nil
 	}
-	result := make([]float64, len(v))
+	result := make([]celtNorm, len(v))
 	for i, x := range v {
-		result[i] = float64(x)
+		result[i] = celtNorm(x)
 	}
 	return result
 }
@@ -143,7 +144,7 @@ func (d *Decoder) DecodeStereoTheta(qn int) int {
 // Returns: mid gain, side gain (both in [0, 1])
 //
 // Reference: libopus celt/bands.c
-func ThetaToGains(itheta, qn int) (mid, side float64) {
+func ThetaToGains(itheta, qn int) (mid, side opusVal16) {
 	if qn <= 0 {
 		return 1.0, 0.0
 	}
@@ -151,8 +152,8 @@ func ThetaToGains(itheta, qn int) (mid, side float64) {
 	// theta in [0, pi/2]
 	theta := float64(itheta) * (math.Pi / 2) / float64(qn)
 
-	mid = math.Cos(theta)
-	side = math.Sin(theta)
+	mid = opusVal16(math.Cos(theta))
+	side = opusVal16(math.Sin(theta))
 
 	return mid, side
 }
@@ -162,21 +163,25 @@ func ThetaToGains(itheta, qn int) (mid, side float64) {
 // side: side channel coefficients
 // midGain, sideGain: rotation gains from theta
 // Returns: left and right channel coefficients
-func ApplyMidSideRotation(mid, side []float64, midGain, sideGain float64) (left, right []float64) {
+func ApplyMidSideRotation(mid, side []celtNorm, midGain, sideGain opusVal16) (left, right []celtNorm) {
 	n := len(mid)
 	if len(side) != n {
 		// Mismatch - return mid to both
 		return mid, mid
 	}
 
-	left = make([]float64, n)
-	right = make([]float64, n)
+	left = make([]celtNorm, n)
+	right = make([]celtNorm, n)
 
 	for i := 0; i < n; i++ {
 		// Left = mid*cos(theta) + side*sin(theta)
 		// Right = mid*cos(theta) - side*sin(theta)
-		left[i] = midGain*mid[i] + sideGain*side[i]
-		right[i] = midGain*mid[i] - sideGain*side[i]
+		m := float32(mid[i])
+		s := float32(side[i])
+		mg := float32(midGain)
+		sg := float32(sideGain)
+		left[i] = celtNorm(mg*m + sg*s)
+		right[i] = celtNorm(mg*m - sg*s)
 	}
 
 	return left, right
@@ -190,10 +195,10 @@ func ApplyMidSideRotation(mid, side []float64, midGain, sideGain float64) (left,
 // opposite signs (determined by a single bit).
 //
 // Reference: RFC 6716 Section 4.3.4.3
-func (d *Decoder) DecodeIntensityStereo(mid []float64) (left, right []float64) {
+func (d *Decoder) DecodeIntensityStereo(mid []celtNorm) (left, right []celtNorm) {
 	n := len(mid)
-	left = make([]float64, n)
-	right = make([]float64, n)
+	left = make([]celtNorm, n)
+	right = make([]celtNorm, n)
 
 	// Copy mid to both channels
 	copy(left, mid)
@@ -210,26 +215,6 @@ func (d *Decoder) DecodeIntensityStereo(mid []float64) (left, right []float64) {
 	}
 
 	return left, right
-}
-
-// decodePVQInto decodes a PVQ codeword directly into a pre-allocated buffer.
-// This is the zero-allocation version used in the hot path.
-// band: the band index
-// n: band width (number of MDCT bins)
-// k: number of pulses (from bit allocation)
-// dst: pre-allocated destination buffer of length n
-func (d *Decoder) decodePVQInto(band, n, k int, dst []float64) {
-	if k == 0 || n <= 0 || len(dst) < n {
-		// Zero the destination for k=0 case
-		for i := 0; i < n && i < len(dst); i++ {
-			dst[i] = 0
-		}
-		return
-	}
-
-	norm := d.scratchBands.ensurePVQNorm(n)
-	d.decodePVQNormInto(band, n, k, norm)
-	copyNormToFloat64(dst[:n], norm)
 }
 
 func (d *Decoder) decodePVQNormInto(band, n, k int, dst []celtNorm) {
@@ -268,31 +253,6 @@ func (d *Decoder) decodePVQNormInto(band, n, k int, dst []celtNorm) {
 		for i := 0; i < n; i++ {
 			dst[i] = celtNorm(float32(dst[i]) * scale)
 		}
-	}
-}
-
-// decodeIntensityStereoInto decodes intensity stereo into pre-allocated buffers.
-// mid: the mid channel coefficients (input)
-// left, right: pre-allocated destination buffers
-func (d *Decoder) decodeIntensityStereoInto(mid, left, right []float64) {
-	n := len(mid)
-	if len(left) < n || len(right) < n {
-		return
-	}
-
-	// Decode inversion flag (1 bit)
-	inv := d.rangeDecoder.DecodeBit(1) == 1
-
-	if inv {
-		// Copy mid to left, inverted mid to right
-		for i := 0; i < n; i++ {
-			left[i] = mid[i]
-			right[i] = -mid[i]
-		}
-	} else {
-		// Copy mid to both channels
-		copy(left[:n], mid)
-		copy(right[:n], mid)
 	}
 }
 

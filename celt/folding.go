@@ -279,7 +279,7 @@ func FoldBandFromMultiple(sources [][]celtNorm, n int, seed *uint32) []celtNorm 
 // noise is added to mask the sudden silence.
 //
 // Reference: RFC 6716 Section 4.3.5, libopus celt/bands.c anti_collapse()
-func ApplyAntiCollapse(shape []float64, energy, prevEnergy1, prevEnergy2, gain float64, seed *uint32) []float64 {
+func ApplyAntiCollapse(shape []celtNorm, energy, prevEnergy1, prevEnergy2, gain opusVal16, seed *uint32) []celtNorm {
 	if len(shape) == 0 || gain <= 0 {
 		return shape
 	}
@@ -296,16 +296,16 @@ func ApplyAntiCollapse(shape []float64, energy, prevEnergy1, prevEnergy2, gain f
 	}
 
 	// Generate noise scaled by gain
-	result := make([]float64, len(shape))
+	result := make([]celtNorm, len(shape))
 	copy(result, shape)
 
 	for i := range result {
 		// Generate noise sample
 		*seed = *seed*1664525 + 1013904223
-		noise := float64(int32(*seed)) / float64(1<<31)
+		noise := float32(int32(*seed)) / float32(1<<31)
 
 		// Mix noise with existing shape
-		result[i] += noise * gain
+		result[i] = celtNorm(float32(result[i]) + noise*float32(gain))
 	}
 
 	// Re-normalize after noise injection

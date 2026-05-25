@@ -85,7 +85,7 @@ func TestVectorToPulses(t *testing.T) {
 // the direction of the input shape.
 func TestVectorToPulsesPreservesDirection(t *testing.T) {
 	// Create a normalized vector
-	shape := NormalizeVector([]float64{3.0, 4.0, 0.0, 0.0}) // [0.6, 0.8, 0, 0]
+	shape := normalizeFloat64Vector([]float64{3.0, 4.0, 0.0, 0.0}) // [0.6, 0.8, 0, 0]
 	k := 20
 
 	pulses := vectorToPulses(float64sToNorms(shape), k)
@@ -95,7 +95,7 @@ func TestVectorToPulsesPreservesDirection(t *testing.T) {
 	for i, p := range pulses {
 		floatPulses[i] = float64(p)
 	}
-	normalizedPulses := NormalizeVector(floatPulses)
+	normalizedPulses := normalizeFloat64Vector(floatPulses)
 
 	// Compute dot product (should be close to 1 if directions match)
 	var dot float64
@@ -124,7 +124,7 @@ func TestVectorToPulsesRoundTrip(t *testing.T) {
 		for i := range shape {
 			shape[i] = rng.Float64()*2 - 1 // [-1, 1]
 		}
-		shape = NormalizeVector(shape)
+		shape = normalizeFloat64Vector(shape)
 
 		// Test with larger k values where quantization is less severe
 		// Lower k values have inherently higher quantization error
@@ -149,7 +149,7 @@ func TestVectorToPulsesRoundTrip(t *testing.T) {
 			for i, p := range pulses {
 				floatPulses[i] = float64(p)
 			}
-			reconstructed := NormalizeVector(floatPulses)
+			reconstructed := normalizeFloat64Vector(floatPulses)
 
 			// Compute dot product
 			var dot float64
@@ -190,7 +190,7 @@ func TestPVQEncodeDecodeRoundTrip(t *testing.T) {
 		for i := range shape {
 			shape[i] = rng.Float64()*2 - 1
 		}
-		shape = NormalizeVector(shape)
+		shape = normalizeFloat64Vector(shape)
 
 		// Create encoder with buffer
 		buf := make([]byte, 256)
@@ -226,7 +226,7 @@ func TestPVQEncodeDecodeRoundTrip(t *testing.T) {
 		// Verify decoded shape has unit L2 norm (critical property)
 		var energy float64
 		for _, x := range decoded {
-			energy += x * x
+			energy += float64(x) * float64(x)
 		}
 		l2norm := math.Sqrt(energy)
 		if math.Abs(l2norm-1.0) > 0.01 {
@@ -267,7 +267,7 @@ func TestEncodeBandsAllSizes(t *testing.T) {
 				for i := range shape {
 					shape[i] = float64(i%3 - 1)
 				}
-				shapes[band] = NormalizeVector(shape)
+				shapes[band] = normalizeFloat64Vector(shape)
 			}
 
 			// Allocate bits (simple uniform allocation)
@@ -310,7 +310,7 @@ func TestPVQEncodingPreservesEnergy(t *testing.T) {
 			for i := range shape {
 				shape[i] = rng.Float64()*2 - 1
 			}
-			shape = NormalizeVector(shape)
+			shape = normalizeFloat64Vector(shape)
 
 			// Encode
 			buf := make([]byte, 256)
@@ -336,7 +336,7 @@ func TestPVQEncodingPreservesEnergy(t *testing.T) {
 			// Check L2 norm
 			var energy float64
 			for _, x := range decoded {
-				energy += x * x
+				energy += float64(x) * float64(x)
 			}
 			l2norm := math.Sqrt(energy)
 
@@ -419,7 +419,7 @@ func TestEncodeBandsWithDecoder(t *testing.T) {
 		for i := range shape {
 			shape[i] = float64((i+band)%5 - 2)
 		}
-		shape = NormalizeVector(shape)
+		shape = normalizeFloat64Vector(shape)
 		shapes[band] = shape
 	}
 
@@ -456,7 +456,7 @@ func TestEncodeBandsWithDecoder(t *testing.T) {
 		// Verify decoded shape has unit L2 norm
 		var energy float64
 		for _, x := range decoded {
-			energy += x * x
+			energy += float64(x) * float64(x)
 		}
 		l2norm := math.Sqrt(energy)
 
@@ -486,7 +486,7 @@ func TestEncodeBandPVQProducesValidIndex(t *testing.T) {
 			for i := range shape {
 				shape[i] = 1.0
 			}
-			shape = NormalizeVector(shape)
+			shape = normalizeFloat64Vector(shape)
 
 			// Encode
 			buf := make([]byte, 256)

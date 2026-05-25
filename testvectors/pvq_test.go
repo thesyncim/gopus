@@ -75,9 +75,10 @@ func TestPVQRoundTrip(t *testing.T) {
 	// Compute correlation
 	var sumProd, sumOrig2, sumDec2 float64
 	for i := range shape {
-		sumProd += shape[i] * decodedShape[i]
+		decoded := float64(decodedShape[i])
+		sumProd += shape[i] * decoded
 		sumOrig2 += shape[i] * shape[i]
-		sumDec2 += decodedShape[i] * decodedShape[i]
+		sumDec2 += decoded * decoded
 	}
 	corr := sumProd / (math.Sqrt(sumOrig2*sumDec2) + 1e-10)
 	t.Logf("\nCorrelation: %.4f", corr)

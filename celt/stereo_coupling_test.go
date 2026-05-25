@@ -157,8 +157,8 @@ func TestThetaToGainsConsistency(t *testing.T) {
 	for itheta := 0; itheta <= 16; itheta++ {
 		qn := 16
 		mid, side := ThetaToGains(itheta, qn)
-		sum := mid*mid + side*side
-		if math.Abs(sum-1.0) > 1e-10 {
+		sum := float64(mid)*float64(mid) + float64(side)*float64(side)
+		if math.Abs(sum-1.0) > 1e-6 {
 			t.Errorf("ThetaToGains(%d, %d): mid=%f, side=%f, sum=%f (expected 1.0)",
 				itheta, qn, mid, side, sum)
 		}

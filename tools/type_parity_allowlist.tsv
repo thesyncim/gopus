@@ -272,12 +272,9 @@ celt/float32_default.go	1	8646feabae68e6a3a7d0d568eb7542122b0e5a073c71f6cfcf42e8
 celt/float32_widen_default.go	1	beea720c8de54da8545efc993c92e9c60c4d4c58cb139234868d65b042e94e76	legacy-current	dst[i] = float64(src[i])
 celt/float32_widen_default.go	1	d25ff85c341825b604b7db87697664640153f7ac86bafc795ab4e17a9eebfa36	legacy-current	func widenFloat32ToFloat64(dst []float64, src []float32, n int) {
 celt/fma32_default.go	1	4615f35d8d35ce5ca7d9e3617e3e7d032cef0f300908c9f83d1ba52955a95f3d	legacy-current	return float32(math.FMA(float64(a), float64(b), float64(c)))
-celt/folding.go	1	08bbe63f89d75d8baa98377cfe03f553b37e27411c1d32f94d4d42da6f454d13	legacy-current	result := make([]float64, len(shape))
 celt/folding.go	1	489c0db772ee311b1ccaed7c023ce879a8a23369edda4279ca7f1029824bcb99	legacy-current	func FindFoldSourceWithOffset(targetBand int, targetOffset int, codedBands [][]float64) (srcBand, offset int, found bool) {
 celt/folding.go	1	6e8cb3c527f5b80d634c1c58539c429466df8c092a94c70e3f6435a2ebb2a274	legacy-current	func normalizeVectorInPlace(v []float64) {
 celt/folding.go	1	7b100e28c0e43191c42b4f0aee968a05b2a24ae55fd0a2110ad9cdf781949d3c	legacy-current	var energy float64
-celt/folding.go	1	b93c2b67173f4981b02f72d2592a0507254a1c8bed81d6ca986404e98bd0450e	legacy-current	func ApplyAntiCollapse(shape []float64, energy, prevEnergy1, prevEnergy2, gain float64, seed *uint32) []float64 {
-celt/folding.go	1	c1083a4d323dfbd6ef23fce4cb052e6d5e5f5b2273ee2496da28fbd263bcc5d3	legacy-current	noise := float64(int32(*seed)) / float64(1<<31)
 celt/haar1.go	1	3dc96edaec57510a1ab161de223ff6a33a8cb08e80c7396aa411cb97329d7ccb	legacy-current	func haar1Stride8(x []float64, n0 int) {
 celt/haar1.go	1	4c9da36d3c9e5934c5519a4133551e1cdcd5b1173575267e776c4275d0c1940f	legacy-current	func haar1Stride4(x []float64, n0 int) {
 celt/haar1.go	1	58dc4763905e23da0069b6b6575a35638ddf090c02f00e09f0cce1e1d408c21a	legacy-current	func haar1Pair(x []float64, idx0, idx1 int, invSqrt2 float32) {
@@ -582,26 +579,10 @@ celt/prefilter_xcorr_default.go	1	0e402a1e3143ca00ba013587be29d319e206aade07554c
 celt/prefilter_xcorr_default.go	1	329d1f071ea455b5d0e80f23c7e326df49491254b96d4aede759888fceaad314	legacy-current	func prefilterPitchXcorr(x, y, xcorr []float64, length, maxPitch int) {
 celt/prefilter_xcorr_fast_asm.go	1	85aa2d8da43cf4cee5aece7f51bfb77e2a94a16b6f2272e96603ee4544cb5103	legacy-current	func prefilterPitchXcorrFast(x, y, xcorr []float64, length, maxPitch int) {
 celt/prefilter_xcorr_fast_default.go	1	85aa2d8da43cf4cee5aece7f51bfb77e2a94a16b6f2272e96603ee4544cb5103	legacy-current	func prefilterPitchXcorrFast(x, y, xcorr []float64, length, maxPitch int) {
-celt/pvq.go	1	0101ae68ceeb47f66dc7f9d1f6715ddf510f952a405dda1d5a0adf0d0dd3db42	legacy-current	func ThetaToGains(itheta, qn int) (mid, side float64) {
-celt/pvq.go	2	065183e658933e0be5a2d59a9482f3f17291e3629e9253c0342a8bc8e0160451	legacy-current	return make([]float64, n)
-celt/pvq.go	2	21db2e3b19c0815a8e4f0dddbec1ade9b8bb5430b4f21b9b4eae1f485d5fa93b	legacy-current	left = make([]float64, n)
-celt/pvq.go	1	2375fc3dd008b5b3d279e8ce8c2d733c49647ed6f182bee04dad6736e1cbbe05	legacy-current	func (d *Decoder) decodeIntensityStereoInto(mid, left, right []float64) {
-celt/pvq.go	1	2ab0f33c8fe202025656fca1a18f00ffe9d5dfba049276fc09496f71adf54b30	legacy-current	func NormalizeVector(v []float64) []float64 {
-celt/pvq.go	1	40d082235f153c70a180ce767e4251495ea4fbd88f6cca655f4d210cb57fbf21	legacy-current	func intToFloat(v []int) []float64 {
-celt/pvq.go	1	50f0846ea0005bf61b2f1db9ae5eecc90b72158d75a1c6cf81d8c1c5d8fecee9	legacy-current	func (d *Decoder) DecodePVQ(n, k int) []float64 {
-celt/pvq.go	1	6c275717e039d11b470d2ba3b68d0cf0cd76875a704957f3ba68c5a9f04fe9c3	legacy-current	result[i] = float64(x)
-celt/pvq.go	2	724e57ac982a0cc31ad1fa61c4f749876728f9c9cc39d390801c590e0604d47c	legacy-current	result := make([]float64, len(v))
-celt/pvq.go	1	7b100e28c0e43191c42b4f0aee968a05b2a24ae55fd0a2110ad9cdf781949d3c	legacy-current	var energy float64
-celt/pvq.go	1	87d27aaf95db17c7d14a84851bfe489cf5a0812c79f9126d2f4dd101eb2c3e77	legacy-current	func (d *Decoder) decodePVQInto(band, n, k int, dst []float64) {
 celt/pvq.go	1	8d445162a3d37594d7e5a69014788ab4503e371f0864afd27c824c5b08e89026	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(qn)
 celt/pvq.go	1	93a16d3a6f34a164d089a777b398e3f9438bc48acc13fb9a422eab7c5fda6e93	legacy-current	func (d *Decoder) DecodeTheta(n int) float64 {
 celt/pvq.go	1	a2ed657c3de51017b45e855f011c5981b509b9458003b68e504d50996244c4c5	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(n)
-celt/pvq.go	2	d5c8d44381fc4478c1d9e3127f0945456672728014394554d3fe0baf00e165ff	legacy-current	right = make([]float64, n)
-celt/pvq.go	1	d95b76d004d4ac63a6bb3e8250397e9eaf3a310fb9478cd122b18e8944f8dd05	legacy-current	// intToFloat converts a slice of ints to float64.
-celt/pvq.go	1	e3fb8d544560cdd87dc1e4c8d8660bad1596394d2edc4121300767117886ca7d	legacy-current	func (d *Decoder) DecodeIntensityStereo(mid []float64) (left, right []float64) {
 celt/pvq.go	1	ecc3f43cb036d51f20e8dc4df1f6d8c52c039cea2b0c1fa388bcd6487540011e	legacy-current	func applyMidSideRotationInto(mid, side []float64, midGain, sideGain float64, left, right []float64) {
-celt/pvq.go	1	ef70b36e7130b3c363bb94a07ff3955b70b8c9c942048a59440f400ecf7e86a3	legacy-current	// Returns: normalized float64 vector of length n with unit L2 norm.
-celt/pvq.go	1	fa753e2b5acd6a2504afa734ee84490b1defc96dd1cad6c2d2241da6f6e0c593	legacy-current	func ApplyMidSideRotation(mid, side []float64, midGain, sideGain float64) (left, right []float64) {
 celt/pvq_search.go	1	2eb64952756430c085299c775bf5ac91e459e1b3851169439d441907e4d92a82	legacy-current	upIy[0] = int(math.Floor(float64(float32(0.5) + float32(up*k)*float32(x[0])*rcp)))
 celt/pvq_search.go	1	54a8d35fdbc49e7fc6c6d57e0ee33979f2dcac8bee892a9d51179c6e28e606d0	legacy-current	func opPVQRefine(xn []float64, iy []int, iy0 []int, k, up, margin int, same bool) bool {
 celt/pvq_search.go	1	dab811a408290887c046232b5c9dec30b81c6c30221307831136d9329202c58d	legacy-current	iy[i] = int(math.Floor(float64(float32(0.5) + tmp)))
