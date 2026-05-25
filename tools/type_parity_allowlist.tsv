@@ -276,35 +276,12 @@ celt/hybrid_encode_helpers.go	1	e8bf7e6adf476a2d2ff407f127dc15ff739fb9ffeda0dcbd
 celt/hybrid_encode_helpers.go	1	ec2181c97c6239de7d6a2bf51327bd5f13e55387827d05b6ded50c64e4620abf	legacy-current	func (e *Encoder) MDCTScratch(samples []float64) []float64 {
 celt/imdct_rotate_asm.go	1	238f38e7d9cb8928bf0061ca3e70e82e3eabd3515fb39edc85dce209953cc37f	legacy-current	func imdctPreRotateF32(fftIn []complex64, spectrum []float64, trig []float32, n2, n4 int)
 celt/imdct_rotate_default.go	1	eea6897898eccd6413f68760c836230b6d868b267388cec37ad7bf1c8c517eb5	legacy-current	func imdctPreRotateF32(fftIn []complex64, spectrum []float64, trig []float32, n2, n4 int) {
-celt/kiss_fft.go	1	07d536f7146d6c7b01d7af4015abe16987aaba083cfdf421055cea431c28d121	legacy-current	func (s *KissFFT64State) fftImpl(fout []complex128) {
-celt/kiss_fft.go	1	269b3b1fa1738b172282d7eca50a2aa39786a6f18d55ebed14d27fbc4fe951cb	legacy-current	func newKissFFT64State(nfft int) *KissFFT64State {
-celt/kiss_fft.go	1	2a2df9f338a7c7c0146624c7b12a753f0927ff5d632e062d3cd46074efffda38	legacy-current	func (s *KissFFT64State) computeFactors() bool {
-celt/kiss_fft.go	1	2c7718609cef8bac3af427bb053dd2ed692eafca224c5c243876cda410f1bba0	legacy-current	state.twiddles = make([]complex128, nfft)
-celt/kiss_fft.go	1	360f8e5833569165fffeb514eb670bf96f039ceb9876d4ea9fa37f51276a7f62	legacy-current	// KissFFT64State holds the precomputed state for mixed-radix FFT (float64).
-celt/kiss_fft.go	1	3b260304c600f8b464acbefef11debc632e41e13d7e2d8964e82d390926e5075	legacy-current	func (s *KissFFT64State) bfly4(fout []complex128, fstride int, m, n, mm int) {
-celt/kiss_fft.go	1	3f0f4c11fc54a05742a7905f3d3722748d35ab78fd62878231ebe534ae87984a	legacy-current	func (s *KissFFT64State) bfly3(fout []complex128, fstride int, m, n, mm int) {
-celt/kiss_fft.go	1	40670249b07f043c363f818c61b766a96ecb5e56564616344430952e71244224	legacy-current	func (s *KissFFT64State) KissIFFT(fin, fout []complex128) {
-celt/kiss_fft.go	1	5a7f0152f965d9ae0063a96d6e9e640f2004bd8dd0cf0ad49ffe291a79682583	legacy-current	func (s *KissFFT64State) bfly2(fout []complex128, fstride, m, n, mm int) {
-celt/kiss_fft.go	1	61383a0405ad29c51b505ae45dfe0ac4ae8c2d4cb454d5d03e8965ac02206a35	legacy-current	func kissFFT64Forward(out []complex128, in []complex128, state *KissFFT64State) {
-celt/kiss_fft.go	1	624b074a1d25b81ce0e6f187bb575673a3f831df6efcc7bff058a2c50efaee8d	legacy-current	scale: 1.0 / float64(nfft),
-celt/kiss_fft.go	1	7d1b9c8b4fac9f2774edc61fbf8f992f9f5d0de4da370b125648c983479b6d7b	legacy-current	scale float64 // Scaling factor (1/nfft for forward FFT)
-celt/kiss_fft.go	1	95155c984e1af249b5934fc7cefe1bcb844517a1933500acf3aea4eed2dd9576	legacy-current	func (s *KissFFT64State) computeBitrev() {
-celt/kiss_fft.go	1	a3e8fc826ece1f9f5bf5e3cdae236b4787da02bf36bd1648dd0a12e0240b65af	legacy-current	func GetKissFFT64State(nfft int) *KissFFT64State {
-celt/kiss_fft.go	1	b56f9c6a399957e0ec280d65209aff8a9f6065c10641e61ea95f201e5c5a505b	legacy-current	func (s *KissFFT64State) computeBitrevRecursive(fout int, fIdx int, fstride int, inStride int, factors []int) {
-celt/kiss_fft.go	1	c465b06921882ead532ba94c39af34c6befc1db7d085e4e19ba43d7cdbf8930d	legacy-current	state := &KissFFT64State{
-celt/kiss_fft.go	1	e119ef82c32cbf1ffcd853c44e8ca58e57001b83fc0686ecb81bb3bf2074f234	legacy-current	func (s *KissFFT64State) bfly5(fout []complex128, fstride int, m, n, mm int) {
-celt/kiss_fft.go	1	e32089f00109e46d7008132950317b81721214729066854da252efbd90d4f87b	legacy-current	twiddles []complex128 // Precomputed twiddle factors
-celt/kiss_fft.go	1	e65de425850c591afece51c5e20811bc6e273d90181fb8b10b2efbc7139e323c	legacy-current	type KissFFT64State struct {
-celt/kiss_fft.go	1	e922a08cde26175bb9b7501fadace4a577ebd47b065a159671628096b0ec44dc	legacy-current	func (s *KissFFT64State) KissFFT(fin, fout []complex128) {
-celt/kiss_fft.go	1	f27d3b7a08e9c231b90472f85a2ce904a58040215b6aa6caaf78cc6fb6ca3e88	legacy-current	phase := -2.0 * math.Pi * float64(k) / float64(nfft)
 celt/kissfft32.go	1	57c39843d6609fd08c7fdd5042c109165e9e59d2423749b679f29b0ff189f2d5	legacy-current	return float32(float64(a)*float64(b) + float64(t))
 celt/kissfft32.go	1	5ad4afa88ad48967c5aa3e6e291e89cc9f83be380dba89c38f47662b8e6c92e6	legacy-current	wStep := complex(float32(math.Cos(float64(angle))), float32(math.Sin(float64(angle))))
 celt/kissfft32.go	1	79b9fadce9afeddd770626c69b50608a285cec038d7e282ae11a68c6cf54471e	legacy-current	phase := (-2.0 * pi / float64(nfft)) * float64(i)
 celt/kissfft32.go	1	e3e6a8d05f68549a6dcb814bee827bae21aee99986404995b72e7abb36095aa7	legacy-current	return float32(float64(a)*float64(b) - float64(t))
-celt/mdct.go	1	02fdb6d3181b858de95ceb1b3230d22a0359843c5ea17fcd08e1668e70c87bca	legacy-current	angle := -2.0 * math.Pi * float64(k) / float64(n4)
 celt/mdct.go	1	039ca76d4f729a3a1a956f57c762a635fe9e9507fcbccdf89c42026306a4274e	legacy-current	out[base+1] = float64(buf[i+1])
 celt/mdct.go	1	05ec494a259eb5aa2ec5a2478040c84d20ceb5bee7861907c45b0267e25e5caa	legacy-current	prevOverlap = make([]float64, overlap)
-celt/mdct.go	1	06e5e1dfa8a4a1374eebe36e1b724df60b53612841983ee374c7b433d218d759	legacy-current	scale := 2.0 / float64(n)
 celt/mdct.go	1	1373919eed0a1ea5d69e030bf9456da01323708e484aaab57c9331d9ed88cace	legacy-current	func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overlap int, scratch *imdctScratchF32) {
 celt/mdct.go	1	157d8a680e574d04b497b7abc6993a659d65046fc195aa38071a5a3ee7bcae05	legacy-current	angle := base * nTerm * (float64(k) + 0.5)
 celt/mdct.go	1	17389ddc71fce6bc49c5bcddc0a0204fd23af9126e121c2c4b041a6263b03f9e	legacy-current	func imdctInPlace(spectrum []float64, out []float64, blockStart, overlap int) {
@@ -318,53 +295,34 @@ celt/mdct.go	1	2cf46f7f564feac27c27321d9ce5f108c9a7155b4c941ad421052c2ca3463cf0	
 celt/mdct.go	1	36742465bc4258e39d77a1a5dbacd3b74427ec51c84be6e83ccf54def40dcaf6	legacy-current	func IMDCT(spectrum []float64) []float64 {
 celt/mdct.go	2	37464bc1f76854056975d2d0109c23574e6ff5ff4718602909de7cf2ef072f9a	legacy-current	angle := 2.0 * math.Pi * (float64(i) + 0.125) / float64(n)
 celt/mdct.go	1	37e03edbd0b821609d681aeaebd54c8d62f61c98516468ad059d7236ab498bee	legacy-current	var sum complex128
-celt/mdct.go	1	37f94c685301c78b3b7cc7fe7df5889eeff71b23cca171e07912050f68e73751	legacy-current	fftTw []complex128 // FFT twiddle factors
 celt/mdct.go	1	3aee682c3e65f680eaf89bd875ee8f09b8b12b06495e11d1d555a82288f67d76	legacy-current	out[base+3] = float64(buf[i+3])
 celt/mdct.go	1	44a35e6ba8a24d5f703d1a91a855661a2981cbc00e28b6f692e21fa63dc92054	legacy-current	func dft(x []complex128) []complex128 {
 celt/mdct.go	1	539902541abfe04f5a42356391ba2f2d8cb05766c9d18413a35e56ea25496d94	legacy-current	func imdctOverlapWithPrevScratchF32[S ~float32 | ~float64](out []float64, spectrum []float64, prevOverlap []S, overlap int, scratch *imdctScratchF32) {
 celt/mdct.go	1	5642d366f4ce26679ef944ef21e3403c4f9c340be2c19c0fd6d51ca1b6ba6be5	legacy-current	func IMDCTOverlapWithPrev(spectrum, prevOverlap []float64, overlap int) []float64 {
-celt/mdct.go	1	59225463b9fe2a1d54a4f2aba9a3efbde51257373948e726221fe4d80085644e	legacy-current	conj := make([]complex128, n)
-celt/mdct.go	1	594093e98da2b6eb1363c36925061c50bae430caeca401ae9972b5994bff3e91	legacy-current	preTw: make([]complex128, n/2),
 celt/mdct.go	1	5ad4afa88ad48967c5aa3e6e291e89cc9f83be380dba89c38f47662b8e6c92e6	legacy-current	wStep := complex(float32(math.Cos(float64(angle))), float32(math.Sin(float64(angle))))
 celt/mdct.go	1	5bf61f5066a64b233e6cb23599f8dfe365f73903eecdefe1bc981f5693471dbe	legacy-current	twoPi := -2.0 * math.Pi / float64(n)
 celt/mdct.go	1	5ca74ab31209c3514fd5337001d3fe2043a43cae60f0f83cd0cc300ae91c7496	legacy-current	out[base] = float64(buf[i])
-celt/mdct.go	1	626c1c81fc1c760c14a97833d11ce6112b4eda778baa82d0e883ea64911cff42	legacy-current	fftIn := make([]complex128, n4)
-celt/mdct.go	1	64fa105043b866a41d1d51ccaaece2cbf00266d005741f95154cf49d2f1e83ef	legacy-current	postTw []complex128 // Post-twiddle factors
 celt/mdct.go	1	6c1222332af34b8aa0cc341dc1cc5ac256a9de8690e72433d3e387ec8640558b	legacy-current	table := make([]float64, n2*n)
 celt/mdct.go	1	74f34d0ebb0aa904c1a32a36aeb4e3cab17a9c3051054f2c66eb570f2d9c3774	legacy-current	nHalf := float64(n) / 2.0
 celt/mdct.go	1	7a0f89b25b998f507ccd389e77088e8e6069d115cdab2be99aa1befdcf41ec34	legacy-current	func buildMDCTTrig(n int) []float64 {
-celt/mdct.go	1	7e246f9acf658c46c779b514490d17e4da006ef65259706cfb9f331b2d57562a	legacy-current	func ifft(x []complex128) []complex128 {
 celt/mdct.go	1	81606aa5e7fcc67c2da204d39a6477f13089cd101c126c9c5f9973492f4bb615	legacy-current	func imdctOverlapWithPrevScratchF32Output[S ~float32 | ~float64](spectrum []float64, prevOverlap []S, overlap int, scratch *imdctScratchF32) []float32 {
 celt/mdct.go	1	837c7feb0f7f7e72baf464b4358efd328924b8bd00fe941dd9f24692095f5104	legacy-current	trig := make([]float64, n2)
-celt/mdct.go	1	8a0f578b04a58e89aa47c045c86999391646c6dcb0f07fd552d05ff344590492	legacy-current	out := make([]float64, n2)
-celt/mdct.go	1	8ad03abffa784ded3d6cc3c64f1f9a7ae80952b6ea326dd86bffeed0a72e99fa	legacy-current	angle := -math.Pi * (float64(n) + 0.5) * (2*float64(k) + 1) / float64(n2)
 celt/mdct.go	1	8eddd927eb6c71ceb2dc9714e4a2ad7596822ecf4ca23f1cae38a9f0c5877ec3	legacy-current	func imdctOverlapWithPrevScratch(out []float64, spectrum []float64, prevOverlap []float64, overlap int, scratch *imdctScratch) {
 celt/mdct.go	1	97b1c2974b66ae20856bead36735d8c2282be48a5e0531c85c10096f0f3870ed	legacy-current	out := make([]float64, n2+overlap)
 celt/mdct.go	1	98e0387b44aae4b4be03ce927d52663b447d21137b6915df0f27754ee1306128	legacy-current	func IMDCTShort(coeffs []float64, shortBlocks int) []float64 {
-celt/mdct.go	1	9a8143a57bfacad02836de12b75c380ab3a4062052396a633a01386d3c47de20	legacy-current	preTw []complex128 // Pre-twiddle factors
 celt/mdct.go	1	9d93273af670ef55dfc8f287287c6089cdd890be011809dfc39d1aa193119219	legacy-current	base := math.Pi / float64(n)
-celt/mdct.go	1	a768c5cd1f5592706530952ce0256824d44fcbdf5b6871397869b897b93bf76b	legacy-current	result := make([]complex128, n)
 celt/mdct.go	1	aafe8c6bd510199c4ca141865eab01935e63494df8ff1d68c709d7c7e2b601a8	legacy-current	nTerm := float64(i) + 0.5 + nHalf
 celt/mdct.go	1	abcec9dc1e88bcec79915f34ad00d1da92e16cba58d981ca44ce0980469dbdb7	legacy-current	prev := make([]float64, overlap)
-celt/mdct.go	1	ad154feb104fcbeda46cf0cdcffdd3f8848bbb9cc83a0e3670feced6c1325bd1	legacy-current	scale := 1.0 / float64(n)
 celt/mdct.go	1	af89b0a4c5923050dbf933559983aabaaecbceb6567048f7e34f47270698cb34	legacy-current	func IMDCTOverlap(spectrum []float64, overlap int) []float64 {
 celt/mdct.go	1	b11d24cf54124df04d762690b5b5600bb13133e1e0a81bae1ec98d736de16119	legacy-current	func getIMDCTCosTable(n int) []float64 {
 celt/mdct.go	1	b152df930330b937b0f3b961a7f59ba520ec1846978fe8b6faa59602eb1e717a	legacy-current	func overlapIMDCTF32WithPrevToFloat64[S ~float32 | ~float64](out []float64, imdct []float32, prevOverlap []S, overlap int) {
-celt/mdct.go	1	b238ee5ed5aab817e4f751ac6c0abbb1537d59124432359b9679fccd937cb002	legacy-current	output := make([]float64, n2)
 celt/mdct.go	1	b404c6d455ca2dbf6fa40f339aed868def036479701bfd6abb891d8f20407162	legacy-current	func ImdctInPlaceExported(spectrum []float64, out []float64, blockStart, overlap int) {
-celt/mdct.go	1	bce5d1f981edea369a7a8aca07cf112d75541adcaed4f763efe54d13e7f799ce	legacy-current	angle := -2.0 * math.Pi / float64(size)
 celt/mdct.go	1	c4bbc5c1f3b216ddcbd35ae8ceb5f7a9d68597adfda3be275429a363b2189589	legacy-current	out[start+i] = float64(buf[i])
-celt/mdct.go	1	c6b6402b89fa578a5cd50f6aa92525f6ecf4f708504645939f1ecbdea9c125e4	legacy-current	func bitReverse(x []complex128) {
 celt/mdct.go	1	cb1247706e2760fa1f8ccd432a4d942bb2a26131319bf5c04e96172f508fbdd5	legacy-current	func dftTo(out []complex128, x []complex128) {
 celt/mdct.go	1	d0c9335d851ac7ad87096d97f4702d37f4ba42c9f3ff8e2a2ad7d9a3fe4e7d2e	legacy-current	var sum float64
 celt/mdct.go	1	d53f093aa0b128d868af330f13c782cbedf7d7065694f636b8b6cdaea1f30416	legacy-current	output := make([]float64, 2*totalCoeffs)
-celt/mdct.go	1	dfcabe48fad5b6d5c90a116d593c8e36ed002fcbda3bfb7546780b92a9fb7400	legacy-current	angle := -math.Pi * (float64(k) + 0.5 + float64(n)/2) / float64(n)
-celt/mdct.go	1	e2dc1dcfeff821cf3be4815f611e8c29a1a4816322f815e14b632e2b0c792228	legacy-current	tw.fftTw = make([]complex128, n4)
-celt/mdct.go	1	e475340cb8fad33126357a69b92fa39b3b17c9638d8994c97b82976f402e188b	legacy-current	func imdctFFT(spectrum []float64, n, n2, n4 int) []float64 {
-celt/mdct.go	1	e54561b53208ef558e3eb6cca11a31c3634e2b83228f3dd4245e8f9e8ee43a93	legacy-current	postTw: make([]complex128, n/2),
 celt/mdct.go	1	e62b707b8e4f6f89cb106b129e51235fce071a72ebc3c039cf3430faa008b6ba	legacy-current	out[i] = float64(prevOverlap[i])
 celt/mdct.go	1	e86ff587f42b763268c5ebb9214770c442b66b3e6427b7a3c1025b47343221ec	legacy-current	shortCoeffs := make([]float64, shortSize)
-celt/mdct.go	1	ec90076f69c99292e6d4c2be635e567337f18dcdcf9187e4335d3c7fa2840d36	legacy-current	func fft(x []complex128) []complex128 {
 celt/mdct.go	6	ed9b1fbe8212a8b3c1cfa87bf7699003a92f91dbc93a83d5c6022b61584355f3	legacy-current	out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
 celt/mdct.go	1	eddcf78c556457775184a585d5945135a68e62f5a63d5b864a64406dc09608dc	legacy-current	func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int) []float64 {
 celt/mdct.go	1	f813c962ce2c8d6fe4c604c7283b64de52cf43ff476c3e48cc3de4eddaf130b4	legacy-current	// libopus uses float (32-bit) for IMDCT, so using float64 in gopus causes precision

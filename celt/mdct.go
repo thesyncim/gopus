@@ -1,9 +1,6 @@
 package celt
 
-import (
-	"math"
-	"math/cmplx"
-)
+import "math"
 
 // IMDCT (Inverse Modified Discrete Cosine Transform) implementation for CELT.
 // This file provides FFT-based IMDCT for efficient frequency-to-time conversion.
@@ -13,47 +10,6 @@ import (
 // from O(n^2) to O(n log n).
 //
 // Reference: RFC 6716 Section 4.3.5, libopus celt/mdct.c
-
-// mdctTwiddleSet holds precomputed twiddles for a specific IMDCT size.
-type mdctTwiddleSet struct {
-	n      int          // Number of frequency bins
-	preTw  []complex128 // Pre-twiddle factors
-	postTw []complex128 // Post-twiddle factors
-	fftTw  []complex128 // FFT twiddle factors
-}
-
-// buildMDCTTwiddles initializes twiddle factors for a given IMDCT size.
-func buildMDCTTwiddles(n int) *mdctTwiddleSet {
-	tw := &mdctTwiddleSet{
-		n:      n,
-		preTw:  make([]complex128, n/2),
-		postTw: make([]complex128, n/2),
-	}
-
-	n2 := n * 2 // Output size
-	n4 := n / 2 // FFT size
-
-	// Pre-twiddle: exp(-j * pi * (k + 0.5 + n/2) / n)
-	for k := 0; k < n4; k++ {
-		angle := -math.Pi * (float64(k) + 0.5 + float64(n)/2) / float64(n)
-		tw.preTw[k] = complex(math.Cos(angle), math.Sin(angle))
-	}
-
-	// Post-twiddle: exp(-j * pi * (n + 0.5) * (2*k + 1) / n2)
-	for k := 0; k < n4; k++ {
-		angle := -math.Pi * (float64(n) + 0.5) * (2*float64(k) + 1) / float64(n2)
-		tw.postTw[k] = complex(math.Cos(angle), math.Sin(angle))
-	}
-
-	// FFT twiddle factors for size n4
-	tw.fftTw = make([]complex128, n4)
-	for k := 0; k < n4; k++ {
-		angle := -2.0 * math.Pi * float64(k) / float64(n4)
-		tw.fftTw[k] = complex(math.Cos(angle), math.Sin(angle))
-	}
-
-	return tw
-}
 
 var (
 	// CELT hot path trig tables (n = 2*frameSize) are precomputed once.
@@ -153,29 +109,6 @@ func getIMDCTCosTable(n int) []float64 {
 //
 // Reference: RFC 6716 Section 4.3.5, libopus celt/mdct.c
 func IMDCT(spectrum []float64) []float64 {
-	n := len(spectrum)
-	if n <= 0 {
-		return nil
-	}
-
-	n2 := n * 2 // Output size
-	n4 := n / 2 // FFT size
-
-	// Handle edge case for very small sizes
-	if n4 < 1 {
-		// Direct computation for n=1
-		out := make([]float64, n2)
-		out[0] = spectrum[0]
-		out[1] = spectrum[0]
-		return out
-	}
-
-	// Check if n4 is a power of 2 for FFT-based IMDCT
-	if isPowerOfTwo(n4) {
-		return imdctFFT(spectrum, n, n2, n4)
-	}
-
-	// Fall back to direct computation for non-power-of-2 sizes
 	return IMDCTDirect(spectrum)
 }
 
@@ -791,74 +724,6 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 	}
 }
 
-// isPowerOfTwo returns true if n is a power of 2.
-func isPowerOfTwo(n int) bool {
-	return n > 0 && (n&(n-1)) == 0
-}
-
-// imdctFFT computes IMDCT using FFT for power-of-2 sizes.
-func imdctFFT(spectrum []float64, n, n2, n4 int) []float64 {
-	// Build twiddles for this size.
-	tw := buildMDCTTwiddles(n)
-
-	// Step 1: Pre-twiddle and combine pairs
-	// Combine X[k] and X[n-1-k] into complex values
-	fftIn := make([]complex128, n4)
-	for k := 0; k < n4; k++ {
-		// Even index: k
-		// Odd index: n-1-k
-		xEven := spectrum[2*k]
-		xOdd := spectrum[n-1-2*k]
-
-		// Pre-twiddle: multiply by exp(-j * pi * (k + 0.5 + n/2) / n)
-		fftIn[k] = complex(xEven, xOdd) * tw.preTw[k]
-	}
-
-	// Step 2: Compute n/4 point complex FFT (inverse)
-	fftOut := ifft(fftIn)
-
-	// Step 3: Post-twiddle and unfold to 2n output
-	output := make([]float64, n2)
-
-	for k := 0; k < n4; k++ {
-		// Post-twiddle
-		y := fftOut[k] * tw.postTw[k]
-
-		// Scale factor for IMDCT normalization
-		// The IMDCT normalization factor is 2/n
-		scale := 2.0 / float64(n)
-
-		yr := real(y) * scale
-		yi := imag(y) * scale
-
-		// Unfold using MDCT symmetry:
-		// output[n/2 - 1 - 2k] = yr
-		// output[n/2 + 2k] = yr
-		// output[n + n/2 - 1 - 2k] = yi
-		// output[n + n/2 + 2k] = -yi
-
-		idx1 := n4 - 1 - k
-		idx2 := n4 + k
-		idx3 := n + n4 - 1 - k
-		idx4 := n + n4 + k
-
-		if idx1 >= 0 && idx1 < n2 {
-			output[idx1] = yr
-		}
-		if idx2 >= 0 && idx2 < n2 {
-			output[idx2] = yr
-		}
-		if idx3 >= 0 && idx3 < n2 {
-			output[idx3] = yi
-		}
-		if idx4 >= 0 && idx4 < n2 {
-			output[idx4] = -yi
-		}
-	}
-
-	return output
-}
-
 // IMDCTShort computes IMDCT for transient frames with multiple short blocks.
 // coeffs: interleaved coefficients for shortBlocks MDCTs
 // shortBlocks: number of short MDCTs (2, 4, or 8)
@@ -916,71 +781,6 @@ func IMDCTShort(coeffs []float64, shortBlocks int) []float64 {
 	return output
 }
 
-// fft computes the in-place complex FFT using Cooley-Tukey radix-2 algorithm.
-// Uses decimation-in-time (DIT) approach.
-func fft(x []complex128) []complex128 {
-	n := len(x)
-	if n <= 1 {
-		return x
-	}
-
-	// Make a copy to avoid modifying input
-	result := make([]complex128, n)
-	copy(result, x)
-
-	// Bit-reversal permutation
-	bitReverse(result)
-
-	// Cooley-Tukey iterative FFT
-	for size := 2; size <= n; size *= 2 {
-		halfSize := size / 2
-		// Twiddle factor for this stage
-		angle := -2.0 * math.Pi / float64(size)
-		w := complex(math.Cos(angle), math.Sin(angle))
-
-		for start := 0; start < n; start += size {
-			wk := complex(1, 0)
-			for k := 0; k < halfSize; k++ {
-				idx1 := start + k
-				idx2 := start + k + halfSize
-
-				t := wk * result[idx2]
-				result[idx2] = result[idx1] - t
-				result[idx1] = result[idx1] + t
-
-				wk *= w
-			}
-		}
-	}
-
-	return result
-}
-
-// ifft computes the inverse FFT.
-func ifft(x []complex128) []complex128 {
-	n := len(x)
-	if n <= 1 {
-		return x
-	}
-
-	// Conjugate input
-	conj := make([]complex128, n)
-	for i, v := range x {
-		conj[i] = cmplx.Conj(v)
-	}
-
-	// Forward FFT
-	result := fft(conj)
-
-	// Conjugate and scale output
-	scale := 1.0 / float64(n)
-	for i := range result {
-		result[i] = cmplx.Conj(result[i]) * complex(scale, 0)
-	}
-
-	return result
-}
-
 func dft(x []complex128) []complex128 {
 	n := len(x)
 	if n <= 1 {
@@ -1004,14 +804,9 @@ func dftTo(out []complex128, x []complex128) {
 		return
 	}
 
-	// Use mixed-radix FFT for O(n log n) complexity on supported sizes
-	state := GetKissFFT64State(n)
-	if state != nil {
-		kissFFT64Forward(out, x, state)
-		return
-	}
-
-	// Fall back to O(n^2) DFT for unsupported sizes
+	// This legacy double-domain helper is retained only for compatibility
+	// tests around the old public IMDCT surface. The runtime CELT path uses
+	// the float-build kissCpx/kissFFTState helpers instead.
 	twoPi := -2.0 * math.Pi / float64(n)
 	for k := 0; k < n; k++ {
 		angle := twoPi * float64(k)
@@ -1046,32 +841,6 @@ func dft32(x []complex64) []complex64 {
 		out[k] = sum
 	}
 	return out
-}
-
-// bitReverse performs bit-reversal permutation on the input slice.
-func bitReverse(x []complex128) {
-	n := len(x)
-	bits := 0
-	for temp := n; temp > 1; temp >>= 1 {
-		bits++
-	}
-
-	for i := 0; i < n; i++ {
-		j := reverseBits(i, bits)
-		if i < j {
-			x[i], x[j] = x[j], x[i]
-		}
-	}
-}
-
-// reverseBits reverses the lower 'bits' bits of x.
-func reverseBits(x, bits int) int {
-	result := 0
-	for i := 0; i < bits; i++ {
-		result = (result << 1) | (x & 1)
-		x >>= 1
-	}
-	return result
 }
 
 // IMDCTDirect computes IMDCT per RFC 6716 Section 4.3.5.

@@ -108,14 +108,10 @@ func TestIMDCTEnergyConservation(t *testing.T) {
 				outputEnergy += x * x
 			}
 
-			// Ratio depends on IMDCT normalization:
-			// - FFT path (power-of-two sizes) scales by 2/N, ratio ~ 4/N
-			// - Direct path (CELT sizes) is unscaled, ratio ~ N
+			// The compatibility IMDCT surface now always uses the direct
+			// unscaled path; the runtime CELT path uses float32 IMDCT helpers.
 			ratio := outputEnergy / inputEnergy
 			expectedRatio := float64(n)
-			if isPowerOfTwo(n / 2) {
-				expectedRatio = 4.0 / float64(n)
-			}
 
 			// Allow 50% tolerance due to normalization conventions
 			if ratio < expectedRatio*0.5 || ratio > expectedRatio*2.0 {
