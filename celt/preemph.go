@@ -196,7 +196,7 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm []float32, output []float3
 	}
 }
 
-func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, output []float64, outputF32 []float32, frameSize, overlap int) bool {
+func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, output []float32, frameSize, overlap int) bool {
 	if frameSize <= 0 || e.channels <= 0 || len(pcm) == 0 {
 		e.overlapMax = 0
 		return true
@@ -216,7 +216,6 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 	if total > len(output) {
 		total = len(output)
 	}
-	writeF32 := len(outputF32) >= total
 	if total <= 0 {
 		e.overlapMax = 0
 		return true
@@ -239,10 +238,7 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 			firstMaxBits = updateMaxAbsBitsF32(firstMaxBits, v)
 			scaled := v * float32(CELTSigScale)
 			y := scaled - state
-			output[i] = float64(y)
-			if writeF32 {
-				outputF32[i] = y
-			}
+			output[i] = y
 			state = coef * scaled
 		}
 		for i := split; i < total; i++ {
@@ -250,10 +246,7 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 			overlapMaxBits = updateMaxAbsBitsF32(overlapMaxBits, v)
 			scaled := v * float32(CELTSigScale)
 			y := scaled - state
-			output[i] = float64(y)
-			if writeF32 {
-				outputF32[i] = y
-			}
+			output[i] = y
 			state = coef * scaled
 		}
 		e.preemphState[0] = celtSig(state)
@@ -270,12 +263,8 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 			scaledR := vR * float32(CELTSigScale)
 			yL := scaledL - stateL
 			yR := scaledR - stateR
-			output[i] = float64(yL)
-			output[i+1] = float64(yR)
-			if writeF32 {
-				outputF32[i] = yL
-				outputF32[i+1] = yR
-			}
+			output[i] = yL
+			output[i+1] = yR
 			stateL = coef * scaledL
 			stateR = coef * scaledR
 		}
@@ -288,12 +277,8 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 			scaledR := vR * float32(CELTSigScale)
 			yL := scaledL - stateL
 			yR := scaledR - stateR
-			output[i] = float64(yL)
-			output[i+1] = float64(yR)
-			if writeF32 {
-				outputF32[i] = yL
-				outputF32[i+1] = yR
-			}
+			output[i] = yL
+			output[i+1] = yR
 			stateL = coef * scaledL
 			stateR = coef * scaledR
 		}
@@ -412,12 +397,12 @@ func (e *Encoder) applyDCRejectScratch(pcm []float32) []float32 {
 // ApplyPreemphasisWithScalingScratch applies pre-emphasis with scaling using
 // pre-allocated scratch buffers. This is the zero-allocation version of
 // ApplyPreemphasisWithScaling, suitable for use from the hybrid encoding path.
-func (e *Encoder) ApplyPreemphasisWithScalingScratch(pcm []float32) []float64 {
+func (e *Encoder) ApplyPreemphasisWithScalingScratch(pcm []float32) []float32 {
 	return e.applyPreemphasisWithScalingScratch(pcm)
 }
 
 // applyPreemphasisWithScalingScratch applies pre-emphasis with scaling using scratch buffer.
-func (e *Encoder) applyPreemphasisWithScalingScratch(pcm []float32) []float64 {
+func (e *Encoder) applyPreemphasisWithScalingScratch(pcm []float32) []float32 {
 	if len(pcm) == 0 {
 		return nil
 	}
@@ -425,12 +410,12 @@ func (e *Encoder) applyPreemphasisWithScalingScratch(pcm []float32) []float64 {
 	// Use scratch buffer
 	output := e.scratch.preemph
 	if len(output) < len(pcm) {
-		output = make([]float64, len(pcm))
+		output = make([]float32, len(pcm))
 		e.scratch.preemph = output
 	}
 	output = output[:len(pcm)]
 
-	e.applyPreemphasisWithScalingCoreToFloat64(pcm, output)
+	e.applyPreemphasisWithScalingCore(pcm, output)
 	return output
 }
 

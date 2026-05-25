@@ -388,6 +388,31 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 	return toneDetectFloat32Mono(x, sampleRate, lane4Corr)
 }
 
+func toneDetectScratchF32(in []float32, channels int, sampleRate int, xBuf []float32) (float64, float64) {
+	n := len(in) / channels
+	if n < 4 {
+		return -1, 0
+	}
+
+	var x []float32
+	if xBuf != nil && len(xBuf) >= n {
+		x = xBuf[:n]
+	} else {
+		x = make([]float32, n)
+	}
+
+	if channels == 2 {
+		for i := 0; i < n; i++ {
+			x[i] = in[i*2] + in[i*2+1]
+		}
+	} else {
+		copy(x, in[:n])
+	}
+
+	lane4Corr := channels == 2 && toneLPCStereoLane4
+	return toneDetectFloat32Mono(x, sampleRate, lane4Corr)
+}
+
 func toneDetectFloat32Mono(x []float32, sampleRate int, lane4Corr bool) (float64, float64) {
 	n := len(x)
 	if n < 4 {
@@ -447,7 +472,22 @@ func toneDetectFloat32Mono(x []float32, sampleRate int, lane4Corr bool) (float64
 //
 // Reference: libopus celt/celt_encoder.c transient_analysis()
 func (e *Encoder) TransientAnalysis(pcm []float64, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
-	return e.transientAnalysisScratch(pcm, frameSize, allowWeakTransients,
+	if len(pcm) == 0 {
+		return e.transientAnalysisScratchF32(nil, frameSize, allowWeakTransients,
+			e.scratch.transientX,
+			e.scratch.transientEnergy)
+	}
+	tmp := ensureFloat32Slice(&e.scratch.transientInput, len(pcm))
+	for i, v := range pcm {
+		tmp[i] = float32(v)
+	}
+	return e.transientAnalysisScratchF32(tmp, frameSize, allowWeakTransients,
+		e.scratch.transientX,
+		e.scratch.transientEnergy)
+}
+
+func (e *Encoder) TransientAnalysisF32(pcm []float32, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
+	return e.transientAnalysisScratchF32(pcm, frameSize, allowWeakTransients,
 		e.scratch.transientX,
 		e.scratch.transientEnergy)
 }
@@ -600,7 +640,7 @@ var transientInvTable = [128]int{
 }
 
 // transientAnalysisScratch is the scratch-aware version of TransientAnalysis.
-func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWeakTransients bool,
+func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allowWeakTransients bool,
 	toneBuf []float32, energyBuf []float32) TransientAnalysisResult {
 	result := TransientAnalysisResult{
 		TfEstimate:  0.0,
@@ -628,7 +668,7 @@ func (e *Encoder) transientAnalysisScratch(pcm []float64, frameSize int, allowWe
 	if deferMonoToneDetect {
 		monoToneX = toneBuf[:samplesPerChannel]
 	} else if !deferStereoToneDetect {
-		toneFreq, toneishness := toneDetectScratch(pcm, channels, 48000, toneBuf)
+		toneFreq, toneishness := toneDetectScratchF32(pcm, channels, 48000, toneBuf)
 		result.ToneFreq = toneFreq
 		result.Toneishness = toneishness
 	}

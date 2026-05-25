@@ -637,6 +637,24 @@ func mdctScratch(samples []float64, scratch *encoderScratch) []float64 {
 	return mdctStandard(samples)
 }
 
+func mdctScratchF32(samples []float32, scratch *encoderScratch) []float64 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	if len(samples) > Overlap {
+		frameSize := len(samples) - Overlap
+		if ValidFrameSize(frameSize) {
+			coeffs := ensureFloat64Slice(&scratch.mdctCoeffs, frameSize)
+			mdctForwardOverlapF32Scratch(samples, Overlap, coeffs,
+				scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+			return coeffs
+		}
+	}
+
+	return nil
+}
+
 // mdctScratchInto computes the MDCT into a provided output buffer using scratch buffers.
 func mdctScratchInto(samples []float64, coeffs []float64, scratch *encoderScratch) []float64 {
 	if len(samples) == 0 {
@@ -653,6 +671,23 @@ func mdctScratchInto(samples []float64, coeffs []float64, scratch *encoderScratc
 	}
 
 	return mdctStandard(samples)
+}
+
+func mdctScratchIntoF32(samples []float32, coeffs []float64, scratch *encoderScratch) []float64 {
+	if len(samples) == 0 {
+		return nil
+	}
+
+	if len(samples) > Overlap {
+		frameSize := len(samples) - Overlap
+		if ValidFrameSize(frameSize) && len(coeffs) >= frameSize {
+			mdctForwardOverlapF32Scratch(samples, Overlap, coeffs,
+				scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+			return coeffs[:frameSize]
+		}
+	}
+
+	return nil
 }
 
 // mdctShortScratch computes the short-block MDCT using scratch buffers.
@@ -674,6 +709,24 @@ func mdctShortScratch(samples []float64, shortBlocks int, scratch *encoderScratc
 	return mdctShortStandard(samples, shortBlocks)
 }
 
+func mdctShortScratchF32(samples []float32, shortBlocks int, scratch *encoderScratch) []float64 {
+	if shortBlocks <= 1 {
+		return mdctScratchF32(samples, scratch)
+	}
+	if len(samples) == 0 {
+		return nil
+	}
+
+	if len(samples) > Overlap {
+		frameSize := len(samples) - Overlap
+		if ValidFrameSize(frameSize) && frameSize%shortBlocks == 0 {
+			return mdctForwardShortOverlapScratchF32(samples, Overlap, shortBlocks, scratch)
+		}
+	}
+
+	return nil
+}
+
 // mdctShortScratchInto computes short-block MDCT into a provided output buffer.
 func mdctShortScratchInto(samples []float64, shortBlocks int, output []float64, scratch *encoderScratch) []float64 {
 	if shortBlocks <= 1 {
@@ -691,6 +744,24 @@ func mdctShortScratchInto(samples []float64, shortBlocks int, output []float64, 
 	}
 
 	return mdctShortStandard(samples, shortBlocks)
+}
+
+func mdctShortScratchIntoF32(samples []float32, shortBlocks int, output []float64, scratch *encoderScratch) []float64 {
+	if shortBlocks <= 1 {
+		return mdctScratchIntoF32(samples, output, scratch)
+	}
+	if len(samples) == 0 {
+		return nil
+	}
+
+	if len(samples) > Overlap {
+		frameSize := len(samples) - Overlap
+		if ValidFrameSize(frameSize) && frameSize%shortBlocks == 0 && len(output) >= frameSize {
+			return mdctForwardShortOverlapScratchIntoF32(samples, Overlap, shortBlocks, output, scratch)
+		}
+	}
+
+	return nil
 }
 
 // mdctShortBlocksCore is a helper that processes multiple short MDCT blocks.
@@ -759,6 +830,43 @@ func mdctForwardShortOverlapScratchInto(samples []float64, overlap, shortBlocks 
 	return output[:frameSize]
 }
 
+func mdctForwardShortOverlapScratchIntoF32(samples []float32, overlap, shortBlocks int, output []float64, scratch *encoderScratch) []float64 {
+	if shortBlocks <= 1 {
+		if len(output) >= len(samples)-overlap {
+			mdctForwardOverlapF32Scratch(samples, overlap, output,
+				scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+			return output[:len(samples)-overlap]
+		}
+		return mdctForwardOverlapScratchF32(samples, overlap, scratch)
+	}
+	if len(samples) <= overlap || overlap < 0 {
+		return nil
+	}
+
+	frameSize := len(samples) - overlap
+	if frameSize <= 0 || frameSize%shortBlocks != 0 {
+		return nil
+	}
+	shortSize := frameSize / shortBlocks
+	blockCoeffs := ensureFloat32Slice(&scratch.mdctBlockCoeffs, shortSize)
+	for b := 0; b < shortBlocks; b++ {
+		start := b * shortSize
+		end := start + shortSize + overlap
+		if end > len(samples) {
+			break
+		}
+		mdctForwardOverlapF32Scratch(samples[start:end], overlap, blockCoeffs,
+			scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+		for i := range blockCoeffs {
+			outIdx := b + i*shortBlocks
+			if outIdx < len(output) {
+				output[outIdx] = float64(blockCoeffs[i])
+			}
+		}
+	}
+	return output[:frameSize]
+}
+
 // mdctForwardOverlapScratch computes the MDCT forward transform using scratch buffers.
 func mdctForwardOverlapScratch(samples []float64, overlap int, scratch *encoderScratch) []float64 {
 	frameSize := len(samples) - overlap
@@ -773,6 +881,17 @@ func mdctForwardOverlapScratch(samples []float64, overlap int, scratch *encoderS
 	mdctForwardOverlapF32Scratch(samples, overlap, coeffs,
 		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
 
+	return coeffs
+}
+
+func mdctForwardOverlapScratchF32(samples []float32, overlap int, scratch *encoderScratch) []float64 {
+	frameSize := len(samples) - overlap
+	if frameSize <= 0 {
+		return nil
+	}
+	coeffs := ensureFloat64Slice(&scratch.mdctCoeffs, frameSize)
+	mdctForwardOverlapF32Scratch(samples, overlap, coeffs,
+		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
 	return coeffs
 }
 
@@ -815,6 +934,39 @@ func mdctForwardShortOverlapScratch(samples []float64, overlap, shortBlocks int,
 		}
 	}
 
+	return output
+}
+
+func mdctForwardShortOverlapScratchF32(samples []float32, overlap, shortBlocks int, scratch *encoderScratch) []float64 {
+	if shortBlocks <= 1 {
+		return mdctForwardOverlapScratchF32(samples, overlap, scratch)
+	}
+	if len(samples) <= overlap || overlap < 0 {
+		return nil
+	}
+
+	frameSize := len(samples) - overlap
+	if frameSize <= 0 || frameSize%shortBlocks != 0 {
+		return nil
+	}
+	shortSize := frameSize / shortBlocks
+	output := ensureFloat64Slice(&scratch.mdctCoeffs, frameSize)
+	blockCoeffs := ensureFloat32Slice(&scratch.mdctBlockCoeffs, shortSize)
+	for b := 0; b < shortBlocks; b++ {
+		start := b * shortSize
+		end := start + shortSize + overlap
+		if end > len(samples) {
+			break
+		}
+		mdctForwardOverlapF32Scratch(samples[start:end], overlap, blockCoeffs,
+			scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+		for i := range blockCoeffs {
+			outIdx := b + i*shortBlocks
+			if outIdx < len(output) {
+				output[outIdx] = float64(blockCoeffs[i])
+			}
+		}
+	}
 	return output
 }
 

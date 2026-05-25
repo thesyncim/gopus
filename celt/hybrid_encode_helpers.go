@@ -352,7 +352,7 @@ func (e *Encoder) UpdateEnergyErrorHybridFromError(start, end, nbBands int) {
 // ApplyHybridPrefilter mirrors libopus hybrid mode: run_prefilter() still runs
 // with enabled=false so previous CELT postfilter state can fade out cleanly even
 // though no prefilter header bits are signaled in hybrid packets.
-func (e *Encoder) ApplyHybridPrefilter(preemph []float64, frameSize int, tfEstimate float64, nbAvailableBytes int, toneFreq, toneishness float64) {
+func (e *Encoder) ApplyHybridPrefilter(preemph []float32, frameSize int, tfEstimate float64, nbAvailableBytes int, toneFreq, toneishness float64) {
 	if frameSize <= 0 || e.channels <= 0 || len(preemph) < frameSize*e.channels {
 		return
 	}
@@ -366,7 +366,6 @@ func (e *Encoder) ApplyHybridPrefilter(preemph []float64, frameSize int, tfEstim
 	prevPrefilterPeriod := e.prefilterPeriod
 	prevPrefilterGain := e.prefilterGain
 	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, false, tfEstimate, nbAvailableBytes, toneFreq, toneishness, maxPitchRatio)
-	roundFloat64ToFloat32(preemph)
 
 	e.lastPitchChange = false
 	if prevPrefilterPeriod > 0 && (pfResult.gain > 0.4 || prevPrefilterGain > 0.4) {
@@ -378,7 +377,7 @@ func (e *Encoder) ApplyHybridPrefilter(preemph []float64, frameSize int, tfEstim
 
 // TransientAnalysisHybrid performs transient analysis and updates preemph overlap state.
 // Returns transient flags, tf/tone metrics, shortBlocks choice, and optional bandLogE2.
-func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float64, shortBlocks int, bandLogE2 []celtGLog) {
+func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float64, shortBlocks int, bandLogE2 []celtGLog) {
 	overlap := Overlap
 	if overlap > frameSize {
 		overlap = frameSize
@@ -389,28 +388,25 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 
 	var result TransientAnalysisResult
 	if e.channels == 1 {
-		transientInputF32 := e.scratch.transientInputF32
-		if len(transientInputF32) < transientLen {
-			transientInputF32 = make([]float32, transientLen)
-			e.scratch.transientInputF32 = transientInputF32
-		}
-		transientInputF32 = transientInputF32[:transientLen]
-		e.fillTransientHistoryFromPrefilterF32(overlap, transientInputF32[:preemphBufSize])
-		preemphF32 := transientInputF32[preemphBufSize:]
-		for i := range preemphF32 {
-			preemphF32[i] = float32(preemph[i])
-		}
-		result = e.transientAnalysisMonoFloat32(transientInputF32, frameSize+overlap, allowWeakTransients)
-	} else {
 		transientInput := e.scratch.transientInput
 		if len(transientInput) < transientLen {
-			transientInput = make([]float64, transientLen)
+			transientInput = make([]float32, transientLen)
 			e.scratch.transientInput = transientInput
 		}
 		transientInput = transientInput[:transientLen]
-		e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
+		e.fillTransientHistoryFromPrefilterF32(overlap, transientInput[:preemphBufSize])
 		copy(transientInput[preemphBufSize:], preemph)
-		result = e.TransientAnalysis(transientInput, frameSize+overlap, allowWeakTransients)
+		result = e.transientAnalysisMonoFloat32(transientInput, frameSize+overlap, allowWeakTransients)
+	} else {
+		transientInput := e.scratch.transientInput
+		if len(transientInput) < transientLen {
+			transientInput = make([]float32, transientLen)
+			e.scratch.transientInput = transientInput
+		}
+		transientInput = transientInput[:transientLen]
+		e.fillTransientHistoryFromPrefilterF32(overlap, transientInput[:preemphBufSize])
+		copy(transientInput[preemphBufSize:], preemph)
+		result = e.TransientAnalysisF32(transientInput, frameSize+overlap, allowWeakTransients)
 	}
 	transient = result.IsTransient
 	weakTransient = result.WeakTransient
@@ -437,16 +433,16 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 	if e.channels == 1 {
 		hist := e.scratch.leftHist
 		if len(hist) < overlap {
-			hist = make([]float64, overlap)
+			hist = make([]float32, overlap)
 			e.scratch.leftHist = hist
 		}
 		hist = hist[:overlap]
-		copySigToFloat64(hist, e.overlapBuffer[:overlap])
+		copySigToFloat32(hist, e.overlapBuffer[:overlap])
 		mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
 		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*e.channels)
 		computeBandEnergiesGLogInto(mdctLong, nbBands, frameSize, e.channels, bandLogE2)
 	} else {
-		left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
+		left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 		if len(e.overlapBuffer) < 2*overlap {
 			newBuf := make([]celtSig, 2*overlap)
 			if len(e.overlapBuffer) > 0 {
@@ -457,17 +453,17 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 		leftHist := e.scratch.leftHist
 		rightHist := e.scratch.rightHist
 		if len(leftHist) < overlap {
-			leftHist = make([]float64, overlap)
+			leftHist = make([]float32, overlap)
 			e.scratch.leftHist = leftHist
 		}
 		if len(rightHist) < overlap {
-			rightHist = make([]float64, overlap)
+			rightHist = make([]float32, overlap)
 			e.scratch.rightHist = rightHist
 		}
 		leftHist = leftHist[:overlap]
 		rightHist = rightHist[:overlap]
-		copySigToFloat64(leftHist, e.overlapBuffer[:overlap])
-		copySigToFloat64(rightHist, e.overlapBuffer[overlap:2*overlap])
+		copySigToFloat32(leftHist, e.overlapBuffer[:overlap])
+		copySigToFloat32(rightHist, e.overlapBuffer[overlap:2*overlap])
 		mdctLeftLong := computeMDCTWithHistoryScratchStereoL(left, leftHist, 1, &e.scratch)
 		mdctRightLong := computeMDCTWithHistoryScratchStereoR(right, rightHist, 1, &e.scratch)
 		mdctLongLen := len(mdctLeftLong) + len(mdctRightLong)
@@ -590,11 +586,21 @@ func (e *Encoder) MDCTScratch(samples []float64) []float64 {
 	return mdctScratch(samples, &e.scratch)
 }
 
+// MDCTScratchF32 computes the MDCT from float-build input scratch.
+func (e *Encoder) MDCTScratchF32(samples []float32) []float64 {
+	return mdctScratchF32(samples, &e.scratch)
+}
+
 // MDCTShortScratch computes the short-block MDCT using scratch buffers.
 // This is the zero-allocation equivalent of MDCTShort.
 // EnsureScratch must have been called with an appropriate frameSize first.
 func (e *Encoder) MDCTShortScratch(samples []float64, shortBlocks int) []float64 {
 	return mdctShortScratch(samples, shortBlocks, &e.scratch)
+}
+
+// MDCTShortScratchF32 computes the short-block MDCT from float-build input scratch.
+func (e *Encoder) MDCTShortScratchF32(samples []float32, shortBlocks int) []float64 {
+	return mdctShortScratchF32(samples, shortBlocks, &e.scratch)
 }
 
 // ComputeMDCTWithHistoryScratch computes MDCT with history using scratch buffers.
@@ -650,13 +656,13 @@ func (e *Encoder) ComputeMDCTWithHistoryScratch(inputScratch, samples, history [
 // ComputeMDCTWithHistoryScratchStereoL computes MDCT for the left channel using
 // separate scratch output buffers. The result is written to scratch.mdctLeft so it
 // survives a subsequent right-channel call.
-func (e *Encoder) ComputeMDCTWithHistoryScratchStereoL(samples, history []float64, shortBlocks int) []float64 {
+func (e *Encoder) ComputeMDCTWithHistoryScratchStereoL(samples, history []float32, shortBlocks int) []float64 {
 	return computeMDCTWithHistoryScratchStereoL(samples, history, shortBlocks, &e.scratch)
 }
 
 // ComputeMDCTWithHistoryScratchStereoR computes MDCT for the right channel using
 // separate scratch output buffers. The result is written to scratch.mdctRight.
-func (e *Encoder) ComputeMDCTWithHistoryScratchStereoR(samples, history []float64, shortBlocks int) []float64 {
+func (e *Encoder) ComputeMDCTWithHistoryScratchStereoR(samples, history []float32, shortBlocks int) []float64 {
 	return computeMDCTWithHistoryScratchStereoR(samples, history, shortBlocks, &e.scratch)
 }
 

@@ -96,11 +96,11 @@ type HybridState struct {
 	scratchNextEnergy []float32 // next CELT oldBandE state update
 
 	// MDCT scratch buffers for computeMDCTForHybridScratch.
-	scratchMDCTInput  []float64 // overlap+samples assembly buffer
-	scratchMDCTHist   []float64 // previous-frame overlap snapshot for current MDCT
+	scratchMDCTInput  []float32 // overlap+samples assembly buffer
+	scratchMDCTHist   []float32 // previous-frame overlap snapshot for current MDCT
 	scratchMDCTResult []float64 // combined L+R MDCT output
-	scratchDeintLeft  []float64 // deinterleaved left channel
-	scratchDeintRight []float64 // deinterleaved right channel
+	scratchDeintLeft  []float32 // deinterleaved left channel
+	scratchDeintRight []float32 // deinterleaved right channel
 }
 
 // encodeHybridFrameWithMaxPacketAndTransition allows callers assembling long packets
@@ -1498,7 +1498,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 	mdctHistLen := overlap * e.channels
 	mdctHistory := e.hybridState.scratchMDCTHist
 	if cap(mdctHistory) < mdctHistLen {
-		mdctHistory = make([]float64, mdctHistLen)
+		mdctHistory = make([]float32, mdctHistLen)
 		e.hybridState.scratchMDCTHist = mdctHistory
 	}
 	mdctHistory = mdctHistory[:mdctHistLen]
@@ -1547,7 +1547,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 		return
 	}
 	// Keep float-path cadence aligned with libopus (opus_res/celt_sig are float).
-	e.celtEncoder.RoundFloat64ToFloat32(mdctCoeffs)
 
 	// Compute band energies
 	energies := e.celtEncoder.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
@@ -1938,7 +1937,7 @@ func (e *Encoder) computeHybridCELTVBRTargetBytes(limitBytes, frameSize int, tfE
 // computeMDCTForHybridScratch computes MDCT for hybrid mode encoding using scratch buffers.
 // ce provides the CELT encoder's scratch buffers for the MDCT transform.
 // hs provides hybrid-specific scratch buffers for deinterleaving and assembly.
-func computeMDCTForHybridScratch(samples []float64, frameSize, channels int, history []float64, shortBlocks int, hs *HybridState, ce *celt.Encoder) []float64 {
+func computeMDCTForHybridScratch(samples []float32, frameSize, channels int, history []float32, shortBlocks int, hs *HybridState, ce *celt.Encoder) []float64 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -1953,22 +1952,22 @@ func computeMDCTForHybridScratch(samples []float64, frameSize, channels int, his
 			// Match regular CELT path: round overlap history to float32 cadence.
 			needed := overlap + len(samples)
 			if cap(hs.scratchMDCTInput) < needed {
-				hs.scratchMDCTInput = make([]float64, needed)
+				hs.scratchMDCTInput = make([]float32, needed)
 			}
 			input := hs.scratchMDCTInput[:needed]
 			for i := 0; i < overlap; i++ {
-				input[i] = float64(float32(history[i]))
+				input[i] = history[i]
 			}
 			copy(input[overlap:], samples)
 			if shortBlocks > 1 {
-				return ce.MDCTShortScratch(input, shortBlocks)
+				return ce.MDCTShortScratchF32(input, shortBlocks)
 			}
-			return ce.MDCTScratch(input)
+			return ce.MDCTScratchF32(input)
 		}
 		// No history: zero-pad and compute
 		needed := overlap + len(samples)
 		if cap(hs.scratchMDCTInput) < needed {
-			hs.scratchMDCTInput = make([]float64, needed)
+			hs.scratchMDCTInput = make([]float32, needed)
 		}
 		input := hs.scratchMDCTInput[:needed]
 		for i := 0; i < overlap; i++ {
@@ -1976,39 +1975,39 @@ func computeMDCTForHybridScratch(samples []float64, frameSize, channels int, his
 		}
 		copy(input[overlap:], samples)
 		if shortBlocks > 1 {
-			return ce.MDCTShortScratch(input, shortBlocks)
+			return ce.MDCTShortScratchF32(input, shortBlocks)
 		}
-		return ce.MDCTScratch(input)
+		return ce.MDCTScratchF32(input)
 	}
 
 	// Stereo: MDCT each channel separately (L/R) using scratch deinterleave buffers
 	n := len(samples) / 2
 	if cap(hs.scratchDeintLeft) < n {
-		hs.scratchDeintLeft = make([]float64, n)
+		hs.scratchDeintLeft = make([]float32, n)
 	}
 	if cap(hs.scratchDeintRight) < n {
-		hs.scratchDeintRight = make([]float64, n)
+		hs.scratchDeintRight = make([]float32, n)
 	}
 	left := hs.scratchDeintLeft[:n]
 	right := hs.scratchDeintRight[:n]
-	celt.DeinterleaveStereoInto(samples, left, right)
+	celt.DeinterleaveStereoIntoF32(samples, left, right)
 
 	if len(history) >= overlap*2 {
 		needed := overlap + n
 		if cap(hs.scratchMDCTInput) < needed {
-			hs.scratchMDCTInput = make([]float64, needed)
+			hs.scratchMDCTInput = make([]float32, needed)
 		}
 		input := hs.scratchMDCTInput[:needed]
 		// Left channel with rounded overlap history.
 		for i := 0; i < overlap; i++ {
-			input[i] = float64(float32(history[i]))
+			input[i] = history[i]
 		}
 		copy(input[overlap:], left)
 		var mdctLeft, mdctRight []float64
 		if shortBlocks > 1 {
-			mdctLeft = ce.MDCTShortScratch(input, shortBlocks)
+			mdctLeft = ce.MDCTShortScratchF32(input, shortBlocks)
 		} else {
-			mdctLeft = ce.MDCTScratch(input)
+			mdctLeft = ce.MDCTScratchF32(input)
 		}
 		leftLen := len(mdctLeft)
 		resultLen := leftLen + n
@@ -2020,13 +2019,13 @@ func computeMDCTForHybridScratch(samples []float64, frameSize, channels int, his
 
 		// Right channel with rounded overlap history.
 		for i := 0; i < overlap; i++ {
-			input[i] = float64(float32(history[overlap+i]))
+			input[i] = history[overlap+i]
 		}
 		copy(input[overlap:], right)
 		if shortBlocks > 1 {
-			mdctRight = ce.MDCTShortScratch(input, shortBlocks)
+			mdctRight = ce.MDCTShortScratchF32(input, shortBlocks)
 		} else {
-			mdctRight = ce.MDCTScratch(input)
+			mdctRight = ce.MDCTScratchF32(input)
 		}
 		copy(result[leftLen:], mdctRight)
 		return result
@@ -2035,7 +2034,7 @@ func computeMDCTForHybridScratch(samples []float64, frameSize, channels int, his
 	// No history: zero-pad and compute each channel using L/R scratch methods
 	needed := overlap + n
 	if cap(hs.scratchMDCTInput) < needed {
-		hs.scratchMDCTInput = make([]float64, needed)
+		hs.scratchMDCTInput = make([]float32, needed)
 	}
 	input := hs.scratchMDCTInput[:needed]
 	// Left channel
@@ -2045,9 +2044,9 @@ func computeMDCTForHybridScratch(samples []float64, frameSize, channels int, his
 	copy(input[overlap:], left)
 	var mdctLeft, mdctRight []float64
 	if shortBlocks > 1 {
-		mdctLeft = ce.MDCTShortScratch(input, shortBlocks)
+		mdctLeft = ce.MDCTShortScratchF32(input, shortBlocks)
 	} else {
-		mdctLeft = ce.MDCTScratch(input)
+		mdctLeft = ce.MDCTScratchF32(input)
 	}
 	// Copy left result before computing right (they share the same mdctCoeffs scratch)
 	leftLen := len(mdctLeft)
@@ -2065,9 +2064,9 @@ func computeMDCTForHybridScratch(samples []float64, frameSize, channels int, his
 	}
 	copy(input[overlap:], right)
 	if shortBlocks > 1 {
-		mdctRight = ce.MDCTShortScratch(input, shortBlocks)
+		mdctRight = ce.MDCTShortScratchF32(input, shortBlocks)
 	} else {
-		mdctRight = ce.MDCTScratch(input)
+		mdctRight = ce.MDCTScratchF32(input)
 	}
 	copy(result[leftLen:], mdctRight)
 

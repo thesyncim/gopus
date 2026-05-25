@@ -17,7 +17,7 @@ type prefilterResult struct {
 // runPrefilter applies the CELT prefilter (comb filter) and returns the
 // postfilter parameters to signal in the bitstream.
 // This mirrors libopus run_prefilter() in celt_encoder.c.
-func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, enabled bool, tfEstimate float64, nbAvailableBytes int, toneFreq, toneishness, maxPitchRatio float64) prefilterResult {
+func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, enabled bool, tfEstimate float64, nbAvailableBytes int, toneFreq, toneishness, maxPitchRatio float64) prefilterResult {
 	result := prefilterResult{on: false, pitch: combFilterMinPeriod, qg: 0, tapset: tapset, gain: 0}
 	channels := e.channels
 	if channels <= 0 || frameSize <= 0 || len(preemph) == 0 {
@@ -262,7 +262,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
 		}
 		outSub2 := outCh[maxPeriod : maxPeriod+frameSize]
-		copySigToFloat64(preemph[:frameSize], outSub2)
+		copySigToFloat32(preemph[:frameSize], outSub2)
 		if overlap > 0 && len(e.overlapBuffer) >= overlap && frameSize >= overlap {
 			hist := e.overlapBuffer[:overlap]
 			copy(hist, outSub2[frameSize-overlap:])
@@ -283,7 +283,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			copy(memR, memR[frameSize:])
 			copy(memR[maxPeriod-frameSize:], preR[maxPeriod:maxPeriod+frameSize])
 		}
-		interleaveSigToFloat64(outL, outR, preemph[:frameSize*2])
+		interleaveSigToFloat32(outL, outR, preemph[:frameSize*2])
 		if overlap > 0 && len(e.overlapBuffer) >= channels*overlap && frameSize >= overlap {
 			histL := e.overlapBuffer[:overlap]
 			histR := e.overlapBuffer[overlap : 2*overlap]

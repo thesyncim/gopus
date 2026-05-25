@@ -269,6 +269,20 @@ func deinterleaveStereoScratch(interleaved []float64, leftBuf, rightBuf *[]float
 	return left, right
 }
 
+// deinterleaveStereoScratchF32 separates interleaved float-build stereo using
+// float-width scratch buffers.
+func deinterleaveStereoScratchF32(interleaved []float32, leftBuf, rightBuf *[]float32) (left, right []float32) {
+	if len(interleaved) < 2 {
+		return nil, nil
+	}
+
+	n := len(interleaved) / 2
+	left = ensureFloat32Slice(leftBuf, n)
+	right = ensureFloat32Slice(rightBuf, n)
+	DeinterleaveStereoIntoF32(interleaved, left, right)
+	return left, right
+}
+
 // DeinterleaveStereoInto separates interleaved stereo samples into pre-allocated L and R slices.
 // left and right must each have capacity >= len(interleaved)/2.
 func DeinterleaveStereoInto(interleaved, left, right []float64) {
@@ -281,6 +295,22 @@ func DeinterleaveStereoInto(interleaved, left, right []float64) {
 	_ = left[n-1]
 	_ = right[n-1]
 	deinterleaveStereoIntoImpl(interleaved, left, right, n)
+}
+
+// DeinterleaveStereoIntoF32 separates interleaved float-build stereo samples
+// into pre-allocated L and R slices.
+func DeinterleaveStereoIntoF32(interleaved, left, right []float32) {
+	n := len(interleaved) / 2
+	if n <= 0 {
+		return
+	}
+	_ = interleaved[2*n-1]
+	_ = left[n-1]
+	_ = right[n-1]
+	for i := 0; i < n; i++ {
+		left[i] = interleaved[i*2]
+		right[i] = interleaved[i*2+1]
+	}
 }
 
 // InterleaveStereoInto combines separate L and R arrays into a pre-allocated interleaved slice.

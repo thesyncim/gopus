@@ -736,15 +736,15 @@ func (e *Encoder) setPrevEnergyWithPrevGLog(prev, energies []celtGLog) {
 
 // OverlapBuffer returns the overlap buffer for MDCT analysis.
 // Size is Overlap * channels samples.
-func (e *Encoder) OverlapBuffer() []float64 {
-	out := make([]float64, len(e.overlapBuffer))
-	copySigToFloat64(out, e.overlapBuffer)
+func (e *Encoder) OverlapBuffer() []float32 {
+	out := make([]float32, len(e.overlapBuffer))
+	copySigToFloat32(out, e.overlapBuffer)
 	return out
 }
 
 // SetOverlapBuffer copies the given samples to the overlap buffer.
-func (e *Encoder) SetOverlapBuffer(samples []float64) {
-	copyFloat64ToSig(e.overlapBuffer, samples)
+func (e *Encoder) SetOverlapBuffer(samples []float32) {
+	copyFloat32ToSig(e.overlapBuffer, samples)
 }
 
 // PreemphState returns the pre-emphasis filter state.
@@ -1067,11 +1067,10 @@ type encoderScratch struct {
 	combinedBufF32 []float32
 
 	// Pre-emphasized signal buffer
-	preemph []float64
+	preemph []float32
 
 	// Transient analysis input buffer (overlap + frame)
-	transientInput    []float64
-	transientInputF32 []float32
+	transientInput []float32
 
 	// Prefilter (comb filter) scratch buffers
 	prefilterPre      []celtSig
@@ -1095,8 +1094,8 @@ type encoderScratch struct {
 	bandER    []celtEner
 
 	// History buffers for MDCT
-	leftHist  []float64
-	rightHist []float64
+	leftHist  []float32
+	rightHist []float32
 
 	// Range encoder buffer
 	reBuf []byte
@@ -1129,8 +1128,8 @@ type encoderScratch struct {
 	pvqIy    []int
 
 	// Deinterleave buffers
-	deintLeft  []float64
-	deintRight []float64
+	deintLeft  []float32
+	deintRight []float32
 
 	// MDCT forward transform scratch (float32)
 	mdctF           []float32
@@ -1162,7 +1161,7 @@ type encoderScratch struct {
 	encoderQEXTScratchFields
 
 	// MDCT input buffer for ComputeMDCTWithHistory
-	mdctInput []float64
+	mdctInput []float32
 
 	// Band encode scratch (for quantAllBandsEncode)
 	bandEncode bandEncodeScratch
@@ -1204,12 +1203,11 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.combinedBufF32 = ensureFloat32Slice(&s.combinedBufF32, combinedLen)
 
 	// Pre-emphasis buffer
-	s.preemph = ensureFloat64Slice(&s.preemph, expectedLen)
+	s.preemph = ensureFloat32Slice(&s.preemph, expectedLen)
 
 	// Transient analysis input (overlap + frameSize) * channels
 	transientLen := (overlap + frameSize) * channels
-	s.transientInput = ensureFloat64Slice(&s.transientInput, transientLen)
-	s.transientInputF32 = ensureFloat32Slice(&s.transientInputF32, transientLen)
+	s.transientInput = ensureFloat32Slice(&s.transientInput, transientLen)
 
 	// Prefilter scratch buffers
 	maxPeriod := combFilterMaxPeriod
@@ -1261,8 +1259,8 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.bandER = ensureEnerSlice(&s.bandER, MaxBands)
 
 	// History buffers
-	s.leftHist = ensureFloat64Slice(&s.leftHist, overlap)
-	s.rightHist = ensureFloat64Slice(&s.rightHist, overlap)
+	s.leftHist = ensureFloat32Slice(&s.leftHist, overlap)
+	s.rightHist = ensureFloat32Slice(&s.rightHist, overlap)
 
 	// Range encoder buffer
 	bufSize := 256
@@ -1304,8 +1302,8 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.tfRes = ensureIntSlice(&s.tfRes, MaxBands)
 
 	// Deinterleave buffers
-	s.deintLeft = ensureFloat64Slice(&s.deintLeft, frameSize)
-	s.deintRight = ensureFloat64Slice(&s.deintRight, frameSize)
+	s.deintLeft = ensureFloat32Slice(&s.deintLeft, frameSize)
+	s.deintRight = ensureFloat32Slice(&s.deintRight, frameSize)
 
 	// MDCT forward transform scratch (float32)
 	n4 := frameSize / 2 // n4 = frameSize/2 for N=2*frameSize MDCT
@@ -1348,7 +1346,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	}
 
 	// MDCT input buffer for ComputeMDCTWithHistory
-	s.mdctInput = ensureFloat64Slice(&s.mdctInput, frameSize+overlap)
+	s.mdctInput = ensureFloat32Slice(&s.mdctInput, frameSize+overlap)
 
 	// PVQ search buffers
 	maxPVQN := maxBandWidth * 2 // Max band width with stereo doubling

@@ -22,10 +22,10 @@ func TestApplyHybridPrefilterMatchesDisabledRunPrefilter(t *testing.T) {
 		}
 	}
 
-	gotPreemph := make([]float64, frameSize)
-	wantPreemph := make([]float64, frameSize)
+	gotPreemph := make([]float32, frameSize)
+	wantPreemph := make([]float32, frameSize)
 	for i := range gotPreemph {
-		v := float64((i%37)-18) / 64.0
+		v := float32((i%37)-18) / 64.0
 		gotPreemph[i] = v
 		wantPreemph[i] = v
 	}
@@ -35,7 +35,6 @@ func TestApplyHybridPrefilterMatchesDisabledRunPrefilter(t *testing.T) {
 	prevPeriod := want.prefilterPeriod
 	prevGain := want.prefilterGain
 	pfResult := want.runPrefilter(wantPreemph, frameSize, want.TapsetDecision(), false, 0.91, 14, 0.22, 0.18, float64(want.analysisMaxPitchRatio))
-	roundFloat64ToFloat32(wantPreemph)
 	want.lastPitchChange = false
 	if prevPeriod > 0 && (pfResult.gain > 0.4 || prevGain > 0.4) {
 		upper := int(1.26 * float64(prevPeriod))
