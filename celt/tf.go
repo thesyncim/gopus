@@ -1,8 +1,6 @@
 package celt
 
 import (
-	"math"
-
 	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/util"
 )
@@ -200,21 +198,6 @@ func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsb
 	return importance
 }
 
-// l1Metric computes the L1 metric for TF analysis with a bias term.
-// The bias favors frequency resolution when in doubt.
-//
-// Reference: libopus celt/celt_encoder.c l1_metric()
-func l1Metric(tmp []float64, N int, LM int, bias float64) float64 {
-	var L1 float32
-	bias32 := float32(bias)
-	for i := 0; i < N && i < len(tmp); i++ {
-		L1 += float32(math.Abs(tmp[i]))
-	}
-	// When in doubt, prefer good frequency resolution
-	L1 = L1 + float32(LM)*bias32*L1
-	return float64(L1)
-}
-
 func l1MetricNorm(tmp []celtNorm, N int, LM int, bias float32) float32 {
 	var L1 float32
 	for i := 0; i < N && i < len(tmp); i++ {
@@ -225,6 +208,14 @@ func l1MetricNorm(tmp []celtNorm, N int, LM int, bias float32) float32 {
 		L1 += v
 	}
 	return L1 + float32(LM)*bias*L1
+}
+
+func tfAnalysisBias(tfEstimate opusVal16) opusVal16 {
+	v := float32(0.5) - float32(tfEstimate)
+	if v < -0.25 {
+		v = -0.25
+	}
+	return opusVal16(0.04 * v)
 }
 
 func haar1Norm(x []celtNorm, n0, stride int) {
@@ -266,7 +257,7 @@ func haar1Norm(x []celtNorm, n0, stride int) {
 //   - tfSelect: TF select flag for bitstream
 //
 // Reference: libopus celt/celt_encoder.c tf_analysis()
-func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstimate float64, effectiveBytes int, importance []int) (tfRes []int, tfSelect int) {
+func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEstimate opusVal16, effectiveBytes int, importance []int) (tfRes []int, tfSelect int) {
 	tfRes = make([]int, nbEBands)
 
 	// Note: Unlike earlier versions, we do NOT skip TF analysis for LM=0.
@@ -284,11 +275,11 @@ func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstim
 	// Compute bias: slightly prefer frequency resolution when uncertain
 	// bias = 0.04 * max(-0.25, 0.5 - tfEstimate)
 	// Keep TF metric arithmetic in float32 to mirror libopus float path.
-	bias := float64(float32(0.04 * math.Max(-0.25, 0.5-tfEstimate)))
+	bias := float32(tfAnalysisBias(tfEstimate))
 
 	// Compute per-band metric
 	metric := make([]int, nbEBands)
-	tmp := make([]float64, 0, (EBands[nbEBands]-EBands[nbEBands-1])<<lm)
+	tmp := make([]celtNorm, 0, (EBands[nbEBands]-EBands[nbEBands-1])<<lm)
 
 	for i := 0; i < nbEBands; i++ {
 		bandStart := EBands[i] << lm
@@ -300,7 +291,7 @@ func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstim
 
 		// Copy band coefficients to tmp
 		if cap(tmp) < N {
-			tmp = make([]float64, N)
+			tmp = make([]celtNorm, N)
 		} else {
 			tmp = tmp[:N]
 		}
@@ -314,16 +305,16 @@ func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstim
 		if isTransient {
 			initLM = lm
 		}
-		L1 := l1Metric(tmp, N, initLM, bias)
+		L1 := l1MetricNorm(tmp, N, initLM, bias)
 		bestL1 := L1
 		bestLevel := 0
 
 		// Check the -1 case for transients (more time resolution)
 		if isTransient && !narrow {
-			tmp1 := make([]float64, N)
+			tmp1 := make([]celtNorm, N)
 			copy(tmp1, tmp)
-			haar1(tmp1, N>>lm, 1<<lm)
-			L1 = l1Metric(tmp1, N, lm+1, bias)
+			haar1Norm(tmp1, N>>lm, 1<<lm)
+			L1 = l1MetricNorm(tmp1, N, lm+1, bias)
 			if L1 < bestL1 {
 				bestL1 = L1
 				bestLevel = -1
@@ -343,8 +334,8 @@ func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstim
 				B = k + 1
 			}
 
-			haar1(tmp, N>>k, 1<<k)
-			L1 = l1Metric(tmp, N, B, bias)
+			haar1Norm(tmp, N>>k, 1<<k)
+			L1 = l1MetricNorm(tmp, N, B, bias)
 
 			if L1 < bestL1 {
 				bestL1 = L1
@@ -519,7 +510,7 @@ func (s *TFAnalysisScratch) EnsureTFAnalysisScratch(nbEBands, maxBandWidth int) 
 }
 
 // TFAnalysisWithScratch is the zero-allocation version of TFAnalysis.
-func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstimate float64, effectiveBytes int, importance []int, scratch *TFAnalysisScratch) (tfRes []int, tfSelect int) {
+func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEstimate opusVal16, effectiveBytes int, importance []int, scratch *TFAnalysisScratch) (tfRes []int, tfSelect int) {
 	if scratch == nil {
 		return TFAnalysis(X, N0, nbEBands, isTransient, lm, tfEstimate, effectiveBytes, importance)
 	}
@@ -546,7 +537,7 @@ func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm i
 	}
 
 	// Keep TF metric arithmetic in float32 to mirror libopus float path.
-	bias := float32(0.04 * math.Max(-0.25, 0.5-tfEstimate))
+	bias := float32(tfAnalysisBias(tfEstimate))
 
 	metric := scratch.Metric[:nbEBands]
 	tmp := scratch.Tmp
@@ -561,7 +552,7 @@ func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm i
 		// Use scratch buffer
 		tmpSlice := tmp[:N]
 		for j := 0; j < N && bandStart+j < len(X); j++ {
-			tmpSlice[j] = celtNorm(X[bandStart+j])
+			tmpSlice[j] = X[bandStart+j]
 		}
 
 		var initLM int

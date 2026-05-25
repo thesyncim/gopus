@@ -6,6 +6,12 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+func float64sToNorms(in []float64) []celtNorm {
+	out := make([]celtNorm, len(in))
+	copyFloat64ToNorm(out, in)
+	return out
+}
+
 // TestTFDecodeTable validates that tfSelectTable matches libopus tf_select_table.
 // Source: libopus celt/celt.c
 func TestTFDecodeTable(t *testing.T) {
@@ -572,7 +578,7 @@ func TestTFAnalysisBasic(t *testing.T) {
 				X[i] = float64(i%10-5) / 10.0
 			}
 
-			tfRes, tfSelect := TFAnalysis(X, N0, tc.nbBands, tc.isTransient, tc.lm, 0.5, tc.effectiveBytes, nil)
+			tfRes, tfSelect := TFAnalysis(float64sToNorms(X), N0, tc.nbBands, tc.isTransient, tc.lm, opusVal16(0.5), tc.effectiveBytes, nil)
 
 			// Verify output dimensions
 			if len(tfRes) != tc.nbBands {
@@ -613,7 +619,7 @@ func TestTFAnalysisWithTransient(t *testing.T) {
 		X[i] = 1.0
 	}
 
-	tfRes, tfSelect := TFAnalysis(X, N0, nbBands, true, lm, 0.2, 160, nil)
+	tfRes, tfSelect := TFAnalysis(float64sToNorms(X), N0, nbBands, true, lm, opusVal16(0.2), 160, nil)
 
 	// Just verify we get valid output - the exact values depend on the algorithm
 	if len(tfRes) != nbBands {
@@ -730,7 +736,7 @@ func TestL1Metric(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := l1Metric(tc.tmp, tc.N, tc.LM, tc.bias)
+			result := float64(l1MetricNorm(float64sToNorms(tc.tmp), tc.N, tc.LM, float32(tc.bias)))
 			// Allow small floating point tolerance
 			tolerance := 0.0001
 			if result < tc.expected-tolerance || result > tc.expected+tolerance {

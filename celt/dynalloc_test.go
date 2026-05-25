@@ -1080,6 +1080,7 @@ func TestImportanceIntegrationWithTF(t *testing.T) {
 	for i := range X {
 		X[i] = math.Sin(float64(i)*0.1) * 0.1
 	}
+	XNorm := float64sToNorms(X)
 
 	lm := 3
 	isTransient := false
@@ -1087,13 +1088,13 @@ func TestImportanceIntegrationWithTF(t *testing.T) {
 	effectiveBytes := 200
 
 	// Test with nil importance (should use default 13)
-	tfRes1, tfSelect1 := TFAnalysis(X, N0, nbBands, isTransient, lm, tfEstimate, effectiveBytes, nil)
+	tfRes1, tfSelect1 := TFAnalysis(XNorm, N0, nbBands, isTransient, lm, opusVal16(tfEstimate), effectiveBytes, nil)
 
 	// Test with computed importance
 	bandLogE := generateRealisticBandEnergies(nbBands)
 	oldBandE := generateFlatBandEnergies(MaxBands, 5.0)
 	importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, 1, lm, 16, effectiveBytes)
-	tfRes2, tfSelect2 := TFAnalysis(X, N0, nbBands, isTransient, lm, tfEstimate, effectiveBytes, importance)
+	tfRes2, tfSelect2 := TFAnalysis(XNorm, N0, nbBands, isTransient, lm, opusVal16(tfEstimate), effectiveBytes, importance)
 
 	t.Logf("TF with nil importance: tfSelect=%d, tfRes=%v", tfSelect1, tfRes1)
 	t.Logf("TF with computed importance: tfSelect=%d, tfRes=%v", tfSelect2, tfRes2)

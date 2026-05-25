@@ -525,7 +525,6 @@ celt/history_slide_default.go	1	a311ca73e0aa3b36538d5685e1356ed0c9fb73d795685969
 celt/hybrid_encode_helpers.go	1	0a5dd55c9cd570f546c2af3d53c4da59495b419cf697cd81a87f13fe2423cdca	legacy-current	func (e *Encoder) UpdateTonalityAnalysisHybrid(normCoeffs []float64, energies []celtGLog, nbBands, frameSize int) {
 celt/hybrid_encode_helpers.go	1	0d76b23dee6d191670bb9f91baaa071ae8582ed5b3e52ef5da2726a4f9f619fd	legacy-current	hist = make([]float64, overlap)
 celt/hybrid_encode_helpers.go	1	125a7c02f2a9e8768e8c61229f78d5e3052cb8d8b520ff4fb5a9cc6622de1731	legacy-current	transientInput = make([]float64, transientLen)
-celt/hybrid_encode_helpers.go	1	1aed532a03de4e3aff498e85f9c612d8a4840b9bc5093700cf9ee59ce43791fa	legacy-current	func (e *Encoder) TFAnalysisHybridScratch(norm []float64, nbBands int, transient bool, lm int, tfEstimate float64, effectiveBytes int, importance []int) ([]int, int) {
 celt/hybrid_encode_helpers.go	1	231a6f9bee79d09de40a4cc2789b672a456bf7ce5628f03321da3158bb222328	legacy-current	func (e *Encoder) RoundFloat64ToFloat32(x []float64) {
 celt/hybrid_encode_helpers.go	1	3d093f11683524fc08efec8093353ff6e93bd002452da6495855a7bb239a0782	legacy-current	func (e *Encoder) MDCTShortScratch(samples []float64, shortBlocks int) []float64 {
 celt/hybrid_encode_helpers.go	1	44c38774b8ca4e34dfca7380a2484bd85a8e33582147224060bf40972336913a	legacy-current	func (e *Encoder) NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight []float64, nbBands, frameSize int) (normL, normR []float64, bandE []celtEner) {
@@ -1057,14 +1056,6 @@ celt/synthesis.go	1	f479d87caac12bc0b24c7185d297cc44447140d994b786e7f15157efd641
 celt/tables.go	1	41c6248cabf62531f6e1083055df0a686583948920bb54071c680005bb29bb35	legacy-current	var eMeans = [25]float64{
 celt/tables.go	1	660cf419425ea17be6d0564360ed1979ef679bdcc8a487bbd8bfb5b28423e276	legacy-current	var AlphaCoef = [4]float64{
 celt/tables.go	1	be854f5a1fe466c224e784b061896e0b2288ed8d152bdcf6b64529140ee718bb	legacy-current	var BetaCoefInter = [4]float64{
-celt/tf.go	1	47b9914c62ad611ccd038670a7e65e32c366804467c9323e5a4ff62a123d8de9	legacy-current	func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstimate float64, effectiveBytes int, importance []int) (tfRes []int, tfSelect int) {
-celt/tf.go	1	4fa5a5517d0083f307853847bde92cbc6522f194c7b1ae7862337c62f37c8e8b	legacy-current	func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstimate float64, effectiveBytes int, importance []int, scratch *TFAnalysisScratch) (tfRes []int, tfSelect int) {
-celt/tf.go	1	9b400bfaa925ef9f0ba0696587628df01e925dfd9a5b2c33c06175079b85d378	legacy-current	return float64(L1)
-celt/tf.go	1	a7500ad31e6b8c15bbdc2ae556bed3ad87e5703191cd46630a6d43c139ca1cef	legacy-current	bias := float64(float32(0.04 * math.Max(-0.25, 0.5-tfEstimate)))
-celt/tf.go	1	a7e6ab289bd2d13d496e2c90a94bafcf81c3861978f9d6531916993e90467d2c	legacy-current	tmp := make([]float64, 0, (EBands[nbEBands]-EBands[nbEBands-1])<<lm)
-celt/tf.go	1	ab73afd26741af21d332261dc6f6d06fa47f7735226b662eb865c70be18c8649	legacy-current	tmp = make([]float64, N)
-celt/tf.go	1	d92fd6bac9c673a70ca6925f9992b78fd4bad0cd9ab0d0cd2cd1bc477d290715	legacy-current	func l1Metric(tmp []float64, N int, LM int, bias float64) float64 {
-celt/tf.go	1	ec55d0cebfee47ab9ffb6de10fde5f59a24ad0c5360c9d653ea7cbfb446215e4	legacy-current	tmp1 := make([]float64, N)
 celt/tonality.go	1	099dba02ea65bd9bd2a33dda49e4ccb7af6a15dbaa1e881380a8ae5c0e65ba6c	legacy-current	var sumLog2, sum float64
 celt/tonality.go	1	0bd160a5a874d5398f75c121c3b735736b95045a99e7cf8c35daa7b2d2c0bea1	legacy-current	Tonality float64 // Overall tonality (0=noise, 1=pure tone)
 celt/tonality.go	1	1597e6460dd07e7e3d44611f4427eec9dc56234732fc573a235bac8d15ab70a9	legacy-current	func computeTonalityFromNormalized(normCoeffs []float64, nbBands, frameSize int) tonalityAnalysisResult {

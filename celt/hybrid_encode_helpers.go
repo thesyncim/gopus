@@ -546,7 +546,7 @@ func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2 []celtGLog, 
 }
 
 // TFAnalysisHybridScratch runs TF analysis using the encoder's scratch buffers.
-func (e *Encoder) TFAnalysisHybridScratch(norm []float64, nbBands int, transient bool, lm int, tfEstimate float64, effectiveBytes int, importance []int) ([]int, int) {
+func (e *Encoder) TFAnalysisHybridScratch(norm []celtNorm, nbBands int, transient bool, lm int, tfEstimate opusVal16, effectiveBytes int, importance []int) ([]int, int) {
 	return TFAnalysisWithScratch(norm, len(norm), nbBands, transient, lm, tfEstimate, effectiveBytes, importance, &e.tfScratch)
 }
 

@@ -276,10 +276,11 @@ func TestComputeImportanceIntegration(t *testing.T) {
 	importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, channels, lm, lsbDepth, effectiveBytes)
 
 	// Use importance in TF analysis
-	tfResWithImportance, tfSelectWithImportance := TFAnalysis(X, N0, nbBands, false, lm, 0.5, effectiveBytes, importance)
+	XNorm := float64sToNorms(X)
+	tfResWithImportance, tfSelectWithImportance := TFAnalysis(XNorm, N0, nbBands, false, lm, opusVal16(0.5), effectiveBytes, importance)
 
 	// Compare with nil importance (uniform)
-	tfResWithoutImportance, tfSelectWithoutImportance := TFAnalysis(X, N0, nbBands, false, lm, 0.5, effectiveBytes, nil)
+	tfResWithoutImportance, tfSelectWithoutImportance := TFAnalysis(XNorm, N0, nbBands, false, lm, opusVal16(0.5), effectiveBytes, nil)
 
 	// Both should produce valid results
 	if len(tfResWithImportance) != nbBands {

@@ -194,12 +194,13 @@ func TestTfEstimateUsedInTFAnalysis(t *testing.T) {
 		// Add some frequency content
 		normL[i] = math.Sin(2*math.Pi*float64(i)*10/float64(frameSize)) * 0.5
 	}
+	normLNorm := float64sToNorms(normL)
 
 	// Test with different tf_estimate values
 	tfEstimates := []float64{0.0, 0.2, 0.5, 0.8, 1.0}
 
 	for _, tfEst := range tfEstimates {
-		tfRes, tfSelect := TFAnalysis(normL, len(normL), nbBands, false, lm, tfEst, 100, nil)
+		tfRes, tfSelect := TFAnalysis(normLNorm, len(normLNorm), nbBands, false, lm, opusVal16(tfEst), 100, nil)
 
 		// Count how many bands use tf_res=1 (favor time resolution)
 		timeResBands := 0
@@ -217,7 +218,7 @@ func TestTfEstimateUsedInTFAnalysis(t *testing.T) {
 	// but we verify that different tf_estimate values are accepted
 	// and produce valid output
 	for _, tfEst := range tfEstimates {
-		tfRes, _ := TFAnalysis(normL, len(normL), nbBands, false, lm, tfEst, 100, nil)
+		tfRes, _ := TFAnalysis(normLNorm, len(normLNorm), nbBands, false, lm, opusVal16(tfEst), 100, nil)
 		if len(tfRes) != nbBands {
 			t.Errorf("tfEstimate=%.2f: expected %d bands, got %d", tfEst, nbBands, len(tfRes))
 		}

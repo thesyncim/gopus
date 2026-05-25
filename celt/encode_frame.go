@@ -777,6 +777,13 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		normL, normR, bandE = e.NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight, nbBands, frameSize)
 	}
 	_ = normBandEScratch
+	normLCelt := ensureNormSlice(&e.scratch.allocTrimNormL, len(normL))
+	copyFloat64ToNorm(normLCelt, normL)
+	var normRCelt []celtNorm
+	if codedChannels == 2 {
+		normRCelt = ensureNormSlice(&e.scratch.allocTrimNormR, len(normR))
+		copyFloat64ToNorm(normRCelt, normR)
+	}
 
 	// Step 11.0.6: Compute tonality analysis only when it can feed the next
 	// frame's VBR target. CBR target sizing does not consume this state.
@@ -907,11 +914,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 		// Use the normalized coefficients for TF analysis (zero-alloc version).
 		// In stereo, match libopus by selecting the channel flagged by transient analysis.
-		tfInput := normL
+		tfInput := normLCelt
 		if codedChannels == 2 && tfChannel == 1 {
-			tfInput = normR
+			tfInput = normRCelt
 		}
-		tfRes, tfSelect = TFAnalysisWithScratch(tfInput, len(tfInput), nbBands, transient, lm, tfEstimate, effectiveBytes, importance, &e.tfScratch)
+		tfRes, tfSelect = TFAnalysisWithScratch(tfInput, len(tfInput), nbBands, transient, lm, opusVal16(tfEstimate), effectiveBytes, importance, &e.tfScratch)
 
 		// Encode TF decisions using the computed values
 		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
@@ -1110,16 +1117,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			if e.analysisValid {
 				tonalitySlope = float64(e.analysisTonalitySlope)
 			}
-			trimNormL := e.scratch.allocTrimNormL[:len(normL)]
-			for i, v := range normL {
-				trimNormL[i] = celtNorm(v)
-			}
+			trimNormL := normLCelt
 			var trimNormR []celtNorm
 			if codedChannels == 2 {
-				trimNormR = e.scratch.allocTrimNormR[:len(normR)]
-				for i, v := range normR {
-					trimNormR[i] = celtNorm(v)
-				}
+				trimNormR = normRCelt
 			}
 			trimBandLogE := e.scratch.allocTrimBandLogE[:nbBands*codedChannels]
 			for i := range trimBandLogE {
