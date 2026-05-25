@@ -124,7 +124,7 @@ func buildScenarios() ([]scenario, error) {
 		}, nil
 	}
 
-	encodeMonoFrame := func(name string, bitrate int, input []float64) (scenario, error) {
+	encodeMonoFrame := func(name string, bitrate int, input []float32) (scenario, error) {
 		enc := celt.NewEncoder(1)
 		enc.SetBitrate(bitrate)
 		packet, err := enc.EncodeFrame(input, 960)
@@ -134,7 +134,7 @@ func buildScenarios() ([]scenario, error) {
 		return makeScenario(name, 1, [][]byte{cloneBytes(packet)})
 	}
 
-	encodeStereoFrame := func(name string, bitrate int, input []float64) (scenario, error) {
+	encodeStereoFrame := func(name string, bitrate int, input []float32) (scenario, error) {
 		enc := celt.NewEncoder(2)
 		enc.SetBitrate(bitrate)
 		packet, err := enc.EncodeFrame(input, 960)
@@ -144,7 +144,7 @@ func buildScenarios() ([]scenario, error) {
 		return makeScenario(name, 2, [][]byte{cloneBytes(packet)})
 	}
 
-	encodeMonoFrames := func(name string, bitrate int, frames [][]float64) (scenario, error) {
+	encodeMonoFrames := func(name string, bitrate int, frames [][]float32) (scenario, error) {
 		enc := celt.NewEncoder(1)
 		enc.SetBitrate(bitrate)
 		packets := make([][]byte, len(frames))
@@ -158,7 +158,7 @@ func buildScenarios() ([]scenario, error) {
 		return makeScenario(name, 1, packets)
 	}
 
-	encodeStereoFramesCBR := func(name string, bitrate int, frames [][]float64) (scenario, error) {
+	encodeStereoFramesCBR := func(name string, bitrate int, frames [][]float32) (scenario, error) {
 		enc := celt.NewEncoder(2)
 		enc.SetBitrate(bitrate)
 		enc.SetVBR(false)
@@ -188,8 +188,8 @@ func buildScenarios() ([]scenario, error) {
 
 	add(encodeMonoFrames("mono_20ms_single", 64000, buildMonoSineFrames(440.0, 960, 3)))
 	add(encodeStereoFrame("stereo_20ms_single", 128000, generateStereoSineWave(440.0, 880.0, 960)))
-	add(encodeMonoFrame("mono_20ms_silence", 64000, make([]float64, 960)))
-	add(encodeMonoFrames("mono_20ms_multiframe", 64000, [][]float64{
+	add(encodeMonoFrame("mono_20ms_silence", 64000, make([]float32, 960)))
+	add(encodeMonoFrames("mono_20ms_multiframe", 64000, [][]float32{
 		generateSineWave(440.0, 960),
 		generateSineWave(540.0, 960),
 		generateSineWave(640.0, 960),
@@ -201,8 +201,8 @@ func buildScenarios() ([]scenario, error) {
 	add(encodeMonoFrame("mono_20ms_noise", 32000, buildMonoFramePseudoNoise(960)))
 	add(encodeMonoFrame("mono_20ms_lowamp", 24000, scaleSignal(generateSineWave(880.0, 960), 0.12)))
 	add(encodeStereoFrame("stereo_20ms_chirp", 96000, buildStereoFrameChirp(960)))
-	add(encodeStereoFrame("stereo_20ms_silence", 96000, make([]float64, 960*2)))
-	add(encodeStereoFramesCBR("stereo_20ms_multiframe", 96000, [][]float64{
+	add(encodeStereoFrame("stereo_20ms_silence", 96000, make([]float32, 960*2)))
+	add(encodeStereoFramesCBR("stereo_20ms_multiframe", 96000, [][]float32{
 		buildStereoFrameDualTone(960, 300.0, 500.0),
 		buildStereoFrameDualTone(960, 520.0, 920.0),
 		buildStereoFrameDualTone(960, 760.0, 1240.0),
@@ -229,104 +229,104 @@ func clonePacketMatrix(in [][]byte) [][]byte {
 	return out
 }
 
-func generateSineWave(freqHz float64, numSamples int) []float64 {
-	samples := make([]float64, numSamples)
+func generateSineWave(freqHz float64, numSamples int) []float32 {
+	samples := make([]float32, numSamples)
 	sampleRate := 48000.0
 	for i := 0; i < numSamples; i++ {
 		t := float64(i) / sampleRate
-		samples[i] = 0.5 * math.Sin(2*math.Pi*freqHz*t)
+		samples[i] = float32(0.5 * math.Sin(2*math.Pi*freqHz*t))
 	}
 	return samples
 }
 
-func generateStereoSineWave(freqL, freqR float64, samplesPerChannel int) []float64 {
-	samples := make([]float64, samplesPerChannel*2)
+func generateStereoSineWave(freqL, freqR float64, samplesPerChannel int) []float32 {
+	samples := make([]float32, samplesPerChannel*2)
 	sampleRate := 48000.0
 	for i := 0; i < samplesPerChannel; i++ {
 		t := float64(i) / sampleRate
-		samples[i*2] = 0.5 * math.Sin(2*math.Pi*freqL*t)
-		samples[i*2+1] = 0.5 * math.Sin(2*math.Pi*freqR*t)
+		samples[i*2] = float32(0.5 * math.Sin(2*math.Pi*freqL*t))
+		samples[i*2+1] = float32(0.5 * math.Sin(2*math.Pi*freqR*t))
 	}
 	return samples
 }
 
-func buildMonoFrameChirp(samples int, startHz, endHz float64) []float64 {
-	out := make([]float64, samples)
+func buildMonoFrameChirp(samples int, startHz, endHz float64) []float32 {
+	out := make([]float32, samples)
 	for i := 0; i < samples; i++ {
 		t := float64(i) / 48000.0
 		progress := float64(i) / float64(samples-1)
 		freq := startHz + (endHz-startHz)*progress
 		amp := 0.48 * (0.7 + 0.3*math.Sin(2*math.Pi*2.0*t))
-		out[i] = amp * math.Sin(2*math.Pi*freq*t)
+		out[i] = float32(amp * math.Sin(2*math.Pi*freq*t))
 	}
 	return out
 }
 
-func buildMonoSineFrames(freqHz float64, frameSize, numFrames int) [][]float64 {
+func buildMonoSineFrames(freqHz float64, frameSize, numFrames int) [][]float32 {
 	total := frameSize * numFrames
-	all := make([]float64, total)
+	all := make([]float32, total)
 	for i := 0; i < total; i++ {
 		t := float64(i) / 48000.0
-		all[i] = 0.5 * math.Sin(2*math.Pi*freqHz*t)
+		all[i] = float32(0.5 * math.Sin(2*math.Pi*freqHz*t))
 	}
-	frames := make([][]float64, numFrames)
+	frames := make([][]float32, numFrames)
 	for i := 0; i < numFrames; i++ {
 		start := i * frameSize
 		end := start + frameSize
-		frame := make([]float64, frameSize)
+		frame := make([]float32, frameSize)
 		copy(frame, all[start:end])
 		frames[i] = frame
 	}
 	return frames
 }
 
-func buildMonoChirpFrames(frameSize, numFrames int, startHz, endHz float64) [][]float64 {
+func buildMonoChirpFrames(frameSize, numFrames int, startHz, endHz float64) [][]float32 {
 	total := frameSize * numFrames
-	all := make([]float64, total)
+	all := make([]float32, total)
 	for i := 0; i < total; i++ {
 		t := float64(i) / 48000.0
 		progress := float64(i) / float64(total-1)
 		freq := startHz + (endHz-startHz)*progress
 		amp := 0.48 * (0.7 + 0.3*math.Sin(2*math.Pi*2.0*t))
-		all[i] = amp * math.Sin(2*math.Pi*freq*t)
+		all[i] = float32(amp * math.Sin(2*math.Pi*freq*t))
 	}
-	frames := make([][]float64, numFrames)
+	frames := make([][]float32, numFrames)
 	for i := 0; i < numFrames; i++ {
 		start := i * frameSize
 		end := start + frameSize
-		frame := make([]float64, frameSize)
+		frame := make([]float32, frameSize)
 		copy(frame, all[start:end])
 		frames[i] = frame
 	}
 	return frames
 }
 
-func buildMonoFrameImpulse(samples int) []float64 {
-	out := make([]float64, samples)
+func buildMonoFrameImpulse(samples int) []float32 {
+	out := make([]float32, samples)
 	for i := 0; i < samples; i++ {
 		if i%120 == 0 {
 			out[i] = 0.9
 			continue
 		}
 		decay := math.Exp(-float64(i%120) / 22.0)
-		out[i] = 0.25 * decay * math.Sin(2*math.Pi*2200.0*float64(i)/48000.0)
+		out[i] = float32(0.25 * decay * math.Sin(2*math.Pi*2200.0*float64(i)/48000.0))
 	}
 	return out
 }
 
-func buildMonoFramePseudoNoise(samples int) []float64 {
-	out := make([]float64, samples)
+func buildMonoFramePseudoNoise(samples int) []float32 {
+	out := make([]float32, samples)
 	var x uint32 = 0x1badf00d
 	for i := 0; i < samples; i++ {
 		x = 1664525*x + 1013904223
 		v := float64((x>>9)&0x7fffff) / float64(0x7fffff)
-		out[i] = 0.42 * (2.0*v - 1.0)
+		out[i] = float32(0.42 * (2.0*v - 1.0))
 	}
 	return out
 }
 
-func buildStereoFrameChirp(samples int) []float64 {
-	out := make([]float64, samples*2)
+func buildStereoFrameChirp(samples int) []float32 {
+	out := make([]float32, samples*2)
 	left := buildMonoFrameChirp(samples, 220.0, 4200.0)
 	right := buildMonoFrameChirp(samples, 4200.0, 220.0)
 	for i := 0; i < samples; i++ {
@@ -336,20 +336,20 @@ func buildStereoFrameChirp(samples int) []float64 {
 	return out
 }
 
-func buildStereoFrameDualTone(samples int, fL, fR float64) []float64 {
-	out := make([]float64, samples*2)
+func buildStereoFrameDualTone(samples int, fL, fR float64) []float32 {
+	out := make([]float32, samples*2)
 	for i := 0; i < samples; i++ {
 		t := float64(i) / 48000.0
-		out[i*2] = 0.5*math.Sin(2*math.Pi*fL*t) + 0.18*math.Sin(2*math.Pi*3.0*fL*t)
-		out[i*2+1] = 0.5*math.Sin(2*math.Pi*fR*t) + 0.15*math.Sin(2*math.Pi*2.0*fR*t)
+		out[i*2] = float32(0.5*math.Sin(2*math.Pi*fL*t) + 0.18*math.Sin(2*math.Pi*3.0*fL*t))
+		out[i*2+1] = float32(0.5*math.Sin(2*math.Pi*fR*t) + 0.15*math.Sin(2*math.Pi*2.0*fR*t))
 	}
 	return out
 }
 
-func scaleSignal(in []float64, gain float64) []float64 {
-	out := make([]float64, len(in))
+func scaleSignal(in []float32, gain float64) []float32 {
+	out := make([]float32, len(in))
 	for i, v := range in {
-		out[i] = v * gain
+		out[i] = float32(float64(v) * gain)
 	}
 	return out
 }
