@@ -1,14 +1,14 @@
 # Agent Instructions
 
-## Libopus Type Parity Rule
+## Libopus Byte Parity Rule
 
-This repository targets libopus 1.6.1 parity. Runtime codec-domain storage must use the same scalar width as libopus, including temporary scratch buffers.
+This repository targets libopus 1.6.1 byte parity. The active goal is exact packet payload and final-range alignment with the pinned libopus fixtures, not broad type churn.
 
-- In the libopus float build, `opus_val16`, `opus_val32`, `opus_val64`, `opus_res`, `celt_sig`, `celt_norm`, `celt_ener`, `celt_glog`, `celt_coef`, and `silk_float` are C `float`; use Go `float32` or the matching local alias.
-- Scratch is in scope. Reusable scratch fields, local temporary slices, conversion buffers, MDCT/PVQ/energy/PLC/QEXT/DRED buffers, and helper allocators must follow libopus width too.
-- Do not add runtime `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, or `ensureComplexSlice` unless the matching libopus source uses C `double` for that exact helper. Cite the C file/function in the code or the baseline reason.
-- Use `int32`/`uint32`/fixed-width integer helpers for libopus arithmetic and state. Use Go `int` only for indexes, lengths, loop counters, or deliberate public Go API ergonomics.
-- Before finishing a codec/runtime change, run `make test-type-parity`.
-- Do not run `make update-type-parity-baseline` to hide new debt. Refresh the baseline only when cleanup removed legacy findings, or when a remaining `float64` is intentionally tied to a specific C `double` helper.
+- Prioritize byte-identical encoder/decoder behavior: packet bytes, final range, range-coder event order, allocation decisions, and fixture provenance.
+- Do not change quality thresholds, fixture baselines, allowlists, or ratchets to hide byte drift. Fix the root codec decision, state, or math ordering issue first.
+- When changing codec/runtime behavior, compare against libopus C sources and existing oracle helpers. Cite the libopus file/function in code comments or test names when the fix depends on a subtle ordering rule.
+- Scratch/type changes are allowed only when they directly explain a byte or final-range mismatch. Do not spend agent time on type-parity cleanup as a standalone objective.
+- Before finishing a byte-parity change, run the narrow failing fixture or oracle test first, then the relevant package test. For encoder fixtures, prefer `GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 go test ./testvectors -run '<focused fixture>' -count=1 -v`.
+- If a mismatch remains, document the first divergent case, frame, packet byte, final range, and suspected codec stage in the commit or report so the next agent can continue from evidence.
 
-If the guard fails, migrate the code to the libopus-width type first. Treat allowlist edits as review-visible evidence, not a shortcut.
+Treat fixture/baseline edits as review-visible evidence, not a shortcut.
