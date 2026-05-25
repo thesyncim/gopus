@@ -9,69 +9,32 @@ import "math"
 //
 // Reference: RFC 6716 Section 4.3.4, libopus celt/bands.c
 
-// FoldBand generates a normalized vector by folding from a lower band.
-// lowband: the source band vector (already decoded and normalized)
-// n: width of target band (number of MDCT bins)
-// seed: RNG state for sign variation (modified in place)
-// Returns: normalized vector of length n with unit L2 norm.
-//
-// If lowband is empty or nil, generates pseudo-random noise instead.
-func FoldBand(lowband []float64, n int, seed *uint32) []float64 {
+// FoldBand generates a normalized celt_norm vector by folding from a lower band.
+func FoldBand(lowband []celtNorm, n int, seed *uint32) []celtNorm {
 	if n <= 0 {
 		return nil
 	}
 
-	result := make([]float64, n)
+	result := make([]celtNorm, n)
 
 	if len(lowband) == 0 {
-		// No source band available - generate pseudo-random noise
-		// Uses LCG (Linear Congruential Generator) matching libopus
 		for i := 0; i < n; i++ {
-			*seed = *seed*1664525 + 1013904223 // LCG constants
-			// Convert to signed float in approximately [-1, 1]
-			result[i] = float64(int32(*seed)) / float64(1<<31)
+			*seed = *seed*1664525 + 1013904223
+			result[i] = celtNorm(float32(int32(*seed)) / float32(1<<31))
 		}
 	} else {
-		// Copy from lower band with pseudo-random sign flips
-		// The sign is determined by bit 15 of the RNG state
 		for i := 0; i < n; i++ {
-			// Determine sign from current seed
-			sign := 1.0
+			sign := float32(1.0)
 			if *seed&0x8000 != 0 {
 				sign = -1.0
 			}
-			// Advance RNG
 			*seed = *seed*1664525 + 1013904223
-
-			// Copy from lowband with wrapping if target is larger
-			result[i] = sign * lowband[i%len(lowband)]
+			result[i] = celtNorm(sign * float32(lowband[i%len(lowband)]))
 		}
 	}
 
-	// Normalize to unit energy
-	return NormalizeVector(result)
-}
-
-// foldBandInto generates a normalized vector by folding directly into a pre-allocated buffer.
-// This is the zero-allocation version used in the hot path.
-// lowband: the source band vector (already decoded and normalized)
-// n: width of target band (number of MDCT bins)
-// dst: pre-allocated destination buffer of length >= n
-//
-// If lowband is empty or nil, generates pseudo-random noise instead.
-func (d *Decoder) foldBandInto(lowband []float64, n int, dst []float64) {
-	if n <= 0 || len(dst) < n {
-		return
-	}
-
-	tmp := d.scratchBands.ensureFoldResult(n)
-	var lowbandNorm []celtNorm
-	if len(lowband) > 0 {
-		lowbandNorm = d.scratchBands.ensurePVQNorm(len(lowband))
-		copyFloat64ToNorm(lowbandNorm, lowband)
-	}
-	d.foldBandNormInto(lowbandNorm, n, tmp)
-	copyNormToFloat64(dst[:n], tmp)
+	normalizeNormVectorInPlace(result)
+	return result
 }
 
 func (d *Decoder) foldBandNormInto(lowband []celtNorm, n int, dst []celtNorm) {
@@ -260,7 +223,7 @@ func GetCodedBandCount(mask uint32) int {
 // Returns: normalized vector of length n.
 //
 // Reference: libopus uses this approach for better quality folding.
-func FoldBandFromMultiple(sources [][]float64, n int, seed *uint32) []float64 {
+func FoldBandFromMultiple(sources [][]celtNorm, n int, seed *uint32) []celtNorm {
 	if n <= 0 {
 		return nil
 	}
@@ -270,7 +233,7 @@ func FoldBandFromMultiple(sources [][]float64, n int, seed *uint32) []float64 {
 		return FoldBand(nil, n, seed)
 	}
 
-	result := make([]float64, n)
+	result := make([]celtNorm, n)
 
 	// Combine multiple sources with sign variation
 	sourceIdx := 0
@@ -284,7 +247,7 @@ func FoldBandFromMultiple(sources [][]float64, n int, seed *uint32) []float64 {
 		}
 
 		// Determine sign
-		sign := 1.0
+		sign := float32(1.0)
 		if *seed&0x8000 != 0 {
 			sign = -1.0
 		}
@@ -292,13 +255,14 @@ func FoldBandFromMultiple(sources [][]float64, n int, seed *uint32) []float64 {
 
 		// Copy with wrapping
 		if len(source) > 0 {
-			result[i] = sign * source[i%len(source)]
+			result[i] = celtNorm(sign * float32(source[i%len(source)]))
 		}
 
 		sourceIdx = (sourceIdx + 1) % len(sources)
 	}
 
-	return NormalizeVector(result)
+	normalizeNormVectorInPlace(result)
+	return result
 }
 
 // ApplyAntiCollapse applies anti-collapse noise injection to a band.

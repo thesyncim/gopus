@@ -10,9 +10,9 @@ func benchmarkExpRotation1(b *testing.B, length, stride int) {
 	if length <= 0 || stride <= 0 {
 		b.Fatal("invalid benchmark params")
 	}
-	x := make([]float64, length+stride+8)
+	x := make([]celtNorm, length+stride+8)
 	for i := range x {
-		x[i] = math.Sin(float64(i) * 0.137)
+		x[i] = celtNorm(float32(math.Sin(float64(i) * 0.137)))
 	}
 	c := opusVal16(0.9238795325) // cos(pi/8)
 	s := opusVal16(0.3826834324) // sin(pi/8)

@@ -50,7 +50,7 @@ func TestNormalizeBandsToArrayUnitNorm(t *testing.T) {
 		// Compute L2 norm of this band's normalized coefficients
 		var sumSq float64
 		for i := 0; i < n; i++ {
-			sumSq += normalized[offset+i] * normalized[offset+i]
+			sumSq += float64(float32(normalized[offset+i]) * float32(normalized[offset+i]))
 		}
 		l2norm := math.Sqrt(sumSq)
 
@@ -120,7 +120,7 @@ func TestNormalizationRoundTrip(t *testing.T) {
 		gain := math.Exp2(e / DB6)
 
 		for i := 0; i < n; i++ {
-			denormalized[offset+i] = normalized[offset+i] * gain
+			denormalized[offset+i] = float64(normalized[offset+i]) * gain
 		}
 		offset += n
 	}
@@ -394,7 +394,7 @@ func TestNormalizeBandsMethodComparison(t *testing.T) {
 		// Get L2 norm of the array slice (to undo unit normalization for comparison)
 		var arrayNormSq float64
 		for i := 0; i < n && offset+i < len(normArray); i++ {
-			arrayNormSq += normArray[offset+i] * normArray[offset+i]
+			arrayNormSq += float64(float32(normArray[offset+i]) * float32(normArray[offset+i]))
 		}
 		arrayNorm := math.Sqrt(arrayNormSq)
 
@@ -404,7 +404,7 @@ func TestNormalizeBandsMethodComparison(t *testing.T) {
 			for i := 0; i < n && offset+i < len(normArray); i++ {
 				// Reconstruct from unit-norm shape
 				expected := float64(shapes[band][i]) * arrayNorm
-				actual := normArray[offset+i]
+				actual := float64(normArray[offset+i])
 				if math.Abs(expected-actual) > 1e-6 {
 					t.Errorf("band %d, bin %d: expected %f, got %f", band, i, expected, actual)
 				}
@@ -517,7 +517,7 @@ func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 
 		for i := 0; i < n; i++ {
 			expected := mdctCoeffs[offset+i] * g
-			actual := normalized[offset+i]
+			actual := float64(normalized[offset+i])
 			if math.Abs(expected-actual) > 1e-6 {
 				t.Errorf("band %d, bin %d: expected %f, got %f",
 					band, i, expected, actual)
@@ -540,7 +540,7 @@ func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 
 		var sumSq float64
 		for i := 0; i < n; i++ {
-			sumSq += normalized[offset+i] * normalized[offset+i]
+			sumSq += float64(float32(normalized[offset+i]) * float32(normalized[offset+i]))
 		}
 		l2norm := math.Sqrt(sumSq)
 

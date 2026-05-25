@@ -162,8 +162,8 @@ func TestQEXTHeaderRoundTrip(t *testing.T) {
 }
 
 func TestComputeThetaExtUsesQEXTForMonoSplit(t *testing.T) {
-	x := []float64{0.99, 0.10, 0.05, 0.02}
-	y := []float64{0.10, 0.05, 0.02, 0.01}
+	x := []celtNorm{0.99, 0.10, 0.05, 0.02}
+	y := []celtNorm{0.10, 0.05, 0.02, 0.01}
 
 	var mainEnc rangecoding.Encoder
 	mainBuf := make([]byte, 32)
@@ -185,7 +185,7 @@ func TestComputeThetaExtUsesQEXTForMonoSplit(t *testing.T) {
 		extTotalBits:  len(extBuf) * 8 << bitRes,
 	}
 	var encSplit splitCtx
-	computeThetaExt(encCtx, &encSplit, append([]float64(nil), x...), append([]float64(nil), y...), len(x), &bitsEnc, &extBitsEnc, 1, 1, 0, false, &fillEnc)
+	computeThetaExt(encCtx, &encSplit, append([]celtNorm(nil), x...), append([]celtNorm(nil), y...), len(x), &bitsEnc, &extBitsEnc, 1, 1, 0, false, &fillEnc)
 
 	if got := extEnc.TellFrac(); got <= 0 {
 		t.Fatal("mono split did not emit any QEXT theta refinement bits")
@@ -218,7 +218,7 @@ func TestComputeThetaExtUsesQEXTForMonoSplit(t *testing.T) {
 		extTotalBits:  len(extPayload) * 8 << bitRes,
 	}
 	var decSplit splitCtx
-	computeThetaExt(decCtx, &decSplit, make([]float64, len(x)), make([]float64, len(y)), len(x), &bitsDec, &extBitsDec, 1, 1, 0, false, &fillDec)
+	computeThetaExt(decCtx, &decSplit, make([]celtNorm, len(x)), make([]celtNorm, len(y)), len(x), &bitsDec, &extBitsDec, 1, 1, 0, false, &fillDec)
 
 	if decSplit.itheta != encSplit.itheta {
 		t.Fatalf("itheta=%d want %d", decSplit.itheta, encSplit.itheta)
@@ -264,7 +264,7 @@ func TestAlgUnquantIntoQEXTN2LargeEnergyUsesWideAccumulator(t *testing.T) {
 	var extDec rangecoding.Decoder
 	extDec.Init(extPayload)
 
-	got := make([]float64, n)
+	got := make([]celtNorm, n)
 	collapse := algUnquantInto(got, &mainDec, 0, n, k, spreadNone, 1, gain, &extDec, extraBits, nil)
 	if collapse != 1 {
 		t.Fatalf("collapse=%d want 1", collapse)
@@ -276,15 +276,15 @@ func TestAlgUnquantIntoQEXTN2LargeEnergyUsesWideAccumulator(t *testing.T) {
 	want0 := float64(celtNorm(float32(wantPulses[0]) * scale))
 	want1 := float64(celtNorm(float32(wantPulses[1]) * scale))
 
-	if diff := math.Abs(got[0] - want0); diff > 1e-12 {
+	if diff := math.Abs(float64(got[0]) - want0); diff > 1e-12 {
 		t.Fatalf("got[0]=%.15f want %.15f diff %.3e", got[0], want0, diff)
 	}
-	if diff := math.Abs(got[1] - want1); diff > 1e-12 {
+	if diff := math.Abs(float64(got[1]) - want1); diff > 1e-12 {
 		t.Fatalf("got[1]=%.15f want %.15f diff %.3e", got[1], want1, diff)
 	}
 
 	wantNorm := want0*want0 + want1*want1
-	norm := got[0]*got[0] + got[1]*got[1]
+	norm := float64(got[0])*float64(got[0]) + float64(got[1])*float64(got[1])
 	if diff := math.Abs(norm - wantNorm); diff > 1e-12 {
 		t.Fatalf("norm=%.15f want %.15f diff %.3e", norm, wantNorm, diff)
 	}
@@ -333,7 +333,7 @@ func TestNormalizeQEXTBandsInto(t *testing.T) {
 	bandE := make([]celtEner, cfg.EffBands)
 	computeQEXTBandAmplitudesInto(coeffs, &cfg, cfg.EffBands, 3, bandE)
 
-	norm := make([]float64, len(coeffs))
+	norm := make([]celtNorm, len(coeffs))
 	normalizeQEXTBandsInto(coeffs, &cfg, cfg.EffBands, 3, bandE, norm)
 
 	firstIdx := cfg.EBands[0] << 3

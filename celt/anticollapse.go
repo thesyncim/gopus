@@ -3,7 +3,7 @@ package celt
 import "math"
 
 func antiCollapse(
-	coeffsL, coeffsR []float64,
+	coeffsL, coeffsR []celtNorm,
 	collapse []byte,
 	lm int,
 	channels int,
@@ -16,7 +16,7 @@ func antiCollapse(
 }
 
 func antiCollapseGLog(
-	coeffsL, coeffsR []float64,
+	coeffsL, coeffsR []celtNorm,
 	collapse []byte,
 	lm int,
 	channels int,
@@ -131,9 +131,9 @@ func antiCollapseGLog(
 				for j := 0; j < N0; j++ {
 					seed = seed*1664525 + 1013904223
 					if (seed & 0x8000) != 0 {
-						coeffs[bandOffset+(j<<lm)+k] = coeff
+						coeffs[bandOffset+(j<<lm)+k] = celtNorm(coeff)
 					} else {
-						coeffs[bandOffset+(j<<lm)+k] = -coeff
+						coeffs[bandOffset+(j<<lm)+k] = celtNorm(-coeff)
 					}
 				}
 				renorm = true
@@ -148,7 +148,7 @@ func antiCollapseGLog(
 // antiCollapseTyped mirrors libopus celt/bands.c anti_collapse() for float builds.
 // It keeps previous log-energy history at celt_glog width in decoder paths.
 func antiCollapseTyped[T ~float32 | ~float64](
-	coeffsL, coeffsR []float64,
+	coeffsL, coeffsR []celtNorm,
 	collapse []byte,
 	lm int,
 	channels int,
@@ -251,7 +251,7 @@ func antiCollapseTyped[T ~float32 | ~float64](
 				continue
 			}
 
-			var coeffs []float64
+			var coeffs []celtNorm
 			if c == 0 {
 				coeffs = coeffsL
 			} else {
@@ -273,9 +273,9 @@ func antiCollapseTyped[T ~float32 | ~float64](
 				for j := 0; j < N0; j++ {
 					seed = seed*1664525 + 1013904223
 					if (seed & 0x8000) != 0 {
-						coeffs[bandOffset+(j<<lm)+k] = r
+						coeffs[bandOffset+(j<<lm)+k] = celtNorm(r)
 					} else {
-						coeffs[bandOffset+(j<<lm)+k] = -r
+						coeffs[bandOffset+(j<<lm)+k] = celtNorm(-r)
 					}
 				}
 				renorm = true

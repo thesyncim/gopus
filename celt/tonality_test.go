@@ -680,7 +680,7 @@ func TestUpdateTonalityStoresPrevBandLogEnergyAsGLog(t *testing.T) {
 	enc := NewEncoder(1)
 	frameSize := 480
 	nbBands := getNbBandsForFrameSize(frameSize)
-	norm := make([]float64, frameSize)
+	norm := make([]celtNorm, frameSize)
 	for i := range norm {
 		norm[i] = 0.125
 	}
@@ -1080,7 +1080,11 @@ func TestComputeTonalityFromNormalized(t *testing.T) {
 	nbBands := getNbBandsForFrameSize(frameSize)
 
 	// Generate normalized-like coefficients
-	coeffs := generateSineWaveMDCT(1000, 48000, frameSize)
+	coeffsRaw := generateSineWaveMDCT(1000, 48000, frameSize)
+	coeffs := make([]celtNorm, len(coeffsRaw))
+	for i, v := range coeffsRaw {
+		coeffs[i] = celtNorm(v)
+	}
 
 	result := computeTonalityFromNormalized(coeffs, nbBands, frameSize)
 

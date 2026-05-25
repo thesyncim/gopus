@@ -750,7 +750,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	}
 	// Step 11.0.5: Normalize bands early for TF analysis
 	// TF analysis needs normalized coefficients to determine optimal time-frequency resolution
-	var normL, normR []float64
+	var normL, normR []celtNorm
 	var bandE []celtEner
 	var normBandEScratch []celtEner
 	if codedChannels == 1 {
@@ -761,11 +761,11 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	}
 	_ = normBandEScratch
 	normLCelt := ensureNormSlice(&e.scratch.allocTrimNormL, len(normL))
-	copyFloat64ToNorm(normLCelt, normL)
+	copy(normLCelt, normL)
 	var normRCelt []celtNorm
 	if codedChannels == 2 {
 		normRCelt = ensureNormSlice(&e.scratch.allocTrimNormR, len(normR))
-		copyFloat64ToNorm(normRCelt, normR)
+		copy(normRCelt, normR)
 	}
 
 	// Step 11.0.6: Compute tonality analysis only when it can feed the next
@@ -1262,8 +1262,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	var qextBandLogE []celtGLog
 	var qextQuantized []celtGLog
 	var qextError []celtGLog
-	var qextNormL []float64
-	var qextNormR []float64
+	var qextNormL []celtNorm
+	var qextNormR []celtNorm
 	if extsupport.QEXT && qextEnc != nil {
 		if cfg, ok := computeQEXTModeConfig(e.sampleRate, qextShortMDCTSize(frameSize)); ok && end == nbBands {
 			qextCfg = cfg
@@ -2538,7 +2538,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 //   - energies: band energies (log-domain) for spectral flux computation
 //   - nbBands: number of frequency bands
 //   - frameSize: frame size in samples (unused but kept for API consistency)
-func (e *Encoder) updateTonalityAnalysis(normCoeffs []float64, energies []celtGLog, nbBands, frameSize int) {
+func (e *Encoder) updateTonalityAnalysis(normCoeffs []celtNorm, energies []celtGLog, nbBands, frameSize int) {
 	// Compute tonality using Spectral Flatness Measure (zero-alloc version)
 	tonalityResult := computeTonalityWithBandsScratch(normCoeffs, nbBands, frameSize, &e.tonalityScratch)
 

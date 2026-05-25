@@ -29,7 +29,7 @@ func cubicCoderRemainingQ3(ctx *bandCtx) int {
 	return (ctx.rd.StorageBits() << bitRes) - ctx.rd.TellFrac()
 }
 
-func cubicQuantPartition(ctx *bandCtx, x []float64, n, b, B, lm int, gain float64) int {
+func cubicQuantPartition(ctx *bandCtx, x []celtNorm, n, b, B, lm int, gain opusVal16) int {
 	if ctx == nil || n <= 0 || len(x) < n {
 		return 0
 	}
@@ -107,8 +107,8 @@ func cubicQuantPartition(ctx *bandCtx, x []float64, n, b, B, lm int, gain float6
 		b2 = b - b1
 	}
 
-	cm := cubicQuantPartition(ctx, x, half, b1, B, lm, gain*mid)
-	cm |= cubicQuantPartition(ctx, y, half, b2, B, lm, gain*side)
+	cm := cubicQuantPartition(ctx, x, half, b1, B, lm, opusVal16(float32(gain)*float32(mid)))
+	cm |= cubicQuantPartition(ctx, y, half, b2, B, lm, opusVal16(float32(gain)*float32(side)))
 	return cm
 }
 
@@ -144,34 +144,34 @@ func computeQEXTCubicBits(ctx *bandCtx, extBudget, n, b, lm int) int {
 	return min(14, extraBits)
 }
 
-func cubicSynthesis(x []float64, iy []int, n, k, face, sign int, gain float64) {
+func cubicSynthesis(x []celtNorm, iy []int, n, k, face, sign int, gain opusVal16) {
 	if n <= 0 || len(x) < n || len(iy) < n {
 		return
 	}
 
-	sum := 0.0
+	sum := float32(0)
 	for i := 0; i < n; i++ {
-		x[i] = float64(1 + 2*iy[i] - k)
+		x[i] = celtNorm(1 + 2*iy[i] - k)
 	}
 	if sign != 0 {
-		x[face] = -float64(k)
+		x[face] = celtNorm(-k)
 	} else {
-		x[face] = float64(k)
+		x[face] = celtNorm(k)
 	}
 	for i := 0; i < n; i++ {
-		sum += x[i] * x[i]
+		sum += float32(x[i]) * float32(x[i])
 	}
 	if sum <= pvqEPSILON {
 		clear(x[:n])
 		return
 	}
-	scale := gain / math.Sqrt(sum)
+	scale := float32(gain) * celtRSqrt(sum)
 	for i := 0; i < n; i++ {
-		x[i] *= scale
+		x[i] = celtNorm(float32(x[i]) * scale)
 	}
 }
 
-func cubicQuant(x []float64, n, res, B int, enc *rangecoding.Encoder, gain float64, resynth bool, scratch *bandEncodeScratch) int {
+func cubicQuant(x []celtNorm, n, res, B int, enc *rangecoding.Encoder, gain opusVal16, resynth bool, scratch *bandEncodeScratch) int {
 	if n <= 0 || len(x) < n || enc == nil {
 		return 0
 	}
@@ -195,9 +195,9 @@ func cubicQuant(x []float64, n, res, B int, enc *rangecoding.Encoder, gain float
 	}
 
 	face := 0
-	faceVal := -1.0
+	faceVal := float32(-1)
 	for i := 0; i < n; i++ {
-		ax := math.Abs(x[i])
+		ax := absCeltNorm(x[i])
 		if ax > faceVal {
 			faceVal = ax
 			face = i
@@ -211,9 +211,9 @@ func cubicQuant(x []float64, n, res, B int, enc *rangecoding.Encoder, gain float
 	enc.EncodeUniform(uint32(face), uint32(n))
 	enc.EncodeRawBits(uint32(sign), 1)
 
-	norm := 0.5 * float64(k) / (faceVal + pvqEPSILON)
+	norm := float32(0.5) * float32(k) / (faceVal + pvqEPSILON)
 	for i := 0; i < n; i++ {
-		iy[i] = min(k-1, int(math.Floor((x[i]+faceVal)*norm)))
+		iy[i] = min(k-1, int(math.Floor(float64((float32(x[i])+faceVal)*norm))))
 		if i == face {
 			continue
 		}
@@ -226,7 +226,7 @@ func cubicQuant(x []float64, n, res, B int, enc *rangecoding.Encoder, gain float
 	return (1 << B) - 1
 }
 
-func cubicUnquant(x []float64, n, res, B int, dec *rangecoding.Decoder, gain float64, scratch *bandDecodeScratch) int {
+func cubicUnquant(x []celtNorm, n, res, B int, dec *rangecoding.Decoder, gain opusVal16, scratch *bandDecodeScratch) int {
 	if n <= 0 || len(x) < n || dec == nil {
 		return 0
 	}

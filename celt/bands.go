@@ -539,7 +539,7 @@ func denormalizeBandsPackedInto(dst, src []float64, energies []float64, start, e
 	denormalizeBandsPackedDownsampleInto(dst, src, energies, start, end, lm, edges, 1)
 }
 
-func denormalizeBandsPackedDownsampleInto[E ~float32 | ~float64](dst, src []float64, energies []E, start, end, lm int, edges []int, downsample int) {
+func denormalizeBandsPackedDownsampleInto[S ~float32 | ~float64, E ~float32 | ~float64](dst []float64, src []S, energies []E, start, end, lm int, edges []int, downsample int) {
 	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || end <= start || len(edges) < end+1 {
 		return
 	}
@@ -586,7 +586,7 @@ func denormalizeBandsPackedDownsampleInto[E ~float32 | ~float64](dst, src []floa
 		}
 		gain := denormalizeBandGain(energies, band)
 		for ; j < bandEnd && f < len(dst); j++ {
-			dst[f] = denormalizeMulFloat32(src[j], gain)
+			dst[f] = denormalizeMulFloat32(float64(src[j]), gain)
 			f++
 		}
 	}

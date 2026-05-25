@@ -212,7 +212,7 @@ func applyLFELinearBandEClamp(bandE []celtEner, nbBands, channels int) {
 //   - bandE: scratch buffer for celt_ener band amplitudes (length >= nbBands)
 //
 // Reference: libopus celt/bands.c normalise_bands() (float path, lines 172-187)
-func NormalizeBandsToArrayInto(mdctCoeffs []float64, nbBands, frameSize int, norm []float64, bandE []celtEner) {
+func NormalizeBandsToArrayInto(mdctCoeffs []float64, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return
 	}
@@ -225,7 +225,7 @@ func NormalizeBandsToArrayInto(mdctCoeffs []float64, nbBands, frameSize int, nor
 	normalizeBandsWithBandEInto(mdctCoeffs, nbBands, frameSize, norm, bandE)
 }
 
-func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, norm []float64, bandE []celtEner) {
+func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
 	offset := 0
 	for band := 0; band < nbBands; band++ {
 		n := ScaledBandWidth(band, frameSize)
@@ -252,7 +252,7 @@ func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, n
 		//      X[j+c*N] = freq[j+c*N]*g;
 		for i := 0; i < n; i++ {
 			// Match libopus float path: freq and gains are float.
-			norm[offset+i] = float64(float32(mdctCoeffs[offset+i]) * g)
+			norm[offset+i] = celtNorm(float32(mdctCoeffs[offset+i]) * g)
 		}
 		offset += n
 	}
@@ -270,7 +270,7 @@ func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, n
 // that directly in normalise_bands().
 //
 // Reference: libopus celt/bands.c normalise_bands() (float path, lines 172-187)
-func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []celtGLog, nbBands, frameSize int) []float64 {
+func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []celtGLog, nbBands, frameSize int) []celtNorm {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return nil
 	}
@@ -279,7 +279,7 @@ func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []celtGLo
 	}
 
 	// Use scratch buffers
-	norm := ensureFloat64Slice(&e.scratch.normL, frameSize)
+	norm := ensureNormSlice(&e.scratch.normL, frameSize)
 	bandE := ensureEnerSlice(&e.scratch.bandE, nbBands)
 
 	NormalizeBandsToArrayInto(mdctCoeffs, nbBands, frameSize, norm, bandE)

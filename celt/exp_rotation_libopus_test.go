@@ -879,9 +879,9 @@ func TestExpRotationMatchesLibopusFloatPath(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	for ci, tc := range cases {
-		got := make([]float64, len(tc.x))
+		got := make([]celtNorm, len(tc.x))
 		for i, sample := range tc.x {
-			got[i] = float64(sample)
+			got[i] = celtNorm(sample)
 		}
 		expRotation(got, len(got), tc.dir, tc.stride, tc.k, tc.spread)
 		for i := range got {
@@ -1190,14 +1190,14 @@ func TestAlgQuantMatchesLibopusFloatPath(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	for ci, tc := range cases {
-		x := make([]float64, len(tc.x))
+		x := make([]celtNorm, len(tc.x))
 		for i, sample := range tc.x {
-			x[i] = float64(sample)
+			x[i] = celtNorm(sample)
 		}
 		var enc rangecoding.Encoder
 		buf := make([]byte, 128)
 		enc.Init(buf)
-		gotCollapse := algQuantScratch(&enc, 0, x, len(x), tc.k, tc.spread, tc.b, float64(tc.gain), tc.resynth, nil, 0, nil)
+		gotCollapse := algQuantScratch(&enc, 0, x, len(x), tc.k, tc.spread, tc.b, opusVal16(tc.gain), tc.resynth, nil, 0, nil)
 		gotPacket := enc.Done()
 		if gotCollapse != want[ci].collapse {
 			t.Fatalf("%s collapse=%d want %d", tc.name, gotCollapse, want[ci].collapse)
@@ -1236,9 +1236,9 @@ func TestAlgQuantQEXTMatchesLibopusSource(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt qext vq", err)
 	}
 	for ci, tc := range cases {
-		x := make([]float64, len(tc.x))
+		x := make([]celtNorm, len(tc.x))
 		for i, sample := range tc.x {
-			x[i] = float64(sample)
+			x[i] = celtNorm(sample)
 		}
 		var enc rangecoding.Encoder
 		buf := make([]byte, 128)
@@ -1246,7 +1246,7 @@ func TestAlgQuantQEXTMatchesLibopusSource(t *testing.T) {
 		var extEnc rangecoding.Encoder
 		extBuf := make([]byte, 128)
 		extEnc.Init(extBuf)
-		gotCollapse := algQuantScratch(&enc, 0, x, len(x), tc.k, tc.spread, tc.b, float64(tc.gain), tc.resynth, &extEnc, tc.extraBits, nil)
+		gotCollapse := algQuantScratch(&enc, 0, x, len(x), tc.k, tc.spread, tc.b, opusVal16(tc.gain), tc.resynth, &extEnc, tc.extraBits, nil)
 		gotPacket := enc.Done()
 		gotExtPacket := extEnc.Done()
 		if gotCollapse != want[ci].collapse {
@@ -1311,8 +1311,8 @@ func TestAlgUnquantQEXTMatchesLibopusSource(t *testing.T) {
 		dec.Init(tc.payload)
 		var extDec rangecoding.Decoder
 		extDec.Init(tc.extPacket)
-		got := make([]float64, tc.n)
-		gotCollapse := algUnquantInto(got, &dec, 0, tc.n, tc.k, tc.spread, tc.b, float64(tc.gain), &extDec, tc.extraBits, nil)
+		got := make([]celtNorm, tc.n)
+		gotCollapse := algUnquantInto(got, &dec, 0, tc.n, tc.k, tc.spread, tc.b, opusVal16(tc.gain), &extDec, tc.extraBits, nil)
 		if gotCollapse != want[ci].collapse {
 			t.Fatalf("%s collapse=%d want %d", tc.name, gotCollapse, want[ci].collapse)
 		}
@@ -1343,11 +1343,11 @@ func TestStereoIthetaMatchesLibopusFloatPath(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	for ci, tc := range cases {
-		x := make([]float64, len(tc.x))
-		y := make([]float64, len(tc.y))
+		x := make([]celtNorm, len(tc.x))
+		y := make([]celtNorm, len(tc.y))
 		for i := range tc.x {
-			x[i] = float64(tc.x[i])
-			y[i] = float64(tc.y[i])
+			x[i] = celtNorm(tc.x[i])
+			y[i] = celtNorm(tc.y[i])
 		}
 		got := stereoIthetaQ30(x, y, tc.stereo)
 		if got != want[ci] {
@@ -1393,18 +1393,10 @@ func TestThetaRDODistortionMatchesLibopusFloatPath(t *testing.T) {
 				ci, math.Float32bits(w0), math.Float32bits(w1),
 				math.Float32bits(want[ci].w0), math.Float32bits(want[ci].w1))
 		}
-		x0 := float32SliceToFloat64(tc.x0)
-		x1 := float32SliceToFloat64(tc.x1)
-		y0 := float32SliceToFloat64(tc.y0)
-		y1 := float32SliceToFloat64(tc.y1)
-		x0n := make([]celtNorm, len(x0))
-		x1n := make([]celtNorm, len(x1))
-		y0n := make([]celtNorm, len(y0))
-		y1n := make([]celtNorm, len(y1))
-		copyFloat64ToNorm(x0n, x0)
-		copyFloat64ToNorm(x1n, x1)
-		copyFloat64ToNorm(y0n, y0)
-		copyFloat64ToNorm(y1n, y1)
+		x0n := float32SliceToNorm(tc.x0)
+		x1n := float32SliceToNorm(tc.x1)
+		y0n := float32SliceToNorm(tc.y0)
+		y1n := float32SliceToNorm(tc.y1)
 		p0 := innerProductNorm(x0n, x1n)
 		p1 := innerProductNorm(y0n, y1n)
 		dist := thetaRDODistortion(w0, w1, x0n, x1n, y0n, y1n)
@@ -1432,11 +1424,11 @@ func TestRenormalizeVectorMatchesLibopusFloatPath(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	for ci, tc := range cases {
-		got := make([]float64, len(tc.x))
+		got := make([]celtNorm, len(tc.x))
 		for i, sample := range tc.x {
-			got[i] = float64(sample)
+			got[i] = celtNorm(sample)
 		}
-		renormalizeVector(got, float64(tc.gain))
+		renormalizeVector(got, opusVal16(tc.gain))
 		for i := range got {
 			gotSample := float32(got[i])
 			if math.Float32bits(gotSample) != math.Float32bits(want[ci][i]) {
@@ -1462,10 +1454,10 @@ func TestLowbandOutScaleMatchesLibopusFloatPath(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	for ci, tc := range cases {
-		src := make([]float64, len(tc.x))
+		src := make([]celtNorm, len(tc.x))
 		got := make([]celtNorm, len(tc.x))
 		for i, sample := range tc.x {
-			src[i] = float64(sample)
+			src[i] = celtNorm(sample)
 		}
 		scaleLowbandOutForFoldingNorm(got, src, len(src))
 		for i := range got {
@@ -1495,7 +1487,7 @@ func TestCELTMult32_32Q31MatchesLibopusFloatPath(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	for i, tc := range cases {
-		got := float32(celtMul32(float64(tc.a), float64(tc.b)))
+		got := float32(celtMul32(opusVal16(tc.a), opusVal16(tc.b)))
 		if math.Float32bits(got) != math.Float32bits(want[i]) {
 			t.Fatalf("case %d mult=%08x %.10g want %08x %.10g",
 				i,
@@ -1525,15 +1517,15 @@ func TestDenormalizeBandsMatchesLibopusFloatPath(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	for ci, tc := range cases {
-		got := make([]float64, len(tc.x))
-		energies := make([]float64, len(tc.energies))
+		got := make([]celtNorm, len(tc.x))
+		energies := make([]celtGLog, len(tc.energies))
 		for i, sample := range tc.x {
-			got[i] = float64(sample)
+			got[i] = celtNorm(sample)
 		}
 		for i, energy := range tc.energies {
-			energies[i] = float64(energy)
+			energies[i] = celtGLog(energy)
 		}
-		denormalizeCoeffsDownsample(got, energies, tc.end, tc.frameSize, tc.downsample)
+		denormalizeNormCoeffsDownsample(got, energies, tc.end, tc.frameSize, tc.downsample)
 		for i := range got {
 			gotSample := float32(got[i])
 			if math.Float32bits(gotSample) != math.Float32bits(want[ci][i]) {
@@ -1616,8 +1608,8 @@ func TestAlgUnquantMatchesLibopusFloatPath(t *testing.T) {
 				t.Run(sc.name, func(t *testing.T) {
 					var dec rangecoding.Decoder
 					dec.Init(tc.payload)
-					got := make([]float64, tc.n)
-					gotCollapse := algUnquantNoExtInto(got, &dec, tc.n, tc.k, tc.spread, tc.b, float64(tc.gain), sc.scratch)
+					got := make([]celtNorm, tc.n)
+					gotCollapse := algUnquantNoExtInto(got, &dec, tc.n, tc.k, tc.spread, tc.b, opusVal16(tc.gain), sc.scratch)
 					if gotCollapse != want[ci].collapse {
 						t.Fatalf("collapse=%d want %d", gotCollapse, want[ci].collapse)
 					}

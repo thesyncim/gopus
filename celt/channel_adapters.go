@@ -326,16 +326,16 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	}
 
 	downsample := d.downsampleFactor()
+	specMono := ensureFloat64Slice(&d.scratchMonoMix, len(coeffsMono))
 	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		qextState := d.ensureQEXTState()
-		specMono := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsMono))
+		specMono = ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsMono))
 		denormalizeBandsPackedDownsampleInto(specMono, coeffsMono, monoEnergies, 0, end, lm, EBands[:], downsample)
 		if qext.coeffsL != nil {
 			denormalizeBandsPackedDownsampleInto(specMono, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
 		}
-		coeffsMono = specMono
 	} else {
-		denormalizeBandsPackedDownsampleInto(coeffsMono, coeffsMono, monoEnergies, 0, end, lm, EBands[:], downsample)
+		denormalizeBandsPackedDownsampleInto(specMono, coeffsMono, monoEnergies, 0, end, lm, EBands[:], downsample)
 	}
 
 	d.channels = origChannels
@@ -345,7 +345,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	var samples []float64
 	directPlanar := false
 	if !transient {
-		outL, outR := d.synthesizeStereoPlanarFromMonoLong(coeffsMono)
+		outL, outR := d.synthesizeStereoPlanarFromMonoLong(specMono)
 		if len(d.directOutPCM) >= frameSize*2 {
 			left := outL[:frameSize]
 			right := outR[:frameSize]
@@ -358,9 +358,9 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 			samples = samples[:frameSize*2]
 		}
 	} else {
-		coeffsL := coeffsMono
+		coeffsL := specMono
 		coeffsR := ensureFloat64Slice(&d.scratchMonoToStereoR, len(coeffsMono))
-		copy(coeffsR, coeffsMono)
+		copy(coeffsR, specMono)
 		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 	}
 	if !directPlanar {
@@ -551,10 +551,12 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	energiesL := energies[:end]
 	energiesR := energies[end:]
 	downsample := d.downsampleFactor()
+	var specL []float64
+	var specR []float64
 	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		qextState := d.ensureQEXTState()
-		specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
-		specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
+		specL = ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
+		specR = ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
 		denormalizeBandsPackedDownsampleInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
 		denormalizeBandsPackedDownsampleInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
 		if qext.coeffsL != nil {
@@ -563,15 +565,15 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		if qext.coeffsR != nil {
 			denormalizeBandsPackedDownsampleInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands, downsample)
 		}
-		coeffsL = specL
-		coeffsR = specR
 	} else {
-		denormalizeBandsPackedDownsampleInto(coeffsL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
-		denormalizeBandsPackedDownsampleInto(coeffsR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
+		specL = ensureFloat64Slice(&d.scratchStereo, len(coeffsL))
+		specR = ensureFloat64Slice(&d.scratchMonoToStereoR, len(coeffsR))
+		denormalizeBandsPackedDownsampleInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
+		denormalizeBandsPackedDownsampleInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
 	}
-	coeffsMono := ensureFloat64Slice(&d.scratchMonoMix, len(coeffsL))
+	coeffsMono := ensureFloat64Slice(&d.scratchMonoMix, len(specL))
 	for i := range coeffsMono {
-		coeffsMono[i] = 0.5 * (coeffsL[i] + coeffsR[i])
+		coeffsMono[i] = 0.5 * (specL[i] + specR[i])
 	}
 
 	d.updateLogEGLog(energies, end, transient)
@@ -756,16 +758,16 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	coeffsMono, _, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, 1, false, monoEnergies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 
 	downsample := d.downsampleFactor()
+	specMono := ensureFloat64Slice(&d.scratchMonoMix, len(coeffsMono))
 	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		qextState := d.ensureQEXTState()
-		specMono := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsMono))
+		specMono = ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsMono))
 		denormalizeBandsPackedDownsampleInto(specMono, coeffsMono, monoEnergies, HybridCELTStartBand, end, lm, EBands[:], downsample)
 		if qext.coeffsL != nil {
 			denormalizeBandsPackedDownsampleInto(specMono, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
 		}
-		coeffsMono = specMono
 	} else {
-		denormalizeBandsPackedDownsampleInto(coeffsMono, coeffsMono, monoEnergies, HybridCELTStartBand, end, lm, EBands[:], downsample)
+		denormalizeBandsPackedDownsampleInto(specMono, coeffsMono, monoEnergies, HybridCELTStartBand, end, lm, EBands[:], downsample)
 	}
 
 	d.channels = origChannels
@@ -775,7 +777,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	var samples []float64
 	directPlanar := false
 	if !transient {
-		outL, outR := d.synthesizeStereoPlanarFromMonoLong(coeffsMono)
+		outL, outR := d.synthesizeStereoPlanarFromMonoLong(specMono)
 		if len(d.directOutPCM) >= frameSize*2 {
 			left := outL[:frameSize]
 			right := outR[:frameSize]
@@ -788,9 +790,9 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 			samples = samples[:frameSize*2]
 		}
 	} else {
-		coeffsL := coeffsMono
+		coeffsL := specMono
 		coeffsR := ensureFloat64Slice(&d.scratchMonoToStereoR, len(coeffsMono))
-		copy(coeffsR, coeffsMono)
+		copy(coeffsR, specMono)
 		samples = d.SynthesizeStereo(coeffsL, coeffsR, transient, shortBlocks)
 	}
 	if !directPlanar {
@@ -945,10 +947,12 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	energiesL := energies[:end]
 	energiesR := energies[end:]
 	downsample := d.downsampleFactor()
+	var specL []float64
+	var specR []float64
 	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		qextState := d.ensureQEXTState()
-		specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
-		specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
+		specL = ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
+		specR = ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
 		denormalizeBandsPackedDownsampleInto(specL, coeffsL, energiesL, HybridCELTStartBand, end, lm, EBands[:], downsample)
 		denormalizeBandsPackedDownsampleInto(specR, coeffsR, energiesR, HybridCELTStartBand, end, lm, EBands[:], downsample)
 		if qext.coeffsL != nil {
@@ -957,22 +961,22 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		if qext.coeffsR != nil {
 			denormalizeBandsPackedDownsampleInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands, downsample)
 		}
-		coeffsL = specL
-		coeffsR = specR
 	} else {
-		denormalizeBandsPackedDownsampleInto(coeffsL, coeffsL, energiesL, HybridCELTStartBand, end, lm, EBands[:], downsample)
-		denormalizeBandsPackedDownsampleInto(coeffsR, coeffsR, energiesR, HybridCELTStartBand, end, lm, EBands[:], downsample)
-		for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
-			coeffsL[i] = 0
+		specL = ensureFloat64Slice(&d.scratchStereo, len(coeffsL))
+		specR = ensureFloat64Slice(&d.scratchMonoToStereoR, len(coeffsR))
+		denormalizeBandsPackedDownsampleInto(specL, coeffsL, energiesL, HybridCELTStartBand, end, lm, EBands[:], downsample)
+		denormalizeBandsPackedDownsampleInto(specR, coeffsR, energiesR, HybridCELTStartBand, end, lm, EBands[:], downsample)
+		for i := 0; i < hybridBinStart && i < len(specL); i++ {
+			specL[i] = 0
 		}
-		for i := 0; i < hybridBinStart && i < len(coeffsR); i++ {
-			coeffsR[i] = 0
+		for i := 0; i < hybridBinStart && i < len(specR); i++ {
+			specR[i] = 0
 		}
 	}
 
-	coeffsMono := ensureFloat64Slice(&d.scratchMonoMix, len(coeffsL))
+	coeffsMono := ensureFloat64Slice(&d.scratchMonoMix, len(specL))
 	for i := range coeffsMono {
-		coeffsMono[i] = 0.5 * (coeffsL[i] + coeffsR[i])
+		coeffsMono[i] = 0.5 * (specL[i] + specR[i])
 	}
 
 	d.updateLogEGLog(energies, end, transient)

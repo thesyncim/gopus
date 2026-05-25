@@ -7,8 +7,8 @@ import (
 
 type decodedFrameSpectrum struct {
 	qext           *preparedQEXTDecode
-	coeffsL        []float64
-	coeffsR        []float64
+	coeffsL        []celtNorm
+	coeffsR        []celtNorm
 	collapse       []byte
 	antiCollapseOn bool
 }

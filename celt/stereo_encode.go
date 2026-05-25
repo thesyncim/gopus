@@ -366,6 +366,25 @@ func InterleaveStereoF32(left, right []float32) []float32 {
 	return interleaved
 }
 
+// InterleaveStereoIntoF32 combines separate float-build L and R arrays into a
+// pre-allocated interleaved slice.
+func InterleaveStereoIntoF32(left, right, interleaved []float32) {
+	n := len(left)
+	if len(right) < n {
+		n = len(right)
+	}
+	if len(interleaved) < n*2 || n <= 0 {
+		return
+	}
+	_ = left[n-1]
+	_ = right[n-1]
+	_ = interleaved[2*n-1]
+	for i := 0; i < n; i++ {
+		interleaved[2*i] = left[i]
+		interleaved[2*i+1] = right[i]
+	}
+}
+
 // ComputeStereoAngle computes the stereo angle from L/R energies.
 // Returns theta in radians [0, pi/2] representing the stereo image width.
 // theta = 0: mono (all energy in mid)

@@ -13,40 +13,20 @@ const pvqEPSILON = 1e-15
 
 // opPVQSearch implements libopus op_pvq_search_c() (float path).
 // It finds the signed pulse vector iy (sum abs = K) that best matches X.
-// Returns the pulse vector and the computed energy yy (sum of squares of pulses).
-//
-// This implementation closely follows libopus celt/vq.c op_pvq_search_c() lines 205-374:
-// 1. Pre-search phase: Projects X onto the pyramid for large K
-// 2. Greedy phase: Places remaining pulses one at a time using rate-distortion criterion
-// 3. Sign restoration: Applies original signs to the pulse vector
-//
-// The rate-distortion criterion maximizes Rxy/sqrt(Ryy), which is equivalent to
-// maximizing Rxy^2/Ryy (avoiding the sqrt). We compare (Rxy_new)^2 * Ryy_old > (Rxy_old)^2 * Ryy_new.
-//
-// NOTE: This compatibility wrapper does NOT modify the input x slice.
-//
-// Reference: RFC 6716 Section 4.3.4.1, libopus celt/vq.c op_pvq_search_c()
-func opPVQSearch(x []float64, k int) ([]int, float64) {
-	xn := make([]celtNorm, len(x))
-	copyFloat64ToNorm(xn, x)
-	iy, yy := opPVQSearchNorm(xn, k)
-	return iy, float64(yy)
+// Runtime CELT normalized vectors use celt_norm width, matching libopus float builds.
+func opPVQSearch(x []celtNorm, k int) ([]int, opusVal16) {
+	iy, yy := opPVQSearchNorm(x, k)
+	return iy, yy
 }
 
-// opPVQSearchScratch is the scratch-aware version of opPVQSearch.
-// It uses pre-allocated buffers to avoid allocations in the hot path.
-func opPVQSearchScratch(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32) ([]int, float64) {
-	return opPVQSearchScratchWithInputMutation(x, k, iyBuf, signxBuf, yBuf, absXBuf, false)
+func opPVQSearchScratch(x []celtNorm, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32) ([]int, opusVal16) {
+	iy, yy := opPVQSearchScratchNorm(x, k, iyBuf, signxBuf, yBuf, absXBuf)
+	return iy, yy
 }
 
-func opPVQSearchScratchWithInputMutation(x []float64, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32, absInput bool) ([]int, float64) {
-	xn := make([]celtNorm, len(x))
-	copyFloat64ToNorm(xn, x)
-	iy, yy := opPVQSearchScratchNormWithInputMutation(xn, k, iyBuf, signxBuf, yBuf, absXBuf, absInput)
-	if absInput {
-		copyNormToFloat64(x, xn)
-	}
-	return iy, float64(yy)
+func opPVQSearchScratchWithInputMutation(x []celtNorm, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32, absInput bool) ([]int, opusVal16) {
+	iy, yy := opPVQSearchScratchNormWithInputMutation(x, k, iyBuf, signxBuf, yBuf, absXBuf, absInput)
+	return iy, yy
 }
 
 func opPVQSearchNorm(x []celtNorm, k int) ([]int, opusVal16) {
@@ -268,10 +248,8 @@ func pvqExtractAbsSignNorm(x []celtNorm, absX []float32, y []float32, signx []by
 	}
 }
 
-func opPVQSearchN2(x []float64, k, up int) (iy []int, upIy []int, refine int) {
-	xn := make([]celtNorm, len(x))
-	copyFloat64ToNorm(xn, x)
-	iy, upIy, refine, _ = opPVQSearchN2Norm(xn, k, up)
+func opPVQSearchN2(x []celtNorm, k, up int) (iy []int, upIy []int, refine int) {
+	iy, upIy, refine, _ = opPVQSearchN2Norm(x, k, up)
 	return iy, upIy, refine
 }
 
@@ -383,10 +361,8 @@ func opPVQRefineNorm(xn []opusVal32, iy []int, iy0 []int, k, up, margin int, sam
 	return false
 }
 
-func opPVQSearchExtra(x []float64, k, up int) (iy []int, upIy []int, refine []int) {
-	xn := make([]celtNorm, len(x))
-	copyFloat64ToNorm(xn, x)
-	iy, upIy, refine, _ = opPVQSearchExtraNorm(xn, k, up)
+func opPVQSearchExtra(x []celtNorm, k, up int) (iy []int, upIy []int, refine []int) {
+	iy, upIy, refine, _ = opPVQSearchExtraNorm(x, k, up)
 	return iy, upIy, refine
 }
 

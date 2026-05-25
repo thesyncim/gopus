@@ -87,8 +87,8 @@ func ensureKissCpxSlice(buf *[]kissCpx, n int) []kissCpx {
 }
 
 type bandDecodeScratch struct {
-	left     []float64
-	right    []float64
+	left     []celtNorm
+	right    []celtNorm
 	collapse []byte
 	norm     []celtNorm
 	lowband  []celtNorm
@@ -116,7 +116,7 @@ type bandDecodeScratch struct {
 	// Scratch buffers for Hadamard interleave/deinterleave (eliminates per-call allocations)
 	hadamardTmp     []float64 // Temporary buffer for Hadamard transforms
 	hadamardTmpNorm []celtNorm
-	quantWork       []float64 // Deinterleaved working buffer for quantBand decode
+	quantWork       []celtNorm // Deinterleaved working buffer for quantBand decode
 
 }
 
@@ -157,7 +157,7 @@ type bandEncodeScratch struct {
 	// Hadamard scratch
 	hadamardTmp     []float64
 	hadamardTmpNorm []celtNorm
-	quantWork       []float64
+	quantWork       []celtNorm
 }
 
 // Encoder scratch buffer methods
@@ -225,8 +225,8 @@ func (s *bandEncodeScratch) ensureHadamardTmpNorm(n int) []celtNorm {
 }
 
 // ensureQuantWork returns a pre-allocated deinterleaved working buffer.
-func (s *bandEncodeScratch) ensureQuantWork(n int) []float64 {
-	return ensureFloat64Slice(&s.quantWork, n)
+func (s *bandEncodeScratch) ensureQuantWork(n int) []celtNorm {
+	return ensureNormSlice(&s.quantWork, n)
 }
 
 // ensurePVQIy returns a pre-allocated integer pulse buffer for encode-side
@@ -352,8 +352,8 @@ func (s *bandDecodeScratch) ensureHadamardTmpNorm(n int) []celtNorm {
 }
 
 // ensureQuantWork returns a pre-allocated deinterleaved working buffer.
-func (s *bandDecodeScratch) ensureQuantWork(n int) []float64 {
-	return ensureFloat64Slice(&s.quantWork, n)
+func (s *bandDecodeScratch) ensureQuantWork(n int) []celtNorm {
+	return ensureNormSlice(&s.quantWork, n)
 }
 
 type imdctScratch = imdctScratchF32

@@ -200,7 +200,7 @@ func TestCELTStereoIthetaQ30MatchesLibopus(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt math", err)
 	}
 	for i, tc := range cases {
-		got := stereoIthetaQ30(float32SliceToFloat64(tc.X), float32SliceToFloat64(tc.Y), tc.Stereo)
+		got := stereoIthetaQ30(float32SliceToNorm(tc.X), float32SliceToNorm(tc.Y), tc.Stereo)
 		if !stereoIthetaQ30MatchesLibopusBuild(got, int(want[i])) {
 			t.Fatalf("case %d stereo=%v n=%d stereoIthetaQ30=%d want %d",
 				i, tc.Stereo, len(tc.X), got, int32(want[i]))
@@ -221,14 +221,6 @@ func stereoIthetaQ30MatchesLibopusBuild(got, want int) bool {
 		return diff <= 64
 	}
 	return false
-}
-
-func float32SliceToFloat64(in []float32) []float64 {
-	out := make([]float64, len(in))
-	for i, v := range in {
-		out[i] = float64(v)
-	}
-	return out
 }
 
 func TestCELTBitexactCosMatchesLibopus(t *testing.T) {
@@ -473,4 +465,12 @@ func TestCELTIntegerMathMatchesLibopus(t *testing.T) {
 			}
 		}
 	})
+}
+
+func float32SliceToNorm(in []float32) []celtNorm {
+	out := make([]celtNorm, len(in))
+	for i, v := range in {
+		out[i] = celtNorm(v)
+	}
+	return out
 }

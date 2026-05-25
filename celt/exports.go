@@ -24,27 +24,27 @@ func PulsesToBitsExport(band, lm, pulses int) int {
 // ExpRotationExport exposes expRotation for testing.
 //
 // This helper exists for tests and codec-development tooling and may change.
-func ExpRotationExport(x []float64, length, dir, stride, k, spread int) {
+func ExpRotationExport(x []celtNorm, length, dir, stride, k, spread int) {
 	expRotation(x, length, dir, stride, k, spread)
 }
 
 // OpPVQSearchExport exposes opPVQSearch for testing.
 //
 // This helper exists for tests and codec-development tooling and may change.
-func OpPVQSearchExport(x []float64, k int) ([]int, float64) {
+func OpPVQSearchExport(x []celtNorm, k int) ([]int, opusVal16) {
 	return opPVQSearch(x, k)
 }
 
 // NormalizeResidualExport exposes normalizeResidual for testing.
 //
 // This helper exists for tests and codec-development tooling and may change.
-func NormalizeResidualExport(pulses []int, gain float64, yy float64) []float64 {
+func NormalizeResidualExport(pulses []int, gain opusVal16, yy opusVal16) []celtNorm {
 	return normalizeResidual(pulses, gain, yy)
 }
 
 // NormalizeResidualIntoExport exposes normalizeResidualInto for testing.
 //
 // This helper exists for tests and codec-development tooling and may change.
-func NormalizeResidualIntoExport(out []float64, pulses []int, gain float64, yy float64) {
+func NormalizeResidualIntoExport(out []celtNorm, pulses []int, gain opusVal16, yy opusVal16) {
 	normalizeResidualInto(out, pulses, gain, yy)
 }

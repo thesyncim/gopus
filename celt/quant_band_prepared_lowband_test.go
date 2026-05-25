@@ -8,12 +8,6 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
-func testNormFromFloat64(src []float64) []celtNorm {
-	dst := make([]celtNorm, len(src))
-	copyFloat64ToNorm(dst, src)
-	return dst
-}
-
 func TestQuantBandStereoPreparedLowbandMatchesStandard(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -34,13 +28,13 @@ func TestQuantBandStereoPreparedLowbandMatchesStandard(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			xBase := make([]float64, tc.n)
-			yBase := make([]float64, tc.n)
-			lowbandBase := make([]float64, tc.n)
+			xBase := make([]celtNorm, tc.n)
+			yBase := make([]celtNorm, tc.n)
+			lowbandBase := make([]celtNorm, tc.n)
 			for i := 0; i < tc.n; i++ {
-				xBase[i] = float64(((i*7)%19)-9) * 0.0875
-				yBase[i] = float64(((i*5)%23)-11) * 0.07125
-				lowbandBase[i] = float64(((i*3)%17)-8) * 0.0625
+				xBase[i] = celtNorm(float32(((i*7)%19)-9) * 0.0875)
+				yBase[i] = celtNorm(float32(((i*5)%23)-11) * 0.07125)
+				lowbandBase[i] = celtNorm(float32(((i*3)%17)-8) * 0.0625)
 			}
 
 			bandE := make([]celtEner, 2*MaxBands)
@@ -48,9 +42,9 @@ func TestQuantBandStereoPreparedLowbandMatchesStandard(t *testing.T) {
 				bandE[i] = celtEner(0.35 + float32((i%9)+1)*0.03)
 			}
 
-			x1 := append([]float64(nil), xBase...)
-			y1 := append([]float64(nil), yBase...)
-			lowband1 := testNormFromFloat64(lowbandBase)
+			x1 := append([]celtNorm(nil), xBase...)
+			y1 := append([]celtNorm(nil), yBase...)
+			lowband1 := append([]celtNorm(nil), lowbandBase...)
 			out1 := make([]celtNorm, tc.n)
 			var buf1 [512]byte
 			var re1 rangecoding.Encoder
@@ -74,9 +68,9 @@ func TestQuantBandStereoPreparedLowbandMatchesStandard(t *testing.T) {
 			cm1 := quantBandStereo(&ctx1, x1, y1, tc.n, tc.b, tc.B, lowband1, tc.lm, out1, scratch1.ensureLowbandScratch(tc.n), tc.fill)
 			data1 := append([]byte(nil), re1.Done()...)
 
-			x2 := append([]float64(nil), xBase...)
-			y2 := append([]float64(nil), yBase...)
-			lowband2 := testNormFromFloat64(lowbandBase)
+			x2 := append([]celtNorm(nil), xBase...)
+			y2 := append([]celtNorm(nil), yBase...)
+			lowband2 := append([]celtNorm(nil), lowbandBase...)
 			out2 := make([]celtNorm, tc.n)
 			var buf2 [512]byte
 			var re2 rangecoding.Encoder
@@ -129,13 +123,13 @@ func TestQuantBandStereoPreparedLowbandMatchesStandard(t *testing.T) {
 func TestQuantBandStereoPreparedLowbandMatchesStandardWithQEXTBudget(t *testing.T) {
 	const extBudget = 512
 
-	xBase := make([]float64, 32)
-	yBase := make([]float64, 32)
-	lowbandBase := make([]float64, 32)
+	xBase := make([]celtNorm, 32)
+	yBase := make([]celtNorm, 32)
+	lowbandBase := make([]celtNorm, 32)
 	for i := 0; i < 32; i++ {
-		xBase[i] = float64(((i*7)%19)-9) * 0.0875
-		yBase[i] = float64(((i*5)%23)-11) * 0.07125
-		lowbandBase[i] = float64(((i*3)%17)-8) * 0.0625
+		xBase[i] = celtNorm(float32(((i*7)%19)-9) * 0.0875)
+		yBase[i] = celtNorm(float32(((i*5)%23)-11) * 0.07125)
+		lowbandBase[i] = celtNorm(float32(((i*3)%17)-8) * 0.0625)
 	}
 
 	bandE := make([]celtEner, 2*MaxBands)
@@ -143,9 +137,9 @@ func TestQuantBandStereoPreparedLowbandMatchesStandardWithQEXTBudget(t *testing.
 		bandE[i] = celtEner(0.35 + float32((i%9)+1)*0.03)
 	}
 
-	x1 := append([]float64(nil), xBase...)
-	y1 := append([]float64(nil), yBase...)
-	lowband1 := testNormFromFloat64(lowbandBase)
+	x1 := append([]celtNorm(nil), xBase...)
+	y1 := append([]celtNorm(nil), yBase...)
+	lowband1 := append([]celtNorm(nil), lowbandBase...)
 	out1 := make([]celtNorm, 32)
 	var buf1 [512]byte
 	var extBuf1 [256]byte
@@ -177,9 +171,9 @@ func TestQuantBandStereoPreparedLowbandMatchesStandardWithQEXTBudget(t *testing.
 	data1 := append([]byte(nil), re1.Done()...)
 	extData1 := append([]byte(nil), ext1.Done()...)
 
-	x2 := append([]float64(nil), xBase...)
-	y2 := append([]float64(nil), yBase...)
-	lowband2 := testNormFromFloat64(lowbandBase)
+	x2 := append([]celtNorm(nil), xBase...)
+	y2 := append([]celtNorm(nil), yBase...)
+	lowband2 := append([]celtNorm(nil), lowbandBase...)
 	out2 := make([]celtNorm, 32)
 	var buf2 [512]byte
 	var extBuf2 [256]byte

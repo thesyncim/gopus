@@ -9,7 +9,7 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
-func haar1LegacyGeneric(x []float64, n0, stride int) {
+func haar1ReferenceNorm(x []celtNorm, n0, stride int) {
 	n0 >>= 1
 	if n0 <= 0 || stride <= 0 {
 		return
@@ -20,7 +20,7 @@ func haar1LegacyGeneric(x []float64, n0, stride int) {
 		idx0 := i
 		idx1 := i + stride
 		for j := 0; j < n0; j++ {
-			haar1Pair(x, idx0, idx1, invSqrt2)
+			haar1PairNorm(x, idx0, idx1, invSqrt2)
 			idx0 += step
 			idx1 += step
 		}
@@ -55,9 +55,9 @@ func TestHaar1MatchesLibopus(t *testing.T) {
 	}
 	for ci, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := make([]float64, len(tc.x))
+			got := make([]celtNorm, len(tc.x))
 			for i := range tc.x {
-				got[i] = float64(tc.x[i])
+				got[i] = celtNorm(tc.x[i])
 			}
 			haar1(got, tc.n0, tc.stride)
 			for i := range got {
@@ -136,16 +136,16 @@ func TestHaar1SpecializedMatchesGeneric(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			n := tc.n0 * tc.stride
-			input := make([]float64, n)
+			input := make([]celtNorm, n)
 			for i := range input {
-				input[i] = float64((i%29)-14) * 0.125
+				input[i] = celtNorm(float32((i%29)-14) * 0.125)
 			}
-			want := append([]float64(nil), input...)
-			got := append([]float64(nil), input...)
+			want := append([]celtNorm(nil), input...)
+			got := append([]celtNorm(nil), input...)
 
-			haar1LegacyGeneric(want, tc.n0, tc.stride)
+			haar1ReferenceNorm(want, tc.n0, tc.stride)
 			haar1(got, tc.n0, tc.stride)
-			if !reflect.DeepEqual(got, want) {
+			if gotText := fmt.Sprint(got); gotText != fmt.Sprint(want) {
 				t.Fatalf("haar1 mismatch: got %v want %v", got, want)
 			}
 		})

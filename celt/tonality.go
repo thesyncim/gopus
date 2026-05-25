@@ -40,7 +40,7 @@ func computeTonalityWithBands(mdctCoeffs []float64, nbBands, frameSize int) tona
 	// Compute power spectrum
 	powers := make([]float64, len(mdctCoeffs))
 	for i, coeff := range mdctCoeffs {
-		powers[i] = coeff * coeff
+		powers[i] = float64(float32(coeff) * float32(coeff))
 	}
 
 	// Compute overall SFM
@@ -141,7 +141,7 @@ func (s *tonalityScratch) ensureTonalityScratch(frameSize, nbBands int) {
 
 // computeTonalityWithBandsScratch analyzes MDCT coefficients with explicit band count using pre-allocated scratch buffers.
 // This is the zero-allocation version.
-func computeTonalityWithBandsScratch(mdctCoeffs []float64, nbBands, frameSize int, scratch *tonalityScratch) tonalityAnalysisResult {
+func computeTonalityWithBandsScratch[S ~float32 | ~float64](mdctCoeffs []S, nbBands, frameSize int, scratch *tonalityScratch) tonalityAnalysisResult {
 	result := tonalityAnalysisResult{
 		Tonality:     0.5,
 		SFM:          0.5,
@@ -159,7 +159,7 @@ func computeTonalityWithBandsScratch(mdctCoeffs []float64, nbBands, frameSize in
 	// Compute power spectrum into scratch buffer
 	powers := scratch.Powers[:len(mdctCoeffs)]
 	for i, coeff := range mdctCoeffs {
-		powers[i] = coeff * coeff
+		powers[i] = float64(float32(coeff) * float32(coeff))
 	}
 
 	// Compute overall SFM
@@ -415,8 +415,6 @@ func safeLog(x float64) float64 {
 //   - frameSize: frame size for scaling band boundaries
 //
 // Returns: tonalityAnalysisResult
-func computeTonalityFromNormalized(normCoeffs []float64, nbBands, frameSize int) tonalityAnalysisResult {
-	// For normalized coefficients, we need to analyze the distribution within bands
-	// rather than absolute magnitudes
-	return computeTonalityWithBands(normCoeffs, nbBands, frameSize)
+func computeTonalityFromNormalized(normCoeffs []celtNorm, nbBands, frameSize int) tonalityAnalysisResult {
+	return computeTonalityWithBandsScratch(normCoeffs, nbBands, frameSize, &tonalityScratch{})
 }

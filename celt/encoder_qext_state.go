@@ -16,7 +16,7 @@ type encoderQEXTScratch struct {
 	quantized []celtGLog
 	qerr      []celtGLog
 	oldBandE  []celtGLog
-	normL     []float64
-	normR     []float64
+	normL     []celtNorm
+	normR     []celtNorm
 	encoder   rangecoding.Encoder
 }

@@ -15,8 +15,8 @@ func TestAntiCollapseBasic(t *testing.T) {
 	frameSize := 960
 
 	// Create test data
-	coeffsL := make([]float64, frameSize)
-	var coeffsR []float64
+	coeffsL := make([]celtNorm, frameSize)
+	var coeffsR []celtNorm
 
 	// Create collapse mask - mark some bands as collapsed (0 = collapsed, 1 = has pulses)
 	collapse := make([]byte, channels*MaxBands)
@@ -75,7 +75,7 @@ func TestAntiCollapseBasic(t *testing.T) {
 		// Check that the band is normalized (approximately unit energy)
 		energy := 0.0
 		for i := bandStart; i < bandEnd && i < len(coeffsL); i++ {
-			energy += coeffsL[i] * coeffsL[i]
+			energy += float64(float32(coeffsL[i]) * float32(coeffsL[i]))
 		}
 		// After renormalization, energy should be close to 1.0
 		if energy < 0.5 || energy > 2.0 {
@@ -119,8 +119,8 @@ func TestAntiCollapseStereo(t *testing.T) {
 	end := 21
 	frameSize := 960
 
-	coeffsL := make([]float64, frameSize)
-	coeffsR := make([]float64, frameSize)
+	coeffsL := make([]celtNorm, frameSize)
+	coeffsR := make([]celtNorm, frameSize)
 
 	// Create collapse mask for both channels
 	collapse := make([]byte, channels*MaxBands)
@@ -217,7 +217,7 @@ func TestAntiCollapsePRNG(t *testing.T) {
 
 	// Run twice with same seed
 	for run := 0; run < 2; run++ {
-		coeffsL := make([]float64, frameSize)
+		coeffsL := make([]celtNorm, frameSize)
 		collapse := make([]byte, channels*MaxBands)
 		collapse[5*channels] = 0 // Band 5 collapsed
 
@@ -320,7 +320,7 @@ func TestAntiCollapseMonoInStereoStream(t *testing.T) {
 	end := 21
 	frameSize := 960
 
-	coeffsL := make([]float64, frameSize)
+	coeffsL := make([]celtNorm, frameSize)
 	collapse := make([]byte, channels*MaxBands)
 	collapse[5*channels] = 0 // Band 5 collapsed
 
@@ -382,7 +382,7 @@ func TestAntiCollapseLM3Scaling(t *testing.T) {
 	frameSize := 960
 
 	for _, lm := range []int{2, 3} {
-		coeffsL := make([]float64, frameSize)
+		coeffsL := make([]celtNorm, frameSize)
 		collapse := make([]byte, channels*MaxBands)
 		collapse[5*channels] = 0
 
@@ -412,7 +412,7 @@ func TestAntiCollapseLM3Scaling(t *testing.T) {
 		band5End := EBands[6] << lm
 		energy := 0.0
 		for i := band5Start; i < band5End && i < frameSize; i++ {
-			energy += coeffsL[i] * coeffsL[i]
+			energy += float64(float32(coeffsL[i]) * float32(coeffsL[i]))
 		}
 
 		t.Logf("LM=%d: band 5 energy = %.6f", lm, energy)
@@ -431,7 +431,7 @@ func TestAntiCollapseAllSubBlocks(t *testing.T) {
 	end := 21
 	frameSize := 480
 
-	coeffsL := make([]float64, frameSize)
+	coeffsL := make([]celtNorm, frameSize)
 
 	collapse := make([]byte, channels*MaxBands)
 	// Collapse mask for band 5: only sub-block 0 and 2 collapsed (bits 0 and 2 = 0)

@@ -79,13 +79,13 @@ func TestStereoMergeVsLibopus(t *testing.T) {
 
 	for ci, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			xGo := make([]float64, len(tc.x))
-			yGo := make([]float64, len(tc.y))
+			xGo := make([]celtNorm, len(tc.x))
+			yGo := make([]celtNorm, len(tc.y))
 			for i := range tc.x {
-				xGo[i] = float64(tc.x[i])
-				yGo[i] = float64(tc.y[i])
+				xGo[i] = celtNorm(tc.x[i])
+				yGo[i] = celtNorm(tc.y[i])
 			}
-			stereoMerge(xGo, yGo, float64(tc.mid))
+			stereoMerge(xGo, yGo, opusVal16(tc.mid))
 			for i := range xGo {
 				gotX := float32(xGo[i])
 				gotY := float32(yGo[i])
@@ -293,38 +293,38 @@ func absIntLocal(x int) int {
 func TestStereoIthetaQ30(t *testing.T) {
 	testCases := []struct {
 		name   string
-		x      []float64
-		y      []float64
+		x      []celtNorm
+		y      []celtNorm
 		stereo bool
 	}{
 		{
 			name:   "equal energy (45 degrees)",
-			x:      []float64{1, 0, 0, 0},
-			y:      []float64{0, 1, 0, 0},
+			x:      []celtNorm{1, 0, 0, 0},
+			y:      []celtNorm{0, 1, 0, 0},
 			stereo: false,
 		},
 		{
 			name:   "all mid (0 degrees)",
-			x:      []float64{1, 1, 1, 1},
-			y:      []float64{0, 0, 0, 0},
+			x:      []celtNorm{1, 1, 1, 1},
+			y:      []celtNorm{0, 0, 0, 0},
 			stereo: false,
 		},
 		{
 			name:   "all side (90 degrees)",
-			x:      []float64{0, 0, 0, 0},
-			y:      []float64{1, 1, 1, 1},
+			x:      []celtNorm{0, 0, 0, 0},
+			y:      []celtNorm{1, 1, 1, 1},
 			stereo: false,
 		},
 		{
 			name:   "stereo mode - equal",
-			x:      []float64{0.5, 0.5, 0.5, 0.5},
-			y:      []float64{0.5, 0.5, 0.5, 0.5},
+			x:      []celtNorm{0.5, 0.5, 0.5, 0.5},
+			y:      []celtNorm{0.5, 0.5, 0.5, 0.5},
 			stereo: true,
 		},
 		{
 			name:   "stereo mode - different",
-			x:      []float64{0.8, 0.4, 0.2, 0.1},
-			y:      []float64{0.2, 0.4, 0.6, 0.8},
+			x:      []celtNorm{0.8, 0.4, 0.2, 0.1},
+			y:      []celtNorm{0.2, 0.4, 0.6, 0.8},
 			stereo: true,
 		},
 	}
@@ -414,32 +414,30 @@ func TestThetaRDOTrialRestoration(t *testing.T) {
 	// for the theta RDO algorithm.
 	testCases := []struct {
 		name string
-		orig []float64
-		enc  []float64
+		orig []celtNorm
+		enc  []celtNorm
 	}{
 		{
 			name: "identical vectors",
-			orig: []float64{0.5, 0.5, 0.5, 0.5},
-			enc:  []float64{0.5, 0.5, 0.5, 0.5},
+			orig: []celtNorm{0.5, 0.5, 0.5, 0.5},
+			enc:  []celtNorm{0.5, 0.5, 0.5, 0.5},
 		},
 		{
 			name: "similar vectors",
-			orig: []float64{0.5, 0.5, 0.5, 0.5},
-			enc:  []float64{0.48, 0.51, 0.49, 0.52},
+			orig: []celtNorm{0.5, 0.5, 0.5, 0.5},
+			enc:  []celtNorm{0.48, 0.51, 0.49, 0.52},
 		},
 		{
 			name: "different vectors",
-			orig: []float64{0.5, 0.5, 0.5, 0.5},
-			enc:  []float64{0.4, 0.6, 0.3, 0.7},
+			orig: []celtNorm{0.5, 0.5, 0.5, 0.5},
+			enc:  []celtNorm{0.4, 0.6, 0.3, 0.7},
 		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			orig := make([]celtNorm, len(tc.orig))
-			enc := make([]celtNorm, len(tc.enc))
-			copyFloat64ToNorm(orig, tc.orig)
-			copyFloat64ToNorm(enc, tc.enc)
+			orig := append([]celtNorm(nil), tc.orig...)
+			enc := append([]celtNorm(nil), tc.enc...)
 
 			// The distortion measure used in theta RDO is innerProductNorm(orig, enc)
 			// Higher inner product means lower distortion (more similar)
@@ -564,11 +562,11 @@ func TestThetaQ30ExtendedPrecision(t *testing.T) {
 	// Standard itheta has ~16384 steps over 90 degrees = ~0.0055 degrees per step
 	// Q30 has 1<<30 = ~1 billion steps, so much finer
 
-	x1 := []float64{0.99, 0.1, 0.05, 0.02}
-	y1 := []float64{0.1, 0.05, 0.02, 0.01}
+	x1 := []celtNorm{0.99, 0.1, 0.05, 0.02}
+	y1 := []celtNorm{0.1, 0.05, 0.02, 0.01}
 
-	x2 := []float64{0.99, 0.1, 0.05, 0.03} // slightly different
-	y2 := []float64{0.1, 0.05, 0.02, 0.01}
+	x2 := []celtNorm{0.99, 0.1, 0.05, 0.03} // slightly different
+	y2 := []celtNorm{0.1, 0.05, 0.02, 0.01}
 
 	itheta1 := stereoItheta(x1, y1, false)
 	itheta2 := stereoItheta(x2, y2, false)

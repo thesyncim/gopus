@@ -13,47 +13,47 @@ import (
 func TestPVQSearchQuality(t *testing.T) {
 	testCases := []struct {
 		name string
-		x    []float64
+		x    []celtNorm
 		k    int
 	}{
 		{
 			name: "uniform_positive",
-			x:    []float64{1.0, 1.0, 1.0, 1.0},
+			x:    []celtNorm{1.0, 1.0, 1.0, 1.0},
 			k:    4,
 		},
 		{
 			name: "single_peak",
-			x:    []float64{0.0, 0.0, 1.0, 0.0},
+			x:    []celtNorm{0.0, 0.0, 1.0, 0.0},
 			k:    4,
 		},
 		{
 			name: "two_peaks",
-			x:    []float64{0.7, 0.0, 0.7, 0.0},
+			x:    []celtNorm{0.7, 0.0, 0.7, 0.0},
 			k:    4,
 		},
 		{
 			name: "mixed_signs",
-			x:    []float64{1.0, -1.0, 1.0, -1.0},
+			x:    []celtNorm{1.0, -1.0, 1.0, -1.0},
 			k:    4,
 		},
 		{
 			name: "sparse_large",
-			x:    []float64{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0},
+			x:    []celtNorm{0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 1.0},
 			k:    4,
 		},
 		{
 			name: "descending",
-			x:    []float64{4.0, 3.0, 2.0, 1.0},
+			x:    []celtNorm{4.0, 3.0, 2.0, 1.0},
 			k:    4,
 		},
 		{
 			name: "high_k",
-			x:    []float64{1.0, 2.0, 3.0, 4.0},
+			x:    []celtNorm{1.0, 2.0, 3.0, 4.0},
 			k:    16,
 		},
 		{
 			name: "real_audio_like",
-			x:    []float64{0.5, -0.3, 0.8, -0.2, 0.1, 0.4, -0.6, 0.3},
+			x:    []celtNorm{0.5, -0.3, 0.8, -0.2, 0.1, 0.4, -0.6, 0.3},
 			k:    8,
 		},
 	}
@@ -61,7 +61,7 @@ func TestPVQSearchQuality(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Normalize input to unit L2 norm (like PVQ expects)
-			normX := normalizeFloat64(tc.x)
+			normX := normalizeNormForTest(tc.x)
 
 			// Run PVQ search
 			pulses, yy := opPVQSearch(normX, tc.k)
@@ -85,13 +85,13 @@ func TestPVQSearchQuality(t *testing.T) {
 				computedYY += float64(p * p)
 			}
 			// Allow some tolerance for float32/float64 precision differences
-			if math.Abs(yy-computedYY) > 1e-3 {
+			if math.Abs(float64(yy)-computedYY) > 1e-3 {
 				t.Errorf("yy = %v, computed = %v", yy, computedYY)
 			}
 
 			// Normalize the result and check correlation with input
-			normResult := normalizeFloat64(intToFloat64(pulses))
-			correlation := dotProduct(normX, normResult)
+			normResult := normalizeNormForTest(intToNormForTest(pulses))
+			correlation := dotProductNorm(normX, normResult)
 
 			// Correlation should be positive and reasonably high
 			if correlation < 0 {
@@ -107,13 +107,13 @@ func TestPVQSearchQuality(t *testing.T) {
 // TestPVQSearchPreservesSign verifies that PVQ search respects input signs
 func TestPVQSearchPreservesSign(t *testing.T) {
 	testCases := []struct {
-		x []float64
+		x []celtNorm
 		k int
 	}{
-		{[]float64{1.0, -1.0, 1.0, -1.0}, 4},
-		{[]float64{-1.0, -1.0, -1.0, -1.0}, 4},
-		{[]float64{1.0, 1.0, 1.0, 1.0}, 4},
-		{[]float64{0.5, -0.5, 0.0, 0.0}, 2},
+		{[]celtNorm{1.0, -1.0, 1.0, -1.0}, 4},
+		{[]celtNorm{-1.0, -1.0, -1.0, -1.0}, 4},
+		{[]celtNorm{1.0, 1.0, 1.0, 1.0}, 4},
+		{[]celtNorm{0.5, -0.5, 0.0, 0.0}, 2},
 	}
 
 	for _, tc := range testCases {
@@ -133,7 +133,7 @@ func TestPVQSearchPreservesSign(t *testing.T) {
 // TestPVQSearchEdgeCases tests edge cases in PVQ search
 func TestPVQSearchEdgeCases(t *testing.T) {
 	t.Run("zero_input", func(t *testing.T) {
-		x := []float64{0.0, 0.0, 0.0, 0.0}
+		x := []celtNorm{0.0, 0.0, 0.0, 0.0}
 		pulses, _ := opPVQSearch(x, 4)
 		// For zero input, libopus puts all pulses in first position
 		l1 := 0
@@ -150,7 +150,7 @@ func TestPVQSearchEdgeCases(t *testing.T) {
 	})
 
 	t.Run("very_small_input", func(t *testing.T) {
-		x := []float64{1e-20, 1e-20, 1e-20, 1e-20}
+		x := []celtNorm{1e-20, 1e-20, 1e-20, 1e-20}
 		pulses, _ := opPVQSearch(x, 4)
 		l1 := 0
 		for _, p := range pulses {
@@ -166,7 +166,7 @@ func TestPVQSearchEdgeCases(t *testing.T) {
 	})
 
 	t.Run("single_dimension", func(t *testing.T) {
-		x := []float64{1.0}
+		x := []celtNorm{1.0}
 		pulses, _ := opPVQSearch(x, 4)
 		if len(pulses) != 1 || pulses[0] != 4 {
 			t.Errorf("pulses = %v, want [4]", pulses)
@@ -174,7 +174,7 @@ func TestPVQSearchEdgeCases(t *testing.T) {
 	})
 
 	t.Run("k_equals_1", func(t *testing.T) {
-		x := []float64{0.1, 0.2, 0.9, 0.1}
+		x := []celtNorm{0.1, 0.2, 0.9, 0.1}
 		pulses, _ := opPVQSearch(x, 1)
 		l1 := 0
 		for _, p := range pulses {
@@ -213,14 +213,14 @@ func TestPVQRoundtrip(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run("", func(t *testing.T) {
 			// Generate random-ish test vector
-			x := make([]float64, tc.n)
+			x := make([]celtNorm, tc.n)
 			for i := range x {
-				x[i] = float64((i*7+3)%11) - 5.0
+				x[i] = celtNorm(float32((i*7+3)%11) - 5.0)
 			}
-			x = normalizeFloat64(x)
+			x = normalizeNormForTest(x)
 
 			// Encode
-			pulses, _ := opPVQSearch(x, tc.k)
+			pulses, _ := opPVQSearchNorm(x, tc.k)
 			index := EncodePulses(pulses, tc.n, tc.k)
 
 			// Decode
@@ -251,13 +251,13 @@ func TestExpRotationSymmetry(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run("", func(t *testing.T) {
 			// Create test vector
-			orig := make([]float64, tc.n)
+			orig := make([]celtNorm, tc.n)
 			for i := range orig {
-				orig[i] = float64(i + 1)
+				orig[i] = celtNorm(float32(i + 1))
 			}
 
 			// Copy for rotation
-			x := make([]float64, tc.n)
+			x := make([]celtNorm, tc.n)
 			copy(x, orig)
 
 			// Forward rotation (dir=1)
@@ -269,8 +269,8 @@ func TestExpRotationSymmetry(t *testing.T) {
 			// Check result matches original
 			// Use relative tolerance for larger values since float32 accumulates errors
 			for i := range orig {
-				diff := math.Abs(x[i] - orig[i])
-				relTol := 1e-4 * math.Abs(orig[i])
+				diff := math.Abs(float64(x[i] - orig[i]))
+				relTol := 1e-4 * math.Abs(float64(orig[i]))
 				if relTol < 1e-5 {
 					relTol = 1e-5
 				}
@@ -285,14 +285,14 @@ func TestExpRotationSymmetry(t *testing.T) {
 // TestPVQSearchN2 tests the specialized N=2 search
 func TestPVQSearchN2(t *testing.T) {
 	testCases := []struct {
-		x  []float64
+		x  []celtNorm
 		k  int
 		up int
 	}{
-		{[]float64{1.0, 0.0}, 4, 3},
-		{[]float64{0.7, 0.7}, 4, 3},
-		{[]float64{1.0, -1.0}, 4, 3},
-		{[]float64{-0.5, 0.5}, 2, 7},
+		{[]celtNorm{1.0, 0.0}, 4, 3},
+		{[]celtNorm{0.7, 0.7}, 4, 3},
+		{[]celtNorm{1.0, -1.0}, 4, 3},
+		{[]celtNorm{-0.5, 0.5}, 2, 7},
 	}
 
 	for _, tc := range testCases {
@@ -324,18 +324,18 @@ func TestPVQSearchN2(t *testing.T) {
 // TestPVQSearchExtra tests the extended precision search
 func TestPVQSearchExtra(t *testing.T) {
 	testCases := []struct {
-		x  []float64
+		x  []celtNorm
 		k  int
 		up int
 	}{
-		{[]float64{0.5, 0.5, 0.5, 0.5}, 4, 3},
-		{[]float64{1.0, 0.0, 0.0, 0.0}, 4, 7},
-		{[]float64{0.7, -0.3, 0.5, -0.2}, 8, 15},
+		{[]celtNorm{0.5, 0.5, 0.5, 0.5}, 4, 3},
+		{[]celtNorm{1.0, 0.0, 0.0, 0.0}, 4, 7},
+		{[]celtNorm{0.7, -0.3, 0.5, -0.2}, 8, 15},
 	}
 
 	for _, tc := range testCases {
 		t.Run("", func(t *testing.T) {
-			normX := normalizeFloat64(tc.x)
+			normX := normalizeNormForTest(tc.x)
 			iy, upIy, refine := opPVQSearchExtra(normX, tc.k, tc.up)
 
 			// Verify L1 norm of iy equals k
@@ -387,15 +387,15 @@ func BenchmarkPVQSearch(b *testing.B) {
 
 	for _, s := range sizes {
 		b.Run("", func(b *testing.B) {
-			x := make([]float64, s.n)
+			x := make([]celtNorm, s.n)
 			for i := range x {
-				x[i] = float64((i*7+3)%11) - 5.0
+				x[i] = celtNorm(float32((i*7+3)%11) - 5.0)
 			}
-			x = normalizeFloat64(x)
+			x = normalizeNormForTest(x)
 
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				opPVQSearch(x, s.k)
+				opPVQSearchNorm(x, s.k)
 			}
 		})
 	}
@@ -434,6 +434,25 @@ func intToFloat64(v []int) []float64 {
 	return result
 }
 
+func intToNormForTest(v []int) []celtNorm {
+	result := make([]celtNorm, len(v))
+	for i, x := range v {
+		result[i] = celtNorm(float32(x))
+	}
+	return result
+}
+
+func dotProductNorm(a, b []celtNorm) float64 {
+	if len(a) != len(b) {
+		return 0
+	}
+	var sum float64
+	for i := range a {
+		sum += float64(a[i]) * float64(b[i])
+	}
+	return sum
+}
+
 func dotProduct(a, b []float64) float64 {
 	if len(a) != len(b) {
 		return 0
@@ -443,4 +462,20 @@ func dotProduct(a, b []float64) float64 {
 		sum += a[i] * b[i]
 	}
 	return sum
+}
+
+func normalizeNormForTest(v []celtNorm) []celtNorm {
+	var sum float64
+	for _, x := range v {
+		sum += float64(x) * float64(x)
+	}
+	if sum == 0 {
+		return v
+	}
+	scale := float32(1 / math.Sqrt(sum))
+	out := make([]celtNorm, len(v))
+	for i, x := range v {
+		out[i] = celtNorm(float32(x) * scale)
+	}
+	return out
 }

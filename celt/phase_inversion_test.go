@@ -25,8 +25,8 @@ func encodeThetaInvBit(t *testing.T, disableInv bool) int {
 
 	// Anti-phase stereo so side dominates mid and raw theta > 8192.
 	const n = 16
-	x := make([]float64, n)
-	y := make([]float64, n)
+	x := make([]celtNorm, n)
+	y := make([]celtNorm, n)
 	for i := 0; i < n; i++ {
 		x[i] = 1.0
 		y[i] = -1.0

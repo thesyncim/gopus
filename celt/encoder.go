@@ -1108,8 +1108,8 @@ type encoderScratch struct {
 	prev1LogE         []celtGLog
 
 	// Normalized coefficient buffers
-	normL []float64
-	normR []float64
+	normL []celtNorm
+	normR []celtNorm
 	// Interleaved stereo normalized coefficients for spread analysis.
 	normStereo []celtNorm
 
@@ -1278,8 +1278,8 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.coarseDecisionE = ensureGLogSlice(&s.coarseDecisionE, bandCount)
 
 	// Normalized coefficients
-	s.normL = ensureFloat64Slice(&s.normL, frameSize)
-	s.normR = ensureFloat64Slice(&s.normR, frameSize)
+	s.normL = ensureNormSlice(&s.normL, frameSize)
+	s.normR = ensureNormSlice(&s.normR, frameSize)
 	s.normStereo = ensureNormSlice(&s.normStereo, frameSize*2)
 
 	// Allocation buffers
@@ -1341,8 +1341,8 @@ func (e *Encoder) ensureScratch(frameSize int) {
 		qs.quantized = ensureGLogSlice(&qs.quantized, nbQEXTBands*channels)
 		qs.qerr = ensureGLogSlice(&qs.qerr, nbQEXTBands*channels)
 		qs.oldBandE = ensureGLogSlice(&qs.oldBandE, MaxBands*channels)
-		qs.normL = ensureFloat64Slice(&qs.normL, frameSize)
-		qs.normR = ensureFloat64Slice(&qs.normR, frameSize)
+		qs.normL = ensureNormSlice(&qs.normL, frameSize)
+		qs.normR = ensureNormSlice(&qs.normR, frameSize)
 	}
 
 	// MDCT input buffer for ComputeMDCTWithHistory

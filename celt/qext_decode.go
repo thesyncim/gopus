@@ -12,8 +12,8 @@ type preparedQEXTDecode struct {
 	extraPulses []int
 	extraQuant  []int
 	energies    []celtGLog
-	coeffsL     []float64
-	coeffsR     []float64
+	coeffsL     []celtNorm
+	coeffsR     []celtNorm
 }
 
 func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []celtGLog, nbBands int, intra bool, lm int, prevState []celtGLog, prevStride int, rd *rangecoding.Decoder) []celtGLog {

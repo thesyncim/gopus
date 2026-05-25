@@ -48,7 +48,7 @@ func computeQEXTBandLogEInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm 
 	}
 }
 
-func normalizeQEXTBandsInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []celtEner, norm []float64) {
+func normalizeQEXTBandsInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []celtEner, norm []celtNorm) {
 	if cfg == nil || end <= 0 || len(norm) == 0 {
 		return
 	}
@@ -80,7 +80,7 @@ func normalizeQEXTBandsInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm i
 		}
 		g := float32(1.0) / amp
 		for j := start; j < stop; j++ {
-			norm[j] = float64(float32(mdctCoeffs[j]) * g)
+			norm[j] = celtNorm(float32(mdctCoeffs[j]) * g)
 		}
 	}
 }

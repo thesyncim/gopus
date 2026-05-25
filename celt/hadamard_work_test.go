@@ -1,11 +1,11 @@
 package celt
 
 import (
-	"reflect"
+	"fmt"
 	"testing"
 )
 
-func TestHadamardWorkIntoMatchesLegacy(t *testing.T) {
+func TestHadamardWorkIntoMatchesReference(t *testing.T) {
 	cases := []struct {
 		name     string
 		n0       int
@@ -26,29 +26,29 @@ func TestHadamardWorkIntoMatchesLegacy(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			n := tc.n0 * tc.stride
-			src := make([]float64, n)
+			src := make([]celtNorm, n)
 			for i := range src {
-				src[i] = float64((i%17)-8) * 0.375
+				src[i] = celtNorm(float32((i%17)-8) * 0.375)
 			}
 
-			wantDeinterleave := append([]float64(nil), src...)
+			wantDeinterleave := append([]celtNorm(nil), src...)
 			deinterleaveHadamard(wantDeinterleave, tc.n0, tc.stride, tc.hadamard)
 
-			gotDeinterleave := make([]float64, n)
+			gotDeinterleave := make([]celtNorm, n)
 			deinterleaveHadamardInto(gotDeinterleave, src, tc.n0, tc.stride, tc.hadamard)
-			if !reflect.DeepEqual(gotDeinterleave, wantDeinterleave) {
+			if fmt.Sprint(gotDeinterleave) != fmt.Sprint(wantDeinterleave) {
 				t.Fatalf("deinterleave mismatch: got %v want %v", gotDeinterleave, wantDeinterleave)
 			}
 
-			wantInterleave := append([]float64(nil), wantDeinterleave...)
+			wantInterleave := append([]celtNorm(nil), wantDeinterleave...)
 			interleaveHadamard(wantInterleave, tc.n0, tc.stride, tc.hadamard)
 
-			gotInterleave := make([]float64, n)
+			gotInterleave := make([]celtNorm, n)
 			interleaveHadamardInto(gotInterleave, gotDeinterleave, tc.n0, tc.stride, tc.hadamard)
-			if !reflect.DeepEqual(gotInterleave, wantInterleave) {
+			if fmt.Sprint(gotInterleave) != fmt.Sprint(wantInterleave) {
 				t.Fatalf("interleave mismatch: got %v want %v", gotInterleave, wantInterleave)
 			}
-			if !reflect.DeepEqual(gotInterleave, src) {
+			if fmt.Sprint(gotInterleave) != fmt.Sprint(src) {
 				t.Fatalf("roundtrip mismatch: got %v want %v", gotInterleave, src)
 			}
 		})
@@ -57,12 +57,12 @@ func TestHadamardWorkIntoMatchesLegacy(t *testing.T) {
 
 func benchmarkHadamardWorkRoundTrip(b *testing.B, direct bool, n0, stride int, hadamard bool) {
 	n := n0 * stride
-	src := make([]float64, n)
+	src := make([]celtNorm, n)
 	for i := range src {
-		src[i] = float64((i%23)-11) * 0.25
+		src[i] = celtNorm(float32((i%23)-11) * 0.25)
 	}
-	work := make([]float64, n)
-	dst := make([]float64, n)
+	work := make([]celtNorm, n)
+	dst := make([]celtNorm, n)
 
 	b.ReportAllocs()
 	b.ResetTimer()
@@ -71,13 +71,13 @@ func benchmarkHadamardWorkRoundTrip(b *testing.B, direct bool, n0, stride int, h
 			deinterleaveHadamardInto(work, src, n0, stride, hadamard)
 			interleaveHadamardInto(dst, work, n0, stride, hadamard)
 		} else {
-			deinterleaveHadamardIntoLegacy(work, src, n0, stride, hadamard)
-			interleaveHadamardIntoLegacy(dst, work, n0, stride, hadamard)
+			deinterleaveHadamardIntoReference(work, src, n0, stride, hadamard)
+			interleaveHadamardIntoReference(dst, work, n0, stride, hadamard)
 		}
 	}
 }
 
-func deinterleaveHadamardIntoLegacy(work, src []float64, n0, stride int, hadamard bool) {
+func deinterleaveHadamardIntoReference(work, src []celtNorm, n0, stride int, hadamard bool) {
 	if hadamard {
 		ordery := orderyForStride(stride)
 		for i := 0; i < stride; i++ {
@@ -96,7 +96,7 @@ func deinterleaveHadamardIntoLegacy(work, src []float64, n0, stride int, hadamar
 	}
 }
 
-func interleaveHadamardIntoLegacy(dst, src []float64, n0, stride int, hadamard bool) {
+func interleaveHadamardIntoReference(dst, src []celtNorm, n0, stride int, hadamard bool) {
 	if hadamard {
 		ordery := orderyForStride(stride)
 		for i := 0; i < stride; i++ {
@@ -119,7 +119,7 @@ func BenchmarkHadamardWorkRoundTripCurrent(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, true, 22, 6, false)
 }
 
-func BenchmarkHadamardWorkRoundTripLegacy(b *testing.B) {
+func BenchmarkHadamardWorkRoundTripReference(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, false, 22, 6, false)
 }
 
@@ -127,7 +127,7 @@ func BenchmarkHadamardWorkRoundTripCurrentStride2(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, true, 64, 2, false)
 }
 
-func BenchmarkHadamardWorkRoundTripLegacyStride2(b *testing.B) {
+func BenchmarkHadamardWorkRoundTripReferenceStride2(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, false, 64, 2, false)
 }
 
@@ -135,7 +135,7 @@ func BenchmarkHadamardWorkRoundTripCurrentStride12(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, true, 12, 12, false)
 }
 
-func BenchmarkHadamardWorkRoundTripLegacyStride12(b *testing.B) {
+func BenchmarkHadamardWorkRoundTripReferenceStride12(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, false, 12, 12, false)
 }
 
@@ -143,7 +143,7 @@ func BenchmarkHadamardWorkRoundTripCurrentStride16(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, true, 8, 16, false)
 }
 
-func BenchmarkHadamardWorkRoundTripLegacyStride16(b *testing.B) {
+func BenchmarkHadamardWorkRoundTripReferenceStride16(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, false, 8, 16, false)
 }
 
@@ -151,7 +151,7 @@ func BenchmarkHadamardWorkRoundTripCurrentHadamardStride8(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, true, 15, 8, true)
 }
 
-func BenchmarkHadamardWorkRoundTripLegacyHadamardStride8(b *testing.B) {
+func BenchmarkHadamardWorkRoundTripReferenceHadamardStride8(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, false, 15, 8, true)
 }
 
@@ -159,6 +159,6 @@ func BenchmarkHadamardWorkRoundTripCurrentHadamardStride16(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, true, 8, 16, true)
 }
 
-func BenchmarkHadamardWorkRoundTripLegacyHadamardStride16(b *testing.B) {
+func BenchmarkHadamardWorkRoundTripReferenceHadamardStride16(b *testing.B) {
 	benchmarkHadamardWorkRoundTrip(b, false, 8, 16, true)
 }

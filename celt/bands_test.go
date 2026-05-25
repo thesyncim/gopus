@@ -67,7 +67,7 @@ func TestNormalizeVector(t *testing.T) {
 			// Verify unit length (except for zero vector)
 			var length2 float64
 			for _, x := range result {
-				length2 += x * x
+				length2 += float64(x) * float64(x)
 			}
 			if length2 > 1e-10 && math.Abs(length2-1.0) > 1e-10 {
 				t.Errorf("Normalized vector length^2 = %v, want 1.0", length2)
@@ -91,7 +91,7 @@ func TestNormalizeVectorUnitLength(t *testing.T) {
 
 		var length2 float64
 		for _, x := range result {
-			length2 += x * x
+			length2 += float64(x) * float64(x)
 		}
 
 		if math.Abs(length2-1.0) > 1e-9 {
@@ -104,22 +104,22 @@ func TestNormalizeVectorUnitLength(t *testing.T) {
 func TestFoldBand(t *testing.T) {
 	tests := []struct {
 		name    string
-		lowband []float64
+		lowband []celtNorm
 		n       int
 	}{
 		{
 			name:    "fold from 4-element band to 4",
-			lowband: []float64{0.5, 0.5, 0.5, 0.5},
+			lowband: []celtNorm{0.5, 0.5, 0.5, 0.5},
 			n:       4,
 		},
 		{
 			name:    "fold from 2-element band to 4 (wrap)",
-			lowband: []float64{0.7071067811865476, 0.7071067811865476},
+			lowband: []celtNorm{0.7071067811865476, 0.7071067811865476},
 			n:       4,
 		},
 		{
 			name:    "fold from 8-element band to 4 (truncate)",
-			lowband: []float64{0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35},
+			lowband: []celtNorm{0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35, 0.35},
 			n:       4,
 		},
 		{
@@ -129,7 +129,7 @@ func TestFoldBand(t *testing.T) {
 		},
 		{
 			name:    "noise generation (empty source)",
-			lowband: []float64{},
+			lowband: []celtNorm{},
 			n:       8,
 		},
 	}
@@ -147,9 +147,9 @@ func TestFoldBand(t *testing.T) {
 			// Verify unit norm
 			var length2 float64
 			for _, x := range result {
-				length2 += x * x
+				length2 += float64(x) * float64(x)
 			}
-			if math.Abs(length2-1.0) > 1e-9 {
+			if math.Abs(length2-1.0) > 2e-6 {
 				t.Errorf("FoldBand has length^2 = %v, want 1.0", length2)
 			}
 		})
@@ -158,7 +158,7 @@ func TestFoldBand(t *testing.T) {
 
 // TestFoldBandSeedVariation verifies different seeds produce different outputs.
 func TestFoldBandSeedVariation(t *testing.T) {
-	lowband := []float64{1, 0, 0, 0}
+	lowband := []celtNorm{1, 0, 0, 0}
 	n := 4
 
 	seed1 := uint32(11111)
@@ -713,11 +713,11 @@ func BenchmarkNormalizeVector(b *testing.B) {
 
 // BenchmarkFoldBand measures band folding performance.
 func BenchmarkFoldBand(b *testing.B) {
-	lowband := make([]float64, 8)
+	lowband := make([]celtNorm, 8)
 	for i := range lowband {
-		lowband[i] = float64(i+1) / 10.0
+		lowband[i] = celtNorm(float32(i+1) / 10.0)
 	}
-	lowband = NormalizeVector(lowband)
+	normalizeNormVectorInPlace(lowband)
 
 	seed := uint32(12345)
 

@@ -1,7 +1,5 @@
 package celt
 
-import "math"
-
 var (
 	// Reference: libopus celt_encoder.c intensity_thresholds/intensity_histeresis.
 	celtIntensityThresholds = [...]int{
@@ -43,7 +41,7 @@ func hysteresisDecisionInt(val int, thresholds, hysteresis []int, prev int) int 
 }
 
 // stereoAnalysisDecision mirrors libopus stereo_analysis() and returns dual-stereo usage.
-func stereoAnalysisDecision(normL, normR []float64, lm, nbBands int) bool {
+func stereoAnalysisDecision(normL, normR []celtNorm, lm, nbBands int) bool {
 	if lm < 0 {
 		lm = 0
 	}
@@ -62,7 +60,7 @@ func stereoAnalysisDecision(normL, normR []float64, lm, nbBands int) bool {
 		return false
 	}
 
-	const eps = 1e-12
+	const eps = float32(1e-12)
 	sumLR := eps
 	sumMS := eps
 	for band := 0; band < maxBand; band++ {
@@ -82,16 +80,16 @@ func stereoAnalysisDecision(normL, normR []float64, lm, nbBands int) bool {
 			r := normR[j]
 			m := l + r
 			s := l - r
-			sumLR += math.Abs(l) + math.Abs(r)
-			sumMS += math.Abs(m) + math.Abs(s)
+			sumLR += absCeltNorm(l) + absCeltNorm(r)
+			sumMS += absCeltNorm(m) + absCeltNorm(s)
 		}
 	}
-	sumMS *= 0.7071067811865476 // sqrt(1/2)
+	sumMS *= 0.70710677 // sqrt(1/2)
 
 	thetas := 13
 	if lm <= 1 {
 		thetas -= 8
 	}
 	base := EBands[13] << (lm + 1)
-	return float64(base+thetas)*sumMS > float64(base)*sumLR
+	return float32(base+thetas)*sumMS > float32(base)*sumLR
 }

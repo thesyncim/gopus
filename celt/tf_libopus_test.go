@@ -8,7 +8,9 @@ import (
 
 func float64sToNorms(in []float64) []celtNorm {
 	out := make([]celtNorm, len(in))
-	copyFloat64ToNorm(out, in)
+	for i, v := range in {
+		out[i] = celtNorm(v)
+	}
 	return out
 }
 

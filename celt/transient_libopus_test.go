@@ -62,13 +62,13 @@ func TestTransientInterleaveDeinterleave(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(fmt.Sprintf("n0=%d_stride=%d_hadamard=%v", tc.n0, tc.stride, tc.hadamard), func(t *testing.T) {
 			n := tc.n0 * tc.stride
-			original := make([]float64, n)
+			original := make([]celtNorm, n)
 			for i := range original {
-				original[i] = float64(i + 1)
+				original[i] = celtNorm(float32(i + 1))
 			}
 
 			// Deinterleave
-			x := make([]float64, n)
+			x := make([]celtNorm, n)
 			copy(x, original)
 			deinterleaveHadamard(x, tc.n0, tc.stride, tc.hadamard)
 
@@ -77,7 +77,7 @@ func TestTransientInterleaveDeinterleave(t *testing.T) {
 
 			// Verify roundtrip
 			for i := range original {
-				if math.Abs(x[i]-original[i]) > 1e-10 {
+				if math.Abs(float64(x[i]-original[i])) > 1e-6 {
 					t.Errorf("roundtrip mismatch at %d: got %f, want %f", i, x[i], original[i])
 				}
 			}
@@ -247,13 +247,15 @@ func TestHaar1Transform(t *testing.T) {
 			}
 
 			// Apply our haar1 function
-			x := make([]float64, n)
-			copy(x, original)
+			x := make([]celtNorm, n)
+			for i, v := range original {
+				x[i] = celtNorm(v)
+			}
 			haar1(x, tc.n0, tc.stride)
 
 			// Compare (tolerance 1e-4 for float32-level precision)
 			for i := range x {
-				if math.Abs(x[i]-expected[i]) > 1e-4 {
+				if math.Abs(float64(x[i])-expected[i]) > 1e-4 {
 					t.Errorf("haar1 mismatch at %d: got %f, want %f", i, x[i], expected[i])
 				}
 			}
