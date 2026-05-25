@@ -23,6 +23,12 @@ Current local result on darwin/arm64:
 
 Quality, packet length, mode histogram, and decoded waveform metrics already match. The remaining bug is byte/final-range drift inside CELT entropy coding.
 
+Use the dedicated focused target for before/after checks:
+
+```sh
+make test-byte-parity-focus
+```
+
 ## First Divergence Evidence
 
 Temporary probe against `encoder_compliance_libopus_variants_fixture.json` showed:
@@ -45,6 +51,17 @@ Band tell trace from the temporary probe for frame `1`:
 | 7 | `7276` | `7590` | `314` |
 
 Because byte `109` is crossed inside band `6`, the next useful probe should compare libopus and gopus `quant_band_stereo()` inputs/outputs for frame `1`, band `6`, including theta RDO choice, PVQ pulse vector/index, collapse mask, and saved/restored range-coder bytes.
+
+## Conversion, Cast, And Copy Audit
+
+Status as of 2026-05-25:
+
+- The active coordination rule is byte parity, not standalone type parity. `AGENTS.md` now tells agents to run `make test-byte-parity-focus` around CELT band/PVQ/RDO changes.
+- Theta RDO is confirmed to be on the byte path. Changing the Go RDO inner-product accumulator order moved the focused mismatch counts from `41/51` and `24/51` to `42/51` and `23/51`, so small math-order changes can flip packet bytes even when quality remains identical.
+- That accumulator-order change was not kept: `go test ./celt -run '^TestThetaRDODistortionMatchesLibopusFloatPath$' -count=1 -v` failed against the existing C-backed `libopus_celt_vq_info.c:eval_theta_dist()` oracle. Keep the current `innerProductNorm` order unless a fixture-specific libopus trace proves the target fixture was generated with a different inner-product kernel.
+- Range-coder trial save/restore is a live copy hotspot. Go currently snapshots front and raw-bit back buffers through `rangecoding.EncoderState`, while libopus shallow-copies the `ec_ctx` and explicitly preserves the byte span dirtied by the first theta-RDO trial. The next trace should compare `offs`, `storage/endOffs`, `rng`, `val`, `rem`, `ext`, `nbitsTotal`, and the saved byte span after both theta trials for frame `1`, band `6`.
+- Redundant `float32(...)` and alias casts remain in CELT hot paths, but they are not by themselves byte-parity fixes. Remove or rewrite them only when the focused fixture or C oracle shows the conversion changes a range event, PVQ pulse/index, theta decision, collapse mask, or final range.
+- The only copy cleanup that matters for this blocker is stateful copy/restore around `quant_band_stereo()`: `X/Y`, `norm`, range bytes, extension range bytes, and lowband folding state. Broad cleanup of unrelated `copy()` calls is a distraction unless a trace ties the copy to byte drift.
 
 ## Rules For Agents
 
