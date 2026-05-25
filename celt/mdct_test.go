@@ -671,7 +671,7 @@ func TestDecodeFrame_StateConsistency(t *testing.T) {
 	energy := dec.GetEnergy(0, 0)
 	// After silence frames, energy should be updated
 	// Just verify it's a valid number
-	if math.IsNaN(energy) || math.IsInf(energy, 0) {
+	if math.IsNaN(float64(energy)) || math.IsInf(float64(energy), 0) {
 		t.Errorf("Invalid energy after frames: %v", energy)
 	}
 }

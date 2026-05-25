@@ -48,29 +48,27 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		prevTapset = len(combFilterGains) - 1
 	}
 	perChanLen := maxPeriod + frameSize
-	pre := ensureFloat64Slice(&e.scratch.prefilterPre, perChanLen*channels)
-	out := ensureFloat64Slice(&e.scratch.prefilterOut, perChanLen*channels)
+	pre := ensureSigSlice(&e.scratch.prefilterPre, perChanLen*channels)
+	out := ensureSigSlice(&e.scratch.prefilterOut, perChanLen*channels)
 
 	if channels == 1 {
 		hist := e.prefilterMem[:maxPeriod]
 		preCh := pre[:perChanLen]
-		copySigToFloat64(preCh[:maxPeriod], hist)
-		copy(preCh[maxPeriod:maxPeriod+frameSize], preemph[:frameSize])
+		copy(preCh[:maxPeriod], hist)
+		for i := 0; i < frameSize; i++ {
+			preCh[maxPeriod+i] = celtSig(preemph[i])
+		}
 	} else {
 		histL := e.prefilterMem[:maxPeriod]
 		histR := e.prefilterMem[maxPeriod : 2*maxPeriod]
 		preL := pre[:perChanLen]
 		preR := pre[perChanLen : 2*perChanLen]
-		copySigToFloat64(preL[:maxPeriod], histL)
-		copySigToFloat64(preR[:maxPeriod], histR)
-		DeinterleaveStereoInto(preemph[:frameSize*2], preL[maxPeriod:maxPeriod+frameSize], preR[maxPeriod:maxPeriod+frameSize])
-	}
-	// Keep prefilter inputs at float32 precision to match libopus celt_sig path.
-	// Prefilter history is already float32-quantized when persisted in prefilterMem.
-	// Only round the newly appended frame samples.
-	for ch := 0; ch < channels; ch++ {
-		frame := pre[ch*perChanLen+maxPeriod : ch*perChanLen+maxPeriod+frameSize]
-		roundFloat64ToFloat32(frame)
+		copy(preL[:maxPeriod], histL)
+		copy(preR[:maxPeriod], histR)
+		for i := 0; i < frameSize; i++ {
+			preL[maxPeriod+i] = celtSig(preemph[2*i])
+			preR[maxPeriod+i] = celtSig(preemph[2*i+1])
+		}
 	}
 	pitchIndex := minPeriod
 	gain1 := float32(0)
@@ -101,7 +99,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			pitchBufLen = 1
 		}
 		pitchBuf := ensureFloat32Slice(&e.scratch.prefilterPitchBuf, pitchBufLen)
-		pitchDownsample(pre, pitchBuf, pitchBufLen, channels, 2)
+		pitchDownsampleSig(pre, pitchBuf, pitchBufLen, channels, 2)
 		maxPitch := maxPeriod - 3*minPeriod
 		if maxPitch < 1 {
 			maxPitch = 1
@@ -200,26 +198,26 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 	}
 	window := GetWindowBuffer(Overlap)
 
-	var before [2]float64
-	var after [2]float64
+	var before [2]opusVal32
+	var after [2]opusVal32
 	for ch := 0; ch < channels; ch++ {
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 		preSub := preCh[maxPeriod : maxPeriod+frameSize]
-		before[ch] = absSum(preSub)
+		before[ch] = absSumSig(preSub)
 		if offset > 0 {
-			combFilterWithInputF32(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -float64(e.prefilterGain), -float64(e.prefilterGain), prevTapset, prevTapset, nil, 0)
+			combFilterWithInputSig(outCh, preCh, maxPeriod, prevPeriod, prevPeriod, offset, -e.prefilterGain, -e.prefilterGain, prevTapset, prevTapset, nil, 0)
 		}
-		combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -float64(e.prefilterGain), -float64(gain1), prevTapset, tapset, window, overlap)
+		combFilterWithInputSig(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, frameSize-offset, -e.prefilterGain, -gain1, prevTapset, tapset, window, overlap)
 		outSub := outCh[maxPeriod : maxPeriod+frameSize]
-		after[ch] = absSum(outSub)
+		after[ch] = absSumSig(outSub)
 	}
 
 	cancelPitch := false
 	if channels == 2 {
-		gain64 := float64(gain1)
-		thresh0 := 0.25*gain64*before[0] + 0.01*before[1]
-		thresh1 := 0.25*gain64*before[1] + 0.01*before[0]
+		gain := opusVal32(gain1)
+		thresh0 := opusVal32(0.25)*gain*before[0] + opusVal32(0.01)*before[1]
+		thresh1 := opusVal32(0.25)*gain*before[1] + opusVal32(0.01)*before[0]
 		if after[0]-before[0] > thresh0 || after[1]-before[1] > thresh1 {
 			cancelPitch = true
 		}
@@ -237,7 +235,7 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 			preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 			outCh := out[ch*perChanLen : (ch+1)*perChanLen]
 			copy(outCh[maxPeriod:maxPeriod+frameSize], preCh[maxPeriod:maxPeriod+frameSize])
-			combFilterWithInputF32(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -float64(e.prefilterGain), 0, prevTapset, tapset, window, overlap)
+			combFilterWithInputSig(outCh, preCh, maxPeriod+offset, prevPeriod, pitchIndex, overlap, -e.prefilterGain, 0, prevTapset, tapset, window, overlap)
 		}
 		gain1 = 0
 		pfOn = false
@@ -258,16 +256,16 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		outCh := out[:perChanLen]
 		mem := e.prefilterMem[:maxPeriod]
 		if frameSize > maxPeriod {
-			copyFloat64ToSig(mem, preCh[frameSize:frameSize+maxPeriod])
+			copy(mem, preCh[frameSize:frameSize+maxPeriod])
 		} else {
 			copy(mem, mem[frameSize:])
-			copyFloat64ToSig(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
+			copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
 		}
 		outSub2 := outCh[maxPeriod : maxPeriod+frameSize]
-		copy(preemph[:frameSize], outSub2)
+		copySigToFloat64(preemph[:frameSize], outSub2)
 		if overlap > 0 && len(e.overlapBuffer) >= overlap && frameSize >= overlap {
 			hist := e.overlapBuffer[:overlap]
-			copyFloat64ToSig(hist, outSub2[frameSize-overlap:])
+			copy(hist, outSub2[frameSize-overlap:])
 		}
 	} else {
 		preL := pre[:perChanLen]
@@ -277,20 +275,20 @@ func (e *Encoder) runPrefilter(preemph []float64, frameSize int, tapset int, ena
 		memL := e.prefilterMem[:maxPeriod]
 		memR := e.prefilterMem[maxPeriod : 2*maxPeriod]
 		if frameSize > maxPeriod {
-			copyFloat64ToSig(memL, preL[frameSize:frameSize+maxPeriod])
-			copyFloat64ToSig(memR, preR[frameSize:frameSize+maxPeriod])
+			copy(memL, preL[frameSize:frameSize+maxPeriod])
+			copy(memR, preR[frameSize:frameSize+maxPeriod])
 		} else {
 			copy(memL, memL[frameSize:])
-			copyFloat64ToSig(memL[maxPeriod-frameSize:], preL[maxPeriod:maxPeriod+frameSize])
+			copy(memL[maxPeriod-frameSize:], preL[maxPeriod:maxPeriod+frameSize])
 			copy(memR, memR[frameSize:])
-			copyFloat64ToSig(memR[maxPeriod-frameSize:], preR[maxPeriod:maxPeriod+frameSize])
+			copy(memR[maxPeriod-frameSize:], preR[maxPeriod:maxPeriod+frameSize])
 		}
-		InterleaveStereoInto(outL, outR, preemph[:frameSize*2])
+		interleaveSigToFloat64(outL, outR, preemph[:frameSize*2])
 		if overlap > 0 && len(e.overlapBuffer) >= channels*overlap && frameSize >= overlap {
 			histL := e.overlapBuffer[:overlap]
 			histR := e.overlapBuffer[overlap : 2*overlap]
-			copyFloat64ToSig(histL, outL[frameSize-overlap:])
-			copyFloat64ToSig(histR, outR[frameSize-overlap:])
+			copy(histL, outL[frameSize-overlap:])
+			copy(histR, outR[frameSize-overlap:])
 		}
 	}
 
@@ -313,7 +311,7 @@ func abs32(x float32) float32 {
 	return x
 }
 
-func (e *Encoder) updatePrefilterNoopState(pre []float64, perChanLen, frameSize, channels, overlap int) {
+func (e *Encoder) updatePrefilterNoopState(pre []celtSig, perChanLen, frameSize, channels, overlap int) {
 	if channels <= 0 || frameSize <= 0 || len(pre) < perChanLen*channels {
 		return
 	}
@@ -331,14 +329,14 @@ func (e *Encoder) updatePrefilterNoopState(pre []float64, perChanLen, frameSize,
 		preCh := pre[ch*perChanLen : (ch+1)*perChanLen]
 		mem := e.prefilterMem[ch*maxPeriod : (ch+1)*maxPeriod]
 		if frameSize > maxPeriod {
-			copyFloat64ToSig(mem, preCh[frameSize:frameSize+maxPeriod])
+			copy(mem, preCh[frameSize:frameSize+maxPeriod])
 		} else {
 			copy(mem, mem[frameSize:])
-			copyFloat64ToSig(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
+			copy(mem[maxPeriod-frameSize:], preCh[maxPeriod:maxPeriod+frameSize])
 		}
 		if overlap > 0 && frameSize >= overlap && len(e.overlapBuffer) >= (ch+1)*overlap {
 			hist := e.overlapBuffer[ch*overlap : (ch+1)*overlap]
-			copyFloat64ToSig(hist, preCh[maxPeriod+frameSize-overlap:maxPeriod+frameSize])
+			copy(hist, preCh[maxPeriod+frameSize-overlap:maxPeriod+frameSize])
 		}
 	}
 }

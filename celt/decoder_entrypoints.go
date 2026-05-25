@@ -157,7 +157,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		return samples, nil
 	}
 
-	postfilterGain := 0.0
+	postfilterGain := float32(0)
 	postfilterPeriod := 0
 	postfilterTapset := 0
 	if start == 0 && tell+16 <= totalBits {
@@ -168,7 +168,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 			if rd.Tell()+2 <= totalBits {
 				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
 			}
-			postfilterGain = 0.09375 * float64(qg+1)
+			postfilterGain = float32(0.09375) * float32(qg+1)
 		}
 		tell = rd.Tell()
 	}

@@ -53,7 +53,7 @@ func seedDecoderStateForSilenceTest(d *Decoder) {
 	d.postfilterTapset = 2
 }
 
-func decodeSilenceFrameReferenceForTest(d *Decoder, frameSize int, newPeriod int, newGain float64, newTapset int) []float64 {
+func decodeSilenceFrameReferenceForTest(d *Decoder, frameSize int, newPeriod int, newGain float32, newTapset int) []float64 {
 	mode := GetModeConfig(frameSize)
 	zeros := make([]float64, frameSize)
 	var samples []float64

@@ -10,7 +10,7 @@ import (
 func TestCombFilterGains(t *testing.T) {
 	// libopus uses Q15 fixed-point: QCONST16(value, 15)
 	// The float values must match exactly.
-	expectedGains := [3][3]float64{
+	expectedGains := [3][3]float32{
 		{0.3066406250, 0.2170410156, 0.1296386719},
 		{0.4638671875, 0.2680664062, 0.0000000000},
 		{0.7998046875, 0.1000976562, 0.0000000000},
@@ -20,7 +20,7 @@ func TestCombFilterGains(t *testing.T) {
 		for tap := 0; tap < 3; tap++ {
 			expected := expectedGains[tapset][tap]
 			got := combFilterGains[tapset][tap]
-			if math.Abs(got-expected) > 1e-10 {
+			if math.Abs(float64(got-expected)) > 1e-10 {
 				t.Errorf("combFilterGains[%d][%d] = %v, want %v", tapset, tap, got, expected)
 			}
 		}
@@ -80,7 +80,7 @@ func TestCombFilterConstantParams(t *testing.T) {
 	}
 
 	period := 100
-	gain := 0.5
+	gain := float32(0.5)
 	tapset := 0
 
 	window := GetWindowBuffer(Overlap)
@@ -117,7 +117,7 @@ func TestCombFilterImpulseResponse(t *testing.T) {
 	impulsePos := history - period
 	buf[impulsePos] = 1.0
 
-	gain := 1.0 // Full gain for easy verification
+	gain := float32(1.0) // Full gain for easy verification
 	tapset := 0
 
 	window := GetWindowBuffer(Overlap)
@@ -133,7 +133,7 @@ func TestCombFilterImpulseResponse(t *testing.T) {
 	expected := combFilterGains[tapset][0] // g00
 	got := buf[history]
 
-	if math.Abs(got-expected) > 1e-6 {
+	if math.Abs(got-float64(expected)) > 1e-6 {
 		t.Errorf("Impulse response at position 0: got %v, want %v", got, expected)
 	}
 }
@@ -152,7 +152,7 @@ func TestCombFilterCrossfade(t *testing.T) {
 
 	// Different parameters to force crossfade
 	t0, t1 := 50, 100
-	g0, g1 := 0.5, 0.3
+	g0, g1 := float32(0.5), float32(0.3)
 	tapset0, tapset1 := 0, 1
 
 	window := GetWindowBuffer(Overlap)
@@ -208,7 +208,7 @@ func TestSanitizePostfilterParams(t *testing.T) {
 	tests := []struct {
 		name               string
 		t0, t1             int
-		g0, g1             float64
+		g0, g1             float32
 		tap0, tap1         int
 		wantT0, wantT1     int
 		wantTap0, wantTap1 int
@@ -423,7 +423,7 @@ func TestCombFilterVsLibopusReference(t *testing.T) {
 	testCases := []struct {
 		name     string
 		period   int
-		gain     float64
+		gain     float32
 		tapset   int
 		inputLen int
 	}{

@@ -123,7 +123,7 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 		combFilterWithInputSig(
 			dst, src, history,
 			d.postfilterPeriodOld, d.postfilterPeriod, segLen,
-			-float64(d.postfilterGainOld), -float64(d.postfilterGain),
+			-d.postfilterGainOld, -d.postfilterGain,
 			d.postfilterTapsetOld, d.postfilterTapset,
 			nil, 0,
 		)
@@ -314,7 +314,7 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 	d.SetPrevEnergy(concealEnergy)
 	d.rng = seed
 
-	d.applyPostfilter(d.scratchPLC[:outLen], frameSize, mode.LM, d.postfilterPeriod, float64(d.postfilterGain), d.postfilterTapset)
+	d.applyPostfilter(d.scratchPLC[:outLen], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
 	d.applyDeemphasisAndScale(d.scratchPLC[:outLen], 1.0/32768.0)
 
 	return d.scratchPLC[:outLen], nil
@@ -457,7 +457,7 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 	d.SetPrevEnergy(concealEnergy)
 	d.rng = seed
 
-	d.applyPostfilter(dst[:frameSize*d.channels], frameSize, mode.LM, d.postfilterPeriod, float64(d.postfilterGain), d.postfilterTapset)
+	d.applyPostfilter(dst[:frameSize*d.channels], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
 	if len(d.directOutPCM) >= frameSize*d.channels {
 		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:frameSize*d.channels], dst[:frameSize*d.channels], 1.0/32768.0)
 		return

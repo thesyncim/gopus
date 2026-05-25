@@ -144,7 +144,7 @@ func TestTapsetNotUpdatedWhenDisabled(t *testing.T) {
 // Reference: libopus celt/celt.c gains[3][3] table
 func TestTapsetGainTableValues(t *testing.T) {
 	// Expected gain values from libopus (Q15 converted to float)
-	expectedGains := [3][3]float64{
+	expectedGains := [3][3]float32{
 		{0.3066406250, 0.2170410156, 0.1296386719}, // Tapset 0
 		{0.4638671875, 0.2680664062, 0.0},          // Tapset 1
 		{0.7998046875, 0.1000976562, 0.0},          // Tapset 2
@@ -154,7 +154,7 @@ func TestTapsetGainTableValues(t *testing.T) {
 		for tap := 0; tap < 3; tap++ {
 			expected := expectedGains[tapset][tap]
 			got := combFilterGains[tapset][tap]
-			if math.Abs(got-expected) > 1e-6 {
+			if math.Abs(float64(got-expected)) > 1e-6 {
 				t.Errorf("combFilterGains[%d][%d] = %f, want %f", tapset, tap, got, expected)
 			}
 		}

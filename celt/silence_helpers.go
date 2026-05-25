@@ -102,7 +102,7 @@ func (d *Decoder) synthesizeSilenceStereo(frameSize int) []float64 {
 }
 
 // decodeSilenceFrame synthesizes a CELT silence frame from overlap state.
-func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float64, newTapset int) []float64 {
+func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float32, newTapset int) []float64 {
 	mode := GetModeConfig(frameSize)
 	d.applyPendingPLCPrefilterAndFold()
 	var samples []float64

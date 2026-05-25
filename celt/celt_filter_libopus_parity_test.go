@@ -386,7 +386,7 @@ func TestCombFilterWithInputF32MatchesLibopus(t *testing.T) {
 
 			want := probeLibopusCombFilterInput(t, start, tc.n, tc.t0, tc.t1, tc.tapset0, tc.tapset1, overlap, tc.g0, tc.g1, win32, src)
 			got := append([]float64(nil), src...)
-			combFilterWithInputF32(got, src, start, tc.t0, tc.t1, tc.n, float64(tc.g0), float64(tc.g1), tc.tapset0, tc.tapset1, win64, overlap)
+			combFilterWithInputF32(got, src, start, tc.t0, tc.t1, tc.n, tc.g0, tc.g1, tc.tapset0, tc.tapset1, win64, overlap)
 			assertFloat64AsFloat32Bits(t, "comb", got[start:start+tc.n], want)
 		})
 	}

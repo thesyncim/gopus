@@ -239,7 +239,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 		return samples, nil
 	}
 
-	postfilterGain := 0.0
+	postfilterGain := float32(0)
 	postfilterPeriod := 0
 	postfilterTapset := 0
 	if start == 0 && tell+16 <= totalBits {
@@ -250,7 +250,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 			if rd.Tell()+2 <= totalBits {
 				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
 			}
-			postfilterGain = 0.09375 * float64(qg+1)
+			postfilterGain = float32(0.09375) * float32(qg+1)
 		}
 		tell = rd.Tell()
 	}
@@ -464,7 +464,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 		return samples, nil
 	}
 
-	postfilterGain := 0.0
+	postfilterGain := float32(0)
 	postfilterPeriod := 0
 	postfilterTapset := 0
 	if start == 0 && tell+16 <= totalBits {
@@ -475,7 +475,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 			if rd.Tell()+2 <= totalBits {
 				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
 			}
-			postfilterGain = 0.09375 * float64(qg+1)
+			postfilterGain = float32(0.09375) * float32(qg+1)
 		}
 		tell = rd.Tell()
 	}
@@ -705,7 +705,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		return samples, nil
 	}
 
-	postfilterGain := 0.0
+	postfilterGain := float32(0)
 	postfilterPeriod := 0
 	postfilterTapset := 0
 	if start == 0 && tell+16 <= totalBits {
@@ -716,7 +716,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 			if rd.Tell()+2 <= totalBits {
 				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
 			}
-			postfilterGain = 0.09375 * float64(qg+1)
+			postfilterGain = float32(0.09375) * float32(qg+1)
 		}
 		tell = rd.Tell()
 	}
@@ -891,7 +891,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		return samples[:frameSize], nil
 	}
 
-	postfilterGain := 0.0
+	postfilterGain := float32(0)
 	postfilterPeriod := 0
 	postfilterTapset := 0
 	if start == 0 && tell+16 <= totalBits {
@@ -902,7 +902,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 			if rd.Tell()+2 <= totalBits {
 				postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
 			}
-			postfilterGain = 0.09375 * float64(qg+1)
+			postfilterGain = float32(0.09375) * float32(qg+1)
 		}
 		tell = rd.Tell()
 	}

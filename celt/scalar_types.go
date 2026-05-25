@@ -23,10 +23,31 @@ func ensureSigSlice(buf *[]celtSig, n int) []celtSig {
 	return (*buf)[:n]
 }
 
+func absSumSig(x []celtSig) opusVal32 {
+	var sum opusVal32
+	for _, v := range x {
+		if v < 0 {
+			sum -= opusVal32(v)
+		} else {
+			sum += opusVal32(v)
+		}
+	}
+	return sum
+}
+
 func copySigToFloat64(dst []float64, src []celtSig) {
 	n := min(len(dst), len(src))
 	for i := 0; i < n; i++ {
 		dst[i] = float64(src[i])
+	}
+}
+
+func interleaveSigToFloat64(left, right []celtSig, dst []float64) {
+	n := min(len(left), len(right))
+	n = min(n, len(dst)/2)
+	for i := 0; i < n; i++ {
+		dst[2*i] = float64(left[i])
+		dst[2*i+1] = float64(right[i])
 	}
 }
 

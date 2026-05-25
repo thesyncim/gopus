@@ -3,7 +3,7 @@ package celt
 import "github.com/thesyncim/gopus/rangecoding"
 
 type decodedFrameHeader struct {
-	postfilterGain   float64
+	postfilterGain   float32
 	postfilterPeriod int
 	postfilterTapset int
 	shortBlocks      int
@@ -25,7 +25,7 @@ func (d *Decoder) decodeFrameHeader(rd *rangecoding.Decoder, totalBits, frameSiz
 			if rd.Tell()+2 <= totalBits {
 				header.postfilterTapset = rd.DecodeICDF(tapsetICDF, 2)
 			}
-			header.postfilterGain = 0.09375 * float64(qg+1)
+			header.postfilterGain = float32(0.09375) * float32(qg+1)
 		}
 		tell = rd.Tell()
 	}

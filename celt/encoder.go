@@ -751,15 +751,15 @@ func (e *Encoder) NextRNG() uint32 {
 }
 
 // GetEnergy returns the energy for a specific band and channel from prevEnergy.
-func (e *Encoder) GetEnergy(band, channel int) float64 {
+func (e *Encoder) GetEnergy(band, channel int) float32 {
 	if band < 0 || band >= MaxBands || channel < 0 || channel >= e.channels {
 		return 0
 	}
-	return float64(e.prevEnergy[channel*MaxBands+band])
+	return float32(e.prevEnergy[channel*MaxBands+band])
 }
 
 // SetEnergy sets the energy for a specific band and channel.
-func (e *Encoder) SetEnergy(band, channel int, energy float64) {
+func (e *Encoder) SetEnergy(band, channel int, energy float32) {
 	if band < 0 || band >= MaxBands || channel < 0 || channel >= e.channels {
 		return
 	}
@@ -1046,8 +1046,8 @@ type encoderScratch struct {
 	transientInputF32 []float32
 
 	// Prefilter (comb filter) scratch buffers
-	prefilterPre      []float64
-	prefilterOut      []float64
+	prefilterPre      []celtSig
+	prefilterOut      []celtSig
 	prefilterPitchBuf []float32
 	prefilterXLP4     []float32
 	prefilterYLP4     []float32
@@ -1195,8 +1195,8 @@ func (e *Encoder) ensureScratch(frameSize int) {
 		maxPeriod = combFilterMinPeriod
 	}
 	prefilterLen := (maxPeriod + frameSize) * channels
-	s.prefilterPre = ensureFloat64Slice(&s.prefilterPre, prefilterLen)
-	s.prefilterOut = ensureFloat64Slice(&s.prefilterOut, prefilterLen)
+	s.prefilterPre = ensureSigSlice(&s.prefilterPre, prefilterLen)
+	s.prefilterOut = ensureSigSlice(&s.prefilterOut, prefilterLen)
 	pitchBufLen := (maxPeriod + frameSize) >> 1
 	if pitchBufLen < 1 {
 		pitchBufLen = 1

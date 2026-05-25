@@ -8,14 +8,14 @@ const (
 	plcDecodeBufferSize = 2048
 )
 
-var combFilterGains = [3][3]float64{
+var combFilterGains = [3][3]float32{
 	{0.3066406250, 0.2170410156, 0.1296386719},
 	{0.4638671875, 0.2680664062, 0.0000000000},
 	{0.7998046875, 0.1000976562, 0.0000000000},
 }
 
-func combGain32(g float64, tapset, tap int) float32 {
-	return float32(g) * float32(combFilterGains[tapset][tap])
+func combGain32(g float32, tapset, tap int) float32 {
+	return g * combFilterGains[tapset][tap]
 }
 
 func (d *Decoder) resetPostfilterState() {
@@ -42,7 +42,7 @@ func (d *Decoder) clampDecodePostfilterPeriods() {
 	}
 }
 
-func sanitizePostfilterParams(t0, t1 int, g0, g1 float64, tap0, tap1 int) (int, int, int, int) {
+func sanitizePostfilterParams(t0, t1 int, g0, g1 float32, tap0, tap1 int) (int, int, int, int) {
 	if t0 < combFilterMinPeriod || t0 > combFilterMaxPeriod {
 		t0 = t1
 	}
@@ -747,12 +747,12 @@ func (d *Decoder) updatePLCDecodeHistoryMonoFromFloat32(samples []float32, frame
 	updateMonoHistoryFromFloat32(d.plcDecodeMem[:history], samples, frameSize, history)
 }
 
-func (d *Decoder) commitPostfilterStateNoGain(lm int, newPeriod int, newGain float64, newTapset int) {
+func (d *Decoder) commitPostfilterStateNoGain(lm int, newPeriod int, newGain float32, newTapset int) {
 	d.postfilterPeriodOld = d.postfilterPeriod
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
 	d.postfilterPeriod = newPeriod
-	d.postfilterGain = float32(newGain)
+	d.postfilterGain = newGain
 	d.postfilterTapset = newTapset
 	if lm != 0 {
 		d.postfilterPeriodOld = d.postfilterPeriod
@@ -761,7 +761,7 @@ func (d *Decoder) commitPostfilterStateNoGain(lm int, newPeriod int, newGain flo
 	}
 }
 
-func (d *Decoder) applyPostfilterNoGainMonoFromFloat32(samples []float32, frameSize, lm int, newPeriod int, newGain float64, newTapset int) {
+func (d *Decoder) applyPostfilterNoGainMonoFromFloat32(samples []float32, frameSize, lm int, newPeriod int, newGain float32, newTapset int) {
 	if frameSize <= 0 {
 		return
 	}
@@ -777,7 +777,7 @@ func (d *Decoder) applyPostfilterNoGainMonoFromFloat32(samples []float32, frameS
 	d.commitPostfilterStateNoGain(lm, newPeriod, newGain, newTapset)
 }
 
-func (d *Decoder) applyPostfilterNoGainStereoPlanarFromFloat32(left, right []float32, frameSize, lm int, newPeriod int, newGain float64, newTapset int) {
+func (d *Decoder) applyPostfilterNoGainStereoPlanarFromFloat32(left, right []float32, frameSize, lm int, newPeriod int, newGain float32, newTapset int) {
 	if frameSize <= 0 {
 		return
 	}
@@ -793,7 +793,7 @@ func (d *Decoder) applyPostfilterNoGainStereoPlanarFromFloat32(left, right []flo
 	d.commitPostfilterStateNoGain(lm, newPeriod, newGain, newTapset)
 }
 
-func applyPostfilterChannelInPlace(samples []float64, hist []celtSig, frameSize, history, lm int, t0, t1, t1b, t2 int, g0, g1, g2 float64, tap0, tap1, tap1b, tap2 int, window, windowSq []float64) {
+func applyPostfilterChannelInPlace(samples []float64, hist []celtSig, frameSize, history, lm int, t0, t1, t1b, t2 int, g0, g1, g2 float32, tap0, tap1, tap1b, tap2 int, window, windowSq []float64) {
 	shortMdctSize := frameSize >> uint(lm)
 	if shortMdctSize <= 0 || shortMdctSize > frameSize {
 		shortMdctSize = frameSize
@@ -805,7 +805,7 @@ func applyPostfilterChannelInPlace(samples []float64, hist []celtSig, frameSize,
 	}
 }
 
-func applyPostfilterChannelInPlaceFloat32(samples []float32, hist []celtSig, frameSize, history, lm int, t0, t1, t1b, t2 int, g0, g1, g2 float64, tap0, tap1, tap1b, tap2 int, window, windowSq []float64) {
+func applyPostfilterChannelInPlaceFloat32(samples []float32, hist []celtSig, frameSize, history, lm int, t0, t1, t1b, t2 int, g0, g1, g2 float32, tap0, tap1, tap1b, tap2 int, window, windowSq []float64) {
 	shortMdctSize := frameSize >> uint(lm)
 	if shortMdctSize <= 0 || shortMdctSize > frameSize {
 		shortMdctSize = frameSize
@@ -817,7 +817,7 @@ func applyPostfilterChannelInPlaceFloat32(samples []float32, hist []celtSig, fra
 	}
 }
 
-func (d *Decoder) applyPostfilterStereoPlanar(left, right []float64, frameSize, lm int, newPeriod int, newGain float64, newTapset int) {
+func (d *Decoder) applyPostfilterStereoPlanar(left, right []float64, frameSize, lm int, newPeriod int, newGain float32, newTapset int) {
 	if len(left) < frameSize || len(right) < frameSize || frameSize <= 0 {
 		return
 	}
@@ -838,8 +838,8 @@ func (d *Decoder) applyPostfilterStereoPlanar(left, right []float64, frameSize, 
 
 	t0 := d.postfilterPeriodOld
 	t1 := d.postfilterPeriod
-	g0 := float64(d.postfilterGainOld)
-	g1 := float64(d.postfilterGain)
+	g0 := d.postfilterGainOld
+	g1 := d.postfilterGain
 	tap0 := d.postfilterTapsetOld
 	tap1 := d.postfilterTapset
 	t2 := newPeriod
@@ -863,7 +863,7 @@ func (d *Decoder) applyPostfilterStereoPlanar(left, right []float64, frameSize, 
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
 	d.postfilterPeriod = newPeriod
-	d.postfilterGain = float32(newGain)
+	d.postfilterGain = newGain
 	d.postfilterTapset = newTapset
 	if lm != 0 {
 		d.postfilterPeriodOld = d.postfilterPeriod
@@ -872,7 +872,7 @@ func (d *Decoder) applyPostfilterStereoPlanar(left, right []float64, frameSize, 
 	}
 }
 
-func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, frameSize, lm int, newPeriod int, newGain float64, newTapset int) {
+func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, frameSize, lm int, newPeriod int, newGain float32, newTapset int) {
 	if len(left) < frameSize || len(right) < frameSize || frameSize <= 0 {
 		return
 	}
@@ -893,8 +893,8 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 
 	t0 := d.postfilterPeriodOld
 	t1 := d.postfilterPeriod
-	g0 := float64(d.postfilterGainOld)
-	g1 := float64(d.postfilterGain)
+	g0 := d.postfilterGainOld
+	g1 := d.postfilterGain
 	tap0 := d.postfilterTapsetOld
 	tap1 := d.postfilterTapset
 	t2 := newPeriod
@@ -918,7 +918,7 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
 	d.postfilterPeriod = newPeriod
-	d.postfilterGain = float32(newGain)
+	d.postfilterGain = newGain
 	d.postfilterTapset = newTapset
 	if lm != 0 {
 		d.postfilterPeriodOld = d.postfilterPeriod
@@ -927,7 +927,7 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 	}
 }
 
-func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPeriod int, newGain float64, newTapset int) {
+func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPeriod int, newGain float32, newTapset int) {
 	if len(samples) == 0 || frameSize <= 0 {
 		return
 	}
@@ -962,8 +962,8 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 
 	t0 := d.postfilterPeriodOld
 	t1 := d.postfilterPeriod
-	g0 := float64(d.postfilterGainOld)
-	g1 := float64(d.postfilterGain)
+	g0 := d.postfilterGainOld
+	g1 := d.postfilterGain
 	tap0 := d.postfilterTapsetOld
 	tap1 := d.postfilterTapset
 	t2 := newPeriod
@@ -1048,7 +1048,7 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
 	d.postfilterPeriod = newPeriod
-	d.postfilterGain = float32(newGain)
+	d.postfilterGain = newGain
 	d.postfilterTapset = newTapset
 	if lm != 0 {
 		d.postfilterPeriodOld = d.postfilterPeriod
@@ -1057,11 +1057,11 @@ func (d *Decoder) applyPostfilter(samples []float64, frameSize, lm int, newPerio
 	}
 }
 
-func combFilter(buf []float64, start int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window []float64, overlap int) {
+func combFilter(buf []float64, start int, t0, t1, n int, g0, g1 float32, tapset0, tapset1 int, window []float64, overlap int) {
 	combFilterWithSquare(buf, start, t0, t1, n, g0, g1, tapset0, tapset1, window, nil, overlap)
 }
 
-func combFilterWithSquare(buf []float64, start int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window, windowSq []float64, overlap int) {
+func combFilterWithSquare(buf []float64, start int, t0, t1, n int, g0, g1 float32, tapset0, tapset1 int, window, windowSq []float64, overlap int) {
 	if n <= 0 {
 		return
 	}
@@ -1338,7 +1338,7 @@ func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3,
 	return x4, x3, x2, x1
 }
 
-func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, history, frameOffset int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window, windowSq []float64, overlap int) {
+func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, history, frameOffset int, t0, t1, n int, g0, g1 float32, tapset0, tapset1 int, window, windowSq []float64, overlap int) {
 	if n <= 0 {
 		return
 	}
@@ -1482,7 +1482,7 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 	}
 }
 
-func combFilterWithSquarePlanar(samples []float64, hist []celtSig, history, frameOffset int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window, windowSq []float64, overlap int) {
+func combFilterWithSquarePlanar(samples []float64, hist []celtSig, history, frameOffset int, t0, t1, n int, g0, g1 float32, tapset0, tapset1 int, window, windowSq []float64, overlap int) {
 	if n <= 0 {
 		return
 	}
@@ -1626,103 +1626,9 @@ func combFilterWithSquarePlanar(samples []float64, hist []celtSig, history, fram
 	}
 }
 
-// combFilterWithInput applies the comb filter using a separate input buffer.
-// This matches libopus comb_filter(y, x, ...) behavior where x is the source
-// and y is the destination.
-func combFilterWithInput(dst, src []float64, start int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window []float64, overlap int) {
-	if n <= 0 {
-		return
-	}
-	if g0 == 0 && g1 == 0 {
-		copy(dst[start:start+n], src[start:start+n])
-		return
-	}
-
-	if t0 < combFilterMinPeriod {
-		t0 = combFilterMinPeriod
-	}
-	if t1 < combFilterMinPeriod {
-		t1 = combFilterMinPeriod
-	}
-
-	if window == nil {
-		overlap = 0
-	}
-	if overlap > n {
-		overlap = n
-	}
-	if window != nil && overlap > len(window) {
-		overlap = len(window)
-	}
-
-	if tapset0 < 0 || tapset0 >= len(combFilterGains) {
-		tapset0 = 0
-	}
-	if tapset1 < 0 || tapset1 >= len(combFilterGains) {
-		tapset1 = 0
-	}
-
-	copy(dst[start:start+n], src[start:start+n])
-
-	g00 := g0 * combFilterGains[tapset0][0]
-	g01 := g0 * combFilterGains[tapset0][1]
-	g02 := g0 * combFilterGains[tapset0][2]
-	g10 := g1 * combFilterGains[tapset1][0]
-	g11 := g1 * combFilterGains[tapset1][1]
-	g12 := g1 * combFilterGains[tapset1][2]
-
-	x1 := src[start-t1+1]
-	x2 := src[start-t1]
-	x3 := src[start-t1-1]
-	x4 := src[start-t1-2]
-
-	if g0 == g1 && t0 == t1 && tapset0 == tapset1 {
-		overlap = 0
-	}
-
-	for i := 0; i < overlap; i++ {
-		w := window[i]
-		f := w * w
-		oneMinus := 1.0 - f
-		idx := start + i
-		x0 := src[idx-t1+2]
-		res := (oneMinus*g00)*src[idx-t0] +
-			(oneMinus*g01)*(src[idx-t0-1]+src[idx-t0+1]) +
-			(oneMinus*g02)*(src[idx-t0-2]+src[idx-t0+2]) +
-			(f*g10)*x2 +
-			(f*g11)*(x3+x1) +
-			(f*g12)*(x4+x0)
-		dst[idx] += res
-		x4 = x3
-		x3 = x2
-		x2 = x1
-		x1 = x0
-	}
-
-	if g1 == 0 {
-		return
-	}
-
-	i := overlap
-	x4 = src[start+i-t1-2]
-	x3 = src[start+i-t1-1]
-	x2 = src[start+i-t1]
-	x1 = src[start+i-t1+1]
-	for ; i < n; i++ {
-		idx := start + i
-		x0 := src[idx-t1+2]
-		res := g10*x2 + g11*(x3+x1) + g12*(x4+x0)
-		dst[idx] += res
-		x4 = x3
-		x3 = x2
-		x2 = x1
-		x1 = x0
-	}
-}
-
 // combFilterWithInputF32 applies the comb filter using float32 arithmetic.
 // Encoder prefilter parity with libopus float path is sensitive to this precision.
-func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window []float64, overlap int) {
+func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1 float32, tapset0, tapset1 int, window []float64, overlap int) {
 	if n <= 0 {
 		return
 	}
@@ -1826,7 +1732,7 @@ func combFilterWithInputF32(dst, src []float64, start int, t0, t1, n int, g0, g1
 	}
 }
 
-func combFilterWithInputSig(dst, src []celtSig, start int, t0, t1, n int, g0, g1 float64, tapset0, tapset1 int, window []float64, overlap int) {
+func combFilterWithInputSig(dst, src []celtSig, start int, t0, t1, n int, g0, g1 float32, tapset0, tapset1 int, window []float64, overlap int) {
 	if n <= 0 {
 		return
 	}
