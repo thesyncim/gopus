@@ -1,10 +1,6 @@
 package lpcnetplc
 
-import (
-	"math"
-
-	"github.com/thesyncim/gopus/internal/opusmath"
-)
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 // Constants mirrored from libopus 1.6.1 dnn/lpcnet headers.
 const (
@@ -686,6 +682,6 @@ func quantizePCMInt16Like(sample float32) float32 {
 	if v > 32767 {
 		v = 32767
 	}
-	v = float32(math.Floor(0.5 + float64(v)))
+	v = float32(opusmath.FloorHalfPlusF32ToInt32(v))
 	return v * (1.0 / 32768.0)
 }

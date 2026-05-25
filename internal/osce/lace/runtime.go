@@ -6,6 +6,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dnnmath"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // LACE / NoLACE forward-pass constants are copied verbatim from libopus
@@ -727,9 +728,10 @@ func validatePeriods(periods []int, maxPeriod int) error {
 }
 
 func computeOverlapWindow(window []float32, overlapSize int) {
+	const pi = float32(3.141592653589793238462643383279502884)
 	for i := 0; i < overlapSize; i++ {
-		arg := float32(3.141592653589793) * (float32(i) + 0.5) / float32(overlapSize)
-		window[i] = float32(0.5 + 0.5*math.Cos(float64(arg)))
+		arg := pi * (float32(i) + 0.5) / float32(overlapSize)
+		window[i] = 0.5 + 0.5*opusmath.CosF32(arg)
 	}
 }
 
@@ -738,14 +740,14 @@ func computeOverlapWindow(window []float32, overlapSize int) {
 // fingerprint of the encoder bit budget. The upstream OSCE CLIP macro only
 // caps values above maxVal; values below minVal are left unchanged.
 func computeNumbitsEmbedding(emb []float32, numbits, minVal, maxVal float32, scales [8]float32) {
-	logN := float32(math.Log(float64(numbits)))
+	logN := opusmath.LogF32(numbits)
 	c := logN
 	if c > maxVal {
 		c = maxVal
 	}
 	x := c - (maxVal+minVal)*0.5
 	for i := 0; i < 8; i++ {
-		emb[i] = float32(math.Sin(float64(x*scales[i] - 0.5)))
+		emb[i] = opusmath.SinF32(x*scales[i] - 0.5)
 	}
 }
 
@@ -767,8 +769,8 @@ func (s *LACEState) featureNet(out, features []float32, numbits []float32, perio
 	const concatDim = numFeat + pitchEmbDim + 2*numbitsEmbDim // 173
 
 	var numbitsEmbedded [2 * numbitsEmbDim]float32
-	low := float32(math.Log(laceNumbitsRangeLow))
-	high := float32(math.Log(laceNumbitsRangeHigh))
+	low := opusmath.LogF32(laceNumbitsRangeLow)
+	high := opusmath.LogF32(laceNumbitsRangeHigh)
 	computeNumbitsEmbedding(numbitsEmbedded[:numbitsEmbDim], numbits[0], low, high, laceNumbitsScales)
 	computeNumbitsEmbedding(numbitsEmbedded[numbitsEmbDim:], numbits[1], low, high, laceNumbitsScales)
 
@@ -838,8 +840,8 @@ func (s *NoLACEState) featureNet(out, features []float32, numbits []float32, per
 	const concatDim = numFeat + pitchEmbDim + 2*numbitsEmbDim // 173
 
 	var numbitsEmbedded [2 * numbitsEmbDim]float32
-	low := float32(math.Log(nolaceNumbitsRangeLow))
-	high := float32(math.Log(nolaceNumbitsRangeHigh))
+	low := opusmath.LogF32(nolaceNumbitsRangeLow)
+	high := opusmath.LogF32(nolaceNumbitsRangeHigh)
 	computeNumbitsEmbedding(numbitsEmbedded[:numbitsEmbDim], numbits[0], low, high, nolaceNumbitsScales)
 	computeNumbitsEmbedding(numbitsEmbedded[numbitsEmbDim:], numbits[1], low, high, nolaceNumbitsScales)
 
@@ -1094,15 +1096,15 @@ func adacombProcessFrame(
 	computeGenericDense(globalGainLayer, globalGainTmp[:], features, actTanh)
 	globalGain = globalGainTmp[0]
 
-	gain = float32(math.Exp(float64(logGainLimit - gain)))
-	globalGain = float32(math.Exp(float64(filterGainA*globalGain + filterGainB)))
+	gain = opusmath.ExpF32(logGainLimit - gain)
+	globalGain = opusmath.ExpF32(filterGainA*globalGain + filterGainB)
 
 	// scale_kernel (1 in / 1 out): p-norm normalisation with gain.
 	var norm float32
 	for k := 0; k < kernelSize; k++ {
 		norm += kernelBuf[k] * kernelBuf[k]
 	}
-	invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
+	invNorm := 1.0 / (float32(1e-6) + opusmath.SqrtF32(norm))
 	scale := invNorm * gain
 	for k := 0; k < kernelSize; k++ {
 		kernelBuf[k] *= scale
@@ -1192,7 +1194,7 @@ func adaconvProcessFrame(
 
 	// transform_gains.
 	for i := 0; i < outChannels; i++ {
-		gainBuf[i] = float32(math.Exp(float64(filterGainA*gainBuf[i] + filterGainB)))
+		gainBuf[i] = opusmath.ExpF32(filterGainA*gainBuf[i] + filterGainB)
 	}
 
 	// scale_kernel.
@@ -1205,7 +1207,7 @@ func adaconvProcessFrame(
 				norm += v * v
 			}
 		}
-		invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
+		invNorm := 1.0 / (float32(1e-6) + opusmath.SqrtF32(norm))
 		scale := invNorm * gainBuf[o]
 		for ic := 0; ic < inChannels; ic++ {
 			for k := 0; k < kernelSize; k++ {
@@ -1307,7 +1309,7 @@ func adashapeProcessFrame(
 	for i := 0; i < hiddenDim; i++ {
 		v := outBuf[i] + tmpBuf[i]
 		if v < 0 {
-			v = float32(0.2 * float64(v))
+			v = 0.2 * v
 		}
 		inBuf[i] = v
 	}

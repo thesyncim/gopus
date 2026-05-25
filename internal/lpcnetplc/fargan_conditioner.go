@@ -2,9 +2,9 @@ package lpcnetplc
 
 import (
 	"errors"
-	"math"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 const (
@@ -217,7 +217,8 @@ func PeriodFromFeatures(features []float32) int {
 	if len(features) <= NumBands {
 		return PitchMaxPeriod
 	}
-	period := int(math.Floor(.5 + float64(PitchMaxPeriod)/math.Pow(2, (1./60.)*((float64(features[NumBands])+1.5)*60))))
+	periodF := float32(PitchMaxPeriod) / opusmath.Exp2F32(features[NumBands]+1.5)
+	period := int(opusmath.FloorHalfPlusF32ToInt32(periodF))
 	return period
 }
 

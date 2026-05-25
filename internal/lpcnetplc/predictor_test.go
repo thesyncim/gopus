@@ -7,6 +7,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dnnmath"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 func makePredictorTestBlob() []byte {
@@ -87,7 +88,7 @@ func TestQuantizeInputNearestEvenUsesFloat32Product(t *testing.T) {
 		t.Fatalf("quantizeInput(%v) with avx2 subias=%d want %d", x, got, x86AVX2Want)
 	}
 
-	x86SSEWant := int16(127 + math.Floor(0.5+127*float64(x)))
+	x86SSEWant := int16(127 + opusmath.FloorHalfPlusF32ToInt32(float32(127*x)))
 	if got := quantizeInputWithOptions(x, false, true); got != x86SSEWant {
 		t.Fatalf("quantizeInput(%v) with sse subias=%d want %d", x, got, x86SSEWant)
 	}

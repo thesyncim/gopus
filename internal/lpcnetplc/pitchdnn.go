@@ -2,9 +2,9 @@ package lpcnetplc
 
 import (
 	"errors"
-	"math"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 const (
@@ -317,7 +317,7 @@ func (p *PitchDNN) Compute(ifFeatures, xcorrFeatures []float32) float32 {
 	var sum float32
 	var count float32
 	for i := start; i <= end; i++ {
-		v := float32(math.Exp(float64(p.scratch.output[i])))
+		v := opusmath.ExpF32(p.scratch.output[i])
 		sum += v * float32(i)
 		count += v
 	}

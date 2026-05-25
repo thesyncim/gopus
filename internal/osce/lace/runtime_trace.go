@@ -2,7 +2,7 @@
 
 package lace
 
-import "math"
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 // TraceStage identifies an opt-in LACE diagnostic checkpoint.
 type TraceStage int
@@ -158,8 +158,8 @@ func (s *LACEState) featureNetTrace(out, features []float32, numbits []float32, 
 	const concatDim = numFeat + pitchEmbDim + 2*numbitsEmbDim
 
 	var numbitsEmbedded [2 * numbitsEmbDim]float32
-	low := float32(math.Log(laceNumbitsRangeLow))
-	high := float32(math.Log(laceNumbitsRangeHigh))
+	low := opusmath.LogF32(laceNumbitsRangeLow)
+	high := opusmath.LogF32(laceNumbitsRangeHigh)
 	computeNumbitsEmbedding(numbitsEmbedded[:numbitsEmbDim], numbits[0], low, high, laceNumbitsScales)
 	computeNumbitsEmbedding(numbitsEmbedded[numbitsEmbDim:], numbits[1], low, high, laceNumbitsScales)
 
@@ -243,13 +243,13 @@ func traceAdaCombParams(
 	appendTraceRecord(records, TraceStageCF1KernelRaw, subframe, 1, kernelSize, kernel[:kernelSize])
 	appendTraceRecord(records, TraceStageCF1GainsRaw, subframe, 1, len(gains), gains[:])
 
-	gains[0] = float32(math.Exp(float64(logGainLimit - gains[0])))
-	gains[1] = float32(math.Exp(float64(filterGainA*gains[1] + filterGainB)))
+	gains[0] = opusmath.ExpF32(logGainLimit - gains[0])
+	gains[1] = opusmath.ExpF32(filterGainA*gains[1] + filterGainB)
 	var norm float32
 	for k := 0; k < kernelSize; k++ {
 		norm += kernel[k] * kernel[k]
 	}
-	invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
+	invNorm := 1.0 / (float32(1e-6) + opusmath.SqrtF32(norm))
 	scale := invNorm * gains[0]
 	for k := 0; k < kernelSize; k++ {
 		kernel[k] *= scale

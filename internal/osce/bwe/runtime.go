@@ -2,7 +2,6 @@ package bwe
 
 import (
 	"errors"
-	"math"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dnnmath"
@@ -364,9 +363,10 @@ func (s *State) ensureWindows() {
 }
 
 func computeOverlapWindow(window []float32, overlapSize int) {
+	const pi = float32(3.141592653589793238462643383279502884)
 	for i := 0; i < overlapSize; i++ {
-		arg := math.Pi * (float64(i) + 0.5) / float64(overlapSize)
-		window[i] = float32(0.5 + 0.5*math.Cos(arg))
+		arg := pi * (float32(i) + 0.5) / float32(overlapSize)
+		window[i] = 0.5 + 0.5*opusmath.CosF32(arg)
 	}
 }
 
@@ -827,7 +827,7 @@ func adaconvProcessFrame(
 
 	// transform_gains: gain = exp(a*g + b).
 	for i := 0; i < outChannels; i++ {
-		gainBuf[i] = float32(math.Exp(float64(filterGainA*gainBuf[i] + filterGainB)))
+		gainBuf[i] = opusmath.ExpF32(filterGainA*gainBuf[i] + filterGainB)
 	}
 
 	// scale_kernel: p-norm normalise and apply gain per output channel.
@@ -840,7 +840,7 @@ func adaconvProcessFrame(
 				norm += v * v
 			}
 		}
-		invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
+		invNorm := 1.0 / (float32(1e-6) + opusmath.SqrtF32(norm))
 		scale := invNorm * gainBuf[o]
 		for ic := 0; ic < inChannels; ic++ {
 			for k := 0; k < kernelSize; k++ {
@@ -943,7 +943,7 @@ func adashapeProcessFrame(
 	for i := 0; i < hiddenDim; i++ {
 		v := outBuf[i] + tmpBuf[i]
 		if v < 0 {
-			v = float32(0.2 * float64(v))
+			v = 0.2 * v
 		}
 		inBuf[i] = v
 	}

@@ -15,9 +15,8 @@ package bwe
 // the same scalar mixed-radix kernel via the celt package's float32 Kiss FFT.
 
 import (
-	"math"
-
 	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // BWE feature-extractor geometry from `dnn/osce_config.h`. Kept here as
@@ -229,7 +228,7 @@ func (s *FeatureState) CalculateFeatures(features []float32, xq16k []int16) {
 			im2 := s.lastSpec[2*k+1]
 			auxR := re1*re2 + im1*im2
 			auxI := im1*re2 - re1*im2
-			auxAbs := float32(math.Sqrt(float64(auxR*auxR + auxI*auxI)))
+			auxAbs := opusmath.SqrtF32(auxR*auxR + auxI*auxI)
 			invAbs := 1.0 / (auxAbs + 1e-9)
 			instafreq[k] = auxR * invAbs
 			instafreq[k+bweMaxInstaFreqBin+1] = auxI * invAbs
@@ -239,11 +238,11 @@ func (s *FeatureState) CalculateFeatures(features []float32, xq16k []int16) {
 		for k := 0; k < bweSpecNumFreqs; k++ {
 			re := real(fftOut[k])
 			im := imag(fftOut[k])
-			magSpec[k] = float32(bweWindowSize) * float32(math.Sqrt(float64(re*re+im*im)))
+			magSpec[k] = float32(bweWindowSize) * opusmath.SqrtF32(re*re+im*im)
 		}
 		applyFilterbankBWE(lmspec, magSpec[:])
 		for k := 0; k < bweNumBands; k++ {
-			lmspec[k] = float32(math.Log(float64(lmspec[k]) + 1e-9))
+			lmspec[k] = opusmath.LogF32(lmspec[k] + 1e-9)
 		}
 
 		// Update the previous-frame spectrum buffer.

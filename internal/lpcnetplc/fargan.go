@@ -1,9 +1,8 @@
 package lpcnetplc
 
 import (
-	"math"
-
 	"github.com/thesyncim/gopus/internal/dnnblob"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 const (
@@ -415,7 +414,7 @@ func (f *FARGAN) computeConditioning(out, features []float32, period int) {
 
 func (f *FARGAN) runSubframe(pcm, cond []float32, period int) {
 	computeFARGANSignalDense(&f.model.CondGainDense, f.scratch.gain[:], cond[:FARGANCondSize], activationLinear, &f.scratch)
-	gain := float32(math.Exp(float64(f.scratch.gain[0])))
+	gain := opusmath.ExpF32(f.scratch.gain[0])
 	gainInv := 1 / (1e-5 + gain)
 
 	pos := PitchMaxPeriod - period - 2

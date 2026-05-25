@@ -33,9 +33,8 @@ package lace
 // kernel via the celt package.
 
 import (
-	"math"
-
 	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // Public feature-layout constants (mirror libopus dnn/osce_config.h).
@@ -461,7 +460,7 @@ func (s *FeatureState) CalculateFeatures(
 
 		// Log of the SILK subframe gain.
 		gain := float32(ctrl.GainsQ16[k]) / float32(1<<16)
-		pfeatures[logGainStart] = float32(math.Log(float64(gain) + 1e-9))
+		pfeatures[logGainStart] = opusmath.LogF32(gain + 1e-9)
 	}
 
 	// Signal history update: keep the trailing 350 samples of `buffer`.
@@ -505,7 +504,7 @@ func calculateLogSpectrumFromLPC(
 
 	// Log + 0.3 scaling, libopus log(spec + 1e-9)*0.3.
 	for i := 0; i < cleanSpecNumBands; i++ {
-		spec[i] = 0.3 * float32(math.Log(float64(spec[i])+1e-9))
+		spec[i] = 0.3 * opusmath.LogF32(spec[i]+1e-9)
 	}
 }
 
@@ -535,11 +534,11 @@ func calculateCepstrum(
 
 	// log(spec + 1e-9).
 	for n := 0; n < noisySpecNumBands; n++ {
-		specBuf[n] = float32(math.Log(float64(specBuf[n]) + 1e-9))
+		specBuf[n] = opusmath.LogF32(specBuf[n] + 1e-9)
 	}
 
 	// Orthonormal DCT-II: out[i] = sqrt(2/N) * sum_j in[j] * dct_table[j*N + i].
-	scale := float32(math.Sqrt(2.0 / float64(noisySpecNumBands)))
+	scale := opusmath.SqrtF32(2.0 / float32(noisySpecNumBands))
 	for i := 0; i < noisySpecNumBands; i++ {
 		var sum float32
 		for j := 0; j < noisySpecNumBands; j++ {
@@ -567,7 +566,7 @@ func magSpec320OneSided(
 	for k := 0; k < specNumFreqs; k++ {
 		re := real(fftOut[k])
 		im := imag(fftOut[k])
-		out[k] = float32(specWindowSize) * float32(math.Sqrt(float64(re*re+im*im)))
+		out[k] = float32(specWindowSize) * opusmath.SqrtF32(re*re+im*im)
 	}
 }
 
@@ -626,7 +625,7 @@ func calculateAcorr(
 			yy += y * y
 			xy += x * y
 		}
-		acorr[k+2] = xy / float32(math.Sqrt(float64(xx*yy)+1e-9))
+		acorr[k+2] = xy / opusmath.SqrtF32(xx*yy+1e-9)
 	}
 }
 

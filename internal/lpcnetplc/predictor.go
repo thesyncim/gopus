@@ -6,6 +6,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dnnmath"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // Match the pinned libopus DNN kernels selected by the helper build. Linux
@@ -306,16 +307,16 @@ func quantizeInputWithOptions(x float32, nearestEven, suBias bool) int16 {
 	if nearestEven {
 		if suBias {
 			// Match libopus AVX2: fused single-precision 127*x+127, then cvtps_epi32.
-			scaled := float64(float32(math.FMA(float64(x), 127, 127)))
-			return int16(math.RoundToEven(scaled))
+			scaled := fma32(x, 127, 127)
+			return int16(opusmath.RoundToEvenF32ToInt32(scaled))
 		}
 		// Match libopus NEON: multiply in float32, then round to nearest-even.
-		scaled := float64(float32(127 * x))
-		q := int16(math.RoundToEven(scaled))
+		scaled := float32(127 * x)
+		q := int16(opusmath.RoundToEvenF32ToInt32(scaled))
 		return int16(int8(q))
 	}
-	scaled := 127 * float64(x)
-	q := int16(math.Floor(0.5 + scaled))
+	scaled := float32(127 * x)
+	q := int16(opusmath.FloorHalfPlusF32ToInt32(scaled))
 	if suBias {
 		return 127 + q
 	}
