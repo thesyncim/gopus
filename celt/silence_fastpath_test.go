@@ -6,7 +6,7 @@ import (
 )
 
 func cloneDecoderStateForSilenceTest(src *Decoder) *Decoder {
-	dst := NewDecoder(src.channels)
+	dst := NewDecoder(int(src.channels))
 	dst.sampleRate = src.sampleRate
 	dst.bandwidth = src.bandwidth
 	dst.rng = src.rng

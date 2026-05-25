@@ -17,7 +17,8 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	}
 
 	// Keep transition/state behavior aligned with DecodeFrame().
-	d.handleChannelTransition(d.channels)
+	channels := int(d.channels)
+	d.handleChannelTransition(channels)
 	d.beginDecodedPacketPLCState()
 	d.prepareMonoEnergyFromStereo()
 	d.SetRangeDecoder(rd)
@@ -55,7 +56,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	shortBlocks := header.shortBlocks
 
 	// Step 1: Decode coarse energy
-	energies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*d.channels), end, intra, lm)
+	energies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*channels), end, intra, lm)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes
@@ -73,7 +74,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	coeffsL := spectrum.coeffsL
 	coeffsR := spectrum.coeffsR
 	if spectrum.antiCollapseOn {
-		antiCollapseGLog(coeffsL, coeffsR, spectrum.collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+		antiCollapseGLog(coeffsL, coeffsR, spectrum.collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 	d.applyPendingPLCPrefilterAndFold()
 	samples := d.synthesizeDecodedFrame(frameSize, mode.LM, end, lm, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset, energies, coeffsL, coeffsR, nil)
@@ -144,14 +145,15 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	}
 	if silence {
 		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		silenceE := ensureGLogSlice(&d.scratchSilenceE, MaxBands*d.channels)
+		channels := int(d.channels)
+		silenceE := ensureGLogSlice(&d.scratchSilenceE, MaxBands*channels)
 		fillSilenceGLog(silenceE)
 		d.updateLogEGLog(silenceE, MaxBands, false)
 		d.setPrevEnergyGLogWithPrev(prev1Energy, silenceE)
-		d.clearFrameHistoryOutsideRange(start, end, d.channels)
+		d.clearFrameHistoryOutsideRange(start, end, channels)
 		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
-		d.resetPLCCadence(frameSize, d.channels)
+		d.resetPLCCadence(frameSize, channels)
 		return samples, nil
 	}
 
@@ -188,8 +190,9 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	}
 
 	// Initialize energies with previous state so bands below start are preserved.
-	energies := ensureGLogSlice(&d.scratchEnergies, end*d.channels)
-	for c := 0; c < d.channels; c++ {
+	channels := int(d.channels)
+	energies := ensureGLogSlice(&d.scratchEnergies, end*channels)
+	for c := 0; c < channels; c++ {
 		for band := 0; band < end; band++ {
 			energies[c*end+band] = d.prevEnergy[c*MaxBands+band]
 		}
@@ -208,7 +211,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	balance := allocation.balance
 	codedBands := allocation.codedBands
 
-	coeffsL, coeffsR, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, d.channels, d.phaseInversionDisabled, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
+	coeffsL, coeffsR, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels, d.phaseInversionDisabled, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
 	d.applyPendingPLCPrefilterAndFold()

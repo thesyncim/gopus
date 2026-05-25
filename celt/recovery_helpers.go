@@ -37,7 +37,7 @@ func (d *Decoder) lastPLCFrameWasNeural() bool {
 	if d == nil {
 		return false
 	}
-	return plcFrameIsNeural(d.plcLastFrameType)
+	return plcFrameIsNeural(int(d.plcLastFrameType))
 }
 
 func (d *Decoder) lastPLCFrameWasPeriodic() bool {
@@ -76,7 +76,7 @@ func (d *Decoder) finishLostFrame(currFrameType, frameSize int) {
 		d.plcDuration = 0
 		d.plcSkip = false
 	}
-	d.plcLastFrameType = currFrameType
+	d.plcLastFrameType = int32(currFrameType)
 	d.plcPrevLossWasPeriodic = currFrameType == framePLCPeriodic
 }
 
@@ -90,11 +90,12 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 	if d.channels <= 0 || Overlap <= 0 {
 		return
 	}
-	if len(d.plcDecodeMem) < plcDecodeBufferSize*d.channels {
+	channels := int(d.channels)
+	if len(d.plcDecodeMem) < plcDecodeBufferSize*channels {
 		return
 	}
 	d.materializePLCDecodeHistory()
-	if len(d.overlapBuffer) < Overlap*d.channels {
+	if len(d.overlapBuffer) < Overlap*channels {
 		return
 	}
 
@@ -110,7 +111,7 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 	window := GetWindowBuffer(segLen)
 	half := segLen >> 1
 
-	for ch := 0; ch < d.channels; ch++ {
+	for ch := 0; ch < channels; ch++ {
 		hist := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
 		overlap := d.overlapBuffer[ch*segLen : (ch+1)*segLen]
 		src := d.scratchPLCFoldSrc[:bufLen]
@@ -121,9 +122,9 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 
 		combFilterWithInputSig(
 			dst, src, history,
-			d.postfilterPeriodOld, d.postfilterPeriod, segLen,
+			int(d.postfilterPeriodOld), int(d.postfilterPeriod), segLen,
 			-d.postfilterGainOld, -d.postfilterGain,
-			d.postfilterTapsetOld, d.postfilterTapset,
+			int(d.postfilterTapsetOld), int(d.postfilterTapset),
 			nil, 0,
 		)
 
@@ -179,7 +180,7 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 		lm = 30
 	}
 
-	missing := min(10, d.plcLossDuration>>uint(lm))
+	missing := min(10, int(d.plcLossDuration>>uint(lm)))
 	safety := celtGLog(0)
 	switch lm {
 	case 0:
@@ -188,7 +189,8 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 		safety = 0.5
 	}
 
-	for c := 0; c < d.channels; c++ {
+	channels := int(d.channels)
+	for c := 0; c < channels; c++ {
 		base := c * MaxBands
 		if base+end > len(d.prevEnergy) || base+end > len(d.prevLogE) || base+end > len(d.prevLogE2) {
 			continue
@@ -253,7 +255,8 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float32, error) {
 	d.plcLastFrameType = framePLCNoise
 	d.plcSkip = true
 
-	outLen := frameSize * d.channels
+	channels := int(d.channels)
+	outLen := frameSize * channels
 	d.scratchPLCF32 = ensureFloat32Slice(&d.scratchPLCF32, outLen)
 	decayDB := celtGLog(0.5)
 	if prevLossDuration == 0 {
@@ -274,7 +277,7 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float32, error) {
 	if end < start {
 		end = start
 	}
-	for c := 0; c < d.channels; c++ {
+	for c := 0; c < channels; c++ {
 		base := c * MaxBands
 		for band := start; band < end; band++ {
 			idx := base + band
@@ -312,7 +315,7 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float32, error) {
 	d.setPrevEnergyGLog(concealEnergy)
 	d.rng = seed
 
-	d.applyPostfilterFloat32(d.scratchPLCF32[:outLen], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
+	d.applyPostfilterFloat32(d.scratchPLCF32[:outLen], frameSize, mode.LM, int(d.postfilterPeriod), d.postfilterGain, int(d.postfilterTapset))
 	d.applyDeemphasisAndScaleFloat32(d.scratchPLCF32[:outLen], 1.0/32768.0)
 
 	return d.scratchPLCF32[:outLen], nil
@@ -364,8 +367,9 @@ func (d *Decoder) decodePLC(frameSize int) ([]float32, error) {
 	lossCount := d.plcState.LostCount()
 
 	// Ensure scratch buffer is large enough
-	outLen := frameSize * d.channels
-	plcLen := (frameSize + Overlap) * d.channels
+	channels := int(d.channels)
+	outLen := frameSize * channels
+	plcLen := (frameSize + Overlap) * channels
 	d.scratchPLC = ensureFloat32Slice(&d.scratchPLC, plcLen)
 
 	currFrameType := d.chooseLostFrameType(0, false, false)
@@ -390,14 +394,15 @@ func (d *Decoder) decodePLC(frameSize int) ([]float32, error) {
 	d.plcPrefilterAndFoldPending = false
 
 	d.scratchPLCF32 = ensureFloat32Slice(&d.scratchPLCF32, outLen)
-	d.concealNoisePLC(d.scratchPLCF32[:outLen], frameSize, prevLossDuration)
+	d.concealNoisePLC(d.scratchPLCF32[:outLen], frameSize, int(prevLossDuration))
 	d.finishLostFrame(framePLCNoise, frameSize)
 
 	return d.scratchPLCF32[:outLen], nil
 }
 
 func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int) {
-	if len(dst) < frameSize*d.channels {
+	channels := int(d.channels)
+	if len(dst) < frameSize*channels {
 		return
 	}
 	mode := GetModeConfig(frameSize)
@@ -417,7 +422,7 @@ func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int
 	if end < start {
 		end = start
 	}
-	for c := 0; c < d.channels; c++ {
+	for c := 0; c < channels; c++ {
 		base := c * MaxBands
 		for band := start; band < end; band++ {
 			idx := base + band
@@ -442,7 +447,7 @@ func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int
 		denormalizeNormCoeffsDownsample(coeffsL, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
 		denormalizeNormCoeffsDownsample(coeffsR, concealEnergy[MaxBands:], end, frameSize, d.downsampleFactor())
 		samples := d.SynthesizeStereoFloat32(coeffsL, coeffsR, false, 1)
-		n := min(len(samples), frameSize*d.channels)
+		n := min(len(samples), frameSize*channels)
 		copy(dst[:n], samples[:n])
 	} else {
 		d.scratchPLCHybridNormL = ensureNormSlice(&d.scratchPLCHybridNormL, frameSize)
@@ -451,18 +456,18 @@ func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int
 		fillHybridPLCNoiseCoeffs(coeffs, frameSize, start, end, &seed)
 		denormalizeNormCoeffsDownsample(coeffs, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
 		samples := d.SynthesizeFloat32(coeffs, false, 1)
-		n := min(len(samples), frameSize*d.channels)
+		n := min(len(samples), frameSize*channels)
 		copy(dst[:n], samples[:n])
 	}
 	d.setPrevEnergyGLog(concealEnergy)
 	d.rng = seed
 
-	d.applyPostfilterFloat32(dst[:frameSize*d.channels], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
-	if len(d.directOutPCM) >= frameSize*d.channels {
-		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:frameSize*d.channels], dst[:frameSize*d.channels], 1.0/32768.0)
+	d.applyPostfilterFloat32(dst[:frameSize*channels], frameSize, mode.LM, int(d.postfilterPeriod), d.postfilterGain, int(d.postfilterTapset))
+	if len(d.directOutPCM) >= frameSize*channels {
+		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:frameSize*channels], dst[:frameSize*channels], 1.0/32768.0)
 		return
 	}
-	d.applyDeemphasisAndScale(dst[:frameSize*d.channels], 1.0/32768.0)
+	d.applyDeemphasisAndScale(dst[:frameSize*channels], 1.0/32768.0)
 }
 
 func (d *Decoder) concealPeriodicPLC(dst []float32, frameSize, lossCount int, continuePeriodic bool, commit bool) bool {
@@ -477,15 +482,16 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 	if frameSize <= 0 || d.channels <= 0 {
 		return false
 	}
+	channels := int(d.channels)
 	totalSamples := frameSize + Overlap
-	if len(dst) < totalSamples*d.channels {
+	if len(dst) < totalSamples*channels {
 		return false
 	}
-	if len(d.plcDecodeMem) < plcDecodeBufferSize*d.channels {
+	if len(d.plcDecodeMem) < plcDecodeBufferSize*channels {
 		return false
 	}
 	d.materializePLCDecodeHistory()
-	if len(d.plcLPC) < celtPLCLPCOrder*d.channels {
+	if len(d.plcLPC) < celtPLCLPCOrder*channels {
 		return false
 	}
 	// Match libopus: standalone periodic PLC is limited to the early loss
@@ -500,7 +506,7 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 	if continuePeriodic &&
 		d.plcLastPitchPeriod >= combFilterMinPeriod &&
 		d.plcLastPitchPeriod <= combFilterMaxPeriod {
-		period = d.plcLastPitchPeriod
+		period = int(d.plcLastPitchPeriod)
 		fade = 0.8
 	} else {
 		period = d.searchPLCPitchPeriod()
@@ -508,7 +514,7 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 	if period < combFilterMinPeriod || period > combFilterMaxPeriod || period > combFilterHistory {
 		return false
 	}
-	d.plcLastPitchPeriod = period
+	d.plcLastPitchPeriod = int32(period)
 
 	const maxPeriod = combFilterMaxPeriod
 	if frameSize > plcDecodeBufferSize-maxPeriod || totalSamples > plcDecodeBufferSize {
@@ -530,7 +536,6 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCoun
 	window := GetWindowBufferF32(Overlap)
 	window32 := GetWindowBufferF32(Overlap)
 	continuePeriodic = lossCount > 1 && continuePeriodic
-	channels := d.channels
 	for ch := 0; ch < channels; ch++ {
 		hist := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
 		lpc := d.plcLPC[ch*celtPLCLPCOrder : (ch+1)*celtPLCLPCOrder]
@@ -765,7 +770,7 @@ func (d *Decoder) updatePLCOverlapBuffer(plcSamples []float32, frameSize int) {
 	if Overlap <= 0 || frameSize <= 0 || d.channels <= 0 {
 		return
 	}
-	channels := d.channels
+	channels := int(d.channels)
 	totalSamples := frameSize + Overlap
 	if len(plcSamples) < totalSamples*channels {
 		return
@@ -1021,7 +1026,7 @@ func pitchSearchPLC(xLP []float32, y []float32, length, maxPitch int, scratch *p
 }
 
 func (d *Decoder) searchPLCPitchPeriod() int {
-	channels := d.channels
+	channels := int(d.channels)
 	if channels <= 0 {
 		return 0
 	}

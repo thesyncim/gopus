@@ -120,7 +120,7 @@ func (d *Decoder) updatePostfilterHistory(samples []float32, frameSize int, hist
 		return
 	}
 
-	channels := d.channels
+	channels := int(d.channels)
 	for ch := 0; ch < channels; ch++ {
 		hist := d.postfilterMem[ch*history : (ch+1)*history]
 		if frameSize >= history {
@@ -147,8 +147,9 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float32, frameSize int, histo
 	}
 	d.postfilterMemFromPLC = false
 	d.postfilterMemPLCBacked = false
-	if len(d.plcDecodeMem) != history*d.channels {
-		d.plcDecodeMem = make([]celtSig, history*d.channels)
+	channels := int(d.channels)
+	if len(d.plcDecodeMem) != history*channels {
+		d.plcDecodeMem = make([]celtSig, history*channels)
 		d.plcDecodeMemRingActive = false
 		d.plcDecodeMemRingStart = 0
 	}
@@ -214,7 +215,7 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float32, frameSize int, histo
 		return
 	}
 
-	channels := d.channels
+	channels = int(d.channels)
 	for ch := 0; ch < channels; ch++ {
 		hist := d.plcDecodeMem[ch*history : (ch+1)*history]
 		if frameSize >= history {
@@ -346,7 +347,7 @@ func (d *Decoder) materializePLCDecodeHistory() {
 		return
 	}
 	history := plcDecodeBufferSize
-	channels := d.channels
+	channels := int(d.channels)
 	if channels <= 0 || len(d.plcDecodeMem) < history*channels {
 		d.plcDecodeMemRingActive = false
 		d.plcDecodeMemRingStart = 0
@@ -380,7 +381,7 @@ func (d *Decoder) materializePostfilterHistoryFromPLC() {
 	if d == nil || !d.postfilterMemFromPLC {
 		return
 	}
-	channels := d.channels
+	channels := int(d.channels)
 	if channels <= 0 {
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
@@ -432,7 +433,7 @@ func (d *Decoder) materializePostfilterHistorySuffixFromPLC(need int) {
 	if need <= 0 {
 		return
 	}
-	channels := d.channels
+	channels := int(d.channels)
 	if channels <= 0 {
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
@@ -554,8 +555,9 @@ func (d *Decoder) updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right []fl
 	}
 	d.postfilterMemFromPLC = false
 	d.postfilterMemPLCBacked = false
-	if len(d.plcDecodeMem) != history*d.channels {
-		d.plcDecodeMem = make([]celtSig, history*d.channels)
+	channels := int(d.channels)
+	if len(d.plcDecodeMem) != history*channels {
+		d.plcDecodeMem = make([]celtSig, history*channels)
 		d.plcDecodeMemRingActive = false
 		d.plcDecodeMemRingStart = 0
 	}
@@ -605,8 +607,9 @@ func (d *Decoder) updatePLCDecodeHistoryMonoFromFloat32(samples []float32, frame
 	d.postfilterMemFromPLC = false
 	d.postfilterMemPLCBacked = false
 	d.materializePLCDecodeHistory()
-	if len(d.plcDecodeMem) != history*d.channels {
-		d.plcDecodeMem = make([]celtSig, history*d.channels)
+	channels := int(d.channels)
+	if len(d.plcDecodeMem) != history*channels {
+		d.plcDecodeMem = make([]celtSig, history*channels)
 		d.plcDecodeMemRingActive = false
 		d.plcDecodeMemRingStart = 0
 	}
@@ -617,9 +620,9 @@ func (d *Decoder) commitPostfilterStateNoGain(lm int, newPeriod int, newGain flo
 	d.postfilterPeriodOld = d.postfilterPeriod
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
-	d.postfilterPeriod = newPeriod
+	d.postfilterPeriod = int32(newPeriod)
 	d.postfilterGain = newGain
-	d.postfilterTapset = newTapset
+	d.postfilterTapset = int32(newTapset)
 	if lm != 0 {
 		d.postfilterPeriodOld = d.postfilterPeriod
 		d.postfilterGainOld = d.postfilterGain
@@ -632,8 +635,9 @@ func (d *Decoder) applyPostfilterNoGainMonoFromFloat32(samples []float32, frameS
 		return
 	}
 	history := combFilterHistory
-	if len(d.postfilterMem) != history*d.channels {
-		d.postfilterMem = make([]celtSig, history*d.channels)
+	channels := int(d.channels)
+	if len(d.postfilterMem) != history*channels {
+		d.postfilterMem = make([]celtSig, history*channels)
 		d.postfilterMemFromPLC = false
 		d.postfilterMemPLCBacked = false
 	}
@@ -702,12 +706,12 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 		return
 	}
 
-	t0 := d.postfilterPeriodOld
-	t1 := d.postfilterPeriod
+	t0 := int(d.postfilterPeriodOld)
+	t1 := int(d.postfilterPeriod)
 	g0 := d.postfilterGainOld
 	g1 := d.postfilterGain
-	tap0 := d.postfilterTapsetOld
-	tap1 := d.postfilterTapset
+	tap0 := int(d.postfilterTapsetOld)
+	tap1 := int(d.postfilterTapset)
 	t2 := newPeriod
 	g2 := newGain
 	tap2 := newTapset
@@ -728,9 +732,9 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 	d.postfilterPeriodOld = d.postfilterPeriod
 	d.postfilterGainOld = d.postfilterGain
 	d.postfilterTapsetOld = d.postfilterTapset
-	d.postfilterPeriod = newPeriod
+	d.postfilterPeriod = int32(newPeriod)
 	d.postfilterGain = newGain
-	d.postfilterTapset = newTapset
+	d.postfilterTapset = int32(newTapset)
 	if lm != 0 {
 		d.postfilterPeriodOld = d.postfilterPeriod
 		d.postfilterGainOld = d.postfilterGain
@@ -757,12 +761,12 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 			d.postfilterMemPLCBacked = false
 		}
 		d.clampDecodePostfilterPeriods()
-		t0 := d.postfilterPeriodOld
-		t1 := d.postfilterPeriod
+		t0 := int(d.postfilterPeriodOld)
+		t1 := int(d.postfilterPeriod)
 		g0 := d.postfilterGainOld
 		g1 := d.postfilterGain
-		tap0 := d.postfilterTapsetOld
-		tap1 := d.postfilterTapset
+		tap0 := int(d.postfilterTapsetOld)
+		tap1 := int(d.postfilterTapset)
 		t2 := newPeriod
 		g2 := newGain
 		tap2 := newTapset
@@ -777,9 +781,9 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 		d.postfilterPeriodOld = d.postfilterPeriod
 		d.postfilterGainOld = d.postfilterGain
 		d.postfilterTapsetOld = d.postfilterTapset
-		d.postfilterPeriod = newPeriod
+		d.postfilterPeriod = int32(newPeriod)
 		d.postfilterGain = newGain
-		d.postfilterTapset = newTapset
+		d.postfilterTapset = int32(newTapset)
 		if lm != 0 {
 			d.postfilterPeriodOld = d.postfilterPeriod
 			d.postfilterGainOld = d.postfilterGain
@@ -788,20 +792,21 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 		return
 	}
 
-	if len(samples) < frameSize*d.channels {
+	channels := int(d.channels)
+	if len(samples) < frameSize*channels {
 		return
 	}
 	work := ensureFloat32Slice(&d.postfilterScratchF32, frameSize*2)
 	left := work[:frameSize]
 	right := work[frameSize : frameSize*2]
 	for i := 0; i < frameSize; i++ {
-		left[i] = samples[i*d.channels]
-		right[i] = samples[i*d.channels+1]
+		left[i] = samples[i*channels]
+		right[i] = samples[i*channels+1]
 	}
 	d.applyPostfilterStereoPlanarFromFloat32(left, right, frameSize, lm, newPeriod, newGain, newTapset)
 	for i := 0; i < frameSize; i++ {
-		samples[i*d.channels] = left[i]
-		samples[i*d.channels+1] = right[i]
+		samples[i*channels] = left[i]
+		samples[i*channels+1] = right[i]
 	}
 }
 

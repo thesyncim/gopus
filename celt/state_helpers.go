@@ -21,7 +21,7 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 // Returns true if a mono-to-stereo transition occurred.
 func (d *Decoder) handleChannelTransition(streamChannels int) bool {
 	prevChannels := d.prevStreamChannels
-	d.prevStreamChannels = streamChannels
+	d.prevStreamChannels = int32(streamChannels)
 
 	// Detect mono-to-stereo transition: previous was mono (1), current is stereo (2)
 	if prevChannels == 1 && streamChannels == 2 && d.channels == 2 {
@@ -131,7 +131,7 @@ func (d *Decoder) ensureEnergyState(channels int) {
 }
 
 func (d *Decoder) ensureQEXTOldBandE() []celtGLog {
-	needed := MaxBands * d.channels
+	needed := MaxBands * int(d.channels)
 	qextState := d.ensureQEXTState()
 	if len(qextState.oldBandE) < needed {
 		prev := make([]celtGLog, needed)
@@ -203,13 +203,14 @@ func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float32) {
 	}
 
 	// Determine nbBands from the energies array length
-	nbBands := len(energies) / d.channels
+	channels := int(d.channels)
+	nbBands := len(energies) / channels
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
 
 	// Copy with layout conversion: compact [c*nbBands+band] -> full [c*MaxBands+band]
-	for c := 0; c < d.channels; c++ {
+	for c := 0; c < channels; c++ {
 		for band := 0; band < nbBands; band++ {
 			src := c*nbBands + band
 			dst := c*MaxBands + band
@@ -232,13 +233,14 @@ func (d *Decoder) setPrevEnergyGLogWithPrev(prev []celtGLog, energies []celtGLog
 	}
 
 	// Determine nbBands from the energies array length
-	nbBands := len(energies) / d.channels
+	channels := int(d.channels)
+	nbBands := len(energies) / channels
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
 
 	// Copy with layout conversion: compact [c*nbBands+band] -> full [c*MaxBands+band]
-	for c := 0; c < d.channels; c++ {
+	for c := 0; c < channels; c++ {
 		for band := 0; band < nbBands; band++ {
 			src := c*nbBands + band
 			dst := c*MaxBands + band
@@ -256,8 +258,9 @@ func (d *Decoder) updateLogEGLog(energies []celtGLog, nbBands int, transient boo
 	if nbBands <= 0 {
 		return
 	}
-	if len(energies) < nbBands*d.channels {
-		nbBands = len(energies) / d.channels
+	channels := int(d.channels)
+	if len(energies) < nbBands*channels {
+		nbBands = len(energies) / channels
 	}
 	if nbBands <= 0 {
 		return
@@ -266,7 +269,7 @@ func (d *Decoder) updateLogEGLog(energies []celtGLog, nbBands int, transient boo
 	if !transient {
 		copy(d.prevLogE2, d.prevLogE)
 	}
-	for c := 0; c < d.channels; c++ {
+	for c := 0; c < channels; c++ {
 		base := c * MaxBands
 		for band := 0; band < nbBands; band++ {
 			src := c*nbBands + band
@@ -308,7 +311,7 @@ func (d *Decoder) updateBackgroundEnergy(lm int) {
 		lm = 30
 	}
 	m := 1 << uint(lm)
-	maxIncUnits := d.plcLossDuration + m
+	maxIncUnits := int(d.plcLossDuration) + m
 	if maxIncUnits > 160 {
 		maxIncUnits = 160
 	}

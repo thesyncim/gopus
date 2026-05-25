@@ -35,7 +35,8 @@ func (d *Decoder) FillPLCUpdate16kMonoWithPreemphasisMem(dst []float32) (int, fl
 	if d == nil || len(dst) < plcUpdateSamples || d.channels <= 0 {
 		return 0, 0
 	}
-	if len(d.plcDecodeMem) < plcDecodeBufferSize*d.channels {
+	channels := int(d.channels)
+	if len(d.plcDecodeMem) < plcDecodeBufferSize*channels {
 		return 0, 0
 	}
 	d.materializePLCDecodeHistory()

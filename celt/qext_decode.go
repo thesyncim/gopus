@@ -30,7 +30,8 @@ func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []celtGLog, nbBands in
 		lm = 3
 	}
 
-	needed := nbBands * d.channels
+	channels := int(d.channels)
+	needed := nbBands * channels
 	if len(dst) < needed {
 		dst = make([]celtGLog, needed)
 	} else {
@@ -60,13 +61,13 @@ func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []celtGLog, nbBands in
 	}
 
 	budget := rd.StorageBits()
-	prevBandEnergy := ensureFloat32Slice(&d.scratchPrevBandEnergy, d.channels)
+	prevBandEnergy := ensureFloat32Slice(&d.scratchPrevBandEnergy, channels)
 	for i := range prevBandEnergy {
 		prevBandEnergy[i] = 0
 	}
 
 	for band := 0; band < nbBands; band++ {
-		for c := 0; c < d.channels; c++ {
+		for c := 0; c < channels; c++ {
 			tell := rd.Tell()
 			qi := 0
 			remaining := budget - tell
@@ -109,11 +110,12 @@ func (d *Decoder) decodeCoarseEnergyIntoWithPrevState(dst []celtGLog, nbBands in
 }
 
 func (d *Decoder) storeQEXTEnergyState(energies []celtGLog, nbBands int) {
-	if nbBands <= 0 || len(energies) < nbBands*d.channels {
+	channels := int(d.channels)
+	if nbBands <= 0 || len(energies) < nbBands*channels {
 		return
 	}
 	oldBandE := d.ensureQEXTOldBandE()
-	for c := 0; c < d.channels; c++ {
+	for c := 0; c < channels; c++ {
 		base := c * MaxBands
 		src := energies[c*nbBands : c*nbBands+nbBands]
 		for band, energy := range src {
@@ -143,7 +145,8 @@ func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Dec
 	qextState := d.ensureQEXTState()
 	extDec := &qextState.rangeDecoderScratch
 	extDec.Init(payload)
-	hdr := decodeQEXTHeader(extDec, d.channels, len(payload))
+	channels := int(d.channels)
+	hdr := decodeQEXTHeader(extDec, channels, len(payload))
 
 	qext := &qextState.scratchDecode
 	*qext = preparedQEXTDecode{
@@ -171,8 +174,8 @@ func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Dec
 					qext.dualStereo = 1
 				}
 
-				qext.energies = ensureGLogSlice(&qextState.scratchEnergies, qext.end*d.channels)
-				qext.energies = qext.energies[:qext.end*d.channels]
+				qext.energies = ensureGLogSlice(&qextState.scratchEnergies, qext.end*channels)
+				qext.energies = qext.energies[:qext.end*channels]
 				intra := extDec.Tell()+3 <= extDec.StorageBits() && extDec.DecodeBit(3) == 1
 				qext.energies = d.decodeCoarseEnergyIntoWithPrevState(qext.energies, qext.end, intra, lm, d.ensureQEXTOldBandE(), MaxBands, extDec)
 				qextMode = &qext.cfg
@@ -185,7 +188,7 @@ func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Dec
 		budgetQ3 = 0
 	}
 	tellBeforeAlloc := extDec.TellFrac()
-	computeQEXTExtraAllocationDecodeWithMode(start, end, qext.end, budgetQ3, d.channels, lm, extDec, qext.extraPulses, qext.extraQuant, qextMode)
+	computeQEXTExtraAllocationDecodeWithMode(start, end, qext.end, budgetQ3, channels, lm, extDec, qext.extraPulses, qext.extraQuant, qextMode)
 	_ = tellBeforeAlloc
 	return qext
 }
@@ -196,8 +199,9 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 	}
 	extBalance := qext.totalBitsQ3 - qext.dec.TellFrac()
 	fineQ3 := 0
+	channels := int(d.channels)
 	if qext.end > 1 {
-		fineQ3 = d.channels * int(qext.extraQuant[MaxBands+1]<<bitRes)
+		fineQ3 = channels * int(qext.extraQuant[MaxBands+1]<<bitRes)
 	}
 	for i := 0; i < qext.end; i++ {
 		idx := MaxBands + i
@@ -219,7 +223,7 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 
 	qext.coeffsL, qext.coeffsR, _ = quantAllBandsDecodeWithScratchWithMode(
 		qext.dec,
-		d.channels,
+		channels,
 		frameSize,
 		lm,
 		0,

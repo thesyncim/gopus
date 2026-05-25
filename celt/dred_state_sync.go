@@ -35,7 +35,7 @@ func (d *Decoder) CommitDRED48kMonoConcealment(frame, overlap []float32) {
 		d.plcState = plc.NewState()
 	}
 	d.plcState.Reset()
-	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, d.channels)
+	d.plcState.SetLastFrameParams(plc.ModeCELT, frameSize, int(d.channels))
 }
 
 // SyncAfterDREDLoss aligns the retained CELT lost-frame cadence with libopus's

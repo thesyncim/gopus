@@ -24,7 +24,7 @@ func (d *Decoder) SetPreemphState(samples []float32) {
 
 // PostfilterPeriod returns the pitch period for the postfilter.
 func (d *Decoder) PostfilterPeriod() int {
-	return d.postfilterPeriod
+	return int(d.postfilterPeriod)
 }
 
 // PostfilterGain returns the comb filter gain.
@@ -34,7 +34,7 @@ func (d *Decoder) PostfilterGain() float32 {
 
 // PostfilterTapset returns the filter tap configuration.
 func (d *Decoder) PostfilterTapset() int {
-	return d.postfilterTapset
+	return int(d.postfilterTapset)
 }
 
 type PostfilterState struct {
@@ -51,20 +51,20 @@ func (d *Decoder) PostfilterState() PostfilterState {
 		return PostfilterState{}
 	}
 	return PostfilterState{
-		Period:         d.postfilterPeriod,
+		Period:         int(d.postfilterPeriod),
 		Gain:           d.postfilterGain,
-		Tapset:         d.postfilterTapset,
-		PreviousPeriod: d.postfilterPeriodOld,
+		Tapset:         int(d.postfilterTapset),
+		PreviousPeriod: int(d.postfilterPeriodOld),
 		PreviousGain:   d.postfilterGainOld,
-		PreviousTapset: d.postfilterTapsetOld,
+		PreviousTapset: int(d.postfilterTapsetOld),
 	}
 }
 
 // SetPostfilter sets the postfilter parameters.
 func (d *Decoder) SetPostfilter(period int, gain float32, tapset int) {
-	d.postfilterPeriod = period
+	d.postfilterPeriod = int32(period)
 	d.postfilterGain = gain
-	d.postfilterTapset = tapset
+	d.postfilterTapset = int32(tapset)
 }
 
 // RNG returns the current RNG state.
@@ -86,7 +86,7 @@ func (d *Decoder) NextRNG() uint32 {
 
 // GetEnergy returns the energy for a specific band and channel from prevEnergy.
 func (d *Decoder) GetEnergy(band, channel int) float32 {
-	if band < 0 || band >= MaxBands || channel < 0 || channel >= d.channels {
+	if band < 0 || band >= MaxBands || channel < 0 || channel >= int(d.channels) {
 		return 0
 	}
 	return float32(d.prevEnergy[channel*MaxBands+band])
@@ -94,7 +94,7 @@ func (d *Decoder) GetEnergy(band, channel int) float32 {
 
 // SetEnergy sets the energy for a specific band and channel.
 func (d *Decoder) SetEnergy(band, channel int, energy float32) {
-	if band < 0 || band >= MaxBands || channel < 0 || channel >= d.channels {
+	if band < 0 || band >= MaxBands || channel < 0 || channel >= int(d.channels) {
 		return
 	}
 	d.prevEnergy[channel*MaxBands+band] = celtGLog(energy)

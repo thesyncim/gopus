@@ -31,13 +31,14 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 	}
 
 	cap := ensureInt32Slice(&d.scratchCaps, end)
-	initCapsInto(cap, end, lm, d.channels)
+	channels := int(d.channels)
+	initCapsInto(cap, end, lm, channels)
 	offsets := ensureInt32Slice(&d.scratchOffsets, end)
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes
 	tellFrac := rd.TellFrac()
 	for i := start; i < end; i++ {
-		width := d.channels * (EBands[i+1] - EBands[i]) << lm
+		width := channels * (EBands[i+1] - EBands[i]) << lm
 		quanta := min(width<<bitRes, max(6<<bitRes, width))
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
@@ -77,7 +78,7 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 	allocation.finePriority = ensureInt32Slice(&d.scratchFinePriority, end)
 	allocScratch := d.allocationScratch()
 	allocation.codedBands = cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &allocation.intensity, &allocation.dualStereo,
-		bitsQ3, &allocation.balance, allocation.pulses, allocation.fineQuant, allocation.finePriority, d.channels, lm, rd, allocScratch)
+		bitsQ3, &allocation.balance, allocation.pulses, allocation.fineQuant, allocation.finePriority, channels, lm, rd, allocScratch)
 
 	return allocation
 }

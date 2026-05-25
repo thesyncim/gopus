@@ -43,12 +43,12 @@ func (d *Decoder) prepareMainBandQEXTDecode(payload []byte, mainRD *rangecoding.
 	qextState := d.ensureQEXTState()
 	extDec := &qextState.rangeDecoderScratch
 	extDec.Init(payload)
-	_ = decodeQEXTHeader(extDec, d.channels, len(payload))
+	_ = decodeQEXTHeader(extDec, int(d.channels), len(payload))
 
 	extraPulses := ensureInt32Slice(&qextState.scratchPulses, end)
 	extraQuant := ensureInt32Slice(&qextState.scratchFineQuant, end)
 	totalBitsQ3 := (len(payload) * 8 << bitRes) - mainRD.TellFrac() - 1
-	computeQEXTExtraAllocationDecode(0, end, totalBitsQ3, d.channels, lm, extDec, extraPulses, extraQuant)
+	computeQEXTExtraAllocationDecode(0, end, totalBitsQ3, int(d.channels), lm, extDec, extraPulses, extraQuant)
 	return extDec, extraPulses, extraQuant, len(payload) * 8 << bitRes
 }
 
@@ -75,7 +75,7 @@ func combineFinalRange(mainRD, extRD *rangecoding.Decoder) uint32 {
 
 // Channels returns the number of audio channels (1 or 2).
 func (d *Decoder) Channels() int {
-	return d.channels
+	return int(d.channels)
 }
 
 // SetBandwidth sets the CELT bandwidth derived from the Opus TOC.
@@ -93,13 +93,13 @@ func (d *Decoder) SetComplexity(complexity int) error {
 	if complexity < 0 || complexity > 10 {
 		return ErrInvalidComplexity
 	}
-	d.complexity = complexity
+	d.complexity = int32(complexity)
 	return nil
 }
 
 // Complexity returns the current decoder complexity setting.
 func (d *Decoder) Complexity() int {
-	return d.complexity
+	return int(d.complexity)
 }
 
 // SampleRate returns the configured API output sample rate.
@@ -136,7 +136,7 @@ func (d *Decoder) SetAPISampleRate(sampleRate int) error {
 func (d *Decoder) SetDownsample(factor int) {
 	switch factor {
 	case 1, 2, 3, 4, 6:
-		d.downsample = factor
+		d.downsample = int32(factor)
 		d.sampleRate = 48000 / factor
 	default:
 		d.downsample = 1
@@ -148,5 +148,5 @@ func (d *Decoder) downsampleFactor() int {
 	if d == nil || d.downsample <= 0 {
 		return 1
 	}
-	return d.downsample
+	return int(d.downsample)
 }

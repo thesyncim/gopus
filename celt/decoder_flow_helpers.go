@@ -64,12 +64,13 @@ func denormalizeBandsPackedDownsampleIntoFloat32(dst []float32, src []celtNorm, 
 func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float32, postfilterTapset int, energies []celtGLog, coeffsL, coeffsR []celtNorm, qext *preparedQEXTDecode) []float32 {
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
 	var samples []float32
+	channels := int(d.channels)
 	downsample := d.downsampleFactor()
 	outputFrameSize := frameSize
 	downsampleOutput := false
 	if downsample > 1 && frameSize%downsample == 0 {
 		apiFrameSize := frameSize / downsample
-		if len(d.directOutPCM) < frameSize*d.channels && len(d.directOutPCM) >= apiFrameSize*d.channels {
+		if len(d.directOutPCM) < frameSize*channels && len(d.directOutPCM) >= apiFrameSize*channels {
 			outputFrameSize = apiFrameSize
 			downsampleOutput = true
 		}
@@ -159,8 +160,8 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	d.applyPostfilterFloat32(samples, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	// Step 7: Apply de-emphasis filter
-	if downsampleOutput && len(d.directOutPCM) >= outputFrameSize*d.channels {
-		d.applyDeemphasisAndScaleDownsampleToFloat32(d.directOutPCM[:outputFrameSize*d.channels], samples, downsample, 1.0/32768.0)
+	if downsampleOutput && len(d.directOutPCM) >= outputFrameSize*channels {
+		d.applyDeemphasisAndScaleDownsampleToFloat32(d.directOutPCM[:outputFrameSize*channels], samples, downsample, 1.0/32768.0)
 		return nil
 	} else if len(d.directOutPCM) >= len(samples) {
 		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:len(samples)], samples, 1.0/32768.0)
@@ -178,7 +179,8 @@ func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, trans
 	d.updateBackgroundEnergy(lm)
 
 	// Mirror libopus: clear energies/logs outside [start,end).
-	d.clearFrameHistoryOutsideRange(start, end, d.channels)
+	channels := int(d.channels)
+	d.clearFrameHistoryOutsideRange(start, end, channels)
 	if extsupport.QEXT && qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
 		return ErrInvalidFrame
 	}
@@ -190,7 +192,7 @@ func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, trans
 	d.rng = combineFinalRange(rd, extDec)
 
 	// Reset PLC state after successful decode.
-	d.resetPLCCadence(frameSize, d.channels)
+	d.resetPLCCadence(frameSize, channels)
 	return nil
 }
 

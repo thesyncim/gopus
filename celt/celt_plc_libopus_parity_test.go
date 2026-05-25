@@ -263,7 +263,7 @@ func TestConcealPeriodicPLCMatchesLibopus(t *testing.T) {
 			if !dec.concealPeriodicPLC(gotInterleaved, tc.frameSize, 1, false, false) {
 				t.Fatal("concealPeriodicPLC returned false")
 			}
-			if dec.plcLastPitchPeriod != want.period {
+			if int(dec.plcLastPitchPeriod) != want.period {
 				t.Fatalf("period=%d want libopus %d", dec.plcLastPitchPeriod, want.period)
 			}
 			for ch := 0; ch < tc.channels; ch++ {

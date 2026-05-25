@@ -31,6 +31,32 @@ func TestEncoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 	}
 }
 
+func TestDecoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
+	int32Type := reflect.TypeOf(int32(0))
+	for _, name := range []string{
+		"channels",
+		"downsample",
+		"postfilterPeriod",
+		"postfilterTapset",
+		"postfilterPeriodOld",
+		"postfilterTapsetOld",
+		"plcLossDuration",
+		"plcDuration",
+		"plcLastFrameType",
+		"plcLastPitchPeriod",
+		"complexity",
+		"prevStreamChannels",
+	} {
+		field, ok := reflect.TypeOf(Decoder{}).FieldByName(name)
+		if !ok {
+			t.Fatalf("Decoder.%s missing", name)
+		}
+		if field.Type != int32Type {
+			t.Fatalf("Decoder.%s type=%s want %s", name, field.Type, int32Type)
+		}
+	}
+}
+
 // TestNewEncoder verifies encoder initialization matches decoder.
 func TestNewEncoder(t *testing.T) {
 	tests := []struct {

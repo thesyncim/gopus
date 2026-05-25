@@ -52,9 +52,9 @@ var (
 // Reference: RFC 6716 Section 4.3
 type Decoder struct {
 	// Configuration
-	channels   int // 1 or 2
-	sampleRate int // Output sample rate (typically 48000)
-	downsample int // libopus CELT downsample factor, 1 at 48 kHz
+	channels   int32 // libopus CELTDecoder.channels
+	sampleRate int   // Output sample rate (typically 48000)
+	downsample int32 // libopus CELTDecoder.downsample, 1 at 48 kHz
 
 	// Range decoder (set per frame)
 	rangeDecoder *rangecoding.Decoder
@@ -74,13 +74,13 @@ type Decoder struct {
 	preemphState  []celtSig // De-emphasis filter state [channels]
 
 	// Postfilter state (pitch-based comb filter)
-	postfilterPeriod int     // Pitch period for comb filter
+	postfilterPeriod int32   // libopus CELTDecoder.postfilter_period
 	postfilterGain   float32 // Comb filter gain
-	postfilterTapset int     // Filter tap configuration (0, 1, or 2)
+	postfilterTapset int32   // libopus CELTDecoder.postfilter_tapset
 	// Previous postfilter state for overlap cross-fade
-	postfilterPeriodOld int
+	postfilterPeriodOld int32
 	postfilterGainOld   float32
-	postfilterTapsetOld int
+	postfilterTapsetOld int32
 	// Postfilter history buffer (per-channel)
 	postfilterMem []celtSig
 	// On no-gain frames, postfilter history can be lazily reconstructed from
@@ -101,15 +101,15 @@ type Decoder struct {
 	// Per-decoder PLC state (do not share across decoder instances).
 	plcState *plc.State
 	// CELT loss duration in libopus LM units (saturates at 10000).
-	plcLossDuration int
+	plcLossDuration int32
 	// Mirrors libopus st->plc_duration for periodic/noise/DRED gating.
-	plcDuration int
+	plcDuration int32
 	// Mirrors libopus st->last_frame_type.
-	plcLastFrameType int
+	plcLastFrameType int32
 	// Mirrors libopus st->skip_plc two-good-packets gate.
 	plcSkip bool
 	// Periodic PLC cadence state (mirrors libopus decode_lost() behavior).
-	plcLastPitchPeriod     int
+	plcLastPitchPeriod     int32
 	plcPrevLossWasPeriodic bool
 	// Mirrors libopus prefilter_and_fold cadence after periodic PLC.
 	plcPrefilterAndFoldPending bool
@@ -122,14 +122,14 @@ type Decoder struct {
 	// Bandwidth (Opus TOC-derived)
 	bandwidth              CELTBandwidth
 	phaseInversionDisabled bool
-	complexity             int
+	complexity             int32
 	redundancyActive       bool
 	redundancyBytes        []byte
 	redundancyRange        uint32
 	redundancyFrameSize    int
 
 	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
-	prevStreamChannels int // Previous packet's channel count (0 = uninitialized)
+	prevStreamChannels int32 // libopus CELTDecoder.stream_channels mirror (0 = uninitialized)
 	directOutPCM       []float32
 	decoderQEXTFields
 

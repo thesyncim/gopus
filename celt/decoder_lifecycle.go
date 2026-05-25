@@ -18,7 +18,7 @@ func NewDecoder(channels int) *Decoder {
 	}
 
 	d := &Decoder{
-		channels:   channels,
+		channels:   int32(channels),
 		sampleRate: 48000, // CELT always operates at 48kHz internally
 		downsample: 1,
 
@@ -68,7 +68,7 @@ func (d *Decoder) PhaseInversionDisabled() bool {
 // Reset clears decoder state for a new stream.
 // Call this when starting to decode a new audio stream.
 func (d *Decoder) Reset() {
-	channels := d.channels
+	channels := int(d.channels)
 	if channels < 1 {
 		channels = 1
 	} else if channels > 2 {
@@ -78,7 +78,7 @@ func (d *Decoder) Reset() {
 	if sampleRate == 0 {
 		sampleRate = 48000
 	}
-	downsample := d.downsample
+	downsample := int(d.downsample)
 	if downsample <= 0 {
 		downsample = 1
 	}
@@ -125,9 +125,9 @@ func (d *Decoder) Reset() {
 	d.plcDecodeMem = plcDecodeMem
 	d.plcLPC = plcLPC
 
-	d.channels = channels
+	d.channels = int32(channels)
 	d.sampleRate = sampleRate
-	d.downsample = downsample
+	d.downsample = int32(downsample)
 	d.bandwidth = CELTFullband
 	d.phaseInversionDisabled = phaseInversionDisabled
 	d.complexity = complexity

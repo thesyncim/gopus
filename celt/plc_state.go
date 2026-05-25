@@ -17,10 +17,10 @@ func (d *Decoder) SnapshotPLCState() PLCStateSnapshot {
 		return PLCStateSnapshot{}
 	}
 	return PLCStateSnapshot{
-		LastFrameType:    d.plcLastFrameType,
-		LossDuration:     d.plcLossDuration,
-		PLCDuration:      d.plcDuration,
-		LastPitchPeriod:  d.plcLastPitchPeriod,
+		LastFrameType:    int(d.plcLastFrameType),
+		LossDuration:     int(d.plcLossDuration),
+		PLCDuration:      int(d.plcDuration),
+		LastPitchPeriod:  int(d.plcLastPitchPeriod),
 		SkipPLC:          d.plcSkip,
 		PrefilterAndFold: d.plcPrefilterAndFoldPending,
 	}
@@ -32,7 +32,7 @@ func (d *Decoder) LastPLCFrameWasNeural() bool {
 	if d == nil {
 		return false
 	}
-	return plcFrameIsNeural(d.plcLastFrameType)
+	return plcFrameIsNeural(int(d.plcLastFrameType))
 }
 
 // SnapshotPreemphasisState returns the retained CELT deemphasis memory that

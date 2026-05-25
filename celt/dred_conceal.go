@@ -138,13 +138,14 @@ func (d *Decoder) ConcealDRED48kDownsampleToFloat32(
 	if d.channels != 2 {
 		return false
 	}
-	if len(out) < outputFrameSize*d.channels {
+	channels := int(d.channels)
+	if len(out) < outputFrameSize*channels {
 		return false
 	}
 	if d.chooseLostFrameType(0, true, true) != frameDRED {
 		return false
 	}
-	return d.runStereoDREDConceal(out[:outputFrameSize*d.channels], frameSize, downsample, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, frameDRED)
+	return d.runStereoDREDConceal(out[:outputFrameSize*channels], frameSize, downsample, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, frameDRED)
 }
 
 // ConcealPLCNeural48kToFloat32 mirrors ConcealPLCNeural48kMonoToFloat32 for
@@ -191,13 +192,14 @@ func (d *Decoder) ConcealPLCNeural48kDownsampleToFloat32(
 	if d.channels != 2 {
 		return false
 	}
-	if len(out) < outputFrameSize*d.channels {
+	channels := int(d.channels)
+	if len(out) < outputFrameSize*channels {
 		return false
 	}
 	if d.chooseLostFrameType(0, true, false) != framePLCNeural {
 		return false
 	}
-	return d.runStereoDREDConceal(out[:outputFrameSize*d.channels], frameSize, downsample, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, framePLCNeural)
+	return d.runStereoDREDConceal(out[:outputFrameSize*channels], frameSize, downsample, lastNeural, plcPCM, plcFill, plcPreemphMem, generate, true, framePLCNeural)
 }
 
 // runStereoDREDConceal mirrors the libopus stereo neural PLC path: compute the
@@ -346,7 +348,7 @@ func (d *Decoder) runStereoDREDConceal(
 			d.accumulatePLCLossDuration(frameSize)
 		}
 		d.plcSkip = false
-		d.plcLastFrameType = frameType
+		d.plcLastFrameType = int32(frameType)
 		d.plcPrevLossWasPeriodic = false
 	}
 	d.plcPrefilterAndFoldPending = true
@@ -572,7 +574,7 @@ func (d *Decoder) concealNeural48kMono(
 			d.accumulatePLCLossDuration(frameSize)
 		}
 		d.plcSkip = false
-		d.plcLastFrameType = frameType
+		d.plcLastFrameType = int32(frameType)
 		d.plcPrevLossWasPeriodic = false
 	}
 	d.plcPrefilterAndFoldPending = true

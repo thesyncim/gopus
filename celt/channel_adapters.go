@@ -16,11 +16,12 @@ func packetChannelsFromStereoFlag(packetStereo bool) int {
 // This handles the case where the packet's stereo flag differs from the decoder's configured channels.
 func (d *Decoder) DecodeFrameWithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
 	packetChannels := packetChannelsFromStereoFlag(packetStereo)
+	channels := int(d.channels)
 	d.handleChannelTransition(packetChannels)
-	if packetChannels == d.channels {
+	if packetChannels == channels {
 		return d.DecodeFrame(data, frameSize)
 	}
-	if packetChannels == 1 && d.channels == 2 {
+	if packetChannels == 1 && channels == 2 {
 		return d.decodeMonoPacketToStereo(data, frameSize)
 	}
 	return d.decodeStereoPacketToMono(data, frameSize)
@@ -30,13 +31,14 @@ func (d *Decoder) DecodeFrameWithPacketStereo(data []byte, frameSize int, packet
 // caller-provided float32 buffer for the common packetChannels==decoder
 // channels path, falling back to the slice-returning path otherwise.
 func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize int, packetStereo bool, out []float32) error {
-	outLen := frameSize * d.channels
+	channels := int(d.channels)
+	outLen := frameSize * channels
 	if len(out) < outLen {
 		return ErrOutputTooSmall
 	}
 
 	packetChannels := packetChannelsFromStereoFlag(packetStereo)
-	if len(data) > 1 && packetChannels == 1 && d.channels == 2 {
+	if len(data) > 1 && packetChannels == 1 && channels == 2 {
 		d.directOutPCM = out[:outLen]
 		defer func() {
 			d.directOutPCM = nil
@@ -54,7 +56,7 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize in
 		return err
 	}
 
-	if packetChannels != d.channels {
+	if packetChannels != channels {
 		samples, err := d.DecodeFrameWithPacketStereo(data, frameSize, packetStereo)
 		if err != nil {
 			return err
@@ -87,13 +89,14 @@ func (d *Decoder) DecodeFrameWithPacketStereoAtAPIRate(data []byte, frameSize in
 	if !ValidFrameSize(internalFrameSize) {
 		return nil, ErrInvalidFrameSize
 	}
-	outLen := frameSize * d.channels
+	channels := int(d.channels)
+	outLen := frameSize * channels
 	samples, err := d.DecodeFrameWithPacketStereo(data, internalFrameSize, packetStereo)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]float32, outLen)
-	copyDownsampledFloat32(out, samples, frameSize, d.channels, downsample)
+	copyDownsampledFloat32(out, samples, frameSize, channels, downsample)
 	return out, nil
 }
 
@@ -109,7 +112,8 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32AtAPIRate(data []byte, fra
 	if !ValidFrameSize(internalFrameSize) {
 		return ErrInvalidFrameSize
 	}
-	outLen := frameSize * d.channels
+	channels := int(d.channels)
+	outLen := frameSize * channels
 	if len(out) < outLen {
 		return ErrOutputTooSmall
 	}
@@ -124,7 +128,7 @@ func (d *Decoder) DecodeFrameWithPacketStereoToFloat32AtAPIRate(data []byte, fra
 		return err
 	}
 	if len(samples) != 0 {
-		copyDownsampledFloat32(out[:outLen], samples, frameSize, d.channels, downsample)
+		copyDownsampledFloat32(out[:outLen], samples, frameSize, channels, downsample)
 	}
 	return nil
 }
@@ -159,7 +163,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	}
 
 	d.beginDecodedPacketPLCState()
-	origChannels := d.channels
+	origChannels := int(d.channels)
 	d.channels = 1
 
 	rd := &d.rangeDecoderScratch
@@ -203,12 +207,12 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	}
 
 	defer func() {
-		d.channels = origChannels
+		d.channels = int32(origChannels)
 		d.prevEnergy = origPrevEnergy
 	}()
 
 	if silence {
-		d.channels = origChannels
+		d.channels = int32(origChannels)
 		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
 		silenceE := ensureGLogSlice(&d.scratchSilenceE, MaxBands*origChannels)
 		fillSilenceGLog(silenceE)
@@ -255,7 +259,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 		shortBlocks = mode.ShortBlocks
 	}
 
-	monoEnergies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*d.channels), end, intra, lm)
+	monoEnergies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*int(d.channels)), end, intra, lm)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes
@@ -321,7 +325,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 		denormalizeBandsPackedDownsampleIntoFloat32(specMono, coeffsMono, monoEnergies, 0, end, lm, EBands[:], downsample)
 	}
 
-	d.channels = origChannels
+	d.channels = int32(origChannels)
 	d.prevEnergy = origPrevEnergy
 	d.applyPendingPLCPrefilterAndFold()
 
@@ -399,10 +403,10 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	d.beginDecodedPacketPLCState()
 	d.ensureEnergyState(2)
 
-	origChannels := d.channels
+	origChannels := int(d.channels)
 	d.channels = 2
 	defer func() {
-		d.channels = origChannels
+		d.channels = int32(origChannels)
 	}()
 
 	rd := &d.rangeDecoderScratch
@@ -477,7 +481,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 		shortBlocks = mode.ShortBlocks
 	}
 
-	energies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*d.channels), end, intra, lm)
+	energies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*int(d.channels)), end, intra, lm)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes
@@ -508,7 +512,8 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 		extPulses = qext.extraPulses[:end]
 		extTotalBitsQ3 = qext.totalBitsQ3
 	}
-	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, d.channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
+	channels := int(d.channels)
+	coeffsL, coeffsR, collapse := quantAllBandsDecodeWithScratch(rd, channels, frameSize, lm, start, end, pulses, shortBlocks, spread,
 		dualStereo, intensity, tfRes, (totalBits<<bitRes)-antiCollapseRsv, balance, codedBands, d.phaseInversionDisabled, &d.rng, &d.scratchBands,
 		extDec, extPulses, extTotalBitsQ3)
 	if extsupport.QEXT && qext != nil {
@@ -528,7 +533,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	}
 
 	if antiCollapseOn {
-		antiCollapseGLog(coeffsL, coeffsR, collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+		antiCollapseGLog(coeffsL, coeffsR, collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 
 	energiesL := energies[:end]
@@ -567,7 +572,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	}
 	d.rng = combineFinalRange(rd, extDec)
 
-	d.channels = origChannels
+	d.channels = int32(origChannels)
 	d.applyPendingPLCPrefilterAndFold()
 
 	samples := d.Synthesize(coeffsMono, transient, shortBlocks)
@@ -581,18 +586,19 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 // DecodeFrameHybridWithPacketStereo decodes a hybrid CELT frame while honoring the packet stereo flag.
 func (d *Decoder) DecodeFrameHybridWithPacketStereo(rd *rangecoding.Decoder, frameSize int, packetStereo bool) ([]float32, error) {
 	packetChannels := packetChannelsFromStereoFlag(packetStereo)
+	channels := int(d.channels)
 	d.handleChannelTransition(packetChannels)
-	if packetChannels == d.channels {
+	if packetChannels == channels {
 		return d.DecodeFrameHybrid(rd, frameSize)
 	}
-	if packetChannels == 1 && d.channels == 2 {
+	if packetChannels == 1 && channels == 2 {
 		return d.decodeMonoPacketToStereoHybrid(rd, frameSize)
 	}
 	return d.decodeStereoPacketToMonoHybrid(rd, frameSize)
 }
 
 func (d *Decoder) DecodeFrameHybridWithPacketStereoToFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, out []float32) error {
-	outLen := frameSize * d.channels
+	outLen := frameSize * int(d.channels)
 	if len(out) < outLen {
 		return ErrOutputTooSmall
 	}
@@ -622,7 +628,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	}
 
 	d.beginDecodedPacketPLCState()
-	origChannels := d.channels
+	origChannels := int(d.channels)
 	d.channels = 1
 
 	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergyGLog, MaxBands)
@@ -644,7 +650,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	d.prevEnergy = prev1Energy
 
 	defer func() {
-		d.channels = origChannels
+		d.channels = int32(origChannels)
 		d.prevEnergy = origPrevEnergy
 	}()
 
@@ -674,7 +680,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		silence = rd.DecodeBit(15) == 1
 	}
 	if silence {
-		d.channels = origChannels
+		d.channels = int32(origChannels)
 		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
 		var silenceEArr [MaxBands * 2]celtGLog
 		silenceE := silenceEArr[:MaxBands*origChannels]
@@ -719,7 +725,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		shortBlocks = mode.ShortBlocks
 	}
 
-	monoEnergies := ensureGLogSlice(&d.scratchEnergies, end*d.channels)
+	monoEnergies := ensureGLogSlice(&d.scratchEnergies, end*int(d.channels))
 	for band := 0; band < end; band++ {
 		monoEnergies[band] = d.prevEnergy[band]
 	}
@@ -751,7 +757,7 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 		denormalizeBandsPackedDownsampleIntoFloat32(specMono, coeffsMono, monoEnergies, HybridCELTStartBand, end, lm, EBands[:], downsample)
 	}
 
-	d.channels = origChannels
+	d.channels = int32(origChannels)
 	d.prevEnergy = origPrevEnergy
 	d.applyPendingPLCPrefilterAndFold()
 
@@ -821,10 +827,10 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	d.beginDecodedPacketPLCState()
 	d.ensureEnergyState(2)
 
-	origChannels := d.channels
+	origChannels := int(d.channels)
 	d.channels = 2
 	defer func() {
-		d.channels = origChannels
+		d.channels = int32(origChannels)
 	}()
 
 	d.SetRangeDecoder(rd)
@@ -902,8 +908,9 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 		shortBlocks = mode.ShortBlocks
 	}
 
-	energies := ensureGLogSlice(&d.scratchEnergies, end*d.channels)
-	for c := 0; c < d.channels; c++ {
+	channels := int(d.channels)
+	energies := ensureGLogSlice(&d.scratchEnergies, end*channels)
+	for c := 0; c < channels; c++ {
 		for band := 0; band < end; band++ {
 			energies[c*end+band] = d.prevEnergy[c*MaxBands+band]
 		}
@@ -922,7 +929,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	balance := allocation.balance
 	codedBands := allocation.codedBands
 
-	coeffsL, coeffsR, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, d.channels, d.phaseInversionDisabled, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
+	coeffsL, coeffsR, qext := d.decodeHybridSpectrum(qextPayload, rd, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels, d.phaseInversionDisabled, energies, prev1LogE, prev2LogE, pulses, fineQuant, finePriority, tfRes, intensity, dualStereo, balance, codedBands)
 
 	hybridBinStart := ScaledBandStart(HybridCELTStartBand, frameSize)
 	energiesL := energies[:end]
@@ -971,7 +978,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	}
 	d.rng = combineFinalRange(rd, extDec)
 
-	d.channels = origChannels
+	d.channels = int32(origChannels)
 	d.applyPendingPLCPrefilterAndFold()
 
 	samples := d.Synthesize(coeffsMono, transient, shortBlocks)

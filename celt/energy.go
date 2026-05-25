@@ -130,7 +130,8 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 		lm = 3
 	}
 
-	needed := nbBands * d.channels
+	channels := int(d.channels)
+	needed := nbBands * channels
 	if len(dst) < needed {
 		dst = make([]celtGLog, needed)
 	} else {
@@ -162,7 +163,7 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 	// Decode band-major to match libopus ordering.
 	var prevBandEnergy [2]float32
 	for band := 0; band < nbBands; band++ {
-		for c := 0; c < d.channels; c++ {
+		for c := 0; c < channels; c++ {
 			// Decode Laplace-distributed residual
 			tell := rd.Tell()
 			qi := 0
@@ -207,7 +208,7 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 	}
 
 	// Update previous frame energy for next frame's inter-frame prediction
-	for c := 0; c < d.channels; c++ {
+	for c := 0; c < channels; c++ {
 		for band := 0; band < nbBands; band++ {
 			d.prevEnergy[c*MaxBands+band] = dst[c*nbBands+band]
 		}
@@ -235,7 +236,8 @@ func (d *Decoder) decodeCoarseEnergyRangeGLog(start, end int, intra bool, lm int
 	if lm > 3 {
 		lm = 3
 	}
-	if len(energies) < end*d.channels {
+	channels := int(d.channels)
+	if len(energies) < end*channels {
 		return
 	}
 
@@ -261,7 +263,7 @@ func (d *Decoder) decodeCoarseEnergyRangeGLog(start, end int, intra bool, lm int
 	// Inter-band prediction state starts at 0 (matches libopus).
 	var prevBandEnergy [2]float32
 	for band := start; band < end; band++ {
-		for c := 0; c < d.channels; c++ {
+		for c := 0; c < channels; c++ {
 			tell := rd.Tell()
 			qi := 0
 			remaining := budget - tell
@@ -368,7 +370,8 @@ func (d *Decoder) decodeFineEnergyGLogRange(energies []celtGLog, start, end int,
 		if extra <= 0 {
 			continue
 		}
-		if rd.Tell()+d.channels*int(extra) > rd.StorageBits() {
+		channels := int(d.channels)
+		if rd.Tell()+channels*int(extra) > rd.StorageBits() {
 			continue
 		}
 
@@ -377,7 +380,7 @@ func (d *Decoder) decodeFineEnergyGLogRange(energies []celtGLog, start, end int,
 			prev = int(prevQuant[band])
 		}
 
-		for c := 0; c < d.channels; c++ {
+		for c := 0; c < channels; c++ {
 			q2 := rd.DecodeRawBits(uint(extra))
 			offset := (float32(q2)+float32(0.5))*float32(uint(1)<<uint(14-extra))*float32(1.0/16384.0) - float32(0.5)
 			offset *= float32(uint(1)<<uint(14-prev)) * float32(1.0/16384.0)
@@ -404,7 +407,8 @@ func (d *Decoder) DecodeEnergyRemainder(energies []celtGLog, nbBands int, remain
 		nbBands = len(remainderBits)
 	}
 
-	for c := 0; c < d.channels; c++ {
+	channels := int(d.channels)
+	for c := 0; c < channels; c++ {
 		for band := 0; band < nbBands; band++ {
 			bits := remainderBits[band]
 			if bits <= 0 {
@@ -478,14 +482,15 @@ func (d *Decoder) decodeEnergyFinaliseGLogRange(start, end int, energies []celtG
 	if bitsLeft < 0 {
 		bitsLeft = 0
 	}
-	apply := len(energies) >= end*d.channels
+	channels := int(d.channels)
+	apply := len(energies) >= end*channels
 
 	for prio := 0; prio < 2; prio++ {
-		for band := start; band < end && bitsLeft >= d.channels; band++ {
+		for band := start; band < end && bitsLeft >= channels; band++ {
 			if fineQuant[band] >= maxFineBits || finePriority[band] != int32(prio) {
 				continue
 			}
-			for c := 0; c < d.channels; c++ {
+			for c := 0; c < channels; c++ {
 				q2 := d.rangeDecoder.DecodeRawBits(1)
 				if apply {
 					offset := (float32(q2) - float32(0.5)) * float32(uint(1)<<uint(14-fineQuant[band]-1)) * float32(1.0/16384.0)

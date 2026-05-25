@@ -20,7 +20,8 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 // Reference: RFC 6716 Section 4.3, libopus celt/celt_decoder.c celt_decode_with_ec()
 func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float32, error) {
 	// Track channel count for transition detection (normal decode uses decoder's channels)
-	d.handleChannelTransition(d.channels)
+	channels := int(d.channels)
+	d.handleChannelTransition(channels)
 	var qextPayload []byte
 	if extsupport.QEXT {
 		qextPayload = d.takeQEXTPayload()
@@ -65,7 +66,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float32, error) {
 	shortBlocks := header.shortBlocks
 
 	// Step 1: Decode coarse energy
-	energies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*d.channels), end, intra, lm)
+	energies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*channels), end, intra, lm)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes
@@ -84,7 +85,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float32, error) {
 	coeffsL := spectrum.coeffsL
 	coeffsR := spectrum.coeffsR
 	if spectrum.antiCollapseOn {
-		antiCollapseGLog(coeffsL, coeffsR, spectrum.collapse, lm, d.channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+		antiCollapseGLog(coeffsL, coeffsR, spectrum.collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
 	}
 	d.applyPendingPLCPrefilterAndFold()
 	samples := d.synthesizeDecodedFrame(frameSize, mode.LM, end, lm, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset, energies, coeffsL, coeffsR, qext)
