@@ -88,7 +88,7 @@ func TestCELTEncoderBandEnergies(t *testing.T) {
 		energies[0], energies[1], energies[2], energies[3], energies[4])
 
 	// Normalize bands
-	shapes := enc.NormalizeBands(coeffs, energies, mode.EffBands, N)
+	shapes := enc.NormalizeBands(float64sToCeltNorms(coeffs), energies, mode.EffBands, N)
 	t.Logf("Normalized shapes: %d bands", len(shapes))
 
 	// Check if shapes are unit vectors
@@ -96,7 +96,8 @@ func TestCELTEncoderBandEnergies(t *testing.T) {
 	for b := 0; b < min(5, len(shapes)); b++ {
 		var l2 float64
 		for _, v := range shapes[b] {
-			l2 += v * v
+			v64 := float64(v)
+			l2 += v64 * v64
 		}
 		l2 = math.Sqrt(l2)
 		t.Logf("  Band %d: len=%d, L2=%.4f", b, len(shapes[b]), l2)

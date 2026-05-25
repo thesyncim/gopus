@@ -18,10 +18,10 @@ import "math"
 //   - nbBands: number of bands to process
 //   - frameSize: frame size in samples (120, 240, 480, 960)
 //
-// Returns: shapes[band] = normalized float64 vector with unit L2 norm
+// Returns: shapes[band] = normalized CELT vector with unit L2 norm
 //
 // Reference: RFC 6716 Section 4.3.4.1
-func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []celtGLog, nbBands, frameSize int) [][]float64 {
+func (e *Encoder) NormalizeBands(mdctCoeffs []CeltNorm, energies []celtGLog, nbBands, frameSize int) [][]CeltNorm {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return nil
 	}
@@ -29,21 +29,21 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []celtGLog, nbBa
 		return nil
 	}
 
-	shapes := make([][]float64, nbBands)
+	shapes := make([][]CeltNorm, nbBands)
 	offset := 0
 
 	for band := 0; band < nbBands; band++ {
 		// Get band boundaries
 		n := ScaledBandWidth(band, frameSize)
 		if n <= 0 {
-			shapes[band] = []float64{}
+			shapes[band] = []CeltNorm{}
 			continue
 		}
 
 		// Extract coefficients for this band
 		if offset+n > len(mdctCoeffs) {
 			// Not enough coefficients - use zeros
-			shapes[band] = make([]float64, n)
+			shapes[band] = make([]CeltNorm, n)
 			for i := range shapes[band] {
 				shapes[band][i] = 0
 			}
@@ -66,7 +66,7 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []celtGLog, nbBa
 		gain := celtExp2(float32(e_val) / float32(DB6))
 
 		// Allocate shape vector
-		shape := make([]float64, n)
+		shape := make([]CeltNorm, n)
 
 		// Handle degenerate case: gain near zero
 		if gain < 1e-15 {
@@ -83,8 +83,12 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []celtGLog, nbBa
 		// Divide coefficients by gain
 		allZero := true
 		for i := 0; i < n; i++ {
-			shape[i] = float64(float32(mdctCoeffs[offset+i]) / gain)
-			if math.Abs(shape[i]) > 1e-15 {
+			shape[i] = CeltNorm(float32(mdctCoeffs[offset+i]) / gain)
+			v := float32(shape[i])
+			if v < 0 {
+				v = -v
+			}
+			if v > 1e-15 {
 				allZero = false
 			}
 		}
@@ -101,14 +105,15 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []celtGLog, nbBa
 			// PVQ expects unit-norm input vectors. The decoder will reconstruct
 			// the shape (also unit-norm) and then scale by gain to get the
 			// original magnitude back.
-			var norm float64
+			var norm float32
 			for i := 0; i < n; i++ {
-				norm += shape[i] * shape[i]
+				v := float32(shape[i])
+				norm += v * v
 			}
 			if norm > 1e-30 {
-				norm = math.Sqrt(norm)
+				norm = 1 / celtRSqrt(norm)
 				for i := 0; i < n; i++ {
-					shape[i] /= norm
+					shape[i] = CeltNorm(float32(shape[i]) / norm)
 				}
 			}
 		}
@@ -299,7 +304,7 @@ func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []celtGLo
 // 4. Distribute remaining pulses to minimize distortion
 //
 // Reference: libopus celt/vq.c alg_quant()
-func vectorToPulses(shape []float64, k int) []int {
+func vectorToPulses(shape []CeltNorm, k int) []int {
 	n := len(shape)
 	if n == 0 || k <= 0 {
 		return make([]int, n)
@@ -308,9 +313,13 @@ func vectorToPulses(shape []float64, k int) []int {
 	pulses := make([]int, n)
 
 	// Compute L1 norm of shape
-	var l1norm float64
+	var l1norm float32
 	for _, x := range shape {
-		l1norm += math.Abs(x)
+		v := float32(x)
+		if v < 0 {
+			v = -v
+		}
+		l1norm += v
 	}
 
 	// Handle degenerate case
@@ -321,19 +330,19 @@ func vectorToPulses(shape []float64, k int) []int {
 	}
 
 	// Scale factor to make L1 norm = k
-	scale := float64(k) / l1norm
+	scale := float32(k) / l1norm
 
 	// Scaled values and track rounding errors
 	type errorEntry struct {
 		idx   int
-		error float64 // Error from rounding (positive = rounded down too much)
+		error float32 // Error from rounding (positive = rounded down too much)
 		sign  int     // Sign of the original value
 	}
 	errors := make([]errorEntry, n)
 
 	currentL1 := 0
 	for i, x := range shape {
-		scaled := x * scale
+		scaled := float32(x) * scale
 		sign := 1
 		if scaled < 0 {
 			sign = -1
@@ -341,7 +350,7 @@ func vectorToPulses(shape []float64, k int) []int {
 		}
 
 		// Round to nearest integer
-		rounded := int(math.Floor(scaled + 0.5))
+		rounded := int(scaled + 0.5)
 		if rounded < 0 {
 			rounded = 0
 		}
@@ -352,7 +361,7 @@ func vectorToPulses(shape []float64, k int) []int {
 		// Track error: how much we lost by rounding
 		// Positive error = we rounded down (want to add pulse)
 		// Negative error = we rounded up (want to remove pulse)
-		error := scaled - float64(rounded)
+		error := scaled - float32(rounded)
 		errors[i] = errorEntry{idx: i, error: error, sign: sign}
 	}
 
@@ -363,7 +372,7 @@ func vectorToPulses(shape []float64, k int) []int {
 	for remaining > 0 {
 		// Find position with largest positive error (rounded down the most)
 		bestIdx := -1
-		bestError := -1.0
+		bestError := float32(-1.0)
 		for i, e := range errors {
 			if e.error > bestError {
 				bestError = e.error
@@ -390,7 +399,7 @@ func vectorToPulses(shape []float64, k int) []int {
 	for remaining < 0 {
 		// Find position with most negative error (rounded up the most)
 		bestIdx := -1
-		bestError := 1.0
+		bestError := float32(1.0)
 		for i, e := range errors {
 			absPulse := pulses[i]
 			if absPulse < 0 {
@@ -454,7 +463,7 @@ func bitsToKEncode(bits, n int) int {
 // with V(n,k) possible values.
 //
 // Reference: libopus celt/bands.c quant_band()
-func (e *Encoder) EncodeBandPVQ(shape []float64, n, k int) {
+func (e *Encoder) EncodeBandPVQ(shape []CeltNorm, n, k int) {
 	if e.rangeEncoder == nil || k <= 0 || n <= 0 {
 		return
 	}
@@ -462,7 +471,7 @@ func (e *Encoder) EncodeBandPVQ(shape []float64, n, k int) {
 	// Ensure shape has correct length
 	if len(shape) != n {
 		// Pad or truncate
-		newShape := make([]float64, n)
+		newShape := make([]CeltNorm, n)
 		copy(newShape, shape)
 		shape = newShape
 	}
@@ -495,7 +504,7 @@ func (e *Encoder) EncodeBandPVQ(shape []float64, n, k int) {
 // - For stereo, bits are split between L and R (Dual Stereo)
 //
 // Reference: libopus celt/bands.c quant_all_bands()
-func (e *Encoder) EncodeBands(shapesL, shapesR [][]float64, bandBits []int, nbBands, frameSize int) {
+func (e *Encoder) EncodeBands(shapesL, shapesR [][]CeltNorm, bandBits []int, nbBands, frameSize int) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -563,7 +572,7 @@ func (e *Encoder) EncodeBands(shapesL, shapesR [][]float64, bandBits []int, nbBa
 // Only bands from startBand onwards are PVQ encoded.
 //
 // Reference: RFC 6716 Section 3.2 - Hybrid mode uses start_band=17 for CELT
-func (e *Encoder) EncodeBandsHybrid(shapesL, shapesR [][]float64, bandBits []int, nbBands, frameSize, startBand int) {
+func (e *Encoder) EncodeBandsHybrid(shapesL, shapesR [][]CeltNorm, bandBits []int, nbBands, frameSize, startBand int) {
 	if e.rangeEncoder == nil {
 		return
 	}

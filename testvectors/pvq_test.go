@@ -8,6 +8,14 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+func float64sToCeltNorms(in []float64) []celt.CeltNorm {
+	out := make([]celt.CeltNorm, len(in))
+	for i, v := range in {
+		out[i] = celt.CeltNorm(v)
+	}
+	return out
+}
+
 func TestPVQRoundTrip(t *testing.T) {
 	// Create a simple unit-norm shape (mimics what encoder produces)
 	n := 8  // Band width
@@ -46,7 +54,7 @@ func TestPVQRoundTrip(t *testing.T) {
 
 	enc := celt.NewEncoder(1)
 	enc.SetRangeEncoder(re)
-	enc.EncodeBandPVQ(shape, n, k)
+	enc.EncodeBandPVQ(float64sToCeltNorms(shape), n, k)
 
 	data := re.Done()
 	t.Logf("\nEncoded data: %d bytes", len(data))

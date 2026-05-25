@@ -8,6 +8,14 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+func float64ShapesToNorms(shapes [][]float64) [][]CeltNorm {
+	out := make([][]CeltNorm, len(shapes))
+	for i := range shapes {
+		out[i] = float64sToNorms(shapes[i])
+	}
+	return out
+}
+
 // TestVectorToPulses verifies that vectorToPulses converts normalized floats
 // to integer pulses with correct L1 norm.
 func TestVectorToPulses(t *testing.T) {
@@ -50,7 +58,7 @@ func TestVectorToPulses(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			pulses := vectorToPulses(tt.shape, tt.k)
+			pulses := vectorToPulses(float64sToNorms(tt.shape), tt.k)
 
 			// Verify length matches
 			if len(pulses) != len(tt.shape) {
@@ -80,7 +88,7 @@ func TestVectorToPulsesPreservesDirection(t *testing.T) {
 	shape := NormalizeVector([]float64{3.0, 4.0, 0.0, 0.0}) // [0.6, 0.8, 0, 0]
 	k := 20
 
-	pulses := vectorToPulses(shape, k)
+	pulses := vectorToPulses(float64sToNorms(shape), k)
 
 	// Convert pulses back to normalized float
 	floatPulses := make([]float64, len(pulses))
@@ -121,7 +129,7 @@ func TestVectorToPulsesRoundTrip(t *testing.T) {
 		// Test with larger k values where quantization is less severe
 		// Lower k values have inherently higher quantization error
 		for _, k := range []int{20, 50, 100} {
-			pulses := vectorToPulses(shape, k)
+			pulses := vectorToPulses(float64sToNorms(shape), k)
 
 			// Verify L1 norm is correct (most important property)
 			l1norm := 0
@@ -193,7 +201,7 @@ func TestPVQEncodeDecodeRoundTrip(t *testing.T) {
 		enc.SetRangeEncoder(re)
 
 		// Encode the shape
-		enc.EncodeBandPVQ(shape, n, k)
+		enc.EncodeBandPVQ(float64sToNorms(shape), n, k)
 
 		// Finalize encoding
 		data := re.Done()
@@ -269,7 +277,7 @@ func TestEncodeBandsAllSizes(t *testing.T) {
 			}
 
 			// This should not panic
-			enc.EncodeBands(shapes, nil, bandBits, nbBands, frameSize)
+			enc.EncodeBands(float64ShapesToNorms(shapes), nil, bandBits, nbBands, frameSize)
 
 			// Finalize and verify we got some data
 			data := re.Done()
@@ -311,7 +319,7 @@ func TestPVQEncodingPreservesEnergy(t *testing.T) {
 
 			enc := NewEncoder(1)
 			enc.SetRangeEncoder(re)
-			enc.EncodeBandPVQ(shape, tc.n, tc.k)
+			enc.EncodeBandPVQ(float64sToNorms(shape), tc.n, tc.k)
 			data := re.Done()
 
 			if len(data) == 0 {
@@ -363,7 +371,7 @@ func TestNormalizeBands(t *testing.T) {
 	}
 
 	// Normalize
-	shapes := enc.NormalizeBands(mdctCoeffs, energies, nbBands, frameSize)
+	shapes := enc.NormalizeBands(float64sToNorms(mdctCoeffs), energies, nbBands, frameSize)
 
 	if len(shapes) != nbBands {
 		t.Fatalf("got %d shapes, want %d", len(shapes), nbBands)
@@ -377,7 +385,8 @@ func TestNormalizeBands(t *testing.T) {
 
 		var energy float64
 		for _, x := range shape {
-			energy += x * x
+			x64 := float64(x)
+			energy += x64 * x64
 		}
 		l2norm := math.Sqrt(energy)
 
@@ -421,7 +430,7 @@ func TestEncodeBandsWithDecoder(t *testing.T) {
 	}
 
 	// Encode
-	enc.EncodeBands(shapes, nil, bandBits, nbBands, frameSize)
+	enc.EncodeBands(float64ShapesToNorms(shapes), nil, bandBits, nbBands, frameSize)
 	data := re.Done()
 
 	if len(data) == 0 {
@@ -486,7 +495,7 @@ func TestEncodeBandPVQProducesValidIndex(t *testing.T) {
 
 			enc := NewEncoder(1)
 			enc.SetRangeEncoder(re)
-			enc.EncodeBandPVQ(shape, tc.n, tc.k)
+			enc.EncodeBandPVQ(float64sToNorms(shape), tc.n, tc.k)
 			data := re.Done()
 
 			if len(data) == 0 {

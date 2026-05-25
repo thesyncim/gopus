@@ -83,30 +83,13 @@ celt/bands.go	1	e93b7ea685d195d13aa1810f5e134d0dc59a93b1fb8784669ae3aa947f534e5c
 celt/bands.go	1	ef16f2509cbbb7f73f6cf9ce5f3df58c214f33b2c78a46f36df4c3a7b7d6a921	legacy-current	func denormalizeCoeffsWithModeInto(dst, src []float64, energies []float64, nbBands, lm int, edges []int) {
 celt/bands.go	1	ff245256273849de7c0650df69c21032fd46bfb1dae2dbabe10fc2dda365e750	legacy-current	energies []float64,
 celt/bands_encode.go	1	07fb579f913a0f55b68752a213e4ae2a0ccf26237a8d4cf54743677d10b95484	legacy-current	norm := ensureFloat64Slice(&e.scratch.normL, frameSize)
-celt/bands_encode.go	1	08a169e6f62d509143a362071c39037ed28db61ac195f61ed06bf4ebc8edb322	legacy-current	func (e *Encoder) EncodeBands(shapesL, shapesR [][]float64, bandBits []int, nbBands, frameSize int) {
-celt/bands_encode.go	1	20bf7d594e1f132e3f90f5cb6645ccc64b6879d4722abb489bae316e3818ff57	legacy-current	shape := make([]float64, n)
 celt/bands_encode.go	1	2c65a95449bb114be8fa4d3d0228195010c948eab85981736f338e0ace64e6d2	legacy-current	func NormalizeBandsToArrayInto(mdctCoeffs []float64, nbBands, frameSize int, norm []float64, bandE []celtEner) {
 celt/bands_encode.go	1	2e4a539ad48943f052aa116b292aff073edb50fb150dc629ec2281db131a6266	legacy-current	func ComputeLinearBandAmplitudes(mdctCoeffs []float64, nbBands, frameSize int) []celtEner {
-celt/bands_encode.go	1	322aba0503e0a4ace295a6e51dc897c03d09daa975b22bfde292af7d6be714d4	legacy-current	shape[i] = float64(float32(mdctCoeffs[offset+i]) / gain)
 celt/bands_encode.go	1	3ef3fce6ec9763e17cfa77109fefc5c75666a101e8c0046977136f0b9db62bfb	legacy-current	norm[offset+i] = float64(float32(mdctCoeffs[offset+i]) * g)
-celt/bands_encode.go	1	530068ef8cd7e38865abbeabbbd2351a5ecaf6fe28d83920480eecef4f6f7a48	legacy-current	shapes[band] = []float64{}
-celt/bands_encode.go	1	5329a26c0b66879abc24033bfc027a505fdb0141921bb789d4bd715b0028fdf2	legacy-current	error float64 // Error from rounding (positive = rounded down too much)
-celt/bands_encode.go	1	5442327189390a425f1a71819189c9110577314afcc238e5e612137344443fba	legacy-current	func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []celtGLog, nbBands, frameSize int) [][]float64 {
-celt/bands_encode.go	1	64b571325155800d0269c543b41e239442b1ad0faa21156f72e1cad9000e179a	legacy-current	var l1norm float64
 celt/bands_encode.go	1	66169dde2d1e8fb25d33034b36b5f9fcf21aca1339a1143b622e847efd34b10b	legacy-current	func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, norm []float64, bandE []celtEner) {
-celt/bands_encode.go	1	6927af23d586f7b924caccb40ff7f35c0a026eccf77cfb5fd60f71b414dd3fa5	legacy-current	func (e *Encoder) EncodeBandsHybrid(shapesL, shapesR [][]float64, bandBits []int, nbBands, frameSize, startBand int) {
-celt/bands_encode.go	1	6ba2f692ad94107cf11bea25e90337e81e458981baf1ecb9752f54c826852365	legacy-current	// Returns: shapes[band] = normalized float64 vector with unit L2 norm
 celt/bands_encode.go	1	7c9c8414317c6a528240b8a85ab2ee59b8d1f7e7942070f7ae1bf30da1eba781	legacy-current	func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []celtGLog, nbBands, frameSize int) []float64 {
-celt/bands_encode.go	1	7fb64aad6d8e11328d3adac7be225f3a1426e6b55e0fb18c27edaa0d9bed7fe9	legacy-current	shapes := make([][]float64, nbBands)
-celt/bands_encode.go	1	89fdb46516015cf993e68668a1a9a5b4c4eb5803bc36805cc5dc04cd96339466	legacy-current	newShape := make([]float64, n)
-celt/bands_encode.go	1	93b433239ce3b1920142e75b6b6556318a86f3c18c3cb3517cfa1ae8cc982589	legacy-current	func vectorToPulses(shape []float64, k int) []int {
-celt/bands_encode.go	1	a3eb9ec370016c5b9fc1e61a4fa88231a633a805c3b6a0918677cb7968ff7161	legacy-current	scale := float64(k) / l1norm
 celt/bands_encode.go	1	d8a4f8328facfea8e710f44b6a81dfc43772bf40f4203375e455739e478914be	legacy-current	func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize int, bandE []celtEner) {
-celt/bands_encode.go	1	da1b827497112b04b486dace79bb5c51a3f5f5b8e46047e6b8f8318b5b360efc	legacy-current	shapes[band] = make([]float64, n)
-celt/bands_encode.go	1	deb0a92ad4fa1fa0efa709cd8252dcb7c733d0d7add2276b1e5796eb3d77eac5	legacy-current	func (e *Encoder) EncodeBandPVQ(shape []float64, n, k int) {
 celt/bands_encode.go	1	eafa3fbe12290bfde802acb445a4ed42764b8eba3f5798a4528be2227aa6c1d5	legacy-current	bandE[band] = celtEner(float32(math.Sqrt(float64(sum))))
-celt/bands_encode.go	1	f7e40e0d617eb8bf6d4d23525f13cd6bceae8d7ca2f9cd1cd38ab753a9845f5f	legacy-current	var norm float64
-celt/bands_encode.go	1	f9e895af2ee124f09cc6df11d23c48b63873b770b552aa50ce1d15cd6dd86bf6	legacy-current	error := scaled - float64(rounded)
 celt/bands_quant.go	1	00829b5ce89113152d15dbfb522a29f091bf05a1eda24c6422d8170a229738f1	legacy-current	func interleaveHadamardInto(dst, src []float64, n0, stride int, hadamard bool) {
 celt/bands_quant.go	1	01ecd9cf390da4920c3fa95a08eeda0a852a86e273022f97c02112092fb4c160	legacy-current	out[i+1] = float64(float32(v1) * scale)
 celt/bands_quant.go	3	02535b17a8465cad7b4d35f2c3fae8f0e1641278cf0033785cfcf6e8253571d5	legacy-current	x[i+stride] = float64(expRotationMac32(c32, x2, s32, x1))

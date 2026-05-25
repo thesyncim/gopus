@@ -356,7 +356,7 @@ func TestEncoderDecoderNormalizationConsistency(t *testing.T) {
 	}
 }
 
-// TestNormalizeBandsMethodComparison compares NormalizeBands (returns [][]float64)
+// TestNormalizeBandsMethodComparison compares NormalizeBands (returns [][]CeltNorm)
 // with NormalizeBandsToArray (returns contiguous []float64) to ensure consistency.
 func TestNormalizeBandsMethodComparison(t *testing.T) {
 	encoder := NewEncoder(1)
@@ -378,7 +378,7 @@ func TestNormalizeBandsMethodComparison(t *testing.T) {
 	energies := encoder.ComputeBandEnergies(mdctCoeffs, nbBands, fs)
 
 	// Method 1: NormalizeBands (returns per-band vectors, also unit-normalizes each)
-	shapes := encoder.NormalizeBands(mdctCoeffs, energies, nbBands, fs)
+	shapes := encoder.NormalizeBands(float64sToNorms(mdctCoeffs), energies, nbBands, fs)
 
 	// Method 2: NormalizeBandsToArray (returns contiguous array, no unit normalization)
 	normArray := encoder.NormalizeBandsToArray(mdctCoeffs, energies, nbBands, fs)
@@ -403,7 +403,7 @@ func TestNormalizeBandsMethodComparison(t *testing.T) {
 		if band < len(shapes) && len(shapes[band]) > 0 && arrayNorm > 1e-10 {
 			for i := 0; i < n && offset+i < len(normArray); i++ {
 				// Reconstruct from unit-norm shape
-				expected := shapes[band][i] * arrayNorm
+				expected := float64(shapes[band][i]) * arrayNorm
 				actual := normArray[offset+i]
 				if math.Abs(expected-actual) > 1e-6 {
 					t.Errorf("band %d, bin %d: expected %f, got %f", band, i, expected, actual)

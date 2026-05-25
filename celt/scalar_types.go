@@ -14,6 +14,10 @@ type opusRes = float32
 // need to carry CELT-owned band-energy scratch without widening it.
 type CeltEner = celtEner
 
+// CeltNorm exposes CELT's float-build celt_norm width to tests and sibling
+// packages that need to pass normalized CELT vectors without widening them.
+type CeltNorm = celtNorm
+
 func ensureSigSlice(buf *[]celtSig, n int) []celtSig {
 	if n <= 0 {
 		return nil
