@@ -134,7 +134,7 @@ func qextExtraBandWidth(edges []int, band, lm int) int {
 // [start,end) and, when qextMode != nil, for the QEXT bands in [end,end+qextEnd).
 func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels, lm int,
 	bandLogE []celtGLog, qextBandLogE []celtGLog, qextMode *qextModeConfig, toneFreq, toneishness float32,
-	enc *rangecoding.Encoder, extraPulses, extraQuant []int,
+	enc *rangecoding.Encoder, extraPulses, extraQuant []int32,
 ) {
 	mainBands := len(bandLogE)
 	qextBands := len(qextBandLogE)
@@ -159,16 +159,16 @@ func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels
 		return
 	}
 
-	capVals := make([]int, totBands)
-	depth := make([]int, totBands)
+	capVals := make([]int32, totBands)
+	depth := make([]int32, totBands)
 	flatE := make([]float32, totBands)
-	ncoef := make([]int, totBands)
+	ncoef := make([]int32, totBands)
 	minVals := make([]float32, totBands)
 	follower := make([]float32, totBands)
 
 	for i := start; i < end; i++ {
 		capVals[i] = 12
-		ncoef[i] = qextExtraBandWidth(EBands[:], i, lm) * channels
+		ncoef[i] = int32(qextExtraBandWidth(EBands[:], i, lm) * channels)
 		flatE[i] = qextBandLogEGLogMax32(bandLogE, mainBands, channels, i) - 0.0625*float32(LogN[i]) + float32(eMeans[i]) - 0.0062*float32((i+5)*(i+5))
 	}
 	if end > start {
@@ -183,7 +183,7 @@ func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels
 		for i := 0; i < qextEnd; i++ {
 			idx := end + i
 			capVals[idx] = 14
-			ncoef[idx] = qextExtraBandWidth(qextMode.EBands, i, lm) * channels
+			ncoef[idx] = int32(qextExtraBandWidth(qextMode.EBands, i, lm) * channels)
 			minVals[idx] = minDepth
 			flatE[idx] = qextBandLogEGLogMax32(qextBandLogE, qextBands, channels, i) - 0.0625*float32(qextMode.LogN[i]) + float32(eMeans[i]) - 0.0062*float32((idx+5)*(idx+5))
 		}
@@ -260,9 +260,9 @@ func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels
 		if target > float32(capVals[i]) {
 			target = float32(capVals[i])
 		}
-		depth[i] = int(0.5 + 4.0*target)
+		depth[i] = int32(0.5 + 4.0*target)
 		if enc != nil && enc.TellFrac()+80 < enc.StorageBits()<<bitRes {
-			encodeQEXTDepth(enc, depth[i], 4*capVals[i], &last)
+			encodeQEXTDepth(enc, int(depth[i]), int(4*capVals[i]), &last)
 		} else {
 			depth[i] = 0
 		}
@@ -271,20 +271,20 @@ func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels
 	for i := start; i < end && i < limit; i++ {
 		extraQuant[i] = (depth[i] + 3) >> 2
 		width := qextExtraBandWidth(EBands[:], i, lm)
-		extraPulses[i] = ((((width)-1)*channels*depth[i]*(1<<bitRes) + 2) >> 2)
+		extraPulses[i] = int32((((width)-1)*channels*int(depth[i])*(1<<bitRes) + 2) >> 2)
 	}
 	if qextMode != nil {
 		for i := 0; i < qextEnd && end+i < limit; i++ {
 			idx := end + i
 			extraQuant[idx] = (depth[idx] + 3) >> 2
 			width := qextExtraBandWidth(qextMode.EBands, i, lm)
-			extraPulses[idx] = ((((width)-1)*channels*depth[idx]*(1<<bitRes) + 2) >> 2)
+			extraPulses[idx] = int32((((width)-1)*channels*int(depth[idx])*(1<<bitRes) + 2) >> 2)
 		}
 	}
 }
 
 func computeQEXTExtraAllocationDecode(start, end, totalQ3 int, channels, lm int,
-	dec *rangecoding.Decoder, extraPulses, extraQuant []int,
+	dec *rangecoding.Decoder, extraPulses, extraQuant []int32,
 ) {
 	computeQEXTExtraAllocationDecodeWithMode(start, end, 0, totalQ3, channels, lm, dec, extraPulses, extraQuant, nil)
 }
@@ -293,7 +293,7 @@ func computeQEXTExtraAllocationDecode(start, end, totalQ3 int, channels, lm int,
 // clt_compute_extra_allocation() path for the main bands in [start,end) and,
 // when qextMode != nil, the QEXT extra bands in [MaxBands, MaxBands+qextEnd).
 func computeQEXTExtraAllocationDecodeWithMode(start, end, qextEnd, totalQ3 int, channels, lm int,
-	dec *rangecoding.Decoder, extraPulses, extraQuant []int, qextMode *qextModeConfig,
+	dec *rangecoding.Decoder, extraPulses, extraQuant []int32, qextMode *qextModeConfig,
 ) {
 	limit := min(len(extraPulses), len(extraQuant))
 	if limit > 0 {
@@ -304,13 +304,13 @@ func computeQEXTExtraAllocationDecodeWithMode(start, end, qextEnd, totalQ3 int, 
 		return
 	}
 
-	var depth [MaxBands + nbQEXTBands]int
-	var capVals [MaxBands + nbQEXTBands]int
+	var depth [MaxBands + nbQEXTBands]int32
+	var capVals [MaxBands + nbQEXTBands]int32
 	last := 0
 	for i := start; i < end; i++ {
 		capVals[i] = 12
 		if dec.TellFrac()+80 < dec.StorageBits()<<bitRes {
-			depth[i] = decodeQEXTDepth(dec, 4*capVals[i], &last)
+			depth[i] = int32(decodeQEXTDepth(dec, int(4*capVals[i]), &last))
 		} else {
 			depth[i] = 0
 		}
@@ -319,7 +319,7 @@ func computeQEXTExtraAllocationDecodeWithMode(start, end, qextEnd, totalQ3 int, 
 		}
 		extraQuant[i] = (depth[i] + 3) >> 2
 		width := qextExtraBandWidth(EBands[:], i, lm)
-		extraPulses[i] = ((((width)-1)*channels*depth[i]*(1<<bitRes) + 2) >> 2)
+		extraPulses[i] = int32((((width)-1)*channels*int(depth[i])*(1<<bitRes) + 2) >> 2)
 	}
 	if qextMode != nil {
 		for i := 0; i < qextEnd; i++ {
@@ -329,13 +329,13 @@ func computeQEXTExtraAllocationDecodeWithMode(start, end, qextEnd, totalQ3 int, 
 			}
 			capVals[idx] = 14
 			if dec.TellFrac()+80 < dec.StorageBits()<<bitRes {
-				depth[idx] = decodeQEXTDepth(dec, 4*capVals[idx], &last)
+				depth[idx] = int32(decodeQEXTDepth(dec, int(4*capVals[idx]), &last))
 			} else {
 				depth[idx] = 0
 			}
 			extraQuant[idx] = (depth[idx] + 3) >> 2
 			width := qextExtraBandWidth(qextMode.EBands, i, lm)
-			extraPulses[idx] = ((((width)-1)*channels*depth[idx]*(1<<bitRes) + 2) >> 2)
+			extraPulses[idx] = int32((((width)-1)*channels*int(depth[idx])*(1<<bitRes) + 2) >> 2)
 		}
 	}
 }

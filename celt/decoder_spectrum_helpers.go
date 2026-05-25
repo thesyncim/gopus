@@ -13,7 +13,7 @@ type decodedFrameSpectrum struct {
 	antiCollapseOn bool
 }
 
-func (d *Decoder) decodeFrameSpectrum(qextPayload []byte, rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv int, energies []celtGLog, fineQuant, finePriority, pulses, tfRes []int, intensity, dualStereo, balance, codedBands int) decodedFrameSpectrum {
+func (d *Decoder) decodeFrameSpectrum(qextPayload []byte, rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv int, energies []celtGLog, fineQuant, finePriority, pulses, tfRes []int32, intensity, dualStereo, balance, codedBands int) decodedFrameSpectrum {
 	spectrum := decodedFrameSpectrum{}
 
 	d.decodeFineEnergyGLog(energies, end, nil, fineQuant)
@@ -25,7 +25,7 @@ func (d *Decoder) decodeFrameSpectrum(qextPayload []byte, rd *rangecoding.Decode
 	}
 
 	var extDec *rangecoding.Decoder
-	var extPulses []int
+	var extPulses []int32
 	extTotalBitsQ3 := 0
 	if extsupport.QEXT && spectrum.qext != nil {
 		extDec = spectrum.qext.dec

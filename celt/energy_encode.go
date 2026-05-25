@@ -1165,7 +1165,7 @@ func (e *Encoder) encodeLaplace(val int, fs int, decay int) int {
 // This mirrors decoder's DecodeFineEnergy exactly (in reverse).
 //
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c quant_fine_energy()
-func (e *Encoder) EncodeFineEnergy(energies []celtGLog, quantizedCoarse []celtGLog, nbBands int, fineBits []int) {
+func (e *Encoder) EncodeFineEnergy(energies []celtGLog, quantizedCoarse []celtGLog, nbBands int, fineBits []int32) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1224,7 +1224,7 @@ func (e *Encoder) EncodeFineEnergy(energies []celtGLog, quantizedCoarse []celtGL
 // encodeFineEnergyFromError mirrors libopus quant_fine_energy() with prev_quant=NULL.
 // It consumes and updates errorVals in-place so the same residual state can be used
 // by energy finalisation and next-frame energyError clipping.
-func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBands int, fineBits []int, errorVals []celtGLog) {
+func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBands int, fineBits []int32, errorVals []celtGLog) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1249,10 +1249,10 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBand
 		}
 		// Match libopus quant_fine_energy(): if there is not enough storage
 		// left to code this band's fine bits for all channels, skip the band.
-		if re.Tell()+channels*bits > re.StorageBits() {
+		if re.Tell()+channels*int(bits) > re.StorageBits() {
 			continue
 		}
-		extra := 1 << bits
+		extra := 1 << uint(bits)
 		scale32 := float32(extra)
 		for c := 0; c < channels; c++ {
 			idx := c*nbBands + band
@@ -1280,7 +1280,7 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBand
 }
 
 // EncodeFineEnergyRange encodes fine energies for bands in [start, end).
-func (e *Encoder) EncodeFineEnergyRange(energies []celtGLog, quantizedCoarse []celtGLog, start, end int, fineBits []int) {
+func (e *Encoder) EncodeFineEnergyRange(energies []celtGLog, quantizedCoarse []celtGLog, start, end int, fineBits []int32) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1340,7 +1340,7 @@ func (e *Encoder) EncodeFineEnergyRange(energies []celtGLog, quantizedCoarse []c
 
 // EncodeFineEnergyRangeFromError mirrors libopus quant_fine_energy() for hybrid
 // range coding, consuming the in-place coarse error residual state.
-func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []celtGLog, start, end int, fineBits []int) {
+func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []celtGLog, start, end int, fineBits []int32) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1379,10 +1379,10 @@ func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []celtGLog, s
 		}
 		// Match libopus: if there is not enough storage left for this band's
 		// fine bits for all channels, skip this band.
-		if re.Tell()+channels*bits > re.StorageBits() {
+		if re.Tell()+channels*int(bits) > re.StorageBits() {
 			continue
 		}
-		extra := 1 << bits
+		extra := 1 << uint(bits)
 		scale32 := float32(extra)
 		for c := 0; c < channels; c++ {
 			idx := c*nbBands + band
@@ -1478,7 +1478,7 @@ func (e *Encoder) EncodeEnergyRemainder(energies []celtGLog, quantizedEnergies [
 // quantizedEnergies: current quantized energies (coarse + fine)
 // fineQuant/finePriority: allocation outputs
 // bitsLeft: remaining whole bits available in the packet
-func (e *Encoder) EncodeEnergyFinalise(energies []celtGLog, quantizedEnergies []celtGLog, nbBands int, fineQuant []int, finePriority []int, bitsLeft int) {
+func (e *Encoder) EncodeEnergyFinalise(energies []celtGLog, quantizedEnergies []celtGLog, nbBands int, fineQuant []int32, finePriority []int32, bitsLeft int) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1504,7 +1504,7 @@ func (e *Encoder) EncodeEnergyFinalise(energies []celtGLog, quantizedEnergies []
 			if band >= len(fineQuant) || band >= len(finePriority) {
 				continue
 			}
-			if fineQuant[band] >= maxFineBits || finePriority[band] != prio {
+			if fineQuant[band] >= maxFineBits || finePriority[band] != int32(prio) {
 				continue
 			}
 			for c := 0; c < channels; c++ {
@@ -1528,7 +1528,7 @@ func (e *Encoder) EncodeEnergyFinalise(energies []celtGLog, quantizedEnergies []
 
 // encodeEnergyFinaliseFromError mirrors libopus quant_energy_finalise().
 // It consumes the remaining bit budget using the in-place residual state.
-func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []celtGLog, nbBands int, fineQuant []int, finePriority []int, bitsLeft int, errorVals []celtGLog) {
+func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []celtGLog, nbBands int, fineQuant []int32, finePriority []int32, bitsLeft int, errorVals []celtGLog) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1554,7 +1554,7 @@ func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []celtGLog, nb
 			if band >= len(fineQuant) || band >= len(finePriority) {
 				continue
 			}
-			if fineQuant[band] >= maxFineBits || finePriority[band] != prio {
+			if fineQuant[band] >= maxFineBits || finePriority[band] != int32(prio) {
 				continue
 			}
 			for c := 0; c < channels; c++ {
@@ -1579,7 +1579,7 @@ func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []celtGLog, nb
 }
 
 // EncodeEnergyFinaliseRange consumes leftover bits for energy refinement in [start, end).
-func (e *Encoder) EncodeEnergyFinaliseRange(energies []celtGLog, quantizedEnergies []celtGLog, start, end int, fineQuant []int, finePriority []int, bitsLeft int) {
+func (e *Encoder) EncodeEnergyFinaliseRange(energies []celtGLog, quantizedEnergies []celtGLog, start, end int, fineQuant []int32, finePriority []int32, bitsLeft int) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1609,7 +1609,7 @@ func (e *Encoder) EncodeEnergyFinaliseRange(energies []celtGLog, quantizedEnergi
 			if band >= len(fineQuant) || band >= len(finePriority) {
 				continue
 			}
-			if fineQuant[band] >= maxFineBits || finePriority[band] != prio {
+			if fineQuant[band] >= maxFineBits || finePriority[band] != int32(prio) {
 				continue
 			}
 			for c := 0; c < channels; c++ {
@@ -1633,7 +1633,7 @@ func (e *Encoder) EncodeEnergyFinaliseRange(energies []celtGLog, quantizedEnergi
 
 // EncodeEnergyFinaliseRangeFromError mirrors libopus quant_energy_finalise() for
 // hybrid range coding, consuming the in-place residual state from coarse/fine.
-func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []celtGLog, start, end int, fineQuant []int, finePriority []int, bitsLeft int) {
+func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []celtGLog, start, end int, fineQuant []int32, finePriority []int32, bitsLeft int) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1670,7 +1670,7 @@ func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []celtGLo
 			if band >= len(fineQuant) || band >= len(finePriority) {
 				continue
 			}
-			if fineQuant[band] >= maxFineBits || finePriority[band] != prio {
+			if fineQuant[band] >= maxFineBits || finePriority[band] != int32(prio) {
 				continue
 			}
 			for c := 0; c < channels; c++ {
@@ -1705,7 +1705,7 @@ func (e *Encoder) EncodeCoarseEnergyWithEncoder(re *rangecoding.Encoder, energie
 }
 
 // EncodeFineEnergyWithEncoder encodes fine energies using an explicit range encoder.
-func (e *Encoder) EncodeFineEnergyWithEncoder(re *rangecoding.Encoder, energies []celtGLog, quantizedCoarse []celtGLog, nbBands int, fineBits []int) {
+func (e *Encoder) EncodeFineEnergyWithEncoder(re *rangecoding.Encoder, energies []celtGLog, quantizedCoarse []celtGLog, nbBands int, fineBits []int32) {
 	oldRE := e.rangeEncoder
 	e.rangeEncoder = re
 	defer func() { e.rangeEncoder = oldRE }()
@@ -1713,7 +1713,7 @@ func (e *Encoder) EncodeFineEnergyWithEncoder(re *rangecoding.Encoder, energies 
 	e.EncodeFineEnergy(energies, quantizedCoarse, nbBands, fineBits)
 }
 
-func (e *Encoder) encodeFineEnergyFromErrorWithEncoder(re *rangecoding.Encoder, quantizedEnergies []celtGLog, nbBands int, fineBits []int, errorVals []celtGLog) {
+func (e *Encoder) encodeFineEnergyFromErrorWithEncoder(re *rangecoding.Encoder, quantizedEnergies []celtGLog, nbBands int, fineBits []int32, errorVals []celtGLog) {
 	oldRE := e.rangeEncoder
 	e.rangeEncoder = re
 	defer func() { e.rangeEncoder = oldRE }()
@@ -1723,7 +1723,7 @@ func (e *Encoder) encodeFineEnergyFromErrorWithEncoder(re *rangecoding.Encoder, 
 
 // encodeFineEnergyFromErrorWithPrev mirrors libopus quant_fine_energy() when
 // prevQuant is non-nil and extraQuant carries the incremental QEXT refinement.
-func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []celtGLog, nbBands int, prevQuant, extraQuant []int, errorVals []celtGLog) {
+func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []celtGLog, nbBands int, prevQuant, extraQuant []int32, errorVals []celtGLog) {
 	if e.rangeEncoder == nil {
 		return
 	}
@@ -1746,15 +1746,15 @@ func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []celtGLog
 		if extraBits <= 0 {
 			continue
 		}
-		if re.Tell()+channels*extraBits > re.StorageBits() {
+		if re.Tell()+channels*int(extraBits) > re.StorageBits() {
 			continue
 		}
 
 		prevBits := 0
 		if prevQuant != nil && band < len(prevQuant) {
-			prevBits = prevQuant[band]
+			prevBits = int(prevQuant[band])
 		}
-		extra := 1 << extraBits
+		extra := 1 << uint(extraBits)
 		scale32 := float32(extra)
 		prevScale32 := float32(uint(1) << prevBits)
 
@@ -1782,7 +1782,7 @@ func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []celtGLog
 	}
 }
 
-func (e *Encoder) encodeFineEnergyFromErrorWithPrevWithEncoder(re *rangecoding.Encoder, quantizedEnergies []celtGLog, nbBands int, prevQuant, extraQuant []int, errorVals []celtGLog) {
+func (e *Encoder) encodeFineEnergyFromErrorWithPrevWithEncoder(re *rangecoding.Encoder, quantizedEnergies []celtGLog, nbBands int, prevQuant, extraQuant []int32, errorVals []celtGLog) {
 	oldRE := e.rangeEncoder
 	e.rangeEncoder = re
 	defer func() { e.rangeEncoder = oldRE }()
@@ -1790,7 +1790,7 @@ func (e *Encoder) encodeFineEnergyFromErrorWithPrevWithEncoder(re *rangecoding.E
 	e.encodeFineEnergyFromErrorWithPrev(quantizedEnergies, nbBands, prevQuant, extraQuant, errorVals)
 }
 
-func (e *Encoder) encodeFineEnergyRangeFromErrorWithEncoder(re *rangecoding.Encoder, quantizedEnergies []celtGLog, start, end int, fineBits []int) {
+func (e *Encoder) encodeFineEnergyRangeFromErrorWithEncoder(re *rangecoding.Encoder, quantizedEnergies []celtGLog, start, end int, fineBits []int32) {
 	oldRE := e.rangeEncoder
 	e.rangeEncoder = re
 	defer func() { e.rangeEncoder = oldRE }()
@@ -1819,7 +1819,7 @@ func (e *Encoder) EncodeCoarseEnergyHybrid(energies []celtGLog, nbBands int, int
 
 // EncodeFineEnergyHybrid encodes fine energies for hybrid mode.
 // Only encodes bands from startBand onwards.
-func (e *Encoder) EncodeFineEnergyHybrid(energies []celtGLog, quantizedCoarse []celtGLog, nbBands int, fineBits []int, startBand int) {
+func (e *Encoder) EncodeFineEnergyHybrid(energies []celtGLog, quantizedCoarse []celtGLog, nbBands int, fineBits []int32, startBand int) {
 	if e.rangeEncoder == nil || nbBands == 0 {
 		return
 	}

@@ -195,10 +195,10 @@ func assertDynallocResultMatches(t *testing.T, got DynallocResult, want libopusC
 		t.Fatalf("totBoost=%d want %d", got.TotBoost, want.totBoost)
 	}
 	for band := 0; band < MaxBands; band++ {
-		if got.Offsets[band] != want.offsets[band] {
+		if got.Offsets[band] != int32(want.offsets[band]) {
 			t.Fatalf("offsets[%d]=%d want %d", band, got.Offsets[band], want.offsets[band])
 		}
-		if got.Importance[band] != want.importance[band] {
+		if got.Importance[band] != int32(want.importance[band]) {
 			t.Fatalf("importance[%d]=%d want %d", band, got.Importance[band], want.importance[band])
 		}
 		if got.SpreadWeight[band] != want.spreadWeight[band] {

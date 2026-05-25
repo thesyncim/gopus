@@ -1027,7 +1027,7 @@ func TestRangeDecoderBitConsumptionByStage(t *testing.T) {
 
 		allocTotalQ3 := 0
 		for band := 0; band < len(allocResult.BandBits); band++ {
-			allocTotalQ3 += allocResult.BandBits[band] + (allocResult.FineBits[band] << bitRes)
+			allocTotalQ3 += int(allocResult.BandBits[band] + (allocResult.FineBits[band] << bitRes))
 		}
 		allocTotal := allocTotalQ3 >> bitRes
 		t.Logf("Allocation total: %d bits", allocTotal)
@@ -1084,7 +1084,7 @@ func TestBitConsumptionVsAllocation(t *testing.T) {
 			)
 			allocTotalQ3 := 0
 			for band := 0; band < len(allocResult.BandBits); band++ {
-				allocTotalQ3 += allocResult.BandBits[band] + (allocResult.FineBits[band] << bitRes)
+				allocTotalQ3 += int(allocResult.BandBits[band] + (allocResult.FineBits[band] << bitRes))
 			}
 			allocTotal := allocTotalQ3 >> bitRes
 

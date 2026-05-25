@@ -213,7 +213,7 @@ func bandBitsQ3(result AllocationResult, band, channels int) int {
 	if band < 0 || band >= len(result.BandBits) || band >= len(result.FineBits) {
 		return 0
 	}
-	return result.BandBits[band] + (result.FineBits[band] * channels << bitRes)
+	return int(result.BandBits[band]) + (int(result.FineBits[band]) * channels << bitRes)
 }
 
 // TestComputeAllocationByLM verifies allocation varies correctly by frame size.
@@ -232,8 +232,8 @@ func TestComputeAllocationByLM(t *testing.T) {
 		var maxCap int
 		for band := 0; band < nbBands; band++ {
 			totalAllocated += bandBitsQ3(result, band, channels)
-			if result.Caps[band] > maxCap {
-				maxCap = result.Caps[band]
+			if int(result.Caps[band]) > maxCap {
+				maxCap = int(result.Caps[band])
 			}
 		}
 
@@ -422,7 +422,7 @@ func TestComputeAllocationEdgeCases(t *testing.T) {
 		// Bands above intensity should have adjusted bits
 		var totalBits int
 		for band := 0; band < 21; band++ {
-			totalBits += result.BandBits[band] + result.FineBits[band]
+			totalBits += int(result.BandBits[band] + result.FineBits[band])
 		}
 		t.Logf("Intensity stereo from band %d: total allocated %d bits", intensity, totalBits)
 	})

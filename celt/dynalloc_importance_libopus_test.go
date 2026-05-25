@@ -43,7 +43,7 @@ func TestDynallocImportanceRoundingMatchesLibopus(t *testing.T) {
 	}
 	for i, sample := range samples {
 		got := dynallocImportanceFromFollower(sample)
-		if got != int(int32(want[i])) {
+		if got != int32(want[i]) {
 			t.Fatalf("importance(%08x %.10g)=%d want %d", math.Float32bits(sample), sample, got, int(int32(want[i])))
 		}
 	}

@@ -44,12 +44,12 @@ func maxF32(a, b float32) float32 {
 	return b
 }
 
-func dynallocImportanceFromFollower(follower float32) int {
+func dynallocImportanceFromFollower(follower float32) int32 {
 	if follower > 4.0 {
 		follower = 4.0
 	}
 	imp := float32(0.5) + float32(13.0)*celtExp2(follower)
-	return floor32ToInt(imp)
+	return int32(floor32ToInt(imp))
 }
 
 // applyLeakBoostApprox derives a leak_boost proxy from current CELT band energies
@@ -128,7 +128,7 @@ type DynallocResult struct {
 
 	// Offsets contains per-band allocation offsets for dynamic bit allocation.
 	// Bands with high energy variance get extra bits.
-	Offsets []int
+	Offsets []int32
 
 	// SpreadWeight contains per-band masking weights for spread decision.
 	// Higher values indicate more perceptually important bands.
@@ -136,7 +136,7 @@ type DynallocResult struct {
 
 	// Importance contains per-band importance values (0-13 typically).
 	// Used for bit allocation prioritization.
-	Importance []int
+	Importance []int32
 
 	// TotBoost is the total boost in bits (Q3 format).
 	// Represents extra bits allocated beyond base target.
@@ -270,9 +270,9 @@ func DynallocAnalysis(
 ) DynallocResult {
 	result := DynallocResult{
 		MaxDepth:     celtGLog(-31.9),
-		Offsets:      make([]int, nbBands),
+		Offsets:      make([]int32, nbBands),
 		SpreadWeight: make([]int, nbBands),
-		Importance:   make([]int, nbBands),
+		Importance:   make([]int32, nbBands),
 		TotBoost:     0,
 	}
 
@@ -529,7 +529,7 @@ func DynallocAnalysis(
 
 		// Compute importance weights
 		for i := start; i < end; i++ {
-			result.Importance[i] = dynallocImportanceFromFollower(follower[i])
+			result.Importance[i] = int32(dynallocImportanceFromFollower(follower[i]))
 		}
 
 		// For non-transient CBR/CVBR frames, libopus halves dynalloc.
@@ -655,11 +655,11 @@ func DynallocAnalysis(
 			if (!vbr || (constrainedVBR && !isTransient)) &&
 				(totBoost+boostBits)>>bitRes>>3 > 2*effectiveBytes/3 {
 				cap := (2 * effectiveBytes / 3) << bitRes << 3
-				result.Offsets[i] = cap - totBoost
+				result.Offsets[i] = int32(cap - totBoost)
 				totBoost = cap
 				break
 			} else {
-				result.Offsets[i] = boost
+				result.Offsets[i] = int32(boost)
 				totBoost += boostBits
 			}
 		}
@@ -716,9 +716,9 @@ func min(a, b int) int {
 // DynallocScratch holds pre-allocated buffers for DynallocAnalysis.
 type DynallocScratch struct {
 	// Result arrays (caller provides these in result struct)
-	Offsets      []int
+	Offsets      []int32
 	SpreadWeight []int
-	Importance   []int
+	Importance   []int32
 
 	// Libopus-width scratch buffers.
 	NoiseFloor []float32
@@ -737,7 +737,7 @@ type DynallocScratch struct {
 func (s *DynallocScratch) EnsureDynallocScratch(nbBands, channels int) {
 	maxSize := nbBands * channels
 	if cap(s.Offsets) < nbBands {
-		s.Offsets = make([]int, nbBands)
+		s.Offsets = make([]int32, nbBands)
 	} else {
 		s.Offsets = s.Offsets[:nbBands]
 	}
@@ -747,7 +747,7 @@ func (s *DynallocScratch) EnsureDynallocScratch(nbBands, channels int) {
 		s.SpreadWeight = s.SpreadWeight[:nbBands]
 	}
 	if cap(s.Importance) < nbBands {
-		s.Importance = make([]int, nbBands)
+		s.Importance = make([]int32, nbBands)
 	} else {
 		s.Importance = s.Importance[:nbBands]
 	}
@@ -1106,7 +1106,7 @@ func DynallocAnalysisWithScratch(
 		}
 
 		for i := start; i < end; i++ {
-			result.Importance[i] = dynallocImportanceFromFollower(follower[i])
+			result.Importance[i] = int32(dynallocImportanceFromFollower(follower[i]))
 		}
 
 		// For non-transient CBR/CVBR frames, libopus halves dynalloc.
@@ -1206,12 +1206,12 @@ func DynallocAnalysisWithScratch(
 			if (!vbr || (constrainedVBR && !isTransient)) &&
 				(totBoost+boostBits)>>bitRes>>3 > 2*effectiveBytes/3 {
 				cap := (2 * effectiveBytes / 3) << bitRes << 3
-				result.Offsets[i] = cap - totBoost
+				result.Offsets[i] = int32(cap - totBoost)
 				totBoost = cap
 				break
 			}
 
-			result.Offsets[i] = boost
+			result.Offsets[i] = int32(boost)
 			totBoost += boostBits
 		}
 		result.TotBoost = totBoost

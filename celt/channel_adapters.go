@@ -279,7 +279,7 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float3
 	}
 
 	var extDec *rangecoding.Decoder
-	var extPulses []int
+	var extPulses []int32
 	extTotalBitsQ3 := 0
 	if extsupport.QEXT && qext != nil {
 		extDec = qext.dec
@@ -501,7 +501,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	}
 
 	var extDec *rangecoding.Decoder
-	var extPulses []int
+	var extPulses []int32
 	extTotalBitsQ3 := 0
 	if extsupport.QEXT && qext != nil {
 		extDec = qext.dec

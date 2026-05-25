@@ -278,7 +278,7 @@ func TestFineEnergyEncoderProducesValidOutput(t *testing.T) {
 		}
 
 		// Fine bits allocation
-		fineBits := make([]int, nbBands)
+		fineBits := make([]int32, nbBands)
 		for i := range fineBits {
 			fineBits[i] = 3 // 3 bits per band
 		}
@@ -321,9 +321,9 @@ func TestFineEnergyEncoderProducesValidOutput(t *testing.T) {
 				}
 
 				// Uniform bit allocation
-				fineBits := make([]int, nbBands)
+				fineBits := make([]int32, nbBands)
 				for i := range fineBits {
-					fineBits[i] = bits
+					fineBits[i] = int32(bits)
 				}
 
 				// Encode
@@ -351,8 +351,8 @@ func TestFineEnergyEncoderProducesValidOutput(t *testing.T) {
 func TestEncodeFineEnergyFromErrorWithPrevRoundTrip(t *testing.T) {
 	enc := NewEncoder(2)
 	nbBands := 4
-	prevQuant := []int{2, 1, 3, 0}
-	extraQuant := []int{2, 3, 1, 0}
+	prevQuant := []int32{2, 1, 3, 0}
+	extraQuant := []int32{2, 3, 1, 0}
 	quantized := []celtGLog{
 		-3.25, -1.50, 0.75, 1.00,
 		-2.75, -0.50, 1.25, 0.25,
@@ -415,7 +415,7 @@ func TestEnergyEncodingAllFrameSizes(t *testing.T) {
 				}
 
 				// Fine bits
-				fineBits := make([]int, nbBands)
+				fineBits := make([]int32, nbBands)
 				for i := range fineBits {
 					fineBits[i] = 2
 				}

@@ -127,7 +127,7 @@ func TestDecodeFineEnergy(t *testing.T) {
 			copy(original, energies)
 
 			// Apply fine energy
-			dec.DecodeFineEnergy(energies, tc.nbBands, tc.fineBits)
+			dec.DecodeFineEnergy(energies, tc.nbBands, int32SliceForTest(tc.fineBits))
 
 			// Verify adjustments
 			for band := 0; band < tc.nbBands; band++ {
@@ -168,7 +168,7 @@ func TestDecodeEnergyRemainder(t *testing.T) {
 	copy(original, energies)
 
 	// Apply remainder bits
-	remainderBits := []int{2, 3, 1}
+	remainderBits := []int32{2, 3, 1}
 	dec.DecodeEnergyRemainder(energies, len(energies), remainderBits)
 
 	// Verify adjustments are small (sub-6dB refinement)
@@ -260,7 +260,7 @@ func TestComputeAllocation(t *testing.T) {
 			// Sum should be reasonable (within caps)
 			sumQ3 := 0
 			for band := 0; band < tc.nbBands; band++ {
-				sumQ3 += result.BandBits[band] + (result.FineBits[band] << bitRes)
+				sumQ3 += int(result.BandBits[band] + (result.FineBits[band] << bitRes))
 			}
 			// Allocation is capped by band caps, so sum may be less than budget
 			// Just verify it's positive and doesn't exceed budget

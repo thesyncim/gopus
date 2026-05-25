@@ -9,8 +9,8 @@ type encoderQEXTState struct {
 
 type encoderQEXTScratch struct {
 	buf       []byte
-	extraBits []int
-	fineBits  []int
+	extraBits []int32
+	fineBits  []int32
 	bandE     []celtEner
 	bandLogE  []celtGLog
 	quantized []celtGLog

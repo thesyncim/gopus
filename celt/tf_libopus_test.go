@@ -175,7 +175,7 @@ func TestTFDecodeEncodeDecode(t *testing.T) {
 			tfResEnc := make([]int, len(tc.tfRes))
 			copy(tfResEnc, tc.tfRes)
 
-			tfEncode(enc, tc.start, tc.end, tc.isTransient, tfResEnc, tc.lm)
+			tfEncode(enc, tc.start, tc.end, tc.isTransient, int32SliceForTest(tfResEnc), tc.lm)
 			encoded := enc.Done()
 
 			// Decode
@@ -687,7 +687,8 @@ func TestTFEncodeWithSelectRoundTrip(t *testing.T) {
 			// Encode
 			start := 0
 			end := 21
-			TFEncodeWithSelect(enc, start, end, tc.isTransient, tfResCopy, tc.lm, tc.tfSelect)
+			tfRes32 := int32SliceForTest(tfResCopy)
+			TFEncodeWithSelect(enc, start, end, tc.isTransient, tfRes32, tc.lm, tc.tfSelect)
 
 			// Finalize and decode
 			encoded := enc.Done()
@@ -700,8 +701,8 @@ func TestTFEncodeWithSelectRoundTrip(t *testing.T) {
 
 			// The decoded tfRes should match the encoded tfRes (both have table lookup applied)
 			for i := 0; i < end; i++ {
-				if decodedTfRes[i] != tfResCopy[i] {
-					t.Errorf("band %d: decoded tfRes=%d, encoded tfRes=%d", i, decodedTfRes[i], tfResCopy[i])
+				if decodedTfRes[i] != int(tfRes32[i]) {
+					t.Errorf("band %d: decoded tfRes=%d, encoded tfRes=%d", i, decodedTfRes[i], tfRes32[i])
 				}
 			}
 		})

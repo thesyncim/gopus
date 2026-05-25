@@ -886,7 +886,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// CRITICAL: toneishness >= 0.98 disables TF analysis (pure tones use simple fallback)
 	enableTFAnalysis := effectiveBytes >= 15*codedChannels && !e.IsHybrid() && e.complexity >= 2 && !e.lfe && toneishness < 0.98
 
-	var tfRes []int
+	var tfRes []int32
 	var tfSelect int
 
 	if enableTFAnalysis {
@@ -907,7 +907,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		TFEncodeWithSelect(re, start, end, transient, tfRes, lm, tfSelect)
 	} else {
 		// Use default TF settings when analysis is disabled
-		tfRes = ensureIntSlice(&e.scratch.tfRes, nbBands)
+		tfRes = ensureInt32Slice(&e.scratch.tfRes, nbBands)
 		// Zero all entries: ensureIntSlice reuses memory without zeroing,
 		// so stale values (e.g. -1 from TFAnalysis) can survive and cause
 		// an index-out-of-range panic in the tfSelectTable lookup below.
@@ -930,8 +930,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 		// Convert tfRes to actual TF change values
 		for i := start; i < end; i++ {
-			idx := 4*boolToInt(transient) + 2*tfSelect + tfRes[i]
-			tfRes[i] = int(tfSelectTable[lm][idx])
+			idx := 4*boolToInt(transient) + 2*tfSelect + int(tfRes[i])
+			tfRes[i] = int32(tfSelectTable[lm][idx])
 		}
 	}
 	// Step 11.2: Compute and encode spread decision
@@ -985,7 +985,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		spread = spreadNormal
 	}
 	// Step 11.3: Initialize caps for allocation (zero-alloc)
-	caps := ensureIntSlice(&e.scratch.caps, nbBands)
+	caps := ensureInt32Slice(&e.scratch.caps, nbBands)
 	initCapsInto(caps, nbBands, lm, codedChannels)
 
 	// Step 11.4: Encode dynamic allocation
@@ -1001,10 +1001,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// "quanta" of boost bits to allocate to each band.
 	offsets := dynallocResult.Offsets
 	if offsets == nil || len(offsets) < nbBands {
-		offsets = make([]int, nbBands)
+		offsets = make([]int32, nbBands)
 	}
 	if e.lfe && len(offsets) > 0 {
-		offsets[0] = min(8, effectiveBytes/3)
+		offsets[0] = int32(min(8, effectiveBytes/3))
 	}
 	dynallocLogp := 6
 	totalBitsQ3ForDynalloc := targetBits << bitRes
@@ -1037,9 +1037,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		j := 0
 
 		// Loop encoding boost bits while j < offsets[i]
-		for ; tellFracDynalloc+(dynallocLoopLogp<<bitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < caps[i]; j++ {
+		for ; tellFracDynalloc+(dynallocLoopLogp<<bitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < int(caps[i]); j++ {
 			flag := 0
-			if j < offsets[i] {
+			if j < int(offsets[i]) {
 				flag = 1
 			}
 			re.EncodeBit(flag, uint(dynallocLoopLogp))
@@ -1061,7 +1061,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		}
 
 		// Update offsets[i] to reflect actual boost applied (for allocation)
-		offsets[i] = boost
+		offsets[i] = int32(boost)
 	}
 	// Step 11.4.5: Decide stereo mode parameters (libopus hysteresis + stereo analysis).
 	if codedChannels == 2 {
@@ -1139,8 +1139,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		}
 	}
 	var qextEnc *rangecoding.Encoder
-	var qextExtraBits []int
-	var qextFineBits []int
+	var qextExtraBits []int32
+	var qextFineBits []int32
 	qextPayloadBytes := 0
 	if extsupport.QEXT && e.qextActive() && !e.IsHybrid() {
 		minAllowed := ((re.TellFrac() + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
@@ -1395,10 +1395,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		qextBalance := qextTotalBitsQ3 - qextEnc.TellFrac()
 		fineQ3 := 0
 		if qextEnd > 1 {
-			fineQ3 = codedChannels * (qextBandBits[1] << bitRes)
+			fineQ3 = codedChannels * int(qextBandBits[1]<<bitRes)
 		}
 		for i := 0; i < qextEnd; i++ {
-			qextBalance -= qextExtraBits[MaxBands+i]
+			qextBalance -= int(qextExtraBits[MaxBands+i])
 			qextBalance -= fineQ3
 		}
 		if qextBalance < 0 {
@@ -1407,7 +1407,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		// Match libopus: extra-band quant_all_bands() still receives a real
 		// secondary coder context, but that nested coder is a zero-sized dummy
 		// and the per-band extension budgets are all zero.
-		zeroTFRes := qextExtraBits[:qextEnd]
+		zeroTFRes := ensureInt32Slice(&e.scratch.tfRes, qextEnd)
 		clear(zeroTFRes)
 		var dummyEnc rangecoding.Encoder
 		dummyEnc.Init(nil)
