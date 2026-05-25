@@ -1126,13 +1126,16 @@ type encoderScratch struct {
 	dynallocImportance []int
 
 	// ComputeAllocation scratch
-	allocBits     []int
-	allocFineBits []int
-	allocFinePrio []int
-	allocThresh   []int
-	allocTrim     []int
-	allocCaps     []int
-	allocResult   AllocationResult // Pre-allocated result struct
+	allocBits         []int
+	allocFineBits     []int
+	allocFinePrio     []int
+	allocThresh       []int
+	allocTrim         []int
+	allocTrimNormL    []celtNorm
+	allocTrimNormR    []celtNorm
+	allocTrimBandLogE []celtGLog
+	allocCaps         []int
+	allocResult       AllocationResult // Pre-allocated result struct
 	encoderQEXTScratchFields
 
 	// MDCT input buffer for ComputeMDCTWithHistory
@@ -1311,6 +1314,9 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.allocFinePrio = ensureIntSlice(&s.allocFinePrio, MaxBands)
 	s.allocThresh = ensureIntSlice(&s.allocThresh, MaxBands)
 	s.allocTrim = ensureIntSlice(&s.allocTrim, MaxBands)
+	s.allocTrimNormL = ensureNormSlice(&s.allocTrimNormL, frameSize)
+	s.allocTrimNormR = ensureNormSlice(&s.allocTrimNormR, frameSize)
+	s.allocTrimBandLogE = ensureGLogSlice(&s.allocTrimBandLogE, MaxBands*channels)
 	if extsupport.QEXT && e.qextActive() {
 		qs := s.ensureQEXTScratch()
 		qs.extraBits = ensureIntSlice(&qs.extraBits, MaxBands+nbQEXTBands)

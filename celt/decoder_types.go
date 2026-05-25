@@ -132,8 +132,6 @@ type Decoder struct {
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
 	scratchPrevEnergy     []float64
 	scratchPrevEnergyGLog []celtGLog
-	scratchPrevLogE       []float64
-	scratchPrevLogE2      []float64
 	scratchEnergies       []float64
 	scratchTFRes          []int
 	scratchOffsets        []int

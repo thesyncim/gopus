@@ -10,27 +10,12 @@ celt/abs_sum_default.go	1	d0c9335d851ac7ad87096d97f4702d37f4ba42c9f3ff8e2a2ad7d9
 celt/accessors.go	1	270ed2e092ec39223aeab3d83da36ba1ce9405511f21ec9aa5c529202b08dabb	legacy-current	return float64(d.prevEnergy[channel*MaxBands+band])
 celt/accessors.go	1	ccb2b511f63931de409a61776a329495ef81ad37238058c248fcb2d690a3b810	legacy-current	func (d *Decoder) GetEnergy(band, channel int) float64 {
 celt/accessors.go	1	db33872c6cf68706fd42b39ee59d909886d99a5e069e5def7b2a272ab2e6d60f	legacy-current	func (d *Decoder) SetEnergy(band, channel int, energy float64) {
-celt/alloc_trim.go	1	00fe60d934b43c30cad51c7a3d7013788a362f051ecf34869b58964aa9b2bd1b	legacy-current	tf float64
-celt/alloc_trim.go	2	06f903828fc300967668817775d473177a82b46d5e786e638f0665e5c3388415	legacy-current	normCoeffsRight []float64,
-celt/alloc_trim.go	2	17bc0a1b56f68b28812ef19bcc67e5ed14b471cd75d58626ea167391afe07c90	legacy-current	surroundTrim float64,
-celt/alloc_trim.go	1	2a28aa5da29faccfb5ff90450530fa3eb3d04401e36ffca8873f12071bc59826	legacy-current	surround float64
-celt/alloc_trim.go	1	329e6f61806d3294499518a4ec96e6a2b7eca2dfb1a97023965ff7d12ebd5d1f	legacy-current	diff /= float64(channels * (end - 1))
-celt/alloc_trim.go	2	36760a89ad8ec788054e9f88263aff909ea7d7ecbfd910d18e8e71df5e736b3b	legacy-current	tfEstimate float64,
-celt/alloc_trim.go	1	49648f3cf810760353d55e6269094bfa5f5cfe402db49ff00203873cc0143a6a	legacy-current	stereo float64
-celt/alloc_trim.go	1	5d094ea3f0ec54f3d266e55cfb86a4c7b091782a6693d7b610c2ccd38ca8b94a	legacy-current	tilt float64
-celt/alloc_trim.go	1	64754247006598c2124887344a1c8adabfd00d8f24d3bd9c579a0b836e1dee79	legacy-current	frac := float64(equivRate-64000) / 16000.0
-celt/alloc_trim.go	1	66b8e03ae3e2d4ab4561e60df0dc471477ce036293fc4bea5cb490d0cd8e900b	legacy-current	func computeStereoCorrelationTrim(normL, normR []float64, nbBands, lm, intensity int) float64 {
-celt/alloc_trim.go	1	727468df4fd04e459515988cf1fccd58dd7ac0ec8a5d8a9b03f493d0799c4824	legacy-current	base float64
-celt/alloc_trim.go	1	887d49ea701de3b6c9aac8d47c665a1ffe0d02a0946f7a1baf5905648931f253	legacy-current	var diff float64
-celt/alloc_trim.go	4	a1abcc4ca94096308b1fc09f170bf1ca6d90f801d5d7ccbedb3041548b633342	legacy-current	var partial float64
-celt/alloc_trim.go	2	b46f8d9819c25f319ea43739d06edebb40b994e3b83ad0d0b409ef6f1d47e6e9	legacy-current	tonalitySlope float64,
-celt/alloc_trim.go	2	ba6fce1ef75e14ba27e5e153e60150aef4706329c72818d21f47f9b2cc0f1f6b	legacy-current	normCoeffs []float64,
-celt/alloc_trim.go	2	d0c9335d851ac7ad87096d97f4702d37f4ba42c9f3ff8e2a2ad7d9a3fe4e7d2e	legacy-current	var sum float64
-celt/alloc_trim.go	1	d38aff4b9ae33d971bddd27f93589b230e127df147c747a25d8ebd3551d216b9	legacy-current	tonal float64
-celt/alloc_trim.go	2	d3ae3b7af1a0e490dc995aba0bf4b4de27d93715c9fdce4ade0698b207652fe6	legacy-current	bandLogE []float64,
-celt/alloc_trim.go	1	d66473cd7ee9b6668ae54867ff888b87b11aa2b88afeb3cfd145f328d54eb22a	legacy-current	func UpdateStereoSaving(prev float64, normL, normR []float64, nbBands, lm, intensity int) float64 {
-celt/alloc_trim.go	1	f322ff05f39370a7c18d081af87e99e16cfcf2fcc5c2fe5dd3fe23b964801892	legacy-current	weight := float64(2 + 2*i - end)
-celt/alloc_trim.go	1	fbce3d3c45a5ad2c0ea0aa50dfde25a43eb2f12252dbed3a1d9725c3925777d4	legacy-current	raw float64
+celt/alloc_trim.go	1	06f903828fc300967668817775d473177a82b46d5e786e638f0665e5c3388415	legacy-current	normCoeffsRight []float64,
+celt/alloc_trim.go	1	17bc0a1b56f68b28812ef19bcc67e5ed14b471cd75d58626ea167391afe07c90	legacy-current	surroundTrim float64,
+celt/alloc_trim.go	1	36760a89ad8ec788054e9f88263aff909ea7d7ecbfd910d18e8e71df5e736b3b	legacy-current	tfEstimate float64,
+celt/alloc_trim.go	1	b46f8d9819c25f319ea43739d06edebb40b994e3b83ad0d0b409ef6f1d47e6e9	legacy-current	tonalitySlope float64,
+celt/alloc_trim.go	1	ba6fce1ef75e14ba27e5e153e60150aef4706329c72818d21f47f9b2cc0f1f6b	legacy-current	normCoeffs []float64,
+celt/alloc_trim.go	1	d3ae3b7af1a0e490dc995aba0bf4b4de27d93715c9fdce4ade0698b207652fe6	legacy-current	bandLogE []float64,
 celt/amd64_dispatch.go	1	04fbe6cd9b0c449d6ea9c76e85e970fab0d0dad00cbceae02f752e1e13d553d8	legacy-current	func absSumAVX(x []float64) float64
 celt/amd64_dispatch.go	1	08346356bd4ffd82adc63cb1c38987bdf6c393ecfe08f1dc03b9fa37b9e2c252	legacy-current	func expRotation1Stride2AVXFMA(x []float64, length int, c, s float64)
 celt/amd64_dispatch.go	1	1545e53e474964760f8fa432d3378c734932b4a4bbf835decaa78b48c1c49e19	legacy-current	func absSum(x []float64) float64 {
@@ -401,13 +386,11 @@ celt/decoder_types.go	1	4fa8a3f623db3cc5fa57c545e881b1ed1db294629a42489103fc1337
 celt/decoder_types.go	1	6331ffc5572dc4090fe794a355effb1c108d94f8d380e16f9210a5584e7999ce	legacy-current	scratchPLCHybridNormL []float64
 celt/decoder_types.go	1	7949222a4c82584f1109b267b3313b3fa973dc2e2fd3b3b4cf3c4a3f7a100876	legacy-current	scratchPLC []float64 // Scratch buffer for PLC concealment samples
 celt/decoder_types.go	1	7c5c4185cd2b18f60af636b54e2c199a0f9d4b0be5da104fcde10add15e985ab	legacy-current	scratchPrevEnergy []float64
-celt/decoder_types.go	1	84613e35deba5c4fc20064ac888d471c8556a025148df1bfcd5d4a684147149d	legacy-current	scratchPrevLogE []float64
 celt/decoder_types.go	1	96c77a7a80ff927c7ab386b4c4b36a7bc94c626a015f29f1b8e2830a7f1dc9bc	legacy-current	postfilterScratch []float64
 celt/decoder_types.go	1	a2ed7d91cd1f7092146b389073fc39f4706709acd93eb258561c4b0e9150ee21	legacy-current	scratchEnergies []float64
 celt/decoder_types.go	1	ba4dd7d8c89caf4f192c6fff9fd1eb909404e03bc8e2d41ad532a9db9e8ae2f0	legacy-current	scratchSilenceE []float64
 celt/decoder_types.go	1	e8da52dda9c903e7357f4692be9f5ead9475f3d6a4ed67ed61b1df83d69b26d4	legacy-current	scratchMonoToStereoR []float64 // For coeffsR in decodeMonoPacketToStereo (must not alias scratchSynthR used by SynthesizeStereo)
 celt/decoder_types.go	1	f030b057533494510f8b9dc1c0214b6033a984b1771417b205b42968d371ed84	legacy-current	scratchMonoMix []float64 // For coeffsMono in decodeStereoPacketToMono (must not alias scratchShortCoeffs used by Synthesize)
-celt/decoder_types.go	1	f456dc3bbc8fc3ec7429416c386e42cfee00d0de0ab9b4685354cb215971490c	legacy-current	scratchPrevLogE2 []float64
 celt/deemphasis_f64_to_f32_arm64.go	1	65125e73f5f0f4d8caf11d2bd50634549daa766f31522afb5a2f34542f3694ee	legacy-current	func deemphasisStereoPlanarF64ToF32Core(dst []float32, left, right []float64, n int, scale, stateL, stateR, coef, verySmall float32) (float32, float32)
 celt/deemphasis_f64_to_f32_default.go	1	4a0051d9c8d45357003ae93d993f9797f5b20f633363ae9c4199f69aaf1f5348	legacy-current	func deemphasisStereoPlanarF64ToF32Core(dst []float32, left, right []float64, n int, scale, stateL, stateR, coef, verySmall float32) (float32, float32) {
 celt/deep_plc_bridge.go	1	f0560e7e4ab4ff980c05bff1c366da7f80267e811ac2a43d67a0731571b1162f	legacy-current	return int16(math.RoundToEven(float64(sample)))
@@ -444,7 +427,6 @@ celt/encode_frame.go	1	114e5a5ac07421099baf6d415d27a05b1bb2a85454bf68a1d897d9c23
 celt/encode_frame.go	1	125a7c02f2a9e8768e8c61229f78d5e3052cb8d8b520ff4fb5a9cc6622de1731	legacy-current	transientInput = make([]float64, transientLen)
 celt/encode_frame.go	1	1629b10c9a121a36abf784888d5bfbb95c99f4d25ee3cf51e9f5bbd968e58509	legacy-current	var mdctPrevR [Overlap]float64
 celt/encode_frame.go	1	183610a417379f5fa88c3d43223cd5b4c0d3b1691de65be1240bcad7dc2adf30	legacy-current	normSpread = ensureFloat64Slice(&e.scratch.normStereo, len(normL)+len(normR))
-celt/encode_frame.go	1	1959739be55f7ae7c612ac94b5073296ff2cffaefc81fa9f6f6a921b6cfef31f	legacy-current	surroundTrimForAlloc := float64(e.surroundTrim)
 celt/encode_frame.go	1	1995a912cc7e6db31cb01fbd670965113ebf812bc877a8c862c3c07c197ea474	legacy-current	oldBandE := ensureFloat64Slice(&e.scratch.coarseOldStart, len(e.prevEnergy))
 celt/encode_frame.go	1	1b3aba396bbc86e9f6f83bd43c4540d701b8cacc827499dcb1f5be1cb4e97163	legacy-current	amount := 0.0000031 * float64(clampedBR)
 celt/encode_frame.go	1	1b91eea3dd2cab371b089440d4d38ad5b3b51db6a64e73e68702e20db2010adc	legacy-current	maskAvg = maskAvg/float64(count) + 0.2
@@ -493,7 +475,6 @@ celt/encode_frame.go	2	7b1320d24d92d02b34406ccfc15768c05431a9eb5720473815ebf8899
 celt/encode_frame.go	1	7b668610bad13ba2b0f08df433ddede12ca58cf3c5ba8d099df28536d23fd1ec	legacy-current	if float64(newOverlapMax) > sampleMax {
 celt/encode_frame.go	2	7b9b43b2e7b808297da2d50c74c658e548746df135bff15fa1bbe7b32bd8584f	legacy-current	rightHist = make([]float64, overlap)
 celt/encode_frame.go	1	7ebd8b1f4d52ed30509aeae2ca3866e269b432c897b0236fe1e99ba57bc7a337	legacy-current	spreadOld := ensureFloat64Slice(&e.scratch.transientSpreadOld, end)
-celt/encode_frame.go	1	7fd2a59433de4a7d64b7e65140fd2c649179f07e6db1243b407c349e909efb0b	legacy-current	e.lastStereoSaving = opusVal16(UpdateStereoSaving(float64(e.lastStereoSaving), normL, normR, nbBands, lm, intensity))
 celt/encode_frame.go	1	80f52475db9bfdb1a6fed7892972570ba83d8d3671d1e5bd78e0912c17bb53a5	legacy-current	func computeMDCTWithHistoryScratchStereoL(samples, history []float64, shortBlocks int, scratch *encoderScratch) []float64 {
 celt/encode_frame.go	1	81add15b7b954812eb557eeaffb1dc2ccb84ae566a1304250b322764553f9060	legacy-current	maxPitchRatio = float64(e.analysisMaxPitchRatio)
 celt/encode_frame.go	1	8210797523c9c67caef016b08bc8852d6f73a79d1450b0b7ac75afe212beaf23	legacy-current	stereoSaving := float64(e.lastStereoSaving)

@@ -881,11 +881,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	if oldBandELen > len(prev1LogE) {
 		oldBandELen = len(prev1LogE)
 	}
-	surroundTrimForAlloc := float64(e.surroundTrim)
+	surroundTrimForAlloc := e.surroundTrim
 	var surroundDynalloc []float64
 	var surroundDynallocScratch [MaxBands]float64
 	if trim, ok := e.computeSurroundDynallocFromMask(nbBands, surroundDynallocScratch[:nbBands]); ok {
-		surroundTrimForAlloc = trim
+		surroundTrimForAlloc = celtGLog(trim)
 		surroundDynalloc = surroundDynallocScratch[:nbBands]
 	}
 	dynallocResult := DynallocAnalysisWithScratch(
@@ -1123,22 +1123,36 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			if e.analysisValid {
 				tonalitySlope = float64(e.analysisTonalitySlope)
 			}
-			trimBandLogE := energies
+			trimNormL := e.scratch.allocTrimNormL[:len(normL)]
+			for i, v := range normL {
+				trimNormL[i] = celtNorm(v)
+			}
+			var trimNormR []celtNorm
+			if codedChannels == 2 {
+				trimNormR = e.scratch.allocTrimNormR[:len(normR)]
+				for i, v := range normR {
+					trimNormR[i] = celtNorm(v)
+				}
+			}
+			trimBandLogE := e.scratch.allocTrimBandLogE[:nbBands*codedChannels]
+			for i := range trimBandLogE {
+				trimBandLogE[i] = celtGLog(energies[i])
+			}
 			allocTrim, _ = allocTrimAnalysisDetailed(
-				normL,
+				trimNormL,
 				trimBandLogE,
 				nbBands,
 				lm,
 				codedChannels,
-				normR,
+				trimNormR,
 				intensity,
-				tfEstimate,
+				opusVal16(tfEstimate),
 				equivRate,
 				surroundTrimForAlloc,
-				tonalitySlope,
+				opusVal16(tonalitySlope),
 			)
 			if codedChannels == 2 {
-				e.lastStereoSaving = opusVal16(UpdateStereoSaving(float64(e.lastStereoSaving), normL, normR, nbBands, lm, intensity))
+				e.lastStereoSaving = UpdateStereoSaving(e.lastStereoSaving, trimNormL, trimNormR, nbBands, lm, intensity)
 			}
 		}
 		re.EncodeICDF(allocTrim, trimICDF, 7)

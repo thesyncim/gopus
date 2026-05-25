@@ -619,8 +619,62 @@ jobs:
       - name: Generate native libopus fixtures
         run: make fixtures-gen-platform
 
+      - name: Run native fixture parity smoke
+        run: |
+          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+            go test -tags gopus_libopus_oracle ./testvectors \
+              -run '^(TestDecoderParityLibopusMatrix|TestEncoderVariantCELTAllocationParityAgainstFixture)$' \
+              -count=1 -timeout=10m
+
       - name: Run test suite
         run: GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_ORACLE=0 go test ./... -count=1 -timeout=25m
+
+  test-linux-arm64-fixtures:
+    name: test-linux-arm64-fixtures
+    needs:
+      - changes
+    if: github.event_name == 'push'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Install codec tools (if missing)
+        run: |
+          if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
+            echo "ffmpeg and opusdec already present; skipping apt install"
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
+
+      - name: Bootstrap pinned libopus
+        run: make ensure-libopus
+
+      - name: Generate native libopus fixtures
+        run: make fixtures-gen-platform
+
+      - name: Run native fixture parity smoke
+        run: |
+          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+            go test -tags gopus_libopus_oracle ./testvectors \
+              -run '^(TestDecoderParityLibopusMatrix|TestEncoderVariantCELTAllocationParityAgainstFixture)$' \
+              -count=1 -timeout=10m
 
   test-windows:
     name: test-windows
@@ -692,6 +746,14 @@ jobs:
       - name: Generate native libopus fixtures
         shell: msys2 {0}
         run: make fixtures-gen-platform
+
+      - name: Run native fixture parity smoke
+        shell: msys2 {0}
+        run: |
+          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+            go test -tags gopus_libopus_oracle ./testvectors \
+              -run '^(TestDecoderParityLibopusMatrix|TestEncoderVariantCELTAllocationParityAgainstFixture)$' \
+              -count=1 -timeout=10m
 
       - name: Run test suite
         shell: msys2 {0}

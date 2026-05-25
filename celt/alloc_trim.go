@@ -3,16 +3,16 @@
 
 package celt
 
-import "math"
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 type allocTrimDetail struct {
-	base     float64
-	stereo   float64
-	tilt     float64
-	surround float64
-	tf       float64
-	tonal    float64
-	raw      float64
+	base     opusVal16
+	stereo   opusVal16
+	tilt     opusVal16
+	surround celtGLog
+	tf       opusVal16
+	tonal    opusVal16
+	raw      opusVal16
 }
 
 // AllocTrimAnalysis computes the optimal allocation trim value for a CELT frame.
@@ -55,52 +55,65 @@ func AllocTrimAnalysis(
 	surroundTrim float64,
 	tonalitySlope float64,
 ) int {
+	norm := make([]celtNorm, len(normCoeffs))
+	for i, v := range normCoeffs {
+		norm[i] = celtNorm(v)
+	}
+	bandE := make([]celtGLog, len(bandLogE))
+	for i, v := range bandLogE {
+		bandE[i] = celtGLog(v)
+	}
+	var normRight []celtNorm
+	if normCoeffsRight != nil {
+		normRight = make([]celtNorm, len(normCoeffsRight))
+		for i, v := range normCoeffsRight {
+			normRight[i] = celtNorm(v)
+		}
+	}
 	trimIndex, _ := allocTrimAnalysisDetailed(
-		normCoeffs,
-		bandLogE,
+		norm,
+		bandE,
 		nbBands,
 		lm,
 		channels,
-		normCoeffsRight,
+		normRight,
 		intensity,
-		tfEstimate,
+		opusVal16(tfEstimate),
 		equivRate,
-		surroundTrim,
-		tonalitySlope,
+		celtGLog(surroundTrim),
+		opusVal16(tonalitySlope),
 	)
 	return trimIndex
 }
 
 func allocTrimAnalysisDetailed(
-	normCoeffs []float64,
-	bandLogE []float64,
+	normCoeffs []celtNorm,
+	bandLogE []celtGLog,
 	nbBands int,
 	lm int,
 	channels int,
-	normCoeffsRight []float64,
+	normCoeffsRight []celtNorm,
 	intensity int,
-	tfEstimate float64,
+	tfEstimate opusVal16,
 	equivRate int,
-	surroundTrim float64,
-	tonalitySlope float64,
+	surroundTrim celtGLog,
+	tonalitySlope opusVal16,
 ) (int, allocTrimDetail) {
 	detail := allocTrimDetail{}
 
 	// Start with default trim of 5
-	trim := 5.0
+	trim := opusVal16(5.0)
 	detail.base = trim
 
 	// At low bitrate, reducing the trim seems to help. At higher bitrates, it's less
 	// clear what's best, so we're keeping it as it was before, at least for now.
 	// Reference: libopus lines 877-883
 	if equivRate < 64000 {
-		trim = 4.0
+		trim = opusVal16(4.0)
 		detail.base = trim
 	} else if equivRate < 80000 {
-		// Linear interpolation from 4.0 to 5.0 between 64kbps and 80kbps
-		// libopus: trim = 4.f + (equiv_rate-64000)/16000
-		frac := float64(equivRate-64000) / 16000.0
-		trim = 4.0 + frac
+		frac := opusVal16((equivRate - 64000) >> 10)
+		trim = opusVal16(4.0) + opusVal16(1.0/16.0)*frac
 		detail.base = trim
 	}
 
@@ -110,9 +123,9 @@ func allocTrimAnalysisDetailed(
 		logXC := computeStereoCorrelationTrim(normCoeffs, normCoeffsRight, nbBands, lm, intensity)
 
 		// trim += max(-4, 0.75 * logXC)
-		stereoAdjust := 0.75 * logXC
-		if stereoAdjust < -4.0 {
-			stereoAdjust = -4.0
+		stereoAdjust := opusVal16(0.75) * logXC
+		if stereoAdjust < opusVal16(-4.0) {
+			stereoAdjust = opusVal16(-4.0)
 		}
 		trim += stereoAdjust
 		detail.stereo = stereoAdjust
@@ -123,7 +136,7 @@ func allocTrimAnalysisDetailed(
 	// The spectral tilt measures whether energy is concentrated in low or high frequencies.
 	// Positive diff = more energy in lower bands (tilted down)
 	// Negative diff = more energy in higher bands (tilted up)
-	var diff float64
+	var diff opusVal32
 	end := nbBands
 	if end > len(bandLogE)/channels {
 		end = len(bandLogE) / channels
@@ -136,23 +149,21 @@ func allocTrimAnalysisDetailed(
 				// Weight each band by its position relative to center
 				// Lower bands (small i) get negative weights, higher bands get positive weights
 				// libopus: diff += (bandLogE[i+c*nbEBands] >> 5) * (2 + 2*i - end)
-				weight := float64(2 + 2*i - end)
-				diff += bandLogE[idx] * weight
+				weight := opusVal32(2 + 2*i - end)
+				diff += opusVal32(bandLogE[idx]) * weight
 			}
 		}
 	}
-	diff /= float64(channels * (end - 1))
+	diff /= opusVal32(channels * (end - 1))
 
 	// Apply spectral tilt adjustment, clamped to [-2, 2] range
 	// libopus: trim -= max(-2, min(2, (diff+1)/6))
-	// Note: In libopus, diff has DB_SHIFT scaling which we account for here.
-	// Our bandLogE is in log2 units (~1.0 = 6dB), similar to libopus float mode.
-	tiltAdjust := (diff + 1.0) / 6.0
-	if tiltAdjust < -2.0 {
-		tiltAdjust = -2.0
+	tiltAdjust := opusVal16((diff + opusVal32(1.0)) / opusVal32(6.0))
+	if tiltAdjust < opusVal16(-2.0) {
+		tiltAdjust = opusVal16(-2.0)
 	}
-	if tiltAdjust > 2.0 {
-		tiltAdjust = 2.0
+	if tiltAdjust > opusVal16(2.0) {
+		tiltAdjust = opusVal16(2.0)
 	}
 
 	trim -= tiltAdjust
@@ -168,20 +179,21 @@ func allocTrimAnalysisDetailed(
 	// Reference: libopus line 933: trim -= 2*SHR16(tf_estimate, 14-8)
 	// tf_estimate is in Q14 format in libopus, we use float [0, 1]
 	// So: trim -= 2 * tf_estimate
-	trim -= 2.0 * tfEstimate
-	detail.tf = 2.0 * tfEstimate
+	tfAdjust := opusVal16(2.0) * tfEstimate
+	trim -= tfAdjust
+	detail.tf = tfAdjust
 
 	// Tonality slope adjustment (optional, from analysis)
 	// Reference: libopus lines 935-939
 	// tonality_slope ranges from about -0.25 to 0.25 in practice
 	// libopus: trim -= max(-2, min(2, 2*(tonality_slope + 0.05)))
 	if tonalitySlope != 0 {
-		tonalAdjust := 2.0 * (tonalitySlope + 0.05)
-		if tonalAdjust < -2.0 {
-			tonalAdjust = -2.0
+		tonalAdjust := opusVal16(2.0) * (tonalitySlope + opusVal16(0.05))
+		if tonalAdjust < opusVal16(-2.0) {
+			tonalAdjust = opusVal16(-2.0)
 		}
-		if tonalAdjust > 2.0 {
-			tonalAdjust = 2.0
+		if tonalAdjust > opusVal16(2.0) {
+			tonalAdjust = opusVal16(2.0)
 		}
 		trim -= tonalAdjust
 		detail.tonal = tonalAdjust
@@ -190,7 +202,7 @@ func allocTrimAnalysisDetailed(
 
 	// Convert to integer with rounding and clamp to valid range
 	// Reference: libopus lines 947-949
-	trimIndex := int(math.Floor(0.5 + trim))
+	trimIndex := int(trim + opusVal16(0.5))
 	if trimIndex < 0 {
 		trimIndex = 0
 	}
@@ -205,11 +217,16 @@ func allocTrimAnalysisDetailed(
 // It measures inter-channel correlation to estimate mid-side coding savings.
 //
 // Reference: libopus celt/celt_encoder.c alloc_trim_analysis() lines 884-920
-func computeStereoCorrelationTrim(normL, normR []float64, nbBands, lm, intensity int) float64 {
+func computeStereoCorrelationTrim(normL, normR []celtNorm, nbBands, lm, intensity int) opusVal16 {
+	logXC, _ := computeStereoCorrelationLogs(normL, normR, nbBands, lm, intensity)
+	return logXC
+}
+
+func computeStereoCorrelationLogs(normL, normR []celtNorm, nbBands, lm, intensity int) (opusVal16, opusVal16) {
 	// Compute inter-channel correlation for low frequencies (first 8 bands)
 	// libopus uses inner product of normalized coefficients between channels
 
-	var sum float64
+	var sum opusVal16
 
 	// Compute correlation for first 8 bands
 	for band := 0; band < 8 && band < nbBands; band++ {
@@ -226,23 +243,22 @@ func computeStereoCorrelationTrim(normL, normR []float64, nbBands, lm, intensity
 			bandEnd = len(normR)
 		}
 
-		var partial float64
-		for j := bandStart; j < bandEnd; j++ {
-			partial += normL[j] * normR[j]
-		}
+		partial := celtInnerProdNorm(normL, normR, bandStart, bandEnd)
 		sum += partial
 	}
 	// Match libopus: always divide by 8 low bands in the average.
-	sum *= 1.0 / 8.0
+	sum *= opusVal16(1.0 / 8.0)
 
 	// Clamp sum to [-1, 1]
-	if sum > 1.0 {
-		sum = 1.0
+	if sum > opusVal16(1.0) {
+		sum = opusVal16(1.0)
 	}
-	if sum < -1.0 {
-		sum = -1.0
+	if sum < opusVal16(-1.0) {
+		sum = opusVal16(-1.0)
 	}
-	sum = math.Abs(sum)
+	if sum < 0 {
+		sum = -sum
+	}
 
 	// Also compute minimum correlation across higher bands (up to intensity threshold)
 	minXC := sum
@@ -260,27 +276,36 @@ func computeStereoCorrelationTrim(normL, normR []float64, nbBands, lm, intensity
 			bandEnd = len(normR)
 		}
 
-		var partial float64
-		for j := bandStart; j < bandEnd; j++ {
-			partial += normL[j] * normR[j]
+		partial := celtInnerProdNorm(normL, normR, bandStart, bandEnd)
+		if partial < 0 {
+			partial = -partial
 		}
-		partial = math.Abs(partial)
 
 		if partial < minXC {
 			minXC = partial
 		}
 	}
+	if minXC > opusVal16(1.0) {
+		minXC = opusVal16(1.0)
+	}
 
 	// Compute log correlation: log2(1.001 - sum^2)
 	// This gives a negative value; higher correlation = more negative
-	logXC := math.Log2(1.001 - sum*sum)
+	logXCArg := opusVal32(1.001) - opusVal32(sum)*opusVal32(sum)
+	logXC := opusVal16(opusmath.CeltLog2(logXCArg))
+	logXC2Arg := opusVal32(1.001) - opusVal32(minXC)*opusVal32(minXC)
+	logXC2 := opusVal16(opusmath.CeltLog2(logXC2Arg))
+	halfLogXC := opusVal16(0.5) * logXC
+	if halfLogXC > logXC2 {
+		logXC2 = halfLogXC
+	}
 
-	return logXC
+	return logXC, logXC2
 }
 
 // UpdateStereoSaving updates the running stereo_saving estimate used by libopus
 // compute_vbr(). The state is updated once per frame after alloc-trim analysis.
-func UpdateStereoSaving(prev float64, normL, normR []float64, nbBands, lm, intensity int) float64 {
+func UpdateStereoSaving(prev opusVal16, normL, normR []celtNorm, nbBands, lm, intensity int) opusVal16 {
 	if len(normL) == 0 || len(normR) == 0 || nbBands <= 0 {
 		return prev
 	}
@@ -291,71 +316,47 @@ func UpdateStereoSaving(prev float64, normL, normR []float64, nbBands, lm, inten
 		intensity = nbBands
 	}
 
-	var sum float64
-	for band := 0; band < 8 && band < nbBands; band++ {
-		bandStart := EBands[band] << lm
-		bandEnd := EBands[band+1] << lm
-		if bandStart >= len(normL) || bandStart >= len(normR) {
-			break
-		}
-		if bandEnd > len(normL) {
-			bandEnd = len(normL)
-		}
-		if bandEnd > len(normR) {
-			bandEnd = len(normR)
-		}
-		var partial float64
-		for j := bandStart; j < bandEnd; j++ {
-			partial += normL[j] * normR[j]
-		}
-		sum += partial
-	}
-	sum *= 1.0 / 8.0
-	sum = math.Abs(sum)
-	if sum > 1.0 {
-		sum = 1.0
-	}
-
-	minXC := sum
-	for band := 8; band < intensity && band < nbBands; band++ {
-		bandStart := EBands[band] << lm
-		bandEnd := EBands[band+1] << lm
-		if bandStart >= len(normL) || bandStart >= len(normR) {
-			break
-		}
-		if bandEnd > len(normL) {
-			bandEnd = len(normL)
-		}
-		if bandEnd > len(normR) {
-			bandEnd = len(normR)
-		}
-		var partial float64
-		for j := bandStart; j < bandEnd; j++ {
-			partial += normL[j] * normR[j]
-		}
-		partial = math.Abs(partial)
-		if partial < minXC {
-			minXC = partial
-		}
-	}
-	if minXC > 1.0 {
-		minXC = 1.0
-	}
-
-	logXC := math.Log2(math.Max(1e-9, 1.001-sum*sum))
-	logXC2 := math.Max(0.5*logXC, math.Log2(math.Max(1e-9, 1.001-minXC*minXC)))
-	limit := -0.5 * logXC2
-	next := prev + 0.25
+	_, logXC2 := computeStereoCorrelationLogs(normL, normR, nbBands, lm, intensity)
+	limit := opusVal16(-0.5) * logXC2
+	next := prev + opusVal16(0.25)
 	if next > limit {
 		next = limit
 	}
-	if next < 0 {
+	if next < opusVal16(0) {
 		next = 0
 	}
-	if next > 1 {
+	if next > opusVal16(1) {
 		next = 1
 	}
 	return next
+}
+
+func celtInnerProdNorm(x, y []celtNorm, start, end int) opusVal16 {
+	if end > len(x) {
+		end = len(x)
+	}
+	if end > len(y) {
+		end = len(y)
+	}
+	if start < 0 {
+		start = 0
+	}
+	if start >= end {
+		return 0
+	}
+	var s0, s1, s2, s3 opusVal32
+	i := start
+	for ; i+3 < end; i += 4 {
+		s0 += opusVal32(x[i+0]) * opusVal32(y[i+0])
+		s1 += opusVal32(x[i+1]) * opusVal32(y[i+1])
+		s2 += opusVal32(x[i+2]) * opusVal32(y[i+2])
+		s3 += opusVal32(x[i+3]) * opusVal32(y[i+3])
+	}
+	sum := opusVal32(opusVal32(s0+s2) + opusVal32(s1+s3))
+	for ; i < end; i++ {
+		sum += opusVal32(x[i]) * opusVal32(y[i])
+	}
+	return opusVal16(sum)
 }
 
 // ComputeEquivRate computes the equivalent bitrate for allocation trim analysis.
