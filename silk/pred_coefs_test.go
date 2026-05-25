@@ -33,7 +33,7 @@ func TestComputeLPCAndNLSFWithInterpRespectsComplexity(t *testing.T) {
 	cfg := GetBandwidthConfig(BandwidthWideband)
 	numSubframes := maxNbSubfr
 	subframeSamples := cfg.SubframeSamples
-	totalLen := numSubframes * (subframeSamples + enc.lpcOrder)
+	totalLen := numSubframes * (subframeSamples + int(enc.lpcOrder))
 	ltpRes := make([]float32, totalLen)
 
 	minInvGainVal := computeMinInvGain(0, 1.0, false)

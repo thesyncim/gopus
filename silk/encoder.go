@@ -34,14 +34,14 @@ type Encoder struct {
 	previousLogGain       int32 // Last subframe gain (for delta coding) - legacy
 	previousGainIndex     int8  // Previous gain quantization index [0, 63] (libopus sShape.LastGainIndex)
 	isPreviousFrameVoiced bool  // Was previous frame voiced
-	ecPrevLagIndex        int   // Previous lag index for conditional pitch coding
-	ecPrevSignalType      int   // Previous signal type for conditional pitch coding
+	ecPrevLagIndex        int16 // Previous lag index for conditional pitch coding
+	ecPrevSignalType      int32 // Previous signal type for conditional pitch coding
 	lastQuantOffsetType   int   // Last frame's quantization offset type (for hybrid silk_info)
 	lastSeed              int8  // Last frame's encoded random seed
-	frameCounter          int   // Frame counter for seed generation (seed = frameCounter & 3)
+	frameCounter          int32 // Frame counter for seed generation (seed = frameCounter & 3)
 
 	// LPC state
-	lpcOrder   int     // Current LPC order (10 for NB/MB, 16 for WB)
+	lpcOrder   int32   // Current LPC order (10 for NB/MB, 16 for WB)
 	prevLSFQ15 []int16 // Previous frame LSF (Q15) for interpolation
 
 	// Stereo state
@@ -67,12 +67,12 @@ type Encoder struct {
 	noiseShapeState *NoiseShapeState // Noise shaping analysis state for adaptive parameters
 
 	// Encoder control parameters (persists across frames)
-	snrDBQ7                  int  // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
-	targetRateBps            int  // Target bitrate (per channel) for SNR control
-	lastControlTargetRateBps int  // Last per-frame target rate used for SNR control
-	preAdjustedTargetRateBps int  // One-shot externally adjusted target for shared stereo packet control
-	useCBR                   bool // Constant Bitrate mode
-	blockUseCBR              bool // Per-block CBR flag for 40/60 ms packet budgeting
+	snrDBQ7                  int32 // Target SNR in dB (Q7 format, e.g., 25 dB = 25 * 128)
+	targetRateBps            int32 // Target bitrate (per channel) for SNR control
+	lastControlTargetRateBps int32 // Last per-frame target rate used for SNR control
+	preAdjustedTargetRateBps int32 // One-shot externally adjusted target for shared stereo packet control
+	useCBR                   bool  // Constant Bitrate mode
+	blockUseCBR              bool  // Per-block CBR flag for 40/60 ms packet budgeting
 	// reducedDependency mirrors libopus encControl->reducedDependency.
 	// When enabled, the first frame of each packet is coded as
 	// first_frame_after_reset without resetting the full encoder state.
@@ -82,20 +82,20 @@ type Encoder struct {
 	forceFirstFrameAfterReset bool
 	ltpCorr                   float32 // LTP correlation from pitch analysis [0, 1]
 	sumLogGainQ7              int32   // Sum log gain for LTP quantization
-	complexity                int     // Encoder complexity (0-10)
-	nStatesDelayedDecision    int     // Delayed decision states (libopus control_codec)
+	complexity                int32   // Encoder complexity (0-10)
+	nStatesDelayedDecision    int32   // Delayed decision states (libopus control_codec)
 
 	// Pitch estimation tuning (mirrors libopus control_codec.c)
-	pitchEstimationComplexity   int
+	pitchEstimationComplexity   int32
 	pitchEstimationThresholdQ16 int32
-	pitchEstimationLPCOrder     int
+	pitchEstimationLPCOrder     int32
 
 	// Noise shaping analysis tuning (mirrors libopus control_codec.c)
-	shapingLPCOrder int
-	laShape         int
-	shapeWinLength  int
-	warpingQ16      int
-	nlsfSurvivors   int
+	shapingLPCOrder int32
+	laShape         int32
+	shapeWinLength  int32
+	warpingQ16      int32
+	nlsfSurvivors   int32
 
 	// LPC analysis results (for gain computation from prediction residual)
 	lastTotalEnergy float32 // C0 from Burg analysis, narrowed to silk_float storage
@@ -120,22 +120,22 @@ type Encoder struct {
 	lbrrEnabled           bool                                // LBRR currently active (depends on bitrate/loss)
 	lbrrPrevPacketHadLBRR bool                                // Previous packet had LBRR enabled (silk_setup_LBRR LBRR_in_previous_packet)
 	lbrrLTPRoundLoss      bool                                // Use LBRR round-loss in LTP scale (previous packet had LBRR)
-	lbrrGainIncreases     int                                 // Gain increase for LBRR encoding
+	lbrrGainIncreases     int32                               // Gain increase for LBRR encoding
 	lbrrPrevLastGainIdx   int8                                // Previous frame's last gain index for LBRR
-	lbrrFlags             [maxFramesPerPacket]int             // LBRR flags per frame in packet
-	lbrrFlag              int                                 // LBRR flag for current packet header
+	lbrrFlags             [maxFramesPerPacket]int32           // LBRR flags per frame in packet
+	lbrrFlag              int8                                // LBRR flag for current packet header
 	lbrrIndices           [maxFramesPerPacket]sideInfoIndices // LBRR indices per frame
 	lbrrPulses            [maxFramesPerPacket][]int8          // LBRR pulses per frame
 	lbrrFrameLength       [maxFramesPerPacket]int             // LBRR frame length per frame
 	lbrrNbSubfr           [maxFramesPerPacket]int             // LBRR subframe count per frame
-	packetLossPercent     int                                 // Expected packet loss (0-100)
-	nFramesEncoded        int                                 // Number of frames encoded in current packet
-	nFramesPerPacket      int                                 // Number of frames per packet
+	packetLossPercent     int32                               // Expected packet loss (0-100)
+	nFramesEncoded        int32                               // Number of frames encoded in current packet
+	nFramesPerPacket      int32                               // Number of frames per packet
 	// Stereo packet condCoding uses mid nFramesEncoded at block start (libopus enc_API.c).
 	stereoCondMid              *Encoder
-	stereoCondMidFramesEncoded int
-	stereoChannelIdx           int
-	stereoPrevDecodeOnlyMiddle int
+	stereoCondMidFramesEncoded int32
+	stereoChannelIdx           int32
+	stereoPrevDecodeOnlyMiddle int32
 
 	// Scratch buffers for zero-allocation encoding
 	scratchPaddedPulses []int8  // encodePulses: padded pulses
@@ -233,16 +233,16 @@ type Encoder struct {
 
 	// Rate control loop scratch buffers
 	// Bit reservoir and rate control state (libopus parity)
-	nBitsExceeded int // Bits produced in excess of target
-	nBitsUsedLBRR int // Exponential moving average of LBRR overhead bits
-	maxBits       int // Maximum bits allowed for current frame
+	nBitsExceeded int32 // Bits produced in excess of target
+	nBitsUsedLBRR int32 // Exponential moving average of LBRR overhead bits
+	maxBits       int32 // Maximum bits allowed for current frame
 	useVBR        bool
 
 	// LP variable cutoff filter scratch buffer
 	scratchLPInt16 []int16 // LP filter: int16 conversion for biquad filter
 
 	// Opus-level bandwidth switch gate mirrored from silk/enc_API.c.
-	timeSinceSwitchAllowedMS int
+	timeSinceSwitchAllowedMS int32
 	allowBandwidthSwitch     bool
 
 	// Output buffer scratch (standalone SILK mode)
@@ -378,7 +378,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		scratchPitchRes32: make([]float32, pitchResSamples),
 		bandwidth:         bandwidth,
 		sampleRate:        config.SampleRate,
-		lpcOrder:          config.LPCOrder,
+		lpcOrder:          int32(config.LPCOrder),
 		// Keep reset parity with libopus.
 		pitchState:               PitchAnalysisState{prevLag: 0},
 		snrDBQ7:                  0, // Match libopus zero-initialization (silk_init_encoder memset 0)
@@ -526,7 +526,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 	if complexity > 10 {
 		complexity = 10
 	}
-	e.complexity = complexity
+	e.complexity = int32(complexity)
 
 	fsKHz := e.sampleRate / 1000
 	if fsKHz < 1 {
@@ -539,7 +539,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.pitchEstimationThresholdQ16 = 52429
 		e.pitchEstimationLPCOrder = 6
 		e.shapingLPCOrder = 12
-		e.laShape = 3 * fsKHz
+		e.laShape = int32(3 * fsKHz)
 		e.nStatesDelayedDecision = 1
 		e.warpingQ16 = 0
 		e.nlsfSurvivors = 2
@@ -548,7 +548,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.pitchEstimationThresholdQ16 = 49807
 		e.pitchEstimationLPCOrder = 8
 		e.shapingLPCOrder = 14
-		e.laShape = 5 * fsKHz
+		e.laShape = int32(5 * fsKHz)
 		e.nStatesDelayedDecision = 1
 		e.warpingQ16 = 0
 		e.nlsfSurvivors = 3
@@ -557,7 +557,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.pitchEstimationThresholdQ16 = 52429
 		e.pitchEstimationLPCOrder = 6
 		e.shapingLPCOrder = 12
-		e.laShape = 3 * fsKHz
+		e.laShape = int32(3 * fsKHz)
 		e.nStatesDelayedDecision = 2
 		e.warpingQ16 = 0
 		e.nlsfSurvivors = 2
@@ -566,7 +566,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.pitchEstimationThresholdQ16 = 49807
 		e.pitchEstimationLPCOrder = 8
 		e.shapingLPCOrder = 14
-		e.laShape = 5 * fsKHz
+		e.laShape = int32(5 * fsKHz)
 		e.nStatesDelayedDecision = 2
 		e.warpingQ16 = 0
 		e.nlsfSurvivors = 4
@@ -575,27 +575,27 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.pitchEstimationThresholdQ16 = 48497
 		e.pitchEstimationLPCOrder = 10
 		e.shapingLPCOrder = 16
-		e.laShape = 5 * fsKHz
+		e.laShape = int32(5 * fsKHz)
 		e.nStatesDelayedDecision = 2
-		e.warpingQ16 = int(float32(fsKHz) * float32(warpingMultiplier) * 65536.0)
+		e.warpingQ16 = int32(float32(fsKHz) * float32(warpingMultiplier) * 65536.0)
 		e.nlsfSurvivors = 6
 	case complexity < 8:
 		e.pitchEstimationComplexity = 1
 		e.pitchEstimationThresholdQ16 = 47186
 		e.pitchEstimationLPCOrder = 12
 		e.shapingLPCOrder = 20
-		e.laShape = 5 * fsKHz
+		e.laShape = int32(5 * fsKHz)
 		e.nStatesDelayedDecision = 3
-		e.warpingQ16 = int(float32(fsKHz) * float32(warpingMultiplier) * 65536.0)
+		e.warpingQ16 = int32(float32(fsKHz) * float32(warpingMultiplier) * 65536.0)
 		e.nlsfSurvivors = 8
 	default:
 		e.pitchEstimationComplexity = 2
 		e.pitchEstimationThresholdQ16 = 45875
 		e.pitchEstimationLPCOrder = 16
 		e.shapingLPCOrder = 24
-		e.laShape = 5 * fsKHz
+		e.laShape = int32(5 * fsKHz)
 		e.nStatesDelayedDecision = maxDelDecStates
-		e.warpingQ16 = int(float32(fsKHz) * float32(warpingMultiplier) * 65536.0)
+		e.warpingQ16 = int32(float32(fsKHz) * float32(warpingMultiplier) * 65536.0)
 		e.nlsfSurvivors = 16
 	}
 
@@ -611,12 +611,12 @@ func (e *Encoder) SetComplexity(complexity int) {
 	if e.shapingLPCOrder&1 != 0 {
 		e.shapingLPCOrder--
 	}
-	e.shapeWinLength = subFrameLengthMs*fsKHz + 2*e.laShape
+	e.shapeWinLength = int32(subFrameLengthMs*fsKHz) + 2*e.laShape
 }
 
 // Complexity returns the current SILK complexity setting.
 func (e *Encoder) Complexity() int {
-	return e.complexity
+	return int(e.complexity)
 }
 
 // SetRangeEncoder sets the range encoder for the current frame.
@@ -656,7 +656,7 @@ func (e *Encoder) Bandwidth() Bandwidth {
 
 // LPCOrder returns the LPC order for current bandwidth.
 func (e *Encoder) LPCOrder() int {
-	return e.lpcOrder
+	return int(e.lpcOrder)
 }
 
 // SampleRate returns the sample rate for current bandwidth.
@@ -779,7 +779,8 @@ func (e *Encoder) FinalRange() uint32 {
 //	Unvoiced Low:  100, Unvoiced High: 240
 //	Voiced Low:     32, Voiced High:   100
 func (e *Encoder) LastEncodedSignalInfo() (signalType, offset int) {
-	return e.ecPrevSignalType, GetQuantizationOffset(e.ecPrevSignalType, e.lastQuantOffsetType)
+	signalType = int(e.ecPrevSignalType)
+	return signalType, GetQuantizationOffset(signalType, e.lastQuantOffsetType)
 }
 
 // GetQuantizationOffset returns the quantization offset Q10 value for a given
@@ -794,7 +795,7 @@ func GetQuantizationOffset(signalType, quantOffsetType int) int {
 // stereo split into mid/side rates happens inside silk_stereo_LR_to_MS via
 // stereoAllocationTargetRate, so callers must not pre-divide by channels.
 func (e *Encoder) SetBitrate(bitrate int) {
-	e.targetRateBps = bitrate
+	e.targetRateBps = int32(bitrate)
 }
 
 // SetPreAdjustedTargetRateBps provides a one-shot frame target that already
@@ -802,7 +803,7 @@ func (e *Encoder) SetBitrate(bitrate int) {
 // packet control uses this to avoid applying the same packet correction once
 // per channel.
 func (e *Encoder) SetPreAdjustedTargetRateBps(bitrate int) {
-	e.preAdjustedTargetRateBps = bitrate
+	e.preAdjustedTargetRateBps = int32(bitrate)
 }
 
 // UpdatePacketBitsExceeded applies libopus packet-level nBitsExceeded update.
@@ -812,8 +813,8 @@ func (e *Encoder) UpdatePacketBitsExceeded(nBytesOut, payloadSizeMs, bitRateBps 
 		return
 	}
 	if bitRateBps > 0 {
-		e.nBitsExceeded += nBytesOut * 8
-		e.nBitsExceeded -= (bitRateBps * payloadSizeMs) / 1000
+		e.nBitsExceeded += int32(nBytesOut * 8)
+		e.nBitsExceeded -= int32((bitRateBps * payloadSizeMs) / 1000)
 		if e.nBitsExceeded < 0 {
 			e.nBitsExceeded = 0
 		} else if e.nBitsExceeded > 10000 {
@@ -830,17 +831,17 @@ func (e *Encoder) SetBitsExceeded(bits int) {
 	} else if bits > 10000 {
 		bits = 10000
 	}
-	e.nBitsExceeded = bits
+	e.nBitsExceeded = int32(bits)
 }
 
 // BitsExceeded returns packet-level bit reservoir excess state.
 func (e *Encoder) BitsExceeded() int {
-	return e.nBitsExceeded
+	return int(e.nBitsExceeded)
 }
 
 // SetMaxBits sets the maximum number of bits allowed for the current frame.
 func (e *Encoder) SetMaxBits(maxBits int) {
-	e.maxBits = maxBits
+	e.maxBits = int32(maxBits)
 }
 
 // SetVBR enables or disables variable bitrate mode.
@@ -893,13 +894,13 @@ func (e *Encoder) SetPacketLoss(lossPercent int) {
 	if lossPercent > 100 {
 		lossPercent = 100
 	}
-	e.packetLossPercent = lossPercent
+	e.packetLossPercent = int32(lossPercent)
 	e.updateLBRREnabled()
 }
 
 // PacketLoss returns the configured packet loss percentage.
 func (e *Encoder) PacketLoss() int {
-	return e.packetLossPercent
+	return int(e.packetLossPercent)
 }
 
 // updateLBRREnabled refreshes FEC intent without recomputing per-packet LBRR gain

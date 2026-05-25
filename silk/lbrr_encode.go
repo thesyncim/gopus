@@ -70,7 +70,7 @@ func (e *Encoder) lbrrEncode(
 
 		// Increase gain by LBRR_GainIncreases steps
 		gainIdx := int(e.lbrrIndices[frameIdx].GainsIndices[0])
-		gainIdx += e.lbrrGainIncreases
+		gainIdx += int(e.lbrrGainIncreases)
 		if gainIdx > nLevelsQGain-1 {
 			gainIdx = nLevelsQGain - 1
 		}
@@ -108,7 +108,7 @@ func (e *Encoder) lbrrEncode(
 // decodeLBRRGains dequantizes LBRR gain indices to Q16 gains.
 // This ensures gains are in sync with what the decoder will compute.
 func (e *Encoder) decodeLBRRGains(gainsQ16 []int32, condCoding int, nbSubfr int) {
-	indices := &e.lbrrIndices[e.nFramesEncoded]
+	indices := &e.lbrrIndices[int(e.nFramesEncoded)]
 
 	var gainsArr [maxNbSubfr]int32
 	var indicesArr [maxNbSubfr]int8
@@ -138,7 +138,7 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 		// Create space at start of payload for VAD and FEC flags
 		// This is done by encoding a placeholder that will be patched later
 		iCDF := []uint16{
-			uint16(256 - (256 >> ((e.nFramesPerPacket + 1) * nChannels))),
+			uint16(256 - (256 >> ((int(e.nFramesPerPacket) + 1) * nChannels))),
 			0,
 		}
 		re.EncodeICDF16(0, iCDF, 8)
@@ -150,8 +150,9 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 
 	// Encode LBRR flags
 	lbrrSymbol := 0
-	for i := 0; i < e.nFramesPerPacket; i++ {
-		lbrrSymbol |= e.lbrrFlags[i] << i
+	nFrames := int(e.nFramesPerPacket)
+	for i := 0; i < nFrames; i++ {
+		lbrrSymbol |= int(e.lbrrFlags[i]) << i
 	}
 
 	// Set the overall LBRR flag
@@ -159,18 +160,18 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 	if lbrrSymbol > 0 {
 		lbrrFlag = 1
 	}
-	e.lbrrFlag = lbrrFlag
+	e.lbrrFlag = int8(lbrrFlag)
 
 	// If LBRR is present and there are multiple frames, encode the flags
-	if lbrrFlag != 0 && e.nFramesPerPacket > 1 {
+	if lbrrFlag != 0 && nFrames > 1 {
 		// Use silk_LBRR_flags_iCDF_ptr
-		re.EncodeICDF(lbrrSymbol-1, silk_LBRR_flags_iCDF_ptr[e.nFramesPerPacket-2], 8)
+		re.EncodeICDF(lbrrSymbol-1, silk_LBRR_flags_iCDF_ptr[nFrames-2], 8)
 	}
 
 	// Encode LBRR indices and pulses for each frame
 	lbrrPrevSignalType := 0
 	lbrrPrevLagIndex := 0
-	for i := 0; i < e.nFramesPerPacket; i++ {
+	for i := 0; i < nFrames; i++ {
 		if e.lbrrFlags[i] == 0 {
 			continue
 		}
@@ -193,9 +194,9 @@ func (e *Encoder) encodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 	if currNBitsUsedLBRR < 10 {
 		e.nBitsUsedLBRR = 0
 	} else if e.nBitsUsedLBRR < 10 {
-		e.nBitsUsedLBRR = currNBitsUsedLBRR
+		e.nBitsUsedLBRR = int32(currNBitsUsedLBRR)
 	} else {
-		e.nBitsUsedLBRR = (e.nBitsUsedLBRR + currNBitsUsedLBRR) / 2
+		e.nBitsUsedLBRR = (e.nBitsUsedLBRR + int32(currNBitsUsedLBRR)) / 2
 	}
 
 	// Clear LBRR flags after encoding (they apply to the previous packet)
@@ -214,13 +215,13 @@ func (e *Encoder) EncodeLBRRData(re *rangecoding.Encoder, nChannels int, include
 func encodeLBRRFlagSymbol(re *rangecoding.Encoder, enc *Encoder, nFrames int) int {
 	lbrrSymbol := 0
 	for i := 0; i < nFrames; i++ {
-		lbrrSymbol |= enc.lbrrFlags[i] << i
+		lbrrSymbol |= int(enc.lbrrFlags[i]) << i
 	}
 	lbrrFlag := 0
 	if lbrrSymbol > 0 {
 		lbrrFlag = 1
 	}
-	enc.lbrrFlag = lbrrFlag
+	enc.lbrrFlag = int8(lbrrFlag)
 	if lbrrFlag != 0 && nFrames > 1 {
 		re.EncodeICDF(lbrrSymbol-1, silk_LBRR_flags_iCDF_ptr[nFrames-2], 8)
 	}
@@ -275,9 +276,9 @@ func encodeStereoLBRRPacket(
 	if currNBitsUsedLBRR < 10 {
 		midEnc.nBitsUsedLBRR = 0
 	} else if midEnc.nBitsUsedLBRR < 10 {
-		midEnc.nBitsUsedLBRR = currNBitsUsedLBRR
+		midEnc.nBitsUsedLBRR = int32(currNBitsUsedLBRR)
 	} else {
-		midEnc.nBitsUsedLBRR = (midEnc.nBitsUsedLBRR + currNBitsUsedLBRR) / 2
+		midEnc.nBitsUsedLBRR = (midEnc.nBitsUsedLBRR + int32(currNBitsUsedLBRR)) / 2
 	}
 
 	for i := range midEnc.lbrrFlags {
@@ -495,7 +496,7 @@ func (e *Encoder) encodeLBRRPulses(re *rangecoding.Encoder, frameIdx int) {
 
 // hasLBRRData returns true if there is LBRR data to encode.
 func (e *Encoder) hasLBRRData() bool {
-	for i := 0; i < e.nFramesPerPacket; i++ {
+	for i := 0; i < int(e.nFramesPerPacket); i++ {
 		if e.lbrrFlags[i] != 0 {
 			return true
 		}

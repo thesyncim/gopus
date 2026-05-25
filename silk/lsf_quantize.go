@@ -60,7 +60,7 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 	}
 
 	muQ20 := computeNLSFMuQ20(speechActivityQ8, numSubframes)
-	nSurvivors := e.nlsfSurvivors
+	nSurvivors := int(e.nlsfSurvivors)
 	if nSurvivors > cb.nVectors {
 		nSurvivors = cb.nVectors
 	}
@@ -130,7 +130,7 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 	}
 
 	muQ20 := computeNLSFMuQ20(speechActivityQ8, numSubframes)
-	nSurvivors := e.nlsfSurvivors
+	nSurvivors := int(e.nlsfSurvivors)
 	if nSurvivors > cb.nVectors {
 		nSurvivors = cb.nVectors
 	}

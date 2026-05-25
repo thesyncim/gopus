@@ -73,7 +73,7 @@ func (e *Encoder) noiseShapeAnalysis(
 		inputQualityBandsQ15,
 		numSubframes,
 		fsKHz,
-		e.nStatesDelayedDecision,
+		int(e.nStatesDelayedDecision),
 	)
 
 	gains, arShpQ13 := e.computeShapingARAndGains(
@@ -173,9 +173,9 @@ func (e *Encoder) computeShapingARAndGains(
 		return gains, arShpQ13
 	}
 
-	shapeOrder := e.shapingLPCOrder
+	shapeOrder := int(e.shapingLPCOrder)
 	if shapeOrder <= 0 {
-		shapeOrder = e.lpcOrder
+		shapeOrder = int(e.lpcOrder)
 	}
 	if shapeOrder > maxShapeLpcOrder {
 		shapeOrder = maxShapeLpcOrder
@@ -192,7 +192,7 @@ func (e *Encoder) computeShapingARAndGains(
 		fsKHz = 1
 	}
 
-	laShape := e.laShape
+	laShape := int(e.laShape)
 	if laShape < 0 {
 		laShape = 0
 	}

@@ -65,7 +65,7 @@ type decoderState struct {
 	lossCnt              int32
 	prevSignalType       int32
 	ecPrevSignalType     int32
-	ecPrevLagIndex       int32
+	ecPrevLagIndex       int16
 
 	// PLC glue state for smooth transitions from concealed to real frames.
 	// These fields implement silk_PLC_glue_frames from libopus PLC.c.

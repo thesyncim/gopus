@@ -113,7 +113,7 @@ func TestBurgModifiedStoresResidualState(t *testing.T) {
 		pcm[i] = 0.4 * float32(math.Sin(2*math.Pi*300*tm))
 	}
 
-	_, _ = enc.burgModifiedFLPZeroAllocF32(pcm, float32(minInvGain), frameSamples/4, 4, enc.lpcOrder)
+	_, _ = enc.burgModifiedFLPZeroAllocF32(pcm, float32(minInvGain), frameSamples/4, 4, int(enc.lpcOrder))
 	if enc.lastTotalEnergy <= 0 {
 		t.Fatalf("lastTotalEnergy=%f want > 0", enc.lastTotalEnergy)
 	}

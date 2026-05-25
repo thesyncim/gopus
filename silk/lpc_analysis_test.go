@@ -557,16 +557,17 @@ func TestFindLPCWithInterpolation(t *testing.T) {
 	}
 
 	// Previous NLSF (simulate from previous frame)
-	prevNLSF := make([]int16, enc.lpcOrder)
-	for i := 0; i < enc.lpcOrder; i++ {
+	lpcOrder := int(enc.lpcOrder)
+	prevNLSF := make([]int16, lpcOrder)
+	for i := 0; i < lpcOrder; i++ {
 		prevNLSF[i] = int16(3000 + i*2500)
 	}
 
 	// First frame (no interpolation)
 	nlsf, interpIdx := enc.FindLPCWithInterpolation(signal, prevNLSF, true, true, 4)
 
-	if len(nlsf) != enc.lpcOrder {
-		t.Errorf("expected %d NLSF values, got %d", enc.lpcOrder, len(nlsf))
+	if len(nlsf) != lpcOrder {
+		t.Errorf("expected %d NLSF values, got %d", lpcOrder, len(nlsf))
 	}
 
 	// For first frame, interpolation should be 4 (no interp)
@@ -586,8 +587,8 @@ func TestFindLPCWithInterpolation(t *testing.T) {
 	// Non-first-frame interpolation runs a second Burg pass; the full-frame
 	// coefficients must survive that scratch reuse for the final no-interp path.
 	nlsf, interpIdx = enc.FindLPCWithInterpolation(signal, prevNLSF, true, false, 4)
-	if len(nlsf) != enc.lpcOrder {
-		t.Errorf("non-first-frame: expected %d NLSF values, got %d", enc.lpcOrder, len(nlsf))
+	if len(nlsf) != lpcOrder {
+		t.Errorf("non-first-frame: expected %d NLSF values, got %d", lpcOrder, len(nlsf))
 	}
 	if interpIdx < 0 || interpIdx > 4 {
 		t.Errorf("non-first-frame: invalid interpolation index %d", interpIdx)

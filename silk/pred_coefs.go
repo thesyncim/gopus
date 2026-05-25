@@ -28,7 +28,7 @@ func computeMinInvGain(predGainQ7 int32, codingQuality float32, firstFrame bool)
 }
 
 func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []float32, pitchLags []int32, ltpCoeffs LTPCoeffsArray, numSubframes, subframeSamples int, signalType int) []float32 {
-	preLen := e.lpcOrder
+	preLen := int(e.lpcOrder)
 	outLen := numSubframes * (subframeSamples + preLen)
 	ltpRes := ensureFloat32Slice(&e.scratchLtpResF32, outLen)
 
@@ -142,7 +142,7 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 }
 
 func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, subframeSamples int, minInvGainVal float32) ([]int16, []int16, int) {
-	order := e.lpcOrder
+	order := int(e.lpcOrder)
 	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
 	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
 
@@ -245,7 +245,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 }
 
 func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16, interpIdx int, gains []float32, numSubframes, subframeSamples int) []float32 {
-	order := e.lpcOrder
+	order := int(e.lpcOrder)
 	subfrLen := subframeSamples + order
 	resNrg := ensureFloat32Slice(&e.scratchResNrg, numSubframes)
 	for i := range resNrg {

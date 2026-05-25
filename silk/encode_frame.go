@@ -37,7 +37,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	payloadSizeMs := (frameSamples * 1000) / config.SampleRate
 	packetPayloadSizeMs := payloadSizeMs
 	if e.nFramesPerPacket > 1 {
-		packetPayloadSizeMs = payloadSizeMs * e.nFramesPerPacket
+		packetPayloadSizeMs = payloadSizeMs * int(e.nFramesPerPacket)
 	}
 
 	// Match libopus packet control ordering:
@@ -82,11 +82,11 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			targetRate = 5000
 		}
 		e.lastControlTargetRateBps = targetRate
-		e.controlSNR(targetRate, numSubframes)
+		e.controlSNR(int(targetRate), numSubframes)
 		e.preAdjustedTargetRateBps = 0
 	} else if e.targetRateBps > 0 {
 		// Total target bits for packet
-		nBits := (e.targetRateBps * packetPayloadSizeMs) / 1000
+		nBits := (e.targetRateBps * int32(packetPayloadSizeMs)) / 1000
 
 		// Subtract bits used for LBRR (exponential moving average).
 		// Matches libopus enc_API.c line 425: nBits -= psEnc->nBitsUsedLBRR;
@@ -96,7 +96,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		nBits /= e.nFramesPerPacket
 
 		// Convert to bits/second
-		targetRate := 0
+		targetRate := int32(0)
 		if payloadSizeMs == 10 {
 			targetRate = nBits * 100
 		} else {
@@ -111,7 +111,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		// Matches libopus enc_API.c lines 437-440:
 		//   bitsBalance = ec_tell(psRangeEnc) - psEnc->nBitsUsedLBRR - nBits * nFramesEncoded
 		if e.nFramesEncoded > 0 && e.rangeEncoder != nil {
-			bitsBalance := e.rangeEncoder.Tell() - e.nBitsUsedLBRR - nBits*e.nFramesEncoded
+			bitsBalance := int32(e.rangeEncoder.Tell()) - e.nBitsUsedLBRR - nBits*e.nFramesEncoded
 			targetRate -= (bitsBalance * 1000) / 500
 		}
 
@@ -124,7 +124,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		}
 
 		e.lastControlTargetRateBps = targetRate
-		e.controlSNR(targetRate, numSubframes)
+		e.controlSNR(int(targetRate), numSubframes)
 	} else {
 		e.lastControlTargetRateBps = 0
 	}
@@ -169,7 +169,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	var condCoding int
 	if e.stereoCondMid != nil {
-		condCoding = stereoSelectCondCoding(e.stereoCondMidFramesEncoded, e.stereoChannelIdx, e.stereoPrevDecodeOnlyMiddle)
+		condCoding = stereoSelectCondCoding(int(e.stereoCondMidFramesEncoded), int(e.stereoChannelIdx), int(e.stereoPrevDecodeOnlyMiddle))
 	} else {
 		condCoding = codeIndependently
 		if e.nFramesEncoded > 0 {
@@ -301,12 +301,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			traceResNrgBits[i] = int32(math.Float32bits(resNrg[i]))
 		}
 	}
-	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, int(e.inputTiltQ15), subframeSamples)
+	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, int(e.snrDBQ7), signalType, int(e.inputTiltQ15), subframeSamples)
 	if signalType == typeVoiced {
 		quantOffset = processedQuantOffset
 	}
 	if noiseParams != nil {
-		noiseParams.LambdaQ10 = computeLambdaQ10(signalType, int(speechActivityQ8), quantOffset, e.nStatesDelayedDecision, noiseParams.CodingQuality, noiseParams.InputQuality)
+		noiseParams.LambdaQ10 = computeLambdaQ10(signalType, int(speechActivityQ8), quantOffset, int(e.nStatesDelayedDecision), noiseParams.CodingQuality, noiseParams.InputQuality)
 	}
 
 	// Step 7: Prepare indices and gains for bitrate control loop.
@@ -314,7 +314,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	// when the entropy seed is selected, before the prefill/encode branch exits.
 	seed := e.frameCounter & 3
 	e.frameCounter++
-	maxBits := e.maxBits
+	maxBits := int(e.maxBits)
 	if maxBits <= 0 {
 		// Derive from target rate: bits = targetRate * frameDuration_ms / 1000
 		// This matches libopus where opus_encoder.c computes maxBits from the
@@ -323,7 +323,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		// otherwise default to an astronomically large value that defeats the
 		// rate control loop (VBR fast-exit always triggers on iteration 0).
 		if e.targetRateBps > 0 && payloadSizeMs > 0 {
-			maxBits = e.targetRateBps * payloadSizeMs / 1000
+			maxBits = int(e.targetRateBps) * payloadSizeMs / 1000
 		} else {
 			// Fallback: use a generous but reasonable default (1275 bytes = max SILK packet)
 			maxBits = 1275 * 8
@@ -378,7 +378,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	// LBRR uses pre-NSQ indices/NSQ state (libopus silk_LBRR_encode_FLP before the bitrate loop).
 	if e.lbrrEnabled {
-		e.lbrrEncode(framePCM, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, int(speechActivityQ8), currentPrevInd, condCoding)
+		e.lbrrEncode(framePCM, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, int(seed), numSubframes, subframeSamples, frameSamples, int(speechActivityQ8), currentPrevInd, condCoding)
 	}
 
 	ltpScaleQ14 := int32(0)
@@ -731,7 +731,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	e.previousGainIndex = currentPrevInd
 	e.previousLogGain = int32(currentPrevInd)
-	e.ecPrevSignalType = signalType
+	e.ecPrevSignalType = int32(signalType)
 	e.lastQuantOffsetType = int(frameIndices.quantOffsetType)
 	e.lastSeed = frameIndices.Seed
 	e.isPreviousFrameVoiced = (signalType == typeVoiced)
@@ -797,8 +797,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		//   psEnc->nBitsExceeded += *nBytesOut * 8;
 		//   psEnc->nBitsExceeded -= silk_DIV32_16(silk_MUL(bitRate, payloadSize_ms), 1000);
 		//   psEnc->nBitsExceeded = silk_LIMIT(psEnc->nBitsExceeded, 0, 10000);
-		e.nBitsExceeded += nBytesOut * 8
-		e.nBitsExceeded -= (e.targetRateBps * payloadSizeMs) / 1000
+		e.nBitsExceeded += int32(nBytesOut * 8)
+		e.nBitsExceeded -= (e.targetRateBps * int32(payloadSizeMs)) / 1000
 		if e.nBitsExceeded < 0 {
 			e.nBitsExceeded = 0
 		} else if e.nBitsExceeded > 10000 {
@@ -826,7 +826,7 @@ func (e *Encoder) updateAllowBandwidthSwitch(payloadSizeMs int) {
 		return
 	}
 	e.allowBandwidthSwitch = false
-	e.timeSinceSwitchAllowedMS += payloadSizeMs
+	e.timeSinceSwitchAllowedMS += int32(payloadSizeMs)
 	if e.timeSinceSwitchAllowedMS < 0 {
 		e.timeSinceSwitchAllowedMS = maxBandwidthSwitchDelayMS
 	}
@@ -912,7 +912,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 	if pitchLags != nil {
 		copy(pitchL, pitchLags)
 	}
-	shapeLPCOrder := e.shapingLPCOrder
+	shapeLPCOrder := int(e.shapingLPCOrder)
 	if shapeLPCOrder <= 0 {
 		shapeLPCOrder = len(lpcQ12)
 	}
@@ -975,7 +975,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		}
 		// Match libopus: SNR_dB = (silk_float)psEnc->sCmn.SNR_dB_Q7 * ( 1 / 128.0f ) — float32.
 		snrDB := float32(e.snrDBQ7) * (1.0 / 128.0)
-		noiseParams = e.noiseShapeState.ComputeNoiseShapeParams(signalType, speechActivityQ8, e.ltpCorr, pitchLags, snrDB, quantOffset, inputQualityBandsQ15, numSubframes, fsKHz, e.nStatesDelayedDecision)
+		noiseParams = e.noiseShapeState.ComputeNoiseShapeParams(signalType, speechActivityQ8, e.ltpCorr, pitchLags, snrDB, quantOffset, inputQualityBandsQ15, numSubframes, fsKHz, int(e.nStatesDelayedDecision))
 	}
 	harmShapeGainQ14 := ensureInt32Slice(&e.scratchHarmShapeGainQ14, numSubframes)
 	tiltQ14 := ensureInt32Slice(&e.scratchTiltQ14, numSubframes)
@@ -1008,8 +1008,8 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		LTPMemLength:           ltpMemLengthSamples,
 		PredLPCOrder:           len(lpcQ12),
 		ShapeLPCOrder:          shapeLPCOrder,
-		WarpingQ16:             e.warpingQ16,
-		NStatesDelayedDecision: e.nStatesDelayedDecision,
+		WarpingQ16:             int(e.warpingQ16),
+		NStatesDelayedDecision: int(e.nStatesDelayedDecision),
 		Seed:                   seed,
 	}
 	state := nsqState
@@ -1044,7 +1044,7 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 	if nFrames > maxFramesPerPacket {
 		nFrames = maxFramesPerPacket
 	}
-	e.nFramesPerPacket = nFrames
+	e.nFramesPerPacket = int32(nFrames)
 	bufSize := len(pcm)/2 + 100
 	if bufSize < 150 {
 		bufSize = 150
@@ -1137,8 +1137,8 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 	if e.targetRateBps > 0 {
 		payloadSizeMs := (nFrames * frameSamples * 1000) / config.SampleRate
 		if payloadSizeMs > 0 {
-			e.nBitsExceeded += nBytesOut * 8
-			e.nBitsExceeded -= (e.targetRateBps * payloadSizeMs) / 1000
+			e.nBitsExceeded += int32(nBytesOut * 8)
+			e.nBitsExceeded -= (e.targetRateBps * int32(payloadSizeMs)) / 1000
 			if e.nBitsExceeded < 0 {
 				e.nBitsExceeded = 0
 			} else if e.nBitsExceeded > 10000 {

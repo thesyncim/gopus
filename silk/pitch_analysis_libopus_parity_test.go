@@ -110,7 +110,7 @@ func TestSILKPitchAnalysisCoreMatchesLibopus(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			enc := NewEncoder(tc.bandwidth)
-			enc.pitchEstimationComplexity = tc.complexity
+			enc.pitchEstimationComplexity = int32(tc.complexity)
 			enc.pitchState.prevLag = int32(tc.prevLag)
 			enc.pitchState.ltpCorr = tc.ltpCorr
 			gotLags, gotLagIndex, gotContourIndex := enc.detectPitch(tc.frame, tc.nbSubfr, tc.searchThres1, tc.searchThres2)

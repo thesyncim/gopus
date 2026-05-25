@@ -558,7 +558,7 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 //
 // Returns: NLSF Q15 coefficients and interpolation index (0-4)
 func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, useInterp, firstFrame bool, nbSubfr int) ([]int16, int) {
-	order := e.lpcOrder
+	order := int(e.lpcOrder)
 
 	// Default: no interpolation
 	interpCoef := 4

@@ -54,13 +54,13 @@ func TestEncodeStereoAppliesPerChannelRateSplit(t *testing.T) {
 		t.Fatal("encode stereo returned empty packet")
 	}
 
-	if got := enc.lastControlTargetRateBps; got != expMidRate {
+	if got := enc.lastControlTargetRateBps; got != int32(expMidRate) {
 		t.Fatalf("mid bitrate mismatch: got %d want %d", got, expMidRate)
 	}
-	if got := sideEnc.lastControlTargetRateBps; got != expSideRate {
+	if got := sideEnc.lastControlTargetRateBps; got != int32(expSideRate) {
 		t.Fatalf("side bitrate mismatch: got %d want %d", got, expSideRate)
 	}
-	if sideEnc.lastControlTargetRateBps == totalRate {
+	if sideEnc.lastControlTargetRateBps == int32(totalRate) {
 		t.Fatalf("side bitrate was not split (still total rate %d)", totalRate)
 	}
 }
@@ -100,10 +100,10 @@ func TestEncodeStereoAppliesPerChannelRateSplitWithVADCarryover(t *testing.T) {
 		t.Fatal("encode stereo returned empty packet")
 	}
 
-	if got := enc.lastControlTargetRateBps; got != expMidRate {
+	if got := enc.lastControlTargetRateBps; got != int32(expMidRate) {
 		t.Fatalf("mid bitrate mismatch with VAD carryover: got %d want %d", got, expMidRate)
 	}
-	if got := sideEnc.lastControlTargetRateBps; got != expSideRate {
+	if got := sideEnc.lastControlTargetRateBps; got != int32(expSideRate) {
 		t.Fatalf("side bitrate mismatch with VAD carryover: got %d want %d", got, expSideRate)
 	}
 }

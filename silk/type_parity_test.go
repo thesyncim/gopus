@@ -7,6 +7,7 @@ import (
 
 func TestSILKDecoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 	int32Type := reflect.TypeOf(int32(0))
+	int16Type := reflect.TypeOf(int16(0))
 	int32FlagsType := reflect.TypeOf([maxFramesPerPacket]int32{})
 
 	checkSILKFieldsHaveType(t, reflect.TypeOf(decoderState{}), int32Type,
@@ -22,6 +23,8 @@ func TestSILKDecoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 		"lossCnt",
 		"prevSignalType",
 		"ecPrevSignalType",
+	)
+	checkSILKFieldsHaveType(t, reflect.TypeOf(decoderState{}), int16Type,
 		"ecPrevLagIndex",
 	)
 	checkSILKFieldsHaveType(t, reflect.TypeOf(decoderState{}), int32FlagsType,
@@ -30,6 +33,52 @@ func TestSILKDecoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 	)
 	checkSILKFieldsHaveType(t, reflect.TypeOf(decoderControl{}), int32Type,
 		"NumBits",
+	)
+}
+
+func TestSILKEncoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
+	int32Type := reflect.TypeOf(int32(0))
+	int16Type := reflect.TypeOf(int16(0))
+	int8Type := reflect.TypeOf(int8(0))
+	int32FlagsType := reflect.TypeOf([maxFramesPerPacket]int32{})
+
+	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int32Type,
+		"ecPrevSignalType",
+		"frameCounter",
+		"lpcOrder",
+		"snrDBQ7",
+		"targetRateBps",
+		"lastControlTargetRateBps",
+		"preAdjustedTargetRateBps",
+		"complexity",
+		"nStatesDelayedDecision",
+		"pitchEstimationComplexity",
+		"pitchEstimationLPCOrder",
+		"shapingLPCOrder",
+		"laShape",
+		"shapeWinLength",
+		"warpingQ16",
+		"nlsfSurvivors",
+		"lbrrGainIncreases",
+		"packetLossPercent",
+		"nFramesEncoded",
+		"nFramesPerPacket",
+		"stereoCondMidFramesEncoded",
+		"stereoChannelIdx",
+		"stereoPrevDecodeOnlyMiddle",
+		"nBitsExceeded",
+		"nBitsUsedLBRR",
+		"maxBits",
+		"timeSinceSwitchAllowedMS",
+	)
+	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int16Type,
+		"ecPrevLagIndex",
+	)
+	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int8Type,
+		"lbrrFlag",
+	)
+	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int32FlagsType,
+		"lbrrFlags",
 	)
 }
 

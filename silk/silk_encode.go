@@ -153,8 +153,8 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	// Reset packet state for both encoders
 	enc.ResetPacketState()
 	sideEnc.ResetPacketState()
-	enc.nFramesPerPacket = nFrames
-	sideEnc.nFramesPerPacket = nFrames
+	enc.nFramesPerPacket = int32(nFrames)
+	sideEnc.nFramesPerPacket = int32(nFrames)
 	// Preserve base rate-control settings; we override maxBits/useCBR per
 	// channel per block to mirror libopus enc_API.c.
 	baseMidMaxBits := enc.maxBits
@@ -182,9 +182,9 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	if packetRate <= 0 {
 		packetRate = enc.targetRateBps
 	}
-	totalRate := stereoAllocationTargetRate(enc, packetRate, frameLength20ms*nFrames, 0)
+	totalRate := stereoAllocationTargetRate(enc, int(packetRate), frameLength20ms*nFrames, 0)
 	if totalRate <= 0 {
-		totalRate = enc.targetRateBps
+		totalRate = int(enc.targetRateBps)
 	}
 	if totalRate <= 0 {
 		totalRate = 20000
@@ -226,7 +226,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 
 		leftFrame := left[start:end]
 		rightFrame := right[start:end]
-		frameRate := stereoAllocationTargetRate(enc, packetRate, frameLength*nFrames, re.Tell())
+		frameRate := stereoAllocationTargetRate(enc, int(packetRate), frameLength*nFrames, re.Tell())
 		if frameRate > 0 {
 			totalRate = frameRate
 		}
@@ -320,7 +320,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 		sideMaxBits := frameMaxBits
 		if frameMaxBits > 0 {
 			if sideRate > 0 {
-				reserve := basePacketMaxBits / (nFrames * 2)
+				reserve := basePacketMaxBits / int32(nFrames*2)
 				midMaxBits -= reserve
 				if midMaxBits < 1 {
 					midMaxBits = 1
@@ -345,7 +345,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 		enc.stereoCondMid = enc
 		enc.stereoCondMidFramesEncoded = midFramesEncodedInPacket
 		enc.stereoChannelIdx = 0
-		enc.stereoPrevDecodeOnlyMiddle = prevDecodeOnlyMiddle
+		enc.stereoPrevDecodeOnlyMiddle = int32(prevDecodeOnlyMiddle)
 		enc.SetRangeEncoder(re)
 		_ = enc.EncodeFrame(midOut, nil, midFrameVAD)
 
@@ -364,7 +364,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 			sideEnc.stereoCondMid = enc
 			sideEnc.stereoCondMidFramesEncoded = midFramesEncodedInPacket
 			sideEnc.stereoChannelIdx = 1
-			sideEnc.stereoPrevDecodeOnlyMiddle = prevDecodeOnlyMiddle
+			sideEnc.stereoPrevDecodeOnlyMiddle = int32(prevDecodeOnlyMiddle)
 			if sideMaxBits > 0 {
 				sideEnc.maxBits = sideMaxBits
 			}
@@ -427,9 +427,9 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	payloadSizeMs := (nFrames * frameLength20ms * 1000) / config.SampleRate
 	packetBitrate := baseMidBitrate
 	if packetBitrate <= 0 {
-		packetBitrate = totalRate
+		packetBitrate = int32(totalRate)
 	}
-	enc.UpdatePacketBitsExceeded(nBytesOut, payloadSizeMs, packetBitrate)
+	enc.UpdatePacketBitsExceeded(nBytesOut, payloadSizeMs, int(packetBitrate))
 	sideEnc.SetBitsExceeded(enc.BitsExceeded())
 	enc.finishLBRRPacket()
 	sideEnc.finishLBRRPacket()
@@ -450,9 +450,9 @@ func stereoAllocationTargetRate(enc *Encoder, targetRateBps, frameLength, bitsUs
 		return targetRateBps
 	}
 	nBits := (targetRateBps * payloadSizeMs) / 1000
-	nBits -= enc.nBitsUsedLBRR
+	nBits -= int(enc.nBitsUsedLBRR)
 	if enc.nFramesPerPacket > 0 {
-		nBits /= enc.nFramesPerPacket
+		nBits /= int(enc.nFramesPerPacket)
 	}
 	targetRate := 0
 	if payloadSizeMs == 10 {
@@ -460,9 +460,9 @@ func stereoAllocationTargetRate(enc *Encoder, targetRateBps, frameLength, bitsUs
 	} else {
 		targetRate = nBits * 50
 	}
-	targetRate -= (enc.nBitsExceeded * 1000) / 500
+	targetRate -= int((enc.nBitsExceeded * 1000) / 500)
 	if enc.nFramesEncoded > 0 {
-		bitsBalance := bitsUsedSoFar - enc.nBitsUsedLBRR - nBits*enc.nFramesEncoded
+		bitsBalance := bitsUsedSoFar - int(enc.nBitsUsedLBRR) - nBits*int(enc.nFramesEncoded)
 		targetRate -= (bitsBalance * 1000) / 500
 	}
 	if targetRate > targetRateBps {

@@ -308,7 +308,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	}
 
 	// Find top candidates using insertion sort (match libopus in-place behavior)
-	complexity := e.pitchEstimationComplexity
+	complexity := int(e.pitchEstimationComplexity)
 	if complexity < 0 {
 		complexity = 0
 	} else if complexity > 2 {
@@ -1013,7 +1013,7 @@ func (e *Encoder) encodePitchLagsWithParams(params pitchEncodeParams, condCoding
 
 	encodeAbsolute := true
 	if condCoding == codeConditionally && e.ecPrevSignalType == typeVoiced {
-		delta := params.lagIdx - e.ecPrevLagIndex
+		delta := params.lagIdx - int(e.ecPrevLagIndex)
 		if delta < -8 || delta > 11 {
 			delta = 0
 		} else {
@@ -1049,7 +1049,7 @@ func (e *Encoder) encodePitchLagsWithParams(params pitchEncodeParams, condCoding
 		params.contourIdx = len(params.contourICDF) - 1
 	}
 	e.rangeEncoder.EncodeICDF(params.contourIdx, params.contourICDF, 8)
-	e.ecPrevLagIndex = params.lagIdx
+	e.ecPrevLagIndex = int16(params.lagIdx)
 }
 
 // findBestPitchContour finds the contour that best matches the pitch lag pattern.

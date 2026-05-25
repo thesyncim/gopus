@@ -334,7 +334,7 @@ func TestExcitationEncoding(t *testing.T) {
 	}
 
 	// Compute LPC and excitation
-	lpcQ12 := burgLPC(pcm, enc.lpcOrder)
+	lpcQ12 := burgLPC(pcm, int(enc.lpcOrder))
 	excitation := enc.computeExcitation(pcm, lpcQ12, 1000.0)
 
 	// Verify excitation has reasonable values

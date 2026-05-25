@@ -22,7 +22,7 @@ func TestControlSNRMatchesLibopusTables(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			enc := NewEncoder(tc.bandwidth)
 			enc.controlSNR(tc.targetRate, tc.nbSubfr)
-			if enc.snrDBQ7 != tc.expectedQ7 {
+			if enc.snrDBQ7 != int32(tc.expectedQ7) {
 				t.Fatalf("snrDBQ7=%d, want %d", enc.snrDBQ7, tc.expectedQ7)
 			}
 		})

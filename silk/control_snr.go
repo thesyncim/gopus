@@ -78,5 +78,5 @@ func (e *Encoder) controlSNR(targetRateBps, nbSubfr int) {
 		e.snrDBQ7 = 0
 		return
 	}
-	e.snrDBQ7 = int(table[id]) * 21
+	e.snrDBQ7 = int32(table[id]) * 21
 }

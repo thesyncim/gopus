@@ -122,7 +122,7 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 			deltaLag := rd.DecodeICDF8Linear(silk_pitch_delta_iCDF)
 			if deltaLag > 0 {
 				deltaLag -= 9
-				st.indices.lagIndex = int16(st.ecPrevLagIndex + int32(deltaLag))
+				st.indices.lagIndex = st.ecPrevLagIndex + int16(deltaLag)
 				decodeAbsolute = false
 			}
 		}
@@ -130,7 +130,7 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 			st.indices.lagIndex = int16(int32(rd.DecodeICDF8Linear(silk_pitch_lag_iCDF)) * (st.fsKHz >> 1))
 			st.indices.lagIndex += int16(rd.DecodeICDF8Unchecked(st.pitchLagLowBitsICDF))
 		}
-		st.ecPrevLagIndex = int32(st.indices.lagIndex)
+		st.ecPrevLagIndex = st.indices.lagIndex
 		if len(st.pitchContourICDF) > 8 {
 			st.indices.contourIndex = int8(rd.DecodeICDF8Linear(st.pitchContourICDF))
 		} else {

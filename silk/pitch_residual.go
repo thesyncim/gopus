@@ -228,9 +228,9 @@ func (e *Encoder) computePitchResidual(numSubframes int) ([]float32, int, int, p
 		input32[i] = 0
 	}
 
-	order := e.pitchEstimationLPCOrder
+	order := int(e.pitchEstimationLPCOrder)
 	if order == 0 {
-		order = e.lpcOrder
+		order = int(e.lpcOrder)
 	}
 	if order > maxFindPitchLpcOrder {
 		order = maxFindPitchLpcOrder
