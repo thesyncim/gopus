@@ -2327,11 +2327,11 @@ func (e *Encoder) autoVoiceEstimate(prev Mode) int {
 	if !e.lastAnalysisValid {
 		return voiceEst
 	}
-	prob := float64(e.lastAnalysisInfo.MusicProb)
+	prob := e.lastAnalysisInfo.MusicProb
 	if prev == ModeCELT {
-		prob = float64(e.lastAnalysisInfo.MusicProbMax)
+		prob = e.lastAnalysisInfo.MusicProbMax
 	} else if prev == ModeSILK || prev == ModeHybrid {
-		prob = float64(e.lastAnalysisInfo.MusicProbMin)
+		prob = e.lastAnalysisInfo.MusicProbMin
 	}
 	if prob < 0 {
 		prob = 0
@@ -2339,7 +2339,7 @@ func (e *Encoder) autoVoiceEstimate(prev Mode) int {
 	if prob > 1 {
 		prob = 1
 	}
-	voiceRatio := int(math.Floor(0.5 + 100.0*(1.0-prob)))
+	voiceRatio := int(opusmath.FloorHalfPlusF32ToInt32(float32(100) * (float32(1) - prob)))
 	voiceEst = (voiceRatio * 327) >> 8
 	// OPUS_APPLICATION_AUDIO clamp.
 	if voiceEst > 115 {
@@ -3341,7 +3341,7 @@ func isDigitalSilenceFloat32(pcm []float32, lsbDepth int) bool {
 	if lsbDepth > 24 {
 		lsbDepth = 24
 	}
-	threshold := float32(1.0 / float64(int(1)<<lsbDepth))
+	threshold := float32(1) / float32(uint32(1)<<uint(lsbDepth))
 	for _, s := range pcm {
 		if s > threshold || s < -threshold {
 			return false

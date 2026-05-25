@@ -1,8 +1,6 @@
 package gopus
 
 import (
-	"math"
-
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -44,7 +42,7 @@ func smoothFade(in1, in2, out []float32, overlap, channels, sampleRate int) {
 }
 
 func smoothFadeFMA32(a, b, c float32) float32 {
-	return float32(math.FMA(float64(a), float64(b), float64(c)))
+	return a*b + c
 }
 
 //go:noinline

@@ -9,6 +9,7 @@ package encoder
 import (
 	"math"
 
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -169,7 +170,7 @@ func celtSqrtOpusVal32(x opusVal32) opusVal32 {
 	if x <= 0 {
 		return 0
 	}
-	return opusVal32(math.Sqrt(float64(x)))
+	return opusVal32(opusmath.SqrtF32(float32(x)))
 }
 
 func absOpusVal16(x opusVal16) opusVal16 {
@@ -240,16 +241,16 @@ func (e *Encoder) autoVoiceRatioFromAnalysis() {
 	if !e.lastAnalysisValid {
 		return
 	}
-	var prob float64
+	var prob float32
 	if e.prevMode == ModeAuto || e.prevMode == 0 {
 		// First frame or unknown previous mode.
-		prob = float64(e.lastAnalysisInfo.MusicProb)
+		prob = e.lastAnalysisInfo.MusicProb
 	} else if e.prevMode == ModeCELT {
-		prob = float64(e.lastAnalysisInfo.MusicProbMax)
+		prob = e.lastAnalysisInfo.MusicProbMax
 	} else {
-		prob = float64(e.lastAnalysisInfo.MusicProbMin)
+		prob = e.lastAnalysisInfo.MusicProbMin
 	}
-	e.voiceRatio = int(math.Floor(0.5 + 100.0*(1.0-prob)))
+	e.voiceRatio = int(opusmath.FloorHalfPlusF32ToInt32(float32(100) * (float32(1) - prob)))
 }
 
 // updateDetectedBandwidth computes detected_bandwidth from analysis info.

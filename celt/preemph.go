@@ -22,19 +22,9 @@ const DelayCompensation = 192
 const CELTSigScale = 32768.0
 
 const (
-	maxAbsSignBit    = uint64(1) << 63
-	maxAbsInfBits    = uint64(0x7ff0000000000000)
 	maxAbsF32SignBit = uint32(1) << 31
 	maxAbsF32InfBits = uint32(0x7f800000)
 )
-
-func updateMaxAbsBits(maxBits uint64, v float64) uint64 {
-	bits := math.Float64bits(v) &^ maxAbsSignBit
-	if bits <= maxAbsInfBits && bits > maxBits {
-		return bits
-	}
-	return maxBits
-}
 
 func updateMaxAbsBitsF32(maxBits uint32, v float32) uint32 {
 	bits := math.Float32bits(v) &^ maxAbsF32SignBit
@@ -417,31 +407,4 @@ func (e *Encoder) applyPreemphasisWithScalingScratch(pcm []float32) []float32 {
 
 	e.applyPreemphasisWithScalingCore(pcm, output)
 	return output
-}
-
-func (e *Encoder) applyPreemphasisWithScalingCoreToFloat64(pcm []float32, output []float64) {
-	coef := float32(PreemphCoef)
-	if e.channels == 1 {
-		state := float32(e.preemphState[0])
-		for i, v := range pcm {
-			scaled := v * float32(CELTSigScale)
-			output[i] = float64(scaled - state)
-			state = coef * scaled
-		}
-		e.preemphState[0] = celtSig(state)
-	} else {
-		stateL := float32(e.preemphState[0])
-		stateR := float32(e.preemphState[1])
-		for i := 0; i < len(pcm)-1; i += 2 {
-			scaledL := pcm[i] * float32(CELTSigScale)
-			output[i] = float64(scaledL - stateL)
-			stateL = coef * scaledL
-
-			scaledR := pcm[i+1] * float32(CELTSigScale)
-			output[i+1] = float64(scaledR - stateR)
-			stateR = coef * scaledR
-		}
-		e.preemphState[0] = celtSig(stateL)
-		e.preemphState[1] = celtSig(stateR)
-	}
 }
