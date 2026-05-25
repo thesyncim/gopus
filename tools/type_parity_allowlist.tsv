@@ -1772,7 +1772,6 @@ silk/float_cast.go	1	1728059654fe7ca07cec53268bee1acd63df1b9d04595a7d15e06b44f97
 silk/float_cast.go	1	780ed8d05128b63646e93c239fe9281678583cc350d078a453a02731f9b95331	legacy-current	func float64ToInt32Round(x float64) int32 {
 silk/float_cast.go	1	90552aaa73ab97bdf8d873496409107aefeb9a55f2895f6dfb0b5436e27886dc	legacy-current	if x > float64(math.MaxInt32) {
 silk/float_cast.go	1	b8fffa9b1eaf05ccf3b474b5e4f860e2a619e4f72f8869b7bd804ebedc849ec4	legacy-current	if x < float64(math.MinInt32) {
-silk/float_cast.go	1	e1a59dec656bbc5a9ddfbd60d3334bb6888e21bce96ae864af13573499637dcd	legacy-current	func float64ToInt16Round(x float64) int16 {
 silk/float_cast.go	1	f0cc0339234fb633cc9767fe22b943445b533559d2c32f9fd297257fb06d8338	legacy-current	// noFMA64 returns a*b as a float64, forcing the product to materialize before
 silk/inner_prod_asm.go	1	0962f10bcdfa8db8f5c95a201023833ee1cd2f698bccb53b497eba6a4d6f118f	legacy-current	func energyF32(x []float32, length int) float64
 silk/inner_prod_asm.go	1	4842e9eb43a9f574e06757e9751c817c9a0def5b846da0d9755efd7ca7c9b981	legacy-current	func innerProductF32(a, b []float32, length int) float64

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 func TestSILKFloatToInt16MatchesLibopusFloat2ShortArray(t *testing.T) {
@@ -18,8 +19,8 @@ func TestSILKFloatToInt16MatchesLibopusFloat2ShortArray(t *testing.T) {
 		if got := floatToInt16Round(sample); got != want[i] {
 			t.Fatalf("floatToInt16Round(%0.10g)=%d want %d", sample, got, want[i])
 		}
-		if got := float64ToInt16Round(float64(sample)); got != want[i] {
-			t.Fatalf("float64ToInt16Round(%0.10g)=%d want %d", sample, got, want[i])
+		if got := opusmath.Float32ToInt16Raw(sample); got != want[i] {
+			t.Fatalf("opusmath.Float32ToInt16Raw(%0.10g)=%d want %d", sample, got, want[i])
 		}
 	}
 }
@@ -56,8 +57,8 @@ func TestSILKFloatToInt16TieGridMatchesLibopusFloat2ShortArray(t *testing.T) {
 		if got := floatToInt16Round(sample); got != want[i] {
 			t.Fatalf("floatToInt16Round(sample[%d]=%0.10g)=%d want %d", i, sample, got, want[i])
 		}
-		if got := float64ToInt16Round(float64(sample)); got != want[i] {
-			t.Fatalf("float64ToInt16Round(sample[%d]=%0.10g)=%d want %d", i, sample, got, want[i])
+		if got := opusmath.Float32ToInt16Raw(sample); got != want[i] {
+			t.Fatalf("opusmath.Float32ToInt16Raw(sample[%d]=%0.10g)=%d want %d", i, sample, got, want[i])
 		}
 	}
 }

@@ -92,7 +92,7 @@ The repo now has a ratcheting guard for this rule:
 make test-type-parity
 ```
 
-The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 2198 legacy findings, down from 2207 in the previous checkpoint, 2209 before that, 2217 before that, 2220 before that, 2222 before that, 2250 before that, 2273 before that, 2285 before that, 2327 before that, and 2509 in the older baseline.
+The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 2197 legacy findings, down from 2198 in the previous checkpoint, 2207 before that, 2209 before that, 2217 before that, 2220 before that, 2222 before that, 2250 before that, 2273 before that, 2285 before that, 2327 before that, and 2509 in the older baseline.
 
 Agents must not run `make update-type-parity-baseline` to hide new debt. Refresh the baseline only after migrating runtime code to libopus-width types, or when a remaining `float64` is tied to a specific libopus C `double` helper with a source citation.
 
@@ -105,7 +105,7 @@ These are type-parity guard finding counts from non-test runtime Go files on 202
 | Area | Count | Files |
 |---|---:|---:|
 | `celt` | 1724 | 110 |
-| `silk` | 195 | 22 |
+| `silk` | 194 | 22 |
 | `encoder` | 84 | 8 |
 | `internal` | 75 | 12 |
 | `plc` | 61 | 3 |
@@ -250,10 +250,11 @@ Every entry here must be migrated or explicitly justified against a C `double` r
 - `silk/gain_encode.go` no longer widens gain scratch/control estimates through `float64`; PCM subframe energy, residual-energy scaling, and RMS conversion now stay in `silk_float`/`float32`, with the existing Burg C-double stats rounded at the gain-control boundary.
 - `silk/noise_shape.go` no longer widens LF shaping Q14 pack rounding through `float64`; `LF_MA`/`LF_AR` now use the float32 round-to-even helper that mirrors `silk_float2int` on `silk_float` inputs.
 - `silk/pred_coefs.go` now keeps min inverse gain and the FindLPC min-gain boundary as `silk_float`/`float32`, uses float32 round-to-even for LPC Q12/Q16 fixed bridges, and routes final gain square-rooting through the float32 helper. `silk/noise_shape_analysis.go` also uses the same float32 helper for AR Q13 fixed-bridge rounding and shaping RMS square-rooting.
+- `silk/float_cast.go` no longer keeps a runtime `float64ToInt16Round` bridge; the oracle tests now exercise the shared `opusmath.Float32ToInt16Raw` helper directly.
 - `silk/encoder.go`: `scratchBurgAf`, `scratchBurgCFirstRow`, `scratchBurgCLastRow`, `scratchBurgCAf`, and `scratchBurgCAb` may remain `float64` only where they directly mirror `burg_modified_FLP.c` C `double` arrays. Add source comments/tests.
 - `silk/encoder.go`: FindLPC interpolation NLSF-to-LPC scratch now mirrors `silk_NLSF2A_FLP`: `scratchLpcAQ12` stores the fixed bridge coefficients and `scratchLpcATmp` stores the resulting `silk_float` coefficients as `float32`; the old `scratchNlsfCos`/`scratchNlsfP`/`scratchNlsfQ` float64 polynomial scratch was removed.
 - `silk/lpc_analysis.go`: remaining `ensureFloat64Slice` use must be justified function by function. A comment like "analysis buffer as float64" is not enough.
-- `silk/float_cast.go`: verify fixed/float conversion scratch and rounding against libopus source before keeping `float64`.
+- `silk/float_cast.go`: remaining runtime `float64` is the C-double helper surface used by Burg/LPC code; do not add new float/int conversion bridges here.
 
 ### Extension Scratch
 
