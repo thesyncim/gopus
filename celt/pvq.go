@@ -207,7 +207,7 @@ func (d *Decoder) decodePVQNormInto(band, n, k int, dst []celtNorm) {
 
 	// Convert index to pulse vector using CWRS with pre-allocated buffer
 	pulses := d.scratchBands.ensurePVQPulses(n)
-	decodePulsesInto(index, n, k, pulses, &d.scratchBands)
+	decodePulsesInto32(index, n, k, pulses, &d.scratchBands)
 
 	// Convert to float and normalize directly into dst
 	var energy opusVal16

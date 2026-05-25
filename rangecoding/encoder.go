@@ -9,13 +9,13 @@ type Encoder struct {
 	offs       uint32 // Current write offset
 	endOffs    uint32 // End offset for raw bits (writes from end)
 	endWindow  uint32 // Window for raw bits at end
-	nendBits   int    // Bits in end window
-	nbitsTotal int    // Total bits written (for tell functions)
+	nendBits   int32  // Bits in end window; libopus ec_ctx.nend_bits is C int.
+	nbitsTotal int32  // Total bits written; libopus ec_ctx.nbits_total is C int.
 	rng        uint32 // Range size
 	val        uint32 // Low end of range
-	rem        int    // Buffered byte for carry propagation (-1 = sentinel)
+	rem        int32  // Buffered byte for carry propagation; libopus ec_ctx.rem is C int.
 	ext        uint32 // Count of pending 0xFF bytes
-	err        int    // Error flag (non-zero on failure)
+	err        int32  // Error flag; libopus ec_ctx.error is C int.
 	shrunk     bool   // True if Shrink() was called (for CBR mode)
 }
 
@@ -101,7 +101,7 @@ func (e *Encoder) carryOut(c int) {
 
 		// Write the previously buffered byte plus carry (if any)
 		if e.rem >= 0 {
-			e.writeByte(byte(e.rem + carry))
+			e.writeByte(byte(int(e.rem) + carry))
 		}
 
 		// Write any pending 0xFF bytes, adjusted for carry
@@ -114,7 +114,7 @@ func (e *Encoder) carryOut(c int) {
 		}
 
 		// Buffer the new symbol (low 8 bits only)
-		e.rem = c & EC_SYM_MAX
+		e.rem = int32(c & EC_SYM_MAX)
 	} else {
 		// Symbol is 0xFF - can't flush yet because might need to carry
 		e.ext++
@@ -133,7 +133,7 @@ func (e *Encoder) normalize() {
 		// Shift out 8 bits
 		e.val = (e.val << EC_SYM_BITS) & (EC_CODE_TOP - 1)
 		e.rng <<= EC_SYM_BITS
-		e.nbitsTotal += EC_SYM_BITS
+		e.nbitsTotal += int32(EC_SYM_BITS)
 	}
 }
 
@@ -294,7 +294,7 @@ func (e *Encoder) Done() []byte {
 
 	// Flush any buffered raw bits as end bytes.
 	window := e.endWindow
-	used := e.nendBits
+	used := int(e.nendBits)
 	for used >= EC_SYM_BITS {
 		e.writeEndByte(byte(window & EC_SYM_MAX))
 		window >>= EC_SYM_BITS
@@ -381,7 +381,7 @@ func (e *Encoder) Done() []byte {
 
 // Tell returns the number of bits written so far.
 func (e *Encoder) Tell() int {
-	return e.nbitsTotal - int(ilog(e.rng))
+	return int(e.nbitsTotal) - int(ilog(e.rng))
 }
 
 // TellFrac returns the number of bits written with 1/8 bit precision.
@@ -389,7 +389,7 @@ func (e *Encoder) Tell() int {
 func (e *Encoder) TellFrac() int {
 	correction := [8]uint32{35733, 38967, 42495, 46340, 50535, 55109, 60097, 65535}
 
-	nbits := e.nbitsTotal << 3
+	nbits := int(e.nbitsTotal) << 3
 	l := int(ilog(e.rng))
 	r := e.rng >> (uint(l) - 16)
 	b := int((r >> 12) - 8)
@@ -422,7 +422,7 @@ func (e *Encoder) Val() uint32 {
 
 // Rem returns the stored remainder byte.
 func (e *Encoder) Rem() int {
-	return e.rem
+	return int(e.rem)
 }
 
 // StorageBits returns the total number of bits in the output buffer.
@@ -442,7 +442,7 @@ func (e *Encoder) Ext() uint32 {
 
 // Error returns the encoder error flag. Non-zero indicates an error.
 func (e *Encoder) Error() int {
-	return e.err
+	return int(e.err)
 }
 
 // EncoderState captures the encoder state for save/restore operations.
@@ -451,13 +451,13 @@ type EncoderState struct {
 	offs       uint32
 	endOffs    uint32
 	endWindow  uint32
-	nendBits   int
-	nbitsTotal int
+	nendBits   int32
+	nbitsTotal int32
 	rng        uint32
 	val        uint32
-	rem        int
+	rem        int32
 	ext        uint32
-	err        int
+	err        int32
 	// Buffer bytes are saved separately for restoration
 	bufFront []byte // bytes from [0, offs)
 	bufBack  []byte // bytes from [storage-endOffs, storage)
@@ -555,7 +555,7 @@ func (e *Encoder) PatchInitialBits(val uint32, nbits uint) {
 	if e.offs > 0 {
 		e.buf[0] = (e.buf[0] &^ byte(mask)) | byte(val<<shift)
 	} else if e.rem >= 0 {
-		e.rem = int((uint32(e.rem) &^ mask) | (val << shift))
+		e.rem = int32((uint32(e.rem) &^ mask) | (val << shift))
 	} else if e.rng <= (EC_CODE_TOP >> nbits) {
 		shiftedMask := mask << EC_CODE_SHIFT
 		e.val = (e.val &^ shiftedMask) | (val << (EC_CODE_SHIFT + shift))
@@ -612,7 +612,7 @@ func (e *Encoder) EncodeRawBits(val uint32, bits uint) {
 		return
 	}
 	window := e.endWindow
-	used := e.nendBits
+	used := int(e.nendBits)
 	if used+int(bits) > EC_WINDOW_SIZE {
 		for used >= EC_SYM_BITS {
 			e.writeEndByte(byte(window & EC_SYM_MAX))
@@ -623,8 +623,8 @@ func (e *Encoder) EncodeRawBits(val uint32, bits uint) {
 	window |= val << used
 	used += int(bits)
 	e.endWindow = window
-	e.nendBits = used
-	e.nbitsTotal += int(bits)
+	e.nendBits = int32(used)
+	e.nbitsTotal += int32(bits)
 }
 
 // writeEndByte writes a byte to the end of the buffer (growing backwards).

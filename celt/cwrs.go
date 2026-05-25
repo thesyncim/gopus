@@ -735,6 +735,39 @@ func cwrsi(n, k int, i uint32, y []int, u []uint32) uint32 {
 	return yy
 }
 
+func cwrsi32(n, k int, i uint32, y []int32, u []uint32) uint32 {
+	if n <= 0 || k <= 0 || len(y) < n || len(u) < k+2 {
+		return 0
+	}
+	j := 0
+	var yy uint32
+	for {
+		p := u[k+1]
+		sign := 0
+		if i >= p {
+			sign = -1
+			i -= p
+		}
+		yj := k
+		k = findLargestLEInU(u, k, i)
+		p = u[k]
+		i -= p
+		yj -= k
+		val := yj
+		if sign != 0 {
+			val = -yj
+		}
+		y[j] = int32(val)
+		yy += uint32(val * val)
+		uprev(u, k+2, 0)
+		j++
+		if j >= n {
+			break
+		}
+	}
+	return yy
+}
+
 func icwrs1(y int) (uint32, int) {
 	k := abs(y)
 	if y < 0 {
@@ -1034,48 +1067,14 @@ func decodePulsesInto32(index uint32, n, k int, y []int32, scratch *bandDecodeSc
 		y[1] = int32(y1)
 		return uint32(y0*y0 + y1*y1)
 	}
-	if k == 3 && canUseCWRSFast(n, k) {
-		return finishCWRSThreePulses32(y, n, index)
-	}
-	if canUseCWRSFast(n, k) {
-		if n == 3 {
-			return cwrsiFastCore32N3(k, index, y[:3:3])
-		}
-		if n == 8 {
-			return cwrsiFastCore32N8(k, index, y[:8:8])
-		}
-		if n == 4 {
-			return cwrsiFastCore32N4(k, index, y[:4:4])
-		}
-		if n == 5 {
-			return cwrsiFastCore32N5(k, index, y[:5:5])
-		}
-		if n == 6 {
-			return cwrsiFastCore32N6(k, index, y[:6:6])
-		}
-		if n == 9 {
-			return cwrsiFastCore32N9(k, index, y[:9:9])
-		}
-		if n == 11 {
-			return cwrsiFastCore32N11(k, index, y[:11:11])
-		}
-		if n == 12 {
-			return cwrsiFastCore32N12(k, index, y[:12:12])
-		}
-		return cwrsiFastCore32(n, k, index, y[:n:n])
-	}
-
-	var pulses []int
+	var u []uint32
 	if scratch != nil {
-		pulses = scratch.ensurePVQPulses(n)
+		u = scratch.ensureCWRSU(k + 2)
 	} else {
-		pulses = make([]int, n)
+		u = make([]uint32, k+2)
 	}
-	yy := decodePulsesInto(index, n, k, pulses, scratch)
-	for i, v := range pulses[:n] {
-		y[i] = int32(v)
-	}
-	return yy
+	ncwrsUrow(n, k, u)
+	return cwrsi32(n, k, index, y, u)
 }
 
 // EncodePulses converts a pulse vector to a CWRS index.

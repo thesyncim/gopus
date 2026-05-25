@@ -141,14 +141,15 @@ func computeQEXTCubicBits(ctx *bandCtx, extBudget, n, b, lm int) int {
 	return min(14, extraBits)
 }
 
-func cubicSynthesis(x []celtNorm, iy []int, n, k, face, sign int, gain opusVal16) {
+func cubicSynthesis(x []celtNorm, iy []int32, n, k, face, sign int, gain opusVal16) {
 	if n <= 0 || len(x) < n || len(iy) < n {
 		return
 	}
 
 	sum := float32(0)
+	k32 := int32(k)
 	for i := 0; i < n; i++ {
-		x[i] = celtNorm(1 + 2*iy[i] - k)
+		x[i] = celtNorm(1 + 2*iy[i] - k32)
 	}
 	if sign != 0 {
 		x[face] = celtNorm(-k)
@@ -184,11 +185,11 @@ func cubicQuant(x []celtNorm, n, res, B int, enc *rangecoding.Encoder, gain opus
 		return 0
 	}
 
-	var iy []int
+	var iy []int32
 	if scratch != nil {
-		iy = scratch.ensurePVQIy(n)
+		iy = scratch.ensureQEXTIy(n)
 	} else {
-		iy = make([]int, n)
+		iy = make([]int32, n)
 	}
 
 	face := 0
@@ -210,7 +211,7 @@ func cubicQuant(x []celtNorm, n, res, B int, enc *rangecoding.Encoder, gain opus
 
 	norm := float32(0.5) * float32(k) / (faceVal + pvqEPSILON)
 	for i := 0; i < n; i++ {
-		iy[i] = min(k-1, floor32ToInt((float32(x[i])+faceVal)*norm))
+		iy[i] = int32(min(k-1, floor32ToInt((float32(x[i])+faceVal)*norm)))
 		if i == face {
 			continue
 		}
@@ -237,11 +238,11 @@ func cubicUnquant(x []celtNorm, n, res, B int, dec *rangecoding.Decoder, gain op
 		return 0
 	}
 
-	var iy []int
+	var iy []int32
 	if scratch != nil {
 		iy = scratch.ensurePVQPulses(n)
 	} else {
-		iy = make([]int, n)
+		iy = make([]int32, n)
 	}
 
 	face := int(dec.DecodeUniform(uint32(n)))
@@ -250,7 +251,7 @@ func cubicUnquant(x []celtNorm, n, res, B int, dec *rangecoding.Decoder, gain op
 		if i == face {
 			continue
 		}
-		iy[i] = int(dec.DecodeRawBits(uint(res)))
+		iy[i] = int32(dec.DecodeRawBits(uint(res)))
 	}
 	iy[face] = 0
 	cubicSynthesis(x, iy, n, k, face, sign, gain)

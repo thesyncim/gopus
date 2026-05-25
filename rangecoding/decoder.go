@@ -12,13 +12,13 @@ type Decoder struct {
 	offs       uint32 // Current read offset
 	endOffs    uint32 // End offset for raw bits
 	endWindow  uint32 // Window for raw bits at end
-	nendBits   int    // Number of valid bits in end window
-	nbitsTotal int    // Total bits read (for tell functions)
+	nendBits   int32  // Number of valid bits in end window; libopus ec_ctx.nend_bits is C int.
+	nbitsTotal int32  // Total bits read; libopus ec_ctx.nbits_total is C int.
 	rng        uint32 // Range size (must stay > EC_CODE_BOT after normalize)
 	val        uint32 // Current value in range
 	ext        uint32 // Saved normalization factor from decode()
-	rem        uint32 // Buffered partial byte
-	err        int    // Error flag
+	rem        int32  // Buffered partial byte; libopus ec_ctx.rem is C int.
+	err        int32  // Error flag; libopus ec_ctx.error is C int.
 }
 
 // Init initializes the decoder with the given byte buffer.
@@ -36,13 +36,13 @@ func (d *Decoder) Init(buf []byte) {
 	d.rng = 1 << EC_CODE_EXTRA
 
 	// Read first byte and compute initial value
-	d.rem = uint32(d.readByte())
+	d.rem = int32(d.readByte())
 	d.val = d.rng - 1 - uint32(d.rem>>(EC_SYM_BITS-EC_CODE_EXTRA))
 
 	// Set initial bit count BEFORE normalize (matches libopus ec_dec_init).
 	// This compensates for bits that will be added in normalize().
-	d.nbitsTotal = EC_CODE_BITS + 1 -
-		((EC_CODE_BITS-EC_CODE_EXTRA)/EC_SYM_BITS)*EC_SYM_BITS
+	d.nbitsTotal = int32(EC_CODE_BITS + 1 -
+		((EC_CODE_BITS-EC_CODE_EXTRA)/EC_SYM_BITS)*EC_SYM_BITS)
 	d.ext = 0
 
 	// Normalize to fill the range (this will add more bits to nbitsTotal)
@@ -69,13 +69,13 @@ func (d *Decoder) readByte() byte {
 //go:nosplit
 func (d *Decoder) normalize() {
 	for d.rng <= EC_CODE_BOT {
-		d.nbitsTotal += EC_SYM_BITS
+		d.nbitsTotal += int32(EC_SYM_BITS)
 		d.rng <<= EC_SYM_BITS
 
 		// Combine previous remainder with new byte
-		sym := d.rem
-		d.rem = uint32(d.readByte())
-		sym = (sym<<EC_SYM_BITS | d.rem) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+		sym := uint32(d.rem)
+		d.rem = int32(d.readByte())
+		sym = (sym<<EC_SYM_BITS | uint32(d.rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
 
 		// Update val: shift in new bits, mask to valid range
 		d.val = ((d.val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
@@ -412,14 +412,14 @@ func (d *Decoder) DecodeICDF2_8(icdf0 uint8) int {
 		nbitsTotal += EC_SYM_BITS
 		rng <<= EC_SYM_BITS
 
-		sym := rem
+		sym := uint32(rem)
 		if int(offs) < len(buf) {
-			rem = uint32(buf[offs])
+			rem = int32(buf[offs])
 			offs++
 		} else {
 			rem = 0
 		}
-		sym = (sym<<EC_SYM_BITS | rem) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+		sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
 		val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
 		if rng > EC_CODE_BOT {
 			break
@@ -472,14 +472,14 @@ func (d *Decoder) DecodeICDF3_8(icdf0, icdf1 uint8) int {
 		nbitsTotal += EC_SYM_BITS
 		rng <<= EC_SYM_BITS
 
-		sym := rem
+		sym := uint32(rem)
 		if int(offs) < len(buf) {
-			rem = uint32(buf[offs])
+			rem = int32(buf[offs])
 			offs++
 		} else {
 			rem = 0
 		}
-		sym = (sym<<EC_SYM_BITS | rem) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+		sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
 		val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
 		if rng > EC_CODE_BOT {
 			break
@@ -540,14 +540,14 @@ func (d *Decoder) DecodeICDF4_8(icdf0, icdf1, icdf2 uint8) int {
 		nbitsTotal += EC_SYM_BITS
 		rng <<= EC_SYM_BITS
 
-		sym := rem
+		sym := uint32(rem)
 		if int(offs) < len(buf) {
-			rem = uint32(buf[offs])
+			rem = int32(buf[offs])
 			offs++
 		} else {
 			rem = 0
 		}
-		sym = (sym<<EC_SYM_BITS | rem) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+		sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
 		val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
 		if rng > EC_CODE_BOT {
 			break
@@ -616,14 +616,14 @@ func (d *Decoder) DecodeICDF5_8(icdf0, icdf1, icdf2, icdf3 uint8) int {
 		nbitsTotal += EC_SYM_BITS
 		rng <<= EC_SYM_BITS
 
-		sym := rem
+		sym := uint32(rem)
 		if int(offs) < len(buf) {
-			rem = uint32(buf[offs])
+			rem = int32(buf[offs])
 			offs++
 		} else {
 			rem = 0
 		}
-		sym = (sym<<EC_SYM_BITS | rem) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+		sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
 		val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
 		if rng > EC_CODE_BOT {
 			break
@@ -820,14 +820,14 @@ func (d *Decoder) DecodeICDF2_8SignBlock16(icdf0 uint8, block *[16]int16, pulseS
 				nbitsTotal += EC_SYM_BITS
 				rng <<= EC_SYM_BITS
 
-				sym := rem
+				sym := uint32(rem)
 				if int(offs) < len(buf) {
-					rem = uint32(buf[offs])
+					rem = int32(buf[offs])
 					offs++
 				} else {
 					rem = 0
 				}
-				sym = (sym<<EC_SYM_BITS | rem) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+				sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
 				val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
 			}
 			if remaining > 0 {
@@ -852,14 +852,14 @@ func (d *Decoder) DecodeICDF2_8SignBlock16(icdf0 uint8, block *[16]int16, pulseS
 				nbitsTotal += EC_SYM_BITS
 				rng <<= EC_SYM_BITS
 
-				sym := rem
+				sym := uint32(rem)
 				if int(offs) < len(buf) {
-					rem = uint32(buf[offs])
+					rem = int32(buf[offs])
 					offs++
 				} else {
 					rem = 0
 				}
-				sym = (sym<<EC_SYM_BITS | rem) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+				sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
 				val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
 			}
 			if remaining > 0 {
@@ -884,14 +884,14 @@ func (d *Decoder) DecodeICDF2_8SignBlock16(icdf0 uint8, block *[16]int16, pulseS
 				nbitsTotal += EC_SYM_BITS
 				rng <<= EC_SYM_BITS
 
-				sym := rem
+				sym := uint32(rem)
 				if int(offs) < len(buf) {
-					rem = uint32(buf[offs])
+					rem = int32(buf[offs])
 					offs++
 				} else {
 					rem = 0
 				}
-				sym = (sym<<EC_SYM_BITS | rem) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+				sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
 				val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
 			}
 			if remaining > 0 {
@@ -916,14 +916,14 @@ func (d *Decoder) DecodeICDF2_8SignBlock16(icdf0 uint8, block *[16]int16, pulseS
 				nbitsTotal += EC_SYM_BITS
 				rng <<= EC_SYM_BITS
 
-				sym := rem
+				sym := uint32(rem)
 				if int(offs) < len(buf) {
-					rem = uint32(buf[offs])
+					rem = int32(buf[offs])
 					offs++
 				} else {
 					rem = 0
 				}
-				sym = (sym<<EC_SYM_BITS | rem) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+				sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
 				val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
 			}
 			if remaining > 0 {
@@ -1035,13 +1035,13 @@ func (d *Decoder) DecodeBit(logp uint) int {
 
 // Tell returns the number of bits consumed so far.
 func (d *Decoder) Tell() int {
-	return d.nbitsTotal - ilog(d.rng)
+	return int(d.nbitsTotal) - ilog(d.rng)
 }
 
 // TellFrac returns the number of bits consumed with 1/8 bit precision.
 // The value is in 1/8 bits, so divide by 8 to compare with Tell().
 func (d *Decoder) TellFrac() int {
-	nbits := d.nbitsTotal << 3
+	nbits := int(d.nbitsTotal) << 3
 	l := ilog(d.rng)
 	r := d.rng >> (l - 16)
 	b := int((r >> 12) - 8)
@@ -1065,7 +1065,7 @@ func ilog(x uint32) int {
 
 // Error returns the error flag. Non-zero indicates a decoding error.
 func (d *Decoder) Error() int {
-	return d.err
+	return int(d.err)
 }
 
 // BytesUsed returns the number of bytes consumed from the buffer.
@@ -1163,14 +1163,14 @@ func (d *Decoder) DecodeUniform(ft uint32) uint32 {
 				nbitsTotal += EC_SYM_BITS
 				rng <<= EC_SYM_BITS
 
-				sym := rem
+				sym := uint32(rem)
 				if int(offs) < len(buf) {
-					rem = uint32(buf[offs])
+					rem = int32(buf[offs])
 					offs++
 				} else {
 					rem = 0
 				}
-				sym = (sym<<EC_SYM_BITS | rem) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+				sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
 				val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
 				if rng > EC_CODE_BOT {
 					break
@@ -1186,7 +1186,7 @@ func (d *Decoder) DecodeUniform(ft uint32) uint32 {
 		rawBits := uint(ftb)
 		endWindow := d.endWindow
 		endOffs := d.endOffs
-		nendBits := d.nendBits
+		nendBits := int(d.nendBits)
 		storage := d.storage
 		buf := d.buf
 		for nendBits < ftb {
@@ -1201,8 +1201,8 @@ func (d *Decoder) DecodeUniform(ft uint32) uint32 {
 		raw := endWindow & ((1 << rawBits) - 1)
 		d.endWindow = endWindow >> rawBits
 		d.endOffs = endOffs
-		d.nendBits = nendBits - ftb
-		d.nbitsTotal += ftb
+		d.nendBits = int32(nendBits - ftb)
+		d.nbitsTotal += int32(ftb)
 
 		t := (ret << rawBits) | raw
 		if t <= ft {
@@ -1241,14 +1241,14 @@ func (d *Decoder) DecodeUniform(ft uint32) uint32 {
 		nbitsTotal += EC_SYM_BITS
 		rng <<= EC_SYM_BITS
 
-		sym := rem
+		sym := uint32(rem)
 		if int(offs) < len(buf) {
-			rem = uint32(buf[offs])
+			rem = int32(buf[offs])
 			offs++
 		} else {
 			rem = 0
 		}
-		sym = (sym<<EC_SYM_BITS | rem) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+		sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
 		val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
 		if rng > EC_CODE_BOT {
 			break
@@ -1298,14 +1298,14 @@ func (d *Decoder) DecodeUniformSmall(ft uint32) uint32 {
 		nbitsTotal += EC_SYM_BITS
 		rng <<= EC_SYM_BITS
 
-		sym := rem
+		sym := uint32(rem)
 		if int(offs) < len(buf) {
-			rem = uint32(buf[offs])
+			rem = int32(buf[offs])
 			offs++
 		} else {
 			rem = 0
 		}
-		sym = (sym<<EC_SYM_BITS | rem) >> (EC_SYM_BITS - EC_CODE_EXTRA)
+		sym = (sym<<EC_SYM_BITS | uint32(rem)) >> (EC_SYM_BITS - EC_CODE_EXTRA)
 		val = ((val << EC_SYM_BITS) + (EC_SYM_MAX &^ sym)) & (EC_CODE_TOP - 1)
 		if rng > EC_CODE_BOT {
 			break
@@ -1398,7 +1398,7 @@ func (d *Decoder) DecodeRawBits(bits uint) uint32 {
 
 	endWindow := d.endWindow
 	endOffs := d.endOffs
-	nendBits := d.nendBits
+	nendBits := int(d.nendBits)
 	storage := d.storage
 	buf := d.buf
 
@@ -1415,8 +1415,8 @@ func (d *Decoder) DecodeRawBits(bits uint) uint32 {
 	val := endWindow & ((1 << bits) - 1)
 	d.endWindow = endWindow >> bits
 	d.endOffs = endOffs
-	d.nendBits = nendBits - int(bits)
-	d.nbitsTotal += int(bits)
+	d.nendBits = int32(nendBits - int(bits))
+	d.nbitsTotal += int32(bits)
 
 	return val
 }

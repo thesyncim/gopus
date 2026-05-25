@@ -1405,12 +1405,7 @@ func algUnquantNoExtInto(shape []celtNorm, rd *rangecoding.Decoder, n, k, spread
 		idx = rd.DecodeUniform(vSize)
 	}
 
-	var pulses []int
-	if scratch != nil {
-		pulses = scratch.ensurePVQPulses(n)
-	} else {
-		pulses = make([]int, n)
-	}
+	pulses := make([]int, n)
 	yy := opusVal16(decodePulsesInto(idx, n, k, pulses, scratch))
 	var norm []celtNorm
 	if scratch != nil {
@@ -1455,12 +1450,7 @@ func algUnquantInto(shape []celtNorm, rd *rangecoding.Decoder, band, n, k, sprea
 		idx = rd.DecodeUniform(vSize)
 	}
 
-	var pulses []int
-	if scratch != nil {
-		pulses = scratch.ensurePVQPulses(n)
-	} else {
-		pulses = make([]int, n)
-	}
+	pulses := make([]int, n)
 	decodePulsesInto(idx, n, k, pulses, scratch)
 	var yy opusVal16
 	up := (1 << extraBits) - 1
@@ -1498,12 +1488,7 @@ func algUnquantInto(shape []celtNorm, rd *rangecoding.Decoder, band, n, k, sprea
 		yy1 := float32(pulses[1]) * float32(pulses[1])
 		yy = opusVal16(yy0 + yy1)
 	} else {
-		var refine []int
-		if scratch != nil {
-			refine = scratch.ensurePVQRefine(n)
-		} else {
-			refine = make([]int, n)
-		}
+		refine := make([]int, n)
 		useEntropy := (extDec.StorageBits() - extDec.Tell()) > (n-1)*(extraBits+3)+1
 		for i := 0; i < n-1; i++ {
 			refine[i] = ecDecRefine(extDec, up, extraBits, useEntropy)

@@ -14,6 +14,18 @@ func ensureIntSlice(buf *[]int, n int) []int {
 	return *buf
 }
 
+func ensureInt32Slice(buf *[]int32, n int) []int32 {
+	if n < 0 {
+		n = 0
+	}
+	if cap(*buf) < n {
+		*buf = make([]int32, n)
+	} else {
+		*buf = (*buf)[:n]
+	}
+	return *buf
+}
+
 func ensureByteSlice(buf *[]byte, n int) []byte {
 	if n < 0 {
 		n = 0
@@ -94,8 +106,8 @@ type bandDecodeScratch struct {
 	bandStorageR [MaxBands][]celtNorm // Right channel band storage
 
 	// Scratch buffers for PVQ/folding operations
-	pvqPulses  []int // Pulse vector from CWRS decode
-	pvqRefine  []int // QEXT PVQ refinement values
+	pvqPulses  []int32 // Pulse vector from CWRS decode; libopus uses C int.
+	pvqRefine  []int32 // QEXT PVQ refinement values; libopus uses C int.
 	pvqNorm    []celtNorm
 	pvqNorm32  []celtNorm
 	foldResult []celtNorm
@@ -137,6 +149,7 @@ type bandEncodeScratch struct {
 	pvqAbsX  []float32
 	pvqX     []celtNorm
 	pvqIy    []int
+	qextIy   []int32 // QEXT cubic pulse scratch; libopus uses C int.
 
 	// CWRS scratch
 	cwrsU []uint32
@@ -214,6 +227,10 @@ func (s *bandEncodeScratch) ensureQuantWork(n int) []celtNorm {
 // PVQ and QEXT cubic helpers.
 func (s *bandEncodeScratch) ensurePVQIy(n int) []int {
 	return ensureIntSlice(&s.pvqIy, n)
+}
+
+func (s *bandEncodeScratch) ensureQEXTIy(n int) []int32 {
+	return ensureInt32Slice(&s.qextIy, n)
 }
 
 // maxBandWidth is the maximum width of any single band (band 20 at LM=3 = 176 bins).
@@ -295,13 +312,13 @@ func (s *bandDecodeScratch) getBandStorageR(band, n int) []celtNorm {
 }
 
 // ensurePVQPulses returns a pre-allocated buffer for PVQ pulse vector.
-func (s *bandDecodeScratch) ensurePVQPulses(n int) []int {
-	return ensureIntSlice(&s.pvqPulses, n)
+func (s *bandDecodeScratch) ensurePVQPulses(n int) []int32 {
+	return ensureInt32Slice(&s.pvqPulses, n)
 }
 
 // ensurePVQRefine returns a pre-allocated buffer for QEXT PVQ refinement values.
-func (s *bandDecodeScratch) ensurePVQRefine(n int) []int {
-	return ensureIntSlice(&s.pvqRefine, n)
+func (s *bandDecodeScratch) ensurePVQRefine(n int) []int32 {
+	return ensureInt32Slice(&s.pvqRefine, n)
 }
 
 // ensurePVQNorm returns a pre-allocated buffer for normalized vector.

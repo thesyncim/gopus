@@ -3,6 +3,7 @@ package celt
 import (
 	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/plc"
+	"github.com/thesyncim/gopus/rangecoding"
 )
 
 // NewDecoder creates a new CELT decoder with the given number of channels.
@@ -134,7 +135,10 @@ func (d *Decoder) Reset() {
 	d.plcSkip = true
 	d.plcLastFrameType = frameNone
 	d.rangeDecoder = nil
+	d.rangeDecoderScratch = rangecoding.Decoder{}
 	d.directOutPCM = nil
+	d.decoderQEXTFields = decoderQEXTFields{}
+	d.decoderDREDState = decoderDREDState{}
 	d.rng = 0
 	d.prevStreamChannels = 0
 	d.postfilterMemFromPLC = false
@@ -168,77 +172,119 @@ func (d *Decoder) Reset() {
 }
 
 func (d *Decoder) clearDecoderScratchForReset() {
-	clear(d.scratchPrevEnergy)
-	clear(d.scratchPrevEnergyGLog)
-	clear(d.scratchEnergies)
-	clear(d.scratchTFRes)
-	clear(d.scratchOffsets)
-	clear(d.scratchPulses)
-	clear(d.scratchFineQuant)
-	clear(d.scratchFinePriority)
-	clear(d.scratchPrevBandEnergy)
-	clear(d.scratchSilenceE)
-	clear(d.scratchCaps)
-	clear(d.scratchAllocWork)
+	clearGLogCap(d.scratchPrevEnergy)
+	clearGLogCap(d.scratchPrevEnergyGLog)
+	clearGLogCap(d.scratchEnergies)
+	clearIntCap(d.scratchTFRes)
+	clearIntCap(d.scratchOffsets)
+	clearIntCap(d.scratchPulses)
+	clearIntCap(d.scratchFineQuant)
+	clearIntCap(d.scratchFinePriority)
+	clearFloat32Cap(d.scratchPrevBandEnergy)
+	clearGLogCap(d.scratchSilenceE)
+	clearIntCap(d.scratchCaps)
+	clearIntCap(d.scratchAllocWork)
 	d.scratchBands.clearForReset()
 	d.scratchIMDCTF32.clearForReset()
 	d.scratchIMDCTF32R.clearForReset()
-	clear(d.scratchSynthF32)
-	clear(d.scratchSynthRF32)
-	clear(d.scratchStereoF32)
-	clear(d.scratchShortCoeffsF32)
-	clear(d.scratchMonoToStereoRF32)
-	clear(d.scratchMonoMixF32)
-	clear(d.postfilterScratchF32)
-	clear(d.scratchPLC)
-	clear(d.scratchPLCF32)
-	clear(d.scratchPLCPitchLP)
+	clearFloat32Cap(d.scratchSynthF32)
+	clearFloat32Cap(d.scratchSynthRF32)
+	clearFloat32Cap(d.scratchSpecRF32)
+	clearFloat32Cap(d.scratchStereoF32)
+	clearFloat32Cap(d.scratchShortCoeffsF32)
+	clearFloat32Cap(d.scratchMonoToStereoRF32)
+	clearFloat32Cap(d.scratchMonoMixF32)
+	clearFloat32Cap(d.postfilterScratchF32)
+	clearFloat32Cap(d.postfilterWindowSqF32)
+	clearFloat32Cap(d.scratchPLC)
+	clearFloat32Cap(d.scratchPLCF32)
+	clearFloat32Cap(d.scratchPLCPitchLP)
 	d.scratchPLCPitchSearch.clearForReset()
-	clear(d.scratchPLCFIRTmp)
-	clear(d.scratchPLCWindowed)
-	clear(d.scratchPLCIIRY)
-	clear(d.scratchPLCBuf)
-	clear(d.scratchPLCExc)
-	clear(d.scratchPLCFoldSrc)
-	clear(d.scratchPLCFoldDst)
-	clear(d.scratchPLCHybridNormL)
-	clear(d.scratchPLCHybridNormR)
+	clearSigCap(d.scratchPLCFIRTmp)
+	clearSigCap(d.scratchPLCWindowed)
+	clearFloat32Cap(d.scratchPLCIIRY)
+	clearSigCap(d.scratchPLCBuf)
+	clearSigCap(d.scratchPLCExc)
+	clearSigCap(d.scratchPLCFoldSrc)
+	clearSigCap(d.scratchPLCFoldDst)
+	clearNormCap(d.scratchPLCHybridNormL)
+	clearNormCap(d.scratchPLCHybridNormR)
 }
 
 func (s *bandDecodeScratch) clearForReset() {
-	clear(s.left)
-	clear(s.right)
-	clear(s.collapse)
-	clear(s.norm)
-	clear(s.lowband)
-	clear(s.coeffs)
+	clearNormCap(s.left)
+	clearNormCap(s.right)
+	clearByteCap(s.collapse)
+	clearNormCap(s.norm)
+	clearNormCap(s.lowband)
+	clearNormCap(s.coeffs)
 	clear(s.bandVectors)
 	clear(s.bandVectorsL)
 	clear(s.bandVectorsR)
 	for i := range s.bandStorage {
-		clear(s.bandStorage[i])
-		clear(s.bandStorageL[i])
-		clear(s.bandStorageR[i])
+		clearNormCap(s.bandStorage[i])
+		clearNormCap(s.bandStorageL[i])
+		clearNormCap(s.bandStorageR[i])
 	}
-	clear(s.pvqPulses)
-	clear(s.pvqRefine)
-	clear(s.pvqNorm)
-	clear(s.pvqNorm32)
-	clear(s.foldResult)
-	clear(s.cwrsU)
-	clear(s.hadamardTmpNorm)
-	clear(s.quantWork)
+	clearInt32Cap(s.pvqPulses)
+	clearInt32Cap(s.pvqRefine)
+	clearNormCap(s.pvqNorm)
+	clearNormCap(s.pvqNorm32)
+	clearNormCap(s.foldResult)
+	clearUint32Cap(s.cwrsU)
+	clearNormCap(s.hadamardTmpNorm)
+	clearNormCap(s.quantWork)
 }
 
 func (s *imdctScratchF32) clearForReset() {
-	clear(s.fftIn)
-	clear(s.fftTmp)
-	clear(s.buf)
-	clear(s.out)
+	clearComplex64Cap(s.fftIn)
+	clearKissCpxCap(s.fftTmp)
+	clearFloat32Cap(s.buf)
+	clearFloat32Cap(s.out)
 }
 
 func (s *plcPitchSearchScratch) clearForReset() {
-	clear(s.xLP4)
-	clear(s.yLP4)
-	clear(s.xcorr)
+	clearFloat32Cap(s.xLP4)
+	clearFloat32Cap(s.yLP4)
+	clearFloat32Cap(s.xcorr)
+}
+
+func clearFloat32Cap(s []float32) {
+	clear(s[:cap(s)])
+}
+
+func clearGLogCap(s []celtGLog) {
+	clear(s[:cap(s)])
+}
+
+func clearSigCap(s []celtSig) {
+	clear(s[:cap(s)])
+}
+
+func clearNormCap(s []celtNorm) {
+	clear(s[:cap(s)])
+}
+
+func clearIntCap(s []int) {
+	clear(s[:cap(s)])
+}
+
+func clearInt32Cap(s []int32) {
+	clear(s[:cap(s)])
+}
+
+func clearByteCap(s []byte) {
+	clear(s[:cap(s)])
+}
+
+func clearUint32Cap(s []uint32) {
+	clear(s[:cap(s)])
+}
+
+func clearComplex64Cap(s []complex64) {
+	clear(s[:cap(s)])
+}
+
+func clearKissCpxCap(s []kissCpx) {
+	clear(s[:cap(s)])
 }
