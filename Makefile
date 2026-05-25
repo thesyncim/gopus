@@ -430,20 +430,15 @@ fixtures-gen-linux-amd64: docker-build-exhaustive
 		-e LIBOPUS_VERSION=$(LIBOPUS_VERSION) \
 		$(DOCKER_IMAGE) \
 		bash -c "make ensure-libopus && \
-			GOPUS_DECODER_MATRIX_FIXTURE_OUT=testvectors/testdata/libopus_decoder_matrix_fixture_linux_amd64.json go run tools/gen_libopus_decoder_matrix_fixture.go && \
-			GOPUS_DECODER_LOSS_FIXTURE_OUT=testvectors/testdata/libopus_decoder_loss_fixture_linux_amd64.json go run tools/gen_libopus_decoder_loss_fixture.go && \
-			GOPUS_ENCODER_PACKETS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_packets_fixture_linux_amd64.json go run tools/gen_libopus_encoder_packet_fixture.go && \
-			GOPUS_ENCODER_VARIANTS_FIXTURE_OUT=testvectors/testdata/encoder_compliance_libopus_variants_fixture_linux_amd64.json go run tools/gen_libopus_encoder_variants_fixture.go && \
-			GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT=celt/testdata/opusdec_crossval_fixture_linux_amd64.json go run tools/gen_opusdec_crossval_fixture.go && \
-			for path in \
-				testvectors/testdata/libopus_decoder_matrix_fixture_linux_amd64.json \
-				testvectors/testdata/libopus_decoder_loss_fixture_linux_amd64.json \
-				testvectors/testdata/encoder_compliance_libopus_packets_fixture_linux_amd64.json \
-				testvectors/testdata/encoder_compliance_libopus_variants_fixture_linux_amd64.json \
-				celt/testdata/opusdec_crossval_fixture_linux_amd64.json; do \
-				test -s \$$path || { echo missing generated linux/amd64 fixture: \$$path >&2; exit 1; }; \
-			done && \
-			go test ./celt -run 'TestOpusdecCrossvalFixtureCoverage|TestOpusdecCrossvalFixtureMatrix|TestOpusdecCrossvalPlatformFixturePath' -count=1"
+			make fixtures-gen-platform && \
+			GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+				go test -tags gopus_libopus_oracle ./testvectors \
+					-run '^(TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture)$$' \
+					-count=1 -timeout=10m && \
+			GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=exhaustive GOPUS_STRICT_LIBOPUS_REF=1 \
+				go test -tags gopus_libopus_oracle ./testvectors \
+					-run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderVariantsFixtureHonestyWithOpusDemo)$$' \
+					-count=1 -timeout=20m"
 
 # Build with profile-guided optimization.
 build:
