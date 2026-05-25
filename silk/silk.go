@@ -954,7 +954,7 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	hookLagPrev := 0
 	usedDeepPLCHook := false
 	if state := d.ensureSILKPLCState(0); state != nil && d.state[0].nbSubfr > 0 {
-		concealedQ0 := plc.ConcealSILKWithLTP(d, state, lossCnt, nativeSamples)
+		concealedQ0 := plc.ConcealSILKWithLTP(d, state, int(lossCnt), nativeSamples)
 		if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
 			concealed = d.scratchOutput[:nativeSamples]
 		} else {
@@ -1116,7 +1116,7 @@ func (d *Decoder) applyDeepPLCHistoryMono(st *decoderState, concealed []float32)
 	if st == nil || len(concealed) == 0 {
 		return
 	}
-	order := st.lpcOrder
+	order := int(st.lpcOrder)
 	if order <= 0 {
 		return
 	}
@@ -1157,7 +1157,7 @@ func (d *Decoder) ApplyDeepPLCLossMono(concealed, rendered []float32, lagPrev in
 	var plcLagPrev int
 	if plcState := d.ensureSILKPLCState(0); plcState != nil && st.nbSubfr > 0 {
 		if view := d.plcDecoderView(0); view != nil {
-			_ = plc.ConcealSILKWithLTP(view, plcState, max(0, st.lossCnt), len(concealed))
+			_ = plc.ConcealSILKWithLTP(view, plcState, int(max(0, st.lossCnt)), len(concealed))
 			plcLagPrev = int((plcState.PitchLQ8 + 128) >> 8)
 		}
 	}
@@ -1184,7 +1184,7 @@ func (d *Decoder) syncLegacyPLCState(st *decoderState, recent []int16) {
 	}
 
 	if st.lpcOrder > 0 {
-		d.lpcOrder = st.lpcOrder
+		d.lpcOrder = int(st.lpcOrder)
 	}
 	d.isPreviousFrameVoiced = int(st.indices.signalType) == typeVoiced
 
@@ -1245,7 +1245,7 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	usedDeepPLCHook := false
 	hookLagPrev := 0
 	if midState != nil && midView != nil && d.state[0].nbSubfr > 0 {
-		midQ0 := plc.ConcealSILKWithLTP(midView, midState, lossCnt, nativeSamples)
+		midQ0 := plc.ConcealSILKWithLTP(midView, midState, int(lossCnt), nativeSamples)
 		scale := float32(1.0 / 32768.0)
 		for i := 0; i < nativeSamples && i < len(midQ0); i++ {
 			mid[i] = float32(midQ0[i]) * scale
@@ -1276,7 +1276,7 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 		d.state[0].lagPrev = int32(hookLagPrev)
 	}
 	if hasSide && sideState != nil && sideView != nil && d.state[1].nbSubfr > 0 {
-		sideQ0 := plc.ConcealSILKWithLTP(sideView, sideState, lossCnt, nativeSamples)
+		sideQ0 := plc.ConcealSILKWithLTP(sideView, sideState, int(lossCnt), nativeSamples)
 		scale := float32(1.0 / 32768.0)
 		for i := 0; i < nativeSamples && i < len(sideQ0); i++ {
 			side[i] = float32(sideQ0[i]) * scale

@@ -3,10 +3,10 @@ package silk
 import "github.com/thesyncim/gopus/rangecoding"
 
 func silkDecoderSetFs(st *decoderState, fsKHz int) {
-	st.subfrLength = subFrameLengthMs * fsKHz
+	st.subfrLength = int32(subFrameLengthMs * fsKHz)
 	frameLength := st.nbSubfr * st.subfrLength
 
-	if st.fsKHz != fsKHz || frameLength != st.frameLength {
+	if st.fsKHz != int32(fsKHz) || frameLength != st.frameLength {
 		if fsKHz == 8 {
 			if st.nbSubfr == maxNbSubfr {
 				st.pitchContourICDF = silk_pitch_contour_NB_iCDF
@@ -21,8 +21,8 @@ func silkDecoderSetFs(st *decoderState, fsKHz int) {
 			}
 		}
 
-		if st.fsKHz != fsKHz {
-			st.ltpMemLength = ltpMemLengthMs * fsKHz
+		if st.fsKHz != int32(fsKHz) {
+			st.ltpMemLength = int32(ltpMemLengthMs * fsKHz)
 			if fsKHz == 8 || fsKHz == 12 {
 				st.lpcOrder = minLPCOrder
 				st.nlsfCB = &silk_NLSF_CB_NB_MB
@@ -53,7 +53,7 @@ func silkDecoderSetFs(st *decoderState, fsKHz int) {
 			// NLSF interpolation, so the previous NLSF values aren't used anyway.
 		}
 
-		st.fsKHz = fsKHz
+		st.fsKHz = int32(fsKHz)
 		st.frameLength = frameLength
 	}
 }
@@ -76,7 +76,7 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 		st.indices.GainsIndices[0] = int8((msb << 3) + lsb)
 	}
 
-	for i := 1; i < st.nbSubfr; i++ {
+	for i := 1; i < int(st.nbSubfr); i++ {
 		st.indices.GainsIndices[i] = int8(rd.DecodeICDF8Linear(silk_delta_gain_iCDF))
 	}
 
@@ -122,15 +122,15 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 			deltaLag := rd.DecodeICDF8Linear(silk_pitch_delta_iCDF)
 			if deltaLag > 0 {
 				deltaLag -= 9
-				st.indices.lagIndex = int16(st.ecPrevLagIndex + deltaLag)
+				st.indices.lagIndex = int16(st.ecPrevLagIndex + int32(deltaLag))
 				decodeAbsolute = false
 			}
 		}
 		if decodeAbsolute {
-			st.indices.lagIndex = int16(rd.DecodeICDF8Linear(silk_pitch_lag_iCDF) * (st.fsKHz >> 1))
+			st.indices.lagIndex = int16(int32(rd.DecodeICDF8Linear(silk_pitch_lag_iCDF)) * (st.fsKHz >> 1))
 			st.indices.lagIndex += int16(rd.DecodeICDF8Unchecked(st.pitchLagLowBitsICDF))
 		}
-		st.ecPrevLagIndex = int(st.indices.lagIndex)
+		st.ecPrevLagIndex = int32(st.indices.lagIndex)
 		if len(st.pitchContourICDF) > 8 {
 			st.indices.contourIndex = int8(rd.DecodeICDF8Linear(st.pitchContourICDF))
 		} else {
@@ -138,7 +138,7 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 		}
 
 		st.indices.PERIndex = int8(rd.DecodeICDF8Unchecked(silk_LTP_per_index_iCDF))
-		for k := 0; k < st.nbSubfr; k++ {
+		for k := 0; k < int(st.nbSubfr); k++ {
 			ltpICDF := silk_LTP_gain_iCDF_ptrs[int(st.indices.PERIndex)]
 			if st.indices.PERIndex == 0 {
 				st.indices.LTPIndex[k] = int8(rd.DecodeICDF8Unchecked(ltpICDF))
@@ -152,7 +152,7 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 			st.indices.LTPScaleIndex = 0
 		}
 	}
-	st.ecPrevSignalType = int(st.indices.signalType)
+	st.ecPrevSignalType = int32(st.indices.signalType)
 
 	st.indices.Seed = int8(rd.DecodeICDF8Unchecked(silk_uniform4_iCDF))
 }
@@ -344,14 +344,16 @@ func silkBwExpander(ar []int16, chirpQ16 int32) {
 }
 
 func silkDecodeParameters(st *decoderState, ctrl *decoderControl, condCoding int) {
-	silkGainsDequant(&ctrl.GainsQ16, &st.indices.GainsIndices, &st.lastGainIndex, condCoding == codeConditionally, st.nbSubfr)
+	nbSubfr := int(st.nbSubfr)
+	lpcOrder := int(st.lpcOrder)
+	silkGainsDequant(&ctrl.GainsQ16, &st.indices.GainsIndices, &st.lastGainIndex, condCoding == codeConditionally, nbSubfr)
 
 	var nlsfQ15 [maxLPCOrder]int16
 	silkNLSFDecode(nlsfQ15[:], st.indices.NLSFIndices[:], st.nlsfCB)
 
-	if !silkNLSF2A(ctrl.PredCoefQ12[1][:st.lpcOrder], nlsfQ15[:st.lpcOrder], st.lpcOrder) {
-		lpc1 := lsfToLPCDirect(nlsfQ15[:st.lpcOrder])
-		copy(ctrl.PredCoefQ12[1][:], lpc1)
+	if !silkNLSF2A(ctrl.PredCoefQ12[1][:lpcOrder], nlsfQ15[:lpcOrder], lpcOrder) {
+		lpc1 := lsfToLPCDirect(nlsfQ15[:lpcOrder])
+		copy(ctrl.PredCoefQ12[1][:], lpc1[:lpcOrder])
 	}
 
 	if st.firstFrameAfterReset {
@@ -359,13 +361,13 @@ func silkDecodeParameters(st *decoderState, ctrl *decoderControl, condCoding int
 	}
 	if st.indices.NLSFInterpCoefQ2 < 4 {
 		var nlsf0 [maxLPCOrder]int16
-		for i := 0; i < st.lpcOrder; i++ {
+		for i := 0; i < lpcOrder; i++ {
 			diff := int32(nlsfQ15[i]) - int32(st.prevNLSFQ15[i])
 			nlsf0[i] = int16(int32(st.prevNLSFQ15[i]) + (int32(st.indices.NLSFInterpCoefQ2) * diff >> 2))
 		}
-		if !silkNLSF2A(ctrl.PredCoefQ12[0][:st.lpcOrder], nlsf0[:st.lpcOrder], st.lpcOrder) {
-			lpc0 := lsfToLPCDirect(nlsf0[:st.lpcOrder])
-			copy(ctrl.PredCoefQ12[0][:], lpc0)
+		if !silkNLSF2A(ctrl.PredCoefQ12[0][:lpcOrder], nlsf0[:lpcOrder], lpcOrder) {
+			lpc0 := lsfToLPCDirect(nlsf0[:lpcOrder])
+			copy(ctrl.PredCoefQ12[0][:], lpc0[:lpcOrder])
 		}
 	} else {
 		copy(ctrl.PredCoefQ12[0][:], ctrl.PredCoefQ12[1][:])
@@ -374,14 +376,14 @@ func silkDecodeParameters(st *decoderState, ctrl *decoderControl, condCoding int
 	copy(st.prevNLSFQ15[:], nlsfQ15[:])
 
 	if st.lossCnt != 0 {
-		silkBwExpander(ctrl.PredCoefQ12[0][:st.lpcOrder], int32(bweAfterLossQ16))
-		silkBwExpander(ctrl.PredCoefQ12[1][:st.lpcOrder], int32(bweAfterLossQ16))
+		silkBwExpander(ctrl.PredCoefQ12[0][:lpcOrder], int32(bweAfterLossQ16))
+		silkBwExpander(ctrl.PredCoefQ12[1][:lpcOrder], int32(bweAfterLossQ16))
 	}
 
 	if st.indices.signalType == typeVoiced {
-		silkDecodePitch(st.indices.lagIndex, st.indices.contourIndex, ctrl.pitchL[:], st.fsKHz, st.nbSubfr)
+		silkDecodePitch(st.indices.lagIndex, st.indices.contourIndex, ctrl.pitchL[:], int(st.fsKHz), nbSubfr)
 		cbk := silk_LTP_vq_ptrs_Q7[st.indices.PERIndex]
-		for k := 0; k < st.nbSubfr; k++ {
+		for k := 0; k < nbSubfr; k++ {
 			idx := int(st.indices.LTPIndex[k]) * ltpOrder
 			for i := 0; i < ltpOrder; i++ {
 				ctrl.LTPCoefQ14[k*ltpOrder+i] = int16(int32(cbk[idx+i]) << 7)
@@ -477,30 +479,33 @@ type decodeCoreBuffers struct {
 // This eliminates hot-path allocations when called from the Decoder.
 func initDecodeCoreBuffers(st *decoderState) decodeCoreBuffers {
 	var bufs decodeCoreBuffers
+	subfrLength := int(st.subfrLength)
+	ltpMemLength := int(st.ltpMemLength)
+	frameLength := int(st.frameLength)
 
 	// sLPC buffer
-	if st.scratchSLPC != nil && len(st.scratchSLPC) >= st.subfrLength+maxLPCOrder {
-		bufs.sLPC = st.scratchSLPC[:st.subfrLength+maxLPCOrder]
+	if st.scratchSLPC != nil && len(st.scratchSLPC) >= subfrLength+maxLPCOrder {
+		bufs.sLPC = st.scratchSLPC[:subfrLength+maxLPCOrder]
 	} else {
-		bufs.sLPC = make([]int32, st.subfrLength+maxLPCOrder)
+		bufs.sLPC = make([]int32, subfrLength+maxLPCOrder)
 	}
 	copy(bufs.sLPC, st.sLPCQ14Buf[:])
 
 	// sLTP buffer
-	if st.scratchSLTP != nil && len(st.scratchSLTP) >= st.ltpMemLength {
-		bufs.sLTP = st.scratchSLTP[:st.ltpMemLength]
+	if st.scratchSLTP != nil && len(st.scratchSLTP) >= ltpMemLength {
+		bufs.sLTP = st.scratchSLTP[:ltpMemLength]
 	} else {
-		bufs.sLTP = make([]int16, st.ltpMemLength)
+		bufs.sLTP = make([]int16, ltpMemLength)
 	}
 
 	// sLTP_Q15 buffer
-	if st.scratchSLTPQ15 != nil && len(st.scratchSLTPQ15) >= st.ltpMemLength+st.frameLength {
-		bufs.sLTP_Q15 = st.scratchSLTPQ15[:st.ltpMemLength+st.frameLength]
+	if st.scratchSLTPQ15 != nil && len(st.scratchSLTPQ15) >= ltpMemLength+frameLength {
+		bufs.sLTP_Q15 = st.scratchSLTPQ15[:ltpMemLength+frameLength]
 	} else {
-		bufs.sLTP_Q15 = make([]int32, st.ltpMemLength+st.frameLength)
+		bufs.sLTP_Q15 = make([]int32, ltpMemLength+frameLength)
 	}
 
-	bufs.sLTPBufIdx = st.ltpMemLength
+	bufs.sLTPBufIdx = ltpMemLength
 	return bufs
 }
 
@@ -536,19 +541,22 @@ func processLTPVoiced(
 	gainAdjQ16 int32,
 ) int32 {
 	if k == 0 || (k == 2 && interpFlag) {
-		startIdx := st.ltpMemLength - lag - st.lpcOrder - ltpOrder/2
+		ltpMemLength := int(st.ltpMemLength)
+		lpcOrder := int(st.lpcOrder)
+		subfrLength := int(st.subfrLength)
+		startIdx := ltpMemLength - lag - lpcOrder - ltpOrder/2
 		if startIdx <= 0 {
 			startIdx = 1 // Match libopus assertion: start_idx > 0
 		}
 		if k == 2 {
-			copy(st.outBuf[st.ltpMemLength:], out[:2*st.subfrLength])
+			copy(st.outBuf[ltpMemLength:], out[:2*subfrLength])
 		}
-		silkLPCAnalysisFilter(sLTP[startIdx:], st.outBuf[startIdx+k*st.subfrLength:], A_Q12, st.ltpMemLength-startIdx, st.lpcOrder)
+		silkLPCAnalysisFilter(sLTP[startIdx:], st.outBuf[startIdx+k*subfrLength:], A_Q12, ltpMemLength-startIdx, lpcOrder)
 		if k == 0 {
 			invGainQ31 = silkLSHIFT(silkSMULWB(invGainQ31, ctrl.LTPScaleQ14), 2)
 		}
 		for i := 0; i < lag+ltpOrder/2; i++ {
-			sLTP_Q15[sLTPBufIdx-i-1] = silkSMULWB(invGainQ31, int32(sLTP[st.ltpMemLength-i-1]))
+			sLTP_Q15[sLTPBufIdx-i-1] = silkSMULWB(invGainQ31, int32(sLTP[ltpMemLength-i-1]))
 		}
 	} else if gainAdjQ16 != int32(1<<16) {
 		for i := 0; i < lag+ltpOrder/2; i++ {
@@ -650,11 +658,15 @@ func synthesizeLPCGeneric(sLPC []int32, A_Q12 []int16, presQ14 []int32, pxq []in
 func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses []int16) {
 	offsetQ10 := silk_Quantization_Offsets_Q10[int(st.indices.signalType)>>1][int(st.indices.quantOffsetType)]
 	interpFlag := st.indices.NLSFInterpCoefQ2 < 4
+	frameLength := int(st.frameLength)
+	nbSubfr := int(st.nbSubfr)
+	subfrLength := int(st.subfrLength)
+	lpcOrder := int(st.lpcOrder)
 
 	randSeed := int32(st.indices.Seed)
 	offsetQ14 := int32(offsetQ10) << 4
 	quantAdjustQ14 := int32(quantLevelAdjustQ10 << 4)
-	for i := 0; i < st.frameLength; i++ {
+	for i := 0; i < frameLength; i++ {
 		randSeed = silkRand(randSeed)
 		pulse := int32(pulses[i])
 		exc := pulse << 14
@@ -676,7 +688,7 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 	pexc := st.excQ14[:]
 	pxq := out
 
-	for k := 0; k < st.nbSubfr; k++ {
+	for k := 0; k < nbSubfr; k++ {
 		A_Q12 := ctrl.PredCoefQ12[k>>1][:]
 		B_Q14 := ctrl.LTPCoefQ14[k*ltpOrder : (k+1)*ltpOrder]
 		signalType := int(st.indices.signalType)
@@ -712,12 +724,12 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 			lag := int(ctrl.pitchL[k])
 			predLagPtr := sLTPBufIdx - lag + ltpOrder/2
 			// Use pre-allocated presQ14 buffer if available
-			if st.scratchPresQ14 != nil && len(st.scratchPresQ14) >= st.subfrLength {
-				presQ14 = st.scratchPresQ14[:st.subfrLength]
+			if st.scratchPresQ14 != nil && len(st.scratchPresQ14) >= subfrLength {
+				presQ14 = st.scratchPresQ14[:subfrLength]
 			} else {
-				presQ14 = make([]int32, st.subfrLength)
+				presQ14 = make([]int32, subfrLength)
 			}
-			for i := 0; i < st.subfrLength; i++ {
+			for i := 0; i < subfrLength; i++ {
 				ltpPredQ13 := int32(2)
 				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr+0], int32(B_Q14[0]))
 				ltpPredQ13 = silkSMLAWB(ltpPredQ13, sLTP_Q15[predLagPtr-1], int32(B_Q14[1]))
@@ -730,21 +742,21 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 				sLTPBufIdx++
 			}
 		} else {
-			presQ14 = pexc[:st.subfrLength]
+			presQ14 = pexc[:subfrLength]
 		}
 
-		switch st.lpcOrder {
+		switch lpcOrder {
 		case minLPCOrder:
-			synthesizeLPCOrder10(sLPC, A_Q12, presQ14, pxq, gainQ10, st.subfrLength)
+			synthesizeLPCOrder10(sLPC, A_Q12, presQ14, pxq, gainQ10, subfrLength)
 		case maxLPCOrder:
-			synthesizeLPCOrder16(sLPC, A_Q12, presQ14, pxq, gainQ10, st.subfrLength)
+			synthesizeLPCOrder16(sLPC, A_Q12, presQ14, pxq, gainQ10, subfrLength)
 		default:
-			synthesizeLPCGeneric(sLPC, A_Q12, presQ14, pxq, gainQ10, st.subfrLength, st.lpcOrder)
+			synthesizeLPCGeneric(sLPC, A_Q12, presQ14, pxq, gainQ10, subfrLength, lpcOrder)
 		}
 
-		copy(sLPC, sLPC[st.subfrLength:st.subfrLength+maxLPCOrder])
-		pexc = pexc[st.subfrLength:]
-		pxq = pxq[st.subfrLength:]
+		copy(sLPC, sLPC[subfrLength:subfrLength+maxLPCOrder])
+		pexc = pexc[subfrLength:]
+		pxq = pxq[subfrLength:]
 	}
 
 	copy(st.sLPCQ14Buf[:], sLPC[:maxLPCOrder])
@@ -761,10 +773,12 @@ func silkUpdateOutBuf(st *decoderState, frame []int16) {
 	if st.ltpMemLength < st.frameLength {
 		return
 	}
-	mvLen := st.ltpMemLength - st.frameLength
+	ltpMemLength := int(st.ltpMemLength)
+	frameLength := int(st.frameLength)
+	mvLen := ltpMemLength - frameLength
 	buf := st.outBuf[:]
 	if mvLen > 0 {
-		copy(buf, buf[st.frameLength:st.frameLength+mvLen])
+		copy(buf, buf[frameLength:frameLength+mvLen])
 	}
-	copy(buf[mvLen:mvLen+st.frameLength], frame)
+	copy(buf[mvLen:mvLen+frameLength], frame)
 }

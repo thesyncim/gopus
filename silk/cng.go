@@ -5,7 +5,7 @@ func silkCNGReset(st *decoderState) {
 	if st == nil {
 		return
 	}
-	order := st.lpcOrder
+	order := int(st.lpcOrder)
 	if order <= 0 || order > maxLPCOrder {
 		order = maxLPCOrder
 	}
@@ -63,7 +63,7 @@ func silkAddSat16(a, b int16) int16 {
 }
 
 func cngLPCOrder(st *decoderState) int {
-	order := st.lpcOrder
+	order := int(st.lpcOrder)
 	if order <= 0 || order > maxLPCOrder {
 		return maxLPCOrder
 	}
@@ -71,11 +71,11 @@ func cngLPCOrder(st *decoderState) int {
 }
 
 func syncCNGSampleRate(st *decoderState) {
-	if int32(st.fsKHz) == st.cng.fsKHz {
+	if st.fsKHz == st.cng.fsKHz {
 		return
 	}
 	silkCNGReset(st)
-	st.cng.fsKHz = int32(st.fsKHz)
+	st.cng.fsKHz = st.fsKHz
 }
 
 func shouldUpdateCNGHistory(st *decoderState, ctrl *decoderControl) bool {
@@ -92,26 +92,28 @@ func updateCNGHistory(st *decoderState, ctrl *decoderControl) {
 
 	maxGainQ16 := int32(0)
 	subfr := 0
-	for i := 0; i < st.nbSubfr; i++ {
+	nbSubfr := int(st.nbSubfr)
+	for i := 0; i < nbSubfr; i++ {
 		if ctrl.GainsQ16[i] > maxGainQ16 {
 			maxGainQ16 = ctrl.GainsQ16[i]
 			subfr = i
 		}
 	}
 
-	if st.subfrLength > 0 && st.nbSubfr > 0 {
-		moveLen := (st.nbSubfr - 1) * st.subfrLength
-		if moveLen > 0 && st.subfrLength+moveLen <= len(st.cng.excBufQ14) {
-			copy(st.cng.excBufQ14[st.subfrLength:st.subfrLength+moveLen], st.cng.excBufQ14[:moveLen])
+	subfrLength := int(st.subfrLength)
+	if subfrLength > 0 && nbSubfr > 0 {
+		moveLen := (nbSubfr - 1) * subfrLength
+		if moveLen > 0 && subfrLength+moveLen <= len(st.cng.excBufQ14) {
+			copy(st.cng.excBufQ14[subfrLength:subfrLength+moveLen], st.cng.excBufQ14[:moveLen])
 		}
-		srcStart := subfr * st.subfrLength
-		srcEnd := srcStart + st.subfrLength
-		if srcStart >= 0 && srcEnd <= len(st.excQ14) && st.subfrLength <= len(st.cng.excBufQ14) {
-			copy(st.cng.excBufQ14[:st.subfrLength], st.excQ14[srcStart:srcEnd])
+		srcStart := subfr * subfrLength
+		srcEnd := srcStart + subfrLength
+		if srcStart >= 0 && srcEnd <= len(st.excQ14) && subfrLength <= len(st.cng.excBufQ14) {
+			copy(st.cng.excBufQ14[:subfrLength], st.excQ14[srcStart:srcEnd])
 		}
 	}
 
-	for i := 0; i < st.nbSubfr; i++ {
+	for i := 0; i < nbSubfr; i++ {
 		st.cng.smthGainQ16 += silkSMULWB(ctrl.GainsQ16[i]-st.cng.smthGainQ16, cngGainSmthQ16)
 		if silkSMULWW(st.cng.smthGainQ16, cngGainSmthThresholdQ16) > ctrl.GainsQ16[i] {
 			st.cng.smthGainQ16 = ctrl.GainsQ16[i]
@@ -173,7 +175,7 @@ func (d *Decoder) applyCNGLostFrame(channel int, st *decoderState, frame []int16
 }
 
 func clearCNGSynthesisState(st *decoderState) {
-	for i := 0; i < st.lpcOrder && i < maxLPCOrder; i++ {
+	for i := 0; i < int(st.lpcOrder) && i < maxLPCOrder; i++ {
 		st.cng.synthStateQ14[i] = 0
 	}
 }

@@ -218,8 +218,8 @@ func TestWithinFrameLPCBuildup(t *testing.T) {
 	}
 
 	st := &decoder.state[0]
-	subfrLength := st.subfrLength
-	nbSubfr := st.nbSubfr
+	subfrLength := int(st.subfrLength)
+	nbSubfr := int(st.nbSubfr)
 
 	t.Logf("=== Within-frame LPC buildup ===")
 	t.Logf("Subframe length: %d, Num subframes: %d", subfrLength, nbSubfr)

@@ -4,8 +4,8 @@ import "github.com/thesyncim/gopus/rangecoding"
 
 func initFrameDecodeState(st *decoderState, fsKHz, framesPerPacket, nbSubfr int) {
 	st.nFramesDecoded = 0
-	st.nFramesPerPacket = framesPerPacket
-	st.nbSubfr = nbSubfr
+	st.nFramesPerPacket = int32(framesPerPacket)
+	st.nbSubfr = int32(nbSubfr)
 	silkDecoderSetFs(st, fsKHz)
 }
 
@@ -103,20 +103,21 @@ func (d *Decoder) prepareStereoFramePacket(
 	decodeVADAndLBRRFlags(rd, stMid, framesPerPacket)
 	decodeVADAndLBRRFlags(rd, stSide, framesPerPacket)
 	d.skipStereoLBRRFrames(rd, stMid, stSide, framesPerPacket)
-	return stMid, stSide, framesPerPacket, stMid.frameLength, fsKHz, nil
+	return stMid, stSide, framesPerPacket, int(stMid.frameLength), fsKHz, nil
 }
 
 func (d *Decoder) skipMonoLBRRFrames(rd *rangecoding.Decoder, st *decoderState, framesPerPacket int) {
 	if st == nil || rd == nil || st.LBRRFlag == 0 {
 		return
 	}
+	frameLength := int(st.frameLength)
 	for i := 0; i < framesPerPacket; i++ {
 		if st.LBRRFlags[i] == 0 {
 			continue
 		}
 		silkDecodeIndices(st, rd, true, lbrrCondCoding(st, i))
-		pulses := d.pulseBuffer(st.frameLength)
-		silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength, st.scratchSumPulses, st.scratchNLshifts)
+		pulses := d.pulseBuffer(frameLength)
+		silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), frameLength, st.scratchSumPulses, st.scratchNLshifts)
 	}
 }
 
@@ -142,8 +143,9 @@ func (d *Decoder) skipStereoLBRRFrames(rd *rangecoding.Decoder, stMid, stSide *d
 				}
 			}
 			silkDecodeIndices(st, rd, true, lbrrCondCoding(st, i))
-			pulses := d.pulseBuffer(st.frameLength)
-			silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength, st.scratchSumPulses, st.scratchNLshifts)
+			frameLength := int(st.frameLength)
+			pulses := d.pulseBuffer(frameLength)
+			silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), frameLength, st.scratchSumPulses, st.scratchNLshifts)
 		}
 	}
 }
@@ -160,14 +162,15 @@ func (d *Decoder) decodeFrameCoreInto(
 		ecStart = rd.Tell()
 	}
 	silkDecodeIndices(st, rd, vad, condCoding)
-	pulses := d.pulseBuffer(st.frameLength)
-	silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), st.frameLength, st.scratchSumPulses, st.scratchNLshifts)
+	frameLength := int(st.frameLength)
+	pulses := d.pulseBuffer(frameLength)
+	silkDecodePulsesWithScratch(rd, pulses, int(st.indices.signalType), int(st.indices.quantOffsetType), frameLength, st.scratchSumPulses, st.scratchNLshifts)
 
 	var ctrl decoderControl
 	silkDecodeParameters(st, &ctrl, condCoding)
 	silkDecodeCore(st, &ctrl, frameOut, pulses)
 	if rd != nil {
-		ctrl.NumBits = rd.Tell() - ecStart
+		ctrl.NumBits = int32(rd.Tell() - ecStart)
 	}
 	return ctrl
 }
@@ -186,12 +189,12 @@ func (d *Decoder) finalizeDecodedChannelFrame(channel int, st *decoderState, ctr
 	}
 
 	st.lossCnt = 0
-	st.prevSignalType = int(st.indices.signalType)
+	st.prevSignalType = int32(st.indices.signalType)
 	st.firstFrameAfterReset = false
 	d.applyCNG(channel, st, ctrl, frameOut)
 	silkPLCGlueFrames(st, frameOut, len(frameOut))
 	if st.nbSubfr > 0 {
-		st.lagPrev = ctrl.pitchL[st.nbSubfr-1]
+		st.lagPrev = ctrl.pitchL[int(st.nbSubfr)-1]
 	}
 	// Cache the decoder control + signal type so optional decoder-side
 	// post-processing (OSCE LACE / NoLACE) can read libopus' per-frame

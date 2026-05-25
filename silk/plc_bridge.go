@@ -21,20 +21,20 @@ func (d *Decoder) updateSILKPLCStateFromCtrl(channel int, st *decoderState, ctrl
 		return
 	}
 
-	nbSubfr := st.nbSubfr
+	nbSubfr := int(st.nbSubfr)
 	if nbSubfr <= 0 || nbSubfr > maxNbSubfr {
 		nbSubfr = maxNbSubfr
 	}
-	lpcOrder := st.lpcOrder
+	lpcOrder := int(st.lpcOrder)
 	if lpcOrder <= 0 || lpcOrder > maxLPCOrder {
 		lpcOrder = maxLPCOrder
 	}
 
-	fsKHz := st.fsKHz
+	fsKHz := int(st.fsKHz)
 	if fsKHz <= 0 {
 		fsKHz = 16
 	}
-	subfrLength := st.subfrLength
+	subfrLength := int(st.subfrLength)
 	if subfrLength <= 0 {
 		subfrLength = 80
 	}
@@ -121,7 +121,7 @@ func setSLPCQ14HistoryQ14(st *decoderState, history []int32) {
 	if st == nil || len(history) == 0 {
 		return
 	}
-	order := st.lpcOrder
+	order := int(st.lpcOrder)
 	if order <= 0 {
 		return
 	}

@@ -31,13 +31,13 @@ func (d *Decoder) DecodeFrame(
 		return nil, err
 	}
 
-	frameLength := st.frameLength
+	frameLength := int(st.frameLength)
 	totalLen := framesPerPacket * frameLength
 	outInt16 := d.int16OutputBuffer(totalLen)
 
 	for i := 0; i < framesPerPacket; i++ {
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
-		frameIndex := st.nFramesDecoded
+		frameIndex := int(st.nFramesDecoded)
 		ctrl := d.decodeFrameCoreInto(st, rd, frameOut, frameCondCoding(frameIndex), st.VADFlags[frameIndex] != 0)
 		d.finalizeDecodedChannelFrame(0, st, &ctrl, frameOut, false)
 	}
@@ -123,13 +123,13 @@ func (d *Decoder) decodeFrameRawInt16(
 		return nil, err
 	}
 
-	frameLength := st.frameLength
+	frameLength := int(st.frameLength)
 	totalLen := framesPerPacket * frameLength
 	outInt16 := d.int16OutputBuffer(totalLen)
 
 	for i := 0; i < framesPerPacket; i++ {
 		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
-		frameIndex := st.nFramesDecoded
+		frameIndex := int(st.nFramesDecoded)
 		ctrl := d.decodeFrameCoreInto(st, rd, frameOut, frameCondCoding(frameIndex), st.VADFlags[frameIndex] != 0)
 		d.finalizeDecodedChannelFrame(0, st, &ctrl, frameOut, true)
 	}
@@ -196,7 +196,7 @@ func (d *Decoder) DecodeStereoFrame(
 	decodeOnlyMiddle := 0
 
 	for i := 0; i < framesPerPacket; i++ {
-		frameIndex := stMid.nFramesDecoded
+		frameIndex := int(stMid.nFramesDecoded)
 		silkStereoDecodePred(rd, predQ13[:])
 		if stSide.VADFlags[frameIndex] == 0 {
 			decodeOnlyMiddle = silkStereoDecodeMidOnly(rd)
@@ -218,7 +218,8 @@ func (d *Decoder) DecodeStereoFrame(
 		}
 
 		if hasSide {
-			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0)
+			sideFrameIndex := int(stSide.nFramesDecoded)
+			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[sideFrameIndex] != 0)
 			d.finalizeDecodedChannelFrame(1, stSide, &ctrlSide, sideOut, false)
 		} else {
 			clear(sideOut)
@@ -269,7 +270,7 @@ func (d *Decoder) DecodeStereoFrameInt16Into(
 	decodeOnlyMiddle := 0
 
 	for i := 0; i < framesPerPacket; i++ {
-		frameIndex := stMid.nFramesDecoded
+		frameIndex := int(stMid.nFramesDecoded)
 		silkStereoDecodePred(rd, predQ13[:])
 		if stSide.VADFlags[frameIndex] == 0 {
 			decodeOnlyMiddle = silkStereoDecodeMidOnly(rd)
@@ -293,7 +294,8 @@ func (d *Decoder) DecodeStereoFrameInt16Into(
 		}
 
 		if hasSide {
-			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0)
+			sideFrameIndex := int(stSide.nFramesDecoded)
+			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[sideFrameIndex] != 0)
 			d.finalizeDecodedChannelFrame(1, stSide, &ctrlSide, sideOut, false)
 		} else {
 			clear(sideOut)
@@ -337,7 +339,7 @@ func (d *Decoder) decodeStereoMidNative(
 	decodeOnlyMiddle := 0
 
 	for i := 0; i < framesPerPacket; i++ {
-		frameIndex := stMid.nFramesDecoded
+		frameIndex := int(stMid.nFramesDecoded)
 		silkStereoDecodePred(rd, predQ13[:])
 		if stSide.VADFlags[frameIndex] == 0 {
 			decodeOnlyMiddle = silkStereoDecodeMidOnly(rd)
@@ -354,7 +356,8 @@ func (d *Decoder) decodeStereoMidNative(
 
 		if hasSide {
 			sideOut := make([]int16, frameLength)
-			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[stSide.nFramesDecoded] != 0)
+			sideFrameIndex := int(stSide.nFramesDecoded)
+			ctrlSide := d.decodeFrameCoreInto(stSide, rd, sideOut, sideFrameCondCoding(frameIndex, d.prevDecodeOnlyMiddle), stSide.VADFlags[sideFrameIndex] != 0)
 			d.finalizeDecodedChannelFrame(1, stSide, &ctrlSide, sideOut, false)
 		} else {
 			stSide.nFramesDecoded++

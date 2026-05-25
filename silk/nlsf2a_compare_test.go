@@ -129,24 +129,25 @@ func TestDecodeParametersLPCOutput(t *testing.T) {
 
 	// Call the internal function to compute LPC from interpolated NLSF
 	// First compute the interpolated NLSF
-	interpNLSF := make([]int16, st.lpcOrder)
-	for i := 0; i < st.lpcOrder; i++ {
+	lpcOrder := int(st.lpcOrder)
+	interpNLSF := make([]int16, lpcOrder)
+	for i := 0; i < lpcOrder; i++ {
 		diff := int32(frame1NLSF[i]) - int32(st.prevNLSFQ15[i])
 		interpNLSF[i] = int16(int32(st.prevNLSFQ15[i]) + (int32(st.indices.NLSFInterpCoefQ2) * diff >> 2))
 	}
 
-	t.Logf("prevNLSFQ15: %v", st.prevNLSFQ15[:st.lpcOrder])
-	t.Logf("frame1NLSF:  %v", frame1NLSF[:st.lpcOrder])
+	t.Logf("prevNLSFQ15: %v", st.prevNLSFQ15[:lpcOrder])
+	t.Logf("frame1NLSF:  %v", frame1NLSF[:lpcOrder])
 	t.Logf("interpNLSF:  %v", interpNLSF)
 
 	// Call silkNLSF2A for interpolated
-	lpc0 := make([]int16, st.lpcOrder)
-	success0 := silkNLSF2A(lpc0, interpNLSF, st.lpcOrder)
+	lpc0 := make([]int16, lpcOrder)
+	success0 := silkNLSF2A(lpc0, interpNLSF, lpcOrder)
 	t.Logf("silkNLSF2A(interpNLSF) success=%v, output=%v", success0, lpc0)
 
 	// Call silkNLSF2A for full
-	lpc1 := make([]int16, st.lpcOrder)
-	success1 := silkNLSF2A(lpc1, frame1NLSF[:st.lpcOrder], st.lpcOrder)
+	lpc1 := make([]int16, lpcOrder)
+	success1 := silkNLSF2A(lpc1, frame1NLSF[:lpcOrder], lpcOrder)
 	t.Logf("silkNLSF2A(frame1NLSF) success=%v, output=%v", success1, lpc1)
 
 	// Expected values
@@ -158,14 +159,14 @@ func TestDecodeParametersLPCOutput(t *testing.T) {
 
 	// Check matches
 	match0 := true
-	for i := 0; i < st.lpcOrder; i++ {
+	for i := 0; i < lpcOrder; i++ {
 		if lpc0[i] != expected0[i] {
 			match0 = false
 			t.Logf("LPC0 mismatch at [%d]: got %d, want %d", i, lpc0[i], expected0[i])
 		}
 	}
 	match1 := true
-	for i := 0; i < st.lpcOrder; i++ {
+	for i := 0; i < lpcOrder; i++ {
 		if lpc1[i] != expected1[i] {
 			match1 = false
 			t.Logf("LPC1 mismatch at [%d]: got %d, want %d", i, lpc1[i], expected1[i])

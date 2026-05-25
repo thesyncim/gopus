@@ -45,27 +45,27 @@ type decoderState struct {
 	outBuf               [maxFrameLength + 2*maxSubFrameLength]int16
 	lagPrev              int32
 	lastGainIndex        int8
-	nFramesDecoded       int
-	nFramesPerPacket     int
-	VADFlags             [maxFramesPerPacket]int
-	LBRRFlags            [maxFramesPerPacket]int
-	LBRRFlag             int
-	fsKHz                int
-	nbSubfr              int
-	frameLength          int
-	subfrLength          int
-	ltpMemLength         int
-	lpcOrder             int
+	nFramesDecoded       int32
+	nFramesPerPacket     int32
+	VADFlags             [maxFramesPerPacket]int32
+	LBRRFlags            [maxFramesPerPacket]int32
+	LBRRFlag             int32
+	fsKHz                int32
+	nbSubfr              int32
+	frameLength          int32
+	subfrLength          int32
+	ltpMemLength         int32
+	lpcOrder             int32
 	prevNLSFQ15          [maxLPCOrder]int16
 	firstFrameAfterReset bool
 	pitchLagLowBitsICDF  []uint8
 	pitchContourICDF     []uint8
 	nlsfCB               *nlsfCB
 	indices              sideInfoIndices
-	lossCnt              int
-	prevSignalType       int
-	ecPrevSignalType     int
-	ecPrevLagIndex       int
+	lossCnt              int32
+	prevSignalType       int32
+	ecPrevSignalType     int32
+	ecPrevLagIndex       int32
 
 	// PLC glue state for smooth transitions from concealed to real frames.
 	// These fields implement silk_PLC_glue_frames from libopus PLC.c.
@@ -99,7 +99,7 @@ type decoderControl struct {
 	PredCoefQ12 [2][maxLPCOrder]int16
 	LTPCoefQ14  [ltpOrder * maxNbSubfr]int16
 	LTPScaleQ14 int32
-	NumBits     int
+	NumBits     int32
 }
 
 type stereoDecState struct {

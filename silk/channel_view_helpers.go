@@ -23,8 +23,9 @@ func excitationHistoryFromState(st *decoderState) []int32 {
 	if st == nil {
 		return nil
 	}
-	if st.frameLength > 0 && st.frameLength <= len(st.excQ14) {
-		return st.excQ14[:st.frameLength]
+	frameLength := int(st.frameLength)
+	if frameLength > 0 && frameLength <= len(st.excQ14) {
+		return st.excQ14[:frameLength]
 	}
 	return st.excQ14[:]
 }
@@ -47,35 +48,35 @@ func sampleRateKHzFromState(st *decoderState) int {
 	if st == nil || st.fsKHz <= 0 {
 		return 16
 	}
-	return st.fsKHz
+	return int(st.fsKHz)
 }
 
 func subframeLengthFromState(st *decoderState) int {
 	if st == nil || st.subfrLength <= 0 {
 		return 80
 	}
-	return st.subfrLength
+	return int(st.subfrLength)
 }
 
 func numSubframesFromState(st *decoderState) int {
 	if st == nil || st.nbSubfr <= 0 {
 		return maxNbSubfr
 	}
-	return st.nbSubfr
+	return int(st.nbSubfr)
 }
 
 func ltpMemoryLengthFromState(st *decoderState) int {
 	if st == nil || st.ltpMemLength <= 0 {
 		return maxFrameLength
 	}
-	return st.ltpMemLength
+	return int(st.ltpMemLength)
 }
 
 func slpcQ14HistoryFromState(st *decoderState) []int32 {
 	if st == nil {
 		return nil
 	}
-	order := st.lpcOrder
+	order := int(st.lpcOrder)
 	if order <= 0 {
 		return nil
 	}
@@ -93,7 +94,7 @@ func outBufHistoryFromState(st *decoderState) []int16 {
 	if st == nil {
 		return nil
 	}
-	mem := st.ltpMemLength
+	mem := int(st.ltpMemLength)
 	if mem <= 0 {
 		return nil
 	}
@@ -108,7 +109,7 @@ func lpcOrderFromState(st *decoderState) int {
 		return 0
 	}
 	if st.lpcOrder > 0 {
-		return st.lpcOrder
+		return int(st.lpcOrder)
 	}
 	return 16
 }

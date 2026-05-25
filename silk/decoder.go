@@ -423,7 +423,7 @@ func (d *Decoder) Reset() {
 
 	for ch := range d.silkPLCState {
 		if d.silkPLCState[ch] != nil {
-			d.silkPLCState[ch].Reset(d.state[ch].frameLength)
+			d.silkPLCState[ch].Reset(int(d.state[ch].frameLength))
 		}
 	}
 }
@@ -743,10 +743,10 @@ func (d *Decoder) LatestDecoderControl(channel int) (LatestDecoderControl, bool)
 		GainsQ16:    src.GainsQ16,
 		PitchL:      src.pitchL,
 		SignalType:  d.lastFrameCtrlSignal[channel],
-		LPCOrder:    st.lpcOrder,
-		NbSubfr:     st.nbSubfr,
-		FsKHz:       st.fsKHz,
-		NumBits:     src.NumBits,
+		LPCOrder:    int(st.lpcOrder),
+		NbSubfr:     int(st.nbSubfr),
+		FsKHz:       int(st.fsKHz),
+		NumBits:     int(src.NumBits),
 	}
 	return out, true
 }
@@ -1039,7 +1039,7 @@ func (d *Decoder) ShouldUseStereoToMonoHistory(bandwidth Bandwidth, prevPacketSt
 		return false
 	}
 	config := GetBandwidthConfig(bandwidth)
-	return d.state[0].fsKHz != 0 && config.SampleRate == d.state[0].fsKHz*1000
+	return d.state[0].fsKHz != 0 && config.SampleRate == int(d.state[0].fsKHz)*1000
 }
 
 // handleBandwidthChange detects sample rate changes and resets the appropriate resampler.

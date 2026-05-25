@@ -34,7 +34,7 @@ func (d *Decoder) fireRawMonoFrameHook(channel int, st *decoderState, frameOut [
 	if d == nil || d.rawMonoFrameHook == nil || channel != 0 || st == nil || st.fsKHz != 16 || st.subfrLength <= 0 {
 		return
 	}
-	chunkSamples := 2 * st.subfrLength
+	chunkSamples := 2 * int(st.subfrLength)
 	if chunkSamples <= 0 || len(frameOut) < chunkSamples {
 		return
 	}

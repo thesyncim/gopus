@@ -77,7 +77,7 @@ func (d *Decoder) DecodeFEC(
 
 	// Decode FEC/LBRR frames. Match libopus decode_fec cadence:
 	// if a packet frame has no LBRR, decode that frame as loss concealment.
-	frameLength := stMid.frameLength
+	frameLength := int(stMid.frameLength)
 	totalLen := framesPerPacket * frameLength
 
 	outInt16 := d.int16OutputBuffer(totalLen)
@@ -155,7 +155,7 @@ func (d *Decoder) decodeStereoFECFrames(
 	if rd == nil || stMid == nil || stSide == nil || framesPerPacket <= 0 {
 		return nil, ErrDecodeFailed
 	}
-	frameLength := stMid.frameLength
+	frameLength := int(stMid.frameLength)
 	totalLen := framesPerPacket * frameLength
 	if frameLength <= 0 || totalLen <= 0 {
 		return nil, ErrDecodeFailed
@@ -164,7 +164,7 @@ func (d *Decoder) decodeStereoFECFrames(
 	config := GetBandwidthConfig(bandwidth)
 	fsKHz := config.SampleRate / 1000
 	if stMid.fsKHz > 0 {
-		fsKHz = stMid.fsKHz
+		fsKHz = int(stMid.fsKHz)
 	}
 
 	leftNative, rightNative, ok := d.GetStereoInt16Scratch(totalLen)
@@ -174,7 +174,7 @@ func (d *Decoder) decodeStereoFECFrames(
 	lastFrameLost := false
 
 	for i := 0; i < framesPerPacket; i++ {
-		frameIndex := stMid.nFramesDecoded
+		frameIndex := int(stMid.nFramesDecoded)
 		if frameIndex < 0 || frameIndex >= maxFramesPerPacket {
 			return nil, ErrDecodeFailed
 		}
@@ -211,7 +211,7 @@ func (d *Decoder) decodeStereoFECFrames(
 		}
 
 		if hasSide {
-			sideFrameIndex := stSide.nFramesDecoded
+			sideFrameIndex := int(stSide.nFramesDecoded)
 			if sideFrameIndex < 0 || sideFrameIndex >= maxFramesPerPacket {
 				return nil, ErrDecodeFailed
 			}
@@ -307,7 +307,7 @@ func (d *Decoder) decodeFECLostFrameInto(channel int, st *decoderState, frameOut
 		if view == nil {
 			return
 		}
-		concealedQ0 := plc.ConcealSILKWithLTP(view, state, lossCnt, frameLength)
+		concealedQ0 := plc.ConcealSILKWithLTP(view, state, int(lossCnt), frameLength)
 		const scale = float32(1.0 / 32768.0)
 		n := len(concealedQ0)
 		if n > frameLength {

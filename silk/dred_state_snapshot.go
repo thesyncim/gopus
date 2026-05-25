@@ -24,8 +24,8 @@ func (d *Decoder) SnapshotDecoderState(bandwidth Bandwidth, channel int) Decoder
 	snap := DecoderStateSnapshot{
 		LagPrev:        st.lagPrev,
 		LastGainIndex:  int(st.lastGainIndex),
-		LossCount:      st.lossCnt,
-		PrevSignalType: st.prevSignalType,
+		LossCount:      int(st.lossCnt),
+		PrevSignalType: int(st.prevSignalType),
 		SMid: [2]float32{
 			float32(d.stereo.sMid[0]) * (1.0 / 32768.0),
 			float32(d.stereo.sMid[1]) * (1.0 / 32768.0),

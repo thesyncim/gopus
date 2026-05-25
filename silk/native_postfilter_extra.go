@@ -24,10 +24,10 @@ func latestDecoderControlFromFrame(st *decoderState, ctrl *decoderControl) Lates
 		GainsQ16:    ctrl.GainsQ16,
 		PitchL:      ctrl.pitchL,
 		SignalType:  int(st.indices.signalType),
-		LPCOrder:    st.lpcOrder,
-		NbSubfr:     st.nbSubfr,
-		FsKHz:       st.fsKHz,
-		NumBits:     ctrl.NumBits,
+		LPCOrder:    int(st.lpcOrder),
+		NbSubfr:     int(st.nbSubfr),
+		FsKHz:       int(st.fsKHz),
+		NumBits:     int(ctrl.NumBits),
 	}
 }
 
