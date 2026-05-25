@@ -1,7 +1,5 @@
 package silk
 
-import "math"
-
 // classifyFrame determines the signal type for a PCM frame.
 // Returns signalType (0=inactive, 1=unvoiced, 2=voiced) and quantOffset (0=low, 1=high).
 //
@@ -21,15 +19,15 @@ func (e *Encoder) classifyFrame(pcm []float32) (signalType, quantOffset int) {
 	// ============================================
 
 	// Compute frame energy and variance
-	var sum, sumSq float64
+	var sum, sumSq float32
 	for _, s := range pcm {
-		sum += float64(s)
-		sumSq += float64(s) * float64(s)
+		sum += s
+		sumSq += s * s
 	}
-	n := float64(len(pcm))
+	n := float32(len(pcm))
 	mean := sum / n
 	energy := sumSq / n
-	rmsEnergy := math.Sqrt(energy)
+	rmsEnergy := sqrt32(energy)
 
 	// Compute variance to detect DC signals
 	// DC signal has zero variance (all samples are the same)
@@ -37,7 +35,7 @@ func (e *Encoder) classifyFrame(pcm []float32) (signalType, quantOffset int) {
 	if variance < 0 {
 		variance = 0 // Numerical stability
 	}
-	stdDev := math.Sqrt(variance)
+	stdDev := sqrt32(variance)
 
 	// Activity detection thresholds
 	const inactiveEnergyThreshold = 1e-4   // Very low energy = inactive
@@ -82,10 +80,10 @@ func (e *Encoder) classifyFrame(pcm []float32) (signalType, quantOffset int) {
 
 	// Compute adaptive threshold for voiced detection (like libopus find_pitch_lags_FLP.c)
 	// Base threshold
-	voicedThreshold := 0.6
+	voicedThreshold := float32(0.6)
 
 	// Adjust based on LPC order (higher order = more confident, lower threshold)
-	voicedThreshold -= 0.004 * float64(e.LPCOrder())
+	voicedThreshold -= float32(0.004) * float32(e.LPCOrder())
 
 	// Adjust based on previous frame type (hysteresis: easier to stay voiced)
 	if e.isPreviousFrameVoiced {
@@ -133,15 +131,15 @@ func (e *Encoder) classifyFrame(pcm []float32) (signalType, quantOffset int) {
 
 // computeShortTermCorr computes normalized autocorrelation at lag 1.
 // High values (close to 1) indicate smooth, slowly varying signals.
-func (e *Encoder) computeShortTermCorr(pcm []float32) float64 {
+func (e *Encoder) computeShortTermCorr(pcm []float32) float32 {
 	if len(pcm) < 2 {
 		return 0
 	}
 
-	var corr, norm float64
+	var corr, norm float32
 	for i := 1; i < len(pcm); i++ {
-		corr += float64(pcm[i]) * float64(pcm[i-1])
-		norm += float64(pcm[i-1]) * float64(pcm[i-1])
+		corr += pcm[i] * pcm[i-1]
+		norm += pcm[i-1] * pcm[i-1]
 	}
 
 	if norm < 1e-10 {
@@ -154,18 +152,18 @@ func (e *Encoder) computeShortTermCorr(pcm []float32) float64 {
 // Returns a value in [-1, 1] where:
 // - Positive values indicate high-frequency emphasis (noise-like)
 // - Negative values indicate low-frequency emphasis (voiced-like)
-func (e *Encoder) computeSpectralTilt(pcm []float32) float64 {
+func (e *Encoder) computeSpectralTilt(pcm []float32) float32 {
 	if len(pcm) < 2 {
 		return 0
 	}
 
 	// Compute first-order prediction coefficient
 	// This approximates spectral tilt: a1 > 0 means low-freq emphasis
-	var r0, r1 float64
+	var r0, r1 float32
 	for i := 0; i < len(pcm); i++ {
-		r0 += float64(pcm[i]) * float64(pcm[i])
+		r0 += pcm[i] * pcm[i]
 		if i > 0 {
-			r1 += float64(pcm[i]) * float64(pcm[i-1])
+			r1 += pcm[i] * pcm[i-1]
 		}
 	}
 
@@ -190,7 +188,7 @@ func (e *Encoder) computeSpectralTilt(pcm []float32) float64 {
 // computePeriodicity computes normalized autocorrelation in pitch range.
 // Returns max normalized correlation (0 to 1, higher = more periodic/voiced).
 // This is used to detect true pitch periodicity at specific pitch lags.
-func (e *Encoder) computePeriodicity(pcm []float32, minLag, maxLag int) float64 {
+func (e *Encoder) computePeriodicity(pcm []float32, minLag, maxLag int) float32 {
 	n := len(pcm)
 	if maxLag >= n {
 		maxLag = n - 1
@@ -208,19 +206,19 @@ func (e *Encoder) computePeriodicity(pcm []float32, minLag, maxLag int) float64 
 		minLag = 16 // Minimum reasonable pitch lag
 	}
 
-	var maxCorr float64 = 0
+	var maxCorr float32 = 0
 	var maxCorrLag int = 0
 
 	for lag := minLag; lag <= maxLag; lag++ {
-		var corr, energy1, energy2 float64
+		var corr, energy1, energy2 float32
 		for i := lag; i < n; i++ {
-			corr += float64(pcm[i]) * float64(pcm[i-lag])
-			energy1 += float64(pcm[i]) * float64(pcm[i])
-			energy2 += float64(pcm[i-lag]) * float64(pcm[i-lag])
+			corr += pcm[i] * pcm[i-lag]
+			energy1 += pcm[i] * pcm[i]
+			energy2 += pcm[i-lag] * pcm[i-lag]
 		}
 
 		if energy1 > 1e-10 && energy2 > 1e-10 {
-			normCorr := corr / math.Sqrt(energy1*energy2)
+			normCorr := corr / sqrt32(energy1*energy2)
 			if normCorr > maxCorr {
 				maxCorr = normCorr
 				maxCorrLag = lag
@@ -234,14 +232,14 @@ func (e *Encoder) computePeriodicity(pcm []float32, minLag, maxLag int) float64 
 		// Check correlation at half the lag (should be lower if true pitch)
 		halfLag := maxCorrLag / 2
 		if halfLag >= minLag {
-			var corrHalf, energy1, energy2 float64
+			var corrHalf, energy1, energy2 float32
 			for i := halfLag; i < n; i++ {
-				corrHalf += float64(pcm[i]) * float64(pcm[i-halfLag])
-				energy1 += float64(pcm[i]) * float64(pcm[i])
-				energy2 += float64(pcm[i-halfLag]) * float64(pcm[i-halfLag])
+				corrHalf += pcm[i] * pcm[i-halfLag]
+				energy1 += pcm[i] * pcm[i]
+				energy2 += pcm[i-halfLag] * pcm[i-halfLag]
 			}
 			if energy1 > 1e-10 && energy2 > 1e-10 {
-				normCorrHalf := corrHalf / math.Sqrt(energy1*energy2)
+				normCorrHalf := corrHalf / sqrt32(energy1*energy2)
 				// If correlation at half lag is almost as high as at full lag,
 				// it might not be true pitch (could be DC-like or very smooth signal)
 				if normCorrHalf > 0.98*maxCorr && maxCorr < 0.9 {

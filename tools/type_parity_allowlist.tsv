@@ -1973,25 +1973,3 @@ silk/resample_sinc.go	1	710d8ebae7fab92ce2f4f2fc491e7db0bb89a5f436a3e711cc679bad
 silk/resample_sinc.go	1	743f401121fc0993f9b0bfa84f74511f827e63811114ab1f05ac16ce4c2fc30a	legacy-current	n := float64(tap)/float64(r.filterTaps-1)*2.0 - 1.0
 silk/resample_sinc.go	1	b31016a831bca9779276457fd168e61c49e899b60c09f51362ffb9a271d9ed1e	legacy-current	func bessel0(x float64) float64 {
 silk/silk.go	1	033c6edca3c648dae42c3780eb6f692d713d53935722eb495127b517a8be952d	legacy-current	history[historyIdx] = int32(math.Floor(0.5 + float64(scaled)))
-silk/vad.go	1	1c0fdee4a1f15ef61acb5b718d5e0e213f666083095e0cf2abd69d34a4e76c52	legacy-current	func (e *Encoder) computeShortTermCorr(pcm []float32) float64 {
-silk/vad.go	1	1e0be019a8d904df1a7c97cb731f4a89fec6c0ba94d03b9c90b6127f04cc96a0	legacy-current	var corr, energy1, energy2 float64
-silk/vad.go	1	20cf6e03236999e5a317d8f12834c41603b756727b032e8029f693df968e7963	legacy-current	n := float64(len(pcm))
-silk/vad.go	1	29ac1784cf1dd622fee0309b869be45735f3b4c3aab80f9599d3a8200d61c9f2	legacy-current	func (e *Encoder) computeSpectralTilt(pcm []float32) float64 {
-silk/vad.go	1	37c1d5a721e43503c500b9053863f8978de4c0f97e7b062304ee60dcb4390da2	legacy-current	var r0, r1 float64
-silk/vad.go	1	384621ce09da5af998eed1bbd62ae2e3c6e39f56de612ea6b16b0ff3e43c027c	legacy-current	r1 += float64(pcm[i]) * float64(pcm[i-1])
-silk/vad.go	1	38af573823ae0f2f286dcf72a388d389a71e857a3d51fcc258628c9bdf2bcdf0	legacy-current	var maxCorr float64 = 0
-silk/vad.go	1	410c9aa901d6e4b6a8ab0c9523d26f8b8e540338fa6b9bde93432f91e7ec6ec7	legacy-current	var corr, norm float64
-silk/vad.go	1	51ff009939a036640343677b26bc9ee0426ec1be9404db90c1b424f29d500918	legacy-current	corr += float64(pcm[i]) * float64(pcm[i-lag])
-silk/vad.go	1	5bb1d5ce2d7d57127f59e7a0726ad5ec7cc6945a701f29bc14571269d0423c0e	legacy-current	sum += float64(s)
-silk/vad.go	1	5e76fca6dbc3666480dfe83c9c7b115efbe8c295546023422963a59803e5e38a	legacy-current	corrHalf += float64(pcm[i]) * float64(pcm[i-halfLag])
-silk/vad.go	1	7e4cca108b5568a4f7b966aa5dfb5005625d21f59e2561f70345faa70956daff	legacy-current	r0 += float64(pcm[i]) * float64(pcm[i])
-silk/vad.go	1	800d5ef99d8319bfc857cdd32c503b9e8ebf05848cb5a07d4250688758d85a4b	legacy-current	energy2 += float64(pcm[i-halfLag]) * float64(pcm[i-halfLag])
-silk/vad.go	2	863257ae85d68a4a72f91089d0e00a58b1d6053435276574d03aad68e4ca2e8e	legacy-current	energy1 += float64(pcm[i]) * float64(pcm[i])
-silk/vad.go	1	ac76707977fb11d43f07e69c5f28c4a05dded9ce29b3a262949110cefa371613	legacy-current	func (e *Encoder) computePeriodicity(pcm []float32, minLag, maxLag int) float64 {
-silk/vad.go	1	ba747a44cfac4071d1720d048bad5d8af6f770abb4502d05e875a13dadf74246	legacy-current	energy2 += float64(pcm[i-lag]) * float64(pcm[i-lag])
-silk/vad.go	1	bd93fb99e602d6575d96dd2eabd67f8a173252ac3110a8c2a7f751d742f88231	legacy-current	voicedThreshold -= 0.004 * float64(e.LPCOrder())
-silk/vad.go	1	ccd8c0b22e40dd2f8b12bcafb4db7dcd603dd0fc74482653882ac492c74e611c	legacy-current	norm += float64(pcm[i-1]) * float64(pcm[i-1])
-silk/vad.go	1	d969ccc490a198291f6bc3bfcd7d28c31eeb8beed3367f6af106ed155f3c0118	legacy-current	sumSq += float64(s) * float64(s)
-silk/vad.go	1	e1b476a9465e36af1a5abe7ca17c8d8ce0dc49eb0f2f1649fd05ba9ebbdb60ff	legacy-current	var sum, sumSq float64
-silk/vad.go	1	ead69512950ec971139fd4c7c4df6ed453671afb546ab50a48b75e243c5a7b95	legacy-current	var corrHalf, energy1, energy2 float64
-silk/vad.go	1	fd5c0fe8560d4b46540008256d660fd775f97b72ccd2496fbfeff85c8b96cc8f	legacy-current	corr += float64(pcm[i]) * float64(pcm[i-1])
