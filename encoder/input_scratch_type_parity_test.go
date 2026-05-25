@@ -45,6 +45,9 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 		"scratchLaOutRight",
 	)
 	checkFieldsHaveType(t, reflect.TypeOf(Encoder{}), int32Type,
+		"sampleRate",
+		"channels",
+		"frameSize",
 		"bitrate",
 		"packetLoss",
 		"complexity",
@@ -55,6 +58,7 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 		"prevChannels",
 		"toMono",
 		"fecConfig",
+		"silkResamplerRate",
 	)
 	checkFieldsHaveType(t, reflect.TypeOf(dtxState{}), int32Type,
 		"noActivityMsQ1",

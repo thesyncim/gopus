@@ -117,11 +117,11 @@ func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool
 	if targetDREDBitrate < 0 {
 		targetDREDBitrate = 0
 	}
-	maxBits, targetChunks := estimateDREDBits(q0, dQ, qmax, int(e.dred.duration), dredBitrateToBits(targetDREDBitrate, e.sampleRate, frameSize))
+	maxBits, targetChunks := estimateDREDBits(q0, dQ, qmax, int(e.dred.duration), dredBitrateToBits(targetDREDBitrate, int(e.sampleRate), frameSize))
 	if targetChunks < 2 {
 		return dredEmissionPlan{}, false
 	}
-	dredBitrate := dredBitsToBitrate(maxBits, e.sampleRate, frameSize)
+	dredBitrate := dredBitsToBitrate(maxBits, int(e.sampleRate), frameSize)
 	if targetDREDBitrate < dredBitrate {
 		dredBitrate = targetDREDBitrate
 	}
@@ -222,7 +222,7 @@ func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan d
 	// the code-3 count byte to the packet-extension framing step.
 	budget := targetSize - paddingAmount
 	if e.channels > 1 {
-		budget -= 4 * (e.channels - 1)
+		budget -= 4 * (int(e.channels) - 1)
 	}
 	if budget < 2 {
 		return 2

@@ -128,7 +128,7 @@ func (e *Encoder) shouldUseDTXRes(pcm []opusRes) (bool, bool) {
 	if e.channels == 2 {
 		frameLength /= 2
 	}
-	fsKHz := e.sampleRate / 1000
+	fsKHz := int(e.sampleRate) / 1000
 	switch fsKHz {
 	case 8, 12, 16, 24, 48:
 	default:

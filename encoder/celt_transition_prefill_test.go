@@ -86,9 +86,9 @@ func TestCELTTransitionPrefillSnapshotsLibopusDelayHistoryWindow(t *testing.T) {
 	enc.prevMode = ModeHybrid
 
 	frameSize := 480
-	encoderBuffer := enc.sampleRate / 100
-	delayComp := enc.sampleRate / 250
-	prefillFrameSize := enc.sampleRate / 400
+	encoderBuffer := int(enc.sampleRate) / 100
+	delayComp := int(enc.sampleRate) / 250
+	prefillFrameSize := int(enc.sampleRate) / 400
 	if encoderBuffer <= 0 || delayComp <= 0 || prefillFrameSize <= 0 {
 		t.Fatal("invalid test setup")
 	}
@@ -180,7 +180,7 @@ func TestSilkTransitionPrefillLongPacketKeepsFirstCELTSnapshot(t *testing.T) {
 	enc.prevMode = ModeCELT
 	enc.prevPacketMode = ModeCELT
 
-	prefillSamples := enc.sampleRate / 100
+	prefillSamples := int(enc.sampleRate) / 100
 	enc.delayBuffer = make([]opusRes, prefillSamples)
 	for i := range enc.delayBuffer {
 		enc.delayBuffer[i] = opusRes(i + 1)
@@ -221,7 +221,7 @@ func TestSilkTransitionPrefillStereoPrimesMidAndSide(t *testing.T) {
 	enc.prevPacketMode = ModeCELT
 	enc.SetBitrate(64000)
 
-	prefillSamples := enc.sampleRate / 100
+	prefillSamples := int(enc.sampleRate) / 100
 	enc.delayBuffer = make([]opusRes, prefillSamples*2)
 	for i := 0; i < prefillSamples; i++ {
 		left := 0.45 * math.Sin(2*math.Pi*440*float64(i)/48000.0)

@@ -104,7 +104,7 @@ func TestAutoModeLowRateCELTFallbackUsesPacketBudget(t *testing.T) {
 		voiceEst        = 128
 		monoStereoWidth = 0
 	)
-	threshold := lowRateCELTByteThreshold(enc.sampleRate, frameSize)
+	threshold := lowRateCELTByteThreshold(int(enc.sampleRate), frameSize)
 	if threshold != 15 {
 		t.Fatalf("lowRateCELTByteThreshold(20ms) = %d, want 15", threshold)
 	}

@@ -180,14 +180,16 @@ func (e *Encoder) processDREDLatentsWithActivity(framePCM []opusRes, extraDelay 
 		return 0
 	}
 	runtime := e.ensureActiveDREDRuntime()
-	if runtime == nil || len(framePCM) == 0 || len(framePCM)%e.channels != 0 {
+	channels := int(e.channels)
+	sampleRate := int(e.sampleRate)
+	if runtime == nil || len(framePCM) == 0 || len(framePCM)%channels != 0 {
 		return 0
 	}
 	samples16k := e.convertDREDFrameTo16k(runtime, framePCM)
 	if samples16k == 0 {
 		return 0
 	}
-	extraDelay16k := int32(extraDelay * 16000 / e.sampleRate)
+	extraDelay16k := int32(extraDelay * 16000 / sampleRate)
 	emitted := runtime.generator.Process16k(e.dred.models.encoder, runtime.scaledPCM16k[:samples16k], extraDelay16k, func(latents, state []float32) {
 		copy(runtime.latentsBuffer[rdovae.LatentDim:], runtime.latentsBuffer[:(internaldred.MaxFrames-1)*rdovae.LatentDim])
 		copy(runtime.stateBuffer[rdovae.StateDim:], runtime.stateBuffer[:(internaldred.MaxFrames-1)*rdovae.StateDim])
@@ -202,7 +204,7 @@ func (e *Encoder) processDREDLatentsWithActivity(framePCM []opusRes, extraDelay 
 	})
 	runtime.dredOffset = runtime.generator.DREDOffset()
 	runtime.latentOffset = runtime.generator.LatentOffset()
-	internaldred.UpdateActivityHistory(&runtime.activity, len(framePCM)/e.channels, e.sampleRate, active)
+	internaldred.UpdateActivityHistory(&runtime.activity, len(framePCM)/channels, sampleRate, active)
 	return emitted
 }
 
@@ -210,7 +212,7 @@ func (e *Encoder) backfillDREDActivityForFrame(frameSize int, active bool) {
 	if !extsupport.DREDRuntime || e.dred == nil || e.dred.runtime == nil || e.sampleRate <= 0 {
 		return
 	}
-	frameActivity := frameSize * 400 / e.sampleRate
+	frameActivity := frameSize * 400 / int(e.sampleRate)
 	if frameActivity <= 0 {
 		return
 	}
@@ -242,15 +244,16 @@ func (e *Encoder) processDREDLatentsForPacket(framePCM []opusRes, frameSize, ext
 		default:
 			return e.processDREDLatents(framePCM, extraDelay)
 		}
-		if e.channels <= 0 {
+		channels := int(e.channels)
+		if channels <= 0 {
 			return 0
 		}
-		frameSamples := frameSize * e.channels
+		frameSamples := frameSize * channels
 		if frameSamples <= 0 || len(framePCM) < frameSamples {
 			return 0
 		}
 		e.clearDREDPacketSnapshot()
-		frameStride := encFrameSize * e.channels
+		frameStride := encFrameSize * channels
 		emitted := 0
 		for start := 0; start < frameSamples; start += frameStride {
 			end := start + frameStride
@@ -265,15 +268,16 @@ func (e *Encoder) processDREDLatentsForPacket(framePCM []opusRes, frameSize, ext
 		return emitted
 	}
 	if mode != ModeSILK && frameSize > 960 && frameSize%960 == 0 {
-		if e.channels <= 0 {
+		channels := int(e.channels)
+		if channels <= 0 {
 			return 0
 		}
-		frameSamples := frameSize * e.channels
+		frameSamples := frameSize * channels
 		if frameSamples <= 0 || len(framePCM) < frameSamples {
 			return 0
 		}
 		e.clearDREDPacketSnapshot()
-		frameStride := 960 * e.channels
+		frameStride := 960 * channels
 		emitted := 0
 		for start := 0; start < frameSamples; start += frameStride {
 			end := start + frameStride
@@ -317,10 +321,12 @@ func (e *Encoder) convertDREDFrameTo16k(runtime *dredEncoderRuntime, framePCM []
 	if !extsupport.DREDRuntime {
 		return 0
 	}
-	if runtime == nil || len(framePCM) == 0 || len(framePCM)%e.channels != 0 {
+	channels := int(e.channels)
+	sampleRate := int(e.sampleRate)
+	if runtime == nil || len(framePCM) == 0 || len(framePCM)%channels != 0 {
 		return 0
 	}
-	frameSize16k := len(framePCM) / e.channels * 16000 / e.sampleRate
+	frameSize16k := len(framePCM) / channels * 16000 / sampleRate
 	if frameSize16k <= 0 || frameSize16k > len(runtime.scaledPCM16k) {
 		return 0
 	}
@@ -332,12 +338,12 @@ func (e *Encoder) convertDREDFrameTo16k(runtime *dredEncoderRuntime, framePCM []
 		if processSize16k > remaining16k {
 			processSize16k = remaining16k
 		}
-		processSize := processSize16k * e.sampleRate / 16000
-		processSamples := processSize * e.channels
+		processSize := processSize16k * sampleRate / 16000
+		processSamples := processSize * channels
 		if processSamples <= 0 || processSamples > len(input) {
 			return 0
 		}
-		n := internaldred.ConvertTo16kMonoFloat32(runtime.scaledPCM16k[out:], &runtime.resampleMem, input[:processSamples], e.sampleRate, e.channels)
+		n := internaldred.ConvertTo16kMonoFloat32(runtime.scaledPCM16k[out:], &runtime.resampleMem, input[:processSamples], sampleRate, channels)
 		if n != processSize16k {
 			return 0
 		}

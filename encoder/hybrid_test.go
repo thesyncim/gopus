@@ -43,7 +43,7 @@ func TestHybridBitAllocation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			e := &Encoder{
 				bitrate:    int32(tc.totalBitrate),
-				channels:   tc.channels,
+				channels:   int32(tc.channels),
 				fecEnabled: tc.fecEnabled,
 			}
 

@@ -132,7 +132,7 @@ func TestDREDMaxChunksOnlyCapsVBR(t *testing.T) {
 
 func newDREDPlanTestEncoder(sampleRate, bitrate, packetLoss, duration int) *Encoder {
 	return &Encoder{
-		sampleRate: sampleRate,
+		sampleRate: int32(sampleRate),
 		bitrate:    int32(bitrate),
 		packetLoss: int32(packetLoss),
 		encoderDREDFields: encoderDREDFields{

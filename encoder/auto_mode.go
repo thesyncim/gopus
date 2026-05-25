@@ -59,7 +59,7 @@ func (e *Encoder) computeStereoWidthForMode(pcm []opusRes, frameSize int) opusVa
 		return 0
 	}
 
-	frameRate := e.sampleRate / frameSize
+	frameRate := int(e.sampleRate) / frameSize
 	if frameRate < 50 {
 		frameRate = 50
 	}
@@ -323,7 +323,7 @@ func (e *Encoder) autoStreamChannelsDecision(voiceEst, equivRate int32) {
 }
 
 func (e *Encoder) updateStreamChannelsForFrame(frameSize int) {
-	frameRate := e.sampleRate / frameSize
+	frameRate := int(e.sampleRate) / frameSize
 	if frameRate <= 0 {
 		frameRate = 50
 	}
@@ -376,7 +376,7 @@ func (e *Encoder) autoModeDecision(stereoWidth opusVal16, voiceEst, equivRate in
 
 	// Low-rate CELT fallback. libopus checks the packet byte budget, not the
 	// configured target bitrate.
-	if maxDataBytes < lowRateCELTByteThreshold(e.sampleRate, frameSize) {
+	if maxDataBytes < lowRateCELTByteThreshold(int(e.sampleRate), frameSize) {
 		mode = ModeCELT
 	}
 
@@ -541,7 +541,7 @@ func autoModeFixup(mode Mode, bandwidth types.Bandwidth) Mode {
 // e.autoBandwidth, e.first.
 // Returns the selected mode.
 func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxDataBytes int, isSilence bool) Mode {
-	frameRate := e.sampleRate / frameSize
+	frameRate := int(e.sampleRate) / frameSize
 	if frameRate <= 0 {
 		frameRate = 50
 	}
@@ -583,7 +583,7 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	mode := e.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes)
 
 	// Step 10: Frame size constraint (lines 1533-1537).
-	if mode != ModeCELT && frameSize < e.sampleRate/100 {
+	if mode != ModeCELT && frameSize < int(e.sampleRate)/100 {
 		mode = ModeCELT
 	}
 	if e.lfe {

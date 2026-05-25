@@ -119,7 +119,7 @@ func runDelayCompStream(frameSize, channels, totalFrames int) ([]float64, []floa
 	e := NewEncoder(48000, channels)
 	// Disable dcReject so test exercises only delay compensation behavior.
 	e.sampleRate = 48000
-	delaySamples := (e.sampleRate / 250) * channels
+	delaySamples := (int(e.sampleRate) / 250) * channels
 	frameSamples := frameSize * channels
 	totalSamples := totalFrames * frameSamples
 
@@ -217,9 +217,9 @@ func TestApplyDelayCompensationMatchesLegacyState(t *testing.T) {
 		for _, frameSize := range []int{120, 240, 480, 960} {
 			t.Run(testName(channels, frameSize), func(t *testing.T) {
 				enc := NewEncoder(48000, channels)
-				encoderBufferSamples := (enc.sampleRate / 100) * channels
-				delaySamples := (enc.sampleRate / 250) * channels
-				prefillSamples := (enc.sampleRate / 400) * channels
+				encoderBufferSamples := (int(enc.sampleRate) / 100) * channels
+				delaySamples := (int(enc.sampleRate) / 250) * channels
+				prefillSamples := (int(enc.sampleRate) / 400) * channels
 				frameSamples := frameSize * channels
 
 				enc.delayBuffer = make([]opusRes, encoderBufferSamples)
@@ -249,7 +249,7 @@ func TestApplyDelayCompensationMatchesLegacyState(t *testing.T) {
 						legacyOut,
 						legacyPrefill,
 						legacyTail,
-						enc.sampleRate,
+						int(enc.sampleRate),
 						channels,
 						frameSize,
 					)
@@ -277,7 +277,7 @@ func BenchmarkApplyDelayCompensation(b *testing.B) {
 	} {
 		b.Run(tc.name+"/current", func(b *testing.B) {
 			enc := NewEncoder(48000, tc.channels)
-			encoderBufferSamples := (enc.sampleRate / 100) * tc.channels
+			encoderBufferSamples := (int(enc.sampleRate) / 100) * tc.channels
 			seed := make([]float64, encoderBufferSamples)
 			for i := range seed {
 				seed[i] = float64((i%31)-15) / 16.0
