@@ -23,11 +23,11 @@ func TestParsedForRequest(t *testing.T) {
 		t.Fatalf("MaxAvailableSamples=%d want 480", result.MaxAvailableSamples())
 	}
 
-	quant := make([]int, 4)
+	quant := make([]int32, 4)
 	if n := result.FillQuantizerLevels(quant); n != 0 {
 		t.Fatalf("FillQuantizerLevels count=%d want 0", n)
 	}
-	want := []int{0, 0, 0, 0}
+	want := []int32{0, 0, 0, 0}
 	if !reflect.DeepEqual(quant, want) {
 		t.Fatalf("FillQuantizerLevels=%v want %v", quant, want)
 	}

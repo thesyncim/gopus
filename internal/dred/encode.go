@@ -11,7 +11,7 @@ const ActivityHistorySize = 4 * MaxFrames
 const dredLaplaceFTBits = 15
 
 type dredLatentEncodeScratch struct {
-	q        [StateDim]int
+	q        [StateDim]int32
 	xq       [StateDim]float32
 	delta    [StateDim]float32
 	deadzone [StateDim]float32
@@ -63,7 +63,7 @@ func dredVoiceActive(activity []byte, offset int) bool {
 	return false
 }
 
-func encodeLaplaceP0(enc *rangecoding.Encoder, value int, p0, decay uint16) {
+func encodeLaplaceP0(enc *rangecoding.Encoder, value int32, p0, decay uint16) {
 	signICDF := [3]uint16{32768 - p0, (32768 - p0) / 2, 0}
 	symbol := 0
 	if value > 0 {
@@ -88,7 +88,7 @@ func encodeLaplaceP0(enc *rangecoding.Encoder, value int, p0, decay uint16) {
 
 	value--
 	for {
-		symbol := value
+		symbol := int(value)
 		if symbol > 7 {
 			symbol = 7
 		}
@@ -100,7 +100,7 @@ func encodeLaplaceP0(enc *rangecoding.Encoder, value int, p0, decay uint16) {
 	}
 }
 
-func quantizeDREDLatents(q []int, x []float32, scale, dzone, rTable, p0Table []uint8, scratch *dredLatentEncodeScratch) {
+func quantizeDREDLatents(q []int32, x []float32, scale, dzone, rTable, p0Table []uint8, scratch *dredLatentEncodeScratch) {
 	if scratch == nil {
 		var local dredLatentEncodeScratch
 		scratch = &local
@@ -122,7 +122,7 @@ func quantizeDREDLatents(q []int, x []float32, scale, dzone, rTable, p0Table []u
 			continue
 		}
 		xqi := xq[i] - delta[i]*deadzone[i]
-		q[i] = int(opusmath.FloorF32ToInt32(0.5 + xqi))
+		q[i] = opusmath.FloorF32ToInt32(0.5 + xqi)
 	}
 }
 

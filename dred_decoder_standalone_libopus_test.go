@@ -82,7 +82,7 @@ func TestDREDDecoderParseAndProcessRetainsMetadata(t *testing.T) {
 	if got := processed.MaxAvailableSamples(960, 48000); got != 480 {
 		t.Fatalf("MaxAvailableSamples()=%d want 480", got)
 	}
-	quant := make([]int, 6)
+	quant := make([]int32, 6)
 	if n := processed.FillQuantizerLevels(quant, 10080, 48000); n != 0 {
 		t.Fatalf("FillQuantizerLevels count=%d want 0", n)
 	}

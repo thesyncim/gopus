@@ -85,9 +85,9 @@ func TestQuantizeDREDLatentsUsesLibopusVectorTail(t *testing.T) {
 	}
 
 	var scratch dredLatentEncodeScratch
-	q := []int{0}
+	q := []int32{0}
 	quantizeDREDLatents(q, []float32{x}, []uint8{scale}, []uint8{dzone}, []uint8{1}, []uint8{1}, &scratch)
-	if want := quantizeDREDLatentWithVectorTanh(x, scale, dzone); q[0] != want {
+	if want := int32(quantizeDREDLatentWithVectorTanh(x, scale, dzone)); q[0] != want {
 		t.Fatalf("quantized latent=%d want vector-tail %d", q[0], want)
 	}
 }

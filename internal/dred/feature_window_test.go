@@ -23,11 +23,11 @@ func TestResultFeatureWindowRecoverable(t *testing.T) {
 	if window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
 		t.Fatalf("FeatureWindow recoverable/missing=(%d,%d) want (0,2)", window.RecoverableFeatureFrames, window.MissingPositiveFrames)
 	}
-	got := make([]int, 2)
+	got := make([]int32, 2)
 	if n := window.FillFeatureOffsets(got); n != len(got) {
 		t.Fatalf("FillFeatureOffsets count=%d want %d", n, len(got))
 	}
-	want := []int{1, 0}
+	want := []int32{1, 0}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("FillFeatureOffsets=%v want %v", got, want)
 	}
@@ -51,11 +51,11 @@ func TestResultFeatureWindowRecoverable16k(t *testing.T) {
 	if window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
 		t.Fatalf("FeatureWindow recoverable/missing=(%d,%d) want (0,2)", window.RecoverableFeatureFrames, window.MissingPositiveFrames)
 	}
-	got := make([]int, 2)
+	got := make([]int32, 2)
 	if n := window.FillFeatureOffsets(got); n != len(got) {
 		t.Fatalf("FillFeatureOffsets count=%d want %d", n, len(got))
 	}
-	want := []int{1, 0}
+	want := []int32{1, 0}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("FillFeatureOffsets=%v want %v", got, want)
 	}
@@ -84,11 +84,11 @@ func TestResultFeatureWindowMissingPositiveAndNegative(t *testing.T) {
 	if window.RecoverableFeatureFrames != 0 || window.MissingPositiveFrames != 2 {
 		t.Fatalf("FeatureWindow recoverable/missing=(%d,%d) want (0,2)", window.RecoverableFeatureFrames, window.MissingPositiveFrames)
 	}
-	got := make([]int, 2)
+	got := make([]int32, 2)
 	if n := window.FillFeatureOffsets(got); n != len(got) {
 		t.Fatalf("FillFeatureOffsets count=%d want %d", n, len(got))
 	}
-	want := []int{5, 4}
+	want := []int32{5, 4}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("FillFeatureOffsets=%v want %v", got, want)
 	}

@@ -52,12 +52,12 @@ func TestMaxLatentsForRequest(t *testing.T) {
 
 func TestHeaderFillQuantizerLevels(t *testing.T) {
 	h := Header{Q0: 6, DQ: 3, QMax: 9}
-	got := make([]int, 6)
+	got := make([]int32, 6)
 	n := h.FillQuantizerLevels(got, 10080, 48000)
 	if n != len(got) {
 		t.Fatalf("FillQuantizerLevels count=%d want %d", n, len(got))
 	}
-	want := []int{6, 6, 7, 7, 7, 7}
+	want := []int32{6, 6, 7, 7, 7, 7}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("FillQuantizerLevels=%v want %v", got, want)
 	}

@@ -25,12 +25,12 @@ func TestParsePayload(t *testing.T) {
 	if avail.FeatureFrames != 4 || avail.MaxLatents != 0 || avail.OffsetSamples != -480 || avail.EndSamples != 480 || avail.AvailableSamples != 480 {
 		t.Fatalf("ParsePayload availability=%+v want {FeatureFrames:4 MaxLatents:0 OffsetSamples:-480 EndSamples:480 AvailableSamples:480}", avail)
 	}
-	quant := make([]int, 4)
+	quant := make([]int32, 4)
 	n := got.FillQuantizerLevels(quant, 5760, 48000)
 	if n != 0 {
 		t.Fatalf("FillQuantizerLevels count=%d want 0", n)
 	}
-	want := []int{0, 0, 0, 0}
+	want := []int32{0, 0, 0, 0}
 	if !reflect.DeepEqual(quant, want) {
 		t.Fatalf("FillQuantizerLevels=%v want %v", quant, want)
 	}

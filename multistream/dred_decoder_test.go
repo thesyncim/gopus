@@ -457,7 +457,7 @@ func TestDecoderCachesDREDPayloadPerStreamWhenModelLoaded(t *testing.T) {
 	if got := dec.cachedDREDMaxAvailableSamples(targetStream, 960); got != 0 {
 		t.Fatalf("stream %d cachedDREDMaxAvailableSamples=%d want 0", targetStream, got)
 	}
-	quant := make([]int, 6)
+	quant := make([]int32, 6)
 	if n := dec.cachedDREDResult(targetStream, 10080).FillQuantizerLevels(quant); n != 0 {
 		t.Fatalf("stream %d cachedDREDResult.FillQuantizerLevels count=%d want 0", targetStream, n)
 	}
