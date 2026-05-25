@@ -186,7 +186,6 @@ celt/bands_quant.go	1	7c68adb9836968e4931a72a31bce3baa5f6ccc2027434f09d4f9129704
 celt/bands_quant.go	3	7cd6a26f6f0d312def7caedcc48c3d972e38e9cdbaa8c91cecac9461d1b27490	legacy-current	y2[0] = float64(-sign32 * float32(x2[1]))
 celt/bands_quant.go	1	7dfa0448ea0648023974724b4207f3da30316d3cac0b3dd72a356e69753f1fa9	legacy-current	func celtMul32(a, b float64) float64 {
 celt/bands_quant.go	3	7fe369f4d4a941b4e8393f9c342d3a8cfe4a1983c290bf90679d5ee074186900	legacy-current	x[i] = float64(int32(ctx.seed) >> 20)
-celt/bands_quant.go	1	8218d227be425846f1ed1ddda8b637bf39380d92e94e8cb35e862c6519c0d6dd	legacy-current	func innerProduct(x, y []float64) float32 {
 celt/bands_quant.go	1	82e6e1692cd45e21da578d11008d1a2335377f9721cbd7c1d7a95b9ed1f724ce	legacy-current	x[i+2] = float64(noFMA32Mul(lgain, noFMA32Sub(l2, r2)))
 celt/bands_quant.go	1	84872161c1e46d3be50e9d910ad8027ae039341cfbe6cfcd860e337eafdfb61d	legacy-current	out[i+2] = float64(float32(v2) * scale)
 celt/bands_quant.go	1	859242f91092292bcf5900e5dcea6d75e43424c4ae400d4643e4d67a97456bf8	legacy-current	func expRotation1(x []float64, length, stride int, c, s opusVal16) {

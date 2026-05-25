@@ -1405,8 +1405,8 @@ func TestThetaRDODistortionMatchesLibopusFloatPath(t *testing.T) {
 		copyFloat64ToNorm(x1n, x1)
 		copyFloat64ToNorm(y0n, y0)
 		copyFloat64ToNorm(y1n, y1)
-		p0 := innerProduct(x0, x1)
-		p1 := innerProduct(y0, y1)
+		p0 := innerProductNorm(x0n, x1n)
+		p1 := innerProductNorm(y0n, y1n)
 		dist := thetaRDODistortion(w0, w1, x0n, x1n, y0n, y1n)
 		if math.Float32bits(p0) != math.Float32bits(want[ci].p0) ||
 			math.Float32bits(p1) != math.Float32bits(want[ci].p1) ||

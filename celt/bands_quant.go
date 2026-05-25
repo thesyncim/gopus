@@ -2087,30 +2087,6 @@ func computeChannelWeights(ex, ey float64) (w0, w1 float32) {
 	return ex32, ey32
 }
 
-// innerProduct computes the inner product of two vectors.
-// Used for distortion measurement in theta RDO.
-// Match libopus float-path behavior by accumulating in float32 lanes and using
-// the same four-lane reduction order as the NEON/SSE inner product paths.
-func innerProduct(x, y []float64) float32 {
-	n := len(x)
-	if len(y) < n {
-		n = len(y)
-	}
-	var s0, s1, s2, s3 float32
-	i := 0
-	for ; i+3 < n; i += 4 {
-		s0 = noFMA32Add(s0, noFMA32Mul(float32(x[i]), float32(y[i])))
-		s1 = noFMA32Add(s1, noFMA32Mul(float32(x[i+1]), float32(y[i+1])))
-		s2 = noFMA32Add(s2, noFMA32Mul(float32(x[i+2]), float32(y[i+2])))
-		s3 = noFMA32Add(s3, noFMA32Mul(float32(x[i+3]), float32(y[i+3])))
-	}
-	sum := noFMA32Add(noFMA32Add(s0, s2), noFMA32Add(s1, s3))
-	for ; i < n; i++ {
-		sum = noFMA32Add(sum, noFMA32Mul(float32(x[i]), float32(y[i])))
-	}
-	return sum
-}
-
 func innerProductNorm(x, y []celtNorm) float32 {
 	n := len(x)
 	if len(y) < n {

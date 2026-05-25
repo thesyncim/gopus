@@ -436,12 +436,17 @@ func TestThetaRDOTrialRestoration(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// The distortion measure used in theta RDO is innerProduct(orig, enc)
-			// Higher inner product means lower distortion (more similar)
-			dist := innerProduct(tc.orig, tc.enc)
+			orig := make([]celtNorm, len(tc.orig))
+			enc := make([]celtNorm, len(tc.enc))
+			copyFloat64ToNorm(orig, tc.orig)
+			copyFloat64ToNorm(enc, tc.enc)
 
-			// Verify innerProduct is symmetric
-			distReverse := innerProduct(tc.enc, tc.orig)
+			// The distortion measure used in theta RDO is innerProductNorm(orig, enc)
+			// Higher inner product means lower distortion (more similar)
+			dist := innerProductNorm(orig, enc)
+
+			// Verify innerProductNorm is symmetric
+			distReverse := innerProductNorm(enc, orig)
 			if math.Abs(float64(dist-distReverse)) > 1e-10 {
 				t.Errorf("innerProduct not symmetric: %f != %f", dist, distReverse)
 			}
