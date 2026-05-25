@@ -25,6 +25,7 @@ type encoderCompliancePacketsFixtureFile struct {
 	Version    int                                 `json:"version"`
 	SampleRate int                                 `json:"sample_rate"`
 	Generator  string                              `json:"generator"`
+	Provenance libopusFixtureProvenance            `json:"provenance"`
 	Signal     string                              `json:"signal"`
 	Cases      []encoderCompliancePacketsFixtureTC `json:"cases"`
 }
@@ -66,6 +67,10 @@ func loadEncoderCompliancePacketsFixture() (encoderCompliancePacketsFixtureFile,
 		var fixture encoderCompliancePacketsFixtureFile
 		if err := json.Unmarshal(data, &fixture); err != nil {
 			encoderCompliancePacketsFixtureErr = err
+			return
+		}
+		if err := validateLibopusFixtureProvenance(fixture.Provenance); err != nil {
+			encoderCompliancePacketsFixtureErr = fmt.Errorf("packets fixture provenance: %w", err)
 			return
 		}
 		for i := range fixture.Cases {

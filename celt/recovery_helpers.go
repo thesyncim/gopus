@@ -537,10 +537,6 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float64, frameSize, lossCoun
 
 		exc := d.scratchPLCExc[:maxPeriod+celtPLCLPCOrder]
 		copy(exc, hist[plcDecodeBufferSize-maxPeriod-celtPLCLPCOrder:])
-		exc32 := ensureFloat32Slice(&d.scratchPLCExc32, len(exc))
-		for i := range exc {
-			exc32[i] = float32(exc[i])
-		}
 
 		if !continuePeriodic {
 			d.computePLCLPC(exc[celtPLCLPCOrder:], lpc, window)
@@ -548,11 +544,10 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float64, frameSize, lossCoun
 
 		firStart := celtPLCLPCOrder + maxPeriod - excLength
 		firTmp := d.scratchPLCFIRTmp[:excLength]
-		celtFIRFloat32(firTmp, exc32, firStart, excLength, lpc)
+		celtFIRFloat32(firTmp, exc, firStart, excLength, lpc)
 		for i := 0; i < excLength; i++ {
 			v := float32(firTmp[i])
 			exc[firStart+i] = celtSig(v)
-			exc32[firStart+i] = v
 		}
 
 		decay := float32(1.0)

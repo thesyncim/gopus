@@ -156,7 +156,6 @@ type Decoder struct {
 	scratchPLCPitchLP     []float32
 	scratchPLCPitchSearch plcPitchSearchScratch
 	scratchPLCFIRTmp      []celtSig
-	scratchPLCExc32       []float32
 	scratchPLCWindowed    []celtSig
 	scratchPLCIIRY        []float32
 	scratchPLCBuf         []celtSig

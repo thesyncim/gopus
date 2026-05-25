@@ -1,6 +1,8 @@
 package libopustooling
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -34,6 +36,27 @@ const (
 	// so a stale plain scalar build cannot be reused as an OSCE build.
 	osceScalarDNNBuildStampFile = ".gopus-scalar-dnn-build-osce"
 )
+
+// LibopusBuildProvenance captures the native helper build that produced a
+// generated libopus fixture.
+type LibopusBuildProvenance struct {
+	GOOS                    string `json:"goos"`
+	GOARCH                  string `json:"goarch"`
+	LibopusVersion          string `json:"libopus_version"`
+	QEXT                    string `json:"qext"`
+	HostOS                  string `json:"host_os"`
+	HostArch                string `json:"host_arch"`
+	HostBits                string `json:"host_bits"`
+	CC                      string `json:"cc"`
+	CCPath                  string `json:"cc_path"`
+	CCTarget                string `json:"cc_target"`
+	CCVersion               string `json:"cc_version"`
+	Configure               string `json:"configure"`
+	CFLAGS                  string `json:"cflags"`
+	CPPFLAGS                string `json:"cppflags"`
+	LDFLAGS                 string `json:"ldflags"`
+	LibopusBuildStampSHA256 string `json:"libopus_build_stamp_sha256"`
+}
 
 // DefaultSearchRoots covers common invocation locations:
 // repository root, package subdirs (e.g. testvectors), and deeper test runs.
@@ -287,6 +310,40 @@ func parseLibopusBuildStamp(stamp string) (map[string]string, bool) {
 		fields[key] = strings.TrimSpace(value)
 	}
 	return fields, true
+}
+
+// LibopusBuildProvenanceForTool returns provenance for a tool produced by
+// tools/ensure_libopus.sh. The returned digest is over the exact stamp file
+// bytes so fixture metadata changes whenever the validated native helper build
+// changes.
+func LibopusBuildProvenanceForTool(toolPath string) (LibopusBuildProvenance, bool) {
+	data, err := os.ReadFile(filepath.Join(filepath.Dir(toolPath), ".gopus-libopus-build"))
+	if err != nil {
+		return LibopusBuildProvenance{}, false
+	}
+	fields, ok := parseLibopusBuildStamp(string(data))
+	if !ok {
+		return LibopusBuildProvenance{}, false
+	}
+	sum := sha256.Sum256(data)
+	return LibopusBuildProvenance{
+		GOOS:                    runtime.GOOS,
+		GOARCH:                  runtime.GOARCH,
+		LibopusVersion:          fields["version"],
+		QEXT:                    fields["qext"],
+		HostOS:                  fields["host_os"],
+		HostArch:                fields["host_arch"],
+		HostBits:                fields["host_bits"],
+		CC:                      fields["cc"],
+		CCPath:                  fields["cc_path"],
+		CCTarget:                fields["cc_target"],
+		CCVersion:               fields["cc_version"],
+		Configure:               fields["configure"],
+		CFLAGS:                  fields["CFLAGS"],
+		CPPFLAGS:                fields["CPPFLAGS"],
+		LDFLAGS:                 fields["LDFLAGS"],
+		LibopusBuildStampSHA256: hex.EncodeToString(sum[:]),
+	}, true
 }
 
 // EnsureLibopus invokes tools/ensure_libopus.sh from the first matching root.

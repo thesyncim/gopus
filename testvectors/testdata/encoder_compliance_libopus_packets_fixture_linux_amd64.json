@@ -2,6 +2,12 @@
   "version": 1,
   "sample_rate": 48000,
   "generator": "tmp_check/opus-1.6.1/opus_demo",
+  "provenance": {
+    "goos": "linux",
+    "goarch": "amd64",
+    "libopus_version": "1.6.1",
+    "qext": "0"
+  },
   "signal": "generateEncoderTestSignal:v1",
   "cases": [
     {

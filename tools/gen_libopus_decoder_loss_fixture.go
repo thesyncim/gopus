@@ -28,13 +28,14 @@ const (
 )
 
 type decoderLossFixtureFile struct {
-	Version    int                    `json:"version"`
-	SampleRate int                    `json:"sample_rate"`
-	Generator  string                 `json:"generator"`
-	Signal     string                 `json:"signal"`
-	Cases      []decoderLossCase      `json:"cases"`
-	Patterns   []string               `json:"patterns"`
-	Notes      map[string]interface{} `json:"notes,omitempty"`
+	Version    int                                   `json:"version"`
+	SampleRate int                                   `json:"sample_rate"`
+	Generator  string                                `json:"generator"`
+	Provenance libopustooling.LibopusBuildProvenance `json:"provenance"`
+	Signal     string                                `json:"signal"`
+	Cases      []decoderLossCase                     `json:"cases"`
+	Patterns   []string                              `json:"patterns"`
+	Notes      map[string]interface{}                `json:"notes,omitempty"`
 }
 
 type decoderLossCase struct {
@@ -326,6 +327,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "opus_demo not found. expected tmp_check/opus-%s/opus_demo (run: make ensure-libopus)\n", libopustooling.DefaultVersion)
 		os.Exit(1)
 	}
+	provenance, ok := libopustooling.LibopusBuildProvenanceForTool(opusDemoPath)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "libopus build provenance not found for %s (run: make ensure-libopus)\n", opusDemoPath)
+		os.Exit(1)
+	}
 
 	caseSpecs := []decoderLossCaseSpec{
 		{
@@ -365,6 +371,7 @@ func main() {
 		Version:    lossFixtureVersion,
 		SampleRate: lossFixtureSampleRate,
 		Generator:  opusDemoPath,
+		Provenance: provenance,
 		Signal:     "generateLossFixtureSignal:v1",
 		Cases:      make([]decoderLossCase, 0, len(caseSpecs)),
 		Patterns:   []string{"single_mid", "burst2_mid", "periodic9"},

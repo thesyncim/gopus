@@ -1,6 +1,8 @@
 package libopustooling
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -38,6 +40,52 @@ func TestFindLibopusToolForOSPrefersWindowsExe(t *testing.T) {
 	}
 	if got != toolPath {
 		t.Fatalf("tool path mismatch: got %q want %q", got, toolPath)
+	}
+}
+
+func TestLibopusBuildProvenanceForToolReadsStampedBuild(t *testing.T) {
+	srcDir := t.TempDir()
+	toolPath := filepath.Join(srcDir, "opus_demo")
+	if err := os.WriteFile(toolPath, []byte("stub"), 0o755); err != nil {
+		t.Fatalf("write tool: %v", err)
+	}
+	stamp := strings.Join([]string{
+		"gopus libopus helper build v5",
+		"version=" + DefaultVersion,
+		"qext=0",
+		"host_os=Linux",
+		"host_arch=x86_64",
+		"host_bits=64",
+		"cc=cc",
+		"cc_path=/usr/bin/cc",
+		"cc_target=x86_64-linux-gnu",
+		"cc_version=gcc test",
+		"configure=--enable-static --disable-shared",
+		"CFLAGS=-O3 -DNDEBUG",
+		"CPPFLAGS=",
+		"LDFLAGS=",
+		"",
+	}, "\n")
+	if err := os.WriteFile(filepath.Join(srcDir, ".gopus-libopus-build"), []byte(stamp), 0o644); err != nil {
+		t.Fatalf("write build stamp: %v", err)
+	}
+
+	got, ok := LibopusBuildProvenanceForTool(toolPath)
+	if !ok {
+		t.Fatal("expected stamped tool provenance")
+	}
+	if got.GOOS != runtime.GOOS || got.GOARCH != runtime.GOARCH {
+		t.Fatalf("runtime target mismatch: got %s/%s want %s/%s", got.GOOS, got.GOARCH, runtime.GOOS, runtime.GOARCH)
+	}
+	if got.LibopusVersion != DefaultVersion || got.QEXT != "0" {
+		t.Fatalf("libopus identity mismatch: version=%q qext=%q", got.LibopusVersion, got.QEXT)
+	}
+	if got.HostOS != "Linux" || got.HostArch != "x86_64" || got.CCTarget != "x86_64-linux-gnu" || got.CCVersion != "gcc test" {
+		t.Fatalf("stamp fields not propagated: %#v", got)
+	}
+	sum := sha256.Sum256([]byte(stamp))
+	if got.LibopusBuildStampSHA256 != hex.EncodeToString(sum[:]) {
+		t.Fatalf("stamp digest=%s want %s", got.LibopusBuildStampSHA256, hex.EncodeToString(sum[:]))
 	}
 }
 

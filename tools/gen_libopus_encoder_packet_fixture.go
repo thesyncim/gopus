@@ -39,11 +39,12 @@ type refQCaseRow struct {
 }
 
 type encoderPacketFixtureFile struct {
-	Version    int                      `json:"version"`
-	SampleRate int                      `json:"sample_rate"`
-	Generator  string                   `json:"generator"`
-	Signal     string                   `json:"signal"`
-	Cases      []encoderPacketFixtureTC `json:"cases"`
+	Version    int                                   `json:"version"`
+	SampleRate int                                   `json:"sample_rate"`
+	Generator  string                                `json:"generator"`
+	Provenance libopustooling.LibopusBuildProvenance `json:"provenance"`
+	Signal     string                                `json:"signal"`
+	Cases      []encoderPacketFixtureTC              `json:"cases"`
 }
 
 type encoderPacketFixtureTC struct {
@@ -291,6 +292,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "opus_demo not found. expected tmp_check/opus-%s/opus_demo (run: make ensure-libopus)\n", libopustooling.DefaultVersion)
 		os.Exit(1)
 	}
+	provenance, ok := libopustooling.LibopusBuildProvenanceForTool(opusDemoPath)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "libopus build provenance not found for %s (run: make ensure-libopus)\n", opusDemoPath)
+		os.Exit(1)
+	}
 	refFixture, err := loadRefQFixture()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "load ref-q fixture: %v\n", err)
@@ -307,6 +313,7 @@ func main() {
 		Version:    1,
 		SampleRate: encoderFixtureSampleRate,
 		Generator:  opusDemoPath,
+		Provenance: provenance,
 		Signal:     "generateEncoderTestSignal:v1",
 		Cases:      make([]encoderPacketFixtureTC, 0, len(refFixture.Cases)),
 	}

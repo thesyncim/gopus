@@ -17,6 +17,7 @@ type libopusDecoderLossFixtureFile struct {
 	Version    int                          `json:"version"`
 	SampleRate int                          `json:"sample_rate"`
 	Generator  string                       `json:"generator"`
+	Provenance libopusFixtureProvenance     `json:"provenance"`
 	Signal     string                       `json:"signal"`
 	Cases      []libopusDecoderLossCaseFile `json:"cases"`
 	Patterns   []string                     `json:"patterns"`
@@ -70,6 +71,10 @@ func loadLibopusDecoderLossFixture() (libopusDecoderLossFixtureFile, error) {
 		}
 		var fixture libopusDecoderLossFixtureFile
 		if err := json.Unmarshal(data, &fixture); err != nil {
+			libopusDecoderLossFixtureErr = err
+			return
+		}
+		if err := validateLibopusFixtureProvenance(fixture.Provenance); err != nil {
 			libopusDecoderLossFixtureErr = err
 			return
 		}

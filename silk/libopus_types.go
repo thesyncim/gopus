@@ -88,14 +88,9 @@ type decoderState struct {
 	scratchEcIx   []int16 // Pre-allocated ecIx buffer
 	scratchPredQ8 []uint8 // Pre-allocated predQ8 buffer
 
-	// Scratch buffers for shell decoder
-	scratchPulses3 []int16 // Size: 2
-	scratchPulses2 []int16 // Size: 4
-	scratchPulses1 []int16 // Size: 8
-
 	// Scratch buffers for pulse decoder
-	scratchSumPulses []int // Size: 21
-	scratchNLshifts  []int // Size: 21
+	scratchSumPulses []int32 // Size: 21
+	scratchNLshifts  []int32 // Size: 21
 }
 
 type decoderControl struct {

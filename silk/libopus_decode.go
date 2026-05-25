@@ -158,56 +158,56 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 }
 
 //go:nosplit
-func silkDecodeShellSplit(rd *rangecoding.Decoder, p int, rows *[17][]uint8) (int16, int16) {
+func silkDecodeShellSplit(rd *rangecoding.Decoder, p int32, rows *[17][]uint8) (int16, int16) {
 	if p > 0 {
-		row := rows[p]
-		var split int
+		row := rows[int(p)]
+		var split int32
 		switch p {
 		case 1:
-			split = rd.DecodeICDF2_8(row[0])
+			split = int32(rd.DecodeICDF2_8(row[0]))
 		case 2:
-			split = rd.DecodeICDF3_8(row[0], row[1])
+			split = int32(rd.DecodeICDF3_8(row[0], row[1]))
 		case 3:
-			split = rd.DecodeICDF4_8(row[0], row[1], row[2])
+			split = int32(rd.DecodeICDF4_8(row[0], row[1], row[2]))
 		case 4:
-			split = rd.DecodeICDF5_8(row[0], row[1], row[2], row[3])
+			split = int32(rd.DecodeICDF5_8(row[0], row[1], row[2], row[3]))
 		default:
-			split = rd.DecodeICDF8Unchecked(row)
+			split = int32(rd.DecodeICDF8Unchecked(row))
 		}
 		return int16(split), int16(p - split)
 	}
 	return 0, 0
 }
 
-func silkShellDecoder(pulses []int16, rd *rangecoding.Decoder, pulses4 int) {
+func silkShellDecoder(pulses []int16, rd *rangecoding.Decoder, pulses4 int32) {
 	// These are small fixed-size arrays, using stack allocation via array
 	var pulses3 [2]int16
 	var pulses2 [4]int16
 	var pulses1 [8]int16
 
 	pulses3[0], pulses3[1] = silkDecodeShellSplit(rd, pulses4, &silk_shell_code_table3_rows)
-	pulses2[0], pulses2[1] = silkDecodeShellSplit(rd, int(pulses3[0]), &silk_shell_code_table2_rows)
+	pulses2[0], pulses2[1] = silkDecodeShellSplit(rd, int32(pulses3[0]), &silk_shell_code_table2_rows)
 
-	pulses1[0], pulses1[1] = silkDecodeShellSplit(rd, int(pulses2[0]), &silk_shell_code_table1_rows)
-	pulses[0], pulses[1] = silkDecodeShellSplit(rd, int(pulses1[0]), &silk_shell_code_table0_rows)
-	pulses[2], pulses[3] = silkDecodeShellSplit(rd, int(pulses1[1]), &silk_shell_code_table0_rows)
+	pulses1[0], pulses1[1] = silkDecodeShellSplit(rd, int32(pulses2[0]), &silk_shell_code_table1_rows)
+	pulses[0], pulses[1] = silkDecodeShellSplit(rd, int32(pulses1[0]), &silk_shell_code_table0_rows)
+	pulses[2], pulses[3] = silkDecodeShellSplit(rd, int32(pulses1[1]), &silk_shell_code_table0_rows)
 
-	pulses1[2], pulses1[3] = silkDecodeShellSplit(rd, int(pulses2[1]), &silk_shell_code_table1_rows)
-	pulses[4], pulses[5] = silkDecodeShellSplit(rd, int(pulses1[2]), &silk_shell_code_table0_rows)
-	pulses[6], pulses[7] = silkDecodeShellSplit(rd, int(pulses1[3]), &silk_shell_code_table0_rows)
+	pulses1[2], pulses1[3] = silkDecodeShellSplit(rd, int32(pulses2[1]), &silk_shell_code_table1_rows)
+	pulses[4], pulses[5] = silkDecodeShellSplit(rd, int32(pulses1[2]), &silk_shell_code_table0_rows)
+	pulses[6], pulses[7] = silkDecodeShellSplit(rd, int32(pulses1[3]), &silk_shell_code_table0_rows)
 
-	pulses2[2], pulses2[3] = silkDecodeShellSplit(rd, int(pulses3[1]), &silk_shell_code_table2_rows)
+	pulses2[2], pulses2[3] = silkDecodeShellSplit(rd, int32(pulses3[1]), &silk_shell_code_table2_rows)
 
-	pulses1[4], pulses1[5] = silkDecodeShellSplit(rd, int(pulses2[2]), &silk_shell_code_table1_rows)
-	pulses[8], pulses[9] = silkDecodeShellSplit(rd, int(pulses1[4]), &silk_shell_code_table0_rows)
-	pulses[10], pulses[11] = silkDecodeShellSplit(rd, int(pulses1[5]), &silk_shell_code_table0_rows)
+	pulses1[4], pulses1[5] = silkDecodeShellSplit(rd, int32(pulses2[2]), &silk_shell_code_table1_rows)
+	pulses[8], pulses[9] = silkDecodeShellSplit(rd, int32(pulses1[4]), &silk_shell_code_table0_rows)
+	pulses[10], pulses[11] = silkDecodeShellSplit(rd, int32(pulses1[5]), &silk_shell_code_table0_rows)
 
-	pulses1[6], pulses1[7] = silkDecodeShellSplit(rd, int(pulses2[3]), &silk_shell_code_table1_rows)
-	pulses[12], pulses[13] = silkDecodeShellSplit(rd, int(pulses1[6]), &silk_shell_code_table0_rows)
-	pulses[14], pulses[15] = silkDecodeShellSplit(rd, int(pulses1[7]), &silk_shell_code_table0_rows)
+	pulses1[6], pulses1[7] = silkDecodeShellSplit(rd, int32(pulses2[3]), &silk_shell_code_table1_rows)
+	pulses[12], pulses[13] = silkDecodeShellSplit(rd, int32(pulses1[6]), &silk_shell_code_table0_rows)
+	pulses[14], pulses[15] = silkDecodeShellSplit(rd, int32(pulses1[7]), &silk_shell_code_table0_rows)
 }
 
-func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signalType int, quantOffsetType int, sumPulses []int) {
+func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signalType int, quantOffsetType int, sumPulses []int32) {
 	qPtr := 0
 	idx := 7 * (quantOffsetType + (signalType << 1))
 	icdfPtr := silk_sign_iCDF[idx:]
@@ -215,11 +215,11 @@ func silkDecodeSigns(rd *rangecoding.Decoder, pulses []int16, length int, signal
 	for i := 0; i < blocks; i++ {
 		p := sumPulses[i]
 		if p > 0 {
-			icdf0 := icdfPtr[silkMinInt(p&0x1F, 6)]
+			icdf0 := icdfPtr[silkMinInt(int(p&0x1F), 6)]
 			block := pulses[qPtr : qPtr+shellCodecFrameLength]
 			pulseSum := 0
 			if p>>5 == 0 {
-				pulseSum = p
+				pulseSum = int(p)
 			}
 			rd.DecodeICDF2_8SignBlock16(icdf0, (*[shellCodecFrameLength]int16)(block), pulseSum)
 		}
@@ -232,7 +232,7 @@ func silkDecodePulses(rd *rangecoding.Decoder, pulses []int16, signalType int, q
 }
 
 // silkDecodePulsesWithScratch is like silkDecodePulses but uses pre-allocated scratch buffers.
-func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signalType int, quantOffsetType int, frameLength int, scratchSumPulses, scratchNLshifts []int) {
+func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signalType int, quantOffsetType int, frameLength int, scratchSumPulses, scratchNLshifts []int32) {
 	rateLevel := rd.DecodeICDF9_8Slice(silk_rate_levels_iCDF[signalType>>1])
 	iter := frameLength >> log2ShellCodecFrameLength
 	if iter*shellCodecFrameLength < frameLength {
@@ -240,29 +240,29 @@ func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signal
 	}
 
 	// Use scratch buffers if provided, otherwise allocate
-	var sumPulses, nLshifts []int
+	var sumPulses, nLshifts []int32
 	if scratchSumPulses != nil && len(scratchSumPulses) >= iter {
 		sumPulses = scratchSumPulses[:iter]
 	} else {
-		sumPulses = make([]int, iter)
+		sumPulses = make([]int32, iter)
 	}
 	if scratchNLshifts != nil && len(scratchNLshifts) >= iter {
 		nLshifts = scratchNLshifts[:iter]
 	} else {
-		nLshifts = make([]int, iter)
+		nLshifts = make([]int32, iter)
 	}
 
 	cdfPtr := silk_pulses_per_block_iCDF[rateLevel]
 	for i := 0; i < iter; i++ {
 		nLshifts[i] = 0
-		sumPulses[i] = rd.DecodeICDF8Linear(cdfPtr)
-		for sumPulses[i] == silkMaxPulses+1 {
+		sumPulses[i] = int32(rd.DecodeICDF8Linear(cdfPtr))
+		for sumPulses[i] == int32(silkMaxPulses+1) {
 			nLshifts[i]++
 			table := silk_pulses_per_block_iCDF[nRateLevels-1]
 			if nLshifts[i] == 10 {
 				table = table[1:]
 			}
-			sumPulses[i] = rd.DecodeICDF8Linear(table)
+			sumPulses[i] = int32(rd.DecodeICDF8Linear(table))
 		}
 	}
 
@@ -279,7 +279,7 @@ func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signal
 
 	for i := 0; i < iter; i++ {
 		if nLshifts[i] > 0 {
-			nLS := nLshifts[i]
+			nLS := int(nLshifts[i])
 			off := i * shellCodecFrameLength
 			for k := 0; k < shellCodecFrameLength; k++ {
 				absQ := int32(pulses[off+k])
@@ -289,7 +289,7 @@ func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signal
 				}
 				pulses[off+k] = int16(absQ)
 			}
-			sumPulses[i] |= nLS << 5
+			sumPulses[i] |= int32(nLS) << 5
 		}
 	}
 

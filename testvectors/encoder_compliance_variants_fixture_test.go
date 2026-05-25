@@ -41,6 +41,7 @@ type encoderComplianceVariantsFixtureFile struct {
 	Version    int                                    `json:"version"`
 	SampleRate int                                    `json:"sample_rate"`
 	Generator  string                                 `json:"generator"`
+	Provenance libopusFixtureProvenance               `json:"provenance"`
 	Variants   []string                               `json:"variants"`
 	Cases      []encoderComplianceVariantsFixtureCase `json:"cases"`
 }
@@ -100,6 +101,10 @@ func loadEncoderComplianceVariantsFixture() (encoderComplianceVariantsFixtureFil
 		var fixture encoderComplianceVariantsFixtureFile
 		if err := json.Unmarshal(data, &fixture); err != nil {
 			encoderComplianceVariantsFixtureErr = err
+			return
+		}
+		if err := validateLibopusFixtureProvenance(fixture.Provenance); err != nil {
+			encoderComplianceVariantsFixtureErr = fmt.Errorf("variants fixture provenance: %w", err)
 			return
 		}
 		if len(fixture.Cases) == 0 {

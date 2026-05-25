@@ -166,7 +166,7 @@ func xcorrKernel4Float64(x, y []float64, sum *[4]float32, length int) {
 	}
 }
 
-func celtFIRFloat32(dst []celtSig, exc []float32, start, length int, lpc []float32) {
+func celtFIRFloat32(dst []celtSig, exc []celtSig, start, length int, lpc []float32) {
 	const ord = celtPLCLPCOrder
 	if length <= 0 || len(dst) < length || start-ord < 0 || start+length > len(exc) || len(lpc) < ord {
 		return

@@ -89,15 +89,10 @@ type Decoder struct {
 	scratchEcIx   []int16 // Size: maxLPCOrder = 16
 	scratchPredQ8 []uint8 // Size: maxLPCOrder = 16
 
-	// Scratch buffers for silkShellDecoder
-	scratchPulses3 []int16 // Size: 2
-	scratchPulses2 []int16 // Size: 4
-	scratchPulses1 []int16 // Size: 8
-
 	// Scratch buffers for silkDecodePulses
 	// iter = frameLength >> 4 + 1 = 320/16 + 1 = 21 max
-	scratchSumPulses []int // Size: 21
-	scratchNLshifts  []int // Size: 21
+	scratchSumPulses []int32 // Size: 21
+	scratchNLshifts  []int32 // Size: 21
 
 	// Scratch buffers for resampler - eliminate allocations in Process()
 	resamplerScratchIn     []int16   // Size: max input samples (fsInKHz * 10 = 160)
@@ -209,11 +204,8 @@ func NewDecoder() *Decoder {
 		// Additional scratch buffers for zero-allocation decoding
 		scratchEcIx:            make([]int16, maxLPCOrder),
 		scratchPredQ8:          make([]uint8, maxLPCOrder),
-		scratchPulses3:         make([]int16, 2),
-		scratchPulses2:         make([]int16, 4),
-		scratchPulses1:         make([]int16, 8),
-		scratchSumPulses:       make([]int, maxIterSize),
-		scratchNLshifts:        make([]int, maxIterSize),
+		scratchSumPulses:       make([]int32, maxIterSize),
+		scratchNLshifts:        make([]int32, maxIterSize),
 		resamplerScratchIn:     make([]int16, maxResamplerIn),
 		resamplerScratchOut:    make([]int16, maxResamplerOut),
 		resamplerScratchResult: make([]float32, maxResamplerOut),
@@ -272,9 +264,6 @@ func (d *Decoder) setupScratchBuffers() {
 	d.state[0].scratchPresQ14 = d.scratchPresQ14
 	d.state[0].scratchEcIx = d.scratchEcIx
 	d.state[0].scratchPredQ8 = d.scratchPredQ8
-	d.state[0].scratchPulses3 = d.scratchPulses3
-	d.state[0].scratchPulses2 = d.scratchPulses2
-	d.state[0].scratchPulses1 = d.scratchPulses1
 	d.state[0].scratchSumPulses = d.scratchSumPulses
 	d.state[0].scratchNLshifts = d.scratchNLshifts
 
@@ -284,9 +273,6 @@ func (d *Decoder) setupScratchBuffers() {
 	d.state[1].scratchPresQ14 = d.scratchPresQ14
 	d.state[1].scratchEcIx = d.scratchEcIx
 	d.state[1].scratchPredQ8 = d.scratchPredQ8
-	d.state[1].scratchPulses3 = d.scratchPulses3
-	d.state[1].scratchPulses2 = d.scratchPulses2
-	d.state[1].scratchPulses1 = d.scratchPulses1
 	d.state[1].scratchSumPulses = d.scratchSumPulses
 	d.state[1].scratchNLshifts = d.scratchNLshifts
 }
@@ -383,15 +369,6 @@ func (d *Decoder) Reset() {
 	}
 	for i := range d.scratchPredQ8 {
 		d.scratchPredQ8[i] = 0
-	}
-	for i := range d.scratchPulses3 {
-		d.scratchPulses3[i] = 0
-	}
-	for i := range d.scratchPulses2 {
-		d.scratchPulses2[i] = 0
-	}
-	for i := range d.scratchPulses1 {
-		d.scratchPulses1[i] = 0
 	}
 	for i := range d.scratchSumPulses {
 		d.scratchSumPulses[i] = 0

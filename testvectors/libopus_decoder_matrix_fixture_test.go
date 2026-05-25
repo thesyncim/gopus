@@ -17,6 +17,7 @@ type libopusDecoderMatrixFixtureFile struct {
 	Version    int                            `json:"version"`
 	SampleRate int                            `json:"sample_rate"`
 	Generator  string                         `json:"generator"`
+	Provenance libopusFixtureProvenance       `json:"provenance"`
 	Signal     string                         `json:"signal"`
 	Cases      []libopusDecoderMatrixCaseFile `json:"cases"`
 }
@@ -62,6 +63,10 @@ func loadLibopusDecoderMatrixFixture() (libopusDecoderMatrixFixtureFile, error) 
 		}
 		var fixture libopusDecoderMatrixFixtureFile
 		if err := json.Unmarshal(data, &fixture); err != nil {
+			libopusDecoderMatrixFixtureErr = err
+			return
+		}
+		if err := validateLibopusFixtureProvenance(fixture.Provenance); err != nil {
 			libopusDecoderMatrixFixtureErr = err
 			return
 		}

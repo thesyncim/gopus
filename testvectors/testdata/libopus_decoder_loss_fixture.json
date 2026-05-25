@@ -2,6 +2,24 @@
   "version": 1,
   "sample_rate": 48000,
   "generator": "tmp_check/opus-1.6.1/opus_demo",
+  "provenance": {
+    "goos": "darwin",
+    "goarch": "arm64",
+    "libopus_version": "1.6.1",
+    "qext": "0",
+    "host_os": "Darwin",
+    "host_arch": "arm64",
+    "host_bits": "64",
+    "cc": "cc",
+    "cc_path": "/usr/bin/cc",
+    "cc_target": "arm64-apple-darwin25.3.0",
+    "cc_version": "Apple clang version 21.0.0 (clang-2100.1.1.101)",
+    "configure": "--enable-static --disable-shared",
+    "cflags": "-O3 -DNDEBUG",
+    "cppflags": "",
+    "ldflags": "",
+    "libopus_build_stamp_sha256": "dc2a5014e7e8482c6422022a36465b3bde69bd9b153e6806510b9add8b33ca78"
+  },
   "signal": "generateLossFixtureSignal:v1",
   "cases": [
     {

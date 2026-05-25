@@ -25,11 +25,12 @@ const (
 )
 
 type decoderMatrixFixtureFile struct {
-	Version    int                        `json:"version"`
-	SampleRate int                        `json:"sample_rate"`
-	Generator  string                     `json:"generator"`
-	Signal     string                     `json:"signal"`
-	Cases      []decoderMatrixFixtureCase `json:"cases"`
+	Version    int                                   `json:"version"`
+	SampleRate int                                   `json:"sample_rate"`
+	Generator  string                                `json:"generator"`
+	Provenance libopustooling.LibopusBuildProvenance `json:"provenance"`
+	Signal     string                                `json:"signal"`
+	Cases      []decoderMatrixFixtureCase            `json:"cases"`
 }
 
 type decoderMatrixFixtureCase struct {
@@ -266,6 +267,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "opus_demo not found. expected tmp_check/opus-%s/opus_demo (run: make ensure-libopus)\n", libopustooling.DefaultVersion)
 		os.Exit(1)
 	}
+	provenance, ok := libopustooling.LibopusBuildProvenanceForTool(opusDemoPath)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "libopus build provenance not found for %s (run: make ensure-libopus)\n", opusDemoPath)
+		os.Exit(1)
+	}
 
 	cases := []decoderCaseConfig{
 		{Name: "silk-nb-10ms-mono-16k", Application: "restricted-silk", Bandwidth: "NB", FrameSize: 480, Channels: 1, Bitrate: 16000, ExpectedMode: "silk"},
@@ -308,6 +314,7 @@ func main() {
 		Version:    1,
 		SampleRate: generatorSampleRate,
 		Generator:  opusDemoPath,
+		Provenance: provenance,
 		Signal:     "generateEncoderTestSignal:v1",
 		Cases:      make([]decoderMatrixFixtureCase, 0, len(cases)),
 	}

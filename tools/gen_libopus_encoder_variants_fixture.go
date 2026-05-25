@@ -40,11 +40,12 @@ type encoderVariantsRefQRow struct {
 }
 
 type encoderVariantsFixtureFile struct {
-	Version    int                        `json:"version"`
-	SampleRate int                        `json:"sample_rate"`
-	Generator  string                     `json:"generator"`
-	Variants   []string                   `json:"variants"`
-	Cases      []encoderVariantsFixtureTC `json:"cases"`
+	Version    int                                   `json:"version"`
+	SampleRate int                                   `json:"sample_rate"`
+	Generator  string                                `json:"generator"`
+	Provenance libopustooling.LibopusBuildProvenance `json:"provenance"`
+	Variants   []string                              `json:"variants"`
+	Cases      []encoderVariantsFixtureTC            `json:"cases"`
 }
 
 type encoderVariantsFixtureTC struct {
@@ -309,6 +310,11 @@ func main() {
 		fmt.Fprintf(os.Stderr, "opus_demo not found. expected tmp_check/opus-%s/opus_demo (run: make ensure-libopus)\n", libopustooling.DefaultVersion)
 		os.Exit(1)
 	}
+	provenance, ok := libopustooling.LibopusBuildProvenanceForTool(opusDemoPath)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "libopus build provenance not found for %s (run: make ensure-libopus)\n", opusDemoPath)
+		os.Exit(1)
+	}
 
 	refFixture, err := loadVariantsRefQFixture()
 	if err != nil {
@@ -328,6 +334,7 @@ func main() {
 		Version:    1,
 		SampleRate: encoderVariantsFixtureSampleRate,
 		Generator:  opusDemoPath,
+		Provenance: provenance,
 		Variants:   variants,
 		Cases:      make([]encoderVariantsFixtureTC, 0, len(refFixture.Cases)*len(variants)),
 	}
