@@ -34,7 +34,7 @@ func plcLPCCoefficientsQ12(state *plc.SILKPLCState) []int16 {
 	if state == nil {
 		return nil
 	}
-	order := state.LPCOrder
+	order := int(state.LPCOrder)
 	if order < 0 {
 		order = 0
 	}

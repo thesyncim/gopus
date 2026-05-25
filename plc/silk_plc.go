@@ -168,20 +168,20 @@ type SILKPLCState struct {
 	RandSeed int32
 
 	// Sample rate in kHz
-	FsKHz int
+	FsKHz int32
 
 	// Subframe length
-	SubfrLength int
+	SubfrLength int32
 
 	// Number of subframes
-	NbSubfr int
+	NbSubfr int32
 
 	// LPC order
-	LPCOrder int
+	LPCOrder int32
 
 	// Concealed frame energy for glue frames
 	ConcEnergy      int32
-	ConcEnergyShift int
+	ConcEnergyShift int32
 
 	// Flag indicating if last frame was lost
 	LastFrameLost bool
@@ -249,10 +249,10 @@ func (s *SILKPLCState) UpdateFromGoodFrame(
 	nbSubfr int,
 	subfrLength int,
 ) {
-	s.FsKHz = fsKHz
-	s.SubfrLength = subfrLength
-	s.NbSubfr = nbSubfr
-	s.LPCOrder = len(lpcQ12)
+	s.FsKHz = int32(fsKHz)
+	s.SubfrLength = int32(subfrLength)
+	s.NbSubfr = int32(nbSubfr)
+	s.LPCOrder = int32(len(lpcQ12))
 
 	// Save LPC coefficients
 	copy(s.PrevLPCQ12[:], lpcQ12)

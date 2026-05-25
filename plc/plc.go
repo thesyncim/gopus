@@ -11,7 +11,7 @@
 package plc
 
 // Mode indicates which Opus mode to use for concealment.
-type Mode int
+type Mode int32
 
 const (
 	// ModeSILK indicates SILK-only concealment.
@@ -43,7 +43,7 @@ const FadePerFrame float32 = 0.57
 type State struct {
 	// lostCount tracks consecutive lost packets.
 	// Reset to 0 when a good packet is received.
-	lostCount int
+	lostCount int32
 
 	// mode indicates which concealment algorithm to use.
 	// Set from the mode of the last successfully decoded packet.
@@ -55,10 +55,10 @@ type State struct {
 
 	// lastFrameSize stores the frame size from the last good packet.
 	// Used to generate concealment of the same duration.
-	lastFrameSize int
+	lastFrameSize int32
 
 	// lastChannels stores the channel count from the last good packet.
-	lastChannels int
+	lastChannels int32
 }
 
 // NewState creates a new PLC state with initial values.
@@ -108,7 +108,7 @@ func (s *State) RecordLoss() float32 {
 // LostCount returns the number of consecutive lost packets.
 // This can be used to determine if we're in extended loss condition.
 func (s *State) LostCount() int {
-	return s.lostCount
+	return int(s.lostCount)
 }
 
 // FadeFactor returns the current fade level (0.0 to 1.0).
@@ -135,18 +135,18 @@ func (s *State) Mode() Mode {
 //   - channels: Number of channels (1 or 2)
 func (s *State) SetLastFrameParams(mode Mode, frameSize, channels int) {
 	s.mode = mode
-	s.lastFrameSize = frameSize
-	s.lastChannels = channels
+	s.lastFrameSize = int32(frameSize)
+	s.lastChannels = int32(channels)
 }
 
 // LastFrameSize returns the frame size from the last good packet.
 func (s *State) LastFrameSize() int {
-	return s.lastFrameSize
+	return int(s.lastFrameSize)
 }
 
 // LastChannels returns the channel count from the last good packet.
 func (s *State) LastChannels() int {
-	return s.lastChannels
+	return int(s.lastChannels)
 }
 
 // IsExhausted returns true if PLC has exceeded its maximum concealment.

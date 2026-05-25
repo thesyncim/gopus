@@ -278,7 +278,7 @@ type FeatureControl struct {
 	// Each set has `LPCOrder` entries (zero-padded if shorter).
 	PredCoefQ12 [2][16]int16
 	// LPCOrder is the active LPC order (10 for NB, 16 for MB/WB).
-	LPCOrder int
+	LPCOrder int32
 	// LTPCoefQ14 holds the per-subframe LTP filter coefficients (Q14).
 	// Stored as a flat 4*5 = 20 array indexed by subframe*5 + tap.
 	LTPCoefQ14 [SubframesPerFrame * ltpLen]int16
@@ -409,7 +409,7 @@ func (s *FeatureState) CalculateFeatures(
 			calculateLogSpectrumFromLPC(
 				pfeatures[cleanSpecStart:cleanSpecStart+cleanSpecLength],
 				ctrl.PredCoefQ12[k>>1][:],
-				ctrl.LPCOrder,
+				int(ctrl.LPCOrder),
 				fftIn[:], fftOut[:], fftTmp[:], magBuf[:], invBuf[:],
 			)
 		} else {

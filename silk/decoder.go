@@ -156,7 +156,7 @@ type Decoder struct {
 	// frames; multi-frame packets retain only the last 20 ms frame's ctrl
 	// (matching the LACE/NoLACE per-frame cadence which only runs at fs=16).
 	lastFrameCtrl       [2]decoderControl
-	lastFrameCtrlSignal [2]int // signalType from st.indices for the corresponding ctrl.
+	lastFrameCtrlSignal [2]int32 // signalType from st.indices for the corresponding ctrl.
 	lastFrameCtrlValid  [2]bool
 }
 
@@ -711,11 +711,11 @@ type LatestDecoderControl struct {
 	LTPCoefQ14  [ltpOrder * maxNbSubfr]int16
 	GainsQ16    [maxNbSubfr]int32
 	PitchL      [maxNbSubfr]int32
-	LPCOrder    int
-	NbSubfr     int
-	SignalType  int
-	FsKHz       int
-	NumBits     int
+	LPCOrder    int32
+	NbSubfr     int32
+	SignalType  int32
+	FsKHz       int32
+	NumBits     int32
 }
 
 // LatestDecoderControl returns the per-frame SILK decoder control state for
@@ -743,10 +743,10 @@ func (d *Decoder) LatestDecoderControl(channel int) (LatestDecoderControl, bool)
 		GainsQ16:    src.GainsQ16,
 		PitchL:      src.pitchL,
 		SignalType:  d.lastFrameCtrlSignal[channel],
-		LPCOrder:    int(st.lpcOrder),
-		NbSubfr:     int(st.nbSubfr),
-		FsKHz:       int(st.fsKHz),
-		NumBits:     int(src.NumBits),
+		LPCOrder:    st.lpcOrder,
+		NbSubfr:     st.nbSubfr,
+		FsKHz:       st.fsKHz,
+		NumBits:     src.NumBits,
 	}
 	return out, true
 }

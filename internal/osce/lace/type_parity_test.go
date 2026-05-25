@@ -21,7 +21,7 @@ func TestLACEControlFieldWidthsMatchLibopus(t *testing.T) {
 		{
 			owner: reflect.TypeOf(FeatureControl{}),
 			want:  int32Type,
-			names: []string{"SignalType"},
+			names: []string{"LPCOrder", "SignalType"},
 		},
 		{
 			owner: reflect.TypeOf(FeatureState{}),

@@ -34,6 +34,16 @@ func TestSILKDecoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 	checkSILKFieldsHaveType(t, reflect.TypeOf(decoderControl{}), int32Type,
 		"NumBits",
 	)
+	checkSILKFieldsHaveType(t, reflect.TypeOf(Decoder{}), reflect.TypeOf([2]int32{}),
+		"lastFrameCtrlSignal",
+	)
+	checkSILKFieldsHaveType(t, reflect.TypeOf(LatestDecoderControl{}), int32Type,
+		"LPCOrder",
+		"NbSubfr",
+		"SignalType",
+		"FsKHz",
+		"NumBits",
+	)
 }
 
 func TestSILKEncoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {

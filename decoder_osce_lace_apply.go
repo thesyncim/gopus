@@ -133,7 +133,7 @@ func (d *Decoder) applyOSCELACEMonoChannelWithControl(native []int16, mode osceL
 			fc.GainsQ16[sf] = ctrl.GainsQ16[sf]
 			fc.PitchL[sf] = ctrl.PitchL[sf]
 		}
-		fc.SignalType = int32(ctrl.SignalType)
+		fc.SignalType = ctrl.SignalType
 		numBits := ctrl.NumBits
 		if numBits < 0 {
 			numBits = 0
@@ -144,7 +144,7 @@ func (d *Decoder) applyOSCELACEMonoChannelWithControl(native []int16, mode osceL
 			state.applyPeriods[:],
 			state.applyIn16[:osceLACEFrameSamples],
 			&fc,
-			int32(numBits),
+			numBits,
 		)
 	}
 	switch mode {

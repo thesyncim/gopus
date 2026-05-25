@@ -205,7 +205,7 @@ func (d *Decoder) finalizeDecodedChannelFrame(channel int, st *decoderState, ctr
 	// each silk_decode_frame call).
 	if channel >= 0 && channel < len(d.lastFrameCtrl) {
 		d.lastFrameCtrl[channel] = *ctrl
-		d.lastFrameCtrlSignal[channel] = int(st.indices.signalType)
+		d.lastFrameCtrlSignal[channel] = int32(st.indices.signalType)
 		d.lastFrameCtrlValid[channel] = true
 	}
 	st.nFramesDecoded++
