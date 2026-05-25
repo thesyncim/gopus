@@ -68,7 +68,7 @@ func TestComputeImportanceBasic(t *testing.T) {
 				oldBandE[i] = 0.0
 			}
 
-			importance := ComputeImportance(bandLogE, oldBandE, tc.nbBands, tc.channels, tc.lm, tc.lsbDepth, tc.effectiveBytes)
+			importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), tc.nbBands, tc.channels, tc.lm, tc.lsbDepth, tc.effectiveBytes)
 
 			// Verify output length
 			if len(importance) != tc.nbBands {
@@ -180,7 +180,7 @@ func TestComputeImportanceWithEnergy(t *testing.T) {
 				oldBandE[i] = 0.0
 			}
 
-			importance := ComputeImportance(bandLogE, oldBandE, nbBands, channels, lm, lsbDepth, effectiveBytes)
+			importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, channels, lm, lsbDepth, effectiveBytes)
 
 			// Verify output
 			if len(importance) != nbBands {
@@ -233,7 +233,7 @@ func TestComputeImportanceStereo(t *testing.T) {
 
 	oldBandE := make([]float64, MaxBands*channels)
 
-	importance := ComputeImportance(bandLogE, oldBandE, nbBands, channels, lm, lsbDepth, effectiveBytes)
+	importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, channels, lm, lsbDepth, effectiveBytes)
 
 	if len(importance) != nbBands {
 		t.Errorf("ComputeImportance returned %d values, want %d", len(importance), nbBands)
@@ -273,7 +273,7 @@ func TestComputeImportanceIntegration(t *testing.T) {
 	oldBandE := make([]float64, MaxBands*channels)
 
 	// Compute importance
-	importance := ComputeImportance(bandLogE, oldBandE, nbBands, channels, lm, lsbDepth, effectiveBytes)
+	importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, channels, lm, lsbDepth, effectiveBytes)
 
 	// Use importance in TF analysis
 	tfResWithImportance, tfSelectWithImportance := TFAnalysis(X, N0, nbBands, false, lm, 0.5, effectiveBytes, importance)
@@ -319,11 +319,13 @@ func BenchmarkComputeImportance(b *testing.B) {
 		bandLogE[i] = float64(i%10-5) * 0.5
 	}
 	oldBandE := make([]float64, MaxBands*channels)
+	bandLogEGLog := float64sToGLogs(bandLogE)
+	oldBandEGLog := float64sToGLogs(oldBandE)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_ = ComputeImportance(bandLogE, oldBandE, nbBands, channels, lm, lsbDepth, effectiveBytes)
+		_ = ComputeImportance(bandLogEGLog, oldBandEGLog, nbBands, channels, lm, lsbDepth, effectiveBytes)
 	}
 }

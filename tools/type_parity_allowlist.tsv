@@ -1057,19 +1057,12 @@ celt/synthesis.go	1	f479d87caac12bc0b24c7185d297cc44447140d994b786e7f15157efd641
 celt/tables.go	1	41c6248cabf62531f6e1083055df0a686583948920bb54071c680005bb29bb35	legacy-current	var eMeans = [25]float64{
 celt/tables.go	1	660cf419425ea17be6d0564360ed1979ef679bdcc8a487bbd8bfb5b28423e276	legacy-current	var AlphaCoef = [4]float64{
 celt/tables.go	1	be854f5a1fe466c224e784b061896e0b2288ed8d152bdcf6b64529140ee718bb	legacy-current	var BetaCoefInter = [4]float64{
-celt/tf.go	1	1a0fd9f507bb7e672bf2e9b8e96ce4dae450781f33e7c2772433ca897f1c59f3	legacy-current	bandLogE3 := make([]float64, nbBands)
 celt/tf.go	1	47b9914c62ad611ccd038670a7e65e32c366804467c9323e5a4ff62a123d8de9	legacy-current	func TFAnalysis(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstimate float64, effectiveBytes int, importance []int) (tfRes []int, tfSelect int) {
 celt/tf.go	1	4fa5a5517d0083f307853847bde92cbc6522f194c7b1ae7862337c62f37c8e8b	legacy-current	func TFAnalysisWithScratch(X []float64, N0, nbEBands int, isTransient bool, lm int, tfEstimate float64, effectiveBytes int, importance []int, scratch *TFAnalysisScratch) (tfRes []int, tfSelect int) {
-celt/tf.go	1	50d7e49e0bdf5ef9edeeb41818638c26accdd112a92eac26c1ed446a37ae2b3d	legacy-current	follower := make([]float64, nbBands)
-celt/tf.go	1	547b3bf56ca7e774ce5656f88be35a0635e3ee968a4a03e90815edbe85d48791	legacy-current	f := make([]float64, nbBands)
-celt/tf.go	1	97ad43c34126b5e16cd7197a83bf2b981e16e823a03e6b82a90159fcd350e6bb	legacy-current	noiseFloor[i] = 0.0625*logNVal + 0.5 + float64(9-lsbDepth) - eMean/16.0 + 0.0062*float64((i+5)*(i+5))
-celt/tf.go	1	97b9065f84120221e6954708925624d683c8cd82b2b26f9c39905151fe7c78e6	legacy-current	logNVal = float64(LogN[i]) / 256.0 // LogN is in Q8
-celt/tf.go	1	9a5a9da4a9988ecee10d16dc5419ecfcd85a75b7f00d3975ad63d6a61a45e84d	legacy-current	func ComputeImportance(bandLogE, oldBandE []float64, nbBands, channels, lm, lsbDepth, effectiveBytes int) []int {
 celt/tf.go	1	9b400bfaa925ef9f0ba0696587628df01e925dfd9a5b2c33c06175079b85d378	legacy-current	return float64(L1)
 celt/tf.go	1	a7500ad31e6b8c15bbdc2ae556bed3ad87e5703191cd46630a6d43c139ca1cef	legacy-current	bias := float64(float32(0.04 * math.Max(-0.25, 0.5-tfEstimate)))
 celt/tf.go	1	a7e6ab289bd2d13d496e2c90a94bafcf81c3861978f9d6531916993e90467d2c	legacy-current	tmp := make([]float64, 0, (EBands[nbEBands]-EBands[nbEBands-1])<<lm)
 celt/tf.go	1	ab73afd26741af21d332261dc6f6d06fa47f7735226b662eb865c70be18c8649	legacy-current	tmp = make([]float64, N)
-celt/tf.go	1	d4cdbe27cbbef03251039854b0d95a9886385f8b788fcdf8cc02d351bfe5d6ee	legacy-current	noiseFloor := make([]float64, nbBands)
 celt/tf.go	1	d92fd6bac9c673a70ca6925f9992b78fd4bad0cd9ab0d0cd2cd1bc477d290715	legacy-current	func l1Metric(tmp []float64, N int, LM int, bias float64) float64 {
 celt/tf.go	1	ec55d0cebfee47ab9ffb6de10fde5f59a24ad0c5360c9d653ea7cbfb446215e4	legacy-current	tmp1 := make([]float64, N)
 celt/tonality.go	1	099dba02ea65bd9bd2a33dda49e4ccb7af6a15dbaa1e881380a8ae5c0e65ba6c	legacy-current	var sumLog2, sum float64

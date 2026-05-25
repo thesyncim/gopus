@@ -580,7 +580,7 @@ func TestImportanceWeights(t *testing.T) {
 			bandLogE := generateRealisticBandEnergies(nbBands)
 			oldBandE := generateFlatBandEnergies(MaxBands, 5.0)
 
-			importance := ComputeImportance(bandLogE, oldBandE, nbBands, channels, tc.lm, lsbDepth, tc.effectiveBytes)
+			importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, channels, tc.lm, lsbDepth, tc.effectiveBytes)
 
 			if len(importance) != nbBands {
 				t.Errorf("Expected %d importance values, got %d", nbBands, len(importance))
@@ -877,7 +877,7 @@ func TestDynallocEdgeCases(t *testing.T) {
 		bandLogE := generateRealisticBandEnergies(nbBands)
 		oldBandE := generateFlatBandEnergies(MaxBands, 5.0)
 
-		importance := ComputeImportance(bandLogE, oldBandE, nbBands, 1, lm, 16, effectiveBytes)
+		importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, 1, lm, 16, effectiveBytes)
 
 		allDefault := true
 		for _, imp := range importance {
@@ -905,7 +905,7 @@ func TestDynallocEdgeCases(t *testing.T) {
 			oldBandE[i] = 10.0 // Higher than current
 		}
 
-		importance := ComputeImportance(bandLogE, oldBandE, nbBands, 1, lm, 16, effectiveBytes)
+		importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, 1, lm, 16, effectiveBytes)
 
 		t.Logf("LM=0 importance (current=2.0, old[0:8]=10.0):")
 		for i := 0; i < nbBands; i++ {
@@ -970,16 +970,18 @@ func BenchmarkDynallocImportance(b *testing.B) {
 	nbBands := 21
 	bandLogE := generateRealisticBandEnergies(nbBands)
 	oldBandE := generateFlatBandEnergies(MaxBands, 5.0)
+	bandLogEGLog := float64sToGLogs(bandLogE)
+	oldBandEGLog := float64sToGLogs(oldBandE)
 
 	b.Run("Mono_LowBitrate", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			ComputeImportance(bandLogE, oldBandE, nbBands, 1, 3, 16, 40)
+			ComputeImportance(bandLogEGLog, oldBandEGLog, nbBands, 1, 3, 16, 40)
 		}
 	})
 
 	b.Run("Mono_HighBitrate", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			ComputeImportance(bandLogE, oldBandE, nbBands, 1, 3, 16, 200)
+			ComputeImportance(bandLogEGLog, oldBandEGLog, nbBands, 1, 3, 16, 200)
 		}
 	})
 
@@ -987,10 +989,12 @@ func BenchmarkDynallocImportance(b *testing.B) {
 		generateRealisticBandEnergies(nbBands),
 		generateRealisticBandEnergies(nbBands))
 	oldStereoE := generateFlatBandEnergies(2*MaxBands, 5.0)
+	stereoBandLogEGLog := float64sToGLogs(stereoBandLogE)
+	oldStereoEGLog := float64sToGLogs(oldStereoE)
 
 	b.Run("Stereo_HighBitrate", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			ComputeImportance(stereoBandLogE, oldStereoE, nbBands, 2, 3, 16, 200)
+			ComputeImportance(stereoBandLogEGLog, oldStereoEGLog, nbBands, 2, 3, 16, 200)
 		}
 	})
 }
@@ -1005,13 +1009,15 @@ func BenchmarkDynallocAnalysisFull(b *testing.B) {
 
 	bandLogE := generateRealisticBandEnergies(nbBands)
 	oldBandE := generateFlatBandEnergies(MaxBands, 5.0)
+	bandLogEGLog := float64sToGLogs(bandLogE)
+	oldBandEGLog := float64sToGLogs(oldBandE)
 
 	b.Run("Full_Mono_20ms", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			// Compute spread weights
-			computeSpreadWeights(float64sToGLogs(bandLogE), nbBands, channels, lsbDepth)
+			computeSpreadWeights(bandLogEGLog, nbBands, channels, lsbDepth)
 			// Compute importance
-			ComputeImportance(bandLogE, oldBandE, nbBands, channels, lm, lsbDepth, effectiveBytes)
+			ComputeImportance(bandLogEGLog, oldBandEGLog, nbBands, channels, lm, lsbDepth, effectiveBytes)
 		}
 	})
 }
@@ -1086,7 +1092,7 @@ func TestImportanceIntegrationWithTF(t *testing.T) {
 	// Test with computed importance
 	bandLogE := generateRealisticBandEnergies(nbBands)
 	oldBandE := generateFlatBandEnergies(MaxBands, 5.0)
-	importance := ComputeImportance(bandLogE, oldBandE, nbBands, 1, lm, 16, effectiveBytes)
+	importance := ComputeImportance(float64sToGLogs(bandLogE), float64sToGLogs(oldBandE), nbBands, 1, lm, 16, effectiveBytes)
 	tfRes2, tfSelect2 := TFAnalysis(X, N0, nbBands, isTransient, lm, tfEstimate, effectiveBytes, importance)
 
 	t.Logf("TF with nil importance: tfSelect=%d, tfRes=%v", tfSelect1, tfRes1)

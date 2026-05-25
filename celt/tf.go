@@ -30,7 +30,7 @@ import (
 // Returns: per-band importance weights (13 = neutral, higher = more important)
 //
 // Reference: libopus celt/celt_encoder.c dynalloc_analysis() importance calculation
-func ComputeImportance(bandLogE, oldBandE []float64, nbBands, channels, lm, lsbDepth, effectiveBytes int) []int {
+func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsbDepth, effectiveBytes int) []int {
 	importance := make([]int, nbBands)
 
 	// Default importance when analysis is disabled (low bitrate or complexity)
@@ -44,28 +44,28 @@ func ComputeImportance(bandLogE, oldBandE []float64, nbBands, channels, lm, lsbD
 
 	// Compute noise floor per band
 	// libopus: noise_floor[i] = 0.0625*logN[i] + 0.5 + (9-lsb_depth) - eMeans[i]/16 + 0.0062*(i+5)^2
-	noiseFloor := make([]float64, nbBands)
+	noiseFloor := make([]float32, nbBands)
 	for i := 0; i < nbBands; i++ {
-		logNVal := 0.0
+		logNVal := float32(0)
 		if i < len(LogN) {
-			logNVal = float64(LogN[i]) / 256.0 // LogN is in Q8
+			logNVal = float32(LogN[i]) / 256.0 // LogN is in Q8
 		}
-		eMean := 0.0
+		eMean := float32(0)
 		if i < len(eMeans) {
-			eMean = eMeans[i]
+			eMean = float32(eMeans[i])
 		}
 		// Noise floor formula from libopus (converted from fixed-point)
-		noiseFloor[i] = 0.0625*logNVal + 0.5 + float64(9-lsbDepth) - eMean/16.0 + 0.0062*float64((i+5)*(i+5))
+		noiseFloor[i] = 0.0625*logNVal + 0.5 + float32(9-lsbDepth) - eMean/16.0 + 0.0062*float32((i+5)*(i+5))
 	}
 
 	// Compute max depth across all bands and channels
-	maxDepth := -31.9
+	maxDepth := float32(-31.9)
 	end := nbBands
 	for c := 0; c < channels; c++ {
 		for i := 0; i < end; i++ {
 			idx := c*nbBands + i
 			if idx < len(bandLogE) {
-				depth := bandLogE[idx] - noiseFloor[i]
+				depth := float32(bandLogE[idx]) - noiseFloor[i]
 				if depth > maxDepth {
 					maxDepth = depth
 				}
@@ -75,25 +75,25 @@ func ComputeImportance(bandLogE, oldBandE []float64, nbBands, channels, lm, lsbD
 
 	// Compute follower curve (spectral envelope tracker)
 	// This implements a simple masking model
-	follower := make([]float64, nbBands)
+	follower := make([]float32, nbBands)
 
 	// For each channel, compute follower and combine
 	for c := 0; c < channels; c++ {
-		bandLogE3 := make([]float64, nbBands)
-		f := make([]float64, nbBands)
+		bandLogE3 := make([]float32, nbBands)
+		f := make([]float32, nbBands)
 
 		// Get band energies for this channel
 		for i := 0; i < nbBands; i++ {
 			idx := c*nbBands + i
 			if idx < len(bandLogE) {
-				bandLogE3[i] = bandLogE[idx]
+				bandLogE3[i] = float32(bandLogE[idx])
 			}
 			// For LM=0, use max of current and previous frame energies
 			// (single-bin bands have high variance)
 			if lm == 0 && i < 8 {
 				oldIdx := c*MaxBands + i
-				if oldIdx < len(oldBandE) && oldBandE[oldIdx] > bandLogE3[i] {
-					bandLogE3[i] = oldBandE[oldIdx]
+				if oldIdx < len(oldBandE) && float32(oldBandE[oldIdx]) > bandLogE3[i] {
+					bandLogE3[i] = float32(oldBandE[oldIdx])
 				}
 			}
 		}
@@ -157,16 +157,16 @@ func ComputeImportance(bandLogE, oldBandE []float64, nbBands, channels, lm, lsbD
 			for i := 0; i < nbBands; i++ {
 				idx0 := i
 				idx1 := nbBands + i
-				excess0 := 0.0
-				excess1 := 0.0
+				excess0 := float32(0)
+				excess1 := float32(0)
 				if idx0 < len(bandLogE) {
-					excess0 = bandLogE[idx0] - follower[i]
+					excess0 = float32(bandLogE[idx0]) - follower[i]
 					if excess0 < 0 {
 						excess0 = 0
 					}
 				}
 				if idx1 < len(bandLogE) {
-					excess1 = bandLogE[idx1] - f[i]
+					excess1 = float32(bandLogE[idx1]) - f[i]
 					if excess1 < 0 {
 						excess1 = 0
 					}
@@ -180,7 +180,7 @@ func ComputeImportance(bandLogE, oldBandE []float64, nbBands, channels, lm, lsbD
 	if channels == 1 {
 		for i := 0; i < nbBands; i++ {
 			if i < len(bandLogE) {
-				excess := bandLogE[i] - follower[i]
+				excess := float32(bandLogE[i]) - follower[i]
 				if excess < 0 {
 					excess = 0
 				}
@@ -194,7 +194,7 @@ func ComputeImportance(bandLogE, oldBandE []float64, nbBands, channels, lm, lsbD
 	// Convert follower to importance
 	// libopus: importance[i] = floor(0.5 + 13 * celt_exp2_db(min(follower[i], 4.0)))
 	for i := 0; i < nbBands; i++ {
-		importance[i] = dynallocImportanceFromFollower(float32(follower[i]))
+		importance[i] = dynallocImportanceFromFollower(follower[i])
 	}
 
 	return importance
