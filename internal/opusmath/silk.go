@@ -23,6 +23,10 @@ func Exp2F32(x float32) float32 {
 	return float32(math.Exp2(float64(x)))
 }
 
+func Pow10F32(x float32) float32 {
+	return float32(math.Pow(10, float64(x)))
+}
+
 func Exp2DivIntF32(x float32, denom int) float32 {
 	return float32(math.Exp2(float64(x)) / float64(denom))
 }

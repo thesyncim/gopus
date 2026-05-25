@@ -207,7 +207,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 			// range encoder buffer is large (up to 1275 bytes) regardless of
 			// CVBR mode. The CELT encoder's internal CVBR reservoir tracking
 			// constrains actual byte usage per frame.
-			maxAllowed := int(float64(baseTargetBytes) * 2.0)
+			maxAllowed := baseTargetBytes * 2
 			if maxAllowed < 2 {
 				maxAllowed = 2
 			}

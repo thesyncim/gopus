@@ -1,19 +1,17 @@
 package plc
 
-import (
-	"math"
-)
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 // EnergyDecayPerFrame is the energy decay factor per lost frame.
 // Applied to band energies to gradually fade concealment.
 const EnergyDecayPerFrame = 0.85
 
 func pow10F32(x float32) float32 {
-	return float32(math.Pow(10.0, float64(x)))
+	return opusmath.Pow10F32(x)
 }
 
 func sqrtF32(x float32) float32 {
-	return float32(math.Sqrt(float64(x)))
+	return opusmath.SqrtF32(x)
 }
 
 // CELTDecoderState provides access to CELT decoder state needed for PLC.
