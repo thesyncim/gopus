@@ -509,11 +509,11 @@ func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 			break
 		}
 
-		amplitude := bandE[band]
+		amplitude := float32(bandE[band])
 		if amplitude < 1e-27 {
 			amplitude = 1e-27
 		}
-		g := 1.0 / amplitude
+		g := float64(float32(1.0) / amplitude)
 
 		for i := 0; i < n; i++ {
 			expected := mdctCoeffs[offset+i] * g

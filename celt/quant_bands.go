@@ -622,31 +622,31 @@ func QuantEnergyFinalise(
 // Returns: bandLogE values suitable for quantization
 //
 // Reference: libopus celt/quant_bands.c amp2Log2()
-func Amp2Log2(bandE []float64, effEnd, end, channels int) []float64 {
+func Amp2Log2(bandE []celtEner, effEnd, end, channels int) []celtGLog {
 	nbEBands := MaxBands
-	bandLogE := make([]float64, channels*nbEBands)
+	bandLogE := make([]celtGLog, channels*nbEBands)
 
 	for c := 0; c < channels; c++ {
 		for i := 0; i < effEnd; i++ {
 			// Convert amplitude to log2
 			// log2(amplitude) = 0.5 * log2(energy)
-			amp := bandE[c*nbEBands+i]
+			amp := float32(bandE[c*nbEBands+i])
 			if amp < 1e-27 {
 				amp = 1e-27
 			}
-			logE := float64(celtLog2(float32(amp)))
+			logE := celtLog2(amp)
 
 			// Subtract eMeans (in DB_SHIFT=14 format, but we work in float)
 			// eMeans is stored in log2 units (not Q format)
 			if i < len(eMeans) {
-				logE -= eMeans[i]
+				logE -= float32(eMeans[i])
 			}
 
-			bandLogE[c*nbEBands+i] = logE
+			bandLogE[c*nbEBands+i] = celtGLog(logE)
 		}
 		// Fill remaining bands with silence level
 		for i := effEnd; i < end; i++ {
-			bandLogE[c*nbEBands+i] = -14.0
+			bandLogE[c*nbEBands+i] = celtGLog(-14.0)
 		}
 	}
 

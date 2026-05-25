@@ -481,7 +481,7 @@ func TestThetaRDOTrialRestoration(t *testing.T) {
 		}
 
 		for _, tw := range testWeights {
-			w0, w1 := computeChannelWeights(tw.leftE, tw.rightE)
+			w0, w1 := computeChannelWeights(celtEner(tw.leftE), celtEner(tw.rightE))
 
 			// Weights should be non-negative
 			if w0 < 0 || w1 < 0 {

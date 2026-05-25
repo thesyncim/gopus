@@ -6,7 +6,7 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
-func computeQEXTBandAmplitudesInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []float64) {
+func computeQEXTBandAmplitudesInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []celtEner) {
 	if cfg == nil || end <= 0 {
 		return
 	}
@@ -26,29 +26,29 @@ func computeQEXTBandAmplitudesInto(mdctCoeffs []float64, cfg *qextModeConfig, en
 			stop = len(mdctCoeffs)
 		}
 		if stop <= start {
-			bandE[i] = 1e-27
+			bandE[i] = celtEner(1e-27)
 			continue
 		}
 		sum := float32(1e-27) + float32(sumOfSquaresF64toF32(mdctCoeffs[start:stop], stop-start))
-		bandE[i] = float64(float32(math.Sqrt(float64(sum))))
+		bandE[i] = celtEner(float32(math.Sqrt(float64(sum))))
 	}
 }
 
-func computeQEXTBandLogEInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []float64, bandLogE []celtGLog) {
+func computeQEXTBandLogEInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []celtEner, bandLogE []celtGLog) {
 	computeQEXTBandAmplitudesInto(mdctCoeffs, cfg, end, lm, bandE)
 	if end > len(bandLogE) {
 		end = len(bandLogE)
 	}
 	for i := 0; i < end; i++ {
-		amp := bandE[i]
+		amp := float32(bandE[i])
 		if amp < 1e-27 {
 			amp = 1e-27
 		}
-		bandLogE[i] = celtGLog(celtLog2(float32(amp)) - float32(eMeans[i]))
+		bandLogE[i] = celtGLog(celtLog2(amp) - float32(eMeans[i]))
 	}
 }
 
-func normalizeQEXTBandsInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE, norm []float64) {
+func normalizeQEXTBandsInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []celtEner, norm []float64) {
 	if cfg == nil || end <= 0 || len(norm) == 0 {
 		return
 	}

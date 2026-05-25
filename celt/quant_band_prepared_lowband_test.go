@@ -43,9 +43,9 @@ func TestQuantBandStereoPreparedLowbandMatchesStandard(t *testing.T) {
 				lowbandBase[i] = float64(((i*3)%17)-8) * 0.0625
 			}
 
-			bandE := make([]float64, 2*MaxBands)
+			bandE := make([]celtEner, 2*MaxBands)
 			for i := range bandE {
-				bandE[i] = 0.35 + float64((i%9)+1)*0.03
+				bandE[i] = celtEner(0.35 + float32((i%9)+1)*0.03)
 			}
 
 			x1 := append([]float64(nil), xBase...)
@@ -138,9 +138,9 @@ func TestQuantBandStereoPreparedLowbandMatchesStandardWithQEXTBudget(t *testing.
 		lowbandBase[i] = float64(((i*3)%17)-8) * 0.0625
 	}
 
-	bandE := make([]float64, 2*MaxBands)
+	bandE := make([]celtEner, 2*MaxBands)
 	for i := range bandE {
-		bandE[i] = 0.35 + float64((i%9)+1)*0.03
+		bandE[i] = celtEner(0.35 + float32((i%9)+1)*0.03)
 	}
 
 	x1 := append([]float64(nil), xBase...)

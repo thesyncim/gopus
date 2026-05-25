@@ -1386,7 +1386,7 @@ func TestThetaRDODistortionMatchesLibopusFloatPath(t *testing.T) {
 		libopustest.HelperUnavailable(t, "celt vq", err)
 	}
 	for ci, tc := range cases {
-		w0, w1 := computeChannelWeights(float64(tc.ex), float64(tc.ey))
+		w0, w1 := computeChannelWeights(celtEner(tc.ex), celtEner(tc.ey))
 		if math.Float32bits(w0) != math.Float32bits(want[ci].w0) ||
 			math.Float32bits(w1) != math.Float32bits(want[ci].w1) {
 			t.Fatalf("case %d weights=(%08x,%08x) want (%08x,%08x)",

@@ -1090,9 +1090,9 @@ type encoderScratch struct {
 	// Band energy buffers
 	energies  []celtGLog
 	bandLogE2 []celtGLog
-	bandE     []float64
-	bandEL    []float64
-	bandER    []float64
+	bandE     []celtEner
+	bandEL    []celtEner
+	bandER    []celtEner
 
 	// History buffers for MDCT
 	leftHist  []float64
@@ -1255,10 +1255,10 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	bandCount := MaxBands * channels
 	s.energies = ensureGLogSlice(&s.energies, bandCount)
 	s.bandLogE2 = ensureGLogSlice(&s.bandLogE2, bandCount)
-	s.bandE = ensureFloat64Slice(&s.bandE, bandCount)
+	s.bandE = ensureEnerSlice(&s.bandE, bandCount)
 	s.coarseError = ensureGLogSlice(&s.coarseError, bandCount)
-	s.bandEL = ensureFloat64Slice(&s.bandEL, MaxBands)
-	s.bandER = ensureFloat64Slice(&s.bandER, MaxBands)
+	s.bandEL = ensureEnerSlice(&s.bandEL, MaxBands)
+	s.bandER = ensureEnerSlice(&s.bandER, MaxBands)
 
 	// History buffers
 	s.leftHist = ensureFloat64Slice(&s.leftHist, overlap)
@@ -1338,7 +1338,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 		qs := s.ensureQEXTScratch()
 		qs.extraBits = ensureIntSlice(&qs.extraBits, MaxBands+nbQEXTBands)
 		qs.fineBits = ensureIntSlice(&qs.fineBits, MaxBands+nbQEXTBands)
-		qs.bandE = ensureFloat64Slice(&qs.bandE, nbQEXTBands*channels)
+		qs.bandE = ensureEnerSlice(&qs.bandE, nbQEXTBands*channels)
 		qs.bandLogE = ensureGLogSlice(&qs.bandLogE, nbQEXTBands*channels)
 		qs.quantized = ensureGLogSlice(&qs.quantized, nbQEXTBands*channels)
 		qs.qerr = ensureGLogSlice(&qs.qerr, nbQEXTBands*channels)

@@ -82,7 +82,7 @@ func TestNormalizeBandsToArrayMonoWithBandEMatchesSeparatePasses(t *testing.T) {
 	}
 
 	norm := make([]float64, frameSize)
-	bandE := make([]float64, nbBands)
+	bandE := make([]celtEner, nbBands)
 	NormalizeBandsToArrayInto(mdct, nbBands, frameSize, norm, bandE)
 
 	normGot, bandEGot := enc.NormalizeBandsToArrayMonoWithBandE(mdct, nbBands, frameSize)
@@ -111,8 +111,8 @@ func TestNormalizeBandsToArrayStereoWithBandEMatchesSeparatePasses(t *testing.T)
 
 	normL := make([]float64, frameSize)
 	normR := make([]float64, frameSize)
-	bandEL := make([]float64, nbBands)
-	bandER := make([]float64, nbBands)
+	bandEL := make([]celtEner, nbBands)
+	bandER := make([]celtEner, nbBands)
 	NormalizeBandsToArrayInto(left, nbBands, frameSize, normL, bandEL)
 	NormalizeBandsToArrayInto(right, nbBands, frameSize, normR, bandER)
 

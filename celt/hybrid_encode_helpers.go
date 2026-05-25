@@ -4,9 +4,9 @@ import "github.com/thesyncim/gopus/rangecoding"
 
 // NormalizeBandsToArrayMonoWithBandE normalizes MDCT coefficients for mono
 // and returns the normalized coefficients and linear band amplitudes.
-func (e *Encoder) NormalizeBandsToArrayMonoWithBandE(mdctCoeffs []float64, nbBands, frameSize int) (norm []float64, bandE []float64) {
+func (e *Encoder) NormalizeBandsToArrayMonoWithBandE(mdctCoeffs []float64, nbBands, frameSize int) (norm []float64, bandE []celtEner) {
 	norm = ensureFloat64Slice(&e.scratch.normL, frameSize)
-	bandE = ensureFloat64Slice(&e.scratch.bandE, nbBands)
+	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands)
 	NormalizeBandsToArrayInto(mdctCoeffs, nbBands, frameSize, norm, bandE)
 	if e.lfe {
 		applyLFELinearBandEClamp(bandE, nbBands, 1)
@@ -18,14 +18,14 @@ func (e *Encoder) NormalizeBandsToArrayMonoWithBandE(mdctCoeffs []float64, nbBan
 // NormalizeBandsToArrayStereoWithBandE normalizes MDCT coefficients for stereo
 // and returns normalized L/R coefficients plus combined linear band amplitudes.
 // The bandE layout is [L bands][R bands].
-func (e *Encoder) NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight []float64, nbBands, frameSize int) (normL, normR, bandE []float64) {
+func (e *Encoder) NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight []float64, nbBands, frameSize int) (normL, normR []float64, bandE []celtEner) {
 	normL = ensureFloat64Slice(&e.scratch.normL, frameSize)
 	normR = ensureFloat64Slice(&e.scratch.normR, frameSize)
-	bandEL := ensureFloat64Slice(&e.scratch.bandEL, nbBands)
-	bandER := ensureFloat64Slice(&e.scratch.bandER, nbBands)
+	bandEL := ensureEnerSlice(&e.scratch.bandEL, nbBands)
+	bandER := ensureEnerSlice(&e.scratch.bandER, nbBands)
 	NormalizeBandsToArrayInto(mdctLeft, nbBands, frameSize, normL, bandEL)
 	NormalizeBandsToArrayInto(mdctRight, nbBands, frameSize, normR, bandER)
-	bandE = ensureFloat64Slice(&e.scratch.bandE, nbBands*2)
+	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands*2)
 	copy(bandE[:nbBands], bandEL)
 	copy(bandE[nbBands:], bandER)
 	if e.lfe {
@@ -150,7 +150,7 @@ func (e *Encoder) SignalBandwidthForAllocation(nbBands, equivRate int) int {
 // QuantAllBandsEncodeScratch encodes PVQ bands using the encoder's scratch buffers.
 func (e *Encoder) QuantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm int, start, end int,
 	normL, normR []float64, pulses []int, shortBlocks int, spread int, tapset int, dualStereo int, intensity int,
-	tfRes []int, totalBitsQ3 int, balance int, codedBands int, seed *uint32, complexity int, bandE []float64) {
+	tfRes []int, totalBitsQ3 int, balance int, codedBands int, seed *uint32, complexity int, bandE []celtEner) {
 	quantAllBandsEncodeScratch(
 		re,
 		channels,

@@ -129,15 +129,15 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []celtGLog, nbBa
 // as that introduces quantization/roundtrip errors.
 //
 // Reference: libopus celt/bands.c compute_band_energies() (float path, lines 154-170)
-func ComputeLinearBandAmplitudes(mdctCoeffs []float64, nbBands, frameSize int) []float64 {
-	bandE := make([]float64, nbBands)
+func ComputeLinearBandAmplitudes(mdctCoeffs []float64, nbBands, frameSize int) []celtEner {
+	bandE := make([]celtEner, nbBands)
 	ComputeLinearBandAmplitudesInto(mdctCoeffs, nbBands, frameSize, bandE)
 	return bandE
 }
 
 // ComputeLinearBandAmplitudesInto computes linear band amplitudes into the provided buffer.
 // This is the zero-allocation version of ComputeLinearBandAmplitudes.
-func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize int, bandE []float64) {
+func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize int, bandE []celtEner) {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return
 	}
@@ -149,11 +149,11 @@ func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize in
 	for band := 0; band < nbBands; band++ {
 		n := ScaledBandWidth(band, frameSize)
 		if n <= 0 {
-			bandE[band] = 1e-27 // epsilon like libopus
+			bandE[band] = celtEner(1e-27) // epsilon like libopus
 			continue
 		}
 		if offset+n > len(mdctCoeffs) {
-			bandE[band] = 1e-27
+			bandE[band] = celtEner(1e-27)
 			offset += n
 			continue
 		}
@@ -167,12 +167,12 @@ func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize in
 		// Reference: libopus bands.c line 165:
 		//   bandE[i+c*m->nbEBands] = celt_sqrt(sum)
 		// Keep float-path precision: celt_ener is float in libopus.
-		bandE[band] = float64(float32(math.Sqrt(float64(sum))))
+		bandE[band] = celtEner(float32(math.Sqrt(float64(sum))))
 		offset += n
 	}
 }
 
-func applyLFELinearBandEClamp(bandE []float64, nbBands, channels int) {
+func applyLFELinearBandEClamp(bandE []celtEner, nbBands, channels int) {
 	if nbBands <= 2 || channels <= 0 {
 		return
 	}
@@ -191,7 +191,7 @@ func applyLFELinearBandEClamp(bandE []float64, nbBands, channels int) {
 			if v < float32(celtFloatEpsilon) {
 				v = float32(celtFloatEpsilon)
 			}
-			bandE[idx] = float64(v)
+			bandE[idx] = celtEner(v)
 		}
 	}
 }
@@ -204,10 +204,10 @@ func applyLFELinearBandEClamp(bandE []float64, nbBands, channels int) {
 //   - nbBands: number of bands
 //   - frameSize: frame size in samples
 //   - norm: output buffer (length >= frameSize)
-//   - bandE: scratch buffer for band amplitudes (length >= nbBands)
+//   - bandE: scratch buffer for celt_ener band amplitudes (length >= nbBands)
 //
 // Reference: libopus celt/bands.c normalise_bands() (float path, lines 172-187)
-func NormalizeBandsToArrayInto(mdctCoeffs []float64, nbBands, frameSize int, norm, bandE []float64) {
+func NormalizeBandsToArrayInto(mdctCoeffs []float64, nbBands, frameSize int, norm []float64, bandE []celtEner) {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return
 	}
@@ -220,7 +220,7 @@ func NormalizeBandsToArrayInto(mdctCoeffs []float64, nbBands, frameSize int, nor
 	normalizeBandsWithBandEInto(mdctCoeffs, nbBands, frameSize, norm, bandE)
 }
 
-func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, norm, bandE []float64) {
+func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, norm []float64, bandE []celtEner) {
 	offset := 0
 	for band := 0; band < nbBands; band++ {
 		n := ScaledBandWidth(band, frameSize)
@@ -275,7 +275,7 @@ func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []celtGLo
 
 	// Use scratch buffers
 	norm := ensureFloat64Slice(&e.scratch.normL, frameSize)
-	bandE := ensureFloat64Slice(&e.scratch.bandE, nbBands)
+	bandE := ensureEnerSlice(&e.scratch.bandE, nbBands)
 
 	NormalizeBandsToArrayInto(mdctCoeffs, nbBands, frameSize, norm, bandE)
 

@@ -12,7 +12,7 @@ func encodeThetaInvBit(t *testing.T, disableInv bool) int {
 	ctx := &bandCtx{
 		encode:        true,
 		re:            &rangecoding.Encoder{},
-		bandE:         []float64{1.0, 1.0},
+		bandE:         []celtEner{1.0, 1.0},
 		nbBands:       1,
 		channels:      2,
 		remainingBits: 1 << 20,

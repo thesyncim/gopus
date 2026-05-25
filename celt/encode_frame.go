@@ -768,8 +768,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 11.0.5: Normalize bands early for TF analysis
 	// TF analysis needs normalized coefficients to determine optimal time-frequency resolution
 	var normL, normR []float64
-	var bandE []float64
-	var normBandEScratch []float64
+	var bandE []celtEner
+	var normBandEScratch []celtEner
 	if codedChannels == 1 {
 		normL, bandE = e.NormalizeBandsToArrayMonoWithBandE(mdctCoeffs, nbBands, frameSize)
 		normBandEScratch = bandE
@@ -1274,7 +1274,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	var qextCfg qextModeConfig
 	qextActive := false
 	qextEnd := 0
-	var qextBandE []float64
+	var qextBandE []celtEner
 	var qextBandLogE []celtGLog
 	var qextQuantized []celtGLog
 	var qextError []celtGLog

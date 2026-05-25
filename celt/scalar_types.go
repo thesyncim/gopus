@@ -10,6 +10,10 @@ type opusVal16 = float32
 type opusVal32 = float32
 type opusRes = float32
 
+// CeltEner exposes CELT's float-build celt_ener width to sibling packages that
+// need to carry CELT-owned band-energy scratch without widening it.
+type CeltEner = celtEner
+
 func ensureSigSlice(buf *[]celtSig, n int) []celtSig {
 	if n <= 0 {
 		return nil
@@ -97,6 +101,19 @@ func copyNormToFloat64(dst []float64, src []celtNorm) {
 	for i := 0; i < n; i++ {
 		dst[i] = float64(src[i])
 	}
+}
+
+func ensureEnerSlice(buf *[]celtEner, n int) []celtEner {
+	if n <= 0 {
+		return nil
+	}
+	if cap(*buf) < n {
+		*buf = make([]celtEner, n)
+	} else {
+		*buf = (*buf)[:n]
+		clear(*buf)
+	}
+	return (*buf)[:n]
 }
 
 func ensureGLogSlice(buf *[]celtGLog, n int) []celtGLog {

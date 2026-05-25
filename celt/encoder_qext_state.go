@@ -11,7 +11,7 @@ type encoderQEXTScratch struct {
 	buf       []byte
 	extraBits []int
 	fineBits  []int
-	bandE     []float64
+	bandE     []celtEner
 	bandLogE  []celtGLog
 	quantized []celtGLog
 	qerr      []celtGLog

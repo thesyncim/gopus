@@ -113,9 +113,9 @@ func TestLossDistortion(t *testing.T) {
 // TestAmp2Log2Conversion verifies amplitude to log2 conversion.
 func TestAmp2Log2Conversion(t *testing.T) {
 	// Create test amplitudes
-	bandE := make([]float64, MaxBands)
+	bandE := make([]celtEner, MaxBands)
 	for i := 0; i < MaxBands; i++ {
-		bandE[i] = math.Pow(2, float64(i)/4.0) // Exponentially increasing
+		bandE[i] = celtEner(math.Pow(2, float64(i)/4.0)) // Exponentially increasing
 	}
 
 	result := Amp2Log2(bandE, MaxBands, MaxBands, 1)
@@ -123,7 +123,7 @@ func TestAmp2Log2Conversion(t *testing.T) {
 	// Verify a few values
 	// For bandE[4] = 2^1 = 2, log2(2) = 1, then subtract eMeans[4]
 	expected4 := 1.0 - eMeans[4]
-	if math.Abs(result[4]-expected4) > 0.01 {
+	if math.Abs(float64(result[4])-expected4) > 0.01 {
 		t.Errorf("Amp2Log2[4] = %f, want ~%f", result[4], expected4)
 	}
 }

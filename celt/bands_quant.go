@@ -57,7 +57,7 @@ type bandCtx struct {
 	cacheIndex      []int16
 	cacheBits       []uint8
 	bandCaps        []int
-	bandE           []float64
+	bandE           []celtEner
 	nbBands         int
 	channels        int
 	spread          int
@@ -2043,7 +2043,7 @@ func stereoSplit(x, y []float64) {
 	}
 }
 
-func intensityStereoWeighted(x, y []float64, leftEnergy, rightEnergy float64) {
+func intensityStereoWeighted(x, y []float64, leftEnergy, rightEnergy celtEner) {
 	if len(x) == 0 || len(y) == 0 {
 		return
 	}
@@ -2073,7 +2073,7 @@ func intensityStereoWeighted(x, y []float64, leftEnergy, rightEnergy float64) {
 // computeChannelWeights computes channel weights for stereo RDO distortion calculation.
 // This mirrors libopus bands.c compute_channel_weights().
 // The weights account for inter-aural masking effects.
-func computeChannelWeights(ex, ey float64) (w0, w1 float32) {
+func computeChannelWeights(ex, ey celtEner) (w0, w1 float32) {
 	ex32 := float32(ex)
 	ey32 := float32(ey)
 	minE := ex32
@@ -2111,7 +2111,7 @@ func thetaRDODistortion(w0, w1 float32, xSave, xBand, ySave, yBand []celtNorm) f
 	return w0*innerProductNorm(xSave, xBand) + w1*innerProductNorm(ySave, yBand)
 }
 
-func (ctx *bandCtx) bandEnergy(channel int) float64 {
+func (ctx *bandCtx) bandEnergy(channel int) celtEner {
 	if ctx.bandE == nil || ctx.nbBands <= 0 || channel < 0 || channel >= ctx.channels {
 		return 0
 	}
@@ -4381,7 +4381,7 @@ func quantAllBandsDecodeWithScratchWithMode(rd *rangecoding.Decoder, channels, f
 func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm int, start, end int,
 	x, y []float64, pulses []int, shortBlocks int, spread int, tapset int, dualStereo, intensity int,
 	tfRes []int, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32, complexity int,
-	bandE []float64, extEnc *rangecoding.Encoder, extraBits []int, scratch *bandEncodeScratch) (collapse []byte) {
+	bandE []celtEner, extEnc *rangecoding.Encoder, extraBits []int, scratch *bandEncodeScratch) (collapse []byte) {
 	return quantAllBandsEncodeScratchWithMode(re, channels, frameSize, lm, start, end,
 		x, y, pulses, shortBlocks, spread, tapset, dualStereo, intensity,
 		tfRes, totalBitsQ3, balance, codedBands, disableInv, seed, complexity,
@@ -4391,7 +4391,7 @@ func quantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm
 func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frameSize, lm int, start, end int,
 	x, y []float64, pulses []int, shortBlocks int, spread int, tapset int, dualStereo, intensity int,
 	tfRes []int, totalBitsQ3 int, balance int, codedBands int, disableInv bool, seed *uint32, complexity int,
-	bandE []float64, extEnc *rangecoding.Encoder, extraBits []int, scratch *bandEncodeScratch,
+	bandE []celtEner, extEnc *rangecoding.Encoder, extraBits []int, scratch *bandEncodeScratch,
 	bandEdges []int, bandLogN []int, cacheIndex []int16, cacheBits []uint8) (collapse []byte) {
 	if re == nil {
 		return nil
@@ -4666,7 +4666,7 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 				thetaRDO := thetaRDOEnabled && i < intensity
 				if thetaRDO {
 					// Compute channel weights for distortion measurement
-					var leftE, rightE float64
+					var leftE, rightE celtEner
 					if bandE != nil && len(bandE) > ctx.nbBands+i {
 						leftE = bandE[i]
 						rightE = bandE[ctx.nbBands+i]

@@ -1580,7 +1580,8 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	// used directly as computed from the MDCT coefficients.
 
 	// Normalize bands to arrays (linear amplitudes) for PVQ input.
-	var normL, normR, bandE []float64
+	var normL, normR []float64
+	var bandE []celt.CeltEner
 	if e.channels == 1 {
 		normL, bandE = e.celtEncoder.NormalizeBandsToArrayMonoWithBandE(mdctCoeffs, nbBands, frameSize)
 	} else {

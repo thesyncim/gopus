@@ -332,7 +332,7 @@ func TestEncoderSetLFE(t *testing.T) {
 }
 
 func TestLFEClampsLinearBandE(t *testing.T) {
-	bandE := []float64{2.0, 0.5, 1.0, 1e-20, 3e-4}
+	bandE := []celtEner{2.0, 0.5, 1.0, 1e-20, 3e-4}
 	applyLFELinearBandEClamp(bandE, len(bandE), 1)
 
 	limit := float32(lfeBandClamp) * float32(2.0)
@@ -345,7 +345,7 @@ func TestLFEClampsLinearBandE(t *testing.T) {
 	if got := float32(bandE[4]); got != limit {
 		t.Fatalf("bandE[4]=%g want %g", got, limit)
 	}
-	if got := bandE[1]; got != 0.5 {
+	if got := bandE[1]; got != celtEner(0.5) {
 		t.Fatalf("bandE[1]=%g want unchanged 0.5", got)
 	}
 }

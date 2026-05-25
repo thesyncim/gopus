@@ -304,7 +304,7 @@ func TestComputeQEXTBandLogEInto(t *testing.T) {
 		coeffs[i] = 0.25
 	}
 
-	bandE := make([]float64, cfg.EffBands)
+	bandE := make([]celtEner, cfg.EffBands)
 	bandLogE := make([]celtGLog, cfg.EffBands)
 	computeQEXTBandLogEInto(coeffs, &cfg, cfg.EffBands, 3, bandE, bandLogE)
 
@@ -330,7 +330,7 @@ func TestNormalizeQEXTBandsInto(t *testing.T) {
 		coeffs[i] = 0.25
 	}
 
-	bandE := make([]float64, cfg.EffBands)
+	bandE := make([]celtEner, cfg.EffBands)
 	computeQEXTBandAmplitudesInto(coeffs, &cfg, cfg.EffBands, 3, bandE)
 
 	norm := make([]float64, len(coeffs))
