@@ -28,11 +28,11 @@ func TestLibopus_APIRateMultistreamDecodeMatchesReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEncoder: %v", err)
 	}
-	pcm := make([]float64, encoderFrameSize*channels)
+	pcm := make([]float32, encoderFrameSize*channels)
 	for i := 0; i < encoderFrameSize; i++ {
 		for ch := 0; ch < channels; ch++ {
 			freq := 330.0 + 170.0*float64(ch)
-			pcm[i*channels+ch] = 0.25 * math.Sin(2*math.Pi*freq*float64(i)/encoderSampleRate)
+			pcm[i*channels+ch] = float32(0.25 * math.Sin(2*math.Pi*freq*float64(i)/encoderSampleRate))
 		}
 	}
 	packet, err := enc.Encode(pcm, encoderFrameSize)

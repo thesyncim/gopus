@@ -21,8 +21,8 @@ import (
 //   - baseFreq: base frequency for channel 0, each channel increments by 100Hz
 //
 // Returns sample-interleaved output: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
-func generateTestSignal(channels, frameSize, sampleRate int, baseFreq float64) []float64 {
-	output := make([]float64, frameSize*channels)
+func generateTestSignal(channels, frameSize, sampleRate int, baseFreq float64) []float32 {
+	output := make([]float32, frameSize*channels)
 
 	for ch := 0; ch < channels; ch++ {
 		// Each channel gets a different frequency for isolation testing
@@ -32,7 +32,7 @@ func generateTestSignal(channels, frameSize, sampleRate int, baseFreq float64) [
 			t := float64(s) / float64(sampleRate)
 			// Sine wave with amplitude 0.5 to avoid clipping
 			sample := 0.5 * math.Sin(2.0*math.Pi*freq*t)
-			output[s*channels+ch] = sample
+			output[s*channels+ch] = float32(sample)
 		}
 	}
 
@@ -50,11 +50,11 @@ func generateTestSignal(channels, frameSize, sampleRate int, baseFreq float64) [
 //   - baseFreq: base frequency for channel 0
 //
 // Returns slice of frames, each sample-interleaved.
-func generateContinuousTestSignal(channels, frameSize, numFrames, sampleRate int, baseFreq float64) [][]float64 {
-	frames := make([][]float64, numFrames)
+func generateContinuousTestSignal(channels, frameSize, numFrames, sampleRate int, baseFreq float64) [][]float32 {
+	frames := make([][]float32, numFrames)
 
 	for f := 0; f < numFrames; f++ {
-		frame := make([]float64, frameSize*channels)
+		frame := make([]float32, frameSize*channels)
 
 		for ch := 0; ch < channels; ch++ {
 			freq := baseFreq + float64(ch)*100.0
@@ -64,7 +64,7 @@ func generateContinuousTestSignal(channels, frameSize, numFrames, sampleRate int
 				globalSample := f*frameSize + s
 				t := float64(globalSample) / float64(sampleRate)
 				sample := 0.5 * math.Sin(2.0*math.Pi*freq*t)
-				frame[s*channels+ch] = sample
+				frame[s*channels+ch] = float32(sample)
 			}
 		}
 
@@ -714,11 +714,11 @@ func TestRoundTrip_ChannelIsolation(t *testing.T) {
 			dec.Reset()
 
 			// Generate signal only in test channel
-			input := make([]float64, frameSize*channels)
+			input := make([]float32, frameSize*channels)
 			for s := 0; s < frameSize; s++ {
 				t := float64(s) / float64(sampleRate)
 				sample := 0.5 * math.Sin(2.0*math.Pi*testFreq*t)
-				input[s*channels+testCh] = sample
+				input[s*channels+testCh] = float32(sample)
 			}
 
 			inputEnergy := computeEnergy(input)

@@ -490,8 +490,8 @@ func parseWAVSamples(data []byte) []float32 {
 
 // generateMultichannelSine creates interleaved multi-channel sine wave.
 // Each channel gets a different frequency.
-func generateMultichannelSine(channels, samplesPerChannel int) []float64 {
-	pcm := make([]float64, channels*samplesPerChannel)
+func generateMultichannelSine(channels, samplesPerChannel int) []float32 {
+	pcm := make([]float32, channels*samplesPerChannel)
 
 	// Base frequencies for each channel
 	baseFreqs := []float64{220, 330, 440, 550, 660, 770, 880, 990}
@@ -500,7 +500,7 @@ func generateMultichannelSine(channels, samplesPerChannel int) []float64 {
 		t := float64(s) / 48000.0
 		for ch := 0; ch < channels; ch++ {
 			freq := baseFreqs[ch%len(baseFreqs)]
-			pcm[s*channels+ch] = 0.3 * math.Sin(2*math.Pi*freq*t)
+			pcm[s*channels+ch] = float32(0.3 * math.Sin(2*math.Pi*freq*t))
 		}
 	}
 
@@ -563,7 +563,7 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 	frameSize := 960 // 20ms at 48kHz
 	numFrames := 20
 
-	var allInput []float64
+	var allInput []float32
 	packets := make([][]byte, numFrames)
 
 	for i := 0; i < numFrames; i++ {
@@ -583,11 +583,7 @@ func runLibopusSurroundTest(t *testing.T, label string, channels, bitrate int) {
 		}
 	}
 
-	inputF32 := make([]float32, len(allInput))
-	for i, v := range allInput {
-		inputF32[i] = float32(v)
-	}
-	inputEnergy := computeEnergyF32(inputF32)
+	inputEnergy := computeEnergyF32(allInput)
 	t.Logf("Input: %d frames, %d total samples (%dch), energy=%.6f", numFrames, len(allInput), channels, inputEnergy)
 
 	streams, coupled, mapping, err := DefaultMapping(channels)
@@ -722,7 +718,7 @@ func TestLibopus_DefaultMappingMatrix(t *testing.T) {
 			frameSize := 960 // 20ms at 48kHz
 			numFrames := 12
 
-			var allInput []float64
+			var allInput []float32
 			packets := make([][]byte, numFrames)
 			for i := 0; i < numFrames; i++ {
 				pcm := generateMultichannelSine(tc.channels, frameSize)
@@ -763,11 +759,7 @@ func TestLibopus_DefaultMappingMatrix(t *testing.T) {
 				t.Fatalf("internal decoded sample count mismatch: got=%d want=%d", len(internalDecoded), wantSamples)
 			}
 
-			inputF32 := make([]float32, len(allInput))
-			for i, v := range allInput {
-				inputF32[i] = float32(v)
-			}
-			inputEnergy := computeEnergyF32(inputF32)
+			inputEnergy := computeEnergyF32(allInput)
 			libopusEnergy := computeEnergyF32(libopusDecoded)
 
 			libopusEnergyRatio := libopusEnergy / inputEnergy * 100
@@ -957,7 +949,7 @@ func runLibopusAmbisonicsParityCase(t *testing.T, mappingFamily, channels, bitra
 	frameSize := 960 // 20ms at 48kHz
 	numFrames := 10
 
-	var allInput []float64
+	var allInput []float32
 	packets := make([][]byte, numFrames)
 	for i := 0; i < numFrames; i++ {
 		pcm := generateMultichannelSine(channels, frameSize)
@@ -1013,11 +1005,7 @@ func runLibopusAmbisonicsParityCase(t *testing.T, mappingFamily, channels, bitra
 		t.Fatalf("internal decoded sample count mismatch: got=%d want=%d", len(internalDecoded), wantSamples)
 	}
 
-	inputF32 := make([]float32, len(allInput))
-	for i, v := range allInput {
-		inputF32[i] = float32(v)
-	}
-	inputEnergy := computeEnergyF32(inputF32)
+	inputEnergy := computeEnergyF32(allInput)
 	internalEnergy := computeEnergyF32(internalDecoded)
 	internalEnergyRatio := internalEnergy / inputEnergy * 100
 	if internalEnergyRatio < 5.0 {
@@ -1156,7 +1144,7 @@ func TestLibopus_BitrateQuality(t *testing.T) {
 			duration := float64(numFrames*frameSize) / 48000.0 // Duration in seconds
 
 			// Generate test audio
-			var allInput []float64
+			var allInput []float32
 			packets := make([][]byte, numFrames)
 			totalPacketBytes := 0
 
@@ -1186,11 +1174,7 @@ func TestLibopus_BitrateQuality(t *testing.T) {
 				numFrames, totalPacketBytes, duration)
 
 			// Compute input energy
-			inputF32 := make([]float32, len(allInput))
-			for i, v := range allInput {
-				inputF32[i] = float32(v)
-			}
-			inputEnergy := computeEnergyF32(inputF32)
+			inputEnergy := computeEnergyF32(allInput)
 
 			// Get mapping
 			streams, coupled, mapping, _ := DefaultMapping(tc.channels)

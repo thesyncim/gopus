@@ -327,7 +327,7 @@ func makeModeMultistreamPacketWithDREDForTest(t *testing.T, channels, targetStre
 		if streamChannels == 2 {
 			streamEnc.SetForceChannels(2)
 		}
-		packet, err := streamEnc.Encode(generateTestSignal(streamChannels, 960, 48000, float64(997+stream*101)), 960)
+		packet, err := streamEnc.EncodeFloat32(generateTestSignal(streamChannels, 960, 48000, float64(997+stream*101)), 960)
 		if err != nil {
 			t.Fatalf("stream %d Encode error: %v", stream, err)
 		}

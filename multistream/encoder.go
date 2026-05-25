@@ -112,9 +112,6 @@ type Encoder struct {
 
 	// surroundAnalysisEncoder computes CELT band energies for surround analysis.
 	surroundAnalysisEncoder *celt.Encoder
-
-	// inputScratch converts legacy callers at the package boundary.
-	inputScratch []float32
 }
 
 const surroundBands = 21
@@ -1218,7 +1215,7 @@ func (e *Encoder) initProjectionMixingDefaults() error {
 // Encode encodes multi-channel PCM samples to an Opus multistream packet.
 //
 // Parameters:
-//   - pcm: input samples as float64, sample-interleaved [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
+//   - pcm: input samples as float32, sample-interleaved [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
 //   - frameSize: number of samples per channel (must be valid for Opus: 120, 240, 480, 960, 1920, 2880)
 //
 // Returns:
@@ -1232,34 +1229,19 @@ func (e *Encoder) initProjectionMixingDefaults() error {
 //  3. Assembles packets with self-delimiting framing per RFC 6716 Appendix B
 //
 // Reference: RFC 6716 Appendix B, RFC 7845 Section 5.1.1
-func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
+func (e *Encoder) Encode(pcm []float32, frameSize int) ([]byte, error) {
 	return e.EncodeWithAnalysis(pcm, frameSize, pcm)
 }
 
 // EncodeWithAnalysis encodes the selected frame while letting child encoders
 // analyze the full caller frame selected by expert-frame-duration controls.
-func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM []float64) ([]byte, error) {
-	if analysisPCM == nil {
-		analysisPCM = pcm
-	}
-	total := len(pcm) + len(analysisPCM)
-	if cap(e.inputScratch) < total {
-		e.inputScratch = make([]float32, total)
-	}
-	pcm32 := e.inputScratch[:len(pcm)]
-	for i, v := range pcm {
-		pcm32[i] = float32(v)
-	}
-	analysisPCM32 := e.inputScratch[len(pcm):total]
-	for i, v := range analysisPCM {
-		analysisPCM32[i] = float32(v)
-	}
-	return e.EncodeFloat32WithAnalysis(pcm32, frameSize, analysisPCM32)
+func (e *Encoder) EncodeWithAnalysis(pcm []float32, frameSize int, analysisPCM []float32) ([]byte, error) {
+	return e.EncodeFloat32WithAnalysis(pcm, frameSize, analysisPCM)
 }
 
 // EncodeFloat32 encodes libopus float-build PCM samples to an Opus multistream packet.
 func (e *Encoder) EncodeFloat32(pcm []float32, frameSize int) ([]byte, error) {
-	return e.EncodeFloat32WithAnalysis(pcm, frameSize, pcm)
+	return e.Encode(pcm, frameSize)
 }
 
 // EncodeFloat32WithAnalysis encodes the selected frame while letting child

@@ -1617,9 +1617,6 @@ internal/osce/lace/runtime.go	2	fa21599cedcfee83faa20a3e146e4530d379f43ff723ffcf
 internal/osce/lace/runtime_trace.go	1	13b2161c7a2379d957f300147cc6eff612465d7c227ca6668c0890f138233367	legacy-current	gains[0] = float32(math.Exp(float64(logGainLimit - gains[0])))
 internal/osce/lace/runtime_trace.go	1	fa21599cedcfee83faa20a3e146e4530d379f43ff723ffcf52113df4d1f82222	legacy-current	invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
 internal/osce/lace/runtime_trace.go	1	fe810750a1083d7aaa3cad8e3f60ba7e94bd32bfded2bae2fcd3163e0a7f34e3	legacy-current	gains[1] = float32(math.Exp(float64(filterGainA*gains[1] + filterGainB)))
-multistream/encoder.go	1	7168bdc66291c10c23a0ab0fbdf51861253597db2c19c80bf93fcc40d526bd57	legacy-current	func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM []float64) ([]byte, error) {
-multistream/encoder.go	1	bbbd460aa7149ce1976e96b72f14116a814daf3a6431943030e6c96574d38aa3	legacy-current	func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
-multistream/encoder.go	1	fd75720f7395eaedc3a720819a1f0e4ca5fef697cb266899f34d1cf6ebb56eb0	legacy-current	// - pcm: input samples as float64, sample-interleaved [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
 pcm.go	1	b42062ac33ff5c5dfaa06aff81cb5e97824d8ce99278ec3c89db77cade24e72a	legacy-current	func float64ToInt16(sample float64) int16 {
 plc/celt_plc.go	1	04bd4ec8c37ef43eb37dbb720ade84ca6bdf9c299e8e5f2c163decbbdd173eb3	legacy-current	Synthesize(coeffs []float64, transient bool, shortBlocks int) []float64
 plc/celt_plc.go	2	0b0bc28e966bf3c9c31d41f287fdf15e871cdf818059a5012643af782cc8ac80	legacy-current	return make([]float64, frameSize)

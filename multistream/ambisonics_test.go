@@ -72,11 +72,11 @@ func encodeAmbisonicsAndCheck(t *testing.T, label string, channels, family int, 
 	}
 
 	frameSize := 960 // 20ms at 48kHz
-	pcm := make([]float64, frameSize*channels)
+	pcm := make([]float32, frameSize*channels)
 
 	for i := 0; i < frameSize; i++ {
 		for ch := 0; ch < channels; ch++ {
-			pcm[i*channels+ch] = amplitude * math.Sin(2*math.Pi*float64(baseFreq*float64(ch+1))*float64(i)/48000)
+			pcm[i*channels+ch] = float32(amplitude * math.Sin(2*math.Pi*float64(baseFreq*float64(ch+1))*float64(i)/48000))
 		}
 	}
 
