@@ -344,35 +344,6 @@ func TestComputeLPCFromFrame(t *testing.T) {
 	}
 }
 
-func TestEvalChebyshev(t *testing.T) {
-	// Test constant polynomial
-	coef := []float64{5.0}
-	result := evalChebyshev(coef, 0.5)
-	if math.Abs(result-5.0) > 1e-5 {
-		t.Errorf("constant polynomial: expected 5.0, got %f", result)
-	}
-
-	// Test empty polynomial
-	result = evalChebyshev(nil, 0.5)
-	if result != 0 {
-		t.Errorf("empty polynomial: expected 0, got %f", result)
-	}
-}
-
-func TestBisectRoot(t *testing.T) {
-	// Test finding root of sin(x) near pi
-	// Use a simple polynomial that has a root
-	poly := []float64{-1.0, 0.0, 2.0} // Should cross zero
-
-	// Find root in [0, pi/2]
-	root := bisectRoot(poly, 0, math.Pi/2, evalChebyshev)
-
-	// Root should be in the interval
-	if root < 0 || root > math.Pi/2 {
-		t.Errorf("root %f not in [0, pi/2]", root)
-	}
-}
-
 // lpcAbsInt returns absolute value of int (local to this test file)
 func lpcAbsInt(x int) int {
 	if x < 0 {

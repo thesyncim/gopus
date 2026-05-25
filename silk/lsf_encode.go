@@ -1,9 +1,8 @@
 package silk
 
-import "math"
-
 // lpcToLSFEncode converts LPC coefficients to LSF (Line Spectral Frequencies).
-// Uses the Chebyshev polynomial method per Kabal & Ramachandran 1986.
+// Mirrors libopus silk/float/wrappers_FLP.c:silk_A2NLSF_FLP by converting
+// Q12 LPC coefficients to the fixed Q16 bridge before running silk_A2NLSF.
 // This is the allocating version for backward compatibility.
 //
 // lpcQ12: LPC coefficients in Q12 format
@@ -14,172 +13,44 @@ func lpcToLSFEncode(lpcQ12 []int16) []int16 {
 		return nil
 	}
 	lsfQ15 := make([]int16, order)
-	lpcToLSFEncodeInto(lpcQ12, lsfQ15, nil, nil, nil, nil)
+	lpcToLSFEncodeInto(lpcQ12, lsfQ15, nil, nil, nil)
 	return lsfQ15
 }
 
 // lpcToLSFEncodeInto converts LPC coefficients to LSF using provided scratch buffers.
 // This is the zero-allocation version.
-func lpcToLSFEncodeInto(lpcQ12 []int16, lsfQ15 []int16, lpcBuf, pBuf, qBuf, lsfFloatBuf []float64) {
+func lpcToLSFEncodeInto(lpcQ12 []int16, lsfQ15 []int16, lpcQ16Buf, pBuf, qBuf []int32) {
 	order := len(lpcQ12)
-	if order == 0 {
+	if order == 0 || len(lsfQ15) < order {
 		return
 	}
 
 	halfOrder := order / 2
 
 	// Use provided buffers or allocate if nil
-	var lpc, p, q, lsfFloat []float64
-	if lpcBuf != nil && len(lpcBuf) >= order {
-		lpc = lpcBuf[:order]
+	var lpcQ16, p, q []int32
+	if lpcQ16Buf != nil && len(lpcQ16Buf) >= order {
+		lpcQ16 = lpcQ16Buf[:order]
 	} else {
-		lpc = make([]float64, order)
+		lpcQ16 = make([]int32, order)
 	}
 	if pBuf != nil && len(pBuf) >= halfOrder+1 {
 		p = pBuf[:halfOrder+1]
 	} else {
-		p = make([]float64, halfOrder+1)
+		p = make([]int32, halfOrder+1)
 	}
 	if qBuf != nil && len(qBuf) >= halfOrder+1 {
 		q = qBuf[:halfOrder+1]
 	} else {
-		q = make([]float64, halfOrder+1)
-	}
-	if lsfFloatBuf != nil && len(lsfFloatBuf) >= order {
-		lsfFloat = lsfFloatBuf[:order]
-	} else {
-		lsfFloat = make([]float64, order)
+		q = make([]int32, halfOrder+1)
 	}
 
-	// Convert Q12 to float for computation
+	// Convert Q12 to Q16 for silk_A2NLSF.
 	for i := 0; i < order; i++ {
-		lpc[i] = float64(lpcQ12[i]) / 4096.0
+		lpcQ16[i] = int32(lpcQ12[i]) << 4
 	}
 
-	// Build P: a[k] + a[order-1-k]
-	// Build Q: a[k] - a[order-1-k]
-	p[0] = 1.0
-	q[0] = 1.0
-	for i := 0; i < halfOrder; i++ {
-		p[i+1] = lpc[i] + lpc[order-1-i]
-		q[i+1] = lpc[i] - lpc[order-1-i]
-	}
-
-	// Cumulative sum for P
-	for i := 1; i <= halfOrder; i++ {
-		p[i] += p[i-1]
-	}
-	// Cumulative difference for Q
-	for i := 1; i <= halfOrder; i++ {
-		q[i] -= q[i-1]
-	}
-
-	// Find roots by searching for sign changes in [0, pi]
-	// lsfFloat was already set up from scratch buffer
-	lsfIdx := 0
-
-	// Search resolution
-	const numPoints = 1024
-	const step = math.Pi / float64(numPoints)
-
-	prevP := evalChebyshev(p, 1.0) // cos(0) = 1
-	prevQ := evalChebyshev(q, 1.0)
-	prevW := 0.0
-
-	for i := 1; i <= numPoints && lsfIdx < order; i++ {
-		w := float64(i) * step
-		x := math.Cos(w)
-
-		currP := evalChebyshev(p, x)
-		currQ := evalChebyshev(q, x)
-
-		// Check for sign change in P (even-indexed LSFs)
-		if lsfIdx%2 == 0 && prevP*currP < 0 {
-			// Bisection to refine root
-			root := bisectRoot(p, prevW, w, evalChebyshev)
-			lsfFloat[lsfIdx] = root
-			lsfIdx++
-		}
-
-		// Check for sign change in Q (odd-indexed LSFs)
-		if lsfIdx%2 == 1 && prevQ*currQ < 0 {
-			root := bisectRoot(q, prevW, w, evalChebyshev)
-			lsfFloat[lsfIdx] = root
-			lsfIdx++
-		}
-
-		prevP = currP
-		prevQ = currQ
-		prevW = w
-	}
-
-	// If we didn't find all roots, fill with evenly spaced values
-	if lsfIdx < order {
-		for i := lsfIdx; i < order; i++ {
-			lsfFloat[i] = math.Pi * float64(i+1) / float64(order+1)
-		}
-	}
-
-	// Convert to Q15 format [0, 32767]
-	// lsfQ15 was passed as parameter
-	for i := 0; i < order; i++ {
-		// Map [0, pi] to [0, 32767]
-		val := lsfFloat[i] * 32767.0 / math.Pi
-		if val < 0 {
-			val = 0
-		}
-		if val > 32767 {
-			val = 32767
-		}
-		lsfQ15[i] = int16(val)
-	}
-
-	// Ensure strict ordering (bubble sort if needed)
-	ensureLSFOrdering(lsfQ15)
-}
-
-// evalChebyshev evaluates polynomial at x using Chebyshev recursion.
-func evalChebyshev(coef []float64, x float64) float64 {
-	if len(coef) == 0 {
-		return 0
-	}
-	if len(coef) == 1 {
-		return coef[0]
-	}
-
-	// Clenshaw's recurrence for Chebyshev evaluation
-	var b0, b1 float64
-	for i := len(coef) - 1; i >= 0; i-- {
-		b2 := b1
-		b1 = b0
-		b0 = 2*x*b1 - b2 + coef[i]
-	}
-	return b0 - x*b1
-}
-
-// bisectRoot finds root of poly in [lo, hi] using bisection.
-func bisectRoot(poly []float64, lo, hi float64, evalFunc func([]float64, float64) float64) float64 {
-	const maxIter = 20
-	const tol = 1e-8
-
-	flo := evalFunc(poly, math.Cos(lo))
-
-	for iter := 0; iter < maxIter; iter++ {
-		mid := (lo + hi) / 2
-		if hi-lo < tol {
-			return mid
-		}
-
-		fmid := evalFunc(poly, math.Cos(mid))
-		if flo*fmid < 0 {
-			hi = mid
-		} else {
-			lo = mid
-			flo = fmid
-		}
-	}
-
-	return (lo + hi) / 2
+	silkA2NLSFInto(lsfQ15[:order], lpcQ16, order, p, q)
 }
 
 // ensureLSFOrdering ensures LSF values are strictly increasing.

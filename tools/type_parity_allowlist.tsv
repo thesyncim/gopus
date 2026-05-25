@@ -1799,19 +1799,6 @@ silk/lpc_analysis.go	1	b4d3c5acffb5228d8287a45fcd6d2f1c05e0e25e0814565d22aec0352
 silk/lpc_analysis.go	1	c14340c1473e61d91f000ae6aa90d37d25b07cf4f4a2be667ea5069322473da9	legacy-current	tmp2 += noFMA64(float64(xbk), Atmp)
 silk/lpc_analysis.go	1	d30ab94cd26245ddcb7e9df86214b9f23f3483391a5c4d9072c8fa6b2186d604	legacy-current	tmp1 := float64(xn)
 silk/lpc_analysis.go	1	fc0d75d76f86e7519218dbef9d0c4ffd2b7f1022f195a47137ec3c255b9805dd	legacy-current	Af := ensureFloat64Slice(&e.scratchBurgAf, order)
-silk/lsf_encode.go	1	0c43c9e4dff8b6fa1962d953e1b981b88b98c6472236b6d3e5abb595cf1c3b4c	legacy-current	w := float64(i) * step
-silk/lsf_encode.go	1	3f52d58d8606f16580647976fece1e006ac7a26462decb135c5745c658d23bec	legacy-current	var lpc, p, q, lsfFloat []float64
-silk/lsf_encode.go	1	78888167725b417aca51899e70f92435728e6f5850bd495114b2eda76fdd9d7a	legacy-current	lsfFloat[i] = math.Pi * float64(i+1) / float64(order+1)
-silk/lsf_encode.go	1	871258f29ed26b13bef111afcbcc28fd06e7d8ed233ba6568c3134e316685e1c	legacy-current	func bisectRoot(poly []float64, lo, hi float64, evalFunc func([]float64, float64) float64) float64 {
-silk/lsf_encode.go	1	96ee159e3057d276fe200235da888a9d84809d75bb954f8dad94fe7ec30d7bdb	legacy-current	func lpcToLSFEncodeInto(lpcQ12 []int16, lsfQ15 []int16, lpcBuf, pBuf, qBuf, lsfFloatBuf []float64) {
-silk/lsf_encode.go	1	ab61c708b2a04f9af63da1c462f8956991dca07ba7044a57edae42a31369cfc5	legacy-current	p = make([]float64, halfOrder+1)
-silk/lsf_encode.go	1	be1af5a51b1b5710ecdaf8334b39d00d249b3e13f06a1c5695c89c915803630d	legacy-current	var b0, b1 float64
-silk/lsf_encode.go	1	be399815b9121eaa36fd2b57bc411e8425bfc675d978992dc0b105ba2b41ff1c	legacy-current	func evalChebyshev(coef []float64, x float64) float64 {
-silk/lsf_encode.go	1	c7f741a911be6f8bee0dc7d5de2595c3be86b00c98371c4fae7d82c3cff275b5	legacy-current	lpc = make([]float64, order)
-silk/lsf_encode.go	1	df43c274a1e77db76c876c990a1bc19fc37a8ac7932d05dbdf866707132caf64	legacy-current	lpc[i] = float64(lpcQ12[i]) / 4096.0
-silk/lsf_encode.go	1	ea96ebbb787781e0ca43d0155f41ee562f6cebd8a39b017de2e13ecd3bdbff55	legacy-current	q = make([]float64, halfOrder+1)
-silk/lsf_encode.go	1	f1f96ef8d880c81534f4429ae354a809ed9fe88890ddadcfd190b047f0564355	legacy-current	lsfFloat = make([]float64, order)
-silk/lsf_encode.go	1	f6d21b2007a4edc5b562480d988fa78d73ddf7fb726865a765fc36eec5587d61	legacy-current	const step = math.Pi / float64(numPoints)
 silk/lsf_quantize.go	1	6816deeef3ab15b36e340465fcde9589a3bc681be99b02b38a927bd25bb2f6d9	legacy-current	rms := math.Sqrt(float64(diff) / float64(order))
 silk/lsf_quantize.go	1	98420ae620c21ca0f967894cd7231bda8f2c08119a65144dda4d274fc7a9d72c	legacy-current	rate := 64 - int(math.Log2(float64(prob))*8)
 silk/ltp_quant.go	1	612f99ec9f215f9c2a039f2fa8210acc80c439094839fb29ca260911e1f818ab	legacy-current	energy += float64(prod1 - prod2)
