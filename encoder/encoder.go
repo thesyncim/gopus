@@ -94,7 +94,7 @@ type Encoder struct {
 	bitrate       int // Target bits per second
 	// celtCVBRBoundScale scales CELT constrained-VBR burst bound.
 	// 1.0 matches libopus single-stream behavior.
-	celtCVBRBoundScale float64
+	celtCVBRBoundScale opusVal16
 
 	// FEC controls
 	fecEnabled                  bool
@@ -607,7 +607,7 @@ func (e *Encoder) SetVBRConstraint(constrained bool) {
 
 // SetCELTCVBRBoundScale scales CELT constrained-VBR burst bound.
 // Valid range is [0, 1], where 1 keeps libopus single-stream behavior.
-func (e *Encoder) SetCELTCVBRBoundScale(scale float64) {
+func (e *Encoder) SetCELTCVBRBoundScale(scale float32) {
 	if scale < 0 {
 		scale = 0
 	} else if scale > 1 {

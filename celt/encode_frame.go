@@ -2149,7 +2149,7 @@ func (e *Encoder) computeInitialTargetBytes(frameSize int) int {
 		} else if boundScale > 1 {
 			boundScale = 1
 		}
-		vbrBoundQ3 := int(float64(vbrRateQ3) * boundScale)
+		vbrBoundQ3 := int(float32(vbrRateQ3) * boundScale)
 		maxAllowedBytes := (vbrRateQ3 + vbrBoundQ3 - e.vbrReservoir) >> (bitRes + 3)
 		if maxAllowedBytes < 2 {
 			maxAllowedBytes = 2
@@ -2344,7 +2344,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 		} else if boundScale > 1 {
 			boundScale = 1
 		}
-		vbrBoundQ3 := int(float64(vbrRateQ3) * boundScale)
+		vbrBoundQ3 := int(float32(vbrRateQ3) * boundScale)
 		maxAllowedBytes := (vbrRateQ3 + vbrBoundQ3 - e.vbrReservoir) >> (bitRes + 3)
 		if maxAllowedBytes < 2 {
 			maxAllowedBytes = 2

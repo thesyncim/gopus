@@ -443,7 +443,6 @@ celt/encode_frame.go	1	3ac2e099c102b4860a16f3766a6b286d330a07d35f80355c70d01c0d7
 celt/encode_frame.go	1	3cd8be9ae7d059742f1febd962a68539fb652859246fa2e57f7610768151e10d	legacy-current	func (e *Encoder) fillTransientHistoryFromPrefilter(overlap int, dst []float64) {
 celt/encode_frame.go	1	418551ccf70a2c85c800b83f4e1e95b1ae7d7185fd09732b131c73a4ac60002f	legacy-current	var qextNormR []float64
 celt/encode_frame.go	1	423141e827f0de5a32a959118f753e80432775ca4548b9da16309411e296e97e	legacy-current	out := ensureFloat64Slice(&e.scratch.quantizedInput, len(pcm))
-celt/encode_frame.go	2	43800d7b8848190717c0bf6e862405754af5eec18bd501417d7009558dab3ba3	legacy-current	vbrBoundQ3 := int(float64(vbrRateQ3) * boundScale)
 celt/encode_frame.go	1	479a01a2e0c09999db75c3fad88e02574c21a7d255a8125789d814bde40c1ee1	legacy-current	energies[frameIdx] = float64(curE - 0.25*float32(e.energyError[stateIdx]))
 celt/encode_frame.go	1	488f4b40267b2fbda155ebb0a913be26273a3ff3fcf484d8972fb543de508594	legacy-current	targetQ3 = baseTargetQ3 + int(0.67*float64(targetQ3-baseTargetQ3))
 celt/encode_frame.go	1	4902c52373f034111614c4be226093fc2b6c25004a645c0962563cc5623b1bc5	legacy-current	alpha := 1.0 / float64(e.vbrCount+20)
@@ -567,7 +566,6 @@ celt/encoder.go	1	68e34e3d95a303ab697e43f0bbf3620e3294c1bad8085093f11705647d4869
 celt/encoder.go	1	6a9eab889adfe313b1ebcdc6f074e854aa4049904ba842f6710d51f32b340033	legacy-current	preemph []float64
 celt/encoder.go	1	6aba3101a0e9347c80cb136f9b6adeba40d839e71b575ee38806f8b2ce8a4f4b	legacy-current	s.preemph = ensureFloat64Slice(&s.preemph, expectedLen)
 celt/encoder.go	1	6ba5f400035771d49c0dc85b4e01b64aec329f7f8471f75cbf0258bce904f5a1	legacy-current	dcRejected []float64
-celt/encoder.go	1	71efdbeb763aa84e482a8a2e75cdb30ee35ca2b681bf4ce54bb0c8866726065d	legacy-current	func (e *Encoder) SetConstrainedVBRBoundScale(scale float64) {
 celt/encoder.go	1	74bc6163be8df2517777b9c773d7800eb725a99d9ef4ef3de6c0b40a4f9af1e7	legacy-current	s.rightHist = ensureFloat64Slice(&s.rightHist, overlap)
 celt/encoder.go	1	75e9e4eb0998dc8e1e2832c3831527271d68543e6302a0ea77b332843c6a1132	legacy-current	s.normL = ensureFloat64Slice(&s.normL, frameSize)
 celt/encoder.go	1	778d1162097d14aeb7d55884fb8ff1eb2a9b1de559ca38147d19903369698259	legacy-current	coarseOldStart []float64
@@ -595,7 +593,6 @@ celt/encoder.go	1	a0256e3a9e2bd289f476662495282e48de7524304dfbead0a630ced2f6191f
 celt/encoder.go	1	a7bf8d39e44aaf9599d66ba3b2dcfeb0688294eb9081a28b4e58d5b119e2c168	legacy-current	s.dynallocFollower = ensureFloat64Slice(&s.dynallocFollower, MaxBands)
 celt/encoder.go	1	a80d577310fd91ce5f8adf260ccbc2e13da63a6116a461a8d37fe16d34631d71	legacy-current	mdctLeft []float64
 celt/encoder.go	1	a976063c156b1a96bcc9534a2be153228e68812eff03fc1c4399dc8c773ba1c4	legacy-current	mdctCoeffs []float64
-celt/encoder.go	1	aaf698903d2eb56b1c50ea97eafaa68dbae2b535e79350108ea7bdb050e81552	legacy-current	constrainedVBRBoundScale float64
 celt/encoder.go	1	ac84e234135b4ba9e58cdf12a0b285b224cd670cf97554df494f22a8eb1f740c	legacy-current	out := make([]float64, len(e.prevEnergy))
 celt/encoder.go	1	ad05aad1a9c995728e146d3e5d6c4574ca968a2c28001105f7012305e622fc7a	legacy-current	s.prefilterPre = ensureFloat64Slice(&s.prefilterPre, prefilterLen)
 celt/encoder.go	1	af1455e80f653fdb8c13661b6bec4c8b73d4fc92cda1c4094402c7b42c508695	legacy-current	s.bandEL = ensureFloat64Slice(&s.bandEL, MaxBands)
@@ -1500,7 +1497,6 @@ encoder/encoder.go	1	0032c67255d4aab354ab8d3817b15a10634d184671178fc7ac07c266452
 encoder/encoder.go	1	0f5a6a3f666b6b3ca6580a76d88a65b92f3258901b811da6f7b79cfd400f948c	legacy-current	float64(e.lastAnalysisInfo.Activity),
 encoder/encoder.go	1	14925b2dd59567af4d6a32c880b22f49b6557f0b8e59c2329da88a7f2535f135	legacy-current	prob = float64(e.lastAnalysisInfo.MusicProbMax)
 encoder/encoder.go	1	14e6845a47e633630cf7645860cc94774c41e0ea7fd936e595a3e61bb48ed335	legacy-current	float64(e.lastAnalysisInfo.MaxPitchRatio),
-encoder/encoder.go	1	1d0cfda3a5f686bc46878e5bd74e6fb6b80f4145838c33bc864082248c88e521	legacy-current	celtCVBRBoundScale float64
 encoder/encoder.go	1	1fa7e2278d17da216653e709c56049326fcbfa24fcbedc63bc153e9e74e397a5	legacy-current	float64(e.lastAnalysisInfo.Tonality),
 encoder/encoder.go	1	4a6a5d8af4b26a68a6404aa48d3d17a6acb9db854ae3fb100956c21c6c9a9828	legacy-current	func (e *Encoder) ensureInputPCM64(size int) []float64 {
 encoder/encoder.go	1	6e34b877543e93542c937b410c084d44cffe44f3855802dfca2d2f3ee1c39eb3	legacy-current	func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
@@ -1511,7 +1507,6 @@ encoder/encoder.go	1	a95e30cc4361f153012bb5853ac75e7894e05099e72ed13489b67e007e4
 encoder/encoder.go	1	bbbd460aa7149ce1976e96b72f14116a814daf3a6431943030e6c96574d38aa3	legacy-current	func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 encoder/encoder.go	1	be9db251f39082c322b6d5aadd3bbdfb8b4031cbae599d2559aa6297aaf20d14	legacy-current	scratchInputPCM64 []float64 // Transitional CELT core bridge
 encoder/encoder.go	1	bf33ac17ae7d89834a08e927ea77469da8b6975c009f5105ff10f2362bcae1e1	legacy-current	threshold := float32(1.0 / float64(int(1)<<lsbDepth))
-encoder/encoder.go	1	c1c2046b3826def67d2caad39b005be04e36246b8247d5ba6ec8bf73db3512d8	legacy-current	func (e *Encoder) SetCELTCVBRBoundScale(scale float64) {
 encoder/encoder.go	1	e021a140a26ef9e12047403adcec3601b7f73a319b162b4eaf1ad0e69835e88b	legacy-current	prob := float64(e.lastAnalysisInfo.MusicProb)
 encoder/fec.go	1	4ffe0ef96a7e800591ab485b9c6135791b885de53780a2fa595b6d644474d500	legacy-current	lbrrBitrate := int(float64(normalBitrate) * LBRRBitrateFactor)
 encoder/hybrid.go	1	194d02c341c54c001542e444939ae4ef790dd04b798e2462e29a00a1af9833bd	legacy-current	func ComputeStereoWidth(pcm []float64, frameSize, channels int) float64 {
@@ -1622,9 +1617,7 @@ internal/osce/lace/runtime.go	2	fa21599cedcfee83faa20a3e146e4530d379f43ff723ffcf
 internal/osce/lace/runtime_trace.go	1	13b2161c7a2379d957f300147cc6eff612465d7c227ca6668c0890f138233367	legacy-current	gains[0] = float32(math.Exp(float64(logGainLimit - gains[0])))
 internal/osce/lace/runtime_trace.go	1	fa21599cedcfee83faa20a3e146e4530d379f43ff723ffcf52113df4d1f82222	legacy-current	invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
 internal/osce/lace/runtime_trace.go	1	fe810750a1083d7aaa3cad8e3f60ba7e94bd32bfded2bae2fcd3163e0a7f34e3	legacy-current	gains[1] = float32(math.Exp(float64(filterGainA*gains[1] + filterGainB)))
-multistream/encoder.go	1	06b42cc4ad5da03aa34b0e87611d7a6e56a1833f63d082744a5facedf868ba35	legacy-current	func multistreamCVBRBoundScale(totalBitrate, sampleRate, frameSize int) float64 {
 multistream/encoder.go	1	7168bdc66291c10c23a0ab0fbdf51861253597db2c19c80bf93fcc40d526bd57	legacy-current	func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM []float64) ([]byte, error) {
-multistream/encoder.go	1	877c91f295f3f21d6eb5d6db49e5f76754beb005d1989420142d3ed9445d022b	legacy-current	burstMultiple := float64(maxBurstBytes) / float64(targetBytes)
 multistream/encoder.go	1	bbbd460aa7149ce1976e96b72f14116a814daf3a6431943030e6c96574d38aa3	legacy-current	func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 multistream/encoder.go	1	fd75720f7395eaedc3a720819a1f0e4ca5fef697cb266899f34d1cf6ebb56eb0	legacy-current	// - pcm: input samples as float64, sample-interleaved [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
 pcm.go	1	b42062ac33ff5c5dfaa06aff81cb5e97824d8ce99278ec3c89db77cade24e72a	legacy-current	func float64ToInt16(sample float64) int16 {

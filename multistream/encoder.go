@@ -1082,7 +1082,7 @@ func (e *Encoder) updateSurroundTrimFromPCM(pcm []float32, frameSize int) bool {
 // multistreamCVBRBoundScale computes a constrained-VBR burst scale that keeps
 // aggregate multistream packet bursts within the Opus 1275-byte packet cap.
 // A scale of 1 keeps libopus single-stream behavior (~2x base burst ceiling).
-func multistreamCVBRBoundScale(totalBitrate, sampleRate, frameSize int) float64 {
+func multistreamCVBRBoundScale(totalBitrate, sampleRate, frameSize int) float32 {
 	if totalBitrate <= 0 || sampleRate <= 0 || frameSize <= 0 {
 		return 1.0
 	}
@@ -1098,7 +1098,7 @@ func multistreamCVBRBoundScale(totalBitrate, sampleRate, frameSize int) float64 
 	if maxBurstBytes < 1 {
 		maxBurstBytes = 1
 	}
-	burstMultiple := float64(maxBurstBytes) / float64(targetBytes)
+	burstMultiple := float32(maxBurstBytes) / float32(targetBytes)
 	if burstMultiple >= 2.0 {
 		return 1.0
 	}
@@ -1123,7 +1123,7 @@ func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float32) {
 		streamMasks = e.streamEnergyMask[:needed]
 		clear(streamMasks)
 	}
-	cvbrBoundScale := 1.0
+	cvbrBoundScale := float32(1.0)
 	if len(e.encoders) > 0 && e.encoders[0].GetBitrateMode() == encoder.ModeCVBR {
 		cvbrBoundScale = multistreamCVBRBoundScale(e.totalBitrateForAllocation(frameSize), e.sampleRate, frameSize)
 	}

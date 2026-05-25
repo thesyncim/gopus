@@ -77,7 +77,7 @@ type Encoder struct {
 	constrainedVBR       bool
 	// constrainedVBRBoundScale scales libopus vbr_bound for constrained-VBR
 	// max-allowed computation. 1.0 matches libopus single-stream behavior.
-	constrainedVBRBoundScale float64
+	constrainedVBRBoundScale opusVal16
 	// Constrained-VBR state mirrors libopus CELT encoder cadence.
 	// Units are Q3 bits unless noted.
 	vbrReservoir int
@@ -542,7 +542,7 @@ func (e *Encoder) ConstrainedVBR() bool {
 
 // SetConstrainedVBRBoundScale sets a scale for constrained-VBR vbr_bound.
 // Valid range is [0, 1], where 1 matches libopus single-stream behavior.
-func (e *Encoder) SetConstrainedVBRBoundScale(scale float64) {
+func (e *Encoder) SetConstrainedVBRBoundScale(scale float32) {
 	if scale < 0 {
 		scale = 0
 	} else if scale > 1 {
