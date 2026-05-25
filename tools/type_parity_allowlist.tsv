@@ -1344,7 +1344,6 @@ celt/synthesis.go	1	15046dd6083e40b78a78ff164cac07bef0d661a665e8526dff071f057b6a
 celt/synthesis.go	1	27654993643016f169b3ddb202f73887fb5e5ae547b973ecb575fa51930a32c5	legacy-current	func synthesizeChannelWithOverlap(coeffs []float64, prevOverlap []float64, overlap int, transient bool, shortBlocks int) (output, newOverlap []float64) {
 celt/synthesis.go	1	2910c652eaa53e762678c478f086b11c3ccdba74060ddaf1b1bb3bc09954bfec	legacy-current	tmp := make([]float64, overlap)
 celt/synthesis.go	1	30b7cb3d08dbc4b440780b12ad1f4bd2561bd0c85c7f4625559f208601f9758e	legacy-current	func (d *Decoder) synthesizeStereoPlanarLongToFloat32(coeffsL, coeffsR []float64) (outL, outR []float32) {
-celt/synthesis.go	1	3911af26db7e47d2b1ae34c4101d72d06bbe7aa886ca71d7d4338ba16401db3f	legacy-current	func synthesizeChannelWithOverlapScratch[S ~float32 | ~float64](coeffs []float64, prevOverlap []S, overlap int, transient bool, shortBlocks int, out []float64, scratch *imdctScratch, scratchF32 *imdctScratchF32, shortCoe
 celt/synthesis.go	1	425d30abe81bf202ddc4b5db63c947ac28e1ce34cf94be639e41d069227d4607	legacy-current	stereo := ensureFloat64Slice(&d.scratchStereo, n*2)
 celt/synthesis.go	1	43b0a315b7619512de343d365415af01e94deb4bcdb9ab1dea8330338f851661	legacy-current	func OverlapAddInPlace(current []float64, prevOverlap []float64, overlap int) []float64 {
 celt/synthesis.go	1	4f5b2d6939bbd59ebeae39d6f45eb2ddbb9abd1e9dc816a63bb2e93ab208cc59	legacy-current	func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, shortBlocks int) []float64 {
@@ -1352,6 +1351,7 @@ celt/synthesis.go	1	5186308d732854b98c15fc0df905ee0c421b8608f1204afa3062bc473e86
 celt/synthesis.go	1	54bb8e55957754a04fde136dce45c2046a8961cc4bc76ec053d09da4202665ac	legacy-current	bufL := ensureFloat64Slice(&d.scratchSynth, len(coeffsL)+Overlap)
 celt/synthesis.go	1	5d4dcc44fd5d3d94a934841d05c5e222d872f0184f68e1e3493273a44fd487c7	legacy-current	func (d *Decoder) synthesizeMonoLongToFloat32(coeffs []float64) []float32 {
 celt/synthesis.go	1	60d432731165f5d3f4cecf6850467627c0af4cb7e20f8578556a3163c7b14020	legacy-current	out := make([]float64, frameSize+overlap)
+celt/synthesis.go	1	61d3e8984dc8bd1436febf40271f518f92aefbb5a3f99b2070f95de84e826f9f	legacy-current	func synthesizeChannelWithOverlapScratch[S ~float32 | ~float64](coeffs []float64, prevOverlap []S, overlap int, transient bool, shortBlocks int, out []float64, scratchF32 *imdctScratchF32, shortCoeffs []float64) (output
 celt/synthesis.go	1	63e05126ec9a91103f54918383ca96614ca5ce17da0d127cc74e6c2c8152c5e5	legacy-current	shortCoeffs := ensureFloat64Slice(&d.scratchShortCoeffs, len(coeffs))
 celt/synthesis.go	1	6a2029c13c484e653ca6d2c8daf559c1dfed80e88c8239ea843561a27dbcb5b0	legacy-current	func OverlapAdd(current, prevOverlap []float64, overlap int) (output, newOverlap []float64) {
 celt/synthesis.go	1	7429680cc26f88233c6c0c54d1858de12a864edc48f5700a16633c744b27582d	legacy-current	out := ensureFloat64Slice(&d.scratchSynth, len(coeffs)+Overlap)
