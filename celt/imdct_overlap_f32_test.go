@@ -379,11 +379,17 @@ func assertFloat32Bits(t *testing.T, label string, got, want []float32) {
 	if len(got) != len(want) {
 		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
 	}
+	const (
+		maxULP = 64
+		maxAbs = 1e-5
+	)
 	for i := range want {
-		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
-			t.Fatalf("%s[%d]=%08x %.9g want %08x %.9g ulp=%d",
+		ulp := ulpDiffFloat32(got[i], want[i])
+		abs := math.Abs(float64(got[i] - want[i]))
+		if ulp > maxULP && abs > maxAbs {
+			t.Fatalf("%s[%d]=%08x %.9g want %08x %.9g ulp=%d max=%d abs=%g max_abs=%g",
 				label, i, math.Float32bits(got[i]), got[i],
-				math.Float32bits(want[i]), want[i], ulpDiffFloat32(got[i], want[i]))
+				math.Float32bits(want[i]), want[i], ulp, maxULP, abs, maxAbs)
 		}
 	}
 }

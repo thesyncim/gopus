@@ -613,6 +613,12 @@ func KissFFT32ToWithScratch(out []complex64, x []complex64, scratch []KissCpx) {
 	kissFFT32To(out, x, scratch)
 }
 
+// KissFFT32ToScaledWithScratch mirrors libopus opus_fft_c: it applies the
+// kiss_fft_state scale while bit-reversing input into the FFT scratch.
+func KissFFT32ToScaledWithScratch(out []complex64, x []complex64, scale float32, scratch []KissCpx) {
+	kissFFT32ToScaled(out, x, scale, scratch)
+}
+
 func kissFFT32ToScratch(x []complex64, scratch []kissCpx) []kissCpx {
 	n := len(x)
 	if n == 0 {
@@ -654,6 +660,51 @@ func kissFFT32ToScratch(x []complex64, scratch []kissCpx) []kissCpx {
 	return scratch[:n]
 }
 
+func kissFFT32ToScaledScratch(x []complex64, scale float32, scratch []kissCpx) []kissCpx {
+	n := len(x)
+	if n == 0 {
+		return nil
+	}
+
+	st := getKissFFTState(n)
+	if st == nil || len(st.bitrev) != n {
+		tmpIn := make([]complex64, n)
+		tmpOut := make([]complex64, n)
+		for i := 0; i < n; i++ {
+			tmpIn[i] = x[i] * complex(scale, 0)
+		}
+		dft32FallbackTo(tmpOut, tmpIn)
+		if len(scratch) < n {
+			scratch = make([]kissCpx, n)
+		}
+		_ = scratch[n-1]
+		for i := 0; i < n; i++ {
+			v := tmpOut[i]
+			scratch[i].r = real(v)
+			scratch[i].i = imag(v)
+		}
+		return scratch[:n]
+	}
+
+	if len(scratch) < n {
+		scratch = make([]kissCpx, n)
+	}
+
+	bitrev := st.bitrev
+	_ = x[n-1]
+	_ = bitrev[n-1]
+	_ = scratch[n-1]
+	for i := 0; i < n; i++ {
+		v := x[i]
+		idx := bitrev[i]
+		scratch[idx].r = real(v) * scale
+		scratch[idx].i = imag(v) * scale
+	}
+
+	st.fftImpl(scratch[:n])
+	return scratch[:n]
+}
+
 // kissFFT32To performs the Kiss FFT into a caller-provided output buffer.
 // scratch must be at least len(x) to avoid allocations.
 func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
@@ -673,6 +724,31 @@ func kissFFT32To(out []complex64, x []complex64, scratch []kissCpx) {
 
 	// Convert back to complex64
 	_ = out[n-1] // BCE hint
+	for i := 0; i < n; i++ {
+		out[i] = complex(scratch[i].r, scratch[i].i)
+	}
+}
+
+func kissFFT32ToScaled(out []complex64, x []complex64, scale float32, scratch []kissCpx) {
+	n := len(x)
+	if n == 0 || len(out) < n {
+		return
+	}
+	if kissFFTDFTFallbackEnabled {
+		tmp := make([]complex64, n)
+		for i := 0; i < n; i++ {
+			tmp[i] = x[i] * complex(scale, 0)
+		}
+		dft32FallbackTo(out, tmp)
+		return
+	}
+
+	scratch = kissFFT32ToScaledScratch(x, scale, scratch)
+	if len(scratch) < n {
+		return
+	}
+
+	_ = out[n-1]
 	for i := 0; i < n; i++ {
 		out[i] = complex(scratch[i].r, scratch[i].i)
 	}

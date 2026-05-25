@@ -333,7 +333,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		bitrev := st.bitrev
 		_ = bitrev[n4-1]
 		_ = fftStage[n4-1]
-		if false {
+		if mdctUseFMALikeMixEnabled {
 			for ; i < limit1; i++ {
 				re := mdctMulAddMixWith(useNativeMul, float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
 				im := mdctMulSubMixWith(useNativeMul, float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
@@ -447,12 +447,22 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		if !fuseDirectStage {
 			_ = bitrev[n4-1]   // BCE hint
 			_ = fftStage[n4-1] // BCE hint
-			for i = 0; i < n4; i++ {
-				re := f[2*i]
-				im := f[2*i+1]
-				t0 := trig[i]
-				t1 := trig[n4+i]
-				mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
+			if mdctUseFMALikeMixEnabled {
+				for i = 0; i < n4; i++ {
+					re := f[2*i]
+					im := f[2*i+1]
+					t0 := trig[i]
+					t1 := trig[n4+i]
+					mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
+				}
+			} else {
+				for i = 0; i < n4; i++ {
+					re := f[2*i]
+					im := f[2*i+1]
+					t0 := trig[i]
+					t1 := trig[n4+i]
+					mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
+				}
 			}
 		}
 
@@ -460,14 +470,26 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 	} else {
 		// Fallback: keep the existing complex64 path for unsupported sizes.
 		_ = fftIn[n4-1] // BCE hint
-		for i = 0; i < n4; i++ {
-			re := f[2*i]
-			im := f[2*i+1]
-			t0 := trig[i]
-			t1 := trig[n4+i]
-			yr := mdctMulWith(useNativeMul, re, t0) - mdctMulWith(useNativeMul, im, t1)
-			yi := mdctMulWith(useNativeMul, im, t0) + mdctMulWith(useNativeMul, re, t1)
-			fftIn[i] = complex(yr*scale, yi*scale)
+		if mdctUseFMALikeMixEnabled {
+			for i = 0; i < n4; i++ {
+				re := f[2*i]
+				im := f[2*i+1]
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				yr := mdctMulWith(useNativeMul, re, t0) - mdctMulWith(useNativeMul, im, t1)
+				yi := mdctMulWith(useNativeMul, im, t0) + mdctMulWith(useNativeMul, re, t1)
+				fftIn[i] = complex(yr*scale, yi*scale)
+			}
+		} else {
+			for i = 0; i < n4; i++ {
+				re := f[2*i]
+				im := f[2*i+1]
+				t0 := trig[i]
+				t1 := trig[n4+i]
+				yr := mdctMulWith(useNativeMul, re, t0) - mdctMulWith(useNativeMul, im, t1)
+				yi := mdctMulWith(useNativeMul, im, t0) + mdctMulWith(useNativeMul, re, t1)
+				fftIn[i] = complex(yr*scale, yi*scale)
+			}
 		}
 		kissFFT32To(fftOut, fftIn[:n4], fftTmp)
 	}
@@ -479,34 +501,64 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 		_ = trigHi[n4-1]
 		lo := 0
 		hi := n2 - 1
-		for i = 0; i < n4; i++ {
-			re := fftStage[i].r
-			im := fftStage[i].i
-			t0 := trig[i]
-			t1 := trigHi[i]
-			yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
-			yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
-			coeffs[lo] = yr
-			coeffs[hi] = yi
-			lo += 2
-			hi -= 2
+		if mdctUseFMALikeMixEnabled {
+			for i = 0; i < n4; i++ {
+				re := fftStage[i].r
+				im := fftStage[i].i
+				t0 := trig[i]
+				t1 := trigHi[i]
+				yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
+				yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
+				coeffs[lo] = yr
+				coeffs[hi] = yi
+				lo += 2
+				hi -= 2
+			}
+		} else {
+			for i = 0; i < n4; i++ {
+				re := fftStage[i].r
+				im := fftStage[i].i
+				t0 := trig[i]
+				t1 := trigHi[i]
+				yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
+				yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
+				coeffs[lo] = yr
+				coeffs[hi] = yi
+				lo += 2
+				hi -= 2
+			}
 		}
 	} else {
 		_ = fftOut[n4-1] // BCE hint
 		_ = trigHi[n4-1]
 		lo := 0
 		hi := n2 - 1
-		for i = 0; i < n4; i++ {
-			re := real(fftOut[i])
-			im := imag(fftOut[i])
-			t0 := trig[i]
-			t1 := trigHi[i]
-			yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
-			yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
-			coeffs[lo] = yr
-			coeffs[hi] = yi
-			lo += 2
-			hi -= 2
+		if mdctUseFMALikeMixEnabled {
+			for i = 0; i < n4; i++ {
+				re := real(fftOut[i])
+				im := imag(fftOut[i])
+				t0 := trig[i]
+				t1 := trigHi[i]
+				yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
+				yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
+				coeffs[lo] = yr
+				coeffs[hi] = yi
+				lo += 2
+				hi -= 2
+			}
+		} else {
+			for i = 0; i < n4; i++ {
+				re := real(fftOut[i])
+				im := imag(fftOut[i])
+				t0 := trig[i]
+				t1 := trigHi[i]
+				yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
+				yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
+				coeffs[lo] = yr
+				coeffs[hi] = yi
+				lo += 2
+				hi -= 2
+			}
 		}
 	}
 

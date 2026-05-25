@@ -671,6 +671,18 @@ func applyPostfilterChannelInPlaceFloat32(samples []float32, hist []celtSig, fra
 	}
 }
 
+func (d *Decoder) postfilterWindowSquareF32(overlap int) []float32 {
+	window := GetWindowBufferF32(overlap)
+	if len(window) == 0 {
+		return nil
+	}
+	windowSq := ensureFloat32Slice(&d.postfilterWindowSqF32, len(window))
+	for i, w := range window {
+		windowSq[i] = noFMA32Mul(w, w)
+	}
+	return windowSq
+}
+
 func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, frameSize, lm int, newPeriod int, newGain float32, newTapset int) {
 	if len(left) < frameSize || len(right) < frameSize || frameSize <= 0 {
 		return
@@ -705,7 +717,7 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 	d.materializePostfilterHistorySuffixFromPLC(postfilterHistoryNeed(t0, t1, t1b, t2))
 
 	window := GetWindowBufferF32(Overlap)
-	windowSq := GetWindowSquareBufferF32(Overlap)
+	windowSq := d.postfilterWindowSquareF32(Overlap)
 	histL := d.postfilterMem[:history]
 	histR := d.postfilterMem[history : 2*history]
 	applyPostfilterChannelInPlaceFloat32(left, histL, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq)
@@ -758,7 +770,7 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 		t1b, t2, tap1b, tap2 := sanitizePostfilterParams(t1, t2, g1, g2, tap1, tap2)
 		d.materializePostfilterHistorySuffixFromPLC(postfilterHistoryNeed(t0, t1, t1b, t2))
 		window := GetWindowBufferF32(Overlap)
-		windowSq := GetWindowSquareBufferF32(Overlap)
+		windowSq := d.postfilterWindowSquareF32(Overlap)
 		applyPostfilterChannelInPlaceFloat32(samples[:frameSize], d.postfilterMem[:history], frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq)
 		d.updatePLCDecodeHistoryMonoFromFloat32(samples[:frameSize], frameSize, plcDecodeBufferSize)
 		d.markPostfilterHistoryFromPLC()
@@ -800,6 +812,14 @@ func combPlanarAtFloat32(samples []float32, hist []celtSig, history, pos int) fl
 	return samples[pos-history]
 }
 
+func combFilterConstValue(base, g10, g11, g12, center, plus1, minus1, plus2, minus2 float32) float32 {
+	sum := base
+	sum += g10 * center
+	sum += g11 * (plus1 + minus1)
+	sum += g12 * (plus2 + minus2)
+	return sum
+}
+
 func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 float32, x4, x3, x2, x1 float32) (float32, float32, float32, float32) {
 	n := len(dst)
 	if n == 0 {
@@ -811,23 +831,23 @@ func combFilterConstFloat32Hist(dst []float32, delay []celtSig, g10, g11, g12 fl
 	i := 0
 	for ; i+4 < n; i += 5 {
 		x0 := float32(delay[i])
-		dst[i] += g10*x2 + g11*(x3+x1) + g12*(x4+x0)
+		dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
 
 		x4 = float32(delay[i+1])
-		dst[i+1] += g10*x1 + g11*(x2+x0) + g12*(x3+x4)
+		dst[i+1] = combFilterConstValue(dst[i+1], g10, g11, g12, x1, x0, x2, x4, x3)
 
 		x3 = float32(delay[i+2])
-		dst[i+2] += g10*x0 + g11*(x4+x1) + g12*(x2+x3)
+		dst[i+2] = combFilterConstValue(dst[i+2], g10, g11, g12, x0, x4, x1, x3, x2)
 
 		x2 = float32(delay[i+3])
-		dst[i+3] += g10*x4 + g11*(x3+x0) + g12*(x1+x2)
+		dst[i+3] = combFilterConstValue(dst[i+3], g10, g11, g12, x4, x3, x0, x2, x1)
 
 		x1 = float32(delay[i+4])
-		dst[i+4] += g10*x3 + g11*(x2+x4) + g12*(x0+x1)
+		dst[i+4] = combFilterConstValue(dst[i+4], g10, g11, g12, x3, x2, x4, x1, x0)
 	}
 	for ; i < n; i++ {
 		x0 := float32(delay[i])
-		dst[i] += g10*x2 + g11*(x3+x1) + g12*(x4+x0)
+		dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
 		x4 = x3
 		x3 = x2
 		x2 = x1
@@ -847,23 +867,23 @@ func combFilterConstFloat32(dst, delay []float32, g10, g11, g12 float32, x4, x3,
 	i := 0
 	for ; i+4 < n; i += 5 {
 		x0 := delay[i]
-		dst[i] += g10*x2 + g11*(x3+x1) + g12*(x4+x0)
+		dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
 
 		x4 = delay[i+1]
-		dst[i+1] += g10*x1 + g11*(x2+x0) + g12*(x3+x4)
+		dst[i+1] = combFilterConstValue(dst[i+1], g10, g11, g12, x1, x0, x2, x4, x3)
 
 		x3 = delay[i+2]
-		dst[i+2] += g10*x0 + g11*(x4+x1) + g12*(x2+x3)
+		dst[i+2] = combFilterConstValue(dst[i+2], g10, g11, g12, x0, x4, x1, x3, x2)
 
 		x2 = delay[i+3]
-		dst[i+3] += g10*x4 + g11*(x3+x0) + g12*(x1+x2)
+		dst[i+3] = combFilterConstValue(dst[i+3], g10, g11, g12, x4, x3, x0, x2, x1)
 
 		x1 = delay[i+4]
-		dst[i+4] += g10*x3 + g11*(x2+x4) + g12*(x0+x1)
+		dst[i+4] = combFilterConstValue(dst[i+4], g10, g11, g12, x3, x2, x4, x1, x0)
 	}
 	for ; i < n; i++ {
 		x0 := delay[i]
-		dst[i] += g10*x2 + g11*(x3+x1) + g12*(x4+x0)
+		dst[i] = combFilterConstValue(dst[i], g10, g11, g12, x2, x1, x3, x0, x4)
 		x4 = x3
 		x3 = x2
 		x2 = x1
@@ -938,11 +958,11 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 			x0 := float32(delay1[i+4])
 			sum := samples[frameOffset+i] +
 				(oneMinus*g00)*float32(delay0[i+2]) +
-				(oneMinus*g01)*(float32(delay0[i+1])+float32(delay0[i+3])) +
-				(oneMinus*g02)*(float32(delay0[i])+float32(delay0[i+4])) +
+				(oneMinus*g01)*(float32(delay0[i+3])+float32(delay0[i+1])) +
+				(oneMinus*g02)*(float32(delay0[i+4])+float32(delay0[i])) +
 				(f*g10)*x2 +
-				(f*g11)*(x3+x1) +
-				(f*g12)*(x4+x0)
+				(f*g11)*(x1+x3) +
+				(f*g12)*(x0+x4)
 			samples[frameOffset+i] = sum
 			x4 = x3
 			x3 = x2
@@ -957,11 +977,11 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 			x0 := combPlanarAtFloat32(samples, hist, history, base1+i+4)
 			sum := samples[frameOffset+i] +
 				(oneMinus*g00)*combPlanarAtFloat32(samples, hist, history, base0+i+2) +
-				(oneMinus*g01)*(combPlanarAtFloat32(samples, hist, history, base0+i+1)+combPlanarAtFloat32(samples, hist, history, base0+i+3)) +
-				(oneMinus*g02)*(combPlanarAtFloat32(samples, hist, history, base0+i)+combPlanarAtFloat32(samples, hist, history, base0+i+4)) +
+				(oneMinus*g01)*(combPlanarAtFloat32(samples, hist, history, base0+i+3)+combPlanarAtFloat32(samples, hist, history, base0+i+1)) +
+				(oneMinus*g02)*(combPlanarAtFloat32(samples, hist, history, base0+i+4)+combPlanarAtFloat32(samples, hist, history, base0+i)) +
 				(f*g10)*x2 +
-				(f*g11)*(x3+x1) +
-				(f*g12)*(x4+x0)
+				(f*g11)*(x1+x3) +
+				(f*g12)*(x0+x4)
 			samples[frameOffset+i] = sum
 			x4 = x3
 			x3 = x2
@@ -977,11 +997,11 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 			x0 := combPlanarAtFloat32(samples, hist, history, base1+i+4)
 			sum := samples[frameOffset+i] +
 				(oneMinus*g00)*combPlanarAtFloat32(samples, hist, history, base0+i+2) +
-				(oneMinus*g01)*(combPlanarAtFloat32(samples, hist, history, base0+i+1)+combPlanarAtFloat32(samples, hist, history, base0+i+3)) +
-				(oneMinus*g02)*(combPlanarAtFloat32(samples, hist, history, base0+i)+combPlanarAtFloat32(samples, hist, history, base0+i+4)) +
+				(oneMinus*g01)*(combPlanarAtFloat32(samples, hist, history, base0+i+3)+combPlanarAtFloat32(samples, hist, history, base0+i+1)) +
+				(oneMinus*g02)*(combPlanarAtFloat32(samples, hist, history, base0+i+4)+combPlanarAtFloat32(samples, hist, history, base0+i)) +
 				(f*g10)*x2 +
-				(f*g11)*(x3+x1) +
-				(f*g12)*(x4+x0)
+				(f*g11)*(x1+x3) +
+				(f*g12)*(x0+x4)
 			samples[frameOffset+i] = sum
 			x4 = x3
 			x3 = x2
@@ -1079,8 +1099,8 @@ func combFilterWithInputSig(dst, src []celtSig, start int, t0, t1, n int, g0, g1
 		x0 := float32(delay1[i+4])
 		sum := float32(srcFrame[i]) +
 			(oneMinus*g00)*float32(delay0[i+2]) +
-			(oneMinus*g01)*(float32(delay0[i+1])+float32(delay0[i+3])) +
-			(oneMinus*g02)*(float32(delay0[i])+float32(delay0[i+4])) +
+			(oneMinus*g01)*(float32(delay0[i+3])+float32(delay0[i+1])) +
+			(oneMinus*g02)*(float32(delay0[i+4])+float32(delay0[i])) +
 			(f*g10)*x2 +
 			(f*g11)*(x1+x3) +
 			(f*g12)*(x0+x4)
@@ -1105,11 +1125,7 @@ func combFilterWithInputSig(dst, src []celtSig, start int, t0, t1, n int, g0, g1
 	x1 = float32(delay1[i+3])
 	for ; i < n; i++ {
 		x0 := float32(delay1[i+4])
-		sum := float32(srcFrame[i]) +
-			g10*x2 +
-			g11*(x3+x1) +
-			g12*(x4+x0)
-		dstFrame[i] = celtSig(sum)
+		dstFrame[i] = celtSig(combFilterConstValue(float32(srcFrame[i]), g10, g11, g12, x2, x1, x3, x0, x4))
 
 		x4 = x3
 		x3 = x2

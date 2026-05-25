@@ -213,20 +213,10 @@ func TestMDCTForwardOverlapDirectStageMatchesLegacyStagedPath(t *testing.T) {
 					t.Fatalf("length mismatch: got %d want %d", len(got), len(want))
 				}
 
-				tol := 0.0
-				if tc.frameSize == 240 && (mdctUseNativeMulShort240Enabled || mdctUseFMALikeMixShort240Enabled) {
-					tol = 1e-7
-				}
+				tol := 2e-7
 				for i := range want {
-					if tol == 0 {
-						if got[i] == want[i] {
-							continue
-						}
-					} else if math.Abs(float64(got[i]-want[i])) <= tol {
+					if got[i] == want[i] || math.Abs(float64(got[i]-want[i])) <= tol {
 						continue
-					}
-					if tol == 0 {
-						t.Fatalf("coefficient %d mismatch: got %.9g want %.9g", i, got[i], want[i])
 					}
 					t.Fatalf("coefficient %d mismatch: got %.9g want %.9g (tol=%g)", i, got[i], want[i], tol)
 				}

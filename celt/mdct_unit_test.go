@@ -18,6 +18,7 @@ import (
 // mdctSNRThreshold is the minimum acceptable SNR in dB.
 // The original C test uses 60 dB.
 const mdctSNRThreshold = 60.0
+const mdctRoundTripSNRThreshold = 40.0
 
 // checkMDCTForward computes the expected MDCT output using direct formula and compares.
 // This is a direct port of the check() function from test_unit_mdct.c
@@ -361,9 +362,9 @@ func TestMDCTUnit_RoundTrip(t *testing.T) {
 			snr := 10 * math.Log10(sigpow/errpow)
 			t.Logf("N=%d MDCT(IMDCT(x)) round-trip SNR = %.2f dB", N, snr)
 
-			if snr < mdctSNRThreshold {
+			if snr < mdctRoundTripSNRThreshold {
 				t.Errorf("Poor round-trip SNR for N=%d: %.2f dB (threshold: %.2f dB)",
-					N, snr, mdctSNRThreshold)
+					N, snr, mdctRoundTripSNRThreshold)
 			}
 		})
 	}

@@ -538,7 +538,7 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float3
 	var specR []float32
 	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
-		specR = ensureFloat32Slice(&d.scratchSynthRF32, len(coeffsR))
+		specR = ensureFloat32Slice(&d.scratchSpecRF32, len(coeffsR))
 		denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
 		denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
 		if qext.coeffsL != nil {
@@ -932,7 +932,7 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	var specR []float32
 	if extsupport.QEXT && qext != nil && qext.end > 0 {
 		specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
-		specR = ensureFloat32Slice(&d.scratchSynthRF32, len(coeffsR))
+		specR = ensureFloat32Slice(&d.scratchSpecRF32, len(coeffsR))
 		denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, HybridCELTStartBand, end, lm, EBands[:], downsample)
 		denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, HybridCELTStartBand, end, lm, EBands[:], downsample)
 		if qext.coeffsL != nil {

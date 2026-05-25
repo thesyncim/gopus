@@ -284,7 +284,7 @@ func (d *Decoder) synthesizeStereoPlanar(coeffsL, coeffsR []float32, transient b
 	bufR := ensureFloat32Slice(&d.scratchSynthRF32, len(coeffsR)+Overlap)
 	shortCoeffs := ensureFloat32Slice(&d.scratchShortCoeffsF32, max(len(coeffsL), len(coeffsR)))
 	outLFull := synthesizeChannelWithOverlapScratchF32(coeffsL, overlapL, Overlap, transient, shortBlocks, bufL, &d.scratchIMDCTF32, shortCoeffs)
-	outRFull := synthesizeChannelWithOverlapScratchF32(coeffsR, overlapR, Overlap, transient, shortBlocks, bufR, &d.scratchIMDCTF32, shortCoeffs)
+	outRFull := synthesizeChannelWithOverlapScratchF32(coeffsR, overlapR, Overlap, transient, shortBlocks, bufR, &d.scratchIMDCTF32R, shortCoeffs)
 	if len(outLFull) == 0 || len(outRFull) == 0 {
 		return nil, nil
 	}
@@ -313,7 +313,7 @@ func (d *Decoder) synthesizeStereoPlanarFloat32(coeffsL, coeffsR []float32, tran
 	bufR := ensureFloat32Slice(&d.scratchSynthRF32, len(coeffsR)+Overlap)
 	shortCoeffs := ensureFloat32Slice(&d.scratchShortCoeffsF32, max(len(coeffsL), len(coeffsR)))
 	outLFull := synthesizeChannelWithOverlapScratchF32(coeffsL, overlapL, Overlap, transient, shortBlocks, bufL, &d.scratchIMDCTF32, shortCoeffs)
-	outRFull := synthesizeChannelWithOverlapScratchF32(coeffsR, overlapR, Overlap, transient, shortBlocks, bufR, &d.scratchIMDCTF32, shortCoeffs)
+	outRFull := synthesizeChannelWithOverlapScratchF32(coeffsR, overlapR, Overlap, transient, shortBlocks, bufR, &d.scratchIMDCTF32R, shortCoeffs)
 	if len(outLFull) == 0 || len(outRFull) == 0 {
 		return nil, nil
 	}

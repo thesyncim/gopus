@@ -581,7 +581,7 @@ func TestComputeBandEnergy(t *testing.T) {
 
 	// Empty vector should return epsilon-based low energy
 	energy = ComputeBandEnergy(nil)
-	expectedSilence := 0.5 * math.Log2(1e-27)
+	expectedSilence := float64(float32(0.5) * celtLog2(float32(1e-27)))
 	if math.Abs(float64(energy)-expectedSilence) > 1e-6 {
 		t.Errorf("ComputeBandEnergy(nil) = %v, want %v", energy, expectedSilence)
 	}

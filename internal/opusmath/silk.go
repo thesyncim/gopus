@@ -63,6 +63,22 @@ func Log10F32(x float32) float32 {
 	return float32(math.Log10(float64(x)))
 }
 
+func ExpCReal(x CReal) CReal {
+	return CReal(math.Exp(float64(x)))
+}
+
+func LogCReal(x CReal) CReal {
+	return CReal(math.Log(float64(x)))
+}
+
+func Log10CReal(x CReal) CReal {
+	return CReal(math.Log10(float64(x)))
+}
+
+func PowCReal(x, y CReal) CReal {
+	return CReal(math.Pow(float64(x), float64(y)))
+}
+
 // SilkLog2F32 matches silk/float/SigProc_FLP.h silk_log2().
 func SilkLog2F32(x float32) float32 {
 	return float32(3.32192809488736 * math.Log10(float64(x)))
@@ -78,6 +94,10 @@ func SqrtCReal(x CReal) CReal {
 
 func FloorHalfPlusF32ToInt32(x float32) int32 {
 	return int32(math.Floor(float64(x) + 0.5))
+}
+
+func FloorCRealToInt32(x CReal) int32 {
+	return int32(math.Floor(float64(x)))
 }
 
 func RoundToEvenF32ToInt32(x float32) int32 {

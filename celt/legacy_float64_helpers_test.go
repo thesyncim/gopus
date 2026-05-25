@@ -15,10 +15,16 @@ func absSumGeneric(x []float64) float64 {
 }
 
 func celtPitchXcorr(x []float64, y []float64, xcorr []float64, length, maxPitch int) {
+	if length <= 0 || maxPitch <= 0 {
+		return
+	}
 	refPitchXcorr(x, y, xcorr, length, maxPitch)
 }
 
 func celtPitchXcorrGeneric(x []float64, y []float64, xcorr []float64, length, maxPitch int) {
+	if length <= 0 || maxPitch <= 0 {
+		return
+	}
 	refPitchXcorr(x, y, xcorr, length, maxPitch)
 }
 

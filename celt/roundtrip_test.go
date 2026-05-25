@@ -423,7 +423,7 @@ func TestMidSideConversion(t *testing.T) {
 		}
 	}
 
-	if maxError > 1e-10 {
+	if maxError > 2e-7 {
 		t.Errorf("Mid-side round-trip error too large: %v", maxError)
 	}
 

@@ -394,10 +394,7 @@ func computeBandRMS(coeffs []float32, start, end int) float32 {
 	// Compute sum of squares with the same accumulation order libopus uses
 	// for celt_inner_prod() on the active architecture.
 	c := coeffs[start:end:end]
-	sumSq := float32(1e-27)
-	for i := range c {
-		sumSq += c[i] * c[i]
-	}
+	sumSq := float32(1e-27) + celtInnerProdF32LibopusOrder(c)
 
 	// Keep the existing float32 shortcut: strict libopus-backed quality
 	// fixtures regress on this tree when using sqrt(sumSq) before celtLog2.
@@ -409,11 +406,22 @@ func computeBandRMSFloat32(coeffs []float32, start, end int) float32 {
 		return float32(0.5) * celtLog2(float32(1e-27))
 	}
 	c := coeffs[start:end:end]
-	sumSq := float32(1e-27)
-	for i := range c {
-		sumSq += c[i] * c[i]
-	}
+	sumSq := float32(1e-27) + celtInnerProdF32LibopusOrder(c)
 	return float32(0.5) * celtLog2(sumSq)
+}
+
+func celtInnerProdF32LibopusOrder(x []float32) float32 {
+	if celtUseFusedFloatMath {
+		return celtInnerProdNeonStyleNorm(x, x)
+	}
+	if celtUseSSEFloatMath {
+		return celtInnerProdSSEStyleNorm(x, x)
+	}
+	var sum float32
+	for i := range x {
+		sum = celtFloatMulAdd(x[i], x[i], sum)
+	}
+	return sum
 }
 
 func celtAbsInt(v int) int {

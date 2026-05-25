@@ -2,7 +2,6 @@ package lpcnetplc
 
 import (
 	"math"
-	"runtime"
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/dnnblob"
@@ -20,7 +19,8 @@ const (
 	analysisPitchBufSize = PitchMaxPeriod + 2*FrameSize
 )
 
-var useNEONAnalysisKernels = runtime.GOARCH == "arm64"
+// libopus DRED reference builds are scalar, with asm/rtcd/intrinsics disabled.
+var useNEONAnalysisKernels = false
 
 type analysisScratch struct {
 	frame       [FrameSize]float32
@@ -229,8 +229,11 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 	ener0 := innerProdFloat(buf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], buf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], FrameSize)
 	// libopus dnn/lpcnet_enc.c:compute_frame_features stores ener1 as C double.
 	ener1 := opusmath.CReal(innerProdFloat(buf[:FrameSize], buf[:FrameSize], FrameSize))
+	// libopus evaluates the left-associative "1 + ener0" in float before
+	// promoting the sum for "+ ener1".
+	ener0Base := float32(1 + ener0)
 	for i := 0; i < pitchXcorrFeatures; i++ {
-		ener := float32(1 + opusmath.CReal(ener0) + ener1)
+		ener := float32(opusmath.CReal(ener0Base) + ener1)
 		a.xcorrFeatures[i] = 2 * a.scratch.pitchXCorr[i]
 		a.scratch.pitchEner[i] = ener
 		ener1 += opusmath.CReal(buf[i+FrameSize])*opusmath.CReal(buf[i+FrameSize]) - opusmath.CReal(buf[i])*opusmath.CReal(buf[i])
@@ -240,12 +243,16 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 	}
 
 	a.dnnPitch = a.pitch.Compute(a.ifFeatures[:], a.xcorrFeatures[:])
-	pitch := int(opusmath.FloorHalfPlusF32ToInt32(float32(PitchMaxPeriod) / opusmath.Exp2F32(a.dnnPitch+1.5)))
+	// libopus dnn/lpcnet_enc.c:compute_frame_features uses C floor()/pow().
+	pitchExp := (1.0 / 60.0) * ((opusmath.CReal(a.dnnPitch) + 1.5) * 60.0)
+	pitch := int(opusmath.FloorCRealToInt32(0.5 + 256.0/opusmath.PowCReal(2.0, pitchExp)))
 	xx := innerProdFloat(a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], FrameSize)
 	yy := innerProdFloat(a.lpBuf[PitchMaxPeriod-pitch:PitchMaxPeriod-pitch+FrameSize], a.lpBuf[PitchMaxPeriod-pitch:PitchMaxPeriod-pitch+FrameSize], FrameSize)
 	xy := innerProdFloat(a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], a.lpBuf[PitchMaxPeriod-pitch:PitchMaxPeriod-pitch+FrameSize], FrameSize)
-	frameCorr := xy / opusmath.SqrtF32(1+xx*yy)
-	frameCorr = opusmath.LogF32(1+opusmath.ExpF32(5*frameCorr)) / opusmath.LogF32(1+opusmath.ExpF32(5))
+	// libopus dnn/lpcnet_enc.c:compute_frame_features uses C sqrt()/log()/exp().
+	frameCorrArg := float32(1) + xx*yy
+	frameCorr := float32(opusmath.CReal(xy) / opusmath.SqrtCReal(opusmath.CReal(frameCorrArg)))
+	frameCorr = float32(opusmath.LogCReal(1.0+opusmath.ExpCReal(opusmath.CReal(5*frameCorr))) / opusmath.LogCReal(1.0+opusmath.ExpCReal(5.0)))
 	a.features[NumBands] = a.dnnPitch
 	a.features[NumBands+1] = frameCorr - .5
 }
@@ -259,23 +266,26 @@ func (a *Analysis) computeBurgCepstrum(dst, pcm []float32, length, order int) {
 	clear(a.scratch.window[:])
 	a.scratch.window[0] = 1
 	for i := 0; i < order; i++ {
-		a.scratch.window[i+1] = -a.scratch.burgTemp[i] * opusmath.ExpF32(float32(i+1)*opusmath.LogF32(.995))
+		// libopus dnn/freq.c:compute_burg_cepstrum uses C pow().
+		a.scratch.window[i+1] = float32(-opusmath.CReal(a.scratch.burgTemp[i]) * opusmath.PowCReal(0.995, opusmath.CReal(i+1)))
 	}
 	for i := 0; i < analysisWindowSize; i++ {
 		a.scratch.fftIn[i] = complex(a.scratch.window[i], 0)
 	}
-	celt.KissFFT32ToWithScratch(a.scratch.fftOut[:], a.scratch.fftIn[:], a.scratch.fftScratch[:])
 	scale := float32(1.0 / analysisWindowSize)
+	celt.KissFFT32ToScaledWithScratch(a.scratch.fftOut[:], a.scratch.fftIn[:], scale, a.scratch.fftScratch[:])
 	for i := 0; i < analysisFreqSize; i++ {
-		a.scratch.spectrum[i] = a.scratch.fftOut[i] * complex(scale, 0)
+		a.scratch.spectrum[i] = a.scratch.fftOut[i]
 	}
 	computeBandEnergyInverse(a.scratch.burgBands[:], a.scratch.spectrum[:])
 	logMax := float32(-2)
 	follow := float32(-2)
-	gainScale := .45 * g * (1.0 / float32(analysisWindowSize*analysisWindowSize*analysisWindowSize))
+	// libopus dnn/freq.c:compute_burg_cepstrum uses unsuffixed .45.
+	gainScale := 0.45 * opusmath.CReal(g) * opusmath.CReal(float32(1.0)/float32(analysisWindowSize*analysisWindowSize*analysisWindowSize))
 	for i := 0; i < NumBands; i++ {
-		a.scratch.burgBands[i] *= gainScale
-		v := opusmath.Log10F32(1e-2 + a.scratch.burgBands[i])
+		a.scratch.burgBands[i] = float32(opusmath.CReal(a.scratch.burgBands[i]) * gainScale)
+		// libopus dnn/freq.c:compute_burg_cepstrum uses C log10().
+		v := float32(opusmath.Log10CReal(1e-2 + opusmath.CReal(a.scratch.burgBands[i])))
 		v = maxF32(logMax-8, maxF32(follow-2.5, v))
 		a.scratch.burgLog[i] = v
 		logMax = maxF32(logMax, v)
@@ -292,9 +302,9 @@ func (a *Analysis) frameAnalysis(spectrum []complex64, ex, in []float32) {
 	applyAnalysisWindow(a.scratch.window[:])
 	scale := float32(1.0 / analysisWindowSize)
 	for i := 0; i < analysisWindowSize; i++ {
-		a.scratch.fftIn[i] = complex(a.scratch.window[i]*scale, 0)
+		a.scratch.fftIn[i] = complex(a.scratch.window[i], 0)
 	}
-	celt.KissFFT32ToWithScratch(a.scratch.fftOut[:], a.scratch.fftIn[:], a.scratch.fftScratch[:])
+	celt.KissFFT32ToScaledWithScratch(a.scratch.fftOut[:], a.scratch.fftIn[:], scale, a.scratch.fftScratch[:])
 	for i := 0; i < analysisFreqSize; i++ {
 		spectrum[i] = a.scratch.fftOut[i]
 	}
@@ -330,9 +340,14 @@ func computeBandEnergy(bandE []float32, spectrum []complex64, dredEncoder bool) 
 			idx := analysisBandEdges[i]*analysisWindow5ms + j
 			re := real(spectrum[idx])
 			im := imag(spectrum[idx])
-			tmp := re*re + im*im
-			sum[i] += (1 - frac) * tmp
-			sum[i+1] += frac * tmp
+			tmp := re * re
+			tmp += im * im
+			// libopus dnn/freq.c:lpcn_compute_band_energy relies on rounded
+			// float products/adds here; avoid Go contracting the weighted add.
+			left := noFMA32Mul(1-frac, tmp)
+			right := noFMA32Mul(frac, tmp)
+			sum[i] = math.Float32frombits(math.Float32bits(sum[i] + left))
+			sum[i+1] = math.Float32frombits(math.Float32bits(sum[i+1] + right))
 		}
 	}
 	sum[0] *= 2
@@ -349,7 +364,10 @@ func computeBandEnergyInverse(bandE []float32, spectrum []complex64) {
 			idx := analysisBandEdges[i]*analysisWindow5ms + j
 			re := real(spectrum[idx])
 			im := imag(spectrum[idx])
-			tmp := 1 / (re*re + im*im + 1e-9)
+			tmp := re * re
+			tmp += im * im
+			// libopus dnn/freq.c:compute_band_energy_inverse has unsuffixed 1e-9.
+			tmp = float32(1.0 / (opusmath.CReal(tmp) + 1e-9))
 			sum[i] += (1 - frac) * tmp
 			sum[i+1] += frac * tmp
 		}
@@ -360,24 +378,26 @@ func computeBandEnergyInverse(bandE []float32, spectrum []complex64) {
 }
 
 func dctTransform(out, in []float32) {
-	const scale = 0.3333333333333333
+	// libopus dnn/freq.c:dct multiplies by sqrt(2./NB_BANDS) as C double.
+	scale := opusmath.SqrtCReal(2.0 / opusmath.CReal(NumBands))
 	for i := 0; i < NumBands; i++ {
 		var sum float32
 		for j := 0; j < NumBands; j++ {
 			sum += in[j] * analysisDCTTable[j*NumBands+i]
 		}
-		out[i] = sum * scale
+		out[i] = float32(opusmath.CReal(sum) * scale)
 	}
 }
 
 func idctTransform(out, in []float32) {
-	const scale = 0.3333333333333333
+	// libopus dnn/freq.c:idct multiplies by sqrt(2./NB_BANDS) as C double.
+	scale := opusmath.SqrtCReal(2.0 / opusmath.CReal(NumBands))
 	for i := 0; i < NumBands; i++ {
 		var sum float32
 		for j := 0; j < NumBands; j++ {
 			sum += in[j] * analysisDCTTable[i*NumBands+j]
 		}
-		out[i] = sum * scale
+		out[i] = float32(opusmath.CReal(sum) * scale)
 	}
 }
 
@@ -386,7 +406,8 @@ func lpcFromCepstrum(lpc, cepstrum []float32, scratch *analysisScratch) float32 
 	scratch.lpcTmp[0] += 4
 	idctTransform(scratch.lpcEx[:], scratch.lpcTmp[:])
 	for i := 0; i < NumBands; i++ {
-		scratch.lpcEx[i] = opusmath.Pow10F32(scratch.lpcEx[i]) * analysisCompensation[i]
+		// libopus dnn/freq.c:lpc_from_cepstrum uses C pow().
+		scratch.lpcEx[i] = float32(opusmath.PowCReal(10.0, opusmath.CReal(scratch.lpcEx[i])) * opusmath.CReal(analysisCompensation[i]))
 	}
 	return lpcFromBands(lpc, scratch.lpcEx[:], scratch)
 }
@@ -400,9 +421,10 @@ func lpcFromBands(lpc, ex []float32, scratch *analysisScratch) float32 {
 	inverseTransform(scratch.inverseReal[:], scratch.inverseSpec[:], scratch)
 	var ac [analysisLPCOrder + 1]float32
 	copy(ac[:], scratch.inverseReal[:analysisLPCOrder+1])
-	ac[0] = ac[0] + ac[0]*1e-4 + 26.0/38.0
+	// libopus dnn/freq.c:lpc_from_bands uses unsuffixed C real constants here.
+	ac[0] = float32(opusmath.CReal(ac[0]) + opusmath.CReal(ac[0])*1e-4 + 26.0/38.0)
 	for i := 1; i <= analysisLPCOrder; i++ {
-		ac[i] = ac[i] * (1 - 6e-5*float32(i*i))
+		ac[i] = float32(opusmath.CReal(ac[i]) * (1.0 - 6e-5*opusmath.CReal(i*i)))
 	}
 	return lpcnLPC(lpc, ac[:], analysisLPCOrder)
 }
@@ -413,7 +435,9 @@ func interpBandGain(dst, bandE []float32) {
 		bandSize := (analysisBandEdges[i+1] - analysisBandEdges[i]) * analysisWindow5ms
 		for j := 0; j < bandSize; j++ {
 			frac := float32(j) / float32(bandSize)
-			v := (1-frac)*bandE[i] + frac*bandE[i+1]
+			// libopus dnn/freq.c:interp_band_gain contracts the final add on arm64:
+			// frac*bandE[i+1] is rounded, then (1-frac)*bandE[i] is fused in.
+			v := fma32(1-frac, bandE[i], noFMA32Mul(frac, bandE[i+1]))
 			dst[analysisBandEdges[i]*analysisWindow5ms+j] = v
 		}
 	}
@@ -422,14 +446,11 @@ func interpBandGain(dst, bandE []float32) {
 func inverseTransform(out []float32, in []complex64, scratch *analysisScratch) {
 	scale := float32(1.0 / analysisWindowSize)
 	copy(scratch.fftIn[:analysisFreqSize], in[:analysisFreqSize])
-	for i := 0; i < analysisFreqSize; i++ {
-		scratch.fftIn[i] *= complex(scale, 0)
-	}
 	for i := analysisFreqSize; i < analysisWindowSize; i++ {
 		v := scratch.fftIn[analysisWindowSize-i]
 		scratch.fftIn[i] = complex(real(v), -imag(v))
 	}
-	celt.KissFFT32ToWithScratch(scratch.fftOut[:], scratch.fftIn[:], scratch.fftScratch[:])
+	celt.KissFFT32ToScaledWithScratch(scratch.fftOut[:], scratch.fftIn[:], scale, scratch.fftScratch[:])
 	outputScale := float32(analysisWindowSize)
 	out[0] = outputScale * real(scratch.fftOut[0])
 	for i := 1; i < analysisWindowSize; i++ {
@@ -446,27 +467,7 @@ func lpcnLPC(lpc, ac []float32, order int) float32 {
 		return err
 	}
 	for i := 0; i < order; i++ {
-		var rr float32
-		if useNEONAnalysisKernels {
-			j := 0
-			for ; j+3 < i; j += 4 {
-				p0 := float32(lpc[j+0] * ac[i-(j+0)])
-				p1 := float32(lpc[j+1] * ac[i-(j+1)])
-				p2 := float32(lpc[j+2] * ac[i-(j+2)])
-				p3 := float32(lpc[j+3] * ac[i-(j+3)])
-				rr += p0
-				rr += p1
-				rr += p2
-				rr += p3
-			}
-			for ; j < i; j++ {
-				rr = fma32(lpc[j], ac[i-j], rr)
-			}
-		} else {
-			for j := 0; j < i; j++ {
-				rr += lpc[j] * ac[i-j]
-			}
-		}
+		rr := lpcnRR(lpc[:order], ac, i)
 		rr += ac[i+1]
 		r := -rr / err
 		rc[i] = r
@@ -474,24 +475,55 @@ func lpcnLPC(lpc, ac []float32, order int) float32 {
 		for j := 0; j < (i+1)>>1; j++ {
 			tmp1 := lpc[j]
 			tmp2 := lpc[i-1-j]
-			if useNEONAnalysisKernels {
-				lpc[j] = fma32(r, tmp2, tmp1)
-				lpc[i-1-j] = fma32(r, tmp1, tmp2)
-				continue
-			}
-			lpc[j] = tmp1 + r*tmp2
-			lpc[i-1-j] = tmp2 + r*tmp1
+			lpc[j] = fma32(r, tmp2, tmp1)
+			lpc[i-1-j] = fma32(r, tmp1, tmp2)
 		}
-		if useNEONAnalysisKernels {
-			err = fma32(-(r * r), err, err)
-		} else {
-			err -= (r * r) * err
-		}
+		err = fma32(-(r * r), err, err)
 		if err < .001*ac[0] {
 			break
 		}
 	}
 	return err
+}
+
+func lpcnRR(lpc, ac []float32, i int) float32 {
+	var rr float32
+	j := 0
+	// libopus dnn/freq.c:lpcn_lpc is compiled as 16/4-wide vector products on
+	// arm64 clang, with rounded FMUL products reduced in lane order; scalar
+	// leftovers use FMADD.
+	for ; j+15 < i; j += 16 {
+		rr += noFMA32Mul(lpc[j+0], ac[i-j-0])
+		rr += noFMA32Mul(lpc[j+1], ac[i-j-1])
+		rr += noFMA32Mul(lpc[j+2], ac[i-j-2])
+		rr += noFMA32Mul(lpc[j+3], ac[i-j-3])
+		rr += noFMA32Mul(lpc[j+4], ac[i-j-4])
+		rr += noFMA32Mul(lpc[j+5], ac[i-j-5])
+		rr += noFMA32Mul(lpc[j+6], ac[i-j-6])
+		rr += noFMA32Mul(lpc[j+7], ac[i-j-7])
+		rr += noFMA32Mul(lpc[j+8], ac[i-j-8])
+		rr += noFMA32Mul(lpc[j+9], ac[i-j-9])
+		rr += noFMA32Mul(lpc[j+10], ac[i-j-10])
+		rr += noFMA32Mul(lpc[j+11], ac[i-j-11])
+		rr += noFMA32Mul(lpc[j+12], ac[i-j-12])
+		rr += noFMA32Mul(lpc[j+13], ac[i-j-13])
+		rr += noFMA32Mul(lpc[j+14], ac[i-j-14])
+		rr += noFMA32Mul(lpc[j+15], ac[i-j-15])
+	}
+	for ; j+3 < i; j += 4 {
+		rr += noFMA32Mul(lpc[j+0], ac[i-j-0])
+		rr += noFMA32Mul(lpc[j+1], ac[i-j-1])
+		rr += noFMA32Mul(lpc[j+2], ac[i-j-2])
+		rr += noFMA32Mul(lpc[j+3], ac[i-j-3])
+	}
+	for ; j < i; j++ {
+		rr = fma32(lpc[j], ac[i-j], rr)
+	}
+	return rr
+}
+
+func noFMA32Mul(a, b float32) float32 {
+	return math.Float32frombits(math.Float32bits(a * b))
 }
 
 func burgAnalysis(dst, x []float32, minInvGain float32, subfrLength, nbSubfr, order int, scratch *analysisScratch) float32 {
@@ -640,22 +672,118 @@ func innerProdCReal(x, y []float32, n int) opusmath.CReal {
 }
 
 func celtFIRFloat(inWithHistory, coeffs, out []float32) {
-	for i := 0; i < FrameSize; i++ {
+	var rnum [analysisLPCOrder]float32
+	for i := 0; i < analysisLPCOrder; i++ {
+		rnum[i] = coeffs[analysisLPCOrder-i-1]
+	}
+	i := 0
+	for ; i < FrameSize-3; i += 4 {
+		sum := [4]float32{
+			inWithHistory[analysisLPCOrder+i],
+			inWithHistory[analysisLPCOrder+i+1],
+			inWithHistory[analysisLPCOrder+i+2],
+			inWithHistory[analysisLPCOrder+i+3],
+		}
+		xcorrKernel4Float32(rnum[:], inWithHistory[i:], &sum, analysisLPCOrder)
+		out[i] = sum[0]
+		out[i+1] = sum[1]
+		out[i+2] = sum[2]
+		out[i+3] = sum[3]
+	}
+	for ; i < FrameSize; i++ {
 		sum := inWithHistory[analysisLPCOrder+i]
 		for j := 0; j < analysisLPCOrder; j++ {
-			sum += coeffs[analysisLPCOrder-j-1] * inWithHistory[i+j]
+			sum += rnum[j] * inWithHistory[i+j]
 		}
 		out[i] = sum
 	}
 }
 
+func xcorrKernel4Float32(x, y []float32, sum *[4]float32, length int) {
+	if length < 3 {
+		return
+	}
+	xi := 0
+	yi := 0
+	y3 := float32(0)
+	y0 := y[yi]
+	yi++
+	y1 := y[yi]
+	yi++
+	y2 := y[yi]
+	yi++
+	j := 0
+	for ; j < length-3; j += 4 {
+		tmp := x[xi]
+		xi++
+		y3 = y[yi]
+		yi++
+		sum[0] += tmp * y0
+		sum[1] += tmp * y1
+		sum[2] += tmp * y2
+		sum[3] += tmp * y3
+		tmp = x[xi]
+		xi++
+		y0 = y[yi]
+		yi++
+		sum[0] += tmp * y1
+		sum[1] += tmp * y2
+		sum[2] += tmp * y3
+		sum[3] += tmp * y0
+		tmp = x[xi]
+		xi++
+		y1 = y[yi]
+		yi++
+		sum[0] += tmp * y2
+		sum[1] += tmp * y3
+		sum[2] += tmp * y0
+		sum[3] += tmp * y1
+		tmp = x[xi]
+		xi++
+		y2 = y[yi]
+		yi++
+		sum[0] += tmp * y3
+		sum[1] += tmp * y0
+		sum[2] += tmp * y1
+		sum[3] += tmp * y2
+	}
+	j++
+	if j < length {
+		tmp := x[xi]
+		xi++
+		y3 = y[yi]
+		yi++
+		sum[0] += tmp * y0
+		sum[1] += tmp * y1
+		sum[2] += tmp * y2
+		sum[3] += tmp * y3
+	}
+	j++
+	if j < length {
+		tmp := x[xi]
+		xi++
+		y0 = y[yi]
+		yi++
+		sum[0] += tmp * y1
+		sum[1] += tmp * y2
+		sum[2] += tmp * y3
+		sum[3] += tmp * y0
+	}
+	if j < length {
+		tmp := x[xi]
+		y1 = y[yi]
+		sum[0] += tmp * y2
+		sum[1] += tmp * y3
+		sum[2] += tmp * y0
+		sum[3] += tmp * y1
+	}
+}
+
 func biquadInPlace(y, mem []float32) {
-	const (
-		b0 = -0.84946
-		b1 = 1.0
-		a0 = -1.54220
-		a1 = 0.70781
-	)
+	b0 := float32(-0.84946)
+	b1 := float32(1.0)
+	a0 := float32(-1.54220)
+	a1 := float32(0.70781)
 	mem0 := mem[0]
 	mem1 := mem[1]
 	for i := range y {
@@ -718,10 +846,27 @@ func pitchXCorrFloatNEON(dst, x, y []float32, length, maxPitch int) {
 }
 
 func innerProdFloatNEON(x, y []float32, length int) float32 {
-	var sum float32
-	for i := 0; i < length; i++ {
-		prod := math.Float32frombits(math.Float32bits(x[i] * y[i]))
-		sum = math.Float32frombits(math.Float32bits(sum + prod))
+	var acc [4]float32
+	i := 0
+	for ; i < length-7; i += 8 {
+		for lane := 0; lane < 4; lane++ {
+			acc[lane] = fma32(x[i+lane], y[i+lane], acc[lane])
+		}
+		for lane := 0; lane < 4; lane++ {
+			acc[lane] = fma32(x[i+4+lane], y[i+4+lane], acc[lane])
+		}
+	}
+	if length-i >= 4 {
+		for lane := 0; lane < 4; lane++ {
+			acc[lane] = fma32(x[i+lane], y[i+lane], acc[lane])
+		}
+		i += 4
+	}
+	sum0 := math.Float32frombits(math.Float32bits(acc[0] + acc[2]))
+	sum1 := math.Float32frombits(math.Float32bits(acc[1] + acc[3]))
+	sum := math.Float32frombits(math.Float32bits(sum0 + sum1))
+	for ; i < length; i++ {
+		sum = fma32(x[i], y[i], sum)
 	}
 	return sum
 }

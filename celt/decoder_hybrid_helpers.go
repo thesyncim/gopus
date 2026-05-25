@@ -62,7 +62,7 @@ func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBin
 		var specR []float32
 		if extsupport.QEXT && qext != nil && qext.end > 0 {
 			specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
-			specR = ensureFloat32Slice(&d.scratchSynthRF32, len(coeffsR))
+			specR = ensureFloat32Slice(&d.scratchSpecRF32, len(coeffsR))
 			denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
 			denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
 			if qext.coeffsL != nil {
@@ -73,7 +73,7 @@ func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBin
 			}
 		} else {
 			specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
-			specR = ensureFloat32Slice(&d.scratchSynthRF32, len(coeffsR))
+			specR = ensureFloat32Slice(&d.scratchSpecRF32, len(coeffsR))
 			denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
 			denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
 			for i := 0; i < hybridBinStart && i < len(specL); i++ {
