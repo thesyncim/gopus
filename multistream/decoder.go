@@ -119,13 +119,13 @@ type streamState struct {
 	celtDec   *celt.Decoder
 	silkDec   *silk.Decoder
 
-	lastMode           int
-	lastBandwidth      int
+	lastMode           int32
+	lastBandwidth      int32
 	lastPacketStereo   bool
 	haveDecoded        bool
-	lastFrameSize      int
-	lastPacketDuration int
-	lastDataLen        int
+	lastFrameSize      int32
+	lastPacketDuration int32
+	lastDataLen        int32
 	decodeGainQ8       int32
 	ignoreExtensions   bool
 	complexity         int32
@@ -147,8 +147,8 @@ func newStreamDecoder(sampleRate, channels int) *streamState {
 		celtDec:       celtDec,
 		silkDec:       silkDec,
 		lastMode:      streamModeHybrid,
-		lastBandwidth: int(types.BandwidthFullband),
-		lastFrameSize: sampleRate / 50,
+		lastBandwidth: int32(types.BandwidthFullband),
+		lastFrameSize: int32(sampleRate / 50),
 	}
 }
 
@@ -168,10 +168,10 @@ func (d *streamState) Reset() {
 	d.celtDec.Reset()
 	d.silkDec.Reset()
 	d.lastMode = streamModeHybrid
-	d.lastBandwidth = int(types.BandwidthFullband)
+	d.lastBandwidth = int32(types.BandwidthFullband)
 	d.lastPacketStereo = false
 	d.haveDecoded = false
-	d.lastFrameSize = int(d.sampleRate) / 50
+	d.lastFrameSize = d.sampleRate / 50
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
 	d.resetOSCEPostfilterState()
@@ -240,7 +240,7 @@ func (d *streamState) Pitch() int {
 	if d.silkDec.GetLastSignalType() != 2 {
 		return 0
 	}
-	return d.silkDec.GetLagPrev() * streamSilkPitchScale(d.lastBandwidth)
+	return d.silkDec.GetLagPrev() * streamSilkPitchScale(int(d.lastBandwidth))
 }
 
 func streamSilkPitchScale(bandwidth int) int {
@@ -261,7 +261,7 @@ func (d *streamState) Bandwidth() types.Bandwidth {
 
 // LastPacketDuration returns the last decoded packet duration at the decoder API rate.
 func (d *streamState) LastPacketDuration() int {
-	return d.lastPacketDuration
+	return int(d.lastPacketDuration)
 }
 
 // InDTX reports whether the most recently decoded packet was DTX.
@@ -313,16 +313,16 @@ func (d *streamState) frameSize48FromAPI(frameSize int) int {
 }
 
 func (d *streamState) recordDecodedTOC(toc streamTOC) {
-	d.lastMode = toc.mode
-	d.lastBandwidth = toc.bandwidth
+	d.lastMode = int32(toc.mode)
+	d.lastBandwidth = int32(toc.bandwidth)
 	d.lastPacketStereo = toc.stereo
 	d.haveDecoded = true
 }
 
 func (d *streamState) recordDecodeCall(frameSize, dataLen int) {
-	d.lastFrameSize = frameSize
-	d.lastPacketDuration = frameSize
-	d.lastDataLen = dataLen
+	d.lastFrameSize = int32(frameSize)
+	d.lastPacketDuration = int32(frameSize)
+	d.lastDataLen = int32(dataLen)
 }
 
 func (d *streamState) finishDecode(out []float32, err error) ([]float32, error) {
@@ -428,20 +428,20 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 
 	switch d.lastMode {
 	case streamModeSILK:
-		return d.finishDecode32(d.decodeSILKToFloat32(nil, frameSize, d.lastPacketStereo, d.lastBandwidth))
+		return d.finishDecode32(d.decodeSILKToFloat32(nil, frameSize, d.lastPacketStereo, int(d.lastBandwidth)))
 	case streamModeHybrid:
 		out, err := d.finishDecode32(d.hybridDec.DecodeToFloat32WithPacketStereo(nil, frameSize, d.lastPacketStereo))
 		if extsupport.OSCERuntime && err == nil {
-			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeHybrid, bandwidth: d.lastBandwidth, stereo: d.lastPacketStereo}, nil, frameSize)
+			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeHybrid, bandwidth: int(d.lastBandwidth), stereo: d.lastPacketStereo}, nil, frameSize)
 		}
 		return out, err
 	case streamModeCELT:
-		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(d.lastBandwidth))
+		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(int(d.lastBandwidth)))
 		out := make([]float32, frameSize*int(d.channels))
 		err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(nil, frameSize, d.lastPacketStereo, out)
 		out, err = d.finishDecode32(out, err)
 		if extsupport.OSCERuntime && err == nil {
-			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: d.lastBandwidth, stereo: d.lastPacketStereo}, nil, frameSize)
+			d.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: int(d.lastBandwidth), stereo: d.lastPacketStereo}, nil, frameSize)
 		}
 		return out, err
 	default:

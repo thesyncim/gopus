@@ -510,7 +510,7 @@ func (d *Decoder) decodeDREDSILKOrHybridPLCStream(stream, frameSize int, st *str
 	switch st.lastMode {
 	case streamModeSILK:
 		st.silkDec.SetDeepPLCLossMonoHook(hook)
-		decoded, err = st.finishDecode32(st.decodeSILKToFloat32(nil, frameSize, st.lastPacketStereo, st.lastBandwidth))
+		decoded, err = st.finishDecode32(st.decodeSILKToFloat32(nil, frameSize, st.lastPacketStereo, int(st.lastBandwidth)))
 		st.silkDec.SetDeepPLCLossMonoHook(nil)
 	case streamModeHybrid:
 		st.hybridDec.SetDeepPLCLossMonoHook(hook)
@@ -563,7 +563,7 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float32, bool, e
 		return nil, false, nil
 	}
 	if frameSize <= 0 {
-		frameSize = st.lastFrameSize
+		frameSize = int(st.lastFrameSize)
 	}
 	if frameSize <= 0 {
 		frameSize = 960
