@@ -524,15 +524,15 @@ func TestSILKPLCFadedToSilence(t *testing.T) {
 // mockCELTDecoder implements CELTDecoderState and CELTSynthesizer for testing.
 type mockCELTDecoder struct {
 	channels     int
-	prevEnergy   []float64
+	prevEnergy   []float32
 	rng          uint32
 	preemphState []float32
 	overlapBuf   []float32
 }
 
 func (m *mockCELTDecoder) Channels() int                { return m.channels }
-func (m *mockCELTDecoder) PrevEnergy() []float64        { return m.prevEnergy }
-func (m *mockCELTDecoder) SetPrevEnergy(e []float64)    { copy(m.prevEnergy, e) }
+func (m *mockCELTDecoder) PrevEnergy() []float32        { return m.prevEnergy }
+func (m *mockCELTDecoder) SetPrevEnergy(e []float32)    { copy(m.prevEnergy, e) }
 func (m *mockCELTDecoder) RNG() uint32                  { return m.rng }
 func (m *mockCELTDecoder) SetRNG(r uint32)              { m.rng = r }
 func (m *mockCELTDecoder) PreemphState() []float32      { return m.preemphState }
@@ -564,7 +564,7 @@ func TestCELTPLCOutput(t *testing.T) {
 	// Create mock CELT decoder
 	dec := &mockCELTDecoder{
 		channels:     1,
-		prevEnergy:   make([]float64, 21), // MaxBands
+		prevEnergy:   make([]float32, 21), // MaxBands
 		rng:          22222,
 		preemphState: make([]float32, 1),
 		overlapBuf:   make([]float32, 120),
@@ -602,14 +602,14 @@ func TestCELTPLCOutput(t *testing.T) {
 func TestCELTPLCEnergyDecay(t *testing.T) {
 	dec := &mockCELTDecoder{
 		channels:     1,
-		prevEnergy:   make([]float64, 21),
+		prevEnergy:   make([]float32, 21),
 		rng:          22222,
 		preemphState: make([]float32, 1),
 		overlapBuf:   make([]float32, 120),
 	}
 
 	// Set initial energy
-	initialEnergy := -10.0
+	initialEnergy := float32(-10.0)
 	for i := range dec.prevEnergy {
 		dec.prevEnergy[i] = initialEnergy
 	}
@@ -620,9 +620,9 @@ func TestCELTPLCEnergyDecay(t *testing.T) {
 	_ = ConcealCELT(dec, dec, frameSize, fadeFactor)
 
 	// Check energy was decayed
-	expectedEnergy := initialEnergy * EnergyDecayPerFrame
+	expectedEnergy := initialEnergy * float32(EnergyDecayPerFrame)
 	for i, e := range dec.prevEnergy {
-		if math.Abs(e-expectedEnergy) > 0.01 {
+		if float32(math.Abs(float64(e-expectedEnergy))) > 0.01 {
 			t.Errorf("band %d energy = %f, want %f", i, e, expectedEnergy)
 		}
 	}
@@ -632,7 +632,7 @@ func TestCELTPLCEnergyDecay(t *testing.T) {
 func TestCELTPLCStereo(t *testing.T) {
 	dec := &mockCELTDecoder{
 		channels:     2,
-		prevEnergy:   make([]float64, 42), // 21 * 2 channels
+		prevEnergy:   make([]float32, 42), // 21 * 2 channels
 		rng:          22222,
 		preemphState: make([]float32, 2),
 		overlapBuf:   make([]float32, 240), // 120 * 2
@@ -658,7 +658,7 @@ func TestCELTPLCStereo(t *testing.T) {
 func TestCELTHybridPLC(t *testing.T) {
 	dec := &mockCELTDecoder{
 		channels:     1,
-		prevEnergy:   make([]float64, 21),
+		prevEnergy:   make([]float32, 21),
 		rng:          22222,
 		preemphState: make([]float32, 1),
 		overlapBuf:   make([]float32, 120),

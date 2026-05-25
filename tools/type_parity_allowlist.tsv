@@ -639,13 +639,6 @@ celt/silence_helpers.go	1	bf51ab0613794697a884bf9847758498322e11cf5ad7cf86d30b50
 celt/silence_helpers.go	1	d10d6a64206fc8175e4b8172d9aa3ad74b265597ca13fe7cb9ebeef11dcd27ea	legacy-current	out := ensureFloat64Slice(&d.scratchSynth, frameSize)
 celt/silence_helpers.go	1	d38279e624ace26ddacc6045d5fc6f0c6a29004a6b343ef0d8e98ebce194a033	legacy-current	func (d *Decoder) synthesizeSilenceMono(frameSize int) []float64 {
 celt/silence_helpers.go	1	f21d2770bb6345f6d1a6088ed88dc2601a5d744eb7bce3b271d6377e77c45fed	legacy-current	out := ensureFloat64Slice(&d.scratchStereo, frameSize*2)
-celt/state_helpers.go	1	2bd4b2f017de92376cd12f3f1c00df8724b1f2edc5a6b29625b7945996a5ee72	legacy-current	out := make([]float64, len(d.prevEnergy2))
-celt/state_helpers.go	1	366d653e8898575fe2cefbf31abfc70a90fef91de014b1c7b206a086969e5a53	legacy-current	func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float64) {
-celt/state_helpers.go	1	3d8dca477f7a4b248a7fae0ad6bc4f00155cdfaa299cac73739f384099896562	legacy-current	func (d *Decoder) PrevEnergy2() []float64 {
-celt/state_helpers.go	1	635ef07fc0efa94f524721cc41487b425a4568de1ba72cd211ad0bae9bc2226a	legacy-current	func (d *Decoder) updateLogE(energies []float64, nbBands int, transient bool) {
-celt/state_helpers.go	1	7b9211fa1714560b6c5f0143abb0d808b78cd222e48e3f007ca914f4e15eebd5	legacy-current	out := make([]float64, len(d.prevEnergy))
-celt/state_helpers.go	1	d4b1515e5d9bb3c59e2562f9e3b27e4c1c3344e37d7ec512513883be49cd3c58	legacy-current	func (d *Decoder) PrevEnergy() []float64 {
-celt/state_helpers.go	1	db6643adf55c14f015da98aad99ca07f5f98710213aa98f3bac068d09ee7c446	legacy-current	func (d *Decoder) SetPrevEnergy(energies []float64) {
 celt/stereo.go	1	0ae105f254eeaacdac71bb2139e76cae3e162c5957257909585c8c7957ca2a43	legacy-current	func DualStereoSplit(coeffsL, coeffsR []float64) (left, right []float64) {
 celt/stereo.go	1	0d015c729992531392b64132b8f672ae26b950854b16fc8829f1d8cd6397334c	legacy-current	right = make([]float64, len(coeffsR))
 celt/stereo.go	1	14fe372d3d8d7f95e0146e65d96533a225e73c657159adebb2cd29028e0542c2	legacy-current	func ApplyIntensityStereo(mono []float64, inversionFlag int) (left, right []float64) {
@@ -920,11 +913,10 @@ internal/osce/lace/runtime_trace.go	1	fa21599cedcfee83faa20a3e146e4530d379f43ff7
 internal/osce/lace/runtime_trace.go	1	fe810750a1083d7aaa3cad8e3f60ba7e94bd32bfded2bae2fcd3163e0a7f34e3	legacy-current	gains[1] = float32(math.Exp(float64(filterGainA*gains[1] + filterGainB)))
 pcm.go	1	b42062ac33ff5c5dfaa06aff81cb5e97824d8ce99278ec3c89db77cade24e72a	legacy-current	func float64ToInt16(sample float64) int16 {
 plc/celt_plc.go	1	04bd4ec8c37ef43eb37dbb720ade84ca6bdf9c299e8e5f2c163decbbdd173eb3	legacy-current	Synthesize(coeffs []float64, transient bool, shortBlocks int) []float64
+plc/celt_plc.go	1	0698f42339c0fb496b857fdd766740d3b5921d9ade3d4c26dc61cf95318e866c	legacy-current	func generateNoiseBands(energies []float32, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {
 plc/celt_plc.go	2	0b0bc28e966bf3c9c31d41f287fdf15e871cdf818059a5012643af782cc8ac80	legacy-current	return make([]float64, frameSize)
-plc/celt_plc.go	1	279f1438f238695dd8cbf96887fb42b592de1651ca341a3f145b1fcf1f99bdbe	legacy-current	decayDB float64
 plc/celt_plc.go	1	2ef4b048685d9e11c554e4565d6daca1c2bc9d0da8ea42730b5183b8b8222771	legacy-current	var samples []float64
 plc/celt_plc.go	1	347ae4b875c9dd7f5338bf4377297204dbc82bfb1f59f82efe20133153207f31	legacy-current	func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float64) []float64 {
-plc/celt_plc.go	1	38e631e583e29eefdb18dcb5a6ffcace4e5c2b21818517536fe7f51773845d7a	legacy-current	func buildCELTConcealmentEnergies(prevEnergy []float64, cfg celtConcealmentConfig) []float64 {
 plc/celt_plc.go	1	3ed255d530fd0cf6fe3e88d16e0c8bb15de37b85adfacc6eeba6dc4fbd4e731e	legacy-current	func ConcealCELTRawInto(dst []float64, dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float64) {
 plc/celt_plc.go	1	407bcd65ef08248f52fd35c65d4da4353202164f8a00dab7fcc3c9548c1bdb05	legacy-current	SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, shortBlocks int) []float64
 plc/celt_plc.go	4	41d1d9745a7cdb7b88f1c1f3ab48114e2652a9a68722a6cfafe38a89232c6254	legacy-current	fadeFactor float64,
@@ -934,31 +926,24 @@ plc/celt_plc.go	3	586b304f3f0c0e93fe744867d42bd35c78d989be86d8f281340b91b1b84b06
 plc/celt_plc.go	1	5ad756297240f39e46c3c6a9efb646a54ebe174e6803b68ae7848e69ccfb1de4	legacy-current	func ConcealCELTInto(dst []float64, dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float64) {
 plc/celt_plc.go	1	5c42feb217dae47aa82c34996512ee71817ca24e589d843ee13b8563ac4cab5e	legacy-current	func applyDeemphasisPLC(samples []float64, state []float32, channels int) {
 plc/celt_plc.go	1	5dd8ccd241bc5f7813af2a116e5b1ffc3926d42dc363f2975d17fd06667171c7	legacy-current	noise[i] = float64(int32(*rng)) / float64(1<<31)
+plc/celt_plc.go	2	603fecb7970570a0db82c87366b831bee9c9b44eb4a76a7d8b87ea70875dd5f4	legacy-current	energyDB := float64(energies[band])
 plc/celt_plc.go	1	63731da7f52cd8fa3092ef76bb68537b5a5a2f041f7a1b7a206b993e325ca958	legacy-current	samples[i+1] = float64(right)
-plc/celt_plc.go	1	6b723ee440c211d055f37cf7740920b7b3756be5fee412ccd10cc186ab67d502	legacy-current	func generateNoiseBands(energies []float64, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {
+plc/celt_plc.go	1	6387de6465edd9f44676d3965a773e01bef96a8c90b0d8ea25c320efffdfe4c9	legacy-current	func generateNoiseHybridBands(energies []float32, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {
 plc/celt_plc.go	1	6cdb9273f46aff5c6684cc44539bfe11e024b077795d2514c021a159efe9cdf0	legacy-current	func applyDeemphasisPLCToDecoder(samples []float64, dec CELTDecoderState, channels int) {
-plc/celt_plc.go	1	6e7ab7dbe26cbe8b1ac260f610fd030dd8b666853f0632e8a354cd6657cd11fa	legacy-current	concealEnergy []float64,
 plc/celt_plc.go	1	75c07ad7e16fff44e75eb8945b8618c525028b64422014346b327bca222aca6d	legacy-current	samples = make([]float64, frameSize*channels)
-plc/celt_plc.go	1	876e7122f84b141e219b0b9913a54af0f593d4e261e1ccb40f29ed20b2c196ba	legacy-current	energies []float64
 plc/celt_plc.go	2	8c9c967e20ecfdac51548af2afbdefae433930a447d07d514dd1ccf55888498c	legacy-current	var coeffs []float64
-plc/celt_plc.go	1	8ce50f715c24215d8feed4555fcdbc0c5ed720d297913995636f5d839573fcd3	legacy-current	SetPrevEnergy(energies []float64)
-plc/celt_plc.go	1	8dcfe27a5c0913f013ba6aaf2b7a48d1164aac1301f80b0e9bf1a2af9254b2d1	legacy-current	func generateNoiseHybridBands(energies []float64, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {
 plc/celt_plc.go	1	a1015c6c5a5c0d0ad9898fb5a48daf5d932104cd631ed80eb642a944885b1cb4	legacy-current	out := make([]float64, outLen)
 plc/celt_plc.go	1	a634f7e13d129d10754d508dc204fbd06d0717b17bc84190629ffe815e966597	legacy-current	return make([]float64, frameSize*channels)
 plc/celt_plc.go	1	a6f0a113f16e4ce66778fa0940af4e63f89f332846fe5867b8760f2f2133b071	legacy-current	func copyCELTConcealment(dst, samples []float64, outLen int) {
-plc/celt_plc.go	1	a72acd7af3540f44c934a0e3d40d42eabf153823cf0cfd11560210c59f253cdc	legacy-current	PrevEnergy() []float64
 plc/celt_plc.go	1	aa27201443098141cceeb65330d7ae39172b5ab2307da7ea0a07e61a7734e761	legacy-current	func ConcealCELTHybrid(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float64) []float64 {
 plc/celt_plc.go	1	af464805fc337eb930a2859b6df8977e830c167bbae2fb81829c69829f318180	legacy-current	samples[i] = float64(tmp)
 plc/celt_plc.go	1	b2c11911a7169319bdfa48671af6bb4f4afc467e192cbe0481b3174c7781c545	legacy-current	func generateNoiseBand(rng *uint32, bandWidth int) []float64 {
 plc/celt_plc.go	1	b3784c2ec99ae8d2339c8fc07da04619c97a8d2a2a4484c5e30020b98e5f476c	legacy-current	func normalizeVector(v []float64) {
-plc/celt_plc.go	3	c9e0adb379c48150765002a80251a8ed4852d15e67d48848be8dc3ff76342751	legacy-current	concealEnergy := make([]float64, len(prevEnergy))
 plc/celt_plc.go	2	d170bc21a44fd0f144c94a6dd8f5c2f85e264868f04d286acae60315d1b3b92c	legacy-current	coeffs := make([]float64, frameSize)
 plc/celt_plc.go	1	d2fe659d8a29df31efc16f513bd21e36c250a91c385899a5e68d5a4a8ae959f6	legacy-current	) ([]float64, uint32) {
 plc/celt_plc.go	1	dd8ab4e1f3e57fd02f9a2f6f9e6130baec26628ec1b639865e4b36274772c015	legacy-current	func zeroCELTConcealment(dst []float64, limit int) {
 plc/celt_plc.go	1	f0621bdb40388587df78e7a1b21d6e46b4ea6cde8ed90adeb98483bf1e8abf61	legacy-current	samples[i] = float64(left)
-plc/celt_plc.go	1	f5713857f6be1926b60b13813dd57d88ca85134369947f199a683c6a4e529691	legacy-current	decayDB float64,
 plc/celt_plc.go	1	f7e40e0d617eb8bf6d4d23525f13cd6bceae8d7ca2f9cd1cd38ab753a9845f5f	legacy-current	var norm float64
-plc/celt_plc.go	1	ff245256273849de7c0650df69c21032fd46bfb1dae2dbabe10fc2dda365e750	legacy-current	energies []float64,
 plc/celt_plc.go	1	fff6a8e7b464e4389528169900e4f4a27875d0ef117292940b62ea5a154dae97	legacy-current	noise := make([]float64, bandWidth)
 plc/plc.go	1	bb3f25a406b2d73d08927a8f96805308d70ec9a1d96b666b573e874d3eb655b3	legacy-current	fadeFactor float64
 plc/plc.go	1	ddcfe41e297ac1108fd192557a8862649468301546b052202c33ef6306d7fb52	legacy-current	func (s *State) RecordLoss() float64 {

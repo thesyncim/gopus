@@ -148,7 +148,7 @@ func TestEncoderMatchesDecoder(t *testing.T) {
 		t.Errorf("PrevEnergy length: enc=%d, dec=%d", len(encEnergy), len(decEnergy))
 	}
 	for i := range encEnergy {
-		if float64(encEnergy[i]) != decEnergy[i] {
+		if encEnergy[i] != decEnergy[i] {
 			t.Errorf("PrevEnergy[%d]: enc=%f, dec=%f", i, encEnergy[i], decEnergy[i])
 		}
 	}

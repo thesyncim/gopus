@@ -14,9 +14,9 @@ type CELTDecoderState interface {
 	// Channels returns the number of channels (1 or 2).
 	Channels() int
 	// PrevEnergy returns the previous frame's band energies.
-	PrevEnergy() []float64
+	PrevEnergy() []float32
 	// SetPrevEnergy updates the previous energy state.
-	SetPrevEnergy(energies []float64)
+	SetPrevEnergy(energies []float32)
 	// RNG returns the current RNG state.
 	RNG() uint32
 	// SetRNG sets the RNG state.
@@ -159,8 +159,8 @@ const (
 type celtConcealmentConfig struct {
 	hybrid     bool
 	energyMode celtConcealmentEnergyMode
-	decayDB    float64
-	energies   []float64
+	decayDB    float32
+	energies   []float32
 }
 
 // ConcealCELT generates concealment audio for a lost CELT frame.
@@ -199,10 +199,10 @@ func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fad
 	prevEnergy := dec.PrevEnergy()
 
 	// Create decayed energy for concealment
-	concealEnergy := make([]float64, len(prevEnergy))
+	concealEnergy := make([]float32, len(prevEnergy))
 	for i := range prevEnergy {
 		// Apply energy decay
-		concealEnergy[i] = prevEnergy[i] * EnergyDecayPerFrame
+		concealEnergy[i] = prevEnergy[i] * float32(EnergyDecayPerFrame)
 	}
 
 	// Generate noise-filled MDCT coefficients at the decayed energy levels
@@ -278,7 +278,7 @@ func ConcealCELTRawInto(dst []float64, dec CELTDecoderState, synth CELTSynthesiz
 
 // generateNoiseBands creates noise-filled MDCT coefficients scaled by band energies.
 // Each band gets random noise normalized and scaled to the target energy level.
-func generateNoiseBands(energies []float64, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {
+func generateNoiseBands(energies []float32, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {
 	// Number of MDCT bins = frameSize (CELT convention)
 	coeffs := make([]float64, frameSize)
 
@@ -301,7 +301,7 @@ func generateNoiseBands(energies []float64, nbBands, frameSize int, rng *uint32,
 
 		// Get target energy for this band (linear scale from dB)
 		// prevEnergy is stored in dB, convert to linear
-		energyDB := energies[band]
+		energyDB := float64(energies[band])
 		energyLin := math.Pow(10.0, energyDB/10.0)
 
 		// Apply fade factor to energy
@@ -457,7 +457,7 @@ func ConcealCELTHybridRawIntoWithDBDecay(
 	synth CELTSynthesizer,
 	frameSize int,
 	fadeFactor float64,
-	decayDB float64,
+	decayDB float32,
 ) {
 	writeCELTConcealment(dst, dec, synth, frameSize, fadeFactor, celtConcealmentConfig{
 		hybrid:     true,
@@ -474,7 +474,7 @@ func ConcealCELTHybridRawIntoFromEnergies(
 	synth CELTSynthesizer,
 	frameSize int,
 	fadeFactor float64,
-	energies []float64,
+	energies []float32,
 ) {
 	writeCELTConcealment(dst, dec, synth, frameSize, fadeFactor, celtConcealmentConfig{
 		hybrid:     true,
@@ -520,10 +520,10 @@ func writeCELTConcealment(
 	dec.SetRNG(rng)
 }
 
-func buildCELTConcealmentEnergies(prevEnergy []float64, cfg celtConcealmentConfig) []float64 {
+func buildCELTConcealmentEnergies(prevEnergy []float32, cfg celtConcealmentConfig) []float32 {
 	switch cfg.energyMode {
 	case celtConcealmentEnergyDBDecay:
-		concealEnergy := make([]float64, len(prevEnergy))
+		concealEnergy := make([]float32, len(prevEnergy))
 		for i := range prevEnergy {
 			concealEnergy[i] = prevEnergy[i] - cfg.decayDB
 		}
@@ -534,9 +534,9 @@ func buildCELTConcealmentEnergies(prevEnergy []float64, cfg celtConcealmentConfi
 		}
 		return prevEnergy
 	default:
-		concealEnergy := make([]float64, len(prevEnergy))
+		concealEnergy := make([]float32, len(prevEnergy))
 		for i := range prevEnergy {
-			concealEnergy[i] = prevEnergy[i] * EnergyDecayPerFrame
+			concealEnergy[i] = prevEnergy[i] * float32(EnergyDecayPerFrame)
 		}
 		return concealEnergy
 	}
@@ -547,7 +547,7 @@ func synthesizeCELTConcealment(
 	synth CELTSynthesizer,
 	frameSize int,
 	fadeFactor float64,
-	concealEnergy []float64,
+	concealEnergy []float32,
 	hybrid bool,
 ) ([]float64, uint32) {
 	bandInfo := defaultCELTBandInfo()
@@ -603,7 +603,7 @@ func zeroCELTConcealment(dst []float64, limit int) {
 }
 
 // generateNoiseHybridBands generates noise for hybrid mode (bands 17-21 only).
-func generateNoiseHybridBands(energies []float64, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {
+func generateNoiseHybridBands(energies []float32, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {
 	coeffs := make([]float64, frameSize)
 
 	// Start at hybrid start band (17)
@@ -626,7 +626,7 @@ func generateNoiseHybridBands(energies []float64, nbBands, frameSize int, rng *u
 		}
 
 		// Get target energy
-		energyDB := energies[band]
+		energyDB := float64(energies[band])
 		energyLin := math.Pow(10.0, energyDB/10.0)
 		energyLin *= fadeFactor * fadeFactor
 

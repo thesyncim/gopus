@@ -71,12 +71,12 @@ func TestHybridStartEndBandState(t *testing.T) {
 	for c := 0; c < dec.channels; c++ {
 		base := c * celt.MaxBands
 		for b := 0; b < start; b++ {
-			if math.Abs(energies[base+b]) > eps {
+			if math.Abs(float64(energies[base+b])) > eps {
 				t.Fatalf("%s band %d (ch %d) not cleared below start=%d: %.6f", pkt.name, b, c, start, energies[base+b])
 			}
 		}
 		for b := end; b < celt.MaxBands; b++ {
-			if math.Abs(energies[base+b]) > eps {
+			if math.Abs(float64(energies[base+b])) > eps {
 				t.Fatalf("%s band %d (ch %d) not cleared above end=%d: %.6f", pkt.name, b, c, end, energies[base+b])
 			}
 		}
