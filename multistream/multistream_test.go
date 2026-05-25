@@ -12,14 +12,14 @@ import (
 
 type streamDecoderStub struct {
 	channels int
-	decode   func(data []byte, frameSize int) ([]float64, error)
+	decode   func(data []byte, frameSize int) ([]float32, error)
 }
 
-func (s streamDecoderStub) Decode(data []byte, frameSize int) ([]float64, error) {
+func (s streamDecoderStub) Decode(data []byte, frameSize int) ([]float32, error) {
 	return s.decode(data, frameSize)
 }
 
-func (s streamDecoderStub) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
+func (s streamDecoderStub) DecodeStereo(data []byte, frameSize int) ([]float32, error) {
 	return s.decode(data, frameSize)
 }
 
@@ -503,16 +503,16 @@ func TestParseMultistreamPacket(t *testing.T) {
 func TestApplyChannelMapping(t *testing.T) {
 	t.Run("stereo simple", func(t *testing.T) {
 		// 1 coupled stream (stereo), interleaved [L0, R0, L1, R1, ...]
-		decodedStreams := [][]float64{
+		decodedStreams := [][]float32{
 			{0.1, 0.2, 0.3, 0.4}, // stream 0: stereo, 2 samples
 		}
 		mapping := []byte{0, 1} // ch0 = left, ch1 = right
 		frameSize := 2
 
-		output := applyChannelMapping(decodedStreams, mapping, 1, frameSize, 2)
+		output := applyChannelMapping32(decodedStreams, mapping, 1, frameSize, 2)
 
 		// Expected: [L0, R0, L1, R1]
-		expected := []float64{0.1, 0.2, 0.3, 0.4}
+		expected := []float32{0.1, 0.2, 0.3, 0.4}
 		if len(output) != len(expected) {
 			t.Fatalf("output len = %d, want %d", len(output), len(expected))
 		}
@@ -529,7 +529,7 @@ func TestApplyChannelMapping(t *testing.T) {
 		// Stream 1: stereo (RL/RR) = [0.5, 0.6, 0.7, 0.8]
 		// Stream 2: mono (C) = [0.9, 1.0]
 		// Stream 3: mono (LFE) = [1.1, 1.2]
-		decodedStreams := [][]float64{
+		decodedStreams := [][]float32{
 			{0.1, 0.2, 0.3, 0.4}, // stream 0: FL/FR
 			{0.5, 0.6, 0.7, 0.8}, // stream 1: RL/RR
 			{0.9, 1.0},           // stream 2: C
@@ -545,12 +545,12 @@ func TestApplyChannelMapping(t *testing.T) {
 		mapping := []byte{0, 4, 1, 2, 3, 5}
 		frameSize := 2
 
-		output := applyChannelMapping(decodedStreams, mapping, 2, frameSize, 6)
+		output := applyChannelMapping32(decodedStreams, mapping, 2, frameSize, 6)
 
 		// Output should be interleaved as:
 		// Sample 0: [FL, C, FR, RL, RR, LFE] = [0.1, 0.9, 0.2, 0.5, 0.6, 1.1]
 		// Sample 1: [FL, C, FR, RL, RR, LFE] = [0.3, 1.0, 0.4, 0.7, 0.8, 1.2]
-		expected := []float64{
+		expected := []float32{
 			0.1, 0.9, 0.2, 0.5, 0.6, 1.1, // sample 0
 			0.3, 1.0, 0.4, 0.7, 0.8, 1.2, // sample 1
 		}
@@ -567,16 +567,16 @@ func TestApplyChannelMapping(t *testing.T) {
 
 	t.Run("silent channel", func(t *testing.T) {
 		// 1 mono stream + 1 silent channel
-		decodedStreams := [][]float64{
+		decodedStreams := [][]float32{
 			{0.5, 0.6}, // stream 0: mono
 		}
 		mapping := []byte{0, 255} // ch0 = stream 0, ch1 = silent
 		frameSize := 2
 
-		output := applyChannelMapping(decodedStreams, mapping, 0, frameSize, 2)
+		output := applyChannelMapping32(decodedStreams, mapping, 0, frameSize, 2)
 
 		// Expected: [mono0, 0, mono1, 0]
-		expected := []float64{0.5, 0.0, 0.6, 0.0}
+		expected := []float32{0.5, 0.0, 0.6, 0.0}
 		for i, want := range expected {
 			if output[i] != want {
 				t.Errorf("output[%d] = %f, want %f", i, output[i], want)
@@ -693,9 +693,9 @@ func TestDecoderDecodeUsesPacketDurationWhenFrameSizeIsLarger(t *testing.T) {
 		mapping:        []byte{0},
 		decoders: []streamDecoder{streamDecoderStub{
 			channels: 1,
-			decode: func(data []byte, frameSize int) ([]float64, error) {
+			decode: func(data []byte, frameSize int) ([]float32, error) {
 				gotFrameSize = frameSize
-				return make([]float64, frameSize), nil
+				return make([]float32, frameSize), nil
 			},
 		}},
 		plcState: plc.NewState(),
@@ -828,7 +828,7 @@ func TestDecodeIntegration(t *testing.T) {
 	if len(samples) != expectedLen {
 		t.Fatalf("Decode output len = %d, want %d", len(samples), expectedLen)
 	}
-	if energy := computeEnergy(samples); energy == 0 {
+	if energy := computeEnergyF32(samples); energy == 0 {
 		t.Fatal("Decode output energy is zero")
 	}
 }
@@ -856,22 +856,6 @@ func TestFloat32ToInt16(t *testing.T) {
 		output := float32ToInt16(input)
 		if output[0] != tc.want {
 			t.Errorf("float32ToInt16(%f) = %d, want %d", tc.input, output[0], tc.want)
-		}
-	}
-}
-
-// TestFloat64ToFloat32 tests the sample conversion helper.
-func TestFloat64ToFloat32(t *testing.T) {
-	input := []float64{0.0, 0.5, -0.5, 1.0, -1.0}
-	output := float64ToFloat32(input)
-
-	if len(output) != len(input) {
-		t.Fatalf("output len = %d, want %d", len(output), len(input))
-	}
-
-	for i, v := range input {
-		if float64(output[i]) != v {
-			t.Errorf("output[%d] = %f, want %f", i, output[i], v)
 		}
 	}
 }

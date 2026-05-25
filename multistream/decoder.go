@@ -50,13 +50,13 @@ var (
 // streamDecoder is an internal interface that wraps the different decoder types.
 // This allows the multistream decoder to manage heterogeneous stream decoders uniformly.
 type streamDecoder interface {
-	// Decode decodes a packet and returns PCM samples as float64.
+	// Decode decodes a packet and returns PCM samples as float32.
 	// For stereo decoders, samples are interleaved [L0, R0, L1, R1, ...].
-	Decode(data []byte, frameSize int) ([]float64, error)
+	Decode(data []byte, frameSize int) ([]float32, error)
 
 	// DecodeStereo decodes a stereo packet and returns interleaved samples.
 	// Only valid for stereo (2-channel) decoders.
-	DecodeStereo(data []byte, frameSize int) ([]float64, error)
+	DecodeStereo(data []byte, frameSize int) ([]float32, error)
 
 	// Reset clears decoder state for a new stream.
 	Reset()
@@ -153,13 +153,13 @@ func newStreamDecoder(sampleRate, channels int) *streamState {
 }
 
 // Decode decodes a packet for mono streams.
-func (d *streamState) Decode(data []byte, frameSize int) ([]float64, error) {
-	return d.decodePacket(data, frameSize)
+func (d *streamState) Decode(data []byte, frameSize int) ([]float32, error) {
+	return d.decodePacketToFloat32(data, frameSize)
 }
 
 // DecodeStereo decodes a packet for coupled (stereo) streams.
-func (d *streamState) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
-	return d.decodePacket(data, frameSize)
+func (d *streamState) DecodeStereo(data []byte, frameSize int) ([]float32, error) {
+	return d.decodePacketToFloat32(data, frameSize)
 }
 
 // Reset resets decoder state while preserving user-configured gain.
@@ -294,16 +294,6 @@ func streamDecodeGainLinear(gainQ8 int) float32 {
 	return opusmath.CeltExp2(float32(6.48814081e-4) * float32(gainQ8))
 }
 
-func (d *streamState) applyOutputGain(samples []float64) {
-	if d.decodeGainQ8 == 0 {
-		return
-	}
-	gain := streamDecodeGainLinear(d.decodeGainQ8)
-	for i := range samples {
-		samples[i] = float64(float32(samples[i]) * gain)
-	}
-}
-
 func (d *streamState) applyOutputGain32(samples []float32) {
 	if d.decodeGainQ8 == 0 {
 		return
@@ -321,18 +311,6 @@ func (d *streamState) frameSize48FromAPI(frameSize int) int {
 	return frameSize * 48000 / d.sampleRate
 }
 
-func float32ToFloat64Slice(in []float32) []float64 {
-	out := make([]float64, len(in))
-	float32ToFloat64Into(out, in)
-	return out
-}
-
-func float32ToFloat64Into(out []float64, in []float32) {
-	for i := range in {
-		out[i] = float64(in[i])
-	}
-}
-
 func (d *streamState) recordDecodedTOC(toc streamTOC) {
 	d.lastMode = toc.mode
 	d.lastBandwidth = toc.bandwidth
@@ -346,9 +324,9 @@ func (d *streamState) recordDecodeCall(frameSize, dataLen int) {
 	d.lastDataLen = dataLen
 }
 
-func (d *streamState) finishDecode(out []float64, err error) ([]float64, error) {
+func (d *streamState) finishDecode(out []float32, err error) ([]float32, error) {
 	if err == nil {
-		d.applyOutputGain(out)
+		d.applyOutputGain32(out)
 	}
 	return out, err
 }
@@ -397,12 +375,8 @@ func (d *streamState) decodeSILKToFloat32(data []byte, frameSize int, packetSter
 	return out32, nil
 }
 
-func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc streamTOC, qextPayload []byte) ([]float64, error) {
-	out32, err := d.decodeFramePayloadToFloat32(frame, frameSize, toc, qextPayload)
-	if err != nil {
-		return nil, err
-	}
-	return float32ToFloat64Slice(out32), nil
+func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc streamTOC, qextPayload []byte) ([]float32, error) {
+	return d.decodeFramePayloadToFloat32(frame, frameSize, toc, qextPayload)
 }
 
 func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, toc streamTOC, qextPayload []byte) ([]float32, error) {
@@ -439,12 +413,8 @@ func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, t
 	return out, nil
 }
 
-func (d *streamState) decodePLC(frameSize int) ([]float64, error) {
-	out32, err := d.decodePLCToFloat32(frameSize)
-	if err != nil {
-		return nil, err
-	}
-	return float32ToFloat64Slice(out32), nil
+func (d *streamState) decodePLC(frameSize int) ([]float32, error) {
+	return d.decodePLCToFloat32(frameSize)
 }
 
 func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
@@ -475,59 +445,6 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	default:
 		return make([]float32, frameSize*d.channels), nil
 	}
-}
-
-func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error) {
-	if data == nil || len(data) == 0 {
-		return d.decodePLC(frameSize)
-	}
-	if len(data) < 1 {
-		return nil, ErrPacketTooShort
-	}
-
-	d.recordDecodeCall(frameSize, len(data))
-
-	toc := parseStreamTOC(data[0])
-	parsed, err := parseOpusPacket(data, false)
-	if err != nil {
-		return nil, err
-	}
-
-	frameCount := len(parsed.frames)
-	if frameCount == 0 {
-		return nil, ErrInvalidPacket
-	}
-
-	var qextPayloads streamQEXTPayloads
-	if extsupport.QEXT && !d.ignoreExtensions && toc.mode == streamModeCELT && len(parsed.padding) > 0 {
-		qextPayloads.collect(parsed.padding, parsed.paddingFrameCount, qextPacketExtensionID)
-	}
-
-	if frameCount == 1 {
-		var qextPayload []byte
-		if extsupport.QEXT && !d.ignoreExtensions {
-			qextPayload = qextPayloads.frame(0)
-		}
-		return d.finishDecode(d.decodeFramePayload(parsed.frames[0], frameSize, toc, qextPayload))
-	}
-	if frameSize%frameCount != 0 {
-		return nil, fmt.Errorf("multistream: frameSize %d not divisible by packet frame count %d", frameSize, frameCount)
-	}
-
-	subFrameSize := frameSize / frameCount
-	out := make([]float64, 0, frameSize*d.channels)
-	for i := 0; i < frameCount; i++ {
-		var qextPayload []byte
-		if extsupport.QEXT && !d.ignoreExtensions {
-			qextPayload = qextPayloads.frame(i)
-		}
-		frameDecoded, err := d.decodeFramePayload(parsed.frames[i], subFrameSize, toc, qextPayload)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, frameDecoded...)
-	}
-	return d.finishDecode(out, nil)
 }
 
 func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float32, error) {

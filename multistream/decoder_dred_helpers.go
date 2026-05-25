@@ -25,7 +25,6 @@ type decoderDREDState struct {
 	dredFARGAN      []lpcnetplc.FARGAN
 	dredBridge      []decoderDRED48kBridgeState
 	dredPCM32       [][]float32
-	dredPCM64       [][]float64
 }
 
 type decoderDRED48kBridgeState struct {
@@ -109,7 +108,6 @@ func (d *Decoder) ensureDREDSidecar() {
 	s.dredFARGAN = make([]lpcnetplc.FARGAN, streams)
 	s.dredBridge = make([]decoderDRED48kBridgeState, streams)
 	s.dredPCM32 = makeDREDPCM32Scratch(streams, d.coupledStreams)
-	s.dredPCM64 = makeDREDPCM64Scratch(streams, d.coupledStreams)
 	s.dredData = makeDREDBuffers(streams)
 	s.dredCache = make([]internaldred.Cache, streams)
 }
@@ -129,7 +127,6 @@ func (d *Decoder) releaseDREDSidecar() {
 	s.dredFARGAN = nil
 	s.dredBridge = nil
 	s.dredPCM32 = nil
-	s.dredPCM64 = nil
 	s.dredData = nil
 	s.dredCache = nil
 }
@@ -168,17 +165,6 @@ func makeDREDPCM32Scratch(streams, coupledStreams int) [][]float32 {
 	bufs := make([][]float32, streams)
 	for i := range bufs {
 		bufs[i] = make([]float32, maxOpusPacketDuration48*streamChannels(i, coupledStreams))
-	}
-	return bufs
-}
-
-func makeDREDPCM64Scratch(streams, coupledStreams int) [][]float64 {
-	if streams <= 0 {
-		return nil
-	}
-	bufs := make([][]float64, streams)
-	for i := range bufs {
-		bufs[i] = make([]float64, maxOpusPacketDuration48*streamChannels(i, coupledStreams))
 	}
 	return bufs
 }
@@ -504,7 +490,7 @@ func (d *Decoder) generateDREDNeuralFrames16k(stream int, dst []float32, samples
 	return true
 }
 
-func (d *Decoder) decodeDREDSILKOrHybridPLCStream(stream, frameSize int, st *streamState) ([]float64, bool, error) {
+func (d *Decoder) decodeDREDSILKOrHybridPLCStream(stream, frameSize int, st *streamState) ([]float32, bool, error) {
 	if st == nil || st.channels < 1 || st.channels > 2 {
 		return nil, false, nil
 	}
@@ -539,10 +525,10 @@ func (d *Decoder) decodeDREDSILKOrHybridPLCStream(stream, frameSize int, st *str
 	if !usedHook {
 		return nil, false, nil
 	}
-	return float32ToFloat64Slice(decoded), true, nil
+	return decoded, true, nil
 }
 
-func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float64, bool, error) {
+func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float32, bool, error) {
 	s := d.dredState()
 	if s == nil ||
 		stream < 0 ||
@@ -625,13 +611,6 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float64, bool, e
 		s.dredRecovery[stream] += frameSize
 	}
 	st.recordDecodeCall(frameSize, 0)
-	var decoded []float64
-	if stream < len(s.dredPCM64) && len(s.dredPCM64[stream]) >= len(out) {
-		decoded = s.dredPCM64[stream][:len(out)]
-	} else {
-		decoded = make([]float64, len(out))
-	}
-	float32ToFloat64Into(decoded, out)
-	st.applyOutputGain(decoded)
-	return decoded, true, nil
+	st.applyOutputGain32(out)
+	return out, true, nil
 }

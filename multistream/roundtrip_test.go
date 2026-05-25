@@ -76,10 +76,11 @@ func generateContinuousTestSignal(channels, frameSize, numFrames, sampleRate int
 
 // computeEnergy calculates the total energy (sum of squared samples) of a signal.
 // Used to verify that decoded output has audible content (not silence).
-func computeEnergy(samples []float64) float64 {
+func computeEnergy[S ~float32 | ~float64](samples []S) float64 {
 	var energy float64
 	for _, s := range samples {
-		energy += s * s
+		v := float64(s)
+		energy += v * v
 	}
 	return energy
 }
@@ -88,7 +89,7 @@ func computeEnergy(samples []float64) float64 {
 // Input format: sample-interleaved [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
 //
 // Returns slice of energy values, one per channel.
-func computeEnergyPerChannel(samples []float64, channels int) []float64 {
+func computeEnergyPerChannel[S ~float32 | ~float64](samples []S, channels int) []float64 {
 	if channels == 0 {
 		return nil
 	}
@@ -99,7 +100,7 @@ func computeEnergyPerChannel(samples []float64, channels int) []float64 {
 	for ch := 0; ch < channels; ch++ {
 		var energy float64
 		for s := 0; s < frameSize; s++ {
-			sample := samples[s*channels+ch]
+			sample := float64(samples[s*channels+ch])
 			energy += sample * sample
 		}
 		energies[ch] = energy

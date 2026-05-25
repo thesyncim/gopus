@@ -475,18 +475,8 @@ func TestRouteChannelsToStreams_RoundTrip(t *testing.T) {
 			// Route to streams (encoding direction)
 			streamBuffers := routeChannelsToStreams(input, cfg.mapping, cfg.coupledStreams, frameSize, cfg.channels, cfg.streams)
 
-			// Convert stream buffers to the format expected by applyChannelMapping
-			// (which expects [][]float64 with interleaved stereo for coupled streams)
-			decodedStreams := make([][]float64, cfg.streams)
-			for i := 0; i < cfg.streams; i++ {
-				decodedStreams[i] = make([]float64, len(streamBuffers[i]))
-				for j, v := range streamBuffers[i] {
-					decodedStreams[i][j] = float64(v)
-				}
-			}
-
 			// Apply channel mapping (decoding direction)
-			output := applyChannelMapping(decodedStreams, cfg.mapping, cfg.coupledStreams, frameSize, cfg.channels)
+			output := applyChannelMapping32(streamBuffers, cfg.mapping, cfg.coupledStreams, frameSize, cfg.channels)
 
 			// Verify round-trip
 			if len(output) != len(input) {
@@ -494,7 +484,7 @@ func TestRouteChannelsToStreams_RoundTrip(t *testing.T) {
 			}
 
 			for i, v := range input {
-				if math.Abs(output[i]-float64(v)) > 1e-10 {
+				if math.Abs(float64(output[i]-v)) > 1e-6 {
 					t.Errorf("sample %d: got %f, want %f", i, output[i], v)
 				}
 			}

@@ -1628,31 +1628,6 @@ internal/osce/lace/runtime.go	2	fa21599cedcfee83faa20a3e146e4530d379f43ff723ffcf
 internal/osce/lace/runtime_trace.go	1	13b2161c7a2379d957f300147cc6eff612465d7c227ca6668c0890f138233367	legacy-current	gains[0] = float32(math.Exp(float64(logGainLimit - gains[0])))
 internal/osce/lace/runtime_trace.go	1	fa21599cedcfee83faa20a3e146e4530d379f43ff723ffcf52113df4d1f82222	legacy-current	invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
 internal/osce/lace/runtime_trace.go	1	fe810750a1083d7aaa3cad8e3f60ba7e94bd32bfded2bae2fcd3163e0a7f34e3	legacy-current	gains[1] = float32(math.Exp(float64(filterGainA*gains[1] + filterGainB)))
-multistream/decoder.go	1	009c6be1cbc4f9d10e53c7879e953dabe46bc54f794578a282f588a4befdac22	legacy-current	func float32ToFloat64Into(out []float64, in []float32) {
-multistream/decoder.go	1	14af650770c0e2c9eb815235f09086e5162bb5c16de583e287f2290d377f0dc7	legacy-current	out[i] = float64(in[i])
-multistream/decoder.go	1	1b54946e7041893b4076d75704799ab7d28248e3da634f491d94ddde09f3bf11	legacy-current	Decode(data []byte, frameSize int) ([]float64, error)
-multistream/decoder.go	1	2a06febbf1e9d6a0effa8c55ba313733ae48976f6b6664f503f3ecbbdca2f658	legacy-current	out := make([]float64, 0, frameSize*d.channels)
-multistream/decoder.go	1	707fa54faebb88691d1c2fa1cca69c8f7a2b461d0b3fd7f9b85aad32562a3298	legacy-current	func (d *streamState) Decode(data []byte, frameSize int) ([]float64, error) {
-multistream/decoder.go	1	73bf5718b263730e3b922647a68173977f78cbbb9bd45f593e33faa775bcf520	legacy-current	func (d *streamState) decodePLC(frameSize int) ([]float64, error) {
-multistream/decoder.go	1	7612bd0169c81ef714e490e44941290368b70e06e51839556dfb87f95d7fb1e6	legacy-current	func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc streamTOC, qextPayload []byte) ([]float64, error) {
-multistream/decoder.go	1	8a59a2cc0c29e6098602d5a52414180f336bd1919498a1644b016ff39987767b	legacy-current	func (d *streamState) applyOutputGain(samples []float64) {
-multistream/decoder.go	1	916b5b58a34a61046668654d385c235dcaf1a1720306e22f9751adf07f418b30	legacy-current	func float32ToFloat64Slice(in []float32) []float64 {
-multistream/decoder.go	1	95deb6c41b9d07edea91502daf5a992352ac944d8bd8e8e0ae6cd6a935a8df6c	legacy-current	func (d *streamState) finishDecode(out []float64, err error) ([]float64, error) {
-multistream/decoder.go	1	b734f575f9f192d863a71b875f4929eca5d4d8013512360d81735e1ae3167da9	legacy-current	samples[i] = float64(float32(samples[i]) * gain)
-multistream/decoder.go	1	bfe0b97dfeea2f360a044dd27234ef74d502d67ec92f3d8ed9014c404849cfb2	legacy-current	DecodeStereo(data []byte, frameSize int) ([]float64, error)
-multistream/decoder.go	1	d28665264add3eb548a33ecf6bb7040bfab9cdd49436a82eb204fa96eef26fa0	legacy-current	func (d *streamState) DecodeStereo(data []byte, frameSize int) ([]float64, error) {
-multistream/decoder.go	1	e45d14f86ea166aae6793180d3e3588dc54c9d1400f9af6b22c6056c0cca409f	legacy-current	out := make([]float64, len(in))
-multistream/decoder.go	1	f64006918899d201e3e8c3c3794f45c5b1d99b5b0f3a63879793d26657bf7606	legacy-current	func (d *streamState) decodePacket(data []byte, frameSize int) ([]float64, error) {
-multistream/decoder.go	1	fcc60e12b264a5bb0abb15c978c7be64060ba1439cc313538ac374dcfd06008e	legacy-current	// Decode decodes a packet and returns PCM samples as float64.
-multistream/decoder_dred_helpers.go	1	1a16ce2c90d8998f8a54c9dc4db250ecea7834dca6abdbc193c35a7ed76158ef	legacy-current	func makeDREDPCM64Scratch(streams, coupledStreams int) [][]float64 {
-multistream/decoder_dred_helpers.go	1	1d1255b9d2a9e2fe09c3b778454116dc7b70687380c54ac46223c3e1068ed30b	legacy-current	func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float64, bool, error) {
-multistream/decoder_dred_helpers.go	1	1e71a67c553078016117289e74f2fc2a465532dd5e8b8aca3432466806736982	legacy-current	bufs[i] = make([]float64, maxOpusPacketDuration48*streamChannels(i, coupledStreams))
-multistream/decoder_dred_helpers.go	1	622ed6f9dd153ec0465c4d7ef191f86b07aa9b32939198a4251e23a1a11375dc	legacy-current	bufs := make([][]float64, streams)
-multistream/decoder_dred_helpers.go	1	985ef8ace2939210471f467264050e5b44996dba7eb6fed62ef850b50cc03326	legacy-current	dredPCM64 [][]float64
-multistream/decoder_dred_helpers.go	1	9fdbe6a2cef77c9d66f831f3b4d083bd0b7e4303d2e327dcb23f36e25489900c	legacy-current	func (d *Decoder) decodeDREDSILKOrHybridPLCStream(stream, frameSize int, st *streamState) ([]float64, bool, error) {
-multistream/decoder_dred_helpers.go	1	d0c7d54f01b294ae6b16f4811a0dec96e0662fe7562bc8431b60c0751fd14aad	legacy-current	var decoded []float64
-multistream/decoder_dred_helpers.go	1	f148cfaf2b3e71579a9d0a72d7d75042ad45b46c38e910d17108fea146c88049	legacy-current	decoded = make([]float64, len(out))
-multistream/decoder_dred_helpers_default.go	1	ec9c3694ac141ac80474d4d54fc301e461c813a54308b54d728657d8695aa683	legacy-current	func (d *Decoder) decodeDREDPLCStream(_ int, _ int) ([]float64, bool, error) {
 multistream/decoder_osce_apply.go	1	77fc3480a79f4ef2d1546f7eefe276c977313b089706ab3cbe5f243da017af7c	legacy-current	return int16(int32(math.RoundToEven(float64(tmp))))
 multistream/decoder_osce_apply.go	1	ca1ff93a7bfc25a8507115773d45c137f71c10c3833cb0893c29c008ebb885f7	legacy-current	func (d *streamState) markOSCEInactiveIfModeIneligible(toc streamTOC, out []float64, frameSize int) {
 multistream/decoder_osce_apply_default.go	1	796295867d83c198e329652d1cb8867714d368db11b2d9acdf524c9af3034c3e	legacy-current	func (d *streamState) markOSCEInactiveIfModeIneligible(_ streamTOC, _ []float64, _ int) {
@@ -1661,23 +1636,6 @@ multistream/encoder.go	1	7168bdc66291c10c23a0ab0fbdf51861253597db2c19c80bf93fcc4
 multistream/encoder.go	1	877c91f295f3f21d6eb5d6db49e5f76754beb005d1989420142d3ed9445d022b	legacy-current	burstMultiple := float64(maxBurstBytes) / float64(targetBytes)
 multistream/encoder.go	1	bbbd460aa7149ce1976e96b72f14116a814daf3a6431943030e6c96574d38aa3	legacy-current	func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
 multistream/encoder.go	1	fd75720f7395eaedc3a720819a1f0e4ca5fef697cb266899f34d1cf6ebb56eb0	legacy-current	// - pcm: input samples as float64, sample-interleaved [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
-multistream/multistream.go	1	020c91550db62c814c505f9eab31e708fca9a2bb3fadfa659b78ec3b883d9767	legacy-current	decoded = make([]float64, frameSize*channels)
-multistream/multistream.go	1	08bd3e6b1df90a3f8a7b311e1c98c6d4923db76c0314e7a6c5b0daecf9bc4f4f	legacy-current	func (d *Decoder) decodeStream(stream int, packet []byte, frameSize int) ([]float64, error) {
-multistream/multistream.go	2	1c600a61d9befdb933ed0a5f5a0a01492538e9f6fdf70ebe7b200d86ac36f03b	legacy-current	decodedStreams := make([][]float64, d.streams)
-multistream/multistream.go	1	3e0bfa1ac22c5b8d59c8d1cab418a136b035cc25fd99e345e640c5db6a4b0fb5	legacy-current	// Returns sample-interleaved float64 samples: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]
-multistream/multistream.go	1	55a7043502ab3c2a7d06529dfb8296239ea0255a36a3c2d1c216e9861bf44d0a	legacy-current	func float64ToFloat32(samples []float64) []float32 {
-multistream/multistream.go	1	6969e8e7ee41b6bcb3d51525998af7230710536d6f75b0666d80a9e3f49f2eb5	legacy-current	func (d *Decoder) decodePLCChunk(frameSize int) ([]float64, error) {
-multistream/multistream.go	1	6d15c1a594d8cabc6bccc8f68bada889774efebabd2755524e746440732799b5	legacy-current	func applyChannelMapping(decodedStreams [][]float64, mapping []byte, coupledStreams, frameSize, outputChannels int) []float64 {
-multistream/multistream.go	1	9fc693a5abe622da108dcc1e657d9245cf7592a79a1f56f3f43cbde46cc68271	legacy-current	return make([]float64, totalSamples), nil
-multistream/multistream.go	1	ad3fc134777f3e2ec9d3b518959e53db30bbd91d515af1d71b3542c920056ee7	legacy-current	func (d *Decoder) Decode(data []byte, frameSize int) ([]float64, error) {
-multistream/multistream.go	1	c4a7b1959057860e72acc2ed0715dbe2b5cd853a1e7c90ea610fb65087dbb0e9	legacy-current	func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
-multistream/multistream.go	1	c62cc5387dba67a41d07fc8ad29f3d9519b8219fc29fe7a9c187e30e56b9d404	legacy-current	output := make([]float64, totalSamples)
-multistream/multistream.go	1	cc33e4c2e792b1c8a5c2bc865f0a61605a648b8a247e21a862723e173f09cce4	legacy-current	// float64ToFloat32 converts float64 samples to float32.
-multistream/multistream.go	1	ef79dba652753854e2d7ab4542ed765304228a8500c2289c087965be572bac5b	legacy-current	output := make([]float64, frameSize*outputChannels)
-multistream/projection_helpers.go	1	ae6d688e2e5a27210b104f0362fbc788a7fc3a4c73f3c20abaa2f2afc0af25b2	legacy-current	func (d *Decoder) applyProjectionDemixing(output []float64, frameSize int) {
-multistream/projection_matrix.go	1	3a5a002c8b7757443fc345f504f358e528a5f94c28803dd5f505bc94e9cfb0a7	legacy-current	dst[outBase+row] = float64(float32(dst[outBase+row]) + tmp)
-multistream/projection_matrix.go	1	d517586c89bae9032d71df76a2366a234ec7a2989ccddda3ba6d2e45bbfc1ad0	legacy-current	func applyProjectionDemixingMatrix(dst, src []float64, matrix []int16, frame []float32, frameSize, rows, cols int) {
-multistream/projection_matrix.go	1	e04b8b327bc56144e9dde7d553f152c6b052f936b26702a79a990b5753ebe3f5	legacy-current	tmp := float32(float64(matrix[col*rows+row]) * float64(inputSample) * (1.0 / 32768.0))
 pcm.go	1	b42062ac33ff5c5dfaa06aff81cb5e97824d8ce99278ec3c89db77cade24e72a	legacy-current	func float64ToInt16(sample float64) int16 {
 plc/celt_plc.go	1	04bd4ec8c37ef43eb37dbb720ade84ca6bdf9c299e8e5f2c163decbbdd173eb3	legacy-current	Synthesize(coeffs []float64, transient bool, shortBlocks int) []float64
 plc/celt_plc.go	2	0b0bc28e966bf3c9c31d41f287fdf15e871cdf818059a5012643af782cc8ac80	legacy-current	return make([]float64, frameSize)

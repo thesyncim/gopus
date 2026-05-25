@@ -787,7 +787,7 @@ func TestDecoderDecodeNilConsumesMultistreamDREDNeuralSILKFinalSecondMonoStream(
 	assertDecoderDecodeNilConsumesMultistreamDREDNeuralMode(t, "silk final second mono", packet, channels, targetStream)
 }
 
-func extractMappedStreamSamplesForTest(t *testing.T, samples []float64, frameSize, outputChannels int, mapping []byte, coupledStreams, targetStream int) []float64 {
+func extractMappedStreamSamplesForTest(t *testing.T, samples []float32, frameSize, outputChannels int, mapping []byte, coupledStreams, targetStream int) []float32 {
 	t.Helper()
 
 	streamCh := streamChannels(targetStream, coupledStreams)
@@ -818,7 +818,7 @@ func extractMappedStreamSamplesForTest(t *testing.T, samples []float64, frameSiz
 		}
 	}
 
-	out := make([]float64, frameSize*streamCh)
+	out := make([]float32, frameSize*streamCh)
 	for i := 0; i < frameSize; i++ {
 		for ch, outCh := range outputByStreamChannel {
 			out[i*streamCh+ch] = samples[i*outputChannels+outCh]
@@ -827,7 +827,7 @@ func extractMappedStreamSamplesForTest(t *testing.T, samples []float64, frameSiz
 	return out
 }
 
-func assertFloat64ExactForTest(t *testing.T, got, want []float64, label string) {
+func assertFloat32ExactForTest(t *testing.T, got, want []float32, label string) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
@@ -838,7 +838,7 @@ func assertFloat64ExactForTest(t *testing.T, got, want []float64, label string) 
 		if got[i] == want[i] {
 			continue
 		}
-		d := math.Abs(got[i] - want[i])
+		d := math.Abs(float64(got[i] - want[i]))
 		if d > maxAbs {
 			maxAbs = d
 			maxIdx = i
@@ -905,7 +905,7 @@ func assertDecoderDecodeNilConsumesMultistreamDREDNeuralModeAtRate(t *testing.T,
 		t.Fatalf("%s oracle Decode error: %v", label, err)
 	}
 	targetSamples := extractMappedStreamSamplesForTest(t, samples, frameSize, channels, mapping, coupledStreams, targetStream)
-	assertFloat64ExactForTest(t, targetSamples, oracleSamples, label+" target good packet vs single-stream oracle")
+	assertFloat32ExactForTest(t, targetSamples, oracleSamples, label+" target good packet vs single-stream oracle")
 	if dec.dred == nil || dec.dred.dredCache[targetStream].Empty() {
 		t.Fatalf("%s Decode did not cache target-stream DRED payload", label)
 	}
@@ -922,7 +922,7 @@ func assertDecoderDecodeNilConsumesMultistreamDREDNeuralModeAtRate(t *testing.T,
 		t.Fatalf("%s oracle Decode(nil) error: %v", label, err)
 	}
 	targetPLCSamples := extractMappedStreamSamplesForTest(t, plcSamples, frameSize, channels, mapping, coupledStreams, targetStream)
-	assertFloat64ExactForTest(t, targetPLCSamples, oraclePLCSamples, label+" target DRED PLC vs single-stream oracle")
+	assertFloat32ExactForTest(t, targetPLCSamples, oraclePLCSamples, label+" target DRED PLC vs single-stream oracle")
 	if got := dec.dred.dredRecovery[targetStream]; got != frameSize {
 		t.Fatalf("%s target stream dredRecovery=%d want %d", label, got, frameSize)
 	}
@@ -971,11 +971,8 @@ func TestDecoderDREDPLCStreamCELTUsesSidecarScratch(t *testing.T) {
 	if len(dec.dred.dredPCM32[targetStream]) < wantSamples {
 		t.Fatalf("dredPCM32 scratch len=%d want at least %d", len(dec.dred.dredPCM32[targetStream]), wantSamples)
 	}
-	if len(dec.dred.dredPCM64[targetStream]) < wantSamples {
-		t.Fatalf("dredPCM64 scratch len=%d want at least %d", len(dec.dred.dredPCM64[targetStream]), wantSamples)
-	}
-	if len(decoded) > 0 && &decoded[0] != &dec.dred.dredPCM64[targetStream][0] {
-		t.Fatal("decodeDREDPLCStream returned non-sidecar float64 scratch")
+	if len(decoded) > 0 && &decoded[0] != &dec.dred.dredPCM32[targetStream][0] {
+		t.Fatal("decodeDREDPLCStream returned non-sidecar float32 scratch")
 	}
 }
 
@@ -1239,13 +1236,13 @@ func TestDecoderDoesNotCachePartialDREDStateWhenLaterStreamFails(t *testing.T) {
 	dec.SetDNNBlob(makeDecoderBlobForDREDTest(t, true))
 	dec.decoders[0] = streamDecoderStub{
 		channels: 2,
-		decode: func(_ []byte, frameSize int) ([]float64, error) {
-			return make([]float64, frameSize*2), nil
+		decode: func(_ []byte, frameSize int) ([]float32, error) {
+			return make([]float32, frameSize*2), nil
 		},
 	}
 	dec.decoders[1] = streamDecoderStub{
 		channels: 1,
-		decode: func(_ []byte, _ int) ([]float64, error) {
+		decode: func(_ []byte, _ int) ([]float32, error) {
 			return nil, errors.New("boom")
 		},
 	}

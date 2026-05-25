@@ -208,7 +208,7 @@ def write_allowlist(path: Path, findings: dict[FindingKey, Finding], reason: str
                     str(finding.count),
                     key.digest,
                     escape_field(reason),
-                    escape_field(finding.sample[:220]),
+                    escape_field(finding.sample[:220].rstrip()),
                 ]
             )
         )

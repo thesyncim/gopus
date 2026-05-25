@@ -50,13 +50,9 @@ func TestLibopus_APIRateMultistreamDecodeMatchesReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDecoder: %v", err)
 	}
-	got64, err := dec.Decode(packet, frameSize)
+	got, err := dec.Decode(packet, frameSize)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
-	}
-	got := make([]float32, len(got64))
-	for i, v := range got64 {
-		got[i] = float32(v)
 	}
 
 	want, err := decodeWithLibopusReferencePackets(1, sampleRate, channels, streams, coupled, frameSize, mapping, nil, [][]byte{packet})
@@ -111,13 +107,9 @@ func TestLibopus_APIRateMultistreamOutputGainMatchesReference(t *testing.T) {
 	if err := dec.SetGain(gainQ8); err != nil {
 		t.Fatalf("SetGain(%d): %v", gainQ8, err)
 	}
-	got64, err := dec.Decode(packet, frameSize)
+	got, err := dec.Decode(packet, frameSize)
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
-	}
-	got := make([]float32, len(got64))
-	for i, v := range got64 {
-		got[i] = float32(v)
 	}
 	_, maxAbsDiff := computeDiffStatsF32(got, want)
 	if maxAbsDiff != 0 {
@@ -234,7 +226,7 @@ func TestLibopus_APIRateMultistreamCELTDecodeAndPLCMatchesReference(t *testing.T
 			if err != nil {
 				t.Fatalf("NewDecoder: %v", err)
 			}
-			got64 := make([]float64, 0, len(want))
+			got := make([]float32, 0, len(want))
 			for i, pkt := range sequence {
 				frame, err := dec.Decode(pkt, frameSize)
 				if err != nil {
@@ -243,11 +235,7 @@ func TestLibopus_APIRateMultistreamCELTDecodeAndPLCMatchesReference(t *testing.T
 				if len(frame) != frameSize*channels {
 					t.Fatalf("Decode sequence[%d] samples=%d want %d", i, len(frame)/channels, frameSize)
 				}
-				got64 = append(got64, frame...)
-			}
-			got := make([]float32, len(got64))
-			for i, v := range got64 {
-				got[i] = float32(v)
+				got = append(got, frame...)
 			}
 			_, maxAbsDiff := computeDiffStatsF32(got, want)
 			if maxAbsDiff > 3e-3 {
@@ -301,7 +289,7 @@ func TestLibopus_APIRateMultistreamSILKRequestedPLCMatchesReference(t *testing.T
 	if err != nil {
 		t.Fatalf("NewDecoder: %v", err)
 	}
-	got64 := make([]float64, 0, len(want))
+	got := make([]float32, 0, len(want))
 	frame, err := dec.Decode(packet, requestFrameSize)
 	if err != nil {
 		t.Fatalf("Decode packet: %v", err)
@@ -309,7 +297,7 @@ func TestLibopus_APIRateMultistreamSILKRequestedPLCMatchesReference(t *testing.T
 	if len(frame) != packetFrameSize*channels {
 		t.Fatalf("Decode packet samples=%d want %d", len(frame)/channels, packetFrameSize)
 	}
-	got64 = append(got64, frame...)
+	got = append(got, frame...)
 	frame, err = dec.Decode(nil, requestFrameSize)
 	if err != nil {
 		t.Fatalf("Decode nil: %v", err)
@@ -317,12 +305,7 @@ func TestLibopus_APIRateMultistreamSILKRequestedPLCMatchesReference(t *testing.T
 	if len(frame) != requestFrameSize*channels {
 		t.Fatalf("Decode nil samples=%d want %d", len(frame)/channels, requestFrameSize)
 	}
-	got64 = append(got64, frame...)
-
-	got := make([]float32, len(got64))
-	for i, v := range got64 {
-		got[i] = float32(v)
-	}
+	got = append(got, frame...)
 	_, maxAbsDiff := computeDiffStatsF32(got, want)
 	if maxAbsDiff > 8e-3 {
 		t.Fatalf("api-rate SILK requested PLC max abs diff=%g want <=8e-3", maxAbsDiff)

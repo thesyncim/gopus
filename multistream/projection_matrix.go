@@ -23,26 +23,6 @@ func applyProjectionDemixingMatrix32(dst, src []float32, matrix []int16, frame [
 	}
 }
 
-func applyProjectionDemixingMatrix(dst, src []float64, matrix []int16, frame []float32, frameSize, rows, cols int) {
-	for s := 0; s < frameSize; s++ {
-		inBase := s * rows
-		outBase := s * rows
-		for col := 0; col < cols; col++ {
-			frame[col] = float32(src[inBase+col])
-		}
-		for row := 0; row < rows; row++ {
-			dst[outBase+row] = 0
-		}
-		for col := 0; col < cols; col++ {
-			inputSample := frame[col]
-			for row := 0; row < rows; row++ {
-				tmp := float32(float64(matrix[col*rows+row]) * float64(inputSample) * (1.0 / 32768.0))
-				dst[outBase+row] = float64(float32(dst[outBase+row]) + tmp)
-			}
-		}
-	}
-}
-
 func applyProjectionDemixingMatrixInt16(dst []int16, src []float32, matrix []int16, frame []float32, frameSize, rows, cols int) {
 	for s := 0; s < frameSize; s++ {
 		inBase := s * rows

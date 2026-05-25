@@ -32,6 +32,6 @@ func (d *Decoder) markDREDUpdated(_ int) {}
 
 func (d *Decoder) markDREDConcealedAll() {}
 
-func (d *Decoder) decodeDREDPLCStream(_ int, _ int) ([]float64, bool, error) {
+func (d *Decoder) decodeDREDPLCStream(_ int, _ int) ([]float32, bool, error) {
 	return nil, false, nil
 }
