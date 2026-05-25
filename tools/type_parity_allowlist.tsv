@@ -7,12 +7,6 @@
 celt/abs_sum_asm.go	1	4ee4d962765a4090e41fa9b41f05e05aba08ab819dfd30f7f75dcc6a9a75bcb8	legacy-current	func absSum(x []float64) float64
 celt/abs_sum_default.go	1	1545e53e474964760f8fa432d3378c734932b4a4bbf835decaa78b48c1c49e19	legacy-current	func absSum(x []float64) float64 {
 celt/abs_sum_default.go	1	d0c9335d851ac7ad87096d97f4702d37f4ba42c9f3ff8e2a2ad7d9a3fe4e7d2e	legacy-current	var sum float64
-celt/alloc_trim.go	1	06f903828fc300967668817775d473177a82b46d5e786e638f0665e5c3388415	legacy-current	normCoeffsRight []float64,
-celt/alloc_trim.go	1	17bc0a1b56f68b28812ef19bcc67e5ed14b471cd75d58626ea167391afe07c90	legacy-current	surroundTrim float64,
-celt/alloc_trim.go	1	36760a89ad8ec788054e9f88263aff909ea7d7ecbfd910d18e8e71df5e736b3b	legacy-current	tfEstimate float64,
-celt/alloc_trim.go	1	b46f8d9819c25f319ea43739d06edebb40b994e3b83ad0d0b409ef6f1d47e6e9	legacy-current	tonalitySlope float64,
-celt/alloc_trim.go	1	ba6fce1ef75e14ba27e5e153e60150aef4706329c72818d21f47f9b2cc0f1f6b	legacy-current	normCoeffs []float64,
-celt/alloc_trim.go	1	d3ae3b7af1a0e490dc995aba0bf4b4de27d93715c9fdce4ade0698b207652fe6	legacy-current	bandLogE []float64,
 celt/amd64_dispatch.go	1	04fbe6cd9b0c449d6ea9c76e85e970fab0d0dad00cbceae02f752e1e13d553d8	legacy-current	func absSumAVX(x []float64) float64
 celt/amd64_dispatch.go	1	08346356bd4ffd82adc63cb1c38987bdf6c393ecfe08f1dc03b9fa37b9e2c252	legacy-current	func expRotation1Stride2AVXFMA(x []float64, length int, c, s float64)
 celt/amd64_dispatch.go	1	1545e53e474964760f8fa432d3378c734932b4a4bbf835decaa78b48c1c49e19	legacy-current	func absSum(x []float64) float64 {

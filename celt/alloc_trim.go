@@ -43,45 +43,30 @@ type allocTrimDetail struct {
 //
 // Reference: libopus celt/celt_encoder.c alloc_trim_analysis()
 func AllocTrimAnalysis(
-	normCoeffs []float64,
-	bandLogE []float64,
+	normCoeffs []celtNorm,
+	bandLogE []celtGLog,
 	nbBands int,
 	lm int,
 	channels int,
-	normCoeffsRight []float64,
+	normCoeffsRight []celtNorm,
 	intensity int,
-	tfEstimate float64,
+	tfEstimate opusVal16,
 	equivRate int,
-	surroundTrim float64,
-	tonalitySlope float64,
+	surroundTrim celtGLog,
+	tonalitySlope opusVal16,
 ) int {
-	norm := make([]celtNorm, len(normCoeffs))
-	for i, v := range normCoeffs {
-		norm[i] = celtNorm(v)
-	}
-	bandE := make([]celtGLog, len(bandLogE))
-	for i, v := range bandLogE {
-		bandE[i] = celtGLog(v)
-	}
-	var normRight []celtNorm
-	if normCoeffsRight != nil {
-		normRight = make([]celtNorm, len(normCoeffsRight))
-		for i, v := range normCoeffsRight {
-			normRight[i] = celtNorm(v)
-		}
-	}
 	trimIndex, _ := allocTrimAnalysisDetailed(
-		norm,
-		bandE,
+		normCoeffs,
+		bandLogE,
 		nbBands,
 		lm,
 		channels,
-		normRight,
+		normCoeffsRight,
 		intensity,
-		opusVal16(tfEstimate),
+		tfEstimate,
 		equivRate,
-		celtGLog(surroundTrim),
-		opusVal16(tonalitySlope),
+		surroundTrim,
+		tonalitySlope,
 		tonalitySlope != 0,
 	)
 	return trimIndex

@@ -10,7 +10,7 @@ func TestAllocTrimAnalysis(t *testing.T) {
 		name          string
 		equivRate     int
 		channels      int
-		tfEstimate    float64
+		tfEstimate    opusVal16
 		expectMinTrim int
 		expectMaxTrim int
 		description   string
@@ -61,20 +61,20 @@ func TestAllocTrimAnalysis(t *testing.T) {
 
 			// Generate flat spectrum normalized coefficients
 			numCoeffs := EBands[nbBands] << lm
-			normL := make([]float64, numCoeffs)
+			normL := make([]celtNorm, numCoeffs)
 			for i := range normL {
 				normL[i] = 0.1 // Small uniform values
 			}
 
 			// Generate flat band energies
-			bandLogE := make([]float64, nbBands*tc.channels)
+			bandLogE := make([]celtGLog, nbBands*tc.channels)
 			for i := range bandLogE {
 				bandLogE[i] = 0.0 // Flat energy
 			}
 
-			var normR []float64
+			var normR []celtNorm
 			if tc.channels == 2 {
-				normR = make([]float64, numCoeffs)
+				normR = make([]celtNorm, numCoeffs)
 				copy(normR, normL)
 			}
 
@@ -173,8 +173,8 @@ func TestAllocTrimBitrateAdjustment(t *testing.T) {
 	nbBands := 21
 	lm := 3
 	numCoeffs := EBands[nbBands] << lm
-	normL := make([]float64, numCoeffs)
-	bandLogE := make([]float64, nbBands)
+	normL := make([]celtNorm, numCoeffs)
+	bandLogE := make([]celtGLog, nbBands)
 
 	// Test at very low bitrate (should get trim ~4)
 	trim32k := AllocTrimAnalysis(normL, bandLogE, nbBands, lm, 1, nil, nbBands, 0, 32000, 0, 0)
@@ -207,8 +207,8 @@ func TestAllocTrimTFEstimate(t *testing.T) {
 	nbBands := 21
 	lm := 3
 	numCoeffs := EBands[nbBands] << lm
-	normL := make([]float64, numCoeffs)
-	bandLogE := make([]float64, nbBands)
+	normL := make([]celtNorm, numCoeffs)
+	bandLogE := make([]celtGLog, nbBands)
 	equivRate := 80000 // Use neutral bitrate
 
 	trimNoTransient := AllocTrimAnalysis(normL, bandLogE, nbBands, lm, 1, nil, nbBands, 0.0, equivRate, 0, 0)
@@ -231,8 +231,8 @@ func TestAllocTrimSurroundTrimAdjustment(t *testing.T) {
 	nbBands := 21
 	lm := 3
 	numCoeffs := EBands[nbBands] << lm
-	normL := make([]float64, numCoeffs)
-	bandLogE := make([]float64, nbBands)
+	normL := make([]celtNorm, numCoeffs)
+	bandLogE := make([]celtGLog, nbBands)
 	equivRate := 80000
 
 	base := AllocTrimAnalysis(normL, bandLogE, nbBands, lm, 1, nil, nbBands, 0.0, equivRate, 0.0, 0.0)
