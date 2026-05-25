@@ -58,5 +58,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-evidence-${{ github.run_id }}
-          path: reports/release/*.md
+          path: reports/release/**
           if-no-files-found: error

@@ -37,7 +37,7 @@ func probeLibopusOpusResSize() (int, error) {
 		return 0, fmt.Errorf("mode=%d want %d", mode, celtVQModeTypeSizes)
 	}
 	reader.Count(1)
-	for i := 0; i < 5; i++ {
+	for i := 0; i < 6; i++ {
 		reader.U32()
 	}
 	opusResSize := int(reader.U32())

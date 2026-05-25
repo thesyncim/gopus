@@ -82,6 +82,7 @@ func AllocTrimAnalysis(
 		equivRate,
 		celtGLog(surroundTrim),
 		opusVal16(tonalitySlope),
+		tonalitySlope != 0,
 	)
 	return trimIndex
 }
@@ -98,6 +99,7 @@ func allocTrimAnalysisDetailed(
 	equivRate int,
 	surroundTrim celtGLog,
 	tonalitySlope opusVal16,
+	analysisValid bool,
 ) (int, allocTrimDetail) {
 	detail := allocTrimDetail{}
 
@@ -187,7 +189,7 @@ func allocTrimAnalysisDetailed(
 	// Reference: libopus lines 935-939
 	// tonality_slope ranges from about -0.25 to 0.25 in practice
 	// libopus: trim -= max(-2, min(2, 2*(tonality_slope + 0.05)))
-	if tonalitySlope != 0 {
+	if analysisValid {
 		tonalAdjust := opusVal16(2.0) * (tonalitySlope + opusVal16(0.05))
 		if tonalAdjust < opusVal16(-2.0) {
 			tonalAdjust = opusVal16(-2.0)

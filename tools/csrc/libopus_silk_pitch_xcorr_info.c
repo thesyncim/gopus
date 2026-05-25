@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef _WIN32
@@ -15,6 +16,24 @@
 
 void celt_pitch_xcorr_c(const opus_val16 *_x, const opus_val16 *_y, opus_val32 *xcorr,
     int len, int max_pitch, int arch);
+
+void celt_fatal(const char *str, const char *file, int line) {
+  (void)str;
+  (void)file;
+  (void)line;
+  abort();
+}
+
+#if defined(OPUS_ARM_MAY_HAVE_NEON_INTR) && !defined(GOPUS_LINK_OPUS_ARM_NEON)
+opus_val32 celt_inner_prod_neon(const opus_val16 *x, const opus_val16 *y, int N) {
+  return celt_inner_prod_c(x, y, N);
+}
+
+void dual_inner_prod_neon(const opus_val16 *x, const opus_val16 *y01,
+    const opus_val16 *y02, int N, opus_val32 *xy1, opus_val32 *xy2) {
+  dual_inner_prod_c(x, y01, y02, N, xy1, xy2);
+}
+#endif
 
 static int set_binary_stdio(void) {
 #ifdef _WIN32

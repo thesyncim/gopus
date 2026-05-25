@@ -272,7 +272,7 @@ func TestDecoderQEXTMultiFramePacketMatchesExplicitPayloads(t *testing.T) {
 
 			wantStream := newStreamDecoder(48000, channels)
 			wantStream.recordDecodeCall(960*len(frames), len(packet))
-			want := make([]float64, 0, 960*channels*len(frames))
+			want := make([]float32, 0, 960*channels*len(frames))
 			for i, frame := range frames {
 				decoded, err := wantStream.decodeFramePayload(frame.rawFrame, 960, frame.toc, frame.qextPayload)
 				if err != nil {
@@ -324,7 +324,7 @@ func TestDecoderQEXTMultiFrameIgnoreExtensionsMatchesInactivePayloads(t *testing
 
 			wantStream := newStreamDecoder(48000, channels)
 			wantStream.recordDecodeCall(960*len(frames), len(packet))
-			want := make([]float64, 0, 960*channels*len(frames))
+			want := make([]float32, 0, 960*channels*len(frames))
 			for i, frame := range frames {
 				decoded, err := wantStream.decodeFramePayload(frame.rawFrame, 960, frame.toc, nil)
 				if err != nil {
@@ -439,7 +439,7 @@ func TestDecoderQEXTTwoStreamPacketMatchesExplicitStreamPayloads(t *testing.T) {
 			t.Fatalf("decode mono ignore=%v: %v", ignore, err)
 		}
 
-		want := make([]float64, 960*3)
+		want := make([]float32, 960*3)
 		for i := 0; i < 960; i++ {
 			want[3*i] = coupledOut[2*i]
 			want[3*i+1] = coupledOut[2*i+1]
@@ -538,7 +538,7 @@ func TestDecoderQEXTTwoStreamOpaquePaddingMatchesExplicitStreamPayloads(t *testi
 					t.Fatalf("decode mono ignore=%v: %v", ignore, err)
 				}
 
-				want := make([]float64, 960*3)
+				want := make([]float32, 960*3)
 				for i := 0; i < 960; i++ {
 					want[3*i] = coupledOut[2*i]
 					want[3*i+1] = coupledOut[2*i+1]

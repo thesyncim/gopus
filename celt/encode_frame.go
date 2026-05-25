@@ -1150,6 +1150,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				equivRate,
 				surroundTrimForAlloc,
 				opusVal16(tonalitySlope),
+				e.analysisValid,
 			)
 			if codedChannels == 2 {
 				e.lastStereoSaving = UpdateStereoSaving(e.lastStereoSaving, trimNormL, trimNormR, nbBands, lm, intensity)

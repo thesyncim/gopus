@@ -246,3 +246,50 @@ func TestAllocTrimSurroundTrimAdjustment(t *testing.T) {
 		t.Fatalf("negative surroundTrim should not decrease trim: base=%d minus=%d", base, minus)
 	}
 }
+
+func TestAllocTrimAnalysisValidAppliesZeroSlopeAdjustment(t *testing.T) {
+	nbBands := 21
+	lm := 3
+	numCoeffs := EBands[nbBands] << lm
+	normL := make([]celtNorm, numCoeffs)
+	bandLogE := make([]celtGLog, nbBands)
+
+	_, invalid := allocTrimAnalysisDetailed(
+		normL,
+		bandLogE,
+		nbBands,
+		lm,
+		1,
+		nil,
+		nbBands,
+		0,
+		80000,
+		0,
+		0,
+		false,
+	)
+	_, valid := allocTrimAnalysisDetailed(
+		normL,
+		bandLogE,
+		nbBands,
+		lm,
+		1,
+		nil,
+		nbBands,
+		0,
+		80000,
+		0,
+		0,
+		true,
+	)
+
+	if invalid.tonal != 0 {
+		t.Fatalf("invalid analysis applied tonal adjustment: %g", invalid.tonal)
+	}
+	if valid.tonal < 0.09 || valid.tonal > 0.11 {
+		t.Fatalf("valid zero-slope analysis tonal adjustment = %g, want about 0.1", valid.tonal)
+	}
+	if valid.raw >= invalid.raw {
+		t.Fatalf("valid zero-slope analysis did not reduce raw trim: valid=%g invalid=%g", valid.raw, invalid.raw)
+	}
+}

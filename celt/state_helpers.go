@@ -220,6 +220,35 @@ func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float64) {
 	}
 }
 
+func (d *Decoder) setPrevEnergyGLog(energies []celtGLog) {
+	d.setPrevEnergyGLogWithPrev(nil, energies)
+}
+
+func (d *Decoder) setPrevEnergyGLogWithPrev(prev []celtGLog, energies []celtGLog) {
+	if len(prev) == len(d.prevEnergy2) {
+		copy(d.prevEnergy2, prev)
+	} else {
+		copy(d.prevEnergy2, d.prevEnergy)
+	}
+
+	// Determine nbBands from the energies array length
+	nbBands := len(energies) / d.channels
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+
+	// Copy with layout conversion: compact [c*nbBands+band] -> full [c*MaxBands+band]
+	for c := 0; c < d.channels; c++ {
+		for band := 0; band < nbBands; band++ {
+			src := c*nbBands + band
+			dst := c*MaxBands + band
+			if src < len(energies) {
+				d.prevEnergy[dst] = energies[src]
+			}
+		}
+	}
+}
+
 func (d *Decoder) updateLogE(energies []float64, nbBands int, transient bool) {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
@@ -243,6 +272,40 @@ func (d *Decoder) updateLogE(energies []float64, nbBands int, transient bool) {
 			src := c*nbBands + band
 			dst := base + band
 			e := celtGLog(energies[src])
+			if transient {
+				if e < d.prevLogE[dst] {
+					d.prevLogE[dst] = e
+				}
+			} else {
+				d.prevLogE[dst] = e
+			}
+		}
+	}
+}
+
+func (d *Decoder) updateLogEGLog(energies []celtGLog, nbBands int, transient bool) {
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands <= 0 {
+		return
+	}
+	if len(energies) < nbBands*d.channels {
+		nbBands = len(energies) / d.channels
+	}
+	if nbBands <= 0 {
+		return
+	}
+
+	if !transient {
+		copy(d.prevLogE2, d.prevLogE)
+	}
+	for c := 0; c < d.channels; c++ {
+		base := c * MaxBands
+		for band := 0; band < nbBands; band++ {
+			src := c*nbBands + band
+			dst := base + band
+			e := energies[src]
 			if transient {
 				if e < d.prevLogE[dst] {
 					d.prevLogE[dst] = e

@@ -127,14 +127,21 @@ func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float
 
 func (d *Decoder) handleDecodedSilenceFrame(frameSize, lm int, prev1Energy []float64, rd *rangecoding.Decoder) []float64 {
 	samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-	silenceE := ensureFloat64Slice(&d.scratchSilenceE, MaxBands*d.channels)
-	for i := range silenceE {
-		silenceE[i] = -28.0
-	}
-	d.updateLogE(silenceE, MaxBands, false)
-	d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+	silenceE := ensureGLogSlice(&d.scratchSilenceE, MaxBands*d.channels)
+	fillSilenceGLog(silenceE)
+	d.updateLogEGLog(silenceE, MaxBands, false)
+	prev1EnergyGLog := ensureGLogSlice(&d.scratchPrevEnergyGLog, len(prev1Energy))
+	copyFloat64ToGLog(prev1EnergyGLog, prev1Energy)
+	d.setPrevEnergyGLogWithPrev(prev1EnergyGLog, silenceE)
 	d.updateBackgroundEnergy(lm)
 	d.resetPLCCadence(frameSize, d.channels)
 	d.rng = rd.Range()
 	return samples
+}
+
+// Mirrors libopus celt/celt_decoder.c silence oldBandE setup: -28 stored as celt_glog.
+func fillSilenceGLog(energies []celtGLog) {
+	for i := range energies {
+		energies[i] = -28.0
+	}
 }

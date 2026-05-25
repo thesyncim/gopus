@@ -226,15 +226,13 @@ func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float6
 	if silence {
 		d.channels = origChannels
 		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		silenceE := ensureFloat64Slice(&d.scratchSilenceE, MaxBands*origChannels)
-		for i := range silenceE {
-			silenceE[i] = -28.0
-		}
+		silenceE := ensureGLogSlice(&d.scratchSilenceE, MaxBands*origChannels)
+		fillSilenceGLog(silenceE)
 		d.prevEnergy = origPrevEnergy
 		for i := 0; i < MaxBands*origChannels && i < len(d.prevEnergy); i++ {
 			d.prevEnergy[i] = -28.0
 		}
-		d.updateLogE(silenceE, MaxBands, false)
+		d.updateLogEGLog(silenceE, MaxBands, false)
 		d.updateBackgroundEnergy(lm)
 		d.resetPLCCadence(frameSize, origChannels)
 		d.rng = rd.Range()
@@ -453,13 +451,13 @@ func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float6
 	}
 	if silence {
 		samples := make([]float64, frameSize)
-		var silenceEArr [MaxBands * 2]float64
+		var silenceEArr [MaxBands * 2]celtGLog
 		silenceE := silenceEArr[:]
-		for i := range silenceE {
-			silenceE[i] = -28.0
-		}
-		d.updateLogE(silenceE, MaxBands, false)
-		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+		fillSilenceGLog(silenceE)
+		d.updateLogEGLog(silenceE, MaxBands, false)
+		prev1EnergyGLog := ensureGLogSlice(&d.scratchPrevEnergyGLog, len(prev1Energy))
+		copyFloat64ToGLog(prev1EnergyGLog, prev1Energy)
+		d.setPrevEnergyGLogWithPrev(prev1EnergyGLog, silenceE)
 		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
 		d.resetPLCCadence(frameSize, origChannels)
@@ -696,13 +694,11 @@ func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameS
 	if silence {
 		d.channels = origChannels
 		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		var silenceEArr [MaxBands * 2]float64
+		var silenceEArr [MaxBands * 2]celtGLog
 		silenceE := silenceEArr[:MaxBands*origChannels]
-		for i := range silenceE {
-			silenceE[i] = -28.0
-		}
+		fillSilenceGLog(silenceE)
 		d.prevEnergy = origPrevEnergy
-		d.updateLogE(silenceE, MaxBands, false)
+		d.updateLogEGLog(silenceE, MaxBands, false)
 		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
 		d.resetPLCCadence(frameSize, origChannels)
@@ -882,13 +878,13 @@ func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameS
 	if silence {
 		samples := ensureFloat64Slice(&d.scratchMonoMix, frameSize)
 		clear(samples[:frameSize])
-		var silenceEArr [MaxBands * 2]float64
+		var silenceEArr [MaxBands * 2]celtGLog
 		silenceE := silenceEArr[:]
-		for i := range silenceE {
-			silenceE[i] = -28.0
-		}
-		d.updateLogE(silenceE, MaxBands, false)
-		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+		fillSilenceGLog(silenceE)
+		d.updateLogEGLog(silenceE, MaxBands, false)
+		prev1EnergyGLog := ensureGLogSlice(&d.scratchPrevEnergyGLog, len(prev1Energy))
+		copyFloat64ToGLog(prev1EnergyGLog, prev1Energy)
+		d.setPrevEnergyGLogWithPrev(prev1EnergyGLog, silenceE)
 		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
 		d.resetPLCCadence(frameSize, origChannels)

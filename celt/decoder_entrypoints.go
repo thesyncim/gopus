@@ -144,12 +144,12 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	}
 	if silence {
 		samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
-		silenceE := ensureFloat64Slice(&d.scratchSilenceE, MaxBands*d.channels)
-		for i := range silenceE {
-			silenceE[i] = -28.0
-		}
-		d.updateLogE(silenceE, MaxBands, false)
-		d.SetPrevEnergyWithPrev(prev1Energy, silenceE)
+		silenceE := ensureGLogSlice(&d.scratchSilenceE, MaxBands*d.channels)
+		fillSilenceGLog(silenceE)
+		d.updateLogEGLog(silenceE, MaxBands, false)
+		prev1EnergyGLog := ensureGLogSlice(&d.scratchPrevEnergyGLog, len(prev1Energy))
+		copyFloat64ToGLog(prev1EnergyGLog, prev1Energy)
+		d.setPrevEnergyGLogWithPrev(prev1EnergyGLog, silenceE)
 		d.clearFrameHistoryOutsideRange(start, end, d.channels)
 		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()

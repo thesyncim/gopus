@@ -2,6 +2,14 @@ package gopus
 
 import "testing"
 
+func maxFuzzPacketExtensionCount(dataLen, nbFrames int) int {
+	if dataLen <= 0 || nbFrames <= 0 {
+		return 0
+	}
+	// Repeat markers can replay a compact extension run across every frame.
+	return dataLen * nbFrames
+}
+
 func FuzzPacketExtensionIterator_NoPanic(f *testing.F) {
 	f.Add([]byte{0x41, 0x02, 'A', 'B'}, uint8(1), uint8(32))
 	f.Add([]byte{0x06, 0x04}, uint8(3), uint8(3))
@@ -20,8 +28,9 @@ func FuzzPacketExtensionIterator_NoPanic(f *testing.F) {
 		if err != nil {
 			return
 		}
-		if count < 0 || count > 512 {
-			t.Fatalf("extension count out of range: %d", count)
+		maxCount := maxFuzzPacketExtensionCount(len(data), nbFrames)
+		if count < 0 || count > maxCount {
+			t.Fatalf("extension count out of range: %d > %d", count, maxCount)
 		}
 
 		counts := make([]int, nbFrames)

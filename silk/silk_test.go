@@ -222,11 +222,6 @@ func TestUpsampleInvalidRate(t *testing.T) {
 		t.Errorf("Expected ErrInvalidResampleRate for rate 100, got %v", err)
 	}
 
-	// Test sinc resampler with same invalid rate
-	_, err = upsampleTo48kSinc(input, 100)
-	if err != ErrInvalidResampleRate {
-		t.Errorf("Expected ErrInvalidResampleRate from sinc resampler for rate 100, got %v", err)
-	}
 }
 
 func TestStereoUnmixMismatchedLengths(t *testing.T) {

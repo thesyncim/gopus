@@ -2,7 +2,7 @@
 
 package celt
 
-import "math"
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 const (
 	plcUpdateFrames    = 4
@@ -86,7 +86,7 @@ func quantizeRawPCM16LikeInt16(sample float32) int16 {
 	if sample > 32767 {
 		sample = 32767
 	}
-	return int16(math.RoundToEven(float64(sample)))
+	return opusmath.Float32ToInt16Raw(sample)
 }
 
 func quantizedRawPCM16GridSample(sample float32) float32 {
