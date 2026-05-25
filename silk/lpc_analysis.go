@@ -367,66 +367,6 @@ func applyBandwidthExpansionFloat(lpcQ12 []int16, chirp float32) {
 	}
 }
 
-// computeLPCFromFrame computes LPC coefficients for a frame.
-// Applies windowing, Burg analysis, and bandwidth expansion.
-// Uses scratch buffers for zero-allocation operation.
-func (e *Encoder) computeLPCFromFrame(pcm []float32) []int16 {
-	// Apply window using scratch buffer
-	windowed := ensureFloat32Slice(&e.scratchWindowed, len(pcm))
-	n := float64(len(pcm))
-	for i := range pcm {
-		// Hamming window
-		w := 0.54 - 0.46*math.Cos(2*math.Pi*float64(i)/(n-1))
-		windowed[i] = pcm[i] * float32(w)
-	}
-
-	// Compute LPC via Burg's method using scratch buffers
-	lpcQ12 := e.burgLPCZeroAlloc(windowed, e.lpcOrder)
-
-	// Apply bandwidth expansion for stability (chirp = 0.96)
-	applyBandwidthExpansionFloat(lpcQ12, 0.96)
-
-	return lpcQ12
-}
-
-// burgLPCZeroAlloc computes LPC coefficients using scratch buffers.
-func (e *Encoder) burgLPCZeroAlloc(signal []float32, order int) []int16 {
-	n := len(signal)
-	if n < order+1 {
-		// Not enough samples, return zeros using scratch
-		lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
-		for i := range lpcQ12 {
-			lpcQ12[i] = 0
-		}
-		return lpcQ12
-	}
-
-	// Use subframe-based Burg method matching libopus
-	subfrLength := n
-	nbSubfr := 1
-
-	if n >= order*4 {
-		nbSubfr = 4
-		subfrLength = n / nbSubfr
-	}
-
-	a, _ := e.burgModifiedFLPZeroAllocF32(signal, float32(minInvGain), subfrLength, nbSubfr, order)
-
-	// Convert to Q12 fixed-point using scratch
-	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
-	for i := 0; i < order; i++ {
-		val := a[i] * 4096.0 // Q12 scaling
-		if val > 32767 {
-			val = 32767
-		} else if val < -32768 {
-			val = -32768
-		}
-		lpcQ12[i] = int16(val)
-	}
-
-	return lpcQ12
-}
-
 // burgModifiedFLPZeroAllocF32 computes LPC using silk_float input/output.
 // libopus silk/float/burg_modified_FLP.c intentionally keeps C double
 // accumulators and work arrays for C0, C_first_row, C_last_row, CAf, CAb, and Af.

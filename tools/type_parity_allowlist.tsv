@@ -1783,7 +1783,6 @@ silk/lpc.go	1	4e6551330963a44a30f80f8da559bcdf2f6ded07618d54d0eadce61d46b2f461	l
 silk/lpc_analysis.go	1	035c115ded629bb37e94b2e323a28bcb80db0de52ffa28c6bdb0d46cb18ef6f3	legacy-current	tmp1 += noFMA64(float64(xnk), Atmp)
 silk/lpc_analysis.go	1	0a50dc44c424b9913f0c2c89c571098693ece9485671f88c64de01db7c22901b	legacy-current	var nrgF float64
 silk/lpc_analysis.go	1	1467c5024df5ae9986a825981301274aaa93b70d1abf4467bad44862c411c4f0	legacy-current	minInvGain := float64(minInvGainVal)
-silk/lpc_analysis.go	1	20cf6e03236999e5a317d8f12834c41603b756727b032e8029f693df968e7963	legacy-current	n := float64(len(pcm))
 silk/lpc_analysis.go	1	488b273be8666da92d1d017844c42d81b1e882fc8306eeb571b9a32ff39a8733	legacy-current	condFac := float64(float32(findLPCCondFac))
 silk/lpc_analysis.go	1	5453eb165b4d695d627a62185261495fc3a9695255b81eaf53793ee66dfce16c	legacy-current	CAb[k] -= noFMA64(tmp2, float64(xbk))
 silk/lpc_analysis.go	1	59e7fb111ff93b59d5643c8b48d5ff197dc98aa2d7551539969e2aa6f0295359	legacy-current	CAf := ensureFloat64Slice(&e.scratchBurgCAf, silkMaxOrderLPC+1)
@@ -1792,7 +1791,6 @@ silk/lpc_analysis.go	1	639355f29a01092ee0041ee0ec3a4ed21aeeddde6afcfcd55da4ce0b3
 silk/lpc_analysis.go	1	733f1fb7081dbee494fd4fb0fd068997fe1d2da7f078af32a7e86ceca10d8473	legacy-current	eps := float64(float32(1e-9))
 silk/lpc_analysis.go	1	7d06172b421ef1955c5dc5a7dc5089c808a5645dad4fda728e0e475712458896	legacy-current	CFirstRow[k] -= float64(noFMA32(xn, xnk))
 silk/lpc_analysis.go	1	98276705241f502ec90d2e77bd7b6694ebe8efbb9db3ab3bde2aca7e1e0b228f	legacy-current	CLastRow[k] -= float64(noFMA32(xend, xbk))
-silk/lpc_analysis.go	1	9eb989c692be03947f3be0fc168abe6ebdf3ebd87bdf6d6ca904db01f1bc83a6	legacy-current	w := 0.54 - 0.46*math.Cos(2*math.Pi*float64(i)/(n-1))
 silk/lpc_analysis.go	1	a10517ca71a6b016aa8b04e3561639f0adff1fb0ffc5e3b73a050fe0091d0a4a	legacy-current	CFirstRow := ensureFloat64Slice(&e.scratchBurgCFirstRow, silkMaxOrderLPC)
 silk/lpc_analysis.go	1	a79112c11cf94698277bbe5263c7a178926dce7f5e624b593cc0cfe3bd17e292	legacy-current	CAb := ensureFloat64Slice(&e.scratchBurgCAb, silkMaxOrderLPC+1)
 silk/lpc_analysis.go	1	b4d3c5acffb5228d8287a45fcd6d2f1c05e0e25e0814565d22aec0352a8893ed	legacy-current	tmp2 := float64(xend)

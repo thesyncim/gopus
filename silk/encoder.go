@@ -184,8 +184,7 @@ type Encoder struct {
 
 	// LPC/Burg scratch buffers. The Burg work arrays mirror C double arrays
 	// in libopus silk/float/burg_modified_FLP.c; input/output stay silk_float.
-	scratchWindowed      []float32 // computeLPCFromFrame: windowed PCM
-	scratchLpcQ12        []int16   // burgLPCZeroAlloc: output LPC Q12
+	scratchLpcQ12        []int16   // computeLPCAndNLSFWithInterp: output LPC Q12
 	scratchBurgAf        []float64 // burgModifiedFLPZeroAllocF32: Af buffer
 	scratchBurgCFirstRow []float64 // burgModifiedFLPZeroAllocF32: CFirstRow
 	scratchBurgCLastRow  []float64 // burgModifiedFLPZeroAllocF32: CLastRow

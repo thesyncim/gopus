@@ -307,43 +307,6 @@ func TestEnsureLSFOrderingClamping(t *testing.T) {
 	}
 }
 
-func TestComputeLPCFromFrame(t *testing.T) {
-	// Create encoder for wideband
-	enc := NewEncoder(BandwidthWideband)
-
-	// Generate test signal
-	n := 320
-	pcm := make([]float32, n)
-	for i := 0; i < n; i++ {
-		ti := float64(i) / 16000.0
-		pcm[i] = float32(math.Sin(2*math.Pi*300*ti)) * 0.5
-	}
-
-	lpc := enc.computeLPCFromFrame(pcm)
-
-	// Should return correct number of coefficients
-	if len(lpc) != enc.lpcOrder {
-		t.Errorf("expected %d LPC coefficients, got %d", enc.lpcOrder, len(lpc))
-	}
-
-	// LPC coefficients from real signals can have magnitude > 1.0 (4096 in Q12)
-	// This is normal for signals with strong resonances
-	// The key is they should be within int16 range
-	t.Logf("LPC from windowed signal (Q12): %v", lpc)
-
-	// At least some coefficients should be non-zero
-	hasNonZero := false
-	for _, c := range lpc {
-		if c != 0 {
-			hasNonZero = true
-			break
-		}
-	}
-	if !hasNonZero {
-		t.Error("Expected non-zero LPC coefficients for periodic signal")
-	}
-}
-
 // lpcAbsInt returns absolute value of int (local to this test file)
 func lpcAbsInt(x int) int {
 	if x < 0 {
