@@ -14,7 +14,7 @@ func computeMinInvGain(predGainQ7 int32, codingQuality float32, firstFrame bool)
 	// LTPredCodGain / 3 is float32 in C (float / int promotes to float).
 	powArg := predGainF32 / 3.0
 	// pow(2, double) returns double, then (silk_float) casts to float.
-	minInvGain := float32(math.Exp2(float64(powArg))) / float32(maxPredictionPowerGain)
+	minInvGain := exp2F32(powArg) / float32(maxPredictionPowerGain)
 	// float / float in C.
 	minInvGain /= float32(0.25) + float32(0.75)*codingQuality
 
@@ -300,7 +300,7 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 				g := gains[k]
 				gainSq = g * g
 			}
-			energy *= float64(gainSq)
+			energy *= silkCReal(gainSq)
 			// Match libopus residual_energy_FLP output type (silk_float).
 			resNrg[k] = float32(energy)
 		}
@@ -328,7 +328,7 @@ func (e *Encoder) computeResidualEnergies(ltpRes []float32, predCoefQ12 []int16,
 					g := gains[idx]
 					gainSq = g * g
 				}
-				energy *= float64(gainSq)
+				energy *= silkCReal(gainSq)
 				// Match libopus residual_energy_FLP output type (silk_float).
 				resNrg[idx] = float32(energy)
 			}
@@ -356,7 +356,7 @@ func applyGainProcessing(gains []float32, resNrg []float32, predGainQ7 int32, sn
 		// Step 2: sigmoid = (float)(1.0 / (1.0 + exp((double)(-arg)))) — double internally, cast to float
 		// Step 3: s = 1.0f - 0.5f * sigmoid — float32 arithmetic
 		arg := float32(0.25) * (predGainDB - float32(12.0))
-		sigmoid := float32(1.0 / (1.0 + math.Exp(float64(-arg))))
+		sigmoid := 1.0 / (1.0 + expF32(-arg))
 		s := float32(1.0) - float32(0.5)*sigmoid
 		for k := range gains {
 			gains[k] *= s
@@ -367,7 +367,7 @@ func applyGainProcessing(gains []float32, resNrg []float32, predGainQ7 int32, sn
 	// Match libopus: InvMaxSqrVal = (silk_float)(pow(2.0f, 0.33f * (21.0f - SNR_dB_Q7 * (1/128.0f))) / subfr_length)
 	// pow arg is float32, pow returns double, division by subfr_length is in double, then cast to float32.
 	powArg := float32(0.33) * (float32(21.0) - snrDB)
-	invMaxSqrVal := float32(math.Exp2(float64(powArg)) / float64(subframeSamples))
+	invMaxSqrVal := exp2DivIntF32(powArg, subframeSamples)
 
 	for k := range gains {
 		energy := gains[k] * gains[k]

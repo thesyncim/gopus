@@ -1,7 +1,5 @@
 package silk
 
-import "math"
-
 // encodePulses encodes quantization indices of excitation for the entire frame.
 // This matches libopus silk_encode_pulses() - encoding ALL pulses at once.
 // Per RFC 6716 Section 4.2.7.8.
@@ -266,16 +264,16 @@ func (e *Encoder) computeExcitation(pcm []float32, lpcQ12 []int16, gain float32)
 
 	for i := 0; i < n; i++ {
 		// Compute LPC prediction
-		var prediction float64
+		var prediction float32
 		for k := 0; k < order && i-k-1 >= 0; k++ {
-			prediction += float64(lpcQ12[k]) * float64(pcm[i-k-1]) / 4096.0
+			prediction += float32(lpcQ12[k]) * pcm[i-k-1] / 4096.0
 		}
 
 		// Residual = input - prediction
-		residual := float64(pcm[i]) - prediction
+		residual := pcm[i] - prediction
 
 		// Quantize residual to integer (do NOT divide by gain - decoder applies gain)
-		excitation[i] = int32(math.Round(residual))
+		excitation[i] = roundF32HalfAwayFromZeroToInt32(residual)
 	}
 
 	return excitation

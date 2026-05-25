@@ -1,8 +1,6 @@
 package silk
 
-import (
-	"math"
-)
+import "math"
 
 // Pitch estimation constants from libopus pitch_est_defines.h
 const (
@@ -254,7 +252,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		basisEnergy := energyFLP(frame4kHz[basisIdx:basisEnd])
 
 		// Compute normalizer with bias scaled to float input.
-		normBias := float64(sfLength8kHz) * 4000.0
+		normBias := silkCReal(sfLength8kHz) * 4000.0
 		normalizer := targetEnergy + basisEnergy + normBias
 
 		// Compute cross-correlation vector (matches celt_pitch_xcorr order)
@@ -271,7 +269,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			xcorrVal = xcorr[maxLag4kHz-minLag4kHz]
 		}
 		if minLag4kHz < len(C) {
-			C[minLag4kHz] += float32(2.0 * float64(xcorrVal) / normalizer)
+			C[minLag4kHz] += float32(2.0 * silkCReal(xcorrVal) / normalizer)
 		}
 
 		// Recursive update for remaining lags
@@ -292,12 +290,12 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			if basisIdx >= 0 && basisIdx+sfLength8kHz < len(frame4kHz) {
 				vNew := frame4kHz[basisIdx]
 				vOld := frame4kHz[basisIdx+sfLength8kHz]
-				basisEnergy += float64(vNew)*float64(vNew) - float64(vOld)*float64(vOld)
+				basisEnergy += silkCReal(vNew)*silkCReal(vNew) - silkCReal(vOld)*silkCReal(vOld)
 			}
 			normalizer = targetEnergy + basisEnergy + normBias
 
 			if d < len(C) {
-				C[d] += float32(2.0 * float64(xcorrVal) / normalizer)
+				C[d] += float32(2.0 * silkCReal(xcorrVal) / normalizer)
 			}
 		}
 	}
@@ -626,12 +624,12 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 
 		for d := startLag; d <= endLag; d++ {
 			for j := 0; j < nbCbkSearch3; j++ {
-				crossCorr := 0.0
+				crossCorr := silkCReal(0)
 				energy := energyTmp
 				for k := 0; k < numSubframes; k++ {
 					idx := pitchStage3Index(k, j, lagCounter)
-					crossCorr += float64(corrSt3[idx])
-					energy += float64(energySt3[idx])
+					crossCorr += silkCReal(corrSt3[idx])
+					energy += silkCReal(energySt3[idx])
 				}
 				cc := float32(0)
 				if crossCorr > 0 {
@@ -698,7 +696,7 @@ func silkLog2Float(x float32) float32 {
 	if x <= 0 {
 		return 0
 	}
-	return float32(3.32192809488736 * math.Log10(float64(x)))
+	return silkLog2F32(x)
 }
 
 // downsampleLowpass performs downsampling with a simple low-pass filter.
@@ -823,7 +821,7 @@ func lagrangianInterpolate(corrMinus, corrCenter, corrPlus float32) float32 {
 
 // energyFLP computes sum of squares of a float32 array.
 // Matches libopus silk/float/energy_FLP.c: silk_energy_FLP returns C double.
-func energyFLP(data []float32) float64 {
+func energyFLP(data []float32) silkCReal {
 	return energyF32Libopus(data, len(data))
 }
 
@@ -929,8 +927,8 @@ func pitchAnalysisCalcEnergySt3(out []float32, frame []float32, startLag, sfLeng
 		energy := energyFLP(frame[basisStart:basisStart+sfLength]) + 1e-3
 		scratchMem[0] = float32(energy)
 		for i := 1; i < lagCount; i++ {
-			energy -= float64(frame[basisStart+sfLength-i]) * float64(frame[basisStart+sfLength-i])
-			energy += float64(frame[basisStart-i]) * float64(frame[basisStart-i])
+			energy -= silkCReal(frame[basisStart+sfLength-i]) * silkCReal(frame[basisStart+sfLength-i])
+			energy += silkCReal(frame[basisStart-i]) * silkCReal(frame[basisStart-i])
 			scratchMem[i] = float32(energy)
 		}
 

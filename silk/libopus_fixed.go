@@ -264,9 +264,9 @@ func silkCLZ32(x int32) int32 {
 	return int32(bits.LeadingZeros32(uint32(x)))
 }
 
-func silkFixConst(x float64, q int) int {
+func silkFixConst(x silkCReal, q int) int {
 	if q < 0 {
 		return int(x)
 	}
-	return int(x*float64(int64(1)<<q) + 0.5)
+	return int(x*silkCReal(int64(1)<<q) + 0.5)
 }

@@ -182,13 +182,13 @@ type Encoder struct {
 
 	// LPC/Burg scratch buffers. The Burg work arrays mirror C double arrays
 	// in libopus silk/float/burg_modified_FLP.c; input/output stay silk_float.
-	scratchLpcQ12        []int16   // computeLPCAndNLSFWithInterp: output LPC Q12
-	scratchBurgAf        []float64 // burgModifiedFLPZeroAllocF32: Af buffer
-	scratchBurgCFirstRow []float64 // burgModifiedFLPZeroAllocF32: CFirstRow
-	scratchBurgCLastRow  []float64 // burgModifiedFLPZeroAllocF32: CLastRow
-	scratchBurgCAf       []float64 // burgModifiedFLPZeroAllocF32: CAf
-	scratchBurgCAb       []float64 // burgModifiedFLPZeroAllocF32: CAb
-	scratchBurgResult    []float32 // burgModifiedFLPZeroAllocF32: result (silk_float)
+	scratchLpcQ12        []int16     // computeLPCAndNLSFWithInterp: output LPC Q12
+	scratchBurgAf        []silkCReal // burgModifiedFLPZeroAllocF32: Af buffer
+	scratchBurgCFirstRow []silkCReal // burgModifiedFLPZeroAllocF32: CFirstRow
+	scratchBurgCLastRow  []silkCReal // burgModifiedFLPZeroAllocF32: CLastRow
+	scratchBurgCAf       []silkCReal // burgModifiedFLPZeroAllocF32: CAf
+	scratchBurgCAb       []silkCReal // burgModifiedFLPZeroAllocF32: CAb
+	scratchBurgResult    []float32   // burgModifiedFLPZeroAllocF32: result (silk_float)
 
 	// LTP analysis scratch buffers
 	scratchPitchRes32   []float32 // Pitch analysis: residual as float32
@@ -288,10 +288,11 @@ func ensureIntSlice(buf *[]int, n int) []int {
 	return *buf
 }
 
-// ensureFloat64Slice ensures the slice has at least n elements.
-func ensureFloat64Slice(buf *[]float64, n int) []float64 {
+// ensureCRealSlice is reserved for SILK FLP helpers whose libopus
+// source explicitly declares C double work arrays.
+func ensureCRealSlice(buf *[]silkCReal, n int) []silkCReal {
 	if cap(*buf) < n {
-		*buf = make([]float64, n)
+		*buf = make([]silkCReal, n)
 	} else {
 		*buf = (*buf)[:n]
 	}

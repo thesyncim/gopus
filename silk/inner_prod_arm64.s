@@ -1,7 +1,7 @@
 //go:build arm64 && !purego
 #include "textflag.h"
 
-// func innerProductF32(a, b []float32, length int) float64
+// func innerProductF32(a, b []float32, length int) silkCReal
 TEXT ·innerProductF32(SB), NOSPLIT, $0-64
 	MOVD    a_base+0(FP), R0
 	MOVD    b_base+24(FP), R3

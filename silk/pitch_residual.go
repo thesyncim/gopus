@@ -35,14 +35,14 @@ func schurF32(refl, autoCorr []float32, order int) float32 {
 		return 0
 	}
 	// Match libopus silk/float/schur_FLP.c: C is a C double work array.
-	var C [maxShapeLpcOrder + 1][2]float64
+	var C [maxShapeLpcOrder + 1][2]silkCReal
 	for k := 0; k <= order; k++ {
-		C[k][0] = float64(autoCorr[k])
-		C[k][1] = float64(autoCorr[k])
+		C[k][0] = silkCReal(autoCorr[k])
+		C[k][1] = silkCReal(autoCorr[k])
 	}
 	// Match libopus silk_max_float(C[0][1], 1e-9f):
 	// compare against float32 literal, then use that exact value in double domain.
-	minDen := float64(float32(1e-9))
+	minDen := silkCReal(float32(1e-9))
 	for k := 0; k < order; k++ {
 		den := C[0][1]
 		if den < minDen {

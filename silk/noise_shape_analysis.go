@@ -1,7 +1,5 @@
 package silk
 
-import "math"
-
 // noiseShapeAnalysis computes noise shaping parameters, gains, and sparseness-based
 // quantization offset selection. This is a float port of the remaining pieces in
 // silk_noise_shape_analysis_FLP.c.
@@ -135,8 +133,8 @@ func computeSparsenessQuantOffset(pitchRes []float32, start, fsKHz, numSubframes
 		seg := pitchResFrame[k*nSamples : (k+1)*nSamples]
 		// libopus: nrg = (silk_float)nSamples + (silk_float)silk_energy_FLP(...)
 		nrg := float32(nSamples) + float32(energyF32Libopus(seg, nSamples))
-		// libopus: silk_log2() returns silk_float = (silk_float)(3.32192809488736 * log10(x))
-		logEnergy := float32(3.32192809488736 * math.Log10(float64(nrg)))
+		// libopus: silk_log2() returns silk_float.
+		logEnergy := silkLog2F32(nrg)
 		if k > 0 {
 			diff := logEnergy - logEnergyPrev
 			if diff < 0 {
@@ -313,8 +311,8 @@ func (e *Encoder) computeShapingARAndGains(
 	}
 
 	// Match libopus: gain_mult = (silk_float)pow(2.0f, -0.16f * SNR_adj_dB)
-	gainMult := float32(math.Exp2(float64(-0.16 * SNRAdjDB)))
-	gainAdd := float32(math.Exp2(float64(0.16 * float32(minQGainDb))))
+	gainMult := exp2F32(-0.16 * SNRAdjDB)
+	gainAdd := exp2F32(0.16 * float32(minQGainDb))
 
 	for k := 0; k < numSubframes; k++ {
 		// Match libopus two-step operation:
@@ -343,9 +341,9 @@ func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, lengt
 		order = maxShapeLpcOrder
 	}
 
-	var st [maxShapeLpcOrder + 1]float64
-	var corr [maxShapeLpcOrder + 1]float64
-	w := float64(warping)
+	var st [maxShapeLpcOrder + 1]silkCReal
+	var corr [maxShapeLpcOrder + 1]silkCReal
+	w := silkCReal(warping)
 
 	// Clamp input slice so the compiler proves all in[n] accesses are in bounds.
 	if length > len(in) {
@@ -356,7 +354,7 @@ func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, lengt
 	_ = corr[order] // BCE hint for inner loop array access
 
 	for _, sample := range in {
-		tmp1 := float64(sample)
+		tmp1 := silkCReal(sample)
 		// First iteration (i=0): sets st[0] then uses it for all remaining.
 		tmp2 := st[0] + w*st[1] - w*tmp1
 		st[0] = tmp1

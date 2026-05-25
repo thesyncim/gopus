@@ -380,11 +380,11 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 		return result, 0
 	}
 
-	Af := ensureFloat64Slice(&e.scratchBurgAf, order)
-	CFirstRow := ensureFloat64Slice(&e.scratchBurgCFirstRow, silkMaxOrderLPC)
-	CLastRow := ensureFloat64Slice(&e.scratchBurgCLastRow, silkMaxOrderLPC)
-	CAf := ensureFloat64Slice(&e.scratchBurgCAf, silkMaxOrderLPC+1)
-	CAb := ensureFloat64Slice(&e.scratchBurgCAb, silkMaxOrderLPC+1)
+	Af := ensureCRealSlice(&e.scratchBurgAf, order)
+	CFirstRow := ensureCRealSlice(&e.scratchBurgCFirstRow, silkMaxOrderLPC)
+	CLastRow := ensureCRealSlice(&e.scratchBurgCLastRow, silkMaxOrderLPC)
+	CAf := ensureCRealSlice(&e.scratchBurgCAf, silkMaxOrderLPC+1)
+	CAb := ensureCRealSlice(&e.scratchBurgCAb, silkMaxOrderLPC+1)
 
 	for i := range Af {
 		Af[i] = 0
@@ -411,14 +411,14 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	}
 	copy(CLastRow[:silkMaxOrderLPC], CFirstRow[:silkMaxOrderLPC])
 
-	condFac := float64(float32(findLPCCondFac))
-	eps := float64(float32(1e-9))
+	condFac := silkCReal(float32(findLPCCondFac))
+	eps := silkCReal(float32(1e-9))
 	CAf[0] = C0 + condFac*C0 + eps
 	CAb[0] = CAf[0]
 
 	invGain := 1.0
 	reachedMaxGain := false
-	minInvGain := float64(minInvGainVal)
+	minInvGain := silkCReal(minInvGainVal)
 
 	// BCE hints for the entire Burg iteration: x has totalLen elements,
 	// and all accesses are within [0, totalLen-1].
@@ -438,23 +438,23 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 			_ = x[xPtr+subfrLength-1]
 			xn := x[xPtr+n]
 			xend := x[xPtr+subfrLength-n-1]
-			tmp1 := float64(xn)
-			tmp2 := float64(xend)
+			tmp1 := silkCReal(xn)
+			tmp2 := silkCReal(xend)
 			for k := 0; k < n; k++ {
 				xnk := x[xPtr+n-k-1]
 				xbk := x[xPtr+subfrLength-n+k]
-				CFirstRow[k] -= float64(noFMA32(xn, xnk))
-				CLastRow[k] -= float64(noFMA32(xend, xbk))
+				CFirstRow[k] -= silkCReal(noFMA32(xn, xnk))
+				CLastRow[k] -= silkCReal(noFMA32(xend, xbk))
 				Atmp := Af[k]
-				tmp1 += noFMA64(float64(xnk), Atmp)
-				tmp2 += noFMA64(float64(xbk), Atmp)
+				tmp1 += noFMA64(silkCReal(xnk), Atmp)
+				tmp2 += noFMA64(silkCReal(xbk), Atmp)
 			}
 
 			for k := 0; k <= n; k++ {
 				xnk := x[xPtr+n-k]
 				xbk := x[xPtr+subfrLength-n+k-1]
-				CAf[k] -= noFMA64(tmp1, float64(xnk))
-				CAb[k] -= noFMA64(tmp2, float64(xbk))
+				CAf[k] -= noFMA64(tmp1, silkCReal(xnk))
+				CAb[k] -= noFMA64(tmp2, silkCReal(xbk))
 			}
 		}
 
@@ -516,7 +516,7 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 		}
 	}
 
-	var nrgF float64
+	var nrgF silkCReal
 	if reachedMaxGain {
 		adjustedC0 := C0
 		for s := 0; s < nbSubfr; s++ {
