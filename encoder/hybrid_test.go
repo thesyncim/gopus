@@ -277,16 +277,16 @@ func TestStereoWidthComputation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Generate test signal
-			pcm := make([]float64, frameSize*2)
+			pcm := make([]opusRes, frameSize*2)
 			for i := 0; i < frameSize; i++ {
 				t := float64(i) / 48000.0 * 1000.0 * math.Pi // 1kHz
-				pcm[i*2] = math.Sin(t + tc.leftPhase)
-				pcm[i*2+1] = math.Sin(t + tc.rightPhase)
+				pcm[i*2] = opusRes(math.Sin(t + tc.leftPhase))
+				pcm[i*2+1] = opusRes(math.Sin(t + tc.rightPhase))
 			}
 
 			width := ComputeStereoWidth(pcm, frameSize, 2)
 
-			if math.Abs(width-tc.expectedWidth) > tc.tolerance {
+			if math.Abs(float64(width)-tc.expectedWidth) > tc.tolerance {
 				t.Errorf("Stereo width %.4f not in expected range %.4f +/- %.4f",
 					width, tc.expectedWidth, tc.tolerance)
 			}

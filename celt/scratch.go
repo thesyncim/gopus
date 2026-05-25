@@ -114,7 +114,6 @@ type bandDecodeScratch struct {
 	cwrsU      []uint32 // CWRS u-row scratch buffer
 
 	// Scratch buffers for Hadamard interleave/deinterleave (eliminates per-call allocations)
-	hadamardTmp     []float64 // Temporary buffer for Hadamard transforms
 	hadamardTmpNorm []celtNorm
 	quantWork       []celtNorm // Deinterleaved working buffer for quantBand decode
 
@@ -155,7 +154,6 @@ type bandEncodeScratch struct {
 	cwrsU []uint32
 
 	// Hadamard scratch
-	hadamardTmp     []float64
 	hadamardTmpNorm []celtNorm
 	quantWork       []celtNorm
 }
@@ -213,11 +211,6 @@ func (s *bandEncodeScratch) ensureThetaX(n int) []celtNorm {
 
 func (s *bandEncodeScratch) ensureThetaY(n int) []celtNorm {
 	return ensureNormSlice(&s.thetaY, n)
-}
-
-// ensureHadamardTmp returns a pre-allocated buffer for Hadamard transforms.
-func (s *bandEncodeScratch) ensureHadamardTmp(n int) []float64 {
-	return ensureFloat64Slice(&s.hadamardTmp, n)
 }
 
 func (s *bandEncodeScratch) ensureHadamardTmpNorm(n int) []celtNorm {
@@ -340,11 +333,6 @@ func (s *bandDecodeScratch) ensureFoldResult(n int) []celtNorm {
 // ensureCWRSU returns a pre-allocated buffer for CWRS u-row.
 func (s *bandDecodeScratch) ensureCWRSU(n int) []uint32 {
 	return ensureUint32Slice(&s.cwrsU, n)
-}
-
-// ensureHadamardTmp returns a pre-allocated buffer for Hadamard transforms.
-func (s *bandDecodeScratch) ensureHadamardTmp(n int) []float64 {
-	return ensureFloat64Slice(&s.hadamardTmp, n)
 }
 
 func (s *bandDecodeScratch) ensureHadamardTmpNorm(n int) []celtNorm {

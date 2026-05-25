@@ -1372,7 +1372,6 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.bandEncode.pvqAbsX = ensureFloat32Slice(&s.bandEncode.pvqAbsX, maxPVQN)
 	s.bandEncode.pvqIy = ensureIntSlice(&s.bandEncode.pvqIy, maxPVQN)
 	s.bandEncode.cwrsU = ensureUint32Slice(&s.bandEncode.cwrsU, 256)
-	s.bandEncode.hadamardTmp = ensureFloat64Slice(&s.bandEncode.hadamardTmp, maxBandWidth*16) // For stride up to 16
 	s.bandEncode.hadamardTmpNorm = ensureNormSlice(&s.bandEncode.hadamardTmpNorm, maxBandWidth*16)
 }
 

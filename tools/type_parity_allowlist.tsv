@@ -248,7 +248,6 @@ celt/encoder.go	1	a976063c156b1a96bcc9534a2be153228e68812eff03fc1c4399dc8c773ba1
 celt/encoder.go	1	ac84e234135b4ba9e58cdf12a0b285b224cd670cf97554df494f22a8eb1f740c	legacy-current	out := make([]float64, len(e.prevEnergy))
 celt/encoder.go	1	af5508066d6f01a8dd9ff0308da5919f3ccafe584f80696594f0c0d0d2b998b2	legacy-current	func (e *Encoder) SetPrevEnergyWithPrev(prev, energies []float64) {
 celt/encoder.go	1	bf3071089010d1164978e8fe1cb18c0b032923a6a27358f7409ef118071dab3b	legacy-current	func (e *Encoder) GetLastBandLogE2() []float64 {
-celt/encoder.go	1	c65f0c190117698bd4e2f47e1d123422d8a9858d20f03e128d2c624ec25f47df	legacy-current	s.bandEncode.hadamardTmp = ensureFloat64Slice(&s.bandEncode.hadamardTmp, maxBandWidth*16) // For stride up to 16
 celt/encoder.go	1	cefcb13dc604b764aacd94c20dc67883f7f2ad106ba433d6b23249f6c0423e6f	legacy-current	func (e *Encoder) SetLastTonality(tonality float64) {
 celt/encoder.go	1	d171a7f02a042a52bcb4118139815c24c9fdc556c546fdeb09a06bfb13a485b1	legacy-current	func (e *Encoder) PrevEnergy2() []float64 {
 celt/encoder.go	1	d3e40e37a8bc0eb4a774e54bdefafd72bc98c4d5260686ad694f362c994f8246	legacy-current	return float64(e.lastTonality)
@@ -635,15 +634,10 @@ celt/scalar_types.go	3	beea720c8de54da8545efc993c92e9c60c4d4c58cb139234868d65b04
 celt/scalar_types.go	1	f52ac08b388aa97d4e3e29fba3ac2e8a28217d29f45a2cbbd257128a63e1148b	legacy-current	func copySigToFloat64(dst []float64, src []celtSig) {
 celt/scale_float64_arm64.go	1	ad4ee60ab03c8cba26d666f53b34d8a53c70d9450889a5e888771bfa66774d0e	legacy-current	func scaleFloat64Into(dst, src []float64, scale float64, n int)
 celt/scale_float64_default.go	1	c84a4acc11851d5f20239898c1630bda686953bf411fdbc6db2aa9615941ff54	legacy-current	func scaleFloat64Into(dst, src []float64, scale float64, n int) {
-celt/scratch.go	1	13b416b91d18fe6ca2c7b7a577b2660eb8a6d41ba4c718d781239454f44a6bbf	legacy-current	func (s *bandDecodeScratch) ensureHadamardTmp(n int) []float64 {
-celt/scratch.go	1	1dd822f495e0c791c9a66e1860de3c492ac14ce55481fb8560218a9f2371d7d6	legacy-current	func (s *bandEncodeScratch) ensureHadamardTmp(n int) []float64 {
 celt/scratch.go	1	250d638d6ffc9a61f1fac7d943312e2e4e1c691af1602581d809938ca7f8930c	legacy-current	func (s *bandDecodeScratch) ensureCoeffs(n int) []float64 {
 celt/scratch.go	1	6b40bfd21dc7514a19d046fdad15de5d90cf1003f53e5be38cfb848756261c90	legacy-current	*buf = make([]float64, n)
 celt/scratch.go	1	9c382fae58a21991e7848eb0130da446a2e00ed4647a40d6b48ba6859f3c55d7	legacy-current	return ensureFloat64Slice(&s.coeffs, n)
-celt/scratch.go	1	9cc91be32516ad543bf511880667a88930dda5babe7adcb34a53b369dbcf0930	legacy-current	hadamardTmp []float64 // Temporary buffer for Hadamard transforms
-celt/scratch.go	1	a4e4f8668855d37cdffa23e6759665fb060ee90139731e1543e6cdc586bc6b90	legacy-current	hadamardTmp []float64
 celt/scratch.go	1	c14c6520dd86daac066045f9921a9bdb03b10d0a6f490385ca56396b254f074d	legacy-current	coeffs []float64 // MDCT coefficients output buffer (size: frameSize or 2*frameSize for stereo)
-celt/scratch.go	2	d1a6aa3ebd7a37ed0633add006cadb16f4adccdf5c4037c827700ea9d662fb6f	legacy-current	return ensureFloat64Slice(&s.hadamardTmp, n)
 celt/scratch.go	1	d415655965153bfac7b853ec2f4b8ab245da8ea188332c5020ae6619e6acd480	legacy-current	func ensureFloat64Slice(buf *[]float64, n int) []float64 {
 celt/signal_bandwidth.go	1	1232999c67fa1610ab3ca0c47825d8d83e1187521a190949d2c0b30f97443558	legacy-current	var perBandEnergy [MaxBands]float64
 celt/signal_bandwidth.go	1	4cbf3d86e85afff22b78d7a09995a0f39d4c72e8d79bc96f7b4bb8eae9b20f80	legacy-current	if E*1e9 > maxEnergy && E > noiseFloor*float64(width) {
@@ -865,11 +859,9 @@ encoder/encoder.go	1	980e8870d79dd854a9f04e8d1b60a628e385a25fe1b468405c9d0ad4eff
 encoder/encoder.go	1	bf33ac17ae7d89834a08e927ea77469da8b6975c009f5105ff10f2362bcae1e1	legacy-current	threshold := float32(1.0 / float64(int(1)<<lsbDepth))
 encoder/encoder.go	1	e021a140a26ef9e12047403adcec3601b7f73a319b162b4eaf1ad0e69835e88b	legacy-current	prob := float64(e.lastAnalysisInfo.MusicProb)
 encoder/fec.go	1	4ffe0ef96a7e800591ab485b9c6135791b885de53780a2fa595b6d644474d500	legacy-current	lbrrBitrate := int(float64(normalBitrate) * LBRRBitrateFactor)
-encoder/hybrid.go	1	194d02c341c54c001542e444939ae4ef790dd04b798e2462e29a00a1af9833bd	legacy-current	func ComputeStereoWidth(pcm []float64, frameSize, channels int) float64 {
 encoder/hybrid.go	1	1d102f577ed072a5667b1ead59b73bbd21dd70caf0b02708c5a77910cd01ba2c	legacy-current	tfBoost := int((tfEstimate - 0.25) * float64(50<<celt.BitRes))
 encoder/hybrid.go	2	3ac2e099c102b4860a16f3766a6b286d330a07d35f80355c70d01c0d7fb728de	legacy-current	var mdctLeft, mdctRight []float64
 encoder/hybrid.go	1	5836c65732dc998955a739845c93f9a3387a600fbd8d09897227c75c94634822	legacy-current	func computeMDCTForHybridScratch(samples []float32, frameSize, channels int, history []float32, shortBlocks int, hs *HybridState, ce *celt.Encoder) []float64 {
-encoder/hybrid.go	1	7c1bab99ffcb8a0730ff1b4371367dab834fa61c705d223a2d6e5cf88f2e0f9c	legacy-current	var sumLeft, sumRight, sumCross float64
 encoder/hybrid.go	1	80219792b478493d8425c3e4b25328a7096871b213750692d503f13271f35946	legacy-current	scratchMDCTResult []float64 // combined L+R MDCT output
 encoder/hybrid.go	1	a39efded2846718e49cf20cc38910e635213cf591ec7bea75584d60a43beeff1	legacy-current	maxAllowed := int(float64(baseTargetBytes) * 2.0)
 encoder/hybrid.go	2	cb307c264810bd39dc3f2af6ab93e86e5ae4801bafc26cb6bc8bcb32d9378124	legacy-current	hs.scratchMDCTResult = make([]float64, resultLen)

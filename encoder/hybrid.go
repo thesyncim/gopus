@@ -20,8 +20,6 @@
 package encoder
 
 import (
-	"math"
-
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/rangecoding"
@@ -2075,19 +2073,19 @@ func computeMDCTForHybridScratch(samples []float32, frameSize, channels int, his
 // ComputeStereoWidth computes the stereo width for hybrid mode encoding.
 // At low bitrates, stereo width is reduced to improve coding efficiency.
 // This matches libopus compute_stereo_width().
-func ComputeStereoWidth(pcm []float64, frameSize, channels int) float64 {
+func ComputeStereoWidth(pcm []opusRes, frameSize, channels int) opusVal16 {
 	if channels != 2 || len(pcm) < frameSize*2 {
 		return 0.0
 	}
 
 	// Compute correlation between left and right channels
-	var sumLeft, sumRight, sumCross float64
+	var sumLeft, sumRight, sumCross opusVal32
 	for i := 0; i < frameSize; i++ {
 		l := pcm[i*2]
 		r := pcm[i*2+1]
-		sumLeft += l * l
-		sumRight += r * r
-		sumCross += l * r
+		sumLeft += opusVal32(l) * opusVal32(l)
+		sumRight += opusVal32(r) * opusVal32(r)
+		sumCross += opusVal32(l) * opusVal32(r)
 	}
 
 	// Compute correlation coefficient
@@ -2095,12 +2093,12 @@ func ComputeStereoWidth(pcm []float64, frameSize, channels int) float64 {
 		return 0.0
 	}
 
-	correlation := sumCross / math.Sqrt(sumLeft*sumRight)
+	correlation := sumCross / celtSqrtOpusVal32(sumLeft*sumRight)
 
 	// Convert correlation to stereo width
 	// High correlation (mono-like) -> low width
 	// Low correlation (wide stereo) -> high width
-	width := math.Sqrt(0.5 * (1.0 - correlation*correlation))
+	width := celtSqrtOpusVal32(opusVal32(0.5) * (opusVal32(1.0) - correlation*correlation))
 
 	if width > 1.0 {
 		width = 1.0
@@ -2109,5 +2107,5 @@ func ComputeStereoWidth(pcm []float64, frameSize, channels int) float64 {
 		width = 0.0
 	}
 
-	return width
+	return opusVal16(width)
 }
