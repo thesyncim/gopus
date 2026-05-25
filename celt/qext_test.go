@@ -393,8 +393,8 @@ func TestComputeQEXTExtraAllocationEncodeZeroBudget(t *testing.T) {
 		t.Fatal("computeQEXTModeConfig(48000,120)=false want true")
 	}
 
-	extraPulses := make([]int, MaxBands+nbQEXTBands)
-	extraQuant := make([]int, MaxBands+nbQEXTBands)
+	extraPulses := make([]int32, MaxBands+nbQEXTBands)
+	extraQuant := make([]int32, MaxBands+nbQEXTBands)
 	computeQEXTExtraAllocationEncode(0, MaxBands, 2, 0, 2, 0, make([]celtGLog, MaxBands*2), make([]celtGLog, nbQEXTBands*2), &cfg, 0, 0, nil, extraPulses, extraQuant)
 
 	for i := range extraPulses {
@@ -425,12 +425,12 @@ func TestComputeQEXTExtraAllocationEncodeFixture(t *testing.T) {
 	buf := make([]byte, 64)
 	enc.Init(buf)
 
-	extraPulses := make([]int, MaxBands+nbQEXTBands)
-	extraQuant := make([]int, MaxBands+nbQEXTBands)
+	extraPulses := make([]int32, MaxBands+nbQEXTBands)
+	extraQuant := make([]int32, MaxBands+nbQEXTBands)
 	computeQEXTExtraAllocationEncode(0, MaxBands, 2, 96<<bitRes, 2, 0, mainLogE, qextLogE, &cfg, 0.9, 0.42, &enc, extraPulses, extraQuant)
 
-	wantQuant := []int{2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2}
-	wantPulses := []int{0, 0, 0, 0, 0, 0, 0, 0, 8, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 288, 252}
+	wantQuant := []int32{2, 2, 2, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 2}
+	wantPulses := []int32{0, 0, 0, 0, 0, 0, 0, 0, 8, 4, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 288, 252}
 	wantExt := []byte{0xab, 0xae, 0x86, 0x59, 0x2f, 0x77, 0xd7, 0x05, 0xd3, 0xf7}
 
 	if got := extraQuant[:MaxBands+2]; !intSliceEqual(got, wantQuant) {
@@ -470,8 +470,8 @@ func TestComputeQEXTExtraAllocationDecodeRoundTrip(t *testing.T) {
 			buf := make([]byte, 64)
 			enc.Init(buf)
 
-			extraPulsesEnc := make([]int, MaxBands+nbQEXTBands)
-			extraQuantEnc := make([]int, MaxBands+nbQEXTBands)
+			extraPulsesEnc := make([]int32, MaxBands+nbQEXTBands)
+			extraQuantEnc := make([]int32, MaxBands+nbQEXTBands)
 			computeQEXTExtraAllocationEncode(0, MaxBands, 0, 96<<bitRes, channels, 0, mainLogE, nil, nil, 0, 0, &enc, extraPulsesEnc, extraQuantEnc)
 
 			enc.Done()
@@ -483,8 +483,8 @@ func TestComputeQEXTExtraAllocationDecodeRoundTrip(t *testing.T) {
 			var dec rangecoding.Decoder
 			dec.Init(payload)
 
-			extraPulsesDec := make([]int, MaxBands)
-			extraQuantDec := make([]int, MaxBands)
+			extraPulsesDec := make([]int32, MaxBands)
+			extraQuantDec := make([]int32, MaxBands)
 			computeQEXTExtraAllocationDecode(0, MaxBands, len(payload)*8<<bitRes, channels, 0, &dec, extraPulsesDec, extraQuantDec)
 
 			if got, want := extraQuantDec, extraQuantEnc[:MaxBands]; !intSliceEqual(got, want) {
@@ -525,8 +525,8 @@ func TestComputeQEXTExtraAllocationDecodeWithModeRoundTrip(t *testing.T) {
 			buf := make([]byte, 128)
 			enc.Init(buf)
 
-			extraPulsesEnc := make([]int, MaxBands+nbQEXTBands)
-			extraQuantEnc := make([]int, MaxBands+nbQEXTBands)
+			extraPulsesEnc := make([]int32, MaxBands+nbQEXTBands)
+			extraQuantEnc := make([]int32, MaxBands+nbQEXTBands)
 			qextEnd := 2
 			computeQEXTExtraAllocationEncode(0, MaxBands, qextEnd, 96<<bitRes, channels, 0, mainLogE, qextLogE, &cfg, 0.9, 0.42, &enc, extraPulsesEnc, extraQuantEnc)
 
@@ -539,8 +539,8 @@ func TestComputeQEXTExtraAllocationDecodeWithModeRoundTrip(t *testing.T) {
 			var dec rangecoding.Decoder
 			dec.Init(payload)
 
-			extraPulsesDec := make([]int, MaxBands+nbQEXTBands)
-			extraQuantDec := make([]int, MaxBands+nbQEXTBands)
+			extraPulsesDec := make([]int32, MaxBands+nbQEXTBands)
+			extraQuantDec := make([]int32, MaxBands+nbQEXTBands)
 			computeQEXTExtraAllocationDecodeWithMode(0, MaxBands, qextEnd, len(payload)*8<<bitRes, channels, 0, &dec, extraPulsesDec, extraQuantDec, &cfg)
 
 			if got, want := extraQuantDec[:MaxBands+qextEnd], extraQuantEnc[:MaxBands+qextEnd]; !intSliceEqual(got, want) {
@@ -704,7 +704,7 @@ func TestHandleChannelTransitionStereoToMonoLeavesQEXTOldBandEUnchanged(t *testi
 	}
 }
 
-func intSliceEqual(a, b []int) bool {
+func intSliceEqual(a, b []int32) bool {
 	if len(a) != len(b) {
 		return false
 	}

@@ -1063,7 +1063,7 @@ func TestDecodeLibopusQEXTChannelTransitionSequenceMatchesLibopus(t *testing.T) 
 	}
 
 	celtDec := celt.NewDecoder(2)
-	got := make([]float64, 960*2*len(sequence))
+	got := make([]float32, 960*2*len(sequence))
 	gotSamples := 0
 	for i, tc := range sequence {
 		celtDec.SetQEXTPayload(tc.qextPayload)
