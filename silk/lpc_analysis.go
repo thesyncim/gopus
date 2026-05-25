@@ -20,181 +20,11 @@ const (
 )
 
 // burgModifiedFLP computes LPC coefficients using libopus-matching Burg's method.
-// This is a Go implementation of silk_burg_modified_FLP from libopus.
-//
-// Parameters:
-//   - x: Input signal (nb_subfr * subfr_length samples)
-//   - minInvGainVal: Minimum inverse prediction gain (typically 1e-4 for 40dB max gain)
-//   - subfrLength: Subframe length including D preceding samples
-//   - nbSubfr: Number of subframes stacked in x
-//   - order: LPC order (D)
-//
-// Returns: LPC coefficients as float64 slice and residual energy
-func burgModifiedFLP(x []float64, minInvGainVal float64, subfrLength, nbSubfr, order int) ([]float64, float64) {
-	totalLen := nbSubfr * subfrLength
-	if totalLen > maxBurgFrameSize || totalLen > len(x) {
-		// Safety check - can't process
-		return make([]float64, order), 0
-	}
-
-	// Output LPC coefficients (Af in libopus)
-	Af := make([]float64, order)
-
-	// Compute total energy (C0)
-	var C0 float64
-	for i := 0; i < totalLen; i++ {
-		C0 += x[i] * x[i]
-	}
-
-	// Initialize correlation rows
-	CFirstRow := make([]float64, silkMaxOrderLPC)
-	CLastRow := make([]float64, silkMaxOrderLPC)
-
-	// Compute initial autocorrelations, added over subframes
-	for s := 0; s < nbSubfr; s++ {
-		xPtr := s * subfrLength
-		for n := 1; n <= order; n++ {
-			var sum float64
-			for k := 0; k < subfrLength-n; k++ {
-				sum += x[xPtr+k] * x[xPtr+k+n]
-			}
-			CFirstRow[n-1] += sum
-		}
-	}
-	copy(CLastRow, CFirstRow)
-
-	// Initialize CAf and CAb (correlation * filter)
-	CAf := make([]float64, silkMaxOrderLPC+1)
-	CAb := make([]float64, silkMaxOrderLPC+1)
-	condFac := float64(float32(findLPCCondFac))
-	eps := float64(float32(1e-9))
-	CAf[0] = C0 + condFac*C0 + eps
-	CAb[0] = CAf[0]
-
-	invGain := 1.0
-	reachedMaxGain := false
-
-	// Main Burg iteration
-	for n := 0; n < order; n++ {
-		// Update correlation rows and C*Af, C*flipud(Af)
-		for s := 0; s < nbSubfr; s++ {
-			xPtr := s * subfrLength
-			tmp1 := x[xPtr+n]
-			tmp2 := x[xPtr+subfrLength-n-1]
-
-			for k := 0; k < n; k++ {
-				CFirstRow[k] -= x[xPtr+n] * x[xPtr+n-k-1]
-				CLastRow[k] -= x[xPtr+subfrLength-n-1] * x[xPtr+subfrLength-n+k]
-				Atmp := Af[k]
-				tmp1 += x[xPtr+n-k-1] * Atmp
-				tmp2 += x[xPtr+subfrLength-n+k] * Atmp
-			}
-
-			for k := 0; k <= n; k++ {
-				CAf[k] -= tmp1 * x[xPtr+n-k]
-				CAb[k] -= tmp2 * x[xPtr+subfrLength-n+k-1]
-			}
-		}
-
-		// Update CAf[n+1] and CAb[n+1]
-		tmp1 := CFirstRow[n]
-		tmp2 := CLastRow[n]
-		for k := 0; k < n; k++ {
-			Atmp := Af[k]
-			tmp1 += CLastRow[n-k-1] * Atmp
-			tmp2 += CFirstRow[n-k-1] * Atmp
-		}
-		CAf[n+1] = tmp1
-		CAb[n+1] = tmp2
-
-		// Calculate numerator and denominator for reflection coefficient
-		num := CAb[n+1]
-		nrgB := CAb[0]
-		nrgF := CAf[0]
-		for k := 0; k < n; k++ {
-			Atmp := Af[k]
-			num += CAb[n-k] * Atmp
-			nrgB += CAb[k+1] * Atmp
-			nrgF += CAf[k+1] * Atmp
-		}
-
-		if nrgF <= 0 || nrgB <= 0 {
-			break
-		}
-
-		// Calculate reflection coefficient
-		rc := -2.0 * num / (nrgF + nrgB)
-
-		// Update inverse prediction gain
-		tmp1 = invGain * (1.0 - rc*rc)
-		if tmp1 <= minInvGainVal {
-			// Max prediction gain exceeded; set rc such that max gain is exactly hit
-			rc = math.Sqrt(1.0 - minInvGainVal/invGain)
-			if num > 0 {
-				rc = -rc
-			}
-			invGain = minInvGainVal
-			reachedMaxGain = true
-		} else {
-			invGain = tmp1
-		}
-
-		// Update AR coefficients using Levinson-Durbin recursion
-		for k := 0; k < (n+1)>>1; k++ {
-			tmp1 = Af[k]
-			tmp2 = Af[n-k-1]
-			Af[k] = tmp1 + rc*tmp2
-			Af[n-k-1] = tmp2 + rc*tmp1
-		}
-		Af[n] = rc
-
-		if reachedMaxGain {
-			// Set remaining coefficients to zero
-			for k := n + 1; k < order; k++ {
-				Af[k] = 0
-			}
-			break
-		}
-
-		// Update C*Af and C*Ab
-		for k := 0; k <= n+1; k++ {
-			tmp1 = CAf[k]
-			CAf[k] += rc * CAb[n-k+1]
-			CAb[n-k+1] += rc * tmp1
-		}
-	}
-
-	// Compute residual energy
-	var nrgF float64
-	if reachedMaxGain {
-		// Subtract energy of preceding samples from C0
-		for s := 0; s < nbSubfr; s++ {
-			xPtr := s * subfrLength
-			for k := 0; k < order; k++ {
-				C0 -= x[xPtr+k] * x[xPtr+k]
-			}
-		}
-		nrgF = C0 * invGain
-	} else {
-		// Compute residual energy from CAf and Af
-		nrgF = CAf[0]
-		var tmp1 float64 = 1.0
-		for k := 0; k < order; k++ {
-			Atmp := Af[k]
-			nrgF += CAf[k+1] * Atmp
-			tmp1 += Atmp * Atmp
-		}
-		nrgF -= condFac * C0 * tmp1
-	}
-
-	// Negate coefficients for LPC convention (libopus stores negative)
-	// Match libopus: A[k] = (silk_float)(-Af[k]) and return (silk_float)nrg_f
-	A := make([]float64, order)
-	for k := 0; k < order; k++ {
-		A[k] = float64(float32(-Af[k]))
-	}
-
-	return A, float64(float32(nrgF))
+// Inputs and outputs are silk_float-width; the called core keeps only the
+// libopus silk/float/burg_modified_FLP.c C double work arrays widened.
+func burgModifiedFLP(x []float32, minInvGainVal float32, subfrLength, nbSubfr, order int) ([]float32, float32) {
+	var e Encoder
+	return e.burgModifiedFLPZeroAllocF32(x, minInvGainVal, subfrLength, nbSubfr, order)
 }
 
 // burgLPC computes LPC coefficients using Burg's method.
@@ -213,12 +43,6 @@ func burgLPC(signal []float32, order int) []int16 {
 		return make([]int16, order)
 	}
 
-	// Convert to float64 for precision
-	x := make([]float64, n)
-	for i := 0; i < n; i++ {
-		x[i] = float64(signal[i])
-	}
-
 	// Use subframe-based Burg method matching libopus
 	// For a single analysis window, treat as 1 subframe
 	subfrLength := n
@@ -230,12 +54,12 @@ func burgLPC(signal []float32, order int) []int16 {
 		subfrLength = n / nbSubfr
 	}
 
-	a, _ := burgModifiedFLP(x, minInvGain, subfrLength, nbSubfr, order)
+	a, _ := burgModifiedFLP(signal, float32(minInvGain), subfrLength, nbSubfr, order)
 
 	// Convert to Q12 fixed-point
 	lpcQ12 := make([]int16, order)
 	for i := 0; i < order; i++ {
-		val := float64(float32(a[i]) * 4096.0) // Q12 scaling
+		val := a[i] * 4096.0 // Q12 scaling
 		if val > 32767 {
 			val = 32767
 		} else if val < -32768 {
@@ -247,89 +71,11 @@ func burgLPC(signal []float32, order int) []int16 {
 	return lpcQ12
 }
 
-// applySineWindowFLP applies asymmetric sine window to signal.
-// This matches libopus silk_apply_sine_window_FLP.
-//
-// winType: 1 -> sine window from 0 to pi/2 (ramp up)
-//
-//	2 -> sine window from pi/2 to pi (ramp down)
-func applySineWindowFLP(pxWin, px []float64, winType, length int) {
-	if length == 0 || length&3 != 0 {
-		return
-	}
-
-	freq := math.Pi / float64(length+1)
-
-	// Approximation of 2 * cos(f)
-	c := 2.0 - freq*freq
-
-	var S0, S1 float64
-	if winType < 2 {
-		// Start from 0
-		S0 = 0.0
-		S1 = freq // Approximation of sin(f)
-	} else {
-		// Start from 1
-		S0 = 1.0
-		S1 = 0.5 * c // Approximation of cos(f)
-	}
-
-	// Recursive sine computation: sin(n*f) = 2*cos(f)*sin((n-1)*f) - sin((n-2)*f)
-	for k := 0; k < length; k += 4 {
-		pxWin[k+0] = px[k+0] * 0.5 * (S0 + S1)
-		pxWin[k+1] = px[k+1] * S1
-		S0 = c*S1 - S0
-		pxWin[k+2] = px[k+2] * 0.5 * (S1 + S0)
-		pxWin[k+3] = px[k+3] * S0
-		S1 = c*S0 - S1
-	}
-}
-
-// lpcAnalysisFilterFLP applies LPC analysis filter to compute residual.
-// This matches libopus silk_LPC_analysis_filter_FLP.
-// First Order samples of output are set to zero.
-func lpcAnalysisFilterFLP(rLPC, predCoef, s []float64, length, order int) {
-	if order > length {
-		return
-	}
-
-	// Set first Order output samples to zero
-	for i := 0; i < order; i++ {
-		rLPC[i] = 0
-	}
-
-	// Apply analysis filter
-	for ix := order; ix < length; ix++ {
-		var lpcPred float32
-		for k := 0; k < order; k++ {
-			lpcPred += float32(s[ix-k-1]) * float32(predCoef[k])
-		}
-		rLPC[ix] = float64(float32(s[ix]) - lpcPred)
-	}
-}
-
-// energyF64 computes energy of a float64 signal.
-func energyF64(x []float64, length int) float64 {
-	if length <= 0 {
-		return 0
-	}
-	_ = x[length-1] // BCE hint
-	var energy float64
-	i := 0
-	for ; i < length-3; i += 4 {
-		energy += x[i]*x[i] + x[i+1]*x[i+1] + x[i+2]*x[i+2] + x[i+3]*x[i+3]
-	}
-	for ; i < length; i++ {
-		energy += x[i] * x[i]
-	}
-	return energy
-}
-
 // energyF32, innerProductF32 are in inner_prod_asm.go (arm64) / inner_prod_default.go (other).
 
 // a2nlsfFLP converts LPC coefficients to NLSF using floating point.
 // This matches libopus silk_A2NLSF_FLP / silk_A2NLSF.
-func a2nlsfFLP(a []float64, order int) []int16 {
+func a2nlsfFLP(a []float32, order int) []int16 {
 	aQ16 := make([]int32, order)
 	nlsfQ15 := make([]int16, order)
 	dd := order >> 1
@@ -342,10 +88,9 @@ func a2nlsfFLP(a []float64, order int) []int16 {
 // a2nlsfFLPInto converts LPC coefficients to NLSF using pre-allocated buffers.
 // nlsfOut must have length >= order, aQ16Buf must have length >= order,
 // P and Q must have capacity >= dd+1 where dd = order>>1.
-func a2nlsfFLPInto(nlsfOut []int16, aQ16Buf []int32, P, Q []int32, a []float64, order int) {
+func a2nlsfFLPInto(nlsfOut []int16, aQ16Buf []int32, P, Q []int32, a []float32, order int) {
 	for k := 0; k < order; k++ {
-		a32 := float32(a[k])
-		aQ16Buf[k] = float64ToInt32Round(float64(a32 * 65536.0))
+		aQ16Buf[k] = float32ToInt32RoundEven(a[k] * 65536.0)
 	}
 	silkA2NLSFInto(nlsfOut, aQ16Buf, order, P, Q)
 }
@@ -614,10 +359,10 @@ func silkBwExpander32AQ16(ar []int32, order int, chirpQ16 int32) {
 //
 // lpcQ12: LPC coefficients in Q12 format (modified in place)
 // chirp: Expansion factor (0.96 recommended per Phase 2)
-func applyBandwidthExpansionFloat(lpcQ12 []int16, chirp float64) {
+func applyBandwidthExpansionFloat(lpcQ12 []int16, chirp float32) {
 	factor := chirp
 	for i := 0; i < len(lpcQ12); i++ {
-		lpcQ12[i] = int16(float64(lpcQ12[i]) * factor)
+		lpcQ12[i] = int16(float32(lpcQ12[i]) * factor)
 		factor *= chirp
 	}
 }
@@ -670,7 +415,7 @@ func (e *Encoder) burgLPCZeroAlloc(signal []float32, order int) []int16 {
 	// Convert to Q12 fixed-point using scratch
 	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
 	for i := 0; i < order; i++ {
-		val := float64(float32(a[i]) * 4096.0) // Q12 scaling
+		val := a[i] * 4096.0 // Q12 scaling
 		if val > 32767 {
 			val = 32767
 		} else if val < -32768 {
@@ -682,194 +427,9 @@ func (e *Encoder) burgLPCZeroAlloc(signal []float32, order int) []int16 {
 	return lpcQ12
 }
 
-// burgModifiedFLPZeroAlloc computes LPC using scratch buffers.
-func (e *Encoder) burgModifiedFLPZeroAlloc(x []float64, minInvGainVal float64, subfrLength, nbSubfr, order int) ([]float32, float32) {
-	totalLen := nbSubfr * subfrLength
-	if totalLen > maxBurgFrameSize || totalLen > len(x) {
-		// Safety check - return zeros
-		result := ensureFloat32Slice(&e.scratchBurgResult, order)
-		for i := range result {
-			result[i] = 0
-		}
-		return result, 0
-	}
-
-	// Use scratch buffers for Burg algorithm working arrays
-	Af := ensureFloat64Slice(&e.scratchBurgAf, order)
-	CFirstRow := ensureFloat64Slice(&e.scratchBurgCFirstRow, silkMaxOrderLPC)
-	CLastRow := ensureFloat64Slice(&e.scratchBurgCLastRow, silkMaxOrderLPC)
-	CAf := ensureFloat64Slice(&e.scratchBurgCAf, silkMaxOrderLPC+1)
-	CAb := ensureFloat64Slice(&e.scratchBurgCAb, silkMaxOrderLPC+1)
-
-	// Clear all scratch buffers
-	for i := range Af {
-		Af[i] = 0
-	}
-	for i := range CFirstRow {
-		CFirstRow[i] = 0
-	}
-	for i := range CLastRow {
-		CLastRow[i] = 0
-	}
-	for i := range CAf {
-		CAf[i] = 0
-	}
-	for i := range CAb {
-		CAb[i] = 0
-	}
-
-	// Compute total energy (C0)
-	var C0 float64
-	for i := 0; i < totalLen; i++ {
-		C0 += x[i] * x[i]
-	}
-
-	// Compute initial autocorrelations
-	for s := 0; s < nbSubfr; s++ {
-		xPtr := s * subfrLength
-		for n := 1; n <= order; n++ {
-			var sum float64
-			for k := 0; k < subfrLength-n; k++ {
-				sum += x[xPtr+k] * x[xPtr+k+n]
-			}
-			CFirstRow[n-1] += sum
-		}
-	}
-	copy(CLastRow[:silkMaxOrderLPC], CFirstRow[:silkMaxOrderLPC])
-
-	condFac := float64(float32(findLPCCondFac))
-	eps := float64(float32(1e-9))
-	CAf[0] = C0 + condFac*C0 + eps
-	CAb[0] = CAf[0]
-
-	invGain := 1.0
-	reachedMaxGain := false
-
-	// Main Burg iteration
-	for n := 0; n < order; n++ {
-		for s := 0; s < nbSubfr; s++ {
-			xPtr := s * subfrLength
-			tmp1 := x[xPtr+n]
-			tmp2 := x[xPtr+subfrLength-n-1]
-
-			for k := 0; k < n; k++ {
-				CFirstRow[k] -= x[xPtr+n] * x[xPtr+n-k-1]
-				CLastRow[k] -= x[xPtr+subfrLength-n-1] * x[xPtr+subfrLength-n+k]
-				Atmp := Af[k]
-				tmp1 += x[xPtr+n-k-1] * Atmp
-				tmp2 += x[xPtr+subfrLength-n+k] * Atmp
-			}
-
-			for k := 0; k <= n; k++ {
-				CAf[k] -= tmp1 * x[xPtr+n-k]
-				CAb[k] -= tmp2 * x[xPtr+subfrLength-n+k-1]
-			}
-		}
-
-		tmp1 := CFirstRow[n]
-		tmp2 := CLastRow[n]
-		for k := 0; k < n; k++ {
-			Atmp := Af[k]
-			tmp1 += CLastRow[n-k-1] * Atmp
-			tmp2 += CFirstRow[n-k-1] * Atmp
-		}
-		CAf[n+1] = tmp1
-		CAb[n+1] = tmp2
-
-		num := CAb[n+1]
-		nrgB := CAb[0]
-		nrgF := CAf[0]
-		for k := 0; k < n; k++ {
-			Atmp := Af[k]
-			num += CAb[n-k] * Atmp
-			nrgB += CAb[k+1] * Atmp
-			nrgF += CAf[k+1] * Atmp
-		}
-
-		if nrgF <= 0 || nrgB <= 0 {
-			break
-		}
-
-		rc := -2.0 * num / (nrgF + nrgB)
-
-		tmp1 = invGain * (1.0 - rc*rc)
-		if tmp1 <= minInvGainVal {
-			rc = math.Sqrt(1.0 - minInvGainVal/invGain)
-			if num > 0 {
-				rc = -rc
-			}
-			invGain = minInvGainVal
-			reachedMaxGain = true
-		} else {
-			invGain = tmp1
-		}
-
-		for k := 0; k < (n+1)>>1; k++ {
-			tmp1 = Af[k]
-			tmp2 = Af[n-k-1]
-			Af[k] = tmp1 + rc*tmp2
-			Af[n-k-1] = tmp2 + rc*tmp1
-		}
-		Af[n] = rc
-
-		if reachedMaxGain {
-			for k := n + 1; k < order; k++ {
-				Af[k] = 0
-			}
-			break
-		}
-
-		for k := 0; k <= n+1; k++ {
-			tmp1 = CAf[k]
-			CAf[k] += rc * CAb[n-k+1]
-			CAb[n-k+1] += rc * tmp1
-		}
-	}
-
-	// Store energy and inverse gain for gain computation from prediction residual
-	// C0 is the total energy, invGain is the inverse prediction gain
-	// Residual energy = C0 * invGain
-	// IMPORTANT: C0 is computed from normalized PCM [-1, 1], but gain quantization
-	// expects int16-scale energy. Scale by 32768^2 to convert to int16 scale.
-	const pcmScaleSq = 32768.0 * 32768.0
-	e.lastTotalEnergy = C0 * pcmScaleSq
-	e.lastInvGain = invGain
-	e.lastNumSamples = totalLen
-
-	var nrgF float64
-	if reachedMaxGain {
-		// Approximate residual energy (match libopus: subtract energy of preceding samples).
-		adjustedC0 := C0
-		for s := 0; s < nbSubfr; s++ {
-			start := s * subfrLength
-			if start+order > totalLen {
-				break
-			}
-			adjustedC0 -= energyF64(x[start:start+order], order)
-		}
-		nrgF = adjustedC0 * invGain
-	} else {
-		// Compute residual energy using final correlation state
-		nrgF = CAf[0]
-		tmp1 := 1.0
-		for k := 0; k < order; k++ {
-			Atmp := Af[k]
-			nrgF += CAf[k+1] * Atmp
-			tmp1 += Atmp * Atmp
-		}
-		nrgF -= condFac * C0 * tmp1
-	}
-
-	// Negate coefficients for LPC convention
-	A := ensureFloat32Slice(&e.scratchBurgResult, order)
-	for k := 0; k < order; k++ {
-		A[k] = float32(-Af[k])
-	}
-
-	return A, float32(nrgF)
-}
-
-// burgModifiedFLPZeroAllocF32 computes LPC using float32 input to match libopus float path.
+// burgModifiedFLPZeroAllocF32 computes LPC using silk_float input/output.
+// libopus silk/float/burg_modified_FLP.c intentionally keeps C double
+// accumulators and work arrays for C0, C_first_row, C_last_row, CAf, CAb, and Af.
 func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32, subfrLength, nbSubfr, order int) ([]float32, float32) {
 	totalLen := nbSubfr * subfrLength
 	if totalLen > maxBurgFrameSize || totalLen > len(x) {
@@ -1039,8 +599,8 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	}
 
 	const pcmScaleSq = 32768.0 * 32768.0
-	e.lastTotalEnergy = C0 * pcmScaleSq
-	e.lastInvGain = invGain
+	e.lastTotalEnergy = float32(C0 * pcmScaleSq)
+	e.lastInvGain = float32(invGain)
 	e.lastNumSamples = totalLen
 
 	// Match libopus: A[k] = (silk_float)(-Af[k]) and return (silk_float)nrg_f.
@@ -1100,7 +660,7 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 		nlsfQ15 := e.scratchA2nlsfNLSF[:order]
 		aQ16 := e.scratchA2nlsfAQ16[:order]
 		for i := 0; i < order; i++ {
-			aQ16[i] = float64ToInt32Round(float64(a[i] * 65536.0))
+			aQ16[i] = float32ToInt32RoundEven(a[i] * 65536.0)
 		}
 		silkA2NLSFInto(nlsfQ15, aQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
 
@@ -1159,7 +719,7 @@ func (e *Encoder) FindLPCWithInterpolation(x []float32, prevNLSFQ15 []int16, use
 	nlsfQ15 := e.scratchA2nlsfNLSF[:order]
 	aQ16 := e.scratchA2nlsfAQ16[:order]
 	for i := 0; i < order; i++ {
-		aQ16[i] = float64ToInt32Round(float64(a[i] * 65536.0))
+		aQ16[i] = float32ToInt32RoundEven(a[i] * 65536.0)
 	}
 	silkA2NLSFInto(nlsfQ15, aQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
 	return nlsfQ15, interpCoef

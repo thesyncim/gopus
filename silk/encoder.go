@@ -98,8 +98,8 @@ type Encoder struct {
 	nlsfSurvivors   int
 
 	// LPC analysis results (for gain computation from prediction residual)
-	lastTotalEnergy float64 // C0 from Burg analysis
-	lastInvGain     float64 // Inverse prediction gain from Burg analysis
+	lastTotalEnergy float32 // C0 from Burg analysis, narrowed to silk_float storage
+	lastInvGain     float32 // Inverse prediction gain, narrowed to silk_float storage
 	lastLPCGain     float32 // Initial prediction gain from pitch analysis (silk_float)
 	lastNumSamples  int     // Number of samples analyzed
 
@@ -182,15 +182,16 @@ type Encoder struct {
 	scratchPulses32         []int32 // LBRR pulse conversion
 	scratchEcBufCopy        []byte  // range encoder buffer snapshot
 
-	// LPC/Burg scratch buffers
+	// LPC/Burg scratch buffers. The Burg work arrays mirror C double arrays
+	// in libopus silk/float/burg_modified_FLP.c; input/output stay silk_float.
 	scratchWindowed      []float32 // computeLPCFromFrame: windowed PCM
 	scratchLpcQ12        []int16   // burgLPCZeroAlloc: output LPC Q12
-	scratchBurgAf        []float64 // burgModifiedFLPZeroAlloc: Af buffer
-	scratchBurgCFirstRow []float64 // burgModifiedFLPZeroAlloc: CFirstRow
-	scratchBurgCLastRow  []float64 // burgModifiedFLPZeroAlloc: CLastRow
-	scratchBurgCAf       []float64 // burgModifiedFLPZeroAlloc: CAf
-	scratchBurgCAb       []float64 // burgModifiedFLPZeroAlloc: CAb
-	scratchBurgResult    []float32 // burgModifiedFLPZeroAlloc: result (silk_float)
+	scratchBurgAf        []float64 // burgModifiedFLPZeroAllocF32: Af buffer
+	scratchBurgCFirstRow []float64 // burgModifiedFLPZeroAllocF32: CFirstRow
+	scratchBurgCLastRow  []float64 // burgModifiedFLPZeroAllocF32: CLastRow
+	scratchBurgCAf       []float64 // burgModifiedFLPZeroAllocF32: CAf
+	scratchBurgCAb       []float64 // burgModifiedFLPZeroAllocF32: CAb
+	scratchBurgResult    []float32 // burgModifiedFLPZeroAllocF32: result (silk_float)
 
 	// LTP analysis scratch buffers
 	scratchPitchRes32   []float32 // Pitch analysis: residual as float32
@@ -588,7 +589,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.shapingLPCOrder = 16
 		e.laShape = 5 * fsKHz
 		e.nStatesDelayedDecision = 2
-		e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
+		e.warpingQ16 = int(float32(fsKHz) * float32(warpingMultiplier) * 65536.0)
 		e.nlsfSurvivors = 6
 	case complexity < 8:
 		e.pitchEstimationComplexity = 1
@@ -597,7 +598,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.shapingLPCOrder = 20
 		e.laShape = 5 * fsKHz
 		e.nStatesDelayedDecision = 3
-		e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
+		e.warpingQ16 = int(float32(fsKHz) * float32(warpingMultiplier) * 65536.0)
 		e.nlsfSurvivors = 8
 	default:
 		e.pitchEstimationComplexity = 2
@@ -606,7 +607,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 		e.shapingLPCOrder = 24
 		e.laShape = 5 * fsKHz
 		e.nStatesDelayedDecision = maxDelDecStates
-		e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
+		e.warpingQ16 = int(float32(fsKHz) * float32(warpingMultiplier) * 65536.0)
 		e.nlsfSurvivors = 16
 	}
 

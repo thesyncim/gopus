@@ -102,9 +102,9 @@ func TestBandwidthExpansionFloat(t *testing.T) {
 	applyBandwidthExpansionFloat(lpc, 0.96)
 
 	// Each coefficient should be reduced by increasing powers of chirp
-	chirp := 0.96
+	chirp := float32(0.96)
 	for i := 0; i < len(lpc); i++ {
-		expected := int16(float64(original[i]) * chirp)
+		expected := int16(float32(original[i]) * chirp)
 		// Allow small rounding differences
 		if lpcAbsInt(int(lpc[i]-expected)) > 1 {
 			t.Errorf("LPC[%d]: expected %d, got %d", i, expected, lpc[i])
@@ -385,13 +385,13 @@ func lpcAbsInt(x int) int {
 func TestBurgModifiedFLP(t *testing.T) {
 	// Generate a test signal with known spectral characteristics
 	n := 320 // 20ms at 16kHz
-	signal := make([]float64, n)
+	signal := make([]float32, n)
 	for i := 0; i < n; i++ {
 		ti := float64(i) / 16000.0
 		// Mix of harmonics typical of voiced speech
-		signal[i] = math.Sin(2*math.Pi*200*ti) +
+		signal[i] = float32(math.Sin(2*math.Pi*200*ti) +
 			0.5*math.Sin(2*math.Pi*400*ti) +
-			0.25*math.Sin(2*math.Pi*600*ti)
+			0.25*math.Sin(2*math.Pi*600*ti))
 	}
 
 	// Use parameters matching libopus 20ms frame
@@ -413,7 +413,7 @@ func TestBurgModifiedFLP(t *testing.T) {
 
 	// Coefficients should be reasonable (not NaN or Inf)
 	for i, coef := range a {
-		if math.IsNaN(coef) || math.IsInf(coef, 0) {
+		if math.IsNaN(float64(coef)) || math.IsInf(float64(coef), 0) {
 			t.Errorf("LPC[%d] is invalid: %f", i, coef)
 		}
 	}
@@ -427,10 +427,10 @@ func TestBurgModifiedFLPGainLimiting(t *testing.T) {
 	// Create a signal that would produce very high prediction gain
 	// (strong resonance)
 	n := 160
-	signal := make([]float64, n)
+	signal := make([]float32, n)
 	for i := 0; i < n; i++ {
 		// Pure sinusoid has very high prediction gain
-		signal[i] = math.Sin(2 * math.Pi * float64(i) / 20.0)
+		signal[i] = float32(math.Sin(2 * math.Pi * float64(i) / 20.0))
 	}
 
 	subfrLength := 40
@@ -441,14 +441,14 @@ func TestBurgModifiedFLPGainLimiting(t *testing.T) {
 
 	// Verify all coefficients are finite
 	for i, coef := range a {
-		if math.IsNaN(coef) || math.IsInf(coef, 0) {
+		if math.IsNaN(float64(coef)) || math.IsInf(float64(coef), 0) {
 			t.Errorf("LPC[%d] is invalid after gain limiting: %f", i, coef)
 		}
 	}
 
 	// The magnitude of coefficients should be reasonable
 	for i, coef := range a {
-		if math.Abs(coef) > 10.0 {
+		if math.Abs(float64(coef)) > 10.0 {
 			t.Logf("Warning: LPC[%d] has large magnitude: %f", i, coef)
 		}
 	}
@@ -457,7 +457,7 @@ func TestBurgModifiedFLPGainLimiting(t *testing.T) {
 // TestA2NLSFConversion tests the LPC to NLSF conversion
 func TestA2NLSFConversion(t *testing.T) {
 	// Use known LPC coefficients that produce stable NLSF
-	aFloat := []float64{0.5, -0.3, 0.2, -0.15, 0.1, -0.08, 0.05, -0.03, 0.02, -0.01}
+	aFloat := []float32{0.5, -0.3, 0.2, -0.15, 0.1, -0.08, 0.05, -0.03, 0.02, -0.01}
 
 	nlsfQ15 := a2nlsfFLP(aFloat, len(aFloat))
 
@@ -523,17 +523,17 @@ func TestLPCAnalysisFilterFLP(t *testing.T) {
 	// Create a simple signal
 	length := 100
 	order := 10
-	signal := make([]float64, length)
+	signal := make([]float32, length)
 	for i := 0; i < length; i++ {
-		signal[i] = math.Sin(2 * math.Pi * float64(i) / 20.0)
+		signal[i] = float32(math.Sin(2 * math.Pi * float64(i) / 20.0))
 	}
 
 	// Simple prediction coefficients
-	predCoef := make([]float64, order)
+	predCoef := make([]float32, order)
 	predCoef[0] = 0.9 // First-order prediction
 
-	residual := make([]float64, length)
-	lpcAnalysisFilterFLP(residual, predCoef, signal, length, order)
+	residual := make([]float32, length)
+	lpcAnalysisFilterF32(residual, predCoef, signal, length, order)
 
 	// First 'order' samples should be zero
 	for i := 0; i < order; i++ {
@@ -546,7 +546,7 @@ func TestLPCAnalysisFilterFLP(t *testing.T) {
 	// For a first-order predictor: residual[i] = signal[i] - 0.9*signal[i-1]
 	for i := order; i < length; i++ {
 		expected := signal[i] - 0.9*signal[i-1]
-		if math.Abs(residual[i]-expected) > 1e-5 {
+		if math.Abs(float64(residual[i]-expected)) > 1e-5 {
 			t.Errorf("residual[%d]: expected %f, got %f", i, expected, residual[i])
 		}
 	}
@@ -555,8 +555,8 @@ func TestLPCAnalysisFilterFLP(t *testing.T) {
 // TestApplySineWindowFLP tests the asymmetric sine window
 func TestApplySineWindowFLP(t *testing.T) {
 	length := 64 // Must be multiple of 4
-	input := make([]float64, length)
-	output := make([]float64, length)
+	input := make([]float32, length)
+	output := make([]float32, length)
 
 	// Fill with constant value
 	for i := 0; i < length; i++ {
@@ -564,7 +564,7 @@ func TestApplySineWindowFLP(t *testing.T) {
 	}
 
 	// Apply type 1 window (ramp up from 0 to 1)
-	applySineWindowFLP(output, input, 1, length)
+	applySineWindowFLP32(output, input, 1, length)
 
 	// First sample should be near 0
 	if output[0] > 0.1 {
@@ -577,7 +577,7 @@ func TestApplySineWindowFLP(t *testing.T) {
 	}
 
 	// Apply type 2 window (ramp down from 1 to 0)
-	applySineWindowFLP(output, input, 2, length)
+	applySineWindowFLP32(output, input, 2, length)
 
 	// First sample should be near 1
 	if output[0] < 0.9 {
@@ -590,20 +590,20 @@ func TestApplySineWindowFLP(t *testing.T) {
 	}
 }
 
-// TestEnergyF64 tests energy computation
-func TestEnergyF64(t *testing.T) {
+// TestEnergyF32Libopus tests energy computation.
+func TestEnergyF32Libopus(t *testing.T) {
 	// Test with known values
-	signal := []float64{1.0, 2.0, 3.0, 4.0}
+	signal := []float32{1.0, 2.0, 3.0, 4.0}
 	expected := 1.0 + 4.0 + 9.0 + 16.0 // 30.0
 
-	energy := energyF64(signal, len(signal))
+	energy := energyF32Libopus(signal, len(signal))
 
 	if math.Abs(energy-expected) > 1e-5 {
 		t.Errorf("energy: expected %f, got %f", expected, energy)
 	}
 
 	// Test with partial length
-	energy = energyF64(signal, 2)
+	energy = energyF32Libopus(signal, 2)
 	expected = 1.0 + 4.0 // 5.0
 	if math.Abs(energy-expected) > 1e-5 {
 		t.Errorf("partial energy: expected %f, got %f", expected, energy)

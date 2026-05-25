@@ -1754,17 +1754,14 @@ plc/silk_plc.go	1	cecb7acf10aa57d3da15d916936c0c1eb9c4f40b5646703b0a9b196a1ae373
 plc/silk_plc.go	1	df24bc5e674a596aa430d1385ec6dfa6ebcc7efe37f320e11e2a1c868ca857b1	legacy-current	func concealUnvoicedSILK(output []float32, prevLPC []float32, order int, fade float64, rng *uint32) {
 silk/encode_frame.go	1	2e26562d02b54885bdd23e6494c42331a5202fa4beb7a3056ae320fe26ed86b0	legacy-current	searchThres1 := float64(float32(e.pitchEstimationThresholdQ16) / 65536.0)
 silk/encode_frame.go	1	f223dd0cc95ee7b271eb2690192e56b126c8b77e2558b61eb9472ff4d6f6846e	legacy-current	thrhld := float64(thrhldF32)
-silk/encoder.go	1	0c918d21e61dde58402882af720f37fd0887a508ec6e3ea17fd978ac52eec485	legacy-current	scratchBurgAf []float64 // burgModifiedFLPZeroAlloc: Af buffer
-silk/encoder.go	3	2806077acc6ef7a5f7d0c5a48908330a58eb8af4218cd26444cb2470c3451e52	legacy-current	e.warpingQ16 = int(float64(fsKHz) * warpingMultiplier * 65536.0)
-silk/encoder.go	1	2b94ad410448917101f6c3ced79938bfb56ad4d819173eb35a92e2adf10afbe1	legacy-current	scratchBurgCLastRow []float64 // burgModifiedFLPZeroAlloc: CLastRow
-silk/encoder.go	1	45336cce01c8327d1c54f7327c48dd0ceb8be3fa800626bc4e8b891037bf3096	legacy-current	lastTotalEnergy float64 // C0 from Burg analysis
+silk/encoder.go	1	1d18a65e0422c2c117760eda9e5e860ca53125e185c9b770ef1ec92a58874b24	legacy-current	scratchBurgCFirstRow []float64 // burgModifiedFLPZeroAllocF32: CFirstRow
 silk/encoder.go	1	6b40bfd21dc7514a19d046fdad15de5d90cf1003f53e5be38cfb848756261c90	legacy-current	*buf = make([]float64, n)
-silk/encoder.go	1	7aa2314c0ee1b4ea8e3ca4aefc2521307749a23fd6396283cff6dc68830a32db	legacy-current	scratchBurgCAf []float64 // burgModifiedFLPZeroAlloc: CAf
+silk/encoder.go	1	948889f0d6a3c01fd21ed5b3c3b9be3857ebd93fe0ddcdd2c6229d4e9a20bae7	legacy-current	scratchBurgCLastRow []float64 // burgModifiedFLPZeroAllocF32: CLastRow
 silk/encoder.go	1	a09395b087e3dd1e2f60c05b69e2ccdaf93986b0083913049f44d2ed66843608	legacy-current	// ensureFloat64Slice ensures the slice has at least n elements.
-silk/encoder.go	1	b2b8672ed4d26998668f8f0a0645637ad1d0c266b085bea959b6fb7036c9e058	legacy-current	scratchBurgCAb []float64 // burgModifiedFLPZeroAlloc: CAb
-silk/encoder.go	1	c478c32f6935e3c6905319da0c0a79dfdaf3ca1e2308d9981ea2b05206c9de95	legacy-current	scratchBurgCFirstRow []float64 // burgModifiedFLPZeroAlloc: CFirstRow
+silk/encoder.go	1	ad5482268381b1fbe71a61851ded40903cf7da926d7b604e17ba31065ff80186	legacy-current	scratchBurgCAb []float64 // burgModifiedFLPZeroAllocF32: CAb
+silk/encoder.go	1	b328d78acf33d309a4184666b0ae941272cd4ff98631d2e093b4f47b9c1fe7bc	legacy-current	scratchBurgAf []float64 // burgModifiedFLPZeroAllocF32: Af buffer
 silk/encoder.go	1	d415655965153bfac7b853ec2f4b8ab245da8ea188332c5020ae6619e6acd480	legacy-current	func ensureFloat64Slice(buf *[]float64, n int) []float64 {
-silk/encoder.go	1	e2a2e4e8257bf098146e0d2194e64c1cced62fb57da51bb2272e91495b42967b	legacy-current	lastInvGain float64 // Inverse prediction gain from Burg analysis
+silk/encoder.go	1	f0aa6b9b890c3dac4094babbb95c2b6eaee4cd41af245c2007a9bf6c583c759b	legacy-current	scratchBurgCAf []float64 // burgModifiedFLPZeroAllocF32: CAf
 silk/excitation_encode.go	1	6c15ca51f3946bbf6f0e2e13d973cc9594b873252ac8848aae5531917e690bb8	legacy-current	var prediction float64
 silk/excitation_encode.go	1	adc2315f865293ab40081d67a1d57f8026bf9958b4b8a8318806378ad9c7fb10	legacy-current	residual := float64(pcm[i]) - prediction
 silk/excitation_encode.go	1	e546cb089dd4e28333ce33857ffb4f95b1310648752af1dc95c79d4202d3ccc7	legacy-current	prediction += float64(lpcQ12[k]) * float64(pcm[i-k-1]) / 4096.0
@@ -1804,58 +1801,25 @@ silk/libopus_fixed.go	1	feda1280c51df2f35e513da2b363f5637b7b7138b625a3d4effc69a7
 silk/libopus_stereo.go	1	e9502c35bf463336e804cf1d8c98a64d55a573fdd76e474b96db687691a6f695	legacy-current	stepQ13 := silkSMULWB(int32(silk_stereo_pred_quant_Q13[ix[i][0]+1])-lowQ13, int32(silkFixConst(0.5/float64(stereoQuantSubSteps), 16)))
 silk/lpc.go	1	3f751fd63f7f65b28b9c6cc8017fe104cc345ebe5bf9573387e0f386346b7175	legacy-current	sample := float64(exc) / 32768.0
 silk/lpc.go	1	4e6551330963a44a30f80f8da559bcdf2f6ded07618d54d0eadce61d46b2f461	legacy-current	sample += float64(lpcCoeffs[k]) * float64(prev) / 4096.0
-silk/lpc_analysis.go	1	0185309be0fad5c313bc653f4dcb8622de2d6771541bbcce131951f73c7137b8	legacy-current	func burgModifiedFLP(x []float64, minInvGainVal float64, subfrLength, nbSubfr, order int) ([]float64, float64) {
 silk/lpc_analysis.go	1	035c115ded629bb37e94b2e323a28bcb80db0de52ffa28c6bdb0d46cb18ef6f3	legacy-current	tmp1 += noFMA64(float64(xnk), Atmp)
-silk/lpc_analysis.go	3	0a50dc44c424b9913f0c2c89c571098693ece9485671f88c64de01db7c22901b	legacy-current	var nrgF float64
-silk/lpc_analysis.go	1	0d2c182a90aabcc9a148df79ec6617f7d84e111f5776b937ab0ed69fdb844eb8	legacy-current	func applyBandwidthExpansionFloat(lpcQ12 []int16, chirp float64) {
+silk/lpc_analysis.go	1	0a50dc44c424b9913f0c2c89c571098693ece9485671f88c64de01db7c22901b	legacy-current	var nrgF float64
 silk/lpc_analysis.go	1	1467c5024df5ae9986a825981301274aaa93b70d1abf4467bad44862c411c4f0	legacy-current	minInvGain := float64(minInvGainVal)
 silk/lpc_analysis.go	1	20cf6e03236999e5a317d8f12834c41603b756727b032e8029f693df968e7963	legacy-current	n := float64(len(pcm))
-silk/lpc_analysis.go	1	2625c7e18d470030874758c7e308bcdb9a76d40ebf80f49338d39c40ed54a4ab	legacy-current	freq := math.Pi / float64(length+1)
-silk/lpc_analysis.go	1	29b35252f3c4202f72d7e2c58842d93068beb06c2913856fcde5524f303cad1f	legacy-current	func applySineWindowFLP(pxWin, px []float64, winType, length int) {
-silk/lpc_analysis.go	1	2fffc4d7f54cc4f5e39f3b35779bb1c87324fbcb6d69926eac798d4311e7296d	legacy-current	func a2nlsfFLP(a []float64, order int) []int16 {
-silk/lpc_analysis.go	1	34bb9a3fe8777652686d31831ac0bdb025dc65ec25e47ca6fb80cf43d5b8fdcc	legacy-current	A[k] = float64(float32(-Af[k]))
-silk/lpc_analysis.go	1	40595af28c1183c6d82a44234416c76e8e0224a9100b0acd07fbc6ed6d156744	legacy-current	// energyF64 computes energy of a float64 signal.
-silk/lpc_analysis.go	1	45d367a799f99d22334b018d490cd509e88969dd31352099338a832e39476579	legacy-current	// Convert to float64 for precision
-silk/lpc_analysis.go	3	488b273be8666da92d1d017844c42d81b1e882fc8306eeb571b9a32ff39a8733	legacy-current	condFac := float64(float32(findLPCCondFac))
-silk/lpc_analysis.go	1	4d31e41a0b92e72f56db7e27da3ea56e706cd2d0fd0c1652d67d7798697b17c9	legacy-current	return A, float64(float32(nrgF))
+silk/lpc_analysis.go	1	488b273be8666da92d1d017844c42d81b1e882fc8306eeb571b9a32ff39a8733	legacy-current	condFac := float64(float32(findLPCCondFac))
 silk/lpc_analysis.go	1	5453eb165b4d695d627a62185261495fc3a9695255b81eaf53793ee66dfce16c	legacy-current	CAb[k] -= noFMA64(tmp2, float64(xbk))
-silk/lpc_analysis.go	2	59e7fb111ff93b59d5643c8b48d5ff197dc98aa2d7551539969e2aa6f0295359	legacy-current	CAf := ensureFloat64Slice(&e.scratchBurgCAf, silkMaxOrderLPC+1)
-silk/lpc_analysis.go	2	5da470b841f7df751d61d92d9ff2dc36853309387b9dbd006149e74d3b2aad2a	legacy-current	CLastRow := ensureFloat64Slice(&e.scratchBurgCLastRow, silkMaxOrderLPC)
+silk/lpc_analysis.go	1	59e7fb111ff93b59d5643c8b48d5ff197dc98aa2d7551539969e2aa6f0295359	legacy-current	CAf := ensureFloat64Slice(&e.scratchBurgCAf, silkMaxOrderLPC+1)
+silk/lpc_analysis.go	1	5da470b841f7df751d61d92d9ff2dc36853309387b9dbd006149e74d3b2aad2a	legacy-current	CLastRow := ensureFloat64Slice(&e.scratchBurgCLastRow, silkMaxOrderLPC)
 silk/lpc_analysis.go	1	639355f29a01092ee0041ee0ec3a4ed21aeeddde6afcfcd55da4ce0b37f57a15	legacy-current	CAf[k] -= noFMA64(tmp1, float64(xnk))
-silk/lpc_analysis.go	1	66db536cc99eeb5d479de7a0d81b0f370b6ef1494f7195640e3960fa294773dc	legacy-current	func (e *Encoder) burgModifiedFLPZeroAlloc(x []float64, minInvGainVal float64, subfrLength, nbSubfr, order int) ([]float32, float32) {
-silk/lpc_analysis.go	2	67e2ac0d391d63371ebe13716eb9e4f73df5ef8a6a87d1d0b291407cb46ce43a	legacy-current	val := float64(float32(a[i]) * 4096.0) // Q12 scaling
-silk/lpc_analysis.go	1	6b7411ec00037efd96a739712115bd64617e4256711cbbca578493c43ce99b99	legacy-current	// Returns: LPC coefficients as float64 slice and residual energy
-silk/lpc_analysis.go	1	6e70d332e934b081da3e0e6bc42c4773859fee6ce1a1ff4222bc78f9f9046286	legacy-current	CLastRow := make([]float64, silkMaxOrderLPC)
-silk/lpc_analysis.go	1	715f1e15087e1285995a2d225fc66c188c893f82ba21c57f4e77810f02cbceac	legacy-current	func lpcAnalysisFilterFLP(rLPC, predCoef, s []float64, length, order int) {
-silk/lpc_analysis.go	3	733f1fb7081dbee494fd4fb0fd068997fe1d2da7f078af32a7e86ceca10d8473	legacy-current	eps := float64(float32(1e-9))
-silk/lpc_analysis.go	1	7b100e28c0e43191c42b4f0aee968a05b2a24ae55fd0a2110ad9cdf781949d3c	legacy-current	var energy float64
+silk/lpc_analysis.go	1	733f1fb7081dbee494fd4fb0fd068997fe1d2da7f078af32a7e86ceca10d8473	legacy-current	eps := float64(float32(1e-9))
 silk/lpc_analysis.go	1	7d06172b421ef1955c5dc5a7dc5089c808a5645dad4fda728e0e475712458896	legacy-current	CFirstRow[k] -= float64(noFMA32(xn, xnk))
-silk/lpc_analysis.go	1	94d710c0d85d9faabf4091b25a2bc246519bec548505d64bf34374f0b3dc8b89	legacy-current	func a2nlsfFLPInto(nlsfOut []int16, aQ16Buf []int32, P, Q []int32, a []float64, order int) {
-silk/lpc_analysis.go	2	9571034dd0199953a57b9c55cd1369bb831d698c595948f87cd0861c217bd452	legacy-current	var C0 float64
 silk/lpc_analysis.go	1	98276705241f502ec90d2e77bd7b6694ebe8efbb9db3ab3bde2aca7e1e0b228f	legacy-current	CLastRow[k] -= float64(noFMA32(xend, xbk))
-silk/lpc_analysis.go	1	9d447da65f85fedfda2f7350bf0a45b4eb795bc738829933beccc711fb1164e0	legacy-current	A := make([]float64, order)
-silk/lpc_analysis.go	2	9d8ba3608bc289de0f3c83d449afdd0baae416f88dfb202e932b478448038e4f	legacy-current	aQ16[i] = float64ToInt32Round(float64(a[i] * 65536.0))
 silk/lpc_analysis.go	1	9eb989c692be03947f3be0fc168abe6ebdf3ebd87bdf6d6ca904db01f1bc83a6	legacy-current	w := 0.54 - 0.46*math.Cos(2*math.Pi*float64(i)/(n-1))
-silk/lpc_analysis.go	1	9f78409321b2870b3582e57dfc6c7646f1cbaf65eb8f3c272e8b5ec3f6c15386	legacy-current	rLPC[ix] = float64(float32(s[ix]) - lpcPred)
-silk/lpc_analysis.go	2	a10517ca71a6b016aa8b04e3561639f0adff1fb0ffc5e3b73a050fe0091d0a4a	legacy-current	CFirstRow := ensureFloat64Slice(&e.scratchBurgCFirstRow, silkMaxOrderLPC)
-silk/lpc_analysis.go	1	a1baf3a15371b510a0e44b80cc77dce76e4fd4c10658cbc38d2518c29963bf7f	legacy-current	var tmp1 float64 = 1.0
-silk/lpc_analysis.go	2	a79112c11cf94698277bbe5263c7a178926dce7f5e624b593cc0cfe3bd17e292	legacy-current	CAb := ensureFloat64Slice(&e.scratchBurgCAb, silkMaxOrderLPC+1)
-silk/lpc_analysis.go	1	aeafc1faacac7889873f2ba943eedb3c80c4bfe5252d7309140a730bcc85c64e	legacy-current	lpcQ12[i] = int16(float64(lpcQ12[i]) * factor)
+silk/lpc_analysis.go	1	a10517ca71a6b016aa8b04e3561639f0adff1fb0ffc5e3b73a050fe0091d0a4a	legacy-current	CFirstRow := ensureFloat64Slice(&e.scratchBurgCFirstRow, silkMaxOrderLPC)
+silk/lpc_analysis.go	1	a79112c11cf94698277bbe5263c7a178926dce7f5e624b593cc0cfe3bd17e292	legacy-current	CAb := ensureFloat64Slice(&e.scratchBurgCAb, silkMaxOrderLPC+1)
 silk/lpc_analysis.go	1	b4d3c5acffb5228d8287a45fcd6d2f1c05e0e25e0814565d22aec0352a8893ed	legacy-current	tmp2 := float64(xend)
-silk/lpc_analysis.go	1	b605fcc5dd4a5141c7cd89fc6bf10404ac608e4912bd313f9c3ac13138d53777	legacy-current	x := make([]float64, n)
-silk/lpc_analysis.go	1	bcf251e0d9ce5a8849137086e6be867bd403d48e456a0887c80792779354ea82	legacy-current	x[i] = float64(signal[i])
 silk/lpc_analysis.go	1	c14340c1473e61d91f000ae6aa90d37d25b07cf4f4a2be667ea5069322473da9	legacy-current	tmp2 += noFMA64(float64(xbk), Atmp)
-silk/lpc_analysis.go	1	c623d0ba7218a91f4c52b2b00e51f284b117ec38430b5493b9310c07f0e6c140	legacy-current	var S0, S1 float64
-silk/lpc_analysis.go	2	d0c9335d851ac7ad87096d97f4702d37f4ba42c9f3ff8e2a2ad7d9a3fe4e7d2e	legacy-current	var sum float64
-silk/lpc_analysis.go	1	d1bde667afefdd8f1e8a480929d0777fb5d95c4af7e890aedcf1b94e6e0a2ead	legacy-current	aQ16Buf[k] = float64ToInt32Round(float64(a32 * 65536.0))
-silk/lpc_analysis.go	1	d23dd3a1f166217a669a1ddbc3d5e0a0658c5beeea7073575d10dace016cdaa0	legacy-current	return make([]float64, order), 0
 silk/lpc_analysis.go	1	d30ab94cd26245ddcb7e9df86214b9f23f3483391a5c4d9072c8fa6b2186d604	legacy-current	tmp1 := float64(xn)
-silk/lpc_analysis.go	1	e34d0faa2cd2bdf35827764ec7a983a6e73bff14fa9aed14b41e3394b19c8cc8	legacy-current	Af := make([]float64, order)
-silk/lpc_analysis.go	1	e85205767a58f717d991c65c85481eaa1c1c93ac9b023e2ebdf785f016c99cb8	legacy-current	CFirstRow := make([]float64, silkMaxOrderLPC)
-silk/lpc_analysis.go	1	f160b0301e02b05ce20cb7423de5ebb169e67766b2c20bd1b6142b22c10fd9df	legacy-current	CAf := make([]float64, silkMaxOrderLPC+1)
-silk/lpc_analysis.go	1	f3a3ad010aee1c8d01fd7f03a696efce6c415afce584c838edd222f9f8cb74b6	legacy-current	CAb := make([]float64, silkMaxOrderLPC+1)
-silk/lpc_analysis.go	1	f697bb4209fde7134f037037871eaeb90dea79e48e8d646efc602773c47f8555	legacy-current	func energyF64(x []float64, length int) float64 {
-silk/lpc_analysis.go	2	fc0d75d76f86e7519218dbef9d0c4ffd2b7f1022f195a47137ec3c255b9805dd	legacy-current	Af := ensureFloat64Slice(&e.scratchBurgAf, order)
+silk/lpc_analysis.go	1	fc0d75d76f86e7519218dbef9d0c4ffd2b7f1022f195a47137ec3c255b9805dd	legacy-current	Af := ensureFloat64Slice(&e.scratchBurgAf, order)
 silk/lsf_encode.go	1	0c43c9e4dff8b6fa1962d953e1b981b88b98c6472236b6d3e5abb595cf1c3b4c	legacy-current	w := float64(i) * step
 silk/lsf_encode.go	1	3f52d58d8606f16580647976fece1e006ac7a26462decb135c5745c658d23bec	legacy-current	var lpc, p, q, lsfFloat []float64
 silk/lsf_encode.go	1	78888167725b417aca51899e70f92435728e6f5850bd495114b2eda76fdd9d7a	legacy-current	lsfFloat[i] = math.Pi * float64(i+1) / float64(order+1)

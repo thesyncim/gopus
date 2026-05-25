@@ -128,7 +128,7 @@ func (e *Encoder) computeSubframeGainsFromResidual(pcm []float32, numSubframes i
 	// Compute average residual energy per sample
 	// residualEnergy = totalEnergy * invGain
 	// averageResidualEnergy = residualEnergy / numSamples
-	residualEnergy := float32(totalEnergy * invGain)
+	residualEnergy := totalEnergy * invGain
 	avgResidualPerSample := residualEnergy / float32(numSamples)
 
 	// Each subframe gets approximately the same average residual energy
@@ -156,7 +156,7 @@ func (e *Encoder) computeSubframeGainsFromResidual(pcm []float32, numSubframes i
 		}
 
 		// Scale residual by ratio of subframe energy to average frame energy
-		avgFrameEnergy := float32(totalEnergy) / float32(numSamples)
+		avgFrameEnergy := totalEnergy / float32(numSamples)
 		if avgFrameEnergy > 0 {
 			// Subframe residual energy ≈ avgResidualPerSample * (subframeEnergy / avgFrameEnergy)
 			subframeResidual := avgResidualPerSample * (subframeEnergy / avgFrameEnergy)
