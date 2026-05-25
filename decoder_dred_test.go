@@ -178,11 +178,11 @@ func makeValidCELTPacketForDREDTest(t *testing.T) []byte {
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(256000)
 
-	pcm := make([]float64, 960*2)
+	pcm := make([]float32, 960*2)
 	for i := 0; i < 960; i++ {
 		phase := 2 * math.Pi * 997 * float64(i) / 48000.0
-		pcm[2*i] = 0.45 * math.Sin(phase)
-		pcm[2*i+1] = 0.35 * math.Sin(phase+0.37)
+		pcm[2*i] = float32(0.45 * math.Sin(phase))
+		pcm[2*i+1] = float32(0.35 * math.Sin(phase+0.37))
 	}
 
 	packet, err := enc.Encode(pcm, 960)
@@ -211,10 +211,10 @@ func makeValidMonoCELTPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frame
 	enc.SetBandwidth(types.Bandwidth(bandwidth))
 	enc.SetBitrate(128000)
 
-	pcm := make([]float64, frameSize)
+	pcm := make([]float32, frameSize)
 	for i := range pcm {
 		phase := 2 * math.Pi * 823 * float64(i) / 48000.0
-		pcm[i] = 0.41 * math.Sin(phase)
+		pcm[i] = float32(0.41 * math.Sin(phase))
 	}
 
 	packet, err := enc.Encode(pcm, frameSize)
@@ -236,11 +236,11 @@ func makeValidStereoCELTPacketForFrameSizeBandwidthForDREDTest(t *testing.T, fra
 	enc.SetBitrate(256000)
 	enc.SetForceChannels(2)
 
-	pcm := make([]float64, frameSize*2)
+	pcm := make([]float32, frameSize*2)
 	for i := 0; i < frameSize; i++ {
 		tm := float64(i) / 48000.0
-		pcm[2*i] = 0.41 * math.Sin(2*math.Pi*823*tm)
-		pcm[2*i+1] = 0.29 * math.Sin(2*math.Pi*617*tm+0.31)
+		pcm[2*i] = float32(0.41 * math.Sin(2*math.Pi*823*tm))
+		pcm[2*i+1] = float32(0.29 * math.Sin(2*math.Pi*617*tm+0.31))
 	}
 
 	packet, err := enc.Encode(pcm, frameSize)
@@ -272,12 +272,12 @@ func makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t *testing.T, fra
 	enc.SetBandwidth(types.Bandwidth(bandwidth))
 	enc.SetBitrate(48000)
 
-	pcm := make([]float64, frameSize)
+	pcm := make([]float32, frameSize)
 	for i := range pcm {
 		tm := float64(i) / 48000.0
-		pcm[i] = 0.28*math.Sin(2*math.Pi*173*tm) +
+		pcm[i] = float32(0.28*math.Sin(2*math.Pi*173*tm) +
 			0.17*math.Sin(2*math.Pi*347*tm+0.13) +
-			0.09*math.Sin(2*math.Pi*521*tm+0.29)
+			0.09*math.Sin(2*math.Pi*521*tm+0.29))
 	}
 
 	packet, err := enc.Encode(pcm, frameSize)
@@ -310,15 +310,15 @@ func makeValidStereoHybridPacketForFrameSizeBandwidthForDREDTest(t *testing.T, f
 	enc.SetBitrate(96000)
 	enc.SetForceChannels(2)
 
-	pcm := make([]float64, frameSize*2)
+	pcm := make([]float32, frameSize*2)
 	for i := 0; i < frameSize; i++ {
 		tm := float64(i) / 48000.0
-		pcm[2*i] = 0.28*math.Sin(2*math.Pi*173*tm) +
+		pcm[2*i] = float32(0.28*math.Sin(2*math.Pi*173*tm) +
 			0.17*math.Sin(2*math.Pi*347*tm+0.13) +
-			0.09*math.Sin(2*math.Pi*521*tm+0.29)
-		pcm[2*i+1] = 0.25*math.Sin(2*math.Pi*211*tm+0.07) +
+			0.09*math.Sin(2*math.Pi*521*tm+0.29))
+		pcm[2*i+1] = float32(0.25*math.Sin(2*math.Pi*211*tm+0.07) +
 			0.14*math.Sin(2*math.Pi*431*tm+0.19) +
-			0.07*math.Sin(2*math.Pi*653*tm+0.41)
+			0.07*math.Sin(2*math.Pi*653*tm+0.41))
 	}
 
 	packet, err := enc.Encode(pcm, frameSize)
@@ -366,10 +366,10 @@ func makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t *testing.T, frame
 	enc.SetBandwidth(types.Bandwidth(bandwidth))
 	enc.SetBitrate(32000)
 
-	pcm := make([]float64, frameSize)
+	pcm := make([]float32, frameSize)
 	for i := range pcm {
 		tm := float64(i) / 48000.0
-		pcm[i] = 0.31*math.Sin(2*math.Pi*197*tm) + 0.12*math.Sin(2*math.Pi*389*tm+0.23)
+		pcm[i] = float32(0.31*math.Sin(2*math.Pi*197*tm) + 0.12*math.Sin(2*math.Pi*389*tm+0.23))
 	}
 
 	packet, err := enc.Encode(pcm, frameSize)
@@ -394,10 +394,10 @@ func makeValidMono16kPacketForDREDTest(t *testing.T) []byte {
 	enc.SetBandwidth(types.BandwidthWideband)
 	enc.SetBitrate(24000)
 
-	pcm := make([]float64, 960)
+	pcm := make([]float32, 960)
 	for i := range pcm {
 		phase := 2 * math.Pi * 613 * float64(i) / 48000.0
-		pcm[i] = 0.42 * math.Sin(phase)
+		pcm[i] = float32(0.42 * math.Sin(phase))
 	}
 
 	packet, err := enc.Encode(pcm, 960)
@@ -419,10 +419,10 @@ func makeValidMono48kSILKPacketForDREDTest(t *testing.T) []byte {
 	enc.SetBitrate(32000)
 
 	const frameSize = 960
-	pcm := make([]float64, frameSize)
+	pcm := make([]float32, frameSize)
 	for i := range pcm {
 		tm := float64(i) / 48000.0
-		pcm[i] = 0.31*math.Sin(2*math.Pi*197*tm) + 0.12*math.Sin(2*math.Pi*389*tm+0.23)
+		pcm[i] = float32(0.31*math.Sin(2*math.Pi*197*tm) + 0.12*math.Sin(2*math.Pi*389*tm+0.23))
 	}
 
 	packet, err := enc.Encode(pcm, frameSize)

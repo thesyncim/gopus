@@ -98,14 +98,14 @@ Agents must not run `make update-type-parity-baseline` to hide new debt. Refresh
 
 ## Current Surface Area
 
-These are type-parity guard finding counts from non-test runtime Go files on 2026-05-25. They are a burn-down metric, not a proof of incorrectness.
+These are burn-down metrics from non-test runtime Go files on 2026-05-25, not a proof of incorrectness. The `float64` table is the weighted type-parity allowlist surface that `make test-type-parity` ratchets; the `int` table is a separate `rg` audit surface and is not currently enforced by that guard.
 
-### `float64` Matches by Area
+### Guarded Float/Complex Findings by Area
 
 | Area | Count | Files |
 |---|---:|---:|
-| `celt` | 1643 | 110 |
-| `silk` | 99 | 20 |
+| `celt` | 1643 | 107 |
+| `silk` | 99 | 19 |
 | `encoder` | 74 | 8 |
 | `internal` | 74 | 12 |
 | `plc` | 61 | 3 |
@@ -118,19 +118,23 @@ Examples/tools/testvectors also contain `float64`; those should be lower priorit
 
 | Area | Count | Files |
 |---|---:|---:|
-| `celt` | 2176 | 141 |
-| `silk` | 1050 | 78 |
-| `encoder` | 429 | 16 |
-| top-level codec files | 417 | 36 |
-| `multistream` | 333 | 22 |
+| `celt` | 2175 | 141 |
+| `silk` | 981 | 77 |
+| top-level codec files | 482 | 45 |
+| `encoder` | 425 | 16 |
+| `multistream` | 325 | 22 |
+| internal non-OSCE/LPCNet packages | 266 | 22 |
 | `internal/osce` + `internal/lpcnetplc` | 222 | 15 |
 | `rangecoding` | 102 | 2 |
 | `plc` | 93 | 3 |
 | `hybrid` | 37 | 2 |
+| `container` | 32 | 5 |
+| `types` | 1 | 1 |
+| `util` | 1 | 1 |
 
 Not all `int` is wrong. Use `int` for slice indexes, lengths, loop counters, and public Go ergonomics only after the codec value is already in the right domain. Use `int32`/`uint32` or local aliases for state and arithmetic that matches C fixed-width fields/macros.
 
-### Highest `float64` Hotspots
+### Highest Guarded Float/Complex Hotspots
 
 | File | Approx matches |
 |---|---:|
@@ -152,28 +156,32 @@ Not all `int` is wrong. Use `int` for slice indexes, lengths, loop counters, and
 | `celt/tonality.go` | 37 |
 | `celt/recovery_helpers.go` | 35 |
 
-### Runtime Scratch `float64` Hotspots
+### Runtime Scratch Guarded Hotspots
 
 These are non-test runtime matches where `scratch` and `float64`/`complex128` appear on the same line. This is the worklist that makes "even scratch" explicit.
 
 | File | Approx matches |
 |---|---:|
-| `celt/encoder.go` | 40 |
-| `encoder/hybrid.go` | 23 |
-| `celt/encode_frame.go` | 21 |
+| `celt/bands_quant.go` | 33 |
+| `celt/encode_frame.go` | 24 |
+| `encoder/hybrid.go` | 24 |
 | `celt/channel_adapters.go` | 20 |
-| `celt/scratch.go` | 14 |
-| `celt/bands_quant.go` | 12 |
-| `celt/decoder_types.go` | 11 |
+| `celt/hybrid_encode_helpers.go` | 18 |
+| `celt/scratch.go` | 15 |
+| `celt/decoder_types.go` | 12 |
 | `celt/recovery_helpers.go` | 10 |
-| `celt/hybrid_encode_helpers.go` | 9 |
-| `celt/mdct_encode.go` | 9 |
+| `celt/mdct_encode.go` | 10 |
 | `celt/synthesis.go` | 9 |
 | `celt/dred_conceal.go` | 7 |
-| `silk/encoder.go` | 7 |
 | `celt/energy_encode.go` | 6 |
 | `celt/mdct.go` | 6 |
+| `silk/encoder.go` | 5 |
 | `silk/lpc_analysis.go` | 5 |
+| `celt/decoder_flow_helpers.go` | 3 |
+| `celt/decoder_hybrid_helpers.go` | 3 |
+| `celt/preemph.go` | 3 |
+| `celt/transient.go` | 3 |
+| `internal/lpcnetplc/analysis.go` | 3 |
 
 ## Runtime Scratch Mismatch Manifest
 
@@ -658,7 +666,7 @@ Add allowlists only after reading the matching libopus source. Do not hide a mis
 
 ## Definition of Done
 
-Current CI blocker follow-up: the scheduled `Verify Production Exhaustive` run on 2026-05-25 failed in release evidence for the package test suite, production exhaustive gate, and assembly safety matrix on run `26391166380`. That run uploaded only the summary markdown, so the detailed per-command logs were discarded; the workflow upload path is now set to retain `reports/release/**` before the next scheduled diagnosis. Local reproduction fixed the visible blockers: type-width QEXT multistream expectations, the fuzz harness repeat-expansion bound, the arm64 SILK pitch helper/oracle build, and the delay-buffer opus-res size parser. Local `make verify-production-exhaustive` and `make test-assembly-safety` now pass on darwin/arm64.
+Current CI blocker follow-up: the scheduled `Verify Production Exhaustive` run on 2026-05-25 failed in release evidence for the package test suite, production exhaustive gate, and assembly safety matrix on run `26391166380`. That run uploaded only the summary markdown, so the detailed per-command logs were discarded; the workflow upload path is now set to retain `reports/release/**` before the next scheduled diagnosis. Local reproduction fixed the visible blockers: type-width QEXT multistream expectations, the fuzz harness repeat-expansion bound, the cross-arch SILK pitch helper/oracle build, and the delay-buffer opus-res size parser. Local `make verify-production-exhaustive` and `make test-assembly-safety` passed on darwin/arm64 before the final upstream encoder-API rebase; after that rebase, local `make test-type-parity`, the QEXT parity focus gate, `GOWORK=off go test ./... -count=1`, and the SILK pitch oracle all pass.
 
 A lane is done only when all of the following are true:
 

@@ -35,6 +35,35 @@ void dual_inner_prod_neon(const opus_val16 *x, const opus_val16 *y01,
 }
 #endif
 
+#if defined(OPUS_X86_MAY_HAVE_SSE) && !defined(FIXED_POINT) && !defined(GOPUS_LINK_OPUS_X86_SSE)
+void xcorr_kernel_sse(const opus_val16 *x, const opus_val16 *y,
+    opus_val32 sum[4], int len) {
+  xcorr_kernel_c(x, y, sum, len);
+}
+
+opus_val32 celt_inner_prod_sse(const opus_val16 *x, const opus_val16 *y, int N) {
+  return celt_inner_prod_c(x, y, N);
+}
+
+void dual_inner_prod_sse(const opus_val16 *x, const opus_val16 *y01,
+    const opus_val16 *y02, int N, opus_val32 *xy1, opus_val32 *xy2) {
+  dual_inner_prod_c(x, y01, y02, N, xy1, xy2);
+}
+
+#if defined(OPUS_HAVE_RTCD)
+void (*const XCORR_KERNEL_IMPL[OPUS_ARCHMASK + 1])(
+    const opus_val16 *x, const opus_val16 *y, opus_val32 sum[4], int len) = {
+    xcorr_kernel_c};
+
+opus_val32 (*const CELT_INNER_PROD_IMPL[OPUS_ARCHMASK + 1])(
+    const opus_val16 *x, const opus_val16 *y, int N) = {celt_inner_prod_c};
+
+void (*const DUAL_INNER_PROD_IMPL[OPUS_ARCHMASK + 1])(
+    const opus_val16 *x, const opus_val16 *y01, const opus_val16 *y02, int N,
+    opus_val32 *xy1, opus_val32 *xy2) = {dual_inner_prod_c};
+#endif
+#endif
+
 static int set_binary_stdio(void) {
 #ifdef _WIN32
   if (_setmode(_fileno(stdin), _O_BINARY) == -1) return 0;

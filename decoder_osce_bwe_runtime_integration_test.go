@@ -262,15 +262,15 @@ func makeValidStereoSILKPacketForFrameSizeBandwidthForOSCEBWETest(t *testing.T, 
 	enc.SetBitrate(48000)
 	enc.SetForceChannels(2)
 
-	pcm := make([]float64, frameSize*2)
+	pcm := make([]float32, frameSize*2)
 	for i := 0; i < frameSize; i++ {
 		tm := float64(i) / 48000.0
 		l := 0.31*math.Sin(2*math.Pi*197*tm) + 0.12*math.Sin(2*math.Pi*389*tm+0.23)
 		// Distinct right-channel content (different frequencies / phase) so
 		// the per-channel BWE forward pass should produce L != R.
 		r := 0.27*math.Sin(2*math.Pi*263*tm+0.41) + 0.14*math.Sin(2*math.Pi*431*tm+0.07)
-		pcm[2*i] = l
-		pcm[2*i+1] = r
+		pcm[2*i] = float32(l)
+		pcm[2*i+1] = float32(r)
 	}
 
 	packet, err := enc.Encode(pcm, frameSize)

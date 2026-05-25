@@ -638,17 +638,14 @@ func TestDecodeGopusQEXTPacketMatchesLibopus(t *testing.T) {
 			enc.SetBitrate(256000)
 			enc.SetQEXT(true)
 
-			pcm := make([]float64, 960*channels)
-			pcm32 := make([]float32, 960*channels)
+			pcm := make([]float32, 960*channels)
 			for i := 0; i < 960; i++ {
 				phase := 2 * math.Pi * 997 * float64(i) / 48000.0
 				left := 0.45 * math.Sin(phase)
-				pcm[i*channels] = left
-				pcm32[i*channels] = float32(left)
+				pcm[i*channels] = float32(left)
 				if channels == 2 {
 					right := 0.35 * math.Sin(phase+0.37)
-					pcm[i*channels+1] = right
-					pcm32[i*channels+1] = float32(right)
+					pcm[i*channels+1] = float32(right)
 				}
 			}
 
@@ -677,7 +674,7 @@ func TestDecodeGopusQEXTPacketMatchesLibopus(t *testing.T) {
 				t.Fatal("encoded packet missing QEXT payload")
 			}
 
-			refPacket := encodeLibopusQEXTPacket(t, opusDemo, channels, pcm32, false)
+			refPacket := encodeLibopusQEXTPacket(t, opusDemo, channels, pcm, false)
 			_, refFrames, refPadding, refNBFrames, err := parsePacketFramesAndPadding(refPacket)
 			if err != nil {
 				t.Fatalf("parsePacketFramesAndPadding(ref): %v", err)
