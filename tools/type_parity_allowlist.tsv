@@ -1502,19 +1502,15 @@ encoder/encoder.go	1	14925b2dd59567af4d6a32c880b22f49b6557f0b8e59c2329da88a7f253
 encoder/encoder.go	1	14e6845a47e633630cf7645860cc94774c41e0ea7fd936e595a3e61bb48ed335	legacy-current	float64(e.lastAnalysisInfo.MaxPitchRatio),
 encoder/encoder.go	1	1d0cfda3a5f686bc46878e5bd74e6fb6b80f4145838c33bc864082248c88e521	legacy-current	celtCVBRBoundScale float64
 encoder/encoder.go	1	1fa7e2278d17da216653e709c56049326fcbfa24fcbedc63bc153e9e74e397a5	legacy-current	float64(e.lastAnalysisInfo.Tonality),
-encoder/encoder.go	1	3fee8f9eb23c6e505041dc9226eac568af9be8c6186c6c10f4624ee36709ee9f	legacy-current	pcm64[i] = float64(v)
 encoder/encoder.go	1	4a6a5d8af4b26a68a6404aa48d3d17a6acb9db854ae3fb100956c21c6c9a9828	legacy-current	func (e *Encoder) ensureInputPCM64(size int) []float64 {
 encoder/encoder.go	1	6e34b877543e93542c937b410c084d44cffe44f3855802dfca2d2f3ee1c39eb3	legacy-current	func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
 encoder/encoder.go	1	7168bdc66291c10c23a0ab0fbdf51861253597db2c19c80bf93fcc40d526bd57	legacy-current	func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM []float64) ([]byte, error) {
 encoder/encoder.go	1	732d9a36e4813e00bbf137ad14f4f85f304df985ef512bcab391d18bf8f9bb99	legacy-current	float64(e.lastAnalysisInfo.TonalitySlope),
 encoder/encoder.go	1	980e8870d79dd854a9f04e8d1b60a628e385a25fe1b468405c9d0ad4eff22ad2	legacy-current	prob = float64(e.lastAnalysisInfo.MusicProbMin)
-encoder/encoder.go	1	9dd525231b1457af9de14ae31335c775518037b718a193bf80b98519a382f5dd	legacy-current	analysisPCM64[i] = float64(v)
-encoder/encoder.go	1	a7da7f31bd1cef457430171a131a43f17d782d1c36af664890c7659cdf0ce7a1	legacy-current	scratchPCM32 []float32 // float64 to float32 conversion buffer
 encoder/encoder.go	1	a95e30cc4361f153012bb5853ac75e7894e05099e72ed13489b67e007e4b54ff	legacy-current	e.scratchInputPCM64 = make([]float64, size)
-encoder/encoder.go	1	aa34b5bb88d375bb3b8b56dd67af2b14cac2eed328e1546fb3722c79f01e2f4c	legacy-current	scratchInputPCM64 []float64 // float32 public input converted for the float64 core
 encoder/encoder.go	1	bbbd460aa7149ce1976e96b72f14116a814daf3a6431943030e6c96574d38aa3	legacy-current	func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
+encoder/encoder.go	1	be9db251f39082c322b6d5aadd3bbdfb8b4031cbae599d2559aa6297aaf20d14	legacy-current	scratchInputPCM64 []float64 // Transitional CELT core bridge
 encoder/encoder.go	1	bf33ac17ae7d89834a08e927ea77469da8b6975c009f5105ff10f2362bcae1e1	legacy-current	threshold := float32(1.0 / float64(int(1)<<lsbDepth))
-encoder/encoder.go	1	bfc897b5ea15bce567718572cfb731219beec7c22b501e965272786c7112969f	legacy-current	// libopus opus_encode_float(). The encoder core still uses float64 in places,
 encoder/encoder.go	1	c1c2046b3826def67d2caad39b005be04e36246b8247d5ba6ec8bf73db3512d8	legacy-current	func (e *Encoder) SetCELTCVBRBoundScale(scale float64) {
 encoder/encoder.go	1	e021a140a26ef9e12047403adcec3601b7f73a319b162b4eaf1ad0e69835e88b	legacy-current	prob := float64(e.lastAnalysisInfo.MusicProb)
 encoder/fec.go	1	4ffe0ef96a7e800591ab485b9c6135791b885de53780a2fa595b6d644474d500	legacy-current	lbrrBitrate := int(float64(normalBitrate) * LBRRBitrateFactor)

@@ -47,6 +47,28 @@ func TestEncodeFloat32MatchesFloat32AwareFloat64Bridge(t *testing.T) {
 	}
 }
 
+func TestEncodeFloat32SILKDoesNotUseInputPCM64Bridge(t *testing.T) {
+	const frameSize = 960
+
+	pcm := make([]float32, frameSize)
+	for i := range pcm {
+		tm := float64(i) / 48000.0
+		pcm[i] = float32(0.25 * math.Sin(2*math.Pi*220*tm))
+	}
+
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeSILK)
+	enc.SetBitrateMode(ModeCBR)
+	enc.SetBitrate(24000)
+
+	if _, err := enc.EncodeFloat32(pcm, frameSize); err != nil {
+		t.Fatalf("EncodeFloat32 SILK error: %v", err)
+	}
+	if cap(enc.scratchInputPCM64) != 0 {
+		t.Fatalf("EncodeFloat32 SILK grew scratchInputPCM64 cap=%d", cap(enc.scratchInputPCM64))
+	}
+}
+
 func TestEncodeFloat32WithAnalysisValidatesAnalysisFrame(t *testing.T) {
 	enc := NewEncoder(48000, 1)
 	pcm := make([]float32, 960)

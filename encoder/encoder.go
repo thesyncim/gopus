@@ -208,8 +208,8 @@ type Encoder struct {
 	// Scratch buffers for zero-allocation encoding
 	scratchDCPCM      []opusRes // DC rejected PCM buffer
 	scratchInputPCM   []opusRes // Public PCM rounded into the libopus opus_res domain
-	scratchInputPCM64 []float64 // float32 public input converted for the float64 core
-	scratchPCM32      []float32 // float64 to float32 conversion buffer
+	scratchInputPCM64 []float64 // Transitional CELT core bridge
+	scratchPCM32      []float32 // Reusable float32 analysis/SILK scratch
 	scratchLeft       []float32 // Left channel deinterleave buffer
 	scratchRight      []float32 // Right channel deinterleave buffer
 	scratchMono       []float32 // Mono mix buffer (VAD)
@@ -720,9 +720,7 @@ func (e *Encoder) EncodeFloat32(pcm []float32, frameSize int) ([]byte, error) {
 }
 
 // EncodeFloat32WithAnalysisMaxBytes is the float32 PCM entrypoint matching
-// libopus opus_encode_float(). The encoder core still uses float64 in places,
-// so this bridge performs the conversion at the package boundary while keeping
-// the exact float32 frame visible to analysis and input filtering.
+// libopus opus_encode_float().
 func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int, analysisPCM []float32, maxDataBytes int) ([]byte, error) {
 	expectedLen := frameSize * e.channels
 	if len(pcm) != expectedLen {
@@ -734,18 +732,13 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 	if len(analysisPCM) < expectedLen || len(analysisPCM)%e.channels != 0 {
 		return nil, ErrInvalidFrameSize
 	}
-	scratch := e.ensureInputPCM64(len(pcm) + len(analysisPCM))
-	pcm64 := scratch[:len(pcm)]
-	analysisPCM64 := scratch[len(pcm):]
-	for i, v := range pcm {
-		pcm64[i] = float64(v)
-	}
-	for i, v := range analysisPCM {
-		analysisPCM64[i] = float64(v)
-	}
+	inputPCM := e.ensureInputPCM(expectedLen)
+	copy(inputPCM, pcm[:expectedLen])
 	e.SetFloatInputFrame(pcm)
 	defer e.ClearFloatInputFrame()
-	return e.EncodeWithAnalysisMaxBytes(pcm64, frameSize, analysisPCM64, maxDataBytes)
+	return e.encodeOpusResWithAnalysisMaxBytes(inputPCM, frameSize, maxDataBytes, func() {
+		e.refreshFrameAnalysisF32(analysisPCM, frameSize)
+	})
 }
 
 // EncodeWithAnalysis encodes the selected frame while allowing analysis to see
@@ -767,6 +760,18 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analy
 	if len(analysisPCM) < expectedLen || len(analysisPCM)%e.channels != 0 {
 		return nil, ErrInvalidFrameSize
 	}
+	inputPCM := e.ensureInputPCM(expectedLen)
+	copyFloat64ToOpusRes(inputPCM, pcm[:expectedLen])
+	return e.encodeOpusResWithAnalysisMaxBytes(inputPCM, frameSize, maxDataBytes, func() {
+		e.refreshFrameAnalysis(analysisPCM, frameSize)
+	})
+}
+
+func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSize int, maxDataBytes int, refreshAnalysis func()) ([]byte, error) {
+	expectedLen := frameSize * e.channels
+	if len(inputPCM) != expectedLen {
+		return nil, ErrInvalidFrameSize
+	}
 	if maxDataBytes <= 0 {
 		return nil, ErrEncodingFailed
 	}
@@ -782,8 +787,6 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analy
 			e.bitrate = userBitrate
 		}()
 	}
-	inputPCM := e.ensureInputPCM(expectedLen)
-	copyFloat64ToOpusRes(inputPCM, pcm[:expectedLen])
 	isSilence := isDigitalSilenceRes(inputPCM, e.lsbDepth)
 	e.hasCELTPrefill = false
 	defer func() {
@@ -792,8 +795,9 @@ func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analy
 	}()
 	// Run Opus analysis on the original input frame (before top-level dc_reject
 	// and LSB quantization) to match libopus run_analysis ordering.
-	rawPCM := analysisPCM
-	e.refreshFrameAnalysis(rawPCM, frameSize)
+	if refreshAnalysis != nil {
+		refreshAnalysis()
+	}
 	lookaheadSamples := 0
 	vadPCM := inputPCM
 	pcmRes := e.quantizeInputToLSBDepth(inputPCM)
@@ -1362,10 +1366,30 @@ func trimSilkTrailingZeros(frameData []byte) []byte {
 }
 
 func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
+	if len(pcm) == 0 {
+		e.refreshFrameAnalysisF32(nil, frameSize)
+		return
+	}
+	pcm32 := e.floatInputFrame
+	if len(pcm32) < len(pcm) {
+		if cap(e.scratchPCM32) < len(pcm) {
+			e.scratchPCM32 = make([]float32, len(pcm))
+		}
+		pcm32 = e.scratchPCM32[:len(pcm)]
+		for i, v := range pcm {
+			pcm32[i] = float32(v)
+		}
+	} else {
+		pcm32 = pcm32[:len(pcm)]
+	}
+	e.refreshFrameAnalysisF32(pcm32, frameSize)
+}
+
+func (e *Encoder) refreshFrameAnalysisF32(pcm32 []float32, frameSize int) {
 	e.lastAnalysisValid = false
 	e.lastAnalysisFresh = false
 	e.analysisReadBakSet = false
-	if e.analyzer == nil || frameSize <= 0 || len(pcm) == 0 {
+	if e.analyzer == nil || frameSize <= 0 || len(pcm32) == 0 {
 		return
 	}
 	if !e.analysisEnabled() {
@@ -1373,15 +1397,6 @@ func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
 			e.analyzer.Reset()
 		}
 		return
-	}
-	pcm32 := e.floatInputFrame
-	if len(pcm32) < len(pcm) {
-		pcm32 = e.scratchPCM32[:len(pcm)]
-		for i, v := range pcm {
-			pcm32[i] = float32(v)
-		}
-	} else {
-		pcm32 = pcm32[:len(pcm)]
 	}
 	// Mirror libopus opus_encoder.c: back up analysis read cursor before
 	// run_analysis() so long packets can consume per-subframe info later.
