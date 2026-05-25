@@ -203,7 +203,6 @@ celt/encode_frame.go	1	5d5e773e17b5721e887e8348bc096db2c0408e2ddbca107f5ab16faba
 celt/encode_frame.go	2	7b1320d24d92d02b34406ccfc15768c05431a9eb5720473815ebf88997769c24	legacy-current	mdctCoeffs = make([]float64, coeffsLen)
 celt/encode_frame.go	1	81add15b7b954812eb557eeaffb1dc2ccb84ae566a1304250b322764553f9060	legacy-current	maxPitchRatio = float64(e.analysisMaxPitchRatio)
 celt/encode_frame.go	1	8210797523c9c67caef016b08bc8852d6f73a79d1450b0b7ac75afe212beaf23	legacy-current	stereoSaving := float64(e.lastStereoSaving)
-celt/encode_frame.go	1	84ff80ebf22530b9c20700c0a01923bf3f60995cdd3eed2d070cf7dfdf15d953	legacy-current	lastTonality := alpha*tonalityResult.Tonality + (1-alpha)*float64(e.lastTonality)
 celt/encode_frame.go	1	8690188a67f24803a2709dedd234a0444943dbfe830cf60d91a718bb5f43435a	legacy-current	// Our encoder operates on float64 samples, so match the float path.
 celt/encode_frame.go	1	8d954fd8fb89fbd406d8a6228c8fc4cb7ef78920d2c70fd7a9589a03fdf3b08f	legacy-current	input := make([]float64, len(samples)+overlap)
 celt/encode_frame.go	1	9798d47079e4a8c03b6f592bc383e0271c252b06a990d96ed5fbfb4cc7fe74de	legacy-current	func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool, totalBoost int) int {
@@ -672,42 +671,6 @@ celt/synthesis.go	1	f479d87caac12bc0b24c7185d297cc44447140d994b786e7f15157efd641
 celt/tables.go	1	41c6248cabf62531f6e1083055df0a686583948920bb54071c680005bb29bb35	legacy-current	var eMeans = [25]float64{
 celt/tables.go	1	660cf419425ea17be6d0564360ed1979ef679bdcc8a487bbd8bfb5b28423e276	legacy-current	var AlphaCoef = [4]float64{
 celt/tables.go	1	be854f5a1fe466c224e784b061896e0b2288ed8d152bdcf6b64529140ee718bb	legacy-current	var BetaCoefInter = [4]float64{
-celt/tonality.go	1	099dba02ea65bd9bd2a33dda49e4ccb7af6a15dbaa1e881380a8ae5c0e65ba6c	legacy-current	var sumLog2, sum float64
-celt/tonality.go	1	0bd160a5a874d5398f75c121c3b735736b95045a99e7cf8c35daa7b2d2c0bea1	legacy-current	Tonality float64 // Overall tonality (0=noise, 1=pure tone)
-celt/tonality.go	1	236560a4b8fcb58507ee07821903de0ecaa3ab123d08157451a87ff8e33a3211	legacy-current	arithMean := sum / float64(n)
-celt/tonality.go	1	28460f390e576c06e0e55157f0fc68d299e2c1cf583c82827b5f6899cfcd2baa	legacy-current	func computeSpectralFlux(currentEnergies, previousEnergies []float64, nbBands int) float64 {
-celt/tonality.go	1	3606fae6bb6deac1a61380669ba856a6f2826419722113dcd0c0b1bafcdf8706	legacy-current	s.BandTonality = make([]float64, nbBands)
-celt/tonality.go	1	36cdebd5802f6e5cc6e64d8d38d1fea4a003d33e268a848e7c69e920669e7442	legacy-current	Powers []float64 // Power spectrum buffer (size: frameSize)
-celt/tonality.go	1	37899e09a7d807db0bf9a0e6b402d42f25d365dc059db339ccc25c6f29a4a4a2	legacy-current	func computePerBandTonalityScratch(powers []float64, nbBands, frameSize int, scratch *tonalityScratch) {
-celt/tonality.go	1	392a2a291e4b3afb83c73cd8c0ba89ec7b435d9166640fdc3b09d9aec6c66353	legacy-current	return sum / float64(len(values))
-celt/tonality.go	1	4141c1eb266decbc3384bd34940ca6c95e55e93b52f281f0db40ee34cc382dce	legacy-current	func geometricMean(values []float64) float64 {
-celt/tonality.go	2	42e513b31e82ab13b7c2e339b8485fb4a136157f7bec533a354a3bc3e1987eb3	legacy-current	flux = flux / float64(count)
-celt/tonality.go	1	438bd7807321e63be7e6f3725113134439523342ddb762b8bbceda178f236bed	legacy-current	BandTonality []float64 // Per-band tonality estimates
-celt/tonality.go	1	4e6b7d710a96a74dac6f19d8e7b1cc1dd270e6cc1fba6155c648210b1d26064d	legacy-current	prevLog := safeLog(float64(previousEnergies[i]) + epsilon)
-celt/tonality.go	1	4faea9141b45611729d2918c873c5539edd7ecd48fd2614fbe0a8a8887db5041	legacy-current	s.Powers = make([]float64, frameSize)
-celt/tonality.go	1	5766a51babd18b78a1651facb914d2f59f8b4e63d9329a6a2ca6db4d83f6ede2	legacy-current	func arithmeticMean(values []float64) float64 {
-celt/tonality.go	1	5d3bdf8340ed4332e8de3bed9ae5b01df9518f3284dba89eb54c839766b83265	legacy-current	meanLog2 := sumLog2 / float64(len(values))
-celt/tonality.go	1	5f11c82779a5c8f022b463eba9481f14745ff822d91ec08c35033c8b73cc982a	legacy-current	SpectralFlux float64 // Frame-to-frame spectral change (0=stationary, higher=transient)
-celt/tonality.go	1	61a9503777ef307d94737c9202aa235505ebb766a8e78597afed62d4e89cb336	legacy-current	return float64(exp) + m*(1.4426950408889634+m*(-0.7213475204444817+m*(0.4808983469629878+m*(-0.3606737602222408))))
-celt/tonality.go	2	681cb56ddbd3c9288d57e982ba590236e0afd13a6b0777d0c50adee8a1c4bd7e	legacy-current	powers[i] = float64(float32(coeff) * float32(coeff))
-celt/tonality.go	1	6eae875733929a10d490b33e3b21133c598e9796ac1f3ad459571e639cddfdce	legacy-current	currentLog := safeLog(float64(currentEnergies[i]) + epsilon)
-celt/tonality.go	1	6f14f502f9d0df8b248e3691ba737146b3ad9054b844031c2bd3bc746367a699	legacy-current	SFM float64 // Spectral Flatness Measure (0=tonal, 1=flat/noise)
-celt/tonality.go	1	756731269f10a70b9f24ab6307e903ca8b907e13e6f4eea3c5047a027cdd8775	legacy-current	var sumLog2 float64
-celt/tonality.go	2	76b6bc9afcc7c85d974984398354f05b305392c0ed56e9ef23c501f4ca3a426a	legacy-current	var flux float64
-celt/tonality.go	1	7ccfa9398021bb07cc68990db1c01206c71227b0ab507107d9ed44b0ac6d9a46	legacy-current	func computeSpectralFlatness(powers []float64) float64 {
-celt/tonality.go	1	7de2aca267480fbe816e5abeea5abafa1978054c95f16d24a4f94f863bc183f8	legacy-current	func safeLog(x float64) float64 {
-celt/tonality.go	1	7f82217cc5bded97464c67bae0d82beeb64a37f5881d44cc555b2c2060be081f	legacy-current	func computeSpectralFluxGLog(currentEnergies []celtGLog, previousEnergies []celtGLog, nbBands int) float64 {
-celt/tonality.go	1	98b481f0489004b4726e3c3cab2a3541c3447e421af0284efae6cb38c6a01c61	legacy-current	func computePerBandTonality(mdctCoeffs []float64, nbBands, frameSize int) []float64 {
-celt/tonality.go	1	b2a2c66f6516c00c87e62714315cdbd22b53348636e034717e38ad83f724b728	legacy-current	bandTonality := make([]float64, nbBands)
-celt/tonality.go	1	b4c7b5e85d68b5d1054863a7029ddb8f077ab9e411a78c8270d20640d6c08cc0	legacy-current	BandTonality: make([]float64, nbBands),
-celt/tonality.go	1	b7714b5be646b420370af522ceaaabbff1969c025667961f7094b1c65286c921	legacy-current	geoMean := math.Exp2(sumLog2 / float64(n))
-celt/tonality.go	1	bcf5a135f419f90ad08d708a50ab8dd40100ef59bf38f16f84a91b171224ef57	legacy-current	func computeTonalityWithBandsScratch[S ~float32 | ~float64](mdctCoeffs []S, nbBands, frameSize int, scratch *tonalityScratch) tonalityAnalysisResult {
-celt/tonality.go	1	cd9ae4b91a17fc88ed50a9f50461b42e68a8b203fafcff04cc6f93bbc03681ad	legacy-current	powers := make([]float64, len(mdctCoeffs))
-celt/tonality.go	1	d0c9335d851ac7ad87096d97f4702d37f4ba42c9f3ff8e2a2ad7d9a3fe4e7d2e	legacy-current	var sum float64
-celt/tonality.go	1	dfb0251213e95c936ee2a7e0405ffb3a226e14d42745d41b819f72d09bc33f8f	legacy-current	powers := make([]float64, bandWidth)
-celt/tonality.go	1	e45661642423bc24c2b6bcecc0adf677ce1eaa3029ba437863fca4ad2fa2fae3	legacy-current	func computeTonalityWithBands(mdctCoeffs []float64, nbBands, frameSize int) tonalityAnalysisResult {
-celt/tonality.go	1	e54a3190abd749f36fdd5b7c65b9873c85e11ad442a5cdd77b601b16a4a67c59	legacy-current	BandTonality []float64 // Per-band tonality output (size: nbBands)
-celt/tonality.go	1	f296c377a50921b8f853ae12cc0ae0fd11bf76bd94bbebedf874d418b669d350	legacy-current	func fastLog2(x float64) float64 {
 celt/transient.go	1	137337194efacf5c27ef95e64ac8e34c060b796c6007a835fcc0ac20060e8f9a	legacy-current	MaskMetric float64 // Raw mask metric value.
 celt/transient.go	1	1b3e2ee4b3bb6677629364390267090664f526c44c241efdeb260b2744066256	legacy-current	func toneDetect(in []float64, channels int, sampleRate int) (float64, float64) {
 celt/transient.go	1	23628d138e7fcb694a9f50b055df4f0e5e3eac3c17f369480d6415155e03cc16	legacy-current	func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float32) (float64, float64) {

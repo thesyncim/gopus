@@ -2454,13 +2454,13 @@ func (e *Encoder) updateTonalityAnalysis(normCoeffs []celtNorm, energies []celtG
 	//
 	// Smoothing formula: tonality = alpha * new + (1-alpha) * old
 	// where alpha = 0.3 + 0.4 * spectralFlux (range: 0.3 to 0.7)
-	alpha := 0.3 + 0.4*spectralFlux
+	alpha := opusVal16(0.3) + opusVal16(0.4)*opusVal16(spectralFlux)
 	if alpha > 0.7 {
 		alpha = 0.7
 	}
 
 	// Update tonality with smoothing
-	lastTonality := alpha*tonalityResult.Tonality + (1-alpha)*float64(e.lastTonality)
+	lastTonality := alpha*opusVal16(tonalityResult.Tonality) + (1-alpha)*e.lastTonality
 
 	// Clamp to valid range
 	if lastTonality < 0 {

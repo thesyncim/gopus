@@ -13,6 +13,55 @@ import (
 // Test Utilities
 // =============================================================================
 
+type tonalityAnalysisResultForTest struct {
+	Tonality     float64
+	SFM          float64
+	BandTonality []float64
+	SpectralFlux float64
+}
+
+func float32sForTonalityTest(in []float64) []float32 {
+	if in == nil {
+		return nil
+	}
+	out := make([]float32, len(in))
+	for i, v := range in {
+		out[i] = float32(v)
+	}
+	return out
+}
+
+func tonalityResultForTest(result tonalityAnalysisResult) tonalityAnalysisResultForTest {
+	out := tonalityAnalysisResultForTest{
+		Tonality:     float64(result.Tonality),
+		SFM:          float64(result.SFM),
+		SpectralFlux: float64(result.SpectralFlux),
+	}
+	if result.BandTonality != nil {
+		out.BandTonality = make([]float64, len(result.BandTonality))
+		for i, v := range result.BandTonality {
+			out.BandTonality[i] = float64(v)
+		}
+	}
+	return out
+}
+
+func computeTonalityWithBandsForTest(mdctCoeffs []float64, nbBands, frameSize int) tonalityAnalysisResultForTest {
+	return tonalityResultForTest(computeTonalityWithBands(float32sForTonalityTest(mdctCoeffs), nbBands, frameSize))
+}
+
+func geometricMeanForTest(values []float64) float64 {
+	return float64(geometricMean(float32sForTonalityTest(values)))
+}
+
+func arithmeticMeanForTest(values []float64) float64 {
+	return float64(arithmeticMean(float32sForTonalityTest(values)))
+}
+
+func computeSpectralFluxForTest(currentEnergies, previousEnergies []float64, nbBands int) float64 {
+	return float64(computeSpectralFlux(float32sForTonalityTest(currentEnergies), float32sForTonalityTest(previousEnergies), nbBands))
+}
+
 // generateSineWaveMDCT generates MDCT coefficients for a pure sine wave.
 // The energy is concentrated in 1-2 bins corresponding to the frequency.
 // This simulates a highly tonal signal.
@@ -228,9 +277,9 @@ func TestGeometricMean(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := geometricMean(tc.values)
+			result := geometricMeanForTest(tc.values)
 			if math.Abs(result-tc.expected) > tc.epsilon {
-				t.Errorf("geometricMean(%v) = %v, want %v", tc.values, result, tc.expected)
+				t.Errorf("geometricMeanForTest(%v) = %v, want %v", tc.values, result, tc.expected)
 			}
 		})
 	}
@@ -278,9 +327,9 @@ func TestArithmeticMean(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			result := arithmeticMean(tc.values)
+			result := arithmeticMeanForTest(tc.values)
 			if math.Abs(result-tc.expected) > tc.epsilon {
-				t.Errorf("arithmeticMean(%v) = %v, want %v", tc.values, result, tc.expected)
+				t.Errorf("arithmeticMeanForTest(%v) = %v, want %v", tc.values, result, tc.expected)
 			}
 		})
 	}
@@ -288,27 +337,27 @@ func TestArithmeticMean(t *testing.T) {
 
 // TestGeometricMeanEmpty tests geometric mean with empty input.
 func TestGeometricMeanEmpty(t *testing.T) {
-	result := geometricMean(nil)
+	result := geometricMeanForTest(nil)
 	if result != 0 {
-		t.Errorf("geometricMean(nil) = %v, want 0", result)
+		t.Errorf("geometricMeanForTest(nil) = %v, want 0", result)
 	}
 
-	result = geometricMean([]float64{})
+	result = geometricMeanForTest([]float64{})
 	if result != 0 {
-		t.Errorf("geometricMean([]) = %v, want 0", result)
+		t.Errorf("geometricMeanForTest([]) = %v, want 0", result)
 	}
 }
 
 // TestArithmeticMeanEmpty tests arithmetic mean with empty input.
 func TestArithmeticMeanEmpty(t *testing.T) {
-	result := arithmeticMean(nil)
+	result := arithmeticMeanForTest(nil)
 	if result != 0 {
-		t.Errorf("arithmeticMean(nil) = %v, want 0", result)
+		t.Errorf("arithmeticMeanForTest(nil) = %v, want 0", result)
 	}
 
-	result = arithmeticMean([]float64{})
+	result = arithmeticMeanForTest([]float64{})
 	if result != 0 {
-		t.Errorf("arithmeticMean([]) = %v, want 0", result)
+		t.Errorf("arithmeticMeanForTest([]) = %v, want 0", result)
 	}
 }
 
@@ -337,7 +386,7 @@ func TestTonalityPureSineWave(t *testing.T) {
 			coeffs := generateSineWaveMDCT(tc.frequency, 48000, tc.frameSize)
 			nbBands := getNbBandsForFrameSize(tc.frameSize)
 
-			result := computeTonalityWithBands(coeffs, nbBands, tc.frameSize)
+			result := computeTonalityWithBandsForTest(coeffs, nbBands, tc.frameSize)
 
 			// Pure sine wave should have very high tonality
 			if result.Tonality < 0.85 {
@@ -360,7 +409,7 @@ func TestTonalityPureSineWaveAllFrameSizes(t *testing.T) {
 			coeffs := generateSineWaveMDCT(frequency, 48000, frameSize)
 			nbBands := getNbBandsForFrameSize(frameSize)
 
-			result := computeTonalityWithBands(coeffs, nbBands, frameSize)
+			result := computeTonalityWithBandsForTest(coeffs, nbBands, frameSize)
 
 			// All frame sizes should detect pure tone as tonal
 			if result.Tonality < 0.80 {
@@ -396,7 +445,7 @@ func TestTonalityWhiteNoise(t *testing.T) {
 			coeffs := generateWhiteNoiseMDCT(tc.frameSize, tc.seed)
 			nbBands := getNbBandsForFrameSize(tc.frameSize)
 
-			result := computeTonalityWithBands(coeffs, nbBands, tc.frameSize)
+			result := computeTonalityWithBandsForTest(coeffs, nbBands, tc.frameSize)
 
 			// White noise tonality should be lower than pure tone (which is 1.0)
 			// The band-based analysis gives ~0.7 for Gaussian noise
@@ -425,7 +474,7 @@ func TestTonalityWhiteNoiseStatistical(t *testing.T) {
 	var sumTonality float64
 	for seed := int64(0); seed < int64(numSamples); seed++ {
 		coeffs := generateWhiteNoiseMDCT(frameSize, seed*1000+12345)
-		result := computeTonalityWithBands(coeffs, nbBands, frameSize)
+		result := computeTonalityWithBandsForTest(coeffs, nbBands, frameSize)
 		sumTonality += result.Tonality
 	}
 
@@ -466,7 +515,7 @@ func TestTonalityHarmonicSignal(t *testing.T) {
 			coeffs := generateHarmonicMDCT(tc.fundamental, 48000, tc.frameSize, tc.numHarmonics)
 			nbBands := getNbBandsForFrameSize(tc.frameSize)
 
-			result := computeTonalityWithBands(coeffs, nbBands, tc.frameSize)
+			result := computeTonalityWithBandsForTest(coeffs, nbBands, tc.frameSize)
 
 			// Harmonic signals with sparse peaks should have high tonality
 			// (similar to pure tones, since each harmonic is a peak)
@@ -490,8 +539,8 @@ func TestTonalityHarmonicVsPureTone(t *testing.T) {
 	pureCoeffs := generateSineWaveMDCT(frequency, 48000, frameSize)
 	harmonicCoeffs := generateHarmonicMDCT(frequency, 48000, frameSize, 10)
 
-	pureResult := computeTonalityWithBands(pureCoeffs, nbBands, frameSize)
-	harmonicResult := computeTonalityWithBands(harmonicCoeffs, nbBands, frameSize)
+	pureResult := computeTonalityWithBandsForTest(pureCoeffs, nbBands, frameSize)
+	harmonicResult := computeTonalityWithBandsForTest(harmonicCoeffs, nbBands, frameSize)
 
 	// Pure tone should have equal or higher tonality than harmonic
 	if pureResult.Tonality < harmonicResult.Tonality-0.1 {
@@ -513,7 +562,7 @@ func TestTonalityPerBand(t *testing.T) {
 	nbBands := getNbBandsForFrameSize(frameSize)
 	coeffs := generateMixedTonalNoiseMDCT(frameSize, 4, 12345)
 
-	result := computeTonalityWithBands(coeffs, nbBands, frameSize)
+	result := computeTonalityWithBandsForTest(coeffs, nbBands, frameSize)
 
 	// Should have per-band tonality values
 	if len(result.BandTonality) == 0 {
@@ -567,7 +616,7 @@ func TestTonalityPerBandConsistency(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := computeTonalityWithBands(tc.coeffs, nbBands, frameSize)
+			result := computeTonalityWithBandsForTest(tc.coeffs, nbBands, frameSize)
 
 			if len(result.BandTonality) == 0 {
 				t.Error("Expected per-band tonality")
@@ -607,7 +656,7 @@ func TestSpectralFluxIdenticalFrames(t *testing.T) {
 		energies[i] = 1.0 // Simplified energy
 	}
 
-	flux := computeSpectralFlux(energies, energies, nbBands)
+	flux := computeSpectralFluxForTest(energies, energies, nbBands)
 
 	// Flux between identical frames should be very small
 	if flux > 0.01 {
@@ -628,7 +677,7 @@ func TestSpectralFluxDifferentFrames(t *testing.T) {
 		energies2[i] = 1000.0 // Uniform high (30 dB difference)
 	}
 
-	flux := computeSpectralFlux(energies2, energies1, nbBands)
+	flux := computeSpectralFluxForTest(energies2, energies1, nbBands)
 
 	// Flux between very different frames should be significant
 	if flux < 0.1 {
@@ -650,8 +699,8 @@ func TestSpectralFluxSymmetry(t *testing.T) {
 		energies2[i] = float64(nbBands - i)
 	}
 
-	flux12 := computeSpectralFlux(energies2, energies1, nbBands)
-	flux21 := computeSpectralFlux(energies1, energies2, nbBands)
+	flux12 := computeSpectralFluxForTest(energies2, energies1, nbBands)
+	flux21 := computeSpectralFluxForTest(energies1, energies2, nbBands)
 
 	// Flux should be approximately symmetric
 	diff := math.Abs(flux12 - flux21)
@@ -665,12 +714,12 @@ func TestSpectralFluxSymmetry(t *testing.T) {
 
 // TestSpectralFluxEmpty verifies behavior with empty inputs.
 func TestSpectralFluxEmpty(t *testing.T) {
-	flux := computeSpectralFlux(nil, nil, 0)
+	flux := computeSpectralFluxForTest(nil, nil, 0)
 	if flux != 0.0 {
 		t.Errorf("Flux with nil inputs = %v, want 0", flux)
 	}
 
-	flux = computeSpectralFlux([]float64{}, []float64{}, 0)
+	flux = computeSpectralFluxForTest([]float64{}, []float64{}, 0)
 	if flux != 0.0 {
 		t.Errorf("Flux with empty inputs = %v, want 0", flux)
 	}
@@ -706,7 +755,7 @@ func TestUpdateTonalityStoresPrevBandLogEnergyAsGLog(t *testing.T) {
 // TestTonalityEdgeCases tests various edge cases for numerical stability.
 func TestTonalityEdgeCases(t *testing.T) {
 	t.Run("empty coefficients", func(t *testing.T) {
-		result := computeTonalityWithBands([]float64{}, 21, 480)
+		result := computeTonalityWithBandsForTest([]float64{}, 21, 480)
 
 		// Should not panic, should return sensible defaults
 		if math.IsNaN(result.Tonality) || math.IsInf(result.Tonality, 0) {
@@ -715,7 +764,7 @@ func TestTonalityEdgeCases(t *testing.T) {
 	})
 
 	t.Run("nil coefficients", func(t *testing.T) {
-		result := computeTonalityWithBands(nil, 21, 480)
+		result := computeTonalityWithBandsForTest(nil, 21, 480)
 
 		if math.IsNaN(result.Tonality) || math.IsInf(result.Tonality, 0) {
 			t.Error("Nil coefficients produced NaN/Inf tonality")
@@ -724,7 +773,7 @@ func TestTonalityEdgeCases(t *testing.T) {
 
 	t.Run("all zeros", func(t *testing.T) {
 		coeffs := make([]float64, 480)
-		result := computeTonalityWithBands(coeffs, 21, 480)
+		result := computeTonalityWithBandsForTest(coeffs, 21, 480)
 
 		// All zeros is effectively silence - should not produce NaN
 		if math.IsNaN(result.Tonality) || math.IsInf(result.Tonality, 0) {
@@ -735,7 +784,7 @@ func TestTonalityEdgeCases(t *testing.T) {
 	t.Run("single non-zero coefficient", func(t *testing.T) {
 		coeffs := make([]float64, 480)
 		coeffs[100] = 1.0
-		result := computeTonalityWithBands(coeffs, 21, 480)
+		result := computeTonalityWithBandsForTest(coeffs, 21, 480)
 
 		// Single coefficient is maximally tonal
 		if result.Tonality < 0.9 {
@@ -748,7 +797,7 @@ func TestTonalityEdgeCases(t *testing.T) {
 		for i := range coeffs {
 			coeffs[i] = 1e-30
 		}
-		result := computeTonalityWithBands(coeffs, 21, 480)
+		result := computeTonalityWithBandsForTest(coeffs, 21, 480)
 
 		// Should handle denormals without producing NaN/Inf
 		if math.IsNaN(result.Tonality) || math.IsInf(result.Tonality, 0) {
@@ -761,7 +810,7 @@ func TestTonalityEdgeCases(t *testing.T) {
 		for i := range coeffs {
 			coeffs[i] = 1e30
 		}
-		result := computeTonalityWithBands(coeffs, 21, 480)
+		result := computeTonalityWithBandsForTest(coeffs, 21, 480)
 
 		// Should handle large values without overflow
 		if math.IsNaN(result.Tonality) || math.IsInf(result.Tonality, 0) {
@@ -773,7 +822,7 @@ func TestTonalityEdgeCases(t *testing.T) {
 		coeffs := make([]float64, 480)
 		coeffs[0] = 1e30
 		coeffs[1] = 1e-30
-		result := computeTonalityWithBands(coeffs, 21, 480)
+		result := computeTonalityWithBandsForTest(coeffs, 21, 480)
 
 		// Should handle dynamic range
 		if math.IsNaN(result.Tonality) || math.IsInf(result.Tonality, 0) {
@@ -790,7 +839,7 @@ func TestTonalityEdgeCases(t *testing.T) {
 				coeffs[i] = -1.0
 			}
 		}
-		result := computeTonalityWithBands(coeffs, 21, 480)
+		result := computeTonalityWithBandsForTest(coeffs, 21, 480)
 
 		// Tonality should work with signed MDCT coefficients
 		if math.IsNaN(result.Tonality) || math.IsInf(result.Tonality, 0) {
@@ -800,7 +849,7 @@ func TestTonalityEdgeCases(t *testing.T) {
 
 	t.Run("single element", func(t *testing.T) {
 		coeffs := []float64{1.0}
-		result := computeTonalityWithBands(coeffs, 1, 1)
+		result := computeTonalityWithBandsForTest(coeffs, 1, 1)
 
 		if math.IsNaN(result.Tonality) || math.IsInf(result.Tonality, 0) {
 			t.Error("Single element produced NaN/Inf tonality")
@@ -809,7 +858,7 @@ func TestTonalityEdgeCases(t *testing.T) {
 
 	t.Run("zero nbBands", func(t *testing.T) {
 		coeffs := make([]float64, 480)
-		result := computeTonalityWithBands(coeffs, 0, 480)
+		result := computeTonalityWithBandsForTest(coeffs, 0, 480)
 
 		if math.IsNaN(result.Tonality) || math.IsInf(result.Tonality, 0) {
 			t.Error("Zero nbBands produced NaN/Inf tonality")
@@ -818,7 +867,7 @@ func TestTonalityEdgeCases(t *testing.T) {
 
 	t.Run("zero frameSize", func(t *testing.T) {
 		coeffs := make([]float64, 480)
-		result := computeTonalityWithBands(coeffs, 21, 0)
+		result := computeTonalityWithBandsForTest(coeffs, 21, 0)
 
 		if math.IsNaN(result.Tonality) || math.IsInf(result.Tonality, 0) {
 			t.Error("Zero frameSize produced NaN/Inf tonality")
@@ -851,7 +900,7 @@ func TestTonalityNumericalStability(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			result := computeTonalityWithBands(tc.coeffs, 1, len(tc.coeffs))
+			result := computeTonalityWithBandsForTest(tc.coeffs, 1, len(tc.coeffs))
 
 			if math.IsNaN(result.Tonality) {
 				t.Errorf("Produced NaN for %s", tc.name)
@@ -878,7 +927,7 @@ func TestTonalityOutputRange(t *testing.T) {
 	}
 
 	for i, coeffs := range testInputs {
-		result := computeTonalityWithBands(coeffs, nbBands, frameSize)
+		result := computeTonalityWithBandsForTest(coeffs, nbBands, frameSize)
 
 		if result.Tonality < 0.0 || result.Tonality > 1.0 {
 			t.Errorf("Test %d: Tonality %v out of [0, 1] range", i, result.Tonality)
@@ -908,7 +957,7 @@ func BenchmarkComputeTonality(b *testing.B) {
 		b.Run("", func(b *testing.B) {
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				_ = computeTonalityWithBands(coeffs, nbBands, frameSize)
+				_ = computeTonalityWithBandsForTest(coeffs, nbBands, frameSize)
 			}
 		})
 	}
@@ -927,7 +976,7 @@ func BenchmarkComputeSpectralFlux(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = computeSpectralFlux(energies2, energies1, nbBands)
+		_ = computeSpectralFluxForTest(energies2, energies1, nbBands)
 	}
 }
 
@@ -939,7 +988,7 @@ func BenchmarkComputeTonalityWorstCase(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = computeTonalityWithBands(coeffs, nbBands, frameSize)
+		_ = computeTonalityWithBandsForTest(coeffs, nbBands, frameSize)
 	}
 }
 
@@ -952,7 +1001,7 @@ func BenchmarkGeometricMean(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = geometricMean(values)
+		_ = geometricMeanForTest(values)
 	}
 }
 
@@ -965,7 +1014,7 @@ func BenchmarkArithmeticMean(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = arithmeticMean(values)
+		_ = arithmeticMeanForTest(values)
 	}
 }
 
@@ -994,7 +1043,7 @@ func TestTonalityWithRealMDCT(t *testing.T) {
 		t.Fatal("MDCT returned nil")
 	}
 
-	result := computeTonalityWithBands(coeffs, nbBands, frameSize)
+	result := computeTonalityWithBandsForTest(coeffs, nbBands, frameSize)
 
 	// Real MDCT of sine wave should show high tonality
 	if result.Tonality < 0.7 {
@@ -1024,7 +1073,7 @@ func TestTonalityWithRealNoise(t *testing.T) {
 		t.Fatal("MDCT returned nil")
 	}
 
-	result := computeTonalityWithBands(coeffs, nbBands, frameSize)
+	result := computeTonalityWithBandsForTest(coeffs, nbBands, frameSize)
 
 	// Real MDCT of noise should have lower tonality than pure tone (1.0)
 	// but the band-based analysis gives moderate values (~0.7)
@@ -1049,7 +1098,7 @@ func TestTonalityFrameContinuity(t *testing.T) {
 
 	var prevEnergies []float64
 	for f := 0; f < numFrames; f++ {
-		result := computeTonalityWithBands(coeffsList[f], nbBands, frameSize)
+		result := computeTonalityWithBandsForTest(coeffsList[f], nbBands, frameSize)
 
 		// Continuous signal should have consistent tonality
 		if result.Tonality < 0.8 {
@@ -1064,7 +1113,7 @@ func TestTonalityFrameContinuity(t *testing.T) {
 
 		// After first frame, flux should be low (same signal)
 		if f > 0 && prevEnergies != nil {
-			flux := computeSpectralFlux(energies, prevEnergies, nbBands)
+			flux := computeSpectralFluxForTest(energies, prevEnergies, nbBands)
 			if flux > 0.1 {
 				t.Errorf("Frame %d flux = %v, want <= 0.1 for continuous signal", f, flux)
 			}

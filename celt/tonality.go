@@ -3,17 +3,21 @@
 
 package celt
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // tonalityAnalysisResult holds the results of tonality analysis.
 // Tonality measures how "tonal" (pitched/harmonic) vs "noisy" (aperiodic) a signal is.
 // This information is used by the VBR algorithm to allocate more bits to tonal signals
 // which benefit more from accurate spectral representation.
 type tonalityAnalysisResult struct {
-	Tonality     float64   // Overall tonality (0=noise, 1=pure tone)
-	SFM          float64   // Spectral Flatness Measure (0=tonal, 1=flat/noise)
-	BandTonality []float64 // Per-band tonality estimates
-	SpectralFlux float64   // Frame-to-frame spectral change (0=stationary, higher=transient)
+	Tonality     float32   // Overall tonality (0=noise, 1=pure tone)
+	SFM          float32   // Spectral Flatness Measure (0=tonal, 1=flat/noise)
+	BandTonality []float32 // Per-band tonality estimates
+	SpectralFlux float32   // Frame-to-frame spectral change (0=stationary, higher=transient)
 }
 
 // computeTonalityWithBands analyzes MDCT coefficients with explicit band count.
@@ -25,11 +29,11 @@ type tonalityAnalysisResult struct {
 //   - frameSize: frame size in samples (used to scale band boundaries)
 //
 // Returns: tonalityAnalysisResult with overall and per-band tonality
-func computeTonalityWithBands(mdctCoeffs []float64, nbBands, frameSize int) tonalityAnalysisResult {
+func computeTonalityWithBands(mdctCoeffs []float32, nbBands, frameSize int) tonalityAnalysisResult {
 	result := tonalityAnalysisResult{
 		Tonality:     0.5, // Default to mid-range if computation fails
 		SFM:          0.5,
-		BandTonality: make([]float64, nbBands),
+		BandTonality: make([]float32, nbBands),
 		SpectralFlux: 0.0,
 	}
 
@@ -38,9 +42,9 @@ func computeTonalityWithBands(mdctCoeffs []float64, nbBands, frameSize int) tona
 	}
 
 	// Compute power spectrum
-	powers := make([]float64, len(mdctCoeffs))
+	powers := make([]float32, len(mdctCoeffs))
 	for i, coeff := range mdctCoeffs {
-		powers[i] = float64(float32(coeff) * float32(coeff))
+		powers[i] = coeff * coeff
 	}
 
 	// Compute overall SFM
@@ -62,8 +66,8 @@ func computeTonalityWithBands(mdctCoeffs []float64, nbBands, frameSize int) tona
 }
 
 // computePerBandTonality computes tonality for each CELT band.
-func computePerBandTonality(mdctCoeffs []float64, nbBands, frameSize int) []float64 {
-	bandTonality := make([]float64, nbBands)
+func computePerBandTonality(mdctCoeffs []float32, nbBands, frameSize int) []float32 {
+	bandTonality := make([]float32, nbBands)
 
 	scale := frameSize / Overlap // 1 for 2.5ms, 2 for 5ms, 4 for 10ms, 8 for 20ms
 	if scale < 1 {
@@ -93,7 +97,7 @@ func computePerBandTonality(mdctCoeffs []float64, nbBands, frameSize int) []floa
 		}
 
 		// Compute power spectrum for this band
-		powers := make([]float64, bandWidth)
+		powers := make([]float32, bandWidth)
 		for i := 0; i < bandWidth; i++ {
 			idx := startBin + i
 			if idx < len(mdctCoeffs) {
@@ -121,19 +125,19 @@ func computePerBandTonality(mdctCoeffs []float64, nbBands, frameSize int) []floa
 // tonalityScratch holds pre-allocated buffers for tonality analysis.
 // This eliminates allocations in the hot path.
 type tonalityScratch struct {
-	Powers       []float64 // Power spectrum buffer (size: frameSize)
-	BandTonality []float64 // Per-band tonality output (size: nbBands)
+	Powers       []float32 // Power spectrum buffer (size: frameSize)
+	BandTonality []float32 // Per-band tonality output (size: nbBands)
 }
 
 // ensureTonalityScratch ensures the scratch buffers are large enough.
 func (s *tonalityScratch) ensureTonalityScratch(frameSize, nbBands int) {
 	if cap(s.Powers) < frameSize {
-		s.Powers = make([]float64, frameSize)
+		s.Powers = make([]float32, frameSize)
 	} else {
 		s.Powers = s.Powers[:frameSize]
 	}
 	if cap(s.BandTonality) < nbBands {
-		s.BandTonality = make([]float64, nbBands)
+		s.BandTonality = make([]float32, nbBands)
 	} else {
 		s.BandTonality = s.BandTonality[:nbBands]
 	}
@@ -141,7 +145,7 @@ func (s *tonalityScratch) ensureTonalityScratch(frameSize, nbBands int) {
 
 // computeTonalityWithBandsScratch analyzes MDCT coefficients with explicit band count using pre-allocated scratch buffers.
 // This is the zero-allocation version.
-func computeTonalityWithBandsScratch[S ~float32 | ~float64](mdctCoeffs []S, nbBands, frameSize int, scratch *tonalityScratch) tonalityAnalysisResult {
+func computeTonalityWithBandsScratch[S ~float32](mdctCoeffs []S, nbBands, frameSize int, scratch *tonalityScratch) tonalityAnalysisResult {
 	result := tonalityAnalysisResult{
 		Tonality:     0.5,
 		SFM:          0.5,
@@ -159,7 +163,8 @@ func computeTonalityWithBandsScratch[S ~float32 | ~float64](mdctCoeffs []S, nbBa
 	// Compute power spectrum into scratch buffer
 	powers := scratch.Powers[:len(mdctCoeffs)]
 	for i, coeff := range mdctCoeffs {
-		powers[i] = float64(float32(coeff) * float32(coeff))
+		coeff32 := float32(coeff)
+		powers[i] = coeff32 * coeff32
 	}
 
 	// Compute overall SFM
@@ -183,7 +188,7 @@ func computeTonalityWithBandsScratch[S ~float32 | ~float64](mdctCoeffs []S, nbBa
 
 // computePerBandTonalityScratch computes tonality for each CELT band using the
 // already-computed power spectrum and pre-allocated scratch buffers.
-func computePerBandTonalityScratch(powers []float64, nbBands, frameSize int, scratch *tonalityScratch) {
+func computePerBandTonalityScratch(powers []float32, nbBands, frameSize int, scratch *tonalityScratch) {
 	bandTonality := scratch.BandTonality[:nbBands]
 
 	scale := frameSize / Overlap
@@ -240,12 +245,12 @@ func computePerBandTonalityScratch(powers []float64, nbBands, frameSize int, scr
 // Returns: normalized spectral flux in range [0, 1]
 //
 // Reference: libopus uses similar metrics for transient detection
-func computeSpectralFlux(currentEnergies, previousEnergies []float64, nbBands int) float64 {
+func computeSpectralFlux(currentEnergies, previousEnergies []float32, nbBands int) float32 {
 	if len(currentEnergies) == 0 || len(previousEnergies) == 0 || nbBands <= 0 {
 		return 0.0
 	}
 
-	var flux float64
+	var flux float32
 	var count int
 
 	// Sum of squared differences in log-energy
@@ -256,7 +261,7 @@ func computeSpectralFlux(currentEnergies, previousEnergies []float64, nbBands in
 
 		// Use log energies for perceptual relevance
 		// Add small epsilon to avoid log(0)
-		const epsilon = 1e-10
+		const epsilon float32 = 1e-10
 		currentLog := safeLog(currentEnergies[i] + epsilon)
 		prevLog := safeLog(previousEnergies[i] + epsilon)
 
@@ -270,29 +275,29 @@ func computeSpectralFlux(currentEnergies, previousEnergies []float64, nbBands in
 	}
 
 	// Normalize by number of bands
-	flux = flux / float64(count)
+	flux = flux / float32(count)
 
 	// Apply soft saturation to map to [0, 1] range
-	const fluxScale = 4.0
-	normalizedFlux := 1.0 - math.Exp(-flux/fluxScale)
+	const fluxScale float32 = 4.0
+	normalizedFlux := 1.0 - opusmath.ExpF32(-flux/fluxScale)
 
 	return normalizedFlux
 }
 
-func computeSpectralFluxGLog(currentEnergies []celtGLog, previousEnergies []celtGLog, nbBands int) float64 {
+func computeSpectralFluxGLog(currentEnergies []celtGLog, previousEnergies []celtGLog, nbBands int) float32 {
 	if len(currentEnergies) == 0 || len(previousEnergies) == 0 || nbBands <= 0 {
 		return 0.0
 	}
 
-	var flux float64
+	var flux float32
 	var count int
 	for i := 0; i < nbBands; i++ {
 		if i >= len(currentEnergies) || i >= len(previousEnergies) {
 			break
 		}
-		const epsilon = 1e-10
-		currentLog := safeLog(float64(currentEnergies[i]) + epsilon)
-		prevLog := safeLog(float64(previousEnergies[i]) + epsilon)
+		const epsilon float32 = 1e-10
+		currentLog := safeLog(float32(currentEnergies[i]) + epsilon)
+		prevLog := safeLog(float32(previousEnergies[i]) + epsilon)
 		diff := currentLog - prevLog
 		flux += diff * diff
 		count++
@@ -301,9 +306,9 @@ func computeSpectralFluxGLog(currentEnergies []celtGLog, previousEnergies []celt
 		return 0.0
 	}
 
-	flux = flux / float64(count)
-	const fluxScale = 4.0
-	return 1.0 - math.Exp(-flux/fluxScale)
+	flux = flux / float32(count)
+	const fluxScale float32 = 4.0
+	return 1.0 - opusmath.ExpF32(-flux/fluxScale)
 }
 
 // computeSpectralFlatness computes the Spectral Flatness Measure (SFM).
@@ -312,24 +317,24 @@ func computeSpectralFluxGLog(currentEnergies []celtGLog, previousEnergies []celt
 // SFM = exp2(mean(log2(|X|^2))) / mean(|X|^2)
 //
 // Returns value in [0, 1] where 1 = perfectly flat (noise), 0 = perfectly peaked (tone)
-func computeSpectralFlatness(powers []float64) float64 {
+func computeSpectralFlatness(powers []float32) float32 {
 	n := len(powers)
 	if n == 0 {
 		return 1.0
 	}
 
 	const (
-		epsilon                 = 1e-20
-		invalidSpectralFlatness = 0.5
-		maxAnalysisBandEnergy   = 1e9
+		epsilon                 float32 = 1e-20
+		invalidSpectralFlatness float32 = 0.5
+		maxAnalysisBandEnergy   float32 = 1e9
 	)
 
 	// Single-pass: accumulate both fast log2 sum and arithmetic sum.
-	var sumLog2, sum float64
+	var sumLog2, sum float32
 	for _, v := range powers {
 		// libopus src/analysis.c:tonality_analysis rejects NaN or >=1e9
 		// band energies before using them in later tonality math.
-		if math.IsNaN(v) || math.IsInf(v, 0) {
+		if math.Float32bits(v)&0x7fffffff > 0x7f800000 {
 			return invalidSpectralFlatness
 		}
 		if v < epsilon {
@@ -342,14 +347,14 @@ func computeSpectralFlatness(powers []float64) float64 {
 		}
 	}
 
-	arithMean := sum / float64(n)
-	if arithMean <= 0 || math.IsNaN(arithMean) || math.IsInf(arithMean, 0) {
+	arithMean := sum / float32(n)
+	if arithMean <= 0 || math.Float32bits(arithMean)&0x7fffffff > 0x7f800000 {
 		return 1.0
 	}
 
-	geoMean := math.Exp2(sumLog2 / float64(n))
+	geoMean := opusmath.Exp2F32(sumLog2 / float32(n))
 	sfm := geoMean / arithMean
-	if math.IsNaN(sfm) || math.IsInf(sfm, 0) {
+	if math.Float32bits(sfm)&0x7fffffff > 0x7f800000 {
 		return invalidSpectralFlatness
 	}
 
@@ -365,28 +370,28 @@ func computeSpectralFlatness(powers []float64) float64 {
 // fastLog2 computes log2(x) using IEEE 754 bit extraction with a polynomial
 // correction for the mantissa. ~5 digits of precision, sufficient for
 // spectral flatness and tonality analysis.
-func fastLog2(x float64) float64 {
-	bits := math.Float64bits(x)
+func fastLog2(x float32) float32 {
+	bits := math.Float32bits(x)
 	// Extract exponent: integer part of log2
-	exp := int64((bits>>52)&0x7FF) - 1023
+	exp := int32((bits>>23)&0xFF) - 127
 	// Normalize mantissa to [1, 2)
-	bits = (bits & 0x000FFFFFFFFFFFFF) | 0x3FF0000000000000
-	m := math.Float64frombits(bits) - 1.0
+	bits = (bits & 0x007fffff) | 0x3f800000
+	m := math.Float32frombits(bits) - 1.0
 	// Minimax polynomial for log2(1+m), m in [0, 1)
 	// Max error ~3e-5 over [0,1)
-	return float64(exp) + m*(1.4426950408889634+m*(-0.7213475204444817+m*(0.4808983469629878+m*(-0.3606737602222408))))
+	return float32(exp) + m*(1.4426950408889634+m*(-0.7213475204444817+m*(0.4808983469629878+m*(-0.3606737602222408))))
 }
 
 // geometricMean computes the geometric mean of positive values.
 // Uses exp2(mean(fastLog2(x))) for numerical stability.
-func geometricMean(values []float64) float64 {
+func geometricMean(values []float32) float32 {
 	if len(values) == 0 {
 		return 0
 	}
 
-	const epsilon = 1e-20
+	const epsilon float32 = 1e-20
 
-	var sumLog2 float64
+	var sumLog2 float32
 	for _, v := range values {
 		if v < epsilon {
 			v = epsilon
@@ -394,31 +399,31 @@ func geometricMean(values []float64) float64 {
 		sumLog2 += fastLog2(v)
 	}
 
-	meanLog2 := sumLog2 / float64(len(values))
-	return math.Exp2(meanLog2)
+	meanLog2 := sumLog2 / float32(len(values))
+	return opusmath.Exp2F32(meanLog2)
 }
 
 // arithmeticMean computes the arithmetic mean of values.
-func arithmeticMean(values []float64) float64 {
+func arithmeticMean(values []float32) float32 {
 	if len(values) == 0 {
 		return 0
 	}
 
-	var sum float64
+	var sum float32
 	for _, v := range values {
 		sum += v
 	}
 
-	return sum / float64(len(values))
+	return sum / float32(len(values))
 }
 
 // safeLog computes natural logarithm with protection against negative/zero values.
-func safeLog(x float64) float64 {
-	const epsilon = 1e-20
+func safeLog(x float32) float32 {
+	const epsilon float32 = 1e-20
 	if x < epsilon {
 		x = epsilon
 	}
-	return math.Log(x)
+	return opusmath.LogF32(x)
 }
 
 // computeTonalityFromNormalized computes tonality from pre-normalized MDCT coefficients.
