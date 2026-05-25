@@ -14,11 +14,13 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"runtime"
 	"sort"
 	"strings"
 
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const (
@@ -28,8 +30,15 @@ const (
 )
 
 type fixtureFile struct {
-	Version int            `json:"version"`
-	Entries []fixtureEntry `json:"entries"`
+	Version    int               `json:"version"`
+	Provenance fixtureProvenance `json:"provenance"`
+	Entries    []fixtureEntry    `json:"entries"`
+}
+
+type fixtureProvenance struct {
+	GOOS           string `json:"goos"`
+	GOARCH         string `json:"goarch"`
+	LibopusVersion string `json:"libopus_version,omitempty"`
 }
 
 type fixtureEntry struct {
@@ -84,6 +93,11 @@ func main() {
 
 	out := fixtureFile{
 		Version: 1,
+		Provenance: fixtureProvenance{
+			GOOS:           runtime.GOOS,
+			GOARCH:         runtime.GOARCH,
+			LibopusVersion: libopustooling.DefaultVersion,
+		},
 		Entries: entries,
 	}
 	js, err := json.MarshalIndent(out, "", "  ")

@@ -58,7 +58,7 @@ func NormalizeVector(v []celtNorm) []celtNorm {
 
 	var energy float32
 	for _, x := range v {
-		energy += float32(x) * float32(x)
+		energy += x * x
 	}
 
 	if energy < 1e-15 {
@@ -69,7 +69,7 @@ func NormalizeVector(v []celtNorm) []celtNorm {
 	scale := celtRSqrt(energy)
 	result := make([]celtNorm, len(v))
 	for i, x := range v {
-		result[i] = celtNorm(float32(x) * scale)
+		result[i] = celtNorm(x * scale)
 	}
 	return result
 }
@@ -176,10 +176,10 @@ func ApplyMidSideRotation(mid, side []celtNorm, midGain, sideGain opusVal16) (le
 	for i := 0; i < n; i++ {
 		// Left = mid*cos(theta) + side*sin(theta)
 		// Right = mid*cos(theta) - side*sin(theta)
-		m := float32(mid[i])
-		s := float32(side[i])
-		mg := float32(midGain)
-		sg := float32(sideGain)
+		m := mid[i]
+		s := side[i]
+		mg := midGain
+		sg := sideGain
 		left[i] = celtNorm(mg*m + sg*s)
 		right[i] = celtNorm(mg*m - sg*s)
 	}
@@ -243,15 +243,15 @@ func (d *Decoder) decodePVQNormInto(band, n, k int, dst []celtNorm) {
 	var energy opusVal16
 	for i := 0; i < n; i++ {
 		pulse := float32(pulses[i])
-		dst[i] = celtNorm(pulse)
-		energy = opusVal16(float32(energy) + pulse*pulse)
+		dst[i] = pulse
+		energy = opusVal16(energy + pulse*pulse)
 	}
 
 	// Normalize to unit L2 energy
 	if energy >= 1e-15 {
-		scale := celtRSqrt(float32(energy))
+		scale := celtRSqrt(energy)
 		for i := 0; i < n; i++ {
-			dst[i] = celtNorm(float32(dst[i]) * scale)
+			dst[i] = celtNorm(dst[i] * scale)
 		}
 	}
 }
@@ -288,11 +288,11 @@ func applyMidSideRotationNormInto(mid, side []celtNorm, midGain, sideGain opusVa
 		return
 	}
 
-	mg := float32(midGain)
-	sg := float32(sideGain)
+	mg := midGain
+	sg := sideGain
 	for i := 0; i < n; i++ {
-		m := float32(mid[i])
-		s := float32(side[i])
+		m := mid[i]
+		s := side[i]
 		left[i] = celtNorm(mg*m + sg*s)
 		right[i] = celtNorm(mg*m - sg*s)
 	}

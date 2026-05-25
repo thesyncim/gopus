@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustooling"
@@ -32,6 +33,9 @@ type libopusFixtureProvenance struct {
 func validateLibopusFixtureProvenance(p libopusFixtureProvenance) error {
 	if p.GOOS == "" || p.GOARCH == "" {
 		return fmt.Errorf("missing goos/goarch provenance")
+	}
+	if os.Getenv(requirePlatformFixturesEnv) != "" && (p.GOOS != runtime.GOOS || p.GOARCH != runtime.GOARCH) {
+		return fmt.Errorf("platform provenance=%s/%s want %s/%s", p.GOOS, p.GOARCH, runtime.GOOS, runtime.GOARCH)
 	}
 	if p.LibopusVersion != "" && p.LibopusVersion != libopustooling.DefaultVersion {
 		return fmt.Errorf("libopus_version=%q want %q", p.LibopusVersion, libopustooling.DefaultVersion)
@@ -107,5 +111,23 @@ func TestGeneratedLibopusFixturesCarryProvenance(t *testing.T) {
 				t.Fatalf("invalid provenance: %v", err)
 			}
 		})
+	}
+}
+
+func TestRequiredPlatformFixtureProvenanceMatchesRuntime(t *testing.T) {
+	t.Setenv(requirePlatformFixturesEnv, "1")
+
+	if err := validateLibopusFixtureProvenance(libopusFixtureProvenance{
+		GOOS:   runtime.GOOS,
+		GOARCH: runtime.GOARCH,
+	}); err != nil {
+		t.Fatalf("runtime platform provenance rejected: %v", err)
+	}
+
+	if err := validateLibopusFixtureProvenance(libopusFixtureProvenance{
+		GOOS:   "other",
+		GOARCH: runtime.GOARCH,
+	}); err == nil {
+		t.Fatalf("mismatched platform provenance accepted")
 	}
 }

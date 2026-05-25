@@ -7,9 +7,12 @@ import (
 	"encoding/json"
 	"math"
 	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 const updateOpusdecCrossvalFixtureEnv = "GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE"
@@ -420,6 +423,11 @@ func regenCrossvalFixture(t *testing.T, scenarios []crossvalFixtureScenario) {
 
 	fixture := opusdecCrossvalFixtureFile{
 		Version: 1,
+		Provenance: &opusdecCrossvalFixtureProvenance{
+			GOOS:           runtime.GOOS,
+			GOARCH:         runtime.GOARCH,
+			LibopusVersion: libopustooling.DefaultVersion,
+		},
 		Entries: entries,
 	}
 	data, err := json.MarshalIndent(fixture, "", "  ")

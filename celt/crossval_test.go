@@ -20,6 +20,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
 // checkOpusdecAvailable checks if opusdec is available in PATH.
@@ -176,9 +178,40 @@ func TestOpusdecCrossvalRequiredPlatformFixturePresent(t *testing.T) {
 	}
 }
 
+func TestOpusdecCrossvalRequiredPlatformFixtureProvenanceMatchesRuntime(t *testing.T) {
+	t.Setenv(requirePlatformFixturesEnv, "1")
+
+	if err := validateOpusdecCrossvalFixtureProvenance(&opusdecCrossvalFixtureProvenance{
+		GOOS:           runtime.GOOS,
+		GOARCH:         runtime.GOARCH,
+		LibopusVersion: libopustooling.DefaultVersion,
+	}); err != nil {
+		t.Fatalf("runtime platform provenance rejected: %v", err)
+	}
+
+	if err := validateOpusdecCrossvalFixtureProvenance(&opusdecCrossvalFixtureProvenance{
+		GOOS:           "other",
+		GOARCH:         runtime.GOARCH,
+		LibopusVersion: libopustooling.DefaultVersion,
+	}); err == nil {
+		t.Fatalf("mismatched platform provenance accepted")
+	}
+
+	if err := validateOpusdecCrossvalFixtureProvenance(nil); err == nil {
+		t.Fatalf("missing platform provenance accepted")
+	}
+}
+
 type opusdecCrossvalFixtureFile struct {
-	Version int                           `json:"version"`
-	Entries []opusdecCrossvalFixtureEntry `json:"entries"`
+	Version    int                               `json:"version"`
+	Provenance *opusdecCrossvalFixtureProvenance `json:"provenance,omitempty"`
+	Entries    []opusdecCrossvalFixtureEntry     `json:"entries"`
+}
+
+type opusdecCrossvalFixtureProvenance struct {
+	GOOS           string `json:"goos"`
+	GOARCH         string `json:"goarch"`
+	LibopusVersion string `json:"libopus_version,omitempty"`
 }
 
 type opusdecCrossvalFixtureEntry struct {
@@ -216,6 +249,10 @@ func loadOpusdecCrossvalFixtureMap() (map[string]opusdecCrossvalFixtureEntry, er
 			opusdecCrossvalFixtureErr = fmt.Errorf("unsupported opusdec crossval fixture version %d", fixture.Version)
 			return
 		}
+		if err := validateOpusdecCrossvalFixtureProvenance(fixture.Provenance); err != nil {
+			opusdecCrossvalFixtureErr = err
+			return
+		}
 		m := make(map[string]opusdecCrossvalFixtureEntry, len(fixture.Entries))
 		for _, e := range fixture.Entries {
 			if e.SHA256 == "" {
@@ -227,6 +264,28 @@ func loadOpusdecCrossvalFixtureMap() (map[string]opusdecCrossvalFixtureEntry, er
 		opusdecCrossvalFixtureMap = m
 	})
 	return opusdecCrossvalFixtureMap, opusdecCrossvalFixtureErr
+}
+
+func validateOpusdecCrossvalFixtureProvenance(p *opusdecCrossvalFixtureProvenance) error {
+	if p == nil {
+		if os.Getenv(requirePlatformFixturesEnv) != "" {
+			return fmt.Errorf("missing opusdec crossval fixture provenance")
+		}
+		return nil
+	}
+	if p.LibopusVersion != "" && p.LibopusVersion != libopustooling.DefaultVersion {
+		return fmt.Errorf("opusdec crossval libopus_version=%q want %q", p.LibopusVersion, libopustooling.DefaultVersion)
+	}
+	if os.Getenv(requirePlatformFixturesEnv) == "" {
+		return nil
+	}
+	if p.GOOS == "" || p.GOARCH == "" {
+		return fmt.Errorf("missing opusdec crossval goos/goarch provenance")
+	}
+	if p.GOOS != runtime.GOOS || p.GOARCH != runtime.GOARCH {
+		return fmt.Errorf("opusdec crossval platform provenance=%s/%s want %s/%s", p.GOOS, p.GOARCH, runtime.GOOS, runtime.GOARCH)
+	}
+	return nil
 }
 
 func decodeFloat32LEBase64(src string) ([]float32, error) {

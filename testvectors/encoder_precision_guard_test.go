@@ -60,6 +60,16 @@ var encoderLibopusGapFloorWindowsAMD64OverrideQ = map[string]float64{
 	"CELT-FB-20ms-stereo-128k": -1.20,
 }
 
+// Ubuntu arm64 native libopus fixtures currently measure stronger reference
+// quality than the generic/darwin arm64 fixtures on these profiles. Keep the
+// platform smoke as a ratchet against that native reference instead of falling
+// back to the generic floor.
+var encoderLibopusGapFloorLinuxARM64OverrideQ = map[string]float64{
+	"CELT-FB-10ms-mono-64k":    -2.65,
+	"CELT-FB-20ms-stereo-128k": -9.35,
+	"SILK-MB-20ms-mono-24k":    -4.65,
+}
+
 // Small tolerance for platform/decoder variance in measured libopus Q gaps.
 const encoderLibopusGapMeasurementToleranceQ = 0.15
 
@@ -86,11 +96,16 @@ func encoderLibopusGapFloorForPlatform(caseName, goos, goarch string) (float64, 
 			floor = windowsFloor
 		}
 	}
+	if goos == "linux" && goarch == "arm64" {
+		if linuxARM64Floor, has := encoderLibopusGapFloorLinuxARM64OverrideQ[caseName]; has {
+			floor = linuxARM64Floor
+		}
+	}
 	return floor, true
 }
 
 func encoderLibopusGapWithinFloor(caseName string, gapQ float64) (bool, float64) {
-	return encoderLibopusGapWithinFloorForArch(caseName, gapQ, runtime.GOARCH)
+	return encoderLibopusGapWithinFloorForPlatform(caseName, gapQ, runtime.GOOS, runtime.GOARCH)
 }
 
 func encoderLibopusGapWithinFloorForArch(caseName string, gapQ float64, goarch string) (bool, float64) {
@@ -110,7 +125,7 @@ func encoderLibopusGapWithinFloorForPlatform(caseName string, gapQ float64, goos
 }
 
 func encoderComplianceReferenceStatusForCase(caseName string, gapQ float64) (string, float64) {
-	return encoderComplianceReferenceStatusForArch(caseName, gapQ, runtime.GOARCH)
+	return encoderComplianceReferenceStatusForPlatform(caseName, gapQ, runtime.GOOS, runtime.GOARCH)
 }
 
 func encoderComplianceReferenceStatusForArch(caseName string, gapQ float64, goarch string) (string, float64) {
@@ -321,6 +336,33 @@ func TestEncoderComplianceReferenceStatusForPlatform(t *testing.T) {
 			gapDB:     -0.04,
 			want:      "GOOD",
 			wantFloor: 0.05,
+		},
+		{
+			name:      "linux arm64 celt 10ms native fixture drift stays base",
+			caseName:  "CELT-FB-10ms-mono-64k",
+			goos:      "linux",
+			goarch:    "arm64",
+			gapDB:     -2.55,
+			want:      "BASE",
+			wantFloor: -2.65,
+		},
+		{
+			name:      "linux arm64 celt stereo native fixture drift stays base",
+			caseName:  "CELT-FB-20ms-stereo-128k",
+			goos:      "linux",
+			goarch:    "arm64",
+			gapDB:     -9.28,
+			want:      "BASE",
+			wantFloor: -9.35,
+		},
+		{
+			name:      "linux arm64 silk mb native fixture drift stays base",
+			caseName:  "SILK-MB-20ms-mono-24k",
+			goos:      "linux",
+			goarch:    "arm64",
+			gapDB:     -4.54,
+			want:      "BASE",
+			wantFloor: -4.65,
 		},
 	}
 

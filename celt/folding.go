@@ -27,7 +27,7 @@ func FoldBand(lowband []celtNorm, n int, seed *uint32) []celtNorm {
 				sign = -1.0
 			}
 			*seed = *seed*1664525 + 1013904223
-			result[i] = celtNorm(sign * float32(lowband[i%len(lowband)]))
+			result[i] = celtNorm(sign * lowband[i%len(lowband)])
 		}
 	}
 
@@ -61,7 +61,7 @@ func (d *Decoder) foldBandNormInto(lowband []celtNorm, n int, dst []celtNorm) {
 			d.rng = d.rng*1664525 + 1013904223
 
 			// Copy from lowband with wrapping if target is larger
-			dst[i] = celtNorm(sign * float32(lowband[i%len(lowband)]))
+			dst[i] = celtNorm(sign * lowband[i%len(lowband)])
 		}
 	}
 
@@ -76,17 +76,17 @@ func normalizeNormVectorInPlace(v []celtNorm) {
 
 	var energy opusVal16
 	for _, x := range v {
-		xf := float32(x)
-		energy = opusVal16(float32(energy) + xf*xf)
+		xf := x
+		energy = opusVal16(energy + xf*xf)
 	}
 
 	if energy < 1e-15 {
 		return
 	}
 
-	scale := celtRSqrt(float32(energy))
+	scale := celtRSqrt(energy)
 	for i := range v {
-		v[i] = celtNorm(float32(v[i]) * scale)
+		v[i] = celtNorm(v[i] * scale)
 	}
 }
 
@@ -287,7 +287,7 @@ func ApplyAntiCollapse(shape []celtNorm, energy, prevEnergy1, prevEnergy2, gain 
 		noise := float32(int32(*seed)) / float32(1<<31)
 
 		// Mix noise with existing shape
-		result[i] = celtNorm(float32(result[i]) + noise*float32(gain))
+		result[i] = celtNorm(result[i] + noise*gain)
 	}
 
 	// Re-normalize after noise injection
