@@ -200,7 +200,7 @@ func stereoFindPredictorQ13WithRatioQ14(x, y []int16, length int, midResAmpQ0 *[
 		nrgx = 1
 	}
 
-	corr := stereoInnerProdAlignedScale(x, y, scale, length)
+	corr := stereoInnerProdAlignedScale(x, y, int(scale), length)
 	predQ13 = silkDiv32VarQ(corr, nrgx, 13)
 	predQ13 = silkLimit32(predQ13, -(1 << 14), 1<<14)
 
@@ -213,7 +213,7 @@ func stereoFindPredictorQ13WithRatioQ14(x, y []int16, length int, midResAmpQ0 *[
 	}
 
 	scale >>= 1
-	midAmpQ0 := silkLSHIFT(silkSqrtApproxPLC(nrgx), scale)
+	midAmpQ0 := silkLSHIFT(silkSqrtApproxPLC(nrgx), int(scale))
 	midResAmpQ0[0] = silkSMLAWB(midResAmpQ0[0], midAmpQ0-midResAmpQ0[0], smoothCoefQ16)
 
 	// Residual energy = nrgy - 2 * pred * corr + pred^2 * nrgx.
@@ -222,7 +222,7 @@ func stereoFindPredictorQ13WithRatioQ14(x, y []int16, length int, midResAmpQ0 *[
 	if nrgy < 0 {
 		nrgy = 0
 	}
-	resAmpQ0 := silkLSHIFT(silkSqrtApproxPLC(nrgy), scale)
+	resAmpQ0 := silkLSHIFT(silkSqrtApproxPLC(nrgy), int(scale))
 	midResAmpQ0[1] = silkSMLAWB(midResAmpQ0[1], resAmpQ0-midResAmpQ0[1], smoothCoefQ16)
 
 	den := midResAmpQ0[0]

@@ -92,15 +92,16 @@ func applyPLCGainRamp(frame []int16, length int, gainQ16, slopeQ16 int32) {
 }
 
 // silkSumSqrShift calculates sum of squared samples with automatic shift.
+// The shift result mirrors silk/sum_sqr_shift.c's opus_int output.
 // Returns (energy, shift) where energy is the sum of squares shifted by 'shift'.
 // This avoids overflow for large signals.
-func silkSumSqrShift(samples []int16, length int) (int32, int) {
+func silkSumSqrShift(samples []int16, length int) (int32, int32) {
 	if length <= 0 {
 		return 0, 0
 	}
 
 	// Port of libopus silk_sum_sqr_shift() two-pass shift selection.
-	shft := int(31 - silkCLZ32(int32(length)))
+	shft := int32(31) - silkCLZ32(int32(length))
 	nrg := int32(length)
 	i := 0
 	for ; i < length-1; i += 2 {
@@ -113,7 +114,7 @@ func silkSumSqrShift(samples []int16, length int) (int32, int) {
 		nrg = int32(uint32(nrg) + (nrgTmp >> uint(shft)))
 	}
 
-	shft = max(0, shft+3-int(silkCLZ32(nrg)))
+	shft = max(int32(0), shft+3-silkCLZ32(nrg))
 
 	nrg = 0
 	i = 0

@@ -70,7 +70,7 @@ type decoderState struct {
 	// PLC glue state for smooth transitions from concealed to real frames.
 	// These fields implement silk_PLC_glue_frames from libopus PLC.c.
 	plcConcEnergy       int32 // Energy of last concealed frame (for gluing)
-	plcConcEnergyShift  int   // Shift amount for concealed energy
+	plcConcEnergyShift  int32 // opus_int conc_energy_shift in silk/structs.h
 	plcLastFrameLost    bool  // True if last frame was lost (concealed)
 	plcSkipRecoveryGlue bool  // Skip the next recovery ramp after live deep PLC
 
