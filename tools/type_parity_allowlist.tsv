@@ -1881,10 +1881,8 @@ silk/noise_shape_analysis.go	1	33ebbc042930b91897ab3601e3bb657616862ccd37a1d789b
 silk/noise_shape_analysis.go	1	52f6be2d678be9e54780e7bba2ef30abaab35fbe0ef979ffdb6a7288936490d9	legacy-current	gainMult := float32(math.Exp2(float64(-0.16 * SNRAdjDB)))
 silk/noise_shape_analysis.go	1	69c43061e09d9577200e09854c4ee13278c1c0c0353811fdbd6346c225b54c34	legacy-current	gainAdd := float32(math.Exp2(float64(0.16 * float32(minQGainDb))))
 silk/noise_shape_analysis.go	1	827ff5d9cdae7550cb1f11a86e1b45e8a8ec7efa907373299867a512674caf74	legacy-current	w := float64(warping)
-silk/noise_shape_analysis.go	1	91451f2d5282dbcc022203dc95470f36b0aa716712e76579e56d6eb8ff99fe46	legacy-current	g = float32(math.Sqrt(float64(nrg)))
 silk/noise_shape_analysis.go	1	aa10179c9d852391eb55ee5542473a12f0cf10ef94a30187923e134b7b52edfc	legacy-current	var st [maxShapeLpcOrder + 1]float64
 silk/noise_shape_analysis.go	1	b622502c4ccb80e79e985f57a3def953be28b79f43f23dc4a194c6c9922db6ab	legacy-current	tmp1 := float64(sample)
-silk/noise_shape_analysis.go	1	ede833bf769fe3023d711a51509507412f91832f12596be1e19b8d195a8e04ed	legacy-current	arShpQ13[base+i] = int16(float64ToInt32Round(float64(ar[i] * 8192.0)))
 silk/pitch_detect.go	1	00afb0dcaa624b5e2b80a9967f91b720d9f1dfe0cf445b085f638bd7e66f9b15	legacy-current	energy += float64(energySt3[idx])
 silk/pitch_detect.go	1	0689f78f307a855ae549f8813c0d8e352a8caf4b6d384c57e7251b4594cf0d3c	legacy-current	crossCorr += float64(corrSt3[idx])
 silk/pitch_detect.go	1	1e0be019a8d904df1a7c97cb731f4a89fec6c0ba94d03b9c90b6127f04cc96a0	legacy-current	var corr, energy1, energy2 float64
@@ -1916,14 +1914,8 @@ silk/pitch_residual.go	1	c4aa59393350aadf444b771ab395d7fd251fb90b4d73d591f3d2433
 silk/pitch_residual.go	2	d65c7ec73a14b4a65b4c0f88c815a8fcea17e06b6f64485c33a9c95a044e8baa	legacy-current	var C [maxShapeLpcOrder + 1][2]float64
 silk/pitch_residual.go	1	edf0073420a1cc374a1d82c23708b03c6da3c98c13a13de0dc8e7f146e84e324	legacy-current	C[k][0] = float64(autoCorr[k])
 silk/pred_coefs.go	1	022036e034e6fbf50b1a7e0aaa22cc0597e4762c2e8d5d79f0de4921d03a0c16	legacy-current	invMaxSqrVal := float32(math.Exp2(float64(powArg)) / float64(subframeSamples))
-silk/pred_coefs.go	1	1c2604a117419acc26bec2aa4c1ed02752e1809e90a86db16cf4f0a156ba0e92	legacy-current	lpcQ12[i] = float64ToInt16Round(float64(a32 * 4096.0))
 silk/pred_coefs.go	2	700216fc1e9b550b64cc3bf3a45bf41b21369fe1c5fac18ee372d1a5331a6979	legacy-current	energy *= float64(gainSq)
-silk/pred_coefs.go	1	75d27e82940ecc1427fec9bb9ae420bd6034e0707d68fdaa972275f32fd11724	legacy-current	return float64(minInvGain)
-silk/pred_coefs.go	1	9139113426776de9289e9b63e39d05d8bb5630a8169186e48de4b30699bd1ad3	legacy-current	g := float32(math.Sqrt(float64(energy)))
-silk/pred_coefs.go	1	a363a4ea96ab9113ffe322e286a02e5011362eb95cc4bb30c535b4a5ab1f5aaf	legacy-current	func computeMinInvGain(predGainQ7 int32, codingQuality float32, firstFrame bool) float64 {
-silk/pred_coefs.go	1	a6f39cbd50d400fc7b7c42f62f4eca85c78b70558cd689dd0cc791b2ec056f6e	legacy-current	func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, subframeSamples int, minInvGainVal float64) ([]int16, []int16, int) {
 silk/pred_coefs.go	1	e21da8a4e8abdcf447cfceb887c9e0994e83c61cc63441299b94a1e5870e06d6	legacy-current	minInvGain := float32(math.Exp2(float64(powArg))) / float32(maxPredictionPowerGain)
-silk/pred_coefs.go	2	f550ce50ecd12652ec0b0f1aafbf30e6e258cc9ccd5492b43745dae4434f85eb	legacy-current	lpcQ16[i] = float64ToInt32Round(float64(a32 * 65536.0))
 silk/pred_coefs.go	1	fffe5b37ef5cc366aec555c99d01a071e08033227200dac06d0244fc52f0ebf5	legacy-current	sigmoid := float32(1.0 / (1.0 + math.Exp(float64(-arg))))
 silk/resample_sinc.go	1	01f888281750876cff0d5895b56513f2ce93e7b749e6de5cb5e4dcc57010d142	legacy-current	term *= (x / (2 * float64(k))) * (x / (2 * float64(k)))
 silk/resample_sinc.go	1	10c168e0cfa1e66d7932d6214a2582c2c29a3df741be5e1017960173e412a00f	legacy-current	offset := float64(phase) / float64(r.phases)

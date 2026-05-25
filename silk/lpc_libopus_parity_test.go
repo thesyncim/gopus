@@ -476,7 +476,7 @@ func TestSILKFindLPCFLPMatchesLibopusOracle(t *testing.T) {
 			}
 			copy(enc.prevLSFQ15, tc.prevNLSF)
 
-			_, gotNLSF, gotInterp := enc.computeLPCAndNLSFWithInterp(tc.x, tc.nbSubfr, tc.subfrLength, float64(tc.minInvGain))
+			_, gotNLSF, gotInterp := enc.computeLPCAndNLSFWithInterp(tc.x, tc.nbSubfr, tc.subfrLength, tc.minInvGain)
 			if gotInterp != want[i].interpIdx {
 				t.Fatalf("interpIdx=%d want %d", gotInterp, want[i].interpIdx)
 			}

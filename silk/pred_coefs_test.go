@@ -8,19 +8,19 @@ import (
 func TestComputeMinInvGain(t *testing.T) {
 	got := computeMinInvGain(0, 1.0, true)
 	want := 1.0 / maxPredictionPowerGainAfterReset
-	if math.Abs(got-want) > 1e-9 {
+	if math.Abs(float64(got)-want) > 1e-9 {
 		t.Fatalf("first frame minInvGain: got %.9f want %.9f", got, want)
 	}
 
 	got = computeMinInvGain(0, 1.0, false)
 	want = 1.0 / maxPredictionPowerGain
-	if math.Abs(got-want) > 1e-9 {
+	if math.Abs(float64(got)-want) > 1e-9 {
 		t.Fatalf("codingQuality=1 minInvGain: got %.9f want %.9f", got, want)
 	}
 
 	got = computeMinInvGain(0, 0.0, false)
 	want = 4.0 / maxPredictionPowerGain
-	if math.Abs(got-want) > 1e-9 {
+	if math.Abs(float64(got)-want) > 1e-9 {
 		t.Fatalf("codingQuality=0 minInvGain: got %.9f want %.9f", got, want)
 	}
 }

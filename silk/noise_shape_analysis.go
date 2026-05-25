@@ -287,7 +287,7 @@ func (e *Encoder) computeShapingARAndGains(
 
 		g := float32(0)
 		if nrg > 0 {
-			g = float32(math.Sqrt(float64(nrg)))
+			g = sqrt32(nrg)
 		}
 
 		if e.warpingQ16 > 0 {
@@ -305,7 +305,7 @@ func (e *Encoder) computeShapingARAndGains(
 		base := k * maxShapeLpcOrder
 		for i := 0; i < shapeOrder; i++ {
 			// Match libopus: silk_float2int(AR[i] * 8192.0f) - multiply in float32.
-			arShpQ13[base+i] = int16(float64ToInt32Round(float64(ar[i] * 8192.0)))
+			arShpQ13[base+i] = int16(float32ToInt32RoundEven(ar[i] * 8192.0))
 		}
 		for i := shapeOrder; i < maxShapeLpcOrder; i++ {
 			arShpQ13[base+i] = 0
@@ -330,7 +330,8 @@ func (e *Encoder) computeShapingARAndGains(
 	return gains, arShpQ13
 }
 
-// warpedAutocorrelationFLP32 mirrors silk_warped_autocorrelation_FLP using float32 input/output.
+// warpedAutocorrelationFLP32 mirrors silk/float/warped_autocorrelation_FLP.c:
+// input/output are silk_float, while the local state/correlation accumulators are C double.
 func warpedAutocorrelationFLP32(out, state, in []float32, warping float32, length, order int) {
 	if order&1 != 0 {
 		order--

@@ -2,9 +2,9 @@ package silk
 
 import "math"
 
-func computeMinInvGain(predGainQ7 int32, codingQuality float32, firstFrame bool) float64 {
+func computeMinInvGain(predGainQ7 int32, codingQuality float32, firstFrame bool) float32 {
 	if firstFrame {
-		return 1.0 / maxPredictionPowerGainAfterReset
+		return float32(1.0 / maxPredictionPowerGainAfterReset)
 	}
 
 	// Match libopus find_pred_coefs_FLP.c precision:
@@ -24,7 +24,7 @@ func computeMinInvGain(predGainQ7 int32, codingQuality float32, firstFrame bool)
 	if minInvGain > 1.0 {
 		minInvGain = 1.0
 	}
-	return float64(minInvGain)
+	return minInvGain
 }
 
 func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []float32, pitchLags []int, ltpCoeffs LTPCoeffsArray, numSubframes, subframeSamples int, signalType int) []float32 {
@@ -141,7 +141,7 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 	return ltpRes
 }
 
-func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, subframeSamples int, minInvGainVal float64) ([]int16, []int16, int) {
+func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, subframeSamples int, minInvGainVal float32) ([]int16, []int16, int) {
 	order := e.lpcOrder
 	lpcQ12 := ensureInt16Slice(&e.scratchLpcQ12, order)
 	lsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
@@ -160,9 +160,7 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 		return lpcQ12, lsfQ15, 4
 	}
 
-	minInvGain32 := float32(minInvGainVal)
-
-	aFull, resNrg := e.burgModifiedFLPZeroAllocF32(ltpRes[:totalLen], minInvGain32, subfrLen, numSubframes, order)
+	aFull, resNrg := e.burgModifiedFLPZeroAllocF32(ltpRes[:totalLen], minInvGainVal, subfrLen, numSubframes, order)
 	resNrg32 := float32(resNrg)
 	fullTotalEnergy := e.lastTotalEnergy
 	fullInvGain := e.lastInvGain
@@ -170,13 +168,13 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 
 	for i := 0; i < order; i++ {
 		a32 := float32(aFull[i])
-		lpcQ12[i] = float64ToInt16Round(float64(a32 * 4096.0))
+		lpcQ12[i] = int16(float32ToInt32RoundEven(a32 * 4096.0))
 	}
 
 	lpcQ16 := ensureInt32Slice(&e.scratchLPCQ16, order)
 	for i := 0; i < order; i++ {
 		a32 := float32(aFull[i])
-		lpcQ16[i] = float64ToInt32Round(float64(a32 * 65536.0))
+		lpcQ16[i] = float32ToInt32RoundEven(a32 * 65536.0)
 	}
 	silkA2NLSFInto(lsfQ15, lpcQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
 
@@ -185,11 +183,11 @@ func (e *Encoder) computeLPCAndNLSFWithInterp(ltpRes []float32, numSubframes, su
 	if useInterp {
 		halfOffset := (maxNbSubfr / 2) * subfrLen
 		if halfOffset+subfrLen*(maxNbSubfr/2) <= totalLen {
-			aLast, resNrgLast := e.burgModifiedFLPZeroAllocF32(ltpRes[halfOffset:], minInvGain32, subfrLen, maxNbSubfr/2, order)
+			aLast, resNrgLast := e.burgModifiedFLPZeroAllocF32(ltpRes[halfOffset:], minInvGainVal, subfrLen, maxNbSubfr/2, order)
 			lsfLast := ensureInt16Slice(&e.scratchNLSFTempQ15, order)
 			for i := 0; i < order; i++ {
 				a32 := float32(aLast[i])
-				lpcQ16[i] = float64ToInt32Round(float64(a32 * 65536.0))
+				lpcQ16[i] = float32ToInt32RoundEven(a32 * 65536.0)
 			}
 			silkA2NLSFInto(lsfLast, lpcQ16, order, e.scratchA2nlsfP[:], e.scratchA2nlsfQ[:])
 
@@ -376,7 +374,7 @@ func applyGainProcessing(gains []float32, resNrg []float32, predGainQ7 int32, sn
 		if k < len(resNrg) {
 			energy += resNrg[k] * invMaxSqrVal
 		}
-		g := float32(math.Sqrt(float64(energy)))
+		g := sqrt32(energy)
 		if g > 32767.0 {
 			g = 32767.0
 		}
