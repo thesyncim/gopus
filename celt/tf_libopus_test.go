@@ -56,7 +56,7 @@ func TestTFDecodeBasic(t *testing.T) {
 		end         int
 		isTransient bool
 		lm          int
-		wantTfRes   []int
+		wantTfRes   []int32
 	}{
 		{
 			// Non-transient case: no TF changes, tfRes[i]=0 -> tfSelectTable[3][0]=0
@@ -68,7 +68,7 @@ func TestTFDecodeBasic(t *testing.T) {
 			end:         21,
 			isTransient: false,
 			lm:          3,
-			wantTfRes:   []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			wantTfRes:   []int32{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		},
 		{
 			// Transient case: tfRes[i]=0 -> tfSelectTable[3][4]=3
@@ -80,7 +80,7 @@ func TestTFDecodeBasic(t *testing.T) {
 			end:         21,
 			isTransient: true,
 			lm:          3,
-			wantTfRes:   []int{3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3},
+			wantTfRes:   []int32{3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3, 3},
 		},
 		{
 			// LM=0 case (2.5ms), non-transient
@@ -91,7 +91,7 @@ func TestTFDecodeBasic(t *testing.T) {
 			end:         13,
 			isTransient: false,
 			lm:          0,
-			wantTfRes:   []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			wantTfRes:   []int32{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		},
 	}
 
@@ -100,7 +100,7 @@ func TestTFDecodeBasic(t *testing.T) {
 			rd := &rangecoding.Decoder{}
 			rd.Init(tc.data)
 
-			tfRes := make([]int, tc.end)
+			tfRes := make([]int32, tc.end)
 			tfDecode(tc.start, tc.end, tc.isTransient, tfRes, tc.lm, rd)
 
 			for i := tc.start; i < tc.end; i++ {
@@ -119,7 +119,7 @@ func TestTFDecodeEncodeDecode(t *testing.T) {
 		start       int
 		end         int
 		isTransient bool
-		tfRes       []int
+		tfRes       []int32
 		lm          int
 	}{
 		{
@@ -127,7 +127,7 @@ func TestTFDecodeEncodeDecode(t *testing.T) {
 			start:       0,
 			end:         21,
 			isTransient: false,
-			tfRes:       []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			tfRes:       []int32{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 			lm:          3,
 		},
 		{
@@ -135,7 +135,7 @@ func TestTFDecodeEncodeDecode(t *testing.T) {
 			start:       0,
 			end:         21,
 			isTransient: false,
-			tfRes:       []int{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+			tfRes:       []int32{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 			lm:          3,
 		},
 		{
@@ -143,7 +143,7 @@ func TestTFDecodeEncodeDecode(t *testing.T) {
 			start:       0,
 			end:         21,
 			isTransient: false,
-			tfRes:       []int{0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0},
+			tfRes:       []int32{0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0},
 			lm:          3,
 		},
 		{
@@ -151,7 +151,7 @@ func TestTFDecodeEncodeDecode(t *testing.T) {
 			start:       0,
 			end:         21,
 			isTransient: true,
-			tfRes:       []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			tfRes:       []int32{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 			lm:          3,
 		},
 		{
@@ -159,7 +159,7 @@ func TestTFDecodeEncodeDecode(t *testing.T) {
 			start:       0,
 			end:         21,
 			isTransient: true,
-			tfRes:       []int{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
+			tfRes:       []int32{1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
 			lm:          3,
 		},
 	}
@@ -172,7 +172,7 @@ func TestTFDecodeEncodeDecode(t *testing.T) {
 			enc.Init(encBuf)
 
 			// Make a copy of tfRes for encoding
-			tfResEnc := make([]int, len(tc.tfRes))
+			tfResEnc := make([]int32, len(tc.tfRes))
 			copy(tfResEnc, tc.tfRes)
 
 			tfEncode(enc, tc.start, tc.end, tc.isTransient, tfResEnc, tc.lm)
@@ -182,7 +182,7 @@ func TestTFDecodeEncodeDecode(t *testing.T) {
 			rd := &rangecoding.Decoder{}
 			rd.Init(encoded)
 
-			tfResDecoded := make([]int, tc.end)
+			tfResDecoded := make([]int32, tc.end)
 			tfDecode(tc.start, tc.end, tc.isTransient, tfResDecoded, tc.lm, rd)
 
 			// After decoding, tfRes contains the final TF change values from the table.
@@ -220,11 +220,11 @@ func TestTFDecodeIndexing(t *testing.T) {
 					}
 
 					// Verify the lookup produces valid TF change value
-					tfChange := int(tfSelectTable[lm][idx])
+					tfChange := int32(tfSelectTable[lm][idx])
 
 					// Valid TF change values based on table inspection
 					valid := false
-					for _, v := range []int{-3, -2, -1, 0, 1, 2, 3} {
+					for _, v := range []int32{-3, -2, -1, 0, 1, 2, 3} {
 						if tfChange == v {
 							valid = true
 							break
@@ -248,7 +248,7 @@ func TestTFDecodeBudgetHandling(t *testing.T) {
 
 	// Try to decode 21 bands with very limited budget
 	// The decoder should handle this gracefully by not reading beyond budget
-	tfRes := make([]int, 21)
+	tfRes := make([]int32, 21)
 	tfDecode(0, 21, false, tfRes, 3, rd)
 
 	// Verify no panic and reasonable output
@@ -284,7 +284,7 @@ func TestTFDecodeTfSelectRsv(t *testing.T) {
 
 			// tfSelectRsv is internal, but we can verify behavior through the output
 			// For now, just ensure no panic
-			tfRes := make([]int, 5)
+			tfRes := make([]int32, 5)
 			tfDecode(0, 5, false, tfRes, tc.lm, rd)
 
 			// Verify reasonable output
@@ -299,7 +299,7 @@ func TestTFDecodeTfSelectRsv(t *testing.T) {
 
 // TestTFDecodeNilDecoder ensures tfDecode handles nil decoder gracefully.
 func TestTFDecodeNilDecoder(t *testing.T) {
-	tfRes := make([]int, 21)
+	tfRes := make([]int32, 21)
 	for i := range tfRes {
 		tfRes[i] = 99 // sentinel value
 	}
@@ -330,7 +330,7 @@ func TestTFDecodeLogpTransition(t *testing.T) {
 		rd := &rangecoding.Decoder{}
 		rd.Init(data)
 
-		tfRes := make([]int, 5)
+		tfRes := make([]int32, 5)
 		tfDecode(0, 5, true, tfRes, 3, rd)
 
 		// Should decode without error
@@ -347,7 +347,7 @@ func TestTFDecodeLogpTransition(t *testing.T) {
 		rd := &rangecoding.Decoder{}
 		rd.Init(data)
 
-		tfRes := make([]int, 5)
+		tfRes := make([]int32, 5)
 		tfDecode(0, 5, false, tfRes, 3, rd)
 
 		// Should decode without error
@@ -372,7 +372,7 @@ func TestTFDecodeTfChangedOrLogic(t *testing.T) {
 		rd := &rangecoding.Decoder{}
 		rd.Init(data)
 
-		tfRes := make([]int, 21)
+		tfRes := make([]int32, 21)
 		tfDecode(0, 21, false, tfRes, 3, rd)
 
 		// With all zeros input and tf_changed=0, all outputs should be 0
@@ -398,7 +398,7 @@ func BenchmarkTFDecode(b *testing.B) {
 		rd := &rangecoding.Decoder{}
 		rd.Init(data)
 
-		tfRes := make([]int, 21)
+		tfRes := make([]int32, 21)
 		tfDecode(0, 21, false, tfRes, 3, rd)
 	}
 }
@@ -431,7 +431,7 @@ func TestTFDecodeRealPacket(t *testing.T) {
 
 	lm := 3   // 20ms frame
 	end := 21 // full band range
-	tfRes := make([]int, end)
+	tfRes := make([]int32, end)
 
 	// Try transient mode
 	tfDecode(0, end, true, tfRes, lm, rd)
@@ -443,7 +443,7 @@ func TestTFDecodeRealPacket(t *testing.T) {
 
 	// Reset and try non-transient mode
 	rd.Init(frameData)
-	tfRes = make([]int, end)
+	tfRes = make([]int32, end)
 	tfDecode(0, end, false, tfRes, lm, rd)
 	for i := 0; i < end; i++ {
 		if tfRes[i] < -3 || tfRes[i] > 3 {
@@ -465,12 +465,12 @@ func TestTFDecodeAllLMValues(t *testing.T) {
 			rd.Init(data)
 
 			end := effectiveBandsForLM(lm)
-			var tfRes []int
+			var tfRes []int32
 
 			// Test both transient and non-transient
 			for _, transient := range []bool{false, true} {
 				rd.Init(data)
-				tfRes = make([]int, end)
+				tfRes = make([]int32, end)
 				tfDecode(0, end, transient, tfRes, lm, rd)
 
 				// Verify all values are valid
@@ -496,7 +496,7 @@ func TestTFDecodeStartEnd(t *testing.T) {
 	rd := &rangecoding.Decoder{}
 	rd.Init(data)
 
-	tfRes := make([]int, 21)
+	tfRes := make([]int32, 21)
 	// Initialize with sentinel values
 	for i := range tfRes {
 		tfRes[i] = 99
@@ -647,28 +647,28 @@ func TestTFEncodeWithSelectRoundTrip(t *testing.T) {
 		name        string
 		lm          int
 		isTransient bool
-		tfRes       []int // Pre-table-lookup values (0 or 1)
+		tfRes       []int32 // Pre-table-lookup values (0 or 1)
 		tfSelect    int
 	}{
 		{
 			name:        "all_zeros_lm3",
 			lm:          3,
 			isTransient: false,
-			tfRes:       []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			tfRes:       []int32{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 			tfSelect:    0,
 		},
 		{
 			name:        "all_zeros_lm3_transient",
 			lm:          3,
 			isTransient: true,
-			tfRes:       []int{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+			tfRes:       []int32{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 			tfSelect:    0,
 		},
 		{
 			name:        "mixed_lm2",
 			lm:          2,
 			isTransient: false,
-			tfRes:       []int{0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0},
+			tfRes:       []int32{0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0},
 			tfSelect:    0,
 		},
 	}
@@ -681,13 +681,14 @@ func TestTFEncodeWithSelectRoundTrip(t *testing.T) {
 			enc.Init(buf)
 
 			// Make a copy of tfRes since TFEncodeWithSelect modifies it
-			tfResCopy := make([]int, len(tc.tfRes))
+			tfResCopy := make([]int32, len(tc.tfRes))
 			copy(tfResCopy, tc.tfRes)
 
 			// Encode
 			start := 0
 			end := 21
-			TFEncodeWithSelect(enc, start, end, tc.isTransient, tfResCopy, tc.lm, tc.tfSelect)
+			tfRes32 := tfResCopy
+			TFEncodeWithSelect(enc, start, end, tc.isTransient, tfRes32, tc.lm, tc.tfSelect)
 
 			// Finalize and decode
 			encoded := enc.Done()
@@ -695,13 +696,13 @@ func TestTFEncodeWithSelectRoundTrip(t *testing.T) {
 			dec := &rangecoding.Decoder{}
 			dec.Init(encoded)
 
-			decodedTfRes := make([]int, 21)
+			decodedTfRes := make([]int32, 21)
 			tfDecode(start, end, tc.isTransient, decodedTfRes, tc.lm, dec)
 
 			// The decoded tfRes should match the encoded tfRes (both have table lookup applied)
 			for i := 0; i < end; i++ {
-				if decodedTfRes[i] != tfResCopy[i] {
-					t.Errorf("band %d: decoded tfRes=%d, encoded tfRes=%d", i, decodedTfRes[i], tfResCopy[i])
+				if decodedTfRes[i] != tfRes32[i] {
+					t.Errorf("band %d: decoded tfRes=%d, encoded tfRes=%d", i, decodedTfRes[i], tfRes32[i])
 				}
 			}
 		})

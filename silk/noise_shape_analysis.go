@@ -10,7 +10,7 @@ func (e *Encoder) noiseShapeAnalysis(
 	signalType int,
 	speechActivityQ8 int,
 	lpcPredGain float32,
-	pitchLags []int,
+	pitchLags []int32,
 	quantOffset int,
 	numSubframes int,
 	subframeSamples int,

@@ -1652,7 +1652,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 	// for hybrid mode (!hybrid flag). Instead, use fixed TF patterns based on
 	// transient detection and signal type.
 	// Reference: libopus celt_encoder.c lines 2261-2279.
-	var tfRes []int
+	var tfRes []int32
 	tfRes = e.celtEncoder.TFResScratch(nbBands)
 	tfSelect := celt.FillHybridTFResolution(tfRes, end, transient, weakTransient, allowWeakTransients)
 	// Match libopus pre-coarse stabilization before intra/coarse energy coding.
@@ -1728,9 +1728,9 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
 		j := 0
-		for ; tellFracDynalloc+(dynallocLoopLogp<<celt.BitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < caps[i]; j++ {
+		for ; tellFracDynalloc+(dynallocLoopLogp<<celt.BitRes) < totalBitsQ3ForDynalloc-totalBoost && boost < int(caps[i]); j++ {
 			flag := 0
-			if j < offsets[i] {
+			if j < int(offsets[i]) {
 				flag = 1
 			}
 			re.EncodeBit(flag, uint(dynallocLoopLogp))
@@ -1745,7 +1745,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 		if j > 0 && dynallocLogp > 2 {
 			dynallocLogp--
 		}
-		offsets[i] = boost
+		offsets[i] = int32(boost)
 	}
 
 	allocTrim := 5

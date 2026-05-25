@@ -9,8 +9,8 @@ type decoderQEXTState struct {
 	scratchEnergies  []celtGLog
 	scratchDecode    preparedQEXTDecode
 	scratchBands     bandDecodeScratch
-	scratchPulses    []int
-	scratchFineQuant []int
+	scratchPulses    []int32
+	scratchFineQuant []int32
 
 	rangeDecoderScratch rangecoding.Decoder
 }

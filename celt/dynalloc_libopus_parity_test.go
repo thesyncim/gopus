@@ -41,7 +41,7 @@ type libopusCELTDynallocResult struct {
 	totBoost     int
 	offsets      [MaxBands]int
 	importance   [MaxBands]int
-	spreadWeight [MaxBands]int
+	spreadWeight [MaxBands]int32
 }
 
 func getLibopusCELTDynallocHelperPath() (string, error) {
@@ -104,7 +104,7 @@ func probeLibopusCELTDynalloc(cases []libopusCELTDynallocCase) ([]libopusCELTDyn
 			out[i].importance[band] = int(reader.I32())
 		}
 		for band := range out[i].spreadWeight {
-			out[i].spreadWeight[band] = int(reader.I32())
+			out[i].spreadWeight[band] = reader.I32()
 		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {
@@ -195,10 +195,10 @@ func assertDynallocResultMatches(t *testing.T, got DynallocResult, want libopusC
 		t.Fatalf("totBoost=%d want %d", got.TotBoost, want.totBoost)
 	}
 	for band := 0; band < MaxBands; band++ {
-		if got.Offsets[band] != want.offsets[band] {
+		if got.Offsets[band] != int32(want.offsets[band]) {
 			t.Fatalf("offsets[%d]=%d want %d", band, got.Offsets[band], want.offsets[band])
 		}
-		if got.Importance[band] != want.importance[band] {
+		if got.Importance[band] != int32(want.importance[band]) {
 			t.Fatalf("importance[%d]=%d want %d", band, got.Importance[band], want.importance[band])
 		}
 		if got.SpreadWeight[band] != want.spreadWeight[band] {

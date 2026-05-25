@@ -240,7 +240,7 @@ func (s *SILKPLCState) Reset(frameLength int) {
 // This mirrors silk_PLC_update from libopus.
 func (s *SILKPLCState) UpdateFromGoodFrame(
 	signalType int, // 0=inactive, 1=unvoiced, 2=voiced
-	pitchL []int, // Pitch lags for each subframe
+	pitchL []int32, // Pitch lags for each subframe
 	ltpCoefQ14 []int16, // LTP coefficients for all subframes (nbSubfr * ltpOrder)
 	ltpScaleQ14 int32, // LTP scale factor
 	gainsQ16 []int32, // Gains for each subframe (Q16)
@@ -268,7 +268,7 @@ func (s *SILKPLCState) UpdateFromGoodFrame(
 		var ltpGainQ14 int32
 		var tempLtpGainQ14 int32
 
-		for j := 0; j*subfrLength < pitchL[nbSubfr-1] && j < nbSubfr; j++ {
+		for j := 0; j*subfrLength < int(pitchL[nbSubfr-1]) && j < nbSubfr; j++ {
 			tempLtpGainQ14 = 0
 			subfrIdx := nbSubfr - 1 - j
 
@@ -286,7 +286,7 @@ func (s *SILKPLCState) UpdateFromGoodFrame(
 				}
 
 				// Save pitch lag in Q8
-				s.PitchLQ8 = int32(pitchL[subfrIdx]) << 8
+				s.PitchLQ8 = pitchL[subfrIdx] << 8
 			}
 		}
 

@@ -317,7 +317,7 @@ func (d *Decoder) decodeFECLostFrameInto(channel int, st *decoderState, frameOut
 			concealed[i] = float32(concealedQ0[i]) * scale
 		}
 		if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
-			st.lagPrev = lag
+			st.lagPrev = int32(lag)
 		}
 	} else {
 		plcOut := plc.ConcealSILK(d, frameLength, fadeFactor)

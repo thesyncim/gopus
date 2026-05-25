@@ -985,10 +985,10 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 		}
 	}
 	if hookLagPrev > 0 {
-		d.state[0].lagPrev = hookLagPrev
+		d.state[0].lagPrev = int32(hookLagPrev)
 	} else if state := d.ensureSILKPLCState(0); state != nil {
 		if lag := int((state.PitchLQ8 + 128) >> 8); lag > 0 {
-			d.state[0].lagPrev = lag
+			d.state[0].lagPrev = int32(lag)
 		}
 	}
 
@@ -1166,9 +1166,9 @@ func (d *Decoder) ApplyDeepPLCLossMono(concealed, rendered []float32, lagPrev in
 	d.recordPLCLossForState(st, tmp)
 	switch {
 	case plcLagPrev > 0:
-		st.lagPrev = plcLagPrev
+		st.lagPrev = int32(plcLagPrev)
 	case lagPrev > 0:
-		st.lagPrev = lagPrev
+		st.lagPrev = int32(lagPrev)
 	}
 	st.lastGainIndex = 10
 	d.applyDeepPLCHistoryMono(st, concealed)
@@ -1271,9 +1271,9 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 		}
 	}
 	if usedDeepPLCHook && hookLagPrev > 0 {
-		d.state[0].lagPrev = hookLagPrev
+		d.state[0].lagPrev = int32(hookLagPrev)
 	} else if !usedDeepPLCHook && hookLagPrev > 0 {
-		d.state[0].lagPrev = hookLagPrev
+		d.state[0].lagPrev = int32(hookLagPrev)
 	}
 	if hasSide && sideState != nil && sideView != nil && d.state[1].nbSubfr > 0 {
 		sideQ0 := plc.ConcealSILKWithLTP(sideView, sideState, lossCnt, nativeSamples)
@@ -1282,7 +1282,7 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 			side[i] = float32(sideQ0[i]) * scale
 		}
 		if lag := int((sideState.PitchLQ8 + 128) >> 8); lag > 0 {
-			d.state[1].lagPrev = lag
+			d.state[1].lagPrev = int32(lag)
 		}
 	}
 

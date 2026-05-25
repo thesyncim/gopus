@@ -27,7 +27,7 @@ func computeMinInvGain(predGainQ7 int32, codingQuality float32, firstFrame bool)
 	return minInvGain
 }
 
-func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []float32, pitchLags []int, ltpCoeffs LTPCoeffsArray, numSubframes, subframeSamples int, signalType int) []float32 {
+func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []float32, pitchLags []int32, ltpCoeffs LTPCoeffsArray, numSubframes, subframeSamples int, signalType int) []float32 {
 	preLen := e.lpcOrder
 	outLen := numSubframes * (subframeSamples + preLen)
 	ltpRes := ensureFloat32Slice(&e.scratchLtpResF32, outLen)
@@ -51,7 +51,7 @@ func (e *Encoder) buildLTPResidual(pitchBuf []float32, frameStart int, gains []f
 		}
 		loopLen := subframeSamples + preLen
 		if signalType == typeVoiced && k < len(pitchLags) {
-			pitchLag := pitchLags[k]
+			pitchLag := int(pitchLags[k])
 			// Pre-compute LTP coefficients (invariant across samples in this subframe).
 			var b0, b1, b2, b3, b4 float32
 			b0 = float32(ltpCoeffs[k][0]) / 128.0

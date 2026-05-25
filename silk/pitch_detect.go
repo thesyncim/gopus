@@ -104,7 +104,7 @@ var pitchCBLagsStage310msSlice = [][]int8{
 
 // PitchAnalysisState holds state for pitch analysis across frames
 type PitchAnalysisState struct {
-	prevLag int     // Previous frame's pitch lag
+	prevLag int32   // Previous frame's pitch lag (libopus int domain)
 	ltpCorr float32 // LTP correlation from previous frame (silk_float in libopus)
 }
 
@@ -123,7 +123,7 @@ type pitchEncodeParams struct {
 // Stage 1: Coarse search at 4kHz with normalized autocorrelation
 // Stage 2: Refined search at 8kHz with contour codebook
 // Stage 3: Fine search at full rate with interpolation
-func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, searchThres2 float32) ([]int, int, int) {
+func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, searchThres2 float32) ([]int32, int, int) {
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 
@@ -319,9 +319,9 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		lengthDSrch = peDSrchLength
 	}
 
-	dSrch := ensureIntSlice(&e.scratchDSrch, peDSrchLength)
+	dSrch := ensureInt32Slice(&e.scratchDSrch, peDSrchLength)
 	for i := 0; i < lengthDSrch; i++ {
-		dSrch[i] = i
+		dSrch[i] = int32(i)
 	}
 	if minLag4kHz < 0 {
 		minLag4kHz = 0
@@ -346,7 +346,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			j--
 		}
 		cSlice[j+1] = value
-		dSrch[j+1] = i
+		dSrch[j+1] = int32(i)
 	}
 	for i := lengthDSrch; i < len(cSlice); i++ {
 		value := cSlice[i]
@@ -358,7 +358,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 				j--
 			}
 			cSlice[j+1] = value
-			dSrch[j+1] = i
+			dSrch[j+1] = int32(i)
 		}
 	}
 
@@ -366,7 +366,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	Cmax := cSlice[0]
 	if Cmax < 0.2 {
 		// Unvoiced - libopus returns zero lags in this case.
-		pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
+		pitchLags := ensureInt32Slice(&e.scratchPitchLags, numSubframes)
 		for i := range pitchLags {
 			pitchLags[i] = 0
 		}
@@ -392,8 +392,8 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			lengthDSrch = i
 			break
 		}
-		d := (dSrch[i] + minLag4kHz) * 2
-		dSrch[i] = d
+		d := (int(dSrch[i]) + minLag4kHz) * 2
+		dSrch[i] = int32(d)
 		if d >= minLag8kHz && d <= maxLag8kHz {
 			dComp[d] = 1
 		}
@@ -411,7 +411,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	for i := minLag8kHz; i <= maxLag8kHz; i++ {
 		if i+1 < len(dComp) && dComp[i+1] > 0 {
 			if lengthDSrch < len(dSrch) {
-				dSrch[lengthDSrch] = i
+				dSrch[lengthDSrch] = int32(i)
 				lengthDSrch++
 			}
 		}
@@ -469,7 +469,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	lag := -1
 
 	// Previous lag handling
-	prevLag := e.pitchState.prevLag
+	prevLag := int(e.pitchState.prevLag)
 	var prevLagLog2 float32
 	if prevLag > 0 {
 		prevLag8k := prevLag
@@ -505,7 +505,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 
 	var ccBuf [peNbCbksStage2Ext]float32
 	for k := 0; k < lengthDSrch; k++ {
-		d := dSrch[k]
+		d := int(dSrch[k])
 
 		cc := ccBuf[:nbCbkSearch]
 		for j := 0; j < nbCbkSearch; j++ {
@@ -550,7 +550,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	}
 
 	if lag == -1 {
-		pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
+		pitchLags := ensureInt32Slice(&e.scratchPitchLags, numSubframes)
 		for i := range pitchLags {
 			pitchLags[i] = 0
 		}
@@ -564,7 +564,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		e.pitchState.ltpCorr = CCmaxStage2 / float32(numSubframes)
 	}
 	// Stage 3: Fine search at full rate (if not 8kHz) - use scratch buffer
-	pitchLags := ensureIntSlice(&e.scratchPitchLags, numSubframes)
+	pitchLags := ensureInt32Slice(&e.scratchPitchLags, numSubframes)
 
 	if fsKHz > 8 {
 		if fsKHz == 12 {
@@ -653,13 +653,14 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		}
 		for k := 0; k < numSubframes; k++ {
 			cbOffset := lagCBStage3[k][CBimax]
-			pitchLags[k] = lagNew + int(cbOffset)
-			if pitchLags[k] < minLag {
-				pitchLags[k] = minLag
+			pitchLag := lagNew + int(cbOffset)
+			if pitchLag < minLag {
+				pitchLag = minLag
 			}
-			if pitchLags[k] > maxPitchLag {
-				pitchLags[k] = maxPitchLag
+			if pitchLag > maxPitchLag {
+				pitchLag = maxPitchLag
 			}
+			pitchLags[k] = int32(pitchLag)
 		}
 		lag = lagNew
 	} else {
@@ -671,14 +672,15 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			} else if lagCBPtr10ms != nil && k < 2 && CBimax < cbkSize {
 				cbOffset = lagCBPtr10ms[k][CBimax]
 			}
-			pitchLags[k] = lag + int(cbOffset)
+			pitchLag := lag + int(cbOffset)
 
-			if pitchLags[k] < minLag8kHz {
-				pitchLags[k] = minLag8kHz
+			if pitchLag < minLag8kHz {
+				pitchLag = minLag8kHz
 			}
-			if pitchLags[k] > maxPitchLag8kHz {
-				pitchLags[k] = maxPitchLag8kHz
+			if pitchLag > maxPitchLag8kHz {
+				pitchLag = maxPitchLag8kHz
 			}
+			pitchLags[k] = int32(pitchLag)
 		}
 	}
 
@@ -947,7 +949,7 @@ func pitchAnalysisCalcEnergySt3(out []float32, frame []float32, startLag, sfLeng
 	}
 }
 
-func (e *Encoder) preparePitchLags(pitchLags []int, numSubframes, lagIndex, contourIndex int) pitchEncodeParams {
+func (e *Encoder) preparePitchLags(pitchLags []int32, numSubframes, lagIndex, contourIndex int) pitchEncodeParams {
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 
@@ -1052,7 +1054,7 @@ func (e *Encoder) encodePitchLagsWithParams(params pitchEncodeParams, condCoding
 
 // findBestPitchContour finds the contour that best matches the pitch lag pattern.
 // Returns contour index and base lag.
-func findBestPitchContour(pitchLags []int, numSubframes int, minLag, maxLag int, contours [][]int8, cbkSize int) (int, int) {
+func findBestPitchContour(pitchLags []int32, numSubframes int, minLag, maxLag int, contours [][]int8, cbkSize int) (int, int) {
 	bestContour := 0
 	bestBase := minLag
 	bestDist := math.MaxInt32
@@ -1060,7 +1062,7 @@ func findBestPitchContour(pitchLags []int, numSubframes int, minLag, maxLag int,
 	for cIdx := 0; cIdx < cbkSize; cIdx++ {
 		var sumLag int
 		for sf := 0; sf < numSubframes && sf < len(pitchLags); sf++ {
-			sumLag += pitchLags[sf] - int(contours[sf][cIdx])
+			sumLag += int(pitchLags[sf]) - int(contours[sf][cIdx])
 		}
 		baseLag := sumLag / numSubframes
 		if baseLag < minLag {
@@ -1073,7 +1075,7 @@ func findBestPitchContour(pitchLags []int, numSubframes int, minLag, maxLag int,
 		var dist int
 		for sf := 0; sf < numSubframes && sf < len(pitchLags); sf++ {
 			predicted := baseLag + int(contours[sf][cIdx])
-			diff := pitchLags[sf] - predicted
+			diff := int(pitchLags[sf]) - predicted
 			dist += diff * diff
 		}
 		if dist < bestDist {

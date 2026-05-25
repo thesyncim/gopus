@@ -32,7 +32,7 @@ func (e *Encoder) lbrrEncode(
 	lpcQ12 []int16,
 	predCoefQ12 []int16,
 	interpIdx int,
-	pitchLags []int,
+	pitchLags []int32,
 	ltpCoeffs LTPCoeffsArray,
 	ltpScaleIndex int,
 	noiseParams *NoiseShapeParams,

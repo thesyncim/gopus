@@ -5,6 +5,13 @@ import (
 	"github.com/thesyncim/gopus/util"
 )
 
+func minInt32(a, b int32) int32 {
+	if a < b {
+		return a
+	}
+	return b
+}
+
 // ComputeImportance computes per-band importance weights for TF analysis.
 // Importance weights affect how much each band's TF decision matters in the Viterbi search.
 //
@@ -28,8 +35,8 @@ import (
 // Returns: per-band importance weights (13 = neutral, higher = more important)
 //
 // Reference: libopus celt/celt_encoder.c dynalloc_analysis() importance calculation
-func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsbDepth, effectiveBytes int) []int {
-	importance := make([]int, nbBands)
+func ComputeImportance(bandLogE, oldBandE []celtGLog, nbBands, channels, lm, lsbDepth, effectiveBytes int) []int32 {
+	importance := make([]int32, nbBands)
 
 	// Default importance when analysis is disabled (low bitrate or complexity)
 	// libopus: if (effectiveBytes < (30 + 5*LM)) importance[i] = 13
@@ -257,8 +264,8 @@ func haar1Norm(x []celtNorm, n0, stride int) {
 //   - tfSelect: TF select flag for bitstream
 //
 // Reference: libopus celt/celt_encoder.c tf_analysis()
-func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEstimate opusVal16, effectiveBytes int, importance []int) (tfRes []int, tfSelect int) {
-	tfRes = make([]int, nbEBands)
+func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEstimate opusVal16, effectiveBytes int, importance []int32) (tfRes []int32, tfSelect int) {
+	tfRes = make([]int32, nbEBands)
 
 	// Note: Unlike earlier versions, we do NOT skip TF analysis for LM=0.
 	// libopus runs tf_analysis for all LM values when enable_tf_analysis is true.
@@ -267,9 +274,9 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 
 	// Compute lambda (transition cost) based on available bits
 	// Higher lambda = more expensive to change TF resolution between bands
-	lambda := 80
+	lambda := int32(80)
 	if effectiveBytes > 0 {
-		lambda = max(80, 20480/effectiveBytes+2)
+		lambda = int32(max(80, 20480/effectiveBytes+2))
 	}
 
 	// Compute bias: slightly prefer frequency resolution when uncertain
@@ -278,7 +285,7 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 	bias := float32(tfAnalysisBias(tfEstimate))
 
 	// Compute per-band metric
-	metric := make([]int, nbEBands)
+	metric := make([]int32, nbEBands)
 	tmp := make([]celtNorm, 0, (EBands[nbEBands]-EBands[nbEBands-1])<<lm)
 
 	for i := 0; i < nbEBands; i++ {
@@ -345,13 +352,12 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 
 		// Convert to metric in Q1 format
 		if isTransient {
-			metric[i] = 2 * bestLevel
+			metric[i] = int32(2 * bestLevel)
 		} else {
-			metric[i] = -2 * bestLevel
+			metric[i] = int32(-2 * bestLevel)
 		}
 
-		// For narrow bands, set metric to half-way point to avoid biasing
-		if narrow && (metric[i] == 0 || metric[i] == -2*lm) {
+		if narrow && (metric[i] == 0 || metric[i] == int32(-2*lm)) {
 			metric[i]--
 		}
 	}
@@ -359,35 +365,35 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 	// Search for optimal tf resolution using Viterbi algorithm
 	// First, determine tf_select by comparing costs for both options
 	tfSelect = 0
-	selcost := [2]int{}
+	selcost := [2]int32{}
 
 	for sel := 0; sel < 2; sel++ {
-		imp0 := 13
+		imp0 := int32(13)
 		if importance != nil && len(importance) > 0 {
 			imp0 = importance[0]
 		}
 		isTransientInt := boolToInt(isTransient)
 
-		cost0 := imp0 * util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
+		cost0 := imp0 * util.Abs(metric[0]-2*int32(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
 		lambdaInit := lambda
 		if isTransient {
 			lambdaInit = 0
 		}
-		cost1 := imp0*util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1])) + lambdaInit
+		cost1 := imp0*util.Abs(metric[0]-2*int32(tfSelectTable[lm][4*isTransientInt+2*sel+1])) + lambdaInit
 
 		for i := 1; i < nbEBands; i++ {
-			imp := 13
+			imp := int32(13)
 			if importance != nil && i < len(importance) {
 				imp = importance[i]
 			}
 
-			curr0 := min(cost0, cost1+lambda)
-			curr1 := min(cost0+lambda, cost1)
-			cost0 = curr0 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
-			cost1 = curr1 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1]))
+			curr0 := minInt32(cost0, cost1+lambda)
+			curr1 := minInt32(cost0+lambda, cost1)
+			cost0 = curr0 + imp*util.Abs(metric[i]-2*int32(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
+			cost1 = curr1 + imp*util.Abs(metric[i]-2*int32(tfSelectTable[lm][4*isTransientInt+2*sel+1]))
 		}
 
-		selcost[sel] = min(cost0, cost1)
+		selcost[sel] = minInt32(cost0, cost1)
 	}
 
 	// Only allow tf_select=1 for transients (conservative approach per libopus)
@@ -397,23 +403,23 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 
 	// Viterbi forward pass with selected tf_select
 	isTransientInt := boolToInt(isTransient)
-	path0 := make([]int, nbEBands)
-	path1 := make([]int, nbEBands)
+	path0 := make([]int32, nbEBands)
+	path1 := make([]int32, nbEBands)
 
-	imp0 := 13
+	imp0 := int32(13)
 	if importance != nil && len(importance) > 0 {
 		imp0 = importance[0]
 	}
 
-	cost0 := imp0 * util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
+	cost0 := imp0 * util.Abs(metric[0]-2*int32(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
 	lambdaInit := lambda
 	if isTransient {
 		lambdaInit = 0
 	}
-	cost1 := imp0*util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1])) + lambdaInit
+	cost1 := imp0*util.Abs(metric[0]-2*int32(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1])) + lambdaInit
 
 	for i := 1; i < nbEBands; i++ {
-		imp := 13
+		imp := int32(13)
 		if importance != nil && i < len(importance) {
 			imp = importance[i]
 		}
@@ -421,7 +427,7 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 		// Path for state 0
 		from0 := cost0
 		from1 := cost1 + lambda
-		var curr0 int
+		var curr0 int32
 		if from0 < from1 {
 			curr0 = from0
 			path0[i] = 0
@@ -433,7 +439,7 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 		// Path for state 1
 		from0 = cost0 + lambda
 		from1 = cost1
-		var curr1 int
+		var curr1 int32
 		if from0 < from1 {
 			curr1 = from0
 			path1[i] = 0
@@ -442,8 +448,8 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 			path1[i] = 1
 		}
 
-		cost0 = curr0 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
-		cost1 = curr1 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1]))
+		cost0 = curr0 + imp*util.Abs(metric[i]-2*int32(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
+		cost1 = curr1 + imp*util.Abs(metric[i]-2*int32(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1]))
 	}
 
 	// Determine final state
@@ -467,18 +473,18 @@ func TFAnalysis(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEsti
 
 // TFAnalysisScratch holds pre-allocated buffers for TF analysis.
 type TFAnalysisScratch struct {
-	Metric []int      // Per-band metric (size: nbEBands)
+	Metric []int32    // Per-band metric (size: nbEBands)
 	Tmp    []celtNorm // Band coefficients working buffer
 	Tmp1   []celtNorm // Copy for transient analysis
-	Path0  []int      // Viterbi path state 0
-	Path1  []int      // Viterbi path state 1
-	TfRes  []int      // Output buffer
+	Path0  []int32    // Viterbi path state 0
+	Path1  []int32    // Viterbi path state 1
+	TfRes  []int32    // Output buffer
 }
 
 // EnsureTFAnalysisScratch ensures scratch buffers are large enough.
 func (s *TFAnalysisScratch) EnsureTFAnalysisScratch(nbEBands, maxBandWidth int) {
 	if cap(s.Metric) < nbEBands {
-		s.Metric = make([]int, nbEBands)
+		s.Metric = make([]int32, nbEBands)
 	} else {
 		s.Metric = s.Metric[:nbEBands]
 	}
@@ -493,24 +499,24 @@ func (s *TFAnalysisScratch) EnsureTFAnalysisScratch(nbEBands, maxBandWidth int) 
 		s.Tmp1 = s.Tmp1[:maxBandWidth]
 	}
 	if cap(s.Path0) < nbEBands {
-		s.Path0 = make([]int, nbEBands)
+		s.Path0 = make([]int32, nbEBands)
 	} else {
 		s.Path0 = s.Path0[:nbEBands]
 	}
 	if cap(s.Path1) < nbEBands {
-		s.Path1 = make([]int, nbEBands)
+		s.Path1 = make([]int32, nbEBands)
 	} else {
 		s.Path1 = s.Path1[:nbEBands]
 	}
 	if cap(s.TfRes) < nbEBands {
-		s.TfRes = make([]int, nbEBands)
+		s.TfRes = make([]int32, nbEBands)
 	} else {
 		s.TfRes = s.TfRes[:nbEBands]
 	}
 }
 
 // TFAnalysisWithScratch is the zero-allocation version of TFAnalysis.
-func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEstimate opusVal16, effectiveBytes int, importance []int, scratch *TFAnalysisScratch) (tfRes []int, tfSelect int) {
+func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm int, tfEstimate opusVal16, effectiveBytes int, importance []int32, scratch *TFAnalysisScratch) (tfRes []int32, tfSelect int) {
 	if scratch == nil {
 		return TFAnalysis(X, N0, nbEBands, isTransient, lm, tfEstimate, effectiveBytes, importance)
 	}
@@ -531,9 +537,9 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 	}
 
 	// Compute lambda
-	lambda := 80
+	lambda := int32(80)
 	if effectiveBytes > 0 {
-		lambda = max(80, 20480/effectiveBytes+2)
+		lambda = int32(max(80, 20480/effectiveBytes+2))
 	}
 
 	// Keep TF metric arithmetic in float32 to mirror libopus float path.
@@ -597,47 +603,47 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 		}
 
 		if isTransient {
-			metric[i] = 2 * bestLevel
+			metric[i] = int32(2 * bestLevel)
 		} else {
-			metric[i] = -2 * bestLevel
+			metric[i] = int32(-2 * bestLevel)
 		}
 
-		if narrow && (metric[i] == 0 || metric[i] == -2*lm) {
+		if narrow && (metric[i] == 0 || metric[i] == int32(-2*lm)) {
 			metric[i]--
 		}
 	}
 
 	// Search for optimal tf resolution using Viterbi
 	tfSelect = 0
-	selcost := [2]int{}
+	selcost := [2]int32{}
 
 	for sel := 0; sel < 2; sel++ {
-		imp0 := 13
+		imp0 := int32(13)
 		if importance != nil && len(importance) > 0 {
 			imp0 = importance[0]
 		}
 		isTransientInt := boolToInt(isTransient)
 
-		cost0 := imp0 * util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
+		cost0 := imp0 * util.Abs(metric[0]-2*int32(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
 		lambdaInit := lambda
 		if isTransient {
 			lambdaInit = 0
 		}
-		cost1 := imp0*util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1])) + lambdaInit
+		cost1 := imp0*util.Abs(metric[0]-2*int32(tfSelectTable[lm][4*isTransientInt+2*sel+1])) + lambdaInit
 
 		for i := 1; i < nbEBands; i++ {
-			imp := 13
+			imp := int32(13)
 			if importance != nil && i < len(importance) {
 				imp = importance[i]
 			}
 
-			curr0 := min(cost0, cost1+lambda)
-			curr1 := min(cost0+lambda, cost1)
-			cost0 = curr0 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
-			cost1 = curr1 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*sel+1]))
+			curr0 := minInt32(cost0, cost1+lambda)
+			curr1 := minInt32(cost0+lambda, cost1)
+			cost0 = curr0 + imp*util.Abs(metric[i]-2*int32(tfSelectTable[lm][4*isTransientInt+2*sel+0]))
+			cost1 = curr1 + imp*util.Abs(metric[i]-2*int32(tfSelectTable[lm][4*isTransientInt+2*sel+1]))
 		}
 
-		selcost[sel] = min(cost0, cost1)
+		selcost[sel] = minInt32(cost0, cost1)
 	}
 
 	if selcost[1] < selcost[0] && isTransient {
@@ -649,27 +655,27 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 	path0 := scratch.Path0[:nbEBands]
 	path1 := scratch.Path1[:nbEBands]
 
-	imp0 := 13
+	imp0 := int32(13)
 	if importance != nil && len(importance) > 0 {
 		imp0 = importance[0]
 	}
 
-	cost0 := imp0 * util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
+	cost0 := imp0 * util.Abs(metric[0]-2*int32(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
 	lambdaInit := lambda
 	if isTransient {
 		lambdaInit = 0
 	}
-	cost1 := imp0*util.Abs(metric[0]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1])) + lambdaInit
+	cost1 := imp0*util.Abs(metric[0]-2*int32(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1])) + lambdaInit
 
 	for i := 1; i < nbEBands; i++ {
-		imp := 13
+		imp := int32(13)
 		if importance != nil && i < len(importance) {
 			imp = importance[i]
 		}
 
 		from0 := cost0
 		from1 := cost1 + lambda
-		var curr0 int
+		var curr0 int32
 		if from0 < from1 {
 			curr0 = from0
 			path0[i] = 0
@@ -680,7 +686,7 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 
 		from0 = cost0 + lambda
 		from1 = cost1
-		var curr1 int
+		var curr1 int32
 		if from0 < from1 {
 			curr1 = from0
 			path1[i] = 0
@@ -689,8 +695,8 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 			path1[i] = 1
 		}
 
-		cost0 = curr0 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
-		cost1 = curr1 + imp*util.Abs(metric[i]-2*int(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1]))
+		cost0 = curr0 + imp*util.Abs(metric[i]-2*int32(tfSelectTable[lm][4*isTransientInt+2*tfSelect+0]))
+		cost1 = curr1 + imp*util.Abs(metric[i]-2*int32(tfSelectTable[lm][4*isTransientInt+2*tfSelect+1]))
 	}
 
 	if cost0 < cost1 {
@@ -723,7 +729,7 @@ func TFAnalysisWithScratch(X []celtNorm, N0, nbEBands int, isTransient bool, lm 
 //   - tfSelect: TF select flag from TFAnalysis
 //
 // Reference: libopus celt/celt_encoder.c tf_encode()
-func TFEncodeWithSelect(re *rangecoding.Encoder, start, end int, isTransient bool, tfRes []int, lm int, tfSelect int) {
+func TFEncodeWithSelect(re *rangecoding.Encoder, start, end int, isTransient bool, tfRes []int32, lm int, tfSelect int) {
 	if re == nil {
 		return
 	}
@@ -747,14 +753,14 @@ func TFEncodeWithSelect(re *rangecoding.Encoder, start, end int, isTransient boo
 	for i := start; i < end; i++ {
 		if tell+logp <= int(budget) {
 			// Encode XOR of current tf_res with previous
-			change := tfRes[i] ^ curr
+			change := int(tfRes[i]) ^ curr
 			re.EncodeBit(change, uint(logp))
 			tell = re.Tell()
-			curr = tfRes[i]
+			curr = int(tfRes[i])
 			tfChanged |= curr
 		} else {
 			// Not enough budget, force to current value
-			tfRes[i] = curr
+			tfRes[i] = int32(curr)
 		}
 
 		if isTransient {
@@ -774,14 +780,14 @@ func TFEncodeWithSelect(re *rangecoding.Encoder, start, end int, isTransient boo
 
 	// Convert tfRes to actual TF change values using tfSelectTable
 	for i := start; i < end; i++ {
-		idx := 4*isTransientInt + 2*tfSelect + tfRes[i]
-		tfRes[i] = int(tfSelectTable[lm][idx])
+		idx := 4*isTransientInt + 2*tfSelect + int(tfRes[i])
+		tfRes[i] = int32(tfSelectTable[lm][idx])
 	}
 }
 
 // TFEncode is a convenience wrapper around tfEncode for callers outside the celt package.
 // It encodes TF resolution flags without running TF analysis.
-func TFEncode(re *rangecoding.Encoder, start, end int, isTransient bool, tfRes []int, lm int) {
+func TFEncode(re *rangecoding.Encoder, start, end int, isTransient bool, tfRes []int32, lm int) {
 	tfEncode(re, start, end, isTransient, tfRes, lm)
 }
 
@@ -797,7 +803,7 @@ func TFEncode(re *rangecoding.Encoder, start, end int, isTransient bool, tfRes [
 //   - isTransient: whether frame uses short blocks
 //   - tfRes: per-band TF resolution values (optional, nil = all zeros)
 //   - lm: log mode (frame size index)
-func tfEncode(re *rangecoding.Encoder, start, end int, isTransient bool, tfRes []int, lm int) {
+func tfEncode(re *rangecoding.Encoder, start, end int, isTransient bool, tfRes []int32, lm int) {
 	if re == nil {
 		return
 	}
@@ -817,7 +823,7 @@ func tfEncode(re *rangecoding.Encoder, start, end int, isTransient bool, tfRes [
 		// Target value for this band (0 if no tfRes provided)
 		target := 0
 		if tfRes != nil && i < len(tfRes) {
-			target = tfRes[i]
+			target = int(tfRes[i])
 		}
 
 		// Encode whether current differs from previous
@@ -849,7 +855,7 @@ func tfEncode(re *rangecoding.Encoder, start, end int, isTransient bool, tfRes [
 	}
 }
 
-func tfDecode(start, end int, isTransient bool, tfRes []int, lm int, rd *rangecoding.Decoder) {
+func tfDecode(start, end int, isTransient bool, tfRes []int32, lm int, rd *rangecoding.Decoder) {
 	if rd == nil {
 		return
 	}
@@ -873,7 +879,7 @@ func tfDecode(start, end int, isTransient bool, tfRes []int, lm int, rd *rangeco
 				tfChanged = 1
 			}
 		}
-		tfRes[i] = curr
+		tfRes[i] = int32(curr)
 		if isTransient {
 			logp = 4
 		} else {
@@ -889,13 +895,17 @@ func tfDecode(start, end int, isTransient bool, tfRes []int, lm int, rd *rangeco
 		}
 	}
 	for i := start; i < end; i++ {
-		idx := 4*boolToInt(isTransient) + 2*tfSelect + tfRes[i]
-		tfRes[i] = int(tfSelectTable[lm][idx])
+		idx := 4*boolToInt(isTransient) + 2*tfSelect + int(tfRes[i])
+		tfRes[i] = int32(tfSelectTable[lm][idx])
 	}
+}
+
+func tfDecode32(start, end int, isTransient bool, tfRes []int32, lm int, rd *rangecoding.Decoder) {
+	tfDecode(start, end, isTransient, tfRes, lm, rd)
 }
 
 // TFDecodeForTest exposes tfDecode for cross-package tests (e.g., CGO comparisons).
 // It should not be used in production code.
-func TFDecodeForTest(start, end int, isTransient bool, tfRes []int, lm int, rd *rangecoding.Decoder) {
+func TFDecodeForTest(start, end int, isTransient bool, tfRes []int32, lm int, rd *rangecoding.Decoder) {
 	tfDecode(start, end, isTransient, tfRes, lm, rd)
 }

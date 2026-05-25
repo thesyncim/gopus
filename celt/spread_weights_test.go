@@ -114,7 +114,7 @@ func TestComputeSpreadWeightsMatchesLibopusBehavior(t *testing.T) {
 
 		// With uniform high energy above noise floor, masking should be similar
 		// across bands, resulting in relatively uniform weights
-		sum := 0
+		sum := int32(0)
 		for _, w := range weights {
 			sum += w
 		}
@@ -151,7 +151,7 @@ func TestComputeSpreadWeightsMatchesLibopusBehavior(t *testing.T) {
 		weights := computeSpreadWeights(float64sToGLogs(bandLogE), nbBands, channels, lsbDepth)
 
 		// Low energy bands should have lower weights (more masked)
-		sum := 0
+		sum := int32(0)
 		for _, w := range weights {
 			sum += w
 		}

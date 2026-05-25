@@ -13,5 +13,9 @@ func antiCollapse(
 	logEGLog := float64sToGLogs(logE)
 	prev1GLog := float64sToGLogs(prev1LogE)
 	prev2GLog := float64sToGLogs(prev2LogE)
-	antiCollapseGLog(coeffsL, coeffsR, collapse, lm, channels, start, end, logEGLog, prev1GLog, prev2GLog, pulses, seed)
+	pulses32 := make([]int32, len(pulses))
+	for i, pulse := range pulses {
+		pulses32[i] = int32(pulse)
+	}
+	antiCollapseGLog(coeffsL, coeffsR, collapse, lm, channels, start, end, logEGLog, prev1GLog, prev2GLog, pulses32, seed)
 }

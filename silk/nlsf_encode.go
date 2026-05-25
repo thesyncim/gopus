@@ -328,10 +328,10 @@ func computeNLSFMuQ20(speechActivityQ8 int, numSubframes int) int32 {
 
 // nlsfEncode performs MSVQ-based NLSF encoding aligned with libopus.
 // Returns stage1 index, residual indices (length = order), and RD_Q25.
-func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int32, nSurvivors int, signalType int) (int, []int, int32) {
+func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int32, nSurvivors int, signalType int) (int, []int32, int32) {
 	order := cb.order
 	if len(nlsfQ15) < order {
-		residuals := ensureIntSlice(&e.scratchLsfResiduals, order)
+		residuals := ensureInt32Slice(&e.scratchLsfResiduals, order)
 		for i := range residuals {
 			residuals[i] = 0
 		}
@@ -395,12 +395,12 @@ func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int
 	silkInsertionSortIncreasing(rdQ25[:nSurvivors], bestIndex[:], nSurvivors, 1)
 	bestStage1 := tempIndices1[bestIndex[0]]
 
-	residuals := ensureIntSlice(&e.scratchLsfResiduals, order)
+	residuals := ensureInt32Slice(&e.scratchLsfResiduals, order)
 	var indices [maxLPCOrder + 1]int8
 	indices[0] = int8(bestStage1)
 	for i := 0; i < order; i++ {
 		idx := tempIndices2[bestIndex[0]][i]
-		residuals[i] = int(idx)
+		residuals[i] = int32(idx)
 		indices[i+1] = idx
 	}
 	silkNLSFDecode(nlsfQ15[:order], indices[:order+1], cb)

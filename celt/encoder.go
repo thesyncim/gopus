@@ -91,10 +91,10 @@ type Encoder struct {
 	complexity int
 
 	// Spread decision state (persistent across frames for hysteresis)
-	spreadDecision int // Current spread decision (0-3)
-	tonalAverage   int // Running average for spread decision hysteresis
-	hfAverage      int // High frequency average for tapset decision
-	tapsetDecision int // Tapset decision (0, 1, or 2)
+	spreadDecision int   // Current spread decision (0-3)
+	tonalAverage   int32 // Running average for spread decision hysteresis
+	hfAverage      int32 // High frequency average for tapset decision
+	tapsetDecision int   // Tapset decision (0, 1, or 2)
 
 	// Tonality analysis state (for VBR decisions)
 	prevBandLogEnergy []celtGLog // Previous frame log-energy per band for spectral flux
@@ -925,7 +925,7 @@ func (e *Encoder) SetTapsetDecision(tapset int) {
 // HFAverage returns the high-frequency average used for tapset decision.
 // This is updated during SpreadingDecision when updateHF=true.
 func (e *Encoder) HFAverage() int {
-	return e.hfAverage
+	return int(e.hfAverage)
 }
 
 // SetHybrid sets the hybrid mode flag.
@@ -951,7 +951,7 @@ func (e *Encoder) SetSilkInfo(signalType, offset int) {
 
 // FillHybridTFResolution applies the libopus hybrid fixed-TF fallback used when
 // variable TF analysis is disabled.
-func FillHybridTFResolution(tfRes []int, end int, transient, weakTransient, allowWeakTransients bool) int {
+func FillHybridTFResolution(tfRes []int32, end int, transient, weakTransient, allowWeakTransients bool) int {
 	if end > len(tfRes) {
 		end = len(tfRes)
 	}
@@ -977,7 +977,7 @@ func FillHybridTFResolution(tfRes []int, end int, transient, weakTransient, allo
 			value = 1
 		}
 		for i := 0; i < end; i++ {
-			tfRes[i] = value
+			tfRes[i] = int32(value)
 		}
 	}
 	return tfSelect
@@ -1114,12 +1114,12 @@ type encoderScratch struct {
 	normStereo []celtNorm
 
 	// Allocation-related buffers
-	caps    []int
-	offsets []int
+	caps    []int32
+	offsets []int32
 	logN    []int16
 
 	// TF analysis buffers
-	tfRes []int
+	tfRes []int32
 
 	// PVQ search buffers
 	pvqSignx []byte
@@ -1148,15 +1148,15 @@ type encoderScratch struct {
 	cwrsU []uint32
 
 	// ComputeAllocation scratch
-	allocBits         []int
-	allocFineBits     []int
-	allocFinePrio     []int
-	allocThresh       []int
-	allocTrim         []int
+	allocBits         []int32
+	allocFineBits     []int32
+	allocFinePrio     []int32
+	allocThresh       []int32
+	allocTrim         []int32
 	allocTrimNormL    []celtNorm
 	allocTrimNormR    []celtNorm
 	allocTrimBandLogE []celtGLog
-	allocCaps         []int
+	allocCaps         []int32
 	allocResult       AllocationResult // Pre-allocated result struct
 	encoderQEXTScratchFields
 
@@ -1283,15 +1283,15 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.normStereo = ensureNormSlice(&s.normStereo, frameSize*2)
 
 	// Allocation buffers
-	s.caps = ensureIntSlice(&s.caps, MaxBands)
-	s.offsets = ensureIntSlice(&s.offsets, MaxBands)
+	s.caps = ensureInt32Slice(&s.caps, MaxBands)
+	s.offsets = ensureInt32Slice(&s.offsets, MaxBands)
 	if len(s.logN) < MaxBands {
 		s.logN = make([]int16, MaxBands)
 	}
-	s.allocBits = ensureIntSlice(&s.allocBits, MaxBands)
-	s.allocFineBits = ensureIntSlice(&s.allocFineBits, MaxBands)
-	s.allocFinePrio = ensureIntSlice(&s.allocFinePrio, MaxBands)
-	s.allocCaps = ensureIntSlice(&s.allocCaps, MaxBands)
+	s.allocBits = ensureInt32Slice(&s.allocBits, MaxBands)
+	s.allocFineBits = ensureInt32Slice(&s.allocFineBits, MaxBands)
+	s.allocFinePrio = ensureInt32Slice(&s.allocFinePrio, MaxBands)
+	s.allocCaps = ensureInt32Slice(&s.allocCaps, MaxBands)
 	// Initialize AllocationResult with pre-allocated slices
 	s.allocResult.BandBits = s.allocBits
 	s.allocResult.FineBits = s.allocFineBits
@@ -1299,7 +1299,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.allocResult.Caps = s.allocCaps
 
 	// TF results
-	s.tfRes = ensureIntSlice(&s.tfRes, MaxBands)
+	s.tfRes = ensureInt32Slice(&s.tfRes, MaxBands)
 
 	// Deinterleave buffers
 	s.deintLeft = ensureFloat32Slice(&s.deintLeft, frameSize)
@@ -1324,18 +1324,18 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.cwrsU = ensureUint32Slice(&s.cwrsU, 256)
 
 	// ComputeAllocation scratch
-	s.allocBits = ensureIntSlice(&s.allocBits, MaxBands)
-	s.allocFineBits = ensureIntSlice(&s.allocFineBits, MaxBands)
-	s.allocFinePrio = ensureIntSlice(&s.allocFinePrio, MaxBands)
-	s.allocThresh = ensureIntSlice(&s.allocThresh, MaxBands)
-	s.allocTrim = ensureIntSlice(&s.allocTrim, MaxBands)
+	s.allocBits = ensureInt32Slice(&s.allocBits, MaxBands)
+	s.allocFineBits = ensureInt32Slice(&s.allocFineBits, MaxBands)
+	s.allocFinePrio = ensureInt32Slice(&s.allocFinePrio, MaxBands)
+	s.allocThresh = ensureInt32Slice(&s.allocThresh, MaxBands)
+	s.allocTrim = ensureInt32Slice(&s.allocTrim, MaxBands)
 	s.allocTrimNormL = ensureNormSlice(&s.allocTrimNormL, frameSize)
 	s.allocTrimNormR = ensureNormSlice(&s.allocTrimNormR, frameSize)
 	s.allocTrimBandLogE = ensureGLogSlice(&s.allocTrimBandLogE, MaxBands*channels)
 	if extsupport.QEXT && e.qextActive() {
 		qs := s.ensureQEXTScratch()
-		qs.extraBits = ensureIntSlice(&qs.extraBits, MaxBands+nbQEXTBands)
-		qs.fineBits = ensureIntSlice(&qs.fineBits, MaxBands+nbQEXTBands)
+		qs.extraBits = ensureInt32Slice(&qs.extraBits, MaxBands+nbQEXTBands)
+		qs.fineBits = ensureInt32Slice(&qs.fineBits, MaxBands+nbQEXTBands)
 		qs.bandE = ensureEnerSlice(&qs.bandE, nbQEXTBands*channels)
 		qs.bandLogE = ensureGLogSlice(&qs.bandLogE, nbQEXTBands*channels)
 		qs.quantized = ensureGLogSlice(&qs.quantized, nbQEXTBands*channels)
@@ -1378,7 +1378,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 
 // computeAllocationScratch computes bit allocation using scratch buffers (zero-alloc).
 // This is the zero-allocation version of ComputeAllocationWithEncoder.
-func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3, nbBands int, cap, offsets []int, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
+func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3, nbBands int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}

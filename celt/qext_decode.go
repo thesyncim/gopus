@@ -9,8 +9,8 @@ type preparedQEXTDecode struct {
 	end         int
 	intensity   int
 	dualStereo  int
-	extraPulses []int
-	extraQuant  []int
+	extraPulses []int32
+	extraQuant  []int32
 	energies    []celtGLog
 	coeffsL     []celtNorm
 	coeffsR     []celtNorm
@@ -149,8 +149,8 @@ func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Dec
 	*qext = preparedQEXTDecode{
 		dec:         extDec,
 		totalBitsQ3: len(payload) * (8 << bitRes),
-		extraPulses: ensureIntSlice(&qextState.scratchPulses, MaxBands+nbQEXTBands),
-		extraQuant:  ensureIntSlice(&qextState.scratchFineQuant, MaxBands+nbQEXTBands),
+		extraPulses: ensureInt32Slice(&qextState.scratchPulses, MaxBands+nbQEXTBands),
+		extraQuant:  ensureInt32Slice(&qextState.scratchFineQuant, MaxBands+nbQEXTBands),
 	}
 
 	var qextMode *qextModeConfig
@@ -197,11 +197,11 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 	extBalance := qext.totalBitsQ3 - qext.dec.TellFrac()
 	fineQ3 := 0
 	if qext.end > 1 {
-		fineQ3 = d.channels * (qext.extraQuant[MaxBands+1] << bitRes)
+		fineQ3 = d.channels * int(qext.extraQuant[MaxBands+1]<<bitRes)
 	}
 	for i := 0; i < qext.end; i++ {
 		idx := MaxBands + i
-		extBalance -= qext.extraPulses[idx]
+		extBalance -= int(qext.extraPulses[idx])
 		extBalance -= fineQ3
 	}
 	if extBalance < 0 {
@@ -209,7 +209,7 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 	}
 
 	d.decodeFineEnergyGLogWithDecoder(qext.dec, qext.energies, qext.end, qext.extraQuant[MaxBands:MaxBands+qext.end])
-	zeros := ensureIntSlice(&d.scratchTFRes, qext.end)
+	zeros := ensureInt32Slice(&d.scratchTFRes, qext.end)
 	for i := 0; i < qext.end; i++ {
 		zeros[i] = 0
 	}

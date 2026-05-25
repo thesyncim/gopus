@@ -315,7 +315,7 @@ func TestMaxDepthCalculation(t *testing.T) {
 // Reference: libopus celt_encoder.c lines 1083-1117
 // Weights should be powers of 2: 1, 2, 4, 8, 16, 32
 func TestSpreadWeightComputation(t *testing.T) {
-	validWeights := map[int]bool{1: true, 2: true, 4: true, 8: true, 16: true, 32: true}
+	validWeights := map[int32]bool{1: true, 2: true, 4: true, 8: true, 16: true, 32: true}
 
 	testCases := []struct {
 		name     string
@@ -1046,7 +1046,7 @@ func TestSpreadWeightsIntegration(t *testing.T) {
 	normXNorm := float64sToNorms(normX)
 
 	// Test with uniform weights
-	uniformWeights := make([]int, nbBands)
+	uniformWeights := make([]int32, nbBands)
 	for i := 0; i < nbBands; i++ {
 		uniformWeights[i] = 1
 	}

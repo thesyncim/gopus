@@ -153,9 +153,9 @@ type Encoder struct {
 	scratchFrame4Fix      []int16   // detectPitch: 4kHz int16 samples
 	scratchResampler      []int32   // detectPitch: resampler buffer (int32)
 	scratchPitchC         []float32 // detectPitch: autocorrelation (silk_float)
-	scratchDSrch          []int     // detectPitch: candidate lags
+	scratchDSrch          []int32   // detectPitch: candidate lags
 	scratchDComp          []int16   // detectPitch: expanded search
-	scratchPitchLags      []int     // detectPitch: output pitch lags
+	scratchPitchLags      []int32   // detectPitch: output pitch lags
 	scratchPitchCorrSt3   []float32 // detectPitch: stage3 correlations (silk_float)
 	scratchPitchEnergySt3 []float32 // detectPitch: stage3 energies (silk_float)
 	scratchPitchXcorr     []float32 // detectPitch: celt_pitch_xcorr scratch
@@ -171,7 +171,7 @@ type Encoder struct {
 	scratchGainsUnqQ16      []int32 // unquantized gains in Q16 format
 	scratchGainsQ16         []int32 // gains in Q16 format
 	scratchLBRRGainsQ16     []int32 // LBRR dequantized gains (must not alias scratchGainsQ16)
-	scratchPitchL           []int   // pitch lags for NSQ
+	scratchPitchL           []int32 // pitch lags for NSQ
 	scratchArShpQ13         []int16 // AR shaping coefficients
 	scratchLtpCoefQ14       []int16 // LTP coefficients
 	scratchPredCoefQ12      []int16 // prediction coefficients
@@ -218,7 +218,7 @@ type Encoder struct {
 	scratchLpcResidual []float32   // LPC residual for energy (silk_float)
 
 	// LSF quantization scratch buffers
-	scratchLsfResiduals   []int   // computeStage2ResidualsLibopus: residuals
+	scratchLsfResiduals   []int32 // computeStage2ResidualsLibopus: residuals
 	scratchEcIx           []int16 // computeStage2ResidualsLibopus / NLSF decode: ecIx
 	scratchPredQ8         []uint8 // computeStage2ResidualsLibopus / NLSF decode: predQ8
 	scratchResQ10         []int16 // computeStage2ResidualsLibopus / NLSF decode: resQ10
@@ -272,16 +272,6 @@ type Encoder struct {
 func ensureInt8Slice(buf *[]int8, n int) []int8 {
 	if cap(*buf) < n {
 		*buf = make([]int8, n)
-	} else {
-		*buf = (*buf)[:n]
-	}
-	return *buf
-}
-
-// ensureIntSlice ensures the slice has at least n elements.
-func ensureIntSlice(buf *[]int, n int) []int {
-	if cap(*buf) < n {
-		*buf = make([]int, n)
 	} else {
 		*buf = (*buf)[:n]
 	}

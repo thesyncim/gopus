@@ -137,25 +137,27 @@ type Decoder struct {
 	scratchPrevEnergy       []celtGLog
 	scratchPrevEnergyGLog   []celtGLog
 	scratchEnergies         []celtGLog
-	scratchTFRes            []int
-	scratchOffsets          []int
-	scratchPulses           []int
-	scratchFineQuant        []int
-	scratchFinePriority     []int
+	scratchTFRes            []int32
+	scratchOffsets          []int32
+	scratchPulses           []int32
+	scratchFineQuant        []int32
+	scratchFinePriority     []int32
 	scratchPrevBandEnergy   []float32
 	scratchSilenceE         []celtGLog
-	scratchCaps             []int
-	scratchAllocWork        []int
+	scratchCaps             []int32
+	scratchAllocWork        []int32
 	scratchBands            bandDecodeScratch
 	scratchIMDCTF32         imdctScratchF32
 	scratchIMDCTF32R        imdctScratchF32
 	scratchSynthF32         []float32
 	scratchSynthRF32        []float32
+	scratchSpecRF32         []float32
 	scratchStereoF32        []float32
 	scratchShortCoeffsF32   []float32
 	scratchMonoToStereoRF32 []float32
 	scratchMonoMixF32       []float32
 	postfilterScratchF32    []float32
+	postfilterWindowSqF32   []float32
 	scratchPLC              []float32 // Scratch buffer for PLC concealment samples
 	scratchPLCF32           []float32
 	scratchPLCPitchLP       []float32

@@ -70,23 +70,23 @@ func (e *Encoder) NormalizeBandsToArrayStereoWithBandEF32(mdctLeft, mdctRight []
 }
 
 // TFResScratch returns a scratch TF resolution slice sized for nbBands.
-func (e *Encoder) TFResScratch(nbBands int) []int {
-	return ensureIntSlice(&e.scratch.tfRes, nbBands)
+func (e *Encoder) TFResScratch(nbBands int) []int32 {
+	return ensureInt32Slice(&e.scratch.tfRes, nbBands)
 }
 
 // CapsScratch returns a scratch caps slice sized for nbBands.
-func (e *Encoder) CapsScratch(nbBands int) []int {
-	return ensureIntSlice(&e.scratch.caps, nbBands)
+func (e *Encoder) CapsScratch(nbBands int) []int32 {
+	return ensureInt32Slice(&e.scratch.caps, nbBands)
 }
 
 // OffsetsScratch returns a scratch offsets slice sized for nbBands.
-func (e *Encoder) OffsetsScratch(nbBands int) []int {
-	return ensureIntSlice(&e.scratch.offsets, nbBands)
+func (e *Encoder) OffsetsScratch(nbBands int) []int32 {
+	return ensureInt32Slice(&e.scratch.offsets, nbBands)
 }
 
 // ComputeAllocationHybridScratch computes hybrid bit allocation using encoder scratch.
 // This mirrors ComputeAllocationHybrid but avoids per-call allocations.
-func (e *Encoder) ComputeAllocationHybridScratch(re *rangecoding.Encoder, totalBitsQ3, nbBands int, cap, offsets []int, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
+func (e *Encoder) ComputeAllocationHybridScratch(re *rangecoding.Encoder, totalBitsQ3, nbBands int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
@@ -108,10 +108,10 @@ func (e *Encoder) ComputeAllocationHybridScratch(re *rangecoding.Encoder, totalB
 	}
 
 	result := &e.scratch.allocResult
-	result.BandBits = ensureIntSlice(&e.scratch.allocBits, nbBands)
-	result.FineBits = ensureIntSlice(&e.scratch.allocFineBits, nbBands)
-	result.FinePriority = ensureIntSlice(&e.scratch.allocFinePrio, nbBands)
-	result.Caps = ensureIntSlice(&e.scratch.allocCaps, nbBands)
+	result.BandBits = ensureInt32Slice(&e.scratch.allocBits, nbBands)
+	result.FineBits = ensureInt32Slice(&e.scratch.allocFineBits, nbBands)
+	result.FinePriority = ensureInt32Slice(&e.scratch.allocFinePrio, nbBands)
+	result.Caps = ensureInt32Slice(&e.scratch.allocCaps, nbBands)
 	result.Balance = 0
 	result.CodedBands = nbBands
 	result.Intensity = 0
@@ -182,8 +182,8 @@ func (e *Encoder) SignalBandwidthForAllocation(nbBands, equivRate int) int {
 
 // QuantAllBandsEncodeScratch encodes PVQ bands using the encoder's scratch buffers.
 func (e *Encoder) QuantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, frameSize, lm int, start, end int,
-	normL, normR []celtNorm, pulses []int, shortBlocks int, spread int, tapset int, dualStereo int, intensity int,
-	tfRes []int, totalBitsQ3 int, balance int, codedBands int, seed *uint32, complexity int, bandE []celtEner) {
+	normL, normR []celtNorm, pulses []int32, shortBlocks int, spread int, tapset int, dualStereo int, intensity int,
+	tfRes []int32, totalBitsQ3 int, balance int, codedBands int, seed *uint32, complexity int, bandE []celtEner) {
 	quantAllBandsEncodeScratch(
 		re,
 		channels,
@@ -575,7 +575,7 @@ func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2 []celtGLog, 
 }
 
 // TFAnalysisHybridScratch runs TF analysis using the encoder's scratch buffers.
-func (e *Encoder) TFAnalysisHybridScratch(norm []celtNorm, nbBands int, transient bool, lm int, tfEstimate opusVal16, effectiveBytes int, importance []int) ([]int, int) {
+func (e *Encoder) TFAnalysisHybridScratch(norm []celtNorm, nbBands int, transient bool, lm int, tfEstimate opusVal16, effectiveBytes int, importance []int32) ([]int32, int) {
 	return TFAnalysisWithScratch(norm, len(norm), nbBands, transient, lm, tfEstimate, effectiveBytes, importance, &e.tfScratch)
 }
 

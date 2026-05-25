@@ -203,7 +203,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	framePCM := e.updateShapeBuffer(pcm, frameSamples)
 
 	// Step 2: Pitch detection and LTP
-	var pitchLags []int
+	var pitchLags []int32
 	var lagIndex, contourIndex int
 	var pitchParams pitchEncodeParams
 	var ltpCoeffs LTPCoeffsArray
@@ -229,7 +229,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			thrhldF32 = 1
 		}
 		if firstFrameAfterReset {
-			pitchLags = make([]int, numSubframes)
+			pitchLags = make([]int32, numSubframes)
 			e.ltpCorr = 0
 			e.pitchState.ltpCorr = 0
 		} else {
@@ -892,7 +892,7 @@ func (e *Encoder) PrefillFrame(pcm []float32) {
 	e.frameCounter++
 }
 
-func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int32, signalType, quantOffset, speechActivityQ8 int, noiseParams *NoiseShapeParams, seed, numSubframes, subframeSamples, frameSamples int, nsqState *NSQState) ([]int8, int) {
+func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ12 []int16, nlsfInterpQ2 int, gainsQ16 []int32, pitchLags []int32, ltpCoeffs LTPCoeffsArray, ltpScaleQ14 int32, signalType, quantOffset, speechActivityQ8 int, noiseParams *NoiseShapeParams, seed, numSubframes, subframeSamples, frameSamples int, nsqState *NSQState) ([]int8, int) {
 	inputQ0 := ensureInt16Slice(&e.scratchInputQ0, frameSamples)
 	for i := 0; i < frameSamples && i < len(pcm); i++ {
 		inputQ0[i] = float32ToInt16(pcm[i])
@@ -905,7 +905,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		}
 		gainsQ16 = tmp
 	}
-	pitchL := ensureIntSlice(&e.scratchPitchL, numSubframes)
+	pitchL := ensureInt32Slice(&e.scratchPitchL, numSubframes)
 	for i := range pitchL {
 		pitchL[i] = 0
 	}

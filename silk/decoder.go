@@ -627,7 +627,7 @@ func (d *Decoder) GetLastSignalType() int {
 
 // GetLagPrev returns the previous pitch lag tracked by SILK decode state.
 func (d *Decoder) GetLagPrev() int {
-	return d.state[0].lagPrev
+	return int(d.state[0].lagPrev)
 }
 
 // LatestNativeMono returns the most recent native-rate (pre-resample) int16
@@ -710,7 +710,7 @@ type LatestDecoderControl struct {
 	PredCoefQ12 [2][maxLPCOrder]int16
 	LTPCoefQ14  [ltpOrder * maxNbSubfr]int16
 	GainsQ16    [maxNbSubfr]int32
-	PitchL      [maxNbSubfr]int
+	PitchL      [maxNbSubfr]int32
 	LPCOrder    int
 	NbSubfr     int
 	SignalType  int

@@ -3,11 +3,11 @@ package celt
 import "github.com/thesyncim/gopus/rangecoding"
 
 type decodedBandAllocation struct {
-	tfRes           []int
-	offsets         []int
-	pulses          []int
-	fineQuant       []int
-	finePriority    []int
+	tfRes           []int32
+	offsets         []int32
+	pulses          []int32
+	fineQuant       []int32
+	finePriority    []int32
 	spread          int
 	allocTrim       int
 	intensity       int
@@ -22,17 +22,17 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 		spread: spreadNormal,
 	}
 
-	allocation.tfRes = ensureIntSlice(&d.scratchTFRes, end)
-	tfDecode(start, end, transient, allocation.tfRes, lm, rd)
+	allocation.tfRes = ensureInt32Slice(&d.scratchTFRes, end)
+	tfDecode32(start, end, transient, allocation.tfRes, lm, rd)
 
 	tell := rd.Tell()
 	if tell+4 <= totalBits {
 		allocation.spread = rd.DecodeICDF(spreadICDF, 5)
 	}
 
-	cap := ensureIntSlice(&d.scratchCaps, end)
+	cap := ensureInt32Slice(&d.scratchCaps, end)
 	initCapsInto(cap, end, lm, d.channels)
-	offsets := ensureIntSlice(&d.scratchOffsets, end)
+	offsets := ensureInt32Slice(&d.scratchOffsets, end)
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes
 	tellFrac := rd.TellFrac()
@@ -42,7 +42,7 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
 		j := 0
-		for ; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < cap[i]; j++ {
+		for ; tellFrac+(dynallocLoopLogp<<bitRes) < totalBitsQ3 && boost < int(cap[i]); j++ {
 			flag := rd.DecodeBit(uint(dynallocLoopLogp))
 			tellFrac = rd.TellFrac()
 			if flag == 0 {
@@ -52,7 +52,7 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 			totalBitsQ3 -= quanta
 			dynallocLoopLogp = 1
 		}
-		offsets[i] = boost
+		offsets[i] = int32(boost)
 		if j > 0 {
 			dynallocLogp = max(2, dynallocLogp-1)
 		}
@@ -72,9 +72,9 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 	}
 	bitsQ3 -= allocation.antiCollapseRsv
 
-	allocation.pulses = ensureIntSlice(&d.scratchPulses, end)
-	allocation.fineQuant = ensureIntSlice(&d.scratchFineQuant, end)
-	allocation.finePriority = ensureIntSlice(&d.scratchFinePriority, end)
+	allocation.pulses = ensureInt32Slice(&d.scratchPulses, end)
+	allocation.fineQuant = ensureInt32Slice(&d.scratchFineQuant, end)
+	allocation.finePriority = ensureInt32Slice(&d.scratchFinePriority, end)
 	allocScratch := d.allocationScratch()
 	allocation.codedBands = cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &allocation.intensity, &allocation.dualStereo,
 		bitsQ3, &allocation.balance, allocation.pulses, allocation.fineQuant, allocation.finePriority, d.channels, lm, rd, allocScratch)

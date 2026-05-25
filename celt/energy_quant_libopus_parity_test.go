@@ -150,7 +150,7 @@ func TestEncoderEnergyFinaliseRangeFromErrorMatchesLibopus(t *testing.T) {
 
 			enc.EncodeEnergyFinaliseRangeFromError(
 				gotOld, tc.start, tc.end,
-				tc.fineQuant[:], tc.finePriority[:], tc.bitsLeft,
+				int32SliceForTest(tc.fineQuant[:]), int32SliceForTest(tc.finePriority[:]), tc.bitsLeft,
 			)
 
 			gotPacket := append([]byte(nil), re.Done()...)
@@ -190,7 +190,7 @@ func TestEncoderFineEnergyRangeFromErrorMatchesLibopus(t *testing.T) {
 			re.Init(buf)
 			enc.rangeEncoder = &re
 
-			enc.EncodeFineEnergyRangeFromError(gotOld, tc.start, tc.end, tc.extraQuant[:])
+			enc.EncodeFineEnergyRangeFromError(gotOld, tc.start, tc.end, int32SliceForTest(tc.extraQuant[:]))
 
 			gotPacket := append([]byte(nil), re.Done()...)
 			if uint32(re.Error()) != want[i].encError {
@@ -224,7 +224,7 @@ func TestEncoderFineEnergyWithPrevMatchesLibopus(t *testing.T) {
 			var re rangecoding.Encoder
 			re.Init(buf)
 
-			enc.encodeFineEnergyFromErrorWithPrevWithEncoder(&re, gotOld, MaxBands, tc.prevQuant[:], tc.extraQuant[:], gotErr)
+			enc.encodeFineEnergyFromErrorWithPrevWithEncoder(&re, gotOld, MaxBands, int32SliceForTest(tc.prevQuant[:]), int32SliceForTest(tc.extraQuant[:]), gotErr)
 
 			gotPacket := append([]byte(nil), re.Done()...)
 			if uint32(re.Error()) != want[i].encError {

@@ -8,7 +8,7 @@ func antiCollapseGLog(
 	start, end int,
 	logE []celtGLog,
 	prev1LogE, prev2LogE []celtGLog,
-	pulses []int,
+	pulses []int32,
 	seed uint32,
 ) {
 	if channels < 1 || channels > 2 {
@@ -49,7 +49,7 @@ func antiCollapseGLog(
 			break
 		}
 
-		depth := celtUdiv(1+pulses[band], N0) >> lm
+		depth := celtUdiv(1+int(pulses[band]), N0) >> lm
 		thresh := float32(0.5) * celtExp2(float32(-0.125)*float32(depth))
 		sqrt1 := celtRSqrt(float32(N0 << lm))
 		bandOffset := EBands[band] << lm

@@ -3,7 +3,7 @@
 package silk
 
 type DecoderStateSnapshot struct {
-	LagPrev        int
+	LagPrev        int32
 	LastGainIndex  int
 	LossCount      int
 	PrevSignalType int

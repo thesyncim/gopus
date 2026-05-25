@@ -16,7 +16,7 @@ type FrameParams struct {
 	LPCCoeffs []int16 // Q12 format
 
 	// Pitch parameters (voiced only)
-	PitchLags      []int    // One per subframe
+	PitchLags      []int32  // One per subframe
 	LTPCoeffs      [][]int8 // Q7 format, [subframe][5 taps]
 	LTPPeriodicity int      // 0, 1, or 2 (selects LTP codebook)
 	LTPScaleIndex  int      // LTP scale index for gain adjustment

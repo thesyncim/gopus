@@ -268,7 +268,7 @@ func TestNoiseShapeQuantizeBasic(t *testing.T) {
 	}
 
 	// Pitch lags (unvoiced)
-	pitchL := make([]int, numSubfr)
+	pitchL := make([]int32, numSubfr)
 
 	// AR shaping coefficients
 	arShpQ13 := make([]int16, numSubfr*maxShapeLpcOrder)
@@ -363,7 +363,7 @@ func TestNSQVoicedFrame(t *testing.T) {
 	}
 
 	// Pitch lags (voiced with ~80 sample period)
-	pitchL := []int{80, 80, 80, 80}
+	pitchL := []int32{80, 80, 80, 80}
 
 	// AR shaping
 	arShpQ13 := make([]int16, numSubfr*maxShapeLpcOrder)
@@ -446,7 +446,7 @@ func TestNSQDithering(t *testing.T) {
 			TiltQ14:          make([]int32, numSubfr),
 			LFShpQ14:         make([]int32, numSubfr),
 			GainsQ16:         []int32{65536, 65536, 65536, 65536},
-			PitchL:           make([]int, numSubfr),
+			PitchL:           make([]int32, numSubfr),
 			LambdaQ10:        512,
 			LTPScaleQ14:      12288,
 			FrameLength:      frameLength,
@@ -498,7 +498,7 @@ func BenchmarkNSQ(b *testing.B) {
 		TiltQ14:          make([]int32, numSubfr),
 		LFShpQ14:         make([]int32, numSubfr),
 		GainsQ16:         []int32{65536, 65536, 65536, 65536},
-		PitchL:           make([]int, numSubfr),
+		PitchL:           make([]int32, numSubfr),
 		LambdaQ10:        512,
 		LTPScaleQ14:      12288,
 		FrameLength:      frameLength,

@@ -3,7 +3,7 @@ package silk
 // quantizeLSF quantizes LSF coefficients using libopus-aligned MSVQ.
 // Returns stage1 index, stage2 residuals (as NLSFIndices[1:order+1]), and interpolation index.
 // Per RFC 6716 Section 4.2.7.5 and libopus silk/process_NLSFs.c.
-func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType int, speechActivityQ8 int, numSubframes int, interpOverride int) (int, []int, int) {
+func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType int, speechActivityQ8 int, numSubframes int, interpOverride int) (int, []int32, int) {
 	isWideband := bandwidth == BandwidthWideband
 
 	// Select codebook based on bandwidth
@@ -16,7 +16,7 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 
 	order := cb.order
 	if len(lsfQ15) < order {
-		residuals := ensureIntSlice(&e.scratchLsfResiduals, order)
+		residuals := ensureInt32Slice(&e.scratchLsfResiduals, order)
 		for i := range residuals {
 			residuals[i] = 0
 		}
@@ -75,7 +75,7 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 
 // quantizeLSFWithInterp quantizes LSF coefficients using a provided interpolation index.
 // Returns stage1 index, stage2 residuals, and the effective interpolation index.
-func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, signalType int, speechActivityQ8 int, numSubframes int, interpIdx int) (int, []int, int) {
+func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, signalType int, speechActivityQ8 int, numSubframes int, interpIdx int) (int, []int32, int) {
 	isWideband := bandwidth == BandwidthWideband
 
 	// Select codebook based on bandwidth
@@ -88,7 +88,7 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 
 	order := cb.order
 	if len(lsfQ15) < order {
-		residuals := ensureIntSlice(&e.scratchLsfResiduals, order)
+		residuals := ensureInt32Slice(&e.scratchLsfResiduals, order)
 		for i := range residuals {
 			residuals[i] = 0
 		}
@@ -217,7 +217,7 @@ func (e *Encoder) computeInterpolationIndex(lsfQ15 []int16, order int) int {
 
 // decodeQuantizedNLSF reconstructs the quantized NLSF (Q15) from stage1 index and residuals.
 // This mirrors the decoder's silkNLSFDecode path and avoids allocations via encoder scratch buffers.
-func (e *Encoder) decodeQuantizedNLSF(stage1Idx int, residuals []int, bandwidth Bandwidth) []int16 {
+func (e *Encoder) decodeQuantizedNLSF(stage1Idx int, residuals []int32, bandwidth Bandwidth) []int16 {
 	// Select codebook based on bandwidth
 	var cb *nlsfCB
 	if bandwidth == BandwidthWideband {
@@ -296,7 +296,7 @@ func (e *Encoder) buildPredCoefQ12(predCoefQ12 []int16, nlsfQ15 []int16, interpI
 // encodeLSF encodes quantized LSF to bitstream per libopus.
 // Uses libopus ICDF tables matching silkDecodeIndices in libopus_decode.go.
 // Per RFC 6716 Section 4.2.7.5.2.
-func (e *Encoder) encodeLSF(stage1Idx int, residuals []int, interpIdx int, bandwidth Bandwidth, signalType int, numSubframes int) {
+func (e *Encoder) encodeLSF(stage1Idx int, residuals []int32, interpIdx int, bandwidth Bandwidth, signalType int, numSubframes int) {
 	isWideband := bandwidth == BandwidthWideband
 
 	// Select codebook based on bandwidth
@@ -337,12 +337,12 @@ func (e *Encoder) encodeLSF(stage1Idx int, residuals []int, interpIdx int, bandw
 		idx := residuals[i]
 		if idx >= nlsfQuantMaxAmplitude {
 			e.rangeEncoder.EncodeICDF(2*nlsfQuantMaxAmplitude, cb.ecICDF[ecIx[i]:], 8)
-			e.rangeEncoder.EncodeICDF(idx-nlsfQuantMaxAmplitude, silk_NLSF_EXT_iCDF, 8)
+			e.rangeEncoder.EncodeICDF(int(idx)-nlsfQuantMaxAmplitude, silk_NLSF_EXT_iCDF, 8)
 		} else if idx <= -nlsfQuantMaxAmplitude {
 			e.rangeEncoder.EncodeICDF(0, cb.ecICDF[ecIx[i]:], 8)
-			e.rangeEncoder.EncodeICDF(-idx-nlsfQuantMaxAmplitude, silk_NLSF_EXT_iCDF, 8)
+			e.rangeEncoder.EncodeICDF(int(-idx)-nlsfQuantMaxAmplitude, silk_NLSF_EXT_iCDF, 8)
 		} else {
-			e.rangeEncoder.EncodeICDF(idx+nlsfQuantMaxAmplitude, cb.ecICDF[ecIx[i]:], 8)
+			e.rangeEncoder.EncodeICDF(int(idx)+nlsfQuantMaxAmplitude, cb.ecICDF[ecIx[i]:], 8)
 		}
 	}
 

@@ -31,7 +31,7 @@ func TestTFAnalysisWithScratchMatchesAllocatingPath(t *testing.T) {
 		transient   bool
 		tfEstimate  float64
 		effective   int
-		importance  []int
+		importance  []int32
 		coefficient func(int) float64
 	}{
 		{
@@ -49,7 +49,7 @@ func TestTFAnalysisWithScratchMatchesAllocatingPath(t *testing.T) {
 			transient:  true,
 			tfEstimate: 0.17,
 			effective:  96,
-			importance: []int{13, 14, 12, 15, 13, 11, 16, 13, 12, 15, 14, 13, 11, 12, 13, 14, 15, 13, 12, 11, 13},
+			importance: []int32{13, 14, 12, 15, 13, 11, 16, 13, 12, 15, 14, 13, 11, 12, 13, 14, 15, 13, 12, 11, 13},
 			coefficient: func(i int) float64 {
 				if i%37 == 0 {
 					return 2.75

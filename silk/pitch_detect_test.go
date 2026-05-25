@@ -44,7 +44,7 @@ func TestDetectPitchVoicedSignal(t *testing.T) {
 		if errorMargin < 2 {
 			errorMargin = 2
 		}
-		error := util.Abs(lag - pitchPeriod)
+		error := util.Abs(int(lag) - pitchPeriod)
 		if error > errorMargin {
 			t.Errorf("subframe %d: detected lag %d, expected ~%d (error: %d)", sf, lag, pitchPeriod, error)
 		}
@@ -77,7 +77,7 @@ func TestDetectPitchNarrowband(t *testing.T) {
 
 	// Verify lags are within valid range
 	for sf, lag := range pitchLags {
-		if lag < config.PitchLagMin || lag > config.PitchLagMax {
+		if int(lag) < config.PitchLagMin || int(lag) > config.PitchLagMax {
 			t.Errorf("subframe %d: lag %d out of valid range [%d, %d]",
 				sf, lag, config.PitchLagMin, config.PitchLagMax)
 		}
@@ -273,7 +273,7 @@ func TestAnalyzeLTP(t *testing.T) {
 		pcm[i] = float32(1.0-2.0*phase) * (10000 * int16Scale)
 	}
 
-	pitchLags := []int{pitchPeriod, pitchPeriod, pitchPeriod, pitchPeriod}
+	pitchLags := []int32{int32(pitchPeriod), int32(pitchPeriod), int32(pitchPeriod), int32(pitchPeriod)}
 	numSubframes := 4
 
 	ltpCoeffs := enc.analyzeLTP(pcm, pitchLags, numSubframes, 2)
@@ -304,7 +304,7 @@ func TestDeterminePeriodicity(t *testing.T) {
 		pcm[i] = float32(math.Sin(2 * math.Pi * float64(i) / float64(pitchPeriod)))
 	}
 
-	pitchLags := []int{pitchPeriod, pitchPeriod, pitchPeriod, pitchPeriod}
+	pitchLags := []int32{int32(pitchPeriod), int32(pitchPeriod), int32(pitchPeriod), int32(pitchPeriod)}
 
 	periodicity := enc.determinePeriodicity(pcm, pitchLags)
 
@@ -347,7 +347,7 @@ func TestFindLTPCodebookIndex(t *testing.T) {
 
 func TestFindBestPitchContour(t *testing.T) {
 	// Test with constant pitch lags
-	pitchLags := []int{100, 100, 100, 100}
+	pitchLags := []int32{100, 100, 100, 100}
 	config := GetBandwidthConfig(BandwidthWideband)
 	contourIdx, baseLag := findBestPitchContour(
 		pitchLags,
@@ -417,8 +417,8 @@ func TestPitchDetectionAccuracyLibopusStyle(t *testing.T) {
 		// in pitch detection and may be acceptable depending on use case)
 		for sf, lag := range pitchLags {
 			// Check if lag matches fundamental or first harmonic (octave)
-			isFundamental := util.Abs(lag-pitchPeriod) <= pitchPeriod/10+2
-			isOctave := util.Abs(lag-2*pitchPeriod) <= pitchPeriod/5+2
+			isFundamental := util.Abs(int(lag)-pitchPeriod) <= pitchPeriod/10+2
+			isOctave := util.Abs(int(lag)-2*pitchPeriod) <= pitchPeriod/5+2
 
 			if !isFundamental && !isOctave {
 				t.Errorf("freq=%dHz: subframe %d: detected lag %d, expected ~%d or ~%d",
@@ -455,7 +455,7 @@ func TestPitchDetectionWithSine(t *testing.T) {
 		if errorMargin < 2 {
 			errorMargin = 2
 		}
-		if util.Abs(lag-pitchPeriod) > errorMargin {
+		if util.Abs(int(lag)-pitchPeriod) > errorMargin {
 			t.Errorf("sine wave: subframe %d: detected lag %d, expected ~%d",
 				sf, lag, pitchPeriod)
 		}
@@ -483,7 +483,7 @@ func TestPitchDetectionMediumband(t *testing.T) {
 
 	for sf, lag := range pitchLags {
 		// Verify lags are within valid range
-		if lag < config.PitchLagMin || lag > config.PitchLagMax {
+		if int(lag) < config.PitchLagMin || int(lag) > config.PitchLagMax {
 			t.Errorf("mediumband: subframe %d: lag %d out of range [%d, %d]",
 				sf, lag, config.PitchLagMin, config.PitchLagMax)
 		}

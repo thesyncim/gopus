@@ -35,7 +35,7 @@ type libopusDecoderDREDSequenceStepInfo struct {
 }
 
 type libopusDecoderDREDSILKSnapshot struct {
-	LagPrev        int
+	LagPrev        int32
 	LastGainIndex  int
 	LossCount      int
 	PrevSignalType int
@@ -222,7 +222,7 @@ func probeLibopusDecoderDREDSequenceWithSampleFormat(seedPacket, carrierPacket, 
 				return err
 			}
 		}
-		step.silk.LagPrev = int(reader.I32())
+		step.silk.LagPrev = reader.I32()
 		step.silk.LastGainIndex = int(reader.I32())
 		step.silk.LossCount = int(reader.I32())
 		step.silk.PrevSignalType = int(reader.I32())

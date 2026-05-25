@@ -141,8 +141,8 @@ func (d *Decoder) ensureQEXTOldBandE() []celtGLog {
 	return qextState.oldBandE
 }
 
-func (d *Decoder) allocationScratch() []int {
-	return ensureIntSlice(&d.scratchAllocWork, MaxBands*5)
+func (d *Decoder) allocationScratch() []int32 {
+	return ensureInt32Slice(&d.scratchAllocWork, MaxBands*5)
 }
 
 func (d *Decoder) snapshotDecodeHistory() ([]celtGLog, []celtGLog, []celtGLog) {

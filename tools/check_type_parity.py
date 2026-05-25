@@ -86,6 +86,18 @@ FINDING_RE = re.compile(
     r"\bfloat64\b|\bcomplex128\b|\bKissFFT64State\b|\bensureFloat64Slice\b|\bensureComplexSlice\b"
 )
 
+INT_FINDING_RE = re.compile(
+    r"\b(?:"
+    r"scratch\w*|"
+    r"alloc(?:Bits|FineBits|FinePrio|Caps|Thresh|Trim|Work)|"
+    r"pvq(?:Pulses|Refine)|"
+    r"qext(?:ExtraBits|FineBits|Pulses|Quant|Iy)|"
+    r"Metric|Path0|Path1|TfRes|tfRes|SpreadWeight|spreadWeight|"
+    r"Offsets|Importance"
+    r")\s+\[\]int\b|"
+    r"\b(?:PitchLags|PitchL|pitchL|pitchLags)\s+(?:\[\]int|\[maxNbSubfr\]int)\b"
+)
+
 
 @dataclass(frozen=True)
 class FindingKey:
@@ -158,8 +170,12 @@ def scan() -> dict[FindingKey, Finding]:
             lines = path.read_text(encoding="utf-8").splitlines()
         except UnicodeDecodeError:
             lines = path.read_text(encoding="latin-1").splitlines()
+        is_oracle_probe = any("gopus_libopus_oracle" in line for line in lines[:5])
+        check_int_width = path.parts and path.parts[0] in {"celt", "encoder", "plc", "silk"}
         for idx, line in enumerate(lines, start=1):
-            if not FINDING_RE.search(line):
+            if not FINDING_RE.search(line) and (
+                is_oracle_probe or not check_int_width or not INT_FINDING_RE.search(line)
+            ):
                 continue
             key = FindingKey(path.as_posix(), digest_line(line))
             finding = findings.get(key)

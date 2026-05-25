@@ -110,7 +110,7 @@ func TestNSQExcitationScalingWithProperGain(t *testing.T) {
 		TiltQ14:          make([]int32, 4),  // No tilt
 		LFShpQ14:         make([]int32, 4),  // No LF shaping
 		GainsQ16:         []int32{gainQ16},  // PROPER GAIN
-		PitchL:           make([]int, 4),    // No pitch
+		PitchL:           make([]int32, 4),  // No pitch
 		LambdaQ10:        1024,              // R-D tradeoff
 		LTPScaleQ14:      int32(silk_LTPScales_table_Q14[1]),
 		FrameLength:      subfrLength,
@@ -268,7 +268,7 @@ func TestPulseExcitationRoundtrip_WithLPC(t *testing.T) {
 		TiltQ14:          make([]int32, 4),
 		LFShpQ14:         make([]int32, 4),
 		GainsQ16:         []int32{gainQ16},
-		PitchL:           make([]int, 4),
+		PitchL:           make([]int32, 4),
 		LambdaQ10:        1024,
 		LTPScaleQ14:      int32(silk_LTPScales_table_Q14[1]),
 		FrameLength:      subfrLength,

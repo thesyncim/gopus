@@ -118,7 +118,7 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	signalType int,
 	speechActivityQ8 int,
 	ltpCorr float32,
-	pitchLags []int,
+	pitchLags []int32,
 	originalSNR float32,
 	quantOffsetType int,
 	inputQualityBandsQ15 [4]int32,

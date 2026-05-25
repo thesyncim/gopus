@@ -143,7 +143,7 @@ func probeLibopusDecoderDREDDecodeAndNextFloatWithGain(seedPacket, packet, nextP
 	info.celt48k.PLCDuration = int(reader.I32())
 	info.celt48k.SkipPLC = int(reader.I32())
 	info.celt48k.PLCPreemphasisMem = reader.Float32()
-	info.silk.LagPrev = int(reader.I32())
+	info.silk.LagPrev = reader.I32()
 	info.silk.LastGainIndex = int(reader.I32())
 	info.silk.LossCount = int(reader.I32())
 	info.silk.PrevSignalType = int(reader.I32())

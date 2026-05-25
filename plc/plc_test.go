@@ -223,7 +223,7 @@ func TestConcealSILKWithLTPLongFrameNoPanic(t *testing.T) {
 	dec.ltpCoefQ14 = [ltpOrder]int16{0, 2048, 8192, 2048, 0}
 
 	state := NewSILKPLCState()
-	pitchL := []int{96, 96, 96, 96}
+	pitchL := []int32{96, 96, 96, 96}
 	ltpCoefQ14 := make([]int16, ltpOrder*4)
 	for sf := 0; sf < 4; sf++ {
 		copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
@@ -272,7 +272,7 @@ func TestConcealSILKWithLTPShortMemoryNoPanic(t *testing.T) {
 	dec.lpcQ12[1] = -1024
 
 	state := NewSILKPLCState()
-	pitchL := []int{1, 1, 1, 1}
+	pitchL := []int32{1, 1, 1, 1}
 	ltpCoefQ14 := make([]int16, ltpOrder*4)
 	for sf := 0; sf < 4; sf++ {
 		copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
@@ -321,7 +321,7 @@ func TestConcealSILKWithLTPInconsistentFrameLayoutNoPanic(t *testing.T) {
 	dec.lpcQ12[1] = -1024
 
 	state := NewSILKPLCState()
-	pitchL := []int{1, 1, 1, 1}
+	pitchL := []int32{1, 1, 1, 1}
 	ltpCoefQ14 := make([]int16, ltpOrder*4)
 	for sf := 0; sf < 4; sf++ {
 		copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
@@ -386,7 +386,7 @@ func TestConcealSILKWithLTPOutBufPathIgnoresFloatHistory(t *testing.T) {
 
 	newState := func(dec *mockSILKExtendedDecoder) *SILKPLCState {
 		state := NewSILKPLCState()
-		pitchL := []int{dec.pitchLag, dec.pitchLag, dec.pitchLag, dec.pitchLag}
+		pitchL := []int32{int32(dec.pitchLag), int32(dec.pitchLag), int32(dec.pitchLag), int32(dec.pitchLag)}
 		ltpCoefQ14 := make([]int16, ltpOrder*4)
 		for sf := 0; sf < 4; sf++ {
 			copy(ltpCoefQ14[sf*ltpOrder:(sf+1)*ltpOrder], dec.ltpCoefQ14[:])
@@ -793,7 +793,7 @@ func TestSILKPLCStateUpdateFromGoodFrame(t *testing.T) {
 	state := NewSILKPLCState()
 
 	// Simulate a voiced frame update
-	pitchL := []int{100, 101, 102, 103}
+	pitchL := []int32{100, 101, 102, 103}
 	ltpCoefQ14 := make([]int16, 20) // 4 subframes * 5 coefficients
 	// Set LTP coefficients for last subframe
 	ltpCoefQ14[15] = 2000
@@ -852,7 +852,7 @@ func TestSILKPLCStateUpdateFromGoodFrame(t *testing.T) {
 func TestSILKPLCStateUnvoicedUpdate(t *testing.T) {
 	state := NewSILKPLCState()
 
-	pitchL := []int{0, 0, 0, 0}
+	pitchL := []int32{0, 0, 0, 0}
 	ltpCoefQ14 := make([]int16, 20)
 	gainsQ16 := []int32{50000, 60000, 70000, 80000}
 	lpcQ12 := make([]int16, 10)
@@ -888,7 +888,7 @@ func TestLTPCoefficientClamping(t *testing.T) {
 	state := NewSILKPLCState()
 
 	// Test with very low LTP gain (should be scaled up)
-	pitchL := []int{100, 100, 100, 100}
+	pitchL := []int32{100, 100, 100, 100}
 	ltpCoefQ14 := make([]int16, 20)
 	// Set very low LTP gain (below minimum)
 	ltpCoefQ14[17] = 1000 // Middle coefficient, below vPitchGainStartMinQ14

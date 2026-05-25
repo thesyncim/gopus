@@ -5,7 +5,7 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
-func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels int, disableInv bool, energies []celtGLog, prev1LogE, prev2LogE []celtGLog, pulses, fineQuant, finePriority, tfRes []int, intensity, dualStereo, balance, codedBands int) (coeffsL, coeffsR []celtNorm, qext *preparedQEXTDecode) {
+func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels int, disableInv bool, energies []celtGLog, prev1LogE, prev2LogE []celtGLog, pulses, fineQuant, finePriority, tfRes []int32, intensity, dualStereo, balance, codedBands int) (coeffsL, coeffsR []celtNorm, qext *preparedQEXTDecode) {
 	d.decodeFineEnergyGLogRange(energies, start, end, nil, fineQuant)
 	if extsupport.QEXT {
 		qext = d.prepareQEXTDecodeRange(qextPayload, rd, start, end, lm, frameSize)
@@ -18,7 +18,7 @@ func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decod
 	}
 
 	var extDec *rangecoding.Decoder
-	var extPulses []int
+	var extPulses []int32
 	extTotalBitsQ3 := 0
 	if extsupport.QEXT && qext != nil {
 		extDec = qext.dec
