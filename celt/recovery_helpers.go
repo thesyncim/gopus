@@ -256,14 +256,13 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 
 	outLen := frameSize * d.channels
 	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, outLen)
-	decayDB := 0.5
+	decayDB := celtGLog(0.5)
 	if prevLossDuration == 0 {
 		decayDB = 1.5
 	}
 	d.ensureBackgroundEnergyState()
-	d.scratchPrevEnergy = ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	concealEnergy := d.scratchPrevEnergy[:len(d.prevEnergy)]
-	copyGLogToFloat64(concealEnergy, d.prevEnergy)
+	concealEnergy := ensureGLogSlice(&d.scratchPrevEnergyGLog, len(d.prevEnergy))
+	copy(concealEnergy, d.prevEnergy)
 
 	// Match libopus celt_decode_lost() noise PLC cadence: in hybrid mode,
 	// only the coded CELT band range [start,end) gets decayed/floored.
@@ -280,8 +279,8 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 		base := c * MaxBands
 		for band := start; band < end; band++ {
 			idx := base + band
-			e := float64(d.prevEnergy[idx]) - decayDB
-			if bg := float64(d.backgroundEnergy[idx]); bg > e {
+			e := d.prevEnergy[idx] - decayDB
+			if bg := d.backgroundEnergy[idx]; bg > e {
 				e = bg
 			}
 			concealEnergy[idx] = e
@@ -290,28 +289,34 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 
 	seed := d.rng
 	if d.channels == 2 {
-		d.scratchPLCHybridNormL = ensureFloat64Slice(&d.scratchPLCHybridNormL, frameSize)
-		d.scratchPLCHybridNormR = ensureFloat64Slice(&d.scratchPLCHybridNormR, frameSize)
+		d.scratchPLCHybridNormL = ensureNormSlice(&d.scratchPLCHybridNormL, frameSize)
+		d.scratchPLCHybridNormR = ensureNormSlice(&d.scratchPLCHybridNormR, frameSize)
 		coeffsL := d.scratchPLCHybridNormL[:frameSize]
 		coeffsR := d.scratchPLCHybridNormR[:frameSize]
 		clear(coeffsL)
 		clear(coeffsR)
 		fillHybridPLCNoiseCoeffs(coeffsL, frameSize, start, end, &seed)
 		fillHybridPLCNoiseCoeffs(coeffsR, frameSize, start, end, &seed)
-		denormalizeCoeffsDownsample(coeffsL, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
-		denormalizeCoeffsDownsample(coeffsR, concealEnergy[MaxBands:], end, frameSize, d.downsampleFactor())
-		samples := d.SynthesizeStereo(coeffsL, coeffsR, false, 1)
+		denormalizeNormCoeffsDownsample(coeffsL, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
+		denormalizeNormCoeffsDownsample(coeffsR, concealEnergy[MaxBands:], end, frameSize, d.downsampleFactor())
+		coeffsLF64 := d.scratchPLC[:frameSize]
+		coeffsRF64 := d.scratchPLC[frameSize : frameSize*2]
+		copyNormToFloat64(coeffsLF64, coeffsL)
+		copyNormToFloat64(coeffsRF64, coeffsR)
+		samples := d.SynthesizeStereo(coeffsLF64, coeffsRF64, false, 1)
 		copy(d.scratchPLC[:outLen], samples[:min(outLen, len(samples))])
 	} else {
-		d.scratchPLCHybridNormL = ensureFloat64Slice(&d.scratchPLCHybridNormL, frameSize)
+		d.scratchPLCHybridNormL = ensureNormSlice(&d.scratchPLCHybridNormL, frameSize)
 		coeffs := d.scratchPLCHybridNormL[:frameSize]
 		clear(coeffs)
 		fillHybridPLCNoiseCoeffs(coeffs, frameSize, start, end, &seed)
-		denormalizeCoeffsDownsample(coeffs, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
-		samples := d.Synthesize(coeffs, false, 1)
+		denormalizeNormCoeffsDownsample(coeffs, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
+		coeffsF64 := d.scratchPLC[:frameSize]
+		copyNormToFloat64(coeffsF64, coeffs)
+		samples := d.Synthesize(coeffsF64, false, 1)
 		copy(d.scratchPLC[:outLen], samples[:min(outLen, len(samples))])
 	}
-	d.SetPrevEnergy(concealEnergy)
+	d.setPrevEnergyGLog(concealEnergy)
 	d.rng = seed
 
 	d.applyPostfilter(d.scratchPLC[:outLen], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
@@ -320,7 +325,7 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
 	return d.scratchPLC[:outLen], nil
 }
 
-func fillHybridPLCNoiseCoeffs(coeffs []float64, frameSize, startBand, endBand int, seed *uint32) {
+func fillHybridPLCNoiseCoeffs(coeffs []celtNorm, frameSize, startBand, endBand int, seed *uint32) {
 	if len(coeffs) < frameSize || frameSize <= 0 {
 		return
 	}
@@ -348,9 +353,9 @@ func fillHybridPLCNoiseCoeffs(coeffs []float64, frameSize, startBand, endBand in
 		}
 		for i := start; i < end; i++ {
 			*seed = *seed*1664525 + 1013904223
-			coeffs[i] = float64(int32(*seed) >> 20)
+			coeffs[i] = celtNorm(int32(*seed) >> 20)
 		}
-		renormalizeVector(coeffs[start:end], 1.0)
+		normalizeNormVectorInPlace(coeffs[start:end])
 	}
 }
 
@@ -403,11 +408,10 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 	}
 	mode := GetModeConfig(frameSize)
 	d.ensureBackgroundEnergyState()
-	d.scratchPrevEnergy = ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	concealEnergy := d.scratchPrevEnergy[:len(d.prevEnergy)]
-	copyGLogToFloat64(concealEnergy, d.prevEnergy)
+	concealEnergy := ensureGLogSlice(&d.scratchPrevEnergyGLog, len(d.prevEnergy))
+	copy(concealEnergy, d.prevEnergy)
 
-	decayDB := 0.5
+	decayDB := celtGLog(0.5)
 	if prevLossDuration == 0 {
 		decayDB = 1.5
 	}
@@ -423,8 +427,8 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 		base := c * MaxBands
 		for band := start; band < end; band++ {
 			idx := base + band
-			e := float64(d.prevEnergy[idx]) - decayDB
-			if bg := float64(d.backgroundEnergy[idx]); bg > e {
+			e := d.prevEnergy[idx] - decayDB
+			if bg := d.backgroundEnergy[idx]; bg > e {
 				e = bg
 			}
 			concealEnergy[idx] = e
@@ -433,28 +437,34 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 
 	seed := d.rng
 	if d.channels == 2 {
-		d.scratchPLCHybridNormL = ensureFloat64Slice(&d.scratchPLCHybridNormL, frameSize)
-		d.scratchPLCHybridNormR = ensureFloat64Slice(&d.scratchPLCHybridNormR, frameSize)
+		d.scratchPLCHybridNormL = ensureNormSlice(&d.scratchPLCHybridNormL, frameSize)
+		d.scratchPLCHybridNormR = ensureNormSlice(&d.scratchPLCHybridNormR, frameSize)
 		coeffsL := d.scratchPLCHybridNormL[:frameSize]
 		coeffsR := d.scratchPLCHybridNormR[:frameSize]
 		clear(coeffsL)
 		clear(coeffsR)
 		fillHybridPLCNoiseCoeffs(coeffsL, frameSize, start, end, &seed)
 		fillHybridPLCNoiseCoeffs(coeffsR, frameSize, start, end, &seed)
-		denormalizeCoeffsDownsample(coeffsL, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
-		denormalizeCoeffsDownsample(coeffsR, concealEnergy[MaxBands:], end, frameSize, d.downsampleFactor())
-		samples := d.SynthesizeStereo(coeffsL, coeffsR, false, 1)
+		denormalizeNormCoeffsDownsample(coeffsL, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
+		denormalizeNormCoeffsDownsample(coeffsR, concealEnergy[MaxBands:], end, frameSize, d.downsampleFactor())
+		coeffsLF64 := dst[:frameSize]
+		coeffsRF64 := dst[frameSize : frameSize*2]
+		copyNormToFloat64(coeffsLF64, coeffsL)
+		copyNormToFloat64(coeffsRF64, coeffsR)
+		samples := d.SynthesizeStereo(coeffsLF64, coeffsRF64, false, 1)
 		copy(dst[:frameSize*d.channels], samples[:min(len(samples), frameSize*d.channels)])
 	} else {
-		d.scratchPLCHybridNormL = ensureFloat64Slice(&d.scratchPLCHybridNormL, frameSize)
+		d.scratchPLCHybridNormL = ensureNormSlice(&d.scratchPLCHybridNormL, frameSize)
 		coeffs := d.scratchPLCHybridNormL[:frameSize]
 		clear(coeffs)
 		fillHybridPLCNoiseCoeffs(coeffs, frameSize, start, end, &seed)
-		denormalizeCoeffsDownsample(coeffs, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
-		samples := d.Synthesize(coeffs, false, 1)
+		denormalizeNormCoeffsDownsample(coeffs, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
+		coeffsF64 := dst[:frameSize]
+		copyNormToFloat64(coeffsF64, coeffs)
+		samples := d.Synthesize(coeffsF64, false, 1)
 		copy(dst[:frameSize*d.channels], samples[:min(len(samples), frameSize*d.channels)])
 	}
-	d.SetPrevEnergy(concealEnergy)
+	d.setPrevEnergyGLog(concealEnergy)
 	d.rng = seed
 
 	d.applyPostfilter(dst[:frameSize*d.channels], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)

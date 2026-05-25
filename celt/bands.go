@@ -469,6 +469,36 @@ func denormalizeCoeffsDownsample(coeffs []float64, energies []float64, nbBands, 
 	clearDenormalizedDownsampleTail(coeffs, nbBands, frameSize/Overlap, downsample, EBands[:])
 }
 
+func denormalizeNormCoeffsDownsample(coeffs []celtNorm, energies []celtGLog, nbBands, frameSize, downsample int) {
+	if len(coeffs) == 0 || len(energies) == 0 || nbBands <= 0 || frameSize <= 0 {
+		return
+	}
+	coeffsLen := min(len(coeffs), frameSize)
+	scaleWidth := frameSize / Overlap
+	offset := 0
+	for band := 0; band < nbBands; band++ {
+		width := EBands[band+1] - EBands[band]
+		if scaleWidth > 0 {
+			width *= scaleWidth
+		}
+		if width <= 0 {
+			continue
+		}
+		end := offset + width
+		if end > coeffsLen {
+			end = coeffsLen
+		}
+		if end > offset {
+			gain := denormalizeBandGain(energies, band)
+			for i := offset; i < end; i++ {
+				coeffs[i] = celtNorm(float32(coeffs[i]) * gain)
+			}
+		}
+		offset += width
+	}
+	clearDenormalizedDownsampleTailNorm(coeffs, nbBands, scaleWidth, downsample, EBands[:])
+}
+
 func denormalizeCoeffsWithModeInto(dst, src []float64, energies []float64, nbBands, lm int, edges []int) {
 	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || nbBands <= 0 || len(edges) < nbBands+1 {
 		return
@@ -566,6 +596,24 @@ func denormalizeBandsPackedDownsampleInto[E ~float32 | ~float64](dst, src []floa
 }
 
 func clearDenormalizedDownsampleTail(coeffs []float64, nbBands, scaleWidth, downsample int, edges []int) {
+	if len(coeffs) == 0 || nbBands <= 0 || scaleWidth <= 0 || len(edges) < nbBands+1 {
+		return
+	}
+	bound := edges[nbBands] * scaleWidth
+	if downsample > 1 {
+		if limit := len(coeffs) / downsample; bound > limit {
+			bound = limit
+		}
+	}
+	if bound < 0 {
+		bound = 0
+	}
+	if bound < len(coeffs) {
+		clear(coeffs[bound:])
+	}
+}
+
+func clearDenormalizedDownsampleTailNorm(coeffs []celtNorm, nbBands, scaleWidth, downsample int, edges []int) {
 	if len(coeffs) == 0 || nbBands <= 0 || scaleWidth <= 0 || len(edges) < nbBands+1 {
 		return
 	}

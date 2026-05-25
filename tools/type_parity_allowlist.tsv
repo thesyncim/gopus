@@ -348,10 +348,8 @@ celt/decoder_spectrum_helpers.go	1	479309d7869aba63b59453e53444e4683c65917ee32eb
 celt/decoder_spectrum_helpers.go	1	cdcdffcbaeacc1c28f8de92bfd838b2ec0b063899270ace6c1180ba6a2df92f0	legacy-current	coeffsR []float64
 celt/decoder_types.go	1	07a9e74f08c5f943286e5a2426bf151b730dde5e2382d7eb0cb63d218639a72b	legacy-current	scratchSynth []float64
 celt/decoder_types.go	1	2d1189f788924ad77eb9045ddfca9123729fdc2987139761e3c4d06cd39531eb	legacy-current	scratchSynthR []float64
-celt/decoder_types.go	1	2e3c114ba2705bad3b8b9d7342c72b5b5beabd4508d8205f8e73e5c00a3567af	legacy-current	scratchPLCHybridNormR []float64
 celt/decoder_types.go	1	307fbff3ba00b67bb8e25ab66a632a9fe0ce1aa894905038e8d5cb48da3eb8c2	legacy-current	scratchStereo []float64
 celt/decoder_types.go	1	4fa8a3f623db3cc5fa57c545e881b1ed1db294629a42489103fc1337e975c05c	legacy-current	scratchShortCoeffs []float64
-celt/decoder_types.go	1	6331ffc5572dc4090fe794a355effb1c108d94f8d380e16f9210a5584e7999ce	legacy-current	scratchPLCHybridNormL []float64
 celt/decoder_types.go	1	7949222a4c82584f1109b267b3313b3fa973dc2e2fd3b3b4cf3c4a3f7a100876	legacy-current	scratchPLC []float64 // Scratch buffer for PLC concealment samples
 celt/decoder_types.go	1	7c5c4185cd2b18f60af636b54e2c199a0f9d4b0be5da104fcde10add15e985ab	legacy-current	scratchPrevEnergy []float64
 celt/decoder_types.go	1	96c77a7a80ff927c7ab386b4c4b36a7bc94c626a015f29f1b8e2830a7f1dc9bc	legacy-current	postfilterScratch []float64
@@ -1068,23 +1066,16 @@ celt/recovery_helpers.go	1	323d8a2ce382aae84d4cc9a9db26d4c33f65ccd3ccb68727c98e3
 celt/recovery_helpers.go	1	359baaa0fc8e5a8ecae7b573e7027c44b5da65626f80bae9305da8ed9e8c0b81	legacy-current	dst[i*channels+ch] = float64(chOut[i])
 celt/recovery_helpers.go	1	399767e4245ca6722c21bdb4a2569ff8449fc2e6abedc56ab481185ee7e6567d	legacy-current	func (d *Decoder) concealPeriodicPLCWithLimit(dst []float64, frameSize, lossCount int, continuePeriodic bool, commit bool, limitEarly bool) bool {
 celt/recovery_helpers.go	1	5a81b9ca07e396ce24252a9a5e5e19bf5c07a4c4e139020aa1b17bc1989d4ca0	legacy-current	func (d *Decoder) updatePLCOverlapBuffer(plcSamples []float64, frameSize int) {
-celt/recovery_helpers.go	2	62056ebec05da7edfc7dd072674179e0043ef607840575ddb81402e3f3c012a4	legacy-current	d.scratchPLCHybridNormR = ensureFloat64Slice(&d.scratchPLCHybridNormR, frameSize)
 celt/recovery_helpers.go	1	6b7aea1dfb528c0d88722d36cd6f87e308452b038174f4a127ca899cd48ab481	legacy-current	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, outLen)
 celt/recovery_helpers.go	1	6ce13ced7ea21b787660718909193dbbdcfe3a3aa00c78f12585771f0614612c	legacy-current	ratio := float32(math.Sqrt(float64((s1 + 1.0) / (s2 + 1.0))))
-celt/recovery_helpers.go	2	702f72b9077fa9daefa609768d3d437d6c7a1f4c8d5577e2813ee95b6973afdd	legacy-current	d.scratchPrevEnergy = ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
-celt/recovery_helpers.go	4	805dfb021b2e7900481d66407e19607e725ffa85732509a91aec83bcb033c329	legacy-current	d.scratchPLCHybridNormL = ensureFloat64Slice(&d.scratchPLCHybridNormL, frameSize)
 celt/recovery_helpers.go	1	8d9cbad27fd21feb4397a84f9e4ddedfd581ae7e6e35c504f1576dda7de43979	legacy-current	e1 := float64(d.prevLogE[idx])
 celt/recovery_helpers.go	1	96314877266a32580461fc2bceccfe96ab15a3140939874f76b1b3fd6a3a3829	legacy-current	func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, continuePeriodic bool, commit bool) bool {
-celt/recovery_helpers.go	2	984c6ea043664d86e2d9acd2af3d2b3974f513a10e56fc1d49a46cb6163c2aa5	legacy-current	e := float64(d.prevEnergy[idx]) - decayDB
 celt/recovery_helpers.go	1	9a27b8c422473d7524e1903b850841df2fdd4a93610d66b31752b70466a44086	legacy-current	func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int) {
 celt/recovery_helpers.go	1	a14fe9234ab0b791eee2031a3c9c5dbce6a147ca6c5082f4ad11fadff68e83b5	legacy-current	func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float64, error) {
-celt/recovery_helpers.go	1	aabe55ae9f4439ea0bacf8126502a3953086ab915ce50c13d00c8319140f56ad	legacy-current	func fillHybridPLCNoiseCoeffs(coeffs []float64, frameSize, startBand, endBand int, seed *uint32) {
 celt/recovery_helpers.go	1	b21d38ab6da2ac69c74be5410fad6334d3d45ea255da12cbe39ab31ad01e6c35	legacy-current	e2 := float64(d.prevLogE2[idx])
 celt/recovery_helpers.go	1	ba95bfcd8c8103c354a6c69c8a9b1c73aef0dbb5271a5d6614fb09a096d336ec	legacy-current	ac[0] = float64(float32(ac[0]) * float32(1.0001))
 celt/recovery_helpers.go	1	c4a7b1959057860e72acc2ed0715dbe2b5cd853a1e7c90ea610fb65087dbb0e9	legacy-current	func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 celt/recovery_helpers.go	1	d32bbf73f78ce8af9639d3a90c3f2766ffc587e9ec81ab2408f83186857a80b5	legacy-current	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, plcLen)
-celt/recovery_helpers.go	2	d56c1ab4594f98a1a189373c87cab0847dc0e3a10f3b3ae53d582af12fc02c6a	legacy-current	if bg := float64(d.backgroundEnergy[idx]); bg > e {
-celt/recovery_helpers.go	1	db4f9de24aa1a287596c6c1eb8eb5537d4b3eb7d5ef87040caebff14857dbca8	legacy-current	coeffs[i] = float64(int32(*seed) >> 20)
 celt/recovery_helpers.go	1	e9a8baf7b79c71f790c85b46122ac214b0ebc141e73f02e1861e5de66442fb8f	legacy-current	e0 := float64(d.prevEnergy[idx])
 celt/recovery_helpers.go	1	eaa8c72141bf53e886ef3795b2d797419253c8a8b2c7c4205097755a2ec25549	legacy-current	func (d *Decoder) computePLCAutocorr(frame []celtSig, window []float64, ac []float32) {
 celt/scalar_types.go	1	056861f968f5628842a2237bbe58121fb994fe448243a0079180b19ff6cedc44	legacy-current	func interleaveSigToFloat64(left, right []celtSig, dst []float64) {

@@ -163,6 +163,6 @@ type Decoder struct {
 	decoderDREDState
 	scratchPLCFoldSrc     []celtSig
 	scratchPLCFoldDst     []celtSig
-	scratchPLCHybridNormL []float64
-	scratchPLCHybridNormR []float64
+	scratchPLCHybridNormL []celtNorm
+	scratchPLCHybridNormR []celtNorm
 }
