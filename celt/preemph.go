@@ -198,7 +198,7 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 		overlap = frameSize
 	}
 
-	channels := e.channels
+	channels := int(e.channels)
 	total := frameSize * channels
 	if total > len(pcm) {
 		total = len(pcm)
@@ -357,8 +357,9 @@ func (e *Encoder) ApplyDCReject(pcm []float32) []float32 {
 	}
 
 	// Initialize hpMem if not already done
-	if len(e.hpMem) < e.channels {
-		e.hpMem = make([]opusVal32, e.channels)
+	channels := int(e.channels)
+	if len(e.hpMem) < channels {
+		e.hpMem = make([]opusVal32, channels)
 	}
 
 	output := make([]float32, len(pcm))
@@ -374,8 +375,9 @@ func (e *Encoder) applyDCRejectScratch(pcm []float32) []float32 {
 	}
 
 	// Initialize hpMem if not already done
-	if len(e.hpMem) < e.channels {
-		e.hpMem = make([]opusVal32, e.channels)
+	channels := int(e.channels)
+	if len(e.hpMem) < channels {
+		e.hpMem = make([]opusVal32, channels)
 	}
 
 	output := ensureFloat32Slice(&e.scratch.dcRejectedF32, len(pcm))

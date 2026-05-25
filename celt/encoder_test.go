@@ -12,6 +12,7 @@ import (
 func TestEncoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 	int32Type := reflect.TypeOf(int32(0))
 	for _, name := range []string{
+		"channels",
 		"streamChannels",
 		"lsbDepth",
 		"targetBitrate",

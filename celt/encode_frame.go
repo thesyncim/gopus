@@ -45,22 +45,23 @@ func (e *Encoder) fillTransientHistoryFromPrefilter(overlap int, dst []float32) 
 	if overlap <= 0 || e.channels <= 0 {
 		return
 	}
-	need := overlap * e.channels
+	channels := int(e.channels)
+	need := overlap * channels
 	if len(dst) < need {
 		return
 	}
 	maxPeriod := combFilterMaxPeriod
-	if len(e.prefilterMem) < maxPeriod*e.channels {
+	if len(e.prefilterMem) < maxPeriod*channels {
 		for i := 0; i < need; i++ {
 			dst[i] = 0
 		}
 		return
 	}
 	base := maxPeriod - overlap
-	for ch := 0; ch < e.channels; ch++ {
+	for ch := 0; ch < channels; ch++ {
 		chBase := ch * maxPeriod
 		for i := 0; i < overlap; i++ {
-			dst[i*e.channels+ch] = float32(e.prefilterMem[chBase+base+i])
+			dst[i*channels+ch] = float32(e.prefilterMem[chBase+base+i])
 		}
 	}
 }
@@ -69,20 +70,21 @@ func (e *Encoder) fillTransientHistoryFromPrefilterF32(overlap int, dst []float3
 	if overlap <= 0 || e.channels <= 0 {
 		return
 	}
-	need := overlap * e.channels
+	channels := int(e.channels)
+	need := overlap * channels
 	if len(dst) < need {
 		return
 	}
 	maxPeriod := combFilterMaxPeriod
-	if len(e.prefilterMem) < maxPeriod*e.channels {
+	if len(e.prefilterMem) < maxPeriod*channels {
 		clear(dst[:need])
 		return
 	}
 	base := maxPeriod - overlap
-	for ch := 0; ch < e.channels; ch++ {
+	for ch := 0; ch < channels; ch++ {
 		chBase := ch * maxPeriod
 		for i := 0; i < overlap; i++ {
-			dst[i*e.channels+ch] = float32(e.prefilterMem[chBase+base+i])
+			dst[i*channels+ch] = float32(e.prefilterMem[chBase+base+i])
 		}
 	}
 }
@@ -116,7 +118,8 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 	}
 
 	maskBands := MaxBands
-	needed := maskBands * e.channels
+	channels := int(e.channels)
+	needed := maskBands * channels
 	if len(e.energyMask) < needed {
 		return e.surroundTrim, false
 	}
@@ -138,7 +141,7 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 	maskAvg := celtGLog(0)
 	diff := celtGLog(0)
 	count := 0
-	for c := 0; c < e.channels; c++ {
+	for c := 0; c < channels; c++ {
 		base := c * maskBands
 		for i := 0; i < maskEnd; i++ {
 			mask := e.energyMask[base+i]
@@ -162,7 +165,7 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 	}
 	maskAvg = maskAvg/celtGLog(count) + 0.2
 
-	denom := celtGLog(e.channels * (maskEnd - 1) * (maskEnd + 1) * maskEnd)
+	denom := celtGLog(channels * (maskEnd - 1) * (maskEnd + 1) * maskEnd)
 	if denom > 0 {
 		diff = (diff * 6.0 / denom) * 0.5
 	} else {
@@ -250,7 +253,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		return nil, ErrInvalidFrameSize
 	}
 
-	expectedLen := frameSize * e.channels
+	channels := int(e.channels)
+	expectedLen := frameSize * channels
 	if len(pcm) != expectedLen {
 		return nil, ErrInvalidInputLength
 	}
@@ -301,8 +305,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 	// Build combined signal for transient analysis: [overlap from previous frame] + [current frame]
 	// Total length: (overlap + frameSize) * channels - use scratch buffer
-	preemphBufSize := overlap * e.channels
-	transientLen := (overlap + frameSize) * e.channels
+	preemphBufSize := overlap * channels
+	transientLen := (overlap + frameSize) * channels
 	transientInput := e.scratch.transientInput
 	if len(transientInput) < transientLen {
 		transientInput = make([]float32, transientLen)
@@ -1557,8 +1561,8 @@ func (e *Encoder) setPrevEnergyWithPrevCoded(prev []celtGLog, energies []celtGLo
 	if codedChannels < 1 {
 		codedChannels = 1
 	}
-	if codedChannels > e.channels {
-		codedChannels = e.channels
+	if codedChannels > int(e.channels) {
+		codedChannels = int(e.channels)
 	}
 	for c := 0; c < codedChannels; c++ {
 		for band := 0; band < nbBands; band++ {

@@ -18,7 +18,7 @@ type prefilterResult struct {
 // This mirrors libopus run_prefilter() in celt_encoder.c.
 func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, enabled bool, tfEstimate float32, nbAvailableBytes int, toneFreq, toneishness, maxPitchRatio float32) prefilterResult {
 	result := prefilterResult{on: false, pitch: combFilterMinPeriod, qg: 0, tapset: tapset, gain: 0}
-	channels := e.channels
+	channels := int(e.channels)
 	if channels <= 0 || frameSize <= 0 || len(preemph) == 0 {
 		return result
 	}

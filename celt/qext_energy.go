@@ -91,11 +91,12 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	if re == nil || nbBands <= 0 {
 		return false
 	}
-	needed := nbBands * e.channels
+	channels := int(e.channels)
+	needed := nbBands * channels
 	if len(energies) < needed || len(quantizedEnergies) < needed || len(errorVals) < needed {
 		return false
 	}
-	if len(oldBandEState) < MaxBands*e.channels {
+	if len(oldBandEState) < MaxBands*channels {
 		return false
 	}
 

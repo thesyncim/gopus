@@ -26,7 +26,7 @@ const (
 func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float32, nbBands, frameSize int) []celtGLog {
 	// Use default scratch buffer - caller should use ComputeBandEnergiesInto if they need
 	// a specific destination buffer to avoid aliasing
-	energiesLen := nbBands * e.channels
+	energiesLen := nbBands * int(e.channels)
 	dst := ensureGLogSlice(&e.scratch.energies, energiesLen)
 	e.ComputeBandEnergiesInto(mdctCoeffs, nbBands, frameSize, dst)
 	return dst
@@ -35,7 +35,7 @@ func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float32, nbBands, frameSize i
 // ComputeBandEnergiesF32 computes CELT band energies from float-build MDCT
 // coefficients and returns the encoder scratch view.
 func (e *Encoder) ComputeBandEnergiesF32(mdctCoeffs []float32, nbBands, frameSize int) []celtGLog {
-	energiesLen := nbBands * e.channels
+	energiesLen := nbBands * int(e.channels)
 	dst := ensureGLogSlice(&e.scratch.energies, energiesLen)
 	e.ComputeBandEnergiesF32Into(mdctCoeffs, nbBands, frameSize, dst)
 	return dst
@@ -44,19 +44,19 @@ func (e *Encoder) ComputeBandEnergiesF32(mdctCoeffs []float32, nbBands, frameSiz
 // ComputeBandEnergiesInto computes band energies into the provided destination buffer.
 // Use this instead of ComputeBandEnergies when you need to avoid buffer aliasing.
 func (e *Encoder) ComputeBandEnergiesInto(mdctCoeffs []float32, nbBands, frameSize int, dst []celtGLog) {
-	computeBandEnergiesGLogInto(mdctCoeffs, nbBands, frameSize, e.channels, dst)
+	computeBandEnergiesGLogInto(mdctCoeffs, nbBands, frameSize, int(e.channels), dst)
 }
 
 // ComputeBandEnergiesF32Into computes CELT band energies into celt_glog-width
 // scratch for callers that already carry float-build MDCT coefficients.
 func (e *Encoder) ComputeBandEnergiesF32Into(mdctCoeffs []float32, nbBands, frameSize int, dst []celtGLog) {
-	computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, e.channels, dst)
+	computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, int(e.channels), dst)
 }
 
 // ComputeBandEnergiesFloat32Into computes CELT band energies in libopus
 // float-build storage for callers that already carry celt_sig/celt_glog data.
 func (e *Encoder) ComputeBandEnergiesFloat32Into(mdctCoeffs []float32, nbBands, frameSize int, dst []float32) {
-	computeBandEnergiesFloat32Into(mdctCoeffs, nbBands, frameSize, e.channels, dst)
+	computeBandEnergiesFloat32Into(mdctCoeffs, nbBands, frameSize, int(e.channels), dst)
 }
 
 func computeBandEnergiesInto(mdctCoeffs []float32, nbBands, frameSize, channels int, dst []float32) {
@@ -511,7 +511,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 		lm = 3
 	}
 
-	channels := e.channels
+	channels := int(e.channels)
 	if len(energies) < nbBands*channels {
 		channels = 1
 	}
@@ -848,7 +848,7 @@ func (e *Encoder) EncodeCoarseEnergy(energies []celtGLog, nbBands int, intra boo
 		lm = 3
 	}
 
-	channels := e.channels
+	channels := int(e.channels)
 	if len(energies) < nbBands*channels {
 		channels = 1
 	}
@@ -909,7 +909,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 	}
 
 	nbBands := end
-	channels := e.channels
+	channels := int(e.channels)
 	if len(energies) < nbBands*channels {
 		channels = 1
 	}
@@ -1184,7 +1184,7 @@ func (e *Encoder) EncodeFineEnergy(energies []celtGLog, quantizedCoarse []celtGL
 		nbBands = len(fineBits)
 	}
 
-	channels := e.channels
+	channels := int(e.channels)
 	if len(energies) < nbBands*channels {
 		channels = 1
 	}
@@ -1243,7 +1243,7 @@ func (e *Encoder) encodeFineEnergyFromError(quantizedEnergies []celtGLog, nbBand
 		nbBands = len(fineBits)
 	}
 
-	channels := e.channels
+	channels := int(e.channels)
 	if len(quantizedEnergies) < nbBands*channels || len(errorVals) < nbBands*channels {
 		channels = 1
 	}
@@ -1307,7 +1307,7 @@ func (e *Encoder) EncodeFineEnergyRange(energies []celtGLog, quantizedCoarse []c
 		nbBands = len(fineBits)
 	}
 
-	channels := e.channels
+	channels := int(e.channels)
 	if len(energies) < nbBands*channels {
 		channels = 1
 	}
@@ -1366,7 +1366,7 @@ func (e *Encoder) EncodeFineEnergyRangeFromError(quantizedEnergies []celtGLog, s
 	if nbBands > len(fineBits) {
 		nbBands = len(fineBits)
 	}
-	channels := e.channels
+	channels := int(e.channels)
 	if channels < 1 {
 		channels = 1
 	}
@@ -1432,7 +1432,7 @@ func (e *Encoder) EncodeEnergyRemainder(energies []celtGLog, quantizedEnergies [
 		nbBands = len(remainderBits)
 	}
 
-	channels := e.channels
+	channels := int(e.channels)
 	if len(energies) < nbBands*channels {
 		channels = 1
 	}
@@ -1500,7 +1500,7 @@ func (e *Encoder) EncodeEnergyFinalise(energies []celtGLog, quantizedEnergies []
 		bitsLeft = 0
 	}
 
-	channels := e.channels
+	channels := int(e.channels)
 	if len(energies) < nbBands*channels || len(quantizedEnergies) < nbBands*channels {
 		channels = 1
 	}
@@ -1550,7 +1550,7 @@ func (e *Encoder) encodeEnergyFinaliseFromError(quantizedEnergies []celtGLog, nb
 		bitsLeft = 0
 	}
 
-	channels := e.channels
+	channels := int(e.channels)
 	if len(quantizedEnergies) < nbBands*channels || len(errorVals) < nbBands*channels {
 		channels = 1
 	}
@@ -1605,7 +1605,7 @@ func (e *Encoder) EncodeEnergyFinaliseRange(energies []celtGLog, quantizedEnergi
 	}
 
 	nbBands := end
-	channels := e.channels
+	channels := int(e.channels)
 	if len(energies) < nbBands*channels || len(quantizedEnergies) < nbBands*channels {
 		channels = 1
 	}
@@ -1659,7 +1659,7 @@ func (e *Encoder) EncodeEnergyFinaliseRangeFromError(quantizedEnergies []celtGLo
 	}
 
 	nbBands := end
-	channels := e.channels
+	channels := int(e.channels)
 	if channels < 1 {
 		channels = 1
 	}
@@ -1742,7 +1742,7 @@ func (e *Encoder) encodeFineEnergyFromErrorWithPrev(quantizedEnergies []celtGLog
 		nbBands = len(extraQuant)
 	}
 
-	channels := e.channels
+	channels := int(e.channels)
 	if len(quantizedEnergies) < nbBands*channels || len(errorVals) < nbBands*channels {
 		channels = 1
 	}
@@ -1819,7 +1819,7 @@ func (e *Encoder) EncodeEnergyRemainderWithEncoder(re *rangecoding.Encoder, ener
 // Only encodes bands from startBand onwards (typically band 17).
 func (e *Encoder) EncodeCoarseEnergyHybrid(energies []celtGLog, nbBands int, intra bool, lm int, startBand int) []celtGLog {
 	if e.rangeEncoder == nil || nbBands == 0 {
-		return make([]celtGLog, nbBands*e.channels)
+		return make([]celtGLog, nbBands*int(e.channels))
 	}
 
 	return e.EncodeCoarseEnergyRange(energies, startBand, nbBands, intra, lm)

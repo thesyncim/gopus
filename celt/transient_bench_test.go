@@ -171,7 +171,7 @@ func transientAnalysisLegacyBench(e *Encoder, pcm []float64, frameSize int, allo
 		return result
 	}
 
-	channels := e.channels
+	channels := int(e.channels)
 	samplesPerChannel := len(pcm) / channels
 	if samplesPerChannel < 16 {
 		return result

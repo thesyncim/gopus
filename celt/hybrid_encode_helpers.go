@@ -170,7 +170,7 @@ func (e *Encoder) SignalBandwidthForAllocation(nbBands, equivRate int) int {
 		signalBandwidth = 0
 	}
 	if e.analysisValid {
-		minBandwidth := celtMinSignalBandwidth(equivRate, e.channels)
+		minBandwidth := celtMinSignalBandwidth(equivRate, int(e.channels))
 		if e.analysisBandwidth > minBandwidth {
 			signalBandwidth = e.analysisBandwidth
 		} else {
@@ -263,7 +263,8 @@ func (e *Encoder) StabilizeEnergiesBeforeCoarseHybrid(energies []celtGLog, start
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
-	for c := 0; c < e.channels; c++ {
+	channels := int(e.channels)
+	for c := 0; c < channels; c++ {
 		baseState := c * MaxBands
 		baseFrame := c * nbBands
 		for band := start; band < end; band++ {
@@ -312,7 +313,8 @@ func (e *Encoder) UpdateEnergyErrorHybrid(energies, quantizedEnergies []celtGLog
 		e.energyError[i] = 0
 	}
 
-	for c := 0; c < e.channels; c++ {
+	channels := int(e.channels)
+	for c := 0; c < channels; c++ {
 		baseState := c * MaxBands
 		baseFrame := c * nbBands
 		for band := start; band < end; band++ {
@@ -356,7 +358,7 @@ func (e *Encoder) UpdateEnergyErrorHybridFromError(start, end, nbBands int) {
 		return
 	}
 
-	channels := e.channels
+	channels := int(e.channels)
 	if channels < 1 {
 		channels = 1
 	}
@@ -386,7 +388,8 @@ func (e *Encoder) UpdateEnergyErrorHybridFromError(start, end, nbBands int) {
 // with enabled=false so previous CELT postfilter state can fade out cleanly even
 // though no prefilter header bits are signaled in hybrid packets.
 func (e *Encoder) ApplyHybridPrefilter(preemph []float32, frameSize int, tfEstimate float32, nbAvailableBytes int, toneFreq, toneishness float32) {
-	if frameSize <= 0 || e.channels <= 0 || len(preemph) < frameSize*e.channels {
+	channels := int(e.channels)
+	if frameSize <= 0 || channels <= 0 || len(preemph) < frameSize*channels {
 		return
 	}
 
@@ -416,8 +419,9 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands,
 		overlap = frameSize
 	}
 
-	preemphBufSize := overlap * e.channels
-	transientLen := (overlap + frameSize) * e.channels
+	channels := int(e.channels)
+	preemphBufSize := overlap * channels
+	transientLen := (overlap + frameSize) * channels
 
 	var result TransientAnalysisResult
 	if e.channels == 1 {
@@ -472,8 +476,8 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands,
 		hist = hist[:overlap]
 		copySigToFloat32(hist, e.overlapBuffer[:overlap])
 		mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
-		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*e.channels)
-		computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, e.channels, bandLogE2)
+		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*channels)
+		computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, channels, bandLogE2)
 	} else {
 		left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 		if len(e.overlapBuffer) < 2*overlap {
@@ -508,8 +512,8 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands,
 		mdctLong = mdctLong[:mdctLongLen]
 		copy(mdctLong, mdctLeftLong)
 		copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
-		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*e.channels)
-		computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, e.channels, bandLogE2)
+		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*channels)
+		computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, channels, bandLogE2)
 	}
 
 	if bandLogE2 != nil {
@@ -554,7 +558,7 @@ func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2 []celtGLog, 
 		nbBands,
 		start,
 		end,
-		e.channels,
+		int(e.channels),
 		lsbDepth,
 		lm,
 		logN,
@@ -714,8 +718,9 @@ func (e *Encoder) ApplyDCRejectScratchHybrid(pcm []float32) []float32 {
 // float-build input storage. It prepends the delay buffer and returns a
 // frame-sized slice of samples.
 func (e *Encoder) ApplyDelayCompensationScratchHybrid(pcm []float32, frameSize int) []float32 {
-	expectedLen := frameSize * e.channels
-	delayComp := DelayCompensation * e.channels
+	channels := int(e.channels)
+	expectedLen := frameSize * channels
+	delayComp := DelayCompensation * channels
 	if len(e.delayBuffer) < delayComp {
 		e.delayBuffer = make([]opusRes, delayComp)
 	}

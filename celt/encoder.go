@@ -28,7 +28,7 @@ type Encoder struct {
 	rangeEncoder *rangecoding.Encoder
 
 	// Configuration (mirrors decoder)
-	channels       int           // 1 or 2
+	channels       int32         // libopus CELTEncoder.channels
 	streamChannels int32         // coded channels, mirrors CELT_SET_CHANNELS
 	sampleRate     int           // Always 48000
 	lsbDepth       int32         // Input LSB depth (8-24 bits)
@@ -218,7 +218,7 @@ func NewEncoder(channels int) *Encoder {
 	}
 
 	e := &Encoder{
-		channels:       channels,
+		channels:       int32(channels),
 		streamChannels: int32(channels),
 		sampleRate:     48000, // CELT always operates at 48kHz internally
 		lsbDepth:       24,    // Default to full 24-bit depth
@@ -485,7 +485,7 @@ func (e *Encoder) SurroundTrim() celtGLog {
 // Expected sizes: 21 values for mono, 42 values for stereo.
 // Invalid sizes clear the mask.
 func (e *Encoder) SetEnergyMask(mask []float32) {
-	needed := MaxBands * e.channels
+	needed := MaxBands * int(e.channels)
 	if needed <= 0 || len(mask) < needed {
 		if len(e.energyMask) > 0 {
 			clear(e.energyMask)
@@ -637,12 +637,12 @@ func (e *Encoder) RangeEncoder() *rangecoding.Encoder {
 
 // Channels returns the number of audio channels (1 or 2).
 func (e *Encoder) Channels() int {
-	return e.channels
+	return int(e.channels)
 }
 
 // SetStreamChannels mirrors libopus CELT_SET_CHANNELS.
 func (e *Encoder) SetStreamChannels(channels int) {
-	if channels < 1 || channels > e.channels {
+	if channels < 1 || channels > int(e.channels) {
 		return
 	}
 	e.streamChannels = int32(channels)
@@ -658,8 +658,8 @@ func (e *Encoder) codedChannels() int {
 	if channels < 1 {
 		channels = 1
 	}
-	if channels > e.channels {
-		channels = e.channels
+	if channels > int(e.channels) {
+		channels = int(e.channels)
 	}
 	return channels
 }
@@ -780,7 +780,7 @@ func (e *Encoder) NextRNG() uint32 {
 
 // GetEnergy returns the energy for a specific band and channel from prevEnergy.
 func (e *Encoder) GetEnergy(band, channel int) float32 {
-	if band < 0 || band >= MaxBands || channel < 0 || channel >= e.channels {
+	if band < 0 || band >= MaxBands || channel < 0 || channel >= int(e.channels) {
 		return 0
 	}
 	return float32(e.prevEnergy[channel*MaxBands+band])
@@ -788,7 +788,7 @@ func (e *Encoder) GetEnergy(band, channel int) float32 {
 
 // SetEnergy sets the energy for a specific band and channel.
 func (e *Encoder) SetEnergy(band, channel int, energy float32) {
-	if band < 0 || band >= MaxBands || channel < 0 || channel >= e.channels {
+	if band < 0 || band >= MaxBands || channel < 0 || channel >= int(e.channels) {
 		return
 	}
 	e.prevEnergy[channel*MaxBands+band] = celtGLog(energy)
@@ -1184,7 +1184,7 @@ func (e *Encoder) EnsureScratch(frameSize int) {
 // ensureScratch ensures all scratch buffers are properly sized for the given frame parameters.
 // Call this at the start of EncodeFrame to prepare buffers for reuse.
 func (e *Encoder) ensureScratch(frameSize int) {
-	channels := e.channels
+	channels := int(e.channels)
 	expectedLen := frameSize * channels
 	overlap := Overlap
 	if overlap > frameSize {
