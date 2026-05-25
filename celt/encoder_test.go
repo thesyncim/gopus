@@ -86,13 +86,13 @@ func TestEncoderStreamChannelsControl(t *testing.T) {
 }
 
 func TestFoldStereoMDCTToMonoMatchesLibopusAverage(t *testing.T) {
-	left := []float64{1, -2, 3.5, 1.0 / 3.0}
-	right := []float64{3, 4, -1.5, -2.0 / 3.0}
-	dst := make([]float64, len(left))
+	left := []float32{1, -2, 3.5, 1.0 / 3.0}
+	right := []float32{3, 4, -1.5, -2.0 / 3.0}
+	dst := make([]float32, len(left))
 
-	got := foldStereoMDCTToMono(dst, left, right)
+	got := foldStereoMDCTToMonoF32(dst, left, right)
 	for i := range got {
-		want := float64(0.5*float32(left[i]) + 0.5*float32(right[i]))
+		want := 0.5*left[i] + 0.5*right[i]
 		if got[i] != want {
 			t.Fatalf("folded[%d] = %v, want %v", i, got[i], want)
 		}
@@ -454,7 +454,7 @@ func TestMDCTRoundTrip(t *testing.T) {
 			}
 
 			// Forward MDCT: 2*N samples -> N coefficients
-			coeffs := MDCT(input)
+			coeffs := MDCT(float32sForMDCTForwardTest(input))
 			if len(coeffs) != n {
 				t.Errorf("MDCT output length = %d, want %d", len(coeffs), n)
 				return
@@ -475,7 +475,7 @@ func TestMDCTRoundTrip(t *testing.T) {
 
 			var maxDiff float64
 			for i := startCompare; i < endCompare; i++ {
-				diff := math.Abs(input[i] - output[i])
+				diff := math.Abs(input[i] - float64(output[i]))
 				if diff > maxDiff {
 					maxDiff = diff
 				}
@@ -486,8 +486,9 @@ func TestMDCTRoundTrip(t *testing.T) {
 			// Check that the shape is preserved (not all zeros)
 			var maxOutput float64
 			for i := startCompare; i < endCompare; i++ {
-				if math.Abs(output[i]) > maxOutput {
-					maxOutput = math.Abs(output[i])
+				abs := math.Abs(float64(output[i]))
+				if abs > maxOutput {
+					maxOutput = abs
 				}
 			}
 
@@ -516,7 +517,7 @@ func TestMDCTShortRoundTrip(t *testing.T) {
 			}
 
 			// Forward MDCT (short blocks)
-			coeffs := MDCTShort(input, shortBlocks)
+			coeffs := MDCTShort(float32sForMDCTForwardTest(input), shortBlocks)
 			expectedCoeffs := shortSize * shortBlocks
 			if len(coeffs) != expectedCoeffs {
 				t.Errorf("MDCTShort output length = %d, want %d", len(coeffs), expectedCoeffs)
@@ -535,8 +536,9 @@ func TestMDCTShortRoundTrip(t *testing.T) {
 			// Verify output is not all zeros
 			var maxOutput float64
 			for _, x := range output {
-				if math.Abs(x) > maxOutput {
-					maxOutput = math.Abs(x)
+				abs := math.Abs(float64(x))
+				if abs > maxOutput {
+					maxOutput = abs
 				}
 			}
 

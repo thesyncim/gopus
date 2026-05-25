@@ -144,7 +144,7 @@ func TestRunPrefilterParityAgainstLibopusFixture(t *testing.T) {
 			goInput[i] = float32(v)
 		}
 
-		got := enc.runPrefilter(goInput, c.FrameSize, c.Tapset, c.Enabled, c.TFEstimate, c.NBAvailableBytes, c.ToneFreq, c.Toneishness, c.MaxPitchRatio)
+		got := enc.runPrefilter(goInput, c.FrameSize, c.Tapset, c.Enabled, float32(c.TFEstimate), c.NBAvailableBytes, float32(c.ToneFreq), float32(c.Toneishness), float32(c.MaxPitchRatio))
 
 		if got.on != c.ExpectedOn {
 			onMismatch++

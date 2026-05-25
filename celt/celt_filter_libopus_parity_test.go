@@ -92,11 +92,9 @@ func TestApplyDeemphasisAndScaleToFloat32MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	const n = 67
-	samples := make([]float64, n)
 	samples32 := make([]float32, n)
-	for i := range samples {
+	for i := range samples32 {
 		v := float32(math.Sin(float64(i+1)*0.173)*2100 + math.Cos(float64(i+3)*0.071)*650)
-		samples[i] = float64(v)
 		samples32[i] = v
 	}
 	initialMem := []float32{float32(-312.75)}
@@ -105,7 +103,7 @@ func TestApplyDeemphasisAndScaleToFloat32MatchesLibopus(t *testing.T) {
 	dec := NewDecoder(1)
 	dec.preemphState[0] = initialMem[0]
 	got := make([]float32, n)
-	dec.applyDeemphasisAndScaleToFloat32(got, samples, 1.0/32768.0)
+	dec.applyDeemphasisAndScaleToFloat32(got, samples32, 1.0/32768.0)
 
 	for i := range got {
 		if math.Float32bits(got[i]) != math.Float32bits(want.pcm[i]) {
@@ -124,10 +122,10 @@ func TestApplyDeemphasisAndScaleToFloat32StereoMatchesLibopus(t *testing.T) {
 
 	const n = 61
 	left, right := makeStereoDeemphasisSamples(n)
-	interleaved := make([]float64, n*2)
+	interleaved := make([]float32, n*2)
 	for i := 0; i < n; i++ {
-		interleaved[2*i] = float64(left[i])
-		interleaved[2*i+1] = float64(right[i])
+		interleaved[2*i] = left[i]
+		interleaved[2*i+1] = right[i]
 	}
 	initialMem := []float32{float32(-129.5), float32(84.25)}
 	want := probeLibopusDeemphasis(t, 2, [][]float32{left, right}, initialMem)
@@ -175,10 +173,10 @@ func TestApplyDeemphasisAndScaleInPlaceMatchesLibopus(t *testing.T) {
 
 	const n = 59
 	left, right := makeStereoDeemphasisSamples(n)
-	samples := make([]float64, n*2)
+	samples := make([]float32, n*2)
 	for i := 0; i < n; i++ {
-		samples[2*i] = float64(left[i])
-		samples[2*i+1] = float64(right[i])
+		samples[2*i] = left[i]
+		samples[2*i+1] = right[i]
 	}
 	initialMem := []float32{float32(91.75), float32(-44.5)}
 	want := probeLibopusDeemphasis(t, 2, [][]float32{left, right}, initialMem)
@@ -188,11 +186,7 @@ func TestApplyDeemphasisAndScaleInPlaceMatchesLibopus(t *testing.T) {
 	dec.preemphState[1] = initialMem[1]
 	dec.applyDeemphasisAndScale(samples, 1.0/32768.0)
 
-	got := make([]float32, len(samples))
-	for i := range samples {
-		got[i] = float32(samples[i])
-	}
-	assertCELTFilterFloat32Bits(t, "pcm", got, want.pcm)
+	assertCELTFilterFloat32Bits(t, "pcm", samples, want.pcm)
 	assertCELTFilterMemBits(t, dec, want.mem)
 }
 
@@ -201,12 +195,6 @@ func TestApplyDeemphasisAndScaleStereoPlanarToFloat32MatchesLibopus(t *testing.T
 
 	const n = 65
 	left32, right32 := makeStereoDeemphasisSamples(n)
-	left := make([]float64, n)
-	right := make([]float64, n)
-	for i := 0; i < n; i++ {
-		left[i] = float64(left32[i])
-		right[i] = float64(right32[i])
-	}
 	initialMem := []float32{float32(277.25), float32(-193.125)}
 	want := probeLibopusDeemphasis(t, 2, [][]float32{left32, right32}, initialMem)
 
@@ -214,7 +202,7 @@ func TestApplyDeemphasisAndScaleStereoPlanarToFloat32MatchesLibopus(t *testing.T
 	dec.preemphState[0] = initialMem[0]
 	dec.preemphState[1] = initialMem[1]
 	got := make([]float32, n*2)
-	dec.applyDeemphasisAndScaleStereoPlanarToFloat32(got, left, right, 1.0/32768.0)
+	dec.applyDeemphasisAndScaleStereoPlanarToFloat32(got, left32, right32, 1.0/32768.0)
 
 	assertCELTFilterFloat32Bits(t, "pcm", got, want.pcm)
 	assertCELTFilterMemBits(t, dec, want.mem)
@@ -323,21 +311,27 @@ func TestCombFilterWithSquareMatchesLibopus(t *testing.T) {
 		t1      = 40
 		overlap = Overlap
 	)
-	window := GetWindowBuffer(overlap)
 	windowF32 := GetWindowBufferF32(overlap)
-	windowSq := GetWindowSquareBuffer(overlap)
-	buf := make([]float64, start+n+2)
+	windowSq := GetWindowSquareBufferF32(overlap)
+	buf := make([]float32, start+n+2)
 	for i := range buf {
-		buf[i] = float64(float32(math.Sin(float64(i+11)*0.031)*2300 + math.Cos(float64(i+7)*0.017)*170))
+		buf[i] = float32(math.Sin(float64(i+11)*0.031)*2300 + math.Cos(float64(i+7)*0.017)*170)
 	}
-	want := probeLibopusCombFilter(t, start, n, t0, t1, 0, 0, overlap, 0.28125, 0.65625, windowF32, buf)
+	buf64 := make([]float64, len(buf))
+	for i := range buf {
+		buf64[i] = float64(buf[i])
+	}
+	want := probeLibopusCombFilter(t, start, n, t0, t1, 0, 0, overlap, 0.28125, 0.65625, windowF32, buf64)
 
-	got := append([]float64(nil), buf...)
-	combFilterWithSquare(got, start, t0, t1, n, 0.28125, 0.65625, 0, 0, window, windowSq, overlap)
+	hist := make([]celtSig, start)
+	for i := range hist {
+		hist[i] = celtSig(buf[i])
+	}
+	got := append([]float32(nil), buf[start:]...)
+	combFilterWithSquarePlanarFloat32(got, hist, start, 0, t0, t1, n, 0.28125, 0.65625, 0, 0, windowF32, windowSq, overlap)
 	for i := 0; i < n; i++ {
-		got32 := float32(got[start+i])
-		if math.Float32bits(got32) != math.Float32bits(want[i]) {
-			t.Fatalf("sample[%d]=%08x want %08x", i, math.Float32bits(got32), math.Float32bits(want[i]))
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("sample[%d]=%08x want %08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
 		}
 	}
 }
@@ -346,7 +340,6 @@ func TestCombFilterWithInputF32MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	window32 := GetWindowBufferF32(Overlap)
-	window64 := GetWindowBuffer(Overlap)
 	cases := []struct {
 		name      string
 		seed      uint32
@@ -376,18 +369,18 @@ func TestCombFilterWithInputF32MatchesLibopus(t *testing.T) {
 			}
 			overlap := tc.overlap
 			var win32 []float32
-			var win64 []float64
 			if tc.useWindow {
 				win32 = window32
-				win64 = window64
 			} else {
 				overlap = 0
 			}
 
 			want := probeLibopusCombFilterInput(t, start, tc.n, tc.t0, tc.t1, tc.tapset0, tc.tapset1, overlap, tc.g0, tc.g1, win32, src)
-			got := append([]float64(nil), src...)
-			combFilterWithInputF32(got, src, start, tc.t0, tc.t1, tc.n, tc.g0, tc.g1, tc.tapset0, tc.tapset1, win64, overlap)
-			assertFloat64AsFloat32Bits(t, "comb", got[start:start+tc.n], want)
+			got := append([]celtSig(nil), srcSig...)
+			combFilterWithInputSig(got, srcSig, start, tc.t0, tc.t1, tc.n, tc.g0, tc.g1, tc.tapset0, tc.tapset1, win32, overlap)
+			got32 := make([]float32, tc.n)
+			copySigToFloat32(got32, got[start:start+tc.n])
+			assertFloat32Bits(t, "comb", got32, want)
 		})
 	}
 }

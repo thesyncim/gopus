@@ -13,7 +13,7 @@ func vorbisWindowFull(i, n2 int) float64 {
 		return 0
 	}
 	if i < overlap {
-		return celt.VorbisWindow(i, overlap)
+		return float64(celt.VorbisWindow(i, overlap))
 	}
-	return celt.VorbisWindow(n2-1-i, overlap)
+	return float64(celt.VorbisWindow(n2 - 1 - i, overlap))
 }

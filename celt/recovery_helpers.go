@@ -354,7 +354,7 @@ func fillHybridPLCNoiseCoeffs(coeffs []celtNorm, frameSize, startBand, endBand i
 }
 
 // decodePLC generates concealment audio for a lost CELT packet.
-func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
+func (d *Decoder) decodePLC(frameSize int) ([]float32, error) {
 	if !ValidFrameSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
@@ -367,7 +367,7 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	// Ensure scratch buffer is large enough
 	outLen := frameSize * d.channels
 	plcLen := (frameSize + Overlap) * d.channels
-	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, plcLen)
+	d.scratchPLC = ensureFloat32Slice(&d.scratchPLC, plcLen)
 
 	currFrameType := d.chooseLostFrameType(0, false, false)
 
@@ -390,13 +390,14 @@ func (d *Decoder) decodePLC(frameSize int) ([]float64, error) {
 	d.applyPendingPLCPrefilterAndFold()
 	d.plcPrefilterAndFoldPending = false
 
-	d.concealNoisePLC(d.scratchPLC[:outLen], frameSize, prevLossDuration)
+	d.scratchPLCF32 = ensureFloat32Slice(&d.scratchPLCF32, outLen)
+	d.concealNoisePLC(d.scratchPLCF32[:outLen], frameSize, prevLossDuration)
 	d.finishLostFrame(framePLCNoise, frameSize)
 
-	return d.scratchPLC[:outLen], nil
+	return d.scratchPLCF32[:outLen], nil
 }
 
-func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int) {
+func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int) {
 	if len(dst) < frameSize*d.channels {
 		return
 	}
@@ -443,7 +444,7 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 		denormalizeNormCoeffsDownsample(coeffsR, concealEnergy[MaxBands:], end, frameSize, d.downsampleFactor())
 		samples := d.SynthesizeStereoFloat32(coeffsL, coeffsR, false, 1)
 		n := min(len(samples), frameSize*d.channels)
-		copyFloat32ToFloat64(dst[:n], samples[:n])
+		copy(dst[:n], samples[:n])
 	} else {
 		d.scratchPLCHybridNormL = ensureNormSlice(&d.scratchPLCHybridNormL, frameSize)
 		coeffs := d.scratchPLCHybridNormL[:frameSize]
@@ -452,12 +453,12 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 		denormalizeNormCoeffsDownsample(coeffs, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
 		samples := d.SynthesizeFloat32(coeffs, false, 1)
 		n := min(len(samples), frameSize*d.channels)
-		copyFloat32ToFloat64(dst[:n], samples[:n])
+		copy(dst[:n], samples[:n])
 	}
 	d.setPrevEnergyGLog(concealEnergy)
 	d.rng = seed
 
-	d.applyPostfilter(dst[:frameSize*d.channels], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
+	d.applyPostfilterFloat32(dst[:frameSize*d.channels], frameSize, mode.LM, d.postfilterPeriod, d.postfilterGain, d.postfilterTapset)
 	if len(d.directOutPCM) >= frameSize*d.channels {
 		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:frameSize*d.channels], dst[:frameSize*d.channels], 1.0/32768.0)
 		return
@@ -465,15 +466,15 @@ func (d *Decoder) concealNoisePLC(dst []float64, frameSize, prevLossDuration int
 	d.applyDeemphasisAndScale(dst[:frameSize*d.channels], 1.0/32768.0)
 }
 
-func (d *Decoder) concealPeriodicPLC(dst []float64, frameSize, lossCount int, continuePeriodic bool, commit bool) bool {
+func (d *Decoder) concealPeriodicPLC(dst []float32, frameSize, lossCount int, continuePeriodic bool, commit bool) bool {
 	return d.concealPeriodicPLCWithLimit(dst, frameSize, lossCount, continuePeriodic, commit, false)
 }
 
-func (d *Decoder) concealPeriodicPLCLimited(dst []float64, frameSize, lossCount int, continuePeriodic bool, commit bool) bool {
+func (d *Decoder) concealPeriodicPLCLimited(dst []float32, frameSize, lossCount int, continuePeriodic bool, commit bool) bool {
 	return d.concealPeriodicPLCWithLimit(dst, frameSize, lossCount, continuePeriodic, commit, true)
 }
 
-func (d *Decoder) concealPeriodicPLCWithLimit(dst []float64, frameSize, lossCount int, continuePeriodic bool, commit bool, limitEarly bool) bool {
+func (d *Decoder) concealPeriodicPLCWithLimit(dst []float32, frameSize, lossCount int, continuePeriodic bool, commit bool, limitEarly bool) bool {
 	if frameSize <= 0 || d.channels <= 0 {
 		return false
 	}
@@ -527,7 +528,7 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float64, frameSize, lossCoun
 	d.scratchPLCFIRTmp = ensureSigSlice(&d.scratchPLCFIRTmp, excLength)
 	d.scratchPLCBuf = ensureSigSlice(&d.scratchPLCBuf, plcDecodeBufferSize+Overlap)
 
-	window := GetWindowBuffer(Overlap)
+	window := GetWindowBufferF32(Overlap)
 	window32 := GetWindowBufferF32(Overlap)
 	continuePeriodic = lossCount > 1 && continuePeriodic
 	channels := d.channels
@@ -617,7 +618,7 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float64, frameSize, lossCoun
 		}
 
 		for i := 0; i < totalSamples; i++ {
-			dst[i*channels+ch] = float64(chOut[i])
+			dst[i*channels+ch] = float32(chOut[i])
 		}
 	}
 
@@ -628,13 +629,13 @@ func (d *Decoder) concealPeriodicPLCWithLimit(dst []float64, frameSize, lossCoun
 	return true
 }
 
-func (d *Decoder) computePLCLPC(frame []celtSig, lpc []float32, window []float64) {
+func (d *Decoder) computePLCLPC(frame []celtSig, lpc []float32, window []float32) {
 	var ac [celtPLCLPCOrder + 1]float32
 	d.computePLCAutocorr(frame, window, ac[:])
 	plcLPCFromAutocorr(ac[:], lpc)
 }
 
-func (d *Decoder) computePLCAutocorr(frame []celtSig, window []float64, ac []float32) {
+func (d *Decoder) computePLCAutocorr(frame []celtSig, window []float32, ac []float32) {
 	if len(ac) < celtPLCLPCOrder+1 {
 		return
 	}
@@ -775,7 +776,7 @@ func plcLPCReflectionSum(lpc []float32, ac []float32, i int) float32 {
 	return rr
 }
 
-func (d *Decoder) updatePLCOverlapBuffer(plcSamples []float64, frameSize int) {
+func (d *Decoder) updatePLCOverlapBuffer(plcSamples []float32, frameSize int) {
 	if Overlap <= 0 || frameSize <= 0 || d.channels <= 0 {
 		return
 	}
@@ -791,7 +792,7 @@ func (d *Decoder) updatePLCOverlapBuffer(plcSamples []float64, frameSize int) {
 	}
 
 	if channels == 1 {
-		copyFloat64ToSig(d.overlapBuffer[:Overlap], plcSamples[frameSize:frameSize+Overlap])
+		copyFloat32ToSig(d.overlapBuffer[:Overlap], plcSamples[frameSize:frameSize+Overlap])
 		return
 	}
 

@@ -93,8 +93,8 @@ func TestTransientAnalysisTfEstimate(t *testing.T) {
 		name            string
 		generateSignal  func() []float64
 		expectTransient bool
-		tfEstimateMin   float64
-		tfEstimateMax   float64
+		tfEstimateMin   float32
+		tfEstimateMax   float32
 	}{
 		{
 			name: "steady sine wave",

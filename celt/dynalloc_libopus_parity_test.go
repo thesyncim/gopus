@@ -166,7 +166,7 @@ func runGoDynallocCase(tc libopusCELTDynallocCase, scratch *DynallocScratch) Dyn
 			logN,
 			tc.effectiveBytes,
 			tc.isTransient, tc.vbr, tc.constrainedVBR, tc.lfe,
-			float64(tc.toneFreq), float64(tc.toneishness),
+			tc.toneFreq, tc.toneishness,
 			surround,
 			tc.analysisValid, leak,
 			scratch,
@@ -178,7 +178,7 @@ func runGoDynallocCase(tc libopusCELTDynallocCase, scratch *DynallocScratch) Dyn
 		logN,
 		tc.effectiveBytes,
 		tc.isTransient, tc.vbr, tc.constrainedVBR, tc.lfe,
-		float64(tc.toneFreq), float64(tc.toneishness),
+		tc.toneFreq, tc.toneishness,
 		surround,
 		tc.analysisValid, leak,
 	)

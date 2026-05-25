@@ -27,7 +27,7 @@ func TestOwnEncoderDecoder(t *testing.T) {
 	// Create CELT decoder
 	dec := celt.NewDecoder(1)
 
-	var decoded []float64
+	var decoded []float32
 	for f := 0; f < numFrames; f++ {
 		start := f * frameSize
 		end := start + frameSize
@@ -66,8 +66,9 @@ func TestOwnEncoderDecoder(t *testing.T) {
 		}
 	}
 	for _, v := range decoded {
-		if math.Abs(v) > maxDec {
-			maxDec = math.Abs(v)
+		abs := math.Abs(float64(v))
+		if abs > maxDec {
+			maxDec = abs
 		}
 	}
 	t.Logf("\nMax amplitudes: orig=%.4f, decoded=%.4f", maxOrig, maxDec)

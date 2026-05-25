@@ -4,7 +4,7 @@ import "github.com/thesyncim/gopus/rangecoding"
 
 // NormalizeBandsToArrayMonoWithBandE normalizes MDCT coefficients for mono
 // and returns the normalized coefficients and linear band amplitudes.
-func (e *Encoder) NormalizeBandsToArrayMonoWithBandE(mdctCoeffs []float64, nbBands, frameSize int) (norm []celtNorm, bandE []celtEner) {
+func (e *Encoder) NormalizeBandsToArrayMonoWithBandE(mdctCoeffs []float32, nbBands, frameSize int) (norm []celtNorm, bandE []celtEner) {
 	norm = ensureNormSlice(&e.scratch.normL, frameSize)
 	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands)
 	NormalizeBandsToArrayInto(mdctCoeffs, nbBands, frameSize, norm, bandE)
@@ -31,7 +31,7 @@ func (e *Encoder) NormalizeBandsToArrayMonoWithBandEF32(mdctCoeffs []float32, nb
 // NormalizeBandsToArrayStereoWithBandE normalizes MDCT coefficients for stereo
 // and returns normalized L/R coefficients plus combined linear band amplitudes.
 // The bandE layout is [L bands][R bands].
-func (e *Encoder) NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight []float64, nbBands, frameSize int) (normL, normR []celtNorm, bandE []celtEner) {
+func (e *Encoder) NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight []float32, nbBands, frameSize int) (normL, normR []celtNorm, bandE []celtEner) {
 	normL = ensureNormSlice(&e.scratch.normL, frameSize)
 	normR = ensureNormSlice(&e.scratch.normR, frameSize)
 	bandEL := ensureEnerSlice(&e.scratch.bandEL, nbBands)
@@ -385,15 +385,15 @@ func (e *Encoder) UpdateEnergyErrorHybridFromError(start, end, nbBands int) {
 // ApplyHybridPrefilter mirrors libopus hybrid mode: run_prefilter() still runs
 // with enabled=false so previous CELT postfilter state can fade out cleanly even
 // though no prefilter header bits are signaled in hybrid packets.
-func (e *Encoder) ApplyHybridPrefilter(preemph []float32, frameSize int, tfEstimate float64, nbAvailableBytes int, toneFreq, toneishness float64) {
+func (e *Encoder) ApplyHybridPrefilter(preemph []float32, frameSize int, tfEstimate float32, nbAvailableBytes int, toneFreq, toneishness float32) {
 	if frameSize <= 0 || e.channels <= 0 || len(preemph) < frameSize*e.channels {
 		return
 	}
 
 	prefilterTapset := e.TapsetDecision()
-	maxPitchRatio := 1.0
+	maxPitchRatio := float32(1.0)
 	if e.analysisValid {
-		maxPitchRatio = float64(e.analysisMaxPitchRatio)
+		maxPitchRatio = e.analysisMaxPitchRatio
 	}
 
 	prevPrefilterPeriod := e.prefilterPeriod
@@ -410,7 +410,7 @@ func (e *Encoder) ApplyHybridPrefilter(preemph []float32, frameSize int, tfEstim
 
 // TransientAnalysisHybrid performs transient analysis and updates preemph overlap state.
 // Returns transient flags, tf/tone metrics, shortBlocks choice, and optional bandLogE2.
-func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float64, shortBlocks int, bandLogE2 []celtGLog) {
+func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float32, shortBlocks int, bandLogE2 []celtGLog) {
 	overlap := Overlap
 	if overlap > frameSize {
 		overlap = frameSize
@@ -523,7 +523,7 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands,
 }
 
 // DynallocAnalysisHybridScratch runs dynalloc analysis using encoder scratch buffers.
-func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2 []celtGLog, oldBandE []celtGLog, nbBands, start, end, lsbDepth, lm int, effectiveBytes int, isTransient, vbr, constrainedVBR bool, toneFreq, toneishness float64) DynallocResult {
+func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2 []celtGLog, oldBandE []celtGLog, nbBands, start, end, lsbDepth, lm int, effectiveBytes int, isTransient, vbr, constrainedVBR bool, toneFreq, toneishness float32) DynallocResult {
 	if nbBands < 0 {
 		nbBands = 0
 	}
@@ -615,12 +615,12 @@ func (e *Encoder) RoundFloat64ToFloat32(x []float64) {
 // MDCTScratch computes the MDCT using the encoder's pre-allocated scratch buffers.
 // This is the zero-allocation equivalent of the public MDCT function.
 // EnsureScratch must have been called with an appropriate frameSize first.
-func (e *Encoder) MDCTScratch(samples []float64) []float64 {
+func (e *Encoder) MDCTScratch(samples []float32) []float32 {
 	return mdctScratch(samples, &e.scratch)
 }
 
 // MDCTScratchF32 computes the MDCT from float-build input scratch.
-func (e *Encoder) MDCTScratchF32(samples []float32) []float64 {
+func (e *Encoder) MDCTScratchF32(samples []float32) []float32 {
 	return mdctScratchF32(samples, &e.scratch)
 }
 
@@ -633,12 +633,12 @@ func (e *Encoder) MDCTScratchCoeffsF32(samples []float32) []float32 {
 // MDCTShortScratch computes the short-block MDCT using scratch buffers.
 // This is the zero-allocation equivalent of MDCTShort.
 // EnsureScratch must have been called with an appropriate frameSize first.
-func (e *Encoder) MDCTShortScratch(samples []float64, shortBlocks int) []float64 {
+func (e *Encoder) MDCTShortScratch(samples []float32, shortBlocks int) []float32 {
 	return mdctShortScratch(samples, shortBlocks, &e.scratch)
 }
 
 // MDCTShortScratchF32 computes the short-block MDCT from float-build input scratch.
-func (e *Encoder) MDCTShortScratchF32(samples []float32, shortBlocks int) []float64 {
+func (e *Encoder) MDCTShortScratchF32(samples []float32, shortBlocks int) []float32 {
 	return mdctShortScratchF32(samples, shortBlocks, &e.scratch)
 }
 
@@ -652,7 +652,7 @@ func (e *Encoder) MDCTShortScratchCoeffsF32(samples []float32, shortBlocks int) 
 // inputScratch is used to assemble [history|samples] before the transform.
 // history is updated in-place with the current frame's tail.
 // EnsureScratch must have been called first.
-func (e *Encoder) ComputeMDCTWithHistoryScratch(inputScratch, samples, history []float64, shortBlocks int) []float64 {
+func (e *Encoder) ComputeMDCTWithHistoryScratch(inputScratch, samples, history []float32, shortBlocks int) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}

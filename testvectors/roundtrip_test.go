@@ -23,7 +23,7 @@ func TestGopusRoundTrip(t *testing.T) {
 	t.Log("Testing gopus encoder → gopus decoder round-trip")
 
 	var encoded [][]byte
-	var decoded []float64
+	var decoded []float32
 
 	// Encode all frames
 	for i := 0; i < 5; i++ {
@@ -64,7 +64,8 @@ func TestGopusRoundTrip(t *testing.T) {
 	var signalPower, errorPower float64
 	for i := 0; i < compareLen; i++ {
 		signal := pcm[i]
-		error := decoded[i] - signal
+		decodedSample := float64(decoded[i])
+		error := decodedSample - signal
 		signalPower += signal * signal
 		errorPower += error * error
 	}
@@ -80,7 +81,7 @@ func TestGopusRoundTrip(t *testing.T) {
 	var sumXY, sumX2, sumY2 float64
 	for i := 0; i < compareLen; i++ {
 		x := pcm[i]
-		y := decoded[i]
+		y := float64(decoded[i])
 		sumXY += x * y
 		sumX2 += x * x
 		sumY2 += y * y
@@ -91,15 +92,17 @@ func TestGopusRoundTrip(t *testing.T) {
 	// Show first few samples
 	t.Log("First 10 samples comparison:")
 	for i := 0; i < 10 && i < compareLen; i++ {
+		decodedSample := float64(decoded[i])
 		t.Logf("  %d: input=%.4f, decoded=%.4f, error=%.4f",
-			i, pcm[i], decoded[i], decoded[i]-pcm[i])
+			i, pcm[i], decodedSample, decodedSample-pcm[i])
 	}
 
 	// Check if decoded audio is silence
 	maxDecoded := 0.0
 	for _, v := range decoded {
-		if math.Abs(v) > maxDecoded {
-			maxDecoded = math.Abs(v)
+		abs := math.Abs(float64(v))
+		if abs > maxDecoded {
+			maxDecoded = abs
 		}
 	}
 	t.Logf("Max decoded amplitude: %.6f", maxDecoded)
@@ -137,8 +140,9 @@ func TestSimpleDecodeEncode(t *testing.T) {
 	// Check decoded values
 	maxDecoded := 0.0
 	for _, v := range decoded {
-		if math.Abs(v) > maxDecoded {
-			maxDecoded = math.Abs(v)
+		abs := math.Abs(float64(v))
+		if abs > maxDecoded {
+			maxDecoded = abs
 		}
 	}
 	t.Logf("Max decoded: %.6f", maxDecoded)

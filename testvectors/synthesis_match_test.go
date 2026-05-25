@@ -16,14 +16,14 @@ func TestSynthesisMatch(t *testing.T) {
 	// Create multi-frame signal for overlap-add reconstruction.
 	totalFrames := 3
 	totalSamples := totalFrames * N
-	input := make([]float64, totalSamples)
+	input := make([]float32, totalSamples)
 	for i := 0; i < totalSamples; i++ {
-		input[i] = 0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10)
+		input[i] = float32(0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10))
 	}
 
-	output := make([]float64, totalSamples)
-	history := make([]float64, overlap)
-	prevOverlap := make([]float64, overlap)
+	output := make([]float32, totalSamples)
+	history := make([]float32, overlap)
+	prevOverlap := make([]float32, overlap)
 	for frame := 0; frame < totalFrames; frame++ {
 		frameSamples := input[frame*N : (frame+1)*N]
 		coeffs := celt.ComputeMDCTWithHistory(frameSamples, history, 1)
@@ -49,14 +49,14 @@ func TestEncoderDecoderWithStandardIMDCT(t *testing.T) {
 	// Create 3 frames of test signal for proper overlap-add
 	totalFrames := 3
 	totalSamples := totalFrames * N
-	input := make([]float64, totalSamples)
+	input := make([]float32, totalSamples)
 	for i := 0; i < totalSamples; i++ {
-		input[i] = 0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10)
+		input[i] = float32(0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10))
 	}
 
-	output := make([]float64, totalSamples)
-	history := make([]float64, overlap)
-	prevOverlap := make([]float64, overlap)
+	output := make([]float32, totalSamples)
+	history := make([]float32, overlap)
+	prevOverlap := make([]float32, overlap)
 
 	for frame := 0; frame < totalFrames; frame++ {
 		frameSamples := input[frame*N : (frame+1)*N]
@@ -73,8 +73,10 @@ func TestEncoderDecoderWithStandardIMDCT(t *testing.T) {
 	frameEnd := 2 * N
 
 	for i := frameStart; i < frameEnd; i++ {
-		sumXY += input[i] * output[i]
-		sumYY += output[i] * output[i]
+		in := float64(input[i])
+		out := float64(output[i])
+		sumXY += in * out
+		sumYY += out * out
 	}
 	scale := 1.0
 	if sumYY > 0 {
@@ -84,12 +86,14 @@ func TestEncoderDecoderWithStandardIMDCT(t *testing.T) {
 	var maxDiff float64
 	var signalPower, noisePower float64
 	for i := frameStart; i < frameEnd; i++ {
-		diff := math.Abs(input[i] - output[i]*scale)
+		in := float64(input[i])
+		out := float64(output[i])
+		diff := math.Abs(in - out*scale)
 		if diff > maxDiff {
 			maxDiff = diff
 		}
-		signalPower += input[i] * input[i]
-		noise := input[i] - output[i]*scale
+		signalPower += in * in
+		noise := in - out*scale
 		noisePower += noise * noise
 	}
 
@@ -101,9 +105,11 @@ func TestEncoderDecoderWithStandardIMDCT(t *testing.T) {
 	t.Log("\nSample comparison at middle of frame 1:")
 	midpoint := N + N/2
 	for i := midpoint - 5; i <= midpoint+5; i++ {
-		scaled := output[i] * scale
+		in := float64(input[i])
+		out := float64(output[i])
+		scaled := out * scale
 		t.Logf("  [%d] input=%.4f, output=%.4f, diff=%.6f",
-			i, input[i], output[i], input[i]-scaled)
+			i, in, out, in-scaled)
 	}
 
 	// Check if SNR is acceptable
@@ -112,7 +118,7 @@ func TestEncoderDecoderWithStandardIMDCT(t *testing.T) {
 	}
 }
 
-func correlation(a, b []float64) float64 {
+func correlation[A ~float32 | ~float64, B ~float32 | ~float64](a []A, b []B) float64 {
 	n := len(a)
 	if len(b) < n {
 		n = len(b)
@@ -120,9 +126,11 @@ func correlation(a, b []float64) float64 {
 
 	var sumXY, sumXX, sumYY float64
 	for i := 0; i < n; i++ {
-		sumXY += a[i] * b[i]
-		sumXX += a[i] * a[i]
-		sumYY += b[i] * b[i]
+		av := float64(a[i])
+		bv := float64(b[i])
+		sumXY += av * bv
+		sumXX += av * av
+		sumYY += bv * bv
 	}
 
 	return sumXY / (math.Sqrt(sumXX*sumYY) + 1e-10)

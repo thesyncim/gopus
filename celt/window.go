@@ -1,6 +1,6 @@
 package celt
 
-import "math"
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 //go:generate go run ../tools/gen_window_tables.go -out window_tables_static.go
 
@@ -28,37 +28,40 @@ import "math"
 //   - overlap: window length (overlap region)
 //
 // Returns: window value in [0, 1]
-func VorbisWindow(i, overlap int) float64 {
+func VorbisWindow(i, overlap int) float32 {
 	if overlap <= 0 {
 		return 0
 	}
-	x := float64(i) + 0.5
-	sinArg := 0.5 * math.Pi * x / float64(overlap)
-	s := math.Sin(sinArg)
-	return math.Sin(0.5 * math.Pi * s * s)
+	switch overlap {
+	case 120:
+		if i >= 0 && i < len(windowBuffer120F32) {
+			return windowBuffer120F32[i]
+		}
+	case 240:
+		if i >= 0 && i < len(windowBuffer240F32) {
+			return windowBuffer240F32[i]
+		}
+	case 480:
+		if i >= 0 && i < len(windowBuffer480F32) {
+			return windowBuffer480F32[i]
+		}
+	case 960:
+		if i >= 0 && i < len(windowBuffer960F32) {
+			return windowBuffer960F32[i]
+		}
+	}
+	const halfPi = float32(1.5707963267948966)
+	x := float32(i) + 0.5
+	sinArg := halfPi * x / float32(overlap)
+	s := opusmath.SinF32(sinArg)
+	return opusmath.SinF32(halfPi * s * s)
 }
 
 // GetWindowBuffer returns the precomputed window buffer for the given overlap size.
 // For the standard CELT overlap of 120 samples, returns windowBuffer120.
 // Returns nil if no precomputed buffer exists for the size.
-func GetWindowBuffer(overlap int) []float64 {
-	switch overlap {
-	case 120:
-		return windowBuffer120[:]
-	case 240:
-		return windowBuffer240[:]
-	case 480:
-		return windowBuffer480[:]
-	case 960:
-		return windowBuffer960[:]
-	default:
-		// Compute on the fly for non-standard sizes
-		window := make([]float64, overlap)
-		for i := 0; i < overlap; i++ {
-			window[i] = VorbisWindow(i, overlap)
-		}
-		return window
-	}
+func GetWindowBuffer(overlap int) []float32 {
+	return GetWindowBufferF32(overlap)
 }
 
 // GetWindowBufferF32 returns the precomputed float32 window buffer for the given overlap size.
@@ -76,32 +79,30 @@ func GetWindowBufferF32(overlap int) []float32 {
 	default:
 		window := make([]float32, overlap)
 		for i := 0; i < overlap; i++ {
-			window[i] = float32(VorbisWindow(i, overlap))
+			window[i] = VorbisWindow(i, overlap)
 		}
 		return window
 	}
 }
 
+// GetWindowSquareBufferF32 returns float-build w[i]^2 values for comb-filter
+// overlap interpolation.
+func GetWindowSquareBufferF32(overlap int) []float32 {
+	window := GetWindowBufferF32(overlap)
+	if len(window) == 0 {
+		return nil
+	}
+	windowSq := make([]float32, len(window))
+	for i, w := range window {
+		windowSq[i] = noFMA32Mul(w, w)
+	}
+	return windowSq
+}
+
 // GetWindowSquareBuffer returns precomputed w[i]^2 values for the overlap window.
 // This avoids recomputing window[i]*window[i] inside hot comb-filter loops.
-func GetWindowSquareBuffer(overlap int) []float64 {
-	switch overlap {
-	case 120:
-		return windowBuffer120Sq[:]
-	case 240:
-		return windowBuffer240Sq[:]
-	case 480:
-		return windowBuffer480Sq[:]
-	case 960:
-		return windowBuffer960Sq[:]
-	default:
-		windowSq := make([]float64, overlap)
-		for i := 0; i < overlap; i++ {
-			w := VorbisWindow(i, overlap)
-			windowSq[i] = w * w
-		}
-		return windowSq
-	}
+func GetWindowSquareBuffer(overlap int) []float32 {
+	return GetWindowSquareBufferF32(overlap)
 }
 
 // ApplyWindow applies the Vorbis window to IMDCT output.
@@ -112,14 +113,14 @@ func GetWindowSquareBuffer(overlap int) []float64 {
 //   - overlap: overlap size (typically 120 for CELT)
 //
 // The windowing is in-place to avoid allocation.
-func ApplyWindow(samples []float64, overlap int) {
+func ApplyWindow(samples []float32, overlap int) {
 	n := len(samples)
 	if n <= 0 || overlap <= 0 {
 		return
 	}
 
 	// Get precomputed window or compute
-	window := GetWindowBuffer(overlap)
+	window := GetWindowBufferF32(overlap)
 
 	// Apply window to beginning (rising edge)
 	for i := 0; i < overlap && i < n; i++ {
@@ -139,14 +140,14 @@ func ApplyWindow(samples []float64, overlap int) {
 
 // ApplyWindowSymmetric applies window assuming symmetric IMDCT output.
 // This is optimized for the CELT case where the IMDCT output has known symmetry.
-func ApplyWindowSymmetric(samples []float64, overlap int) {
+func ApplyWindowSymmetric(samples []float32, overlap int) {
 	ApplyWindow(samples, overlap)
 }
 
 // WindowEnergy computes the total energy of a windowed segment.
 // Used for level normalization.
-func WindowEnergy(overlap int) float64 {
-	var energy float64
+func WindowEnergy(overlap int) float32 {
+	var energy float32
 	for i := 0; i < overlap; i++ {
 		w := VorbisWindow(i, overlap)
 		energy += w * w
@@ -158,6 +159,6 @@ func WindowEnergy(overlap int) float64 {
 // GetWindow returns the standard CELT overlap window (120 samples).
 // This is used for gain fading in hybrid mode to ensure smooth transitions.
 // Returns nil if the window is not available.
-func GetWindow() []float64 {
+func GetWindow() []float32 {
 	return GetWindowBuffer(Overlap)
 }

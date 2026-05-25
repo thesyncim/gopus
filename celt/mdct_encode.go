@@ -3,7 +3,11 @@
 
 package celt
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 func mdctMul(a, b float32) float32 {
 	if mdctUseNativeMulEnabled {
@@ -12,19 +16,12 @@ func mdctMul(a, b float32) float32 {
 	return noFMA32Mul(a, b)
 }
 
-func mdctMathFlagsForFrame(frameSize int) (useNativeMul, useF64Mix, useFMALikeMix bool) {
-	useNativeMul = mdctUseNativeMulEnabled
-	useF64Mix = mdctUseF64MixEnabled
-	useFMALikeMix = mdctUseFMALikeMixEnabled
-	if frameSize == 240 {
-		if mdctUseNativeMulShort240Enabled {
-			useNativeMul = true
-		}
-		if mdctUseFMALikeMixShort240Enabled {
-			useFMALikeMix = true
-		}
+func mdctMathFlagsForFrame(frameSize int) bool {
+	useNativeMul := mdctUseNativeMulEnabled
+	if frameSize == 240 && mdctUseNativeMulShort240Enabled {
+		useNativeMul = true
 	}
-	return useNativeMul, useF64Mix, useFMALikeMix
+	return useNativeMul
 }
 
 func mdctMulWith(useNativeMul bool, a, b float32) float32 {
@@ -34,44 +31,23 @@ func mdctMulWith(useNativeMul bool, a, b float32) float32 {
 	return noFMA32Mul(a, b)
 }
 
-func mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix bool, a, b, c, d float32) float32 {
+func mdctMulAddMixWith(useNativeMul bool, a, b, c, d float32) float32 {
 	if useNativeMul {
 		return a*c + b*d
-	}
-	if useFMALikeMix {
-		t := mdctMulWith(useNativeMul, b, d)
-		return float32(float64(a)*float64(c) + float64(t))
-	}
-	if useF64Mix {
-		return float32(float64(a)*float64(c) + float64(b)*float64(d))
 	}
 	return mdctMulWith(useNativeMul, a, c) + mdctMulWith(useNativeMul, b, d)
 }
 
-func mdctMulSubMixWith(useNativeMul, useF64Mix, useFMALikeMix bool, a, b, c, d float32) float32 {
-	if useFMALikeMix {
-		t := mdctMulWith(useNativeMul, b, d)
-		return float32(float64(a)*float64(c) - float64(t))
-	}
+func mdctMulSubMixWith(useNativeMul bool, a, b, c, d float32) float32 {
 	if useNativeMul {
 		return a*c - b*d
-	}
-	if useF64Mix {
-		return float32(float64(a)*float64(c) - float64(b)*float64(d))
 	}
 	return mdctMulWith(useNativeMul, a, c) - mdctMulWith(useNativeMul, b, d)
 }
 
-func mdctMulSubMixAltWith(useNativeMul, useF64Mix, useFMALikeMix bool, a, b, c, d float32) float32 {
+func mdctMulSubMixAltWith(useNativeMul bool, a, b, c, d float32) float32 {
 	if useNativeMul {
 		return a*c - b*d
-	}
-	if useFMALikeMix {
-		t := mdctMulWith(useNativeMul, a, c)
-		return float32(float64(t) - float64(b)*float64(d))
-	}
-	if useF64Mix {
-		return float32(float64(a)*float64(c) - float64(b)*float64(d))
 	}
 	return mdctMulWith(useNativeMul, a, c) - mdctMulWith(useNativeMul, b, d)
 }
@@ -84,24 +60,12 @@ func mdctStoreDirectStageWith(useNativeMul bool, dst []kissCpx, idx int, scale, 
 }
 
 func mdctStoreDirectStageFMALikeWith(useNativeMul bool, dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
-	yr := float32(float64(re)*float64(t0) - float64(mdctMulWith(useNativeMul, im, t1)))
-	yi := float32(float64(im)*float64(t0) + float64(mdctMulWith(useNativeMul, re, t1)))
-	dst[idx].r = yr * scale
-	dst[idx].i = yi * scale
+	mdctStoreDirectStageWith(useNativeMul, dst, idx, scale, re, im, t0, t1)
 }
 
 func mdctMulAddMix(a, b, c, d float32) float32 {
 	if mdctUseNativeMulEnabled {
 		return a*c + b*d
-	}
-	if mdctUseFMALikeMixEnabled {
-		// Match libopus arm64 codegen pattern for a*c + b*d:
-		// round b*d to float32, then perform fused-like add with a*c and one final rounding.
-		t := mdctMul(b, d)
-		return float32(float64(a)*float64(c) + float64(t))
-	}
-	if mdctUseF64MixEnabled {
-		return float32(float64(a)*float64(c) + float64(b)*float64(d))
 	}
 	return mdctMul(a, c) + mdctMul(b, d)
 }
@@ -110,30 +74,12 @@ func mdctMulSubMix(a, b, c, d float32) float32 {
 	if mdctUseNativeMulEnabled {
 		return a*c - b*d
 	}
-	if mdctUseFMALikeMixEnabled {
-		// Match libopus arm64 codegen pattern for a*c - b*d:
-		// round b*d to float32, then subtract with one final rounding.
-		t := mdctMul(b, d)
-		return float32(float64(a)*float64(c) - float64(t))
-	}
-	if mdctUseF64MixEnabled {
-		return float32(float64(a)*float64(c) - float64(b)*float64(d))
-	}
 	return mdctMul(a, c) - mdctMul(b, d)
 }
 
 func mdctMulSubMixAlt(a, b, c, d float32) float32 {
 	if mdctUseNativeMulEnabled {
 		return a*c - b*d
-	}
-	if mdctUseFMALikeMixEnabled {
-		// This branch matches the third fold equation codegen shape in libopus:
-		// round a*c first, then subtract b*d with one final rounding.
-		t := mdctMul(a, c)
-		return float32(float64(t) - float64(b)*float64(d))
-	}
-	if mdctUseF64MixEnabled {
-		return float32(float64(a)*float64(c) - float64(b)*float64(d))
 	}
 	return mdctMul(a, c) - mdctMul(b, d)
 }
@@ -146,17 +92,14 @@ func mdctStoreDirectStage(dst []kissCpx, idx int, scale, re, im, t0, t1 float32)
 }
 
 func mdctStoreDirectStageFMALike(dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
-	yr := float32(float64(re)*float64(t0) - float64(mdctMul(im, t1)))
-	yi := float32(float64(im)*float64(t0) + float64(mdctMul(re, t1)))
-	dst[idx].r = yr * scale
-	dst[idx].i = yi * scale
+	mdctStoreDirectStage(dst, idx, scale, re, im, t0, t1)
 }
 
 // MDCT computes the forward Modified Discrete Cosine Transform.
 // For CELT-typical inputs (frameSize+Overlap), this uses the short-overlap
 // algorithm from libopus. For legacy 2*N inputs, it falls back to the
 // direct MDCT formula.
-func MDCT(samples []float64) []float64 {
+func MDCT(samples []float32) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -184,7 +127,7 @@ func MDCT(samples []float64) []float64 {
 // frequency resolution.
 //
 // Reference: libopus celt/celt_encoder.c, transient mode handling
-func MDCTShort(samples []float64, shortBlocks int) []float64 {
+func MDCTShort(samples []float32, shortBlocks int) []float32 {
 	if shortBlocks <= 1 {
 		return MDCT(samples)
 	}
@@ -208,7 +151,7 @@ func MDCTShort(samples []float64, shortBlocks int) []float64 {
 // scale: scale factor applied to each coefficient
 // This is the shared implementation used by both mdctDirect and mdctStandard.
 // Formula: X[k] = scale * sum_{n=0}^{N2-1} x[n] * cos(pi/N * (n+0.5+N/2) * (k+0.5))
-func mdctCoreCompute(samples []float64, coeffs []float64, scale float64) {
+func mdctCoreCompute(samples []float32, coeffs []float32, scale float32) {
 	N2 := len(samples)
 	N := N2 / 2
 	if N <= 0 || len(coeffs) < N {
@@ -216,12 +159,12 @@ func mdctCoreCompute(samples []float64, coeffs []float64, scale float64) {
 	}
 
 	for k := 0; k < N; k++ {
-		var sum float64
-		kPlus := float64(k) + 0.5
+		var sum float32
+		kPlus := float32(k) + 0.5
 		for n := 0; n < N2; n++ {
-			nPlus := float64(n) + 0.5 + float64(N)/2
-			angle := math.Pi / float64(N) * nPlus * kPlus
-			sum += samples[n] * math.Cos(angle)
+			nPlus := float32(n) + 0.5 + float32(N)/2
+			angle := float32(math.Pi) / float32(N) * nPlus * kPlus
+			sum += samples[n] * opusmath.CosF32(angle)
 		}
 		coeffs[k] = sum * scale
 	}
@@ -232,7 +175,7 @@ func mdctCoreCompute(samples []float64, coeffs []float64, scale float64) {
 // The output is scaled by 4/N2 (or equivalently 2/N) to match libopus normalization.
 // Reference: libopus celt/tests/test_unit_mdct.c check() function
 // Formula: X[k] = sum_{n=0}^{N2-1} x[n] * cos(2*pi*(n+0.5+0.25*N2)*(k+0.5)/N2) / (N2/4)
-func mdctDirect(samples []float64) []float64 {
+func mdctDirect(samples []float32) []float32 {
 	N2 := len(samples)
 	N := N2 / 2
 
@@ -240,11 +183,11 @@ func mdctDirect(samples []float64) []float64 {
 		return nil
 	}
 
-	coeffs := make([]float64, N)
+	coeffs := make([]float32, N)
 
 	// Scale factor: 4/N2 = 4/(2*N) = 2/N
 	// This matches libopus's division by N/4 in the test formula
-	scale := 4.0 / float64(N2)
+	scale := float32(4.0) / float32(N2)
 
 	mdctCoreCompute(samples, coeffs, scale)
 
@@ -254,7 +197,7 @@ func mdctDirect(samples []float64) []float64 {
 // applyMDCTWindow applies the Vorbis window to samples for MDCT analysis.
 // CELT uses short overlap (120 samples) rather than 50% overlap.
 // Only the first and last 'overlap' samples are windowed; middle samples are unmodified.
-func applyMDCTWindow(samples []float64) {
+func applyMDCTWindow(samples []float32) {
 	n := len(samples)
 	if n <= 0 {
 		return
@@ -267,7 +210,7 @@ func applyMDCTWindow(samples []float64) {
 	}
 
 	// Get precomputed window for overlap region
-	window := GetWindowBuffer(overlap)
+	window := GetWindowBufferF32(overlap)
 
 	// Apply window to beginning (rising edge) - first 'overlap' samples
 	for i := 0; i < overlap && i < n; i++ {
@@ -287,7 +230,7 @@ func applyMDCTWindow(samples []float64) {
 // MDCTForwardWithOverlap is the exported version of mdctForwardOverlap for testing.
 // Input: samples with length frameSize+overlap
 // Returns: MDCT coefficients of length frameSize
-func MDCTForwardWithOverlap(samples []float64, overlap int) []float64 {
+func MDCTForwardWithOverlap(samples []float32, overlap int) []float32 {
 	return mdctForwardOverlap(samples, overlap)
 }
 
@@ -305,19 +248,19 @@ func MDCTForwardWithOverlapFloat32(samples []float32, overlap int) []float32 {
 // mdctForwardOverlap implements the CELT short-overlap MDCT (libopus clt_mdct_forward)
 // for a single block. Input length must be frameSize+overlap.
 // This uses float32 arithmetic internally to match libopus float precision.
-func mdctForwardOverlap(samples []float64, overlap int) []float64 {
+func mdctForwardOverlap(samples []float32, overlap int) []float32 {
 	return mdctForwardOverlapF32(samples, overlap)
 }
 
 // mdctForwardOverlapF32 is a float32-precision MDCT matching libopus float path.
-func mdctForwardOverlapF32(samples []float64, overlap int) []float64 {
-	coeffs := make([]float64, len(samples)-overlap)
+func mdctForwardOverlapF32(samples []float32, overlap int) []float32 {
+	coeffs := make([]float32, len(samples)-overlap)
 	mdctForwardOverlapF32Scratch(samples, overlap, coeffs, nil, nil, nil, nil)
 	return coeffs
 }
 
 // mdctForwardOverlapF32Scratch is the scratch-aware version that avoids allocations.
-func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](samples []S, overlap int, coeffs []C, f []float32, fftIn []complex64, fftOut []complex64, fftTmp []kissCpx) {
+func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float32, f []float32, fftIn []complex64, fftOut []complex64, fftTmp []kissCpx) {
 	if len(samples) == 0 {
 		return
 	}
@@ -332,7 +275,7 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 	if frameSize <= 0 {
 		return
 	}
-	useNativeMul, useF64Mix, useFMALikeMix := mdctMathFlagsForFrame(frameSize)
+	useNativeMul := mdctMathFlagsForFrame(frameSize)
 
 	n2 := frameSize
 	n := n2 * 2
@@ -369,7 +312,7 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 		fftTmp = make([]kissCpx, n4)
 	}
 	if coeffs == nil || len(coeffs) < n2 {
-		coeffs = make([]C, n2)
+		coeffs = make([]float32, n2)
 	}
 
 	xp1 := overlap / 2
@@ -390,10 +333,10 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 		bitrev := st.bitrev
 		_ = bitrev[n4-1]
 		_ = fftStage[n4-1]
-		if useFMALikeMix {
+		if false {
 			for ; i < limit1; i++ {
-				re := mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
-				im := mdctMulSubMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+				re := mdctMulAddMixWith(useNativeMul, float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+				im := mdctMulSubMixWith(useNativeMul, float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
 				t0 := trig[i]
 				t1 := trig[n4+i]
 				mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
@@ -416,8 +359,8 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 			}
 
 			for ; i < n4; i++ {
-				re := mdctMulSubMixAltWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
-				im := mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+				re := mdctMulSubMixAltWith(useNativeMul, float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+				im := mdctMulAddMixWith(useNativeMul, float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 				t0 := trig[i]
 				t1 := trig[n4+i]
 				mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
@@ -428,8 +371,8 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 			}
 		} else {
 			for ; i < limit1; i++ {
-				re := mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
-				im := mdctMulSubMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+				re := mdctMulAddMixWith(useNativeMul, float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+				im := mdctMulSubMixWith(useNativeMul, float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
 				t0 := trig[i]
 				t1 := trig[n4+i]
 				mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
@@ -452,8 +395,8 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 			}
 
 			for ; i < n4; i++ {
-				re := mdctMulSubMixAltWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
-				im := mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+				re := mdctMulSubMixAltWith(useNativeMul, float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+				im := mdctMulAddMixWith(useNativeMul, float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 				t0 := trig[i]
 				t1 := trig[n4+i]
 				mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
@@ -468,8 +411,8 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 		_ = f[2*n4-1]
 
 		for ; i < limit1; i++ {
-			f[2*i] = mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
-			f[2*i+1] = mdctMulSubMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
+			f[2*i] = mdctMulAddMixWith(useNativeMul, float32(samples[xp1+n2]), float32(samples[xp2]), window[wp2], window[wp1])
+			f[2*i+1] = mdctMulSubMixWith(useNativeMul, float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
 			xp1 += 2
 			xp2 -= 2
 			wp1 += 2
@@ -486,8 +429,8 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 		}
 
 		for ; i < n4; i++ {
-			f[2*i] = mdctMulSubMixAltWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
-			f[2*i+1] = mdctMulAddMixWith(useNativeMul, useF64Mix, useFMALikeMix, float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
+			f[2*i] = mdctMulSubMixAltWith(useNativeMul, float32(samples[xp2]), float32(samples[xp1-n2]), window[wp2], window[wp1])
+			f[2*i+1] = mdctMulAddMixWith(useNativeMul, float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 			xp1 += 2
 			xp2 -= 2
 			wp1 += 2
@@ -504,7 +447,7 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 		if !fuseDirectStage {
 			_ = bitrev[n4-1]   // BCE hint
 			_ = fftStage[n4-1] // BCE hint
-			if useFMALikeMix {
+			if false {
 				for i = 0; i < n4; i++ {
 					re := f[2*i]
 					im := f[2*i+1]
@@ -527,14 +470,14 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 	} else {
 		// Fallback: keep the existing complex64 path for unsupported sizes.
 		_ = fftIn[n4-1] // BCE hint
-		if useFMALikeMix {
+		if false {
 			for i = 0; i < n4; i++ {
 				re := f[2*i]
 				im := f[2*i+1]
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				yr := float32(float64(re)*float64(t0) - float64(mdctMulWith(useNativeMul, im, t1)))
-				yi := float32(float64(im)*float64(t0) + float64(mdctMulWith(useNativeMul, re, t1)))
+				yr := mdctMulWith(useNativeMul, re, t0) - mdctMulWith(useNativeMul, im, t1)
+				yi := mdctMulWith(useNativeMul, im, t0) + mdctMulWith(useNativeMul, re, t1)
 				fftIn[i] = complex(yr*scale, yi*scale)
 			}
 		} else {
@@ -558,16 +501,16 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 		_ = trigHi[n4-1]
 		lo := 0
 		hi := n2 - 1
-		if useFMALikeMix {
+		if false {
 			for i = 0; i < n4; i++ {
 				re := fftStage[i].r
 				im := fftStage[i].i
 				t0 := trig[i]
 				t1 := trigHi[i]
-				yr := float32(float64(im)*float64(t1) - float64(mdctMulWith(useNativeMul, re, t0)))
-				yi := float32(float64(re)*float64(t1) + float64(mdctMulWith(useNativeMul, im, t0)))
-				coeffs[lo] = C(yr)
-				coeffs[hi] = C(yi)
+				yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
+				yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
+				coeffs[lo] = yr
+				coeffs[hi] = yi
 				lo += 2
 				hi -= 2
 			}
@@ -579,8 +522,8 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 				t1 := trigHi[i]
 				yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
 				yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
-				coeffs[lo] = C(yr)
-				coeffs[hi] = C(yi)
+				coeffs[lo] = yr
+				coeffs[hi] = yi
 				lo += 2
 				hi -= 2
 			}
@@ -590,16 +533,16 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 		_ = trigHi[n4-1]
 		lo := 0
 		hi := n2 - 1
-		if useFMALikeMix {
+		if false {
 			for i = 0; i < n4; i++ {
 				re := real(fftOut[i])
 				im := imag(fftOut[i])
 				t0 := trig[i]
 				t1 := trigHi[i]
-				yr := float32(float64(im)*float64(t1) - float64(mdctMulWith(useNativeMul, re, t0)))
-				yi := float32(float64(re)*float64(t1) + float64(mdctMulWith(useNativeMul, im, t0)))
-				coeffs[lo] = C(yr)
-				coeffs[hi] = C(yi)
+				yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
+				yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
+				coeffs[lo] = yr
+				coeffs[hi] = yi
 				lo += 2
 				hi -= 2
 			}
@@ -611,8 +554,8 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 				t1 := trigHi[i]
 				yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
 				yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
-				coeffs[lo] = C(yr)
-				coeffs[hi] = C(yi)
+				coeffs[lo] = yr
+				coeffs[hi] = yi
 				lo += 2
 				hi -= 2
 			}
@@ -622,7 +565,7 @@ func mdctForwardOverlapF32Scratch[S ~float32 | ~float64, C ~float32 | ~float64](
 }
 
 // mdctScratch computes the MDCT using scratch buffers to avoid allocations.
-func mdctScratch(samples []float64, scratch *encoderScratch) []float64 {
+func mdctScratch(samples []float32, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -637,7 +580,7 @@ func mdctScratch(samples []float64, scratch *encoderScratch) []float64 {
 	return mdctStandard(samples)
 }
 
-func mdctScratchF32(samples []float32, scratch *encoderScratch) []float64 {
+func mdctScratchF32(samples []float32, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -645,7 +588,7 @@ func mdctScratchF32(samples []float32, scratch *encoderScratch) []float64 {
 	if len(samples) > Overlap {
 		frameSize := len(samples) - Overlap
 		if ValidFrameSize(frameSize) {
-			coeffs := ensureFloat64Slice(&scratch.mdctCoeffs, frameSize)
+			coeffs := ensureFloat32Slice(&scratch.mdctCoeffsF32, frameSize)
 			mdctForwardOverlapF32Scratch(samples, Overlap, coeffs,
 				scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
 			return coeffs
@@ -674,7 +617,7 @@ func mdctScratchF32Coeffs(samples []float32, scratch *encoderScratch) []float32 
 }
 
 // mdctScratchInto computes the MDCT into a provided output buffer using scratch buffers.
-func mdctScratchInto(samples []float64, coeffs []float64, scratch *encoderScratch) []float64 {
+func mdctScratchInto(samples []float32, coeffs []float32, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -691,7 +634,7 @@ func mdctScratchInto(samples []float64, coeffs []float64, scratch *encoderScratc
 	return mdctStandard(samples)
 }
 
-func mdctScratchIntoF32(samples []float32, coeffs []float64, scratch *encoderScratch) []float64 {
+func mdctScratchIntoF32(samples []float32, coeffs []float32, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -726,7 +669,7 @@ func mdctScratchIntoF32Coeffs(samples []float32, coeffs []float32, scratch *enco
 }
 
 // mdctShortScratch computes the short-block MDCT using scratch buffers.
-func mdctShortScratch(samples []float64, shortBlocks int, scratch *encoderScratch) []float64 {
+func mdctShortScratch(samples []float32, shortBlocks int, scratch *encoderScratch) []float32 {
 	if shortBlocks <= 1 {
 		return mdctScratch(samples, scratch)
 	}
@@ -744,7 +687,7 @@ func mdctShortScratch(samples []float64, shortBlocks int, scratch *encoderScratc
 	return mdctShortStandard(samples, shortBlocks)
 }
 
-func mdctShortScratchF32(samples []float32, shortBlocks int, scratch *encoderScratch) []float64 {
+func mdctShortScratchF32(samples []float32, shortBlocks int, scratch *encoderScratch) []float32 {
 	if shortBlocks <= 1 {
 		return mdctScratchF32(samples, scratch)
 	}
@@ -781,7 +724,7 @@ func mdctShortScratchF32Coeffs(samples []float32, shortBlocks int, scratch *enco
 }
 
 // mdctShortScratchInto computes short-block MDCT into a provided output buffer.
-func mdctShortScratchInto(samples []float64, shortBlocks int, output []float64, scratch *encoderScratch) []float64 {
+func mdctShortScratchInto(samples []float32, shortBlocks int, output []float32, scratch *encoderScratch) []float32 {
 	if shortBlocks <= 1 {
 		return mdctScratchInto(samples, output, scratch)
 	}
@@ -799,7 +742,7 @@ func mdctShortScratchInto(samples []float64, shortBlocks int, output []float64, 
 	return mdctShortStandard(samples, shortBlocks)
 }
 
-func mdctShortScratchIntoF32(samples []float32, shortBlocks int, output []float64, scratch *encoderScratch) []float64 {
+func mdctShortScratchIntoF32(samples []float32, shortBlocks int, output []float32, scratch *encoderScratch) []float32 {
 	if shortBlocks <= 1 {
 		return mdctScratchIntoF32(samples, output, scratch)
 	}
@@ -837,7 +780,7 @@ func mdctShortScratchIntoF32Coeffs(samples []float32, shortBlocks int, output []
 
 // mdctShortBlocksCore is a helper that processes multiple short MDCT blocks.
 // It calls blockMDCT for each short block and interleaves results into output.
-func mdctShortBlocksCore[C ~float32 | ~float64](samples []float64, overlap, shortBlocks, shortSize int, output []float64, blockCoeffs []C, blockMDCT func(block []float64, coeffs []C)) {
+func mdctShortBlocksCore(samples []float32, overlap, shortBlocks, shortSize int, output, blockCoeffs []float32, blockMDCT func(block, coeffs []float32)) {
 	if shortBlocks <= 0 || shortSize <= 0 {
 		return
 	}
@@ -862,14 +805,14 @@ func mdctShortBlocksCore[C ~float32 | ~float64](samples []float64, overlap, shor
 		// Interleave coefficients into output
 		outIdx := b
 		for i := 0; i < shortSize; i++ {
-			output[outIdx] = float64(blockCoeffs[i])
+			output[outIdx] = blockCoeffs[i]
 			outIdx += shortBlocks
 		}
 	}
 }
 
 // mdctForwardShortOverlapScratchInto computes short-block MDCT into a provided output buffer.
-func mdctForwardShortOverlapScratchInto(samples []float64, overlap, shortBlocks int, output []float64, scratch *encoderScratch) []float64 {
+func mdctForwardShortOverlapScratchInto(samples []float32, overlap, shortBlocks int, output []float32, scratch *encoderScratch) []float32 {
 	if shortBlocks <= 1 {
 		if len(output) >= len(samples)-overlap {
 			mdctForwardOverlapF32Scratch(samples, overlap, output,
@@ -893,7 +836,7 @@ func mdctForwardShortOverlapScratchInto(samples []float64, overlap, shortBlocks 
 	blockCoeffs := ensureFloat32Slice(&scratch.mdctBlockCoeffs, shortSize)
 
 	mdctShortBlocksCore(samples, overlap, shortBlocks, shortSize, output, blockCoeffs,
-		func(block []float64, coeffs []float32) {
+		func(block, coeffs []float32) {
 			mdctForwardOverlapF32Scratch(block, overlap, coeffs,
 				scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
 		})
@@ -901,7 +844,7 @@ func mdctForwardShortOverlapScratchInto(samples []float64, overlap, shortBlocks 
 	return output[:frameSize]
 }
 
-func mdctForwardShortOverlapScratchIntoF32(samples []float32, overlap, shortBlocks int, output []float64, scratch *encoderScratch) []float64 {
+func mdctForwardShortOverlapScratchIntoF32(samples []float32, overlap, shortBlocks int, output []float32, scratch *encoderScratch) []float32 {
 	if shortBlocks <= 1 {
 		if len(output) >= len(samples)-overlap {
 			mdctForwardOverlapF32Scratch(samples, overlap, output,
@@ -931,7 +874,7 @@ func mdctForwardShortOverlapScratchIntoF32(samples []float32, overlap, shortBloc
 		for i := range blockCoeffs {
 			outIdx := b + i*shortBlocks
 			if outIdx < len(output) {
-				output[outIdx] = float64(blockCoeffs[i])
+				output[outIdx] = blockCoeffs[i]
 			}
 		}
 	}
@@ -976,14 +919,14 @@ func mdctForwardShortOverlapScratchIntoF32Coeffs(samples []float32, overlap, sho
 }
 
 // mdctForwardOverlapScratch computes the MDCT forward transform using scratch buffers.
-func mdctForwardOverlapScratch(samples []float64, overlap int, scratch *encoderScratch) []float64 {
+func mdctForwardOverlapScratch(samples []float32, overlap int, scratch *encoderScratch) []float32 {
 	frameSize := len(samples) - overlap
 	if frameSize <= 0 {
 		return nil
 	}
 
 	// Use scratch buffer for coeffs output
-	coeffs := ensureFloat64Slice(&scratch.mdctCoeffs, frameSize)
+	coeffs := ensureFloat32Slice(&scratch.mdctCoeffsF32, frameSize)
 
 	// Call the scratch-aware version with all buffers
 	mdctForwardOverlapF32Scratch(samples, overlap, coeffs,
@@ -992,12 +935,12 @@ func mdctForwardOverlapScratch(samples []float64, overlap int, scratch *encoderS
 	return coeffs
 }
 
-func mdctForwardOverlapScratchF32(samples []float32, overlap int, scratch *encoderScratch) []float64 {
+func mdctForwardOverlapScratchF32(samples []float32, overlap int, scratch *encoderScratch) []float32 {
 	frameSize := len(samples) - overlap
 	if frameSize <= 0 {
 		return nil
 	}
-	coeffs := ensureFloat64Slice(&scratch.mdctCoeffs, frameSize)
+	coeffs := ensureFloat32Slice(&scratch.mdctCoeffsF32, frameSize)
 	mdctForwardOverlapF32Scratch(samples, overlap, coeffs,
 		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
 	return coeffs
@@ -1015,7 +958,7 @@ func mdctForwardOverlapScratchF32Coeffs(samples []float32, overlap int, scratch 
 }
 
 // mdctForwardShortOverlapScratch computes short-block MDCT using scratch buffers.
-func mdctForwardShortOverlapScratch(samples []float64, overlap, shortBlocks int, scratch *encoderScratch) []float64 {
+func mdctForwardShortOverlapScratch(samples []float32, overlap, shortBlocks int, scratch *encoderScratch) []float32 {
 	if shortBlocks <= 1 {
 		return mdctForwardOverlapScratch(samples, overlap, scratch)
 	}
@@ -1029,7 +972,7 @@ func mdctForwardShortOverlapScratch(samples []float64, overlap, shortBlocks int,
 	}
 
 	shortSize := frameSize / shortBlocks
-	output := ensureFloat64Slice(&scratch.mdctCoeffs, frameSize)
+	output := ensureFloat32Slice(&scratch.mdctCoeffsF32, frameSize)
 
 	// Use scratch buffer for per-block coefficients
 	blockCoeffs := ensureFloat32Slice(&scratch.mdctBlockCoeffs, shortSize)
@@ -1048,7 +991,7 @@ func mdctForwardShortOverlapScratch(samples []float64, overlap, shortBlocks int,
 		for i := range blockCoeffs {
 			outIdx := b + i*shortBlocks
 			if outIdx < len(output) {
-				output[outIdx] = float64(blockCoeffs[i])
+				output[outIdx] = blockCoeffs[i]
 			}
 		}
 	}
@@ -1056,7 +999,7 @@ func mdctForwardShortOverlapScratch(samples []float64, overlap, shortBlocks int,
 	return output
 }
 
-func mdctForwardShortOverlapScratchF32(samples []float32, overlap, shortBlocks int, scratch *encoderScratch) []float64 {
+func mdctForwardShortOverlapScratchF32(samples []float32, overlap, shortBlocks int, scratch *encoderScratch) []float32 {
 	if shortBlocks <= 1 {
 		return mdctForwardOverlapScratchF32(samples, overlap, scratch)
 	}
@@ -1069,7 +1012,7 @@ func mdctForwardShortOverlapScratchF32(samples []float32, overlap, shortBlocks i
 		return nil
 	}
 	shortSize := frameSize / shortBlocks
-	output := ensureFloat64Slice(&scratch.mdctCoeffs, frameSize)
+	output := ensureFloat32Slice(&scratch.mdctCoeffsF32, frameSize)
 	blockCoeffs := ensureFloat32Slice(&scratch.mdctBlockCoeffs, shortSize)
 	for b := 0; b < shortBlocks; b++ {
 		start := b * shortSize
@@ -1082,7 +1025,7 @@ func mdctForwardShortOverlapScratchF32(samples []float32, overlap, shortBlocks i
 		for i := range blockCoeffs {
 			outIdx := b + i*shortBlocks
 			if outIdx < len(output) {
-				output[outIdx] = float64(blockCoeffs[i])
+				output[outIdx] = blockCoeffs[i]
 			}
 		}
 	}
@@ -1124,7 +1067,7 @@ func mdctForwardShortOverlapScratchF32Coeffs(samples []float32, overlap, shortBl
 
 // mdctForwardShortOverlap computes interleaved MDCT coefficients for transient frames.
 // samples length must be frameSize+overlap.
-func mdctForwardShortOverlap(samples []float64, overlap, shortBlocks int) []float64 {
+func mdctForwardShortOverlap(samples []float32, overlap, shortBlocks int) []float32 {
 	if shortBlocks <= 1 {
 		return mdctForwardOverlap(samples, overlap)
 	}
@@ -1138,7 +1081,7 @@ func mdctForwardShortOverlap(samples []float64, overlap, shortBlocks int) []floa
 	}
 
 	shortSize := frameSize / shortBlocks
-	output := make([]float64, frameSize)
+	output := make([]float32, frameSize)
 
 	for b := 0; b < shortBlocks; b++ {
 		start := b * shortSize
@@ -1159,7 +1102,7 @@ func mdctForwardShortOverlap(samples []float64, overlap, shortBlocks int) []floa
 }
 
 // mdctStandard computes the direct MDCT for legacy 2*N inputs.
-func mdctStandard(samples []float64) []float64 {
+func mdctStandard(samples []float32) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -1171,18 +1114,18 @@ func mdctStandard(samples []float64) []float64 {
 		return nil
 	}
 
-	windowed := make([]float64, N2)
+	windowed := make([]float32, N2)
 	copy(windowed, samples)
 	applyMDCTWindow(windowed)
 
-	coeffs := make([]float64, N)
+	coeffs := make([]float32, N)
 	// scale = 1.0 for mdctStandard (no normalization)
 	mdctCoreCompute(windowed, coeffs, 1.0)
 
 	return coeffs
 }
 
-func mdctShortStandard(samples []float64, shortBlocks int) []float64 {
+func mdctShortStandard(samples []float32, shortBlocks int) []float32 {
 	totalSamples := len(samples)
 	if totalSamples == 0 {
 		return nil
@@ -1195,10 +1138,10 @@ func mdctShortStandard(samples []float64, shortBlocks int) []float64 {
 	}
 
 	totalCoeffs := shortCoeffSize * shortBlocks
-	output := make([]float64, totalCoeffs)
+	output := make([]float32, totalCoeffs)
 
 	for b := 0; b < shortBlocks; b++ {
-		shortSamples := make([]float64, shortSampleSize)
+		shortSamples := make([]float32, shortSampleSize)
 		startIdx := b * shortSampleSize
 		for i := 0; i < shortSampleSize && startIdx+i < totalSamples; i++ {
 			shortSamples[i] = samples[startIdx+i]

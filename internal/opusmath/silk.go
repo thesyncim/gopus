@@ -64,6 +64,10 @@ func SqrtF32(x float32) float32 {
 	return float32(math.Sqrt(float64(x)))
 }
 
+func SqrtCReal(x CReal) CReal {
+	return CReal(math.Sqrt(float64(x)))
+}
+
 func FloorHalfPlusF32ToInt32(x float32) int32 {
 	return int32(math.Floor(float64(x) + 0.5))
 }

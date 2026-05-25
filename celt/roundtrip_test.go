@@ -52,9 +52,9 @@ func generateTransientSignal(freqHz float64, numSamples int) []float64 {
 }
 
 // hasNonZeroSamples checks if output contains any non-zero samples.
-func hasNonZeroSamples(samples []float64) bool {
+func hasNonZeroSamples(samples []float32) bool {
 	for _, s := range samples {
-		if math.Abs(s) > 1e-10 {
+		if math.Abs(float64(s)) > 1e-10 {
 			return true
 		}
 	}
@@ -262,8 +262,8 @@ func TestCELTRoundTripSilence(t *testing.T) {
 	// For silence input, output should be mostly silent (allow small noise)
 	maxAmp := 0.0
 	for _, s := range decoded {
-		if math.Abs(s) > maxAmp {
-			maxAmp = math.Abs(s)
+		if math.Abs(float64(s)) > maxAmp {
+			maxAmp = math.Abs(float64(s))
 		}
 	}
 	t.Logf("Silence output max amplitude: %v", maxAmp)
@@ -339,10 +339,10 @@ func TestStereoParamsRoundTrip(t *testing.T) {
 	leftHasContent := false
 	rightHasContent := false
 	for i := 0; i < len(decoded); i += 2 {
-		if math.Abs(decoded[i]) > 1e-10 {
+		if math.Abs(float64(decoded[i])) > 1e-10 {
 			leftHasContent = true
 		}
-		if i+1 < len(decoded) && math.Abs(decoded[i+1]) > 1e-10 {
+		if i+1 < len(decoded) && math.Abs(float64(decoded[i+1])) > 1e-10 {
 			rightHasContent = true
 		}
 	}
@@ -392,12 +392,12 @@ func TestCELTRoundTripFrameSizesStereo(t *testing.T) {
 func TestMidSideConversion(t *testing.T) {
 	// Create simple test signal
 	n := 100
-	left := make([]float64, n)
-	right := make([]float64, n)
+	left := make([]celtNorm, n)
+	right := make([]celtNorm, n)
 
 	for i := 0; i < n; i++ {
-		left[i] = float64(i) / float64(n)
-		right[i] = float64(n-i) / float64(n)
+		left[i] = celtNorm(float32(i) / float32(n))
+		right[i] = celtNorm(float32(n-i) / float32(n))
 	}
 
 	// Convert to mid-side
@@ -413,8 +413,8 @@ func TestMidSideConversion(t *testing.T) {
 	// Verify round-trip
 	maxError := 0.0
 	for i := 0; i < n; i++ {
-		errL := math.Abs(leftOut[i] - left[i])
-		errR := math.Abs(rightOut[i] - right[i])
+		errL := math.Abs(float64(leftOut[i] - left[i]))
+		errR := math.Abs(float64(rightOut[i] - right[i]))
 		if errL > maxError {
 			maxError = errL
 		}

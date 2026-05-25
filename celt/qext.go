@@ -1,7 +1,5 @@
 package celt
 
-import "math"
-
 // qextPacketSizeCap matches libopus QEXT_PACKET_SIZE_CAP.
 const qextPacketSizeCap = 3825
 
@@ -114,7 +112,7 @@ func qextShortMDCTSize(frameSize int) int {
 // available to the secondary range coder (excluding the extension ID byte),
 // and the packet-level padding-byte count that would be required once the
 // top-level Opus packet builder starts carrying the extension.
-func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels int, toneishness float64) (mainBytes, payloadBytes, paddingBytes int) {
+func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels int, toneishness float32) (mainBytes, payloadBytes, paddingBytes int) {
 	if nbCompressedBytes <= 0 {
 		return nbCompressedBytes, 0, 0
 	}
@@ -128,7 +126,7 @@ func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels i
 	// initial 80%-of-excess estimate, pull the reservation back toward the main
 	// frame according to toneishness. This avoids over-reserving QEXT bytes for
 	// tonal mono packets and keeps us closer to the libopus oracle.
-	scale := 1.0 - toneishness*toneishness
+	scale := float32(1.0) - toneishness*toneishness
 	if scale < 0 {
 		scale = 0
 	}
@@ -136,7 +134,7 @@ func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels i
 		scale = 1
 	}
 	targetBytes := nbCompressedBytes - qextBytes/3
-	qextBytes += int(math.Round(scale * float64((nbCompressedBytes-targetBytes)-qextBytes)))
+	qextBytes += roundFloat32ToInt(scale * float32((nbCompressedBytes-targetBytes)-qextBytes))
 	qextBytes = max(nbCompressedBytes-1275, max(21, qextBytes))
 
 	paddingBytes = (qextBytes + 253) / 254
@@ -156,4 +154,11 @@ func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels i
 		return nbCompressedBytes, 0, 0
 	}
 	return mainBytes, payloadBytes, paddingBytes
+}
+
+func roundFloat32ToInt(x float32) int {
+	if x >= 0 {
+		return int(x + 0.5)
+	}
+	return int(x - 0.5)
 }

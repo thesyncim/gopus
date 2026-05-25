@@ -405,7 +405,7 @@ func TestDecodeBands_OutputSize(t *testing.T) {
 			d := NewDecoder(1)
 
 			// Create mock energies and bandBits
-			energies := make([]float64, tc.nbBands)
+			energies := make([]celtGLog, tc.nbBands)
 			bandBits := make([]int, tc.nbBands)
 
 			// Call DecodeBands
@@ -450,8 +450,8 @@ func TestDecodeBandsStereo_OutputSize(t *testing.T) {
 			d := NewDecoder(2) // Stereo
 
 			// Create mock energies and bandBits
-			energiesL := make([]float64, tc.nbBands)
-			energiesR := make([]float64, tc.nbBands)
+			energiesL := make([]celtGLog, tc.nbBands)
+			energiesR := make([]celtGLog, tc.nbBands)
 			bandBits := make([]int, tc.nbBands)
 
 			// Call DecodeBandsStereo
@@ -474,44 +474,44 @@ func TestDecodeBandsStereo_OutputSize(t *testing.T) {
 func TestDenormalizeBand(t *testing.T) {
 	tests := []struct {
 		name     string
-		shape    []float64
-		energy   float64
+		shape    []celtNorm
+		energy   celtGLog
 		wantGain float64 // Expected gain = 2^(energy/DB6)
 	}{
 		{
 			name:     "zero energy",
-			shape:    []float64{1.0, 0.0, 0.0},
+			shape:    []celtNorm{1.0, 0.0, 0.0},
 			energy:   0.0,
 			wantGain: 1.0, // 2^(0/DB6) = 1
 		},
 		{
 			name:     "positive energy (6 dB)",
-			shape:    []float64{0.5, 0.5, 0.5, 0.5},
-			energy:   DB6,
+			shape:    []celtNorm{0.5, 0.5, 0.5, 0.5},
+			energy:   celtGLog(DB6),
 			wantGain: 2.0, // 2^(1) = 2
 		},
 		{
 			name:     "negative energy (-6 dB)",
-			shape:    []float64{1.0},
-			energy:   -DB6,
+			shape:    []celtNorm{1.0},
+			energy:   celtGLog(-DB6),
 			wantGain: 0.5, // 2^(-1) = 0.5
 		},
 		{
 			name:     "fractional energy (9 dB)",
-			shape:    []float64{0.707, 0.707},
-			energy:   1.5 * DB6,
+			shape:    []celtNorm{0.707, 0.707},
+			energy:   celtGLog(1.5 * DB6),
 			wantGain: 2.828, // 2^(1.5) ~= 2.828
 		},
 		{
 			name:     "energy = DB6 (gain = 2)",
-			shape:    []float64{1, 0, 0, 0},
-			energy:   DB6,
+			shape:    []celtNorm{1, 0, 0, 0},
+			energy:   celtGLog(DB6),
 			wantGain: 2.0, // 2^(1) = 2
 		},
 		{
 			name:     "energy = -DB6 (gain = 0.5)",
-			shape:    []float64{1, 0, 0, 0},
-			energy:   -DB6,
+			shape:    []celtNorm{1, 0, 0, 0},
+			energy:   celtGLog(-DB6),
 			wantGain: 0.5, // 2^(-1) = 0.5
 		},
 	}
@@ -527,7 +527,7 @@ func TestDenormalizeBand(t *testing.T) {
 			// Check that result[i] = shape[i] * gain
 			actualGain := 0.0
 			if tt.shape[0] != 0 {
-				actualGain = result[0] / tt.shape[0]
+				actualGain = float64(result[0] / tt.shape[0])
 			}
 
 			tolerance := 0.01
@@ -541,25 +541,25 @@ func TestDenormalizeBand(t *testing.T) {
 // TestDenormalizeEnergyClamping verifies extreme energies don't cause overflow.
 func TestDenormalizeEnergyClamping(t *testing.T) {
 	// Test that extreme energies don't cause overflow
-	shape := []float64{1.0}
+	shape := []celtNorm{1.0}
 
 	// Very high energy should be clamped to 32
-	resultHigh := DenormalizeBand(shape, 100.0)
-	if math.IsInf(resultHigh[0], 0) || math.IsNaN(resultHigh[0]) {
+	resultHigh := DenormalizeBand(shape, celtGLog(100.0))
+	if math.IsInf(float64(resultHigh[0]), 0) || math.IsNaN(float64(resultHigh[0])) {
 		t.Error("High energy caused overflow or NaN")
 	}
 	// Expect clamped to 2^(32/DB6)
 	maxGain := math.Exp2(32 / DB6)
-	if resultHigh[0] > maxGain*1.001 {
+	if float64(resultHigh[0]) > maxGain*1.001 {
 		t.Errorf("High energy not clamped: got %v, want <= %v", resultHigh[0], maxGain)
 	}
-	if math.Abs(resultHigh[0]-maxGain) > maxGain*0.001 {
+	if math.Abs(float64(resultHigh[0])-maxGain) > maxGain*0.001 {
 		t.Errorf("High energy should clamp to 2^32: got %v, want %v", resultHigh[0], maxGain)
 	}
 
 	// Very low energy should still work (no clamping needed for underflow)
-	resultLow := DenormalizeBand(shape, -100.0)
-	if math.IsNaN(resultLow[0]) {
+	resultLow := DenormalizeBand(shape, celtGLog(-100.0))
+	if math.IsNaN(float64(resultLow[0])) {
 		t.Error("Low energy caused NaN")
 	}
 	// Should be very small but not zero (floating point underflow to denormal)
@@ -572,22 +572,22 @@ func TestDenormalizeEnergyClamping(t *testing.T) {
 func TestComputeBandEnergy(t *testing.T) {
 	// Coefficients with known energy
 	// sum(x^2) = 4, sqrt = 2, log2(2) = 1, energy = DB6 * 1
-	coeffs := []float64{1, 1, 1, 1}
+	coeffs := []celtNorm{1, 1, 1, 1}
 	energy := ComputeBandEnergy(coeffs)
 	expected := DB6 * (0.5 * math.Log(4.0) / 0.6931471805599453)
-	if math.Abs(energy-expected) > 1e-10 {
+	if math.Abs(float64(energy)-expected) > 1e-6 {
 		t.Errorf("ComputeBandEnergy = %v, want %v", energy, expected)
 	}
 
 	// Empty vector should return epsilon-based low energy
 	energy = ComputeBandEnergy(nil)
 	expectedSilence := 0.5 * math.Log2(1e-27)
-	if math.Abs(energy-expectedSilence) > 1e-10 {
+	if math.Abs(float64(energy)-expectedSilence) > 1e-6 {
 		t.Errorf("ComputeBandEnergy(nil) = %v, want %v", energy, expectedSilence)
 	}
 
-	energy = ComputeBandEnergy([]float64{})
-	if math.Abs(energy-expectedSilence) > 1e-10 {
+	energy = ComputeBandEnergy([]celtNorm{})
+	if math.Abs(float64(energy)-expectedSilence) > 1e-6 {
 		t.Errorf("ComputeBandEnergy([]) = %v, want %v", energy, expectedSilence)
 	}
 }
@@ -621,7 +621,11 @@ func TestComputeBandEnergyRoundTrip(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Compute energy
-			energy := ComputeBandEnergy(tt.coeffs)
+			coeffs := make([]celtNorm, len(tt.coeffs))
+			for i, c := range tt.coeffs {
+				coeffs[i] = celtNorm(c)
+			}
+			energy := ComputeBandEnergy(coeffs)
 
 			// Normalize to unit vector
 			norm := 0.0
@@ -633,9 +637,9 @@ func TestComputeBandEnergyRoundTrip(t *testing.T) {
 				return
 			}
 
-			shape := make([]float64, len(tt.coeffs))
+			shape := make([]celtNorm, len(tt.coeffs))
 			for i, c := range tt.coeffs {
-				shape[i] = c / norm
+				shape[i] = celtNorm(c / norm)
 			}
 
 			// Denormalize back
@@ -643,7 +647,7 @@ func TestComputeBandEnergyRoundTrip(t *testing.T) {
 
 			// Should get approximately original coefficients
 			for i := range tt.coeffs {
-				if math.Abs(result[i]-tt.coeffs[i]) > 0.1 {
+				if math.Abs(float64(result[i])-tt.coeffs[i]) > 0.1 {
 					t.Errorf("coeff[%d] = %v, want %v", i, result[i], tt.coeffs[i])
 				}
 			}
@@ -738,18 +742,22 @@ func BenchmarkBitsToK(b *testing.B) {
 // BenchmarkDecodeBands measures band decoding performance.
 // Note: This benchmark uses mock data since we don't have a real range decoder.
 func BenchmarkDecodeBands(b *testing.B) {
-	energies := make([]float64, 21)
+	energies := make([]celtGLog, 21)
 	bandBits := make([]int, 21)
 	for i := range bandBits {
 		bandBits[i] = 50 // Typical bit allocation
 	}
 
 	// Benchmark energy scaling (denormalization) as part of decode path
-	shape := make([]float64, 100)
+	shape64 := make([]float64, 100)
+	shape := make([]celtNorm, 100)
 	for i := range shape {
-		shape[i] = float64(i) / 100.0
+		shape64[i] = float64(i) / 100.0
 	}
-	shape = normalizeFloat64Vector(shape)
+	shape64 = normalizeFloat64Vector(shape64)
+	for i := range shape {
+		shape[i] = celtNorm(shape64[i])
+	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -1007,26 +1015,26 @@ func TestDecodeBandsAllocationPath(t *testing.T) {
 func TestDenormalizationGainPath(t *testing.T) {
 	// Test that energy values produce correct gains
 	testCases := []struct {
-		energy float64
+		energy celtGLog
 		gain   float64 // expected gain = 2^energy
 	}{
 		{0.0, 1.0},
-		{DB6, 2.0},
-		{-DB6, 0.5},
-		{3 * DB6, 8.0},
-		{-3 * DB6, 0.125},
-		{5 * DB6, 32.0},
-		{-5 * DB6, 1.0 / 32.0},
+		{celtGLog(DB6), 2.0},
+		{celtGLog(-DB6), 0.5},
+		{celtGLog(3 * DB6), 8.0},
+		{celtGLog(-3 * DB6), 0.125},
+		{celtGLog(5 * DB6), 32.0},
+		{celtGLog(-5 * DB6), 1.0 / 32.0},
 	}
 
-	shape := []float64{0.6, 0.8} // 3-4-5 triangle, normalized
+	shape := []celtNorm{0.6, 0.8} // 3-4-5 triangle, normalized
 
 	for _, tc := range testCases {
 		result := DenormalizeBand(shape, tc.energy)
 
 		// Check gain is correct
 		if shape[0] != 0 {
-			actualGain := result[0] / shape[0]
+			actualGain := float64(result[0] / shape[0])
 			if math.Abs(actualGain-tc.gain) > tc.gain*1e-6 {
 				t.Errorf("energy=%v: gain=%v, want %v", tc.energy, actualGain, tc.gain)
 			}
@@ -1036,17 +1044,17 @@ func TestDenormalizationGainPath(t *testing.T) {
 	// Test clamping at high energies
 	t.Run("clamp_high", func(t *testing.T) {
 		// Energy > 32 should be clamped to 32
-		result := DenormalizeBand([]float64{1.0}, 100.0)
+		result := DenormalizeBand([]celtNorm{1.0}, celtGLog(100.0))
 		expectedGain := math.Exp2(32 / DB6) // Clamped at 32 dB
-		if math.Abs(result[0]-expectedGain) > expectedGain*1e-6 {
+		if math.Abs(float64(result[0])-expectedGain) > expectedGain*1e-6 {
 			t.Errorf("High energy: got %v, want ~%v (clamped)", result[0], expectedGain)
 		}
 	})
 
 	// Test very low energies don't produce NaN/Inf
 	t.Run("low_energy", func(t *testing.T) {
-		result := DenormalizeBand([]float64{1.0}, -100.0)
-		if math.IsNaN(result[0]) || math.IsInf(result[0], 0) {
+		result := DenormalizeBand([]celtNorm{1.0}, celtGLog(-100.0))
+		if math.IsNaN(float64(result[0])) || math.IsInf(float64(result[0]), 0) {
 			t.Errorf("Low energy produced NaN/Inf: %v", result[0])
 		}
 	})

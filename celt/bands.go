@@ -1,6 +1,10 @@
 package celt
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // Band processing orchestration for CELT decoding.
 // This file contains the top-level band decoding loop that processes all
@@ -22,7 +26,7 @@ import "math"
 // Upper bins (totalBins to frameSize-1) remain zero, representing highest frequencies.
 // This ensures IMDCT receives exactly frameSize coefficients, producing correct sample count.
 func (d *Decoder) DecodeBands(
-	energies []float64,
+	energies []celtGLog,
 	bandBits []int,
 	nbBands int,
 	stereo bool,
@@ -130,7 +134,7 @@ func (d *Decoder) DecodeBands(
 //
 // Reference: libopus celt/bands.c quant_all_bands() stereo path
 func (d *Decoder) DecodeBandsStereo(
-	energiesL, energiesR []float64,
+	energiesL, energiesR []celtGLog,
 	bandBits []int,
 	nbBands int,
 	frameSize int,
@@ -406,15 +410,15 @@ func ilog2(x int) int {
 // Returns: denormalized MDCT coefficients.
 //
 // This matches libopus celt/bands.c denormalise_bands().
-func DenormalizeBand(shape []float64, energy float64) []float64 {
+func DenormalizeBand(shape []celtNorm, energy celtGLog) []celtNorm {
 	if len(shape) == 0 {
 		return nil
 	}
 
 	gain := denormalizeEnergyGain(energy)
-	result := make([]float64, len(shape))
+	result := make([]celtNorm, len(shape))
 	for i, x := range shape {
-		result[i] = denormalizeMulFloat32(x, gain)
+		result[i] = celtNorm(float32(x) * gain)
 	}
 	return result
 }
@@ -647,7 +651,7 @@ func denormalizeBandGain[E ~float32 | ~float64](energies []E, band int) float32 
 	return celtExp2(e)
 }
 
-func denormalizeEnergyGain(energy float64) float32 {
+func denormalizeEnergyGain(energy celtGLog) float32 {
 	e := float32(energy)
 	if e > 32 {
 		e = 32
@@ -669,9 +673,9 @@ func scaleDenormalizedFloat32Into(dst, src []float64, gain float32, n int) {
 // ComputeBandEnergy computes the per-band log2 amplitude.
 // coeffs: MDCT coefficients for the band
 // Returns: log2(sqrt(sum(x^2))) with libopus epsilon
-func ComputeBandEnergy(coeffs []float64) float64 {
+func ComputeBandEnergy(coeffs []celtNorm) celtGLog {
 	if len(coeffs) == 0 {
-		return 0.5 * math.Log2(1e-27)
+		return celtGLog(float32(0.5) * celtLog2(float32(1e-27)))
 	}
 
 	sumSq := float32(1e-27)
@@ -681,8 +685,8 @@ func ComputeBandEnergy(coeffs []float64) float64 {
 	}
 
 	// log2(sqrt(sumSq)) = log2(amp) with libopus FLOAT_APPROX log2.
-	amp := float32(math.Sqrt(float64(sumSq)))
-	return float64(celtLog2(amp))
+	amp := opusmath.SqrtF32(sumSq)
+	return celtGLog(celtLog2(amp))
 }
 
 // InterleaveBands interleaves band coefficients for transient frames.
@@ -694,14 +698,14 @@ func ComputeBandEnergy(coeffs []float64) float64 {
 // The coefficients are interleaved so that each short block can be processed.
 //
 // Reference: libopus celt/celt_decoder.c, transient mode
-func InterleaveBands(bands [][]float64, shortBlocks int) []float64 {
+func InterleaveBands(bands [][]celtNorm, shortBlocks int) []celtNorm {
 	if len(bands) == 0 || shortBlocks <= 1 {
 		// No interleaving needed
 		total := 0
 		for _, b := range bands {
 			total += len(b)
 		}
-		result := make([]float64, total)
+		result := make([]celtNorm, total)
 		offset := 0
 		for _, b := range bands {
 			copy(result[offset:], b)
@@ -718,7 +722,7 @@ func InterleaveBands(bands [][]float64, shortBlocks int) []float64 {
 
 	if total%shortBlocks != 0 {
 		// Not divisible - fall back to simple concatenation
-		result := make([]float64, total)
+		result := make([]celtNorm, total)
 		offset := 0
 		for _, b := range bands {
 			copy(result[offset:], b)
@@ -728,7 +732,7 @@ func InterleaveBands(bands [][]float64, shortBlocks int) []float64 {
 	}
 
 	blockSize := total / shortBlocks
-	result := make([]float64, total)
+	result := make([]celtNorm, total)
 
 	// Interleave coefficients
 	flatIdx := 0

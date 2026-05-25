@@ -226,7 +226,7 @@ func TestEncoderCELTRoundTrip(t *testing.T) {
 
 			// Verify energy
 			inputEnergy := computeEnergyIntegration(pcm)
-			outputEnergy := computeEnergyIntegration(decoded)
+			outputEnergy := computeEnergyIntegrationF32(decoded)
 
 			ratio := 0.0
 			if inputEnergy > 0 {

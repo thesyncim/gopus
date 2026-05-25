@@ -18,7 +18,7 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 // 7. Apply de-emphasis filter
 //
 // Reference: RFC 6716 Section 4.3, libopus celt/celt_decoder.c celt_decode_with_ec()
-func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
+func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float32, error) {
 	// Track channel count for transition detection (normal decode uses decoder's channels)
 	d.handleChannelTransition(d.channels)
 	var qextPayload []byte

@@ -25,11 +25,11 @@ func (d *Decoder) DecodeStereoParams(nbBands int) (intensity, dualStereo int) {
 	return intensity, dualStereo
 }
 
-func (d *Decoder) synthesizeSilenceMono(frameSize int) []float64 {
+func (d *Decoder) synthesizeSilenceMono(frameSize int) []float32 {
 	if frameSize <= 0 {
 		return nil
 	}
-	out := ensureFloat64Slice(&d.scratchSynth, frameSize)
+	out := ensureFloat32Slice(&d.scratchSynthF32, frameSize)
 	clear(out)
 
 	if Overlap <= 0 {
@@ -48,17 +48,17 @@ func (d *Decoder) synthesizeSilenceMono(frameSize int) []float64 {
 	}
 	for i := 0; i < half; i++ {
 		x2 := float32(prev[i])
-		out[i] = float64(x2 * window[Overlap-1-i])
+		out[i] = x2 * window[Overlap-1-i]
 		j := Overlap - 1 - i
 		if j < frameSize {
-			out[j] = float64(x2 * window[i])
+			out[j] = x2 * window[i]
 		}
 	}
 	clear(prev)
 	return out
 }
 
-func (d *Decoder) synthesizeSilenceStereo(frameSize int) []float64 {
+func (d *Decoder) synthesizeSilenceStereo(frameSize int) []float32 {
 	if frameSize <= 0 {
 		return nil
 	}
@@ -68,7 +68,7 @@ func (d *Decoder) synthesizeSilenceStereo(frameSize int) []float64 {
 		d.overlapBuffer = buf
 	}
 
-	out := ensureFloat64Slice(&d.scratchStereo, frameSize*2)
+	out := ensureFloat32Slice(&d.scratchStereoF32, frameSize*2)
 	clear(out)
 	if Overlap <= 0 {
 		return out
@@ -85,15 +85,15 @@ func (d *Decoder) synthesizeSilenceStereo(frameSize int) []float64 {
 		j := Overlap - 1 - i
 
 		x2L := float32(overlapL[i])
-		out[2*i] = float64(x2L * window[Overlap-1-i])
+		out[2*i] = x2L * window[Overlap-1-i]
 		if j < frameSize {
-			out[2*j] = float64(x2L * window[i])
+			out[2*j] = x2L * window[i]
 		}
 
 		x2R := float32(overlapR[i])
-		out[2*i+1] = float64(x2R * window[Overlap-1-i])
+		out[2*i+1] = x2R * window[Overlap-1-i]
 		if j < frameSize {
-			out[2*j+1] = float64(x2R * window[i])
+			out[2*j+1] = x2R * window[i]
 		}
 	}
 	clear(overlapL)
@@ -102,10 +102,10 @@ func (d *Decoder) synthesizeSilenceStereo(frameSize int) []float64 {
 }
 
 // decodeSilenceFrame synthesizes a CELT silence frame from overlap state.
-func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float32, newTapset int) []float64 {
+func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float32, newTapset int) []float32 {
 	mode := GetModeConfig(frameSize)
 	d.applyPendingPLCPrefilterAndFold()
-	var samples []float64
+	var samples []float32
 	if d.channels == 2 {
 		samples = d.synthesizeSilenceStereo(frameSize)
 	} else {
@@ -115,7 +115,7 @@ func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float
 		return nil
 	}
 
-	d.applyPostfilter(samples, frameSize, mode.LM, newPeriod, newGain, newTapset)
+	d.applyPostfilterFloat32(samples, frameSize, mode.LM, newPeriod, newGain, newTapset)
 	if len(d.directOutPCM) >= len(samples) {
 		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:len(samples)], samples, 1.0/32768.0)
 	} else {
@@ -125,7 +125,7 @@ func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float
 	return samples
 }
 
-func (d *Decoder) handleDecodedSilenceFrame(frameSize, lm int, prev1Energy []celtGLog, rd *rangecoding.Decoder) []float64 {
+func (d *Decoder) handleDecodedSilenceFrame(frameSize, lm int, prev1Energy []celtGLog, rd *rangecoding.Decoder) []float32 {
 	samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
 	silenceE := ensureGLogSlice(&d.scratchSilenceE, MaxBands*d.channels)
 	fillSilenceGLog(silenceE)

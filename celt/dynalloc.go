@@ -267,7 +267,7 @@ func DynallocAnalysis(
 	logN []int16,
 	effectiveBytes int,
 	isTransient, vbr, constrainedVBR, lfe bool,
-	toneFreq, toneishness float64,
+	toneFreq, toneishness float32,
 	surroundDynalloc []celtGLog,
 	analysisValid bool,
 	analysisLeakBoost []uint8,
@@ -555,7 +555,7 @@ func DynallocAnalysis(
 
 		// Compensate for Opus under-allocation on tones.
 		if toneishness > 0.98 && toneFreq >= 0 {
-			freqBin := int(math.Floor(0.5 + float64(float32(toneFreq))*120.0/math.Pi))
+			freqBin := int(0.5 + toneFreq*120.0/float32(math.Pi))
 			for i := start; i < end; i++ {
 				if freqBin >= EBands[i] && freqBin <= EBands[i+1] {
 					follower[i] += 2.0
@@ -805,7 +805,7 @@ func DynallocAnalysisWithScratch(
 	logN []int16,
 	effectiveBytes int,
 	isTransient, vbr, constrainedVBR, lfe bool,
-	toneFreq, toneishness float64,
+	toneFreq, toneishness float32,
 	surroundDynalloc []celtGLog,
 	analysisValid bool,
 	analysisLeakBoost []uint8,
@@ -1130,7 +1130,7 @@ func DynallocAnalysisWithScratch(
 		}
 
 		if toneishness > 0.98 && toneFreq >= 0 {
-			freqBin := int(math.Floor(0.5 + float64(float32(toneFreq))*120.0/math.Pi))
+			freqBin := int(0.5 + toneFreq*120.0/float32(math.Pi))
 			for i := start; i < end; i++ {
 				if freqBin >= EBands[i] && freqBin <= EBands[i+1] {
 					follower[i] += 2.0

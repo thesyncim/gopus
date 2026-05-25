@@ -135,8 +135,8 @@ func TestDecodeFrameOneBytePayloadUsesPLC(t *testing.T) {
 				t.Fatalf("one-byte length=%d want %d", len(got), len(want))
 			}
 			for i := range want {
-				if math.Float64bits(got[i]) != math.Float64bits(want[i]) {
-					t.Fatalf("sample %d mismatch: got=%016x want=%016x", i, math.Float64bits(got[i]), math.Float64bits(want[i]))
+				if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+					t.Fatalf("sample %d mismatch: got=%08x want=%08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
 				}
 			}
 		})
@@ -312,7 +312,7 @@ func BenchmarkDecodeFrameWithPacketStereoToFloat32(b *testing.B) {
 	}
 }
 
-func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesFloat64(t *testing.T) {
+func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesInterleaved(t *testing.T) {
 	legacy := NewDecoder(1)
 	current := NewDecoder(1)
 	legacy.preemphState[0] = 0.1875
@@ -322,13 +322,10 @@ func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesFloat64(t *testing.T)
 	for i := range samplesF32 {
 		samplesF32[i] = float32(0.65*math.Sin(float64(i+3)*0.041) + 0.2*math.Cos(float64(i+7)*0.017))
 	}
-	samplesF64 := make([]float64, len(samplesF32))
-	copyFloat32ToFloat64(samplesF64, samplesF32)
-
 	got := make([]float32, len(samplesF32))
 	want := make([]float32, len(samplesF32))
 	current.applyDeemphasisAndScaleMonoFloat32ToFloat32(got, samplesF32, 1.0/32768.0)
-	legacy.applyDeemphasisAndScaleToFloat32(want, samplesF64, 1.0/32768.0)
+	legacy.applyDeemphasisAndScaleToFloat32(want, samplesF32, 1.0/32768.0)
 
 	for i := range want {
 		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
@@ -340,7 +337,7 @@ func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesFloat64(t *testing.T)
 	}
 }
 
-func TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesFloat64(t *testing.T) {
+func TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesInterleaved(t *testing.T) {
 	legacy := NewDecoder(2)
 	current := NewDecoder(2)
 	legacy.preemphState[0] = 0.1875
@@ -354,15 +351,10 @@ func TestApplyDeemphasisAndScaleStereoPlanarFloat32ToFloat32MatchesFloat64(t *te
 		leftF32[i] = float32(0.65*math.Sin(float64(i+3)*0.041) + 0.2*math.Cos(float64(i+7)*0.017))
 		rightF32[i] = float32(0.35*math.Sin(float64(i+11)*0.037) - 0.3*math.Cos(float64(i+5)*0.023))
 	}
-	leftF64 := make([]float64, len(leftF32))
-	rightF64 := make([]float64, len(rightF32))
-	copyFloat32ToFloat64(leftF64, leftF32)
-	copyFloat32ToFloat64(rightF64, rightF32)
-
 	got := make([]float32, len(leftF32)*2)
 	want := make([]float32, len(leftF32)*2)
 	current.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(got, leftF32, rightF32, 1.0/32768.0)
-	legacy.applyDeemphasisAndScaleStereoPlanarToFloat32(want, leftF64, rightF64, 1.0/32768.0)
+	legacy.applyDeemphasisAndScaleStereoPlanarToFloat32(want, leftF32, rightF32, 1.0/32768.0)
 
 	for i := range want {
 		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
@@ -405,10 +397,7 @@ func TestApplyPostfilterNoGainMonoFromFloat32MatchesFloat64(t *testing.T) {
 	for i := range samplesF32 {
 		samplesF32[i] = float32(0.7*math.Sin(float64(i+11)*0.021) + 0.1*math.Cos(float64(i+13)*0.037))
 	}
-	samplesF64 := make([]float64, frameSize)
-	copyFloat32ToFloat64(samplesF64, samplesF32)
-
-	legacy.applyPostfilter(samplesF64, frameSize, 0, 61, 0, 2)
+	legacy.applyPostfilterFloat32(append([]float32(nil), samplesF32...), frameSize, 0, 61, 0, 2)
 	current.applyPostfilterNoGainMonoFromFloat32(samplesF32, frameSize, 0, 61, 0, 2)
 
 	for i := range legacy.postfilterMem {
@@ -440,17 +429,17 @@ func TestSynthesizeMonoLongToFloat32MatchesSynthesize(t *testing.T) {
 		current.overlapBuffer[i] = celtSig(v)
 	}
 
-	coeffs := make([]float64, 960)
+	coeffs := make([]float32, 960)
 	for i := range coeffs {
-		coeffs[i] = 0.5*math.Sin(float64(i+7)*0.031) + 0.3*math.Cos(float64(i+17)*0.019)
+		coeffs[i] = float32(0.5*math.Sin(float64(i+7)*0.031) + 0.3*math.Cos(float64(i+17)*0.019))
 	}
 
 	got := current.synthesizeMonoLongToFloat32(coeffs)
 	want := legacy.Synthesize(coeffs, false, 1)
 
 	for i := range want {
-		if math.Float32bits(got[i]) != math.Float32bits(float32(want[i])) {
-			t.Fatalf("sample %d mismatch: got=%08x want=%08x", i, math.Float32bits(got[i]), math.Float32bits(float32(want[i])))
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("sample %d mismatch: got=%08x want=%08x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
 		}
 	}
 	for i := range legacy.overlapBuffer {
@@ -715,7 +704,7 @@ func TestDecodeFrame120Samples(t *testing.T) {
 	// Check for non-zero output (not all silence)
 	hasNonZero := false
 	for _, s := range samples {
-		if math.Abs(s) > 1e-10 {
+		if math.Abs(float64(s)) > 1e-10 {
 			hasNonZero = true
 			break
 		}
@@ -815,7 +804,7 @@ func TestDecodeFrameSequence(t *testing.T) {
 
 		// Check samples are finite
 		for j, s := range samples {
-			if math.IsNaN(s) || math.IsInf(s, 0) {
+			if math.IsNaN(float64(s)) || math.IsInf(float64(s), 0) {
 				t.Errorf("Frame %d, sample %d: invalid value %v", i, j, s)
 			}
 		}
@@ -858,7 +847,7 @@ func TestCELTDecoderQualitySummary(t *testing.T) {
 
 		samples, _ := d.DecodeFrame(frameData, fs)
 		for _, s := range samples {
-			if math.IsNaN(s) || math.IsInf(s, 0) {
+			if math.IsNaN(float64(s)) || math.IsInf(float64(s), 0) {
 				finitePass = false
 				break
 			}
@@ -876,8 +865,9 @@ func TestCELTDecoderQualitySummary(t *testing.T) {
 	samples, _ := d.DecodeFrame(frameData, 960)
 	maxAbs := 0.0
 	for _, s := range samples {
-		if math.Abs(s) > maxAbs {
-			maxAbs = math.Abs(s)
+		abs := math.Abs(float64(s))
+		if abs > maxAbs {
+			maxAbs = abs
 		}
 	}
 	t.Logf("Max amplitude: %f", maxAbs)

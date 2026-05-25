@@ -20,10 +20,10 @@ func TestNormalizeBandsToArrayUnitNorm(t *testing.T) {
 	}
 
 	// Create coefficients with varying energy per band
-	mdctCoeffs := make([]float64, totalBins)
+	mdctCoeffs := make([]float32, totalBins)
 	for i := range mdctCoeffs {
 		// Mix of frequencies to get realistic-ish MDCT output
-		mdctCoeffs[i] = math.Sin(float64(i)*0.1) * float64(i%50+1) * 0.01
+		mdctCoeffs[i] = float32(math.Sin(float64(i)*0.1) * float64(i%50+1) * 0.01)
 	}
 
 	// Compute energies using the encoder's method
@@ -83,9 +83,9 @@ func TestNormalizationRoundTrip(t *testing.T) {
 		totalBins += ScaledBandWidth(band, frameSize)
 	}
 
-	mdctCoeffs := make([]float64, totalBins)
+	mdctCoeffs := make([]float32, totalBins)
 	for i := range mdctCoeffs {
-		mdctCoeffs[i] = math.Sin(float64(i)*0.2) * 100.0 // Scale to realistic magnitude
+		mdctCoeffs[i] = float32(math.Sin(float64(i)*0.2) * 100.0) // Scale to realistic magnitude
 	}
 
 	// Compute energies
@@ -141,9 +141,10 @@ func TestNormalizationRoundTrip(t *testing.T) {
 		var bandError float64
 		var bandEnergy float64
 		for i := 0; i < n; i++ {
-			diff := mdctCoeffs[offset+i] - denormalized[offset+i]
+			diff := float64(mdctCoeffs[offset+i]) - denormalized[offset+i]
 			bandError += diff * diff
-			bandEnergy += mdctCoeffs[offset+i] * mdctCoeffs[offset+i]
+			v := float64(mdctCoeffs[offset+i])
+			bandEnergy += v * v
 		}
 
 		// Log per-band error
@@ -182,9 +183,9 @@ func TestEnergyComputationConsistency(t *testing.T) {
 		totalBins += ScaledBandWidth(band, frameSize)
 	}
 
-	mdctCoeffs := make([]float64, totalBins)
+	mdctCoeffs := make([]float32, totalBins)
 	for i := range mdctCoeffs {
-		mdctCoeffs[i] = float64(i%100) * 0.1
+		mdctCoeffs[i] = float32(i%100) * 0.1
 	}
 
 	// Compute energies using encoder's method
@@ -203,7 +204,8 @@ func TestEnergyComputationConsistency(t *testing.T) {
 		// Compute energy the same way
 		var sumSq float64
 		for i := start; i < end && i < len(mdctCoeffs); i++ {
-			sumSq += mdctCoeffs[i] * mdctCoeffs[i]
+			v := float64(mdctCoeffs[i])
+			sumSq += v * v
 		}
 		expectedRaw := 0.5 * math.Log2(sumSq+1e-27)
 
@@ -313,10 +315,11 @@ func TestEncoderDecoderNormalizationConsistency(t *testing.T) {
 	var maxAbs float64
 	var sumSq float64
 	for _, s := range decoded {
-		if math.Abs(s) > maxAbs {
-			maxAbs = math.Abs(s)
+		sf := float64(s)
+		if math.Abs(sf) > maxAbs {
+			maxAbs = math.Abs(sf)
 		}
-		sumSq += s * s
+		sumSq += sf * sf
 	}
 	rms := math.Sqrt(sumSq / float64(len(decoded)))
 
@@ -338,7 +341,7 @@ func TestEncoderDecoderNormalizationConsistency(t *testing.T) {
 		var corr float64
 		var count int
 		for i := 0; i < len(pcm) && i+offset < len(decoded); i++ {
-			corr += pcm[i] * decoded[i+offset]
+			corr += pcm[i] * float64(decoded[i+offset])
 			count++
 		}
 		if count > 0 {
@@ -369,16 +372,20 @@ func TestNormalizeBandsMethodComparison(t *testing.T) {
 		totalBins += ScaledBandWidth(band, fs)
 	}
 
-	mdctCoeffs := make([]float64, totalBins)
+	mdctCoeffs := make([]float32, totalBins)
 	for i := range mdctCoeffs {
-		mdctCoeffs[i] = math.Sin(float64(i)*0.15) * 50.0
+		mdctCoeffs[i] = float32(math.Sin(float64(i)*0.15) * 50.0)
 	}
 
 	// Compute energies
 	energies := encoder.ComputeBandEnergies(mdctCoeffs, nbBands, fs)
 
 	// Method 1: NormalizeBands (returns per-band vectors, also unit-normalizes each)
-	shapes := encoder.NormalizeBands(float64sToNorms(mdctCoeffs), energies, nbBands, fs)
+	mdctNorms := make([]celtNorm, len(mdctCoeffs))
+	for i, v := range mdctCoeffs {
+		mdctNorms[i] = celtNorm(v)
+	}
+	shapes := encoder.NormalizeBands(mdctNorms, energies, nbBands, fs)
 
 	// Method 2: NormalizeBandsToArray (returns contiguous array, no unit normalization)
 	normArray := encoder.NormalizeBandsToArray(mdctCoeffs, energies, nbBands, fs)
@@ -405,7 +412,7 @@ func TestNormalizeBandsMethodComparison(t *testing.T) {
 				// Reconstruct from unit-norm shape
 				expected := float64(shapes[band][i]) * arrayNorm
 				actual := float64(normArray[offset+i])
-				if math.Abs(expected-actual) > 1e-6 {
+				if math.Abs(float64(expected-actual)) > 1e-6 {
 					t.Errorf("band %d, bin %d: expected %f, got %f", band, i, expected, actual)
 				}
 			}
@@ -427,9 +434,9 @@ func TestComputeLinearBandAmplitudes(t *testing.T) {
 		totalBins += ScaledBandWidth(band, frameSize)
 	}
 
-	mdctCoeffs := make([]float64, totalBins)
+	mdctCoeffs := make([]float32, totalBins)
 	for i := range mdctCoeffs {
-		mdctCoeffs[i] = math.Sin(float64(i)*0.1) * float64(i%50+1) * 0.01
+		mdctCoeffs[i] = float32(math.Sin(float64(i)*0.1) * float64(i%50+1) * 0.01)
 	}
 
 	// Compute linear band amplitudes
@@ -484,9 +491,9 @@ func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 		totalBins += ScaledBandWidth(band, frameSize)
 	}
 
-	mdctCoeffs := make([]float64, totalBins)
+	mdctCoeffs := make([]float32, totalBins)
 	for i := range mdctCoeffs {
-		mdctCoeffs[i] = math.Sin(float64(i)*0.2) * 100.0
+		mdctCoeffs[i] = float32(math.Sin(float64(i)*0.2) * 100.0)
 	}
 
 	// Compute linear band amplitudes directly
@@ -513,12 +520,12 @@ func TestNormalizationUsesLinearAmplitudes(t *testing.T) {
 		if amplitude < 1e-27 {
 			amplitude = 1e-27
 		}
-		g := float64(float32(1.0) / amplitude)
+		g := float32(1.0) / amplitude
 
 		for i := 0; i < n; i++ {
 			expected := mdctCoeffs[offset+i] * g
-			actual := float64(normalized[offset+i])
-			if math.Abs(expected-actual) > 1e-6 {
+			actual := float32(normalized[offset+i])
+			if math.Abs(float64(expected-actual)) > 1e-6 {
 				t.Errorf("band %d, bin %d: expected %f, got %f",
 					band, i, expected, actual)
 			}

@@ -3,11 +3,7 @@
 
 package celt
 
-import (
-	"math"
-
-	"github.com/thesyncim/gopus/rangecoding"
-)
+import "github.com/thesyncim/gopus/rangecoding"
 
 const (
 	lfeBandClamp     = 1e-4
@@ -27,7 +23,7 @@ const (
 // This ensures encoder and decoder use matching gain values.
 //
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c amp2Log2()
-func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float64, nbBands, frameSize int) []celtGLog {
+func (e *Encoder) ComputeBandEnergies(mdctCoeffs []float32, nbBands, frameSize int) []celtGLog {
 	// Use default scratch buffer - caller should use ComputeBandEnergiesInto if they need
 	// a specific destination buffer to avoid aliasing
 	energiesLen := nbBands * e.channels
@@ -47,7 +43,7 @@ func (e *Encoder) ComputeBandEnergiesF32(mdctCoeffs []float32, nbBands, frameSiz
 
 // ComputeBandEnergiesInto computes band energies into the provided destination buffer.
 // Use this instead of ComputeBandEnergies when you need to avoid buffer aliasing.
-func (e *Encoder) ComputeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize int, dst []celtGLog) {
+func (e *Encoder) ComputeBandEnergiesInto(mdctCoeffs []float32, nbBands, frameSize int, dst []celtGLog) {
 	computeBandEnergiesGLogInto(mdctCoeffs, nbBands, frameSize, e.channels, dst)
 }
 
@@ -63,7 +59,7 @@ func (e *Encoder) ComputeBandEnergiesFloat32Into(mdctCoeffs []float32, nbBands, 
 	computeBandEnergiesFloat32Into(mdctCoeffs, nbBands, frameSize, e.channels, dst)
 }
 
-func computeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize, channels int, dst []float64) {
+func computeBandEnergiesInto(mdctCoeffs []float32, nbBands, frameSize, channels int, dst []float32) {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
@@ -91,7 +87,7 @@ func computeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize, channels 
 	}
 
 	energies := dst
-	silence := 0.5 * math.Log2(1e-27)
+	silence := float32(0.5) * celtLog2(float32(1e-27))
 
 	for c := 0; c < channels; c++ {
 		// Get coefficients for this channel
@@ -112,7 +108,7 @@ func computeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize, channels 
 			if start >= len(channelCoeffs) {
 				energy := silence
 				if band < len(eMeans) {
-					energy -= eMeans[band] * DB6
+					energy -= float32(eMeans[band] * DB6)
 				}
 				energies[c*nbBands+band] = energy
 				continue
@@ -123,7 +119,7 @@ func computeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize, channels 
 			if end <= start {
 				energy := silence
 				if band < len(eMeans) {
-					energy -= eMeans[band] * DB6
+					energy -= float32(eMeans[band] * DB6)
 				}
 				energies[c*nbBands+band] = energy
 				continue
@@ -135,7 +131,7 @@ func computeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize, channels 
 			// Subtract eMeans to make energy mean-relative (like libopus amp2Log2).
 			// The decoder adds eMeans back during denormalization.
 			if band < len(eMeans) {
-				energy -= eMeans[band] * DB6
+				energy -= float32(eMeans[band] * DB6)
 			}
 
 			energies[c*nbBands+band] = energy
@@ -144,7 +140,7 @@ func computeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize, channels 
 
 }
 
-func computeBandEnergiesGLogInto(mdctCoeffs []float64, nbBands, frameSize, channels int, dst []celtGLog) {
+func computeBandEnergiesGLogInto(mdctCoeffs []float32, nbBands, frameSize, channels int, dst []celtGLog) {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
@@ -204,7 +200,7 @@ func computeBandEnergiesGLogInto(mdctCoeffs []float64, nbBands, frameSize, chann
 				continue
 			}
 
-			energy := float32(computeBandRMS(channelCoeffs, start, end))
+			energy := computeBandRMS(channelCoeffs, start, end)
 			if band < len(eMeans) {
 				energy -= float32(eMeans[band] * DB6)
 			}
@@ -390,19 +386,22 @@ func applyLFEBandLogEClamp(energies []celtGLog, nbBands, channels int) {
 // computeBandRMS computes the per-band log2 amplitude from MDCT coefficients.
 // Returns log2(sqrt(sum(x^2))) using the same epsilon as libopus.
 // This matches libopus compute_band_energies() + amp2Log2() (float path).
-func computeBandRMS(coeffs []float64, start, end int) float64 {
+func computeBandRMS(coeffs []float32, start, end int) float32 {
 	if end <= start || start < 0 || end > len(coeffs) {
-		return 0.5 * math.Log2(1e-27)
+		return float32(0.5) * celtLog2(float32(1e-27))
 	}
 
 	// Compute sum of squares with the same accumulation order libopus uses
 	// for celt_inner_prod() on the active architecture.
 	c := coeffs[start:end:end]
-	sumSq := float32(1e-27) + float32(sumOfSquaresF64toF32(c, len(c)))
+	sumSq := float32(1e-27)
+	for i := range c {
+		sumSq += c[i] * c[i]
+	}
 
 	// Keep the existing float32 shortcut: strict libopus-backed quality
 	// fixtures regress on this tree when using sqrt(sumSq) before celtLog2.
-	return 0.5 * float64(celtLog2(sumSq))
+	return float32(0.5) * celtLog2(sumSq)
 }
 
 func computeBandRMSFloat32(coeffs []float32, start, end int) float32 {

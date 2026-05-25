@@ -8,24 +8,24 @@ import (
 func TestLibopusIMDCT_DCImpulse(t *testing.T) {
 	// Test with DC impulse - this is where the old implementation fails
 	n2 := 960
-	spectrum := make([]float64, n2)
+	spectrum := make([]float32, n2)
 	spectrum[0] = 1.0
 
 	overlap := 120
-	prevOverlap := make([]float64, overlap)
+	prevOverlap := make([]float32, overlap)
 
 	// Run libopus-style IMDCT
-	result := libopusIMDCT(spectrum, prevOverlap, overlap)
+	result := LibopusIMDCTF32(spectrum, prevOverlap, overlap)
 
 	// Check for NaN/Inf
 	hasNaN := false
 	hasInf := false
 	for i, v := range result {
-		if math.IsNaN(v) {
+		if math.IsNaN(float64(v)) {
 			hasNaN = true
 			t.Errorf("NaN at index %d", i)
 		}
-		if math.IsInf(v, 0) {
+		if math.IsInf(float64(v), 0) {
 			hasInf = true
 			t.Errorf("Inf at index %d", i)
 		}
@@ -60,9 +60,9 @@ func TestLibopusIMDCT_DCImpulse(t *testing.T) {
 	if len(signal) > 2 {
 		first := signal[0]
 		last := signal[len(signal)-1]
-		var errpow, sigpow float64
+		var errpow, sigpow float32
 		for i := 0; i < len(signal); i++ {
-			lin := first + (last-first)*float64(i)/float64(len(signal)-1)
+			lin := first + (last-first)*float32(i)/float32(len(signal)-1)
 			diff := signal[i] - lin
 			errpow += diff * diff
 			sigpow += signal[i] * signal[i]
@@ -80,14 +80,14 @@ func TestLibopusIMDCT_DCImpulse(t *testing.T) {
 func TestLibopusIMDCT_CompareWithDirect(t *testing.T) {
 	// Compare libopus implementation with direct O(n²) IMDCT
 	n2 := 960
-	spectrum := make([]float64, n2)
+	spectrum := make([]float32, n2)
 	spectrum[0] = 1.0
 
 	overlap := 120
-	prevOverlap := make([]float64, overlap)
+	prevOverlap := make([]float32, overlap)
 
 	// Run both implementations
-	libopusResult := libopusIMDCT(spectrum, prevOverlap, overlap)
+	libopusResult := LibopusIMDCTF32(spectrum, prevOverlap, overlap)
 	directResult := IMDCTDirect(spectrum)
 
 	for i := 0; i < 10; i++ {
@@ -99,7 +99,7 @@ func TestLibopusIMDCT_CompareWithDirect(t *testing.T) {
 
 	// The libopus IMDCT should produce values in a similar range
 	// (they may differ due to different normalization and folding)
-	var directEnergy, libopusEnergy float64
+	var directEnergy, libopusEnergy float32
 	for i := 0; i < n2; i++ {
 		directEnergy += directResult[i] * directResult[i]
 		libopusEnergy += libopusResult[i] * libopusResult[i]
@@ -118,21 +118,21 @@ func TestLibopusIMDCT_CompareWithDirect(t *testing.T) {
 func TestLibopusIMDCT_Sinusoid(t *testing.T) {
 	// Test with sinusoidal input
 	n2 := 960
-	spectrum := make([]float64, n2)
+	spectrum := make([]float32, n2)
 	for i := 0; i < n2; i++ {
-		spectrum[i] = math.Sin(float64(i)*0.1) * 0.1
+		spectrum[i] = float32(math.Sin(float64(i)*0.1) * 0.1)
 	}
 
 	overlap := 120
-	prevOverlap := make([]float64, overlap)
+	prevOverlap := make([]float32, overlap)
 
-	result := libopusIMDCT(spectrum, prevOverlap, overlap)
+	result := LibopusIMDCTF32(spectrum, prevOverlap, overlap)
 
 	// Check for reasonable values
-	var maxAbs float64
+	var maxAbs float32
 	for _, v := range result[:n2] {
-		if math.Abs(v) > maxAbs {
-			maxAbs = math.Abs(v)
+		if float32(math.Abs(float64(v))) > maxAbs {
+			maxAbs = float32(math.Abs(float64(v)))
 		}
 	}
 

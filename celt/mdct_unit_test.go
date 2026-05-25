@@ -79,7 +79,7 @@ func checkMDCTInverse(in, out []float64, nfft int) float64 {
 // mdctForwardRef computes forward MDCT using the reference formula from test_unit_mdct.c
 // This matches what checkMDCTForward expects.
 // Input: nfft samples, Output: nfft/2 coefficients
-func mdctForwardRef(in []float64) []float64 {
+func mdctForwardRef[T ~float32 | ~float64](in []T) []float64 {
 	nfft := len(in)
 	out := make([]float64, nfft/2)
 
@@ -89,7 +89,7 @@ func mdctForwardRef(in []float64) []float64 {
 			phase := 2 * math.Pi * (float64(k) + 0.5 + float64(nfft)/4.0) * (float64(bin) + 0.5) / float64(nfft)
 			re := math.Cos(phase)
 			re /= float64(nfft) / 4.0
-			sum += in[k] * re
+			sum += float64(in[k]) * re
 		}
 		out[bin] = sum
 	}
@@ -108,7 +108,7 @@ func mdctInverseRef(in []float64, nfft int) []float64 {
 		for k := 0; k < nfft/2; k++ {
 			phase := 2 * math.Pi * (float64(bin) + 0.5 + float64(nfft)/4.0) * (float64(k) + 0.5) / float64(nfft)
 			re := math.Cos(phase)
-			sum += in[k] * re
+			sum += float64(in[k]) * re
 		}
 		out[bin] = sum
 	}
@@ -234,9 +234,9 @@ func TestMDCTUnit_GoIMDCT(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			// Create random coefficients
 			rng := rand.New(rand.NewSource(42))
-			coeffs := make([]float64, N)
+			coeffs := make([]float32, N)
 			for i := 0; i < N; i++ {
-				coeffs[i] = float64(rng.Intn(32768) - 16384)
+				coeffs[i] = float32(rng.Intn(32768) - 16384)
 			}
 
 			// Compute using Go IMDCT implementation
@@ -252,9 +252,9 @@ func TestMDCTUnit_GoIMDCT(t *testing.T) {
 				minLen = len(directOut)
 			}
 			for i := 0; i < minLen; i++ {
-				diff := goOut[i] - directOut[i]
+				diff := float64(goOut[i] - directOut[i])
 				errpow += diff * diff
-				sigpow += directOut[i] * directOut[i]
+				sigpow += float64(directOut[i] * directOut[i])
 			}
 
 			if sigpow == 0 {
@@ -287,7 +287,7 @@ func TestMDCTUnit_GoMDCT(t *testing.T) {
 			}
 
 			// Compute using Go mdctDirect (has scale = 4/N2 = 2/N)
-			goOut := mdctDirect(samples)
+			goOut := float64sFromMDCTForwardTest(mdctDirect(float32sForMDCTForwardTest(samples)))
 
 			// Compute using reference formula (divides by nfft/4 = N/2)
 			refOut := mdctForwardRef(samples)
@@ -331,16 +331,16 @@ func TestMDCTUnit_RoundTrip(t *testing.T) {
 		t.Run("", func(t *testing.T) {
 			// Create random MDCT coefficients
 			rng := rand.New(rand.NewSource(42))
-			coeffs := make([]float64, N)
+			coeffs := make([]float32, N)
 			for i := range coeffs {
-				coeffs[i] = float64(rng.Intn(32768) - 16384)
+				coeffs[i] = float32(rng.Intn(32768) - 16384)
 			}
 
 			// Compute IMDCT using Go implementation (has 2/N normalization)
 			timeOut := IMDCTDirect(coeffs)
 
 			// Compute MDCT of the result using Go implementation (has 2/N normalization)
-			coeffsBack := mdctDirect(timeOut)
+			coeffsBack := float64sFromMDCTForwardTest(mdctDirect(timeOut))
 
 			// mdctDirect scales by 2/N, IMDCTDirect is unscaled (per libopus check_inv).
 			// For the MDCT basis used here, MDCT(IMDCT(x)) = 2*x, so scale by 0.5.
@@ -349,9 +349,9 @@ func TestMDCTUnit_RoundTrip(t *testing.T) {
 			var errpow, sigpow float64
 			for i := 0; i < N; i++ {
 				scaled := coeffsBack[i] * scale
-				diff := scaled - coeffs[i]
+				diff := scaled - float64(coeffs[i])
 				errpow += diff * diff
-				sigpow += coeffs[i] * coeffs[i]
+				sigpow += float64(coeffs[i] * coeffs[i])
 			}
 
 			if sigpow == 0 {

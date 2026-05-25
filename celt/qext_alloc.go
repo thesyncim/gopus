@@ -133,7 +133,7 @@ func qextExtraBandWidth(edges []int, band, lm int) int {
 // for the encode side. It fills extraPulses/extraQuant for the main bands in
 // [start,end) and, when qextMode != nil, for the QEXT bands in [end,end+qextEnd).
 func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels, lm int,
-	bandLogE []celtGLog, qextBandLogE []celtGLog, qextMode *qextModeConfig, toneFreq, toneishness float64,
+	bandLogE []celtGLog, qextBandLogE []celtGLog, qextMode *qextModeConfig, toneFreq, toneishness float32,
 	enc *rangecoding.Encoder, extraPulses, extraQuant []int,
 ) {
 	mainBands := len(bandLogE)

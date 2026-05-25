@@ -856,7 +856,8 @@ func TestEnergyCorrelation(t *testing.T) {
 			// Calculate output energy
 			outputEnergy := 0.0
 			for _, s := range decoded {
-				outputEnergy += s * s
+				sf := float64(s)
+				outputEnergy += sf * sf
 			}
 
 			// Calculate energy ratio
@@ -901,11 +902,12 @@ func TestDecoderOutputNotSilent(t *testing.T) {
 	nonZeroCount := 0
 	maxAbs := 0.0
 	for _, s := range samples {
-		if math.Abs(s) > 1e-10 {
+		abs := math.Abs(float64(s))
+		if abs > 1e-10 {
 			nonZeroCount++
 		}
-		if math.Abs(s) > maxAbs {
-			maxAbs = math.Abs(s)
+		if abs > maxAbs {
+			maxAbs = abs
 		}
 	}
 
@@ -945,10 +947,11 @@ func TestDecoderFiniteOutput(t *testing.T) {
 				}
 
 				for i, s := range samples {
-					if math.IsNaN(s) {
+					sf := float64(s)
+					if math.IsNaN(sf) {
 						t.Errorf("Sample %d is NaN", i)
 					}
-					if math.IsInf(s, 0) {
+					if math.IsInf(sf, 0) {
 						t.Errorf("Sample %d is Inf", i)
 					}
 				}

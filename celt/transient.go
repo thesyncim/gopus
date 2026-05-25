@@ -17,18 +17,20 @@ package celt
 
 import (
 	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // TransientAnalysisResult holds the results of transient analysis.
 // This provides both the transient decision and the tf_estimate metric.
 type TransientAnalysisResult struct {
 	IsTransient   bool    // Whether a transient was detected
-	TfEstimate    float64 // Time-frequency estimate (0.0 = time, 1.0 = freq) for TF analysis bias
+	TfEstimate    float32 // Time-frequency estimate (0.0 = time, 1.0 = freq) for TF analysis bias
 	TfChannel     int     // Which channel had the strongest transient (0 or 1)
-	MaskMetric    float64 // Raw mask metric value.
+	MaskMetric    float32 // Raw mask metric value.
 	WeakTransient bool    // Whether this is a "weak" transient (for hybrid mode)
-	ToneFreq      float64 // Detected tone frequency in radians/sample (-1 if no tone)
-	Toneishness   float64 // How "pure" the tone is (0.0-1.0, higher = purer)
+	ToneFreq      float32 // Detected tone frequency in radians/sample (-1 if no tone)
+	Toneishness   float32 // How "pure" the tone is (0.0-1.0, higher = purer)
 }
 
 // toneLPC computes 2nd-order LPC coefficients using forward+backward least-squares fit.
@@ -353,12 +355,12 @@ func toneLPCCorrLane4(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float3
 //   - toneishness: how pure the tone is (0.0-1.0, higher = purer)
 //
 // Reference: libopus celt/celt_encoder.c tone_detect()
-func toneDetect(in []float64, channels int, sampleRate int) (float64, float64) {
+func toneDetect(in []float32, channels int, sampleRate int) (float32, float32) {
 	return toneDetectScratch(in, channels, sampleRate, nil)
 }
 
 // toneDetectScratch is the scratch-aware version of toneDetect.
-func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float32) (float64, float64) {
+func toneDetectScratch(in []float32, channels int, sampleRate int, xBuf []float32) (float32, float32) {
 	n := len(in) / channels
 	if n < 4 {
 		return -1, 0
@@ -376,19 +378,17 @@ func toneDetectScratch(in []float64, channels int, sampleRate int, xBuf []float3
 	if channels == 2 {
 		for i := 0; i < n; i++ {
 			// libopus sums the two celt_sig float channels inside tone_detect.
-			x[i] = float32(in[i*2]) + float32(in[i*2+1])
+			x[i] = in[i*2] + in[i*2+1]
 		}
 	} else {
-		for i := 0; i < n; i++ {
-			x[i] = float32(in[i])
-		}
+		copy(x, in[:n])
 	}
 
 	lane4Corr := channels == 2 && toneLPCStereoLane4
 	return toneDetectFloat32Mono(x, sampleRate, lane4Corr)
 }
 
-func toneDetectScratchF32(in []float32, channels int, sampleRate int, xBuf []float32) (float64, float64) {
+func toneDetectScratchF32(in []float32, channels int, sampleRate int, xBuf []float32) (float32, float32) {
 	n := len(in) / channels
 	if n < 4 {
 		return -1, 0
@@ -413,7 +413,7 @@ func toneDetectScratchF32(in []float32, channels int, sampleRate int, xBuf []flo
 	return toneDetectFloat32Mono(x, sampleRate, lane4Corr)
 }
 
-func toneDetectFloat32Mono(x []float32, sampleRate int, lane4Corr bool) (float64, float64) {
+func toneDetectFloat32Mono(x []float32, sampleRate int, lane4Corr bool) (float32, float32) {
 	n := len(x)
 	if n < 4 {
 		return -1, 0
@@ -447,7 +447,7 @@ func toneDetectFloat32Mono(x []float32, sampleRate int, lane4Corr bool) (float64
 		toneishness := -lpc1
 		// Frequency from the angle of the complex pole.
 		freq := float32(math.Acos(float64(float32(0.5)*lpc0)) / float64(delay))
-		return float64(freq), float64(toneishness)
+		return freq, toneishness
 	}
 
 	return -1, 0
@@ -605,20 +605,20 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 		result.IsTransient = false
 		result.WeakTransient = true
 	}
-	result.MaskMetric = float64(maxMaskMetric)
+	result.MaskMetric = float32(maxMaskMetric)
 
-	tfMax := math.Sqrt(27*float64(maxMaskMetric)) - 42
+	tfMax := opusmath.SqrtF32(float32(27*maxMaskMetric)) - 42
 	if tfMax < 0 {
 		tfMax = 0
 	}
 	if tfMax > 163 {
 		tfMax = 163
 	}
-	tfEstimateSquared := 0.0069*tfMax - 0.139
+	tfEstimateSquared := float32(0.0069)*tfMax - float32(0.139)
 	if tfEstimateSquared < 0 {
 		tfEstimateSquared = 0
 	}
-	result.TfEstimate = math.Sqrt(tfEstimateSquared)
+	result.TfEstimate = opusmath.SqrtF32(tfEstimateSquared)
 	if result.TfEstimate > 1.0 {
 		result.TfEstimate = 1.0
 	}
@@ -993,24 +993,24 @@ transientMetricsDone:
 		result.IsTransient = false
 		result.WeakTransient = true
 	}
-	result.MaskMetric = float64(maxMaskMetric)
+	result.MaskMetric = float32(maxMaskMetric)
 
 	// Compute tf_estimate from mask_metric
 	// tf_max = max(0, sqrt(27 * mask_metric) - 42)
 	// tf_estimate = sqrt(max(0, 0.0069 * min(163, tf_max) - 0.139))
 	// Avoid math.Max/math.Min calls -- use branchless clamping.
-	tfMax := math.Sqrt(27*float64(maxMaskMetric)) - 42
+	tfMax := opusmath.SqrtF32(float32(27*maxMaskMetric)) - 42
 	if tfMax < 0 {
 		tfMax = 0
 	}
 	if tfMax > 163 {
 		tfMax = 163
 	}
-	tfEstimateSquared := 0.0069*tfMax - 0.139
+	tfEstimateSquared := float32(0.0069)*tfMax - float32(0.139)
 	if tfEstimateSquared < 0 {
 		tfEstimateSquared = 0
 	}
-	result.TfEstimate = math.Sqrt(tfEstimateSquared)
+	result.TfEstimate = opusmath.SqrtF32(tfEstimateSquared)
 
 	// Clamp to [0, 1] range
 	if result.TfEstimate > 1.0 {

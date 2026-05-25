@@ -5,9 +5,65 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
-func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float32, postfilterTapset int, energies []celtGLog, coeffsL, coeffsR []celtNorm, qext *preparedQEXTDecode) []float64 {
+func denormalizeBandsPackedDownsampleIntoFloat32(dst []float32, src []celtNorm, energies []celtGLog, start, end, lm int, edges []int, downsample int) {
+	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || end <= start || len(edges) < end+1 {
+		return
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > len(energies) {
+		end = len(energies)
+	}
+	if end <= start {
+		return
+	}
+
+	M := 1 << lm
+	bound := edges[end] * M
+	if downsample > 1 {
+		if limit := len(dst) / downsample; bound > limit {
+			bound = limit
+		}
+	}
+	if bound > len(dst) {
+		bound = len(dst)
+	}
+	if start != 0 {
+		prefix := edges[start] * M
+		if prefix > len(dst) {
+			prefix = len(dst)
+		}
+		clear(dst[:prefix])
+	}
+	f := edges[start] * M
+	if f > len(dst) {
+		f = len(dst)
+	}
+
+	for band := start; band < end; band++ {
+		j := edges[band] * M
+		bandEnd := edges[band+1] * M
+		if j >= len(src) {
+			break
+		}
+		if bandEnd > len(src) {
+			bandEnd = len(src)
+		}
+		gain := denormalizeBandGain(energies, band)
+		for ; j < bandEnd && f < len(dst); j++ {
+			dst[f] = float32(src[j]) * gain
+			f++
+		}
+	}
+	if bound < len(dst) {
+		clear(dst[bound:])
+	}
+}
+
+func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float32, postfilterTapset int, energies []celtGLog, coeffsL, coeffsR []celtNorm, qext *preparedQEXTDecode) []float32 {
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
-	var samples []float64
+	var samples []float32
 	downsample := d.downsampleFactor()
 	outputFrameSize := frameSize
 	downsampleOutput := false
@@ -29,25 +85,24 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	if d.channels == 2 {
 		energiesL := energies[:end]
 		energiesR := energies[end:]
-		var specL []float64
-		var specR []float64
+		var specL []float32
+		var specR []float32
 		if extsupport.QEXT && qext != nil && qext.end > 0 {
-			qextState := d.ensureQEXTState()
-			specL = ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
-			specR = ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
-			denormalizeBandsPackedDownsampleInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
-			denormalizeBandsPackedDownsampleInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
+			specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
+			specR = ensureFloat32Slice(&d.scratchSynthRF32, len(coeffsR))
+			denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
+			denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
 			if qext.coeffsL != nil {
-				denormalizeBandsPackedDownsampleInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
+				denormalizeBandsPackedDownsampleIntoFloat32(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
 			}
 			if qext.coeffsR != nil {
-				denormalizeBandsPackedDownsampleInto(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands, downsample)
+				denormalizeBandsPackedDownsampleIntoFloat32(specR, qext.coeffsR, qext.energies[qext.end:], 0, qext.end, lm, qext.cfg.EBands, downsample)
 			}
 		} else {
-			specL = ensureFloat64Slice(&d.scratchStereo, len(coeffsL))
-			specR = ensureFloat64Slice(&d.scratchSynthR, len(coeffsR))
-			denormalizeBandsPackedDownsampleInto(specL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
-			denormalizeBandsPackedDownsampleInto(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
+			specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
+			specR = ensureFloat32Slice(&d.scratchSynthRF32, len(coeffsR))
+			denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
+			denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
 		}
 		if directStereoFloat32 && !transient {
 			samplesL, samplesR := d.synthesizeStereoPlanarLongToFloat32(specL, specR)
@@ -63,27 +118,26 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 			}
 		} else if directStereoFloat32 {
 			samplesL, samplesR := d.synthesizeStereoPlanar(specL, specR, transient, shortBlocks)
-			d.applyPostfilterStereoPlanar(samplesL, samplesR, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
+			d.applyPostfilterStereoPlanarFromFloat32(samplesL, samplesR, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 			if downsampleOutput {
-				d.applyDeemphasisAndScaleStereoPlanarDownsampleToFloat32(d.directOutPCM[:outputFrameSize*2], samplesL, samplesR, downsample, 1.0/32768.0)
+				d.applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(d.directOutPCM[:outputFrameSize*2], samplesL, samplesR, downsample, 1.0/32768.0)
 			} else {
-				d.applyDeemphasisAndScaleStereoPlanarToFloat32(d.directOutPCM[:frameSize*2], samplesL, samplesR, 1.0/32768.0)
+				d.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(d.directOutPCM[:frameSize*2], samplesL, samplesR, 1.0/32768.0)
 			}
 		} else {
 			samples = d.SynthesizeStereo(specL, specR, transient, shortBlocks)
 		}
 	} else {
-		var specL []float64
+		var specL []float32
 		if extsupport.QEXT && qext != nil && qext.end > 0 {
-			qextState := d.ensureQEXTState()
-			specL = ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
-			denormalizeBandsPackedDownsampleInto(specL, coeffsL, energies, 0, end, lm, EBands[:], downsample)
+			specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
+			denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energies, 0, end, lm, EBands[:], downsample)
 			if qext.coeffsL != nil {
-				denormalizeBandsPackedDownsampleInto(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
+				denormalizeBandsPackedDownsampleIntoFloat32(specL, qext.coeffsL, qext.energies[:qext.end], 0, qext.end, lm, qext.cfg.EBands, downsample)
 			}
 		} else {
-			specL = ensureFloat64Slice(&d.scratchStereo, len(coeffsL))
-			denormalizeBandsPackedDownsampleInto(specL, coeffsL, energies, 0, end, lm, EBands[:], downsample)
+			specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
+			denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energies, 0, end, lm, EBands[:], downsample)
 		}
 		if directMonoFloat32 {
 			samplesF32 := d.synthesizeMonoLongToFloat32(specL)
@@ -102,7 +156,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 		return samples
 	}
 
-	d.applyPostfilter(samples, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
+	d.applyPostfilterFloat32(samples, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 
 	// Step 7: Apply de-emphasis filter
 	if downsampleOutput && len(d.directOutPCM) >= outputFrameSize*d.channels {

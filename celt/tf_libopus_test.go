@@ -14,6 +14,14 @@ func float64sToNorms(in []float64) []celtNorm {
 	return out
 }
 
+func float32sToNorms(in []float32) []celtNorm {
+	out := make([]celtNorm, len(in))
+	for i, v := range in {
+		out[i] = celtNorm(v)
+	}
+	return out
+}
+
 // TestTFDecodeTable validates that tfSelectTable matches libopus tf_select_table.
 // Source: libopus celt/celt.c
 func TestTFDecodeTable(t *testing.T) {

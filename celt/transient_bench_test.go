@@ -178,7 +178,11 @@ func transientAnalysisLegacyBench(e *Encoder, pcm []float64, frameSize int, allo
 		return result
 	}
 
-	toneFreq, toneishness := toneDetectScratch(pcm, channels, 48000, toneBuf)
+	toneInput := make([]float32, len(pcm))
+	for i, v := range pcm {
+		toneInput[i] = float32(v)
+	}
+	toneFreq, toneishness := toneDetectScratch(toneInput, channels, 48000, toneBuf)
 	result.ToneFreq = toneFreq
 	result.Toneishness = toneishness
 
@@ -285,7 +289,7 @@ func transientAnalysisLegacyBench(e *Encoder, pcm []float64, frameSize int, allo
 		result.IsTransient = false
 		result.WeakTransient = true
 	}
-	result.MaskMetric = float64(maxMaskMetric)
+	result.MaskMetric = float32(maxMaskMetric)
 
 	tfMax := math.Sqrt(27*float64(maxMaskMetric)) - 42
 	if tfMax < 0 {
@@ -298,7 +302,7 @@ func transientAnalysisLegacyBench(e *Encoder, pcm []float64, frameSize int, allo
 	if tfEstimateSquared < 0 {
 		tfEstimateSquared = 0
 	}
-	result.TfEstimate = math.Sqrt(tfEstimateSquared)
+	result.TfEstimate = float32(math.Sqrt(tfEstimateSquared))
 	if result.TfEstimate > 1.0 {
 		result.TfEstimate = 1.0
 	}

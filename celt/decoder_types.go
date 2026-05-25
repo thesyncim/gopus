@@ -123,6 +123,10 @@ type Decoder struct {
 	bandwidth              CELTBandwidth
 	phaseInversionDisabled bool
 	complexity             int
+	redundancyActive       bool
+	redundancyBytes        []byte
+	redundancyRange        uint32
+	redundancyFrameSize    int
 
 	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
 	prevStreamChannels int // Previous packet's channel count (0 = uninitialized)
@@ -130,42 +134,37 @@ type Decoder struct {
 	decoderQEXTFields
 
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
-	scratchPrevEnergy     []celtGLog
-	scratchPrevEnergyGLog []celtGLog
-	scratchEnergies       []celtGLog
-	scratchTFRes          []int
-	scratchOffsets        []int
-	scratchPulses         []int
-	scratchFineQuant      []int
-	scratchFinePriority   []int
-	scratchPrevBandEnergy []float32
-	scratchSilenceE       []celtGLog
-	scratchCaps           []int
-	scratchAllocWork      []int
-	scratchBands          bandDecodeScratch
-	scratchIMDCTF32       imdctScratchF32
-	scratchIMDCTF32R      imdctScratchF32
-	scratchSynth          []float64
-	scratchSynthR         []float64
-	scratchStereo         []float64
-	scratchSynthF32       []float32
-	scratchSynthRF32      []float32
-	scratchStereoF32      []float32
-	scratchShortCoeffsF32 []float32
-	scratchShortCoeffs    []float64
-	scratchMonoToStereoR  []float64 // For coeffsR in decodeMonoPacketToStereo (must not alias scratchSynthR used by SynthesizeStereo)
-	scratchMonoMix        []float64 // For coeffsMono in decodeStereoPacketToMono (must not alias scratchShortCoeffs used by Synthesize)
-	postfilterScratch     []float64
-	postfilterScratchF32  []float32
-	scratchPLC            []float64 // Scratch buffer for PLC concealment samples
-	scratchPLCF32         []float32
-	scratchPLCPitchLP     []float32
-	scratchPLCPitchSearch plcPitchSearchScratch
-	scratchPLCFIRTmp      []celtSig
-	scratchPLCWindowed    []celtSig
-	scratchPLCIIRY        []float32
-	scratchPLCBuf         []celtSig
-	scratchPLCExc         []celtSig
+	scratchPrevEnergy       []celtGLog
+	scratchPrevEnergyGLog   []celtGLog
+	scratchEnergies         []celtGLog
+	scratchTFRes            []int
+	scratchOffsets          []int
+	scratchPulses           []int
+	scratchFineQuant        []int
+	scratchFinePriority     []int
+	scratchPrevBandEnergy   []float32
+	scratchSilenceE         []celtGLog
+	scratchCaps             []int
+	scratchAllocWork        []int
+	scratchBands            bandDecodeScratch
+	scratchIMDCTF32         imdctScratchF32
+	scratchIMDCTF32R        imdctScratchF32
+	scratchSynthF32         []float32
+	scratchSynthRF32        []float32
+	scratchStereoF32        []float32
+	scratchShortCoeffsF32   []float32
+	scratchMonoToStereoRF32 []float32
+	scratchMonoMixF32       []float32
+	postfilterScratchF32    []float32
+	scratchPLC              []float32 // Scratch buffer for PLC concealment samples
+	scratchPLCF32           []float32
+	scratchPLCPitchLP       []float32
+	scratchPLCPitchSearch   plcPitchSearchScratch
+	scratchPLCFIRTmp        []celtSig
+	scratchPLCWindowed      []celtSig
+	scratchPLCIIRY          []float32
+	scratchPLCBuf           []celtSig
+	scratchPLCExc           []celtSig
 	decoderDREDState
 	scratchPLCFoldSrc     []celtSig
 	scratchPLCFoldDst     []celtSig

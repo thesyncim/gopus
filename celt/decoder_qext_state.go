@@ -7,8 +7,6 @@ type decoderQEXTState struct {
 	oldBandE       []celtGLog
 
 	scratchEnergies  []celtGLog
-	scratchSpectrumL []float64
-	scratchSpectrumR []float64
 	scratchDecode    preparedQEXTDecode
 	scratchBands     bandDecodeScratch
 	scratchPulses    []int

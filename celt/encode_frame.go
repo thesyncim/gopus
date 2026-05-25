@@ -414,9 +414,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	prevPrefilterPeriod := e.prefilterPeriod
 	prevPrefilterGain := e.prefilterGain
 	// Match libopus run_prefilter(): scale only when analysis is valid.
-	maxPitchRatio := 1.0
+	maxPitchRatio := float32(1.0)
 	if e.analysisValid {
-		maxPitchRatio = float64(e.analysisMaxPitchRatio)
+		maxPitchRatio = e.analysisMaxPitchRatio
 	}
 	pfResult := e.runPrefilter(preemph, frameSize, prefilterTapset, enabled, tfEstimate, targetBytes, toneFreq, toneishness, maxPitchRatio)
 	// Keep stateful prefilter output on float32 precision to match libopus float path.
@@ -1527,21 +1527,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	return bytes, nil
 }
 
-func foldStereoMDCTToMono(dst, left, right []float64) []float64 {
-	n := len(left)
-	if len(right) < n {
-		n = len(right)
-	}
-	if len(dst) < n {
-		dst = make([]float64, n)
-	}
-	dst = dst[:n]
-	for i := 0; i < n; i++ {
-		dst[i] = float64(0.5*float32(left[i]) + 0.5*float32(right[i]))
-	}
-	return dst
-}
-
 func foldStereoMDCTToMonoF32(dst, left, right []float32) []float32 {
 	n := len(left)
 	if len(right) < n {
@@ -1595,7 +1580,7 @@ func (e *Encoder) setPrevEnergyWithPrevCoded(prev []celtGLog, energies []celtGLo
 // samples: current frame samples
 // history: buffer containing previous frame's tail (will be updated with current frame's tail)
 // shortBlocks: number of short blocks for transient mode
-func ComputeMDCTWithHistory(samples, history []float64, shortBlocks int) []float64 {
+func ComputeMDCTWithHistory(samples, history []float32, shortBlocks int) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -1604,7 +1589,7 @@ func ComputeMDCTWithHistory(samples, history []float64, shortBlocks int) []float
 	if overlap > len(samples) {
 		overlap = len(samples)
 	}
-	input := make([]float64, len(samples)+overlap)
+	input := make([]float32, len(samples)+overlap)
 
 	// Copy history overlap into the head of the input buffer.
 	if overlap > 0 && len(history) > 0 {
@@ -1637,7 +1622,7 @@ func ComputeMDCTWithHistory(samples, history []float64, shortBlocks int) []float
 // assembling the input into the caller-provided scratch buffer.
 // scratch must have capacity >= len(samples)+Overlap.
 // history is updated in-place with the current frame's tail.
-func ComputeMDCTWithHistoryInto(scratch, samples, history []float64, shortBlocks int) []float64 {
+func ComputeMDCTWithHistoryInto(scratch, samples, history []float32, shortBlocks int) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -2048,7 +2033,7 @@ func (e *Encoder) computeInitialTargetBytes(frameSize int) int {
 	return targetBytes
 }
 
-func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float64, pitchChange bool, tellFrac, totalBoost, limitBytes int) int {
+func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float32, pitchChange bool, tellFrac, totalBoost, limitBytes int) int {
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
 	lmDiff := 3 - lm
@@ -2077,7 +2062,7 @@ func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float64, 
 		} else if e.silkOffset > 100 {
 			targetQ3 -= (18 << bitRes) >> lmDiff
 		}
-		tfBoost := int((tfEstimate - 0.25) * float64(50<<bitRes))
+		tfBoost := int((tfEstimate - 0.25) * float32(50<<bitRes))
 		targetQ3 += tfBoost
 		if tfEstimate > 0.7 {
 			minHybridTarget := 50 << bitRes
@@ -2136,7 +2121,7 @@ func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float64, 
 
 // computeTargetBits computes the target CELT bit budget in bits.
 // Reference: libopus celt/celt_encoder.c compute_vbr().
-func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChange bool) int {
+func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float32, pitchChange bool) int {
 	// CBR path uses fixed payload size.
 	if !e.vbr {
 		targetBits := e.cbrPayloadBytes(frameSize) * 8
@@ -2291,11 +2276,11 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChan
 }
 
 // computeVBRTarget applies libopus-style CELT VBR shaping in Q3 units.
-func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool) int {
+func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float32, pitchChange bool) int {
 	return e.computeVBRTargetWithBoost(baseTargetQ3, frameSize, tfEstimate, pitchChange, e.lastDynalloc.TotBoost)
 }
 
-func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool, totalBoost int) int {
+func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstimate float32, pitchChange bool, totalBoost int) int {
 	mode := GetModeConfig(frameSize)
 	lm := mode.LM
 	nbBands := e.effectiveBandCount(frameSize)
@@ -2361,14 +2346,14 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	targetQ3 += dynallocBoost
 
 	// Transient boost with average compensation.
-	tfCalibration := 0.044
+	tfCalibration := float32(0.044)
 	if tfEstimate < 0 {
 		tfEstimate = 0
 	}
 	if tfEstimate > 1 {
 		tfEstimate = 1
 	}
-	tfBoost := int((tfEstimate - tfCalibration) * float64(targetQ3))
+	tfBoost := int((tfEstimate - tfCalibration) * float32(targetQ3))
 	targetQ3 += tfBoost
 
 	// Tonality boost.

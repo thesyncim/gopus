@@ -3,11 +3,7 @@
 
 package celt
 
-import (
-	"math"
-
-	"github.com/thesyncim/gopus/internal/opusmath"
-)
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 // NormalizeBands divides each band's MDCT coefficients by its energy,
 // producing unit-norm shapes ready for PVQ quantization.
@@ -138,7 +134,7 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []CeltNorm, energies []celtGLog, nbB
 // as that introduces quantization/roundtrip errors.
 //
 // Reference: libopus celt/bands.c compute_band_energies() (float path, lines 154-170)
-func ComputeLinearBandAmplitudes(mdctCoeffs []float64, nbBands, frameSize int) []celtEner {
+func ComputeLinearBandAmplitudes(mdctCoeffs []float32, nbBands, frameSize int) []celtEner {
 	bandE := make([]celtEner, nbBands)
 	ComputeLinearBandAmplitudesInto(mdctCoeffs, nbBands, frameSize, bandE)
 	return bandE
@@ -146,7 +142,7 @@ func ComputeLinearBandAmplitudes(mdctCoeffs []float64, nbBands, frameSize int) [
 
 // ComputeLinearBandAmplitudesInto computes linear band amplitudes into the provided buffer.
 // This is the zero-allocation version of ComputeLinearBandAmplitudes.
-func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize int, bandE []celtEner) {
+func ComputeLinearBandAmplitudesInto(mdctCoeffs []float32, nbBands, frameSize int, bandE []celtEner) {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return
 	}
@@ -170,13 +166,16 @@ func ComputeLinearBandAmplitudesInto(mdctCoeffs []float64, nbBands, frameSize in
 		// Compute sum of squares with libopus epsilon
 		// Reference: libopus bands.c line 164:
 		//   sum = 1e-27f + celt_inner_prod(&X[...], &X[...], ...)
-		sum := float32(1e-27) + float32(sumOfSquaresF64toF32(mdctCoeffs[offset:offset+n], n))
+		sum := float32(1e-27)
+		for _, v := range mdctCoeffs[offset : offset+n] {
+			sum += v * v
+		}
 
 		// sqrt(sum) gives the amplitude (L2 norm)
 		// Reference: libopus bands.c line 165:
 		//   bandE[i+c*m->nbEBands] = celt_sqrt(sum)
 		// Keep float-path precision: celt_ener is float in libopus.
-		bandE[band] = celtEner(float32(math.Sqrt(float64(sum))))
+		bandE[band] = celtEner(opusmath.SqrtF32(sum))
 		offset += n
 	}
 }
@@ -248,7 +247,7 @@ func applyLFELinearBandEClamp(bandE []celtEner, nbBands, channels int) {
 //   - bandE: scratch buffer for celt_ener band amplitudes (length >= nbBands)
 //
 // Reference: libopus celt/bands.c normalise_bands() (float path, lines 172-187)
-func NormalizeBandsToArrayInto(mdctCoeffs []float64, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
+func NormalizeBandsToArrayInto(mdctCoeffs []float32, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return
 	}
@@ -275,7 +274,7 @@ func NormalizeBandsToArrayIntoF32(mdctCoeffs []float32, nbBands, frameSize int, 
 	normalizeBandsWithBandEIntoF32(mdctCoeffs, nbBands, frameSize, norm, bandE)
 }
 
-func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
+func normalizeBandsWithBandEInto(mdctCoeffs []float32, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
 	offset := 0
 	for band := 0; band < nbBands; band++ {
 		n := ScaledBandWidth(band, frameSize)
@@ -302,7 +301,7 @@ func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, n
 		//      X[j+c*N] = freq[j+c*N]*g;
 		for i := 0; i < n; i++ {
 			// Match libopus float path: freq and gains are float.
-			norm[offset+i] = celtNorm(float32(mdctCoeffs[offset+i]) * g)
+			norm[offset+i] = celtNorm(mdctCoeffs[offset+i] * g)
 		}
 		offset += n
 	}
@@ -345,7 +344,7 @@ func normalizeBandsWithBandEIntoF32(mdctCoeffs []float32, nbBands, frameSize int
 // that directly in normalise_bands().
 //
 // Reference: libopus celt/bands.c normalise_bands() (float path, lines 172-187)
-func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []celtGLog, nbBands, frameSize int) []celtNorm {
+func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float32, energies []celtGLog, nbBands, frameSize int) []celtNorm {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return nil
 	}

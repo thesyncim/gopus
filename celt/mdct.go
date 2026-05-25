@@ -11,30 +11,6 @@ import "math"
 //
 // Reference: RFC 6716 Section 4.3.5, libopus celt/mdct.c
 
-var (
-	// CELT hot path trig tables (n = 2*frameSize) are precomputed once.
-	// These are immutable and avoid map+mutex work in per-frame transforms.
-	mdctTrig240F64Static  = buildMDCTTrig(240)
-	mdctTrig480F64Static  = buildMDCTTrig(480)
-	mdctTrig960F64Static  = buildMDCTTrig(960)
-	mdctTrig1920F64Static = buildMDCTTrig(1920)
-)
-
-func buildMDCTTrig(n int) []float64 {
-	if n <= 0 {
-		return nil
-	}
-	n2 := n / 2
-	trig := make([]float64, n2)
-	for i := 0; i < n2; i++ {
-		// Twiddle factor for IMDCT pre/post rotation:
-		// cos(2*pi*(i+0.125)/n), where n is the output size (2*N).
-		angle := 2.0 * math.Pi * (float64(i) + 0.125) / float64(n)
-		trig[i] = math.Cos(angle)
-	}
-	return trig
-}
-
 func buildMDCTTrigF32(n int) []float32 {
 	if n <= 0 {
 		return nil
@@ -46,22 +22,6 @@ func buildMDCTTrigF32(n int) []float32 {
 		trig[i] = float32(math.Cos(angle))
 	}
 	return trig
-}
-
-func getMDCTTrig(n int) []float64 {
-	switch n {
-	case 240:
-		return mdctTrig240F64Static
-	case 480:
-		return mdctTrig480F64Static
-	case 960:
-		return mdctTrig960F64Static
-	case 1920:
-		return mdctTrig1920F64Static
-	default:
-		// Keep uncommon/test-only sizes working without mutable global caches.
-		return buildMDCTTrig(n)
-	}
 }
 
 func getMDCTTrigF32(n int) []float32 {
@@ -80,25 +40,6 @@ func getMDCTTrigF32(n int) []float32 {
 	}
 }
 
-func getIMDCTCosTable(n int) []float64 {
-	if n <= 0 {
-		return nil
-	}
-	n2 := n * 2
-	table := make([]float64, n2*n)
-	base := math.Pi / float64(n)
-	nHalf := float64(n) / 2.0
-	for i := 0; i < n2; i++ {
-		nTerm := float64(i) + 0.5 + nHalf
-		row := table[i*n : (i+1)*n]
-		for k := 0; k < n; k++ {
-			angle := base * nTerm * (float64(k) + 0.5)
-			row[k] = math.Cos(angle)
-		}
-	}
-	return table
-}
-
 // IMDCT computes the inverse MDCT of frequency coefficients.
 // Input: n frequency bins (spectrum)
 // Output: 2*n time samples
@@ -108,33 +49,33 @@ func getIMDCTCosTable(n int) []float64 {
 // which is O(n^2) but handles any size correctly.
 //
 // Reference: RFC 6716 Section 4.3.5, libopus celt/mdct.c
-func IMDCT(spectrum []float64) []float64 {
+func IMDCT(spectrum []float32) []float32 {
 	return IMDCTDirect(spectrum)
 }
 
 // IMDCTOverlap computes the CELT IMDCT with short overlap using a zero
 // previous overlap buffer. Output length is N + overlap.
-func IMDCTOverlap(spectrum []float64, overlap int) []float64 {
+func IMDCTOverlap(spectrum []float32, overlap int) []float32 {
 	if len(spectrum) == 0 {
 		return nil
 	}
-	prev := make([]float64, overlap)
+	prev := make([]float32, overlap)
 	return imdctOverlapWithPrev(spectrum, prev, overlap)
 }
 
 // IMDCTOverlapWithPrev computes CELT IMDCT using the provided overlap history.
 // The returned slice includes frameSize+overlap samples.
-func IMDCTOverlapWithPrev(spectrum, prevOverlap []float64, overlap int) []float64 {
+func IMDCTOverlapWithPrev(spectrum, prevOverlap []float32, overlap int) []float32 {
 	if len(spectrum) == 0 {
 		return nil
 	}
 	if prevOverlap == nil {
-		prevOverlap = make([]float64, overlap)
+		prevOverlap = make([]float32, overlap)
 	}
-	return imdctOverlapWithPrev(spectrum, prevOverlap, overlap)
+	return imdctOverlapWithPrevScratchF32Output32(spectrum, prevOverlap, overlap, nil)
 }
 
-func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int) []float64 {
+func imdctOverlapWithPrev(spectrum []float32, prevOverlap []float32, overlap int) []float32 {
 	n2 := len(spectrum)
 	if n2 == 0 {
 		return nil
@@ -143,12 +84,12 @@ func imdctOverlapWithPrev(spectrum []float64, prevOverlap []float64, overlap int
 		overlap = 0
 	}
 
-	out := make([]float64, n2+overlap)
+	out := make([]float32, n2+overlap)
 	imdctOverlapWithPrevScratch(out, spectrum, prevOverlap, overlap, nil)
 	return out
 }
 
-func imdctOverlapWithPrevScratch(out []float64, spectrum []float64, prevOverlap []float64, overlap int, scratch *imdctScratch) {
+func imdctOverlapWithPrevScratch(out []float32, spectrum []float32, prevOverlap []float32, overlap int, scratch *imdctScratch) {
 	n2 := len(spectrum)
 	if n2 == 0 {
 		return
@@ -161,112 +102,7 @@ func imdctOverlapWithPrevScratch(out []float64, spectrum []float64, prevOverlap 
 	if len(out) < needed {
 		return
 	}
-	outF32 := imdctOverlapWithPrevScratchF32Output(spectrum, prevOverlap, overlap, scratch)
-	if len(outF32) < needed {
-		return
-	}
-	copyFloat32ToFloat64(out[:needed], outF32[:needed])
-}
-
-func imdctOverlapWithPrevScratchF32Output[S ~float32 | ~float64](spectrum []float64, prevOverlap []S, overlap int, scratch *imdctScratchF32) []float32 {
-	n2 := len(spectrum)
-	if n2 == 0 {
-		return nil
-	}
-	if overlap < 0 {
-		overlap = 0
-	}
-
-	n := n2 * 2
-	n4 := n2 / 2
-	needed := n2 + overlap
-	start := overlap / 2
-	// Use float32 trig table to match libopus
-	trig := getMDCTTrigF32(n)
-
-	var fftIn []complex64
-	var fftTmp []kissCpx
-	var outF32 []float32
-	if scratch == nil {
-		fftIn = make([]complex64, n4)
-		fftTmp = make([]kissCpx, n4)
-		outF32 = make([]float32, needed)
-	} else {
-		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
-		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
-		outF32 = ensureFloat32Slice(&scratch.out, needed)
-	}
-
-	// Clear only the regions that must be zeroed when reusing scratch.
-	// The IMDCT output overwrites [start:start+n2], and prevOverlap overwrites [0:overlap].
-	// Only the tail [start+n2:needed] must be zeroed each call.
-	if start+n2 < needed {
-		clear(outF32[start+n2 : needed])
-	}
-
-	// Copy the full prevOverlap to outF32[0:overlap].
-	if overlap > 0 && len(prevOverlap) > 0 {
-		copyLen := min(len(prevOverlap), overlap)
-		for i := 0; i < copyLen; i++ {
-			outF32[i] = float32(prevOverlap[i])
-		}
-		if copyLen < overlap {
-			clear(outF32[copyLen:overlap])
-		}
-	} else if overlap > 0 {
-		clear(outF32[:overlap])
-	}
-
-	buf := outF32[start : start+n2]
-	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
-
-	fftOut := kissFFT32ToScratch(fftIn, fftTmp)
-	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
-
-	// TDAC windowing blends outF32[0:overlap] using float32
-	if overlap > 0 {
-		windowF32 := GetWindowBufferF32(overlap)
-		xp1 := overlap - 1
-		yp1 := 0
-		wp1 := 0
-		wp2 := overlap - 1
-		limit := overlap / 2
-		i := 0
-		for ; i+1 < limit; i += 2 {
-			x1 := outF32[xp1]
-			x2 := outF32[yp1]
-			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
-			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-
-			x1 = outF32[xp1]
-			x2 = outF32[yp1]
-			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
-			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-		}
-		for ; i < limit; i++ {
-			x1 := outF32[xp1]
-			x2 := outF32[yp1]
-			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
-			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-		}
-	}
-
-	if needed > 0 {
-		outF32 = outF32[:needed:needed]
-	}
-	return outF32
+	imdctOverlapWithPrevScratchF32(out, spectrum, prevOverlap, overlap, scratch)
 }
 
 func imdctPreRotateF32Spectrum(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
@@ -289,7 +125,7 @@ func imdctPreRotateF32Spectrum(fftIn []complex64, spectrum []float32, trig []flo
 	}
 }
 
-func imdctOverlapWithPrevScratchF32Output32(spectrum []float32, prevOverlap []celtSig, overlap int, scratch *imdctScratchF32) []float32 {
+func imdctOverlapWithPrevScratchF32Output32[S ~float32](spectrum []float32, prevOverlap []S, overlap int, scratch *imdctScratchF32) []float32 {
 	n2 := len(spectrum)
 	if n2 == 0 {
 		return nil
@@ -379,7 +215,7 @@ func imdctOverlapWithPrevScratchF32Output32(spectrum []float32, prevOverlap []ce
 	return outF32[:needed:needed]
 }
 
-func imdctCoreScratchF32(spectrum []float64, scratch *imdctScratchF32) []float32 {
+func imdctCoreScratchF32(spectrum []float32, scratch *imdctScratchF32) []float32 {
 	n2 := len(spectrum)
 	if n2 == 0 {
 		return nil
@@ -401,7 +237,7 @@ func imdctCoreScratchF32(spectrum []float64, scratch *imdctScratchF32) []float32
 		buf = ensureFloat32Slice(&scratch.buf, n2)
 	}
 
-	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
+	imdctPreRotateF32Spectrum(fftIn, spectrum, trig, n2, n4)
 	fftOut := kissFFT32ToScratch(fftIn, fftTmp)
 	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
 	return buf[:n2:n2]
@@ -495,73 +331,9 @@ func imdctInPlaceScratchF32Spectrum(spectrum []float32, out []float32, blockStar
 	copy(out[start+copyStart:start+limit], buf[copyStart:limit])
 }
 
-func overlapIMDCTF32WithPrevToFloat64[S ~float32 | ~float64](out []float64, imdct []float32, prevOverlap []S, overlap int) {
-	n2 := len(imdct)
-	if n2 == 0 || overlap < 0 {
-		return
-	}
-	needed := n2 + overlap
-	if len(out) < needed {
-		return
-	}
-	start := overlap / 2
-	if start > 0 {
-		copyLen := min(len(prevOverlap), start)
-		for i := 0; i < copyLen; i++ {
-			out[i] = float64(prevOverlap[i])
-		}
-		if copyLen < start {
-			clear(out[copyLen:start])
-		}
-	}
-	copyFloat32ToFloat64(out[start:start+n2], imdct)
-	if start+n2 < needed {
-		clear(out[start+n2 : needed])
-	}
-
-	if overlap > 0 {
-		windowF32 := GetWindowBufferF32(overlap)
-		xp1 := overlap - 1
-		yp1 := 0
-		wp1 := 0
-		wp2 := overlap - 1
-		limit := overlap / 2
-		i := 0
-		for ; i+1 < limit; i += 2 {
-			x1 := float32(out[xp1])
-			x2 := float32(out[yp1])
-			out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
-			out[xp1] = float64(mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2]))
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-
-			x1 = float32(out[xp1])
-			x2 = float32(out[yp1])
-			out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
-			out[xp1] = float64(mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2]))
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-		}
-		for ; i < limit; i++ {
-			x1 := float32(out[xp1])
-			x2 := float32(out[yp1])
-			out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
-			out[xp1] = float64(mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2]))
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-		}
-	}
-}
-
 // imdctOverlapWithPrevScratchF32 performs IMDCT using float32 precision to match libopus.
 // This is used for long (non-transient) blocks.
-func imdctOverlapWithPrevScratchF32[S ~float32 | ~float64](out []float64, spectrum []float64, prevOverlap []S, overlap int, scratch *imdctScratchF32) {
+func imdctOverlapWithPrevScratchF32[S ~float32](out []float32, spectrum []float32, prevOverlap []S, overlap int, scratch *imdctScratchF32) {
 	n2 := len(spectrum)
 	if n2 == 0 {
 		return
@@ -575,11 +347,11 @@ func imdctOverlapWithPrevScratchF32[S ~float32 | ~float64](out []float64, spectr
 		return
 	}
 
-	outF32 := imdctOverlapWithPrevScratchF32Output(spectrum, prevOverlap, overlap, scratch)
+	outF32 := imdctOverlapWithPrevScratchF32Output32(spectrum, prevOverlap, overlap, scratch)
 	if len(outF32) == 0 {
 		return
 	}
-	copyFloat32ToFloat64(out[:needed], outF32[:needed])
+	copy(out[:needed], outF32[:needed])
 }
 
 // imdctInPlace performs IMDCT directly into a shared output buffer at the given offset.
@@ -593,11 +365,11 @@ func imdctOverlapWithPrevScratchF32[S ~float32 | ~float64](out []float64, spectr
 //   - out: shared output buffer that already contains previous block/frame data
 //   - blockStart: starting position in out for this block
 //   - overlap: overlap size (typically 120 for CELT at 48kHz)
-func imdctInPlace(spectrum []float64, out []float64, blockStart, overlap int) {
+func imdctInPlace(spectrum []float32, out []float32, blockStart, overlap int) {
 	imdctInPlaceScratch(spectrum, out, blockStart, overlap, nil)
 }
 
-func imdctInPlaceScratch(spectrum []float64, out []float64, blockStart, overlap int, scratch *imdctScratch) {
+func imdctInPlaceScratch(spectrum []float32, out []float32, blockStart, overlap int, scratch *imdctScratch) {
 	n2 := len(spectrum)
 	if n2 == 0 {
 		return
@@ -606,122 +378,14 @@ func imdctInPlaceScratch(spectrum []float64, out []float64, blockStart, overlap 
 		overlap = 0
 	}
 
-	imdctInPlaceScratchF32(spectrum, out, blockStart, overlap, scratch)
+	imdctInPlaceScratchF32Spectrum(spectrum, out, blockStart, overlap, scratch)
 }
 
 // ImdctInPlaceExported exports imdctInPlace for testing.
 //
 // This helper exists for tests and codec-development tooling and may change.
-func ImdctInPlaceExported(spectrum []float64, out []float64, blockStart, overlap int) {
+func ImdctInPlaceExported(spectrum []float32, out []float32, blockStart, overlap int) {
 	imdctInPlace(spectrum, out, blockStart, overlap)
-}
-
-// imdctInPlaceScratchF32 performs IMDCT using float32 precision to match libopus.
-// This function is critical for matching libopus's floating-point behavior exactly.
-// libopus uses float (32-bit) for IMDCT, so using float64 in gopus causes precision
-// differences that accumulate, especially in transient frames with multiple short blocks.
-func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overlap int, scratch *imdctScratchF32) {
-	n2 := len(spectrum)
-	if n2 == 0 {
-		return
-	}
-	if overlap < 0 {
-		overlap = 0
-	}
-
-	n := n2 * 2
-	n4 := n2 / 2
-
-	// Use float32 trig table to match libopus
-	trig := getMDCTTrigF32(n)
-
-	// Pre-rotate with twiddles using float32
-	var fftIn []complex64
-	var buf []float32
-	var fftTmp []kissCpx
-	if scratch == nil {
-		fftIn = make([]complex64, n4)
-		fftTmp = make([]kissCpx, n4)
-		buf = make([]float32, n2)
-	} else {
-		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
-		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
-		buf = ensureFloat32Slice(&scratch.buf, n2)
-	}
-
-	imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
-
-	// FFT using float32 kiss_fft implementation
-	fftOut := kissFFT32ToScratch(fftIn, fftTmp)
-	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
-
-	start := blockStart + overlap/2
-	if start >= len(out) {
-		return
-	}
-
-	// TDAC windowing using float32 window
-	if overlap > 0 {
-		windowF32 := GetWindowBufferF32(overlap)
-		xp1 := blockStart + overlap - 1
-		yp1 := blockStart
-		wp1 := 0
-		wp2 := overlap - 1
-		limit := overlap / 2
-		i := 0
-		for ; i+1 < limit; i += 2 {
-			bufIdx := xp1 - start
-			x1 := buf[bufIdx]
-			x2 := float32(out[yp1])
-			out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
-			out[xp1] = float64(mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2]))
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-
-			bufIdx = xp1 - start
-			x1 = buf[bufIdx]
-			x2 = float32(out[yp1])
-			out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
-			out[xp1] = float64(mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2]))
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-		}
-		for ; i < limit; i++ {
-			bufIdx := xp1 - start
-			x1 := buf[bufIdx]
-			x2 := float32(out[yp1])
-			out[yp1] = float64(mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1]))
-			out[xp1] = float64(mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2]))
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-		}
-	}
-
-	copyStart := 0
-	if overlap > 0 {
-		copyStart = overlap / 2
-	}
-	limit := n2
-	if start+limit > len(out) {
-		limit = len(out) - start
-	}
-	i := copyStart
-	for ; i+3 < limit; i += 4 {
-		base := start + i
-		out[base] = float64(buf[i])
-		out[base+1] = float64(buf[i+1])
-		out[base+2] = float64(buf[i+2])
-		out[base+3] = float64(buf[i+3])
-	}
-	for ; i < limit; i++ {
-		out[start+i] = float64(buf[i])
-	}
 }
 
 // IMDCTShort computes IMDCT for transient frames with multiple short blocks.
@@ -734,7 +398,7 @@ func imdctInPlaceScratchF32(spectrum []float64, out []float64, blockStart, overl
 // cost of reduced frequency resolution.
 //
 // Reference: libopus celt/celt_decoder.c, transient mode handling
-func IMDCTShort(coeffs []float64, shortBlocks int) []float64 {
+func IMDCTShort(coeffs []float32, shortBlocks int) []float32 {
 	if shortBlocks <= 1 {
 		return IMDCT(coeffs)
 	}
@@ -753,12 +417,12 @@ func IMDCTShort(coeffs []float64, shortBlocks int) []float64 {
 	// Output: each short IMDCT produces 2*shortSize samples
 	// With overlap, total output is shortSize*(shortBlocks+1)
 	// But for simplicity, we produce 2*totalCoeffs and let caller handle overlap
-	output := make([]float64, 2*totalCoeffs)
+	output := make([]float32, 2*totalCoeffs)
 
 	// Process each short block
 	for b := 0; b < shortBlocks; b++ {
 		// Extract coefficients for this short block
-		shortCoeffs := make([]float64, shortSize)
+		shortCoeffs := make([]float32, shortSize)
 		for i := 0; i < shortSize; i++ {
 			// Coefficients are interleaved: coeff[b + i*shortBlocks]
 			srcIdx := b + i*shortBlocks
@@ -779,46 +443,6 @@ func IMDCTShort(coeffs []float64, shortBlocks int) []float64 {
 	}
 
 	return output
-}
-
-func dft(x []complex128) []complex128 {
-	n := len(x)
-	if n <= 1 {
-		return x
-	}
-
-	out := make([]complex128, n)
-	dftTo(out, x)
-	return out
-}
-
-func dftTo(out []complex128, x []complex128) {
-	n := len(x)
-	if n <= 1 {
-		if len(out) > 0 && len(x) > 0 {
-			out[0] = x[0]
-		}
-		return
-	}
-	if len(out) < n {
-		return
-	}
-
-	// This legacy double-domain helper is retained only for compatibility
-	// tests around the old public IMDCT surface. The runtime CELT path uses
-	// the float-build kissCpx/kissFFTState helpers instead.
-	twoPi := -2.0 * math.Pi / float64(n)
-	for k := 0; k < n; k++ {
-		angle := twoPi * float64(k)
-		wStep := complex(math.Cos(angle), math.Sin(angle))
-		w := complex(1.0, 0.0)
-		var sum complex128
-		for t := 0; t < n; t++ {
-			sum += x[t] * w
-			w *= wStep
-		}
-		out[k] = sum
-	}
 }
 
 func dft32(x []complex64) []complex64 {
@@ -843,6 +467,24 @@ func dft32(x []complex64) []complex64 {
 	return out
 }
 
+func mdctCosApprox32(x float32) float32 {
+	const (
+		pi    float32 = 3.14159265358979323846
+		twoPi float32 = 6.28318530717958647692
+	)
+
+	x -= float32(int32(x/twoPi)) * twoPi
+	for x > pi {
+		x -= twoPi
+	}
+	for x < -pi {
+		x += twoPi
+	}
+
+	x2 := x * x
+	return 1 - x2*(0.5-x2*(0.041666667-x2*(0.0013888889-x2*0.000024801587)))
+}
+
 // IMDCTDirect computes IMDCT per RFC 6716 Section 4.3.5.
 // Formula: y[n] = sum_{k=0}^{N-1} X[k] * cos(pi/N * (n + 0.5 + N/2) * (k + 0.5))
 // Input: N frequency coefficients
@@ -851,20 +493,22 @@ func dft32(x []complex64) []complex64 {
 //
 // This is O(n^2) but mathematically exact and handles non-power-of-2 sizes
 // (like CELT's 120, 240, 480, 960) that the FFT-based approach cannot.
-func IMDCTDirect(spectrum []float64) []float64 {
+func IMDCTDirect(spectrum []float32) []float32 {
 	N := len(spectrum)
 	if N <= 0 {
 		return nil
 	}
 
 	N2 := N * 2
-	output := make([]float64, N2)
-	table := getIMDCTCosTable(N)
+	output := make([]float32, N2)
+	base := float32(math.Pi) / float32(N)
+	nHalf := float32(N) / 2
 	for n := 0; n < N2; n++ {
-		var sum float64
-		row := table[n*N : (n+1)*N]
+		var sum float32
+		nTerm := float32(n) + 0.5 + nHalf
 		for k := 0; k < N; k++ {
-			sum += spectrum[k] * row[k]
+			angle := base * nTerm * (float32(k) + 0.5)
+			sum += spectrum[k] * mdctCosApprox32(angle)
 		}
 		output[n] = sum
 	}

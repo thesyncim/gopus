@@ -7,7 +7,7 @@ import (
 
 // DecodeFrameWithDecoder decodes a frame using a pre-initialized range decoder.
 // This is useful when the range decoder is shared with other layers (e.g., SILK in hybrid mode).
-func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
+func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float32, error) {
 	if rd == nil {
 		return nil, ErrNilDecoder
 	}
@@ -103,7 +103,7 @@ const HybridCELTStartBand = 17
 // - Only bands 17-21 contribute to the output (high frequencies for hybrid)
 //
 // Reference: RFC 6716 Section 3.2 (Hybrid mode), libopus celt/celt_decoder.c
-func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
+func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]float32, error) {
 	if rd == nil {
 		return nil, ErrNilDecoder
 	}

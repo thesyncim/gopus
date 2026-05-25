@@ -53,10 +53,10 @@ func seedDecoderStateForSilenceTest(d *Decoder) {
 	d.postfilterTapset = 2
 }
 
-func decodeSilenceFrameReferenceForTest(d *Decoder, frameSize int, newPeriod int, newGain float32, newTapset int) []float64 {
+func decodeSilenceFrameReferenceForTest(d *Decoder, frameSize int, newPeriod int, newGain float32, newTapset int) []float32 {
 	mode := GetModeConfig(frameSize)
-	zeros := make([]float64, frameSize)
-	var samples []float64
+	zeros := make([]float32, frameSize)
+	var samples []float32
 	if d.channels == 2 {
 		samples = d.SynthesizeStereo(zeros, zeros, false, 1)
 	} else {
@@ -65,9 +65,9 @@ func decodeSilenceFrameReferenceForTest(d *Decoder, frameSize int, newPeriod int
 	if len(samples) == 0 {
 		return nil
 	}
-	d.applyPostfilter(samples, frameSize, mode.LM, newPeriod, newGain, newTapset)
+	d.applyPostfilterFloat32(samples, frameSize, mode.LM, newPeriod, newGain, newTapset)
 	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
-	out := make([]float64, len(samples))
+	out := make([]float32, len(samples))
 	copy(out, samples)
 	return out
 }

@@ -220,6 +220,62 @@ func computeSNRWithDelay(original, decoded []float64, maxDelay int) (float64, in
 	return bestSNR, bestDelay
 }
 
+func computeSNRWithDelayF32(original []float64, decoded []float32, maxDelay int) (float64, int) {
+	bestSNR := math.Inf(-1)
+	bestDelay := 0
+
+	for delay := -maxDelay; delay <= maxDelay; delay++ {
+		var signalPower, noisePower float64
+		count := 0
+
+		margin := 120
+		for i := margin; i < len(original)-margin; i++ {
+			decIdx := i + delay
+			if decIdx >= margin && decIdx < len(decoded)-margin {
+				signalPower += original[i] * original[i]
+				noise := float64(decoded[decIdx]) - original[i]
+				noisePower += noise * noise
+				count++
+			}
+		}
+
+		if count > 0 && signalPower > 0 && noisePower > 0 {
+			snr := 10.0 * math.Log10(signalPower/noisePower)
+			if snr > bestSNR {
+				bestSNR = snr
+				bestDelay = delay
+			}
+		}
+	}
+
+	return bestSNR, bestDelay
+}
+
+func computeCorrelationF32(a []float64, b []float32) float64 {
+	if len(a) == 0 || len(b) == 0 {
+		return 0
+	}
+
+	n := min(len(a), len(b))
+	var sumA, sumB, sumAB, sumA2, sumB2 float64
+	for i := 0; i < n; i++ {
+		bi := float64(b[i])
+		sumA += a[i]
+		sumB += bi
+		sumAB += a[i] * bi
+		sumA2 += a[i] * a[i]
+		sumB2 += bi * bi
+	}
+
+	nf := float64(n)
+	num := nf*sumAB - sumA*sumB
+	den := math.Sqrt((nf*sumA2 - sumA*sumA) * (nf*sumB2 - sumB*sumB))
+	if den == 0 {
+		return 0
+	}
+	return num / den
+}
+
 // maxAmplitude returns the maximum absolute amplitude in a signal.
 func maxAmplitude(samples []float64) float64 {
 	maxVal := 0.0
@@ -280,7 +336,7 @@ func TestRoundTripCELTAllBandwidths(t *testing.T) {
 				numFrames := 5
 				pcm := generateSineWave(fs.samples*numFrames, 1, 440.0, 0.5, 48000)
 
-				var allDecoded []float64
+				var allDecoded []float32
 
 				for i := 0; i < numFrames; i++ {
 					start := i * fs.samples
@@ -306,11 +362,11 @@ func TestRoundTripCELTAllBandwidths(t *testing.T) {
 				}
 
 				// Compute quality metrics with delay compensation
-				snr, delay := computeSNRWithDelay(pcm, allDecoded, MaxDelayCompensation)
+				snr, delay := computeSNRWithDelayF32(pcm, allDecoded, MaxDelayCompensation)
 				t.Logf("CELT %s %s: SNR=%.2f dB, delay=%d samples, decoded=%d samples",
 					bw.name, fs.name, snr, delay, len(allDecoded))
 
-				if maxAmplitude(allDecoded) < 0.001 {
+				if maxAmplitudeF32(allDecoded) < 0.001 {
 					t.Error("Decoded audio appears to be silence")
 				}
 			})
@@ -679,7 +735,8 @@ func TestRoundTripMusic(t *testing.T) {
 	numFrames := 10
 	pcm := generateMusicLikeSignal(frameSize*numFrames, 2, 48000)
 
-	var allOriginal, allDecoded []float64
+	var allOriginal []float64
+	var allDecoded []float32
 
 	for i := 0; i < numFrames; i++ {
 		start := i * frameSize * 2
@@ -703,8 +760,8 @@ func TestRoundTripMusic(t *testing.T) {
 	}
 
 	if len(allDecoded) > 0 {
-		snr, _ := computeSNRWithDelay(allOriginal, allDecoded, MaxDelayCompensation)
-		corr := computeCorrelation(allOriginal[:min(len(allOriginal), len(allDecoded))],
+		snr, _ := computeSNRWithDelayF32(allOriginal, allDecoded, MaxDelayCompensation)
+		corr := computeCorrelationF32(allOriginal[:min(len(allOriginal), len(allDecoded))],
 			allDecoded[:min(len(allOriginal), len(allDecoded))])
 		t.Logf("Music: SNR=%.2f dB, correlation=%.4f", snr, corr)
 	}

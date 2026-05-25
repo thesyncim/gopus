@@ -5,6 +5,17 @@ import (
 	"testing"
 )
 
+func combFilter(buf []float64, start int, t0, t1, n int, g0, g1 float32, tapset0, tapset1 int, window []float32, overlap int) {
+	sig := make([]celtSig, len(buf))
+	for i := range buf {
+		sig[i] = celtSig(buf[i])
+	}
+	combFilterWithInputSig(sig, sig, start, t0, t1, n, g0, g1, tapset0, tapset1, window, overlap)
+	for i := start; i < start+n && i < len(buf); i++ {
+		buf[i] = float64(sig[i])
+	}
+}
+
 // TestCombFilterGains verifies the comb filter gain tables match libopus.
 // Reference: libopus celt/celt.c gains[][]
 func TestCombFilterGains(t *testing.T) {
@@ -54,7 +65,7 @@ func TestCombFilterNoGain(t *testing.T) {
 	copy(original, buf)
 
 	// Apply filter with zero gains
-	window := GetWindowBuffer(Overlap)
+	window := GetWindowBufferF32(Overlap)
 	combFilter(buf, history, 100, 100, n, 0.0, 0.0, 0, 0, window, Overlap)
 
 	// Buffer should be unchanged
@@ -83,7 +94,7 @@ func TestCombFilterConstantParams(t *testing.T) {
 	gain := float32(0.5)
 	tapset := 0
 
-	window := GetWindowBuffer(Overlap)
+	window := GetWindowBufferF32(Overlap)
 
 	// Apply filter with constant parameters
 	combFilter(buf, history, period, period, n, gain, gain, tapset, tapset, window, Overlap)
@@ -120,7 +131,7 @@ func TestCombFilterImpulseResponse(t *testing.T) {
 	gain := float32(1.0) // Full gain for easy verification
 	tapset := 0
 
-	window := GetWindowBuffer(Overlap)
+	window := GetWindowBufferF32(Overlap)
 
 	// Apply filter
 	combFilter(buf, history, period, period, n, gain, gain, tapset, tapset, window, Overlap)
@@ -155,7 +166,7 @@ func TestCombFilterCrossfade(t *testing.T) {
 	g0, g1 := float32(0.5), float32(0.3)
 	tapset0, tapset1 := 0, 1
 
-	window := GetWindowBuffer(Overlap)
+	window := GetWindowBufferF32(Overlap)
 
 	// Apply filter
 	combFilter(buf, history, t0, t1, n, g0, g1, tapset0, tapset1, window, Overlap)
@@ -194,7 +205,7 @@ func TestCombFilterPeriodBounds(t *testing.T) {
 		buf[i] = float64(i)
 	}
 
-	window := GetWindowBuffer(Overlap)
+	window := GetWindowBufferF32(Overlap)
 
 	// These should not panic
 	combFilter(buf, history, 1, 1, n, 0.5, 0.5, 0, 0, window, Overlap)
@@ -291,7 +302,7 @@ func TestCombFilterEnergyPreservation(t *testing.T) {
 		inputEnergy += buf[i] * buf[i]
 	}
 
-	window := GetWindowBuffer(Overlap)
+	window := GetWindowBufferF32(Overlap)
 
 	// Apply filter with moderate gain
 	combFilter(buf, history, 100, 100, n, 0.5, 0.5, 0, 0, window, Overlap)
@@ -317,20 +328,20 @@ func TestApplyPostfilterMono(t *testing.T) {
 	lm := 2 // 10ms frame
 
 	// Create test samples
-	samples := make([]float64, frameSize)
+	samples := make([]float32, frameSize)
 	for i := range samples {
-		samples[i] = math.Sin(float64(i) * 0.05)
+		samples[i] = float32(math.Sin(float64(i) * 0.05))
 	}
-	original := make([]float64, len(samples))
+	original := make([]float32, len(samples))
 	copy(original, samples)
 
 	// Apply postfilter with some parameters
-	d.applyPostfilter(samples, frameSize, lm, 100, 0.5, 0)
+	d.applyPostfilterFloat32(samples, frameSize, lm, 100, 0.5, 0)
 
 	// Verify samples were modified
 	changed := false
 	for i := range samples {
-		if math.Abs(samples[i]-original[i]) > 1e-10 {
+		if math.Abs(float64(samples[i]-original[i])) > 1e-10 {
 			changed = true
 			break
 		}
@@ -357,24 +368,24 @@ func TestApplyPostfilterStereo(t *testing.T) {
 	lm := 2
 
 	// Create interleaved stereo samples
-	samples := make([]float64, frameSize*2)
+	samples := make([]float32, frameSize*2)
 	for i := 0; i < frameSize; i++ {
-		samples[i*2] = math.Sin(float64(i) * 0.05)   // Left
-		samples[i*2+1] = math.Cos(float64(i) * 0.05) // Right
+		samples[i*2] = float32(math.Sin(float64(i) * 0.05))   // Left
+		samples[i*2+1] = float32(math.Cos(float64(i) * 0.05)) // Right
 	}
-	original := make([]float64, len(samples))
+	original := make([]float32, len(samples))
 	copy(original, samples)
 
 	// Apply postfilter
-	d.applyPostfilter(samples, frameSize, lm, 100, 0.5, 0)
+	d.applyPostfilterFloat32(samples, frameSize, lm, 100, 0.5, 0)
 
 	// Verify both channels were modified
 	leftChanged, rightChanged := false, false
 	for i := 0; i < frameSize; i++ {
-		if math.Abs(samples[i*2]-original[i*2]) > 1e-10 {
+		if math.Abs(float64(samples[i*2]-original[i*2])) > 1e-10 {
 			leftChanged = true
 		}
-		if math.Abs(samples[i*2+1]-original[i*2+1]) > 1e-10 {
+		if math.Abs(float64(samples[i*2+1]-original[i*2+1])) > 1e-10 {
 			rightChanged = true
 		}
 	}
@@ -395,18 +406,18 @@ func TestApplyPostfilterStateTransition(t *testing.T) {
 	lm := 2
 
 	// First frame with one set of parameters
-	samples1 := make([]float64, frameSize)
+	samples1 := make([]float32, frameSize)
 	for i := range samples1 {
 		samples1[i] = 1.0 // Constant signal
 	}
-	d.applyPostfilter(samples1, frameSize, lm, 100, 0.3, 0)
+	d.applyPostfilterFloat32(samples1, frameSize, lm, 100, 0.3, 0)
 
 	// Second frame with different parameters
-	samples2 := make([]float64, frameSize)
+	samples2 := make([]float32, frameSize)
 	for i := range samples2 {
 		samples2[i] = 1.0
 	}
-	d.applyPostfilter(samples2, frameSize, lm, 150, 0.5, 1)
+	d.applyPostfilterFloat32(samples2, frameSize, lm, 150, 0.5, 1)
 
 	// Old parameters should be updated
 	if d.postfilterPeriodOld != 150 {
@@ -435,27 +446,30 @@ func TestCombFilterVsLibopusReference(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			history := combFilterHistory
-			buf := make([]float64, history+tc.inputLen)
+			buf := make([]float32, history+tc.inputLen)
 
 			// Create deterministic input
 			for i := range buf {
-				buf[i] = math.Sin(float64(i) * 0.1)
+				buf[i] = float32(math.Sin(float64(i) * 0.1))
 			}
 
-			window := GetWindowBuffer(Overlap)
+			window := GetWindowBufferF32(Overlap)
 
 			// Apply filter
-			combFilter(buf, history, tc.period, tc.period, tc.inputLen,
+			sigBuf := make([]celtSig, len(buf))
+			copyFloat32ToSig(sigBuf, buf)
+			combFilterWithInputSig(sigBuf, sigBuf, history, tc.period, tc.period, tc.inputLen,
 				tc.gain, tc.gain, tc.tapset, tc.tapset, window, Overlap)
 
 			// Basic sanity checks
 			hasNaN := false
 			hasInf := false
 			for i := history; i < len(buf); i++ {
-				if math.IsNaN(buf[i]) {
+				v := float64(sigBuf[i])
+				if math.IsNaN(v) {
 					hasNaN = true
 				}
-				if math.IsInf(buf[i], 0) {
+				if math.IsInf(v, 0) {
 					hasInf = true
 				}
 			}
@@ -474,11 +488,11 @@ func TestApplyPostfilterNoGainBypassMono(t *testing.T) {
 	d := NewDecoder(1)
 	frameSize := 120
 	lm := 0
-	samples := make([]float64, frameSize)
+	samples := make([]float32, frameSize)
 	for i := range samples {
-		samples[i] = float64(i+1) * 0.01
+		samples[i] = float32(i+1) * 0.01
 	}
-	samplesBefore := make([]float64, len(samples))
+	samplesBefore := make([]float32, len(samples))
 	copy(samplesBefore, samples)
 
 	for i := range d.postfilterMem {
@@ -495,7 +509,7 @@ func TestApplyPostfilterNoGainBypassMono(t *testing.T) {
 	d.postfilterGainOld = 0
 	d.postfilterTapsetOld = 0
 
-	d.applyPostfilter(samples, frameSize, lm, 88, 0, 2)
+	d.applyPostfilterFloat32(samples, frameSize, lm, 88, 0, 2)
 
 	for i := range samples {
 		if samples[i] != samplesBefore[i] {
@@ -506,7 +520,7 @@ func TestApplyPostfilterNoGainBypassMono(t *testing.T) {
 	history := combFilterHistory
 	expectedHist := make([]celtSig, history)
 	copy(expectedHist, histBefore[frameSize:])
-	copyFloat64ToSig(expectedHist[history-frameSize:], samplesBefore)
+	copyFloat32ToSig(expectedHist[history-frameSize:], samplesBefore)
 	if !d.postfilterMemFromPLC {
 		t.Fatal("postfilter history should be lazy-backed by PLC history")
 	}
@@ -529,11 +543,11 @@ func TestApplyPostfilterNoGainBypassStereo(t *testing.T) {
 	d := NewDecoder(2)
 	frameSize := 120
 	lm := 1
-	samples := make([]float64, frameSize*2)
+	samples := make([]float32, frameSize*2)
 	for i := range samples {
-		samples[i] = float64(i+1) * 0.01
+		samples[i] = float32(i+1) * 0.01
 	}
-	samplesBefore := make([]float64, len(samples))
+	samplesBefore := make([]float32, len(samples))
 	copy(samplesBefore, samples)
 
 	for i := range d.postfilterMem {
@@ -555,7 +569,7 @@ func TestApplyPostfilterNoGainBypassStereo(t *testing.T) {
 	d.postfilterGainOld = 0
 	d.postfilterTapsetOld = 0
 
-	d.applyPostfilter(samples, frameSize, lm, 92, 0, 1)
+	d.applyPostfilterFloat32(samples, frameSize, lm, 92, 0, 1)
 
 	for i := range samples {
 		if samples[i] != samplesBefore[i] {
@@ -599,16 +613,16 @@ func TestApplyPostfilterNoGainBypassStereo(t *testing.T) {
 func BenchmarkCombFilter(b *testing.B) {
 	n := 960 // 20ms frame
 	history := combFilterHistory
-	buf := make([]float64, history+n)
-	window := GetWindowBuffer(Overlap)
+	buf := make([]celtSig, history+n)
+	window := GetWindowBufferF32(Overlap)
 
 	for i := range buf {
-		buf[i] = float64(i%1000) / 1000.0
+		buf[i] = celtSig(float32(i%1000) / 1000.0)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		combFilter(buf, history, 100, 100, n, 0.5, 0.5, 0, 0, window, Overlap)
+		combFilterWithInputSig(buf, buf, history, 100, 100, n, 0.5, 0.5, 0, 0, window, Overlap)
 	}
 }
 
@@ -616,14 +630,14 @@ func BenchmarkCombFilter(b *testing.B) {
 func BenchmarkApplyPostfilter(b *testing.B) {
 	d := NewDecoder(2) // Stereo
 	frameSize := 960
-	samples := make([]float64, frameSize*2)
+	samples := make([]float32, frameSize*2)
 
 	for i := range samples {
-		samples[i] = float64(i%1000) / 1000.0
+		samples[i] = float32(i%1000) / 1000.0
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		d.applyPostfilter(samples, frameSize, 3, 100, 0.5, 0)
+		d.applyPostfilterFloat32(samples, frameSize, 3, 100, 0.5, 0)
 	}
 }

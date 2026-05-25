@@ -19,19 +19,19 @@ import (
 // Formula from libopus test_unit_mdct.c check() function:
 //
 //	X[k] = sum_{n=0}^{N-1} x[n] * cos(2*pi*(n+0.5+0.25*N)*(k+0.5)/N) / (N/4)
-func referenceMDCTForward(input []float64) []float64 {
+func referenceMDCTForward[T ~float32 | ~float64](input []T) []float32 {
 	N := len(input)
 	N2 := N / 2
-	output := make([]float64, N2)
+	output := make([]float32, N2)
 
-	scale := 1.0 / float64(N/4) // Same as 4.0/N
+	scale := float32(1.0) / float32(N/4) // Same as 4.0/N
 
 	for k := 0; k < N2; k++ {
-		var sum float64
-		kPlusHalf := float64(k) + 0.5
+		var sum float32
+		kPlusHalf := float32(k) + 0.5
 		for n := 0; n < N; n++ {
-			phase := 2.0 * math.Pi * (float64(n) + 0.5 + float64(N)*0.25) * kPlusHalf / float64(N)
-			sum += input[n] * math.Cos(phase)
+			phase := float32(2.0*math.Pi) * (float32(n) + 0.5 + float32(N)*0.25) * kPlusHalf / float32(N)
+			sum += float32(input[n]) * float32(math.Cos(float64(phase)))
 		}
 		output[k] = sum * scale
 	}
@@ -39,32 +39,49 @@ func referenceMDCTForward(input []float64) []float64 {
 	return output
 }
 
+func float32sForMDCTForwardTest[T ~float32 | ~float64](in []T) []float32 {
+	out := make([]float32, len(in))
+	for i, v := range in {
+		out[i] = float32(v)
+	}
+	return out
+}
+
+func float64sFromMDCTForwardTest(in []float32) []float64 {
+	out := make([]float64, len(in))
+	for i, v := range in {
+		out[i] = float64(v)
+	}
+	return out
+}
+
 // prepareInputWithWindow creates a test input with rectangular window (no windowing).
 // This matches libopus test which uses window[k] = 1.0 (Q15ONE/Q31ONE).
-func prepareInputWithWindow(n int, seed int) []float64 {
-	input := make([]float64, n)
+func prepareInputWithWindow(n int, seed int) []float32 {
+	input := make([]float32, n)
 	for k := 0; k < n; k++ {
 		// Generate pseudo-random data similar to libopus test
 		// Using deterministic seed for reproducibility
-		val := float64((seed*17+k*31)%32768 - 16384)
-		input[k] = val
+		input[k] = float32((seed*17+k*31)%32768 - 16384)
 	}
 	return input
 }
 
 // mdctComputeSNR calculates signal-to-noise ratio in dB.
 // Returns SNR and max absolute difference.
-func mdctComputeSNR(expected, actual []float64) (snr, maxDiff float64) {
+func mdctComputeSNR[A ~float32 | ~float64, B ~float32 | ~float64](expected []A, actual []B) (snr, maxDiff float64) {
 	var errPow, sigPow float64
 	maxDiff = 0.0
 
 	for i := range expected {
-		diff := expected[i] - actual[i]
+		exp := float64(expected[i])
+		act := float64(actual[i])
+		diff := exp - act
 		if math.Abs(diff) > maxDiff {
 			maxDiff = math.Abs(diff)
 		}
 		errPow += diff * diff
-		sigPow += expected[i] * expected[i]
+		sigPow += exp * exp
 	}
 
 	if errPow < 1e-30 {
@@ -79,7 +96,7 @@ func mdctComputeSNR(expected, actual []float64) (snr, maxDiff float64) {
 }
 
 // mdctComputeCorrelation calculates Pearson correlation coefficient.
-func mdctComputeCorrelation(a, b []float64) float64 {
+func mdctComputeCorrelation[A ~float32 | ~float64, B ~float32 | ~float64](a []A, b []B) float64 {
 	if len(a) != len(b) || len(a) == 0 {
 		return 0.0
 	}
@@ -88,11 +105,13 @@ func mdctComputeCorrelation(a, b []float64) float64 {
 	var sumA, sumB, sumAB, sumA2, sumB2 float64
 
 	for i := range a {
-		sumA += a[i]
-		sumB += b[i]
-		sumAB += a[i] * b[i]
-		sumA2 += a[i] * a[i]
-		sumB2 += b[i] * b[i]
+		av := float64(a[i])
+		bv := float64(b[i])
+		sumA += av
+		sumB += bv
+		sumAB += av * bv
+		sumA2 += av * av
+		sumB2 += bv * bv
 	}
 
 	meanA := sumA / n
@@ -100,8 +119,8 @@ func mdctComputeCorrelation(a, b []float64) float64 {
 
 	var covAB, varA, varB float64
 	for i := range a {
-		dA := a[i] - meanA
-		dB := b[i] - meanB
+		dA := float64(a[i]) - meanA
+		dB := float64(b[i]) - meanB
 		covAB += dA * dB
 		varA += dA * dA
 		varB += dB * dB
@@ -159,8 +178,8 @@ func TestMDCTForward_ReferenceFormula(t *testing.T) {
 			// Let's verify basic sanity first
 			var maxAbs float64
 			for _, v := range goOutput {
-				if math.Abs(v) > maxAbs {
-					maxAbs = math.Abs(v)
+				if math.Abs(float64(v)) > maxAbs {
+					maxAbs = math.Abs(float64(v))
 				}
 			}
 
@@ -181,9 +200,9 @@ func TestMDCTForward_DirectFormula(t *testing.T) {
 	for _, N := range testSizes {
 		t.Run("N="+string(rune('0'+N/10)), func(t *testing.T) {
 			// Create test input (2N time samples)
-			input := make([]float64, 2*N)
+			input := make([]float32, 2*N)
 			for i := range input {
-				input[i] = float64((i*17+31)%32768-16384) / 32768.0
+				input[i] = float32((i*17+31)%32768-16384) / 32768.0
 			}
 
 			// Compute using reference formula
@@ -228,11 +247,11 @@ func TestMDCTForward_ShortFrameWithRectWindow(t *testing.T) {
 		t.Run("frameSize="+string(rune('0'+frameSize/100)), func(t *testing.T) {
 			// Total MDCT input = 2 * frameSize
 			N := 2 * frameSize
-			input := make([]float64, N)
+			input := make([]float32, N)
 
 			// Fill with test data
 			for i := range input {
-				input[i] = math.Sin(float64(i) * 0.1)
+				input[i] = float32(math.Sin(float64(i) * 0.1))
 			}
 
 			// Expected output using reference formula
@@ -268,11 +287,11 @@ func TestMDCTForward_CELTShortOverlap(t *testing.T) {
 
 			// Input: frameSize + overlap samples
 			inputLen := frameSize + overlap
-			input := make([]float64, inputLen)
+			input := make([]float32, inputLen)
 
 			// Fill with test data
 			for i := range input {
-				input[i] = math.Cos(float64(i) * 0.05)
+				input[i] = float32(math.Cos(float64(i) * 0.05))
 			}
 
 			// Compute using Go implementation
@@ -289,10 +308,10 @@ func TestMDCTForward_CELTShortOverlap(t *testing.T) {
 			// Verify output has reasonable values
 			var maxAbs, sumSq float64
 			for _, v := range output {
-				if math.Abs(v) > maxAbs {
-					maxAbs = math.Abs(v)
+				if math.Abs(float64(v)) > maxAbs {
+					maxAbs = math.Abs(float64(v))
 				}
-				sumSq += v * v
+				sumSq += float64(v * v)
 			}
 			rms := math.Sqrt(sumSq / float64(frameSize))
 
@@ -302,7 +321,7 @@ func TestMDCTForward_CELTShortOverlap(t *testing.T) {
 			if maxAbs < 0.001 {
 				t.Errorf("output max abs too small: %v", maxAbs)
 			}
-			if math.IsNaN(maxAbs) || math.IsInf(maxAbs, 0) {
+			if math.IsNaN(float64(maxAbs)) || math.IsInf(float64(maxAbs), 0) {
 				t.Errorf("output contains NaN or Inf")
 			}
 		})
@@ -322,14 +341,14 @@ func TestMDCT_RoundTrip(t *testing.T) {
 			numFrames := 3
 			signalLen := frameSize * numFrames
 
-			signal := make([]float64, signalLen+overlap)
+			signal := make([]float32, signalLen+overlap)
 			for i := range signal {
-				signal[i] = math.Sin(float64(i) * 2 * math.Pi / float64(frameSize))
+				signal[i] = float32(math.Sin(float64(i) * 2 * math.Pi / float64(frameSize)))
 			}
 
 			// Process each frame
-			reconstructed := make([]float64, signalLen)
-			prevOverlapBuf := make([]float64, overlap)
+			reconstructed := make([]float32, signalLen)
+			prevOverlapBuf := make([]float32, overlap)
 
 			for frame := 0; frame < numFrames; frame++ {
 				start := frame * frameSize
@@ -372,10 +391,10 @@ func TestMDCT_RoundTrip(t *testing.T) {
 			var maxDiff, sumSq float64
 			for i := startCompare; i < endCompare; i++ {
 				diff := signal[i] - reconstructed[i]
-				if math.Abs(diff) > maxDiff {
-					maxDiff = math.Abs(diff)
+				if math.Abs(float64(diff)) > maxDiff {
+					maxDiff = math.Abs(float64(diff))
 				}
-				sumSq += diff * diff
+				sumSq += float64(diff * diff)
 			}
 			rmsDiff := math.Sqrt(sumSq / float64(endCompare-startCompare))
 
@@ -396,7 +415,7 @@ func TestMDCTTrigTable(t *testing.T) {
 
 	for _, N := range testSizes {
 		t.Run("N="+string(rune('0'+N/100)), func(t *testing.T) {
-			goTrig := getMDCTTrig(N)
+			goTrig := getMDCTTrigF32(N)
 
 			if len(goTrig) != N/2 {
 				t.Fatalf("trig length=%d, want %d", len(goTrig), N/2)
@@ -406,7 +425,7 @@ func TestMDCTTrigTable(t *testing.T) {
 			var maxDiff float64
 			for i := 0; i < N/2; i++ {
 				expected := math.Cos(2.0 * math.Pi * (float64(i) + 0.125) / float64(N))
-				diff := math.Abs(goTrig[i] - expected)
+				diff := math.Abs(float64(goTrig[i]) - expected)
 				if diff > maxDiff {
 					maxDiff = diff
 				}
@@ -433,7 +452,7 @@ func TestMDCTForward_Scaling(t *testing.T) {
 			inputLen := frameSize + overlap
 
 			// Create impulse at center
-			input := make([]float64, inputLen)
+			input := make([]float32, inputLen)
 			input[inputLen/2] = 1.0
 
 			output := mdctForwardOverlap(input, overlap)
@@ -445,7 +464,7 @@ func TestMDCTForward_Scaling(t *testing.T) {
 			// Compute output energy
 			var energy float64
 			for _, v := range output {
-				energy += v * v
+				energy += float64(v * v)
 			}
 
 			t.Logf("frameSize=%d: impulse response energy=%.6f", frameSize, energy)
@@ -455,7 +474,7 @@ func TestMDCTForward_Scaling(t *testing.T) {
 			if energy < 1e-10 {
 				t.Errorf("output energy too small: %v", energy)
 			}
-			if math.IsNaN(energy) || math.IsInf(energy, 0) {
+			if math.IsNaN(float64(energy)) || math.IsInf(float64(energy), 0) {
 				t.Errorf("output energy is NaN or Inf")
 			}
 		})
@@ -476,10 +495,9 @@ func TestMDCTForward_LibopusShortFrame(t *testing.T) {
 			inputLen := frameSize + overlap
 
 			// Create test input similar to libopus test
-			input := make([]float64, inputLen)
+			input := make([]float32, inputLen)
 			for i := range input {
-				val := float64((12345*17+i*31)%32768 - 16384)
-				input[i] = val
+				input[i] = float32((12345*17+i*31)%32768 - 16384)
 			}
 
 			// Compute using Go implementation
@@ -504,10 +522,10 @@ func TestMDCTForward_LibopusShortFrame(t *testing.T) {
 
 			var maxAbs, sumSq float64
 			for _, v := range goOutput {
-				if math.Abs(v) > maxAbs {
-					maxAbs = math.Abs(v)
+				if math.Abs(float64(v)) > maxAbs {
+					maxAbs = math.Abs(float64(v))
 				}
-				sumSq += v * v
+				sumSq += float64(v * v)
 			}
 			rms := math.Sqrt(sumSq / float64(frameSize))
 
@@ -517,12 +535,12 @@ func TestMDCTForward_LibopusShortFrame(t *testing.T) {
 			if maxAbs < 1.0 {
 				t.Errorf("output max abs too small: %v", maxAbs)
 			}
-			if math.IsNaN(maxAbs) || math.IsInf(maxAbs, 0) {
+			if math.IsNaN(float64(maxAbs)) || math.IsInf(float64(maxAbs), 0) {
 				t.Errorf("output contains NaN or Inf")
 			}
 
 			// Verify MDCT->IMDCT round-trip
-			imdctOutput := imdctOverlapWithPrev(goOutput, make([]float64, overlap), overlap)
+			imdctOutput := imdctOverlapWithPrev(goOutput, make([]float32, overlap), overlap)
 			if imdctOutput == nil {
 				t.Fatalf("IMDCT returned nil")
 			}
@@ -541,7 +559,7 @@ func TestMDCTForward_LibopusShortFrame(t *testing.T) {
 				// for the middle non-windowed region
 				inputIdx := i
 				if inputIdx >= 0 && inputIdx < len(input) {
-					diff := math.Abs(imdctOutput[i] - input[inputIdx])
+					diff := math.Abs(float64(imdctOutput[i] - input[inputIdx]))
 					if diff > maxRoundTripErr {
 						maxRoundTripErr = diff
 					}
@@ -560,9 +578,9 @@ func BenchmarkMDCTForward(b *testing.B) {
 
 	for _, frameSize := range sizes {
 		b.Run("frameSize="+string(rune('0'+frameSize/100)), func(b *testing.B) {
-			input := make([]float64, frameSize+overlap)
+			input := make([]float32, frameSize+overlap)
 			for i := range input {
-				input[i] = math.Sin(float64(i) * 0.1)
+				input[i] = float32(math.Sin(float64(i) * 0.1))
 			}
 
 			b.ResetTimer()
@@ -579,9 +597,9 @@ func BenchmarkMDCTDirectFormula(b *testing.B) {
 
 	for _, N := range sizes {
 		b.Run("N="+string(rune('0'+N/10)), func(b *testing.B) {
-			input := make([]float64, 2*N)
+			input := make([]float32, 2*N)
 			for i := range input {
-				input[i] = math.Sin(float64(i) * 0.1)
+				input[i] = float32(math.Sin(float64(i) * 0.1))
 			}
 
 			b.ResetTimer()

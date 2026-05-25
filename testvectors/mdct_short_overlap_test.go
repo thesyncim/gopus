@@ -16,14 +16,14 @@ func TestMDCTShortOverlapRoundTrip(t *testing.T) {
 	// Create 3 frames of continuous signal
 	totalFrames := 3
 	totalSamples := totalFrames * N
-	signal := make([]float64, totalSamples)
+	signal := make([]float32, totalSamples)
 	for i := 0; i < totalSamples; i++ {
-		signal[i] = 0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10)
+		signal[i] = float32(0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10))
 	}
 
-	output := make([]float64, totalSamples)
-	history := make([]float64, overlap)
-	prevOverlap := make([]float64, overlap)
+	output := make([]float32, totalSamples)
+	history := make([]float32, overlap)
+	prevOverlap := make([]float32, overlap)
 
 	for frame := 0; frame < totalFrames; frame++ {
 		frameSamples := signal[frame*N : (frame+1)*N]
@@ -40,12 +40,14 @@ func TestMDCTShortOverlapRoundTrip(t *testing.T) {
 	frameStart := N
 	frameEnd := 2 * N
 	for i := frameStart; i < frameEnd; i++ {
-		diff := math.Abs(signal[i] - output[i])
+		sig := float64(signal[i])
+		out := float64(output[i])
+		diff := math.Abs(sig - out)
 		if diff > maxDiff {
 			maxDiff = diff
 		}
-		signalPower += signal[i] * signal[i]
-		noise := signal[i] - output[i]
+		signalPower += sig * sig
+		noise := sig - out
 		noisePower += noise * noise
 	}
 
@@ -57,15 +59,19 @@ func TestMDCTShortOverlapRoundTrip(t *testing.T) {
 	t.Log("\nSample comparison at middle of frame 1:")
 	midpoint := N + N/2
 	for i := midpoint - 5; i <= midpoint+5; i++ {
+		sig := float64(signal[i])
+		out := float64(output[i])
 		t.Logf("  [%d] signal=%.4f, output=%.4f, diff=%.6f",
-			i, signal[i], output[i], signal[i]-output[i])
+			i, sig, out, sig-out)
 	}
 
 	// Check edge behavior (overlap region)
 	t.Log("\nOverlap region at frame boundary:")
 	for i := N - 3; i <= N+3; i++ {
+		sig := float64(signal[i])
+		out := float64(output[i])
 		t.Logf("  [%d] signal=%.4f, output=%.4f, diff=%.6f",
-			i, signal[i], output[i], signal[i]-output[i])
+			i, sig, out, sig-out)
 	}
 
 	if snr < 40 {

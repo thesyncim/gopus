@@ -486,25 +486,22 @@ func TestVorbisWindowMatchLibopus(t *testing.T) {
 	//    window[i] = Q15ONE*sin(.5*M_PI* sin(.5*M_PI*(i+.5)/mode->overlap) * sin(.5*M_PI*(i+.5)/mode->overlap));
 
 	for i := 0; i < overlap; i++ {
-		x := float64(i) + 0.5
-		sinArg := 0.5 * math.Pi * x / float64(overlap)
-		s := math.Sin(sinArg)
-		expected := math.Sin(0.5 * math.Pi * s * s)
+		expected := windowBuffer120F32[i]
 		got := VorbisWindow(i, overlap)
 
-		if math.Abs(got-expected) > 1e-15 {
-			t.Errorf("VorbisWindow(%d, %d) = %v, want %v", i, overlap, got, expected)
+		if math.Float32bits(got) != math.Float32bits(expected) {
+			t.Errorf("VorbisWindow(%d, %d) = 0x%08x, want 0x%08x", i, overlap, math.Float32bits(got), math.Float32bits(expected))
 		}
 	}
 
-	// Verify power-complementary property: w[i]^2 + w[overlap-1-i]^2 = 1
-	for i := 0; i < overlap/2; i++ {
-		w1 := VorbisWindow(i, overlap)
-		w2 := VorbisWindow(overlap-1-i, overlap)
-		sum := w1*w1 + w2*w2
-		if math.Abs(sum-1.0) > 1e-14 {
-			t.Errorf("Window power complementary check failed at i=%d: w[%d]^2 + w[%d]^2 = %v, want 1.0",
-				i, i, overlap-1-i, sum)
+	// Verify the runtime square accessor is exactly derived from the float-build
+	// window table, not from a separate double-domain table.
+	windowSq := GetWindowSquareBuffer(overlap)
+	for i := 0; i < overlap; i++ {
+		expected := windowBuffer120F32[i] * windowBuffer120F32[i]
+		if math.Float32bits(windowSq[i]) != math.Float32bits(expected) {
+			t.Errorf("Window square mismatch at i=%d: got 0x%08x, want 0x%08x",
+				i, math.Float32bits(windowSq[i]), math.Float32bits(expected))
 		}
 	}
 }

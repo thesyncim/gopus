@@ -17,7 +17,7 @@ type prefilterResult struct {
 // runPrefilter applies the CELT prefilter (comb filter) and returns the
 // postfilter parameters to signal in the bitstream.
 // This mirrors libopus run_prefilter() in celt_encoder.c.
-func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, enabled bool, tfEstimate float64, nbAvailableBytes int, toneFreq, toneishness, maxPitchRatio float64) prefilterResult {
+func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, enabled bool, tfEstimate float32, nbAvailableBytes int, toneFreq, toneishness, maxPitchRatio float32) prefilterResult {
 	result := prefilterResult{on: false, pitch: combFilterMinPeriod, qg: 0, tapset: tapset, gain: 0}
 	channels := e.channels
 	if channels <= 0 || frameSize <= 0 || len(preemph) == 0 {
@@ -77,15 +77,16 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 
 	if enabled && toneishness > 0.99 {
 		freq := toneFreq
-		if freq >= math.Pi {
-			freq = math.Pi - freq
+		const pi32 = float32(3.14159265358979323846)
+		if freq >= pi32 {
+			freq = pi32 - freq
 		}
 		multiple := 1
-		for freq >= float64(multiple)*0.39 {
+		for freq >= float32(multiple)*0.39 {
 			multiple++
 		}
 		if freq > 0.006148 {
-			pitchIndex = int(math.Floor(0.5 + 2.0*math.Pi*float64(multiple)/freq))
+			pitchIndex = int(0.5 + 2*pi32*float32(multiple)/freq)
 			if pitchIndex > maxPeriod-2 {
 				pitchIndex = maxPeriod - 2
 			}
@@ -165,7 +166,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		if abs32(gain1-e.prefilterGain) < 0.1 {
 			gain1 = e.prefilterGain
 		}
-		qg = int(math.Floor(0.5+float64(gain1)*32.0/3.0)) - 1
+		qg = int(0.5+gain1*32.0/3.0) - 1
 		if qg < 0 {
 			qg = 0
 		}
@@ -196,7 +197,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 	if offset < 0 {
 		offset = 0
 	}
-	window := GetWindowBuffer(Overlap)
+	window := GetWindowBufferF32(Overlap)
 
 	var before [2]opusVal32
 	var after [2]opusVal32

@@ -2,14 +2,20 @@
 
 package celt
 
-//go:noescape
-func fma32(a, b, c float32) float32
+import "math"
 
-//go:noescape
-func mul32(a, b float32) float32
+func fma32(a, b, c float32) float32 {
+	return a*b + c
+}
 
-//go:noescape
-func add32(a, b float32) float32
+func mul32(a, b float32) float32 {
+	return math.Float32frombits(math.Float32bits(a * b))
+}
 
-//go:noescape
-func sub32(a, b float32) float32
+func add32(a, b float32) float32 {
+	return math.Float32frombits(math.Float32bits(a + b))
+}
+
+func sub32(a, b float32) float32 {
+	return math.Float32frombits(math.Float32bits(a - b))
+}

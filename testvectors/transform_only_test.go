@@ -15,14 +15,14 @@ func TestTransformOnlyRoundTrip(t *testing.T) {
 
 	totalFrames := 3
 	totalSamples := totalFrames * N
-	signal := make([]float64, totalSamples)
+	signal := make([]float32, totalSamples)
 	for i := 0; i < totalSamples; i++ {
-		signal[i] = 0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10)
+		signal[i] = float32(0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10))
 	}
 
-	output := make([]float64, totalSamples)
-	history := make([]float64, overlap)
-	prevOverlap := make([]float64, overlap)
+	output := make([]float32, totalSamples)
+	history := make([]float32, overlap)
+	prevOverlap := make([]float32, overlap)
 
 	for frame := 0; frame < totalFrames; frame++ {
 		frameSamples := signal[frame*N : (frame+1)*N]
@@ -38,16 +38,20 @@ func TestTransformOnlyRoundTrip(t *testing.T) {
 	var signalPower, noisePower float64
 	var sumXY, sumYY float64
 	for i := start; i < end; i++ {
-		sumXY += signal[i] * output[i]
-		sumYY += output[i] * output[i]
+		sig := float64(signal[i])
+		out := float64(output[i])
+		sumXY += sig * out
+		sumYY += out * out
 	}
 	scale := 1.0
 	if sumYY > 0 {
 		scale = sumXY / sumYY
 	}
 	for i := start; i < end; i++ {
-		signalPower += signal[i] * signal[i]
-		diff := signal[i] - output[i]*scale
+		sig := float64(signal[i])
+		out := float64(output[i])
+		signalPower += sig * sig
+		diff := sig - out*scale
 		noisePower += diff * diff
 	}
 	snr := 10 * math.Log10(signalPower/(noisePower+1e-10))
@@ -63,9 +67,9 @@ func TestCELTEncoderBandEnergies(t *testing.T) {
 	N2 := N * 2
 
 	// Create test signal
-	signal := make([]float64, N2)
+	signal := make([]float32, N2)
 	for i := 0; i < N2; i++ {
-		signal[i] = 0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10)
+		signal[i] = float32(0.5 * math.Sin(2*math.Pi*float64(i)/float64(N)*10))
 	}
 	t.Logf("Signal max: %.4f", maxAbsSlice(signal))
 
@@ -73,12 +77,12 @@ func TestCELTEncoderBandEnergies(t *testing.T) {
 	enc := celt.NewEncoder(1)
 
 	// Apply pre-emphasis (like encoder does)
-	preemph := enc.ApplyPreemphasis(float32Slice(signal))
-	t.Logf("Preemph max: %.4f", maxAbsSlice(float64Slice(preemph)))
+	preemph := enc.ApplyPreemphasis(signal)
+	t.Logf("Preemph max: %.4f", maxAbsSlice(preemph))
 
 	// MDCT with zero history overlap
-	history := make([]float64, celt.Overlap)
-	coeffs := celt.ComputeMDCTWithHistory(float64Slice(preemph), history, 1)
+	history := make([]float32, celt.Overlap)
+	coeffs := celt.ComputeMDCTWithHistory(preemph, history, 1)
 	t.Logf("MDCT coeffs max: %.4f", maxAbsSlice(coeffs))
 
 	// Compute band energies
@@ -88,7 +92,7 @@ func TestCELTEncoderBandEnergies(t *testing.T) {
 		energies[0], energies[1], energies[2], energies[3], energies[4])
 
 	// Normalize bands
-	shapes := enc.NormalizeBands(float64sToCeltNorms(coeffs), energies, mode.EffBands, N)
+	shapes := enc.NormalizeBands(coeffs, energies, mode.EffBands, N)
 	t.Logf("Normalized shapes: %d bands", len(shapes))
 
 	// Check if shapes are unit vectors
@@ -110,7 +114,7 @@ func TestMDCTScaling(t *testing.T) {
 	N2 := N * 2
 
 	// Create unit impulse at center
-	signal := make([]float64, N2)
+	signal := make([]float32, N2)
 	signal[N] = 1.0
 
 	// Forward MDCT
@@ -120,7 +124,7 @@ func TestMDCTScaling(t *testing.T) {
 	// Sum of absolute coefficients
 	var sumAbs float64
 	for _, c := range coeffs {
-		sumAbs += math.Abs(c)
+		sumAbs += math.Abs(float64(c))
 	}
 	t.Logf("Sum of |coeffs| = %.4f", sumAbs)
 
@@ -132,7 +136,7 @@ func TestMDCTScaling(t *testing.T) {
 	t.Logf("Reconstruction at center [%d]: %.4f (should be ~1.0)", N, imdctOut[N])
 
 	// Now test with flat DC signal
-	dc := make([]float64, N2)
+	dc := make([]float32, N2)
 	for i := range dc {
 		dc[i] = 0.5
 	}

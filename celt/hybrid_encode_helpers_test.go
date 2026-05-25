@@ -34,7 +34,7 @@ func TestApplyHybridPrefilterMatchesDisabledRunPrefilter(t *testing.T) {
 
 	prevPeriod := want.prefilterPeriod
 	prevGain := want.prefilterGain
-	pfResult := want.runPrefilter(wantPreemph, frameSize, want.TapsetDecision(), false, 0.91, 14, 0.22, 0.18, float64(want.analysisMaxPitchRatio))
+	pfResult := want.runPrefilter(wantPreemph, frameSize, want.TapsetDecision(), false, 0.91, 14, 0.22, 0.18, want.analysisMaxPitchRatio)
 	want.lastPitchChange = false
 	if prevPeriod > 0 && (pfResult.gain > 0.4 || prevGain > 0.4) {
 		upper := int(1.26 * float64(prevPeriod))
@@ -75,9 +75,9 @@ func TestNormalizeBandsToArrayMonoWithBandEMatchesSeparatePasses(t *testing.T) {
 	enc := NewEncoder(1)
 	frameSize := 480
 	nbBands := 18
-	mdct := make([]float64, frameSize)
+	mdct := make([]float32, frameSize)
 	for i := range mdct {
-		mdct[i] = float64((i%29)-14) / 17.0
+		mdct[i] = float32((i%29)-14) / 17.0
 	}
 
 	norm := make([]celtNorm, frameSize)
@@ -101,11 +101,11 @@ func TestNormalizeBandsToArrayStereoWithBandEMatchesSeparatePasses(t *testing.T)
 	enc := NewEncoder(2)
 	frameSize := 480
 	nbBands := 18
-	left := make([]float64, frameSize)
-	right := make([]float64, frameSize)
+	left := make([]float32, frameSize)
+	right := make([]float32, frameSize)
 	for i := 0; i < frameSize; i++ {
-		left[i] = float64((i%31)-15) / 19.0
-		right[i] = float64((i%27)-13) / 23.0
+		left[i] = float32((i%31)-15) / 19.0
+		right[i] = float32((i%27)-13) / 23.0
 	}
 
 	normL := make([]celtNorm, frameSize)

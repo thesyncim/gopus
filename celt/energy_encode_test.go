@@ -17,7 +17,7 @@ func TestComputeBandEnergies(t *testing.T) {
 		nbBands := GetModeConfig(frameSize).EffBands
 
 		// Zero coefficients
-		mdctCoeffs := make([]float64, frameSize)
+		mdctCoeffs := make([]float32, frameSize)
 
 		energies := enc.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
 
@@ -41,7 +41,7 @@ func TestComputeBandEnergies(t *testing.T) {
 		nbBands := GetModeConfig(frameSize).EffBands
 
 		// Create sine wave in a specific band
-		mdctCoeffs := make([]float64, frameSize)
+		mdctCoeffs := make([]float32, frameSize)
 
 		// Put energy in band 10 (mid-frequency)
 		targetBand := 10
@@ -75,9 +75,9 @@ func TestComputeBandEnergies(t *testing.T) {
 			nbBands := GetModeConfig(frameSize).EffBands
 
 			// Random coefficients
-			mdctCoeffs := make([]float64, frameSize)
+			mdctCoeffs := make([]float32, frameSize)
 			for i := range mdctCoeffs {
-				mdctCoeffs[i] = rand.Float64()*2 - 1
+				mdctCoeffs[i] = float32(rand.Float64()*2 - 1)
 			}
 
 			energies := enc.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
@@ -101,10 +101,10 @@ func TestComputeBandEnergies(t *testing.T) {
 		nbBands := GetModeConfig(frameSize).EffBands
 
 		// Stereo coefficients: L then R
-		mdctCoeffs := make([]float64, frameSize*2)
+		mdctCoeffs := make([]float32, frameSize*2)
 		for i := 0; i < frameSize; i++ {
-			mdctCoeffs[i] = float64(i) / float64(frameSize)               // L ramp up
-			mdctCoeffs[frameSize+i] = 1.0 - float64(i)/float64(frameSize) // R ramp down
+			mdctCoeffs[i] = float32(i) / float32(frameSize)               // L ramp up
+			mdctCoeffs[frameSize+i] = 1.0 - float32(i)/float32(frameSize) // R ramp down
 		}
 
 		energies := enc.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
@@ -621,11 +621,11 @@ func TestComputeBandEnergiesIntegration(t *testing.T) {
 	lm := GetModeConfig(frameSize).LM
 
 	// Create synthetic audio-like MDCT coefficients
-	mdctCoeffs := make([]float64, frameSize)
+	mdctCoeffs := make([]float32, frameSize)
 	for i := range mdctCoeffs {
 		// Low frequencies have more energy (typical of audio)
 		freq := float64(i) / float64(frameSize)
-		mdctCoeffs[i] = (1.0 - freq) * rand.Float64() * 0.5
+		mdctCoeffs[i] = float32((1.0 - freq) * rand.Float64() * 0.5)
 	}
 
 	// Compute energies

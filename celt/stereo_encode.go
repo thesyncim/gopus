@@ -3,8 +3,6 @@
 
 package celt
 
-import "math"
-
 // IntensityDecay is the decay parameter for intensity stereo Laplace encoding.
 // Matches the decoder's expectation for stereo param decoding.
 // Reference: libopus celt/celt_decoder.c, stereo parameter decoding
@@ -132,7 +130,7 @@ func (e *Encoder) EncodeStereoParamsWithIntensity(nbBands, intensityBand int, du
 // Returns: mid and side channel arrays
 //
 // Reference: RFC 6716 Section 4.3.4
-func ConvertToMidSide(left, right []float64) (mid, side []float64) {
+func ConvertToMidSide(left, right []celtNorm) (mid, side []celtNorm) {
 	n := len(left)
 	if n == 0 {
 		return nil, nil
@@ -146,15 +144,15 @@ func ConvertToMidSide(left, right []float64) (mid, side []float64) {
 		n = len(left)
 	}
 
-	mid = make([]float64, n)
-	side = make([]float64, n)
+	mid = make([]celtNorm, n)
+	side = make([]celtNorm, n)
 
 	// sqrt(2) for energy preservation
-	invSqrt2 := 1.0 / math.Sqrt(2.0)
+	const invSqrt2 = float32(0.7071067811865476)
 
 	for i := 0; i < n; i++ {
-		mid[i] = (left[i] + right[i]) * invSqrt2
-		side[i] = (left[i] - right[i]) * invSqrt2
+		mid[i] = celtNorm((float32(left[i]) + float32(right[i])) * invSqrt2)
+		side[i] = celtNorm((float32(left[i]) - float32(right[i])) * invSqrt2)
 	}
 
 	return mid, side
@@ -163,19 +161,19 @@ func ConvertToMidSide(left, right []float64) (mid, side []float64) {
 // ConvertToMidSideInPlace converts L/R to M/S in-place.
 // The left array becomes mid, right array becomes side.
 // More efficient when copies are not needed.
-func ConvertToMidSideInPlace(left, right []float64) {
+func ConvertToMidSideInPlace(left, right []celtNorm) {
 	n := len(left)
 	if len(right) < n {
 		n = len(right)
 	}
 
-	invSqrt2 := 1.0 / math.Sqrt(2.0)
+	const invSqrt2 = float32(0.7071067811865476)
 
 	for i := 0; i < n; i++ {
-		l := left[i]
-		r := right[i]
-		left[i] = (l + r) * invSqrt2  // mid
-		right[i] = (l - r) * invSqrt2 // side
+		l := float32(left[i])
+		r := float32(right[i])
+		left[i] = celtNorm((l + r) * invSqrt2)  // mid
+		right[i] = celtNorm((l - r) * invSqrt2) // side
 	}
 }
 
@@ -189,7 +187,7 @@ func ConvertToMidSideInPlace(left, right []float64) {
 //
 // Combined with ConvertToMidSide, this forms an identity transform:
 // L,R -> M,S -> L,R (with floating point precision)
-func ConvertMidSideToLR(mid, side []float64) (left, right []float64) {
+func ConvertMidSideToLR(mid, side []celtNorm) (left, right []celtNorm) {
 	n := len(mid)
 	if n == 0 {
 		return nil, nil
@@ -199,11 +197,11 @@ func ConvertMidSideToLR(mid, side []float64) (left, right []float64) {
 		n = len(side)
 	}
 
-	left = make([]float64, n)
-	right = make([]float64, n)
+	left = make([]celtNorm, n)
+	right = make([]celtNorm, n)
 
 	// Using sqrt(2)/2 = 1/sqrt(2) for reconstruction
-	invSqrt2 := 1.0 / math.Sqrt(2.0)
+	const invSqrt2 = float32(0.7071067811865476)
 
 	for i := 0; i < n; i++ {
 		// Inverse of the forward transform
@@ -216,8 +214,8 @@ func ConvertMidSideToLR(mid, side []float64) (left, right []float64) {
 		// then L+R = M*sqrt(2), L-R = S*sqrt(2)
 		// 2L = (M+S)*sqrt(2), L = (M+S)*sqrt(2)/2 = (M+S)/sqrt(2)
 		// Same for R: R = (M-S)/sqrt(2)
-		left[i] = (mid[i] + side[i]) * invSqrt2
-		right[i] = (mid[i] - side[i]) * invSqrt2
+		left[i] = celtNorm((float32(mid[i]) + float32(side[i])) * invSqrt2)
+		right[i] = celtNorm((float32(mid[i]) - float32(side[i])) * invSqrt2)
 	}
 
 	return left, right
@@ -226,14 +224,14 @@ func ConvertMidSideToLR(mid, side []float64) (left, right []float64) {
 // DeinterleaveStereo separates interleaved stereo samples into L and R arrays.
 // Input: [L0, R0, L1, R1, ...]
 // Output: [L0, L1, ...], [R0, R1, ...]
-func DeinterleaveStereo(interleaved []float64) (left, right []float64) {
+func DeinterleaveStereo(interleaved []celtNorm) (left, right []celtNorm) {
 	if len(interleaved) < 2 {
 		return nil, nil
 	}
 
 	n := len(interleaved) / 2
-	left = make([]float64, n)
-	right = make([]float64, n)
+	left = make([]celtNorm, n)
+	right = make([]celtNorm, n)
 
 	for i := 0; i < n; i++ {
 		left[i] = interleaved[i*2]
@@ -245,27 +243,15 @@ func DeinterleaveStereo(interleaved []float64) (left, right []float64) {
 
 // deinterleaveStereoScratch separates interleaved stereo using scratch buffers.
 // This avoids heap allocations in the hot path.
-func deinterleaveStereoScratch(interleaved []float64, leftBuf, rightBuf *[]float64) (left, right []float64) {
+func deinterleaveStereoScratch(interleaved []celtNorm, leftBuf, rightBuf *[]celtNorm) (left, right []celtNorm) {
 	if len(interleaved) < 2 {
 		return nil, nil
 	}
 
 	n := len(interleaved) / 2
-
-	// Ensure left buffer is large enough
-	if cap(*leftBuf) < n {
-		*leftBuf = make([]float64, n)
-	}
-	left = (*leftBuf)[:n]
-
-	// Ensure right buffer is large enough
-	if cap(*rightBuf) < n {
-		*rightBuf = make([]float64, n)
-	}
-	right = (*rightBuf)[:n]
-
+	left = ensureNormSlice(leftBuf, n)
+	right = ensureNormSlice(rightBuf, n)
 	DeinterleaveStereoInto(interleaved, left, right)
-
 	return left, right
 }
 
@@ -285,7 +271,7 @@ func deinterleaveStereoScratchF32(interleaved []float32, leftBuf, rightBuf *[]fl
 
 // DeinterleaveStereoInto separates interleaved stereo samples into pre-allocated L and R slices.
 // left and right must each have capacity >= len(interleaved)/2.
-func DeinterleaveStereoInto(interleaved, left, right []float64) {
+func DeinterleaveStereoInto(interleaved, left, right []celtNorm) {
 	n := len(interleaved) / 2
 	if n <= 0 {
 		return
@@ -294,7 +280,10 @@ func DeinterleaveStereoInto(interleaved, left, right []float64) {
 	_ = interleaved[2*n-1]
 	_ = left[n-1]
 	_ = right[n-1]
-	deinterleaveStereoIntoImpl(interleaved, left, right, n)
+	for i := 0; i < n; i++ {
+		left[i] = interleaved[i*2]
+		right[i] = interleaved[i*2+1]
+	}
 }
 
 // DeinterleaveStereoIntoF32 separates interleaved float-build stereo samples
@@ -315,7 +304,7 @@ func DeinterleaveStereoIntoF32(interleaved, left, right []float32) {
 
 // InterleaveStereoInto combines separate L and R arrays into a pre-allocated interleaved slice.
 // interleaved must have capacity >= 2*min(len(left), len(right)).
-func InterleaveStereoInto(left, right, interleaved []float64) {
+func InterleaveStereoInto(left, right, interleaved []celtNorm) {
 	n := len(left)
 	if len(right) < n {
 		n = len(right)
@@ -326,13 +315,16 @@ func InterleaveStereoInto(left, right, interleaved []float64) {
 	_ = left[n-1]
 	_ = right[n-1]
 	_ = interleaved[2*n-1]
-	interleaveStereoIntoImpl(left, right, interleaved, n)
+	for i := 0; i < n; i++ {
+		interleaved[2*i] = left[i]
+		interleaved[2*i+1] = right[i]
+	}
 }
 
 // InterleaveStereo combines separate L and R arrays into interleaved format.
 // Input: [L0, L1, ...], [R0, R1, ...]
 // Output: [L0, R0, L1, R1, ...]
-func InterleaveStereo(left, right []float64) []float64 {
+func InterleaveStereo(left, right []celtNorm) []celtNorm {
 	n := len(left)
 	if len(right) < n {
 		n = len(right)
@@ -341,7 +333,7 @@ func InterleaveStereo(left, right []float64) []float64 {
 		return nil
 	}
 
-	interleaved := make([]float64, n*2)
+	interleaved := make([]celtNorm, n*2)
 	InterleaveStereoInto(left[:n], right[:n], interleaved)
 
 	return interleaved
@@ -390,7 +382,7 @@ func InterleaveStereoIntoF32(left, right, interleaved []float32) {
 // theta = 0: mono (all energy in mid)
 // theta = pi/4: balanced stereo
 // theta = pi/2: pure side (opposite channels)
-func ComputeStereoAngle(energyL, energyR float64) float64 {
+func ComputeStereoAngle(energyL, energyR celtEner) float32 {
 	if energyL <= 0 && energyR <= 0 {
 		return 0 // Silent
 	}
@@ -409,9 +401,13 @@ func ComputeStereoAngle(energyL, energyR float64) float64 {
 
 	// Stereo correlation: high when energies are similar
 	// Low when very different (wide stereo or hard-panned)
-	balance := math.Abs(energyL-energyR) / totalEnergy
+	diff := energyL - energyR
+	if diff < 0 {
+		diff = -diff
+	}
+	balance := float32(diff / totalEnergy)
 
 	// Map to angle: balance=0 -> theta=pi/4, balance=1 -> theta=0 or pi/2
 	// For encoding purposes, we use mid-side where theta controls M/S balance
-	return (math.Pi / 4) * (1 - balance)
+	return (float32(3.141592653589793) / 4) * (1 - balance)
 }

@@ -42,7 +42,7 @@ func TestUpdateStereoDREDNeuralHistoryMirrorsPreservedPrefix(t *testing.T) {
 		hist[i] = celtSig(10 + i)
 		hist[history+i] = celtSig(20 + i)
 	}
-	samples := []float64{
+	samples := []float32{
 		100, 200,
 		101, 201,
 	}

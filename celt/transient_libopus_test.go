@@ -159,18 +159,18 @@ func TestTransientCoefficientsInterleaving(t *testing.T) {
 	shortSize := frameSize / shortBlocks // 120
 
 	// Create test coefficients in the interleaved format libopus expects
-	coeffs := make([]float64, frameSize)
+	coeffs := make([]float32, frameSize)
 	for b := 0; b < shortBlocks; b++ {
 		for i := 0; i < shortSize; i++ {
 			// Interleaved: coef[b + i*B]
 			idx := b + i*shortBlocks
-			coeffs[idx] = float64(b*1000 + i) // Block b, bin i
+			coeffs[idx] = float32(b*1000 + i) // Block b, bin i
 		}
 	}
 
 	// Extract coefficients for each block (as the Go implementation should do)
 	for b := 0; b < shortBlocks; b++ {
-		shortCoeffs := make([]float64, shortSize)
+		shortCoeffs := make([]float32, shortSize)
 		for i := 0; i < shortSize; i++ {
 			idx := b + i*shortBlocks
 			shortCoeffs[i] = coeffs[idx]
@@ -178,7 +178,7 @@ func TestTransientCoefficientsInterleaving(t *testing.T) {
 
 		// Verify extraction is correct
 		for i := 0; i < shortSize; i++ {
-			expected := float64(b*1000 + i)
+			expected := float32(b*1000 + i)
 			if shortCoeffs[i] != expected {
 				t.Errorf("Block %d, bin %d: got %f, want %f", b, i, shortCoeffs[i], expected)
 			}
@@ -317,12 +317,12 @@ func TestTransientSynthesisShortBlocks(t *testing.T) {
 	overlap := 120
 
 	// Create test coefficients (in interleaved format)
-	coeffs := make([]float64, frameSize)
+	coeffs := make([]float32, frameSize)
 	for b := 0; b < shortBlocks; b++ {
 		for i := 0; i < shortSize; i++ {
 			idx := b + i*shortBlocks
 			// Create a simple signal: DC offset + small variation
-			coeffs[idx] = 0.01 * (1 + 0.1*float64(i)/float64(shortSize))
+			coeffs[idx] = float32(0.01 * (1 + 0.1*float64(i)/float64(shortSize)))
 		}
 	}
 
@@ -337,8 +337,9 @@ func TestTransientSynthesisShortBlocks(t *testing.T) {
 	// Verify output is non-zero (synthesis worked)
 	var maxAbs float64
 	for _, v := range output {
-		if math.Abs(v) > maxAbs {
-			maxAbs = math.Abs(v)
+		abs := math.Abs(float64(v))
+		if abs > maxAbs {
+			maxAbs = abs
 		}
 	}
 	if maxAbs == 0 {

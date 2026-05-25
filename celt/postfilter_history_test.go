@@ -41,6 +41,26 @@ func requireFloat64BitsEqual(t *testing.T, got, want []float64) {
 	}
 }
 
+func requireFloat32BitsEqual(t *testing.T, got, want []float32) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("length mismatch: got %d want %d", len(got), len(want))
+	}
+	for i := range got {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
+			t.Fatalf("mismatch at %d: got=0x%x want=0x%x", i, math.Float32bits(got[i]), math.Float32bits(want[i]))
+		}
+	}
+}
+
+func float64sToFloat32s(in []float64) []float32 {
+	out := make([]float32, len(in))
+	for i := range in {
+		out[i] = float32(in[i])
+	}
+	return out
+}
+
 func requireSigBitsEqual(t *testing.T, got, want []celtSig) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -92,11 +112,11 @@ func TestStereoHistoryHelpersMatchLegacy(t *testing.T) {
 				copy(legacy.plcDecodeMem, current.plcDecodeMem)
 
 				if history == combFilterHistory {
-					current.updatePostfilterHistory(samples, frameSize, history)
+					current.updatePostfilterHistory(float64sToFloat32s(samples), frameSize, history)
 					updateStereoHistoryLegacy(legacy.postfilterMem, samples, frameSize, history)
 					requireSigBitsEqual(t, current.postfilterMem, legacy.postfilterMem)
 				} else {
-					current.updatePLCDecodeHistory(samples, frameSize, history)
+					current.updatePLCDecodeHistory(float64sToFloat32s(samples), frameSize, history)
 					updateStereoHistoryLegacy(legacy.plcDecodeMem, samples, frameSize, history)
 					current.materializePLCDecodeHistory()
 					requireSigBitsEqual(t, current.plcDecodeMem, legacy.plcDecodeMem)
@@ -117,7 +137,10 @@ func TestApplyPostfilterStereoPlanarMatchesInterleaved(t *testing.T) {
 		right[i] = math.Sin(2*math.Pi*660*float64(i)/48000) * 0.4
 	}
 	interleaved := make([]float64, frameSize*2)
-	InterleaveStereoInto(left, right, interleaved)
+	for i := 0; i < frameSize; i++ {
+		interleaved[2*i] = left[i]
+		interleaved[2*i+1] = right[i]
+	}
 
 	current := NewDecoder(2)
 	legacy := NewDecoder(2)
@@ -125,8 +148,6 @@ func TestApplyPostfilterStereoPlanarMatchesInterleaved(t *testing.T) {
 	legacy.postfilterMem = make([]celtSig, combFilterHistory*2)
 	current.plcDecodeMem = make([]celtSig, plcDecodeBufferSize*2)
 	legacy.plcDecodeMem = make([]celtSig, plcDecodeBufferSize*2)
-	current.postfilterScratch = make([]float64, combFilterHistory+frameSize)
-	legacy.postfilterScratch = make([]float64, combFilterHistory+frameSize)
 	for i := range current.postfilterMem {
 		current.postfilterMem[i] = celtSig(float64((i%23)-11) * 0.125)
 	}
@@ -149,20 +170,23 @@ func TestApplyPostfilterStereoPlanarMatchesInterleaved(t *testing.T) {
 	legacy.postfilterTapsetOld = current.postfilterTapsetOld
 	legacy.postfilterTapset = current.postfilterTapset
 
-	gotL := append([]float64(nil), left...)
-	gotR := append([]float64(nil), right...)
-	want := append([]float64(nil), interleaved...)
+	gotL := float64sToFloat32s(left)
+	gotR := float64sToFloat32s(right)
+	want := float64sToFloat32s(interleaved)
 
-	current.applyPostfilterStereoPlanar(gotL, gotR, frameSize, lm, 48, 0.31, 0)
-	legacy.applyPostfilter(want, frameSize, lm, 48, 0.31, 0)
+	current.applyPostfilterStereoPlanarFromFloat32(gotL, gotR, frameSize, lm, 48, 0.31, 0)
+	legacy.applyPostfilterFloat32(want, frameSize, lm, 48, 0.31, 0)
 
-	got := make([]float64, frameSize*2)
-	InterleaveStereoInto(gotL, gotR, got)
+	got := make([]float32, frameSize*2)
+	for i := 0; i < frameSize; i++ {
+		got[2*i] = gotL[i]
+		got[2*i+1] = gotR[i]
+	}
 	current.materializePLCDecodeHistory()
 	legacy.materializePLCDecodeHistory()
 	current.materializePostfilterHistoryFromPLC()
 	legacy.materializePostfilterHistoryFromPLC()
-	requireFloat64BitsEqual(t, got, want)
+	requireFloat32BitsEqual(t, got, want)
 	requireSigBitsEqual(t, current.postfilterMem, legacy.postfilterMem)
 	requireSigBitsEqual(t, current.plcDecodeMem, legacy.plcDecodeMem)
 
@@ -178,7 +202,7 @@ func TestApplyPostfilterStereoPlanarMatchesInterleaved(t *testing.T) {
 
 func BenchmarkUpdatePLCDecodeHistoryStereoCurrent(b *testing.B) {
 	benchmarkUpdateStereoHistory(b, plcDecodeBufferSize, func(d *Decoder, samples []float64, frameSize, history int) {
-		d.updatePLCDecodeHistory(samples, frameSize, history)
+		d.updatePLCDecodeHistory(float64sToFloat32s(samples), frameSize, history)
 	})
 }
 
@@ -190,7 +214,7 @@ func BenchmarkUpdatePLCDecodeHistoryStereoLegacy(b *testing.B) {
 
 func BenchmarkUpdatePostfilterHistoryStereoCurrent(b *testing.B) {
 	benchmarkUpdateStereoHistory(b, combFilterHistory, func(d *Decoder, samples []float64, frameSize, history int) {
-		d.updatePostfilterHistory(samples, frameSize, history)
+		d.updatePostfilterHistory(float64sToFloat32s(samples), frameSize, history)
 	})
 }
 

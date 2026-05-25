@@ -9,7 +9,7 @@ import (
 // TestIMDCT_OutputLength verifies IMDCT produces correct output length.
 func TestIMDCT_OutputLength(t *testing.T) {
 	for _, n := range []int{120, 240, 480, 960} {
-		spectrum := make([]float64, n)
+		spectrum := make([]float32, n)
 		out := IMDCT(spectrum)
 		if len(out) != 2*n {
 			t.Errorf("IMDCT(%d) output length = %d, want %d", n, len(out), 2*n)
@@ -20,7 +20,7 @@ func TestIMDCT_OutputLength(t *testing.T) {
 // TestIMDCT_SmallSizes verifies IMDCT handles small sizes.
 func TestIMDCT_SmallSizes(t *testing.T) {
 	for _, n := range []int{1, 2, 4, 8, 16} {
-		spectrum := make([]float64, n)
+		spectrum := make([]float32, n)
 		spectrum[0] = 1.0
 		out := IMDCT(spectrum)
 		if len(out) != 2*n {
@@ -32,7 +32,7 @@ func TestIMDCT_SmallSizes(t *testing.T) {
 // TestIMDCT_DC tests IMDCT with DC component only.
 func TestIMDCT_DC(t *testing.T) {
 	n := 64
-	spectrum := make([]float64, n)
+	spectrum := make([]float32, n)
 	spectrum[0] = 1.0 // DC component
 
 	out := IMDCT(spectrum)
@@ -41,8 +41,8 @@ func TestIMDCT_DC(t *testing.T) {
 	// Check that output is not all zeros
 	var maxAbs float64
 	for _, x := range out {
-		if math.Abs(x) > maxAbs {
-			maxAbs = math.Abs(x)
+		if math.Abs(float64(x)) > maxAbs {
+			maxAbs = math.Abs(float64(x))
 		}
 	}
 
@@ -57,7 +57,7 @@ func TestIMDCT_DC(t *testing.T) {
 func TestIMDCT_KnownValues(t *testing.T) {
 	// Test that IMDCT produces correct output for various sizes
 	for _, n := range []int{16, 32, 64, 128} {
-		spectrum := make([]float64, n)
+		spectrum := make([]float32, n)
 		spectrum[0] = 1.0
 
 		result := IMDCT(spectrum)
@@ -70,8 +70,8 @@ func TestIMDCT_KnownValues(t *testing.T) {
 		// Check output is not all zeros
 		var maxAbs float64
 		for _, x := range result {
-			if math.Abs(x) > maxAbs {
-				maxAbs = math.Abs(x)
+			if math.Abs(float64(x)) > maxAbs {
+				maxAbs = math.Abs(float64(x))
 			}
 		}
 		if maxAbs < 1e-10 {
@@ -89,15 +89,15 @@ func TestIMDCTEnergyConservation(t *testing.T) {
 	for _, n := range sizes {
 		t.Run(fmt.Sprintf("N=%d", n), func(t *testing.T) {
 			// Create deterministic test spectrum with varying amplitudes
-			spectrum := make([]float64, n)
+			spectrum := make([]float32, n)
 			for i := range spectrum {
-				spectrum[i] = math.Sin(float64(i) * 0.1)
+				spectrum[i] = float32(math.Sin(float64(i) * 0.1))
 			}
 
 			// Input energy (frequency domain)
 			inputEnergy := 0.0
 			for _, x := range spectrum {
-				inputEnergy += x * x
+				inputEnergy += float64(x * x)
 			}
 
 			output := IMDCT(spectrum)
@@ -105,7 +105,7 @@ func TestIMDCTEnergyConservation(t *testing.T) {
 			// Output energy (time domain)
 			outputEnergy := 0.0
 			for _, x := range output {
-				outputEnergy += x * x
+				outputEnergy += float64(x * x)
 			}
 
 			// The compatibility IMDCT surface now always uses the direct
@@ -130,7 +130,7 @@ func TestIMDCTDCComponent(t *testing.T) {
 
 	for _, n := range sizes {
 		t.Run(fmt.Sprintf("N=%d", n), func(t *testing.T) {
-			spectrum := make([]float64, n)
+			spectrum := make([]float32, n)
 			spectrum[0] = 1.0
 
 			output := IMDCT(spectrum)
@@ -138,7 +138,7 @@ func TestIMDCTDCComponent(t *testing.T) {
 			// DC component should produce non-zero output
 			hasNonZero := false
 			for _, x := range output {
-				if math.Abs(x) > 1e-10 {
+				if math.Abs(float64(x)) > 1e-10 {
 					hasNonZero = true
 					break
 				}
@@ -157,9 +157,9 @@ func TestIMDCTDirectOutputLength(t *testing.T) {
 	// Test with power-of-2 size
 	n := 256
 
-	spectrum := make([]float64, n)
+	spectrum := make([]float32, n)
 	for i := range spectrum {
-		spectrum[i] = math.Sin(float64(i) * 0.1)
+		spectrum[i] = float32(math.Sin(float64(i) * 0.1))
 	}
 
 	directOut := IMDCTDirect(spectrum)
@@ -171,7 +171,7 @@ func TestIMDCTDirectOutputLength(t *testing.T) {
 	// Verify output has non-zero values
 	hasNonZero := false
 	for _, x := range directOut {
-		if math.Abs(x) > 1e-10 {
+		if math.Abs(float64(x)) > 1e-10 {
 			hasNonZero = true
 			break
 		}
@@ -188,9 +188,9 @@ func TestIMDCTDirectCELTSizes(t *testing.T) {
 
 	for _, n := range sizes {
 		t.Run(fmt.Sprintf("N=%d", n), func(t *testing.T) {
-			spectrum := make([]float64, n)
+			spectrum := make([]float32, n)
 			for i := range spectrum {
-				spectrum[i] = math.Cos(float64(i) * 0.05)
+				spectrum[i] = float32(math.Cos(float64(i) * 0.05))
 			}
 
 			output := IMDCTDirect(spectrum)
@@ -203,7 +203,7 @@ func TestIMDCTDirectCELTSizes(t *testing.T) {
 			// Verify output has expected properties (not all zeros)
 			hasNonZero := false
 			for _, x := range output {
-				if math.Abs(x) > 1e-10 {
+				if math.Abs(float64(x)) > 1e-10 {
 					hasNonZero = true
 					break
 				}
@@ -218,7 +218,7 @@ func TestIMDCTDirectCELTSizes(t *testing.T) {
 // TestIMDCTShort_Transients tests short block IMDCT for transient frames.
 func TestIMDCTShort_Transients(t *testing.T) {
 	for _, shortBlocks := range []int{2, 4, 8} {
-		coeffs := make([]float64, 120*shortBlocks)
+		coeffs := make([]float32, 120*shortBlocks)
 		// Fill with test pattern (impulse at start of each block)
 		for b := 0; b < shortBlocks; b++ {
 			coeffs[b*120] = 1.0
@@ -236,8 +236,8 @@ func TestIMDCTShort_Transients(t *testing.T) {
 		// Verify output is not all zeros
 		var maxAbs float64
 		for _, x := range out {
-			if math.Abs(x) > maxAbs {
-				maxAbs = math.Abs(x)
+			if math.Abs(float64(x)) > maxAbs {
+				maxAbs = math.Abs(float64(x))
 			}
 		}
 		if maxAbs < 0.001 {
@@ -249,7 +249,7 @@ func TestIMDCTShort_Transients(t *testing.T) {
 // TestIMDCTShort_SingleBlock tests that single block is same as regular IMDCT.
 func TestIMDCTShort_SingleBlock(t *testing.T) {
 	n := 120
-	coeffs := make([]float64, n)
+	coeffs := make([]float32, n)
 	coeffs[0] = 1.0
 	coeffs[5] = 0.5
 
@@ -262,7 +262,7 @@ func TestIMDCTShort_SingleBlock(t *testing.T) {
 	}
 
 	for i := range regular {
-		if math.Abs(regular[i]-short[i]) > 1e-10 {
+		if math.Abs(float64(regular[i]-short[i])) > 1e-10 {
 			t.Errorf("Mismatch at %d: regular=%v, short=%v", i, regular[i], short[i])
 		}
 	}
@@ -293,10 +293,10 @@ func TestVorbisWindow_Values(t *testing.T) {
 	}
 
 	// Check monotonicity across overlap (rising)
-	prev := 0.0
+	prev := float32(0)
 	for i := 0; i < overlap; i++ {
 		w := VorbisWindow(i, overlap)
-		if w < prev-1e-10 { // Allow tiny numerical errors
+		if w < prev {
 			t.Errorf("Window not monotonic at i=%d: prev=%v, curr=%v", i, prev, w)
 		}
 		prev = w
@@ -317,9 +317,12 @@ func TestVorbisWindow_Symmetry(t *testing.T) {
 		if w2 < 0 || w2 > 1 {
 			t.Errorf("Window value out of range at i=%d: %v", overlap-1-i, w2)
 		}
-		sum := w1*w1 + w2*w2
-		if math.Abs(sum-1.0) > 1e-12 {
-			t.Errorf("Power complement mismatch at i=%d: sum=%v", i, sum)
+		window := GetWindowBuffer(overlap)
+		if math.Float32bits(w1) != math.Float32bits(window[i]) {
+			t.Errorf("Window table mismatch at i=%d", i)
+		}
+		if math.Float32bits(w2) != math.Float32bits(window[overlap-1-i]) {
+			t.Errorf("Window table mismatch at i=%d", overlap-1-i)
 		}
 	}
 }
@@ -334,7 +337,7 @@ func TestVorbisWindow_PrecomputedBuffer(t *testing.T) {
 
 	for i := 0; i < 120; i++ {
 		expected := VorbisWindow(i, 120)
-		if math.Abs(buf[i]-expected) > 1e-7 {
+		if math.Abs(float64(buf[i]-expected)) > 1e-7 {
 			t.Errorf("Precomputed window mismatch at %d: got %v, want %v",
 				i, buf[i], expected)
 		}
@@ -348,9 +351,9 @@ func TestVorbisWindow_PerfectReconstruction(t *testing.T) {
 	overlap := Overlap
 
 	// Generate window coefficients (half window, for overlap region)
-	window := make([]float64, overlap)
+	window := make([]float32, overlap)
 	for i := 0; i < overlap; i++ {
-		window[i] = VorbisWindow(i, overlap)
+		window[i] = float32(VorbisWindow(i, overlap))
 	}
 
 	// Verify window properties
@@ -376,7 +379,7 @@ func TestVorbisWindow_PerfectReconstruction(t *testing.T) {
 	// w[n]^2 + w[overlap-1-n]^2 = 1
 	for n := 0; n < overlap/2; n++ {
 		sum := window[n]*window[n] + window[overlap-1-n]*window[overlap-1-n]
-		if math.Abs(sum-1.0) > 0.01 {
+		if math.Abs(float64(float64(sum-1.0))) > 0.01 {
 			t.Errorf("Window reconstruction failed at n=%d: %f + %f = %f (want 1.0)",
 				n, window[n]*window[n], window[overlap-1-n]*window[overlap-1-n], sum)
 		}
@@ -393,13 +396,13 @@ func TestOverlapAddSampleCount(t *testing.T) {
 	for _, frameSize := range frameSizes {
 		t.Run(fmt.Sprintf("frame=%d", frameSize), func(t *testing.T) {
 			// Simulate IMDCT output (2*frameSize samples)
-			imdctOut := make([]float64, 2*frameSize)
+			imdctOut := make([]float32, 2*frameSize)
 			for i := range imdctOut {
-				imdctOut[i] = float64(i) * 0.001 // Arbitrary non-zero values
+				imdctOut[i] = float32(i) * 0.001 // Arbitrary non-zero values
 			}
 
 			// Previous overlap buffer
-			prevOverlap := make([]float64, overlap)
+			prevOverlap := make([]float32, overlap)
 
 			// Perform overlap-add
 			output, newOverlap := OverlapAdd(imdctOut, prevOverlap, overlap)
@@ -425,14 +428,14 @@ func TestOverlapAdd_Continuity(t *testing.T) {
 	frameSize := 480
 
 	// Create two consecutive frames with a gradual change
-	frame1 := make([]float64, frameSize*2)
-	frame2 := make([]float64, frameSize*2)
+	frame1 := make([]float32, frameSize*2)
+	frame2 := make([]float32, frameSize*2)
 
 	for i := range frame1 {
-		frame1[i] = float64(i) / float64(len(frame1))
+		frame1[i] = float32(i) / float32(len(frame1))
 	}
 	for i := range frame2 {
-		frame2[i] = 0.5 + float64(i)/(2.0*float64(len(frame2)))
+		frame2[i] = 0.5 + float32(i)/(2.0*float32(len(frame2)))
 	}
 
 	// Apply window
@@ -440,7 +443,7 @@ func TestOverlapAdd_Continuity(t *testing.T) {
 	ApplyWindow(frame2, overlap)
 
 	// First overlap-add (with zero previous)
-	prevOverlap := make([]float64, overlap)
+	prevOverlap := make([]float32, overlap)
 	output1, newOverlap := OverlapAdd(frame1, prevOverlap, overlap)
 
 	// Second overlap-add
@@ -456,7 +459,7 @@ func TestOverlapAdd_Continuity(t *testing.T) {
 	// Check that there's no huge discontinuity
 	lastVal := output1[len(output1)-1]
 	firstVal := output2[0]
-	jump := math.Abs(lastVal - firstVal)
+	jump := math.Abs(float64(float64(lastVal - firstVal)))
 
 	// Allow some jump but not huge
 	if jump > 1.0 {
@@ -470,8 +473,8 @@ func TestOverlapAdd_ZeroInput(t *testing.T) {
 	overlap := 120
 	frameSize := 480
 
-	frame := make([]float64, frameSize*2) // All zeros
-	prevOverlap := make([]float64, overlap)
+	frame := make([]float32, frameSize*2) // All zeros
+	prevOverlap := make([]float32, overlap)
 
 	output, newOverlap := OverlapAdd(frame, prevOverlap, overlap)
 
@@ -499,10 +502,10 @@ func TestMidSideToLR_MonoCase(t *testing.T) {
 	left, right := MidSideToLR(mid, side, 0)
 
 	for i := range left {
-		if math.Abs(float64(left[i]-mid[i])) > 1e-6 {
+		if math.Abs(float64(float64(left[i]-mid[i]))) > 1e-6 {
 			t.Errorf("Left[%d] = %v, want %v", i, left[i], mid[i])
 		}
-		if math.Abs(float64(right[i]-mid[i])) > 1e-6 {
+		if math.Abs(float64(float64(right[i]-mid[i]))) > 1e-6 {
 			t.Errorf("Right[%d] = %v, want %v", i, right[i], mid[i])
 		}
 	}
@@ -519,10 +522,10 @@ func TestMidSideToLR_FullStereo(t *testing.T) {
 	left, right := MidSideToLR(mid, side, float32(math.Pi/2))
 
 	for i := range left {
-		if math.Abs(float64(left[i]-side[i])) > 1e-6 {
+		if math.Abs(float64(float64(left[i]-side[i]))) > 1e-6 {
 			t.Errorf("Left[%d] = %v, want %v", i, left[i], side[i])
 		}
-		if math.Abs(float64(right[i]+side[i])) > 1e-6 {
+		if math.Abs(float64(float64(right[i]+side[i]))) > 1e-6 {
 			t.Errorf("Right[%d] = %v, want %v", i, right[i], -side[i])
 		}
 	}
@@ -548,10 +551,10 @@ func TestMidSideToLR_Inversion(t *testing.T) {
 		expectedSum := 2 * cosT * mid[i]
 		expectedDiff := 2 * sinT * side[i]
 
-		if math.Abs(float64(sum-expectedSum)) > 1e-6 {
+		if math.Abs(float64(float64(sum-expectedSum))) > 1e-6 {
 			t.Errorf("L+R at %d: got %v, want %v", i, sum, expectedSum)
 		}
-		if math.Abs(float64(diff-expectedDiff)) > 1e-6 {
+		if math.Abs(float64(float64(diff-expectedDiff))) > 1e-6 {
 			t.Errorf("L-R at %d: got %v, want %v", i, diff, expectedDiff)
 		}
 	}
@@ -667,7 +670,7 @@ func TestDecodeFrame_StateConsistency(t *testing.T) {
 	energy := dec.GetEnergy(0, 0)
 	// After silence frames, energy should be updated
 	// Just verify it's a valid number
-	if math.IsNaN(float64(energy)) || math.IsInf(float64(energy), 0) {
+	if math.IsNaN(float64(float64(energy))) || math.IsInf(float64(energy), 0) {
 		t.Errorf("Invalid energy after frames: %v", energy)
 	}
 }
@@ -678,7 +681,7 @@ func TestSynthesize_Basic(t *testing.T) {
 
 	// Create simple coefficients
 	n := 120
-	coeffs := make([]float64, n)
+	coeffs := make([]float32, n)
 	coeffs[0] = 1.0
 
 	samples := dec.Synthesize(coeffs, false, 1)
@@ -691,8 +694,9 @@ func TestSynthesize_Basic(t *testing.T) {
 	// Check for non-zero samples
 	var maxAbs float64
 	for _, x := range samples {
-		if math.Abs(x) > maxAbs {
-			maxAbs = math.Abs(x)
+		abs := math.Abs(float64(float64(x)))
+		if abs > maxAbs {
+			maxAbs = abs
 		}
 	}
 	if maxAbs < 0.001 {
@@ -706,7 +710,7 @@ func TestSynthesize_TransientMode(t *testing.T) {
 
 	// Transient mode with 4 short blocks
 	n := 120 * 4
-	coeffs := make([]float64, n)
+	coeffs := make([]float32, n)
 	for i := 0; i < 4; i++ {
 		coeffs[i*120] = 1.0
 	}
@@ -723,7 +727,7 @@ func TestDeEmphasis(t *testing.T) {
 	dec := NewDecoder(1)
 
 	// Create impulse
-	samples := make([]float64, 100)
+	samples := make([]float32, 100)
 	samples[0] = 1.0
 
 	dec.applyDeemphasis(samples)
@@ -731,7 +735,7 @@ func TestDeEmphasis(t *testing.T) {
 	// First sample should still be 1.0 (no history)
 	// Note: With float32 precision used to match libopus, we need slightly
 	// looser tolerance than the theoretical float64 value.
-	if math.Abs(samples[0]-1.0) > 1e-6 {
+	if math.Abs(float64(float64(samples[0]-1.0))) > 1e-6 {
 		t.Errorf("First sample = %v, want 1.0", samples[0])
 	}
 
@@ -739,7 +743,7 @@ func TestDeEmphasis(t *testing.T) {
 	// The de-emphasis filter uses float32 precision to match libopus,
 	// so we compare against the float32 representation of PreemphCoef.
 	expected32 := float32(PreemphCoef)
-	if math.Abs(samples[1]-float64(expected32)) > 1e-6 {
+	if math.Abs(float64(float64(samples[1]-expected32))) > 1e-6 {
 		t.Errorf("Second sample = %v, want %v (float32)", samples[1], expected32)
 	}
 
@@ -751,7 +755,7 @@ func TestDeEmphasis(t *testing.T) {
 		for j := 1; j < i; j++ {
 			expectedF32 *= float32(PreemphCoef)
 		}
-		if math.Abs(samples[i]-float64(expectedF32)) > 1e-5 {
+		if math.Abs(float64(float64(samples[i]-expectedF32))) > 1e-5 {
 			t.Errorf("Sample[%d] = %v, want %v", i, samples[i], expectedF32)
 		}
 	}
@@ -794,9 +798,9 @@ func createSilenceFrame() []byte {
 
 // BenchmarkIMDCT benchmarks the IMDCT function.
 func BenchmarkIMDCT(b *testing.B) {
-	spectrum := make([]float64, 960)
+	spectrum := make([]float32, 960)
 	for i := range spectrum {
-		spectrum[i] = float64(i%10) / 10.0
+		spectrum[i] = float32(i%10) / 10.0
 	}
 
 	b.ResetTimer()
@@ -807,9 +811,9 @@ func BenchmarkIMDCT(b *testing.B) {
 
 // BenchmarkIMDCT_Short benchmarks IMDCT with short frame size.
 func BenchmarkIMDCT_Short(b *testing.B) {
-	spectrum := make([]float64, 120)
+	spectrum := make([]float32, 120)
 	for i := range spectrum {
-		spectrum[i] = float64(i%10) / 10.0
+		spectrum[i] = float32(i%10) / 10.0
 	}
 
 	b.ResetTimer()
@@ -820,9 +824,9 @@ func BenchmarkIMDCT_Short(b *testing.B) {
 
 // BenchmarkIMDCTShort benchmarks the short block IMDCT.
 func BenchmarkIMDCTShort(b *testing.B) {
-	coeffs := make([]float64, 120*8)
+	coeffs := make([]float32, 120*8)
 	for i := range coeffs {
-		coeffs[i] = float64(i%10) / 10.0
+		coeffs[i] = float32(i%10) / 10.0
 	}
 
 	b.ResetTimer()
@@ -843,10 +847,10 @@ func BenchmarkVorbisWindow(b *testing.B) {
 
 // BenchmarkOverlapAdd benchmarks the overlap-add operation.
 func BenchmarkOverlapAdd(b *testing.B) {
-	current := make([]float64, 1920)
-	prevOverlap := make([]float64, 120)
+	current := make([]float32, 1920)
+	prevOverlap := make([]float32, 120)
 	for i := range current {
-		current[i] = float64(i) / 1920.0
+		current[i] = float32(i) / 1920.0
 	}
 
 	b.ResetTimer()

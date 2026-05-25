@@ -17,28 +17,32 @@ func TestSumOfSquaresF64toF32Arm64MatchesLibopusNEONOrder(t *testing.T) {
 }
 
 func TestComputeBandRMSUsesArm64LibopusInnerProdOrder(t *testing.T) {
-	x := make([]float64, 1001)
+	x := make([]float32, 1001)
 	x[0] = 1e4
 	for i := 1; i < len(x); i++ {
 		x[i] = 1
 	}
 
-	laneSum := float32(sumOfSquaresF64toF32(x, len(x)))
-	seqSumNoEpsilon := sequentialSumOfSquaresF64toF32ForTest(x)
+	laneInput := make([]float64, len(x))
+	for i, v := range x {
+		laneInput[i] = float64(v)
+	}
+	laneSum := float32(sumOfSquaresF64toF32(laneInput, len(laneInput)))
+	seqSumNoEpsilon := sequentialSumOfSquaresF64toF32ForTest(laneInput)
 	if laneSum == seqSumNoEpsilon {
 		t.Fatalf("fixture did not expose arm64 lane-order accumulation: %v", laneSum)
 	}
 
 	sum := float32(1e-27) + laneSum
-	want := 0.5 * float64(celtLog2(sum))
+	want := float32(0.5) * celtLog2(sum)
 
 	got := computeBandRMS(x, 0, len(x))
 	if got != want {
 		t.Fatalf("computeBandRMS=%v, want %v from arm64 lane-order sum", got, want)
 	}
 
-	seqSum := float32(1e-27) + sequentialSumOfSquaresF64toF32ForTest(x)
-	seq := 0.5 * float64(celtLog2(seqSum))
+	seqSum := float32(1e-27) + sequentialSumOfSquaresF64toF32ForTest(laneInput)
+	seq := float32(0.5) * celtLog2(seqSum)
 	if got == seq {
 		t.Fatalf("computeBandRMS unexpectedly collapsed to sequential accumulation: %v", got)
 	}

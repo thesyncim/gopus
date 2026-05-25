@@ -44,11 +44,12 @@ type analysisScratch struct {
 	burgBands   [NumBands]float32
 	burgLog     [NumBands]float32
 	burgTemp    [2 * NumBands]float32
-	burgAF      [analysisLPCOrder]float64
-	burgFirst   [analysisLPCOrder]float64
-	burgLast    [analysisLPCOrder]float64
-	burgCAF     [analysisLPCOrder + 1]float64
-	burgCAB     [analysisLPCOrder + 1]float64
+	// libopus dnn/burg.c:silk_burg_analysis uses C double for Burg work arrays.
+	burgAF    [analysisLPCOrder]opusmath.CReal
+	burgFirst [analysisLPCOrder]opusmath.CReal
+	burgLast  [analysisLPCOrder]opusmath.CReal
+	burgCAF   [analysisLPCOrder + 1]opusmath.CReal
+	burgCAB   [analysisLPCOrder + 1]opusmath.CReal
 }
 
 // Analysis mirrors the retained libopus LPCNet encoder-analysis state used by
@@ -185,7 +186,7 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 	a.ifFeatures[0] = clampUnit((1.0 / 64.0) * (10*log10f(1e-15+real(a.scratch.spectrum[0])*real(a.scratch.spectrum[0])) - 6))
 	for i := 1; i < pitchIFMaxFreq; i++ {
 		prod := mulConj(a.scratch.spectrum[i], a.prevIF[i])
-		norm := float32(1.0 / math.Sqrt(float64(1e-15+real(prod)*real(prod)+imag(prod)*imag(prod))))
+		norm := float32(1.0) / opusmath.SqrtF32(1e-15+real(prod)*real(prod)+imag(prod)*imag(prod))
 		prod *= complex(norm, 0)
 		a.ifFeatures[3*i-2] = real(prod)
 		a.ifFeatures[3*i-1] = imag(prod)
@@ -226,24 +227,25 @@ func (a *Analysis) computeFrameFeatures(in []float32) {
 	buf := a.excBuf[:]
 	pitchXCorrFloat(a.scratch.pitchXCorr[:], buf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], buf[:PitchMaxPeriod+FrameSize], FrameSize, pitchXcorrFeatures)
 	ener0 := innerProdFloat(buf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], buf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], FrameSize)
-	ener1 := float64(innerProdFloat(buf[:FrameSize], buf[:FrameSize], FrameSize))
+	// libopus dnn/lpcnet_enc.c:compute_frame_features stores ener1 as C double.
+	ener1 := opusmath.CReal(innerProdFloat(buf[:FrameSize], buf[:FrameSize], FrameSize))
 	for i := 0; i < pitchXcorrFeatures; i++ {
-		ener := float32(1 + float64(ener0) + ener1)
+		ener := float32(1 + opusmath.CReal(ener0) + ener1)
 		a.xcorrFeatures[i] = 2 * a.scratch.pitchXCorr[i]
 		a.scratch.pitchEner[i] = ener
-		ener1 += float64(buf[i+FrameSize])*float64(buf[i+FrameSize]) - float64(buf[i])*float64(buf[i])
+		ener1 += opusmath.CReal(buf[i+FrameSize])*opusmath.CReal(buf[i+FrameSize]) - opusmath.CReal(buf[i])*opusmath.CReal(buf[i])
 	}
 	for i := 0; i < pitchXcorrFeatures; i++ {
 		a.xcorrFeatures[i] /= a.scratch.pitchEner[i]
 	}
 
 	a.dnnPitch = a.pitch.Compute(a.ifFeatures[:], a.xcorrFeatures[:])
-	pitch := int(math.Floor(.5 + float64(PitchMaxPeriod)/math.Pow(2, (1.0/60.0)*((float64(a.dnnPitch)+1.5)*60))))
+	pitch := int(opusmath.FloorHalfPlusF32ToInt32(float32(PitchMaxPeriod) / opusmath.Exp2F32(a.dnnPitch+1.5)))
 	xx := innerProdFloat(a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], FrameSize)
 	yy := innerProdFloat(a.lpBuf[PitchMaxPeriod-pitch:PitchMaxPeriod-pitch+FrameSize], a.lpBuf[PitchMaxPeriod-pitch:PitchMaxPeriod-pitch+FrameSize], FrameSize)
 	xy := innerProdFloat(a.lpBuf[PitchMaxPeriod:PitchMaxPeriod+FrameSize], a.lpBuf[PitchMaxPeriod-pitch:PitchMaxPeriod-pitch+FrameSize], FrameSize)
-	frameCorr := float32(float64(xy) / math.Sqrt(float64(1+xx*yy)))
-	frameCorr = float32(math.Log(1+math.Exp(float64(5*frameCorr))) / math.Log(1+math.Exp(5)))
+	frameCorr := xy / opusmath.SqrtF32(1+xx*yy)
+	frameCorr = opusmath.LogF32(1+opusmath.ExpF32(5*frameCorr)) / opusmath.LogF32(1+opusmath.ExpF32(5))
 	a.features[NumBands] = a.dnnPitch
 	a.features[NumBands+1] = frameCorr - .5
 }
@@ -257,7 +259,7 @@ func (a *Analysis) computeBurgCepstrum(dst, pcm []float32, length, order int) {
 	clear(a.scratch.window[:])
 	a.scratch.window[0] = 1
 	for i := 0; i < order; i++ {
-		a.scratch.window[i+1] = -a.scratch.burgTemp[i] * float32(math.Pow(.995, float64(i+1)))
+		a.scratch.window[i+1] = -a.scratch.burgTemp[i] * opusmath.ExpF32(float32(i+1)*opusmath.LogF32(.995))
 	}
 	for i := 0; i < analysisWindowSize; i++ {
 		a.scratch.fftIn[i] = complex(a.scratch.window[i], 0)
@@ -273,7 +275,7 @@ func (a *Analysis) computeBurgCepstrum(dst, pcm []float32, length, order int) {
 	gainScale := .45 * g * (1.0 / float32(analysisWindowSize*analysisWindowSize*analysisWindowSize))
 	for i := 0; i < NumBands; i++ {
 		a.scratch.burgBands[i] *= gainScale
-		v := float32(math.Log10(float64(1e-2 + a.scratch.burgBands[i])))
+		v := opusmath.Log10F32(1e-2 + a.scratch.burgBands[i])
 		v = maxF32(logMax-8, maxF32(follow-2.5, v))
 		a.scratch.burgLog[i] = v
 		logMax = maxF32(logMax, v)
@@ -329,11 +331,6 @@ func computeBandEnergy(bandE []float32, spectrum []complex64, dredEncoder bool) 
 			re := real(spectrum[idx])
 			im := imag(spectrum[idx])
 			tmp := re*re + im*im
-			if dredEncoder && useNEONAnalysisKernels {
-				sum[i] += float32(float64(1-frac) * float64(tmp))
-				sum[i+1] += float32(float64(frac) * float64(tmp))
-				continue
-			}
 			sum[i] += (1 - frac) * tmp
 			sum[i+1] += frac * tmp
 		}
@@ -369,7 +366,7 @@ func dctTransform(out, in []float32) {
 		for j := 0; j < NumBands; j++ {
 			sum += in[j] * analysisDCTTable[j*NumBands+i]
 		}
-		out[i] = float32(float64(sum) * scale)
+		out[i] = sum * scale
 	}
 }
 
@@ -380,7 +377,7 @@ func idctTransform(out, in []float32) {
 		for j := 0; j < NumBands; j++ {
 			sum += in[j] * analysisDCTTable[i*NumBands+j]
 		}
-		out[i] = float32(float64(sum) * scale)
+		out[i] = sum * scale
 	}
 }
 
@@ -389,7 +386,7 @@ func lpcFromCepstrum(lpc, cepstrum []float32, scratch *analysisScratch) float32 
 	scratch.lpcTmp[0] += 4
 	idctTransform(scratch.lpcEx[:], scratch.lpcTmp[:])
 	for i := 0; i < NumBands; i++ {
-		scratch.lpcEx[i] = float32(math.Pow(10, float64(scratch.lpcEx[i])) * float64(analysisCompensation[i]))
+		scratch.lpcEx[i] = opusmath.Pow10F32(scratch.lpcEx[i]) * analysisCompensation[i]
 	}
 	return lpcFromBands(lpc, scratch.lpcEx[:], scratch)
 }
@@ -403,9 +400,9 @@ func lpcFromBands(lpc, ex []float32, scratch *analysisScratch) float32 {
 	inverseTransform(scratch.inverseReal[:], scratch.inverseSpec[:], scratch)
 	var ac [analysisLPCOrder + 1]float32
 	copy(ac[:], scratch.inverseReal[:analysisLPCOrder+1])
-	ac[0] = float32(float64(ac[0]) + float64(ac[0])*1e-4 + 26.0/38.0)
+	ac[0] = ac[0] + ac[0]*1e-4 + 26.0/38.0
 	for i := 1; i <= analysisLPCOrder; i++ {
-		ac[i] = float32(float64(ac[i]) * (1 - 6e-5*float64(i*i)))
+		ac[i] = ac[i] * (1 - 6e-5*float32(i*i))
 	}
 	return lpcnLPC(lpc, ac[:], analysisLPCOrder)
 }
@@ -417,11 +414,6 @@ func interpBandGain(dst, bandE []float32) {
 		for j := 0; j < bandSize; j++ {
 			frac := float32(j) / float32(bandSize)
 			v := (1-frac)*bandE[i] + frac*bandE[i+1]
-			if useNEONAnalysisKernels {
-				// Avoid routing this through fma32: the double FMA shim drifts from
-				// the pinned arm64 libopus output on FARGAN-sensitive histories.
-				v = float32(float64(1-frac)*float64(bandE[i]) + float64(frac)*float64(bandE[i+1]))
-			}
 			dst[analysisBandEdges[i]*analysisWindow5ms+j] = v
 		}
 	}
@@ -523,34 +515,34 @@ func burgAnalysis(dst, x []float32, minInvGain float32, subfrLength, nbSubfr, or
 		cab[i] = 0
 	}
 
-	c0 := energyFloat64(x[:totalLen])
+	c0 := energyCReal(x[:totalLen])
 	for s := 0; s < nbSubfr; s++ {
 		xPtr := x[s*subfrLength:]
 		for n := 1; n <= order; n++ {
-			first[n-1] += innerProdFloat64(xPtr[:subfrLength-n], xPtr[n:subfrLength], subfrLength-n)
+			first[n-1] += innerProdCReal(xPtr[:subfrLength-n], xPtr[n:subfrLength], subfrLength-n)
 		}
 	}
 	copy(last, first)
 	caf[0] = c0 + 1e-5*c0 + 1e-9
 	cab[0] = caf[0]
-	invGain := 1.0
+	invGain := opusmath.CReal(1.0)
 	reachedMaxGain := false
 
 	for n := 0; n < order; n++ {
 		for s := 0; s < nbSubfr; s++ {
 			xPtr := x[s*subfrLength:]
-			tmp1 := float64(xPtr[n])
-			tmp2 := float64(xPtr[subfrLength-n-1])
+			tmp1 := opusmath.CReal(xPtr[n])
+			tmp2 := opusmath.CReal(xPtr[subfrLength-n-1])
 			for k := 0; k < n; k++ {
-				first[k] -= float64(xPtr[n]) * float64(xPtr[n-k-1])
-				last[k] -= float64(xPtr[subfrLength-n-1]) * float64(xPtr[subfrLength-n+k])
+				first[k] -= opusmath.CReal(xPtr[n]) * opusmath.CReal(xPtr[n-k-1])
+				last[k] -= opusmath.CReal(xPtr[subfrLength-n-1]) * opusmath.CReal(xPtr[subfrLength-n+k])
 				atmp := af[k]
-				tmp1 += float64(xPtr[n-k-1]) * atmp
-				tmp2 += float64(xPtr[subfrLength-n+k]) * atmp
+				tmp1 += opusmath.CReal(xPtr[n-k-1]) * atmp
+				tmp2 += opusmath.CReal(xPtr[subfrLength-n+k]) * atmp
 			}
 			for k := 0; k <= n; k++ {
-				caf[k] -= tmp1 * float64(xPtr[n-k])
-				cab[k] -= tmp2 * float64(xPtr[subfrLength-n+k-1])
+				caf[k] -= tmp1 * opusmath.CReal(xPtr[n-k])
+				cab[k] -= tmp2 * opusmath.CReal(xPtr[subfrLength-n+k-1])
 			}
 		}
 		tmp1 := first[n]
@@ -574,12 +566,12 @@ func burgAnalysis(dst, x []float32, minInvGain float32, subfrLength, nbSubfr, or
 		}
 		rc := -2.0 * num / (nrgF + nrgB)
 		tmp1 = invGain * (1.0 - rc*rc)
-		if tmp1 <= float64(minInvGain) {
-			rc = math.Sqrt(1.0 - float64(minInvGain)/invGain)
+		if tmp1 <= opusmath.CReal(minInvGain) {
+			rc = opusmath.SqrtCReal(1.0 - opusmath.CReal(minInvGain)/invGain)
 			if num > 0 {
 				rc = -rc
 			}
-			invGain = float64(minInvGain)
+			invGain = opusmath.CReal(minInvGain)
 			reachedMaxGain = true
 		} else {
 			invGain = tmp1
@@ -605,18 +597,18 @@ func burgAnalysis(dst, x []float32, minInvGain float32, subfrLength, nbSubfr, or
 		}
 	}
 
-	var nrgF float64
+	var nrgF opusmath.CReal
 	if reachedMaxGain {
 		for k := 0; k < order; k++ {
 			dst[k] = float32(-af[k])
 		}
 		for s := 0; s < nbSubfr; s++ {
-			c0 -= energyFloat64(x[s*subfrLength : s*subfrLength+order])
+			c0 -= energyCReal(x[s*subfrLength : s*subfrLength+order])
 		}
 		nrgF = c0 * invGain
 	} else {
 		nrgF = caf[0]
-		tmp1 := 1.0
+		tmp1 := opusmath.CReal(1.0)
 		for k := 0; k < order; k++ {
 			atmp := af[k]
 			nrgF += caf[k+1] * atmp
@@ -631,18 +623,18 @@ func burgAnalysis(dst, x []float32, minInvGain float32, subfrLength, nbSubfr, or
 	return float32(nrgF)
 }
 
-func energyFloat64(x []float32) float64 {
-	var sum float64
+func energyCReal(x []float32) opusmath.CReal {
+	var sum opusmath.CReal
 	for _, v := range x {
-		sum += float64(v) * float64(v)
+		sum += opusmath.CReal(v) * opusmath.CReal(v)
 	}
 	return sum
 }
 
-func innerProdFloat64(x, y []float32, n int) float64 {
-	var sum float64
+func innerProdCReal(x, y []float32, n int) opusmath.CReal {
+	var sum opusmath.CReal
 	for i := 0; i < n; i++ {
-		sum += float64(x[i]) * float64(y[i])
+		sum += opusmath.CReal(x[i]) * opusmath.CReal(y[i])
 	}
 	return sum
 }

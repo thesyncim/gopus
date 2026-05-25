@@ -259,7 +259,7 @@ func TestConcealPeriodicPLCMatchesLibopus(t *testing.T) {
 			dec := NewDecoder(tc.channels)
 			dec.plcDecodeMem = append(dec.plcDecodeMem[:0], hist...)
 			dec.plcLPC = make([]float32, celtPLCLPCOrder*tc.channels)
-			gotInterleaved := make([]float64, (tc.frameSize+Overlap)*tc.channels)
+			gotInterleaved := make([]float32, (tc.frameSize+Overlap)*tc.channels)
 			if !dec.concealPeriodicPLC(gotInterleaved, tc.frameSize, 1, false, false) {
 				t.Fatal("concealPeriodicPLC returned false")
 			}
@@ -405,13 +405,12 @@ func TestComputePLCLPCMatchesLibopus(t *testing.T) {
 			want := probeLibopusPLCLPC(t, frame, window32)
 
 			dec := NewDecoder(1)
-			window64 := GetWindowBuffer(Overlap)
 			gotAC := make([]float32, celtPLCLPCOrder+1)
-			dec.computePLCAutocorr(frame, window64, gotAC)
+			dec.computePLCAutocorr(frame, window32, gotAC)
 			assertFloat32Bits(t, "ac", gotAC, want.ac)
 
 			got := make([]float32, celtPLCLPCOrder)
-			dec.computePLCLPC(frame, got, window64)
+			dec.computePLCLPC(frame, got, window32)
 			assertFloat32Bits(t, "lpc", got, want.lpc)
 		})
 	}
@@ -482,7 +481,7 @@ func TestCELTPLCFIRActualPeriodicPLCInputsMatchLibopus(t *testing.T) {
 			}
 
 			lpc := make([]float32, celtPLCLPCOrder)
-			dec.computePLCLPC(hist[plcDecodeBufferSize-combFilterMaxPeriod:], lpc, GetWindowBuffer(Overlap))
+			dec.computePLCLPC(hist[plcDecodeBufferSize-combFilterMaxPeriod:], lpc, GetWindowBufferF32(Overlap))
 
 			const maxPeriod = combFilterMaxPeriod
 			excLength := min(2*period, maxPeriod)

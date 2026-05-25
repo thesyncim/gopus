@@ -244,13 +244,13 @@ func (d *Decoder) runStereoDREDConceal(
 
 	totalSamples := frameSize + Overlap
 	stereoSamples := totalSamples * 2
-	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, stereoSamples)
+	d.scratchPLC = ensureFloat32Slice(&d.scratchPLC, stereoSamples)
 	if !d.concealPeriodicPLC(d.scratchPLC[:stereoSamples], frameSize, lossCount, d.lastPLCFrameWasPeriodic() || *lastNeural, false) {
 		return false
 	}
 
 	baseline := ensureSigSlice(&d.scratchPLCDREDBase, Overlap*2)
-	copyFloat64ToSig(baseline[:Overlap*2], d.scratchPLC[:Overlap*2])
+	copyFloat32ToSig(baseline[:Overlap*2], d.scratchPLC[:Overlap*2])
 
 	samplesNeeded16k := (frameSize + dred48kSincOrder + Overlap) / 3
 	if !*lastNeural {
@@ -297,7 +297,7 @@ func (d *Decoder) runStereoDREDConceal(
 	preemphMem := *plcPreemphMem * 32768
 	for i := 0; i < frameSize; i++ {
 		tmp := neural[i]
-		v := float64(tmp - preemph*preemphMem)
+		v := (tmp - preemph*preemphMem)
 		preemphMem = tmp
 		d.scratchPLC[2*i] = v
 		d.scratchPLC[2*i+1] = v
@@ -307,7 +307,7 @@ func (d *Decoder) runStereoDREDConceal(
 	for i := 0; i < Overlap; i++ {
 		idx := frameSize + i
 		tmp := neural[idx]
-		v := float64(tmp - preemph*overlapMem)
+		v := (tmp - preemph*overlapMem)
 		overlapMem = tmp
 		dst := 2 * idx
 		d.scratchPLC[dst] = v
@@ -320,8 +320,8 @@ func (d *Decoder) runStereoDREDConceal(
 		for i := 0; i < blend; i++ {
 			w := window[i]
 			idx := 2 * i
-			d.scratchPLC[idx] = float64((1-w)*float32(baseline[idx]) + w*float32(d.scratchPLC[idx]))
-			d.scratchPLC[idx+1] = float64((1-w)*float32(baseline[idx+1]) + w*float32(d.scratchPLC[idx+1]))
+			d.scratchPLC[idx] = (1-w)*float32(baseline[idx]) + w*d.scratchPLC[idx]
+			d.scratchPLC[idx+1] = (1-w)*float32(baseline[idx+1]) + w*d.scratchPLC[idx+1]
 		}
 	}
 
@@ -355,7 +355,7 @@ func (d *Decoder) runStereoDREDConceal(
 	return true
 }
 
-func (d *Decoder) updateStereoDREDNeuralHistories(samples []float64, frameSize int) {
+func (d *Decoder) updateStereoDREDNeuralHistories(samples []float32, frameSize int) {
 	d.updateStereoDREDNeuralHistory(d.postfilterMem, frameSize, combFilterHistory, samples)
 	d.updateStereoDREDNeuralHistory(d.plcDecodeMem, frameSize, plcDecodeBufferSize, samples)
 	d.postfilterMemFromPLC = false
@@ -364,7 +364,7 @@ func (d *Decoder) updateStereoDREDNeuralHistories(samples []float64, frameSize i
 	d.plcDecodeMemRingStart = 0
 }
 
-func (d *Decoder) updateStereoDREDNeuralHistory(hist []celtSig, frameSize, history int, samples []float64) {
+func (d *Decoder) updateStereoDREDNeuralHistory(hist []celtSig, frameSize, history int, samples []float32) {
 	if d == nil || frameSize <= 0 || history <= 0 || len(hist) < history*2 || len(samples) < frameSize*2 {
 		return
 	}
@@ -391,7 +391,7 @@ func (d *Decoder) updateStereoDREDNeuralHistory(hist []celtSig, frameSize, histo
 	}
 }
 
-func (d *Decoder) advanceDeemphasisStateStereo(samples []float64) {
+func (d *Decoder) advanceDeemphasisStateStereo(samples []float32) {
 	if d == nil || d.channels != 2 || len(samples) == 0 || len(d.preemphState) < 2 {
 		return
 	}
@@ -400,9 +400,9 @@ func (d *Decoder) advanceDeemphasisStateStereo(samples []float64) {
 	stateL := d.preemphState[0]
 	stateR := d.preemphState[1]
 	for i := 0; i+1 < len(samples); i += 2 {
-		tmpL := float32(samples[i]) + verySmall + stateL
+		tmpL := samples[i] + verySmall + stateL
 		stateL = coef * tmpL
-		tmpR := float32(samples[i+1]) + verySmall + stateR
+		tmpR := samples[i+1] + verySmall + stateR
 		stateR = coef * tmpR
 	}
 	d.preemphState[0] = stateL
@@ -475,13 +475,13 @@ func (d *Decoder) concealNeural48kMono(
 	*lastNeural = d.lastPLCFrameWasNeural()
 
 	totalSamples := frameSize + Overlap
-	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, totalSamples)
+	d.scratchPLC = ensureFloat32Slice(&d.scratchPLC, totalSamples)
 	if !d.concealPeriodicPLC(d.scratchPLC[:totalSamples], frameSize, lossCount, d.lastPLCFrameWasPeriodic() || *lastNeural, false) {
 		return false
 	}
 
 	baseline := ensureSigSlice(&d.scratchPLCDREDBase, Overlap)
-	copyFloat64ToSig(baseline[:Overlap], d.scratchPLC[:Overlap])
+	copyFloat32ToSig(baseline[:Overlap], d.scratchPLC[:Overlap])
 
 	samplesNeeded16k := (frameSize + dred48kSincOrder + Overlap) / 3
 	if !*lastNeural {
@@ -528,7 +528,7 @@ func (d *Decoder) concealNeural48kMono(
 	preemphMem := *plcPreemphMem * 32768
 	for i := 0; i < frameSize; i++ {
 		tmp := neural[i]
-		d.scratchPLC[i] = float64(tmp - preemph*preemphMem)
+		d.scratchPLC[i] = (tmp - preemph*preemphMem)
 		preemphMem = tmp
 	}
 	// Match libopus celt_decode_lost(FRAME_DRED): retain plc_preemphasis_mem at
@@ -538,7 +538,7 @@ func (d *Decoder) concealNeural48kMono(
 	for i := 0; i < Overlap; i++ {
 		idx := frameSize + i
 		tmp := neural[idx]
-		d.scratchPLC[idx] = float64(tmp - preemph*overlapMem)
+		d.scratchPLC[idx] = (tmp - preemph*overlapMem)
 		overlapMem = tmp
 	}
 
@@ -546,7 +546,7 @@ func (d *Decoder) concealNeural48kMono(
 		window := GetWindowBufferF32(Overlap)
 		blend := min(Overlap, frameSize)
 		for i := 0; i < blend; i++ {
-			d.scratchPLC[i] = float64((1-window[i])*float32(baseline[i]) + window[i]*float32(d.scratchPLC[i]))
+			d.scratchPLC[i] = (1-window[i])*float32(baseline[i]) + window[i]*d.scratchPLC[i]
 		}
 	}
 

@@ -47,49 +47,61 @@ func interleaveStereoIntoGeneric(left, right, interleaved []float64, n int) {
 	}
 }
 
-func requireFloatBitsEqual(t *testing.T, name string, got, want []float64) {
+func requireFloatBitsEqual(t *testing.T, name string, got, want []celtNorm) {
 	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("%s length mismatch: got %d want %d", name, len(got), len(want))
 	}
 	for i := range got {
-		if math.Float64bits(got[i]) != math.Float64bits(want[i]) {
-			t.Fatalf("%s[%d] mismatch: got 0x%x want 0x%x", name, i, math.Float64bits(got[i]), math.Float64bits(want[i]))
+		if math.Float32bits(float32(got[i])) != math.Float32bits(float32(want[i])) {
+			t.Fatalf("%s[%d] mismatch: got 0x%x want 0x%x", name, i, math.Float32bits(float32(got[i])), math.Float32bits(float32(want[i])))
 		}
 	}
 }
 
 func TestStereoLayoutArm64MatchesGenericExact(t *testing.T) {
 	const n = 17
-	interleaved := make([]float64, n*2)
+	interleaved64 := make([]float64, n*2)
+	interleaved := make([]celtNorm, n*2)
 	for i := range interleaved {
 		switch i % 5 {
 		case 0:
-			interleaved[i] = math.Float64frombits(0x7ff8000000000000 + uint64(i))
+			interleaved64[i] = math.Float64frombits(0x7ff8000000000000 + uint64(i))
 		case 1:
-			interleaved[i] = math.Float64frombits(0x8000000000000000 | uint64(i))
+			interleaved64[i] = math.Float64frombits(0x8000000000000000 | uint64(i))
 		case 2:
-			interleaved[i] = math.Float64frombits(uint64(i) << 20)
+			interleaved64[i] = math.Float64frombits(uint64(i) << 20)
 		case 3:
-			interleaved[i] = float64(i) * -0.125
+			interleaved64[i] = float64(i) * -0.125
 		default:
-			interleaved[i] = float64(i) * 0.375
+			interleaved64[i] = float64(i) * 0.375
 		}
+		interleaved[i] = celtNorm(interleaved64[i])
 	}
 
-	leftGot := make([]float64, n)
-	rightGot := make([]float64, n)
-	leftWant := make([]float64, n)
-	rightWant := make([]float64, n)
+	leftGot := make([]celtNorm, n)
+	rightGot := make([]celtNorm, n)
+	leftWant64 := make([]float64, n)
+	rightWant64 := make([]float64, n)
+	leftWant := make([]celtNorm, n)
+	rightWant := make([]celtNorm, n)
 	DeinterleaveStereoInto(interleaved, leftGot, rightGot)
-	deinterleaveStereoIntoGeneric(interleaved, leftWant, rightWant, n)
+	deinterleaveStereoIntoGeneric(interleaved64, leftWant64, rightWant64, n)
+	for i := 0; i < n; i++ {
+		leftWant[i] = celtNorm(leftWant64[i])
+		rightWant[i] = celtNorm(rightWant64[i])
+	}
 	requireFloatBitsEqual(t, "left", leftGot, leftWant)
 	requireFloatBitsEqual(t, "right", rightGot, rightWant)
 
-	interleavedGot := make([]float64, n*2)
-	interleavedWant := make([]float64, n*2)
+	interleavedGot := make([]celtNorm, n*2)
+	interleavedWant64 := make([]float64, n*2)
+	interleavedWant := make([]celtNorm, n*2)
 	InterleaveStereoInto(leftGot, rightGot, interleavedGot)
-	interleaveStereoIntoGeneric(leftWant, rightWant, interleavedWant, n)
+	interleaveStereoIntoGeneric(leftWant64, rightWant64, interleavedWant64, n)
+	for i := range interleavedWant {
+		interleavedWant[i] = celtNorm(interleavedWant64[i])
+	}
 	requireFloatBitsEqual(t, "interleaved", interleavedGot, interleavedWant)
 }
 

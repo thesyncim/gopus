@@ -1038,7 +1038,7 @@ func TestTonalityWithRealMDCT(t *testing.T) {
 	}
 
 	// Apply MDCT
-	coeffs := MDCT(samples)
+	coeffs := float64sFromMDCTForwardTest(MDCT(float32sForMDCTForwardTest(samples)))
 	if coeffs == nil {
 		t.Fatal("MDCT returned nil")
 	}
@@ -1068,7 +1068,7 @@ func TestTonalityWithRealNoise(t *testing.T) {
 	}
 
 	// Apply MDCT
-	coeffs := MDCT(samples)
+	coeffs := float64sFromMDCTForwardTest(MDCT(float32sForMDCTForwardTest(samples)))
 	if coeffs == nil {
 		t.Fatal("MDCT returned nil")
 	}

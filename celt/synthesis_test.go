@@ -17,7 +17,7 @@ func TestSynthesize_SampleCount(t *testing.T) {
 			d := NewDecoder(1)
 
 			// Create frameSize coefficients (as DecodeBands returns)
-			coeffs := make([]float64, frameSize)
+			coeffs := make([]float32, frameSize)
 
 			// IMDCT produces 2*frameSize samples
 			// After 14-02 fix, OverlapAdd produces frameSize samples
@@ -50,8 +50,8 @@ func TestSynthesizeStereo_SampleCount(t *testing.T) {
 			d := NewDecoder(2) // Stereo
 
 			// Create frameSize coefficients per channel
-			coeffsL := make([]float64, frameSize)
-			coeffsR := make([]float64, frameSize)
+			coeffsL := make([]float32, frameSize)
+			coeffsR := make([]float32, frameSize)
 
 			// Call SynthesizeStereo
 			samples := d.SynthesizeStereo(coeffsL, coeffsR, false, 1)
@@ -85,8 +85,8 @@ func TestOverlapAdd_Properties(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			current := make([]float64, tc.inputLen)
-			prevOverlap := make([]float64, tc.overlap)
+			current := make([]float32, tc.inputLen)
+			prevOverlap := make([]float32, tc.overlap)
 
 			output, newOverlap := OverlapAdd(current, prevOverlap, tc.overlap)
 
@@ -110,8 +110,8 @@ func TestOverlapAdd_OutputSize(t *testing.T) {
 
 	for _, frameSize := range testCases {
 		t.Run(fmt.Sprintf("%d", frameSize), func(t *testing.T) {
-			imdctOut := make([]float64, 2*frameSize)
-			prevOverlap := make([]float64, overlap)
+			imdctOut := make([]float32, 2*frameSize)
+			prevOverlap := make([]float32, overlap)
 
 			output, newOverlap := OverlapAdd(imdctOut, prevOverlap, overlap)
 
@@ -131,7 +131,7 @@ func TestIMDCT_OutputSize(t *testing.T) {
 
 	for _, n := range testCases {
 		t.Run(fmt.Sprintf("%d", n), func(t *testing.T) {
-			coeffs := make([]float64, n)
+			coeffs := make([]float32, n)
 
 			output := IMDCT(coeffs)
 
