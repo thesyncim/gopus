@@ -92,7 +92,7 @@ The repo now has a ratcheting guard for this rule:
 make test-type-parity
 ```
 
-The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 1763 legacy findings, down from 1788 in the previous checkpoint, 1789 before that, 1812 before that, 1819 before that, 1835 before that, 1887 before that, 1921 before that, 1955 before that, 1995 before that, 2010 before that, 2014 before that, 2017 before that, 2025 before that, 2029 before that, 2034 before that, 2068 before that, 2077 before that, 2081 before that, 2083 before that, 2096 before that, 2125 before that, 2144 before that, 2197 before that, 2198 before that, 2207 before that, 2209 before that, 2217 before that, 2220 before that, 2222 before that, 2250 before that, 2273 before that, 2285 before that, 2327 before that, and 2509 in the older baseline.
+The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 1761 legacy findings, down from 1763 in the previous checkpoint, 1788 before that, 1789 before that, 1812 before that, 1819 before that, 1835 before that, 1887 before that, 1921 before that, 1955 before that, 1995 before that, 2010 before that, 2014 before that, 2017 before that, 2025 before that, 2029 before that, 2034 before that, 2068 before that, 2077 before that, 2081 before that, 2083 before that, 2096 before that, 2125 before that, 2144 before that, 2197 before that, 2198 before that, 2207 before that, 2209 before that, 2217 before that, 2220 before that, 2222 before that, 2250 before that, 2273 before that, 2285 before that, 2327 before that, and 2509 in the older baseline.
 
 Agents must not run `make update-type-parity-baseline` to hide new debt. Refresh the baseline only after migrating runtime code to libopus-width types, or when a remaining `float64` is tied to a specific libopus C `double` helper with a source citation.
 
@@ -104,7 +104,7 @@ These are burn-down metrics from non-test runtime Go files on 2026-05-25, not a 
 
 | Area | Count | Files |
 |---|---:|---:|
-| `celt` | 1459 | 105 |
+| `celt` | 1457 | 105 |
 | `silk` | 99 | 19 |
 | `internal` | 74 | 12 |
 | `encoder` | 66 | 8 |
@@ -162,8 +162,8 @@ Not all `int` is wrong. Use `int` for slice indexes, lengths, loop counters, and
 | `celt/quant_bands.go` | 22 |
 | `celt/kiss_fft.go` | 21 |
 | `celt/recovery_helpers.go` | 21 |
-| `celt/energy.go` | 20 |
 | `celt/scratch.go` | 19 |
+| `celt/energy.go` | 18 |
 
 ### Runtime Scratch Guarded Hotspots
 

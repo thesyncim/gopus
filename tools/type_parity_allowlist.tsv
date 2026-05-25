@@ -508,7 +508,6 @@ celt/energy.go	1	369e9a4edb0c6e55b17d88dcac7add55658b14115699da5975f9e2e823bfc0d
 celt/energy.go	1	3a1db92d4bb7e52cc8fcf25b83b4ad6de0502f490cf3e47fcae26ef64aee6845	legacy-current	func (d *Decoder) decodeFineEnergyRange(energies []float64, start, end int, prevQuant, extraQuant []int) {
 celt/energy.go	1	428e70a9db9f52e4ae9ac29fe0955303f61b8acefb7a1aecc568bcd248c9fdce	legacy-current	func (d *Decoder) DecodeFineEnergy(energies []float64, nbBands int, fineBits []int) {
 celt/energy.go	1	44e90999b5913a29a26626662d4e1e7e0684620fecc9246f39565cb084cf1175	legacy-current	func (d *Decoder) DecodeEnergyRemainderWithDecoder(rd *rangecoding.Decoder, energies []float64, nbBands int, remainderBits []int) {
-celt/energy.go	1	6ad4bc6e81064b1712f259bc3c36ca30d62d826817642635fa886dd4284e7e33	legacy-current	energies[c*end+band] = float64(energy)
 celt/energy.go	1	6e3190968cf95ca36ab3dafe7eb577a114eb52f0cf798dedada5a0a7a994e867	legacy-current	energies := make([]float64, nbBands*d.channels)
 celt/energy.go	2	7124133f8479c0e057dd75cb5fd34b1883e92d34a7953fea5c5e723cbbe9923a	legacy-current	energies[idx] = float64(float32(energies[idx]) + offset)
 celt/energy.go	1	7d01fc7a5b5a9bb4188aae98ca1f8aa504a1ad2a77018b3143c84228fe5f887d	legacy-current	func (d *Decoder) DecodeEnergyFinaliseRange(start, end int, energies []float64, fineQuant []int, finePriority []int, bitsLeft int) {
@@ -518,7 +517,6 @@ celt/energy.go	1	aca28f4e1fd5c8874338cbbd3e8ffbafddaeaca3290523194b567a4a4ba0453
 celt/energy.go	1	b808e7a0e0e59a975e8e43d6aacb6d1dded17e2434965f76aa128cdd8054725d	legacy-current	func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool, lm int) []float64 {
 celt/energy.go	1	c1f4d1cfeb0ddf6537060773f50729873f07980a4c1e6b0bf69787a5854fae5a	legacy-current	func (d *Decoder) decodeFineEnergy(energies []float64, nbBands int, prevQuant, extraQuant []int) {
 celt/energy.go	1	cbe1cb52b44647eb40e1eb7b995184d0d775222ee8864c2428d65c2ce8dbb6e8	legacy-current	dst[c*nbBands+band] = float64(energy)
-celt/energy.go	1	cdc050c4d4e7b4564d02db3fe8fb636da6e5a98e3c81584a9f56b3b523f77f20	legacy-current	func (d *Decoder) decodeCoarseEnergyRange(start, end int, intra bool, lm int, energies []float64) {
 celt/energy.go	1	cef55b1c6fc17fc4af248af889be32f10d89fd2a7562a6f9e8777c4b850256aa	legacy-current	dst = make([]float64, needed)
 celt/energy.go	1	d89bb7c47563680a29ad17c33672c0fb3ab5e1495591ab11e265bd32057dea7e	legacy-current	func (d *Decoder) DecodeFineEnergyWithDecoder(rd *rangecoding.Decoder, energies []float64, nbBands int, fineBits []int) {
 celt/energy.go	1	f6ee1f05b9eacf5f914d6f87ef1af9b89619ad9b893f42f4ca115f8c3590ab28	legacy-current	func (d *Decoder) DecodeEnergyFinalise(energies []float64, nbBands int, fineQuant []int, finePriority []int, bitsLeft int) {
