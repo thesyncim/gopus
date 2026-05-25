@@ -23,7 +23,7 @@ func (d *Decoder) ltpSynthesis(excitation []int32, pitchLag int, ltpCoeffs []int
 
 	// LTP scale factors (linear).
 	// Per RFC 6716 Section 4.2.7.9.1: 1.0, 0.9375, 0.875.
-	ltpScaleFactors := []float64{1.0, 0.9375, 0.875}
+	ltpScaleFactors := [3]float32{1.0, 0.9375, 0.875}
 	if ltpScale < 0 || ltpScale >= len(ltpScaleFactors) {
 		ltpScale = 0
 	}
@@ -32,7 +32,7 @@ func (d *Decoder) ltpSynthesis(excitation []int32, pitchLag int, ltpCoeffs []int
 	historyLen := len(d.outputHistory)
 
 	for i := range excitation {
-		var pred float64
+		var pred float32
 
 		// 5-tap filter centered around pitchLag samples ago.
 		// Per libopus NSQ.c: b_Q14[0] is applied to position (-lag + 2),
@@ -48,8 +48,8 @@ func (d *Decoder) ltpSynthesis(excitation []int32, pitchLag int, ltpCoeffs []int
 			histIdx = histIdx % historyLen
 
 			// History is in float32 normalized [-1, 1].
-			histVal := float64(d.outputHistory[histIdx])
-			coeff := float64(ltpCoeffs[k]) / 128.0
+			histVal := d.outputHistory[histIdx]
+			coeff := float32(ltpCoeffs[k]) / 128.0
 			pred += coeff * histVal
 		}
 

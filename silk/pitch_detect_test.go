@@ -225,7 +225,7 @@ func TestAutocorrPitchSearchEdgeCases(t *testing.T) {
 
 func TestQuantizeLTPCoeffs(t *testing.T) {
 	// Test with known coefficients
-	coeffs := []float64{0.5, 0.3, 0.1, -0.1, -0.05}
+	coeffs := []float32{0.5, 0.3, 0.1, -0.1, -0.05}
 
 	quantized := quantizeLTPCoeffs(coeffs, 2)
 
@@ -237,7 +237,7 @@ func TestQuantizeLTPCoeffs(t *testing.T) {
 
 func TestQuantizeLTPCoeffsZeroCoeffs(t *testing.T) {
 	// Test with zero coefficients
-	coeffs := []float64{0, 0, 0, 0, 0}
+	coeffs := []float32{0, 0, 0, 0, 0}
 
 	quantized := quantizeLTPCoeffs(coeffs, 1)
 
@@ -249,7 +249,7 @@ func TestQuantizeLTPCoeffsZeroCoeffs(t *testing.T) {
 
 func TestQuantizeLTPCoeffsLargeCoeffs(t *testing.T) {
 	// Test with large coefficients (should clip to codebook range)
-	coeffs := []float64{2.0, 1.5, 1.0, -1.0, -1.5}
+	coeffs := []float32{2.0, 1.5, 1.0, -1.0, -1.5}
 
 	quantized := quantizeLTPCoeffs(coeffs, 2)
 

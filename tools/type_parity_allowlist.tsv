@@ -1881,32 +1881,6 @@ silk/lsf_encode.go	1	f1f96ef8d880c81534f4429ae354a809ed9fe88890ddadcfd190b047f05
 silk/lsf_encode.go	1	f6d21b2007a4edc5b562480d988fa78d73ddf7fb726865a765fc36eec5587d61	legacy-current	const step = math.Pi / float64(numPoints)
 silk/lsf_quantize.go	1	6816deeef3ab15b36e340465fcde9589a3bc681be99b02b38a927bd25bb2f6d9	legacy-current	rms := math.Sqrt(float64(diff) / float64(order))
 silk/lsf_quantize.go	1	98420ae620c21ca0f967894cd7231bda8f2c08119a65144dda4d274fc7a9d72c	legacy-current	rate := 64 - int(math.Log2(float64(prob))*8)
-silk/ltp.go	1	2824b48e3d3244a38a9290495fb3792de16a7fc44b33b0fa077e91faf78c843e	legacy-current	ltpScaleFactors := []float64{1.0, 0.9375, 0.875}
-silk/ltp.go	1	bc72aac12fefe3dbcf87be0455d2fb337634fe0685f630aac955b22cfd05c9a8	legacy-current	var pred float64
-silk/ltp.go	1	c7514bf5cbf68799e2b7a545ad164b2bfcb16703aefda6a84808d6934252a69b	legacy-current	coeff := float64(ltpCoeffs[k]) / 128.0
-silk/ltp.go	1	ccf37cdc782651e637a24a29f3aadbe7333491f3d5b4d674e885487d20f67559	legacy-current	histVal := float64(d.outputHistory[histIdx])
-silk/ltp_encode.go	1	00c245def39fccbf2c8b2d0327d3d48f6fafdedb1e5b3d7caa0100ff51dee1b5	legacy-current	pastJ := float64(pcm[pastJIdx])
-silk/ltp_encode.go	1	025442c527581e8211c9145de48daaf164ddb14d86e0ffd0b1d1436bfe4d49ca	legacy-current	var bestDist float64 = math.MaxFloat64
-silk/ltp_encode.go	1	0b0f8ca31e5ec86431e26b4fe0a6168f763836cca9bf4032317297cea1d1d241	legacy-current	past := float64(pcm[i-lag])
-silk/ltp_encode.go	1	0b52194c01849503b555929bdfff646ed2986eb2e3800bae7046b5f15dad373a	legacy-current	x := float64(pcm[n])
-silk/ltp_encode.go	1	111b5c46f102926606faa980edd5fd418296fd2a406d3e9e42a31c1f275566f0	legacy-current	// Returns a fixed-size [5]float64 array to avoid heap allocation.
-silk/ltp_encode.go	1	14a3e368cc68441a61ac36261ff96b9a3baba7ba3a1f9cf18407dd5be43ffb25	legacy-current	var r [numTaps]float64
-silk/ltp_encode.go	1	16175a9414a3a4176b88826e265abb8cd2ba638e039d2b84d5837e2e4eb69c31	legacy-current	cbVal := float64(LTPFilterLow[idx][tap]) / 128.0
-silk/ltp_encode.go	1	1e0be019a8d904df1a7c97cb731f4a89fec6c0ba94d03b9c90b6127f04cc96a0	legacy-current	var corr, energy1, energy2 float64
-silk/ltp_encode.go	1	45694eaf251ccbc60421257159c4b0103d40ec5a7fcbf1f56ae17ec421641d72	legacy-current	avgCorr := totalCorr / float64(count)
-silk/ltp_encode.go	1	4bd4d02546a9a0091bccb0143aa4f82625901af5affc5bda5c3574b1eaa6ef5b	legacy-current	var coeffs [5]float64
-silk/ltp_encode.go	1	5def70f08878cab7f6f6ac084a60f80085932885aac2514b59e01a3798edac39	legacy-current	func quantizeLTPCoeffs(coeffs []float64, periodicity int) []int8 {
-silk/ltp_encode.go	1	5e898b73a23070a8e7c2ac8b4fabeed6656d5df772a12063e05e6f2cb5b3d037	legacy-current	var A [n][n + 1]float64
-silk/ltp_encode.go	1	76ab42595b6c3ea4cc6bd06b28c9c54c424516e4f44b49bb2d1b6af82187ff28	legacy-current	var R [numTaps][numTaps]float64
-silk/ltp_encode.go	1	7a4df25eab0891720fe5c0ad08210dba902dc9777403390aac92ba143c55b440	legacy-current	var totalCorr float64
-silk/ltp_encode.go	1	87f532559b19995cf315468b0d992fb6829ab83640ce9df08bbea1c4e671bcf7	legacy-current	cbVal := float64(LTPFilterHigh[idx][tap]) / 128.0
-silk/ltp_encode.go	1	8c1e8826e0d14a1f110d15d01d223da846e6e04508116b8e1175efa0219ddbf4	legacy-current	s := float64(pcm[i])
-silk/ltp_encode.go	1	969ae3b710ec32254f6f6dbff82d80b9c300b436bc89afb5b8da992db66b89fc	legacy-current	func solveLTPSystem(R [5][5]float64, r [5]float64) [5]float64 {
-silk/ltp_encode.go	1	a5020366c0c6b77133ec1d14dd8502c93e36c497176c641568494c3e5e862cad	legacy-current	func computeLTPCoeffs(pcm []float32, start, length, lag int) [5]float64 {
-silk/ltp_encode.go	1	a83f612a85dfdc081b1a47a6501866087762fc4423d152ea8c62a0fccd5ad9d0	legacy-current	pastI := float64(pcm[pastIdx])
-silk/ltp_encode.go	1	b6110d39033a970a0c0229905ae15cb42b40b57769386ec35d5dcf2ae032197b	legacy-current	cbVal := float64(LTPFilterMid[idx][tap]) / 128.0
-silk/ltp_encode.go	3	ca433171b12db610f1ee41047afb221fb57f505379dea0ff63111c392392a376	legacy-current	var dist float64
-silk/ltp_encode.go	1	ed5af54f3af0bec6f3c7ba76fa55484e6b13c50b93fe7cce8fb0c28d2ead4a1a	legacy-current	func quantizeLTPCoeffsInto(coeffs []float64, periodicity int, result *[5]int8) {
 silk/ltp_quant.go	1	350273885d9380b165450ce153189efc6e1ede5a20c4f707b8f76c6feb41deaf	legacy-current	XXQ17[i] = float64ToInt32(float64(XX[i] * 131072.0))
 silk/ltp_quant.go	1	3636c0e16155489539b189e1187750a6674d475ada2210c8670f527ee451959d	legacy-current	inner += float64(float32(prod1 - prod2))
 silk/ltp_quant.go	1	5b73b8e16925bd44f72daa7efb8f83d706f05ad53a961144f931de6d13b6c920	legacy-current	xXQ17[i] = float64ToInt32(float64(xX[i] * 131072.0))

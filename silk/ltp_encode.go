@@ -1,7 +1,5 @@
 package silk
 
-import "math"
-
 // LTPCoeffsArray is a fixed-size type for LTP coefficients to avoid allocations.
 // Maximum 4 subframes, 5 taps each.
 type LTPCoeffsArray [4][5]int8
@@ -34,8 +32,8 @@ func (e *Encoder) analyzeLTP(pcm []float32, pitchLags []int, numSubframes int, p
 
 // computeLTPCoeffs computes 5-tap LTP coefficients for a subframe.
 // Uses least-squares minimization of prediction error.
-// Returns a fixed-size [5]float64 array to avoid heap allocation.
-func computeLTPCoeffs(pcm []float32, start, length, lag int) [5]float64 {
+// Returns a fixed-size [5]float32 array to avoid heap allocation.
+func computeLTPCoeffs(pcm []float32, start, length, lag int) [5]float32 {
 	const numTaps = 5
 	const halfTaps = 2
 
@@ -43,22 +41,22 @@ func computeLTPCoeffs(pcm []float32, start, length, lag int) [5]float64 {
 	// R[i][j] = sum(x[n-lag+i-2] * x[n-lag+j-2])
 	// r[i] = sum(x[n] * x[n-lag+i-2])
 
-	var R [numTaps][numTaps]float64
-	var r [numTaps]float64
+	var R [numTaps][numTaps]float32
+	var r [numTaps]float32
 
 	for n := start; n < start+length; n++ {
 		if n >= len(pcm) || n < lag+halfTaps {
 			continue
 		}
 
-		x := float64(pcm[n])
+		x := pcm[n]
 
 		for i := 0; i < numTaps; i++ {
 			pastIdx := n - lag + i - halfTaps
 			if pastIdx < 0 || pastIdx >= len(pcm) {
 				continue
 			}
-			pastI := float64(pcm[pastIdx])
+			pastI := pcm[pastIdx]
 			r[i] += x * pastI
 
 			for j := 0; j < numTaps; j++ {
@@ -66,7 +64,7 @@ func computeLTPCoeffs(pcm []float32, start, length, lag int) [5]float64 {
 				if pastJIdx < 0 || pastJIdx >= len(pcm) {
 					continue
 				}
-				pastJ := float64(pcm[pastJIdx])
+				pastJ := pcm[pastJIdx]
 				R[i][j] += pastI * pastJ
 			}
 		}
@@ -84,11 +82,11 @@ func computeLTPCoeffs(pcm []float32, start, length, lag int) [5]float64 {
 }
 
 // solveLTPSystem solves the 5x5 normal equations using Gaussian elimination.
-func solveLTPSystem(R [5][5]float64, r [5]float64) [5]float64 {
+func solveLTPSystem(R [5][5]float32, r [5]float32) [5]float32 {
 	const n = 5
 
 	// Augmented matrix
-	var A [n][n + 1]float64
+	var A [n][n + 1]float32
 	for i := 0; i < n; i++ {
 		for j := 0; j < n; j++ {
 			A[i][j] = R[i][j]
@@ -101,13 +99,13 @@ func solveLTPSystem(R [5][5]float64, r [5]float64) [5]float64 {
 		// Find pivot
 		maxRow := i
 		for k := i + 1; k < n; k++ {
-			if math.Abs(A[k][i]) > math.Abs(A[maxRow][i]) {
+			if abs32(A[k][i]) > abs32(A[maxRow][i]) {
 				maxRow = k
 			}
 		}
 		A[i], A[maxRow] = A[maxRow], A[i]
 
-		if math.Abs(A[i][i]) < 1e-10 {
+		if abs32(A[i][i]) < 1e-10 {
 			continue // Skip singular
 		}
 
@@ -121,13 +119,13 @@ func solveLTPSystem(R [5][5]float64, r [5]float64) [5]float64 {
 	}
 
 	// Back substitution
-	var coeffs [5]float64
+	var coeffs [5]float32
 	for i := n - 1; i >= 0; i-- {
 		sum := A[i][n]
 		for j := i + 1; j < n; j++ {
 			sum -= A[i][j] * coeffs[j]
 		}
-		if math.Abs(A[i][i]) > 1e-10 {
+		if abs32(A[i][i]) > 1e-10 {
 			coeffs[i] = sum / A[i][i]
 		}
 	}
@@ -139,7 +137,7 @@ func solveLTPSystem(R [5][5]float64, r [5]float64) [5]float64 {
 // Uses LTP codebook from codebook.go (LTPFilterLow/Mid/High).
 // Returns Q7 format coefficients.
 // Allocating version for backward compatibility.
-func quantizeLTPCoeffs(coeffs []float64, periodicity int) []int8 {
+func quantizeLTPCoeffs(coeffs []float32, periodicity int) []int8 {
 	result := make([]int8, 5)
 	var fixed [5]int8
 	quantizeLTPCoeffsInto(coeffs, periodicity, &fixed)
@@ -149,7 +147,7 @@ func quantizeLTPCoeffs(coeffs []float64, periodicity int) []int8 {
 
 // quantizeLTPCoeffsInto quantizes LTP coefficients into a pre-allocated array.
 // Zero-allocation version.
-func quantizeLTPCoeffsInto(coeffs []float64, periodicity int, result *[5]int8) {
+func quantizeLTPCoeffsInto(coeffs []float32, periodicity int, result *[5]int8) {
 	const numTaps = 5
 
 	// Clamp periodicity: 0 = low, 1 = mid, 2 = high
@@ -159,14 +157,14 @@ func quantizeLTPCoeffsInto(coeffs []float64, periodicity int, result *[5]int8) {
 
 	// Find best matching codebook entry
 	bestIdx := 0
-	var bestDist float64 = math.MaxFloat64
+	bestDist := float32(3.4028234663852886e+38)
 
 	switch periodicity {
 	case 0:
 		for idx := 0; idx < len(LTPFilterLow); idx++ {
-			var dist float64
+			var dist float32
 			for tap := 0; tap < numTaps; tap++ {
-				cbVal := float64(LTPFilterLow[idx][tap]) / 128.0
+				cbVal := float32(LTPFilterLow[idx][tap]) / 128.0
 				diff := coeffs[tap] - cbVal
 				dist += diff * diff
 			}
@@ -179,9 +177,9 @@ func quantizeLTPCoeffsInto(coeffs []float64, periodicity int, result *[5]int8) {
 
 	case 1:
 		for idx := 0; idx < len(LTPFilterMid); idx++ {
-			var dist float64
+			var dist float32
 			for tap := 0; tap < numTaps; tap++ {
-				cbVal := float64(LTPFilterMid[idx][tap]) / 128.0
+				cbVal := float32(LTPFilterMid[idx][tap]) / 128.0
 				diff := coeffs[tap] - cbVal
 				dist += diff * diff
 			}
@@ -194,9 +192,9 @@ func quantizeLTPCoeffsInto(coeffs []float64, periodicity int, result *[5]int8) {
 
 	case 2:
 		for idx := 0; idx < len(LTPFilterHigh); idx++ {
-			var dist float64
+			var dist float32
 			for tap := 0; tap < numTaps; tap++ {
-				cbVal := float64(LTPFilterHigh[idx][tap]) / 128.0
+				cbVal := float32(LTPFilterHigh[idx][tap]) / 128.0
 				diff := coeffs[tap] - cbVal
 				dist += diff * diff
 			}
@@ -300,7 +298,7 @@ func findLTPCodebookIndex(coeffs [5]int8, periodicity int) int {
 // Returns 0 (low), 1 (mid), or 2 (high) periodicity.
 func (e *Encoder) determinePeriodicity(pcm []float32, pitchLags []int) int {
 	// Compute average normalized autocorrelation at pitch lag
-	var totalCorr float64
+	var totalCorr float32
 	var count int
 
 	config := GetBandwidthConfig(e.bandwidth)
@@ -313,17 +311,17 @@ func (e *Encoder) determinePeriodicity(pcm []float32, pitchLags []int) int {
 			end = len(pcm)
 		}
 
-		var corr, energy1, energy2 float64
+		var corr, energy1, energy2 float32
 		for i := start; i < end && i >= lag; i++ {
-			s := float64(pcm[i])
-			past := float64(pcm[i-lag])
+			s := pcm[i]
+			past := pcm[i-lag]
 			corr += s * past
 			energy1 += s * s
 			energy2 += past * past
 		}
 
 		if energy1 > 1e-10 && energy2 > 1e-10 {
-			totalCorr += corr / math.Sqrt(energy1*energy2)
+			totalCorr += corr / sqrt32(energy1*energy2)
 			count++
 		}
 	}
@@ -332,7 +330,7 @@ func (e *Encoder) determinePeriodicity(pcm []float32, pitchLags []int) int {
 		return 1 // Default to mid
 	}
 
-	avgCorr := totalCorr / float64(count)
+	avgCorr := totalCorr / float32(count)
 
 	// Classify periodicity based on correlation strength
 	if avgCorr < 0.5 {
@@ -341,4 +339,11 @@ func (e *Encoder) determinePeriodicity(pcm []float32, pitchLags []int) int {
 		return 1 // Mid periodicity
 	}
 	return 2 // High periodicity
+}
+
+func abs32(x float32) float32 {
+	if x < 0 {
+		return -x
+	}
+	return x
 }
