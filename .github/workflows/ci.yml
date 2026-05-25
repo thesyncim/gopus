@@ -626,6 +626,13 @@ jobs:
               -run '^(TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture)$' \
               -count=1 -timeout=10m
 
+      - name: Run native encoder fixture parity smoke
+        run: |
+          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+            go test -tags gopus_libopus_oracle ./testvectors \
+              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderComplianceSummary)$' \
+              -count=1 -timeout=15m
+
       - name: Run test suite
         run: GOPUS_TEST_TIER=fast GOPUS_LIBOPUS_ORACLE=0 go test ./... -count=1 -timeout=25m
 
@@ -675,6 +682,13 @@ jobs:
             go test -tags gopus_libopus_oracle ./testvectors \
               -run '^(TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture)$' \
               -count=1 -timeout=10m
+
+      - name: Run native encoder fixture parity smoke
+        run: |
+          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+            go test -tags gopus_libopus_oracle ./testvectors \
+              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderComplianceSummary)$' \
+              -count=1 -timeout=15m
 
   test-windows:
     name: test-windows
@@ -754,6 +768,14 @@ jobs:
             go test -tags gopus_libopus_oracle ./testvectors \
               -run '^(TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture)$' \
               -count=1 -timeout=10m
+
+      - name: Run native encoder fixture parity smoke
+        shell: msys2 {0}
+        run: |
+          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+            go test -tags gopus_libopus_oracle ./testvectors \
+              -run '^(TestEncoderCompliancePacketsFixtureCoverage|TestEncoderVariantsFixtureCoverage|TestEncoderVariantsFixtureSignalHash|TestEncoderComplianceSummary)$' \
+              -count=1 -timeout=15m
 
       - name: Run test suite
         shell: msys2 {0}
