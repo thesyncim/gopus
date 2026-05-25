@@ -3,6 +3,7 @@ package celt
 import (
 	"math"
 
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -48,6 +49,51 @@ func computeQEXTBandLogEInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm 
 	}
 }
 
+func computeQEXTBandAmplitudesF32Into(mdctCoeffs []float32, cfg *qextModeConfig, end, lm int, bandE []celtEner) {
+	if cfg == nil || end <= 0 {
+		return
+	}
+	if end > len(cfg.EBands)-1 {
+		end = len(cfg.EBands) - 1
+	}
+	if end > len(bandE) {
+		end = len(bandE)
+	}
+	for i := 0; i < end; i++ {
+		start := cfg.EBands[i] << lm
+		stop := cfg.EBands[i+1] << lm
+		if start < 0 {
+			start = 0
+		}
+		if stop > len(mdctCoeffs) {
+			stop = len(mdctCoeffs)
+		}
+		if stop <= start {
+			bandE[i] = celtEner(1e-27)
+			continue
+		}
+		sum := float32(1e-27)
+		for _, v := range mdctCoeffs[start:stop] {
+			sum += v * v
+		}
+		bandE[i] = celtEner(opusmath.SqrtF32(sum))
+	}
+}
+
+func computeQEXTBandLogEF32Into(mdctCoeffs []float32, cfg *qextModeConfig, end, lm int, bandE []celtEner, bandLogE []celtGLog) {
+	computeQEXTBandAmplitudesF32Into(mdctCoeffs, cfg, end, lm, bandE)
+	if end > len(bandLogE) {
+		end = len(bandLogE)
+	}
+	for i := 0; i < end; i++ {
+		amp := float32(bandE[i])
+		if amp < 1e-27 {
+			amp = 1e-27
+		}
+		bandLogE[i] = celtGLog(celtLog2(amp) - float32(eMeans[i]))
+	}
+}
+
 func normalizeQEXTBandsInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []celtEner, norm []celtNorm) {
 	if cfg == nil || end <= 0 || len(norm) == 0 {
 		return
@@ -81,6 +127,43 @@ func normalizeQEXTBandsInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm i
 		g := float32(1.0) / amp
 		for j := start; j < stop; j++ {
 			norm[j] = celtNorm(float32(mdctCoeffs[j]) * g)
+		}
+	}
+}
+
+func normalizeQEXTBandsF32Into(mdctCoeffs []float32, cfg *qextModeConfig, end, lm int, bandE []celtEner, norm []celtNorm) {
+	if cfg == nil || end <= 0 || len(norm) == 0 {
+		return
+	}
+	clear(norm)
+	if end > len(cfg.EBands)-1 {
+		end = len(cfg.EBands) - 1
+	}
+	if end > len(bandE) {
+		end = len(bandE)
+	}
+	for i := 0; i < end; i++ {
+		start := cfg.EBands[i] << lm
+		stop := cfg.EBands[i+1] << lm
+		if start < 0 {
+			start = 0
+		}
+		if stop > len(mdctCoeffs) {
+			stop = len(mdctCoeffs)
+		}
+		if stop > len(norm) {
+			stop = len(norm)
+		}
+		if stop <= start {
+			continue
+		}
+		amp := float32(bandE[i])
+		if amp < float32(1e-27) {
+			amp = float32(1e-27)
+		}
+		g := float32(1.0) / amp
+		for j := start; j < stop; j++ {
+			norm[j] = celtNorm(mdctCoeffs[j] * g)
 		}
 	}
 }

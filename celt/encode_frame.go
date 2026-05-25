@@ -480,7 +480,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
 			bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
-			computeBandEnergiesGLogInto(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
+			computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
 		} else {
 			left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 			overlap := Overlap
@@ -504,14 +504,14 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			copy(rightHist, mdctPrevR[:overlap])
 			mdctLeftLong := computeMDCTWithHistoryScratchStereoL(left, leftHist, 1, &e.scratch)
 			mdctRightLong := computeMDCTWithHistoryScratchStereoR(right, rightHist, 1, &e.scratch)
-			mdctLong := e.scratch.mdctCoeffs
+			mdctLong := e.scratch.mdctCoeffsF32
 			if codedChannels == 1 {
-				mdctLong = foldStereoMDCTToMono(mdctLong, mdctLeftLong, mdctRightLong)
+				mdctLong = foldStereoMDCTToMonoF32(mdctLong, mdctLeftLong, mdctRightLong)
 			} else {
 				mdctLongLen := len(mdctLeftLong) + len(mdctRightLong)
 				if len(mdctLong) < mdctLongLen {
-					mdctLong = make([]float64, mdctLongLen)
-					e.scratch.mdctCoeffs = mdctLong
+					mdctLong = make([]float32, mdctLongLen)
+					e.scratch.mdctCoeffsF32 = mdctLong
 				}
 				mdctLong = mdctLong[:mdctLongLen]
 				copy(mdctLong, mdctLeftLong)
@@ -519,7 +519,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			}
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
 			bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
-			computeBandEnergiesGLogInto(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
+			computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
 		}
 		if bandLogE2 != nil {
 			offset := celtGLog(0.5 * float32(lm))
@@ -530,8 +530,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	}
 
 	// Step 5: Compute MDCT with proper overlap handling
-	var mdctCoeffs []float64
-	var mdctLeft, mdctRight []float64
+	var mdctCoeffs []float32
+	var mdctLeft, mdctRight []float32
 	if e.channels == 1 {
 		hist := ensureFloat32Slice(&e.scratch.leftHist, overlap)
 		hist = hist[:overlap]
@@ -556,15 +556,15 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHistory, shortBlocks, &e.scratch)
 		mdctRight = computeMDCTWithHistoryScratchStereoR(right, rightHistory, shortBlocks, &e.scratch)
 
-		mdctCoeffs = e.scratch.mdctCoeffs
+		mdctCoeffs = e.scratch.mdctCoeffsF32
 		if codedChannels == 1 {
-			mdctCoeffs = foldStereoMDCTToMono(mdctCoeffs, mdctLeft, mdctRight)
+			mdctCoeffs = foldStereoMDCTToMonoF32(mdctCoeffs, mdctLeft, mdctRight)
 			tfChannel = 0
 		} else {
 			coeffsLen := len(mdctLeft) + len(mdctRight)
 			if len(mdctCoeffs) < coeffsLen {
-				mdctCoeffs = make([]float64, coeffsLen)
-				e.scratch.mdctCoeffs = mdctCoeffs
+				mdctCoeffs = make([]float32, coeffsLen)
+				e.scratch.mdctCoeffsF32 = mdctCoeffs
 			}
 			mdctCoeffs = mdctCoeffs[:coeffsLen]
 			copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
@@ -574,7 +574,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 	// Step 6: Compute band energies
 	energies := ensureGLogSlice(&e.scratch.energies, nbBands*codedChannels)
-	computeBandEnergiesGLogInto(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
+	computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
 	if e.lfe {
 		applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 	}
@@ -634,15 +634,15 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 				copy(rightHist, mdctPrevR[:overlap])
 				mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHist, shortBlocks, &e.scratch)
 				mdctRight = computeMDCTWithHistoryScratchStereoR(right, rightHist, shortBlocks, &e.scratch)
-				mdctCoeffs = e.scratch.mdctCoeffs
+				mdctCoeffs = e.scratch.mdctCoeffsF32
 				if codedChannels == 1 {
-					mdctCoeffs = foldStereoMDCTToMono(mdctCoeffs, mdctLeft, mdctRight)
+					mdctCoeffs = foldStereoMDCTToMonoF32(mdctCoeffs, mdctLeft, mdctRight)
 					tfChannel = 0
 				} else {
 					coeffsLen := len(mdctLeft) + len(mdctRight)
 					if len(mdctCoeffs) < coeffsLen {
-						mdctCoeffs = make([]float64, coeffsLen)
-						e.scratch.mdctCoeffs = mdctCoeffs
+						mdctCoeffs = make([]float32, coeffsLen)
+						e.scratch.mdctCoeffsF32 = mdctCoeffs
 					}
 					mdctCoeffs = mdctCoeffs[:coeffsLen]
 					copy(mdctCoeffs[:len(mdctLeft)], mdctLeft)
@@ -652,7 +652,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 			// Recompute band energies with short block coefficients
 			energies = ensureGLogSlice(&e.scratch.energies, nbBands*codedChannels)
-			computeBandEnergiesGLogInto(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
+			computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
 			if e.lfe {
 				applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 			}
@@ -754,10 +754,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	var bandE []celtEner
 	var normBandEScratch []celtEner
 	if codedChannels == 1 {
-		normL, bandE = e.NormalizeBandsToArrayMonoWithBandE(mdctCoeffs, nbBands, frameSize)
+		normL, bandE = e.NormalizeBandsToArrayMonoWithBandEF32(mdctCoeffs, nbBands, frameSize)
 		normBandEScratch = bandE
 	} else {
-		normL, normR, bandE = e.NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight, nbBands, frameSize)
+		normL, normR, bandE = e.NormalizeBandsToArrayStereoWithBandEF32(mdctLeft, mdctRight, nbBands, frameSize)
 	}
 	_ = normBandEScratch
 	normLCelt := ensureNormSlice(&e.scratch.allocTrimNormL, len(normL))
@@ -1277,16 +1277,16 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			clear(qextBandLogE)
 			clear(qextBandE)
 			if codedChannels == 1 {
-				computeQEXTBandLogEInto(mdctCoeffs, &qextCfg, qextEnd, lm, qextBandE, qextBandLogE)
+				computeQEXTBandLogEF32Into(mdctCoeffs, &qextCfg, qextEnd, lm, qextBandE, qextBandLogE)
 				qextNormL = qs.normL[:frameSize]
-				normalizeQEXTBandsInto(mdctCoeffs, &qextCfg, qextEnd, lm, qextBandE, qextNormL)
+				normalizeQEXTBandsF32Into(mdctCoeffs, &qextCfg, qextEnd, lm, qextBandE, qextNormL)
 			} else {
-				computeQEXTBandLogEInto(mdctLeft, &qextCfg, qextEnd, lm, qextBandE[:qextEnd], qextBandLogE[:qextEnd])
-				computeQEXTBandLogEInto(mdctRight, &qextCfg, qextEnd, lm, qextBandE[qextEnd:], qextBandLogE[qextEnd:])
+				computeQEXTBandLogEF32Into(mdctLeft, &qextCfg, qextEnd, lm, qextBandE[:qextEnd], qextBandLogE[:qextEnd])
+				computeQEXTBandLogEF32Into(mdctRight, &qextCfg, qextEnd, lm, qextBandE[qextEnd:], qextBandLogE[qextEnd:])
 				qextNormL = qs.normL[:frameSize]
 				qextNormR = qs.normR[:frameSize]
-				normalizeQEXTBandsInto(mdctLeft, &qextCfg, qextEnd, lm, qextBandE[:qextEnd], qextNormL)
-				normalizeQEXTBandsInto(mdctRight, &qextCfg, qextEnd, lm, qextBandE[qextEnd:], qextNormR)
+				normalizeQEXTBandsF32Into(mdctLeft, &qextCfg, qextEnd, lm, qextBandE[:qextEnd], qextNormL)
+				normalizeQEXTBandsF32Into(mdctRight, &qextCfg, qextEnd, lm, qextBandE[qextEnd:], qextNormR)
 			}
 
 			hdr := qextHeader{
@@ -1542,6 +1542,21 @@ func foldStereoMDCTToMono(dst, left, right []float64) []float64 {
 	return dst
 }
 
+func foldStereoMDCTToMonoF32(dst, left, right []float32) []float32 {
+	n := len(left)
+	if len(right) < n {
+		n = len(right)
+	}
+	if len(dst) < n {
+		dst = make([]float32, n)
+	}
+	dst = dst[:n]
+	for i := 0; i < n; i++ {
+		dst[i] = 0.5*left[i] + 0.5*right[i]
+	}
+	return dst
+}
+
 func (e *Encoder) setPrevEnergyWithPrevCoded(prev []celtGLog, energies []celtGLog, nbBands, codedChannels int) {
 	if len(prev) == len(e.prevEnergy2) {
 		copy(e.prevEnergy2, prev)
@@ -1670,7 +1685,7 @@ func ComputeMDCTWithHistoryInto(scratch, samples, history []float64, shortBlocks
 
 // computeMDCTWithHistoryScratch computes MDCT using a history buffer with scratch buffers.
 // This is the zero-allocation version that uses pre-allocated buffers.
-func computeMDCTWithHistoryScratch(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float64 {
+func computeMDCTWithHistoryScratch(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -1711,14 +1726,14 @@ func computeMDCTWithHistoryScratch(samples, history []float32, shortBlocks int, 
 	}
 
 	if shortBlocks > 1 {
-		return mdctShortScratchF32(input, shortBlocks, scratch)
+		return mdctShortScratchF32Coeffs(input, shortBlocks, scratch)
 	}
-	return mdctScratchF32(input, scratch)
+	return mdctScratchF32Coeffs(input, scratch)
 }
 
 // computeMDCTWithHistoryScratchStereoL computes MDCT for the left channel with scratch buffers.
 // Uses mdctLeft scratch buffer for output.
-func computeMDCTWithHistoryScratchStereoL(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float64 {
+func computeMDCTWithHistoryScratchStereoL(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -1760,17 +1775,17 @@ func computeMDCTWithHistoryScratchStereoL(samples, history []float32, shortBlock
 
 	// Use mdctLeft for output
 	frameSize := len(samples)
-	coeffs := ensureFloat64Slice(&scratch.mdctLeft, frameSize)
+	coeffs := ensureFloat32Slice(&scratch.mdctLeftF32, frameSize)
 
 	if shortBlocks > 1 {
-		return mdctShortScratchIntoF32(input, shortBlocks, coeffs, scratch)
+		return mdctShortScratchIntoF32Coeffs(input, shortBlocks, coeffs, scratch)
 	}
-	return mdctScratchIntoF32(input, coeffs, scratch)
+	return mdctScratchIntoF32Coeffs(input, coeffs, scratch)
 }
 
 // computeMDCTWithHistoryScratchStereoR computes MDCT for the right channel with scratch buffers.
 // Uses mdctRight scratch buffer for output.
-func computeMDCTWithHistoryScratchStereoR(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float64 {
+func computeMDCTWithHistoryScratchStereoR(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
@@ -1812,12 +1827,12 @@ func computeMDCTWithHistoryScratchStereoR(samples, history []float32, shortBlock
 
 	// Use mdctRight for output
 	frameSize := len(samples)
-	coeffs := ensureFloat64Slice(&scratch.mdctRight, frameSize)
+	coeffs := ensureFloat32Slice(&scratch.mdctRightF32, frameSize)
 
 	if shortBlocks > 1 {
-		return mdctShortScratchIntoF32(input, shortBlocks, coeffs, scratch)
+		return mdctShortScratchIntoF32Coeffs(input, shortBlocks, coeffs, scratch)
 	}
-	return mdctScratchIntoF32(input, coeffs, scratch)
+	return mdctScratchIntoF32Coeffs(input, coeffs, scratch)
 }
 
 func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, targetBytes int) ([]byte, error) {

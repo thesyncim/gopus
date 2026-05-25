@@ -473,7 +473,7 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands,
 		copySigToFloat32(hist, e.overlapBuffer[:overlap])
 		mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
 		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*e.channels)
-		computeBandEnergiesGLogInto(mdctLong, nbBands, frameSize, e.channels, bandLogE2)
+		computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, e.channels, bandLogE2)
 	} else {
 		left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 		if len(e.overlapBuffer) < 2*overlap {
@@ -500,16 +500,16 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands,
 		mdctLeftLong := computeMDCTWithHistoryScratchStereoL(left, leftHist, 1, &e.scratch)
 		mdctRightLong := computeMDCTWithHistoryScratchStereoR(right, rightHist, 1, &e.scratch)
 		mdctLongLen := len(mdctLeftLong) + len(mdctRightLong)
-		mdctLong := e.scratch.mdctCoeffs
+		mdctLong := e.scratch.mdctCoeffsF32
 		if len(mdctLong) < mdctLongLen {
-			mdctLong = make([]float64, mdctLongLen)
-			e.scratch.mdctCoeffs = mdctLong
+			mdctLong = make([]float32, mdctLongLen)
+			e.scratch.mdctCoeffsF32 = mdctLong
 		}
 		mdctLong = mdctLong[:mdctLongLen]
 		copy(mdctLong, mdctLeftLong)
 		copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
 		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*e.channels)
-		computeBandEnergiesGLogInto(mdctLong, nbBands, frameSize, e.channels, bandLogE2)
+		computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, e.channels, bandLogE2)
 	}
 
 	if bandLogE2 != nil {
@@ -699,15 +699,15 @@ func (e *Encoder) ComputeMDCTWithHistoryScratch(inputScratch, samples, history [
 }
 
 // ComputeMDCTWithHistoryScratchStereoL computes MDCT for the left channel using
-// separate scratch output buffers. The result is written to scratch.mdctLeft so it
+// separate scratch output buffers. The result is written to scratch.mdctLeftF32 so it
 // survives a subsequent right-channel call.
-func (e *Encoder) ComputeMDCTWithHistoryScratchStereoL(samples, history []float32, shortBlocks int) []float64 {
+func (e *Encoder) ComputeMDCTWithHistoryScratchStereoL(samples, history []float32, shortBlocks int) []float32 {
 	return computeMDCTWithHistoryScratchStereoL(samples, history, shortBlocks, &e.scratch)
 }
 
 // ComputeMDCTWithHistoryScratchStereoR computes MDCT for the right channel using
-// separate scratch output buffers. The result is written to scratch.mdctRight.
-func (e *Encoder) ComputeMDCTWithHistoryScratchStereoR(samples, history []float32, shortBlocks int) []float64 {
+// separate scratch output buffers. The result is written to scratch.mdctRightF32.
+func (e *Encoder) ComputeMDCTWithHistoryScratchStereoR(samples, history []float32, shortBlocks int) []float32 {
 	return computeMDCTWithHistoryScratchStereoR(samples, history, shortBlocks, &e.scratch)
 }
 

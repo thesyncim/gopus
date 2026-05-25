@@ -187,34 +187,25 @@ celt/encode_frame.go	1	1b3aba396bbc86e9f6f83bd43c4540d701b8cacc827499dcb1f5be1cb
 celt/encode_frame.go	1	22b4ec46544e25696e5a1cbba3b5a1d1798b677909d4b21b12d30ea9da57ddc4	legacy-current	func ComputeMDCTWithHistory(samples, history []float64, shortBlocks int) []float64 {
 celt/encode_frame.go	1	25206c6ba1b8c1a1eb43cfaf7b466a842cb554685aed19a65037df06ae3f46ba	legacy-current	dst = make([]float64, n)
 celt/encode_frame.go	1	2a46c0df9f86421e387088353d61ca1dafe90bbb613d197ef58771ad2e7ce50a	legacy-current	saveA := int(maxFrac * float64(targetQ3))
-celt/encode_frame.go	1	2ef9790ddb9e684fad8c54fe18fbcaca04bd4a65535672c81aa65cb2ee76d190	legacy-current	func computeMDCTWithHistoryScratch(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float64 {
 celt/encode_frame.go	1	37ddc7da3a7a1f598f2d020916b9c3d43d5a092e156fe493e504c73efa0352e3	legacy-current	maxFrac := 0.8 * float64(codedStereoDof) / float64(codedBins)
 celt/encode_frame.go	1	381cfbdc164673e0797671808bab487a84d28ee82cc1292234e526f6d370bd01	legacy-current	tonalTarget += int(float64(codedBins<<bitRes) * 0.8)
-celt/encode_frame.go	1	3ac2e099c102b4860a16f3766a6b286d330a07d35f80355c70d01c0d7fb728de	legacy-current	var mdctLeft, mdctRight []float64
-celt/encode_frame.go	1	3d9bc5830b0b5d4b176fc6de5056ae931afafb66538d9dbefcb2aff8ac8d5387	legacy-current	func computeMDCTWithHistoryScratchStereoR(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float64 {
 celt/encode_frame.go	1	488f4b40267b2fbda155ebb0a913be26273a3ff3fcf484d8972fb543de508594	legacy-current	targetQ3 = baseTargetQ3 + int(0.67*float64(targetQ3-baseTargetQ3))
 celt/encode_frame.go	1	4cf4e40376d2ac2fa790cef2cf724f742a47f1006dcc5cab3d4897f38d1c18e4	legacy-current	tonality := float64(e.analysisTonality)
 celt/encode_frame.go	1	4e105e94c298b53f113e2a9c00e860f6c7e55d5f6f072fd7107379e02c54cfd4	legacy-current	func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChange bool) int {
 celt/encode_frame.go	1	50f57a31e9c5d7cf805c780f0de23272b99ec214ef6c53f054e98920f1da628f	legacy-current	floorDepth := int(float64((channels*bins)<<bitRes) * maxDepth)
 celt/encode_frame.go	1	549db166e855560a9d665e0532816af8c310aeeee281c395ef2ddcedeaa907ce	legacy-current	lower := int(0.79 * float64(prevPrefilterPeriod))
-celt/encode_frame.go	1	55bcda0bdad6a00799d86187b85e6f348fd278caad79acd58c31c509b1323776	legacy-current	func computeMDCTWithHistoryScratchStereoL(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float64 {
 celt/encode_frame.go	1	5819ec33804fe21e8adec2494a23187c6329edabdbefa05aa9102d803182afc8	legacy-current	targetQ3 -= int(float64(codedBins<<bitRes) * (0.4 - activity))
 celt/encode_frame.go	1	5d5e773e17b5721e887e8348bc096db2c0408e2ddbca107f5ab16faba9b0e68a	legacy-current	tonalitySlope = float64(e.analysisTonalitySlope)
-celt/encode_frame.go	2	7b1320d24d92d02b34406ccfc15768c05431a9eb5720473815ebf88997769c24	legacy-current	mdctCoeffs = make([]float64, coeffsLen)
 celt/encode_frame.go	1	81add15b7b954812eb557eeaffb1dc2ccb84ae566a1304250b322764553f9060	legacy-current	maxPitchRatio = float64(e.analysisMaxPitchRatio)
 celt/encode_frame.go	1	8210797523c9c67caef016b08bc8852d6f73a79d1450b0b7ac75afe212beaf23	legacy-current	stereoSaving := float64(e.lastStereoSaving)
 celt/encode_frame.go	1	8690188a67f24803a2709dedd234a0444943dbfe830cf60d91a718bb5f43435a	legacy-current	// Our encoder operates on float64 samples, so match the float path.
 celt/encode_frame.go	1	8d954fd8fb89fbd406d8a6228c8fc4cb7ef78920d2c70fd7a9589a03fdf3b08f	legacy-current	input := make([]float64, len(samples)+overlap)
 celt/encode_frame.go	1	9798d47079e4a8c03b6f592bc383e0271c252b06a990d96ed5fbfb4cc7fe74de	legacy-current	func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool, totalBoost int) int {
 celt/encode_frame.go	1	98f0bd7c0c0541f38990655a1f90240e587fe047620d4326db54ed00a63b2fe3	legacy-current	dst[i] = float64(0.5*float32(left[i]) + 0.5*float32(right[i]))
-celt/encode_frame.go	1	9cce45c03d83201e2ad1b15fe69a4412eb41b05b2555ffebc8632dafa6013ceb	legacy-current	mdctLong = make([]float64, mdctLongLen)
 celt/encode_frame.go	1	9dd539ddfb2a1fa15b3a31dacaa51276d230bc636f16a27653883eef13bbbe6b	legacy-current	out[i] = float32(math.Floor(float64(float32(0.5)+v*scale))) * invScale
-celt/encode_frame.go	1	abd54ba449a2fa36435d7e698817ddd46e6e85548b2cb05220f2c26a5b2c4dbd	legacy-current	coeffs := ensureFloat64Slice(&scratch.mdctRight, frameSize)
 celt/encode_frame.go	1	d0628808c22c97ae17ce838bd30c83acbbdd9e671afd1ccd272d736d424a47c4	legacy-current	func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float64, pitchChange bool) int {
-celt/encode_frame.go	1	d1e6b4e3b648be61ebd052346399ee74e03bbbb1c7115ab587bc2e4865a0c045	legacy-current	var mdctCoeffs []float64
 celt/encode_frame.go	1	d94219c2ecefbcd9cacbfee1c2898e8aef33d2725478a1217657f7aaf825f275	legacy-current	tonalTarget += int(float64(codedBins<<bitRes) * 1.2 * tonal)
 celt/encode_frame.go	1	de3fcdae0b939b3b6eb09a9760d8b6520484a94f318533f555fb1215e8da07f7	legacy-current	func foldStereoMDCTToMono(dst, left, right []float64) []float64 {
-celt/encode_frame.go	1	e27e8de6e2e84c942c6f3a5a338d2b511a2506a51b9040c85b766c20833a73db	legacy-current	coeffs := ensureFloat64Slice(&scratch.mdctLeft, frameSize)
 celt/encode_frame.go	1	e6593a44711a1b89905e9eaf63c7d60a3602dc75fb160770b142b703a2fc3cd8	legacy-current	tfBoost := int((tfEstimate - tfCalibration) * float64(targetQ3))
 celt/encode_frame.go	1	e86f19846d142cb08eca41b69748b5d5321bcb6dc2346b909183f5524155fdc1	legacy-current	saveB := int((stereoSaving - 0.1) * float64(codedStereoDof<<bitRes))
 celt/encode_frame.go	1	e8bf7e6adf476a2d2ff407f127dc15ff739fb9ffeda0dcbda9e83cc8df28be55	legacy-current	upper := int(1.26 * float64(prevPrefilterPeriod))
@@ -268,21 +259,18 @@ celt/haar1_nonarm64.go	1	e72a9f17c852f6ea22c73e13aeb929ef6e3d955b5e9efc163aae7fb
 celt/haar1_nonarm64.go	1	f7c2c1acdc235e8f5b6e2bb31161583248bf0411b02f15cbb0b39212078ee1ac	legacy-current	func haar1Stride1Asm(x []float64, n0 int) {
 celt/history_slide_arm64.go	1	73eb4e9bd75ae094c211d28e2838ae36b8127f6084a8d7ffef88449461b4776e	legacy-current	func slidePlanarHistoryPrefixLarge(hist []float64, frameSize, keep int)
 celt/history_slide_default.go	1	a311ca73e0aa3b36538d5685e1356ed0c9fb73d795685969f91dc7cf457bfbae	legacy-current	func slidePlanarHistoryPrefixLarge(hist []float64, frameSize, keep int) {
-celt/hybrid_encode_helpers.go	1	077e52350fcf1553dafd72771f59a0ef85b8f2af3574814474cbf56d06e5d711	legacy-current	func (e *Encoder) ComputeMDCTWithHistoryScratchStereoR(samples, history []float32, shortBlocks int) []float64 {
 celt/hybrid_encode_helpers.go	1	0a7bcf388e5111fc6d5a224840c01cc1381d0107c45ea31252ec5da36c4eaf5a	legacy-current	func (e *Encoder) ApplyHybridPrefilter(preemph []float32, frameSize int, tfEstimate float64, nbAvailableBytes int, toneFreq, toneishness float64) {
 celt/hybrid_encode_helpers.go	1	0b1c7e1806acc4328098af449347fac4f27a1af1aee16ae8bde0b527ef6bde9b	legacy-current	func (e *Encoder) NormalizeBandsToArrayMonoWithBandE(mdctCoeffs []float64, nbBands, frameSize int) (norm []celtNorm, bandE []celtEner) {
 celt/hybrid_encode_helpers.go	1	1d52468eaa3a7fe4ee98a3dabda4665e16cfb5b221801bcdce9e97e5aa969de8	legacy-current	func (e *Encoder) MDCTShortScratchF32(samples []float32, shortBlocks int) []float64 {
 celt/hybrid_encode_helpers.go	1	231a6f9bee79d09de40a4cc2789b672a456bf7ce5628f03321da3158bb222328	legacy-current	func (e *Encoder) RoundFloat64ToFloat32(x []float64) {
 celt/hybrid_encode_helpers.go	1	292655092f0b84048121908c63859999efb81f3cfc5e630665f08804e53c3a60	legacy-current	func (e *Encoder) NormalizeBandsToArrayStereoWithBandE(mdctLeft, mdctRight []float64, nbBands, frameSize int) (normL, normR []celtNorm, bandE []celtEner) {
 celt/hybrid_encode_helpers.go	1	31e42ed4d5ba47a3f7af07655edab80c803f6034c2be1efd9d73be238c69650b	legacy-current	func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float64, shortBlocks int, bandLogE
-celt/hybrid_encode_helpers.go	1	362caac8504f6a22d9e7d6bf8954d4746c21a09b011fd0df2a8f37b4d9199425	legacy-current	func (e *Encoder) ComputeMDCTWithHistoryScratchStereoL(samples, history []float32, shortBlocks int) []float64 {
 celt/hybrid_encode_helpers.go	1	38e9806a3514fd9a089f4991a8150446e2afadb32e9944b63696f98820cacb3c	legacy-current	func (e *Encoder) MDCTScratchF32(samples []float32) []float64 {
 celt/hybrid_encode_helpers.go	1	3d093f11683524fc08efec8093353ff6e93bd002452da6495855a7bb239a0782	legacy-current	func (e *Encoder) MDCTShortScratch(samples []float64, shortBlocks int) []float64 {
 celt/hybrid_encode_helpers.go	1	4915735bdb1f9c3b7c5be23c23af043663ba251759964c98dc32101dfe38fa03	legacy-current	func (e *Encoder) ComputeMDCTWithHistoryScratch(inputScratch, samples, history []float64, shortBlocks int) []float64 {
 celt/hybrid_encode_helpers.go	1	50bc9b5da6f5d2dcddd8b8e2f9f7b91edef38d22eb7044e8b619fe6ab77de724	legacy-current	// storing the rounded value back into the same []float64 slice.
 celt/hybrid_encode_helpers.go	1	549db166e855560a9d665e0532816af8c310aeeee281c395ef2ddcedeaa907ce	legacy-current	lower := int(0.79 * float64(prevPrefilterPeriod))
 celt/hybrid_encode_helpers.go	1	81add15b7b954812eb557eeaffb1dc2ccb84ae566a1304250b322764553f9060	legacy-current	maxPitchRatio = float64(e.analysisMaxPitchRatio)
-celt/hybrid_encode_helpers.go	1	9cce45c03d83201e2ad1b15fe69a4412eb41b05b2555ffebc8632dafa6013ceb	legacy-current	mdctLong = make([]float64, mdctLongLen)
 celt/hybrid_encode_helpers.go	1	bb85391b2c4e6333aec6a4807bed856bbf33d162316afb4c6a11583ae998b039	legacy-current	func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2 []celtGLog, oldBandE []celtGLog, nbBands, start, end, lsbDepth, lm int, effectiveBytes int, isTransient, vbr, constrainedVBR bool, toneFreq, toneishness
 celt/hybrid_encode_helpers.go	1	e8bf7e6adf476a2d2ff407f127dc15ff739fb9ffeda0dcbda9e83cc8df28be55	legacy-current	upper := int(1.26 * float64(prevPrefilterPeriod))
 celt/hybrid_encode_helpers.go	1	ec2181c97c6239de7d6a2bf51327bd5f13e55387827d05b6ded50c64e4620abf	legacy-current	func (e *Encoder) MDCTScratch(samples []float64) []float64 {
@@ -443,34 +431,30 @@ celt/modes.go	1	8a7613cc0387a276f94acefe986ed2acac6aae477db5dbfec19e717e464b02b2
 celt/modes.go	1	9bfa1417e15479cfb7e5edb560bd7304977dbbf6ea6ba30664275cfec93fdbee	legacy-current	func FrameSizeFromDuration(durationMs float64) (int, error) {
 celt/modes.go	1	efa2632f984ce6f3c4b73c6fd4e6f856b267830afa2ac248aa5ee8d515b8cd96	legacy-current	return float64(frameSize) / 48.0 // 48kHz sample rate
 celt/output_helpers.go	2	17fc3fc1cb8e9528e102ae6779d940d2686914e18366462769355356e29c7c61	legacy-current	samples[i] = float64(tmpL0 * scale32)
-celt/output_helpers.go	1	1ebeee6731a1baef21acfa7538802ac7cd1ea52f2b0348a786ceaf693bf2a592	legacy-current	func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []float64, scale float64) {
+celt/output_helpers.go	1	1847f86ad5adb44526d10a074451c800f71562beffe19a34835f8ec3c64d200c	legacy-current	func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float32) {
+celt/output_helpers.go	1	1d5ecc92dd5d7cb5cf86e5d393969669443dceb83a47bab4db1a94598ee5a6b8	legacy-current	func (d *Decoder) applyDeemphasisAndScaleStereoPlanarDownsampleToFloat32(dst []float32, left, right []float64, downsample int, scale float32) {
 celt/output_helpers.go	1	239a81bd9be3cd970f1da319a4e2325edc441d8bca0d1740dca7f31f1793c195	legacy-current	// and using float64 would cause precision drift relative to libopus.
 celt/output_helpers.go	1	27abac7de9cedb46fdee08446ce57329da3332764868eeaa4dbd4ceacc67fd91	legacy-current	func copyFloat64ToFloat32(dst []float32, src []float64) {
 celt/output_helpers.go	1	2898508899e86b02d3d27f1eb53d9ab41b1f27ece64d958448c30c05bf6f682a	legacy-current	samples[i+7] = float64(tmpR3 * scale32)
 celt/output_helpers.go	1	2a4348854d9d1211ad7a8dff42bbebb8b5bd2573c35b8fd5191a3b9e586dc615	legacy-current	samples[i+6] = float64(tmpL3 * scale32)
-celt/output_helpers.go	1	31477f42d632f8228712cb1c885a9c3da58168a71fad55a6bd0bd5e7752f4f41	legacy-current	func (d *Decoder) applyDeemphasisAndScaleMonoFloat32ToFloat32(dst []float32, samples []float32, scale float64) {
-celt/output_helpers.go	1	348a6cbbbd34ac0cf66fe0657d8d4b6c9dd9c6c331d2897635593e7fc1e95913	legacy-current	func (d *Decoder) applyDeemphasisAndScaleStereoPlanarDownsampleToFloat32(dst []float32, left, right []float64, downsample int, scale float64) {
+celt/output_helpers.go	1	2f562a92e0594a7eb1247dd3fab62b84d3770635770131047ead0a70f5cdab10	legacy-current	func (d *Decoder) applyDeemphasisAndScaleDownsampleToFloat32(dst []float32, samples []float64, downsample int, scale float32) {
 celt/output_helpers.go	1	3499782fc554810b43c30532523c72ab641d7bf4b83ed22c73768432003a5409	legacy-current	samples[i+5] = float64(tmpR2 * scale32)
 celt/output_helpers.go	2	4c360b5e165b198de26b0d01dfd802abe15b38f49959d3e8aa95acb6389f9b9f	legacy-current	samples[i+1] = float64(tmpR0 * scale32)
-celt/output_helpers.go	1	66d99bb5d2239d7b67d631282bae931a9df648abdda09e74269a248fbcd002f9	legacy-current	func (d *Decoder) applyDeemphasisAndScaleStereoPlanarToFloat32(dst []float32, left, right []float64, scale float64) {
+celt/output_helpers.go	1	5daf894bbcc2ad1f24dcdabd7ad1e9e2bfe157bd8400e4af4848ddf875d0b702	legacy-current	func (d *Decoder) applyDeemphasisAndScaleStereoPlanarToFloat32(dst []float32, left, right []float64, scale float32) {
 celt/output_helpers.go	2	8c2633355d0a2162335b1405f2e71fffd457721edbcf7faaee259067ee639703	legacy-current	samples[i+1] = float64(tmp1 * scale32)
 celt/output_helpers.go	2	8ee46891a1af6dbf6158e60add48cdc1c2220866a591238ed27f53936c52fd1e	legacy-current	samples[i] = float64(tmp0 * scale32)
 celt/output_helpers.go	1	906f44e98ead874d6da39f25a9fd8fe8be85a967737c7269ee35435ecb15599d	legacy-current	samples[i+6] = float64(tmp6 * scale32)
 celt/output_helpers.go	2	91449a304d01ddb236283b298706ea49e065bb743000d2d91aff1aa53a2a3a88	legacy-current	samples[i+3] = float64(tmpR1 * scale32)
 celt/output_helpers.go	2	9295bf2505adaa098dab387a708e59914365330441c487f94803c6a2b98a6075	legacy-current	samples[i+3] = float64(tmp3 * scale32)
 celt/output_helpers.go	2	929878d95d11fece68d203edf9eba2c5f2a272e95ca725275315bc135bfb7b9c	legacy-current	samples[i+2] = float64(tmpL1 * scale32)
-celt/output_helpers.go	1	9488215ca5f235953020e5804e2a41a93e6f9da940dd6b9ddc3b10c6354ff1e9	legacy-current	func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(dst []float32, left, right []float32, scale float64) {
 celt/output_helpers.go	1	97b060fc80b24f413761ed63d952d233a94689bbdfd456ee67133fd14714a08e	legacy-current	samples[i+4] = float64(tmp4 * scale32)
 celt/output_helpers.go	1	97f41648dcfca72901084e7a871b179b57e4915525b42bc3080971bf1f7e91f6	legacy-current	func (d *Decoder) applyDeemphasis(samples []float64) {
 celt/output_helpers.go	1	a7b98321972c316d2dcab0883664cbb966693308967bc2146f4f8de1ee49b86b	legacy-current	samples[i] = float64(tmp * scale32)
-celt/output_helpers.go	1	ab291eece527ad2250e45f13b46ad2b231d7604eed413055435c16841bcabc60	legacy-current	func (d *Decoder) applyDeemphasisAndScaleMonoFloat32DownsampleToFloat32(dst []float32, samples []float32, downsample int, scale float64) {
-celt/output_helpers.go	1	c8f592a732797260441e35a892dbf8e24a0b016535bf23736bf4dff795b028f0	legacy-current	func (d *Decoder) applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(dst []float32, left, right []float32, downsample int, scale float64) {
+celt/output_helpers.go	1	b2eb9eda803e56005f0dedde54c947fcdf6f04f5f8100115e5c7362da3914b94	legacy-current	func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []float64, scale float32) {
 celt/output_helpers.go	1	ca796fca533bcbb0f900d16b3f1373d96faa81fa5c39325ee21c72fd6655cd73	legacy-current	samples[i+1] = float64(tmpR * scale32)
 celt/output_helpers.go	2	d2a7c4ff8791bcf8820e0dc77eafd7453ce7cbc1d280e76517e839641c592a58	legacy-current	samples[i+2] = float64(tmp2 * scale32)
 celt/output_helpers.go	1	d50de728f6873e9307d8bf343041f7d523aa9628a42944b980468db9b14c75ec	legacy-current	func copyFloat32ToFloat64(dst []float64, src []float32) {
-celt/output_helpers.go	1	d8557744f5d0ce74301eeb3b346d7b440ed8c0a890860df9d0f43e7423367e1d	legacy-current	func (d *Decoder) applyDeemphasisAndScale(samples []float64, scale float64) {
 celt/output_helpers.go	1	d88d7dcaf60cff2520ab8f3aef045d9236367eb132104e08e1b384028984952f	legacy-current	samples[i+5] = float64(tmp5 * scale32)
-celt/output_helpers.go	1	f80d7aae3c02efcb7eab7d9e51a5af2b67df5f7c009383cf64e150e36b59689d	legacy-current	func (d *Decoder) applyDeemphasisAndScaleDownsampleToFloat32(dst []float32, samples []float64, downsample int, scale float64) {
 celt/output_helpers.go	1	f92eaa979d9730ff39f7de4096f69e5c1b6a4700fc1cdcafe0ac03104eb1a34c	legacy-current	samples[i+7] = float64(tmp7 * scale32)
 celt/output_helpers.go	1	f9c63914580ad085c47d6118379916018598dd1886bc36ffc680e5b6a0af5eda	legacy-current	samples[i] = float64(tmpL * scale32)
 celt/output_helpers.go	1	fa87eeb58d6ae6b6826dbc683f7d9c58f3ea89ed7347f9685bb8b9ce5c03d66a	legacy-current	func (d *Decoder) advanceDeemphasisStateMono(samples []float64) {

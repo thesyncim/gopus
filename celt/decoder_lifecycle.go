@@ -67,62 +67,54 @@ func (d *Decoder) PhaseInversionDisabled() bool {
 // Reset clears decoder state for a new stream.
 // Call this when starting to decode a new audio stream.
 func (d *Decoder) Reset() {
-	// Clear energy arrays (match libopus reset: oldBandE=0, oldLogE/oldLogE2=-28).
-	for i := range d.prevEnergy {
-		d.prevEnergy[i] = 0
-		d.prevEnergy2[i] = 0
+	channels := d.channels
+	if channels < 1 {
+		channels = 1
+	} else if channels > 2 {
+		channels = 2
+	}
+	sampleRate := d.sampleRate
+	if sampleRate == 0 {
+		sampleRate = 48000
+	}
+	downsample := d.downsample
+	if downsample <= 0 {
+		downsample = 1
+	}
+	phaseInversionDisabled := d.phaseInversionDisabled
+	complexity := d.complexity
+
+	*d = Decoder{
+		channels:   channels,
+		sampleRate: sampleRate,
+		downsample: downsample,
+
+		prevEnergy:       make([]celtGLog, MaxBands*channels),
+		prevEnergy2:      make([]celtGLog, MaxBands*channels),
+		prevLogE:         make([]celtGLog, MaxBands*channels),
+		prevLogE2:        make([]celtGLog, MaxBands*channels),
+		backgroundEnergy: make([]celtGLog, MaxBands*channels),
+
+		overlapBuffer: make([]celtSig, Overlap*channels),
+		preemphState:  make([]celtSig, channels),
+
+		postfilterMem: make([]celtSig, combFilterHistory*channels),
+		plcDecodeMem:  make([]celtSig, plcDecodeBufferSize*channels),
+		plcLPC:        make([]float32, celtPLCLPCOrder*channels),
+
+		bandwidth:              CELTFullband,
+		phaseInversionDisabled: phaseInversionDisabled,
+		complexity:             complexity,
+		plcState:               plc.NewState(),
+		plcSkip:                true,
+		plcLastFrameType:       frameNone,
+	}
+
+	for i := range d.prevLogE {
 		d.prevLogE[i] = -28.0
 		d.prevLogE2[i] = -28.0
-		d.backgroundEnergy[i] = 0
 	}
-
-	// Clear overlap buffer
-	for i := range d.overlapBuffer {
-		d.overlapBuffer[i] = 0
-	}
-
-	// Clear de-emphasis state
-	for i := range d.preemphState {
-		d.preemphState[i] = 0
-	}
-	for i := range d.plcDecodeMem {
-		d.plcDecodeMem[i] = 0
-	}
-	d.postfilterMemFromPLC = false
-	d.postfilterMemPLCBacked = false
-	d.plcDecodeMemRingActive = false
-	d.plcDecodeMemRingStart = 0
-	for i := range d.plcLPC {
-		d.plcLPC[i] = 0
-	}
-
-	// Reset postfilter
-	d.resetPostfilterState()
-
-	// Reset RNG (libopus resets to zero)
-	d.rng = 0
-	d.plcLastPitchPeriod = 0
-	d.plcPrevLossWasPeriodic = false
-	d.plcPrefilterAndFoldPending = false
-	d.plcLossDuration = 0
-	d.plcDuration = 0
-	d.plcLastFrameType = frameNone
-	d.plcSkip = true
-
-	// Clear range decoder reference
-	d.rangeDecoder = nil
 	if extsupport.QEXT {
 		d.clearQEXTState()
 	}
-
-	// Reset bandwidth to fullband
-	d.bandwidth = CELTFullband
-
-	// Reset channel transition tracking
-	d.prevStreamChannels = 0
-
-	if d.plcState == nil {
-		d.plcState = plc.NewState()
-	}
-	d.plcState.Reset()
 }
