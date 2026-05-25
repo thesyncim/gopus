@@ -339,7 +339,6 @@ celt/encode_frame.go	1	0fee2544d0a429666f9022bbf0f1786ca8748347238297807808bf0fa
 celt/encode_frame.go	1	10e68826a4e9ba79bde922752ed3f35640059475d53eedbbe0b55bf598817c44	legacy-current	maxDepth := float64(e.lastDynalloc.MaxDepth)
 celt/encode_frame.go	1	125a7c02f2a9e8768e8c61229f78d5e3052cb8d8b520ff4fb5a9cc6622de1731	legacy-current	transientInput = make([]float64, transientLen)
 celt/encode_frame.go	1	1629b10c9a121a36abf784888d5bfbb95c99f4d25ee3cf51e9f5bbd968e58509	legacy-current	var mdctPrevR [Overlap]float64
-celt/encode_frame.go	1	183610a417379f5fa88c3d43223cd5b4c0d3b1691de65be1240bcad7dc2adf30	legacy-current	normSpread = ensureFloat64Slice(&e.scratch.normStereo, len(normL)+len(normR))
 celt/encode_frame.go	1	1b3aba396bbc86e9f6f83bd43c4540d701b8cacc827499dcb1f5be1cb4e97163	legacy-current	amount := 0.0000031 * float64(clampedBR)
 celt/encode_frame.go	1	22b4ec46544e25696e5a1cbba3b5a1d1798b677909d4b21b12d30ea9da57ddc4	legacy-current	func ComputeMDCTWithHistory(samples, history []float64, shortBlocks int) []float64 {
 celt/encode_frame.go	1	25206c6ba1b8c1a1eb43cfaf7b466a842cb554685aed19a65037df06ae3f46ba	legacy-current	dst = make([]float64, n)
@@ -415,7 +414,6 @@ celt/encoder.go	1	231b59fbf4edd810b6d9ebeba1aad76b93c232a94e10ba9c92e467ee50a1b0
 celt/encoder.go	1	2c86051d1c3cc821ce28d900614b900eaec42dd6e017e72b04b2daafb1380f86	legacy-current	s.deintRight = ensureFloat64Slice(&s.deintRight, frameSize)
 celt/encoder.go	1	2ee86a63bb11ee196fe2e08209d80cdf1a8c7cb5269206055a19aae569f76758	legacy-current	transientInput []float64
 celt/encoder.go	1	31e2e81785ebb95eebbca2deea23d0006e1fc2d549d12fbc0df4bbabb0b3bb44	legacy-current	s.mdctLeft = ensureFloat64Slice(&s.mdctLeft, frameSize)
-celt/encoder.go	1	34f235bc95f0597418f3c2315ec23163ce048297ad6a8073568723ebd0d436c3	legacy-current	normStereo []float64
 celt/encoder.go	1	41c828ac6c7e8176e1164aa282d951e06c68ffbcbdf8e261046685928b2e54f0	legacy-current	qs.normR = ensureFloat64Slice(&qs.normR, frameSize)
 celt/encoder.go	1	4dcbd0eed002c2c2c5b95c355774678eb4183bec085d2ee908d7bbc2c212380a	legacy-current	rightHist []float64
 celt/encoder.go	1	503810b12b0c4c647b4d3d16abd41285e8a1cdafeca681738e99a9738fe8a834	legacy-current	out := make([]float64, len(e.lastBandLogE2))
@@ -436,7 +434,6 @@ celt/encoder.go	1	88807f0026c94ac935a324191e4746b3aa58ff9d92c34cb6f266e60ac5de4a
 celt/encoder.go	1	8d5625d9482d5760b486dd01cc7cca8c8b03ba552a35e657c669406115ada55e	legacy-current	normL []float64
 celt/encoder.go	1	8f3e44d22f16bfaec35c5cb5d5caa75e05477b5d2ef36f12d78fbf999afaf16d	legacy-current	func (e *Encoder) LastTonality() float64 {
 celt/encoder.go	1	979d084f787bfd746f910e255aa2c0d8240efc8162842e24134c2152a7ed7757	legacy-current	out := make([]float64, len(e.lastBandLogE))
-celt/encoder.go	1	9d5d5e41f73f84ed25f1696a78aa59239786ffa0b7a477ae1d404752369af185	legacy-current	s.normStereo = ensureFloat64Slice(&s.normStereo, frameSize*2)
 celt/encoder.go	1	9f793ac314b1717ecdf671bd8df0591c981cf6a2ae7ecc7e14121fe7fcc44dd4	legacy-current	deintLeft []float64
 celt/encoder.go	1	9ffeb00413bc892a0e13a462101bc519d0680d4664a65890493251c02e71e6ac	legacy-current	func (e *Encoder) SetPrevEnergy(energies []float64) {
 celt/encoder.go	1	a80d577310fd91ce5f8adf260ccbc2e13da63a6116a461a8d37fe16d34631d71	legacy-current	mdctLeft []float64
@@ -963,10 +960,6 @@ celt/silence_helpers.go	1	bf51ab0613794697a884bf9847758498322e11cf5ad7cf86d30b50
 celt/silence_helpers.go	1	d10d6a64206fc8175e4b8172d9aa3ad74b265597ca13fe7cb9ebeef11dcd27ea	legacy-current	out := ensureFloat64Slice(&d.scratchSynth, frameSize)
 celt/silence_helpers.go	1	d38279e624ace26ddacc6045d5fc6f0c6a29004a6b343ef0d8e98ebce194a033	legacy-current	func (d *Decoder) synthesizeSilenceMono(frameSize int) []float64 {
 celt/silence_helpers.go	1	f21d2770bb6345f6d1a6088ed88dc2601a5d744eb7bce3b271d6377e77c45fed	legacy-current	out := ensureFloat64Slice(&d.scratchStereo, frameSize*2)
-celt/spread_count_default.go	1	00a80bf276b6d27e984e0d461ac4fd646c26a20d1eec306f1e87d99149c8ba43	legacy-current	func spreadCountThresholds(x []float64, n int, nf float64) (t0, t1, t2 int) {
-celt/spread_decision.go	1	4c7ef0428ec5840c41f05ffc660e2f966cf5a465c58d21ee48d40e18b15127d4	legacy-current	func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channels, frameSize int, updateHF bool, spreadWeight []int) int {
-celt/spread_decision.go	1	7cbceb01b9b04a5db45716bdba2f8520f26bcb02964e7f893f768051d3216e09	legacy-current	func (e *Encoder) SpreadingDecision(normX []float64, nbBands, channels, frameSize int, updateHF bool) int {
-celt/spread_decision.go	1	aa95b96250fcdd8a5f41f832e5d2bda95e6d46bd8a4f15183cf5222b833bf9c2	legacy-current	Nf := float64(N)
 celt/state_helpers.go	1	2bd4b2f017de92376cd12f3f1c00df8724b1f2edc5a6b29625b7945996a5ee72	legacy-current	out := make([]float64, len(d.prevEnergy2))
 celt/state_helpers.go	1	366d653e8898575fe2cefbf31abfc70a90fef91de014b1c7b206a086969e5a53	legacy-current	func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float64) {
 celt/state_helpers.go	1	3d8dca477f7a4b248a7fae0ad6bc4f00155cdfaa299cac73739f384099896562	legacy-current	func (d *Decoder) PrevEnergy2() []float64 {

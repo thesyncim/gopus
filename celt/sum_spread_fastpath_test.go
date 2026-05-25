@@ -36,7 +36,7 @@ func makeSumSpreadFastpathInput(n int) []float64 {
 func TestSpreadCountThresholdsMatchesLegacy(t *testing.T) {
 	for _, n := range []int{0, 1, 2, 3, 4, 5, 7, 8, 15, 16, 31, 32, 63, 64} {
 		x := makeSumSpreadFastpathInput(n)
-		got0, got1, got2 := spreadCountThresholds(x, n, 0.375)
+		got0, got1, got2 := spreadCountThresholds(float64sToNorms(x), n, float32(0.375))
 		want0, want1, want2 := spreadCountThresholdsLegacy(x, n, 0.375)
 		if got0 != want0 || got1 != want1 || got2 != want2 {
 			t.Fatalf("n=%d mismatch: got=(%d,%d,%d) want=(%d,%d,%d)", n, got0, got1, got2, want0, want1, want2)

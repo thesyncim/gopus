@@ -27,7 +27,7 @@ package celt
 // Returns: spread decision (0=SPREAD_NONE, 1=SPREAD_LIGHT, 2=SPREAD_NORMAL, 3=SPREAD_AGGRESSIVE)
 //
 // Reference: libopus celt/bands.c spreading_decision()
-func (e *Encoder) SpreadingDecision(normX []float64, nbBands, channels, frameSize int, updateHF bool) int {
+func (e *Encoder) SpreadingDecision(normX []celtNorm, nbBands, channels, frameSize int, updateHF bool) int {
 	return e.SpreadingDecisionWithWeights(normX, nbBands, channels, frameSize, updateHF, nil)
 }
 
@@ -51,7 +51,7 @@ func (e *Encoder) SpreadingDecision(normX []float64, nbBands, channels, frameSiz
 // Returns: spread decision (0=SPREAD_NONE, 1=SPREAD_LIGHT, 2=SPREAD_NORMAL, 3=SPREAD_AGGRESSIVE)
 //
 // Reference: libopus celt/bands.c spreading_decision()
-func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channels, frameSize int, updateHF bool, spreadWeight []int) int {
+func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channels, frameSize int, updateHF bool, spreadWeight []int) int {
 	if nbBands <= 0 || len(normX) == 0 {
 		return spreadNormal
 	}
@@ -100,7 +100,7 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 			// - tcount[0]: x2N < 0.25 (|x[j]| < 0.5/sqrt(N))
 			// - tcount[1]: x2N < 0.0625 (|x[j]| < 0.25/sqrt(N))
 			// - tcount[2]: x2N < 0.015625 (|x[j]| < 0.125/sqrt(N))
-			Nf := float64(N)
+			Nf := float32(N)
 			bandX := normX[xOffset : xOffset+N : xOffset+N]
 			tc0, tc1, tc2 := spreadCountThresholds(bandX, N, Nf)
 			tcount := [3]int{tc0, tc1, tc2}

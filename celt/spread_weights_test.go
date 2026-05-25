@@ -221,6 +221,7 @@ func TestSpreadingDecisionWithWeights(t *testing.T) {
 			normX[i] = 0.01
 		}
 	}
+	normXNorm := float64sToNorms(normX)
 
 	// Create band energies for spread weights
 	bandLogE := make([]float64, nbBands)
@@ -232,7 +233,7 @@ func TestSpreadingDecisionWithWeights(t *testing.T) {
 	spreadWeights := computeSpreadWeights(float64sToGLogs(bandLogE), nbBands, channels, 16)
 
 	// Test with computed weights
-	decision := encoder.SpreadingDecisionWithWeights(normX, nbBands, channels, frameSize, false, spreadWeights)
+	decision := encoder.SpreadingDecisionWithWeights(normXNorm, nbBands, channels, frameSize, false, spreadWeights)
 
 	t.Logf("Spread decision with computed weights: %d", decision)
 

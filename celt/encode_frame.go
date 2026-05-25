@@ -954,12 +954,12 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Step 11.2: Compute and encode spread decision
 	// Match libopus gating: only encode if there's budget for the decision.
 	// Reference: libopus celt_encoder.c line 2302-2345
-	normSpread := normL
+	normSpread := normLCelt
 	if codedChannels == 2 {
 		// spreading_decision() expects both channels in one contiguous buffer.
-		normSpread = ensureFloat64Slice(&e.scratch.normStereo, len(normL)+len(normR))
-		copy(normSpread[:len(normL)], normL)
-		copy(normSpread[len(normL):], normR)
+		normSpread = ensureNormSlice(&e.scratch.normStereo, len(normLCelt)+len(normRCelt))
+		copy(normSpread[:len(normLCelt)], normLCelt)
+		copy(normSpread[len(normLCelt):], normRCelt)
 	}
 	var spread int
 	if re.Tell()+4 <= targetBits {

@@ -1043,19 +1043,20 @@ func TestSpreadWeightsIntegration(t *testing.T) {
 			normX[i] = 0.01
 		}
 	}
+	normXNorm := float64sToNorms(normX)
 
 	// Test with uniform weights
 	uniformWeights := make([]int, nbBands)
 	for i := 0; i < nbBands; i++ {
 		uniformWeights[i] = 1
 	}
-	decisionUniform := encoder.SpreadingDecisionWithWeights(normX, nbBands, channels, frameSize, false, uniformWeights)
+	decisionUniform := encoder.SpreadingDecisionWithWeights(normXNorm, nbBands, channels, frameSize, false, uniformWeights)
 
 	// Test with computed weights from high-energy bands
 	bandLogE := generateFlatBandEnergies(nbBands, 15.0)
 	computedWeights := computeSpreadWeights(float64sToGLogs(bandLogE), nbBands, channels, 16)
 	encoder = NewEncoder(1) // Reset state
-	decisionComputed := encoder.SpreadingDecisionWithWeights(normX, nbBands, channels, frameSize, false, computedWeights)
+	decisionComputed := encoder.SpreadingDecisionWithWeights(normXNorm, nbBands, channels, frameSize, false, computedWeights)
 
 	t.Logf("Spread decision with uniform weights: %d", decisionUniform)
 	t.Logf("Spread decision with computed weights: %d", decisionComputed)

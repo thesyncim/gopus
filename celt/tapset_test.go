@@ -85,7 +85,7 @@ func TestTapsetFromSpreadingDecision(t *testing.T) {
 	}
 
 	// Run spreading decision with updateHF=true
-	_ = enc.SpreadingDecision(normX, nbBands, 1, frameSize, true)
+	_ = enc.SpreadingDecision(float64sToNorms(normX), nbBands, 1, frameSize, true)
 
 	// Tapset should now have been computed (could be 0, 1, or 2)
 	tapset := enc.TapsetDecision()
@@ -132,7 +132,7 @@ func TestTapsetNotUpdatedWhenDisabled(t *testing.T) {
 	}
 
 	// Run spreading decision with updateHF=false
-	_ = enc.SpreadingDecision(normX, nbBands, 1, frameSize, false)
+	_ = enc.SpreadingDecision(float64sToNorms(normX), nbBands, 1, frameSize, false)
 
 	// Tapset should remain unchanged
 	if enc.TapsetDecision() != initialTapset {
@@ -212,7 +212,7 @@ func TestTapsetHysteresis(t *testing.T) {
 
 			// Run several iterations to reach steady state
 			for i := 0; i < 10; i++ {
-				_ = enc.SpreadingDecision(normX, nbBands, 1, frameSize, true)
+				_ = enc.SpreadingDecision(float64sToNorms(normX), nbBands, 1, frameSize, true)
 			}
 
 			tapset := enc.TapsetDecision()

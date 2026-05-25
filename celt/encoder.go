@@ -1112,7 +1112,7 @@ type encoderScratch struct {
 	normL []float64
 	normR []float64
 	// Interleaved stereo normalized coefficients for spread analysis.
-	normStereo []float64
+	normStereo []celtNorm
 
 	// Allocation-related buffers
 	caps    []int
@@ -1282,7 +1282,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Normalized coefficients
 	s.normL = ensureFloat64Slice(&s.normL, frameSize)
 	s.normR = ensureFloat64Slice(&s.normR, frameSize)
-	s.normStereo = ensureFloat64Slice(&s.normStereo, frameSize*2)
+	s.normStereo = ensureNormSlice(&s.normStereo, frameSize*2)
 
 	// Allocation buffers
 	s.caps = ensureIntSlice(&s.caps, MaxBands)
