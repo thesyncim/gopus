@@ -659,7 +659,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 func (e *Encoder) coarseNbAvailableBytesForBudget(budget int) int {
 	nbAvailableBytes := budget / 8
 	if e.coarseAvailableBytes > 0 {
-		nbAvailableBytes = e.coarseAvailableBytes
+		nbAvailableBytes = int(e.coarseAvailableBytes)
 		maxBytes := budget / 8
 		if nbAvailableBytes > maxBytes {
 			nbAvailableBytes = maxBytes
@@ -701,8 +701,8 @@ func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, l
 	}
 
 	budget := e.rangeEncoder.StorageBits()
-	if e.frameBits > 0 && e.frameBits < budget {
-		budget = e.frameBits
+	if e.frameBits > 0 && int(e.frameBits) < budget {
+		budget = int(e.frameBits)
 	}
 	nbAvailableBytes := e.coarseNbAvailableBytesForBudget(budget)
 
@@ -856,8 +856,8 @@ func (e *Encoder) EncodeCoarseEnergy(energies []celtGLog, nbBands int, intra boo
 	newDistortion := coarseLossDistortion(energies, e.prevEnergy, nbBands, channels)
 
 	budget := e.rangeEncoder.StorageBits()
-	if e.frameBits > 0 && e.frameBits < budget {
-		budget = e.frameBits
+	if e.frameBits > 0 && int(e.frameBits) < budget {
+		budget = int(e.frameBits)
 	}
 
 	// Max decay bound (full-band path: coded span is nbBands-startBand).
@@ -945,8 +945,8 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 	}
 
 	budget := e.rangeEncoder.StorageBits()
-	if e.frameBits > 0 && e.frameBits < budget {
-		budget = e.frameBits
+	if e.frameBits > 0 && int(e.frameBits) < budget {
+		budget = int(e.frameBits)
 	}
 
 	// Max decay bound (range path: clamp based on coded span, not absolute end band).

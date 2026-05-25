@@ -91,14 +91,14 @@ type Encoder struct {
 	bitrateMode   BitrateMode
 	useVBR        bool
 	vbrConstraint bool
-	bitrate       int // Target bits per second
+	bitrate       int32 // Target bits per second
 	// celtCVBRBoundScale scales CELT constrained-VBR burst bound.
 	// 1.0 matches libopus single-stream behavior.
 	celtCVBRBoundScale opusVal16
 
 	// FEC controls
 	fecEnabled                  bool
-	packetLoss                  int // Expected packet loss percentage (0-100)
+	packetLoss                  int32 // Expected packet loss percentage (0-100)
 	lastVADActivityQ8           int32
 	lastVADInputTiltQ15         int32
 	lastVADInputQualityBandsQ15 [4]int32
@@ -122,7 +122,7 @@ type Encoder struct {
 	hybridFinalRange uint32
 
 	// Complexity control (0-10, higher = better quality but slower)
-	complexity int
+	complexity int32
 
 	// Signal type hint for mode selection
 	signalType types.Signal
@@ -131,14 +131,14 @@ type Encoder struct {
 	maxBandwidth types.Bandwidth
 
 	// Force channels (-1=auto, 1=mono, 2=stereo)
-	forceChannels int
+	forceChannels int32
 
 	// LFE mode flag.
 	// When true, force CELT-only narrowband behavior for this stream.
 	lfe bool
 
 	// LSB depth of input signal (8-24 bits, affects DTX sensitivity)
-	lsbDepth int
+	lsbDepth int32
 
 	// Prediction disabled (reduces inter-frame dependency for error resilience)
 	predictionDisabled bool
@@ -182,18 +182,18 @@ type Encoder struct {
 	delayBuffer         []opusRes
 
 	// Auto-mode state (matching libopus OpusEncoder fields)
-	voiceRatio        int             // Persistent voice ratio (-1 = unset, 0-100)
+	voiceRatio        int32           // Persistent voice ratio (-1 = unset, 0-100)
 	detectedBandwidth types.Bandwidth // Analysis-detected bandwidth (0 = undetected)
-	streamChannels    int             // Actual encoding channels (1 or 2)
-	prevChannels      int             // Previous frame's streamChannels
+	streamChannels    int32           // Actual encoding channels (1 or 2)
+	prevChannels      int32           // Previous frame's streamChannels
 	autoBandwidth     types.Bandwidth // Last auto-selected bandwidth (for hysteresis)
 	first             bool            // First frame flag
 	lbrrCoded         bool            // Previous frame FEC coding decision
 	userBandwidth     types.Bandwidth // User-set bandwidth value
 	userBandwidthSet  bool            // Whether userBandwidth is explicitly set
 	widthMem          StereoWidthMem  // Stateful stereo width computation memory
-	toMono            int             // Stereo→mono transition countdown (0=inactive)
-	fecConfig         int             // FEC config: 0=disabled, 1=enabled, 2=music-safe
+	toMono            int32           // Stereo->mono transition countdown (0=inactive)
+	fecConfig         int32           // FEC config: 0=disabled, 1=enabled, 2=music-safe
 
 	// SILK downsampling
 	silkResampler       *silk.DownsamplingResampler
@@ -278,8 +278,8 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		prevPacketMode:         ModeAuto,
 		prevAutoMode:           ModeAuto,
 		voiceRatio:             -1,
-		streamChannels:         channels,
-		prevChannels:           channels,
+		streamChannels:         int32(channels),
+		prevChannels:           int32(channels),
 		autoBandwidth:          types.BandwidthFullband,
 		first:                  true,
 	}
@@ -328,13 +328,13 @@ func (e *Encoder) SetVoiceRatio(ratio int) error {
 	if ratio < -1 || ratio > 100 {
 		return ErrInvalidVoiceRatio
 	}
-	e.voiceRatio = ratio
+	e.voiceRatio = int32(ratio)
 	return nil
 }
 
 // VoiceRatio returns the current private libopus voice-ratio control value.
 func (e *Encoder) VoiceRatio() int {
-	return e.voiceRatio
+	return int(e.voiceRatio)
 }
 
 // SetBandwidth sets the target audio bandwidth.
@@ -434,8 +434,8 @@ func (e *Encoder) Reset() {
 	e.prevPacketMode = ModeAuto
 	e.prevAutoMode = ModeAuto
 	e.detectedBandwidth = 0
-	e.streamChannels = e.channels
-	e.prevChannels = e.channels
+	e.streamChannels = int32(e.channels)
+	e.prevChannels = int32(e.channels)
 	e.autoBandwidth = types.BandwidthFullband
 	e.first = true
 	e.lbrrCoded = false
@@ -460,7 +460,7 @@ func (e *Encoder) SetInBandFEC(config int) error {
 	if config < InBandFECDisabled || config > InBandFECMusicSafe {
 		return ErrInvalidFECConfig
 	}
-	e.fecConfig = config
+	e.fecConfig = int32(config)
 	e.fecEnabled = config != InBandFECDisabled
 	if e.fecEnabled && e.fec == nil {
 		e.fec = newFECState()
@@ -475,7 +475,7 @@ func (e *Encoder) FECEnabled() bool {
 
 // InBandFEC returns the in-band FEC configuration.
 func (e *Encoder) InBandFEC() int {
-	return e.fecConfig
+	return int(e.fecConfig)
 }
 
 // SetPacketLoss sets the expected packet loss percentage (0-100).
@@ -486,15 +486,15 @@ func (e *Encoder) SetPacketLoss(lossPercent int) {
 	if lossPercent > 100 {
 		lossPercent = 100
 	}
-	e.packetLoss = lossPercent
+	e.packetLoss = int32(lossPercent)
 	if e.celtEncoder != nil {
-		e.celtEncoder.SetPacketLoss(e.packetLoss)
+		e.celtEncoder.SetPacketLoss(int(e.packetLoss))
 	}
 }
 
 // PacketLoss returns the expected packet loss percentage.
 func (e *Encoder) PacketLoss() int {
-	return e.packetLoss
+	return int(e.packetLoss)
 }
 
 // SetDTX enables or disables Discontinuous Transmission.
@@ -518,7 +518,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 	if complexity > 10 {
 		complexity = 10
 	}
-	e.complexity = complexity
+	e.complexity = int32(complexity)
 	if e.celtEncoder != nil {
 		e.celtEncoder.SetComplexity(complexity)
 	}
@@ -532,7 +532,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 
 // Complexity returns the current complexity setting.
 func (e *Encoder) Complexity() int {
-	return e.complexity
+	return int(e.complexity)
 }
 
 // FinalRange returns the final range coder state after encoding.
@@ -635,21 +635,21 @@ func modeFromVBRFlags(useVBR, vbrConstraint bool) BitrateMode {
 
 // SetBitrate sets the target bitrate in bits per second.
 func (e *Encoder) SetBitrate(bitrate int) {
-	e.bitrate = clampBitrateForChannels(bitrate, e.channels)
+	e.bitrate = int32(clampBitrateForChannels(bitrate, e.channels))
 }
 
 // SetAllocatedBitrate sets a bitrate allocated by the multistream encoder.
 func (e *Encoder) SetAllocatedBitrate(bitrate int) {
-	e.bitrate = clampAllocatedBitrate(bitrate, e.channels)
+	e.bitrate = int32(clampAllocatedBitrate(bitrate, e.channels))
 }
 
 // Bitrate returns the current target bitrate.
 func (e *Encoder) Bitrate() int {
-	return e.bitrate
+	return int(e.bitrate)
 }
 
 func (e *Encoder) resolvedBitrateForFrame(frameSize, maxDataBytes int) int {
-	return resolveUserBitrate(e.bitrate, e.sampleRate, e.channels, frameSize, maxDataBytes)
+	return resolveUserBitrate(int(e.bitrate), e.sampleRate, e.channels, frameSize, maxDataBytes)
 }
 
 func (e *Encoder) maxRateForFrame(frameSize, maxDataBytes int) int {
@@ -670,7 +670,7 @@ func (e *Encoder) silkInputBitrate(frameSize int) int {
 		return 0
 	}
 	overheadBps := (8 * 48000) / frameSize
-	rate := e.bitrate - overheadBps
+	rate := int(e.bitrate) - overheadBps
 	if rate < 0 {
 		return 0
 	}
@@ -679,7 +679,7 @@ func (e *Encoder) silkInputBitrate(frameSize int) int {
 
 // computeEquivRate calculates the equivalent bitrate based on frame rate, VBR mode,
 // complexity, and packet loss. Matches libopus compute_equiv_rate().
-func (e *Encoder) computeEquivRate(bitrate int, channels int, frameRate int, vbr bool, actualMode Mode, complexity int, loss int) int {
+func (e *Encoder) computeEquivRate(bitrate, channels, frameRate int32, vbr bool, actualMode Mode, complexity, loss int32) int32 {
 	equiv := bitrate
 	if frameRate > 50 {
 		equiv -= (40*channels + 20) * (frameRate - 50)
@@ -766,8 +766,8 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	}
 	userBitrate := e.bitrate
 	resolvedBitrate := e.resolvedBitrateForFrame(frameSize, maxDataBytes)
-	if resolvedBitrate != userBitrate {
-		e.bitrate = resolvedBitrate
+	if int32(resolvedBitrate) != userBitrate {
+		e.bitrate = int32(resolvedBitrate)
 		defer func() {
 			e.bitrate = userBitrate
 		}()
@@ -829,7 +829,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			frameRate = 50
 		}
 		useVBR := e.bitrateMode != ModeCBR
-		equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate,
+		equivRate := e.computeEquivRate(e.bitrate, int32(e.channels), int32(frameRate),
 			useVBR, requestedMode, e.complexity, e.packetLoss)
 		e.bandwidth = e.autoClampBandwidth(e.bandwidth, requestedMode, equivRate, e.maxRateForFrame(frameSize, maxDataBytes))
 		bw := e.bandwidth
@@ -910,7 +910,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			// dred_bitrate_bps before passing it to all three primary modes
 			// (SILK/Hybrid/CELT). The reduced bitrate then flows into each
 			// mode's compute_vbr step, shrinking the primary-frame target.
-			encodingBitrate -= dredPlan.bitrate
+			encodingBitrate -= int32(dredPlan.bitrate)
 			if encodingBitrate < 1 {
 				encodingBitrate = 1
 			}
@@ -924,14 +924,14 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	case ModeSILK:
 		e.maybePrefillSILKOnModeTransition(actualMode)
 		if frameSize > 2880 {
-			packet, err = e.encodeSILKMultiFramePacket(framePCM, vadPCM, frameSize, e.bitrate, encodingBitrate, dredBitrate, dredExtraDelay)
+			packet, err = e.encodeSILKMultiFramePacket(framePCM, vadPCM, frameSize, int(e.bitrate), int(encodingBitrate), dredBitrate, dredExtraDelay)
 		} else {
 			originalBitrate := e.bitrate
 			if encodingBitrate != originalBitrate {
 				e.bitrate = encodingBitrate
 			}
 			dredNoDecision := e.dredEncodingActive() && !e.lastOpusVADValid
-			frameData, err = e.encodeSILKFrameWithDRED(framePCM, lookaheadSlice, frameSize, originalBitrate, dredBitrate)
+			frameData, err = e.encodeSILKFrameWithDRED(framePCM, lookaheadSlice, frameSize, int(originalBitrate), dredBitrate)
 			if encodingBitrate != originalBitrate {
 				e.bitrate = originalBitrate
 			}
@@ -951,7 +951,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			delayState := e.ensureDelayState(len(e.delayBuffer))
 			copy(delayState, e.delayBuffer)
 			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
-			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, vadPCM, lookaheadSlice, delayState, frameSize, transitionToCELT, e.bitrate, encodingBitrate, dredBitrate, dredExtraDelay)
+			packet, err = e.encodeHybridMultiFramePacket(framePCM, celtPCM, vadPCM, lookaheadSlice, delayState, frameSize, transitionToCELT, int(e.bitrate), int(encodingBitrate), dredBitrate, dredExtraDelay)
 		} else {
 			e.maybePrefillSILKOnModeTransition(actualMode)
 			celtPCM := e.applyDelayCompensation(framePCM, frameSize)
@@ -959,7 +959,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			maxPacketBytes := 0
 			if encodingBitrate != originalBitrate {
 				if dredPlanOK && e.bitrateMode != ModeCBR {
-					maxPacketBytes = e.hybridDREDPrimaryBudget(originalBitrate, frameSize, dredPlan)
+					maxPacketBytes = e.hybridDREDPrimaryBudget(int(originalBitrate), frameSize, dredPlan)
 				}
 				e.bitrate = encodingBitrate
 			}
@@ -978,7 +978,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		e.maybePrefillCELTOnModeTransition(actualMode, celtPCM, frameSize)
 		if frameSize > 960 {
 			// Long CELT packets are encoded as multi-frame packets.
-			packet, err = e.encodeCELTMultiFramePacket(framePCM, vadPCM, celtPCM, frameSize, e.bitrate, encodingBitrate, dredBitrate, dredExtraDelay)
+			packet, err = e.encodeCELTMultiFramePacket(framePCM, vadPCM, celtPCM, frameSize, int(e.bitrate), int(encodingBitrate), dredBitrate, dredExtraDelay)
 		} else {
 			originalBitrate := e.bitrate
 			if encodingBitrate != originalBitrate {
@@ -1042,7 +1042,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 				false,
 			)
 		} else if packet == nil {
-			targetSize := targetBytesForBitrate(e.bitrate, frameSize)
+			targetSize := targetBytesForBitrate(int(e.bitrate), frameSize)
 			if e.bitrateMode == ModeCBR && targetSize >= 2+len(frameData) {
 				if targetSize == 2+len(frameData) {
 					config := configFromParams(modeToTypes(actualMode), packetBW, frameSize)
@@ -1092,7 +1092,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		if dredPacketBuilt {
 			break
 		}
-		targetSize := targetBytesForBitrate(e.bitrate, frameSize)
+		targetSize := targetBytesForBitrate(int(e.bitrate), frameSize)
 		if len(qextPayload) > 0 && len(packet) < targetSize {
 			stereo := e.packetStereoForMode(actualMode)
 			packetBW := e.effectiveBandwidth()
@@ -1119,7 +1119,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		}
 	case ModeCVBR:
 		if !dredPacketBuilt && len(qextPayload) == 0 {
-			packet = constrainSize(packet, targetBytesForBitrate(e.bitrate, frameSize), CVBRTolerance)
+			packet = constrainSize(packet, targetBytesForBitrate(int(e.bitrate), frameSize), CVBRTolerance)
 		}
 	}
 	e.prevChannels = e.streamChannels
@@ -1176,7 +1176,7 @@ func (e *Encoder) silkInternalChannels() int {
 	}
 	streamChannels := e.streamChannels
 	if streamChannels <= 0 {
-		streamChannels = e.channels
+		streamChannels = int32(e.channels)
 	}
 	if streamChannels <= 1 {
 		return 1
@@ -1203,7 +1203,7 @@ func (e *Encoder) celtInternalChannelsForMode(mode Mode) int {
 	}
 	streamChannels := e.streamChannels
 	if streamChannels <= 0 {
-		streamChannels = e.channels
+		streamChannels = int32(e.channels)
 	}
 	if (mode == ModeCELT || mode == ModeHybrid) && streamChannels <= 1 {
 		return 1
@@ -1609,7 +1609,7 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []op
 	// Match libopus mode-transition cadence: prefill uses normal prediction,
 	// then the next real frame is forced intra.
 	e.celtEncoder.SetPrediction(e.celtPredictionMode())
-	e.celtEncoder.SetLSBDepth(e.lsbDepth)
+	e.celtEncoder.SetLSBDepth(int(e.lsbDepth))
 
 	switch actualMode {
 	case ModeHybrid:
@@ -1731,7 +1731,7 @@ func (e *Encoder) runSilkTransitionPrefill(prefill []opusRes, preserveLP bool, c
 		// resetting other SILK encoder state for CELT->SILK/Hybrid prefill.
 		e.silkEncoder.SetLPState(savedMainLP)
 	}
-	e.silkEncoder.SetComplexity(e.complexity)
+	e.silkEncoder.SetComplexity(int(e.complexity))
 	e.silkEncoder.SetReducedDependency(e.predictionDisabled)
 	if e.channels == 2 {
 		e.ensureSILKSideEncoder()
@@ -1744,7 +1744,7 @@ func (e *Encoder) runSilkTransitionPrefill(prefill []opusRes, preserveLP bool, c
 		if preserveLP {
 			e.silkSideEncoder.SetLPState(savedSideLP)
 		}
-		e.silkSideEncoder.SetComplexity(e.complexity)
+		e.silkSideEncoder.SetComplexity(int(e.complexity))
 		e.silkSideEncoder.SetReducedDependency(e.predictionDisabled)
 	}
 	if !preserveLP {
@@ -1871,7 +1871,7 @@ func (e *Encoder) runSilkStereoTransitionPrefill(prefill []opusRes, prefillFrame
 
 	totalRate := e.silkInputBitrate(prefillFrameSize)
 	if totalRate <= 0 {
-		totalRate = e.bitrate
+		totalRate = int(e.bitrate)
 	}
 	if totalRate <= 0 {
 		totalRate = 20000
@@ -2163,7 +2163,7 @@ func (e *Encoder) selectShortAutoMode(frameSize int, signalHint types.Signal) Mo
 		frameRate = 50
 	}
 	useVBR := e.bitrateMode != ModeCBR
-	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, useVBR, ModeAuto, e.complexity, e.packetLoss)
+	equivRate := e.computeEquivRate(e.bitrate, int32(e.channels), int32(frameRate), useVBR, ModeAuto, e.complexity, e.packetLoss)
 
 	prev := e.prevAutoMode
 	if prev != ModeSILK && prev != ModeHybrid && prev != ModeCELT {
@@ -2187,12 +2187,12 @@ func (e *Encoder) selectShortAutoMode(frameSize int, signalHint types.Signal) Mo
 	}
 
 	mode := ModeSILK
-	if equivRate >= threshold {
+	if equivRate >= int32(threshold) {
 		mode = ModeCELT
 	}
 	// Match libopus behavior: with in-band FEC and sufficient expected loss,
 	// force SILK unless music-safe FEC is confident the signal is music.
-	if e.fecEnabled && e.packetLoss > ((128-voiceEst)>>4) &&
+	if e.fecEnabled && e.packetLoss > int32((128-voiceEst)>>4) &&
 		(e.fecConfig != InBandFECMusicSafe || voiceEst > 25) {
 		mode = ModeSILK
 	}
@@ -2230,7 +2230,7 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 		frameRate = 50
 	}
 	useVBR := e.bitrateMode != ModeCBR
-	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, useVBR, ModeAuto, e.complexity, e.packetLoss)
+	equivRate := e.computeEquivRate(e.bitrate, int32(e.channels), int32(frameRate), useVBR, ModeAuto, e.complexity, e.packetLoss)
 
 	prev := e.prevAutoMode
 	if prev != ModeCELT && prev != ModeSILK && prev != ModeHybrid {
@@ -2258,12 +2258,12 @@ func (e *Encoder) selectLongSWBAutoMode(frameSize int, signalHint types.Signal) 
 	}
 
 	mode := ModeHybrid
-	if equivRate >= threshold {
+	if equivRate >= int32(threshold) {
 		mode = ModeCELT
 	}
 	// Match libopus behavior: with in-band FEC and sufficient expected loss,
 	// force SILK unless music-safe FEC is confident the signal is music.
-	if e.fecEnabled && e.packetLoss > ((128-voiceEst)>>4) &&
+	if e.fecEnabled && e.packetLoss > int32((128-voiceEst)>>4) &&
 		(e.fecConfig != InBandFECMusicSafe || voiceEst > 25) {
 		mode = ModeHybrid
 	}
@@ -2373,7 +2373,7 @@ func (e *Encoder) celtPredictionModeForFrame() int {
 
 // encodeSILKFrame encodes a frame using SILK-only mode.
 func (e *Encoder) encodeSILKFrame(pcm []opusRes, lookahead []opusRes, frameSize int) ([]byte, error) {
-	return e.encodeSILKFrameWithDRED(pcm, lookahead, frameSize, e.bitrate, 0)
+	return e.encodeSILKFrameWithDRED(pcm, lookahead, frameSize, int(e.bitrate), 0)
 }
 
 func (e *Encoder) encodeSILKFrameWithDRED(pcm []opusRes, lookahead []opusRes, frameSize, originalBitrate, dredBitrate int) ([]byte, error) {
@@ -2421,7 +2421,7 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 			e.silkEncoder.SetBitrate(totalSilkRate)
 		}
 		e.silkEncoder.SetFEC(e.lbrrCoded)
-		e.silkEncoder.SetPacketLoss(e.packetLoss)
+		e.silkEncoder.SetPacketLoss(int(e.packetLoss))
 		e.ensureSILKSideEncoder()
 		if totalSilkRate > 0 {
 			e.silkSideEncoder.SetBitrate(totalSilkRate)
@@ -2429,7 +2429,7 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 			e.silkSideEncoder.SetBitrate(perChannelRate)
 		}
 		e.silkSideEncoder.SetFEC(e.lbrrCoded)
-		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
+		e.silkSideEncoder.SetPacketLoss(int(e.packetLoss))
 
 		// Set VBR mode on both encoders (matching mono path).
 		silkVBR := e.bitrateMode != ModeCBR || dredBitrate > 0
@@ -2573,7 +2573,7 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 		e.silkEncoder.SetMaxBits(maxBits)
 	}
 	e.silkEncoder.SetFEC(e.lbrrCoded)
-	e.silkEncoder.SetPacketLoss(e.packetLoss)
+	e.silkEncoder.SetPacketLoss(int(e.packetLoss))
 	fsKHz := targetRate / 1000
 	vadFlags, vadStates, nFrames := e.computeSilkVADFlagsAndStates(pcm32, fsKHz)
 	if e.lbrrCoded || nFrames > 1 {
@@ -2593,7 +2593,7 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 }
 
 func (e *Encoder) silkMaxBits(frameSize, silkBitrate, originalBitrate, dredBitrate int) int {
-	maxBitrate := e.bitrate
+	maxBitrate := int(e.bitrate)
 	if e.bitrateMode == ModeCBR && dredBitrate > 0 && originalBitrate > 0 {
 		maxBitrate = originalBitrate
 	}
@@ -2611,7 +2611,7 @@ func (e *Encoder) silkMaxBits(frameSize, silkBitrate, originalBitrate, dredBitra
 			return maxBits
 		}
 		if silkBitrate <= 0 {
-			silkBitrate = e.bitrate
+			silkBitrate = int(e.bitrate)
 		}
 		otherBits := maxBits - silkBitrate*frameSize/e.sampleRate
 		if otherBits > 0 {
@@ -2631,7 +2631,7 @@ func (e *Encoder) silkMaxBitsForPacketBytes(frameSize, silkBitrate, maxPacketByt
 			return maxBits
 		}
 		if silkBitrate <= 0 {
-			silkBitrate = e.bitrate
+			silkBitrate = int(e.bitrate)
 		}
 		otherBits := maxBits - silkBitrate*frameSize/e.sampleRate
 		if otherBits > 0 {
@@ -2646,7 +2646,7 @@ func (e *Encoder) silkMaxBitsForPacketBytes(frameSize, silkBitrate, maxPacketByt
 
 // encodeCELTFrame encodes a frame using CELT-only mode.
 func (e *Encoder) encodeCELTFrame(pcm []opusRes, frameSize int) ([]byte, error) {
-	return e.encodeCELTFrameWithBitrateAndMaxPayload(pcm, frameSize, e.bitrate, 0)
+	return e.encodeCELTFrameWithBitrateAndMaxPayload(pcm, frameSize, int(e.bitrate), 0)
 }
 
 func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []opusRes, frameSize int, bitrate int, maxPayloadBytes int) ([]byte, error) {
@@ -2681,8 +2681,8 @@ func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []opusRes, fra
 	e.celtEncoder.SetTopLevelDelayCompensatedInput(true)
 	e.celtEncoder.SetPrediction(e.celtPredictionModeForFrame())
 	e.celtEncoder.SetDCRejectEnabled(false)
-	e.celtEncoder.SetPacketLoss(e.packetLoss)
-	e.celtEncoder.SetLSBDepth(e.lsbDepth)
+	e.celtEncoder.SetPacketLoss(int(e.packetLoss))
+	e.celtEncoder.SetLSBDepth(int(e.lsbDepth))
 	switch e.bitrateMode {
 	case ModeCBR:
 		e.celtEncoder.SetVBR(false)
@@ -2738,7 +2738,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 	if maxLenSum < frameCount {
 		maxLenSum = frameCount
 	}
-	subframeBitrate := e.bitrate
+	subframeBitrate := int(e.bitrate)
 	if encodingBitrate > 0 {
 		subframeBitrate = encodingBitrate
 	}
@@ -2759,7 +2759,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 	var qextExtensions [6]packetExtension
 	qextExtensionCount := 0
 	savedBitrate := e.bitrate
-	e.bitrate = subframeBitrate
+	e.bitrate = int32(subframeBitrate)
 	for i := 0; i < frameCount; i++ {
 		e.primeSubframeAnalysis(960)
 		start := i * frameStride
@@ -2801,7 +2801,7 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 			firstFrameMaxBytes = currMax
 		}
 		maxPayload := currMax - 1
-		frameData, err := e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(celtPCM[start:end], 960, e.bitrate, maxPayload, dredBitrate)
+		frameData, err := e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(celtPCM[start:end], 960, int(e.bitrate), maxPayload, dredBitrate)
 		if err != nil {
 			e.bitrate = savedBitrate
 			return nil, err
@@ -2906,7 +2906,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes,
 	if maxLenSum < frameCount {
 		maxLenSum = frameCount
 	}
-	subframeBitrate := e.bitrate
+	subframeBitrate := int(e.bitrate)
 	if encodingBitrate > 0 {
 		subframeBitrate = encodingBitrate
 	}
@@ -2926,7 +2926,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes,
 		e.clearDREDPacketSnapshot()
 	}
 	savedBitrate := e.bitrate
-	e.bitrate = subframeBitrate
+	e.bitrate = int32(subframeBitrate)
 	for i := 0; i < frameCount; i++ {
 		e.primeSubframeAnalysis(960)
 		start := i * frameStride
@@ -3054,7 +3054,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 		e.analyzer.ReadSubframe = e.analysisSubframeBak
 	}
 
-	subframeBitrate := e.bitrate
+	subframeBitrate := int(e.bitrate)
 	if encodingBitrate > 0 {
 		subframeBitrate = encodingBitrate
 	}
@@ -3085,7 +3085,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 	totSize := 0
 	firstFrameMaxBytes := 0
 	savedBitrate := e.bitrate
-	e.bitrate = subframeBitrate
+	e.bitrate = int32(subframeBitrate)
 
 	for i := 0; i < frameCount; i++ {
 		e.primeSubframeAnalysis(encFrameSize)
@@ -3176,7 +3176,7 @@ func (e *Encoder) ensureSILKEncoder() {
 		return
 	}
 	e.silkEncoder = silk.NewEncoder(bw)
-	e.silkEncoder.SetComplexity(e.complexity)
+	e.silkEncoder.SetComplexity(int(e.complexity))
 	e.silkEncoder.SetReducedDependency(e.predictionDisabled)
 	// Mono SILK handoff state tracks the two-sample sMid history across frames.
 	// Reset whenever the SILK core bandwidth/sample-rate changes.
@@ -3194,7 +3194,7 @@ func (e *Encoder) ensureSILKSideEncoder() {
 		return
 	}
 	e.silkSideEncoder = silk.NewEncoder(bw)
-	e.silkSideEncoder.SetComplexity(e.complexity)
+	e.silkSideEncoder.SetComplexity(int(e.complexity))
 	e.silkSideEncoder.SetReducedDependency(e.predictionDisabled)
 }
 
@@ -3525,7 +3525,7 @@ func (e *Encoder) ensureSilkResampledR(size int) []float32 {
 func (e *Encoder) ensureCELTEncoder() {
 	if e.celtEncoder == nil {
 		e.celtEncoder = celt.NewEncoder(e.channels)
-		e.celtEncoder.SetComplexity(e.complexity)
+		e.celtEncoder.SetComplexity(int(e.complexity))
 		// Opus encoder already rounds input to the configured LSB depth.
 		e.celtEncoder.SetLSBQuantizationEnabled(false)
 		// Opus encoder already applies dc_reject at the top level.
@@ -3540,9 +3540,9 @@ func (e *Encoder) ensureCELTEncoder() {
 	e.celtEncoder.SetSurroundTrim(e.celtSurroundTrim)
 	e.syncCELTEnergyMask()
 	e.celtEncoder.SetConstrainedVBRBoundScale(e.celtCVBRBoundScale)
-	e.celtEncoder.SetStreamChannels(e.streamChannels)
+	e.celtEncoder.SetStreamChannels(int(e.streamChannels))
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
-	e.celtEncoder.SetPacketLoss(e.packetLoss)
+	e.celtEncoder.SetPacketLoss(int(e.packetLoss))
 }
 
 // silkBandwidth converts the Opus bandwidth to SILK bandwidth.
@@ -3634,12 +3634,12 @@ func (e *Encoder) MaxBandwidth() types.Bandwidth {
 
 // SetForceChannels sets the forced channel count.
 func (e *Encoder) SetForceChannels(channels int) {
-	e.forceChannels = channels
+	e.forceChannels = int32(channels)
 }
 
 // ForceChannels returns the forced channel count (-1 = auto).
 func (e *Encoder) ForceChannels() int {
-	return e.forceChannels
+	return int(e.forceChannels)
 }
 
 // SetLFE enables or disables LFE mode.
@@ -3674,7 +3674,7 @@ func (e *Encoder) SetLSBDepth(depth int) {
 	if depth > 24 {
 		depth = 24
 	}
-	e.lsbDepth = depth
+	e.lsbDepth = int32(depth)
 	if e.analyzer != nil {
 		e.analyzer.SetLSBDepth(depth)
 	}
@@ -3682,7 +3682,7 @@ func (e *Encoder) SetLSBDepth(depth int) {
 
 // LSBDepth returns the current LSB depth setting.
 func (e *Encoder) LSBDepth() int {
-	return e.lsbDepth
+	return int(e.lsbDepth)
 }
 
 // SetFloatInputFrame exposes the current public float32 frame to the encoder hot

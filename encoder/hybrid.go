@@ -144,7 +144,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 
 	// Compute target buffer size based on bitrate mode.
 	// baseTargetBytes includes the TOC byte; payloadTarget is the shared range payload.
-	baseTargetBytes := targetBytesForBitrate(e.bitrate, frameSize)
+	baseTargetBytes := targetBytesForBitrate(int(e.bitrate), frameSize)
 	if maxPacketBytes > 0 {
 		baseTargetBytes = maxPacketBytes
 	}
@@ -168,7 +168,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	var redundancyPCM []opusRes
 	var redundantRng uint32
 	if transitionRedundancy {
-		redundancyBytes = computeRedundancyBytes(baseTargetBytes, e.bitrate, frameRate, e.celtInternalChannelsForMode(ModeHybrid))
+		redundancyBytes = computeRedundancyBytes(baseTargetBytes, int(e.bitrate), frameRate, e.celtInternalChannelsForMode(ModeHybrid))
 		if transitionCeltToHybrid && redundancyBytes > 0 {
 			// Match libopus input shaping for CELT->Hybrid redundancy:
 			// redundancy CELT sees the same HB gain contour as the main CELT path.
@@ -328,7 +328,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		}
 	}
 	e.silkEncoder.SetFEC(e.lbrrCoded)
-	e.silkEncoder.SetPacketLoss(e.packetLoss)
+	e.silkEncoder.SetPacketLoss(int(e.packetLoss))
 
 	// Per libopus: in hybrid CBR mode, SILK is switched to VBR with a max bits cap.
 	// This allows SILK to use fewer bits and CELT to absorb the variation.
@@ -370,7 +370,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	if e.silkInternalChannels() == 2 {
 		e.silkSideEncoder.ResetPacketState()
 		e.silkSideEncoder.SetFEC(e.lbrrCoded)
-		e.silkSideEncoder.SetPacketLoss(e.packetLoss)
+		e.silkSideEncoder.SetPacketLoss(int(e.packetLoss))
 		e.silkSideEncoder.SetVBR(true)
 		e.silkSideEncoder.SetMaxBits(silkMaxBits)
 	}
@@ -481,7 +481,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	} else {
 		e.celtEncoder.SetBitrate(celtBitrate)
 	}
-	e.celtEncoder.SetLSBDepth(e.lsbDepth)
+	e.celtEncoder.SetLSBDepth(int(e.lsbDepth))
 	hybridCELTTargetBytes := payloadTargetMain
 	useFinalHybridVBRTarget := hardMaxPacketBytes
 	if useFinalHybridVBRTarget {
@@ -598,7 +598,7 @@ func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []opusRes, frameSize, r
 	e.celtEncoder.SetVBR(false)
 	e.celtEncoder.SetConstrainedVBR(false)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
-	e.celtEncoder.SetLSBDepth(e.lsbDepth)
+	e.celtEncoder.SetLSBDepth(int(e.lsbDepth))
 	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
 	redundancyData, err := e.celtEncoder.EncodeFrame(celtPCM[:redundancySamples], redundancyFrameSize)
@@ -658,7 +658,7 @@ func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []opusRes, frameSize, r
 	e.celtEncoder.SetConstrainedVBR(false)
 	e.celtEncoder.SetBitrate(CELTMaxBitrate)
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
-	e.celtEncoder.SetLSBDepth(e.lsbDepth)
+	e.celtEncoder.SetLSBDepth(int(e.lsbDepth))
 	e.celtEncoder.SetDCRejectEnabled(false)
 
 	// Prefill 2.5 ms so CELT state matches decoder-side startup for the first CELT frame.
@@ -718,7 +718,7 @@ func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtB
 	if frame20ms {
 		frameSize = 960
 	}
-	maxDataBytes := targetBytesForBitrate(e.bitrate, frameSize)
+	maxDataBytes := targetBytesForBitrate(int(e.bitrate), frameSize)
 	if maxDataBytes < 2 {
 		maxDataBytes = 2
 	}
@@ -744,7 +744,7 @@ func (e *Encoder) computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 
 	// Match libopus bits_target:
 	// bits_target = min(8*(max_data_bytes-redundancy_bytes), bitrate_to_bits(...)) - 8
 	bitsTarget := 8 * (maxDataBytes - redundancyBytes)
-	bitrateBits := bitrateToBits(e.bitrate, frameSize)
+	bitrateBits := bitrateToBits(int(e.bitrate), frameSize)
 	if bitsTarget > bitrateBits {
 		bitsTarget = bitrateBits
 	}
@@ -810,7 +810,7 @@ func (e *Encoder) computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 
 	}
 
 	celtBitrateHBGain = totalRate - silkBitrate
-	celtBitrate = e.bitrate - silkBitrate
+	celtBitrate = int(e.bitrate) - silkBitrate
 	return silkBitrate, celtBitrate, celtBitrateHBGain
 }
 
@@ -1628,7 +1628,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 	e.celtEncoder.UpdateTonalityAnalysisHybrid(normL, analysisEnergies, nbBands, frameSize)
 
 	// Compute dynalloc analysis for TF/spread and offsets.
-	lsbDepth := e.lsbDepth
+	lsbDepth := int(e.lsbDepth)
 
 	dynallocResult := e.celtEncoder.DynallocAnalysisHybridScratch(
 		analysisEnergies,

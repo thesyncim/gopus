@@ -600,7 +600,7 @@ func TestDTX_Q1TimingAccuracy(t *testing.T) {
 			silence := make([]opusRes, tc.frameSize)
 			enc.shouldUseDTXRes(silence)
 
-			if enc.dtx.noActivityMsQ1 != tc.wantQ1 {
+			if enc.dtx.noActivityMsQ1 != int32(tc.wantQ1) {
 				t.Errorf("after 1 frame: noActivityMsQ1 = %d, want %d",
 					enc.dtx.noActivityMsQ1, tc.wantQ1)
 			}

@@ -123,8 +123,8 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	} else {
 		e.delayedIntra = 0
 	}
-	e.coarseAvailableBytes = nbAvailableBytes
-	e.frameBits = re.StorageBits()
+	e.coarseAvailableBytes = int32(nbAvailableBytes)
+	e.frameBits = int32(re.StorageBits())
 	e.scratch.quantizedEnergies = quantizedEnergies[:needed]
 	e.scratch.coarseError = errorVals[:needed]
 
@@ -132,7 +132,7 @@ func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, ene
 	clear(e.scratch.coarseError)
 
 	intra := e.DecideIntraMode(energies, 0, nbBands, lm)
-	if re.Tell()+3 <= e.frameBits {
+	if re.Tell()+3 <= int(e.frameBits) {
 		re.EncodeBit(boolToInt(intra), 3)
 	}
 	e.EncodeCoarseEnergy(energies, nbBands, intra, lm)

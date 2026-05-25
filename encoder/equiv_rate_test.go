@@ -6,7 +6,7 @@ func TestComputeEquivRate_UnknownModeLossPenaltyMatchesLibopus(t *testing.T) {
 	enc := NewEncoder(48000, 2)
 
 	got := enc.computeEquivRate(64000, 2, 50, true, ModeAuto, 10, 20)
-	want := 64000 - (64000*20)/(12*20+20)
+	want := int32(64000 - (64000*20)/(12*20+20))
 	if got != want {
 		t.Fatalf("unknown-mode equivRate=%d, want %d", got, want)
 	}

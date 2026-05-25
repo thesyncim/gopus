@@ -603,7 +603,7 @@ func (e *Encoder) SetCoarseEnergyAvailableBytes(bytes int) {
 	if bytes < 0 {
 		bytes = 0
 	}
-	e.coarseAvailableBytes = bytes
+	e.coarseAvailableBytes = int32(bytes)
 }
 
 // MDCTScratch computes the MDCT using the encoder's pre-allocated scratch buffers.
