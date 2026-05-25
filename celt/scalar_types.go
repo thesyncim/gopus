@@ -10,6 +10,16 @@ type opusVal16 = float32
 type opusVal32 = float32
 type opusRes = float32
 
+// floor32ToInt mirrors libopus float-build floor() calls while keeping the
+// expression rounded to C float before converting to an integer.
+func floor32ToInt(v float32) int {
+	i := int(v)
+	if float32(i) > v {
+		i--
+	}
+	return i
+}
+
 // CeltEner exposes CELT's float-build celt_ener width to sibling packages that
 // need to carry CELT-owned band-energy scratch without widening it.
 type CeltEner = celtEner
