@@ -25,7 +25,7 @@ func (d *Decoder) lpcSynthesis(excitation []int32, lpcCoeffs []int16, gain int32
 
 	for i, exc := range excitation {
 		// Convert excitation from Q0 PCM to normalized float.
-		sample := float64(exc) / 32768.0
+		sample := float32(exc) / 32768.0
 
 		// Add LPC prediction from previous outputs
 		for k := 0; k < order; k++ {
@@ -42,7 +42,7 @@ func (d *Decoder) lpcSynthesis(excitation []int32, lpcCoeffs []int16, gain int32
 			}
 
 			// Q12 coeff applied to normalized sample.
-			sample += float64(lpcCoeffs[k]) * float64(prev) / 4096.0
+			sample += float32(lpcCoeffs[k]) * prev / 4096.0
 		}
 
 		// Clamp to normalized range.
@@ -53,7 +53,7 @@ func (d *Decoder) lpcSynthesis(excitation []int32, lpcCoeffs []int16, gain int32
 			sample = -1.0
 		}
 
-		out[i] = float32(sample)
+		out[i] = sample
 	}
 
 	// Update LPC state for next subframe/frame

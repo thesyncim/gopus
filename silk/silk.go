@@ -2,7 +2,6 @@ package silk
 
 import (
 	"errors"
-	"math"
 
 	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/plc"
@@ -1141,7 +1140,7 @@ func (d *Decoder) applyDeepPLCHistoryMono(st *decoderState, concealed []float32)
 	for i := start; i < len(concealed) && historyIdx < order; i++ {
 		sampleQ0 := int32(float32ToInt16(concealed[i]))
 		scaled := float32(sampleQ0) * float32(1<<24) / float32(prevGainQ10)
-		history[historyIdx] = int32(math.Floor(0.5 + float64(scaled)))
+		history[historyIdx] = floorHalfPlusF32ToInt32(scaled)
 		historyIdx++
 	}
 	if historyIdx == 0 {

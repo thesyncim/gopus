@@ -1,7 +1,5 @@
 package silk
 
-import "math"
-
 // quantizeLSF quantizes LSF coefficients using libopus-aligned MSVQ.
 // Returns stage1 index, stage2 residuals (as NLSFIndices[1:order+1]), and interpolation index.
 // Per RFC 6716 Section 4.2.7.5 and libopus silk/process_NLSFs.c.
@@ -177,7 +175,7 @@ func (e *Encoder) computeSymbolRate8(symbol int, icdf []uint8) int {
 	}
 
 	// Approximate -log2(prob/256) * 8 (in 1/8 bits)
-	rate := 64 - int(math.Log2(float64(prob))*8)
+	rate := 64 - int(silkLin2Log(int32(prob))>>4)
 	if rate < 0 {
 		rate = 0
 	}
@@ -192,6 +190,10 @@ func (e *Encoder) computeInterpolationIndex(lsfQ15 []int16, order int) int {
 		return 4 // No interpolation for first frame
 	}
 
+	if order <= 0 {
+		return 4
+	}
+
 	var diff int64
 	for i := 0; i < order && i < len(e.prevLSFQ15); i++ {
 		d := int64(lsfQ15[i]) - int64(e.prevLSFQ15[i])
@@ -199,16 +201,15 @@ func (e *Encoder) computeInterpolationIndex(lsfQ15 []int16, order int) int {
 	}
 
 	// Thresholds for interpolation levels
-	rms := math.Sqrt(float64(diff) / float64(order))
-
 	// More interpolation (smaller index) for smoother transitions
-	if rms < 500 {
+	order64 := int64(order)
+	if diff < 250000*order64 {
 		return 0 // Heavy interpolation
-	} else if rms < 1000 {
+	} else if diff < 1000000*order64 {
 		return 1
-	} else if rms < 2000 {
+	} else if diff < 4000000*order64 {
 		return 2
-	} else if rms < 4000 {
+	} else if diff < 16000000*order64 {
 		return 3
 	}
 	return 4 // No interpolation

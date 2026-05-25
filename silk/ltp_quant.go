@@ -34,7 +34,7 @@ func corrMatrixFLP(x []float32, subfrLen, order int, out []float32) {
 		term2 := x[ptr1Idx+subfrLen-j]
 		prod1 := float32(term1 * term1)
 		prod2 := float32(term2 * term2)
-		energy += float64(prod1 - prod2)
+		energy += silkCReal(prod1 - prod2)
 		out[j*order+j] = float32(energy)
 	}
 
@@ -56,7 +56,7 @@ func corrMatrixFLP(x []float32, subfrLen, order int, out []float32) {
 			term4 := x[ptr2Idx+subfrLen-j]
 			prod1 := float32(term1 * term2)
 			prod2 := float32(term3 * term4)
-			inner += float64(prod1 - prod2)
+			inner += silkCReal(prod1 - prod2)
 			innerF32 = float32(inner)
 			out[(lag+j)*order+j] = innerF32
 			out[j*order+(lag+j)] = innerF32

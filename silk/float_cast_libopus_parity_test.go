@@ -119,15 +119,10 @@ func TestSILKFloatToInt32ScaledMatchesLibopus(t *testing.T) {
 				libopustest.HelperUnavailable(t, "silk scaled float2int", err)
 			}
 			for i, sample := range samples {
-				got := float64ToInt32Round(float64(sample * scale))
+				got := float32ToInt32RoundEven(sample * scale)
 				if got != want[i] {
-					t.Fatalf("scale=%0.10g sample[%d]=%0.10g scaled=%0.10g got=%d want %d",
-						scale, i, sample, sample*scale, got, want[i])
-				}
-				gotF32 := float32ToInt32RoundEven(sample * scale)
-				if gotF32 != want[i] {
 					t.Fatalf("float32 scale=%0.10g sample[%d]=%0.10g scaled=%0.10g got=%d want %d",
-						scale, i, sample, sample*scale, gotF32, want[i])
+						scale, i, sample, sample*scale, got, want[i])
 				}
 			}
 		})

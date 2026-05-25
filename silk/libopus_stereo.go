@@ -15,7 +15,7 @@ func silkStereoDecodePred(rd *rangecoding.Decoder, predQ13 []int32) {
 	for i := 0; i < 2; i++ {
 		ix[i][0] += 3 * ix[i][2]
 		lowQ13 := int32(silk_stereo_pred_quant_Q13[ix[i][0]])
-		stepQ13 := silkSMULWB(int32(silk_stereo_pred_quant_Q13[ix[i][0]+1])-lowQ13, int32(silkFixConst(0.5/float64(stereoQuantSubSteps), 16)))
+		stepQ13 := silkSMULWB(int32(silk_stereo_pred_quant_Q13[ix[i][0]+1])-lowQ13, int32(silkFixConst(0.5/silkCReal(stereoQuantSubSteps), 16)))
 		predQ13[i] = silkSMLABB(lowQ13, stepQ13, int32(2*ix[i][1]+1))
 	}
 	predQ13[0] -= predQ13[1]
