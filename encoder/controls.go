@@ -45,7 +45,7 @@ const (
 )
 
 // CVBR tolerance (percentage)
-const CVBRTolerance = 0.15 // +/- 15%
+const CVBRTolerance float32 = 0.15 // +/- 15%
 
 // ValidBitrate returns true if the bitrate is within Opus limits.
 func ValidBitrate(bitrate int) bool {
@@ -339,8 +339,8 @@ func packetFrameLayout(packet []byte, starts *[48]int, lens *[48]int) (toc byte,
 }
 
 // constrainSize adjusts packet size to stay within CVBR tolerance.
-func constrainSize(packet []byte, target int, tolerance float64) []byte {
-	maxSize := int(float64(target) * (1 + tolerance))
+func constrainSize(packet []byte, target int, tolerance float32) []byte {
+	maxSize := int(float32(target) * (1 + tolerance))
 
 	if len(packet) > maxSize {
 		// Upper-bound enforcement requires re-encoding with a tighter budget.

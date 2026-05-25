@@ -28,7 +28,7 @@ func TestPLCState(t *testing.T) {
 	}
 	// First loss applies FadePerFrame once
 	expectedFade1 := FadePerFrame
-	if math.Abs(fade1-expectedFade1) > 0.001 {
+	if abs32(fade1-expectedFade1) > 0.001 {
 		t.Errorf("after 1 loss: fadeFactor = %f, want %f", fade1, expectedFade1)
 	}
 }
@@ -38,7 +38,7 @@ func TestPLCStateMultipleLosses(t *testing.T) {
 	state := NewState()
 
 	// Record multiple losses and verify decay
-	expectedFade := 1.0
+	expectedFade := float32(1.0)
 	for i := 1; i <= 5; i++ {
 		fade := state.RecordLoss()
 		expectedFade *= FadePerFrame
@@ -46,7 +46,7 @@ func TestPLCStateMultipleLosses(t *testing.T) {
 		if state.LostCount() != i {
 			t.Errorf("after %d losses: lostCount = %d, want %d", i, state.LostCount(), i)
 		}
-		if math.Abs(fade-expectedFade) > 0.01 {
+		if abs32(fade-expectedFade) > 0.01 {
 			t.Errorf("after %d losses: fadeFactor = %f, want ~%f", i, fade, expectedFade)
 		}
 	}
@@ -80,11 +80,11 @@ func TestPLCReset(t *testing.T) {
 func TestPLCFadeProfile(t *testing.T) {
 	state := NewState()
 
-	expected := 1.0
+	expected := float32(1.0)
 	for i := 0; i < 5; i++ {
 		expected *= FadePerFrame
 		actual := state.RecordLoss()
-		if math.Abs(actual-expected) > 0.001 {
+		if abs32(actual-expected) > 0.001 {
 			t.Errorf("loss %d: fadeFactor = %f, want %f", i+1, actual, expected)
 		}
 	}
@@ -95,7 +95,7 @@ func TestPLCMaxConcealment(t *testing.T) {
 	state := NewState()
 
 	// Record MaxConcealedFrames losses
-	var lastFade float64
+	var lastFade float32
 	for i := 0; i < MaxConcealedFrames; i++ {
 		lastFade = state.RecordLoss()
 	}
@@ -431,7 +431,7 @@ func TestSILKPLCOutput(t *testing.T) {
 	}
 
 	frameSize := 320 // 20ms at 16kHz
-	fadeFactor := 0.5
+	fadeFactor := float32(0.5)
 
 	output := ConcealSILK(dec, frameSize, fadeFactor)
 
@@ -477,7 +477,7 @@ func TestSILKPLCVoiced(t *testing.T) {
 	}
 
 	frameSize := 160 // 10ms at 16kHz
-	fadeFactor := 0.8
+	fadeFactor := float32(0.8)
 
 	output := ConcealSILK(dec, frameSize, fadeFactor)
 
@@ -509,7 +509,7 @@ func TestSILKPLCFadedToSilence(t *testing.T) {
 	}
 
 	frameSize := 320
-	fadeFactor := 0.0 // Completely faded
+	fadeFactor := float32(0.0) // Completely faded
 
 	output := ConcealSILK(dec, frameSize, fadeFactor)
 

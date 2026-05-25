@@ -194,7 +194,7 @@ func (d *Decoder) Complexity() int {
 // RecordPLCLoss advances Hybrid PLC loss cadence and returns the fade factor.
 // This is used when recovering a lost frame via SILK LBRR while CELT still
 // needs concealment for the same frame (decode_fec path).
-func (d *Decoder) RecordPLCLoss() float64 {
+func (d *Decoder) RecordPLCLoss() float32 {
 	if d.plcState == nil {
 		d.plcState = plc.NewState()
 	}

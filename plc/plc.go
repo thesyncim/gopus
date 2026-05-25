@@ -35,7 +35,7 @@ const MaxConcealedFrames = 5
 // FadePerFrame is the default gain reduction per lost frame (linear).
 // Keep this mild; mode-specific concealment (especially SILK/Hybrid) already
 // applies its own attenuation cadence and should not be hard-faded here.
-const FadePerFrame = 0.57
+const FadePerFrame float32 = 0.57
 
 // State tracks PLC state across frames.
 // It maintains information about consecutive losses and coordinates
@@ -51,7 +51,7 @@ type State struct {
 
 	// fadeFactor is the current gain multiplier (1.0 = full volume).
 	// Decays toward 0 with each consecutive loss.
-	fadeFactor float64
+	fadeFactor float32
 
 	// lastFrameSize stores the frame size from the last good packet.
 	// Used to generate concealment of the same duration.
@@ -91,7 +91,7 @@ func (s *State) Reset() {
 //   - After MaxConcealedFrames: fadeFactor approaches 0
 //
 // Returns: current fade factor to apply to concealment audio
-func (s *State) RecordLoss() float64 {
+func (s *State) RecordLoss() float32 {
 	s.lostCount++
 
 	// Default fade for extended loss or CELT-mode concealment.
@@ -116,7 +116,7 @@ func (s *State) LostCount() int {
 //   - 1.0: Full volume (no loss yet recorded)
 //   - 0.5: One packet lost
 //   - 0.0: After several consecutive losses (silent)
-func (s *State) FadeFactor() float64 {
+func (s *State) FadeFactor() float32 {
 	return s.fadeFactor
 }
 

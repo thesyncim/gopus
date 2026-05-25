@@ -48,7 +48,7 @@ func newFECState() *fecState {
 
 // computeLBRRBitrate calculates bitrate for LBRR encoding.
 func computeLBRRBitrate(normalBitrate int) int {
-	lbrrBitrate := int(float64(normalBitrate) * LBRRBitrateFactor)
+	lbrrBitrate := normalBitrate * 3 / 5
 	if lbrrBitrate < MinSILKBitrate {
 		return MinSILKBitrate
 	}

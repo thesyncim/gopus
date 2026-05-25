@@ -780,23 +780,6 @@ celt/xcorr.go	1	a65afd3127286257f69d1e3dafbefdbf467734495817744bdbdd16e89a3f0508
 celt/xcorr.go	1	b05351257b2e2da2b873131e1190eb71571ee0b141d3de3c9ec0cc564bbd71dd	legacy-current	func tripleInnerProd(x, y1, y2, y3 []float64, length int) (float64, float64, float64) {
 celt/xcorr.go	2	bd3df33535ae5483a1c53129dd8cec51f228679838067eccc5d8d85afd57b1e7	legacy-current	var b0, b1, b2, b3 float64
 celt/xcorr.go	2	e0c2490349f9242f45544914abe3d2a33db46f4ebb6f593d5ba4ef3e98a63ef8	legacy-current	var a0, a1, a2, a3 float64
-encoder/analysis.go	1	0839a0d6e78a52bfe771927ca433dc299cca5e8d675f3b33cf0a519c36d4e688	legacy-current	if math.IsNaN(float64(real(outBuf[0]))) {
-encoder/analysis.go	1	2d6abd3ef58ac63b504bd0f55b6a307f245fea4199f5e641981fcc04a25fe0bb	legacy-current	logBandE := float32(math.Log(float64(bandE) + 1e-10))
-encoder/analysis.go	1	73f1eaa3a4acd93e70a3b93e85a9223ea8afce80d86951fd2d12cf82a7b12745	legacy-current	// Use float32 constants to avoid repeated float64 conversion
-encoder/analysis.go	1	7aece834565f2ee2dca9a97ac8440ed13bba4a833fa0eb96ca46ccf7e26e687b	legacy-current	return int32(math.RoundToEven(float64(x)))
-encoder/analysis.go	1	86c7aaebc9a388beab61f0b4f9743e893613654f306f07b90cb21ecf88582bd6	legacy-current	return float32(math.Sqrt(float64(specVariability / (NbFrames * NbTBands))))
-encoder/analysis.go	1	a8db0a65bfe0c6a72594a7262e13a1c85d9952809d0b5a52a493ba5bd22164b8	legacy-current	features[11+i] = float32(math.Sqrt(float64(s.Std[i]))) - stdFeatureBias[i]
-encoder/analysis.go	1	af1096742d10c3d6f700451b982b64a75d163b4cf827918eb969eda6729142c2	legacy-current	frameLoudness += float32(math.Sqrt(float64(bandE + 1e-10)))
-encoder/analysis.go	1	b4ff557115abde023c6bb8d70eadd5261db4f07eefb649241a193722d0023e33	legacy-current	bandLog2[0] = log2Scale * float32(math.Log(float64(E)+1e-10))
-encoder/analysis.go	1	bfa8d57a27202bdecabd451444a37c24a1dff69123a6017b5f217c63336b5d74	legacy-current	s.SqrtE[s.ECount][b] = float32(math.Sqrt(float64(bandE)))
-encoder/analysis.go	1	df8990d32a5d609c98c3b575718568af29b973538312729b655e9073d558c7b9	legacy-current	q6 := int(math.Floor(0.5 + 64.0*float64(boost)))
-encoder/analysis.go	1	f05e2fc7b6455845859fbe9e21e7e677a6821711860a483d87f9186a2e0d1093	legacy-current	frameLoudness = 20.0 * float32(math.Log10(float64(frameLoudness)))
-encoder/analysis.go	1	f8378d75b0d41a50ce25e812943abf4cad5316be10e9bd346602c33b12e35f17	legacy-current	stationarity := minf(0.99, L1/float32(math.Sqrt(float64(1e-15+float32(NbFrames)*L2))))
-encoder/analysis.go	1	f86b23f27e789ddf718ecf7d7f9d34efa535b4f98156dadb56f3bec69510d9f7	legacy-current	noiseFloor := float32(5.7e-4 / float64(uint(1)<<uint(max(0, lsbDepth-8))))
-encoder/controls.go	1	5dbd20248f05809cb9509babff89a170fdf21031b040892a47d75323b1ed6426	legacy-current	maxSize := int(float64(target) * (1 + tolerance))
-encoder/controls.go	1	bd7c564bbc70db3fc6cc4885fcc445e055b079de247179099b8639f7039a3a07	legacy-current	func constrainSize(packet []byte, target int, tolerance float64) []byte {
-encoder/dred_plan.go	1	1b10840741d448cb396f5d637644ec8c063e4174e97bfec807be63ee7443a443	legacy-current	return int(math.Floor(float64(float32(0.5) + bitsUsed))), targetChunks
-encoder/fec.go	1	4ffe0ef96a7e800591ab485b9c6135791b885de53780a2fa595b6d644474d500	legacy-current	lbrrBitrate := int(float64(normalBitrate) * LBRRBitrateFactor)
 encoder/hybrid.go	1	1d102f577ed072a5667b1ead59b73bbd21dd70caf0b02708c5a77910cd01ba2c	legacy-current	tfBoost := int((tfEstimate - 0.25) * float64(50<<celt.BitRes))
 encoder/hybrid.go	2	3ac2e099c102b4860a16f3766a6b286d330a07d35f80355c70d01c0d7fb728de	legacy-current	var mdctLeft, mdctRight []float64
 encoder/hybrid.go	1	5836c65732dc998955a739845c93f9a3387a600fbd8d09897227c75c94634822	legacy-current	func computeMDCTForHybridScratch(samples []float32, frameSize, channels int, history []float32, shortBlocks int, hs *HybridState, ce *celt.Encoder) []float64 {
@@ -804,7 +787,6 @@ encoder/hybrid.go	1	80219792b478493d8425c3e4b25328a7096871b213750692d503f13271f3
 encoder/hybrid.go	1	a39efded2846718e49cf20cc38910e635213cf591ec7bea75584d60a43beeff1	legacy-current	maxAllowed := int(float64(baseTargetBytes) * 2.0)
 encoder/hybrid.go	2	cb307c264810bd39dc3f2af6ab93e86e5ae4801bafc26cb6bc8bcb32d9378124	legacy-current	hs.scratchMDCTResult = make([]float64, resultLen)
 encoder/hybrid.go	1	d604d64649d277a4b06e6e0520168b79028344b240622d45da06f7d9d5e30a43	legacy-current	func (e *Encoder) computeHybridCELTVBRTargetBytes(limitBytes, frameSize int, tfEstimate float64, totalBoost, tellFrac, tell0Frac, silkOffset int) int {
-hybrid/decoder.go	1	c71830725d4132fdeaf59769540011e55c2db1f1a2509fc7a670a465b10dc766	legacy-current	func (d *Decoder) RecordPLCLoss() float64 {
 internal/lpcnetplc/analysis.go	1	0a50dc44c424b9913f0c2c89c571098693ece9485671f88c64de01db7c22901b	legacy-current	var nrgF float64
 internal/lpcnetplc/analysis.go	1	0e4b638261c0ff8bed0339f1a6224809e5dcabca1bc850c7d1ea6af2c4fe9476	legacy-current	scratch.lpcEx[i] = float32(math.Pow(10, float64(scratch.lpcEx[i])) * float64(analysisCompensation[i]))
 internal/lpcnetplc/analysis.go	1	109702ae88e36cacc7cb337dcf912e7b08c89e3a66aa408de6f686dd53d41592	legacy-current	tmp1 += float64(xPtr[n-k-1]) * atmp
@@ -878,12 +860,3 @@ internal/osce/lace/runtime_trace.go	1	fa21599cedcfee83faa20a3e146e4530d379f43ff7
 internal/osce/lace/runtime_trace.go	1	fe810750a1083d7aaa3cad8e3f60ba7e94bd32bfded2bae2fcd3163e0a7f34e3	legacy-current	gains[1] = float32(math.Exp(float64(filterGainA*gains[1] + filterGainB)))
 plc/celt_plc.go	1	18cfb732e26c6d9180f7266d09b828a834ff485acb8e06e94a9eb40ca7618d52	legacy-current	return float32(math.Pow(10.0, float64(x)))
 plc/celt_plc.go	1	ba4ad3c78ea30d3fc8ba4aca21a773fa51ac920fd7daebb7cb9aa7545f9e6a2d	legacy-current	return float32(math.Sqrt(float64(x)))
-plc/plc.go	1	bb3f25a406b2d73d08927a8f96805308d70ec9a1d96b666b573e874d3eb655b3	legacy-current	fadeFactor float64
-plc/plc.go	1	ddcfe41e297ac1108fd192557a8862649468301546b052202c33ef6306d7fb52	legacy-current	func (s *State) RecordLoss() float64 {
-plc/plc.go	1	e1ad7304bc82c69f8a22be0de86546ef4e1418e2ed7b34ca6f3f04abf6c53711	legacy-current	func (s *State) FadeFactor() float64 {
-plc/silk_plc.go	1	07071d288d8e0e62bb3dfb459ab439415db56e6f8cb151111e7cebcf07349b38	legacy-current	func concealVoicedSILK(dec SILKDecoderState, output []float32, prevLPC []float32, order int, fade float64, rng *uint32) {
-plc/silk_plc.go	1	0dff32e7b770c7d02775b6a7af00221df956ac3eb25abd5f74087c0d5b914884	legacy-current	func ConcealSILKStereo(dec SILKDecoderState, frameSize int, fadeFactor float64) (left, right []float32) {
-plc/silk_plc.go	1	708e0fed6db05727be3b4fd714197e7677342f67301707149bdd9500b6d9f279	legacy-current	sLPCQ14[start+i] = int32(math.Round(float64(prev[i] * 16384.0)))
-plc/silk_plc.go	1	b8b3dcd10e6933174c1076b381ca1523a9539ea3437a8f93fe9e081636d02342	legacy-current	func ConcealSILK(dec SILKDecoderState, frameSize int, fadeFactor float64) []float32 {
-plc/silk_plc.go	1	cecb7acf10aa57d3da15d916936c0c1eb9c4f40b5646703b0a9b196a1ae373b0	legacy-current	func bwExpandQ12(ar []int16, coef float64) {
-plc/silk_plc.go	1	df24bc5e674a596aa430d1385ec6dfa6ebcc7efe37f320e11e2a1c868ca857b1	legacy-current	func concealUnvoicedSILK(output []float32, prevLPC []float32, order int, fade float64, rng *uint32) {

@@ -3,6 +3,8 @@ package plc
 import (
 	"math"
 	"math/bits"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // Constants from libopus silk/PLC.h
@@ -15,7 +17,7 @@ const (
 
 	// bweCoef is the bandwidth expansion coefficient for LPC during PLC.
 	// Applied to prevent filter instability during concealment.
-	bweCoef = 0.99
+	bweCoef float32 = 0.99
 
 	// vPitchGainStartMinQ14 is the minimum LTP gain (0.7 in Q14).
 	// LTP gains below this are scaled up for better concealment.
@@ -341,7 +343,7 @@ func (s *SILKPLCState) UpdateFromGoodFrame(
 //   - fadeFactor: gain multiplier (0.0 to 1.0)
 //
 // Returns: concealed samples at native SILK rate
-func ConcealSILK(dec SILKDecoderState, frameSize int, fadeFactor float64) []float32 {
+func ConcealSILK(dec SILKDecoderState, frameSize int, fadeFactor float32) []float32 {
 	if dec == nil || frameSize <= 0 {
 		return make([]float32, frameSize)
 	}
@@ -576,7 +578,7 @@ func ConcealSILKWithLTP(dec SILKDecoderStateExtended, plcState *SILKPLCState, lo
 		if len(prev) >= lpcOrder {
 			start := maxLPCOrder - lpcOrder
 			for i := 0; i < lpcOrder; i++ {
-				sLPCQ14[start+i] = int32(math.Round(float64(prev[i] * 16384.0)))
+				sLPCQ14[start+i] = opusmath.RoundF32HalfAwayFromZeroToInt32(prev[i] * 16384.0)
 			}
 		}
 	}
@@ -678,7 +680,7 @@ func silkPLCBufferAt(buf []int32, idx int) int32 {
 
 // concealVoicedSILK generates concealment for voiced (pitched) speech.
 // It extrapolates the pitch pattern from previous frames.
-func concealVoicedSILK(dec SILKDecoderState, output []float32, prevLPC []float32, order int, fade float64, rng *uint32) {
+func concealVoicedSILK(dec SILKDecoderState, output []float32, prevLPC []float32, order int, fade float32, rng *uint32) {
 	// Get history for pitch repetition
 	history := dec.OutputHistory()
 	histIdx := dec.HistoryIndex()
@@ -714,12 +716,12 @@ func concealVoicedSILK(dec SILKDecoderState, output []float32, prevLPC []float32
 		srcIdx = srcIdx % histLen
 
 		// Copy with decay
-		excitation[i] = history[srcIdx] * float32(fade)
+		excitation[i] = history[srcIdx] * fade
 
 		// Add small noise to prevent pure repetition artifacts
 		*rng = *rng*1664525 + 1013904223
 		noise := (float32(*rng>>16) - 32768.0) / 32768.0 * 0.01
-		excitation[i] += noise * float32(fade)
+		excitation[i] += noise * fade
 	}
 
 	// Apply simple smoothing to avoid harsh transitions
@@ -730,14 +732,14 @@ func concealVoicedSILK(dec SILKDecoderState, output []float32, prevLPC []float32
 
 // concealUnvoicedSILK generates concealment for unvoiced (noise-like) speech.
 // It produces comfort noise shaped by the previous LPC filter.
-func concealUnvoicedSILK(output []float32, prevLPC []float32, order int, fade float64, rng *uint32) {
+func concealUnvoicedSILK(output []float32, prevLPC []float32, order int, fade float32, rng *uint32) {
 	// Generate white noise excitation
 	excitation := make([]float32, len(output))
 	for i := range excitation {
 		*rng = *rng*1664525 + 1013904223
 		// Generate noise in [-1, 1] range
 		noise := (float32(*rng>>16) - 32768.0) / 65536.0
-		excitation[i] = noise * float32(fade)
+		excitation[i] = noise * fade
 	}
 
 	// Apply simple LPC filter to shape the noise
@@ -824,7 +826,7 @@ func estimatePitchFromHistory(history []float32, histIdx, histLen int) int {
 //   - fadeFactor: gain multiplier (0.0 to 1.0)
 //
 // Returns: left and right channel concealed samples
-func ConcealSILKStereo(dec SILKDecoderState, frameSize int, fadeFactor float64) (left, right []float32) {
+func ConcealSILKStereo(dec SILKDecoderState, frameSize int, fadeFactor float32) (left, right []float32) {
 	// For stereo, apply mono PLC to both channels
 	// A more sophisticated approach would use the stereo prediction weights
 	mono := ConcealSILK(dec, frameSize, fadeFactor)
@@ -1072,12 +1074,12 @@ func maxInt32(a, b int32) int32 {
 	return b
 }
 
-func bwExpandQ12(ar []int16, coef float64) {
+func bwExpandQ12(ar []int16, coef float32) {
 	if len(ar) == 0 {
 		return
 	}
 	// Match SILK_FIX_CONST(coef, 16) rounding semantics.
-	chirpQ16 := int32(math.Round(coef * 65536.0))
+	chirpQ16 := opusmath.RoundF32HalfAwayFromZeroToInt32(coef * 65536.0)
 	chirpMinusOneQ16 := chirpQ16 - 65536
 
 	for i := 0; i < len(ar)-1; i++ {

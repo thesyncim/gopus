@@ -31,6 +31,14 @@ func Log2F32(x float32) float32 {
 	return float32(math.Log2(float64(x)))
 }
 
+func LogF32(x float32) float32 {
+	return float32(math.Log(float64(x)))
+}
+
+func Log10F32(x float32) float32 {
+	return float32(math.Log10(float64(x)))
+}
+
 // SilkLog2F32 matches silk/float/SigProc_FLP.h silk_log2().
 func SilkLog2F32(x float32) float32 {
 	return float32(3.32192809488736 * math.Log10(float64(x)))
@@ -42,4 +50,8 @@ func SqrtF32(x float32) float32 {
 
 func FloorHalfPlusF32ToInt32(x float32) int32 {
 	return int32(math.Floor(float64(x) + 0.5))
+}
+
+func RoundToEvenF32ToInt32(x float32) int32 {
+	return int32(math.RoundToEven(float64(x)))
 }

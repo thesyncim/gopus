@@ -298,7 +298,7 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 	} else {
 		// Fallback for non-hybrid frame sizes used by internal cadence paths.
 		// Pass celtDecoder as both state and synthesizer (implements both interfaces).
-		celtConcealed = plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, frameSize48, float32(fadeFactor))
+		celtConcealed = plc.ConcealCELTHybrid(d.celtDecoder, d.celtDecoder, frameSize48, fadeFactor)
 	}
 
 	// Combine SILK and CELT

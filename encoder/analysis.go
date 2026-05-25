@@ -4,6 +4,7 @@ import (
 	"math"
 
 	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -101,7 +102,7 @@ func silkResamplerDown2HP(s []float32, out []float32, in []float32) float32 {
 	// Hoist filter state into locals to avoid repeated slice access
 	s0, s1, s2 := s[0], s[1], s[2]
 
-	// Use float32 constants to avoid repeated float64 conversion
+	// Keep this filter in the libopus float-build width.
 	const (
 		coef0 = float32(0.6074371)
 		coef1 = float32(0.15063)
@@ -397,7 +398,7 @@ func isDigitalSilence32(pcm []float32) bool {
 }
 
 func analysisFloat2Int(x float32) int32 {
-	return int32(math.RoundToEven(float64(x)))
+	return opusmath.RoundToEvenF32ToInt32(x)
 }
 
 func analysisFastAtan2f(y, x float32) float32 {
@@ -601,7 +602,7 @@ func analysisSpecVariability(logE *[NbFrames][NbTBands]float32) float32 {
 	for i := 0; i < NbFrames; i++ {
 		specVariability += mindist[i]
 	}
-	return float32(math.Sqrt(float64(specVariability / (NbFrames * NbTBands))))
+	return opusmath.SqrtF32(specVariability / float32(NbFrames*NbTBands))
 }
 
 func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
@@ -816,7 +817,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	}
 	fft480(&s.scratchFFTOut, &s.scratchFFTIn, s.scratchFFTKiss[:480])
 	outBuf := s.scratchFFTOut[:]
-	if math.IsNaN(float64(real(outBuf[0]))) {
+	if math.Float32bits(real(outBuf[0]))&0x7fffffff > 0x7f800000 {
 		s.Info[infoPos].Valid = false
 		s.WritePos = nextWritePos
 		return
@@ -961,7 +962,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	if lsbDepth > 24 {
 		lsbDepth = 24
 	}
-	noiseFloor := float32(5.7e-4 / float64(uint(1)<<uint(max(0, lsbDepth-8))))
+	noiseFloor := float32(5.7e-4) / float32(uint(1)<<uint(max(0, lsbDepth-8)))
 	belowMaxPitch := float32(0)
 	aboveMaxPitch := float32(0)
 	var bandTonality [NbTBands]float32
@@ -987,7 +988,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			E += binE
 		}
 		E *= (1.0 / (celtSigScale * celtSigScale)) * analysisFFTEnergyScale
-		bandLog2[0] = log2Scale * float32(math.Log(float64(E)+1e-10))
+		bandLog2[0] = log2Scale * opusmath.LogF32(E+1e-10)
 	}
 
 	// Precompute bin energies for all analysis bins to improve memory access patterns.
@@ -1022,14 +1023,14 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		bandERaw[b] = rawE
 
 		s.E[s.ECount][b] = bandE
-		logBandE := float32(math.Log(float64(bandE) + 1e-10))
+		logBandE := opusmath.LogF32(bandE + 1e-10)
 		logE[b] = logBandE
 		bandLog2[b+1] = log2Scale * logBandE
 		s.LogE[s.ECount][b] = logE[b]
-		s.SqrtE[s.ECount][b] = float32(math.Sqrt(float64(bandE)))
+		s.SqrtE[s.ECount][b] = opusmath.SqrtF32(bandE)
 
 		frameNoisiness += nE / (1e-15 + bandE)
-		frameLoudness += float32(math.Sqrt(float64(bandE + 1e-10)))
+		frameLoudness += opusmath.SqrtF32(bandE + 1e-10)
 
 		if s.Count == 0 {
 			s.HighE[b] = logE[b]
@@ -1056,7 +1057,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			L1 += s.SqrtE[i][b]
 			L2 += s.E[i][b]
 		}
-		stationarity := minf(0.99, L1/float32(math.Sqrt(float64(1e-15+float32(NbFrames)*L2))))
+		stationarity := minf(0.99, L1/opusmath.SqrtF32(1e-15+float32(NbFrames)*L2))
 		stationarity *= stationarity
 		stationarity *= stationarity
 		frameStationarity += stationarity
@@ -1139,7 +1140,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		bandwidth = 20
 	}
 
-	frameLoudness = 20.0 * float32(math.Log10(float64(frameLoudness)))
+	frameLoudness = 20.0 * opusmath.Log10F32(frameLoudness)
 	s.ETracker = maxf(s.ETracker-0.003, frameLoudness)
 	s.LowECount *= 1.0 - alphaE
 	if frameLoudness < s.ETracker-30.0 {
@@ -1219,7 +1220,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		s.Mem[i] = BFCC[i]
 	}
 	for i := 0; i < 9; i++ {
-		features[11+i] = float32(math.Sqrt(float64(s.Std[i]))) - stdFeatureBias[i]
+		features[11+i] = opusmath.SqrtF32(s.Std[i]) - stdFeatureBias[i]
 	}
 	features[18] = specVariability - 0.78
 	features[20] = info.Tonality - 0.154723
@@ -1238,7 +1239,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	info.VADProb = frameProbs[1]
 	for b := 0; b < NbTBands+1; b++ {
 		boost := maxf(0, leakageTo[b]-bandLog2[b]) + maxf(0, bandLog2[b]-(leakageFrom[b]+leakageOffset))
-		q6 := int(math.Floor(0.5 + 64.0*float64(boost)))
+		q6 := int(opusmath.FloorHalfPlusF32ToInt32(float32(64) * boost))
 		if q6 > 255 {
 			q6 = 255
 		}

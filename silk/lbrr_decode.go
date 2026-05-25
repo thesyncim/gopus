@@ -288,7 +288,7 @@ func (d *Decoder) decodeFECLostFrameInto(channel int, st *decoderState, frameOut
 	}
 
 	frameLength := len(frameOut)
-	fadeFactor := 1.0
+	fadeFactor := float32(1.0)
 	if d.plcState != nil {
 		fadeFactor = d.plcState.RecordLoss()
 	}

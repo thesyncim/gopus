@@ -751,7 +751,7 @@ func TestBitrateModeCVBR(t *testing.T) {
 	enc.SetBitrate(64000)
 
 	target := 160 // bytes for 20ms at 64kbps
-	maxSize := int(float64(target) * (1 + encoder.CVBRTolerance))
+	maxSize := int(float32(target) * (1 + encoder.CVBRTolerance))
 
 	// Encode multiple frames
 	for i := 0; i < 10; i++ {

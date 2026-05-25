@@ -3,11 +3,11 @@
 package encoder
 
 import (
-	"math"
 	"math/bits"
 
 	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/internal/extsupport"
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/types"
 )
 
@@ -67,7 +67,7 @@ func estimateDREDBits(q0, dQ, qmax, duration, targetBits int) (int, int) {
 			targetChunks = i + 1
 		}
 	}
-	return int(math.Floor(float64(float32(0.5) + bitsUsed))), targetChunks
+	return int(opusmath.FloorHalfPlusF32ToInt32(bitsUsed)), targetChunks
 }
 
 func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool) {
