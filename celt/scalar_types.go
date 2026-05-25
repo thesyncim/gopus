@@ -60,15 +60,6 @@ func copySigToFloat64(dst []float64, src []celtSig) {
 	}
 }
 
-func interleaveSigToFloat64(left, right []celtSig, dst []float64) {
-	n := min(len(left), len(right))
-	n = min(n, len(dst)/2)
-	for i := 0; i < n; i++ {
-		dst[2*i] = float64(left[i])
-		dst[2*i+1] = float64(right[i])
-	}
-}
-
 func interleaveSigToFloat32(left, right []celtSig, dst []float32) {
 	n := min(len(left), len(right))
 	n = min(n, len(dst)/2)
@@ -155,30 +146,4 @@ func ensureGLogSliceNoClear(buf *[]celtGLog, n int) []celtGLog {
 		*buf = (*buf)[:n]
 	}
 	return (*buf)[:n]
-}
-
-func copyGLogToFloat64(dst []float64, src []celtGLog) {
-	n := min(len(dst), len(src))
-	for i := 0; i < n; i++ {
-		dst[i] = float64(src[i])
-	}
-}
-
-func copyFloat64ToGLog(dst []celtGLog, src []float64) {
-	n := min(len(dst), len(src))
-	for i := 0; i < n; i++ {
-		dst[i] = celtGLog(src[i])
-	}
-}
-
-func appendFloat64AsGLog(dst []celtGLog, src []float64) []celtGLog {
-	if cap(dst) < len(src) {
-		dst = make([]celtGLog, len(src))
-	} else {
-		dst = dst[:len(src)]
-	}
-	for i := range src {
-		dst[i] = celtGLog(src[i])
-	}
-	return dst
 }

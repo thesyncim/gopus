@@ -605,15 +605,9 @@ celt/recovery_helpers.go	1	c4a7b1959057860e72acc2ed0715dbe2b5cd853a1e7c90ea610fb
 celt/recovery_helpers.go	1	d32bbf73f78ce8af9639d3a90c3f2766ffc587e9ec81ab2408f83186857a80b5	legacy-current	d.scratchPLC = ensureFloat64Slice(&d.scratchPLC, plcLen)
 celt/recovery_helpers.go	1	e9a8baf7b79c71f790c85b46122ac214b0ebc141e73f02e1861e5de66442fb8f	legacy-current	e0 := float64(d.prevEnergy[idx])
 celt/recovery_helpers.go	1	eaa8c72141bf53e886ef3795b2d797419253c8a8b2c7c4205097755a2ec25549	legacy-current	func (d *Decoder) computePLCAutocorr(frame []celtSig, window []float64, ac []float32) {
-celt/scalar_types.go	1	056861f968f5628842a2237bbe58121fb994fe448243a0079180b19ff6cedc44	legacy-current	func interleaveSigToFloat64(left, right []celtSig, dst []float64) {
-celt/scalar_types.go	1	078dbe75921442b69f21c7b435b130598b960d5ff2a6ce03a57fc05247f4926c	legacy-current	dst[2*i] = float64(left[i])
-celt/scalar_types.go	1	2d1365574003363b572c578c3af186679ad8a3fee8072273449fc272001fbe31	legacy-current	func copyGLogToFloat64(dst []float64, src []celtGLog) {
 celt/scalar_types.go	1	9100e8bfe6799dee498e9b81cf577d81a0c789b7629509b2f9560f97228f91c4	legacy-current	func copyNormToFloat64(dst []float64, src []celtNorm) {
-celt/scalar_types.go	1	95b07d3d17adafc6f30f01144cd31ba7e03efb5cff5e27b583ddc261ebe0b735	legacy-current	func copyFloat64ToGLog(dst []celtGLog, src []float64) {
 celt/scalar_types.go	1	9bdc0fb3d1ecacceda98fc7c5338f148b4d2d40eeb2c9bfcb3fb220b7b737f74	legacy-current	func copyFloat64ToSig(dst []celtSig, src []float64) {
-celt/scalar_types.go	1	b847f605b22e35bd3d399d88ba30555ae2df7a1865882ce7e7ae99305d057356	legacy-current	dst[2*i+1] = float64(right[i])
-celt/scalar_types.go	1	bc10469186eda79c7607016abc5a1a3504e5203cb7d3a29f7d11826e60360bc7	legacy-current	func appendFloat64AsGLog(dst []celtGLog, src []float64) []celtGLog {
-celt/scalar_types.go	3	beea720c8de54da8545efc993c92e9c60c4d4c58cb139234868d65b042e94e76	legacy-current	dst[i] = float64(src[i])
+celt/scalar_types.go	2	beea720c8de54da8545efc993c92e9c60c4d4c58cb139234868d65b042e94e76	legacy-current	dst[i] = float64(src[i])
 celt/scalar_types.go	1	f52ac08b388aa97d4e3e29fba3ac2e8a28217d29f45a2cbbd257128a63e1148b	legacy-current	func copySigToFloat64(dst []float64, src []celtSig) {
 celt/scale_float64_arm64.go	1	ad4ee60ab03c8cba26d666f53b34d8a53c70d9450889a5e888771bfa66774d0e	legacy-current	func scaleFloat64Into(dst, src []float64, scale float64, n int)
 celt/scale_float64_default.go	1	c84a4acc11851d5f20239898c1630bda686953bf411fdbc6db2aa9615941ff54	legacy-current	func scaleFloat64Into(dst, src []float64, scale float64, n int) {

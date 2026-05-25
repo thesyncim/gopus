@@ -413,8 +413,8 @@ func TestEncodeFrameLFEClampsHighBandEnergy(t *testing.T) {
 
 func TestLastBandLogEUsesGLogWidth(t *testing.T) {
 	enc := NewEncoder(1)
-	enc.lastBandLogE = appendFloat64AsGLog(enc.lastBandLogE, []float64{1.0 / 3.0})
-	enc.lastBandLogE2 = appendFloat64AsGLog(enc.lastBandLogE2, []float64{2.0 / 3.0})
+	enc.lastBandLogE = []celtGLog{celtGLog(float32(1.0 / 3.0))}
+	enc.lastBandLogE2 = []celtGLog{celtGLog(float32(2.0 / 3.0))}
 
 	if got, want := enc.GetLastBandLogE()[0], celtGLog(1.0/3.0); got != want {
 		t.Fatalf("GetLastBandLogE()[0]=%0.9g want celt_glog %0.9g", got, want)
