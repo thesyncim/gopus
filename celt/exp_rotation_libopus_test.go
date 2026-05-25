@@ -984,7 +984,7 @@ func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 	}
 	var enc Encoder
 	var scratch encoderScratch
-	scratch.coarseOldStartGLog = make([]celtGLog, 1)
+	scratch.coarseOldStart = make([]celtGLog, 1)
 	got := []struct {
 		name string
 		size uintptr
@@ -1000,7 +1000,7 @@ func TestEncoderGLogStateMatchesLibopusFloatSize(t *testing.T) {
 		{"lastBandLogE", unsafe.Sizeof(enc.lastBandLogE[0])},
 		{"lastBandLogE2", unsafe.Sizeof(enc.lastBandLogE2[0])},
 		{"lastDynalloc.MaxDepth", unsafe.Sizeof(enc.lastDynalloc.MaxDepth)},
-		{"scratch.coarseOldStartGLog", unsafe.Sizeof(scratch.coarseOldStartGLog[0])},
+		{"scratch.coarseOldStart", unsafe.Sizeof(scratch.coarseOldStart[0])},
 	}
 	for _, tc := range got {
 		if tc.size != uintptr(sizes.celtGLog) {

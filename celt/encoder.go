@@ -678,6 +678,16 @@ func (e *Encoder) PrevEnergy() []float64 {
 	return out
 }
 
+func (e *Encoder) CopyPrevEnergyFloat32(dst []float32) []float32 {
+	if cap(dst) < len(e.prevEnergy) {
+		dst = make([]float32, len(e.prevEnergy))
+	} else {
+		dst = dst[:len(e.prevEnergy)]
+	}
+	copy(dst, e.prevEnergy)
+	return dst
+}
+
 // PrevEnergy2 returns the band energies from two frames ago.
 // Used for anti-collapse detection.
 func (e *Encoder) PrevEnergy2() []float64 {
@@ -704,6 +714,24 @@ func (e *Encoder) SetPrevEnergyWithPrev(prev, energies []float64) {
 		copy(e.prevEnergy2, e.prevEnergy)
 	}
 	copyFloat64ToGLog(e.prevEnergy, energies)
+}
+
+func (e *Encoder) SetPrevEnergyWithPrevFloat32(prev, energies []float32) {
+	if len(prev) == len(e.prevEnergy2) {
+		copy(e.prevEnergy2, prev)
+	} else {
+		copy(e.prevEnergy2, e.prevEnergy)
+	}
+	copy(e.prevEnergy, energies)
+}
+
+func (e *Encoder) setPrevEnergyWithPrevGLog(prev, energies []celtGLog) {
+	if len(prev) == len(e.prevEnergy2) {
+		copy(e.prevEnergy2, prev)
+	} else {
+		copy(e.prevEnergy2, e.prevEnergy)
+	}
+	copy(e.prevEnergy, energies)
 }
 
 // OverlapBuffer returns the overlap buffer for MDCT analysis.
@@ -1078,7 +1106,7 @@ type encoderScratch struct {
 	coarseError       []celtGLog
 	coarseDecisionE   []float64
 	analysisEnergies  []float64
-	prev1LogE         []float64
+	prev1LogE         []celtGLog
 
 	// Normalized coefficient buffers
 	normL []float64
@@ -1115,7 +1143,7 @@ type encoderScratch struct {
 	transientEnergy    []float32
 	transientEnergyR   []float32
 	transientX         []float32
-	transientSpreadOld []float64
+	transientSpreadOld []celtGLog
 
 	// CWRS encoding scratch
 	cwrsU []uint32
@@ -1148,9 +1176,8 @@ type encoderScratch struct {
 	rangeEncoder rangecoding.Encoder
 
 	// Coarse-energy two-pass scratch
-	coarseStartState   rangecoding.EncoderState
-	coarseOldStart     []float64
-	coarseOldStartGLog []celtGLog
+	coarseStartState rangecoding.EncoderState
+	coarseOldStart   []celtGLog
 }
 
 // EnsureScratch ensures all scratch buffers are properly sized for the given frame size.
@@ -1254,7 +1281,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 
 	// Quantized energies
 	s.quantizedEnergies = ensureFloat64Slice(&s.quantizedEnergies, bandCount)
-	s.prev1LogE = ensureFloat64Slice(&s.prev1LogE, bandCount)
+	s.prev1LogE = ensureGLogSlice(&s.prev1LogE, bandCount)
 	s.coarseDecisionE = ensureFloat64Slice(&s.coarseDecisionE, bandCount)
 
 	// Normalized coefficients

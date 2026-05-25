@@ -72,7 +72,7 @@ func TestDynallocStereoCarriesLastAcrossChannels(t *testing.T) {
 	)
 	bandLogE := make([]float64, channels*nbBands)
 	bandLogE2 := make([]float64, channels*nbBands)
-	oldBandE := make([]float64, channels*nbBands)
+	oldBandE := make([]celtGLog, channels*nbBands)
 	logN := make([]int16, nbBands)
 	for i := range logN {
 		logN[i] = int16(LogN[i])

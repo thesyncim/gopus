@@ -589,7 +589,7 @@ func (e *Encoder) DecideIntraMode(energies []float64, startBand, nbBands int, lm
 	startState := &e.scratch.coarseStartState
 	e.rangeEncoder.SaveStateInto(startState)
 
-	oldStart := ensureGLogSlice(&e.scratch.coarseOldStartGLog, len(e.prevEnergy))
+	oldStart := ensureGLogSlice(&e.scratch.coarseOldStart, len(e.prevEnergy))
 	copy(oldStart, e.prevEnergy)
 
 	probIntra := eProbModel[lm][1][:]

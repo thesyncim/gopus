@@ -1028,13 +1028,13 @@ func GetShortBlockCount(frameSize int) int {
 // Returns: true if mean energy increase > 1.0 dB and transient should be forced
 //
 // Reference: libopus celt/celt_encoder.c patch_transient_decision()
-func PatchTransientDecision(newE, oldE []float64, nbEBands, start, end, channels int) bool {
+func PatchTransientDecision(newE []float64, oldE []celtGLog, nbEBands, start, end, channels int) bool {
 	return PatchTransientDecisionWithScratch(newE, oldE, nbEBands, start, end, channels, nil)
 }
 
 // PatchTransientDecisionWithScratch is PatchTransientDecision using caller-owned
 // scratch for the spread-old-energy workspace.
-func PatchTransientDecisionWithScratch(newE, oldE []float64, nbEBands, start, end, channels int, spreadOld []float64) bool {
+func PatchTransientDecisionWithScratch(newE []float64, oldE []celtGLog, nbEBands, start, end, channels int, spreadOld []celtGLog) bool {
 	if len(newE) < end || len(oldE) < end {
 		return false
 	}
@@ -1043,7 +1043,7 @@ func PatchTransientDecisionWithScratch(newE, oldE []float64, nbEBands, start, en
 	// to avoid false detection caused by irrelevant bands.
 	// GCONST(1.0f) in libopus is 1.0 in the log-energy domain (corresponds to ~6dB).
 	if len(spreadOld) < end {
-		spreadOld = make([]float64, end)
+		spreadOld = make([]celtGLog, end)
 	} else {
 		spreadOld = spreadOld[:end]
 	}
@@ -1084,7 +1084,7 @@ func PatchTransientDecisionWithScratch(newE, oldE []float64, nbEBands, start, en
 	}
 
 	// Compute mean increase
-	var meanDiff float64
+	var meanDiff celtGLog
 	startBand := start
 	if startBand < 2 {
 		startBand = 2
@@ -1092,7 +1092,7 @@ func PatchTransientDecisionWithScratch(newE, oldE []float64, nbEBands, start, en
 
 	for c := 0; c < channels; c++ {
 		for i := startBand; i < end-1; i++ {
-			x1 := newE[i+c*nbEBands]
+			x1 := celtGLog(newE[i+c*nbEBands])
 			if x1 < 0 {
 				x1 = 0
 			}
@@ -1110,7 +1110,7 @@ func PatchTransientDecisionWithScratch(newE, oldE []float64, nbEBands, start, en
 	if numBands < 1 {
 		numBands = 1
 	}
-	meanDiff /= float64(channels * numBands)
+	meanDiff /= celtGLog(channels * numBands)
 
 	// Return true if mean increase > 1.0 (in log domain, this is ~6 dB)
 	return meanDiff > 1.0

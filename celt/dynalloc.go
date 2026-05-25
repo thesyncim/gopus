@@ -261,13 +261,14 @@ func computeNoiseFloor32(i, lsbDepth int, logN int16) float32 {
 //
 // Reference: libopus celt/celt_encoder.c lines 1049-1273
 func DynallocAnalysis(
-	bandLogE, bandLogE2, oldBandE []float64,
+	bandLogE, bandLogE2 []float64,
+	oldBandE []celtGLog,
 	nbBands, start, end, channels, lsbDepth, lm int,
 	logN []int16,
 	effectiveBytes int,
 	isTransient, vbr, constrainedVBR, lfe bool,
 	toneFreq, toneishness float64,
-	surroundDynalloc []float64,
+	surroundDynalloc []celtGLog,
 	analysisValid bool,
 	analysisLeakBoost []uint8,
 ) DynallocResult {
@@ -825,13 +826,14 @@ func (s *DynallocScratch) EnsureDynallocScratch(nbBands, channels int) {
 
 // DynallocAnalysisWithScratch is the zero-allocation version of DynallocAnalysis.
 func DynallocAnalysisWithScratch(
-	bandLogE, bandLogE2, oldBandE []float64,
+	bandLogE, bandLogE2 []float64,
+	oldBandE []celtGLog,
 	nbBands, start, end, channels, lsbDepth, lm int,
 	logN []int16,
 	effectiveBytes int,
 	isTransient, vbr, constrainedVBR, lfe bool,
 	toneFreq, toneishness float64,
-	surroundDynalloc []float64,
+	surroundDynalloc []celtGLog,
 	analysisValid bool,
 	analysisLeakBoost []uint8,
 	scratch *DynallocScratch,

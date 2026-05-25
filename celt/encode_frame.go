@@ -108,21 +108,21 @@ func (e *Encoder) quantizeInputToLSBDepthScratch(pcm []float64) []float64 {
 // computeSurroundDynallocFromMask mirrors libopus surround masking reduction in
 // celt_encoder.c: derive per-band dynalloc floors and surround trim from
 // externally supplied energy masks.
-func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []float64) (float64, bool) {
+func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (celtGLog, bool) {
 	if nbBands <= 0 || len(out) < nbBands {
-		return float64(e.surroundTrim), false
+		return e.surroundTrim, false
 	}
 	for i := 0; i < nbBands; i++ {
 		out[i] = 0
 	}
 	if e.lfe || e.hybrid {
-		return float64(e.surroundTrim), false
+		return e.surroundTrim, false
 	}
 
 	maskBands := MaxBands
 	needed := maskBands * e.channels
 	if len(e.energyMask) < needed {
-		return float64(e.surroundTrim), false
+		return e.surroundTrim, false
 	}
 
 	maskEnd := e.lastCodedBands
@@ -136,16 +136,16 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []float64) (f
 		maskEnd = maskBands
 	}
 	if maskEnd <= 0 {
-		return float64(e.surroundTrim), false
+		return e.surroundTrim, false
 	}
 
-	maskAvg := 0.0
-	diff := 0.0
+	maskAvg := celtGLog(0)
+	diff := celtGLog(0)
 	count := 0
 	for c := 0; c < e.channels; c++ {
 		base := c * maskBands
 		for i := 0; i < maskEnd; i++ {
-			mask := float64(e.energyMask[base+i])
+			mask := e.energyMask[base+i]
 			if mask > 0.25 {
 				mask = 0.25
 			}
@@ -156,17 +156,17 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []float64) (f
 				mask *= 0.5
 			}
 			width := EBands[i+1] - EBands[i]
-			maskAvg += mask * float64(width)
+			maskAvg += mask * celtGLog(width)
 			count += width
-			diff += mask * float64(1+2*i-maskEnd)
+			diff += mask * celtGLog(1+2*i-maskEnd)
 		}
 	}
 	if count <= 0 {
-		return float64(e.surroundTrim), false
+		return e.surroundTrim, false
 	}
-	maskAvg = maskAvg/float64(count) + 0.2
+	maskAvg = maskAvg/celtGLog(count) + 0.2
 
-	denom := float64(e.channels * (maskEnd - 1) * (maskEnd + 1) * maskEnd)
+	denom := celtGLog(e.channels * (maskEnd - 1) * (maskEnd + 1) * maskEnd)
 	if denom > 0 {
 		diff = (diff * 6.0 / denom) * 0.5
 	} else {
@@ -187,10 +187,10 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []float64) (f
 
 	countDynalloc := 0
 	for i := 0; i < maskEnd; i++ {
-		lin := maskAvg + diff*float64(i-midband)
-		unmask := float64(e.energyMask[i])
+		lin := maskAvg + diff*celtGLog(i-midband)
+		unmask := e.energyMask[i]
 		if e.channels == 2 {
-			other := float64(e.energyMask[maskBands+i])
+			other := e.energyMask[maskBands+i]
 			if other > unmask {
 				unmask = other
 			}
@@ -613,10 +613,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	end := nbBands
 	if lm > 0 && !transient && e.complexity >= 5 && !e.IsHybrid() && !e.lfe {
 		// Get previous frame's band energies (oldBandE in libopus)
-		oldBandE := ensureFloat64Slice(&e.scratch.coarseOldStart, len(e.prevEnergy))
-		copyGLogToFloat64(oldBandE, e.prevEnergy)
+		oldBandE := ensureGLogSlice(&e.scratch.coarseOldStart, len(e.prevEnergy))
+		copy(oldBandE, e.prevEnergy)
 
-		spreadOld := ensureFloat64Slice(&e.scratch.transientSpreadOld, end)
+		spreadOld := ensureGLogSlice(&e.scratch.transientSpreadOld, end)
 		if PatchTransientDecisionWithScratch(energies, oldBandE, nbBands, 0, end, codedChannels, spreadOld) {
 			// Transient patched! Need to recompute MDCT with short blocks
 			transient = true
@@ -723,13 +723,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	dualStereo := false
 
 	// Step 11.0: Snapshot previous energies used by dynalloc/coarse decisions.
-	prev1LogE := e.scratch.prev1LogE
-	if len(prev1LogE) < len(e.prevEnergy) {
-		prev1LogE = make([]float64, len(e.prevEnergy))
-		e.scratch.prev1LogE = prev1LogE
-	}
-	prev1LogE = prev1LogE[:len(e.prevEnergy)]
-	copyGLogToFloat64(prev1LogE, e.prevEnergy)
+	prev1LogE := ensureGLogSlice(&e.scratch.prev1LogE, len(e.prevEnergy))
+	copy(prev1LogE, e.prevEnergy)
 
 	// dynalloc/spread analysis in libopus uses pre-stabilization energies.
 	analysisEnergies := ensureFloat64Slice(&e.scratch.analysisEnergies, len(energies))
@@ -882,10 +877,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		oldBandELen = len(prev1LogE)
 	}
 	surroundTrimForAlloc := e.surroundTrim
-	var surroundDynalloc []float64
-	var surroundDynallocScratch [MaxBands]float64
+	var surroundDynalloc []celtGLog
+	var surroundDynallocScratch [MaxBands]celtGLog
 	if trim, ok := e.computeSurroundDynallocFromMask(nbBands, surroundDynallocScratch[:nbBands]); ok {
-		surroundTrimForAlloc = celtGLog(trim)
+		surroundTrimForAlloc = trim
 		surroundDynalloc = surroundDynallocScratch[:nbBands]
 	}
 	dynallocResult := DynallocAnalysisWithScratch(
@@ -1571,9 +1566,9 @@ func foldStereoMDCTToMono(dst, left, right []float64) []float64 {
 	return dst
 }
 
-func (e *Encoder) setPrevEnergyWithPrevCoded(prev, energies []float64, nbBands, codedChannels int) {
+func (e *Encoder) setPrevEnergyWithPrevCoded(prev []celtGLog, energies []float64, nbBands, codedChannels int) {
 	if len(prev) == len(e.prevEnergy2) {
-		copyFloat64ToGLog(e.prevEnergy2, prev)
+		copy(e.prevEnergy2, prev)
 	} else {
 		copy(e.prevEnergy2, e.prevEnergy)
 	}
@@ -1965,17 +1960,17 @@ func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, 
 
 	prev1LogE := e.scratch.prev1LogE
 	if len(prev1LogE) < len(e.prevEnergy) {
-		prev1LogE = make([]float64, len(e.prevEnergy))
+		prev1LogE = make([]celtGLog, len(e.prevEnergy))
 		e.scratch.prev1LogE = prev1LogE
 	}
 	prev1LogE = prev1LogE[:len(e.prevEnergy)]
-	copyGLogToFloat64(prev1LogE, e.prevEnergy)
+	copy(prev1LogE, e.prevEnergy)
 
-	silenceE := ensureFloat64Slice(&e.scratch.quantizedEnergies, len(e.prevEnergy))
+	silenceE := ensureGLogSlice(&e.scratch.coarseOldStart, len(e.prevEnergy))
 	for i := range silenceE {
 		silenceE[i] = -28.0
 	}
-	e.SetPrevEnergyWithPrev(prev1LogE, silenceE)
+	e.setPrevEnergyWithPrevGLog(prev1LogE, silenceE)
 	for i := range e.energyError {
 		e.energyError[i] = 0
 	}

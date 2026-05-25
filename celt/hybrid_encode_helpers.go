@@ -497,7 +497,7 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 }
 
 // DynallocAnalysisHybridScratch runs dynalloc analysis using encoder scratch buffers.
-func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2, oldBandE []float64, nbBands, start, end, lsbDepth, lm int, effectiveBytes int, isTransient, vbr, constrainedVBR bool, toneFreq, toneishness float64) DynallocResult {
+func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2 []float64, oldBandE []float32, nbBands, start, end, lsbDepth, lm int, effectiveBytes int, isTransient, vbr, constrainedVBR bool, toneFreq, toneishness float64) DynallocResult {
 	if nbBands < 0 {
 		nbBands = 0
 	}

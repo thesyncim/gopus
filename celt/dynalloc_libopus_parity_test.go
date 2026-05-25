@@ -156,8 +156,8 @@ func runGoDynallocCase(tc libopusCELTDynallocCase, scratch *DynallocScratch) Dyn
 	}
 	bandLogE := float32sToFloat64s(tc.bandLogE)
 	bandLogE2 := float32sToFloat64s(tc.bandLogE2)
-	oldBandE := float32sToFloat64s(tc.oldBandE)
-	surround := float32sToFloat64s(tc.surroundDynalloc[:])
+	oldBandE := tc.oldBandE
+	surround := tc.surroundDynalloc[:]
 	leak := tc.analysisLeakBoost[:]
 	if scratch != nil {
 		return DynallocAnalysisWithScratch(

@@ -42,7 +42,7 @@ func TestComputeSurroundDynallocFromMask(t *testing.T) {
 	mask[MaxBands+6] = 0
 	enc.SetEnergyMask(mask)
 
-	out := make([]float64, MaxBands)
+	out := make([]celtGLog, MaxBands)
 	trim, ok := enc.computeSurroundDynallocFromMask(MaxBands, out)
 	if !ok {
 		t.Fatalf("computeSurroundDynallocFromMask returned ok=false")

@@ -92,8 +92,8 @@ type HybridState struct {
 	// Energy tracking scratch buffers.
 	scratchBandLogE2  []float64 // bandLogE2 for transient analysis
 	scratchAnalysisE  []float64 // pre-stabilization energies for dynalloc/analysis
-	scratchPrevEnergy []float64 // copy of prev energy
-	scratchNextEnergy []float64 // next energy for state update
+	scratchPrevEnergy []float32 // copy of CELT oldBandE/prev energy
+	scratchNextEnergy []float32 // next CELT oldBandE state update
 
 	// MDCT scratch buffers for computeMDCTForHybridScratch.
 	scratchMDCTInput  []float64 // overlap+samples assembly buffer
@@ -1617,12 +1617,8 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	}
 
 	// Snapshot previous frame energies for dynalloc/coarse state decisions.
-	prevEnergyLen := len(e.celtEncoder.PrevEnergy())
-	if cap(e.hybridState.scratchPrevEnergy) < prevEnergyLen {
-		e.hybridState.scratchPrevEnergy = make([]float64, prevEnergyLen)
-	}
-	prevEnergy := e.hybridState.scratchPrevEnergy[:prevEnergyLen]
-	copy(prevEnergy, e.celtEncoder.PrevEnergy())
+	prevEnergy := e.celtEncoder.CopyPrevEnergyFloat32(e.hybridState.scratchPrevEnergy)
+	e.hybridState.scratchPrevEnergy = prevEnergy
 
 	// dynalloc_analysis in libopus uses pre-stabilization energies.
 	if cap(e.hybridState.scratchAnalysisE) < len(energies) {
@@ -1868,7 +1864,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 
 	// Update state: prev energy, RNG, frame count, transient history.
 	if cap(e.hybridState.scratchNextEnergy) < len(prevEnergy) {
-		e.hybridState.scratchNextEnergy = make([]float64, len(prevEnergy))
+		e.hybridState.scratchNextEnergy = make([]float32, len(prevEnergy))
 	}
 	nextEnergy := e.hybridState.scratchNextEnergy[:len(prevEnergy)]
 	// Match libopus oldBandE cadence: bands outside [start,end) are reset.
@@ -1880,11 +1876,11 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 		for band := start; band < end; band++ {
 			idx := c*nbBands + band
 			if idx < len(quantizedEnergies) && base+band < len(nextEnergy) {
-				nextEnergy[base+band] = quantizedEnergies[idx]
+				nextEnergy[base+band] = float32(quantizedEnergies[idx])
 			}
 		}
 	}
-	e.celtEncoder.SetPrevEnergyWithPrev(prevEnergy, nextEnergy)
+	e.celtEncoder.SetPrevEnergyWithPrevFloat32(prevEnergy, nextEnergy)
 	e.celtEncoder.SetRNG(re.Range())
 	e.celtEncoder.IncrementFrameCount()
 	e.celtEncoder.UpdateConsecTransientWithDisabled(transient, transientGotDisabled)
