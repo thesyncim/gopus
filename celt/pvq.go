@@ -86,36 +86,6 @@ func intToNorm(v []int) []celtNorm {
 	return result
 }
 
-// DecodeTheta decodes the stereo angle for mid-side mixing.
-// n: number of points in the itheta quantization (depends on bit allocation)
-// Returns theta in [0, pi/2] range for mid-side rotation.
-//
-// The angle theta controls the balance between mid and side channels:
-// - theta = 0: mono (all energy in mid)
-// - theta = pi/2: full stereo (equal mid and side)
-//
-// Reference: libopus celt/bands.c quant_band_stereo()
-func (d *Decoder) DecodeTheta(n int) float64 {
-	if n <= 1 {
-		return 0
-	}
-
-	// Decode itheta as uniform value in [0, n]
-	ft := uint32(n + 1)
-	itheta := uint32(0)
-	if ft <= 1<<8 {
-		itheta = d.rangeDecoder.DecodeUniformSmall(ft)
-	} else {
-		itheta = d.rangeDecoder.DecodeUniform(ft)
-	}
-
-	// Convert to angle in [0, pi/2]
-	// itheta=0 -> theta=0, itheta=n -> theta=pi/2
-	theta := float64(itheta) * (math.Pi / 2) / float64(n)
-
-	return theta
-}
-
 // DecodeStereoTheta decodes theta with sign for stereo balance.
 // qn: number of quantization steps (determines precision)
 // Returns: itheta value (0 = pure mid, qn = pure side)

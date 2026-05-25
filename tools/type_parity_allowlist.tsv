@@ -4,7 +4,6 @@
 # Columns: path<TAB>count<TAB>sha256(normalized line)<TAB>reason<TAB>normalized sample
 # Agents: do not update this file to hide new guarded type-parity debt.
 # Migrate runtime codec/scratch storage to libopus-width types instead.
-celt/bands.go	1	520c19f3b51066de40e7c668a7190741cea50bc7096ab8058f168b9b11bed866	legacy-current	func denormalizeBandGain[E ~float32 | ~float64](energies []E, band int) float32 {
 celt/bands.go	1	d67db15029e85b0cf8087a1f03203f39ca2b3cf1e4b3df27890859395042ec91	legacy-current	bits := float64(n)*math.Log2(1.0+2.0*float64(k)/float64(n)) + float64(k)
 celt/channel_adapters.go	1	35cda5ab8e2e2dfa035214f793bf6613a07074ba33f3b66aa76c3744acfc2f44	legacy-current	// channels path, falling back to the float64-returning path otherwise.
 celt/deemphasis_f64_to_f32_arm64.go	1	65125e73f5f0f4d8caf11d2bd50634549daa766f31522afb5a2f34542f3694ee	legacy-current	func deemphasisStereoPlanarF64ToF32Core(dst []float32, left, right []float64, n int, scale, stateL, stateR, coef, verySmall float32) (float32, float32)
@@ -24,8 +23,6 @@ celt/modes.go	1	9bfa1417e15479cfb7e5edb560bd7304977dbbf6ea6ba30664275cfec93fdbee
 celt/modes.go	1	efa2632f984ce6f3c4b73c6fd4e6f856b267830afa2ac248aa5ee8d515b8cd96	legacy-current	return float64(frameSize) / 48.0 // 48kHz sample rate
 celt/output_helpers.go	1	239a81bd9be3cd970f1da319a4e2325edc441d8bca0d1740dca7f31f1793c195	legacy-current	// and using float64 would cause precision drift relative to libopus.
 celt/pvq.go	1	8d445162a3d37594d7e5a69014788ab4503e371f0864afd27c824c5b08e89026	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(qn)
-celt/pvq.go	1	93a16d3a6f34a164d089a777b398e3f9438bc48acc13fb9a422eab7c5fda6e93	legacy-current	func (d *Decoder) DecodeTheta(n int) float64 {
-celt/pvq.go	1	a2ed657c3de51017b45e855f011c5981b509b9458003b68e504d50996244c4c5	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(n)
 celt/transient.go	1	e22fad24ac4722a682b2ae14722cbe14b69ecd7dbd8e8a0fd76229dfaeafaa3c	legacy-current	freq := float32(math.Acos(float64(float32(0.5)*lpc0)) / float64(delay))
 internal/lpcnetplc/fargan.go	1	2bff7ac96cdbcfbfcfb061acd113e7ffab9a6c29e8043e60f5e77b0bbe2c1782	legacy-current	gain := float32(math.Exp(float64(f.scratch.gain[0])))
 internal/lpcnetplc/fargan_conditioner.go	1	4807e5f47b1a63964eb2a596550decbe86da149f610e4915479c3c46540c618b	legacy-current	period := int(math.Floor(.5 + float64(PitchMaxPeriod)/math.Pow(2, (1./60.)*((float64(features[NumBands])+1.5)*60))))

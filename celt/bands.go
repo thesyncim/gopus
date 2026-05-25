@@ -471,7 +471,7 @@ func clearDenormalizedDownsampleTailNorm(coeffs []celtNorm, nbBands, scaleWidth,
 	}
 }
 
-func denormalizeBandGain[E ~float32 | ~float64](energies []E, band int) float32 {
+func denormalizeBandGain(energies []celtGLog, band int) float32 {
 	e := float32(energies[band])
 	if band < len(eMeans) {
 		e += float32(eMeans[band])
