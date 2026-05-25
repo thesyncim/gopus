@@ -129,11 +129,11 @@ type bandEncodeScratch struct {
 	lowbandScratch []celtNorm
 
 	// Theta RDO buffers (for stereo encoding)
-	xSave       []float64
-	ySave       []float64
+	xSave       []celtNorm
+	ySave       []celtNorm
 	normSave    []celtNorm
-	xResult0    []float64
-	yResult0    []float64
+	xResult0    []celtNorm
+	yResult0    []celtNorm
 	normResult0 []celtNorm
 	thetaX      []celtNorm
 	thetaY      []celtNorm
@@ -178,13 +178,13 @@ func (s *bandEncodeScratch) ensureLowbandScratch(n int) []celtNorm {
 }
 
 // ensureXSave returns a pre-allocated buffer for saving X during theta RDO.
-func (s *bandEncodeScratch) ensureXSave(n int) []float64 {
-	return ensureFloat64Slice(&s.xSave, n)
+func (s *bandEncodeScratch) ensureXSave(n int) []celtNorm {
+	return ensureNormSlice(&s.xSave, n)
 }
 
 // ensureYSave returns a pre-allocated buffer for saving Y during theta RDO.
-func (s *bandEncodeScratch) ensureYSave(n int) []float64 {
-	return ensureFloat64Slice(&s.ySave, n)
+func (s *bandEncodeScratch) ensureYSave(n int) []celtNorm {
+	return ensureNormSlice(&s.ySave, n)
 }
 
 // ensureNormSave returns a pre-allocated buffer for saving norm during theta RDO.
@@ -193,13 +193,13 @@ func (s *bandEncodeScratch) ensureNormSave(n int) []celtNorm {
 }
 
 // ensureXResult0 returns a pre-allocated buffer for X result during theta RDO.
-func (s *bandEncodeScratch) ensureXResult0(n int) []float64 {
-	return ensureFloat64Slice(&s.xResult0, n)
+func (s *bandEncodeScratch) ensureXResult0(n int) []celtNorm {
+	return ensureNormSlice(&s.xResult0, n)
 }
 
 // ensureYResult0 returns a pre-allocated buffer for Y result during theta RDO.
-func (s *bandEncodeScratch) ensureYResult0(n int) []float64 {
-	return ensureFloat64Slice(&s.yResult0, n)
+func (s *bandEncodeScratch) ensureYResult0(n int) []celtNorm {
+	return ensureNormSlice(&s.yResult0, n)
 }
 
 // ensureNormResult0 returns a pre-allocated buffer for norm result during theta RDO.
