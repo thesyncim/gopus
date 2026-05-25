@@ -111,15 +111,6 @@ func runCELTAssemblyReferenceCase(t *testing.T, length, maxPitch, offset int, se
 			math.Float64bits(gotMean), gotEnergy, math.Float64bits(wantMean), wantEnergy)
 	}
 
-	scaleGot := make([]float64, length)
-	scaleWant := make([]float64, length)
-	scale := []float64{0, 0.25, -0.5, 2}[seed&3]
-	scaleFloat64Into(scaleGot, x, scale, length)
-	for i, v := range x {
-		scaleWant[i] = scale * v
-	}
-	requireASMFloat64BitsEqual(t, "scaleFloat64Into", scaleGot, scaleWant)
-
 	if got, want := absSum(x), asmAbsSumRef(x); math.Float64bits(got) != math.Float64bits(want) {
 		t.Fatalf("absSum mismatch: got %016x want %016x", math.Float64bits(got), math.Float64bits(want))
 	}

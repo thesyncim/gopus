@@ -12,7 +12,6 @@ celt/deemphasis_f64_to_f32_default.go	1	4a0051d9c8d45357003ae93d993f9797f5b20f63
 celt/dred_conceal.go	1	80a1e294ac0deaa431e8d7c9395a6b7c3485752d2dfb7f781ece129bb9ae707f	legacy-current	return int16(math.Floor(0.5 + float64(v)))
 celt/exp_rotation_coeffs.go	1	29f88ba567293921c675f7d1cc62212766376b6a1e5af89f838cc69c174389a3	legacy-current	c: float32(math.Cos(libopusHalfPi * float64(theta))),
 celt/exp_rotation_coeffs.go	1	f5eaae73bfa9cc79e2845e66fe13be3b092c71aa134103f711c29b46e7d44559	legacy-current	s: float32(math.Cos(libopusHalfPi * float64(float32(1)-theta))),
-celt/exp_rotation_stride1_generic.go	1	bc81dc996ffe1814294743190c7c61c4a46d9f2c67e26a5ff827cd455f18cb02	legacy-current	func expRotation1Stride1(x []float64, length int, c, s float64) {
 celt/fma32_default.go	1	4615f35d8d35ce5ca7d9e3617e3e7d032cef0f300908c9f83d1ba52955a95f3d	legacy-current	return float32(math.FMA(float64(a), float64(b), float64(c)))
 celt/hybrid_encode_helpers.go	1	549db166e855560a9d665e0532816af8c310aeeee281c395ef2ddcedeaa907ce	legacy-current	lower := int(0.79 * float64(prevPrefilterPeriod))
 celt/hybrid_encode_helpers.go	1	e8bf7e6adf476a2d2ff407f127dc15ff739fb9ffeda0dcbda9e83cc8df28be55	legacy-current	upper := int(1.26 * float64(prevPrefilterPeriod))
@@ -24,16 +23,9 @@ celt/modes.go	1	8a7613cc0387a276f94acefe986ed2acac6aae477db5dbfec19e717e464b02b2
 celt/modes.go	1	9bfa1417e15479cfb7e5edb560bd7304977dbbf6ea6ba30664275cfec93fdbee	legacy-current	func FrameSizeFromDuration(durationMs float64) (int, error) {
 celt/modes.go	1	efa2632f984ce6f3c4b73c6fd4e6f856b267830afa2ac248aa5ee8d515b8cd96	legacy-current	return float64(frameSize) / 48.0 // 48kHz sample rate
 celt/output_helpers.go	1	239a81bd9be3cd970f1da319a4e2325edc441d8bca0d1740dca7f31f1793c195	legacy-current	// and using float64 would cause precision drift relative to libopus.
-celt/plc_lpc_filter.go	1	efd33ef0caec1c7cbf64776f06fa63a602f6e263a161f7d243692557fe50ace6	legacy-current	func xcorrKernel4Float64(x, y []float64, sum *[4]float32, length int) {
 celt/pvq.go	1	8d445162a3d37594d7e5a69014788ab4503e371f0864afd27c824c5b08e89026	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(qn)
 celt/pvq.go	1	93a16d3a6f34a164d089a777b398e3f9438bc48acc13fb9a422eab7c5fda6e93	legacy-current	func (d *Decoder) DecodeTheta(n int) float64 {
 celt/pvq.go	1	a2ed657c3de51017b45e855f011c5981b509b9458003b68e504d50996244c4c5	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(n)
-celt/scale_float64_arm64.go	1	ad4ee60ab03c8cba26d666f53b34d8a53c70d9450889a5e888771bfa66774d0e	legacy-current	func scaleFloat64Into(dst, src []float64, scale float64, n int)
-celt/scale_float64_default.go	1	c84a4acc11851d5f20239898c1630bda686953bf411fdbc6db2aa9615941ff54	legacy-current	func scaleFloat64Into(dst, src []float64, scale float64, n int) {
-celt/stereo_layout_arm64.go	1	5fc691a601e55aad6bec3cf759a62f488c9727c785b9df4d38660ecaf4d18d9b	legacy-current	func interleaveStereoIntoImpl(left, right, interleaved []float64, n int)
-celt/stereo_layout_arm64.go	1	b27310730e1a61af8c3b2d00d05995464e8cead2c5ec48b639c97b8a537703de	legacy-current	func deinterleaveStereoIntoImpl(interleaved, left, right []float64, n int)
-celt/stereo_layout_impl.go	1	31a4821fdb3065bba2a0c4c6eb33b24a1d7d37e0dd349a61e1bbd3c6ff48b620	legacy-current	func interleaveStereoIntoImpl(left, right, interleaved []float64, n int) {
-celt/stereo_layout_impl.go	1	8e5738a15ad14eca9d3f8e317460c596ebec35a8dbccd6e33d825735ac7dd959	legacy-current	func deinterleaveStereoIntoImpl(interleaved, left, right []float64, n int) {
 celt/transient.go	1	e22fad24ac4722a682b2ae14722cbe14b69ecd7dbd8e8a0fd76229dfaeafaa3c	legacy-current	freq := float32(math.Acos(float64(float32(0.5)*lpc0)) / float64(delay))
 internal/lpcnetplc/fargan.go	1	2bff7ac96cdbcfbfcfb061acd113e7ffab9a6c29e8043e60f5e77b0bbe2c1782	legacy-current	gain := float32(math.Exp(float64(f.scratch.gain[0])))
 internal/lpcnetplc/fargan_conditioner.go	1	4807e5f47b1a63964eb2a596550decbe86da149f610e4915479c3c46540c618b	legacy-current	period := int(math.Floor(.5 + float64(PitchMaxPeriod)/math.Pow(2, (1./60.)*((float64(features[NumBands])+1.5)*60))))
