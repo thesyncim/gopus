@@ -92,7 +92,7 @@ The repo now has a ratcheting guard for this rule:
 make test-type-parity
 ```
 
-The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 2217 legacy findings, down from 2220 in the previous checkpoint, 2222 before that, 2250 before that, 2273 before that, 2285 before that, 2327 before that, and 2509 in the older baseline.
+The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 2209 legacy findings, down from 2217 in the previous checkpoint, 2220 before that, 2222 before that, 2250 before that, 2273 before that, 2285 before that, 2327 before that, and 2509 in the older baseline.
 
 Agents must not run `make update-type-parity-baseline` to hide new debt. Refresh the baseline only after migrating runtime code to libopus-width types, or when a remaining `float64` is tied to a specific libopus C `double` helper with a source citation.
 
@@ -105,7 +105,7 @@ These are type-parity guard finding counts from non-test runtime Go files on 202
 | Area | Count | Files |
 |---|---:|---:|
 | `celt` | 1724 | 110 |
-| `silk` | 213 | 23 |
+| `silk` | 205 | 22 |
 | `encoder` | 84 | 8 |
 | `internal` | 75 | 12 |
 | `plc` | 61 | 3 |
@@ -247,10 +247,11 @@ Every entry here must be migrated or explicitly justified against a C `double` r
 - `silk/vad.go` no longer carries frame activity, spectral tilt, or pitch-periodicity analysis through `float64`; those helper returns and accumulators now stay in `float32` and use the existing float32 sqrt helper.
 - `silk/ltp_encode.go` and `silk/ltp.go` no longer carry local LTP coefficient solve, codebook distance, periodicity, or decoder LTP synthesis through `float64`; those codec-domain values now stay in `float32`.
 - `silk/ltp_quant.go` no longer widens the `silk_float2int(XX[i] * 131072.0f)` Q17 bridge through `float64`; it uses float32 round-to-even. The two remaining `float64` lines in that file are the rolling accumulator in `silk_corrMatrix_FLP`, which is explicitly C `double` in `silk/float/corrMatrix_FLP.c`.
+- `silk/gain_encode.go` no longer widens gain scratch/control estimates through `float64`; PCM subframe energy, residual-energy scaling, and RMS conversion now stay in `silk_float`/`float32`, with the existing Burg C-double stats rounded at the gain-control boundary.
 - `silk/encoder.go`: `scratchBurgAf`, `scratchBurgCFirstRow`, `scratchBurgCLastRow`, `scratchBurgCAf`, and `scratchBurgCAb` may remain `float64` only where they directly mirror `burg_modified_FLP.c` C `double` arrays. Add source comments/tests.
 - `silk/encoder.go`: FindLPC interpolation NLSF-to-LPC scratch now mirrors `silk_NLSF2A_FLP`: `scratchLpcAQ12` stores the fixed bridge coefficients and `scratchLpcATmp` stores the resulting `silk_float` coefficients as `float32`; the old `scratchNlsfCos`/`scratchNlsfP`/`scratchNlsfQ` float64 polynomial scratch was removed.
 - `silk/lpc_analysis.go`: remaining `ensureFloat64Slice` use must be justified function by function. A comment like "analysis buffer as float64" is not enough.
-- `silk/gain_encode.go` and `silk/float_cast.go`: verify fixed/float conversion scratch and rounding against libopus source before keeping `float64`.
+- `silk/float_cast.go`: verify fixed/float conversion scratch and rounding against libopus source before keeping `float64`.
 
 ### Extension Scratch
 

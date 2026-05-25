@@ -1,7 +1,5 @@
 package silk
 
-import "math"
-
 // Gain encoding matching libopus silk/encode_indices.c and silk/gain_quant.c
 // Implements proper delta coding with double step size for large gains.
 
@@ -61,24 +59,25 @@ func (e *Encoder) computeSubframeGains(pcm []float32, numSubframes int) []float3
 		if end > len(pcm) {
 			end = len(pcm)
 		}
-		// Compute energy (sum of squares) in int16 scale to match SILK gain quantization.
-		// PCM is normalized [-1, 1], so scale to int16 range before RMS.
-		var energy float64
-		const pcmScale = 32768.0
+		// Compute energy (sum of squares) in int16 scale to match SILK gain
+		// quantization. PCM is normalized [-1, 1], so scale to int16 range
+		// before RMS while staying in silk_float precision.
+		var energy float32
+		const pcmScale = float32(32768.0)
 		for i := start; i < end; i++ {
-			s := float64(pcm[i]) * pcmScale
+			s := pcm[i] * pcmScale
 			energy += s * s
 		}
 
 		// Normalize by number of samples
 		n := end - start
 		if n > 0 {
-			energy /= float64(n)
+			energy /= float32(n)
 		}
 
 		// Convert to RMS gain (int16 amplitude domain)
 		if energy > 0 {
-			gains[sf] = float32(math.Sqrt(energy))
+			gains[sf] = sqrt32(energy)
 		} else {
 			gains[sf] = 1.0 // Minimum gain (1 LSB in int16 domain)
 		}
@@ -129,8 +128,8 @@ func (e *Encoder) computeSubframeGainsFromResidual(pcm []float32, numSubframes i
 	// Compute average residual energy per sample
 	// residualEnergy = totalEnergy * invGain
 	// averageResidualEnergy = residualEnergy / numSamples
-	residualEnergy := totalEnergy * invGain
-	avgResidualPerSample := residualEnergy / float64(numSamples)
+	residualEnergy := float32(totalEnergy * invGain)
+	avgResidualPerSample := residualEnergy / float32(numSamples)
 
 	// Each subframe gets approximately the same average residual energy
 	// Gain = sqrt(avgResidualPerSample) which is the RMS of the prediction residual
@@ -145,25 +144,25 @@ func (e *Encoder) computeSubframeGainsFromResidual(pcm []float32, numSubframes i
 		}
 
 		// Compute subframe energy to scale the average residual
-		var subframeEnergy float64
-		const pcmScale = 32768.0
+		var subframeEnergy float32
+		const pcmScale = float32(32768.0)
 		for i := start; i < end; i++ {
-			s := float64(pcm[i]) * pcmScale
+			s := pcm[i] * pcmScale
 			subframeEnergy += s * s
 		}
 		n := end - start
 		if n > 0 {
-			subframeEnergy /= float64(n)
+			subframeEnergy /= float32(n)
 		}
 
 		// Scale residual by ratio of subframe energy to average frame energy
-		avgFrameEnergy := totalEnergy / float64(numSamples)
+		avgFrameEnergy := float32(totalEnergy) / float32(numSamples)
 		if avgFrameEnergy > 0 {
 			// Subframe residual energy ≈ avgResidualPerSample * (subframeEnergy / avgFrameEnergy)
 			subframeResidual := avgResidualPerSample * (subframeEnergy / avgFrameEnergy)
-			gains[sf] = float32(math.Sqrt(subframeResidual))
+			gains[sf] = sqrt32(subframeResidual)
 		} else {
-			gains[sf] = float32(math.Sqrt(avgResidualPerSample))
+			gains[sf] = sqrt32(avgResidualPerSample)
 		}
 
 		// Ensure minimum gain (1 LSB in int16 domain)
