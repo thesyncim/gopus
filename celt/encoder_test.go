@@ -115,7 +115,7 @@ func TestEncodeFrameStereoAPIInternalMonoMirrorsEnergyState(t *testing.T) {
 		pcm[2*i+1] = 0.17 * math.Sin(2*math.Pi*660*float64(i)/48000)
 	}
 
-	if _, err := enc.EncodeFrame(pcm, frameSize); err != nil {
+	if _, err := enc.EncodeFrame(float32Slice(pcm), frameSize); err != nil {
 		t.Fatalf("EncodeFrame() error: %v", err)
 	}
 	prev := enc.PrevEnergy()
@@ -220,11 +220,11 @@ func TestEncodeFrameQuantizesIngressToLSBDepth(t *testing.T) {
 		return enc
 	}
 
-	packetBase, err := newEncoder().EncodeFrame(base, frameSize)
+	packetBase, err := newEncoder().EncodeFrame(float32Slice(base), frameSize)
 	if err != nil {
 		t.Fatalf("EncodeFrame(base) failed: %v", err)
 	}
-	packetPerturbed, err := newEncoder().EncodeFrame(perturbed, frameSize)
+	packetPerturbed, err := newEncoder().EncodeFrame(float32Slice(perturbed), frameSize)
 	if err != nil {
 		t.Fatalf("EncodeFrame(perturbed) failed: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestEncodeFrameLFEClampsHighBandEnergy(t *testing.T) {
 		pcm[i] = lo + hi
 	}
 
-	if _, err := enc.EncodeFrame(pcm, frameSize); err != nil {
+	if _, err := enc.EncodeFrame(float32Slice(pcm), frameSize); err != nil {
 		t.Fatalf("EncodeFrame(LFE) failed: %v", err)
 	}
 	lastBandLogE := enc.GetLastBandLogE()
@@ -554,7 +554,7 @@ func TestEncoderFrameCountAndIntraFlag(t *testing.T) {
 	pcm := generateSineWave(440.0, frameSize)
 
 	for i := 0; i < 5; i++ {
-		packet, err := enc.EncodeFrame(pcm, frameSize)
+		packet, err := enc.EncodeFrame(float32Slice(pcm), frameSize)
 		if err != nil {
 			t.Fatalf("frame %d: EncodeFrame failed: %v", i, err)
 		}
@@ -592,7 +592,7 @@ func TestEncodeFrameBudgetDisabledTransientAdvancesConsecTransient(t *testing.T)
 	enc.SetBitrate(64000)
 	enc.SetMaxPayloadBytes(2)
 
-	if _, err := enc.EncodeFrame(generateSineWave(440.0, 960), 960); err != nil {
+	if _, err := enc.EncodeFrame(float32Slice(generateSineWave(440.0, 960)), 960); err != nil {
 		t.Fatalf("EncodeFrame failed: %v", err)
 	}
 	if got := enc.ConsecTransient(); got != 1 {
@@ -606,7 +606,7 @@ func TestVBRSilenceFrameShrinksToMinimum(t *testing.T) {
 	enc.SetVBR(true)
 	enc.SetConstrainedVBR(false)
 
-	packet, err := enc.EncodeFrame(make([]float64, 960), 960)
+	packet, err := enc.EncodeFrame(float32Slice(make([]float64, 960)), 960)
 	if err != nil {
 		t.Fatalf("EncodeFrame silence: %v", err)
 	}

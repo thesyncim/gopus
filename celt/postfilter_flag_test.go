@@ -26,7 +26,7 @@ func TestPostfilterFlagDisabledOnFirstTransientToneFrame(t *testing.T) {
 	enc.SetBitrate(bitrate)
 	enc.SetVBR(false)
 
-	packet, err := enc.EncodeFrame(pcm, frameSize)
+	packet, err := enc.EncodeFrame(float32Slice(pcm), frameSize)
 	if err != nil {
 		t.Fatalf("encode failed: %v", err)
 	}

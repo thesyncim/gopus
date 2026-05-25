@@ -31,7 +31,7 @@ func TestGopusRoundTrip(t *testing.T) {
 		end := start + 960
 		framePCM := pcm[start:end]
 
-		packet, err := enc.EncodeFrame(framePCM, 960)
+		packet, err := enc.EncodeFrame(float32Slice(framePCM), 960)
 		if err != nil {
 			t.Fatalf("Encode frame %d failed: %v", i, err)
 		}
@@ -121,7 +121,7 @@ func TestSimpleDecodeEncode(t *testing.T) {
 	dec := celt.NewDecoder(1)
 
 	// Encode
-	packet, err := enc.EncodeFrame(pcm, 960)
+	packet, err := enc.EncodeFrame(float32Slice(pcm), 960)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}

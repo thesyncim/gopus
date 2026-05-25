@@ -64,9 +64,6 @@ func TestEncodeFloat32SILKDoesNotUseInputPCM64Bridge(t *testing.T) {
 	if _, err := enc.EncodeFloat32(pcm, frameSize); err != nil {
 		t.Fatalf("EncodeFloat32 SILK error: %v", err)
 	}
-	if cap(enc.scratchInputPCM64) != 0 {
-		t.Fatalf("EncodeFloat32 SILK grew scratchInputPCM64 cap=%d", cap(enc.scratchInputPCM64))
-	}
 }
 
 func TestEncodeFloat32WithAnalysisValidatesAnalysisFrame(t *testing.T) {

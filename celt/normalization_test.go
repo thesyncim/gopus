@@ -291,7 +291,7 @@ func TestEncoderDecoderNormalizationConsistency(t *testing.T) {
 	}
 
 	// Encode
-	encoded, err := enc.EncodeFrame(pcm, frameSize)
+	encoded, err := enc.EncodeFrame(float32Slice(pcm), frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}

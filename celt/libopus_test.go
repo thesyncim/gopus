@@ -28,7 +28,7 @@ func TestLibopusCrossValidationMono(t *testing.T) {
 	enc.SetBitrate(64000)
 
 	// Encode with gopus
-	encoded, err := enc.EncodeFrame(pcm, frameSize)
+	encoded, err := enc.EncodeFrame(float32Slice(pcm), frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestLibopusCrossValidationStereo(t *testing.T) {
 	enc.SetBitrate(128000)
 
 	// Encode with gopus
-	encoded, err := enc.EncodeFrame(pcm, frameSize)
+	encoded, err := enc.EncodeFrame(float32Slice(pcm), frameSize)
 	if err != nil {
 		t.Fatalf("EncodeStereo failed: %v", err)
 	}
@@ -163,7 +163,7 @@ func TestLibopusCrossValidationAllFrameSizes(t *testing.T) {
 			encoder := NewEncoder(1)
 
 			// Encode
-			encoded, err := encoder.EncodeFrame(pcm, fs.samples)
+			encoded, err := encoder.EncodeFrame(float32Slice(pcm), fs.samples)
 			if err != nil {
 				t.Fatalf("EncodeFrame failed for %s: %v", fs.name, err)
 			}
@@ -208,7 +208,7 @@ func TestLibopusCrossValidationSilence(t *testing.T) {
 	enc.SetBitrate(64000)
 
 	// Encode
-	encoded, err := enc.EncodeFrame(pcm, frameSize)
+	encoded, err := enc.EncodeFrame(float32Slice(pcm), frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestLibopusCrossValidationMultipleFrames(t *testing.T) {
 		pcm := generateSineWave(freq, frameSize)
 		allInputSamples = append(allInputSamples, pcm...)
 
-		encoded, err := encoder.EncodeFrame(pcm, frameSize)
+		encoded, err := encoder.EncodeFrame(float32Slice(pcm), frameSize)
 		if err != nil {
 			t.Fatalf("Frame %d: EncodeFrame failed: %v", i, err)
 		}

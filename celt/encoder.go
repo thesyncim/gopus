@@ -1058,13 +1058,16 @@ func (e *Encoder) PhaseInversionDisabled() bool {
 // These buffers are reused across frames to eliminate heap allocations during encoding.
 type encoderScratch struct {
 	// LSB-depth quantized input buffer
-	quantizedInput []float64
+	quantizedInput    []float64
+	quantizedInputF32 []float32
 
 	// DC rejection output buffer
-	dcRejected []float64
+	dcRejected    []float64
+	dcRejectedF32 []float32
 
 	// Combined delay buffer + PCM
-	combinedBuf []float64
+	combinedBuf    []float64
+	combinedBufF32 []float32
 
 	// Pre-emphasized signal buffer
 	preemph []float64

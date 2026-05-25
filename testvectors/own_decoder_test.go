@@ -32,7 +32,7 @@ func TestOwnEncoderDecoder(t *testing.T) {
 		start := f * frameSize
 		end := start + frameSize
 
-		packet, err := enc.EncodeFrame(pcm[start:end], frameSize)
+		packet, err := enc.EncodeFrame(float32Slice(pcm[start:end]), frameSize)
 		if err != nil {
 			t.Fatalf("Encode error at frame %d: %v", f, err)
 		}

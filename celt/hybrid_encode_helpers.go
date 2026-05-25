@@ -694,3 +694,29 @@ func (e *Encoder) ApplyDelayCompensationScratchHybrid(pcm []float64, frameSize i
 
 	return samplesForFrame
 }
+
+// ApplyDelayCompensationScratchHybridF32 applies CELT delay compensation using
+// float-build input storage. It prepends the delay buffer and returns a
+// frame-sized slice of samples.
+func (e *Encoder) ApplyDelayCompensationScratchHybridF32(pcm []float32, frameSize int) []float32 {
+	expectedLen := frameSize * e.channels
+	delayComp := DelayCompensation * e.channels
+	if len(e.delayBuffer) < delayComp {
+		e.delayBuffer = make([]opusRes, delayComp)
+	}
+
+	combinedLen := delayComp + len(pcm)
+	combinedBuf := ensureFloat32Slice(&e.scratch.combinedBufF32, combinedLen)
+	for i := 0; i < delayComp; i++ {
+		combinedBuf[i] = float32(e.delayBuffer[i])
+	}
+	copy(combinedBuf[delayComp:], pcm)
+
+	samplesForFrame := combinedBuf[:expectedLen]
+	delayTailStart := len(combinedBuf) - delayComp
+	for i := 0; i < delayComp; i++ {
+		e.delayBuffer[i] = opusRes(combinedBuf[delayTailStart+i])
+	}
+
+	return samplesForFrame
+}

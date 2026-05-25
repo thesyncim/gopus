@@ -39,7 +39,7 @@ func TestEncodeFrameUsesAnalysisMaxPitchRatioWhenValid(t *testing.T) {
 		pcm[i] = 0.6 * math.Sin(2*math.Pi*220*float64(i)/48000.0)
 	}
 
-	packet, err := enc.EncodeFrame(pcm, frameSize)
+	packet, err := enc.EncodeFrame(float32Slice(pcm), frameSize)
 	if err != nil {
 		t.Fatalf("EncodeFrame failed: %v", err)
 	}

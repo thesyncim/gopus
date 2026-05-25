@@ -489,9 +489,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	if useFinalHybridVBRTarget {
 		hybridCELTTargetBytes = maxTargetBytes
 	}
-	celtInput64 := e.ensureInputPCM64(len(celtInput))
-	copyOpusResToFloat64(celtInput64, celtInput)
-	e.encodeCELTHybridImproved(celtInput64, frameSize, hybridCELTTargetBytes, silkSignalType, silkOffset, useFinalHybridVBRTarget, !useFinalHybridVBRTarget && maxPacketBytes == 0)
+	e.encodeCELTHybridImproved(celtInput, frameSize, hybridCELTTargetBytes, silkSignalType, silkOffset, useFinalHybridVBRTarget, !useFinalHybridVBRTarget && maxPacketBytes == 0)
 	mainRng := e.celtEncoder.FinalRange()
 
 	// Update state for next frame
@@ -605,9 +603,7 @@ func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []opusRes, frameSize, r
 	e.celtEncoder.SetLSBDepth(e.lsbDepth)
 	e.celtEncoder.SetDCRejectEnabled(false)
 	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
-	redundancyPCM64 := e.ensureInputPCM64(redundancySamples)
-	copyOpusResToFloat64(redundancyPCM64, celtPCM[:redundancySamples])
-	redundancyData, err := e.celtEncoder.EncodeFrame(redundancyPCM64, redundancyFrameSize)
+	redundancyData, err := e.celtEncoder.EncodeFrame(celtPCM[:redundancySamples], redundancyFrameSize)
 	redundantRng := e.celtEncoder.FinalRange()
 	e.celtEncoder.SetMaxPayloadBytes(0)
 	// libopus resets CELT after CELT->SILK redundancy generation.
@@ -669,14 +665,10 @@ func (e *Encoder) encodeCELTSilkToCELTRedundancy(celtPCM []opusRes, frameSize, r
 
 	// Prefill 2.5 ms so CELT state matches decoder-side startup for the first CELT frame.
 	e.celtEncoder.SetMaxPayloadBytes(2)
-	prefillPCM64 := e.ensureInputPCM64(prefillSamples)
-	copyOpusResToFloat64(prefillPCM64, celtPCM[prefillStart:prefillEnd])
-	_, _ = e.celtEncoder.EncodeFrame(prefillPCM64, n4)
+	_, _ = e.celtEncoder.EncodeFrame(celtPCM[prefillStart:prefillEnd], n4)
 
 	e.celtEncoder.SetMaxPayloadBytes(redundancyBytes)
-	redundancyPCM64 := e.ensureInputPCM64(redundancySamples)
-	copyOpusResToFloat64(redundancyPCM64, celtPCM[redundancyStart:redundancyEnd])
-	redundancyData, err := e.celtEncoder.EncodeFrame(redundancyPCM64, n2)
+	redundancyData, err := e.celtEncoder.EncodeFrame(celtPCM[redundancyStart:redundancyEnd], n2)
 	redundantRng := e.celtEncoder.FinalRange()
 	e.celtEncoder.SetMaxPayloadBytes(0)
 	if err != nil {
@@ -1424,7 +1416,7 @@ func celtBandwidthFromTypes(bw types.Bandwidth) celt.CELTBandwidth {
 // targetPayloadBytes is the desired total payload budget (excluding TOC) for the full packet.
 // silkSignalType and silkOffset are the SILK encoder's signal classification,
 // used for VBR target adjustment per libopus celt_encoder.c line 2463-2475.
-func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetPayloadBytes int, silkSignalType, silkOffset int, useFinalVBRTarget, useInitialVBRAdjust bool) {
+func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetPayloadBytes int, silkSignalType, silkOffset int, useFinalVBRTarget, useInitialVBRAdjust bool) {
 	// Set hybrid mode flag on CELT encoder
 	e.celtEncoder.SetHybrid(true)
 	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeHybrid))
@@ -1440,7 +1432,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	lm := mode.LM
 
 	// Apply pre-emphasis with signal scaling (zero-alloc scratch version)
-	preemph := e.celtEncoder.ApplyPreemphasisWithScalingScratch(pcm)
+	preemph := e.celtEncoder.ApplyPreemphasisWithScalingScratchF32(pcm)
 
 	// Get the range encoder
 	re := e.celtEncoder.RangeEncoder()

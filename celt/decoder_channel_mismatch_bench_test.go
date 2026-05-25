@@ -24,7 +24,7 @@ func benchmarkEncodedPacket(b *testing.B, channels, frameSize int) []byte {
 		pcm[2*i+1] = r
 	}
 
-	packet, err := enc.EncodeFrame(pcm, frameSize)
+	packet, err := enc.EncodeFrame(float32Slice(pcm), frameSize)
 	if err != nil {
 		b.Fatalf("EncodeFrame failed: %v", err)
 	}

@@ -317,6 +317,25 @@ func InterleaveStereo(left, right []float64) []float64 {
 	return interleaved
 }
 
+// InterleaveStereoF32 combines separate float-build L and R arrays into
+// interleaved format.
+func InterleaveStereoF32(left, right []float32) []float32 {
+	n := len(left)
+	if len(right) < n {
+		n = len(right)
+	}
+	if n == 0 {
+		return nil
+	}
+
+	interleaved := make([]float32, n*2)
+	for i := 0; i < n; i++ {
+		interleaved[2*i] = left[i]
+		interleaved[2*i+1] = right[i]
+	}
+	return interleaved
+}
+
 // ComputeStereoAngle computes the stereo angle from L/R energies.
 // Returns theta in radians [0, pi/2] representing the stereo image width.
 // theta = 0: mono (all energy in mid)

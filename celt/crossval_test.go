@@ -728,6 +728,14 @@ func float32Slice(f64 []float64) []float32 {
 	return f32
 }
 
+func float32Frames(frames [][]float64) [][]float32 {
+	out := make([][]float32, len(frames))
+	for i := range frames {
+		out[i] = float32Slice(frames[i])
+	}
+	return out
+}
+
 // findPeak finds the maximum absolute value in samples.
 func findPeak(samples []float32) float32 {
 	var peak float32
@@ -771,7 +779,7 @@ func TestEnergyCorrelation(t *testing.T) {
 			}
 
 			// Encode
-			encoded, err := enc.EncodeFrame(samples, frameSize)
+			encoded, err := enc.EncodeFrame(float32Slice(samples), frameSize)
 			if err != nil {
 				t.Fatalf("EncodeFrame failed: %v", err)
 			}

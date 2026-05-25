@@ -206,7 +206,7 @@ func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
 				}
 				packets := make([][]byte, 0, len(frames)+1)
 				for _, frame := range frames {
-					packet, err := enc.EncodeFrame(frame, frameSize)
+					packet, err := enc.EncodeFrame(float32Slice(frame), frameSize)
 					if err != nil {
 						t.Fatalf("EncodeFrame mono failed: %v", err)
 					}
@@ -228,7 +228,7 @@ func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
 				}
 				packets := make([][]byte, 0, len(frames)+1)
 				for _, frame := range frames {
-					packet, err := enc.EncodeFrame(frame, frameSize)
+					packet, err := enc.EncodeFrame(float32Slice(frame), frameSize)
 					if err != nil {
 						t.Fatalf("EncodeFrame stereo failed: %v", err)
 					}
@@ -250,7 +250,7 @@ func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
 				}
 				packets := make([][]byte, 0, len(frames)+1)
 				for _, frame := range frames {
-					packet, err := enc.EncodeFrame(frame, frameSize)
+					packet, err := enc.EncodeFrame(float32Slice(frame), frameSize)
 					if err != nil {
 						t.Fatalf("EncodeFrame mono-to-stereo failed: %v", err)
 					}
@@ -295,7 +295,7 @@ func BenchmarkDecodeFrameWithPacketStereoToFloat32(b *testing.B) {
 	const frameSize = 960
 
 	enc := NewEncoder(2)
-	packet, err := enc.EncodeFrame(generateStereoSineWave(440.0, 880.0, frameSize), frameSize)
+	packet, err := enc.EncodeFrame(float32Slice(generateStereoSineWave(440.0, 880.0, frameSize)), frameSize)
 	if err != nil {
 		b.Fatalf("EncodeFrame: %v", err)
 	}

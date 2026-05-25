@@ -71,7 +71,7 @@ func TestCELTRoundTripMono(t *testing.T) {
 	pcm := generateSineWave(440.0, frameSize)
 
 	// Encode
-	encoded, err := Encode(pcm, frameSize)
+	encoded, err := Encode(float32Slice(pcm), frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestCELTRoundTripStereo(t *testing.T) {
 	pcm := generateStereoSineWave(440.0, 880.0, frameSize)
 
 	// Encode
-	encoded, err := EncodeStereo(pcm, frameSize)
+	encoded, err := EncodeStereo(float32Slice(pcm), frameSize)
 	if err != nil {
 		t.Fatalf("EncodeStereo failed: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestCELTRoundTripFrameSizes(t *testing.T) {
 			decoder := NewDecoder(1)
 
 			// Encode
-			encoded, err := encoder.EncodeFrame(pcm, frameSize)
+			encoded, err := encoder.EncodeFrame(float32Slice(pcm), frameSize)
 			if err != nil {
 				t.Fatalf("EncodeFrame failed for size %d: %v", frameSize, err)
 			}
@@ -203,7 +203,7 @@ func TestCELTRoundTripTransient(t *testing.T) {
 	t.Logf("Transient detected: %v", transient)
 
 	// Encode
-	encoded, err := encoder.EncodeFrame(pcm, frameSize)
+	encoded, err := encoder.EncodeFrame(float32Slice(pcm), frameSize)
 	if err != nil {
 		t.Fatalf("EncodeFrame failed: %v", err)
 	}
@@ -237,7 +237,7 @@ func TestCELTRoundTripSilence(t *testing.T) {
 	pcm := make([]float64, frameSize) // All zeros
 
 	// Encode
-	encoded, err := Encode(pcm, frameSize)
+	encoded, err := Encode(float32Slice(pcm), frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -283,7 +283,7 @@ func TestCELTRoundTripMultipleFrames(t *testing.T) {
 		pcm := generateSineWave(freq, frameSize)
 
 		// Encode
-		encoded, err := encoder.EncodeFrame(pcm, frameSize)
+		encoded, err := encoder.EncodeFrame(float32Slice(pcm), frameSize)
 		if err != nil {
 			t.Fatalf("Frame %d: EncodeFrame failed: %v", i, err)
 		}
@@ -319,7 +319,7 @@ func TestStereoParamsRoundTrip(t *testing.T) {
 	decoder := NewDecoder(2)
 
 	// Encode
-	encoded, err := encoder.EncodeFrame(pcm, frameSize)
+	encoded, err := encoder.EncodeFrame(float32Slice(pcm), frameSize)
 	if err != nil {
 		t.Fatalf("EncodeFrame failed: %v", err)
 	}
@@ -363,7 +363,7 @@ func TestCELTRoundTripFrameSizesStereo(t *testing.T) {
 			encoder := NewEncoder(2)
 			decoder := NewDecoder(2)
 
-			encoded, err := encoder.EncodeFrame(pcm, frameSize)
+			encoded, err := encoder.EncodeFrame(float32Slice(pcm), frameSize)
 			if err != nil {
 				t.Fatalf("EncodeFrame failed: %v", err)
 			}
@@ -532,7 +532,7 @@ func TestEncodeFramesMultiple(t *testing.T) {
 	}
 
 	// Encode all frames
-	packets, err := EncodeFrames(frames, frameSize)
+	packets, err := EncodeFrames(float32Frames(frames), frameSize)
 	if err != nil {
 		t.Fatalf("EncodeFrames failed: %v", err)
 	}

@@ -166,7 +166,7 @@ func buildCrossvalFixtureScenarios(t *testing.T) []crossvalFixtureScenario {
 	encodeMonoFrame := func(name string, bitrate int, input []float64, expectNearSilence bool, minEnergyRatio, minSNRDB, minCorr float64) crossvalFixtureScenario {
 		enc := NewEncoder(1)
 		enc.SetBitrate(bitrate)
-		packet, err := enc.EncodeFrame(input, 960)
+		packet, err := enc.EncodeFrame(float32Slice(input), 960)
 		if err != nil {
 			t.Fatalf("%s: encode failed: %v", name, err)
 		}
@@ -176,7 +176,7 @@ func buildCrossvalFixtureScenarios(t *testing.T) []crossvalFixtureScenario {
 	encodeStereoFrame := func(name string, bitrate int, input []float64, expectNearSilence bool, minEnergyRatio, minSNRDB, minCorr float64) crossvalFixtureScenario {
 		enc := NewEncoder(2)
 		enc.SetBitrate(bitrate)
-		packet, err := enc.EncodeFrame(input, 960)
+		packet, err := enc.EncodeFrame(float32Slice(input), 960)
 		if err != nil {
 			t.Fatalf("%s: encode failed: %v", name, err)
 		}
@@ -188,7 +188,7 @@ func buildCrossvalFixtureScenarios(t *testing.T) []crossvalFixtureScenario {
 		enc.SetBitrate(bitrate)
 		packets := make([][]byte, len(frames))
 		for i, frame := range frames {
-			packet, err := enc.EncodeFrame(frame, 960)
+			packet, err := enc.EncodeFrame(float32Slice(frame), 960)
 			if err != nil {
 				t.Fatalf("%s frame %d: encode failed: %v", name, i, err)
 			}
@@ -203,7 +203,7 @@ func buildCrossvalFixtureScenarios(t *testing.T) []crossvalFixtureScenario {
 		enc.SetVBR(false)
 		packets := make([][]byte, len(frames))
 		for i, frame := range frames {
-			packet, err := enc.EncodeFrame(frame, 960)
+			packet, err := enc.EncodeFrame(float32Slice(frame), 960)
 			if err != nil {
 				t.Fatalf("%s frame %d: encode failed: %v", name, i, err)
 			}

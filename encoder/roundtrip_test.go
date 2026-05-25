@@ -287,7 +287,7 @@ func TestRoundTripCELTAllBandwidths(t *testing.T) {
 					end := start + fs.samples
 					framePCM := pcm[start:end]
 
-					packet, err := enc.EncodeFrame(framePCM, fs.samples)
+					packet, err := enc.EncodeFrame(float32Slice(framePCM), fs.samples)
 					if err != nil {
 						t.Fatalf("Encode failed: %v", err)
 					}

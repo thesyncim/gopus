@@ -560,7 +560,7 @@ func TestEncodeFrameRetainsQEXTPayload(t *testing.T) {
 	encA.SetQEXTEnabled(true)
 	encA.SetBitrate(256000)
 
-	packetA, err := encA.EncodeFrame(pcm, 960)
+	packetA, err := encA.EncodeFrame(float32Slice(pcm), 960)
 	if err != nil {
 		t.Fatalf("EncodeFrame(qext A) failed: %v", err)
 	}
@@ -576,7 +576,7 @@ func TestEncodeFrameRetainsQEXTPayload(t *testing.T) {
 	encB.SetQEXTEnabled(true)
 	encB.SetBitrate(256000)
 
-	packetB, err := encB.EncodeFrame(pcm, 960)
+	packetB, err := encB.EncodeFrame(float32Slice(pcm), 960)
 	if err != nil {
 		t.Fatalf("EncodeFrame(qext B) failed: %v", err)
 	}
@@ -605,7 +605,7 @@ func TestEncodeFrameRetainedQEXTPayloadCarriesHeader(t *testing.T) {
 			enc.SetQEXTEnabled(true)
 			enc.SetBitrate(256000)
 
-			if _, err := enc.EncodeFrame(pcm, 960); err != nil {
+			if _, err := enc.EncodeFrame(float32Slice(pcm), 960); err != nil {
 				t.Fatalf("EncodeFrame(qext) failed: %v", err)
 			}
 			payload := enc.LastQEXTPayload()
@@ -633,7 +633,7 @@ func TestEncodeFrameClearsQEXTPayloadWhenDisabled(t *testing.T) {
 	enc.SetQEXTEnabled(true)
 	enc.SetBitrate(256000)
 
-	if _, err := enc.EncodeFrame(pcm, 960); err != nil {
+	if _, err := enc.EncodeFrame(float32Slice(pcm), 960); err != nil {
 		t.Fatalf("EncodeFrame(qext on) failed: %v", err)
 	}
 	if len(enc.LastQEXTPayload()) == 0 {
@@ -641,7 +641,7 @@ func TestEncodeFrameClearsQEXTPayloadWhenDisabled(t *testing.T) {
 	}
 
 	enc.SetQEXTEnabled(false)
-	if _, err := enc.EncodeFrame(pcm, 960); err != nil {
+	if _, err := enc.EncodeFrame(float32Slice(pcm), 960); err != nil {
 		t.Fatalf("EncodeFrame(qext off) failed: %v", err)
 	}
 	if payload := enc.LastQEXTPayload(); len(payload) != 0 {

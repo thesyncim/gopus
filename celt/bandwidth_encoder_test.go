@@ -40,7 +40,7 @@ func TestEncodeFrameBandwidthCapLimitsCodedBands(t *testing.T) {
 	full.SetVBR(false)
 	full.SetBitrate(bitrate)
 	full.SetBandwidth(CELTFullband)
-	if _, err := full.EncodeFrame(pcm, frameSize); err != nil {
+	if _, err := full.EncodeFrame(float32Slice(pcm), frameSize); err != nil {
 		t.Fatalf("fullband encode failed: %v", err)
 	}
 	if full.lastCodedBands <= 13 {
@@ -51,7 +51,7 @@ func TestEncodeFrameBandwidthCapLimitsCodedBands(t *testing.T) {
 	nb.SetVBR(false)
 	nb.SetBitrate(bitrate)
 	nb.SetBandwidth(CELTNarrowband)
-	if _, err := nb.EncodeFrame(pcm, frameSize); err != nil {
+	if _, err := nb.EncodeFrame(float32Slice(pcm), frameSize); err != nil {
 		t.Fatalf("narrowband encode failed: %v", err)
 	}
 	nbLimit := EffectiveBandsForFrameSize(CELTNarrowband, frameSize)

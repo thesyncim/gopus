@@ -208,7 +208,6 @@ type Encoder struct {
 	// Scratch buffers for zero-allocation encoding
 	scratchDCPCM      []opusRes // DC rejected PCM buffer
 	scratchInputPCM   []opusRes // Public PCM rounded into the libopus opus_res domain
-	scratchInputPCM64 []float64 // Transitional CELT core bridge
 	scratchPCM32      []float32 // Reusable float32 analysis/SILK scratch
 	scratchLeft       []float32 // Left channel deinterleave buffer
 	scratchRight      []float32 // Right channel deinterleave buffer
@@ -1337,13 +1336,6 @@ func (e *Encoder) ensureDCPCM(size int) []opusRes {
 	return e.scratchDCPCM[:size]
 }
 
-func (e *Encoder) ensureInputPCM64(size int) []float64 {
-	if cap(e.scratchInputPCM64) < size {
-		e.scratchInputPCM64 = make([]float64, size)
-	}
-	return e.scratchInputPCM64[:size]
-}
-
 func trimSilkTrailingZeros(frameData []byte) []byte {
 	for len(frameData) > 2 && frameData[len(frameData)-1] == 0 {
 		frameData = frameData[:len(frameData)-1]
@@ -1645,9 +1637,7 @@ func (e *Encoder) maybePrefillCELTOnModeTransition(actualMode Mode, celtPCM []op
 	}
 
 	e.celtEncoder.SetMaxPayloadBytes(2)
-	prefillPCM64 := e.ensureInputPCM64(len(prefillInput))
-	copyOpusResToFloat64(prefillPCM64, prefillInput)
-	e.celtEncoder.EncodeFrame(prefillPCM64, prefillFrameSize)
+	e.celtEncoder.EncodeFrame(prefillInput, prefillFrameSize)
 	e.celtEncoder.SetMaxPayloadBytes(0)
 	// Match libopus mode-switch behavior: the next real CELT frame is forced intra.
 	e.celtForceIntra = true
@@ -2705,9 +2695,7 @@ func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []opusRes, fra
 		e.celtEncoder.SetConstrainedVBR(false)
 	}
 	defer e.celtEncoder.SetMaxPayloadBytes(0)
-	pcm64 := e.ensureInputPCM64(len(pcm))
-	copyOpusResToFloat64(pcm64, pcm)
-	return e.celtEncoder.EncodeFrame(pcm64, frameSize)
+	return e.celtEncoder.EncodeFrame(pcm, frameSize)
 }
 
 // encodeCELTMultiFramePacket encodes long CELT packets by splitting into

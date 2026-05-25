@@ -105,6 +105,20 @@ func (e *Encoder) quantizeInputToLSBDepthScratch(pcm []float64) []float64 {
 	return out[:len(pcm)]
 }
 
+func (e *Encoder) quantizeInputToLSBDepthScratchF32(pcm []float32) []float32 {
+	if len(pcm) == 0 {
+		return pcm
+	}
+	depth := e.LSBDepth()
+	scale := float32(math.Ldexp(1.0, depth-1))
+	invScale := float32(1.0) / scale
+	out := ensureFloat32Slice(&e.scratch.quantizedInputF32, len(pcm))
+	for i, v := range pcm {
+		out[i] = float32(math.Floor(float64(float32(0.5)+v*scale))) * invScale
+	}
+	return out[:len(pcm)]
+}
+
 // computeSurroundDynallocFromMask mirrors libopus surround masking reduction in
 // celt_encoder.c: derive per-band dynalloc floors and surround trim from
 // externally supplied energy masks.
@@ -248,7 +262,7 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 // 15. Finalize and return bytes
 //
 // Reference: RFC 6716 Section 4.3, libopus celt/celt_encoder.c
-func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
+func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// Step 1: Validate inputs
 	if !ValidFrameSize(frameSize) {
 		return nil, ErrInvalidFrameSize
@@ -274,17 +288,17 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Reference: libopus src/opus_encoder.c line 2008: dc_reject(pcm, 3, ...)
 	samplesForFrame := pcm
 	if e.lsbQuantizationEnabled {
-		samplesForFrame = e.quantizeInputToLSBDepthScratch(pcm)
+		samplesForFrame = e.quantizeInputToLSBDepthScratchF32(pcm)
 	}
 	if e.dcRejectEnabled {
-		samplesForFrame = e.applyDCRejectScratch(samplesForFrame)
+		samplesForFrame = e.applyDCRejectScratchF32(samplesForFrame)
 	}
 
 	// Step 3b: Optionally apply Opus-style CELT delay compensation.
 	// Standalone CELT keeps this enabled by default.
 	// Top-level Opus integration disables it and compensates externally.
 	if e.delayCompensationEnabled {
-		samplesForFrame = e.ApplyDelayCompensationScratchHybrid(samplesForFrame, frameSize)
+		samplesForFrame = e.ApplyDelayCompensationScratchHybridF32(samplesForFrame, frameSize)
 	}
 
 	// Step 4: Detect transient and compute tf_estimate using PRE-EMPHASIZED signal
@@ -330,7 +344,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	} else {
 		e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
 	}
-	isSilence := e.applyPreemphasisWithScalingAndSilenceCoreF32(samplesForFrame, preemph, preemphF32, frameSize, overlap)
+	isSilence := e.applyPreemphasisWithScalingAndSilenceCoreFromF32(samplesForFrame, preemph, preemphF32, frameSize, overlap)
 
 	allowWeakTransients := false
 	if e.hybrid {
@@ -2002,7 +2016,7 @@ func (e *Encoder) applyVBRSilenceTarget(frameSize, targetBytes int) int {
 }
 
 // EncodeFrameWithOptions encodes a frame with additional control options.
-func (e *Encoder) EncodeFrameWithOptions(pcm []float64, frameSize int, opts EncodeOptions) ([]byte, error) {
+func (e *Encoder) EncodeFrameWithOptions(pcm []float32, frameSize int, opts EncodeOptions) ([]byte, error) {
 	// Apply options
 	if opts.ForceIntra {
 		// Temporarily set frame count to 0 for intra mode
@@ -2024,7 +2038,7 @@ type EncodeOptions struct {
 // left: left channel samples
 // right: right channel samples
 // frameSize: 120, 240, 480, or 960 samples per channel
-func (e *Encoder) EncodeStereoFrame(left, right []float64, frameSize int) ([]byte, error) {
+func (e *Encoder) EncodeStereoFrame(left, right []float32, frameSize int) ([]byte, error) {
 	if e.channels != 2 {
 		return nil, errors.New("celt: encoder not configured for stereo")
 	}
@@ -2034,7 +2048,7 @@ func (e *Encoder) EncodeStereoFrame(left, right []float64, frameSize int) ([]byt
 	}
 
 	// Interleave for standard encoding path
-	interleaved := InterleaveStereo(left, right)
+	interleaved := InterleaveStereoF32(left, right)
 	return e.EncodeFrame(interleaved, frameSize)
 }
 
