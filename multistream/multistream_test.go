@@ -833,10 +833,10 @@ func TestDecodeIntegration(t *testing.T) {
 	}
 }
 
-// TestFloat64ToInt16 tests the sample conversion helper.
-func TestFloat64ToInt16(t *testing.T) {
+// TestFloat32ToInt16 tests the sample conversion helper.
+func TestFloat32ToInt16(t *testing.T) {
 	tests := []struct {
-		input float64
+		input float32
 		want  int16
 	}{
 		{0.0, 0},
@@ -845,15 +845,17 @@ func TestFloat64ToInt16(t *testing.T) {
 		{0.5, 16384},
 		{2.0, 32767},   // Clamped to max
 		{-2.0, -32768}, // Clamped to min
-		{math.Nextafter(0.5/32768.0, 1), 0},
-		{math.Nextafter(-0.5/32768.0, -1), 0},
+		{0.5 / 32768.0, 0},
+		{-0.5 / 32768.0, 0},
+		{math.Nextafter32(0.5/32768.0, 1), 1},
+		{math.Nextafter32(-0.5/32768.0, -1), -1},
 	}
 
 	for _, tc := range tests {
-		input := []float64{tc.input}
-		output := float64ToInt16(input)
+		input := []float32{tc.input}
+		output := float32ToInt16(input)
 		if output[0] != tc.want {
-			t.Errorf("float64ToInt16(%f) = %d, want %d", tc.input, output[0], tc.want)
+			t.Errorf("float32ToInt16(%f) = %d, want %d", tc.input, output[0], tc.want)
 		}
 	}
 }

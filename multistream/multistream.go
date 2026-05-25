@@ -268,7 +268,7 @@ func (d *Decoder) decodePLCChunk(frameSize int) ([]float64, error) {
 // The output format is: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]
 func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 	if len(d.projectionDemixing) != 0 && d.projectionCols > 0 {
-		samples, err := d.Decode(data, frameSize)
+		samples, err := d.decodeToFloat32(data, frameSize, false)
 		if err != nil {
 			return nil, err
 		}
@@ -298,15 +298,16 @@ func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 // Returns sample-interleaved float32 samples in approximate range [-1, 1].
 // The output format is: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]
 func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error) {
-	if len(d.projectionDemixing) != 0 && d.projectionCols > 0 {
-		return d.decodeToFloat32ViaFloat64(data, frameSize)
-	}
+	return d.decodeToFloat32(data, frameSize, true)
+}
+
+func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection bool) ([]float32, error) {
 	if extsupport.DREDRuntime && data != nil && len(data) > 0 && d.dredSidecarActive() {
 		d.invalidateDREDPayloadState()
 	}
 
 	if data == nil {
-		output, err := d.decodePLCToFloat32(frameSize)
+		output, err := d.decodePLCToFloat32(frameSize, applyProjection)
 		if err == nil && extsupport.DREDRuntime && d.dredSidecarActive() {
 			d.markDREDConcealedAll()
 		}
@@ -357,6 +358,9 @@ func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error)
 	}
 
 	output := applyChannelMapping32(decodedStreams, d.mapping, d.coupledStreams, decodeFrameSize, d.outputChannels)
+	if applyProjection {
+		d.applyProjectionDemixing32(output, decodeFrameSize)
+	}
 
 	d.plcState.Reset()
 	d.plcState.SetLastFrameParams(plc.ModeHybrid, decodeFrameSize, d.outputChannels)
@@ -364,7 +368,7 @@ func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error)
 	return output, nil
 }
 
-func (d *Decoder) decodePLCToFloat32(frameSize int) ([]float32, error) {
+func (d *Decoder) decodePLCToFloat32(frameSize int, applyProjection bool) ([]float32, error) {
 	fadeFactor := d.plcState.RecordLoss()
 	totalSamples := frameSize * d.outputChannels
 	if fadeFactor < 0.001 {
@@ -381,7 +385,7 @@ func (d *Decoder) decodePLCToFloat32(frameSize int) ([]float32, error) {
 			if remaining < chunk {
 				chunk = remaining
 			}
-			decoded, err := d.decodePLCChunkToFloat32(chunk)
+			decoded, err := d.decodePLCChunkToFloat32(chunk, applyProjection)
 			if err != nil {
 				return nil, err
 			}
@@ -396,10 +400,10 @@ func (d *Decoder) decodePLCToFloat32(frameSize int) ([]float32, error) {
 		return output, nil
 	}
 
-	return d.decodePLCChunkToFloat32(frameSize)
+	return d.decodePLCChunkToFloat32(frameSize, applyProjection)
 }
 
-func (d *Decoder) decodePLCChunkToFloat32(frameSize int) ([]float32, error) {
+func (d *Decoder) decodePLCChunkToFloat32(frameSize int, applyProjection bool) ([]float32, error) {
 	decodedStreams := make([][]float32, d.streams)
 	for i := 0; i < d.streams; i++ {
 		if extsupport.DREDRuntime {
@@ -418,7 +422,11 @@ func (d *Decoder) decodePLCChunkToFloat32(frameSize int) ([]float32, error) {
 		decodedStreams[i] = decoded
 	}
 
-	return applyChannelMapping32(decodedStreams, d.mapping, d.coupledStreams, frameSize, d.outputChannels), nil
+	output := applyChannelMapping32(decodedStreams, d.mapping, d.coupledStreams, frameSize, d.outputChannels)
+	if applyProjection {
+		d.applyProjectionDemixing32(output, frameSize)
+	}
+	return output, nil
 }
 
 func float32ToInt16(samples []float32) []int16 {
@@ -443,47 +451,6 @@ func float32ToInt16SoftClip(samples []float32, n, channels int, declipMem []floa
 	}
 
 	tmp := append([]float32(nil), samples[:total]...)
-	opusmath.PCMSoftClip(tmp, n, channels, declipMem)
-	for i := 0; i < total; i++ {
-		output[i] = opusmath.Float32ToInt16(tmp[i])
-	}
-	return output
-}
-
-func (d *Decoder) decodeToFloat32ViaFloat64(data []byte, frameSize int) ([]float32, error) {
-	samples, err := d.Decode(data, frameSize)
-	if err != nil {
-		return nil, err
-	}
-
-	return float64ToFloat32(samples), nil
-}
-
-func float64ToInt16(samples []float64) []int16 {
-	output := make([]int16, len(samples))
-	for i, s := range samples {
-		output[i] = opusmath.Float32ToInt16(float32(s))
-	}
-	return output
-}
-
-func float64ToInt16SoftClip(samples []float64, n, channels int, declipMem []float32) []int16 {
-	output := make([]int16, len(samples))
-	if channels < 1 || n < 1 || len(samples) == 0 || len(declipMem) < channels {
-		return output
-	}
-	total := n * channels
-	if total > len(samples) {
-		total = len(samples)
-	}
-	if total <= 0 {
-		return output
-	}
-
-	tmp := make([]float32, total)
-	for i := 0; i < total; i++ {
-		tmp[i] = float32(samples[i])
-	}
 	opusmath.PCMSoftClip(tmp, n, channels, declipMem)
 	for i := 0; i < total; i++ {
 		output[i] = opusmath.Float32ToInt16(tmp[i])

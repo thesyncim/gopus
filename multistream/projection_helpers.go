@@ -57,11 +57,24 @@ func (d *Decoder) applyProjectionDemixing(output []float64, frameSize int) {
 	applyProjectionDemixingMatrix(output, output, d.projectionDemixing, d.projectionScratch[:cols], frameSize, rows, cols)
 }
 
-func (d *Decoder) applyProjectionDemixingInt16(output []int16, input []float64, frameSize int) {
+func (d *Decoder) applyProjectionDemixing32(output []float32, frameSize int) {
 	rows := d.outputChannels
 	cols := d.projectionCols
 	if len(d.projectionDemixing) == 0 || cols <= 0 || rows <= 0 || cols > rows {
-		copy(output, float64ToInt16(input))
+		return
+	}
+
+	if cap(d.projectionScratch) < cols {
+		d.projectionScratch = make([]float32, cols)
+	}
+	applyProjectionDemixingMatrix32(output, output, d.projectionDemixing, d.projectionScratch[:cols], frameSize, rows, cols)
+}
+
+func (d *Decoder) applyProjectionDemixingInt16(output []int16, input []float32, frameSize int) {
+	rows := d.outputChannels
+	cols := d.projectionCols
+	if len(d.projectionDemixing) == 0 || cols <= 0 || rows <= 0 || cols > rows {
+		copy(output, float32ToInt16(input))
 		return
 	}
 

@@ -42,13 +42,13 @@ func TestApplyProjectionDemixingSwapsChannels(t *testing.T) {
 		t.Fatalf("SetProjectionDemixingMatrix failed: %v", err)
 	}
 
-	pcm := []float64{1, 2, 3, 4}
-	dec.applyProjectionDemixing(pcm, 2)
+	pcm := []float32{1, 2, 3, 4}
+	dec.applyProjectionDemixing32(pcm, 2)
 
-	scale := 32767.0 / 32768.0
-	want := []float64{2 * scale, 1 * scale, 4 * scale, 3 * scale}
+	scale := float32(32767.0 / 32768.0)
+	want := []float32{2 * scale, 1 * scale, 4 * scale, 3 * scale}
 	for i := range want {
-		if math.Abs(pcm[i]-want[i]) > 1e-3 {
+		if math.Abs(float64(pcm[i]-want[i])) > 1e-3 {
 			t.Fatalf("sample[%d] = %f, want %f", i, pcm[i], want[i])
 		}
 	}

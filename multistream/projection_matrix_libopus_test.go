@@ -79,16 +79,12 @@ func TestProjectionDemixingFloatMatchesLibopusMatrixOracle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	src := make([]float64, len(input))
-	for i, v := range input {
-		src[i] = float64(v)
-	}
-	got := make([]float64, len(src))
-	applyProjectionDemixingMatrix(got, src, matrix, make([]float32, cols), frameSize, rows, cols)
+	got := make([]float32, len(input))
+	applyProjectionDemixingMatrix32(got, input, matrix, make([]float32, cols), frameSize, rows, cols)
 	for i := range want {
-		if math.Float32bits(float32(got[i])) != math.Float32bits(want[i]) {
+		if math.Float32bits(got[i]) != math.Float32bits(want[i]) {
 			t.Fatalf("projection float[%d]=%08x want %08x (%0.10g vs %0.10g)",
-				i, math.Float32bits(float32(got[i])), math.Float32bits(want[i]), float32(got[i]), want[i])
+				i, math.Float32bits(got[i]), math.Float32bits(want[i]), got[i], want[i])
 		}
 	}
 }
@@ -122,12 +118,8 @@ func TestProjectionDemixingInt16MatchesLibopusMatrixOracle(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	src := make([]float64, len(input))
-	for i, v := range input {
-		src[i] = float64(v)
-	}
-	got := make([]int16, len(src))
-	applyProjectionDemixingMatrixInt16(got, src, matrix, make([]float32, cols), frameSize, rows, cols)
+	got := make([]int16, len(input))
+	applyProjectionDemixingMatrixInt16(got, input, matrix, make([]float32, cols), frameSize, rows, cols)
 	for i := range want {
 		if got[i] != want[i] {
 			t.Fatalf("projection int16[%d]=%d want %d", i, got[i], want[i])

@@ -418,13 +418,11 @@ func decodeWithInternalMultistream(oggData []byte) ([]float32, error) {
 		}
 		prevGranule = granule
 
-		pcm64, err := dec.Decode(packet, frameSize)
+		pcm, err := dec.DecodeToFloat32(packet, frameSize)
 		if err != nil {
 			return nil, fmt.Errorf("decode packet: %w", err)
 		}
-		for _, s := range pcm64 {
-			decoded = append(decoded, float32(s))
-		}
+		decoded = append(decoded, pcm...)
 	}
 
 	preSkip := int(r.PreSkip()) * channels
