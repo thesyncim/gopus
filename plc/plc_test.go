@@ -539,22 +539,22 @@ func (m *mockCELTDecoder) PreemphState() []float32      { return m.preemphState 
 func (m *mockCELTDecoder) OverlapBuffer() []float32     { return m.overlapBuf }
 func (m *mockCELTDecoder) SetOverlapBuffer(s []float32) { copy(m.overlapBuf, s) }
 
-// Synthesize performs a simple pass-through for testing.
-func (m *mockCELTDecoder) Synthesize(coeffs []float64, transient bool, shortBlocks int) []float64 {
+// SynthesizeFloat32 performs a simple pass-through for testing.
+func (m *mockCELTDecoder) SynthesizeFloat32(coeffs []float32, transient bool, shortBlocks int) []float64 {
 	// For testing, just return coefficients scaled down
 	output := make([]float64, len(coeffs))
 	for i, c := range coeffs {
-		output[i] = c * 0.1
+		output[i] = float64(c * 0.1)
 	}
 	return output
 }
 
-// SynthesizeStereo performs a simple pass-through for testing.
-func (m *mockCELTDecoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, shortBlocks int) []float64 {
+// SynthesizeStereoFloat32 performs a simple pass-through for testing.
+func (m *mockCELTDecoder) SynthesizeStereoFloat32(coeffsL, coeffsR []float32, transient bool, shortBlocks int) []float64 {
 	output := make([]float64, len(coeffsL)*2)
 	for i := range coeffsL {
-		output[i*2] = coeffsL[i] * 0.1
-		output[i*2+1] = coeffsR[i] * 0.1
+		output[i*2] = float64(coeffsL[i] * 0.1)
+		output[i*2+1] = float64(coeffsR[i] * 0.1)
 	}
 	return output
 }
@@ -682,11 +682,11 @@ func TestCELTHybridPLC(t *testing.T) {
 
 // TestNormalizeVector tests vector normalization.
 func TestNormalizeVector(t *testing.T) {
-	v := []float64{3, 4} // 3-4-5 right triangle
+	v := []float32{3, 4} // 3-4-5 right triangle
 	normalizeVector(v)
 
 	// L2 norm should be 1
-	norm := math.Sqrt(v[0]*v[0] + v[1]*v[1])
+	norm := math.Sqrt(float64(v[0]*v[0] + v[1]*v[1]))
 	if math.Abs(norm-1.0) > 0.0001 {
 		t.Errorf("normalized vector norm = %f, want 1.0", norm)
 	}

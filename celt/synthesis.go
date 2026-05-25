@@ -255,6 +255,15 @@ func (d *Decoder) Synthesize(coeffs []float64, transient bool, shortBlocks int) 
 	return output
 }
 
+func (d *Decoder) SynthesizeFloat32(coeffs []float32, transient bool, shortBlocks int) []float64 {
+	if len(coeffs) == 0 {
+		return nil
+	}
+	coeffs64 := ensureFloat64Slice(&d.scratchMonoMix, len(coeffs))
+	copyFloat32ToFloat64(coeffs64, coeffs)
+	return d.Synthesize(coeffs64, transient, shortBlocks)
+}
+
 func (d *Decoder) synthesizeMonoLongToFloat32(coeffs []float64) []float32 {
 	if len(coeffs) == 0 {
 		return nil
@@ -377,6 +386,17 @@ func (d *Decoder) SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, s
 	InterleaveStereoInto(outputL[:n], outputR[:n], stereo[:n*2])
 
 	return stereo[:n*2]
+}
+
+func (d *Decoder) SynthesizeStereoFloat32(coeffsL, coeffsR []float32, transient bool, shortBlocks int) []float64 {
+	if len(coeffsL) == 0 || len(coeffsR) == 0 {
+		return nil
+	}
+	specL := ensureFloat64Slice(&d.scratchMonoMix, len(coeffsL))
+	specR := ensureFloat64Slice(&d.scratchMonoToStereoR, len(coeffsR))
+	copyFloat32ToFloat64(specL, coeffsL)
+	copyFloat32ToFloat64(specR, coeffsR)
+	return d.SynthesizeStereo(specL, specR, transient, shortBlocks)
 }
 
 // WindowAndOverlap applies Vorbis window and performs overlap-add.

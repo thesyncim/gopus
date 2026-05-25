@@ -8,6 +8,14 @@ import (
 // Applied to band energies to gradually fade concealment.
 const EnergyDecayPerFrame = 0.85
 
+func pow10F32(x float32) float32 {
+	return float32(math.Pow(10.0, float64(x)))
+}
+
+func sqrtF32(x float32) float32 {
+	return float32(math.Sqrt(float64(x)))
+}
+
 // CELTDecoderState provides access to CELT decoder state needed for PLC.
 // This interface allows PLC to access decoder state without importing the celt package.
 type CELTDecoderState interface {
@@ -143,9 +151,9 @@ func defaultCELTBandInfo() CELTBandInfo {
 // CELTSynthesizer provides synthesis functionality for CELT PLC.
 type CELTSynthesizer interface {
 	// Synthesize performs IMDCT synthesis for mono.
-	Synthesize(coeffs []float64, transient bool, shortBlocks int) []float64
+	SynthesizeFloat32(coeffs []float32, transient bool, shortBlocks int) []float64
 	// SynthesizeStereo performs IMDCT synthesis for stereo.
-	SynthesizeStereo(coeffsL, coeffsR []float64, transient bool, shortBlocks int) []float64
+	SynthesizeStereoFloat32(coeffsL, coeffsR []float32, transient bool, shortBlocks int) []float64
 }
 
 type celtConcealmentEnergyMode uint8
@@ -206,8 +214,8 @@ func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fad
 	}
 
 	// Generate noise-filled MDCT coefficients at the decayed energy levels
-	var coeffs []float64
-	var coeffsL, coeffsR []float64
+	var coeffs []float32
+	var coeffsL, coeffsR []float32
 
 	rng := dec.RNG()
 
@@ -224,9 +232,9 @@ func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fad
 	var samples []float64
 	if synth != nil {
 		if channels == 2 {
-			samples = synth.SynthesizeStereo(coeffsL, coeffsR, false, 1)
+			samples = synth.SynthesizeStereoFloat32(coeffsL, coeffsR, false, 1)
 		} else {
-			samples = synth.Synthesize(coeffs, false, 1)
+			samples = synth.SynthesizeFloat32(coeffs, false, 1)
 		}
 	} else {
 		// No synthesizer available - return zeros
@@ -278,9 +286,9 @@ func ConcealCELTRawInto(dst []float64, dec CELTDecoderState, synth CELTSynthesiz
 
 // generateNoiseBands creates noise-filled MDCT coefficients scaled by band energies.
 // Each band gets random noise normalized and scaled to the target energy level.
-func generateNoiseBands(energies []float32, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {
+func generateNoiseBands(energies []float32, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float32 {
 	// Number of MDCT bins = frameSize (CELT convention)
-	coeffs := make([]float64, frameSize)
+	coeffs := make([]float32, frameSize)
 
 	for band := 0; band < nbBands && band < len(energies); band++ {
 		// Get band boundaries
@@ -301,11 +309,11 @@ func generateNoiseBands(energies []float32, nbBands, frameSize int, rng *uint32,
 
 		// Get target energy for this band (linear scale from dB)
 		// prevEnergy is stored in dB, convert to linear
-		energyDB := float64(energies[band])
-		energyLin := math.Pow(10.0, energyDB/10.0)
+		energyLin := pow10F32(energies[band] * 0.1)
 
 		// Apply fade factor to energy
-		energyLin *= fadeFactor * fadeFactor // Square for energy (amplitude squared)
+		fade := float32(fadeFactor)
+		energyLin *= fade * fade // Square for energy (amplitude squared)
 
 		// Generate random unit-norm vector for the band
 		noise := generateNoiseBand(rng, bandWidth)
@@ -314,7 +322,7 @@ func generateNoiseBands(energies []float32, nbBands, frameSize int, rng *uint32,
 		normalizeVector(noise)
 
 		// Scale by energy (sqrt because coefficients are amplitude)
-		scale := math.Sqrt(energyLin)
+		scale := sqrtF32(energyLin)
 
 		// Fill band with scaled noise
 		for i := 0; i < bandWidth && startBin+i < frameSize; i++ {
@@ -327,8 +335,8 @@ func generateNoiseBands(energies []float32, nbBands, frameSize int, rng *uint32,
 
 // generateNoiseBand creates a random vector for a band.
 // Uses LCG from CELT decoder for deterministic noise.
-func generateNoiseBand(rng *uint32, bandWidth int) []float64 {
-	noise := make([]float64, bandWidth)
+func generateNoiseBand(rng *uint32, bandWidth int) []float32 {
+	noise := make([]float32, bandWidth)
 
 	for i := range noise {
 		// LCG: same as libopus for reproducibility
@@ -336,20 +344,20 @@ func generateNoiseBand(rng *uint32, bandWidth int) []float64 {
 
 		// Convert to [-1, 1] range
 		// Use top bits for better randomness
-		noise[i] = float64(int32(*rng)) / float64(1<<31)
+		noise[i] = float32(int32(*rng)) * (1.0 / float32(1<<31))
 	}
 
 	return noise
 }
 
 // normalizeVector normalizes a vector to unit L2 norm.
-func normalizeVector(v []float64) {
+func normalizeVector(v []float32) {
 	// Compute L2 norm
-	var norm float64
+	var norm float32
 	for _, x := range v {
 		norm += x * x
 	}
-	norm = math.Sqrt(norm)
+	norm = sqrtF32(norm)
 
 	if norm < 1e-10 {
 		// Avoid division by zero - leave as is
@@ -357,7 +365,7 @@ func normalizeVector(v []float64) {
 	}
 
 	// Normalize
-	invNorm := 1.0 / norm
+	invNorm := float32(1.0) / norm
 	for i := range v {
 		v[i] *= invNorm
 	}
@@ -555,8 +563,8 @@ func synthesizeCELTConcealment(
 	channels := dec.Channels()
 	rng := dec.RNG()
 
-	var coeffs []float64
-	var coeffsL, coeffsR []float64
+	var coeffs []float32
+	var coeffsL, coeffsR []float32
 	if channels == 2 {
 		if hybrid {
 			coeffsL = generateNoiseHybridBands(concealEnergy[:bandInfo.MaxBands], nbBands, frameSize, &rng, fadeFactor, &bandInfo)
@@ -575,9 +583,9 @@ func synthesizeCELTConcealment(
 		return nil, rng
 	}
 	if channels == 2 {
-		return synth.SynthesizeStereo(coeffsL, coeffsR, false, 1), rng
+		return synth.SynthesizeStereoFloat32(coeffsL, coeffsR, false, 1), rng
 	}
-	return synth.Synthesize(coeffs, false, 1), rng
+	return synth.SynthesizeFloat32(coeffs, false, 1), rng
 }
 
 func copyCELTConcealment(dst, samples []float64, outLen int) {
@@ -603,8 +611,8 @@ func zeroCELTConcealment(dst []float64, limit int) {
 }
 
 // generateNoiseHybridBands generates noise for hybrid mode (bands 17-21 only).
-func generateNoiseHybridBands(energies []float32, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float64 {
-	coeffs := make([]float64, frameSize)
+func generateNoiseHybridBands(energies []float32, nbBands, frameSize int, rng *uint32, fadeFactor float64, bandInfo *CELTBandInfo) []float32 {
+	coeffs := make([]float32, frameSize)
 
 	// Start at hybrid start band (17)
 	startBand := bandInfo.HybridStartBand
@@ -626,14 +634,14 @@ func generateNoiseHybridBands(energies []float32, nbBands, frameSize int, rng *u
 		}
 
 		// Get target energy
-		energyDB := float64(energies[band])
-		energyLin := math.Pow(10.0, energyDB/10.0)
-		energyLin *= fadeFactor * fadeFactor
+		energyLin := pow10F32(energies[band] * 0.1)
+		fade := float32(fadeFactor)
+		energyLin *= fade * fade
 
 		// Generate and scale noise
 		noise := generateNoiseBand(rng, bandWidth)
 		normalizeVector(noise)
-		scale := math.Sqrt(energyLin)
+		scale := sqrtF32(energyLin)
 
 		for i := 0; i < bandWidth && startBin+i < frameSize; i++ {
 			coeffs[startBin+i] = noise[i] * scale
