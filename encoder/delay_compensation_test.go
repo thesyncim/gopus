@@ -290,7 +290,9 @@ func BenchmarkApplyDelayCompensation(b *testing.B) {
 			b.ReportAllocs()
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
-				copyFloat64ToOpusRes(enc.delayBuffer, seed)
+				for j, sample := range seed {
+					enc.delayBuffer[j] = opusRes(sample)
+				}
 				_ = enc.applyDelayCompensation(pcm, tc.frameSize)
 			}
 		})

@@ -1,7 +1,5 @@
 package celt
 
-import "math"
-
 // Band folding for uncoded bands in CELT.
 // When a band receives zero bit allocation (k=0 pulses), its shape is
 // reconstructed by "folding" from a lower coded band with pseudo-random
@@ -93,24 +91,8 @@ func normalizeNormVectorInPlace(v []celtNorm) {
 }
 
 // normalizeVectorInPlace scales vector to unit L2 norm in place.
-func normalizeVectorInPlace(v []float64) {
-	if len(v) == 0 {
-		return
-	}
-
-	var energy float64
-	for _, x := range v {
-		energy += x * x
-	}
-
-	if energy < 1e-15 {
-		return
-	}
-
-	scale := 1.0 / math.Sqrt(energy)
-	for i := range v {
-		v[i] *= scale
-	}
+func normalizeVectorInPlace(v []celtNorm) {
+	normalizeNormVectorInPlace(v)
 }
 
 // FindFoldSource finds the band to fold from for an uncoded band.
@@ -145,7 +127,7 @@ func FindFoldSource(targetBand int, codedMask uint32, bandWidths []int) int {
 // Returns: source band index, offset within source, and whether found.
 //
 // Reference: libopus celt/bands.c compute_band_fold()
-func FindFoldSourceWithOffset(targetBand int, targetOffset int, codedBands [][]float64) (srcBand, offset int, found bool) {
+func FindFoldSourceWithOffset(targetBand int, targetOffset int, codedBands [][]celtNorm) (srcBand, offset int, found bool) {
 	if targetBand <= 0 || len(codedBands) == 0 {
 		return -1, 0, false
 	}

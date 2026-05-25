@@ -272,9 +272,6 @@ celt/float32_default.go	1	8646feabae68e6a3a7d0d568eb7542122b0e5a073c71f6cfcf42e8
 celt/float32_widen_default.go	1	beea720c8de54da8545efc993c92e9c60c4d4c58cb139234868d65b042e94e76	legacy-current	dst[i] = float64(src[i])
 celt/float32_widen_default.go	1	d25ff85c341825b604b7db87697664640153f7ac86bafc795ab4e17a9eebfa36	legacy-current	func widenFloat32ToFloat64(dst []float64, src []float32, n int) {
 celt/fma32_default.go	1	4615f35d8d35ce5ca7d9e3617e3e7d032cef0f300908c9f83d1ba52955a95f3d	legacy-current	return float32(math.FMA(float64(a), float64(b), float64(c)))
-celt/folding.go	1	489c0db772ee311b1ccaed7c023ce879a8a23369edda4279ca7f1029824bcb99	legacy-current	func FindFoldSourceWithOffset(targetBand int, targetOffset int, codedBands [][]float64) (srcBand, offset int, found bool) {
-celt/folding.go	1	6e8cb3c527f5b80d634c1c58539c429466df8c092a94c70e3f6435a2ebb2a274	legacy-current	func normalizeVectorInPlace(v []float64) {
-celt/folding.go	1	7b100e28c0e43191c42b4f0aee968a05b2a24ae55fd0a2110ad9cdf781949d3c	legacy-current	var energy float64
 celt/haar1.go	1	3dc96edaec57510a1ab161de223ff6a33a8cb08e80c7396aa411cb97329d7ccb	legacy-current	func haar1Stride8(x []float64, n0 int) {
 celt/haar1.go	1	4c9da36d3c9e5934c5519a4133551e1cdcd5b1173575267e776c4275d0c1940f	legacy-current	func haar1Stride4(x []float64, n0 int) {
 celt/haar1.go	1	58dc4763905e23da0069b6b6575a35638ddf090c02f00e09f0cce1e1d408c21a	legacy-current	func haar1Pair(x []float64, idx0, idx1 int, invSqrt2 float32) {
@@ -582,7 +579,6 @@ celt/prefilter_xcorr_fast_default.go	1	85aa2d8da43cf4cee5aece7f51bfb77e2a94a16b6
 celt/pvq.go	1	8d445162a3d37594d7e5a69014788ab4503e371f0864afd27c824c5b08e89026	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(qn)
 celt/pvq.go	1	93a16d3a6f34a164d089a777b398e3f9438bc48acc13fb9a422eab7c5fda6e93	legacy-current	func (d *Decoder) DecodeTheta(n int) float64 {
 celt/pvq.go	1	a2ed657c3de51017b45e855f011c5981b509b9458003b68e504d50996244c4c5	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(n)
-celt/pvq.go	1	ecc3f43cb036d51f20e8dc4df1f6d8c52c039cea2b0c1fa388bcd6487540011e	legacy-current	func applyMidSideRotationInto(mid, side []float64, midGain, sideGain float64, left, right []float64) {
 celt/pvq_search.go	1	2eb64952756430c085299c775bf5ac91e459e1b3851169439d441907e4d92a82	legacy-current	upIy[0] = int(math.Floor(float64(float32(0.5) + float32(up*k)*float32(x[0])*rcp)))
 celt/pvq_search.go	1	54a8d35fdbc49e7fc6c6d57e0ee33979f2dcac8bee892a9d51179c6e28e606d0	legacy-current	func opPVQRefine(xn []float64, iy []int, iy0 []int, k, up, margin int, same bool) bool {
 celt/pvq_search.go	1	dab811a408290887c046232b5c9dec30b81c6c30221307831136d9329202c58d	legacy-current	iy[i] = int(math.Floor(float64(float32(0.5) + tmp)))
@@ -872,16 +868,12 @@ encoder/fec.go	1	4ffe0ef96a7e800591ab485b9c6135791b885de53780a2fa595b6d644474d50
 encoder/hybrid.go	1	194d02c341c54c001542e444939ae4ef790dd04b798e2462e29a00a1af9833bd	legacy-current	func ComputeStereoWidth(pcm []float64, frameSize, channels int) float64 {
 encoder/hybrid.go	1	1d102f577ed072a5667b1ead59b73bbd21dd70caf0b02708c5a77910cd01ba2c	legacy-current	tfBoost := int((tfEstimate - 0.25) * float64(50<<celt.BitRes))
 encoder/hybrid.go	2	3ac2e099c102b4860a16f3766a6b286d330a07d35f80355c70d01c0d7fb728de	legacy-current	var mdctLeft, mdctRight []float64
-encoder/hybrid.go	1	459798f387ddb0ade16d0eb9feb04cc618310c7727a4ef8ebcda8ef5b25d02c0	legacy-current	// Mono: convert float64 -> float32 into scratch buffer.
-encoder/hybrid.go	1	5205e834baf32bb20b872e866633054d369699b69b7d6080618c99ba97fddd41	legacy-current	// Stereo: convert float64 -> float32 and deinterleave in a single pass.
 encoder/hybrid.go	1	5836c65732dc998955a739845c93f9a3387a600fbd8d09897227c75c94634822	legacy-current	func computeMDCTForHybridScratch(samples []float32, frameSize, channels int, history []float32, shortBlocks int, hs *HybridState, ce *celt.Encoder) []float64 {
 encoder/hybrid.go	1	7c1bab99ffcb8a0730ff1b4371367dab834fa61c705d223a2d6e5cf88f2e0f9c	legacy-current	var sumLeft, sumRight, sumCross float64
 encoder/hybrid.go	1	80219792b478493d8425c3e4b25328a7096871b213750692d503f13271f35946	legacy-current	scratchMDCTResult []float64 // combined L+R MDCT output
-encoder/hybrid.go	1	9069ffde1c2a14c8b17bf1a5bbbe62080a8d5cba2075c0b160397d588fa0ecbd	legacy-current	scratchLookahead32 []float32 // float64 -> float32 conversion
 encoder/hybrid.go	1	a39efded2846718e49cf20cc38910e635213cf591ec7bea75584d60a43beeff1	legacy-current	maxAllowed := int(float64(baseTargetBytes) * 2.0)
 encoder/hybrid.go	2	cb307c264810bd39dc3f2af6ab93e86e5ae4801bafc26cb6bc8bcb32d9378124	legacy-current	hs.scratchMDCTResult = make([]float64, resultLen)
 encoder/hybrid.go	1	d604d64649d277a4b06e6e0520168b79028344b240622d45da06f7d9d5e30a43	legacy-current	func (e *Encoder) computeHybridCELTVBRTargetBytes(limitBytes, frameSize int, tfEstimate float64, totalBoost, tellFrac, tell0Frac, silkOffset int) int {
-encoder/scalar_types.go	1	0c0a0663423849ad524632773448a5f9e2b36bf1ee3b5009d78e414f94e071aa	legacy-current	func copyFloat64ToOpusRes(dst []opusRes, src []float64) {
 hybrid/decoder.go	1	c71830725d4132fdeaf59769540011e55c2db1f1a2509fc7a670a465b10dc766	legacy-current	func (d *Decoder) RecordPLCLoss() float64 {
 hybrid/hybrid.go	1	3659c2eb06635ff9ba37f9f6507ade412e0eb1bb3e65a2d7309ba6cb060a9ca8	legacy-current	var celtConcealed []float64
 internal/lpcnetplc/analysis.go	1	0a50dc44c424b9913f0c2c89c571098693ece9485671f88c64de01db7c22901b	legacy-current	var nrgF float64

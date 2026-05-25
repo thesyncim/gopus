@@ -82,7 +82,7 @@ type HybridState struct {
 	scratchTransitionPCM []opusRes
 
 	// Lookahead resampling scratch buffers.
-	scratchLookahead32   []float32 // float64 -> float32 conversion
+	scratchLookahead32   []float32 // opus_res-width lookahead for SILK resampling
 	scratchSilkLookahead []float32 // resampled lookahead output
 	scratchLaLeft        []float32 // deinterleaved left lookahead
 	scratchLaRight       []float32 // deinterleaved right lookahead
@@ -900,7 +900,7 @@ func (e *Encoder) downsample48to16Hybrid(samples []opusRes, frameSize int) []flo
 	e.ensureSILKResampler(16000)
 
 	if e.channels == 1 {
-		// Mono: convert float64 -> float32 into scratch buffer.
+		// Mono: copy opus_res-width input into SILK resampling scratch.
 		if frameSize > len(samples) {
 			frameSize = len(samples)
 		}
@@ -942,8 +942,7 @@ func (e *Encoder) downsample48to16Hybrid(samples []opusRes, frameSize int) []flo
 		return out[:n]
 	}
 
-	// Stereo: convert float64 -> float32 and deinterleave in a single pass.
-	// This avoids a separate full-buffer conversion + separate deinterleave loop.
+	// Stereo: copy opus_res-width input and deinterleave in a single pass.
 	totalSamples := frameSize * 2
 	if totalSamples > len(samples) {
 		totalSamples = len(samples)

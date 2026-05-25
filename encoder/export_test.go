@@ -13,7 +13,9 @@ func (e *Encoder) Downsample48to16Hybrid(samples []float64, frameSize int) []flo
 		}
 	}
 	samplesRes := make([]opusRes, len(samples))
-	copyFloat64ToOpusRes(samplesRes, samples)
+	for i, sample := range samples {
+		samplesRes[i] = opusRes(sample)
+	}
 	return e.downsample48to16Hybrid(samplesRes, frameSize)
 }
 

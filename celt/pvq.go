@@ -278,18 +278,8 @@ func (d *Decoder) decodeIntensityStereoNormInto(mid, left, right []celtNorm) {
 // mid, side: input vectors
 // midGain, sideGain: rotation gains from theta
 // left, right: pre-allocated destination buffers
-func applyMidSideRotationInto(mid, side []float64, midGain, sideGain float64, left, right []float64) {
-	n := len(mid)
-	if len(side) != n || len(left) < n || len(right) < n {
-		return
-	}
-
-	for i := 0; i < n; i++ {
-		// Left = mid*cos(theta) + side*sin(theta)
-		// Right = mid*cos(theta) - side*sin(theta)
-		left[i] = midGain*mid[i] + sideGain*side[i]
-		right[i] = midGain*mid[i] - sideGain*side[i]
-	}
+func applyMidSideRotationInto(mid, side []celtNorm, midGain, sideGain opusVal16, left, right []celtNorm) {
+	applyMidSideRotationNormInto(mid, side, midGain, sideGain, left, right)
 }
 
 func applyMidSideRotationNormInto(mid, side []celtNorm, midGain, sideGain opusVal16, left, right []celtNorm) {
