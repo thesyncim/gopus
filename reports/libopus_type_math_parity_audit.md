@@ -174,7 +174,7 @@ These are non-test runtime matches where `scratch` and `float64`/`complex128` ap
 | `celt/mdct_encode.go` | 10 |
 | `celt/recovery_helpers.go` | 10 |
 | `celt/synthesis.go` | 9 |
-| `celt/dred_conceal.go` | 7 |
+| `celt/dred_conceal.go` | 9 |
 | `celt/mdct.go` | 6 |
 | `celt/energy_encode.go` | 6 |
 | `silk/lpc_analysis.go` | 5 |
@@ -668,7 +668,7 @@ Add allowlists only after reading the matching libopus source. Do not hide a mis
 
 ## Definition of Done
 
-Current CI blocker follow-up: the scheduled `Verify Production Exhaustive` run on 2026-05-25 failed in release evidence for the package test suite, production exhaustive gate, and assembly safety matrix on run `26391166380`. That run uploaded only the summary markdown, so the detailed per-command logs were discarded; the workflow upload path is now set to retain `reports/release/**` before the next scheduled diagnosis. Local reproduction fixed the visible blockers: type-width QEXT multistream expectations, the fuzz harness repeat-expansion bound, the cross-arch SILK pitch helper/oracle build, and the delay-buffer opus-res size parser. Local `make verify-production-exhaustive` and `make test-assembly-safety` passed on darwin/arm64 before the final upstream encoder-API rebase; after that rebase, local `make test-type-parity`, the QEXT parity focus gate, `GOWORK=off go test ./... -count=1`, and the SILK pitch oracle all pass.
+Current CI blocker follow-up: the scheduled `Verify Production Exhaustive` run on 2026-05-25 failed in release evidence for the package test suite, production exhaustive gate, and assembly safety matrix on run `26391166380`. That run uploaded only the summary markdown, so the detailed per-command logs were discarded; the workflow upload path is now set to retain `reports/release/**` before the next scheduled diagnosis. Local reproduction fixed the visible blockers: type-width QEXT multistream expectations, the fuzz harness repeat-expansion bound, the cross-arch SILK pitch helper/oracle build, and the delay-buffer opus-res size parser. The manual `Verify Safety` rerun on 2026-05-25 reached assembly safety and exposed a duration-based `FuzzSilkAssemblyKernelsMatchReference` deadline flake on Go 1.25, so the assembly safety smoke now uses a deterministic execution-count fuzz budget. Local `make verify-production-exhaustive` and `make test-assembly-safety` passed on darwin/arm64 before the final upstream encoder-API rebase; after that rebase, local `make test-type-parity`, the QEXT parity focus gate, `GOWORK=off go test ./... -count=1`, and the SILK pitch oracle all pass.
 
 A lane is done only when all of the following are true:
 
