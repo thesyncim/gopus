@@ -3,8 +3,7 @@
 package celt
 
 import (
-	"math"
-
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/plc"
 )
 
@@ -37,7 +36,7 @@ func quantizePLCPCM16kSample(sample float32) int16 {
 	if v > 32767 {
 		v = 32767
 	}
-	return int16(math.Floor(0.5 + float64(v)))
+	return int16(opusmath.FloorHalfPlusF32ToInt32(v))
 }
 
 func quantizedFARGANPCM16GridSample(sample float32) float32 {

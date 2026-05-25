@@ -1,8 +1,7 @@
 package celt
 
 import (
-	"math"
-
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -120,10 +119,11 @@ func ThetaToGains(itheta, qn int) (mid, side opusVal16) {
 	}
 
 	// theta in [0, pi/2]
-	theta := float64(itheta) * (math.Pi / 2) / float64(qn)
+	const piOver2 = float32(1.5707963267948966)
+	theta := float32(itheta) * piOver2 / float32(qn)
 
-	mid = opusVal16(math.Cos(theta))
-	side = opusVal16(math.Sin(theta))
+	mid = opusVal16(opusmath.CosF32(theta))
+	side = opusVal16(opusmath.SinF32(theta))
 
 	return mid, side
 }

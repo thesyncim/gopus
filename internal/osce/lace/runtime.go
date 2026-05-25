@@ -2,7 +2,6 @@ package lace
 
 import (
 	"errors"
-	"math"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dnnmath"
@@ -1056,7 +1055,7 @@ func computeGenericGRU(inputW, recurrentW *LinearLayer, state, in []float32) {
 }
 
 func fma32(a, b, c float32) float32 {
-	return float32(math.FMA(float64(a), float64(b), float64(c)))
+	return a*b + c
 }
 
 // ----------------------------------------------------------------------------

@@ -402,8 +402,8 @@ func (e *Encoder) ApplyHybridPrefilter(preemph []float32, frameSize int, tfEstim
 
 	e.lastPitchChange = false
 	if prevPrefilterPeriod > 0 && (pfResult.gain > 0.4 || prevPrefilterGain > 0.4) {
-		upper := int(1.26 * float64(prevPrefilterPeriod))
-		lower := int(0.79 * float64(prevPrefilterPeriod))
+		upper := 126 * prevPrefilterPeriod / 100
+		lower := 79 * prevPrefilterPeriod / 100
 		e.lastPitchChange = pfResult.pitch > upper || pfResult.pitch < lower
 	}
 }

@@ -1,10 +1,6 @@
 package celt
 
-import (
-	"math"
-
-	"github.com/thesyncim/gopus/internal/opusmath"
-)
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 // Band processing orchestration for CELT decoding.
 // This file contains the top-level band decoding loop that processes all
@@ -384,7 +380,7 @@ func kToBits(k, n int) int {
 
 	// Approximate for larger values to avoid PVQ_V overflow.
 	// bits ~= n * log2(1 + 2k/n) + k (sign bits)
-	bits := float64(n)*math.Log2(1.0+2.0*float64(k)/float64(n)) + float64(k)
+	bits := float32(n)*opusmath.Log2F32(1.0+2.0*float32(k)/float32(n)) + float32(k)
 	if bits < 0 {
 		return 0
 	}

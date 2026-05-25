@@ -9,7 +9,7 @@ package celt
 //
 // IMPORTANT: This function uses float32 precision for the filter state
 // to match libopus exactly. The IIR filter accumulates state over time,
-// and using float64 would cause precision drift relative to libopus.
+// and widening would cause precision drift relative to libopus.
 func (d *Decoder) applyDeemphasis(samples []float32) {
 	d.applyDeemphasisAndScale(samples, 1.0)
 }

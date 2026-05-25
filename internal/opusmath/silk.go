@@ -39,6 +39,10 @@ func AtanF32(x float32) float32 {
 	return float32(math.Atan(float64(x)))
 }
 
+func AcosF32(x float32) float32 {
+	return float32(math.Acos(float64(x)))
+}
+
 func Exp2DivIntF32(x float32, denom int) float32 {
 	return float32(math.Exp2(float64(x)) / float64(denom))
 }

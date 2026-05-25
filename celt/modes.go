@@ -70,9 +70,9 @@ func ValidFrameSize(frameSize int) bool {
 	}
 }
 
-// FrameSizeFromDuration returns the frame size in samples for a given
-// duration in milliseconds. Valid durations: 2.5, 5, 10, 20ms.
-func FrameSizeFromDuration(durationMs float64) (int, error) {
+// FrameSizeFromDuration returns the frame size in samples for a given duration
+// in milliseconds. Valid durations: 2.5, 5, 10, 20ms.
+func FrameSizeFromDuration(durationMs float32) (int, error) {
 	switch {
 	case durationMs == 2.5:
 		return 120, nil
@@ -88,8 +88,8 @@ func FrameSizeFromDuration(durationMs float64) (int, error) {
 }
 
 // DurationFromFrameSize returns the frame duration in milliseconds.
-func DurationFromFrameSize(frameSize int) float64 {
-	return float64(frameSize) / 48.0 // 48kHz sample rate
+func DurationFromFrameSize(frameSize int) float32 {
+	return float32(frameSize) / 48.0 // 48kHz sample rate
 }
 
 // CELTBandwidth represents the audio bandwidth for CELT coding.

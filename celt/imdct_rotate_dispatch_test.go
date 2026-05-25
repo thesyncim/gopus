@@ -6,7 +6,7 @@ import (
 	"unsafe"
 )
 
-func imdctPreRotateF32Ref(fftIn []complex64, spectrum []float64, trig []float32, n2, n4 int) {
+func imdctPreRotateF32Ref(fftIn []complex64, spectrum []float32, trig []float32, n2, n4 int) {
 	if n4 <= 0 {
 		return
 	}
@@ -18,8 +18,8 @@ func imdctPreRotateF32Ref(fftIn []complex64, spectrum []float64, trig []float32,
 
 	i := 0
 	for ; i+1 < n4; i += 2 {
-		x10 := float32(spectrum[2*i])
-		x20 := float32(spectrum[n2-1-2*i])
+		x10 := spectrum[2*i]
+		x20 := spectrum[n2-1-2*i]
 		t00 := trig[i]
 		t10 := trig[n4+i]
 		b0 := 2 * i
@@ -27,8 +27,8 @@ func imdctPreRotateF32Ref(fftIn []complex64, spectrum []float64, trig []float32,
 		out[b0+1] = x20*t00 + x10*t10
 
 		i1 := i + 1
-		x11 := float32(spectrum[2*i1])
-		x21 := float32(spectrum[n2-1-2*i1])
+		x11 := spectrum[2*i1]
+		x21 := spectrum[n2-1-2*i1]
 		t01 := trig[i1]
 		t11 := trig[n4+i1]
 		b1 := 2 * i1
@@ -37,8 +37,8 @@ func imdctPreRotateF32Ref(fftIn []complex64, spectrum []float64, trig []float32,
 	}
 
 	if i < n4 {
-		x1 := float32(spectrum[2*i])
-		x2 := float32(spectrum[n2-1-2*i])
+		x1 := spectrum[2*i]
+		x2 := spectrum[n2-1-2*i]
 		t0 := trig[i]
 		t1 := trig[n4+i]
 		b := 2 * i
@@ -102,10 +102,10 @@ func imdctPostRotateF32FromKissRef(buf []float32, fft []kissCpx, trig []float32,
 func TestIMDCTRotateDispatchMatchesReference(t *testing.T) {
 	n2 := 120
 	n4 := n2 / 2
-	spectrum := make([]float64, n2)
+	spectrum := make([]float32, n2)
 	trig := make([]float32, n2)
 	for i := range spectrum {
-		spectrum[i] = float64((i%17)-8) * 0.0625
+		spectrum[i] = float32((i%17)-8) * 0.0625
 	}
 	for i := range trig {
 		trig[i] = float32((i%19)-9) * 0.03125
@@ -113,7 +113,7 @@ func TestIMDCTRotateDispatchMatchesReference(t *testing.T) {
 
 	gotFFT := make([]complex64, n4)
 	wantFFT := make([]complex64, n4)
-	imdctPreRotateF32(gotFFT, spectrum, trig, n2, n4)
+	imdctPreRotateF32Spectrum(gotFFT, spectrum, trig, n2, n4)
 	imdctPreRotateF32Ref(wantFFT, spectrum, trig, n2, n4)
 	if !reflect.DeepEqual(gotFFT, wantFFT) {
 		t.Fatalf("imdctPreRotateF32 mismatch")
@@ -158,29 +158,29 @@ func TestIMDCTPostRotateF32FromKissMatchesReference(t *testing.T) {
 func BenchmarkIMDCTPreRotateCurrent(b *testing.B) {
 	n2 := 120
 	n4 := n2 / 2
-	spectrum := make([]float64, n2)
+	spectrum := make([]float32, n2)
 	trig := make([]float32, n2)
 	fftIn := make([]complex64, n4)
 	for i := range spectrum {
-		spectrum[i] = float64((i%17)-8) * 0.0625
+		spectrum[i] = float32((i%17)-8) * 0.0625
 	}
 	for i := range trig {
 		trig[i] = float32((i%19)-9) * 0.03125
 	}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		imdctPreRotateF32(fftIn, spectrum, trig, n2, n4)
+		imdctPreRotateF32Spectrum(fftIn, spectrum, trig, n2, n4)
 	}
 }
 
 func BenchmarkIMDCTPreRotateReference(b *testing.B) {
 	n2 := 120
 	n4 := n2 / 2
-	spectrum := make([]float64, n2)
+	spectrum := make([]float32, n2)
 	trig := make([]float32, n2)
 	fftIn := make([]complex64, n4)
 	for i := range spectrum {
-		spectrum[i] = float64((i%17)-8) * 0.0625
+		spectrum[i] = float32((i%17)-8) * 0.0625
 	}
 	for i := range trig {
 		trig[i] = float32((i%19)-9) * 0.03125

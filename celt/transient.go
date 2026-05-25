@@ -15,11 +15,7 @@
 
 package celt
 
-import (
-	"math"
-
-	"github.com/thesyncim/gopus/internal/opusmath"
-)
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 // TransientAnalysisResult holds the results of transient analysis.
 // This provides both the transient decision and the tf_estimate metric.
@@ -446,7 +442,7 @@ func toneDetectFloat32Mono(x []float32, sampleRate int, lane4Corr bool) (float32
 		// Toneishness is the squared radius of the poles.
 		toneishness := -lpc1
 		// Frequency from the angle of the complex pole.
-		freq := float32(math.Acos(float64(float32(0.5)*lpc0)) / float64(delay))
+		freq := opusmath.AcosF32(float32(0.5)*lpc0) / float32(delay)
 		return freq, toneishness
 	}
 

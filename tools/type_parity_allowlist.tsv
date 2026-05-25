@@ -4,25 +4,4 @@
 # Columns: path<TAB>count<TAB>sha256(normalized line)<TAB>reason<TAB>normalized sample
 # Agents: do not update this file to hide new guarded type-parity debt.
 # Migrate runtime codec/scratch storage to libopus-width types instead.
-celt/bands.go	1	d67db15029e85b0cf8087a1f03203f39ca2b3cf1e4b3df27890859395042ec91	legacy-current	bits := float64(n)*math.Log2(1.0+2.0*float64(k)/float64(n)) + float64(k)
 celt/channel_adapters.go	1	35cda5ab8e2e2dfa035214f793bf6613a07074ba33f3b66aa76c3744acfc2f44	legacy-current	// channels path, falling back to the float64-returning path otherwise.
-celt/deemphasis_f64_to_f32_arm64.go	1	65125e73f5f0f4d8caf11d2bd50634549daa766f31522afb5a2f34542f3694ee	legacy-current	func deemphasisStereoPlanarF64ToF32Core(dst []float32, left, right []float64, n int, scale, stateL, stateR, coef, verySmall float32) (float32, float32)
-celt/deemphasis_f64_to_f32_default.go	1	4a0051d9c8d45357003ae93d993f9797f5b20f633363ae9c4199f69aaf1f5348	legacy-current	func deemphasisStereoPlanarF64ToF32Core(dst []float32, left, right []float64, n int, scale, stateL, stateR, coef, verySmall float32) (float32, float32) {
-celt/dred_conceal.go	1	80a1e294ac0deaa431e8d7c9395a6b7c3485752d2dfb7f781ece129bb9ae707f	legacy-current	return int16(math.Floor(0.5 + float64(v)))
-celt/exp_rotation_coeffs.go	1	29f88ba567293921c675f7d1cc62212766376b6a1e5af89f838cc69c174389a3	legacy-current	c: float32(math.Cos(libopusHalfPi * float64(theta))),
-celt/exp_rotation_coeffs.go	1	f5eaae73bfa9cc79e2845e66fe13be3b092c71aa134103f711c29b46e7d44559	legacy-current	s: float32(math.Cos(libopusHalfPi * float64(float32(1)-theta))),
-celt/fma32_default.go	1	4615f35d8d35ce5ca7d9e3617e3e7d032cef0f300908c9f83d1ba52955a95f3d	legacy-current	return float32(math.FMA(float64(a), float64(b), float64(c)))
-celt/hybrid_encode_helpers.go	1	549db166e855560a9d665e0532816af8c310aeeee281c395ef2ddcedeaa907ce	legacy-current	lower := int(0.79 * float64(prevPrefilterPeriod))
-celt/hybrid_encode_helpers.go	1	e8bf7e6adf476a2d2ff407f127dc15ff739fb9ffeda0dcbda9e83cc8df28be55	legacy-current	upper := int(1.26 * float64(prevPrefilterPeriod))
-celt/imdct_rotate_asm.go	1	238f38e7d9cb8928bf0061ca3e70e82e3eabd3515fb39edc85dce209953cc37f	legacy-current	func imdctPreRotateF32(fftIn []complex64, spectrum []float64, trig []float32, n2, n4 int)
-celt/imdct_rotate_default.go	1	eea6897898eccd6413f68760c836230b6d868b267388cec37ad7bf1c8c517eb5	legacy-current	func imdctPreRotateF32(fftIn []complex64, spectrum []float64, trig []float32, n2, n4 int) {
-celt/mdct.go	1	37464bc1f76854056975d2d0109c23574e6ff5ff4718602909de7cf2ef072f9a	legacy-current	angle := 2.0 * math.Pi * (float64(i) + 0.125) / float64(n)
-celt/mdct.go	1	5ad4afa88ad48967c5aa3e6e291e89cc9f83be380dba89c38f47662b8e6c92e6	legacy-current	wStep := complex(float32(math.Cos(float64(angle))), float32(math.Sin(float64(angle))))
-celt/modes.go	1	8a7613cc0387a276f94acefe986ed2acac6aae477db5dbfec19e717e464b02b2	legacy-current	func DurationFromFrameSize(frameSize int) float64 {
-celt/modes.go	1	9bfa1417e15479cfb7e5edb560bd7304977dbbf6ea6ba30664275cfec93fdbee	legacy-current	func FrameSizeFromDuration(durationMs float64) (int, error) {
-celt/modes.go	1	efa2632f984ce6f3c4b73c6fd4e6f856b267830afa2ac248aa5ee8d515b8cd96	legacy-current	return float64(frameSize) / 48.0 // 48kHz sample rate
-celt/output_helpers.go	1	239a81bd9be3cd970f1da319a4e2325edc441d8bca0d1740dca7f31f1793c195	legacy-current	// and using float64 would cause precision drift relative to libopus.
-celt/pvq.go	1	8d445162a3d37594d7e5a69014788ab4503e371f0864afd27c824c5b08e89026	legacy-current	theta := float64(itheta) * (math.Pi / 2) / float64(qn)
-celt/transient.go	1	e22fad24ac4722a682b2ae14722cbe14b69ecd7dbd8e8a0fd76229dfaeafaa3c	legacy-current	freq := float32(math.Acos(float64(float32(0.5)*lpc0)) / float64(delay))
-internal/lpcnetplc/fma32_default.go	1	4615f35d8d35ce5ca7d9e3617e3e7d032cef0f300908c9f83d1ba52955a95f3d	legacy-current	return float32(math.FMA(float64(a), float64(b), float64(c)))
-internal/osce/lace/runtime.go	1	4615f35d8d35ce5ca7d9e3617e3e7d032cef0f300908c9f83d1ba52955a95f3d	legacy-current	return float32(math.FMA(float64(a), float64(b), float64(c)))

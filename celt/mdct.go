@@ -1,6 +1,10 @@
 package celt
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 // IMDCT (Inverse Modified Discrete Cosine Transform) implementation for CELT.
 // This file provides FFT-based IMDCT for efficient frequency-to-time conversion.
@@ -18,8 +22,8 @@ func buildMDCTTrigF32(n int) []float32 {
 	n2 := n / 2
 	trig := make([]float32, n2)
 	for i := 0; i < n2; i++ {
-		angle := 2.0 * math.Pi * (float64(i) + 0.125) / float64(n)
-		trig[i] = float32(math.Cos(angle))
+		angle := float32(2.0*math.Pi) * (float32(i) + 0.125) / float32(n)
+		trig[i] = opusmath.CosF32(angle)
 	}
 	return trig
 }
@@ -455,7 +459,7 @@ func dft32(x []complex64) []complex64 {
 	twoPi := float32(-2.0*math.Pi) / float32(n)
 	for k := 0; k < n; k++ {
 		angle := twoPi * float32(k)
-		wStep := complex(float32(math.Cos(float64(angle))), float32(math.Sin(float64(angle))))
+		wStep := complex(opusmath.CosF32(angle), opusmath.SinF32(angle))
 		w := complex(float32(1.0), float32(0.0))
 		var sum complex64
 		for t := 0; t < n; t++ {
