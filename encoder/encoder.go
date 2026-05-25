@@ -1406,10 +1406,10 @@ func (e *Encoder) syncCELTAnalysisToCELT() {
 	e.celtEncoder.SetAnalysisInfoWithTonality(
 		e.lastAnalysisInfo.BandwidthIndex,
 		e.lastAnalysisInfo.LeakBoost,
-		float64(e.lastAnalysisInfo.Activity),
-		float64(e.lastAnalysisInfo.Tonality),
-		float64(e.lastAnalysisInfo.TonalitySlope),
-		float64(e.lastAnalysisInfo.MaxPitchRatio),
+		e.lastAnalysisInfo.Activity,
+		e.lastAnalysisInfo.Tonality,
+		e.lastAnalysisInfo.TonalitySlope,
+		e.lastAnalysisInfo.MaxPitchRatio,
 		true,
 	)
 }

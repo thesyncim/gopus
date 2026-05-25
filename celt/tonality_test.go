@@ -693,7 +693,7 @@ func TestUpdateTonalityStoresPrevBandLogEnergyAsGLog(t *testing.T) {
 	got := enc.PrevBandLogEnergy()
 	for i := 0; i < nbBands; i++ {
 		want := float64(celtGLog(energies[i]))
-		if got[i] != want {
+		if float64(got[i]) != want {
 			t.Fatalf("PrevBandLogEnergy()[%d]=%0.9g want celt_glog %0.9g", i, got[i], want)
 		}
 	}

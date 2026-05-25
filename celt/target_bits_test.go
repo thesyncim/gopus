@@ -86,7 +86,7 @@ func TestComputeVBRTargetMatchesLibopusLowTonalityTransient(t *testing.T) {
 func TestEncoderLastTonalityUsesAnalysisFloatWidth(t *testing.T) {
 	enc := NewEncoder(1)
 	enc.SetLastTonality(1.0 / 3.0)
-	if got, want := enc.LastTonality(), float64(opusVal16(1.0/3.0)); got != want {
+	if got, want := enc.LastTonality(), opusVal16(1.0/3.0); got != want {
 		t.Fatalf("LastTonality()=%0.9g want analysis float-width %0.9g", got, want)
 	}
 

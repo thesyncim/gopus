@@ -330,13 +330,13 @@ func (e *Encoder) SetAnalysisBandwidth(bandwidth int, valid bool) {
 
 // SetAnalysisInfo provides analysis-derived state from the top-level Opus analysis
 // pipeline. This mirrors libopus use of AnalysisInfo in CELT dynalloc.
-func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, activity, tonalitySlope float64, maxPitchRatio float64, valid bool) {
+func (e *Encoder) SetAnalysisInfo(bandwidth int, leakBoost [leakBands]uint8, activity, tonalitySlope opusVal16, maxPitchRatio opusVal16, valid bool) {
 	e.SetAnalysisInfoWithTonality(bandwidth, leakBoost, activity, 0, tonalitySlope, maxPitchRatio, valid)
 }
 
 // SetAnalysisInfoWithTonality provides the full AnalysisInfo subset used by
 // libopus CELT decisions, including analysis.tonality for compute_vbr().
-func (e *Encoder) SetAnalysisInfoWithTonality(bandwidth int, leakBoost [leakBands]uint8, activity, tonality, tonalitySlope float64, maxPitchRatio float64, valid bool) {
+func (e *Encoder) SetAnalysisInfoWithTonality(bandwidth int, leakBoost [leakBands]uint8, activity, tonality, tonalitySlope opusVal16, maxPitchRatio opusVal16, valid bool) {
 	if !valid {
 		e.SetAnalysisBandwidth(0, false)
 		return
@@ -349,22 +349,22 @@ func (e *Encoder) SetAnalysisInfoWithTonality(bandwidth int, leakBoost [leakBand
 	}
 	e.analysisBandwidth = bandwidth
 	e.analysisValid = true
-	e.analysisActivity = opusVal16(activity)
+	e.analysisActivity = activity
 	e.analysisLeakBoost = leakBoost
 	if tonality < 0 {
 		tonality = 0
 	} else if tonality > 1 {
 		tonality = 1
 	}
-	e.analysisTonality = opusVal16(tonality)
-	e.analysisTonalitySlope = opusVal16(tonalitySlope)
+	e.analysisTonality = tonality
+	e.analysisTonalitySlope = tonalitySlope
 	if maxPitchRatio < 0 {
 		maxPitchRatio = 0
 	}
 	if maxPitchRatio > 1 {
 		maxPitchRatio = 1
 	}
-	e.analysisMaxPitchRatio = opusVal16(maxPitchRatio)
+	e.analysisMaxPitchRatio = maxPitchRatio
 }
 
 // AnalysisBandwidth returns the current analysis-derived bandwidth index.
@@ -672,9 +672,9 @@ func (e *Encoder) SampleRate() int {
 // PrevEnergy returns the previous frame's band energies.
 // Used for inter-frame energy prediction in coarse energy encoding.
 // Layout: [band0_ch0, band1_ch0, ..., band20_ch0, band0_ch1, ..., band20_ch1]
-func (e *Encoder) PrevEnergy() []float64 {
-	out := make([]float64, len(e.prevEnergy))
-	copyGLogToFloat64(out, e.prevEnergy)
+func (e *Encoder) PrevEnergy() []celtGLog {
+	out := make([]celtGLog, len(e.prevEnergy))
+	copy(out, e.prevEnergy)
 	return out
 }
 
@@ -690,30 +690,30 @@ func (e *Encoder) CopyPrevEnergyFloat32(dst []float32) []float32 {
 
 // PrevEnergy2 returns the band energies from two frames ago.
 // Used for anti-collapse detection.
-func (e *Encoder) PrevEnergy2() []float64 {
-	out := make([]float64, len(e.prevEnergy2))
-	copyGLogToFloat64(out, e.prevEnergy2)
+func (e *Encoder) PrevEnergy2() []celtGLog {
+	out := make([]celtGLog, len(e.prevEnergy2))
+	copy(out, e.prevEnergy2)
 	return out
 }
 
 // SetPrevEnergy shifts current prev to prev2 and sets new prev energies.
 // This should be called after encoding a frame with the actual energies used.
-func (e *Encoder) SetPrevEnergy(energies []float64) {
+func (e *Encoder) SetPrevEnergy(energies []celtGLog) {
 	// Shift: current prev becomes prev2
 	copy(e.prevEnergy2, e.prevEnergy)
 	// Copy new energies to prev
-	copyFloat64ToGLog(e.prevEnergy, energies)
+	copy(e.prevEnergy, energies)
 }
 
 // SetPrevEnergyWithPrev updates prevEnergy using the provided previous state.
 // This avoids losing the prior frame when prevEnergy is updated during encoding.
-func (e *Encoder) SetPrevEnergyWithPrev(prev, energies []float64) {
+func (e *Encoder) SetPrevEnergyWithPrev(prev, energies []celtGLog) {
 	if len(prev) == len(e.prevEnergy2) {
-		copyFloat64ToGLog(e.prevEnergy2, prev)
+		copy(e.prevEnergy2, prev)
 	} else {
 		copy(e.prevEnergy2, e.prevEnergy)
 	}
-	copyFloat64ToGLog(e.prevEnergy, energies)
+	copy(e.prevEnergy, energies)
 }
 
 func (e *Encoder) SetPrevEnergyWithPrevFloat32(prev, energies []float32) {
@@ -996,27 +996,27 @@ func (e *Encoder) LFE() bool {
 // LastTonality returns the most recently computed tonality estimate.
 // The value ranges from 0 (noise-like spectrum) to 1 (pure tone).
 // This is used by computeVBRTarget for bit allocation decisions.
-func (e *Encoder) LastTonality() float64 {
-	return float64(e.lastTonality)
+func (e *Encoder) LastTonality() opusVal16 {
+	return e.lastTonality
 }
 
 // SetLastTonality sets the tonality estimate (for testing or manual override).
 // Valid range is [0, 1] where 0 = noise and 1 = pure tone.
-func (e *Encoder) SetLastTonality(tonality float64) {
+func (e *Encoder) SetLastTonality(tonality opusVal16) {
 	if tonality < 0 {
 		tonality = 0
 	}
 	if tonality > 1 {
 		tonality = 1
 	}
-	e.lastTonality = opusVal16(tonality)
+	e.lastTonality = tonality
 }
 
 // PrevBandLogEnergy returns the previous frame's band log-energies.
 // Used for spectral flux computation in tonality analysis.
-func (e *Encoder) PrevBandLogEnergy() []float64 {
-	out := make([]float64, len(e.prevBandLogEnergy))
-	copyGLogToFloat64(out, e.prevBandLogEnergy)
+func (e *Encoder) PrevBandLogEnergy() []celtGLog {
+	out := make([]celtGLog, len(e.prevBandLogEnergy))
+	copy(out, e.prevBandLogEnergy)
 	return out
 }
 
@@ -1028,17 +1028,17 @@ func (e *Encoder) GetLastDynalloc() DynallocResult {
 
 // GetLastBandLogE returns the last frame's primary band log-energies.
 // These are the bandLogE values passed to DynallocAnalysis.
-func (e *Encoder) GetLastBandLogE() []float64 {
-	out := make([]float64, len(e.lastBandLogE))
-	copyGLogToFloat64(out, e.lastBandLogE)
+func (e *Encoder) GetLastBandLogE() []celtGLog {
+	out := make([]celtGLog, len(e.lastBandLogE))
+	copy(out, e.lastBandLogE)
 	return out
 }
 
 // GetLastBandLogE2 returns the last frame's secondary band log-energies.
 // For transients, this is from the long MDCT; otherwise same as bandLogE.
-func (e *Encoder) GetLastBandLogE2() []float64 {
-	out := make([]float64, len(e.lastBandLogE2))
-	copyGLogToFloat64(out, e.lastBandLogE2)
+func (e *Encoder) GetLastBandLogE2() []celtGLog {
+	out := make([]celtGLog, len(e.lastBandLogE2))
+	copy(out, e.lastBandLogE2)
 	return out
 }
 
