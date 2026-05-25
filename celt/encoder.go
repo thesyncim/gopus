@@ -1089,7 +1089,7 @@ type encoderScratch struct {
 
 	// Band energy buffers
 	energies  []float64
-	bandLogE2 []float64
+	bandLogE2 []celtGLog
 	bandE     []float64
 	bandEL    []float64
 	bandER    []float64
@@ -1105,7 +1105,7 @@ type encoderScratch struct {
 	quantizedEnergies []float64
 	coarseError       []celtGLog
 	coarseDecisionE   []float64
-	analysisEnergies  []float64
+	analysisEnergies  []celtGLog
 	prev1LogE         []celtGLog
 
 	// Normalized coefficient buffers
@@ -1147,11 +1147,6 @@ type encoderScratch struct {
 
 	// CWRS encoding scratch
 	cwrsU []uint32
-
-	// Dynalloc analysis scratch
-	dynallocFollower   []float64
-	dynallocNoise      []float64
-	dynallocImportance []int
 
 	// ComputeAllocation scratch
 	allocBits         []int
@@ -1259,7 +1254,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	// Band energies
 	bandCount := MaxBands * channels
 	s.energies = ensureFloat64Slice(&s.energies, bandCount)
-	s.bandLogE2 = ensureFloat64Slice(&s.bandLogE2, bandCount)
+	s.bandLogE2 = ensureGLogSlice(&s.bandLogE2, bandCount)
 	s.bandE = ensureFloat64Slice(&s.bandE, bandCount)
 	s.coarseError = ensureGLogSlice(&s.coarseError, bandCount)
 	s.bandEL = ensureFloat64Slice(&s.bandEL, MaxBands)
@@ -1329,11 +1324,6 @@ func (e *Encoder) ensureScratch(frameSize int) {
 
 	// CWRS encoding scratch (k can be up to ~128 for typical encoding)
 	s.cwrsU = ensureUint32Slice(&s.cwrsU, 256)
-
-	// Dynalloc analysis scratch
-	s.dynallocFollower = ensureFloat64Slice(&s.dynallocFollower, MaxBands)
-	s.dynallocNoise = ensureFloat64Slice(&s.dynallocNoise, MaxBands)
-	s.dynallocImportance = ensureIntSlice(&s.dynallocImportance, MaxBands)
 
 	// ComputeAllocation scratch
 	s.allocBits = ensureIntSlice(&s.allocBits, MaxBands)

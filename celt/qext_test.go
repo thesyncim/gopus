@@ -395,7 +395,7 @@ func TestComputeQEXTExtraAllocationEncodeZeroBudget(t *testing.T) {
 
 	extraPulses := make([]int, MaxBands+nbQEXTBands)
 	extraQuant := make([]int, MaxBands+nbQEXTBands)
-	computeQEXTExtraAllocationEncode(0, MaxBands, 2, 0, 2, 0, make([]float64, MaxBands*2), make([]float64, nbQEXTBands*2), &cfg, 0, 0, nil, extraPulses, extraQuant)
+	computeQEXTExtraAllocationEncode(0, MaxBands, 2, 0, 2, 0, make([]celtGLog, MaxBands*2), make([]float64, nbQEXTBands*2), &cfg, 0, 0, nil, extraPulses, extraQuant)
 
 	for i := range extraPulses {
 		if extraPulses[i] != 0 || extraQuant[i] != 0 {
@@ -410,10 +410,10 @@ func TestComputeQEXTExtraAllocationEncodeFixture(t *testing.T) {
 		t.Fatal("computeQEXTModeConfig(48000,120)=false want true")
 	}
 
-	mainLogE := make([]float64, MaxBands*2)
+	mainLogE := make([]celtGLog, MaxBands*2)
 	for i := 0; i < MaxBands; i++ {
-		mainLogE[i] = 0.25 + 0.05*float64(i)
-		mainLogE[MaxBands+i] = 0.15 + 0.04*float64(i)
+		mainLogE[i] = celtGLog(0.25 + 0.05*float32(i))
+		mainLogE[MaxBands+i] = celtGLog(0.15 + 0.04*float32(i))
 	}
 	qextLogE := make([]float64, nbQEXTBands*2)
 	for i := 0; i < nbQEXTBands; i++ {
@@ -458,11 +458,11 @@ func TestComputeQEXTExtraAllocationDecodeRoundTrip(t *testing.T) {
 	for _, channels := range []int{1, 2} {
 		channels := channels
 		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
-			mainLogE := make([]float64, MaxBands*channels)
+			mainLogE := make([]celtGLog, MaxBands*channels)
 			for i := 0; i < MaxBands; i++ {
-				mainLogE[i] = 0.25 + 0.05*float64(i)
+				mainLogE[i] = celtGLog(0.25 + 0.05*float32(i))
 				if channels == 2 {
-					mainLogE[MaxBands+i] = 0.15 + 0.04*float64(i)
+					mainLogE[MaxBands+i] = celtGLog(0.15 + 0.04*float32(i))
 				}
 			}
 
@@ -506,11 +506,11 @@ func TestComputeQEXTExtraAllocationDecodeWithModeRoundTrip(t *testing.T) {
 	for _, channels := range []int{1, 2} {
 		channels := channels
 		t.Run(fmt.Sprintf("%dch", channels), func(t *testing.T) {
-			mainLogE := make([]float64, MaxBands*channels)
+			mainLogE := make([]celtGLog, MaxBands*channels)
 			for i := 0; i < MaxBands; i++ {
-				mainLogE[i] = 0.25 + 0.05*float64(i)
+				mainLogE[i] = celtGLog(0.25 + 0.05*float32(i))
 				if channels == 2 {
-					mainLogE[MaxBands+i] = 0.15 + 0.04*float64(i)
+					mainLogE[MaxBands+i] = celtGLog(0.15 + 0.04*float32(i))
 				}
 			}
 			qextLogE := make([]float64, nbQEXTBands*channels)

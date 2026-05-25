@@ -479,7 +479,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// For transients at high complexity, compute long MDCT energies (bandLogE2).
 	secondMdct := shortBlocks > 1 && e.complexity >= 8
-	var bandLogE2 []float64
+	var bandLogE2 []celtGLog
 	if secondMdct {
 		if e.channels == 1 {
 			overlap := Overlap
@@ -496,9 +496,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			copy(hist, mdctPrevL[:overlap])
 			mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
-			bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*codedChannels)
-			computeBandEnergiesInto(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
-			roundFloat64ToFloat32(bandLogE2)
+			bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
+			computeBandEnergiesGLogInto(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
 		} else {
 			left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 			overlap := Overlap
@@ -536,17 +535,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
 			}
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
-			bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*codedChannels)
-			computeBandEnergiesInto(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
-			roundFloat64ToFloat32(bandLogE2)
+			bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
+			computeBandEnergiesGLogInto(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
 		}
 		if bandLogE2 != nil {
-			offset := 0.5 * float64(lm)
+			offset := celtGLog(0.5 * float32(lm))
 			for i := range bandLogE2 {
 				bandLogE2[i] += offset
 			}
-			// Match libopus float path precision after offset addition.
-			roundFloat64ToFloat32(bandLogE2)
 		}
 	}
 
@@ -601,8 +597,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 	roundFloat64ToFloat32(energies)
 	if !secondMdct {
-		bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, len(energies))
-		copy(bandLogE2, energies)
+		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, len(energies))
+		copyFloat64ToGLog(bandLogE2, energies)
 	}
 
 	// Step 6.5: Patch transient decision based on band energy comparison
@@ -681,12 +677,10 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			roundFloat64ToFloat32(energies)
 			// Compensate for scaling of short vs long MDCTs (libopus adds 0.5*LM to bandLogE2)
 			if bandLogE2 != nil {
-				offset := 0.5 * float64(lm)
+				offset := celtGLog(0.5 * float32(lm))
 				for i := range bandLogE2 {
 					bandLogE2[i] += offset
 				}
-				// Match libopus float path precision after offset addition.
-				roundFloat64ToFloat32(bandLogE2)
 			}
 		}
 	}
@@ -695,7 +689,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// These are the values passed to DynallocAnalysis.
 	e.lastBandLogE = appendFloat64AsGLog(e.lastBandLogE[:0], energies)
 	if bandLogE2 != nil {
-		e.lastBandLogE2 = appendFloat64AsGLog(e.lastBandLogE2[:0], bandLogE2)
+		e.lastBandLogE2 = append(e.lastBandLogE2[:0], bandLogE2...)
 	} else {
 		e.lastBandLogE2 = e.lastBandLogE2[:0]
 	}
@@ -727,8 +721,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	copy(prev1LogE, e.prevEnergy)
 
 	// dynalloc/spread analysis in libopus uses pre-stabilization energies.
-	analysisEnergies := ensureFloat64Slice(&e.scratch.analysisEnergies, len(energies))
-	copy(analysisEnergies, energies)
+	analysisEnergies := ensureGLogSlice(&e.scratch.analysisEnergies, len(energies))
+	copyFloat64ToGLog(analysisEnergies, energies)
 	// Step 11: Encode coarse energy
 	// Match libopus pre-coarse stabilization:
 	// if abs(bandLogE-oldBandE) < 2, bias current energy toward previous quant error.
@@ -797,25 +791,25 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	// Stores the result for next frame's VBR target (one-frame lag is negligible
 	// due to the slow IIR coefficient of 0.02).
 	if !e.lfe {
-		follow := -10.0
-		frameAvg := 0.0
-		offset := 0.0
+		follow := float32(-10.0)
+		frameAvg := float32(0.0)
+		offset := float32(0.0)
 		if shortBlocks != 0 {
-			offset = float64(lm) * 0.5
+			offset = float32(lm) * 0.5
 		}
 		bandEnd := end
 		if bandEnd > nbBands {
 			bandEnd = nbBands
 		}
 		for i := start; i < bandEnd; i++ {
-			v := analysisEnergies[i] - offset
+			v := float32(analysisEnergies[i]) - offset
 			if follow-1.0 > v {
 				follow = follow - 1.0
 			} else {
 				follow = v
 			}
 			if codedChannels == 2 && nbBands+i < len(analysisEnergies) {
-				v2 := analysisEnergies[nbBands+i] - offset
+				v2 := float32(analysisEnergies[nbBands+i]) - offset
 				if v2 > follow {
 					follow = v2
 				}
@@ -823,16 +817,16 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			frameAvg += follow
 		}
 		if bandEnd > start {
-			frameAvg /= float64(bandEnd - start)
+			frameAvg /= float32(bandEnd - start)
 		}
-		temporalVBR := frameAvg - float64(e.specAvg)
+		temporalVBR := frameAvg - float32(e.specAvg)
 		if temporalVBR > 3.0 {
 			temporalVBR = 3.0
 		}
 		if temporalVBR < -1.5 {
 			temporalVBR = -1.5
 		}
-		e.specAvg = celtGLog(float32(e.specAvg) + float32(0.02)*float32(temporalVBR))
+		e.specAvg = celtGLog(float32(e.specAvg) + float32(0.02)*temporalVBR)
 		e.lastTemporalVBR = celtGLog(temporalVBR)
 	}
 
@@ -2562,7 +2556,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 //   - energies: band energies (log-domain) for spectral flux computation
 //   - nbBands: number of frequency bands
 //   - frameSize: frame size in samples (unused but kept for API consistency)
-func (e *Encoder) updateTonalityAnalysis(normCoeffs, energies []float64, nbBands, frameSize int) {
+func (e *Encoder) updateTonalityAnalysis(normCoeffs []float64, energies []celtGLog, nbBands, frameSize int) {
 	// Compute tonality using Spectral Flatness Measure (zero-alloc version)
 	tonalityResult := computeTonalityWithBandsScratch(normCoeffs, nbBands, frameSize, &e.tonalityScratch)
 
@@ -2571,7 +2565,7 @@ func (e *Encoder) updateTonalityAnalysis(normCoeffs, energies []float64, nbBands
 
 	// Update previous band log-energies for next frame's flux computation
 	for i := 0; i < nbBands && i < len(energies) && i < len(e.prevBandLogEnergy); i++ {
-		e.prevBandLogEnergy[i] = celtGLog(energies[i])
+		e.prevBandLogEnergy[i] = energies[i]
 	}
 
 	// Apply smoothing to tonality estimate

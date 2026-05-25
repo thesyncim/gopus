@@ -154,8 +154,8 @@ func runGoDynallocCase(tc libopusCELTDynallocCase, scratch *DynallocScratch) Dyn
 	for i := range logN {
 		logN[i] = int16(LogN[i])
 	}
-	bandLogE := float32sToFloat64s(tc.bandLogE)
-	bandLogE2 := float32sToFloat64s(tc.bandLogE2)
+	bandLogE := float32sToGLogs(tc.bandLogE)
+	bandLogE2 := float32sToGLogs(tc.bandLogE2)
 	oldBandE := tc.oldBandE
 	surround := tc.surroundDynalloc[:]
 	leak := tc.analysisLeakBoost[:]

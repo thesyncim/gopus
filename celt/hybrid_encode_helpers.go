@@ -378,7 +378,7 @@ func (e *Encoder) ApplyHybridPrefilter(preemph []float64, frameSize int, tfEstim
 
 // TransientAnalysisHybrid performs transient analysis and updates preemph overlap state.
 // Returns transient flags, tf/tone metrics, shortBlocks choice, and optional bandLogE2.
-func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float64, shortBlocks int, bandLogE2 []float64) {
+func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float64, shortBlocks int, bandLogE2 []celtGLog) {
 	overlap := Overlap
 	if overlap > frameSize {
 		overlap = frameSize
@@ -443,9 +443,8 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 		hist = hist[:overlap]
 		copySigToFloat64(hist, e.overlapBuffer[:overlap])
 		mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
-		bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*e.channels)
-		e.ComputeBandEnergiesInto(mdctLong, nbBands, frameSize, bandLogE2)
-		roundFloat64ToFloat32(bandLogE2)
+		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*e.channels)
+		computeBandEnergiesGLogInto(mdctLong, nbBands, frameSize, e.channels, bandLogE2)
 	} else {
 		left, right := deinterleaveStereoScratch(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 		if len(e.overlapBuffer) < 2*overlap {
@@ -480,24 +479,22 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands,
 		mdctLong = mdctLong[:mdctLongLen]
 		copy(mdctLong, mdctLeftLong)
 		copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
-		bandLogE2 = ensureFloat64Slice(&e.scratch.bandLogE2, nbBands*e.channels)
-		e.ComputeBandEnergiesInto(mdctLong, nbBands, frameSize, bandLogE2)
-		roundFloat64ToFloat32(bandLogE2)
+		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*e.channels)
+		computeBandEnergiesGLogInto(mdctLong, nbBands, frameSize, e.channels, bandLogE2)
 	}
 
 	if bandLogE2 != nil {
-		offset := 0.5 * float64(lm)
+		offset := celtGLog(0.5 * float32(lm))
 		for i := range bandLogE2 {
 			bandLogE2[i] += offset
 		}
-		roundFloat64ToFloat32(bandLogE2)
 	}
 
 	return transient, weakTransient, tfEstimate, toneFreq, toneishness, shortBlocks, bandLogE2
 }
 
 // DynallocAnalysisHybridScratch runs dynalloc analysis using encoder scratch buffers.
-func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2 []float64, oldBandE []float32, nbBands, start, end, lsbDepth, lm int, effectiveBytes int, isTransient, vbr, constrainedVBR bool, toneFreq, toneishness float64) DynallocResult {
+func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2 []celtGLog, oldBandE []celtGLog, nbBands, start, end, lsbDepth, lm int, effectiveBytes int, isTransient, vbr, constrainedVBR bool, toneFreq, toneishness float64) DynallocResult {
 	if nbBands < 0 {
 		nbBands = 0
 	}
@@ -554,7 +551,7 @@ func (e *Encoder) TFAnalysisHybridScratch(norm []float64, nbBands int, transient
 }
 
 // UpdateTonalityAnalysisHybrid updates tonality metrics for VBR decisions.
-func (e *Encoder) UpdateTonalityAnalysisHybrid(normCoeffs, energies []float64, nbBands, frameSize int) {
+func (e *Encoder) UpdateTonalityAnalysisHybrid(normCoeffs []float64, energies []celtGLog, nbBands, frameSize int) {
 	if !e.vbr {
 		return
 	}

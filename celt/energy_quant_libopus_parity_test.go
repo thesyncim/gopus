@@ -317,6 +317,14 @@ func float32sToGLogs(in []float32) []celtGLog {
 	return out
 }
 
+func float64sToGLogs(in []float64) []celtGLog {
+	out := make([]celtGLog, len(in))
+	for i, v := range in {
+		out[i] = celtGLog(v)
+	}
+	return out
+}
+
 func celtEnergyQuantFineCase(name string, channels, start, end, storage int) libopusCELTEnergyQuantCase {
 	tc := celtEnergyQuantBaseCase(name, libopusCELTEnergyQuantFine, channels, start, end, storage)
 	for i := 0; i < MaxBands; i++ {

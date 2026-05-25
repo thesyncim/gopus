@@ -279,7 +279,7 @@ func computeSpectralFlux(currentEnergies, previousEnergies []float64, nbBands in
 	return normalizedFlux
 }
 
-func computeSpectralFluxGLog(currentEnergies []float64, previousEnergies []celtGLog, nbBands int) float64 {
+func computeSpectralFluxGLog(currentEnergies []celtGLog, previousEnergies []celtGLog, nbBands int) float64 {
 	if len(currentEnergies) == 0 || len(previousEnergies) == 0 || nbBands <= 0 {
 		return 0.0
 	}
@@ -291,7 +291,7 @@ func computeSpectralFluxGLog(currentEnergies []float64, previousEnergies []celtG
 			break
 		}
 		const epsilon = 1e-10
-		currentLog := safeLog(currentEnergies[i] + epsilon)
+		currentLog := safeLog(float64(currentEnergies[i]) + epsilon)
 		prevLog := safeLog(float64(previousEnergies[i]) + epsilon)
 		diff := currentLog - prevLog
 		flux += diff * diff

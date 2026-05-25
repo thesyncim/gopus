@@ -90,8 +90,8 @@ type HybridState struct {
 	scratchLaOutRight    []float32 // resampled right lookahead
 
 	// Energy tracking scratch buffers.
-	scratchBandLogE2  []float64 // bandLogE2 for transient analysis
-	scratchAnalysisE  []float64 // pre-stabilization energies for dynalloc/analysis
+	scratchBandLogE2  []float32 // bandLogE2 for transient analysis
+	scratchAnalysisE  []float32 // pre-stabilization energies for dynalloc/analysis
 	scratchPrevEnergy []float32 // copy of CELT oldBandE/prev energy
 	scratchNextEnergy []float32 // next CELT oldBandE state update
 
@@ -1562,10 +1562,12 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 	e.celtEncoder.RoundFloat64ToFloat32(energies)
 	if bandLogE2 == nil {
 		if cap(e.hybridState.scratchBandLogE2) < len(energies) {
-			e.hybridState.scratchBandLogE2 = make([]float64, len(energies))
+			e.hybridState.scratchBandLogE2 = make([]float32, len(energies))
 		}
 		bandLogE2 = e.hybridState.scratchBandLogE2[:len(energies)]
-		copy(bandLogE2, energies)
+		for i := range energies {
+			bandLogE2[i] = float32(energies[i])
+		}
 	}
 
 	// Keep natural MDCT-derived band energies for bands 0-16.
@@ -1622,10 +1624,12 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 
 	// dynalloc_analysis in libopus uses pre-stabilization energies.
 	if cap(e.hybridState.scratchAnalysisE) < len(energies) {
-		e.hybridState.scratchAnalysisE = make([]float64, len(energies))
+		e.hybridState.scratchAnalysisE = make([]float32, len(energies))
 	}
 	analysisEnergies := e.hybridState.scratchAnalysisE[:len(energies)]
-	copy(analysisEnergies, energies)
+	for i := range energies {
+		analysisEnergies[i] = float32(energies[i])
+	}
 
 	oldBandE := prevEnergy
 	if maxLen := nbBands * e.channels; maxLen > 0 && len(oldBandE) > maxLen {

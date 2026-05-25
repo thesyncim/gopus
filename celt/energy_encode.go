@@ -129,6 +129,75 @@ func computeBandEnergiesInto(mdctCoeffs []float64, nbBands, frameSize, channels 
 
 }
 
+func computeBandEnergiesGLogInto(mdctCoeffs []float64, nbBands, frameSize, channels int, dst []celtGLog) {
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	if channels < 1 {
+		channels = 1
+	}
+	if channels > 2 {
+		channels = 2
+	}
+
+	coeffsPerChannel := frameSize
+	if len(mdctCoeffs) < coeffsPerChannel*channels {
+		if len(mdctCoeffs) < coeffsPerChannel {
+			channels = 1
+			coeffsPerChannel = len(mdctCoeffs)
+		} else {
+			channels = 1
+		}
+	}
+	if len(dst) < nbBands*channels {
+		return
+	}
+
+	silence := float32(0.5) * celtLog2(float32(1e-27))
+	for c := 0; c < channels; c++ {
+		channelStart := c * coeffsPerChannel
+		channelEnd := channelStart + coeffsPerChannel
+		if channelEnd > len(mdctCoeffs) {
+			channelEnd = len(mdctCoeffs)
+		}
+		channelCoeffs := mdctCoeffs[channelStart:channelEnd]
+
+		for band := 0; band < nbBands; band++ {
+			start := ScaledBandStart(band, frameSize)
+			end := ScaledBandEnd(band, frameSize)
+
+			if start >= len(channelCoeffs) {
+				energy := silence
+				if band < len(eMeans) {
+					energy -= float32(eMeans[band] * DB6)
+				}
+				dst[c*nbBands+band] = celtGLog(energy)
+				continue
+			}
+			if end > len(channelCoeffs) {
+				end = len(channelCoeffs)
+			}
+			if end <= start {
+				energy := silence
+				if band < len(eMeans) {
+					energy -= float32(eMeans[band] * DB6)
+				}
+				dst[c*nbBands+band] = celtGLog(energy)
+				continue
+			}
+
+			energy := float32(computeBandRMS(channelCoeffs, start, end))
+			if band < len(eMeans) {
+				energy -= float32(eMeans[band] * DB6)
+			}
+			dst[c*nbBands+band] = celtGLog(energy)
+		}
+	}
+}
+
 func computeBandEnergiesFloat32Into(mdctCoeffs []float32, nbBands, frameSize, channels int, dst []float32) {
 	if nbBands > MaxBands {
 		nbBands = MaxBands

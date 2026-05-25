@@ -3,8 +3,6 @@
 
 package celt
 
-import "math"
-
 // SpreadingDecision analyzes the normalized MDCT coefficients to decide the
 // optimal spread parameter for PVQ quantization.
 //
@@ -215,7 +213,7 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []float64, nbBands, channel
 // Returns: weights per band (higher = more perceptually important)
 //
 // Reference: libopus celt/celt_encoder.c dynalloc_analysis()
-func computeSpreadWeights(bandLogE []float64, nbBands, channels, lsbDepth int) []int {
+func computeSpreadWeights(bandLogE []celtGLog, nbBands, channels, lsbDepth int) []int {
 	weights := make([]int, nbBands)
 
 	// Ensure we have enough band energies
@@ -229,27 +227,27 @@ func computeSpreadWeights(bandLogE []float64, nbBands, channels, lsbDepth int) [
 
 	// Compute noise floor per band
 	// libopus: noise_floor[i] = 0.0625*logN[i] + 0.5 + (9-lsb_depth) - eMeans[i] + 0.0062*(i+5)^2
-	noiseFloor := make([]float64, nbBands)
+	noiseFloor := make([]float32, nbBands)
 	for i := 0; i < nbBands; i++ {
-		logNVal := 0.0
+		logNVal := float32(0.0)
 		if i < len(LogN) {
-			logNVal = float64(LogN[i])
+			logNVal = float32(LogN[i])
 		}
-		eMean := 0.0
+		eMean := float32(0.0)
 		if i < len(eMeans) {
-			eMean = eMeans[i]
+			eMean = float32(eMeans[i])
 		}
 		// noise_floor = 0.0625*logN + 0.5 + (9-lsb_depth) - eMeans + 0.0062*(i+5)^2
-		noiseFloor[i] = 0.0625*logNVal + 0.5 + float64(9-lsbDepth) - eMean + 0.0062*float64((i+5)*(i+5))
+		noiseFloor[i] = 0.0625*logNVal + 0.5 + float32(9-lsbDepth) - eMean + 0.0062*float32((i+5)*(i+5))
 	}
 
 	// Compute maxDepth (maximum signal relative to noise floor across all bands/channels)
-	maxDepth := -31.9
+	maxDepth := float32(-31.9)
 	for c := 0; c < channels; c++ {
 		for i := 0; i < nbBands; i++ {
 			idx := c*nbBands + i
 			if idx < len(bandLogE) {
-				depth := bandLogE[idx] - noiseFloor[i]
+				depth := float32(bandLogE[idx]) - noiseFloor[i]
 				if depth > maxDepth {
 					maxDepth = depth
 				}
@@ -258,14 +256,14 @@ func computeSpreadWeights(bandLogE []float64, nbBands, channels, lsbDepth int) [
 	}
 
 	// Compute signal mask (max across channels) relative to noise floor
-	mask := make([]float64, nbBands)
-	sig := make([]float64, nbBands)
+	mask := make([]float32, nbBands)
+	sig := make([]float32, nbBands)
 	for i := 0; i < nbBands; i++ {
-		mask[i] = bandLogE[i] - noiseFloor[i]
+		mask[i] = float32(bandLogE[i]) - noiseFloor[i]
 	}
 	if channels == 2 && len(bandLogE) >= 2*nbBands {
 		for i := 0; i < nbBands; i++ {
-			ch2Val := bandLogE[nbBands+i] - noiseFloor[i]
+			ch2Val := float32(bandLogE[nbBands+i]) - noiseFloor[i]
 			if ch2Val > mask[i] {
 				mask[i] = ch2Val
 			}
@@ -306,9 +304,9 @@ func computeSpreadWeights(bandLogE []float64, nbBands, channels, lsbDepth int) [
 		smr := sig[i] - maskThresh
 
 		// Convert SMR to shift: shift = clamp(-round(smr), 0, 5)
-		shift := int(math.Floor(0.5 - smr))
-		if shift < 0 {
-			shift = 0
+		shift := 0
+		if rawShift := float32(0.5) - smr; rawShift > 0 {
+			shift = int(rawShift)
 		}
 		if shift > 5 {
 			shift = 5
@@ -329,7 +327,7 @@ func computeSpreadWeights(bandLogE []float64, nbBands, channels, lsbDepth int) [
 //   - nbBands: number of bands
 //
 // Returns: weights per band (higher = more important)
-func computeSpreadWeightsSimple(bandLogE []float64, nbBands int) []int {
+func computeSpreadWeightsSimple(bandLogE []celtGLog, nbBands int) []int {
 	return computeSpreadWeights(bandLogE, nbBands, 1, 16)
 }
 

@@ -689,7 +689,7 @@ func TestUpdateTonalityStoresPrevBandLogEnergyAsGLog(t *testing.T) {
 		energies[i] = float64(i+1) + 1.0/3.0
 	}
 
-	enc.updateTonalityAnalysis(norm, energies, nbBands, frameSize)
+	enc.updateTonalityAnalysis(norm, float64sToGLogs(energies), nbBands, frameSize)
 	got := enc.PrevBandLogEnergy()
 	for i := 0; i < nbBands; i++ {
 		want := float64(celtGLog(energies[i]))

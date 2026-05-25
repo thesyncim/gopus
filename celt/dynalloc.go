@@ -7,11 +7,11 @@ import (
 	"math"
 )
 
-// EMeans contains the mean log-energy per band in float64 format.
+// EMeans contains the mean log-energy per band in libopus float-build width.
 // These values are in log2 units (1.0 = 6 dB) and represent typical
 // energy distribution across frequency bands.
 // Source: libopus celt/quant_bands.c (float eMeans table, lines 56-62)
-var EMeans = [25]float64{
+var EMeans = [25]celtGLog{
 	6.437500, 6.250000, 5.750000, 5.312500, 5.062500,
 	4.812500, 4.500000, 4.375000, 4.875000, 4.687500,
 	4.562500, 4.437500, 4.875000, 4.625000, 4.312500,
@@ -261,7 +261,7 @@ func computeNoiseFloor32(i, lsbDepth int, logN int16) float32 {
 //
 // Reference: libopus celt/celt_encoder.c lines 1049-1273
 func DynallocAnalysis(
-	bandLogE, bandLogE2 []float64,
+	bandLogE, bandLogE2 []celtGLog,
 	oldBandE []celtGLog,
 	nbBands, start, end, channels, lsbDepth, lm int,
 	logN []int16,
@@ -280,23 +280,14 @@ func DynallocAnalysis(
 		TotBoost:     0,
 	}
 
-	bandLogE32 := make([]float32, len(bandLogE))
-	for i, v := range bandLogE {
-		bandLogE32[i] = float32(v)
-	}
-	var bandLogE2_32 []float32
+	bandLogE32 := bandLogE
+	var bandLogE2_32 []celtGLog
 	if bandLogE2 != nil {
-		bandLogE2_32 = make([]float32, len(bandLogE2))
-		for i, v := range bandLogE2 {
-			bandLogE2_32[i] = float32(v)
-		}
+		bandLogE2_32 = bandLogE2
 	}
-	var oldBandE32 []float32
+	var oldBandE32 []celtGLog
 	if oldBandE != nil {
-		oldBandE32 = make([]float32, len(oldBandE))
-		for i, v := range oldBandE {
-			oldBandE32[i] = float32(v)
-		}
+		oldBandE32 = oldBandE
 	}
 
 	// Compute noise floor per band
@@ -697,7 +688,7 @@ func DynallocAnalysis(
 //   - effectiveBytes: total available bytes
 //
 // Returns: DynallocResult with maxDepth suitable for VBR floor_depth calculation
-func DynallocAnalysisSimple(bandLogE []float64, nbBands, lm, effectiveBytes int) DynallocResult {
+func DynallocAnalysisSimple(bandLogE []celtGLog, nbBands, lm, effectiveBytes int) DynallocResult {
 	// Use bandLogE as both primary and secondary energies (no separate transient MDCT)
 	// Use default 16-bit depth and mono
 	logN := make([]int16, nbBands)
@@ -733,11 +724,8 @@ type DynallocScratch struct {
 	SpreadWeight []int
 	Importance   []int
 
-	// Conversion buffers (float32 for precision matching libopus)
-	BandLogE32   []float32
-	BandLogE2_32 []float32
-	OldBandE32   []float32
-	NoiseFloor   []float32
+	// Libopus-width scratch buffers.
+	NoiseFloor []float32
 
 	// Masking model buffers
 	Mask      []float32
@@ -766,21 +754,6 @@ func (s *DynallocScratch) EnsureDynallocScratch(nbBands, channels int) {
 		s.Importance = make([]int, nbBands)
 	} else {
 		s.Importance = s.Importance[:nbBands]
-	}
-	if cap(s.BandLogE32) < maxSize {
-		s.BandLogE32 = make([]float32, maxSize)
-	} else {
-		s.BandLogE32 = s.BandLogE32[:maxSize]
-	}
-	if cap(s.BandLogE2_32) < maxSize {
-		s.BandLogE2_32 = make([]float32, maxSize)
-	} else {
-		s.BandLogE2_32 = s.BandLogE2_32[:maxSize]
-	}
-	if cap(s.OldBandE32) < maxSize {
-		s.OldBandE32 = make([]float32, maxSize)
-	} else {
-		s.OldBandE32 = s.OldBandE32[:maxSize]
 	}
 	if cap(s.NoiseFloor) < nbBands {
 		s.NoiseFloor = make([]float32, nbBands)
@@ -826,7 +799,7 @@ func (s *DynallocScratch) EnsureDynallocScratch(nbBands, channels int) {
 
 // DynallocAnalysisWithScratch is the zero-allocation version of DynallocAnalysis.
 func DynallocAnalysisWithScratch(
-	bandLogE, bandLogE2 []float64,
+	bandLogE, bandLogE2 []celtGLog,
 	oldBandE []celtGLog,
 	nbBands, start, end, channels, lsbDepth, lm int,
 	logN []int16,
@@ -892,32 +865,20 @@ func DynallocAnalysisWithScratch(
 		result.Importance[i] = 0
 	}
 
-	// Convert to float32 using scratch buffers
-	bandLogE32 := scratch.BandLogE32[:len(bandLogE)]
-	for i, v := range bandLogE {
-		bandLogE32[i] = float32(v)
-	}
-
-	var bandLogE2_32 []float32
+	bandLogE32 := bandLogE
+	var bandLogE2_32 []celtGLog
 	if bandLogE2 != nil {
-		bandLogE2_32 = scratch.BandLogE2_32[:len(bandLogE2)]
-		for i, v := range bandLogE2 {
-			bandLogE2_32[i] = float32(v)
-		}
+		bandLogE2_32 = bandLogE2
 	}
 
-	var oldBandE32 []float32
+	var oldBandE32 []celtGLog
 	if oldBandE != nil {
 		oldLen := len(oldBandE)
 		maxOldLen := nbBands * channels
 		if oldLen > maxOldLen {
 			oldLen = maxOldLen
 		}
-		oldBandE32 = scratch.OldBandE32[:oldLen]
-		for i := 0; i < oldLen; i++ {
-			v := oldBandE[i]
-			oldBandE32[i] = float32(v)
-		}
+		oldBandE32 = oldBandE[:oldLen]
 	}
 
 	// Compute noise floor per band
