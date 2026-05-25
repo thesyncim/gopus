@@ -574,7 +574,6 @@ celt/encoder.go	1	4ccad80e03a47ea6551a66bc4ac3012001b7ca0a777b8ad5565089e6983d05
 celt/encoder.go	1	4dcbd0eed002c2c2c5b95c355774678eb4183bec085d2ee908d7bbc2c212380a	legacy-current	rightHist []float64
 celt/encoder.go	1	500063715242a4f8785b6be1e29d49dde35693bd3a1141a42e6f981fb2474677	legacy-current	s.energies = ensureFloat64Slice(&s.energies, bandCount)
 celt/encoder.go	1	503810b12b0c4c647b4d3d16abd41285e8a1cdafeca681738e99a9738fe8a834	legacy-current	out := make([]float64, len(e.lastBandLogE2))
-celt/encoder.go	1	505e7ef9373fd957c13d7548d60e627f9f5674d99ffddd60d7abdfb70a9d68a2	legacy-current	mdctBlockCoeffs []float64 // Per-block coefficients for short MDCT
 celt/encoder.go	1	5302d43c211ba8dea72484efbccbc1164388ece066d308ef7990ae98efeac555	legacy-current	s.prev1LogE = ensureFloat64Slice(&s.prev1LogE, bandCount)
 celt/encoder.go	1	54a4dbeb9f9a05d8ca3e533e24af6e4e426d74c27c0a70c63a96a28788ddf59d	legacy-current	func (e *Encoder) PrevBandLogEnergy() []float64 {
 celt/encoder.go	1	5c18aa5cb34441d10d7923475a86ceced808527ad8904dcc762138f94b9285ba	legacy-current	func (e *Encoder) GetLastBandLogE() []float64 {
@@ -637,7 +636,6 @@ celt/encoder.go	1	d5ea9e6ad18ece66bdbf76d0afea21ac3bcb4fa77358e38a9bc17501d8d66f
 celt/encoder.go	1	e3cea8636ee21819702bfcaebf438a990ec46558e7b7df53f4439456f4bfe0ce	legacy-current	func (e *Encoder) GetEnergy(band, channel int) float64 {
 celt/encoder.go	1	e4f6da10b9573f8b4a4d7b1a9a8f13b595090bed2ef52ab242a526414ba57907	legacy-current	s.bandEncode.xResult0 = ensureFloat64Slice(&s.bandEncode.xResult0, maxBandWidth)
 celt/encoder.go	1	ea9c16fe59192f9ec489b0b3010abda278811ae4f33c2bb3fef4e9f2599de83d	legacy-current	s.quantizedEnergies = ensureFloat64Slice(&s.quantizedEnergies, bandCount)
-celt/encoder.go	1	ec5d9e327b37df6cdcf1d57d8e4e935a907c3b8b98f5018e4a195aae45f66ae3	legacy-current	s.mdctBlockCoeffs = ensureFloat64Slice(&s.mdctBlockCoeffs, frameSize/2)
 celt/encoder.go	1	f0042473ac65c523dab97798a6061883c05e0b758d83eb87bdb669eace790f88	legacy-current	s.deintLeft = ensureFloat64Slice(&s.deintLeft, frameSize)
 celt/encoder.go	1	f24406b2cb2b4ec4fdcf3db0aa16c702b2869eda4002aa93901dfb886ec8d3b1	legacy-current	s.normR = ensureFloat64Slice(&s.normR, frameSize)
 celt/encoder.go	1	f60e168f6d576bef86d7069b6adc21627205b17b928924636edf501a13bf5237	legacy-current	dynallocFollower []float64
@@ -913,13 +911,13 @@ celt/mdct_encode.go	1	10bda4437680a9d24fa1de1c921e040f5d6f8d536050b05b4902461bdd
 celt/mdct_encode.go	1	10d37d4abcf8e0ecb229d74959dfb45a489fc51b791aec0f25e849506278b5cd	legacy-current	func mdctForwardOverlapScratch(samples []float64, overlap int, scratch *encoderScratch) []float64 {
 celt/mdct_encode.go	1	1e56dc654b03e49b100c63c0aaff96c228577c5b92ecfde81e33eabdc4f97f55	legacy-current	func mdctShortScratch(samples []float64, shortBlocks int, scratch *encoderScratch) []float64 {
 celt/mdct_encode.go	2	27a548f4d7e30e449636a1c70f9b8fce24d3304ce595a9333c12e64fec48f011	legacy-current	return float32(float64(a)*float64(c) - float64(t))
-celt/mdct_encode.go	1	2cd097fb76aa9a7c38b7f2aeff1661230659c0b5c2ee8d39fb0148eaafa5a3ed	legacy-current	func(block []float64, coeffs []float64) {
 celt/mdct_encode.go	1	3426b234a2218c3592926add897aeb1183e10302dbb77c5dc1e855321554b7ff	legacy-current	func mdctScratchInto(samples []float64, coeffs []float64, scratch *encoderScratch) []float64 {
 celt/mdct_encode.go	2	3af9bc082f23004974c7f866c5a5e44adf15eb2ed8903515a4674c82e240f1f3	legacy-current	yi := float32(float64(re)*float64(t1) + float64(mdctMulWith(useNativeMul, im, t0)))
 celt/mdct_encode.go	2	41b46686abbfcad460d967ffce04663eff2cd50508a8458dcdafbfd66236c129	legacy-current	coeffs := make([]float64, N)
 celt/mdct_encode.go	1	4aae5f3b412442601e0cf7da8f4be161644f8d5a61b77ab1f9ea812c050f62ff	legacy-current	output := ensureFloat64Slice(&scratch.mdctCoeffs, frameSize)
-celt/mdct_encode.go	2	52e6df8a1e1d3b288c22290f204c8e1a432a83588ea1c53bbd8641e431951161	legacy-current	blockCoeffs := ensureFloat64Slice(&scratch.mdctBlockCoeffs, shortSize)
-celt/mdct_encode.go	1	58a2aa6813a31c1b6d2c998b744258fdfea8d43e10a7ea1d50991c0c3b61e9fe	legacy-current	func mdctShortBlocksCore(samples []float64, overlap, shortBlocks, shortSize int, output, blockCoeffs []float64, blockMDCT func(block, coeffs []float64)) {
+celt/mdct_encode.go	1	0864f67b918053b034f916341f4b27c8666a04c182cb1d2cbe1c6e4aa717391d	legacy-current	func(block []float64, coeffs []float32) {
+celt/mdct_encode.go	2	94133168fc7d7086e259f6812990b738f073b3f44cbd6074e8a3e66f4b005878	legacy-current	output[outIdx] = float64(blockCoeffs[i])
+celt/mdct_encode.go	1	b6a1cf36fb3c25a12e418e961cac794ce2b91ab8fcda90c6e172574e9467aa58	legacy-current	func mdctShortBlocksCore[C ~float32 | ~float64](samples []float64, overlap, shortBlocks, shortSize int, output []float64, blockCoeffs []C, blockMDCT func(block []float64, coeffs []C)) {
 celt/mdct_encode.go	1	590ed12dbb7d7baaec4b0b49a34ddb0fddea1fe9864fe20e83f6a69d77b95a82	legacy-current	func mdctDirect(samples []float64) []float64 {
 celt/mdct_encode.go	1	5a278fa86054c63f3c2f133a51f3c3183e2c97a14c40f14f6f5e476039d747f5	legacy-current	scale := 4.0 / float64(N2)
 celt/mdct_encode.go	2	5c8bdd9ad5713368ac5d6b08d800611f4e63584ae30e01edd135929ecda0418c	legacy-current	yr := float32(float64(re)*float64(t0) - float64(mdctMulWith(useNativeMul, im, t1)))

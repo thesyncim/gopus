@@ -1109,7 +1109,7 @@ type encoderScratch struct {
 	mdctFFTIn       []complex64
 	mdctFFTOut      []complex64
 	mdctFFTTmp      []kissCpx
-	mdctBlockCoeffs []float64 // Per-block coefficients for short MDCT
+	mdctBlockCoeffs []float32 // Per-block coefficients for short MDCT
 
 	// Transient analysis scratch
 	transientEnergy    []float32
@@ -1289,7 +1289,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.mdctFFTOut = ensureComplex64Slice(&s.mdctFFTOut, n4)
 	s.mdctFFTTmp = ensureKissCpxSlice(&s.mdctFFTTmp, n4)
 	// For short MDCT: max short size is frameSize/8 (for 8 short blocks)
-	s.mdctBlockCoeffs = ensureFloat64Slice(&s.mdctBlockCoeffs, frameSize/2)
+	s.mdctBlockCoeffs = ensureFloat32Slice(&s.mdctBlockCoeffs, frameSize/2)
 
 	// Transient analysis scratch
 	samplesPerChannel := frameSize + overlap

@@ -13,7 +13,7 @@ Status as of 2026-05-25:
 - A01 public PCM API is partial: the top-level `Encode([]float32, ...)` path now enters `encoder.Encoder` through a float32 entry point instead of setting a separate float-input side channel before widening, and the standalone hybrid decoder's canonical decode methods now return `[]float32` without a persistent `scratchOutput []float64` bridge. The deeper Opus/SILK/CELT core and multistream/root compatibility surfaces still carry transitional `float64` PCM buffers, so A01 is not done.
 - A02 Opus encoder state is partial but substantially reduced: `StereoWidthMem` now mirrors libopus `StereoWidthState` with `opusVal32`/`opusVal16`, DTX `peakSignalEnergy` is `opusVal32`, hybrid HB gain state is `opusVal16`, hybrid stereo widths are `opus_int16`-width, frame-energy and digital-silence threshold math run in the libopus float domain, DRED/Opus-VAD activity checks no longer widen peak/energy comparisons, and the stereo-width NaN guard now uses an explicit `opusVal32` bit test instead of Go's `float64` math path. CELT-facing delay compensation, mode-transition prefill, SILK transition prefill, hybrid transition redundancy/gain-fade scratch, DC reject scratch, LSB-quantized input scratch, the Opus wrapper input queue, DRED latent input, and Opus-VAD subframe input now use `opusRes`/`opusVal*` storage. The remaining A02 debt is the broader public/internal `[]float64` PCM bridge into unmigrated SILK/CELT cores, plus wrapper-only conversion scratch such as `scratchInputPCM64`.
 - A03 CELT core vectors are active and oracle-backed: `aa373dcd` fixes strict CELT VQ oracle cases, and the current follow-up moves CELT coarse/fine/final energy residual scratch to `[]celtGLog` with no-clear preservation for shared residual state. QEXT encoder- and decoder-side old-band-energy/residual scratch now use `celtGLog`, DRED retained baseline scratch uses `celtSig`, decode-side band/PVQ shape storage, folding scratch, and decoded PVQ norm scratch use `celtNorm`, and legacy IMDCT scratch routes through the float32 IMDCT path instead of local `complex128` work buffers. Broad runtime vector and scratch migration remains open. The next highest-risk CELT mismatch is the remaining shared energy, encode-side band/PVQ, QEXT spectrum, anti-collapse, MDCT/KISSFFT64, and synthesis scratch that still bridges libopus `celt_glog`/`celt_norm`/`celt_sig` values through `float64` or `complex128`.
-- A04/A05 MDCT/FFT is now partially active: `imdctScratch` aliases the float32 scratch shape and the legacy overlap/in-place IMDCT helpers route through the float32 IMDCT path, removing their reusable `complex128` scratch allocation. OSCE LACE feature extraction now shares the float32 KISS FFT path used by BWE (`complex64` plus `celt.KissCpx` scratch), so the remaining FFT debt is concentrated in CELT's legacy `KissFFT64State`, `complex128` twiddle/runtime helpers, `mdctTwiddleSet`, and `mdct_libopus.go`.
+- A04/A05 MDCT/FFT is now partially active: `imdctScratch` aliases the float32 scratch shape and the legacy overlap/in-place IMDCT helpers route through the float32 IMDCT path, removing their reusable `complex128` scratch allocation. Short-block per-block MDCT coefficient scratch now uses `[]float32` before widening at the existing legacy output boundary. OSCE LACE feature extraction now shares the float32 KISS FFT path used by BWE (`complex64` plus `celt.KissCpx` scratch), so the remaining FFT debt is concentrated in CELT's legacy `KissFFT64State`, `complex128` twiddle/runtime helpers, `mdctTwiddleSet`, and `mdct_libopus.go`.
 - A13 multistream surround scratch is active: surround band SMR, preemphasis/window/input scratch, MDCT analysis, and masking scratch now use float-build storage. The surround mask combiner now mirrors `src/opus_multistream_encoder.c:logSum()` with the float table approximation, and the channel-count offset uses `celt_log2()`-style float32 math instead of Go `math.Log2` double widening. Remaining multistream `float64` allowlist entries are public/legacy PCM bridges, OSCE/DRED decode wrappers, and rate/control math that still need source classification.
 - A07 SILK FLP storage is active and oracle-backed: `e04a55db` links the SILK LPC oracle to the configured libopus archive and `ffa3a0d3` makes that oracle protocol endian-stable. Follow-ups split LPC/Burg boundaries so persistent `silk_float` storage and FindLPC residual/input scratch use `float32`, while true `burg_modified_FLP.c` C `double` work arrays stay `float64`; the current type-width pass also removes the widened pitch residual copy, feeds pitch analysis/LTP/noise-shaping from `[]float32`, computes sparseness with `energyF32Libopus`, keeps residual-energy/gain-processing scratch in `silk_float` storage, replaces the FindLPC interpolation NLSF-to-LPC float64 polynomial scratch with the libopus-style `silk_NLSF2A_FLP` fixed bridge plus `silk_float` output storage, moves NSQ noise-shaping Q controls (`LambdaQ10`, `HarmShapeGainQ14`, `TiltQ14`, `LTPScaleQ14`) from Go `int` to `int32` with float32 round-to-even conversion against the C `silk_float2int` oracle, removes the legacy SILK stereo double-domain predictor helpers, keeps SILK VAD/activity helper math in `silk_float`/`float32`, and moves the local LTP coefficient solve/quantize/periodicity helpers plus decoder LTP synthesis off `float64`. More SILK scratch remains open: stale double LPC/LSF helpers must either migrate to `float32`/fixed wrappers or be deleted so accidental reuse cannot reintroduce double-domain parity drift.
 - A08 fixed math is partial: `8f525312` added C-backed oracle coverage for SILK fixed wrapper primitives and corrected the reversed-bound `silk_LIMIT` behavior for `silkLimitInt`/`silkLimit32`; follow-ups check both `silkLShiftSAT32` and `silk_LSHIFT_SAT32` against the C oracle, fix the `shift == 31` saturation edge, and add a C-backed NSQ delayed-decision error-path oracle for the composed `ADD_SAT32`/`ADD32_ovflw`/`SUB_SAT32`/`RSHIFT_ROUND` arithmetic.
@@ -92,19 +92,19 @@ The repo now has a ratcheting guard for this rule:
 make test-type-parity
 ```
 
-The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 2222 legacy findings, down from 2250 in the previous checkpoint, 2273 before that, 2285 before that, 2327 before that, and 2509 in the older baseline. CI lint/static-analysis on `4de6aa4b` also passed the type parity guard before this hybrid/LACE cleanup.
+The guard scans runtime Go files for `float64`, `complex128`, `KissFFT64State`, `ensureFloat64Slice`, and `ensureComplexSlice`, then compares the result with `tools/type_parity_allowlist.tsv`. Current legacy findings are allowed only because they are recorded in that baseline. New findings fail. Removed findings also fail until the baseline is refreshed, so cleanup stays visible in review. As of this checkpoint, local `make test-type-parity` passes with 2220 legacy findings, down from 2250 in the previous checkpoint, 2273 before that, 2285 before that, 2327 before that, and 2509 in the older baseline.
 
 Agents must not run `make update-type-parity-baseline` to hide new debt. Refresh the baseline only after migrating runtime code to libopus-width types, or when a remaining `float64` is tied to a specific libopus C `double` helper with a source citation.
 
 ## Current Surface Area
 
-These are rough grep counts from non-test Go files on 2026-05-24. They are a burn-down metric, not a proof of incorrectness.
+These are type-parity guard finding counts from non-test runtime Go files on 2026-05-25. They are a burn-down metric, not a proof of incorrectness.
 
 ### `float64` Matches by Area
 
 | Area | Count | Files |
 |---|---:|---:|
-| `celt` | 1726 | 110 |
+| `celt` | 1724 | 110 |
 | `silk` | 216 | 23 |
 | `encoder` | 84 | 8 |
 | `internal` | 75 | 12 |
@@ -119,14 +119,15 @@ Examples/tools/testvectors also contain `float64`; those should be lower priorit
 
 | Area | Count | Files |
 |---|---:|---:|
-| `celt` | 2172 | 141 |
-| `silk` | 1049 | 77 |
-| `internal` | 523 | 44 |
-| `encoder` | 428 | 16 |
-| `multistream` | 330 | 22 |
+| `celt` | 2176 | 141 |
+| `silk` | 1050 | 78 |
+| `encoder` | 429 | 16 |
+| top-level codec files | 417 | 36 |
+| `multistream` | 333 | 22 |
+| `internal/osce` + `internal/lpcnetplc` | 222 | 15 |
 | `rangecoding` | 102 | 2 |
 | `plc` | 93 | 3 |
-| `hybrid` | 43 | 2 |
+| `hybrid` | 37 | 2 |
 
 Not all `int` is wrong. Use `int` for slice indexes, lengths, loop counters, and public Go ergonomics only after the codec value is already in the right domain. Use `int32`/`uint32` or local aliases for state and arithmetic that matches C fixed-width fields/macros.
 
@@ -134,22 +135,22 @@ Not all `int` is wrong. Use `int` for slice indexes, lengths, loop counters, and
 
 | File | Approx matches |
 |---|---:|
-| `celt/bands_quant.go` | 189 |
-| `encoder/encoder.go` | 64 |
-| `celt/encode_frame.go` | 57 |
-| `celt/mdct_encode.go` | 54 |
-| `celt/encoder.go` | 52 |
-| `celt/scratch.go` | 52 |
-| `encoder/hybrid.go` | 52 |
-| `celt/energy_encode.go` | 51 |
-| `celt/mdct.go` | 48 |
-| `celt/synthesis.go` | 40 |
-| `celt/hybrid_encode_helpers.go` | 39 |
-| `celt/postfilter.go` | 38 |
-| `celt/stereo.go` | 37 |
-| `celt/bands.go` | 34 |
-| `silk/encoder.go` | 29 |
-| `silk/lpc_analysis.go` | 29 |
+| `celt/bands_quant.go` | 245 |
+| `celt/encode_frame.go` | 129 |
+| `celt/encoder.go` | 98 |
+| `celt/mdct.go` | 80 |
+| `silk/lpc_analysis.go` | 67 |
+| `celt/energy_encode.go` | 64 |
+| `celt/postfilter.go` | 63 |
+| `celt/mdct_encode.go` | 59 |
+| `plc/celt_plc.go` | 52 |
+| `celt/channel_adapters.go` | 48 |
+| `celt/scratch.go` | 45 |
+| `celt/preemph.go` | 44 |
+| `celt/hybrid_encode_helpers.go` | 41 |
+| `celt/output_helpers.go` | 41 |
+| `internal/lpcnetplc/analysis.go` | 40 |
+| `celt/recovery_helpers.go` | 38 |
 
 ### Runtime Scratch `float64` Hotspots
 
@@ -158,25 +159,22 @@ These are non-test runtime matches where `scratch` and `float64`/`complex128` ap
 | File | Approx matches |
 |---|---:|
 | `celt/bands_quant.go` | 33 |
-| `encoder/hybrid.go` | 26 |
-| `silk/encoder.go` | 26 |
+| `encoder/hybrid.go` | 24 |
 | `celt/encode_frame.go` | 24 |
-| `celt/scratch.go` | 22 |
+| `celt/mdct.go` | 22 |
 | `celt/channel_adapters.go` | 21 |
-| `celt/hybrid_encode_helpers.go` | 19 |
-| `silk/lpc_analysis.go` | 19 |
+| `celt/hybrid_encode_helpers.go` | 18 |
+| `celt/scratch.go` | 15 |
 | `celt/decoder_types.go` | 15 |
-| `celt/energy_encode.go` | 13 |
-| `encoder/encoder.go` | 13 |
-| `celt/mdct_encode.go` | 12 |
 | `celt/recovery_helpers.go` | 11 |
-| `celt/dred_conceal.go` | 9 |
+| `celt/kiss_fft.go` | 10 |
+| `celt/mdct_encode.go` | 10 |
+| `silk/lpc_analysis.go` | 10 |
 | `celt/synthesis.go` | 9 |
-| `celt/mdct.go` | 8 |
-| `multistream/encoder.go` | 5 |
-| `celt/decoder_qext_state.go` | 3 |
-| `celt/preemph.go` | 3 |
-| `celt/transient.go` | 3 |
+| `celt/dred_conceal.go` | 7 |
+| `celt/energy_encode.go` | 6 |
+| `silk/encoder.go` | 5 |
+| `encoder/encoder.go` | 3 |
 
 ## Runtime Scratch Mismatch Manifest
 
@@ -229,7 +227,7 @@ Every entry here must be migrated or explicitly justified against a C `double` r
 ### CELT MDCT/Synthesis/Postfilter Scratch
 
 - `celt/mdct.go`: legacy IMDCT scratch now aliases the float32 IMDCT scratch shape, removing local `complex128` work buffers from that path. IMDCT function signatures still accept/return `[]float64`, and the remaining spectrum/overlap boundaries must match `celt_sig`/`celt_norm`/`opus_res`.
-- `celt/mdct_encode.go`: `mdctForwardOverlapF32Scratch` is now generic over float32/float64 callers and `MDCTForwardWithOverlapFloat32` keeps surround-analysis MDCT coefficients in float-build storage. Remaining `mdctScratch`, short-block scratch, `mdctBlockCoeffs`, overlap work buffers, and public float64 boundaries should continue moving to CELT aliases.
+- `celt/mdct_encode.go`: `mdctForwardOverlapF32Scratch` is now generic over float32/float64 callers, `MDCTForwardWithOverlapFloat32` keeps surround-analysis MDCT coefficients in float-build storage, and short-block per-block coefficient scratch now uses `[]float32`. Remaining `mdctScratch`, overlap work buffers, and public float64 boundaries should continue moving to CELT aliases.
 - `celt/synthesis.go`: synth scratch `scratchSynth`, `scratchSynthR`, `scratchShortCoeffs`, and stereo output scratch must be `opus_res`/`celt_sig`.
 - `celt/postfilter.go`, `celt/preemph.go`, `celt/prefilter.go`, and `celt/prefilter_*`: inner product and postfilter scratch must match libopus float or fixed helper types.
 - `celt/window_tables_static.go`: runtime window scratch/table values should be stored as `float32`/alias.
@@ -281,14 +279,14 @@ Reference:
 Current symptoms:
 
 - Top-level `Encoder` and `MultistreamEncoder` no longer have `scratchPCM64`.
-- `encoder/Encoder.Encode`, `EncodeWithAnalysis`, `EncodeWithAnalysisMaxBytes`, prefill, delay-buffer, DC reject, DRED, and mode-transition paths pass `[]float64`.
-- Hybrid decode returns `[]float64` even though much of the sub-decoder work is already `[]float32`.
+- Legacy public `encoder/Encoder.Encode`, `EncodeWithAnalysis`, and `EncodeWithAnalysisMaxBytes` still accept `[]float64`; wrapper-only conversion scratch such as `scratchInputPCM64` remains until the CELT/SILK core boundary is migrated.
+- Standalone hybrid decode now returns `[]float32`; the remaining hybrid `float64` debt is the CELT PLC bridge and compatibility surfaces.
 
 Fix direction:
 
 - Make canonical float API and internal PCM paths `[]float32`.
 - Keep legacy `[]float64` wrappers only if explicitly desired, and name them as conversion wrappers so agents do not treat them as codec-domain APIs.
-- Move delay buffer, DC reject, prefill, DRED frame PCM, hybrid transition PCM, and quantized input scratch to `[]opusRes`/`[]float32`.
+- Keep already-migrated delay buffer, DC reject, prefill, DRED frame PCM, hybrid transition PCM, and quantized input scratch in `[]opusRes`/`[]float32`, and remove the remaining compatibility bridges as core package boundaries move.
 - Ensure public float32 input is not widened before DTX, analysis, CELT, SILK, hybrid, or DRED.
 
 Verification:
@@ -342,7 +340,7 @@ Fix direction:
 - Change function signatures first at package boundaries, then burn inward through scratch structs.
 - Do not "float64 then cast at end"; carry `float32` through every operation where C carries `float`.
 - For Go `math.*` equivalents of C float math, explicitly round inputs and outputs to `float32` at the same points the C code stores to `float`.
-- Replace `window_tables_static.go` arrays with `float32`/alias tables or generated constants matching C float values.
+- Replace `celt/window_tables_static.go` arrays with `float32`/alias tables or generated constants matching C float values.
 
 Verification:
 
@@ -374,7 +372,7 @@ Current symptoms:
 Fix direction:
 
 - Delete or quarantine the 64-bit FFT implementation after migrating callers.
-- Make OSCE/LACE feature extraction use the float32 KISS path or a dedicated float32 FFT.
+- Keep OSCE/LACE feature extraction on the float32 KISS path and avoid reintroducing the legacy 64-bit FFT there.
 - Make MDCT operate on alias slices and ensure twiddle/window tables store float32 values.
 
 Verification:
@@ -438,7 +436,7 @@ Reference:
 Current symptoms:
 
 - `silk/encoder.go` still contains some `[]float64` scratch buffers and state-like fields that need per-reference classification.
-- `pitch_residual.go` now returns `[]float32` residuals, but stale float64 LPC/autocorrelation helpers remain and should be deleted or fenced from runtime reuse.
+- `silk/pitch_residual.go` now returns `[]float32` residuals, but stale float64 LPC/autocorrelation helpers remain and should be deleted or fenced from runtime reuse.
 - `silk/stereo_lp_filter.go` is no longer a runtime `float64` source; keep future stereo predictor work on the fixed/int16 `stereo_LR_to_MS.c` path or `silk_float`/`float32` analysis only.
 - `silk/vad.go` is no longer a runtime `float64` source; keep activity and pitch-periodicity scratch in `silk_float`/`float32`.
 - `silk/ltp_encode.go` and `silk/ltp.go` are no longer runtime `float64` sources; keep LTP coefficient/control math in `silk_float`/`float32` unless a specific libopus C `double` helper is cited.
@@ -568,9 +566,9 @@ Files:
 
 Current symptoms:
 
-- Many runtime tensors are `float32`, but feature extraction and helper math still use `float64`, especially LACE FFT features via `KissFFT64State`/`complex128`.
+- Many runtime tensors are `float32`, but extension feature extraction and helper math still have `float64` debt outside the migrated OSCE LACE FFT path.
 - LPCNet analysis contains real `float64` Burg arrays; this may or may not match the extension reference, but it needs a source citation.
-- DRED runtime takes `[]float64` PCM from the main encoder path.
+- The main DRED encoder runtime now takes `[]opusRes` frame PCM; legacy public DRED conversion helpers such as `ConvertTo16kMonoFloat64` remain compatibility bridges.
 
 Fix direction:
 
