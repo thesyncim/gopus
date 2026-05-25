@@ -6,6 +6,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dnnmath"
+	"github.com/thesyncim/gopus/internal/opusmath"
 )
 
 // Per-frame and per-subframe dimensions for the libopus 1.6.1 BBWENet pipeline.
@@ -344,13 +345,7 @@ func (s *State) ProcessDelayed(in16k, out48k, features []float32) error {
 }
 
 func bweFloatToInt16(x float32) int16 {
-	tmp := float32(32768) * x
-	if tmp > 32767 {
-		tmp = 32767
-	} else if tmp < -32767 {
-		tmp = -32767
-	}
-	return int16(int32(math.RoundToEven(float64(tmp))))
+	return opusmath.Float32ToInt16OSCEOutputScale(x)
 }
 
 // errBWERuntimeNotImplemented is returned by Process when no model is bound.

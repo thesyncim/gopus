@@ -1475,7 +1475,6 @@ celt/xcorr.go	1	b05351257b2e2da2b873131e1190eb71571ee0b141d3de3c9ec0cc564bbd71dd
 celt/xcorr.go	2	bd3df33535ae5483a1c53129dd8cec51f228679838067eccc5d8d85afd57b1e7	legacy-current	var b0, b1, b2, b3 float64
 celt/xcorr.go	2	e0c2490349f9242f45544914abe3d2a33db46f4ebb6f593d5ba4ef3e98a63ef8	legacy-current	var a0, a1, a2, a3 float64
 decoder_opus_frame.go	1	4615f35d8d35ce5ca7d9e3617e3e7d032cef0f300908c9f83d1ba52955a95f3d	legacy-current	return float32(math.FMA(float64(a), float64(b), float64(c)))
-decoder_osce_bwe_crossfade.go	1	77fc3480a79f4ef2d1546f7eefe276c977313b089706ab3cbe5f243da017af7c	legacy-current	return int16(int32(math.RoundToEven(float64(tmp))))
 encoder/analysis.go	1	0839a0d6e78a52bfe771927ca433dc299cca5e8d675f3b33cf0a519c36d4e688	legacy-current	if math.IsNaN(float64(real(outBuf[0]))) {
 encoder/analysis.go	1	2d6abd3ef58ac63b504bd0f55b6a307f245fea4199f5e641981fcc04a25fe0bb	legacy-current	logBandE := float32(math.Log(float64(bandE) + 1e-10))
 encoder/analysis.go	1	73f1eaa3a4acd93e70a3b93e85a9223ea8afce80d86951fd2d12cf82a7b12745	legacy-current	// Use float32 constants to avoid repeated float64 conversion
@@ -1605,7 +1604,6 @@ internal/lpcnetplc/state.go	1	6f38f987bf622cf8fb7f4260dff134e278969ac2192cd98b4f
 internal/osce/bwe/features.go	1	04f6f165d9de71e6b9ec52f83891e9db5a10b820a0295144311583abca09f241	legacy-current	lmspec[k] = float32(math.Log(float64(lmspec[k]) + 1e-9))
 internal/osce/bwe/features.go	1	74a0744dc72556e5158b28346e95038666b310a32b2106b86aefecd455f3bc97	legacy-current	auxAbs := float32(math.Sqrt(float64(auxR*auxR + auxI*auxI)))
 internal/osce/bwe/features.go	1	dd19847fc821d18a94587f214a21a004845e0773c31e55c6845d23e181d028ad	legacy-current	magSpec[k] = float32(bweWindowSize) * float32(math.Sqrt(float64(re*re+im*im)))
-internal/osce/bwe/runtime.go	1	77fc3480a79f4ef2d1546f7eefe276c977313b089706ab3cbe5f243da017af7c	legacy-current	return int16(int32(math.RoundToEven(float64(tmp))))
 internal/osce/bwe/runtime.go	1	9603ba59915a848c623e9057e3d0891bcdef85b6c3c7cf246fe9ef7f8b786c78	legacy-current	arg := math.Pi * (float64(i) + 0.5) / float64(overlapSize)
 internal/osce/bwe/runtime.go	1	c46e46c8cfaba31c1aa6a7f52505b81b52341533b2c97cc91074b95354a86729	legacy-current	gainBuf[i] = float32(math.Exp(float64(filterGainA*gainBuf[i] + filterGainB)))
 internal/osce/bwe/runtime.go	1	f7ccaffe7cf782f16e2adf9f603ffe9240d92634080d43bf446a6554e4a1f3e6	legacy-current	v = float32(0.2 * float64(v))
@@ -1628,9 +1626,6 @@ internal/osce/lace/runtime.go	2	fa21599cedcfee83faa20a3e146e4530d379f43ff723ffcf
 internal/osce/lace/runtime_trace.go	1	13b2161c7a2379d957f300147cc6eff612465d7c227ca6668c0890f138233367	legacy-current	gains[0] = float32(math.Exp(float64(logGainLimit - gains[0])))
 internal/osce/lace/runtime_trace.go	1	fa21599cedcfee83faa20a3e146e4530d379f43ff723ffcf52113df4d1f82222	legacy-current	invNorm := float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
 internal/osce/lace/runtime_trace.go	1	fe810750a1083d7aaa3cad8e3f60ba7e94bd32bfded2bae2fcd3163e0a7f34e3	legacy-current	gains[1] = float32(math.Exp(float64(filterGainA*gains[1] + filterGainB)))
-multistream/decoder_osce_apply.go	1	77fc3480a79f4ef2d1546f7eefe276c977313b089706ab3cbe5f243da017af7c	legacy-current	return int16(int32(math.RoundToEven(float64(tmp))))
-multistream/decoder_osce_apply.go	1	ca1ff93a7bfc25a8507115773d45c137f71c10c3833cb0893c29c008ebb885f7	legacy-current	func (d *streamState) markOSCEInactiveIfModeIneligible(toc streamTOC, out []float64, frameSize int) {
-multistream/decoder_osce_apply_default.go	1	796295867d83c198e329652d1cb8867714d368db11b2d9acdf524c9af3034c3e	legacy-current	func (d *streamState) markOSCEInactiveIfModeIneligible(_ streamTOC, _ []float64, _ int) {
 multistream/encoder.go	1	06b42cc4ad5da03aa34b0e87611d7a6e56a1833f63d082744a5facedf868ba35	legacy-current	func multistreamCVBRBoundScale(totalBitrate, sampleRate, frameSize int) float64 {
 multistream/encoder.go	1	7168bdc66291c10c23a0ab0fbdf51861253597db2c19c80bf93fcc40d526bd57	legacy-current	func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM []float64) ([]byte, error) {
 multistream/encoder.go	1	877c91f295f3f21d6eb5d6db49e5f76754beb005d1989420142d3ed9445d022b	legacy-current	burstMultiple := float64(maxBurstBytes) / float64(targetBytes)

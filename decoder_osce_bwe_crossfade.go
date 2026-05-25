@@ -2,7 +2,7 @@
 
 package gopus
 
-import "math"
+import "github.com/thesyncim/gopus/internal/opusmath"
 
 // osceWindow mirrors the upstream libopus 1.6.1 `osce_window[]` table from
 // dnn/osce_features.c. Only the first 160 entries are needed by
@@ -117,11 +117,5 @@ func osceBWECrossFadeSample(weight, fadein, fadeout float32) int16 {
 }
 
 func osceFloatToInt16(x float32) int16 {
-	tmp := float32(32768) * x
-	if tmp > 32767 {
-		tmp = 32767
-	} else if tmp < -32767 {
-		tmp = -32767
-	}
-	return int16(int32(math.RoundToEven(float64(tmp))))
+	return opusmath.Float32ToInt16OSCEOutputScale(x)
 }

@@ -92,7 +92,7 @@ func TestStreamOSCEInactiveMarkClearsNonSILKState(t *testing.T) {
 	st.osceState.laceResetFrames[0] = 2
 	st.osceState.laceResetFrames[1] = 2
 
-	st.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: 4, stereo: true}, make([]float64, 960*2), 960)
+	st.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeCELT, bandwidth: 4, stereo: true}, make([]float32, 960*2), 960)
 
 	if st.osceState.prevLACEActive {
 		t.Fatal("CELT transition left LACE active")
@@ -118,7 +118,7 @@ func TestStreamOSCEInactiveMarkKeepsSILKWBState(t *testing.T) {
 		},
 	}
 
-	st.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeSILK, bandwidth: 2}, make([]float64, 960), 960)
+	st.markOSCEInactiveIfModeIneligible(streamTOC{mode: streamModeSILK, bandwidth: 2}, make([]float32, 960), 960)
 
 	if !st.osceState.prevLACEActive {
 		t.Fatal("SILK WB transition unexpectedly cleared LACE")

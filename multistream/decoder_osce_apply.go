@@ -3,8 +3,7 @@
 package multistream
 
 import (
-	"math"
-
+	"github.com/thesyncim/gopus/internal/opusmath"
 	osceBWE "github.com/thesyncim/gopus/internal/osce/bwe"
 	osceLACE "github.com/thesyncim/gopus/internal/osce/lace"
 	"github.com/thesyncim/gopus/silk"
@@ -400,7 +399,7 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 	return true
 }
 
-func (d *streamState) markOSCEInactiveIfModeIneligible(toc streamTOC, out []float64, frameSize int) {
+func (d *streamState) markOSCEInactiveIfModeIneligible(toc streamTOC, out []float32, frameSize int) {
 	if d == nil || d.osceState == nil {
 		return
 	}
@@ -531,13 +530,7 @@ func streamOSCEBWECrossFadeSample(weight, fadein, fadeout float32) int16 {
 }
 
 func streamOSCEFloatToInt16(x float32) int16 {
-	tmp := float32(32768) * x
-	if tmp > 32767 {
-		tmp = 32767
-	} else if tmp < -32767 {
-		tmp = -32767
-	}
-	return int16(int32(math.RoundToEven(float64(tmp))))
+	return opusmath.Float32ToInt16OSCEOutputScale(x)
 }
 
 // streamOSCELACECrossFade10msInt16 mirrors `osceLACECrossFade10msInt16` in

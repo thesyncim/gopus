@@ -18,5 +18,5 @@ func (d *streamState) installOSCELACESilkPostfilterHook(_ silk.Bandwidth, _ bool
 	return func() {}
 }
 
-func (d *streamState) markOSCEInactiveIfModeIneligible(_ streamTOC, _ []float64, _ int) {
+func (d *streamState) markOSCEInactiveIfModeIneligible(_ streamTOC, _ []float32, _ int) {
 }
