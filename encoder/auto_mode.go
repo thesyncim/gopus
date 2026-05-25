@@ -187,7 +187,7 @@ func opusVal32IsNaN(x opusVal32) bool {
 // decideFEC implements libopus decide_fec() (opus_encoder.c lines 940-971).
 // It decides whether to enable LBRR (FEC) and may reduce bandwidth to afford it.
 // Returns the LBRR coded decision; bandwidth may be modified via pointer.
-func decideFEC(useInBandFEC bool, packetLoss int, lastFEC bool, mode Mode, bandwidth *types.Bandwidth, equivRate int) bool {
+func decideFEC(useInBandFEC bool, packetLoss int32, lastFEC bool, mode Mode, bandwidth *types.Bandwidth, equivRate int32) bool {
 	if !useInBandFEC || packetLoss == 0 || mode == ModeCELT {
 		return false
 	}
@@ -198,8 +198,8 @@ func decideFEC(useInBandFEC bool, packetLoss int, lastFEC bool, mode Mode, bandw
 		if idx < 0 || idx*2+1 >= len(fecThresholdsTable) {
 			break
 		}
-		lbrrRateThreshold := fecThresholdsTable[2*idx]
-		hysteresis := fecThresholdsTable[2*idx+1]
+		lbrrRateThreshold := int32(fecThresholdsTable[2*idx])
+		hysteresis := int32(fecThresholdsTable[2*idx+1])
 
 		if lastFEC {
 			lbrrRateThreshold -= hysteresis
@@ -250,7 +250,7 @@ func (e *Encoder) autoVoiceRatioFromAnalysis() {
 	} else {
 		prob = e.lastAnalysisInfo.MusicProbMin
 	}
-	e.voiceRatio = int(opusmath.FloorHalfPlusF32ToInt32(float32(100) * (float32(1) - prob)))
+	e.voiceRatio = opusmath.FloorHalfPlusF32ToInt32(float32(100) * (float32(1) - prob))
 }
 
 // updateDetectedBandwidth computes detected_bandwidth from analysis info.
@@ -276,7 +276,7 @@ func (e *Encoder) updateDetectedBandwidth() {
 }
 
 // autoVoiceEst computes voice_est from voice_ratio, matching libopus lines 1413-1426.
-func (e *Encoder) autoVoiceEst() int {
+func (e *Encoder) autoVoiceEst() int32 {
 	if e.signalType == types.SignalVoice {
 		return 127
 	}
@@ -299,7 +299,7 @@ func (e *Encoder) autoVoiceEst() int {
 
 // autoStreamChannelsDecision decides mono vs stereo encoding.
 // Matches libopus opus_encoder.c lines 1428-1453.
-func (e *Encoder) autoStreamChannelsDecision(voiceEst, equivRate int) {
+func (e *Encoder) autoStreamChannelsDecision(voiceEst, equivRate int32) {
 	if e.forceChannels > 0 && e.channels == 2 {
 		e.streamChannels = e.forceChannels
 		return
@@ -318,7 +318,7 @@ func (e *Encoder) autoStreamChannelsDecision(voiceEst, equivRate int) {
 			e.streamChannels = 1
 		}
 	} else {
-		e.streamChannels = e.channels
+		e.streamChannels = int32(e.channels)
 	}
 }
 
@@ -328,20 +328,20 @@ func (e *Encoder) updateStreamChannelsForFrame(frameSize int) {
 		frameRate = 50
 	}
 	useVBR := e.bitrateMode != ModeCBR
-	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate,
+	equivRate := e.computeEquivRate(e.bitrate, int32(e.channels), int32(frameRate),
 		useVBR, ModeAuto, e.complexity, e.packetLoss)
 	e.autoStreamChannelsDecision(e.autoVoiceEst(), equivRate)
 }
 
 // autoModeDecision selects SILK-only vs CELT-only using interpolated thresholds.
 // Matches libopus opus_encoder.c lines 1492-1527.
-func (e *Encoder) autoModeDecision(stereoWidth opusVal16, voiceEst, equivRate, frameSize, maxDataBytes int) Mode {
+func (e *Encoder) autoModeDecision(stereoWidth opusVal16, voiceEst, equivRate int32, frameSize, maxDataBytes int) Mode {
 	// Interpolate mode thresholds based on stereo width.
 	modeVoiceF := (1.0-stereoWidth)*opusVal16(autoModeThresholds[0][0]) +
 		stereoWidth*opusVal16(autoModeThresholds[1][0])
-	modeVoice := int(modeVoiceF + 0.5)
+	modeVoice := int32(modeVoiceF + 0.5)
 	// Note: libopus uses [1][1] for both terms (bug/intentional since values are equal).
-	modeMusic := autoModeThresholds[1][1]
+	modeMusic := int32(autoModeThresholds[1][1])
 
 	threshold := modeMusic + (voiceEst*voiceEst*(modeVoice-modeMusic))/16384
 
@@ -405,7 +405,7 @@ func bitrateBitsForFrame(bitrate, sampleRate, frameSize int) int {
 
 // autoSelectBandwidth implements the libopus auto-bandwidth selection loop.
 // Matches opus_encoder.c lines 1583-1627.
-func (e *Encoder) autoSelectBandwidth(voiceEst, equivRate int) types.Bandwidth {
+func (e *Encoder) autoSelectBandwidth(voiceEst, equivRate int32) types.Bandwidth {
 	var voiceThresholds, musicThresholds *[8]int
 	if e.channels == 2 && e.forceChannels != 1 {
 		voiceThresholds = &stereoVoiceBandwidthThresholds
@@ -419,7 +419,7 @@ func (e *Encoder) autoSelectBandwidth(voiceEst, equivRate int) types.Bandwidth {
 	var bwThresholds [8]int
 	for i := 0; i < 8; i++ {
 		bwThresholds[i] = musicThresholds[i] +
-			(voiceEst*voiceEst*(voiceThresholds[i]-musicThresholds[i]))/16384
+			int((voiceEst*voiceEst*int32(voiceThresholds[i]-musicThresholds[i]))/16384)
 	}
 
 	bandwidth := types.BandwidthFullband
@@ -436,7 +436,7 @@ func (e *Encoder) autoSelectBandwidth(voiceEst, equivRate int) types.Bandwidth {
 			}
 		}
 
-		if equivRate >= threshold {
+		if equivRate >= int32(threshold) {
 			break
 		}
 		bandwidth--
@@ -452,7 +452,7 @@ func (e *Encoder) autoSelectBandwidth(voiceEst, equivRate int) types.Bandwidth {
 
 // autoClampBandwidth applies bandwidth clamping rules.
 // Matches libopus opus_encoder.c lines 1629-1684.
-func (e *Encoder) autoClampBandwidth(bandwidth types.Bandwidth, mode Mode, equivRate, maxRate int) types.Bandwidth {
+func (e *Encoder) autoClampBandwidth(bandwidth types.Bandwidth, mode Mode, equivRate int32, maxRate int) types.Bandwidth {
 	// Max bandwidth limit.
 	if bandwidth > e.maxBandwidth {
 		bandwidth = e.maxBandwidth
@@ -566,7 +566,7 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	}
 
 	// Step 5: First-pass equiv_rate with e.channels (line 1410-1411).
-	equivRate := e.computeEquivRate(e.bitrate, e.channels, frameRate, useVBR,
+	equivRate := e.computeEquivRate(e.bitrate, int32(e.channels), int32(frameRate), useVBR,
 		ModeAuto, e.complexity, e.packetLoss)
 
 	// Step 6: Compute voice_est (lines 1413-1426).
@@ -576,7 +576,7 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	e.autoStreamChannelsDecision(voiceEst, equivRate)
 
 	// Step 8: Recompute equiv_rate with stream_channels (lines 1454-1456).
-	equivRate = e.computeEquivRate(e.bitrate, e.streamChannels, frameRate, useVBR,
+	equivRate = e.computeEquivRate(e.bitrate, e.streamChannels, int32(frameRate), useVBR,
 		ModeAuto, e.complexity, e.packetLoss)
 
 	// Step 9: Mode selection with interpolated thresholds (lines 1492-1527).
@@ -602,7 +602,7 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	}
 
 	// Step 12: Recompute equiv_rate with mode decision (lines 1572-1574).
-	equivRate = e.computeEquivRate(e.bitrate, e.streamChannels, frameRate, useVBR,
+	equivRate = e.computeEquivRate(e.bitrate, e.streamChannels, int32(frameRate), useVBR,
 		mode, e.complexity, e.packetLoss)
 
 	// Step 13: Auto bandwidth selection (lines 1583-1627).

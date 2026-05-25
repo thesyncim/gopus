@@ -34,7 +34,7 @@ type fecState struct {
 	prevVADFlag bool
 
 	// Frame count for multi-frame LBRR selection
-	frameCount int
+	frameCount int32
 }
 
 // newFECState creates initial FEC state.

@@ -38,13 +38,13 @@ type dtxState struct {
 	vad *VADState
 
 	// Counter for consecutive no-activity frames in milliseconds (Q1 format)
-	noActivityMsQ1 int
+	noActivityMsQ1 int32
 
 	// Whether currently in DTX mode (suppressing frames)
 	inDTXMode bool
 
 	// Frame duration in milliseconds (for timing calculations)
-	frameDurationMs int
+	frameDurationMs int32
 
 	// Peak signal energy tracker (matching libopus st->peak_signal_energy).
 	// Tracks the running peak energy of active frames with slow decay (0.999).
@@ -74,14 +74,14 @@ func (d *dtxState) reset() {
 //
 // For float-point: silence = (sample_max <= 1.0 / (1 << lsb_depth))
 // At 24-bit depth: threshold is about 5.96e-8.
-func isDigitalSilenceRes(pcm []opusRes, lsbDepth int) bool {
+func isDigitalSilenceRes(pcm []opusRes, lsbDepth int32) bool {
 	if lsbDepth < 8 {
 		lsbDepth = 8
 	}
 	if lsbDepth > 24 {
 		lsbDepth = 24
 	}
-	threshold := opusVal16(1.0 / opusVal16(int(1)<<lsbDepth))
+	threshold := opusVal16(1.0 / opusVal16(int32(1)<<uint(lsbDepth)))
 
 	for _, v := range pcm {
 		if v > threshold || v < -threshold {
@@ -138,7 +138,7 @@ func (e *Encoder) shouldUseDTXRes(pcm []opusRes) (bool, bool) {
 	if frameDurationMs <= 0 {
 		frameDurationMs = 20
 	}
-	e.dtx.frameDurationMs = frameDurationMs
+	e.dtx.frameDurationMs = int32(frameDurationMs)
 
 	isSilence := isDigitalSilenceRes(pcm, e.lsbDepth)
 
@@ -165,13 +165,13 @@ func (e *Encoder) shouldUseDTXRes(pcm []opusRes) (bool, bool) {
 		e.dtx.peakSignalEnergy = maxf(0.999*e.dtx.peakSignalEnergy, frameEnergy)
 	}
 
-	frameSizeMsQ1 := frameDurationMs * 2
+	frameSizeMsQ1 := int32(frameDurationMs * 2)
 
 	if !isActive {
 		e.dtx.noActivityMsQ1 += frameSizeMsQ1
 
-		thresholdMsQ1 := NBSpeechFramesBeforeDTX * 20 * 2
-		maxDTXMsQ1 := (NBSpeechFramesBeforeDTX + MaxConsecutiveDTX) * 20 * 2
+		thresholdMsQ1 := int32(NBSpeechFramesBeforeDTX * 20 * 2)
+		maxDTXMsQ1 := int32((NBSpeechFramesBeforeDTX + MaxConsecutiveDTX) * 20 * 2)
 
 		if e.dtx.noActivityMsQ1 > thresholdMsQ1 {
 			if e.dtx.noActivityMsQ1 <= maxDTXMsQ1 {

@@ -171,7 +171,7 @@ func TestNonAutoEncodeUpdatesStreamChannelsForCELTState(t *testing.T) {
 			if _, err := encodeTest(enc, pcm, 960); err != nil {
 				t.Fatalf("Encode() error: %v", err)
 			}
-			if got := enc.streamChannels; got != tt.want {
+			if got := enc.streamChannels; got != int32(tt.want) {
 				t.Fatalf("streamChannels = %d, want %d", got, tt.want)
 			}
 			if enc.celtEncoder == nil {

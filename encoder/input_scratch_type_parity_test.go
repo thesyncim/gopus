@@ -8,6 +8,7 @@ import (
 func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 	opusResSliceType := reflect.TypeOf([]opusRes(nil))
 	float32SliceType := reflect.TypeOf([]float32(nil))
+	int32Type := reflect.TypeOf(int32(0))
 
 	checkFieldsHaveType(t, reflect.TypeOf(Encoder{}), opusResSliceType,
 		"inputBuffer",
@@ -42,6 +43,25 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 		"scratchLaRight",
 		"scratchLaOutLeft",
 		"scratchLaOutRight",
+	)
+	checkFieldsHaveType(t, reflect.TypeOf(Encoder{}), int32Type,
+		"bitrate",
+		"packetLoss",
+		"complexity",
+		"forceChannels",
+		"lsbDepth",
+		"voiceRatio",
+		"streamChannels",
+		"prevChannels",
+		"toMono",
+		"fecConfig",
+	)
+	checkFieldsHaveType(t, reflect.TypeOf(dtxState{}), int32Type,
+		"noActivityMsQ1",
+		"frameDurationMs",
+	)
+	checkFieldsHaveType(t, reflect.TypeOf(fecState{}), int32Type,
+		"frameCount",
 	)
 }
 
