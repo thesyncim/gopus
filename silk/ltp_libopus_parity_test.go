@@ -40,7 +40,7 @@ type libopusSILKLTPFindCase struct {
 	nbSubfr    int
 	subfrLen   int
 	resStart   int
-	lags       [maxNbSubfr]int
+	lags       [maxNbSubfr]int32
 	residual32 []float32
 }
 
@@ -258,7 +258,7 @@ func TestSILKDecodePitchMatchesLibopusOracleExhaustive(t *testing.T) {
 	}
 
 	for i, tc := range cases {
-		var got [maxNbSubfr]int
+		var got [maxNbSubfr]int32
 		silkDecodePitch(int16(tc.lagIndex), int8(tc.contourIndex), got[:], tc.fsKHz, tc.nbSubfr)
 		for sf := 0; sf < tc.nbSubfr; sf++ {
 			if int32(got[sf]) != want[i][sf] {
@@ -323,7 +323,7 @@ func TestSILKDecodePitchLagClampEdgesMatchLibopusOracle(t *testing.T) {
 
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			var got [maxNbSubfr]int
+			var got [maxNbSubfr]int32
 			silkDecodePitch(int16(tc.lagIndex), int8(tc.contourIndex), got[:], tc.fsKHz, tc.nbSubfr)
 			for sf := 0; sf < tc.nbSubfr; sf++ {
 				if int32(got[sf]) != want[i][sf] {
@@ -337,9 +337,9 @@ func TestSILKDecodePitchLagClampEdgesMatchLibopusOracle(t *testing.T) {
 func TestSILKFindLTPFLPMatchesLibopusOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	cases := []libopusSILKLTPFindCase{
-		makeLibopusSILKFindLTPCase("two_subframes_40", 2, 40, 64, [maxNbSubfr]int{18, 22}, 0x10203040, 512),
-		makeLibopusSILKFindLTPCase("four_subframes_80", 4, 80, 120, [maxNbSubfr]int{32, 45, 50, 28}, 0x20304050, 4096),
-		makeLibopusSILKFindLTPCase("four_subframes_120", 4, 120, 160, [maxNbSubfr]int{56, 72, 40, 88}, 0x30405060, 32768),
+		makeLibopusSILKFindLTPCase("two_subframes_40", 2, 40, 64, [maxNbSubfr]int32{18, 22}, 0x10203040, 512),
+		makeLibopusSILKFindLTPCase("four_subframes_80", 4, 80, 120, [maxNbSubfr]int32{32, 45, 50, 28}, 0x20304050, 4096),
+		makeLibopusSILKFindLTPCase("four_subframes_120", 4, 120, 160, [maxNbSubfr]int32{56, 72, 40, 88}, 0x30405060, 32768),
 	}
 	want, err := probeLibopusSILKFindLTPFLP(cases)
 	if err != nil {
@@ -384,7 +384,7 @@ func decodePitchContourCodebookSize(fsKHz, nbSubfr int) int {
 	return peNbCbksStage3_10ms
 }
 
-func makeLibopusSILKFindLTPCase(name string, nbSubfr, subfrLen, resStart int, lags [maxNbSubfr]int, seed uint32, scale float32) libopusSILKLTPFindCase {
+func makeLibopusSILKFindLTPCase(name string, nbSubfr, subfrLen, resStart int, lags [maxNbSubfr]int32, seed uint32, scale float32) libopusSILKLTPFindCase {
 	residualLen := resStart + nbSubfr*subfrLen + ltpOrderConst
 	return libopusSILKLTPFindCase{
 		name:       name,

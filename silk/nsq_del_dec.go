@@ -109,14 +109,14 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 		copy(psDD.sAR2Q14[:], nsq.sAR2Q14[:])
 	}
 
-	lag := nsq.lagPrev
+	lag := int(nsq.lagPrev)
 	decDelay := decisionDelay
 	if decDelay > subfrLength {
 		decDelay = subfrLength
 	}
 	if params.SignalType == typeVoiced {
 		for k := 0; k < nbSubfr && k < len(params.PitchL); k++ {
-			tmp := params.PitchL[k] - ltpOrderConst/2 - 1
+			tmp := int(params.PitchL[k]) - ltpOrderConst/2 - 1
 			if tmp < decDelay {
 				decDelay = tmp
 			}
@@ -155,7 +155,7 @@ func NoiseShapeQuantizeDelDec(nsq *NSQState, input []int16, params *NSQParams) (
 
 		nsq.rewhiteFlag = 0
 		if params.SignalType == typeVoiced {
-			lag = params.PitchL[k]
+			lag = int(params.PitchL[k])
 			if (k & (3 - (lsfInterpFlag << 1))) == 0 {
 				if k == 2 {
 					// RESET DELAYED DECISIONS
@@ -278,12 +278,12 @@ func nsqDelDecScaleStates(
 	nStatesDelayedDecision int,
 	ltpScaleQ14 int32,
 	gainsQ16 []int32,
-	pitchL []int,
+	pitchL []int32,
 	signalType int,
 	decisionDelayActive int,
 	ltpMemLength int,
 ) {
-	lag := pitchL[subfr]
+	lag := int(pitchL[subfr])
 	invGainQ31 := silk_INVERSE32_varQ(silk_max(gainsQ16[subfr], 1), 47)
 	invGainQ26 := silk_RSHIFT_ROUND(invGainQ31, 5)
 	for i := 0; i < len(xScQ10) && i < len(x16); i++ {

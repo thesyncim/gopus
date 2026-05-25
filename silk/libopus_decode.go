@@ -296,7 +296,7 @@ func silkDecodePulsesWithScratch(rd *rangecoding.Decoder, pulses []int16, signal
 	silkDecodeSigns(rd, pulses, frameLength, signalType, quantOffsetType, sumPulses)
 }
 
-func silkDecodePitch(lagIndex int16, contourIndex int8, pitchL []int, fsKHz int, nbSubfr int) {
+func silkDecodePitch(lagIndex int16, contourIndex int8, pitchL []int32, fsKHz int, nbSubfr int) {
 	var lagCB [][]int8
 	var cbkSize int
 	if fsKHz == 8 {
@@ -327,8 +327,7 @@ func silkDecodePitch(lagIndex int16, contourIndex int8, pitchL []int, fsKHz int,
 		if idx >= cbkSize {
 			idx = cbkSize - 1
 		}
-		pitchL[k] = lag + int(lagCB[k][idx])
-		pitchL[k] = silkLimitInt(pitchL[k], minLag, maxLag)
+		pitchL[k] = int32(silkLimitInt(lag+int(lagCB[k][idx]), minLag, maxLag))
 	}
 }
 
@@ -704,13 +703,13 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 		}
 
 		if signalType == typeVoiced {
-			lag := ctrl.pitchL[k]
+			lag := int(ctrl.pitchL[k])
 			invGainQ31 = processLTPVoiced(st, ctrl, out, A_Q12, sLTP, sLTP_Q15, sLTPBufIdx, lag, k, interpFlag, invGainQ31, gainAdjQ16)
 		}
 
 		var presQ14 []int32
 		if signalType == typeVoiced {
-			lag := ctrl.pitchL[k]
+			lag := int(ctrl.pitchL[k])
 			predLagPtr := sLTPBufIdx - lag + ltpOrder/2
 			// Use pre-allocated presQ14 buffer if available
 			if st.scratchPresQ14 != nil && len(st.scratchPresQ14) >= st.subfrLength {

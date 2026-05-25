@@ -111,7 +111,7 @@ func TestSILKPitchAnalysisCoreMatchesLibopus(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			enc := NewEncoder(tc.bandwidth)
 			enc.pitchEstimationComplexity = tc.complexity
-			enc.pitchState.prevLag = tc.prevLag
+			enc.pitchState.prevLag = int32(tc.prevLag)
 			enc.pitchState.ltpCorr = tc.ltpCorr
 			gotLags, gotLagIndex, gotContourIndex := enc.detectPitch(tc.frame, tc.nbSubfr, tc.searchThres1, tc.searchThres2)
 
@@ -126,7 +126,7 @@ func TestSILKPitchAnalysisCoreMatchesLibopus(t *testing.T) {
 				t.Fatalf("ret=%d want %d lags=%v", gotRet, want[i].ret, gotLags)
 			}
 			for sf := 0; sf < tc.nbSubfr; sf++ {
-				if got := gotLags[sf]; got != want[i].pitchOut[sf] {
+				if got := gotLags[sf]; got != int32(want[i].pitchOut[sf]) {
 					t.Fatalf("pitch_out[%d]=%d want %d", sf, got, want[i].pitchOut[sf])
 				}
 			}

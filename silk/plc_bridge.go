@@ -39,7 +39,7 @@ func (d *Decoder) updateSILKPLCStateFromCtrl(channel int, st *decoderState, ctrl
 		subfrLength = 80
 	}
 
-	var pitchL [maxNbSubfr]int
+	var pitchL [maxNbSubfr]int32
 	copy(pitchL[:nbSubfr], ctrl.pitchL[:nbSubfr])
 
 	var ltpCoefQ14 [ltpOrder * maxNbSubfr]int16

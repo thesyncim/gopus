@@ -9,7 +9,7 @@ func pitchLagFromState(state *plc.SILKPLCState, st *decoderState) int {
 	if st == nil {
 		return 0
 	}
-	return st.lagPrev
+	return int(st.lagPrev)
 }
 
 func lastGainQ16FromState(st *decoderState) int32 {

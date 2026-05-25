@@ -43,7 +43,7 @@ type decoderState struct {
 	excQ14               [maxFrameLength]int32
 	sLPCQ14Buf           [maxLPCOrder]int32
 	outBuf               [maxFrameLength + 2*maxSubFrameLength]int16
-	lagPrev              int
+	lagPrev              int32
 	lastGainIndex        int8
 	nFramesDecoded       int
 	nFramesPerPacket     int
@@ -94,7 +94,7 @@ type decoderState struct {
 }
 
 type decoderControl struct {
-	pitchL      [maxNbSubfr]int
+	pitchL      [maxNbSubfr]int32
 	GainsQ16    [maxNbSubfr]int32
 	PredCoefQ12 [2][maxLPCOrder]int16
 	LTPCoefQ14  [ltpOrder * maxNbSubfr]int16

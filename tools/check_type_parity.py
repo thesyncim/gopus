@@ -93,7 +93,8 @@ INT_FINDING_RE = re.compile(
     r"pvq(?:Pulses|Refine)|"
     r"qext(?:ExtraBits|FineBits|Pulses|Quant|Iy)|"
     r"Offsets|Importance"
-    r")\s+\[\]int\b"
+    r")\s+\[\]int\b|"
+    r"\b(?:PitchLags|PitchL|pitchL|pitchLags)\s+(?:\[\]int|\[maxNbSubfr\]int)\b"
 )
 
 
@@ -169,7 +170,7 @@ def scan() -> dict[FindingKey, Finding]:
         except UnicodeDecodeError:
             lines = path.read_text(encoding="latin-1").splitlines()
         is_oracle_probe = any("gopus_libopus_oracle" in line for line in lines[:5])
-        check_int_width = path.parts and path.parts[0] in {"celt", "encoder"}
+        check_int_width = path.parts and path.parts[0] in {"celt", "encoder", "plc", "silk"}
         for idx, line in enumerate(lines, start=1):
             if not FINDING_RE.search(line) and (
                 is_oracle_probe or not check_int_width or not INT_FINDING_RE.search(line)

@@ -104,7 +104,7 @@ func TestFrameParamsStruct(t *testing.T) {
 		Gains:          make([]int32, 4),
 		LPCOrder:       10,
 		LPCCoeffs:      make([]int16, 10),
-		PitchLags:      make([]int, 4),
+		PitchLags:      make([]int32, 4),
 		LTPCoeffs:      make([][]int8, 4),
 		LTPPeriodicity: 1,
 	}

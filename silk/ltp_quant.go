@@ -86,7 +86,7 @@ func corrVectorFLP(x, y []float32, subfrLen, order int, out []float32) {
 	}
 }
 
-func findLTPFLP(XX, xX []float32, residual []float32, resStart int, lag []int, subfrLen, nbSubfr int) {
+func findLTPFLP(XX, xX []float32, residual []float32, resStart int, lag []int32, subfrLen, nbSubfr int) {
 	xxIdx := 0
 	xXIdx := 0
 	rPtrStart := resStart
@@ -94,7 +94,8 @@ func findLTPFLP(XX, xX []float32, residual []float32, resStart int, lag []int, s
 		if k >= len(lag) {
 			break
 		}
-		lagPtrStart := rPtrStart - (lag[k] + ltpOrderConst/2)
+		lagVal := int(lag[k])
+		lagPtrStart := rPtrStart - (lagVal + ltpOrderConst/2)
 		if lagPtrStart < 0 || rPtrStart < 0 || rPtrStart+subfrLen+ltpOrderConst > len(residual) || lagPtrStart+subfrLen+ltpOrderConst > len(residual) {
 			for i := 0; i < ltpOrderConst*ltpOrderConst; i++ {
 				XX[xxIdx+i] = 0
@@ -269,7 +270,7 @@ func silkQuantLTPGains(B_Q14 []int16, cbkIndex []int8, periodicityIndex *int8, s
 	*sumLogGainQ7 = bestSumLogGainQ7
 }
 
-func (e *Encoder) analyzeLTPQuantized(residual []float32, resStart int, pitchLags []int, numSubframes, subframeSamples int) (LTPCoeffsArray, [maxNbSubfr]int8, int, int32) {
+func (e *Encoder) analyzeLTPQuantized(residual []float32, resStart int, pitchLags []int32, numSubframes, subframeSamples int) (LTPCoeffsArray, [maxNbSubfr]int8, int, int32) {
 	var ltpCoeffs LTPCoeffsArray
 	var cbkIndex [maxNbSubfr]int8
 	perIndex := 0

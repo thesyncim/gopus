@@ -39,8 +39,8 @@ type NSQState struct {
 	// Difference shaping state (Q14)
 	sDiffShpQ14 int32
 
-	// Previous pitch lag
-	lagPrev int
+	// Previous pitch lag (libopus int domain)
+	lagPrev int32
 
 	// LTP buffer index
 	sLTPBufIdx int
@@ -185,7 +185,7 @@ type NSQParams struct {
 	GainsQ16 []int32
 
 	// Pitch lags per subframe
-	PitchL []int
+	PitchL []int32
 
 	// Rate/distortion tradeoff (Lambda, Q10)
 	LambdaQ10 int32
@@ -231,7 +231,7 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 	offsetQ10 := getQuantizationOffset(params.SignalType, params.QuantOffsetType)
 
 	// Set unvoiced lag to previous, overwrite for voiced
-	lag := nsq.lagPrev
+	lag := int(nsq.lagPrev)
 
 	// Use pre-allocated output buffers if available, otherwise allocate
 	var pulses []int8
@@ -321,7 +321,7 @@ func NoiseShapeQuantize(nsq *NSQState, input []int16, params *NSQParams) ([]int8
 
 		nsq.rewhiteFlag = 0
 		if params.SignalType == typeVoiced {
-			lag = params.PitchL[k]
+			lag = int(params.PitchL[k])
 
 			// Re-whitening for voiced frames at specific subframes
 			if (k & (3 - (lsfInterpFlag << 1))) == 0 {
@@ -659,12 +659,12 @@ func scaleNSQStates(
 	subfr int,
 	ltpScaleQ14 int32,
 	gainsQ16 []int32,
-	pitchL []int,
+	pitchL []int32,
 	signalType int,
 	subfrLength int,
 	ltpMemLength int,
 ) {
-	lag := pitchL[subfr]
+	lag := int(pitchL[subfr])
 	invGainQ31 := silk_INVERSE32_varQ(silk_max(gainsQ16[subfr], 1), 47)
 
 	// Scale input (to Q10)

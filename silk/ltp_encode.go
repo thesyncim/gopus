@@ -10,7 +10,7 @@ type LTPCoeffsArray [4][5]int8
 // Per draft-vos-silk-01 Section 2.1.2.6.
 // Returns 5-tap LTP coefficients per subframe in Q7 format.
 // Uses fixed-size array to avoid allocations.
-func (e *Encoder) analyzeLTP(pcm []float32, pitchLags []int, numSubframes int, periodicity int) LTPCoeffsArray {
+func (e *Encoder) analyzeLTP(pcm []float32, pitchLags []int32, numSubframes int, periodicity int) LTPCoeffsArray {
 	config := GetBandwidthConfig(e.bandwidth)
 	subframeSamples := config.SubframeSamples
 
@@ -18,7 +18,7 @@ func (e *Encoder) analyzeLTP(pcm []float32, pitchLags []int, numSubframes int, p
 
 	for sf := 0; sf < numSubframes && sf < 4; sf++ {
 		start := sf * subframeSamples
-		lag := pitchLags[sf]
+		lag := int(pitchLags[sf])
 
 		// Compute optimal LTP coefficients via least squares
 		coeffs := computeLTPCoeffs(pcm, start, subframeSamples, lag)
@@ -296,7 +296,7 @@ func findLTPCodebookIndex(coeffs [5]int8, periodicity int) int {
 
 // determinePeriodicity determines LTP periodicity level based on signal characteristics.
 // Returns 0 (low), 1 (mid), or 2 (high) periodicity.
-func (e *Encoder) determinePeriodicity(pcm []float32, pitchLags []int) int {
+func (e *Encoder) determinePeriodicity(pcm []float32, pitchLags []int32) int {
 	// Compute average normalized autocorrelation at pitch lag
 	var totalCorr float32
 	var count int
@@ -304,7 +304,8 @@ func (e *Encoder) determinePeriodicity(pcm []float32, pitchLags []int) int {
 	config := GetBandwidthConfig(e.bandwidth)
 	subframeSamples := config.SubframeSamples
 
-	for sf, lag := range pitchLags {
+	for sf, lag32 := range pitchLags {
+		lag := int(lag32)
 		start := sf * subframeSamples
 		end := start + subframeSamples
 		if end > len(pcm) {
