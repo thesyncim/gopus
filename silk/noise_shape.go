@@ -123,7 +123,7 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	pitchLags []int,
 	originalSNR float32,
 	quantOffsetType int,
-	inputQualityBandsQ15 [4]int,
+	inputQualityBandsQ15 [4]int32,
 	numSubframes int,
 	fsKHz int,
 	nStatesDelayedDecision int,

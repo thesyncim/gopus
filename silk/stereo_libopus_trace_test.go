@@ -22,11 +22,11 @@ func TestSILKPacket0MidFrameCoreTraceOracle(t *testing.T) {
 	}
 	enc, re, midOut := prepareSILKPacket0MidFrameCoreOracle(t, signal, bitRate, maxBits, payloadSizeMs, want)
 
-	var quality [4]int
+	var quality [4]int32
 	for i := range quality {
-		quality[i] = int(want.midInputQualityBands[i])
+		quality[i] = want.midInputQualityBands[i]
 	}
-	enc.SetVADState(int(want.midSpeechActivityQ8), int(want.midInputTiltQ15), quality)
+	enc.SetVADState(want.midSpeechActivityQ8, want.midInputTiltQ15, quality)
 	enc.stereoCondMid = enc
 	enc.stereoCondMidFramesEncoded = 0
 	enc.stereoChannelIdx = 0

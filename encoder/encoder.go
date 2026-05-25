@@ -99,9 +99,9 @@ type Encoder struct {
 	// FEC controls
 	fecEnabled                  bool
 	packetLoss                  int // Expected packet loss percentage (0-100)
-	lastVADActivityQ8           int
-	lastVADInputTiltQ15         int
-	lastVADInputQualityBandsQ15 [4]int
+	lastVADActivityQ8           int32
+	lastVADInputTiltQ15         int32
+	lastVADInputQualityBandsQ15 [4]int32
 	lastVADActive               bool
 	lastVADValid                bool
 	lastOpusVADActive           bool
@@ -3397,7 +3397,7 @@ func computeSilkVADFrameState(state *VADState, mono []float32, frameSamples, fsK
 	}
 	activityQ8, active := state.GetSpeechActivity(mono, frameSamples, fsKHz)
 	return silk.VADFrameState{
-		SpeechActivityQ8:     activityQ8,
+		SpeechActivityQ8:     int32(activityQ8),
 		InputTiltQ15:         state.InputTiltQ15,
 		InputQualityBandsQ15: state.InputQualityBandsQ15,
 		Valid:                true,
@@ -3624,12 +3624,12 @@ func (e *Encoder) SignalType() types.Signal {
 
 // LastSilkVADActivity returns the last SILK VAD speech activity (Q8, 0-255).
 func (e *Encoder) LastSilkVADActivity() int {
-	return e.lastVADActivityQ8
+	return int(e.lastVADActivityQ8)
 }
 
 // LastSilkVADInputTiltQ15 returns the last SILK VAD input tilt (Q15).
 func (e *Encoder) LastSilkVADInputTiltQ15() int {
-	return e.lastVADInputTiltQ15
+	return int(e.lastVADInputTiltQ15)
 }
 
 // LastOpusVADProb returns the last Opus-level VAD probability (0..1).

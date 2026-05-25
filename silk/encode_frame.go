@@ -179,7 +179,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	// Step 1: Determine activity and defaults
 	var signalType, quantOffset int
-	speechActivityQ8 := 0
+	speechActivityQ8 := int32(0)
 	if vadFlag {
 		signalType = typeUnvoiced
 		quantOffset = 0
@@ -256,7 +256,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	}
 
 	// Step 3: Noise shaping analysis
-	noiseParams, gains, quantOffset := e.noiseShapeAnalysis(framePCM, pitchRes, resStart, signalType, speechActivityQ8, e.lastLPCGain, pitchLags, quantOffset, numSubframes, subframeSamples)
+	noiseParams, gains, quantOffset := e.noiseShapeAnalysis(framePCM, pitchRes, resStart, signalType, int(speechActivityQ8), e.lastLPCGain, pitchLags, quantOffset, numSubframes, subframeSamples)
 
 	// Step 4: Build LTP residual and compute LPC
 	fsKHz := config.SampleRate / 1000
@@ -277,7 +277,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	}
 	minInvGainVal := computeMinInvGain(predGainQ7, codingQuality, firstFrameAfterReset)
 	lpcQ12, lsfQ15, interpIdx := e.computeLPCAndNLSFWithInterp(ltpRes, numSubframes, subframeSamples, minInvGainVal)
-	stage1Idx, residuals, interpIdx := e.quantizeLSFWithInterp(lsfQ15, e.bandwidth, signalType, speechActivityQ8, numSubframes, interpIdx)
+	stage1Idx, residuals, interpIdx := e.quantizeLSFWithInterp(lsfQ15, e.bandwidth, signalType, int(speechActivityQ8), numSubframes, interpIdx)
 	lsfQ15 = e.decodeQuantizedNLSF(stage1Idx, residuals, e.bandwidth)
 	predCoefQ12 := ensureInt16Slice(&e.scratchPredCoefQ12, 2*maxLPCOrder)
 	interpIdx = e.buildPredCoefQ12(predCoefQ12, lsfQ15, interpIdx)
@@ -301,12 +301,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			traceResNrgBits[i] = int32(math.Float32bits(resNrg[i]))
 		}
 	}
-	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, e.inputTiltQ15, subframeSamples)
+	processedQuantOffset := applyGainProcessing(gains, resNrg, predGainQ7, e.snrDBQ7, signalType, int(e.inputTiltQ15), subframeSamples)
 	if signalType == typeVoiced {
 		quantOffset = processedQuantOffset
 	}
 	if noiseParams != nil {
-		noiseParams.LambdaQ10 = computeLambdaQ10(signalType, speechActivityQ8, quantOffset, e.nStatesDelayedDecision, noiseParams.CodingQuality, noiseParams.InputQuality)
+		noiseParams.LambdaQ10 = computeLambdaQ10(signalType, int(speechActivityQ8), quantOffset, e.nStatesDelayedDecision, noiseParams.CodingQuality, noiseParams.InputQuality)
 	}
 
 	// Step 7: Prepare indices and gains for bitrate control loop.
@@ -378,7 +378,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 	// LBRR uses pre-NSQ indices/NSQ state (libopus silk_LBRR_encode_FLP before the bitrate loop).
 	if e.lbrrEnabled {
-		e.lbrrEncode(framePCM, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, speechActivityQ8, currentPrevInd, condCoding)
+		e.lbrrEncode(framePCM, frameIndices, lpcQ12, predCoefQ12, interpIdx, pitchLags, ltpCoeffs, ltpScaleIndex, noiseParams, seed, numSubframes, subframeSamples, frameSamples, int(speechActivityQ8), currentPrevInd, condCoding)
 	}
 
 	ltpScaleQ14 := int32(0)
@@ -432,7 +432,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 
 			// Noise shaping quantization
 			var seedOut int
-			pulses, seedOut = e.computeNSQExcitation(framePCM, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, speechActivityQ8, noiseParams, int(frameIndices.Seed), numSubframes, subframeSamples, frameSamples, e.nsqState)
+			pulses, seedOut = e.computeNSQExcitation(framePCM, lpcQ12, predCoefQ12, interpIdx, gainsQ16, pitchLags, ltpCoeffs, ltpScaleQ14, signalType, quantOffset, int(speechActivityQ8), noiseParams, int(frameIndices.Seed), numSubframes, subframeSamples, frameSamples, e.nsqState)
 			frameIndices.Seed = int8(seedOut)
 			frameIndices.quantOffsetType = int8(quantOffset)
 
@@ -821,11 +821,11 @@ func (e *Encoder) updateAllowBandwidthSwitch(payloadSizeMs int) {
 	if payloadSizeMs <= 0 {
 		return
 	}
-	thresholdQ8 := int(silkSMLAWB(
+	thresholdQ8 := silkSMLAWB(
 		int32(speechActivityDTXThresholdQ8),
 		int32(e.timeSinceSwitchAllowedMS),
 		int32(bandwidthSwitchDelaySlopeQ24Q8),
-	))
+	)
 	if e.lastSpeechActivityQ8 < thresholdQ8 {
 		e.allowBandwidthSwitch = true
 		e.timeSinceSwitchAllowedMS = 0
@@ -975,7 +975,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		if fsKHz < 8 {
 			fsKHz = 8
 		}
-		inputQualityBandsQ15 := [4]int{-1, -1, -1, -1}
+		inputQualityBandsQ15 := [4]int32{-1, -1, -1, -1}
 		if e.speechActivitySet {
 			inputQualityBandsQ15 = e.inputQualityBandsQ15
 		}

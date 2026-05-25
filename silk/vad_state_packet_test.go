@@ -28,7 +28,7 @@ func TestEncodePacketWithFECWithVADStatesUsesPerFrameState(t *testing.T) {
 	low := VADFrameState{
 		SpeechActivityQ8: 0,
 		InputTiltQ15:     -20000,
-		InputQualityBandsQ15: [4]int{
+		InputQualityBandsQ15: [4]int32{
 			0, 0, 0, 0,
 		},
 		Valid: true,
@@ -36,7 +36,7 @@ func TestEncodePacketWithFECWithVADStatesUsesPerFrameState(t *testing.T) {
 	high := VADFrameState{
 		SpeechActivityQ8: 255,
 		InputTiltQ15:     20000,
-		InputQualityBandsQ15: [4]int{
+		InputQualityBandsQ15: [4]int32{
 			32767, 32767, 32767, 32767,
 		},
 		Valid: true,

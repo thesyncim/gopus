@@ -76,7 +76,7 @@ func TestEncodeStereoAppliesPerChannelRateSplitWithVADCarryover(t *testing.T) {
 	left, right := makeStereoTestFrame(frameLen, sampleRate)
 
 	calcEnc := NewEncoder(bw)
-	calcEnc.SetVADState(200, 0, [4]int{})
+	calcEnc.SetVADState(200, 0, [4]int32{})
 	leftFrame := stereoFrameWithLookahead(left, 0, frameLen)
 	rightFrame := stereoFrameWithLookahead(right, 0, frameLen)
 	_, _, _, midOnly, expMidRate, expSideRate, _ := calcEnc.StereoLRToMSWithRates(
@@ -90,7 +90,7 @@ func TestEncodeStereoAppliesPerChannelRateSplitWithVADCarryover(t *testing.T) {
 	sideEnc := NewEncoder(bw)
 	enc.SetBitrate(totalRate)
 	sideEnc.SetBitrate(totalRate)
-	enc.SetVADState(200, 0, [4]int{})
+	enc.SetVADState(200, 0, [4]int32{})
 
 	pkt, err := EncodeStereoWithEncoderVADFlags(enc, sideEnc, left, right, bw, []bool{true})
 	if err != nil {

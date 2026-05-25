@@ -530,7 +530,7 @@ func (e *Encoder) StereoLRToMSWithRates(
 	left, right []float32,
 	frameLength, fsKHz int,
 	totalRateBps int,
-	prevSpeechActQ8 int,
+	prevSpeechActQ8 int32,
 	toMono bool,
 ) (midOut, sideOut []float32, ix StereoQuantIndices, midOnly bool, midRate, sideRate int, widthQ14 int16) {
 	if frameLength <= 0 {
@@ -587,7 +587,7 @@ func (e *Encoder) StereoLRToMSWithRates(
 	if frameLength == 10*fsKHz {
 		smoothCoefQ16 = int32(silkFixConst(stereoRatioSmoothCoef/2.0, 16))
 	}
-	smoothCoefQ16 = silkSMULWB(silkSMULBB(int32(prevSpeechActQ8), int32(prevSpeechActQ8)), smoothCoefQ16)
+	smoothCoefQ16 = silkSMULWB(silkSMULBB(prevSpeechActQ8, prevSpeechActQ8), smoothCoefQ16)
 	lpMidResQ0 := [2]int32{
 		e.stereo.midSideAmpQ0[0],
 		e.stereo.midSideAmpQ0[1],

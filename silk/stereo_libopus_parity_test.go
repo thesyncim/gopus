@@ -586,7 +586,7 @@ func TestSILKStereoLRToMSMatchesLibopusOracle(t *testing.T) {
 			setStereoStateFromOracle(&enc.stereo, tc.state)
 			mid, side, ix, midOnly, midRate, sideRate, widthQ14 := enc.StereoLRToMSWithRates(
 				int16PCMToFloat32(tc.left), int16PCMToFloat32(tc.right),
-				tc.frameLength, tc.fsKHz, tc.totalRateBps, tc.speechActQ8, tc.toMono,
+				tc.frameLength, tc.fsKHz, tc.totalRateBps, int32(tc.speechActQ8), tc.toMono,
 			)
 			if libopusStereoBoolWord(midOnly) != want[i].midOnly {
 				t.Fatalf("midOnly=%v want %d", midOnly, want[i].midOnly)
@@ -666,11 +666,11 @@ func TestSILKPacket0MidFrameCoreOracle(t *testing.T) {
 	}
 	enc, re, midOut := prepareSILKPacket0MidFrameCoreOracle(t, signal, bitRate, maxBits, payloadSizeMs, want)
 
-	var quality [4]int
+	var quality [4]int32
 	for i := range quality {
-		quality[i] = int(want.midInputQualityBands[i])
+		quality[i] = want.midInputQualityBands[i]
 	}
-	enc.SetVADState(int(want.midSpeechActivityQ8), int(want.midInputTiltQ15), quality)
+	enc.SetVADState(want.midSpeechActivityQ8, want.midInputTiltQ15, quality)
 	enc.stereoCondMid = enc
 	enc.stereoCondMidFramesEncoded = 0
 	enc.stereoChannelIdx = 0

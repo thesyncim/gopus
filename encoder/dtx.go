@@ -203,7 +203,7 @@ func (e *Encoder) GetVADActivity() int {
 	if e.dtx == nil || e.dtx.vad == nil {
 		return 0
 	}
-	return e.dtx.vad.SpeechActivityQ8
+	return int(e.dtx.vad.SpeechActivityQ8)
 }
 
 // classifySignal determines signal type using energy-based detection.

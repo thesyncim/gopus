@@ -619,11 +619,11 @@ jobs:
       - name: Generate native libopus fixtures
         run: make fixtures-gen-platform
 
-      - name: Run native fixture parity smoke
+      - name: Run native decoder fixture parity smoke
         run: |
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^(TestDecoderParityLibopusMatrix|TestEncoderVariantCELTAllocationParityAgainstFixture)$' \
+              -run '^(TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture)$' \
               -count=1 -timeout=10m
 
       - name: Run test suite
@@ -669,11 +669,11 @@ jobs:
       - name: Generate native libopus fixtures
         run: make fixtures-gen-platform
 
-      - name: Run native fixture parity smoke
+      - name: Run native decoder fixture parity smoke
         run: |
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^(TestDecoderParityLibopusMatrix|TestEncoderVariantCELTAllocationParityAgainstFixture)$' \
+              -run '^(TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture)$' \
               -count=1 -timeout=10m
 
   test-windows:
@@ -747,12 +747,12 @@ jobs:
         shell: msys2 {0}
         run: make fixtures-gen-platform
 
-      - name: Run native fixture parity smoke
+      - name: Run native decoder fixture parity smoke
         shell: msys2 {0}
         run: |
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
             go test -tags gopus_libopus_oracle ./testvectors \
-              -run '^(TestDecoderParityLibopusMatrix|TestEncoderVariantCELTAllocationParityAgainstFixture)$' \
+              -run '^(TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture)$' \
               -count=1 -timeout=10m
 
       - name: Run test suite

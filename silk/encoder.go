@@ -5,9 +5,9 @@ import "github.com/thesyncim/gopus/rangecoding"
 // VADFrameState carries per-frame SILK VAD-derived controls.
 // It mirrors the state produced by silk_encode_do_VAD_Fxx in libopus.
 type VADFrameState struct {
-	SpeechActivityQ8     int
-	InputTiltQ15         int
-	InputQualityBandsQ15 [4]int
+	SpeechActivityQ8     int32
+	InputTiltQ15         int32
+	InputQualityBandsQ15 [4]int32
 	Valid                bool
 }
 
@@ -56,11 +56,11 @@ type Encoder struct {
 	pitchAnalysisBuf []float32          // History buffer for pitch analysis (LTP memory + frame)
 
 	// VAD-derived state (optional, provided by Opus-level encoder)
-	speechActivityQ8     int    // Speech activity in Q8 (0-255)
-	inputTiltQ15         int    // Spectral tilt in Q15 from VAD
-	inputQualityBandsQ15 [4]int // Quality in each VAD band (Q15)
-	speechActivitySet    bool   // Whether VAD-derived state was explicitly set
-	lastSpeechActivityQ8 int    // Most recent encoded frame activity, for packet-level switch gating
+	speechActivityQ8     int32    // Speech activity in Q8 (0-255)
+	inputTiltQ15         int32    // Spectral tilt in Q15 from VAD
+	inputQualityBandsQ15 [4]int32 // Quality in each VAD band (Q15)
+	speechActivitySet    bool     // Whether VAD-derived state was explicitly set
+	lastSpeechActivityQ8 int32    // Most recent encoded frame activity, for packet-level switch gating
 
 	// NSQ (Noise Shaping Quantization) state
 	nsqState        *NSQState        // Noise shaping quantizer state for proper libopus-matching
@@ -443,7 +443,7 @@ func (e *Encoder) Reset() {
 	e.speechActivityQ8 = 0
 	e.lastSpeechActivityQ8 = 0
 	e.inputTiltQ15 = 0
-	e.inputQualityBandsQ15 = [4]int{}
+	e.inputQualityBandsQ15 = [4]int32{}
 	e.speechActivitySet = false
 	e.timeSinceSwitchAllowedMS = 0
 	e.allowBandwidthSwitch = false
@@ -727,7 +727,7 @@ func (e *Encoder) SetPreviousFrameVoiced(voiced bool) {
 
 // SetVADState sets speech activity and spectral tilt from VAD analysis.
 // These values influence pitch thresholding and noise shaping.
-func (e *Encoder) SetVADState(speechActivityQ8 int, inputTiltQ15 int, inputQualityBandsQ15 [4]int) {
+func (e *Encoder) SetVADState(speechActivityQ8 int32, inputTiltQ15 int32, inputQualityBandsQ15 [4]int32) {
 	if speechActivityQ8 < 0 {
 		speechActivityQ8 = 0
 	}

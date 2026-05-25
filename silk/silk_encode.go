@@ -338,7 +338,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 		if midState.Valid {
 			enc.SetVADState(midState.SpeechActivityQ8, midState.InputTiltQ15, midState.InputQualityBandsQ15)
 		} else if !midFrameVAD {
-			enc.SetVADState(speechActivityDTXThresholdQ8-1, 0, [4]int{-1, -1, -1, -1})
+			enc.SetVADState(speechActivityDTXThresholdQ8-1, 0, [4]int32{-1, -1, -1, -1})
 		}
 
 		// Set up shared range encoder for mid channel encoding.
@@ -359,7 +359,7 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 			if sideState.Valid {
 				sideEnc.SetVADState(sideState.SpeechActivityQ8, sideState.InputTiltQ15, sideState.InputQualityBandsQ15)
 			} else if !sideFrameVAD {
-				sideEnc.SetVADState(speechActivityDTXThresholdQ8-1, 0, [4]int{-1, -1, -1, -1})
+				sideEnc.SetVADState(speechActivityDTXThresholdQ8-1, 0, [4]int32{-1, -1, -1, -1})
 			}
 			sideEnc.stereoCondMid = enc
 			sideEnc.stereoCondMidFramesEncoded = midFramesEncodedInPacket

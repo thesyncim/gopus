@@ -97,13 +97,13 @@ type VADState struct {
 	Counter int32
 
 	// Speech activity probability (Q8, 0-255)
-	SpeechActivityQ8 int
+	SpeechActivityQ8 int32
 
 	// Input quality bands (Q15)
-	InputQualityBandsQ15 [VADNBands]int
+	InputQualityBandsQ15 [VADNBands]int32
 
 	// Input tilt (Q15)
-	InputTiltQ15 int
+	InputTiltQ15 int32
 
 	// Hangover counter for smooth transitions
 	HangoverCount int
@@ -157,7 +157,7 @@ func (v *VADState) Reset() {
 	v.XnrgSubfr = [VADNBands]int32{}
 	v.HPState = 0
 	v.SpeechActivityQ8 = 0
-	v.InputQualityBandsQ15 = [VADNBands]int{}
+	v.InputQualityBandsQ15 = [VADNBands]int32{}
 	v.InputTiltQ15 = 0
 	v.HangoverCount = 0
 	v.PrevActivity = false
@@ -324,7 +324,7 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 	saQ15 := sigmQ15(smulwb(VADSNRFactorQ16, pSNRdBQ7) - VADNegativeOffsetQ5)
 
 	// Frequency tilt measure
-	v.InputTiltQ15 = int((sigmQ15(inputTilt) - 16384) << 1)
+	v.InputTiltQ15 = (sigmQ15(inputTilt) - 16384) << 1
 
 	// Scale sigmoid output based on power levels
 	var speechNrg int32
@@ -348,7 +348,11 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 	}
 
 	// Convert to Q8 (0-255) and clamp
-	v.SpeechActivityQ8 = min(int(saQ15>>7), 255)
+	speechActivityQ8 := saQ15 >> 7
+	if speechActivityQ8 > 255 {
+		speechActivityQ8 = 255
+	}
+	v.SpeechActivityQ8 = speechActivityQ8
 
 	// Smoothing coefficient based on activity
 	tmp := smulwb(int32(saQ15), int32(saQ15))
@@ -366,13 +370,13 @@ func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz i
 		// SNR in dB per band
 		snrQ7 := int32(3) * (lin2log(v.NrgRatioSmthQ8[b]) - 8*128)
 		// Quality = sigmoid(0.25 * (SNR_dB - 16))
-		v.InputQualityBandsQ15[b] = int(sigmQ15((snrQ7 - 16*128) >> 4))
+		v.InputQualityBandsQ15[b] = sigmQ15((snrQ7 - 16*128) >> 4)
 	}
 
 	// Activity decision (matches libopus: compare speech_activity_Q8 to threshold)
 	isActive := v.SpeechActivityQ8 >= speechActivityThresholdQ8
 
-	return v.SpeechActivityQ8, isActive
+	return int(v.SpeechActivityQ8), isActive
 }
 
 // getNoiseLevels updates noise level estimates for each band.

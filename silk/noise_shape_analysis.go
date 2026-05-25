@@ -36,7 +36,7 @@ func (e *Encoder) noiseShapeAnalysis(
 		}
 	}
 
-	inputQualityBandsQ15 := [4]int{-1, -1, -1, -1}
+	inputQualityBandsQ15 := [4]int32{-1, -1, -1, -1}
 	if e.speechActivitySet {
 		inputQualityBandsQ15 = e.inputQualityBandsQ15
 	}
