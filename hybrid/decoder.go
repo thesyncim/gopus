@@ -59,11 +59,11 @@ type Decoder struct {
 	// Track previous packet stereo flag for transition handling.
 	prevPacketStereo bool
 
-	// Channel count (1 for mono, 2 for stereo)
-	channels int
+	// Channel count (1 for mono, 2 for stereo), matching libopus C int state width.
+	channels int32
 	// Decoder API sample rate. Hybrid CELT stays packet-domain internally but
 	// emits API-rate PCM, matching libopus OpusDecoder Fs.
-	apiSampleRate int
+	apiSampleRate int32
 
 	// Per-decoder PLC state (do not share across decoder instances).
 	plcState *plc.State
@@ -96,7 +96,7 @@ func NewDecoder(channels int) *Decoder {
 		silkDecoder: silk.NewDecoder(),
 		celtDecoder: celt.NewDecoder(channels),
 
-		channels:      channels,
+		channels:      int32(channels),
 		apiSampleRate: 48000,
 		plcState:      plc.NewState(),
 
@@ -124,7 +124,7 @@ func NewDecoderWithSharedDecoders(channels int, silkDec *silk.Decoder, celtDec *
 func (d *Decoder) SetAPISampleRate(sampleRate int) {
 	switch sampleRate {
 	case 8000, 12000, 16000, 24000, 48000:
-		d.apiSampleRate = sampleRate
+		d.apiSampleRate = int32(sampleRate)
 		if d.silkDecoder != nil {
 			d.silkDecoder.SetAPISampleRate(sampleRate)
 		}
@@ -163,7 +163,7 @@ func (d *Decoder) SetPrevPacketStereo(stereo bool) {
 
 // Channels returns the number of audio channels (1 or 2).
 func (d *Decoder) Channels() int {
-	return d.channels
+	return int(d.channels)
 }
 
 // SetBandwidth sets the CELT bandwidth for hybrid decoding.
@@ -215,22 +215,25 @@ func ValidHybridFrameSize(frameSize int) bool {
 }
 
 func (d *Decoder) frameSize48FromAPI(frameSize int) int {
-	if d.apiSampleRate <= 0 || d.apiSampleRate == 48000 {
+	apiSampleRate := int(d.apiSampleRate)
+	if apiSampleRate <= 0 || apiSampleRate == 48000 {
 		return frameSize
 	}
-	return frameSize * 48000 / d.apiSampleRate
+	return frameSize * 48000 / apiSampleRate
 }
 
 func (d *Decoder) downsampleFrame48ToAPI(dst, src []float32, frameSize int) {
-	if d.apiSampleRate == 48000 {
-		copy(dst[:frameSize*d.channels], src[:frameSize*d.channels])
+	channels := int(d.channels)
+	apiSampleRate := int(d.apiSampleRate)
+	if apiSampleRate == 48000 {
+		copy(dst[:frameSize*channels], src[:frameSize*channels])
 		return
 	}
-	factor := 48000 / d.apiSampleRate
+	factor := 48000 / apiSampleRate
 	for i := 0; i < frameSize; i++ {
-		srcBase := i * factor * d.channels
-		dstBase := i * d.channels
-		for c := 0; c < d.channels; c++ {
+		srcBase := i * factor * channels
+		dstBase := i * channels
+		for c := 0; c < channels; c++ {
 			dst[dstBase+c] = src[srcBase+c]
 		}
 	}
@@ -257,10 +260,11 @@ func (d *Decoder) decodeFrameWithHook(rd *rangecoding.Decoder, frameSize int, pa
 // DecodeWithDecoderHookToFloat32 decodes a hybrid frame and writes the final
 // 48 kHz output directly into out.
 func (d *Decoder) DecodeWithDecoderHookToFloat32(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error, out []float32) error {
-	if len(out) < frameSize*d.channels {
+	channels := int(d.channels)
+	if len(out) < frameSize*channels {
 		return ErrDecodeFailed
 	}
-	_, err := d.decodeFrameWithHookFloat32(rd, frameSize, packetStereo, afterSilk, out[:frameSize*d.channels])
+	_, err := d.decodeFrameWithHookFloat32(rd, frameSize, packetStereo, afterSilk, out[:frameSize*channels])
 	return err
 }
 
@@ -316,7 +320,8 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 	rightResampler := d.silkDecoder.GetResamplerRightChannel(silk.BandwidthWideband)
 
 	// Use scratch buffer for SILK upsampled output
-	totalSamples := frameSizeAPI * d.channels
+	channels := int(d.channels)
+	totalSamples := frameSizeAPI * channels
 	silkUpsampled := d.ensureSilkUpsampled(totalSamples)
 
 	// Scratch buffer for resampler output (float32)
@@ -451,7 +456,8 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 }
 
 func (d *Decoder) decodeCELTHybridToAPI(rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) ([]float32, error) {
-	needed48 := frameSize48 * d.channels
+	channels := int(d.channels)
+	needed48 := frameSize48 * channels
 	if cap(d.scratchCELT48) < needed48 {
 		d.scratchCELT48 = make([]float32, needed48)
 	}
@@ -459,7 +465,7 @@ func (d *Decoder) decodeCELTHybridToAPI(rd *rangecoding.Decoder, frameSizeAPI, f
 	if err := d.celtDecoder.DecodeFrameHybridWithPacketStereoToFloat32(rd, frameSize48, packetStereo, celt48); err != nil {
 		return nil, err
 	}
-	neededAPI := frameSizeAPI * d.channels
+	neededAPI := frameSizeAPI * channels
 	if d.apiSampleRate == 48000 {
 		return celt48[:neededAPI], nil
 	}

@@ -63,7 +63,7 @@ func (d *streamState) installOSCELACESilkPostfilterHook(silkBW silk.Bandwidth, p
 		d.resetOSCELACEState(packetStereo)
 		return restore
 	}
-	mode := pickStreamOSCELACEMode(d.complexity)
+	mode := pickStreamOSCELACEMode(int(d.complexity))
 	if mode == streamOSCELACEModeNone {
 		d.resetOSCELACEState(packetStereo)
 		return restore

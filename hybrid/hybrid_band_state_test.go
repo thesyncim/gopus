@@ -68,7 +68,7 @@ func TestHybridStartEndBandState(t *testing.T) {
 	end := celt.EffectiveBandsForFrameSize(pkt.bw, pkt.frameSize)
 	energies := dec.celtDecoder.PrevEnergy()
 
-	for c := 0; c < dec.channels; c++ {
+	for c := 0; c < int(dec.channels); c++ {
 		base := c * celt.MaxBands
 		for b := 0; b < start; b++ {
 			if math.Abs(float64(energies[base+b])) > eps {

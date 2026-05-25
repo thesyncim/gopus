@@ -94,7 +94,7 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float32, error) {
 // DecodeWithPacketStereo decodes a Hybrid frame and honors the packet stereo flag.
 // This is used when the output channels (decoder configuration) differ from the packet channels.
 func (d *Decoder) DecodeWithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
-	return d.decodeAndFinishPacket(data, frameSize, packetStereo, d.channels)
+	return d.decodeAndFinishPacket(data, frameSize, packetStereo, int(d.channels))
 }
 
 // SetRawMonoFrameHook forwards the SILK lowband raw mono/mid-channel hook used
@@ -168,7 +168,7 @@ func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error)
 
 // DecodeToFloat32WithPacketStereo decodes with packet stereo flag and converts to float32.
 func (d *Decoder) DecodeToFloat32WithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
-	return d.decodeAndFinishPacket(data, frameSize, packetStereo, d.channels)
+	return d.decodeAndFinishPacket(data, frameSize, packetStereo, int(d.channels))
 }
 
 // DecodeStereoToFloat32 decodes stereo and converts to float32 PCM.
@@ -197,7 +197,7 @@ func (d *Decoder) DecodeWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]f
 // DecodeWithDecoderHook decodes using a pre-initialized range decoder and an optional hook.
 // The hook runs after SILK decode and before CELT decode, allowing Opus-layer parsing.
 func (d *Decoder) DecodeWithDecoderHook(rd *rangecoding.Decoder, frameSize int, packetStereo bool, afterSilk func(*rangecoding.Decoder) error) ([]float32, error) {
-	return d.decodeAndFinishWithRangeDecoder(rd, frameSize, packetStereo, d.channels, afterSilk)
+	return d.decodeAndFinishWithRangeDecoder(rd, frameSize, packetStereo, int(d.channels), afterSilk)
 }
 
 // DecodeStereoWithDecoder decodes stereo using a pre-initialized range decoder.
@@ -233,11 +233,13 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 	fadeFactor := d.plcState.RecordLoss()
 
 	// Total samples for output
-	totalSamples := frameSizeAPI * d.channels
+	channels := int(d.channels)
+	totalSamples := frameSizeAPI * channels
 
 	// SILK PLC cannot produce less than 10ms; use 10ms and trim if needed.
 	plcSilkFrameSize := frameSizeAPI
-	minSilkFrameSize := d.apiSampleRate / 100
+	apiSampleRate := int(d.apiSampleRate)
+	minSilkFrameSize := apiSampleRate / 100
 	if minSilkFrameSize <= 0 {
 		minSilkFrameSize = 480
 	}
@@ -304,21 +306,21 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 	// Combine SILK and CELT
 	output := make([]float32, totalSamples)
 	factor := 1
-	if d.apiSampleRate > 0 {
-		factor = 48000 / d.apiSampleRate
+	if apiSampleRate > 0 {
+		factor = 48000 / apiSampleRate
 	}
 	if factor < 1 {
 		factor = 1
 	}
 	for i := 0; i < frameSizeAPI; i++ {
-		for c := 0; c < d.channels; c++ {
-			idx := i*d.channels + c
+		for c := 0; c < channels; c++ {
+			idx := i*channels + c
 			silkSample := float32(0)
 			celtSample := float32(0)
 			if idx < len(silkAligned) {
 				silkSample = silkAligned[idx]
 			}
-			celtIdx := i*factor*d.channels + c
+			celtIdx := i*factor*channels + c
 			if celtIdx < len(celtConcealed) {
 				celtSample = celtConcealed[celtIdx] * celtScale
 			}

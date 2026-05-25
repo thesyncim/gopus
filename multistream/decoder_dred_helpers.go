@@ -570,11 +570,12 @@ func (d *Decoder) decodeDREDPLCStream(stream, frameSize int) ([]float32, bool, e
 	}
 	frameSize48 := frameSize
 	downsample := 1
-	if st.sampleRate != 48000 {
+	sampleRate := int(st.sampleRate)
+	if sampleRate != 48000 {
 		frameSize48 = st.frameSize48FromAPI(frameSize)
-		downsample = 48000 / st.sampleRate
+		downsample = 48000 / sampleRate
 	}
-	samples := frameSize * st.channels
+	samples := frameSize * int(st.channels)
 	var out []float32
 	if stream < len(s.dredPCM32) && len(s.dredPCM32[stream]) >= samples {
 		out = s.dredPCM32[stream][:samples]

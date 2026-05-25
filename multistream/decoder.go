@@ -112,8 +112,8 @@ func parseStreamTOC(toc byte) streamTOC {
 // Each stream owns a full Opus decoder state (SILK/CELT/Hybrid), not just
 // hybrid-only state.
 type streamState struct {
-	sampleRate int
-	channels   int
+	sampleRate int32
+	channels   int32
 
 	hybridDec *hybrid.Decoder
 	celtDec   *celt.Decoder
@@ -126,9 +126,9 @@ type streamState struct {
 	lastFrameSize      int
 	lastPacketDuration int
 	lastDataLen        int
-	decodeGainQ8       int
+	decodeGainQ8       int32
 	ignoreExtensions   bool
-	complexity         int
+	complexity         int32
 
 	streamOSCEFields
 }
@@ -141,8 +141,8 @@ func newStreamDecoder(sampleRate, channels int) *streamState {
 	hybridDec := hybrid.NewDecoder(channels)
 	hybridDec.SetAPISampleRate(sampleRate)
 	return &streamState{
-		sampleRate:    sampleRate,
-		channels:      channels,
+		sampleRate:    int32(sampleRate),
+		channels:      int32(channels),
 		hybridDec:     hybridDec,
 		celtDec:       celtDec,
 		silkDec:       silkDec,
@@ -171,7 +171,7 @@ func (d *streamState) Reset() {
 	d.lastBandwidth = int(types.BandwidthFullband)
 	d.lastPacketStereo = false
 	d.haveDecoded = false
-	d.lastFrameSize = d.sampleRate / 50
+	d.lastFrameSize = int(d.sampleRate) / 50
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
 	d.resetOSCEPostfilterState()
@@ -183,12 +183,12 @@ func (d *streamState) SetIgnoreExtensions(ignore bool) {
 
 // Channels returns the channel count for this decoder.
 func (d *streamState) Channels() int {
-	return d.channels
+	return int(d.channels)
 }
 
 // SampleRate returns the decoder sample rate in Hz.
 func (d *streamState) SampleRate() int {
-	return d.sampleRate
+	return int(d.sampleRate)
 }
 
 // SetGain sets output gain in Q8 dB units (libopus OPUS_SET_GAIN semantics).
@@ -196,13 +196,13 @@ func (d *streamState) SetGain(gainQ8 int) error {
 	if gainQ8 < -32768 || gainQ8 > 32767 {
 		return ErrInvalidGain
 	}
-	d.decodeGainQ8 = gainQ8
+	d.decodeGainQ8 = int32(gainQ8)
 	return nil
 }
 
 // Gain returns the current decoder output gain in Q8 dB units.
 func (d *streamState) Gain() int {
-	return d.decodeGainQ8
+	return int(d.decodeGainQ8)
 }
 
 func (d *streamState) SetPhaseInversionDisabled(disabled bool) {
@@ -224,12 +224,12 @@ func (d *streamState) SetComplexity(complexity int) error {
 	if err := d.hybridDec.SetComplexity(complexity); err != nil {
 		return err
 	}
-	d.complexity = complexity
+	d.complexity = int32(complexity)
 	return nil
 }
 
 func (d *streamState) Complexity() int {
-	return d.complexity
+	return int(d.complexity)
 }
 
 // Pitch returns the most recent decoded pitch period.
@@ -298,17 +298,18 @@ func (d *streamState) applyOutputGain32(samples []float32) {
 	if d.decodeGainQ8 == 0 {
 		return
 	}
-	gain := streamDecodeGainLinear(d.decodeGainQ8)
+	gain := streamDecodeGainLinear(int(d.decodeGainQ8))
 	for i := range samples {
 		samples[i] *= gain
 	}
 }
 
 func (d *streamState) frameSize48FromAPI(frameSize int) int {
-	if d.sampleRate <= 0 || d.sampleRate == 48000 {
+	sampleRate := int(d.sampleRate)
+	if sampleRate <= 0 || sampleRate == 48000 {
 		return frameSize
 	}
-	return frameSize * 48000 / d.sampleRate
+	return frameSize * 48000 / sampleRate
 }
 
 func (d *streamState) recordDecodedTOC(toc streamTOC) {
@@ -396,7 +397,8 @@ func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, t
 		if extsupport.QEXT {
 			d.setCELTQEXTPayload(qextPayload)
 		}
-		outLen := frameSize * d.channels
+		channels := int(d.channels)
+		outLen := frameSize * channels
 		out = make([]float32, outLen)
 		err = d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(frame, frameSize, toc.stereo, out)
 	default:
@@ -421,7 +423,7 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	d.recordDecodeCall(frameSize, 0)
 
 	if !d.haveDecoded {
-		return make([]float32, frameSize*d.channels), nil
+		return make([]float32, frameSize*int(d.channels)), nil
 	}
 
 	switch d.lastMode {
@@ -435,7 +437,7 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 		return out, err
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(d.lastBandwidth))
-		out := make([]float32, frameSize*d.channels)
+		out := make([]float32, frameSize*int(d.channels))
 		err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(nil, frameSize, d.lastPacketStereo, out)
 		out, err = d.finishDecode32(out, err)
 		if extsupport.OSCERuntime && err == nil {
@@ -443,7 +445,7 @@ func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 		}
 		return out, err
 	default:
-		return make([]float32, frameSize*d.channels), nil
+		return make([]float32, frameSize*int(d.channels)), nil
 	}
 }
 
@@ -485,7 +487,7 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 	}
 
 	subFrameSize := frameSize / frameCount
-	out := make([]float32, 0, frameSize*d.channels)
+	out := make([]float32, 0, frameSize*int(d.channels))
 	for i := 0; i < frameCount; i++ {
 		var qextPayload []byte
 		if extsupport.QEXT && !d.ignoreExtensions {
@@ -700,7 +702,7 @@ func (d *Decoder) SetGain(gainQ8 int) error {
 	}
 	for _, dec := range d.decoders {
 		if st, ok := dec.(*streamState); ok {
-			st.decodeGainQ8 = gainQ8
+			st.decodeGainQ8 = int32(gainQ8)
 		}
 	}
 	return nil
