@@ -118,7 +118,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v6
         with:
-          go-version: "1.26.0"
+          go-version-file: go.mod
           cache: true
 
       - name: Run Windows safety smoke
