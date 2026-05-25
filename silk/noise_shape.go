@@ -239,8 +239,8 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 		// LF_shp_Q14 = (LF_AR_shp << 16) | (LF_MA_shp & 0xFFFF)
 		// Use int32 rounding (matching C silk_float2int -> opus_int32) then
 		// truncate via bit ops, matching C: silk_LSHIFT32(...,16) | (opus_uint16)...
-		lfMaQ14 := float64ToInt32Round(float64(lfMaShp * 16384.0))
-		lfArQ14 := float64ToInt32Round(float64(lfArShp * 16384.0))
+		lfMaQ14 := float32ToInt32RoundEven(lfMaShp * 16384.0)
+		lfArQ14 := float32ToInt32RoundEven(lfArShp * 16384.0)
 		params.LFShpQ14[k] = (int32(lfArQ14) << 16) | (int32(uint16(lfMaQ14)))
 	}
 

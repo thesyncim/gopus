@@ -1874,10 +1874,8 @@ silk/lsf_quantize.go	1	6816deeef3ab15b36e340465fcde9589a3bc681be99b02b38a927bd25
 silk/lsf_quantize.go	1	98420ae620c21ca0f967894cd7231bda8f2c08119a65144dda4d274fc7a9d72c	legacy-current	rate := 64 - int(math.Log2(float64(prob))*8)
 silk/ltp_quant.go	1	612f99ec9f215f9c2a039f2fa8210acc80c439094839fb29ca260911e1f818ab	legacy-current	energy += float64(prod1 - prod2)
 silk/ltp_quant.go	1	8c69d6742397cd8ba889164dad949a8daf42764cd3d40b0e7f5dcece977de5d0	legacy-current	inner += float64(prod1 - prod2)
-silk/noise_shape.go	1	681c86a49ce3a67b3aa47be615e1841ffdb25a127861aebeafd2a46d671b585e	legacy-current	lfMaQ14 := float64ToInt32Round(float64(lfMaShp * 16384.0))
 silk/noise_shape.go	1	ba4ad3c78ea30d3fc8ba4aca21a773fa51ac920fd7daebb7cb9aa7545f9e6a2d	legacy-current	return float32(math.Sqrt(float64(x)))
 silk/noise_shape.go	1	ba5b51b2ca388dfa5279550693738664cbd36cb9cd1eb5088f1c9cc4979e0ece	legacy-current	return float32(1.0 / (1.0 + math.Exp(float64(-x))))
-silk/noise_shape.go	1	d63f20ca7ec3b549a8cdf857bdf5d058d0564c2ded4abb0d799969a35a80b004	legacy-current	lfArQ14 := float64ToInt32Round(float64(lfArShp * 16384.0))
 silk/noise_shape_analysis.go	1	09e8c30940c85a050a65ea44b0f5d739a9f7c564ac25dd16e9b0ccab72ab4540	legacy-current	var corr [maxShapeLpcOrder + 1]float64
 silk/noise_shape_analysis.go	1	33ebbc042930b91897ab3601e3bb657616862ccd37a1d789bb8c602c5d501565	legacy-current	logEnergy := float32(3.32192809488736 * math.Log10(float64(nrg)))
 silk/noise_shape_analysis.go	1	52f6be2d678be9e54780e7bba2ef30abaab35fbe0ef979ffdb6a7288936490d9	legacy-current	gainMult := float32(math.Exp2(float64(-0.16 * SNRAdjDB)))
