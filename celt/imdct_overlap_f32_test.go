@@ -275,9 +275,7 @@ func TestIMDCTTransientInPlaceScratchF32MatchesLibopusC(t *testing.T) {
 				}
 
 				got := make([]float32, len(out))
-				for i := range out {
-					got[i] = out[i]
-				}
+				copy(got, out)
 				want := probeLibopusCELTIMDCT(t, libopusCELTIMDCTModeTransient, tc.frameSize, tc.overlap, tc.shortBlocks, spectrumF32, prevOverlapF32)
 				assertFloat32Bits(t, "transient imdct", got, want)
 			})
@@ -308,9 +306,7 @@ func TestMDCTForwardOverlapF32MatchesLibopusC(t *testing.T) {
 				coeffs := make([]float32, tc.frameSize)
 				mdctForwardOverlapF32Scratch(inputF32, tc.overlap, coeffs, nil, nil, nil, nil)
 				got := make([]float32, len(coeffs))
-				for i := range coeffs {
-					got[i] = coeffs[i]
-				}
+				copy(got, coeffs)
 
 				want := probeLibopusCELTMDCTForward(t, tc.frameSize, tc.overlap, inputF32)
 				assertFloat32Bits(t, "forward mdct", got, want)
