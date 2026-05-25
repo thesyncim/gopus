@@ -51,7 +51,7 @@ func (e *Encoder) SpreadingDecision(normX []celtNorm, nbBands, channels, frameSi
 // Returns: spread decision (0=SPREAD_NONE, 1=SPREAD_LIGHT, 2=SPREAD_NORMAL, 3=SPREAD_AGGRESSIVE)
 //
 // Reference: libopus celt/bands.c spreading_decision()
-func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channels, frameSize int, updateHF bool, spreadWeight []int) int {
+func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channels, frameSize int, updateHF bool, spreadWeight []int32) int {
 	if nbBands <= 0 || len(normX) == 0 {
 		return spreadNormal
 	}
@@ -72,9 +72,9 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 		return spreadNone
 	}
 
-	sum := 0
-	nbBandsTotal := 0
-	hfSum := 0
+	sum := int32(0)
+	nbBandsTotal := int32(0)
+	hfSum := int32(0)
 	// Process each channel
 	for c := 0; c < channels; c++ {
 		// Process each band
@@ -108,12 +108,12 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 			// High frequency bands contribution (bands above 8kHz).
 			// Match libopus: if (i > m->nbEBands-4), where m->nbEBands is 21.
 			if band > MaxBands-4 {
-				hfSum += (32 * (tcount[1] + tcount[0])) / N
+				hfSum += int32((32 * (tcount[1] + tcount[0])) / N)
 			}
 
 			// Compute tmp: count of thresholds where majority of coeffs are below
 			// tmp = (2*tcount[2] >= N) + (2*tcount[1] >= N) + (2*tcount[0] >= N)
-			tmp := 0
+			tmp := int32(0)
 			if 2*tcount[2] >= N {
 				tmp++
 			}
@@ -124,7 +124,7 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 				tmp++
 			}
 
-			weight := 1
+			weight := int32(1)
 			if band < len(spreadWeight) {
 				weight = spreadWeight[band]
 			}
@@ -141,7 +141,7 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 		if hfSum > 0 {
 			den := channels * (4 - MaxBands + nbBands)
 			if den > 0 {
-				hfSum = hfSum / den
+				hfSum = hfSum / int32(den)
 			}
 		}
 		e.hfAverage = (e.hfAverage + hfSum) >> 1
@@ -176,7 +176,7 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 
 	// Apply hysteresis based on last decision
 	// libopus: sum = (3*sum + (((3-last_decision)<<7) + 64) + 2)>>2
-	sum = (3*sum + ((3 - e.spreadDecision) << 7) + 64 + 2) >> 2
+	sum = (3*sum + int32((3-e.spreadDecision)<<7) + 64 + 2) >> 2
 
 	// Make decision based on thresholds
 	var decision int
@@ -213,8 +213,8 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 // Returns: weights per band (higher = more perceptually important)
 //
 // Reference: libopus celt/celt_encoder.c dynalloc_analysis()
-func computeSpreadWeights(bandLogE []celtGLog, nbBands, channels, lsbDepth int) []int {
-	weights := make([]int, nbBands)
+func computeSpreadWeights(bandLogE []celtGLog, nbBands, channels, lsbDepth int) []int32 {
+	weights := make([]int32, nbBands)
 
 	// Ensure we have enough band energies
 	if len(bandLogE) < nbBands {
@@ -327,7 +327,7 @@ func computeSpreadWeights(bandLogE []celtGLog, nbBands, channels, lsbDepth int) 
 //   - nbBands: number of bands
 //
 // Returns: weights per band (higher = more important)
-func computeSpreadWeightsSimple(bandLogE []celtGLog, nbBands int) []int {
+func computeSpreadWeightsSimple(bandLogE []celtGLog, nbBands int) []int32 {
 	return computeSpreadWeights(bandLogE, nbBands, 1, 16)
 }
 

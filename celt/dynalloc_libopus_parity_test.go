@@ -41,7 +41,7 @@ type libopusCELTDynallocResult struct {
 	totBoost     int
 	offsets      [MaxBands]int
 	importance   [MaxBands]int
-	spreadWeight [MaxBands]int
+	spreadWeight [MaxBands]int32
 }
 
 func getLibopusCELTDynallocHelperPath() (string, error) {
@@ -104,7 +104,7 @@ func probeLibopusCELTDynalloc(cases []libopusCELTDynallocCase) ([]libopusCELTDyn
 			out[i].importance[band] = int(reader.I32())
 		}
 		for band := range out[i].spreadWeight {
-			out[i].spreadWeight[band] = int(reader.I32())
+			out[i].spreadWeight[band] = reader.I32()
 		}
 	}
 	if err := reader.ExpectConsumed(); err != nil {

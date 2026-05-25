@@ -132,7 +132,7 @@ type DynallocResult struct {
 
 	// SpreadWeight contains per-band masking weights for spread decision.
 	// Higher values indicate more perceptually important bands.
-	SpreadWeight []int
+	SpreadWeight []int32
 
 	// Importance contains per-band importance values (0-13 typically).
 	// Used for bit allocation prioritization.
@@ -271,7 +271,7 @@ func DynallocAnalysis(
 	result := DynallocResult{
 		MaxDepth:     celtGLog(-31.9),
 		Offsets:      make([]int32, nbBands),
-		SpreadWeight: make([]int, nbBands),
+		SpreadWeight: make([]int32, nbBands),
 		Importance:   make([]int32, nbBands),
 		TotBoost:     0,
 	}
@@ -717,7 +717,7 @@ func min(a, b int) int {
 type DynallocScratch struct {
 	// Result arrays (caller provides these in result struct)
 	Offsets      []int32
-	SpreadWeight []int
+	SpreadWeight []int32
 	Importance   []int32
 
 	// Libopus-width scratch buffers.
@@ -742,7 +742,7 @@ func (s *DynallocScratch) EnsureDynallocScratch(nbBands, channels int) {
 		s.Offsets = s.Offsets[:nbBands]
 	}
 	if cap(s.SpreadWeight) < nbBands {
-		s.SpreadWeight = make([]int, nbBands)
+		s.SpreadWeight = make([]int32, nbBands)
 	} else {
 		s.SpreadWeight = s.SpreadWeight[:nbBands]
 	}

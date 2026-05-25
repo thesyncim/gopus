@@ -91,10 +91,10 @@ type Encoder struct {
 	complexity int
 
 	// Spread decision state (persistent across frames for hysteresis)
-	spreadDecision int // Current spread decision (0-3)
-	tonalAverage   int // Running average for spread decision hysteresis
-	hfAverage      int // High frequency average for tapset decision
-	tapsetDecision int // Tapset decision (0, 1, or 2)
+	spreadDecision int   // Current spread decision (0-3)
+	tonalAverage   int32 // Running average for spread decision hysteresis
+	hfAverage      int32 // High frequency average for tapset decision
+	tapsetDecision int   // Tapset decision (0, 1, or 2)
 
 	// Tonality analysis state (for VBR decisions)
 	prevBandLogEnergy []celtGLog // Previous frame log-energy per band for spectral flux
@@ -925,7 +925,7 @@ func (e *Encoder) SetTapsetDecision(tapset int) {
 // HFAverage returns the high-frequency average used for tapset decision.
 // This is updated during SpreadingDecision when updateHF=true.
 func (e *Encoder) HFAverage() int {
-	return e.hfAverage
+	return int(e.hfAverage)
 }
 
 // SetHybrid sets the hybrid mode flag.

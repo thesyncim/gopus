@@ -92,7 +92,7 @@ INT_FINDING_RE = re.compile(
     r"alloc(?:Bits|FineBits|FinePrio|Caps|Thresh|Trim|Work)|"
     r"pvq(?:Pulses|Refine)|"
     r"qext(?:ExtraBits|FineBits|Pulses|Quant|Iy)|"
-    r"Metric|Path0|Path1|TfRes|tfRes|"
+    r"Metric|Path0|Path1|TfRes|tfRes|SpreadWeight|spreadWeight|"
     r"Offsets|Importance"
     r")\s+\[\]int\b|"
     r"\b(?:PitchLags|PitchL|pitchL|pitchLags)\s+(?:\[\]int|\[maxNbSubfr\]int)\b"
