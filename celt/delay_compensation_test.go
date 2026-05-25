@@ -6,13 +6,13 @@ func TestApplyDelayCompensationStoresOpusResWidth(t *testing.T) {
 	enc := NewEncoder(1)
 	enc.delayBuffer[0] = opusRes(1.0 / 3.0)
 
-	pcm := make([]float64, 480)
+	pcm := make([]float32, 480)
 	for i := range pcm {
-		pcm[i] = float64(i+1) + 1.0/3.0
+		pcm[i] = float32(i+1) + 1.0/3.0
 	}
 
 	got := enc.ApplyDelayCompensationScratchHybrid(pcm, 480)
-	wantHead := float64(opusRes(1.0 / 3.0))
+	wantHead := float32(opusRes(1.0 / 3.0))
 	if got[0] != wantHead {
 		t.Fatalf("output[0] = %.9g, want stored opus_res %.9g", got[0], wantHead)
 	}

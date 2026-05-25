@@ -73,12 +73,12 @@ func TestCELTEncoderBandEnergies(t *testing.T) {
 	enc := celt.NewEncoder(1)
 
 	// Apply pre-emphasis (like encoder does)
-	preemph := enc.ApplyPreemphasis(signal)
-	t.Logf("Preemph max: %.4f", maxAbsSlice(preemph))
+	preemph := enc.ApplyPreemphasis(float32Slice(signal))
+	t.Logf("Preemph max: %.4f", maxAbsSlice(float64Slice(preemph)))
 
 	// MDCT with zero history overlap
 	history := make([]float64, celt.Overlap)
-	coeffs := celt.ComputeMDCTWithHistory(preemph, history, 1)
+	coeffs := celt.ComputeMDCTWithHistory(float64Slice(preemph), history, 1)
 	t.Logf("MDCT coeffs max: %.4f", maxAbsSlice(coeffs))
 
 	// Compute band energies

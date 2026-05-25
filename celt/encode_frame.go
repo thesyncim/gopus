@@ -87,24 +87,6 @@ func (e *Encoder) fillTransientHistoryFromPrefilterF32(overlap int, dst []float3
 	}
 }
 
-// quantizeInputToLSBDepthScratch mirrors opus_demo -f32 ingestion when fixtures
-// are generated via opus_encode24: round to the configured LSB depth before
-// dc_reject/pre-emphasis.
-func (e *Encoder) quantizeInputToLSBDepthScratch(pcm []float64) []float64 {
-	if len(pcm) == 0 {
-		return pcm
-	}
-	depth := e.LSBDepth()
-	scale := math.Ldexp(1.0, depth-1)
-	invScale := 1.0 / scale
-	out := ensureFloat64Slice(&e.scratch.quantizedInput, len(pcm))
-	for i, v := range pcm {
-		x := float64(float32(v))
-		out[i] = math.Floor(0.5+x*scale) * invScale
-	}
-	return out[:len(pcm)]
-}
-
 func (e *Encoder) quantizeInputToLSBDepthScratchF32(pcm []float32) []float32 {
 	if len(pcm) == 0 {
 		return pcm
@@ -291,14 +273,14 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		samplesForFrame = e.quantizeInputToLSBDepthScratchF32(pcm)
 	}
 	if e.dcRejectEnabled {
-		samplesForFrame = e.applyDCRejectScratchF32(samplesForFrame)
+		samplesForFrame = e.applyDCRejectScratch(samplesForFrame)
 	}
 
 	// Step 3b: Optionally apply Opus-style CELT delay compensation.
 	// Standalone CELT keeps this enabled by default.
 	// Top-level Opus integration disables it and compensates externally.
 	if e.delayCompensationEnabled {
-		samplesForFrame = e.ApplyDelayCompensationScratchHybridF32(samplesForFrame, frameSize)
+		samplesForFrame = e.ApplyDelayCompensationScratchHybrid(samplesForFrame, frameSize)
 	}
 
 	// Step 4: Detect transient and compute tf_estimate using PRE-EMPHASIZED signal
@@ -344,7 +326,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	} else {
 		e.fillTransientHistoryFromPrefilter(overlap, transientInput[:preemphBufSize])
 	}
-	isSilence := e.applyPreemphasisWithScalingAndSilenceCoreFromF32(samplesForFrame, preemph, preemphF32, frameSize, overlap)
+	isSilence := e.applyPreemphasisWithScalingAndSilenceCore(samplesForFrame, preemph, preemphF32, frameSize, overlap)
 
 	allowWeakTransients := false
 	if e.hybrid {

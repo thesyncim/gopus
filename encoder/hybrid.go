@@ -1432,7 +1432,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 	lm := mode.LM
 
 	// Apply pre-emphasis with signal scaling (zero-alloc scratch version)
-	preemph := e.celtEncoder.ApplyPreemphasisWithScalingScratchF32(pcm)
+	preemph := e.celtEncoder.ApplyPreemphasisWithScalingScratch(pcm)
 
 	// Get the range encoder
 	re := e.celtEncoder.RangeEncoder()

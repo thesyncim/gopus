@@ -322,12 +322,10 @@ celt/encode_frame.go	1	381cfbdc164673e0797671808bab487a84d28ee82cc1292234e526f6d
 celt/encode_frame.go	1	3ac2e099c102b4860a16f3766a6b286d330a07d35f80355c70d01c0d7fb728de	legacy-current	var mdctLeft, mdctRight []float64
 celt/encode_frame.go	1	3cd8be9ae7d059742f1febd962a68539fb652859246fa2e57f7610768151e10d	legacy-current	func (e *Encoder) fillTransientHistoryFromPrefilter(overlap int, dst []float64) {
 celt/encode_frame.go	1	418551ccf70a2c85c800b83f4e1e95b1ae7d7185fd09732b131c73a4ac60002f	legacy-current	var qextNormR []float64
-celt/encode_frame.go	1	423141e827f0de5a32a959118f753e80432775ca4548b9da16309411e296e97e	legacy-current	out := ensureFloat64Slice(&e.scratch.quantizedInput, len(pcm))
 celt/encode_frame.go	1	488f4b40267b2fbda155ebb0a913be26273a3ff3fcf484d8972fb543de508594	legacy-current	targetQ3 = baseTargetQ3 + int(0.67*float64(targetQ3-baseTargetQ3))
 celt/encode_frame.go	1	4cf4e40376d2ac2fa790cef2cf724f742a47f1006dcc5cab3d4897f38d1c18e4	legacy-current	tonality := float64(e.analysisTonality)
 celt/encode_frame.go	1	4e105e94c298b53f113e2a9c00e860f6c7e55d5f6f072fd7107379e02c54cfd4	legacy-current	func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float64, pitchChange bool) int {
 celt/encode_frame.go	1	50f57a31e9c5d7cf805c780f0de23272b99ec214ef6c53f054e98920f1da628f	legacy-current	floorDepth := int(float64((channels*bins)<<bitRes) * maxDepth)
-celt/encode_frame.go	1	5381f8015818a4402fe6119d5915ff83bfa0a8c160daf9f7207313c8cc743ef7	legacy-current	x := float64(float32(v))
 celt/encode_frame.go	1	53849cc0dbf31a0b934f9d02367bfaf72cf9dae77795bf44c09d8c9388a5b00c	legacy-current	rightHistory := ensureFloat64Slice(&e.scratch.rightHist, overlap)
 celt/encode_frame.go	1	549db166e855560a9d665e0532816af8c310aeeee281c395ef2ddcedeaa907ce	legacy-current	lower := int(0.79 * float64(prevPrefilterPeriod))
 celt/encode_frame.go	1	5819ec33804fe21e8adec2494a23187c6329edabdbefa05aa9102d803182afc8	legacy-current	targetQ3 -= int(float64(codedBins<<bitRes) * (0.4 - activity))
@@ -370,18 +368,15 @@ celt/encode_frame.go	1	e6593a44711a1b89905e9eaf63c7d60a3602dc75fb160770b142b703a
 celt/encode_frame.go	1	e86f19846d142cb08eca41b69748b5d5321bcb6dc2346b909183f5524155fdc1	legacy-current	saveB := int((stereoSaving - 0.1) * float64(codedStereoDof<<bitRes))
 celt/encode_frame.go	1	e8bf7e6adf476a2d2ff407f127dc15ff739fb9ffeda0dcbda9e83cc8df28be55	legacy-current	upper := int(1.26 * float64(prevPrefilterPeriod))
 celt/encode_frame.go	1	f3b86802210cc2a69d43f4c97cae5f3edb87f322e7bf2a6505c43d5e1a5b052c	legacy-current	tfBoost := int((tfEstimate - 0.25) * float64(50<<bitRes))
-celt/encode_frame.go	1	fba68630c0be077287a307b47d6620d54635809339d4e9a7276a35beb860b6d1	legacy-current	func (e *Encoder) quantizeInputToLSBDepthScratch(pcm []float64) []float64 {
 celt/encode_frame.go	1	fbe54f229670111a483eda4ec4af17412010f95b5f46c933d247acdba0807053	legacy-current	activity := float64(e.analysisActivity)
 celt/encode_frame.go	1	ffd74dc8e221dd1fe9ab10bab58ce8269eb87df20ea0e57e592ffabb5d917033	legacy-current	func ComputeMDCTWithHistoryInto(scratch, samples, history []float64, shortBlocks int) []float64 {
 celt/encoder.go	1	03621ebe3590db65cd0d0e9d6059cd83c5a694240017e26d678370a3bc7e0eaa	legacy-current	mdctInput []float64
 celt/encoder.go	1	04cc2938c523bfb2d8a595209693511cce416089f28410a55a63356535bffb57	legacy-current	s.mdctRight = ensureFloat64Slice(&s.mdctRight, frameSize)
-celt/encoder.go	1	0f8e88b20aa44abd1e64ea9956b1bc175645100056aeff5b187f41180aafdbf6	legacy-current	s.dcRejected = ensureFloat64Slice(&s.dcRejected, expectedLen)
 celt/encoder.go	1	12b4e1dd55765e091c9c3a817e198eb9432a4a5eb55f049fa2d50c5e4b5351f0	legacy-current	mdctRight []float64
 celt/encoder.go	1	13d36ba90ee58f582b0f561d24a5856101ef8b6dace03dd9a23c629775d784a3	legacy-current	func (e *Encoder) SetOverlapBuffer(samples []float64) {
 celt/encoder.go	1	14b06bbabae13c4a580f1fc8de8ec74e83a06c150c0f8820281fc275f7715877	legacy-current	out := make([]float64, len(e.overlapBuffer))
 celt/encoder.go	1	1741262d8b194f61b58a46bdbb657d93ac71fa78cc3519a064da4838d9df5235	legacy-current	out := make([]float64, len(e.prevBandLogEnergy))
 celt/encoder.go	1	1af8ca4935fb987416c260cf1b986ee8497d07b6b5ab52b8a1ae654ee5eaf734	legacy-current	func (e *Encoder) PrevEnergy() []float64 {
-celt/encoder.go	1	219b24a9de641ae2e78c7b4fec44743b14970bf1e4204e4418c5cc9453f21bc9	legacy-current	s.quantizedInput = ensureFloat64Slice(&s.quantizedInput, expectedLen)
 celt/encoder.go	1	231b59fbf4edd810b6d9ebeba1aad76b93c232a94e10ba9c92e467ee50a1b0a4	legacy-current	s.leftHist = ensureFloat64Slice(&s.leftHist, overlap)
 celt/encoder.go	1	2c86051d1c3cc821ce28d900614b900eaec42dd6e017e72b04b2daafb1380f86	legacy-current	s.deintRight = ensureFloat64Slice(&s.deintRight, frameSize)
 celt/encoder.go	1	2ee86a63bb11ee196fe2e08209d80cdf1a8c7cb5269206055a19aae569f76758	legacy-current	transientInput []float64
@@ -395,13 +390,11 @@ celt/encoder.go	1	5dae5f4013700d65191dd8b6bb7080856b367f59a4ce10ee6efa571079c36e
 celt/encoder.go	1	5dd7e98ff421e6328b6721e2618cdbb775fcb7ee5d7508f52303b37e89bdcc08	legacy-current	func (e *Encoder) SetAnalysisInfoWithTonality(bandwidth int, leakBoost [leakBands]uint8, activity, tonality, tonalitySlope float64, maxPitchRatio float64, valid bool) {
 celt/encoder.go	1	6a9eab889adfe313b1ebcdc6f074e854aa4049904ba842f6710d51f32b340033	legacy-current	preemph []float64
 celt/encoder.go	1	6aba3101a0e9347c80cb136f9b6adeba40d839e71b575ee38806f8b2ce8a4f4b	legacy-current	s.preemph = ensureFloat64Slice(&s.preemph, expectedLen)
-celt/encoder.go	1	6ba5f400035771d49c0dc85b4e01b64aec329f7f8471f75cbf0258bce904f5a1	legacy-current	dcRejected []float64
 celt/encoder.go	1	74bc6163be8df2517777b9c773d7800eb725a99d9ef4ef3de6c0b40a4f9af1e7	legacy-current	s.rightHist = ensureFloat64Slice(&s.rightHist, overlap)
 celt/encoder.go	1	75e9e4eb0998dc8e1e2832c3831527271d68543e6302a0ea77b332843c6a1132	legacy-current	s.normL = ensureFloat64Slice(&s.normL, frameSize)
 celt/encoder.go	1	78c8a1da9e5077a23208e431f71a2f2fab60509dc957ea56338638f3032f98a7	legacy-current	deintRight []float64
 celt/encoder.go	1	7a0e8ac91ccaa93d80ee1ddf9176b42ad738b5ab6517dcca74684f01437b93d4	legacy-current	normR []float64
 celt/encoder.go	1	839d08dc65da9d9dfd34c6dda57104e1350986bc47510eceac1ee35714e6c715	legacy-current	s.mdctCoeffs = ensureFloat64Slice(&s.mdctCoeffs, frameSize*2)
-celt/encoder.go	1	871981fdd09aafef6d1483f384af80e33bcf7fbd871b54c6c842866075b9d726	legacy-current	quantizedInput []float64
 celt/encoder.go	1	88807f0026c94ac935a324191e4746b3aa58ff9d92c34cb6f266e60ac5de4ae4	legacy-current	out := make([]float64, len(e.prevEnergy2))
 celt/encoder.go	1	8d5625d9482d5760b486dd01cc7cca8c8b03ba552a35e657c669406115ada55e	legacy-current	normL []float64
 celt/encoder.go	1	8f3e44d22f16bfaec35c5cb5d5caa75e05477b5d2ef36f12d78fbf999afaf16d	legacy-current	func (e *Encoder) LastTonality() float64 {
@@ -412,8 +405,6 @@ celt/encoder.go	1	a80d577310fd91ce5f8adf260ccbc2e13da63a6116a461a8d37fe16d34631d
 celt/encoder.go	1	a976063c156b1a96bcc9534a2be153228e68812eff03fc1c4399dc8c773ba1c4	legacy-current	mdctCoeffs []float64
 celt/encoder.go	1	ac84e234135b4ba9e58cdf12a0b285b224cd670cf97554df494f22a8eb1f740c	legacy-current	out := make([]float64, len(e.prevEnergy))
 celt/encoder.go	1	af5508066d6f01a8dd9ff0308da5919f3ccafe584f80696594f0c0d0d2b998b2	legacy-current	func (e *Encoder) SetPrevEnergyWithPrev(prev, energies []float64) {
-celt/encoder.go	1	baf38d53704f62be905a0cf9e694af5a3474a354f9d4e11906a17366cccad094	legacy-current	s.combinedBuf = ensureFloat64Slice(&s.combinedBuf, combinedLen)
-celt/encoder.go	1	bd0c8bcbce1fc5b4ee2876bb38fa5c2cd6a3b4b99ae09bd4fd8a23c2322a5303	legacy-current	combinedBuf []float64
 celt/encoder.go	1	bf3071089010d1164978e8fe1cb18c0b032923a6a27358f7409ef118071dab3b	legacy-current	func (e *Encoder) GetLastBandLogE2() []float64 {
 celt/encoder.go	1	c0d5bc74307f694ea4e789ad3f5f778880353b9c08c5f76b7e9191ee0f612c03	legacy-current	qs.normL = ensureFloat64Slice(&qs.normL, frameSize)
 celt/encoder.go	1	c65f0c190117698bd4e2f47e1d123422d8a9858d20f03e128d2c624ec25f47df	legacy-current	s.bandEncode.hadamardTmp = ensureFloat64Slice(&s.bandEncode.hadamardTmp, maxBandWidth*16) // For stride up to 16
@@ -494,11 +485,8 @@ celt/hybrid_encode_helpers.go	1	4915735bdb1f9c3b7c5be23c23af043663ba251759964c98
 celt/hybrid_encode_helpers.go	1	50bc9b5da6f5d2dcddd8b8e2f9f7b91edef38d22eb7044e8b619fe6ab77de724	legacy-current	// storing the rounded value back into the same []float64 slice.
 celt/hybrid_encode_helpers.go	1	549db166e855560a9d665e0532816af8c310aeeee281c395ef2ddcedeaa907ce	legacy-current	lower := int(0.79 * float64(prevPrefilterPeriod))
 celt/hybrid_encode_helpers.go	1	5683782532b2f53f6c079b96c6350d05d52f19f2734851d9cc2cac26982b35b3	legacy-current	func (e *Encoder) NormalizeBandsToArrayMonoWithBandE(mdctCoeffs []float64, nbBands, frameSize int) (norm []float64, bandE []celtEner) {
-celt/hybrid_encode_helpers.go	1	5b91a4376d61d07f221c57c0e2047db30caa31b5fd3eb796d7d8cdc54d779bc3	legacy-current	func (e *Encoder) ApplyDelayCompensationScratchHybrid(pcm []float64, frameSize int) []float64 {
-celt/hybrid_encode_helpers.go	1	60f3d1f30128041b3e347eaff06f714ca8e05b4dd0683ebba60dd44071786a0e	legacy-current	combinedBuf = make([]float64, combinedLen)
 celt/hybrid_encode_helpers.go	1	6134c3121c269de0ea878e1af8de18d8feee0e89f80ebdb00412789cb0b29742	legacy-current	leftHist = make([]float64, overlap)
 celt/hybrid_encode_helpers.go	1	672ddeba17daa1fd698bc03e5bd3fc85ada69d6ce04454d7699e91e9655d115a	legacy-current	normL, normR []float64, pulses []int, shortBlocks int, spread int, tapset int, dualStereo int, intensity int,
-celt/hybrid_encode_helpers.go	1	775f9eceb0db9a984b817aeb904ad2935e35740c272f2bf9289ce0a9e0e00758	legacy-current	func (e *Encoder) ApplyDCRejectScratchHybrid(pcm []float64) []float64 {
 celt/hybrid_encode_helpers.go	1	7b9b43b2e7b808297da2d50c74c658e548746df135bff15fa1bbe7b32bd8584f	legacy-current	rightHist = make([]float64, overlap)
 celt/hybrid_encode_helpers.go	1	81add15b7b954812eb557eeaffb1dc2ccb84ae566a1304250b322764553f9060	legacy-current	maxPitchRatio = float64(e.analysisMaxPitchRatio)
 celt/hybrid_encode_helpers.go	1	8508fc27355cfce7bd994b3e0f8b595830b91fbf243052bd830d6a422c13ad25	legacy-current	func (e *Encoder) TransientAnalysisHybrid(preemph []float64, frameSize, nbBands, lm int, allowWeakTransients bool) (transient bool, weakTransient bool, tfEstimate, toneFreq, toneishness float64, shortBlocks int, bandLogE
@@ -507,7 +495,6 @@ celt/hybrid_encode_helpers.go	1	b2ad749cb05647c7060c12e840c3fd9ef42520fb950ee2f9
 celt/hybrid_encode_helpers.go	1	bb85391b2c4e6333aec6a4807bed856bbf33d162316afb4c6a11583ae998b039	legacy-current	func (e *Encoder) DynallocAnalysisHybridScratch(bandLogE, bandLogE2 []celtGLog, oldBandE []celtGLog, nbBands, start, end, lsbDepth, lm int, effectiveBytes int, isTransient, vbr, constrainedVBR bool, toneFreq, toneishness
 celt/hybrid_encode_helpers.go	1	bd676e32ef7c38e7c64f2d9c48f265023c5bc0bfc7ed88d18eacb53c1aaa875a	legacy-current	normR = ensureFloat64Slice(&e.scratch.normR, frameSize)
 celt/hybrid_encode_helpers.go	1	c23d89c4728bafcb44f41c735c7f51c5ec6b9269208b60131201665842b57c70	legacy-current	normL = ensureFloat64Slice(&e.scratch.normL, frameSize)
-celt/hybrid_encode_helpers.go	1	c54e0d884bb4d47680684e63997c7a15013bcc548a17292f2ba8cedc921a625c	legacy-current	combinedBuf[i] = float64(e.delayBuffer[i])
 celt/hybrid_encode_helpers.go	1	d178a2ea0b1dc25d830ee49a7c4b78e0b8cd374f8f8ed3b8b2d67fe155af5b9b	legacy-current	func (e *Encoder) ComputeMDCTWithHistoryScratchStereoR(samples, history []float64, shortBlocks int) []float64 {
 celt/hybrid_encode_helpers.go	1	d461495e647fcc49cd260c07f193942cab22d91734a7cc1826a899be9a67abbb	legacy-current	norm = ensureFloat64Slice(&e.scratch.normL, frameSize)
 celt/hybrid_encode_helpers.go	1	e8bf7e6adf476a2d2ff407f127dc15ff739fb9ffeda0dcbda9e83cc8df28be55	legacy-current	upper := int(1.26 * float64(prevPrefilterPeriod))
@@ -739,40 +726,18 @@ celt/postfilter.go	2	e507c3208285a1d0647c80c93bddf71508ffb24c3bf7f34b5684ae794b6
 celt/postfilter.go	1	ee04d7ede1e91a903542d124bb06f5239b2ecb82bd2d4981014710ba73a009da	legacy-current	func updatePlanarHistorySig(hist []celtSig, samples []float64, frameSize, history int) {
 celt/postfilter.go	1	ef0851fbf6efe06744af9ff2a23d9e4830293709ae3eafcbcd9750b81b266499	legacy-current	func combFilter(buf []float64, start int, t0, t1, n int, g0, g1 float32, tapset0, tapset1 int, window []float64, overlap int) {
 celt/postfilter.go	1	fcf4a992ad001781963d46deab02d2b4c037e7fd036fd0d52e437a007cd9330e	legacy-current	var windowSqView []float64
-celt/preemph.go	1	0a8d01dd89e9665ced3e05b3f8cb12c27ff214e4b3381aac5caa15b4d8454f82	legacy-current	func (e *Encoder) ApplyPreemphasis(pcm []float64) []float64 {
-celt/preemph.go	1	11998157ce22bf2f556cc4f0f4bf8c05e2731a373d4349227b49094688e5333a	legacy-current	func (e *Encoder) ApplyPreemphasisWithScalingScratchF32(pcm []float32) []float64 {
-celt/preemph.go	1	25b929cf84873821e1ec5070490fcdfd5f4b49e08cf24536b805a4163d69ce16	legacy-current	output[i] = float64(x0 - m0)
-celt/preemph.go	3	27fbe1df40bb048ad1238a466a8f57b9b49573e78bf29064d6c6b03f1a04d47c	legacy-current	output = make([]float64, len(pcm))
-celt/preemph.go	1	2b006362af9f2eee9d1ba526af79787adb7922f697216330326a00650de5ce5c	legacy-current	func (e *Encoder) ApplyPreemphasisWithScaling(pcm []float64) []float64 {
-celt/preemph.go	1	35dd301514ff04b5a66f19de57365eeea803c77e1eff6f66ca80a6fd993a17de	legacy-current	func (e *Encoder) applyPreemphasisWithScalingScratch(pcm []float64) []float64 {
-celt/preemph.go	1	363b9bd12a201a374b4065fd65e365cb5621b4243738d458261c3de22fbd498c	legacy-current	func (e *Encoder) ApplyPreemphasisInPlace(pcm []float64) {
-celt/preemph.go	1	3ebeddfab149ea9f1967a32eac49017fc96c45c6d69467e7ac3e7837ad53e7bc	legacy-current	output[i+1] = float64(x1 - m1)
-celt/preemph.go	3	3f9d3582d1d6de7702415a3d72245b3a7512eaf3454380697b39914885eee306	legacy-current	output := make([]float64, len(pcm))
-celt/preemph.go	1	4ed8d6d920245403d30f8066fdd4d340f7f1a71cfc324969426f72a773871057	legacy-current	pcm[i+1] = float64(xR - stateR)
-celt/preemph.go	1	5b4f3a640fc03ff7f7268acfdeb50270977f88e806bb6432c56963d56d494fdc	legacy-current	func (e *Encoder) ApplyDCReject(pcm []float64) []float64 {
-celt/preemph.go	1	6a3acb4d0eccae74c529bdffbae337118a1e6892f92653b476e88c8fcc99e908	legacy-current	func (e *Encoder) applyPreemphasisWithScalingAndSilenceCoreF32(pcm, output []float64, outputF32 []float32, frameSize, overlap int) bool {
-celt/preemph.go	4	6c908e8fe7b4e90d40f0e7914de1b377e2eeef1155bff80271be0c9d6839baa0	legacy-current	output[i+1] = float64(scaledR - stateR)
-celt/preemph.go	1	7b668610bad13ba2b0f08df433ddede12ca58cf3c5ba8d099df28536d23fd1ec	legacy-current	if float64(newOverlapMax) > sampleMax {
-celt/preemph.go	1	7e306445b217e1fde991a1985518674550e0c9a7a813b78e2c77c6dc06e37ea6	legacy-current	func (e *Encoder) applyPreemphasisWithScalingAndSilenceCoreFromF32(pcm []float32, output []float64, outputF32 []float32, frameSize, overlap int) bool {
-celt/preemph.go	1	804e4e050a8694cfac086d2b9d01ab47d28c25466243d8e39ba7a7dc6d83a7c8	legacy-current	pcm[i] = float64(xL - stateL)
-celt/preemph.go	1	81853ecacd7ed8e6241baffad7e8a2506896603755d4b5d5ba9bf3accd3974f0	legacy-current	output[i+1] = float64(xR - stateR)
-celt/preemph.go	1	8cd5acf2d9286febad80b487d2d16093fdd6ebced4199b7e420f45e8c64fb711	legacy-current	func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
-celt/preemph.go	4	8ec6ba49fb8c5a42f253ff34a8fc5ca634afb70540f51f6843c05b4937745791	legacy-current	output[i+1] = float64(yR)
-celt/preemph.go	4	991d512e7305a7a2a9dc77ebbc2dc97887d68487219545526074c32c42564c64	legacy-current	output[i] = float64(scaled - state)
-celt/preemph.go	1	a4aa29ca3f7311d50ae2f8a8c4c5c81ce4c4c9d5c95a0ab4be3f4d9d9d642bd5	legacy-current	output[i] = float64(xL - stateL)
-celt/preemph.go	1	aa6e5f508f7f07faec8d981197e9f5dfada11ee0cfbcc5dc28aa52882361cdbe	legacy-current	sampleMax = float64(newOverlapMax)
-celt/preemph.go	1	b65771be5cbd798a4f3912d5dd3a5b19556ec5c73709f0b5c84ad086bd4da11e	legacy-current	sampleMax := float64(e.overlapMax)
-celt/preemph.go	1	b858cb04b0f86ba3f939d49c643e4a785326657d05f3e6c5d31c83a284ff9477	legacy-current	pcm[i] = float64(x - state)
-celt/preemph.go	1	b8bdadf75a3249724634069e133c9a00ef8c8e34f9c8696b43cdb036a05f5106	legacy-current	func (e *Encoder) applyPreemphasisWithScalingCoreF32(pcm []float32, output []float64) {
-celt/preemph.go	1	b9df79c3568d0e559813773b49032ccd08e6a5113e5913946efa8f36d6f2705b	legacy-current	func (e *Encoder) ApplyPreemphasisWithScalingScratch(pcm []float64) []float64 {
-celt/preemph.go	4	c5499799d370b64b95bac940ee5b56742e3fd039affaeb22d153d953e6c183ee	legacy-current	output[i] = float64(yL)
-celt/preemph.go	1	c5db1a0132179fc303333b4cf325c2d52c8111719f3e05b5a045ed018ed9ce7c	legacy-current	func (e *Encoder) applyDCRejectCore(pcm, output []float64) {
-celt/preemph.go	1	ccbe59b046969b12be660416cab1160252d846fda80d15d226d4b50848cef92c	legacy-current	func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm, output []float64, frameSize, overlap int) bool {
-celt/preemph.go	1	cf4c4ea22d9c2638ed2ee5fcc0c27944c71ecc1549398e0911dda5c9ce624b6e	legacy-current	output[i] = float64(x - state)
-celt/preemph.go	5	db2ad4c51726faef2d28b4160e9c3fec8bb112f8a397160cee8d676aa93bfe6b	legacy-current	output[i] = float64(y)
+celt/preemph.go	1	126eb20c7a6d1f2a23f5b9248099d5073cdc2840fd72567e3cf7d21aafcb226b	legacy-current	func (e *Encoder) applyPreemphasisWithScalingScratch(pcm []float32) []float64 {
+celt/preemph.go	1	19712109c3798c9aa0a33b9a378e0913c50b1f15fb21cc7327b669c060a612fd	legacy-current	func (e *Encoder) ApplyPreemphasisWithScalingScratch(pcm []float32) []float64 {
+celt/preemph.go	1	27fbe1df40bb048ad1238a466a8f57b9b49573e78bf29064d6c6b03f1a04d47c	legacy-current	output = make([]float64, len(pcm))
+celt/preemph.go	1	2d562776982f5aa23f5636107d5b117010d5d66a14a330c89043c75e3cbc2ee2	legacy-current	func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, output []float64, outputF32 []float32, frameSize, overlap int) bool {
+celt/preemph.go	1	6c908e8fe7b4e90d40f0e7914de1b377e2eeef1155bff80271be0c9d6839baa0	legacy-current	output[i+1] = float64(scaledR - stateR)
+celt/preemph.go	2	8ec6ba49fb8c5a42f253ff34a8fc5ca634afb70540f51f6843c05b4937745791	legacy-current	output[i+1] = float64(yR)
+celt/preemph.go	1	991d512e7305a7a2a9dc77ebbc2dc97887d68487219545526074c32c42564c64	legacy-current	output[i] = float64(scaled - state)
+celt/preemph.go	2	c5499799d370b64b95bac940ee5b56742e3fd039affaeb22d153d953e6c183ee	legacy-current	output[i] = float64(yL)
+celt/preemph.go	2	db2ad4c51726faef2d28b4160e9c3fec8bb112f8a397160cee8d676aa93bfe6b	legacy-current	output[i] = float64(y)
 celt/preemph.go	1	dd1d3da7e34912aaa2c40b1a3eadbe6a057d637d185b1f041622a1936e9578c6	legacy-current	func updateMaxAbsBits(maxBits uint64, v float64) uint64 {
-celt/preemph.go	1	df6bbd4661b96ad88d8cd6a555b7e73b5f7e8ca26ff4106a8ec7c9344932efdd	legacy-current	func (e *Encoder) applyDCRejectScratch(pcm []float64) []float64 {
-celt/preemph.go	4	f35ab2ffe9c097c4d522081c4dc16c7302ebeb9b9b808a0eb05cf06880694f83	legacy-current	output[i] = float64(scaledL - stateL)
+celt/preemph.go	1	f35ab2ffe9c097c4d522081c4dc16c7302ebeb9b9b808a0eb05cf06880694f83	legacy-current	output[i] = float64(scaledL - stateL)
+celt/preemph.go	1	f4937fa1021cdfa57028621a97335d4f327e561a8b28c32789931173e95f885d	legacy-current	func (e *Encoder) applyPreemphasisWithScalingCoreToFloat64(pcm []float32, output []float64) {
 celt/prefilter.go	1	0469389d55fe7ae61d45819b3b1420a5d8fb8698446bc92bcee7a9b11d0ca483	legacy-current	func findBestPitchInRanges(xcorr []float64, y []float64, length int, ranges [2]pitchSearchRange, bestPitch *[2]int) {
 celt/prefilter.go	1	6a66b0356430715297ea271df77c6ee586099a70b79dd77b2f1e78c0347e24aa	legacy-current	x[i+1] = float64(sum1)
 celt/prefilter.go	1	6ed3de962819ddc200cf8b801a32b675a80400155d7ea515cb2dcd982ebc7b3f	legacy-current	x[i] = float64(sum)

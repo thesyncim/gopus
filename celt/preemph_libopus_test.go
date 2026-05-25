@@ -132,16 +132,14 @@ func runGoCELTPreemphasisWithScaling(tc libopusCELTPreemphasisCase) ([]float32, 
 	for ch := 0; ch < tc.channels; ch++ {
 		enc.preemphState[ch] = celtSig(tc.mem[ch])
 	}
-	in := make([]float64, len(tc.pcm))
+	in := make([]float32, len(tc.pcm))
 	for i, sample := range tc.pcm {
-		in[i] = float64(sample)
+		in[i] = sample
 	}
-	out := make([]float64, len(in))
+	out := make([]float32, len(in))
 	enc.applyPreemphasisWithScalingCore(in, out)
 	got := make([]float32, len(out))
-	for i, sample := range out {
-		got[i] = float32(sample)
-	}
+	copy(got, out)
 	mem := append([]float32(nil), enc.PreemphState()...)
 	return got, mem
 }

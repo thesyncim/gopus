@@ -204,8 +204,8 @@ func TestEncodeFrameQuantizesIngressToLSBDepth(t *testing.T) {
 
 	encA := NewEncoder(1)
 	encA.SetLSBDepth(lsbDepth)
-	quantizedBase := append([]float64(nil), encA.quantizeInputToLSBDepthScratch(base)...)
-	quantizedPerturbed := encA.quantizeInputToLSBDepthScratch(perturbed)
+	quantizedBase := append([]float32(nil), encA.quantizeInputToLSBDepthScratchF32(float32Slice(base))...)
+	quantizedPerturbed := encA.quantizeInputToLSBDepthScratchF32(float32Slice(perturbed))
 	for i := range quantizedBase {
 		if quantizedBase[i] != quantizedPerturbed[i] {
 			t.Fatalf("sub-LSB perturbation changed quantized sample %d: base=%f perturbed=%f", i, quantizedBase[i], quantizedPerturbed[i])
@@ -640,11 +640,13 @@ func TestPreemphasisDeemphasis(t *testing.T) {
 			}
 
 			// Apply pre-emphasis
-			preemph := enc.ApplyPreemphasis(input)
+			preemph := enc.ApplyPreemphasis(float32Slice(input))
 
 			// Apply de-emphasis (simulate what decoder does)
 			output := make([]float64, len(preemph))
-			copy(output, preemph)
+			for i, v := range preemph {
+				output[i] = float64(v)
+			}
 
 			// De-emphasis: y[n] = x[n] + PreemphCoef * y[n-1]
 			coef := float32(PreemphCoef)
@@ -693,7 +695,7 @@ func TestPreemphasisState(t *testing.T) {
 
 	// First call
 	input1 := []float64{1.0, 2.0, 3.0}
-	_ = enc.ApplyPreemphasis(input1)
+	_ = enc.ApplyPreemphasis(float32Slice(input1))
 
 	// State tracks PreemphCoef * last input sample in CELT float width.
 	expectedState := float32(PreemphCoef) * float32(3.0)
@@ -703,7 +705,7 @@ func TestPreemphasisState(t *testing.T) {
 
 	// Second call should use state from first call
 	input2 := []float64{4.0, 5.0}
-	output2 := enc.ApplyPreemphasis(input2)
+	output2 := enc.ApplyPreemphasis(float32Slice(input2))
 
 	// First output should be: 4.0 - 0.85*3.0 = 1.45
 	expected := float32(4.0) - expectedState
@@ -722,16 +724,15 @@ func TestApplyPreemphasisInPlace(t *testing.T) {
 	// Apply regular pre-emphasis
 	inputCopy := make([]float64, len(input))
 	copy(inputCopy, input)
-	regular := enc1.ApplyPreemphasis(inputCopy)
+	regular := enc1.ApplyPreemphasis(float32Slice(inputCopy))
 
 	// Apply in-place pre-emphasis
-	inPlace := make([]float64, len(input))
-	copy(inPlace, input)
+	inPlace := float32Slice(input)
 	enc2.ApplyPreemphasisInPlace(inPlace)
 
 	// Both should produce same results
 	for i := range regular {
-		if math.Abs(regular[i]-inPlace[i]) > 1e-10 {
+		if math.Abs(float64(regular[i]-inPlace[i])) > 1e-10 {
 			t.Errorf("Sample %d: regular=%f, inPlace=%f", i, regular[i], inPlace[i])
 		}
 	}

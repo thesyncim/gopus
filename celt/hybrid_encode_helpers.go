@@ -661,44 +661,14 @@ func (e *Encoder) ComputeMDCTWithHistoryScratchStereoR(samples, history []float6
 }
 
 // ApplyDCRejectScratchHybrid applies DC rejection using the encoder scratch buffers.
-func (e *Encoder) ApplyDCRejectScratchHybrid(pcm []float64) []float64 {
+func (e *Encoder) ApplyDCRejectScratchHybrid(pcm []float32) []float32 {
 	return e.applyDCRejectScratch(pcm)
 }
 
-// ApplyDelayCompensationScratchHybrid applies CELT delay compensation using encoder state.
-// It prepends the delay buffer and returns a frame-sized slice of samples.
-func (e *Encoder) ApplyDelayCompensationScratchHybrid(pcm []float64, frameSize int) []float64 {
-	expectedLen := frameSize * e.channels
-	delayComp := DelayCompensation * e.channels
-	if len(e.delayBuffer) < delayComp {
-		e.delayBuffer = make([]opusRes, delayComp)
-	}
-
-	combinedLen := delayComp + len(pcm)
-	combinedBuf := e.scratch.combinedBuf
-	if len(combinedBuf) < combinedLen {
-		combinedBuf = make([]float64, combinedLen)
-		e.scratch.combinedBuf = combinedBuf
-	}
-	combinedBuf = combinedBuf[:combinedLen]
-	for i := 0; i < delayComp; i++ {
-		combinedBuf[i] = float64(e.delayBuffer[i])
-	}
-	copy(combinedBuf[delayComp:], pcm)
-
-	samplesForFrame := combinedBuf[:expectedLen]
-	delayTailStart := len(combinedBuf) - delayComp
-	for i := 0; i < delayComp; i++ {
-		e.delayBuffer[i] = opusRes(combinedBuf[delayTailStart+i])
-	}
-
-	return samplesForFrame
-}
-
-// ApplyDelayCompensationScratchHybridF32 applies CELT delay compensation using
+// ApplyDelayCompensationScratchHybrid applies CELT delay compensation using
 // float-build input storage. It prepends the delay buffer and returns a
 // frame-sized slice of samples.
-func (e *Encoder) ApplyDelayCompensationScratchHybridF32(pcm []float32, frameSize int) []float32 {
+func (e *Encoder) ApplyDelayCompensationScratchHybrid(pcm []float32, frameSize int) []float32 {
 	expectedLen := frameSize * e.channels
 	delayComp := DelayCompensation * e.channels
 	if len(e.delayBuffer) < delayComp {

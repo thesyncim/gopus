@@ -76,20 +76,20 @@ func noFMA32Sub(a, b float32) float32 {
 //
 // Reference: RFC 6716 Section 4.3.5, libopus celt/celt_encoder.c
 // Uses PreemphCoef = 0.85 (D03-05-03)
-func (e *Encoder) ApplyPreemphasis(pcm []float64) []float64 {
+func (e *Encoder) ApplyPreemphasis(pcm []float32) []float32 {
 	if len(pcm) == 0 {
 		return nil
 	}
 
-	output := make([]float64, len(pcm))
+	output := make([]float32, len(pcm))
 
 	coef := float32(PreemphCoef)
 	if e.channels == 1 {
 		// Mono pre-emphasis
 		state := float32(e.preemphState[0])
 		for i := range pcm {
-			x := float32(pcm[i])
-			output[i] = float64(x - state)
+			x := pcm[i]
+			output[i] = x - state
 			state = coef * x
 		}
 		e.preemphState[0] = celtSig(state)
@@ -100,13 +100,13 @@ func (e *Encoder) ApplyPreemphasis(pcm []float64) []float64 {
 
 		for i := 0; i < len(pcm)-1; i += 2 {
 			// Left channel
-			xL := float32(pcm[i])
-			output[i] = float64(xL - stateL)
+			xL := pcm[i]
+			output[i] = xL - stateL
 			stateL = coef * xL
 
 			// Right channel
-			xR := float32(pcm[i+1])
-			output[i+1] = float64(xR - stateR)
+			xR := pcm[i+1]
+			output[i+1] = xR - stateR
 			stateR = coef * xR
 		}
 
@@ -119,7 +119,7 @@ func (e *Encoder) ApplyPreemphasis(pcm []float64) []float64 {
 
 // ApplyPreemphasisInPlace applies pre-emphasis in-place to the input samples.
 // This is more efficient when a copy is not needed.
-func (e *Encoder) ApplyPreemphasisInPlace(pcm []float64) {
+func (e *Encoder) ApplyPreemphasisInPlace(pcm []float32) {
 	if len(pcm) == 0 {
 		return
 	}
@@ -129,8 +129,8 @@ func (e *Encoder) ApplyPreemphasisInPlace(pcm []float64) {
 		// Mono pre-emphasis
 		state := float32(e.preemphState[0])
 		for i := range pcm {
-			x := float32(pcm[i])
-			pcm[i] = float64(x - state)
+			x := pcm[i]
+			pcm[i] = x - state
 			state = coef * x
 		}
 		e.preemphState[0] = celtSig(state)
@@ -141,13 +141,13 @@ func (e *Encoder) ApplyPreemphasisInPlace(pcm []float64) {
 
 		for i := 0; i < len(pcm)-1; i += 2 {
 			// Left channel
-			xL := float32(pcm[i])
-			pcm[i] = float64(xL - stateL)
+			xL := pcm[i]
+			pcm[i] = xL - stateL
 			stateL = coef * xL
 
 			// Right channel
-			xR := float32(pcm[i+1])
-			pcm[i+1] = float64(xR - stateR)
+			xR := pcm[i+1]
+			pcm[i+1] = xR - stateR
 			stateR = coef * xR
 		}
 
@@ -160,7 +160,7 @@ func (e *Encoder) ApplyPreemphasisInPlace(pcm []float64) {
 // This is the shared core logic for both allocating and scratch-based versions.
 // Input samples are scaled from float range [-1.0, 1.0] to signal scale
 // (multiplied by CELTSigScale = 32768), then the pre-emphasis filter is applied.
-func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
+func (e *Encoder) applyPreemphasisWithScalingCore(pcm []float32, output []float32) {
 	coef := float32(PreemphCoef)
 
 	if e.channels == 1 {
@@ -169,8 +169,8 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 		for i := range pcm {
 			// Scale input to signal scale and apply pre-emphasis
 			// Match libopus float math: cast to float32 before scaling.
-			scaled := float32(pcm[i]) * float32(CELTSigScale)
-			output[i] = float64(scaled - state)
+			scaled := pcm[i] * float32(CELTSigScale)
+			output[i] = scaled - state
 			state = coef * scaled
 		}
 		e.preemphState[0] = celtSig(state)
@@ -181,13 +181,13 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 
 		for i := 0; i < len(pcm)-1; i += 2 {
 			// Left channel
-			scaledL := float32(pcm[i]) * float32(CELTSigScale)
-			output[i] = float64(scaledL - stateL)
+			scaledL := pcm[i] * float32(CELTSigScale)
+			output[i] = scaledL - stateL
 			stateL = coef * scaledL
 
 			// Right channel
-			scaledR := float32(pcm[i+1]) * float32(CELTSigScale)
-			output[i+1] = float64(scaledR - stateR)
+			scaledR := pcm[i+1] * float32(CELTSigScale)
+			output[i+1] = scaledR - stateR
 			stateR = coef * scaledR
 		}
 
@@ -196,178 +196,7 @@ func (e *Encoder) applyPreemphasisWithScalingCore(pcm, output []float64) {
 	}
 }
 
-func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm, output []float64, frameSize, overlap int) bool {
-	return e.applyPreemphasisWithScalingAndSilenceCoreF32(pcm, output, nil, frameSize, overlap)
-}
-
-func (e *Encoder) applyPreemphasisWithScalingAndSilenceCoreF32(pcm, output []float64, outputF32 []float32, frameSize, overlap int) bool {
-	if frameSize <= 0 || e.channels <= 0 || len(pcm) == 0 {
-		e.overlapMax = 0
-		return true
-	}
-	if overlap < 0 {
-		overlap = 0
-	}
-	if overlap > frameSize {
-		overlap = frameSize
-	}
-
-	channels := e.channels
-	total := frameSize * channels
-	if total > len(pcm) {
-		total = len(pcm)
-	}
-	if total > len(output) {
-		total = len(output)
-	}
-	writeF32 := len(outputF32) >= total
-	if total <= 0 {
-		e.overlapMax = 0
-		return true
-	}
-
-	split := (frameSize - overlap) * channels
-	if split < 0 {
-		split = 0
-	}
-	if split > total {
-		split = total
-	}
-
-	coef := float32(PreemphCoef)
-	var firstMaxBits, overlapMaxBits uint64
-	if !writeF32 && channels == 1 {
-		state := float32(e.preemphState[0])
-		for i := 0; i < split; i++ {
-			v := pcm[i]
-			firstMaxBits = updateMaxAbsBits(firstMaxBits, v)
-			scaled := float32(v) * float32(CELTSigScale)
-			output[i] = float64(scaled - state)
-			state = coef * scaled
-		}
-		for i := split; i < total; i++ {
-			v := pcm[i]
-			overlapMaxBits = updateMaxAbsBits(overlapMaxBits, v)
-			scaled := float32(v) * float32(CELTSigScale)
-			output[i] = float64(scaled - state)
-			state = coef * scaled
-		}
-		e.preemphState[0] = celtSig(state)
-	} else if !writeF32 {
-		stateL := float32(e.preemphState[0])
-		stateR := float32(e.preemphState[1])
-		i := 0
-		for ; i+1 < split; i += 2 {
-			vL := pcm[i]
-			vR := pcm[i+1]
-			firstMaxBits = updateMaxAbsBits(firstMaxBits, vL)
-			firstMaxBits = updateMaxAbsBits(firstMaxBits, vR)
-
-			scaledL := float32(vL) * float32(CELTSigScale)
-			output[i] = float64(scaledL - stateL)
-			stateL = coef * scaledL
-
-			scaledR := float32(vR) * float32(CELTSigScale)
-			output[i+1] = float64(scaledR - stateR)
-			stateR = coef * scaledR
-		}
-		for ; i+1 < total; i += 2 {
-			vL := pcm[i]
-			vR := pcm[i+1]
-			overlapMaxBits = updateMaxAbsBits(overlapMaxBits, vL)
-			overlapMaxBits = updateMaxAbsBits(overlapMaxBits, vR)
-
-			scaledL := float32(vL) * float32(CELTSigScale)
-			output[i] = float64(scaledL - stateL)
-			stateL = coef * scaledL
-
-			scaledR := float32(vR) * float32(CELTSigScale)
-			output[i+1] = float64(scaledR - stateR)
-			stateR = coef * scaledR
-		}
-		e.preemphState[0] = celtSig(stateL)
-		e.preemphState[1] = celtSig(stateR)
-	} else if channels == 1 {
-		state := float32(e.preemphState[0])
-		for i := 0; i < split; i++ {
-			v := pcm[i]
-			firstMaxBits = updateMaxAbsBits(firstMaxBits, v)
-			scaled := float32(v) * float32(CELTSigScale)
-			y := scaled - state
-			output[i] = float64(y)
-			outputF32[i] = y
-			state = coef * scaled
-		}
-		for i := split; i < total; i++ {
-			v := pcm[i]
-			overlapMaxBits = updateMaxAbsBits(overlapMaxBits, v)
-			scaled := float32(v) * float32(CELTSigScale)
-			y := scaled - state
-			output[i] = float64(y)
-			outputF32[i] = y
-			state = coef * scaled
-		}
-		e.preemphState[0] = celtSig(state)
-	} else {
-		stateL := float32(e.preemphState[0])
-		stateR := float32(e.preemphState[1])
-		i := 0
-		for ; i+1 < split; i += 2 {
-			vL := pcm[i]
-			vR := pcm[i+1]
-			firstMaxBits = updateMaxAbsBits(firstMaxBits, vL)
-			firstMaxBits = updateMaxAbsBits(firstMaxBits, vR)
-
-			scaledL := float32(vL) * float32(CELTSigScale)
-			yL := scaledL - stateL
-			output[i] = float64(yL)
-			outputF32[i] = yL
-			stateL = coef * scaledL
-
-			scaledR := float32(vR) * float32(CELTSigScale)
-			yR := scaledR - stateR
-			output[i+1] = float64(yR)
-			outputF32[i+1] = yR
-			stateR = coef * scaledR
-		}
-		for ; i+1 < total; i += 2 {
-			vL := pcm[i]
-			vR := pcm[i+1]
-			overlapMaxBits = updateMaxAbsBits(overlapMaxBits, vL)
-			overlapMaxBits = updateMaxAbsBits(overlapMaxBits, vR)
-
-			scaledL := float32(vL) * float32(CELTSigScale)
-			yL := scaledL - stateL
-			output[i] = float64(yL)
-			outputF32[i] = yL
-			stateL = coef * scaledL
-
-			scaledR := float32(vR) * float32(CELTSigScale)
-			yR := scaledR - stateR
-			output[i+1] = float64(yR)
-			outputF32[i+1] = yR
-			stateR = coef * scaledR
-		}
-		e.preemphState[0] = celtSig(stateL)
-		e.preemphState[1] = celtSig(stateR)
-	}
-
-	sampleMax := float64(e.overlapMax)
-	firstMax := math.Float64frombits(firstMaxBits)
-	if firstMax > sampleMax {
-		sampleMax = firstMax
-	}
-	newOverlapMax := float32(math.Float64frombits(overlapMaxBits))
-	e.overlapMax = opusVal32(newOverlapMax)
-	if float64(newOverlapMax) > sampleMax {
-		sampleMax = float64(newOverlapMax)
-	}
-
-	silenceThreshold := math.Ldexp(1.0, -e.lsbDepth)
-	return sampleMax <= silenceThreshold
-}
-
-func (e *Encoder) applyPreemphasisWithScalingAndSilenceCoreFromF32(pcm []float32, output []float64, outputF32 []float32, frameSize, overlap int) bool {
+func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, output []float64, outputF32 []float32, frameSize, overlap int) bool {
 	if frameSize <= 0 || e.channels <= 0 || len(pcm) == 0 {
 		e.overlapMax = 0
 		return true
@@ -491,19 +320,19 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCoreFromF32(pcm []float32
 //
 // This matches libopus celt_preemphasis() behavior where samples are scaled
 // and filtered together. The decoder later divides back by the same scale.
-func (e *Encoder) ApplyPreemphasisWithScaling(pcm []float64) []float64 {
+func (e *Encoder) ApplyPreemphasisWithScaling(pcm []float32) []float32 {
 	if len(pcm) == 0 {
 		return nil
 	}
 
-	output := make([]float64, len(pcm))
+	output := make([]float32, len(pcm))
 	e.applyPreemphasisWithScalingCore(pcm, output)
 	return output
 }
 
 // applyDCRejectCore applies DC rejection filter to the output buffer.
 // This is the shared core logic for both allocating and scratch-based versions.
-func (e *Encoder) applyDCRejectCore(pcm, output []float64) {
+func (e *Encoder) applyDCRejectCore(pcm, output []float32) {
 	// Coefficients: coef = 6.3 * cutoff / Fs
 	// For 48kHz and 3Hz cutoff: coef = 6.3 * 3 / 48000 = 0.00039375
 	// Use float32 math to match libopus float path: coef = 6.3f*cutoff_Hz/Fs.
@@ -514,9 +343,9 @@ func (e *Encoder) applyDCRejectCore(pcm, output []float64) {
 	if e.channels == 1 {
 		m0 := e.hpMem[0]
 		for i := range pcm {
-			x := float32(pcm[i])
+			x := pcm[i]
 			y := x - m0
-			output[i] = float64(y)
+			output[i] = y
 			m0 = coef*x + verySmall + coef2*m0
 		}
 		e.hpMem[0] = m0
@@ -525,10 +354,10 @@ func (e *Encoder) applyDCRejectCore(pcm, output []float64) {
 		m0 := e.hpMem[0]
 		m1 := e.hpMem[1]
 		for i := 0; i < len(pcm)-1; i += 2 {
-			x0 := float32(pcm[i])
-			x1 := float32(pcm[i+1])
-			output[i] = float64(x0 - m0)
-			output[i+1] = float64(x1 - m1)
+			x0 := pcm[i]
+			x1 := pcm[i+1]
+			output[i] = x0 - m0
+			output[i+1] = x1 - m1
 			m0 = coef*x0 + verySmall + coef2*m0
 			m1 = coef*x1 + verySmall + coef2*m1
 		}
@@ -547,7 +376,7 @@ func (e *Encoder) applyDCRejectCore(pcm, output []float64) {
 //	m = coef*x[i] + (1-coef)*m
 //
 // Reference: libopus src/opus_encoder.c dc_reject()
-func (e *Encoder) ApplyDCReject(pcm []float64) []float64 {
+func (e *Encoder) ApplyDCReject(pcm []float32) []float32 {
 	if len(pcm) == 0 {
 		return nil
 	}
@@ -557,14 +386,14 @@ func (e *Encoder) ApplyDCReject(pcm []float64) []float64 {
 		e.hpMem = make([]opusVal32, e.channels)
 	}
 
-	output := make([]float64, len(pcm))
+	output := make([]float32, len(pcm))
 	e.applyDCRejectCore(pcm, output)
 	return output
 }
 
 // applyDCRejectScratch applies DC rejection using pre-allocated scratch buffer.
 // This avoids heap allocations in the hot path.
-func (e *Encoder) applyDCRejectScratch(pcm []float64) []float64 {
+func (e *Encoder) applyDCRejectScratch(pcm []float32) []float32 {
 	if len(pcm) == 0 {
 		return nil
 	}
@@ -574,67 +403,21 @@ func (e *Encoder) applyDCRejectScratch(pcm []float64) []float64 {
 		e.hpMem = make([]opusVal32, e.channels)
 	}
 
-	// Use scratch buffer instead of allocating
-	output := e.scratch.dcRejected
-	if len(output) < len(pcm) {
-		output = make([]float64, len(pcm))
-		e.scratch.dcRejected = output
-	}
-	output = output[:len(pcm)]
+	output := ensureFloat32Slice(&e.scratch.dcRejectedF32, len(pcm))
 
 	e.applyDCRejectCore(pcm, output)
 	return output
 }
 
-func (e *Encoder) applyDCRejectScratchF32(pcm []float32) []float32 {
-	if len(pcm) == 0 {
-		return nil
-	}
-	if len(e.hpMem) < e.channels {
-		e.hpMem = make([]opusVal32, e.channels)
-	}
-	output := ensureFloat32Slice(&e.scratch.dcRejectedF32, len(pcm))
-	e.applyDCRejectCoreF32(pcm, output)
-	return output
-}
-
-func (e *Encoder) applyDCRejectCoreF32(pcm, output []float32) {
-	coef := float32(6.3) * float32(DCRejectCutoffHz) / float32(e.sampleRate)
-	coef2 := float32(1.0) - coef
-	verySmall := float32(1e-30)
-	if e.channels == 1 {
-		m0 := e.hpMem[0]
-		for i, x := range pcm {
-			y := x - m0
-			output[i] = y
-			m0 = coef*x + verySmall + coef2*m0
-		}
-		e.hpMem[0] = m0
-	} else {
-		m0 := e.hpMem[0]
-		m1 := e.hpMem[1]
-		for i := 0; i < len(pcm)-1; i += 2 {
-			x0 := pcm[i]
-			x1 := pcm[i+1]
-			output[i] = x0 - m0
-			output[i+1] = x1 - m1
-			m0 = coef*x0 + verySmall + coef2*m0
-			m1 = coef*x1 + verySmall + coef2*m1
-		}
-		e.hpMem[0] = m0
-		e.hpMem[1] = m1
-	}
-}
-
 // ApplyPreemphasisWithScalingScratch applies pre-emphasis with scaling using
 // pre-allocated scratch buffers. This is the zero-allocation version of
 // ApplyPreemphasisWithScaling, suitable for use from the hybrid encoding path.
-func (e *Encoder) ApplyPreemphasisWithScalingScratch(pcm []float64) []float64 {
+func (e *Encoder) ApplyPreemphasisWithScalingScratch(pcm []float32) []float64 {
 	return e.applyPreemphasisWithScalingScratch(pcm)
 }
 
 // applyPreemphasisWithScalingScratch applies pre-emphasis with scaling using scratch buffer.
-func (e *Encoder) applyPreemphasisWithScalingScratch(pcm []float64) []float64 {
+func (e *Encoder) applyPreemphasisWithScalingScratch(pcm []float32) []float64 {
 	if len(pcm) == 0 {
 		return nil
 	}
@@ -647,27 +430,11 @@ func (e *Encoder) applyPreemphasisWithScalingScratch(pcm []float64) []float64 {
 	}
 	output = output[:len(pcm)]
 
-	e.applyPreemphasisWithScalingCore(pcm, output)
+	e.applyPreemphasisWithScalingCoreToFloat64(pcm, output)
 	return output
 }
 
-// ApplyPreemphasisWithScalingScratchF32 applies CELT pre-emphasis from
-// float-build Opus/CELT input into the current transitional coefficient domain.
-func (e *Encoder) ApplyPreemphasisWithScalingScratchF32(pcm []float32) []float64 {
-	if len(pcm) == 0 {
-		return nil
-	}
-	output := e.scratch.preemph
-	if len(output) < len(pcm) {
-		output = make([]float64, len(pcm))
-		e.scratch.preemph = output
-	}
-	output = output[:len(pcm)]
-	e.applyPreemphasisWithScalingCoreF32(pcm, output)
-	return output
-}
-
-func (e *Encoder) applyPreemphasisWithScalingCoreF32(pcm []float32, output []float64) {
+func (e *Encoder) applyPreemphasisWithScalingCoreToFloat64(pcm []float32, output []float64) {
 	coef := float32(PreemphCoef)
 	if e.channels == 1 {
 		state := float32(e.preemphState[0])

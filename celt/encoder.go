@@ -1058,15 +1058,12 @@ func (e *Encoder) PhaseInversionDisabled() bool {
 // These buffers are reused across frames to eliminate heap allocations during encoding.
 type encoderScratch struct {
 	// LSB-depth quantized input buffer
-	quantizedInput    []float64
 	quantizedInputF32 []float32
 
 	// DC rejection output buffer
-	dcRejected    []float64
 	dcRejectedF32 []float32
 
 	// Combined delay buffer + PCM
-	combinedBuf    []float64
 	combinedBufF32 []float32
 
 	// Pre-emphasized signal buffer
@@ -1197,14 +1194,14 @@ func (e *Encoder) ensureScratch(frameSize int) {
 
 	s := &e.scratch
 
-	// DC rejection output
-	s.quantizedInput = ensureFloat64Slice(&s.quantizedInput, expectedLen)
-	s.dcRejected = ensureFloat64Slice(&s.dcRejected, expectedLen)
+	// DC rejection and LSB-depth quantization output
+	s.quantizedInputF32 = ensureFloat32Slice(&s.quantizedInputF32, expectedLen)
+	s.dcRejectedF32 = ensureFloat32Slice(&s.dcRejectedF32, expectedLen)
 
 	// Combined delay buffer
 	delayComp := DelayCompensation * channels
 	combinedLen := delayComp + expectedLen
-	s.combinedBuf = ensureFloat64Slice(&s.combinedBuf, combinedLen)
+	s.combinedBufF32 = ensureFloat32Slice(&s.combinedBufF32, combinedLen)
 
 	// Pre-emphasis buffer
 	s.preemph = ensureFloat64Slice(&s.preemph, expectedLen)
