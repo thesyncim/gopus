@@ -113,7 +113,7 @@ func TestSILKPitchAnalysisCoreMatchesLibopus(t *testing.T) {
 			enc.pitchEstimationComplexity = tc.complexity
 			enc.pitchState.prevLag = tc.prevLag
 			enc.pitchState.ltpCorr = tc.ltpCorr
-			gotLags, gotLagIndex, gotContourIndex := enc.detectPitch(tc.frame, tc.nbSubfr, float64(tc.searchThres1), float64(tc.searchThres2))
+			gotLags, gotLagIndex, gotContourIndex := enc.detectPitch(tc.frame, tc.nbSubfr, tc.searchThres1, tc.searchThres2)
 
 			gotRet := 1
 			for _, lag := range gotLags {

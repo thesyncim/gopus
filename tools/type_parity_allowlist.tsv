@@ -1752,8 +1752,6 @@ plc/silk_plc.go	1	708e0fed6db05727be3b4fd714197e7677342f67301707149bdd9500b6d9f2
 plc/silk_plc.go	1	b8b3dcd10e6933174c1076b381ca1523a9539ea3437a8f93fe9e081636d02342	legacy-current	func ConcealSILK(dec SILKDecoderState, frameSize int, fadeFactor float64) []float32 {
 plc/silk_plc.go	1	cecb7acf10aa57d3da15d916936c0c1eb9c4f40b5646703b0a9b196a1ae373b0	legacy-current	func bwExpandQ12(ar []int16, coef float64) {
 plc/silk_plc.go	1	df24bc5e674a596aa430d1385ec6dfa6ebcc7efe37f320e11e2a1c868ca857b1	legacy-current	func concealUnvoicedSILK(output []float32, prevLPC []float32, order int, fade float64, rng *uint32) {
-silk/encode_frame.go	1	2e26562d02b54885bdd23e6494c42331a5202fa4beb7a3056ae320fe26ed86b0	legacy-current	searchThres1 := float64(float32(e.pitchEstimationThresholdQ16) / 65536.0)
-silk/encode_frame.go	1	f223dd0cc95ee7b271eb2690192e56b126c8b77e2558b61eb9472ff4d6f6846e	legacy-current	thrhld := float64(thrhldF32)
 silk/encoder.go	1	1d18a65e0422c2c117760eda9e5e860ca53125e185c9b770ef1ec92a58874b24	legacy-current	scratchBurgCFirstRow []float64 // burgModifiedFLPZeroAllocF32: CFirstRow
 silk/encoder.go	1	6b40bfd21dc7514a19d046fdad15de5d90cf1003f53e5be38cfb848756261c90	legacy-current	*buf = make([]float64, n)
 silk/encoder.go	1	948889f0d6a3c01fd21ed5b3c3b9be3857ebd93fe0ddcdd2c6229d4e9a20bae7	legacy-current	scratchBurgCLastRow []float64 // burgModifiedFLPZeroAllocF32: CLastRow
@@ -1848,33 +1846,17 @@ silk/noise_shape_analysis.go	1	aa10179c9d852391eb55ee5542473a12f0cf10ef94a301879
 silk/noise_shape_analysis.go	1	b622502c4ccb80e79e985f57a3def953be28b79f43f23dc4a194c6c9922db6ab	legacy-current	tmp1 := float64(sample)
 silk/pitch_detect.go	1	00afb0dcaa624b5e2b80a9967f91b720d9f1dfe0cf445b085f638bd7e66f9b15	legacy-current	energy += float64(energySt3[idx])
 silk/pitch_detect.go	1	0689f78f307a855ae549f8813c0d8e352a8caf4b6d384c57e7251b4594cf0d3c	legacy-current	crossCorr += float64(corrSt3[idx])
-silk/pitch_detect.go	1	1e0be019a8d904df1a7c97cb731f4a89fec6c0ba94d03b9c90b6127f04cc96a0	legacy-current	var corr, energy1, energy2 float64
-silk/pitch_detect.go	1	26ceb9edb400f306922fb361fce20aef629ca09cf1989dae03b169ac85f0da8d	legacy-current	searchThres2 = 0.4 - 0.25*float64(complexity)/2.0
 silk/pitch_detect.go	1	2a4eaabed418894f41eb6fda72882df6a65ec269b3e227564b97c3504f8a2825	legacy-current	func energyFLP(data []float32) float64 {
 silk/pitch_detect.go	1	313e99e997fc929314d23e5f6ce9e790f8ff81c79f0563426b276f63ad9ff4b9	legacy-current	energy -= float64(frame[basisStart+sfLength-i]) * float64(frame[basisStart+sfLength-i])
-silk/pitch_detect.go	1	32a348e048c2d86e407c5163179d2c6224e76c972ea2cbdd9aa5d04a1b2315aa	legacy-current	energy1 += float64(signal[i]) * float64(signal[i])
-silk/pitch_detect.go	1	375a649d68c5ab0adfa9e860645f029f925446e25b1e657e5d3ac0663683e86b	legacy-current	energy := float64(energyFLP(frame[basisStart:basisStart+sfLength])) + 1e-3
-silk/pitch_detect.go	1	3c1c8cf91e916285aa676123995ad6d1e26e018f99e6356e1b6536109e033cb5	legacy-current	corr += float64(signal[i]) * float64(signal[i-lag])
-silk/pitch_detect.go	1	4e6a98d38801fd30c8a478237bfadc96507e86c9e28c8a84baa53856de390eca	legacy-current	func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, searchThres2 float64) ([]int, int, int) {
-silk/pitch_detect.go	1	4e9f97d12e4e7c399d3739d1c1f9c6901b9f9f5e7c674421b4fdb8c9e5b3a195	legacy-current	energy := float64(energyTmp)
 silk/pitch_detect.go	1	54ca5ac3d878e620213ccfceb5e51d832ec5520ded6eb6711b72cd5a1fa88032	legacy-current	basisEnergy += float64(vNew)*float64(vNew) - float64(vOld)*float64(vOld)
 silk/pitch_detect.go	1	70284bcaf8edc92c007de801c6edf0bc61ca490b3cc3dd68d1e7003f2854ae87	legacy-current	return float32(3.32192809488736 * math.Log10(float64(x)))
 silk/pitch_detect.go	1	7d1cc953090a3dbaf4c709c25171e1f26fc6720531e72728456a9e39ed4345df	legacy-current	C[minLag4kHz] += float32(2.0 * float64(xcorrVal) / normalizer)
-silk/pitch_detect.go	1	83555306ffc4ac30de8d26337ea79c25ce6264aee154a892a1441e51326f8920	legacy-current	var bestCorr float64 = -1
-silk/pitch_detect.go	1	84402c6efbece896754db5a07805be7ea6b682f2e169f4aed289d35d9145cc34	legacy-current	energy2 += float64(signal[i-lag]) * float64(signal[i-lag])
 silk/pitch_detect.go	1	9875e4cf8f441bb6554d0ecb542ac1dd8cca007c518dcee52e0eaacf5f8710b5	legacy-current	energy += float64(frame[basisStart-i]) * float64(frame[basisStart-i])
-silk/pitch_detect.go	1	adc9f8948a497172e6fc40e8f0cc123b257a1d0675d535d5eabc27abdc7b610b	legacy-current	func lagrangianInterpolate(corrMinus, corrCenter, corrPlus float64) float64 {
 silk/pitch_detect.go	1	c342f0ddd5641459849b05f183b5fbab7fd6ca4d744627276bba63b47f1f9f30	legacy-current	normBias := float64(sfLength8kHz) * 4000.0
-silk/pitch_detect.go	1	cd9bdd92bbf674e0d35d2882044f80e104f9f9ecd737daf3df72e35b6f855ae7	legacy-current	normCorr *= 1.0 - 0.001*float64(lag-minLag)
 silk/pitch_detect.go	1	da239c32c915cfc96a09018993d458066d3b19e64e1a64e62ff42f261c8ea3b9	legacy-current	C[d] += float32(2.0 * float64(xcorrVal) / normalizer)
-silk/pitch_detect.go	1	e7b4bc45e5c115020e9b50c3f0dae74d7b468a60a7ac184354c7e5b55549fc53	legacy-current	searchThres1 = 0.8 - 0.5*float64(complexity)/2.0
-silk/pitch_residual.go	1	18f09b60748e2b28cc4ff25e2d377b97d0169811ac0073c0687851a9c746b096	legacy-current	func autocorrelationFLP(out, in []float64, length, order int) {
 silk/pitch_residual.go	1	a30044019eff8654fa3c36200f2c0020567db858baf9486ab747ab3587e05ec0	legacy-current	C[k][1] = float64(autoCorr[k])
 silk/pitch_residual.go	1	b27b28c1c0cb7fdf171db5e99e296d551b5d951282ed3cacc8c8cd30d0e51516	legacy-current	minDen := float64(float32(1e-9))
-silk/pitch_residual.go	1	b7abf24d9b6963bb448e84b98b7964686ff27b0862a10be5736a5bbe36bc5320	legacy-current	func k2aFLP(a, rc []float64, order int) {
-silk/pitch_residual.go	1	baa0d16c6019b98cb5466ab6bf2d337122589283174b8b7ecc3787b2d0b6d0c7	legacy-current	func bwexpanderFLP(ar []float64, order int, chirp float64) {
-silk/pitch_residual.go	1	c4aa59393350aadf444b771ab395d7fd251fb90b4d73d591f3d2433a21e7de98	legacy-current	func schurFLP(refl, autoCorr []float64, order int) float64 {
-silk/pitch_residual.go	2	d65c7ec73a14b4a65b4c0f88c815a8fcea17e06b6f64485c33a9c95a044e8baa	legacy-current	var C [maxShapeLpcOrder + 1][2]float64
+silk/pitch_residual.go	1	d65c7ec73a14b4a65b4c0f88c815a8fcea17e06b6f64485c33a9c95a044e8baa	legacy-current	var C [maxShapeLpcOrder + 1][2]float64
 silk/pitch_residual.go	1	edf0073420a1cc374a1d82c23708b03c6da3c98c13a13de0dc8e7f146e84e324	legacy-current	C[k][0] = float64(autoCorr[k])
 silk/pred_coefs.go	1	022036e034e6fbf50b1a7e0aaa22cc0597e4762c2e8d5d79f0de4921d03a0c16	legacy-current	invMaxSqrVal := float32(math.Exp2(float64(powArg)) / float64(subframeSamples))
 silk/pred_coefs.go	2	700216fc1e9b550b64cc3bf3a45bf41b21369fe1c5fac18ee372d1a5331a6979	legacy-current	energy *= float64(gainSq)

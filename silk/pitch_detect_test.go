@@ -518,7 +518,7 @@ func TestDownsampleLowpass(t *testing.T) {
 func TestLagrangianInterpolate(t *testing.T) {
 	// Test case where peak is at center
 	offset := lagrangianInterpolate(0.9, 1.0, 0.9)
-	if math.Abs(offset) > 0.01 {
+	if abs32(offset) > 0.01 {
 		t.Errorf("symmetric case: expected offset ~0, got %f", offset)
 	}
 

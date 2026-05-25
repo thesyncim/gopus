@@ -213,7 +213,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 	predGainQ7 := int32(0)
 	pitchRes, resStart, _, pitchInfo := e.computePitchResidual(numSubframes)
 	if signalType != typeNoVoiceActivity {
-		searchThres1 := float64(float32(e.pitchEstimationThresholdQ16) / 65536.0)
+		searchThres1 := float32(e.pitchEstimationThresholdQ16) / 65536.0
 		prevSignalType := 0
 		if e.isPreviousFrameVoiced {
 			prevSignalType = 2
@@ -223,18 +223,17 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		thrhldF32 -= float32(0.1) * float32(speechActivityQ8) * (1.0 / 256.0)
 		thrhldF32 -= float32(0.15) * float32(prevSignalType>>1)
 		thrhldF32 -= float32(0.1) * float32(e.inputTiltQ15) * (1.0 / 32768.0)
-		thrhld := float64(thrhldF32)
-		if thrhld < 0 {
-			thrhld = 0
-		} else if thrhld > 1 {
-			thrhld = 1
+		if thrhldF32 < 0 {
+			thrhldF32 = 0
+		} else if thrhldF32 > 1 {
+			thrhldF32 = 1
 		}
 		if firstFrameAfterReset {
 			pitchLags = make([]int, numSubframes)
 			e.ltpCorr = 0
 			e.pitchState.ltpCorr = 0
 		} else {
-			pitchLags, lagIndex, contourIndex = e.detectPitch(pitchRes, numSubframes, searchThres1, thrhld)
+			pitchLags, lagIndex, contourIndex = e.detectPitch(pitchRes, numSubframes, searchThres1, thrhldF32)
 			e.ltpCorr = e.pitchState.ltpCorr
 			if e.ltpCorr > 1.0 {
 				e.ltpCorr = 1.0

@@ -125,7 +125,7 @@ type pitchEncodeParams struct {
 // Stage 1: Coarse search at 4kHz with normalized autocorrelation
 // Stage 2: Refined search at 8kHz with contour codebook
 // Stage 3: Fine search at full rate with interpolation
-func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, searchThres2 float64) ([]int, int, int) {
+func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, searchThres2 float32) ([]int, int, int) {
 	config := GetBandwidthConfig(e.bandwidth)
 	fsKHz := config.SampleRate / 1000
 
@@ -226,7 +226,9 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		targetStart = len(frame4kHz) / 2
 	}
 
-	// Compute normalized autocorrelation at 4kHz
+	// Compute normalized autocorrelation at 4kHz. In
+	// silk/float/pitch_analysis_core_FLP.c, cross_corr, normalizer, energy,
+	// and energy_tmp are C double; C/CC outputs and thresholds are silk_float.
 	// Process pairs of subframes for stage 1
 	for k := 0; k < numSubframes/2; k++ {
 		targetIdx := targetStart + k*sfLength8kHz
@@ -377,9 +379,9 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 
 	// Threshold for candidate selection
 	if searchThres1 <= 0 {
-		searchThres1 = 0.8 - 0.5*float64(complexity)/2.0
+		searchThres1 = 0.8 - 0.5*float32(complexity)/2.0
 	}
-	threshold := float32(searchThres1) * Cmax
+	threshold := searchThres1 * Cmax
 
 	// Convert to 8kHz indices and expand search range
 	dCompLen := peMaxLagMS*8 + 5
@@ -500,7 +502,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	}
 
 	if searchThres2 <= 0 {
-		searchThres2 = 0.4 - 0.25*float64(complexity)/2.0
+		searchThres2 = 0.4 - 0.25*float32(complexity)/2.0
 	}
 
 	var ccBuf [peNbCbksStage2Ext]float32
@@ -541,7 +543,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 			CCmaxNewB -= float32(pePrevlagBias) * float32(numSubframes) * e.pitchState.ltpCorr *
 				deltaLagLog2Sqr / (deltaLagLog2Sqr + 0.5)
 		}
-		if CCmaxNewB > CCmaxBStage2 && CCmaxNew > float32(numSubframes)*float32(searchThres2) {
+		if CCmaxNewB > CCmaxBStage2 && CCmaxNew > float32(numSubframes)*searchThres2 {
 			CCmaxBStage2 = CCmaxNewB
 			CCmaxStage2 = CCmaxNew
 			lag = d
@@ -625,7 +627,7 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 		for d := startLag; d <= endLag; d++ {
 			for j := 0; j < nbCbkSearch3; j++ {
 				crossCorr := 0.0
-				energy := float64(energyTmp)
+				energy := energyTmp
 				for k := 0; k < numSubframes; k++ {
 					idx := pitchStage3Index(k, j, lagCounter)
 					crossCorr += float64(corrSt3[idx])
@@ -751,7 +753,7 @@ func downsample(signal []float32, factor int) []float32 {
 	return ds
 }
 
-// autocorrPitchSearch finds best pitch lag using normalized autocorrelation.
+// autocorrPitchSearch finds best pitch lag using silk_float-width normalized autocorrelation.
 // Uses bias toward shorter lags to avoid octave errors.
 // Kept for backward compatibility with existing tests.
 func autocorrPitchSearch(signal []float32, minLag, maxLag int) int {
@@ -767,14 +769,14 @@ func autocorrPitchSearch(signal []float32, minLag, maxLag int) int {
 	}
 
 	bestLag := minLag
-	var bestCorr float64 = -1
+	bestCorr := float32(-1)
 
 	for lag := minLag; lag <= maxLag; lag++ {
-		var corr, energy1, energy2 float64
+		var corr, energy1, energy2 float32
 		for i := lag; i < n; i++ {
-			corr += float64(signal[i]) * float64(signal[i-lag])
-			energy1 += float64(signal[i]) * float64(signal[i])
-			energy2 += float64(signal[i-lag]) * float64(signal[i-lag])
+			corr += noFMA32(signal[i], signal[i-lag])
+			energy1 += noFMA32(signal[i], signal[i])
+			energy2 += noFMA32(signal[i-lag], signal[i-lag])
 		}
 
 		if energy1 < 1e-10 || energy2 < 1e-10 {
@@ -782,11 +784,11 @@ func autocorrPitchSearch(signal []float32, minLag, maxLag int) int {
 		}
 
 		// Normalized correlation
-		normCorr := corr / math.Sqrt(energy1*energy2)
+		normCorr := corr / sqrt32(energy1*energy2)
 
 		// Bias toward shorter lags to avoid octave errors
 		// Per draft-vos-silk-01 Section 2.1.2.5
-		normCorr *= 1.0 - 0.001*float64(lag-minLag)
+		normCorr *= 1.0 - 0.001*float32(lag-minLag)
 
 		if normCorr > bestCorr {
 			bestCorr = normCorr
@@ -800,11 +802,11 @@ func autocorrPitchSearch(signal []float32, minLag, maxLag int) int {
 // lagrangianInterpolate performs Lagrangian interpolation for sub-sample pitch refinement.
 // Given correlation values at lags [d-1, d, d+1], returns fractional offset.
 // This matches libopus's approach in remove_doubling/pitch_search.
-func lagrangianInterpolate(corrMinus, corrCenter, corrPlus float64) float64 {
+func lagrangianInterpolate(corrMinus, corrCenter, corrPlus float32) float32 {
 	// Quadratic interpolation to find sub-sample offset
 	// offset = 0.5 * (corrMinus - corrPlus) / (corrMinus - 2*corrCenter + corrPlus)
 	denom := corrMinus - 2*corrCenter + corrPlus
-	if math.Abs(denom) < 1e-10 {
+	if abs32(denom) < 1e-10 {
 		return 0
 	}
 	offset := 0.5 * (corrMinus - corrPlus) / denom
@@ -820,7 +822,7 @@ func lagrangianInterpolate(corrMinus, corrCenter, corrPlus float64) float64 {
 }
 
 // energyFLP computes sum of squares of a float32 array.
-// Matches libopus silk_energy_FLP (float precision accumulation).
+// Matches libopus silk/float/energy_FLP.c: silk_energy_FLP returns C double.
 func energyFLP(data []float32) float64 {
 	return energyF32Libopus(data, len(data))
 }
@@ -924,7 +926,7 @@ func pitchAnalysisCalcEnergySt3(out []float32, frame []float32, startLag, sfLeng
 			targetIdx += sfLength
 			continue
 		}
-		energy := float64(energyFLP(frame[basisStart:basisStart+sfLength])) + 1e-3
+		energy := energyFLP(frame[basisStart:basisStart+sfLength]) + 1e-3
 		scratchMem[0] = float32(energy)
 		for i := 1; i < lagCount; i++ {
 			energy -= float64(frame[basisStart+sfLength-i]) * float64(frame[basisStart+sfLength-i])
