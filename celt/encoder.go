@@ -29,9 +29,9 @@ type Encoder struct {
 
 	// Configuration (mirrors decoder)
 	channels       int           // 1 or 2
-	streamChannels int           // coded channels, mirrors CELT_SET_CHANNELS
+	streamChannels int32         // coded channels, mirrors CELT_SET_CHANNELS
 	sampleRate     int           // Always 48000
-	lsbDepth       int           // Input LSB depth (8-24 bits)
+	lsbDepth       int32         // Input LSB depth (8-24 bits)
 	bandwidth      CELTBandwidth // Active bandwidth cap (NB..FB)
 
 	// Energy state (persists across frames, mirrors decoder)
@@ -67,12 +67,12 @@ type Encoder struct {
 	intensity      int // Previous intensity stereo decision (libopus hysteresis state)
 
 	// Bitrate control
-	targetBitrate int // Target bitrate in bits per second (0 = use buffer size)
-	frameBits     int // Per-frame bit budget for coarse energy (set during encoding)
+	targetBitrate int32 // Target bitrate in bits per second (0 = use buffer size)
+	frameBits     int32 // Per-frame bit budget for coarse energy (set during encoding)
 	// coarseAvailableBytes mirrors libopus quant_coarse_energy() nbAvailableBytes.
 	// When >0, it overrides budget/8 for coarse intra/decay decisions.
-	coarseAvailableBytes int
-	maxPayloadBytes      int // Optional per-frame payload cap (excludes TOC byte)
+	coarseAvailableBytes int32
+	maxPayloadBytes      int32 // Optional per-frame payload cap (excludes TOC byte)
 	vbr                  bool
 	constrainedVBR       bool
 	// constrainedVBRBoundScale scales libopus vbr_bound for constrained-VBR
@@ -88,7 +88,7 @@ type Encoder struct {
 	encoderQEXTFields
 
 	// Complexity control (0-10)
-	complexity int
+	complexity int32
 
 	// Spread decision state (persistent across frames for hysteresis)
 	spreadDecision int   // Current spread decision (0-3)
@@ -180,7 +180,7 @@ type Encoder struct {
 	prefilterTapset int
 	prefilterMem    []celtSig
 	// Packet loss expectation (0-100) for prefilter gain scaling.
-	packetLoss int
+	packetLoss int32
 
 	// Last frame's band energies retained for dynalloc analysis.
 	lastBandLogE  []celtGLog // bandLogE (primary MDCT energies)
@@ -219,7 +219,7 @@ func NewEncoder(channels int) *Encoder {
 
 	e := &Encoder{
 		channels:       channels,
-		streamChannels: channels,
+		streamChannels: int32(channels),
 		sampleRate:     48000, // CELT always operates at 48kHz internally
 		lsbDepth:       24,    // Default to full 24-bit depth
 		bandwidth:      CELTFullband,
@@ -517,7 +517,7 @@ func (e *Encoder) SetComplexity(complexity int) {
 	if complexity > 10 {
 		complexity = 10
 	}
-	e.complexity = complexity
+	e.complexity = int32(complexity)
 }
 
 // SetVBR enables or disables variable bitrate mode.
@@ -621,7 +621,7 @@ func (e *Encoder) SetTopLevelDelayCompensatedInput(alreadyCompensated bool) {
 
 // Complexity returns the current complexity setting.
 func (e *Encoder) Complexity() int {
-	return e.complexity
+	return int(e.complexity)
 }
 
 // SetRangeEncoder sets the range encoder for the current frame.
@@ -645,16 +645,16 @@ func (e *Encoder) SetStreamChannels(channels int) {
 	if channels < 1 || channels > e.channels {
 		return
 	}
-	e.streamChannels = channels
+	e.streamChannels = int32(channels)
 }
 
 // StreamChannels returns the coded channel count.
 func (e *Encoder) StreamChannels() int {
-	return e.streamChannels
+	return int(e.streamChannels)
 }
 
 func (e *Encoder) codedChannels() int {
-	channels := e.streamChannels
+	channels := int(e.streamChannels)
 	if channels < 1 {
 		channels = 1
 	}
@@ -817,12 +817,12 @@ func (e *Encoder) FrameCount() int {
 // SetBitrate sets the target bitrate in bits per second.
 // This affects bit allocation for frame encoding.
 func (e *Encoder) SetBitrate(bps int) {
-	e.targetBitrate = bps
+	e.targetBitrate = int32(bps)
 }
 
 // Bitrate returns the current target bitrate in bits per second.
 func (e *Encoder) Bitrate() int {
-	return e.targetBitrate
+	return int(e.targetBitrate)
 }
 
 // SetMaxPayloadBytes sets an optional payload cap for the next CELT frame.
@@ -831,7 +831,7 @@ func (e *Encoder) SetMaxPayloadBytes(maxPayloadBytes int) {
 	if maxPayloadBytes < 0 {
 		maxPayloadBytes = 0
 	}
-	e.maxPayloadBytes = maxPayloadBytes
+	e.maxPayloadBytes = int32(maxPayloadBytes)
 }
 
 // SetPacketLoss sets the expected packet loss percentage (0-100).
@@ -843,12 +843,12 @@ func (e *Encoder) SetPacketLoss(lossPercent int) {
 	if lossPercent > 100 {
 		lossPercent = 100
 	}
-	e.packetLoss = lossPercent
+	e.packetLoss = int32(lossPercent)
 }
 
 // PacketLoss returns the expected packet loss percentage.
 func (e *Encoder) PacketLoss() int {
-	return e.packetLoss
+	return int(e.packetLoss)
 }
 
 // SetLSBDepth sets the input signal LSB depth (8-24 bits).
@@ -860,7 +860,7 @@ func (e *Encoder) SetLSBDepth(depth int) {
 	if depth > 24 {
 		depth = 24
 	}
-	e.lsbDepth = depth
+	e.lsbDepth = int32(depth)
 }
 
 // LSBDepth returns the current input signal LSB depth.
@@ -868,7 +868,7 @@ func (e *Encoder) LSBDepth() int {
 	if e.lsbDepth <= 0 {
 		return 24
 	}
-	return e.lsbDepth
+	return int(e.lsbDepth)
 }
 
 // SetBandwidth sets the CELT bandwidth cap used for band allocation.

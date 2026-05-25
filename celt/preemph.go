@@ -285,7 +285,7 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 	if firstMax > sampleMax {
 		sampleMax = firstMax
 	}
-	silenceThreshold := float32(math.Ldexp(1, -e.lsbDepth))
+	silenceThreshold := float32(math.Ldexp(1, -int(e.lsbDepth)))
 	return sampleMax <= silenceThreshold
 }
 

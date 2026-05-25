@@ -9,7 +9,7 @@ func (e *Encoder) TestEncodeLaplace(val, fs, decay int) int {
 
 // SetFrameBitsForTest exposes frameBits for testing.
 func (e *Encoder) SetFrameBitsForTest(bits int) {
-	e.frameBits = bits
+	e.frameBits = int32(bits)
 }
 
 // TestDecodeLaplace is defined in export_test.go

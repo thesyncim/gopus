@@ -3,10 +3,33 @@ package celt
 import (
 	"bytes"
 	"math"
+	"reflect"
 	"testing"
 
 	"github.com/thesyncim/gopus/rangecoding"
 )
+
+func TestEncoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
+	int32Type := reflect.TypeOf(int32(0))
+	for _, name := range []string{
+		"streamChannels",
+		"lsbDepth",
+		"targetBitrate",
+		"frameBits",
+		"coarseAvailableBytes",
+		"maxPayloadBytes",
+		"complexity",
+		"packetLoss",
+	} {
+		field, ok := reflect.TypeOf(Encoder{}).FieldByName(name)
+		if !ok {
+			t.Fatalf("Encoder.%s missing", name)
+		}
+		if field.Type != int32Type {
+			t.Fatalf("Encoder.%s type=%s want %s", name, field.Type, int32Type)
+		}
+	}
+}
 
 // TestNewEncoder verifies encoder initialization matches decoder.
 func TestNewEncoder(t *testing.T) {

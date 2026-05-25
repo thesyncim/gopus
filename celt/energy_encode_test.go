@@ -169,7 +169,7 @@ func TestCoarseEnergyEncoderProducesValidOutput(t *testing.T) {
 				re.Init(buf)
 				re.Shrink(uint32(len(buf)))
 				enc.SetRangeEncoder(re)
-				enc.frameBits = len(buf) * 8
+				enc.frameBits = int32(len(buf) * 8)
 
 				quantizedEnc := enc.EncodeCoarseEnergy(energies, nbBands, intra, lm)
 

@@ -317,7 +317,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 	allowWeakTransients := false
 	if e.hybrid {
-		effectiveBytes := e.maxPayloadBytes
+		effectiveBytes := int(e.maxPayloadBytes)
 		if effectiveBytes <= 0 {
 			bits := e.BitrateToBits(frameSize)
 			effectiveBytes = (bits + 7) / 8
@@ -361,7 +361,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// after dynalloc and trim once current-frame VBR inputs are known.
 	targetBytes := e.computeInitialTargetBytes(frameSize)
 	targetBits := targetBytes * 8
-	e.frameBits = targetBits
+	e.frameBits = int32(targetBits)
 	defer func() { e.frameBits = 0 }()
 	e.clearLastQEXTPayload()
 
@@ -827,7 +827,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	} else {
 		effectiveBytes = e.cbrPayloadBytes(frameSize)
 	}
-	equivRate := ComputeEquivRate(effectiveBytes, codedChannels, lm, e.targetBitrate)
+	equivRate := ComputeEquivRate(effectiveBytes, codedChannels, lm, int(e.targetBitrate))
 
 	// Step 11.0.7: Compute dynalloc analysis for VBR and bit allocation
 	// This computes maxDepth, offsets, importance, and spread_weight.
@@ -1132,7 +1132,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	if e.vbr {
 		targetBytes = e.computeFinalVBRTargetBytes(frameSize, tfEstimate, e.lastPitchChange, re.TellFrac(), totalBoost, targetBytes)
 		targetBits = targetBytes * 8
-		e.frameBits = targetBits
+		e.frameBits = int32(targetBits)
 		re.Shrink(uint32(targetBytes))
 		if re.Error() != 0 {
 			return nil, ErrEncodingFailed
@@ -1377,7 +1377,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		allocResult.CodedBands,
 		e.phaseInversionDisabled,
 		&e.rng,
-		e.complexity,
+		int(e.complexity),
 		bandE,
 		qextEnc,
 		qextExtraBits,
@@ -1432,7 +1432,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			qextEnd,
 			e.phaseInversionDisabled,
 			&e.rng,
-			e.complexity,
+			int(e.complexity),
 			qextBandE,
 			&dummyEnc,
 			zeroTFRes,
@@ -1827,7 +1827,7 @@ func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, 
 		if re.Error() != 0 {
 			return nil, ErrEncodingFailed
 		}
-		e.frameBits = targetBytes * 8
+		e.frameBits = int32(targetBytes * 8)
 	}
 	e.lastTellFrac = targetBytes * 8 << bitRes
 
@@ -1921,7 +1921,7 @@ func (e *Encoder) EncodeStereoFrame(left, right []float32, frameSize int) ([]byt
 // bitrateToBits returns the base target bits from bitrate and frame size.
 // This mirrors libopus bitrate_to_bits() for CELT frames.
 func (e *Encoder) bitrateToBits(frameSize int) int {
-	bitrate := e.targetBitrate
+	bitrate := int(e.targetBitrate)
 	if bitrate <= 0 {
 		if e.channels == 2 {
 			bitrate = 128000
@@ -1942,15 +1942,15 @@ func (e *Encoder) bitrateToBits(frameSize int) int {
 // This matches libopus's CBR byte formula and subtracts the TOC byte.
 func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 	const fs = 48000
-	bitrate := e.targetBitrate
+	bitrate := int(e.targetBitrate)
 	if bitrate == opusBitrateMax {
 		packetSizeCap := 1275
 		if extsupport.QEXT && e.qextActive() && !e.hybrid {
 			packetSizeCap = qextPacketSizeCap
 		}
 		payload := packetSizeCap - 1
-		if e.maxPayloadBytes > 0 && payload > e.maxPayloadBytes {
-			payload = e.maxPayloadBytes
+		if e.maxPayloadBytes > 0 && payload > int(e.maxPayloadBytes) {
+			payload = int(e.maxPayloadBytes)
 		}
 		if payload < 0 {
 			payload = 0
@@ -1982,8 +1982,8 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 	if payload < 0 {
 		payload = 0
 	}
-	if e.maxPayloadBytes > 0 && payload > e.maxPayloadBytes {
-		payload = e.maxPayloadBytes
+	if e.maxPayloadBytes > 0 && payload > int(e.maxPayloadBytes) {
+		payload = int(e.maxPayloadBytes)
 	}
 	return payload
 }
@@ -1999,8 +1999,8 @@ func (e *Encoder) vbrMaxPayloadBytes(frameSize int) int {
 	if maxBytes < 2 {
 		maxBytes = 2
 	}
-	if e.maxPayloadBytes > 0 && maxBytes > e.maxPayloadBytes {
-		maxBytes = e.maxPayloadBytes
+	if e.maxPayloadBytes > 0 && maxBytes > int(e.maxPayloadBytes) {
+		maxBytes = int(e.maxPayloadBytes)
 	}
 	return maxBytes
 }
@@ -2256,7 +2256,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float32, pitchChan
 
 	targetBits := targetBytes * 8
 	if e.maxPayloadBytes > 0 {
-		maxBits := e.maxPayloadBytes * 8
+		maxBits := int(e.maxPayloadBytes) * 8
 		if targetBits > maxBits {
 			targetBits = maxBits
 		}

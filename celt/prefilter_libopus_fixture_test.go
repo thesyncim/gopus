@@ -135,7 +135,7 @@ func TestRunPrefilterParityAgainstLibopusFixture(t *testing.T) {
 		enc.prefilterPeriod = c.PrevPeriod
 		enc.prefilterGain = float32(c.PrevGain)
 		enc.prefilterTapset = c.PrevTapset
-		enc.complexity = c.Complexity
+		enc.complexity = int32(c.Complexity)
 
 		prefilterMem, preemph, _ := buildPrefilterFixtureSignal(c.SignalSeed, c.Channels, c.FrameSize)
 		copyFloat64ToSig(enc.prefilterMem, prefilterMem)
