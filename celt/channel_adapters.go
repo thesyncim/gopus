@@ -28,7 +28,7 @@ func (d *Decoder) DecodeFrameWithPacketStereo(data []byte, frameSize int, packet
 
 // DecodeFrameWithPacketStereoToFloat32 decodes a CELT frame directly into a
 // caller-provided float32 buffer for the common packetChannels==decoder
-// channels path, falling back to the float64-returning path otherwise.
+// channels path, falling back to the slice-returning path otherwise.
 func (d *Decoder) DecodeFrameWithPacketStereoToFloat32(data []byte, frameSize int, packetStereo bool, out []float32) error {
 	outLen := frameSize * d.channels
 	if len(out) < outLen {

@@ -4,4 +4,3 @@
 # Columns: path<TAB>count<TAB>sha256(normalized line)<TAB>reason<TAB>normalized sample
 # Agents: do not update this file to hide new guarded type-parity debt.
 # Migrate runtime codec/scratch storage to libopus-width types instead.
-celt/channel_adapters.go	1	35cda5ab8e2e2dfa035214f793bf6613a07074ba33f3b66aa76c3744acfc2f44	legacy-current	// channels path, falling back to the float64-returning path otherwise.
