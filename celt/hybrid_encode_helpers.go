@@ -214,7 +214,7 @@ func (e *Encoder) UpdateConsecTransientWithDisabled(transient bool, transientGot
 
 // StabilizeEnergiesBeforeCoarseHybrid mirrors libopus pre-coarse stabilization:
 // if abs(bandLogE-oldBandE) < 2, bias current energy toward previous quant error.
-func (e *Encoder) StabilizeEnergiesBeforeCoarseHybrid(energies []float64, start, end, nbBands int) {
+func (e *Encoder) StabilizeEnergiesBeforeCoarseHybrid(energies []celtGLog, start, end, nbBands int) {
 	if nbBands <= 0 || len(energies) == 0 {
 		return
 	}
@@ -246,7 +246,7 @@ func (e *Encoder) StabilizeEnergiesBeforeCoarseHybrid(energies []float64, start,
 				diff = -diff
 			}
 			if diff < 2.0 {
-				energies[frameIdx] = float64(curE - 0.25*float32(e.energyError[stateIdx]))
+				energies[frameIdx] = celtGLog(curE - 0.25*float32(e.energyError[stateIdx]))
 			}
 		}
 	}
@@ -254,7 +254,7 @@ func (e *Encoder) StabilizeEnergiesBeforeCoarseHybrid(energies []float64, start,
 
 // UpdateEnergyErrorHybrid mirrors libopus energyError cadence in hybrid mode:
 // clear all bands, then store clipped post-finalise residuals for coded bands.
-func (e *Encoder) UpdateEnergyErrorHybrid(energies, quantizedEnergies []float64, start, end, nbBands int) {
+func (e *Encoder) UpdateEnergyErrorHybrid(energies, quantizedEnergies []celtGLog, start, end, nbBands int) {
 	if len(e.energyError) == 0 || nbBands <= 0 {
 		return
 	}
@@ -288,7 +288,7 @@ func (e *Encoder) UpdateEnergyErrorHybrid(energies, quantizedEnergies []float64,
 			if stateIdx >= len(e.energyError) || frameIdx >= len(energies) || frameIdx >= len(quantizedEnergies) {
 				continue
 			}
-			err := float32(energies[frameIdx] - quantizedEnergies[frameIdx])
+			err := energies[frameIdx] - quantizedEnergies[frameIdx]
 			if err < -0.5 {
 				err = -0.5
 			} else if err > 0.5 {

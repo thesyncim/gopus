@@ -1559,7 +1559,6 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []float64, frameSize int, targetP
 
 	// Compute band energies
 	energies := e.celtEncoder.ComputeBandEnergies(mdctCoeffs, nbBands, frameSize)
-	e.celtEncoder.RoundFloat64ToFloat32(energies)
 	if bandLogE2 == nil {
 		if cap(e.hybridState.scratchBandLogE2) < len(energies) {
 			e.hybridState.scratchBandLogE2 = make([]float32, len(energies))

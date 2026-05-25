@@ -38,11 +38,11 @@ const betaIntraF32 = float32(4915.0 / 32768.0) // 0.15
 type QuantCoarseEnergyResult struct {
 	// QuantizedEnergy is the quantized energy per band per channel.
 	// Layout: [ch0_band0, ch0_band1, ..., ch1_band0, ch1_band1, ...]
-	QuantizedEnergy []float64
+	QuantizedEnergy []celtGLog
 
 	// Error is the quantization error per band per channel (for fine energy).
 	// error[i] = original - quantized (in DB6 units)
-	Error []float64
+	Error []celtGLog
 
 	// Intra indicates whether intra mode was used.
 	Intra bool
@@ -85,8 +85,8 @@ type QuantCoarseEnergyParams struct {
 func quantCoarseEnergyImpl(
 	re *rangecoding.Encoder,
 	start, end int,
-	eBands []float64,
-	oldEBands []float64,
+	eBands []celtGLog,
+	oldEBands []celtGLog,
 	budget, tell int,
 	probModel []uint8,
 	error []celtGLog,
@@ -117,10 +117,10 @@ func quantCoarseEnergyImpl(
 			idx := c*nbEBands + i
 
 			// Current energy to encode
-			x := float32(eBands[idx])
+			x := eBands[idx]
 
 			// Previous frame energy for prediction (clamped to minimum)
-			oldE := float32(oldEBands[idx])
+			oldE := oldEBands[idx]
 			minEnergy := float32(-9.0)
 			if oldE < minEnergy {
 				oldE = minEnergy
@@ -135,7 +135,7 @@ func quantCoarseEnergyImpl(
 
 			// Compute decay bound to prevent energy from dropping too quickly
 			// decay_bound = max(-28, oldEBands[i]) - max_decay
-			oldEBandVal := float32(oldEBands[idx])
+			oldEBandVal := oldEBands[idx]
 			decayBound := oldEBandVal
 			minDecay := float32(-28.0)
 			if decayBound < minDecay {
@@ -224,7 +224,7 @@ func quantCoarseEnergyImpl(
 			tmp := coef*oldE + prev[c] + q
 
 			// Store quantized energy
-			oldEBands[idx] = float64(tmp)
+			oldEBands[idx] = celtGLog(tmp)
 
 			// Update inter-band predictor
 			prev[c] = prev[c] + q - beta*q
@@ -296,14 +296,14 @@ func encodeLaplaceEnergy(re *rangecoding.Encoder, val int, fs int, decay int) in
 // Reference: libopus celt/quant_bands.c quant_coarse_energy()
 func QuantCoarseEnergy(
 	re *rangecoding.Encoder,
-	eBands []float64,
-	oldEBands []float64,
+	eBands []celtGLog,
+	oldEBands []celtGLog,
 	params QuantCoarseEnergyParams,
 	delayedIntra *float32,
 ) QuantCoarseEnergyResult {
 	result := QuantCoarseEnergyResult{
-		QuantizedEnergy: make([]float64, params.Channels*MaxBands),
-		Error:           make([]float64, params.Channels*MaxBands),
+		QuantizedEnergy: make([]celtGLog, params.Channels*MaxBands),
+		Error:           make([]celtGLog, params.Channels*MaxBands),
 	}
 
 	// Copy input oldEBands to output (we'll modify it)
@@ -366,7 +366,7 @@ func QuantCoarseEnergy(
 		encStartState := re.SaveState()
 
 		// Allocate temporary arrays for intra encoding
-		oldEBandsIntra := make([]float64, channels*MaxBands)
+		oldEBandsIntra := make([]celtGLog, channels*MaxBands)
 		errorIntra := make([]celtGLog, channels*MaxBands)
 		copy(oldEBandsIntra, oldEBands)
 
@@ -404,7 +404,7 @@ func QuantCoarseEnergy(
 				maxDecay,
 				params.LFE,
 			)
-			copyGLogToFloat64(result.Error, errorInter)
+			copy(result.Error, errorInter)
 
 			// Compare and choose better encoding
 			intraBias := int((float32(budget) * *delayedIntra * float32(params.LossRate)) / float32(channels*512))
@@ -414,13 +414,13 @@ func QuantCoarseEnergy(
 				// Intra was better, restore intra state
 				re.RestoreState(encIntraState)
 				copy(result.QuantizedEnergy, oldEBandsIntra)
-				copyGLogToFloat64(result.Error, errorIntra)
+				copy(result.Error, errorIntra)
 				intra = true
 			}
 		} else {
 			// Only intra was tried
 			copy(result.QuantizedEnergy, oldEBandsIntra)
-			copyGLogToFloat64(result.Error, errorIntra)
+			copy(result.Error, errorIntra)
 		}
 	} else {
 		// Only inter encoding
@@ -436,7 +436,7 @@ func QuantCoarseEnergy(
 			maxDecay,
 			params.LFE,
 		)
-		copyGLogToFloat64(result.Error, errorInter)
+		copy(result.Error, errorInter)
 	}
 
 	// Update delayedIntra
@@ -454,11 +454,11 @@ func QuantCoarseEnergy(
 // lossDistortion computes the distortion for the loss_distortion function.
 // This is used to decide whether to use intra or inter mode.
 // Reference: libopus celt/quant_bands.c loss_distortion()
-func lossDistortion(eBands, oldEBands []float64, start, end, nbEBands, channels int) float32 {
+func lossDistortion(eBands, oldEBands []celtGLog, start, end, nbEBands, channels int) float32 {
 	var dist float32
 	for c := 0; c < channels; c++ {
 		for i := start; i < end; i++ {
-			d := float32(eBands[c*nbEBands+i] - oldEBands[c*nbEBands+i])
+			d := eBands[c*nbEBands+i] - oldEBands[c*nbEBands+i]
 			dist += d * d
 		}
 	}

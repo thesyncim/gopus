@@ -141,7 +141,7 @@ func TestEncoderEnergyFinaliseRangeFromErrorMatchesLibopus(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			enc := NewEncoder(tc.channels)
-			gotOld := float32sToFloat64s(tc.oldEBands)
+			gotOld := float32sToGLogs(tc.oldEBands)
 			enc.scratch.coarseError = float32sToGLogs(tc.errorVal)
 			buf := make([]byte, tc.storage)
 			var re rangecoding.Encoder
@@ -160,7 +160,7 @@ func TestEncoderEnergyFinaliseRangeFromErrorMatchesLibopus(t *testing.T) {
 			if !bytes.Equal(gotPacket, want[i].packet) {
 				t.Fatalf("packet=%x want %x", gotPacket, want[i].packet)
 			}
-			assertFloat64CarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
+			assertGLogCarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
 			assertGLogCarriesFloat32Bits(t, "error", enc.scratch.coarseError, want[i].errorVal)
 		})
 	}
@@ -183,7 +183,7 @@ func TestEncoderFineEnergyRangeFromErrorMatchesLibopus(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			enc := NewEncoder(tc.channels)
-			gotOld := float32sToFloat64s(tc.oldEBands)
+			gotOld := float32sToGLogs(tc.oldEBands)
 			enc.scratch.coarseError = float32sToGLogs(tc.errorVal)
 			buf := make([]byte, tc.storage)
 			var re rangecoding.Encoder
@@ -199,7 +199,7 @@ func TestEncoderFineEnergyRangeFromErrorMatchesLibopus(t *testing.T) {
 			if !bytes.Equal(gotPacket, want[i].packet) {
 				t.Fatalf("packet=%x want %x", gotPacket, want[i].packet)
 			}
-			assertFloat64CarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
+			assertGLogCarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
 			assertGLogCarriesFloat32Bits(t, "error", enc.scratch.coarseError, want[i].errorVal)
 		})
 	}
@@ -218,7 +218,7 @@ func TestEncoderFineEnergyWithPrevMatchesLibopus(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			enc := NewEncoder(tc.channels)
-			gotOld := float32sToFloat64s(tc.oldEBands)
+			gotOld := float32sToGLogs(tc.oldEBands)
 			gotErr := float32sToGLogs(tc.errorVal)
 			buf := make([]byte, tc.storage)
 			var re rangecoding.Encoder
@@ -233,7 +233,7 @@ func TestEncoderFineEnergyWithPrevMatchesLibopus(t *testing.T) {
 			if !bytes.Equal(gotPacket, want[i].packet) {
 				t.Fatalf("packet=%x want %x", gotPacket, want[i].packet)
 			}
-			assertFloat64CarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
+			assertGLogCarriesFloat32Bits(t, "oldEBands", gotOld, want[i].oldEBands)
 			assertGLogCarriesFloat32Bits(t, "error", gotErr, want[i].errorVal)
 		})
 	}

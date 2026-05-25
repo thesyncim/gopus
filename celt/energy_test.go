@@ -48,13 +48,14 @@ func TestDecodeCoarseEnergy(t *testing.T) {
 
 			// Verify energies are finite and in reasonable range
 			for i, e := range energies {
-				if math.IsNaN(e) || math.IsInf(e, 0) {
+				ef := float64(e)
+				if math.IsNaN(ef) || math.IsInf(ef, 0) {
 					t.Errorf("energy[%d] is not finite: %v", i, e)
 				}
 				// Typical range: -40 to +40 dB
 				minRange := -50.0 * DB6
 				maxRange := 60.0 * DB6
-				if e < minRange || e > maxRange {
+				if ef < minRange || ef > maxRange {
 					t.Logf("warning: energy[%d] = %v may be out of typical range", i, e)
 				}
 			}
@@ -118,11 +119,11 @@ func TestDecodeFineEnergy(t *testing.T) {
 			dec.SetRangeDecoder(rd)
 
 			// Start with known energies
-			energies := make([]float64, tc.nbBands)
+			energies := make([]celtGLog, tc.nbBands)
 			for i := range energies {
-				energies[i] = 10.0 * DB6 // 10 dB baseline
+				energies[i] = celtGLog(10.0 * DB6) // 10 dB baseline
 			}
-			original := make([]float64, tc.nbBands)
+			original := make([]celtGLog, tc.nbBands)
 			copy(original, energies)
 
 			// Apply fine energy
@@ -130,7 +131,7 @@ func TestDecodeFineEnergy(t *testing.T) {
 
 			// Verify adjustments
 			for band := 0; band < tc.nbBands; band++ {
-				diff := energies[band] - original[band]
+				diff := float64(energies[band] - original[band])
 
 				if tc.fineBits[band] == 0 {
 					// No change expected
@@ -162,8 +163,8 @@ func TestDecodeEnergyRemainder(t *testing.T) {
 	dec.SetRangeDecoder(rd)
 
 	// Start with known energies
-	energies := []float64{10.0, 20.0, 30.0}
-	original := make([]float64, len(energies))
+	energies := []celtGLog{10.0, 20.0, 30.0}
+	original := make([]celtGLog, len(energies))
 	copy(original, energies)
 
 	// Apply remainder bits
@@ -172,7 +173,7 @@ func TestDecodeEnergyRemainder(t *testing.T) {
 
 	// Verify adjustments are small (sub-6dB refinement)
 	for band := range energies {
-		diff := math.Abs(energies[band] - original[band])
+		diff := math.Abs(float64(energies[band] - original[band]))
 		// Remainder bits provide very fine adjustment
 		if diff > (DB6/2)+1e-6 {
 			t.Errorf("band %d: remainder adjustment %v exceeds expected range", band, diff)
@@ -364,7 +365,7 @@ func TestDecodeCoarseEnergyRangeSync(t *testing.T) {
 			t.Errorf("Band %d energy is NaN", i)
 		}
 		if e < -100 || e > 100 {
-			t.Errorf("Band %d energy %f out of reasonable range [-100, 100]", i, e)
+			t.Errorf("Band %d energy %f out of reasonable range [-100, 100]", i, float64(e))
 		}
 	}
 

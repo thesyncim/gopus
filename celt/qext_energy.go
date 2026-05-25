@@ -34,7 +34,7 @@ func computeQEXTBandAmplitudesInto(mdctCoeffs []float64, cfg *qextModeConfig, en
 	}
 }
 
-func computeQEXTBandLogEInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE, bandLogE []float64) {
+func computeQEXTBandLogEInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []float64, bandLogE []celtGLog) {
 	computeQEXTBandAmplitudesInto(mdctCoeffs, cfg, end, lm, bandE)
 	if end > len(bandLogE) {
 		end = len(bandLogE)
@@ -44,7 +44,7 @@ func computeQEXTBandLogEInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm 
 		if amp < 1e-27 {
 			amp = 1e-27
 		}
-		bandLogE[i] = float64(celtLog2(float32(amp))) - eMeans[i]
+		bandLogE[i] = celtGLog(celtLog2(float32(amp)) - float32(eMeans[i]))
 	}
 }
 
@@ -85,7 +85,7 @@ func normalizeQEXTBandsInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm i
 	}
 }
 
-func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, energies []float64, nbBands, lm, nbAvailableBytes int, oldBandEState []celtGLog, quantizedEnergies []float64, errorVals []celtGLog, delayedIntra *float32) bool {
+func (e *Encoder) encodeQEXTCoarseEnergyWithEncoder(re *rangecoding.Encoder, energies []celtGLog, nbBands, lm, nbAvailableBytes int, oldBandEState []celtGLog, quantizedEnergies []celtGLog, errorVals []celtGLog, delayedIntra *float32) bool {
 	if re == nil || nbBands <= 0 {
 		return false
 	}

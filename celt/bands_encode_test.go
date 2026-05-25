@@ -357,9 +357,9 @@ func TestNormalizeBands(t *testing.T) {
 	}
 
 	// Generate energies (log2 scale)
-	energies := make([]float64, nbBands)
+	energies := make([]celtGLog, nbBands)
 	for band := 0; band < nbBands; band++ {
-		energies[band] = float64(band) * 0.5 // Increasing energy
+		energies[band] = celtGLog(float64(band) * 0.5) // Increasing energy
 	}
 
 	// Normalize

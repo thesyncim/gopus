@@ -21,7 +21,7 @@ import "math"
 // Returns: shapes[band] = normalized float64 vector with unit L2 norm
 //
 // Reference: RFC 6716 Section 4.3.4.1
-func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []float64, nbBands, frameSize int) [][]float64 {
+func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []celtGLog, nbBands, frameSize int) [][]float64 {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return nil
 	}
@@ -58,12 +58,12 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []float64, nbBan
 		// This ensures: normalized * decoder_gain = original (up to quantization)
 		e_val := energies[band]
 		if band < len(eMeans) {
-			e_val += eMeans[band] * DB6
+			e_val += celtGLog(eMeans[band] * DB6)
 		}
-		if e_val > 32*DB6 {
-			e_val = 32 * DB6 // Match decoder's clamp (bands.go:102-103)
+		if e_val > celtGLog(32*DB6) {
+			e_val = celtGLog(32 * DB6) // Match decoder's clamp (bands.go:102-103)
 		}
-		gain := math.Exp2(e_val / DB6)
+		gain := celtExp2(float32(e_val) / float32(DB6))
 
 		// Allocate shape vector
 		shape := make([]float64, n)
@@ -83,7 +83,7 @@ func (e *Encoder) NormalizeBands(mdctCoeffs []float64, energies []float64, nbBan
 		// Divide coefficients by gain
 		allZero := true
 		for i := 0; i < n; i++ {
-			shape[i] = mdctCoeffs[offset+i] / gain
+			shape[i] = float64(float32(mdctCoeffs[offset+i]) / gain)
 			if math.Abs(shape[i]) > 1e-15 {
 				allZero = false
 			}
@@ -265,7 +265,7 @@ func normalizeBandsWithBandEInto(mdctCoeffs []float64, nbBands, frameSize int, n
 // that directly in normalise_bands().
 //
 // Reference: libopus celt/bands.c normalise_bands() (float path, lines 172-187)
-func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []float64, nbBands, frameSize int) []float64 {
+func (e *Encoder) NormalizeBandsToArray(mdctCoeffs []float64, energies []celtGLog, nbBands, frameSize int) []float64 {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return nil
 	}

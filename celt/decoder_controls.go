@@ -52,16 +52,6 @@ func (d *Decoder) prepareMainBandQEXTDecode(payload []byte, mainRD *rangecoding.
 	return extDec, extraPulses, extraQuant, len(payload) * 8 << bitRes
 }
 
-func (d *Decoder) decodeFineEnergyWithDecoderPrev(rd *rangecoding.Decoder, energies []float64, nbBands int, prevQuant, extraQuant []int) {
-	if rd == nil {
-		return
-	}
-	oldRD := d.rangeDecoder
-	d.rangeDecoder = rd
-	d.decodeFineEnergy(energies, nbBands, prevQuant, extraQuant)
-	d.rangeDecoder = oldRD
-}
-
 func (d *Decoder) decodeFineEnergyGLogWithDecoderPrev(rd *rangecoding.Decoder, energies []celtGLog, nbBands int, prevQuant, extraQuant []int) {
 	if rd == nil {
 		return

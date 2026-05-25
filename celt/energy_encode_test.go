@@ -29,7 +29,7 @@ func TestComputeBandEnergies(t *testing.T) {
 			if band < len(eMeans) {
 				expected -= eMeans[band] * DB6
 			}
-			if math.Abs(e-expected) > 1e-6 {
+			if math.Abs(float64(e)-expected) > 1e-6 {
 				t.Errorf("Band %d: energy = %f, want %f", band, e, expected)
 			}
 		}
@@ -62,7 +62,7 @@ func TestComputeBandEnergies(t *testing.T) {
 		if targetBand < len(eMeans) {
 			expected -= eMeans[targetBand] * DB6
 		}
-		if math.Abs(energies[targetBand]-expected) > 0.1 {
+		if math.Abs(float64(energies[targetBand])-expected) > 0.1 {
 			t.Errorf("Target band %d: energy = %f, want %f", targetBand, energies[targetBand], expected)
 		}
 	})
@@ -88,7 +88,7 @@ func TestComputeBandEnergies(t *testing.T) {
 
 			// All energies should be finite
 			for band, e := range energies {
-				if math.IsNaN(e) || math.IsInf(e, 0) {
+				if math.IsNaN(float64(e)) || math.IsInf(float64(e), 0) {
 					t.Errorf("frameSize %d, band %d: energy %f is invalid", frameSize, band, e)
 				}
 			}
@@ -117,7 +117,7 @@ func TestComputeBandEnergies(t *testing.T) {
 		// L and R should have different energies
 		differentCount := 0
 		for band := 0; band < nbBands; band++ {
-			if math.Abs(energies[band]-energies[nbBands+band]) > 0.5 {
+			if math.Abs(float64(energies[band]-energies[nbBands+band])) > 0.5 {
 				differentCount++
 			}
 		}
@@ -157,10 +157,10 @@ func TestCoarseEnergyEncoderProducesValidOutput(t *testing.T) {
 
 				// Generate random energies in valid range with meaningful variation
 				// Ensure energies differ enough from prediction (-28.0) to produce output
-				energies := make([]float64, nbBands)
+				energies := make([]celtGLog, nbBands)
 				for i := range energies {
 					// Generate energies with larger variation to ensure non-zero output
-					energies[i] = rng.Float64()*30 - 14 // [-14, +16] - more variation
+					energies[i] = celtGLog(rng.Float64()*30 - 14) // [-14, +16] - more variation
 				}
 
 				// Encode
@@ -188,22 +188,22 @@ func TestCoarseEnergyEncoderProducesValidOutput(t *testing.T) {
 
 				// Verify quantized energies are finite, bounded, and match decoder output.
 				for band := 0; band < nbBands; band++ {
-					diff := math.Abs(energies[band] - quantizedEnc[band])
+					diff := math.Abs(float64(energies[band] - quantizedEnc[band]))
 					if math.IsNaN(diff) || math.IsInf(diff, 0) {
 						t.Errorf("Band %d: quantized diff is invalid: %v", band, diff)
 					}
 					if diff > 12*DB6 {
 						t.Errorf("Band %d: original=%f, quantized=%f, diff=%f (>12*DB6)",
-							band, energies[band], quantizedEnc[band], diff)
+							band, float64(energies[band]), float64(quantizedEnc[band]), diff)
 					}
-					if got, want := decoded[band], quantizedEnc[band]; math.Abs(got-want) > 1e-5 {
-						t.Fatalf("Band %d decoded=%f want encoded quantized=%f", band, got, want)
+					if got, want := decoded[band], quantizedEnc[band]; math.Abs(float64(got-want)) > 1e-5 {
+						t.Fatalf("Band %d decoded=%f want encoded quantized=%f", band, float64(got), float64(want))
 					}
 				}
 
 				// Verify prevEnergy was updated
 				for band := 0; band < nbBands && band < MaxBands; band++ {
-					if enc.prevEnergy[band] != celtGLog(quantizedEnc[band]) {
+					if enc.prevEnergy[band] != quantizedEnc[band] {
 						t.Errorf("Band %d: prevEnergy not updated", band)
 					}
 				}
@@ -238,9 +238,9 @@ func TestCoarseEnergyQuantization(t *testing.T) {
 		enc.Reset()
 
 		// Create energies array with test value in first band
-		energies := make([]float64, nbBands)
+		energies := make([]celtGLog, nbBands)
 		for i := range energies {
-			energies[i] = tc.energy
+			energies[i] = celtGLog(tc.energy)
 		}
 
 		buf := make([]byte, 256)
@@ -255,7 +255,7 @@ func TestCoarseEnergyQuantization(t *testing.T) {
 		// First band with intra has no alpha prediction, beta prediction is 0
 		// So quantization is purely based on energy value
 		// The quantized value should be a multiple of DB6
-		remainder := math.Mod(quantized[0], DB6)
+		remainder := math.Mod(float64(quantized[0]), DB6)
 		if math.Abs(remainder) > 0.01 && math.Abs(remainder-DB6) > 0.01 {
 			t.Errorf("Energy %f: quantized to %f, not a multiple of DB6 (remainder=%f)",
 				tc.energy, quantized[0], remainder)
@@ -272,9 +272,9 @@ func TestFineEnergyEncoderProducesValidOutput(t *testing.T) {
 		lm := GetModeConfig(frameSize).LM
 
 		// Generate energies
-		energies := make([]float64, nbBands)
+		energies := make([]celtGLog, nbBands)
 		for i := range energies {
-			energies[i] = rand.Float64()*30 - 20 // [-20, +10]
+			energies[i] = celtGLog(rand.Float64()*30 - 20) // [-20, +10]
 		}
 
 		// Fine bits allocation
@@ -315,9 +315,9 @@ func TestFineEnergyEncoderProducesValidOutput(t *testing.T) {
 				lm := GetModeConfig(frameSize).LM
 
 				// Generate energies
-				energies := make([]float64, nbBands)
+				energies := make([]celtGLog, nbBands)
 				for i := range energies {
-					energies[i] = rand.Float64()*30 - 20
+					energies[i] = celtGLog(rand.Float64()*30 - 20)
 				}
 
 				// Uniform bit allocation
@@ -353,7 +353,7 @@ func TestEncodeFineEnergyFromErrorWithPrevRoundTrip(t *testing.T) {
 	nbBands := 4
 	prevQuant := []int{2, 1, 3, 0}
 	extraQuant := []int{2, 3, 1, 0}
-	quantized := []float64{
+	quantized := []celtGLog{
 		-3.25, -1.50, 0.75, 1.00,
 		-2.75, -0.50, 1.25, 0.25,
 	}
@@ -362,8 +362,8 @@ func TestEncodeFineEnergyFromErrorWithPrevRoundTrip(t *testing.T) {
 		-0.03125, 0.0625, 0.1875, 0.0,
 	}
 
-	wantQuantized := append([]float64(nil), quantized...)
-	wantError := appendFloat64AsGLog(nil, errorVals)
+	wantQuantized := append([]celtGLog(nil), quantized...)
+	wantError := float64sToGLogs(errorVals)
 
 	buf := make([]byte, 128)
 	re := &rangecoding.Encoder{}
@@ -378,12 +378,12 @@ func TestEncodeFineEnergyFromErrorWithPrevRoundTrip(t *testing.T) {
 	dec := NewDecoder(2)
 	rd := &rangecoding.Decoder{}
 	rd.Init(payload)
-	gotQuantized := append([]float64(nil), quantized...)
-	dec.decodeFineEnergyWithDecoderPrev(rd, gotQuantized, nbBands, prevQuant, extraQuant)
+	gotQuantized := append([]celtGLog(nil), quantized...)
+	dec.decodeFineEnergyGLogWithDecoderPrev(rd, gotQuantized, nbBands, prevQuant, extraQuant)
 
 	for i := range gotQuantized {
-		if diff := math.Abs(gotQuantized[i] - wantQuantized[i]); diff > 1e-9 {
-			t.Fatalf("quantized[%d]=%.12f want %.12f (diff %.3e)", i, gotQuantized[i], wantQuantized[i], diff)
+		if diff := math.Abs(float64(gotQuantized[i] - wantQuantized[i])); diff > 1e-9 {
+			t.Fatalf("quantized[%d]=%.12f want %.12f (diff %.3e)", i, float64(gotQuantized[i]), float64(wantQuantized[i]), diff)
 		}
 	}
 }
@@ -409,9 +409,9 @@ func TestEnergyEncodingAllFrameSizes(t *testing.T) {
 				lm := mode.LM
 
 				// Generate random energies
-				energies := make([]float64, nbBands)
+				energies := make([]celtGLog, nbBands)
 				for i := range energies {
-					energies[i] = rand.Float64()*36 - 28 // [-28, +8]
+					energies[i] = celtGLog(rand.Float64()*36 - 28) // [-28, +8]
 				}
 
 				// Fine bits
@@ -437,7 +437,7 @@ func TestEnergyEncodingAllFrameSizes(t *testing.T) {
 
 				// Verify all quantized energies are valid
 				for band := 0; band < nbBands; band++ {
-					if math.IsNaN(quantizedCoarse[band]) || math.IsInf(quantizedCoarse[band], 0) {
+					if math.IsNaN(float64(quantizedCoarse[band])) || math.IsInf(float64(quantizedCoarse[band]), 0) {
 						t.Errorf("Band %d: invalid quantized energy %f", band, quantizedCoarse[band])
 					}
 				}
@@ -520,9 +520,9 @@ func TestEncoderStateUpdates(t *testing.T) {
 	// Process multiple frames
 	for frame := 0; frame < 3; frame++ {
 		// Generate random energies
-		energies := make([]float64, nbBands)
+		energies := make([]celtGLog, nbBands)
 		for i := range energies {
-			energies[i] = rand.Float64()*30 - 20
+			energies[i] = celtGLog(rand.Float64()*30 - 20)
 		}
 
 		// Encode
@@ -538,7 +538,7 @@ func TestEncoderStateUpdates(t *testing.T) {
 
 		// Verify prevEnergy was updated with quantized values
 		for band := 0; band < nbBands && band < MaxBands; band++ {
-			if enc.prevEnergy[band] != celtGLog(quantizedEnc[band]) {
+			if enc.prevEnergy[band] != quantizedEnc[band] {
 				t.Errorf("Frame %d, band %d: prevEnergy=%f, expected=%f",
 					frame, band, enc.prevEnergy[band], quantizedEnc[band])
 			}
@@ -562,14 +562,14 @@ func TestEncodeCoarseEnergyRangeUpdatesDelayedIntra(t *testing.T) {
 	nbBands := end
 	lm := mode.LM
 
-	makeEnergies := func(enc *Encoder) []float64 {
-		energies := make([]float64, nbBands)
+	makeEnergies := func(enc *Encoder) []celtGLog {
+		energies := make([]celtGLog, nbBands)
 		for band := 0; band < nbBands; band++ {
 			base := 0.02 * float64(band+1)
 			enc.prevEnergy[band] = celtGLog(base)
-			energies[band] = base
+			energies[band] = celtGLog(base)
 			if band >= start {
-				energies[band] += 0.75 + 0.01*float64(band-start)
+				energies[band] += celtGLog(0.75 + 0.01*float64(band-start))
 			}
 		}
 		return energies
@@ -654,14 +654,14 @@ func TestComputeBandEnergiesIntegration(t *testing.T) {
 
 	// Verify quantized energies are valid
 	for band := 0; band < nbBands; band++ {
-		if math.IsNaN(quantized[band]) || math.IsInf(quantized[band], 0) {
+		if math.IsNaN(float64(quantized[band])) || math.IsInf(float64(quantized[band]), 0) {
 			t.Errorf("Band %d: invalid quantized energy %f", band, quantized[band])
 		}
 	}
 
 	// Verify quantization error is bounded
 	for band := 0; band < nbBands; band++ {
-		diff := math.Abs(energies[band] - quantized[band])
+		diff := math.Abs(float64(energies[band] - quantized[band]))
 		if diff > (DB6/2)+0.01 {
 			t.Errorf("Band %d: quantization error %f exceeds DB6/2", band, diff)
 		}

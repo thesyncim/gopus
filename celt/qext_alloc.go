@@ -111,17 +111,6 @@ func medianOf5Float32(x []float32) float32 {
 	return t4
 }
 
-func qextBandLogEMax32(bandLogE []float64, nbBands, channels, band int) float32 {
-	if band < 0 || band >= nbBands || len(bandLogE) <= band {
-		return 0
-	}
-	v := float32(bandLogE[band])
-	if channels == 2 && nbBands+band < len(bandLogE) && float32(bandLogE[nbBands+band]) > v {
-		v = float32(bandLogE[nbBands+band])
-	}
-	return v
-}
-
 func qextBandLogEGLogMax32(bandLogE []celtGLog, nbBands, channels, band int) float32 {
 	if band < 0 || band >= nbBands || len(bandLogE) <= band {
 		return 0
@@ -144,7 +133,7 @@ func qextExtraBandWidth(edges []int, band, lm int) int {
 // for the encode side. It fills extraPulses/extraQuant for the main bands in
 // [start,end) and, when qextMode != nil, for the QEXT bands in [end,end+qextEnd).
 func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels, lm int,
-	bandLogE []celtGLog, qextBandLogE []float64, qextMode *qextModeConfig, toneFreq, toneishness float64,
+	bandLogE []celtGLog, qextBandLogE []celtGLog, qextMode *qextModeConfig, toneFreq, toneishness float64,
 	enc *rangecoding.Encoder, extraPulses, extraQuant []int,
 ) {
 	mainBands := len(bandLogE)
@@ -196,7 +185,7 @@ func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels
 			capVals[idx] = 14
 			ncoef[idx] = qextExtraBandWidth(qextMode.EBands, i, lm) * channels
 			minVals[idx] = minDepth
-			flatE[idx] = qextBandLogEMax32(qextBandLogE, qextBands, channels, i) - 0.0625*float32(qextMode.LogN[i]) + float32(eMeans[i]) - 0.0062*float32((idx+5)*(idx+5))
+			flatE[idx] = qextBandLogEGLogMax32(qextBandLogE, qextBands, channels, i) - 0.0625*float32(qextMode.LogN[i]) + float32(eMeans[i]) - 0.0062*float32((idx+5)*(idx+5))
 		}
 	}
 

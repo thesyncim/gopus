@@ -590,15 +590,14 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	}
 
 	// Step 6: Compute band energies
-	energies := ensureFloat64Slice(&e.scratch.energies, nbBands*codedChannels)
-	computeBandEnergiesInto(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
+	energies := ensureGLogSlice(&e.scratch.energies, nbBands*codedChannels)
+	computeBandEnergiesGLogInto(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
 	if e.lfe {
 		applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 	}
-	roundFloat64ToFloat32(energies)
 	if !secondMdct {
 		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, len(energies))
-		copyFloat64ToGLog(bandLogE2, energies)
+		copy(bandLogE2, energies)
 	}
 
 	// Step 6.5: Patch transient decision based on band energy comparison
@@ -669,12 +668,11 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			}
 
 			// Recompute band energies with short block coefficients
-			energies = ensureFloat64Slice(&e.scratch.energies, nbBands*codedChannels)
-			computeBandEnergiesInto(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
+			energies = ensureGLogSlice(&e.scratch.energies, nbBands*codedChannels)
+			computeBandEnergiesGLogInto(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
 			if e.lfe {
 				applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 			}
-			roundFloat64ToFloat32(energies)
 			// Compensate for scaling of short vs long MDCTs (libopus adds 0.5*LM to bandLogE2)
 			if bandLogE2 != nil {
 				offset := celtGLog(0.5 * float32(lm))
@@ -687,7 +685,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// Store band log-energies for dynalloc analysis.
 	// These are the values passed to DynallocAnalysis.
-	e.lastBandLogE = appendFloat64AsGLog(e.lastBandLogE[:0], energies)
+	e.lastBandLogE = append(e.lastBandLogE[:0], energies...)
 	if bandLogE2 != nil {
 		e.lastBandLogE2 = append(e.lastBandLogE2[:0], bandLogE2...)
 	} else {
@@ -722,7 +720,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 
 	// dynalloc/spread analysis in libopus uses pre-stabilization energies.
 	analysisEnergies := ensureGLogSlice(&e.scratch.analysisEnergies, len(energies))
-	copyFloat64ToGLog(analysisEnergies, energies)
+	copy(analysisEnergies, energies)
 	// Step 11: Encode coarse energy
 	// Match libopus pre-coarse stabilization:
 	// if abs(bandLogE-oldBandE) < 2, bias current energy toward previous quant error.
@@ -744,7 +742,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 				diff = -diff
 			}
 			if diff < 2.0 {
-				energies[frameIdx] = float64(curE - 0.25*float32(e.energyError[stateIdx]))
+				energies[frameIdx] = celtGLog(curE - 0.25*float32(e.energyError[stateIdx]))
 			}
 		}
 	}
@@ -761,7 +759,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 		intra = false
 	}
 
-	var quantizedEnergies []float64
+	var quantizedEnergies []celtGLog
 	if start > 0 {
 		quantizedEnergies = e.EncodeCoarseEnergyRange(energies, start, nbBands, intra, lm)
 	} else {
@@ -1125,7 +1123,7 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			}
 			trimBandLogE := e.scratch.allocTrimBandLogE[:nbBands*codedChannels]
 			for i := range trimBandLogE {
-				trimBandLogE[i] = celtGLog(energies[i])
+				trimBandLogE[i] = energies[i]
 			}
 			allocTrim, _ = allocTrimAnalysisDetailed(
 				trimNormL,
@@ -1277,8 +1275,8 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 	qextActive := false
 	qextEnd := 0
 	var qextBandE []float64
-	var qextBandLogE []float64
-	var qextQuantized []float64
+	var qextBandLogE []celtGLog
+	var qextQuantized []celtGLog
 	var qextError []celtGLog
 	var qextNormL []float64
 	var qextNormR []float64
@@ -1508,9 +1506,9 @@ func (e *Encoder) EncodeFrame(pcm []float64, frameSize int) ([]byte, error) {
 			if frameIdx >= len(energies) || frameIdx >= len(quantizedEnergies) {
 				continue
 			}
-			err := float32(energies[frameIdx] - quantizedEnergies[frameIdx])
+			err := energies[frameIdx] - quantizedEnergies[frameIdx]
 			if frameIdx < len(coarseResidual) {
-				err = float32(coarseResidual[frameIdx])
+				err = coarseResidual[frameIdx]
 			}
 			if err < -0.5 {
 				err = -0.5
@@ -1560,7 +1558,7 @@ func foldStereoMDCTToMono(dst, left, right []float64) []float64 {
 	return dst
 }
 
-func (e *Encoder) setPrevEnergyWithPrevCoded(prev []celtGLog, energies []float64, nbBands, codedChannels int) {
+func (e *Encoder) setPrevEnergyWithPrevCoded(prev []celtGLog, energies []celtGLog, nbBands, codedChannels int) {
 	if len(prev) == len(e.prevEnergy2) {
 		copy(e.prevEnergy2, prev)
 	} else {
@@ -1583,7 +1581,7 @@ func (e *Encoder) setPrevEnergyWithPrevCoded(prev []celtGLog, energies []float64
 			src := c*nbBands + band
 			dst := c*MaxBands + band
 			if src < len(energies) && dst < len(e.prevEnergy) {
-				e.prevEnergy[dst] = celtGLog(energies[src])
+				e.prevEnergy[dst] = energies[src]
 			}
 		}
 	}

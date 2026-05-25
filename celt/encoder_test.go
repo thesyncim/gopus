@@ -352,9 +352,9 @@ func TestLFEClampsLinearBandE(t *testing.T) {
 
 func TestLFEClampsLogBandEToLinearReference(t *testing.T) {
 	linear := []float64{2.0, 0.5, 1.0, 1e-20, 3e-4}
-	logE := make([]float64, len(linear))
+	logE := make([]celtGLog, len(linear))
 	for band, v := range linear {
-		logE[band] = float64(celtLog2(float32(v))) - eMeans[band]*DB6
+		logE[band] = celtGLog(celtLog2(float32(v)) - float32(eMeans[band]*DB6))
 	}
 
 	applyLFEBandLogEClamp(logE, len(logE), 1)
@@ -368,13 +368,13 @@ func TestLFEClampsLogBandEToLinearReference(t *testing.T) {
 		if wantLinear < float32(celtFloatEpsilon) {
 			wantLinear = float32(celtFloatEpsilon)
 		}
-		want := float64(celtLog2(wantLinear)) - eMeans[band]*DB6
-		if math.Float64bits(logE[band]) != math.Float64bits(want) {
-			t.Fatalf("logE[%d]=%016x want %016x", band, math.Float64bits(logE[band]), math.Float64bits(want))
+		want := celtLog2(wantLinear) - float32(eMeans[band]*DB6)
+		if math.Float32bits(logE[band]) != math.Float32bits(want) {
+			t.Fatalf("logE[%d]=%08x want %08x", band, math.Float32bits(logE[band]), math.Float32bits(want))
 		}
 	}
-	if got, want := logE[1], float64(celtLog2(float32(linear[1])))-eMeans[1]*DB6; math.Float64bits(got) != math.Float64bits(want) {
-		t.Fatalf("logE[1]=%016x want unchanged %016x", math.Float64bits(got), math.Float64bits(want))
+	if got, want := logE[1], celtLog2(float32(linear[1]))-float32(eMeans[1]*DB6); math.Float32bits(got) != math.Float32bits(want) {
+		t.Fatalf("logE[1]=%08x want unchanged %08x", math.Float32bits(got), math.Float32bits(want))
 	}
 }
 

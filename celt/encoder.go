@@ -1088,7 +1088,7 @@ type encoderScratch struct {
 	mdctRight  []float64
 
 	// Band energy buffers
-	energies  []float64
+	energies  []celtGLog
 	bandLogE2 []celtGLog
 	bandE     []float64
 	bandEL    []float64
@@ -1102,9 +1102,9 @@ type encoderScratch struct {
 	reBuf []byte
 
 	// Quantized energies
-	quantizedEnergies []float64
+	quantizedEnergies []celtGLog
 	coarseError       []celtGLog
-	coarseDecisionE   []float64
+	coarseDecisionE   []celtGLog
 	analysisEnergies  []celtGLog
 	prev1LogE         []celtGLog
 
@@ -1253,7 +1253,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 
 	// Band energies
 	bandCount := MaxBands * channels
-	s.energies = ensureFloat64Slice(&s.energies, bandCount)
+	s.energies = ensureGLogSlice(&s.energies, bandCount)
 	s.bandLogE2 = ensureGLogSlice(&s.bandLogE2, bandCount)
 	s.bandE = ensureFloat64Slice(&s.bandE, bandCount)
 	s.coarseError = ensureGLogSlice(&s.coarseError, bandCount)
@@ -1275,9 +1275,9 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	}
 
 	// Quantized energies
-	s.quantizedEnergies = ensureFloat64Slice(&s.quantizedEnergies, bandCount)
+	s.quantizedEnergies = ensureGLogSlice(&s.quantizedEnergies, bandCount)
 	s.prev1LogE = ensureGLogSlice(&s.prev1LogE, bandCount)
-	s.coarseDecisionE = ensureFloat64Slice(&s.coarseDecisionE, bandCount)
+	s.coarseDecisionE = ensureGLogSlice(&s.coarseDecisionE, bandCount)
 
 	// Normalized coefficients
 	s.normL = ensureFloat64Slice(&s.normL, frameSize)
@@ -1339,8 +1339,8 @@ func (e *Encoder) ensureScratch(frameSize int) {
 		qs.extraBits = ensureIntSlice(&qs.extraBits, MaxBands+nbQEXTBands)
 		qs.fineBits = ensureIntSlice(&qs.fineBits, MaxBands+nbQEXTBands)
 		qs.bandE = ensureFloat64Slice(&qs.bandE, nbQEXTBands*channels)
-		qs.bandLogE = ensureFloat64Slice(&qs.bandLogE, nbQEXTBands*channels)
-		qs.quantized = ensureFloat64Slice(&qs.quantized, nbQEXTBands*channels)
+		qs.bandLogE = ensureGLogSlice(&qs.bandLogE, nbQEXTBands*channels)
+		qs.quantized = ensureGLogSlice(&qs.quantized, nbQEXTBands*channels)
 		qs.qerr = ensureGLogSlice(&qs.qerr, nbQEXTBands*channels)
 		qs.oldBandE = ensureGLogSlice(&qs.oldBandE, MaxBands*channels)
 		qs.normL = ensureFloat64Slice(&qs.normL, frameSize)

@@ -112,109 +112,8 @@ func (d *Decoder) updateRange(fl, fh, ft uint32) {
 // intra=true: no inter-frame prediction (first frame or after loss)
 // intra=false: uses alpha prediction from previous frame
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c unquant_coarse_energy()
-func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []float64 {
-	energies := make([]float64, nbBands*d.channels)
-	return d.decodeCoarseEnergyInto(energies, nbBands, intra, lm)
-}
-
-func (d *Decoder) decodeCoarseEnergyInto(dst []float64, nbBands int, intra bool, lm int) []float64 {
-	if nbBands > MaxBands {
-		nbBands = MaxBands
-	}
-	if nbBands < 0 {
-		nbBands = 0
-	}
-	if lm < 0 {
-		lm = 0
-	}
-	if lm > 3 {
-		lm = 3
-	}
-
-	needed := nbBands * d.channels
-	if len(dst) < needed {
-		dst = make([]float64, needed)
-	} else {
-		dst = dst[:needed]
-	}
-
-	rd := d.rangeDecoder
-	if rd == nil {
-		return dst
-	}
-
-	// Get prediction coefficients
-	var alpha, beta float32
-	if intra {
-		alpha = 0.0
-		beta = float32(BetaIntra)
-	} else {
-		alpha = float32(AlphaCoef[lm])
-		beta = float32(BetaCoefInter[lm])
-	}
-
-	prob := eProbModel[lm][0]
-	if intra {
-		prob = eProbModel[lm][1]
-	}
-
-	budget := rd.StorageBits()
-
-	// Decode band-major to match libopus ordering.
-	var prevBandEnergy [2]float32
-	for band := 0; band < nbBands; band++ {
-		for c := 0; c < d.channels; c++ {
-			// Decode Laplace-distributed residual
-			tell := rd.Tell()
-			qi := 0
-			remaining := budget - tell
-			if remaining >= 15 {
-				pi := 2 * band
-				if pi > 40 {
-					pi = 40
-				}
-				fs := int(prob[pi]) << 7
-				decay := int(prob[pi+1]) << 6
-				qi = decodeLaplaceWithRangeDecoder(rd, fs, decay)
-			} else if remaining >= 2 {
-				qi = rd.DecodeICDF(smallEnergyICDF, 2)
-				qi = (qi >> 1) ^ -(qi & 1)
-			} else if remaining >= 1 {
-				qi = -rd.DecodeBit(1)
-			} else {
-				qi = -1
-			}
-
-			// Apply prediction
-			// pred = alpha * prevEnergy[band] + prevBandEnergy
-			prevFrameEnergy := float32(d.prevEnergy[c*MaxBands+band])
-			minEnergy := float32(-9.0 * DB6)
-			if prevFrameEnergy < minEnergy {
-				prevFrameEnergy = minEnergy
-			}
-
-			// Compute energy: pred + qi * DB6 (6 dB per step)
-			q := float32(qi) * float32(DB6)
-			energy := alpha*prevFrameEnergy + prevBandEnergy[c] + q
-
-			// Store result
-			dst[c*nbBands+band] = float64(energy)
-
-			// Update prev band energy for next band's inter-band prediction.
-			// Per libopus: prev is filtered by the quantized delta.
-			// Formula: prev = prev + q - beta*q, where q = qi*DB6
-			prevBandEnergy[c] = prevBandEnergy[c] + q - beta*q
-		}
-	}
-
-	// Update previous frame energy for next frame's inter-frame prediction
-	for c := 0; c < d.channels; c++ {
-		for band := 0; band < nbBands; band++ {
-			d.prevEnergy[c*MaxBands+band] = celtGLog(dst[c*nbBands+band])
-		}
-	}
-
-	return dst
+func (d *Decoder) DecodeCoarseEnergy(nbBands int, intra bool, lm int) []celtGLog {
+	return d.decodeCoarseEnergyGLogInto(nil, nbBands, intra, lm)
 }
 
 func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra bool, lm int) []celtGLog {
@@ -400,7 +299,7 @@ func (d *Decoder) decodeCoarseEnergyRangeGLog(start, end int, intra bool, lm int
 
 // DecodeCoarseEnergyWithDecoder decodes coarse energies using an explicit range decoder.
 // This variant allows passing a range decoder directly rather than using d.rangeDecoder.
-func (d *Decoder) DecodeCoarseEnergyWithDecoder(rd *rangecoding.Decoder, nbBands int, intra bool, lm int) []float64 {
+func (d *Decoder) DecodeCoarseEnergyWithDecoder(rd *rangecoding.Decoder, nbBands int, intra bool, lm int) []celtGLog {
 	// Temporarily set range decoder
 	oldRD := d.rangeDecoder
 	d.rangeDecoder = rd
@@ -412,17 +311,17 @@ func (d *Decoder) DecodeCoarseEnergyWithDecoder(rd *rangecoding.Decoder, nbBands
 // DecodeFineEnergy adds fine energy precision to coarse values.
 // fineBits[band] specifies bits allocated for refinement (0 = no refinement).
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c unquant_fine_energy()
-func (d *Decoder) DecodeFineEnergy(energies []float64, nbBands int, fineBits []int) {
-	d.decodeFineEnergyRange(energies, 0, nbBands, nil, fineBits)
+func (d *Decoder) DecodeFineEnergy(energies []celtGLog, nbBands int, fineBits []int) {
+	d.decodeFineEnergyGLogRange(energies, 0, nbBands, nil, fineBits)
 }
 
 // DecodeFineEnergyWithDecoder adds fine energy precision using an explicit range decoder.
-func (d *Decoder) DecodeFineEnergyWithDecoder(rd *rangecoding.Decoder, energies []float64, nbBands int, fineBits []int) {
+func (d *Decoder) DecodeFineEnergyWithDecoder(rd *rangecoding.Decoder, energies []celtGLog, nbBands int, fineBits []int) {
 	oldRD := d.rangeDecoder
 	d.rangeDecoder = rd
 	defer func() { d.rangeDecoder = oldRD }()
 
-	d.decodeFineEnergyRange(energies, 0, nbBands, nil, fineBits)
+	d.decodeFineEnergyGLogRange(energies, 0, nbBands, nil, fineBits)
 }
 
 func (d *Decoder) decodeFineEnergyGLogWithDecoder(rd *rangecoding.Decoder, energies []celtGLog, nbBands int, fineBits []int) {
@@ -436,65 +335,14 @@ func (d *Decoder) decodeFineEnergyGLogWithDecoder(rd *rangecoding.Decoder, energ
 // DecodeFineEnergyRange adds fine energy precision for bands in [start, end).
 // For hybrid mode, start should be HybridCELTStartBand (17), matching libopus
 // unquant_fine_energy().
-func (d *Decoder) DecodeFineEnergyRange(energies []float64, start, end int, fineBits []int) {
-	d.decodeFineEnergyRange(energies, start, end, nil, fineBits)
+func (d *Decoder) DecodeFineEnergyRange(energies []celtGLog, start, end int, fineBits []int) {
+	d.decodeFineEnergyGLogRange(energies, start, end, nil, fineBits)
 }
 
-// decodeFineEnergy mirrors libopus unquant_fine_energy() for float builds.
+// decodeFineEnergyGLog mirrors libopus unquant_fine_energy() for float builds.
 // prevQuant may be nil; extraQuant provides per-band refinement bits.
-func (d *Decoder) decodeFineEnergy(energies []float64, nbBands int, prevQuant, extraQuant []int) {
-	d.decodeFineEnergyRange(energies, 0, nbBands, prevQuant, extraQuant)
-}
-
 func (d *Decoder) decodeFineEnergyGLog(energies []celtGLog, nbBands int, prevQuant, extraQuant []int) {
 	d.decodeFineEnergyGLogRange(energies, 0, nbBands, prevQuant, extraQuant)
-}
-
-// decodeFineEnergyRange mirrors libopus unquant_fine_energy() for float builds
-// over the supplied band range.
-func (d *Decoder) decodeFineEnergyRange(energies []float64, start, end int, prevQuant, extraQuant []int) {
-	if d.rangeDecoder == nil {
-		return
-	}
-	if start < 0 {
-		start = 0
-	}
-	if end > MaxBands {
-		end = MaxBands
-	}
-	if end > len(extraQuant) {
-		end = len(extraQuant)
-	}
-	if end <= start {
-		return
-	}
-
-	rd := d.rangeDecoder
-	for band := start; band < end; band++ {
-		extra := extraQuant[band]
-		if extra <= 0 {
-			continue
-		}
-		if rd.Tell()+d.channels*extra > rd.StorageBits() {
-			continue
-		}
-
-		prev := 0
-		if prevQuant != nil && band < len(prevQuant) {
-			prev = prevQuant[band]
-		}
-
-		for c := 0; c < d.channels; c++ {
-			q2 := rd.DecodeRawBits(uint(extra))
-			offset := (float32(q2)+float32(0.5))*float32(uint(1)<<uint(14-extra))*float32(1.0/16384.0) - float32(0.5)
-			offset *= float32(uint(1)<<uint(14-prev)) * float32(1.0/16384.0)
-
-			idx := c*end + band
-			if idx < len(energies) {
-				energies[idx] = float64(float32(energies[idx]) + offset)
-			}
-		}
-	}
 }
 
 func (d *Decoder) decodeFineEnergyGLogRange(energies []celtGLog, start, end int, prevQuant, extraQuant []int) {
@@ -545,7 +393,7 @@ func (d *Decoder) decodeFineEnergyGLogRange(energies []celtGLog, start, end int,
 // DecodeEnergyRemainder uses remaining bits for additional energy precision.
 // Called after all PVQ bands decoded, uses leftover bits from bit allocation.
 // Reference: RFC 6716 Section 4.3.2, libopus celt/quant_bands.c unquant_energy_finalise()
-func (d *Decoder) DecodeEnergyRemainder(energies []float64, nbBands int, remainderBits []int) {
+func (d *Decoder) DecodeEnergyRemainder(energies []celtGLog, nbBands int, remainderBits []int) {
 	if d.rangeDecoder == nil {
 		return
 	}
@@ -572,7 +420,7 @@ func (d *Decoder) DecodeEnergyRemainder(energies []float64, nbBands int, remaind
 
 				// Each bit provides 6dB / 2^(fineBits+i+1) precision
 				// The precision gets finer with each additional bit
-				precision := DB6 / float64(uint(1)<<(i+2))
+				precision := celtGLog(float32(DB6) / float32(uint(1)<<(i+2)))
 
 				idx := c*nbBands + band
 				if idx < len(energies) {
@@ -588,7 +436,7 @@ func (d *Decoder) DecodeEnergyRemainder(energies []float64, nbBands int, remaind
 }
 
 // DecodeEnergyRemainderWithDecoder uses remainder bits with an explicit range decoder.
-func (d *Decoder) DecodeEnergyRemainderWithDecoder(rd *rangecoding.Decoder, energies []float64, nbBands int, remainderBits []int) {
+func (d *Decoder) DecodeEnergyRemainderWithDecoder(rd *rangecoding.Decoder, energies []celtGLog, nbBands int, remainderBits []int) {
 	oldRD := d.rangeDecoder
 	d.rangeDecoder = rd
 	defer func() { d.rangeDecoder = oldRD }()
@@ -599,8 +447,8 @@ func (d *Decoder) DecodeEnergyRemainderWithDecoder(rd *rangecoding.Decoder, ener
 // DecodeEnergyFinalise consumes leftover bits for additional energy refinement.
 // This mirrors libopus unquant_energy_finalise().
 // For non-hybrid mode, use start=0.
-func (d *Decoder) DecodeEnergyFinalise(energies []float64, nbBands int, fineQuant []int, finePriority []int, bitsLeft int) {
-	d.DecodeEnergyFinaliseRange(0, nbBands, energies, fineQuant, finePriority, bitsLeft)
+func (d *Decoder) DecodeEnergyFinalise(energies []celtGLog, nbBands int, fineQuant []int, finePriority []int, bitsLeft int) {
+	d.decodeEnergyFinaliseGLogRange(0, nbBands, energies, fineQuant, finePriority, bitsLeft)
 }
 
 func (d *Decoder) decodeEnergyFinaliseGLog(energies []celtGLog, nbBands int, fineQuant []int, finePriority []int, bitsLeft int) {
@@ -610,40 +458,8 @@ func (d *Decoder) decodeEnergyFinaliseGLog(energies []celtGLog, nbBands int, fin
 // DecodeEnergyFinaliseRange consumes leftover bits for energy refinement in range [start, end).
 // This mirrors libopus unquant_energy_finalise() which takes both start and end parameters.
 // For hybrid mode, start should be HybridCELTStartBand (17).
-func (d *Decoder) DecodeEnergyFinaliseRange(start, end int, energies []float64, fineQuant []int, finePriority []int, bitsLeft int) {
-	if d.rangeDecoder == nil {
-		return
-	}
-	if end > MaxBands {
-		end = MaxBands
-	}
-	if start < 0 {
-		start = 0
-	}
-	if end <= start {
-		return
-	}
-	if bitsLeft < 0 {
-		bitsLeft = 0
-	}
-	apply := len(energies) >= end*d.channels
-
-	for prio := 0; prio < 2; prio++ {
-		for band := start; band < end && bitsLeft >= d.channels; band++ {
-			if fineQuant[band] >= maxFineBits || finePriority[band] != prio {
-				continue
-			}
-			for c := 0; c < d.channels; c++ {
-				q2 := d.rangeDecoder.DecodeRawBits(1)
-				if apply {
-					offset := (float32(q2) - float32(0.5)) * float32(uint(1)<<uint(14-fineQuant[band]-1)) * float32(1.0/16384.0)
-					idx := c*end + band
-					energies[idx] = float64(float32(energies[idx]) + offset)
-				}
-				bitsLeft--
-			}
-		}
-	}
+func (d *Decoder) DecodeEnergyFinaliseRange(start, end int, energies []celtGLog, fineQuant []int, finePriority []int, bitsLeft int) {
+	d.decodeEnergyFinaliseGLogRange(start, end, energies, fineQuant, finePriority, bitsLeft)
 }
 
 func (d *Decoder) decodeEnergyFinaliseGLogRange(start, end int, energies []celtGLog, fineQuant []int, finePriority []int, bitsLeft int) {

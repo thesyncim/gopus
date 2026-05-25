@@ -110,7 +110,7 @@ func TestNormalizationRoundTrip(t *testing.T) {
 		}
 
 		// Decoder's denormalization formula
-		e := energies[band]
+		e := float64(energies[band])
 		if band < len(eMeans) {
 			e += eMeans[band] * DB6
 		}
@@ -214,7 +214,7 @@ func TestEnergyComputationConsistency(t *testing.T) {
 		}
 
 		// Check
-		if math.Abs(energies[band]-expectedMeanRelative) > 1e-6 {
+		if math.Abs(float64(energies[band])-expectedMeanRelative) > 1e-6 {
 			t.Errorf("band %d: energy = %f, expected %f (raw=%f)",
 				band, energies[band], expectedMeanRelative, expectedRaw)
 		}

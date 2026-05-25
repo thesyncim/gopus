@@ -11,7 +11,7 @@ import (
 func TestCoarseEnergyRoundTrip(t *testing.T) {
 	// Create simple test energies
 	nbBands := 5
-	energies := []float64{0.0, 12.0, 18.0, -3.0, -6.0}
+	energies := []float32{0.0, 12.0, 18.0, -3.0, -6.0}
 	lm := 3 // 20ms
 	intra := true
 
@@ -52,14 +52,14 @@ func TestCoarseEnergyRoundTrip(t *testing.T) {
 	t.Log("\n=== COMPARISON ===")
 	allMatch := true
 	for i := 0; i < nbBands; i++ {
-		diff := math.Abs(quantizedEnergies[i] - decodedEnergies[i])
+		diff := math.Abs(float64(quantizedEnergies[i] - decodedEnergies[i]))
 		status := "OK"
 		if diff > 0.01 {
 			status = "MISMATCH"
 			allMatch = false
 		}
 		t.Logf("Band %d: quantized=%.4f, decoded=%.4f, diff=%.4f %s",
-			i, quantizedEnergies[i], decodedEnergies[i], diff, status)
+			i, float64(quantizedEnergies[i]), float64(decodedEnergies[i]), diff, status)
 	}
 
 	if !allMatch {

@@ -1028,13 +1028,13 @@ func GetShortBlockCount(frameSize int) int {
 // Returns: true if mean energy increase > 1.0 dB and transient should be forced
 //
 // Reference: libopus celt/celt_encoder.c patch_transient_decision()
-func PatchTransientDecision(newE []float64, oldE []celtGLog, nbEBands, start, end, channels int) bool {
+func PatchTransientDecision(newE []celtGLog, oldE []celtGLog, nbEBands, start, end, channels int) bool {
 	return PatchTransientDecisionWithScratch(newE, oldE, nbEBands, start, end, channels, nil)
 }
 
 // PatchTransientDecisionWithScratch is PatchTransientDecision using caller-owned
 // scratch for the spread-old-energy workspace.
-func PatchTransientDecisionWithScratch(newE []float64, oldE []celtGLog, nbEBands, start, end, channels int, spreadOld []celtGLog) bool {
+func PatchTransientDecisionWithScratch(newE []celtGLog, oldE []celtGLog, nbEBands, start, end, channels int, spreadOld []celtGLog) bool {
 	if len(newE) < end || len(oldE) < end {
 		return false
 	}
@@ -1092,7 +1092,7 @@ func PatchTransientDecisionWithScratch(newE []float64, oldE []celtGLog, nbEBands
 
 	for c := 0; c < channels; c++ {
 		for i := startBand; i < end-1; i++ {
-			x1 := celtGLog(newE[i+c*nbEBands])
+			x1 := newE[i+c*nbEBands]
 			if x1 < 0 {
 				x1 = 0
 			}

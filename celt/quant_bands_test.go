@@ -92,13 +92,13 @@ func TestEProbModelValues(t *testing.T) {
 // TestLossDistortion verifies the loss distortion computation.
 func TestLossDistortion(t *testing.T) {
 	// Create simple test case
-	eBands := make([]float64, MaxBands)
-	oldEBands := make([]float64, MaxBands)
+	eBands := make([]celtGLog, MaxBands)
+	oldEBands := make([]celtGLog, MaxBands)
 
 	// Set some test values
 	for i := 0; i < 10; i++ {
-		eBands[i] = float64(i)
-		oldEBands[i] = float64(i) + 0.5
+		eBands[i] = celtGLog(i)
+		oldEBands[i] = celtGLog(float64(i) + 0.5)
 	}
 
 	dist := lossDistortion(eBands, oldEBands, 0, 10, MaxBands, 1)
@@ -133,12 +133,12 @@ func TestQuantCoarseEnergyRoundTrip(t *testing.T) {
 	// Create test energies
 	nbBands := 21
 	channels := 1
-	eBands := make([]float64, nbBands*channels)
-	oldEBands := make([]float64, nbBands*channels)
+	eBands := make([]celtGLog, nbBands*channels)
+	oldEBands := make([]celtGLog, nbBands*channels)
 
 	for i := 0; i < nbBands; i++ {
-		eBands[i] = float64(5 - i/4) // Some variation
-		oldEBands[i] = 0             // Start with zeros
+		eBands[i] = celtGLog(5 - i/4) // Some variation
+		oldEBands[i] = 0              // Start with zeros
 	}
 
 	// Create encoder buffer
@@ -167,7 +167,7 @@ func TestQuantCoarseEnergyRoundTrip(t *testing.T) {
 	// Verify results are reasonable
 	for i := 0; i < nbBands; i++ {
 		// Quantized energy should be close to original (within a few dB)
-		diff := math.Abs(result.QuantizedEnergy[i] - eBands[i])
+		diff := math.Abs(float64(result.QuantizedEnergy[i] - eBands[i]))
 		if diff > 3.0 { // Allow up to 3 dB difference (half a step)
 			t.Errorf("Band %d: quantized=%f, original=%f, diff=%f too large",
 				i, result.QuantizedEnergy[i], eBands[i], diff)
@@ -310,11 +310,11 @@ func TestEncodeLaplaceEnergy(t *testing.T) {
 func BenchmarkQuantCoarseEnergy(b *testing.B) {
 	nbBands := 21
 	channels := 1
-	eBands := make([]float64, nbBands*channels)
-	oldEBands := make([]float64, nbBands*channels)
+	eBands := make([]celtGLog, nbBands*channels)
+	oldEBands := make([]celtGLog, nbBands*channels)
 
 	for i := 0; i < nbBands; i++ {
-		eBands[i] = float64(5 - i/4)
+		eBands[i] = celtGLog(5 - i/4)
 	}
 
 	buf := make([]byte, 256)
