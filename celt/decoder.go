@@ -6,7 +6,7 @@ import "github.com/thesyncim/gopus/internal/extsupport"
 // If data is nil, empty, or a single byte, performs Packet Loss Concealment (PLC) instead of decoding.
 // data: raw CELT frame bytes (without Opus framing), or len <= 1 for PLC
 // frameSize: expected output samples (120, 240, 480, or 960)
-// Returns: PCM samples as float64 slice, interleaved if stereo
+// Returns: PCM samples as float32 slice, interleaved if stereo
 //
 // The decoding pipeline:
 // 1. Initialize range decoder

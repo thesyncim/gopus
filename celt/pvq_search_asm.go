@@ -31,27 +31,3 @@ func pvqSearchBestPos(absX, y []float32, xy, yy float32, n int) int
 //
 //go:noescape
 func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32)
-
-//go:noescape
-func pvqExtractAbsSignAsm(x []float64, absX []float32, y []float32, signx []byte, iy []int, n int)
-
-func pvqExtractAbsSign(x []float64, absX []float32, y []float32, signx []byte, iy []int, n int) {
-	// The current arm64 asm version loses to the generic loop on modern Apple
-	// cores, so keep the faster exact path enabled by default.
-	pvqExtractAbsSignGenericArm64(x, absX, y, signx, iy, n)
-}
-
-func pvqExtractAbsSignGenericArm64(x []float64, absX []float32, y []float32, signx []byte, iy []int, n int) {
-	for j := 0; j < n; j++ {
-		iy[j] = 0
-		signx[j] = 0
-		y[j] = 0
-		xj := x[j]
-		if xj < 0 {
-			signx[j] = 1
-			absX[j] = float32(-xj)
-		} else {
-			absX[j] = float32(xj)
-		}
-	}
-}

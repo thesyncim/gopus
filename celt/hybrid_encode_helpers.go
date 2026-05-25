@@ -606,12 +606,6 @@ func (e *Encoder) SetCoarseEnergyAvailableBytes(bytes int) {
 	e.coarseAvailableBytes = bytes
 }
 
-// RoundFloat64ToFloat32 rounds each element to float32 precision in place,
-// storing the rounded value back into the same []float64 slice.
-func (e *Encoder) RoundFloat64ToFloat32(x []float64) {
-	roundFloat64ToFloat32(x)
-}
-
 // MDCTScratch computes the MDCT using the encoder's pre-allocated scratch buffers.
 // This is the zero-allocation equivalent of the public MDCT function.
 // EnsureScratch must have been called with an appropriate frameSize first.

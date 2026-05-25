@@ -57,20 +57,3 @@ func pvqSearchPulseLoop(absX, y []float32, iy []int, xy, yy float32, n, pulsesLe
 	}
 	return xy, yy
 }
-
-// pvqExtractAbsSign converts float64 input to float32 abs values and extracts signs.
-// Go fallback for non-SIMD architectures.
-func pvqExtractAbsSign(x []float64, absX []float32, y []float32, signx []byte, iy []int, n int) {
-	for j := 0; j < n; j++ {
-		iy[j] = 0
-		signx[j] = 0
-		y[j] = 0
-		xj := x[j]
-		if xj < 0 {
-			signx[j] = 1
-			absX[j] = float32(-xj)
-		} else {
-			absX[j] = float32(xj)
-		}
-	}
-}

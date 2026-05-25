@@ -95,7 +95,7 @@ const HybridCELTStartBand = 17
 //   - rd: Range decoder (SILK has already consumed its portion)
 //   - frameSize: Expected output samples (480 or 960 for hybrid 10ms/20ms)
 //
-// Returns: PCM samples as float64 slice at 48kHz
+// Returns: PCM samples as float32 slice at 48kHz
 //
 // Implementation approach:
 // - Decode all bands as usual but zero out bands 0-16 before synthesis

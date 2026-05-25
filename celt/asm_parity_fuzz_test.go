@@ -111,26 +111,6 @@ func runCELTAssemblyReferenceCase(t *testing.T, length, maxPitch, offset int, se
 			math.Float64bits(gotMean), gotEnergy, math.Float64bits(wantMean), wantEnergy)
 	}
 
-	roundGot := append([]float64(nil), x...)
-	roundWant := append([]float64(nil), x...)
-	roundFloat64ToFloat32(roundGot)
-	for i, v := range roundWant {
-		roundWant[i] = float64(float32(v))
-	}
-	requireASMFloat64BitsEqual(t, "roundFloat64ToFloat32", roundGot, roundWant)
-
-	widenSrc := make([]float32, length)
-	for i := range widenSrc {
-		widenSrc[i] = float32(asmExactF64(seed^0x2545f4914f6cdd1d, i))
-	}
-	widenGot := make([]float64, length)
-	widenWant := make([]float64, length)
-	widenFloat32ToFloat64(widenGot, widenSrc, length)
-	for i, v := range widenSrc {
-		widenWant[i] = float64(v)
-	}
-	requireASMFloat64BitsEqual(t, "widenFloat32ToFloat64", widenGot, widenWant)
-
 	scaleGot := make([]float64, length)
 	scaleWant := make([]float64, length)
 	scale := []float64{0, 0.25, -0.5, 2}[seed&3]
@@ -174,23 +154,6 @@ func runPVQAssemblyReferenceCase(t *testing.T, length int, seed uint64) {
 		t.Fatalf("pvqSearchPulseLoop mismatch: got (%v,%v,%v,%v) want (%v,%v,%v,%v)", gotXY, gotYY, yGot, iyGot, wantXY, wantYY, yWant, iyWant)
 	}
 
-	x := make([]float64, n)
-	for i := range x {
-		x[i] = asmExactF64(seed^0xdb4f0b9175ae2165, i)
-	}
-	gotAbs := make([]float32, n)
-	wantAbs := make([]float32, n)
-	gotY := make([]float32, n)
-	wantY := make([]float32, n)
-	gotSign := make([]byte, n)
-	wantSign := make([]byte, n)
-	gotIY := make([]int, n)
-	wantIY := make([]int, n)
-	pvqExtractAbsSign(x, gotAbs, gotY, gotSign, gotIY, n)
-	pvqExtractAbsSignRef(x, wantAbs, wantY, wantSign, wantIY, n)
-	if !reflect.DeepEqual(gotAbs, wantAbs) || !reflect.DeepEqual(gotY, wantY) || !reflect.DeepEqual(gotSign, wantSign) || !reflect.DeepEqual(gotIY, wantIY) {
-		t.Fatalf("pvqExtractAbsSign mismatch")
-	}
 }
 
 func asmExactF64(seed uint64, i int) float64 {

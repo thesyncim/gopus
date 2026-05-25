@@ -13,15 +13,6 @@ func TestAMD64DispatchMatchesGeneric(t *testing.T) {
 		t.Fatalf("absSum mismatch: got %v want %v", got, want)
 	}
 
-	roundInput := []float64{-1.1, 3.141592653589793, 1 << 20, -1 << 18, 0.3333333333333333}
-	roundWant := append([]float64(nil), roundInput...)
-	roundFloat64ToFloat32Generic(roundWant)
-	roundGot := append([]float64(nil), roundInput...)
-	roundFloat64ToFloat32(roundGot)
-	if !reflect.DeepEqual(roundGot, roundWant) {
-		t.Fatalf("roundFloat64ToFloat32 mismatch: got %v want %v", roundGot, roundWant)
-	}
-
 	xcorrInput := []float64{0.5, -1.25, 3.0, -0.75, 2.25, 1.5}
 	xcorrY := []float64{1.0, -0.5, 2.5, 0.75, -1.0, 1.25, 0.5, -2.0, 3.0, -1.5}
 	xcorrWant := make([]float64, 4)
@@ -58,21 +49,6 @@ func TestAMD64DispatchMatchesGeneric(t *testing.T) {
 	wantXY, wantYY := pvqSearchPulseLoopGeneric(absX, yWant, iyWant, 1.25, 3.5, len(absX), 4)
 	if gotXY != wantXY || gotYY != wantYY || !reflect.DeepEqual(yGot, yWant) || !reflect.DeepEqual(iyGot, iyWant) {
 		t.Fatalf("pvqSearchPulseLoop mismatch: got (%v,%v,%v,%v) want (%v,%v,%v,%v)", gotXY, gotYY, yGot, iyGot, wantXY, wantYY, yWant, iyWant)
-	}
-
-	signInput := []float64{-1.5, 2.25, 0, -0.125, 4}
-	signGotAbs := make([]float32, len(signInput))
-	signWantAbs := make([]float32, len(signInput))
-	signGotY := make([]float32, len(signInput))
-	signWantY := make([]float32, len(signInput))
-	signGotBits := make([]byte, len(signInput))
-	signWantBits := make([]byte, len(signInput))
-	signGotIY := make([]int, len(signInput))
-	signWantIY := make([]int, len(signInput))
-	pvqExtractAbsSign(signInput, signGotAbs, signGotY, signGotBits, signGotIY, len(signInput))
-	pvqExtractAbsSignGeneric(signInput, signWantAbs, signWantY, signWantBits, signWantIY, len(signInput))
-	if !reflect.DeepEqual(signGotAbs, signWantAbs) || !reflect.DeepEqual(signGotY, signWantY) || !reflect.DeepEqual(signGotBits, signWantBits) || !reflect.DeepEqual(signGotIY, signWantIY) {
-		t.Fatalf("pvqExtractAbsSign mismatch")
 	}
 
 	rotInput := []float64{1, -2, 3, -4, 5, -6, 7, -8}

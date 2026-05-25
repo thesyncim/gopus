@@ -92,8 +92,9 @@ func cubicQuantPartition(ctx *bandCtx, x []celtNorm, n, b, B, lm int, gain opusV
 
 	b -= thetaRes << bitRes
 	delta := (n0 - 1) * 23 * ((ithetaQ30 >> 16) - 8192) >> (17 - bitRes)
-	mid := celtCosNorm2(float64(ithetaQ30) * (1.0 / float64(1<<30)))
-	side := celtCosNorm2(1.0 - float64(ithetaQ30)*(1.0/float64(1<<30)))
+	theta := float32(ithetaQ30) * (1.0 / float32(1<<30))
+	mid := celtCosNorm2F32(theta)
+	side := celtCosNorm2F32(1.0 - theta)
 
 	b1 := 0
 	b2 := 0
@@ -107,8 +108,8 @@ func cubicQuantPartition(ctx *bandCtx, x []celtNorm, n, b, B, lm int, gain opusV
 		b2 = b - b1
 	}
 
-	cm := cubicQuantPartition(ctx, x, half, b1, B, lm, opusVal16(float32(gain)*float32(mid)))
-	cm |= cubicQuantPartition(ctx, y, half, b2, B, lm, opusVal16(float32(gain)*float32(side)))
+	cm := cubicQuantPartition(ctx, x, half, b1, B, lm, opusVal16(float32(gain)*mid))
+	cm |= cubicQuantPartition(ctx, y, half, b2, B, lm, opusVal16(float32(gain)*side))
 	return cm
 }
 

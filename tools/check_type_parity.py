@@ -150,6 +150,8 @@ def unescape_field(value: str) -> str:
 def scan() -> dict[FindingKey, Finding]:
     findings: dict[FindingKey, Finding] = {}
     for path in repo_files():
+        if not path.exists():
+            continue
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
         except UnicodeDecodeError:

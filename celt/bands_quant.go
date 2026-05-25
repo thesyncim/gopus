@@ -4,6 +4,7 @@ import (
 	"math"
 	"runtime"
 
+	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
@@ -768,8 +769,8 @@ func expRotation(x []celtNorm, length, dir, stride, k, spread int) {
 		spreadFactor := expRotationSpreadFactors[spread-1]
 		gain := float32(length) / float32(length+spreadFactor*k)
 		theta := 0.5 * gain * gain
-		c = opusVal16(math.Cos(libopusHalfPi * float64(theta)))
-		s = opusVal16(math.Cos(libopusHalfPi * float64(float32(1)-theta)))
+		c = opusVal16(opusmath.CosF32(libopusHalfPi * theta))
+		s = opusVal16(opusmath.CosF32(libopusHalfPi * (float32(1) - theta)))
 	}
 
 	stride2 := 0
@@ -805,8 +806,8 @@ func expRotationNorm(x []celtNorm, length, dir, stride, k, spread int) {
 		spreadFactor := expRotationSpreadFactors[spread-1]
 		gain := float32(length) / float32(length+spreadFactor*k)
 		theta := 0.5 * gain * gain
-		c = opusVal16(math.Cos(libopusHalfPi * float64(theta)))
-		s = opusVal16(math.Cos(libopusHalfPi * float64(float32(1)-theta)))
+		c = opusVal16(opusmath.CosF32(libopusHalfPi * theta))
+		s = opusVal16(opusmath.CosF32(libopusHalfPi * (float32(1) - theta)))
 	}
 
 	stride2 := 0
@@ -1156,7 +1157,7 @@ func normalizeResidualKnownEnergyIntoAndCollapse32(out []celtNorm, pulses []int3
 }
 
 func celtRSqrt(x float32) float32 {
-	return float32(1) / float32(math.Sqrt(float64(x)))
+	return float32(1) / opusmath.SqrtF32(x)
 }
 
 func celtMul32(a, b opusVal16) opusVal16 {
@@ -1210,7 +1211,7 @@ func scaleLowbandOutForFoldingNorm(dst []celtNorm, src []celtNorm, n int) {
 	}
 	dst = dst[:n:n]
 	src = src[:n:n]
-	scale := float32(math.Sqrt(float64(n)))
+	scale := opusmath.SqrtF32(float32(n))
 	for i := 0; i < n; i++ {
 		dst[i] = celtNorm(scale * float32(src[i]))
 	}
@@ -1808,16 +1809,10 @@ func stereoIthetaQ30Norm(x, y []celtNorm, stereo bool) int {
 	}
 
 	// Compute mid and side magnitudes
-	mid := float32(math.Sqrt(float64(emid)))
-	side := float32(math.Sqrt(float64(eside)))
+	mid := opusmath.SqrtF32(emid)
+	side := opusmath.SqrtF32(eside)
 	theta := float32(0.5) + (float32(65536)*float32(16384))*celtAtan2pNormF32(side, mid)
-	return int(math.Floor(float64(theta)))
-}
-
-// celtAtan2pNorm computes atan2(y, x) * 2/pi for non-negative x, y.
-// Returns a value in [0, 1] representing the angle as a fraction of pi/2.
-func celtAtan2pNorm(y, x float64) float64 {
-	return float64(celtAtan2pNormF32(float32(y), float32(x)))
+	return floor32ToInt(theta)
 }
 
 // celtAtan2pNormF32 matches libopus float-path arithmetic more closely.
@@ -1831,18 +1826,12 @@ func celtAtan2pNormF32(y, x float32) float32 {
 	return 1 - celtAtanNormF32(x/y)
 }
 
-// celtAtanNorm computes atan(x) * 2/pi using polynomial approximation.
-// Matches libopus celt_atan_norm() for float path.
-func celtAtanNorm(x float64) float64 {
-	return float64(celtAtanNormF32(float32(x)))
-}
-
 const celtUseFusedFloatMath = runtime.GOARCH == "arm64"
 const celtUseSSEFloatMath = runtime.GOOS == "windows" && runtime.GOARCH == "amd64"
 
 func celtFloatMulAdd(a, b, c float32) float32 {
 	if celtUseFusedFloatMath {
-		return float32(math.FMA(float64(a), float64(b), float64(c)))
+		return fma32(a, b, c)
 	}
 	return a*b + c
 }
@@ -1968,12 +1957,12 @@ func celtAtanNormF32(x float32) float32 {
 	return a1 * celtFloatMulAdd(x*xSq, p, x)
 }
 
-// celtCosNorm2 computes cos(pi/2 * x) for x in [0, 1].
+// celtCosNorm2F32 computes cos(pi/2 * x) for x in [0, 1].
 // This is used for extended precision mid/side computation from Q30 theta.
 // Matches libopus celt_cos_norm2().
-func celtCosNorm2(x float64) float64 {
-	xf := float32(x)
-	xf = float32(float64(xf) - 4*math.Floor(0.25*float64(float32(xf+1))))
+func celtCosNorm2F32(x float32) float32 {
+	xf := x
+	xf = xf - 4*float32(floor32ToInt(0.25*float32(xf+1)))
 	outputSign := float32(1)
 	if xf > 1 {
 		outputSign = -1
@@ -1991,22 +1980,22 @@ func celtCosNorm2(x float64) float64 {
 	p = celtFloatMulAdd(xSq, p, cosA4)
 	p = celtFloatMulAdd(xSq, p, cosA2)
 	p = celtFloatMulAdd(xSq, p, cosA0)
-	return float64(outputSign * p)
+	return outputSign * p
 }
 
 func thetaUsesQEXT(ctx *bandCtx) bool {
 	return ctx != nil && (ctx.extEnc != nil || ctx.extDec != nil)
 }
 
-func thetaSplitGains(sctx *splitCtx, useQ30 bool) (mid, side float64) {
+func thetaSplitGains(sctx *splitCtx, useQ30 bool) (mid, side float32) {
 	if sctx == nil {
 		return 0, 0
 	}
 	if useQ30 {
-		theta := float64(sctx.ithetaQ30) * (1.0 / float64(1<<30))
-		return celtCosNorm2(theta), celtCosNorm2(1.0 - theta)
+		theta := float32(sctx.ithetaQ30) * (1.0 / float32(1<<30))
+		return celtCosNorm2F32(theta), celtCosNorm2F32(1.0 - theta)
 	}
-	return float64(sctx.imid) / 32768.0, float64(sctx.iside) / 32768.0
+	return float32(sctx.imid) / 32768.0, float32(sctx.iside) / 32768.0
 }
 
 func stereoSplit(x, y []celtNorm) {
@@ -2042,7 +2031,7 @@ func intensityStereoWeighted(x, y []celtNorm, leftEnergy, rightEnergy celtEner) 
 	}
 	left := float32(leftEnergy)
 	right := float32(rightEnergy)
-	norm := float32(math.Sqrt(float64(left*left + right*right)))
+	norm := opusmath.SqrtF32(left*left + right*right)
 	if !(norm > 0) {
 		return
 	}

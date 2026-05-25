@@ -423,57 +423,6 @@ func DenormalizeBand(shape []celtNorm, energy celtGLog) []celtNorm {
 	return result
 }
 
-func denormalizeCoeffsInto(dst, src []float64, energies []float64, nbBands, frameSize int) {
-	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || nbBands <= 0 {
-		return
-	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
-	}
-	if len(energies) < nbBands {
-		nbBands = len(energies)
-	}
-	if len(dst) > len(src) {
-		dst = dst[:len(src)]
-	} else {
-		src = src[:len(dst)]
-	}
-	if len(dst) == 0 {
-		return
-	}
-
-	coeffsLen := len(dst)
-	dst = dst[:coeffsLen:coeffsLen]
-	src = src[:coeffsLen:coeffsLen]
-	_ = dst[coeffsLen-1]
-	offset := 0
-	scaleWidth := frameSize / Overlap
-	for band := 0; band < nbBands; band++ {
-		width := eBandWidths[band] * scaleWidth
-		if width <= 0 {
-			continue
-		}
-		gain := denormalizeBandGain(energies, band)
-		end := offset + width
-		if end > coeffsLen {
-			end = coeffsLen
-		}
-		if end > offset {
-			scaleDenormalizedFloat32Into(dst[offset:end], src[offset:end], gain, end-offset)
-		}
-		offset += width
-	}
-}
-
-func denormalizeCoeffs(coeffs []float64, energies []float64, nbBands, frameSize int) {
-	denormalizeCoeffsInto(coeffs, coeffs, energies, nbBands, frameSize)
-}
-
-func denormalizeCoeffsDownsample(coeffs []float64, energies []float64, nbBands, frameSize, downsample int) {
-	denormalizeCoeffs(coeffs, energies, nbBands, frameSize)
-	clearDenormalizedDownsampleTail(coeffs, nbBands, frameSize/Overlap, downsample, EBands[:])
-}
-
 func denormalizeNormCoeffsDownsample(coeffs []celtNorm, energies []celtGLog, nbBands, frameSize, downsample int) {
 	if len(coeffs) == 0 || len(energies) == 0 || nbBands <= 0 || frameSize <= 0 {
 		return
@@ -504,120 +453,6 @@ func denormalizeNormCoeffsDownsample(coeffs []celtNorm, energies []celtGLog, nbB
 	clearDenormalizedDownsampleTailNorm(coeffs, nbBands, scaleWidth, downsample, EBands[:])
 }
 
-func denormalizeCoeffsWithModeInto(dst, src []float64, energies []float64, nbBands, lm int, edges []int) {
-	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || nbBands <= 0 || len(edges) < nbBands+1 {
-		return
-	}
-	if len(dst) > len(src) {
-		dst = dst[:len(src)]
-	} else {
-		src = src[:len(dst)]
-	}
-	if len(dst) == 0 {
-		return
-	}
-	M := 1 << lm
-	for band := 0; band < nbBands; band++ {
-		start := edges[band] * M
-		end := edges[band+1] * M
-		if start < 0 {
-			start = 0
-		}
-		if end > len(dst) {
-			end = len(dst)
-		}
-		if start >= end {
-			continue
-		}
-		gain := denormalizeBandGain(energies, band)
-		for i := start; i < end; i++ {
-			dst[i] = denormalizeMulFloat32(src[i], gain)
-		}
-	}
-}
-
-func denormalizeCoeffsWithMode(coeffs []float64, energies []float64, nbBands, lm int, edges []int) {
-	denormalizeCoeffsWithModeInto(coeffs, coeffs, energies, nbBands, lm, edges)
-}
-
-func denormalizeBandsPackedInto(dst, src []float64, energies []float64, start, end, lm int, edges []int) {
-	denormalizeBandsPackedDownsampleInto(dst, src, energies, start, end, lm, edges, 1)
-}
-
-func denormalizeBandsPackedDownsampleInto[S ~float32 | ~float64, E ~float32 | ~float64](dst []float64, src []S, energies []E, start, end, lm int, edges []int, downsample int) {
-	if len(dst) == 0 || len(src) == 0 || len(energies) == 0 || end <= start || len(edges) < end+1 {
-		return
-	}
-	if start < 0 {
-		start = 0
-	}
-	if end > len(energies) {
-		end = len(energies)
-	}
-	if end <= start {
-		return
-	}
-
-	M := 1 << lm
-	bound := edges[end] * M
-	if downsample > 1 {
-		if limit := len(dst) / downsample; bound > limit {
-			bound = limit
-		}
-	}
-	if bound > len(dst) {
-		bound = len(dst)
-	}
-	if start != 0 {
-		prefix := edges[start] * M
-		if prefix > len(dst) {
-			prefix = len(dst)
-		}
-		clear(dst[:prefix])
-	}
-	f := edges[start] * M
-	if f > len(dst) {
-		f = len(dst)
-	}
-
-	for band := start; band < end; band++ {
-		j := edges[band] * M
-		bandEnd := edges[band+1] * M
-		if j >= len(src) {
-			break
-		}
-		if bandEnd > len(src) {
-			bandEnd = len(src)
-		}
-		gain := denormalizeBandGain(energies, band)
-		for ; j < bandEnd && f < len(dst); j++ {
-			dst[f] = denormalizeMulFloat32(float64(src[j]), gain)
-			f++
-		}
-	}
-	if bound < len(dst) {
-		clear(dst[bound:])
-	}
-}
-
-func clearDenormalizedDownsampleTail(coeffs []float64, nbBands, scaleWidth, downsample int, edges []int) {
-	if len(coeffs) == 0 || nbBands <= 0 || scaleWidth <= 0 || len(edges) < nbBands+1 {
-		return
-	}
-	bound := edges[nbBands] * scaleWidth
-	if downsample > 1 {
-		if limit := len(coeffs) / downsample; bound > limit {
-			bound = limit
-		}
-	}
-	if bound < 0 {
-		bound = 0
-	}
-	if bound < len(coeffs) {
-		clear(coeffs[bound:])
-	}
-}
-
 func clearDenormalizedDownsampleTailNorm(coeffs []celtNorm, nbBands, scaleWidth, downsample int, edges []int) {
 	if len(coeffs) == 0 || nbBands <= 0 || scaleWidth <= 0 || len(edges) < nbBands+1 {
 		return
@@ -634,10 +469,6 @@ func clearDenormalizedDownsampleTailNorm(coeffs []celtNorm, nbBands, scaleWidth,
 	if bound < len(coeffs) {
 		clear(coeffs[bound:])
 	}
-}
-
-func denormalizeMulFloat32(x float64, gain float32) float64 {
-	return float64(float32(x) * gain)
 }
 
 func denormalizeBandGain[E ~float32 | ~float64](energies []E, band int) float32 {
@@ -657,17 +488,6 @@ func denormalizeEnergyGain(energy celtGLog) float32 {
 		e = 32
 	}
 	return celtExp2(e)
-}
-
-func scaleDenormalizedFloat32Into(dst, src []float64, gain float32, n int) {
-	if n <= 0 {
-		return
-	}
-	dst = dst[:n:n]
-	src = src[:n:n]
-	for i := 0; i < n; i++ {
-		dst[i] = denormalizeMulFloat32(src[i], gain)
-	}
 }
 
 // ComputeBandEnergy computes the per-band log2 amplitude.

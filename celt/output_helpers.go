@@ -863,11 +863,3 @@ func (d *Decoder) advanceDeemphasisStateMono(samples []float32) {
 	}
 	d.preemphState[0] = state
 }
-
-func copyFloat32ToFloat64(dst []float64, src []float32) {
-	n := len(dst)
-	if len(src) < n {
-		n = len(src)
-	}
-	widenFloat32ToFloat64(dst, src, n)
-}

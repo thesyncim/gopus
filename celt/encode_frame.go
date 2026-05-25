@@ -96,7 +96,7 @@ func (e *Encoder) quantizeInputToLSBDepthScratchF32(pcm []float32) []float32 {
 	invScale := float32(1.0) / scale
 	out := ensureFloat32Slice(&e.scratch.quantizedInputF32, len(pcm))
 	for i, v := range pcm {
-		out[i] = float32(math.Floor(float64(float32(0.5)+v*scale))) * invScale
+		out[i] = float32(floor32ToInt(float32(0.5)+v*scale)) * invScale
 	}
 	return out[:len(pcm)]
 }
@@ -423,8 +423,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 	e.lastPitchChange = false
 	if prevPrefilterPeriod > 0 && (pfResult.gain > 0.4 || prevPrefilterGain > 0.4) {
-		upper := int(1.26 * float64(prevPrefilterPeriod))
-		lower := int(0.79 * float64(prevPrefilterPeriod))
+		upper := int(float32(1.26) * float32(prevPrefilterPeriod))
+		lower := int(float32(0.79) * float32(prevPrefilterPeriod))
 		e.lastPitchChange = pfResult.pitch > upper || pfResult.pitch < lower
 	}
 
@@ -835,7 +835,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// Reference: libopus celt/celt_encoder.c dynalloc_analysis()
 	//
 	// libopus defaults to 24 for float input (see celt_encoder.c: st->lsb_depth=24).
-	// Our encoder operates on float64 samples, so match the float path.
+	// Our encoder operates on float32 samples, so match the float path.
 	lsbDepth := e.LSBDepth()
 	// Use scratch buffer for logN
 	logN := e.scratch.logN
@@ -1096,9 +1096,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			e.lastStereoSaving = 0
 			allocTrim = 5
 		} else {
-			tonalitySlope := 0.0
+			tonalitySlope := opusVal16(0)
 			if e.analysisValid {
-				tonalitySlope = float64(e.analysisTonalitySlope)
+				tonalitySlope = e.analysisTonalitySlope
 			}
 			trimNormL := normLCelt
 			var trimNormR []celtNorm
@@ -1120,7 +1120,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 				opusVal16(tfEstimate),
 				equivRate,
 				surroundTrimForAlloc,
-				opusVal16(tonalitySlope),
+				tonalitySlope,
 				e.analysisValid,
 			)
 			if codedChannels == 2 {
@@ -2309,9 +2309,9 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	}
 
 	targetQ3 := baseTargetQ3
-	activity := float64(e.analysisActivity)
+	activity := float32(e.analysisActivity)
 	if e.analysisValid && activity < 0.4 {
-		targetQ3 -= int(float64(codedBins<<bitRes) * (0.4 - activity))
+		targetQ3 -= int(float32(codedBins<<bitRes) * (0.4 - activity))
 	}
 
 	// Stereo savings (libopus compute_vbr(): applied before dynalloc boost).
@@ -2325,13 +2325,13 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 		}
 		codedStereoDof := (EBands[codedStereoBands] << lm) - codedStereoBands
 		if codedStereoDof > 0 {
-			maxFrac := 0.8 * float64(codedStereoDof) / float64(codedBins)
-			stereoSaving := float64(e.lastStereoSaving)
+			maxFrac := float32(0.8) * float32(codedStereoDof) / float32(codedBins)
+			stereoSaving := float32(e.lastStereoSaving)
 			if stereoSaving > 1 {
 				stereoSaving = 1
 			}
-			saveA := int(maxFrac * float64(targetQ3))
-			saveB := int((stereoSaving - 0.1) * float64(codedStereoDof<<bitRes))
+			saveA := int(maxFrac * float32(targetQ3))
+			saveB := int((stereoSaving - 0.1) * float32(codedStereoDof<<bitRes))
 			saving := saveA
 			if saveB < saving {
 				saving = saveB
@@ -2357,7 +2357,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	targetQ3 += tfBoost
 
 	// Tonality boost.
-	tonality := float64(e.analysisTonality)
+	tonality := float32(e.analysisTonality)
 	if tonality < 0 {
 		tonality = 0
 	}
@@ -2365,24 +2365,28 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 		tonality = 1
 	}
 	if e.analysisValid && !e.lfe {
-		tonal := math.Max(0, tonality-0.15) - 0.12
+		tonal := tonality - 0.15
+		if tonal < 0 {
+			tonal = 0
+		}
+		tonal -= 0.12
 		tonalTarget := targetQ3
-		tonalTarget += int(float64(codedBins<<bitRes) * 1.2 * tonal)
+		tonalTarget += int(float32(codedBins<<bitRes) * 1.2 * tonal)
 		if pitchChange {
-			tonalTarget += int(float64(codedBins<<bitRes) * 0.8)
+			tonalTarget += int(float32(codedBins<<bitRes) * 0.8)
 		}
 		targetQ3 = tonalTarget
 	}
 
 	// floor_depth limit from maxDepth.
-	maxDepth := float64(e.lastDynalloc.MaxDepth)
+	maxDepth := float32(e.lastDynalloc.MaxDepth)
 	bins := 0
 	if extsupport.QEXT && e.qextActive() && !e.hybrid {
 		bins = qextShortMDCTSize(frameSize) << lm
 	} else if nbBands >= 2 {
 		bins = EBands[nbBands-2] << lm
 	}
-	floorDepth := int(float64((channels*bins)<<bitRes) * maxDepth)
+	floorDepth := int(float32((channels*bins)<<bitRes) * maxDepth)
 	if floorDepth < (targetQ3 >> 2) {
 		floorDepth = targetQ3 >> 2
 	}
@@ -2392,7 +2396,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 
 	// Constrained VBR makes target changes less aggressive.
 	if e.constrainedVBR && (len(e.energyMask) == 0 || e.lfe) {
-		targetQ3 = baseTargetQ3 + int(0.67*float64(targetQ3-baseTargetQ3))
+		targetQ3 = baseTargetQ3 + int(float32(0.67)*float32(targetQ3-baseTargetQ3))
 	}
 
 	// Temporal VBR: adjust target based on frame-to-frame spectral variation.
@@ -2407,8 +2411,8 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 		if clampedBR > 32000 {
 			clampedBR = 32000
 		}
-		amount := 0.0000031 * float64(clampedBR)
-		targetQ3 += int(float64(e.lastTemporalVBR) * amount * float64(targetQ3))
+		amount := float32(0.0000031) * float32(clampedBR)
+		targetQ3 += int(float32(e.lastTemporalVBR) * amount * float32(targetQ3))
 	}
 
 	// Don't allow more than doubling the base target.
