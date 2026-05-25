@@ -57,7 +57,7 @@ func (d *Decoder) ProbeBandAllocationWithDecoder(rd *rangecoding.Decoder, frameS
 	}
 
 	header := d.decodeFrameHeader(rd, totalBits, frameSize, start, end, lm, mode.ShortBlocks)
-	d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, header.intra, lm)
+	d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*d.channels), end, header.intra, lm)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, header.transient)
 	return BandAllocationProbe{

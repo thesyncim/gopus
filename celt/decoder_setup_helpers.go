@@ -7,7 +7,7 @@ type preparedDecodeFrame struct {
 	mode        ModeConfig
 	lm          int
 	end         int
-	prev1Energy []float64
+	prev1Energy []celtGLog
 	prev1LogE   []celtGLog
 	prev2LogE   []celtGLog
 }

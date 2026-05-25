@@ -62,6 +62,16 @@ func (d *Decoder) decodeFineEnergyWithDecoderPrev(rd *rangecoding.Decoder, energ
 	d.rangeDecoder = oldRD
 }
 
+func (d *Decoder) decodeFineEnergyGLogWithDecoderPrev(rd *rangecoding.Decoder, energies []celtGLog, nbBands int, prevQuant, extraQuant []int) {
+	if rd == nil {
+		return
+	}
+	oldRD := d.rangeDecoder
+	d.rangeDecoder = rd
+	d.decodeFineEnergyGLog(energies, nbBands, prevQuant, extraQuant)
+	d.rangeDecoder = oldRD
+}
+
 func combineFinalRange(mainRD, extRD *rangecoding.Decoder) uint32 {
 	if mainRD == nil {
 		return 0

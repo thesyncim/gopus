@@ -55,7 +55,7 @@ func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int)
 	shortBlocks := header.shortBlocks
 
 	// Step 1: Decode coarse energy
-	energies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
+	energies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*d.channels), end, intra, lm)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes
@@ -147,9 +147,7 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 		silenceE := ensureGLogSlice(&d.scratchSilenceE, MaxBands*d.channels)
 		fillSilenceGLog(silenceE)
 		d.updateLogEGLog(silenceE, MaxBands, false)
-		prev1EnergyGLog := ensureGLogSlice(&d.scratchPrevEnergyGLog, len(prev1Energy))
-		copyFloat64ToGLog(prev1EnergyGLog, prev1Energy)
-		d.setPrevEnergyGLogWithPrev(prev1EnergyGLog, silenceE)
+		d.setPrevEnergyGLogWithPrev(prev1Energy, silenceE)
 		d.clearFrameHistoryOutsideRange(start, end, d.channels)
 		d.updateBackgroundEnergy(lm)
 		d.rng = rd.Range()
@@ -190,13 +188,13 @@ func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]f
 	}
 
 	// Initialize energies with previous state so bands below start are preserved.
-	energies := ensureFloat64Slice(&d.scratchEnergies, end*d.channels)
+	energies := ensureGLogSlice(&d.scratchEnergies, end*d.channels)
 	for c := 0; c < d.channels; c++ {
 		for band := 0; band < end; band++ {
-			energies[c*end+band] = float64(d.prevEnergy[c*MaxBands+band])
+			energies[c*end+band] = d.prevEnergy[c*MaxBands+band]
 		}
 	}
-	d.decodeCoarseEnergyRange(start, end, intra, lm, energies)
+	d.decodeCoarseEnergyRangeGLog(start, end, intra, lm, energies)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes

@@ -5,15 +5,15 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
-func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels int, disableInv bool, energies []float64, prev1LogE, prev2LogE []celtGLog, pulses, fineQuant, finePriority, tfRes []int, intensity, dualStereo, balance, codedBands int) (coeffsL, coeffsR []float64, qext *preparedQEXTDecode) {
-	d.DecodeFineEnergyRange(energies, start, end, fineQuant)
+func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels int, disableInv bool, energies []celtGLog, prev1LogE, prev2LogE []celtGLog, pulses, fineQuant, finePriority, tfRes []int, intensity, dualStereo, balance, codedBands int) (coeffsL, coeffsR []float64, qext *preparedQEXTDecode) {
+	d.decodeFineEnergyGLogRange(energies, start, end, nil, fineQuant)
 	if extsupport.QEXT {
 		qext = d.prepareQEXTDecodeRange(qextPayload, rd, start, end, lm, frameSize)
 	}
 	if extsupport.QEXT && qext != nil {
 		oldRD := d.rangeDecoder
 		d.rangeDecoder = qext.dec
-		d.decodeFineEnergyRange(energies, start, end, fineQuant, qext.extraQuant)
+		d.decodeFineEnergyGLogRange(energies, start, end, fineQuant, qext.extraQuant)
 		d.rangeDecoder = oldRD
 	}
 
@@ -40,9 +40,9 @@ func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decod
 	bitsLeft := totalBits - rd.Tell()
 	// Hybrid finalisation only runs over the decoded CELT tail bands.
 	if extsupport.QEXT && qext != nil {
-		d.DecodeEnergyFinaliseRange(start, end, nil, fineQuant, finePriority, bitsLeft)
+		d.decodeEnergyFinaliseGLogRange(start, end, nil, fineQuant, finePriority, bitsLeft)
 	} else {
-		d.DecodeEnergyFinaliseRange(start, end, energies, fineQuant, finePriority, bitsLeft)
+		d.decodeEnergyFinaliseGLogRange(start, end, energies, fineQuant, finePriority, bitsLeft)
 	}
 
 	if antiCollapseOn {
@@ -52,7 +52,7 @@ func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decod
 	return coeffsL, coeffsR, qext
 }
 
-func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBinStart, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float32, postfilterTapset int, energies, coeffsL, coeffsR []float64, qext *preparedQEXTDecode) []float64 {
+func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBinStart, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float32, postfilterTapset int, energies []celtGLog, coeffsL, coeffsR []float64, qext *preparedQEXTDecode) []float64 {
 	var samples []float64
 	downsample := d.downsampleFactor()
 	if d.channels == 2 {
@@ -73,8 +73,8 @@ func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBin
 			coeffsL = specL
 			coeffsR = specR
 		} else {
-			denormalizeCoeffsDownsample(coeffsL, energiesL, end, frameSize, downsample)
-			denormalizeCoeffsDownsample(coeffsR, energiesR, end, frameSize, downsample)
+			denormalizeBandsPackedDownsampleInto(coeffsL, coeffsL, energiesL, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
+			denormalizeBandsPackedDownsampleInto(coeffsR, coeffsR, energiesR, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
 			for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
 				coeffsL[i] = 0
 			}
@@ -103,7 +103,7 @@ func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBin
 			}
 			coeffsL = specL
 		} else {
-			denormalizeCoeffsDownsample(coeffsL, energies, end, frameSize, downsample)
+			denormalizeBandsPackedDownsampleInto(coeffsL, coeffsL, energies, HybridCELTStartBand, end, modeLM, EBands[:], downsample)
 			for i := 0; i < hybridBinStart && i < len(coeffsL); i++ {
 				coeffsL[i] = 0
 			}

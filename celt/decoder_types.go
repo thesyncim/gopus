@@ -130,9 +130,9 @@ type Decoder struct {
 	decoderQEXTFields
 
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).
-	scratchPrevEnergy     []float64
+	scratchPrevEnergy     []celtGLog
 	scratchPrevEnergyGLog []celtGLog
-	scratchEnergies       []float64
+	scratchEnergies       []celtGLog
 	scratchTFRes          []int
 	scratchOffsets        []int
 	scratchPulses         []int

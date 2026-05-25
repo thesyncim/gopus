@@ -65,7 +65,7 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
 	shortBlocks := header.shortBlocks
 
 	// Step 1: Decode coarse energy
-	energies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
+	energies := d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*d.channels), end, intra, lm)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, transient)
 	tfRes := allocation.tfRes

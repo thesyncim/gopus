@@ -52,7 +52,7 @@ celt/amd64_dispatch_helpers.go	1	d8fc4899cc3cc53b7900d6020a151363908157104113064
 celt/amd64_dispatch_helpers.go	1	df04253400d58e414a90484ce103be8d8d1202b3ab3f4fd58a9bcf8197c457f7	legacy-current	func prefilterPitchXcorrGeneric(x, y, xcorr []float64, length, maxPitch int) {
 celt/amd64_dispatch_helpers.go	1	e2301682de67e2f0c86c9b5e4399870c2c7cfbee5e08c11a4f76504858cbd29f	legacy-current	return float64(mean)
 celt/anticollapse.go	3	19b3f3726b7bada542a0224a9a92cf9102ee4d433021d8ef2edc0026162620eb	legacy-current	coeffsL, coeffsR []float64,
-celt/anticollapse.go	2	1b29fcc391c63a9e12ee2052e5febec236f17fab53bc8a4ef5f19f4c2dad66da	legacy-current	logE []float64,
+celt/anticollapse.go	1	1b29fcc391c63a9e12ee2052e5febec236f17fab53bc8a4ef5f19f4c2dad66da	legacy-current	logE []float64,
 celt/anticollapse.go	1	2bad94e702f4a80e2de77c7db2c3486cae630c4ae12f0d4358167b1962060772	legacy-current	func antiCollapseTyped[T ~float32 | ~float64](
 celt/anticollapse.go	1	50850b08502690fc87f7e8ca7075532c9d9cb70b5186a82dfa5609f1531c1dfb	legacy-current	sqrt1 := 1.0 / math.Sqrt(float64(N0<<lm))
 celt/anticollapse.go	1	640f54f6943637505f7c59522d47bffc119fd6e9119befe396f63ecb209b4a49	legacy-current	alt1 := float64(prev1LogE[MaxBands+band])
@@ -280,72 +280,52 @@ celt/celt_encode.go	1	c4002b9cb157ae33c32cfc4f3719433805c8b8d270fbfa54cd35d0d584
 celt/celt_encode.go	1	d150c3b11ce5976f909512e4c1573e796df189cf9e8608c038f5bee8ac343dff	legacy-current	pcm := make([]float64, frameSize*channels)
 celt/celt_encode.go	1	e3aabcbfdb1b36ec9f7ff3b0f71e586eef73acfd5b44fa7898a62c4a7f1aa511	legacy-current	func EncodeFrames(pcmFrames [][]float64, frameSize int) ([][]byte, error) {
 celt/celt_encode.go	1	f5e1847e263fe47a5e46b7e2a219853bf34d0c607f7f9ab6a4367f922fc35aad	legacy-current	func EncodeWithEncoder(enc *Encoder, pcm []float64, frameSize int) ([]byte, error) {
-celt/channel_adapters.go	1	027b46362bffbb3deafa3ec6a1d31f0f9596efc59a0ccc69ba8884779f63977b	legacy-current	prev1EnergyHistory[i] = float64(left)
-celt/channel_adapters.go	1	0a43a6e2fed2bd7e405a7e6d337436f2130059b440bf91416c4d5fa9a3a92bec	legacy-current	energies := ensureFloat64Slice(&d.scratchEnergies, end*d.channels)
 celt/channel_adapters.go	2	108670d62e777dddb646dfe769ae118e5fc924b9216caa99cea4ea33847f78c5	legacy-current	samples = ensureFloat64Slice(&d.scratchStereo, frameSize*2)
-celt/channel_adapters.go	2	1152790649341e2b0d14bbd3aae410e8543b52ca7afe06eedf4dd1470d422e0e	legacy-current	var stereoEnergiesArr [MaxBands * 2]float64
-celt/channel_adapters.go	1	14f510269c12a34347192acd5d4815b9e35ffd7dacd43a3f77bbc128b182c3a8	legacy-current	monoEnergies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
-celt/channel_adapters.go	1	16cf33f21d3e95c90cd861f4e8f63d4f2f0da93551c8e4fb9f42404f50d0bd86	legacy-current	energies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
 celt/channel_adapters.go	2	21e559337daf4655c9b77d7cef2ddf777518fcb2b4b99e61dd7690e1073ac02f	legacy-current	coeffsR := ensureFloat64Slice(&d.scratchMonoToStereoR, len(coeffsMono))
 celt/channel_adapters.go	2	28e0554481e209ebde5d26b5d21987c176f14e3a7108292b80137886513561c1	legacy-current	specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
 celt/channel_adapters.go	2	2ef4b048685d9e11c554e4565d6daca1c2bc9d0da8ea42730b5183b8b8222771	legacy-current	var samples []float64
 celt/channel_adapters.go	1	35cda5ab8e2e2dfa035214f793bf6613a07074ba33f3b66aa76c3744acfc2f44	legacy-current	// channels path, falling back to the float64-returning path otherwise.
 celt/channel_adapters.go	1	4884419d9e3d16897b9db9727ac5f105cdb6cd31cd609240eb91ece4bd8fc5ac	legacy-current	func (d *Decoder) DecodeFrameWithPacketStereo(data []byte, frameSize int, packetStereo bool) ([]float64, error) {
-celt/channel_adapters.go	1	4aef644c20c9584b383bfdfcf92b8ab38919d29f1e520ff1ef0986ac32782258	legacy-current	monoEnergies := ensureFloat64Slice(&d.scratchEnergies, end*d.channels)
 celt/channel_adapters.go	1	5dd3b9ba8fc969fa0e0534e824ba7b23ae8e908bb149f58e9e7ec6111a8d0039	legacy-current	func (d *Decoder) decodeStereoPacketToMonoHybrid(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
 celt/channel_adapters.go	1	5ee78930a01dfc38352c7585b1df6df605e3f71e1fb679eaee3ebd8e3d003b43	legacy-current	func copyDownsampledFloat64(dst []float64, src []float64, frameSize, channels, downsample int) {
 celt/channel_adapters.go	1	7ee15644f8c09352b4a1ab591a4c7987556dd10a91f75b7aac59f4a0e7aff174	legacy-current	func (d *Decoder) decodeMonoPacketToStereoHybrid(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
 celt/channel_adapters.go	1	9067fce769a4811faacbe22d5e0d19049a6b87939a27976efa630ebf449b4077	legacy-current	func (d *Decoder) decodeStereoPacketToMono(data []byte, frameSize int) ([]float64, error) {
 celt/channel_adapters.go	2	949767c18c8c8139af2f86205d6d7807814bfd8fd6ffb3ad6a35a4f43bd3c2bf	legacy-current	coeffsMono := ensureFloat64Slice(&d.scratchMonoMix, len(coeffsL))
 celt/channel_adapters.go	1	98d1965b697183667fbe4eb8daefccdb0919e43ccb97852a0d6e7fac77aaba62	legacy-current	func (d *Decoder) decodeMonoPacketToStereo(data []byte, frameSize int) ([]float64, error) {
-celt/channel_adapters.go	1	9a130130863a6e4f1f7ccd2c4d40e273451459088ea97e2b654c184bf831e7dc	legacy-current	monoEnergies[band] = float64(d.prevEnergy[band])
 celt/channel_adapters.go	1	a1015c6c5a5c0d0ad9898fb5a48daf5d932104cd631ed80eb642a944885b1cb4	legacy-current	out := make([]float64, outLen)
 celt/channel_adapters.go	1	a4d3b8a4415c3e527ce9250fff98a7bafda747bb2259a5a98ac9ed0135f7a687	legacy-current	func (d *Decoder) DecodeFrameWithPacketStereoAtAPIRate(data []byte, frameSize int, packetStereo bool) ([]float64, error) {
 celt/channel_adapters.go	1	aad6c6886a98dcb9a617e74e351bfa13b68647f8608943be3408e8791e18e587	legacy-current	func (d *Decoder) DecodeFrameAtAPIRate(data []byte, frameSize int) ([]float64, error) {
 celt/channel_adapters.go	1	b01872d6008375bc8d7bb6bc74172650e742544cd3b0f9d9199000f49874c45e	legacy-current	func (d *Decoder) DecodeFrameHybridWithPacketStereo(rd *rangecoding.Decoder, frameSize int, packetStereo bool) ([]float64, error) {
-celt/channel_adapters.go	1	b8915ec17d5f2a0980b006677efee5eb587a5dea1380a563615ed9120b026cc7	legacy-current	prev1EnergyHistory := ensureFloat64Slice(&d.scratchPrevEnergy, MaxBands)
-celt/channel_adapters.go	1	c0e0e1fbc594489d94a587993e9492bf6c1ffaab7790340882fd3ecd99db248e	legacy-current	energies[c*end+band] = float64(d.prevEnergy[c*MaxBands+band])
 celt/channel_adapters.go	1	c48ce2d2a3a6beec364db2825a395889c97fb40b3fb0de2aa8bb6c722719619d	legacy-current	samples := make([]float64, frameSize)
-celt/channel_adapters.go	2	e5cb5d8bf9362b2502a3776a4b8b459d78e7b747017ce5140ce75faf1f5810ca	legacy-current	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
 celt/channel_adapters.go	1	f3e7f46e27ef53ab748a91fd8de1fab47fc8942936a680604c422363e006aebc	legacy-current	samples := ensureFloat64Slice(&d.scratchMonoMix, frameSize)
 celt/channel_adapters.go	2	f58cb754f323e2d9d3d9c58399e2c465474c3e11a43ad79c25ea5220addf371d	legacy-current	specMono := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsMono))
 celt/channel_adapters.go	1	f672746e802902ce4b19c720c79ce455b410eedc5e1a32cfb07b7303137c37bd	legacy-current	func copyDownsampledFloat64ToFloat32(dst []float32, src []float64, frameSize, channels, downsample int) {
 celt/channel_adapters.go	2	fd1f7ff82e944530c62042b453ea74a22e68dd00effd5a149209c68d9ba625ee	legacy-current	specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
-celt/decoder.go	1	16cf33f21d3e95c90cd861f4e8f63d4f2f0da93551c8e4fb9f42404f50d0bd86	legacy-current	energies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
 celt/decoder.go	1	43aa229a4b90d7976592a375e04d32573cf01debc8a4f097a08e0454312013b5	legacy-current	// Returns: PCM samples as float64 slice, interleaved if stereo
 celt/decoder.go	1	4bebaa81e5f466c15a6660aa59a514e3a1692d6bfd258176b086b3dd575ec2d8	legacy-current	func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float64, error) {
-celt/decoder_allocation_probe.go	1	289c0b60735dd5887ebdf06c75332d0e74679eb42f9c9fc9515f8d4fcfa19b13	legacy-current	d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, header.intra, lm)
 celt/decoder_controls.go	1	f869c6a461b63ce70e2b4ce2a85abf33a75a6331dd74e5f4ad8ea930abf7ebfc	legacy-current	func (d *Decoder) decodeFineEnergyWithDecoderPrev(rd *rangecoding.Decoder, energies []float64, nbBands int, prevQuant, extraQuant []int) {
-celt/decoder_entrypoints.go	1	0a43a6e2fed2bd7e405a7e6d337436f2130059b440bf91416c4d5fa9a3a92bec	legacy-current	energies := ensureFloat64Slice(&d.scratchEnergies, end*d.channels)
-celt/decoder_entrypoints.go	1	16cf33f21d3e95c90cd861f4e8f63d4f2f0da93551c8e4fb9f42404f50d0bd86	legacy-current	energies := d.decodeCoarseEnergyInto(ensureFloat64Slice(&d.scratchEnergies, end*d.channels), end, intra, lm)
 celt/decoder_entrypoints.go	1	9a086ea13014ab87ba1222af8b6708e902653799de175a8ea2a1a319e3aa8abc	legacy-current	func (d *Decoder) DecodeFrameWithDecoder(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
-celt/decoder_entrypoints.go	1	c0e0e1fbc594489d94a587993e9492bf6c1ffaab7790340882fd3ecd99db248e	legacy-current	energies[c*end+band] = float64(d.prevEnergy[c*MaxBands+band])
 celt/decoder_entrypoints.go	1	f1b28dc05fef02302dbdf1ea8eacb7275be86add2525b9393bea2889a692eecb	legacy-current	func (d *Decoder) DecodeFrameHybrid(rd *rangecoding.Decoder, frameSize int) ([]float64, error) {
 celt/decoder_entrypoints.go	1	faa7c54ae0ade0db467e4fe8e3a31269e443066fc2827a197914852b63ded847	legacy-current	// Returns: PCM samples as float64 slice at 48kHz
 celt/decoder_flow_helpers.go	1	28e0554481e209ebde5d26b5d21987c176f14e3a7108292b80137886513561c1	legacy-current	specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
 celt/decoder_flow_helpers.go	1	2ef4b048685d9e11c554e4565d6daca1c2bc9d0da8ea42730b5183b8b8222771	legacy-current	var samples []float64
-celt/decoder_flow_helpers.go	1	621de01f4335cf1048998caaea7c1f3738fd8c478b9e8636512dea764e28fb70	legacy-current	func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, transient bool, energies, prev1Energy []float64, qext *preparedQEXTDecode, rd *rangecoding.Decoder) error {
-celt/decoder_flow_helpers.go	1	6aa635c2372a1a3a9ac5ac4e8e68f46095ee48516c08550f9f6805894ebc13a2	legacy-current	func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float32, postfilterTapset int, energies, coeffsL, coeffsR []float64, qext *prepar
+celt/decoder_flow_helpers.go	1	5777729abeb572ea613153feadcdda6e3ec235078807aca7be26b2131ffd4393	legacy-current	func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float32, postfilterTapset int, energies []celtGLog, coeffsL, coeffsR []float64, q
 celt/decoder_flow_helpers.go	2	fd1f7ff82e944530c62042b453ea74a22e68dd00effd5a149209c68d9ba625ee	legacy-current	specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
-celt/decoder_hybrid_helpers.go	1	22d9e4c166ccfd8724db2ab7eaeaac12d1a0b79c72c3c1c5a37976e3efd36d3b	legacy-current	func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBinStart, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float32, postfilterTapset int, energies, coeffsL, coeffsR []flo
 celt/decoder_hybrid_helpers.go	1	28e0554481e209ebde5d26b5d21987c176f14e3a7108292b80137886513561c1	legacy-current	specR := ensureFloat64Slice(&qextState.scratchSpectrumR, len(coeffsR))
 celt/decoder_hybrid_helpers.go	1	2ef4b048685d9e11c554e4565d6daca1c2bc9d0da8ea42730b5183b8b8222771	legacy-current	var samples []float64
-celt/decoder_hybrid_helpers.go	1	9ae4f75aff8bd51ccfde25c3c9cdd0c62ecd96089c833aa3bf3231ec35b72412	legacy-current	func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels int, disableInv bool, energies []float64, prev1LogE
+celt/decoder_hybrid_helpers.go	1	9d38910354a215af73f205904b1b2451f37297bc33cc128dc5f552c85b78204e	legacy-current	func (d *Decoder) synthesizeHybridDecodedFrame(frameSize, modeLM, end, hybridBinStart, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float32, postfilterTapset int, energies []celtGLog, coeffsL, co
+celt/decoder_hybrid_helpers.go	1	9fdf786e19aaa3374fa1e933e498c14617e3239a9757e2f76993658171802fb5	legacy-current	func (d *Decoder) decodeHybridSpectrum(qextPayload []byte, rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv, channels int, disableInv bool, energies []celtGLog, prev1Log
 celt/decoder_hybrid_helpers.go	2	fd1f7ff82e944530c62042b453ea74a22e68dd00effd5a149209c68d9ba625ee	legacy-current	specL := ensureFloat64Slice(&qextState.scratchSpectrumL, len(coeffsL))
 celt/decoder_qext_state.go	1	5c3a8af0332b4b4785cf2eeb0a0baa7a866b8c00e4277007873c565f41836555	legacy-current	scratchSpectrumL []float64
 celt/decoder_qext_state.go	1	d185c62d5b9392b5fb7c4b100c9e9ce86bfc7480d074de700df3fd69df2829c5	legacy-current	scratchSpectrumR []float64
-celt/decoder_setup_helpers.go	1	baf6d4ace05afd7249683bf2525f4d04058884eb8f060d3f5099d61a70f3352b	legacy-current	prev1Energy []float64
 celt/decoder_spectrum_helpers.go	1	389ede701e44eed486539e015cbe8274489de513efd843841502c02504c50618	legacy-current	coeffsL []float64
-celt/decoder_spectrum_helpers.go	1	479309d7869aba63b59453e53444e4683c65917ee32eb49dd5d833779bd8996b	legacy-current	func (d *Decoder) decodeFrameSpectrum(qextPayload []byte, rd *rangecoding.Decoder, totalBits, frameSize, start, end, lm, shortBlocks, spread, antiCollapseRsv int, energies []float64, fineQuant, finePriority, pulses, tfRe
 celt/decoder_spectrum_helpers.go	1	cdcdffcbaeacc1c28f8de92bfd838b2ec0b063899270ace6c1180ba6a2df92f0	legacy-current	coeffsR []float64
 celt/decoder_types.go	1	07a9e74f08c5f943286e5a2426bf151b730dde5e2382d7eb0cb63d218639a72b	legacy-current	scratchSynth []float64
 celt/decoder_types.go	1	2d1189f788924ad77eb9045ddfca9123729fdc2987139761e3c4d06cd39531eb	legacy-current	scratchSynthR []float64
 celt/decoder_types.go	1	307fbff3ba00b67bb8e25ab66a632a9fe0ce1aa894905038e8d5cb48da3eb8c2	legacy-current	scratchStereo []float64
 celt/decoder_types.go	1	4fa8a3f623db3cc5fa57c545e881b1ed1db294629a42489103fc1337e975c05c	legacy-current	scratchShortCoeffs []float64
 celt/decoder_types.go	1	7949222a4c82584f1109b267b3313b3fa973dc2e2fd3b3b4cf3c4a3f7a100876	legacy-current	scratchPLC []float64 // Scratch buffer for PLC concealment samples
-celt/decoder_types.go	1	7c5c4185cd2b18f60af636b54e2c199a0f9d4b0be5da104fcde10add15e985ab	legacy-current	scratchPrevEnergy []float64
 celt/decoder_types.go	1	96c77a7a80ff927c7ab386b4c4b36a7bc94c626a015f29f1b8e2830a7f1dc9bc	legacy-current	postfilterScratch []float64
-celt/decoder_types.go	1	a2ed7d91cd1f7092146b389073fc39f4706709acd93eb258561c4b0e9150ee21	legacy-current	scratchEnergies []float64
 celt/decoder_types.go	1	e8da52dda9c903e7357f4692be9f5ead9475f3d6a4ed67ed61b1df83d69b26d4	legacy-current	scratchMonoToStereoR []float64 // For coeffsR in decodeMonoPacketToStereo (must not alias scratchSynthR used by SynthesizeStereo)
 celt/decoder_types.go	1	f030b057533494510f8b9dc1c0214b6033a984b1771417b205b42968d371ed84	legacy-current	scratchMonoMix []float64 // For coeffsMono in decodeStereoPacketToMono (must not alias scratchShortCoeffs used by Synthesize)
 celt/deemphasis_f64_to_f32_arm64.go	1	65125e73f5f0f4d8caf11d2bd50634549daa766f31522afb5a2f34542f3694ee	legacy-current	func deemphasisStereoPlanarF64ToF32Core(dst []float32, left, right []float64, n int, scale, stateL, stateR, coef, verySmall float32) (float32, float32)
@@ -1099,12 +1079,12 @@ celt/signal_bandwidth.go	1	a00a2628c15ac34e408ebde2626fcb1217a1278a3c8eb9f1931fc
 celt/silence_helpers.go	1	2ef4b048685d9e11c554e4565d6daca1c2bc9d0da8ea42730b5183b8b8222771	legacy-current	var samples []float64
 celt/silence_helpers.go	1	31f900f20d4b30a08f76425bfc9a3c5ce9d449e4b1246aa7f7a2abe679cb3ab6	legacy-current	out[2*i] = float64(x2L * window[Overlap-1-i])
 celt/silence_helpers.go	1	3da651a367e4945a78c81ed3f1888dada7a2152b117073c001d8f8513b905ed3	legacy-current	out[i] = float64(x2 * window[Overlap-1-i])
-celt/silence_helpers.go	1	42ff1df6a505bed7d1d1492023cacb2d2f9a03b0642439cbfd7cc491584b018c	legacy-current	func (d *Decoder) handleDecodedSilenceFrame(frameSize, lm int, prev1Energy []float64, rd *rangecoding.Decoder) []float64 {
 celt/silence_helpers.go	1	57809bbf2533e0a7139531bdcc6d2eee57bb1de23c7c726ec5882fd8105f3bf8	legacy-current	out[2*j] = float64(x2L * window[i])
 celt/silence_helpers.go	1	6c54ef852932fc026128498fecdcc9d2251add4e75b02a0f46c8f34092665118	legacy-current	func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float32, newTapset int) []float64 {
 celt/silence_helpers.go	1	82c2600a2529e50f12f63c2a82d1af6e6d472bda2769b281837fb8edd5325ece	legacy-current	out[2*i+1] = float64(x2R * window[Overlap-1-i])
 celt/silence_helpers.go	1	8935ee06ea6fba3fbcf579f71efcdb9ec58cbd4d6bf49c95ebe8dbd872f5a29a	legacy-current	out[j] = float64(x2 * window[i])
 celt/silence_helpers.go	1	901810963ce4189ff03f120e0567d7726da27338f311d310a875eb605265432b	legacy-current	out[2*j+1] = float64(x2R * window[i])
+celt/silence_helpers.go	1	af43be12badb6f2a6de2dd164fc8ad25c31443d40dae280a33b76f9fd7638c32	legacy-current	func (d *Decoder) handleDecodedSilenceFrame(frameSize, lm int, prev1Energy []celtGLog, rd *rangecoding.Decoder) []float64 {
 celt/silence_helpers.go	1	bf51ab0613794697a884bf9847758498322e11cf5ad7cf86d30b507385b61aa8	legacy-current	func (d *Decoder) synthesizeSilenceStereo(frameSize int) []float64 {
 celt/silence_helpers.go	1	d10d6a64206fc8175e4b8172d9aa3ad74b265597ca13fe7cb9ebeef11dcd27ea	legacy-current	out := ensureFloat64Slice(&d.scratchSynth, frameSize)
 celt/silence_helpers.go	1	d38279e624ace26ddacc6045d5fc6f0c6a29004a6b343ef0d8e98ebce194a033	legacy-current	func (d *Decoder) synthesizeSilenceMono(frameSize int) []float64 {
@@ -1120,8 +1100,6 @@ celt/state_helpers.go	1	635ef07fc0efa94f524721cc41487b425a4568de1ba72cd211ad0bae
 celt/state_helpers.go	1	7b9211fa1714560b6c5f0143abb0d808b78cd222e48e3f007ca914f4e15eebd5	legacy-current	out := make([]float64, len(d.prevEnergy))
 celt/state_helpers.go	1	d4b1515e5d9bb3c59e2562f9e3b27e4c1c3344e37d7ec512513883be49cd3c58	legacy-current	func (d *Decoder) PrevEnergy() []float64 {
 celt/state_helpers.go	1	db6643adf55c14f015da98aad99ca07f5f98710213aa98f3bac068d09ee7c446	legacy-current	func (d *Decoder) SetPrevEnergy(energies []float64) {
-celt/state_helpers.go	1	e19fb21852165ebd9fa4c1ea5b64162875c016dde082653a7562e0dcf12308a4	legacy-current	func (d *Decoder) snapshotDecodeHistory() ([]float64, []celtGLog, []celtGLog) {
-celt/state_helpers.go	1	e5cb5d8bf9362b2502a3776a4b8b459d78e7b747017ce5140ce75faf1f5810ca	legacy-current	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
 celt/stereo.go	1	0ae105f254eeaacdac71bb2139e76cae3e162c5957257909585c8c7957ca2a43	legacy-current	func DualStereoSplit(coeffsL, coeffsR []float64) (left, right []float64) {
 celt/stereo.go	1	0d015c729992531392b64132b8f672ae26b950854b16fc8829f1d8cd6397334c	legacy-current	right = make([]float64, len(coeffsR))
 celt/stereo.go	1	14fe372d3d8d7f95e0146e65d96533a225e73c657159adebb2cd29028e0542c2	legacy-current	func ApplyIntensityStereo(mono []float64, inversionFlag int) (left, right []float64) {

@@ -125,14 +125,12 @@ func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float
 	return samples
 }
 
-func (d *Decoder) handleDecodedSilenceFrame(frameSize, lm int, prev1Energy []float64, rd *rangecoding.Decoder) []float64 {
+func (d *Decoder) handleDecodedSilenceFrame(frameSize, lm int, prev1Energy []celtGLog, rd *rangecoding.Decoder) []float64 {
 	samples := d.decodeSilenceFrame(frameSize, 0, 0, 0)
 	silenceE := ensureGLogSlice(&d.scratchSilenceE, MaxBands*d.channels)
 	fillSilenceGLog(silenceE)
 	d.updateLogEGLog(silenceE, MaxBands, false)
-	prev1EnergyGLog := ensureGLogSlice(&d.scratchPrevEnergyGLog, len(prev1Energy))
-	copyFloat64ToGLog(prev1EnergyGLog, prev1Energy)
-	d.setPrevEnergyGLogWithPrev(prev1EnergyGLog, silenceE)
+	d.setPrevEnergyGLogWithPrev(prev1Energy, silenceE)
 	d.updateBackgroundEnergy(lm)
 	d.resetPLCCadence(frameSize, d.channels)
 	d.rng = rd.Range()

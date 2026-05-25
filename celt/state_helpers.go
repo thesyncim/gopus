@@ -145,9 +145,9 @@ func (d *Decoder) allocationScratch() []int {
 	return ensureIntSlice(&d.scratchAllocWork, MaxBands*5)
 }
 
-func (d *Decoder) snapshotDecodeHistory() ([]float64, []celtGLog, []celtGLog) {
-	prev1Energy := ensureFloat64Slice(&d.scratchPrevEnergy, len(d.prevEnergy))
-	copyGLogToFloat64(prev1Energy, d.prevEnergy)
+func (d *Decoder) snapshotDecodeHistory() ([]celtGLog, []celtGLog, []celtGLog) {
+	prev1Energy := ensureGLogSlice(&d.scratchPrevEnergy, len(d.prevEnergy))
+	copy(prev1Energy, d.prevEnergy)
 	return prev1Energy, d.prevLogE, d.prevLogE2
 }
 

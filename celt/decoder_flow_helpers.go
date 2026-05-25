@@ -5,7 +5,7 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
-func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float32, postfilterTapset int, energies, coeffsL, coeffsR []float64, qext *preparedQEXTDecode) []float64 {
+func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks int, transient bool, postfilterPeriod int, postfilterGain float32, postfilterTapset int, energies []celtGLog, coeffsL, coeffsR []float64, qext *preparedQEXTDecode) []float64 {
 	// Step 6: Synthesis (IMDCT + window + overlap-add)
 	var samples []float64
 	downsample := d.downsampleFactor()
@@ -44,8 +44,8 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 			coeffsL = specL
 			coeffsR = specR
 		} else {
-			denormalizeCoeffsDownsample(coeffsL, energiesL, end, frameSize, downsample)
-			denormalizeCoeffsDownsample(coeffsR, energiesR, end, frameSize, downsample)
+			denormalizeBandsPackedDownsampleInto(coeffsL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
+			denormalizeBandsPackedDownsampleInto(coeffsR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
 		}
 		if directStereoFloat32 && !transient {
 			samplesL, samplesR := d.synthesizeStereoPlanarLongToFloat32(coeffsL, coeffsR)
@@ -80,7 +80,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 			}
 			coeffsL = specL
 		} else {
-			denormalizeCoeffsDownsample(coeffsL, energies, end, frameSize, downsample)
+			denormalizeBandsPackedDownsampleInto(coeffsL, coeffsL, energies, 0, end, lm, EBands[:], downsample)
 		}
 		if directMonoFloat32 {
 			samplesF32 := d.synthesizeMonoLongToFloat32(coeffsL)
@@ -114,10 +114,10 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	return samples
 }
 
-func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, transient bool, energies, prev1Energy []float64, qext *preparedQEXTDecode, rd *rangecoding.Decoder) error {
+func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, transient bool, energies, prev1Energy []celtGLog, qext *preparedQEXTDecode, rd *rangecoding.Decoder) error {
 	// Update energy state for next frame.
-	d.updateLogE(energies, end, transient)
-	d.SetPrevEnergyWithPrev(prev1Energy, energies)
+	d.updateLogEGLog(energies, end, transient)
+	d.setPrevEnergyGLogWithPrev(prev1Energy, energies)
 	d.updateBackgroundEnergy(lm)
 
 	// Mirror libopus: clear energies/logs outside [start,end).
