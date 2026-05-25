@@ -137,8 +137,8 @@ func runPVQAssemblyReferenceCase(t *testing.T, length int, seed uint64) {
 
 	yGot := append([]float32(nil), y...)
 	yWant := append([]float32(nil), y...)
-	iyGot := make([]int, n)
-	iyWant := make([]int, n)
+	iyGot := make([]int32, n)
+	iyWant := make([]int32, n)
 	gotXY, gotYY := pvqSearchPulseLoop(absX, yGot, iyGot, xy, yy, n, pulsesLeft)
 	wantXY, wantYY := pvqSearchPulseLoopRef(absX, yWant, iyWant, xy, yy, n, pulsesLeft)
 	if gotXY != wantXY || gotYY != wantYY || !reflect.DeepEqual(yGot, yWant) || !reflect.DeepEqual(iyGot, iyWant) {

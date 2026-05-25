@@ -257,9 +257,9 @@ ppl_update:
 	VADDSS X9, X0, X0
 	VMOVSS X0, (BX)(R8*4)
 
-	// iy[bestID]++ (int64, 8 bytes per element)
-	LEAQ  (R9)(R8*8), R11
-	INCQ  (R11)
+	// iy[bestID]++ (int32, 4 bytes per element)
+	LEAQ  (R9)(R8*4), R11
+	INCL  (R11)
 
 	// Decrement outer counter
 	DECQ  R10

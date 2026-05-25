@@ -7,7 +7,11 @@ import (
 
 func referenceNormalizeResidualIntoAndCollapse(out []celtNorm, pulses []int, gain, yy opusVal16, b int) int {
 	normalizeResidualInto(out, pulses, gain, yy)
-	return extractCollapseMask(pulses, len(pulses), b)
+	pulses32 := make([]int32, len(pulses))
+	for i, v := range pulses {
+		pulses32[i] = int32(v)
+	}
+	return extractCollapseMask(pulses32, len(pulses32), b)
 }
 
 func pulseEnergy(pulses []int) float64 {

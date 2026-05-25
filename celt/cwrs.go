@@ -802,6 +802,32 @@ func icwrsLookupFast(n, k int, y []int) (uint32, bool) {
 	return i, true
 }
 
+func icwrsLookupFast32(n, k int, y []int32) (uint32, bool) {
+	if len(y) < n || !canUseICWRSLookupFast(n, k) {
+		return 0, false
+	}
+
+	i, k1 := icwrs1(int(y[n-1]))
+	i += pvqUTableLookupFast(2, k1)
+
+	j := n - 2
+	k1 += int(absInt32(y[j]))
+	if y[j] < 0 {
+		i += pvqUTableLookupFast(2, k1+1)
+	}
+
+	for j--; j >= 0; j-- {
+		remDims := n - j
+		i += pvqUTableLookupFast(remDims, k1)
+		k1 += int(absInt32(y[j]))
+		if y[j] < 0 {
+			i += pvqUTableLookupFast(remDims, k1+1)
+		}
+	}
+
+	return i, true
+}
+
 func icwrs(n, k int, y []int, u []uint32) (uint32, uint32) {
 	if n < 2 || k <= 0 || len(y) < n || len(u) < k+2 {
 		return 0, 0
@@ -828,6 +854,39 @@ func icwrs(n, k int, y []int, u []uint32) (uint32, uint32) {
 		unext(u, k+2, 0)
 		i += u[k1]
 		k1 += abs(y[j])
+		if y[j] < 0 {
+			i += u[k1+1]
+		}
+	}
+	return i, u[k1] + u[k1+1]
+}
+
+func icwrs32(n, k int, y []int32, u []uint32) (uint32, uint32) {
+	if n < 2 || k <= 0 || len(y) < n || len(u) < k+2 {
+		return 0, 0
+	}
+	_ = u[k+1] // BCE
+	_ = y[n-1] // BCE
+	u[0] = 0
+	kk := 1
+	for ; kk+1 <= k+1; kk += 2 {
+		u[kk] = uint32((kk << 1) - 1)
+		u[kk+1] = uint32(((kk + 1) << 1) - 1)
+	}
+	for ; kk <= k+1; kk++ {
+		u[kk] = uint32((kk << 1) - 1)
+	}
+	i, k1 := icwrs1(int(y[n-1]))
+	j := n - 2
+	i += u[k1]
+	k1 += int(absInt32(y[j]))
+	if y[j] < 0 {
+		i += u[k1+1]
+	}
+	for j--; j >= 0; j-- {
+		unext(u, k+2, 0)
+		i += u[k1]
+		k1 += int(absInt32(y[j]))
 		if y[j] < 0 {
 			i += u[k1+1]
 		}
@@ -1148,6 +1207,29 @@ func encodePulsesFast(y []int, n, k int, uBuf *[]uint32) uint32 {
 		u = make([]uint32, k+2)
 	}
 	index, _ := icwrs(n, k, y, u)
+	return index
+}
+
+func encodePulsesFast32(y []int32, n, k int, uBuf *[]uint32) uint32 {
+	if n <= 0 || k < 0 {
+		return 0
+	}
+	if n == 1 {
+		if y[0] < 0 {
+			return 1
+		}
+		return 0
+	}
+	if index, ok := icwrsLookupFast32(n, k, y); ok {
+		return index
+	}
+	var u []uint32
+	if uBuf != nil {
+		u = ensureUint32Slice(uBuf, k+2)
+	} else {
+		u = make([]uint32, k+2)
+	}
+	index, _ := icwrs32(n, k, y, u)
 	return index
 }
 

@@ -27,7 +27,7 @@ func pvqSearchBestPosRef(absX, y []float32, xy, yy float32, n int) int {
 	return bestID
 }
 
-func pvqSearchPulseLoopRef(absX, y []float32, iy []int, xy, yy float32, n, pulsesLeft int) (float32, float32) {
+func pvqSearchPulseLoopRef(absX, y []float32, iy []int32, xy, yy float32, n, pulsesLeft int) (float32, float32) {
 	for i := 0; i < pulsesLeft; i++ {
 		yy += 1
 
@@ -65,8 +65,8 @@ func TestPVQDispatchMatchesGeneric(t *testing.T) {
 
 	yGot := append([]float32(nil), y...)
 	yWant := append([]float32(nil), y...)
-	iyGot := make([]int, len(absX))
-	iyWant := make([]int, len(absX))
+	iyGot := make([]int32, len(absX))
+	iyWant := make([]int32, len(absX))
 	gotXY, gotYY := pvqSearchPulseLoop(absX, yGot, iyGot, 1.25, 3.5, len(absX), 4)
 	wantXY, wantYY := pvqSearchPulseLoopRef(absX, yWant, iyWant, 1.25, 3.5, len(absX), 4)
 	if gotXY != wantXY || gotYY != wantYY || !reflect.DeepEqual(yGot, yWant) || !reflect.DeepEqual(iyGot, iyWant) {
@@ -78,7 +78,7 @@ func TestPVQDispatchMatchesGeneric(t *testing.T) {
 func BenchmarkPVQSearchPulseLoopCurrent(b *testing.B) {
 	absX := make([]float32, 48)
 	yBase := make([]float32, 48)
-	iyBase := make([]int, 48)
+	iyBase := make([]int32, 48)
 	for i := range absX {
 		absX[i] = float32(((i * 7) % 11) + 1)
 		yBase[i] = float32((i * 3) % 6)
@@ -87,7 +87,7 @@ func BenchmarkPVQSearchPulseLoopCurrent(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		y := append([]float32(nil), yBase...)
-		iy := append([]int(nil), iyBase...)
+		iy := append([]int32(nil), iyBase...)
 		_, _ = pvqSearchPulseLoop(absX, y, iy, 3.25, 9.5, len(absX), 16)
 	}
 }
@@ -95,7 +95,7 @@ func BenchmarkPVQSearchPulseLoopCurrent(b *testing.B) {
 func BenchmarkPVQSearchPulseLoopGeneric(b *testing.B) {
 	absX := make([]float32, 48)
 	yBase := make([]float32, 48)
-	iyBase := make([]int, 48)
+	iyBase := make([]int32, 48)
 	for i := range absX {
 		absX[i] = float32(((i * 7) % 11) + 1)
 		yBase[i] = float32((i * 3) % 6)
@@ -104,7 +104,7 @@ func BenchmarkPVQSearchPulseLoopGeneric(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		y := append([]float32(nil), yBase...)
-		iy := append([]int(nil), iyBase...)
+		iy := append([]int32(nil), iyBase...)
 		_, _ = pvqSearchPulseLoopRef(absX, y, iy, 3.25, 9.5, len(absX), 16)
 	}
 }

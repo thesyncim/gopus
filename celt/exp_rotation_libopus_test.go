@@ -1160,7 +1160,7 @@ func TestOPPVQSearchMatchesLibopusFloatPath(t *testing.T) {
 			t.Fatalf("%s pulses len=%d want %d", tc.name, len(gotPulses), len(want[ci].iy))
 		}
 		for i := range gotPulses {
-			if gotPulses[i] != want[ci].iy[i] {
+			if gotPulses[i] != int32(want[ci].iy[i]) {
 				t.Fatalf("%s pulse[%d]=%d want %d", tc.name, i, gotPulses[i], want[ci].iy[i])
 			}
 		}

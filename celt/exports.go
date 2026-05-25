@@ -31,7 +31,7 @@ func ExpRotationExport(x []celtNorm, length, dir, stride, k, spread int) {
 // OpPVQSearchExport exposes opPVQSearch for testing.
 //
 // This helper exists for tests and codec-development tooling and may change.
-func OpPVQSearchExport(x []celtNorm, k int) ([]int, opusVal16) {
+func OpPVQSearchExport(x []celtNorm, k int) ([]int32, opusVal16) {
 	return opPVQSearch(x, k)
 }
 

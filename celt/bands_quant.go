@@ -834,7 +834,7 @@ func expRotationNorm(x []celtNorm, length, dir, stride, k, spread int) {
 	}
 }
 
-func extractCollapseMask(pulses []int, n, b int) int {
+func extractCollapseMask(pulses []int32, n, b int) int {
 	if b <= 1 {
 		return 1
 	}
@@ -850,7 +850,7 @@ func extractCollapseMask(pulses []int, n, b int) int {
 	mask := 0
 	base := 0
 	for i := 0; i < b; i++ {
-		tmp := 0
+		tmp := int32(0)
 		end := base + n0
 		j := base
 		for ; j+3 < end; j += 4 {
@@ -918,6 +918,45 @@ func normalizeResidualInto(out []celtNorm, pulses []int, gain opusVal16, yy opus
 	}
 }
 
+func normalizeResidualInto32(out []celtNorm, pulses []int32, gain opusVal16, yy opusVal16) {
+	n := len(pulses)
+	if len(out) < n {
+		return
+	}
+	out = out[:n:n]
+	pulses = pulses[:n:n]
+	energy := float32(yy)
+	if energy <= 0 {
+		i := 0
+		for ; i+3 < n; i += 4 {
+			v0 := float32(pulses[i])
+			v1 := float32(pulses[i+1])
+			v2 := float32(pulses[i+2])
+			v3 := float32(pulses[i+3])
+			energy += v0*v0 + v1*v1 + v2*v2 + v3*v3
+		}
+		for ; i < n; i++ {
+			v := float32(pulses[i])
+			energy += v * v
+		}
+	}
+	if energy <= 0 {
+		clear(out[:n])
+		return
+	}
+	scale := celtRSqrt(energy) * float32(gain)
+	i := 0
+	for ; i+3 < n; i += 4 {
+		out[i] = celtNorm(float32(pulses[i]) * scale)
+		out[i+1] = celtNorm(float32(pulses[i+1]) * scale)
+		out[i+2] = celtNorm(float32(pulses[i+2]) * scale)
+		out[i+3] = celtNorm(float32(pulses[i+3]) * scale)
+	}
+	for ; i < n; i++ {
+		out[i] = celtNorm(float32(pulses[i]) * scale)
+	}
+}
+
 // normalizeResidualIntoAndCollapse normalizes the pulse vector into out and
 // computes the collapse mask in the same pass.
 func normalizeResidualIntoAndCollapse(out []celtNorm, pulses []int, gain opusVal16, yy opusVal16, b int) int {
@@ -951,6 +990,38 @@ func normalizeResidualIntoAndCollapse(out []celtNorm, pulses []int, gain opusVal
 		return 0
 	}
 	return normalizeResidualKnownEnergyIntoAndCollapse(out, pulses, gain, opusVal16(energy), b)
+}
+
+func normalizeResidualIntoAndCollapse32(out []celtNorm, pulses []int32, gain opusVal16, yy opusVal16, b int) int {
+	n := len(pulses)
+	if len(out) < n {
+		return 0
+	}
+	out = out[:n:n]
+	pulses = pulses[:n:n]
+	energy := float32(yy)
+	if energy <= 0 {
+		i := 0
+		for ; i+3 < n; i += 4 {
+			v0 := float32(pulses[i])
+			v1 := float32(pulses[i+1])
+			v2 := float32(pulses[i+2])
+			v3 := float32(pulses[i+3])
+			energy += v0*v0 + v1*v1 + v2*v2 + v3*v3
+		}
+		for ; i < n; i++ {
+			v := float32(pulses[i])
+			energy += v * v
+		}
+	}
+	if energy <= 0 {
+		clear(out[:n])
+		if b <= 1 {
+			return 1
+		}
+		return 0
+	}
+	return normalizeResidualKnownEnergyIntoAndCollapse32(out, pulses, gain, opusVal16(energy), b)
 }
 
 func normalizeResidualKnownEnergyIntoAndCollapse(out []celtNorm, pulses []int, gain opusVal16, energy opusVal16, b int) int {
@@ -1405,15 +1476,20 @@ func algUnquantNoExtInto(shape []celtNorm, rd *rangecoding.Decoder, n, k, spread
 		idx = rd.DecodeUniform(vSize)
 	}
 
-	pulses := make([]int, n)
-	yy := opusVal16(decodePulsesInto(idx, n, k, pulses, scratch))
+	var pulses []int32
+	if scratch != nil {
+		pulses = scratch.ensurePVQPulses(n)
+	} else {
+		pulses = make([]int32, n)
+	}
+	yy := opusVal16(decodePulsesInto32(idx, n, k, pulses, scratch))
 	var norm []celtNorm
 	if scratch != nil {
 		norm = scratch.ensurePVQNorm32(n)
 	} else {
 		norm = make([]celtNorm, n)
 	}
-	cm := normalizeResidualKnownEnergyIntoAndCollapseNorm(norm, pulses, opusVal16(gain), yy, b)
+	cm := normalizeResidualKnownEnergyIntoAndCollapse32(norm, pulses, opusVal16(gain), yy, b)
 	expRotationNorm(norm, n, -1, b, k, spread)
 	copy(shape, norm)
 	return cm
@@ -1450,14 +1526,20 @@ func algUnquantInto(shape []celtNorm, rd *rangecoding.Decoder, band, n, k, sprea
 		idx = rd.DecodeUniform(vSize)
 	}
 
-	pulses := make([]int, n)
-	decodePulsesInto(idx, n, k, pulses, scratch)
+	var pulses []int32
+	if scratch != nil {
+		pulses = scratch.ensurePVQPulses(n)
+	} else {
+		pulses = make([]int32, n)
+	}
+	decodePulsesInto32(idx, n, k, pulses, scratch)
 	var yy opusVal16
 	up := (1 << extraBits) - 1
+	up32 := int32(up)
 	if n == 2 {
-		refine := int(extDec.DecodeUniform(uint32(up))) - (up-1)/2
-		pulses[0] *= up
-		pulses[1] *= up
+		refine := int32(extDec.DecodeUniform(uint32(up))) - int32((up-1)/2)
+		pulses[0] *= up32
+		pulses[1] *= up32
 		if pulses[1] == 0 {
 			if pulses[0] > 0 {
 				pulses[1] = -refine
@@ -1488,10 +1570,10 @@ func algUnquantInto(shape []celtNorm, rd *rangecoding.Decoder, band, n, k, sprea
 		yy1 := float32(pulses[1]) * float32(pulses[1])
 		yy = opusVal16(yy0 + yy1)
 	} else {
-		refine := make([]int, n)
+		refine := make([]int32, n)
 		useEntropy := (extDec.StorageBits() - extDec.Tell()) > (n-1)*(extraBits+3)+1
 		for i := 0; i < n-1; i++ {
-			refine[i] = ecDecRefine(extDec, up, extraBits, useEntropy)
+			refine[i] = int32(ecDecRefine(extDec, up, extraBits, useEntropy))
 		}
 		sign := 0
 		if pulses[n-1] == 0 {
@@ -1500,9 +1582,9 @@ func algUnquantInto(shape []celtNorm, rd *rangecoding.Decoder, band, n, k, sprea
 			sign = 1
 		}
 		for i := 0; i < n-1; i++ {
-			pulses[i] = pulses[i]*up + refine[i]
+			pulses[i] = pulses[i]*up32 + refine[i]
 		}
-		last := up * k
+		last := up32 * int32(k)
 		for i := 0; i < n-1; i++ {
 			v := pulses[i]
 			if v < 0 {
@@ -1526,7 +1608,7 @@ func algUnquantInto(shape []celtNorm, rd *rangecoding.Decoder, band, n, k, sprea
 	} else {
 		norm = make([]celtNorm, n)
 	}
-	cm := normalizeResidualKnownEnergyIntoAndCollapseNorm(norm, pulses, opusVal16(gain), yy, b)
+	cm := normalizeResidualKnownEnergyIntoAndCollapse32(norm, pulses, opusVal16(gain), yy, b)
 	expRotationNorm(norm, n, -1, b, k, spread)
 	copy(shape, norm)
 	return cm
@@ -1541,10 +1623,10 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 	}
 
 	// Quantize the vector to pulses.
-	var pulses []int
-	var upPulses []int
-	var collapsePulses []int
-	var refine []int
+	var pulses []int32
+	var upPulses []int32
+	var collapsePulses []int32
+	var refine []int32
 	var yy opusVal16 // Energy computed during PVQ search
 	encodedIndex := uint32(0)
 	var xNorm []celtNorm
@@ -1552,7 +1634,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 	normPath := false
 
 	// Scratch buffer pointers
-	var iyBuf *[]int
+	var iyBuf *[]int32
 	var signxBuf *[]byte
 	var yBuf, absXBuf *[]float32
 	var xNormBuf *[]celtNorm
@@ -1576,25 +1658,25 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 		expRotationNorm(xNorm, n, 1, b, k, spread)
 		normPath = true
 		if n == 2 {
-			var refineVal int
+			var refineVal int32
 			up := (1 << extraBits) - 1
 			pulses, upPulses, refineVal, yy32 = opPVQSearchN2Norm(xNorm, k, up)
 			yy = yy32
 			collapsePulses = upPulses
-			index := encodePulsesFast(pulses, n, k, uBuf)
+			index := encodePulsesFast32(pulses, n, k, uBuf)
 			vSize := PVQ_V(n, k)
 			if vSize == 0 {
 				return 0
 			}
 			re.EncodeUniform(index, vSize)
 			encodedIndex = index
-			extEnc.EncodeUniform(uint32(refineVal+(up-1)/2), uint32(up))
+			extEnc.EncodeUniform(uint32(refineVal+int32((up-1)/2)), uint32(up))
 		} else {
 			up := (1 << extraBits) - 1
 			pulses, upPulses, refine, yy32 = opPVQSearchExtraNorm(xNorm, k, up)
 			yy = yy32
 			collapsePulses = upPulses
-			index := encodePulsesFast(pulses, n, k, uBuf)
+			index := encodePulsesFast32(pulses, n, k, uBuf)
 			vSize := PVQ_V(n, k)
 			if vSize == 0 {
 				return 0
@@ -1625,7 +1707,7 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 		yy = yy32
 		collapsePulses = pulses
 		normPath = true
-		index := encodePulsesFast(pulses, n, k, uBuf)
+		index := encodePulsesFast32(pulses, n, k, uBuf)
 		vSize := PVQ_V(n, k)
 		if vSize == 0 {
 			return 0
@@ -1641,24 +1723,24 @@ func algQuantScratch(re *rangecoding.Encoder, band int, x []celtNorm, n, k, spre
 				cm = extractCollapseMask(collapsePulses, n, b)
 			}
 			if normPath {
-				cm = normalizeResidualKnownEnergyIntoAndCollapseNorm(xNorm, upPulses, opusVal16(gain), yy32, b)
+				cm = normalizeResidualKnownEnergyIntoAndCollapse32(xNorm, upPulses, opusVal16(gain), yy32, b)
 				expRotationNorm(xNorm, n, -1, b, k, spread)
 				copy(x[:n], xNorm)
 				_ = encodedIndex
 				return cm
 			}
-			normalizeResidualInto(x, upPulses, gain, yy)
+			normalizeResidualInto32(x, upPulses, gain, yy)
 		} else {
 			// In the common path, collapse-mask extraction and residual
 			// normalization can share the same scan over the pulse vector.
 			if normPath {
-				cm = normalizeResidualKnownEnergyIntoAndCollapseNorm(xNorm, pulses, opusVal16(gain), yy32, b)
+				cm = normalizeResidualKnownEnergyIntoAndCollapse32(xNorm, pulses, opusVal16(gain), yy32, b)
 				expRotationNorm(xNorm, n, -1, b, k, spread)
 				copy(x[:n], xNorm)
 				_ = encodedIndex
 				return cm
 			}
-			cm = normalizeResidualIntoAndCollapse(x, pulses, gain, yy, b)
+			cm = normalizeResidualIntoAndCollapse32(x, pulses, gain, yy, b)
 		}
 		expRotation(x, n, -1, b, k, spread)
 	} else if len(collapsePulses) > 0 {

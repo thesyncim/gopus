@@ -1,9 +1,6 @@
 package celt
 
-import (
-	"github.com/thesyncim/gopus/rangecoding"
-	"github.com/thesyncim/gopus/util"
-)
+import "github.com/thesyncim/gopus/rangecoding"
 
 // EPSILON is the minimum value used to prevent division by zero and similar issues.
 // This matches libopus celt/mathops.h EPSILON definition.
@@ -12,39 +9,39 @@ const pvqEPSILON = 1e-15
 // opPVQSearch implements libopus op_pvq_search_c() (float path).
 // It finds the signed pulse vector iy (sum abs = K) that best matches X.
 // Runtime CELT normalized vectors use celt_norm width, matching libopus float builds.
-func opPVQSearch(x []celtNorm, k int) ([]int, opusVal16) {
+func opPVQSearch(x []celtNorm, k int) ([]int32, opusVal16) {
 	iy, yy := opPVQSearchNorm(x, k)
 	return iy, yy
 }
 
-func opPVQSearchScratch(x []celtNorm, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32) ([]int, opusVal16) {
+func opPVQSearchScratch(x []celtNorm, k int, iyBuf *[]int32, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32) ([]int32, opusVal16) {
 	iy, yy := opPVQSearchScratchNorm(x, k, iyBuf, signxBuf, yBuf, absXBuf)
 	return iy, yy
 }
 
-func opPVQSearchScratchWithInputMutation(x []celtNorm, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32, absInput bool) ([]int, opusVal16) {
+func opPVQSearchScratchWithInputMutation(x []celtNorm, k int, iyBuf *[]int32, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32, absInput bool) ([]int32, opusVal16) {
 	iy, yy := opPVQSearchScratchNormWithInputMutation(x, k, iyBuf, signxBuf, yBuf, absXBuf, absInput)
 	return iy, yy
 }
 
-func opPVQSearchNorm(x []celtNorm, k int) ([]int, opusVal16) {
+func opPVQSearchNorm(x []celtNorm, k int) ([]int32, opusVal16) {
 	return opPVQSearchScratchNorm(x, k, nil, nil, nil, nil)
 }
 
-func opPVQSearchScratchNorm(x []celtNorm, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32) ([]int, opusVal16) {
+func opPVQSearchScratchNorm(x []celtNorm, k int, iyBuf *[]int32, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32) ([]int32, opusVal16) {
 	return opPVQSearchScratchNormWithInputMutation(x, k, iyBuf, signxBuf, yBuf, absXBuf, false)
 }
 
-func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32, absInput bool) ([]int, opusVal16) {
+func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32, absInput bool) ([]int32, opusVal16) {
 	n := len(x)
 	const idxBias = float32(0)
 
 	// Ensure output buffer
-	var iy []int
+	var iy []int32
 	if iyBuf != nil {
-		iy = ensureIntSlice(iyBuf, n)
+		iy = ensureInt32Slice(iyBuf, n)
 	} else {
-		iy = make([]int, n)
+		iy = make([]int32, n)
 	}
 
 	if n == 0 || k <= 0 {
@@ -139,14 +136,14 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int, 
 		for j := 0; j < n; j++ {
 			// It's important to round towards zero here (floor for positive values)
 			// Reference: libopus vq.c line 274
-			iy[j] = int(rcp * absX[j]) // rcp >= 0, absX >= 0: truncation == floor
+			iy[j] = int32(rcp * absX[j]) // rcp >= 0, absX >= 0: truncation == floor
 			y[j] = float32(iy[j])
 			yy += y[j] * y[j]
 			xy += absX[j] * y[j]
 			// We multiply y[j] by 2 so we don't have to do it in the main loop
 			// Reference: libopus vq.c line 279
 			y[j] *= 2
-			pulsesLeft -= iy[j]
+			pulsesLeft -= int(iy[j])
 		}
 	}
 
@@ -163,7 +160,7 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int, 
 		tmp := float32(pulsesLeft)
 		yy += tmp * tmp
 		yy += tmp * y[0]
-		iy[0] += pulsesLeft
+		iy[0] += int32(pulsesLeft)
 		pulsesLeft = 0
 	}
 
@@ -182,7 +179,7 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int, 
 	// Reference: libopus vq.c lines 364-371
 	// The XOR trick: (iy[j]^-signx[j]) + signx[j] negates iy[j] if signx[j]=1
 	for j := 0; j < n; j++ {
-		mask := -int(signx[j])
+		mask := -int32(signx[j])
 		iy[j] = (iy[j] ^ mask) - mask
 	}
 
@@ -226,7 +223,7 @@ func pvqExtractAbsSignOnlySum(x []celtNorm, absX []float32, signx []byte, n int)
 	return sum
 }
 
-func pvqExtractAbsSignNorm(x []celtNorm, absX []float32, y []float32, signx []byte, iy []int, n int) {
+func pvqExtractAbsSignNorm(x []celtNorm, absX []float32, y []float32, signx []byte, iy []int32, n int) {
 	_ = x[n-1]
 	_ = absX[n-1]
 	_ = y[n-1]
@@ -246,18 +243,18 @@ func pvqExtractAbsSignNorm(x []celtNorm, absX []float32, y []float32, signx []by
 	}
 }
 
-func opPVQSearchN2(x []celtNorm, k, up int) (iy []int, upIy []int, refine int) {
+func opPVQSearchN2(x []celtNorm, k, up int) (iy []int32, upIy []int32, refine int32) {
 	iy, upIy, refine, _ = opPVQSearchN2Norm(x, k, up)
 	return iy, upIy, refine
 }
 
-func opPVQSearchN2Norm(x []celtNorm, k, up int) (iy []int, upIy []int, refine int, yy opusVal32) {
-	iy = make([]int, 2)
-	upIy = make([]int, 2)
+func opPVQSearchN2Norm(x []celtNorm, k, up int) (iy []int32, upIy []int32, refine int32, yy opusVal32) {
+	iy = make([]int32, 2)
+	upIy = make([]int32, 2)
 	if len(x) < 2 || k <= 0 || up <= 0 {
 		if k > 0 {
-			iy[0] = k
-			upIy[0] = up * k
+			iy[0] = int32(k)
+			upIy[0] = int32(up * k)
 			yy = opusVal32(float32(k) * float32(k) * float32(up) * float32(up))
 		}
 		return iy, upIy, 0, yy
@@ -265,27 +262,29 @@ func opPVQSearchN2Norm(x []celtNorm, k, up int) (iy []int, upIy []int, refine in
 
 	sum := absCeltNorm(x[0]) + absCeltNorm(x[1])
 	if sum < pvqEPSILON {
-		iy[0] = k
-		upIy[0] = up * k
+		iy[0] = int32(k)
+		upIy[0] = int32(up * k)
 		yy = opusVal32(float32(k) * float32(k) * float32(up) * float32(up))
 		return iy, upIy, 0, yy
 	}
 
 	rcp := float32(1) / sum
-	iy[0] = floor32ToInt(float32(0.5) + float32(k)*float32(x[0])*rcp)
-	upIy[0] = floor32ToInt(float32(0.5) + float32(up*k)*float32(x[0])*rcp)
+	iy[0] = int32(floor32ToInt(float32(0.5) + float32(k)*float32(x[0])*rcp))
+	upIy[0] = int32(floor32ToInt(float32(0.5) + float32(up*k)*float32(x[0])*rcp))
 
-	low := up*iy[0] - (up-1)/2
-	high := up*iy[0] + (up-1)/2
+	up32 := int32(up)
+	k32 := int32(k)
+	low := up32*iy[0] - int32((up-1)/2)
+	high := up32*iy[0] + int32((up-1)/2)
 	if upIy[0] < low {
 		upIy[0] = low
 	} else if upIy[0] > high {
 		upIy[0] = high
 	}
 
-	offset := upIy[0] - up*iy[0]
-	iy[1] = k - util.Abs(iy[0])
-	upIy[1] = up*k - util.Abs(upIy[0])
+	offset := upIy[0] - up32*iy[0]
+	iy[1] = k32 - absInt32(iy[0])
+	upIy[1] = up32*k32 - absInt32(upIy[0])
 	if x[1] < 0 {
 		iy[1] = -iy[1]
 		upIy[1] = -upIy[1]
@@ -300,22 +299,24 @@ func opPVQSearchN2Norm(x []celtNorm, k, up int) (iy []int, upIy []int, refine in
 	return iy, upIy, refine, yy
 }
 
-func opPVQRefineNorm(xn []opusVal32, iy []int, iy0 []int, k, up, margin int, same bool) bool {
+func opPVQRefineNorm(xn []opusVal32, iy []int32, iy0 []int32, k, up, margin int, same bool) bool {
 	n := len(xn)
 	if n == 0 {
 		return true
 	}
 	rounding := make([]opusVal32, n)
-	iysum := 0
+	iysum := int32(0)
+	k32 := int32(k)
+	up32 := int32(up)
 	for i := 0; i < n; i++ {
 		tmp := float32(k) * float32(xn[i])
-		iy[i] = floor32ToInt(float32(0.5) + tmp)
+		iy[i] = int32(floor32ToInt(float32(0.5) + tmp))
 		rounding[i] = opusVal32(tmp - float32(iy[i]))
 	}
 	if !same {
 		for i := 0; i < n; i++ {
-			lo := up*iy0[i] - up + 1
-			hi := up*iy0[i] + up - 1
+			lo := up32*iy0[i] - up32 + 1
+			hi := up32*iy0[i] + up32 - 1
 			if iy[i] < lo {
 				iy[i] = lo
 			} else if iy[i] > hi {
@@ -326,19 +327,19 @@ func opPVQRefineNorm(xn []opusVal32, iy []int, iy0 []int, k, up, margin int, sam
 	for i := 0; i < n; i++ {
 		iysum += iy[i]
 	}
-	if util.Abs(iysum-k) > 32 {
+	if absInt32(iysum-k32) > 32 {
 		return true
 	}
-	dir := -1
-	if iysum < k {
+	dir := int32(-1)
+	if iysum < k32 {
 		dir = 1
 	}
-	for iysum != k {
+	for iysum != k32 {
 		roundVal := opusVal32(float32(-1000000 * dir))
 		roundPos := 0
 		for i := 0; i < n; i++ {
 			if float32(rounding[i]-roundVal)*float32(dir) > 0 &&
-				util.Abs(iy[i]-up*iy0[i]) < (margin-1) &&
+				absInt32(iy[i]-up32*iy0[i]) < int32(margin-1) &&
 				!(dir == -1 && iy[i] == 0) {
 				roundVal = rounding[i]
 				roundPos = i
@@ -351,16 +352,16 @@ func opPVQRefineNorm(xn []opusVal32, iy []int, iy0 []int, k, up, margin int, sam
 	return false
 }
 
-func opPVQSearchExtra(x []celtNorm, k, up int) (iy []int, upIy []int, refine []int) {
+func opPVQSearchExtra(x []celtNorm, k, up int) (iy []int32, upIy []int32, refine []int32) {
 	iy, upIy, refine, _ = opPVQSearchExtraNorm(x, k, up)
 	return iy, upIy, refine
 }
 
-func opPVQSearchExtraNorm(x []celtNorm, k, up int) (iy []int, upIy []int, refine []int, yy opusVal32) {
+func opPVQSearchExtraNorm(x []celtNorm, k, up int) (iy []int32, upIy []int32, refine []int32, yy opusVal32) {
 	n := len(x)
-	iy = make([]int, n)
-	upIy = make([]int, n)
-	refine = make([]int, n)
+	iy = make([]int32, n)
+	upIy = make([]int32, n)
+	refine = make([]int32, n)
 	if n == 0 || k <= 0 || up <= 0 {
 		return iy, upIy, refine, 0
 	}
@@ -371,8 +372,8 @@ func opPVQSearchExtraNorm(x []celtNorm, k, up int) (iy []int, upIy []int, refine
 	}
 	failed := sum < pvqEPSILON
 	if failed {
-		iy[0] = k
-		upIy[0] = up * k
+		iy[0] = int32(k)
+		upIy[0] = int32(up * k)
 	} else {
 		xn := make([]opusVal32, n)
 		rcp := opusVal32(float32(1) / float32(sum))
@@ -384,11 +385,11 @@ func opPVQSearchExtraNorm(x []celtNorm, k, up int) (iy []int, upIy []int, refine
 	}
 
 	if failed {
-		iy[0] = k
+		iy[0] = int32(k)
 		for i := 1; i < n; i++ {
 			iy[i] = 0
 		}
-		upIy[0] = up * k
+		upIy[0] = int32(up * k)
 		for i := 1; i < n; i++ {
 			upIy[i] = 0
 		}
@@ -400,7 +401,7 @@ func opPVQSearchExtraNorm(x []celtNorm, k, up int) (iy []int, upIy []int, refine
 			iy[i] = -iy[i]
 			upIy[i] = -upIy[i]
 		}
-		refine[i] = upIy[i] - up*iy[i]
+		refine[i] = upIy[i] - int32(up)*iy[i]
 	}
 
 	return iy, upIy, refine, yy
@@ -413,11 +414,11 @@ func absCeltNorm(x celtNorm) float32 {
 	return float32(x)
 }
 
-func ecEncRefine(enc *rangecoding.Encoder, refine int, up int, extraBits int, useEntropy bool) {
+func ecEncRefine(enc *rangecoding.Encoder, refine int32, up int, extraBits int, useEntropy bool) {
 	if enc == nil || extraBits <= 0 {
 		return
 	}
-	large := util.Abs(refine) > up/2
+	large := absInt32(refine) > int32(up/2)
 	logp := uint(1)
 	if useEntropy {
 		logp = 3
@@ -429,11 +430,18 @@ func ecEncRefine(enc *rangecoding.Encoder, refine int, up int, extraBits int, us
 			sign = 1
 		}
 		enc.EncodeRawBits(uint32(sign), 1)
-		enc.EncodeRawBits(uint32(util.Abs(refine)-up/2-1), uint(extraBits-1))
+		enc.EncodeRawBits(uint32(absInt32(refine)-int32(up/2)-1), uint(extraBits-1))
 	} else {
 		enc.EncodeBit(0, logp)
-		enc.EncodeRawBits(uint32(refine+up/2), uint(extraBits))
+		enc.EncodeRawBits(uint32(refine+int32(up/2)), uint(extraBits))
 	}
+}
+
+func absInt32(v int32) int32 {
+	if v < 0 {
+		return -v
+	}
+	return v
 }
 
 func ecDecRefine(dec *rangecoding.Decoder, up int, extraBits int, useEntropy bool) int {
