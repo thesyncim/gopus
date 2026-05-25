@@ -20,7 +20,7 @@ func TestLongHybridMultiframeReusesAnalysisCadence(t *testing.T) {
 		pcm[i] = 0.25 * math.Sin(2*math.Pi*220*float64(i)/48000.0)
 	}
 
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("encode long hybrid frame: %v", err)
 	}

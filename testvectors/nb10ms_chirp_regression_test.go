@@ -48,7 +48,7 @@ func TestNarrowband10msChirpNoBurst(t *testing.T) {
 	for i := 0; i < numFrames; i++ {
 		start := i * frameSize * channels
 		end := start + frameSize*channels
-		pkt, err := enc.Encode(float32ToFloat64(signal[start:end]), frameSize)
+		pkt, err := encodeTest(enc, float32ToFloat64(signal[start:end]), frameSize)
 		if err != nil {
 			t.Fatalf("Encode frame %d: %v", i, err)
 		}

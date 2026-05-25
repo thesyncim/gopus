@@ -675,7 +675,7 @@ func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal [
 		start := i * samplesPerFrame
 		end := start + samplesPerFrame
 		frame := float32ToFloat64OpusDemoF32(signal[start:end])
-		pkt, err := enc.Encode(frame, c.FrameSize)
+		pkt, err := encodeTest(enc, frame, c.FrameSize)
 		if err != nil {
 			return nil, fmt.Errorf("encode frame %d: %w", i, err)
 		}
@@ -693,7 +693,7 @@ func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal [
 		flushLimit := c.Frames + 4
 		silence := make([]float64, samplesPerFrame)
 		for len(packets) < c.Frames && len(packets) < flushLimit {
-			pkt, err := enc.Encode(silence, c.FrameSize)
+			pkt, err := encodeTest(enc, silence, c.FrameSize)
 			if err != nil {
 				return nil, fmt.Errorf("flush frame %d: %w", len(packets), err)
 			}

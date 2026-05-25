@@ -93,7 +93,7 @@ func testLibopusDecode(t *testing.T, mode encoder.Mode, bandwidth types.Bandwidt
 		// Generate test signal
 		pcm := generateLibopusTestSignal(frameSize*channels, 440, 0.5)
 
-		packet, err := enc.Encode(pcm, frameSize)
+		packet, err := encodeTest(enc, pcm, frameSize)
 		if err != nil {
 			t.Fatalf("Encode failed: %v", err)
 		}
@@ -414,7 +414,7 @@ func TestLibopusPacketValidation(t *testing.T) {
 			enc.SetBandwidth(tc.bandwidth)
 
 			pcm := generateLibopusTestSignal(960, 440, 0.5)
-			packet, err := enc.Encode(pcm, 960)
+			packet, err := encodeTest(enc, pcm, 960)
 			if err != nil {
 				t.Fatalf("Encode failed: %v", err)
 			}
@@ -462,7 +462,7 @@ func TestLibopusContainerFormat(t *testing.T) {
 	enc.SetBandwidth(types.BandwidthFullband)
 
 	pcm := generateLibopusTestSignal(960, 440, 0.5)
-	packet, err := enc.Encode(pcm, 960)
+	packet, err := encodeTest(enc, pcm, 960)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -529,7 +529,7 @@ func TestLibopusEnergyPreservation(t *testing.T) {
 			inputEnergy += s * s
 		}
 
-		packet, err := enc.Encode(pcm, 960)
+		packet, err := encodeTest(enc, pcm, 960)
 		if err != nil {
 			t.Fatalf("Encode failed: %v", err)
 		}

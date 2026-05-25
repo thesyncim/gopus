@@ -49,7 +49,7 @@ func TestSILK10msDelaySearch(t *testing.T) {
 					origSamples = append(origSamples, float32(v))
 				}
 
-				pkt, err := enc.Encode(pcm, tc.frameSize)
+				pkt, err := encodeTest(enc, pcm, tc.frameSize)
 				if err != nil {
 					t.Fatalf("frame %d: %v", i, err)
 				}

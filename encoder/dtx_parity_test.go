@@ -456,7 +456,7 @@ func TestDTX_FullEncodeCycle(t *testing.T) {
 	// Phase 1: Pre-DTX (full packets)
 	var preDTXSizes []int
 	for i := 0; i < 11; i++ {
-		packet, err := enc.Encode(silence, 960)
+		packet, err := encodeTest(enc, silence, 960)
 		if err != nil {
 			t.Fatalf("frame %d: encode error: %v", i, err)
 		}
@@ -477,7 +477,7 @@ func TestDTX_FullEncodeCycle(t *testing.T) {
 
 	// Phase 2: Sustained DTX (1-byte packets)
 	for i := 11; i < 30; i++ {
-		packet, err := enc.Encode(silence, 960)
+		packet, err := encodeTest(enc, silence, 960)
 		if err != nil {
 			t.Fatalf("frame %d: encode error: %v", i, err)
 		}
@@ -487,7 +487,7 @@ func TestDTX_FullEncodeCycle(t *testing.T) {
 	}
 
 	// Phase 3: Overflow reset at frame 30 (full packet for 1 frame)
-	packet, err := enc.Encode(silence, 960)
+	packet, err := encodeTest(enc, silence, 960)
 	if err != nil {
 		t.Fatalf("frame 30: encode error: %v", err)
 	}
@@ -496,7 +496,7 @@ func TestDTX_FullEncodeCycle(t *testing.T) {
 	}
 
 	// Phase 4: Re-enters DTX on frame 31
-	packet, err = enc.Encode(silence, 960)
+	packet, err = encodeTest(enc, silence, 960)
 	if err != nil {
 		t.Fatalf("frame 31: encode error: %v", err)
 	}
@@ -515,7 +515,7 @@ func TestDTXPacketFinalRangeIsZero(t *testing.T) {
 	var packet []byte
 	for i := 0; i < 11; i++ {
 		var err error
-		packet, err = enc.Encode(silence, 960)
+		packet, err = encodeTest(enc, silence, 960)
 		if err != nil {
 			t.Fatalf("frame %d: encode error: %v", i, err)
 		}

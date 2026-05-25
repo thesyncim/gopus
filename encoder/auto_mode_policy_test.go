@@ -168,7 +168,7 @@ func TestNonAutoEncodeUpdatesStreamChannelsForCELTState(t *testing.T) {
 			enc.signalType = tt.signal
 			enc.SetForceChannels(tt.forceChannels)
 
-			if _, err := enc.Encode(pcm, 960); err != nil {
+			if _, err := encodeTest(enc, pcm, 960); err != nil {
 				t.Fatalf("Encode() error: %v", err)
 			}
 			if got := enc.streamChannels; got != tt.want {

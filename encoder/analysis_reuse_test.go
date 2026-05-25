@@ -11,11 +11,9 @@ func TestUpdateOpusVADReusesFreshAnalysis(t *testing.T) {
 	const frameSize = 1920
 
 	enc := NewEncoder(48000, 1)
-	pcm := make([]float64, frameSize)
 	pcmRes := make([]opusRes, frameSize)
-	for i := range pcm {
+	for i := range pcmRes {
 		s := 0.25 * math.Sin(2*math.Pi*220*float64(i)/48000.0)
-		pcm[i] = s
 		pcmRes[i] = opusRes(s)
 	}
 
@@ -49,15 +47,15 @@ func TestRestrictedSilkApplicationSkipsAnalysis(t *testing.T) {
 	enc.SetMode(ModeSILK)
 	enc.SetRestrictedSilkApplication(true)
 
-	pcm := make([]float64, frameSize)
+	pcm := make([]float32, frameSize)
 	pcmRes := make([]opusRes, frameSize)
 	for i := range pcm {
 		s := 0.25 * math.Sin(2*math.Pi*220*float64(i)/48000.0)
-		pcm[i] = s
+		pcm[i] = float32(s)
 		pcmRes[i] = opusRes(s)
 	}
 
-	enc.refreshFrameAnalysis(pcm, frameSize)
+	enc.refreshFrameAnalysisF32(pcm, frameSize)
 	if enc.lastAnalysisValid || enc.lastAnalysisFresh {
 		t.Fatalf("restricted SILK analysis valid=%v fresh=%v, want disabled", enc.lastAnalysisValid, enc.lastAnalysisFresh)
 	}

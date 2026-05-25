@@ -22,7 +22,7 @@ func TestSILKFECFirstPacketEnablesLBRRState(t *testing.T) {
 		pcm[i] = 0.5 * math.Sin(2*math.Pi*220*tm)
 	}
 
-	_, err := enc.EncodeWithAnalysisMaxBytes(pcm, 960, pcm, 4000)
+	_, err := encodeWithAnalysisMaxBytesTest(enc, pcm, 960, pcm, 4000)
 	if err != nil {
 		t.Fatalf("encode: %v", err)
 	}

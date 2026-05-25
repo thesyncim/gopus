@@ -53,7 +53,7 @@ func TestSILK10msBandwidthEffect(t *testing.T) {
 						phase := 2 * math.Pi * (200.0*tm + 450.0*tm*tm)
 						pcm[j] = 0.5 * math.Sin(phase)
 					}
-					pkt, err := enc.Encode(pcm, frameSize)
+					pkt, err := encodeTest(enc, pcm, frameSize)
 					if err != nil {
 						t.Fatalf("frame %d: %v", i, err)
 					}

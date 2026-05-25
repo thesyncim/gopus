@@ -354,7 +354,7 @@ func TestHybridModeQuality(t *testing.T) {
 	}
 
 	// Encode
-	packet, err := enc.Encode(samples, frameSize)
+	packet, err := encodeTest(enc, samples, frameSize)
 	if err != nil {
 		t.Fatalf("Hybrid encoding failed: %v", err)
 	}
@@ -403,7 +403,7 @@ func TestHybridVBRPacketSizeCap(t *testing.T) {
 		pcm[i*2+1] = v
 	}
 
-	packet, err := enc.Encode(pcm, 960)
+	packet, err := encodeTest(enc, pcm, 960)
 	if err != nil {
 		t.Fatalf("encode failed: %v", err)
 	}

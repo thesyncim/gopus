@@ -17,22 +17,22 @@ import (
 const modeFixturePath = "testdata/libopus_mode_fixture.json"
 
 type modeFixtureFile struct {
-	Version    int                    `json:"version"`
-	SampleRate int                    `json:"sample_rate"`
-	Generator  string                 `json:"generator"`
+	Version    int               `json:"version"`
+	SampleRate int               `json:"sample_rate"`
+	Generator  string            `json:"generator"`
 	Cases      []modeFixtureCase `json:"cases"`
-	Variants   []string               `json:"variants"`
+	Variants   []string          `json:"variants"`
 }
 
 type modeFixtureCase struct {
-	Name         string                  `json:"name"`
-	Variant      string                  `json:"variant"`
-	FrameSize    int                     `json:"frame_size"`
-	Channels     int                     `json:"channels"`
-	Bitrate      int                     `json:"bitrate"`
-	Bandwidth    string                  `json:"bandwidth"`
-	SignalFrames int                     `json:"signal_frames"`
-	SignalSHA256 string                  `json:"signal_sha256"`
+	Name         string             `json:"name"`
+	Variant      string             `json:"variant"`
+	FrameSize    int                `json:"frame_size"`
+	Channels     int                `json:"channels"`
+	Bitrate      int                `json:"bitrate"`
+	Bandwidth    string             `json:"bandwidth"`
+	SignalFrames int                `json:"signal_frames"`
+	SignalSHA256 string             `json:"signal_sha256"`
 	Frames       []modeFixtureFrame `json:"frames"`
 }
 
@@ -185,7 +185,7 @@ func TestModeFixtureParityWithLibopus(t *testing.T) {
 					framePCM[j] = float64(frame[j])
 				}
 
-				packet, err := enc.Encode(framePCM, c.FrameSize)
+				packet, err := encodeTest(enc, framePCM, c.FrameSize)
 				if err != nil {
 					t.Fatalf("encode frame %d: %v", i, err)
 				}

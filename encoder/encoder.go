@@ -709,19 +709,31 @@ func (e *Encoder) computeEquivRate(bitrate int, channels int, frameRate int, vbr
 	return equiv
 }
 
-// Encode encodes a frame of PCM audio to an Opus packet.
-func (e *Encoder) Encode(pcm []float64, frameSize int) ([]byte, error) {
+// Encode encodes a frame of libopus float-build PCM audio to an Opus packet.
+func (e *Encoder) Encode(pcm []float32, frameSize int) ([]byte, error) {
 	return e.EncodeWithAnalysis(pcm, frameSize, pcm)
 }
 
 // EncodeFloat32 encodes a frame of libopus float PCM audio to an Opus packet.
 func (e *Encoder) EncodeFloat32(pcm []float32, frameSize int) ([]byte, error) {
-	return e.EncodeFloat32WithAnalysisMaxBytes(pcm, frameSize, pcm, maxSilkPacketBytes)
+	return e.Encode(pcm, frameSize)
 }
 
 // EncodeFloat32WithAnalysisMaxBytes is the float32 PCM entrypoint matching
 // libopus opus_encode_float().
 func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int, analysisPCM []float32, maxDataBytes int) ([]byte, error) {
+	return e.EncodeWithAnalysisMaxBytes(pcm, frameSize, analysisPCM, maxDataBytes)
+}
+
+// EncodeWithAnalysis encodes the selected frame while allowing analysis to see
+// a larger caller frame, matching libopus expert-frame-duration handling.
+func (e *Encoder) EncodeWithAnalysis(pcm []float32, frameSize int, analysisPCM []float32) ([]byte, error) {
+	return e.EncodeWithAnalysisMaxBytes(pcm, frameSize, analysisPCM, maxSilkPacketBytes)
+}
+
+// EncodeWithAnalysisMaxBytes encodes with a caller output budget. maxDataBytes
+// mirrors libopus max_data_bytes after packet-size-cap clamping.
+func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float32, frameSize int, analysisPCM []float32, maxDataBytes int) ([]byte, error) {
 	expectedLen := frameSize * e.channels
 	if len(pcm) != expectedLen {
 		return nil, ErrInvalidFrameSize
@@ -738,32 +750,6 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 	defer e.ClearFloatInputFrame()
 	return e.encodeOpusResWithAnalysisMaxBytes(inputPCM, frameSize, maxDataBytes, func() {
 		e.refreshFrameAnalysisF32(analysisPCM, frameSize)
-	})
-}
-
-// EncodeWithAnalysis encodes the selected frame while allowing analysis to see
-// a larger caller frame, matching libopus expert-frame-duration handling.
-func (e *Encoder) EncodeWithAnalysis(pcm []float64, frameSize int, analysisPCM []float64) ([]byte, error) {
-	return e.EncodeWithAnalysisMaxBytes(pcm, frameSize, analysisPCM, maxSilkPacketBytes)
-}
-
-// EncodeWithAnalysisMaxBytes encodes with a caller output budget. maxDataBytes
-// mirrors libopus max_data_bytes after packet-size-cap clamping.
-func (e *Encoder) EncodeWithAnalysisMaxBytes(pcm []float64, frameSize int, analysisPCM []float64, maxDataBytes int) ([]byte, error) {
-	expectedLen := frameSize * e.channels
-	if len(pcm) != expectedLen {
-		return nil, ErrInvalidFrameSize
-	}
-	if analysisPCM == nil {
-		analysisPCM = pcm
-	}
-	if len(analysisPCM) < expectedLen || len(analysisPCM)%e.channels != 0 {
-		return nil, ErrInvalidFrameSize
-	}
-	inputPCM := e.ensureInputPCM(expectedLen)
-	copyFloat64ToOpusRes(inputPCM, pcm[:expectedLen])
-	return e.encodeOpusResWithAnalysisMaxBytes(inputPCM, frameSize, maxDataBytes, func() {
-		e.refreshFrameAnalysis(analysisPCM, frameSize)
 	})
 }
 
@@ -1363,26 +1349,6 @@ func trimSilkTrailingZeros(frameData []byte) []byte {
 		frameData = frameData[:len(frameData)-1]
 	}
 	return frameData
-}
-
-func (e *Encoder) refreshFrameAnalysis(pcm []float64, frameSize int) {
-	if len(pcm) == 0 {
-		e.refreshFrameAnalysisF32(nil, frameSize)
-		return
-	}
-	pcm32 := e.floatInputFrame
-	if len(pcm32) < len(pcm) {
-		if cap(e.scratchPCM32) < len(pcm) {
-			e.scratchPCM32 = make([]float32, len(pcm))
-		}
-		pcm32 = e.scratchPCM32[:len(pcm)]
-		for i, v := range pcm {
-			pcm32[i] = float32(v)
-		}
-	} else {
-		pcm32 = pcm32[:len(pcm)]
-	}
-	e.refreshFrameAnalysisF32(pcm32, frameSize)
 }
 
 func (e *Encoder) refreshFrameAnalysisF32(pcm32 []float32, frameSize int) {

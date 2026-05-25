@@ -106,7 +106,7 @@ func TestEncodeCELTDREDQEXTPacketCarriesBothExtensions(t *testing.T) {
 		pcm[i] = 0.45 * math.Sin(phase)
 	}
 
-	packet, err := enc.Encode(pcm, 960)
+	packet, err := encodeTest(enc, pcm, 960)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}

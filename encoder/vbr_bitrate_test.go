@@ -46,7 +46,7 @@ func TestHybridVBRBitrateBudget(t *testing.T) {
 	seed := uint32(12345)
 	for frame := 0; frame < frames; frame++ {
 		fillSpeechLikePCM(pcm, frame*frameSize, frameSize, channels, &seed)
-		packet, err := enc.Encode(pcm, frameSize)
+		packet, err := encodeTest(enc, pcm, frameSize)
 		if err != nil {
 			t.Fatalf("encode frame %d: %v", frame, err)
 		}
@@ -97,7 +97,7 @@ func TestCELTLongFrameVBRBitrateBudget(t *testing.T) {
 			seed := uint32(12345)
 			for frame := 0; frame < frames; frame++ {
 				fillSpeechLikePCM(pcm, frame*tc.frameSize, tc.frameSize, channels, &seed)
-				packet, err := enc.Encode(pcm, tc.frameSize)
+				packet, err := encodeTest(enc, pcm, tc.frameSize)
 				if err != nil {
 					t.Fatalf("encode frame %d: %v", frame, err)
 				}
@@ -137,7 +137,7 @@ func TestCELTVBRSilencePacketUsesMinimumPayload(t *testing.T) {
 	enc.SetBitrateMode(encoder.ModeVBR)
 	enc.SetSignalType(types.SignalMusic)
 
-	packet, err := enc.Encode(make([]float64, frameSize*channels), frameSize)
+	packet, err := encodeTest(enc, make([]float64, frameSize*channels), frameSize)
 	if err != nil {
 		t.Fatalf("Encode CELT VBR silence: %v", err)
 	}

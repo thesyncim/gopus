@@ -70,7 +70,7 @@ func TestAudioAudibility(t *testing.T) {
 			pcmF64[j] = float64(v)
 		}
 
-		packet, err := enc.Encode(pcmF64, frameSize)
+		packet, err := encodeTest(enc, pcmF64, frameSize)
 		if err != nil {
 			t.Fatalf("Encode error: %v", err)
 		}

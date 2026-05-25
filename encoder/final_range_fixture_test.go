@@ -74,7 +74,7 @@ func TestSILKFinalRangeUsesLastPacketModeWithCELTSidecar(t *testing.T) {
 
 	silence := make([]float64, samplesPerFrame)
 	for packetIndex < len(c.Packets) {
-		pkt, err := enc.Encode(silence, c.FrameSize)
+		pkt, err := encodeTest(enc, silence, c.FrameSize)
 		if err != nil {
 			t.Fatalf("flush frame %d: %v", packetIndex, err)
 		}
@@ -128,7 +128,7 @@ func encodeFinalRangeFixtureFrame(t *testing.T, enc *Encoder, frame []float32, f
 		q := math.Floor(0.5 + float64(s)*8388608.0)
 		pcm[i] = q * inv24
 	}
-	pkt, err := enc.Encode(pcm, frameSize)
+	pkt, err := encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("encode frame: %v", err)
 	}

@@ -308,7 +308,7 @@ func TestHybridEncode10ms(t *testing.T) {
 
 	pcm := generateTestSignal(480, 1)
 
-	encoded, err := enc.Encode(pcm, 480)
+	encoded, err := encodeTest(enc, pcm, 480)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -328,7 +328,7 @@ func TestHybridEncode20ms(t *testing.T) {
 
 	pcm := generateTestSignal(960, 1)
 
-	encoded, err := enc.Encode(pcm, 960)
+	encoded, err := encodeTest(enc, pcm, 960)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestHybridEncodeMono(t *testing.T) {
 		t.Run(string(rune('0'+frameSize/100)), func(t *testing.T) {
 			pcm := generateTestSignal(frameSize, 1)
 
-			encoded, err := enc.Encode(pcm, frameSize)
+			encoded, err := encodeTest(enc, pcm, frameSize)
 			if err != nil {
 				t.Fatalf("Encode failed: %v", err)
 			}
@@ -378,7 +378,7 @@ func TestHybridEncodeStereo(t *testing.T) {
 		t.Run(string(rune('0'+frameSize/100)), func(t *testing.T) {
 			pcm := generateTestSignal(frameSize, 2)
 
-			encoded, err := enc.Encode(pcm, frameSize)
+			encoded, err := encodeTest(enc, pcm, frameSize)
 			if err != nil {
 				t.Fatalf("Encode failed: %v", err)
 			}
@@ -402,7 +402,7 @@ func TestHybridRoundTrip(t *testing.T) {
 	pcm := generateTestSignal(960, 1)
 
 	// Encode
-	encoded, err := enc.Encode(pcm, 960)
+	encoded, err := encodeTest(enc, pcm, 960)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -448,7 +448,7 @@ func TestInvalidHybridFrameSize(t *testing.T) {
 		t.Run(string(rune('0'+size/100)), func(t *testing.T) {
 			pcm := make([]float64, size)
 
-			_, err := enc.Encode(pcm, size)
+			_, err := encodeTest(enc, pcm, size)
 			if err == nil {
 				t.Errorf("Expected error for frame size %d in hybrid mode", size)
 			}
@@ -498,7 +498,7 @@ func TestLargeFrameSizeModeSelectionAndPacketization(t *testing.T) {
 				pcm[i] = 0.5 * math.Sin(2*math.Pi*440*float64(i)/48000)
 			}
 
-			packet, err := enc.Encode(pcm, tc.frameSize)
+			packet, err := encodeTest(enc, pcm, tc.frameSize)
 			if err != nil {
 				t.Fatalf("Encode failed: %v", err)
 			}
@@ -542,7 +542,7 @@ func TestAutoLongFrameSpeechLikePrefersCELTAtFullband(t *testing.T) {
 		pcm[i] = voiced + noise
 	}
 
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -597,7 +597,7 @@ func TestModeAutoSelection(t *testing.T) {
 	enc.SetBandwidth(types.BandwidthSuperwideband)
 	pcm := generateTestSignal(960, 1)
 
-	encoded, err := enc.Encode(pcm, 960)
+	encoded, err := encodeTest(enc, pcm, 960)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -621,7 +621,7 @@ func TestMultipleFramesHybrid(t *testing.T) {
 	for i := 0; i < numFrames; i++ {
 		pcm := generateTestSignal(frameSize, 1)
 
-		encoded, err := enc.Encode(pcm, frameSize)
+		encoded, err := encodeTest(enc, pcm, frameSize)
 		if err != nil {
 			t.Fatalf("Frame %d encode failed: %v", i, err)
 		}
@@ -694,12 +694,12 @@ func TestBitrateModeVBR(t *testing.T) {
 	silence := make([]float64, 960)
 	complex := generateComplexSignal(960)
 
-	silentPacket, err := enc.Encode(silence, 960)
+	silentPacket, err := encodeTest(enc, silence, 960)
 	if err != nil {
 		t.Fatalf("Encode silence failed: %v", err)
 	}
 
-	complexPacket, err := enc.Encode(complex, 960)
+	complexPacket, err := encodeTest(enc, complex, 960)
 	if err != nil {
 		t.Fatalf("Encode complex failed: %v", err)
 	}
@@ -730,7 +730,7 @@ func TestBitrateModeCBR(t *testing.T) {
 	// Encode multiple frames
 	for i := 0; i < 5; i++ {
 		pcm := generateTestSignal(960, 1)
-		packet, err := enc.Encode(pcm, 960)
+		packet, err := encodeTest(enc, pcm, 960)
 		if err != nil {
 			t.Fatalf("Encode frame %d failed: %v", i, err)
 		}
@@ -756,7 +756,7 @@ func TestBitrateModeCVBR(t *testing.T) {
 	// Encode multiple frames
 	for i := 0; i < 10; i++ {
 		pcm := generateVariableSignal(960, i)
-		packet, err := enc.Encode(pcm, 960)
+		packet, err := encodeTest(enc, pcm, 960)
 		if err != nil {
 			t.Fatalf("Encode frame %d failed: %v", i, err)
 		}
@@ -783,7 +783,7 @@ func TestBitrateModeCVBR_CELTStereoEnvelope(t *testing.T) {
 	totalBytes := 0
 
 	for i := 0; i < 60; i++ {
-		packet, err := enc.Encode(generateTestSignal(960, 2), 960)
+		packet, err := encodeTest(enc, generateTestSignal(960, 2), 960)
 		if err != nil {
 			t.Fatalf("Encode frame %d failed: %v", i, err)
 		}
@@ -985,7 +985,7 @@ func TestCBRDifferentBitrates(t *testing.T) {
 			expectedSize := encoder.TargetBytesForBitrate(bitrate, 960)
 
 			pcm := generateTestSignal(960, 1)
-			packet, err := enc.Encode(pcm, 960)
+			packet, err := encodeTest(enc, pcm, 960)
 			if err != nil {
 				t.Fatalf("Encode failed: %v", err)
 			}
@@ -1123,7 +1123,7 @@ func TestInBandFECMusicSafeAvoidsMusicModeForce(t *testing.T) {
 				t.Fatalf("SetInBandFEC(%d): %v", tc.config, err)
 			}
 
-			packet, err := enc.Encode(pcm, 960)
+			packet, err := encodeTest(enc, pcm, 960)
 			if err != nil {
 				t.Fatalf("Encode: %v", err)
 			}
@@ -1180,7 +1180,7 @@ func TestFECOnlyWithPreviousFrame(t *testing.T) {
 
 	// Encode first frame to populate state
 	pcm := generateTestSignal(960, 1)
-	_, err := enc.Encode(pcm, 960)
+	_, err := encodeTest(enc, pcm, 960)
 	if err != nil {
 		t.Fatalf("First encode failed: %v", err)
 	}
@@ -1326,7 +1326,7 @@ func TestDTXSuppressesSilence(t *testing.T) {
 	maxFrames := 50 // Should activate well before this
 
 	for i := 0; i < maxFrames; i++ {
-		packet, err := enc.Encode(silence, 960)
+		packet, err := encodeTest(enc, silence, 960)
 		if err != nil {
 			t.Fatalf("Frame %d encode failed: %v", i, err)
 		}
@@ -1365,7 +1365,7 @@ func TestDTXEmitsTOCOnly(t *testing.T) {
 	totalFrames := encoder.DTXFrameThreshold + 25
 	var tocOnlyCount int
 	for i := 0; i < totalFrames; i++ {
-		packet, _ := enc.Encode(silence, 960)
+		packet, _ := encodeTest(enc, silence, 960)
 		if len(packet) == 1 {
 			tocOnlyCount++
 		}
@@ -1389,17 +1389,17 @@ func TestDTXExitOnSpeech(t *testing.T) {
 
 	// Enter DTX mode
 	for i := 0; i < encoder.DTXFrameThreshold+5; i++ {
-		enc.Encode(silence, 960)
+		encodeTest(enc, silence, 960)
 	}
 
 	// Verify in DTX mode (1-byte TOC-only packet)
-	packet, _ := enc.Encode(silence, 960)
+	packet, _ := encodeTest(enc, silence, 960)
 	if len(packet) != 1 {
 		t.Logf("Warning: Expected 1-byte TOC DTX packet, got %d bytes", len(packet))
 	}
 
 	// Send speech - should exit DTX and produce a full packet
-	packet, err := enc.Encode(speech, 960)
+	packet, err := encodeTest(enc, speech, 960)
 	if err != nil {
 		t.Fatalf("Encode speech failed: %v", err)
 	}
@@ -1454,7 +1454,7 @@ func TestComplexityAffectsQuality(t *testing.T) {
 		enc.SetComplexity(complexity)
 
 		pcm := generateTestSignal(960, 1)
-		packet, err := enc.Encode(pcm, 960)
+		packet, err := encodeTest(enc, pcm, 960)
 		if err != nil {
 			t.Fatalf("Complexity %d: encode failed: %v", complexity, err)
 		}
@@ -1476,11 +1476,11 @@ func TestDTXResetOnEncoderReset(t *testing.T) {
 
 	// Enter DTX mode
 	for i := 0; i < encoder.DTXFrameThreshold+5; i++ {
-		enc.Encode(silence, 960)
+		encodeTest(enc, silence, 960)
 	}
 
 	// Verify in DTX mode (1-byte TOC packet)
-	packet, _ := enc.Encode(silence, 960)
+	packet, _ := encodeTest(enc, silence, 960)
 	if len(packet) != 1 {
 		t.Logf("Warning: Expected 1-byte TOC DTX packet, got %d bytes", len(packet))
 	}
@@ -1489,7 +1489,7 @@ func TestDTXResetOnEncoderReset(t *testing.T) {
 	enc.Reset()
 
 	// After reset, should no longer be in DTX mode - frames should encode fully
-	packet, err := enc.Encode(silence, 960)
+	packet, err := encodeTest(enc, silence, 960)
 	if err != nil {
 		t.Fatalf("After reset encode failed: %v", err)
 	}
@@ -1560,7 +1560,7 @@ func TestEncoderPacketFormat(t *testing.T) {
 		pcm[i] = 0.5 * float64(i) / float64(len(pcm)) // Ramp signal
 	}
 
-	packet, err := enc.Encode(pcm, 960)
+	packet, err := encodeTest(enc, pcm, 960)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}
@@ -1628,7 +1628,7 @@ func TestEncoderPacketConfigs(t *testing.T) {
 				pcm[i] = 0.3 * float64(i) / float64(len(pcm))
 			}
 
-			packet, err := enc.Encode(pcm, tt.frameSize)
+			packet, err := encodeTest(enc, pcm, tt.frameSize)
 			if err != nil {
 				t.Fatalf("Encode failed: %v", err)
 			}
@@ -1655,7 +1655,7 @@ func TestEncoderPacketStereo(t *testing.T) {
 	encMono.SetBandwidth(types.BandwidthSuperwideband)
 
 	pcmMono := make([]float64, 960)
-	packetMono, err := encMono.Encode(pcmMono, 960)
+	packetMono, err := encodeTest(encMono, pcmMono, 960)
 	if err != nil {
 		t.Fatalf("Mono encode failed: %v", err)
 	}
@@ -1671,7 +1671,7 @@ func TestEncoderPacketStereo(t *testing.T) {
 	encStereo.SetBandwidth(types.BandwidthSuperwideband)
 
 	pcmStereo := make([]float64, 960*2)
-	packetStereo, err := encStereo.Encode(pcmStereo, 960)
+	packetStereo, err := encodeTest(encStereo, pcmStereo, 960)
 	if err != nil {
 		t.Fatalf("Stereo encode failed: %v", err)
 	}
@@ -1689,7 +1689,7 @@ func TestEncoderPacketParseable(t *testing.T) {
 	enc.SetBandwidth(types.BandwidthFullband)
 
 	pcm := generateTestSignal(960, 1)
-	packet, err := enc.Encode(pcm, 960)
+	packet, err := encodeTest(enc, pcm, 960)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}

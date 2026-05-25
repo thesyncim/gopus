@@ -47,7 +47,7 @@ func TestSILK10msCorruptionAtHighBitrate(t *testing.T) {
 					tm := float64(sampleIdx) / 48000.0
 					pcm[j] = 0.5 * math.Sin(2*math.Pi*440*tm)
 				}
-				pkt, err := enc.Encode(pcm, tc.frameSize)
+				pkt, err := encodeTest(enc, pcm, tc.frameSize)
 				if err != nil {
 					t.Fatalf("Encode error at frame %d: %v", i, err)
 				}
@@ -118,7 +118,7 @@ func TestSILK10msTOCByteCorrectness(t *testing.T) {
 				tm := float64(j) / 48000.0
 				pcm[j] = 0.5 * math.Sin(2*math.Pi*440*tm)
 			}
-			pkt, err := enc.Encode(pcm, tc.frameSize)
+			pkt, err := encodeTest(enc, pcm, tc.frameSize)
 			if err != nil {
 				t.Fatalf("Encode error: %v", err)
 			}
@@ -178,7 +178,7 @@ func TestSILK10msPacketSizeConsistency(t *testing.T) {
 						tm := float64(sampleIdx) / 48000.0
 						pcm[j] = 0.5 * math.Sin(2*math.Pi*440*tm)
 					}
-					pkt, err := enc.Encode(pcm, frameSize)
+					pkt, err := encodeTest(enc, pcm, frameSize)
 					if err != nil {
 						t.Fatalf("Encode error at %dkbps frame %d: %v", bitrate/1000, i, err)
 					}

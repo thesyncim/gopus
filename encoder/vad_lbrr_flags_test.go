@@ -58,7 +58,7 @@ func TestSILKHeaderVADFlags(t *testing.T) {
 	enc := NewEncoder(sampleRate, 1)
 	enc.SetMode(ModeSILK)
 	enc.SetBandwidth(types.BandwidthWideband)
-	packet, err := enc.Encode(silence, frameSize)
+	packet, err := encodeTest(enc, silence, frameSize)
 	if err != nil {
 		t.Fatalf("encode silence failed: %v", err)
 	}
@@ -78,7 +78,7 @@ func TestSILKHeaderVADFlags(t *testing.T) {
 		ti := float64(i) / float64(sampleRate)
 		tone[i] = amp * math.Sin(2*math.Pi*freqHz*ti)
 	}
-	packet, err = enc.Encode(tone, frameSize)
+	packet, err = encodeTest(enc, tone, frameSize)
 	if err != nil {
 		t.Fatalf("encode tone failed: %v", err)
 	}
@@ -110,7 +110,7 @@ func TestHybridStereoLBRRFlags(t *testing.T) {
 		pcm[2*i+1] = amp * math.Sin(2*math.Pi*freqR*ti)
 	}
 
-	packet1, err := enc.Encode(pcm, frameSize)
+	packet1, err := encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("encode frame 1 failed: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestHybridStereoLBRRFlags(t *testing.T) {
 		t.Fatalf("expected no LBRR on first frame, got mid=%d side=%d", lbrrMid1, lbrrSide1)
 	}
 
-	packet2, err := enc.Encode(pcm, frameSize)
+	packet2, err := encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("encode frame 2 failed: %v", err)
 	}

@@ -40,7 +40,7 @@ func TestSILK10msWaveformCompare(t *testing.T) {
 					tm := float64(sampleIdx) / 48000.0
 					pcm[j] = 0.5 * math.Sin(2*math.Pi*440*tm)
 				}
-				pkt, err := enc.Encode(pcm, tc.frameSize)
+				pkt, err := encodeTest(enc, pcm, tc.frameSize)
 				if err != nil {
 					t.Fatalf("frame %d: %v", i, err)
 				}

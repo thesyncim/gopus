@@ -20,7 +20,7 @@ func TestCELTBandwidthForwardingAndMaxClamp(t *testing.T) {
 		pcm[i] = 0.4 * math.Sin(2*math.Pi*440*float64(i)/48000.0)
 	}
 
-	pkt, err := enc.Encode(pcm, 480)
+	pkt, err := encodeTest(enc, pcm, 480)
 	if err != nil {
 		t.Fatalf("encode failed: %v", err)
 	}
@@ -35,7 +35,7 @@ func TestCELTBandwidthForwardingAndMaxClamp(t *testing.T) {
 	}
 
 	enc.SetMaxBandwidth(types.BandwidthWideband)
-	pkt, err = enc.Encode(pcm, 480)
+	pkt, err = encodeTest(enc, pcm, 480)
 	if err != nil {
 		t.Fatalf("encode after max clamp failed: %v", err)
 	}
@@ -47,7 +47,7 @@ func TestCELTBandwidthForwardingAndMaxClamp(t *testing.T) {
 	}
 
 	enc.SetBandwidthAuto()
-	pkt, err = enc.Encode(pcm, 480)
+	pkt, err = encodeTest(enc, pcm, 480)
 	if err != nil {
 		t.Fatalf("encode after bandwidth auto failed: %v", err)
 	}

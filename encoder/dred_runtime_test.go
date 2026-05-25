@@ -127,7 +127,7 @@ func TestEncoderInactiveDREDEncodeClearsHistory(t *testing.T) {
 		t.Fatalf("SetDREDDuration error: %v", err)
 	}
 
-	frame := make([]float64, 960)
+	frame := make([]float32, 960)
 	frameRes := make([]opusRes, 960)
 	for i := range frame {
 		frame[i] = 0.1
@@ -150,7 +150,7 @@ func TestEncoderInactiveDREDEncodeClearsHistory(t *testing.T) {
 	if enc.dred.runtime != runtime {
 		t.Fatal("SetDREDDuration(0) replaced runtime")
 	}
-	if packet, err := enc.Encode(frame, 960); err != nil {
+	if packet, err := encodeTest(enc, frame, 960); err != nil {
 		t.Fatalf("Encode after disabling DRED error: %v", err)
 	} else if len(packet) == 0 {
 		t.Fatal("Encode after disabling DRED returned empty packet")
@@ -183,12 +183,12 @@ func TestEncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed(t *testing.T) {
 		t.Fatal("DREDReady()=true before SetDREDDuration")
 	}
 
-	frame := make([]float64, 960)
+	frame := make([]float32, 960)
 	for i := range frame {
 		frame[i] = 0.1
 	}
 	for i := 0; i < 5; i++ {
-		if packet, err := enc.Encode(frame, 960); err != nil {
+		if packet, err := encodeTest(enc, frame, 960); err != nil {
 			t.Fatalf("warm Encode error: %v", err)
 		} else if len(packet) == 0 {
 			t.Fatal("warm Encode returned empty packet")
@@ -202,7 +202,7 @@ func TestEncoderEncodeKeepsDREDRuntimeDormantUntilDurationArmed(t *testing.T) {
 	}
 
 	allocs := testing.AllocsPerRun(200, func() {
-		if packet, err := enc.Encode(frame, 960); err != nil {
+		if packet, err := encodeTest(enc, frame, 960); err != nil {
 			t.Fatalf("Encode error: %v", err)
 		} else if len(packet) == 0 {
 			t.Fatal("Encode returned empty packet")
@@ -411,14 +411,14 @@ func TestEncoderBackfillsDREDActivityFromSILKNoDecision(t *testing.T) {
 		t.Fatalf("SetDREDDuration error: %v", err)
 	}
 
-	frame := make([]float64, 4800)
+	frame := make([]float32, 4800)
 	for i := range frame {
 		frame[i] = 2e-5
 		if i&1 != 0 {
 			frame[i] = -frame[i]
 		}
 	}
-	packet, err := enc.Encode(frame, 4800)
+	packet, err := encodeTest(enc, frame, 4800)
 	if err != nil {
 		t.Fatalf("Encode error: %v", err)
 	}

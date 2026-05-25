@@ -54,7 +54,7 @@ func TestSILK10msEnergyCheck(t *testing.T) {
 						pcm[j] = sig.gen(sampleIdx)
 						origEnergy += pcm[j] * pcm[j]
 					}
-					pkt, err := enc.Encode(pcm, fs)
+					pkt, err := encodeTest(enc, pcm, fs)
 					if err != nil {
 						t.Fatalf("frame %d: %v", i, err)
 					}

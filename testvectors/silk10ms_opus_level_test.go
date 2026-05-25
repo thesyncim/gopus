@@ -52,7 +52,7 @@ func TestSILK10msOpusLevel(t *testing.T) {
 				start := i * tc.frameSize
 				end := start + tc.frameSize
 
-				packet, err := enc.Encode(pcmF64[start:end], tc.frameSize)
+				packet, err := encodeTest(enc, pcmF64[start:end], tc.frameSize)
 				if err != nil {
 					t.Fatalf("Encode frame %d: %v", i, err)
 				}

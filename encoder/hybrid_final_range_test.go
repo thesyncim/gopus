@@ -41,7 +41,7 @@ func TestHybridTransitionFinalRangeIncludesRedundancy(t *testing.T) {
 
 			for i, mode := range tc.modes {
 				enc.SetMode(mode)
-				packet, err := enc.Encode(hybridFinalRangePCM(i, frameSize), frameSize)
+				packet, err := encodeTest(enc, hybridFinalRangePCM(i, frameSize), frameSize)
 				if err != nil {
 					t.Fatalf("Encode(%d) error: %v", i, err)
 				}

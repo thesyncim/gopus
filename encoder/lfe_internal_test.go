@@ -39,7 +39,7 @@ func TestLFEModeForcesCELTPath(t *testing.T) {
 		pcm[i] = 0.8 * math.Sin(2*math.Pi*70*tm)
 	}
 
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode failed: %v", err)
 	}

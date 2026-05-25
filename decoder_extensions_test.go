@@ -105,11 +105,11 @@ func makeValidCELTPacketForExtensionTest(t *testing.T) []byte {
 	enc.SetBandwidth(types.BandwidthFullband)
 	enc.SetBitrate(256000)
 
-	pcm := make([]float64, 960*2)
+	pcm := make([]float32, 960*2)
 	for i := 0; i < 960; i++ {
 		phase := 2 * math.Pi * 997 * float64(i) / 48000.0
-		pcm[2*i] = 0.45 * math.Sin(phase)
-		pcm[2*i+1] = 0.35 * math.Sin(phase+0.37)
+		pcm[2*i] = float32(0.45 * math.Sin(phase))
+		pcm[2*i+1] = float32(0.35 * math.Sin(phase+0.37))
 	}
 
 	packet, err := enc.Encode(pcm, 960)

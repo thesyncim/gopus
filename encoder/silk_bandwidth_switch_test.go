@@ -43,7 +43,7 @@ func TestSILKEncoderReconfiguresOnBandwidthChangeMono(t *testing.T) {
 	}
 
 	enc.SetBandwidth(types.BandwidthWideband)
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("WB encode failed: %v", err)
 	}
@@ -53,7 +53,7 @@ func TestSILKEncoderReconfiguresOnBandwidthChangeMono(t *testing.T) {
 	check(silk.BandwidthWideband, 16000)
 
 	enc.SetBandwidth(types.BandwidthNarrowband)
-	packet, err = enc.Encode(pcm, frameSize)
+	packet, err = encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("NB encode failed: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestSILKEncoderReconfiguresOnBandwidthChangeMono(t *testing.T) {
 	check(silk.BandwidthNarrowband, 8000)
 
 	enc.SetBandwidth(types.BandwidthWideband)
-	packet, err = enc.Encode(pcm, frameSize)
+	packet, err = encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("WB re-encode failed: %v", err)
 	}
@@ -102,7 +102,7 @@ func TestSILKEncoderReconfiguresOnBandwidthChangeStereo(t *testing.T) {
 	}
 
 	enc.SetBandwidth(types.BandwidthWideband)
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("stereo WB encode failed: %v", err)
 	}
@@ -112,7 +112,7 @@ func TestSILKEncoderReconfiguresOnBandwidthChangeStereo(t *testing.T) {
 	check(silk.BandwidthWideband, 16000)
 
 	enc.SetBandwidth(types.BandwidthNarrowband)
-	packet, err = enc.Encode(pcm, frameSize)
+	packet, err = encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("stereo NB encode failed: %v", err)
 	}
@@ -144,7 +144,7 @@ func TestSILKEncoderForcedBandwidthOverridesMaxBandwidthMono(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			enc.SetMaxBandwidth(tc.maxBW)
-			packet, err := enc.Encode(pcm, frameSize)
+			packet, err := encodeTest(enc, pcm, frameSize)
 			if err != nil {
 				t.Fatalf("encode failed: %v", err)
 			}
@@ -173,7 +173,7 @@ func TestSILKStereoSideEncoderForcedBandwidthOverridesMaxBandwidth(t *testing.T)
 	frameSize := 960
 	pcm := generateSinePCM(frameSize, 2, 330.0)
 
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("encode failed: %v", err)
 	}

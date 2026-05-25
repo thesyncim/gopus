@@ -62,7 +62,7 @@ func TestEncoderAllModes(t *testing.T) {
 			pcm := generateIntegrationTestPCM(tc.frameSize * channels)
 
 			// Encode
-			packet, err := enc.Encode(pcm, tc.frameSize)
+			packet, err := encodeTest(enc, pcm, tc.frameSize)
 			if err != nil {
 				t.Fatalf("encoding failed: %v", err)
 			}
@@ -122,7 +122,7 @@ func TestEncoderHybridRoundTrip(t *testing.T) {
 			pcm := generateSineWaveIntegration(tc.frameSize*tc.channels, 440, 0.5)
 
 			// Encode
-			packet, err := enc.Encode(pcm, tc.frameSize)
+			packet, err := encodeTest(enc, pcm, tc.frameSize)
 			if err != nil {
 				t.Fatalf("encoding failed: %v", err)
 			}
@@ -194,7 +194,7 @@ func TestEncoderCELTRoundTrip(t *testing.T) {
 			pcm := generateSineWaveIntegration(tc.frameSize*tc.channels, 440, 0.5)
 
 			// Encode
-			packet, err := enc.Encode(pcm, tc.frameSize)
+			packet, err := encodeTest(enc, pcm, tc.frameSize)
 			if err != nil {
 				t.Fatalf("encoding failed: %v", err)
 			}
@@ -255,7 +255,7 @@ func TestEncoderMultipleFrames(t *testing.T) {
 		freq := 220 + float64(i*50)
 		pcm := generateSineWaveIntegration(960, freq, 0.5)
 
-		packet, err := enc.Encode(pcm, 960)
+		packet, err := encodeTest(enc, pcm, 960)
 		if err != nil {
 			t.Fatalf("frame %d encode failed: %v", i, err)
 		}
@@ -286,7 +286,7 @@ func TestEncoderBitrateRange(t *testing.T) {
 			enc.SetBitrateMode(encoder.ModeCBR)
 
 			pcm := generateIntegrationTestPCM(960)
-			packet, err := enc.Encode(pcm, 960)
+			packet, err := encodeTest(enc, pcm, 960)
 			if err != nil {
 				t.Fatalf("encoding failed: %v", err)
 			}
@@ -347,7 +347,7 @@ func TestEncoderAllFrameSizes(t *testing.T) {
 			}
 
 			pcm := generateIntegrationTestPCM(tc.size)
-			packet, err := enc.Encode(pcm, tc.size)
+			packet, err := encodeTest(enc, pcm, tc.size)
 			if err != nil {
 				t.Fatalf("encoding failed: %v", err)
 			}
@@ -383,7 +383,7 @@ func TestEncoderSignalQuality(t *testing.T) {
 			pcm := sig.gen(960)
 
 			// Encode
-			packet, err := enc.Encode(pcm, 960)
+			packet, err := encodeTest(enc, pcm, 960)
 			if err != nil {
 				t.Fatalf("encoding failed: %v", err)
 			}
@@ -425,7 +425,7 @@ func TestEncoderBitrateQuality(t *testing.T) {
 
 			pcm := generateMixedSignalIntegration(960)
 
-			packet, err := enc.Encode(pcm, 960)
+			packet, err := encodeTest(enc, pcm, 960)
 			if err != nil {
 				t.Fatalf("encoding failed: %v", err)
 			}
@@ -450,7 +450,7 @@ func TestEncoderNoClipping(t *testing.T) {
 	// Test with full-scale signal
 	pcm := generateSineWaveIntegration(960, 440, 1.0)
 
-	packet, err := enc.Encode(pcm, 960)
+	packet, err := encodeTest(enc, pcm, 960)
 	if err != nil {
 		t.Fatalf("encoding failed: %v", err)
 	}
@@ -485,7 +485,7 @@ func TestEncoderSignalTypes(t *testing.T) {
 	// Test silence
 	t.Run("silence", func(t *testing.T) {
 		silence := make([]float64, 960)
-		packet, err := enc.Encode(silence, 960)
+		packet, err := encodeTest(enc, silence, 960)
 		if err != nil {
 			t.Fatalf("encoding failed: %v", err)
 		}
@@ -498,7 +498,7 @@ func TestEncoderSignalTypes(t *testing.T) {
 		for i := range dc {
 			dc[i] = 0.5 // Constant DC
 		}
-		packet, err := enc.Encode(dc, 960)
+		packet, err := encodeTest(enc, dc, 960)
 		if err != nil {
 			t.Fatalf("encoding failed: %v", err)
 		}
@@ -509,7 +509,7 @@ func TestEncoderSignalTypes(t *testing.T) {
 	t.Run("impulse", func(t *testing.T) {
 		impulse := make([]float64, 960)
 		impulse[480] = 1.0 // Single impulse at center
-		packet, err := enc.Encode(impulse, 960)
+		packet, err := encodeTest(enc, impulse, 960)
 		if err != nil {
 			t.Fatalf("encoding failed: %v", err)
 		}
@@ -519,7 +519,7 @@ func TestEncoderSignalTypes(t *testing.T) {
 	// Test white noise
 	t.Run("white_noise", func(t *testing.T) {
 		noise := generateNoiseIntegration(960, 0.3)
-		packet, err := enc.Encode(noise, 960)
+		packet, err := encodeTest(enc, noise, 960)
 		if err != nil {
 			t.Fatalf("encoding failed: %v", err)
 		}
@@ -539,7 +539,7 @@ func TestEncoderCorrelation(t *testing.T) {
 
 	var packets [][]byte
 	for i := 0; i < 5; i++ {
-		packet, err := enc.Encode(pcm, 960)
+		packet, err := encodeTest(enc, pcm, 960)
 		if err != nil {
 			t.Fatalf("frame %d encoding failed: %v", i, err)
 		}

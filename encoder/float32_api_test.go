@@ -35,7 +35,7 @@ func TestEncodeFloat32MatchesFloat32AwareFloat64Bridge(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeFloat32 error: %v", err)
 	}
-	want, err := bridgeEnc.EncodeWithAnalysisMaxBytes(pcm64, frameSize, pcm64, maxSilkPacketBytes)
+	want, err := encodeWithAnalysisMaxBytesTest(bridgeEnc, pcm64, frameSize, pcm64, maxSilkPacketBytes)
 	if err != nil {
 		t.Fatalf("EncodeWithAnalysisMaxBytes error: %v", err)
 	}

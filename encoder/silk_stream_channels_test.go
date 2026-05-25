@@ -25,7 +25,7 @@ func TestSILKForcedMonoStereoAPIUsesMonoPacket(t *testing.T) {
 		pcm[2*i+1] = 0.2 * math.Sin(2*math.Pi*660*float64(i)/48000)
 	}
 
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode() error: %v", err)
 	}
@@ -69,7 +69,7 @@ func TestCELTForcedMonoStereoAPIUsesMonoPacket(t *testing.T) {
 		pcm[2*i+1] = 0.14 * math.Sin(2*math.Pi*550*float64(i)/48000)
 	}
 
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode() error: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestHybridForcedMonoStereoAPIUsesMonoPacket(t *testing.T) {
 				pcm[2*i+1] = 0.12 * math.Sin(2*math.Pi*690*float64(i)/48000)
 			}
 
-			packet, err := enc.Encode(pcm, frameSize)
+			packet, err := encodeTest(enc, pcm, frameSize)
 			if err != nil {
 				t.Fatalf("Encode() error: %v", err)
 			}

@@ -410,7 +410,7 @@ func computeEncoderComplianceResult(mode encoder.Mode, bandwidth types.Bandwidth
 		end := start + samplesPerFrame
 		pcm := float32ToFloat64OpusDemoF32(original[start:end])
 
-		packet, err := enc.Encode(pcm, frameSize)
+		packet, err := encodeTest(enc, pcm, frameSize)
 		if err != nil {
 			return result, fmt.Errorf("encode frame %d failed: %w", i, err)
 		}
@@ -429,7 +429,7 @@ func computeEncoderComplianceResult(mode encoder.Mode, bandwidth types.Bandwidth
 		const flushAttempts = 4
 		silence := make([]float64, samplesPerFrame)
 		for i := 0; i < flushAttempts && len(packets) < flushTargetFrames; i++ {
-			packet, err := enc.Encode(silence, frameSize)
+			packet, err := encodeTest(enc, silence, frameSize)
 			if err != nil {
 				return result, fmt.Errorf("flush frame %d failed: %w", len(packets), err)
 			}

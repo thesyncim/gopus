@@ -38,7 +38,7 @@ func encodeFramesForSignal(t *testing.T, enc *encoder.Encoder, signal []float32,
 	for i := 0; i < numFrames; i++ {
 		start := i * samplesPerFrame
 		end := start + samplesPerFrame
-		pkt, err := enc.Encode(float32ToFloat64(signal[start:end]), frameSize)
+		pkt, err := encodeTest(enc, float32ToFloat64(signal[start:end]), frameSize)
 		if err != nil {
 			t.Fatalf("encode frame %d: %v", i, err)
 		}
@@ -98,7 +98,7 @@ func TestEncoderModeSwitchStreamQuality(t *testing.T) {
 		for i := 0; i < numFrames; i++ {
 			start := i * samplesPerFrame
 			end := start + samplesPerFrame
-			pkt, err := enc.Encode(float32ToFloat64(segSig[start:end]), frameSize)
+			pkt, err := encodeTest(enc, float32ToFloat64(segSig[start:end]), frameSize)
 			if err != nil {
 				t.Fatalf("encode segment frame %d: %v", i, err)
 			}

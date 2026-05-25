@@ -56,7 +56,7 @@ func TestForcedHybridToCELTTransitionHoldsOneFrame(t *testing.T) {
 			enc.SetMode(ModeHybrid)
 
 			pcm := testToneFrame(frameSize)
-			pkt1, err := enc.Encode(pcm, frameSize)
+			pkt1, err := encodeTest(enc, pcm, frameSize)
 			if err != nil {
 				t.Fatalf("first encode: %v", err)
 			}
@@ -67,7 +67,7 @@ func TestForcedHybridToCELTTransitionHoldsOneFrame(t *testing.T) {
 			enc.SetBandwidth(types.BandwidthFullband)
 			enc.SetMode(ModeCELT)
 
-			pkt2, err := enc.Encode(pcm, frameSize)
+			pkt2, err := encodeTest(enc, pcm, frameSize)
 			if err != nil {
 				t.Fatalf("transition encode: %v", err)
 			}
@@ -75,7 +75,7 @@ func TestForcedHybridToCELTTransitionHoldsOneFrame(t *testing.T) {
 				t.Fatalf("transition packet mode=%v want=%v", got, ModeHybrid)
 			}
 
-			pkt3, err := enc.Encode(pcm, frameSize)
+			pkt3, err := encodeTest(enc, pcm, frameSize)
 			if err != nil {
 				t.Fatalf("post-transition encode: %v", err)
 			}

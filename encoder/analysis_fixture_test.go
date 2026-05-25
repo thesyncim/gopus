@@ -17,20 +17,20 @@ import (
 const analysisFixturePath = "testdata/libopus_analysis_fixture.json"
 
 type analysisFixtureFile struct {
-	Version    int                        `json:"version"`
-	SampleRate int                        `json:"sample_rate"`
-	Generator  string                     `json:"generator"`
+	Version    int                   `json:"version"`
+	SampleRate int                   `json:"sample_rate"`
+	Generator  string                `json:"generator"`
 	Cases      []analysisFixtureCase `json:"cases"`
 }
 
 type analysisFixtureCase struct {
-	Name         string                     `json:"name"`
-	Variant      string                     `json:"variant"`
-	FrameSize    int                        `json:"frame_size"`
-	Channels     int                        `json:"channels"`
-	Bitrate      int                        `json:"bitrate"`
-	SignalFrames int                        `json:"signal_frames"`
-	SignalSHA256 string                     `json:"signal_sha256"`
+	Name         string                `json:"name"`
+	Variant      string                `json:"variant"`
+	FrameSize    int                   `json:"frame_size"`
+	Channels     int                   `json:"channels"`
+	Bitrate      int                   `json:"bitrate"`
+	SignalFrames int                   `json:"signal_frames"`
+	SignalSHA256 string                `json:"signal_sha256"`
 	Frames       []analysisFixtureInfo `json:"frames"`
 }
 

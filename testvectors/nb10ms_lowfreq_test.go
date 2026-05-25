@@ -56,7 +56,7 @@ func TestNB10msLowFreqSine(t *testing.T) {
 					start := i * tc.frameSize * channels
 					end := start + tc.frameSize*channels
 					pcm := float32ToFloat64(signal[start:end])
-					pkt, err := enc.Encode(pcm, tc.frameSize)
+					pkt, err := encodeTest(enc, pcm, tc.frameSize)
 					if err != nil {
 						t.Fatalf("Encode frame %d: %v", i, err)
 					}

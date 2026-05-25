@@ -143,7 +143,7 @@ func TestAutoModePacketBudgetMatchesLibopus(t *testing.T) {
 			enc.SetFEC(false)
 			enc.SetDTX(false)
 
-			gotPacket, err := enc.EncodeWithAnalysisMaxBytes(pcm64, c.frameSize, pcm64, c.maxDataBytes)
+			gotPacket, err := encodeWithAnalysisMaxBytesTest(enc, pcm64, c.frameSize, pcm64, c.maxDataBytes)
 			if err != nil {
 				t.Fatalf("EncodeWithAnalysisMaxBytes: %v", err)
 			}

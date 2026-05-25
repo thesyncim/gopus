@@ -148,7 +148,7 @@ func TestEncodeCELTPacketCarriesQEXTPayload(t *testing.T) {
 		pcm[2*i+1] = 0.35 * math.Sin(phase+0.37)
 	}
 
-	packet, err := enc.Encode(pcm, 960)
+	packet, err := encodeTest(enc, pcm, 960)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -193,7 +193,7 @@ func TestEncodeLongCELTPacketCarriesQEXTPayloads(t *testing.T) {
 		pcm[2*i+1] = 0.35 * math.Sin(phase+0.37)
 	}
 
-	packet, err := enc.Encode(pcm, frameSize)
+	packet, err := encodeTest(enc, pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestEncodeCELTPacketCarriesQEXTPayloadLibopusDecode(t *testing.T) {
 				}
 			}
 
-			packet, err := enc.Encode(pcm, 960)
+			packet, err := encodeTest(enc, pcm, 960)
 			if err != nil {
 				t.Fatalf("Encode: %v", err)
 			}
@@ -336,7 +336,7 @@ func TestEncodeCELTPacketQEXTSizeTracksLibopus(t *testing.T) {
 				}
 			}
 
-			packet, err := enc.Encode(pcm64, 960)
+			packet, err := encodeTest(enc, pcm64, 960)
 			if err != nil {
 				t.Fatalf("Encode: %v", err)
 			}
