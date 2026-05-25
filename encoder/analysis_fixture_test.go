@@ -159,7 +159,7 @@ func TestAnalysisFixtureParityWithLibopus(t *testing.T) {
 				mismatch = mismatch || absf(info.MusicProbMin-want.MusicProbMin) > musicBoundTol
 				mismatch = mismatch || absf(info.MusicProbMax-want.MusicProbMax) > musicBoundTol
 				mismatch = mismatch || absf(info.MaxPitchRatio-want.MaxPitchRatio) > pitchRatioTol
-				mismatch = mismatch || (info.BandwidthIndex != want.Bandwidth)
+				mismatch = mismatch || (int(info.BandwidthIndex) != want.Bandwidth)
 
 				wantLeak, err := base64.StdEncoding.DecodeString(want.LeakBoostB64)
 				if err != nil {

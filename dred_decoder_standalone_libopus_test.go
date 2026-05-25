@@ -192,7 +192,7 @@ func TestStandaloneDREDParseMatchesLibopus(t *testing.T) {
 			if dred.RawProcessStage() != decodeWant.processStage {
 				t.Fatalf("RawProcessStage()=%d want %d", dred.RawProcessStage(), decodeWant.processStage)
 			}
-			if got := dred.Parsed().Header.DredOffset; got != decodeWant.dredOffset {
+			if got := dred.Parsed().Header.DredOffset; got != int32(decodeWant.dredOffset) {
 				t.Fatalf("Parsed().Header.DredOffset=%d want %d", got, decodeWant.dredOffset)
 			}
 			if got := dred.LatentCount(); got != decodeWant.nbLatents {

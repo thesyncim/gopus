@@ -171,8 +171,8 @@ type Encoder struct {
 	lastAnalysisInfo    AnalysisInfo
 	lastAnalysisValid   bool
 	lastAnalysisFresh   bool
-	analysisReadPosBak  int
-	analysisSubframeBak int
+	analysisReadPosBak  int32
+	analysisSubframeBak int32
 	analysisReadBakSet  bool
 	celtForceIntra      bool
 	prevMode            Mode
@@ -904,7 +904,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		if plan, ok := e.computeDREDEmissionPlan(frameSize); ok {
 			dredPlan = plan
 			dredPlanOK = true
-			dredBitrate = dredPlan.bitrate
+			dredBitrate = int(dredPlan.bitrate)
 			// Reserve DRED bytes from the primary encoder's bitrate budget.
 			// libopus opus_encoder.c (line 1338) reduces st->bitrate_bps by
 			// dred_bitrate_bps before passing it to all three primary modes
@@ -1404,7 +1404,7 @@ func (e *Encoder) syncCELTAnalysisToCELT() {
 		return
 	}
 	e.celtEncoder.SetAnalysisInfoWithTonality(
-		e.lastAnalysisInfo.BandwidthIndex,
+		int(e.lastAnalysisInfo.BandwidthIndex),
 		e.lastAnalysisInfo.LeakBoost,
 		e.lastAnalysisInfo.Activity,
 		e.lastAnalysisInfo.Tonality,

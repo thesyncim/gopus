@@ -10,7 +10,7 @@ import (
 type dredEncoderExtras struct{}
 
 type dredEmissionPlan struct {
-	bitrate int
+	bitrate int32
 }
 
 func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {

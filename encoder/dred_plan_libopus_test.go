@@ -118,14 +118,14 @@ func TestDREDMaxChunksOnlyCapsVBR(t *testing.T) {
 		t.Fatalf("targetChunks=%d want 2", plan.targetChunks)
 	}
 
-	if got := maxDREDChunks(enc.dred.duration, plan.targetChunks, true); got != 2 {
+	if got := maxDREDChunks(int(enc.dred.duration), int(plan.targetChunks), true); got != 2 {
 		t.Fatalf("VBR maxDREDChunks()=%d want 2", got)
 	}
-	wantCBRChunks := (enc.dred.duration + 5) / 4
+	wantCBRChunks := int((enc.dred.duration + 5) / 4)
 	if wantCBRChunks > internaldred.NumRedundancyFrames/2 {
 		wantCBRChunks = internaldred.NumRedundancyFrames / 2
 	}
-	if got := maxDREDChunks(enc.dred.duration, plan.targetChunks, false); got != wantCBRChunks {
+	if got := maxDREDChunks(int(enc.dred.duration), int(plan.targetChunks), false); got != wantCBRChunks {
 		t.Fatalf("CBR maxDREDChunks()=%d want %d", got, wantCBRChunks)
 	}
 }
@@ -133,11 +133,11 @@ func TestDREDMaxChunksOnlyCapsVBR(t *testing.T) {
 func newDREDPlanTestEncoder(sampleRate, bitrate, packetLoss, duration int) *Encoder {
 	return &Encoder{
 		sampleRate: sampleRate,
-		bitrate:    bitrate,
-		packetLoss: packetLoss,
+		bitrate:    int32(bitrate),
+		packetLoss: int32(packetLoss),
 		encoderDREDFields: encoderDREDFields{
 			dred: &dredEncoderExtras{
-				duration: duration,
+				duration: int32(duration),
 				models: dredEncoderModels{
 					encoder: &rdovae.EncoderModel{},
 					pitch:   &lpcnetplc.PitchDNNModel{},
@@ -203,11 +203,11 @@ func libopusDREDPlan(sampleRate, frameSize, bitrate, packetLoss, duration int, f
 		return dredEmissionPlan{}, false
 	}
 	return dredEmissionPlan{
-		q0:           q0,
-		dQ:           dQ,
-		qmax:         qmax,
-		targetChunks: targetChunks,
-		bitrate:      dredBitrate,
+		q0:           int32(q0),
+		dQ:           int32(dQ),
+		qmax:         int32(qmax),
+		targetChunks: int32(targetChunks),
+		bitrate:      int32(dredBitrate),
 	}, true
 }
 

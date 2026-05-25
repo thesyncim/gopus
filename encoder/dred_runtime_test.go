@@ -315,7 +315,7 @@ func TestEncoderProcessDREDLatentsSupportsRateConversion(t *testing.T) {
 			if enc.dred == nil || enc.dred.runtime == nil {
 				t.Fatal("DRED runtime did not materialize on supported sample-rate conversion path")
 			}
-			if enc.dred.runtime.emitted != tc.wantEmitted {
+			if enc.dred.runtime.emitted != int32(tc.wantEmitted) {
 				t.Fatalf("runtime emitted=%d want %d", enc.dred.runtime.emitted, tc.wantEmitted)
 			}
 		})

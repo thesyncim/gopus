@@ -145,19 +145,19 @@ func encodeDREDLatents(enc *rangecoding.Encoder, x []float32, scale, dzone, rTab
 // DRED history window. dst must not include the temporary experimental prefix.
 // It returns the encoded payload length in bytes, or 0 when libopus would
 // suppress DRED emission for the provided window.
-func EncodePayload(dst []byte, maxChunks, q0, dQ, qmax int, stateBuffer, latentsBuffer []float32, latentsFill, dredOffset, latentOffset int, lastExtraDREDOffset *int, activity []byte) int {
+func EncodePayload(dst []byte, maxChunks, q0, dQ, qmax int32, stateBuffer, latentsBuffer []float32, latentsFill, dredOffset, latentOffset int32, lastExtraDREDOffset *int32, activity []byte) int {
 	if len(dst) == 0 || latentsFill <= 0 {
 		return 0
 	}
 
-	extraDREDOffset := 0
+	extraDREDOffset := int32(0)
 	delayedDRED := false
 	if len(activity) > 0 && activity[0] != 0 && lastExtraDREDOffset != nil && *lastExtraDREDOffset > 0 {
 		latentOffset = *lastExtraDREDOffset
 		delayedDRED = true
 		*lastExtraDREDOffset = 0
 	}
-	for latentOffset < latentsFill && !dredVoiceActive(activity, latentOffset) {
+	for latentOffset < latentsFill && !dredVoiceActive(activity, int(latentOffset)) {
 		latentOffset++
 		extraDREDOffset++
 	}
@@ -165,7 +165,7 @@ func EncodePayload(dst []byte, maxChunks, q0, dQ, qmax int, stateBuffer, latents
 		*lastExtraDREDOffset = extraDREDOffset
 	}
 
-	stateIndex := latentOffset * StateDim
+	stateIndex := int(latentOffset) * StateDim
 	if stateIndex < 0 || stateIndex+StateDim > len(stateBuffer) {
 		return 0
 	}
@@ -200,7 +200,7 @@ func EncodePayload(dst []byte, maxChunks, q0, dQ, qmax int, stateBuffer, latents
 	}
 
 	var latentScratch dredLatentEncodeScratch
-	stateOffset := q0 * StateDim
+	stateOffset := int(q0) * StateDim
 	encodeDREDLatents(
 		&enc,
 		stateBuffer[stateIndex:stateIndex+StateDim],
@@ -217,15 +217,15 @@ func EncodePayload(dst []byte, maxChunks, q0, dQ, qmax int, stateBuffer, latents
 	backup := enc
 	dredEncoded := 0
 	prevActive := false
-	limit := minInt(2*maxChunks, latentsFill-latentOffset-1)
+	limit := minInt(int(2*maxChunks), int(latentsFill-latentOffset-1))
 	header := Header{Q0: q0, DQ: dQ, QMax: qmax}
 	for i := 0; i < limit; i += 2 {
 		quant := header.QuantizerLevel(i / 2)
-		latentIndex := (i + latentOffset) * LatentDim
+		latentIndex := (i + int(latentOffset)) * LatentDim
 		if latentIndex < 0 || latentIndex+LatentDim > len(latentsBuffer) {
 			return 0
 		}
-		offset := quant * LatentDim
+		offset := int(quant) * LatentDim
 		encodeDREDLatents(
 			&enc,
 			latentsBuffer[latentIndex:latentIndex+LatentDim],
@@ -241,7 +241,7 @@ func EncodePayload(dst []byte, maxChunks, q0, dQ, qmax int, stateBuffer, latents
 			}
 			break
 		}
-		active := dredVoiceActive(activity, i+latentOffset)
+		active := dredVoiceActive(activity, i+int(latentOffset))
 		if active || prevActive {
 			backup = enc
 			dredEncoded = i + 2
@@ -261,7 +261,7 @@ func EncodePayload(dst []byte, maxChunks, q0, dQ, qmax int, stateBuffer, latents
 
 // EncodeExperimentalPayload mirrors the current libopus temporary DRED payload
 // framing by prepending the experimental header in front of EncodePayload().
-func EncodeExperimentalPayload(dst []byte, maxChunks, q0, dQ, qmax int, stateBuffer, latentsBuffer []float32, latentsFill, dredOffset, latentOffset int, lastExtraDREDOffset *int, activity []byte) int {
+func EncodeExperimentalPayload(dst []byte, maxChunks, q0, dQ, qmax int32, stateBuffer, latentsBuffer []float32, latentsFill, dredOffset, latentOffset int32, lastExtraDREDOffset *int32, activity []byte) int {
 	if len(dst) <= ExperimentalHeaderBytes {
 		return 0
 	}

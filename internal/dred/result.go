@@ -33,7 +33,7 @@ func (r Result) FillQuantizerLevels(dst []int32) int {
 		n = len(dst)
 	}
 	for i := 0; i < n; i++ {
-		dst[i] = int32(r.Parsed.Header.QuantizerLevel(i))
+		dst[i] = r.Parsed.Header.QuantizerLevel(i)
 	}
 	return n
 }

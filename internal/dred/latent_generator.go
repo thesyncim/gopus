@@ -63,7 +63,7 @@ func (g *LatentGenerator) Reset() {
 }
 
 // DREDOffset reports the current libopus-shaped DRED offset in 2.5 ms units.
-func (g *LatentGenerator) DREDOffset() int {
+func (g *LatentGenerator) DREDOffset() int32 {
 	if g == nil {
 		return 0
 	}
@@ -71,7 +71,7 @@ func (g *LatentGenerator) DREDOffset() int {
 }
 
 // LatentOffset reports the current libopus-shaped latent offset.
-func (g *LatentGenerator) LatentOffset() int {
+func (g *LatentGenerator) LatentOffset() int32 {
 	if g == nil {
 		return 0
 	}
@@ -82,7 +82,7 @@ func (g *LatentGenerator) LatentOffset() int {
 // 16 kHz mono d-frame path. The callback, when non-nil, is invoked once per
 // emitted latent/state pair with slices that alias internal storage and remain
 // valid only until the callback returns.
-func (g *LatentGenerator) Process16k(model *rdovae.EncoderModel, pcm []float32, extraDelay int, emit func(latents, initialState []float32)) int {
+func (g *LatentGenerator) Process16k(model *rdovae.EncoderModel, pcm []float32, extraDelay int32, emit func(latents, initialState []float32)) int {
 	if g == nil || model == nil || !g.Loaded() {
 		return 0
 	}

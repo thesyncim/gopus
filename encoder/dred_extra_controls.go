@@ -26,7 +26,7 @@ func (e *Encoder) SetDREDDuration(duration int) error {
 		e.ensureExtensionPacketScratch()
 	}
 	extra := e.ensureDREDExtras()
-	extra.duration = duration
+	extra.duration = int32(duration)
 	if duration == 0 {
 		e.pruneDREDExtrasIfDormant()
 	}
@@ -38,5 +38,5 @@ func (e *Encoder) DREDDuration() int {
 	if e.dred == nil {
 		return 0
 	}
-	return e.dred.duration
+	return int(e.dred.duration)
 }

@@ -47,7 +47,7 @@ func (h Header) FillQuantizerLevels(dst []int32, maxDredSamples, sampleRate int)
 		n = len(dst)
 	}
 	for i := 0; i < n; i++ {
-		dst[i] = int32(h.QuantizerLevel(i))
+		dst[i] = h.QuantizerLevel(i)
 	}
 	return n
 }

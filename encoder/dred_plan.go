@@ -14,11 +14,11 @@ import (
 var dredBitsTable = [...]float32{73.2, 68.1, 62.5, 57.0, 51.5, 45.7, 39.9, 32.4, 26.4, 20.4, 16.3, 13.0, 9.3, 8.2, 7.2, 6.4}
 
 type dredEmissionPlan struct {
-	q0           int
-	dQ           int
-	qmax         int
-	targetChunks int
-	bitrate      int
+	q0           int32
+	dQ           int32
+	qmax         int32
+	targetChunks int32
+	bitrate      int32
 }
 
 func minFloat32(a, b float32) float32 {
@@ -59,7 +59,7 @@ func estimateDREDBits(q0, dQ, qmax, duration, targetBits int) (int, int) {
 		dredChunks = internaldred.NumRedundancyFrames / 2
 	}
 	targetChunks := 0
-	header := internaldred.Header{Q0: q0, DQ: dQ, QMax: qmax}
+	header := internaldred.Header{Q0: int32(q0), DQ: int32(dQ), QMax: int32(qmax)}
 	for i := 0; i < dredChunks; i++ {
 		q := header.QuantizerLevel(i)
 		bitsUsed += dredBitsTable[q]
@@ -84,7 +84,7 @@ func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool
 	}
 
 	var dredFrac float32
-	bitrateOffset := 12000
+	bitrateOffset := int32(12000)
 	if e.fecEnabled {
 		dredFrac = minFloat32(0.7, 3.0*float32(packetLoss)/100.0)
 		bitrateOffset = 20000
@@ -117,7 +117,7 @@ func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool
 	if targetDREDBitrate < 0 {
 		targetDREDBitrate = 0
 	}
-	maxBits, targetChunks := estimateDREDBits(q0, dQ, qmax, e.dred.duration, dredBitrateToBits(targetDREDBitrate, e.sampleRate, frameSize))
+	maxBits, targetChunks := estimateDREDBits(q0, dQ, qmax, int(e.dred.duration), dredBitrateToBits(targetDREDBitrate, e.sampleRate, frameSize))
 	if targetChunks < 2 {
 		return dredEmissionPlan{}, false
 	}
@@ -129,11 +129,11 @@ func (e *Encoder) computeDREDEmissionPlan(frameSize int) (dredEmissionPlan, bool
 		return dredEmissionPlan{}, false
 	}
 	return dredEmissionPlan{
-		q0:           q0,
-		dQ:           dQ,
-		qmax:         qmax,
-		targetChunks: targetChunks,
-		bitrate:      dredBitrate,
+		q0:           int32(q0),
+		dQ:           int32(dQ),
+		qmax:         int32(qmax),
+		targetChunks: int32(targetChunks),
+		bitrate:      int32(dredBitrate),
 	}, true
 }
 
@@ -168,7 +168,7 @@ func packetExtensionPaddingAmount(extID, extDataLen int) int {
 	return extLen + (extLen+253)/254
 }
 
-func (e *Encoder) previewDREDExperimentalPayloadLength(maxChunks, q0, dQ, qmax int) int {
+func (e *Encoder) previewDREDExperimentalPayloadLength(maxChunks, q0, dQ, qmax int32) int {
 	if !extsupport.DREDRuntime {
 		return 0
 	}
@@ -198,8 +198,8 @@ func (e *Encoder) previewDREDPacketExtensionPadding(frameSize int) int {
 	if !ok {
 		return 0
 	}
-	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks, e.bitrateMode != ModeCBR)
-	payloadLen := e.previewDREDExperimentalPayloadLength(maxChunks, plan.q0, plan.dQ, plan.qmax)
+	maxChunks := maxDREDChunks(int(e.dred.duration), int(plan.targetChunks), e.bitrateMode != ModeCBR)
+	payloadLen := e.previewDREDExperimentalPayloadLength(int32(maxChunks), plan.q0, plan.dQ, plan.qmax)
 	return packetExtensionPaddingAmount(internaldred.ExtensionID, payloadLen)
 }
 
@@ -207,11 +207,11 @@ func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan d
 	if !extsupport.DREDRuntime || e.dred == nil || e.dred.duration <= 0 || plan.targetChunks < 1 {
 		return 0
 	}
-	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks, e.bitrateMode != ModeCBR)
+	maxChunks := maxDREDChunks(int(e.dred.duration), int(plan.targetChunks), e.bitrateMode != ModeCBR)
 	if maxChunks < 1 {
 		return 0
 	}
-	payloadLen := e.previewDREDExperimentalPayloadLength(maxChunks, plan.q0, plan.dQ, plan.qmax)
+	payloadLen := e.previewDREDExperimentalPayloadLength(int32(maxChunks), plan.q0, plan.dQ, plan.qmax)
 	if payloadLen == 0 {
 		return 0
 	}
@@ -247,7 +247,7 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 		return nil, false, nil
 	}
 
-	targetSize := targetBytesForBitrate(e.bitrate, frameSize)
+	targetSize := targetBytesForBitrate(int(e.bitrate), frameSize)
 	baseLen := 1 + len(frameData)
 	withPadding := e.bitrateMode == ModeCBR
 	// In CBR we must fit DRED within the bitrate-based target; in VBR/CVBR the
@@ -280,12 +280,12 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 		return nil, false, nil
 	}
 
-	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks, e.bitrateMode != ModeCBR)
+	maxChunks := maxDREDChunks(int(e.dred.duration), int(plan.targetChunks), e.bitrateMode != ModeCBR)
 	if maxChunks < 1 {
 		return nil, false, nil
 	}
 
-	n := e.buildDREDExperimentalPayload(runtime.payload[:dredBytesLeft], maxChunks, plan.q0, plan.dQ, plan.qmax)
+	n := e.buildDREDExperimentalPayload(runtime.payload[:dredBytesLeft], int32(maxChunks), plan.q0, plan.dQ, plan.qmax)
 	if n == 0 {
 		return nil, false, nil
 	}
@@ -324,7 +324,7 @@ func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mod
 		return nil, false, nil
 	}
 
-	targetSize := targetBytesForBitrate(e.bitrate, packetFrameSize)
+	targetSize := targetBytesForBitrate(int(e.bitrate), packetFrameSize)
 	baseLen := 2
 	if vbr {
 		for i := 0; i < len(frames)-1; i++ {
@@ -374,12 +374,12 @@ func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mod
 		}()
 	}
 
-	maxChunks := maxDREDChunks(e.dred.duration, plan.targetChunks, e.bitrateMode != ModeCBR)
+	maxChunks := maxDREDChunks(int(e.dred.duration), int(plan.targetChunks), e.bitrateMode != ModeCBR)
 	if maxChunks < 1 {
 		return nil, false, nil
 	}
 
-	n := e.buildDREDExperimentalPayloadForPacket(runtime.payload[:dredBytesLeft], maxChunks, plan.q0, plan.dQ, plan.qmax)
+	n := e.buildDREDExperimentalPayloadForPacket(runtime.payload[:dredBytesLeft], int32(maxChunks), plan.q0, plan.dQ, plan.qmax)
 	if n == 0 {
 		return nil, false, nil
 	}

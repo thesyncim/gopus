@@ -140,7 +140,7 @@ func (d *streamState) runOSCELACEChannel(native []int16, mode streamOSCELACEMode
 			fc.GainsQ16[sf] = ctrl.GainsQ16[sf]
 			fc.PitchL[sf] = ctrl.PitchL[sf]
 		}
-		fc.SignalType = ctrl.SignalType
+		fc.SignalType = int32(ctrl.SignalType)
 		numBits := ctrl.NumBits
 		if numBits < 0 {
 			numBits = 0

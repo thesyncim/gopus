@@ -42,7 +42,7 @@ func TestEncodeExperimentalPayloadHasExpectedHeader(t *testing.T) {
 	}
 
 	var payload [MaxDataSize]byte
-	lastExtra := 0
+	lastExtra := int32(0)
 	n := EncodeExperimentalPayload(payload[:], 2, 6, 3, 15, state[:], latents[:], 4, 12, 0, &lastExtra, activity[:])
 	if n <= ExperimentalHeaderBytes {
 		t.Fatalf("EncodeExperimentalPayload()=%d want > %d", n, ExperimentalHeaderBytes)
@@ -114,7 +114,7 @@ func TestEncodeExperimentalPayloadDoesNotAllocate(t *testing.T) {
 	var latents [MaxFrames * LatentDim]float32
 	var activity [ActivityHistorySize]byte
 	var payload [MaxDataSize]byte
-	lastExtra := 0
+	lastExtra := int32(0)
 
 	for i := 0; i < StateDim; i++ {
 		state[i] = 0.02 * float32((i%5)-2)

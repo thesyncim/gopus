@@ -152,7 +152,7 @@ func analysisBandEnergyLegacy(
 			bandwidth = b + 1
 		}
 		maskThresh := float32(0.05)
-		if s.PrevBandwidth >= b+1 {
+		if int(s.PrevBandwidth) >= b+1 {
 			maskThresh = 0.01
 		}
 		masked[b] = E < maskThresh*bandwidthMask
@@ -257,7 +257,7 @@ func analysisBandEnergyCurrent(
 			bandwidth = b + 1
 		}
 		maskThresh := float32(0.05)
-		if s.PrevBandwidth >= b+1 {
+		if int(s.PrevBandwidth) >= b+1 {
 			maskThresh = 0.01
 		}
 		masked[b] = E < maskThresh*bandwidthMask

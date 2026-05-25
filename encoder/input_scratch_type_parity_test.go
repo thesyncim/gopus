@@ -63,6 +63,20 @@ func TestOpusInputScratchFieldWidthsMatchFloatBuild(t *testing.T) {
 	checkFieldsHaveType(t, reflect.TypeOf(fecState{}), int32Type,
 		"frameCount",
 	)
+	checkFieldsHaveType(t, reflect.TypeOf(TonalityAnalysisState{}), int32Type,
+		"LSBDepth",
+		"MemFill",
+		"PrevBandwidth",
+		"ECount",
+		"Count",
+		"AnalysisOffset",
+		"WritePos",
+		"ReadPos",
+		"ReadSubframe",
+	)
+	checkFieldsHaveType(t, reflect.TypeOf(AnalysisInfo{}), int32Type,
+		"BandwidthIndex",
+	)
 }
 
 func checkFieldsHaveType(t *testing.T, owner reflect.Type, want reflect.Type, names ...string) {

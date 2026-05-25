@@ -441,7 +441,7 @@ type AnalysisInfo struct {
 	MusicProbMax     float32
 	VADProb          float32
 	Loudness         float32
-	BandwidthIndex   int
+	BandwidthIndex   int32
 	Bandwidth        types.Bandwidth
 	Activity         float32
 	MaxPitchRatio    float32
@@ -450,15 +450,15 @@ type AnalysisInfo struct {
 
 type TonalityAnalysisState struct {
 	Fs               int32
-	LSBDepth         int
+	LSBDepth         int32
 	Angle            [240]float32
 	DAngle           [240]float32
 	D2Angle          [240]float32
 	InMem            [AnalysisBufSize]float32
-	MemFill          int
+	MemFill          int32
 	PrevBandTonality [NbTBands]float32
 	PrevTonality     float32
-	PrevBandwidth    int
+	PrevBandwidth    int32
 	E                [NbFrames][NbTBands]float32
 	SqrtE            [NbFrames][NbTBands]float32
 	LogE             [NbFrames][NbTBands]float32
@@ -470,12 +470,12 @@ type TonalityAnalysisState struct {
 	Std              [9]float32
 	ETracker         float32
 	LowECount        float32
-	ECount           int
-	Count            int
-	AnalysisOffset   int
-	WritePos         int
-	ReadPos          int
-	ReadSubframe     int
+	ECount           int32
+	Count            int32
+	AnalysisOffset   int32
+	WritePos         int32
+	ReadPos          int32
+	ReadSubframe     int32
 	HPEnerAccum      float32
 	Initialized      bool
 	RNNState         [MaxNeurons]float32
@@ -534,7 +534,7 @@ func (s *TonalityAnalysisState) SetLSBDepth(depth int) {
 	if depth > 24 {
 		depth = 24
 	}
-	s.LSBDepth = depth
+	s.LSBDepth = int32(depth)
 }
 
 // fft480 computes a 480-point complex forward FFT using the shared CELT KISS FFT.
@@ -610,9 +610,10 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		s.MemFill = 240
 		s.Initialized = true
 	}
-	alpha := float32(1.0 / float32(min(10, 1+s.Count)))
-	alphaE := float32(1.0 / float32(min(25, 1+s.Count)))
-	alphaE2 := float32(1.0 / float32(min(100, 1+s.Count)))
+	count := int(s.Count)
+	alpha := float32(1.0 / float32(min(10, 1+count)))
+	alphaE := float32(1.0 / float32(min(25, 1+count)))
+	alphaE2 := float32(1.0 / float32(min(100, 1+count)))
 	if s.Count <= 1 {
 		alphaE2 = 1.0
 	}
@@ -646,7 +647,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		firstCopy   int
 		hpEner      float32
 	)
-	oldMemFill := s.MemFill
+	oldMemFill := int(s.MemFill)
 	space := AnalysisBufSize - oldMemFill
 	if space < 0 {
 		space = 0
@@ -718,12 +719,12 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	}
 
 	if oldMemFill+analysisLen < AnalysisBufSize {
-		s.MemFill = oldMemFill + analysisLen
+		s.MemFill = int32(oldMemFill + analysisLen)
 		return
 	}
 
 	hpEner = s.HPEnerAccum
-	infoPos := s.WritePos
+	infoPos := int(s.WritePos)
 	nextWritePos := infoPos + 1
 	if nextWritePos >= DetectSize {
 		nextWritePos = 0
@@ -801,14 +802,14 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			s.HPEnerAccum = 0
 		}
 	}
-	s.MemFill = 240 + remaining
+	s.MemFill = int32(240 + remaining)
 	if isSilence {
 		prevPos := infoPos - 1
 		if prevPos < 0 {
 			prevPos = DetectSize - 1
 		}
 		s.Info[infoPos] = s.Info[prevPos]
-		s.WritePos = nextWritePos
+		s.WritePos = int32(nextWritePos)
 		return
 	}
 
@@ -819,7 +820,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	outBuf := s.scratchFFTOut[:]
 	if math.Float32bits(real(outBuf[0]))&0x7fffffff > 0x7f800000 {
 		s.Info[infoPos].Valid = false
-		s.WritePos = nextWritePos
+		s.WritePos = int32(nextWritePos)
 		return
 	}
 
@@ -955,7 +956,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	bandwidthMask := float32(0)
 	bandwidth := 0
 	maxE := float32(0)
-	lsbDepth := s.LSBDepth
+	lsbDepth := int(s.LSBDepth)
 	if lsbDepth < 8 {
 		lsbDepth = 8
 	}
@@ -1022,12 +1023,13 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		}
 		bandERaw[b] = rawE
 
-		s.E[s.ECount][b] = bandE
+		eCount := int(s.ECount)
+		s.E[eCount][b] = bandE
 		logBandE := opusmath.LogF32(bandE + 1e-10)
 		logE[b] = logBandE
 		bandLog2[b+1] = log2Scale * logBandE
-		s.LogE[s.ECount][b] = logE[b]
-		s.SqrtE[s.ECount][b] = opusmath.SqrtF32(bandE)
+		s.LogE[eCount][b] = logE[b]
+		s.SqrtE[eCount][b] = opusmath.SqrtF32(bandE)
 
 		frameNoisiness += nE / (1e-15 + bandE)
 		frameLoudness += opusmath.SqrtF32(bandE + 1e-10)
@@ -1104,7 +1106,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 			bandwidth = b + 1
 		}
 		maskThresh := float32(0.05)
-		if s.PrevBandwidth >= b+1 {
+		if int(s.PrevBandwidth) >= b+1 {
 			maskThresh = 0.01
 		}
 		masked[b] = E < maskThresh*bandwidthMask
@@ -1173,8 +1175,8 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	s.PrevTonality = frameTonality
 	slope /= 64.0
 
-	s.ECount = (s.ECount + 1) % NbFrames
-	s.Count = min(s.Count+1, 10000)
+	s.ECount = (s.ECount + 1) % int32(NbFrames)
+	s.Count = int32(min(int(s.Count+1), 10000))
 
 	info := &s.Info[infoPos]
 	info.Valid = true
@@ -1184,7 +1186,7 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 	info.StationarySpeech = frameStationarity
 	info.Activity = activity
 	info.MaxPitchRatio = maxPitchRatio
-	info.BandwidthIndex = bandwidth
+	info.BandwidthIndex = int32(bandwidth)
 	info.Bandwidth = bandwidthTypeFromIndex(bandwidth)
 	info.Loudness = frameLoudness
 
@@ -1248,8 +1250,8 @@ func (s *TonalityAnalysisState) tonalityAnalysis(pcm []float32, channels int) {
 		}
 		info.LeakBoost[b] = uint8(q6)
 	}
-	s.PrevBandwidth = bandwidth
-	s.WritePos = nextWritePos
+	s.PrevBandwidth = int32(bandwidth)
+	s.WritePos = int32(nextWritePos)
 }
 
 func bandwidthTypeFromIndex(bandwidth int) types.Bandwidth {
@@ -1286,8 +1288,9 @@ func minf(a, b float32) float32 {
 func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 	out := AnalysisInfo{}
 
-	pos := s.ReadPos
-	currLookahead := s.WritePos - s.ReadPos
+	pos := int(s.ReadPos)
+	writePos := int(s.WritePos)
+	currLookahead := writePos - pos
 	if currLookahead < 0 {
 		currLookahead += DetectSize
 	}
@@ -1296,7 +1299,7 @@ func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 	if subframe <= 0 {
 		subframe = 1
 	}
-	s.ReadSubframe += frameSize / subframe
+	s.ReadSubframe += int32(frameSize / subframe)
 	for s.ReadSubframe >= 8 {
 		s.ReadSubframe -= 8
 		s.ReadPos++
@@ -1306,13 +1309,14 @@ func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 	}
 
 	// On long frames, inspect the second analysis window.
-	if frameSize > int(s.Fs)/50 && pos != s.WritePos {
+	writePos = int(s.WritePos)
+	if frameSize > int(s.Fs)/50 && pos != writePos {
 		pos++
 		if pos == DetectSize {
 			pos = 0
 		}
 	}
-	if pos == s.WritePos {
+	if pos == writePos {
 		pos--
 	}
 	if pos < 0 {
@@ -1336,7 +1340,7 @@ func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 		if pos == DetectSize {
 			pos = 0
 		}
-		if pos == s.WritePos {
+		if pos == int(s.WritePos) {
 			break
 		}
 		if s.Info[pos].Tonality > tonalityMax {
@@ -1357,14 +1361,14 @@ func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 		if pos < 0 {
 			pos = DetectSize - 1
 		}
-		if pos == s.WritePos {
+		if pos == int(s.WritePos) {
 			break
 		}
 		if s.Info[pos].BandwidthIndex > out.BandwidthIndex {
 			out.BandwidthIndex = s.Info[pos].BandwidthIndex
 		}
 	}
-	out.Bandwidth = bandwidthTypeFromIndex(out.BandwidthIndex)
+	out.Bandwidth = bandwidthTypeFromIndex(int(out.BandwidthIndex))
 
 	tonalityMean := tonalityAvg / float32(tonalityCount)
 	out.Tonality = maxf(tonalityMean, tonalityMax-0.2)
@@ -1395,14 +1399,14 @@ func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 		if mpos == DetectSize {
 			mpos = 0
 		}
-		if mpos == s.WritePos {
+		if mpos == int(s.WritePos) {
 			break
 		}
 		vpos++
 		if vpos == DetectSize {
 			vpos = 0
 		}
-		if vpos == s.WritePos {
+		if vpos == int(s.WritePos) {
 			break
 		}
 
@@ -1433,7 +1437,7 @@ func (s *TonalityAnalysisState) tonalityGetInfo(frameSize int) AnalysisInfo {
 		pmin := probMin
 		pmax := probMax
 		pos = pos0
-		history := s.Count - 1
+		history := int(s.Count - 1)
 		if history > 15 {
 			history = 15
 		}
@@ -1478,8 +1482,8 @@ func (s *TonalityAnalysisState) RunAnalysis(pcm []float32, frameSize int, channe
 	}
 
 	if analysisFrameSize > 0 {
-		pcmLen := analysisFrameSize - s.AnalysisOffset
-		offset := s.AnalysisOffset
+		pcmLen := analysisFrameSize - int(s.AnalysisOffset)
+		offset := int(s.AnalysisOffset)
 		chunkSize := int(s.Fs) / 50
 		if chunkSize <= 0 {
 			chunkSize = analysisFrameSize
@@ -1522,13 +1526,13 @@ func (s *TonalityAnalysisState) RunAnalysis(pcm []float32, frameSize int, channe
 			pcmLen -= chunkSize
 		}
 
-		s.AnalysisOffset = analysisFrameSize - frameSize
+		s.AnalysisOffset = int32(analysisFrameSize - frameSize)
 	}
 
 	return s.tonalityGetInfo(frameSize)
 }
 
 func (s *TonalityAnalysisState) GetInfo() AnalysisInfo {
-	readPos := (s.WritePos + DetectSize - 1) % DetectSize
+	readPos := int((s.WritePos + int32(DetectSize) - 1) % int32(DetectSize))
 	return s.Info[readPos]
 }

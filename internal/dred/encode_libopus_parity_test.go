@@ -38,7 +38,7 @@ func TestEncodeExperimentalPayloadMatchesLibopus(t *testing.T) {
 	}
 
 	var payload [MaxDataSize]byte
-	lastExtra := 0
+	lastExtra := int32(0)
 	n := EncodeExperimentalPayload(payload[:], maxChunks, q0, dQ, qmax, state[:], latents[:], latentsFill, dredOffset, latentOff, &lastExtra, activity[:])
 	if n != ExperimentalHeaderBytes+len(want.Payload) {
 		t.Fatalf("EncodeExperimentalPayload()=%d want %d", n, ExperimentalHeaderBytes+len(want.Payload))
@@ -46,7 +46,7 @@ func TestEncodeExperimentalPayloadMatchesLibopus(t *testing.T) {
 	if !bytes.Equal(payload[ExperimentalHeaderBytes:n], want.Payload) {
 		t.Fatalf("payload mismatch\ngot=%x\nwant=%x", payload[ExperimentalHeaderBytes:n], want.Payload)
 	}
-	if lastExtra != want.LastExtraDREDOffset {
+	if int(lastExtra) != want.LastExtraDREDOffset {
 		t.Fatalf("lastExtraDREDOffset=%d want %d", lastExtra, want.LastExtraDREDOffset)
 	}
 }
@@ -89,7 +89,7 @@ func TestEncodeExperimentalPayloadMatchesLibopusDelayedOffset(t *testing.T) {
 	}
 
 	var payload [MaxDataSize]byte
-	lastExtra := lastExtraIn
+	lastExtra := int32(lastExtraIn)
 	n := EncodeExperimentalPayload(payload[:], maxChunks, q0, dQ, qmax, state[:], latents[:], latentsFill, dredOffset, latentOff, &lastExtra, activity[:])
 	if n != ExperimentalHeaderBytes+len(want.Payload) {
 		t.Fatalf("EncodeExperimentalPayload()=%d want %d", n, ExperimentalHeaderBytes+len(want.Payload))
@@ -97,7 +97,7 @@ func TestEncodeExperimentalPayloadMatchesLibopusDelayedOffset(t *testing.T) {
 	if !bytes.Equal(payload[ExperimentalHeaderBytes:n], want.Payload) {
 		t.Fatalf("payload mismatch\ngot=%x\nwant=%x", payload[ExperimentalHeaderBytes:n], want.Payload)
 	}
-	if lastExtra != want.LastExtraDREDOffset {
+	if int(lastExtra) != want.LastExtraDREDOffset {
 		t.Fatalf("lastExtraDREDOffset=%d want %d", lastExtra, want.LastExtraDREDOffset)
 	}
 }
@@ -133,7 +133,7 @@ func TestEncodeExperimentalPayloadMatchesLibopusLargeLaplaceContinuation(t *test
 	}
 
 	var payload [MaxDataSize]byte
-	lastExtra := 0
+	lastExtra := int32(0)
 	n := EncodeExperimentalPayload(payload[:maxBytes+ExperimentalHeaderBytes], maxChunks, q0, dQ, qmax, state[:], latents[:], latentsFill, dredOffset, latentOff, &lastExtra, activity[:])
 	if n != ExperimentalHeaderBytes+len(want.Payload) {
 		t.Fatalf("EncodeExperimentalPayload()=%d want %d", n, ExperimentalHeaderBytes+len(want.Payload))
@@ -141,7 +141,7 @@ func TestEncodeExperimentalPayloadMatchesLibopusLargeLaplaceContinuation(t *test
 	if !bytes.Equal(payload[ExperimentalHeaderBytes:n], want.Payload) {
 		t.Fatalf("payload mismatch\ngot=%x\nwant=%x", payload[ExperimentalHeaderBytes:n], want.Payload)
 	}
-	if lastExtra != want.LastExtraDREDOffset {
+	if int(lastExtra) != want.LastExtraDREDOffset {
 		t.Fatalf("lastExtraDREDOffset=%d want %d", lastExtra, want.LastExtraDREDOffset)
 	}
 }
@@ -183,8 +183,8 @@ func TestEncodeExperimentalPayloadMatchesLibopusMatrix(t *testing.T) {
 			}
 
 			payload := make([]byte, tc.maxBytes+ExperimentalHeaderBytes)
-			lastExtra := tc.lastExtraIn
-			n := EncodeExperimentalPayload(payload, tc.maxChunks, tc.q0, tc.dQ, tc.qmax, state[:], latents[:], tc.latentsFill, tc.dredOffset, tc.latentOff, &lastExtra, activity[:])
+			lastExtra := int32(tc.lastExtraIn)
+			n := EncodeExperimentalPayload(payload, int32(tc.maxChunks), int32(tc.q0), int32(tc.dQ), int32(tc.qmax), state[:], latents[:], int32(tc.latentsFill), int32(tc.dredOffset), int32(tc.latentOff), &lastExtra, activity[:])
 			if n != expectedExperimentalPayloadLength(len(want.Payload)) {
 				t.Fatalf("EncodeExperimentalPayload()=%d want %d", n, expectedExperimentalPayloadLength(len(want.Payload)))
 			}
@@ -195,7 +195,7 @@ func TestEncodeExperimentalPayloadMatchesLibopusMatrix(t *testing.T) {
 			if !bytes.Equal(gotPayload, want.Payload) {
 				t.Fatalf("payload mismatch\ngot=%x\nwant=%x", gotPayload, want.Payload)
 			}
-			if lastExtra != want.LastExtraDREDOffset {
+			if int(lastExtra) != want.LastExtraDREDOffset {
 				t.Fatalf("lastExtraDREDOffset=%d want %d", lastExtra, want.LastExtraDREDOffset)
 			}
 		})

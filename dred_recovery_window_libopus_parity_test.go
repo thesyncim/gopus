@@ -84,12 +84,12 @@ func TestStandaloneDREDRecoveryWindowMatchesLibopus(t *testing.T) {
 				t.Fatalf("FeatureWindow=%+v want %+v", got, want)
 			}
 
-			offsets := make([]int, got.NeededFeatureFrames)
+			offsets := make([]int32, got.NeededFeatureFrames)
 			if n := got.FillFeatureOffsets(offsets); n != len(want.featureOffsets) {
 				t.Fatalf("FillFeatureOffsets count=%d want %d", n, len(want.featureOffsets))
 			}
 			for i, wantOffset := range want.featureOffsets {
-				if offsets[i] != wantOffset {
+				if offsets[i] != int32(wantOffset) {
 					t.Fatalf("featureOffsets[%d]=%d want %d", i, offsets[i], wantOffset)
 				}
 			}
@@ -171,12 +171,12 @@ func TestStandaloneDREDRecoveryWindow16kMatchesLibopus(t *testing.T) {
 				t.Fatalf("FeatureWindow=%+v want %+v", got, want)
 			}
 
-			offsets := make([]int, got.NeededFeatureFrames)
+			offsets := make([]int32, got.NeededFeatureFrames)
 			if n := got.FillFeatureOffsets(offsets); n != len(want.featureOffsets) {
 				t.Fatalf("FillFeatureOffsets count=%d want %d", n, len(want.featureOffsets))
 			}
 			for i, wantOffset := range want.featureOffsets {
-				if offsets[i] != wantOffset {
+				if offsets[i] != int32(wantOffset) {
 					t.Fatalf("featureOffsets[%d]=%d want %d", i, offsets[i], wantOffset)
 				}
 			}

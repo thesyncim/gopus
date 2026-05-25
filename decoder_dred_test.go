@@ -740,7 +740,7 @@ func TestDecoderCachesDREDPayloadWhenDREDModelLoaded(t *testing.T) {
 	if n := dec.cachedDREDResult(10080).FillQuantizerLevels(quant); n != 0 {
 		t.Fatalf("cachedDREDResult.FillQuantizerLevels count=%d want 0", n)
 	}
-	if want := []int{0, 0, 0, 0, 0, 0}; !slices.Equal(quant, want) {
+	if want := []int32{0, 0, 0, 0, 0, 0}; !slices.Equal(quant, want) {
 		t.Fatalf("cachedDREDResult.FillQuantizerLevels=%v want %v", quant, want)
 	}
 	window := dec.cachedDREDFeatureWindow(960, 960, 960, 0)

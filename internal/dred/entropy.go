@@ -51,19 +51,19 @@ func parseHeaderWithDecoder(payload []byte, dredFrameOffset int, rd *rangecoding
 
 	rd.Init(payload)
 
-	q0 := int(rd.DecodeUniform(16))
-	dq := int(rd.DecodeUniform(8))
+	q0 := int32(rd.DecodeUniform(16))
+	dq := int32(rd.DecodeUniform(8))
 
-	extraOffset := 0
+	extraOffset := int32(0)
 	if rd.DecodeUniform(2) != 0 {
-		extraOffset = 32 * int(rd.DecodeUniform(256))
+		extraOffset = 32 * int32(rd.DecodeUniform(256))
 	}
 
-	dredOffset := 16 - int(rd.DecodeUniform(32)) - extraOffset + dredFrameOffset
-	qmax := 15
+	dredOffset := 16 - int32(rd.DecodeUniform(32)) - extraOffset + int32(dredFrameOffset)
+	qmax := int32(15)
 	if q0 < 14 && dq > 0 {
 		nvals := 15 - (q0 + 1)
-		s := int(rd.Decode(uint32(2 * nvals)))
+		s := int32(rd.Decode(uint32(2 * nvals)))
 		if s >= nvals {
 			qmax = q0 + (s - nvals) + 1
 			rd.Update(uint32(s), uint32(s+1), uint32(2*nvals))
@@ -78,12 +78,12 @@ func parseHeaderWithDecoder(payload []byte, dredFrameOffset int, rd *rangecoding
 		QMax:            qmax,
 		ExtraOffset:     extraOffset,
 		DredOffset:      dredOffset,
-		DredFrameOffset: dredFrameOffset,
+		DredFrameOffset: int32(dredFrameOffset),
 	}, nil
 }
 
 func payloadLatents(payload []byte, header Header, rd *rangecoding.Decoder) int {
-	stateOffset := header.Q0 * StateDim
+	stateOffset := int(header.Q0) * StateDim
 	decodeDREDLatents(rd, dredStateP0Q8[stateOffset:stateOffset+StateDim], dredStateRQ8[stateOffset:stateOffset+StateDim])
 
 	latents := 0
@@ -92,7 +92,7 @@ func payloadLatents(payload []byte, header Header, rd *rangecoding.Decoder) int 
 			break
 		}
 		quant := header.QuantizerLevel(i / 2)
-		offset := quant * LatentDim
+		offset := int(quant) * LatentDim
 		decodeDREDLatents(rd, dredLatentP0Q8[offset:offset+LatentDim], dredLatentRQ8[offset:offset+LatentDim])
 		latents++
 	}

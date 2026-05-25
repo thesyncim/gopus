@@ -37,7 +37,7 @@ func (e *Encoder) currentDREDActivity(pcm []opusRes) bool {
 	return peak < pseudoSNRThreshold*0.5*frameEnergy
 }
 
-func (e *Encoder) buildDREDExperimentalPayload(dst []byte, maxChunks, q0, dQ, qmax int) int {
+func (e *Encoder) buildDREDExperimentalPayload(dst []byte, maxChunks, q0, dQ, qmax int32) int {
 	if !extsupport.DREDRuntime {
 		return 0
 	}
@@ -61,7 +61,7 @@ func (e *Encoder) buildDREDExperimentalPayload(dst []byte, maxChunks, q0, dQ, qm
 	)
 }
 
-func (e *Encoder) buildDREDExperimentalPayloadForPacket(dst []byte, maxChunks, q0, dQ, qmax int) int {
+func (e *Encoder) buildDREDExperimentalPayloadForPacket(dst []byte, maxChunks, q0, dQ, qmax int32) int {
 	if !extsupport.DREDRuntime {
 		return 0
 	}

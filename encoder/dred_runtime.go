@@ -31,12 +31,12 @@ type dredEncoderRuntime struct {
 	activity            [internaldred.ActivityHistorySize]byte
 	latestLatents       [rdovae.LatentDim]float32
 	latestState         [rdovae.StateDim]float32
-	latentsFill         int
-	dredOffset          int
-	latentOffset        int
-	lastExtraDREDOffset int
+	latentsFill         int32
+	dredOffset          int32
+	latentOffset        int32
+	lastExtraDREDOffset int32
 	payload             [internaldred.MaxDataSize]byte
-	emitted             int
+	emitted             int32
 }
 
 type dredEncoderPacketSnapshot struct {
@@ -44,14 +44,14 @@ type dredEncoderPacketSnapshot struct {
 	latentsBuffer       [internaldred.MaxFrames * rdovae.LatentDim]float32
 	stateBuffer         [internaldred.MaxFrames * rdovae.StateDim]float32
 	activity            [internaldred.ActivityHistorySize]byte
-	latentsFill         int
-	dredOffset          int
-	latentOffset        int
-	lastExtraDREDOffset int
+	latentsFill         int32
+	dredOffset          int32
+	latentOffset        int32
+	lastExtraDREDOffset int32
 }
 
 type dredEncoderExtras struct {
-	duration int
+	duration int32
 	models   dredEncoderModels
 	runtime  *dredEncoderRuntime
 }
@@ -187,7 +187,7 @@ func (e *Encoder) processDREDLatentsWithActivity(framePCM []opusRes, extraDelay 
 	if samples16k == 0 {
 		return 0
 	}
-	extraDelay16k := extraDelay * 16000 / e.sampleRate
+	extraDelay16k := int32(extraDelay * 16000 / e.sampleRate)
 	emitted := runtime.generator.Process16k(e.dred.models.encoder, runtime.scaledPCM16k[:samples16k], extraDelay16k, func(latents, state []float32) {
 		copy(runtime.latentsBuffer[rdovae.LatentDim:], runtime.latentsBuffer[:(internaldred.MaxFrames-1)*rdovae.LatentDim])
 		copy(runtime.stateBuffer[rdovae.StateDim:], runtime.stateBuffer[:(internaldred.MaxFrames-1)*rdovae.StateDim])

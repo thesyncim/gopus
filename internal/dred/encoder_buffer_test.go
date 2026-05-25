@@ -30,7 +30,7 @@ func TestEncoderBufferAppend16kWithoutEmission(t *testing.T) {
 	if emitted := b.Append16k(pcm, 0, nil); emitted != 0 {
 		t.Fatalf("Append16k emitted=%d want 0", emitted)
 	}
-	if got := b.InputBufferFill(); got != SilkEncoderDelay+len(pcm) {
+	if got := b.InputBufferFill(); got != int32(SilkEncoderDelay+len(pcm)) {
 		t.Fatalf("InputBufferFill()=%d want %d", got, SilkEncoderDelay+len(pcm))
 	}
 	if got := b.DREDOffset(); got != 1 {

@@ -5,9 +5,9 @@ package dred
 // inference yet.
 type EncoderBuffer struct {
 	inputBuffer     [2 * DFrameSize]float32
-	inputBufferFill int
-	dredOffset      int
-	latentOffset    int
+	inputBufferFill int32
+	dredOffset      int32
+	latentOffset    int32
 }
 
 // Reset restores the libopus DRED encoder buffer state after reset.
@@ -20,7 +20,7 @@ func (b *EncoderBuffer) Reset() {
 }
 
 // InputBufferFill reports how many 16 kHz samples are currently staged.
-func (b *EncoderBuffer) InputBufferFill() int {
+func (b *EncoderBuffer) InputBufferFill() int32 {
 	if b == nil {
 		return 0
 	}
@@ -28,7 +28,7 @@ func (b *EncoderBuffer) InputBufferFill() int {
 }
 
 // DREDOffset reports the current libopus-shaped DRED offset in 2.5 ms units.
-func (b *EncoderBuffer) DREDOffset() int {
+func (b *EncoderBuffer) DREDOffset() int32 {
 	if b == nil {
 		return 0
 	}
@@ -36,7 +36,7 @@ func (b *EncoderBuffer) DREDOffset() int {
 }
 
 // LatentOffset reports the current libopus-shaped latent offset.
-func (b *EncoderBuffer) LatentOffset() int {
+func (b *EncoderBuffer) LatentOffset() int32 {
 	if b == nil {
 		return 0
 	}
@@ -47,13 +47,13 @@ func (b *EncoderBuffer) LatentOffset() int {
 // The callback, when non-nil, is invoked once per emitted 320-sample d-frame
 // with a slice that aliases internal storage and is only valid until the
 // callback returns.
-func (b *EncoderBuffer) Append16k(pcm []float32, extraDelay int, emit func(frame []float32)) int {
+func (b *EncoderBuffer) Append16k(pcm []float32, extraDelay int32, emit func(frame []float32)) int {
 	if b == nil {
 		return 0
 	}
 
 	currOffset16k := 40 + extraDelay - b.inputBufferFill
-	b.dredOffset = floorDiv(currOffset16k+20, 40)
+	b.dredOffset = floorDiv32(currOffset16k+20, 40)
 	b.latentOffset = 0
 
 	emitted := 0
@@ -62,8 +62,9 @@ func (b *EncoderBuffer) Append16k(pcm []float32, extraDelay int, emit func(frame
 		if remaining < processSize16k {
 			processSize16k = remaining
 		}
-		copy(b.inputBuffer[b.inputBufferFill:], pcm[:processSize16k])
-		b.inputBufferFill += processSize16k
+		fill := int(b.inputBufferFill)
+		copy(b.inputBuffer[fill:], pcm[:processSize16k])
+		b.inputBufferFill += int32(processSize16k)
 		pcm = pcm[processSize16k:]
 		remaining -= processSize16k
 
@@ -74,7 +75,8 @@ func (b *EncoderBuffer) Append16k(pcm []float32, extraDelay int, emit func(frame
 			}
 			emitted++
 			b.inputBufferFill -= DFrameSize
-			copy(b.inputBuffer[:b.inputBufferFill], b.inputBuffer[DFrameSize:DFrameSize+b.inputBufferFill])
+			fill = int(b.inputBufferFill)
+			copy(b.inputBuffer[:fill], b.inputBuffer[DFrameSize:DFrameSize+fill])
 			if b.dredOffset < 6 {
 				b.dredOffset += 8
 			} else {

@@ -32,9 +32,9 @@ var (
 
 type encoderLibopusDREDFrameTrace struct {
 	frameIdx    int
-	latentsFill int
-	dredOffset  int
-	latentOff   int
+	latentsFill int32
+	dredOffset  int32
+	latentOff   int32
 	latents     [][rdovae.LatentDim]float32
 }
 
@@ -199,9 +199,9 @@ func snapshotEncoderDREDTrace(t *testing.T, enc *Encoder, frameIdx int) encoderL
 		latentsFill: rt.latentsFill,
 		dredOffset:  rt.dredOffset,
 		latentOff:   rt.latentOffset,
-		latents:     make([][rdovae.LatentDim]float32, count),
+		latents:     make([][rdovae.LatentDim]float32, int(count)),
 	}
-	for pos := 0; pos < count; pos++ {
+	for pos := 0; pos < int(count); pos++ {
 		copy(trace.latents[pos][:], rt.latentsBuffer[pos*rdovae.LatentDim:(pos+1)*rdovae.LatentDim])
 	}
 	return trace
@@ -329,9 +329,9 @@ func parseEncoderLibopusDREDLatentsTrace(t *testing.T, data []byte) []encoderLib
 		}
 		trace := encoderLibopusDREDFrameTrace{
 			frameIdx:    int(binary.LittleEndian.Uint32(data[offset+4 : offset+8])),
-			latentsFill: int(binary.LittleEndian.Uint32(data[offset+8 : offset+12])),
-			dredOffset:  int(binary.LittleEndian.Uint32(data[offset+12 : offset+16])),
-			latentOff:   int(binary.LittleEndian.Uint32(data[offset+16 : offset+20])),
+			latentsFill: int32(binary.LittleEndian.Uint32(data[offset+8 : offset+12])),
+			dredOffset:  int32(binary.LittleEndian.Uint32(data[offset+12 : offset+16])),
+			latentOff:   int32(binary.LittleEndian.Uint32(data[offset+16 : offset+20])),
 		}
 		positionCount := int(binary.LittleEndian.Uint32(data[offset+20 : offset+24]))
 		pos := offset + 24

@@ -82,3 +82,15 @@ func floorDiv(num, den int) int {
 	}
 	return q
 }
+
+func floorDiv32(num, den int32) int32 {
+	if den <= 0 {
+		return 0
+	}
+	q := num / den
+	r := num % den
+	if r != 0 && num < 0 {
+		q--
+	}
+	return q
+}

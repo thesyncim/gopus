@@ -286,19 +286,19 @@ type FeatureControl struct {
 	GainsQ16 [SubframesPerFrame]int32
 	// PitchL is the per-subframe pitch lag (in samples). Used as the raw
 	// pitch input to the pitch post-processing step.
-	PitchL [SubframesPerFrame]int
+	PitchL [SubframesPerFrame]int32
 	// SignalType is the SILK frame signalType (TYPE_VOICED / TYPE_UNVOICED).
 	// Drives whether `pitch_postprocessing` substitutes OSCE_NO_PITCH_VALUE.
-	SignalType int
+	SignalType int32
 }
 
 // FeatureState mirrors libopus `OSCEFeatureState`. Reset / Calculate update
 // the persistent fields between successive 20 ms frames.
 type FeatureState struct {
 	numbitsSmooth      float32
-	pitchHangoverCount int
-	lastLag            int
-	lastType           int
+	pitchHangoverCount int32
+	lastLag            int32
+	lastType           int32
 	signalHistory      [FeaturesMaxHistory]float32
 	// reset mirrors libopus `OSCEFeatureState.reset`: set on bypass and
 	// consumed by the cross-fade logic outside the feature extractor.
@@ -637,13 +637,13 @@ func calculateAcorr(
 //
 //	type == TYPE_VOICED -> return lag (and update last_lag)
 //	otherwise           -> return OSCE_NO_PITCH_VALUE
-func pitchPostprocessing(s *FeatureState, lag, signalType int) int {
+func pitchPostprocessing(s *FeatureState, lag, signalType int32) int {
 	const testBit = 0 // OSCE_HANGOVER_BUGFIX is undefined in libopus 1.6.1
-	modulus := pitchHangover
+	modulus := int32(pitchHangover)
 	if modulus == 0 {
 		modulus++
 	}
-	var newLag int
+	var newLag int32
 	switch {
 	case signalType != typeVoiced && s.lastType == typeVoiced && testBit == 1:
 		newLag = noPitchValue
@@ -663,5 +663,5 @@ func pitchPostprocessing(s *FeatureState, lag, signalType int) int {
 		s.pitchHangoverCount = 0
 	}
 	s.lastType = signalType
-	return newLag
+	return int(newLag)
 }
