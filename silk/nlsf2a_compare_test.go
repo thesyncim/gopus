@@ -239,7 +239,8 @@ func TestNLSFStabilizeMatchesLibopusCase(t *testing.T) {
 	nlsfQ15 := []int16{2701, 3363, 5756, 13031, 13464, 15353, 18521, 20697, 27019, 26883, 0, 0, 0, 0, 0, 0}
 	expected := []int16{2701, 3363, 5756, 13031, 13464, 15353, 18521, 20697, 26950, 26953}
 
-	silkNLSFStabilize(nlsfQ15[:cb.order], cb.deltaMinQ15, cb.order)
+	order := int(cb.order)
+	silkNLSFStabilize(nlsfQ15[:order], cb.deltaMinQ15, order)
 	for i := range expected {
 		if nlsfQ15[i] != expected[i] {
 			t.Fatalf("nlsfQ15[%d]=%d want %d", i, nlsfQ15[i], expected[i])

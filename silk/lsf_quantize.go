@@ -14,7 +14,8 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 		cb = &silk_NLSF_CB_NB_MB
 	}
 
-	order := cb.order
+	order := int(cb.order)
+	nVectors := int(cb.nVectors)
 	if len(lsfQ15) < order {
 		residuals := ensureInt32Slice(&e.scratchLsfResiduals, order)
 		for i := range residuals {
@@ -61,8 +62,8 @@ func (e *Encoder) quantizeLSF(lsfQ15 []int16, bandwidth Bandwidth, signalType in
 
 	muQ20 := computeNLSFMuQ20(speechActivityQ8, numSubframes)
 	nSurvivors := int(e.nlsfSurvivors)
-	if nSurvivors > cb.nVectors {
-		nSurvivors = cb.nVectors
+	if nSurvivors > nVectors {
+		nSurvivors = nVectors
 	}
 	if nSurvivors < 2 {
 		nSurvivors = 2
@@ -86,7 +87,8 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 		cb = &silk_NLSF_CB_NB_MB
 	}
 
-	order := cb.order
+	order := int(cb.order)
+	nVectors := int(cb.nVectors)
 	if len(lsfQ15) < order {
 		residuals := ensureInt32Slice(&e.scratchLsfResiduals, order)
 		for i := range residuals {
@@ -131,8 +133,8 @@ func (e *Encoder) quantizeLSFWithInterp(lsfQ15 []int16, bandwidth Bandwidth, sig
 
 	muQ20 := computeNLSFMuQ20(speechActivityQ8, numSubframes)
 	nSurvivors := int(e.nlsfSurvivors)
-	if nSurvivors > cb.nVectors {
-		nSurvivors = cb.nVectors
+	if nSurvivors > nVectors {
+		nSurvivors = nVectors
 	}
 	if nSurvivors < 2 {
 		nSurvivors = 2
@@ -226,7 +228,7 @@ func (e *Encoder) decodeQuantizedNLSF(stage1Idx int, residuals []int32, bandwidt
 		cb = &silk_NLSF_CB_NB_MB
 	}
 
-	order := cb.order
+	order := int(cb.order)
 	nlsfQ15 := ensureInt16Slice(&e.scratchLSFQ15, order)
 
 	indices := ensureInt8Slice(&e.scratchNLSFIndices, order+1)
@@ -309,23 +311,25 @@ func (e *Encoder) encodeLSF(stage1Idx int, residuals []int32, interpIdx int, ban
 
 	// Signal type band: 0 for inactive/unvoiced, 1 for voiced
 	stypeBand := signalType >> 1
+	order := int(cb.order)
+	nVectors := int(cb.nVectors)
 
 	// Clamp stage1 index to valid range
 	if stage1Idx < 0 {
 		stage1Idx = 0
 	}
-	if stage1Idx >= cb.nVectors {
-		stage1Idx = cb.nVectors - 1
+	if stage1Idx >= nVectors {
+		stage1Idx = nVectors - 1
 	}
 
 	// Encode stage 1 index using cb.cb1ICDF[stypeBand*nVectors:]
 	// This matches decoder: rd.DecodeICDF8Unchecked(cb.cb1ICDF[cb1Offset:])
-	cb1Offset := stypeBand * cb.nVectors
+	cb1Offset := stypeBand * nVectors
 	e.rangeEncoder.EncodeICDF(stage1Idx, cb.cb1ICDF[cb1Offset:], 8)
 
 	// Get ecIx for stage 2 encoding (same as silkNLSFUnpack) using scratch buffers
-	ecIx := ensureInt16Slice(&e.scratchEcIx, cb.order)
-	predQ8 := ensureUint8Slice(&e.scratchPredQ8, cb.order)
+	ecIx := ensureInt16Slice(&e.scratchEcIx, order)
+	predQ8 := ensureUint8Slice(&e.scratchPredQ8, order)
 	silkNLSFUnpack(ecIx, predQ8, cb, stage1Idx)
 
 	// Encode stage 2 residuals for each coefficient.
@@ -333,7 +337,7 @@ func (e *Encoder) encodeLSF(stage1Idx int, residuals []int32, interpIdx int, ban
 	// extension coding is used for idx <= -A and idx >= +A (including boundary).
 	// This must mirror decoder logic, which always reads an extension symbol when
 	// the decoded base symbol is 0 or 2*A.
-	for i := 0; i < cb.order && i < len(residuals); i++ {
+	for i := 0; i < order && i < len(residuals); i++ {
 		idx := residuals[i]
 		if idx >= nlsfQuantMaxAmplitude {
 			e.rangeEncoder.EncodeICDF(2*nlsfQuantMaxAmplitude, cb.ecICDF[ecIx[i]:], 8)

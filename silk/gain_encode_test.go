@@ -229,8 +229,9 @@ func TestLSFEncodeDecode(t *testing.T) {
 	stage1Idx, residuals, _ := enc.quantizeLSF(lsfQ15, BandwidthNarrowband, 1, 200, 4, -1)
 
 	// Verify stage1Idx is in valid range
-	if stage1Idx < 0 || stage1Idx >= cb.nVectors {
-		t.Errorf("stage1Idx=%d out of range [0, %d)", stage1Idx, cb.nVectors)
+	nVectors := int(cb.nVectors)
+	if stage1Idx < 0 || stage1Idx >= nVectors {
+		t.Errorf("stage1Idx=%d out of range [0, %d)", stage1Idx, nVectors)
 	}
 
 	// Verify residuals are in valid range [-nlsfQuantMaxAmplitude, +nlsfQuantMaxAmplitude]

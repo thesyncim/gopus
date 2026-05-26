@@ -503,7 +503,7 @@ Reference:
 
 Current symptoms:
 
-- Go `nlsfCB.nVectors`, `order`, `quantStepSizeQ16`, and `invQuantStepSizeQ6` are `int`, but should be `int16` unless proven safer at the table boundary.
+- Go `nlsfCB.nVectors`, `order`, `quantStepSizeQ16`, and `invQuantStepSizeQ6` now use `int16`, matching `silk_NLSF_CB_struct`; call sites convert `nVectors`/`order` only where Go needs slice indexes or lengths.
 - Many decoder state fields use bare `int` where the C field is `opus_int`; decide whether the field is true state/arithmetic (`int32`) or just Go indexing (`int`).
 - `stereoEncState` stores LBRR metadata as Go-specific fields, not the exact C layout. This may be OK behaviorally, but needs a parity note and trace coverage.
 
@@ -612,7 +612,7 @@ Verification:
 | A06 | Active | CELT transient/stereo/TF | Convert transient, tone, stereo, TF, spread, and alloc helper math to float32 with correct rounding; alloc-trim runtime/detail paths now use aliases and `analysis.valid` gating. | `celt/transient.go`, `celt/stereo*.go`, `celt/tf.go`, `celt/spread_decision.go`, `celt/alloc_trim.go` |
 | A07 | Guard-clean | SILK FLP storage | Keep `silk_float` storage in `float32` and true C `double` local helpers behind `silkCReal`; no guarded SILK allowlist findings remain. | Future SILK changes must cite C `double` sources before adding alias use. |
 | A08 | Active | Fixed math | Build exact fixed helper tests and replace mismatched `int`/overflow arithmetic. | `silk/libopus_fixed.go`, `silk/float_cast.go`, `silk/ltp_quant.go`, `silk/nsq*.go`, `encoder/vad.go` |
-| A09 | Active | SILK structs/tables | Convert state/table fields to exact widths and document stereo side-info layout deviations. | `silk/libopus_types.go`, NLSF table files, stereo files |
+| A09 | Active | SILK structs/tables | NLSF codebook width is now aligned; continue converting remaining state/table fields to exact widths and document stereo side-info layout deviations. | `silk/libopus_types.go`, NLSF table files, stereo files |
 | A10 | Partial | Extensions | Convert OSCE/DRED/LPCNet codec-domain float64/complex128 to float32 unless source uses C double; OSCE/BWE int16 output bridges now use the shared float32 OSCE output-scale converter. | `internal/osce`, `internal/lpcnetplc`, `encoder/dred_runtime.go` |
 | A11 | Active | Oracle/build tests | Add C shim/oracle traces for type sizes, fixed macros, build provenance, and threshold-sensitive branches; scheduled release evidence now retains the full bundle logs. | `tmp_check`, `tools`, package tests |
 | A12 | Open | Assembly cleanup | Retire or rewrite float64 assembly paths after their Go callers move to float32. | `celt/*_asm.go`, `celt/amd64_dispatch.go`, `celt/*float64*` |

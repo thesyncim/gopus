@@ -343,20 +343,22 @@ func (e *Encoder) encodeLBRRIndices(re *rangecoding.Encoder, frameIdx, condCodin
 		cb = &silk_NLSF_CB_NB_MB
 	}
 	stypeBand := signalType >> 1
-	cb1Offset := stypeBand * cb.nVectors
+	order := int(cb.order)
+	nVectors := int(cb.nVectors)
+	cb1Offset := stypeBand * nVectors
 	stage1Idx := int(indices.NLSFIndices[0])
 	if stage1Idx < 0 {
 		stage1Idx = 0
 	}
-	if stage1Idx >= cb.nVectors {
-		stage1Idx = cb.nVectors - 1
+	if stage1Idx >= nVectors {
+		stage1Idx = nVectors - 1
 	}
 	re.EncodeICDF(stage1Idx, cb.cb1ICDF[cb1Offset:], 8)
 
-	ecIx := ensureInt16Slice(&e.scratchEcIx, cb.order)
-	predQ8 := ensureUint8Slice(&e.scratchPredQ8, cb.order)
+	ecIx := ensureInt16Slice(&e.scratchEcIx, order)
+	predQ8 := ensureUint8Slice(&e.scratchPredQ8, order)
 	silkNLSFUnpack(ecIx, predQ8, cb, stage1Idx)
-	for i := 0; i < cb.order; i++ {
+	for i := 0; i < order; i++ {
 		idx := int(indices.NLSFIndices[i+1])
 		if idx >= nlsfQuantMaxAmplitude {
 			re.EncodeICDF(2*nlsfQuantMaxAmplitude, cb.ecICDF[int(ecIx[i]):], 8)

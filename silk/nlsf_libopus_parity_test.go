@@ -271,7 +271,7 @@ func TestSILKNLSFDecodeMatchesLibopusOracle(t *testing.T) {
 
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := make([]int16, tc.cb.order)
+			got := make([]int16, int(tc.cb.order))
 			silkNLSFDecode(got, tc.indices, tc.cb)
 			if !sameInt16s(got, want[i]) {
 				t.Fatalf("silkNLSFDecode=%v want %v", got, want[i])
@@ -344,8 +344,10 @@ func TestSILKNLSFVQMatchesLibopusOracle(t *testing.T) {
 
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := make([]int32, tc.cb.nVectors)
-			silkNLSFVQ(got, tc.nlsf, tc.cb.cb1NLSFQ8, tc.cb.cb1WghtQ9, tc.cb.nVectors, tc.cb.order)
+			order := int(tc.cb.order)
+			nVectors := int(tc.cb.nVectors)
+			got := make([]int32, nVectors)
+			silkNLSFVQ(got, tc.nlsf, tc.cb.cb1NLSFQ8, tc.cb.cb1WghtQ9, nVectors, order)
 			if len(got) != len(want[i]) {
 				t.Fatalf("silkNLSFVQ len=%d want %d", len(got), len(want[i]))
 			}
@@ -375,8 +377,9 @@ func TestSILKNLSFDelDecQuantMatchesLibopusOracle(t *testing.T) {
 	}
 	records := make([][]uint32, len(cases))
 	for i := range cases {
-		cases[i].weight = make([]int16, cases[i].cb.order)
-		silkNLSFWeightsLaroia(cases[i].weight, cases[i].nlsf, cases[i].cb.order)
+		order := int(cases[i].cb.order)
+		cases[i].weight = make([]int16, order)
+		silkNLSFWeightsLaroia(cases[i].weight, cases[i].nlsf, order)
 		record := []uint32{cbIDForNLSF(cases[i].cb), uint32(cases[i].ind1), uint32FromInt32(cases[i].muQ20)}
 		for _, v := range cases[i].nlsf {
 			record = append(record, uint32FromInt32(int32(v)))
@@ -393,7 +396,7 @@ func TestSILKNLSFDelDecQuantMatchesLibopusOracle(t *testing.T) {
 
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			order := tc.cb.order
+			order := int(tc.cb.order)
 			baseIdx := tc.ind1 * order
 			var resQ10 [maxLPCOrder]int16
 			var wAdjQ5 [maxLPCOrder]int16
@@ -442,8 +445,9 @@ func TestSILKNLSFEncodeMatchesLibopusOracle(t *testing.T) {
 	}
 	records := make([][]uint32, len(cases))
 	for i := range cases {
-		cases[i].weight = make([]int16, cases[i].cb.order)
-		silkNLSFWeightsLaroia(cases[i].weight, cases[i].nlsf, cases[i].cb.order)
+		order := int(cases[i].cb.order)
+		cases[i].weight = make([]int16, order)
+		silkNLSFWeightsLaroia(cases[i].weight, cases[i].nlsf, order)
 		record := []uint32{
 			cbIDForNLSF(cases[i].cb),
 			uint32FromInt32(cases[i].muQ20),
@@ -465,7 +469,7 @@ func TestSILKNLSFEncodeMatchesLibopusOracle(t *testing.T) {
 
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			order := tc.cb.order
+			order := int(tc.cb.order)
 			gotNLSF := append([]int16(nil), tc.nlsf...)
 			enc := &Encoder{}
 			gotStage1, gotResiduals, gotRD := enc.nlsfEncode(gotNLSF, tc.cb, tc.weight, tc.muQ20, tc.nSurvivors, tc.signalType)
@@ -590,7 +594,7 @@ func TestSILKNLSFStabilizeMatchesLibopusOracle(t *testing.T) {
 	for i, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := append([]int16(nil), tc.nlsf...)
-			silkNLSFStabilize(got, tc.cb.deltaMinQ15, tc.cb.order)
+			silkNLSFStabilize(got, tc.cb.deltaMinQ15, int(tc.cb.order))
 			if !sameInt16s(got, want[i]) {
 				t.Fatalf("silkNLSFStabilize=%v want %v", got, want[i])
 			}

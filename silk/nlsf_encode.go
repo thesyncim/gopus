@@ -69,7 +69,7 @@ func silkNLSFVQ(errQ24 []int32, inQ15 []int16, cbQ8 []uint8, cbWghtQ9 []int16, n
 // Returns RD value in Q25 and fills indices with residual indices.
 // Reference: libopus silk/NLSF_del_dec_quant.c
 func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uint8, ecIx []int16,
-	ecRatesQ5 []uint8, quantStepSizeQ16 int, invQuantStepSizeQ6 int, muQ20 int32, order int) int32 {
+	ecRatesQ5 []uint8, quantStepSizeQ16 int16, invQuantStepSizeQ6 int16, muQ20 int32, order int) int32 {
 	if order <= 0 || len(indices) < order {
 		return 0
 	}
@@ -83,8 +83,7 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 	var out0Table [2 * nlsfQuantMaxAmplitudeExt]int32
 	var out1Table [2 * nlsfQuantMaxAmplitudeExt]int32
 
-	// Pre-truncate quantStepSizeQ16 to int16 once (matches silkSMULBB semantics).
-	qssQ16 := int32(int16(quantStepSizeQ16))
+	qssQ16 := int32(quantStepSizeQ16)
 
 	for i := -nlsfQuantMaxAmplitudeExt; i <= nlsfQuantMaxAmplitudeExt-1; i++ {
 		out0Q10 := int32(i) << 10
@@ -107,8 +106,7 @@ func silkNLSFDelDecQuant(indices []int8, xQ10 []int16, wQ5 []int16, predQ8 []uin
 		out1Table[idx] = (int32(int16(out1Q10)) * qssQ16) >> 16
 	}
 
-	// Pre-truncate invQuantStepSizeQ6 to int16 once.
-	invQssQ6 := int32(int16(invQuantStepSizeQ6))
+	invQssQ6 := int32(invQuantStepSizeQ6)
 	// Pre-truncate muQ20 to int16 once for silkSMLABB.
 	muQ20_16 := int32(int16(muQ20))
 
@@ -329,7 +327,8 @@ func computeNLSFMuQ20(speechActivityQ8 int, numSubframes int) int32 {
 // nlsfEncode performs MSVQ-based NLSF encoding aligned with libopus.
 // Returns stage1 index, residual indices (length = order), and RD_Q25.
 func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int32, nSurvivors int, signalType int) (int, []int32, int32) {
-	order := cb.order
+	order := int(cb.order)
+	nVectors := int(cb.nVectors)
 	if len(nlsfQ15) < order {
 		residuals := ensureInt32Slice(&e.scratchLsfResiduals, order)
 		for i := range residuals {
@@ -343,13 +342,13 @@ func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int
 	silkNLSFStabilize(nlsfQ15[:order], cb.deltaMinQ15, order)
 
 	var errQ24 [32]int32
-	silkNLSFVQ(errQ24[:cb.nVectors], nlsfQ15, cb.cb1NLSFQ8, cb.cb1WghtQ9, cb.nVectors, order)
+	silkNLSFVQ(errQ24[:nVectors], nlsfQ15, cb.cb1NLSFQ8, cb.cb1WghtQ9, nVectors, order)
 
-	if nSurvivors > cb.nVectors {
-		nSurvivors = cb.nVectors
+	if nSurvivors > nVectors {
+		nSurvivors = nVectors
 	}
 	var tempIndices1 [32]int
-	silkInsertionSortIncreasing(errQ24[:cb.nVectors], tempIndices1[:nSurvivors], cb.nVectors, nSurvivors)
+	silkInsertionSortIncreasing(errQ24[:nVectors], tempIndices1[:nSurvivors], nVectors, nSurvivors)
 
 	var resQ10 [maxLPCOrder]int16
 	var wAdjQ5 [maxLPCOrder]int16
@@ -378,7 +377,7 @@ func (e *Encoder) nlsfEncode(nlsfQ15 []int16, cb *nlsfCB, wQ2 []int16, muQ20 int
 		rdValQ25 := silkNLSFDelDecQuant(tmpIndices[:], resQ10[:], wAdjQ5[:], predQ8[:], ecIx[:], cb.ecRatesQ5, cb.quantStepSizeQ16, cb.invQuantStepSizeQ6, muQ20, order)
 
 		// Add rate for first stage
-		icdf := cb.cb1ICDF[(signalType>>1)*cb.nVectors:]
+		icdf := cb.cb1ICDF[(signalType>>1)*nVectors:]
 		var probQ8 int32
 		if ind1 == 0 {
 			probQ8 = 256 - int32(icdf[0])

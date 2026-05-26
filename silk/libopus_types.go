@@ -1,10 +1,10 @@
 package silk
 
 type nlsfCB struct {
-	nVectors           int
-	order              int
-	quantStepSizeQ16   int
-	invQuantStepSizeQ6 int
+	nVectors           int16
+	order              int16
+	quantStepSizeQ16   int16
+	invQuantStepSizeQ6 int16
 	cb1NLSFQ8          []uint8
 	cb1WghtQ9          []int16
 	cb1ICDF            []uint8

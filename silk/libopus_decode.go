@@ -82,7 +82,9 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 
 	cb := st.nlsfCB
 	stypeBand := int(st.indices.signalType) >> 1
-	cb1Offset := stypeBand * cb.nVectors
+	order := int(cb.order)
+	nVectors := int(cb.nVectors)
+	cb1Offset := stypeBand * nVectors
 	st.indices.NLSFIndices[0] = int8(rd.DecodeICDF8Linear(cb.cb1ICDF[cb1Offset:]))
 
 	// Use pre-allocated scratch buffers if available
@@ -100,7 +102,7 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 	}
 	silkNLSFUnpack(ecIx, predQ8, cb, int(st.indices.NLSFIndices[0]))
 
-	for i := 0; i < cb.order; i++ {
+	for i := 0; i < order; i++ {
 		idx := rd.DecodeICDF9_8Slice(cb.ecICDF[int(ecIx[i]):])
 		if idx == 0 {
 			idx -= rd.DecodeICDF7_8Slice(silk_NLSF_EXT_iCDF)

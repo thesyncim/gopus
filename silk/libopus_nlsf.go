@@ -1,18 +1,19 @@
 package silk
 
 func silkNLSFUnpack(ecIx []int16, predQ8 []uint8, cb *nlsfCB, cb1Index int) {
-	ecSelPtr := cb.ecSel[cb1Index*cb.order/2:]
-	for i := 0; i < cb.order; i += 2 {
+	order := int(cb.order)
+	ecSelPtr := cb.ecSel[cb1Index*order/2:]
+	for i := 0; i < order; i += 2 {
 		entry := ecSelPtr[0]
 		ecSelPtr = ecSelPtr[1:]
 		ecIx[i] = int16(silkSMULBB(int32(entry>>1&7), 2*nlsfQuantMaxAmplitude+1))
-		predQ8[i] = cb.predQ8[i+int(entry&1)*(cb.order-1)]
+		predQ8[i] = cb.predQ8[i+int(entry&1)*(order-1)]
 		ecIx[i+1] = int16(silkSMULBB(int32(entry>>5&7), 2*nlsfQuantMaxAmplitude+1))
-		predQ8[i+1] = cb.predQ8[i+int((entry>>4)&1)*(cb.order-1)+1]
+		predQ8[i+1] = cb.predQ8[i+int((entry>>4)&1)*(order-1)+1]
 	}
 }
 
-func silkNLSFResidualDequant(xQ10 []int16, indices []int8, predQ8 []uint8, quantStepSizeQ16 int, order int) {
+func silkNLSFResidualDequant(xQ10 []int16, indices []int8, predQ8 []uint8, quantStepSizeQ16 int16, order int) {
 	var outQ10 int32
 	for i := order - 1; i >= 0; i-- {
 		predQ10 := silkRSHIFT(silkSMULBB(outQ10, int32(predQ8[i])), 8)
@@ -38,31 +39,35 @@ func silkNLSFDecode(nlsfQ15 []int16, indices []int8, cb *nlsfCB) {
 // silkNLSFDecodeInto decodes NLSF values using caller-provided scratch buffers.
 // This avoids allocations in hot paths.
 func silkNLSFDecodeInto(nlsfQ15 []int16, indices []int8, cb *nlsfCB, ecIx []int16, predQ8 []uint8, resQ10 []int16) {
-	if cb == nil || len(indices) < cb.order+1 || len(nlsfQ15) < cb.order {
+	if cb == nil {
+		return
+	}
+	order := int(cb.order)
+	if len(indices) < order+1 || len(nlsfQ15) < order {
 		return
 	}
 
-	if len(ecIx) < cb.order {
+	if len(ecIx) < order {
 		return
 	}
-	if len(predQ8) < cb.order {
+	if len(predQ8) < order {
 		return
 	}
-	if len(resQ10) < cb.order {
+	if len(resQ10) < order {
 		return
 	}
 
-	ecIx = ecIx[:cb.order]
-	predQ8 = predQ8[:cb.order]
-	resQ10 = resQ10[:cb.order]
+	ecIx = ecIx[:order]
+	predQ8 = predQ8[:order]
+	resQ10 = resQ10[:order]
 
 	silkNLSFUnpack(ecIx, predQ8, cb, int(indices[0]))
-	silkNLSFResidualDequant(resQ10, indices[1:], predQ8, cb.quantStepSizeQ16, cb.order)
+	silkNLSFResidualDequant(resQ10, indices[1:], predQ8, cb.quantStepSizeQ16, order)
 
-	baseIdx := int(indices[0]) * cb.order
+	baseIdx := int(indices[0]) * order
 	cbBase := cb.cb1NLSFQ8[baseIdx:]
 	cbWght := cb.cb1WghtQ9[baseIdx:]
-	for i := 0; i < cb.order; i++ {
+	for i := 0; i < order; i++ {
 		resQ10Val := int32(resQ10[i])
 		wght := int32(cbWght[i])
 		if wght == 0 {
@@ -78,7 +83,7 @@ func silkNLSFDecodeInto(nlsfQ15 []int16, indices []int8, cb *nlsfCB, ecIx []int1
 		nlsfQ15[i] = int16(val)
 	}
 
-	silkNLSFStabilize(nlsfQ15[:cb.order], cb.deltaMinQ15, cb.order)
+	silkNLSFStabilize(nlsfQ15[:order], cb.deltaMinQ15, order)
 }
 
 func silkNLSFStabilize(nlsfQ15 []int16, deltaMinQ15 []int16, order int) {

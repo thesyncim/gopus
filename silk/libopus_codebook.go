@@ -3,8 +3,8 @@ package silk
 var silk_NLSF_CB_WB = nlsfCB{
 	nVectors:           32,
 	order:              16,
-	quantStepSizeQ16:   silkFixConst(0.15, 16),
-	invQuantStepSizeQ6: silkFixConst(1.0/0.15, 6),
+	quantStepSizeQ16:   int16(silkFixConst(0.15, 16)),
+	invQuantStepSizeQ6: int16(silkFixConst(1.0/0.15, 6)),
 	cb1NLSFQ8:          silk_NLSF_CB1_WB_Q8,
 	cb1WghtQ9:          silk_NLSF_CB1_WB_Wght_Q9,
 	cb1ICDF:            silk_NLSF_CB1_iCDF_WB,
@@ -18,8 +18,8 @@ var silk_NLSF_CB_WB = nlsfCB{
 var silk_NLSF_CB_NB_MB = nlsfCB{
 	nVectors:           32,
 	order:              10,
-	quantStepSizeQ16:   silkFixConst(0.18, 16),
-	invQuantStepSizeQ6: silkFixConst(1.0/0.18, 6),
+	quantStepSizeQ16:   int16(silkFixConst(0.18, 16)),
+	invQuantStepSizeQ6: int16(silkFixConst(1.0/0.18, 6)),
 	cb1NLSFQ8:          silk_NLSF_CB1_NB_MB_Q8,
 	cb1WghtQ9:          silk_NLSF_CB1_Wght_Q9,
 	cb1ICDF:            silk_NLSF_CB1_iCDF_NB_MB,
