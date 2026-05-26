@@ -176,7 +176,7 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 
 	// Apply hysteresis based on last decision
 	// libopus: sum = (3*sum + (((3-last_decision)<<7) + 64) + 2)>>2
-	sum = (3*sum + int32((3-e.spreadDecision)<<7) + 64 + 2) >> 2
+	sum = (3*sum + ((3 - int32(e.spreadDecision)) << 7) + 64 + 2) >> 2
 
 	// Make decision based on thresholds
 	var decision int
@@ -190,7 +190,7 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 		decision = spreadNone
 	}
 
-	e.spreadDecision = decision
+	e.spreadDecision = int32(decision)
 	return decision
 }
 

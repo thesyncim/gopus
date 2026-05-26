@@ -215,17 +215,17 @@ func (e *Encoder) QuantAllBandsEncodeScratch(re *rangecoding.Encoder, channels, 
 
 // LastCodedBands returns the last coded band count used for allocation skip decisions.
 func (e *Encoder) LastCodedBands() int {
-	return e.lastCodedBands
+	return int(e.lastCodedBands)
 }
 
 // SetLastCodedBands updates the last coded band count.
 func (e *Encoder) SetLastCodedBands(val int) {
-	e.lastCodedBands = val
+	e.lastCodedBands = int32(val)
 }
 
 // ConsecTransient returns the number of consecutive transient frames.
 func (e *Encoder) ConsecTransient() int {
-	return e.consecTransient
+	return int(e.consecTransient)
 }
 
 // UpdateConsecTransient updates the consecutive transient counter.

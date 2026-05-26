@@ -43,8 +43,8 @@ func TestEncodeFrameBandwidthCapLimitsCodedBands(t *testing.T) {
 	if _, err := full.EncodeFrame(float32Slice(pcm), frameSize); err != nil {
 		t.Fatalf("fullband encode failed: %v", err)
 	}
-	if full.lastCodedBands <= 13 {
-		t.Fatalf("fullband coded bands unexpectedly low: %d", full.lastCodedBands)
+	if full.LastCodedBands() <= 13 {
+		t.Fatalf("fullband coded bands unexpectedly low: %d", full.LastCodedBands())
 	}
 
 	nb := NewEncoder(1)
@@ -55,7 +55,7 @@ func TestEncodeFrameBandwidthCapLimitsCodedBands(t *testing.T) {
 		t.Fatalf("narrowband encode failed: %v", err)
 	}
 	nbLimit := EffectiveBandsForFrameSize(CELTNarrowband, frameSize)
-	if nb.lastCodedBands > nbLimit {
-		t.Fatalf("narrowband coded bands exceeded cap: got=%d limit=%d", nb.lastCodedBands, nbLimit)
+	if nb.LastCodedBands() > nbLimit {
+		t.Fatalf("narrowband coded bands exceeded cap: got=%d limit=%d", nb.LastCodedBands(), nbLimit)
 	}
 }

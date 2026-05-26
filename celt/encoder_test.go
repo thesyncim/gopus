@@ -15,12 +15,18 @@ func TestEncoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 		"channels",
 		"streamChannels",
 		"sampleRate",
+		"frameCount",
+		"consecTransient",
+		"lastCodedBands",
+		"intensity",
 		"lsbDepth",
 		"targetBitrate",
 		"frameBits",
 		"coarseAvailableBytes",
 		"maxPayloadBytes",
 		"complexity",
+		"spreadDecision",
+		"tapsetDecision",
 		"packetLoss",
 	} {
 		field, ok := reflect.TypeOf(Encoder{}).FieldByName(name)

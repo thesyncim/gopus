@@ -50,7 +50,7 @@ type Encoder struct {
 	rng uint32
 
 	// Frame counting for intra mode decisions
-	frameCount int // Number of frames encoded (0 = first frame uses intra mode)
+	frameCount int32 // Number of frames encoded (0 = first frame uses intra mode)
 	// Coarse-energy intra/inter decision state (libopus delayedIntra).
 	delayedIntra opusVal32
 	forceIntra   bool
@@ -60,11 +60,11 @@ type Encoder struct {
 	// 2 => force_intra=0, disable_pf=0
 	disablePrefilter bool
 	// Consecutive transient frames (used for anti-collapse flag)
-	consecTransient int
+	consecTransient int32
 
 	// Allocation history for skip decisions
-	lastCodedBands int // Previous coded band count (0 = uninitialized)
-	intensity      int // Previous intensity stereo decision (libopus hysteresis state)
+	lastCodedBands int32 // Previous coded band count (0 = uninitialized)
+	intensity      int32 // Previous intensity stereo decision (libopus hysteresis state)
 
 	// Bitrate control
 	targetBitrate int32 // Target bitrate in bits per second (0 = use buffer size)
@@ -91,10 +91,10 @@ type Encoder struct {
 	complexity int32
 
 	// Spread decision state (persistent across frames for hysteresis)
-	spreadDecision int   // Current spread decision (0-3)
+	spreadDecision int32 // Current spread decision (0-3)
 	tonalAverage   int32 // Running average for spread decision hysteresis
 	hfAverage      int32 // High frequency average for tapset decision
-	tapsetDecision int   // Tapset decision (0, 1, or 2)
+	tapsetDecision int32 // Tapset decision (0, 1, or 2)
 
 	// Tonality analysis state (for VBR decisions)
 	prevBandLogEnergy []celtGLog // Previous frame log-energy per band for spectral flux
@@ -811,7 +811,7 @@ func (e *Encoder) IncrementFrameCount() {
 
 // FrameCount returns the number of frames encoded.
 func (e *Encoder) FrameCount() int {
-	return e.frameCount
+	return int(e.frameCount)
 }
 
 // SetBitrate sets the target bitrate in bits per second.
@@ -907,7 +907,7 @@ func (e *Encoder) effectiveBandCount(frameSize int) int {
 // This is computed during SpreadingDecision when updateHF=true.
 // Reference: libopus celt/bands.c spreading_decision() and celt/celt.c comb_filter()
 func (e *Encoder) TapsetDecision() int {
-	return e.tapsetDecision
+	return int(e.tapsetDecision)
 }
 
 // SetTapsetDecision sets the tapset decision value.
@@ -919,7 +919,7 @@ func (e *Encoder) SetTapsetDecision(tapset int) {
 	if tapset > 2 {
 		tapset = 2
 	}
-	e.tapsetDecision = tapset
+	e.tapsetDecision = int32(tapset)
 }
 
 // HFAverage returns the high-frequency average used for tapset decision.

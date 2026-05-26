@@ -124,7 +124,7 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 		return e.surroundTrim, false
 	}
 
-	maskEnd := e.lastCodedBands
+	maskEnd := int(e.lastCodedBands)
 	if maskEnd < 2 {
 		maskEnd = 2
 	}
@@ -1075,19 +1075,19 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		} else {
 			dualStereo = false
 		}
-		e.intensity = hysteresisDecisionInt(
+		e.intensity = int32(hysteresisDecisionInt(
 			equivRate/1000,
 			celtIntensityThresholds[:],
 			celtIntensityHysteresis[:],
-			e.intensity,
-		)
-		if e.intensity < start {
-			e.intensity = start
+			int(e.intensity),
+		))
+		if int(e.intensity) < start {
+			e.intensity = int32(start)
 		}
-		if e.intensity > end {
-			e.intensity = end
+		if int(e.intensity) > end {
+			e.intensity = int32(end)
 		}
-		intensity = e.intensity
+		intensity = int(e.intensity)
 	}
 
 	// Step 11.5: Compute and encode allocation trim (only if budget allows)
@@ -1208,7 +1208,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			intensity,
 			dualStereo,
 			lm,
-			e.lastCodedBands,
+			int(e.lastCodedBands),
 			signalBandwidth,
 		)
 	} else {
@@ -1222,17 +1222,18 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			intensity,
 			dualStereo,
 			lm,
-			e.lastCodedBands,
+			int(e.lastCodedBands),
 			signalBandwidth,
 		)
 	}
 	if e.lastCodedBands != 0 {
-		e.lastCodedBands = min(e.lastCodedBands+1, max(e.lastCodedBands-1, allocResult.CodedBands))
+		lastCodedBands := int(e.lastCodedBands)
+		e.lastCodedBands = int32(min(lastCodedBands+1, max(lastCodedBands-1, allocResult.CodedBands)))
 	} else {
-		e.lastCodedBands = allocResult.CodedBands
+		e.lastCodedBands = int32(allocResult.CodedBands)
 	}
 	if codedChannels == 2 {
-		e.intensity = allocResult.Intensity
+		e.intensity = int32(allocResult.Intensity)
 		intensity = allocResult.Intensity
 	}
 	// Keep CELT allocation bandwidth gating driven only by explicit external
@@ -2291,8 +2292,9 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	channels := e.codedChannels()
 
 	codedBands := nbBands
-	if e.lastCodedBands > 0 && e.lastCodedBands < nbBands {
-		codedBands = e.lastCodedBands
+	lastCodedBands := int(e.lastCodedBands)
+	if lastCodedBands > 0 && lastCodedBands < nbBands {
+		codedBands = lastCodedBands
 	}
 	if codedBands < 0 {
 		codedBands = 0
@@ -2303,8 +2305,9 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	codedBins := EBands[codedBands] << lm
 	if channels == 2 {
 		codedStereoBands := codedBands
-		if e.intensity < codedStereoBands {
-			codedStereoBands = e.intensity
+		intensity := int(e.intensity)
+		if intensity < codedStereoBands {
+			codedStereoBands = intensity
 		}
 		if codedStereoBands < 0 {
 			codedStereoBands = 0
@@ -2321,8 +2324,9 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	// Stereo savings (libopus compute_vbr(): applied before dynalloc boost).
 	if channels == 2 && codedBins > 0 {
 		codedStereoBands := codedBands
-		if e.intensity < codedStereoBands {
-			codedStereoBands = e.intensity
+		intensity := int(e.intensity)
+		if intensity < codedStereoBands {
+			codedStereoBands = intensity
 		}
 		if codedStereoBands < 0 {
 			codedStereoBands = 0
