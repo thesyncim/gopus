@@ -2,6 +2,7 @@ package bwe
 
 import (
 	"errors"
+	"math"
 
 	"github.com/thesyncim/gopus/internal/dnnblob"
 	"github.com/thesyncim/gopus/internal/dnnmath"
@@ -363,11 +364,27 @@ func (s *State) ensureWindows() {
 }
 
 func computeOverlapWindow(window []float32, overlapSize int) {
-	const pi = float32(3.141592653589793238462643383279502884)
 	for i := 0; i < overlapSize; i++ {
-		arg := pi * (float32(i) + 0.5) / float32(overlapSize)
-		window[i] = 0.5 + 0.5*opusmath.CosF32(arg)
+		// libopus dnn/nndsp.c:compute_overlap_window evaluates cos(M_PI * ...)
+		// as a C double expression, then stores the result in a float window.
+		arg := math.Pi * float64(float32(i)+0.5) / float64(overlapSize)
+		window[i] = float32(0.5 + 0.5*math.Cos(arg))
 	}
+}
+
+func scaleKernelInvNorm(norm float32) float32 {
+	// libopus dnn/nndsp.c:scale_kernel assigns
+	// 1.f / (1e-6f + sqrt(norm)) back to float after sqrt()'s C double result.
+	return float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
+}
+
+func adashapeLeakyRelu(v float32) float32 {
+	if v >= 0 {
+		return v
+	}
+	// libopus dnn/nndsp.c:adashape_process_frame uses unsuffixed 0.2, so
+	// the negative branch narrows only after the multiply.
+	return float32(0.2 * float64(v))
 }
 
 // featureNet runs the libopus bbwe_feature_net forward path.
@@ -840,7 +857,7 @@ func adaconvProcessFrame(
 				norm += v * v
 			}
 		}
-		invNorm := 1.0 / (float32(1e-6) + opusmath.SqrtF32(norm))
+		invNorm := scaleKernelInvNorm(norm)
 		scale := invNorm * gainBuf[o]
 		for ic := 0; ic < inChannels; ic++ {
 			for k := 0; k < kernelSize; k++ {
@@ -942,10 +959,7 @@ func adashapeProcessFrame(
 	// Leaky ReLU(out + tmp), slope 0.2.
 	for i := 0; i < hiddenDim; i++ {
 		v := outBuf[i] + tmpBuf[i]
-		if v < 0 {
-			v = 0.2 * v
-		}
-		inBuf[i] = v
+		inBuf[i] = adashapeLeakyRelu(v)
 	}
 
 	// alpha2: hidden -> hidden.

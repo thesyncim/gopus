@@ -249,7 +249,7 @@ func traceAdaCombParams(
 	for k := 0; k < kernelSize; k++ {
 		norm += kernel[k] * kernel[k]
 	}
-	invNorm := 1.0 / (float32(1e-6) + opusmath.SqrtF32(norm))
+	invNorm := scaleKernelInvNorm(norm)
 	scale := invNorm * gains[0]
 	for k := 0; k < kernelSize; k++ {
 		kernel[k] *= scale

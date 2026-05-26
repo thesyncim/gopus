@@ -4,3 +4,9 @@
 # Columns: path<TAB>count<TAB>sha256(normalized line)<TAB>reason<TAB>normalized sample
 # Agents: do not update this file to hide new guarded type-parity debt.
 # Migrate runtime codec/scratch storage to libopus-width types instead.
+internal/osce/bwe/runtime.go	1	20045b396047cf67c8444be9b2d2dcf3238ed6cbf7d25fb37ba27258d9b91095	source-cited libopus dnn/nndsp.c C double expression parity for OSCE overlap-window, scale_kernel, and adashape_process_frame	arg := math.Pi * float64(float32(i)+0.5) / float64(overlapSize)
+internal/osce/bwe/runtime.go	1	22caf06d563dbe2eae74c00b8106b6cdb8dc8eedd07c5a77e2bab50a8a02efcc	source-cited libopus dnn/nndsp.c C double expression parity for OSCE overlap-window, scale_kernel, and adashape_process_frame	return float32(0.2 * float64(v))
+internal/osce/bwe/runtime.go	1	6dfb1872085f8233e00bd72555d09945f8cf2fc8188a3fdc54a5d4d340168233	source-cited libopus dnn/nndsp.c C double expression parity for OSCE overlap-window, scale_kernel, and adashape_process_frame	return float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))
+internal/osce/lace/runtime.go	1	20045b396047cf67c8444be9b2d2dcf3238ed6cbf7d25fb37ba27258d9b91095	source-cited libopus dnn/nndsp.c C double expression parity for OSCE overlap-window, scale_kernel, and adashape_process_frame	arg := math.Pi * float64(float32(i)+0.5) / float64(overlapSize)
+internal/osce/lace/runtime.go	1	22caf06d563dbe2eae74c00b8106b6cdb8dc8eedd07c5a77e2bab50a8a02efcc	source-cited libopus dnn/nndsp.c C double expression parity for OSCE overlap-window, scale_kernel, and adashape_process_frame	return float32(0.2 * float64(v))
+internal/osce/lace/runtime.go	1	6dfb1872085f8233e00bd72555d09945f8cf2fc8188a3fdc54a5d4d340168233	source-cited libopus dnn/nndsp.c C double expression parity for OSCE overlap-window, scale_kernel, and adashape_process_frame	return float32(1.0 / (float64(float32(1e-6)) + math.Sqrt(float64(norm))))

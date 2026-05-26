@@ -116,7 +116,7 @@ func imdctOverlapWithPrevScratchF32LegacyBufferCopy(out []float32, spectrum []fl
 
 	imdctPreRotateF32Spectrum(fftIn, spectrum, trig, n2, n4)
 	kissFFT32ToInterleaved(buf, fftIn, fftTmp)
-	imdctPostRotateF32(buf, trig, n2, n4)
+	imdctPostRotateF32InterleavedLibopusPolicy(buf, trig, n2, n4)
 	copy(outF32[start:start+n2], buf)
 
 	if overlap > 0 {
@@ -163,6 +163,42 @@ func imdctOverlapWithPrevScratchF32LegacyBufferCopy(out []float32, spectrum []fl
 		outF32 = outF32[:needed:needed]
 	}
 	copy(out[:needed], outF32[:needed])
+}
+
+func imdctPostRotateF32InterleavedLibopusPolicy(buf []float32, trig []float32, n2, n4 int) {
+	limit := (n4 + 1) >> 1
+	if limit <= 0 {
+		return
+	}
+
+	_ = buf[n2-1]
+	_ = trig[n2-1]
+
+	yp0 := 0
+	yp1 := n2 - 2
+	for i := 0; i < limit; i++ {
+		re := buf[yp0+1]
+		im := buf[yp0]
+		t0 := trig[i]
+		t1 := trig[n4+i]
+		yr := mdctMulAddMixWith(mdctUseNativeMulEnabled, re, im, t0, t1)
+		yi := mdctMulSubMixWith(mdctUseNativeMulEnabled, re, im, t1, t0)
+
+		re2 := buf[yp1+1]
+		im2 := buf[yp1]
+		buf[yp0] = yr
+		buf[yp1+1] = yi
+
+		t0 = trig[n4-i-1]
+		t1 = trig[n2-i-1]
+		yr = mdctMulAddMixWith(mdctUseNativeMulEnabled, re2, im2, t0, t1)
+		yi = mdctMulSubMixWith(mdctUseNativeMulEnabled, re2, im2, t1, t0)
+		buf[yp1] = yr
+		buf[yp0+1] = yi
+
+		yp0 += 2
+		yp1 -= 2
+	}
 }
 
 func TestIMDCTOverlapWithPrevScratchF32MatchesLegacyBufferCopy(t *testing.T) {
