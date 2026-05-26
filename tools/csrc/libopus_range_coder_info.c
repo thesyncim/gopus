@@ -32,7 +32,8 @@ enum {
   OP_ENC_BITS = 6,
   OP_PATCH = 7,
   OP_SHRINK = 8,
-  OP_DONE = 9
+  OP_DONE = 9,
+  OP_THETA_RDO_TRIAL1_WINS = 10
 };
 
 typedef struct {
@@ -105,6 +106,40 @@ static void capture_trace(const ec_enc *enc, trace_t *trace) {
   trace->error = (uint32_t)(int32_t)enc->error;
 }
 
+static int run_theta_rdo_trial1_wins(ec_enc *enc) {
+  ec_enc ec_save;
+  ec_enc ec_save2;
+  unsigned char *bytes_buf;
+  unsigned char *bytes_save;
+  opus_uint32 nstart_bytes;
+  opus_uint32 nend_bytes;
+  opus_uint32 save_bytes;
+
+  ec_save = *enc;
+
+  ec_enc_bits(enc, 0x5a, 8);
+  ec_enc_bits(enc, 0xc3, 8);
+  ec_enc_bits(enc, 0x7e, 8);
+  ec_enc_bits(enc, 0x18, 8);
+  ec_enc_bits(enc, 0xa5, 8);
+  ec_save2 = *enc;
+
+  nstart_bytes = ec_save.offs;
+  nend_bytes = ec_save.storage;
+  bytes_buf = ec_save.buf + nstart_bytes;
+  save_bytes = nend_bytes - nstart_bytes;
+  bytes_save = (unsigned char *)malloc(save_bytes == 0 ? 1 : save_bytes);
+  if (bytes_save == NULL) return 0;
+  if (save_bytes > 0) memcpy(bytes_save, bytes_buf, save_bytes);
+
+  *enc = ec_save;
+  ec_enc_uint(enc, 3, 17);
+
+  (void)ec_save2;
+  free(bytes_save);
+  return 1;
+}
+
 static int run_op(ec_enc *enc, uint32_t op, uint32_t a, uint32_t b, uint32_t c, uint32_t d, int *shrunk) {
   const unsigned char *icdf8;
   const opus_uint16 *icdf16;
@@ -145,6 +180,8 @@ static int run_op(ec_enc *enc, uint32_t op, uint32_t a, uint32_t b, uint32_t c, 
     case OP_DONE:
       ec_enc_done(enc);
       return 1;
+    case OP_THETA_RDO_TRIAL1_WINS:
+      return run_theta_rdo_trial1_wins(enc);
   }
   return 0;
 }

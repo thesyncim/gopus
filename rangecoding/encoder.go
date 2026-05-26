@@ -503,8 +503,7 @@ func (e *Encoder) SaveStateInto(state *EncoderState) {
 	}
 }
 
-// RestoreState restores the encoder to a previously saved state.
-func (e *Encoder) RestoreState(state *EncoderState) {
+func (e *Encoder) restoreScalarState(state *EncoderState) {
 	e.storage = state.storage
 	e.offs = state.offs
 	e.endOffs = state.endOffs
@@ -517,9 +516,21 @@ func (e *Encoder) RestoreState(state *EncoderState) {
 	e.ext = state.ext
 	e.err = state.err
 	e.shrunk = state.shrunk
+}
+
+// RestoreState restores the encoder to a previously saved state.
+func (e *Encoder) RestoreState(state *EncoderState) {
+	e.restoreScalarState(state)
 	if len(state.buf) > 0 {
 		copy(e.buf[:state.storage], state.buf)
 	}
+}
+
+// RestoreStateShallow mirrors a libopus ec_ctx struct assignment such as
+// celt/bands.c:*ec = ec_save: scalar fields are restored, while the shared
+// packet buffer keeps bytes dirtied by speculative encoding.
+func (e *Encoder) RestoreStateShallow(state *EncoderState) {
+	e.restoreScalarState(state)
 }
 
 // RangeBytes returns the number of range-coded bytes written.

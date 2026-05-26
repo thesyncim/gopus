@@ -22,6 +22,7 @@ const (
 	rangeOpPatch      = uint32(7)
 	rangeOpShrink     = uint32(8)
 	rangeOpDone       = uint32(9)
+	rangeOpThetaRDO   = uint32(10)
 )
 
 var (
@@ -117,6 +118,46 @@ func probeLibopusRangeEncoder(storage uint32, ops []rangeOracleOp) (rangeOracleR
 	return result, nil
 }
 
+func applyThetaRDOTrial1Wins(enc *Encoder) {
+	var ecSave EncoderState
+	enc.SaveStateInto(&ecSave)
+
+	enc.EncodeRawBits(0x5a, 8)
+	enc.EncodeRawBits(0xc3, 8)
+	enc.EncodeRawBits(0x7e, 8)
+	enc.EncodeRawBits(0x18, 8)
+	enc.EncodeRawBits(0xa5, 8)
+
+	start := int(ecSave.offs)
+	end := int(ecSave.storage)
+	bytesSave := append([]byte(nil), enc.buf[start:end]...)
+
+	enc.RestoreStateShallow(&ecSave)
+	enc.EncodeUniform(3, 17)
+
+	_ = bytesSave
+}
+
+func compactRangePacketForTest(enc *Encoder) []byte {
+	if enc.shrunk || enc.err != 0 {
+		return append([]byte(nil), enc.buf[:enc.storage]...)
+	}
+	partial := 0
+	if enc.nendBits&7 != 0 && enc.endOffs < enc.storage {
+		partial = 1
+	}
+	packetLen := int(enc.offs) + partial + int(enc.endOffs)
+	packet := make([]byte, packetLen)
+	copy(packet, enc.buf[:enc.offs])
+	if partial != 0 {
+		packet[enc.offs] = enc.buf[enc.storage-enc.endOffs-1]
+	}
+	if enc.endOffs > 0 {
+		copy(packet[int(enc.offs)+partial:], enc.buf[enc.storage-enc.endOffs:enc.storage])
+	}
+	return packet
+}
+
 func encodeRangeOpsWithGo(storage uint32, ops []rangeOracleOp) rangeOracleResult {
 	buf := make([]byte, storage)
 	var enc Encoder
@@ -144,6 +185,8 @@ func encodeRangeOpsWithGo(storage uint32, ops []rangeOracleOp) rangeOracleResult
 			enc.Shrink(op.a)
 		case rangeOpDone:
 			result.packet = append([]byte(nil), enc.Done()...)
+		case rangeOpThetaRDO:
+			applyThetaRDOTrial1Wins(&enc)
 		}
 		result.traces[i] = rangeOracleTrace{
 			tell:       uint32(enc.Tell()),
@@ -155,6 +198,9 @@ func encodeRangeOpsWithGo(storage uint32, ops []rangeOracleOp) rangeOracleResult
 			ext:        enc.Ext(),
 			err:        uint32(int32(enc.Error())),
 		}
+	}
+	if len(result.packet) == 0 {
+		result.packet = compactRangePacketForTest(&enc)
 	}
 	return result
 }
@@ -267,6 +313,14 @@ func TestRangeCoderMatchesLibopusOracle(t *testing.T) {
 				{kind: rangeOpEncodeUint, a: 2, b: 6},
 				{kind: rangeOpEncodeUint, a: 6, b: 7},
 				{kind: rangeOpDone},
+			},
+		},
+		{
+			name:    "theta_rdo_trial1_preserves_trial0_dirty_gap",
+			storage: 12,
+			ops: []rangeOracleOp{
+				{kind: rangeOpShrink, a: 12},
+				{kind: rangeOpThetaRDO},
 			},
 		},
 	}

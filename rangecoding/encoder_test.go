@@ -115,6 +115,55 @@ func TestEncoderStateRestoresFullActiveBuffer(t *testing.T) {
 	}
 }
 
+func TestEncoderStateShallowRestoreLeavesBufferDirty(t *testing.T) {
+	buf := []byte{
+		0x10, 0x11, 0x12, 0x13,
+		0x14, 0x15, 0x16, 0x17,
+	}
+	enc := &Encoder{}
+	enc.Init(buf)
+	enc.offs = 2
+	enc.endOffs = 1
+	enc.endWindow = 0x2a
+	enc.nendBits = 5
+	enc.nbitsTotal = 31
+	enc.rng = 0x01020304
+	enc.val = 0x00506070
+	enc.rem = 0x33
+	enc.ext = 2
+	enc.err = -1
+	enc.shrunk = true
+
+	var state EncoderState
+	enc.SaveStateInto(&state)
+	dirty := []byte{0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7}
+	copy(enc.buf, dirty)
+	enc.storage = 4
+	enc.offs = 4
+	enc.endOffs = 0
+	enc.endWindow = 0
+	enc.nendBits = 0
+	enc.nbitsTotal = 0
+	enc.rng = 0
+	enc.val = 0
+	enc.rem = 0
+	enc.ext = 0
+	enc.err = 0
+	enc.shrunk = false
+
+	enc.RestoreStateShallow(&state)
+	if enc.storage != state.storage || enc.offs != state.offs || enc.endOffs != state.endOffs ||
+		enc.endWindow != state.endWindow || enc.nendBits != state.nendBits ||
+		enc.nbitsTotal != state.nbitsTotal || enc.rng != state.rng ||
+		enc.val != state.val || enc.rem != state.rem || enc.ext != state.ext ||
+		enc.err != state.err || enc.shrunk != state.shrunk {
+		t.Fatalf("RestoreStateShallow did not restore scalars: got %+v want %+v", enc, state)
+	}
+	if !bytes.Equal(enc.buf, dirty) {
+		t.Fatalf("RestoreStateShallow buffer = % x, want dirty bytes % x", enc.buf, dirty)
+	}
+}
+
 // TestEncodeBit tests single bit encoding.
 func TestEncodeBit(t *testing.T) {
 	tests := []struct {

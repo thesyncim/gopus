@@ -2076,10 +2076,10 @@ func stereoSplit(x, y []celtNorm) {
 	if len(y) < n {
 		n = len(y)
 	}
-	const invSqrt2 float32 = 0.7071067811865476
+	const invSqrt2 float32 = 0.70710678
 	for i := 0; i < n; i++ {
-		l := invSqrt2 * float32(x[i])
-		r := invSqrt2 * float32(y[i])
+		l := noFMA32Mul(invSqrt2, float32(x[i]))
+		r := noFMA32Mul(invSqrt2, float32(y[i]))
 		x[i] = celtNorm(noFMA32Add(l, r))
 		y[i] = celtNorm(noFMA32Sub(r, l))
 	}
@@ -4779,9 +4779,9 @@ func quantAllBandsEncodeScratchWithMode(re *rangecoding.Encoder, channels, frame
 					}
 
 					// Restore coder and band state for the second trial.
-					re.RestoreState(ecSave)
+					re.RestoreStateShallow(ecSave)
 					if ctx.extEnc != nil && extECSave != nil {
-						ctx.extEnc.RestoreState(extECSave)
+						ctx.extEnc.RestoreStateShallow(extECSave)
 					}
 					ctx = ctxSave
 					copy(xBand, xSave)

@@ -385,7 +385,7 @@ func QuantCoarseEnergy(
 			encIntraState := re.SaveState()
 
 			// Restore to start state for inter encoding
-			re.RestoreState(encStartState)
+			re.RestoreStateShallow(encStartState)
 
 			// Try inter encoding
 			errorInter := make([]celtGLog, channels*MaxBands)
