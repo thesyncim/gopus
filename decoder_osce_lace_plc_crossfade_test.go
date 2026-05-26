@@ -75,10 +75,10 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 	silkWBB := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
 	silkWBC := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
 
-	pcmA := make([]float32, dec.maxPacketSamples*dec.channels)
-	pcmB := make([]float32, dec.maxPacketSamples*dec.channels)
-	pcmC := make([]float32, dec.maxPacketSamples*dec.channels)
-	pcmD := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcmA := make([]float32, dec.maxPacketSamples*int(dec.channels))
+	pcmB := make([]float32, dec.maxPacketSamples*int(dec.channels))
+	pcmC := make([]float32, dec.maxPacketSamples*int(dec.channels))
+	pcmD := make([]float32, dec.maxPacketSamples*int(dec.channels))
 
 	// Step 1: SILK WB -- LACE active. prevLACEActive must transition to
 	// true. libopus keeps this first eligible frame raw after reset and
@@ -222,7 +222,7 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 
 	// Step 1: decode a SILK WB packet so the decoder retains valid
 	// lastPacketMode/lastBandwidth for the upcoming PLC.
-	pcmGood := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcmGood := make([]float32, dec.maxPacketSamples*int(dec.channels))
 	gotGood, err := dec.Decode(silkWB, pcmGood)
 	if err != nil {
 		t.Fatalf("Decode(silk WB): %v", err)
@@ -285,7 +285,7 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 		}
 
 		silkWB := makeValidStereoSILKPacketForFrameSizeBandwidthForOSCEBWETest(t, frameSize, BandwidthWideband)
-		pcmGood := make([]float32, dec.maxPacketSamples*dec.channels)
+		pcmGood := make([]float32, dec.maxPacketSamples*int(dec.channels))
 		gotGood, err := dec.Decode(silkWB, pcmGood)
 		if err != nil {
 			t.Fatalf("Decode(stereo silk WB): %v", err)

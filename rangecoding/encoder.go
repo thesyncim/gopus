@@ -34,6 +34,7 @@ func (e *Encoder) Init(buf []byte) {
 	e.rem = -1 // Sentinel: no bytes buffered yet
 	e.ext = 0
 	e.err = 0
+	e.shrunk = false
 }
 
 // Shrink reduces the storage size to the given number of bytes.
@@ -448,6 +449,7 @@ func (e *Encoder) Error() int {
 // EncoderState captures the encoder state for save/restore operations.
 // This is used by theta RDO to try different quantization choices.
 type EncoderState struct {
+	storage    uint32
 	offs       uint32
 	endOffs    uint32
 	endWindow  uint32
@@ -458,9 +460,8 @@ type EncoderState struct {
 	rem        int32
 	ext        uint32
 	err        int32
-	// Buffer bytes are saved separately for restoration
-	bufFront []byte // bytes from [0, offs)
-	bufBack  []byte // bytes from [storage-endOffs, storage)
+	shrunk     bool
+	buf        []byte
 }
 
 // SaveState captures the current encoder state for later restoration.
@@ -474,6 +475,7 @@ func (e *Encoder) SaveState() *EncoderState {
 // SaveStateInto captures the current encoder state into a pre-allocated state struct.
 // This is the allocation-free version of SaveState for hot paths.
 func (e *Encoder) SaveStateInto(state *EncoderState) {
+	state.storage = e.storage
 	state.offs = e.offs
 	state.endOffs = e.endOffs
 	state.endWindow = e.endWindow
@@ -484,32 +486,26 @@ func (e *Encoder) SaveStateInto(state *EncoderState) {
 	state.rem = e.rem
 	state.ext = e.ext
 	state.err = e.err
+	state.shrunk = e.shrunk
 
-	// Save the bytes that have been written - reuse existing slices if large enough
-	if e.offs > 0 {
-		if cap(state.bufFront) < int(e.offs) {
-			state.bufFront = make([]byte, e.offs)
+	// Save the whole active storage. libopus theta RDO restores a shallow
+	// ec_ctx plus the byte span dirtied by the first trial; saving the full
+	// active buffer preserves the same middle-gap bytes for every caller.
+	if e.storage > 0 {
+		if cap(state.buf) < int(e.storage) {
+			state.buf = make([]byte, e.storage)
 		} else {
-			state.bufFront = state.bufFront[:e.offs]
+			state.buf = state.buf[:e.storage]
 		}
-		copy(state.bufFront, e.buf[:e.offs])
+		copy(state.buf, e.buf[:e.storage])
 	} else {
-		state.bufFront = state.bufFront[:0]
-	}
-	if e.endOffs > 0 {
-		if cap(state.bufBack) < int(e.endOffs) {
-			state.bufBack = make([]byte, e.endOffs)
-		} else {
-			state.bufBack = state.bufBack[:e.endOffs]
-		}
-		copy(state.bufBack, e.buf[e.storage-e.endOffs:e.storage])
-	} else {
-		state.bufBack = state.bufBack[:0]
+		state.buf = state.buf[:0]
 	}
 }
 
 // RestoreState restores the encoder to a previously saved state.
 func (e *Encoder) RestoreState(state *EncoderState) {
+	e.storage = state.storage
 	e.offs = state.offs
 	e.endOffs = state.endOffs
 	e.endWindow = state.endWindow
@@ -520,12 +516,9 @@ func (e *Encoder) RestoreState(state *EncoderState) {
 	e.rem = state.rem
 	e.ext = state.ext
 	e.err = state.err
-	// Restore the bytes
-	if len(state.bufFront) > 0 {
-		copy(e.buf[:state.offs], state.bufFront)
-	}
-	if len(state.bufBack) > 0 {
-		copy(e.buf[e.storage-state.endOffs:e.storage], state.bufBack)
+	e.shrunk = state.shrunk
+	if len(state.buf) > 0 {
+		copy(e.buf[:state.storage], state.buf)
 	}
 }
 

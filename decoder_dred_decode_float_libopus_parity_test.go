@@ -1562,7 +1562,7 @@ func TestDecoderCachedStereoDREDThenNextPacketMatchesLiveSequenceOracle(t *testi
 	assertInterleavedStereoDuplicated(t, pcm, got, "cached stereo first loss")
 	assertInterleavedStereoDuplicated(t, want.step0.pcm, got, "libopus cached stereo first loss")
 
-	nextPCM := make([]float32, dec.maxPacketSamples*dec.channels)
+	nextPCM := make([]float32, dec.maxPacketSamples*int(dec.channels))
 	gotNext, err := dec.Decode(nextPacket, nextPCM)
 	if err != nil {
 		t.Fatalf("Decode(next stereo CELT packet) error: %v", err)
@@ -1638,7 +1638,7 @@ func TestDecoderCachedStereoDREDSecondLossThenNextPacketMatchesLiveSequenceOracl
 	assertInterleavedStereoDuplicated(t, pcm1, got, "cached stereo second loss")
 	assertInterleavedStereoDuplicated(t, want.step1.pcm, got, "libopus cached stereo second loss")
 
-	nextPCM := make([]float32, dec.maxPacketSamples*dec.channels)
+	nextPCM := make([]float32, dec.maxPacketSamples*int(dec.channels))
 	gotNext, err := dec.Decode(nextPacket, nextPCM)
 	if err != nil {
 		t.Fatalf("Decode(next stereo CELT packet) error: %v", err)
@@ -1794,7 +1794,7 @@ func assertDecoderCachedStereoDREDLiveSequenceMatchesLibopus(t *testing.T, label
 	}
 
 	if decodeNext {
-		nextPCM := make([]float32, dec.maxPacketSamples*dec.channels)
+		nextPCM := make([]float32, dec.maxPacketSamples*int(dec.channels))
 		gotNext, err := dec.Decode(nextPacket, nextPCM)
 		if err != nil {
 			t.Fatalf("%s Decode(next packet) error: %v", label, err)
@@ -3814,7 +3814,7 @@ func TestDecoderExplicitStereoDREDDecodeMatchesLibopus(t *testing.T) {
 		t.Fatalf("libopus decoder stereo DRED decode channels=%d want 2", want.channels)
 	}
 
-	pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 	got, err := dec.decodeExplicitDREDFloat(dred, n, pcm, n)
 	if err != nil {
 		t.Fatalf("decodeExplicitDREDFloat error: %v", err)
@@ -3884,7 +3884,7 @@ func TestDecoderExplicitStereoDRED16kDecodeMatchesLibopus(t *testing.T) {
 		t.Fatalf("libopus decoder stereo 16k DRED decode channels=%d want 2", want.channels)
 	}
 
-	pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 	got, err := dec.decodeExplicitDREDFloat(dred, n, pcm, n)
 	if err != nil {
 		t.Fatalf("decodeExplicitDREDFloat error: %v", err)
@@ -3956,7 +3956,7 @@ func TestDecoderExplicitStereoHybridDRED16kDecodeMatchesLibopus(t *testing.T) {
 		t.Fatalf("libopus decoder stereo Hybrid 16k DRED decode channels=%d want 2", want.channels)
 	}
 
-	pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 	got, err := dec.decodeExplicitDREDFloat(dred, n, pcm, n)
 	if err != nil {
 		t.Fatalf("decodeExplicitDREDFloat error: %v", err)
@@ -4119,7 +4119,7 @@ func TestDecoderPublicDecodeDRED16kMatchesLibopus(t *testing.T) {
 				t.Fatalf("libopus public 16k decoder DRED channels=%d want %d", want.channels, dec.channels)
 			}
 
-			pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+			pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 			got, err := dec.DecodeDRED(dred, n, pcm, n)
 			if err != nil {
 				t.Fatalf("DecodeDRED error: %v", err)
@@ -6179,7 +6179,7 @@ func TestDecoderExplicitSILKDREDDecodeStereoMatchesLibopus(t *testing.T) {
 		t.Fatalf("libopus decoder stereo SILK DRED decode channels=%d want 2", want.channels)
 	}
 
-	pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 	got, err := dec.decodeExplicitDREDFloat(dred, n, pcm, n)
 	if err != nil {
 		t.Fatalf("decodeExplicitDREDFloat error: %v", err)

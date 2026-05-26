@@ -73,7 +73,7 @@ func TestDecoderOSCEBWERuntimeIntegration(t *testing.T) {
 			t.Fatalf("unexpected TOC: mode=%v bandwidth=%v", toc.Mode, toc.Bandwidth)
 		}
 
-		pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+		pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 		got, err := dec.Decode(packet, pcm)
 		if err != nil {
 			t.Fatalf("Decode(hybrid SWB packet): %v", err)
@@ -112,7 +112,7 @@ func TestDecoderOSCEBWERuntimeIntegration(t *testing.T) {
 			t.Fatalf("unexpected TOC: mode=%v bandwidth=%v", toc.Mode, toc.Bandwidth)
 		}
 
-		pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+		pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 		got, err := dec.Decode(packet, pcm)
 		if err != nil {
 			t.Fatalf("Decode(silk WB packet): %v", err)
@@ -154,7 +154,7 @@ func TestDecoderOSCEBWERuntimeIntegration(t *testing.T) {
 			t.Fatalf("expected stereo packet but TOC.Stereo=false")
 		}
 
-		pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+		pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 		got, err := dec.Decode(packet, pcm)
 		if err != nil {
 			t.Fatalf("Decode(stereo silk WB packet): %v", err)
@@ -227,7 +227,7 @@ func TestDecoderOSCEBWEComplexityGate(t *testing.T) {
 			if err := dec.SetDNNBlob(merged); err != nil {
 				t.Fatalf("SetDNNBlob(merged core+BWE): %v", err)
 			}
-			pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+			pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 			if got, err := dec.Decode(packet, pcm); err != nil {
 				t.Fatalf("Decode(silk WB): %v", err)
 			} else if got != frameSize {

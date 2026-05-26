@@ -25,6 +25,8 @@ Quality, packet length, mode histogram, and decoded waveform metrics already mat
 
 2026-05-26 checkpoint: strict C-backed CELT `exp_rotation`, `alg_quant`, and `alg_unquant` oracle coverage is green again after matching libopus float-build `celt_cos_norm()` coefficient generation. The focused byte lane above is unchanged on a clean working tree, so the next blocker is still the frame `1`, band `6` quantization/range-coder divergence rather than the standalone PVQ rotation helper.
 
+2026-05-26 range-state checkpoint: `rangecoding.EncoderState` now saves/restores the full active range buffer plus `storage`/`shrunk`, and `Encoder.Init()` clears stale `shrunk` state on encoder reuse, mirroring libopus theta-RDO preservation of bytes dirtied by trial encoding. `make test-byte-parity-focus` remains `41/51` for `chirp_sweep_v1` and `24/51` for `am_multisine_v1`, so the primary next trace should compare band-6 theta/PVQ decisions and range symbols rather than only front/back byte snapshot restoration.
+
 Use the dedicated focused target for before/after checks:
 
 ```sh

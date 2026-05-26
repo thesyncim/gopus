@@ -52,9 +52,9 @@ func TestDecoderOSCEBWECrossFadeTransition(t *testing.T) {
 	silkWB := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
 	hybridB := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthSuperwideband)
 
-	pcmA := make([]float32, dec.maxPacketSamples*dec.channels)
-	pcmB := make([]float32, dec.maxPacketSamples*dec.channels)
-	pcmC := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcmA := make([]float32, dec.maxPacketSamples*int(dec.channels))
+	pcmB := make([]float32, dec.maxPacketSamples*int(dec.channels))
+	pcmC := make([]float32, dec.maxPacketSamples*int(dec.channels))
 
 	// Step 1: Hybrid SWB -- BWE inactive. prevBWEActive must be false.
 	gotA, err := dec.Decode(hybridA, pcmA)
@@ -185,7 +185,7 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 
 	// Step 1: decode a SILK WB packet so the decoder retains valid
 	// lastPacketMode/lastBandwidth for the upcoming PLC.
-	pcmGood := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcmGood := make([]float32, dec.maxPacketSamples*int(dec.channels))
 	gotGood, err := dec.Decode(silkWB, pcmGood)
 	if err != nil {
 		t.Fatalf("Decode(silk WB): %v", err)
@@ -246,7 +246,7 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 		}
 
 		silkWB := makeValidStereoSILKPacketForFrameSizeBandwidthForOSCEBWETest(t, frameSize, BandwidthWideband)
-		pcmGood := make([]float32, dec.maxPacketSamples*dec.channels)
+		pcmGood := make([]float32, dec.maxPacketSamples*int(dec.channels))
 		gotGood, err := dec.Decode(silkWB, pcmGood)
 		if err != nil {
 			t.Fatalf("Decode(stereo silk WB): %v", err)
@@ -325,7 +325,7 @@ func TestDecoderOSCEBWEDisableFadesOut(t *testing.T) {
 	if err := decRaw.SetOSCEBWE(false); err != nil {
 		t.Fatalf("raw.SetOSCEBWE(false): %v", err)
 	}
-	pcmRaw := make([]float32, decRaw.maxPacketSamples*decRaw.channels)
+	pcmRaw := make([]float32, decRaw.maxPacketSamples*int(decRaw.channels))
 	if n, err := decRaw.Decode(packetA, pcmRaw); err != nil {
 		t.Fatalf("raw.Decode #1: %v", err)
 	} else if n != frameSize {
@@ -350,7 +350,7 @@ func TestDecoderOSCEBWEDisableFadesOut(t *testing.T) {
 	if err := dec.SetOSCEBWE(true); err != nil {
 		t.Fatalf("active.SetOSCEBWE(true): %v", err)
 	}
-	pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 	if n, err := dec.Decode(packetA, pcm); err != nil {
 		t.Fatalf("active.Decode #1: %v", err)
 	} else if n != frameSize {

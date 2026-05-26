@@ -1,6 +1,7 @@
 package rangecoding
 
 import (
+	"bytes"
 	"fmt"
 	"testing"
 )
@@ -39,6 +40,78 @@ func TestEncoderInit(t *testing.T) {
 				t.Errorf("storage = %d, want %d", enc.storage, tt.bufSize)
 			}
 		})
+	}
+}
+
+func TestEncoderInitClearsShrunkState(t *testing.T) {
+	buf := make([]byte, 16)
+	enc := &Encoder{}
+	enc.Init(buf)
+	enc.Shrink(8)
+	if !enc.shrunk {
+		t.Fatal("Shrink did not set shrunk")
+	}
+
+	enc.Init(buf)
+	if enc.shrunk {
+		t.Fatal("Init left shrunk set after encoder reuse")
+	}
+	if enc.storage != uint32(len(buf)) {
+		t.Fatalf("storage after reinit = %d, want %d", enc.storage, len(buf))
+	}
+}
+
+func TestEncoderStateRestoresFullActiveBuffer(t *testing.T) {
+	buf := []byte{
+		0x10, 0x11, 0x12, 0x13,
+		0x14, 0x15, 0x16, 0x17,
+		0x18, 0x19, 0x1a, 0x1b,
+	}
+	enc := &Encoder{}
+	enc.Init(buf)
+	enc.storage = uint32(len(buf))
+	enc.offs = 2
+	enc.endOffs = 2
+	enc.endWindow = 0x5a
+	enc.nendBits = 3
+	enc.nbitsTotal = 27
+	enc.rng = 0x12345678
+	enc.val = 0x00abcdef
+	enc.rem = 0x42
+	enc.ext = 7
+	enc.err = -3
+	enc.shrunk = true
+
+	var state EncoderState
+	enc.SaveStateInto(&state)
+	wantBuf := append([]byte(nil), enc.buf[:enc.storage]...)
+
+	for i := range enc.buf {
+		enc.buf[i] = 0xee
+	}
+	enc.storage = 4
+	enc.offs = 4
+	enc.endOffs = 0
+	enc.endWindow = 0
+	enc.nendBits = 0
+	enc.nbitsTotal = 0
+	enc.rng = 0
+	enc.val = 0
+	enc.rem = 0
+	enc.ext = 0
+	enc.err = 0
+	enc.shrunk = false
+
+	enc.RestoreState(&state)
+	if enc.storage != state.storage || enc.offs != state.offs || enc.endOffs != state.endOffs ||
+		enc.endWindow != state.endWindow || enc.nendBits != state.nendBits ||
+		enc.nbitsTotal != state.nbitsTotal || enc.rng != state.rng ||
+		enc.val != state.val || enc.rem != state.rem || enc.ext != state.ext ||
+		enc.err != state.err || enc.shrunk != state.shrunk {
+		t.Fatalf("RestoreState did not restore scalars: got %+v want %+v", enc, state)
+	}
+	if !bytes.Equal(enc.buf[:enc.storage], wantBuf) {
+		t.Fatalf("RestoreState buffer = % x, want % x", enc.buf[:enc.storage], wantBuf)
 	}
 }
 

@@ -91,7 +91,7 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 			t.Fatalf("unexpected TOC: mode=%v bandwidth=%v", toc.Mode, toc.Bandwidth)
 		}
 
-		pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+		pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 		got, err := dec.Decode(packet, pcm)
 		if err != nil {
 			t.Fatalf("Decode(silk WB packet): %v", err)
@@ -124,7 +124,7 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 			t.Fatalf("unexpected TOC: mode=%v bandwidth=%v", toc.Mode, toc.Bandwidth)
 		}
 
-		pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+		pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 		got, err := dec.Decode(packet, pcm)
 		if err != nil {
 			t.Fatalf("Decode(hybrid SWB packet): %v", err)
@@ -164,7 +164,7 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		if err := decRef.SetDNNBlob(merged); err != nil {
 			t.Fatalf("SetDNNBlob(ref): %v", err)
 		}
-		pcmRef := make([]float32, decRef.maxPacketSamples*decRef.channels)
+		pcmRef := make([]float32, decRef.maxPacketSamples*int(decRef.channels))
 		if _, err := decRef.Decode(packetA, pcmRef); err != nil {
 			t.Fatalf("Decode(ref #1): %v", err)
 		}
@@ -198,7 +198,7 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		if err := decLACE.SetDNNBlob(merged); err != nil {
 			t.Fatalf("SetDNNBlob(lace): %v", err)
 		}
-		pcmLACE := make([]float32, decLACE.maxPacketSamples*decLACE.channels)
+		pcmLACE := make([]float32, decLACE.maxPacketSamples*int(decLACE.channels))
 		if _, err := decLACE.Decode(packetA, pcmLACE); err != nil {
 			t.Fatalf("Decode(lace #1): %v", err)
 		}
@@ -281,7 +281,7 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		dec.Reset()
 		const frameSize = 960
 		packet := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
-		pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+		pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 		got, err := dec.Decode(packet, pcm)
 		if err != nil {
 			t.Fatalf("Decode(silk WB packet) after disable: %v", err)

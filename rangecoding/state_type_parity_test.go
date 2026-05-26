@@ -20,7 +20,7 @@ func TestRangeCoderStateFieldWidthsMatchLibopusECCTX(t *testing.T) {
 			target: Encoder{},
 			fields: map[string]reflect.Type{
 				"storage": uint32Type, "endOffs": uint32Type, "offs": uint32Type,
-				"rng": uint32Type, "val": uint32Type, "ext": uint32Type,
+				"endWindow": uint32Type, "rng": uint32Type, "val": uint32Type, "ext": uint32Type,
 				"nendBits": int32Type, "nbitsTotal": int32Type,
 				"rem": int32Type, "err": int32Type,
 			},
@@ -29,8 +29,8 @@ func TestRangeCoderStateFieldWidthsMatchLibopusECCTX(t *testing.T) {
 			name:   "EncoderState",
 			target: EncoderState{},
 			fields: map[string]reflect.Type{
-				"endOffs": uint32Type, "offs": uint32Type,
-				"rng": uint32Type, "val": uint32Type, "ext": uint32Type,
+				"storage": uint32Type, "endOffs": uint32Type, "offs": uint32Type,
+				"endWindow": uint32Type, "rng": uint32Type, "val": uint32Type, "ext": uint32Type,
 				"nendBits": int32Type, "nbitsTotal": int32Type,
 				"rem": int32Type, "err": int32Type,
 			},
@@ -40,7 +40,7 @@ func TestRangeCoderStateFieldWidthsMatchLibopusECCTX(t *testing.T) {
 			target: Decoder{},
 			fields: map[string]reflect.Type{
 				"storage": uint32Type, "endOffs": uint32Type, "offs": uint32Type,
-				"rng": uint32Type, "val": uint32Type, "ext": uint32Type,
+				"endWindow": uint32Type, "rng": uint32Type, "val": uint32Type, "ext": uint32Type,
 				"nendBits": int32Type, "nbitsTotal": int32Type,
 				"rem": int32Type, "err": int32Type,
 			},
