@@ -44,7 +44,7 @@ run_go_test_json() {
 	if ((${#go_env[@]})); then
 		env_args+=("${go_env[@]}")
 	fi
-	run_json env "${env_args[@]}" "$GO_BIN" test -json "$@"
+	run_json env "${env_args[@]}" "$GO_BIN" test -json -count=1 "$@"
 }
 
 run_parity() {

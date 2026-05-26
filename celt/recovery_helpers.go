@@ -799,6 +799,14 @@ func pitchXCorrFloat32(x, y, xcorr []float32, length, maxPitch int) {
 	_ = x[length-1]
 	_ = y[maxPitch+length-2]
 	_ = xcorr[maxPitch-1]
+	if libopusFloatPitchXCorrUsesAVX2FMA() {
+		pitchXCorrFloat32AVX2FMAOrder(x, y, xcorr, length, maxPitch)
+		return
+	}
+	if libopusFloatInnerProdUsesSSEOrder {
+		pitchXCorrFloat32SSEOrder(x, y, xcorr, length, maxPitch)
+		return
+	}
 	i := 0
 	for ; i < maxPitch-3; i += 4 {
 		var sum [4]float32
@@ -817,37 +825,129 @@ func pitchXCorrSig(x, y []celtSig, xcorr []float32, length, maxPitch int) {
 	if length <= 0 || maxPitch <= 0 {
 		return
 	}
-	_ = x[length-1]
-	_ = y[maxPitch+length-2]
-	_ = xcorr[maxPitch-1]
+	pitchXCorrFloat32(x, y, xcorr, length, maxPitch)
+}
+
+func pitchXCorrFloat32SSEOrder(x, y, xcorr []float32, length, maxPitch int) {
 	i := 0
 	for ; i < maxPitch-3; i += 4 {
 		var sum [4]float32
-		xcorrKernel4Float32(x, y[i:], &sum, length)
+		xcorrKernel4Float32SSEOrder(x, y[i:], &sum, length)
 		xcorr[i] = sum[0]
 		xcorr[i+1] = sum[1]
 		xcorr[i+2] = sum[2]
 		xcorr[i+3] = sum[3]
 	}
 	for ; i < maxPitch; i++ {
-		xcorr[i] = innerProdSig(x, y[i:], length)
+		xcorr[i] = innerProdFloat32SSEOrder(x, y[i:], length)
 	}
 }
 
+func xcorrKernel4Float32SSEOrder(x, y []float32, sum *[4]float32, length int) {
+	// libopus celt/x86/pitch_sse.c:xcorr_kernel_sse() keeps even and odd
+	// source samples in separate SIMD accumulators, then adds them lane-wise.
+	var sum1 [4]float32
+	var sum2 [4]float32
+	for lane := range sum1 {
+		sum1[lane] = sum[lane]
+	}
+
+	j := 0
+	for ; j < length-3; j += 4 {
+		x0 := x[j]
+		sum1[0] = noFMA32Add(sum1[0], noFMA32Mul(x0, y[j]))
+		sum1[1] = noFMA32Add(sum1[1], noFMA32Mul(x0, y[j+1]))
+		sum1[2] = noFMA32Add(sum1[2], noFMA32Mul(x0, y[j+2]))
+		sum1[3] = noFMA32Add(sum1[3], noFMA32Mul(x0, y[j+3]))
+
+		x1 := x[j+1]
+		sum2[0] = noFMA32Add(sum2[0], noFMA32Mul(x1, y[j+1]))
+		sum2[1] = noFMA32Add(sum2[1], noFMA32Mul(x1, y[j+2]))
+		sum2[2] = noFMA32Add(sum2[2], noFMA32Mul(x1, y[j+3]))
+		sum2[3] = noFMA32Add(sum2[3], noFMA32Mul(x1, y[j+4]))
+
+		x2 := x[j+2]
+		sum1[0] = noFMA32Add(sum1[0], noFMA32Mul(x2, y[j+2]))
+		sum1[1] = noFMA32Add(sum1[1], noFMA32Mul(x2, y[j+3]))
+		sum1[2] = noFMA32Add(sum1[2], noFMA32Mul(x2, y[j+4]))
+		sum1[3] = noFMA32Add(sum1[3], noFMA32Mul(x2, y[j+5]))
+
+		x3 := x[j+3]
+		sum2[0] = noFMA32Add(sum2[0], noFMA32Mul(x3, y[j+3]))
+		sum2[1] = noFMA32Add(sum2[1], noFMA32Mul(x3, y[j+4]))
+		sum2[2] = noFMA32Add(sum2[2], noFMA32Mul(x3, y[j+5]))
+		sum2[3] = noFMA32Add(sum2[3], noFMA32Mul(x3, y[j+6]))
+	}
+	if j < length {
+		xj := x[j]
+		sum1[0] = noFMA32Add(sum1[0], noFMA32Mul(xj, y[j]))
+		sum1[1] = noFMA32Add(sum1[1], noFMA32Mul(xj, y[j+1]))
+		sum1[2] = noFMA32Add(sum1[2], noFMA32Mul(xj, y[j+2]))
+		sum1[3] = noFMA32Add(sum1[3], noFMA32Mul(xj, y[j+3]))
+		j++
+		if j < length {
+			xj = x[j]
+			sum2[0] = noFMA32Add(sum2[0], noFMA32Mul(xj, y[j]))
+			sum2[1] = noFMA32Add(sum2[1], noFMA32Mul(xj, y[j+1]))
+			sum2[2] = noFMA32Add(sum2[2], noFMA32Mul(xj, y[j+2]))
+			sum2[3] = noFMA32Add(sum2[3], noFMA32Mul(xj, y[j+3]))
+			j++
+			if j < length {
+				xj = x[j]
+				sum1[0] = noFMA32Add(sum1[0], noFMA32Mul(xj, y[j]))
+				sum1[1] = noFMA32Add(sum1[1], noFMA32Mul(xj, y[j+1]))
+				sum1[2] = noFMA32Add(sum1[2], noFMA32Mul(xj, y[j+2]))
+				sum1[3] = noFMA32Add(sum1[3], noFMA32Mul(xj, y[j+3]))
+			}
+		}
+	}
+	for lane := range sum {
+		sum[lane] = noFMA32Add(sum1[lane], sum2[lane])
+	}
+}
+
+func pitchXCorrFloat32AVX2FMAOrder(x, y, xcorr []float32, length, maxPitch int) {
+	i := 0
+	for ; i < maxPitch-7; i += 8 {
+		var sums [8][8]float32
+		j := 0
+		for ; j < length-7; j += 8 {
+			for lane := 0; lane < 8; lane++ {
+				xv := x[j+lane]
+				for corr := 0; corr < 8; corr++ {
+					sums[corr][lane] = pitchFMADD32(xv, y[i+j+lane+corr], sums[corr][lane])
+				}
+			}
+		}
+		if j != length {
+			for lane := 0; lane < length-j; lane++ {
+				xv := x[j+lane]
+				for corr := 0; corr < 8; corr++ {
+					sums[corr][lane] = pitchFMADD32(xv, y[i+j+lane+corr], sums[corr][lane])
+				}
+			}
+		}
+		for corr := 0; corr < 8; corr++ {
+			xcorr[i+corr] = reduceAVX2PitchSum(sums[corr])
+		}
+	}
+	for ; i < maxPitch; i++ {
+		xcorr[i] = innerProdFloat32SSEOrder(x, y[i:], length)
+	}
+}
+
+func reduceAVX2PitchSum(sum [8]float32) float32 {
+	// libopus celt/x86/pitch_avx.c:xcorr_kernel_avx() horizontally reduces
+	// [0 4] [1 5] [2 6] [3 7] before the AVX hadd stages.
+	s04 := noFMA32Add(sum[0], sum[4])
+	s15 := noFMA32Add(sum[1], sum[5])
+	s26 := noFMA32Add(sum[2], sum[6])
+	s37 := noFMA32Add(sum[3], sum[7])
+	return noFMA32Add(noFMA32Add(s04, s15), noFMA32Add(s26, s37))
+}
+
 func innerProdSig(x, y []celtSig, length int) float32 {
-	if length <= 0 {
-		return 0
-	}
-	_ = x[length-1]
-	_ = y[length-1]
-	if libopusFloatInnerProdUsesNeonOrder {
-		return innerProdSigNeonOrder(x, y, length)
-	}
-	sum := float32(0)
-	for i := 0; i < length; i++ {
-		sum += float32(x[i]) * float32(y[i])
-	}
-	return sum
+	return innerProdFloat32(x, y, length)
 }
 
 func innerProdFloat32(x, y []float32, length int) float32 {
@@ -859,6 +959,9 @@ func innerProdFloat32(x, y []float32, length int) float32 {
 	if libopusFloatInnerProdUsesNeonOrder {
 		return innerProdFloat32NeonOrder(x, y, length)
 	}
+	if libopusFloatInnerProdUsesSSEOrder {
+		return innerProdFloat32SSEOrder(x, y, length)
+	}
 	sum := float32(0)
 	for i := 0; i < length; i++ {
 		sum += x[i] * y[i]
@@ -866,31 +969,20 @@ func innerProdFloat32(x, y []float32, length int) float32 {
 	return sum
 }
 
-func innerProdSigNeonOrder(x, y []celtSig, length int) float32 {
+func innerProdFloat32SSEOrder(x, y []float32, length int) float32 {
 	var acc [4]float32
 	i := 0
-	for ; i < length-7; i += 8 {
-		acc[0] = fma32(float32(x[i]), float32(y[i]), acc[0])
-		acc[1] = fma32(float32(x[i+1]), float32(y[i+1]), acc[1])
-		acc[2] = fma32(float32(x[i+2]), float32(y[i+2]), acc[2])
-		acc[3] = fma32(float32(x[i+3]), float32(y[i+3]), acc[3])
-		acc[0] = fma32(float32(x[i+4]), float32(y[i+4]), acc[0])
-		acc[1] = fma32(float32(x[i+5]), float32(y[i+5]), acc[1])
-		acc[2] = fma32(float32(x[i+6]), float32(y[i+6]), acc[2])
-		acc[3] = fma32(float32(x[i+7]), float32(y[i+7]), acc[3])
+	for ; i < length-3; i += 4 {
+		acc[0] = noFMA32Add(acc[0], noFMA32Mul(x[i], y[i]))
+		acc[1] = noFMA32Add(acc[1], noFMA32Mul(x[i+1], y[i+1]))
+		acc[2] = noFMA32Add(acc[2], noFMA32Mul(x[i+2], y[i+2]))
+		acc[3] = noFMA32Add(acc[3], noFMA32Mul(x[i+3], y[i+3]))
 	}
-	if length-i >= 4 {
-		acc[0] = fma32(float32(x[i]), float32(y[i]), acc[0])
-		acc[1] = fma32(float32(x[i+1]), float32(y[i+1]), acc[1])
-		acc[2] = fma32(float32(x[i+2]), float32(y[i+2]), acc[2])
-		acc[3] = fma32(float32(x[i+3]), float32(y[i+3]), acc[3])
-		i += 4
-	}
-	xy0 := acc[0] + acc[2]
-	xy1 := acc[1] + acc[3]
-	sum := xy0 + xy1
+	xy0 := noFMA32Add(acc[0], acc[2])
+	xy1 := noFMA32Add(acc[1], acc[3])
+	sum := noFMA32Add(xy0, xy1)
 	for ; i < length; i++ {
-		sum += float32(x[i]) * float32(y[i])
+		sum = noFMA32Add(sum, noFMA32Mul(x[i], y[i]))
 	}
 	return sum
 }

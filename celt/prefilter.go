@@ -795,12 +795,43 @@ func prefilterDualInnerProdF32(x, y1, y2 []float32, length int) (float32, float3
 	if libopusFloatInnerProdUsesNeonOrder {
 		return prefilterDualInnerProdF32NeonOrder(x, y1, y2, length)
 	}
+	if libopusFloatInnerProdUsesSSEOrder {
+		return prefilterDualInnerProdF32SSEOrder(x, y1, y2, length)
+	}
 	sum1 := float32(0)
 	sum2 := float32(0)
 	for i := 0; i < length; i++ {
 		xi := x[i]
 		sum1 += xi * y1[i]
 		sum2 += xi * y2[i]
+	}
+	return sum1, sum2
+}
+
+func prefilterDualInnerProdF32SSEOrder(x, y1, y2 []float32, length int) (float32, float32) {
+	var acc1 [4]float32
+	var acc2 [4]float32
+	i := 0
+	for ; i < length-3; i += 4 {
+		x0 := x[i]
+		acc1[0] = noFMA32Add(acc1[0], noFMA32Mul(x0, y1[i]))
+		acc2[0] = noFMA32Add(acc2[0], noFMA32Mul(x0, y2[i]))
+		x1 := x[i+1]
+		acc1[1] = noFMA32Add(acc1[1], noFMA32Mul(x1, y1[i+1]))
+		acc2[1] = noFMA32Add(acc2[1], noFMA32Mul(x1, y2[i+1]))
+		x2 := x[i+2]
+		acc1[2] = noFMA32Add(acc1[2], noFMA32Mul(x2, y1[i+2]))
+		acc2[2] = noFMA32Add(acc2[2], noFMA32Mul(x2, y2[i+2]))
+		x3 := x[i+3]
+		acc1[3] = noFMA32Add(acc1[3], noFMA32Mul(x3, y1[i+3]))
+		acc2[3] = noFMA32Add(acc2[3], noFMA32Mul(x3, y2[i+3]))
+	}
+	sum1 := noFMA32Add(noFMA32Add(acc1[0], acc1[2]), noFMA32Add(acc1[1], acc1[3]))
+	sum2 := noFMA32Add(noFMA32Add(acc2[0], acc2[2]), noFMA32Add(acc2[1], acc2[3]))
+	for ; i < length; i++ {
+		xi := x[i]
+		sum1 = noFMA32Add(sum1, noFMA32Mul(xi, y1[i]))
+		sum2 = noFMA32Add(sum2, noFMA32Mul(xi, y2[i]))
 	}
 	return sum1, sum2
 }
