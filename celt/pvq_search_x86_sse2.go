@@ -93,11 +93,9 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 		yy = x86LaneSum4(yy4)
 	}
 
-	if absInput {
-		for j := 0; j < n; j++ {
-			x[j] = celtNorm(absX[j])
-		}
-	}
+	// The generic C helper abs-mutates X, but the x86 SSE2 helper searches a
+	// local copy and leaves the caller's vector untouched.
+	_ = absInput
 
 	if pulsesLeft > n+3 {
 		tmp := float32(pulsesLeft)
