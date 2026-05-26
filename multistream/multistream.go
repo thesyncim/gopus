@@ -127,7 +127,7 @@ func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection bo
 		return nil, fmt.Errorf("multistream: parse error: %w", err)
 	}
 
-	duration, err := validateStreamDurationsAtRate(packets, d.sampleRate)
+	duration, err := validateStreamDurationsAtRate(packets, int(d.sampleRate))
 	if err != nil {
 		return nil, err
 	}
@@ -183,7 +183,7 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, applyProjection bool) ([]flo
 		return make([]float32, totalSamples), nil
 	}
 
-	maxChunk := d.sampleRate / 50
+	maxChunk := int(d.sampleRate) / 50
 	if maxChunk > 0 && frameSize > maxChunk {
 		output := make([]float32, totalSamples)
 		remaining := frameSize

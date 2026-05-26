@@ -697,8 +697,9 @@ func TestEncoderSetBitrateSentinels(t *testing.T) {
 	}
 	nbUncoupled := enc.streams - enc.coupledStreams - nbLFE
 	nbNormal := 2*enc.coupledStreams + nbUncoupled
-	channelOffset := 40 * maxInt(50, enc.sampleRate/960)
-	wantAuto := nbNormal*(channelOffset+enc.sampleRate+10000) + 8000*nbLFE
+	sampleRate := int(enc.sampleRate)
+	channelOffset := 40 * maxInt(50, sampleRate/960)
+	wantAuto := nbNormal*(channelOffset+sampleRate+10000) + 8000*nbLFE
 	if got := enc.bitrateForAllocation(960); got != wantAuto {
 		t.Fatalf("auto allocation bitrate=%d want=%d", got, wantAuto)
 	}
@@ -750,7 +751,8 @@ func TestAmbisonicsBitrateSentinels(t *testing.T) {
 	}
 
 	enc.SetBitrate(encpkg.BitrateAuto)
-	wantAuto := (enc.coupledStreams+enc.streams)*(enc.sampleRate+60*enc.sampleRate/960) + enc.streams*15000
+	sampleRate := int(enc.sampleRate)
+	wantAuto := (enc.coupledStreams+enc.streams)*(sampleRate+60*sampleRate/960) + enc.streams*15000
 	if got := enc.ambisonicsBitrateForAllocation(960); got != wantAuto {
 		t.Fatalf("ambisonics auto bitrate=%d want=%d", got, wantAuto)
 	}

@@ -38,7 +38,7 @@ var ErrInvalidLSBDepth = errors.New("multistream: invalid LSB depth (must be 8-2
 // Reference: RFC 7845 Section 5.1.1
 type Encoder struct {
 	// sampleRate is the input sample rate (8000, 12000, 16000, 24000, or 48000 Hz).
-	sampleRate int
+	sampleRate int32
 
 	// inputChannels is the total number of input channels (1-255).
 	inputChannels int
@@ -257,7 +257,7 @@ func NewEncoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 	lfeStream := inferLFEStream(mappingFamily, channels, streams)
 
 	enc := &Encoder{
-		sampleRate:              sampleRate,
+		sampleRate:              int32(sampleRate),
 		inputChannels:           channels,
 		streams:                 streams,
 		coupledStreams:          coupledStreams,
@@ -415,7 +415,7 @@ func (e *Encoder) Channels() int {
 
 // SampleRate returns the input sample rate in Hz.
 func (e *Encoder) SampleRate() int {
-	return e.sampleRate
+	return int(e.sampleRate)
 }
 
 // Streams returns the total number of elementary streams.
@@ -604,7 +604,7 @@ func (e *Encoder) bitrateForAllocation(frameSize int) int {
 	if frameSize <= 0 {
 		frameSize = 960
 	}
-	fs := e.sampleRate
+	fs := int(e.sampleRate)
 	if fs <= 0 {
 		fs = 48000
 	}
@@ -631,7 +631,7 @@ func (e *Encoder) ambisonicsBitrateForAllocation(frameSize int) int {
 	if frameSize <= 0 {
 		frameSize = 960
 	}
-	fs := e.sampleRate
+	fs := int(e.sampleRate)
 	if fs <= 0 {
 		fs = 48000
 	}
@@ -650,7 +650,7 @@ func (e *Encoder) totalBitrateForAllocation(frameSize int) int {
 }
 
 func (e *Encoder) allocateSurroundRates(rates []int, frameSize int) {
-	fs := e.sampleRate
+	fs := int(e.sampleRate)
 	if fs <= 0 {
 		fs = 48000
 	}
@@ -735,7 +735,7 @@ func (e *Encoder) allocateRates(frameSize int) []int {
 }
 
 func (e *Encoder) surroundBandwidth(frameSize int) types.Bandwidth {
-	fs := e.sampleRate
+	fs := int(e.sampleRate)
 	if fs <= 0 {
 		fs = 48000
 	}
@@ -890,7 +890,7 @@ func (e *Encoder) computeSurroundBandSMR(pcm []float32, frameSize int, bandSMR [
 		return false
 	}
 
-	upsample := resamplingFactor(e.sampleRate)
+	upsample := resamplingFactor(int(e.sampleRate))
 	if upsample <= 0 {
 		return false
 	}
@@ -1122,7 +1122,7 @@ func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float32) {
 	}
 	cvbrBoundScale := float32(1.0)
 	if len(e.encoders) > 0 && e.encoders[0].GetBitrateMode() == encoder.ModeCVBR {
-		cvbrBoundScale = multistreamCVBRBoundScale(e.totalBitrateForAllocation(frameSize), e.sampleRate, frameSize)
+		cvbrBoundScale = multistreamCVBRBoundScale(e.totalBitrateForAllocation(frameSize), int(e.sampleRate), frameSize)
 	}
 
 	surroundBandwidth := e.surroundBandwidth(frameSize)
@@ -1525,7 +1525,7 @@ func (e *Encoder) Lookahead() int {
 		return e.encoders[0].Lookahead()
 	}
 	// Default: 2.5ms base + 130 samples delay compensation
-	return e.sampleRate/400 + 130
+	return int(e.sampleRate)/400 + 130
 }
 
 // Signal returns the current signal type hint (from first encoder).

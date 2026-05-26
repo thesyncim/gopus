@@ -539,7 +539,7 @@ func collectQEXTPacketExtensions(data []byte, nbFrames, id int, payloads *[maxPa
 // Reference: RFC 7845 Section 5.1.1
 type Decoder struct {
 	// sampleRate is the output sample rate (8000, 12000, 16000, 24000, or 48000 Hz).
-	sampleRate int
+	sampleRate int32
 
 	// outputChannels is the total number of output channels (1-255).
 	outputChannels int
@@ -647,7 +647,7 @@ func NewDecoder(sampleRate, channels, streams, coupledStreams int, mapping []byt
 	copy(mappingCopy, mapping)
 
 	return &Decoder{
-		sampleRate:     sampleRate,
+		sampleRate:     int32(sampleRate),
 		outputChannels: channels,
 		streams:        streams,
 		coupledStreams: coupledStreams,
@@ -786,7 +786,7 @@ func (d *Decoder) Channels() int {
 
 // SampleRate returns the output sample rate in Hz.
 func (d *Decoder) SampleRate() int {
-	return d.sampleRate
+	return int(d.sampleRate)
 }
 
 // Streams returns the total number of elementary streams.
