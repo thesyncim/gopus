@@ -62,7 +62,14 @@ func TestCELTLegacyFloat64AssemblyRequiresOptInTag(t *testing.T) {
 		"celt/scale_float64_arm64.s",
 	}
 	for _, path := range legacyFloat64ASM {
-		first := firstLine(t, path)
+		raw, err := os.ReadFile(path)
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Fatalf("read %s: %v", path, err)
+		}
+		first := firstLineFromText(string(raw))
 		if !strings.Contains(first, "gopus_legacy_float64_asm") {
 			t.Fatalf("%s build tag %q must require gopus_legacy_float64_asm", path, first)
 		}

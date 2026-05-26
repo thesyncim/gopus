@@ -122,6 +122,9 @@ func TestSGEMVUsesFusedFloatDenseWhenEnabled(t *testing.T) {
 	if split != 1 {
 		t.Fatalf("split sgemv=%g want 1", split)
 	}
+	if !useFusedFloatDense() {
+		t.Skip("fused dense path is disabled on this build")
+	}
 	if want := math.Float32frombits(0x3f800001); fused != want {
 		t.Fatalf("fused sgemv=%g want %g", fused, want)
 	}

@@ -43,8 +43,8 @@ func TestAMD64DispatchMatchesGeneric(t *testing.T) {
 
 	yGot := append([]float32(nil), y...)
 	yWant := append([]float32(nil), y...)
-	iyGot := make([]int, len(absX))
-	iyWant := make([]int, len(absX))
+	iyGot := make([]int32, len(absX))
+	iyWant := make([]int32, len(absX))
 	gotXY, gotYY := pvqSearchPulseLoop(absX, yGot, iyGot, 1.25, 3.5, len(absX), 4)
 	wantXY, wantYY := pvqSearchPulseLoopGeneric(absX, yWant, iyWant, 1.25, 3.5, len(absX), 4)
 	if gotXY != wantXY || gotYY != wantYY || !reflect.DeepEqual(yGot, yWant) || !reflect.DeepEqual(iyGot, iyWant) {
