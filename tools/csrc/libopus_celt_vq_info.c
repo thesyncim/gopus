@@ -28,9 +28,13 @@ void celt_fatal(const char *str, const char *file, int line) {
   abort();
 }
 
+#if defined(__x86_64__) || defined(__i386__) || defined(_M_X64) || defined(_M_IX86)
+opus_val16 op_pvq_search_sse2(celt_norm *x, int *iy, int k, int n, int arch);
+#else
 opus_val16 op_pvq_search_sse2(celt_norm *x, int *iy, int k, int n, int arch) {
   return op_pvq_search_c(x, iy, k, n, arch);
 }
+#endif
 
 enum {
   MODE_EXP_ROTATION = 0,
@@ -683,7 +687,7 @@ static int eval_op_pvq_search(void) {
   if (!read_u32(&n_u) || !read_u32(&k_u)) return 0;
   if (n_u == 0 || n_u > 512 || k_u == 0 || k_u > 512) return 0;
   x = (celt_norm *)malloc((size_t)n_u * sizeof(*x));
-  iy = (int *)calloc(n_u, sizeof(*iy));
+  iy = (int *)calloc((size_t)n_u + 3, sizeof(*iy));
   if (x == NULL || iy == NULL) {
     free(x);
     free(iy);
@@ -696,7 +700,7 @@ static int eval_op_pvq_search(void) {
       return 0;
     }
   }
-  yy = op_pvq_search_c(x, iy, (int)k_u, (int)n_u, 0);
+  yy = op_pvq_search_sse2(x, iy, (int)k_u, (int)n_u, 0);
   if (!write_float(yy) || !write_u32(n_u)) {
     free(x);
     free(iy);

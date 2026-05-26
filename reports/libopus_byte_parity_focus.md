@@ -31,6 +31,8 @@ Quality, packet length, mode histogram, and decoded waveform metrics already mat
 
 2026-05-26 CELT inner-product checkpoint: the float-build CELT band-energy and normalized-vector RDO inner products now use the same ARM64 FMA-shaped lane accumulation as libopus `celt_inner_prod_neon()`. This reduces focused payload mismatches from `15/51` to `13/51` for `chirp_sweep_v1` and from `9/51` to `8/51` for `am_multisine_v1`; speech-like and impulse-train remain byte-clean.
 
+2026-05-26 linux/amd64 PVQ checkpoint: native amd64 `opPVQSearch` now follows libopus `celt/x86/vq_sse2.c:op_pvq_search_sse2()` instead of the scalar squared-ratio search. The implementation preserves the SSE2 pre-search lane sums, padded tail lanes, strict lane-local max updates, cross-lane tie selection, and x86 `rcp`/`rsqrt` approximation points. The C VQ oracle helper now calls the real x86 `op_pvq_search_sse2()` symbol and allocates the padded `iy[N+3]` lanes, so `TestOPPVQSearchMatchesLibopusFloatPath` covers the architecture helper on linux/amd64. This targets the CI provenance failure where freshly generated native linux/amd64 fixtures gave stronger libopus CELT stereo quality than the scalar Go PVQ path.
+
 2026-05-26 stereo-split source-shape checkpoint: `stereoSplit()` now rounds the two `.70710678f` multiplies separately before add/sub, matching `celt/bands.c:stereo_split()` `MULT32_32_Q31(QCONST32(.70710678f,31), ...)` source shape in the float build. The focused byte lane is unchanged, so this is covered as a source-parity guard rather than the current 128k blocker.
 
 Use the dedicated focused target for before/after checks:
@@ -78,7 +80,7 @@ Status as of 2026-05-25:
 - Do not edit quality thresholds, payload mismatch baselines, fixture bytes, or type allowlists to make this pass.
 - Do not switch back to type-parity cleanup unless the byte probe proves a width/order mismatch is the root cause.
 - Match the libopus architecture helper, not just the typedef. If libopus routes a focused path through NEON/SSE/etc., preserve that helper's lane update, reduction, and scalar-tail behavior in Go before claiming byte parity.
-- Prefer C-backed probes over guessing. The relevant libopus functions are `celt/bands.c:quant_all_bands()`, `quant_band_stereo()`, `compute_theta()`, and `celt/vq.c:op_pvq_search_c()`.
+- Prefer C-backed probes over guessing. The relevant libopus functions are `celt/bands.c:quant_all_bands()`, `quant_band_stereo()`, `compute_theta()`, `celt/vq.c:op_pvq_search_c()`, and architecture-selected helpers such as `celt/x86/vq_sse2.c:op_pvq_search_sse2()`.
 - For a fix commit, include the focused fixture output before and after. A useful commit should reduce payload mismatch counts or make a first mismatch frame byte-clean.
 
 ## Suggested Next Probe

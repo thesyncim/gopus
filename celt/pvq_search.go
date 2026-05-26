@@ -23,6 +23,10 @@ func opPVQSearchScratchNorm(x []celtNorm, k int, iyBuf *[]int32, signxBuf *[]byt
 }
 
 func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32, absInput bool) ([]int32, opusVal16) {
+	if useX86PVQSearchSSE2 {
+		return opPVQSearchScratchNormX86SSE2(x, k, iyBuf, signxBuf, yBuf, absXBuf, absInput)
+	}
+
 	n := len(x)
 	const idxBias = float32(0)
 
