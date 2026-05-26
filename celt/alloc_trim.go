@@ -331,19 +331,9 @@ func celtInnerProdNorm(x, y []celtNorm, start, end int) opusVal16 {
 	if start >= end {
 		return 0
 	}
-	var s0, s1, s2, s3 opusVal32
-	i := start
-	for ; i+3 < end; i += 4 {
-		s0 += opusVal32(x[i+0]) * opusVal32(y[i+0])
-		s1 += opusVal32(x[i+1]) * opusVal32(y[i+1])
-		s2 += opusVal32(x[i+2]) * opusVal32(y[i+2])
-		s3 += opusVal32(x[i+3]) * opusVal32(y[i+3])
-	}
-	sum := opusVal32(opusVal32(s0+s2) + opusVal32(s1+s3))
-	for ; i < end; i++ {
-		sum += opusVal32(x[i]) * opusVal32(y[i])
-	}
-	return opusVal16(sum)
+	// libopus float builds alias celt_inner_prod_norm_shift() to
+	// celt_inner_prod(); keep alloc_trim_analysis() on the same per-arch order.
+	return opusVal16(celtInnerProdLibopusOrder(x[start:end], y[start:end]))
 }
 
 // ComputeEquivRate computes the equivalent bitrate for allocation trim analysis.
