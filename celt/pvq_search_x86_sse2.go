@@ -5,10 +5,10 @@ package celt
 const useX86PVQSearchSSE2 = true
 
 //go:noescape
-func x86RcpApprox32(x float32) float32
+func x86RcpApprox4(dst, src *[4]float32)
 
 //go:noescape
-func x86RsqrtApprox32(x float32) float32
+func x86RsqrtApprox4(dst, src *[4]float32)
 
 // opPVQSearchScratchNormX86SSE2 mirrors libopus 1.6.1
 // celt/x86/vq_sse2.c:op_pvq_search_sse2. x86/x86_celt_map.c dispatches the
@@ -66,6 +66,7 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 	yy := float32(0)
 	pulsesLeft := k
 	sum := x86LaneSum4(sums)
+	sums = [4]float32{sum, sum, sum, sum}
 	if k > (n >> 1) {
 		if !(sum > pvqEPSILON && sum < 64) {
 			absX[0] = 1
@@ -73,14 +74,19 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 				absX[j] = 0
 			}
 			sum = 1
+			sums = [4]float32{1, 1, 1, 1}
 		}
 
-		rcp := noFMA32Mul(float32(k)+0.8, x86RcpApprox32(sum))
+		var rcp4 [4]float32
+		x86RcpApprox4(&rcp4, &sums)
+		for lane := 0; lane < 4; lane++ {
+			rcp4[lane] = noFMA32Mul(float32(k)+0.8, rcp4[lane])
+		}
 		var xy4, yy4 [4]float32
 		var pulseSums [4]int32
 		for j := 0; j < n; j++ {
 			lane := j & 3
-			iyj := int32(noFMA32Mul(absX[j], rcp))
+			iyj := int32(noFMA32Mul(absX[j], rcp4[lane]))
 			iy[j] = iyj
 			yj := float32(iyj)
 			xy4[lane] = noFMA32Add(xy4[lane], noFMA32Mul(absX[j], yj))
@@ -127,20 +133,26 @@ func x86PVQSearchBestID(absX, y []float32, xy, yy float32, n int) int {
 	var posLane [4]int
 	padded := (n + 3) &^ 3
 	for j := 0; j < padded; j += 4 {
+		var rxy4, ryy4, rsqrt4 [4]float32
+		var idx4 [4]int
 		for lane := 0; lane < 4; lane++ {
 			idx := j + lane
+			idx4[lane] = idx
 			xv := float32(-100)
 			yv := float32(100)
 			if idx < n {
 				xv = absX[idx]
 				yv = y[idx]
 			}
-			rxy := noFMA32Add(xv, xy)
-			ryy := noFMA32Add(yv, yy)
-			r := noFMA32Mul(rxy, x86RsqrtApprox32(ryy))
+			rxy4[lane] = noFMA32Add(xv, xy)
+			ryy4[lane] = noFMA32Add(yv, yy)
+		}
+		x86RsqrtApprox4(&rsqrt4, &ryy4)
+		for lane := 0; lane < 4; lane++ {
+			r := noFMA32Mul(rxy4[lane], rsqrt4[lane])
 			if r > maxLane[lane] {
 				maxLane[lane] = r
-				posLane[lane] = idx
+				posLane[lane] = idx4[lane]
 			}
 		}
 	}

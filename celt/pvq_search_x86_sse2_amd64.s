@@ -2,16 +2,20 @@
 
 #include "textflag.h"
 
-// func x86RcpApprox32(x float32) float32
-TEXT ·x86RcpApprox32(SB), NOSPLIT, $0-12
-	MOVSS x+0(FP), X0
-	RCPSS X0, X0
-	MOVSS X0, ret+8(FP)
+// func x86RcpApprox4(dst, src *[4]float32)
+TEXT ·x86RcpApprox4(SB), NOSPLIT, $0-16
+	MOVQ  dst+0(FP), AX
+	MOVQ  src+8(FP), BX
+	MOVUPS (BX), X0
+	RCPPS X0, X0
+	MOVUPS X0, (AX)
 	RET
 
-// func x86RsqrtApprox32(x float32) float32
-TEXT ·x86RsqrtApprox32(SB), NOSPLIT, $0-12
-	MOVSS   x+0(FP), X0
-	RSQRTSS X0, X0
-	MOVSS   X0, ret+8(FP)
+// func x86RsqrtApprox4(dst, src *[4]float32)
+TEXT ·x86RsqrtApprox4(SB), NOSPLIT, $0-16
+	MOVQ   dst+0(FP), AX
+	MOVQ   src+8(FP), BX
+	MOVUPS (BX), X0
+	RSQRTPS X0, X0
+	MOVUPS X0, (AX)
 	RET
