@@ -315,6 +315,30 @@ func TestMDCTForwardOverlapF32MatchesLibopusC(t *testing.T) {
 	}
 }
 
+func TestMDCTForwardOverlapF32CELTSignalScaleMatchesLibopusC(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	const (
+		frameSize = 960
+		overlap   = 120
+	)
+	inputF32 := make([]float32, frameSize+overlap)
+	for i := range inputF32 {
+		sine := math.Sin(float64(i+11) * 0.041)
+		chirp := math.Sin(float64(i*i+17*i) * 0.000071)
+		step := float64((i*37)%19-9) * 180.0
+		inputF32[i] = float32(16000.0*sine + 4500.0*chirp + step)
+	}
+
+	coeffs := make([]float32, frameSize)
+	mdctForwardOverlapF32Scratch(inputF32, overlap, coeffs, nil, nil, nil, nil)
+	got := make([]float32, len(coeffs))
+	copy(got, coeffs)
+
+	want := probeLibopusCELTMDCTForward(t, frameSize, overlap, inputF32)
+	assertFloat32Close(t, "forward mdct celt-scale", got, want, 512, 1e-4)
+}
+
 func probeLibopusCELTMDCTForward(t *testing.T, frameSize, overlap int, input []float32) []float32 {
 	t.Helper()
 	payload := libopustest.NewOraclePayload("GCII", libopusCELTIMDCTModeForward, uint32(frameSize), uint32(overlap), uint32(0))
@@ -376,13 +400,14 @@ func fillMDCTForwardOracleInput(input []float64, inputF32 []float32, seed int) {
 
 func assertFloat32Bits(t *testing.T, label string, got, want []float32) {
 	t.Helper()
+	assertFloat32Close(t, label, got, want, 64, 1e-5)
+}
+
+func assertFloat32Close(t *testing.T, label string, got, want []float32, maxULP uint32, maxAbs float64) {
+	t.Helper()
 	if len(got) != len(want) {
 		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
 	}
-	const (
-		maxULP = 64
-		maxAbs = 1e-5
-	)
 	for i := range want {
 		ulp := ulpDiffFloat32(got[i], want[i])
 		abs := math.Abs(float64(got[i] - want[i]))

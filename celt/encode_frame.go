@@ -786,7 +786,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		follow := float32(-10.0)
 		frameAvg := float32(0.0)
 		offset := float32(0.0)
-		if shortBlocks != 0 {
+		if shortBlocks > 1 {
 			offset = float32(lm) * 0.5
 		}
 		bandEnd := end

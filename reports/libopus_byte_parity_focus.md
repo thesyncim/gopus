@@ -16,8 +16,8 @@ Current local result on darwin/arm64:
 
 | Case | Payload Mismatch | First Mismatch |
 | --- | ---: | ---: |
-| `CELT-FB-20ms-stereo-128k-chirp_sweep_v1` | `41/51` | frame `1` |
-| `CELT-FB-20ms-stereo-128k-am_multisine_v1` | `24/51` | frame `4` |
+| `CELT-FB-20ms-stereo-128k-chirp_sweep_v1` | `15/51` | frame `2` |
+| `CELT-FB-20ms-stereo-128k-am_multisine_v1` | `9/51` | frame `6` |
 | `CELT-FB-20ms-stereo-128k-speech_like_v1` | `0/51` | `-1` |
 | `CELT-FB-20ms-stereo-128k-impulse_train_v1` | `0/51` | `-1` |
 
@@ -27,6 +27,8 @@ Quality, packet length, mode histogram, and decoded waveform metrics already mat
 
 2026-05-26 range-state checkpoint: `rangecoding.EncoderState` now saves/restores the full active range buffer plus `storage`/`shrunk`, and `Encoder.Init()` clears stale `shrunk` state on encoder reuse, mirroring libopus theta-RDO preservation of bytes dirtied by trial encoding. `make test-byte-parity-focus` remains `41/51` for `chirp_sweep_v1` and `24/51` for `am_multisine_v1`, so the primary next trace should compare band-6 theta/PVQ decisions and range symbols rather than only front/back byte snapshot restoration.
 
+2026-05-26 MDCT source-shape checkpoint: C-backed probes showed the Go and libopus MDCT input buffers were bit-identical for the focused chirp frame, moving the first byte drift root into forward MDCT math. Matching the libopus arm64 float source shape with a float32 `FMADDS` helper in the long-frame MDCT mix reduced the focused payload mismatches from `41/51` to `15/51` for `chirp_sweep_v1` and from `24/51` to `9/51` for `am_multisine_v1`. Speech-like and impulse-train remain byte-clean.
+
 Use the dedicated focused target for before/after checks:
 
 ```sh
@@ -35,7 +37,7 @@ make test-byte-parity-focus
 
 ## First Divergence Evidence
 
-Temporary probe against `encoder_compliance_libopus_variants_fixture.json` showed:
+Historical pre-MDCT-fix probe against `encoder_compliance_libopus_variants_fixture.json` showed:
 
 - Case: `CELT-FB-20ms-stereo-128k/chirp_sweep_v1`
 - First divergent packet: frame `1`
@@ -43,7 +45,7 @@ Temporary probe against `encoder_compliance_libopus_variants_fixture.json` showe
 - First payload byte mismatch: byte offset `109`
 - Final range: gopus `0x34890200`, libopus `0x00c19600`
 
-The packet prefix is identical through byte `108`, so TOC, frame setup, coarse/fine energy, allocation, and early band coding are already aligned for this frame. The divergence begins during CELT band quantization around the band whose range coder tell crosses byte `109`.
+That frame is now byte-clean after the MDCT source-shape fix, so this trace is retained only as historical evidence. The current first focused mismatch is frame `2` for `chirp_sweep_v1` and frame `6` for `am_multisine_v1`; refresh the band/range trace at those frames before making the next byte-parity claim.
 
 Band tell trace from the temporary probe for frame `1`:
 
@@ -76,7 +78,7 @@ Status as of 2026-05-25:
 
 ## Suggested Next Probe
 
-Add a temporary oracle around `quant_all_bands()` or `quant_band_stereo()` that accepts the normalized `X/Y`, `bandE`, `pulses`, `tf_res`, `balance`, `LM`, `codedBands`, and range-coder prefix for one frame. Compare:
+Add a temporary oracle around `quant_all_bands()` or `quant_band_stereo()` that accepts the normalized `X/Y`, `bandE`, `pulses`, `tf_res`, `balance`, `LM`, `codedBands`, and range-coder prefix for the current first divergent frames (`chirp_sweep_v1` frame `2`, `am_multisine_v1` frame `6`). Compare:
 
 - theta RDO down/up decisions and selected branch
 - `itheta`, `qn`, `delta`, `mbits`, `sbits`

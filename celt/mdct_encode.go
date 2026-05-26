@@ -35,12 +35,18 @@ func mdctMulAddMixWith(useNativeMul bool, a, b, c, d float32) float32 {
 	if useNativeMul {
 		return a*c + b*d
 	}
+	if mdctUseFMALikeMixEnabled {
+		return mdctFMA32(a, c, mdctMulWith(useNativeMul, b, d))
+	}
 	return mdctMulWith(useNativeMul, a, c) + mdctMulWith(useNativeMul, b, d)
 }
 
 func mdctMulSubMixWith(useNativeMul bool, a, b, c, d float32) float32 {
 	if useNativeMul {
 		return a*c - b*d
+	}
+	if mdctUseFMALikeMixEnabled {
+		return mdctFMA32(a, c, -mdctMulWith(useNativeMul, b, d))
 	}
 	return mdctMulWith(useNativeMul, a, c) - mdctMulWith(useNativeMul, b, d)
 }
@@ -60,7 +66,10 @@ func mdctStoreDirectStageWith(useNativeMul bool, dst []kissCpx, idx int, scale, 
 }
 
 func mdctStoreDirectStageFMALikeWith(useNativeMul bool, dst []kissCpx, idx int, scale, re, im, t0, t1 float32) {
-	mdctStoreDirectStageWith(useNativeMul, dst, idx, scale, re, im, t0, t1)
+	yr := mdctFMA32(re, t0, -mdctMulWith(useNativeMul, im, t1))
+	yi := mdctFMA32(im, t0, mdctMulWith(useNativeMul, re, t1))
+	dst[idx].r = yr * scale
+	dst[idx].i = yi * scale
 }
 
 func mdctMulAddMix(a, b, c, d float32) float32 {

@@ -6,6 +6,40 @@ import (
 	"testing"
 )
 
+func TestMDCTFMALikeMixUsesFusedSourceShape(t *testing.T) {
+	if !mdctUseFMALikeMixEnabled {
+		t.Skip("FMA-like MDCT mix is arch-specific")
+	}
+
+	addA := float32(12575.8603515625)
+	addB := float32(15380.7783203125)
+	addC := float32(0.27607929706573486)
+	addD := float32(0.8652157187461853)
+	addWant := float32(math.FMA(float64(addA), float64(addC), float64(mdctMulWith(false, addB, addD))))
+	addSplit := mdctMulWith(false, addA, addC) + mdctMulWith(false, addB, addD)
+	if math.Float32bits(addWant) == math.Float32bits(addSplit) {
+		t.Fatalf("add fixture does not expose fused MDCT rounding")
+	}
+	if got := mdctMulAddMixWith(false, addA, addB, addC, addD); math.Float32bits(got) != math.Float32bits(addWant) {
+		t.Fatalf("mdctMulAddMixWith=%08x %.9g want fused %08x %.9g",
+			math.Float32bits(got), got, math.Float32bits(addWant), addWant)
+	}
+
+	subA := float32(15156.271484375)
+	subB := float32(7875.662109375)
+	subC := float32(0.19688130915164948)
+	subD := float32(0.9199866056442261)
+	subWant := float32(math.FMA(float64(subA), float64(subC), -float64(mdctMulWith(false, subB, subD))))
+	subSplit := mdctMulWith(false, subA, subC) - mdctMulWith(false, subB, subD)
+	if math.Float32bits(subWant) == math.Float32bits(subSplit) {
+		t.Fatalf("sub fixture does not expose fused MDCT rounding")
+	}
+	if got := mdctMulSubMixWith(false, subA, subB, subC, subD); math.Float32bits(got) != math.Float32bits(subWant) {
+		t.Fatalf("mdctMulSubMixWith=%08x %.9g want fused %08x %.9g",
+			math.Float32bits(got), got, math.Float32bits(subWant), subWant)
+	}
+}
+
 func mdctForwardOverlapLegacyStagedReference(samples []float32, overlap int) []float32 {
 	if len(samples) == 0 {
 		return nil
