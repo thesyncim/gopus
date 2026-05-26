@@ -1875,7 +1875,7 @@ func celtAtan2pNormF32(y, x float32) float32 {
 }
 
 const celtUseFusedFloatMath = runtime.GOARCH == "arm64"
-const celtUseSSEFloatMath = runtime.GOOS == "windows" && runtime.GOARCH == "amd64"
+const celtUseSSEFloatMath = libopusFloatInnerProdUsesSSEOrder
 
 func celtFloatMulAdd(a, b, c float32) float32 {
 	if celtUseFusedFloatMath {

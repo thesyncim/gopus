@@ -484,8 +484,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 			}
 
 			predMul := noFMA32Mul(coef32, oldE)
-			pred := predMul + prevBandEnergy[c]
-			f := x - pred
+			f := noFMA32Sub(noFMA32Sub(x, predMul), prevBandEnergy[c])
 			qi := floor32ToInt(f/float32(DB6) + 0.5)
 			qi0 := qi
 
@@ -552,10 +551,10 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 
 			q := float32(qi) * float32(DB6)
 			coarseError[idx] = celtGLog(f - q)
-			quantizedEnergy := pred + q
+			quantizedEnergy := noFMA32Add(noFMA32Add(predMul, prevBandEnergy[c]), q)
 			quantizedEnergies[idx] = celtGLog(quantizedEnergy)
 			betaMul := noFMA32Mul(beta32, q)
-			prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
+			prevBandEnergy[c] = noFMA32Sub(noFMA32Add(prevBandEnergy[c], q), betaMul)
 		}
 	}
 
@@ -940,8 +939,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 			}
 
 			predMul := noFMA32Mul(coef32, oldE)
-			pred := predMul + prevBandEnergy[c]
-			f := x - pred
+			f := noFMA32Sub(noFMA32Sub(x, predMul), prevBandEnergy[c])
 			qi := floor32ToInt(f/float32(DB6) + 0.5)
 
 			decayBound := oldEBand
@@ -1005,10 +1003,10 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 
 			q := float32(qi) * float32(DB6)
 			coarseError[idx] = celtGLog(f - q)
-			energy := pred + q
+			energy := noFMA32Add(noFMA32Add(predMul, prevBandEnergy[c]), q)
 			quantizedEnergies[idx] = celtGLog(energy)
 			betaMul := noFMA32Mul(beta32, q)
-			prevBandEnergy[c] = prevBandEnergy[c] + q - betaMul
+			prevBandEnergy[c] = noFMA32Sub(noFMA32Add(prevBandEnergy[c], q), betaMul)
 		}
 	}
 
