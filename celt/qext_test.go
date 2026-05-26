@@ -231,6 +231,40 @@ func TestComputeThetaExtUsesQEXTForMonoSplit(t *testing.T) {
 	}
 }
 
+func TestComputeThetaExtWithoutRefinementUsesQuantizedQ30(t *testing.T) {
+	x := []celtNorm{0.99, 0.10, 0.05, 0.02}
+	y := []celtNorm{0.10, 0.05, 0.02, 0.01}
+
+	var mainEnc rangecoding.Encoder
+	mainBuf := make([]byte, 32)
+	mainEnc.Init(mainBuf)
+	var extEnc rangecoding.Encoder
+	extBuf := make([]byte, 32)
+	extEnc.Init(extBuf)
+
+	fill := 1
+	bits := 80
+	ctx := &bandCtx{
+		re:            &mainEnc,
+		extEnc:        &extEnc,
+		encode:        true,
+		band:          0,
+		intensity:     MaxBands,
+		remainingBits: 1 << 20,
+		extTotalBits:  len(extBuf) * 8 << bitRes,
+	}
+	var split splitCtx
+	extTellBefore := extEnc.TellFrac()
+	computeThetaExt(ctx, &split, append([]celtNorm(nil), x...), append([]celtNorm(nil), y...), len(x), &bits, nil, 1, 1, 0, false, &fill)
+
+	if got, want := split.ithetaQ30, split.itheta<<16; got != want {
+		t.Fatalf("ithetaQ30=%d want quantized %d when no QEXT refinement is coded", got, want)
+	}
+	if got := extEnc.TellFrac(); got != extTellBefore {
+		t.Fatalf("extension coder tell=%d want unchanged %d without ext budget", got, extTellBefore)
+	}
+}
+
 func TestAlgUnquantIntoQEXTN2LargeEnergyUsesWideAccumulator(t *testing.T) {
 	const (
 		n         = 2

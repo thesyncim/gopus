@@ -9,17 +9,17 @@ import "github.com/thesyncim/gopus/rangecoding"
 type BandAllocationProbe struct {
 	Silent       bool
 	Transient    bool
-	Spread       int
-	AllocTrim    int
-	CodedBands   int
-	Intensity    int
-	DualStereo   int
-	Balance      int
-	TFRes        []int
-	Offsets      []int
-	Pulses       []int
-	FineQuant    []int
-	FinePriority []int
+	Spread       int32
+	AllocTrim    int32
+	CodedBands   int32
+	Intensity    int32
+	DualStereo   int32
+	Balance      int32
+	TFRes        []int32
+	Offsets      []int32
+	Pulses       []int32
+	FineQuant    []int32
+	FinePriority []int32
 }
 
 // ProbeBandAllocationWithDecoder decodes through band allocation only.
@@ -31,7 +31,7 @@ func (d *Decoder) ProbeBandAllocationWithDecoder(rd *rangecoding.Decoder, frameS
 		return BandAllocationProbe{}, ErrInvalidFrameSize
 	}
 
-	d.handleChannelTransition(d.channels)
+	d.handleChannelTransition(int(d.channels))
 	d.beginDecodedPacketPLCState()
 	d.prepareMonoEnergyFromStereo()
 	d.SetRangeDecoder(rd)
@@ -57,22 +57,22 @@ func (d *Decoder) ProbeBandAllocationWithDecoder(rd *rangecoding.Decoder, frameS
 	}
 
 	header := d.decodeFrameHeader(rd, totalBits, frameSize, start, end, lm, mode.ShortBlocks)
-	d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*d.channels), end, header.intra, lm)
+	d.decodeCoarseEnergyGLogInto(ensureGLogSlice(&d.scratchEnergies, end*int(d.channels)), end, header.intra, lm)
 
 	allocation := d.decodeBandAllocation(rd, totalBits, start, end, lm, header.transient)
 	return BandAllocationProbe{
 		Transient:    header.transient,
-		Spread:       allocation.spread,
-		AllocTrim:    allocation.allocTrim,
-		CodedBands:   allocation.codedBands,
-		Intensity:    allocation.intensity,
-		DualStereo:   allocation.dualStereo,
-		Balance:      allocation.balance,
-		TFRes:        cloneIntSlice(allocation.tfRes[:end]),
-		Offsets:      cloneIntSlice(allocation.offsets[:end]),
-		Pulses:       cloneIntSlice(allocation.pulses[:end]),
-		FineQuant:    cloneIntSlice(allocation.fineQuant[:end]),
-		FinePriority: cloneIntSlice(allocation.finePriority[:end]),
+		Spread:       int32(allocation.spread),
+		AllocTrim:    int32(allocation.allocTrim),
+		CodedBands:   int32(allocation.codedBands),
+		Intensity:    int32(allocation.intensity),
+		DualStereo:   int32(allocation.dualStereo),
+		Balance:      int32(allocation.balance),
+		TFRes:        cloneInt32Slice(allocation.tfRes[:end]),
+		Offsets:      cloneInt32Slice(allocation.offsets[:end]),
+		Pulses:       cloneInt32Slice(allocation.pulses[:end]),
+		FineQuant:    cloneInt32Slice(allocation.fineQuant[:end]),
+		FinePriority: cloneInt32Slice(allocation.finePriority[:end]),
 	}, nil
 }
 
@@ -86,11 +86,11 @@ func (d *Decoder) ProbeBandAllocationFromPacket(packet []byte, frameSize int) (B
 	return d.ProbeBandAllocationWithDecoder(&rd, frameSize)
 }
 
-func cloneIntSlice(src []int) []int {
+func cloneInt32Slice(src []int32) []int32 {
 	if len(src) == 0 {
 		return nil
 	}
-	out := make([]int, len(src))
+	out := make([]int32, len(src))
 	copy(out, src)
 	return out
 }

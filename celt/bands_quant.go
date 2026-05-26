@@ -1827,22 +1827,7 @@ func stereoIthetaQ30Norm(x, y []celtNorm, stereo bool) int {
 
 	var emid, eside float32
 	if stereo {
-		i := 0
-		if celtUseFusedFloatMath {
-			for ; i+3 < n; i += 4 {
-				x0 := float32(x[i])
-				y0 := float32(y[i])
-				x1 := float32(x[i+1])
-				y1 := float32(y[i+1])
-				x2 := float32(x[i+2])
-				y2 := float32(y[i+2])
-				x3 := float32(x[i+3])
-				y3 := float32(y[i+3])
-				emid = celtAddSquares4(emid, x0+y0, x1+y1, x2+y2, x3+y3)
-				eside = celtAddSquares4(eside, x0-y0, x1-y1, x2-y2, x3-y3)
-			}
-		}
-		for ; i < n; i++ {
+		for i := 0; i < n; i++ {
 			xv := float32(x[i])
 			yv := float32(y[i])
 			m := xv + yv
@@ -2116,10 +2101,8 @@ func intensityStereoWeighted(x, y []celtNorm, leftEnergy, rightEnergy celtEner) 
 	}
 	left := float32(leftEnergy)
 	right := float32(rightEnergy)
-	norm := opusmath.SqrtF32(left*left + right*right)
-	if !(norm > 0) {
-		return
-	}
+	const celtFloatEpsilon float32 = 1e-15
+	norm := celtFloatEpsilon + opusmath.SqrtF32(celtFloatEpsilon+left*left+right*right)
 	a1 := left / norm
 	a2 := right / norm
 	for i := 0; i < n; i++ {
@@ -2523,6 +2506,7 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 
 		// Extended precision theta coding (ENABLE_QEXT path in libopus).
 		// This applies to regular band splits as well as stereo splits.
+		codedExtendedTheta := false
 		if extB != nil && ((ctx.encode && ctx.extEnc != nil) || (!ctx.encode && ctx.extDec != nil)) {
 			extTellFrac := 0
 			if ctx.encode {
@@ -2575,12 +2559,11 @@ func computeThetaExt(ctx *bandCtx, sctx *splitCtx, x, y []celtNorm, n int, b *in
 					ithetaQ30 = 1 << 30
 				}
 				*extB -= extTellFrac - extTellBefore
-			} else {
-				ithetaQ30 = itheta << 16
+				codedExtendedTheta = true
 			}
 		}
 
-		if ithetaQ30 == 0 {
+		if !codedExtendedTheta {
 			ithetaQ30 = itheta << 16
 		}
 
