@@ -14,6 +14,7 @@ func TestEncoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 	for _, name := range []string{
 		"channels",
 		"streamChannels",
+		"sampleRate",
 		"lsbDepth",
 		"targetBitrate",
 		"frameBits",
@@ -36,6 +37,7 @@ func TestDecoderControlFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 	int32Type := reflect.TypeOf(int32(0))
 	for _, name := range []string{
 		"channels",
+		"sampleRate",
 		"downsample",
 		"postfilterPeriod",
 		"postfilterTapset",

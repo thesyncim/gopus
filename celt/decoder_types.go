@@ -53,7 +53,7 @@ var (
 type Decoder struct {
 	// Configuration
 	channels   int32 // libopus CELTDecoder.channels
-	sampleRate int   // Output sample rate (typically 48000)
+	sampleRate int32 // Output sample rate (typically 48000)
 	downsample int32 // libopus CELTDecoder.downsample, 1 at 48 kHz
 
 	// Range decoder (set per frame)

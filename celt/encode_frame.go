@@ -1269,7 +1269,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	var qextNormL []celtNorm
 	var qextNormR []celtNorm
 	if extsupport.QEXT && qextEnc != nil {
-		if cfg, ok := computeQEXTModeConfig(e.sampleRate, qextShortMDCTSize(frameSize)); ok && end == nbBands {
+		if cfg, ok := computeQEXTModeConfig(int(e.sampleRate), qextShortMDCTSize(frameSize)); ok && end == nbBands {
 			qextCfg = cfg
 			qextEnd = qextCfg.EffBands
 			qextActive = qextEnd > 0

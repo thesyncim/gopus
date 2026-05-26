@@ -74,7 +74,7 @@ func (d *Decoder) Reset() {
 	} else if channels > 2 {
 		channels = 2
 	}
-	sampleRate := d.sampleRate
+	sampleRate := int(d.sampleRate)
 	if sampleRate == 0 {
 		sampleRate = 48000
 	}
@@ -126,7 +126,7 @@ func (d *Decoder) Reset() {
 	d.plcLPC = plcLPC
 
 	d.channels = int32(channels)
-	d.sampleRate = sampleRate
+	d.sampleRate = int32(sampleRate)
 	d.downsample = int32(downsample)
 	d.bandwidth = CELTFullband
 	d.phaseInversionDisabled = phaseInversionDisabled

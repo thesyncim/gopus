@@ -311,7 +311,7 @@ func (e *Encoder) applyDCRejectCore(pcm, output []float32) {
 	// Coefficients: coef = 6.3 * cutoff / Fs
 	// For 48kHz and 3Hz cutoff: coef = 6.3 * 3 / 48000 = 0.00039375
 	// Use float32 math to match libopus float path: coef = 6.3f*cutoff_Hz/Fs.
-	coef := float32(6.3) * float32(DCRejectCutoffHz) / float32(e.sampleRate)
+	coef := float32(6.3) * float32(DCRejectCutoffHz) / float32(e.SampleRate())
 	coef2 := float32(1.0) - coef
 	verySmall := float32(1e-30) // Matches VERY_SMALL in libopus float build
 

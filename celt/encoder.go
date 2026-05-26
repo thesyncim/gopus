@@ -30,7 +30,7 @@ type Encoder struct {
 	// Configuration (mirrors decoder)
 	channels       int32         // libopus CELTEncoder.channels
 	streamChannels int32         // coded channels, mirrors CELT_SET_CHANNELS
-	sampleRate     int           // Always 48000
+	sampleRate     int32         // Always 48000
 	lsbDepth       int32         // Input LSB depth (8-24 bits)
 	bandwidth      CELTBandwidth // Active bandwidth cap (NB..FB)
 
@@ -666,7 +666,7 @@ func (e *Encoder) codedChannels() int {
 
 // SampleRate returns the operating sample rate (always 48000 for CELT).
 func (e *Encoder) SampleRate() int {
-	return e.sampleRate
+	return int(e.sampleRate)
 }
 
 // PrevEnergy returns the previous frame's band energies.
