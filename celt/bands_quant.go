@@ -1898,7 +1898,8 @@ const celtUseSSEFloatMath = runtime.GOOS == "windows" && runtime.GOARCH == "amd6
 
 func celtFloatMulAdd(a, b, c float32) float32 {
 	if celtUseFusedFloatMath {
-		return fma32(a, b, c)
+		// libopus arm64 maps celt_inner_prod() to NEON vmlaq/vfmaq lanes.
+		return mdctFMA32(a, b, c)
 	}
 	return a*b + c
 }
@@ -2134,14 +2135,14 @@ func innerProductNorm(x, y []celtNorm) float32 {
 	var s0, s1, s2, s3 float32
 	i := 0
 	for ; i+3 < n; i += 4 {
-		s0 = noFMA32Add(s0, noFMA32Mul(float32(x[i]), float32(y[i])))
-		s1 = noFMA32Add(s1, noFMA32Mul(float32(x[i+1]), float32(y[i+1])))
-		s2 = noFMA32Add(s2, noFMA32Mul(float32(x[i+2]), float32(y[i+2])))
-		s3 = noFMA32Add(s3, noFMA32Mul(float32(x[i+3]), float32(y[i+3])))
+		s0 = celtFloatMulAdd(float32(x[i]), float32(y[i]), s0)
+		s1 = celtFloatMulAdd(float32(x[i+1]), float32(y[i+1]), s1)
+		s2 = celtFloatMulAdd(float32(x[i+2]), float32(y[i+2]), s2)
+		s3 = celtFloatMulAdd(float32(x[i+3]), float32(y[i+3]), s3)
 	}
 	sum := noFMA32Add(noFMA32Add(s0, s2), noFMA32Add(s1, s3))
 	for ; i < n; i++ {
-		sum = noFMA32Add(sum, noFMA32Mul(float32(x[i]), float32(y[i])))
+		sum = celtFloatMulAdd(float32(x[i]), float32(y[i]), sum)
 	}
 	return sum
 }

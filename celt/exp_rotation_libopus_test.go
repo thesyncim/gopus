@@ -1380,6 +1380,13 @@ func TestThetaRDODistortionMatchesLibopusFloatPath(t *testing.T) {
 			y0: fixtureExpRotationVector(24, 0xc8c9cacb),
 			y1: fixtureExpRotationVector(24, 0xcccdcecf),
 		},
+		{
+			ex: 0.00618804805, ey: 0.00706463633,
+			x0: []float32{1},
+			x1: []float32{0.982530773},
+			y0: []float32{1},
+			y1: []float32{0.979359686},
+		},
 	}
 	want, err := probeLibopusThetaDist(cases)
 	if err != nil {

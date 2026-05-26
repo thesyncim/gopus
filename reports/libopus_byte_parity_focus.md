@@ -16,8 +16,8 @@ Current local result on darwin/arm64:
 
 | Case | Payload Mismatch | First Mismatch |
 | --- | ---: | ---: |
-| `CELT-FB-20ms-stereo-128k-chirp_sweep_v1` | `15/51` | frame `2` |
-| `CELT-FB-20ms-stereo-128k-am_multisine_v1` | `9/51` | frame `6` |
+| `CELT-FB-20ms-stereo-128k-chirp_sweep_v1` | `13/51` | frame `2` |
+| `CELT-FB-20ms-stereo-128k-am_multisine_v1` | `8/51` | frame `6` |
 | `CELT-FB-20ms-stereo-128k-speech_like_v1` | `0/51` | `-1` |
 | `CELT-FB-20ms-stereo-128k-impulse_train_v1` | `0/51` | `-1` |
 
@@ -28,6 +28,8 @@ Quality, packet length, mode histogram, and decoded waveform metrics already mat
 2026-05-26 range-state checkpoint: `rangecoding.EncoderState` now saves/restores the full active range buffer plus `storage`/`shrunk`, and `Encoder.Init()` clears stale `shrunk` state on encoder reuse, mirroring libopus theta-RDO preservation of bytes dirtied by trial encoding. `make test-byte-parity-focus` remains `41/51` for `chirp_sweep_v1` and `24/51` for `am_multisine_v1`, so the primary next trace should compare band-6 theta/PVQ decisions and range symbols rather than only front/back byte snapshot restoration.
 
 2026-05-26 MDCT source-shape checkpoint: C-backed probes showed the Go and libopus MDCT input buffers were bit-identical for the focused chirp frame, moving the first byte drift root into forward MDCT math. Matching the libopus arm64 float source shape with a float32 `FMADDS` helper in the long-frame MDCT mix reduced the focused payload mismatches from `41/51` to `15/51` for `chirp_sweep_v1` and from `24/51` to `9/51` for `am_multisine_v1`. Speech-like and impulse-train remain byte-clean.
+
+2026-05-26 CELT inner-product checkpoint: the float-build CELT band-energy and normalized-vector RDO inner products now use the same ARM64 FMA-shaped lane accumulation as libopus `celt_inner_prod_neon()`. This reduces focused payload mismatches from `15/51` to `13/51` for `chirp_sweep_v1` and from `9/51` to `8/51` for `am_multisine_v1`; speech-like and impulse-train remain byte-clean.
 
 Use the dedicated focused target for before/after checks:
 
