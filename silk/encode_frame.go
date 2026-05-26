@@ -965,7 +965,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 		if e.noiseShapeState == nil {
 			e.noiseShapeState = NewNoiseShapeState()
 		}
-		fsKHz := e.sampleRate / 1000
+		fsKHz := int(e.sampleRate / 1000)
 		if fsKHz < 8 {
 			fsKHz = 8
 		}
@@ -987,7 +987,7 @@ func (e *Encoder) computeNSQExcitation(pcm []float32, lpcQ12 []int16, predCoefQ1
 	if signalType != typeVoiced {
 		ltpScaleQ14 = 0
 	}
-	ltpMemLengthSamples := ltpMemLengthMs * (e.sampleRate / 1000)
+	ltpMemLengthSamples := ltpMemLengthMs * int(e.sampleRate/1000)
 	params := &NSQParams{
 		SignalType:             signalType,
 		QuantOffsetType:        quantOffset,
@@ -1194,7 +1194,7 @@ func (e *Encoder) updateShapeBuffer(pcm []float32, frameSamples int) []float32 {
 	if frameSamples <= 0 {
 		return pcm
 	}
-	fsKHz := e.sampleRate / 1000
+	fsKHz := int(e.sampleRate / 1000)
 	if fsKHz < 1 {
 		fsKHz = 1
 	}
@@ -1264,7 +1264,7 @@ func (e *Encoder) shiftInputBuffer(frameSamples int) {
 	if frameSamples <= 0 {
 		return
 	}
-	fsKHz := e.sampleRate / 1000
+	fsKHz := int(e.sampleRate / 1000)
 	if fsKHz < 1 {
 		fsKHz = 1
 	}

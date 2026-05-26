@@ -61,6 +61,7 @@ func TestSILKEncoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 	int16Type := reflect.TypeOf(int16(0))
 	int8Type := reflect.TypeOf(int8(0))
 	int32FlagsType := reflect.TypeOf([maxFramesPerPacket]int32{})
+	int32FramesType := reflect.TypeOf([maxFramesPerPacket]int32{})
 
 	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int32Type,
 		"ecPrevSignalType",
@@ -90,6 +91,8 @@ func TestSILKEncoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 		"nBitsUsedLBRR",
 		"maxBits",
 		"timeSinceSwitchAllowedMS",
+		"lastNumSamples",
+		"sampleRate",
 	)
 	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int16Type,
 		"ecPrevLagIndex",
@@ -99,6 +102,10 @@ func TestSILKEncoderStateIntegerFieldWidthsMatchLibopus(t *testing.T) {
 	)
 	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int32FlagsType,
 		"lbrrFlags",
+	)
+	checkSILKFieldsHaveType(t, reflect.TypeOf(Encoder{}), int32FramesType,
+		"lbrrFrameLength",
+		"lbrrNbSubfr",
 	)
 	checkSILKFieldsHaveType(t, reflect.TypeOf(stereoEncState{}), int32Type,
 		"prevDecodeOnlyMiddle",

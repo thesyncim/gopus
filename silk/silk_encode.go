@@ -445,7 +445,7 @@ func stereoAllocationTargetRate(enc *Encoder, targetRateBps, frameLength, bitsUs
 	if enc == nil || targetRateBps <= 0 || enc.sampleRate <= 0 || frameLength <= 0 {
 		return 0
 	}
-	payloadSizeMs := (frameLength * 1000) / enc.sampleRate
+	payloadSizeMs := (frameLength * 1000) / int(enc.sampleRate)
 	if payloadSizeMs <= 0 {
 		return targetRateBps
 	}

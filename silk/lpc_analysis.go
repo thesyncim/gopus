@@ -541,7 +541,7 @@ func (e *Encoder) burgModifiedFLPZeroAllocF32(x []float32, minInvGainVal float32
 	const pcmScaleSq = 32768.0 * 32768.0
 	e.lastTotalEnergy = float32(C0 * pcmScaleSq)
 	e.lastInvGain = float32(invGain)
-	e.lastNumSamples = totalLen
+	e.lastNumSamples = int32(totalLen)
 
 	// Match libopus: A[k] = (silk_float)(-Af[k]) and return (silk_float)nrg_f.
 	// Truncate to float32 precision to match libopus silk_float output.

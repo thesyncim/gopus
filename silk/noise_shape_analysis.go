@@ -19,7 +19,7 @@ func (e *Encoder) noiseShapeAnalysis(
 		e.noiseShapeState = NewNoiseShapeState()
 	}
 
-	fsKHz := e.sampleRate / 1000
+	fsKHz := int(e.sampleRate / 1000)
 	if fsKHz < 8 {
 		fsKHz = 8
 	}
@@ -187,7 +187,7 @@ func (e *Encoder) computeShapingARAndGains(
 		shapeOrder--
 	}
 
-	fsKHz := e.sampleRate / 1000
+	fsKHz := int(e.sampleRate / 1000)
 	if fsKHz < 1 {
 		fsKHz = 1
 	}

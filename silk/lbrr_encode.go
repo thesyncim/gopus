@@ -58,8 +58,8 @@ func (e *Encoder) lbrrEncode(
 	// Mark this frame for LBRR
 	e.lbrrFlags[frameIdx] = 1
 	e.lbrrIndices[frameIdx] = frameIndices
-	e.lbrrFrameLength[frameIdx] = frameSamples
-	e.lbrrNbSubfr[frameIdx] = numSubframes
+	e.lbrrFrameLength[frameIdx] = int32(frameSamples)
+	e.lbrrNbSubfr[frameIdx] = int32(numSubframes)
 
 	// For first LBRR frame or after non-LBRR, increase first gain
 	if frameIdx == 0 || e.lbrrFlags[frameIdx-1] == 0 {
@@ -294,7 +294,7 @@ func (e *Encoder) encodeLBRRIndices(re *rangecoding.Encoder, frameIdx, condCodin
 	indices := &e.lbrrIndices[frameIdx]
 	signalType := int(indices.signalType)
 	quantOffset := int(indices.quantOffsetType)
-	nbSubfr := e.lbrrNbSubfr[frameIdx]
+	nbSubfr := int(e.lbrrNbSubfr[frameIdx])
 	if nbSubfr <= 0 || nbSubfr > maxNbSubfr {
 		nbSubfr = maxNbSubfr
 	}
@@ -482,7 +482,7 @@ func (e *Encoder) encodeLBRRPulses(re *rangecoding.Encoder, frameIdx int) {
 	signalType := int(e.lbrrIndices[frameIdx].signalType)
 	quantOffset := int(e.lbrrIndices[frameIdx].quantOffsetType)
 
-	frameLength := e.lbrrFrameLength[frameIdx]
+	frameLength := int(e.lbrrFrameLength[frameIdx])
 	if frameLength <= 0 || frameLength > len(pulses) {
 		frameLength = len(pulses)
 	}

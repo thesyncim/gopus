@@ -115,7 +115,7 @@ func (e *Encoder) computeSubframeGainsFromResidual(pcm []float32, numSubframes i
 	// residualEnergy = C0 * invGain where C0 is total energy and invGain is inverse prediction gain
 	totalEnergy := e.lastTotalEnergy
 	invGain := e.lastInvGain
-	numSamples := e.lastNumSamples
+	numSamples := int(e.lastNumSamples)
 
 	if numSamples <= 0 || totalEnergy <= 0 || invGain <= 0 {
 		// Fallback to minimum gain if LPC analysis data not available

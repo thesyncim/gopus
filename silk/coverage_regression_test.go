@@ -21,7 +21,7 @@ func TestComputeSubframeGainsFromResidual_EdgeCases(t *testing.T) {
 	pcm := make([]float32, 160)
 	enc.lastTotalEnergy = 0
 	enc.lastInvGain = 1
-	enc.lastNumSamples = len(pcm)
+	enc.lastNumSamples = int32(len(pcm))
 	fallback := enc.computeSubframeGainsFromResidual(pcm, 4)
 	for i, g := range fallback {
 		if g != 1.0 {
@@ -32,7 +32,7 @@ func TestComputeSubframeGainsFromResidual_EdgeCases(t *testing.T) {
 	// Very small residual should clamp to the minimum gain.
 	enc.lastTotalEnergy = 1.0
 	enc.lastInvGain = 1e-12
-	enc.lastNumSamples = len(pcm)
+	enc.lastNumSamples = int32(len(pcm))
 	minClamped := enc.computeSubframeGainsFromResidual(pcm, 4)
 	for i, g := range minClamped {
 		if g != 1.0 {

@@ -52,7 +52,7 @@ func (e *Encoder) controlSNR(targetRateBps, nbSubfr int) {
 		return
 	}
 
-	fsKHz := e.sampleRate / 1000
+	fsKHz := int(e.sampleRate / 1000)
 	rate := targetRateBps
 	if nbSubfr == 2 {
 		// 10ms frames: reduce target rate slightly.

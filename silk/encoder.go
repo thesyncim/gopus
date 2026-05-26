@@ -101,7 +101,7 @@ type Encoder struct {
 	lastTotalEnergy float32 // C0 from Burg analysis, narrowed to silk_float storage
 	lastInvGain     float32 // Inverse prediction gain, narrowed to silk_float storage
 	lastLPCGain     float32 // Initial prediction gain from pitch analysis (silk_float)
-	lastNumSamples  int     // Number of samples analyzed
+	lastNumSamples  int32   // Number of samples analyzed
 
 	// Analysis buffers (encoder-specific)
 	inputBuffer     []float32 // Noise shaping lookahead buffer (x_buf in libopus)
@@ -110,7 +110,7 @@ type Encoder struct {
 
 	// Bandwidth configuration
 	bandwidth  Bandwidth
-	sampleRate int
+	sampleRate int32
 
 	// FEC/LBRR (Low Bitrate Redundancy) state
 	// LBRR provides forward error correction by encoding redundant data
@@ -126,8 +126,8 @@ type Encoder struct {
 	lbrrFlag              int8                                // LBRR flag for current packet header
 	lbrrIndices           [maxFramesPerPacket]sideInfoIndices // LBRR indices per frame
 	lbrrPulses            [maxFramesPerPacket][]int8          // LBRR pulses per frame
-	lbrrFrameLength       [maxFramesPerPacket]int             // LBRR frame length per frame
-	lbrrNbSubfr           [maxFramesPerPacket]int             // LBRR subframe count per frame
+	lbrrFrameLength       [maxFramesPerPacket]int32           // LBRR frame length per frame
+	lbrrNbSubfr           [maxFramesPerPacket]int32           // LBRR subframe count per frame
 	packetLossPercent     int32                               // Expected packet loss (0-100)
 	nFramesEncoded        int32                               // Number of frames encoded in current packet
 	nFramesPerPacket      int32                               // Number of frames per packet
@@ -377,7 +377,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		pitchAnalysisBuf:  make([]float32, pitchBufSamples), // Pitch analysis buffer
 		scratchPitchRes32: make([]float32, pitchResSamples),
 		bandwidth:         bandwidth,
-		sampleRate:        config.SampleRate,
+		sampleRate:        int32(config.SampleRate),
 		lpcOrder:          int32(config.LPCOrder),
 		// Keep reset parity with libopus.
 		pitchState:               PitchAnalysisState{prevLag: 0},
@@ -661,7 +661,7 @@ func (e *Encoder) LPCOrder() int {
 
 // SampleRate returns the sample rate for current bandwidth.
 func (e *Encoder) SampleRate() int {
-	return e.sampleRate
+	return int(e.sampleRate)
 }
 
 // LPMode returns the LP variable cutoff filter mode.
