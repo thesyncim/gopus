@@ -14,7 +14,9 @@ func (d *Decoder) applyDREDNeuralConcealment48kMono(pcm []float32, samplesPerCha
 	if d == nil || d.channels < 1 || d.channels > 2 || samplesPerChannel <= 0 {
 		return false
 	}
-	if len(pcm) < samplesPerChannel*d.channels {
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
+	if len(pcm) < samplesPerChannel*channels {
 		return false
 	}
 	r := d.dredRecoveryState()
@@ -35,10 +37,10 @@ func (d *Decoder) applyDREDNeuralConcealment48kMono(pcm []float32, samplesPerCha
 	}
 	frameSize48 := samplesPerChannel
 	downsample := 1
-	celtPCM := pcm[:samplesPerChannel*d.channels]
-	if d.sampleRate != 48000 {
+	celtPCM := pcm[:samplesPerChannel*channels]
+	if sampleRate != 48000 {
 		frameSize48 = d.frameSize48FromAPI(samplesPerChannel)
-		downsample = 48000 / d.sampleRate
+		downsample = 48000 / sampleRate
 	}
 	// Mono-downmix-in / mono-duplicate-out: the stereo path runs the mono
 	// CELT neural concealment helper against the channel-0 slot of the CELT
@@ -69,54 +71,6 @@ func (d *Decoder) applyDREDNeuralConcealment48kMono(pcm []float32, samplesPerCha
 		)
 	}
 	if !ok {
-		return false
-	}
-	return true
-}
-
-// applyPLCNeuralConcealment48kMono drives one 48 kHz neural PLC concealment
-// frame. The naming preserves the mono-internal contract; stereo decoders
-// reach this through the same mono-downmix-in / mono-duplicate-out shape
-// described on applyDREDNeuralConcealment48kMono.
-func (d *Decoder) applyPLCNeuralConcealment48kMono(pcm []float32, samplesPerChannel int) bool {
-	if d == nil || d.channels < 1 || d.channels > 2 || samplesPerChannel <= 0 {
-		return false
-	}
-	if len(pcm) < samplesPerChannel*d.channels {
-		return false
-	}
-	r := d.dredRecoveryState()
-	n := d.dredNeuralState()
-	b := d.dred48kBridgeState()
-	if r == nil || n == nil || b == nil || d.celtDecoder == nil {
-		return false
-	}
-
-	frameSize48 := samplesPerChannel
-	downsample := 1
-	celtPCM := pcm[:samplesPerChannel*d.channels]
-	if d.sampleRate != 48000 {
-		frameSize48 = d.frameSize48FromAPI(samplesPerChannel)
-		downsample = 48000 / d.sampleRate
-	}
-	if !d.celtDecoder.ConcealPLCNeural48kDownsampleToFloat32(
-		celtPCM,
-		frameSize48,
-		downsample,
-		&b.dredLastNeural,
-		b.dredPLCPCM[:],
-		&b.dredPLCFill,
-		&b.dredPLCPreemphMem,
-		func(frame []float32) bool {
-			if len(frame) < lpcnetplc.FrameSize {
-				return false
-			}
-			if r.dredPLC.Blend() == 0 {
-				return r.dredPLC.GenerateConcealedFrameFloatWithAnalysis(&n.dredAnalysis, &n.dredPredictor, &n.dredFARGAN, frame[:lpcnetplc.FrameSize])
-			}
-			return r.dredPLC.GenerateConcealedFrameFloat(&n.dredPredictor, &n.dredFARGAN, frame[:lpcnetplc.FrameSize])
-		},
-	) {
 		return false
 	}
 	return true

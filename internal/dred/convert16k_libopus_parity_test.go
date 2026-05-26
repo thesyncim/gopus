@@ -119,19 +119,6 @@ func makeDREDConvertSignal(seed, channels, frameSamplesPerCh int) []float32 {
 	return out
 }
 
-func assertFloat32SliceNear(t *testing.T, got, want []float32, tol float64, label string) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s length=%d want %d", label, len(got), len(want))
-	}
-	for i := range got {
-		diff := math.Abs(float64(got[i] - want[i]))
-		if diff > tol {
-			t.Fatalf("%s[%d]=%v want %v (diff=%g > %g)", label, i, got[i], want[i], diff, tol)
-		}
-	}
-}
-
 func assertFloat32SliceBits(t *testing.T, got, want []float32, label string) {
 	t.Helper()
 	if len(got) != len(want) {

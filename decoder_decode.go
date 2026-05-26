@@ -394,34 +394,6 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 	return offsetSamples, nil
 }
 
-func collectQEXTPacketExtensions(data []byte, nbFrames, id int, payloads *[maxRepacketizerFrames][]byte) {
-	if payloads == nil {
-		return
-	}
-	for i := 0; i < maxRepacketizerFrames; i++ {
-		payloads[i] = nil
-	}
-	if len(data) == 0 || nbFrames <= 0 {
-		return
-	}
-
-	var iter packetExtensionIterator
-	initPacketExtensionIterator(&iter, data, nbFrames)
-	for {
-		var ext packetExtensionData
-		ok, err := iter.next(&ext)
-		if err != nil || !ok {
-			return
-		}
-		if ext.ID != id || ext.Frame < 0 || ext.Frame >= nbFrames {
-			continue
-		}
-		if payloads[ext.Frame] == nil {
-			payloads[ext.Frame] = ext.Data
-		}
-	}
-}
-
 // DecodeWithFEC decodes an Opus packet, optionally recovering a lost frame using FEC.
 //
 // This mirrors libopus decode_fec semantics: when fec is true, the decoder

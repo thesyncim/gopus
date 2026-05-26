@@ -219,34 +219,6 @@ func imdctOverlapWithPrevScratchF32Output32[S ~float32](spectrum []float32, prev
 	return outF32[:needed:needed]
 }
 
-func imdctCoreScratchF32(spectrum []float32, scratch *imdctScratchF32) []float32 {
-	n2 := len(spectrum)
-	if n2 == 0 {
-		return nil
-	}
-	n := n2 * 2
-	n4 := n2 / 2
-	trig := getMDCTTrigF32(n)
-
-	var fftIn []complex64
-	var fftTmp []kissCpx
-	var buf []float32
-	if scratch == nil {
-		fftIn = make([]complex64, n4)
-		fftTmp = make([]kissCpx, n4)
-		buf = make([]float32, n2)
-	} else {
-		fftIn = ensureComplex64Slice(&scratch.fftIn, n4)
-		fftTmp = ensureKissCpxSlice(&scratch.fftTmp, n4)
-		buf = ensureFloat32Slice(&scratch.buf, n2)
-	}
-
-	imdctPreRotateF32Spectrum(fftIn, spectrum, trig, n2, n4)
-	fftOut := kissFFT32ToScratch(fftIn, fftTmp)
-	imdctPostRotateF32FromKiss(buf, fftOut, trig, n2, n4)
-	return buf[:n2:n2]
-}
-
 func imdctInPlaceScratchF32Spectrum(spectrum []float32, out []float32, blockStart, overlap int, scratch *imdctScratchF32) {
 	n2 := len(spectrum)
 	if n2 == 0 {

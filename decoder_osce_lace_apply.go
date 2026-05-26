@@ -46,7 +46,7 @@ func (d *Decoder) installOSCELACESilkPostfilterHook(mode Mode, silkBW silk.Bandw
 		d.resetOSCELACEPostfilterState(packetStereoLocal)
 		return restore
 	}
-	pickedMode := pickOSCELACEMode(d.complexity)
+	pickedMode := pickOSCELACEMode(int(d.complexity))
 	if pickedMode == osceLACEModeNone {
 		d.resetOSCELACEPostfilterState(packetStereoLocal)
 		return restore
@@ -72,17 +72,6 @@ func (d *Decoder) installOSCELACESilkPostfilterHook(mode Mode, silkBW silk.Bandw
 		return true
 	})
 	return restore
-}
-
-// applyOSCELACEMonoChannel runs the LACE / NoLACE forward pass over one
-// native-rate int16 SILK lowband channel and writes the enhanced samples
-// back into the same buffer.
-func (d *Decoder) applyOSCELACEMonoChannel(native []int16, mode osceLACEMode, channelIdx int) bool {
-	if d == nil || d.silkDecoder == nil {
-		return false
-	}
-	ctrl, ok := d.silkDecoder.LatestDecoderControl(channelIdx)
-	return d.applyOSCELACEMonoChannelWithControl(native, mode, channelIdx, ctrl, ok)
 }
 
 func (d *Decoder) applyOSCELACEMonoChannelWithControl(native []int16, mode osceLACEMode, channelIdx int, ctrl silk.LatestDecoderControl, ctrlOK bool) bool {

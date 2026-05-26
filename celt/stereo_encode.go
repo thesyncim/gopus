@@ -241,20 +241,6 @@ func DeinterleaveStereo(interleaved []celtNorm) (left, right []celtNorm) {
 	return left, right
 }
 
-// deinterleaveStereoScratch separates interleaved stereo using scratch buffers.
-// This avoids heap allocations in the hot path.
-func deinterleaveStereoScratch(interleaved []celtNorm, leftBuf, rightBuf *[]celtNorm) (left, right []celtNorm) {
-	if len(interleaved) < 2 {
-		return nil, nil
-	}
-
-	n := len(interleaved) / 2
-	left = ensureNormSlice(leftBuf, n)
-	right = ensureNormSlice(rightBuf, n)
-	DeinterleaveStereoInto(interleaved, left, right)
-	return left, right
-}
-
 // deinterleaveStereoScratchF32 separates interleaved float-build stereo using
 // float-width scratch buffers.
 func deinterleaveStereoScratchF32(interleaved []float32, leftBuf, rightBuf *[]float32) (left, right []float32) {

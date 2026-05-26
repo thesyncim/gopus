@@ -39,33 +39,6 @@ func (e *Encoder) fillMDCTHistoryFromPrefilter(channel, overlap int, dst []float
 	}
 }
 
-// fillTransientHistoryFromPrefilter mirrors libopus transient/tone analysis
-// overlap sourcing (prefilter_mem tail), with interleaved output layout.
-func (e *Encoder) fillTransientHistoryFromPrefilter(overlap int, dst []float32) {
-	if overlap <= 0 || e.channels <= 0 {
-		return
-	}
-	channels := int(e.channels)
-	need := overlap * channels
-	if len(dst) < need {
-		return
-	}
-	maxPeriod := combFilterMaxPeriod
-	if len(e.prefilterMem) < maxPeriod*channels {
-		for i := 0; i < need; i++ {
-			dst[i] = 0
-		}
-		return
-	}
-	base := maxPeriod - overlap
-	for ch := 0; ch < channels; ch++ {
-		chBase := ch * maxPeriod
-		for i := 0; i < overlap; i++ {
-			dst[i*channels+ch] = float32(e.prefilterMem[chBase+base+i])
-		}
-	}
-}
-
 func (e *Encoder) fillTransientHistoryFromPrefilterF32(overlap int, dst []float32) {
 	if overlap <= 0 || e.channels <= 0 {
 		return

@@ -1446,10 +1446,6 @@ func specialHybridFoldingWithEdges(norm, norm2 []celtNorm, edges []int, start, M
 	}
 }
 
-func specialHybridFolding(norm, norm2 []celtNorm, start, M int, dualStereo bool) {
-	specialHybridFoldingWithEdges(norm, norm2, EBands[:], start, M, dualStereo)
-}
-
 func algUnquantNoExtInto(shape []celtNorm, rd *rangecoding.Decoder, n, k, spread, b int, gain opusVal16, scratch *bandDecodeScratch) int {
 	if len(shape) < n {
 		return 0
@@ -2704,13 +2700,6 @@ func computeQEXTPVQRefineBits(ctx *bandCtx, extBudget, n int) int {
 	return min(12, extraBits)
 }
 
-func quantPartition(ctx *bandCtx, x []celtNorm, n, b, B int, lowband []celtNorm, lm int, gain opusVal16, fill int) (int, []celtNorm) {
-	if !ctx.encode {
-		return quantPartitionDecodeWithExtBudget(ctx, x, n, b, B, lowband, lm, gain, fill, ctx.extBudget), x
-	}
-	return quantPartitionEncodeWithExtBudget(ctx, x, n, b, B, lowband, lm, gain, fill, ctx.extBudget)
-}
-
 func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []celtNorm, n, b, B int, lowband []celtNorm, lm int, gain opusVal16, fill int, extBudget int) (int, []celtNorm) {
 	if n == 1 {
 		return 1, x
@@ -2890,10 +2879,6 @@ func quantPartitionEncodeWithExtBudget(ctx *bandCtx, x []celtNorm, n, b, B int, 
 		return fill, x
 	}
 	return fill, x
-}
-
-func quantPartitionDecode(ctx *bandCtx, x []celtNorm, n, b, B int, lowband []celtNorm, lm int, gain opusVal16, fill int) int {
-	return quantPartitionDecodeWithExtBudget(ctx, x, n, b, B, lowband, lm, gain, fill, ctx.extBudget)
 }
 
 func quantPartitionDecodeNoExt(ctx *bandCtx, x []celtNorm, n, b, B int, lowband []celtNorm, lm int, gain opusVal16, fill int) int {
@@ -3365,16 +3350,8 @@ func copyLowbandScratch(dst, src []celtNorm, n int) []celtNorm {
 	return dst
 }
 
-func quantBand(ctx *bandCtx, x []celtNorm, n, b, B int, lowband []celtNorm, lm int, lowbandOut []celtNorm, gain opusVal16, lowbandScratch []celtNorm, fill int) int {
-	return quantBandWithExtBudget(ctx, x, n, b, B, lowband, lm, lowbandOut, gain, lowbandScratch, fill, ctx.extBudget)
-}
-
 func quantBandWithExtBudget(ctx *bandCtx, x []celtNorm, n, b, B int, lowband []celtNorm, lm int, lowbandOut []celtNorm, gain opusVal16, lowbandScratch []celtNorm, fill int, extBudget int) int {
 	return quantBandPreparedLowbandWithExtBudget(ctx, x, n, b, B, lowband, lm, lowbandOut, gain, lowbandScratch, fill, false, extBudget)
-}
-
-func quantBandPreparedLowband(ctx *bandCtx, x []celtNorm, n, b, B int, lowband []celtNorm, lm int, lowbandOut []celtNorm, gain opusVal16, lowbandScratch []celtNorm, fill int, lowbandPrepared bool) int {
-	return quantBandPreparedLowbandWithExtBudget(ctx, x, n, b, B, lowband, lm, lowbandOut, gain, lowbandScratch, fill, lowbandPrepared, ctx.extBudget)
 }
 
 func quantBandPreparedLowbandWithExtBudget(ctx *bandCtx, x []celtNorm, n, b, B int, lowband []celtNorm, lm int, lowbandOut []celtNorm, gain opusVal16, lowbandScratch []celtNorm, fill int, lowbandPrepared bool, extBudget int) int {

@@ -23,7 +23,3 @@ func testPCM32[T testFloatPCM](pcm []T) []float32 {
 func encodeTest[T testFloatPCM](enc *encoder.Encoder, pcm []T, frameSize int) ([]byte, error) {
 	return enc.Encode(testPCM32(pcm), frameSize)
 }
-
-func encodeWithAnalysisMaxBytesTest[T testFloatPCM, U testFloatPCM](enc *encoder.Encoder, pcm []T, frameSize int, analysisPCM []U, maxDataBytes int) ([]byte, error) {
-	return enc.EncodeWithAnalysisMaxBytes(testPCM32(pcm), frameSize, testPCM32(analysisPCM), maxDataBytes)
-}

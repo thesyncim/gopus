@@ -71,10 +71,6 @@ func (d *Decoder) dredGoodPacketMarkerActive() bool {
 	return false
 }
 
-func (d *Decoder) dredNeedsCELTFloatPath() bool {
-	return false
-}
-
 func (d *Decoder) clearDREDPayloadState() {}
 
 func (d *Decoder) invalidateDREDPayloadState() {}

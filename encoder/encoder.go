@@ -213,9 +213,7 @@ type Encoder struct {
 	scratchRight      []float32 // Right channel deinterleave buffer
 	scratchMono       []float32 // Mono mix buffer (VAD)
 	scratchVADFlags   [silk.MaxFramesPerPacket]bool
-	scratchSideVAD    [silk.MaxFramesPerPacket]bool
 	scratchVADStates  [silk.MaxFramesPerPacket]silk.VADFrameState
-	scratchSideStates [silk.MaxFramesPerPacket]silk.VADFrameState
 	scratchPacket     []byte    // Output packet buffer
 	scratchDelayedPCM []opusRes // Delay-compensated CELT input
 	scratchDelayState []opusRes // Packet-local delay history for transition-prefill replay
@@ -359,13 +357,6 @@ func (e *Encoder) SetBandwidthAuto() {
 // Bandwidth returns the current bandwidth setting.
 func (e *Encoder) Bandwidth() types.Bandwidth {
 	return e.bandwidth
-}
-
-func (e *Encoder) ensureExtensionPacketScratch() {
-	if len(e.scratchPacket) >= extensionScratchPacketBytes {
-		return
-	}
-	e.scratchPacket = make([]byte, extensionScratchPacketBytes)
 }
 
 // DNNBlobLoaded reports whether a validated model blob is retained.
@@ -1417,13 +1408,6 @@ func (e *Encoder) syncCELTAnalysisToCELT() {
 	)
 }
 
-func quantizeFloat32ToInt16InPlace(samples []float32) {
-	const invScale = float32(1.0 / 32768.0)
-	for i, v := range samples {
-		samples[i] = float32(opusmath.Float32ToInt16(v)) * invScale
-	}
-}
-
 func quantizeFloat32ToInt16LibopusInPlace(samples []float32) {
 	const invScale = float32(1.0 / 32768.0)
 	for i, v := range samples {
@@ -2381,11 +2365,6 @@ func (e *Encoder) celtPredictionModeForFrame() int {
 		return 0
 	}
 	return e.celtPredictionMode()
-}
-
-// encodeSILKFrame encodes a frame using SILK-only mode.
-func (e *Encoder) encodeSILKFrame(pcm []opusRes, lookahead []opusRes, frameSize int) ([]byte, error) {
-	return e.encodeSILKFrameWithDRED(pcm, lookahead, frameSize, int(e.bitrate), 0)
 }
 
 func (e *Encoder) encodeSILKFrameWithDRED(pcm []opusRes, lookahead []opusRes, frameSize, originalBitrate, dredBitrate int) ([]byte, error) {
@@ -3349,32 +3328,6 @@ func (e *Encoder) updateRestrictedSilkOpusVADRes(pcm []opusRes, frameSize int) {
 	e.clearOpusVADDecision()
 }
 
-func isDigitalSilenceFloat32(pcm []float32, lsbDepth int) bool {
-	if lsbDepth < 8 {
-		lsbDepth = 8
-	}
-	if lsbDepth > 24 {
-		lsbDepth = 24
-	}
-	threshold := float32(1) / float32(uint32(1)<<uint(lsbDepth))
-	for _, s := range pcm {
-		if s > threshold || s < -threshold {
-			return false
-		}
-	}
-	return true
-}
-
-func computeSilkVADWithState(state *VADState, mono []float32, frameSamples, fsKHz int) (int, bool) {
-	if state == nil || frameSamples <= 0 || fsKHz <= 0 {
-		return 0, false
-	}
-	if len(mono) < frameSamples {
-		return 0, false
-	}
-	return state.GetSpeechActivity(mono, frameSamples, fsKHz)
-}
-
 func computeSilkVADFrameState(state *VADState, mono []float32, frameSamples, fsKHz int) (silk.VADFrameState, bool) {
 	if state == nil || frameSamples <= 0 || fsKHz <= 0 || len(mono) < frameSamples {
 		return silk.VADFrameState{}, false
@@ -3489,29 +3442,6 @@ func (e *Encoder) computeSilkVADFlagsAndStates(pcm []float32, fsKHz int) ([]bool
 		} else {
 			e.lastVADValid = false
 		}
-	}
-	return flags, states, nFrames
-}
-
-func (e *Encoder) computeSilkVADSideFlagsAndStates(pcm []float32, fsKHz int) ([]bool, []silk.VADFrameState, int) {
-	frameSamples, nFrames := computeSilkFrameLayout(len(pcm), fsKHz)
-	if nFrames == 0 {
-		return nil, nil, 0
-	}
-	e.ensureSilkVADSide()
-	flags := e.scratchSideVAD[:nFrames]
-	states := e.scratchSideStates[:nFrames]
-	for i := 0; i < nFrames; i++ {
-		start := i * frameSamples
-		end := start + frameSamples
-		if end > len(pcm) {
-			end = len(pcm)
-		}
-		framePCM := pcm[start:end]
-		state, active := computeSilkVADFrameState(e.silkVADSide, framePCM, len(framePCM), fsKHz)
-		state, active = e.applyOpusVADToSilkState(state, active)
-		flags[i] = active
-		states[i] = state
 	}
 	return flags, states, nFrames
 }

@@ -525,20 +525,3 @@ func makeCELTPLPCTestCoeffs() []float32 {
 	}
 	return coeffs
 }
-
-func assertFloat64AsFloat32Bits(t *testing.T, label string, got []float64, want []float32) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
-	}
-	for i := range got {
-		got32 := float32(got[i])
-		if math.Float32bits(got32) != math.Float32bits(want[i]) {
-			t.Fatalf("%s[%d]=%08x %0.10g want %08x %0.10g",
-				label, i,
-				math.Float32bits(got32), got32,
-				math.Float32bits(want[i]), want[i],
-			)
-		}
-	}
-}

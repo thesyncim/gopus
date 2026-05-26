@@ -282,15 +282,6 @@ func generateTestSignal(samples int, channels int) []float64 {
 	return pcm
 }
 
-// computeEnergy computes the total energy of a signal.
-func computeEnergy(samples []float64) float64 {
-	var energy float64
-	for _, s := range samples {
-		energy += s * s
-	}
-	return energy / float64(len(samples))
-}
-
 func computeEnergyF32(samples []float32) float64 {
 	var energy float64
 	for _, s := range samples {

@@ -230,20 +230,3 @@ func encodeGopusFECPacketsWithComplexity(cfg libopusFECPacketConfig, frameCount,
 	}
 	return packets, nil
 }
-
-func fecSequencePCM(frameSize, channels, frameCount int) []float32 {
-	const sampleRate = 48000
-	pcm := make([]float32, frameSize*channels*frameCount)
-	for frameIndex := 0; frameIndex < frameCount; frameIndex++ {
-		for i := 0; i < frameSize; i++ {
-			tm := float64(frameIndex*frameSize+i) / sampleRate
-			pcm[frameIndex*frameSize*channels+i*channels] = 0.38*float32(math.Sin(2*math.Pi*220*tm)) +
-				0.14*float32(math.Sin(2*math.Pi*440*tm+0.11))
-			if channels == 2 {
-				pcm[frameIndex*frameSize*channels+i*channels+1] = 0.33*float32(math.Sin(2*math.Pi*330*tm+0.07)) +
-					0.12*float32(math.Sin(2*math.Pi*660*tm+0.19))
-			}
-		}
-	}
-	return pcm
-}

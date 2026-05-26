@@ -91,7 +91,7 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 			t.Fatalf("unexpected TOC: mode=%v bandwidth=%v", toc.Mode, toc.Bandwidth)
 		}
 
-		pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
+		pcm := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 		got, err := dec.Decode(packet, pcm)
 		if err != nil {
 			t.Fatalf("Decode(silk WB packet): %v", err)
@@ -101,7 +101,7 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		}
 
 		var energy float64
-		for _, v := range pcm[:got*dec.channels] {
+		for _, v := range pcm[:got*dec.Channels()] {
 			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
 				t.Fatalf("decoded PCM contains NaN/Inf: %v", v)
 			}
@@ -124,7 +124,7 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 			t.Fatalf("unexpected TOC: mode=%v bandwidth=%v", toc.Mode, toc.Bandwidth)
 		}
 
-		pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
+		pcm := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 		got, err := dec.Decode(packet, pcm)
 		if err != nil {
 			t.Fatalf("Decode(hybrid SWB packet): %v", err)
@@ -134,7 +134,7 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		}
 
 		var energy float64
-		for _, v := range pcm[:got*dec.channels] {
+		for _, v := range pcm[:got*dec.Channels()] {
 			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
 				t.Fatalf("decoded PCM contains NaN/Inf: %v", v)
 			}
@@ -281,7 +281,7 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 		dec.Reset()
 		const frameSize = 960
 		packet := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
-		pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
+		pcm := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 		got, err := dec.Decode(packet, pcm)
 		if err != nil {
 			t.Fatalf("Decode(silk WB packet) after disable: %v", err)
@@ -290,7 +290,7 @@ func TestDecoderOSCELACERuntimeIntegration(t *testing.T) {
 			t.Fatalf("Decode returned %d samples, want %d", got, frameSize)
 		}
 		var energy float64
-		for _, v := range pcm[:got*dec.channels] {
+		for _, v := range pcm[:got*dec.Channels()] {
 			energy += float64(v) * float64(v)
 		}
 		if energy == 0 {

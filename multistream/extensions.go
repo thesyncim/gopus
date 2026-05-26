@@ -241,34 +241,3 @@ func (iter *packetExtensionIterator) next(ext *packetExtensionData) (bool, error
 
 	return false, nil
 }
-
-func collectPacketExtensionPayloadsByFrame(data []byte, nbFrames, id int, payloads *[maxPacketExtensionFrames][]byte) error {
-	if payloads == nil {
-		return nil
-	}
-	for i := 0; i < maxPacketExtensionFrames; i++ {
-		payloads[i] = nil
-	}
-	if len(data) == 0 || nbFrames <= 0 {
-		return nil
-	}
-
-	var iter packetExtensionIterator
-	initPacketExtensionIterator(&iter, data, nbFrames)
-	for {
-		var ext packetExtensionData
-		ok, err := iter.next(&ext)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-		if ext.ID != id || ext.Frame < 0 || ext.Frame >= nbFrames {
-			continue
-		}
-		if payloads[ext.Frame] == nil {
-			payloads[ext.Frame] = ext.Data
-		}
-	}
-}

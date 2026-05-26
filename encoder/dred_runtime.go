@@ -92,12 +92,6 @@ func (e *Encoder) resetDREDControls() {
 	e.pruneDREDExtrasIfDormant()
 }
 
-func (e *Encoder) clearDREDRuntime() {
-	if extsupport.DREDRuntime && e.dred != nil {
-		e.dred.runtime = nil
-	}
-}
-
 func (e *Encoder) clearInactiveDREDHistory() {
 	if !extsupport.DREDRuntime || e.dred == nil || e.dred.runtime == nil {
 		return

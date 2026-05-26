@@ -265,24 +265,6 @@ func (p *PitchDNN) Reset() {
 	p.state = pitchDNNState{}
 }
 
-func (p *PitchDNN) copyState(dst *pitchDNNState) {
-	if p == nil || dst == nil {
-		return
-	}
-	*dst = p.state
-}
-
-func (p *PitchDNN) setState(src *pitchDNNState) {
-	if p == nil {
-		return
-	}
-	if src == nil {
-		p.state = pitchDNNState{}
-		return
-	}
-	p.state = *src
-}
-
 // Compute mirrors libopus compute_pitchdnn() and returns the normalized pitch
 // class value used by LPCNet analysis.
 func (p *PitchDNN) Compute(ifFeatures, xcorrFeatures []float32) float32 {

@@ -330,11 +330,3 @@ func computeSpreadWeights(bandLogE []celtGLog, nbBands, channels, lsbDepth int) 
 func computeSpreadWeightsSimple(bandLogE []celtGLog, nbBands int) []int32 {
 	return computeSpreadWeights(bandLogE, nbBands, 1, 16)
 }
-
-// spreadDecisionForShortBlocks returns the spread decision for transient frames.
-// For short blocks, spreading is typically disabled or minimal.
-//
-// Returns: SPREAD_NONE for transient frames (libopus behavior)
-func spreadDecisionForShortBlocks() int {
-	return spreadNone
-}

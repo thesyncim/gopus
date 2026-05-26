@@ -271,7 +271,7 @@ func (d *Decoder) dredRuntimeSampleRate() int {
 	if d == nil {
 		return 0
 	}
-	return d.sampleRate
+	return int(d.sampleRate)
 }
 
 // setDNNBlob mirrors the main libopus decoder OPUS_SET_DNN_BLOB surface.
@@ -482,20 +482,6 @@ func (d *Decoder) dredGoodPacketMarkerActive() bool {
 	return d.dredRecoveryState() != nil || d.dred48kBridgeState() != nil
 }
 
-func (d *Decoder) dredNeedsCELTFloatPath() bool {
-	if d == nil || d.channels < 1 || d.channels > 2 {
-		return false
-	}
-	b := d.dred48kBridgeState()
-	if b != nil && (b.dredLastNeural || b.dredPLCFill != 0 || b.dredPLCPreemphMem != 0) {
-		return true
-	}
-	if d.celtDecoder != nil && d.celtDecoder.LastPLCFrameWasNeural() {
-		return true
-	}
-	return false
-}
-
 func (d *Decoder) dredNeuralConcealmentReady() bool {
 	return d.ensureDREDNeuralConcealmentRuntime()
 }
@@ -556,14 +542,6 @@ func (d *Decoder) cachedDREDMaxAvailableSamples(maxDredSamples int) int {
 	return d.cachedDREDResult(maxDredSamples).MaxAvailableSamples()
 }
 
-func (d *Decoder) cachedDREDAvailability(maxDredSamples int) internaldred.Availability {
-	return d.cachedDREDResult(maxDredSamples).Availability
-}
-
-func (d *Decoder) fillCachedDREDQuantizerLevels(dst []int32, maxDredSamples int) int {
-	return d.cachedDREDResult(maxDredSamples).FillQuantizerLevels(dst)
-}
-
 func (d *Decoder) cachedDREDResult(maxDredSamples int) internaldred.Result {
 	p := d.dredPayloadState()
 	if p == nil || p.dredCache.Empty() || !p.dredModelLoaded || d.ignoreExtensions {
@@ -587,8 +565,9 @@ func (d *Decoder) maxCachedDREDSamples() int {
 	if maxDredSamples <= 0 {
 		maxDredSamples = defaultMaxPacketSamples
 	}
-	if d.sampleRate > 0 && d.sampleRate != 48000 && maxDredSamples == defaultMaxPacketSamples {
-		if scaled := maxDredSamples * d.sampleRate / 48000; scaled > 0 {
+	sampleRate := int(d.sampleRate)
+	if sampleRate > 0 && sampleRate != 48000 && maxDredSamples == defaultMaxPacketSamples {
+		if scaled := maxDredSamples * sampleRate / 48000; scaled > 0 {
 			return scaled
 		}
 	}
@@ -651,10 +630,11 @@ func (d *Decoder) hybridDREDLowbandSamples(frameSizeSamples int) (int, bool) {
 		return 0, false
 	}
 	nativeSamples := frameSizeSamples * 16000
-	if nativeSamples%d.sampleRate != 0 {
+	sampleRate := int(d.sampleRate)
+	if sampleRate <= 0 || nativeSamples%sampleRate != 0 {
 		return 0, false
 	}
-	return nativeSamples / d.sampleRate, true
+	return nativeSamples / sampleRate, true
 }
 
 func (d *Decoder) beginHybridDREDLowbandHook() (cleanup func(), used func() bool) {
@@ -682,10 +662,6 @@ func (d *Decoder) beginHybridDREDLowbandHook() (cleanup func(), used func() bool
 		}, func() bool {
 			return directUsed
 		}
-}
-
-func (d *Decoder) shouldTrackDREDPCMHistory() bool {
-	return d.dredNeuralModelsLoaded() && d.sampleRate == 16000 && d.dredNeuralConfigEligible()
 }
 
 func (d *Decoder) markDREDConcealed() {
@@ -989,10 +965,7 @@ func (d *Decoder) applyPreparedDREDNeuralConcealment(pcm []float32, samplesPerCh
 		return false
 	}
 	if b != nil {
-		if !d.applyDREDNeuralConcealment48kMono(pcm, samplesPerChannel) {
-			return false
-		}
-		return true
+		return d.applyDREDNeuralConcealment48kMono(pcm, samplesPerChannel)
 	}
 	return false
 }

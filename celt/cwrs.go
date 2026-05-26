@@ -636,61 +636,6 @@ func finishCWRSTwoPulses32NoClear(y []int32, n int, index uint32) uint32 {
 	}
 }
 
-func finishCWRSThreePulses32(y []int32, n int, index uint32) uint32 {
-	clear(y[:n])
-	start := 0
-	rem := n
-	idx := index
-
-	for {
-		if rem <= 3 {
-			return cwrsiFastCore32(rem, 3, idx, y[start:n:n])
-		}
-
-		p := pvqUDenseUnchecked(3, rem)
-		q := pvqUDenseUnchecked(4, rem)
-		if p <= idx && idx < q {
-			idx -= p
-			start++
-			rem--
-			continue
-		}
-
-		neg := false
-		if idx >= q {
-			neg = true
-			idx -= q
-		}
-
-		u2 := uint32((rem << 1) - 1)
-		yj := 3
-		kLeft := 0
-		if idx >= u2 {
-			idx -= u2
-			yj = 1
-			kLeft = 2
-		} else if idx >= 1 {
-			idx--
-			yj = 2
-			kLeft = 1
-		}
-		if neg {
-			yj = -yj
-		}
-		y[start] = int32(yj)
-
-		switch kLeft {
-		case 2:
-			return uint32(yj*yj) + finishCWRSTwoPulses32NoClear(y[start+1:n], rem-1, idx)
-		case 1:
-			setCWRSOnePulse32(y, start+1, n, idx)
-			return uint32(yj*yj + 1)
-		default:
-			return uint32(yj * yj)
-		}
-	}
-}
-
 //go:nosplit
 func cwrsiFast(n, k int, i uint32, y []int) uint32 {
 	if n < 2 || k <= 0 || len(y) < n {
@@ -1175,31 +1120,6 @@ func EncodePulsesScratch(y []int, n, k int, uBuf *[]uint32) uint32 {
 		return index
 	}
 
-	var u []uint32
-	if uBuf != nil {
-		u = ensureUint32Slice(uBuf, k+2)
-	} else {
-		u = make([]uint32, k+2)
-	}
-	index, _ := icwrs(n, k, y, u)
-	return index
-}
-
-// encodePulsesFast is an internal fast path that skips sum-of-abs validation.
-// Only call when the pulse vector is known to be valid (e.g., from opPVQSearch).
-func encodePulsesFast(y []int, n, k int, uBuf *[]uint32) uint32 {
-	if n <= 0 || k < 0 {
-		return 0
-	}
-	if n == 1 {
-		if y[0] < 0 {
-			return 1
-		}
-		return 0
-	}
-	if index, ok := icwrsLookupFast(n, k, y); ok {
-		return index
-	}
 	var u []uint32
 	if uBuf != nil {
 		u = ensureUint32Slice(uBuf, k+2)

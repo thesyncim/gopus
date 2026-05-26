@@ -161,33 +161,6 @@ func generateTransientSignal(samples, channels int, sampleRate int) []float64 {
 // Quality Measurement Functions
 // =============================================================================
 
-// computeCorrelation computes Pearson correlation coefficient.
-func computeCorrelation(a, b []float64) float64 {
-	if len(a) == 0 || len(b) == 0 {
-		return 0
-	}
-
-	n := min(len(a), len(b))
-
-	var sumA, sumB, sumAB, sumA2, sumB2 float64
-	for i := 0; i < n; i++ {
-		sumA += a[i]
-		sumB += b[i]
-		sumAB += a[i] * b[i]
-		sumA2 += a[i] * a[i]
-		sumB2 += b[i] * b[i]
-	}
-
-	nf := float64(n)
-	num := nf*sumAB - sumA*sumB
-	den := math.Sqrt((nf*sumA2 - sumA*sumA) * (nf*sumB2 - sumB*sumB))
-
-	if den == 0 {
-		return 0
-	}
-	return num / den
-}
-
 // computeSNRWithDelay computes SNR with optimal delay compensation.
 func computeSNRWithDelay(original, decoded []float64, maxDelay int) (float64, int) {
 	bestSNR := math.Inf(-1)
@@ -274,17 +247,6 @@ func computeCorrelationF32(a []float64, b []float32) float64 {
 		return 0
 	}
 	return num / den
-}
-
-// maxAmplitude returns the maximum absolute amplitude in a signal.
-func maxAmplitude(samples []float64) float64 {
-	maxVal := 0.0
-	for _, s := range samples {
-		if math.Abs(s) > maxVal {
-			maxVal = math.Abs(s)
-		}
-	}
-	return maxVal
 }
 
 func maxAmplitudeF32(samples []float32) float64 {

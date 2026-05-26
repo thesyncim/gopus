@@ -264,10 +264,6 @@ func clearNormCap(s []celtNorm) {
 	clear(s[:cap(s)])
 }
 
-func clearIntCap(s []int) {
-	clear(s[:cap(s)])
-}
-
 func clearInt32Cap(s []int32) {
 	clear(s[:cap(s)])
 }

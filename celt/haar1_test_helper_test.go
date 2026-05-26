@@ -59,60 +59,6 @@ func haar1Stride4(x []float64, n0 int) {
 	}
 }
 
-func haar1Stride6(x []float64, n0 int) {
-	const invSqrt2 = float32(0.7071067811865476)
-	if n0 <= 0 {
-		return
-	}
-	maxIdx := 11 + (n0-1)*12
-	if maxIdx >= len(x) {
-		return
-	}
-	idx := 0
-	for j := 0; j < n0; j++ {
-		for off := 0; off < 6; off++ {
-			haar1Pair(x, idx+off, idx+off+6, invSqrt2)
-		}
-		idx += 12
-	}
-}
-
-func haar1Stride8(x []float64, n0 int) {
-	const invSqrt2 = float32(0.7071067811865476)
-	if n0 <= 0 {
-		return
-	}
-	maxIdx := 15 + (n0-1)*16
-	if maxIdx >= len(x) {
-		return
-	}
-	idx := 0
-	for j := 0; j < n0; j++ {
-		for off := 0; off < 8; off++ {
-			haar1Pair(x, idx+off, idx+off+8, invSqrt2)
-		}
-		idx += 16
-	}
-}
-
-func haar1Stride12(x []float64, n0 int) {
-	const invSqrt2 = float32(0.7071067811865476)
-	if n0 <= 0 {
-		return
-	}
-	maxIdx := 23 + (n0-1)*24
-	if maxIdx >= len(x) {
-		return
-	}
-	idx := 0
-	for j := 0; j < n0; j++ {
-		for off := 0; off < 12; off++ {
-			haar1Pair(x, idx+off, idx+off+12, invSqrt2)
-		}
-		idx += 24
-	}
-}
-
 func haar1Stride1Asm(x []float64, n0 int) {
 	haar1Stride1Generic(x, n0)
 }

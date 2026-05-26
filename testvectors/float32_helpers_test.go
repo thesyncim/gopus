@@ -7,11 +7,3 @@ func float32Slice(f64 []float64) []float32 {
 	}
 	return f32
 }
-
-func float64Slice(f32 []float32) []float64 {
-	f64 := make([]float64, len(f32))
-	for i, v := range f32 {
-		f64[i] = float64(v)
-	}
-	return f64
-}

@@ -193,16 +193,6 @@ func (e *Encoder) previewDREDExperimentalPayloadLength(maxChunks, q0, dQ, qmax i
 	)
 }
 
-func (e *Encoder) previewDREDPacketExtensionPadding(frameSize int) int {
-	plan, ok := e.computeDREDEmissionPlan(frameSize)
-	if !ok {
-		return 0
-	}
-	maxChunks := maxDREDChunks(int(e.dred.duration), int(plan.targetChunks), e.bitrateMode != ModeCBR)
-	payloadLen := e.previewDREDExperimentalPayloadLength(int32(maxChunks), plan.q0, plan.dQ, plan.qmax)
-	return packetExtensionPaddingAmount(internaldred.ExtensionID, payloadLen)
-}
-
 func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan dredEmissionPlan) int {
 	if !extsupport.DREDRuntime || e.dred == nil || e.dred.duration <= 0 || plan.targetChunks < 1 {
 		return 0

@@ -36,22 +36,6 @@ func (d *Decoder) takeQEXTPayload() []byte {
 	return payload
 }
 
-func (d *Decoder) prepareMainBandQEXTDecode(payload []byte, mainRD *rangecoding.Decoder, end, lm int) (*rangecoding.Decoder, []int32, []int32, int) {
-	if len(payload) == 0 || mainRD == nil || end <= 0 {
-		return nil, nil, nil, 0
-	}
-	qextState := d.ensureQEXTState()
-	extDec := &qextState.rangeDecoderScratch
-	extDec.Init(payload)
-	_ = decodeQEXTHeader(extDec, int(d.channels), len(payload))
-
-	extraPulses := ensureInt32Slice(&qextState.scratchPulses, end)
-	extraQuant := ensureInt32Slice(&qextState.scratchFineQuant, end)
-	totalBitsQ3 := (len(payload) * 8 << bitRes) - mainRD.TellFrac() - 1
-	computeQEXTExtraAllocationDecode(0, end, totalBitsQ3, int(d.channels), lm, extDec, extraPulses, extraQuant)
-	return extDec, extraPulses, extraQuant, len(payload) * 8 << bitRes
-}
-
 func (d *Decoder) decodeFineEnergyGLogWithDecoderPrev(rd *rangecoding.Decoder, energies []celtGLog, nbBands int, prevQuant, extraQuant []int32) {
 	if rd == nil {
 		return

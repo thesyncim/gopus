@@ -283,12 +283,6 @@ func computeQEXTExtraAllocationEncode(start, end, qextEnd, totalQ3 int, channels
 	}
 }
 
-func computeQEXTExtraAllocationDecode(start, end, totalQ3 int, channels, lm int,
-	dec *rangecoding.Decoder, extraPulses, extraQuant []int32,
-) {
-	computeQEXTExtraAllocationDecodeWithMode(start, end, 0, totalQ3, channels, lm, dec, extraPulses, extraQuant, nil)
-}
-
 // computeQEXTExtraAllocationDecodeWithMode mirrors the decode-side
 // clt_compute_extra_allocation() path for the main bands in [start,end) and,
 // when qextMode != nil, the QEXT extra bands in [MaxBands, MaxBands+qextEnd).

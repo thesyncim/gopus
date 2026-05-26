@@ -125,10 +125,6 @@ func buildPacketWithSingleExtensionInto(dst, frameData []byte, mode types.Mode, 
 	return buildPacketWithExtensionsInto(dst, frameData, mode, bandwidth, frameSize, stereo, []packetExtension{{ID: extID, Data: extData}}, targetLen, withPadding)
 }
 
-func buildMultiFramePacketWithSingleFrame0ExtensionInto(dst []byte, frames [][]byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool, vbr bool, extID int, extData []byte, targetLen int, withPadding bool) (int, error) {
-	return buildMultiFramePacketWithExtensionsInto(dst, frames, mode, bandwidth, frameSize, stereo, vbr, []packetExtension{{ID: extID, Data: extData, Frame: 0}}, targetLen, withPadding)
-}
-
 func buildMultiFramePacketWithExtensionsInto(dst []byte, frames [][]byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool, vbr bool, extensions []packetExtension, targetLen int, withPadding bool) (int, error) {
 	if len(frames) == 0 || len(frames) > 48 {
 		return 0, ErrInvalidFrameCount

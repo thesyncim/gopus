@@ -36,37 +36,6 @@ var (
 	kissFFTState480 = newKissFFTState(480)
 )
 
-func kissMul(a, b float32) float32 {
-	if kissFFTNoFMAMulEnabled {
-		return noFMA32Mul(a, b)
-	}
-	return a * b
-}
-
-// kissMulAddSource computes a*b + c*d using source-order semantics.
-// In FMAlike mode this mirrors libopus arm64 codegen (round c*d first).
-//
-//go:noinline
-func kissMulAddSource(a, b, c, d float32) float32 {
-	if kissFFTFMALikeEnabled {
-		t := noFMA32Mul(c, d)
-		return fma32(a, b, t)
-	}
-	return a*b + c*d
-}
-
-// kissMulSubSource computes a*b - c*d using source-order semantics.
-// In FMAlike mode this mirrors libopus arm64 codegen (round c*d first).
-//
-//go:noinline
-func kissMulSubSource(a, b, c, d float32) float32 {
-	if kissFFTFMALikeEnabled {
-		t := noFMA32Mul(c, d)
-		return fma32(a, b, -t)
-	}
-	return a*b - c*d
-}
-
 //go:noinline
 func kissHalfSub(a, b float32) float32 {
 	return a - 0.5*b
@@ -280,31 +249,7 @@ func computeBitrevTableRecursive(fout int, bitrev []int, fIdx int, fstride int, 
 	}
 }
 
-func cAdd(a, b kissCpx) kissCpx {
-	return kissCpx{r: a.r + b.r, i: a.i + b.i}
-}
-
-func cSub(a, b kissCpx) kissCpx {
-	return kissCpx{r: a.r - b.r, i: a.i - b.i}
-}
-
-func cMul(a, b kissCpx) kissCpx {
-	return kissCpx{r: a.r*b.r - a.i*b.i, i: a.r*b.i + a.i*b.r}
-}
-
-func cMulByScalar(a kissCpx, s float32) kissCpx {
-	return kissCpx{r: a.r * s, i: a.i * s}
-}
-
 func kfBfly2M1Available() bool { return true }
-
-func kfBfly4M1Available() bool { return true }
-
-func kfBfly4MxAvailable() bool { return false }
-
-func kfBfly3M1Available() bool { return true }
-
-func kfBfly5M1Available() bool { return true }
 
 // kfBfly2M1 handles the radix-2 m==1 hot path with index arithmetic (no reslicing).
 func kfBfly2M1(fout []kissCpx, n int) {

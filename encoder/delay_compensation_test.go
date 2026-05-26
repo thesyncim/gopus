@@ -91,18 +91,6 @@ func legacyApplyDelayCompensationState(delayBuffer, pcm, out, prefill, tail []fl
 	return prefillSamples
 }
 
-func requireEqualFloat64Slices(t *testing.T, name string, got, want []float64) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s len=%d want=%d", name, len(got), len(want))
-	}
-	for i := range got {
-		if got[i] != want[i] {
-			t.Fatalf("%s[%d]=%.9f want %.9f", name, i, got[i], want[i])
-		}
-	}
-}
-
 func requireEqualOpusResToFloat64Slices(t *testing.T, name string, got []opusRes, want []float64) {
 	t.Helper()
 	if len(got) != len(want) {

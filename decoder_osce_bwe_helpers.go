@@ -89,21 +89,6 @@ func (d *Decoder) osceBWEModelLoadedRuntime() bool {
 	return d.osceBWE.osceBWEModel != nil && d.osceBWE.osceBWERuntime[0].Loaded()
 }
 
-// osceBWEModelLoadedRuntimeAllChannels reports whether both per-channel
-// runtime slots are bound. Stereo decode paths gate on this to ensure the
-// side-channel forward pass has a valid model binding.
-func (d *Decoder) osceBWEModelLoadedRuntimeAllChannels() bool {
-	if d == nil || d.osceBWE == nil || d.osceBWE.osceBWEModel == nil {
-		return false
-	}
-	for ch := range d.osceBWE.osceBWERuntime {
-		if !d.osceBWE.osceBWERuntime[ch].Loaded() {
-			return false
-		}
-	}
-	return true
-}
-
 // Compile-time sanity: keep the runtime alias visible so we don't drop the
 // dependency when refactoring the slot count.
 var _ = (*osceBWE.State)(nil)

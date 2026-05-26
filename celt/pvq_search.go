@@ -14,16 +14,6 @@ func opPVQSearch(x []celtNorm, k int) ([]int32, opusVal16) {
 	return iy, yy
 }
 
-func opPVQSearchScratch(x []celtNorm, k int, iyBuf *[]int32, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32) ([]int32, opusVal16) {
-	iy, yy := opPVQSearchScratchNorm(x, k, iyBuf, signxBuf, yBuf, absXBuf)
-	return iy, yy
-}
-
-func opPVQSearchScratchWithInputMutation(x []celtNorm, k int, iyBuf *[]int32, signxBuf *[]byte, yBuf *[]float32, absXBuf *[]float32, absInput bool) ([]int32, opusVal16) {
-	iy, yy := opPVQSearchScratchNormWithInputMutation(x, k, iyBuf, signxBuf, yBuf, absXBuf, absInput)
-	return iy, yy
-}
-
 func opPVQSearchNorm(x []celtNorm, k int) ([]int32, opusVal16) {
 	return opPVQSearchScratchNorm(x, k, nil, nil, nil, nil)
 }
@@ -184,22 +174,6 @@ func opPVQSearchScratchNormWithInputMutation(x []celtNorm, k int, iyBuf *[]int32
 	}
 
 	return iy, opusVal16(yy)
-}
-
-func pvqExtractAbsSignOnly(x []celtNorm, absX []float32, signx []byte, n int) {
-	_ = x[n-1]
-	_ = absX[n-1]
-	_ = signx[n-1]
-	for j := 0; j < n; j++ {
-		signx[j] = 0
-		xj := x[j]
-		if xj < 0 {
-			signx[j] = 1
-			absX[j] = -xj
-		} else {
-			absX[j] = xj
-		}
-	}
 }
 
 func pvqExtractAbsSignOnlySum(x []celtNorm, absX []float32, signx []byte, n int) float32 {

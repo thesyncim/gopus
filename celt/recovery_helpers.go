@@ -33,13 +33,6 @@ func plcFrameIsNeural(frameType int) bool {
 	return frameType == framePLCNeural || frameType == frameDRED
 }
 
-func (d *Decoder) lastPLCFrameWasNeural() bool {
-	if d == nil {
-		return false
-	}
-	return plcFrameIsNeural(int(d.plcLastFrameType))
-}
-
 func (d *Decoder) lastPLCFrameWasPeriodic() bool {
 	if d == nil {
 		return false

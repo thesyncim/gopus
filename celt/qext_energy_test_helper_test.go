@@ -1,3 +1,5 @@
+//go:build gopus_qext
+
 package celt
 
 func computeQEXTBandAmplitudesInto(mdctCoeffs []float64, cfg *qextModeConfig, end, lm int, bandE []celtEner) {

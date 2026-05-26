@@ -56,21 +56,23 @@ func (d *Decoder) decodeExplicitDREDFloat(dred *DRED, dredOffsetSamples int, pcm
 	if frameSizeSamples <= 0 {
 		return 0, ErrInvalidArgument
 	}
-	lossQuantum := d.sampleRate / 400
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
+	lossQuantum := sampleRate / 400
 	if lossQuantum <= 0 || frameSizeSamples < lossQuantum || frameSizeSamples%lossQuantum != 0 {
 		return 0, ErrInvalidArgument
 	}
-	needed := frameSizeSamples * d.channels
+	needed := frameSizeSamples * channels
 	if len(pcm) < needed {
 		return 0, ErrBufferTooSmall
 	}
 
 	// Explicit DRED queues FEC features before concealment; analysis priming is
 	// only for non-FEC neural PLC entry history.
-	if d.prevMode == ModeHybrid && d.channels >= 1 && d.channels <= 2 {
+	if d.prevMode == ModeHybrid && channels >= 1 && channels <= 2 {
 		return d.decodeExplicitHybridDREDFloat(dred, dredOffsetSamples, pcm[:needed], frameSizeSamples)
 	}
-	if d.prevMode == ModeSILK && (d.channels == 1 || d.channels == 2) {
+	if d.prevMode == ModeSILK && (channels == 1 || channels == 2) {
 		// SILK-only previous mode: libopus runs the standard SILK PLC path
 		// with lpcnet FEC features queued; the SILK DeepPLC hook produces
 		// the 16 kHz neural concealment lowband and SILK upsamples to the
@@ -90,7 +92,9 @@ func (d *Decoder) decodeExplicitDRED48kNeuralFloat(dred *DRED, dredOffsetSamples
 	if d == nil {
 		return 0, ErrInvalidArgument
 	}
-	needed := frameSizeSamples * d.channels
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
+	needed := frameSizeSamples * channels
 	if frameSizeSamples <= 0 || len(pcm) < needed {
 		return 0, ErrBufferTooSmall
 	}
@@ -102,7 +106,7 @@ func (d *Decoder) decodeExplicitDRED48kNeuralFloat(dred *DRED, dredOffsetSamples
 		d.primeDREDCELTEntryHistory(d.prevMode, false)
 	}
 
-	chunkLimit := d.sampleRate / 25 * 3
+	chunkLimit := sampleRate / 25 * 3
 	if chunkLimit <= 0 || frameSizeSamples <= chunkLimit {
 		if !d.applyDREDNeuralConcealment48kMono(pcm[:needed], frameSizeSamples) {
 			return 0, ErrInvalidPacket
@@ -111,19 +115,19 @@ func (d *Decoder) decodeExplicitDRED48kNeuralFloat(dred *DRED, dredOffsetSamples
 		remaining := frameSizeSamples
 		offset := 0
 		for remaining > 0 {
-			chunk := nextPLCChunkSamples(d.sampleRate, d.prevMode, remaining)
+			chunk := nextPLCChunkSamples(sampleRate, d.prevMode, remaining)
 			if chunk <= 0 {
 				return 0, ErrInvalidPacket
 			}
-			start := offset * d.channels
-			end := start + chunk*d.channels
+			start := offset * channels
+			end := start + chunk*channels
 			if end > len(pcm) || !d.applyDREDNeuralConcealment48kMono(pcm[start:end], chunk) {
 				packetFrameSize := d.lastFrameSize
 				if packetFrameSize <= 0 {
-					packetFrameSize = chunk
+					packetFrameSize = int32(chunk)
 				}
 				n, err := d.decodePLCChunksInto(pcm[start:needed], remaining, plcDecodeState{
-					packetFrameSize:    packetFrameSize,
+					packetFrameSize:    int(packetFrameSize),
 					mode:               d.prevMode,
 					bandwidth:          d.lastBandwidth,
 					packetStereo:       d.prevPacketStereo,
@@ -132,7 +136,6 @@ func (d *Decoder) decodeExplicitDRED48kNeuralFloat(dred *DRED, dredOffsetSamples
 				if err != nil {
 					return 0, err
 				}
-				offset += n
 				remaining -= n
 				break
 			}
@@ -144,8 +147,8 @@ func (d *Decoder) decodeExplicitDRED48kNeuralFloat(dred *DRED, dredOffsetSamples
 		}
 	}
 	d.applyOutputGain(pcm[:needed])
-	d.lastFrameSize = frameSizeSamples
-	d.lastPacketDuration = frameSizeSamples
+	d.lastFrameSize = int32(frameSizeSamples)
+	d.lastPacketDuration = int32(frameSizeSamples)
 	d.lastDataLen = 0
 	return frameSizeSamples, nil
 }
@@ -179,9 +182,9 @@ func (d *Decoder) decodeExplicitHybridDREDFloat(dred *DRED, dredOffsetSamples in
 	} else if queued.NeededFeatureFrames > 0 || d.dredRecoveryState() != nil {
 		d.advanceHybridDREDLowbandState(n, lowbandSnapshot)
 	}
-	d.applyOutputGain(pcm[:n*d.channels])
-	d.lastFrameSize = n
-	d.lastPacketDuration = n
+	d.applyOutputGain(pcm[:n*int(d.channels)])
+	d.lastFrameSize = int32(n)
+	d.lastPacketDuration = int32(n)
 	d.lastDataLen = 0
 	return n, nil
 }
@@ -238,20 +241,22 @@ func (d *Decoder) decodeExplicitSILKDREDFloat(dred *DRED, dredOffsetSamples int,
 	// the lowband hook fired, it already consumed the queued FEC features.
 	// Older stereo paths that cannot fire the hook still need an explicit
 	// state advance so retained lpcnet/FARGAN continuity matches libopus.
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
 	if usedHook() {
 		d.finishActiveDREDRecovery(n)
-	} else if d.channels == 2 && n > 0 && d.sampleRate > 0 {
+	} else if channels == 2 && n > 0 && sampleRate > 0 {
 		// DRED neural concealment runs at 16 kHz; convert decoder-rate
 		// samples to lpcnet 16 kHz sample count. Skip if the conversion
 		// is non-integral or yields a non-FrameSize multiple.
-		nativeSamples := n * 16000 / d.sampleRate
-		if nativeSamples > 0 && n*16000%d.sampleRate == 0 {
+		nativeSamples := n * 16000 / sampleRate
+		if nativeSamples > 0 && n*16000%sampleRate == 0 {
 			_ = d.generateDREDNeuralFrames16k(nil, nativeSamples)
 		}
 	}
-	d.applyOutputGain(pcm[:n*d.channels])
-	d.lastFrameSize = n
-	d.lastPacketDuration = n
+	d.applyOutputGain(pcm[:n*channels])
+	d.lastFrameSize = int32(n)
+	d.lastPacketDuration = int32(n)
 	d.lastDataLen = 0
 	return n, nil
 }
@@ -263,7 +268,7 @@ func (d *Decoder) decodeSILKNeuralPLCInto(pcm []float32, frameSizeSamples int, s
 	if d.channels < 1 || d.channels > 2 {
 		return 0, false, nil
 	}
-	needed := frameSizeSamples * d.channels
+	needed := frameSizeSamples * int(d.channels)
 	if frameSizeSamples <= 0 || len(pcm) < needed {
 		return 0, false, ErrBufferTooSmall
 	}

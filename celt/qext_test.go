@@ -485,7 +485,7 @@ func TestComputeQEXTExtraAllocationDecodeRoundTrip(t *testing.T) {
 
 			extraPulsesDec := make([]int32, MaxBands)
 			extraQuantDec := make([]int32, MaxBands)
-			computeQEXTExtraAllocationDecode(0, MaxBands, len(payload)*8<<bitRes, channels, 0, &dec, extraPulsesDec, extraQuantDec)
+			computeQEXTExtraAllocationDecodeWithMode(0, MaxBands, 0, len(payload)*8<<bitRes, channels, 0, &dec, extraPulsesDec, extraQuantDec, nil)
 
 			if got, want := extraQuantDec, extraQuantEnc[:MaxBands]; !intSliceEqual(got, want) {
 				t.Fatalf("decode extraQuant=%v want %v", got, want)

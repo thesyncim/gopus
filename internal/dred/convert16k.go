@@ -155,12 +155,6 @@ func dredFilterDF2TStep(xi float32, spec dred16kFilterSpec, mem *[ResamplingOrde
 	return yi
 }
 
-func dredFilterDF2T(in, out []float32, spec dred16kFilterSpec, mem *[ResamplingOrder + 1]float32) {
-	for i := range out {
-		out[i] = dredFilterDF2TStep(in[i], spec, mem)
-	}
-}
-
 func dredFloatToInt16(v float32) int16 {
 	return opusmath.Float32ToInt16(v)
 }

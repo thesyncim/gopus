@@ -401,45 +401,6 @@ func BenchmarkPVQSearch(b *testing.B) {
 
 // Helper functions
 
-func normalizeFloat64(v []float64) []float64 {
-	if len(v) == 0 {
-		return v
-	}
-	var energy float64
-	for _, x := range v {
-		energy += x * x
-	}
-	if energy < 1e-30 {
-		result := make([]float64, len(v))
-		if len(result) > 0 {
-			result[0] = 1.0
-		}
-		return result
-	}
-	scale := 1.0 / math.Sqrt(energy)
-	result := make([]float64, len(v))
-	for i, x := range v {
-		result[i] = x * scale
-	}
-	return result
-}
-
-func intToFloat64(v []int) []float64 {
-	result := make([]float64, len(v))
-	for i, x := range v {
-		result[i] = float64(x)
-	}
-	return result
-}
-
-func intToNormForTest(v []int) []celtNorm {
-	result := make([]celtNorm, len(v))
-	for i, x := range v {
-		result[i] = celtNorm(float32(x))
-	}
-	return result
-}
-
 func int32ToNormForTest(v []int32) []celtNorm {
 	result := make([]celtNorm, len(v))
 	for i, x := range v {
@@ -455,17 +416,6 @@ func dotProductNorm(a, b []celtNorm) float64 {
 	var sum float64
 	for i := range a {
 		sum += float64(a[i]) * float64(b[i])
-	}
-	return sum
-}
-
-func dotProduct(a, b []float64) float64 {
-	if len(a) != len(b) {
-		return 0
-	}
-	var sum float64
-	for i := range a {
-		sum += a[i] * b[i]
 	}
 	return sum
 }

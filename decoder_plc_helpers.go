@@ -13,16 +13,6 @@ type plcDecodeState struct {
 	useDecoderPLCState bool
 }
 
-func (d *Decoder) plcFrameSize() int {
-	if d.lastPacketDuration > 0 {
-		return int(d.lastPacketDuration)
-	}
-	if d.lastFrameSize > 0 {
-		return int(d.lastFrameSize)
-	}
-	return int(d.sampleRate) / 50
-}
-
 // plcOutputFrameSize returns the per-channel frame size requested for PLC/FEC
 // concealment, derived from the output buffer length (libopus frame_size arg).
 func (d *Decoder) plcOutputFrameSize(pcmSampleCount int) (int, error) {

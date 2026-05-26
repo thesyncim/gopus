@@ -7,8 +7,6 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
-type dredEncoderExtras struct{}
-
 type dredEmissionPlan struct {
 	bitrate int32
 }
@@ -17,23 +15,13 @@ func (e *Encoder) SetDNNBlob(blob *dnnblob.Blob) {
 	e.dnnBlob = blob
 }
 
-func (e *Encoder) dredModelsLoaded() bool {
-	return false
-}
-
 func (e *Encoder) dredEncodingActive() bool {
 	return false
 }
 
 func (e *Encoder) resetDREDControls() {}
 
-func (e *Encoder) clearDREDRuntime() {}
-
 func (e *Encoder) clearInactiveDREDHistory() {}
-
-func (e *Encoder) processDREDLatents(_ []opusRes, _ int) int {
-	return 0
-}
 
 func (e *Encoder) processDREDLatentsWithActivity(_ []opusRes, _ int, _ bool) int {
 	return 0
@@ -54,10 +42,6 @@ func (e *Encoder) computeDREDEmissionPlan(_ int) (dredEmissionPlan, bool) {
 }
 
 func (e *Encoder) hybridDREDPrimaryBudget(_ int, _ int, _ dredEmissionPlan) int {
-	return 0
-}
-
-func (e *Encoder) previewDREDPacketExtensionPadding(_ int) int {
 	return 0
 }
 

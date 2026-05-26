@@ -37,29 +37,3 @@ func osceLACECrossFade10ms(xEnhanced, xIn []float32, length int) {
 		xEnhanced[i] = w*xEnhanced[i] + (1.0-w)*xIn[i]
 	}
 }
-
-// osceLACECrossFade10msInt16 mirrors osceLACECrossFade10ms but operates on
-// int16 PCM buffers (the SILK native lowband). The libopus float-domain
-// cross-fade is performed in floating point and re-quantised; this helper
-// preserves that ordering so the result matches libopus to within one int16
-// quantisation step.
-//
-// `xEnhanced` is the postfilter output (the fade-in buffer); `xIn` is the
-// raw pre-enhancement input (the fade-out buffer). The first 160 samples
-// of `xEnhanced` are overwritten with the cross-faded mix. The trailing
-// samples are left untouched.
-func osceLACECrossFade10msInt16(xEnhanced, xIn []int16, length int) {
-	if length < 160 {
-		return
-	}
-	if len(xEnhanced) < 160 || len(xIn) < 160 {
-		return
-	}
-	for i := 0; i < 160; i++ {
-		w := osceWindow[i]
-		enh := float32(xEnhanced[i]) * (1.0 / 32768.0)
-		raw := float32(xIn[i]) * (1.0 / 32768.0)
-		mix := w*enh + (1.0-w)*raw
-		xEnhanced[i] = osceFloatToInt16(mix)
-	}
-}

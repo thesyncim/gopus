@@ -345,16 +345,6 @@ func toneLPCCorrLane4(x []float32, cnt, delay, delay2 int) (r00, r01, r02 float3
 	return
 }
 
-// toneDetect detects pure or nearly pure tones in the input signal.
-// Returns (toneFreq, toneishness) where:
-//   - toneFreq: angular frequency in radians/sample (-1 if no tone detected)
-//   - toneishness: how pure the tone is (0.0-1.0, higher = purer)
-//
-// Reference: libopus celt/celt_encoder.c tone_detect()
-func toneDetect(in []float32, channels int, sampleRate int) (float32, float32) {
-	return toneDetectScratch(in, channels, sampleRate, nil)
-}
-
 // toneDetectScratch is the scratch-aware version of toneDetect.
 func toneDetectScratch(in []float32, channels int, sampleRate int, xBuf []float32) (float32, float32) {
 	n := len(in) / channels

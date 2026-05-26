@@ -52,18 +52,3 @@ func parseOpusDemoEncodeBitstream(path string) ([][]byte, []uint32, error) {
 	}
 	return outPackets, outRanges, nil
 }
-
-func packetModeFromTOC(pkt []byte) string {
-	if len(pkt) == 0 {
-		return "empty"
-	}
-	cfg := int(pkt[0] >> 3)
-	switch {
-	case cfg <= 11:
-		return "silk"
-	case cfg <= 15:
-		return "hybrid"
-	default:
-		return "celt"
-	}
-}

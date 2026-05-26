@@ -415,10 +415,6 @@ func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, t
 	return out, nil
 }
 
-func (d *streamState) decodePLC(frameSize int) ([]float32, error) {
-	return d.decodePLCToFloat32(frameSize)
-}
-
 func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
 	d.recordDecodeCall(frameSize, 0)
 
@@ -500,34 +496,6 @@ func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float
 		out = append(out, frameDecoded...)
 	}
 	return d.finishDecode32(out, nil)
-}
-
-func collectQEXTPacketExtensions(data []byte, nbFrames, id int, payloads *[maxPacketExtensionFrames][]byte) {
-	if payloads == nil {
-		return
-	}
-	for i := 0; i < maxPacketExtensionFrames; i++ {
-		payloads[i] = nil
-	}
-	if len(data) == 0 || nbFrames <= 0 {
-		return
-	}
-
-	var iter packetExtensionIterator
-	initPacketExtensionIterator(&iter, data, nbFrames)
-	for {
-		var ext packetExtensionData
-		ok, err := iter.next(&ext)
-		if err != nil || !ok {
-			return
-		}
-		if ext.ID != id || ext.Frame < 0 || ext.Frame >= nbFrames {
-			continue
-		}
-		if payloads[ext.Frame] == nil {
-			payloads[ext.Frame] = ext.Data
-		}
-	}
 }
 
 // Decoder decodes Opus multistream packets containing multiple elementary streams.

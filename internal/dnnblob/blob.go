@@ -46,13 +46,6 @@ var (
 		plcRequiredRecordNames,
 		farganRequiredRecordNames,
 	)
-	requiredDecoderControlRecordNames = sortedRecordNames(
-		pitchDNNRequiredRecordNames,
-		plcRequiredRecordNames,
-		farganRequiredRecordNames,
-		osceLACERequiredRecordNames,
-		osceNoLACERequiredRecordNames,
-	)
 	requiredDecoderControlWithBWERecordNames = sortedRecordNames(
 		pitchDNNRequiredRecordNames,
 		plcRequiredRecordNames,

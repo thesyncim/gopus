@@ -170,24 +170,6 @@ func (c *FARGANConditioner) FillCondConv1State(dst []float32) int {
 	return n
 }
 
-func (c *FARGANConditioner) copyState(dst *FARGANConditionerState) {
-	if c == nil || dst == nil {
-		return
-	}
-	*dst = c.state
-}
-
-func (c *FARGANConditioner) setState(src *FARGANConditionerState) {
-	if c == nil {
-		return
-	}
-	if src == nil {
-		c.state = FARGANConditionerState{}
-		return
-	}
-	c.state = *src
-}
-
 // Compute mirrors libopus compute_fargan_cond() using the period derived from
 // the current feature vector.
 func (c *FARGANConditioner) Compute(out, features []float32) int {

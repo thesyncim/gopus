@@ -546,16 +546,3 @@ func streamOSCELACECrossFade10msFloat(xEnhanced, xIn []float32) {
 		xEnhanced[i] = w*xEnhanced[i] + (1.0-w)*xIn[i]
 	}
 }
-
-func streamOSCELACECrossFade10msInt16(xEnhanced, xIn []int16) {
-	if len(xEnhanced) < 160 || len(xIn) < 160 {
-		return
-	}
-	for i := 0; i < 160; i++ {
-		w := streamOSCEWindow[i]
-		enh := float32(xEnhanced[i]) * (1.0 / 32768.0)
-		raw := float32(xIn[i]) * (1.0 / 32768.0)
-		mix := w*enh + (1.0-w)*raw
-		xEnhanced[i] = streamOSCEFloatToInt16(mix)
-	}
-}

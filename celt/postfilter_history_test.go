@@ -29,18 +29,6 @@ func updateStereoHistoryLegacy(mem []celtSig, samples []float64, frameSize, hist
 	}
 }
 
-func requireFloat64BitsEqual(t *testing.T, got, want []float64) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("length mismatch: got %d want %d", len(got), len(want))
-	}
-	for i := range got {
-		if math.Float64bits(got[i]) != math.Float64bits(want[i]) {
-			t.Fatalf("mismatch at %d: got=0x%x want=0x%x", i, math.Float64bits(got[i]), math.Float64bits(want[i]))
-		}
-	}
-}
-
 func requireFloat32BitsEqual(t *testing.T, got, want []float32) {
 	t.Helper()
 	if len(got) != len(want) {

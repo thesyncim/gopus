@@ -216,12 +216,6 @@ func float32ToInt16(samples []float32) []int16 {
 	return output
 }
 
-// decodePLC generates concealment audio for a lost Hybrid packet.
-// Coordinates both SILK PLC and CELT PLC for the full hybrid output.
-func (d *Decoder) decodePLC(frameSize int, stereo bool) ([]float32, error) {
-	return d.decodePLCToFloat32(frameSize, stereo)
-}
-
 func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, error) {
 	frameSizeAPI := frameSize
 	frameSize48 := d.frameSize48FromAPI(frameSizeAPI)

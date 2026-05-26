@@ -41,30 +41,6 @@ func initPacketExtensionIterator(iter *packetExtensionIterator, data []byte, nbF
 	}
 }
 
-func (iter *packetExtensionIterator) reset() {
-	iter.currPos = 0
-	iter.repeatPos = 0
-	iter.lastLongPos = -1
-	iter.srcPos = 0
-	iter.currLen = len(iter.data)
-	iter.repeatLen = 0
-	iter.srcLen = 0
-	iter.trailingShortLen = 0
-	iter.currFrame = 0
-	iter.repeatFrame = 0
-	iter.repeatL = 0
-}
-
-func (iter *packetExtensionIterator) setFrameMax(frameMax int) {
-	if frameMax < 0 {
-		frameMax = 0
-	}
-	if frameMax > iter.nbFrames {
-		frameMax = iter.nbFrames
-	}
-	iter.frameMax = frameMax
-}
-
 func skipPacketExtensionPayload(data []byte, pos, length int, idByte int, trailingShortLen int) (newPos, newLen, headerSize int, err error) {
 	id := idByte >> 1
 	lFlag := idByte & 1
@@ -282,20 +258,6 @@ func findPacketExtension(data []byte, nbFrames, id int) (packetExtensionData, bo
 	}
 }
 
-func validatePacketExtensions(data []byte, nbFrames int) error {
-	var iter packetExtensionIterator
-	initPacketExtensionIterator(&iter, data, nbFrames)
-	for {
-		ok, err := iter.next(nil)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-	}
-}
-
 func countPacketExtensions(data []byte, nbFrames int) (int, error) {
 	var iter packetExtensionIterator
 	initPacketExtensionIterator(&iter, data, nbFrames)
@@ -390,37 +352,6 @@ func parsePacketExtensionsFrameOrder(data []byte, nbFrames int, frameCounts []in
 		}
 		extensions[idx] = ext
 		count++
-	}
-}
-
-func collectPacketExtensionPayloadsByFrame(data []byte, nbFrames, id int, payloads *[maxRepacketizerFrames][]byte) error {
-	if payloads == nil {
-		return nil
-	}
-	for i := 0; i < maxRepacketizerFrames; i++ {
-		payloads[i] = nil
-	}
-	if len(data) == 0 || nbFrames <= 0 {
-		return nil
-	}
-
-	var iter packetExtensionIterator
-	initPacketExtensionIterator(&iter, data, nbFrames)
-	for {
-		var ext packetExtensionData
-		ok, err := iter.next(&ext)
-		if err != nil {
-			return err
-		}
-		if !ok {
-			return nil
-		}
-		if ext.ID != id || ext.Frame < 0 || ext.Frame >= nbFrames {
-			continue
-		}
-		if payloads[ext.Frame] == nil {
-			payloads[ext.Frame] = ext.Data
-		}
 	}
 }
 

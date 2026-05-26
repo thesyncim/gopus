@@ -73,7 +73,7 @@ func TestDecoderOSCEBWERuntimeIntegration(t *testing.T) {
 			t.Fatalf("unexpected TOC: mode=%v bandwidth=%v", toc.Mode, toc.Bandwidth)
 		}
 
-		pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
+		pcm := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 		got, err := dec.Decode(packet, pcm)
 		if err != nil {
 			t.Fatalf("Decode(hybrid SWB packet): %v", err)
@@ -86,7 +86,7 @@ func TestDecoderOSCEBWERuntimeIntegration(t *testing.T) {
 		// hybrid upsampler output (Hybrid mode does not satisfy
 		// OSCE_MODE_SILK_BBWE in libopus).
 		var energy float64
-		for _, v := range pcm[:got*dec.channels] {
+		for _, v := range pcm[:got*dec.Channels()] {
 			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
 				t.Fatalf("decoded PCM contains NaN/Inf: %v", v)
 			}
@@ -112,7 +112,7 @@ func TestDecoderOSCEBWERuntimeIntegration(t *testing.T) {
 			t.Fatalf("unexpected TOC: mode=%v bandwidth=%v", toc.Mode, toc.Bandwidth)
 		}
 
-		pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
+		pcm := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 		got, err := dec.Decode(packet, pcm)
 		if err != nil {
 			t.Fatalf("Decode(silk WB packet): %v", err)
@@ -122,7 +122,7 @@ func TestDecoderOSCEBWERuntimeIntegration(t *testing.T) {
 		}
 
 		var energy float64
-		for _, v := range pcm[:got*dec.channels] {
+		for _, v := range pcm[:got*dec.Channels()] {
 			if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
 				t.Fatalf("decoded PCM contains NaN/Inf: %v", v)
 			}
@@ -154,7 +154,7 @@ func TestDecoderOSCEBWERuntimeIntegration(t *testing.T) {
 			t.Fatalf("expected stereo packet but TOC.Stereo=false")
 		}
 
-		pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
+		pcm := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 		got, err := dec.Decode(packet, pcm)
 		if err != nil {
 			t.Fatalf("Decode(stereo silk WB packet): %v", err)
@@ -227,7 +227,7 @@ func TestDecoderOSCEBWEComplexityGate(t *testing.T) {
 			if err := dec.SetDNNBlob(merged); err != nil {
 				t.Fatalf("SetDNNBlob(merged core+BWE): %v", err)
 			}
-			pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
+			pcm := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 			if got, err := dec.Decode(packet, pcm); err != nil {
 				t.Fatalf("Decode(silk WB): %v", err)
 			} else if got != frameSize {

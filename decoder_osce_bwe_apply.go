@@ -284,7 +284,7 @@ func (d *Decoder) osceBWEMarkInactiveIfModeIneligible(mode Mode, bandwidth Bandw
 		// the flag itself.
 		return
 	}
-	if d.osceBWE.prevBWEActive && len(out) >= frameSize*d.channels {
+	if d.osceBWE.prevBWEActive && len(out) >= frameSize*int(d.channels) {
 		d.applyOSCEBWEFadeOut(out, frameSize, packetStereoLocal)
 	}
 	d.osceBWE.prevBWEActive = false

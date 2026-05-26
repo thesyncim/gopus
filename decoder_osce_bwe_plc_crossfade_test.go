@@ -52,9 +52,9 @@ func TestDecoderOSCEBWECrossFadeTransition(t *testing.T) {
 	silkWB := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
 	hybridB := makeValidMonoHybridPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthSuperwideband)
 
-	pcmA := make([]float32, dec.maxPacketSamples*int(dec.channels))
-	pcmB := make([]float32, dec.maxPacketSamples*int(dec.channels))
-	pcmC := make([]float32, dec.maxPacketSamples*int(dec.channels))
+	pcmA := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
+	pcmB := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
+	pcmC := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 
 	// Step 1: Hybrid SWB -- BWE inactive. prevBWEActive must be false.
 	gotA, err := dec.Decode(hybridA, pcmA)
@@ -185,7 +185,7 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 
 	// Step 1: decode a SILK WB packet so the decoder retains valid
 	// lastPacketMode/lastBandwidth for the upcoming PLC.
-	pcmGood := make([]float32, dec.maxPacketSamples*int(dec.channels))
+	pcmGood := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 	gotGood, err := dec.Decode(silkWB, pcmGood)
 	if err != nil {
 		t.Fatalf("Decode(silk WB): %v", err)
@@ -201,7 +201,7 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 	// must invoke maybeApplyOSCEBWEPostSilk after the standard PLC
 	// upsampling so the concealed lowband is bandwidth-extended like a
 	// good SILK WB frame.
-	pcmPLC := make([]float32, frameSize*dec.channels)
+	pcmPLC := make([]float32, frameSize*dec.Channels())
 	gotPLC, err := dec.Decode(nil, pcmPLC)
 	if err != nil {
 		t.Fatalf("Decode(nil) PLC: %v", err)
@@ -216,7 +216,7 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 	// both pass this check; the assertion guards against the PLC path
 	// returning silence by accident.
 	var energy float64
-	for i := 0; i < gotPLC*dec.channels; i++ {
+	for i := 0; i < gotPLC*dec.Channels(); i++ {
 		v := pcmPLC[i]
 		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
 			t.Fatalf("PLC PCM contains NaN/Inf at sample %d: %v", i, v)
@@ -246,7 +246,7 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 		}
 
 		silkWB := makeValidStereoSILKPacketForFrameSizeBandwidthForOSCEBWETest(t, frameSize, BandwidthWideband)
-		pcmGood := make([]float32, dec.maxPacketSamples*int(dec.channels))
+		pcmGood := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 		gotGood, err := dec.Decode(silkWB, pcmGood)
 		if err != nil {
 			t.Fatalf("Decode(stereo silk WB): %v", err)
@@ -261,7 +261,7 @@ func TestDecoderOSCEBWEPLC(t *testing.T) {
 			t.Fatalf("prevBWEActive=false after stereo SILK WB decode")
 		}
 
-		pcmPLC := make([]float32, frameSize*dec.channels)
+		pcmPLC := make([]float32, frameSize*dec.Channels())
 		gotPLC, err := dec.Decode(nil, pcmPLC)
 		if err != nil {
 			t.Fatalf("Decode(nil) stereo PLC: %v", err)
@@ -350,7 +350,7 @@ func TestDecoderOSCEBWEDisableFadesOut(t *testing.T) {
 	if err := dec.SetOSCEBWE(true); err != nil {
 		t.Fatalf("active.SetOSCEBWE(true): %v", err)
 	}
-	pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
+	pcm := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 	if n, err := dec.Decode(packetA, pcm); err != nil {
 		t.Fatalf("active.Decode #1: %v", err)
 	} else if n != frameSize {

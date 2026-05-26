@@ -18,21 +18,6 @@ func combGain32(g float32, tapset, tap int) float32 {
 	return g * combFilterGains[tapset][tap]
 }
 
-func (d *Decoder) resetPostfilterState() {
-	d.postfilterPeriod = 0
-	d.postfilterGain = 0
-	d.postfilterTapset = 0
-	d.postfilterPeriodOld = 0
-	d.postfilterGainOld = 0
-	d.postfilterTapsetOld = 0
-
-	for i := range d.postfilterMem {
-		d.postfilterMem[i] = 0
-	}
-	d.postfilterMemFromPLC = false
-	d.postfilterMemPLCBacked = false
-}
-
 func (d *Decoder) clampDecodePostfilterPeriods() {
 	if d.postfilterPeriod < combFilterMinPeriod {
 		d.postfilterPeriod = combFilterMinPeriod
@@ -236,24 +221,6 @@ func (d *Decoder) updatePLCDecodeHistory(samples []float32, frameSize int, histo
 	}
 }
 
-func updatePlanarHistorySig(hist []celtSig, samples []float32, frameSize, history int) {
-	if frameSize >= history {
-		copyFloat32ToSig(hist, samples[frameSize-history:frameSize])
-		return
-	}
-	slidePlanarHistoryPrefixSig(hist, frameSize, history)
-	copyFloat32ToSig(hist[history-frameSize:], samples[:frameSize])
-}
-
-func updatePlanarHistorySigFromFloat32(hist []celtSig, samples []float32, frameSize, history int) {
-	if frameSize >= history {
-		copyFloat32ToSig(hist, samples[frameSize-history:frameSize])
-		return
-	}
-	slidePlanarHistoryPrefixSig(hist, frameSize, history)
-	copyFloat32ToSig(hist[history-frameSize:], samples[:frameSize])
-}
-
 func slidePlanarHistoryPrefixSig(hist []celtSig, frameSize, history int) {
 	keep := history - frameSize
 	if keep <= 0 {
@@ -287,38 +254,6 @@ func rotateSigLeftInPlace(x []celtSig, n int) {
 	reverseSigInPlace(x[:n])
 	reverseSigInPlace(x[n:])
 	reverseSigInPlace(x)
-}
-
-func updatePlanarHistoryRingSig(hist []celtSig, samples []float32, frameSize, history, start int) {
-	if frameSize >= history {
-		copyFloat32ToSig(hist, samples[frameSize-history:frameSize])
-		return
-	}
-	if start < 0 || start >= history {
-		start = 0
-	}
-	first := history - start
-	if first > frameSize {
-		first = frameSize
-	}
-	copyFloat32ToSig(hist[start:start+first], samples[:first])
-	copyFloat32ToSig(hist[:frameSize-first], samples[first:frameSize])
-}
-
-func updatePlanarHistoryRingSigFromFloat32(hist []celtSig, samples []float32, frameSize, history, start int) {
-	if frameSize >= history {
-		copyFloat32ToSig(hist, samples[frameSize-history:frameSize])
-		return
-	}
-	if start < 0 || start >= history {
-		start = 0
-	}
-	first := history - start
-	if first > frameSize {
-		first = frameSize
-	}
-	copyFloat32ToSig(hist[start:start+first], samples[:first])
-	copyFloat32ToSig(hist[:frameSize-first], samples[first:frameSize])
 }
 
 func updateInterleavedStereoHistoryRingSig(histL, histR []celtSig, samples []float32, frameSize, history, start int) {
@@ -536,19 +471,6 @@ func updatePlanarHistoryRingFromFloat32(hist []celtSig, samples []float32, frame
 	copyFloat32ToSig(hist[:frameSize-first], samples[first:frameSize])
 }
 
-func (d *Decoder) updatePostfilterHistoryStereoPlanarFromFloat32(left, right []float32, frameSize int, history int) {
-	if frameSize <= 0 || history <= 0 {
-		return
-	}
-	d.materializePostfilterHistoryFromPLC()
-	d.postfilterMemFromPLC = false
-	d.postfilterMemPLCBacked = false
-	histL := d.postfilterMem[:history]
-	histR := d.postfilterMem[history : 2*history]
-	updatePlanarHistoryFromFloat32(histL, left, frameSize, history)
-	updatePlanarHistoryFromFloat32(histR, right, frameSize, history)
-}
-
 func (d *Decoder) updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right []float32, frameSize int, history int) {
 	if frameSize <= 0 || history <= 0 {
 		return
@@ -588,16 +510,6 @@ func (d *Decoder) updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right []fl
 	}
 	d.plcDecodeMemRingStart = start
 	d.plcDecodeMemRingActive = start != 0
-}
-
-func (d *Decoder) updatePostfilterHistoryMonoFromFloat32(samples []float32, frameSize int, history int) {
-	if frameSize <= 0 || history <= 0 {
-		return
-	}
-	d.materializePostfilterHistoryFromPLC()
-	d.postfilterMemFromPLC = false
-	d.postfilterMemPLCBacked = false
-	updateMonoHistoryFromFloat32(d.postfilterMem[:history], samples, frameSize, history)
 }
 
 func (d *Decoder) updatePLCDecodeHistoryMonoFromFloat32(samples []float32, frameSize int, history int) {

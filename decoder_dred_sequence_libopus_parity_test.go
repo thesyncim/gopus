@@ -355,7 +355,7 @@ func assertDecoderCachedDREDDecodeInt16LossesMatchLiveSequenceOracle(t *testing.
 		t.Fatalf("%s libopus cached int16 ret=(%d,%d) want (%d,%d)", label, want.step0.ret, want.step1.ret, n, n)
 	}
 
-	pcm0 := make([]int16, n*dec.channels)
+	pcm0 := make([]int16, n*dec.Channels())
 	got0, err := dec.DecodeInt16(nil, pcm0)
 	if err != nil {
 		t.Fatalf("%s DecodeInt16(nil, first) error: %v", label, err)
@@ -363,9 +363,9 @@ func assertDecoderCachedDREDDecodeInt16LossesMatchLiveSequenceOracle(t *testing.
 	if got0 != n {
 		t.Fatalf("%s DecodeInt16(nil, first)=%d want %d", label, got0, n)
 	}
-	assertInt16WithinLSB(t, pcm0[:got0*dec.channels], want.step0.pcm16[:got0*dec.channels], maxDiff, label+" cached first-loss int16")
+	assertInt16WithinLSB(t, pcm0[:got0*dec.Channels()], want.step0.pcm16[:got0*dec.Channels()], maxDiff, label+" cached first-loss int16")
 
-	pcm1 := make([]int16, n*dec.channels)
+	pcm1 := make([]int16, n*dec.Channels())
 	got1, err := dec.DecodeInt16(nil, pcm1)
 	if err != nil {
 		t.Fatalf("%s DecodeInt16(nil, second) error: %v", label, err)
@@ -373,7 +373,7 @@ func assertDecoderCachedDREDDecodeInt16LossesMatchLiveSequenceOracle(t *testing.
 	if got1 != n {
 		t.Fatalf("%s DecodeInt16(nil, second)=%d want %d", label, got1, n)
 	}
-	assertInt16WithinLSB(t, pcm1[:got1*dec.channels], want.step1.pcm16[:got1*dec.channels], maxDiff, label+" cached second-loss int16")
+	assertInt16WithinLSB(t, pcm1[:got1*dec.Channels()], want.step1.pcm16[:got1*dec.Channels()], maxDiff, label+" cached second-loss int16")
 }
 
 func assertInt16WithinLSB(t *testing.T, got, want []int16, maxDiff int, label string) {
@@ -473,7 +473,7 @@ func TestDecoderSILKDecodeInt16NilWithCachedDREDRequestedPLCDurationMatchesLiveL
 						t.Fatalf("libopus cached SILK int16 requested ret=(%d,%d) want (%d,%d)", want.step0.ret, want.step1.ret, requested, requested)
 					}
 
-					pcm0 := make([]int16, requested*dec.channels)
+					pcm0 := make([]int16, requested*dec.Channels())
 					got0, err := dec.DecodeInt16(nil, pcm0)
 					if err != nil {
 						t.Fatalf("DecodeInt16(nil, requested first) error: %v", err)
@@ -481,9 +481,9 @@ func TestDecoderSILKDecodeInt16NilWithCachedDREDRequestedPLCDurationMatchesLiveL
 					if got0 != requested {
 						t.Fatalf("DecodeInt16(nil, requested first)=%d want %d", got0, requested)
 					}
-					assertInt16WithinLSB(t, pcm0[:got0*dec.channels], want.step0.pcm16[:got0*dec.channels], 2, "cached SILK int16 requested first-loss")
+					assertInt16WithinLSB(t, pcm0[:got0*dec.Channels()], want.step0.pcm16[:got0*dec.Channels()], 2, "cached SILK int16 requested first-loss")
 
-					pcm1 := make([]int16, requested*dec.channels)
+					pcm1 := make([]int16, requested*dec.Channels())
 					got1, err := dec.DecodeInt16(nil, pcm1)
 					if err != nil {
 						t.Fatalf("DecodeInt16(nil, requested second) error: %v", err)
@@ -491,7 +491,7 @@ func TestDecoderSILKDecodeInt16NilWithCachedDREDRequestedPLCDurationMatchesLiveL
 					if got1 != requested {
 						t.Fatalf("DecodeInt16(nil, requested second)=%d want %d", got1, requested)
 					}
-					assertInt16WithinLSB(t, pcm1[:got1*dec.channels], want.step1.pcm16[:got1*dec.channels], 2, "cached SILK int16 requested second-loss")
+					assertInt16WithinLSB(t, pcm1[:got1*dec.Channels()], want.step1.pcm16[:got1*dec.Channels()], 2, "cached SILK int16 requested second-loss")
 				})
 			}
 		}

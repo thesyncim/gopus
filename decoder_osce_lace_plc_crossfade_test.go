@@ -75,10 +75,10 @@ func TestDecoderOSCELACECrossFadeTransition(t *testing.T) {
 	silkWBB := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
 	silkWBC := makeValidMonoSILKPacketForFrameSizeBandwidthForDREDTest(t, frameSize, BandwidthWideband)
 
-	pcmA := make([]float32, dec.maxPacketSamples*int(dec.channels))
-	pcmB := make([]float32, dec.maxPacketSamples*int(dec.channels))
-	pcmC := make([]float32, dec.maxPacketSamples*int(dec.channels))
-	pcmD := make([]float32, dec.maxPacketSamples*int(dec.channels))
+	pcmA := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
+	pcmB := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
+	pcmC := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
+	pcmD := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 
 	// Step 1: SILK WB -- LACE active. prevLACEActive must transition to
 	// true. libopus keeps this first eligible frame raw after reset and
@@ -222,7 +222,7 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 
 	// Step 1: decode a SILK WB packet so the decoder retains valid
 	// lastPacketMode/lastBandwidth for the upcoming PLC.
-	pcmGood := make([]float32, dec.maxPacketSamples*int(dec.channels))
+	pcmGood := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 	gotGood, err := dec.Decode(silkWB, pcmGood)
 	if err != nil {
 		t.Fatalf("Decode(silk WB): %v", err)
@@ -237,7 +237,7 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 	// Step 2: invoke Decode(nil) for PLC. With LACE armed, the PLC path
 	// must reset the postfilter state instead of enhancing the concealed
 	// frame, matching libopus silk_decode_frame lost-branch behavior.
-	pcmPLC := make([]float32, frameSize*dec.channels)
+	pcmPLC := make([]float32, frameSize*dec.Channels())
 	gotPLC, err := dec.Decode(nil, pcmPLC)
 	if err != nil {
 		t.Fatalf("Decode(nil) PLC: %v", err)
@@ -255,7 +255,7 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 	// check guards against an accidental regression where the PLC path zeroes
 	// out the buffer or otherwise yields silence.
 	var energy float64
-	for i := 0; i < gotPLC*dec.channels; i++ {
+	for i := 0; i < gotPLC*dec.Channels(); i++ {
 		v := pcmPLC[i]
 		if math.IsNaN(float64(v)) || math.IsInf(float64(v), 0) {
 			t.Fatalf("PLC PCM contains NaN/Inf at sample %d: %v", i, v)
@@ -285,7 +285,7 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 		}
 
 		silkWB := makeValidStereoSILKPacketForFrameSizeBandwidthForOSCEBWETest(t, frameSize, BandwidthWideband)
-		pcmGood := make([]float32, dec.maxPacketSamples*int(dec.channels))
+		pcmGood := make([]float32, dec.maxPacketSamples*int(dec.Channels()))
 		gotGood, err := dec.Decode(silkWB, pcmGood)
 		if err != nil {
 			t.Fatalf("Decode(stereo silk WB): %v", err)
@@ -300,7 +300,7 @@ func TestDecoderOSCELACEPLC(t *testing.T) {
 			t.Fatalf("prevLACEActive=false after stereo SILK WB decode")
 		}
 
-		pcmPLC := make([]float32, frameSize*dec.channels)
+		pcmPLC := make([]float32, frameSize*dec.Channels())
 		gotPLC, err := dec.Decode(nil, pcmPLC)
 		if err != nil {
 			t.Fatalf("Decode(nil) stereo PLC: %v", err)

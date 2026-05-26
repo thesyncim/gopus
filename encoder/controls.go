@@ -78,12 +78,6 @@ func clampAllocatedBitrate(bitrate, channels int) int {
 	return clampBitrateForChannels(bitrate, channels)
 }
 
-// frameDurationMs returns frame duration in milliseconds.
-func frameDurationMs(frameSize int) int {
-	// At 48kHz: 480 samples = 10ms, 960 = 20ms, etc.
-	return frameSize * 1000 / 48000
-}
-
 // targetBytesForBitrate computes target packet size in bytes.
 func targetBytesForBitrate(bitrate, frameSize int) int {
 	const sampleRate = 48000

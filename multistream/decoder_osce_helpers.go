@@ -133,24 +133,6 @@ func (d *streamState) bindOSCEModels(blob *dnnblob.Blob) error {
 	return nil
 }
 
-// osceLACERuntimeLoaded reports whether the LACE model + slot-0 runtime
-// are bound. Mirrors `osceLACEModelLoadedRuntime` in package gopus.
-func (d *streamState) osceLACERuntimeLoaded() bool {
-	if d == nil || d.osceState == nil {
-		return false
-	}
-	return d.osceState.laceModel != nil && d.osceState.laceModel.Loaded()
-}
-
-// osceBWERuntimeLoaded reports whether the BWE model + slot-0 runtime
-// are bound. Mirrors `osceBWEModelLoadedRuntime` in package gopus.
-func (d *streamState) osceBWERuntimeLoaded() bool {
-	if d == nil || d.osceState == nil {
-		return false
-	}
-	return d.osceState.bweModel != nil && d.osceState.bweRuntime[0].Loaded()
-}
-
 func (d *streamState) resetOSCEPostfilterState() {
 	if d == nil || d.osceState == nil {
 		return
