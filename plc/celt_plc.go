@@ -249,39 +249,6 @@ func ConcealCELT(dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fad
 	return samples
 }
 
-// ConcealCELTInto generates concealment audio into a pre-allocated buffer.
-// This is the zero-allocation version of ConcealCELT.
-//
-// Parameters:
-//   - dst: destination buffer (must be at least frameSize*channels)
-//   - dec: CELT decoder state from last good frame
-//   - synth: CELT synthesizer for IMDCT
-//   - frameSize: samples to generate at 48kHz (120, 240, 480, or 960)
-//   - fadeFactor: gain multiplier (0.0 to 1.0)
-func ConcealCELTInto(dst []float32, dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float32) {
-	ConcealCELTRawInto(dst, dec, synth, frameSize, fadeFactor)
-	if dec == nil {
-		return
-	}
-	channels := dec.Channels()
-	outLen := frameSize * channels
-	if outLen > len(dst) {
-		outLen = len(dst)
-	}
-	if outLen <= 0 {
-		return
-	}
-	// Apply de-emphasis to maintain filter state continuity.
-	applyDeemphasisPLCToDecoderFloat32(dst[:outLen], dec, channels)
-}
-
-// ConcealCELTRawInto generates concealment audio into a pre-allocated buffer
-// without applying de-emphasis. Decoder-owned paths can use this to apply
-// postfilter/de-emphasis in libopus order.
-func ConcealCELTRawInto(dst []float32, dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float32) {
-	writeCELTConcealment(dst, dec, synth, frameSize, fadeFactor, celtConcealmentConfig{})
-}
-
 // generateNoiseBands creates noise-filled MDCT coefficients scaled by band energies.
 // Each band gets random noise normalized and scaled to the target energy level.
 func generateNoiseBands(energies []float32, nbBands, frameSize int, rng *uint32, fadeFactor float32, bandInfo *CELTBandInfo) []float32 {
@@ -436,40 +403,6 @@ func ConcealCELTHybrid(dec CELTDecoderState, synth CELTSynthesizer, frameSize in
 // postfilter/de-emphasis in libopus order.
 func ConcealCELTHybridRawInto(dst []float32, dec CELTDecoderState, synth CELTSynthesizer, frameSize int, fadeFactor float32) {
 	writeCELTConcealment(dst, dec, synth, frameSize, fadeFactor, celtConcealmentConfig{hybrid: true})
-}
-
-// ConcealCELTHybridRawIntoWithDBDecay is a hybrid raw concealment variant
-// where per-band energy decay is applied in log-energy (dB-like) units.
-func ConcealCELTHybridRawIntoWithDBDecay(
-	dst []float32,
-	dec CELTDecoderState,
-	synth CELTSynthesizer,
-	frameSize int,
-	fadeFactor float32,
-	decayDB float32,
-) {
-	writeCELTConcealment(dst, dec, synth, frameSize, fadeFactor, celtConcealmentConfig{
-		hybrid:     true,
-		energyMode: celtConcealmentEnergyDBDecay,
-		decayDB:    decayDB,
-	})
-}
-
-// ConcealCELTHybridRawIntoFromEnergies generates hybrid raw concealment using
-// caller-supplied per-band log energies.
-func ConcealCELTHybridRawIntoFromEnergies(
-	dst []float32,
-	dec CELTDecoderState,
-	synth CELTSynthesizer,
-	frameSize int,
-	fadeFactor float32,
-	energies []float32,
-) {
-	writeCELTConcealment(dst, dec, synth, frameSize, fadeFactor, celtConcealmentConfig{
-		hybrid:     true,
-		energyMode: celtConcealmentEnergyProvided,
-		energies:   energies,
-	})
 }
 
 func minInt(a, b int) int {

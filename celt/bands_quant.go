@@ -1898,7 +1898,8 @@ const celtUseSSEFloatMath = runtime.GOOS == "windows" && runtime.GOARCH == "amd6
 
 func celtFloatMulAdd(a, b, c float32) float32 {
 	if celtUseFusedFloatMath {
-		// libopus arm64 maps celt_inner_prod() to NEON vmlaq/vfmaq lanes.
+		// libopus arm/pitch_neon_intr.c:celt_inner_prod_neon forces
+		// vfmaq_f32 for NEON lanes; this is the scalar lane equivalent.
 		return mdctFMA32(a, b, c)
 	}
 	return a*b + c
@@ -1999,6 +2000,26 @@ func celtInnerProdNeonStyleNorm(x, y []celtNorm) float32 {
 	sum1 := math.Float32frombits(math.Float32bits(acc[1] + acc[3]))
 	sum := math.Float32frombits(math.Float32bits(sum0 + sum1))
 	for ; i < len(x); i++ {
+		sum = celtFloatMulAdd(float32(x[i]), float32(y[i]), sum)
+	}
+	return sum
+}
+
+func celtInnerProdLibopusOrder(x, y []celtNorm) float32 {
+	n := len(x)
+	if len(y) < n {
+		n = len(y)
+	}
+	x = x[:n:n]
+	y = y[:n:n]
+	if celtUseFusedFloatMath {
+		return celtInnerProdNeonStyle(x, y)
+	}
+	if celtUseSSEFloatMath {
+		return celtInnerProdSSEStyle(x, y)
+	}
+	var sum float32
+	for i := range x {
 		sum = celtFloatMulAdd(float32(x[i]), float32(y[i]), sum)
 	}
 	return sum
@@ -2128,23 +2149,7 @@ func computeChannelWeights(ex, ey celtEner) (w0, w1 float32) {
 }
 
 func innerProductNorm(x, y []celtNorm) float32 {
-	n := len(x)
-	if len(y) < n {
-		n = len(y)
-	}
-	var s0, s1, s2, s3 float32
-	i := 0
-	for ; i+3 < n; i += 4 {
-		s0 = celtFloatMulAdd(float32(x[i]), float32(y[i]), s0)
-		s1 = celtFloatMulAdd(float32(x[i+1]), float32(y[i+1]), s1)
-		s2 = celtFloatMulAdd(float32(x[i+2]), float32(y[i+2]), s2)
-		s3 = celtFloatMulAdd(float32(x[i+3]), float32(y[i+3]), s3)
-	}
-	sum := noFMA32Add(noFMA32Add(s0, s2), noFMA32Add(s1, s3))
-	for ; i < n; i++ {
-		sum = celtFloatMulAdd(float32(x[i]), float32(y[i]), sum)
-	}
-	return sum
+	return celtInnerProdLibopusOrder(x, y)
 }
 
 func thetaRDODistortion(w0, w1 float32, xSave, xBand, ySave, yBand []celtNorm) float32 {

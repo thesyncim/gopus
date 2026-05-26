@@ -9,21 +9,8 @@ var ErrInvalidPacket = errors.New("silk: invalid packet")
 // pcm: Input samples at encoder's configured sample rate
 // vadFlag: True if frame contains voice activity
 // Returns: Encoded SILK frame bytes
-//
-// Note: This function allocates a new encoder per call.
-// For zero-allocation encoding, use EncodeWithEncoder.
 func Encode(pcm []float32, bandwidth Bandwidth, vadFlag bool) ([]byte, error) {
 	enc := NewEncoder(bandwidth)
-	return enc.EncodeFrame(pcm, nil, vadFlag), nil
-}
-
-// EncodeWithEncoder encodes mono PCM audio using a pre-existing encoder.
-// This is the zero-allocation version of Encode.
-// enc: Pre-allocated encoder (use silk.NewEncoder to create)
-// pcm: Input samples at encoder's configured sample rate
-// vadFlag: True if frame contains voice activity
-// Returns: Encoded SILK frame bytes
-func EncodeWithEncoder(enc *Encoder, pcm []float32, bandwidth Bandwidth, vadFlag bool) ([]byte, error) {
 	return enc.EncodeFrame(pcm, nil, vadFlag), nil
 }
 
@@ -552,9 +539,4 @@ func NewEncoderState(bandwidth Bandwidth) *EncoderState {
 // EncodeFrame encodes a frame maintaining state across calls.
 func (es *EncoderState) EncodeFrame(pcm []float32, vadFlag bool) ([]byte, error) {
 	return es.enc.EncodeFrame(pcm, nil, vadFlag), nil
-}
-
-// Reset resets encoder state for a new stream.
-func (es *EncoderState) Reset() {
-	es.enc.Reset()
 }

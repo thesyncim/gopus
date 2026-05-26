@@ -84,22 +84,3 @@ func probeLibopusSILKGain(mode uint32, records [][]int32) ([]libopusSILKGainReco
 	}
 	return out, nil
 }
-
-func LibopusGainsQuantOracle(nbSubfr int, prev int8, conditional bool, gainsQ16 []int32) (indices [maxNbSubfr]int8, prevOut int8, err error) {
-	if nbSubfr <= 0 || nbSubfr > maxNbSubfr {
-		return indices, prevOut, fmt.Errorf("nbSubfr=%d out of range", nbSubfr)
-	}
-	record := []int32{int32(nbSubfr), int32(prev), LibopusGainBoolWord(conditional)}
-	for i := 0; i < maxNbSubfr; i++ {
-		var g int32
-		if i < len(gainsQ16) {
-			g = gainsQ16[i]
-		}
-		record = append(record, g)
-	}
-	want, err := probeLibopusSILKGain(libopusSILKGainModeQuant, [][]int32{record})
-	if err != nil {
-		return indices, prevOut, err
-	}
-	return want[0].ind, int8(want[0].first), nil
-}

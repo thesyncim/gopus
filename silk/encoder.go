@@ -339,16 +339,6 @@ func ensureByteSlice(buf *[]byte, n int) []byte {
 	return *buf
 }
 
-// ensureUint64Slice ensures the slice has at least n elements.
-func ensureUint64Slice(buf *[]uint64, n int) []uint64 {
-	if cap(*buf) < n {
-		*buf = make([]uint64, n)
-	} else {
-		*buf = (*buf)[:n]
-	}
-	return *buf
-}
-
 // NewEncoder creates a new SILK encoder with proper initial state.
 func NewEncoder(bandwidth Bandwidth) *Encoder {
 	config := GetBandwidthConfig(bandwidth)

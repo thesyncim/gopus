@@ -62,9 +62,3 @@ func stereoUnmix(mid, side []float32, w0, w1 int16, left, right []float32) error
 	}
 	return nil
 }
-
-// StereoUnmixInt32 is the same as stereoUnmix but accepts int32 weights.
-// This is used when decoding with the new 80-level quantization.
-func StereoUnmixInt32(mid, side []float32, w0, w1 int32, left, right []float32) error {
-	return stereoUnmix(mid, side, int16(w0), int16(w1), left, right)
-}

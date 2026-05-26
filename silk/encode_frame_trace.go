@@ -34,8 +34,6 @@ type encodeFrameTrace struct {
 	predGainBits       int32
 	pitchAutoCorr0Bits int32
 	pitchResNrgBits    int32
-	inputQualityBits   int32
-	codingQualityBits  int32
 	gainsPreQ16        [maxNbSubfr]int32
 	resNrgBits         [maxNbSubfr]int32
 	gainsUnqQ16        [maxNbSubfr]int32

@@ -75,6 +75,7 @@ Status as of 2026-05-25:
 
 - Do not edit quality thresholds, payload mismatch baselines, fixture bytes, or type allowlists to make this pass.
 - Do not switch back to type-parity cleanup unless the byte probe proves a width/order mismatch is the root cause.
+- Match the libopus architecture helper, not just the typedef. If libopus routes a focused path through NEON/SSE/etc., preserve that helper's lane update, reduction, and scalar-tail behavior in Go before claiming byte parity.
 - Prefer C-backed probes over guessing. The relevant libopus functions are `celt/bands.c:quant_all_bands()`, `quant_band_stereo()`, `compute_theta()`, and `celt/vq.c:op_pvq_search_c()`.
 - For a fix commit, include the focused fixture output before and after. A useful commit should reduce payload mismatch counts or make a first mismatch frame byte-clean.
 

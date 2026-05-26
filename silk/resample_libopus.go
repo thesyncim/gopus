@@ -139,23 +139,6 @@ var (
 	silkResamplerUp2HQ1 = [3]int16{6854, 25769, 55542 - 65536}
 )
 
-// FIR interpolation coefficients (12 phases, 4 coefficients each - symmetric)
-// Table with interpolation fractions of 1/24, 3/24, 5/24, ..., 23/24
-var silkResamplerFracFIR12 = [12][4]int16{
-	{189, -600, 617, 30567},
-	{117, -159, -1070, 29704},
-	{52, 221, -2392, 28276},
-	{-4, 529, -3350, 26341},
-	{-48, 758, -3956, 23973},
-	{-80, 905, -4235, 21254},
-	{-99, 972, -4222, 18278},
-	{-107, 967, -3957, 15143},
-	{-103, 896, -3487, 11950},
-	{-91, 773, -2865, 8798},
-	{-71, 611, -2143, 5784},
-	{-46, 425, -1375, 2996},
-}
-
 var silkResamplerFracFIR12Flat = [48]int16{
 	189, -600, 617, 30567,
 	117, -159, -1070, 29704,
@@ -951,21 +934,6 @@ func smulwb(a, b int32) int32 {
 // smulww: (a * b) >> 16
 func smulww(a, b int32) int32 {
 	return silkSMULWW(a, b)
-}
-
-// smulbb: a[15:0] * b[15:0], both treated as signed 16-bit
-func smulbb(a, b int32) int32 {
-	return silkSMULBB(a, b)
-}
-
-// smlabb: a + smulbb(b, c)
-func smlabb(a, b, c int32) int32 {
-	return silkSMLABB(a, b, c)
-}
-
-// smlawb: a + smulwb(b, c)
-func smlawb(a, b, c int32) int32 {
-	return silkSMLAWB(a, b, c)
 }
 
 // sat16: saturate to 16-bit range.

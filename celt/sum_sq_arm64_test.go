@@ -48,6 +48,25 @@ func TestComputeBandRMSUsesArm64LibopusInnerProdOrder(t *testing.T) {
 	}
 }
 
+func TestInnerProductNormUsesArm64LibopusInnerProdOrder(t *testing.T) {
+	src := arm64SumOrderFixture()
+	x := make([]celtNorm, len(src))
+	for i, v := range src {
+		x[i] = celtNorm(float32(v))
+	}
+
+	got := innerProductNorm(x, x)
+	want := float32(sumOfSquaresF64toF32(src, len(src)))
+	if got != want {
+		t.Fatalf("innerProductNorm=%v, want %v from arm64 libopus inner-product order", got, want)
+	}
+
+	seq := sequentialSumOfSquaresF64toF32ForTest(src)
+	if got == seq {
+		t.Fatalf("innerProductNorm unexpectedly collapsed to sequential accumulation: %v", got)
+	}
+}
+
 func arm64SumOrderFixture() []float64 {
 	x := make([]float64, 21)
 	z := uint32(3)
