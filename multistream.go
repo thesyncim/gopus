@@ -40,9 +40,9 @@ func multistreamMappingLengthError(channels, got int) error {
 // Reference: RFC 6716 Appendix B, RFC 7845 Section 5.1.1
 type MultistreamEncoder struct {
 	enc                 *multistream.Encoder
-	sampleRate          int
-	channels            int
-	frameSize           int
+	sampleRate          int32
+	channels            int32
+	frameSize           int32
 	expertFrameDuration ExpertFrameDuration
 	application         Application
 	encodedOnce         bool
@@ -109,8 +109,8 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 
 	mse := &MultistreamEncoder{
 		enc:                 enc,
-		sampleRate:          sampleRate,
-		channels:            channels,
+		sampleRate:          int32(sampleRate),
+		channels:            int32(channels),
 		frameSize:           960, // Default 20ms at 48kHz
 		expertFrameDuration: ExpertFrameDurationArg,
 		application:         application,
@@ -160,8 +160,8 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 
 	mse := &MultistreamEncoder{
 		enc:                 enc,
-		sampleRate:          sampleRate,
-		channels:            channels,
+		sampleRate:          int32(sampleRate),
+		channels:            int32(channels),
 		frameSize:           960, // Default 20ms at 48kHz
 		expertFrameDuration: ExpertFrameDurationArg,
 		application:         application,
@@ -187,9 +187,9 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 // Reference: RFC 6716 Appendix B, RFC 7845 Section 5.1.1
 type MultistreamDecoder struct {
 	dec              *multistream.Decoder
-	sampleRate       int
-	channels         int
-	lastFrameSize    int
+	sampleRate       int32
+	channels         int32
+	lastFrameSize    int32
 	ignoreExtensions bool
 	dnnBlob          *dnnblob.Blob
 	softClipMem      []float32
@@ -239,9 +239,9 @@ func NewMultistreamDecoder(sampleRate, channels, streams, coupledStreams int, ma
 
 	return &MultistreamDecoder{
 		dec:           dec,
-		sampleRate:    sampleRate,
-		channels:      channels,
-		lastFrameSize: sampleRate / 50,
+		sampleRate:    int32(sampleRate),
+		channels:      int32(channels),
+		lastFrameSize: int32(sampleRate / 50),
 		softClipMem:   make([]float32, channels),
 	}, nil
 }
@@ -278,9 +278,9 @@ func NewMultistreamDecoderDefault(sampleRate, channels int) (*MultistreamDecoder
 
 	return &MultistreamDecoder{
 		dec:           dec,
-		sampleRate:    sampleRate,
-		channels:      channels,
-		lastFrameSize: sampleRate / 50,
+		sampleRate:    int32(sampleRate),
+		channels:      int32(channels),
+		lastFrameSize: int32(sampleRate / 50),
 		softClipMem:   make([]float32, channels),
 	}, nil
 }

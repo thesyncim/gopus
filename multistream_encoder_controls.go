@@ -9,13 +9,13 @@ func (e *MultistreamEncoder) SetFrameSize(samples int) error {
 	if err := validateFrameSize(samples, e.application); err != nil {
 		return err
 	}
-	e.frameSize = samples
+	e.frameSize = int32(samples)
 	return nil
 }
 
 // FrameSize returns the current frame size in samples at 48kHz.
 func (e *MultistreamEncoder) FrameSize() int {
-	return e.frameSize
+	return int(e.frameSize)
 }
 
 // SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE encoder model blob.
@@ -258,12 +258,12 @@ func (e *MultistreamEncoder) Reset() {
 
 // Channels returns the number of audio channels.
 func (e *MultistreamEncoder) Channels() int {
-	return e.channels
+	return int(e.channels)
 }
 
 // SampleRate returns the sample rate in Hz.
 func (e *MultistreamEncoder) SampleRate() int {
-	return e.sampleRate
+	return int(e.sampleRate)
 }
 
 // Streams returns the total number of elementary streams.
@@ -296,7 +296,7 @@ func (e *MultistreamEncoder) FinalRange() uint32 {
 //   - Delay compensation Fs/250 is included for VoIP/Audio
 //   - Delay compensation is omitted for LowDelay
 func (e *MultistreamEncoder) Lookahead() int {
-	return lookaheadSamples(e.sampleRate, e.application)
+	return lookaheadSamples(int(e.sampleRate), e.application)
 }
 
 // Signal returns the current signal type hint.

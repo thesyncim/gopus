@@ -11,18 +11,20 @@ package gopus
 //
 // Buffer sizing: 4000 bytes is sufficient for any Opus packet.
 func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
-	expected := e.frameSize * e.channels
+	frameSizeArg := int(e.frameSize)
+	channels := int(e.channels)
+	expected := frameSizeArg * channels
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
 	if len(data) == 0 {
 		return 0, ErrBufferTooSmall
 	}
-	frameSize, err := selectExpertFrameSize(e.frameSize, e.expertFrameDuration, e.application)
+	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application)
 	if err != nil {
 		return 0, err
 	}
-	inputSamples := frameSize * e.channels
+	inputSamples := frameSize * channels
 
 	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(pcm[:inputSamples], frameSize, pcm, len(data))
 	if err != nil {
@@ -42,7 +44,7 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 //
 // The samples are converted from int16 by dividing by 32768.
 func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
-	expected := e.frameSize * e.channels
+	expected := int(e.frameSize) * int(e.channels)
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
@@ -66,18 +68,20 @@ func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
 // containers with numeric range [-8388608, 8388607]. Left-shifted 24-in-32
 // input will be mis-scaled.
 func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
-	expected := e.frameSize * e.channels
+	frameSizeArg := int(e.frameSize)
+	channels := int(e.channels)
+	expected := frameSizeArg * channels
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
 	if len(data) == 0 {
 		return 0, ErrBufferTooSmall
 	}
-	frameSize, err := selectExpertFrameSize(e.frameSize, e.expertFrameDuration, e.application)
+	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application)
 	if err != nil {
 		return 0, err
 	}
-	inputSamples := frameSize * e.channels
+	inputSamples := frameSize * channels
 
 	pcm32 := e.scratchPCM32[:len(pcm)]
 	for i, v := range pcm {

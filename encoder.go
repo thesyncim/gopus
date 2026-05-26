@@ -110,9 +110,9 @@ type EncoderConfig struct {
 // when called with properly sized caller-provided buffers.
 type Encoder struct {
 	enc                 *encoder.Encoder
-	sampleRate          int
-	channels            int
-	frameSize           int
+	sampleRate          int32
+	channels            int32
+	frameSize           int32
 	expertFrameDuration ExpertFrameDuration
 	application         Application
 	encodedOnce         bool
@@ -142,8 +142,8 @@ func NewEncoder(cfg EncoderConfig) (*Encoder, error) {
 
 	enc := &Encoder{
 		enc:                 encoder.NewEncoder(cfg.SampleRate, cfg.Channels),
-		sampleRate:          cfg.SampleRate,
-		channels:            cfg.Channels,
+		sampleRate:          int32(cfg.SampleRate),
+		channels:            int32(cfg.Channels),
 		frameSize:           960, // Default 20ms at 48kHz
 		expertFrameDuration: ExpertFrameDurationArg,
 		application:         cfg.Application,

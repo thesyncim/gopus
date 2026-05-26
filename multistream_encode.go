@@ -8,15 +8,17 @@ package gopus
 // Returns the number of bytes written to data, or an error.
 // Returns 0 bytes written if DTX suppresses all frames (silence detected in all streams).
 func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
-	expected := e.frameSize * e.channels
+	frameSizeArg := int(e.frameSize)
+	channels := int(e.channels)
+	expected := frameSizeArg * channels
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
-	frameSize, err := selectExpertFrameSize(e.frameSize, e.expertFrameDuration, e.application)
+	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application)
 	if err != nil {
 		return 0, err
 	}
-	inputSamples := frameSize * e.channels
+	inputSamples := frameSize * channels
 
 	packet, err := e.enc.EncodeFloat32WithAnalysis(pcm[:inputSamples], frameSize, pcm)
 	if err != nil {
@@ -34,7 +36,7 @@ func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
 //
 // Returns the number of bytes written to data, or an error.
 func (e *MultistreamEncoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
-	expected := e.frameSize * e.channels
+	expected := int(e.frameSize) * int(e.channels)
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
@@ -57,7 +59,7 @@ func (e *MultistreamEncoder) EncodeInt16(pcm []int16, data []byte) (int, error) 
 // carried in int32 containers with numeric range [-8388608, 8388607].
 // Left-shifted 24-in-32 input will be mis-scaled.
 func (e *MultistreamEncoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
-	expected := e.frameSize * e.channels
+	expected := int(e.frameSize) * int(e.channels)
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}

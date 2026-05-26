@@ -10,12 +10,12 @@ func (d *MultistreamDecoder) Reset() {
 
 // Channels returns the number of audio channels.
 func (d *MultistreamDecoder) Channels() int {
-	return d.channels
+	return int(d.channels)
 }
 
 // SampleRate returns the sample rate in Hz.
 func (d *MultistreamDecoder) SampleRate() int {
-	return d.sampleRate
+	return int(d.sampleRate)
 }
 
 // Streams returns the total number of elementary streams.

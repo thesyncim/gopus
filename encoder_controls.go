@@ -202,14 +202,14 @@ func (e *Encoder) SetFrameSize(samples int) error {
 	if err := validateFrameSize(samples, e.application); err != nil {
 		return err
 	}
-	e.frameSize = samples
+	e.frameSize = int32(samples)
 	e.enc.SetFrameSize(samples)
 	return nil
 }
 
 // FrameSize returns the current frame size in samples at 48kHz.
 func (e *Encoder) FrameSize() int {
-	return e.frameSize
+	return int(e.frameSize)
 }
 
 // Reset clears the encoder state for a new stream.
@@ -221,12 +221,12 @@ func (e *Encoder) Reset() {
 
 // Channels returns the number of audio channels (1 or 2).
 func (e *Encoder) Channels() int {
-	return e.channels
+	return int(e.channels)
 }
 
 // SampleRate returns the sample rate in Hz.
 func (e *Encoder) SampleRate() int {
-	return e.sampleRate
+	return int(e.sampleRate)
 }
 
 // FinalRange returns the final range coder state after encoding.
@@ -316,7 +316,7 @@ func (e *Encoder) SetForceChannels(channels int) error {
 	if err := validateForceChannels(channels); err != nil {
 		return err
 	}
-	if channels > e.channels {
+	if channels > int(e.channels) {
 		return ErrInvalidForceChannels
 	}
 	e.enc.SetForceChannels(channels)
@@ -335,7 +335,7 @@ func (e *Encoder) ForceChannels() int {
 //   - Delay compensation Fs/250 is included for VoIP/Audio
 //   - Delay compensation is omitted for LowDelay
 func (e *Encoder) Lookahead() int {
-	return lookaheadSamples(e.sampleRate, e.application)
+	return lookaheadSamples(int(e.sampleRate), e.application)
 }
 
 // SetLSBDepth sets the bit depth of the input signal.
