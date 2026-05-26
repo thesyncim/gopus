@@ -35,12 +35,12 @@ func (d *Decoder) clearSoftClipMem() {
 
 // Channels returns the number of audio channels (1 or 2).
 func (d *Decoder) Channels() int {
-	return d.channels
+	return int(d.channels)
 }
 
 // SampleRate returns the sample rate in Hz.
 func (d *Decoder) SampleRate() int {
-	return d.sampleRate
+	return int(d.sampleRate)
 }
 
 // SetGain sets output gain in Q8 dB units (libopus OPUS_SET_GAIN semantics).
@@ -80,13 +80,13 @@ func (d *Decoder) SetComplexity(complexity int) error {
 	if err := d.hybridDecoder.SetComplexity(complexity); err != nil {
 		return err
 	}
-	d.complexity = complexity
+	d.complexity = int32(complexity)
 	return nil
 }
 
 // Complexity returns the current decoder complexity setting.
 func (d *Decoder) Complexity() int {
-	return d.complexity
+	return int(d.complexity)
 }
 
 // SetIgnoreExtensions toggles whether unknown packet extensions should be ignored.
@@ -151,7 +151,7 @@ func (d *Decoder) Bandwidth() Bandwidth {
 
 // LastPacketDuration returns the duration in samples per channel at the decoder API rate.
 func (d *Decoder) LastPacketDuration() int {
-	return d.lastPacketDuration
+	return int(d.lastPacketDuration)
 }
 
 // InDTX reports whether the most recently decoded packet was a DTX packet.

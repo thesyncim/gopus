@@ -13,6 +13,14 @@ func TestWrapperRuntimeStateFieldWidthsMatchLibopusFloatBuild(t *testing.T) {
 		"channels",
 		"frameSize",
 	)
+	checkWrapperFieldsHaveType(t, reflect.TypeOf(Decoder{}), int32Type,
+		"sampleRate",
+		"channels",
+		"lastFrameSize",
+		"lastPacketDuration",
+		"lastDataLen",
+		"complexity",
+	)
 	checkWrapperFieldsHaveType(t, reflect.TypeOf(MultistreamEncoder{}), int32Type,
 		"sampleRate",
 		"channels",

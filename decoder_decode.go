@@ -32,6 +32,8 @@ func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
 }
 
 func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacket bool) (int, error) {
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
 	dredPossible := false
 	if extsupport.DREDRuntime {
 		dredPossible = d.dredDecodeSidecarPossible()
@@ -45,14 +47,14 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		if err != nil {
 			return 0, err
 		}
-		packetFrameSize := d.lastFrameSize
+		packetFrameSize := int(d.lastFrameSize)
 		if packetFrameSize <= 0 {
 			packetFrameSize = frameSize
 		}
 		neuralReady := dredPossible && d.dredNeuralConcealmentAvailable()
 		n := frameSize
 		usedNeuralConcealment := false
-		if neuralReady && d.prevMode == ModeSILK && d.channels >= 1 && d.channels <= 2 {
+		if neuralReady && d.prevMode == ModeSILK && channels >= 1 && channels <= 2 {
 			n, usedNeuralConcealment, err = d.decodeSILKNeuralPLCInto(pcm, frameSize, plcDecodeState{
 				packetFrameSize:    packetFrameSize,
 				mode:               d.prevMode,
@@ -64,11 +66,11 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		if err != nil {
 			return 0, err
 		}
-		if !usedNeuralConcealment && neuralReady && d.sampleRate == 16000 && d.channels >= 1 && d.channels <= 2 && d.prevMode != ModeHybrid && d.prevMode != ModeSILK {
-			if len(pcm) < frameSize*d.channels {
+		if !usedNeuralConcealment && neuralReady && sampleRate == 16000 && channels >= 1 && channels <= 2 && d.prevMode != ModeHybrid && d.prevMode != ModeSILK {
+			if len(pcm) < frameSize*channels {
 				return 0, ErrBufferTooSmall
 			}
-			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
+			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*channels], frameSize)
 		}
 		if !usedNeuralConcealment && dredPossible {
 			n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
@@ -92,7 +94,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		}
 		frameSize = n
 		if neuralReady && !usedNeuralConcealment && d.prevMode == ModeCELT {
-			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
+			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*channels], frameSize)
 		}
 		// libopus enables OSCE_MODE_SILK_BBWE during PLC whenever the
 		// internal sample rate is 16 kHz and the API sample rate is 48 kHz
@@ -111,19 +113,19 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 			packetStereoLocal := d.prevPacketStereo
 			if d.lastPacketMode == ModeSILK &&
 				d.lastBandwidth == BandwidthWideband &&
-				d.sampleRate == 48000 && d.osceLACEActive() {
+				sampleRate == 48000 && d.osceLACEActive() {
 				d.resetOSCELACEPostfilterState(packetStereoLocal)
 			}
 			if !usedNeuralConcealment && d.lastPacketMode == ModeSILK &&
 				d.lastBandwidth == BandwidthWideband &&
-				d.sampleRate == 48000 && d.osceBWEActive() {
-				d.maybeApplyOSCEBWEPostSilk(pcm[:frameSize*d.channels], frameSize, ModeSILK, silk.BandwidthWideband, packetStereoLocal)
+				sampleRate == 48000 && d.osceBWEActive() {
+				d.maybeApplyOSCEBWEPostSilk(pcm[:frameSize*channels], frameSize, ModeSILK, silk.BandwidthWideband, packetStereoLocal)
 			}
 		}
-		d.applyOutputGain(pcm[:frameSize*d.channels])
+		d.applyOutputGain(pcm[:frameSize*channels])
 
-		d.lastFrameSize = packetFrameSize
-		d.lastPacketDuration = frameSize
+		d.lastFrameSize = int32(packetFrameSize)
+		d.lastPacketDuration = int32(frameSize)
 		d.lastDataLen = 0
 		if dredPossible && !usedNeuralConcealment && d.dredGoodPacketMarkerActive() {
 			d.markDREDConcealed()
@@ -143,14 +145,14 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	frameCode := data[0] & 0x03
 	frameSize := toc.FrameSize
 	if toc.Mode == ModeSILK || toc.Mode == ModeCELT || toc.Mode == ModeHybrid {
-		frameSize = packetTOCSamplesPerFrameAtRate(data[0], d.sampleRate)
+		frameSize = packetTOCSamplesPerFrameAtRate(data[0], sampleRate)
 	}
 	totalSamples := frameSize * frameCount
 	if totalSamples > d.maxPacketSamples {
 		return 0, ErrPacketTooLarge
 	}
 
-	needed := totalSamples * d.channels
+	needed := totalSamples * channels
 	if len(pcm) < needed {
 		return 0, ErrBufferTooSmall
 	}
@@ -190,7 +192,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	// SILK -> SILK cross-fade itself; this catches Hybrid and CELT
 	// transitions where the SILK helper is not invoked.
 	if extsupport.OSCERuntime {
-		d.osceBWEMarkInactiveIfModeIneligible(toc.Mode, toc.Bandwidth, pcm[:totalSamples*d.channels], totalSamples, toc.Stereo)
+		d.osceBWEMarkInactiveIfModeIneligible(toc.Mode, toc.Bandwidth, pcm[:totalSamples*channels], totalSamples, toc.Stereo)
 	}
 
 	// OSCE LACE/NoLACE transition bookkeeping: clear the previous-LACE-
@@ -202,11 +204,11 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		d.osceLACEMarkInactiveIfModeIneligible(toc.Mode, toc.Bandwidth)
 	}
 
-	d.lastFrameSize = frameSize
-	d.lastPacketDuration = totalSamples
+	d.lastFrameSize = int32(frameSize)
+	d.lastPacketDuration = int32(totalSamples)
 	d.lastBandwidth = toc.Bandwidth
 	d.lastPacketMode = toc.Mode
-	d.lastDataLen = len(data)
+	d.lastDataLen = int32(len(data))
 
 	d.clearFECState()
 
@@ -218,10 +220,10 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 			if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
 				r.dredRecovery = 0
 			}
-			d.markDREDUpdatedPCM(pcm[:totalSamples*d.channels], totalSamples, toc.Mode)
+			d.markDREDUpdatedPCM(pcm[:totalSamples*channels], totalSamples, toc.Mode)
 		}
 	}
-	d.applyOutputGain(pcm[:totalSamples*d.channels])
+	d.applyOutputGain(pcm[:totalSamples*channels])
 	if clearSoftClipOnPacket {
 		d.clearSoftClipMem()
 	}
@@ -229,6 +231,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 }
 
 func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, frameCode byte, frameSize int) (int, error) {
+	channels := int(d.channels)
 	offsetSamples := 0
 	var qextPayloads decoderQEXTPayloads
 	decodeFrame := func(frameIndex int, frameData []byte) error {
@@ -237,7 +240,7 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 			qextPayload = qextPayloads.frame(frameIndex)
 		}
 		n, err := d.decodeOpusFrameIntoWithQEXT(
-			pcm[offsetSamples*d.channels:],
+			pcm[offsetSamples*channels:],
 			frameData,
 			frameSize,
 			frameSize,
@@ -428,6 +431,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 	if !fec {
 		return d.Decode(data, pcm)
 	}
+	sampleRate := int(d.sampleRate)
 
 	if data != nil && len(data) > 0 {
 		toc, frameCount, err := packetFrameCount(data)
@@ -440,13 +444,13 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 		}
 		frameSize := toc.FrameSize
 		if toc.Mode == ModeSILK || toc.Mode == ModeCELT || toc.Mode == ModeHybrid {
-			frameSize = packetTOCSamplesPerFrameAtRate(data[0], d.sampleRate)
+			frameSize = packetTOCSamplesPerFrameAtRate(data[0], sampleRate)
 		}
 		if frameSize <= 0 {
-			frameSize = d.lastFrameSize
+			frameSize = int(d.lastFrameSize)
 		}
 		if frameSize <= 0 {
-			frameSize = d.sampleRate / 50
+			frameSize = sampleRate / 50
 		}
 
 		prevPacketMode := d.lastPacketMode
@@ -491,19 +495,21 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 
 // DecodeInt16 decodes an Opus packet into int16 PCM samples.
 func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
 	if data == nil || len(data) == 0 {
 		frameSize, err := d.plcOutputFrameSize(len(pcm))
 		if err != nil {
 			return 0, err
 		}
 
-		needed := frameSize * d.channels
+		needed := frameSize * channels
 		d.ensureScratchPCM(needed)
 		n, err := d.decodeFloat32(data, d.scratchPCM, false)
 		if err != nil {
 			return 0, err
 		}
-		float32ToInt16NoSoftClip(pcm, d.scratchPCM, n, d.channels)
+		float32ToInt16NoSoftClip(pcm, d.scratchPCM, n, channels)
 		return n, nil
 	}
 
@@ -511,13 +517,13 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		return 0, ErrPacketTooLarge
 	}
 
-	if len(pcm) >= d.maxPacketSamples*d.channels {
-		d.ensureScratchPCM(d.maxPacketSamples * d.channels)
+	if len(pcm) >= d.maxPacketSamples*channels {
+		d.ensureScratchPCM(d.maxPacketSamples * channels)
 		n, err := d.decodeFloat32(data, d.scratchPCM, false)
 		if err != nil {
 			return 0, err
 		}
-		softClipAndFloat32ToInt16(pcm, d.scratchPCM, n, d.channels, d.softClipMem[:])
+		softClipAndFloat32ToInt16(pcm, d.scratchPCM, n, channels, d.softClipMem[:])
 		return n, nil
 	}
 
@@ -527,13 +533,13 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	}
 	frameSize := toc.FrameSize
 	if toc.Mode == ModeSILK || toc.Mode == ModeCELT || toc.Mode == ModeHybrid {
-		frameSize = packetTOCSamplesPerFrameAtRate(data[0], d.sampleRate)
+		frameSize = packetTOCSamplesPerFrameAtRate(data[0], sampleRate)
 	}
 	totalSamples := frameSize * frameCount
 	if totalSamples > d.maxPacketSamples {
 		return 0, ErrPacketTooLarge
 	}
-	needed := totalSamples * d.channels
+	needed := totalSamples * channels
 	if len(pcm) < needed {
 		return 0, ErrBufferTooSmall
 	}
@@ -543,7 +549,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	softClipAndFloat32ToInt16(pcm, d.scratchPCM, n, d.channels, d.softClipMem[:])
+	softClipAndFloat32ToInt16(pcm, d.scratchPCM, n, channels, d.softClipMem[:])
 	return n, nil
 }
 

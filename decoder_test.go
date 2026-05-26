@@ -186,7 +186,7 @@ func TestDecodeFloatClearsSoftClipMemOnPacket(t *testing.T) {
 	dec := newMonoTestDecoder(t)
 	dec.softClipMem[0] = 0.25
 
-	pcm := make([]float32, dec.maxPacketSamples*dec.channels)
+	pcm := make([]float32, dec.maxPacketSamples*int(dec.channels))
 	if _, err := dec.Decode(minimalHybridTestPacket20ms(), pcm); err != nil {
 		t.Fatalf("Decode packet error: %v", err)
 	}
@@ -203,7 +203,7 @@ func TestDecodeInt16PLCPreservesSoftClipMem(t *testing.T) {
 	want := [2]float32{0.25, -0.125}
 	dec.softClipMem = want
 
-	pcm := make([]int16, dec.maxPacketSamples*dec.channels)
+	pcm := make([]int16, dec.maxPacketSamples*int(dec.channels))
 	if _, err := dec.DecodeInt16(nil, pcm); err != nil {
 		t.Fatalf("DecodeInt16 PLC error: %v", err)
 	}

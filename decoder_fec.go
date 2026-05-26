@@ -7,7 +7,7 @@ import (
 )
 
 func (d *Decoder) decodePLCForFEC(pcm []float32, frameSize int) (int, error) {
-	packetFrameSize := d.lastFrameSize
+	packetFrameSize := int(d.lastFrameSize)
 	if packetFrameSize <= 0 {
 		packetFrameSize = frameSize
 	}
@@ -22,6 +22,7 @@ func (d *Decoder) decodePLCForFECWithState(
 	bandwidth Bandwidth,
 	packetStereo bool,
 ) (int, error) {
+	channels := int(d.channels)
 	if packetFrameSize <= 0 {
 		packetFrameSize = frameSize
 	}
@@ -29,7 +30,7 @@ func (d *Decoder) decodePLCForFECWithState(
 	usedNeuralConcealment := false
 	var n int
 	var err error
-	if neuralReady && mode == ModeSILK && d.channels >= 1 && d.channels <= 2 {
+	if neuralReady && mode == ModeSILK && channels >= 1 && channels <= 2 {
 		n, usedNeuralConcealment, err = d.decodeSILKNeuralPLCInto(pcm, frameSize, plcDecodeState{
 			packetFrameSize:    packetFrameSize,
 			mode:               mode,
@@ -66,11 +67,11 @@ func (d *Decoder) decodePLCForFECWithState(
 	frameSize = n
 
 	if neuralReady && !usedNeuralConcealment && mode != ModeHybrid {
-		usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*d.channels], frameSize)
+		usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*channels], frameSize)
 	}
-	d.applyOutputGain(pcm[:frameSize*d.channels])
-	d.lastFrameSize = packetFrameSize
-	d.lastPacketDuration = frameSize
+	d.applyOutputGain(pcm[:frameSize*channels])
+	d.lastFrameSize = int32(packetFrameSize)
+	d.lastPacketDuration = int32(frameSize)
 	d.lastDataLen = 0
 	if extsupport.DREDRuntime && !usedNeuralConcealment && d.dredGoodPacketMarkerActive() {
 		d.markDREDConcealed()
@@ -87,21 +88,22 @@ func (d *Decoder) decodeNoLBRRFECFallback(
 	packetStereo bool,
 ) (int, error) {
 	if packetFrameSize <= 0 {
-		packetFrameSize = d.lastFrameSize
+		packetFrameSize = int(d.lastFrameSize)
 	}
 	if packetFrameSize <= 0 {
-		packetFrameSize = d.sampleRate / 50
+		packetFrameSize = int(d.sampleRate) / 50
 	}
 	if requestedFrameSize <= packetFrameSize {
 		return d.decodePLCForFECWithState(pcm, requestedFrameSize, packetFrameSize, mode, bandwidth, packetStereo)
 	}
-	needed := requestedFrameSize * d.channels
+	channels := int(d.channels)
+	needed := requestedFrameSize * channels
 	if len(pcm) < needed {
 		return 0, ErrBufferTooSmall
 	}
 
 	prefixSize := requestedFrameSize - packetFrameSize
-	prefixPacketFrameSize := d.lastFrameSize
+	prefixPacketFrameSize := int(d.lastFrameSize)
 	if prefixPacketFrameSize <= 0 {
 		prefixPacketFrameSize = packetFrameSize
 	}
@@ -119,10 +121,10 @@ func (d *Decoder) decodeNoLBRRFECFallback(
 		return 0, ErrInvalidFrameSize
 	}
 	if d.decodeGainQ8 != 0 {
-		d.applyOutputGain(pcm[:prefixSize*d.channels])
+		d.applyOutputGain(pcm[:prefixSize*channels])
 	}
 
-	suffix := pcm[prefixSize*d.channels : requestedFrameSize*d.channels]
+	suffix := pcm[prefixSize*channels : requestedFrameSize*channels]
 	n, err = d.decodePLCForFECWithState(suffix, packetFrameSize, packetFrameSize, mode, bandwidth, packetStereo)
 	if err != nil {
 		return 0, err
@@ -130,7 +132,7 @@ func (d *Decoder) decodeNoLBRRFECFallback(
 	if n != packetFrameSize {
 		return 0, ErrInvalidFrameSize
 	}
-	d.lastPacketDuration = requestedFrameSize
+	d.lastPacketDuration = int32(requestedFrameSize)
 	return requestedFrameSize, nil
 }
 
@@ -315,13 +317,14 @@ func (d *Decoder) decodeFECFrame(pcm []float32, requestedFrameSize int) (int, er
 	if !d.hasFEC || len(d.fecData) == 0 {
 		return 0, errNoFECData
 	}
+	channels := int(d.channels)
 
 	packetFrameSize := d.fecFrameSize
 	if packetFrameSize <= 0 {
-		packetFrameSize = d.lastFrameSize
+		packetFrameSize = int(d.lastFrameSize)
 	}
 	if packetFrameSize <= 0 {
-		packetFrameSize = d.sampleRate / 50
+		packetFrameSize = int(d.sampleRate) / 50
 	}
 	if packetFrameSize > d.maxPacketSamples {
 		return 0, ErrPacketTooLarge
@@ -332,7 +335,7 @@ func (d *Decoder) decodeFECFrame(pcm []float32, requestedFrameSize int) (int, er
 		frameSize = packetFrameSize
 	}
 
-	needed := frameSize * d.channels
+	needed := frameSize * channels
 	if len(pcm) < needed {
 		return 0, ErrBufferTooSmall
 	}
@@ -344,7 +347,7 @@ func (d *Decoder) decodeFECFrame(pcm []float32, requestedFrameSize int) (int, er
 
 	prefixSize := frameSize - packetFrameSize
 	if prefixSize > 0 {
-		prefixPacketFrameSize := d.lastFrameSize
+		prefixPacketFrameSize := int(d.lastFrameSize)
 		if prefixPacketFrameSize <= 0 {
 			prefixPacketFrameSize = packetFrameSize
 		}
@@ -363,7 +366,7 @@ func (d *Decoder) decodeFECFrame(pcm []float32, requestedFrameSize int) (int, er
 		}
 	}
 
-	fecPCM := pcm[prefixSize*d.channels:]
+	fecPCM := pcm[prefixSize*channels:]
 	if extsupport.DREDRuntime {
 		if endRawDREDCapture := d.beginDREDRawMonoGoodFrameCapture(d.fecMode); endRawDREDCapture != nil {
 			defer endRawDREDCapture()
@@ -380,18 +383,18 @@ func (d *Decoder) decodeFECFrame(pcm []float32, requestedFrameSize int) (int, er
 			if r := d.dredRecoveryState(); r != nil && d.dredNeuralModelsLoaded() {
 				r.dredRecovery = 0
 			}
-			d.markDREDUpdatedPCM(pcm[:frameSize*d.channels], frameSize, d.fecMode)
+			d.markDREDUpdatedPCM(pcm[:frameSize*channels], frameSize, d.fecMode)
 		}
 	}
-	d.applyOutputGain(pcm[:frameSize*d.channels])
+	d.applyOutputGain(pcm[:frameSize*channels])
 
 	d.prevMode = d.fecMode
 	d.lastPacketMode = d.fecMode
 	d.lastBandwidth = d.fecBandwidth
 	d.prevPacketStereo = d.fecStereo
-	d.lastFrameSize = packetFrameSize
-	d.lastPacketDuration = frameSize
-	d.lastDataLen = len(d.fecData)
+	d.lastFrameSize = int32(packetFrameSize)
+	d.lastPacketDuration = int32(frameSize)
+	d.lastDataLen = int32(len(d.fecData))
 	d.prevRedundancy = false
 	d.haveDecoded = true
 
@@ -428,7 +431,7 @@ func (d *Decoder) decodeFECViaSILK(pcm []float32, frameSize int) (int, error) {
 		silkBW = silk.BandwidthWideband
 	}
 
-	fecSamples, err := d.silkDecoder.DecodeFEC(d.fecData, silkBW, frameSize, d.fecStereo, d.channels)
+	fecSamples, err := d.silkDecoder.DecodeFEC(d.fecData, silkBW, frameSize, d.fecStereo, int(d.channels))
 	if err != nil {
 		return 0, err
 	}
@@ -454,6 +457,7 @@ func (d *Decoder) decodeSILKFEC(pcm []float32, frameSize int) (int, error) {
 
 // decodeHybridFEC decodes Hybrid mode LBRR data for FEC recovery.
 func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
+	channels := int(d.channels)
 	needed, err := d.decodeFECViaSILK(pcm, frameSize)
 	if err != nil {
 		return 0, err
@@ -472,7 +476,7 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 		return 0, err
 	}
 
-	neededAPI := frameSize * d.channels
+	neededAPI := frameSize * channels
 	if len(d.scratchRedundant) < neededAPI {
 		d.scratchRedundant = make([]float32, neededAPI)
 	}
@@ -486,7 +490,7 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 			}
 		}
 	} else {
-		needed48 := celtFrameSize * d.channels
+		needed48 := celtFrameSize * channels
 		if len(d.scratchFrame48) < needed48 {
 			return 0, ErrBufferTooSmall
 		}
@@ -500,7 +504,7 @@ func (d *Decoder) decodeHybridFEC(pcm []float32, frameSize int) (int, error) {
 		}
 		d.downsampleFrame48ToAPI(celtAPI, celt48, frameSize)
 	}
-	limit := frameSize * d.channels
+	limit := frameSize * channels
 	if needed < limit {
 		limit = needed
 	}

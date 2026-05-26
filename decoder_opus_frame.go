@@ -70,30 +70,31 @@ func (d *Decoder) frameSize48FromAPI(frameSize int) int {
 	if d.sampleRate <= 0 || d.sampleRate == 48000 {
 		return frameSize
 	}
-	return frameSize * 48000 / d.sampleRate
+	return frameSize * 48000 / int(d.sampleRate)
 }
 
 func (d *Decoder) downsampleFrame48ToAPI(dst, src []float32, frameSize int) {
+	channels := int(d.channels)
 	if d.sampleRate == 48000 {
-		copyFloat32(dst[:frameSize*d.channels], src[:frameSize*d.channels])
+		copyFloat32(dst[:frameSize*channels], src[:frameSize*channels])
 		return
 	}
-	factor := 48000 / d.sampleRate
+	factor := 48000 / int(d.sampleRate)
 	if factor <= 1 {
-		copyFloat32(dst[:frameSize*d.channels], src[:frameSize*d.channels])
+		copyFloat32(dst[:frameSize*channels], src[:frameSize*channels])
 		return
 	}
 	for i := 0; i < frameSize; i++ {
-		srcBase := i * factor * d.channels
-		dstBase := i * d.channels
-		for c := 0; c < d.channels; c++ {
+		srcBase := i * factor * channels
+		dstBase := i * channels
+		for c := 0; c < channels; c++ {
 			dst[dstBase+c] = src[srcBase+c]
 		}
 	}
 }
 
 func (d *Decoder) decodeCELTFrameToAPIScratch(data []byte, frameSize int, packetStereo bool) ([]float32, error) {
-	needed := frameSize * d.channels
+	needed := frameSize * int(d.channels)
 	if len(d.scratchRedundant) < needed {
 		return nil, ErrBufferTooSmall
 	}
@@ -211,9 +212,10 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	useDecoderPLCState bool,
 	qextPayload []byte,
 ) (int, error) {
+	channels := int(d.channels)
 	fs := 48000
 	if packetMode == ModeSILK || packetMode == ModeCELT || packetMode == ModeHybrid {
-		fs = d.sampleRate
+		fs = int(d.sampleRate)
 	}
 	F20 := fs / 50
 	F10 := F20 >> 1
@@ -242,7 +244,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	if data == nil {
 		audiosize = frameSize
 		if !d.haveDecoded {
-			needed := audiosize * d.channels
+			needed := audiosize * channels
 			if len(out) < needed {
 				return 0, ErrBufferTooSmall
 			}
@@ -284,7 +286,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	}
 	frameSize = audiosize
 
-	needed := frameSize * d.channels
+	needed := frameSize * channels
 	if len(out) < needed {
 		return 0, ErrBufferTooSmall
 	}
@@ -298,7 +300,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		transition = true
 		if mode == ModeCELT {
 			transSize := min(F5, audiosize)
-			if len(d.scratchTransition) < transSize*d.channels {
+			if len(d.scratchTransition) < transSize*channels {
 				return 0, ErrBufferTooSmall
 			}
 			n, err := d.decodeOpusFrameIntoWithStatePolicy(
@@ -314,7 +316,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			if err != nil {
 				return 0, err
 			}
-			pcmTransition = d.scratchTransition[:n*d.channels]
+			pcmTransition = d.scratchTransition[:n*channels]
 		}
 	}
 
@@ -399,7 +401,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					if err != nil {
 						return err
 					}
-					pcmTransition = d.scratchTransition[:n*d.channels]
+					pcmTransition = d.scratchTransition[:n*channels]
 				}
 
 				if needCeltReset {
@@ -443,24 +445,24 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if data != nil {
 			d.prepareStereoTransition(packetStereoLocal, silkBW)
 			switch {
-			case packetStereoLocal && d.channels == 2:
+			case packetStereoLocal && channels == 2:
 				silkSamples, err = d.silkDecoder.DecodeStereoWithDecoderInto(rd, silkBW, silkDecodeSize, true, out)
 				if err == nil {
 					if frameSize < silkDecodeSize {
 						silkSamples = frameSize
 					}
 				}
-			case packetStereoLocal && d.channels == 1:
+			case packetStereoLocal && channels == 1:
 				var silkOut []float32
 				silkOut, err = d.silkDecoder.DecodeStereoToMonoWithDecoder(rd, silkBW, silkDecodeSize, true)
 				if err == nil {
-					silkSamples = len(silkOut) / d.channels
+					silkSamples = len(silkOut) / channels
 					if frameSize < silkDecodeSize {
 						silkSamples = frameSize
 					}
-					copyFloat32(out, silkOut[:silkSamples*d.channels])
+					copyFloat32(out, silkOut[:silkSamples*channels])
 				}
-			case !packetStereoLocal && d.channels == 2:
+			case !packetStereoLocal && channels == 2:
 				silkSamples, err = d.silkDecoder.DecodeMonoToStereoWithDecoderInto(rd, silkBW, silkDecodeSize, true, d.prevPacketStereo, out)
 				if err == nil {
 					if frameSize < silkDecodeSize {
@@ -477,45 +479,45 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		} else {
 			d.prepareStereoTransition(packetStereoLocal, silkBW)
 			switch {
-			case packetStereoLocal && d.channels == 2:
+			case packetStereoLocal && channels == 2:
 				var silkOut []float32
 				silkOut, err = d.silkDecoder.DecodeStereo(nil, silkBW, silkDecodeSize, true)
 				if err == nil {
-					silkSamples = len(silkOut) / d.channels
+					silkSamples = len(silkOut) / channels
 					if frameSize < silkDecodeSize {
 						silkSamples = frameSize
 					}
-					copyFloat32(out, silkOut[:silkSamples*d.channels])
+					copyFloat32(out, silkOut[:silkSamples*channels])
 				}
-			case packetStereoLocal && d.channels == 1:
+			case packetStereoLocal && channels == 1:
 				var silkOut []float32
 				silkOut, err = d.silkDecoder.DecodeStereoToMono(nil, silkBW, silkDecodeSize, true)
 				if err == nil {
-					silkSamples = len(silkOut) / d.channels
+					silkSamples = len(silkOut) / channels
 					if frameSize < silkDecodeSize {
 						silkSamples = frameSize
 					}
-					copyFloat32(out, silkOut[:silkSamples*d.channels])
+					copyFloat32(out, silkOut[:silkSamples*channels])
 				}
-			case !packetStereoLocal && d.channels == 2:
+			case !packetStereoLocal && channels == 2:
 				var silkOut []float32
 				silkOut, err = d.silkDecoder.DecodeMonoToStereo(nil, silkBW, silkDecodeSize, true, d.prevPacketStereo)
 				if err == nil {
-					silkSamples = len(silkOut) / d.channels
+					silkSamples = len(silkOut) / channels
 					if frameSize < silkDecodeSize {
 						silkSamples = frameSize
 					}
-					copyFloat32(out, silkOut[:silkSamples*d.channels])
+					copyFloat32(out, silkOut[:silkSamples*channels])
 				}
 			default:
 				var silkOut []float32
 				silkOut, err = d.silkDecoder.Decode(nil, silkBW, silkDecodeSize, true)
 				if err == nil {
-					silkSamples = len(silkOut) / d.channels
+					silkSamples = len(silkOut) / channels
 					if frameSize < silkDecodeSize {
 						silkSamples = frameSize
 					}
-					copyFloat32(out, silkOut[:silkSamples*d.channels])
+					copyFloat32(out, silkOut[:silkSamples*channels])
 				}
 			}
 		}
@@ -571,7 +573,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			if err != nil {
 				return 0, err
 			}
-			pcmTransition = d.scratchTransition[:n*d.channels]
+			pcmTransition = d.scratchTransition[:n*channels]
 		}
 
 	case ModeCELT:
@@ -625,23 +627,23 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			return 0, err
 		}
 		redundantAudio = decoded
-		start := (frameSize - F2_5) * d.channels
-		if start >= 0 && start < len(out) && len(redundantAudio) >= F5*d.channels {
-			smoothFade(out[start:], redundantAudio[F2_5*d.channels:], out[start:], F2_5, d.channels, fs)
+		start := (frameSize - F2_5) * channels
+		if start >= 0 && start < len(out) && len(redundantAudio) >= F5*channels {
+			smoothFade(out[start:], redundantAudio[F2_5*channels:], out[start:], F2_5, channels, fs)
 		}
 	}
 
-	if redundancy && celtToSilk && (d.prevMode != ModeSILK || d.prevRedundancy) && len(redundantAudio) >= F5*d.channels {
-		copy(out[:F2_5*d.channels], redundantAudio[:F2_5*d.channels])
-		smoothFade(redundantAudio[F2_5*d.channels:], out[F2_5*d.channels:], out[F2_5*d.channels:], F2_5, d.channels, fs)
+	if redundancy && celtToSilk && (d.prevMode != ModeSILK || d.prevRedundancy) && len(redundantAudio) >= F5*channels {
+		copy(out[:F2_5*channels], redundantAudio[:F2_5*channels])
+		smoothFade(redundantAudio[F2_5*channels:], out[F2_5*channels:], out[F2_5*channels:], F2_5, channels, fs)
 	}
 
 	if transition && len(pcmTransition) > 0 {
 		if audiosize >= F5 {
-			copy(out[:F2_5*d.channels], pcmTransition[:F2_5*d.channels])
-			smoothFade(pcmTransition[F2_5*d.channels:], out[F2_5*d.channels:], out[F2_5*d.channels:], F2_5, d.channels, fs)
+			copy(out[:F2_5*channels], pcmTransition[:F2_5*channels])
+			smoothFade(pcmTransition[F2_5*channels:], out[F2_5*channels:], out[F2_5*channels:], F2_5, channels, fs)
 		} else {
-			smoothFade(pcmTransition, out, out, F2_5, d.channels, fs)
+			smoothFade(pcmTransition, out, out, F2_5, channels, fs)
 		}
 	}
 

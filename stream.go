@@ -180,8 +180,8 @@ func NewReader(cfg DecoderConfig, source PacketReader, format SampleFormat) (*Re
 		source:    source,
 		format:    format,
 		packetBuf: make([]byte, dec.maxPacketBytes),
-		pcmFloat:  make([]float32, dec.maxPacketSamples*dec.channels),
-		pcmInt16:  make([]int16, dec.maxPacketSamples*dec.channels),
+		pcmFloat:  make([]float32, dec.maxPacketSamples*int(dec.channels)),
+		pcmInt16:  make([]int16, dec.maxPacketSamples*int(dec.channels)),
 		offset:    0,
 		eof:       false,
 	}, nil
@@ -220,7 +220,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 			if decErr != nil {
 				return 0, decErr
 			}
-			nTotal := nSamples * r.dec.channels
+			nTotal := nSamples * int(r.dec.channels)
 			byteLen := nTotal * 4
 			if cap(r.byteBuf) < byteLen {
 				r.byteBuf = make([]byte, byteLen)
@@ -242,7 +242,7 @@ func (r *Reader) Read(p []byte) (int, error) {
 			if decErr != nil {
 				return 0, decErr
 			}
-			nTotal := nSamples * r.dec.channels
+			nTotal := nSamples * int(r.dec.channels)
 			byteLen := nTotal * 2
 			if cap(r.byteBuf) < byteLen {
 				r.byteBuf = make([]byte, byteLen)

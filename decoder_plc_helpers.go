@@ -15,12 +15,12 @@ type plcDecodeState struct {
 
 func (d *Decoder) plcFrameSize() int {
 	if d.lastPacketDuration > 0 {
-		return d.lastPacketDuration
+		return int(d.lastPacketDuration)
 	}
 	if d.lastFrameSize > 0 {
-		return d.lastFrameSize
+		return int(d.lastFrameSize)
 	}
-	return d.sampleRate / 50
+	return int(d.sampleRate) / 50
 }
 
 // plcOutputFrameSize returns the per-channel frame size requested for PLC/FEC
@@ -33,17 +33,19 @@ func (d *Decoder) requestedOutputFrameSize(sampleCount int) (int, error) {
 	if d.channels <= 0 {
 		return 0, ErrInvalidChannels
 	}
-	if sampleCount < d.channels {
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
+	if sampleCount < channels {
 		return 0, ErrBufferTooSmall
 	}
-	if sampleCount%d.channels != 0 {
+	if sampleCount%channels != 0 {
 		return 0, ErrInvalidFrameSize
 	}
-	frameSize := sampleCount / d.channels
+	frameSize := sampleCount / channels
 	if frameSize <= 0 {
 		return 0, ErrBufferTooSmall
 	}
-	quantum := d.sampleRate / 400
+	quantum := sampleRate / 400
 	if quantum <= 0 || frameSize%quantum != 0 {
 		return 0, ErrInvalidFrameSize
 	}
@@ -70,13 +72,15 @@ func nextPLCChunkSamples(sampleRate int, mode Mode, remaining int) int {
 }
 
 func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDecodeState) (int, error) {
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
 	if frameSize <= 0 {
 		frameSize = state.packetFrameSize
 	}
 	if frameSize <= 0 {
-		frameSize = d.sampleRate / 50
+		frameSize = sampleRate / 50
 	}
-	needed := frameSize * d.channels
+	needed := frameSize * channels
 	if len(out) < needed {
 		return 0, ErrBufferTooSmall
 	}
@@ -85,7 +89,7 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 	offset := 0
 	chunkRate := 48000
 	if state.mode == ModeSILK || state.mode == ModeCELT || state.mode == ModeHybrid {
-		chunkRate = d.sampleRate
+		chunkRate = sampleRate
 	}
 	for remaining > 0 {
 		chunk := nextPLCChunkSamples(chunkRate, state.mode, remaining)
@@ -93,7 +97,7 @@ func (d *Decoder) decodePLCChunksInto(out []float32, frameSize int, state plcDec
 			break
 		}
 		n, err := d.decodeOpusFrameIntoWithStatePolicy(
-			out[offset*d.channels:],
+			out[offset*channels:],
 			nil,
 			chunk,
 			state.packetFrameSize,
@@ -145,16 +149,18 @@ func (d *Decoder) decodeHybridDRED48kInto(out []float32, frameSize int, state pl
 }
 
 func (d *Decoder) decodeDREDNeuralPLCChunksInto(out []float32, frameSize int, state plcDecodeState) (int, bool) {
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
 	queued := d.prepareDRED48kNeuralEntry(frameSize, state.mode, false)
 	remaining := frameSize
 	offset := 0
 	for remaining > 0 {
-		chunk := nextPLCChunkSamples(d.sampleRate, state.mode, remaining)
+		chunk := nextPLCChunkSamples(sampleRate, state.mode, remaining)
 		if chunk <= 0 {
 			return offset, false
 		}
-		chunkStart := offset * d.channels
-		chunkEnd := chunkStart + chunk*d.channels
+		chunkStart := offset * channels
+		chunkEnd := chunkStart + chunk*channels
 		if chunkEnd > len(out) || !d.applyPreparedDREDNeuralConcealment(out[chunkStart:chunkEnd], chunk) {
 			return offset, false
 		}
@@ -171,6 +177,8 @@ func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state
 	if d == nil {
 		return 0, false, ErrInvalidArgument
 	}
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
 	if !extsupport.DREDRuntime {
 		n, err := d.decodePLCChunksInto(out, frameSize, state)
 		return n, false, err
@@ -179,9 +187,9 @@ func (d *Decoder) decodeDRED48kNeuralPLCInto(out []float32, frameSize int, state
 		frameSize = state.packetFrameSize
 	}
 	if frameSize <= 0 {
-		frameSize = d.sampleRate / 50
+		frameSize = sampleRate / 50
 	}
-	needed := frameSize * d.channels
+	needed := frameSize * channels
 	if len(out) < needed {
 		return 0, false, ErrBufferTooSmall
 	}

@@ -50,16 +50,16 @@ type Decoder struct {
 	silkDecoder        *silk.Decoder   // SILK-only mode decoder
 	celtDecoder        *celt.Decoder   // CELT-only mode decoder
 	hybridDecoder      *hybrid.Decoder // Hybrid mode decoder
-	sampleRate         int
-	channels           int
+	sampleRate         int32
+	channels           int32
 	maxPacketSamples   int
 	maxPacketBytes     int
 	scratchPCM         []float32
 	scratchFrame48     []float32
 	scratchTransition  []float32
 	scratchRedundant   []float32
-	lastFrameSize      int
-	lastPacketDuration int
+	lastFrameSize      int32
+	lastPacketDuration int32
 	prevMode           Mode // Track last mode for PLC
 	lastPacketMode     Mode // Track last packet mode (libopus st->mode) for decode_fec gating
 	lastBandwidth      Bandwidth
@@ -67,11 +67,11 @@ type Decoder struct {
 	prevPacketStereo   bool
 	haveDecoded        bool
 	redundantRng       uint32 // Range from redundancy decoding, XORed with final range
-	lastDataLen        int    // Length of last packet data
+	lastDataLen        int32  // Length of last packet data
 	mainDecodeRng      uint32 // Final range from main decode (before any redundancy processing)
 	decodeGainQ8       int    // Output gain in Q8 dB (libopus OPUS_SET_GAIN semantics)
 	ignoreExtensions   bool   // libopus OPUS_SET_IGNORE_EXTENSIONS semantics
-	complexity         int    // libopus decoder complexity, default 0
+	complexity         int32  // libopus decoder complexity, default 0
 
 	// FEC (Forward Error Correction) state
 	// Stores LBRR data from the current packet for use by the next packet's FEC decode.
@@ -147,16 +147,16 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		silkDecoder:       silkDec,
 		celtDecoder:       celtDec,
 		hybridDecoder:     hybridDec,
-		sampleRate:        cfg.SampleRate,
-		channels:          cfg.Channels,
+		sampleRate:        int32(cfg.SampleRate),
+		channels:          int32(cfg.Channels),
 		maxPacketSamples:  maxPacketSamples,
 		maxPacketBytes:    maxPacketBytes,
 		scratchPCM:        make([]float32, maxPacketSamples*cfg.Channels),
 		scratchFrame48:    make([]float32, scratchFrame48Samples*cfg.Channels),
 		scratchTransition: make([]float32, transitionSamples*cfg.Channels),
 		scratchRedundant:  make([]float32, transitionSamples*cfg.Channels),
-		lastFrameSize:     cfg.SampleRate / 50, // Default 20ms at the API rate
-		prevMode:          ModeHybrid,          // Default for PLC until first decode
+		lastFrameSize:     int32(cfg.SampleRate / 50), // Default 20ms at the API rate
+		prevMode:          ModeHybrid,                 // Default for PLC until first decode
 		lastPacketMode:    ModeHybrid,
 		lastBandwidth:     BandwidthFullband,
 		fecData:           make([]byte, maxPacketBytes),
