@@ -154,19 +154,8 @@ type CELTSynthesizer interface {
 	SynthesizeStereoFloat32(coeffsL, coeffsR []float32, transient bool, shortBlocks int) []float32
 }
 
-type celtConcealmentEnergyMode uint8
-
-const (
-	celtConcealmentEnergyDecay celtConcealmentEnergyMode = iota
-	celtConcealmentEnergyDBDecay
-	celtConcealmentEnergyProvided
-)
-
 type celtConcealmentConfig struct {
-	hybrid     bool
-	energyMode celtConcealmentEnergyMode
-	decayDB    float32
-	energies   []float32
+	hybrid bool
 }
 
 // ConcealCELT generates concealment audio for a lost CELT frame.
@@ -434,7 +423,7 @@ func writeCELTConcealment(
 		return
 	}
 
-	concealEnergy := buildCELTConcealmentEnergies(dec.PrevEnergy(), cfg)
+	concealEnergy := buildCELTConcealmentEnergies(dec.PrevEnergy())
 	samples, rng := synthesizeCELTConcealment(dec, synth, frameSize, fadeFactor, concealEnergy, cfg.hybrid)
 	copyCELTConcealment(dst, samples, outLen)
 
@@ -442,26 +431,12 @@ func writeCELTConcealment(
 	dec.SetRNG(rng)
 }
 
-func buildCELTConcealmentEnergies(prevEnergy []float32, cfg celtConcealmentConfig) []float32 {
-	switch cfg.energyMode {
-	case celtConcealmentEnergyDBDecay:
-		concealEnergy := make([]float32, len(prevEnergy))
-		for i := range prevEnergy {
-			concealEnergy[i] = prevEnergy[i] - cfg.decayDB
-		}
-		return concealEnergy
-	case celtConcealmentEnergyProvided:
-		if len(cfg.energies) >= len(prevEnergy) {
-			return cfg.energies[:len(prevEnergy)]
-		}
-		return prevEnergy
-	default:
-		concealEnergy := make([]float32, len(prevEnergy))
-		for i := range prevEnergy {
-			concealEnergy[i] = prevEnergy[i] * float32(EnergyDecayPerFrame)
-		}
-		return concealEnergy
+func buildCELTConcealmentEnergies(prevEnergy []float32) []float32 {
+	concealEnergy := make([]float32, len(prevEnergy))
+	for i := range prevEnergy {
+		concealEnergy[i] = prevEnergy[i] * float32(EnergyDecayPerFrame)
 	}
+	return concealEnergy
 }
 
 func synthesizeCELTConcealment(

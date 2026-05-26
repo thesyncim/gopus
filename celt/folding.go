@@ -90,11 +90,6 @@ func normalizeNormVectorInPlace(v []celtNorm) {
 	}
 }
 
-// normalizeVectorInPlace scales vector to unit L2 norm in place.
-func normalizeVectorInPlace(v []celtNorm) {
-	normalizeNormVectorInPlace(v)
-}
-
 // FindFoldSource finds the band to fold from for an uncoded band.
 // targetBand: the band index that needs folding
 // codedMask: bitmask of bands that have been coded (received pulses)

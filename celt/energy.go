@@ -76,38 +76,6 @@ func decodeLaplaceWithRangeDecoder(rd *rangecoding.Decoder, fs int, decay int) i
 	return val
 }
 
-// decodeBin mirrors libopus ec_decode_bin() without updating the range coder.
-func (d *Decoder) decodeBin(bits uint) uint32 {
-	rd := d.rangeDecoder
-	if rd == nil || bits == 0 {
-		return 0
-	}
-
-	rng := rd.Range()
-	ext := rng >> bits
-	if ext == 0 {
-		ext = 1
-	}
-	s := rd.Val() / ext
-	top := uint32(1) << bits
-	if s+1 > top {
-		s = top - 1
-	}
-	return top - (s + 1)
-}
-
-// updateRange updates the range decoder state after decoding a symbol.
-// fl: cumulative frequency of symbols before this one
-// fh: cumulative frequency up to and including this symbol
-// ft: total frequency
-func (d *Decoder) updateRange(fl, fh, ft uint32) {
-	rd := d.rangeDecoder
-	if rd == nil {
-		return
-	}
-	rd.DecodeSymbol(fl, fh, ft)
-}
-
 // DecodeCoarseEnergy decodes coarse band energies in log2 units (1 = 6 dB).
 // intra=true: no inter-frame prediction (first frame or after loss)
 // intra=false: uses alpha prediction from previous frame

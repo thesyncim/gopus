@@ -912,7 +912,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	} else {
 		// Use default TF settings when analysis is disabled
 		tfRes = ensureInt32Slice(&e.scratch.tfRes, nbBands)
-		// Zero all entries: ensureIntSlice reuses memory without zeroing,
+		// Zero all entries: ensureInt32Slice reuses memory without zeroing,
 		// so stale values (e.g. -1 from TFAnalysis) can survive and cause
 		// an index-out-of-range panic in the tfSelectTable lookup below.
 		for i := range tfRes {
