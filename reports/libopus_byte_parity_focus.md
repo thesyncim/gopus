@@ -1,6 +1,6 @@
 # Libopus Byte Parity Focus
 
-Date: 2026-05-25
+Date: 2026-05-26
 
 Active goal: exact libopus 1.6.1 packet-byte and final-range parity. Type parity is not the current objective unless a type/math-width mismatch directly explains a byte divergence.
 
@@ -22,6 +22,8 @@ Current local result on darwin/arm64:
 | `CELT-FB-20ms-stereo-128k-impulse_train_v1` | `0/51` | `-1` |
 
 Quality, packet length, mode histogram, and decoded waveform metrics already match. The remaining bug is byte/final-range drift inside CELT entropy coding.
+
+2026-05-26 checkpoint: strict C-backed CELT `exp_rotation`, `alg_quant`, and `alg_unquant` oracle coverage is green again after matching libopus float-build `celt_cos_norm()` coefficient generation. The focused byte lane above is unchanged on a clean working tree, so the next blocker is still the frame `1`, band `6` quantization/range-coder divergence rather than the standalone PVQ rotation helper.
 
 Use the dedicated focused target for before/after checks:
 

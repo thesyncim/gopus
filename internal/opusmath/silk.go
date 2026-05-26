@@ -39,6 +39,14 @@ func CosF32(x float32) float32 {
 	return float32(math.Cos(float64(x)))
 }
 
+// CELTCosNormF32 matches libopus celt/mathops.h celt_cos_norm() in the
+// floating-point build: (float)cos((.5f*PI)*x). CELT exp_rotation() in
+// celt/vq.c relies on that C double cos() before narrowing back to float.
+func CELTCosNormF32(x float32) float32 {
+	const halfPi = 0.5 * 3.1415926535897931
+	return float32(math.Cos(halfPi * float64(x)))
+}
+
 func AtanF32(x float32) float32 {
 	return float32(math.Atan(float64(x)))
 }

@@ -3,7 +3,6 @@ package celt
 import "github.com/thesyncim/gopus/internal/opusmath"
 
 const maxExpRotationLength = maxBandWidth
-const libopusHalfPi = 0.5 * 3.1415926535897931
 
 var expRotationSpreadFactors = [3]int{15, 10, 5}
 
@@ -25,8 +24,8 @@ func init() {
 				gain := float32(length) / float32(length+spreadFactor*k)
 				theta := 0.5 * gain * gain
 				expRotationCoeffTable[spreadIdx][length][k] = expRotationCoeff{
-					c: opusmath.CosF32(libopusHalfPi * theta),
-					s: opusmath.CosF32(libopusHalfPi * (float32(1) - theta)),
+					c: opusmath.CELTCosNormF32(theta),
+					s: opusmath.CELTCosNormF32(float32(1) - theta),
 				}
 			}
 		}
