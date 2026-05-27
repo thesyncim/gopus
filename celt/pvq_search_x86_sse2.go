@@ -2,6 +2,8 @@
 
 package celt
 
+import "math"
+
 const useX86PVQSearchSSE2 = true
 
 //go:noescape
@@ -9,6 +11,9 @@ func x86RcpApprox4(dst, src *[4]float32)
 
 //go:noescape
 func x86RsqrtApprox4(dst, src *[4]float32)
+
+//go:noescape
+func x86PVQSearchBestIDSSE2(absX, y []float32, xy, yy float32, n int) int
 
 // opPVQSearchScratchNormX86SSE2 mirrors libopus 1.6.1
 // celt/x86/vq_sse2.c:op_pvq_search_sse2. x86/x86_celt_map.c dispatches the
@@ -29,6 +34,7 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 		return iy, 0
 	}
 
+	workN := n + 3
 	var signx []byte
 	var y []float32
 	var absX []float32
@@ -38,14 +44,14 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 		signx = make([]byte, n)
 	}
 	if yBuf != nil {
-		y = ensureFloat32Slice(yBuf, n)
+		y = ensureFloat32Slice(yBuf, workN)
 	} else {
-		y = make([]float32, n)
+		y = make([]float32, workN)
 	}
 	if absXBuf != nil {
-		absX = ensureFloat32Slice(absXBuf, n)
+		absX = ensureFloat32Slice(absXBuf, workN)
 	} else {
-		absX = make([]float32, n)
+		absX = make([]float32, workN)
 	}
 
 	var sums [4]float32
@@ -56,10 +62,10 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 		xj := float32(x[j])
 		if xj < 0 {
 			signx[j] = 1
-			xj = -xj
 		}
-		absX[j] = xj
-		sums[j&3] = noFMA32Add(sums[j&3], xj)
+		ax := x86PVQAbs32(xj)
+		absX[j] = ax
+		sums[j&3] = noFMA32Add(sums[j&3], ax)
 	}
 
 	xy := float32(0)
@@ -73,7 +79,6 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 			for j := 1; j < n; j++ {
 				absX[j] = 0
 			}
-			sum = 1
 			sums = [4]float32{1, 1, 1, 1}
 		}
 
@@ -97,6 +102,11 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 		pulsesLeft -= int(x86LaneSum4Int32(pulseSums))
 		xy = x86LaneSum4(xy4)
 		yy = x86LaneSum4(yy4)
+	}
+
+	for j := n; j < workN; j++ {
+		absX[j] = -100
+		y[j] = 100
 	}
 
 	// The generic C helper abs-mutates X, but the x86 SSE2 helper searches a
@@ -129,52 +139,7 @@ func opPVQSearchScratchNormX86SSE2(x []celtNorm, k int, iyBuf *[]int32, signxBuf
 }
 
 func x86PVQSearchBestID(absX, y []float32, xy, yy float32, n int) int {
-	var maxLane [4]float32
-	var posLane [4]int
-	padded := (n + 3) &^ 3
-	for j := 0; j < padded; j += 4 {
-		var rxy4, ryy4, rsqrt4 [4]float32
-		var idx4 [4]int
-		for lane := 0; lane < 4; lane++ {
-			idx := j + lane
-			idx4[lane] = idx
-			xv := float32(-100)
-			yv := float32(100)
-			if idx < n {
-				xv = absX[idx]
-				yv = y[idx]
-			}
-			rxy4[lane] = noFMA32Add(xv, xy)
-			ryy4[lane] = noFMA32Add(yv, yy)
-		}
-		x86RsqrtApprox4(&rsqrt4, &ryy4)
-		for lane := 0; lane < 4; lane++ {
-			r := noFMA32Mul(rxy4[lane], rsqrt4[lane])
-			if r > maxLane[lane] {
-				maxLane[lane] = r
-				posLane[lane] = idx4[lane]
-			}
-		}
-	}
-
-	maxValue := maxLane[0]
-	for lane := 1; lane < 4; lane++ {
-		if maxLane[lane] > maxValue {
-			maxValue = maxLane[lane]
-		}
-	}
-	bestID := 0
-	// libopus uses max_epi16 after masking lanes equal to the horizontal max,
-	// so cross-lane ties pick the highest lane position.
-	for lane := 0; lane < 4; lane++ {
-		if maxLane[lane] == maxValue && posLane[lane] > bestID {
-			bestID = posLane[lane]
-		}
-	}
-	if bestID >= n {
-		return 0
-	}
-	return bestID
+	return x86PVQSearchBestIDSSE2(absX, y, xy, yy, n)
 }
 
 func x86LaneSum4(v [4]float32) float32 {
@@ -183,4 +148,8 @@ func x86LaneSum4(v [4]float32) float32 {
 
 func x86LaneSum4Int32(v [4]int32) int32 {
 	return (v[0] + v[2]) + (v[1] + v[3])
+}
+
+func x86PVQAbs32(x float32) float32 {
+	return math.Float32frombits(math.Float32bits(x) &^ (uint32(1) << 31))
 }

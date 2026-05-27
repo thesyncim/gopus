@@ -157,8 +157,8 @@ jobs:
 
       - name: Run focused libopus quality gate
         run: |
-          make ensure-libopus
-          make test-quality
+          make fixtures-gen-platform
+          GOPUS_REQUIRE_PLATFORM_FIXTURES=1 make test-quality
 
   test-linux-race:
     name: test-linux-race
