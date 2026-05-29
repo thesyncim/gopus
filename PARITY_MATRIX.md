@@ -142,7 +142,7 @@ Valid sizes depend on mode (`encoder.ValidFrameSize`). Compliance summary uses 4
 | RTP RED | Y | Y | Y (public `container/red`: RFC 2198 `Parse`/`Build`/`FindRecovery` + fuzz corpus) | RTP RED is outside libopus's core API; recovery ordering (RED→FEC→DRED→PLC) shown in `examples/webrtc-dred-loopback` |
 | DRED extension | T | T | ~ (process/queue/window oracles; explicit decode partial) | SILK explicit decoder; 16 kHz; stereo carriers; live-sequence vs cached oracle; multistream encoder attach |
 | Cached DRED recovery | T | — | ~ (48 kHz mono/stereo probes) | 16 kHz cached matrices; CELT NB/SWB explicit; hybrid stereo half-byte divergence |
-| Multi-gap recovery | T | — | ~ (recovery queue/window parity) | Long burst trains; cross-mode handover; multistream per-stream queues |
+| Multi-gap recovery | T | — | Y (long burst trains bit-exact; multistream per-stream queues corr=1.0; cross-mode handover structurally exact — ret/Blend/LossCount) | Cross-mode (SILK/Hybrid→CELT) DRED-recovery PCM corr≈0.97: SILK feeds different LPCNet spectral features to the concealment bridge (16k CELT-PLC feature gap) |
 
 Recovery ordering in the WebRTC example: **RED → FEC → DRED → PLC** (example only).
 
@@ -202,7 +202,7 @@ parity-coverage incomplete".
 | Feature | libopus 1.6 | gopus status | Kind | Plan for parity |
 | --- | --- | --- | --- | --- |
 | 24-bit encode/decode | `opus_encode24`/`opus_decode24` (+ multistream/projection) | **Y** — `EncodeInt24`/`DecodeInt24` single + multistream (SILK bit-exact, CELT/Hybrid near-exact per-arch) | implemented | DRED `DecodeInt24` once promoted |
-| DRED | `OpusDREDDecoder`, parse/process, decode24 | **T** — tagged control/standalone; explicit decode + carriers byte-exact across the merged grid | coverage incomplete | multi-gap burst trains; cross-mode handover |
+| DRED | `OpusDREDDecoder`, parse/process, decode24 | **T** — tagged control/standalone; explicit decode + carriers byte-exact; burst trains bit-exact; multistream per-stream queues corr=1.0 | coverage incomplete | cross-mode (SILK/Hybrid→CELT) recovery PCM corr≈0.97 (16k CELT-PLC feature gap) |
 | QEXT / Opus HD / 96 kHz | `--enable-qext`, `OPUS_SET_QEXT`, 96 kHz, ≤2 Mb/s | **T** — QEXT extension framing + CBR reservation + multistream QEXT byte-parity (CBR reservation bug fixed) / **N** 96 kHz API | coverage incomplete (main CELT-frame bytes = the byte-exact-encode cell) + 96 kHz out of public scope | 96 kHz Opus HD **not** offered at the public API |
 | OSCE BWE | `--enable-osce`, runtime BWE, complexity ≥4 | **T** — end-to-end sample parity near-exact (corr ≥ 0.9955) with a documented architectural −8-sample BWE delay-buffer offset; forward-pass + feature-extractor bit/near-exact | implemented (tagged) | — |
 | LACE / NoLACE | deep enhancement (NoLACE+BWE) | **T** — end-to-end sample-level **bit-exact** (Q=100, corr=1.0) mono+stereo + multistream per-stream | implemented (tagged) | — |
