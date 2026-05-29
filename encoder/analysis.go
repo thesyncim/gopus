@@ -16,7 +16,10 @@ const (
 	DetectSize             = 100
 	transitionPenalty      = float32(10.0)
 	celtSigScale           = float32(32768.0)
-	analysisFFTEnergyScale = float32(1.0 / (480.0 * 480.0))
+	// The FFT output is now normalised by 1/480 inside fft480 (matching
+	// libopus opus_fft), so SCALE_ENER reduces to libopus' (1/32768/32768);
+	// the 1/480^2 is no longer folded in here.
+	analysisFFTEnergyScale = float32(1.0)
 	analysisAtanScale      = float32(0.5 / math.Pi)
 	analysisPi4            = float32(math.Pi * math.Pi * math.Pi * math.Pi)
 	analysisAtanCA         = float32(0.43157974)
@@ -537,9 +540,20 @@ func (s *TonalityAnalysisState) SetLSBDepth(depth int) {
 	s.LSBDepth = int32(depth)
 }
 
-// fft480 computes a 480-point complex forward FFT using the shared CELT KISS FFT.
+// analysisFFTScale is libopus opus_fft()'s float normalisation: st->scale =
+// 1.f/nfft, applied per output element (S_MUL2(x, scale)) before the FFT
+// recursion (celt/kiss_fft.c lines 478, 631-632). gopus' analysis must apply
+// the same scale at the same point so the FFT outputs feeding fast_atan2f and
+// the band-energy accumulators round identically to libopus; folding the
+// 1/480^2 into the energy scale instead (the previous approach) squares the
+// raw, unnormalised output and rounds at a different point, which the arm64
+// fused-multiply-add path then amplifies through the scale-sensitive atan2.
+const analysisFFTScale = float32(1.0 / 480.0)
+
+// fft480 computes a 480-point complex forward FFT using the shared CELT KISS
+// FFT, applying libopus' 1/nfft output normalisation exactly as opus_fft().
 func fft480(out, in *[480]complex64, scratch []celt.KissCpx) {
-	celt.KissFFT32ToWithScratch(out[:], in[:], scratch)
+	celt.KissFFT32ToScaledWithScratch(out[:], in[:], analysisFFTScale, scratch)
 }
 
 func analysisSpecVariability(logE *[NbFrames][NbTBands]float32) float32 {

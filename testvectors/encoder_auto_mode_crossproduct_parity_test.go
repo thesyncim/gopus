@@ -12,28 +12,11 @@
 // mode label (silk / hybrid / celt) for every frame.
 //
 // Reference: libopus 1.6.1 src/opus_encoder.c lines 1466–1695.
-//
-// # Known arm64 residual
-//
-// Two cells are documented residuals on darwin/arm64 only:
-//
-//	VOIP / 64000 bps / 10 ms / signal=AUTO / ch=1  (hybrid vs celt after frame 2)
-//	VOIP / 64000 bps / 10 ms / signal=AUTO / ch=2  (hybrid vs celt after frame 2)
-//
-// Root cause: the tonality-analysis frontend accumulates 1-ULP floating-point
-// differences on arm64 NEON over successive frames. By frame 2 the accumulated
-// voice_ratio in gopus is ~2–5 higher than in libopus (darwin/arm64 arm_neon
-// FMA rounding vs C compiler output), which pushes the interpolated mode
-// threshold above the equiv_rate and selects SILK+FB = Hybrid instead of CELT.
-// The decision logic itself is correct (all other 214 cells match exactly).
-// amd64 CI is green for these cells. This is the same per-arch 1-ULP budget
-// documented in project_arm64_celt_1ulp_drift.md.
 package testvectors
 
 import (
 	"fmt"
 	"math"
-	"runtime"
 	"sync"
 	"testing"
 
@@ -442,21 +425,6 @@ func TestEncoderAutoModeCrossProductParity(t *testing.T) {
 
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-
-			// Skip known arm64-only analysis-drift residuals.
-			// These two cells diverge because the tonality-analysis frontend
-			// accumulates 1-ULP NEON FMA differences over frames, making the
-			// arm64 voice_ratio slightly higher than libopus, which pushes the
-			// interpolated mode threshold above equiv_rate → SILK+FB = Hybrid
-			// instead of CELT. amd64 CI is green. Decision logic is correct.
-			// Reference: project_arm64_celt_1ulp_drift.md.
-			if runtime.GOARCH == "arm64" &&
-				k.application == opusApplicationVoIP &&
-				k.bitrate == 64000 &&
-				k.frameSize == 480 &&
-				k.signal == opusSignalAuto {
-				t.Skip("arm64-only analysis-drift residual: voip/br64000/fs480/signal=auto")
-			}
 
 			// Build the gopus encoder with the same settings as the C oracle.
 			enc := newCrossProductEncoder(c.sampleRate, c.channels, c.bitrate,

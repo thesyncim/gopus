@@ -3279,14 +3279,20 @@ func (e *Encoder) updateOpusVADRes(pcm []opusRes, frameSize int) {
 	analysisValid := false
 	analysisProb := float32(1.0)
 
+	// libopus opus_encoder.c derives the Opus-level VAD activity from the
+	// already-computed analysis_info (run_analysis result carried into
+	// opus_encode_frame_native); it never re-runs the tonality analysis here.
+	// Re-running RunAnalysis would mutate the analyzer (advance write_pos and the
+	// read cursor, re-buffer the same PCM), desynchronising curr_lookahead for
+	// the next frame's mode-decision tonality_get_info. Reuse the last analysis
+	// snapshot exactly as libopus reuses analysis_info.
 	if e.lastAnalysisFresh {
 		e.lastAnalysisFresh = false
 		analysisValid = e.lastAnalysisValid
 		analysisProb = e.lastAnalysisInfo.VADProb
-	} else if e.analyzer != nil {
-		info := e.analyzer.RunAnalysis(pcm, frameSize, int(e.channels))
-		analysisValid = info.Valid
-		analysisProb = info.VADProb
+	} else if e.lastAnalysisValid {
+		analysisValid = true
+		analysisProb = e.lastAnalysisInfo.VADProb
 	}
 
 	// Match libopus peak signal energy tracking in opus_encoder.c.

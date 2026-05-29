@@ -34,9 +34,18 @@ func TestUpdateOpusVADReusesFreshAnalysis(t *testing.T) {
 		t.Fatal("expected valid Opus VAD after consuming fresh analysis")
 	}
 
+	// libopus opus_encoder.c never re-runs the tonality analysis in the VAD
+	// path: opus_encode_frame_native() derives activity from the analysis_info
+	// produced once per frame by run_analysis(). A second updateOpusVADRes call
+	// without a fresh analysis must therefore reuse the last valid snapshot and
+	// must NOT advance the analyzer (re-running RunAnalysis would mutate
+	// write_pos/read cursor and desynchronise the next frame's curr_lookahead).
 	enc.updateOpusVADRes(pcmRes, frameSize)
-	if enc.analyzer.Count <= countBefore {
-		t.Fatalf("expected fallback analyzer run on second updateOpusVAD call, countBefore=%d countAfter=%d", countBefore, enc.analyzer.Count)
+	if enc.analyzer.Count != countBefore {
+		t.Fatalf("second updateOpusVAD call must not advance analyzer: countBefore=%d countAfter=%d", countBefore, enc.analyzer.Count)
+	}
+	if !enc.lastOpusVADValid {
+		t.Fatal("expected reused valid Opus VAD on second call")
 	}
 }
 
