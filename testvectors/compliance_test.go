@@ -40,7 +40,12 @@ var decoderComplianceLogOnce sync.Once
 var vectorResultCache sync.Map
 var pcmFileCache sync.Map
 
-const decoderComplianceMinQ = 0.0
+// decoderComplianceBar is the RFC 8251 conformance floor expressed as a
+// canonical QualityBar. RFC 8251 requires opus_compare Q >= 0 against at least
+// one reference, with no secondary correlation/RMS criteria, so only MinQ is
+// gated here (corr/RMS left unchecked). This reproduces the prior
+// decoderComplianceMinQ = 0.0 pass/fail logic exactly.
+var decoderComplianceBar = QualityBar{MinQ: 0.0, Desc: "RFC 8251 conformance floor (Q>=0)"}
 
 func logDecoderComplianceStatus(t *testing.T) {
 	decoderComplianceLogOnce.Do(func() {
@@ -652,8 +657,12 @@ func runVectorSilent(name string) vectorResult {
 		}
 	}
 
-	// 7. Pass if either Q >= 0
-	result.passed = result.q1 >= decoderComplianceMinQ || (referenceAlt != nil && result.q2 >= decoderComplianceMinQ)
+	// 7. Pass if either reference clears the RFC 8251 conformance floor.
+	// A vector passes when the QualityBar reports no failures (empty slice)
+	// for at least one reference, matching the prior "either Q >= 0" rule.
+	passesDec := len(decoderComplianceBar.Check(QualityComparison{Q: result.q1})) == 0
+	passesAlt := referenceAlt != nil && len(decoderComplianceBar.Check(QualityComparison{Q: result.q2})) == 0
+	result.passed = passesDec || passesAlt
 
 	return result
 }

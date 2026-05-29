@@ -90,13 +90,13 @@ func TestOwnEncoderDecoder(t *testing.T) {
 		t.Fatal("no samples to compare")
 	}
 
-	q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(decF32[:compareLen], origF32[:compareLen], sampleRate, 1, 2000)
+	cmp, err := CompareDecodedFloat32(decF32[:compareLen], origF32[:compareLen], sampleRate, 1, 2000)
 	if err != nil {
 		t.Fatalf("compute opus_compare quality: %v", err)
 	}
-	t.Logf("Quality: Q=%.2f (delay=%d samples)", q, delay)
 
-	if q < 0 {
-		t.Errorf("quality too low: Q=%.2f", q)
-	}
+	// Outcome preserved: the original gate was opus_compare Q >= 0 only (no
+	// secondary corr/RMS checks), i.e. the RFC-8251 conformance floor.
+	bar := QualityBar{MinQ: 0.0, Desc: "RFC 8251 conformance floor (Q>=0)"}
+	AssertQuality(t, cmp, bar, "own celt encode/decode quality")
 }

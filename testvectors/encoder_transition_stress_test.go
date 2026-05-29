@@ -130,22 +130,22 @@ func TestEncoderModeSwitchStreamQuality(t *testing.T) {
 	if len(decoded) < compareLen {
 		compareLen = len(decoded)
 	}
-	q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(decoded[:compareLen], signal[:compareLen], sampleRate, channels, 2*frameSize)
+	cmp, err := CompareDecodedFloat32(decoded[:compareLen], signal[:compareLen], sampleRate, channels, 2*frameSize)
 	if err != nil {
 		t.Fatalf("compute opus_compare quality for mode transitions: %v", err)
 	}
-	if math.IsNaN(q) || math.IsInf(q, 0) {
-		t.Fatalf("invalid quality for mode transitions: q=%v", q)
+	if math.IsNaN(cmp.Q) || math.IsInf(cmp.Q, 0) {
+		t.Fatalf("invalid quality for mode transitions: q=%v", cmp.Q)
 	}
 	inRMS := rmsFloat32(signal[:compareLen])
-	outRMS := rmsFloat32(decoded[:compareLen])
-	ratio := 0.0
+	t.Logf("mode-transition quality: q=%.2f delay=%d rmsRatio=%.3f", cmp.Q, cmp.BestDelay, cmp.RMSRatio)
+	// Outcome preserved: this stress test gates only on output/input energy
+	// ratio (mode-transition energy regression), not on opus_compare Q. The bar
+	// leaves MinQ/corr unchecked and bounds RMS exactly as before. Guarded on
+	// inRMS > 0 to match the original (no energy gate for a silent reference).
 	if inRMS > 0 {
-		ratio = outRMS / inRMS
-	}
-	t.Logf("mode-transition quality: q=%.2f delay=%d rmsRatio=%.3f", q, delay, ratio)
-	if inRMS > 0 && (ratio < 0.05 || ratio > 5.0) {
-		t.Fatalf("mode-transition energy regression: q=%.2f delay=%d rmsRatio=%.3f", q, delay, ratio)
+		bar := QualityBar{MinQ: math.Inf(-1), RMSLo: 0.05, RMSHi: 5.0, Desc: "mode-transition energy regression (RMS ratio only)"}
+		AssertQuality(t, cmp, bar, "mode-transition energy")
 	}
 }
 
@@ -215,22 +215,22 @@ func TestLongFrameAbove960StabilityMatrix(t *testing.T) {
 			if len(decoded) < compareLen {
 				compareLen = len(decoded)
 			}
-			q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(decoded[:compareLen], signal[:compareLen], 48000, tc.channels, tc.frameSize)
+			cmp, err := CompareDecodedFloat32(decoded[:compareLen], signal[:compareLen], 48000, tc.channels, tc.frameSize)
 			if err != nil {
 				t.Fatalf("compute opus_compare quality: %v", err)
 			}
-			if math.IsNaN(q) || math.IsInf(q, 0) {
-				t.Fatalf("invalid quality result: q=%v", q)
+			if math.IsNaN(cmp.Q) || math.IsInf(cmp.Q, 0) {
+				t.Fatalf("invalid quality result: q=%v", cmp.Q)
 			}
-			t.Logf("long-frame stability quality: q=%.2f delay=%d", q, delay)
+			t.Logf("long-frame stability quality: q=%.2f delay=%d rmsRatio=%.3f", cmp.Q, cmp.BestDelay, cmp.RMSRatio)
 
+			// Outcome preserved: this stability test gates only on output/input
+			// energy ratio, not on opus_compare Q. MinQ/corr left unchecked, RMS
+			// bounded exactly as before, guarded on inRMS > 0.
 			inRMS := rmsFloat32(signal[:compareLen])
-			outRMS := rmsFloat32(decoded[:compareLen])
 			if inRMS > 0 {
-				ratio := outRMS / inRMS
-				if ratio < 0.20 || ratio > 2.20 {
-					t.Fatalf("long-frame RMS ratio out of bounds: ratio=%.3f in=%.6f out=%.6f", ratio, inRMS, outRMS)
-				}
+				bar := QualityBar{MinQ: math.Inf(-1), RMSLo: 0.20, RMSHi: 2.20, Desc: "long-frame stability (RMS ratio only)"}
+				AssertQuality(t, cmp, bar, "long-frame stability energy")
 			}
 		})
 	}

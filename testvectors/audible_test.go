@@ -129,12 +129,13 @@ func TestAudioAudibility(t *testing.T) {
 	}
 
 	// Align before scoring to avoid penalizing codec lookahead/pre-skip drift.
-	q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(decoded[:compareLen], pcm[:compareLen], sampleRate, 1, frameSize)
+	cmp, err := CompareDecodedFloat32(decoded[:compareLen], pcm[:compareLen], sampleRate, 1, frameSize)
 	if err != nil {
 		t.Fatalf("compute opus_compare quality: %v", err)
 	}
+	q := cmp.Q
 	t.Logf("\n=== AUDIO QUALITY RESULTS ===")
-	t.Logf("Quality: Q=%.2f (delay=%d samples)", q, delay)
+	t.Logf("Quality: Q=%.2f (delay=%d samples)", q, cmp.BestDelay)
 
 	if q > 90 {
 		t.Logf("Status: EXCELLENT - Audio is clearly audible and high quality")
@@ -155,10 +156,10 @@ func TestAudioAudibility(t *testing.T) {
 		t.Logf("Opus:     opusdec %s - | play -", opusFile)
 	}
 
-	// Fail if perceptual quality is below the RFC/libopus pass line.
-	if q < 0 {
-		t.Errorf("audio quality too low: Q=%.2f (expected >= 0)", q)
-	}
+	// Outcome preserved: the original gate was opus_compare Q >= 0 only (the
+	// RFC-8251 / libopus pass line), with no secondary corr/RMS checks.
+	bar := QualityBar{MinQ: 0.0, Desc: "RFC 8251 conformance floor (Q>=0)"}
+	AssertQuality(t, cmp, bar, "audible encode/decode quality")
 }
 
 func avgSize(packets [][]byte) float64 {
