@@ -66,6 +66,7 @@ type Decoder struct {
 	prevRedundancy     bool
 	prevPacketStereo   bool
 	haveDecoded        bool
+	bandwidthKnown     bool   // true once a non-PLC packet has been decoded (gates Bandwidth() vs 0)
 	redundantRng       uint32 // Range from redundancy decoding, XORed with final range
 	lastDataLen        int32  // Length of last packet data
 	mainDecodeRng      uint32 // Final range from main decode (before any redundancy processing)

@@ -384,6 +384,7 @@ func (d *Decoder) decodeFECFrame(pcm []float32, requestedFrameSize int) (int, er
 	d.prevMode = d.fecMode
 	d.lastPacketMode = d.fecMode
 	d.lastBandwidth = d.fecBandwidth
+	d.bandwidthKnown = true
 	d.prevPacketStereo = d.fecStereo
 	d.lastFrameSize = int32(packetFrameSize)
 	d.lastPacketDuration = int32(frameSize)

@@ -235,6 +235,7 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	d.lastFrameSize = int32(frameSize)
 	d.lastPacketDuration = int32(totalSamples)
 	d.lastBandwidth = toc.Bandwidth
+	d.bandwidthKnown = true
 	d.lastPacketMode = toc.Mode
 	d.lastDataLen = int32(len(data))
 

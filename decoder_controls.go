@@ -14,6 +14,7 @@ func (d *Decoder) Reset() {
 	d.prevMode = ModeHybrid
 	d.lastPacketMode = ModeHybrid
 	d.lastBandwidth = BandwidthFullband
+	d.bandwidthKnown = false
 	d.prevRedundancy = false
 	d.prevPacketStereo = false
 	d.haveDecoded = false
@@ -130,7 +131,16 @@ func silkPitchScale(bandwidth Bandwidth) int {
 }
 
 // Bandwidth returns the bandwidth of the last successfully decoded packet.
+//
+// Returns 0 before any non-PLC packet has been decoded, matching libopus
+// OPUS_GET_BANDWIDTH which returns st->bandwidth (zeroed by OPUS_CLEAR at init
+// and after OPUS_RESET_STATE).
+//
+// C ref: opus_decoder.c OPUS_GET_BANDWIDTH_REQUEST → "*value = st->bandwidth"
 func (d *Decoder) Bandwidth() Bandwidth {
+	if !d.bandwidthKnown {
+		return 0
+	}
 	return d.lastBandwidth
 }
 
