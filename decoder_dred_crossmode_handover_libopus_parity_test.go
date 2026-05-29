@@ -23,14 +23,20 @@ package gopus
 // schedule come from the carrier packet's DRED extension (opus_dred_process,
 // dred_decoder.c), not from the prior mode's state.
 //
-// Known cross-mode PCM residual (documented):
-// After a SILK→CELT mode handover, gopus's LPCNet FARGAN/PLC state diverges
-// from libopus at corr≈0.97 (measured, consistent across decoder rates). Root
-// cause: the SILK decoder feeds slightly different spectral features to the
-// LPCNet bridge than libopus does. This is the documented "16k CELT PLC gap"
-// residual (MEMORY.md). Internal-state oracle checks (Blend, LossCount,
-// FEC cursor) are STRUCTURALLY correct; only the float32 feature vectors
-// diverge. The test asserts structural correctness and logs the PCM quality.
+// Cross-mode PCM parity (bit-exact):
+// After a SILK/Hybrid→CELT mode handover, gopus's recovered DRED PCM is
+// bit-exact (corr=1.0) against the libopus oracle.
+//
+// Root cause of the prior corr≈0.97 residual (now fixed): on a SILK/Hybrid→CELT
+// switch libopus decodes a 5 ms transition PLC frame via opus_decode_frame(NULL)
+// in the previous (SILK/Hybrid) mode (opus_decoder.c:387-390). When deep PLC /
+// DRED is enabled, that transition PLC frame runs silk_PLC_conceal, which
+// advances the LPCNet PLC state by one lpcnet_plc_conceal() frame
+// (silk/PLC.c:400-405, run_deep_plc = enable_deep_plc). gopus previously ran the
+// transition PLC frame without driving the DRED neural concealment hook, leaving
+// the LPCNet PCM history / continuity state one concealed frame behind, which
+// surfaced as a one-frame buffer shift (corr≈0.97). The transition decode now
+// installs the DRED deep-PLC hook so the LPCNet state is advanced identically.
 
 import (
 	"fmt"
@@ -175,8 +181,8 @@ func assertCrossModeHandoverDecodeRouting(t *testing.T, label string, seedMode M
 }
 
 // logCrossModeHandoverPCMQuality compares gopus and libopus cross-mode
-// concealed audio and logs the quality.  Gate is relaxed to ≥0.95 to detect
-// regressions while documenting the ≈0.97 nominal residual (SILK→CELT).
+// concealed audio and logs the quality.  Cross-mode DRED recovery is bit-exact
+// against the libopus oracle (corr=1.0); the gate enforces corr≥0.997.
 func logCrossModeHandoverPCMQuality(t *testing.T, got, want []float32, sampleRate int, label string) {
 	t.Helper()
 	if len(got) != len(want) || len(got) == 0 {
@@ -195,10 +201,10 @@ func logCrossModeHandoverPCMQuality(t *testing.T, got, want []float32, sampleRat
 		t.Logf("%s: compare error: %v", label, err)
 		return
 	}
-	t.Logf("%s: Q=%.2f delay=%d corr=%.6f rms=%.4f (cross-mode residual: SILK/Hybrid seed ≈ 0.97, 16k CELT PLC gap, see MEMORY.md)", label, cmp.Q, cmp.BestDelay, cmp.Corr, cmp.RMSRatio)
-	// Regression gate: catch any future regression below the known residual floor
-	if cmp.Corr < 0.90 {
-		t.Errorf("%s: corr=%.5f below regression gate 0.90 (nominal ≈ 0.97)", label, cmp.Corr)
+	t.Logf("%s: Q=%.2f delay=%d corr=%.6f rms=%.4f (cross-mode DRED recovery is bit-exact vs libopus oracle)", label, cmp.Q, cmp.BestDelay, cmp.Corr, cmp.RMSRatio)
+	// Cross-mode DRED recovery matches the libopus oracle bit-exactly (corr=1.0).
+	if cmp.Corr < 0.997 {
+		t.Errorf("%s: corr=%.5f below gate 0.997 (cross-mode DRED recovery is bit-exact)", label, cmp.Corr)
 	}
 }
 

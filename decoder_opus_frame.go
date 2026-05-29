@@ -303,6 +303,18 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			if len(d.scratchTransition) < transSize*channels {
 				return 0, ErrBufferTooSmall
 			}
+			// libopus opus_decoder.c:387-390 decodes a 5 ms transition frame via
+			// opus_decode_frame(NULL) using the previous (SILK/Hybrid) mode. When
+			// deep PLC / DRED is enabled, that PLC frame runs silk_PLC_conceal,
+			// which advances the LPCNet PLC state via lpcnet_plc_conceal()
+			// (silk/PLC.c:400-405, run_deep_plc = enable_deep_plc). Route the
+			// transition PLC through the DRED neural concealment hook so the
+			// LPCNet PCM history / continuity state is advanced by the same one
+			// concealed frame before DRED recovery begins.
+			cleanupHook := func() {}
+			if d.prevMode != ModeCELT && d.dredNeuralConcealmentAvailable() {
+				cleanupHook, _ = d.beginHybridDREDLowbandHook()
+			}
 			n, err := d.decodeOpusFrameIntoWithStatePolicy(
 				d.scratchTransition,
 				nil,
@@ -313,6 +325,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 				packetStereoLocal,
 				useDecoderPLCState,
 			)
+			cleanupHook()
 			if err != nil {
 				return 0, err
 			}
