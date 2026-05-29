@@ -42,6 +42,14 @@ const (
 
 	// Maximum SILK packet size in bytes (libopus MAX_DATA_BYTES).
 	maxSilkPacketBytes = 1275
+
+	// libopusMaxDataBytesCap mirrors opus_encoder.c opus_encode_native():
+	//   max_data_bytes = IMIN(orig_max_data_bytes, 1276)
+	// The SILK maxBits budget for the primary frame is (max_data_bytes-1)*8 and the
+	// CELT nb_compr_bytes budget is (max_data_bytes-1)-redundancy_bytes, so the
+	// VBR/CVBR rate-control loops see a 1276-byte cap rather than the 1275-byte
+	// RFC Opus packet limit.
+	libopusMaxDataBytesCap = 1276
 )
 
 // CVBR tolerance (percentage)

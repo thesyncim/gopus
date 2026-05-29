@@ -963,7 +963,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 				e.bitrate = encodingBitrate
 			}
 			dredNoDecision := e.dredEncodingActive() && !e.lastOpusVADValid
-			frameData, err = e.encodeHybridFrameWithMaxPacketAndTransition(framePCM, celtPCM, lookaheadSlice, frameSize, maxPacketBytes, dredBitrate, false, true, transitionToCELT, false)
+			frameData, err = e.encodeHybridFrameWithMaxPacketAndTransition(framePCM, celtPCM, lookaheadSlice, frameSize, maxPacketBytes, maxDataBytes, dredBitrate, false, true, transitionToCELT, false)
 			if encodingBitrate != originalBitrate {
 				e.bitrate = originalBitrate
 			}
@@ -2597,9 +2597,12 @@ func (e *Encoder) silkMaxBits(frameSize, silkBitrate, originalBitrate, dredBitra
 	maxBytes := targetBytes
 	switch e.bitrateMode {
 	case ModeVBR:
-		maxBytes = maxSilkPacketBytes
+		// libopus opus_encoder.c line 2155: silk_mode.maxBits = (max_data_bytes-1)*8
+		// with max_data_bytes = IMIN(orig_max_data_bytes, 1276). The SILK VBR
+		// rate-control loop's bits_margin/exit conditions key off this budget.
+		maxBytes = libopusMaxDataBytesCap
 	case ModeCVBR:
-		maxBytes = maxSilkPacketBytes
+		maxBytes = libopusMaxDataBytesCap
 	}
 	maxBits := silkPayloadMaxBits(maxBytes)
 	if e.bitrateMode == ModeCBR && dredBitrate > 0 {
@@ -2984,7 +2987,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes,
 		prevPacketMode := e.prevPacketMode
 		runCELTTransitionPrefill := i == 0 && !e.lowDelay && isConcreteMode(prevPacketMode) && prevPacketMode != ModeHybrid
 		subframeToCELT := transitionToCELT && i == frameCount-1
-		frameData, err := e.encodeHybridFrameWithMaxPacketAndTransition(subPCM, subCELTPCM, subLookahead, 960, currMax, dredBitrate, true, allowTransitionRedundancy, subframeToCELT, runCELTTransitionPrefill)
+		frameData, err := e.encodeHybridFrameWithMaxPacketAndTransition(subPCM, subCELTPCM, subLookahead, 960, currMax, 0, dredBitrate, true, allowTransitionRedundancy, subframeToCELT, runCELTTransitionPrefill)
 		if err != nil {
 			e.bitrate = savedBitrate
 			return nil, err

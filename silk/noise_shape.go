@@ -1,5 +1,7 @@
 package silk
 
+import "math"
+
 // Noise shaping analysis constants from libopus tuning_parameters.h
 // These control the spectral shaping of quantization noise.
 const (
@@ -245,9 +247,16 @@ func (s *NoiseShapeState) ComputeNoiseShapeParams(
 	return params
 }
 
-// Sigmoid computes the sigmoid function: 1 / (1 + exp(-x))
+// Sigmoid computes the sigmoid function: 1 / (1 + exp(-x)).
+//
+// Reference: libopus silk/float/SigProc_FLP.h silk_sigmoid():
+//
+//	return (silk_float)( 1.0 / ( 1.0 + exp( -x ) ) );
+//
+// The exp() and the reciprocal are evaluated in double precision, with a single
+// round-to-float32 on the final result, matching the C cast semantics.
 func Sigmoid(x float32) float32 {
-	return 1.0 / (1.0 + expF32(-x))
+	return float32(1.0 / (1.0 + math.Exp(float64(-x))))
 }
 
 // sqrt32 computes sqrt(x) for float32

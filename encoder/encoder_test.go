@@ -742,20 +742,32 @@ func TestBitrateModeCVBR(t *testing.T) {
 	enc.SetBitrate(64000)
 
 	target := 160 // bytes for 20ms at 64kbps
-	maxSize := int(float32(target) * (1 + encoder.CVBRTolerance))
+	// In hybrid mode libopus always disables the CELT VBR constraint
+	// (opus_encoder.c line 2455); the constraint is applied via SILK maxBits while
+	// the CELT sub-encoder receives the full nb_compr_bytes budget and its
+	// compute_vbr reservoir picks the per-frame size, allowing single-frame spikes
+	// up to roughly 2x base_target (celt_encoder.c compute_vbr: IMIN(2*base_target,
+	// target)). Bound individual packets at 2x base and assert the CVBR envelope on
+	// the average instead of a hard per-frame +15% cap.
+	maxSize := 2 * target
+	totalBytes := 0
+	const nFrames = 10
 
-	// Encode multiple frames
-	for i := 0; i < 10; i++ {
+	for i := 0; i < nFrames; i++ {
 		pcm := generateVariableSignal(960, i)
 		packet, err := encodeTest(enc, pcm, 960)
 		if err != nil {
 			t.Fatalf("Encode frame %d failed: %v", i, err)
 		}
-
-		// CVBR: packets should stay below the tolerance cap.
+		totalBytes += len(packet)
 		if len(packet) > maxSize {
 			t.Errorf("CVBR packet %d: %d bytes > max %d bytes", i, len(packet), maxSize)
 		}
+	}
+	avg := float64(totalBytes) / float64(nFrames)
+	if avg > float64(target)*(1+float64(encoder.CVBRTolerance)) {
+		t.Errorf("CVBR average %.1f bytes exceeds +%.0f%% envelope around target %d",
+			avg, float64(encoder.CVBRTolerance)*100, target)
 	}
 }
 

@@ -104,7 +104,7 @@ type HybridState struct {
 // encodeHybridFrameWithMaxPacketAndTransition allows callers assembling long packets
 // to gate CELT transition redundancy/prefill to the correct 20ms subframe,
 // matching libopus multi-frame cadence.
-func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, celtPCM []opusRes, lookahead []opusRes, frameSize int, maxPacketBytes int, dredBitrate int, hardMaxPacketBytes bool, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) ([]byte, error) {
+func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, celtPCM []opusRes, lookahead []opusRes, frameSize int, maxPacketBytes int, maxDataBytes int, dredBitrate int, hardMaxPacketBytes bool, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) ([]byte, error) {
 	// Validate: only 480 (10ms) or 960 (20ms) for hybrid
 	if frameSize != 480 && frameSize != 960 {
 		return nil, ErrInvalidHybridFrameSize
@@ -144,7 +144,27 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 
 	// Compute target buffer size based on bitrate mode.
 	// baseTargetBytes includes the TOC byte; payloadTarget is the shared range payload.
+	//
+	// Per libopus opus_encoder.c: max_data_bytes = IMIN(orig_max_data_bytes, 1276),
+	// and for non-SILK-only modes nb_compr_bytes = (max_data_bytes-1) - redundancy_bytes
+	// (line 2392) is the byte budget handed to the CELT sub-encoder. The CELT VBR
+	// reservoir (compute_vbr) then chooses the actual per-frame size from within that
+	// full budget. For unconstrained/constrained VBR the budget is therefore the caller
+	// buffer (clamped to 1276), NOT the nominal bitrate-derived size. SILK rate control
+	// stays nominal because compute_silk_rate_for_hybrid clamps bits_target to
+	// bitrate_to_bits() regardless of the larger byte budget (line 1960).
 	baseTargetBytes := targetBytesForBitrate(int(e.bitrate), frameSize)
+	if e.bitrateMode != ModeCBR && maxPacketBytes == 0 {
+		// libopus max_data_bytes = IMIN(orig_max_data_bytes, 1276).
+		opusMaxDataBytes := maxDataBytes
+		if opusMaxDataBytes <= 0 {
+			opusMaxDataBytes = maxHybridPacketSize + 1
+		}
+		if opusMaxDataBytes > maxHybridPacketSize+1 {
+			opusMaxDataBytes = maxHybridPacketSize + 1
+		}
+		baseTargetBytes = opusMaxDataBytes
+	}
 	if maxPacketBytes > 0 {
 		baseTargetBytes = maxPacketBytes
 	}
@@ -193,34 +213,13 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		payloadTargetMain = 1
 	}
 
+	// In libopus the CELT sub-encoder is handed nb_compr_bytes = (max_data_bytes-1) -
+	// redundancy_bytes via ec_enc_shrink() (opus_encoder.c line 2392/2413). That is
+	// payloadTargetMain here (payloadTarget already excludes the TOC byte). The CELT
+	// VBR reservoir (compute_vbr) then chooses the actual per-frame size from within
+	// that budget, so the range-encoder limit is the full nb_compr_bytes for every
+	// VBR/CVBR frame, not a soft multiple of the nominal bitrate target.
 	maxTargetBytes := payloadTargetMain
-	switch e.bitrateMode {
-	case ModeCBR:
-		maxTargetBytes = payloadTargetMain
-	case ModeCVBR, ModeVBR:
-		if hardMaxPacketBytes {
-			// Long-packet callers pass libopus-style curr_max values, which are
-			// hard per-subframe range limits rather than soft VBR targets.
-			maxTargetBytes = payloadTargetMain
-		} else {
-			// Allow up to 2x target for both VBR and CVBR. In libopus, the
-			// range encoder buffer is large (up to 1275 bytes) regardless of
-			// CVBR mode. The CELT encoder's internal CVBR reservoir tracking
-			// constrains actual byte usage per frame.
-			maxAllowed := baseTargetBytes * 2
-			if maxAllowed < 2 {
-				maxAllowed = 2
-			}
-			// Reserve one extra byte to account for range coder end bits.
-			maxTargetBytes = maxAllowed - 2
-		}
-	}
-	if redundancyBytes > 0 {
-		maxTargetBytes -= redundancyBytes
-	}
-	if maxTargetBytes < payloadTargetMain {
-		maxTargetBytes = payloadTargetMain
-	}
 	if maxTargetBytes > maxHybridPacketSize-1 {
 		maxTargetBytes = maxHybridPacketSize - 1
 	}
@@ -482,8 +481,15 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		e.celtEncoder.SetBitrate(celtBitrate)
 	}
 	e.celtEncoder.SetLSBDepth(int(e.lsbDepth))
+	// Per libopus opus_encoder.c line 2392/2493: the CELT sub-encoder is given the
+	// full nb_compr_bytes budget (= maxTargetBytes = payloadTargetMain) and its VBR
+	// reservoir (compute_vbr, celt_encoder.c) picks the actual size from within it.
+	// For every VBR/CVBR frame we therefore run the final-VBR-target reservoir path
+	// (computeHybridCELTVBRTargetBytes) with the full budget as the limit, rather
+	// than constraining CELT to the nominal bitrate-derived size. CBR keeps the
+	// fixed packet-level shrink behavior.
 	hybridCELTTargetBytes := payloadTargetMain
-	useFinalHybridVBRTarget := hardMaxPacketBytes
+	useFinalHybridVBRTarget := e.bitrateMode != ModeCBR
 	if useFinalHybridVBRTarget {
 		hybridCELTTargetBytes = maxTargetBytes
 	}
@@ -1893,15 +1899,14 @@ func (e *Encoder) computeHybridCELTVBRTargetBytes(limitBytes, frameSize int, tfE
 		lmDiff = 0
 	}
 
+	// Per libopus celt_encoder.c compute_vbr / celt_encode_with_ec line 2450:
+	// base_target = IMAX(0, vbr_rate - ((9*C+4)<<BITRES)) for hybrid, where C is the
+	// CELT stream channel count. This holds regardless of any SILK stereo-width
+	// collapse: CELT still codes its high band in stereo (stream_channels stays 2 in
+	// hybrid), so the per-channel overhead is unchanged.
 	vbrRateQ3 := e.celtEncoder.BitrateToBits(frameSize) << celt.BitRes
-	channels := int(e.channels)
+	channels := int(e.celtInternalChannelsForMode(ModeHybrid))
 	baseTargetQ3 := vbrRateQ3 - ((9*channels + 4) << celt.BitRes)
-	if e.channels == 2 && e.hybridState != nil && e.hybridState.silkStereoWidthQ14 == 0 {
-		// With duplicated stereo content, SILK can collapse the side channel.
-		// libopus then lets the already-coded side information and min_allowed
-		// drive the hybrid CELT size instead of adding a stereo high-band base.
-		baseTargetQ3 = 0
-	}
 	if baseTargetQ3 < 0 {
 		baseTargetQ3 = 0
 	}

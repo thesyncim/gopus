@@ -1,20 +1,25 @@
 // VBR and CVBR byte-parity tests against pinned libopus 1.6.1.
 //
 // (1) Unconstrained VBR: SetVBR(true), SetVBRConstraint(false) — encodes the
-//     same PCM through gopus and libopus across SILK/CELT/Hybrid × rates ×
-//     frame sizes and asserts byte-identical packets where libopus is
-//     deterministic on the current platform.
+//
+//	same PCM through gopus and libopus across SILK/CELT/Hybrid × rates ×
+//	frame sizes and asserts byte-identical packets where libopus is
+//	deterministic on the current platform.
 //
 // (2) CVBR: SetVBRConstraint(true) — asserts that per-frame packet-size
-//     sequences match libopus across a multi-frame stream. The CVBR
-//     reservoir/bound logic inside celt/encoder.go must track libopus exactly.
+//
+//	sequences match libopus across a multi-frame stream. The CVBR
+//	reservoir/bound logic inside celt/encoder.go must track libopus exactly.
 //
 // Reference: libopus src/opus_encoder.c opus_encode_native()
-//   use_vbr         = OPUS_GET_VBR                (default 1)
-//   constrained_vbr = OPUS_GET_VBR_CONSTRAINT      (default 0)
+//
+//	use_vbr         = OPUS_GET_VBR                (default 1)
+//	constrained_vbr = OPUS_GET_VBR_CONSTRAINT      (default 0)
+//
 // The CELT sub-encoder constrained-VBR reservoir logic lives in
-//   celt/celt_encoder.c opus_celt_encode_with_ec() around the
-//   vbr_offset / vbr_count / nb_bits_budget path.
+//
+//	celt/celt_encoder.c opus_celt_encode_with_ec() around the
+//	vbr_offset / vbr_count / nb_bits_budget path.
 package testvectors
 
 import (
@@ -43,11 +48,11 @@ const opusApplicationLowDelay = uint32(2051)
 
 // libopus OPUS_BANDWIDTH_* numeric constants.
 const (
-	opusBandwidthNB  = uint32(1101)
-	opusBandwidthMB  = uint32(1102)
-	opusBandwidthWB  = uint32(1103)
-	opusBandwidthSWB = uint32(1104)
-	opusBandwidthFB  = uint32(1105)
+	opusBandwidthNB   = uint32(1101)
+	opusBandwidthMB   = uint32(1102)
+	opusBandwidthWB   = uint32(1103)
+	opusBandwidthSWB  = uint32(1104)
+	opusBandwidthFB   = uint32(1105)
 	opusBandwidthAuto = uint32(0xFFFFFC18) // OPUS_AUTO = -1000 as two's-complement uint32
 )
 
@@ -85,9 +90,10 @@ func getVBRCVBREncodeHelperPath(t testing.TB) (string, bool) {
 // vbrCVBRRequest builds the oracle input buffer for one encode run.
 //
 // Wire layout (little-endian):
-//   "GVCI" u32(1) u32(mode) u32(application) u32(sampleRate) u32(channels)
-//   u32(frameSize) u32(bitrate) u32(bandwidth) u32(signal) u32(nFrames)
-//   then nFrames * frameSize * channels float32 samples.
+//
+//	"GVCI" u32(1) u32(mode) u32(application) u32(sampleRate) u32(channels)
+//	u32(frameSize) u32(bitrate) u32(bandwidth) u32(signal) u32(nFrames)
+//	then nFrames * frameSize * channels float32 samples.
 func buildVBRCVBRRequest(
 	mode, application uint32,
 	sampleRate, channels, frameSize, bitrate int,
@@ -265,15 +271,15 @@ func gopusApplicationToOpus(app gopus.Application) (uint32, bool) {
 // ---- test case definitions ---------------------------------------------------
 
 type vbrCVBRCase struct {
-	name        string
-	application gopus.Application
-	frameSize   int // samples at 48 kHz
-	channels    int
-	bitrate     int
-	bandwidth   types.Bandwidth
+	name         string
+	application  gopus.Application
+	frameSize    int // samples at 48 kHz
+	channels     int
+	bitrate      int
+	bandwidth    types.Bandwidth
 	setBandwidth bool // false = let encoder auto-select
-	signal      types.Signal
-	nFrames     int
+	signal       types.Signal
+	nFrames      int
 }
 
 // vbrTestCases returns the grid of cases for VBR parity:
@@ -464,7 +470,6 @@ func runVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 		tc.nFrames, mismatchLen, mismatchBytes, mismatchRange, firstMismatch)
 
 	if mismatchLen > 0 {
-		// Classify size mismatch by mode (based on case name prefix).
 		refLens := make([]int, len(refResults))
 		goLens := make([]int, len(goResults))
 		for i := range refResults {
@@ -473,34 +478,37 @@ func runVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 		}
 
 		isSILKCase := len(tc.name) >= 4 && tc.name[:4] == "silk"
-		isHybridCase := len(tc.name) >= 6 && tc.name[:6] == "hybrid"
 
-		switch {
-		case isSILKCase:
-			// SILK VBR residual: gopus SILK VBR rate-control (silk/enc_API.c
-			// SetMaxBits path) produces slightly different per-frame budgets
-			// than libopus. The sizes are similar but not byte-identical.
-			// Root cause: SILK internal VAD/pitch state accumulation diverges
-			// across frames, producing different useCBR=false path decisions.
-			t.Logf("SILK VBR SIZE residual (known): mismatch=%d/%d firstAt=%d\n  refLens=%v\n  gopusLens=%v",
-				mismatchLen, tc.nFrames, firstMismatch, refLens, goLens)
-
-		case isHybridCase:
-			// Hybrid VBR residual: in libopus, CELT receives nb_compr_bytes =
-			// (max_data_bytes-1) - redundancy_bytes as its range-encoder budget
-			// (opus_encoder.c line 2392), and the CELT VBR reservoir (compute_vbr /
-			// vbr_offset / vbr_count in celt_encoder.c) targets bitrate from within.
-			// In gopus, encodeCELTHybridImproved receives payloadTargetMain
-			// (the nominal bitrate-derived target), which constrains CELT to
-			// near-constant sizes instead of the wide VBR variation libopus produces.
-			t.Logf("Hybrid VBR SIZE residual (known): mismatch=%d/%d firstAt=%d\n  libopus sizes vary widely (VBR: full max_data_bytes budget to CELT)\n  gopus sizes near-constant (CELT gets payloadTargetMain budget)\n  refLens=%v\n  gopusLens=%v",
-				mismatchLen, tc.nFrames, firstMismatch, refLens, goLens)
-
-		default:
-			// CELT-only cases: size mismatches are hard failures.
+		// Hybrid (and CELT) per-frame packet SIZE parity is a HARD requirement.
+		// Hybrid hands the CELT sub-encoder the full nb_compr_bytes =
+		// (max_data_bytes-1)-redundancy_bytes budget (opus_encoder.c line 2392) and
+		// the CELT VBR reservoir (compute_vbr, celt_encoder.c) chooses the per-frame
+		// size from within it, so Hybrid sizes now track libopus exactly.
+		if !isSILKCase {
 			t.Fatalf("VBR packet SIZE mismatch: mismatch=%d/%d firstAt=%d\n  refLens=%v\n  gopusLens=%v",
 				mismatchLen, tc.nFrames, firstMismatch, refLens, goLens)
+			return
 		}
+
+		// Pure-SILK VBR residual (NOT yet at parity).
+		//
+		// FIXED at source: the per-frame byte BUDGET handed to SILK now matches
+		// libopus — silk_mode.maxBits = (max_data_bytes-1)*8 with max_data_bytes =
+		// IMIN(orig,1276) (opus_encoder.c line 2155/1893) — and the rate-control
+		// loop (TargetRate_bps / nBitsExceeded / bitsBalance, enc_API.c lines
+		// 412-443/555-557) plus silk_control_SNR are reproduced verbatim.
+		//
+		// REMAINING: the SILK FLP shaping-gain / NSQ iter-0 path (silk_encode_frame_FLP,
+		// useCBR==0 fast break at iter 0) still diverges from libopus by a few bytes
+		// per frame (worse for stereo via the mid/side rate split). SILK-only CBR is
+		// byte-exact (TestEncoderCBRByteParitySILK) because its gain-multiplier search
+		// converges away the difference; VBR exposes the iter-0 natural size. This is
+		// an open SILK-FLP encode-parity item, separate from the rate-control budget
+		// fix; it reproduces identically under -tags purego (so it is cross-platform,
+		// not the per-arch FMA tail). Reported with exact per-frame evidence so a
+		// follow-up can bisect the shaping-gain kernels against a frame-level oracle.
+		t.Logf("SILK VBR SIZE residual (open, budget fixed; SILK-FLP iter-0 gain drift): mismatch=%d/%d firstAt=%d\n  refLens=%v\n  gopusLens=%v",
+			mismatchLen, tc.nFrames, firstMismatch, refLens, goLens)
 		return
 	}
 
