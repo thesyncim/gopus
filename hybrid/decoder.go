@@ -440,6 +440,24 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 	} else {
 		out = out[:totalSamples]
 	}
+	combineHybridBands(out, celtAPI, silkUpsampled, totalSamples)
+
+	d.prevPacketStereo = packetStereo
+	return out, nil
+}
+
+// combineHybridBands sums the CELT highband (already deemphasised and scaled by
+// 1/CELT_SIG_SCALE) onto the SILK lowband to form the final hybrid PCM.
+//
+// This mirrors the libopus float build, where opus_decoder.c writes the SILK
+// output into pcm and then celt_decode_with_ec_dred is called with celt_accum=1
+// (opus_decoder.c:370,607). The accumulation happens inside CELT's deemphasis()
+// as `y[j*C] = ADD_RES(y[j*C], SIG2RES(tmp))` (celt/celt_decoder.c:379), where for
+// the float build SIG2RES(a)=(1/CELT_SIG_SCALE)*a and ADD_RES(a,b)=a+b
+// (celt/arch.h:373,379). gopus computes SIG2RES(tmp) inside applyDeemphasisAndScale
+// (scale=1/32768) and the add here is float32-commutative, so silk+celt and
+// celt+silk are bit-identical.
+func combineHybridBands(out, celtAPI, silkUpsampled []float32, totalSamples int) {
 	i := 0
 	for ; i+3 < totalSamples; i += 4 {
 		out[i] = celtAPI[i] + silkUpsampled[i]
@@ -450,9 +468,6 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 	for ; i < totalSamples; i++ {
 		out[i] = celtAPI[i] + silkUpsampled[i]
 	}
-
-	d.prevPacketStereo = packetStereo
-	return out, nil
 }
 
 func (d *Decoder) decodeCELTHybridToAPI(rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) ([]float32, error) {

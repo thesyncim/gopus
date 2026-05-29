@@ -129,6 +129,21 @@ static int run_deemphasis(void) {
     }
     input[i] = (celt_sig)v;
   }
+  /* In accum mode the pcm buffer holds the SILK lowband output that CELT's
+     deemphasis adds onto (the hybrid SILK+CELT combine in opus_decoder.c).
+     Seed it with the supplied interleaved values so we exercise the real
+     ADD_RES(y[j*C], SIG2RES(tmp)) accumulation rather than 0 + celt. */
+  if (accum) {
+    for (i = 0; i < channels * nd; i++) {
+      float v;
+      if (!read_float(&v)) {
+        free(input);
+        free(pcm);
+        return 0;
+      }
+      pcm[i] = (opus_res)v;
+    }
+  }
   planes[0] = input;
   if (channels == 2) planes[1] = input + n;
 
