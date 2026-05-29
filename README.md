@@ -20,7 +20,15 @@ Released version: none yet.
 Latest release evidence: none yet.
 
 Stable pre-release surface: `Encoder`, `Decoder`, multistream encode/decode,
-`container/ogg`, and caller-owned `Encode`/`Decode`.
+`container/ogg`, `container/red` (RFC 2198 RED parse/build/recover), and
+caller-owned `Encode`/`Decode`. The `float32`, `int16`, and `int24`
+(`EncodeInt24`/`DecodeInt24`) PCM forms are all available on the single-stream
+and multistream encode/decode paths.
+
+Scope: the stable surface is default-build core encode/decode/multistream/Ogg/RED.
+QEXT, DRED, and OSCE (BWE/LACE/NoLACE) are build-tagged and experimental, not
+part of the stable support claim. libopus 1.6's 96 kHz Opus HD path (QEXT) is
+not supported: valid API sample rates are 8/12/16/24/48 kHz.
 
 Reference behavior comes from `tmp_check/opus-1.6.1/`. When behavior is
 uncertain, match libopus unless fixture evidence says otherwise.

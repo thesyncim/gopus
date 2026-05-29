@@ -8,6 +8,7 @@ import (
 
 	"github.com/thesyncim/gopus"
 	"github.com/thesyncim/gopus/container/ogg"
+	"github.com/thesyncim/gopus/container/red"
 )
 
 func TestExternalConsumerEncodeDecodeAndOgg(t *testing.T) {
@@ -88,5 +89,33 @@ func TestExternalConsumerEncodeDecodeAndOgg(t *testing.T) {
 
 	if _, _, err := r.ReadPacket(); err != io.EOF {
 		t.Fatalf("second ReadPacket error = %v, want %v", err, io.EOF)
+	}
+}
+
+// TestExternalConsumerRED verifies a downstream module can build and parse RFC
+// 2198 RED packets through the public container/red API with no replace beyond
+// the module root.
+func TestExternalConsumerRED(t *testing.T) {
+	const primaryPT = 111
+	history := []red.Frame{{Timestamp: 0, Payload: []byte{0x01, 0x02, 0x03}}}
+	primary := []byte{0x10, 0x11, 0x12, 0x13}
+
+	payload, n := red.Build(primary, 960, history, 1, 960, primaryPT)
+	if n == 0 || len(payload) == 0 {
+		t.Fatalf("Build produced empty RED payload (n=%d)", n)
+	}
+
+	gotPrimary, blocks, err := red.Parse(payload, primaryPT)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if !bytes.Equal(gotPrimary, primary) {
+		t.Fatalf("primary = %x, want %x", gotPrimary, primary)
+	}
+	if len(blocks) != 1 {
+		t.Fatalf("redundant blocks = %d, want 1", len(blocks))
+	}
+	if !bytes.Equal(blocks[0].Payload, history[0].Payload) {
+		t.Fatalf("redundant payload = %x, want %x", blocks[0].Payload, history[0].Payload)
 	}
 }
