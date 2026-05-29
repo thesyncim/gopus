@@ -109,7 +109,13 @@ func qextShortMDCTSize(frameSize int) int {
 // available to the secondary range coder (excluding the extension ID byte),
 // and the packet-level padding-byte count that would be required once the
 // top-level Opus packet builder starts carrying the extension.
-func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels int, toneishness float32) (mainBytes, payloadBytes, paddingBytes int) {
+//
+// cbrVBRTargetBytes is the VBR-equivalent main-coder target bytes for CBR
+// mode (celt_encoder.c: the target produced by calling compute_vbr() with
+// tf_estimate2=min(1,2*tf) plus ec_tell_frac). Pass 0 for VBR/CVBR mode,
+// where nbCompressedBytes is already the VBR target. Reference:
+// celt/celt_encoder.c lines 2539-2558.
+func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels int, toneishness float32, cbrVBRTargetBytes int) (mainBytes, payloadBytes, paddingBytes int) {
 	if nbCompressedBytes <= 0 {
 		return nbCompressedBytes, 0, 0
 	}
@@ -119,10 +125,11 @@ func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels i
 	if qextBytes <= 20 {
 		return nbCompressedBytes, 0, 0
 	}
-	// Match the libopus VBR/CVBR QEXT reservation path more closely: after the
-	// initial 80%-of-excess estimate, pull the reservation back toward the main
-	// frame according to toneishness. This avoids over-reserving QEXT bytes for
-	// tonal mono packets and keeps us closer to the libopus oracle.
+	// Match the libopus QEXT reservation path:
+	//   For VBR: target = nbCompressedBytes - qextBytes/3 (the preliminary budget).
+	//   For CBR: target = cbrVBRTargetBytes (from compute_vbr + ec_tell_frac).
+	//   qext_bytes += scale * (nbCompressedBytes - target - qext_bytes)
+	// Reference: celt/celt_encoder.c lines 2539-2558.
 	scale := float32(1.0) - toneishness*toneishness
 	if scale < 0 {
 		scale = 0
@@ -131,6 +138,9 @@ func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels i
 		scale = 1
 	}
 	targetBytes := nbCompressedBytes - qextBytes/3
+	if cbrVBRTargetBytes > 0 {
+		targetBytes = cbrVBRTargetBytes
+	}
 	qextBytes += roundFloat32ToInt(scale * float32((nbCompressedBytes-targetBytes)-qextBytes))
 	qextBytes = max(nbCompressedBytes-1275, max(21, qextBytes))
 

@@ -1127,7 +1127,31 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	qextPayloadBytes := 0
 	if extsupport.QEXT && e.qextActive() && !e.IsHybrid() {
 		minAllowed := ((re.TellFrac() + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
-		mainBytes, payloadBytes, _ := computeQEXTReservation(targetBytes, minAllowed, frameSize, codedChannels, toneishness)
+		// For CBR mode, libopus calls compute_vbr(base=initialTarget, tf2=min(1,2*tf), ...)
+		// to estimate the natural VBR target, then passes that as the adjustment pivot.
+		// For VBR/CVBR, targetBytes is already the VBR target so no extra computation is needed.
+		// Reference: celt/celt_encoder.c lines 2543-2556.
+		cbrVBRTargetBytes := 0
+		if !e.vbr {
+			tf2 := 2 * tfEstimate
+			if tf2 > 1.0 {
+				tf2 = 1.0
+			}
+			offsetBytes := (codedChannels * 80000 * frameSize) / (48000 * 8)
+			initialQextBytes := max(targetBytes-1275, max(0, (targetBytes-offsetBytes)*4/5))
+			overheadQ3 := (40*codedChannels + 20) << bitRes
+			baseQ3 := (targetBytes-initialQextBytes/3)*8<<bitRes - overheadQ3
+			if baseQ3 < 0 {
+				baseQ3 = 0
+			}
+			vbrQ3 := e.computeVBRTargetWithBoost(baseQ3, frameSize, tf2, e.lastPitchChange, totalBoost)
+			vbrQ3 += re.TellFrac()
+			cbrVBRTargetBytes = (vbrQ3 + (1 << (bitRes + 2))) >> (bitRes + 3)
+			if cbrVBRTargetBytes < 0 {
+				cbrVBRTargetBytes = 0
+			}
+		}
+		mainBytes, payloadBytes, _ := computeQEXTReservation(targetBytes, minAllowed, frameSize, codedChannels, toneishness, cbrVBRTargetBytes)
 		qextPayloadBytes = payloadBytes
 		if qextPayloadBytes > 0 && mainBytes > 0 {
 			qs := e.scratch.ensureQEXTScratch()
