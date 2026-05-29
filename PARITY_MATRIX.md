@@ -186,7 +186,7 @@ requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
 | --- | --- | --- | --- |
 | Ogg Opus read/write (`container/ogg`, `stream`) | Y | Demux/mux, projection headers | Fuzz corpus vs libopus ogg decode |
 | RFC 6716 / libopus vectors (`testvectors/`) | Y | Decoder matrix (29 cases incl. 100 ms + true Hybrid 40/60 ms rows), per-rate matrix (8/12/16/24/48 kHz byte-exact), loss (to 120 ms), compliance, variants, RED RFC 2198 vectors | Broader real-content corpus (speech/music/noise) |
-| `opus_compare` quality oracle | Y | Primary encoder/decoder quality gate | Broader corpus than summary cases |
+| `opus_compare` quality oracle | Y | Primary encoder/decoder quality gate + 24-case signal-class corpus (speech/music/mixed/noise/transient/tone/near-silence × modes × bitrates, Q≥99.6) | — |
 | `opusdec` crossval fixture | Y | CELT cross-validation (`celt/testdata/opusdec_crossval_fixture.json`) | Regenerate when scenario Ogg hashes change (`GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE=1`) |
 | libopus C oracles (`tools/csrc`, `make test-*-parity`) | ~ | Submodule numerical probes | CI mandatory on all platforms |
 
