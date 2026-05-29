@@ -452,6 +452,16 @@ func encoderVariantThresholdForArch(c encoderComplianceVariantsFixtureCase, goar
 		if floor, ok := encoderVariantMinGapFloorAMD64OverrideQ[encoderVariantCaseKey(c.Name, c.Variant)]; ok {
 			out.minGapQ = floor
 		}
+	} else {
+		// On arm64 the gopus encoder matches libopus essentially exactly across
+		// the whole variant grid (measured gapQ >= -0.02 for every case,
+		// including the synthetic chirp/multisine/impulse cases that still carry
+		// loose historical amd64/cross-arch floors). Enforce a tight floor here
+		// instead of the stale slack; amd64 keeps its measured overrides until
+		// it is re-measured. Margin (~1 Q) covers delay-search/measurement noise.
+		if out.minGapQ < -1.0 {
+			out.minGapQ = -1.0
+		}
 	}
 	return out
 }
