@@ -317,3 +317,30 @@ func (d *DREDDecoder) Process(src, dst *DRED) error {
 func (d *Decoder) DecodeDRED(dred *DRED, dredOffsetSamples int, pcm []float32, frameSizeSamples int) (int, error) {
 	return d.decodeExplicitDREDFloat(dred, dredOffsetSamples, pcm, frameSizeSamples)
 }
+
+// DecodeDREDInt24 decodes a processed standalone DRED payload into 24-bit PCM
+// samples stored in int32, using the receiver Decoder state as the concealment
+// context. Each element carries a signed 24-bit value in the range
+// [-8388608, 8388607] (= ±2^23), right-justified in int32 — matching libopus
+// opus_decoder_dred_decode24() (src/opus_decoder.c): the float DRED decode path
+// followed by RES2INT24 (arch.h) on each sample.
+//
+// pcm must hold at least frameSizeSamples*channels elements.
+// Returns the number of samples per channel decoded, or an error.
+func (d *Decoder) DecodeDREDInt24(dred *DRED, dredOffsetSamples int, pcm []int32, frameSizeSamples int) (int, error) {
+	if frameSizeSamples <= 0 {
+		return 0, ErrInvalidArgument
+	}
+	channels := int(d.channels)
+	needed := frameSizeSamples * channels
+	if len(pcm) < needed {
+		return 0, ErrBufferTooSmall
+	}
+	d.ensureScratchPCM(needed)
+	n, err := d.decodeExplicitDREDFloat(dred, dredOffsetSamples, d.scratchPCM[:needed], frameSizeSamples)
+	if err != nil {
+		return 0, err
+	}
+	float32ToInt24Slice(pcm, d.scratchPCM, n, channels)
+	return n, nil
+}
