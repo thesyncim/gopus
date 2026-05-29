@@ -26,12 +26,25 @@ caller-owned `Encode`/`Decode`. The `float32`, `int16`, and `int24`
 (`EncodeInt24`/`DecodeInt24`) PCM forms are all available on the single-stream
 and multistream encode/decode paths.
 
-Scope: the stable surface is default-build core encode/decode/multistream/Ogg/RED.
-QEXT, DRED, and OSCE (BWE/LACE/NoLACE) are build-tagged and experimental, not
-part of the stable support claim. Default-build API sample rates are
-8/12/16/24/48 kHz; 96 kHz (Opus HD) is accepted only under `-tags gopus_qext` as
-a resampling wrapper over the 48 kHz core, not native-bitstream byte parity with
-libopus's 96 kHz CELT mode.
+Scope: the default build is core encode/decode/multistream/Ogg/RED, matching a
+default libopus `./configure`. Optional features are exposed exactly the way
+libopus exposes them — behind a compile flag in libopus, behind the matching Go
+build tag here — and the default build links ZERO of their code (enforced by
+`TestDefaultBuildIsZeroCostForGatedFeatures`). The tag <-> libopus-flag mapping:
+`gopus_dred` = `--enable-dred`/`ENABLE_DRED`, `gopus_extra_controls` =
+`--enable-osce`/`ENABLE_OSCE` plus the deep-PLC family (`ENABLE_DEEP_PLC`:
+PitchDNN/FARGAN), `gopus_qext` = `--enable-qext`/`ENABLE_QEXT`, `gopus_custom` =
+`--enable-custom-modes`/`CUSTOM_MODES`, `gopus_fixedpoint` =
+`--enable-fixed-point`/`FIXED_POINT`. DRED, OSCE (BWE/LACE/NoLACE), QEXT
+extension framing, and Opus Custom standard modes are parity-complete and
+SUPPORTED under their build tag — none are experimental.
+
+Two efforts are still in progress and honestly marked as such: native 96 kHz
+(Opus HD) bitstream parity (the `-tags gopus_qext` 96 kHz path is a resampling
+wrapper over the 48 kHz CELT core, not native-bitstream byte parity with
+libopus's 96 kHz CELT mode), and the full fixed-point pipeline. Default-build
+API sample rates are 8/12/16/24/48 kHz; 96 kHz is accepted only under
+`-tags gopus_qext`.
 
 Reference behavior comes from `tmp_check/opus-1.6.1/`. When behavior is
 uncertain, match libopus unless fixture evidence says otherwise.
@@ -39,19 +52,23 @@ uncertain, match libopus unless fixture evidence says otherwise.
 ## Optional Extensions
 
 Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op returning `ErrOptionalExtensionUnavailable`.
-DNN blob loading, QEXT, and DRED require build tags. libopus compiles every
-DNN/model loader behind `ENABLE_DRED`/`ENABLE_OSCE`/`ENABLE_DEEP_PLC`; gopus
-mirrors that by gating the model loaders, so DNN blob loading (USE_WEIGHTS_FILE
-model loading) requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
-QEXT requires `-tags gopus_qext`, and DRED control/standalone surfaces require `-tags gopus_dred`.
-OSCE BWE remains extra-controls parity only and absent outside `-tags gopus_extra_controls`.
+This matches a default libopus build, where `LPCNET_SOURCES` (the DNN / PitchDNN
+/ FARGAN / RDOVAE neural code) is empty and none of it is compiled. gopus mirrors
+that exactly: the neural packages (`internal/dred`, `internal/dred/rdovae`,
+`internal/lpcnetplc`, `internal/osce`) are absent from the default import graph.
+DNN blob loading (USE_WEIGHTS_FILE model loading) requires `-tags gopus_dred` or
+`-tags gopus_extra_controls`; QEXT requires `-tags gopus_qext`; DRED
+control/standalone surfaces require `-tags gopus_dred`; OSCE BWE/LACE/NoLACE
+require `-tags gopus_extra_controls`. Under their build tag these are
+parity-complete and supported, exactly as libopus exposes them behind the
+corresponding compile flag.
 
 | Extension | Status | Probe |
 | --- | --- | --- |
-| DNN blob loading | Tagged support | `OptionalExtensionDNNBlob` |
-| QEXT | Tagged support | `OptionalExtensionQEXT` |
-| DRED | Tagged control/standalone support | `OptionalExtensionDRED` |
-| OSCE BWE | Extra-control parity only | `OptionalExtensionOSCEBWE` |
+| DNN blob loading | Supported under `gopus_dred` / `gopus_extra_controls` | `OptionalExtensionDNNBlob` |
+| QEXT | Supported under `gopus_qext` | `OptionalExtensionQEXT` |
+| DRED | Supported under `gopus_dred` (control + standalone) | `OptionalExtensionDRED` |
+| OSCE BWE | Supported under `gopus_extra_controls` | `OptionalExtensionOSCEBWE` |
 
 ```sh
 go test -tags gopus_qext ./...
@@ -67,8 +84,9 @@ make test-dred-tag
 make test-extra-controls-parity
 ```
 
-The `gopus_extra_controls` tag can expose parity helpers, but it does not
-make extra features part of the public support claim.
+The `gopus_extra_controls` tag enables the OSCE and deep-PLC family exactly as
+libopus's `--enable-osce` does. These features are supported under the tag and
+link zero code into the default build.
 
 ## Verification
 

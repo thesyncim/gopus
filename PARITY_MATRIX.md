@@ -10,12 +10,26 @@ int24), multistream encode/decode, `container/ogg`, `container/red`, and
 caller-owned `Encode`/`Decode`. This is what gopus claims as a libopus 1.6.1
 drop-in for normal mono/stereo/multistream/Ogg use.
 
-The libopus 1.6 optional/ML surface — QEXT (Opus HD / 96 kHz), DRED, OSCE
-(BWE/LACE/NoLACE), Opus Custom, and the fixed-point implementation — is
-**build-tagged and experimental** (or out of scope), not part of the stable
-claim. The ambition is full libopus 1.6.1 parity; the [feature scope](#libopus-16-feature-scope)
-section tracks each toward that, separating *feature missing* from *implemented,
-parity-coverage incomplete*.
+The libopus 1.6 optional surface is exposed exactly the way libopus exposes it:
+behind a compile flag in libopus, behind the matching Go build tag here. Every
+optional feature defaults to off in a libopus `./configure` build, so the gopus
+default build links **zero** of that code (enforced by
+`TestDefaultBuildIsZeroCostForGatedFeatures`). The tag <-> libopus-flag mapping:
+
+| gopus build tag | libopus compile flag | libopus default |
+| --- | --- | --- |
+| `gopus_dred` | `--enable-dred` / `ENABLE_DRED` | no |
+| `gopus_extra_controls` | `--enable-osce` / `ENABLE_OSCE` + deep-PLC family (`ENABLE_DEEP_PLC`: PitchDNN/FARGAN) | no |
+| `gopus_qext` | `--enable-qext` / `ENABLE_QEXT` | no |
+| `gopus_custom` | `--enable-custom-modes` / `CUSTOM_MODES` | no |
+| `gopus_fixedpoint` | `--enable-fixed-point` / `FIXED_POINT` | no |
+
+DRED, OSCE (BWE/LACE/NoLACE), QEXT extension framing, and Opus Custom standard
+modes are parity-complete and **supported under their build tag** — not
+experimental. Two efforts remain in progress and are marked as such below: native
+96 kHz (Opus HD) bitstream parity and the full fixed-point pipeline. The
+[feature scope](#libopus-16-feature-scope) section tracks each feature,
+separating *feature missing* from *implemented, parity-coverage incomplete*.
 
 ## Status legend
 
@@ -23,7 +37,7 @@ parity-coverage incomplete*.
 | --- | --- |
 | **Y** | Shipped in gopus; parity gates or oracles pass on the covered surface |
 | **~** | Implemented with known quality, numeric, or coverage gaps |
-| **T** | Requires build tag (`gopus_qext`, `gopus_dred`, or `gopus_extra_controls`) |
+| **T** | Supported under a build tag (`gopus_qext`, `gopus_dred`, `gopus_extra_controls`, `gopus_custom`), mirroring a libopus compile flag; zero-cost in the default build |
 | **N** | Not implemented or not exposed on the public API |
 | **E** | Example / integration-only (not a stable package API) |
 
@@ -195,8 +209,9 @@ requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
 ## libopus 1.6 feature scope
 
 Tracks the optional/ML surface libopus 1.6 added, toward full 1.6.1 parity.
-Status: **Y** stable · **T** tagged-experimental · **N** not implemented · **OOS**
-out of scope. "Feature missing" (no code) is separated from "implemented,
+Status: **Y** stable · **T** supported under a build tag (mirrors a libopus
+compile flag; zero-cost by default) · **N** not implemented · **OOS** out of
+scope. "Feature missing" (no code) is separated from "implemented,
 parity-coverage incomplete".
 
 | Feature | libopus 1.6 | gopus status | Kind | Plan for parity |

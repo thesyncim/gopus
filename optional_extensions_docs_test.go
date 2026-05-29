@@ -35,10 +35,10 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		ext    OptionalExtension
 		status string
 	}{
-		{name: "DNN blob loading", ext: OptionalExtensionDNNBlob, status: "Tagged support"},
-		{name: "QEXT", ext: OptionalExtensionQEXT, status: "Tagged support"},
-		{name: "DRED", ext: OptionalExtensionDRED, status: "Tagged control/standalone support"},
-		{name: "OSCE BWE", ext: OptionalExtensionOSCEBWE, status: "Extra-control parity only"},
+		{name: "DNN blob loading", ext: OptionalExtensionDNNBlob, status: "Supported under `gopus_dred` / `gopus_extra_controls`"},
+		{name: "QEXT", ext: OptionalExtensionQEXT, status: "Supported under `gopus_qext`"},
+		{name: "DRED", ext: OptionalExtensionDRED, status: "Supported under `gopus_dred` (control + standalone)"},
+		{name: "OSCE BWE", ext: OptionalExtensionOSCEBWE, status: "Supported under `gopus_extra_controls`"},
 	} {
 		wantLine := fmt.Sprintf("| %s | %s | `%s` |", tc.name, tc.status, optionalExtensionDocSymbol(tc.ext))
 		if !containsDocText(optionalDoc, wantLine) {
@@ -48,16 +48,18 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 
 	for _, needle := range []string{
 		"Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op returning `ErrOptionalExtensionUnavailable`.",
-		"DNN blob loading, QEXT, and DRED require build tags.",
-		"DNN blob loading (USE_WEIGHTS_FILE model loading) requires `-tags gopus_dred` or `-tags gopus_extra_controls`",
-		"QEXT requires `-tags gopus_qext`",
-		"DRED control/standalone surfaces require `-tags gopus_dred`",
-		"OSCE BWE remains extra-controls parity only and absent outside `-tags gopus_extra_controls`.",
+		"DNN blob loading (USE_WEIGHTS_FILE model loading) requires `-tags gopus_dred` or",
+		"`-tags gopus_extra_controls`; QEXT requires `-tags gopus_qext`; DRED",
+		"control/standalone surfaces require `-tags gopus_dred`; OSCE BWE/LACE/NoLACE",
+		"require `-tags gopus_extra_controls`.",
+		"parity-complete and supported, exactly as libopus exposes them behind the",
+		"corresponding compile flag.",
 		"make test-dnn-blob-parity",
 		"make test-qext-parity",
 		"make test-dred-tag",
 		"make test-extra-controls-parity",
-		"does not make extra features part of the public support claim",
+		"enables the OSCE and deep-PLC family exactly as",
+		"link zero code into the default build",
 	} {
 		if !containsDocText(optionalDoc, needle) {
 			t.Fatalf("README.md missing %q", needle)

@@ -4,9 +4,23 @@ package gopus
 
 import (
 	"github.com/thesyncim/gopus/internal/dnnblob"
-	internaldred "github.com/thesyncim/gopus/internal/dred"
 	"github.com/thesyncim/gopus/silk"
 )
+
+// dredFeatureWindow mirrors the field shape of internal/dred.FeatureWindow that
+// the shared concealment callers read. The default build never reaches the
+// neural DRED path (extsupport.DREDRuntime is false), so the stubs below always
+// return the zero value. Keeping this type local avoids importing internal/dred,
+// which would otherwise link the gated DRED/PitchDNN/FARGAN neural packages into
+// the default build.
+type dredFeatureWindow struct {
+	FeaturesPerFrame         int
+	NeededFeatureFrames      int
+	FeatureOffsetBase        int
+	MaxFeatureIndex          int
+	RecoverableFeatureFrames int
+	MissingPositiveFrames    int
+}
 
 type decoderDREDState struct{}
 
@@ -85,12 +99,12 @@ func (d *Decoder) applyDREDNeuralConcealment(_ []float32, _ int) bool {
 	return false
 }
 
-func (d *Decoder) prepareDRED48kNeuralEntry(_ int, _ Mode, _ bool) internaldred.FeatureWindow {
-	return internaldred.FeatureWindow{}
+func (d *Decoder) prepareDRED48kNeuralEntry(_ int, _ Mode, _ bool) dredFeatureWindow {
+	return dredFeatureWindow{}
 }
 
-func (d *Decoder) prepareCachedDREDNeuralConcealment(_ int) internaldred.FeatureWindow {
-	return internaldred.FeatureWindow{}
+func (d *Decoder) prepareCachedDREDNeuralConcealment(_ int) dredFeatureWindow {
+	return dredFeatureWindow{}
 }
 
 func (d *Decoder) applyPreparedDREDNeuralConcealment(_ []float32, _ int) bool {

@@ -164,3 +164,64 @@ func TestNoCGOTestArtifacts(t *testing.T) {
 		t.Fatalf("remove cgo test artifacts and replace with pure-Go fixtures:\n%s", strings.Join(violations, "\n"))
 	}
 }
+
+// TestDefaultBuildIsZeroCostForGatedFeatures enforces the optional-feature
+// contract: the DEFAULT build (no build tags) links ZERO of the code that
+// libopus also gates behind a compile flag in its default ./configure build.
+//
+// Tag <-> libopus compile-flag mapping enforced here:
+//
+//	gopus_dred           <-> --enable-dred / ENABLE_DRED        (default: no)
+//	gopus_extra_controls <-> --enable-osce / ENABLE_OSCE and    (default: no)
+//	                          the deep-PLC family / ENABLE_DEEP_PLC
+//	gopus_qext           <-> --enable-qext / ENABLE_QEXT        (default: no)
+//	gopus_custom         <-> --enable-custom-modes / CUSTOM_MODES (default: no)
+//
+// In a default libopus build LPCNET_SOURCES (the DNN / PitchDNN / FARGAN /
+// RDOVAE neural code) is empty, so none of it is compiled. The gated Go
+// packages below mirror that code and must likewise be absent from the
+// default-build import graph.
+func TestDefaultBuildIsZeroCostForGatedFeatures(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping dep-graph check in short mode")
+	}
+
+	// Public packages whose default build must stay neural/feature free.
+	publicPkgs := []string{".", "./multistream", "./encoder"}
+
+	// Packages that mirror libopus code gated behind a compile flag. None may
+	// appear in the default (untagged) import graph of any public package.
+	const modulePrefix = "github.com/thesyncim/gopus/"
+	gatedPkgs := []string{
+		modulePrefix + "internal/dred",          // ENABLE_DRED (RDOVAE driver)
+		modulePrefix + "internal/dred/rdovae",    // ENABLE_DRED neural codec
+		modulePrefix + "internal/lpcnetplc",      // ENABLE_DEEP_PLC (PitchDNN / FARGAN)
+		modulePrefix + "internal/osce",           // ENABLE_OSCE
+		modulePrefix + "internal/osce/lace",      // ENABLE_OSCE (LACE / NoLACE)
+		modulePrefix + "internal/osce/bwe",       // ENABLE_OSCE_BWE
+		modulePrefix + "celt/custom",             // CUSTOM_MODES
+	}
+
+	for _, pkg := range publicPkgs {
+		// Explicitly clear build tags: this is the DEFAULT ./configure-equivalent build.
+		cmd := exec.Command("go", "list", "-deps", "-tags", "", pkg)
+		cmd.Env = append(os.Environ(), "GOWORK=off")
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			t.Fatalf("go list -deps %s failed: %v\n%s", pkg, err, out)
+		}
+		deps := make(map[string]bool)
+		for _, line := range strings.Split(string(out), "\n") {
+			if line = strings.TrimSpace(line); line != "" {
+				deps[line] = true
+			}
+		}
+		for _, gated := range gatedPkgs {
+			if deps[gated] {
+				t.Errorf("zero-cost contract violation: default build of %s links gated package %s "+
+					"(libopus gates the equivalent C code behind a compile flag); it must be reachable "+
+					"only under the matching build tag", pkg, gated)
+			}
+		}
+	}
+}
