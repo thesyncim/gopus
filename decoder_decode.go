@@ -47,6 +47,20 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		if err != nil {
 			return 0, err
 		}
+		// libopus opus_demo (src/opus_demo.c, lost branch ~L1142) always drives
+		// PLC with OPUS_GET_LAST_PACKET_DURATION as frame_size, never the
+		// maximum decode buffer. gopus derives the requested PLC duration from
+		// the output buffer length, so a caller that hands over a full
+		// maxPacketSamples buffer (the conventional "size unknown, give me
+		// room" sentinel documented on Decode) would otherwise conceal the
+		// whole buffer instead of one packet. When the buffer is exactly the
+		// max-packet size and a real packet has already been decoded, fall back
+		// to the cached last-packet duration to match opus_demo. Deliberately
+		// sized requests -- including overlong ones larger than the max buffer
+		// -- are still honored verbatim (see the API-rate overlong PLC tests).
+		if frameSize == d.maxPacketSamples && int(d.lastPacketDuration) > 0 {
+			frameSize = int(d.lastPacketDuration)
+		}
 		packetFrameSize := int(d.lastFrameSize)
 		if packetFrameSize <= 0 {
 			packetFrameSize = frameSize
