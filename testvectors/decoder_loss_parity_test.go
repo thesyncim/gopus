@@ -15,60 +15,60 @@ import (
 	"github.com/thesyncim/gopus"
 )
 
-type decoderLossThresholds struct {
-	minQ    float64
-	minCorr float64
-	minRMS  float64
-	maxRMS  float64
-}
-
-func decoderLossThresholdForCase(c libopusDecoderLossCaseFile, pattern string) decoderLossThresholds {
-	// These are opus_compare ratchet floors observed against the pinned fixture
-	// set. They keep loss/FEC parity on the real libopus quality metric while
-	// still allowing a small amount of measurement drift.
-	ratchet := map[string]decoderLossThresholds{
-		"celt-fb-20ms-mono-64k-plc|burst2_mid":   {minQ: 99.0, minCorr: 0.992, minRMS: 0.97, maxRMS: 1.03},
-		"celt-fb-20ms-mono-64k-plc|periodic9":    {minQ: 98.5, minCorr: 0.95, minRMS: 0.93, maxRMS: 1.03},
-		"celt-fb-20ms-mono-64k-plc|single_mid":   {minQ: 99.0, minCorr: 0.98, minRMS: 0.96, maxRMS: 1.03},
-		"hybrid-fb-20ms-mono-32k-fec|burst2_mid": {minQ: 99.0, minCorr: 0.98, minRMS: 0.98, maxRMS: 1.04},
-		"hybrid-fb-20ms-mono-32k-fec|periodic9":  {minQ: 99.0, minCorr: 0.98, minRMS: 0.98, maxRMS: 1.04},
-		"hybrid-fb-20ms-mono-32k-fec|single_mid": {minQ: 99.0, minCorr: 0.99, minRMS: 0.98, maxRMS: 1.02},
-		"silk-wb-20ms-mono-24k-fec|burst2_mid":   {minQ: 99.5, minCorr: 0.98, minRMS: 0.97, maxRMS: 1.04},
-		"silk-wb-20ms-mono-24k-fec|periodic9":    {minQ: 99.5, minCorr: 0.98, minRMS: 0.97, maxRMS: 1.04},
-		"silk-wb-20ms-mono-24k-fec|single_mid":   {minQ: 99.5, minCorr: 0.99, minRMS: 0.98, maxRMS: 1.02},
+// decoderLossQualityBar returns the trusted QualityBar for a loss/FEC fixture
+// case+pattern. Loss concealment is a deliberately harder edge than clean
+// decode, so these bars are documented opus_compare floors observed against the
+// pinned fixture set rather than the global near-exact bar: they keep loss/FEC
+// parity on the real libopus quality metric while still allowing a small amount
+// of measurement drift. (MinQ/MinCorr -> opus_compare Q / waveform correlation;
+// RMSLo/RMSHi -> RMS(got)/RMS(ref) bounds, matching CompareDecodedFloat32's
+// candidate/reference ratio.)
+func decoderLossQualityBar(c libopusDecoderLossCaseFile, pattern string) QualityBar {
+	ratchet := map[string]QualityBar{
+		"celt-fb-20ms-mono-64k-plc|burst2_mid":   {MinQ: 99.0, MinCorr: 0.992, RMSLo: 0.97, RMSHi: 1.03, Desc: "loss ratchet (celt plc burst2_mid)"},
+		"celt-fb-20ms-mono-64k-plc|periodic9":    {MinQ: 98.5, MinCorr: 0.95, RMSLo: 0.93, RMSHi: 1.03, Desc: "loss ratchet (celt plc periodic9)"},
+		"celt-fb-20ms-mono-64k-plc|single_mid":   {MinQ: 99.0, MinCorr: 0.98, RMSLo: 0.96, RMSHi: 1.03, Desc: "loss ratchet (celt plc single_mid)"},
+		"hybrid-fb-20ms-mono-32k-fec|burst2_mid": {MinQ: 99.0, MinCorr: 0.98, RMSLo: 0.98, RMSHi: 1.04, Desc: "loss ratchet (hybrid fec burst2_mid)"},
+		"hybrid-fb-20ms-mono-32k-fec|periodic9":  {MinQ: 99.0, MinCorr: 0.98, RMSLo: 0.98, RMSHi: 1.04, Desc: "loss ratchet (hybrid fec periodic9)"},
+		"hybrid-fb-20ms-mono-32k-fec|single_mid": {MinQ: 99.0, MinCorr: 0.99, RMSLo: 0.98, RMSHi: 1.02, Desc: "loss ratchet (hybrid fec single_mid)"},
+		"silk-wb-20ms-mono-24k-fec|burst2_mid":   {MinQ: 99.5, MinCorr: 0.98, RMSLo: 0.97, RMSHi: 1.04, Desc: "loss ratchet (silk fec burst2_mid)"},
+		"silk-wb-20ms-mono-24k-fec|periodic9":    {MinQ: 99.5, MinCorr: 0.98, RMSLo: 0.97, RMSHi: 1.04, Desc: "loss ratchet (silk fec periodic9)"},
+		"silk-wb-20ms-mono-24k-fec|single_mid":   {MinQ: 99.5, MinCorr: 0.99, RMSLo: 0.98, RMSHi: 1.02, Desc: "loss ratchet (silk fec single_mid)"},
 	}
-	if thr, ok := ratchet[c.Name+"|"+pattern]; ok {
-		return thr
+	if bar, ok := ratchet[c.Name+"|"+pattern]; ok {
+		return bar
 	}
 
 	switch {
 	case strings.HasPrefix(c.Name, "silk-"), strings.HasPrefix(c.Name, "hybrid-"):
-		return decoderLossThresholds{minQ: 99.0, minCorr: 0.35, minRMS: 0.70, maxRMS: 1.80}
+		return QualityBar{MinQ: 99.0, MinCorr: 0.35, RMSLo: 0.70, RMSHi: 1.80, Desc: "loss default (silk/hybrid)"}
 	default:
-		return decoderLossThresholds{minQ: 98.5, minCorr: 0.50, minRMS: 0.70, maxRMS: 1.50}
+		return QualityBar{MinQ: 98.5, MinCorr: 0.50, RMSLo: 0.70, RMSHi: 1.50, Desc: "loss default (celt)"}
 	}
 }
 
-func decoderLossStressThresholdForCase(c libopusDecoderLossCaseFile, pattern string) decoderLossThresholds {
-	ratchet := map[string]decoderLossThresholds{
-		"celt-fb-20ms-mono-64k-plc|burst6_mid":    {minQ: 99.0, minCorr: 0.99, minRMS: 0.95, maxRMS: 1.05},
-		"celt-fb-20ms-mono-64k-plc|periodic5":     {minQ: 99.0, minCorr: 0.999, minRMS: 0.995, maxRMS: 1.005},
-		"hybrid-fb-20ms-mono-32k-fec|burst8_edge": {minQ: 99.0, minCorr: 0.99, minRMS: 0.95, maxRMS: 1.05},
+// decoderLossStressQualityBar returns the trusted QualityBar for a stress
+// loss/FEC pattern. Stress patterns intentionally apply harsher and denser loss
+// masks than the baked fixture patterns; these are documented, deliberately
+// looser opus_compare floors than decoderLossQualityBar while still requiring
+// strong decoded-audio parity against opus_demo.
+func decoderLossStressQualityBar(c libopusDecoderLossCaseFile, pattern string) QualityBar {
+	ratchet := map[string]QualityBar{
+		"celt-fb-20ms-mono-64k-plc|burst6_mid":    {MinQ: 99.0, MinCorr: 0.99, RMSLo: 0.95, RMSHi: 1.05, Desc: "loss stress ratchet (celt plc burst6_mid)"},
+		"celt-fb-20ms-mono-64k-plc|periodic5":     {MinQ: 99.0, MinCorr: 0.999, RMSLo: 0.995, RMSHi: 1.005, Desc: "loss stress ratchet (celt plc periodic5)"},
+		"hybrid-fb-20ms-mono-32k-fec|burst8_edge": {MinQ: 99.0, MinCorr: 0.99, RMSLo: 0.95, RMSHi: 1.05, Desc: "loss stress ratchet (hybrid fec burst8_edge)"},
 	}
-	if thr, ok := ratchet[c.Name+"|"+pattern]; ok {
-		return thr
+	if bar, ok := ratchet[c.Name+"|"+pattern]; ok {
+		return bar
 	}
 
-	// Stress patterns intentionally apply harsher and denser loss masks than the
-	// baked fixture patterns; keep slightly looser opus_compare floors here while
-	// still requiring strong decoded-audio parity.
 	switch {
 	case strings.HasPrefix(c.Name, "hybrid-"):
-		return decoderLossThresholds{minQ: 99.0, minCorr: 0.25, minRMS: 0.80, maxRMS: 3.20}
+		return QualityBar{MinQ: 99.0, MinCorr: 0.25, RMSLo: 0.80, RMSHi: 3.20, Desc: "loss stress default (hybrid)"}
 	case strings.HasPrefix(c.Name, "silk-"):
-		return decoderLossThresholds{minQ: 99.5, minCorr: 0.30, minRMS: 0.60, maxRMS: 1.35}
+		return QualityBar{MinQ: 99.5, MinCorr: 0.30, RMSLo: 0.60, RMSHi: 1.35, Desc: "loss stress default (silk)"}
 	default:
-		return decoderLossThresholds{minQ: 98.5, minCorr: 0.80, minRMS: 0.80, maxRMS: 1.20}
+		return QualityBar{MinQ: 98.5, MinCorr: 0.80, RMSLo: 0.80, RMSHi: 1.20, Desc: "loss stress default (celt)"}
 	}
 }
 
@@ -300,29 +300,16 @@ func TestDecoderLossParityLibopusFixture(t *testing.T) {
 					if len(gotDecoded) < compareLen {
 						compareLen = len(gotDecoded)
 					}
-					thr := decoderLossThresholdForCase(c, r.Pattern)
+					bar := decoderLossQualityBar(c, r.Pattern)
 					maxDelay := 4 * c.FrameSize
 					if maxDelay < 960 {
 						maxDelay = 960
 					}
-					q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(refDecoded[:compareLen], gotDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
+					cmp, err := CompareDecodedFloat32(gotDecoded[:compareLen], refDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
 					if err != nil {
-						t.Fatalf("compute opus_compare quality: %v", err)
+						t.Fatalf("compare decoded quality: %v", err)
 					}
-					corr, rmsRatio := decoderParityStats(refDecoded[:compareLen], gotDecoded[:compareLen])
-					t.Logf("Q=%.2f delay=%d corr=%.6f rms_ratio=%.6f len_ref=%d len_got=%d",
-						q, delay, corr, rmsRatio, len(refDecoded), len(gotDecoded))
-
-					if q < thr.minQ {
-						t.Fatalf("decoder loss parity quality regression: Q=%.2f < %.2f", q, thr.minQ)
-					}
-					if corr < thr.minCorr {
-						t.Fatalf("decoder loss parity correlation regression: corr=%.6f < %.6f", corr, thr.minCorr)
-					}
-					if rmsRatio < thr.minRMS || rmsRatio > thr.maxRMS {
-						t.Fatalf("decoder loss parity RMS ratio regression: ratio=%.6f outside [%.6f, %.6f]",
-							rmsRatio, thr.minRMS, thr.maxRMS)
-					}
+					AssertQuality(t, cmp, bar, c.Name+"/"+r.Pattern)
 				})
 			}
 		})
@@ -424,38 +411,26 @@ func TestDecoderLossStressPatternsAgainstOpusDemo(t *testing.T) {
 					if len(gotDecoded) < compareLen {
 						compareLen = len(gotDecoded)
 					}
-					thr := decoderLossStressThresholdForCase(c, p.name)
+					bar := decoderLossStressQualityBar(c, p.name)
 					maxDelay := 4 * c.FrameSize
 					if maxDelay < 960 {
 						maxDelay = 960
 					}
-					q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(refDecoded[:compareLen], gotDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
+					cmp, err := CompareDecodedFloat32(gotDecoded[:compareLen], refDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
 					if err != nil {
-						t.Fatalf("compute opus_compare quality: %v", err)
+						t.Fatalf("compare decoded quality: %v", err)
 					}
-					corr, rmsRatio := decoderParityStats(refDecoded[:compareLen], gotDecoded[:compareLen])
-					t.Logf("Q=%.2f delay=%d corr=%.6f rms_ratio=%.6f len_ref=%d len_got=%d",
-						q, delay, corr, rmsRatio, len(refDecoded), len(gotDecoded))
 
 					// FEC/PLC stress parity is highly delay-sensitive on SILK masks.
 					// Keep all SILK FEC stress lanes locked to near-zero delay drift
 					// against opus_demo.
 					if strings.HasPrefix(c.Name, "silk-") && strings.Contains(c.Name, "-fec") {
-						if d := lossAbsInt(delay); d > 1 {
+						if d := lossAbsInt(cmp.BestDelay); d > 1 {
 							t.Fatalf("decoder loss stress delay regression: |delay|=%d > 1", d)
 						}
 					}
 
-					if q < thr.minQ {
-						t.Fatalf("decoder loss stress parity quality regression: Q=%.2f < %.2f", q, thr.minQ)
-					}
-					if corr < thr.minCorr {
-						t.Fatalf("decoder loss stress parity correlation regression: corr=%.6f < %.6f", corr, thr.minCorr)
-					}
-					if rmsRatio < thr.minRMS || rmsRatio > thr.maxRMS {
-						t.Fatalf("decoder loss stress parity RMS ratio regression: ratio=%.6f outside [%.6f, %.6f]",
-							rmsRatio, thr.minRMS, thr.maxRMS)
-					}
+					AssertQuality(t, cmp, bar, c.Name+"/"+p.name)
 				})
 			}
 		})

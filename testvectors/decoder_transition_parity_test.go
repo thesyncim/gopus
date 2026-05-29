@@ -9,6 +9,19 @@ import (
 	gopus "github.com/thesyncim/gopus"
 )
 
+// transitionFrameComparison scores a single decoded frame (no delay search:
+// both sides follow the same decode cadence so the frame index is aligned) via
+// the canonical comparator. maxDelay=0 yields the delay-0-only opus_compare Q
+// that this test has always measured per frame.
+func transitionFrameComparison(ref, got []float32, channels, frameSamples, frameIndex int) (QualityComparison, error) {
+	start := frameIndex * frameSamples
+	end := start + frameSamples
+	if end > len(ref) || end > len(got) {
+		return QualityComparison{}, fmt.Errorf("frame %d out of range (ref=%d got=%d)", frameIndex, len(ref), len(got))
+	}
+	return CompareDecodedFloat32(got[start:end], ref[start:end], 48000, channels, 0)
+}
+
 func findDecoderMatrixCaseByName(fixture libopusDecoderMatrixFixtureFile, name string) (libopusDecoderMatrixCaseFile, bool) {
 	for _, c := range fixture.Cases {
 		if c.Name == name {
@@ -37,20 +50,11 @@ func firstHybridToCELTFrameIndex(c libopusDecoderMatrixCaseFile) (int, error) {
 	return 0, fmt.Errorf("no hybrid->celt transition")
 }
 
-func frameQualityAtIndex(ref, got []float32, channels, frameSamples, frameIndex int) (float64, waveformStats, error) {
-	start := frameIndex * frameSamples
-	end := start + frameSamples
-	if end > len(ref) || end > len(got) {
-		return 0, waveformStats{}, fmt.Errorf("frame %d out of range (ref=%d got=%d)", frameIndex, len(ref), len(got))
-	}
-	frameRef := ref[start:end]
-	frameGot := got[start:end]
-	q, err := ComputeOpusCompareQualityFloat32(frameGot, frameRef, 48000, channels)
-	if err != nil {
-		return 0, waveformStats{}, err
-	}
-	return q, computeWaveformStats(frameGot, frameRef), nil
-}
+// transitionPostBar guards the CELT frame immediately after a hybrid->CELT
+// transition; it must stay in near-bit-exact territory. Documented explicit bar
+// (Q-only, corr/RMS unchecked) preserving the original Q>=90 post-transition
+// gate.
+var transitionPostBar = QualityBar{MinQ: 90.0, Desc: "post-transition celt frame (Q>=90)"}
 
 func TestDecoderHybridToCELT10msTransitionParity(t *testing.T) {
 	requireTestTier(t, testTierParity)
@@ -61,14 +65,16 @@ func TestDecoderHybridToCELT10msTransitionParity(t *testing.T) {
 	}
 
 	// Guard the first CELT frame after a hybrid run in 10ms profiles.
-	// These thresholds are intentionally modest and act as regression bounds.
+	// The transition frame is a genuinely harder edge, so its bar is an explicit,
+	// deliberately-loose regression bound (Q>=0; corr/RMS unchecked) rather than
+	// the near-exact decode bar.
 	cases := []struct {
 		name string
-		minQ float64
+		bar  QualityBar
 	}{
-		{name: "hybrid-fb-10ms-mono-24k", minQ: 0.0},
-		{name: "hybrid-fb-10ms-stereo-24k", minQ: 0.0},
-		{name: "hybrid-swb-10ms-mono-24k", minQ: 0.0},
+		{name: "hybrid-fb-10ms-mono-24k", bar: QualityBar{MinQ: 0.0, Desc: "10ms hybrid->celt transition frame (Q>=0)"}},
+		{name: "hybrid-fb-10ms-stereo-24k", bar: QualityBar{MinQ: 0.0, Desc: "10ms hybrid->celt transition frame (Q>=0)"}},
+		{name: "hybrid-swb-10ms-mono-24k", bar: QualityBar{MinQ: 0.0, Desc: "10ms hybrid->celt transition frame (Q>=0)"}},
 	}
 
 	for _, tc := range cases {
@@ -95,30 +101,24 @@ func TestDecoderHybridToCELT10msTransitionParity(t *testing.T) {
 			}
 
 			frameSamples := c.FrameSize * c.Channels
-			q, stats, err := frameQualityAtIndex(refDecoded, gotDecoded, c.Channels, frameSamples, transitionIdx)
+			cmp, err := transitionFrameComparison(refDecoded, gotDecoded, c.Channels, frameSamples, transitionIdx)
 			if err != nil {
 				t.Fatalf("transition frame quality: %v", err)
 			}
-			minQ := tc.minQ
+			bar := tc.bar
 			if runtime.GOARCH == "amd64" && tc.name == "hybrid-fb-10ms-stereo-24k" {
 				// amd64 shows stable but slightly lower transition quality versus arm64 on this edge case.
-				minQ = -5.0
+				bar = QualityBar{MinQ: -5.0, Desc: "10ms hybrid->celt transition frame (amd64 carve-out, Q>=-5)"}
 			}
-			t.Logf("transition frame=%d q=%.2f corr=%.6f meanAbs=%.1f maxAbs=%.1f", transitionIdx, q, stats.Correlation, stats.MeanAbsErr*32768.0, stats.MaxAbsErr*32768.0)
-			if q < minQ {
-				t.Fatalf("transition parity regressed: Q=%.2f < %.2f", q, minQ)
-			}
+			AssertQuality(t, cmp, bar, fmt.Sprintf("%s transition frame=%d", tc.name, transitionIdx))
 
 			// The following CELT frame should remain in near-bit-exact territory.
 			if transitionIdx+1 < c.Frames {
-				nextQ, nextStats, err := frameQualityAtIndex(refDecoded, gotDecoded, c.Channels, frameSamples, transitionIdx+1)
+				nextCmp, err := transitionFrameComparison(refDecoded, gotDecoded, c.Channels, frameSamples, transitionIdx+1)
 				if err != nil {
 					t.Fatalf("next frame quality: %v", err)
 				}
-				t.Logf("next frame=%d q=%.2f corr=%.6f meanAbs=%.1f maxAbs=%.1f", transitionIdx+1, nextQ, nextStats.Correlation, nextStats.MeanAbsErr*32768.0, nextStats.MaxAbsErr*32768.0)
-				if nextQ < 90.0 {
-					t.Fatalf("post-transition celt parity regressed: Q=%.2f < 90", nextQ)
-				}
+				AssertQuality(t, nextCmp, transitionPostBar, fmt.Sprintf("%s post-transition frame=%d", tc.name, transitionIdx+1))
 			}
 		})
 	}
@@ -153,24 +153,20 @@ func TestDecoderHybridToCELT20msTransitionParity(t *testing.T) {
 	}
 
 	frameSamples := c.FrameSize * c.Channels
-	q, stats, err := frameQualityAtIndex(refDecoded, gotDecoded, c.Channels, frameSamples, transitionIdx)
+	cmp, err := transitionFrameComparison(refDecoded, gotDecoded, c.Channels, frameSamples, transitionIdx)
 	if err != nil {
 		t.Fatalf("transition frame quality: %v", err)
 	}
-	t.Logf("transition frame=%d q=%.2f corr=%.6f meanAbs=%.1f maxAbs=%.1f", transitionIdx, q, stats.Correlation, stats.MeanAbsErr*32768.0, stats.MaxAbsErr*32768.0)
-	if q < 40.0 {
-		t.Fatalf("20ms transition parity regressed: Q=%.2f < 40", q)
-	}
+	// 20ms transition frame: documented explicit bound (Q>=40; corr/RMS unchecked).
+	transitionBar := QualityBar{MinQ: 40.0, Desc: "20ms hybrid->celt transition frame (Q>=40)"}
+	AssertQuality(t, cmp, transitionBar, fmt.Sprintf("hybrid-fb-20ms-stereo-24k transition frame=%d", transitionIdx))
 
 	if transitionIdx+1 < c.Frames {
-		nextQ, nextStats, err := frameQualityAtIndex(refDecoded, gotDecoded, c.Channels, frameSamples, transitionIdx+1)
+		nextCmp, err := transitionFrameComparison(refDecoded, gotDecoded, c.Channels, frameSamples, transitionIdx+1)
 		if err != nil {
 			t.Fatalf("next frame quality: %v", err)
 		}
-		t.Logf("next frame=%d q=%.2f corr=%.6f meanAbs=%.1f maxAbs=%.1f", transitionIdx+1, nextQ, nextStats.Correlation, nextStats.MeanAbsErr*32768.0, nextStats.MaxAbsErr*32768.0)
-		if nextQ < 90.0 {
-			t.Fatalf("post-transition celt parity regressed: Q=%.2f < 90", nextQ)
-		}
+		AssertQuality(t, nextCmp, transitionPostBar, fmt.Sprintf("hybrid-fb-20ms-stereo-24k post-transition frame=%d", transitionIdx+1))
 	}
 }
 
