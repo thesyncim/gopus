@@ -111,8 +111,8 @@ Valid sizes depend on mode (`encoder.ValidFrameSize`). Compliance summary uses 4
 
 | Frame | CELT | SILK | Hybrid | Encoder compliance | Decoder matrix | Gaps for 100% |
 | --- | --- | --- | --- | --- | --- | --- |
-| 2.5 ms | Y | — | — | Y (mono/stereo FB) | Y (`celt-fb-2p5ms`) | Variant-byte ratchet surface incomplete |
-| 5 ms | Y | — | — | Y | Y (`celt-fb-5ms`) | Same |
+| 2.5 ms | Y | — | — | Y (mono/stereo FB; 16-cell variant byte ratchet amd64-exact) | Y (`celt-fb-2p5ms`) | arm64-only FMA/tonality residual (amd64 exact) |
+| 5 ms | Y | — | — | Y (variant byte ratchet amd64-exact) | Y (`celt-fb-5ms`) | arm64-only FMA/tonality residual (amd64 exact) |
 | 10 ms | Y | Y | Y | Y | Y (silk/hybrid/celt) | — |
 | 20 ms | Y | Y | Y | Y | Y | — |
 | 40 ms | Y | Y | Y | long-frame fixture | partial (silk/hybrid in matrix) | SILK stereo 40 ms DRED carrier; hybrid 40 ms stereo DRED |
