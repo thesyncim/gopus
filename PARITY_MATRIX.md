@@ -172,8 +172,8 @@ requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
 | `float32` encode/decode | Y | Hot-path alloc tests, compliance, matrix; arm64 IMDCT/noise-PLC synthesis bit-exact vs libopus | Encode byte grid beyond CELT CBR matrix |
 | `int16` encode/decode | Y | Roundtrip, PCM convert oracle; int16 PLC vs libopus across mode × channel × loss-pattern (30 cells Q=100) + int16==float32-quantized identity | — |
 | Packet parse (`ParseTOC`, extensions) | Y | Full 256-TOC/config differential vs libopus (`packet_toc_edge_libopus_parity`): bandwidth/channels/nb_frames/samples-per-frame/parse/padding/boundary-reject all bit-exact | — |
-| Decoder CTLs | ~ | Gain, complexity, phase, ignore extensions; DNN blob under `gopus_dred`/`gopus_extra_controls` | Full `opus_decoder_ctl` equivalence table |
-| Encoder CTLs | ~ | Bitrate, VBR, FEC, DTX, bandwidth, frame, signal | `OPUS_GET_*` mirror coverage; multistream CTL parity |
+| Decoder CTLs | Y | Full `opus_decoder_ctl` equivalence table (60-entry libopus CTL → gopus method → default → tag); fixed `Bandwidth()` pre-decode default | — |
+| Encoder CTLs | Y | Full encoder CTL table + `OPUS_GET_*` mirrors; single-stream + multistream CTL parity | — |
 | Output gain | Y | Decoder `SetGain` | libopus gain smoothing on transitions |
 | Reset / error behavior | Y | Stream + codec reset tests; malformed-packet error-code corpus (20+ classes) 1:1 with libopus `opus_decode` (fixed code-0/code-2 oversized-frame acceptance) | — |
 | Multistream API | Y | MS tests, projection oracle | DRED/QEXT/OSCE on all channel layouts |
