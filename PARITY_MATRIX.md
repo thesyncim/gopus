@@ -70,7 +70,7 @@ kernels honest across `purego`/arch — is in [docs/parity-testing.md](docs/pari
 
 | Mode | Encode | Decode | Quality parity | Numeric / byte parity | Gaps for 100% |
 | --- | --- | --- | --- | --- | --- |
-| SILK | Y | Y | Y (compliance + decoder matrix) | ~ (NLSF, gain, LTP, stereo oracles; CBR byte-exact) | SILK unconstrained-VBR ≤3-byte/frame size drift (SILK-FLP iter-0 shaping-gain) |
+| SILK | Y | Y | Y (compliance + decoder matrix) | ~ (NLSF, gain, LTP, stereo oracles; CBR + VBR byte-exact on amd64; VoIP adaptive `hp_cutoff` fix) | arm64-only ≤1-ULP recursive-float tail in the `hp_cutoff` biquad / warped shaping-AR (amd64 exact) |
 | CELT | Y | Y | Y (compliance + matrix) | ~ (PVQ, bands oracles; IMDCT + noise-PLC synthesis arm64 bit-exact; CBR byte-exact; band-allocation parity ≤5% generic) | Full PVQ/bands byte grid; arm64-only chirp `alloc_trim` drift from half-density tonality-analysis resampling (amd64 exact) |
 | Hybrid | Y | Y | Y (matrix Q>=20, corr>=0.997 — same bar as SILK/CELT; compliance) | ~ (float32 SILK+CELT combine bit-exact stage oracle; stereo DRED carriers byte-exact; 16 kHz hybrid explicit DRED; QEXT framing byte-exact; VBR/CVBR byte/size-exact) | Hybrid unconstrained-VBR shares the SILK iter-0 size residual |
 | Auto | Y | Y (TOC-driven) | Y (mode fixtures, analysis; FFT 1/nfft normalization + VAD no-re-analysis fixes) | Y (application × rate × frame × signal × channel cross-product, **216/216** cells, no skips) | — |
@@ -126,8 +126,8 @@ Valid sizes depend on mode (`encoder.ValidFrameSize`). Compliance summary uses 4
 | Control | API | Behavior vs libopus | Test coverage | Gaps for 100% |
 | --- | --- | --- | --- | --- |
 | CBR | Y | Y | Compliance + `encoder_cbr_byte_parity` (SILK/CELT/Hybrid byte-exact; CELT/Hybrid hard on amd64, arm64 FMA residual) | — |
-| VBR | Y | ~ | `encoder_vbr_cvbr_byte_parity` (CELT + Hybrid byte/size-exact, hard-asserted; full CELT VBR budget for hybrid) | SILK ≤3-byte/frame size drift — SILK-FLP iter-0 shaping-gain path, cross-platform; needs frame-level SILK encoder-control oracle to bisect |
-| Constrained VBR (CVBR) | Y | ~ | `encoder_vbr_cvbr_byte_parity` (CELT + Hybrid size+range parity) | SILK CVBR per-frame size (same SILK-FLP iter-0 root as VBR) |
+| VBR | Y | ~ | `encoder_vbr_cvbr_byte_parity` — SILK + CELT + Hybrid hard byte/size parity on amd64/CI (full CELT VBR budget for hybrid; VoIP adaptive `hp_cutoff` for SILK) | arm64-only ≤1-ULP `hp_cutoff` biquad recursive-float tail (amd64 exact) |
+| Constrained VBR (CVBR) | Y | ~ | `encoder_vbr_cvbr_byte_parity` (SILK/CELT/Hybrid size+range parity on amd64) | same arm64 ≤1-ULP `hp_cutoff` tail as VBR |
 | Low delay | Y | Y | `encoder_lowdelay_crossmode_parity` (CELT-only forced; lookahead Fs/400; 360 byte-exact cells) | — |
 | DTX | Y | Y | `encoder/dtx_parity_test` + `dtx_sequence_parity` (multi-frame TOC, stereo, hybrid, SILK 10 ms threshold, max-consecutive reset) | — |
 
