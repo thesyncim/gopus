@@ -10,8 +10,13 @@
  * encoder. That lets the Go side assert byte parity of the stereo downmix +
  * channel-blind `pcm += process_size` advance against the libopus oracle.
  *
- * Args: <channels> [<frame_size>] [<chunk_size>].
- * Defaults: channels=1, frame_size=1920, chunk_size=frame_size.
+ * Args: <channels> [<frame_size>] [<chunk_size>] [<emit_convert>].
+ * Defaults: channels=1, frame_size=1920, chunk_size=frame_size, emit_convert=0.
+ *
+ * The GDLC 16 kHz conversion-sequence record is only emitted when emit_convert
+ * is non-zero. This keeps the GDLT-only output byte-for-byte identical for the
+ * encoder latents-trace consumers (which never request GDLC) while letting the
+ * internal/dred stereo-conversion test opt in via the trailing flag.
  */
 #include <math.h>
 #include <stdint.h>
@@ -74,6 +79,7 @@ int main(int argc, char **argv) {
   const int frames_to_run = 4;
   int channels = 1;
   int chunk_size = 0;
+  int emit_convert = 0;
   int frame_idx;
   DREDEnc enc;
   float pcm[2880 * 2];
@@ -92,6 +98,9 @@ int main(int argc, char **argv) {
   }
   if (argc >= 4) {
     chunk_size = atoi(argv[3]);
+  }
+  if (argc >= 5) {
+    emit_convert = atoi(argv[4]);
   }
   if (chunk_size <= 0) chunk_size = frame_size;
   if (frame_size <= 0 || chunk_size <= 0 || frame_size % chunk_size != 0) {
@@ -150,8 +159,10 @@ int main(int argc, char **argv) {
   }
 
   /* Emit the libopus 16 kHz conversion sequence for one fresh chunk-sized call,
-   * isolating the stereo downmix + channel-blind pcm advance. */
-  {
+   * isolating the stereo downmix + channel-blind pcm advance. Strictly opt-in
+   * (emit_convert) and strictly after all GDLT records, so consumers that only
+   * read GDLT see byte-for-byte identical output regardless of this flag. */
+  if (emit_convert) {
     int i;
     int produced;
     uint32_t count;

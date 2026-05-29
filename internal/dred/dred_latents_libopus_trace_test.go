@@ -32,7 +32,11 @@ func probeLibopusDREDLatentsTrace(t *testing.T, channels int) ([]libopusDREDFram
 	if err != nil {
 		libopustest.HelperUnavailable(t, "dred latents trace", err)
 	}
-	data, err := libopustest.RunHelperArgs(binPath, nil, fmt.Sprintf("%d", channels))
+	// Pass the explicit frame_size/chunk_size defaults (1920) plus emit_convert=1
+	// so the helper appends the GDLC 16 kHz conversion-sequence record this test
+	// consumes. The encoder latents-trace consumers omit emit_convert and so see
+	// only GDLT records (byte-for-byte the pre-GDLC oracle output).
+	data, err := libopustest.RunHelperArgs(binPath, nil, fmt.Sprintf("%d", channels), "1920", "1920", "1")
 	if err != nil {
 		t.Fatalf("run libopus dred latents trace helper: %v", err)
 	}
