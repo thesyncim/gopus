@@ -816,9 +816,16 @@ func innerProdFloat(x, y []float32, length int) float32 {
 	if useNEONAnalysisKernels {
 		return innerProdFloatNEON(x, y, length)
 	}
+	// libopus celt/pitch.h:celt_inner_prod_c is MAC16_16 (c + a*b) in the
+	// float build. At -O3 the scalar DRED reference build auto-vectorizes the
+	// FRAME_SIZE reduction into 4-wide NEON: every product is a rounded FMUL,
+	// then the products are reduced into a single accumulator in index order
+	// with plain FADDs (no FMA fusion). Round each product before accumulating
+	// so the Go arm64 backend cannot fuse this into FMADDS and diverge from the
+	// reference by a last bit (this surfaces in features[19] frame_corr).
 	var sum float32
 	for i := 0; i < length; i++ {
-		sum += x[i] * y[i]
+		sum += noFMA32Mul(x[i], y[i])
 	}
 	return sum
 }
