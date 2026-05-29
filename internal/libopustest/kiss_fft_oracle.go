@@ -12,7 +12,79 @@ const (
 	KissFFTModeBfly3 = uint32(2)
 	// KissFFTModeBfly5 selects the FIXED_POINT kf_bfly5 radix-5 butterfly.
 	KissFFTModeBfly5 = uint32(3)
+	// KissFFTModeFFT selects the full forward opus_fft_c transform.
+	KissFFTModeFFT = uint32(4)
+	// KissFFTModeIFFT selects the full inverse opus_ifft_c transform.
+	KissFFTModeIFFT = uint32(5)
 )
+
+// maxFactors mirrors libopus MAXFACTORS (the factors array holds 2*MAXFACTORS
+// int16 entries).
+const maxFactors = 8
+
+// KissFFTFullResult holds the libopus full-FFT oracle output: the exact state
+// the library built for nfft (scale_shift/scale/shift, factors, bitrev table,
+// twiddle table) plus the transformed samples, so the Go side can validate both
+// its state constructor and its transform bit-for-bit.
+type KissFFTFullResult struct {
+	ScaleShift int
+	Scale      int16
+	Shift      int
+	Factors    [2 * maxFactors]int16
+	Bitrev     []int16
+	Twiddles   []KissFFTTwiddle
+	Samples    []KissFFTComplex
+}
+
+// ProbeKissFFTFull runs the real (non-static) library opus_fft_c (forward) or
+// opus_ifft_c (inverse) over the given nfft samples against a standalone
+// opus_fft_alloc state, returning the state tables and the transformed samples.
+func ProbeKissFFTFull(mode uint32, samples []KissFFTComplex) (KissFFTFullResult, error) {
+	binPath, err := getKissFFTHelperPath()
+	if err != nil {
+		return KissFFTFullResult{}, err
+	}
+	nfft := len(samples)
+	payload := NewOraclePayload(kissFFTInputMagic, mode, uint32(nfft))
+	payload.U32(uint32(nfft))
+	for _, s := range samples {
+		payload.I32(s.R)
+		payload.I32(s.I)
+	}
+
+	reader, err := RunOracle(binPath, payload.Bytes(), "kiss fft", kissFFTOutputMagic)
+	if err != nil {
+		return KissFFTFullResult{}, err
+	}
+	gotNfft := int(reader.U32())
+	res := KissFFTFullResult{
+		ScaleShift: int(int32(reader.U32())),
+		Scale:      int16(reader.I32()),
+		Shift:      int(int32(reader.U32())),
+		Bitrev:     make([]int16, gotNfft),
+		Twiddles:   make([]KissFFTTwiddle, gotNfft),
+		Samples:    make([]KissFFTComplex, gotNfft),
+	}
+	reader.ExpectRemaining(4*(2*maxFactors) + 4*gotNfft + 8*gotNfft + 8*gotNfft)
+	for i := range res.Factors {
+		res.Factors[i] = int16(reader.I32())
+	}
+	for i := range res.Bitrev {
+		res.Bitrev[i] = int16(reader.I32())
+	}
+	for i := range res.Twiddles {
+		res.Twiddles[i].R = int16(reader.I32())
+		res.Twiddles[i].I = int16(reader.I32())
+	}
+	for i := range res.Samples {
+		res.Samples[i].R = reader.I32()
+		res.Samples[i].I = reader.I32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return KissFFTFullResult{}, err
+	}
+	return res, nil
+}
 
 // KissFFTTwiddle is a complex twiddle factor with int16 Q15 real/imaginary parts
 // matching the FIXED_POINT (non-QEXT) libopus kiss_twiddle_cpx.
@@ -85,7 +157,7 @@ func buildKissFFTHelper() (string, error) {
 		FixedRef:    true,
 		CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 		RefIncludes: []string{"celt", "silk"},
-		Libs:        []string{"-lm"},
+		Libs:        []string{FixedRefPath(".libs", "libopus.a"), "-lm"},
 		DeadStrip:   true,
 	})
 }

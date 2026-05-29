@@ -11,6 +11,7 @@
 #include "config.h"
 #include "celt/_kiss_fft_guts.h"
 #include "celt/arch.h"
+#include "celt/kiss_fft.h"
 #include "celt/mathops.h"
 
 /* Oracle helper for the libopus FIXED_POINT integer KISS-FFT butterflies.
@@ -32,7 +33,9 @@ enum {
   MODE_KF_BFLY2 = 0,
   MODE_KF_BFLY4 = 1,
   MODE_KF_BFLY3 = 2,
-  MODE_KF_BFLY5 = 3
+  MODE_KF_BFLY5 = 3,
+  MODE_OPUS_FFT = 4,
+  MODE_OPUS_IFFT = 5
 };
 
 /* Verbatim copy of the celt/kiss_fft.c kf_bfly2() non-CUSTOM_MODES path. */
@@ -261,6 +264,88 @@ static void build_twiddles(kiss_twiddle_cpx *twiddles, int nfft) {
   }
 }
 
+/* Local copy of celt/kiss_fft.c kf_factor() (static in the library, behind
+ * CUSTOM_MODES). Populates facbuf as p1,m1,p2,m2,... Returns 0 if n is not
+ * factorable into radices 2..5. */
+static int oracle_kf_factor(int n, opus_int16 *facbuf) {
+  int p = 4;
+  int i;
+  int stages = 0;
+  int nbak = n;
+  do {
+    while (n % p) {
+      switch (p) {
+        case 4: p = 2; break;
+        case 2: p = 3; break;
+        default: p += 2; break;
+      }
+      if (p > 32000 || (opus_int32)p * (opus_int32)p > n) p = n;
+    }
+    n /= p;
+    if (p > 5) return 0;
+    facbuf[2 * stages] = p;
+    if (p == 2 && stages > 1) {
+      facbuf[2 * stages] = 4;
+      facbuf[2] = 2;
+    }
+    stages++;
+  } while (n > 1);
+  n = nbak;
+  for (i = 0; i < stages / 2; i++) {
+    int tmp = facbuf[2 * i];
+    facbuf[2 * i] = facbuf[2 * (stages - i - 1)];
+    facbuf[2 * (stages - i - 1)] = tmp;
+  }
+  for (i = 0; i < stages; i++) {
+    n /= facbuf[2 * i];
+    facbuf[2 * i + 1] = n;
+  }
+  return 1;
+}
+
+/* Local copy of celt/kiss_fft.c compute_bitrev_table() (static, CUSTOM_MODES). */
+static void oracle_compute_bitrev_table(int Fout, opus_int16 *f, const size_t fstride,
+                                        int in_stride, opus_int16 *factors) {
+  const int p = *factors++;
+  const int m = *factors++;
+  if (m == 1) {
+    int j;
+    for (j = 0; j < p; j++) {
+      *f = Fout + j;
+      f += fstride * in_stride;
+    }
+  } else {
+    int j;
+    for (j = 0; j < p; j++) {
+      oracle_compute_bitrev_table(Fout, f, fstride * p, in_stride, factors);
+      f += fstride * in_stride;
+      Fout += m;
+    }
+  }
+}
+
+/* Build a standalone kiss_fft_state for nfft exactly as opus_fft_alloc(base=NULL)
+ * does in the FIXED_POINT (non-QEXT) build. opus_fft_alloc itself lives behind
+ * CUSTOM_MODES and is absent from the static-mode library, so we reconstruct the
+ * state here and feed it to the linkable opus_fft_c/opus_ifft_c. Returns 0 on
+ * failure. */
+static int oracle_fft_alloc(kiss_fft_state *st, kiss_twiddle_cpx *twiddles,
+                            opus_int16 *bitrev, int nfft) {
+  st->nfft = nfft;
+  st->scale_shift = celt_ilog2(nfft);
+  if (nfft == 1 << st->scale_shift)
+    st->scale = Q15ONE;
+  else
+    st->scale = (1073741824 + nfft / 2) / nfft >> (15 - st->scale_shift);
+  st->shift = -1;
+  build_twiddles(twiddles, nfft);
+  st->twiddles = twiddles;
+  if (!oracle_kf_factor(nfft, st->factors)) return 0;
+  st->bitrev = bitrev;
+  oracle_compute_bitrev_table(0, bitrev, 1, 1, st->factors);
+  return 1;
+}
+
 static int set_binary_stdio(void) {
 #ifdef _WIN32
   if (_setmode(_fileno(stdin), _O_BINARY) == -1) return 0;
@@ -352,6 +437,82 @@ static int run_bfly_radix(uint32_t mode, uint32_t nfft) {
   return 0;
 }
 
+/* Full forward/inverse FFT path: header is {version=1, mode, nfft}, then total
+ * (== nfft) complex input samples. Drives the real (non-static) library
+ * opus_fft_c/opus_ifft_c against a standalone opus_fft_alloc state.
+ *
+ * Output: {magic, version=1, nfft, scale_shift, scale, shift}, then 2*MAXFACTORS
+ * factors (i32), then nfft bitrev entries (i32), then nfft twiddles (r,i as
+ * i32), then nfft transformed samples. Exporting the state lets the Go side
+ * validate its constructor against the library's exact tables. */
+static int run_opus_fft(uint32_t mode, uint32_t nfft) {
+  uint32_t total, i;
+  kiss_fft_state st;
+  kiss_twiddle_cpx *twiddles;
+  opus_int16 *bitrev;
+  kiss_fft_cpx *fin;
+  kiss_fft_cpx *fout;
+
+  if (!read_u32(&total)) return 1;
+  if (total != nfft) return 1;
+
+  memset(&st, 0, sizeof(st));
+  twiddles = (kiss_twiddle_cpx *)malloc(sizeof(kiss_twiddle_cpx) * (nfft ? nfft : 1));
+  bitrev = (opus_int16 *)malloc(sizeof(opus_int16) * (nfft ? nfft : 1));
+  fin = (kiss_fft_cpx *)malloc(sizeof(kiss_fft_cpx) * (total ? total : 1));
+  fout = (kiss_fft_cpx *)malloc(sizeof(kiss_fft_cpx) * (total ? total : 1));
+  if (!twiddles || !bitrev || !fin || !fout) { free(twiddles); free(bitrev); free(fin); free(fout); return 1; }
+
+  if (!oracle_fft_alloc(&st, twiddles, bitrev, (int)nfft)) {
+    free(twiddles); free(bitrev); free(fin); free(fout); return 1;
+  }
+
+  for (i = 0; i < total; i++) {
+    uint32_t r, im;
+    if (!read_u32(&r) || !read_u32(&im)) { free(twiddles); free(bitrev); free(fin); free(fout); return 1; }
+    fin[i].r = (kiss_fft_scalar)(int32_t)r;
+    fin[i].i = (kiss_fft_scalar)(int32_t)im;
+  }
+
+  if (mode == MODE_OPUS_FFT)
+    opus_fft_c(&st, fin, fout);
+  else
+    opus_ifft_c(&st, fin, fout);
+
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(nfft) ||
+      !write_u32((uint32_t)(int32_t)st.scale_shift) ||
+      !write_u32((uint32_t)(int32_t)st.scale) ||
+      !write_u32((uint32_t)(int32_t)st.shift)) {
+    free(twiddles); free(bitrev); free(fin); free(fout); return 1;
+  }
+  for (i = 0; i < 2 * MAXFACTORS; i++) {
+    if (!write_u32((uint32_t)(int32_t)st.factors[i])) {
+      free(twiddles); free(bitrev); free(fin); free(fout); return 1;
+    }
+  }
+  for (i = 0; i < nfft; i++) {
+    if (!write_u32((uint32_t)(int32_t)st.bitrev[i])) {
+      free(twiddles); free(bitrev); free(fin); free(fout); return 1;
+    }
+  }
+  for (i = 0; i < nfft; i++) {
+    if (!write_u32((uint32_t)(int32_t)st.twiddles[i].r) ||
+        !write_u32((uint32_t)(int32_t)st.twiddles[i].i)) {
+      free(twiddles); free(bitrev); free(fin); free(fout); return 1;
+    }
+  }
+  for (i = 0; i < total; i++) {
+    if (!write_u32((uint32_t)(int32_t)fout[i].r) || !write_u32((uint32_t)(int32_t)fout[i].i)) {
+      free(twiddles); free(bitrev); free(fin); free(fout); return 1;
+    }
+  }
+  free(twiddles);
+  free(bitrev);
+  free(fin);
+  free(fout);
+  return 0;
+}
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -367,6 +528,8 @@ int main(void) {
     case MODE_KF_BFLY4:
     case MODE_KF_BFLY3:
     case MODE_KF_BFLY5: return run_bfly_radix(mode, arg);
+    case MODE_OPUS_FFT:
+    case MODE_OPUS_IFFT: return run_opus_fft(mode, arg);
     default: return 1;
   }
 }
