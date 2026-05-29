@@ -100,7 +100,7 @@ byte-exact vs libopus at every sub-48k API rate.
 | Mono | Y | Y | Y | Matrix + compliance | — |
 | Stereo | Y | Y | Y | Matrix + compliance | Stereo DRED latent pointer bug documented in `internal/dred` trace test |
 | Multistream (1–8 ch, family 0/1/255) | Y | Y | Y | Roundtrip + padding tests | Encoder DRED dormant default build; decoder dormancy on some mappings |
-| Projection (family 3) | Y | Y | Y | Demixing matrix libopus oracle | Ambisonics orders outside {4,6,9,…} unsupported; multistream DRED stereo carriers partial |
+| Projection (family 3) | Y | Y | Y | Public `NewProjectionEncoder`/`Decoder`; demixing-matrix CTLs byte-exact (10 orders); MS DRED stereo carriers byte-exact | Unsupported ambisonics orders return `ErrProjectionOrderUnsupported` (no libopus matrices for them) |
 | >2 ch top-level API | N | N | via multistream only | — | By design (RFC-style multistream only) |
 
 ---
@@ -174,7 +174,7 @@ requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
 | Packet parse (`ParseTOC`, extensions) | Y | Full 256-TOC/config differential vs libopus (`packet_toc_edge_libopus_parity`): bandwidth/channels/nb_frames/samples-per-frame/parse/padding/boundary-reject all bit-exact | — |
 | Decoder CTLs | Y | Full `opus_decoder_ctl` equivalence table (60-entry libopus CTL → gopus method → default → tag); fixed `Bandwidth()` pre-decode default | — |
 | Encoder CTLs | Y | Full encoder CTL table + `OPUS_GET_*` mirrors; single-stream + multistream CTL parity | — |
-| Output gain | Y | Decoder `SetGain` | libopus gain smoothing on transitions |
+| Output gain | Y | Decoder `SetGain`; gain-transition parity vs libopus (applied per-frame, no ramp — matches `opus_decoder.c`, verified across gains × channels) | — |
 | Reset / error behavior | Y | Stream + codec reset tests; malformed-packet error-code corpus (20+ classes) 1:1 with libopus `opus_decode` (fixed code-0/code-2 oversized-frame acceptance) | — |
 | Multistream API | Y | MS tests, projection oracle | DRED/QEXT/OSCE on all channel layouts |
 
