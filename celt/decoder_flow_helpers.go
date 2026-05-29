@@ -165,7 +165,13 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 				d.applyDeemphasisAndScaleMonoFloat32ToFloat32(d.directOutPCM[:frameSize], samplesF32, 1.0/32768.0)
 			}
 		} else {
+			if d.synthTrace != nil {
+				d.synthTrace.captureSpec(0, specL[:frameSize])
+			}
 			samples = d.Synthesize(specL, transient, shortBlocks)
+			if d.synthTrace != nil {
+				d.synthTrace.captureIMDCT(0, samples[:frameSize])
+			}
 		}
 	}
 
