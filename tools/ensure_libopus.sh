@@ -6,25 +6,36 @@ TMP_DIR="${ROOT_DIR}/tmp_check"
 LIBOPUS_VERSION="${LIBOPUS_VERSION:-1.6.1}"
 TARBALL="${TMP_DIR}/opus-${LIBOPUS_VERSION}.tar.gz"
 LIBOPUS_ENABLE_QEXT="${LIBOPUS_ENABLE_QEXT:-0}"
+LIBOPUS_ENABLE_FIXED="${LIBOPUS_ENABLE_FIXED:-0}"
 LIBOPUS_CFLAGS="${LIBOPUS_CFLAGS:--O3 -DNDEBUG}"
 LIBOPUS_CPPFLAGS="${LIBOPUS_CPPFLAGS:-}"
 
-case "${LIBOPUS_ENABLE_QEXT}" in
-  1|true|TRUE|yes|YES|on|ON)
-    ENABLE_QEXT=1
-    SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-qext"
-    CONFIGURE_FLAGS=(--enable-static --disable-shared --enable-qext)
-    ;;
-  0|false|FALSE|no|NO|off|OFF)
-    ENABLE_QEXT=0
-    SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}"
-    CONFIGURE_FLAGS=(--enable-static --disable-shared)
-    ;;
-  *)
-    echo "error: LIBOPUS_ENABLE_QEXT must be 0/1, true/false, yes/no, or on/off" >&2
-    exit 1
-    ;;
-esac
+normalize_bool() {
+  case "$1" in
+    1|true|TRUE|yes|YES|on|ON) echo 1 ;;
+    0|false|FALSE|no|NO|off|OFF) echo 0 ;;
+    *) echo "error: $2 must be 0/1, true/false, yes/no, or on/off" >&2; return 1 ;;
+  esac
+}
+
+ENABLE_QEXT="$(normalize_bool "${LIBOPUS_ENABLE_QEXT}" LIBOPUS_ENABLE_QEXT)"
+ENABLE_FIXED="$(normalize_bool "${LIBOPUS_ENABLE_FIXED}" LIBOPUS_ENABLE_FIXED)"
+
+if [[ "${ENABLE_QEXT}" == "1" && "${ENABLE_FIXED}" == "1" ]]; then
+  echo "error: LIBOPUS_ENABLE_QEXT and LIBOPUS_ENABLE_FIXED are mutually exclusive" >&2
+  exit 1
+fi
+
+CONFIGURE_FLAGS=(--enable-static --disable-shared)
+if [[ "${ENABLE_QEXT}" == "1" ]]; then
+  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-qext"
+  CONFIGURE_FLAGS+=(--enable-qext)
+elif [[ "${ENABLE_FIXED}" == "1" ]]; then
+  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-fixed"
+  CONFIGURE_FLAGS+=(--enable-fixed-point)
+else
+  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}"
+fi
 
 BUILD_STAMP_FILE=".gopus-libopus-build"
 
@@ -54,7 +65,7 @@ CC_PATH="$(command -v "${LIBOPUS_CC_DRIVER}" 2>/dev/null || printf "%s" "${LIBOP
 CC_TARGET="$("${LIBOPUS_CC_ARGV[@]}" -dumpmachine 2>/dev/null || true)"
 CC_VERSION="$("${LIBOPUS_CC_ARGV[@]}" --version 2>/dev/null | sed -n '1p' || true)"
 CONFIGURE_STAMP="${CONFIGURE_FLAGS[*]}"
-BUILD_STAMP=$'gopus libopus helper build v5\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${ENABLE_QEXT}"$'\nhost_os='"${HOST_OS}"$'\nhost_arch='"${HOST_ARCH}"$'\nhost_bits='"${HOST_BITS}"$'\ncc='"${LIBOPUS_CC}"$'\ncc_path='"${CC_PATH}"$'\ncc_target='"${CC_TARGET}"$'\ncc_version='"${CC_VERSION}"$'\nconfigure='"${CONFIGURE_STAMP}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\nLDFLAGS='"${LIBOPUS_LDFLAGS}"$'\n'
+BUILD_STAMP=$'gopus libopus helper build v5\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${ENABLE_QEXT}"$'\nfixed='"${ENABLE_FIXED}"$'\nhost_os='"${HOST_OS}"$'\nhost_arch='"${HOST_ARCH}"$'\nhost_bits='"${HOST_BITS}"$'\ncc='"${LIBOPUS_CC}"$'\ncc_path='"${CC_PATH}"$'\ncc_target='"${CC_TARGET}"$'\ncc_version='"${CC_VERSION}"$'\nconfigure='"${CONFIGURE_STAMP}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\nLDFLAGS='"${LIBOPUS_LDFLAGS}"$'\n'
 LOCK_DIR="${SRC_DIR}.lock"
 
 sha256_for_version() {

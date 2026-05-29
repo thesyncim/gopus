@@ -1,6 +1,12 @@
-# Fixed-point feasibility
+# Fixed-point pipeline
 
-Scope, first increment, staged roadmap, and honest recommendation.
+Scope, oracle recipe, ported kernels, and staged roadmap toward a full
+`gopus_fixedpoint` integer CELT/SILK encode+decode pipeline.
+
+The full fixed-point pipeline is the approved goal: it mirrors libopus
+`FIXED_POINT` and lives behind the `gopus_fixedpoint` build tag, with zero cost
+to the default (float) build. The default build does not import the fixed-point
+packages, so there is no code-size or runtime impact when the tag is absent.
 
 ---
 
@@ -66,8 +72,9 @@ implemented as pure-integer Go, with no impact on the existing float pipeline:
 | `CeltExp2Frac(int16) int16` | `celt_exp2_frac()` | Degree-3 polynomial fractional exp2 |
 | `CeltExp2(int16) int32` | `celt_exp2()` Q10→Q16 | exp2 via CeltExp2Frac + integer exponent |
 | `CeltRsqrtNorm(int32) int16` | `celt_rsqrt_norm()` Q16→Q14 | Reciprocal sqrt via quadratic + Householder |
+| `CeltSqrt(int32) int32` | `celt_sqrt()` Q16→Q16 | Degree-5 polynomial sqrt over .25<x<1 with ilog2 range reduction |
 
-All five are verified by `internal/fixedpoint/celt_math_test.go`:
+The polynomial kernels are verified by `internal/fixedpoint/celt_math_test.go`:
 
 - `CeltILog2`: exact on 10 cases including powers of 2 and Q14 boundaries.
 - `CeltLog2`: exact on powers of 2 (`2^{-1}` through `2^3`); within ±1.5 Q10
@@ -78,28 +85,51 @@ All five are verified by `internal/fixedpoint/celt_math_test.go`:
 - Round-trip `exp2(log2(x)) ≈ x`: within 0.5% for Q14 inputs 0.5–4.0.
 - `CeltRsqrtNorm`: within 0.05% relative error across the full Q16 range [0.25, 1.0).
 
-### Oracle note
+### FIXED_POINT oracle
 
-Validating these kernels bit-for-bit against libopus requires a `FIXED_POINT`
-build of libopus (`./configure --enable-fixed-point`).  The existing oracle
-infrastructure uses the default float build.  A new build target
-`build-opus-fixed-{os}-{arch}` and a C oracle helper comparable to
-`libopus_silk_fixed_info.c` would close this gap in a future increment.  Until
-then the tests provide approximation-accuracy coverage against known mathematical
-results.
+Bit-exact validation against libopus uses a dedicated `--enable-fixed-point`
+reference build, parallel to the existing float and QEXT reference trees:
+
+```
+make ensure-libopus-fixed     # builds tmp_check/opus-1.6.1-fixed/ (config.h: FIXED_POINT 1)
+make test-fixedpoint-parity   # ensure-libopus-fixed + the gopus_fixedpoint oracle tests
+```
+
+Mechanics (reuses the existing `ensure-libopus` / `BuildCHelper` pattern, no new
+mechanism):
+
+- `tools/ensure_libopus.sh` gained `LIBOPUS_ENABLE_FIXED=1`, mirroring
+  `LIBOPUS_ENABLE_QEXT`. It configures with `--enable-fixed-point` into
+  `tmp_check/opus-$(VERSION)-fixed/`, whose generated `config.h` defines
+  `FIXED_POINT 1`. `LIBOPUS_ENABLE_QEXT` and `LIBOPUS_ENABLE_FIXED` are mutually
+  exclusive.
+- `libopustooling.EnsureLibopusFixed` and `libopustest.FixedRefPath` expose the
+  fixed tree; `CHelperConfig.FixedRef=true` builds a C oracle helper against it.
+- `tools/csrc/libopus_celt_fixed_math_info.c` is the C oracle helper. It is
+  compiled with the fixed `config.h`, so the `celt_*` symbols resolve to their
+  integer paths, and links `opus-1.6.1-fixed/.libs/libopus.a`.
+- `internal/fixedpoint/celt_sqrt_oracle_test.go` (build tag `gopus_fixedpoint`)
+  drives the helper and asserts bit-exact equality across 20,535 inputs
+  (special cases, every `ilog2`/`k` bucket, a dense low-magnitude sweep, and a
+  strided sweep of the full non-negative `int32` range).
+
+The accuracy-only tests in `celt_math_test.go` remain as a fast, tag-free
+sanity layer; the oracle test is the bit-exact gate.
 
 ---
 
 ## Staged roadmap
 
 ### Stage 0 (done)
-- `internal/fixedpoint`: five CELT integer math kernels, property tests.
+- `internal/fixedpoint`: CELT integer math kernels, property tests.
 
-### Stage 1 — CELT fixed-point oracle (small, high-value)
-- Add a `FIXED_POINT` libopus build to the oracle infrastructure.
-- Wire `celt_log2`, `celt_exp2`, `celt_rsqrt_norm`, `celt_rcp` into the oracle,
-  replacing the accuracy tests with bit-exact oracle tests.
-- Effort: ~1 day for the build harness + 1 day for the C helper.
+### Stage 1 — CELT fixed-point oracle (done)
+- `FIXED_POINT` libopus reference build wired into the oracle infrastructure
+  (`make ensure-libopus-fixed`, `FixedRefPath`, `CHelperConfig.FixedRef`).
+- `celt_sqrt` ported (`CeltSqrt`) and covered by a bit-exact oracle test.
+- Remaining within this stage: wire `celt_log2`, `celt_exp2`,
+  `celt_rsqrt_norm`, `celt_rcp` into the same fixed oracle helper to replace
+  their accuracy-only tests with bit-exact ones.
 
 ### Stage 2 — SILK decoder integer output (medium)
 - Replace `silk/lpc.go`'s float32 synthesis with a direct Q14 accumulation that
@@ -135,32 +165,26 @@ Full fixed-point parity (all five stages complete) is a 6–8 week effort.
 
 ---
 
-## Honest recommendation
+## Approach
 
-**Do not pursue a full fixed-point pipeline for gopus at this time.**
+The full fixed-point pipeline is the approved goal. It is built incrementally,
+each step gated by a bit-exact `FIXED_POINT` oracle, behind the
+`gopus_fixedpoint` tag so the default float build stays untouched and zero-cost.
 
-Reasons:
+Build discipline:
 
-1. **The practical surface is already covered.** gopus's public API accepts and
-   returns `int16` / `int24` / `float32` PCM.  The caller never needs to see
-   Q14/Q27 integers.  The "fixed-point" value proposition for libopus was
-   eliminating a floating-point unit on 2010-era embedded ARMv5 cores.  Modern
-   targets (mobile, server, WASM) have fast FPUs or SIMD float.
+1. **Oracle first.** Every kernel lands with a bit-exact test against the
+   `--enable-fixed-point` libopus reference. Integer rounding, shifts, and
+   saturation match libopus exactly; an approximation that is not bit-exact is
+   not committed.
+2. **Idiomatic Go, exact integer semantics.** Kernels are written as readable Go
+   that reproduces the libopus integer arithmetic (`MULT16_16_Q15`, `VSHR32`,
+   `ADD16`/`ADD32` truncation, etc.) rather than transliterating C.
+3. **Zero default-build cost.** `internal/fixedpoint` is not imported by any
+   default-build package, and the oracle tests carry the `gopus_fixedpoint`
+   build tag, so `go build ./...` and tag-free `go test` see no fixed-point
+   code.
 
-2. **The gopus float pipeline is already bit-exact with libopus float** (which
-   is the RFC-conforming reference).  Switching the internals to integer would
-   produce a *different* bitstream-compatible codec — not a more correct one.
-
-3. **Maintenance cost is high.** A dual pipeline doubles the surface area for
-   every future libopus improvement (DNN upgrades, new rate-control, QEXT).
-
-4. **The useful increments are narrow.** Stages 1–2 (oracle wiring + SILK decoder
-   integer output) provide genuine value at low cost: Stage 1 tightens oracle
-   coverage, Stage 2 removes the float conversion in the hot decode path and
-   eliminates the normalization rounding in `silk/lpc.go`.  These are worth
-   doing independently of the larger fixed-point question.
-
-**Recommended scope**: land Stage 0 (done), pursue Stage 1–2 as self-contained
-quality improvements, and treat Stages 3–5 as optional stretch goals that would
-only make sense if gopus were explicitly targeting a platform without a hardware
-FPU.
+The float pipeline remains the RFC-conforming reference and is unchanged; the
+fixed-point pipeline is a separate, bitstream-compatible profile selected by the
+build tag.

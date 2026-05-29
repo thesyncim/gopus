@@ -22,6 +22,14 @@ func QEXTRefPath(elem ...string) string {
 	return filepath.Join(append(base, elem...)...)
 }
 
+// FixedRefPath returns a path under the pinned fixed-point (--enable-fixed-point)
+// libopus reference tree. Its config.h defines FIXED_POINT, so C oracle helpers
+// built against it exercise the integer CELT/SILK kernels.
+func FixedRefPath(elem ...string) string {
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-fixed"}
+	return filepath.Join(append(base, elem...)...)
+}
+
 // ReadRefFileOrSkip reads a pinned libopus reference file. Missing references
 // skip local tests unless GOPUS_STRICT_LIBOPUS_REF asks for hard failures.
 func ReadRefFileOrSkip(t testing.TB, label string, elem ...string) []byte {

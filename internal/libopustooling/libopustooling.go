@@ -357,7 +357,21 @@ func EnsureLibopusQEXT(version string, roots []string) bool {
 	return ensureLibopus(version, roots, true)
 }
 
+// EnsureLibopusFixed invokes tools/ensure_libopus.sh with ENABLE_FIXED enabled
+// (libopus configured with --enable-fixed-point) from the first matching root.
+func EnsureLibopusFixed(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "fixed")
+}
+
 func ensureLibopus(version string, roots []string, qext bool) bool {
+	variant := "float"
+	if qext {
+		variant = "qext"
+	}
+	return ensureLibopusVariant(version, roots, variant)
+}
+
+func ensureLibopusVariant(version string, roots []string, variant string) bool {
 	if version == "" {
 		version = DefaultVersion
 	}
@@ -383,13 +397,16 @@ func ensureLibopus(version string, roots []string, qext bool) bool {
 		cmd := exec.Command(shell, filepath.ToSlash(filepath.Join("tools", "ensure_libopus.sh")))
 		cmd.Dir = root
 		env := append(os.Environ(), "LIBOPUS_VERSION="+version)
-		if qext {
+		switch variant {
+		case "qext":
 			env = append(env, "LIBOPUS_ENABLE_QEXT=1")
+		case "fixed":
+			env = append(env, "LIBOPUS_ENABLE_FIXED=1")
 		}
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "gopus: ensure libopus failed root=%q shell=%q qext=%t MSYSTEM=%q err=%v\n", root, shell, qext, os.Getenv("MSYSTEM"), err)
+			fmt.Fprintf(os.Stderr, "gopus: ensure libopus failed root=%q shell=%q variant=%q MSYSTEM=%q err=%v\n", root, shell, variant, os.Getenv("MSYSTEM"), err)
 			fmt.Fprintf(os.Stderr, "gopus: ensure libopus PATH=%q\n", os.Getenv("PATH"))
 			if len(out) > 0 {
 				fmt.Fprintf(os.Stderr, "gopus: ensure libopus output follows:\n%s\n", tailForLog(string(out), 64*1024))

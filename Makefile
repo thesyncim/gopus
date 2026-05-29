@@ -1,6 +1,6 @@
 FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-exactness test-exhaustive test-provenance
 
-.PHONY: lint lint-fix test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-libopus-fixed test-fixedpoint-parity ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -320,6 +320,18 @@ ensure-libopus:
 # Ensure tmp_check/opus-$(LIBOPUS_VERSION)-qext/opus_demo exists with ENABLE_QEXT.
 ensure-libopus-qext:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_QEXT=1 ./tools/ensure_libopus.sh
+
+# Ensure tmp_check/opus-$(LIBOPUS_VERSION)-fixed/opus_demo exists, built with
+# --enable-fixed-point (config.h defines FIXED_POINT). This is the oracle for
+# the gopus_fixedpoint integer CELT/SILK kernels.
+ensure-libopus-fixed:
+	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_FIXED=1 ./tools/ensure_libopus.sh
+
+# Bit-exact parity for the gopus_fixedpoint integer kernels against the
+# --enable-fixed-point libopus oracle.
+test-fixedpoint-parity: ensure-libopus-fixed
+	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+		go test -tags 'gopus_fixedpoint gopus_libopus_oracle' -count=1 ./internal/fixedpoint/...
 
 # Ensure the downloaded official RFC 8251 test-vector cache exists.
 ensure-testvectors:

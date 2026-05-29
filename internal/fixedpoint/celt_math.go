@@ -1,13 +1,16 @@
-// Package fixedpoint holds the first increment of gopus fixed-point work:
-// pure-integer CELT math kernels ported from libopus celt/mathops.h
-// (FIXED_POINT path).  These are self-contained polynomial approximations
-// that operate entirely in the integer domain; no floating-point is used.
+// Package fixedpoint holds the gopus fixed-point CELT/SILK kernels: pure-integer
+// math ported from libopus celt/mathops.h and celt/mathops.c (FIXED_POINT path).
+// Each kernel operates entirely in the integer domain with no floating-point and
+// reproduces the libopus integer arithmetic bit-for-bit. The package is not
+// imported by the default float build; fixed-point consumers select it behind
+// the gopus_fixedpoint build tag.
 //
 // Q-notation used here matches libopus:
-//   Q14: 1.0 = 1<<14 = 16384
-//   Q10: 1.0 = 1<<10 = 1024
-//   Q15: 1.0 = 1<<15 = 32768
-//   Q16: 1.0 = 1<<16 = 65536
+//
+//	Q14: 1.0 = 1<<14 = 16384
+//	Q10: 1.0 = 1<<10 = 1024
+//	Q15: 1.0 = 1<<15 = 32768
+//	Q16: 1.0 = 1<<16 = 65536
 package fixedpoint
 
 import "math/bits"
@@ -130,6 +133,59 @@ func CeltRsqrtNorm(x int32) int16 {
 	// = r + MULT16_16_Q15(r, MULT16_16_Q15(y, MULT16_16_Q15(y,12288) - 16384))
 	correction := mult16x16q15(r, mult16x16q15(y, add16s(mult16x16q15(y, 12288), -16384)))
 	return r + correction
+}
+
+// CeltSqrt approximates sqrt(x) for a Q16 input, returning a Q16 result.
+// x must satisfy 0 <= x; values >= 2^30 saturate to 32767.
+// Matches libopus celt/mathops.c celt_sqrt() (FIXED_POINT path) bit-for-bit.
+func CeltSqrt(x int32) int32 {
+	// Coefficients optimized in fixed-point to minimize RMS and max error of
+	// sqrt(x) over .25<x<1 without exceeding 32767.
+	const (
+		c0 int16 = 23171
+		c1 int16 = 11574
+		c2 int16 = -2901
+		c3 int16 = 1592
+		c4 int16 = -1002
+		c5 int16 = 336
+	)
+	if x == 0 {
+		return 0
+	}
+	if x >= 1073741824 {
+		return 32767
+	}
+	// k = (celt_ilog2(x)>>1) - 7; the >>1 is an arithmetic shift on a
+	// non-negative ilog2 result.
+	k := int(CeltILog2(x)>>1) - 7
+	// x = VSHR32(x, 2*k): right-shift for k>=0, left-shift for k<0.
+	x = vshr32(x, 2*k)
+	// n = x-32768 truncated to int16 (opus_val16).
+	n := int16(x - 32768)
+
+	rt := add32(int32(c0),
+		int32(mult16x16q15(n, add16s(c1,
+			mult16x16q15(n, add16s(c2,
+				mult16x16q15(n, add16s(c3,
+					mult16x16q15(n, add16s(c4,
+						mult16x16q15(n, c5)))))))))))
+
+	return vshr32(rt, 7-k)
+}
+
+// vshr32 implements libopus VSHR32(a, shift): arithmetic right-shift by shift
+// when shift >= 0, otherwise left-shift by -shift.
+func vshr32(a int32, shift int) int32 {
+	if shift >= 0 {
+		return a >> shift
+	}
+	return a << (-shift)
+}
+
+// add32 adds two int32 values with natural wraparound, equivalent to libopus
+// ADD32(a,b) in fixed-point builds.
+func add32(a, b int32) int32 {
+	return a + b
 }
 
 // mult16x16q15 multiplies two int16 values and returns the result shifted right
