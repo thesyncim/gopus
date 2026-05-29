@@ -175,7 +175,7 @@ requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
 | Decoder CTLs | ~ | Gain, complexity, phase, ignore extensions; DNN blob under `gopus_dred`/`gopus_extra_controls` | Full `opus_decoder_ctl` equivalence table |
 | Encoder CTLs | ~ | Bitrate, VBR, FEC, DTX, bandwidth, frame, signal | `OPUS_GET_*` mirror coverage; multistream CTL parity |
 | Output gain | Y | Decoder `SetGain` | libopus gain smoothing on transitions |
-| Reset / error behavior | Y | Stream + codec reset tests | Error codes 1:1 with libopus for all invalid packets |
+| Reset / error behavior | Y | Stream + codec reset tests; malformed-packet error-code corpus (20+ classes) 1:1 with libopus `opus_decode` (fixed code-0/code-2 oversized-frame acceptance) | — |
 | Multistream API | Y | MS tests, projection oracle | DRED/QEXT/OSCE on all channel layouts |
 
 ---
