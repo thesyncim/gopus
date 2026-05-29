@@ -126,8 +126,8 @@ Valid sizes depend on mode (`encoder.ValidFrameSize`). Compliance summary uses 4
 | Control | API | Behavior vs libopus | Test coverage | Gaps for 100% |
 | --- | --- | --- | --- | --- |
 | CBR | Y | Y | Compliance + `encoder_cbr_byte_parity` (SILK/CELT/Hybrid byte-exact; CELT/Hybrid hard on amd64, arm64 FMA residual) | — |
-| VBR | Y | ~ | `encoder_vbr_cvbr_byte_parity` (CELT byte-exact) | SILK/Hybrid unconstrained-VBR per-frame sizes |
-| Constrained VBR (CVBR) | Y | ~ | `encoder_vbr_cvbr_byte_parity` (CELT size+range parity) | SILK/Hybrid CVBR packet-size distribution |
+| VBR | Y | ~ | `encoder_vbr_cvbr_byte_parity` (CELT + Hybrid byte/size-exact, hard-asserted; full CELT VBR budget for hybrid) | SILK ≤3-byte/frame size drift — SILK-FLP iter-0 shaping-gain path, cross-platform; needs frame-level SILK encoder-control oracle to bisect |
+| Constrained VBR (CVBR) | Y | ~ | `encoder_vbr_cvbr_byte_parity` (CELT + Hybrid size+range parity) | SILK CVBR per-frame size (same SILK-FLP iter-0 root as VBR) |
 | Low delay | Y | Y | `encoder_lowdelay_crossmode_parity` (CELT-only forced; lookahead Fs/400; 360 byte-exact cells) | — |
 | DTX | Y | Y | `encoder/dtx_parity_test` + `dtx_sequence_parity` (multi-frame TOC, stereo, hybrid, SILK 10 ms threshold, max-consecutive reset) | — |
 
