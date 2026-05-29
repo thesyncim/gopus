@@ -16,6 +16,12 @@
 #define OUTPUT_MAGIC "GCEO"
 #define STREAM_INPUT_MAGIC "GCSI"
 #define STREAM_OUTPUT_MAGIC "GCSO"
+/* GCGI/GCGO: grid encode — same as GCEI/GCEO but each case carries an
+ * extra uint32 end_band field (CELT_SET_END_BAND) after complexity.
+ * Reference: libopus src/opus_encoder.c endband mapping:
+ *   NB=13, MB/WB=17, SWB=19, FB=21 */
+#define GRID_INPUT_MAGIC "GCGI"
+#define GRID_OUTPUT_MAGIC "GCGO"
 
 /* celt_encode_with_ec is the internal CELT codec entry that gopus' standalone
  * CELT encoder mirrors (with the top-level dc_reject/delay-compensation/
@@ -126,6 +132,79 @@ static int run_stream(void) {
   return 0;
 }
 
+/* run_grid: one reset-per-case encoder, each case carries an end_band field.
+ * Wire format per case (after the global header):
+ *   u32(channels) u32(frame_size) u32(target_bytes) i32(bitrate)
+ *   i32(complexity) u32(end_band) [float32 PCM …]
+ * end_band maps to CELT_SET_END_BAND (libopus src/opus_encoder.c line ~2284).
+ * Reference: NB=13, MB/WB=17, SWB=19, FB=21. */
+static int run_grid(uint32_t count) {
+  uint32_t case_idx;
+
+  if (!write_exact(GRID_OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(count)) return 1;
+
+  for (case_idx = 0; case_idx < count; case_idx++) {
+    uint32_t channels;
+    uint32_t frame_size;
+    uint32_t target_bytes;
+    int32_t bitrate;
+    int32_t complexity;
+    uint32_t end_band;
+    uint32_t i;
+    uint32_t n_floats;
+    opus_res *pcm = NULL;
+    unsigned char *packet = NULL;
+    CELTEncoder *st = NULL;
+    int size;
+    int ret;
+
+    if (!read_u32(&channels) || !read_u32(&frame_size) || !read_u32(&target_bytes) ||
+        !read_u32((uint32_t *)&bitrate) || !read_u32((uint32_t *)&complexity) ||
+        !read_u32(&end_band)) {
+      return 1;
+    }
+    if (channels < 1 || channels > 2) return 1;
+    /* end_band must be in [1, 21] per libopus CELT_SET_END_BAND_REQUEST handler */
+    if (end_band < 1 || end_band > 21) return 1;
+
+    n_floats = frame_size * channels;
+    pcm = (opus_res *)malloc(sizeof(opus_res) * (n_floats ? n_floats : 1));
+    packet = (unsigned char *)calloc(target_bytes ? target_bytes : 1, 1);
+    if (pcm == NULL || packet == NULL) { free(pcm); free(packet); return 1; }
+
+    for (i = 0; i < n_floats; i++) {
+      float v;
+      if (!read_f32(&v)) { free(pcm); free(packet); return 1; }
+      pcm[i] = (opus_res)v;
+    }
+
+    size = celt_encoder_get_size((int)channels);
+    st = (CELTEncoder *)malloc((size_t)size);
+    if (st == NULL) { free(pcm); free(packet); return 1; }
+
+    if (celt_encoder_init(st, 48000, (int)channels, opus_select_arch()) != OPUS_OK) {
+      free(pcm); free(packet); free(st); return 1;
+    }
+    configure_encoder(st, (int)complexity, bitrate);
+    /* Set bandwidth via end_band (mirrors src/opus_encoder.c CELT_SET_END_BAND) */
+    if (opus_custom_encoder_ctl(st, CELT_SET_END_BAND((int)end_band)) != OPUS_OK) {
+      free(pcm); free(packet); free(st); return 1;
+    }
+
+    ret = celt_encode_with_ec(st, pcm, (int)frame_size, packet, (int)target_bytes, NULL);
+    if (ret < 0) {
+      free(pcm); free(packet); free(st); return 1;
+    }
+    if (!write_u32((uint32_t)ret)) { free(pcm); free(packet); free(st); return 1; }
+    if (!write_exact(packet, (size_t)ret)) { free(pcm); free(packet); free(st); return 1; }
+
+    free(pcm);
+    free(packet);
+    free(st);
+  }
+  return 0;
+}
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -137,6 +216,10 @@ int main(void) {
   if (memcmp(magic, STREAM_INPUT_MAGIC, sizeof(magic)) == 0) {
     if (!read_u32(&version) || version != 1) return 1;
     return run_stream();
+  }
+  if (memcmp(magic, GRID_INPUT_MAGIC, sizeof(magic)) == 0) {
+    if (!read_u32(&version) || version != 1 || !read_u32(&count)) return 1;
+    return run_grid(count);
   }
   if (memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&count)) return 1;
