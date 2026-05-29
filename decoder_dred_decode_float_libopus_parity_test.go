@@ -1215,7 +1215,12 @@ func TestDecoderCachedStereoSILKDREDAPIRateMatchesLiveSequenceOracle(t *testing.
 				t.Fatalf("cached stereo SILK warmup samples=%d want %d at %d Hz", n, wantFrame, sampleRate)
 			}
 			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, sampleRate)
-			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceCarrierDRED, 2*n, false)
+			// A public packet-loss Decode(nil) does not consume cached DRED:
+			// libopus gates lpcnet_plc_fec_add on dred!=NULL (opus_decoder.c:736),
+			// and opus_decode(NULL) passes dred==NULL, so SILK loss runs plain PLC.
+			// This matches the mono SILK siblings and commit cc04ecf0; this stereo
+			// case was overlooked there and still used the stale CarrierDRED source.
+			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, libopusDecoderDREDSequenceSourceLost, n, libopusDecoderDREDSequenceSourceLost, 2*n, false)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "stereo SILK decoder DRED sequence", err)
 			}
