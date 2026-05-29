@@ -19,7 +19,9 @@
 #define OUTPUT_MAGIC "GFMO"
 
 enum {
-  MODE_CELT_SQRT = 0
+  MODE_CELT_SQRT = 0,
+  MODE_CELT_SQRT32 = 1,
+  MODE_CELT_RSQRT_NORM32 = 2
 };
 
 static int set_binary_stdio(void) {
@@ -53,6 +55,12 @@ static int eval_record(uint32_t mode) {
     case MODE_CELT_SQRT:
       if (!read_u32(&a)) return 0;
       return write_u32((uint32_t)(int32_t)celt_sqrt((opus_val32)(int32_t)a));
+    case MODE_CELT_SQRT32:
+      if (!read_u32(&a)) return 0;
+      return write_u32((uint32_t)(int32_t)celt_sqrt32((opus_val32)(int32_t)a));
+    case MODE_CELT_RSQRT_NORM32:
+      if (!read_u32(&a)) return 0;
+      return write_u32((uint32_t)(int32_t)celt_rsqrt_norm32((opus_val32)(int32_t)a));
   }
   return 0;
 }
@@ -67,7 +75,7 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_CELT_SQRT) return 1;
+  if (mode > MODE_CELT_RSQRT_NORM32) return 1;
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {

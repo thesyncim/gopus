@@ -6,6 +6,10 @@ const (
 
 	// CELTFixedMathModeSqrt selects the FIXED_POINT celt_sqrt kernel.
 	CELTFixedMathModeSqrt = uint32(0)
+	// CELTFixedMathModeSqrt32 selects the FIXED_POINT celt_sqrt32 kernel.
+	CELTFixedMathModeSqrt32 = uint32(1)
+	// CELTFixedMathModeRsqrtNorm32 selects the FIXED_POINT celt_rsqrt_norm32 kernel.
+	CELTFixedMathModeRsqrtNorm32 = uint32(2)
 )
 
 var celtFixedMathHelper HelperCache
