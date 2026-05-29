@@ -71,7 +71,7 @@ kernels honest across `purego`/arch — is in [docs/parity-testing.md](docs/pari
 | Mode | Encode | Decode | Quality parity | Numeric / byte parity | Gaps for 100% |
 | --- | --- | --- | --- | --- | --- |
 | SILK | Y | Y | Y (compliance + decoder matrix) | ~ (NLSF, gain, LTP, stereo oracles; CBR + VBR byte-exact on amd64; VoIP adaptive `hp_cutoff` fix) | arm64-only ≤1-ULP recursive-float tail in the `hp_cutoff` biquad / warped shaping-AR (amd64 exact) |
-| CELT | Y | Y | Y (compliance + matrix) | ~ (PVQ, bands oracles; IMDCT + noise-PLC synthesis arm64 bit-exact; CBR byte-exact; band-allocation parity ≤5% generic) | Full PVQ/bands byte grid; arm64-only chirp `alloc_trim` drift from half-density tonality-analysis resampling (amd64 exact) |
+| CELT | Y | Y | Y (compliance + matrix) | ~ (PVQ/bands 800-cell byte grid amd64-exact; IMDCT + noise-PLC synthesis arm64 bit-exact; CBR byte-exact; band-allocation ≤5%) | arm64-only chirp `alloc_trim` drift from half-density tonality-analysis resampling (amd64 exact) |
 | Hybrid | Y | Y | Y (matrix Q>=20, corr>=0.997 — same bar as SILK/CELT; compliance) | ~ (float32 SILK+CELT combine bit-exact stage oracle; stereo DRED carriers byte-exact; 16 kHz hybrid explicit DRED; QEXT framing byte-exact; VBR/CVBR byte/size-exact) | Hybrid unconstrained-VBR shares the SILK iter-0 size residual |
 | Auto | Y | Y (TOC-driven) | Y (mode fixtures, analysis; FFT 1/nfft normalization + VAD no-re-analysis fixes) | Y (application × rate × frame × signal × channel cross-product, **216/216** cells, no skips) | — |
 
