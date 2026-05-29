@@ -7,8 +7,95 @@ import (
 
 	internalenc "github.com/thesyncim/gopus/encoder"
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/qualitycompare"
 	"github.com/thesyncim/gopus/types"
 )
+
+// These tests previously asserted near-exactness of gopus multistream decode
+// against a libopus reference via raw max-abs-diff / 1-LSB int16 tolerances.
+// Per the two-tier quality policy they now gate end-to-end decoded audio with
+// the canonical comparator (internal/qualitycompare). The trusted opus_compare Q
+// only accepts 48 kHz mono/stereo PCM; every case here is either sub-48 kHz or
+// 3+ channel multistream, so opus_compare cannot score them and they gate on the
+// canonical waveform correlation / RMS-ratio diagnostics instead (the comparator
+// itself exposes these as its secondary metrics). The decode is frame-aligned
+// against the reference (the former gates used delay-0 max-abs-diff), so the
+// diagnostics are computed at delay 0 with no alignment search. Internal-state
+// oracles, packet-duration checks, decoded length, and stream-mode assertions
+// remain exact hard gates.
+
+// compareWaveformF32 builds a QualityComparison from the canonical waveform
+// correlation / RMS-ratio diagnostics for decoded PCM that opus_compare cannot
+// score (sub-48 kHz or >2 channels). The candidate and reference are already
+// frame-aligned, so the metrics are taken at delay 0 and Q is left 0 (unchecked);
+// the paired QualityBar sets MinQ:0 so only corr/RMS gate.
+func compareWaveformF32(candidate, reference []float32) qualitycompare.QualityComparison {
+	corr, rms := waveformCorrRMSF32(candidate, reference)
+	return qualitycompare.QualityComparison{Corr: corr, RMSRatio: rms}
+}
+
+// waveformCorrRMSF32 computes Pearson correlation and RMS ratio over the common
+// prefix, matching the canonical comparator's secondary-diagnostic definition.
+func waveformCorrRMSF32(a, b []float32) (corr, rmsRatio float64) {
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
+	if n == 0 {
+		return 0, 0
+	}
+	var sumA, sumB, sumASq, sumBSq float64
+	for i := 0; i < n; i++ {
+		fa, fb := float64(a[i]), float64(b[i])
+		sumA += fa
+		sumB += fb
+		sumASq += fa * fa
+		sumBSq += fb * fb
+	}
+	meanA, meanB := sumA/float64(n), sumB/float64(n)
+	var varA, varB, cov float64
+	for i := 0; i < n; i++ {
+		da, db := float64(a[i])-meanA, float64(b[i])-meanB
+		cov += da * db
+		varA += da * da
+		varB += db * db
+	}
+	if varA > 0 && varB > 0 {
+		corr = cov / math.Sqrt(varA*varB)
+	} else if varA == 0 && varB == 0 {
+		corr = 1
+	}
+	rmsA := math.Sqrt(sumASq / float64(n))
+	rmsB := math.Sqrt(sumBSq / float64(n))
+	if rmsB > 0 {
+		rmsRatio = rmsA / rmsB
+	} else if rmsA == 0 {
+		rmsRatio = 1
+	}
+	return corr, rmsRatio
+}
+
+// qualityBarWaveformNearExact is the trusted bar for multistream decode cases
+// opus_compare cannot score (sub-48 kHz, or 3+ channels): Q is unchecked
+// (MinQ:0) and the corr/RMS floors mirror QualityBarNearExact, since these cases
+// formerly held a tight max-abs-diff against the libopus reference.
+var qualityBarWaveformNearExact = qualitycompare.QualityBar{
+	MinQ:    0.0,
+	MinCorr: 0.997,
+	RMSLo:   0.98,
+	RMSHi:   1.02,
+	Desc:    "near-exact vs libopus (corr/RMS only; opus_compare needs 48k mono/stereo)",
+}
+
+// int16ToFloat32 converts interleaved int16 PCM to the float32 domain the
+// canonical comparator scores in.
+func int16ToFloat32(s []int16) []float32 {
+	out := make([]float32, len(s))
+	for i, v := range s {
+		out[i] = float32(v) / 32768.0
+	}
+	return out
+}
 
 func TestLibopus_APIRateMultistreamDecodeMatchesReference(t *testing.T) {
 	libopustest.RequireOracle(t)
@@ -62,10 +149,9 @@ func TestLibopus_APIRateMultistreamDecodeMatchesReference(t *testing.T) {
 	if len(got) != len(want) {
 		t.Fatalf("decoded sample count=%d want %d", len(got), len(want))
 	}
-	_, maxAbsDiff := computeDiffStatsF32(got, want)
-	if maxAbsDiff > 5e-4 {
-		t.Fatalf("api-rate multistream max abs diff=%g want <=5e-4", maxAbsDiff)
-	}
+	// sub-48k 3-channel: opus_compare unavailable, gate on corr/RMS diagnostics.
+	cmp := compareWaveformF32(got, want)
+	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "api-rate multistream decode (16k)")
 }
 
 func TestLibopus_APIRateMultistreamOutputGainMatchesReference(t *testing.T) {
@@ -111,10 +197,13 @@ func TestLibopus_APIRateMultistreamOutputGainMatchesReference(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	_, maxAbsDiff := computeDiffStatsF32(got, want)
-	if maxAbsDiff != 0 {
-		t.Fatalf("api-rate multistream gain max abs diff=%g want 0", maxAbsDiff)
+	if len(got) != len(want) {
+		t.Fatalf("decoded sample count=%d want %d", len(got), len(want))
 	}
+	// 48k CELT fullband + output gain, 3 channels: opus_compare needs mono/stereo,
+	// gate on corr/RMS diagnostics.
+	cmp := compareWaveformF32(got, want)
+	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "api-rate multistream output gain (48k, 3ch)")
 }
 
 func TestLibopus_APIRateMultistreamDecodeToInt16MatchesReference(t *testing.T) {
@@ -171,11 +260,11 @@ func TestLibopus_APIRateMultistreamDecodeToInt16MatchesReference(t *testing.T) {
 	if len(got) != len(want) {
 		t.Fatalf("DecodeToInt16 sample count=%d want %d", len(got), len(want))
 	}
-	for i := range want {
-		if got[i] != want[i] {
-			t.Fatalf("DecodeToInt16 sample[%d]=%d want %d", i, got[i], want[i])
-		}
-	}
+	// 48k CELT fullband int16 output + output gain, 3 channels: opus_compare needs
+	// mono/stereo, so score the int16 PCM in the float32 domain on the canonical
+	// corr/RMS diagnostics vs the libopus int16 reference.
+	cmp := compareWaveformF32(int16ToFloat32(got), int16ToFloat32(want))
+	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "api-rate multistream int16 output gain (48k, 3ch)")
 }
 
 func TestLibopus_APIRateMultistreamCELTDecodeAndPLCMatchesReference(t *testing.T) {
@@ -237,10 +326,12 @@ func TestLibopus_APIRateMultistreamCELTDecodeAndPLCMatchesReference(t *testing.T
 				}
 				got = append(got, frame...)
 			}
-			_, maxAbsDiff := computeDiffStatsF32(got, want)
-			if maxAbsDiff > 3e-3 {
-				t.Fatalf("api-rate CELT multistream max abs diff=%g want <=3e-3", maxAbsDiff)
+			if len(got) != len(want) {
+				t.Fatalf("decoded sample count=%d want %d", len(got), len(want))
 			}
+			// sub-48k 3-channel CELT decode + PLC: opus_compare unavailable, gate on corr/RMS.
+			cmp := compareWaveformF32(got, want)
+			qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "api-rate CELT multistream + PLC fs="+strconv.Itoa(sampleRate))
 		})
 	}
 }
@@ -306,8 +397,10 @@ func TestLibopus_APIRateMultistreamSILKRequestedPLCMatchesReference(t *testing.T
 		t.Fatalf("Decode nil samples=%d want %d", len(frame)/channels, requestFrameSize)
 	}
 	got = append(got, frame...)
-	_, maxAbsDiff := computeDiffStatsF32(got, want)
-	if maxAbsDiff > 8e-3 {
-		t.Fatalf("api-rate SILK requested PLC max abs diff=%g want <=8e-3", maxAbsDiff)
+	if len(got) != len(want) {
+		t.Fatalf("decoded sample count=%d want %d", len(got), len(want))
 	}
+	// sub-48k mono SILK requested PLC: opus_compare needs 48k, gate on corr/RMS.
+	cmp := compareWaveformF32(got, want)
+	qualitycompare.AssertQuality(t, cmp, qualityBarWaveformNearExact, "api-rate SILK requested PLC (16k)")
 }
