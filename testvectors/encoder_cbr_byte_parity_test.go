@@ -211,10 +211,26 @@ func cbrTestMatrix() []cbrTestCase {
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
 			strictArm64: false,
 		},
+		// Stereo 2.5/5ms CBR byte parity — closes the variant-byte ratchet surface gap
+		// noted in PARITY_MATRIX.md ("Variant-byte ratchet surface incomplete").
+		{
+			name: "CELT-FB-2p5ms-stereo-128k",
+			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
+			channels: 2, bitrate: 128000, frameSize: 120,
+			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
+			strictArm64: false,
+		},
 		{
 			name: "CELT-FB-5ms-mono-64k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 240,
+			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
+			strictArm64: false,
+		},
+		{
+			name: "CELT-FB-5ms-stereo-128k",
+			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
+			channels: 2, bitrate: 128000, frameSize: 240,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
 			strictArm64: false,
 		},

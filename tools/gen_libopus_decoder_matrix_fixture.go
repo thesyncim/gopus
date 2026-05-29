@@ -300,7 +300,18 @@ func main() {
 		{Name: "celt-fb-60ms-mono-64k", Application: "audio", Bandwidth: "FB", FrameSize: 2880, Channels: 1, Bitrate: 64000, ExpectedMode: "celt"},
 		{Name: "silk-wb-80ms-mono-32k", Application: "restricted-silk", Bandwidth: "WB", FrameSize: 3840, Channels: 1, Bitrate: 32000, ExpectedMode: "silk"},
 		{Name: "celt-fb-80ms-mono-64k", Application: "restricted-celt", Bandwidth: "FB", FrameSize: 3840, Channels: 1, Bitrate: 64000, ExpectedMode: "celt"},
+		// 100 ms decoder-matrix row (task: long/short-frame edge-coverage gap).
+		// celt-fb-100ms-mono-64k mirrors celt-fb-80ms and celt-fb-60ms at frame_size=4800.
+		{Name: "celt-fb-100ms-mono-64k", Application: "restricted-celt", Bandwidth: "FB", FrameSize: 4800, Channels: 1, Bitrate: 64000, ExpectedMode: "celt"},
 		{Name: "silk-wb-120ms-mono-32k", Application: "restricted-silk", Bandwidth: "WB", FrameSize: 5760, Channels: 1, Bitrate: 32000, ExpectedMode: "silk"},
+		// True Hybrid 40/60 ms matrix rows (task: Hybrid long-frame edge-coverage gap).
+		// audio@FB@24k emits Hybrid for the first several frames before the mode
+		// stabilizer switches to CELT; the fixture generator accepts any case where
+		// modeHist["hybrid"] > 0, and the test quality bar is the Hybrid bar.
+		// Confirmed empirically: audio/FB/40ms@24k → hist{hybrid:9,celt:41} on 50 frames;
+		//                        audio/FB/60ms@16k → hist{hybrid:7,celt:43} on 50 frames.
+		{Name: "hybrid-fb-40ms-mono-24k", Application: "audio", Bandwidth: "FB", FrameSize: 1920, Channels: 1, Bitrate: 24000, ExpectedMode: "hybrid"},
+		{Name: "hybrid-fb-60ms-mono-16k", Application: "audio", Bandwidth: "FB", FrameSize: 2880, Channels: 1, Bitrate: 16000, ExpectedMode: "hybrid"},
 	}
 
 	tmpDir, err := os.MkdirTemp("", "gopus-decoder-fixture-*")

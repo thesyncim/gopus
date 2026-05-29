@@ -154,6 +154,12 @@ func frameSizeArgFromSamples(frameSize int) (string, error) {
 		return "40", nil
 	case 2880:
 		return "60", nil
+	case 3840:
+		return "80", nil
+	case 4800:
+		return "100", nil
+	case 5760:
+		return "120", nil
 	default:
 		return "", fmt.Errorf("unsupported frame size for fixture generation: %d", frameSize)
 	}
@@ -357,6 +363,34 @@ func main() {
 			FrameSize:   960,
 			Channels:    1,
 			Bitrate:     64000,
+		},
+		// Loss fixtures beyond 60 ms (task: long-frame PLC/FEC edge-coverage gap).
+		// These exercise opus_decode(NULL) PLC at 80/100/120 ms frame sizes,
+		// mirroring the existing 20 ms cases. No inband FEC at these sizes (SILK
+		// FEC is only valid up to 60 ms in the libopus API), so PLC-only patterns.
+		{
+			Name:        "celt-fb-80ms-mono-64k-plc",
+			Application: "restricted-celt",
+			Bandwidth:   "FB",
+			FrameSize:   3840,
+			Channels:    1,
+			Bitrate:     64000,
+		},
+		{
+			Name:        "celt-fb-100ms-mono-64k-plc",
+			Application: "restricted-celt",
+			Bandwidth:   "FB",
+			FrameSize:   4800,
+			Channels:    1,
+			Bitrate:     64000,
+		},
+		{
+			Name:        "silk-wb-120ms-mono-32k-plc",
+			Application: "restricted-silk",
+			Bandwidth:   "WB",
+			FrameSize:   5760,
+			Channels:    1,
+			Bitrate:     32000,
 		},
 	}
 
