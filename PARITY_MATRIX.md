@@ -65,7 +65,7 @@ corr ≥ 0.997); encoder quality matches libopus (gapQ ≈ 0) per arch.
 | --- | --- | --- | --- | --- | --- |
 | 48 kHz | Y | Y | Y | Decoder matrix, compliance, DRED 48 kHz oracles | — |
 | 24 kHz | Y | Y | Y | Compliance (SILK MB), DRED convert16k | Decoder matrix is 48 kHz only; explicit DRED offset matrices thin |
-| 16 kHz | Y | Y | Y | SILK NB paths, DRED `ConvertTo16kMonoFloat64`/`Float32` (bit-exact) | Hybrid/SWB explicit DRED; cached multistream 16 kHz matrices partial |
+| 16 kHz | Y | Y | Y | SILK NB paths, DRED `ConvertTo16kMonoFloat32` (bit-exact) | Hybrid/SWB explicit DRED; cached multistream 16 kHz matrices partial |
 | 12 kHz | Y | Y | Y | DRED convert16k oracle | No dedicated decoder-matrix cases at 12 kHz |
 | 8 kHz | Y | Y | Y | DRED convert16k, SILK NB | NB resampler regression guards only |
 
