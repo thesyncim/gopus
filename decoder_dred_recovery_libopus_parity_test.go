@@ -315,7 +315,12 @@ func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label strin
 	if toc.Stereo {
 		channels = 2
 	}
-	wantQueuedFEC := true
+	// libopus opus_decode(NULL,...) passes dred==NULL, so the cached-DRED FEC
+	// feed gated on `dred != NULL && process_stage == 2` (opus_decoder.c:736) is
+	// skipped: a public packet-loss decode runs PLAIN PLC and queues NO cached
+	// DRED FEC features. Mirror cc04ecf0's SILK reconciliation for CELT/hybrid;
+	// the recovery cursor stays at 0 across public losses.
+	wantQueuedFEC := false
 
 	dec, err := NewDecoder(DefaultDecoderConfig(decoderSampleRate, channels))
 	if err != nil {
@@ -347,18 +352,23 @@ func assertDecoderCachedDREDRecoveryCursorAcrossLosses(t *testing.T, label strin
 	if _, err := dec.Decode(nil, lossPCM); err != nil {
 		t.Fatalf("%s Decode(nil, first) error: %v", label, err)
 	}
-	wantRecovery := n
-	if requireDecoderDREDState(t, dec).dredRecovery != wantRecovery {
-		t.Fatalf("%s dredRecovery after first loss=%d want %d", label, requireDecoderDREDState(t, dec).dredRecovery, wantRecovery)
+	// Public loss = plain PLC, no cached DRED applied: recovery cursor stays 0.
+	if requireDecoderDREDState(t, dec).dredRecovery != 0 {
+		t.Fatalf("%s dredRecovery after first loss=%d want 0", label, requireDecoderDREDState(t, dec).dredRecovery)
+	}
+	if skip := requireDecoderDREDState(t, dec).dredPLC.FECSkip(); skip != 0 {
+		t.Fatalf("%s FECSkip after first loss=%d want 0", label, skip)
 	}
 	assertCachedDREDLossFECCursor(t, label, "first", dec, wantQueuedFEC)
 
 	if _, err := dec.Decode(nil, lossPCM); err != nil {
 		t.Fatalf("%s Decode(nil, second) error: %v", label, err)
 	}
-	wantRecovery = 2 * n
-	if requireDecoderDREDState(t, dec).dredRecovery != wantRecovery {
-		t.Fatalf("%s dredRecovery after second loss=%d want %d", label, requireDecoderDREDState(t, dec).dredRecovery, wantRecovery)
+	if requireDecoderDREDState(t, dec).dredRecovery != 0 {
+		t.Fatalf("%s dredRecovery after second loss=%d want 0", label, requireDecoderDREDState(t, dec).dredRecovery)
+	}
+	if skip := requireDecoderDREDState(t, dec).dredPLC.FECSkip(); skip != 0 {
+		t.Fatalf("%s FECSkip after second loss=%d want 0", label, skip)
 	}
 	assertCachedDREDLossFECCursor(t, label, "second", dec, wantQueuedFEC)
 

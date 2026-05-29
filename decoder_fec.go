@@ -42,17 +42,14 @@ func (d *Decoder) decodePLCForFECWithState(
 			return 0, err
 		}
 	}
-	if extsupport.DREDRuntime {
-		if !usedNeuralConcealment {
-			n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
-				packetFrameSize:    packetFrameSize,
-				mode:               mode,
-				bandwidth:          bandwidth,
-				packetStereo:       packetStereo,
-				useDecoderPLCState: false,
-			})
-		}
-	} else {
+	// libopus opus_decode(NULL,...) / decode_fec PLC fallback passes dred==NULL,
+	// so the cached-DRED FEC-feature feed gated on
+	// `dred != NULL && process_stage == 2` (opus_decoder.c:736) is skipped and
+	// a public packet-loss decode runs PLAIN PLC, consuming no cached DRED.
+	// Mirror that here for CELT/hybrid: do NOT auto-apply cached DRED on the
+	// public FEC-fallback PLC path. DRED is only applied through the explicit
+	// DRED-decode path. Matches the SILK reconciliation in cc04ecf0.
+	if !usedNeuralConcealment {
 		n, err = d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
 			packetFrameSize:    packetFrameSize,
 			mode:               mode,
@@ -65,10 +62,6 @@ func (d *Decoder) decodePLCForFECWithState(
 		return 0, err
 	}
 	frameSize = n
-
-	if neuralReady && !usedNeuralConcealment && mode != ModeHybrid {
-		usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*channels], frameSize)
-	}
 	d.applyOutputGain(pcm[:frameSize*channels])
 	d.lastFrameSize = int32(packetFrameSize)
 	d.lastPacketDuration = int32(frameSize)

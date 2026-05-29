@@ -336,14 +336,60 @@ func assertDecoderCachedDREDDecodeInt16LossesMatchLiveSequenceOracle(t *testing.
 		t.Fatalf("%s warmup samples=%d want %d at %d Hz", label, n, wantFrame, decoderSampleRate)
 	}
 
+	// A public DecodeInt16(nil) runs PLAIN PLC and consumes no cached DRED:
+	// opus_decode(NULL,...) passes dred==NULL so the FEC feed gated on
+	// `dred != NULL && process_stage == 2` is skipped (opus_decoder.c:736).
+	//
+	// SILK public loss already matches libopus plain PLC tightly (cc04ecf0), so
+	// SILK keeps the public DecodeInt16(nil) path against the SourceLost oracle
+	// and asserts no DRED recovery was scheduled.
+	//
+	// CELT/Hybrid: the test's intent is DRED RECOVERY of the lost int16 audio.
+	// There is no public int16 explicit-DRED entry point, so drive the explicit
+	// DRED-decode path -- the libopus opus_decoder_dred_decode equivalent the
+	// SourceCarrierDRED oracle exercises -- and quantize the recovered float
+	// frames to int16 via RES2INT16/FLOAT2INT16 (opus_decoder.c:1628).
+	toc := ParseTOC(packetInfo.packet[0])
 	maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, decoderSampleRate)
-	step0Source := libopusDecoderDREDSequenceSourceCarrierDRED
-	step1Source := libopusDecoderDREDSequenceSourceCarrierDRED
-	if toc := ParseTOC(packetInfo.packet[0]); toc.Mode == ModeSILK {
-		step0Source = libopusDecoderDREDSequenceSourceLost
-		step1Source = libopusDecoderDREDSequenceSourceLost
+	if toc.Mode == ModeSILK {
+		want, err := probeLibopusDecoderDREDSequenceInt16(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, libopusDecoderDREDSequenceSourceLost, n, libopusDecoderDREDSequenceSourceLost, 2*n, false)
+		if err != nil {
+			libopustest.HelperUnavailable(t, label+" decoder DRED int16 sequence", err)
+		}
+		requireLibopusDREDSequenceParsed(t, want, label+" int16 cached losses")
+		if want.channels != wantChannels {
+			t.Fatalf("%s libopus channels=%d want %d", label, want.channels, wantChannels)
+		}
+		if want.step0.ret != n || want.step1.ret != n {
+			t.Fatalf("%s libopus cached int16 ret=(%d,%d) want (%d,%d)", label, want.step0.ret, want.step1.ret, n, n)
+		}
+
+		pcm0 := make([]int16, n*dec.Channels())
+		got0, err := dec.DecodeInt16(nil, pcm0)
+		if err != nil {
+			t.Fatalf("%s DecodeInt16(nil, first) error: %v", label, err)
+		}
+		if got0 != n {
+			t.Fatalf("%s DecodeInt16(nil, first)=%d want %d", label, got0, n)
+		}
+		assertInt16WithinLSB(t, pcm0[:got0*dec.Channels()], want.step0.pcm16[:got0*dec.Channels()], maxDiff, label+" cached first-loss int16")
+		assertDecoderPublicLossLeavesNoDREDRecovery(t, dec, label+" cached first-loss int16")
+
+		pcm1 := make([]int16, n*dec.Channels())
+		got1, err := dec.DecodeInt16(nil, pcm1)
+		if err != nil {
+			t.Fatalf("%s DecodeInt16(nil, second) error: %v", label, err)
+		}
+		if got1 != n {
+			t.Fatalf("%s DecodeInt16(nil, second)=%d want %d", label, got1, n)
+		}
+		assertInt16WithinLSB(t, pcm1[:got1*dec.Channels()], want.step1.pcm16[:got1*dec.Channels()], maxDiff, label+" cached second-loss int16")
+		assertDecoderPublicLossLeavesNoDREDRecovery(t, dec, label+" cached second-loss int16")
+		return
 	}
-	want, err := probeLibopusDecoderDREDSequenceInt16(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, step0Source, n, step1Source, 2*n, false)
+
+	dred := parseCarrierDREDForExplicitDecode(t, decoderSampleRate, packetInfo)
+	want, err := probeLibopusDecoderDREDSequenceInt16(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceCarrierDRED, 2*n, false)
 	if err != nil {
 		libopustest.HelperUnavailable(t, label+" decoder DRED int16 sequence", err)
 	}
@@ -355,25 +401,49 @@ func assertDecoderCachedDREDDecodeInt16LossesMatchLiveSequenceOracle(t *testing.
 		t.Fatalf("%s libopus cached int16 ret=(%d,%d) want (%d,%d)", label, want.step0.ret, want.step1.ret, n, n)
 	}
 
-	pcm0 := make([]int16, n*dec.Channels())
-	got0, err := dec.DecodeInt16(nil, pcm0)
-	if err != nil {
-		t.Fatalf("%s DecodeInt16(nil, first) error: %v", label, err)
-	}
-	if got0 != n {
-		t.Fatalf("%s DecodeInt16(nil, first)=%d want %d", label, got0, n)
-	}
-	assertInt16WithinLSB(t, pcm0[:got0*dec.Channels()], want.step0.pcm16[:got0*dec.Channels()], maxDiff, label+" cached first-loss int16")
+	pcm0 := decodeExplicitCachedDREDToInt16(t, dec, dred, n, n, label+" first")
+	assertInt16WithinLSB(t, pcm0[:n*dec.Channels()], want.step0.pcm16[:n*dec.Channels()], maxDiff, label+" cached first-loss int16")
 
-	pcm1 := make([]int16, n*dec.Channels())
-	got1, err := dec.DecodeInt16(nil, pcm1)
+	pcm1 := decodeExplicitCachedDREDToInt16(t, dec, dred, 2*n, n, label+" second")
+	assertInt16WithinLSB(t, pcm1[:n*dec.Channels()], want.step1.pcm16[:n*dec.Channels()], maxDiff, label+" cached second-loss int16")
+}
+
+// assertDecoderPublicLossLeavesNoDREDRecovery verifies a public packet-loss
+// decode applied no cached DRED, mirroring libopus opus_decode(NULL,...) where
+// dred==NULL skips the FEC feed (opus_decoder.c:736). Same invariants the SILK
+// public-loss tests check after cc04ecf0.
+func assertDecoderPublicLossLeavesNoDREDRecovery(t *testing.T, dec *Decoder, label string) {
+	t.Helper()
+	state := requireDecoderDREDState(t, dec)
+	if state.dredRecovery != 0 {
+		t.Fatalf("%s dredRecovery=%d want 0", label, state.dredRecovery)
+	}
+	if fill := state.dredPLC.FECFillPos(); fill != 0 {
+		t.Fatalf("%s FECFillPos=%d want 0", label, fill)
+	}
+	if skip := state.dredPLC.FECSkip(); skip != 0 {
+		t.Fatalf("%s FECSkip=%d want 0", label, skip)
+	}
+}
+
+// decodeExplicitCachedDREDToInt16 recovers one lost frame through the explicit
+// DRED-decode path and quantizes it to int16 with RES2INT16/FLOAT2INT16 (no
+// soft-clip), matching libopus opus_decoder_dred_decode (opus_decoder.c:1628,
+// `pcm[i] = RES2INT16(out[i])`).
+func decodeExplicitCachedDREDToInt16(t *testing.T, dec *Decoder, dred *DRED, dredOffsetSamples, frameSizeSamples int, label string) []int16 {
+	t.Helper()
+	channels := dec.Channels()
+	flo := make([]float32, frameSizeSamples*channels)
+	got, err := dec.decodeExplicitDREDFloat(dred, dredOffsetSamples, flo, frameSizeSamples)
 	if err != nil {
-		t.Fatalf("%s DecodeInt16(nil, second) error: %v", label, err)
+		t.Fatalf("%s explicit DRED decode error: %v", label, err)
 	}
-	if got1 != n {
-		t.Fatalf("%s DecodeInt16(nil, second)=%d want %d", label, got1, n)
+	if got != frameSizeSamples {
+		t.Fatalf("%s explicit DRED decode=%d want %d", label, got, frameSizeSamples)
 	}
-	assertInt16WithinLSB(t, pcm1[:got1*dec.Channels()], want.step1.pcm16[:got1*dec.Channels()], maxDiff, label+" cached second-loss int16")
+	out := make([]int16, got*channels)
+	float32ToInt16NoSoftClip(out, flo, got, channels)
+	return out
 }
 
 func assertInt16WithinLSB(t *testing.T, got, want []int16, maxDiff int, label string) {
@@ -534,6 +604,7 @@ func TestDecoderCachedCELTDREDDecodeInt16TracksLiveSequenceOracle(t *testing.T) 
 func TestDecoderFirstLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
+	dred := parseCarrierDREDForExplicitDecode(t, dec.SampleRate(), packetInfo)
 
 	maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, dec.SampleRate())
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceNone, 0, false)
@@ -545,12 +616,11 @@ func TestDecoderFirstLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T
 		t.Fatalf("libopus decoder DRED first-loss ret=%d want %d", want.step0.ret, n)
 	}
 
-	gotN, err := dec.Decode(nil, pcm)
-	if err != nil {
-		t.Fatalf("Decode(nil) error: %v", err)
-	}
+	// Explicit DRED-decode path (SourceCarrierDRED oracle, opus_decoder.c:736):
+	// a public Decode(nil) runs plain PLC and consumes no cached DRED.
+	gotN := decodeCachedCarrierDREDViaExplicit(t, dec, dred, n, pcm, n)
 	if gotN != n {
-		t.Fatalf("Decode(nil)=%d want %d", gotN, n)
+		t.Fatalf("explicit DRED decode=%d want %d", gotN, n)
 	}
 
 	frameSize48 := n * 48000 / dec.SampleRate()
@@ -565,10 +635,7 @@ func TestDecoderFirstLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T
 func TestDecoderSecondLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T) {
 	libopustest.RequireOracle(t)
 	dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParity(t)
-
-	if _, err := dec.Decode(nil, pcm); err != nil {
-		t.Fatalf("Decode(nil, first) error: %v", err)
-	}
+	dred := parseCarrierDREDForExplicitDecode(t, dec.SampleRate(), packetInfo)
 
 	maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, dec.SampleRate())
 	want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceCarrierDRED, 2*n, false)
@@ -583,12 +650,14 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.
 		t.Fatalf("libopus decoder DRED second-loss ret=%d want %d", want.step1.ret, n)
 	}
 
-	gotN, err := dec.Decode(nil, pcm)
-	if err != nil {
-		t.Fatalf("Decode(nil, second) error: %v", err)
+	// Explicit DRED-decode path (SourceCarrierDRED oracle, opus_decoder.c:736):
+	// two consecutive recoveries at carrier-frame offsets n and 2n.
+	if got := decodeCachedCarrierDREDViaExplicit(t, dec, dred, n, pcm, n); got != n {
+		t.Fatalf("explicit DRED decode(first)=%d want %d", got, n)
 	}
+	gotN := decodeCachedCarrierDREDViaExplicit(t, dec, dred, 2*n, pcm, n)
 	if gotN != n {
-		t.Fatalf("Decode(nil, second)=%d want %d", gotN, n)
+		t.Fatalf("explicit DRED decode(second)=%d want %d", gotN, n)
 	}
 
 	frameSize48 := n * 48000 / dec.SampleRate()
@@ -606,6 +675,7 @@ func TestDecoderFirstLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceO
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
 			dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParityForFrameSize(t, frameSize)
+			dred := parseCarrierDREDForExplicitDecode(t, dec.SampleRate(), packetInfo)
 
 			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, dec.SampleRate())
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceNone, 0, false)
@@ -617,12 +687,10 @@ func TestDecoderFirstLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceO
 				t.Fatalf("libopus decoder DRED first-loss ret=%d want %d", want.step0.ret, n)
 			}
 
-			gotN, err := dec.Decode(nil, pcm)
-			if err != nil {
-				t.Fatalf("Decode(nil) error: %v", err)
-			}
+			// Explicit DRED-decode path (SourceCarrierDRED oracle, opus_decoder.c:736).
+			gotN := decodeCachedCarrierDREDViaExplicit(t, dec, dred, n, pcm, n)
 			if gotN != n {
-				t.Fatalf("Decode(nil)=%d want %d", gotN, n)
+				t.Fatalf("explicit DRED decode=%d want %d", gotN, n)
 			}
 
 			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
@@ -641,10 +709,7 @@ func TestDecoderSecondLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequence
 		frameSize := frameSize
 		t.Run(fmt.Sprintf("carrier_%d", frameSize), func(t *testing.T) {
 			dec, pcm, packetInfo, n := prepareDecoderForNeuralConcealmentParityForFrameSize(t, frameSize)
-
-			if _, err := dec.Decode(nil, pcm); err != nil {
-				t.Fatalf("Decode(nil, first) error: %v", err)
-			}
+			dred := parseCarrierDREDForExplicitDecode(t, dec.SampleRate(), packetInfo)
 
 			maxDRED, oracleRate := libopusDREDRequestForDecoder(packetInfo, dec.SampleRate())
 			want, err := probeLibopusDecoderDREDSequence(nil, packetInfo.packet, nil, maxDRED, oracleRate, n, libopusDecoderDREDSequenceSourceCarrierDRED, n, libopusDecoderDREDSequenceSourceCarrierDRED, 2*n, false)
@@ -659,12 +724,13 @@ func TestDecoderSecondLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequence
 				t.Fatalf("libopus decoder DRED second-loss ret=%d want %d", want.step1.ret, n)
 			}
 
-			gotN, err := dec.Decode(nil, pcm)
-			if err != nil {
-				t.Fatalf("Decode(nil, second) error: %v", err)
+			// Explicit DRED-decode path (SourceCarrierDRED oracle, opus_decoder.c:736).
+			if got := decodeCachedCarrierDREDViaExplicit(t, dec, dred, n, pcm, n); got != n {
+				t.Fatalf("explicit DRED decode(first)=%d want %d", got, n)
 			}
+			gotN := decodeCachedCarrierDREDViaExplicit(t, dec, dred, 2*n, pcm, n)
 			if gotN != n {
-				t.Fatalf("Decode(nil, second)=%d want %d", gotN, n)
+				t.Fatalf("explicit DRED decode(second)=%d want %d", gotN, n)
 			}
 
 			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)

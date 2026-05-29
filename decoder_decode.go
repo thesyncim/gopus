@@ -80,21 +80,15 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 		if err != nil {
 			return 0, err
 		}
-		if !usedNeuralConcealment && neuralReady && sampleRate == 16000 && channels >= 1 && channels <= 2 && d.prevMode != ModeHybrid && d.prevMode != ModeSILK {
-			if len(pcm) < frameSize*channels {
-				return 0, ErrBufferTooSmall
-			}
-			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*channels], frameSize)
-		}
-		if !usedNeuralConcealment && dredPossible {
-			n, usedNeuralConcealment, err = d.decodeDRED48kNeuralPLCInto(pcm, frameSize, plcDecodeState{
-				packetFrameSize:    packetFrameSize,
-				mode:               d.prevMode,
-				bandwidth:          d.lastBandwidth,
-				packetStereo:       d.prevPacketStereo,
-				useDecoderPLCState: true,
-			})
-		} else if !usedNeuralConcealment {
+		// libopus opus_decode(NULL,...) passes dred==NULL, so the cached-DRED
+		// FEC-feature feed gated on `dred != NULL && process_stage == 2`
+		// (opus_decoder.c:736) is skipped and a public packet-loss decode runs
+		// PLAIN PLC, consuming no cached DRED. Mirror that here for CELT/hybrid
+		// (and the 16 kHz CELT neural path): do NOT auto-apply cached DRED on a
+		// public Decode(nil). DRED is only applied through the explicit
+		// DRED-decode path (decodeExplicitDREDFloat). This matches the SILK
+		// public-loss reconciliation done in cc04ecf0.
+		if !usedNeuralConcealment {
 			n, err = d.decodePLCChunksInto(pcm, frameSize, plcDecodeState{
 				packetFrameSize:    packetFrameSize,
 				mode:               d.prevMode,
@@ -107,9 +101,6 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 			return 0, err
 		}
 		frameSize = n
-		if neuralReady && !usedNeuralConcealment && d.prevMode == ModeCELT {
-			usedNeuralConcealment = d.applyDREDNeuralConcealment(pcm[:frameSize*channels], frameSize)
-		}
 		// libopus enables OSCE_MODE_SILK_BBWE during PLC whenever the
 		// internal sample rate is 16 kHz and the API sample rate is 48 kHz
 		// (`data == NULL` branch in opus_decoder.c). The gopus equivalent
