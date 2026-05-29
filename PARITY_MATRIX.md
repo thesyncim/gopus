@@ -27,7 +27,7 @@ Pinned behavior wins unless a curated fixture documents an intentional divergenc
 | --- | --- | --- | --- | --- | --- |
 | SILK | Y | Y | Y (compliance + decoder matrix) | ~ (NLSF, gain, LTP, stereo oracles) | Auto mode selection vs libopus on edge signals; long-frame stereo DRED carriers; 16 kHz API-path explicit DRED |
 | CELT | Y | Y | Y (compliance + matrix) | ~ (PVQ, bands oracles; IMDCT + noise-PLC synthesis arm64 bit-exact stage oracles; CELT encode byte-exact across CBR matrix) | 2.5/5 ms variant byte ratchets; full PVQ/bands byte grid |
-| Hybrid | Y | Y | ~ (matrix + compliance; looser thresholds) | ~ (float32 SILK+CELT combine bit-exact stage oracle; Hybrid QEXT vs libopus int16) | SWB/FB stereo DRED byte layout; 16 kHz hybrid explicit decode; QEXT extension byte parity |
+| Hybrid | Y | Y | Y (matrix Q>=20, corr>=0.997 — same bar as SILK/CELT; compliance) | ~ (float32 SILK+CELT combine bit-exact stage oracle; Hybrid QEXT vs libopus int16) | SWB/FB stereo DRED byte layout; 16 kHz hybrid explicit decode; QEXT extension byte parity |
 | Auto | Y | Y (TOC-driven) | ~ (mode fixtures, analysis) | N | Full cross-product of application × rate × frame × signal class |
 
 ---

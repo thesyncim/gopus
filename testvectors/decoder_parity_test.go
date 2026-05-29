@@ -40,14 +40,17 @@ func decoderParityThresholdForCase(c libopusDecoderMatrixCaseFile) decoderParity
 	case "celt-fb-20ms-stereo-128k":
 		return decoderParityThresholds{minQ: 20.0, minCorr: 0.998, minRMS: 0.98, maxRMS: 1.02}
 	case "hybrid-fb-20ms-stereo-24k":
-		return decoderParityThresholds{minQ: 0.0, minCorr: 0.990, minRMS: 0.97, maxRMS: 1.03}
+		return decoderParityThresholds{minQ: 20.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02}
 	}
 
+	// Hybrid decode is bit-exact-grade vs libopus (measured Q>=99.7, corr=1.0,
+	// rms=1.0 across the FB/SWB hybrid matrix), so it is held to the same
+	// near-exact bar as SILK/CELT instead of the former quality-floor-free gate.
 	if strings.HasPrefix(c.Name, "hybrid-") || c.ModeHistogram["hybrid"] > 0 {
 		if c.Channels == 2 {
-			return decoderParityThresholds{minQ: 0.0, minCorr: 0.990, minRMS: 0.97, maxRMS: 1.03}
+			return decoderParityThresholds{minQ: 20.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02}
 		}
-		return decoderParityThresholds{minQ: 0.0, minCorr: 0.985, minRMS: 0.97, maxRMS: 1.03}
+		return decoderParityThresholds{minQ: 20.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02}
 	}
 
 	mode := decoderDominantMode(c.ModeHistogram)
