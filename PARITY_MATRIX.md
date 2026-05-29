@@ -128,7 +128,7 @@ Valid sizes depend on mode (`encoder.ValidFrameSize`). Compliance summary uses 4
 | CBR | Y | Y | Compliance + `encoder_cbr_byte_parity` (SILK/CELT/Hybrid byte-exact; CELT/Hybrid hard on amd64, arm64 FMA residual) | — |
 | VBR | Y | ~ | `encoder_vbr_cvbr_byte_parity` (CELT byte-exact) | SILK/Hybrid unconstrained-VBR per-frame sizes |
 | Constrained VBR (CVBR) | Y | ~ | `encoder_vbr_cvbr_byte_parity` (CELT size+range parity) | SILK/Hybrid CVBR packet-size distribution |
-| Low delay | Y | ~ | `SetLowDelay` / application | Cross-mode low-delay matrix |
+| Low delay | Y | Y | `encoder_lowdelay_crossmode_parity` (CELT-only forced; lookahead Fs/400; 360 byte-exact cells) | — |
 | DTX | Y | Y | `encoder/dtx_parity_test` + `dtx_sequence_parity` (multi-frame TOC, stereo, hybrid, SILK 10 ms threshold, max-consecutive reset) | — |
 
 ---
