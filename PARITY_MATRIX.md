@@ -156,7 +156,7 @@ Recovery ordering in the WebRTC example: **RED → FEC → DRED → PLC** (examp
 | DRED | `gopus_dred` | T | T (+ standalone `DREDDecoder`) | Y (RDOVAE; `ConvertTo16kMonoFloat32` bit-exact; explicit decode + carriers byte-exact; burst trains bit-exact; multistream per-stream queues corr=1.0; cross-mode handover bit-exact) | — |
 | OSCE BWE | `gopus_extra_controls` | N | T | End-to-end sample parity near-exact (corr ≥ 0.9955, documented architectural −8-sample delay) + forward-pass/feature-extractor parity | — |
 | LACE / NoLACE | `gopus_extra_controls` | N | T (CTL + multistream) | End-to-end sample-level **bit-exact** (Q=100, corr=1.0) mono+stereo + multistream per-stream | — |
-| DNN blob (`SetDNNBlob`) | `gopus_dred` / `gopus_extra_controls` | T (model load) | T (model load) | USE_WEIGHTS_FILE record framing + libopus model-blob parity | Model coverage beyond pitch/PLC/FARGAN/RDOVAE families |
+| DNN blob (`SetDNNBlob`) | `gopus_dred` / `gopus_extra_controls` | T (model load) | T (model load) | USE_WEIGHTS_FILE record framing + libopus model-blob parity; every API DNN family (PitchDNN, PLC, FARGAN, RDOVAE enc/dec, LACE, NoLACE, BBWENet) loads with libopus-oracle parity | — (libopus `LossGen` is opus_demo-only and `FWGAN` is declared-but-unused; both out of scope) |
 
 Default build: **no optional extensions**. `SetDNNBlob` is a zero-cost no-op
 returning `ErrOptionalExtensionUnavailable`; USE_WEIGHTS_FILE model loading is
@@ -229,12 +229,10 @@ Release bar: `make verify-production` (+ optional `verify-production-exhaustive`
 
 1. **Native 96 kHz Opus HD / QEXT bitstream** — the `gopus_qext` 96 kHz `NewEncoder`/`NewDecoder` path is a resampling wrapper over the 48 kHz CELT core, not byte-identical to libopus's native 96 kHz. Needs a 1920-sample-MDCT CELT mode (boundary documented in `TestHD96kBoundaryDocumented`).  
 2. **Full fixed-point CELT/SILK pipeline** — `internal/fixedpoint` holds the first integer CELT math kernels (`celt_log2`/`exp2`/`rsqrt_norm`) plus integer-exact rangecoder and SILK-decode core; the full integer MDCT/PVQ + SILK encoder analysis pipeline is not built (see `docs/fixed-point.md`).  
-3. **DNN model coverage** — model families beyond pitch/PLC/FARGAN/RDOVAE are not loaded by `SetDNNBlob`.  
-4. **Opus Custom non-standard-rate oracle parity** — `gopus_custom` standard modes are byte-identical to libopus; non-standard-rate custom modes are only roundtrip self-consistent and need a `--enable-custom-modes` libopus build to oracle.  
-5. **arm64-only ≤1-ULP residuals** — SILK `hp_cutoff` biquad / warped shaping-AR recursive-float tail and CELT chirp `alloc_trim` half-density tonality drift are darwin/arm64 only; amd64/CI is byte-exact. Governed by the per-arch FMA-contraction budget.  
-6. **Ogg differential fuzz corpus** — `container/ogg` lacks a differential fuzz corpus against libopus ogg decode.  
-7. **Broader real-content corpus** — decoder/quality coverage beyond the current signal-class corpus (more speech/music/noise material).  
-8. **All-platform mandatory C-oracle CI** — the `tools/csrc` C oracles are not yet mandatory across every CI platform.  
+3. **Opus Custom non-standard-rate oracle parity** — `gopus_custom` standard modes are byte-identical to libopus; non-standard-rate custom modes are only roundtrip self-consistent and need a `--enable-custom-modes` libopus build to oracle.  
+4. **arm64-only ≤1-ULP residuals** — SILK `hp_cutoff` biquad / warped shaping-AR recursive-float tail and CELT chirp `alloc_trim` half-density tonality drift are darwin/arm64 only; amd64/CI is byte-exact. Governed by the per-arch FMA-contraction budget.  
+5. **Broader real-content corpus** — decoder/quality coverage beyond the current signal-class corpus (more speech/music/noise material).  
+6. **All-platform mandatory C-oracle CI** — the `tools/csrc` C oracles are not yet mandatory across every CI platform.  
 
 ---
 
