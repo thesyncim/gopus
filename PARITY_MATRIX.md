@@ -115,8 +115,8 @@ Valid sizes depend on mode (`encoder.ValidFrameSize`). Compliance summary uses 4
 | 5 ms | Y | — | — | Y (variant byte ratchet amd64-exact) | Y (`celt-fb-5ms`) | arm64-only FMA/tonality residual (amd64 exact) |
 | 10 ms | Y | Y | Y | Y | Y (silk/hybrid/celt) | — |
 | 20 ms | Y | Y | Y | Y | Y | — |
-| 40 ms | Y | Y | Y | long-frame fixture | partial (silk/hybrid in matrix) | SILK stereo 40 ms DRED carrier; hybrid 40 ms stereo DRED |
-| 60 ms | Y | Y | Y | long-frame + summary | Y (`silk-*-60ms`, `celt-fb-60ms-mono-64k`) | libopus `audio@FB` 60 ms encodes CELT (matrix row documents that); Hybrid 60 ms compliance only; SILK stereo 60 ms DRED |
+| 40 ms | Y | Y | Y | long-frame fixture | partial (silk/hybrid in matrix); SILK + Hybrid stereo DRED carriers byte-exact | — |
+| 60 ms | Y | Y | Y | long-frame + summary | Y (`silk-*-60ms`, `celt-fb-60ms-mono-64k`); SILK stereo DRED carriers byte-exact | libopus `audio@FB` 60 ms encodes CELT (matrix row documents that); Hybrid 60 ms compliance only |
 | 80 / 100 / 120 ms | Y | Y | Y | encode valid | Y (`silk-wb-80ms`, `celt-fb-80ms`, `silk-wb-120ms`) | 100 ms matrix row; loss fixtures beyond 60 ms |
 
 ---
@@ -140,8 +140,8 @@ Valid sizes depend on mode (`encoder.ValidFrameSize`). Compliance summary uses 4
 | PLC (`Decode(nil,…)`) | Y | Y (frame_size from buffer; loss tests use last-packet duration like `opus_demo`) | Y (loss fixture, CELT PLC oracle, SILK PLC IIR edge oracles) | — |
 | LBRR / in-band FEC | Y | Y | Y (decoder loss fixture, FEC tests; mono-first + stereo-warm LBRR `DecodeWithFEC` parity) | — |
 | RTP RED | Y | Y | Y (public `container/red`: RFC 2198 `Parse`/`Build`/`FindRecovery` + fuzz corpus) | RTP RED is outside libopus's core API; recovery ordering (RED→FEC→DRED→PLC) shown in `examples/webrtc-dred-loopback` |
-| DRED extension | T | T | ~ (process/queue/window oracles; explicit decode partial) | SILK explicit decoder; 16 kHz; stereo carriers; live-sequence vs cached oracle; multistream encoder attach |
-| Cached DRED recovery | T | — | ~ (48 kHz mono/stereo probes) | 16 kHz cached matrices; CELT NB/SWB explicit; hybrid stereo half-byte divergence |
+| DRED extension | T | T | Y (process/queue/window oracles; explicit decode + SILK/Hybrid/CELT carriers byte-exact incl. stereo 40/60 ms; 16 kHz; multistream encoder attach) | — |
+| Cached DRED recovery | T | — | Y (48 kHz + 16 kHz mono/stereo probes; live-sequence matches cached oracle) | — |
 | Multi-gap recovery | T | — | Y (long burst trains bit-exact; multistream per-stream queues corr=1.0; cross-mode SILK/Hybrid→CELT handover bit-exact corr=1.0 — fixed missing transition-PLC deep-PLC state advance) | — |
 
 Recovery ordering in the WebRTC example: **RED → FEC → DRED → PLC** (example only).
@@ -227,13 +227,14 @@ Release bar: `make verify-production` (+ optional `verify-production-exhaustive`
 
 ## Priority backlog (highest impact for “100% parity”)
 
-1. **Decoder matrix** — add 8/12/16/24 kHz rows, 80/120 ms, multistream, and loss+FEC+DRED combinations (60 ms CELT row landed).  
-2. **DRED** — close SILK explicit decode, stereo/long-frame carriers, 16 kHz hybrid, multistream encoder attach.  
-3. **RED** — promote WebRTC RED helpers to tested public API or document permanent example-only scope.  
-4. **Byte-exact encode** — CBR/CVBR/VBR grid per `encoderComplianceSummaryCases` + variants ratchet.  
-5. **OSCE** — wire BWE/LACE decode apply with sample-level libopus oracles (not only forward-pass).  
-6. **QEXT** — extension byte parity beyond Hybrid waveform gates; multistream QEXT.  
-7. **Hybrid long frames** — find libopus `opus_demo` params that emit true Hybrid at 40/60 ms for matrix rows (today `audio@FB` 60 ms is CELT).  
+1. **Native 96 kHz Opus HD / QEXT bitstream** — the `gopus_qext` 96 kHz `NewEncoder`/`NewDecoder` path is a resampling wrapper over the 48 kHz CELT core, not byte-identical to libopus's native 96 kHz. Needs a 1920-sample-MDCT CELT mode (boundary documented in `TestHD96kBoundaryDocumented`).  
+2. **Full fixed-point CELT/SILK pipeline** — `internal/fixedpoint` holds the first integer CELT math kernels (`celt_log2`/`exp2`/`rsqrt_norm`) plus integer-exact rangecoder and SILK-decode core; the full integer MDCT/PVQ + SILK encoder analysis pipeline is not built (see `docs/fixed-point.md`).  
+3. **DNN model coverage** — model families beyond pitch/PLC/FARGAN/RDOVAE are not loaded by `SetDNNBlob`.  
+4. **Opus Custom non-standard-rate oracle parity** — `gopus_custom` standard modes are byte-identical to libopus; non-standard-rate custom modes are only roundtrip self-consistent and need a `--enable-custom-modes` libopus build to oracle.  
+5. **arm64-only ≤1-ULP residuals** — SILK `hp_cutoff` biquad / warped shaping-AR recursive-float tail and CELT chirp `alloc_trim` half-density tonality drift are darwin/arm64 only; amd64/CI is byte-exact. Governed by the per-arch FMA-contraction budget.  
+6. **Ogg differential fuzz corpus** — `container/ogg` lacks a differential fuzz corpus against libopus ogg decode.  
+7. **Broader real-content corpus** — decoder/quality coverage beyond the current signal-class corpus (more speech/music/noise material).  
+8. **All-platform mandatory C-oracle CI** — the `tools/csrc` C oracles are not yet mandatory across every CI platform.  
 
 ---
 
