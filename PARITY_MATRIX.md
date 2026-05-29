@@ -170,7 +170,7 @@ requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
 | Area | Status | Parity / tests | Gaps for 100% |
 | --- | --- | --- | --- |
 | `float32` encode/decode | Y | Hot-path alloc tests, compliance, matrix; arm64 IMDCT/noise-PLC synthesis bit-exact vs libopus | Encode byte grid beyond CELT CBR matrix |
-| `int16` encode/decode | Y | Roundtrip, PCM convert oracle | int16 PLC vs float32 on all modes |
+| `int16` encode/decode | Y | Roundtrip, PCM convert oracle; int16 PLC vs libopus across mode × channel × loss-pattern (30 cells Q=100) + int16==float32-quantized identity | — |
 | Packet parse (`ParseTOC`, extensions) | Y | Full 256-TOC/config differential vs libopus (`packet_toc_edge_libopus_parity`): bandwidth/channels/nb_frames/samples-per-frame/parse/padding/boundary-reject all bit-exact | — |
 | Decoder CTLs | ~ | Gain, complexity, phase, ignore extensions; DNN blob under `gopus_dred`/`gopus_extra_controls` | Full `opus_decoder_ctl` equivalence table |
 | Encoder CTLs | ~ | Bitrate, VBR, FEC, DTX, bandwidth, frame, signal | `OPUS_GET_*` mirror coverage; multistream CTL parity |
