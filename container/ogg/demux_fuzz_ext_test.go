@@ -18,9 +18,12 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"testing"
+
+	gopus "github.com/thesyncim/gopus"
 )
 
 // ---- seed-stream builders (all prefixed ext to avoid collisions) ----
@@ -554,6 +557,54 @@ func extOpusfileAccepts(data []byte) (bool, error) {
 	cmd := exec.Command(opusdec, "--quiet", "--rate", "48000", tmp.Name(), os.DevNull)
 	err = cmd.Run()
 	return err == nil, nil
+}
+
+// extOpusdecDecodePCM decodes an Ogg Opus stream with libopus opusdec to a WAV
+// file at 48 kHz and returns the parsed float32 PCM. Unlike decodeWithOpusdec it
+// never silently falls back to the in-process gopus decoder: a real libopus
+// decode is required for a meaningful differential. ok is false (with no error)
+// when opusdec is present but cannot run in this environment (e.g. macOS
+// quarantine), so callers can degrade to a self-consistency check.
+func extOpusdecDecodePCM(data []byte) (pcm []float32, ok bool, err error) {
+	tmpOpus, err := os.CreateTemp("", "gopus_ogg_diff_*.opus")
+	if err != nil {
+		return nil, false, err
+	}
+	defer os.Remove(tmpOpus.Name())
+	if _, err := tmpOpus.Write(data); err != nil {
+		tmpOpus.Close()
+		return nil, false, err
+	}
+	tmpOpus.Close()
+	exec.Command("xattr", "-c", tmpOpus.Name()).Run()
+
+	tmpWav, err := os.CreateTemp("", "gopus_ogg_diff_*.wav")
+	if err != nil {
+		return nil, false, err
+	}
+	defer os.Remove(tmpWav.Name())
+	tmpWav.Close()
+
+	opusdec := getOpusdecPath()
+	cmd := exec.Command(opusdec, "--quiet", "--rate", "48000", tmpOpus.Name(), tmpWav.Name())
+	out, runErr := cmd.CombinedOutput()
+	if runErr != nil {
+		// Sandbox/provenance failures are environmental, not stream rejections.
+		if bytes.Contains(out, []byte("provenance")) ||
+			bytes.Contains(out, []byte("quarantine")) ||
+			bytes.Contains(out, []byte("killed")) ||
+			bytes.Contains(out, []byte("Operation not permitted")) ||
+			bytes.Contains(out, []byte("Failed to open")) {
+			return nil, false, nil
+		}
+		// A non-environmental non-zero exit means opusdec rejected the stream.
+		return nil, true, fmt.Errorf("opusdec rejected stream: %v: %s", runErr, bytes.TrimSpace(out))
+	}
+	wav, err := os.ReadFile(tmpWav.Name())
+	if err != nil {
+		return nil, false, err
+	}
+	return parseWAVSamples(wav), true, nil
 }
 
 // ---- fuzz targets ----
@@ -1098,4 +1149,277 @@ func FuzzOggExt_DifferentialOpusfile(f *testing.F) {
 			// Log it so it surfaces in fuzzer output without halting.
 		}
 	})
+}
+
+// FuzzOggExt_DifferentialOpusfilePCM is the container-path PCM differential: for
+// streams gopus accepts and fully decodes, it decodes the same bytes with the
+// libopus opusdec oracle (libopus 1.6.1, the pinned reference) and cross-checks
+// the recovered PCM.
+//
+// Hard invariants on every input (malformed inputs must not panic):
+//   - gopus never panics and reports a sensible channel count;
+//   - all decoded samples are finite;
+//   - if gopus fully decodes audio, opusdec must also accept the stream
+//     (container accept/reject parity);
+//   - when both decoders agree the stream carries real audio — they recover
+//     near-identical decoded durations — their per-channel energy must match.
+//
+// Corrupt-CELT entropy is a legitimate divergence surface: libopus and gopus may
+// conceal a malformed frame into different amounts of PCM. Per the same policy as
+// testvectors.FuzzDecodeAgainstLibopus, waveform energy parity is therefore
+// asserted only when the two durations already agree (i.e. clean encoder output
+// or faithfully-recovered audio); gross duration divergence on mutated entropy is
+// logged, not failed.
+//
+// When opusdec is absent or cannot run in this environment (macOS quarantine,
+// sandbox), the target degrades to a documented self-consistency differential:
+// the gopus decode of the original bytes must match the gopus decode of a
+// re-muxed (decode→packets→Writer→decode) round-trip.
+func FuzzOggExt_DifferentialOpusfilePCM(f *testing.F) {
+	// Genuine encoder-produced streams: real Opus audio that both decoders must
+	// recover identically. These anchor the strict energy-parity lane.
+	for _, ch := range []uint8{1, 2} {
+		if s := extBuildEncodedSineStream(ch, 25); len(s) > 0 {
+			f.Add(s)
+		}
+	}
+	// Structural / synthetic streams exercise lacing and header edge cases.
+	if s := buildValidOpusStream(1, 6); len(s) > 0 {
+		f.Add(s)
+	}
+	if s := buildValidOpusStream(2, 6); len(s) > 0 {
+		f.Add(s)
+	}
+	if s := buildValidOpusStreamMultistream(); len(s) > 0 {
+		f.Add(s)
+	}
+	if s := buildValidOpusStreamFamily3(); len(s) > 0 {
+		f.Add(s)
+	}
+	if s := extBuildContinuedPacketStream(); len(s) > 0 {
+		f.Add(s)
+	}
+	if s := extBuildTagsSpanningTwoPages(); len(s) > 0 {
+		f.Add(s)
+	}
+	if s := buildValidOpusStream(1, 12); len(s) > 8 {
+		f.Add(s[:len(s)/2]) // truncated mid-stream
+	}
+	f.Add([]byte{})
+	f.Add([]byte("OggS"))
+	f.Add(make([]byte, 64))
+
+	f.Fuzz(func(t *testing.T, data []byte) {
+		if len(data) > 1<<20 {
+			data = data[:1<<20]
+		}
+
+		// gopus must never panic and must report a sensible channel count.
+		gopusPCM, gopusErr := decodeWithInternalDecoder(data)
+		if gopusErr != nil {
+			// Rejection of malformed/partial input is the correct behaviour.
+			return
+		}
+		channels := gopusChannelCount(data)
+		if channels <= 0 {
+			t.Fatalf("decoded stream reports non-positive channel count %d", channels)
+		}
+		if len(gopusPCM)%channels != 0 {
+			t.Fatalf("gopus PCM length %d not divisible by channels %d", len(gopusPCM), channels)
+		}
+		requireFiniteFuzzSamples(t, gopusPCM)
+
+		// Prefer the real libopus oracle when it can run.
+		if extOpusfileAvailable() {
+			refPCM, ran, oracleErr := extOpusdecDecodePCM(data)
+			if oracleErr != nil {
+				// opusdec rejected a stream gopus decoded into real audio: a
+				// genuine container accept/reject divergence. opusdec exits
+				// non-zero on header-only / pure-silence streams, so only flag a
+				// non-empty gopus decode.
+				if len(gopusPCM) > 0 {
+					t.Errorf("container accept/reject divergence: gopus decoded %d samples, opusdec rejected: %v", len(gopusPCM), oracleErr)
+				}
+				return
+			}
+			if ran {
+				requireFiniteFuzzSamples(t, refPCM)
+				requireContainerPCMParity(t, gopusPCM, refPCM, channels)
+				return
+			}
+		}
+
+		// Fallback: gopus decode↔re-mux self-consistency differential.
+		requireRemuxSelfConsistency(t, data, gopusPCM, channels)
+	})
+}
+
+// extBuildEncodedSineStream encodes a sine wave with the gopus encoder and muxes
+// it into an Ogg Opus stream, yielding genuine Opus audio for the strict PCM
+// parity lane.
+func extBuildEncodedSineStream(channels uint8, frames int) []byte {
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
+		SampleRate:  48000,
+		Channels:    int(channels),
+		Application: gopus.ApplicationAudio,
+	})
+	if err != nil {
+		return nil
+	}
+	enc.SetBitrate(64000)
+
+	var buf bytes.Buffer
+	w, err := NewWriter(&buf, 48000, channels)
+	if err != nil {
+		return nil
+	}
+	const frameSize = 960 // 20 ms at 48 kHz
+	for i := 0; i < frames; i++ {
+		var pcm []float32
+		if channels == 1 {
+			pcm = generateSineWave(440.0, frameSize)
+		} else {
+			pcm = generateStereoSineWave(440.0, 660.0, frameSize)
+		}
+		pkt, err := enc.EncodeFloat32(pcm)
+		if err != nil {
+			return nil
+		}
+		if len(pkt) == 0 {
+			pkt = []byte{0xF8, 0xFF, 0xFE} // CELT silence
+		}
+		if err := w.WritePacket(pkt, frameSize); err != nil {
+			return nil
+		}
+	}
+	if err := w.Close(); err != nil {
+		return nil
+	}
+	return buf.Bytes()
+}
+
+// gopusChannelCount returns the channel count gopus parses from a stream's
+// OpusHead, or 0 if the stream cannot be opened.
+func gopusChannelCount(data []byte) int {
+	r, err := NewReader(bytes.NewReader(data))
+	if err != nil {
+		return 0
+	}
+	return int(r.Channels())
+}
+
+// requireFiniteFuzzSamples asserts all PCM samples are finite.
+func requireFiniteFuzzSamples(t *testing.T, samples []float32) {
+	t.Helper()
+	for i, s := range samples {
+		if s != s || s > 1e30 || s < -1e30 {
+			t.Fatalf("decoded sample[%d] not finite: %v", i, s)
+		}
+	}
+}
+
+// requireContainerPCMParity cross-checks the gopus and libopus PCM for a stream.
+//
+// Both decoders run libopus-equivalent logic at 48 kHz with the same preskip and
+// output gain. When they recover near-identical decoded durations the stream is
+// being faithfully decoded by both (clean encoder output or well-formed audio),
+// so their per-channel energy must match closely. opusdec may emit a small
+// resampler/encoder-delay tail, so the duration agreement allows a one-frame
+// slack and the energy comparison is taken over the common prefix.
+//
+// A gross duration divergence means the two implementations concealed corrupt
+// CELT entropy differently; that is a legitimate per-implementation difference,
+// not a gopus defect, and is logged rather than failed.
+func requireContainerPCMParity(t *testing.T, got, ref []float32, channels int) {
+	t.Helper()
+	if len(got) == 0 && len(ref) == 0 {
+		return
+	}
+	gotFrames := len(got) / channels
+	refFrames := len(ref) / channels
+
+	const frameSlack = 960 // up to 20 ms of resampler/encoder-delay tail
+	if d := gotFrames - refFrames; d > frameSlack || d < -frameSlack {
+		t.Logf("container PCM duration divergence (corrupt-CELT concealment): gopus=%d frames libopus=%d frames (channels=%d)", gotFrames, refFrames, channels)
+		return
+	}
+
+	common := gotFrames
+	if refFrames < common {
+		common = refFrames
+	}
+	if common == 0 {
+		return
+	}
+	gotE := computeEnergy(got[:common*channels])
+	refE := computeEnergy(ref[:common*channels])
+	// Energies are in [0,1] (normalized PCM). Allow an absolute floor plus a
+	// relative band to absorb opusdec's int16 quantization and any 1-ULP per-arch
+	// CELT drift while still catching gross divergence.
+	const absFloor = 1e-3
+	denom := refE
+	if gotE > denom {
+		denom = gotE
+	}
+	if denom < absFloor {
+		return
+	}
+	if rel := math.Abs(gotE-refE) / denom; rel > 0.25 {
+		t.Fatalf("container PCM energy mismatch: gopus=%.6g libopus=%.6g rel=%.3f (frames=%d channels=%d)", gotE, refE, rel, common, channels)
+	}
+}
+
+// requireRemuxSelfConsistency is the documented fallback when the libopus oracle
+// is unavailable: the decoded PCM of the original stream must match the decoded
+// PCM after a gopus decode→packets→Writer→decode round-trip. This exercises the
+// full container build/parse path without an external tool.
+func requireRemuxSelfConsistency(t *testing.T, data []byte, originalPCM []float32, channels int) {
+	t.Helper()
+
+	r, err := NewReader(bytes.NewReader(data))
+	if err != nil {
+		return
+	}
+	// Only the common family-0 mono/stereo path round-trips through the simple
+	// Writer; multistream/projection re-muxing needs the full config and is left
+	// to the oracle path.
+	if r.Header == nil || r.Header.MappingFamily != 0 || channels < 1 || channels > 2 {
+		return
+	}
+
+	var buf bytes.Buffer
+	w, err := NewWriter(&buf, 48000, uint8(channels))
+	if err != nil {
+		return
+	}
+	wrote := 0
+	for i := 0; i < 4096; i++ {
+		pkt, _, perr := r.ReadPacket()
+		if perr == io.EOF {
+			break
+		}
+		if perr != nil {
+			return
+		}
+		if len(pkt) == 0 {
+			continue
+		}
+		if werr := w.WritePacket(pkt, 960); werr != nil {
+			return
+		}
+		wrote++
+	}
+	if wrote == 0 {
+		return
+	}
+	if err := w.Close(); err != nil {
+		return
+	}
+
+	remuxPCM, err := decodeWithInternalDecoder(buf.Bytes())
+	if err != nil {
+		t.Fatalf("re-muxed stream failed to decode: %v", err)
+	}
+	requireFiniteFuzzSamples(t, remuxPCM)
+	requireContainerPCMParity(t, originalPCM, remuxPCM, channels)
 }
