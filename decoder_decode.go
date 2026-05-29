@@ -186,6 +186,12 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	}
 
 	if frameCode == 0 {
+		// libopus opus_packet_parse_impl (src/opus.c): non-self-delimited last
+		// frame must not exceed 1275 bytes ("last_size > 1275 → OPUS_INVALID_PACKET").
+		// For code-0 the only frame fills all of data[1:].
+		if len(data)-1 > maxOpusFrameBytes {
+			return 0, ErrInvalidPacket
+		}
 		_, err := d.decodeOpusFrameIntoWithQEXT(
 			pcm,
 			data[1:],
@@ -310,6 +316,12 @@ func (d *Decoder) decodeMultiFrameFloat32(pcm []float32, data []byte, toc *TOC, 
 			return 0, ErrInvalidPacket
 		}
 		if headerLen+frame1Len > len(data) {
+			return 0, ErrInvalidPacket
+		}
+		// libopus opus_packet_parse_impl (src/opus.c): non-self-delimited last
+		// frame must not exceed 1275 bytes ("last_size > 1275 → OPUS_INVALID_PACKET").
+		// For code-2 the last (second) frame is frame2Len.
+		if frame2Len > maxOpusFrameBytes {
 			return 0, ErrInvalidPacket
 		}
 		if err := decodeFrame(0, data[headerLen:headerLen+frame1Len]); err != nil {
