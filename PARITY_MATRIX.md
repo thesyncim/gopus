@@ -26,8 +26,8 @@ Pinned behavior wins unless a curated fixture documents an intentional divergenc
 | Mode | Encode | Decode | Quality parity | Numeric / byte parity | Gaps for 100% |
 | --- | --- | --- | --- | --- | --- |
 | SILK | Y | Y | Y (compliance + decoder matrix) | ~ (NLSF, gain, LTP, stereo oracles) | Auto mode selection vs libopus on edge signals; long-frame stereo DRED carriers; 16 kHz API-path explicit DRED |
-| CELT | Y | Y | Y (compliance + matrix) | ~ (PVQ, bands, MDCT, PLC oracles) | 2.5/5 ms variant byte ratchets; arm64 MDCT flag drift on some fixtures |
-| Hybrid | Y | Y | ~ (matrix + compliance; looser thresholds) | ~ (float32 sum path native; Hybrid QEXT vs libopus int16) | SWB/FB stereo DRED byte layout; 16 kHz hybrid explicit decode; QEXT extension byte parity |
+| CELT | Y | Y | Y (compliance + matrix) | ~ (PVQ, bands oracles; IMDCT + noise-PLC synthesis arm64 bit-exact stage oracles; CELT encode byte-exact across CBR matrix) | 2.5/5 ms variant byte ratchets; full PVQ/bands byte grid |
+| Hybrid | Y | Y | ~ (matrix + compliance; looser thresholds) | ~ (float32 SILK+CELT combine bit-exact stage oracle; Hybrid QEXT vs libopus int16) | SWB/FB stereo DRED byte layout; 16 kHz hybrid explicit decode; QEXT extension byte parity |
 | Auto | Y | Y (TOC-driven) | ~ (mode fixtures, analysis) | N | Full cross-product of application × rate × frame × signal class |
 
 ---
@@ -118,7 +118,7 @@ Default build: **DNN blob** load only (`SetDNNBlob`).
 
 | Area | Status | Parity / tests | Gaps for 100% |
 | --- | --- | --- | --- |
-| `float32` encode/decode | Y | Hot-path alloc tests, compliance, matrix | Sub-LSB drift budget documented per arch |
+| `float32` encode/decode | Y | Hot-path alloc tests, compliance, matrix; arm64 IMDCT/noise-PLC synthesis bit-exact vs libopus | Encode byte grid beyond CELT CBR matrix |
 | `int16` encode/decode | Y | Roundtrip, PCM convert oracle | int16 PLC vs float32 on all modes |
 | Packet parse (`ParseTOC`, extensions) | Y | Packet tests, extension scanners | Rare TOC edge codes |
 | Decoder CTLs | ~ | Gain, complexity, phase, ignore extensions, DNN | Full `opus_decoder_ctl` equivalence table |
