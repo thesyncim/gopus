@@ -193,7 +193,20 @@ func computeLinear(layer *LinearLayer, out, in []float32, scratch *predictorScra
 
 func sgemv(out []float32, weights dnnblob.Float32View, rows, cols, colStride int, x []float32) {
 	if useFusedFloatDense() {
-		sgemvFused(out, weights, rows, cols, colStride, x)
+		// libopus dnn/vec_neon.h sgemv() falls back to the scalar loop
+		//   for (i) { out[i]=0; for (j) out[i] += weights[j*col_stride+i]*x[j]; }
+		// when rows is not a multiple of 8. For rows>1 clang vectorizes that loop
+		// across the output index i with vfmaq_f32 (fused multiply-add per lane),
+		// matching sgemvFused. For rows==1 there is no i-axis to vectorize, so
+		// clang emits scalar FMUL+FADD (separate rounding) for the reduction.
+		// sig_net_cond_gain_dense (rows=1) needs that non-fused reduction to stay
+		// bit-exact with the libopus FARGAN gain; rows>1 dense/gate layers (e.g.
+		// sig_net_gain_dense_out rows=4, plc_dense_out rows=20) stay fused.
+		if rows == 1 {
+			sgemvSplit(out, weights, rows, cols, colStride, x)
+		} else {
+			sgemvFused(out, weights, rows, cols, colStride, x)
+		}
 		return
 	}
 	sgemvSplit(out, weights, rows, cols, colStride, x)
