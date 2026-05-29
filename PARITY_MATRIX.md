@@ -19,6 +19,33 @@ Pinned behavior wins unless a curated fixture documents an intentional divergenc
 - **Numeric** — bit-exact or libopus C oracle probes on isolated functions  
 - **Byte** — encoded packet bytes match libopus for the probed configuration  
 
+## Quality comparison policy
+
+End-to-end audio parity is judged with **`opus_compare`** — the reference quality
+tool shipped with libopus and the metric **RFC 8251** defines conformance with.
+Trust does not depend on gopus: it is the same tool and metric the whole Opus
+ecosystem and the spec use. The single canonical comparator lives in
+`testvectors/qualitycompare.go` (`CompareDecodedFloat32` → delay-searched
+opus_compare Q + correlation/RMS), with one trusted-bar matrix (`QualityBar`,
+`QualityBarForMode`) and one assertion (`AssertQuality`); per-test ad-hoc
+`minQ`/`gapQ`/`corr`/`rms`/PCM-tolerance constants are being migrated onto it.
+
+Trusted bars are anchored to two external references, never a hand-picked number:
+1. **RFC 8251 conformance** (Q ≥ 0), and
+2. **libopus's own cross-build self-variation** — gopus must track the libopus
+   reference at least as closely as libopus tracks itself across builds/arches.
+   Requiring bit-exactness would hold gopus to a *higher* bar than libopus holds
+   itself (e.g. libopus-amd64 differs from libopus-generic on 231/401 frames of a
+   2.5 ms chirp), so the residual transcendental/libm/SSE rounding tail is
+   governed by quality, not bytes.
+
+Two-tier discipline keeps this honest: **bit-exact numeric oracles for isolated
+kernels remain hard gates** (so a quality gate never hides an *algorithmic* bug);
+quality gates govern only the end-to-end tail where bit-exactness is bounded by
+transcendental/platform rounding, and each carries a documented, proven root
+cause. Decode parity (SILK/CELT/Hybrid) meets the near-exact bar (Q ≥ 20,
+corr ≥ 0.997); encoder quality matches libopus (gapQ ≈ 0) per arch.
+
 ---
 
 ## Modes (SILK / CELT / Hybrid / auto)
