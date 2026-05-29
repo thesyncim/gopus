@@ -34,6 +34,7 @@ type Encoder struct {
 	previousLogGain       int32 // Last subframe gain (for delta coding) - legacy
 	previousGainIndex     int8  // Previous gain quantization index [0, 63] (libopus sShape.LastGainIndex)
 	isPreviousFrameVoiced bool  // Was previous frame voiced
+	variableHPSmth1Q15    int32 // Smoothed log-domain HP cutoff estimate (silk_HP_variable_cutoff)
 	ecPrevLagIndex        int16 // Previous lag index for conditional pitch coding
 	ecPrevSignalType      int32 // Previous signal type for conditional pitch coding
 	lastQuantOffsetType   int   // Last frame's quantization offset type (for hybrid silk_info)
@@ -378,6 +379,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 		lbrrGainIncreases:        7, // Default gain increase for LBRR
 		previousGainIndex:        0,
 	}
+	enc.variableHPSmth1Q15 = initVariableHPSmth1Q15()
 	enc.SetComplexity(10)
 	resetStereoEncState(&enc.stereo)
 	// Match Opus-level init timing: before first control pass, libopus keeps
@@ -398,6 +400,7 @@ func (e *Encoder) Reset() {
 	e.previousLogGain = 0
 	e.previousGainIndex = 0
 	e.isPreviousFrameVoiced = false
+	e.variableHPSmth1Q15 = initVariableHPSmth1Q15()
 	e.ecPrevLagIndex = 0
 	e.ecPrevSignalType = 0
 	e.targetRateBps = 0

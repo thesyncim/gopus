@@ -520,7 +520,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 			// Encode excitation pulses
 			e.encodePulses(pulses, signalType, int(frameIndices.quantOffsetType))
 			if encodeFrameTraceEnabled {
-				recordEncodeFrameTrace(e, encodeFrameTrace{
+				tr := encodeFrameTrace{
 					stage:              encodeFrameTraceAfterPulses,
 					iter:               iter,
 					tell:               e.rangeEncoder.Tell(),
@@ -535,7 +535,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 					gainsUnqQ16:        traceGainsUnqQ16,
 					gainsQuantQ16:      traceGainsQuantQ16,
 					pulses:             pulses,
-				})
+				}
+				fillCtrlTrace(&tr, signalType, quantOffset, numSubframes, noiseParams, gainsQ16, pitchLags)
+				recordEncodeFrameTrace(e, tr)
 			}
 
 			nBits = e.rangeEncoder.Tell()

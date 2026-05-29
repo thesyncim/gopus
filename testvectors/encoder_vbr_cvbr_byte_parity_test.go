@@ -490,25 +490,53 @@ func runVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 			return
 		}
 
-		// Pure-SILK VBR residual (NOT yet at parity).
+		// Pure-SILK VBR: now a HARD assertion.
 		//
-		// FIXED at source: the per-frame byte BUDGET handed to SILK now matches
-		// libopus — silk_mode.maxBits = (max_data_bytes-1)*8 with max_data_bytes =
-		// IMIN(orig,1276) (opus_encoder.c line 2155/1893) — and the rate-control
-		// loop (TargetRate_bps / nBitsExceeded / bitsBalance, enc_API.c lines
-		// 412-443/555-557) plus silk_control_SNR are reproduced verbatim.
+		// FIXED at source: the VoIP input high-pass stage. libopus applies the
+		// adaptive hp_cutoff() biquad to VoIP input (src/opus_encoder.c line 1982),
+		// driven by the SILK variable-HP-cutoff smoother (silk_HP_variable_cutoff,
+		// silk/HP_variable_cutoff.c) and the Opus-level variable_HP_smth2_Q15
+		// smoothing; every other application uses the fixed 3 Hz dc_reject(). gopus
+		// previously always used dc_reject, so the resampled SILK input — and hence
+		// every shaping/NSQ quantity and the iter-0 packet size — diverged for
+		// VoIP-SILK only. Hybrid/CELT used Audio/LowDelay (dc_reject) and matched;
+		// restricted-SILK CBR used dc_reject and stayed byte-exact. Implementing
+		// hp_cutoff for VoIP (encoder.preprocessInputHP / hpCutoff +
+		// silk.UpdateVariableHPCutoff) makes the SILK input track libopus.
 		//
-		// REMAINING: the SILK FLP shaping-gain / NSQ iter-0 path (silk_encode_frame_FLP,
-		// useCBR==0 fast break at iter 0) still diverges from libopus by a few bytes
-		// per frame (worse for stereo via the mid/side rate split). SILK-only CBR is
-		// byte-exact (TestEncoderCBRByteParitySILK) because its gain-multiplier search
-		// converges away the difference; VBR exposes the iter-0 natural size. This is
-		// an open SILK-FLP encode-parity item, separate from the rate-control budget
-		// fix; it reproduces identically under -tags purego (so it is cross-platform,
-		// not the per-arch FMA tail). Reported with exact per-frame evidence so a
-		// follow-up can bisect the shaping-gain kernels against a frame-level oracle.
-		t.Logf("SILK VBR SIZE residual (open, budget fixed; SILK-FLP iter-0 gain drift): mismatch=%d/%d firstAt=%d\n  refLens=%v\n  gopusLens=%v",
-			mismatchLen, tc.nFrames, firstMismatch, refLens, goLens)
+		// linux/amd64 (CI): HARD per-frame size-parity gate. On darwin/arm64 a
+		// residual ≤1-ULP float-contraction difference in the hp_cutoff biquad and
+		// the warped-shaping-AR kernels (auto_corr differs ~1.3e-5 on bit-identical
+		// windowed input, flipping occasional int16 resampler-input boundaries and
+		// then cascading through the NSQ/gain feedback into a multi-byte size delta)
+		// remains. This is the same darwin/arm64-only float-FMA-tail class as the
+		// documented CELT 1-ULP drift (CI/amd64 is the hard gate); the per-frame
+		// size sequence is bounded and reported, not silently ignored.
+		if isDarwinARM64 {
+			maxDelta := 0
+			for i := range refLens {
+				d := refLens[i] - goLens[i]
+				if d < 0 {
+					d = -d
+				}
+				if d > maxDelta {
+					maxDelta = d
+				}
+			}
+			// Guard against gross regressions even within the arm64 budget: the
+			// post-hp_cutoff residual is a handful of bytes per frame at most.
+			const silkVBRArm64MaxByteDelta = 12
+			if maxDelta > silkVBRArm64MaxByteDelta {
+				t.Fatalf("SILK VBR size drift on darwin/arm64 exceeds 1-ULP budget: maxDelta=%d (>%d) mismatch=%d/%d\n  refLens=%v\n  gopusLens=%v",
+					maxDelta, silkVBRArm64MaxByteDelta, mismatchLen, tc.nFrames, refLens, goLens)
+			}
+			t.Logf("SILK VBR size residual on darwin/arm64 (≤1-ULP hp_cutoff/shaping-AR float drift): mismatch=%d/%d maxDelta=%d firstAt=%d",
+				mismatchLen, tc.nFrames, maxDelta, firstMismatch)
+			return
+		}
+		// linux/amd64 and all other platforms: HARD size-parity assertion.
+		t.Fatalf("SILK VBR packet SIZE mismatch on %s/%s: mismatch=%d/%d firstAt=%d\n  refLens=%v\n  gopusLens=%v",
+			runtime.GOOS, runtime.GOARCH, mismatchLen, tc.nFrames, firstMismatch, refLens, goLens)
 		return
 	}
 

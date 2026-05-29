@@ -159,8 +159,13 @@ type Encoder struct {
 	dnnBlob *dnnblob.Blob
 	encoderDREDFields
 
-	// DC rejection filter state
+	// DC rejection / variable-cutoff HP filter state.
 	hpMem [4]float32
+	// variableHPSmth2Q15 is the Opus-level smoothed HP cutoff (log2 domain, Q15)
+	// driving hp_cutoff() for VoIP input (src/opus_encoder.c). -1 means
+	// "not yet initialized" so it is seeded on first use.
+	variableHPSmth2Q15    int32
+	variableHPSmth2Inited bool
 
 	// Hybrid mode state for improved SILK/CELT coordination
 	hybridState *HybridState
@@ -779,8 +784,18 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	}
 	lookaheadSamples := 0
 	vadPCM := inputPCM
+	// Update the SILK variable-HP-cutoff smoother before the Opus-level HP
+	// filter reads it. libopus calls silk_HP_variable_cutoff at the start of
+	// each SILK packet (enc_API.c), using prevLag/prevSignalType from the
+	// previous packet's final frame; the Opus-level hp_cutoff() (which runs
+	// before silk_Encode) then reads the just-updated value. Calling it here —
+	// before preprocessInputHP and before this packet's SILK encode mutates
+	// prevLag — reproduces that ordering exactly.
+	if e.voipApp && e.silkEncoder != nil && e.mode != ModeCELT {
+		e.silkEncoder.UpdateVariableHPCutoff()
+	}
 	pcmRes := e.quantizeInputToLSBDepth(inputPCM)
-	pcmRes = e.dcReject(pcmRes, frameSize)
+	pcmRes = e.preprocessInputHP(pcmRes, frameSize)
 	frameEnd := frameSize * channels
 	samplesNeeded := frameEnd + lookaheadSamples
 	directFrameInput := lookaheadSamples == 0 && len(e.inputBuffer) == 0
@@ -1208,6 +1223,86 @@ func (e *Encoder) celtInternalChannelsForMode(mode Mode) int {
 		return 1
 	}
 	return 2
+}
+
+// preprocessInputHP applies the input high-pass stage that precedes SILK/CELT,
+// matching src/opus_encoder.c: VoIP uses the adaptive hp_cutoff() biquad,
+// every other application uses the fixed 3 Hz dc_reject(). The cutoff for
+// hp_cutoff is driven by the SILK variable-HP-cutoff smoother.
+func (e *Encoder) preprocessInputHP(in []opusRes, frameSize int) []opusRes {
+	if !e.voipApp {
+		return e.dcReject(in, frameSize)
+	}
+	return e.hpCutoff(in, frameSize)
+}
+
+// hpCutoff applies the adaptive second-order high-pass filter used for VoIP
+// input, ported from hp_cutoff() + silk_biquad_res() (float path) in
+// src/opus_encoder.c. The cutoff frequency adapts from the SILK encoder's
+// variable_HP_smth1_Q15 estimate, smoothed at the Opus level into
+// variable_HP_smth2_Q15.
+func (e *Encoder) hpCutoff(in []opusRes, frameSize int) []opusRes {
+	channels := int(e.channels)
+	n := frameSize * channels
+	out := e.ensureDCPCM(n)
+	fs := int(e.sampleRate)
+	if fs <= 0 {
+		fs = 48000
+	}
+
+	// Determine hp_freq_smth1: in CELT-only mode libopus uses the min-cutoff
+	// floor; otherwise it reads the SILK encoder's variable_HP_smth1_Q15.
+	var hpFreqSmth1 int32
+	if e.silkEncoder != nil && e.mode != ModeCELT {
+		hpFreqSmth1 = e.silkEncoder.VariableHPSmth1Q15()
+	} else {
+		hpFreqSmth1 = silk.MinCutoffLogSmth2Q15()
+	}
+
+	if !e.variableHPSmth2Inited {
+		e.variableHPSmth2Q15 = silk.InitVariableHPSmth2Q15()
+		e.variableHPSmth2Inited = true
+	}
+	e.variableHPSmth2Q15 = silk.SmoothVariableHPSmth2Q15(e.variableHPSmth2Q15, hpFreqSmth1)
+	cutoffHz := silk.VariableHPCutoffHz(e.variableHPSmth2Q15)
+
+	bQ28, aQ28 := silk.HPCutoffCoefsQ28(cutoffHz, int32(fs))
+	var b [3]float32
+	var a [2]float32
+	const inv28 = float32(1.0) / float32(int32(1)<<28)
+	b[0] = float32(bQ28[0]) * inv28
+	b[1] = float32(bQ28[1]) * inv28
+	b[2] = float32(bQ28[2]) * inv28
+	a[0] = float32(aQ28[0]) * inv28
+	a[1] = float32(aQ28[1]) * inv28
+	const verySmall = float32(1e-30)
+
+	src32 := e.floatInputFrame
+	if e.LSBDepth() != 24 || !e.floatInputExact || len(src32) < n {
+		src32 = nil
+	}
+
+	// silk_biquad_res, float path (Direct Form II Transposed), per channel.
+	for c := 0; c < channels; c++ {
+		s0 := e.hpMem[2*c]
+		s1 := e.hpMem[2*c+1]
+		for i := 0; i < frameSize; i++ {
+			idx := i*channels + c
+			var inval float32
+			if src32 != nil {
+				inval = src32[idx]
+			} else {
+				inval = float32(in[idx])
+			}
+			vout := s0 + b[0]*inval
+			s0 = s1 - vout*a[0] + b[1]*inval
+			s1 = -vout*a[1] + b[2]*inval + verySmall
+			out[idx] = opusRes(vout)
+		}
+		e.hpMem[2*c] = s0
+		e.hpMem[2*c+1] = s1
+	}
+	return out
 }
 
 // dcReject applies a DC rejection filter (1st-order high-pass filter at 3Hz).
