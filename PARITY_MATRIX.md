@@ -208,7 +208,7 @@ parity-coverage incomplete".
 | LACE / NoLACE | deep enhancement (NoLACE+BWE) | **T** — end-to-end sample-level **bit-exact** (Q=100, corr=1.0) mono+stereo + multistream per-stream | implemented (tagged) | — |
 | Projection / Ambisonics | projection encode/decode(24) | **Y** — public `NewProjectionEncoder`/`NewProjectionDecoder` + demixing-matrix CTLs (byte-exact vs libopus across all 10 supported orders); unsupported orders return `ErrProjectionOrderUnsupported` | implemented | — |
 | Opus Custom | optional custom-mode API | **OOS** | out of scope | nonstandard frame sizes; not a Go-library goal unless requested |
-| Fixed-point implementation | float + fixed-point builds | **OOS** | out of scope | gopus is pure-Go float; int16/int24 are I/O conveniences, not a fixed-point pipeline |
+| Fixed-point implementation | float + fixed-point builds | **assessed** — `internal/fixedpoint` (unimported by default = zero-cost) has the first integer CELT math kernels (`celt_log2`/`exp2`/`rsqrt_norm`); rangecoder + SILK-decode core already integer-exact | scaffolded; see `docs/fixed-point.md` | Full integer pipeline is staged (CELT MDCT/PVQ + SILK encoder analysis); recommended against for a Go library targeting modern HW unless a deterministic integer pipeline becomes a product goal |
 | Public utility API (`opus_pcm_soft_clip`, `opus_strerror`, version) | C-API helpers | **Y** — `PCMSoftClip` (bit-exact vs `opus_pcm_soft_clip`), `ErrorString` (mirrors `opus_strerror`), `VersionString` | implemented | — |
 
 ---
