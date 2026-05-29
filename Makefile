@@ -103,14 +103,22 @@ update-type-parity-baseline:
 test-byte-parity-focus:
 	$(RUNNABLE_PARITY) ./testvectors -run '^TestEncoderVariantProfileParityAgainstLibopusFixture/cases/CELT-FB-20ms-stereo-128k-' -count=1 -v
 
-# Fuzz smoke run for packet/fixture parsers.
+# Fuzz smoke run for packet/fixture parsers and container formats.
 test-fuzz-smoke:
 	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzParsePacket_NoPanic' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzPacketExtensionIterator_NoPanic' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzPacketMutationHelpers_NoPanic' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggDemux$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggDemuxPage$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzParseOpusHead$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzParseOpusTags$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDParse$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDBuildRoundTrip$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDFindRecovery$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDAppendHistory$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
 
-# Safety-focused fuzzing for malformed packets, Ogg pages, and libopus differential decode.
+# Safety-focused fuzzing for malformed packets, Ogg pages, RED payloads, and libopus differential decode.
 test-fuzz-safety: ensure-libopus
 	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzParsePacket_NoPanic' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzPacketExtensionIterator_NoPanic' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
@@ -118,6 +126,14 @@ test-fuzz-safety: ensure-libopus
 	$(GO_WORK_ENV) $(GO) test . -run='^$$' -fuzz='FuzzDecodeNeverPanics' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test -tags gopus_dred . -run='^$$' -fuzz='FuzzFindDREDPayload_NoPanic' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='FuzzOggReaderNeverPanics' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggDemux$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggDemuxPage$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzParseOpusHead$$' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzParseOpusTags$$' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDParse$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDBuildRoundTrip$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDFindRecovery$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDAppendHistory$$' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzParseOpusDemoBitstream' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./testvectors -run='^$$' -fuzz='FuzzDecodeAgainstLibopus' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
 
