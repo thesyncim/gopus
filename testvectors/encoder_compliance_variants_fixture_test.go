@@ -394,18 +394,20 @@ type encoderVariantParityThreshold struct {
 	maxHistogramL1      float64
 }
 
-var encoderVariantMinGapFloorOverrideQ = map[string]float64{
-	encoderVariantCaseKey("SILK-WB-40ms-mono-32k", "impulse_train_v1"): -3.50,
-	encoderVariantCaseKey("SILK-WB-20ms-stereo-48k", "chirp_sweep_v1"): -266.50,
-}
+// Per-arch encoder quality floors. Live measurement (arm64 native and
+// linux/amd64 under emulation) shows gopus encode gapQ vs libopus is ~0 across
+// the whole variant grid on BOTH arches (worst -0.32), EXCEPT the degenerate
+// CELT 2.5 ms chirp_sweep micro-case on amd64: opus_compare Q is metric-
+// degenerate on a 120-sample chirp (gapQ -146.89, not an audible loss). The
+// former loose -10/-16/-20/-64/-75/-150/-266 floors were stale; only that one
+// degenerate amd64 case keeps a loose override now.
+const (
+	arm64EncoderVariantGapFloorQ = -1.0
+	amd64EncoderVariantGapFloorQ = -1.5
+)
 
 var encoderVariantMinGapFloorAMD64OverrideQ = map[string]float64{
-	encoderVariantCaseKey("CELT-FB-2.5ms-mono-64k", "chirp_sweep_v1"):     -150.0,
-	encoderVariantCaseKey("HYBRID-FB-20ms-stereo-96k", "am_multisine_v1"): -10.0,
-	encoderVariantCaseKey("SILK-WB-40ms-mono-32k", "am_multisine_v1"):     -64.0,
-	encoderVariantCaseKey("SILK-WB-40ms-mono-32k", "chirp_sweep_v1"):      -20.5,
-	encoderVariantCaseKey("SILK-WB-20ms-stereo-48k", "speech_like_v1"):    -75.0,
-	encoderVariantCaseKey("SILK-WB-60ms-mono-32k", "impulse_train_v1"):    -16.0,
+	encoderVariantCaseKey("CELT-FB-2.5ms-mono-64k", "chirp_sweep_v1"): -150.0,
 }
 
 func encoderVariantThreshold(c encoderComplianceVariantsFixtureCase) encoderVariantParityThreshold {
@@ -445,23 +447,18 @@ func encoderVariantThresholdForArch(c encoderComplianceVariantsFixtureCase, goar
 		out.maxMeanAbsPacketLen *= 1.2
 		out.maxP95AbsPacketLen *= 1.2
 	}
-	if floor, ok := encoderVariantMinGapFloorOverrideQ[encoderVariantCaseKey(c.Name, c.Variant)]; ok {
-		out.minGapQ = floor
-	}
+	// Enforce tight per-arch quality floors: gopus encode matches libopus to
+	// gapQ~0 across the grid on both arches (live-measured), so the historical
+	// per-mode slack (-2/-4/-6) is replaced by a tight floor. Only the
+	// documented degenerate amd64 case keeps a loose override.
 	if goarch == "amd64" {
 		if floor, ok := encoderVariantMinGapFloorAMD64OverrideQ[encoderVariantCaseKey(c.Name, c.Variant)]; ok {
 			out.minGapQ = floor
+		} else if out.minGapQ < amd64EncoderVariantGapFloorQ {
+			out.minGapQ = amd64EncoderVariantGapFloorQ
 		}
-	} else {
-		// On arm64 the gopus encoder matches libopus essentially exactly across
-		// the whole variant grid (measured gapQ >= -0.02 for every case,
-		// including the synthetic chirp/multisine/impulse cases that still carry
-		// loose historical amd64/cross-arch floors). Enforce a tight floor here
-		// instead of the stale slack; amd64 keeps its measured overrides until
-		// it is re-measured. Margin (~1 Q) covers delay-search/measurement noise.
-		if out.minGapQ < -1.0 {
-			out.minGapQ = -1.0
-		}
+	} else if out.minGapQ < arm64EncoderVariantGapFloorQ {
+		out.minGapQ = arm64EncoderVariantGapFloorQ
 	}
 	return out
 }
