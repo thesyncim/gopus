@@ -1,4 +1,14 @@
-package testvectors
+// Package qualitycompare is the single, canonical quality comparator for
+// gopus-vs-libopus parity tests. It standardizes on opus_compare — the reference
+// quality tool shipped with libopus and the metric RFC 8251 defines conformance
+// with — so the trust in these comparisons does not depend on gopus: it is the
+// same tool and metric the whole Opus ecosystem (and the spec) uses.
+//
+// This package is importable from both the testvectors package and the root
+// gopus package tests. It depends only on the standard library plus
+// internal/libopustooling and internal/opusmath, so it introduces no import
+// cycle with the root gopus package.
+package qualitycompare
 
 import (
 	"fmt"
@@ -231,11 +241,13 @@ func runOpusCompareCandidates(reference, decoded []int16, sampleRate, channels i
 	return bestQ, bestDelay, nil
 }
 
+// ComputeOpusCompareQuality scores int16 PCM at delay 0.
 func ComputeOpusCompareQuality(decoded, reference []int16, sampleRate, channels int) (float64, error) {
 	q, _, err := runOpusCompareCandidates(reference, decoded, sampleRate, channels, []int{0})
 	return q, err
 }
 
+// ComputeOpusCompareQualityFloat32 scores float32 PCM at delay 0.
 func ComputeOpusCompareQualityFloat32(decoded, reference []float32, sampleRate, channels int) (float64, error) {
 	q, _, err := runOpusCompareCandidates(float32ToPCM16(reference), float32ToPCM16(decoded), sampleRate, channels, []int{0})
 	return q, err
@@ -410,6 +422,8 @@ func opusCompareDelayCandidates(decoded, reference []float32, channels, maxDelay
 	return candidates
 }
 
+// ComputeOpusCompareQualityFloat32WithDelay scores float32 PCM, searching the
+// delay candidates up to maxDelay and returning the best Q and its delay.
 func ComputeOpusCompareQualityFloat32WithDelay(decoded, reference []float32, sampleRate, channels, maxDelay int) (float64, int, error) {
 	if len(decoded) == 0 || len(reference) == 0 {
 		return math.Inf(-1), 0, nil
@@ -425,4 +439,11 @@ func ComputeOpusCompareQualityFloat32WithDelay(decoded, reference []float32, sam
 		channels,
 		opusCompareDelayCandidates(decoded, reference, channels, maxDelay),
 	)
+}
+
+func qualityAbsInt(v int) int {
+	if v < 0 {
+		return -v
+	}
+	return v
 }

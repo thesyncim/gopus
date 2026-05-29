@@ -1,8 +1,9 @@
-package testvectors
+package qualitycompare
 
 import (
 	"fmt"
 	"math"
+	"testing"
 )
 
 // This file is the single, canonical quality comparator for gopus-vs-libopus
@@ -88,11 +89,11 @@ func waveformCorrelationRMS(a, b []float32) (corr, rmsRatio float64) {
 // QualityBar is a trusted parity threshold, anchored to RFC 8251 conformance and
 // libopus's own cross-build self-variation. A zero value means "unchecked".
 type QualityBar struct {
-	MinQ     float64 // absolute opus_compare floor vs the libopus reference.
-	MinCorr  float64 // waveform correlation floor.
-	RMSLo    float64 // RMS ratio lower bound (0 == unchecked).
-	RMSHi    float64 // RMS ratio upper bound (0 == unchecked).
-	Desc     string  // human-readable basis, e.g. "near-exact (matches SILK/CELT)".
+	MinQ    float64 // absolute opus_compare floor vs the libopus reference.
+	MinCorr float64 // waveform correlation floor.
+	RMSLo   float64 // RMS ratio lower bound (0 == unchecked).
+	RMSHi   float64 // RMS ratio upper bound (0 == unchecked).
+	Desc    string  // human-readable basis, e.g. "near-exact (matches SILK/CELT)".
 }
 
 // Trusted quality bars. "near-exact" is the bar SILK/CELT (and now Hybrid) decode
@@ -131,4 +132,17 @@ func (bar QualityBar) Check(cmp QualityComparison) []string {
 		fails = append(fails, fmt.Sprintf("rms=%.4f > %.4f", cmp.RMSRatio, bar.RMSHi))
 	}
 	return fails
+}
+
+// AssertQuality fails t if cmp does not clear bar, logging the trusted basis and
+// the measured metrics. This is the single assertion all migrated quality-parity
+// tests should use, so the bar (and its libopus-anchored rationale) lives in one
+// place rather than scattered per-test constants.
+func AssertQuality(t *testing.T, cmp QualityComparison, bar QualityBar, label string) {
+	t.Helper()
+	t.Logf("%s: Q=%.2f delay=%d corr=%.6f rms=%.4f (bar: %s, minQ=%.1f)",
+		label, cmp.Q, cmp.BestDelay, cmp.Corr, cmp.RMSRatio, bar.Desc, bar.MinQ)
+	if fails := bar.Check(cmp); len(fails) > 0 {
+		t.Fatalf("%s quality below libopus parity bar [%s]: %v", label, bar.Desc, fails)
+	}
 }

@@ -1,6 +1,10 @@
 package testvectors
 
-import "math"
+import (
+	"math"
+
+	"github.com/thesyncim/gopus/internal/opusmath"
+)
 
 type waveformStats struct {
 	Samples     int
@@ -15,6 +19,16 @@ func pcm16ToFloat32(samples []int16) []float32 {
 	out := make([]float32, len(samples))
 	for i, sample := range samples {
 		out[i] = float32(sample) / 32768.0
+	}
+	return out
+}
+
+// float32ToPCM16 quantizes float32 PCM to int16 using libopus's float-to-int16
+// rounding (mirrors the conversion the canonical comparator applies internally).
+func float32ToPCM16(samples []float32) []int16 {
+	out := make([]int16, len(samples))
+	for i, s := range samples {
+		out[i] = opusmath.Float32ToInt16(s)
 	}
 	return out
 }

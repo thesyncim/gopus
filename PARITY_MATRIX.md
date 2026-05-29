@@ -25,7 +25,7 @@ End-to-end audio parity is judged with **`opus_compare`** — the reference qual
 tool shipped with libopus and the metric **RFC 8251** defines conformance with.
 Trust does not depend on gopus: it is the same tool and metric the whole Opus
 ecosystem and the spec use. The single canonical comparator lives in
-`testvectors/qualitycompare.go` (`CompareDecodedFloat32` → delay-searched
+`internal/qualitycompare` (`CompareDecodedFloat32` → delay-searched
 opus_compare Q + correlation/RMS), with one trusted-bar matrix (`QualityBar`,
 `QualityBarForMode`) and one assertion (`AssertQuality`); per-test ad-hoc
 `minQ`/`gapQ`/`corr`/`rms`/PCM-tolerance constants are being migrated onto it.

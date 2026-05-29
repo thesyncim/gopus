@@ -1,4 +1,4 @@
-package testvectors
+package qualitycompare
 
 import (
 	"bytes"
@@ -66,6 +66,14 @@ type opusCompareHelperResponse struct {
 	bestQ     float64
 	bestDelay int
 	err       error
+}
+
+func helperBinaryPath(name, goos, goarch string) string {
+	base := fmt.Sprintf("%s_%s_%s", name, goos, goarch)
+	if goos == "windows" {
+		base += ".exe"
+	}
+	return filepath.Join(os.TempDir(), base)
 }
 
 func getOpusCompareHelperPath() (string, error) {
