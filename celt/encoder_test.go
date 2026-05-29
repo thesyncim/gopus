@@ -655,8 +655,15 @@ func TestEncodeFrameBudgetDisabledTransientAdvancesConsecTransient(t *testing.T)
 	if _, err := enc.EncodeFrame(float32Slice(generateSineWave(440.0, 960)), 960); err != nil {
 		t.Fatalf("EncodeFrame failed: %v", err)
 	}
-	if got := enc.ConsecTransient(); got != 1 {
-		t.Fatalf("ConsecTransient()=%d want 1", got)
+	// At complexity 0 libopus skips transient_analysis() entirely
+	// (celt_encoder.c:2023 gates it behind st->complexity >= 1), so isTransient
+	// stays 0. With this 2-byte budget the short-block gate
+	// ec_tell(enc)+3 <= total_bits still passes, so transient_got_disabled stays
+	// 0 and consec_transient resets to 0 (celt_encoder.c:2805). Confirmed
+	// byte-exact against celt_encode_with_ec() by
+	// TestCELTEncodeMatchesLibopusC/mono_20ms_complexity0_budget2_sine.
+	if got := enc.ConsecTransient(); got != 0 {
+		t.Fatalf("ConsecTransient()=%d want 0", got)
 	}
 }
 

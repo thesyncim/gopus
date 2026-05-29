@@ -467,6 +467,35 @@ func (e *Encoder) TransientAnalysisF32(pcm []float32, frameSize int, allowWeakTr
 	return e.TransientAnalysis(pcm, frameSize, allowWeakTransients)
 }
 
+// toneDetectOnlyF32 runs only tone_detect and leaves all transient outputs
+// zeroed. libopus calls tone_detect() unconditionally (celt_encoder.c:2020) but
+// gates transient_analysis() behind st->complexity >= 1 && !st->lfe
+// (celt_encoder.c:2023); at complexity 0 isTransient/tf_estimate/tf_chan/
+// weak_transient therefore stay 0 while toneishness/tone_freq still come from
+// tone_detect.
+func (e *Encoder) toneDetectOnlyF32(pcm []float32, frameSize int) TransientAnalysisResult {
+	result := TransientAnalysisResult{
+		TfEstimate:  0.0,
+		TfChannel:   0,
+		ToneFreq:    -1,
+		Toneishness: 0,
+	}
+	channels := int(e.channels)
+	if len(pcm) == 0 || frameSize <= 0 || channels <= 0 {
+		return result
+	}
+	samplesPerChannel := len(pcm) / channels
+	if samplesPerChannel < 16 {
+		return result
+	}
+	if channels == 1 {
+		result.ToneFreq, result.Toneishness = toneDetectFloat32Mono(pcm[:samplesPerChannel], 48000, false)
+	} else {
+		result.ToneFreq, result.Toneishness = toneDetectScratchF32(pcm, channels, 48000, nil)
+	}
+	return result
+}
+
 func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, allowWeakTransients bool) TransientAnalysisResult {
 	result := TransientAnalysisResult{
 		TfEstimate:  0.0,

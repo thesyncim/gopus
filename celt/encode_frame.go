@@ -304,8 +304,14 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 	// Call transient analysis with the pre-emphasized signal (N+overlap samples)
 	// and the libopus hybrid weak-transient gate when a SILK handoff is active.
+	// libopus gates transient_analysis() behind st->complexity >= 1 && !st->lfe
+	// (celt_encoder.c:2023). tone_detect() always runs (line 2020), so at
+	// complexity 0 only tone_freq/toneishness are populated while the transient
+	// outputs stay 0.
 	var transientResult TransientAnalysisResult
-	if e.channels == 1 {
+	if e.complexity < 1 || e.lfe {
+		transientResult = e.toneDetectOnlyF32(transientInput[:transientLen], frameSize+overlap)
+	} else if e.channels == 1 {
 		transientResult = e.transientAnalysisMonoFloat32(transientInput[:transientLen], frameSize+overlap, allowWeakTransients)
 	} else {
 		transientResult = e.TransientAnalysisF32(transientInput, frameSize+overlap, allowWeakTransients)
