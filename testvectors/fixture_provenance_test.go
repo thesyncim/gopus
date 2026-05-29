@@ -87,6 +87,7 @@ func TestGeneratedLibopusFixturesCarryProvenance(t *testing.T) {
 	paths := []string{
 		"testdata/libopus_decoder_matrix_fixture.json",
 		"testdata/libopus_decoder_matrix_fixture_linux_amd64.json",
+		"testdata/libopus_decoder_rate_matrix_fixture.json",
 		"testdata/libopus_decoder_loss_fixture.json",
 		"testdata/libopus_decoder_loss_fixture_linux_amd64.json",
 		"testdata/encoder_compliance_libopus_packets_fixture.json",

@@ -16,6 +16,7 @@ func TestFixtureGeneratorScriptsBuildIgnore(t *testing.T) {
 
 	paths := []string{
 		filepath.Join("..", "tools", "gen_libopus_decoder_matrix_fixture.go"),
+		filepath.Join("..", "tools", "gen_libopus_decoder_rate_matrix_fixture.go"),
 		filepath.Join("..", "tools", "gen_libopus_decoder_loss_fixture.go"),
 		filepath.Join("..", "tools", "gen_libopus_encoder_packet_fixture.go"),
 		filepath.Join("..", "tools", "gen_libopus_encoder_variants_fixture.go"),
@@ -154,5 +155,16 @@ func TestFixtureGeneratorsUseLibopusOpusDemo(t *testing.T) {
 	}
 	if !strings.Contains(strings.ToLower(decoderLoss.Generator), "opus-"+libopustooling.DefaultVersion) {
 		t.Fatalf("decoder loss fixture generator must reference pinned libopus %s, got %q", libopustooling.DefaultVersion, decoderLoss.Generator)
+	}
+
+	decoderRateMatrix, err := loadLibopusDecoderRateMatrixFixture()
+	if err != nil {
+		t.Fatalf("load decoder rate matrix fixture: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(decoderRateMatrix.Generator), "opus_demo") {
+		t.Fatalf("decoder rate matrix fixture generator must reference opus_demo, got %q", decoderRateMatrix.Generator)
+	}
+	if !strings.Contains(strings.ToLower(decoderRateMatrix.Generator), "opus-"+libopustooling.DefaultVersion) {
+		t.Fatalf("decoder rate matrix fixture generator must reference pinned libopus %s, got %q", libopustooling.DefaultVersion, decoderRateMatrix.Generator)
 	}
 }
