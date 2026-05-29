@@ -372,7 +372,10 @@ func (f *FARGAN) PrimeContinuity(pcm0, features0 []float32) int {
 
 	f.scratch.x0[0] = 0
 	for i := 1; i < FARGANContSamples; i++ {
-		f.scratch.x0[i] = pcm0[i] - float32(FARGANDeemphasis)*pcm0[i-1]
+		// libopus fargan_cont() (dnn/fargan.c): "x0[i] = pcm0[i] -
+		// FARGAN_DEEMPHASIS*pcm0[i-1]" is fused by clang into fma(-0.85,
+		// pcm0[i-1], pcm0[i]).
+		f.scratch.x0[i] = fma32(-float32(FARGANDeemphasis), pcm0[i-1], pcm0[i])
 	}
 
 	copy(f.state.pitchBuf[PitchMaxPeriod-FARGANFrameSize:], f.scratch.x0[:FARGANFrameSize])
@@ -477,7 +480,9 @@ func (f *FARGAN) runSubframe(pcm, cond []float32, period int) {
 	copy(f.state.pitchBuf[:PitchMaxPeriod-FARGANSubframeSize], f.state.pitchBuf[FARGANSubframeSize:])
 	copy(f.state.pitchBuf[PitchMaxPeriod-FARGANSubframeSize:], pcm[:FARGANSubframeSize])
 	for i := 0; i < FARGANSubframeSize; i++ {
-		pcm[i] += float32(FARGANDeemphasis) * f.state.deemphMem
+		// libopus fargan_deemphasis() (dnn/fargan.c): "pcm[i] += FARGAN_DEEMPHASIS
+		// * *deemph_mem" is one C statement, fused by clang -ffp-contract=on.
+		pcm[i] = fma32(float32(FARGANDeemphasis), f.state.deemphMem, pcm[i])
 		f.state.deemphMem = pcm[i]
 	}
 }
@@ -502,11 +507,18 @@ func computeFARGANGRU(inputWeights, recurrentWeights *LinearLayer, state, in []f
 	}
 	computeActivation(zrh[:2*n], zrh[:2*n], 2*n, activationSigmoid)
 	for i := 0; i < n; i++ {
-		h[i] += recur[2*n+i] * r[i]
+		// libopus compute_generic_gru() (dnn/nnet.c): "h[i] += recur[2*N+i]*r[i]"
+		// is a single C statement, so clang -ffp-contract=on fuses it into a
+		// single-rounding multiply-add. fma32 reproduces that on arm64.
+		h[i] = fma32(recur[2*n+i], r[i], h[i])
 	}
 	computeActivation(h, h, n, activationTanh)
 	for i := 0; i < n; i++ {
-		h[i] = z[i]*state[i] + (1-z[i])*h[i]
+		// libopus compute_generic_gru() (dnn/nnet.c): "h[i] = z[i]*state[i] +
+		// (1-z[i])*h[i]". clang -ffp-contract=on rounds (1-z)*h first, then fuses
+		// the leading product into the add as fma(z, state, (1-z)*h). Matching
+		// that operand order is required for bit-exact arm64 NEON parity.
+		h[i] = fma32(z[i], state[i], (1-z[i])*h[i])
 		state[i] = h[i]
 	}
 }

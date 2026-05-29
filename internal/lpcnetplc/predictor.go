@@ -156,11 +156,15 @@ func computeGenericGRU(inputWeights, recurrentWeights *LinearLayer, state, in []
 	}
 	computeActivation(zrh[:2*n], zrh[:2*n], 2*n, activationSigmoid)
 	for i := 0; i < n; i++ {
-		h[i] += recur[2*n+i] * r[i]
+		// libopus compute_generic_gru() (dnn/nnet.c): "h[i] += recur[2*N+i]*r[i]"
+		// is one C statement, fused by clang -ffp-contract=on into fma(recur, r, h).
+		h[i] = fma32(recur[2*n+i], r[i], h[i])
 	}
 	computeActivation(h, h, n, activationTanh)
 	for i := 0; i < n; i++ {
-		h[i] = z[i]*state[i] + (1-z[i])*h[i]
+		// libopus: "h[i] = z[i]*state[i] + (1-z[i])*h[i]". clang rounds (1-z)*h
+		// first then fuses the leading product as fma(z, state, (1-z)*h).
+		h[i] = fma32(z[i], state[i], (1-z[i])*h[i])
 		state[i] = h[i]
 	}
 }
