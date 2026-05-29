@@ -15,7 +15,8 @@
 
 enum {
   SAMPLE_FORMAT_FLOAT32 = 0,
-  SAMPLE_FORMAT_INT16 = 1
+  SAMPLE_FORMAT_INT16 = 1,
+  SAMPLE_FORMAT_INT24 = 2
 };
 
 static int read_exact(void *dst, size_t n) {
@@ -137,7 +138,7 @@ int main(void) {
     fprintf(stderr, "unsupported input version\n");
     return 1;
   }
-  if (sample_format != SAMPLE_FORMAT_FLOAT32 && sample_format != SAMPLE_FORMAT_INT16) {
+  if (sample_format != SAMPLE_FORMAT_FLOAT32 && sample_format != SAMPLE_FORMAT_INT16 && sample_format != SAMPLE_FORMAT_INT24) {
     fprintf(stderr, "unsupported sample format\n");
     return 1;
   }
@@ -154,7 +155,9 @@ int main(void) {
     return 1;
   }
 
-  item_size = sample_format == SAMPLE_FORMAT_INT16 ? sizeof(opus_int16) : sizeof(float);
+  item_size = sample_format == SAMPLE_FORMAT_INT16 ? sizeof(opus_int16) :
+              sample_format == SAMPLE_FORMAT_INT24 ? sizeof(opus_int32) :
+              sizeof(float);
   if (channels > SIZE_MAX / frame_size) {
     fprintf(stderr, "frame buffer overflow\n");
     return 1;
@@ -253,6 +256,8 @@ int main(void) {
 
     if (sample_format == SAMPLE_FORMAT_INT16) {
       decoded_samples = opus_decode(dec, packet, (opus_int32)packet_len, (opus_int16 *)frame, (int)step_frame_size, (int)decode_fec);
+    } else if (sample_format == SAMPLE_FORMAT_INT24) {
+      decoded_samples = opus_decode24(dec, packet, (opus_int32)packet_len, (opus_int32 *)frame, (int)step_frame_size, (int)decode_fec);
     } else {
       decoded_samples = opus_decode_float(dec, packet, (opus_int32)packet_len, (float *)frame, (int)step_frame_size, (int)decode_fec);
     }

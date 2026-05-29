@@ -98,6 +98,30 @@ func (d *MultistreamDecoder) decodePLCInt16Into(pcm []int16, frameSize int) erro
 	return nil
 }
 
+func (d *MultistreamDecoder) decodePLCInt24Into(pcm []int32, frameSize int) error {
+	channels := int(d.channels)
+	remaining := frameSize
+	offset := 0
+	for remaining > 0 {
+		chunk := d.nextPLCChunkSamples(remaining)
+		if chunk <= 0 {
+			return ErrInvalidFrameSize
+		}
+		samples, err := d.dec.DecodeToFloat32(nil, chunk)
+		if err != nil {
+			return err
+		}
+		total := chunk * channels
+		if len(samples) < total || offset+total > len(pcm) {
+			return ErrBufferTooSmall
+		}
+		float32ToInt24Slice(pcm[offset:offset+total], samples[:total], chunk, channels)
+		offset += total
+		remaining -= chunk
+	}
+	return nil
+}
+
 // Decode decodes an Opus multistream packet into float32 PCM samples.
 //
 // data: Opus multistream packet data, or nil for Packet Loss Concealment (PLC).
@@ -177,4 +201,66 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 	}
 
 	return total / channels, nil
+}
+
+// DecodeInt24 decodes an Opus multistream packet into 24-bit PCM samples
+// stored in int32.
+//
+// data: Opus multistream packet data, or nil for PLC.
+// pcm: Output buffer for decoded samples. Each element carries a right-justified
+// signed 24-bit value in the range [-8388608, 8388607] (= ±2^23), matching
+// libopus opus_multistream_decode24().
+//
+// Returns the number of samples per channel decoded, or an error.
+func (d *MultistreamDecoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
+	channels := int(d.channels)
+	frameSize, err := d.decodeFrameSize(data, len(pcm))
+	if err != nil {
+		return 0, err
+	}
+	needed := frameSize * channels
+	if len(pcm) < needed {
+		return 0, ErrBufferTooSmall
+	}
+
+	if data == nil {
+		if err := d.decodePLCInt24Into(pcm[:needed], frameSize); err != nil {
+			return 0, err
+		}
+		return frameSize, nil
+	}
+
+	samples, err := d.dec.DecodeToFloat32(data, frameSize)
+	if err != nil {
+		return 0, err
+	}
+
+	total := frameSize * channels
+	float32ToInt24Slice(pcm, samples, frameSize, channels)
+
+	if len(data) > 0 {
+		d.lastFrameSize = int32(frameSize)
+	}
+
+	return total / channels, nil
+}
+
+// DecodeInt24Slice decodes an Opus multistream packet into 24-bit PCM samples
+// and returns a new int32 slice. Each element carries a right-justified signed
+// 24-bit value.
+//
+// This is a convenience method that allocates the output buffer.
+// For performance-critical code, use DecodeInt24 with a pre-allocated buffer.
+func (d *MultistreamDecoder) DecodeInt24Slice(data []byte) ([]int32, error) {
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
+	// 60 ms is the maximum Opus frame duration; allocate a buffer large
+	// enough for any valid packet, then trim to the actual decoded length.
+	maxFrameSize := sampleRate * 60 / 1000
+	pcm := make([]int32, maxFrameSize*channels)
+	n, err := d.DecodeInt24(data, pcm)
+	if err != nil {
+		return nil, err
+	}
+	return pcm[:n*channels], nil
 }

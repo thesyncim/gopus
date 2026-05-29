@@ -16,7 +16,8 @@
 
 enum {
   SAMPLE_FORMAT_FLOAT32 = 0,
-  SAMPLE_FORMAT_INT16 = 1
+  SAMPLE_FORMAT_INT16 = 1,
+  SAMPLE_FORMAT_INT24 = 2
 };
 
 static int read_exact(void *dst, size_t n) {
@@ -166,7 +167,7 @@ int main(void) {
   }
 
   if (!valid_sample_rate(sample_rate) || channels == 0 || streams == 0 || frame_size == 0 ||
-      (sample_format != SAMPLE_FORMAT_FLOAT32 && sample_format != SAMPLE_FORMAT_INT16)) {
+      (sample_format != SAMPLE_FORMAT_FLOAT32 && sample_format != SAMPLE_FORMAT_INT16 && sample_format != SAMPLE_FORMAT_INT24)) {
     fprintf(stderr, "invalid decoder dimensions\n");
     return 1;
   }
@@ -190,7 +191,9 @@ int main(void) {
     }
   }
 
-  item_size = sample_format == SAMPLE_FORMAT_INT16 ? sizeof(opus_int16) : sizeof(float);
+  item_size = sample_format == SAMPLE_FORMAT_INT16 ? sizeof(opus_int16) :
+              sample_format == SAMPLE_FORMAT_INT24 ? sizeof(opus_int32) :
+              sizeof(float);
   if (channels > SIZE_MAX / frame_size || (size_t)channels * (size_t)frame_size > SIZE_MAX / item_size) {
     fprintf(stderr, "frame buffer overflow\n");
     free(mapping);
@@ -260,6 +263,8 @@ int main(void) {
 
       if (sample_format == SAMPLE_FORMAT_INT16) {
         decoded_samples = opus_projection_decode(dec, packet, (opus_int32)packet_len, (opus_int16 *)frame, (int)frame_size, 0);
+      } else if (sample_format == SAMPLE_FORMAT_INT24) {
+        decoded_samples = opus_projection_decode24(dec, packet, (opus_int32)packet_len, (opus_int32 *)frame, (int)frame_size, 0);
       } else {
         decoded_samples = opus_projection_decode_float(dec, packet, (opus_int32)packet_len, (float *)frame, (int)frame_size, 0);
       }
@@ -341,6 +346,8 @@ int main(void) {
 
       if (sample_format == SAMPLE_FORMAT_INT16) {
         decoded_samples = opus_multistream_decode(dec, packet, (opus_int32)packet_len, (opus_int16 *)frame, (int)frame_size, 0);
+      } else if (sample_format == SAMPLE_FORMAT_INT24) {
+        decoded_samples = opus_multistream_decode24(dec, packet, (opus_int32)packet_len, (opus_int32 *)frame, (int)frame_size, 0);
       } else {
         decoded_samples = opus_multistream_decode_float(dec, packet, (opus_int32)packet_len, (float *)frame, (int)frame_size, 0);
       }

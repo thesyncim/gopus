@@ -70,7 +70,8 @@ func TestQEXTBuildPublicAPIContract(t *testing.T) {
 			name: "MultistreamDecoder",
 			got:  &MultistreamDecoder{},
 			want: []string{
-				"Bandwidth", "Channels", "Complexity", "CoupledStreams", "Decode", "DecodeInt16", "FinalRange",
+				"Bandwidth", "Channels", "Complexity", "CoupledStreams", "Decode", "DecodeInt16",
+				"DecodeInt24", "DecodeInt24Slice", "FinalRange",
 				"Gain", "GetFinalRange", "IgnoreExtensions", "LastPacketDuration",
 				"PhaseInversionDisabled", "Reset", "SampleRate", "SetComplexity", "SetDNNBlob",
 				"SetGain", "SetIgnoreExtensions", "SetPhaseInversionDisabled", "Streams",

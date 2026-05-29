@@ -45,7 +45,8 @@ func TestExtraControlsBuildPublicAPIContract(t *testing.T) {
 			name: "Decoder",
 			got:  &Decoder{},
 			want: []string{
-				"Bandwidth", "Channels", "Complexity", "Decode", "DecodeDRED", "DecodeInt16", "DecodeWithFEC", "FinalRange",
+				"Bandwidth", "Channels", "Complexity", "Decode", "DecodeDRED", "DecodeInt16",
+				"DecodeInt24", "DecodeInt24Slice", "DecodeWithFEC", "FinalRange",
 				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "OSCEBWE", "OSCELACE",
 				"PhaseInversionDisabled", "Pitch", "Reset", "SampleRate", "SetComplexity",
 				"SetDNNBlob", "SetGain", "SetIgnoreExtensions", "SetOSCEBWE", "SetOSCELACE",
@@ -73,7 +74,8 @@ func TestExtraControlsBuildPublicAPIContract(t *testing.T) {
 			name: "MultistreamDecoder",
 			got:  &MultistreamDecoder{},
 			want: []string{
-				"Bandwidth", "Channels", "Complexity", "CoupledStreams", "Decode", "DecodeInt16", "FinalRange",
+				"Bandwidth", "Channels", "Complexity", "CoupledStreams", "Decode", "DecodeInt16",
+				"DecodeInt24", "DecodeInt24Slice", "FinalRange",
 				"Gain", "GetFinalRange", "IgnoreExtensions", "LastPacketDuration", "OSCEBWE",
 				"OSCELACE", "PhaseInversionDisabled", "Reset", "SampleRate", "SetComplexity",
 				"SetDNNBlob", "SetGain", "SetIgnoreExtensions", "SetOSCEBWE", "SetOSCELACE",

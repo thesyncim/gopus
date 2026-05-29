@@ -547,6 +547,127 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	return n, nil
 }
 
+// DecodeInt24 decodes an Opus packet into 24-bit PCM samples stored in int32.
+//
+// data: Opus packet data, or nil for Packet Loss Concealment (PLC).
+// pcm: Output buffer for decoded samples. Each element carries a signed
+// 24-bit value in the range [-8388608, 8388607] (= ±2^23), right-justified
+// in int32 — the same convention as libopus opus_decode24().
+//
+// Returns the number of samples per channel decoded, or an error.
+func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
+	channels := int(d.channels)
+	sampleRate := int(d.sampleRate)
+	if data == nil || len(data) == 0 {
+		frameSize, err := d.plcOutputFrameSize(len(pcm))
+		if err != nil {
+			return 0, err
+		}
+
+		needed := frameSize * channels
+		d.ensureScratchPCM(needed)
+		n, err := d.decodeFloat32(data, d.scratchPCM, false)
+		if err != nil {
+			return 0, err
+		}
+		float32ToInt24Slice(pcm, d.scratchPCM, n, channels)
+		return n, nil
+	}
+
+	if len(data) > d.maxPacketBytes {
+		return 0, ErrPacketTooLarge
+	}
+
+	if len(pcm) >= d.maxPacketSamples*channels {
+		d.ensureScratchPCM(d.maxPacketSamples * channels)
+		n, err := d.decodeFloat32(data, d.scratchPCM, false)
+		if err != nil {
+			return 0, err
+		}
+		float32ToInt24Slice(pcm, d.scratchPCM, n, channels)
+		return n, nil
+	}
+
+	toc, frameCount, err := packetFrameCount(data)
+	if err != nil {
+		return 0, err
+	}
+	frameSize := toc.FrameSize
+	if toc.Mode == ModeSILK || toc.Mode == ModeCELT || toc.Mode == ModeHybrid {
+		frameSize = packetTOCSamplesPerFrameAtRate(data[0], sampleRate)
+	}
+	totalSamples := frameSize * frameCount
+	if totalSamples > d.maxPacketSamples {
+		return 0, ErrPacketTooLarge
+	}
+	needed := totalSamples * channels
+	if len(pcm) < needed {
+		return 0, ErrBufferTooSmall
+	}
+
+	d.ensureScratchPCM(needed)
+	n, err := d.decodeFloat32(data, d.scratchPCM, false)
+	if err != nil {
+		return 0, err
+	}
+	float32ToInt24Slice(pcm, d.scratchPCM, n, channels)
+	return n, nil
+}
+
+// DecodeInt24Slice decodes an Opus packet into 24-bit PCM samples and returns a
+// new int32 slice. Each element carries a right-justified signed 24-bit value.
+//
+// This is a convenience method that allocates the output buffer.
+// For performance-critical code, use DecodeInt24 with a pre-allocated buffer.
+func (d *Decoder) DecodeInt24Slice(data []byte) ([]int32, error) {
+	channels := int(d.channels)
+	var frameSize int
+	if data == nil || len(data) == 0 {
+		frameSize = d.maxPacketSamples
+		if int(d.lastPacketDuration) > 0 {
+			frameSize = int(d.lastPacketDuration)
+		}
+	} else {
+		sampleRate := int(d.sampleRate)
+		toc, frameCount, err := packetFrameCount(data)
+		if err != nil {
+			return nil, err
+		}
+		fs := toc.FrameSize
+		if toc.Mode == ModeSILK || toc.Mode == ModeCELT || toc.Mode == ModeHybrid {
+			fs = packetTOCSamplesPerFrameAtRate(data[0], sampleRate)
+		}
+		frameSize = fs * frameCount
+	}
+	pcm := make([]int32, frameSize*channels)
+	n, err := d.DecodeInt24(data, pcm)
+	if err != nil {
+		return nil, err
+	}
+	return pcm[:n*channels], nil
+}
+
+// float32ToInt24Slice converts n*channels float32 samples to int32 using the
+// libopus 24-bit PCM conversion (RES2INT24 in arch.h for the float build).
+func float32ToInt24Slice(dst []int32, src []float32, n, channels int) {
+	if channels < 1 || n < 1 || len(src) == 0 || len(dst) == 0 {
+		return
+	}
+	total := n * channels
+	if total > len(src) {
+		total = len(src)
+	}
+	if total > len(dst) {
+		total = len(dst)
+	}
+	if total <= 0 {
+		return
+	}
+	for i := 0; i < total; i++ {
+		dst[i] = float32ToInt24(src[i])
+	}
+}
+
 func (d *Decoder) ensureScratchPCM(needed int) {
 	if cap(d.scratchPCM) < needed {
 		d.scratchPCM = make([]float32, needed)
