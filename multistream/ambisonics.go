@@ -37,6 +37,24 @@ var (
 
 	// ErrInvalidMappingFamily indicates an invalid mapping family.
 	ErrInvalidMappingFamily = errors.New("multistream: invalid mapping family for ambisonics (must be 2 or 3)")
+
+	// ErrProjectionOrderUnsupported indicates the ambisonics order is outside the range
+	// supported by mapping family 3 (projection). libopus 1.6.1 provides pre-computed
+	// mixing and demixing matrices for orders 1..5 (orderPlusOne 2..6) only.
+	//
+	// Valid channel counts for projection (family 3):
+	//   Order 1 (FOA):    4 or 6 channels
+	//   Order 2 (SOA):    9 or 11 channels
+	//   Order 3 (TOA):   16 or 18 channels
+	//   Order 4 (4thOA): 25 or 27 channels
+	//   Order 5 (5thOA): 36 or 38 channels
+	//
+	// Higher orders (6-14, channels 49-227) are valid ambisonics but are not supported
+	// by projection encoding; use mapping family 2 for those orders.
+	//
+	// Reference: libopus src/mapping_matrix.c (mapping_matrix_*_mixing/_demixing tables),
+	// src/opus_projection_encoder.c:opus_projection_ambisonics_encoder_get_size
+	ErrProjectionOrderUnsupported = errors.New("multistream: ambisonics order not supported by projection (family 3); valid orders are 1-5")
 )
 
 func isqrt32(n int) int {
@@ -97,10 +115,22 @@ func ValidateAmbisonics(channels int) (streams, coupledStreams int, err error) {
 //   - streams = (channels + 1) / 2
 //   - coupled = channels / 2
 //
-// libopus projection encoding currently supports only orders 1..5
-// (order+1 in [2, 6]), with optional non-diegetic stereo channels.
+// libopus 1.6.1 projection encoding supports only orders 1..5 (orderPlusOne 2..6),
+// with optional non-diegetic stereo channels.  Pre-computed mixing and demixing
+// matrices exist for FOA/SOA/TOA/4thOA/5thOA only.  Higher orders (6-14) are
+// valid ambisonics channel counts but are not supported by family 3; use
+// mapping family 2 (ValidateAmbisonics) for orders 6-14.
 //
-// Reference: libopus opus_projection_encoder.c:get_streams_from_channels
+// Valid channel counts:
+//
+//	Order 1 (FOA):    4 or 6 channels
+//	Order 2 (SOA):    9 or 11 channels
+//	Order 3 (TOA):   16 or 18 channels
+//	Order 4 (4thOA): 25 or 27 channels
+//	Order 5 (5thOA): 36 or 38 channels
+//
+// Reference: libopus src/opus_projection_encoder.c:get_streams_from_channels,
+// src/mapping_matrix.c (mapping_matrix_foa…fifthoa mixing/demixing tables)
 func ValidateAmbisonicsFamily3(channels int) (streams, coupledStreams int, err error) {
 	if channels < 1 {
 		return 0, 0, ErrInvalidAmbisonicsChannels
@@ -109,7 +139,7 @@ func ValidateAmbisonicsFamily3(channels int) (streams, coupledStreams int, err e
 		return 0, 0, ErrAmbisonicsChannelsTooHigh
 	}
 
-	// Validate this is a valid ambisonics channel count
+	// Validate this is a valid ambisonics channel count.
 	orderPlusOne := isqrt32(channels)
 	acnChannels := orderPlusOne * orderPlusOne
 	nondiegeticChannels := channels - acnChannels
@@ -117,11 +147,17 @@ func ValidateAmbisonicsFamily3(channels int) (streams, coupledStreams int, err e
 	if nondiegeticChannels != 0 && nondiegeticChannels != 2 {
 		return 0, 0, ErrInvalidAmbisonicsChannels
 	}
+
+	// libopus projection supports only orderPlusOne in [2, 6] (orders 1..5).
+	// Order 0 (1 or 3 channels) and orders 6-14 are rejected here even though
+	// they are valid ambisonics channel counts.
+	// Reference: libopus src/opus_projection_encoder.c:get_streams_from_channels,
+	// src/mapping_matrix.c mapping_matrix_*_mixing/_demixing (foa..fifthoa only)
 	if orderPlusOne < 2 || orderPlusOne > 6 {
-		return 0, 0, ErrInvalidAmbisonicsChannels
+		return 0, 0, ErrProjectionOrderUnsupported
 	}
 
-	// Family 3: maximum coupling
+	// Family 3: maximum coupling.
 	streams = (channels + 1) / 2
 	coupledStreams = channels / 2
 

@@ -86,6 +86,11 @@ type Encoder struct {
 	projectionRows   int
 	projectionFrame  []float32
 
+	// projectionDemixingGain stores the gain field from the internal demixing matrix,
+	// matching OPUS_PROJECTION_GET_DEMIXING_MATRIX_GAIN.
+	// Reference: libopus src/opus_projection_encoder.c:opus_projection_encoder_ctl
+	projectionDemixingGain int
+
 	// streamBitrates stores per-stream rates computed by allocation policy.
 	streamBitrates []int
 
@@ -1209,7 +1214,65 @@ func (e *Encoder) initProjectionMixingDefaults() error {
 
 	e.projectionRows = e.inputChannels
 	e.projectionCols = e.inputChannels
+
+	// Retain the demixing gain for the matching order.
+	// Reference: libopus src/opus_projection_encoder.c:opus_projection_encoder_ctl
+	// OPUS_PROJECTION_GET_DEMIXING_MATRIX_GAIN_REQUEST
+	if def, defOK := projectionDemixingDefaults[e.inputChannels]; defOK {
+		e.projectionDemixingGain = def.gain
+	}
 	return nil
+}
+
+// GetDemixingMatrix returns the serialized demixing matrix for this projection encoder,
+// matching the output of OPUS_PROJECTION_GET_DEMIXING_MATRIX_REQUEST.
+//
+// The returned bytes are S16LE-encoded, row-major over:
+//   - rows = streams + coupled_streams  (nb_input_streams)
+//   - cols = channels                   (nb_output_streams)
+//
+// Returns nil if this encoder is not mapping family 3, or if no defaults are
+// available for the configured channel count.
+//
+// Reference: libopus src/opus_projection_encoder.c:opus_projection_encoder_ctl
+// OPUS_PROJECTION_GET_DEMIXING_MATRIX_REQUEST
+func (e *Encoder) GetDemixingMatrix() []byte {
+	if e.mappingFamily != 3 {
+		return nil
+	}
+	b, ok := defaultProjectionDemixingMatrixBytes(e.inputChannels, e.streams, e.coupledStreams)
+	if !ok {
+		return nil
+	}
+	return b
+}
+
+// DemixingMatrixGain returns the gain field of the internal demixing matrix,
+// matching OPUS_PROJECTION_GET_DEMIXING_MATRIX_GAIN_REQUEST.
+//
+// Returns 0 if this encoder is not mapping family 3.
+//
+// Reference: libopus src/opus_projection_encoder.c:opus_projection_encoder_ctl
+// OPUS_PROJECTION_GET_DEMIXING_MATRIX_GAIN_REQUEST
+func (e *Encoder) DemixingMatrixGain() int {
+	if e.mappingFamily != 3 {
+		return 0
+	}
+	return e.projectionDemixingGain
+}
+
+// DemixingMatrixSize returns the byte size of the demixing matrix,
+// matching OPUS_PROJECTION_GET_DEMIXING_MATRIX_SIZE_REQUEST.
+//
+// Returns 0 if this encoder is not mapping family 3.
+//
+// Reference: libopus src/opus_projection_encoder.c:opus_projection_encoder_ctl
+// OPUS_PROJECTION_GET_DEMIXING_MATRIX_SIZE_REQUEST
+func (e *Encoder) DemixingMatrixSize() int {
+	if e.mappingFamily != 3 {
+		return 0
+	}
+	return ProjectionDemixingMatrixSize(e.inputChannels, e.streams, e.coupledStreams)
 }
 
 // Encode encodes multi-channel PCM samples to an Opus multistream packet.
