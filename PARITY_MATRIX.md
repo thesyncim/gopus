@@ -209,7 +209,7 @@ parity-coverage incomplete".
 | Projection / Ambisonics | projection encode/decode(24) | **Y** (via multistream family 3 + demixing oracle); no dedicated public `Projection*` type | implemented (no public type) | decide: expose `Projection*` or document multistream-only; close ambisonics orders outside {4,6,9,…} |
 | Opus Custom | optional custom-mode API | **OOS** | out of scope | nonstandard frame sizes; not a Go-library goal unless requested |
 | Fixed-point implementation | float + fixed-point builds | **OOS** | out of scope | gopus is pure-Go float; int16/int24 are I/O conveniences, not a fixed-point pipeline |
-| Public utility API (`opus_pcm_soft_clip`, `opus_strerror`, version) | C-API helpers | **N** (softclip internal; no public `StrError`/version string) | feature missing (minor) | add `PCMSoftClip`/`VersionString`/`ErrorString` or document as idiomatic-Go omissions |
+| Public utility API (`opus_pcm_soft_clip`, `opus_strerror`, version) | C-API helpers | **Y** — `PCMSoftClip` (bit-exact vs `opus_pcm_soft_clip`), `ErrorString` (mirrors `opus_strerror`), `VersionString` | implemented | — |
 
 ---
 
