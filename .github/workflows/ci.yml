@@ -484,6 +484,33 @@ jobs:
         if: always()
         run: echo "Required DRED extra-controls parity seams are part of the aggregate Linux correctness gate."
 
+  test-linux-build-config-matrix:
+    name: test-linux-build-config-matrix
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Run build-config matrix gate (purego ./...)
+        run: make test-build-config-matrix
+
   test-linux:
     name: test-linux
     if: always()
@@ -502,6 +529,7 @@ jobs:
       - test-linux-qext-parity
       - test-linux-extra-controls
       - test-linux-extra-controls-parity
+      - test-linux-build-config-matrix
     runs-on: ubuntu-latest
     steps:
       - name: Validate Linux gates
@@ -519,6 +547,7 @@ jobs:
           echo "test-linux-qext-parity: ${{ needs.test-linux-qext-parity.result }}"
           echo "test-linux-extra-controls: ${{ needs.test-linux-extra-controls.result }}"
           echo "test-linux-extra-controls-parity: ${{ needs.test-linux-extra-controls-parity.result }}"
+          echo "test-linux-build-config-matrix: ${{ needs.test-linux-build-config-matrix.result }}"
           if [ "${{ needs.test-linux-fast.result }}" != "success" ]; then
             exit 1
           fi
@@ -558,6 +587,9 @@ jobs:
           if [ "${{ needs.test-linux-extra-controls-parity.result }}" != "success" ]; then
             exit 1
           fi
+          if [ "${{ needs.test-linux-build-config-matrix.result }}" != "success" ]; then
+            exit 1
+          fi
 
   perf-linux:
     name: perf-linux
@@ -574,6 +606,14 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
       - name: Enforce benchmark guardrails
         run: make bench-guard
