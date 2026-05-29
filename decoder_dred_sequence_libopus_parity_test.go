@@ -624,8 +624,11 @@ func TestDecoderFirstLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.T
 	}
 
 	frameSize48 := n * 48000 / dec.SampleRate()
-	pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize48)
-	assertFloat32ApproxEqual(t, pcm[:n], want.step0.pcm[:n], "concealed pcm live-sequence oracle", pcmTol)
+	_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize48)
+	// END-TO-END concealed-audio gate via the trusted quality comparator (16 kHz
+	// corr/RMS; opus_compare Q only valid at 48 kHz). Internal-state oracles below
+	// stay bit-exact.
+	assertConcealedAudioMatchesLibopus(t, pcm[:n], want.step0.pcm[:n], dec.Channels(), "concealed pcm live-sequence oracle")
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "live 16k first-loss sequence oracle plc", plcTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "live 16k first-loss sequence oracle fargan", farganTol)
 	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "live 16k first-loss sequence oracle celt", celtTol)
@@ -661,8 +664,8 @@ func TestDecoderSecondLossNeuralConcealmentMatchesLiveSequenceOracle(t *testing.
 	}
 
 	frameSize48 := n * 48000 / dec.SampleRate()
-	pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize48)
-	assertFloat32ApproxEqual(t, pcm[:n], want.step1.pcm[:n], "second concealed pcm live-sequence oracle", pcmTol)
+	_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize48)
+	assertConcealedAudioMatchesLibopus(t, pcm[:n], want.step1.pcm[:n], dec.Channels(), "second concealed pcm live-sequence oracle")
 	assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "live 16k second-loss sequence oracle plc", plcTol)
 	assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "live 16k second-loss sequence oracle fargan", farganTol)
 	assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step1.celt48k, "live 16k second-loss sequence oracle celt", celtTol)
@@ -693,8 +696,8 @@ func TestDecoderFirstLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequenceO
 				t.Fatalf("explicit DRED decode=%d want %d", gotN, n)
 			}
 
-			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
-			assertFloat32ApproxEqual(t, pcm[:n], want.step0.pcm[:n], "concealed frame-size pcm live-sequence oracle", pcmTol)
+			_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
+			assertConcealedAudioMatchesLibopus(t, pcm[:n], want.step0.pcm[:n], dec.Channels(), fmt.Sprintf("concealed frame-size %d pcm live-sequence oracle", frameSize))
 			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step0.state, "live 16k first-loss frame-size sequence oracle plc", plcTol)
 			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step0.fargan, "live 16k first-loss frame-size sequence oracle fargan", farganTol)
 			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step0.celt48k, "live 16k first-loss frame-size sequence oracle celt", celtTol)
@@ -733,8 +736,8 @@ func TestDecoderSecondLossNeuralConcealment16kFrameSizeMatrixMatchesLiveSequence
 				t.Fatalf("explicit DRED decode(second)=%d want %d", gotN, n)
 			}
 
-			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
-			assertFloat32ApproxEqual(t, pcm[:n], want.step1.pcm[:n], "second concealed frame-size pcm live-sequence oracle", pcmTol)
+			_, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
+			assertConcealedAudioMatchesLibopus(t, pcm[:n], want.step1.pcm[:n], dec.Channels(), fmt.Sprintf("second concealed frame-size %d pcm live-sequence oracle", frameSize))
 			assertDecoderDREDPLCStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredPLC.Snapshot(), want.step1.state, "live 16k second-loss frame-size sequence oracle plc", plcTol)
 			assertDecoderDREDFARGANStateApproxEqualWithin(t, requireDecoderDREDState(t, dec).dredFARGAN.Snapshot(), want.step1.fargan, "live 16k second-loss frame-size sequence oracle fargan", farganTol)
 			assertDecoderDREDCELT48kBridgeApproxEqualWithin(t, dec, want.step1.celt48k, "live 16k second-loss frame-size sequence oracle celt", celtTol)
