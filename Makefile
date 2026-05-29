@@ -140,8 +140,11 @@ test-examples-smoke:
 # heavyweight libopus fixture trees.
 test-doc-contract:
 
-# Default-supported DNN blob control parity against libopus USE_WEIGHTS_FILE
-# model blobs. The target fails if the required libopus-backed test is skipped.
+# DNN blob control parity against libopus USE_WEIGHTS_FILE model blobs. Model
+# loading is compile-gated exactly like libopus (ENABLE_DRED/ENABLE_OSCE/
+# ENABLE_DEEP_PLC): the default build asserts the zero-cost SetDNNBlob no-op,
+# while the libopus model-blob parity runs under -tags gopus_dred. The target
+# fails if the required libopus-backed test is skipped.
 test-dnn-blob-parity: ensure-libopus
 
 # Pinned low-level CELT/range/SILK internal oracles.

@@ -27,13 +27,17 @@ uncertain, match libopus unless fixture evidence says otherwise.
 
 ## Optional Extensions
 
-Default builds support `SetDNNBlob(...)` only. QEXT and DRED require build tags.
+Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op returning `ErrOptionalExtensionUnavailable`.
+DNN blob loading, QEXT, and DRED require build tags. libopus compiles every
+DNN/model loader behind `ENABLE_DRED`/`ENABLE_OSCE`/`ENABLE_DEEP_PLC`; gopus
+mirrors that by gating the model loaders, so DNN blob loading (USE_WEIGHTS_FILE
+model loading) requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
 QEXT requires `-tags gopus_qext`, and DRED control/standalone surfaces require `-tags gopus_dred`.
 OSCE BWE remains extra-controls parity only and absent outside `-tags gopus_extra_controls`.
 
 | Extension | Status | Probe |
 | --- | --- | --- |
-| DNN blob loading | Supported by default | `OptionalExtensionDNNBlob` |
+| DNN blob loading | Tagged support | `OptionalExtensionDNNBlob` |
 | QEXT | Tagged support | `OptionalExtensionQEXT` |
 | DRED | Tagged control/standalone support | `OptionalExtensionDRED` |
 | OSCE BWE | Extra-control parity only | `OptionalExtensionOSCEBWE` |

@@ -163,20 +163,6 @@ func (e *Encoder) VADActivity() int {
 	return e.enc.GetVADActivity()
 }
 
-// SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE encoder model blob.
-//
-// The loaded blob is validated using libopus-style weights-record framing and
-// retained across Reset(), matching libopus USE_WEIGHTS_FILE control lifetime.
-func (e *Encoder) SetDNNBlob(data []byte) error {
-	blob, err := cloneEncoderDNNBlobForControl(data)
-	if err != nil {
-		return err
-	}
-	e.dnnBlob = blob
-	e.enc.SetDNNBlob(blob)
-	return nil
-}
-
 // SetExpertFrameDuration sets the preferred frame duration policy.
 //
 // `ExpertFrameDurationArg` keeps using the current `FrameSize()` value. Fixed

@@ -90,7 +90,12 @@ tag_dred_qext='gopus_dred gopus_qext'
 tag_extra_controls_qext='gopus_extra_controls gopus_qext'
 tag_all_optional='gopus_dred gopus_extra_controls gopus_qext'
 
-dnn_blob_default_root='Test(DefaultBuildDNNBlobKeepsDREDRuntimeDormant|DefaultBuildEncoderDNNBlobKeepsDREDDormant|HotPathAllocsDecodePLCDNNReadyAtMostBaseline|EncoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobStereoRuntimeRetainedAcrossReset|MultistreamEncoderSetDNNBlobRetainedAcrossReset|MultistreamDecoderSetDNNBlobRetainedAcrossReset|ValidEncoderTestDNNBlobShape|ValidDecoderTestDNNBlobShape)'
+# Default-build DNN-blob surface: SetDNNBlob is now a tag-gated, zero-cost
+# no-op (mirroring libopus USE_WEIGHTS_FILE compile-gating), so the default
+# gate asserts the no-op contract and dormancy; model-loading retention tests
+# run under the gopus_dred/gopus_extra_controls tags (dnn_blob_tagged_root).
+dnn_blob_default_root='Test(DefaultBuildSetDNNBlobIsNoOp|DefaultBuildDNNBlobKeepsDREDRuntimeDormant|DefaultBuildEncoderDNNBlobKeepsDREDDormant|ValidEncoderTestDNNBlobShape|ValidDecoderTestDNNBlobShape)'
+dnn_blob_tagged_root='Test(DNNBlobControlAcceptsLibopusModelBlobs|HotPathAllocsDecodePLCDNNReadyAtMostBaseline|EncoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobRetainedAcrossReset|DecoderSetDNNBlobStereoRuntimeRetainedAcrossReset|MultistreamEncoderSetDNNBlobRetainedAcrossReset|MultistreamDecoderSetDNNBlobRetainedAcrossReset)'
 dnn_blob_default_multistream='Test(DefaultBuildMultistreamDecoderRealBlobDormant|DefaultBuildMultistreamDecoderDecodeAllocGuard|DefaultBuildMultistreamEncoderDNNBlobKeepsAllocsFlat)'
 dred_reference_internal='Test(DREDConstantsMatchLibopusReference|DREDStatsTablesMatchLibopusReference|DREDRDOVAEModelBlobsMatchPinnedLibopusDigests)'
 dred_reference_dnnblob='Test(DNNBlobConstantsMatchLibopusReference|DREDModelManifestsMatchLibopusReference)'
@@ -247,10 +252,16 @@ extra_controls_parity_decoder_cases=(
 extra_controls_parity_decoder_root="$(test_regex "${extra_controls_parity_decoder_cases[@]}")"
 
 gate_dnn_blob_parity() {
-	run_parity . -run 'Test(DNNBlobControlAcceptsLibopusModelBlobs|SupportsOptionalExtension)|ExampleSupportsOptionalExtension' -count=1
-	run_tagged_parity "$tag_dred" . -run 'Test(DREDControlModelBlobsMatchPinnedLibopusDigests)' -count=1
+	# Default build: SetDNNBlob model loading is compile-gated like libopus
+	# USE_WEIGHTS_FILE, so the default surface only exercises the no-op contract
+	# and SupportsOptionalExtension probe.
+	run_parity . -run 'TestSupportsOptionalExtension|ExampleSupportsOptionalExtension' -count=1
 	run_parity . -run "$dnn_blob_default_root" -count=1
 	run_parity ./multistream -run "$dnn_blob_default_multistream" -count=1
+	# Tagged builds compile the model loaders; run the libopus model-blob parity
+	# and retention tests under the DRED tag.
+	run_tagged_parity "$tag_dred" . -run "$dnn_blob_tagged_root" -count=1
+	run_tagged_parity "$tag_dred" . -run 'Test(DREDControlModelBlobsMatchPinnedLibopusDigests)' -count=1
 	require_no_skips "DNN blob parity"
 }
 

@@ -5,6 +5,5 @@ package extsupport
 // Keep these as constants so disabled surfaces stay completely dormant in
 // default builds and hot paths do not pay to probe them dynamically.
 const (
-	DNNBlob = true
 	OSCEBWE = false
 )

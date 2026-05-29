@@ -5,6 +5,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/thesyncim/gopus/internal/extsupport"
 )
 
 func mustReadDocForTest(t *testing.T, path string) string {
@@ -33,7 +35,7 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 		ext    OptionalExtension
 		status string
 	}{
-		{name: "DNN blob loading", ext: OptionalExtensionDNNBlob, status: "Supported by default"},
+		{name: "DNN blob loading", ext: OptionalExtensionDNNBlob, status: "Tagged support"},
 		{name: "QEXT", ext: OptionalExtensionQEXT, status: "Tagged support"},
 		{name: "DRED", ext: OptionalExtensionDRED, status: "Tagged control/standalone support"},
 		{name: "OSCE BWE", ext: OptionalExtensionOSCEBWE, status: "Extra-control parity only"},
@@ -45,8 +47,9 @@ func TestOptionalExtensionDocsContract(t *testing.T) {
 	}
 
 	for _, needle := range []string{
-		"Default builds support `SetDNNBlob(...)` only.",
-		"QEXT and DRED require build tags.",
+		"Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op returning `ErrOptionalExtensionUnavailable`.",
+		"DNN blob loading, QEXT, and DRED require build tags.",
+		"DNN blob loading (USE_WEIGHTS_FILE model loading) requires `-tags gopus_dred` or `-tags gopus_extra_controls`",
 		"QEXT requires `-tags gopus_qext`",
 		"DRED control/standalone surfaces require `-tags gopus_dred`",
 		"OSCE BWE remains extra-controls parity only and absent outside `-tags gopus_extra_controls`.",
@@ -86,8 +89,15 @@ func optionalExtensionDocSymbol(ext OptionalExtension) string {
 func assertOptionalExtensionDocsMatchSupport(t *testing.T, optionalDoc string) {
 	t.Helper()
 
-	if !SupportsOptionalExtension(OptionalExtensionDNNBlob) {
-		t.Fatalf("%s documented as default-supported but current build does not report support", optionalExtensionDocSymbol(OptionalExtensionDNNBlob))
+	// DNN blob loading is now tag-gated exactly like libopus's USE_WEIGHTS_FILE
+	// loaders (built only under ENABLE_DRED/ENABLE_OSCE/ENABLE_DEEP_PLC). The
+	// default build reports no support; -tags gopus_dred / gopus_extra_controls
+	// turn it on alongside the DRED/OSCE runtime hooks.
+	if SupportsOptionalExtension(OptionalExtensionDNNBlob) != extsupport.DNNBlob {
+		t.Fatalf("SupportsOptionalExtension(DNNBlob)=%v want %v", SupportsOptionalExtension(OptionalExtensionDNNBlob), extsupport.DNNBlob)
+	}
+	if SupportsOptionalExtension(OptionalExtensionDNNBlob) && !strings.Contains(optionalDoc, "go test -tags gopus_dred ./...") {
+		t.Fatal("README.md missing DNN blob tag guidance")
 	}
 	if SupportsOptionalExtension(OptionalExtensionOSCEBWE) {
 		t.Fatal("OptionalExtensionOSCEBWE documented as extra-control parity only but current build reports support")

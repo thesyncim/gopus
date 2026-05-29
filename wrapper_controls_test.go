@@ -62,6 +62,16 @@ type restrictedApplicationCase struct {
 func assertOptionalEncoderControls(t *testing.T, enc optionalEncoderControl) {
 	t.Helper()
 
+	if !extsupport.DNNBlob {
+		// Default builds gate USE_WEIGHTS_FILE model loading exactly like
+		// libopus (no ENABLE_DRED/OSCE/DEEP_PLC): SetDNNBlob is a zero-cost
+		// no-op that reports the optional extension as unavailable.
+		if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); !errors.Is(err, ErrOptionalExtensionUnavailable) {
+			t.Fatalf("default SetDNNBlob error=%v want=%v", err, ErrOptionalExtensionUnavailable)
+		}
+		return
+	}
+
 	if err := enc.SetDNNBlob(nil); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("SetDNNBlob(nil) error=%v want=%v", err, ErrInvalidArgument)
 	}
@@ -113,6 +123,16 @@ func assertSupportedQEXTControl(t *testing.T, enc qextEncoderControl) {
 func assertOptionalDecoderControls(t *testing.T, dec optionalDecoderControl) {
 	t.Helper()
 
+	if !extsupport.DNNBlob {
+		// Default builds gate USE_WEIGHTS_FILE model loading exactly like
+		// libopus (no ENABLE_DRED/OSCE/DEEP_PLC): SetDNNBlob is a zero-cost
+		// no-op that reports the optional extension as unavailable.
+		if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); !errors.Is(err, ErrOptionalExtensionUnavailable) {
+			t.Fatalf("default SetDNNBlob error=%v want=%v", err, ErrOptionalExtensionUnavailable)
+		}
+		return
+	}
+
 	if err := dec.SetDNNBlob(nil); !errors.Is(err, ErrInvalidArgument) {
 		t.Fatalf("SetDNNBlob(nil) error=%v want=%v", err, ErrInvalidArgument)
 	}
@@ -154,7 +174,7 @@ func TestSupportsOptionalExtension(t *testing.T) {
 		want bool
 	}{
 		{name: "dred", ext: OptionalExtensionDRED, want: extsupport.DRED},
-		{name: "dnn_blob", ext: OptionalExtensionDNNBlob, want: true},
+		{name: "dnn_blob", ext: OptionalExtensionDNNBlob, want: extsupport.DNNBlob},
 		{name: "qext", ext: OptionalExtensionQEXT, want: extsupport.QEXT},
 		{name: "osce_bwe", ext: OptionalExtensionOSCEBWE, want: false},
 		{name: "unknown", ext: OptionalExtension("future_ext"), want: false},
@@ -376,175 +396,6 @@ func TestValidDecoderTestDNNBlobShape(t *testing.T) {
 		if !strings.Contains(string(blob), name) {
 			t.Fatalf("missing record name %q", name)
 		}
-	}
-}
-
-func TestEncoderSetDNNBlobRejectsNameOnlyModelBlob(t *testing.T) {
-	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
-
-	if err := enc.SetDNNBlob(makeNameCompleteEncoderTestDNNBlob()); !errors.Is(err, ErrInvalidArgument) {
-		t.Fatalf("SetDNNBlob(name-only encoder blob) error=%v want %v", err, ErrInvalidArgument)
-	}
-	if enc.dnnBlob != nil || enc.enc.DNNBlobLoaded() {
-		t.Fatal("encoder retained name-only DNN blob")
-	}
-}
-
-func TestDecoderSetDNNBlobRejectsNameOnlyModelBlob(t *testing.T) {
-	dec := mustNewTestDecoder(t, 48000, 1)
-
-	if err := dec.SetDNNBlob(makeNameCompleteDecoderTestDNNBlob()); !errors.Is(err, ErrInvalidArgument) {
-		t.Fatalf("SetDNNBlob(name-only decoder blob) error=%v want %v", err, ErrInvalidArgument)
-	}
-	if dec.dnnBlob != nil || dec.pitchDNNLoaded || dec.plcModelLoaded || dec.farganModelLoaded {
-		t.Fatal("decoder retained name-only DNN blob")
-	}
-}
-
-func TestDecoderSetDNNBlobIgnoresNameOnlyDREDDecoderFamily(t *testing.T) {
-	dec := mustNewTestDecoder(t, 48000, 1)
-	blob := append([]byte(nil), makeValidDecoderTestDNNBlob()...)
-	blob = append(blob, makeNameCompleteDREDDecoderTestDNNBlob()...)
-
-	if err := dec.SetDNNBlob(blob); err != nil {
-		t.Fatalf("SetDNNBlob(core blob with name-only DRED decoder family) error=%v want nil", err)
-	}
-	if dec.dnnBlob == nil || !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
-		t.Fatal("decoder did not retain valid core DNN blob with ignored DRED decoder extras")
-	}
-	if dec.dredPayloadScannerActive() || dec.dredCachedPayloadActive() {
-		t.Fatal("decoder armed standalone DRED payload state from ignored DRED decoder extras")
-	}
-	if state := dec.dredState(); state != nil {
-		t.Fatalf("decoder allocated DRED sidecar from ignored DRED decoder extras: %+v", state)
-	}
-}
-
-func TestEncoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
-	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
-
-	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
-		t.Fatalf("SetDNNBlob error: %v", err)
-	}
-	if enc.dnnBlob == nil {
-		t.Fatal("wrapper dnnBlob=nil want non-nil")
-	}
-
-	enc.Reset()
-	if enc.dnnBlob == nil {
-		t.Fatal("wrapper dnnBlob cleared by Reset")
-	}
-}
-
-func TestDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
-	dec := mustNewTestDecoder(t, 16000, 1)
-
-	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
-		t.Fatalf("SetDNNBlob error: %v", err)
-	}
-	if dec.dnnBlob == nil {
-		t.Fatal("wrapper dnnBlob=nil want non-nil")
-	}
-	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
-		t.Fatal("decoder retained DNN model flags not armed from validated blob")
-	}
-	if dec.dredState() != nil {
-		t.Fatalf("decoder eagerly allocated DRED sidecar on SetDNNBlob: %+v", dec.dredState())
-	}
-	if extsupport.DREDRuntime {
-		if !dec.dredNeuralConcealmentReady() {
-			t.Fatal("decoder failed to lazily materialize neural concealment runtime")
-		}
-		assertDecoderDREDRuntimeLoadedForTest(t, dec, "lazy materialization")
-	}
-
-	dec.Reset()
-	if dec.dnnBlob == nil {
-		t.Fatal("wrapper dnnBlob cleared by Reset")
-	}
-	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
-		t.Fatal("decoder retained DNN model flags cleared by Reset")
-	}
-	if extsupport.DREDRuntime {
-		if !dec.dredNeuralConcealmentReady() {
-			t.Fatal("decoder failed to rematerialize neural concealment runtime after Reset")
-		}
-		assertDecoderDREDRuntimeLoadedForTest(t, dec, "Reset rematerialization")
-	}
-}
-
-func TestDecoderSetDNNBlobStereoRuntimeRetainedAcrossReset(t *testing.T) {
-	dec := mustNewTestDecoder(t, 48000, 2)
-
-	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
-		t.Fatalf("SetDNNBlob error: %v", err)
-	}
-	if dec.dnnBlob == nil {
-		t.Fatal("wrapper dnnBlob=nil want non-nil")
-	}
-	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
-		t.Fatal("decoder retained DNN model flags not armed from validated blob")
-	}
-	if dec.dredState() != nil {
-		t.Fatalf("stereo decoder eagerly allocated DRED sidecar on SetDNNBlob: %+v", dec.dredState())
-	}
-	if extsupport.DREDRuntime {
-		if !dec.dredNeuralConcealmentReady() {
-			t.Fatal("stereo decoder failed to lazily materialize neural concealment runtime")
-		}
-		assertDecoderDREDRuntimeLoadedForTest(t, dec, "stereo lazy materialization")
-	}
-
-	dec.Reset()
-	if dec.dnnBlob == nil {
-		t.Fatal("wrapper dnnBlob cleared by Reset")
-	}
-	if !dec.pitchDNNLoaded || !dec.plcModelLoaded || !dec.farganModelLoaded {
-		t.Fatal("decoder retained DNN model flags cleared by Reset")
-	}
-	if extsupport.DREDRuntime {
-		if !dec.dredNeuralConcealmentReady() {
-			t.Fatal("stereo decoder failed to rematerialize neural concealment runtime after Reset")
-		}
-		assertDecoderDREDRuntimeLoadedForTest(t, dec, "stereo Reset rematerialization")
-	}
-}
-
-func TestMultistreamEncoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
-	enc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
-
-	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
-		t.Fatalf("SetDNNBlob error: %v", err)
-	}
-	if enc.dnnBlob == nil {
-		t.Fatal("wrapper dnnBlob=nil want non-nil")
-	}
-
-	enc.Reset()
-	if enc.dnnBlob == nil {
-		t.Fatal("wrapper dnnBlob cleared by Reset")
-	}
-}
-
-func TestMultistreamDecoderSetDNNBlobRetainedAcrossReset(t *testing.T) {
-	dec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
-
-	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
-		t.Fatalf("SetDNNBlob error: %v", err)
-	}
-	if dec.dnnBlob == nil {
-		t.Fatal("wrapper dnnBlob=nil want non-nil")
-	}
-	if !dec.dec.PitchDNNLoaded() || !dec.dec.PLCModelLoaded() || !dec.dec.FARGANModelLoaded() {
-		t.Fatal("multistream decoder runtime models not loaded from retained DNN blob")
-	}
-
-	dec.Reset()
-	if dec.dnnBlob == nil {
-		t.Fatal("wrapper dnnBlob cleared by Reset")
-	}
-	if !dec.dec.PitchDNNLoaded() || !dec.dec.PLCModelLoaded() || !dec.dec.FARGANModelLoaded() {
-		t.Fatal("multistream decoder runtime models cleared by Reset")
 	}
 }
 

@@ -18,20 +18,6 @@ func (e *MultistreamEncoder) FrameSize() int {
 	return int(e.frameSize)
 }
 
-// SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE encoder model blob.
-//
-// The loaded blob is validated using libopus-style weights-record framing and
-// retained across Reset(), matching libopus USE_WEIGHTS_FILE control lifetime.
-func (e *MultistreamEncoder) SetDNNBlob(data []byte) error {
-	blob, err := cloneEncoderDNNBlobForControl(data)
-	if err != nil {
-		return err
-	}
-	e.dnnBlob = blob
-	e.enc.SetDNNBlob(blob)
-	return nil
-}
-
 // SetExpertFrameDuration sets the preferred frame duration policy for multistream encoding.
 func (e *MultistreamEncoder) SetExpertFrameDuration(duration ExpertFrameDuration) error {
 	return setMultistreamExpertFrameDuration(duration, &e.expertFrameDuration)

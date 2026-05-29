@@ -104,21 +104,6 @@ func (d *Decoder) IgnoreExtensions() bool {
 	return d.ignoreExtensions
 }
 
-// SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE decoder model blob.
-//
-// The loaded blob is validated using libopus-style weights-record framing and
-// retained across Reset(), matching libopus USE_WEIGHTS_FILE control lifetime.
-func (d *Decoder) SetDNNBlob(data []byte) error {
-	blob, err := cloneDecoderDNNBlobForControl(data)
-	if err != nil {
-		return err
-	}
-	if err := d.setDNNBlob(blob); err != nil {
-		return ErrInvalidArgument
-	}
-	return nil
-}
-
 // Pitch returns the most recent decoded pitch period.
 func (d *Decoder) Pitch() int {
 	if d.lastPacketMode == ModeCELT {

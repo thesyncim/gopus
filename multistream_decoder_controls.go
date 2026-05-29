@@ -97,16 +97,3 @@ func (d *MultistreamDecoder) IgnoreExtensions() bool {
 	return d.ignoreExtensions
 }
 
-// SetDNNBlob loads the optional libopus USE_WEIGHTS_FILE decoder model blob.
-//
-// The loaded blob is validated using libopus-style weights-record framing and
-// retained across Reset(), matching libopus USE_WEIGHTS_FILE control lifetime.
-func (d *MultistreamDecoder) SetDNNBlob(data []byte) error {
-	blob, err := cloneDecoderDNNBlobForControl(data)
-	if err != nil {
-		return err
-	}
-	d.dnnBlob = blob
-	d.dec.SetDNNBlob(blob)
-	return nil
-}

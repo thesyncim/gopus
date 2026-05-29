@@ -2,7 +2,53 @@
 
 package gopus
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
+
+// TestDefaultBuildSetDNNBlobIsNoOp pins the default-build USE_WEIGHTS_FILE
+// contract: libopus compiles its DNN/model loaders only behind
+// ENABLE_DRED/ENABLE_OSCE/ENABLE_DEEP_PLC, so the default gopus build reports
+// no DNN-blob support and every SetDNNBlob entry point is a zero-cost no-op
+// that returns ErrOptionalExtensionUnavailable without retaining state.
+func TestDefaultBuildSetDNNBlobIsNoOp(t *testing.T) {
+	if SupportsOptionalExtension(OptionalExtensionDNNBlob) {
+		t.Fatal("default build reports DNN blob support")
+	}
+
+	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
+	if err := enc.SetDNNBlob(makeValidEncoderTestDNNBlob()); !errors.Is(err, ErrOptionalExtensionUnavailable) {
+		t.Fatalf("Encoder.SetDNNBlob error=%v want=%v", err, ErrOptionalExtensionUnavailable)
+	}
+	if enc.dnnBlob != nil {
+		t.Fatal("Encoder.SetDNNBlob retained a blob in the default build")
+	}
+
+	dec := newMonoTestDecoder(t)
+	if err := dec.SetDNNBlob(makeValidDecoderTestDNNBlob()); !errors.Is(err, ErrOptionalExtensionUnavailable) {
+		t.Fatalf("Decoder.SetDNNBlob error=%v want=%v", err, ErrOptionalExtensionUnavailable)
+	}
+	if dec.dnnBlob != nil || dec.dredNeuralModelsLoaded() {
+		t.Fatal("Decoder.SetDNNBlob loaded models in the default build")
+	}
+
+	msEnc := mustNewDefaultMultistreamEncoder(t, 48000, 2, ApplicationAudio)
+	if err := msEnc.SetDNNBlob(makeValidEncoderTestDNNBlob()); !errors.Is(err, ErrOptionalExtensionUnavailable) {
+		t.Fatalf("MultistreamEncoder.SetDNNBlob error=%v want=%v", err, ErrOptionalExtensionUnavailable)
+	}
+	if msEnc.dnnBlob != nil {
+		t.Fatal("MultistreamEncoder.SetDNNBlob retained a blob in the default build")
+	}
+
+	msDec := mustNewDefaultMultistreamDecoder(t, 48000, 2)
+	if err := msDec.SetDNNBlob(makeValidDecoderTestDNNBlob()); !errors.Is(err, ErrOptionalExtensionUnavailable) {
+		t.Fatalf("MultistreamDecoder.SetDNNBlob error=%v want=%v", err, ErrOptionalExtensionUnavailable)
+	}
+	if msDec.dnnBlob != nil {
+		t.Fatal("MultistreamDecoder.SetDNNBlob retained a blob in the default build")
+	}
+}
 
 func TestDefaultBuildHidesExtraControls(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
@@ -38,17 +84,22 @@ func TestDefaultBuildHidesExtraControls(t *testing.T) {
 	}
 }
 
+// TestDefaultBuildDNNBlobKeepsDREDRuntimeDormant asserts the default-build
+// USE_WEIGHTS_FILE gating: libopus only compiles its DNN/model loaders behind
+// ENABLE_DRED/ENABLE_OSCE/ENABLE_DEEP_PLC, so a default gopus build exposes
+// SetDNNBlob as a zero-cost no-op that loads no model, arms no DRED runtime,
+// and reports the optional extension as unavailable.
 func TestDefaultBuildDNNBlobKeepsDREDRuntimeDormant(t *testing.T) {
 	baseline := mustNewTestDecoder(t, 48000, 1)
 	armed := mustNewTestDecoder(t, 48000, 1)
-	if err := armed.SetDNNBlob(makeValidDecoderTestDNNBlob()); err != nil {
-		t.Fatalf("SetDNNBlob error: %v", err)
+	if err := armed.SetDNNBlob(makeValidDecoderTestDNNBlob()); !errors.Is(err, ErrOptionalExtensionUnavailable) {
+		t.Fatalf("default SetDNNBlob error=%v want=%v", err, ErrOptionalExtensionUnavailable)
 	}
-	if !armed.dredNeuralModelsLoaded() {
-		t.Fatal("SetDNNBlob did not retain decoder neural model readiness")
+	if armed.dredNeuralModelsLoaded() {
+		t.Fatal("default build SetDNNBlob loaded decoder neural models")
 	}
 	if armed.dredState() != nil {
-		t.Fatalf("SetDNNBlob eagerly allocated DRED sidecar in default build: %+v", armed.dredState())
+		t.Fatalf("default build SetDNNBlob allocated DRED sidecar: %+v", armed.dredState())
 	}
 
 	packet := testCELTPacket()
@@ -88,14 +139,17 @@ func TestDefaultBuildDNNBlobKeepsDREDRuntimeDormant(t *testing.T) {
 	}
 }
 
+// TestDefaultBuildEncoderDNNBlobKeepsDREDDormant asserts the encoder side of
+// the default-build USE_WEIGHTS_FILE gate: SetDNNBlob is a zero-cost no-op that
+// retains no blob, loads no model, and leaves encode allocations unchanged.
 func TestDefaultBuildEncoderDNNBlobKeepsDREDDormant(t *testing.T) {
 	baseline := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 	armed := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
-	if err := armed.SetDNNBlob(makeValidEncoderTestDNNBlob()); err != nil {
-		t.Fatalf("SetDNNBlob error: %v", err)
+	if err := armed.SetDNNBlob(makeValidEncoderTestDNNBlob()); !errors.Is(err, ErrOptionalExtensionUnavailable) {
+		t.Fatalf("default SetDNNBlob error=%v want=%v", err, ErrOptionalExtensionUnavailable)
 	}
-	if armed.dnnBlob == nil {
-		t.Fatal("SetDNNBlob did not retain encoder dnn blob handle")
+	if armed.dnnBlob != nil {
+		t.Fatal("default build SetDNNBlob retained encoder dnn blob handle")
 	}
 
 	pcm := make([]float32, 960)

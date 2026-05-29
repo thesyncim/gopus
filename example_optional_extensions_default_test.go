@@ -1,4 +1,4 @@
-//go:build !gopus_dred && !gopus_qext
+//go:build !gopus_dred && !gopus_qext && !gopus_extra_controls
 
 package gopus_test
 
@@ -14,7 +14,7 @@ func ExampleSupportsOptionalExtension() {
 	fmt.Printf("osce_bwe: %v\n", gopus.SupportsOptionalExtension(gopus.OptionalExtensionOSCEBWE))
 	fmt.Printf("qext: %v\n", gopus.SupportsOptionalExtension(gopus.OptionalExtensionQEXT))
 	// Output:
-	// dnn_blob: true
+	// dnn_blob: false
 	// dred: false
 	// osce_bwe: false
 	// qext: false

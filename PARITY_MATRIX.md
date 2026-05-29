@@ -109,8 +109,12 @@ Recovery ordering in the WebRTC example: **RED → FEC → DRED → PLC** (examp
 | DRED | `gopus_dred` | T | T (+ standalone `DREDDecoder`) | ~ (RDOVAE; `ConvertTo16kMonoFloat32` bit-exact; process parity) | Encoder carrier bytes per matrix cell; explicit decode grid; `SetDREDDuration` multistream |
 | OSCE BWE | `gopus_extra_controls` | N | T (CTL only) | Numeric forward-pass + model blob oracles | End-to-end decode apply; feature extractor; PLC crossfade sample parity |
 | LACE / NoLACE | `gopus_extra_controls` | N | T (CTL + multistream) | Forward-pass stage parity (~) | Sample-level decode path; multistream per-stream parity |
+| DNN blob (`SetDNNBlob`) | `gopus_dred` / `gopus_extra_controls` | T (model load) | T (model load) | USE_WEIGHTS_FILE record framing + libopus model-blob parity | Model coverage beyond pitch/PLC/FARGAN/RDOVAE families |
 
-Default build: **DNN blob** load only (`SetDNNBlob`).
+Default build: **no optional extensions**. `SetDNNBlob` is a zero-cost no-op
+returning `ErrOptionalExtensionUnavailable`; USE_WEIGHTS_FILE model loading is
+compile-gated like libopus (`ENABLE_DRED`/`ENABLE_OSCE`/`ENABLE_DEEP_PLC`) and
+requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
 
 ---
 
@@ -121,7 +125,7 @@ Default build: **DNN blob** load only (`SetDNNBlob`).
 | `float32` encode/decode | Y | Hot-path alloc tests, compliance, matrix; arm64 IMDCT/noise-PLC synthesis bit-exact vs libopus | Encode byte grid beyond CELT CBR matrix |
 | `int16` encode/decode | Y | Roundtrip, PCM convert oracle | int16 PLC vs float32 on all modes |
 | Packet parse (`ParseTOC`, extensions) | Y | Packet tests, extension scanners | Rare TOC edge codes |
-| Decoder CTLs | ~ | Gain, complexity, phase, ignore extensions, DNN | Full `opus_decoder_ctl` equivalence table |
+| Decoder CTLs | ~ | Gain, complexity, phase, ignore extensions; DNN blob under `gopus_dred`/`gopus_extra_controls` | Full `opus_decoder_ctl` equivalence table |
 | Encoder CTLs | ~ | Bitrate, VBR, FEC, DTX, bandwidth, frame, signal | `OPUS_GET_*` mirror coverage; multistream CTL parity |
 | Output gain | Y | Decoder `SetGain` | libopus gain smoothing on transitions |
 | Reset / error behavior | Y | Stream + codec reset tests | Error codes 1:1 with libopus for all invalid packets |
