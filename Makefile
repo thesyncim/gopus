@@ -1,6 +1,6 @@
 FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-exactness test-exhaustive test-provenance
 
-.PHONY: lint lint-fix test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -249,6 +249,16 @@ verify-safety: ensure-libopus
 	$(MAKE) test-fuzz-safety
 	$(MAKE) test-soak-safety
 	$(MAKE) release-evidence
+
+# Bit-exact libopus float kernels must match under every build config, not only
+# the default arm64 build. The rounding barrier that stops the arm64 backend from
+# contracting a*b+c into FMADD (where libopus does not) is a GOARCH property, so a
+# build constraint that drops it under -tags purego silently diverges from
+# libopus. This gate reruns the libopus oracle suite under purego so that class of
+# regression fails here. The default arm64 build is covered by the normal parity
+# run; amd64 is covered by CI.
+test-build-config-matrix: ensure-libopus
+	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO) test -tags purego ./... -count=1 -timeout=25m
 
 # Generate a release evidence bundle (gates + key benchmarks).
 release-evidence: ensure-libopus

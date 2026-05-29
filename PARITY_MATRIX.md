@@ -46,6 +46,10 @@ transcendental/platform rounding, and each carries a documented, proven root
 cause. Decode parity (SILK/CELT/Hybrid) meets the near-exact bar (Q ≥ 20,
 corr ≥ 0.997); encoder quality matches libopus (gapQ ≈ 0) per arch.
 
+The full design — self-selecting metric tiers, the coded-vs-concealment split,
+externally anchored bars, and the build-config matrix that keeps bit-exact
+kernels honest across `purego`/arch — is in [docs/parity-testing.md](docs/parity-testing.md).
+
 ---
 
 ## Modes (SILK / CELT / Hybrid / auto)
