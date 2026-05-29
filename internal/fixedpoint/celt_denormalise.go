@@ -16,16 +16,6 @@ package fixedpoint
 //	BITRES     = 3
 //	celt_exp2_db_frac(x) = SHL32(celt_exp2_frac(PSHR32(x, DB_SHIFT-10)), 14)
 
-// eMeans is celt/quant_bands.c eMeans[25] (FIXED_POINT path: signed char). It
-// holds the mean band log energies used to bias the per-band gain.
-var eMeans = [25]int16{
-	103, 100, 92, 85, 81,
-	77, 72, 70, 78, 75,
-	73, 71, 78, 74, 69,
-	72, 70, 74, 76, 71,
-	60, 60, 60, 60, 60,
-}
-
 // imin implements libopus IMIN(a, b) on plain ints.
 func imin(a, b int) int {
 	if a < b {
