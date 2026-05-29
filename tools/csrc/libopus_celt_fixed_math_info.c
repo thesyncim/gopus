@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifdef _WIN32
@@ -10,6 +11,8 @@
 #include "config.h"
 #include "celt/entcode.h"
 #include "celt/mathops.h"
+#include "celt/modes.h"
+#include "celt/bands.h"
 
 /* Oracle helper for the libopus FIXED_POINT integer CELT math kernels.
  * Built against the --enable-fixed-point reference tree so config.h defines
@@ -21,7 +24,8 @@
 enum {
   MODE_CELT_SQRT = 0,
   MODE_CELT_SQRT32 = 1,
-  MODE_CELT_RSQRT_NORM32 = 2
+  MODE_CELT_RSQRT_NORM32 = 2,
+  MODE_COMPUTE_BAND_ENERGIES = 3
 };
 
 static int set_binary_stdio(void) {
@@ -46,6 +50,78 @@ static int read_u32(uint32_t *out) {
 
 static int write_u32(uint32_t value) {
   return write_exact(&value, sizeof(value));
+}
+
+/* MODE_COMPUTE_BAND_ENERGIES wire format (after the GFMI header, version, mode
+ * and an unused count word):
+ *   u32 nbEBands, u32 shortMdctSize, u32 end, u32 C, u32 LM
+ *   (nbEBands+1) x i32 eBands (sign-extended opus_int16 values)
+ *   end x i32 logN          (sign-extended opus_int16 values)
+ *   C*N x i32 X             (N = shortMdctSize<<LM)
+ * Output (after the GFMO header, version 1, and count = C*nbEBands):
+ *   C*nbEBands x i32 bandE
+ * The helper builds a minimal CELTMode and calls the real libopus
+ * compute_band_energies() so the result is the genuine reference path. */
+static int eval_compute_band_energies(void) {
+  uint32_t nbEBands, shortMdctSize, end, C, LM;
+  opus_int16 *eBands = NULL, *logN = NULL;
+  celt_sig *X = NULL;
+  celt_ener *bandE = NULL;
+  CELTMode mode;
+  uint32_t i, N, total;
+  int ok = 0;
+
+  if (!read_u32(&nbEBands) || !read_u32(&shortMdctSize) || !read_u32(&end) ||
+      !read_u32(&C) || !read_u32(&LM)) {
+    return 0;
+  }
+  N = shortMdctSize << LM;
+  total = C * N;
+
+  eBands = (opus_int16 *)malloc((nbEBands + 1) * sizeof(*eBands));
+  logN = (opus_int16 *)malloc(end * sizeof(*logN));
+  X = (celt_sig *)malloc(total * sizeof(*X));
+  bandE = (celt_ener *)malloc(C * nbEBands * sizeof(*bandE));
+  if (!eBands || !logN || !X || !bandE) goto done;
+
+  for (i = 0; i < nbEBands + 1; i++) {
+    uint32_t v;
+    if (!read_u32(&v)) goto done;
+    eBands[i] = (opus_int16)(int32_t)v;
+  }
+  for (i = 0; i < end; i++) {
+    uint32_t v;
+    if (!read_u32(&v)) goto done;
+    logN[i] = (opus_int16)(int32_t)v;
+  }
+  for (i = 0; i < total; i++) {
+    uint32_t v;
+    if (!read_u32(&v)) goto done;
+    X[i] = (celt_sig)(int32_t)v;
+  }
+
+  memset(&mode, 0, sizeof(mode));
+  mode.nbEBands = (int)nbEBands;
+  mode.shortMdctSize = (int)shortMdctSize;
+  mode.eBands = eBands;
+  mode.logN = logN;
+
+  compute_band_energies(&mode, X, bandE, (int)end, (int)C, (int)LM, 0);
+
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(C * nbEBands)) {
+    goto done;
+  }
+  for (i = 0; i < C * nbEBands; i++) {
+    if (!write_u32((uint32_t)(int32_t)bandE[i])) goto done;
+  }
+  ok = 1;
+
+done:
+  free(eBands);
+  free(logN);
+  free(X);
+  free(bandE);
+  return ok;
 }
 
 static int eval_record(uint32_t mode) {
@@ -75,7 +151,11 @@ int main(void) {
   if (!set_binary_stdio()) return 1;
   if (!read_exact(magic, sizeof(magic)) || memcmp(magic, INPUT_MAGIC, sizeof(magic)) != 0) return 1;
   if (!read_u32(&version) || version != 1 || !read_u32(&mode) || !read_u32(&count)) return 1;
-  if (mode > MODE_CELT_RSQRT_NORM32) return 1;
+  if (mode > MODE_COMPUTE_BAND_ENERGIES) return 1;
+
+  if (mode == MODE_COMPUTE_BAND_ENERGIES) {
+    return eval_compute_band_energies() ? 0 : 1;
+  }
 
   if (!write_exact(OUTPUT_MAGIC, sizeof(magic)) || !write_u32(1) || !write_u32(count)) return 1;
   for (i = 0; i < count; i++) {

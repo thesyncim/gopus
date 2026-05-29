@@ -71,3 +71,75 @@ func CeltSqrt32(x int32) int32 {
 func pshr32(a int32, shift int) int32 {
 	return (a + ((1 << shift) >> 1)) >> shift
 }
+
+// shl32 implements libopus SHL32(a, shift) for the fixed-point build: the value
+// is shifted left through the unsigned domain so the operation never trips
+// signed-overflow undefined behaviour, then reinterpreted as int32. shift must
+// be >= 0.
+func shl32(a int32, shift int) int32 {
+	return int32(uint32(a) << shift)
+}
+
+// imax implements libopus IMAX(a, b) on plain ints.
+func imax(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
+}
+
+// CeltMaxabs32 returns the maximum absolute value over x, matching libopus
+// celt/mathops.h celt_maxabs32() (FIXED_POINT path). It tracks the running max
+// and min separately and returns MAX32(maxval, -minval), so the int32 negation
+// of the smallest value wraps exactly as the C code does.
+func CeltMaxabs32(x []int32) int32 {
+	var maxval, minval int32
+	for _, v := range x {
+		if v > maxval {
+			maxval = v
+		}
+		if v < minval {
+			minval = v
+		}
+	}
+	return max32(maxval, -minval)
+}
+
+// ComputeBandEnergies ports the FIXED_POINT celt/bands.c compute_band_energies:
+// for each channel c and band i it finds the band's peak magnitude, derives a
+// per-band shift that keeps the squared accumulation from overflowing, sums the
+// shifted squares in Q31, and converts the result back to a band amplitude via
+// celt_sqrt32. The output bandE[i+c*nbEBands] is MAX32(maxval, the shifted
+// sqrt), or EPSILON (1) for a silent band.
+//
+// Inputs mirror the libopus CELTMode plumbing:
+//
+//	x             frequency-domain signal, channel-major, length C*N
+//	eBands        mode band boundaries (m->eBands), length nbEBands+1
+//	logN          per-band log-N table (m->logN), length >= end
+//	bandE         output band energies, length >= C*nbEBands
+//	nbEBands      m->nbEBands
+//	shortMdctSize m->shortMdctSize (N = shortMdctSize<<LM)
+//	end, C, LM    the active band count, channel count and time-resolution shift
+func ComputeBandEnergies(x []int32, eBands, logN []int16, bandE []int32, nbEBands, shortMdctSize, end, C, LM int) {
+	const bitres = 3
+	n := shortMdctSize << LM
+	for c := 0; c < C; c++ {
+		for i := 0; i < end; i++ {
+			lo := int(eBands[i]) << LM
+			hi := int(eBands[i+1]) << LM
+			maxval := CeltMaxabs32(x[c*n+lo : c*n+hi])
+			if maxval > 0 {
+				shift := imax(0, 30-int(CeltILog2(maxval+(maxval>>14)+1))-(((int(logN[i])+7)>>bitres)+LM+1)>>1)
+				var sum int32
+				for j := lo; j < hi; j++ {
+					xv := shl32(x[j+c*n], shift)
+					sum = add32(sum, mult32x32q31(xv, xv))
+				}
+				bandE[i+c*nbEBands] = max32(maxval, pshr32(CeltSqrt32(sum>>1), shift))
+			} else {
+				bandE[i+c*nbEBands] = 1 // EPSILON
+			}
+		}
+	}
+}

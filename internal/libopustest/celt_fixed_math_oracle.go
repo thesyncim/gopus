@@ -10,6 +10,9 @@ const (
 	CELTFixedMathModeSqrt32 = uint32(1)
 	// CELTFixedMathModeRsqrtNorm32 selects the FIXED_POINT celt_rsqrt_norm32 kernel.
 	CELTFixedMathModeRsqrtNorm32 = uint32(2)
+	// CELTFixedMathModeComputeBandEnergies selects the FIXED_POINT
+	// compute_band_energies kernel (array-shaped oracle).
+	CELTFixedMathModeComputeBandEnergies = uint32(3)
 )
 
 var celtFixedMathHelper HelperCache
@@ -53,6 +56,46 @@ func ProbeCELTFixedMathWords(mode uint32, words []uint32) ([]uint32, error) {
 	out := make([]uint32, count)
 	for i := range out {
 		out[i] = reader.U32()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ProbeCELTFixedComputeBandEnergies runs the FIXED_POINT compute_band_energies
+// kernel against the real libopus reference, returning the resulting band
+// energies (channel-major, length C*nbEBands). The x slice is the
+// channel-major frequency-domain signal of length C*(shortMdctSize<<LM).
+func ProbeCELTFixedComputeBandEnergies(eBands, logN []int16, x []int32, nbEBands, shortMdctSize, end, C, LM int) ([]int32, error) {
+	binPath, err := getCELTFixedMathHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	payload := NewOraclePayload(celtFixedMathInputMagic, CELTFixedMathModeComputeBandEnergies, 0)
+	payload.U32(uint32(nbEBands))
+	payload.U32(uint32(shortMdctSize))
+	payload.U32(uint32(end))
+	payload.U32(uint32(C))
+	payload.U32(uint32(LM))
+	for _, v := range eBands {
+		payload.I32(int32(v))
+	}
+	for _, v := range logN {
+		payload.I32(int32(v))
+	}
+	payload.I32s(x...)
+
+	reader, err := RunOracle(binPath, payload.Bytes(), "celt fixed compute_band_energies", celtFixedMathOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	want := C * nbEBands
+	count := reader.Count(want)
+	reader.ExpectRemaining(4 * count)
+	out := make([]int32, count)
+	for i := range out {
+		out[i] = reader.I32()
 	}
 	if err := reader.ExpectConsumed(); err != nil {
 		return nil, err
