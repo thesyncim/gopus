@@ -28,6 +28,9 @@ import (
 //   - Code 2: 2 different-sized frames
 //   - Code 3: Arbitrary number of frames (1-48)
 func (d *Decoder) Decode(data []byte, pcm []float32) (int, error) {
+	if d.is96kHz() {
+		return d.decode96kFloat32(data, pcm)
+	}
 	return d.decodeFloat32(data, pcm, true)
 }
 
@@ -438,6 +441,11 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 	if !fec {
 		return d.Decode(data, pcm)
 	}
+	// At 96 kHz, FEC uses the same routing as regular decode (PLC path).
+	// SILK/Hybrid FEC is not supported at 96 kHz (no SILK resampler path).
+	if d.is96kHz() {
+		return d.decode96kFloat32(nil, pcm)
+	}
 	sampleRate := int(d.sampleRate)
 
 	if data != nil && len(data) > 0 {
@@ -502,6 +510,9 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 
 // DecodeInt16 decodes an Opus packet into int16 PCM samples.
 func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
+	if d.is96kHz() {
+		return d.decodeInt1696k(data, pcm)
+	}
 	channels := int(d.channels)
 	sampleRate := int(d.sampleRate)
 	if data == nil || len(data) == 0 {
@@ -569,6 +580,9 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 //
 // Returns the number of samples per channel decoded, or an error.
 func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
+	if d.is96kHz() {
+		return d.decodeInt2496k(data, pcm)
+	}
 	channels := int(d.channels)
 	sampleRate := int(d.sampleRate)
 	if data == nil || len(data) == 0 {

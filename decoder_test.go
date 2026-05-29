@@ -47,7 +47,11 @@ func TestNewDecoder_ValidParams(t *testing.T) {
 }
 
 func TestNewDecoder_InvalidSampleRate(t *testing.T) {
-	invalidRates := []int{0, 1000, 7999, 8001, 44100, 96000, -1}
+	// 96000 is only invalid without the gopus_qext build tag.
+	invalidRates := []int{0, 1000, 7999, 8001, 44100, -1}
+	if !extsupport.QEXT {
+		invalidRates = append(invalidRates, 96000)
+	}
 
 	for _, rate := range invalidRates {
 		t.Run(fmt.Sprintf("rate_%d", rate), func(t *testing.T) {

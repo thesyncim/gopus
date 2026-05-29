@@ -11,6 +11,9 @@ package gopus
 //
 // Buffer sizing: 4000 bytes is sufficient for any Opus packet.
 func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
+	if e.is96kHz() {
+		return e.encode96k(pcm, data)
+	}
 	frameSizeArg := int(e.frameSize)
 	channels := int(e.channels)
 	expected := frameSizeArg * channels
@@ -35,6 +38,30 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	return copyEncodedPacket(packet, data)
 }
 
+// encode96k handles Encode for a 96 kHz API-rate Encoder.
+// It downsamples 2:1 then encodes via the 48 kHz internal pipeline.
+func (e *Encoder) encode96k(pcm []float32, data []byte) (int, error) {
+	if len(data) == 0 {
+		return 0, ErrBufferTooSmall
+	}
+	pcm48, frameSize48, err := e.checkAndDownsample96k(pcm)
+	if err != nil {
+		return 0, err
+	}
+	frameSize, err := selectExpertFrameSize(frameSize48, e.expertFrameDuration, e.application)
+	if err != nil {
+		return 0, err
+	}
+	inputSamples := frameSize * int(e.channels)
+
+	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(pcm48[:inputSamples], frameSize, pcm48, len(data))
+	if err != nil {
+		return 0, err
+	}
+	e.encodedOnce = true
+	return copyEncodedPacket(packet, data)
+}
+
 // EncodeInt16 encodes int16 PCM samples into an Opus packet.
 //
 // pcm: Input samples (interleaved if stereo). Length must be frameSize * channels.
@@ -44,7 +71,7 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 //
 // The samples are converted from int16 by dividing by 32768.
 func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
-	expected := int(e.frameSize) * int(e.channels)
+	expected := e.apiFrameSize() * int(e.channels)
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
@@ -68,25 +95,31 @@ func (e *Encoder) EncodeInt16(pcm []int16, data []byte) (int, error) {
 // containers with numeric range [-8388608, 8388607]. Left-shifted 24-in-32
 // input will be mis-scaled.
 func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
-	frameSizeArg := int(e.frameSize)
 	channels := int(e.channels)
-	expected := frameSizeArg * channels
+	expected := e.apiFrameSize() * channels
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
 	if len(data) == 0 {
 		return 0, ErrBufferTooSmall
 	}
+
+	pcm32 := e.scratchPCM32[:len(pcm)]
+	for i, v := range pcm {
+		pcm32[i] = float32(v) / 8388608.0
+	}
+
+	if e.is96kHz() {
+		return e.encode96k(pcm32, data)
+	}
+
+	frameSizeArg := int(e.frameSize)
 	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application)
 	if err != nil {
 		return 0, err
 	}
 	inputSamples := frameSize * channels
 
-	pcm32 := e.scratchPCM32[:len(pcm)]
-	for i, v := range pcm {
-		pcm32[i] = float32(v) / 8388608.0
-	}
 	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(pcm32[:inputSamples], frameSize, pcm32, len(data))
 	if err != nil {
 		return 0, err

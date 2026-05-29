@@ -6,7 +6,13 @@ func (d *Decoder) Reset() {
 	d.silkDecoder.Reset()
 	d.celtDecoder.Reset()
 	d.hybridDecoder.Reset()
-	d.lastFrameSize = d.sampleRate / 50
+	// Use the internal 48 kHz rate for lastFrameSize when the API is 96 kHz.
+	// C ref: opus_decoder.c OPUS_RESET_STATE, st->frame_size = Fs/400.
+	internalRate := int32(d.sampleRate)
+	if d.is96kHz() {
+		internalRate = 48000
+	}
+	d.lastFrameSize = internalRate / 50
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
 	d.mainDecodeRng = 0

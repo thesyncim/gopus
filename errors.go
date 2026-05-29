@@ -112,12 +112,10 @@ var (
 
 var errNoFECData = errors.New("gopus: no FEC data available for recovery")
 
-// validSampleRate returns true if the sample rate is valid for Opus.
+// validSampleRate returns true if the sample rate is valid for the Opus API.
+// The set of valid rates depends on the build configuration:
+// without gopus_qext: 8000, 12000, 16000, 24000, 48000
+// with gopus_qext: also 96000 (Opus HD / QEXT rate)
 func validSampleRate(rate int) bool {
-	switch rate {
-	case 8000, 12000, 16000, 24000, 48000:
-		return true
-	default:
-		return false
-	}
+	return validSampleRateImpl(rate)
 }

@@ -93,6 +93,7 @@ type Decoder struct {
 	dnnBlob     *dnnblob.Blob
 	decoderDREDFields
 	decoderOSCEFields
+	decoderHD96kFields
 
 	// Decoder-side DNN readiness mirrors the validated model families retained
 	// by OPUS_SET_DNN_BLOB so optional paths can stay dormant until they are real.
@@ -126,14 +127,22 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		return nil, ErrInvalidMaxPacketBytes
 	}
 
+	// Under gopus_qext, 96 kHz requests route through the 48 kHz internal
+	// pipeline with 2x upsampling at the output boundary.
+	// C ref: opus_decoder.c opus_decoder_init() ENABLE_QEXT (Fs != 96000) gate.
+	internalRate := cfg.SampleRate
+	if cfg.SampleRate == 96000 {
+		internalRate = 48000
+	}
+
 	silkDec := silk.NewDecoder()
-	silkDec.SetAPISampleRate(cfg.SampleRate)
+	silkDec.SetAPISampleRate(internalRate)
 	celtDec := celt.NewDecoder(cfg.Channels)
-	if err := celtDec.SetAPISampleRate(cfg.SampleRate); err != nil {
+	if err := celtDec.SetAPISampleRate(internalRate); err != nil {
 		return nil, err
 	}
 	hybridDec := hybrid.NewDecoderWithSharedDecoders(cfg.Channels, silkDec, celtDec)
-	hybridDec.SetAPISampleRate(cfg.SampleRate)
+	hybridDec.SetAPISampleRate(internalRate)
 
 	transitionSamples := 48000 / 200 // 5ms at 48kHz
 	scratchFrame48Samples := maxPacketSamples * 48000 / cfg.SampleRate
@@ -144,11 +153,11 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		scratchFrame48Samples = maxPacketSamples
 	}
 
-	return &Decoder{
+	d := &Decoder{
 		silkDecoder:       silkDec,
 		celtDecoder:       celtDec,
 		hybridDecoder:     hybridDec,
-		sampleRate:        int32(cfg.SampleRate),
+		sampleRate:        int32(internalRate),
 		channels:          int32(cfg.Channels),
 		maxPacketSamples:  maxPacketSamples,
 		maxPacketBytes:    maxPacketBytes,
@@ -156,11 +165,15 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		scratchFrame48:    make([]float32, scratchFrame48Samples*cfg.Channels),
 		scratchTransition: make([]float32, transitionSamples*cfg.Channels),
 		scratchRedundant:  make([]float32, transitionSamples*cfg.Channels),
-		lastFrameSize:     int32(cfg.SampleRate / 50), // Default 20ms at the API rate
-		prevMode:          ModeHybrid,                 // Default for PLC until first decode
+		lastFrameSize:     int32(internalRate / 50), // Default 20ms at the internal rate
+		prevMode:          ModeHybrid,               // Default for PLC until first decode
 		lastPacketMode:    ModeHybrid,
 		lastBandwidth:     BandwidthFullband,
 		fecData:           make([]byte, maxPacketBytes),
 		scratchFEC:        make([]float32, maxPacketSamples*cfg.Channels),
-	}, nil
+	}
+	if cfg.SampleRate == 96000 {
+		init96kDecoder(d)
+	}
+	return d, nil
 }

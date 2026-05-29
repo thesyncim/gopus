@@ -185,17 +185,24 @@ func (e *Encoder) ExpertFrameDuration() ExpertFrameDuration {
 //
 // Default is 960 (20ms).
 func (e *Encoder) SetFrameSize(samples int) error {
-	if err := validateFrameSize(samples, e.application); err != nil {
+	// At 96 kHz API rate, frame sizes are in 96 kHz samples (2x the 48 kHz size).
+	// Convert to the 48 kHz internal frame size before validation.
+	internal := samples
+	if e.is96kHz() {
+		internal = samples / 2
+	}
+	if err := validateFrameSize(internal, e.application); err != nil {
 		return err
 	}
-	e.frameSize = int32(samples)
-	e.enc.SetFrameSize(samples)
+	e.frameSize = int32(internal)
+	e.enc.SetFrameSize(internal)
 	return nil
 }
 
-// FrameSize returns the current frame size in samples at 48kHz.
+// FrameSize returns the current frame size in samples at the API sample rate.
+// At 96 kHz, this is 2x the 48 kHz internal frame size.
 func (e *Encoder) FrameSize() int {
-	return int(e.frameSize)
+	return e.apiFrameSize()
 }
 
 // Reset clears the encoder state for a new stream.

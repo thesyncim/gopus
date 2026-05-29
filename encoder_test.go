@@ -56,7 +56,6 @@ func TestNewEncoder_InvalidParams(t *testing.T) {
 	}{
 		{"invalid_rate_0", 0, 1, ErrInvalidSampleRate},
 		{"invalid_rate_44100", 44100, 1, ErrInvalidSampleRate},
-		{"invalid_rate_96000", 96000, 1, ErrInvalidSampleRate},
 		{"invalid_channels_0", 48000, 0, ErrInvalidChannels},
 		{"invalid_channels_3", 48000, 3, ErrInvalidChannels},
 		{"invalid_channels_negative", 48000, -1, ErrInvalidChannels},

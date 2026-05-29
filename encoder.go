@@ -121,6 +121,7 @@ type Encoder struct {
 	// Scratch buffers for zero-allocation encoding
 	scratchPCM32 []float32 // int16 to float32 conversion buffer
 	dnnBlob      *dnnblob.Blob
+	encoderHD96kFields
 }
 
 // NewEncoder creates a new Opus encoder.
@@ -137,14 +138,26 @@ func NewEncoder(cfg EncoderConfig) (*Encoder, error) {
 		return nil, ErrInvalidApplication
 	}
 
+	// Under gopus_qext, 96 kHz requests route through the 48 kHz internal
+	// pipeline with 2:1 decimation at the input boundary.
+	// C ref: opus_encoder.c opus_encoder_init() ENABLE_QEXT gate (Fs != 96000).
+	internalRate := cfg.SampleRate
+	if cfg.SampleRate == 96000 {
+		internalRate = 48000
+	}
+
 	// Max frame size is 5760 samples (120ms at 48kHz) per channel.
+	// At 96 kHz API, scratchPCM32 must hold 2*5760 samples.
 	maxSamples := 5760 * cfg.Channels
+	if cfg.SampleRate == 96000 {
+		maxSamples = 2 * 5760 * cfg.Channels
+	}
 
 	enc := &Encoder{
-		enc:                 encoder.NewEncoder(cfg.SampleRate, cfg.Channels),
+		enc:                 encoder.NewEncoder(internalRate, cfg.Channels),
 		sampleRate:          int32(cfg.SampleRate),
 		channels:            int32(cfg.Channels),
-		frameSize:           960, // Default 20ms at 48kHz
+		frameSize:           960, // Default 20ms at 48kHz (internal rate)
 		expertFrameDuration: ExpertFrameDurationArg,
 		application:         cfg.Application,
 		scratchPCM32:        make([]float32, maxSamples),
@@ -153,6 +166,10 @@ func NewEncoder(cfg EncoderConfig) (*Encoder, error) {
 	// Apply application hint
 	if err := enc.applyApplication(cfg.Application); err != nil {
 		return nil, err
+	}
+
+	if cfg.SampleRate == 96000 {
+		init96kEncoder(enc)
 	}
 
 	return enc, nil
