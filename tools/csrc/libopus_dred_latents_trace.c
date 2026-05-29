@@ -4,6 +4,12 @@
  * contents after each frame. This bypasses the full opus_encode_float path
  * so we can isolate stereo-vs-mono behavior of the DRED encoder itself.
  *
+ * It additionally replays libopus's dred_compute_latents() inner 16 kHz
+ * conversion loop -- using the *real* static dred_convert_to_16k() -- and dumps
+ * the exact ordered sequence of 16 kHz mono samples that feed the RDOVAE
+ * encoder. That lets the Go side assert byte parity of the stereo downmix +
+ * channel-blind `pcm += process_size` advance against the libopus oracle.
+ *
  * Args: <channels> [<frame_size>] [<chunk_size>].
  * Defaults: channels=1, frame_size=1920, chunk_size=frame_size.
  */
@@ -15,10 +21,12 @@
 
 #include "opus.h"
 #include "dred_encoder.h"
+#include "dred_encoder.c"
 #include "dred_rdovae_constants.h"
 #include "cpu_support.h"
 
 #define OUTPUT_MAGIC "GDLT"
+#define CONVERT_MAGIC "GDLC"
 
 static float voiced_sample(int frame_idx, int sample_idx, int frame_size, int sample_rate) {
   int n = frame_idx * frame_size + sample_idx;
@@ -32,6 +40,33 @@ static float voiced_sample(int frame_idx, int sample_idx, int frame_size, int sa
   return (float)(env * s);
 }
 
+/* Replay the exact dred_compute_latents() 16 kHz conversion loop using the real
+ * static dred_convert_to_16k(). Mirrors dred_encoder.c lines 219-242 verbatim,
+ * including the channel-blind `pcm += process_size` advance, and records every
+ * 16 kHz mono sample produced (in order) into `out16k`. Uses a private
+ * DREDEnc so it does not perturb the latents-trace encoder state. */
+static int replay_convert_sequence(opus_int32 Fs, int channels, const float *pcm,
+                                   int frame_size, float *out16k, int max16k) {
+  DREDEnc tmp;
+  int frame_size16k = frame_size * 16000 / (int)Fs;
+  int produced = 0;
+  memset(&tmp, 0, sizeof(tmp));
+  tmp.Fs = Fs;
+  tmp.channels = channels;
+  while (frame_size16k > 0) {
+    int process_size16k = IMIN(2 * DRED_FRAME_SIZE, frame_size16k);
+    int process_size = process_size16k * (int)Fs / 16000;
+    if (produced + process_size16k > max16k) {
+      return -1;
+    }
+    dred_convert_to_16k(&tmp, pcm, process_size, &out16k[produced], process_size16k);
+    produced += process_size16k;
+    pcm += process_size;
+    frame_size16k -= process_size16k;
+  }
+  return produced;
+}
+
 int main(int argc, char **argv) {
   const int sample_rate = 48000;
   int frame_size = 1920;
@@ -42,6 +77,7 @@ int main(int argc, char **argv) {
   int frame_idx;
   DREDEnc enc;
   float pcm[2880 * 2];
+  float convert16k[2880];
   int arch;
 
   if (argc >= 2) {
@@ -110,6 +146,33 @@ int main(int argc, char **argv) {
           fwrite(&v, 4, 1, stdout);
         }
       }
+    }
+  }
+
+  /* Emit the libopus 16 kHz conversion sequence for one fresh chunk-sized call,
+   * isolating the stereo downmix + channel-blind pcm advance. */
+  {
+    int i;
+    int produced;
+    uint32_t count;
+    for (i = 0; i < chunk_size; i++) {
+      float sample = voiced_sample(0, i, chunk_size, sample_rate);
+      int ch;
+      for (ch = 0; ch < channels; ch++) {
+        pcm[i * channels + ch] = sample;
+      }
+    }
+    produced = replay_convert_sequence(sample_rate, channels, pcm, chunk_size,
+                                       convert16k, (int)(sizeof(convert16k) / sizeof(convert16k[0])));
+    if (produced < 0) {
+      fprintf(stderr, "convert sequence overflow\n");
+      return 1;
+    }
+    fwrite(CONVERT_MAGIC, 1, 4, stdout);
+    count = (uint32_t)produced;
+    fwrite(&count, 4, 1, stdout);
+    for (i = 0; i < produced; i++) {
+      fwrite(&convert16k[i], 4, 1, stdout);
     }
   }
   return 0;
