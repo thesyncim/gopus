@@ -3,6 +3,20 @@
 Reference: pinned `tmp_check/opus-1.6.1/` (libopus **1.6.1**).  
 Pinned behavior wins unless a curated fixture documents an intentional divergence.
 
+## Scope
+
+The **stable** surface is default-build core: `Encoder`/`Decoder` (float32 / int16 /
+int24), multistream encode/decode, `container/ogg`, `container/red`, and
+caller-owned `Encode`/`Decode`. This is what gopus claims as a libopus 1.6.1
+drop-in for normal mono/stereo/multistream/Ogg use.
+
+The libopus 1.6 optional/ML surface — QEXT (Opus HD / 96 kHz), DRED, OSCE
+(BWE/LACE/NoLACE), Opus Custom, and the fixed-point implementation — is
+**build-tagged and experimental** (or out of scope), not part of the stable
+claim. The ambition is full libopus 1.6.1 parity; the [feature scope](#libopus-16-feature-scope)
+section tracks each toward that, separating *feature missing* from *implemented,
+parity-coverage incomplete*.
+
 ## Status legend
 
 | Symbol | Meaning |
@@ -59,7 +73,7 @@ kernels honest across `purego`/arch — is in [docs/parity-testing.md](docs/pari
 | SILK | Y | Y | Y (compliance + decoder matrix) | ~ (NLSF, gain, LTP, stereo oracles) | Auto mode selection vs libopus on edge signals; long-frame stereo DRED carriers; 16 kHz API-path explicit DRED |
 | CELT | Y | Y | Y (compliance + matrix) | ~ (PVQ, bands oracles; IMDCT + noise-PLC synthesis arm64 bit-exact stage oracles; CELT encode byte-exact across CBR matrix) | 2.5/5 ms variant byte ratchets; full PVQ/bands byte grid |
 | Hybrid | Y | Y | Y (matrix Q>=20, corr>=0.997 — same bar as SILK/CELT; compliance) | ~ (float32 SILK+CELT combine bit-exact stage oracle; Hybrid QEXT vs libopus int16) | SWB/FB stereo DRED byte layout; 16 kHz hybrid explicit decode; QEXT extension byte parity |
-| Auto | Y | Y (TOC-driven) | ~ (mode fixtures, analysis) | N | Full cross-product of application × rate × frame × signal class |
+| Auto | Y | Y (TOC-driven) | Y (mode fixtures, analysis) | Y (application × rate × frame × signal × channel cross-product, 214/216 cells) | 2 arm64 VOIP cells: documented 1-ULP tonality-analysis FMA drift (amd64 all 216 pass) |
 
 ---
 
@@ -68,12 +82,14 @@ kernels honest across `purego`/arch — is in [docs/parity-testing.md](docs/pari
 | Rate | Encode API | Decode API | Resample / PLC | Parity evidence | Gaps for 100% |
 | --- | --- | --- | --- | --- | --- |
 | 48 kHz | Y | Y | Y | Decoder matrix, compliance, DRED 48 kHz oracles | — |
-| 24 kHz | Y | Y | Y | Compliance (SILK MB), DRED convert16k | Decoder matrix is 48 kHz only; explicit DRED offset matrices thin |
-| 16 kHz | Y | Y | Y | SILK NB paths, DRED `ConvertTo16kMonoFloat32` (bit-exact) | Hybrid/SWB explicit DRED; cached multistream 16 kHz matrices partial |
-| 12 kHz | Y | Y | Y | DRED convert16k oracle | No dedicated decoder-matrix cases at 12 kHz |
-| 8 kHz | Y | Y | Y | DRED convert16k, SILK NB | NB resampler regression guards only |
+| 24 kHz | Y | Y | Y | Per-rate decoder matrix (byte-exact), compliance (SILK MB), DRED convert16k | — |
+| 16 kHz | Y | Y | Y | Per-rate decoder matrix (byte-exact), SILK NB, 16 kHz hybrid/SILK explicit DRED grid | — |
+| 12 kHz | Y | Y | Y | Per-rate decoder matrix (byte-exact), DRED convert16k oracle | — |
+| 8 kHz | Y | Y | Y | Per-rate decoder matrix (byte-exact), DRED convert16k, SILK NB | — |
 
-Internal PCM is handled at 48 kHz; API rates use encoder/decoder resamplers. **100% parity** needs per-rate decoder-matrix rows and explicit-DRED cases at each API rate, not only 48 kHz anchors.
+Internal PCM is handled at 48 kHz; API rates use encoder/decoder resamplers. The
+per-rate decoder matrix (`decoder_rate_parity_test`, 26 configs × 5 rates) is
+byte-exact vs libopus at every sub-48k API rate.
 
 ---
 
@@ -109,11 +125,11 @@ Valid sizes depend on mode (`encoder.ValidFrameSize`). Compliance summary uses 4
 
 | Control | API | Behavior vs libopus | Test coverage | Gaps for 100% |
 | --- | --- | --- | --- | --- |
-| CBR | Y | ~ | Compliance (primary), variants fixture | Per-mode byte-exact CBR packets |
-| VBR | Y | ~ | `SetVBR`, compliance bitrates test | Unconstrained VBR byte parity grid |
-| Constrained VBR (CVBR) | Y | ~ | Encoder mode + CELT bound scale | CVBR packet-size distribution vs libopus |
+| CBR | Y | Y | Compliance + `encoder_cbr_byte_parity` (SILK/CELT/Hybrid byte-exact; CELT/Hybrid hard on amd64, arm64 FMA residual) | — |
+| VBR | Y | ~ | `encoder_vbr_cvbr_byte_parity` (CELT byte-exact) | SILK/Hybrid unconstrained-VBR per-frame sizes |
+| Constrained VBR (CVBR) | Y | ~ | `encoder_vbr_cvbr_byte_parity` (CELT size+range parity) | SILK/Hybrid CVBR packet-size distribution |
 | Low delay | Y | ~ | `SetLowDelay` / application | Cross-mode low-delay matrix |
-| DTX | Y | ~ | `encoder/dtx_parity_test` (decide_dtx_mode) | Multi-frame DTX TOC sequences; stereo DTX |
+| DTX | Y | Y | `encoder/dtx_parity_test` + `dtx_sequence_parity` (multi-frame TOC, stereo, hybrid, SILK 10 ms threshold, max-consecutive reset) | — |
 
 ---
 
@@ -121,9 +137,9 @@ Valid sizes depend on mode (`encoder.ValidFrameSize`). Compliance summary uses 4
 
 | Path | Decode | Encode trigger | Parity | Gaps for 100% |
 | --- | --- | --- | --- | --- |
-| PLC (`Decode(nil,…)`) | Y | Y (frame_size from buffer; loss tests use last-packet duration like `opus_demo`) | Y (loss fixture, CELT PLC oracle) | Periodic PLC IIR edge cases; hybrid float32 PLC vs legacy widen (guarded in hybrid tests) |
-| LBRR / in-band FEC | Y | Y | Y (decoder loss fixture, FEC tests; cadence matches `opus_demo` lossfile) | Mono first packets and stereo warm LBRR packet byte-exact; LBRR gain bump aligned with per-packet `silk_setup_LBRR` |
-| RTP RED | E | E | E (`examples/webrtc-dred-loopback`) | **No public `gopus` RED parse/recover API**; no RFC RED vectors in CI |
+| PLC (`Decode(nil,…)`) | Y | Y (frame_size from buffer; loss tests use last-packet duration like `opus_demo`) | Y (loss fixture, CELT PLC oracle, SILK PLC IIR edge oracles) | — |
+| LBRR / in-band FEC | Y | Y | Y (decoder loss fixture, FEC tests; mono-first + stereo-warm LBRR `DecodeWithFEC` parity) | — |
+| RTP RED | Y | Y | Y (public `container/red`: RFC 2198 `Parse`/`Build`/`FindRecovery` + fuzz corpus) | RTP RED is outside libopus's core API; recovery ordering (RED→FEC→DRED→PLC) shown in `examples/webrtc-dred-loopback` |
 | DRED extension | T | T | ~ (process/queue/window oracles; explicit decode partial) | SILK explicit decoder; 16 kHz; stereo carriers; live-sequence vs cached oracle; multistream encoder attach |
 | Cached DRED recovery | T | — | ~ (48 kHz mono/stereo probes) | 16 kHz cached matrices; CELT NB/SWB explicit; hybrid stereo half-byte divergence |
 | Multi-gap recovery | T | — | ~ (recovery queue/window parity) | Long burst trains; cross-mode handover; multistream per-stream queues |
@@ -173,6 +189,27 @@ requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
 | `opus_compare` quality oracle | Y | Primary encoder/decoder quality gate | Broader corpus than summary cases |
 | `opusdec` crossval fixture | Y | CELT cross-validation (`celt/testdata/opusdec_crossval_fixture.json`) | Regenerate when scenario Ogg hashes change (`GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE=1`) |
 | libopus C oracles (`tools/csrc`, `make test-*-parity`) | ~ | Submodule numerical probes | CI mandatory on all platforms |
+
+---
+
+## libopus 1.6 feature scope
+
+Tracks the optional/ML surface libopus 1.6 added, toward full 1.6.1 parity.
+Status: **Y** stable · **T** tagged-experimental · **N** not implemented · **OOS**
+out of scope. "Feature missing" (no code) is separated from "implemented,
+parity-coverage incomplete".
+
+| Feature | libopus 1.6 | gopus status | Kind | Plan for parity |
+| --- | --- | --- | --- | --- |
+| 24-bit encode/decode | `opus_encode24`/`opus_decode24` (+ multistream/projection) | **Y** — `EncodeInt24`/`DecodeInt24` single + multistream (SILK bit-exact, CELT/Hybrid near-exact per-arch) | implemented | DRED `DecodeInt24` once promoted |
+| DRED | `OpusDREDDecoder`, parse/process, decode24 | **T** — tagged control/standalone; explicit decode + carriers byte-exact across the merged grid | coverage incomplete | multi-gap burst trains; cross-mode handover |
+| QEXT / Opus HD / 96 kHz | `--enable-qext`, `OPUS_SET_QEXT`, 96 kHz, ≤2 Mb/s | **T** (QEXT coding) / **N** (96 kHz API) | feature missing (96 kHz) + coverage incomplete (QEXT bytes) | full-packet QEXT byte parity in flight; 96 kHz Opus HD **not** offered at the public API |
+| OSCE BWE | `--enable-osce`, runtime BWE, complexity ≥4 | **T** — forward-pass/model parity; end-to-end decode-apply in progress | coverage incomplete | sample-level apply + activation rules + oracle |
+| LACE / NoLACE | deep enhancement (NoLACE+BWE) | **T** — forward-pass bit/near-exact; sample-level path in progress | coverage incomplete | sample-level decode apply + multistream per-stream |
+| Projection / Ambisonics | projection encode/decode(24) | **Y** (via multistream family 3 + demixing oracle); no dedicated public `Projection*` type | implemented (no public type) | decide: expose `Projection*` or document multistream-only; close ambisonics orders outside {4,6,9,…} |
+| Opus Custom | optional custom-mode API | **OOS** | out of scope | nonstandard frame sizes; not a Go-library goal unless requested |
+| Fixed-point implementation | float + fixed-point builds | **OOS** | out of scope | gopus is pure-Go float; int16/int24 are I/O conveniences, not a fixed-point pipeline |
+| Public utility API (`opus_pcm_soft_clip`, `opus_strerror`, version) | C-API helpers | **N** (softclip internal; no public `StrError`/version string) | feature missing (minor) | add `PCMSoftClip`/`VersionString`/`ErrorString` or document as idiomatic-Go omissions |
 
 ---
 
