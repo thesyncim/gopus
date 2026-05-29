@@ -19,7 +19,8 @@ Released version: none yet.
 
 Latest release evidence: none yet.
 
-Stable pre-release surface: `Encoder`, `Decoder`, multistream encode/decode,
+Stable pre-release surface: `Encoder`, `Decoder`, multistream encode/decode
+(including projection/ambisonics via `NewProjectionEncoder`/`NewProjectionDecoder`),
 `container/ogg`, `container/red` (RFC 2198 RED parse/build/recover), and
 caller-owned `Encode`/`Decode`. The `float32`, `int16`, and `int24`
 (`EncodeInt24`/`DecodeInt24`) PCM forms are all available on the single-stream

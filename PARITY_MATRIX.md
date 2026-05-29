@@ -70,9 +70,9 @@ kernels honest across `purego`/arch — is in [docs/parity-testing.md](docs/pari
 
 | Mode | Encode | Decode | Quality parity | Numeric / byte parity | Gaps for 100% |
 | --- | --- | --- | --- | --- | --- |
-| SILK | Y | Y | Y (compliance + decoder matrix) | ~ (NLSF, gain, LTP, stereo oracles) | Auto mode selection vs libopus on edge signals; long-frame stereo DRED carriers; 16 kHz API-path explicit DRED |
+| SILK | Y | Y | Y (compliance + decoder matrix) | ~ (NLSF, gain, LTP, stereo oracles; CBR byte-exact) | SILK unconstrained-VBR ≤3-byte/frame size drift (SILK-FLP iter-0 shaping-gain) |
 | CELT | Y | Y | Y (compliance + matrix) | ~ (PVQ, bands oracles; IMDCT + noise-PLC synthesis arm64 bit-exact stage oracles; CELT encode byte-exact across CBR matrix) | 2.5/5 ms variant byte ratchets; full PVQ/bands byte grid |
-| Hybrid | Y | Y | Y (matrix Q>=20, corr>=0.997 — same bar as SILK/CELT; compliance) | ~ (float32 SILK+CELT combine bit-exact stage oracle; Hybrid QEXT vs libopus int16) | SWB/FB stereo DRED byte layout; 16 kHz hybrid explicit decode; QEXT extension byte parity |
+| Hybrid | Y | Y | Y (matrix Q>=20, corr>=0.997 — same bar as SILK/CELT; compliance) | ~ (float32 SILK+CELT combine bit-exact stage oracle; stereo DRED carriers byte-exact; 16 kHz hybrid explicit DRED; QEXT framing byte-exact; VBR/CVBR byte/size-exact) | Hybrid unconstrained-VBR shares the SILK iter-0 size residual |
 | Auto | Y | Y (TOC-driven) | Y (mode fixtures, analysis) | Y (application × rate × frame × signal × channel cross-product, 214/216 cells) | 2 arm64 VOIP cells: documented 1-ULP tonality-analysis FMA drift (amd64 all 216 pass) |
 
 ---
@@ -152,10 +152,10 @@ Recovery ordering in the WebRTC example: **RED → FEC → DRED → PLC** (examp
 
 | Extension | Build | Encode attach | Decode | Parity today | Gaps for 100% |
 | --- | --- | --- | --- | --- | --- |
-| QEXT | `gopus_qext` | T | T | ~ (`celtGLog` energy; Hybrid QEXT decode vs libopus) | Full-packet byte parity all modes/frames; multistream QEXT |
-| DRED | `gopus_dred` | T | T (+ standalone `DREDDecoder`) | ~ (RDOVAE; `ConvertTo16kMonoFloat32` bit-exact; process parity) | Encoder carrier bytes per matrix cell; explicit decode grid; `SetDREDDuration` multistream |
-| OSCE BWE | `gopus_extra_controls` | N | T (CTL only) | Numeric forward-pass + model blob oracles | End-to-end decode apply; feature extractor; PLC crossfade sample parity |
-| LACE / NoLACE | `gopus_extra_controls` | N | T (CTL + multistream) | Forward-pass stage parity (~) | Sample-level decode path; multistream per-stream parity |
+| QEXT | `gopus_qext` | T | T | ~ (full-packet extension framing + CBR reservation + multistream QEXT byte-parity; CBR reservation bug fixed) | Main CELT-frame bytes = the byte-exact-encode cell; 96 kHz Opus HD not offered |
+| DRED | `gopus_dred` | T | T (+ standalone `DREDDecoder`) | ~ (RDOVAE; `ConvertTo16kMonoFloat32` bit-exact; explicit decode + carriers byte-exact; burst trains bit-exact; multistream per-stream queues corr=1.0) | Cross-mode (SILK/Hybrid→CELT) recovery PCM corr≈0.97 (16k CELT-PLC feature gap) |
+| OSCE BWE | `gopus_extra_controls` | N | T | End-to-end sample parity near-exact (corr ≥ 0.9955, documented architectural −8-sample delay) + forward-pass/feature-extractor parity | — |
+| LACE / NoLACE | `gopus_extra_controls` | N | T (CTL + multistream) | End-to-end sample-level **bit-exact** (Q=100, corr=1.0) mono+stereo + multistream per-stream | — |
 | DNN blob (`SetDNNBlob`) | `gopus_dred` / `gopus_extra_controls` | T (model load) | T (model load) | USE_WEIGHTS_FILE record framing + libopus model-blob parity | Model coverage beyond pitch/PLC/FARGAN/RDOVAE families |
 
 Default build: **no optional extensions**. `SetDNNBlob` is a zero-cost no-op
@@ -185,7 +185,7 @@ requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
 | Asset | Status | Role | Gaps for 100% |
 | --- | --- | --- | --- |
 | Ogg Opus read/write (`container/ogg`, `stream`) | Y | Demux/mux, projection headers | Fuzz corpus vs libopus ogg decode |
-| RFC 6716 / libopus vectors (`testvectors/`) | ~ | Decoder matrix (26 cases incl. `celt-fb-60ms-mono-64k`, `silk-wb-80ms`, `celt-fb-80ms`, `silk-wb-120ms`), loss, compliance, variants | Expand matrix: API decode rates 8–24 kHz, RED, multistream |
+| RFC 6716 / libopus vectors (`testvectors/`) | Y | Decoder matrix (29 cases incl. 100 ms + true Hybrid 40/60 ms rows), per-rate matrix (8/12/16/24/48 kHz byte-exact), loss (to 120 ms), compliance, variants, RED RFC 2198 vectors | Broader real-content corpus (speech/music/noise) |
 | `opus_compare` quality oracle | Y | Primary encoder/decoder quality gate | Broader corpus than summary cases |
 | `opusdec` crossval fixture | Y | CELT cross-validation (`celt/testdata/opusdec_crossval_fixture.json`) | Regenerate when scenario Ogg hashes change (`GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE=1`) |
 | libopus C oracles (`tools/csrc`, `make test-*-parity`) | ~ | Submodule numerical probes | CI mandatory on all platforms |
