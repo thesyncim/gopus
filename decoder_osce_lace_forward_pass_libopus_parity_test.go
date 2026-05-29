@@ -250,6 +250,82 @@ func TestOSCELACEForwardTraceLocatesFirstDivergence(t *testing.T) {
 	}
 }
 
+func TestOSCENoLACEForwardTraceLocatesFirstDivergence(t *testing.T) {
+	if os.Getenv("GOPUS_TRACE_OSCE_LACE") != "1" {
+		t.Skip("set GOPUS_TRACE_OSCE_LACE=1 to run the opt-in NoLACE stage trace")
+	}
+	libopustest.RequireOracle(t)
+
+	binPath, err := getLibopusOSCELACEForwardHelperPath()
+	if err != nil {
+		libopustest.HelperUnavailable(t, "OSCE LACE forward", err)
+	}
+
+	blob := requireLibopusOSCELACEModelBlob(t)
+	parsed, err := dnnblob.Clone(blob)
+	if err != nil {
+		t.Fatalf("dnnblob.Clone: %v", err)
+	}
+	model, err := osceLACE.Load(parsed)
+	if err != nil {
+		t.Fatalf("osceLACE.Load: %v", err)
+	}
+
+	const inputLen = 320
+	in := make([]float32, inputLen)
+	for i := 0; i < inputLen; i++ {
+		v := 0.5 * math.Sin(2*math.Pi*1000*float64(i)/16000)
+		q := int(math.Round(v * 32767))
+		if q > 32767 {
+			q = 32767
+		} else if q < -32768 {
+			q = -32768
+		}
+		in[i] = float32(int16(q)) / 32768
+	}
+	features := make([]float32, 4*93)
+	numbits := []float32{0, 0}
+	periods := []int{60, 60, 60, 60}
+
+	refRecords, err := runOSCELACEForwardTraceHelper(binPath, inputLen, "nolace")
+	if err != nil {
+		t.Fatalf("libopus OSCE NoLACE trace helper run failed: %v", err)
+	}
+
+	var state osceLACE.NoLACEState
+	if err := state.SetModel(model); err != nil {
+		t.Fatalf("NoLACEState.SetModel: %v", err)
+	}
+	out := make([]float32, inputLen)
+	gotRecords, err := state.ProcessTrace(in, out, features, numbits, periods)
+	if err != nil {
+		t.Fatalf("NoLACEState.ProcessTrace: %v", err)
+	}
+
+	if len(gotRecords) != len(refRecords) {
+		t.Fatalf("trace record count: got %d want %d", len(gotRecords), len(refRecords))
+	}
+	firstDivergence := ""
+	for i := range gotRecords {
+		got := gotRecords[i]
+		ref := refRecords[i]
+		if got.Stage != ref.Stage || len(got.Values) != len(ref.Values) {
+			t.Fatalf("trace record %d shape mismatch: got stage=%d len=%d; want stage=%d len=%d",
+				i, got.Stage, len(got.Values), ref.Stage, len(ref.Values))
+		}
+		maxAbs, maxIdx, rms := compareFloat32(got.Values, ref.Values)
+		t.Logf("NoLACE trace %-14s maxAbs=%g idx=%d rms=%g", traceStageName(got.Stage), maxAbs, maxIdx, rms)
+		if firstDivergence == "" && (maxAbs > 1e-6 || rms > 1e-7) {
+			firstDivergence = traceStageName(got.Stage)
+		}
+	}
+	if firstDivergence == "" {
+		t.Log("NoLACE trace is within captured-stage parity thresholds")
+	} else {
+		t.Logf("first captured NoLACE divergence: %s", firstDivergence)
+	}
+}
+
 var libopusOSCELACEForwardHelper libopustest.HelperCache
 
 // getLibopusOSCELACEForwardHelperPath lazily builds (against the OSCE-enabled
@@ -443,6 +519,30 @@ func traceStageName(stage osceLACE.TraceStage) string {
 		return "cf1_kernel_scaled"
 	case osceLACE.TraceStageCF1GainsScaled:
 		return "cf1_gains_scaled"
+	case osceLACE.TraceStageNLPreemph:
+		return "nl_preemph"
+	case osceLACE.TraceStageNLLatent:
+		return "nl_latent"
+	case osceLACE.TraceStageNLPostCF1:
+		return "nl_post_cf1"
+	case osceLACE.TraceStageNLPostCF2:
+		return "nl_post_cf2"
+	case osceLACE.TraceStageNLPostAF1:
+		return "nl_post_af1"
+	case osceLACE.TraceStageNLTDShape1:
+		return "nl_tdshape1"
+	case osceLACE.TraceStageNLPostAF2:
+		return "nl_post_af2"
+	case osceLACE.TraceStageNLTDShape2:
+		return "nl_tdshape2"
+	case osceLACE.TraceStageNLPostAF3:
+		return "nl_post_af3"
+	case osceLACE.TraceStageNLTDShape3:
+		return "nl_tdshape3"
+	case osceLACE.TraceStageNLPostAF4:
+		return "nl_post_af4"
+	case osceLACE.TraceStageNLDeemph:
+		return "nl_deemph"
 	default:
 		return fmt.Sprintf("stage_%d", stage)
 	}

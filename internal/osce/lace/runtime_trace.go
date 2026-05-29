@@ -29,6 +29,22 @@ const (
 	TraceStageCF1GainsScaled
 )
 
+// NoLACE-only trace stages. Numbered to match the C helper enum values 30..41.
+const (
+	TraceStageNLPreemph    TraceStage = 30
+	TraceStageNLLatent     TraceStage = 31
+	TraceStageNLPostCF1    TraceStage = 32
+	TraceStageNLPostCF2    TraceStage = 33
+	TraceStageNLPostAF1    TraceStage = 34
+	TraceStageNLTDShape1   TraceStage = 35
+	TraceStageNLPostAF2    TraceStage = 36
+	TraceStageNLTDShape2   TraceStage = 37
+	TraceStageNLPostAF3    TraceStage = 38
+	TraceStageNLTDShape3   TraceStage = 39
+	TraceStageNLPostAF4    TraceStage = 40
+	TraceStageNLDeemph     TraceStage = 41
+)
+
 // TraceRecord captures one opt-in LACE diagnostic checkpoint. These records are
 // intentionally allocated and are only built by ProcessTrace under the
 // extra-controls build tag.
@@ -275,4 +291,231 @@ func periodsAsFloat32(periods []int) []float32 {
 		out[i] = float32(period)
 	}
 	return out
+}
+
+// ProcessTrace mirrors NoLACEState.Process for one 20 ms frame while
+// snapshotting the per-stage checkpoints emitted by the libopus NoLACE trace
+// helper (trace_nolace_process_20ms_frame). The arithmetic path is identical to
+// Process; only the additional record snapshots are inserted.
+func (s *NoLACEState) ProcessTrace(in, out, features []float32, numbits []float32, periods []int) ([]TraceRecord, error) {
+	if !s.Loaded() {
+		return nil, errLACENoModel
+	}
+	if len(in) != frame20msSize {
+		return nil, errLACEInLen
+	}
+	if len(out) < frame20msSize {
+		return nil, errLACEOutLen
+	}
+	if len(features) < subframesPerFrame*nolaceNumFeatures {
+		return nil, errLACEFeatures
+	}
+	if len(periods) < subframesPerFrame {
+		return nil, errLACEPeriods
+	}
+	if len(numbits) < 2 {
+		return nil, errLACENumbits
+	}
+	if err := validatePeriods(periods, nolacePitchMax); err != nil {
+		return nil, err
+	}
+	s.ensureWindow()
+	m := &s.model.NoLACE
+
+	records := make([]TraceRecord, 0, 16)
+	appendTraceRecord(&records, TraceStageInput, -1, 1, frame20msSize, in[:frame20msSize])
+	appendTraceRecord(&records, TraceStageFeatures, -1, 1, subframesPerFrame*nolaceNumFeatures, features[:subframesPerFrame*nolaceNumFeatures])
+	appendTraceRecord(&records, TraceStageNumbits, -1, 1, 2, numbits[:2])
+	appendTraceRecord(&records, TraceStagePeriods, -1, 1, subframesPerFrame, periodsAsFloat32(periods[:subframesPerFrame]))
+
+	var xBuf1 [subframesPerFrame * 2 * subframeSize]float32
+	var xBuf2 [subframesPerFrame * 2 * subframeSize]float32
+
+	for i := 0; i < frame20msSize; i++ {
+		xBuf1[i] = in[i] - nolacePreemph*s.preempMem
+		s.preempMem = in[i]
+	}
+	appendTraceRecord(&records, TraceStageNLPreemph, -1, 1, frame20msSize, xBuf1[:frame20msSize])
+
+	var featureBuf [subframesPerFrame * nolaceCondDim]float32
+	var featureTransformBuf [subframesPerFrame * nolaceCondDim]float32
+	s.featureNet(featureBuf[:], features, numbits, periods)
+	appendTraceRecord(&records, TraceStageNLLatent, -1, 1, subframesPerFrame*nolaceCondDim, featureBuf[:])
+
+	for sf := 0; sf < subframesPerFrame; sf++ {
+		base := sf * subframeSize
+		adacombProcessFrame(
+			s.cf1History[:], s.cf1LastKernel[:], &s.cf1LastGlobalGain, &s.cf1LastPitchLag,
+			xBuf1[base:base+subframeSize], xBuf1[base:base+subframeSize],
+			featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			&m.CF1Kernel, &m.CF1Gain, &m.CF1GlobalGain,
+			periods[sf], subframeSize, nolaceOverlapSize,
+			nolaceCF1KernelSize, nolaceCF1LeftPadding,
+			nolaceCF1FilterGainA, nolaceCF1FilterGainB, nolaceCF1LogGainLimit,
+			s.window[:],
+		)
+		computeGenericConv1D(&m.PostCF1,
+			featureTransformBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			s.postCF1State[:], featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			nolaceCondDim, actTanh)
+	}
+	copy(featureBuf[:], featureTransformBuf[:])
+	appendTraceRecord(&records, TraceStageNLPostCF1, -1, 1, frame20msSize, xBuf1[:frame20msSize])
+
+	for sf := 0; sf < subframesPerFrame; sf++ {
+		base := sf * subframeSize
+		adacombProcessFrame(
+			s.cf2History[:], s.cf2LastKernel[:], &s.cf2LastGlobalGain, &s.cf2LastPitchLag,
+			xBuf1[base:base+subframeSize], xBuf1[base:base+subframeSize],
+			featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			&m.CF2Kernel, &m.CF2Gain, &m.CF2GlobalGain,
+			periods[sf], subframeSize, nolaceOverlapSize,
+			nolaceCF2KernelSize, nolaceCF2LeftPadding,
+			nolaceCF2FilterGainA, nolaceCF2FilterGainB, nolaceCF2LogGainLimit,
+			s.window[:],
+		)
+		computeGenericConv1D(&m.PostCF2,
+			featureTransformBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			s.postCF2State[:], featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			nolaceCondDim, actTanh)
+	}
+	copy(featureBuf[:], featureTransformBuf[:])
+	appendTraceRecord(&records, TraceStageNLPostCF2, -1, 1, frame20msSize, xBuf1[:frame20msSize])
+
+	for sf := 0; sf < subframesPerFrame; sf++ {
+		inBase := sf * subframeSize
+		outBase := sf * nolaceAF1OutChannels * subframeSize
+		adaconvProcessFrame(
+			s.af1History[:], s.af1LastKernel[:],
+			xBuf2[outBase:outBase+nolaceAF1OutChannels*subframeSize],
+			xBuf1[inBase:inBase+subframeSize],
+			featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			&m.AF1Kernel, &m.AF1Gain,
+			subframeSize, nolaceOverlapSize,
+			nolaceAF1InChannels, nolaceAF1OutChannels,
+			nolaceAF1KernelSize, nolaceAF1LeftPadding,
+			nolaceAF1FilterGainA, nolaceAF1FilterGainB, 1.0,
+			s.window[:],
+		)
+		computeGenericConv1D(&m.PostAF1,
+			featureTransformBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			s.postAF1State[:], featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			nolaceCondDim, actTanh)
+	}
+	copy(featureBuf[:], featureTransformBuf[:])
+	appendTraceRecord(&records, TraceStageNLPostAF1, -1, 1, subframesPerFrame*nolaceAF1OutChannels*subframeSize, xBuf2[:subframesPerFrame*nolaceAF1OutChannels*subframeSize])
+
+	for sf := 0; sf < subframesPerFrame; sf++ {
+		base2 := sf * nolaceAF1OutChannels * subframeSize
+		adashapeProcessFrame(
+			s.tdshape1Alpha1FState[:], s.tdshape1Alpha1TState[:], s.tdshape1Alpha2State[:],
+			&s.tdshape1InterpState,
+			xBuf2[base2+subframeSize:base2+2*subframeSize],
+			xBuf2[base2+subframeSize:base2+2*subframeSize],
+			featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			&m.TDShape1Alpha1F, &m.TDShape1Alpha1T, &m.TDShape1Alpha2,
+			nolaceCondDim, subframeSize, nolaceTDShapeAvgPoolK, nolaceTDShapeInterpolK,
+		)
+	}
+	appendTraceRecord(&records, TraceStageNLTDShape1, -1, 1, subframesPerFrame*nolaceAF1OutChannels*subframeSize, xBuf2[:subframesPerFrame*nolaceAF1OutChannels*subframeSize])
+
+	for sf := 0; sf < subframesPerFrame; sf++ {
+		base2 := sf * nolaceAF1OutChannels * subframeSize
+		base1 := sf * nolaceAF2OutChannels * subframeSize
+		adaconvProcessFrame(
+			s.af2History[:], s.af2LastKernel[:],
+			xBuf1[base1:base1+nolaceAF2OutChannels*subframeSize],
+			xBuf2[base2:base2+nolaceAF2InChannels*subframeSize],
+			featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			&m.AF2Kernel, &m.AF2Gain,
+			subframeSize, nolaceOverlapSize,
+			nolaceAF2InChannels, nolaceAF2OutChannels,
+			nolaceAF2KernelSize, nolaceAF2LeftPadding,
+			nolaceAF2FilterGainA, nolaceAF2FilterGainB, 1.0,
+			s.window[:],
+		)
+		computeGenericConv1D(&m.PostAF2,
+			featureTransformBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			s.postAF2State[:], featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			nolaceCondDim, actTanh)
+	}
+	copy(featureBuf[:], featureTransformBuf[:])
+	appendTraceRecord(&records, TraceStageNLPostAF2, -1, 1, subframesPerFrame*nolaceAF2OutChannels*subframeSize, xBuf1[:subframesPerFrame*nolaceAF2OutChannels*subframeSize])
+
+	for sf := 0; sf < subframesPerFrame; sf++ {
+		base1 := sf * nolaceAF2OutChannels * subframeSize
+		adashapeProcessFrame(
+			s.tdshape2Alpha1FState[:], s.tdshape2Alpha1TState[:], s.tdshape2Alpha2State[:],
+			&s.tdshape2InterpState,
+			xBuf1[base1+subframeSize:base1+2*subframeSize],
+			xBuf1[base1+subframeSize:base1+2*subframeSize],
+			featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			&m.TDShape2Alpha1F, &m.TDShape2Alpha1T, &m.TDShape2Alpha2,
+			nolaceCondDim, subframeSize, nolaceTDShapeAvgPoolK, nolaceTDShapeInterpolK,
+		)
+	}
+	appendTraceRecord(&records, TraceStageNLTDShape2, -1, 1, subframesPerFrame*nolaceAF2OutChannels*subframeSize, xBuf1[:subframesPerFrame*nolaceAF2OutChannels*subframeSize])
+
+	for sf := 0; sf < subframesPerFrame; sf++ {
+		base1 := sf * nolaceAF2OutChannels * subframeSize
+		base2 := sf * nolaceAF3OutChannels * subframeSize
+		adaconvProcessFrame(
+			s.af3History[:], s.af3LastKernel[:],
+			xBuf2[base2:base2+nolaceAF3OutChannels*subframeSize],
+			xBuf1[base1:base1+nolaceAF3InChannels*subframeSize],
+			featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			&m.AF3Kernel, &m.AF3Gain,
+			subframeSize, nolaceOverlapSize,
+			nolaceAF3InChannels, nolaceAF3OutChannels,
+			nolaceAF3KernelSize, nolaceAF3LeftPadding,
+			nolaceAF3FilterGainA, nolaceAF3FilterGainB, 1.0,
+			s.window[:],
+		)
+		computeGenericConv1D(&m.PostAF3,
+			featureTransformBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			s.postAF3State[:], featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			nolaceCondDim, actTanh)
+	}
+	copy(featureBuf[:], featureTransformBuf[:])
+	appendTraceRecord(&records, TraceStageNLPostAF3, -1, 1, subframesPerFrame*nolaceAF3OutChannels*subframeSize, xBuf2[:subframesPerFrame*nolaceAF3OutChannels*subframeSize])
+
+	for sf := 0; sf < subframesPerFrame; sf++ {
+		base2 := sf * nolaceAF3OutChannels * subframeSize
+		adashapeProcessFrame(
+			s.tdshape3Alpha1FState[:], s.tdshape3Alpha1TState[:], s.tdshape3Alpha2State[:],
+			&s.tdshape3InterpState,
+			xBuf2[base2+subframeSize:base2+2*subframeSize],
+			xBuf2[base2+subframeSize:base2+2*subframeSize],
+			featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			&m.TDShape3Alpha1F, &m.TDShape3Alpha1T, &m.TDShape3Alpha2,
+			nolaceCondDim, subframeSize, nolaceTDShapeAvgPoolK, nolaceTDShapeInterpolK,
+		)
+	}
+	appendTraceRecord(&records, TraceStageNLTDShape3, -1, 1, subframesPerFrame*nolaceAF3OutChannels*subframeSize, xBuf2[:subframesPerFrame*nolaceAF3OutChannels*subframeSize])
+
+	for sf := 0; sf < subframesPerFrame; sf++ {
+		base2 := sf * nolaceAF3OutChannels * subframeSize
+		base1 := sf * nolaceAF4OutChannels * subframeSize
+		adaconvProcessFrame(
+			s.af4History[:], s.af4LastKernel[:],
+			xBuf1[base1:base1+nolaceAF4OutChannels*subframeSize],
+			xBuf2[base2:base2+nolaceAF4InChannels*subframeSize],
+			featureBuf[sf*nolaceCondDim:sf*nolaceCondDim+nolaceCondDim],
+			&m.AF4Kernel, &m.AF4Gain,
+			subframeSize, nolaceOverlapSize,
+			nolaceAF4InChannels, nolaceAF4OutChannels,
+			nolaceAF4KernelSize, nolaceAF4LeftPadding,
+			nolaceAF4FilterGainA, nolaceAF4FilterGainB, 1.0,
+			s.window[:],
+		)
+	}
+	appendTraceRecord(&records, TraceStageNLPostAF4, -1, 1, subframesPerFrame*nolaceAF4OutChannels*subframeSize, xBuf1[:subframesPerFrame*nolaceAF4OutChannels*subframeSize])
+
+	for i := 0; i < frame20msSize; i++ {
+		out[i] = xBuf1[i] + nolacePreemph*s.deempMem
+		s.deempMem = out[i]
+	}
+	appendTraceRecord(&records, TraceStageNLDeemph, -1, 1, frame20msSize, out[:frame20msSize])
+
+	return records, nil
 }

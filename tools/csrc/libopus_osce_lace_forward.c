@@ -137,7 +137,20 @@ enum {
   TRACE_STAGE_CF1_KERNEL_RAW = 16,
   TRACE_STAGE_CF1_GAINS_RAW = 17,
   TRACE_STAGE_CF1_KERNEL_SCALED = 18,
-  TRACE_STAGE_CF1_GAINS_SCALED = 19
+  TRACE_STAGE_CF1_GAINS_SCALED = 19,
+  /* NoLACE-only stage checkpoints (mode_id == 1). */
+  TRACE_STAGE_NL_PREEMPH = 30,
+  TRACE_STAGE_NL_LATENT = 31,
+  TRACE_STAGE_NL_POST_CF1 = 32,
+  TRACE_STAGE_NL_POST_CF2 = 33,
+  TRACE_STAGE_NL_POST_AF1 = 34,
+  TRACE_STAGE_NL_POST_TDSHAPE1 = 35,
+  TRACE_STAGE_NL_POST_AF2 = 36,
+  TRACE_STAGE_NL_POST_TDSHAPE2 = 37,
+  TRACE_STAGE_NL_POST_AF3 = 38,
+  TRACE_STAGE_NL_POST_TDSHAPE3 = 39,
+  TRACE_STAGE_NL_POST_AF4 = 40,
+  TRACE_STAGE_NL_DEEMPH = 41
 };
 
 static int write_i32(int32_t v) {
@@ -401,6 +414,178 @@ static int trace_lace_process_20ms_frame(
   return write_trace_record(TRACE_STAGE_DEEMPH, -1, 1, 4 * LACE_FRAME_SIZE, x_out, 4 * LACE_FRAME_SIZE);
 }
 
+/* trace_nolace_process_20ms_frame mirrors dnn/osce.c:nolace_process_20ms_frame
+ * verbatim, inserting write_trace_record() checkpoints after each major stage so
+ * the gopus NoLACE runtime can be compared stage-by-stage. The arithmetic path
+ * is identical to the production routine. */
+static int trace_nolace_process_20ms_frame(
+    NoLACE* hNoLACE,
+    NoLACEState *state,
+    float *x_out,
+    const float *x_in,
+    const float *features,
+    const float *numbits,
+    const int *periods,
+    int arch
+) {
+  float feature_buffer[4 * NOLACE_COND_DIM];
+  float feature_transform_buffer[4 * NOLACE_COND_DIM];
+  float x_buffer1[8 * NOLACE_FRAME_SIZE];
+  float x_buffer2[8 * NOLACE_FRAME_SIZE];
+  float periods_f[4];
+  int i_subframe, i_sample;
+  NOLACELayers *layers = &hNoLACE->layers;
+
+  for (i_subframe = 0; i_subframe < 4; i_subframe++) {
+    periods_f[i_subframe] = (float)periods[i_subframe];
+  }
+
+  if (!write_trace_header(1, 16)) return 0;
+  if (!write_trace_record(TRACE_STAGE_INPUT, -1, 1, 4 * NOLACE_FRAME_SIZE, x_in, 4 * NOLACE_FRAME_SIZE)) return 0;
+  if (!write_trace_record(TRACE_STAGE_FEATURES, -1, 1, 4 * NOLACE_NUM_FEATURES, features, 4 * NOLACE_NUM_FEATURES)) return 0;
+  if (!write_trace_record(TRACE_STAGE_NUMBITS, -1, 1, 2, numbits, 2)) return 0;
+  if (!write_trace_record(TRACE_STAGE_PERIODS, -1, 1, 4, periods_f, 4)) return 0;
+
+  for (i_sample = 0; i_sample < 4 * NOLACE_FRAME_SIZE; i_sample++) {
+    x_buffer1[i_sample] = x_in[i_sample] - NOLACE_PREEMPH * state->preemph_mem;
+    state->preemph_mem = x_in[i_sample];
+  }
+  if (!write_trace_record(TRACE_STAGE_NL_PREEMPH, -1, 1, 4 * NOLACE_FRAME_SIZE, x_buffer1, 4 * NOLACE_FRAME_SIZE)) return 0;
+
+  nolace_feature_net(hNoLACE, state, feature_buffer, features, numbits, periods, arch);
+  if (!write_trace_record(TRACE_STAGE_NL_LATENT, -1, 1, 4 * NOLACE_COND_DIM, feature_buffer, 4 * NOLACE_COND_DIM)) return 0;
+
+  for (i_subframe = 0; i_subframe < 4; i_subframe++) {
+    adacomb_process_frame(&state->cf1_state,
+        x_buffer1 + i_subframe * NOLACE_FRAME_SIZE, x_buffer1 + i_subframe * NOLACE_FRAME_SIZE,
+        feature_buffer + i_subframe * NOLACE_COND_DIM,
+        &layers->nolace_cf1_kernel, &layers->nolace_cf1_gain, &layers->nolace_cf1_global_gain,
+        periods[i_subframe], NOLACE_COND_DIM, NOLACE_FRAME_SIZE, NOLACE_OVERLAP_SIZE,
+        NOLACE_CF1_KERNEL_SIZE, NOLACE_CF1_LEFT_PADDING, NOLACE_CF1_FILTER_GAIN_A,
+        NOLACE_CF1_FILTER_GAIN_B, NOLACE_CF1_LOG_GAIN_LIMIT, hNoLACE->window, arch);
+    compute_generic_conv1d(&layers->nolace_post_cf1,
+        feature_transform_buffer + i_subframe * NOLACE_COND_DIM, state->post_cf1_state,
+        feature_buffer + i_subframe * NOLACE_COND_DIM, NOLACE_COND_DIM, ACTIVATION_TANH, arch);
+  }
+  OPUS_COPY(feature_buffer, feature_transform_buffer, 4 * NOLACE_COND_DIM);
+  if (!write_trace_record(TRACE_STAGE_NL_POST_CF1, -1, 1, 4 * NOLACE_FRAME_SIZE, x_buffer1, 4 * NOLACE_FRAME_SIZE)) return 0;
+
+  for (i_subframe = 0; i_subframe < 4; i_subframe++) {
+    adacomb_process_frame(&state->cf2_state,
+        x_buffer1 + i_subframe * NOLACE_FRAME_SIZE, x_buffer1 + i_subframe * NOLACE_FRAME_SIZE,
+        feature_buffer + i_subframe * NOLACE_COND_DIM,
+        &layers->nolace_cf2_kernel, &layers->nolace_cf2_gain, &layers->nolace_cf2_global_gain,
+        periods[i_subframe], NOLACE_COND_DIM, NOLACE_FRAME_SIZE, NOLACE_OVERLAP_SIZE,
+        NOLACE_CF2_KERNEL_SIZE, NOLACE_CF2_LEFT_PADDING, NOLACE_CF2_FILTER_GAIN_A,
+        NOLACE_CF2_FILTER_GAIN_B, NOLACE_CF2_LOG_GAIN_LIMIT, hNoLACE->window, arch);
+    compute_generic_conv1d(&layers->nolace_post_cf2,
+        feature_transform_buffer + i_subframe * NOLACE_COND_DIM, state->post_cf2_state,
+        feature_buffer + i_subframe * NOLACE_COND_DIM, NOLACE_COND_DIM, ACTIVATION_TANH, arch);
+  }
+  OPUS_COPY(feature_buffer, feature_transform_buffer, 4 * NOLACE_COND_DIM);
+  if (!write_trace_record(TRACE_STAGE_NL_POST_CF2, -1, 1, 4 * NOLACE_FRAME_SIZE, x_buffer1, 4 * NOLACE_FRAME_SIZE)) return 0;
+
+  for (i_subframe = 0; i_subframe < 4; i_subframe++) {
+    adaconv_process_frame(&state->af1_state,
+        x_buffer2 + i_subframe * NOLACE_FRAME_SIZE * NOLACE_AF1_OUT_CHANNELS,
+        x_buffer1 + i_subframe * NOLACE_FRAME_SIZE,
+        feature_buffer + i_subframe * NOLACE_COND_DIM,
+        &layers->nolace_af1_kernel, &layers->nolace_af1_gain,
+        NOLACE_COND_DIM, NOLACE_FRAME_SIZE, NOLACE_OVERLAP_SIZE,
+        NOLACE_AF1_IN_CHANNELS, NOLACE_AF1_OUT_CHANNELS, NOLACE_AF1_KERNEL_SIZE,
+        NOLACE_AF1_LEFT_PADDING, NOLACE_AF1_FILTER_GAIN_A, NOLACE_AF1_FILTER_GAIN_B,
+        NOLACE_AF1_SHAPE_GAIN, hNoLACE->window, arch);
+    compute_generic_conv1d(&layers->nolace_post_af1,
+        feature_transform_buffer + i_subframe * NOLACE_COND_DIM, state->post_af1_state,
+        feature_buffer + i_subframe * NOLACE_COND_DIM, NOLACE_COND_DIM, ACTIVATION_TANH, arch);
+  }
+  OPUS_COPY(feature_buffer, feature_transform_buffer, 4 * NOLACE_COND_DIM);
+  if (!write_trace_record(TRACE_STAGE_NL_POST_AF1, -1, 1, 4 * NOLACE_FRAME_SIZE * NOLACE_AF1_OUT_CHANNELS, x_buffer2, 4 * NOLACE_FRAME_SIZE * NOLACE_AF1_OUT_CHANNELS)) return 0;
+
+  for (i_subframe = 0; i_subframe < 4; i_subframe++) {
+    adashape_process_frame(&state->tdshape1_state,
+        x_buffer2 + i_subframe * NOLACE_AF1_OUT_CHANNELS * NOLACE_FRAME_SIZE + NOLACE_FRAME_SIZE,
+        x_buffer2 + i_subframe * NOLACE_AF1_OUT_CHANNELS * NOLACE_FRAME_SIZE + NOLACE_FRAME_SIZE,
+        feature_buffer + i_subframe * NOLACE_COND_DIM,
+        &layers->nolace_tdshape1_alpha1_f, &layers->nolace_tdshape1_alpha1_t, &layers->nolace_tdshape1_alpha2,
+        NOLACE_TDSHAPE1_FEATURE_DIM, NOLACE_TDSHAPE1_FRAME_SIZE, NOLACE_TDSHAPE1_AVG_POOL_K, 1, arch);
+  }
+  if (!write_trace_record(TRACE_STAGE_NL_POST_TDSHAPE1, -1, 1, 4 * NOLACE_FRAME_SIZE * NOLACE_AF1_OUT_CHANNELS, x_buffer2, 4 * NOLACE_FRAME_SIZE * NOLACE_AF1_OUT_CHANNELS)) return 0;
+
+  for (i_subframe = 0; i_subframe < 4; i_subframe++) {
+    adaconv_process_frame(&state->af2_state,
+        x_buffer1 + i_subframe * NOLACE_FRAME_SIZE * NOLACE_AF2_OUT_CHANNELS,
+        x_buffer2 + i_subframe * NOLACE_FRAME_SIZE * NOLACE_AF2_IN_CHANNELS,
+        feature_buffer + i_subframe * NOLACE_COND_DIM,
+        &layers->nolace_af2_kernel, &layers->nolace_af2_gain,
+        NOLACE_COND_DIM, NOLACE_FRAME_SIZE, NOLACE_OVERLAP_SIZE,
+        NOLACE_AF2_IN_CHANNELS, NOLACE_AF2_OUT_CHANNELS, NOLACE_AF2_KERNEL_SIZE,
+        NOLACE_AF2_LEFT_PADDING, NOLACE_AF2_FILTER_GAIN_A, NOLACE_AF2_FILTER_GAIN_B,
+        NOLACE_AF2_SHAPE_GAIN, hNoLACE->window, arch);
+    compute_generic_conv1d(&layers->nolace_post_af2,
+        feature_transform_buffer + i_subframe * NOLACE_COND_DIM, state->post_af2_state,
+        feature_buffer + i_subframe * NOLACE_COND_DIM, NOLACE_COND_DIM, ACTIVATION_TANH, arch);
+  }
+  OPUS_COPY(feature_buffer, feature_transform_buffer, 4 * NOLACE_COND_DIM);
+  if (!write_trace_record(TRACE_STAGE_NL_POST_AF2, -1, 1, 4 * NOLACE_FRAME_SIZE * NOLACE_AF2_OUT_CHANNELS, x_buffer1, 4 * NOLACE_FRAME_SIZE * NOLACE_AF2_OUT_CHANNELS)) return 0;
+
+  for (i_subframe = 0; i_subframe < 4; i_subframe++) {
+    adashape_process_frame(&state->tdshape2_state,
+        x_buffer1 + i_subframe * NOLACE_AF2_OUT_CHANNELS * NOLACE_FRAME_SIZE + NOLACE_FRAME_SIZE,
+        x_buffer1 + i_subframe * NOLACE_AF2_OUT_CHANNELS * NOLACE_FRAME_SIZE + NOLACE_FRAME_SIZE,
+        feature_buffer + i_subframe * NOLACE_COND_DIM,
+        &layers->nolace_tdshape2_alpha1_f, &layers->nolace_tdshape2_alpha1_t, &layers->nolace_tdshape2_alpha2,
+        NOLACE_TDSHAPE2_FEATURE_DIM, NOLACE_TDSHAPE2_FRAME_SIZE, NOLACE_TDSHAPE2_AVG_POOL_K, 1, arch);
+  }
+  if (!write_trace_record(TRACE_STAGE_NL_POST_TDSHAPE2, -1, 1, 4 * NOLACE_FRAME_SIZE * NOLACE_AF2_OUT_CHANNELS, x_buffer1, 4 * NOLACE_FRAME_SIZE * NOLACE_AF2_OUT_CHANNELS)) return 0;
+
+  for (i_subframe = 0; i_subframe < 4; i_subframe++) {
+    adaconv_process_frame(&state->af3_state,
+        x_buffer2 + i_subframe * NOLACE_FRAME_SIZE * NOLACE_AF3_OUT_CHANNELS,
+        x_buffer1 + i_subframe * NOLACE_FRAME_SIZE * NOLACE_AF3_IN_CHANNELS,
+        feature_buffer + i_subframe * NOLACE_COND_DIM,
+        &layers->nolace_af3_kernel, &layers->nolace_af3_gain,
+        NOLACE_COND_DIM, NOLACE_FRAME_SIZE, NOLACE_OVERLAP_SIZE,
+        NOLACE_AF3_IN_CHANNELS, NOLACE_AF3_OUT_CHANNELS, NOLACE_AF3_KERNEL_SIZE,
+        NOLACE_AF3_LEFT_PADDING, NOLACE_AF3_FILTER_GAIN_A, NOLACE_AF3_FILTER_GAIN_B,
+        NOLACE_AF3_SHAPE_GAIN, hNoLACE->window, arch);
+    compute_generic_conv1d(&layers->nolace_post_af3,
+        feature_transform_buffer + i_subframe * NOLACE_COND_DIM, state->post_af3_state,
+        feature_buffer + i_subframe * NOLACE_COND_DIM, NOLACE_COND_DIM, ACTIVATION_TANH, arch);
+  }
+  OPUS_COPY(feature_buffer, feature_transform_buffer, 4 * NOLACE_COND_DIM);
+  if (!write_trace_record(TRACE_STAGE_NL_POST_AF3, -1, 1, 4 * NOLACE_FRAME_SIZE * NOLACE_AF3_OUT_CHANNELS, x_buffer2, 4 * NOLACE_FRAME_SIZE * NOLACE_AF3_OUT_CHANNELS)) return 0;
+
+  for (i_subframe = 0; i_subframe < 4; i_subframe++) {
+    adashape_process_frame(&state->tdshape3_state,
+        x_buffer2 + i_subframe * NOLACE_AF3_OUT_CHANNELS * NOLACE_FRAME_SIZE + NOLACE_FRAME_SIZE,
+        x_buffer2 + i_subframe * NOLACE_AF3_OUT_CHANNELS * NOLACE_FRAME_SIZE + NOLACE_FRAME_SIZE,
+        feature_buffer + i_subframe * NOLACE_COND_DIM,
+        &layers->nolace_tdshape3_alpha1_f, &layers->nolace_tdshape3_alpha1_t, &layers->nolace_tdshape3_alpha2,
+        NOLACE_TDSHAPE3_FEATURE_DIM, NOLACE_TDSHAPE3_FRAME_SIZE, NOLACE_TDSHAPE3_AVG_POOL_K, 1, arch);
+  }
+  if (!write_trace_record(TRACE_STAGE_NL_POST_TDSHAPE3, -1, 1, 4 * NOLACE_FRAME_SIZE * NOLACE_AF3_OUT_CHANNELS, x_buffer2, 4 * NOLACE_FRAME_SIZE * NOLACE_AF3_OUT_CHANNELS)) return 0;
+
+  for (i_subframe = 0; i_subframe < 4; i_subframe++) {
+    adaconv_process_frame(&state->af4_state,
+        x_buffer1 + i_subframe * NOLACE_FRAME_SIZE * NOLACE_AF4_OUT_CHANNELS,
+        x_buffer2 + i_subframe * NOLACE_FRAME_SIZE * NOLACE_AF4_IN_CHANNELS,
+        feature_buffer + i_subframe * NOLACE_COND_DIM,
+        &layers->nolace_af4_kernel, &layers->nolace_af4_gain,
+        NOLACE_COND_DIM, NOLACE_FRAME_SIZE, NOLACE_OVERLAP_SIZE,
+        NOLACE_AF4_IN_CHANNELS, NOLACE_AF4_OUT_CHANNELS, NOLACE_AF4_KERNEL_SIZE,
+        NOLACE_AF4_LEFT_PADDING, NOLACE_AF4_FILTER_GAIN_A, NOLACE_AF4_FILTER_GAIN_B,
+        NOLACE_AF4_SHAPE_GAIN, hNoLACE->window, arch);
+  }
+  if (!write_trace_record(TRACE_STAGE_NL_POST_AF4, -1, 1, 4 * NOLACE_FRAME_SIZE * NOLACE_AF4_OUT_CHANNELS, x_buffer1, 4 * NOLACE_FRAME_SIZE * NOLACE_AF4_OUT_CHANNELS)) return 0;
+
+  for (i_sample = 0; i_sample < 4 * NOLACE_FRAME_SIZE; i_sample++) {
+    x_out[i_sample] = x_buffer1[i_sample] + NOLACE_PREEMPH * state->deemph_mem;
+    state->deemph_mem = x_out[i_sample];
+  }
+  return write_trace_record(TRACE_STAGE_NL_DEEMPH, -1, 1, 4 * NOLACE_FRAME_SIZE, x_out, 4 * NOLACE_FRAME_SIZE);
+}
+
 int main(int argc, char *argv[]) {
   int num_samples = 320;
   if (argc >= 2) {
@@ -479,16 +664,17 @@ int main(int argc, char *argv[]) {
     lace_process_20ms_frame(&model->lace, &state, x_out, x_in,
                             features, numbits, periods, 0 /*arch=GENERIC*/);
   } else {
-    const char *trace_env = getenv("TRACE");
-    if (trace_env != NULL && strcmp(trace_env, "1") == 0) {
-      fprintf(stderr, "TRACE=1 currently supports MODE=lace only\n");
-      free(model);
-      return 2;
-    }
     /* NoLACE */
     NoLACEState state;
     memset(&state, 0, sizeof(state));
     reset_nolace_state(&state);
+    const char *trace_env = getenv("TRACE");
+    if (trace_env != NULL && strcmp(trace_env, "1") == 0) {
+      int ok = trace_nolace_process_20ms_frame(&model->nolace, &state, x_out, x_in,
+                                               features, numbits, periods, 0 /*arch=GENERIC*/);
+      free(model);
+      return ok ? 0 : 1;
+    }
     nolace_process_20ms_frame(&model->nolace, &state, x_out, x_in,
                               features, numbits, periods, 0 /*arch=GENERIC*/);
   }

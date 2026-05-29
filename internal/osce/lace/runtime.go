@@ -915,19 +915,14 @@ func (s *NoLACEState) featureNet(out, features []float32, numbits []float32, per
 // ----------------------------------------------------------------------------
 
 // computeLinear evaluates a LinearLayer: out = W^T * in + bias. Mirrors
-// libopus `compute_linear_c` (dnn/nnet_arch.h).
+// libopus `compute_linear_c` (dnn/nnet_arch.h), which routes float weights
+// through `sgemv` (dnn/vec.h).
 func computeLinear(layer *LinearLayer, out, in []float32) {
 	n := layer.NbOutputs
 	m := layer.NbInputs
 	switch {
 	case !layer.FloatWeights.Empty():
-		for i := 0; i < n; i++ {
-			var sum float32
-			for j := 0; j < m; j++ {
-				sum += layer.FloatWeights.At(j*n+i) * in[j]
-			}
-			out[i] = sum
-		}
+		sgemvFloat(out[:n], layer.FloatWeights, n, m, in[:m])
 	case !layer.Weights.Empty():
 		cgemv8x4(out[:n], layer.Weights, layer.Scale, n, m, in[:m])
 	default:
@@ -939,6 +934,35 @@ func computeLinear(layer *LinearLayer, out, in []float32) {
 		for i := 0; i < n; i++ {
 			out[i] += layer.Bias.At(i)
 		}
+	}
+}
+
+// sgemvFloat mirrors libopus `sgemv` (dnn/vec.h). The column-stride equals the
+// row count (rows == col_stride for these layers). libopus dispatches on the
+// row count:
+//   - rows % 16 == 0 -> sgemv16x1, rows % 8 == 0 -> sgemv8x1: 16/8 output
+//     accumulators live in registers, so clang -ffp-contract=on fuses each
+//     `y[r] += w*xj` into an FMA (matched by the Go arm64 backend's fused
+//     `sum += w*x`).
+//   - otherwise (the 1- and 2-output AdaComb/AdaConv gain layers) the scalar
+//     fallback accumulates through the `out[i]` memory cell, which clang does
+//     NOT contract even with -ffp-contract=on (verified bit-for-bit against the
+//     reference helper: the multiply rounds before the add). roundMul32 keeps
+//     that boundary so the Go backend does not over-fuse and drift by 1 ULP.
+func sgemvFloat(out []float32, w dnnblob.Float32View, rows, cols int, x []float32) {
+	fused := rows%8 == 0
+	for i := 0; i < rows; i++ {
+		var sum float32
+		if fused {
+			for j := 0; j < cols; j++ {
+				sum += w.At(j*rows+i) * x[j]
+			}
+		} else {
+			for j := 0; j < cols; j++ {
+				sum += roundMul32(w.At(j*rows+i), x[j])
+			}
+		}
+		out[i] = sum
 	}
 }
 
@@ -1066,13 +1090,29 @@ func computeGenericGRU(inputW, recurrentW *LinearLayer, state, in []float32) {
 	}
 	computeActivation(h, h, n, actTanh)
 	for i := 0; i < n; i++ {
-		h[i] = fma32(z[i], state[i], (1-z[i])*h[i])
+		// libopus dnn/nnet.c:compute_generic_gru: h[i] = z[i]*state[i] + (1-z[i])*h[i]
+		// as one C statement. clang -ffp-contract=on contracts the leftmost
+		// product z*state into an FMA while the trailing product (1-z)*h rounds
+		// first. The Go arm64 backend instead contracts the *trailing* multiply
+		// for an a*b + c*d expression, so the previous fma32(z, state, (1-z)*h)
+		// diverged by 1 ULP (verified bit-for-bit against the reference helper).
+		// gruFMA32 pins the z*state contraction (hardware FMADDS on arm64);
+		// roundMul32 keeps (1-z)*h rounded as the FMA addend.
+		h[i] = gruFMA32(z[i], state[i], roundMul32(1-z[i], h[i]))
 		state[i] = h[i]
 	}
 }
 
 func fma32(a, b, c float32) float32 {
 	return a*b + c
+}
+
+// roundMul32 returns a*b rounded to float32 with the multiply isolated from any
+// fused-multiply-add contraction by the Go arm64 backend, matching a reference
+// build that does not contract this particular product. The bit round-trip
+// forces the intermediate to materialise as a rounded float32.
+func roundMul32(a, b float32) float32 {
+	return math.Float32frombits(math.Float32bits(a * b))
 }
 
 // ----------------------------------------------------------------------------
@@ -1147,16 +1187,28 @@ func adacombProcessFrame(
 		outputBuf[i] = sum
 	}
 
-	// Overlap mix.
+	// Overlap mix. libopus dnn/nndsp.c:adacomb_process_frame:
+	//   output_buffer[i] = last_global_gain*window[i]*output_buffer_last[i]
+	//                      + global_gain*(1-window[i])*output_buffer[i];
+	// clang -ffp-contract=on contracts the leftmost product into the add while
+	// the trailing product rounds; the Go arm64 backend contracts the trailing
+	// one instead, so pin the libopus boundary with gruFMA32 + roundMul32.
 	lastGlobalG := *lastGlobalGain
 	for i := 0; i < overlapSize; i++ {
-		outputBuf[i] = lastGlobalG*window[i]*outputBufLast[i] +
-			globalGain*(1.0-window[i])*outputBuf[i]
+		outputBuf[i] = gruFMA32(
+			roundMul32(lastGlobalG, window[i]), outputBufLast[i],
+			roundMul32(roundMul32(globalGain, 1.0-window[i]), outputBuf[i]),
+		)
 	}
 
-	// Add weighted input.
+	// Add weighted input. libopus:
+	//   output_buffer[i] += (window[i]*last_global_gain + (1-window[i])*global_gain) * p_input[i];
+	// The inner weight is an a*b + c*d expression clang contracts on its left
+	// product; pin that boundary so the Go arm64 backend does not contract the
+	// trailing one instead.
 	for i := 0; i < overlapSize; i++ {
-		outputBuf[i] += (window[i]*lastGlobalG + (1.0-window[i])*globalGain) * inputBuf[pInputOffset+i]
+		weight := gruFMA32(window[i], lastGlobalG, roundMul32(1.0-window[i], globalGain))
+		outputBuf[i] += weight * inputBuf[pInputOffset+i]
 	}
 	for i := overlapSize; i < frameSize; i++ {
 		outputBuf[i] = globalGain * (outputBuf[i] + inputBuf[pInputOffset+i])
