@@ -246,8 +246,11 @@ func TestStereoCouplingTestvector07(t *testing.T) {
 
 	t.Logf("SNR vs reference: %.1f dB", snr)
 
-	const testvector07CurrentGapSNRFloor = -19.0
-	if snr < testvector07CurrentGapSNRFloor {
-		t.Errorf("Quality regressed below current gap floor: SNR=%.1f dB < %.1f dB", snr, testvector07CurrentGapSNRFloor)
+	// gopus decodes testvector07 at ~72 dB SNR vs the RFC reference; the floor
+	// leaves headroom for cross-arch int16 decode rounding while catching any
+	// real regression.
+	const testvector07MinSNRDB = 60.0
+	if snr < testvector07MinSNRDB {
+		t.Errorf("testvector07 decode SNR regressed: SNR=%.1f dB < %.1f dB", snr, testvector07MinSNRDB)
 	}
 }
