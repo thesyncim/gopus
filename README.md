@@ -28,8 +28,10 @@ and multistream encode/decode paths.
 
 Scope: the stable surface is default-build core encode/decode/multistream/Ogg/RED.
 QEXT, DRED, and OSCE (BWE/LACE/NoLACE) are build-tagged and experimental, not
-part of the stable support claim. libopus 1.6's 96 kHz Opus HD path (QEXT) is
-not supported: valid API sample rates are 8/12/16/24/48 kHz.
+part of the stable support claim. Default-build API sample rates are
+8/12/16/24/48 kHz; 96 kHz (Opus HD) is accepted only under `-tags gopus_qext` as
+a resampling wrapper over the 48 kHz core, not native-bitstream byte parity with
+libopus's 96 kHz CELT mode.
 
 Reference behavior comes from `tmp_check/opus-1.6.1/`. When behavior is
 uncertain, match libopus unless fixture evidence says otherwise.
