@@ -104,6 +104,8 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 	window := GetWindowBuffer(segLen)
 	half := segLen >> 1
 
+	traceArmed := d.plcStageTrace != nil && d.plcStageTrace.observeFold()
+
 	for ch := 0; ch < channels; ch++ {
 		hist := d.plcDecodeMem[ch*plcDecodeBufferSize : (ch+1)*plcDecodeBufferSize]
 		overlap := d.overlapBuffer[ch*segLen : (ch+1)*segLen]
@@ -112,6 +114,10 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 
 		copy(src[:history], hist[plcDecodeBufferSize-history:])
 		copy(src[history:], overlap)
+
+		if traceArmed {
+			d.plcStageTrace.captureCombIn(ch, src)
+		}
 
 		combFilterWithInputSig(
 			dst, src, history,
@@ -122,14 +128,21 @@ func (d *Decoder) applyPendingPLCPrefilterAndFold() {
 		)
 
 		etmp := dst[history : history+segLen]
+		if traceArmed {
+			d.plcStageTrace.captureCombOut(ch, etmp)
+		}
 		for i := 0; i < half; i++ {
 			// Simulate TDAC blending exactly where libopus mutates decode_mem.
 			w0 := float32(window[i])
 			w1 := float32(window[segLen-1-i])
 			x0 := float32(etmp[segLen-1-i])
 			x1 := float32(etmp[i])
-			overlap[i] = celtSig(w0*x0 + w1*x1)
+			overlap[i] = celtSig(mdctFMA32(w0, x0, w1*x1))
 		}
+	}
+
+	if traceArmed {
+		d.plcStageTrace.captureFold(d.overlapBuffer, channels, segLen)
 	}
 }
 
@@ -437,8 +450,16 @@ func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int
 		clear(coeffsR)
 		fillHybridPLCNoiseCoeffs(coeffsL, frameSize, start, end, &seed)
 		fillHybridPLCNoiseCoeffs(coeffsR, frameSize, start, end, &seed)
+		if d.plcStageTrace != nil && d.plcStageTrace.armed() {
+			d.plcStageTrace.capturePreSpec(0, coeffsL)
+			d.plcStageTrace.capturePreSpec(1, coeffsR)
+		}
 		denormalizeNormCoeffsDownsample(coeffsL, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
 		denormalizeNormCoeffsDownsample(coeffsR, concealEnergy[MaxBands:], end, frameSize, d.downsampleFactor())
+		if d.plcStageTrace != nil && d.plcStageTrace.armed() {
+			d.plcStageTrace.captureSpec(0, coeffsL)
+			d.plcStageTrace.captureSpec(1, coeffsR)
+		}
 		samples := d.SynthesizeStereoFloat32(coeffsL, coeffsR, false, 1)
 		n := min(len(samples), frameSize*channels)
 		copy(dst[:n], samples[:n])
@@ -447,7 +468,13 @@ func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int
 		coeffs := d.scratchPLCHybridNormL[:frameSize]
 		clear(coeffs)
 		fillHybridPLCNoiseCoeffs(coeffs, frameSize, start, end, &seed)
+		if d.plcStageTrace != nil && d.plcStageTrace.armed() {
+			d.plcStageTrace.capturePreSpec(0, coeffs)
+		}
 		denormalizeNormCoeffsDownsample(coeffs, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
+		if d.plcStageTrace != nil && d.plcStageTrace.armed() {
+			d.plcStageTrace.captureSpec(0, coeffs)
+		}
 		samples := d.SynthesizeFloat32(coeffs, false, 1)
 		n := min(len(samples), frameSize*channels)
 		copy(dst[:n], samples[:n])
@@ -455,12 +482,22 @@ func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int
 	d.setPrevEnergyGLog(concealEnergy)
 	d.rng = seed
 
+	if d.plcStageTrace != nil && d.plcStageTrace.armed() {
+		d.plcStageTrace.capturePreSyn(dst[:frameSize*channels], frameSize, channels)
+	}
+
 	d.applyPostfilterFloat32(dst[:frameSize*channels], frameSize, mode.LM, int(d.postfilterPeriod), d.postfilterGain, int(d.postfilterTapset))
 	if len(d.directOutPCM) >= frameSize*channels {
 		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:frameSize*channels], dst[:frameSize*channels], 1.0/32768.0)
+		if d.plcStageTrace != nil && d.plcStageTrace.armed() {
+			d.plcStageTrace.captureFinal(d.directOutPCM[:frameSize*channels])
+		}
 		return
 	}
 	d.applyDeemphasisAndScale(dst[:frameSize*channels], 1.0/32768.0)
+	if d.plcStageTrace != nil && d.plcStageTrace.armed() {
+		d.plcStageTrace.captureFinal(dst[:frameSize*channels])
+	}
 }
 
 func (d *Decoder) concealPeriodicPLC(dst []float32, frameSize, lossCount int, continuePeriodic bool, commit bool) bool {

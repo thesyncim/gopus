@@ -135,6 +135,9 @@ type Decoder struct {
 	// the next decoded frame (test-only; production decoders leave it nil so the
 	// hot path is a single nil-pointer branch with no allocations).
 	synthTrace *synthesisStageTrace
+	// plcStageTrace, when non-nil, captures intermediate noise-PLC concealment
+	// buffers for a target noise-PLC chunk (test-only; nil in production).
+	plcStageTrace *plcStageTrace
 	decoderQEXTFields
 
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).

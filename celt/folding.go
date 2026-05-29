@@ -74,15 +74,14 @@ func normalizeNormVectorInPlace(v []celtNorm) {
 		return
 	}
 
-	var energy opusVal16
-	for _, x := range v {
-		xf := x
-		energy = opusVal16(energy + xf*xf)
-	}
-
-	if energy < 1e-15 {
-		return
-	}
+	// libopus renormalise_vector() (celt/vq.c) computes
+	//   E = EPSILON + celt_inner_prod_norm(X, X, N)
+	// where celt_inner_prod_norm == celt_inner_prod, whose accumulation order is
+	// architecture-specific: the pinned arm64 build (OPUS_ARM_PRESUME_NEON_INTR)
+	// uses celt_inner_prod_neon's 4-lane FMA reduction, while x86 uses its SSE
+	// variant. celtInnerProdLibopusOrder reproduces the matching tree per arch.
+	// EPSILON (1e-15f) is added last, then the vector is scaled by 1/sqrt(E).
+	energy := float32(1e-15) + celtInnerProdLibopusOrder(v, v)
 
 	scale := celtRSqrt(energy)
 	for i := range v {
