@@ -16,8 +16,6 @@ package fixedpoint
 // exactly, including the int16 truncation, because the search relies on X/y
 // having been scaled into the int16 range first.
 
-const normShift = 24
-
 // celtInnerProdNormShift ports celt/vq.c celt_inner_prod_norm_shift: it
 // accumulates x[i]*y[i] in a 64-bit sum then shifts right by 2*(NORM_SHIFT-14).
 func celtInnerProdNormShift(x, y []int32, n int) int32 {
@@ -61,22 +59,6 @@ func mult16x16Q15i32(a, b int32) int32 {
 // arithmetic shifted right by 16.
 func mult16x32Q16(a, b int32) int32 {
 	return int32((int64(int16(a)) * int64(b)) >> 16)
-}
-
-// celtRcpNorm16 ports celt/mathops.c celt_rcp_norm16: a Q15-in, Q15-out
-// reciprocal approximation built from a linear seed and two Newton iterations.
-func celtRcpNorm16(x int16) int16 {
-	r := add16s(30840, mult16x16q15(-15420, x))
-	r = r - mult16x16q15(r, add16s(mult16x16q15(r, x), add16s(r, -32768)))
-	return r - add16s(1, mult16x16q15(r, add16s(mult16x16q15(r, x), add16s(r, -32768))))
-}
-
-// CeltRcp ports celt/mathops.c celt_rcp: a Q15-input, Q16-output reciprocal
-// approximation. x must be > 0.
-func CeltRcp(x int32) int32 {
-	i := int(CeltILog2(x))
-	r := celtRcpNorm16(int16(vshr32(x, i-15) - 32768))
-	return vshr32(int32(r), i-16)
 }
 
 // OpPvqSearch ports celt/vq.c op_pvq_search_c (FIXED_POINT path). It searches
