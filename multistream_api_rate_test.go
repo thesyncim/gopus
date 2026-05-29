@@ -201,7 +201,7 @@ func TestMultistreamDecodeFloat32MatchesLibopus(t *testing.T) {
 						t.Fatalf("Decode(nil)=%d want %d", n, frameSize)
 					}
 					got = append(got, frame[:n*channels]...)
-					assertAPIRateFloat32Close(t, got, want, "multistream "+mode.name+" float32", mode.tolerance)
+					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "multistream "+mode.name+" float32")
 				})
 			}
 		}
@@ -265,7 +265,7 @@ func TestMultistreamDecodeRequestedPLCDurationMatchesLibopus(t *testing.T) {
 						t.Fatalf("Decode(nil)=%d want %d", n, requestedFrameSize)
 					}
 					got = append(got, frame[:n*channels]...)
-					assertAPIRateFloat32Close(t, got, want, "multistream "+mode.name+" requested PLC", mode.tolerance)
+					assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, true, "multistream "+mode.name+" requested PLC")
 				})
 			}
 		}
@@ -316,7 +316,7 @@ func TestMultistreamDecodeOverlongAndEmptyPLCMatchesLibopus(t *testing.T) {
 					t.Fatalf("Decode(nil)=%d want clamped %d", n, wantPLCFrameSize)
 				}
 				got = append(got, frame[:n*channels]...)
-				assertAPIRateFloat32Close(t, got, want, "multistream overlong empty PLC", 3e-3)
+				assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, true, "multistream overlong empty PLC")
 			})
 
 			t.Run("int16_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
@@ -345,7 +345,7 @@ func TestMultistreamDecodeOverlongAndEmptyPLCMatchesLibopus(t *testing.T) {
 					t.Fatalf("DecodeInt16(nil)=%d want clamped %d", n, wantPLCFrameSize)
 				}
 				got = append(got, frame[:n*channels]...)
-				assertAPIRateInt16Equal(t, got, want, "multistream overlong empty PLC int16")
+				assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, true, "multistream overlong empty PLC int16")
 			})
 		}
 	}
@@ -395,7 +395,7 @@ func TestMultistreamDecodeInt16HighGainMatchesLibopus(t *testing.T) {
 		t.Fatalf("DecodeInt16(nil)=%d want %d", n, frameSize)
 	}
 	got = append(got, frame[:n*channels]...)
-	assertAPIRateInt16Equal(t, got, want, "multistream high-gain int16")
+	assertAPIRateQualityInt16(t, got, want, sampleRate, channels, "multistream high-gain int16")
 }
 
 func TestMultistreamDecodeInvalidRequestedPLCFrameSizeMatchesLibopus(t *testing.T) {

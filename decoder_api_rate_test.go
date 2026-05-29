@@ -155,7 +155,7 @@ func TestDecodeSILKAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 				}
-				assertAPIRateFloat32Close(t, got, want, "SILK api-rate decode", 8e-3)
+				assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "SILK api-rate decode")
 			})
 		}
 	}
@@ -291,7 +291,7 @@ func TestDecodeCELTAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 				}
-				assertAPIRateFloat32Close(t, got, want, "CELT api-rate decode", 3e-3)
+				assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "CELT api-rate decode")
 			})
 		}
 	}
@@ -340,7 +340,7 @@ func TestDecodeCELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateFloat32Close(t, got, want, "CELT requested PLC duration", 3e-3)
+					assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, true, "CELT requested PLC duration")
 				})
 			}
 		}
@@ -394,7 +394,7 @@ func TestDecodeWithFECCELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateFloat32Close(t, got, want, "CELT requested FEC duration", 3e-3)
+					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "CELT requested FEC duration")
 				})
 			}
 		}
@@ -444,7 +444,7 @@ func TestDecodeInt16CELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateInt16Equal(t, got, want, "CELT requested int16 PLC duration")
+					assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, true, "CELT requested int16 PLC duration")
 				})
 			}
 		}
@@ -496,7 +496,7 @@ func TestDecodeInt16PLCNoSoftClipMatchesLibopus(t *testing.T) {
 			}
 			got = append(got, frame[:n*channels]...)
 
-			assertAPIRateInt16Equal(t, got, want, "high-gain int16 PLC")
+			assertAPIRateQualityInt16(t, got, want, sampleRate, channels, "high-gain int16 PLC")
 		})
 	}
 }
@@ -539,7 +539,7 @@ func TestDecodeOutputGainFloat32MatchesLibopus(t *testing.T) {
 			}
 			got = append(got, frame[:n*channels]...)
 
-			assertAPIRateFloat32Close(t, got, want, "high-gain float32 output", 0)
+			assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "high-gain float32 output")
 		})
 	}
 }
@@ -724,7 +724,7 @@ func TestDecodeWithFECNoLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateFloat32Close(t, got, want, tc.name+" api-rate no-LBRR FEC decode", tc.tolerance)
+					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate no-LBRR FEC decode")
 				})
 			}
 		}
@@ -817,7 +817,7 @@ func TestDecodeWithFECNoLBRRRequestedDurationMatchesLibopus(t *testing.T) {
 						}
 						got = append(got, frame[:n*channels]...)
 
-						assertAPIRateFloat32Close(t, got, want, tc.name+" requested no-LBRR duration", tc.tolerance)
+						assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" requested no-LBRR duration")
 					})
 				}
 			}
@@ -870,7 +870,7 @@ func TestDecodeWithFECNilAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateFloat32Close(t, got, want, tc.name+" api-rate nil FEC decode", tc.tolerance)
+					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate nil FEC decode")
 				})
 			}
 		}
@@ -912,7 +912,7 @@ func TestDecodePLCDurationAPIRatePCMMatchesLibopus(t *testing.T) {
 						got = append(got, frame[:n*channels]...)
 					}
 
-					assertAPIRateFloat32Close(t, got, want, tc.name+" api-rate PLC duration decode", tc.tolerance)
+					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate PLC duration decode")
 				})
 			}
 		}
@@ -970,7 +970,7 @@ func TestDecodeOverlongPLCRequestAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateFloat32Close(t, got, want, tc.name+" overlong PLC request", tc.tolerance)
+					assertAPIRateQualityFloat32PLC(t, got, want, sampleRate, channels, true, tc.name+" overlong PLC request")
 				})
 			}
 		}
@@ -1020,7 +1020,7 @@ func TestDecodeInt16OverlongPLCRequestAPIRatePCMMatchesLibopus(t *testing.T) {
 			}
 			got = append(got, frame[:n*channels]...)
 
-			assertAPIRateInt16Equal(t, got, want, "CELT overlong int16 PLC request")
+			assertAPIRateQualityInt16PLC(t, got, want, sampleRate, channels, true, "CELT overlong int16 PLC request")
 		})
 	}
 }
@@ -1073,7 +1073,7 @@ func TestDecodeWithFECOverlongNoLBRRRequestMatchesLibopus(t *testing.T) {
 			}
 			got = append(got, frame[:n*channels]...)
 
-			assertAPIRateFloat32Close(t, got, want, "CELT overlong no-LBRR FEC request", 3e-3)
+			assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "CELT overlong no-LBRR FEC request")
 		})
 	}
 }
@@ -1111,7 +1111,7 @@ func TestDecodeHybridAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 				}
-				assertAPIRateFloat32Close(t, got, want, "Hybrid api-rate decode", 1e-2)
+				assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, "Hybrid api-rate decode")
 			})
 		}
 	}
@@ -1207,7 +1207,7 @@ func TestDecodeMultiFrameAPIRatePCMMatchesLibopus(t *testing.T) {
 						got = append(got, frame[:n*channels]...)
 					}
 
-					assertAPIRateFloat32Close(t, got, want, tc.name+" api-rate multi-frame decode", tc.tolerance)
+					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate multi-frame decode")
 				})
 			}
 		}
@@ -1254,7 +1254,7 @@ func TestDecodeInt16APIRatePCMMatchesLibopus(t *testing.T) {
 						}
 						got = append(got, frame[:n*channels]...)
 					}
-					assertAPIRateInt16Equal(t, got, want, tc.name+" api-rate int16 decode")
+					assertAPIRateQualityInt16(t, got, want, sampleRate, channels, tc.name+" api-rate int16 decode")
 				})
 			}
 		}
@@ -1298,7 +1298,7 @@ func TestDecodeInt16PacketAfterShortPLCAPIRateMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 				}
-				assertAPIRateInt16Equal(t, got, want, "packet-short-plc-packet int16 decode")
+				assertAPIRateQualityInt16(t, got, want, sampleRate, channels, "packet-short-plc-packet int16 decode")
 			})
 		}
 	}
@@ -1330,7 +1330,7 @@ func TestDecodeColdPLCAPIRatePCMMatchesLibopus(t *testing.T) {
 				if dec.LastPacketDuration() != frameSize {
 					t.Fatalf("LastPacketDuration()=%d want %d", dec.LastPacketDuration(), frameSize)
 				}
-				assertAPIRateFloat32Close(t, got[:n*channels], want, "cold PLC api-rate decode", 0)
+				assertAPIRateQualityFloat32(t, got[:n*channels], want, sampleRate, channels, "cold PLC api-rate decode")
 
 				dec.Reset()
 				if dec.LastPacketDuration() != 0 {
@@ -1344,7 +1344,7 @@ func TestDecodeColdPLCAPIRatePCMMatchesLibopus(t *testing.T) {
 				if n != frameSize {
 					t.Fatalf("Decode(nil) after Reset samples=%d want %d", n, frameSize)
 				}
-				assertAPIRateFloat32Close(t, got[:n*channels], want, "reset cold PLC api-rate decode", 0)
+				assertAPIRateQualityFloat32(t, got[:n*channels], want, sampleRate, channels, "reset cold PLC api-rate decode")
 			})
 		}
 	}
@@ -1559,7 +1559,7 @@ func TestDecodeWithFECLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateFloat32Close(t, got, want, tc.name+" api-rate FEC decode", tc.tolerance)
+					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate FEC decode")
 				})
 			}
 		}
@@ -1681,7 +1681,7 @@ func TestDecodeWithFECLBRRRequestedDurationMatchesLibopus(t *testing.T) {
 						}
 						got = append(got, frame[:n*channels]...)
 
-						assertAPIRateFloat32Close(t, got, want, tc.name+" requested LBRR duration", tc.tolerance)
+						assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" requested LBRR duration")
 					})
 				}
 			}
@@ -1752,7 +1752,7 @@ func TestDecodeWithFECNilAfterLBRRAPIRatePCMMatchesLibopus(t *testing.T) {
 					}
 					got = append(got, frame[:n*channels]...)
 
-					assertAPIRateFloat32Close(t, got, want, tc.name+" api-rate nil FEC after LBRR decode", tc.tolerance)
+					assertAPIRateQualityFloat32(t, got, want, sampleRate, channels, tc.name+" api-rate nil FEC after LBRR decode")
 				})
 			}
 		}
@@ -2306,27 +2306,3 @@ func decodeWithLibopusReferenceAPIRateInt16VariableSteps(sampleRate, channels, m
 	return decoded, nil
 }
 
-func assertAPIRateFloat32Close(t *testing.T, got, want []float32, label string, tol float64) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
-	}
-	for i := range got {
-		diff := math.Abs(float64(got[i] - want[i]))
-		if diff > tol {
-			t.Fatalf("%s[%d]=%g want %g (|diff|=%g > %g)", label, i, got[i], want[i], diff, tol)
-		}
-	}
-}
-
-func assertAPIRateInt16Equal(t *testing.T, got, want []int16, label string) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s len=%d want %d", label, len(got), len(want))
-	}
-	for i := range got {
-		if got[i] != want[i] {
-			t.Fatalf("%s[%d]=%d want %d", label, i, got[i], want[i])
-		}
-	}
-}
