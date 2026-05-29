@@ -98,7 +98,7 @@ byte-exact vs libopus at every sub-48k API rate.
 | Layout | Encode | Decode | Ogg / mapping | Parity evidence | Gaps for 100% |
 | --- | --- | --- | --- | --- | --- |
 | Mono | Y | Y | Y | Matrix + compliance | — |
-| Stereo | Y | Y | Y | Matrix + compliance | Stereo DRED latent pointer bug documented in `internal/dred` trace test |
+| Stereo | Y | Y | Y | Matrix + compliance; stereo DRED 16k latent conversion bit-exact vs libopus oracle (the channel-blind window advance is genuine libopus behavior) | — |
 | Multistream (1–8 ch, family 0/1/255) | Y | Y | Y | Roundtrip + padding; per-stream DRED dormancy verified across all mapping families (mono…7.1, projection) | — (encoder DRED dormant in default build is by design — tag-gated) |
 | Projection (family 3) | Y | Y | Y | Public `NewProjectionEncoder`/`Decoder`; demixing-matrix CTLs byte-exact (10 orders); MS DRED stereo carriers byte-exact | Unsupported ambisonics orders return `ErrProjectionOrderUnsupported` (no libopus matrices for them) |
 | >2 ch top-level API | N | N | via multistream only | — | By design (RFC-style multistream only) |
