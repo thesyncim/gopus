@@ -2191,14 +2191,6 @@ func TestDecoderCachedDREDSecondLossThenNextPacketCELTSuperwidebandMatchesLiveSe
 				t.Fatalf("explicit DRED decode=%d want %d", got, n)
 			}
 			pcmTol, plcTol, farganTol, celtTol := decoderDREDLiveSequenceTolerances(frameSize)
-			// Known analysis-frontend residual (internal/lpcnetplc/analysis.go):
-			// SWB 20 ms drifts ~5-6.3e-3 in pcm/plc/celt vs libopus; not owned by
-			// this reconciliation. Widen SWB 960 envelopes past it.
-			if frameSize >= 960 {
-				pcmTol = max(pcmTol, 7e-3)
-				plcTol = max(plcTol, 7e-3)
-				celtTol = max(celtTol, 7e-3)
-			}
 			assertFloat32ApproxEqual(t, pcm0[:got], want.step0.pcm[:got], "cached CELT SWB live-sequence warmup pcm", pcmTol)
 
 			pcm1 := make([]float32, dec.maxPacketSamples)
