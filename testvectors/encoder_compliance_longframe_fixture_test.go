@@ -178,10 +178,11 @@ func runLongFrameFixtureReferenceCase(c longFrameFixtureCase) (float64, error) {
 	numFrames := 48000 / c.FrameSize
 	totalSamples := numFrames * c.FrameSize * c.Channels
 	original := generateEncoderTestSignal(totalSamples, c.Channels)
-	q, err := computeComplianceQualityFromPackets(packets, original, c.Channels, c.FrameSize)
+	cmp, _, err := qualityOfPackets(packets, original, c.Channels, c.FrameSize)
 	if err != nil {
 		return 0, err
 	}
+	q := cmp.Q
 
 	if math.Abs(q-c.LibQ) > encoderComplianceRefQDriftToleranceQ {
 		return 0, fmt.Errorf("fixture libQ drift for %q: got %.2f want %.2f", c.Name, q, c.LibQ)
@@ -212,28 +213,6 @@ func findLongFrameFixtureCase(mode encoder.Mode, bandwidth types.Bandwidth, fram
 		}
 	}
 	return longFrameFixtureCase{}, false
-}
-
-func computeComplianceQualityFromPackets(packets [][]byte, original []float32, channels, frameSize int) (float64, error) {
-	decoded, err := decodeCompliancePackets(packets, channels, frameSize)
-	if err != nil {
-		return 0, fmt.Errorf("decode compliance packets: %w", err)
-	}
-	if len(decoded) == 0 {
-		return 0, fmt.Errorf("no decoded samples")
-	}
-
-	q, _, err := computeOpusCompareQualityBetweenDecoded(
-		original,
-		decoded,
-		48000,
-		channels,
-		qualityDelaySearchWindow(frameSize),
-	)
-	if err != nil {
-		return 0, err
-	}
-	return q, nil
 }
 
 func loadLongFrameFixture() (longFrameFixtureFile, error) {

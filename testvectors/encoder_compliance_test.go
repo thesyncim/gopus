@@ -30,13 +30,6 @@ import (
 // Absolute thresholds are fallback-only and apply when no libopus reference
 // packets are available for a given case.
 const (
-	// EncoderQualityThreshold is the absolute regression guard when no libopus
-	// packet reference is available.
-	EncoderQualityThreshold = 0.0
-
-	// EncoderGoodThreshold indicates comfortably positive opus_compare quality.
-	EncoderGoodThreshold = 20.0
-
 	// Pre-skip samples as defined in Ogg Opus header
 	OpusPreSkip = 312
 
@@ -48,6 +41,23 @@ const (
 	// For SILK/Hybrid, we still guard against suspicious overshoot or undershoot
 	// relative to libopus, but with the real perceptual metric rather than dB.
 	EncoderLibopusSpeechGapTightQ = 6.0
+)
+
+// Fallback absolute opus_compare Q floors, applied only when no libopus packet
+// reference is available for a case. These are anchored to the canonical
+// QualityBars (see qualitycompare.go) so the compliance suite and the decoder
+// parity suite share one definition of "RFC conformance floor" vs "near-exact".
+//
+// Only the Q component of each bar is used here: compliance fallback gates on
+// opus_compare Q alone (no corr/RMS), matching the long-standing behavior.
+var (
+	// EncoderQualityThreshold is the absolute BASE regression guard, equal to the
+	// RFC 8251 conformance floor (Q >= 0).
+	EncoderQualityThreshold = QualityBarRFC.MinQ
+
+	// EncoderGoodThreshold marks comfortably positive opus_compare quality, equal
+	// to the near-exact bar's Q floor.
+	EncoderGoodThreshold = QualityBarNearExact.MinQ
 )
 
 var encoderComplianceLogOnce sync.Once
@@ -442,38 +452,28 @@ func computeEncoderComplianceResult(mode encoder.Mode, bandwidth types.Bandwidth
 		}
 	}
 
-	decoded, err := decodeCompliancePackets(packets, channels, frameSize)
-	if err != nil {
-		return result, fmt.Errorf("decode reference failed: %w", err)
-	}
-
-	if len(decoded) == 0 {
-		return result, fmt.Errorf("no samples decoded")
-	}
-
 	// NOTE: opusdec already handles pre-skip internally (reads it from
 	// the OpusHead header and discards that many samples). Do NOT strip
 	// pre-skip again here — that would double-subtract and misalign.
+	//
+	// Encoder quality = decode the encoded packets and opus_compare the result
+	// against the ORIGINAL input signal, routed through the canonical
+	// comparator. The delay search spans up to one packet duration of residual
+	// delay after pre-skip trimming; short CELT cases can legitimately land
+	// beyond +/-32 samples, but the window stays local to avoid distant
+	// periodic alias matches.
+	cmp, decoded, err := qualityOfPackets(packets, original, channels, frameSize)
+	if err != nil {
+		return result, fmt.Errorf("compute opus_compare quality: %w", err)
+	}
 
-	// Align lengths for comparison (decoded may have trailing samples)
 	compareLen := len(original)
 	if len(decoded) < compareLen {
 		compareLen = len(decoded)
 	}
 
-	// Search up to one packet duration of residual delay after pre-skip
-	// trimming. Short CELT cases can legitimately land beyond +/-32 samples, but
-	// we still keep the window local to avoid distant periodic alias matches.
-	result.q, result.foundDelay, err = ComputeOpusCompareQualityFloat32WithDelay(
-		decoded[:compareLen],
-		original[:compareLen],
-		48000,
-		channels,
-		qualityDelaySearchWindow(frameSize),
-	)
-	if err != nil {
-		return result, fmt.Errorf("compute opus_compare quality: %w", err)
-	}
+	result.q = cmp.Q
+	result.foundDelay = cmp.BestDelay
 	result.decoded = decoded
 	result.decodedLen = len(decoded)
 	result.originalLen = len(original)
@@ -514,9 +514,9 @@ func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidt
 				numFrames := 48000 / frameSize
 				totalSamples := numFrames * frameSize * channels
 				original := generateEncoderTestSignal(totalSamples, channels)
-				q, err := computeOpusCompareQualityFromPackets(packets, original, channels, frameSize)
+				cmp, _, err := qualityOfPackets(packets, original, channels, frameSize)
 				if err == nil {
-					entry.result.q = q
+					entry.result.q = cmp.Q
 					entry.result.ok = true
 					return
 				}
@@ -537,9 +537,9 @@ func runLibopusComplianceReferenceTest(t *testing.T, mode encoder.Mode, bandwidt
 				numFrames := 48000 / frameSize
 				totalSamples := numFrames * frameSize * channels
 				original := generateEncoderTestSignal(totalSamples, channels)
-				q, err := computeOpusCompareQualityFromPackets(packets, original, channels, frameSize)
+				cmp, _, err := qualityOfPackets(packets, original, channels, frameSize)
 				if err == nil {
-					entry.result.q = q
+					entry.result.q = cmp.Q
 					entry.result.ok = true
 					return
 				}
