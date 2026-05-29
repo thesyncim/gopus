@@ -16,12 +16,6 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
-type decoderParityThresholds struct {
-	minQ    float64
-	minCorr float64
-	minRMS  float64
-	maxRMS  float64
-}
 
 func decoderDominantMode(hist map[string]int) string {
 	bestMode := "unknown"
@@ -35,33 +29,15 @@ func decoderDominantMode(hist map[string]int) string {
 	return bestMode
 }
 
-func decoderParityThresholdForCase(c libopusDecoderMatrixCaseFile) decoderParityThresholds {
-	switch c.Name {
-	case "celt-fb-20ms-stereo-128k":
-		return decoderParityThresholds{minQ: 20.0, minCorr: 0.998, minRMS: 0.98, maxRMS: 1.02}
-	case "hybrid-fb-20ms-stereo-24k":
-		return decoderParityThresholds{minQ: 20.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02}
-	}
-
-	// Hybrid decode is bit-exact-grade vs libopus (measured Q>=99.7, corr=1.0,
-	// rms=1.0 across the FB/SWB hybrid matrix), so it is held to the same
-	// near-exact bar as SILK/CELT instead of the former quality-floor-free gate.
+// decoderMatrixCaseMode maps a decoder-matrix case to its dominant codec mode,
+// which selects the trusted QualityBar (see qualitycompare.go QualityBarForMode).
+// Hybrid is now held to the same near-exact bar as SILK/CELT (measured Q>=99.7,
+// corr=1.0 vs libopus across the FB/SWB hybrid matrix).
+func decoderMatrixCaseMode(c libopusDecoderMatrixCaseFile) string {
 	if strings.HasPrefix(c.Name, "hybrid-") || c.ModeHistogram["hybrid"] > 0 {
-		if c.Channels == 2 {
-			return decoderParityThresholds{minQ: 20.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02}
-		}
-		return decoderParityThresholds{minQ: 20.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02}
+		return "hybrid"
 	}
-
-	mode := decoderDominantMode(c.ModeHistogram)
-	switch mode {
-	case "silk":
-		return decoderParityThresholds{minQ: 20.0, minCorr: 0.997, minRMS: 0.98, maxRMS: 1.02}
-	case "celt":
-		return decoderParityThresholds{minQ: 20.0, minCorr: 0.998, minRMS: 0.98, maxRMS: 1.02}
-	default:
-		return decoderParityThresholds{minQ: 0.0, minCorr: 0.985, minRMS: 0.97, maxRMS: 1.03}
-	}
+	return decoderDominantMode(c.ModeHistogram)
 }
 
 func decoderParityStats(a, b []float32) (corr, rmsRatio float64) {
@@ -122,7 +98,7 @@ func TestDecoderParityLibopusMatrix(t *testing.T) {
 	for _, c := range fixture.Cases {
 		t.Run(c.Name, func(t *testing.T) {
 			t.Parallel()
-			thr := decoderParityThresholdForCase(c)
+			bar := QualityBarForMode(decoderMatrixCaseMode(c), c.Channels)
 			packets, err := decodeLibopusDecoderMatrixPackets(c)
 			if err != nil {
 				t.Fatalf("decode fixture packets: %v", err)
@@ -144,22 +120,11 @@ func TestDecoderParityLibopusMatrix(t *testing.T) {
 			if maxDelay < 960 {
 				maxDelay = 960
 			}
-			q, delay, err := ComputeOpusCompareQualityFloat32WithDelay(refDecoded[:compareLen], internalDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
+			cmp, err := CompareDecodedFloat32(internalDecoded[:compareLen], refDecoded[:compareLen], fixture.SampleRate, c.Channels, maxDelay)
 			if err != nil {
-				t.Fatalf("compute opus_compare quality: %v", err)
+				t.Fatalf("compare decoded quality: %v", err)
 			}
-			corr, rmsRatio := decoderParityStats(refDecoded[:compareLen], internalDecoded[:compareLen])
-			t.Logf("Q=%.2f delay=%d corr=%.6f rms_ratio=%.6f", q, delay, corr, rmsRatio)
-
-			if q < thr.minQ {
-				t.Fatalf("decoder parity quality regression: Q=%.2f < %.2f", q, thr.minQ)
-			}
-			if corr < thr.minCorr {
-				t.Fatalf("decoder parity correlation regression: corr=%.6f < %.6f", corr, thr.minCorr)
-			}
-			if rmsRatio < thr.minRMS || rmsRatio > thr.maxRMS {
-				t.Fatalf("decoder parity RMS ratio regression: ratio=%.6f outside [%.6f, %.6f]", rmsRatio, thr.minRMS, thr.maxRMS)
-			}
+			AssertQuality(t, cmp, bar, c.Name)
 		})
 	}
 }
