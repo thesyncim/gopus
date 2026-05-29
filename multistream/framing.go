@@ -3,6 +3,11 @@ package multistream
 const (
 	maxOpusFrameBytes       = 1275
 	maxOpusPacketDuration48 = 5760
+
+	// msFrameTmp mirrors libopus opus_multistream_encoder.c MS_FRAME_TMP
+	// (#define MS_FRAME_TMP (6*1275+12)): the size of the per-stream scratch
+	// buffer and the upper clamp applied to each stream's curr_max budget.
+	msFrameTmp = 6*1275 + 12
 )
 
 type parsedOpusPacket struct {

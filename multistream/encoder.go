@@ -1310,7 +1310,21 @@ func (e *Encoder) EncodeFloat32(pcm []float32, frameSize int) ([]byte, error) {
 // EncodeFloat32WithAnalysis encodes the selected frame while letting child
 // encoders analyze the full caller frame selected by expert-frame-duration
 // controls. PCM routing and projection mixing stay in the libopus float domain.
+//
+// The top-level packet budget defaults to the libopus per-stream maximum
+// (maxOpusFrameBytes per stream), matching the recommended 4000-byte-per-stream
+// caller buffer. Use EncodeFloat32WithAnalysisMaxBytes to pass an explicit
+// caller buffer size, which libopus threads into the per-stream curr_max
+// budgeting (opus_multistream_encoder.c opus_multistream_encode_native()).
 func (e *Encoder) EncodeFloat32WithAnalysis(pcm []float32, frameSize int, analysisPCM []float32) ([]byte, error) {
+	return e.EncodeFloat32WithAnalysisMaxBytes(pcm, frameSize, analysisPCM, maxOpusFrameBytes*e.streams)
+}
+
+// EncodeFloat32WithAnalysisMaxBytes encodes one frame with an explicit caller
+// packet budget. maxDataBytes is the total output buffer size; libopus uses it
+// as the top-level max_data_bytes and derives each stream's curr_max from it
+// (opus_multistream_encoder.c opus_multistream_encode_native(), lines 1016-1024).
+func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int, analysisPCM []float32, maxDataBytes int) ([]byte, error) {
 	// Validate input length
 	expectedLen := frameSize * e.inputChannels
 	if len(pcm) != expectedLen {
@@ -1336,13 +1350,53 @@ func (e *Encoder) EncodeFloat32WithAnalysis(pcm []float32, frameSize int, analys
 		analysisStreamBuffers = e.routeInputToStreams(analysisPCM, analysisFrameSize)
 	}
 
-	// Encode each stream
+	// Encode each stream.
+	//
+	// libopus opus_multistream_encoder.c opus_multistream_encode_native() sizes
+	// each stream's max_data_bytes (curr_max) from the remaining caller budget
+	// before handing it to opus_encode_native(), which in turn feeds the CELT
+	// nb_compr_bytes / SILK maxBits rate-control loops (opus_encoder.c). Passing a
+	// fixed per-stream cap instead of curr_max diverges from libopus on the hybrid
+	// VBR path, where CELT picks its per-frame size from within nb_compr_bytes.
+	//
+	//   curr_max = max_data_bytes - tot_size;                 (line 1016)
+	//   curr_max -= IMAX(0,2*(nb_streams-s-1)-1);             (line 1018, reserve)
+	//   if (Fs/frame_size == 10) curr_max -= nb_streams-s-1;  (line 1020-1021)
+	//   curr_max = IMIN(curr_max, MS_FRAME_TMP);              (line 1022)
+	//   if (s != nb_streams-1) curr_max -= curr_max>253?2:1;  (line 1024)
+	//
+	// tot_size accumulates the self-delimited size of the already-emitted streams,
+	// matching opus_repacketizer_out_range_impl()'s returned len (line 1048).
 	streamPackets := make([][]byte, e.streams)
 	allDTX := true
+	totSize := 0
+	hundredMs := frameSize > 0 && int(e.sampleRate)/frameSize == 10
 
 	for i := 0; i < e.streams; i++ {
 		enc := e.encoders[i]
-		packet, err := enc.EncodeFloat32WithAnalysisMaxBytes(streamBuffers[i], frameSize, analysisStreamBuffers[i], maxOpusFrameBytes)
+
+		currMax := maxDataBytes - totSize
+		// Reserve one byte for the last stream and two for the others.
+		if r := 2*(e.streams-i-1) - 1; r > 0 {
+			currMax -= r
+		}
+		// For 100 ms, reserve an extra byte per stream for the ToC.
+		if hundredMs {
+			currMax -= e.streams - i - 1
+		}
+		if currMax > msFrameTmp {
+			currMax = msFrameTmp
+		}
+		// Repacketizer adds one or two bytes for self-delimited frames.
+		if i != e.streams-1 {
+			if currMax > 253 {
+				currMax -= 2
+			} else {
+				currMax--
+			}
+		}
+
+		packet, err := enc.EncodeFloat32WithAnalysisMaxBytes(streamBuffers[i], frameSize, analysisStreamBuffers[i], currMax)
 		if err != nil {
 			return nil, fmt.Errorf("stream %d encode failed: %w", i, err)
 		}
@@ -1354,6 +1408,12 @@ func (e *Encoder) EncodeFloat32WithAnalysis(pcm []float32, frameSize int, analys
 			// DTX packets are 1-byte TOC-only; full packets are >1 byte
 			if len(packet) > 1 {
 				allDTX = false
+			}
+			// tot_size tracks the self-delimited size for non-last streams.
+			if i != e.streams-1 {
+				totSize += len(packet) + frameLengthBytes(len(packet))
+			} else {
+				totSize += len(packet)
 			}
 		}
 	}

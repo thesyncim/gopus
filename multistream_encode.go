@@ -20,7 +20,10 @@ func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
 	}
 	inputSamples := frameSize * channels
 
-	packet, err := e.enc.EncodeFloat32WithAnalysis(pcm[:inputSamples], frameSize, pcm)
+	// libopus threads the caller buffer size (max_data_bytes) into the per-stream
+	// curr_max budgeting (opus_multistream_encoder.c opus_multistream_encode_native()),
+	// so pass the caller output buffer length rather than a fixed per-stream cap.
+	packet, err := e.enc.EncodeFloat32WithAnalysisMaxBytes(pcm[:inputSamples], frameSize, pcm, len(data))
 	if err != nil {
 		return 0, err
 	}
