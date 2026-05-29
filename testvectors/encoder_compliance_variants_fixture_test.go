@@ -814,17 +814,28 @@ func qualityFromPacketsLibopusReferenceDetailed(packets [][]byte, original []flo
 	// Search up to one packet duration so short CELT fixtures do not clip at the
 	// window boundary while still staying local enough to avoid distant aliases.
 	maxDelay := qualityDelaySearchWindow(frameSize)
-	q, delay, decoded, err := computeOpusCompareQualityFromPacketsWithMaxDelay(packets, original, channels, frameSize, maxDelay)
+	decoded, err := decodeCompliancePackets(packets, channels, frameSize)
 	if err != nil {
-		return packetQualityResult{}, err
+		return packetQualityResult{}, fmt.Errorf("decode compliance packets: %w", err)
+	}
+	if len(decoded) == 0 {
+		return packetQualityResult{}, fmt.Errorf("no decoded samples")
 	}
 	compareLen := len(original)
 	if len(decoded) < compareLen {
 		compareLen = len(decoded)
 	}
+	// Route Q (and the delay search) through the canonical quality comparator so
+	// there is a single comparator path. CompareDecodedFloat32 wraps the same
+	// ComputeOpusCompareQualityFloat32WithDelay core on identical truncated PCM,
+	// so .Q and .BestDelay are byte-for-byte identical to the prior plumbing.
+	cmp, err := CompareDecodedFloat32(decoded[:compareLen], original[:compareLen], 48000, channels, maxDelay)
+	if err != nil {
+		return packetQualityResult{}, err
+	}
 	return packetQualityResult{
-		q:          q,
-		delay:      delay,
+		q:          cmp.Q,
+		delay:      cmp.BestDelay,
 		decodedLen: len(decoded),
 		compareLen: compareLen,
 	}, nil
