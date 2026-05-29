@@ -18,7 +18,7 @@ func TestConvertFloat32ToInt16Unit(t *testing.T) {
 	}
 	dst := make([]int16, len(src))
 	ok := convertFloat32ToInt16Unit(dst, src, len(src))
-	if runtime.GOARCH != "arm64" || testPuregoBuild {
+	if runtime.GOARCH != "arm64" {
 		if ok {
 			t.Fatal("default conversion unexpectedly handled the vector")
 		}

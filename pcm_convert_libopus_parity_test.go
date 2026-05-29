@@ -157,7 +157,7 @@ func TestFloat32ToInt16NoSoftClipMatchesLibopus(t *testing.T) {
 				samples[i] = pattern[i%len(pattern)]
 			}
 			mode := libopustest.FloatQuantModeFloat2Int16
-			if runtime.GOARCH == "arm64" && !testPuregoBuild {
+			if runtime.GOARCH == "arm64" {
 				mode = libopustest.FloatQuantModeCELTDispatch
 			}
 			want, err := probeLibopusFloatQuant(mode, samples)
@@ -203,7 +203,7 @@ func TestFloat32ToInt16NoSoftClipOutOfRangeMatchesLibopusDispatch(t *testing.T) 
 		float32(1235.5 / 32768.0),
 	}
 	mode := libopustest.FloatQuantModeFloat2Int16
-	if runtime.GOARCH == "arm64" && !testPuregoBuild {
+	if runtime.GOARCH == "arm64" {
 		mode = libopustest.FloatQuantModeCELTDispatch
 	}
 	want, err := probeLibopusFloatQuant(mode, samples)
