@@ -261,6 +261,68 @@ func (d *Decoder) decodeExplicitSILKDREDFloat(dred *DRED, dredOffsetSamples int,
 	return n, nil
 }
 
+// decodeCELTNeuralPLCInto runs libopus FRAME_PLC_NEURAL concealment for a lost
+// CELT/Hybrid frame on the public Decode(nil) path. libopus celt_decode_lost()
+// (celt_decoder.c:727-735) selects FRAME_PLC_NEURAL whenever start==0, the
+// lpcnet model is loaded, complexity>=5, plc_duration<80 and !skip_plc -- and it
+// runs that pure LPCNet concealment regardless of whether any DRED packet was
+// queued. opus_decode(NULL) passes dred==NULL, so the cached-DRED FEC feature
+// feed (opus_decoder.c:736) is skipped: fec_fill_pos stays <= fec_read_pos and
+// the FRAME_DRED branch is not taken. We mirror that here by priming the neural
+// entry history but never queuing cached DRED features, so
+// applyDREDNeuralConcealment48kMono runs the neural-PLC (not DRED) branch.
+func (d *Decoder) decodeCELTNeuralPLCInto(pcm []float32, frameSizeSamples int, state plcDecodeState) (int, bool, error) {
+	if d == nil || (state.mode != ModeCELT && state.mode != ModeHybrid) {
+		return 0, false, nil
+	}
+	if d.channels < 1 || d.channels > 2 || d.celtDecoder == nil || !d.dredNeuralConcealmentAvailable() {
+		return 0, false, nil
+	}
+	channels := int(d.channels)
+	needed := frameSizeSamples * channels
+	if frameSizeSamples <= 0 || len(pcm) < needed {
+		return 0, false, ErrBufferTooSmall
+	}
+	if !d.ensureDREDNeuralConcealmentRuntime() {
+		return 0, false, nil
+	}
+	sampleRate := int(d.sampleRate)
+	chunkLimit := sampleRate / 25 * 3
+	if chunkLimit <= 0 || frameSizeSamples <= chunkLimit {
+		// Prime the neural entry history (no cached-DRED queue) then run a single
+		// neural-PLC concealment frame.
+		if !d.celtDecoder.LastPLCFrameWasNeural() {
+			d.primeDREDCELTEntryHistory(state.mode, false)
+		}
+		if !d.applyDREDNeuralConcealment48kMono(pcm[:needed], frameSizeSamples) {
+			return 0, false, nil
+		}
+		return frameSizeSamples, true, nil
+	}
+	remaining := frameSizeSamples
+	offset := 0
+	for remaining > 0 {
+		chunk := nextPLCChunkSamples(sampleRate, state.mode, remaining)
+		if chunk <= 0 {
+			return offset, false, nil
+		}
+		start := offset * channels
+		end := start + chunk*channels
+		if end > len(pcm) {
+			return offset, false, nil
+		}
+		if !d.celtDecoder.LastPLCFrameWasNeural() {
+			d.primeDREDCELTEntryHistory(state.mode, false)
+		}
+		if !d.applyDREDNeuralConcealment48kMono(pcm[start:end], chunk) {
+			return offset, false, nil
+		}
+		offset += chunk
+		remaining -= chunk
+	}
+	return frameSizeSamples, true, nil
+}
+
 func (d *Decoder) decodeSILKNeuralPLCInto(pcm []float32, frameSizeSamples int, state plcDecodeState) (int, bool, error) {
 	if d == nil || state.mode != ModeSILK || d.silkDecoder == nil || !d.dredNeuralConcealmentAvailable() {
 		return 0, false, nil

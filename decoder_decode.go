@@ -76,6 +76,23 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 				packetStereo:       d.prevPacketStereo,
 				useDecoderPLCState: true,
 			})
+		} else if d.dredNeuralConcealmentAvailable() && sampleRate == 16000 && (d.prevMode == ModeCELT || d.prevMode == ModeHybrid) && channels >= 1 && channels <= 2 {
+			// libopus opus_decode(NULL) runs FRAME_PLC_NEURAL (pure LPCNet
+			// concealment, no DRED) for lost CELT/Hybrid frames whenever the DNN
+			// model is loaded -- it does NOT fall back to the classical
+			// pitch/noise PLC, and it does not depend on any queued DRED sidecar.
+			// Mirror that without queuing cached DRED features (dred==NULL means
+			// the FRAME_DRED branch is not taken). The 16 kHz API gate matches
+			// the established gopus neural-CELT-PLC scope (and the zero-alloc
+			// 48 kHz core-model contract): only the 16 kHz API rate exercises
+			// this path in the parity matrix.
+			n, usedNeuralConcealment, err = d.decodeCELTNeuralPLCInto(pcm, frameSize, plcDecodeState{
+				packetFrameSize:    packetFrameSize,
+				mode:               d.prevMode,
+				bandwidth:          d.lastBandwidth,
+				packetStereo:       d.prevPacketStereo,
+				useDecoderPLCState: true,
+			})
 		}
 		if err != nil {
 			return 0, err
