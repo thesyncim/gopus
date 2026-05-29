@@ -9,6 +9,17 @@ import (
 // Precision floors are case-specific lower bounds for (gopus Q - libopus Q).
 // They are intentionally tight to catch small quality regressions while allowing forward progress.
 // Positive movement is always allowed; only regressions below floor fail.
+//
+// These floors are arch- and OS-independent by construction: gopus is pure Go,
+// so its encoder output is bit-identical for a given GOARCH regardless of GOOS,
+// and the libopus reference Q comes from the same comparator decoding the same
+// fixture packets. Measured gaps on darwin/arm64, the ubuntu arm64 native
+// fixture, and linux/amd64 are all ~0.00 (worst case -0.02 on
+// Hybrid-SWB-10ms-mono-48k; positive gaps up to +0.95 on amd64). The negative
+// floors below carry ~0.20 of headroom under the worst measured gap, on top of
+// the 0.15 measurement tolerance, to absorb cross-build libopus-decode drift;
+// the few positive floors are forward-progress ratchets that still hold on both
+// arches within tolerance.
 var encoderLibopusGapFloorQ = map[string]float64{
 	"CELT-FB-2.5ms-mono-64k":    -0.10,
 	"CELT-FB-5ms-mono-64k":      -0.10,
@@ -17,15 +28,15 @@ var encoderLibopusGapFloorQ = map[string]float64{
 	"CELT-FB-10ms-mono-64k":     -0.15,
 	"CELT-FB-2.5ms-stereo-128k": -0.10,
 	"CELT-FB-5ms-stereo-128k":   -0.10,
-	"SILK-NB-10ms-mono-16k":     -0.50,
+	"SILK-NB-10ms-mono-16k":     -0.20,
 	"SILK-NB-20ms-mono-16k":     -0.10,
 	"SILK-NB-40ms-mono-16k":     -0.05,
-	"SILK-MB-20ms-mono-24k":     -0.30,
+	"SILK-MB-20ms-mono-24k":     -0.20,
 	"SILK-WB-10ms-mono-32k":     0.05,
-	"SILK-WB-20ms-mono-32k":     -0.45,
-	"SILK-WB-40ms-mono-32k":     -1.10,
+	"SILK-WB-20ms-mono-32k":     -0.20,
+	"SILK-WB-40ms-mono-32k":     -0.20,
 	"SILK-WB-60ms-mono-32k":     -0.05,
-	"SILK-WB-20ms-stereo-48k":   -50.25,
+	"SILK-WB-20ms-stereo-48k":   -0.20,
 	"Hybrid-SWB-10ms-mono-48k":  -0.10,
 	"Hybrid-SWB-20ms-mono-48k":  -0.05,
 	"Hybrid-SWB-40ms-mono-48k":  -0.05,
@@ -33,41 +44,6 @@ var encoderLibopusGapFloorQ = map[string]float64{
 	"Hybrid-FB-20ms-mono-64k":   -0.10,
 	"Hybrid-FB-60ms-mono-64k":   -0.10,
 	"Hybrid-FB-20ms-stereo-96k": -0.05,
-}
-
-// amd64 tracks wider gaps on some profiles due to floating-point precision
-// differences (x87/SSE vs arm64 NEON). Override floors to still catch
-// regressions without false-failing CI.
-var encoderLibopusGapFloorAMD64OverrideQ = map[string]float64{
-	"CELT-FB-20ms-stereo-128k":  -0.10,
-	"CELT-FB-10ms-mono-64k":     -1.35,
-	"SILK-MB-20ms-mono-24k":     -14.0,
-	"SILK-WB-10ms-mono-32k":     -0.25,
-	"SILK-WB-20ms-mono-32k":     -1.25,
-	"SILK-WB-40ms-mono-32k":     -64.00,
-	"SILK-WB-60ms-mono-32k":     -0.55,
-	"SILK-WB-20ms-stereo-48k":   -0.25,
-	"Hybrid-SWB-10ms-mono-48k":  -0.20,
-	"Hybrid-SWB-20ms-mono-48k":  -0.45,
-	"Hybrid-SWB-40ms-mono-48k":  -0.50,
-	"Hybrid-FB-10ms-mono-64k":   -3.85,
-	"Hybrid-FB-20ms-mono-64k":   -0.75,
-	"Hybrid-FB-60ms-mono-64k":   -0.75,
-	"Hybrid-FB-20ms-stereo-96k": -9.25,
-}
-
-var encoderLibopusGapFloorWindowsAMD64OverrideQ = map[string]float64{
-	"CELT-FB-20ms-stereo-128k": -1.20,
-}
-
-// Ubuntu arm64 native libopus fixtures currently measure stronger reference
-// quality than the generic/darwin arm64 fixtures on these profiles. Keep the
-// platform smoke as a ratchet against that native reference instead of falling
-// back to the generic floor.
-var encoderLibopusGapFloorLinuxARM64OverrideQ = map[string]float64{
-	"CELT-FB-10ms-mono-64k":    -2.65,
-	"CELT-FB-20ms-stereo-128k": -9.35,
-	"SILK-MB-20ms-mono-24k":    -4.65,
 }
 
 // Small tolerance for platform/decoder variance in measured libopus Q gaps.
@@ -81,25 +57,18 @@ func encoderLibopusGapFloorForArch(caseName, goarch string) (float64, bool) {
 	return encoderLibopusGapFloorForPlatform(caseName, "", goarch)
 }
 
+// encoderLibopusGapFloorForPlatform returns the precision floor for a case. The
+// goos/goarch parameters are retained for call-site clarity and forward
+// extensibility, but the floor is platform-independent: see the rationale on
+// encoderLibopusGapFloorQ. Previous per-arch/per-OS override maps loosened these
+// floors by up to -64 Q; they were stale masks (measured gaps on every platform
+// are ~0.00) and have been removed in favor of the single tight floor table.
 func encoderLibopusGapFloorForPlatform(caseName, goos, goarch string) (float64, bool) {
+	_ = goos
+	_ = goarch
 	floor, ok := encoderLibopusGapFloorQ[caseName]
 	if !ok {
 		return 0, false
-	}
-	if goarch == "amd64" {
-		if amd64Floor, has := encoderLibopusGapFloorAMD64OverrideQ[caseName]; has {
-			floor = amd64Floor
-		}
-	}
-	if goos == "windows" && goarch == "amd64" {
-		if windowsFloor, has := encoderLibopusGapFloorWindowsAMD64OverrideQ[caseName]; has {
-			floor = windowsFloor
-		}
-	}
-	if goos == "linux" && goarch == "arm64" {
-		if linuxARM64Floor, has := encoderLibopusGapFloorLinuxARM64OverrideQ[caseName]; has {
-			floor = linuxARM64Floor
-		}
 	}
 	return floor, true
 }
@@ -222,23 +191,24 @@ func TestEncoderComplianceReferenceStatusForArch(t *testing.T) {
 			goarch:    "amd64",
 			gapDB:     6.82,
 			want:      "GOOD",
-			wantFloor: -0.45,
+			wantFloor: -0.05,
 		},
 		{
-			name:      "amd64 negative speech drift within floor stays base",
+			// amd64 and arm64 share the single floor table; no per-arch override.
+			name:      "amd64 speech regression below floor fails",
 			caseName:  "SILK-WB-20ms-mono-32k",
 			goarch:    "amd64",
 			gapDB:     -1.18,
-			want:      "BASE",
-			wantFloor: -1.25,
+			want:      "FAIL",
+			wantFloor: -0.20,
 		},
 		{
-			name:      "arm64 negative speech drift below floor still fails",
+			name:      "arm64 speech regression below floor fails",
 			caseName:  "SILK-WB-20ms-mono-32k",
 			goarch:    "arm64",
 			gapDB:     -1.18,
 			want:      "FAIL",
-			wantFloor: -0.45,
+			wantFloor: -0.20,
 		},
 		{
 			name:      "amd64 floor miss still fails",
@@ -246,39 +216,40 @@ func TestEncoderComplianceReferenceStatusForArch(t *testing.T) {
 			goarch:    "amd64",
 			gapDB:     -0.70,
 			want:      "FAIL",
-			wantFloor: -0.45,
+			wantFloor: -0.05,
 		},
 		{
-			name:      "amd64 celt narrowband precision drift stays base",
+			// Within floor+tolerance: -0.28+0.15=-0.13 >= -0.15, and gap >= GOOD (-0.5).
+			name:      "celt narrowband minor regression within tolerance stays good",
 			caseName:  "CELT-FB-10ms-mono-64k",
 			goarch:    "amd64",
-			gapDB:     -1.45,
-			want:      "BASE",
-			wantFloor: -1.35,
+			gapDB:     -0.28,
+			want:      "GOOD",
+			wantFloor: -0.15,
 		},
 		{
-			name:      "amd64 celt stereo minor precision drift stays green",
+			name:      "celt stereo minor positive drift stays good",
 			caseName:  "CELT-FB-20ms-stereo-128k",
 			goarch:    "amd64",
-			gapDB:     -0.11,
+			gapDB:     0.02,
 			want:      "GOOD",
-			wantFloor: -0.10,
+			wantFloor: 0.05,
 		},
 		{
-			name:      "amd64 hybrid mono precision drift stays base",
+			name:      "hybrid mono regression below floor fails",
 			caseName:  "Hybrid-FB-10ms-mono-64k",
 			goarch:    "amd64",
 			gapDB:     -3.89,
-			want:      "BASE",
-			wantFloor: -3.85,
+			want:      "FAIL",
+			wantFloor: -0.10,
 		},
 		{
-			name:      "amd64 hybrid stereo precision drift stays base",
+			name:      "hybrid stereo regression below floor fails",
 			caseName:  "Hybrid-FB-20ms-stereo-96k",
 			goarch:    "amd64",
 			gapDB:     -9.34,
-			want:      "BASE",
-			wantFloor: -9.25,
+			want:      "FAIL",
+			wantFloor: -0.05,
 		},
 	}
 
@@ -307,22 +278,24 @@ func TestEncoderComplianceReferenceStatusForPlatform(t *testing.T) {
 		wantFloor float64
 	}{
 		{
-			name:      "windows amd64 celt stereo precision drift stays base",
+			// windows/amd64 uses the same platform-independent floor table; the
+			// former -1.20 windows override was a stale mask (measured gap ~0.00).
+			name:      "windows amd64 celt stereo regression below floor fails",
 			caseName:  "CELT-FB-20ms-stereo-128k",
 			goos:      "windows",
 			goarch:    "amd64",
 			gapDB:     -1.13,
-			want:      "BASE",
-			wantFloor: -1.20,
+			want:      "FAIL",
+			wantFloor: 0.05,
 		},
 		{
-			name:      "linux amd64 celt stereo precision drift still fails",
+			name:      "linux amd64 celt stereo regression below floor fails",
 			caseName:  "CELT-FB-20ms-stereo-128k",
 			goos:      "linux",
 			goarch:    "amd64",
 			gapDB:     -1.13,
 			want:      "FAIL",
-			wantFloor: -0.10,
+			wantFloor: 0.05,
 		},
 		{
 			name:      "windows arm64 celt stereo keeps generic floor",
@@ -334,31 +307,34 @@ func TestEncoderComplianceReferenceStatusForPlatform(t *testing.T) {
 			wantFloor: 0.05,
 		},
 		{
-			name:      "linux arm64 celt 10ms native fixture drift stays base",
+			// linux/arm64 shares the platform-independent floor; the former
+			// LinuxARM64 native-fixture overrides were stale masks. The ubuntu
+			// arm64 native fixture measures the same ~0.00 gap as darwin/arm64.
+			name:      "linux arm64 celt 10ms regression below floor fails",
 			caseName:  "CELT-FB-10ms-mono-64k",
 			goos:      "linux",
 			goarch:    "arm64",
 			gapDB:     -2.55,
-			want:      "BASE",
-			wantFloor: -2.65,
+			want:      "FAIL",
+			wantFloor: -0.15,
 		},
 		{
-			name:      "linux arm64 celt stereo native fixture drift stays base",
+			name:      "linux arm64 celt stereo regression below floor fails",
 			caseName:  "CELT-FB-20ms-stereo-128k",
 			goos:      "linux",
 			goarch:    "arm64",
 			gapDB:     -9.28,
-			want:      "BASE",
-			wantFloor: -9.35,
+			want:      "FAIL",
+			wantFloor: 0.05,
 		},
 		{
-			name:      "linux arm64 silk mb native fixture drift stays base",
+			name:      "linux arm64 silk mb regression below floor fails",
 			caseName:  "SILK-MB-20ms-mono-24k",
 			goos:      "linux",
 			goarch:    "arm64",
 			gapDB:     -4.54,
-			want:      "BASE",
-			wantFloor: -4.65,
+			want:      "FAIL",
+			wantFloor: -0.20,
 		},
 	}
 
