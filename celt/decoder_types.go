@@ -131,6 +131,10 @@ type Decoder struct {
 	// Channel transition tracking (for mono-to-stereo overlap buffer clearing)
 	prevStreamChannels int32 // libopus CELTDecoder.stream_channels mirror (0 = uninitialized)
 	directOutPCM       []float32
+	// synthTrace, when non-nil, captures intermediate synthesis-stage buffers for
+	// the next decoded frame (test-only; production decoders leave it nil so the
+	// hot path is a single nil-pointer branch with no allocations).
+	synthTrace *synthesisStageTrace
 	decoderQEXTFields
 
 	// Scratch buffers to reduce per-frame allocations (decoder is not thread-safe).

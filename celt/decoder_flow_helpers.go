@@ -106,7 +106,15 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 			denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
 		}
 		if directStereoFloat32 && !transient {
+			if d.synthTrace != nil {
+				d.synthTrace.captureSpec(0, specL[:frameSize])
+				d.synthTrace.captureSpec(1, specR[:frameSize])
+			}
 			samplesL, samplesR := d.synthesizeStereoPlanarLongToFloat32(specL, specR)
+			if d.synthTrace != nil {
+				d.synthTrace.captureIMDCT(0, samplesL[:frameSize])
+				d.synthTrace.captureIMDCT(1, samplesR[:frameSize])
+			}
 			if d.postfilterGainOld == 0 && d.postfilterGain == 0 && postfilterGain == 0 {
 				d.applyPostfilterNoGainStereoPlanarFromFloat32(samplesL[:frameSize], samplesR[:frameSize], frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 			} else {
@@ -118,7 +126,15 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 				d.applyDeemphasisAndScaleStereoPlanarFloat32ToFloat32(d.directOutPCM[:frameSize*2], samplesL[:frameSize], samplesR[:frameSize], 1.0/32768.0)
 			}
 		} else if directStereoFloat32 {
+			if d.synthTrace != nil {
+				d.synthTrace.captureSpec(0, specL[:frameSize])
+				d.synthTrace.captureSpec(1, specR[:frameSize])
+			}
 			samplesL, samplesR := d.synthesizeStereoPlanar(specL, specR, transient, shortBlocks)
+			if d.synthTrace != nil {
+				d.synthTrace.captureIMDCT(0, samplesL[:frameSize])
+				d.synthTrace.captureIMDCT(1, samplesR[:frameSize])
+			}
 			d.applyPostfilterStereoPlanarFromFloat32(samplesL, samplesR, frameSize, modeLM, postfilterPeriod, postfilterGain, postfilterTapset)
 			if downsampleOutput {
 				d.applyDeemphasisAndScaleStereoPlanarFloat32DownsampleToFloat32(d.directOutPCM[:outputFrameSize*2], samplesL, samplesR, downsample, 1.0/32768.0)

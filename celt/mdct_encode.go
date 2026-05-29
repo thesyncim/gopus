@@ -76,12 +76,27 @@ func mdctMulAddMix(a, b, c, d float32) float32 {
 	if mdctUseNativeMulEnabled {
 		return a*c + b*d
 	}
+	// Mirror the clang -ffp-contract=on float path of libopus celt/mdct.c
+	// clt_mdct_backward_c() TDAC mix (S_MUL(x2,*wp1)+S_MUL(x1,*wp2)): the second
+	// product is rounded on its own and the first multiply is fused into the
+	// add. The fully non-fused form drifts by ~1 ULP once the overlap-add region
+	// carries non-zero history (transient short-block boundaries), which seeds
+	// the host-only parity cluster.
+	if mdctUseFMALikeMixEnabled {
+		return mdctFMA32(a, c, mdctMul(b, d))
+	}
 	return mdctMul(a, c) + mdctMul(b, d)
 }
 
 func mdctMulSubMix(a, b, c, d float32) float32 {
 	if mdctUseNativeMulEnabled {
 		return a*c - b*d
+	}
+	// Mirror libopus celt/mdct.c clt_mdct_backward_c() TDAC mix
+	// (S_MUL(x2,*wp2)-S_MUL(x1,*wp1)) under clang -ffp-contract=on: round the
+	// subtracted product, fuse the first multiply into the subtract.
+	if mdctUseFMALikeMixEnabled {
+		return mdctFMA32(a, c, -mdctMul(b, d))
 	}
 	return mdctMul(a, c) - mdctMul(b, d)
 }
