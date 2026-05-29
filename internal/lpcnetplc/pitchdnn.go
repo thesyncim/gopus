@@ -298,9 +298,27 @@ func (p *PitchDNN) Compute(ifFeatures, xcorrFeatures []float32) float32 {
 	end := minInt(pitchPitchClassCount-1, pos+2)
 	var sum float32
 	var count float32
-	for i := start; i <= end; i++ {
+	// libopus dnn/pitchdnn.c:compute_pitchdnn accumulates "sum += p*i" and
+	// "count += p" over the [pos-2,pos+2] window. On arm64 the pinned scalar
+	// reference is built with clang -ffp-contract=on; disassembly of
+	// compute_pitchdnn shows the loop unrolled by 4, where the leading groups of
+	// four iterations compute each p*i as a separate rounded FMUL followed by a
+	// plain FADD (the products are NOT fused into the accumulator), while the
+	// scalar remainder iterations fuse "sum = fmadd(p, i, sum)". Go's arm64
+	// backend would otherwise contract "sum += p*float32(i)" into an FMADD, so
+	// force the rounded product with noFMA32Mul for the unrolled groups and use
+	// the explicit fused fma32 only for the remainder.
+	n := end - start + 1
+	unrolled := start + (n/4)*4
+	i := start
+	for ; i < unrolled; i++ {
 		v := opusmath.ExpF32(p.scratch.output[i])
-		sum += v * float32(i)
+		sum += noFMA32Mul(v, float32(i))
+		count += v
+	}
+	for ; i <= end; i++ {
+		v := opusmath.ExpF32(p.scratch.output[i])
+		sum = fma32(v, float32(i), sum)
 		count += v
 	}
 	if count == 0 {
@@ -384,15 +402,11 @@ func conv2D3x3Float(out []float32, layer *Conv2DLayer, in []float32, height, hst
 			w21 := weights.At(wBase + 7)
 			w22 := weights.At(wBase + 8)
 			for j := 0; j < height; j++ {
-				out[baseOut+j] += w00*in[in0+j+0] +
-					w01*in[in0+j+1] +
-					w02*in[in0+j+2] +
-					w10*in[in1+j+0] +
-					w11*in[in1+j+1] +
-					w12*in[in1+j+2] +
-					w20*in[in2+j+0] +
-					w21*in[in2+j+1] +
-					w22*in[in2+j+2]
+				out[baseOut+j] += conv3x3Acc9(
+					w00, w01, w02, w10, w11, w12, w20, w21, w22,
+					in[in0+j+0], in[in0+j+1], in[in0+j+2],
+					in[in1+j+0], in[in1+j+1], in[in1+j+2],
+					in[in2+j+0], in[in2+j+1], in[in2+j+2])
 			}
 		}
 	}
