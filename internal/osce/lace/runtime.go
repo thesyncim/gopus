@@ -937,20 +937,12 @@ func computeLinear(layer *LinearLayer, out, in []float32) {
 	}
 }
 
-// sgemvFloat mirrors libopus `sgemv` (dnn/vec.h). The column-stride equals the
-// row count (rows == col_stride for these layers). libopus dispatches on the
-// row count:
-//   - rows % 16 == 0 -> sgemv16x1, rows % 8 == 0 -> sgemv8x1: 16/8 output
-//     accumulators live in registers, so clang -ffp-contract=on fuses each
-//     `y[r] += w*xj` into an FMA (matched by the Go arm64 backend's fused
-//     `sum += w*x`).
-//   - otherwise (the 1- and 2-output AdaComb/AdaConv gain layers) the scalar
-//     fallback accumulates through the `out[i]` memory cell, which clang does
-//     NOT contract even with -ffp-contract=on (verified bit-for-bit against the
-//     reference helper: the multiply rounds before the add). roundMul32 keeps
-//     that boundary so the Go backend does not over-fuse and drift by 1 ULP.
+// sgemvFloat mirrors libopus `sgemv` (dnn/vec.h), as inlined into
+// `compute_linear_c` (dnn/nnet_arch.h). Whether each `out[i] += w*x` row is
+// contracted into an FMA depends on the row count (see sgemvFused), so the
+// fused vs rounded boundary is pinned to match the prebuilt OSCE object.
 func sgemvFloat(out []float32, w dnnblob.Float32View, rows, cols int, x []float32) {
-	fused := rows%8 == 0
+	fused := sgemvFused(rows)
 	for i := 0; i < rows; i++ {
 		var sum float32
 		if fused {
@@ -964,6 +956,22 @@ func sgemvFloat(out []float32, w dnnblob.Float32View, rows, cols int, x []float3
 		}
 		out[i] = sum
 	}
+}
+
+// sgemvFused reports whether libopus' compiled sgemv contracts the
+// `out[i] += w*x` accumulation into an FMA for the given row count.
+//
+//   - rows % 8 == 0 (sgemv16x1 / sgemv8x1): 16/8 register accumulators, fused.
+//   - rows == 1 (AdaComb/AdaConv single-output gain + global-gain layers): the
+//     scalar fallback accumulates through a single `out[0]` cell that the
+//     compiled object does NOT contract -- verified bit-for-bit (LACE stays a
+//     bit-exact oracle only when this row stays rounded).
+//   - rows == 2 (the NoLACE `nolace_af1_gain` 2-output gain layer): the
+//     compiled scalar fallback emits fused FMADD for the two accumulators
+//     (verified by disassembling the prebuilt `compute_linear_c` and against
+//     the reference helper's AF1 gain, which is 2 ULP off without the fuse).
+func sgemvFused(rows int) bool {
+	return rows%8 == 0 || rows == 2
 }
 
 // cgemv8x4 mirrors the scalar fallback in libopus dnn/vec.h. Requires
@@ -1156,9 +1164,17 @@ func adacombProcessFrame(
 	globalGain = opusmath.ExpF32(filterGainA*globalGain + filterGainB)
 
 	// scale_kernel (1 in / 1 out): p-norm normalisation with gain.
+	// libopus dnn/nndsp.c:scale_kernel accumulates `norm += kernel*kernel` in a
+	// single statement, but its prebuilt object squares each tap with a plain
+	// (rounded) multiply -- the compiler emits `fmul.4s` for the square, NOT a
+	// fused multiply-add into the running sum (verified bit-for-bit against the
+	// reference helper's scaled kernel). The Go arm64 backend would otherwise
+	// fuse `norm += k*k` into FMADDS and drift the kernel norm by 1 ULP, which
+	// the CF2/AF gain cascade then amplifies. roundMul32 isolates the square as
+	// a rounded float32 so the running sum matches libopus.
 	var norm float32
 	for k := 0; k < kernelSize; k++ {
-		norm += kernelBuf[k] * kernelBuf[k]
+		norm += roundMul32(kernelBuf[k], kernelBuf[k])
 	}
 	invNorm := scaleKernelInvNorm(norm)
 	scale := invNorm * gain
@@ -1265,14 +1281,17 @@ func adaconvProcessFrame(
 		gainBuf[i] = opusmath.ExpF32(filterGainA*gainBuf[i] + filterGainB)
 	}
 
-	// scale_kernel.
+	// scale_kernel. As in the AdaComb path, libopus squares each tap with a
+	// rounded multiply (the prebuilt object emits `fmul`, not a fused MAC into
+	// the running norm), so roundMul32 keeps the Go arm64 backend from fusing
+	// `norm += v*v` into FMADDS and drifting by 1 ULP.
 	for o := 0; o < outChannels; o++ {
 		var norm float32
 		for ic := 0; ic < inChannels; ic++ {
 			for k := 0; k < kernelSize; k++ {
 				idx := (o*inChannels+ic)*kernelSize + k
 				v := kernelBuf[idx]
-				norm += v * v
+				norm += roundMul32(v, v)
 			}
 		}
 		invNorm := scaleKernelInvNorm(norm)
