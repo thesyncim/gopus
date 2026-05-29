@@ -44,7 +44,8 @@ func TestQEXTBuildPublicAPIContract(t *testing.T) {
 			name: "Decoder",
 			got:  &Decoder{},
 			want: []string{
-				"Bandwidth", "Channels", "Complexity", "Decode", "DecodeInt16", "DecodeWithFEC", "FinalRange",
+				"Bandwidth", "Channels", "Complexity", "Decode", "DecodeInt16", "DecodeInt24",
+				"DecodeInt24Slice", "DecodeWithFEC", "FinalRange",
 				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "PhaseInversionDisabled",
 				"Pitch", "Reset", "SampleRate", "SetComplexity", "SetDNNBlob", "SetGain",
 				"SetIgnoreExtensions", "SetPhaseInversionDisabled",
