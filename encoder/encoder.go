@@ -852,7 +852,12 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		e.clearInactiveDREDHistory()
 	}
 
-	suppressFrame, _ := e.shouldUseDTXRes(framePCM)
+	// DTX activity detection matches libopus opus_encoder.c:1246+1911-1930:
+	// is_digital_silence() and compute_frame_energy() both run on the original
+	// unfiltered PCM (before hp_cutoff/dc_reject). Pass inputPCM so that
+	// literal-zero silence is detected correctly even when the dc-reject filter
+	// state carries residual energy from preceding speech frames.
+	suppressFrame, _ := e.shouldUseDTXRes(inputPCM)
 	if suppressFrame {
 		if !directFrameInput {
 			remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
