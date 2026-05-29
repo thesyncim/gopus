@@ -133,7 +133,9 @@ func longFrameLibopusGapFloorForArch(caseName, goarch string) float64 {
 	return floor
 }
 
-func TestLongFrameLibopusGapFloorForArchUsesLooserPrecisionFloor(t *testing.T) {
+func TestLongFrameLibopusGapFloorUsesTightSpeechFloor(t *testing.T) {
+	// Precision floors are arch-independent and tighter than the speech floor, so
+	// the long-frame floor is -EncoderLibopusSpeechGapTightQ on every arch.
 	cases := []struct {
 		name     string
 		caseName string
@@ -141,13 +143,13 @@ func TestLongFrameLibopusGapFloorForArchUsesLooserPrecisionFloor(t *testing.T) {
 		want     float64
 	}{
 		{
-			name:     "amd64 silk wb40 inherits precision floor",
+			name:     "amd64 silk wb40 uses tight speech floor",
 			caseName: "SILK-WB-40ms-mono-32k",
 			arch:     "amd64",
-			want:     -64.0,
+			want:     -EncoderLibopusSpeechGapTightQ,
 		},
 		{
-			name:     "arm64 silk wb40 keeps tight speech floor",
+			name:     "arm64 silk wb40 uses tight speech floor",
 			caseName: "SILK-WB-40ms-mono-32k",
 			arch:     "arm64",
 			want:     -EncoderLibopusSpeechGapTightQ,

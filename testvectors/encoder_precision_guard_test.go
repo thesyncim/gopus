@@ -58,11 +58,9 @@ func encoderLibopusGapFloorForArch(caseName, goarch string) (float64, bool) {
 }
 
 // encoderLibopusGapFloorForPlatform returns the precision floor for a case. The
-// goos/goarch parameters are retained for call-site clarity and forward
-// extensibility, but the floor is platform-independent: see the rationale on
-// encoderLibopusGapFloorQ. Previous per-arch/per-OS override maps loosened these
-// floors by up to -64 Q; they were stale masks (measured gaps on every platform
-// are ~0.00) and have been removed in favor of the single tight floor table.
+// floor is platform-independent (gopus encode is bit-identical per GOARCH and
+// the libopus reference Q comes from the same comparator); the goos/goarch
+// parameters are kept for call-site clarity and forward extensibility.
 func encoderLibopusGapFloorForPlatform(caseName, goos, goarch string) (float64, bool) {
 	_ = goos
 	_ = goarch

@@ -57,7 +57,9 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 		want float64
 	}{
 		{
-			name: "amd64 celt shortframe override",
+			// libopus-amd64's own non-reference SSE drift on this chirp; see the
+			// override map. amd64-only.
+			name: "amd64 celt shortframe chirp override",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:    "CELT-FB-2.5ms-mono-64k",
 				Variant: "chirp_sweep_v1",
@@ -67,7 +69,29 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 			want: -150.0,
 		},
 		{
-			name: "global silk stereo override",
+			// arm64 takes the tight floor for the same chirp; the override is amd64-only.
+			name: "arm64 celt shortframe chirp tight floor",
+			tc: encoderComplianceVariantsFixtureCase{
+				Name:    "CELT-FB-2.5ms-mono-64k",
+				Variant: "chirp_sweep_v1",
+				Mode:    "celt",
+			},
+			arch: "arm64",
+			want: -1.0,
+		},
+		{
+			name: "amd64 silk stereo chirp tight floor",
+			tc: encoderComplianceVariantsFixtureCase{
+				Name:     "SILK-WB-20ms-stereo-48k",
+				Variant:  "chirp_sweep_v1",
+				Mode:     "silk",
+				Channels: 2,
+			},
+			arch: "amd64",
+			want: -1.5,
+		},
+		{
+			name: "arm64 silk stereo chirp tight floor",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:     "SILK-WB-20ms-stereo-48k",
 				Variant:  "chirp_sweep_v1",
@@ -75,10 +99,10 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 				Channels: 2,
 			},
 			arch: "arm64",
-			want: -266.5,
+			want: -1.0,
 		},
 		{
-			name: "amd64 silk stereo speech override",
+			name: "amd64 silk stereo speech tight floor",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:     "SILK-WB-20ms-stereo-48k",
 				Variant:  "speech_like_v1",
@@ -86,10 +110,10 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 				Channels: 2,
 			},
 			arch: "amd64",
-			want: -75.0,
+			want: -1.5,
 		},
 		{
-			name: "arm64 keeps default silk stereo speech floor",
+			name: "arm64 silk stereo speech tight floor",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:     "SILK-WB-20ms-stereo-48k",
 				Variant:  "speech_like_v1",
@@ -97,40 +121,40 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 				Channels: 2,
 			},
 			arch: "arm64",
-			want: -2.0,
+			want: -1.0,
 		},
 		{
-			name: "amd64 silk long impulse override",
+			name: "amd64 silk long impulse tight floor",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:    "SILK-WB-60ms-mono-32k",
 				Variant: "impulse_train_v1",
 				Mode:    "silk",
 			},
 			arch: "amd64",
-			want: -16.0,
+			want: -1.5,
 		},
 		{
-			name: "arm64 keeps default silk long impulse floor",
+			name: "arm64 silk long impulse tight floor",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:    "SILK-WB-60ms-mono-32k",
 				Variant: "impulse_train_v1",
 				Mode:    "silk",
 			},
 			arch: "arm64",
-			want: -2.0,
+			want: -1.0,
 		},
 		{
-			name: "amd64 silk wb40 chirp override",
+			name: "amd64 silk wb40 chirp tight floor",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:    "SILK-WB-40ms-mono-32k",
 				Variant: "chirp_sweep_v1",
 				Mode:    "silk",
 			},
 			arch: "amd64",
-			want: -20.5,
+			want: -1.5,
 		},
 		{
-			name: "amd64 hybrid stereo override",
+			name: "amd64 hybrid stereo tight floor",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:     "HYBRID-FB-20ms-stereo-96k",
 				Variant:  "am_multisine_v1",
@@ -138,10 +162,10 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 				Channels: 2,
 			},
 			arch: "amd64",
-			want: -10.0,
+			want: -1.5,
 		},
 		{
-			name: "arm64 keeps default hybrid floor",
+			name: "arm64 hybrid stereo tight floor",
 			tc: encoderComplianceVariantsFixtureCase{
 				Name:     "HYBRID-FB-20ms-stereo-96k",
 				Variant:  "am_multisine_v1",
@@ -149,7 +173,7 @@ func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
 				Channels: 2,
 			},
 			arch: "arm64",
-			want: -6.0,
+			want: -1.0,
 		},
 	}
 
