@@ -113,6 +113,14 @@ test-fuzz-smoke:
 	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggDemuxPage$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzParseOpusHead$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzParseOpusTags$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_MultiSegmentLacing$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_GranuleEdgeCases$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_ZeroLengthPackets$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_MultiplexedPages$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_OpusHeadEdgeCases$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_OpusTagsEdgeCases$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_ProjectionMapping$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_DifferentialOpusfile$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDParse$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDBuildRoundTrip$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDFindRecovery$$' -fuzztime=$(GOPUS_FUZZ_SMOKE_FUZZTIME) -count=1
@@ -130,6 +138,14 @@ test-fuzz-safety: ensure-libopus
 	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggDemuxPage$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzParseOpusHead$$' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzParseOpusTags$$' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_MultiSegmentLacing$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_GranuleEdgeCases$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_ZeroLengthPackets$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_MultiplexedPages$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_OpusHeadEdgeCases$$' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_OpusTagsEdgeCases$$' -fuzztime=$(GOPUS_SAFETY_PARSER_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_ProjectionMapping$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
+	$(GO_WORK_ENV) $(GO) test ./container/ogg -run='^$$' -fuzz='^FuzzOggExt_DifferentialOpusfile$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDParse$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDBuildRoundTrip$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
 	$(GO_WORK_ENV) $(GO) test ./container/red -run='^$$' -fuzz='^FuzzREDFindRecovery$$' -fuzztime=$(GOPUS_SAFETY_FUZZTIME) -count=1
