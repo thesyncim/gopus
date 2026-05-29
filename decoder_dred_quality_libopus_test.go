@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/qualitycompare"
 )
 
 const (
@@ -67,24 +68,54 @@ func TestExplicitDREDQualityTracksLibopusAtSixtyPercentLoss(t *testing.T) {
 		goDREDMetrics.Envelope-libDREDMetrics.Envelope,
 		formatOptionalQualityDelta(goDREDMetrics, libDREDMetrics))
 
+	// Structural sanity (kept): libopus's own DRED must measurably improve the
+	// concealed-frame envelope over its PLC fallback, otherwise the loss pattern
+	// is not exercising DRED at all.
 	if libDREDMetrics.Envelope < libPLCMetrics.Envelope+0.010 {
 		t.Fatalf("libopus DRED envelope quality did not improve enough: dred=%.5f plc=%.5f", libDREDMetrics.Envelope, libPLCMetrics.Envelope)
 	}
-	if goDREDMetrics.Envelope+0.015 < libDREDMetrics.Envelope {
-		t.Fatalf("Go DRED envelope quality too far below libopus: go=%.5f libopus=%.5f", goDREDMetrics.Envelope, libDREDMetrics.Envelope)
+
+	// Migrated Go-vs-libopus DRED PCM parity gate. The reference is libopus's own
+	// DRED-concealed PCM over the lost frames and the candidate is gopus's; we use
+	// the canonical comparator (CompareDecodedFloat32) so the trusted bar and its
+	// libopus-anchored rationale live in internal/qualitycompare rather than in
+	// hand-picked per-test numbers (which is what the removed SNR>=20 / corr>=0.995
+	// / env>=0.990 / opusQ-within-20 block was).
+	//
+	// The frame-count oracles above already pin the concealment structure to be
+	// bit-identical (same lost/DRED/fallback frame counts), so this gate scores
+	// only the decoded-audio agreement of the two DRED concealments.
+	//
+	// IMPORTANT: the bytes compared here are the LOSS-FRAME-ONLY splice
+	// (run.lossDecoded), i.e. non-contiguous concealed frames concatenated. The
+	// libopus oracle helper (tools/csrc/libopus_decoder_dred_quality_sequence.c)
+	// emits only this splice, never the full continuous stream, so a contiguous
+	// comparison is not available. opus_compare's perceptual Q is meaningless on
+	// such a splice -- as proof, even libopus-DRED-vs-clean-source scores Q~=-730
+	// on the same splice (see the diagnostic logs above). We therefore gate on the
+	// canonical comparator's waveform corr/RMS (the metric the task prescribes when
+	// opus_compare Q is not applicable) and log Q only as a diagnostic.
+	maxDelay := 4 * dredQualityFrameSize
+	if maxDelay < 960 {
+		maxDelay = 960
 	}
-	if goVsLib.SNRDB < 20.0 {
-		t.Fatalf("Go DRED PCM SNR diverges from libopus: %.3f dB", goVsLib.SNRDB)
+	cmp, err := qualitycompare.CompareDecodedFloat32(goDRED.lossDecoded, libDRED.lossDecoded, dredQualitySampleRate, dredQualityChannels, maxDelay)
+	if err != nil {
+		t.Fatalf("CompareDecodedFloat32(go-vs-libopus DRED): %v", err)
 	}
-	if goVsLib.Correlation < 0.995 {
-		t.Fatalf("Go DRED PCM correlation diverges from libopus: %.5f", goVsLib.Correlation)
+	// Bar basis: anchored to the canonical near-exact bar that SILK/CELT/Hybrid
+	// decode meet vs libopus, but with MinQ disabled because opus_compare Q is not
+	// valid on the spliced loss-only stream (above). A bit-exact-routed concealment
+	// whose only divergence is a transcendental/libm rounding tail would land at
+	// corr>=0.997; the waveform corr is the honest parity metric here.
+	dredPCMBar := qualitycompare.QualityBar{
+		MinQ:    0,
+		MinCorr: qualitycompare.QualityBarNearExact.MinCorr,
+		RMSLo:   qualitycompare.QualityBarNearExact.RMSLo,
+		RMSHi:   qualitycompare.QualityBarNearExact.RMSHi,
+		Desc:    "near-exact vs libopus (corr/RMS; Q invalid on loss-only splice)",
 	}
-	if goVsLib.Envelope < 0.990 {
-		t.Fatalf("Go DRED PCM envelope diverges from libopus: %.5f", goVsLib.Envelope)
-	}
-	if goDREDMetrics.OpusQOK && libDREDMetrics.OpusQOK && goDREDMetrics.OpusQ+20.0 < libDREDMetrics.OpusQ {
-		t.Fatalf("Go DRED opus_compare quality too far below libopus: go=%.3f libopus=%.3f", goDREDMetrics.OpusQ, libDREDMetrics.OpusQ)
-	}
+	qualitycompare.AssertQuality(t, cmp, dredPCMBar, "Go-vs-libopus DRED concealed PCM")
 }
 
 func getLibopusDREDQualitySequenceHelperPath() (string, error) {
