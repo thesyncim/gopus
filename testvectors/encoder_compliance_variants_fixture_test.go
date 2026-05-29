@@ -397,15 +397,23 @@ type encoderVariantParityThreshold struct {
 // Per-arch encoder quality floors. Live measurement (arm64 native and
 // linux/amd64 under emulation) shows gopus encode gapQ vs libopus is ~0 across
 // the whole variant grid on BOTH arches (worst -0.32), EXCEPT the degenerate
-// CELT 2.5 ms chirp_sweep micro-case on amd64: opus_compare Q is metric-
-// degenerate on a 120-sample chirp (gapQ -146.89, not an audible loss). The
-// former loose -10/-16/-20/-64/-75/-150/-266 floors were stale; only that one
-// degenerate amd64 case keeps a loose override now.
+// CELT 2.5 ms chirp_sweep micro-case on amd64. The former loose
+// -10/-16/-20/-64/-75/-150/-266 floors were stale; only that one case keeps a
+// loose override now.
 const (
 	arm64EncoderVariantGapFloorQ = -1.0
 	amd64EncoderVariantGapFloorQ = -1.5
 )
 
+// CELT-FB-2.5ms-mono-64k/chirp_sweep_v1 is NOT a gopus defect. At the first
+// diverging frame gopus emits byte-identical output on amd64 and arm64 and
+// matches the libopus *reference* (generic) build; it is libopus's own x86 SSE
+// build that drifts from its reference here (differs from libopus-generic on
+// 231/401 frames), producing a mid-packet byte difference whose effect cancels
+// in the final range coder. opus_compare Q is hypersensitive on this 120-sample
+// chirp (gapQ -146.89). Matching it would require gopus to reproduce
+// libopus-amd64's non-reference rounding, i.e. become *less* faithful to the
+// reference numerics it currently matches. So the override stands by design.
 var encoderVariantMinGapFloorAMD64OverrideQ = map[string]float64{
 	encoderVariantCaseKey("CELT-FB-2.5ms-mono-64k", "chirp_sweep_v1"): -150.0,
 }
