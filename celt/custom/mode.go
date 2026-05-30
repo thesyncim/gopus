@@ -117,6 +117,15 @@ type CustomMode struct {
 	// [0] = coef_a (pre-emphasis), [1] = coef_b, [2] = scale (1/preemph[3]),
 	// [3] = inverse scale.
 	Preemph [4]float32
+	// CacheIndex maps (LM+1, band) -> offset into CacheBits, length
+	// NbEBands*(MaxLM+2). CacheBits is the concatenated pulse cache.
+	// CacheCaps is the (MaxLM+1)*2*NbEBands per-band PVQ cap table.
+	// These mirror libopus PulseCache (mode->cache.{index,bits,caps}) and are
+	// computed by compute_pulse_cache at mode-create time for non-standard modes.
+	// Reference: libopus celt/rate.c compute_pulse_cache(), celt/modes.h PulseCache.
+	CacheIndex []int16
+	CacheBits  []uint8
+	CacheCaps  []uint8
 	// isStandard is true when this mode maps to one of the four libopus static
 	// modes (48 kHz, 120/240/480/960 samples). Standard modes can be encoded
 	// and decoded with byte-exact libopus parity using the existing celt package.
@@ -230,6 +239,10 @@ func NewMode(fs, frameSize int) (*CustomMode, error) {
 	// Compute preemphasis coefficients by sample rate.
 	// Reference: libopus celt/modes.c lines 322-356.
 	mode.Preemph = preemphForFs(fs)
+
+	// Compute the pulse cache (index/bits/caps).
+	// Reference: libopus celt/rate.c compute_pulse_cache(mode, maxLM).
+	computePulseCache(mode)
 
 	return mode, nil
 }
@@ -346,40 +359,239 @@ func computeAllocVectors(m *CustomMode) []uint8 {
 	}
 
 	// Interpolate per-band from the 5ms table.
-	// Reference: libopus modes.c lines 190-212.
-	// Note: libopus starts the inner loop at k=0 with the condition checking
-	// eband5ms[k+1]; if the first check fails (k stays 0), k-1 would be -1 but
-	// libopus never reads bandAllocTable at k=-1 because the outer condition
-	// jumps to the k>=maxBands branch first. We replicate that guard below.
+	// Reference: libopus celt/modes.c compute_allocation_table() lines 191-211.
+	// bandHz is computed in int32 arithmetic exactly as libopus:
+	//   mode->eBands[j]*(opus_int32)mode->Fs/mode->shortMdctSize
+	// (multiply then integer-divide; the products fit in int32 for all valid
+	// custom modes). k is the first 5ms band whose 400*eband5ms[k] exceeds
+	// bandHz; k is always >=1 because eBands[0]==0 forces 400*eband5ms[0]==0,
+	// which is never > bandHz>=0.
+	fs := int32(m.Fs)
+	smdct := int32(m.ShortMdctSize)
 	for i := 0; i < 11; i++ {
 		for j := 0; j < m.NbEBands; j++ {
+			bandHz := int32(m.EBands[j]) * fs / smdct
 			k := 0
-			bandHz := int64(m.EBands[j]) * int64(m.Fs) / int64(m.ShortMdctSize)
 			for k < maxBands5ms {
-				if int64(400)*int64(eband5ms[k+1]) > bandHz {
+				if int32(400)*int32(eband5ms[k]) > bandHz {
 					break
 				}
 				k++
 			}
-			if k >= maxBands5ms {
+			if k > maxBands5ms-1 {
 				alloc[i*m.NbEBands+j] = bandAllocTable[i][maxBands5ms-1]
-			} else if k == 0 {
-				// Below the first 5ms band boundary: use the first table entry.
-				alloc[i*m.NbEBands+j] = bandAllocTable[i][0]
 			} else {
-				a1 := bandHz - int64(400)*int64(eband5ms[k-1])
-				a0 := int64(400)*int64(eband5ms[k]) - bandHz
-				total := a0 + a1
-				if total <= 0 {
-					alloc[i*m.NbEBands+j] = bandAllocTable[i][k]
-				} else {
-					v := (a0*int64(bandAllocTable[i][k-1]) + a1*int64(bandAllocTable[i][k])) / total
-					alloc[i*m.NbEBands+j] = uint8(v)
-				}
+				a1 := bandHz - int32(400)*int32(eband5ms[k-1])
+				a0 := int32(400)*int32(eband5ms[k]) - bandHz
+				v := (a0*int32(bandAllocTable[i][k-1]) + a1*int32(bandAllocTable[i][k])) / (a0 + a1)
+				alloc[i*m.NbEBands+j] = uint8(v)
 			}
 		}
 	}
 	return alloc
+}
+
+// CELT bit-allocation constants. Reference: libopus celt/rate.h, celt/arch.h.
+const (
+	bitRes               = 3
+	maxFineBits          = 8
+	fineOffset           = 21
+	qthetaOffset         = 4
+	qthetaOffsetTwoPhase = 16
+	maxPseudo            = 40
+	celtMaxPulses        = 128
+)
+
+// getPulses maps a pseudo-pulse index i to the actual pulse count.
+// Reference: libopus celt/rate.h get_pulses().
+func getPulses(i int) int {
+	if i < 8 {
+		return i
+	}
+	return (8 + (i & 7)) << ((i >> 3) - 1)
+}
+
+// fitsIn32 reports whether V(N,K) fits in a 32-bit unsigned integer.
+// Reference: libopus celt/rate.c fits_in32().
+func fitsIn32(n, k int) bool {
+	maxN := [15]int16{32767, 32767, 32767, 1476, 283, 109, 60, 40, 29, 24, 20, 18, 16, 14, 13}
+	maxK := [15]int16{32767, 32767, 32767, 32767, 1172, 238, 95, 53, 36, 27, 22, 18, 16, 15, 13}
+	if n >= 14 {
+		if k >= 14 {
+			return false
+		}
+		return n <= int(maxN[k])
+	}
+	return k <= int(maxK[n])
+}
+
+// getRequiredBits fills bits[1..maxk] with the number of bits (Q-frac) required
+// to code a PVQ of dimension n with up to maxk pulses. bits[0] is set to 0.
+// Reference: libopus celt/cwrs.c get_required_bits() (CUSTOM_MODES path).
+func getRequiredBits(bits []int16, n, maxk, frac int) {
+	bits[0] = 0
+	if n == 1 {
+		for k := 1; k <= maxk; k++ {
+			bits[k] = int16(1 << frac)
+		}
+		return
+	}
+	u := make([]uint32, maxk+2)
+	celt.NcwrsUrowExport(n, maxk, u)
+	for k := 1; k <= maxk; k++ {
+		bits[k] = int16(log2Frac(int(u[k]+u[k+1]), frac))
+	}
+}
+
+// computePulseCache builds the per-mode pulse cache (index/bits/caps) for a
+// non-standard custom mode. It is a bit-exact port of libopus
+// compute_pulse_cache(m, LM) with LM == m.MaxLM.
+//
+// Reference: libopus celt/rate.c compute_pulse_cache().
+func computePulseCache(m *CustomMode) {
+	lm := m.MaxLM
+	eBands := m.EBands
+	nb := m.NbEBands
+
+	cindex := make([]int16, nb*(lm+2))
+	var entryN, entryK, entryI [100]int
+	nbEntries := 0
+	curr := 0
+
+	// Scan for all unique band sizes.
+	for i := 0; i <= lm+1; i++ {
+		for j := 0; j < nb; j++ {
+			N := (int(eBands[j+1]) - int(eBands[j])) << i >> 1
+			cindex[i*nb+j] = -1
+			// Find other bands that have the same size.
+			for k := 0; k <= i; k++ {
+				for n := 0; n < nb && (k != i || n < j); n++ {
+					if N == (int(eBands[n+1])-int(eBands[n]))<<k>>1 {
+						cindex[i*nb+j] = cindex[k*nb+n]
+						break
+					}
+				}
+				if cindex[i*nb+j] != -1 {
+					break
+				}
+			}
+			if cindex[i*nb+j] == -1 && N != 0 {
+				entryN[nbEntries] = N
+				K := 0
+				for fitsIn32(N, getPulses(K+1)) && K < maxPseudo {
+					K++
+				}
+				entryK[nbEntries] = K
+				cindex[i*nb+j] = int16(curr)
+				entryI[nbEntries] = curr
+				curr += K + 1
+				nbEntries++
+			}
+		}
+	}
+
+	bits := make([]uint8, curr)
+	// Compute the cache for all unique sizes.
+	for i := 0; i < nbEntries; i++ {
+		ptr := bits[entryI[i]:]
+		var tmp [celtMaxPulses + 1]int16
+		getRequiredBits(tmp[:], entryN[i], getPulses(entryK[i]), bitRes)
+		for j := 1; j <= entryK[i]; j++ {
+			ptr[j] = uint8(tmp[getPulses(j)] - 1)
+		}
+		ptr[0] = uint8(entryK[i])
+	}
+
+	// Compute the maximum rate per band/channel/LM (caps).
+	caps := make([]uint8, (lm+1)*2*nb)
+	cp := 0
+	for i := 0; i <= lm; i++ {
+		for C := 1; C <= 2; C++ {
+			for j := 0; j < nb; j++ {
+				N0 := int(eBands[j+1]) - int(eBands[j])
+				var maxBits int
+				if N0<<i == 1 {
+					maxBits = C * (1 + maxFineBits) << bitRes
+				} else {
+					LM0 := 0
+					if N0 > 2 {
+						N0 >>= 1
+						LM0--
+					} else if N0 <= 1 {
+						LM0 = i
+						if LM0 > 1 {
+							LM0 = 1
+						}
+						N0 <<= LM0
+					}
+					pcache := bits[cindex[(LM0+1)*nb+j]:]
+					maxBits = int(pcache[pcache[0]]) + 1
+					N := N0
+					for k := 0; k < i-LM0; k++ {
+						maxBits <<= 1
+						offset := ((int(m.LogN[j]) + ((LM0 + k) << bitRes)) >> 1) - qthetaOffset
+						num := 459 * ((2*N-1)*offset + maxBits)
+						den := ((2*N - 1) << 9) - 459
+						qb := (num + (den >> 1)) / den
+						if qb > 57 {
+							qb = 57
+						}
+						maxBits += qb
+						N <<= 1
+					}
+					if C == 2 {
+						maxBits <<= 1
+						qoff := qthetaOffset
+						if N == 2 {
+							qoff = qthetaOffsetTwoPhase
+						}
+						offset := ((int(m.LogN[j]) + (i << bitRes)) >> 1) - qoff
+						ndof := 2*N - 1
+						if N == 2 {
+							ndof--
+						}
+						mul := 487
+						sub := 487
+						qbCap := 61
+						if N == 2 {
+							mul = 512
+							sub = 512
+							qbCap = 64
+						}
+						num := mul * (maxBits + ndof*offset)
+						den := (ndof << 9) - sub
+						qb := (num + (den >> 1)) / den
+						if qb > qbCap {
+							qb = qbCap
+						}
+						maxBits += qb
+					}
+					ndof := C * N
+					if C == 2 && N > 2 {
+						ndof++
+					}
+					offset := ((int(m.LogN[j]) + (i << bitRes)) >> 1) - fineOffset
+					if N == 2 {
+						offset += 1 << bitRes >> 2
+					}
+					num := maxBits + ndof*offset
+					den := (ndof - 1) << bitRes
+					qb := (num + (den >> 1)) / den
+					if qb > maxFineBits {
+						qb = maxFineBits
+					}
+					maxBits += C * qb << bitRes
+				}
+				maxBits = (4*maxBits)/(C*((int(eBands[j+1])-int(eBands[j]))<<i)) - 64
+				caps[cp] = uint8(maxBits)
+				cp++
+			}
+		}
+	}
+
+	m.CacheIndex = cindex
+	m.CacheBits = bits
+	m.CacheCaps = caps
 }
 
 // log2Frac is a bit-exact port of libopus log2_frac(): an integer fixed-point

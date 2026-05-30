@@ -70,6 +70,10 @@ type oracleResult struct {
 	preemph       [4]float32
 	eBands        []int32
 	logN          []int32
+	allocVectors  []int32
+	cacheIndex    []int32
+	cacheBits     []int32
+	cacheCaps     []int32
 }
 
 // runCustomOracle drives the libopus custom-modes oracle. Protocol matches
@@ -177,6 +181,18 @@ func runCustomOracle(t *testing.T, cases []oracleCase) []oracleResult {
 		for j := range res.logN {
 			res.logN[j] = readI32("logN")
 		}
+		readI32Slice := func(name string) []int32 {
+			n := readI32(name)
+			s := make([]int32, n)
+			for j := range s {
+				s[j] = readI32(name)
+			}
+			return s
+		}
+		res.allocVectors = readI32Slice("allocVectors")
+		res.cacheIndex = readI32Slice("cacheIndex")
+		res.cacheBits = readI32Slice("cacheBits")
+		res.cacheCaps = readI32Slice("cacheCaps")
 		results[i] = res
 	}
 	return results
@@ -526,6 +542,89 @@ func TestOracleParityScaledBandFamily(t *testing.T) {
 					tc.fs, tc.frameSize, len(got), maxAbs)
 			}
 		})
+	}
+}
+
+// TestOracleControlPlaneNonStandard verifies that, for genuinely custom band
+// layouts outside the Fs==400*shortMdctSize family (e.g. 48000/640), the gopus
+// celt/custom mode-create control plane reproduces libopus
+// opus_custom_mode_create() exactly: the per-mode band edges (eBands), logN,
+// allocVectors (compute_allocation_table) and pulse cache index/bits/caps
+// (compute_pulse_cache). These tables are the prerequisite for byte/sample-exact
+// native encode/decode of such modes.
+//
+// Reference: libopus celt/modes.c compute_ebands/compute_allocation_table,
+// celt/rate.c compute_pulse_cache.
+func TestOracleControlPlaneNonStandard(t *testing.T) {
+	const maxBytes = 200
+	specs := []struct{ fs, frameSize int }{
+		{48000, 640},
+		{44100, 882},
+	}
+	var cases []oracleCase
+	for _, s := range specs {
+		cases = append(cases, oracleCase{s.fs, s.frameSize, 1, maxBytes, generateSine(440.0, float64(s.fs), s.frameSize)})
+	}
+	results := runCustomOracle(t, cases)
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("Fs%d_frame%d", tc.fs, tc.frameSize), func(t *testing.T) {
+			if results[i].status < 0 {
+				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
+			}
+			mode, err := custom.NewMode(tc.fs, tc.frameSize)
+			if err != nil {
+				t.Fatalf("NewMode(%d,%d): %v", tc.fs, tc.frameSize, err)
+			}
+			if mode.InScaledBandFamily() || mode.IsStandard() {
+				t.Fatalf("Fs=%d frame=%d unexpectedly standard/scaled-family", tc.fs, tc.frameSize)
+			}
+			r := results[i]
+
+			if len(mode.EBands) != len(r.eBands) {
+				t.Fatalf("eBands length gopus=%d oracle=%d", len(mode.EBands), len(r.eBands))
+			}
+			for j := range mode.EBands {
+				if int32(mode.EBands[j]) != r.eBands[j] {
+					t.Errorf("eBands[%d]: gopus=%d oracle=%d", j, mode.EBands[j], r.eBands[j])
+				}
+			}
+			for j := range mode.LogN {
+				if int32(mode.LogN[j]) != r.logN[j] {
+					t.Errorf("logN[%d]: gopus=%d oracle=%d", j, mode.LogN[j], r.logN[j])
+				}
+			}
+			assertI32EqU8(t, "allocVectors", mode.AllocVectors, r.allocVectors)
+			assertI32EqI16(t, "cacheIndex", mode.CacheIndex, r.cacheIndex)
+			assertI32EqU8(t, "cacheBits", mode.CacheBits, r.cacheBits)
+			assertI32EqU8(t, "cacheCaps", mode.CacheCaps, r.cacheCaps)
+		})
+	}
+}
+
+func assertI32EqU8(t *testing.T, name string, got []uint8, want []int32) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Errorf("%s length gopus=%d oracle=%d", name, len(got), len(want))
+		return
+	}
+	for k := range got {
+		if int32(got[k]) != want[k] {
+			t.Errorf("%s[%d]: gopus=%d oracle=%d", name, k, got[k], want[k])
+		}
+	}
+}
+
+func assertI32EqI16(t *testing.T, name string, got []int16, want []int32) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Errorf("%s length gopus=%d oracle=%d", name, len(got), len(want))
+		return
+	}
+	for k := range got {
+		if int32(got[k]) != want[k] {
+			t.Errorf("%s[%d]: gopus=%d oracle=%d", name, k, got[k], want[k])
+		}
 	}
 }
 

@@ -48,6 +48,14 @@
  *       nEBandEdges * int32  eBands[]
  *       int32  nLogN (= nbEBands)
  *       nLogN * int32  logN[]
+ *       int32  nAlloc (= 11*nbEBands)
+ *       nAlloc * int32  allocVectors[]
+ *       int32  nCacheIndex (= (maxLM+2)*nbEBands)
+ *       nCacheIndex * int32  cacheIndex[]
+ *       int32  nCacheBits (= cache.size)
+ *       nCacheBits * int32  cacheBits[]
+ *       int32  nCacheCaps (= (maxLM+1)*2*nbEBands)
+ *       nCacheCaps * int32  cacheCaps[]
  *
  * Reference: libopus include/opus_custom.h, celt/celt_encoder.c, celt/celt_decoder.c.
  */
@@ -123,6 +131,10 @@ static void emit_failure(int32_t status) {
     for (int i = 0; i < 4; i++) write_f32(0.0f);
     write_i32(0); /* nEBandEdges */
     write_i32(0); /* nLogN */
+    write_i32(0); /* nAlloc */
+    write_i32(0); /* nCacheIndex */
+    write_i32(0); /* nCacheBits */
+    write_i32(0); /* nCacheCaps */
 }
 
 int main(void) {
@@ -234,6 +246,26 @@ int main(void) {
         int g_nLogN = g_nbEBands < 64 ? g_nbEBands : 64;
         for (int i = 0; i < g_nLogN; i++) g_logN[i] = mode->logN[i];
 
+        /* allocVectors: 11 (== mode->nbAllocVectors) rows of nbEBands columns. */
+        int g_nAlloc = mode->nbAllocVectors * g_nbEBands;
+        /* cache.index: (maxLM+2) * nbEBands; cache.bits: cache.size;
+         * cache.caps: (maxLM+1) * 2 * nbEBands. */
+        int g_nCacheIndex = (g_maxLM + 2) * g_nbEBands;
+        int g_nCacheBits  = mode->cache.size;
+        int g_nCacheCaps  = (g_maxLM + 1) * 2 * g_nbEBands;
+        static int32_t g_alloc[11 * 64];
+        static int32_t g_cidx[6 * 64];
+        static int32_t g_cbits[4096];
+        static int32_t g_ccaps[4 * 2 * 64];
+        if (g_nAlloc > (int)(sizeof(g_alloc)/sizeof(g_alloc[0]))) g_nAlloc = sizeof(g_alloc)/sizeof(g_alloc[0]);
+        if (g_nCacheIndex > (int)(sizeof(g_cidx)/sizeof(g_cidx[0]))) g_nCacheIndex = sizeof(g_cidx)/sizeof(g_cidx[0]);
+        if (g_nCacheBits > (int)(sizeof(g_cbits)/sizeof(g_cbits[0]))) g_nCacheBits = sizeof(g_cbits)/sizeof(g_cbits[0]);
+        if (g_nCacheCaps > (int)(sizeof(g_ccaps)/sizeof(g_ccaps[0]))) g_nCacheCaps = sizeof(g_ccaps)/sizeof(g_ccaps[0]);
+        for (int i = 0; i < g_nAlloc; i++)      g_alloc[i] = (int32_t)mode->allocVectors[i];
+        for (int i = 0; i < g_nCacheIndex; i++) g_cidx[i]  = (int32_t)mode->cache.index[i];
+        for (int i = 0; i < g_nCacheBits; i++)  g_cbits[i] = (int32_t)mode->cache.bits[i];
+        for (int i = 0; i < g_nCacheCaps; i++)  g_ccaps[i] = (int32_t)mode->cache.caps[i];
+
         opus_custom_mode_destroy(mode);
 
         write_i32(sz);
@@ -260,6 +292,14 @@ int main(void) {
         for (int i = 0; i < g_nEdges; i++) write_i32((int32_t)g_eBands[i]);
         write_i32(g_nLogN);
         for (int i = 0; i < g_nLogN; i++) write_i32((int32_t)g_logN[i]);
+        write_i32(g_nAlloc);
+        for (int i = 0; i < g_nAlloc; i++) write_i32(g_alloc[i]);
+        write_i32(g_nCacheIndex);
+        for (int i = 0; i < g_nCacheIndex; i++) write_i32(g_cidx[i]);
+        write_i32(g_nCacheBits);
+        for (int i = 0; i < g_nCacheBits; i++) write_i32(g_cbits[i]);
+        write_i32(g_nCacheCaps);
+        for (int i = 0; i < g_nCacheCaps; i++) write_i32(g_ccaps[i]);
     }
 
     fflush(stdout);

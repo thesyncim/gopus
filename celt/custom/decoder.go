@@ -87,8 +87,9 @@ func (cd *CustomDecoder) Channels() int { return cd.channels }
 // Fs==400*shortMdctSize family decode sample-identical to libopus
 // --enable-custom-modes (within the documented arm64 1-ULP CELT drift). Other
 // non-standard (Fs, frame_size) pairs return ErrNonStandard for the same reason
-// as CustomEncoder.EncodeFloat: their genuinely custom band layout is not yet
-// carried by the gopus CELT core.
+// as CustomEncoder.EncodeFloat: their genuinely custom band layout (eBands,
+// allocVectors and compute_pulse_cache tables, all computed exactly by NewMode)
+// is not yet threaded through the gopus CELT decode data plane.
 //
 // Reference: libopus include/opus_custom.h opus_custom_decode_float().
 func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, error) {

@@ -121,10 +121,12 @@ func (ce *CustomEncoder) Channels() int { return ce.channels }
 // Fs==400*shortMdctSize family (e.g. 16000/320, 24000/480) produce output
 // byte-identical to libopus --enable-custom-modes. Other non-standard
 // (Fs, frame_size) pairs whose band layout is genuinely custom (compute_ebands
-// derives a non-48 kHz table) return ErrNonStandard: the gopus CELT core does
-// not yet carry those allocation/cache tables. NewMode still computes the full
-// mode tables for such rates so the remaining native-encode wiring can be added
-// without re-deriving them.
+// derives a non-48 kHz table) return ErrNonStandard: the gopus CELT encode core
+// does not yet thread those per-mode band/allocation/cache tables through its
+// data plane. NewMode does compute the full, libopus-exact mode tables for such
+// rates (eBands, logN, allocVectors and the compute_pulse_cache index/bits/caps),
+// so the remaining native-encode wiring only needs to feed those tables into the
+// CELT control plane rather than re-derive them.
 //
 // Reference: libopus include/opus_custom.h opus_custom_encode_float().
 func (ce *CustomEncoder) EncodeFloat(pcm []float32, maxBytes int) ([]byte, error) {
