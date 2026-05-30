@@ -15,6 +15,9 @@ const (
 	// (VBR/CVBR/CBR), dumping every produced packet so cross-frame state can be
 	// validated.
 	CELTEncodeModeEncodeSeq = uint32(2)
+	// CELTEncodeModeEncodeExt runs one celt_encode_with_ec frame with the LFE
+	// and/or energy_mask controls applied, dumping the produced packet bytes.
+	CELTEncodeModeEncodeExt = uint32(3)
 
 	// celtEncodeNbEBands mirrors the static 48000/960 mode nbEBands.
 	celtEncodeNbEBands = 21
@@ -138,6 +141,69 @@ func ProbeCELTFixedEncode(pcm []int16, channels, frameSize, start, end, bitrate,
 	}
 
 	reader, err := RunOracle(binPath, payload.Bytes(), "celt fixed encode", celtEncodeOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	count := reader.Count(-1)
+	pad := (4 - count%4) % 4
+	reader.ExpectRemaining(count + pad)
+	out := append([]byte(nil), reader.Bytes(count)...)
+	if pad > 0 {
+		reader.Bytes(pad)
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ProbeCELTFixedEncodeExt runs the full FIXED_POINT celt_encode_with_ec on the
+// static 48000/960 mode with the LFE and/or energy_mask controls applied,
+// returning the produced CELT packet bytes. mask, when non-nil, holds
+// channels*nbEBands celt_glog (Q24, channel-major) values passed via
+// OPUS_SET_ENERGY_MASK.
+func ProbeCELTFixedEncodeExt(pcm []int16, channels, frameSize, start, end, bitrate, complexity, nbCompressedBytes int,
+	vbr, constrainedVBR, lfe bool, mask []int32) ([]byte, error) {
+	binPath, err := getCELTEncodeHelperPath()
+	if err != nil {
+		return nil, err
+	}
+
+	b2u := func(b bool) uint32 {
+		if b {
+			return 1
+		}
+		return 0
+	}
+
+	hasMask := mask != nil
+	nsamples := channels * frameSize
+	payload := NewOraclePayload(celtEncodeInputMagic, CELTEncodeModeEncodeExt, 0)
+	payload.U32(uint32(channels))
+	payload.U32(uint32(frameSize))
+	payload.U32(uint32(start))
+	payload.U32(uint32(end))
+	payload.U32(uint32(bitrate))
+	payload.U32(uint32(complexity))
+	payload.U32(uint32(nbCompressedBytes))
+	payload.U32(b2u(vbr))
+	payload.U32(b2u(constrainedVBR))
+	payload.U32(b2u(lfe))
+	payload.U32(b2u(hasMask))
+	payload.U32(uint32(nsamples))
+	for _, s := range pcm {
+		payload.I16(s)
+	}
+	if pad := (4 - (nsamples*2)%4) % 4; pad > 0 {
+		payload.Raw(make([]byte, pad))
+	}
+	if hasMask {
+		for _, v := range mask {
+			payload.I32(v)
+		}
+	}
+
+	reader, err := RunOracle(binPath, payload.Bytes(), "celt fixed encode ext", celtEncodeOutputMagic)
 	if err != nil {
 		return nil, err
 	}

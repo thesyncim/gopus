@@ -25,6 +25,10 @@
  * static 48000/960 custom mode and dumps the produced packet bytes (the
  * end-goal reference for the integer encoder).
  *
+ * MODE_ENCODE_EXT is MODE_ENCODE with the OPUS_SET_LFE and/or
+ * OPUS_SET_ENERGY_MASK controls applied (and explicit VBR/CVBR), exercising the
+ * low-frequency-effects and surround energy-mask encode paths.
+ *
  * MODE_FRONTEND reproduces the encode front-end inline (celt_preemphasis ->
  * compute_mdcts -> compute_band_energies -> normalise_bands), i.e. the exact
  * sequence celt_encode_with_ec runs just before quant_all_bands, and dumps the
@@ -41,7 +45,8 @@
 enum {
   MODE_ENCODE = 0,
   MODE_FRONTEND = 1,
-  MODE_ENCODE_SEQ = 2
+  MODE_ENCODE_SEQ = 2,
+  MODE_ENCODE_EXT = 3
 };
 
 static int set_binary_stdio(void) {
@@ -371,6 +376,108 @@ done:
   return ok;
 }
 
+/* MODE_ENCODE_EXT wire format (after the GCEI header, version 1, mode and
+ * unused count word):
+ *   u32 channels, u32 frame_size, u32 start, u32 end, u32 bitrate,
+ *   u32 complexity, u32 nbCompressedBytes, u32 vbr, u32 constrained_vbr,
+ *   u32 lfe, u32 has_mask, u32 nsamples (= channels*frame_size)
+ *   nsamples x i16 pcm (padded to a 4-byte boundary on the wire)
+ *   if has_mask: channels*nbEBands x i32 energy_mask (celt_glog)
+ * Runs one celt_encode_with_ec frame with CELT_SET_LFE and/or
+ * CELT_SET_ENERGY_MASK applied, dumping the produced packet bytes.
+ * Output mirrors MODE_ENCODE. */
+static int eval_encode_ext(void) {
+  uint32_t channels, frame_size, start, end, bitrate, complexity;
+  uint32_t nbCompressedBytes, vbr, constrained_vbr, lfe, has_mask, nsamples;
+  uint32_t i, padded;
+  int nbEBands;
+  int16_t *pcm16 = NULL;
+  opus_res *pcm = NULL;
+  celt_glog *mask = NULL;
+  unsigned char *packet = NULL;
+  CELTEncoder *enc = NULL;
+  CELTMode *mode = NULL;
+  ec_enc ec;
+  int ret, err;
+  int ok = 0;
+
+  if (!read_u32(&channels) || !read_u32(&frame_size) || !read_u32(&start) ||
+      !read_u32(&end) || !read_u32(&bitrate) || !read_u32(&complexity) ||
+      !read_u32(&nbCompressedBytes) || !read_u32(&vbr) ||
+      !read_u32(&constrained_vbr) || !read_u32(&lfe) || !read_u32(&has_mask) ||
+      !read_u32(&nsamples)) {
+    return 0;
+  }
+
+  pcm16 = (int16_t *)malloc((nsamples ? nsamples : 1) * sizeof(*pcm16));
+  pcm = (opus_res *)malloc((nsamples ? nsamples : 1) * sizeof(*pcm));
+  if (!pcm16 || !pcm) goto done;
+  if (nsamples && !read_exact(pcm16, nsamples * sizeof(*pcm16))) goto done;
+  padded = ((nsamples * 2u) + 3u) & ~3u;
+  for (i = nsamples * 2u; i < padded; i++) {
+    unsigned char pad;
+    if (!read_exact(&pad, 1)) goto done;
+  }
+  for (i = 0; i < nsamples; i++)
+    pcm[i] = INT16TORES(pcm16[i]);
+
+  mode = (CELTMode *)opus_custom_mode_create(48000, 960, &err);
+  if (!mode || err != OPUS_OK) goto done;
+  nbEBands = mode->nbEBands;
+
+  if (has_mask) {
+    uint32_t nmask = channels * (uint32_t)nbEBands;
+    mask = (celt_glog *)malloc(nmask * sizeof(*mask));
+    if (!mask) goto done;
+    for (i = 0; i < nmask; i++) {
+      uint32_t v;
+      if (!read_u32(&v)) goto done;
+      mask[i] = (celt_glog)(int32_t)v;
+    }
+  }
+
+  enc = (CELTEncoder *)malloc(celt_encoder_get_size((int)channels));
+  if (!enc) goto done;
+  if (celt_encoder_init(enc, 48000, (int)channels, 0) != OPUS_OK) goto done;
+  celt_encoder_ctl(enc, CELT_SET_START_BAND_REQUEST, (int)start);
+  celt_encoder_ctl(enc, CELT_SET_END_BAND_REQUEST, (int)end);
+  celt_encoder_ctl(enc, OPUS_SET_BITRATE_REQUEST, (opus_int32)(int32_t)bitrate);
+  celt_encoder_ctl(enc, OPUS_SET_COMPLEXITY_REQUEST, (int)complexity);
+  celt_encoder_ctl(enc, OPUS_SET_VBR_REQUEST, (int)vbr);
+  celt_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT_REQUEST, (int)constrained_vbr);
+  celt_encoder_ctl(enc, CELT_SET_SIGNALLING_REQUEST, 0);
+  celt_encoder_ctl(enc, OPUS_SET_LFE_REQUEST, (int)lfe);
+  if (has_mask)
+    celt_encoder_ctl(enc, OPUS_SET_ENERGY_MASK_REQUEST, mask);
+
+  packet = (unsigned char *)malloc(nbCompressedBytes ? nbCompressedBytes : 1);
+  if (!packet) goto done;
+
+  ec_enc_init(&ec, packet, nbCompressedBytes);
+  ret = celt_encode_with_ec(enc, pcm, (int)frame_size, packet,
+                            (int)nbCompressedBytes, &ec);
+  if (ret < 0) goto done;
+
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32((uint32_t)ret)) {
+    goto done;
+  }
+  if (ret && !write_exact(packet, (size_t)ret)) goto done;
+  padded = ((uint32_t)ret + 3u) & ~3u;
+  for (i = (uint32_t)ret; i < padded; i++) {
+    unsigned char pad = 0;
+    if (!write_exact(&pad, 1)) goto done;
+  }
+  ok = 1;
+
+done:
+  free(pcm16);
+  free(pcm);
+  free(mask);
+  free(packet);
+  free(enc);
+  return ok;
+}
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -389,6 +496,8 @@ int main(void) {
       return eval_frontend() ? 0 : 1;
     case MODE_ENCODE_SEQ:
       return eval_encode_seq() ? 0 : 1;
+    case MODE_ENCODE_EXT:
+      return eval_encode_ext() ? 0 : 1;
   }
   return 1;
 }

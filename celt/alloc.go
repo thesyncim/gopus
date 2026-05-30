@@ -493,6 +493,14 @@ func InitCapsForHybrid(nbBands, lm, channels, startBand int) []int32 {
 // prev is the last coded band count used for skip hysteresis (0 = no history).
 // signalBandwidth is the highest band index considered to carry signal (>= start).
 func ComputeAllocationWithEncoder(re *rangecoding.Encoder, totalBitsQ3, nbBands, channels int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) AllocationResult {
+	return ComputeAllocationWithEncoderStart(re, 0, totalBitsQ3, nbBands, channels, cap, offsets, trim, intensity, dualStereo, lm, prev, signalBandwidth)
+}
+
+// ComputeAllocationWithEncoderStart is ComputeAllocationWithEncoder for a band
+// subset starting at start (start>0 is the hybrid-CELT case where SILK occupies
+// the low band). It encodes the skip/intensity/dual-stereo decisions over
+// [start,nbBands) to the range encoder.
+func ComputeAllocationWithEncoderStart(re *rangecoding.Encoder, start, totalBitsQ3, nbBands, channels int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) AllocationResult {
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
@@ -546,7 +554,7 @@ func ComputeAllocationWithEncoder(re *rangecoding.Encoder, totalBitsQ3, nbBands,
 	fineBits := result.FineBits
 	finePriority := result.FinePriority
 
-	codedBands := cltComputeAllocationEncode(re, 0, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
+	codedBands := cltComputeAllocationEncode(re, start, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
 		totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
 
 	result.CodedBands = codedBands

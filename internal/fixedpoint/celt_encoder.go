@@ -47,6 +47,16 @@ type CELTEncoder struct {
 	vbr            bool
 	constrainedVBR bool
 
+	// lfe mirrors st->lfe: the low-frequency-effects encode path (forces the
+	// energy clamp above band 0, disables transient/pitch/TF/surround analysis
+	// and pins dynalloc/trim/bandwidth to the first band).
+	lfe bool
+
+	// energyMask mirrors st->energy_mask: when non-nil it drives the surround
+	// masking / energy_mask dynalloc and trim adjustments. It holds C*nbEBands
+	// celt_glog values (channel-major, Q24).
+	energyMask []int32
+
 	// VBR rate-control reservoir state (celt_encoder.c): st->vbr_reservoir,
 	// st->vbr_drift, st->vbr_offset, st->vbr_count.
 	vbrReservoir int32
@@ -147,6 +157,15 @@ func (e *CELTEncoder) SetBandRange(start, end int) {
 	e.start = start
 	e.end = end
 }
+
+// SetLFE sets st->lfe (CELT_SET_LFE_REQUEST), enabling the low-frequency-effects
+// encode path.
+func (e *CELTEncoder) SetLFE(v bool) { e.lfe = v }
+
+// SetEnergyMask sets st->energy_mask (CELT_SET_ENERGY_MASK_REQUEST): a
+// C*nbEBands celt_glog (Q24, channel-major) surround masking map, or nil to
+// disable it.
+func (e *CELTEncoder) SetEnergyMask(mask []int32) { e.energyMask = mask }
 
 // FrontEnd ports the input -> normalized bands stage of celt_encode_with_ec for
 // the static 48000/960 mode. pcm is channels*frameSize interleaved int16 PCM,
