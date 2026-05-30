@@ -102,7 +102,7 @@ func TestQEXTExtraControlsBuildPublicAPIContract(t *testing.T) {
 			name: "Decoder",
 			got:  &Decoder{},
 			want: []string{
-				"Bandwidth", "Channels", "Complexity", "Decode", "DecodeDRED", "DecodeInt16",
+				"Bandwidth", "Channels", "Complexity", "Decode", "DecodeDRED", "DecodeDREDInt24", "DecodeInt16",
 				"DecodeInt24", "DecodeInt24Slice", "DecodeWithFEC", "FinalRange",
 				"Gain", "IgnoreExtensions", "InDTX", "LastPacketDuration", "OSCEBWE", "OSCELACE",
 				"PhaseInversionDisabled", "Pitch", "Reset", "SampleRate", "SetComplexity",
