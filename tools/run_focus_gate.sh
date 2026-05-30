@@ -152,6 +152,7 @@ core_oracles_opusmath='TestCELT(Log2|Exp2|ISqrt32)MatchesLibopusOracle'
 core_oracles_silk='TestSILK(Lin2Log|Log2Lin|Fixed|NLSF|A2|NLSF2A|Gains|Stereo|LTP|QuantLTPGains|Isqrt32|.*Resampler)'
 core_oracles_range='TestRangeCoderMatchesLibopusOracle'
 quality_testvectors='TestFinalRangeVerification|TestQualityFloat32ToPCM16UsesOpusRounding|TestEncoderComplianceSummary|TestEncoderCompliancePrecisionGuard|TestEncoderVariantProfileParityAgainstLibopusFixture|TestEncoderVariantCELTAllocationParityAgainstFixture|TestEncoderVariantCELTHeaderParityAgainstFixture|TestDecoderParityLibopusMatrix|TestDecoderLossParityLibopusFixture|TestDecoderHybridToCELT10msTransitionParity|TestDecoderHybridToCELT20msTransitionParity'
+conformance_testvectors='TestOpusDemoEndToEndConformance'
 exactness_encoder='TestModeFixtureParityWithLibopus|TestAnalysisFixtureParityWithLibopus'
 exhaustive_testvectors='TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo|TestEncoderVariantsFixtureHonestyWithOpusDemo|TestDecoderParityMatrixFixtureHonestyWithOpusDemo|TestDecoderLossFixtureHonestyWithOpusDemo|TestLongFrameReferenceFixtureHonestyWithLiveOpusdec'
 provenance_testvectors='TestEncoderVariantProfileProvenanceAudit'
@@ -360,6 +361,10 @@ gate_quality() {
 	run_parity ./testvectors -run "$quality_testvectors" -count=1 -v
 }
 
+gate_conformance() {
+	run_parity ./testvectors -run "$conformance_testvectors" -count=1 -v
+}
+
 gate_exactness() {
 	run_exactness ./encoder -run "$exactness_encoder" -count=1
 }
@@ -373,7 +378,7 @@ gate_provenance() {
 }
 
 usage() {
-	echo "usage: $0 {doc-contract|dnn-blob-parity|core-oracles-parity|quality|exactness|exhaustive|provenance|dred-tag|qext-parity|extra-controls-tag|extra-controls-parity}"
+	echo "usage: $0 {doc-contract|dnn-blob-parity|core-oracles-parity|quality|conformance|exactness|exhaustive|provenance|dred-tag|qext-parity|extra-controls-tag|extra-controls-parity}"
 }
 
 case "${1:-}" in
@@ -388,6 +393,9 @@ case "${1:-}" in
 		;;
 	quality)
 		gate_quality
+		;;
+	conformance)
+		gate_conformance
 		;;
 	exactness)
 		gate_exactness

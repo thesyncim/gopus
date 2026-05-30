@@ -1,4 +1,4 @@
-FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-exactness test-exhaustive test-provenance
+FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-conformance test-exactness test-exhaustive test-provenance
 
 .PHONY: lint lint-fix test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom test-fixedpoint-parity test-custom-parity test-corpus-quality ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
@@ -201,6 +201,12 @@ test-extra-controls-parity: ensure-libopus
 
 # Primary libopus-facing focused gate.
 test-quality: ensure-libopus ensure-testvectors
+
+# opus_demo-driven end-to-end encode/decode conformance harness. Drives the
+# canonical libopus opus_demo CLI and gopus over a matrix of
+# (channels x bandwidth x frame x bitrate x application x FEC x DTX), gating
+# decode sample-exactness and encode quality-gap parity.
+test-conformance: ensure-libopus
 
 # Optional libopus-internal exactness checks. These are intentionally not part
 # of the default production gate so math optimizations can move while quality

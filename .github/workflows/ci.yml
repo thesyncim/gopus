@@ -160,6 +160,42 @@ jobs:
           make fixtures-gen-platform
           GOPUS_REQUIRE_PLATFORM_FIXTURES=1 make test-quality
 
+  test-linux-conformance:
+    name: test-linux-conformance
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Install codec tools (if missing)
+        run: |
+          if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
+            echo "ffmpeg and opusdec already present; skipping apt install"
+            exit 0
+          fi
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ffmpeg opus-tools
+
+      - name: Run opus_demo end-to-end conformance gate
+        run: make test-conformance
+
   test-linux-race:
     name: test-linux-race
     needs:
