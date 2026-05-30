@@ -185,6 +185,12 @@ var staticMDCT48000EBands = [22]int16{
 
 const staticMDCT48000Preemph0 = int16(27853)
 
+// staticMDCT48000LogN is the static 48000/960 mode per-band log-N table
+// (celt/static_modes_fixed.h logN400), the m->logN compute_band_energies uses.
+var staticMDCT48000LogN = [21]int16{
+	0, 0, 0, 0, 0, 0, 0, 0, 8, 8, 8, 8, 16, 16, 16, 21, 21, 24, 29, 34, 36,
+}
+
 var staticMDCT48000Twiddles = [480]FFTTwiddle{
 	{R: 32767, I: 0},
 	{R: 32765, I: -429},
