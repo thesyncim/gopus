@@ -220,7 +220,41 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 	if tell+3 <= totalBits {
 		intraEner = dec.DecodeBit(3) == 1
 	}
-	// loss_duration==0 here, so the loss-energy-safety block is skipped.
+	// If recovering from packet loss, make the energy prediction safe to reduce
+	// the risk of loud artifacts (loss_duration != 0). The loop covers both
+	// channels unconditionally, matching the do{...}while(++c<2) in libopus.
+	if !intraEner && d.lossDuration != 0 {
+		missing := d.lossDuration >> LM
+		if missing > 10 {
+			missing = 10
+		}
+		var safety int32
+		if LM == 0 {
+			safety = gconst15
+		} else if LM == 1 {
+			safety = gconst05
+		}
+		for c := 0; c < 2; c++ {
+			for i := start; i < end; i++ {
+				idx := c*nbEBands + i
+				if d.oldBandE[idx] < max32(d.oldLogE[idx], d.oldLogE2[idx]) {
+					// If energy is going down already, continue the trend.
+					E0 := d.oldBandE[idx]
+					E1 := d.oldLogE[idx]
+					E2 := d.oldLogE2[idx]
+					slope := max32(E1-E0, half32(E2-E0))
+					slope = min32(slope, gconst(2))
+					E0 -= max32(0, int32(1+missing)*slope)
+					d.oldBandE[idx] = max32(-gconst(20), E0)
+				} else {
+					// Otherwise take the min of the last frames.
+					d.oldBandE[idx] = min32(min32(d.oldBandE[idx], d.oldLogE[idx]), d.oldLogE2[idx])
+				}
+				// Shorter frames have more natural fluctuations -- play it safe.
+				d.oldBandE[idx] -= safety
+			}
+		}
+	}
 
 	UnquantCoarseEnergy(dec, d.oldBandE, start, end, nbEBands, C, LM, intraEner)
 
@@ -278,7 +312,11 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 		}
 	}
 
-	// prefilter_and_fold is 0 on a fresh decode (not set without PLC).
+	// After a periodic-PLC frame the overlap must be pre-filtered and folded
+	// (TDAC) so it blends with this frame's MDCT before synthesis.
+	if d.prefilterAndFold {
+		d.prefilterAndFoldImpl(N)
+	}
 
 	CeltSynthesis(d.mdct, d.window, d.eBands,
 		nbEBands, shortMdctSize, celtMaxLM, overlap,
