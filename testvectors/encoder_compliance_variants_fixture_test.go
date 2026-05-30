@@ -676,6 +676,11 @@ func encodeGopusForVariantsCase(c encoderComplianceVariantsFixtureCase, signal [
 		encMode = encoder.ModeAuto
 	}
 	enc.SetLowDelay(mode == encoder.ModeCELT)
+	// SILK rows are generated with `opus_demo -e restricted-silk`, which maps to
+	// OPUS_APPLICATION_RESTRICTED_SILK: the tonality analyzer is disabled, so the
+	// Opus-level VAD never clamps the SILK speech-activity estimate. Mirror that
+	// so the SILK signal-type decision matches libopus.
+	enc.SetRestrictedSilkApplication(mode == encoder.ModeSILK)
 	enc.SetMode(encMode)
 	enc.SetBandwidth(bandwidth)
 	enc.SetBitrate(c.Bitrate)
