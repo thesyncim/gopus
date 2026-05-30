@@ -377,14 +377,14 @@ func celtAbsInt(v int) int {
 
 // coarseLossDistortion mirrors libopus loss_distortion() for float mode.
 // Keep the accumulator in float32 so delayedIntra matches libopus state carry.
-func coarseLossDistortion(energies []celtGLog, oldEBands []celtGLog, nbBands, channels int) float32 {
+func coarseLossDistortion(energies []celtGLog, oldEBands []celtGLog, nbBands, channels, oldStride int) float32 {
 	if nbBands <= 0 || channels <= 0 {
 		return 0
 	}
 	var dist float32
 	for c := 0; c < channels; c++ {
 		base := c * nbBands
-		oldBase := c * MaxBands
+		oldBase := c * oldStride
 		for band := 0; band < nbBands; band++ {
 			idx := base + band
 			oldIdx := oldBase + band
@@ -404,7 +404,7 @@ func coarseLossDistortion(energies []celtGLog, oldEBands []celtGLog, nbBands, ch
 
 // coarseLossDistortionRange mirrors libopus loss_distortion() when coarse
 // quantization operates on a band subset [start,end) (hybrid mode).
-func coarseLossDistortionRange(energies []celtGLog, oldEBands []celtGLog, start, end, nbBands, channels int) float32 {
+func coarseLossDistortionRange(energies []celtGLog, oldEBands []celtGLog, start, end, nbBands, channels, oldStride int) float32 {
 	if nbBands <= 0 || channels <= 0 {
 		return 0
 	}
@@ -420,7 +420,7 @@ func coarseLossDistortionRange(energies []celtGLog, oldEBands []celtGLog, start,
 	var dist float32
 	for c := 0; c < channels; c++ {
 		base := c * nbBands
-		oldBase := c * MaxBands
+		oldBase := c * oldStride
 		for band := start; band < end; band++ {
 			idx := base + band
 			oldIdx := oldBase + band
@@ -501,7 +501,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 			}
 
 			x := float32(energies[idx])
-			oldEBand := float32(e.prevEnergy[c*MaxBands+band])
+			oldEBand := float32(e.prevEnergy[c*e.predStride()+band])
 			oldE := oldEBand
 			minEnergy := float32(-9.0 * DB6)
 			if oldE < minEnergy {
@@ -589,7 +589,7 @@ func (e *Encoder) encodeCoarseEnergyPass(energies []celtGLog, startBand, nbBands
 			if idx >= len(quantizedEnergies) {
 				continue
 			}
-			e.prevEnergy[c*MaxBands+band] = quantizedEnergies[idx]
+			e.prevEnergy[c*e.predStride()+band] = quantizedEnergies[idx]
 		}
 	}
 
@@ -701,9 +701,13 @@ func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, l
 	for i := range workEnergies {
 		workEnergies[i] = 0
 	}
+	// workOldE / workErr / workEnergies use the energy-prediction per-channel
+	// stride: MaxBands for the static codec, the mode's nbEBands for a per-mode
+	// custom layout (mono keeps c==0, so the two are identical).
+	stride := e.predStride()
 	for c := 0; c < channels; c++ {
 		srcBase := c * nbBands
-		dstBase := c * MaxBands
+		dstBase := c * stride
 		for band := 0; band < nbBands; band++ {
 			srcIdx := srcBase + band
 			if srcIdx >= len(energies) {
@@ -732,6 +736,7 @@ func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, l
 		true,
 		maxDecay32,
 		e.lfe,
+		stride,
 	)
 	tellIntra := e.rangeEncoder.TellFrac()
 	e.rangeEncoder.RestoreState(startState)
@@ -756,6 +761,7 @@ func (e *Encoder) DecideIntraMode(energies []celtGLog, startBand, nbBands int, l
 		false,
 		maxDecay32,
 		e.lfe,
+		stride,
 	)
 	useIntra := badnessIntra < badnessInter
 	if badnessIntra == badnessInter && e.rangeEncoder.TellFrac()+intraBias > tellIntra {
@@ -796,7 +802,7 @@ func (e *Encoder) EncodeCoarseEnergy(energies []celtGLog, nbBands int, intra boo
 		channels = 1
 	}
 
-	newDistortion := coarseLossDistortion(energies, e.prevEnergy, nbBands, channels)
+	newDistortion := coarseLossDistortion(energies, e.prevEnergy, nbBands, channels, e.predStride())
 
 	budget := e.rangeEncoder.StorageBits()
 	if e.frameBits > 0 && int(e.frameBits) < budget {
@@ -856,7 +862,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 	if len(energies) < nbBands*channels {
 		channels = 1
 	}
-	newDistortion := coarseLossDistortionRange(energies, e.prevEnergy, start, end, nbBands, channels)
+	newDistortion := coarseLossDistortionRange(energies, e.prevEnergy, start, end, nbBands, channels, e.predStride())
 
 	quantizedEnergies := ensureGLogSlice(&e.scratch.quantizedEnergies, nbBands*channels)
 	coarseError := ensureGLogSlice(&e.scratch.coarseError, nbBands*channels)
@@ -865,7 +871,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 	}
 	// Initialize with previous energies so bands outside [start,end) remain unchanged.
 	for c := 0; c < channels; c++ {
-		basePrev := c * MaxBands
+		basePrev := c * e.predStride()
 		base := c * nbBands
 		for band := 0; band < nbBands; band++ {
 			quantizedEnergies[base+band] = e.prevEnergy[basePrev+band]
@@ -933,6 +939,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 			intra,
 			maxDecay32,
 			e.lfe,
+			MaxBands,
 		)
 
 		copy(e.prevEnergy, quantizedEnergies[:len(e.prevEnergy)])
@@ -956,7 +963,7 @@ func (e *Encoder) EncodeCoarseEnergyRange(energies []celtGLog, start, end int, i
 			}
 			x := float32(energies[idx])
 
-			oldEBand := float32(e.prevEnergy[c*MaxBands+band])
+			oldEBand := float32(e.prevEnergy[c*e.predStride()+band])
 			oldE := oldEBand
 			minEnergy := float32(-9.0 * DB6)
 			if oldE < minEnergy {

@@ -155,7 +155,7 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 
 			// Apply prediction
 			// pred = alpha * prevEnergy[band] + prevBandEnergy
-			prevFrameEnergy := float32(d.prevEnergy[c*MaxBands+band])
+			prevFrameEnergy := float32(d.prevEnergy[c*d.predStride()+band])
 			minEnergy := float32(-9.0 * DB6)
 			if prevFrameEnergy < minEnergy {
 				prevFrameEnergy = minEnergy
@@ -178,7 +178,7 @@ func (d *Decoder) decodeCoarseEnergyGLogInto(dst []celtGLog, nbBands int, intra 
 	// Update previous frame energy for next frame's inter-frame prediction
 	for c := 0; c < channels; c++ {
 		for band := 0; band < nbBands; band++ {
-			d.prevEnergy[c*MaxBands+band] = dst[c*nbBands+band]
+			d.prevEnergy[c*d.predStride()+band] = dst[c*nbBands+band]
 		}
 	}
 
@@ -252,7 +252,7 @@ func (d *Decoder) decodeCoarseEnergyRangeGLog(start, end int, intra bool, lm int
 				qi = -1
 			}
 
-			prevFrameEnergy := float32(d.prevEnergy[c*MaxBands+band])
+			prevFrameEnergy := float32(d.prevEnergy[c*d.predStride()+band])
 			minEnergy := float32(-9.0 * DB6)
 			if prevFrameEnergy < minEnergy {
 				prevFrameEnergy = minEnergy

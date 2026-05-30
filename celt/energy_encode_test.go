@@ -580,7 +580,7 @@ func TestEncodeCoarseEnergyRangeUpdatesDelayedIntra(t *testing.T) {
 		energies := makeEnergies(enc)
 		enc.delayedIntra = 3.25
 		oldDelayed := enc.delayedIntra
-		expectedDist := coarseLossDistortionRange(energies, enc.prevEnergy, start, end, nbBands, 1)
+		expectedDist := coarseLossDistortionRange(energies, enc.prevEnergy, start, end, nbBands, 1, enc.predStride())
 		alpha := float32(AlphaCoef[lm])
 		expected := float64(alpha*alpha*float32(oldDelayed) + expectedDist)
 
@@ -599,7 +599,7 @@ func TestEncodeCoarseEnergyRangeUpdatesDelayedIntra(t *testing.T) {
 		enc := NewEncoder(1)
 		energies := makeEnergies(enc)
 		enc.delayedIntra = 9.0
-		expected := float64(coarseLossDistortionRange(energies, enc.prevEnergy, start, end, nbBands, 1))
+		expected := float64(coarseLossDistortionRange(energies, enc.prevEnergy, start, end, nbBands, 1, enc.predStride()))
 
 		buf := make([]byte, 512)
 		re := &rangecoding.Encoder{}

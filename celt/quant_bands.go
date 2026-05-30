@@ -90,6 +90,7 @@ func quantCoarseEnergyImpl(
 	intra bool,
 	maxDecay float32,
 	lfe bool,
+	nbEBands int,
 ) int {
 	badness := 0
 
@@ -106,7 +107,9 @@ func quantCoarseEnergyImpl(
 	// Per-channel inter-band prediction state
 	prev := [2]float32{0, 0}
 
-	nbEBands := MaxBands
+	if nbEBands <= 0 {
+		nbEBands = MaxBands
+	}
 
 	for i := start; i < end; i++ {
 		for c := 0; c < channels; c++ {
@@ -377,6 +380,7 @@ func QuantCoarseEnergy(
 			true, // intra
 			maxDecay,
 			params.LFE,
+			MaxBands,
 		)
 
 		if !intra {
@@ -399,6 +403,7 @@ func QuantCoarseEnergy(
 				false, // inter
 				maxDecay,
 				params.LFE,
+				MaxBands,
 			)
 			copy(result.Error, errorInter)
 
@@ -431,6 +436,7 @@ func QuantCoarseEnergy(
 			false, // inter
 			maxDecay,
 			params.LFE,
+			MaxBands,
 		)
 		copy(result.Error, errorInter)
 	}

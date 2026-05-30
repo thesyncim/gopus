@@ -671,8 +671,9 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// if abs(bandLogE-oldBandE) < 2, bias current energy toward previous quant error.
 	// Keep this feedback path in float32 precision to mirror libopus float behavior.
 	// Reference: celt_encoder.c before quant_coarse_energy().
+	predStride := e.predStride()
 	for c := 0; c < codedChannels; c++ {
-		baseState := c * MaxBands
+		baseState := c * predStride
 		baseFrame := c * nbBands
 		for band := 0; band < nbBands; band++ {
 			stateIdx := baseState + band
@@ -1519,7 +1520,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		e.energyError[i] = 0
 	}
 	for c := 0; c < codedChannels; c++ {
-		baseState := c * MaxBands
+		baseState := c * e.predStride()
 		baseFrame := c * nbBands
 		for band := 0; band < nbBands; band++ {
 			stateIdx := baseState + band
@@ -1600,10 +1601,11 @@ func (e *Encoder) setPrevEnergyWithPrevCoded(prev []celtGLog, energies []celtGLo
 	if codedChannels > int(e.channels) {
 		codedChannels = int(e.channels)
 	}
+	predStride := e.predStride()
 	for c := 0; c < codedChannels; c++ {
 		for band := 0; band < nbBands; band++ {
 			src := c*nbBands + band
-			dst := c*MaxBands + band
+			dst := c*predStride + band
 			if src < len(energies) && dst < len(e.prevEnergy) {
 				e.prevEnergy[dst] = energies[src]
 			}
@@ -1611,7 +1613,7 @@ func (e *Encoder) setPrevEnergyWithPrevCoded(prev []celtGLog, energies []celtGLo
 	}
 	if e.channels == 2 && codedChannels == 1 {
 		for band := 0; band < nbBands; band++ {
-			e.prevEnergy[MaxBands+band] = e.prevEnergy[band]
+			e.prevEnergy[predStride+band] = e.prevEnergy[band]
 		}
 	}
 }

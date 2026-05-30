@@ -84,19 +84,23 @@ func antiCollapseGLogMode(
 			if logIdx >= len(logE) {
 				continue
 			}
-			prevIdx := c*MaxBands + band
+			// oldLogE history is strided by the mode's nbEBands (libopus
+			// oldLogE[i+c*m->nbEBands]): MaxBands for the static 48 kHz tables,
+			// the per-mode nbEBands for a non-standard custom layout.
+			prevStride := nbEBands
+			prevIdx := c*prevStride + band
 			if prevIdx >= len(prev1LogE) || prevIdx >= len(prev2LogE) {
 				continue
 			}
 
 			prev1 := prev1LogE[prevIdx]
 			prev2 := prev2LogE[prevIdx]
-			if channels == 1 && len(prev1LogE) >= 2*MaxBands && len(prev2LogE) >= 2*MaxBands {
-				alt1 := prev1LogE[MaxBands+band]
+			if channels == 1 && len(prev1LogE) >= 2*prevStride && len(prev2LogE) >= 2*prevStride {
+				alt1 := prev1LogE[prevStride+band]
 				if alt1 > prev1 {
 					prev1 = alt1
 				}
-				alt2 := prev2LogE[MaxBands+band]
+				alt2 := prev2LogE[prevStride+band]
 				if alt2 > prev2 {
 					prev2 = alt2
 				}

@@ -379,6 +379,92 @@ func TestOracleParityNonStandardModes(t *testing.T) {
 	}
 }
 
+// TestOracleParityNonStandardStereo proves that the native Opus Custom data
+// plane reproduces libopus --enable-custom-modes byte-for-byte (encode) and
+// sample-for-sample (decode) for a STEREO non-family custom mode (48000/640,
+// nbEBands=19). The energy-prediction history (oldBandE/oldLogE) is strided by
+// the mode's nbEBands rather than the static 21-band MaxBands, so the right
+// channel reads/writes at the correct per-mode offset.
+//
+// The encoded packet must match exactly on amd64; the decoded PCM matches
+// exactly on amd64 and within the documented arm64 1-ULP CELT drift on
+// darwin/arm64.
+//
+// Reference: libopus celt/celt_encoder.c opus_custom_encode_float /
+// celt/celt_decoder.c opus_custom_decode_float with a stereo custom CELTMode.
+func TestOracleParityNonStandardStereo(t *testing.T) {
+	const maxBytes = 400
+	specs := []struct{ fs, frameSize int }{
+		{48000, 640}, // 48 kHz, non-power-of-two frame, nbEBands=19
+	}
+	var cases []oracleCase
+	for _, s := range specs {
+		pcm := generateSineStereo(440.0, 523.25, float64(s.fs), s.frameSize)
+		cases = append(cases, oracleCase{s.fs, s.frameSize, 2, maxBytes, pcm})
+	}
+	results := runCustomOracle(t, cases)
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("Fs%d_frame%d_stereo", tc.fs, tc.frameSize), func(t *testing.T) {
+			if results[i].status < 0 {
+				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d ch=2) status=%d", tc.fs, tc.frameSize, results[i].status)
+			}
+			mode, err := custom.NewMode(tc.fs, tc.frameSize)
+			if err != nil {
+				t.Fatalf("NewMode(%d,%d): %v", tc.fs, tc.frameSize, err)
+			}
+			if mode.IsStandard() || mode.InScaledBandFamily() {
+				t.Fatalf("Fs=%d frame=%d unexpectedly standard/scaled-family", tc.fs, tc.frameSize)
+			}
+
+			got, enc := gopusEncode(t, tc)
+			if runtime.GOARCH != "arm64" {
+				if !bytes.Equal(got, results[i].packet) {
+					t.Fatalf("Fs=%d frame=%d stereo: packet mismatch\n  got  (%d): %x\n  want (%d): %x",
+						tc.fs, tc.frameSize, len(got), got, len(results[i].packet), results[i].packet)
+				}
+			}
+			if enc.FinalRange() != results[i].encRange {
+				t.Errorf("Fs=%d frame=%d stereo: encoder final range gopus=%08x libopus=%08x",
+					tc.fs, tc.frameSize, enc.FinalRange(), results[i].encRange)
+			}
+
+			dec, err := custom.NewDecoder(mode, tc.channels)
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			decoded, err := dec.DecodeFloat(results[i].packet, tc.frameSize)
+			if err != nil {
+				t.Fatalf("DecodeFloat: %v", err)
+			}
+			if len(decoded) != len(results[i].decoded) {
+				t.Fatalf("Fs=%d frame=%d stereo: decoded length gopus=%d libopus=%d",
+					tc.fs, tc.frameSize, len(decoded), len(results[i].decoded))
+			}
+			if runtime.GOARCH != "arm64" {
+				if d := firstSampleDivergence(decoded, results[i].decoded); d >= 0 {
+					t.Fatalf("Fs=%d frame=%d stereo: decoded PCM diverges at sample %d (gopus=%v libopus=%v)",
+						tc.fs, tc.frameSize, d, decoded[d], results[i].decoded[d])
+				}
+				t.Logf("Fs=%d frame=%d stereo: %d-byte packet + %d samples exact", tc.fs, tc.frameSize, len(got), len(decoded))
+			} else {
+				var maxAbs float64
+				for k := range decoded {
+					if d := math.Abs(float64(decoded[k]) - float64(results[i].decoded[k])); d > maxAbs {
+						maxAbs = d
+					}
+				}
+				if maxAbs > scaledFamilyDecodeArm64Tol {
+					t.Fatalf("Fs=%d frame=%d stereo: decoded PCM arm64 drift maxAbs=%g exceeds tol %g",
+						tc.fs, tc.frameSize, maxAbs, scaledFamilyDecodeArm64Tol)
+				}
+				t.Logf("Fs=%d frame=%d stereo: decode within arm64 drift maxAbs=%.3e (project_arm64_celt_1ulp_drift.md); encode range-state checked",
+					tc.fs, tc.frameSize, maxAbs)
+			}
+		})
+	}
+}
+
 // TestOracleControlPlaneScaledBandFamily verifies that, for the
 // Fs==400*shortMdctSize family, the gopus celt/custom control plane reproduces
 // the libopus opus_custom_mode_create geometry exactly: the same short-MDCT

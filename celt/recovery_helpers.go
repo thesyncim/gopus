@@ -196,8 +196,9 @@ func (d *Decoder) applyLossEnergySafety(intra bool, start, end, lm int) {
 	}
 
 	channels := int(d.channels)
+	predStride := d.predStride()
 	for c := 0; c < channels; c++ {
-		base := c * MaxBands
+		base := c * predStride
 		if base+end > len(d.prevEnergy) || base+end > len(d.prevLogE) || base+end > len(d.prevLogE2) {
 			continue
 		}
@@ -283,8 +284,9 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float32, error) {
 	if end < start {
 		end = start
 	}
+	predStride := d.predStride()
 	for c := 0; c < channels; c++ {
-		base := c * MaxBands
+		base := c * predStride
 		for band := start; band < end; band++ {
 			idx := base + band
 			e := d.prevEnergy[idx] - decayDB
@@ -305,8 +307,8 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float32, error) {
 		clear(coeffsR)
 		fillHybridPLCNoiseCoeffs(coeffsL, frameSize, start, end, &seed)
 		fillHybridPLCNoiseCoeffs(coeffsR, frameSize, start, end, &seed)
-		denormalizeNormCoeffsDownsample(coeffsL, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
-		denormalizeNormCoeffsDownsample(coeffsR, concealEnergy[MaxBands:], end, frameSize, d.downsampleFactor())
+		denormalizeNormCoeffsDownsample(coeffsL, concealEnergy[:predStride], end, frameSize, d.downsampleFactor())
+		denormalizeNormCoeffsDownsample(coeffsR, concealEnergy[predStride:], end, frameSize, d.downsampleFactor())
 		samples := d.SynthesizeStereoFloat32(coeffsL, coeffsR, false, 1)
 		copy(d.scratchPLCF32[:outLen], samples[:min(outLen, len(samples))])
 	} else {
@@ -314,7 +316,7 @@ func (d *Decoder) DecodeHybridFECPLC(frameSize int) ([]float32, error) {
 		coeffs := d.scratchPLCHybridNormL[:frameSize]
 		clear(coeffs)
 		fillHybridPLCNoiseCoeffs(coeffs, frameSize, start, end, &seed)
-		denormalizeNormCoeffsDownsample(coeffs, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
+		denormalizeNormCoeffsDownsample(coeffs, concealEnergy[:predStride], end, frameSize, d.downsampleFactor())
 		samples := d.SynthesizeFloat32(coeffs, false, 1)
 		copy(d.scratchPLCF32[:outLen], samples[:min(outLen, len(samples))])
 	}
@@ -428,8 +430,9 @@ func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int
 	if end < start {
 		end = start
 	}
+	predStride := d.predStride()
 	for c := 0; c < channels; c++ {
-		base := c * MaxBands
+		base := c * predStride
 		for band := start; band < end; band++ {
 			idx := base + band
 			e := d.prevEnergy[idx] - decayDB
@@ -454,8 +457,8 @@ func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int
 			d.plcStageTrace.capturePreSpec(0, coeffsL)
 			d.plcStageTrace.capturePreSpec(1, coeffsR)
 		}
-		denormalizeNormCoeffsDownsample(coeffsL, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
-		denormalizeNormCoeffsDownsample(coeffsR, concealEnergy[MaxBands:], end, frameSize, d.downsampleFactor())
+		denormalizeNormCoeffsDownsample(coeffsL, concealEnergy[:predStride], end, frameSize, d.downsampleFactor())
+		denormalizeNormCoeffsDownsample(coeffsR, concealEnergy[predStride:], end, frameSize, d.downsampleFactor())
 		if d.plcStageTrace != nil && d.plcStageTrace.armed() {
 			d.plcStageTrace.captureSpec(0, coeffsL)
 			d.plcStageTrace.captureSpec(1, coeffsR)
@@ -471,7 +474,7 @@ func (d *Decoder) concealNoisePLC(dst []float32, frameSize, prevLossDuration int
 		if d.plcStageTrace != nil && d.plcStageTrace.armed() {
 			d.plcStageTrace.capturePreSpec(0, coeffs)
 		}
-		denormalizeNormCoeffsDownsample(coeffs, concealEnergy[:MaxBands], end, frameSize, d.downsampleFactor())
+		denormalizeNormCoeffsDownsample(coeffs, concealEnergy[:predStride], end, frameSize, d.downsampleFactor())
 		if d.plcStageTrace != nil && d.plcStageTrace.armed() {
 			d.plcStageTrace.captureSpec(0, coeffs)
 		}

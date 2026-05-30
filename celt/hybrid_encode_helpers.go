@@ -101,6 +101,21 @@ func (e *Encoder) normalizeBandsStereoBinMulF32(mdctLeft, mdctRight []float32, n
 	normR = ensureNormSlice(&e.scratch.normR, frameSize)
 	bandEL := ensureEnerSlice(&e.scratch.bandEL, nbBands)
 	bandER := ensureEnerSlice(&e.scratch.bandER, nbBands)
+	if pm := e.perMode; pm != nil {
+		// Non-standard per-mode custom layout: band edges come from the mode's
+		// nbEBands band widths, not the static eBandWidths/MaxBands table.
+		normalizeBandsToArrayIntoF32BinMulWidths(mdctLeft, nbBands, binMul, normL, bandEL, pm.eBandWidths, pm.nbEBands)
+		normalizeBandsToArrayIntoF32BinMulWidths(mdctRight, nbBands, binMul, normR, bandER, pm.eBandWidths, pm.nbEBands)
+		bandE = ensureEnerSlice(&e.scratch.bandE, nbBands*2)
+		copy(bandE[:nbBands], bandEL)
+		copy(bandE[nbBands:], bandER)
+		if e.lfe {
+			applyLFELinearBandEClamp(bandE, nbBands, 2)
+			normalizeBandsWithBandEIntoF32BinMulWidths(mdctLeft, nbBands, binMul, normL, bandE[:nbBands], pm.eBandWidths)
+			normalizeBandsWithBandEIntoF32BinMulWidths(mdctRight, nbBands, binMul, normR, bandE[nbBands:], pm.eBandWidths)
+		}
+		return normL, normR, bandE
+	}
 	NormalizeBandsToArrayIntoF32BinMul(mdctLeft, nbBands, binMul, normL, bandEL)
 	NormalizeBandsToArrayIntoF32BinMul(mdctRight, nbBands, binMul, normR, bandER)
 	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands*2)

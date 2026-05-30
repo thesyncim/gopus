@@ -37,30 +37,33 @@ func (d *Decoder) handleChannelTransition(streamChannels int) bool {
 		// Copy left channel energy state to right channel.
 		// This matches libopus behavior where mono frames always update both channels'
 		// energy history (via OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)).
-		// Energy arrays layout: [Left: 0..MaxBands-1] [Right: MaxBands..2*MaxBands-1]
-		if len(d.prevEnergy) >= MaxBands*2 {
-			for i := 0; i < MaxBands; i++ {
-				d.prevEnergy[MaxBands+i] = d.prevEnergy[i]
+		// Energy arrays layout: [Left: 0..stride-1] [Right: stride..2*stride-1],
+		// where stride is MaxBands for the static codec and the mode's nbEBands for
+		// a per-mode custom layout.
+		stride := d.predStride()
+		if len(d.prevEnergy) >= stride*2 {
+			for i := 0; i < stride; i++ {
+				d.prevEnergy[stride+i] = d.prevEnergy[i]
 			}
 		}
-		if len(d.prevEnergy2) >= MaxBands*2 {
-			for i := 0; i < MaxBands; i++ {
-				d.prevEnergy2[MaxBands+i] = d.prevEnergy2[i]
+		if len(d.prevEnergy2) >= stride*2 {
+			for i := 0; i < stride; i++ {
+				d.prevEnergy2[stride+i] = d.prevEnergy2[i]
 			}
 		}
-		if len(d.prevLogE) >= MaxBands*2 {
-			for i := 0; i < MaxBands; i++ {
-				d.prevLogE[MaxBands+i] = d.prevLogE[i]
+		if len(d.prevLogE) >= stride*2 {
+			for i := 0; i < stride; i++ {
+				d.prevLogE[stride+i] = d.prevLogE[i]
 			}
 		}
-		if len(d.prevLogE2) >= MaxBands*2 {
-			for i := 0; i < MaxBands; i++ {
-				d.prevLogE2[MaxBands+i] = d.prevLogE2[i]
+		if len(d.prevLogE2) >= stride*2 {
+			for i := 0; i < stride; i++ {
+				d.prevLogE2[stride+i] = d.prevLogE2[i]
 			}
 		}
-		if len(d.backgroundEnergy) >= MaxBands*2 {
-			for i := 0; i < MaxBands; i++ {
-				d.backgroundEnergy[MaxBands+i] = d.backgroundEnergy[i]
+		if len(d.backgroundEnergy) >= stride*2 {
+			for i := 0; i < stride; i++ {
+				d.backgroundEnergy[stride+i] = d.backgroundEnergy[i]
 			}
 		}
 
@@ -154,11 +157,12 @@ func (d *Decoder) snapshotDecodeHistory() ([]celtGLog, []celtGLog, []celtGLog) {
 // prepareMonoEnergyFromStereo mirrors libopus behavior for mono streams by
 // using the max of L/R energies for prediction when stereo history exists.
 func (d *Decoder) prepareMonoEnergyFromStereo() {
-	if d.channels != 1 || len(d.prevEnergy) < MaxBands*2 {
+	stride := d.predStride()
+	if d.channels != 1 || len(d.prevEnergy) < stride*2 {
 		return
 	}
-	for i := 0; i < MaxBands; i++ {
-		right := d.prevEnergy[MaxBands+i]
+	for i := 0; i < stride; i++ {
+		right := d.prevEnergy[stride+i]
 		if right > d.prevEnergy[i] {
 			d.prevEnergy[i] = right
 		}
@@ -209,11 +213,14 @@ func (d *Decoder) SetPrevEnergyWithPrev(prev, energies []float32) {
 		nbBands = MaxBands
 	}
 
-	// Copy with layout conversion: compact [c*nbBands+band] -> full [c*MaxBands+band]
+	// Copy with layout conversion: compact [c*nbBands+band] -> prediction-stride
+	// [c*predStride+band] (predStride == MaxBands for the static codec, the mode's
+	// nbEBands for a per-mode custom layout).
+	stride := d.predStride()
 	for c := 0; c < channels; c++ {
 		for band := 0; band < nbBands; band++ {
 			src := c*nbBands + band
-			dst := c*MaxBands + band
+			dst := c*stride + band
 			if src < len(energies) {
 				d.prevEnergy[dst] = energies[src]
 			}
@@ -239,11 +246,12 @@ func (d *Decoder) setPrevEnergyGLogWithPrev(prev []celtGLog, energies []celtGLog
 		nbBands = MaxBands
 	}
 
-	// Copy with layout conversion: compact [c*nbBands+band] -> full [c*MaxBands+band]
+	// Copy with layout conversion: compact [c*nbBands+band] -> prediction-stride.
+	stride := d.predStride()
 	for c := 0; c < channels; c++ {
 		for band := 0; band < nbBands; band++ {
 			src := c*nbBands + band
-			dst := c*MaxBands + band
+			dst := c*stride + band
 			if src < len(energies) {
 				d.prevEnergy[dst] = energies[src]
 			}
@@ -269,8 +277,9 @@ func (d *Decoder) updateLogEGLog(energies []celtGLog, nbBands int, transient boo
 	if !transient {
 		copy(d.prevLogE2, d.prevLogE)
 	}
+	stride := d.predStride()
 	for c := 0; c < channels; c++ {
-		base := c * MaxBands
+		base := c * stride
 		for band := 0; band < nbBands; band++ {
 			src := c*nbBands + band
 			dst := base + band

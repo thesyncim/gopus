@@ -802,18 +802,20 @@ func (e *Encoder) NextRNG() uint32 {
 
 // GetEnergy returns the energy for a specific band and channel from prevEnergy.
 func (e *Encoder) GetEnergy(band, channel int) float32 {
-	if band < 0 || band >= MaxBands || channel < 0 || channel >= int(e.channels) {
+	stride := e.predStride()
+	if band < 0 || band >= stride || channel < 0 || channel >= int(e.channels) {
 		return 0
 	}
-	return float32(e.prevEnergy[channel*MaxBands+band])
+	return float32(e.prevEnergy[channel*stride+band])
 }
 
 // SetEnergy sets the energy for a specific band and channel.
 func (e *Encoder) SetEnergy(band, channel int, energy float32) {
-	if band < 0 || band >= MaxBands || channel < 0 || channel >= int(e.channels) {
+	stride := e.predStride()
+	if band < 0 || band >= stride || channel < 0 || channel >= int(e.channels) {
 		return
 	}
-	e.prevEnergy[channel*MaxBands+band] = celtGLog(energy)
+	e.prevEnergy[channel*stride+band] = celtGLog(energy)
 }
 
 // IsIntraFrame returns a conservative pre-encode advisory value.

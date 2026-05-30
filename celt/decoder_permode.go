@@ -65,6 +65,30 @@ func (d *Decoder) modeEdges() []int {
 	return EBands[:]
 }
 
+// predStride returns the per-channel stride for the energy-prediction / history
+// buffers (oldBandE, oldLogE, oldLogE2, backgroundLogE). libopus sizes those by
+// the mode's nbEBands and indexes them with i+c*nbEBands. The static codec uses
+// the 21-band MaxBands tables, so its stride is MaxBands. A non-standard per-mode
+// custom layout (e.g. 48000/640, nbEBands=19) must use its own nbEBands so the
+// right channel reads/writes at the correct offset (mono keeps c==0, identical).
+//
+// Reference: libopus celt/quant_bands.c unquant_coarse_energy() oldEBands[i+c*m->nbEBands].
+func (d *Decoder) predStride() int {
+	if d.perMode != nil {
+		return d.perMode.nbEBands
+	}
+	return MaxBands
+}
+
+// predStride mirrors Decoder.predStride for the encoder side (amp2Log2 /
+// quant_coarse_energy oldEBands[i+c*m->nbEBands]).
+func (e *Encoder) predStride() int {
+	if e.perMode != nil {
+		return e.perMode.nbEBands
+	}
+	return MaxBands
+}
+
 // buildPerModeTables converts the libopus-exact CELTMode members supplied by the
 // custom plumbing into the internal perModeTables carrier shared by the encode
 // and decode data planes.

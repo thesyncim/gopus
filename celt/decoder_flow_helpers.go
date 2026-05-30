@@ -226,11 +226,13 @@ func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, trans
 
 func (d *Decoder) clearFrameHistoryOutsideRange(start, end, channels int) {
 	// libopus clears the energy/log history outside [start,end) up to nbEBands.
-	// For a per-mode custom layout that is the mode's band count; the buffers
-	// keep the MaxBands per-channel stride used everywhere else (mono-identical).
+	// For a per-mode custom layout that is the mode's band count, and the buffers
+	// use the same nbEBands per-channel prediction stride (mono keeps c==0, so the
+	// static MaxBands stride and the per-mode nbEBands stride coincide).
 	nbEBands := d.modeNbEBands()
+	stride := d.predStride()
 	for c := 0; c < channels; c++ {
-		base := c * MaxBands
+		base := c * stride
 		for band := 0; band < start; band++ {
 			d.prevEnergy[base+band] = 0
 			d.prevLogE[base+band] = -28.0

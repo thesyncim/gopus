@@ -86,16 +86,18 @@ func (d *Decoder) NextRNG() uint32 {
 
 // GetEnergy returns the energy for a specific band and channel from prevEnergy.
 func (d *Decoder) GetEnergy(band, channel int) float32 {
-	if band < 0 || band >= MaxBands || channel < 0 || channel >= int(d.channels) {
+	stride := d.predStride()
+	if band < 0 || band >= stride || channel < 0 || channel >= int(d.channels) {
 		return 0
 	}
-	return float32(d.prevEnergy[channel*MaxBands+band])
+	return float32(d.prevEnergy[channel*stride+band])
 }
 
 // SetEnergy sets the energy for a specific band and channel.
 func (d *Decoder) SetEnergy(band, channel int, energy float32) {
-	if band < 0 || band >= MaxBands || channel < 0 || channel >= int(d.channels) {
+	stride := d.predStride()
+	if band < 0 || band >= stride || channel < 0 || channel >= int(d.channels) {
 		return
 	}
-	d.prevEnergy[channel*MaxBands+band] = celtGLog(energy)
+	d.prevEnergy[channel*stride+band] = celtGLog(energy)
 }
