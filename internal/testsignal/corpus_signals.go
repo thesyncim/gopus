@@ -15,6 +15,11 @@ import "math"
 //   - CorpusCastanetTransientV1: sharp percussive bursts at ~10 Hz, transient path
 //   - CorpusPureToneV1: single sinusoid at 1 kHz, cleanest possible signal
 //   - CorpusNearSilenceV1: -60 dBFS dithered noise, near-silence path
+//   - CorpusPinkNoiseV1: 1/f-shaped (pink) noise, spectrally tilted vs white
+//   - CorpusFormantSweepV1: band-limited diphthong vowel glide (speech-like)
+//   - CorpusSpeechInNoiseV1: voiced speech mixed with band noise at ~10 dB SNR
+//   - CorpusStereoDecorrelatedV1: independent per-channel content (wide image)
+//   - CorpusBellClusterV1: dense inharmonic partials (metallic / bell-like)
 
 const (
 	CorpusCleanSpeechV1      = "corpus_clean_speech_v1"
@@ -24,10 +29,16 @@ const (
 	CorpusCastanetTransientV1 = "corpus_castanet_transient_v1"
 	CorpusPureToneV1         = "corpus_pure_tone_v1"
 	CorpusNearSilenceV1      = "corpus_near_silence_v1"
+	CorpusPinkNoiseV1        = "corpus_pink_noise_v1"
+	CorpusFormantSweepV1     = "corpus_formant_sweep_v1"
+	CorpusSpeechInNoiseV1    = "corpus_speech_in_noise_v1"
+	CorpusStereoDecorrelatedV1 = "corpus_stereo_decorrelated_v1"
+	CorpusBellClusterV1      = "corpus_bell_cluster_v1"
 )
 
-// CorpusSignalClasses returns all distinct signal-class tags used in the corpus
-// fixture. Each entry maps to at least one fixture case.
+// CorpusSignalClasses returns the signal-class tags backed by the committed
+// decoder-parity fixture. Each entry maps to at least one fixture case, so this
+// list is the fixture-coverage contract (TestCorpusSignalClassCoverage).
 func CorpusSignalClasses() []string {
 	return []string{
 		CorpusCleanSpeechV1,
@@ -37,6 +48,21 @@ func CorpusSignalClasses() []string {
 		CorpusCastanetTransientV1,
 		CorpusPureToneV1,
 		CorpusNearSilenceV1,
+	}
+}
+
+// CorpusExtendedSignalClasses returns the additional signal classes that fill
+// coverage gaps left by CorpusSignalClasses (spectral tilt, moving formants,
+// degraded speech, inter-channel decorrelation, inharmonic partials). These are
+// generated on the fly for the live blob-free quality gate and are NOT part of the
+// committed fixture, so they are intentionally separate from CorpusSignalClasses.
+func CorpusExtendedSignalClasses() []string {
+	return []string{
+		CorpusPinkNoiseV1,
+		CorpusFormantSweepV1,
+		CorpusSpeechInNoiseV1,
+		CorpusStereoDecorrelatedV1,
+		CorpusBellClusterV1,
 	}
 }
 
@@ -57,6 +83,16 @@ func GenerateCorpusSignal(class string, sampleRate, samples, channels int) ([]fl
 		return generateCorpusPureTone(sampleRate, samples, channels), nil
 	case CorpusNearSilenceV1:
 		return generateCorpusNearSilence(sampleRate, samples, channels), nil
+	case CorpusPinkNoiseV1:
+		return generateCorpusPinkNoise(sampleRate, samples, channels), nil
+	case CorpusFormantSweepV1:
+		return generateCorpusFormantSweep(sampleRate, samples, channels), nil
+	case CorpusSpeechInNoiseV1:
+		return generateCorpusSpeechInNoise(sampleRate, samples, channels), nil
+	case CorpusStereoDecorrelatedV1:
+		return generateCorpusStereoDecorrelated(sampleRate, samples, channels), nil
+	case CorpusBellClusterV1:
+		return generateCorpusBellCluster(sampleRate, samples, channels), nil
 	default:
 		return GenerateEncoderSignalVariant(class, sampleRate, samples, channels)
 	}
@@ -241,6 +277,160 @@ func generateCorpusNearSilence(sampleRate, samples, channels int) []float32 {
 		si := i / channels
 		n := deterministicNoise(si, ch, 379)
 		out[i] = float32(silenceAmp * n)
+	}
+	return out
+}
+
+// generateCorpusPinkNoise produces 1/f-shaped (pink) noise via the Voss-McCartney
+// octave-summing approximation. Its falling spectral tilt (vs flat white noise)
+// exercises the codec's spectral envelope coding differently from CorpusWhiteNoiseV1.
+func generateCorpusPinkNoise(sampleRate, samples, channels int) []float32 {
+	const rows = 8 // octave bands summed
+	out := make([]float32, samples)
+	// Per-channel running octave-band rows and their accumulated sum.
+	rowsState := make([][]float64, channels)
+	sums := make([]float64, channels)
+	for ch := range rowsState {
+		rowsState[ch] = make([]float64, rows)
+	}
+	totalPerChannel := samples / channels
+	for ch := 0; ch < channels; ch++ {
+		for si := 0; si < totalPerChannel; si++ {
+			// Each row updates every 2^row samples; the lowest row updates every
+			// sample. Salt by channel so L/R are independent.
+			for r := 0; r < rows; r++ {
+				if si&((1<<uint(r))-1) == 0 {
+					sums[ch] -= rowsState[ch][r]
+					rowsState[ch][r] = deterministicNoise(si, ch, 401+r)
+					sums[ch] += rowsState[ch][r]
+				}
+			}
+			val := sums[ch] / float64(rows)
+			out[si*channels+ch] = float32(clipSample(0.6 * val))
+		}
+	}
+	return out
+}
+
+// generateCorpusFormantSweep produces a band-limited diphthong: a steady glottal
+// pulse train whose two lowest formants glide between two vowel targets (a -> i),
+// like a sung "ah-ee". Distinct from CorpusCleanSpeechV1 (steady formants): the
+// moving resonances stress SILK/Hybrid LSF tracking.
+func generateCorpusFormantSweep(sampleRate, samples, channels int) []float32 {
+	out := make([]float32, samples)
+	phase := make([]float64, channels)
+	// Formant targets: /a/ (F1=730,F2=1090) -> /i/ (F1=270,F2=2290).
+	const f1a, f2a = 730.0, 1090.0
+	const f1i, f2i = 270.0, 2290.0
+	totalPerChannel := samples / channels
+	for ch := 0; ch < channels; ch++ {
+		for si := 0; si < totalPerChannel; si++ {
+			t := float64(si) / float64(sampleRate)
+			frac := 0.5 * (1.0 - math.Cos(2*math.Pi*0.4*t)) // 0..1 sweep at 0.4 Hz
+
+			pitch := 130.0 * (1.0 + 0.006*float64(ch))
+			phase[ch] += 2 * math.Pi * pitch / float64(sampleRate)
+			if phase[ch] > 2*math.Pi {
+				phase[ch] -= 2 * math.Pi
+			}
+			f1 := f1a + (f1i-f1a)*frac
+			f2 := f2a + (f2i-f2a)*frac
+
+			// Sum of harmonics weighted by proximity to the two formant peaks.
+			var val float64
+			for h := 1; h <= 20; h++ {
+				fh := pitch * float64(h)
+				if fh > float64(sampleRate)/2 {
+					break
+				}
+				w := formantWeight(fh, f1, 90) + 0.8*formantWeight(fh, f2, 110)
+				val += w * math.Sin(float64(h)*phase[ch])
+			}
+			env := 0.5 + 0.5*math.Sin(2*math.Pi*3.0*t-0.2*float64(ch))
+			out[si*channels+ch] = float32(clipSample(0.35 * (0.6 + 0.4*env) * val))
+		}
+	}
+	return out
+}
+
+// formantWeight is a single-pole resonance magnitude (Lorentzian) at center freq
+// fc with half-bandwidth bw, used to shape harmonic amplitudes into formants.
+func formantWeight(f, fc, bw float64) float64 {
+	d := (f - fc) / bw
+	return 1.0 / (1.0 + d*d)
+}
+
+// generateCorpusSpeechInNoise mixes the voiced-speech generator with band-limited
+// noise at ~10 dB SNR, a common real-world degraded-speech condition that stresses
+// SILK's noise-shaping and VAD differently from clean speech or speech+music.
+func generateCorpusSpeechInNoise(sampleRate, samples, channels int) []float32 {
+	speech := generateCorpusCleanSpeech(sampleRate, samples, channels)
+	out := make([]float32, samples)
+	prev := make([]float64, channels)
+	const snrLin = 0.316 // 10*log10(1/0.316^2) ~= 10 dB SNR (noise rms ~0.316x speech)
+	for i := 0; i < samples; i++ {
+		ch := i % channels
+		si := i / channels
+		// Low-pass-ish band noise (one-pole) so it sits in the speech band.
+		raw := deterministicNoise(si, ch, 433)
+		band := 0.5*raw + 0.5*prev[ch]
+		prev[ch] = band
+		out[i] = float32(clipSample(float64(speech[i]) + snrLin*0.4*band))
+	}
+	return out
+}
+
+// generateCorpusStereoDecorrelated produces independent content per channel: a
+// tone cluster in L and band-limited noise in R (and a phase-inverted blend when
+// mono is requested). This maximizes inter-channel decorrelation, stressing the
+// stereo coupling / mid-side decision that the correlated corpus cases do not.
+func generateCorpusStereoDecorrelated(sampleRate, samples, channels int) []float32 {
+	out := make([]float32, samples)
+	prev := 0.0
+	for i := 0; i < samples; i++ {
+		ch := i % channels
+		si := i / channels
+		t := float64(si) / float64(sampleRate)
+		var val float64
+		if ch == 0 {
+			// Left: detuned two-tone cluster.
+			val = 0.35*math.Sin(2*math.Pi*440.0*t) + 0.25*math.Sin(2*math.Pi*523.25*t)
+		} else {
+			// Right: independent band-limited noise (uncorrelated with left).
+			raw := deterministicNoise(si, ch, 457)
+			band := 0.6*raw + 0.4*prev
+			prev = band
+			val = 0.5 * band
+		}
+		out[i] = float32(clipSample(0.7 * val))
+	}
+	return out
+}
+
+// generateCorpusBellCluster produces dense inharmonic partials (a struck-metal /
+// bell timbre): partials at non-integer frequency ratios with independent decays.
+// Inharmonicity defeats pitch-based modeling and stresses CELT's PVQ allocation
+// differently from the harmonic CorpusMusicV1 chord.
+func generateCorpusBellCluster(sampleRate, samples, channels int) []float32 {
+	// Inharmonic partial ratios typical of a struck bar/bell, with per-partial decay.
+	ratios := []float64{1.00, 2.76, 5.40, 8.93, 13.34, 18.64}
+	decays := []float64{1.2, 1.8, 2.6, 3.4, 4.5, 6.0}
+	const fundamental = 261.63 // C4
+	const strikePeriod = 0.75  // s between strikes
+	out := make([]float32, samples)
+	for i := 0; i < samples; i++ {
+		ch := i % channels
+		si := i / channels
+		t := float64(si) / float64(sampleRate)
+		strikeT := math.Mod(t+0.13*float64(ch), strikePeriod)
+		var val float64
+		for pi, r := range ratios {
+			env := math.Exp(-strikeT * decays[pi])
+			amp := 0.5 / float64(pi+1)
+			f := fundamental * r * (1.0 + 0.004*float64(ch))
+			val += amp * env * math.Sin(2*math.Pi*f*t)
+		}
+		out[i] = float32(clipSample(0.6 * val))
 	}
 	return out
 }
