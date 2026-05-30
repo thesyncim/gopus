@@ -42,6 +42,12 @@ type Encoder struct {
 	// Analysis state for overlap (mirrors decoder's synthesis state)
 	overlapBuffer []celtSig // MDCT overlap [Overlap * channels]
 	preemphState  []celtSig // Pre-emphasis filter state [channels]
+	// hd96kOverlap and hd96kPreemph hold the native 96 kHz HD analysis
+	// parameters (overlap 240, 2-tap HD pre-emphasis). hd96kOverlap == 0
+	// selects the 48 kHz path (Overlap constant), keeping the default build
+	// unchanged. Set by EnableHD96kMode (gopus_qext).
+	hd96kOverlap int
+	hd96kPreemph [4]float32
 	// overlapMax mirrors libopus st->overlap_max for CELT silence detection.
 	// It tracks max absolute amplitude over the last overlap region.
 	overlapMax opusVal32
