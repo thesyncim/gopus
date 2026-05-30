@@ -64,6 +64,30 @@ func NewMDCTLookup(n, maxshift int) *MDCTLookup {
 	return l
 }
 
+// NewStaticMDCTLookup48000 builds the MDCT lookup for the static 48000/960
+// custom mode from the baked libopus tables (static_mdct48000_960.go), so the
+// integer decoder uses the exact mode->mdct trig / FFT twiddle / bitrev / factor
+// tables celt_decode_with_ec relies on. The runtime-recomputed NewMDCTLookup
+// differs from these by ~1 ULP, so the full-frame decode must use this.
+func NewStaticMDCTLookup48000() *MDCTLookup {
+	l := &MDCTLookup{n: staticMDCT48000N, maxshift: staticMDCT48000MaxShift}
+	l.kfft = make([]*KissFFTState, len(staticMDCT48000KFFT))
+	for i, def := range staticMDCT48000KFFT {
+		st := &KissFFTState{
+			nfft:       def.nfft,
+			scale:      def.scale,
+			scaleShift: def.scaleShift,
+			shift:      def.shift,
+			factors:    def.factors,
+			bitrev:     def.bitrev,
+			twiddles:   staticMDCT48000Twiddles[:],
+		}
+		l.kfft[i] = st
+	}
+	l.trig = staticMDCT48000Trig[:]
+	return l
+}
+
 // pshr32Ovflw implements libopus PSHR32_ovflw(a, shift):
 // SHR32(ADD32_ovflw(a, (1<<shift>>1)), shift), the rounding the post-rotations
 // use. shift must be >= 0.

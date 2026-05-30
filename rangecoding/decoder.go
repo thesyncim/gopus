@@ -1051,6 +1051,13 @@ func (d *Decoder) TellFrac() int {
 	return nbits - ((l << 3) + b)
 }
 
+// SkipToTell advances the decoder's bit accounting so Tell() reports exactly
+// targetBits, without consuming further input. It mirrors the CELT silence
+// fast-path in celt_decode_with_ec: dec->nbits_total += targetBits-ec_tell(dec).
+func (d *Decoder) SkipToTell(targetBits int) {
+	d.nbitsTotal += int32(targetBits - d.Tell())
+}
+
 // State returns the internal range decoder state (rng, val).
 // Useful for bit-exact comparisons against libopus in tests.
 func (d *Decoder) State() (uint32, uint32) {
