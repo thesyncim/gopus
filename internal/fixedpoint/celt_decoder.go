@@ -48,6 +48,16 @@ type CELTDecoder struct {
 	rng          uint32
 	lossDuration int
 
+	// PLC cross-frame state, mirroring the OpusCustomDecoder reset region.
+	lastPitchIndex   int
+	plcDuration      int
+	lastFrameType    int
+	skipPLC          bool
+	prefilterAndFold bool
+	// lpc holds channels*celtLPCOrder opus_val16 LPC coefficients carried
+	// between consecutive lost frames.
+	lpc []int16
+
 	postfilterPeriod    int
 	postfilterPeriodOld int
 	postfilterGain      int16
@@ -115,6 +125,10 @@ func (d *CELTDecoder) SetBandRange(start, end int) {
 // decimated, so it writes channels*(frameSize/downsample) interleaved int16 PCM
 // into out and returns the number of per-channel output samples decoded.
 func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int {
+	// data == NULL || len <= 1 selects the packet-loss concealment path.
+	if len(data) <= 1 {
+		return d.DecodeLost(frameSize, out)
+	}
 	nbEBands := celtNbEBands
 	overlap := celtOverlap
 	shortMdctSize := celtShortMdctSize
@@ -143,6 +157,12 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 	effEnd := end
 	if effEnd > nbEBands {
 		effEnd = nbEBands
+	}
+
+	// Two consecutive received packets are required before the pitch-based
+	// PLC is allowed again (celt_decode_with_ec: loss_duration==0 => skip_plc=0).
+	if d.lossDuration == 0 {
+		d.skipPLC = false
 	}
 
 	dec := &rangecoding.Decoder{}
@@ -345,6 +365,9 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 	}
 
 	d.lossDuration = 0
+	d.plcDuration = 0
+	d.lastFrameType = frameNormal
+	d.prefilterAndFold = false
 	return outSamples
 }
 
