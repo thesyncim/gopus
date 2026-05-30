@@ -515,6 +515,10 @@ func (e *Encoder) ResetStereoSideAfterMidOnly() {
 	e.ecPrevSignalType = typeNoVoiceActivity
 	e.isPreviousFrameVoiced = false
 	e.forceFirstFrameAfterReset = true
+	// Under the gopus_fixedpoint build also reset the integer side-channel state
+	// (sShape/sNSQ/prev_NLSFq/sLP, LastGainIndex, prevLag) exactly as libopus
+	// enc_API.c does when side coding resumes. No-op on the float build.
+	e.resetStereoSideFixedState()
 }
 
 // SetComplexity sets the SILK encoder complexity (0-10) and related pitch parameters.

@@ -19,6 +19,23 @@ package silk
 // on the public Encoder under the gopus_fixedpoint build.
 type silkEncoderFixedFields struct {
 	fixed *silkFixedEncodeState
+
+	// fixedStereoInt16In, when non-nil, holds the raw int16 mid/side frame
+	// (post stereo_LR_to_MS, pre LP_variable_cutoff) that the integer SILK
+	// encode body must consume verbatim for one EncodeFrame call. It lets the
+	// validated integer stereo front-end (silkStereoLRToMS) feed exact int16
+	// mid/side samples into the per-channel encode without a float round-trip,
+	// matching libopus enc_API.c where silk_stereo_LR_to_MS writes inputBuf+2
+	// and silk_encode_frame_FIX consumes inputBuf+1 directly. It is consumed
+	// (cleared) by buildFixedInputBuf.
+	fixedStereoInt16In []int16
+
+	// Scratch buffers for the integer stereo front-end (stereoFixedFrontEnd).
+	scratchStereoFixedMid     []int16
+	scratchStereoFixedSide    []int16
+	scratchStereoFixedX2      []int16
+	scratchStereoFixedMidOut  []int16
+	scratchStereoFixedSideOut []int16
 }
 
 // silkFixedEncodeState holds the persistent silk_encoder_state_FIX-equivalent
@@ -68,6 +85,11 @@ type silkFixedEncodeState struct {
 	inputTiltQ15         int32
 	inputQualityBandsQ15 [vadNBands]int32
 
+	// lastFixedVADFlag is the integer VAD decision of the most recent encode
+	// body call (1 == active), exposed via FixedLastVADFlag for the stereo
+	// VAD header patch.
+	lastFixedVADFlag bool
+
 	// captureSnapshot enables the per-frame test snapshot capture below. It is
 	// off in production so the hot path does not copy x_buf each frame.
 	captureSnapshot bool
@@ -102,6 +124,11 @@ type silkFixedEncodeState struct {
 	testNlsfSurvivors      int
 	testPitchEstThrQ16     int32
 	testUseCBR             int
+
+	// allSnapshots accumulates one FixedPreEncodeSnapshot per encode-body call
+	// (in order) when captureSnapshot is on, so the stereo parity test can replay
+	// every mid/side frame against the libopus FIXED_POINT per-frame oracle.
+	allSnapshots []FixedPreEncodeSnapshot
 }
 
 // fixedEncodeActive reports whether the integer SILK encode path is selected.
@@ -149,6 +176,49 @@ func (e *Encoder) captureFixedSnapshot(
 	st.testNlsfSurvivors = int(e.nlsfSurvivors)
 	st.testPitchEstThrQ16 = e.pitchEstimationThresholdQ16
 	st.testUseCBR = useCBRInt
+
+	// Also append a self-contained copy to the per-frame snapshot list so the
+	// stereo parity test can replay every mid/side frame in order. The slices
+	// are copied because the underlying buffers are reused across frames.
+	snap := FixedPreEncodeSnapshot{
+		XBuf:                 append([]int16(nil), st.xBuf...),
+		InputBuf:             append([]int16(nil), inputBuf...),
+		FrameCounter:         ps.frameCounter,
+		PrevSignalType:       ps.prevSignalType,
+		PrevLag:              ps.prevLag,
+		FirstFrameAfterReset: ps.firstFrameAfterReset,
+		LastGainIndex:        ps.lastGainIndex,
+		HarmShapeGainSmthQ16: ps.harmShapeGainSmthQ16,
+		TiltSmthQ16:          ps.tiltSmthQ16,
+		SumLogGainQ7:         ps.sumLogGainQ7,
+		PrevNLSFqQ15:         ps.prevNLSFqQ15,
+		LtpCorrQ15:           ps.ltpCorrQ15,
+		NbSubfr:              numSubframes,
+		FrameLength:          frameSamples,
+		SnrDBQ7:              e.snrDBQ7,
+		MaxBits:              int(e.maxBits),
+		CondCoding:           int32(condCoding),
+		PredictLPCOrder:      predictLPCOrder,
+		PitchEstLPCOrder:     pitchEstLPCOrder,
+		ShapingLPCOrder:      int(e.shapingLPCOrder),
+		ShapeWinLength:       int(e.shapeWinLength),
+		Complexity:           int(e.pitchEstimationComplexity),
+		NStatesDelDec:        int(e.nStatesDelayedDecision),
+		WarpingQ16:           e.warpingQ16,
+		NlsfSurvivors:        int(e.nlsfSurvivors),
+		PitchEstThrQ16:       e.pitchEstimationThresholdQ16,
+		UseCBR:               useCBRInt,
+	}
+	st.allSnapshots = append(st.allSnapshots, snap)
+}
+
+// FixedAllSnapshotsForTest returns the per-encode-body snapshots captured for
+// this encoder, in call order (one per mid/side frame). For parity tests only.
+func (e *Encoder) FixedAllSnapshotsForTest() []FixedPreEncodeSnapshot {
+	if e.fixed == nil {
+		return nil
+	}
+	return e.fixed.allSnapshots
 }
 
 // EnableFixedSnapshotForTest turns on per-frame snapshot capture for the
@@ -317,11 +387,26 @@ func fixedNbSubfr(frameSamples, fsKHz int) int {
 // places at inputBuf+1 just before insertion into x_buf.
 func (e *Encoder) buildFixedInputBuf(pcm []float32, frameSamples int) []int16 {
 	buf := ensureInt16Slice(&e.scratchLPInt16, frameSamples)
-	for i := 0; i < frameSamples; i++ {
-		if i < len(pcm) {
-			buf[i] = float32ToInt16(pcm[i])
-		} else {
-			buf[i] = 0
+	if e.fixedStereoInt16In != nil {
+		// Integer stereo front-end (silkStereoLRToMS) already produced the exact
+		// int16 mid/side samples libopus writes into inputBuf+2; consume them
+		// verbatim so no float round-trip can perturb the LSBs.
+		src := e.fixedStereoInt16In
+		for i := 0; i < frameSamples; i++ {
+			if i < len(src) {
+				buf[i] = src[i]
+			} else {
+				buf[i] = 0
+			}
+		}
+		e.fixedStereoInt16In = nil
+	} else {
+		for i := 0; i < frameSamples; i++ {
+			if i < len(pcm) {
+				buf[i] = float32ToInt16(pcm[i])
+			} else {
+				buf[i] = 0
+			}
 		}
 	}
 	// silk_LP_variable_cutoff operates in place on inputBuf+1.
@@ -452,6 +537,12 @@ func (e *Encoder) encodeFrameFixedBody(
 
 	res := e.silkEncodeFramePayloadFIX(ps)
 
+	// The SILK VAD header bit (and, for the stereo side channel, the mid-only
+	// gate) must reflect the integer VAD decision computed inside the encode
+	// body, not the Opus-level activity flag passed in. Persist it and patch the
+	// standalone header from it below.
+	st.lastFixedVADFlag = res.vadFlag != 0
+
 	// Persist the integer cross-frame state back.
 	fs := &ps.silkEncodeFrameFIXState
 	st.vad = fs.vad
@@ -510,5 +601,15 @@ func (e *Encoder) encodeFrameFixedBody(
 	keep := ltpMemLength + laShape
 	copy(st.xBuf[:keep], st.xBuf[frameSamples:frameSamples+keep])
 
-	return e.finalizeEncodeFrame(frameSamples, payloadSizeMs, vadFlag, useSharedEncoder)
+	return e.finalizeEncodeFrame(frameSamples, payloadSizeMs, res.vadFlag != 0, useSharedEncoder)
+}
+
+// FixedLastVADFlag reports the integer VAD decision of the most recent fixed
+// encode-body call (1 == active), for the stereo orchestration's VAD header
+// patch. It is meaningful only under the gopus_fixedpoint build.
+func (e *Encoder) FixedLastVADFlag() bool {
+	if e.fixed == nil {
+		return false
+	}
+	return e.fixed.lastFixedVADFlag
 }

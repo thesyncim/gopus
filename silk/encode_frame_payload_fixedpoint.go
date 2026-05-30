@@ -64,6 +64,10 @@ type silkEncodeFramePayloadFIXResult struct {
 	lbrrPulses  []int8
 	// nBytesOut is silk_RSHIFT(ec_tell + 7, 3) captured after the loop.
 	nBytesOut int
+	// vadFlag is the integer VAD decision (silk_encode_do_VAD_FIX result) for
+	// this frame: 1 == VAD-active. It feeds the SILK VAD header bit and, for the
+	// stereo side channel, the mid-only-flag coding gate.
+	vadFlag int
 }
 
 // silkEncodeIndices is the bit-exact Go port of silk_encode_indices
@@ -348,6 +352,7 @@ func (e *Encoder) silkEncodeFramePayloadFIX(ps *silkEncodeFramePayloadFIXState) 
 
 	// Analysis chain (VAD, pitch, noise shape, pred coefs, process gains).
 	ctrl := e.silkEncodeFrameFIXAnalyze(st)
+	out.vadFlag = ctrl.vadFlag
 
 	condCoding := int(st.condCoding)
 

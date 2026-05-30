@@ -219,8 +219,11 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 		}
 
 		// Convert L/R to M/S with stereo prediction, rate allocation, and width decision.
-		// This matches libopus silk_stereo_LR_to_MS.
-		midOut, sideOut, ix, midOnly, midRate, sideRate, _ := enc.StereoLRToMSWithRates(
+		// This matches libopus silk_stereo_LR_to_MS. Under the gopus_fixedpoint
+		// build the integer front-end also returns the exact int16 mid/side the
+		// per-channel integer encode body consumes (midI16/sideI16); on the float
+		// build those are nil.
+		midOut, sideOut, midI16, sideI16, ix, midOnly, midRate, sideRate, _ := enc.stereoFrontEnd(
 			leftFrame, rightFrame, frameLength, fsKHz,
 			totalRate, speechActQ8, false,
 		)
@@ -264,16 +267,24 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 		// SILK packet versus libopus.
 		sideFrameVAD := midFrameVAD && !midOnly
 		var sideState VADFrameState
-		if !midOnly && sideAnalyzer != nil {
-			sideState, sideFrameVAD = sideAnalyzer(sideOut, len(sideOut), fsKHz)
-		} else if len(sideVADFlags) > 0 {
-			sideFrameVAD = stereoVADFlagAt(sideVADFlags, i)
-			if midOnly {
-				sideFrameVAD = false
+		// Under the gopus_fixedpoint build the side VAD flag must come from the
+		// integer VAD (silk_encode_do_VAD_FIX) run on the int16 side frame, since
+		// it gates the mid-only-flag coding exactly as in libopus enc_API.c. We
+		// run it on a copy of the side VAD state so the real per-channel encode
+		// advances the live state exactly once.
+		if !midOnly {
+			if active, ok := enc.stereoSideVADFixed(sideEnc, sideI16, frameLength, fsKHz, midFrameVAD); ok {
+				sideFrameVAD = active
+			} else if sideAnalyzer != nil {
+				sideState, sideFrameVAD = sideAnalyzer(sideOut, len(sideOut), fsKHz)
+			} else if len(sideVADFlags) > 0 {
+				sideFrameVAD = stereoVADFlagAt(sideVADFlags, i)
+				if i < len(sideVADStates) && sideVADStates[i].Valid {
+					sideState = sideVADStates[i]
+				}
 			}
-			if i < len(sideVADStates) && sideVADStates[i].Valid {
-				sideState = sideVADStates[i]
-			}
+		} else {
+			sideFrameVAD = false
 		}
 		if sideFrameVAD {
 			sideVAD[i] = 1
@@ -334,7 +345,19 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 		enc.stereoChannelIdx = 0
 		enc.stereoPrevDecodeOnlyMiddle = int32(prevDecodeOnlyMiddle)
 		enc.SetRangeEncoder(re)
+		// Feed the integer mid frame (post stereo_LR_to_MS, pre LP cutoff) to the
+		// integer encode body verbatim. No-op on the float build.
+		enc.stageStereoInt16(midI16)
 		_ = enc.EncodeFrame(midOut, nil, midFrameVAD)
+		// The VAD header bit must reflect the integer VAD decision computed inside
+		// the encode body (libopus enc_API.c VAD_flags), not the Opus-level flag.
+		if enc.fixedEncodeActive() {
+			if enc.FixedLastVADFlag() {
+				midVAD[i] = 1
+			} else {
+				midVAD[i] = 0
+			}
+		}
 
 		// Encode side channel if not mid-only.
 		// Use the side-channel VAD decision (not the mid flag) so the
@@ -356,7 +379,15 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 				sideEnc.maxBits = sideMaxBits
 			}
 			sideEnc.SetRangeEncoder(re)
+			sideEnc.stageStereoInt16(sideI16)
 			_ = sideEnc.EncodeFrame(sideOut, nil, sideFrameVAD)
+			if sideEnc.fixedEncodeActive() {
+				if sideEnc.FixedLastVADFlag() {
+					sideVAD[i] = 1
+				} else {
+					sideVAD[i] = 0
+				}
+			}
 		}
 		// libopus enc_API.c increments nFramesEncoded on every channel each 20 ms
 		// block, even when the side frame is not coded (mid-only).

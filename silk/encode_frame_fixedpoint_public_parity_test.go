@@ -138,6 +138,15 @@ func buildPayloadCaseFromSnapshot(bw Bandwidth, fsKHz int, snap FixedPreEncodeSn
 	laPitch := laPitchMs * fsKHz
 	laShape := laShapeMs * fsKHz
 	pitchLPCWinLength := (ltpMemLengthMs + (laPitchMs << 1)) * fsKHz
+	// The integer x_buf is always allocated for a 20 ms frame, but the libopus
+	// per-frame oracle reads exactly ltp_mem_length + LA_SHAPE + frame_length
+	// int16s. For 10 ms frames the snapshot buffer is longer; trim it to the
+	// length the oracle consumes so a multi-case batch stays byte-aligned.
+	xBufLen := ltpMemLength + laShape + snap.FrameLength
+	xBuf := snap.XBuf
+	if len(xBuf) > xBufLen {
+		xBuf = xBuf[:xBufLen]
+	}
 	tc := silkFixedEncodeFrameCase{
 		fsKHz:                   fsKHz,
 		frameLength:             snap.FrameLength,
@@ -174,7 +183,7 @@ func buildPayloadCaseFromSnapshot(bw Bandwidth, fsKHz int, snap FixedPreEncodeSn
 		ltpCorrQ15:              snap.LtpCorrQ15,
 		prevNLSFqQ15:            snap.PrevNLSFqQ15,
 		vadInput:                append([]int16(nil), snap.InputBuf...),
-		xBuf:                    append([]int16(nil), snap.XBuf...),
+		xBuf:                    append([]int16(nil), xBuf...),
 	}
 	return silkFixedEncodeFramePayloadCase{
 		silkFixedEncodeFrameCase: tc,
