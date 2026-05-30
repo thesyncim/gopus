@@ -511,6 +511,60 @@ jobs:
       - name: Run build-config matrix gate (purego ./...)
         run: make test-build-config-matrix
 
+  test-linux-core-oracles:
+    name: test-linux-core-oracles
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Run core float libopus C-oracle parity gate
+        run: make test-core-oracles-parity
+
+  test-linux-fixedpoint-parity:
+    name: test-linux-fixedpoint-parity
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned fixed-point libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-fixed
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-fixed-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Run fixed-point libopus C-oracle parity gate
+        run: make test-fixedpoint-parity
+
   test-linux:
     name: test-linux
     if: always()
@@ -530,6 +584,8 @@ jobs:
       - test-linux-extra-controls
       - test-linux-extra-controls-parity
       - test-linux-build-config-matrix
+      - test-linux-core-oracles
+      - test-linux-fixedpoint-parity
     runs-on: ubuntu-latest
     steps:
       - name: Validate Linux gates
@@ -548,6 +604,8 @@ jobs:
           echo "test-linux-extra-controls: ${{ needs.test-linux-extra-controls.result }}"
           echo "test-linux-extra-controls-parity: ${{ needs.test-linux-extra-controls-parity.result }}"
           echo "test-linux-build-config-matrix: ${{ needs.test-linux-build-config-matrix.result }}"
+          echo "test-linux-core-oracles: ${{ needs.test-linux-core-oracles.result }}"
+          echo "test-linux-fixedpoint-parity: ${{ needs.test-linux-fixedpoint-parity.result }}"
           if [ "${{ needs.test-linux-fast.result }}" != "success" ]; then
             exit 1
           fi
@@ -588,6 +646,12 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-build-config-matrix.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-core-oracles.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-fixedpoint-parity.result }}" != "success" ]; then
             exit 1
           fi
 
@@ -645,6 +709,14 @@ jobs:
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
+      - name: Cache pinned fixed-point libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-fixed
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-fixed-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
       - name: Install codec tools (if missing)
         run: |
           if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
@@ -655,6 +727,15 @@ jobs:
 
       - name: Bootstrap pinned libopus
         run: make ensure-libopus
+
+      - name: Run core float libopus C-oracle parity gate
+        run: make test-core-oracles-parity
+
+      - name: Run supported DRED feature-tag C-oracle parity gate
+        run: make test-dred-tag
+
+      - name: Run fixed-point libopus C-oracle parity gate
+        run: make test-fixedpoint-parity
 
       - name: Generate native libopus fixtures
         run: make fixtures-gen-platform
@@ -796,6 +877,16 @@ jobs:
         shell: msys2 {0}
         run: make ensure-libopus
 
+      - name: Run core float libopus C-oracle parity gate
+        shell: msys2 {0}
+        run: make test-core-oracles-parity
+
+      # The tagged DRED/QEXT and fixed-point libopus C-oracle sweeps stay on the
+      # Linux and macOS lanes. They drive a large bash focus-gate matrix that is
+      # impractical to keep green under the MSYS2/mingw toolchain; the Windows
+      # lane still gates the core float C-oracle parity above plus the
+      # gopus_libopus_oracle decoder/encoder fixture parity below, all built
+      # against the native libopus C reference.
       - name: Generate native libopus fixtures
         shell: msys2 {0}
         run: make fixtures-gen-platform

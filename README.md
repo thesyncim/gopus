@@ -123,6 +123,16 @@ Required branch checks:
 - `test-windows`
 <!-- required-checks:end -->
 
+These aggregate gates make the libopus C-oracle parity suites mandatory across
+platforms: the core float numeric oracle (`make test-core-oracles-parity`) runs
+on Linux, macOS, and Windows; the tagged DRED and `--enable-fixed-point` oracle
+gates (`make test-dred-tag`, `make test-fixedpoint-parity`) run on Linux and
+macOS; the QEXT/extra-controls oracle gates run on Linux. Each lane builds the
+pinned libopus C reference first (`make ensure-libopus*`) under
+`GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1`. Windows keeps the
+core float oracle plus the `gopus_libopus_oracle` decoder/encoder fixture parity
+smoke; the broad tagged bash focus-gate sweeps are not run under MSYS2/mingw.
+
 Release checklist:
 
 - select a `vMAJOR.MINOR.PATCH` tag

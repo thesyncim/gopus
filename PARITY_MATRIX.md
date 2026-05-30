@@ -202,7 +202,7 @@ requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
 | RFC 6716 / libopus vectors (`testvectors/`) | Y | Decoder matrix (29 cases incl. 100 ms + true Hybrid 40/60 ms rows), per-rate matrix (8/12/16/24/48 kHz byte-exact), loss (to 120 ms), compliance, variants, RED RFC 2198 vectors | Broader real-content corpus (speech/music/noise) |
 | `opus_compare` quality oracle | Y | Primary encoder/decoder quality gate + 24-case signal-class corpus (speech/music/mixed/noise/transient/tone/near-silence × modes × bitrates, Q≥99.6) | — |
 | `opusdec` crossval fixture | Y | CELT cross-validation (`celt/testdata/opusdec_crossval_fixture.json`) | Regenerate when scenario Ogg hashes change (`GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE=1`) |
-| libopus C oracles (`tools/csrc`, `make test-*-parity`) | ~ | Submodule numerical probes | CI mandatory on all platforms |
+| libopus C oracles (`tools/csrc`, `make test-*-parity`) | Y | Numerical probes built against the pinned libopus C reference | CI mandatory: core float oracle on Linux + macOS + Windows; tagged DRED + fixed-point oracle gates on Linux + macOS; QEXT/extra-controls oracle gates on Linux (Windows tagged sweeps stay off the MSYS2 lane) |
 
 ---
 
@@ -247,7 +247,7 @@ Release bar: `make verify-production` (+ optional `verify-production-exhaustive`
 3. **Opus Custom non-standard-rate oracle parity** — `gopus_custom` standard modes are byte-identical to libopus; non-standard-rate custom modes are only roundtrip self-consistent and need a `--enable-custom-modes` libopus build to oracle.  
 4. **arm64-only ≤1-ULP residuals** — SILK `hp_cutoff` biquad / warped shaping-AR recursive-float tail and CELT chirp `alloc_trim` half-density tonality drift are darwin/arm64 only; amd64/CI is byte-exact. Governed by the per-arch FMA-contraction budget.  
 5. **Broader real-content corpus** — decoder/quality coverage beyond the current signal-class corpus (more speech/music/noise material).  
-6. **All-platform mandatory C-oracle CI** — the `tools/csrc` C oracles are not yet mandatory across every CI platform.  
+6. **All-platform mandatory C-oracle CI** — DONE. The `tools/csrc` libopus C oracles are mandatory CI gates: the core float numeric oracle (`make test-core-oracles-parity`) runs on Linux, macOS, and Windows; the tagged DRED and `--enable-fixed-point` oracle gates (`make test-dred-tag`, `make test-fixedpoint-parity`) run on Linux and macOS; the QEXT/extra-controls oracle gates run on Linux. Windows keeps the core float oracle plus the `gopus_libopus_oracle` decoder/encoder fixture parity smoke; the broad tagged DRED/QEXT/fixed-point bash focus-gate sweeps are deliberately not run under the MSYS2/mingw toolchain.  
 
 ---
 
