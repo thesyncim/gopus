@@ -405,6 +405,13 @@ func (e *Encoder) Range() uint32 {
 	return e.rng
 }
 
+// SkipToTell pretends the given number of bits have been written, mirroring the
+// libopus silence path (enc->nbits_total += tell - ec_tell(enc)). After the call
+// Tell() returns tell. Used by the CELT encoder's silence branch.
+func (e *Encoder) SkipToTell(tell int) {
+	e.nbitsTotal += int32(tell - e.Tell())
+}
+
 // Offs returns the current write offset in bytes.
 func (e *Encoder) Offs() uint32 {
 	return e.offs

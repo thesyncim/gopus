@@ -167,3 +167,84 @@ func CombFilter(y, x []int32, base, t0, t1, n int, g0, g1 int16, tapset0, tapset
 	// Constant-gain comb filter over the remaining samples.
 	CombFilterConst(y, x, base+i, t1, n-i, g10, g11, g12)
 }
+
+// combFilterPF ports comb_filter for the encoder's run_prefilter where the
+// output (y at yOff) and input (x at xOff, with its own preceding history) are
+// distinct buffers — the case CombFilter/CombFilterConst (which share one base
+// and assume aliasing) cannot express. It mirrors comb_filter (celt/celt.c)
+// under FIXED_POINT: the overlap cross-fade followed by the constant-gain tail.
+func combFilterPF(y []int32, yOff int, x []int32, xOff, t0, t1, n int, g0, g1 int16, tapset0, tapset1 int, window []int16, overlap int) {
+	if g0 == 0 && g1 == 0 {
+		for i := 0; i < n; i++ {
+			y[yOff+i] = x[xOff+i]
+		}
+		return
+	}
+	if t0 < combFilterMinPeriod {
+		t0 = combFilterMinPeriod
+	}
+	if t1 < combFilterMinPeriod {
+		t1 = combFilterMinPeriod
+	}
+	g00 := mult16x16p15(g0, combFilterGains[tapset0][0])
+	g01 := mult16x16p15(g0, combFilterGains[tapset0][1])
+	g02 := mult16x16p15(g0, combFilterGains[tapset0][2])
+	g10 := mult16x16p15(g1, combFilterGains[tapset1][0])
+	g11 := mult16x16p15(g1, combFilterGains[tapset1][1])
+	g12 := mult16x16p15(g1, combFilterGains[tapset1][2])
+
+	x1 := x[xOff-t1+1]
+	x2 := x[xOff-t1]
+	x3 := x[xOff-t1-1]
+	x4 := x[xOff-t1-2]
+
+	if g0 == g1 && t0 == t1 && tapset0 == tapset1 {
+		overlap = 0
+	}
+
+	i := 0
+	for ; i < overlap; i++ {
+		x0 := x[xOff+i-t1+2]
+		f := mult16x16q15(window[i], window[i])
+		omf := int16(32767) - f
+		v := x[xOff+i] +
+			mult16x32q15(mult16x16q15(omf, g00), x[xOff+i-t0]) +
+			mult16x32q15(mult16x16q15(omf, g01), x[xOff+i-t0+1]+x[xOff+i-t0-1]) +
+			mult16x32q15(mult16x16q15(omf, g02), x[xOff+i-t0+2]+x[xOff+i-t0-2]) +
+			mult16x32q15(mult16x16q15(f, g10), x2) +
+			mult16x32q15(mult16x16q15(f, g11), x1+x3) +
+			mult16x32q15(mult16x16q15(f, g12), x0+x4)
+		v = v - 3
+		y[yOff+i] = saturateSig(v)
+		x4 = x3
+		x3 = x2
+		x2 = x1
+		x1 = x0
+	}
+
+	if g1 == 0 {
+		for ; i < n; i++ {
+			y[yOff+i] = x[xOff+i]
+		}
+		return
+	}
+
+	// Constant-gain tail.
+	cx4 := x[xOff+i-t1-2]
+	cx3 := x[xOff+i-t1-1]
+	cx2 := x[xOff+i-t1]
+	cx1 := x[xOff+i-t1+1]
+	for ; i < n; i++ {
+		x0 := x[xOff+i-t1+2]
+		v := x[xOff+i] +
+			mult16x32q15(g10, cx2) +
+			mult16x32q15(g11, cx1+cx3) +
+			mult16x32q15(g12, x0+cx4)
+		v = v - 1
+		y[yOff+i] = saturateSig(v)
+		cx4 = cx3
+		cx3 = cx2
+		cx2 = cx1
+		cx1 = x0
+	}
+}

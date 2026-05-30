@@ -35,9 +35,45 @@ type CELTEncoder struct {
 	start int
 	end   int
 
+	// complexity / lsbDepth mirror st->complexity / st->lsb_depth. CBR-only here,
+	// so vbr stays false and constrainedVBR mirrors the init default (1).
+	complexity int
+	lsbDepth   int
+
+	// bitrate is st->bitrate (bits/s), OPUS_BITRATE_MAX when unset.
+	bitrate int
+
 	// preemphMemE mirrors st->preemph_memE: the per-channel pre-emphasis filter
 	// state carried between frames.
 	preemphMemE []int32
+
+	// inMem holds CC*overlap celt_sig: the run_prefilter "in_mem" carried between
+	// frames (the previous frame's trailing overlap, after prefiltering).
+	inMem []int32
+	// prefilterMem holds CC*COMBFILTER_MAXPERIOD celt_sig of pitch history.
+	prefilterMem []int32
+
+	// Cross-frame energy histories (channel-major, Q24), 2*nbEBands each so the
+	// CC==2,C==1 mirroring and start/end clears have room.
+	oldBandE    []int32
+	oldLogE     []int32
+	oldLogE2    []int32
+	energyError []int32
+
+	// Decision state carried between frames.
+	prefilterPeriod  int
+	prefilterGain    int16
+	prefilterTapset  int
+	consecTransient  int
+	delayedIntra     int32
+	specAvg          int32
+	intensity        int
+	lastCodedBands   int
+	stereoSaving     int16
+	spreading        SpreadingState
+	spreadDecision   int
+	overlapMax       int32
+	rng              uint32
 
 	mdct   *MDCTLookup
 	window []int16
@@ -53,14 +89,39 @@ func NewCELTEncoder(channels int) *CELTEncoder {
 		channels:    channels,
 		start:       0,
 		end:         celtNbEBands,
+		complexity:  5,
+		lsbDepth:    24,
+		bitrate:     opusBitrateMax,
 		preemphMemE: make([]int32, channels),
 		mdct:        NewStaticMDCTLookup48000(),
 		window:      staticMDCT48000Window[:],
 		eBands:      staticMDCT48000EBands[:],
 		logN:        staticMDCT48000LogN[:],
 	}
+	e.inMem = make([]int32, channels*celtOverlap)
+	e.prefilterMem = make([]int32, channels*combFilterMaxPeriod)
+	e.oldBandE = make([]int32, 2*celtNbEBands)
+	e.oldLogE = make([]int32, 2*celtNbEBands)
+	e.oldLogE2 = make([]int32, 2*celtNbEBands)
+	e.energyError = make([]int32, 2*celtNbEBands)
+	for i := range e.oldLogE {
+		e.oldLogE[i] = -gconst(28)
+		e.oldLogE2[i] = -gconst(28)
+	}
+	e.delayedIntra = 1
+	e.spreadDecision = spreadNormal
+	e.spreading = SpreadingState{TonalAverage: 256, HFAverage: 0, TapsetDecision: 0}
 	return e
 }
+
+// opusBitrateMax mirrors OPUS_BITRATE_MAX (-1).
+const opusBitrateMax = -1
+
+// SetComplexity sets st->complexity (OPUS_SET_COMPLEXITY_REQUEST).
+func (e *CELTEncoder) SetComplexity(c int) { e.complexity = c }
+
+// SetBitrate sets st->bitrate in bits/s (OPUS_SET_BITRATE_REQUEST).
+func (e *CELTEncoder) SetBitrate(b int) { e.bitrate = b }
 
 // SetBandRange sets the active band range (st->start / st->end), matching the
 // CELT_SET_START_BAND_REQUEST / CELT_SET_END_BAND_REQUEST controls.
