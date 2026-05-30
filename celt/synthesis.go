@@ -7,6 +7,16 @@ package celt
 //
 // Reference: RFC 6716 Section 4.3.5, libopus celt/celt_decoder.c
 
+// synthOverlapLen returns the overlap length the decode synthesis tail must use.
+// It defaults to the 48 kHz fullband Overlap constant; the native 96 kHz HD
+// mode threads overlap=240 via d.synthOverlap.
+func (d *Decoder) synthOverlapLen() int {
+	if d.synthOverlap > 0 {
+		return d.synthOverlap
+	}
+	return Overlap
+}
+
 // OverlapAdd combines the current frame with the previous overlap.
 // This is the core operation for continuous audio reconstruction in CELT.
 //
@@ -200,14 +210,15 @@ func (d *Decoder) Synthesize(coeffs []float32, transient bool, shortBlocks int) 
 	if len(coeffs) == 0 {
 		return nil
 	}
-	out := ensureFloat32Slice(&d.scratchSynthF32, len(coeffs)+Overlap)
+	overlap := d.synthOverlapLen()
+	out := ensureFloat32Slice(&d.scratchSynthF32, len(coeffs)+overlap)
 	shortCoeffs := ensureFloat32Slice(&d.scratchShortCoeffsF32, len(coeffs))
-	output := synthesizeChannelWithOverlapScratchF32(coeffs, d.overlapBuffer, Overlap, transient, shortBlocks, out, &d.scratchIMDCTF32, shortCoeffs)
+	output := synthesizeChannelWithOverlapScratchF32(coeffs, d.overlapBuffer, overlap, transient, shortBlocks, out, &d.scratchIMDCTF32, shortCoeffs)
 	if len(output) == 0 {
 		return nil
 	}
-	if Overlap > 0 && len(output) >= len(coeffs)+Overlap {
-		copy(d.overlapBuffer[:Overlap], output[len(coeffs):len(coeffs)+Overlap])
+	if overlap > 0 && len(output) >= len(coeffs)+overlap {
+		copy(d.overlapBuffer[:overlap], output[len(coeffs):len(coeffs)+overlap])
 	}
 	return output[:len(coeffs)]
 }
@@ -232,18 +243,19 @@ func (d *Decoder) synthesizeMonoLongToFloat32(coeffs []float32) []float32 {
 	if len(coeffs) == 0 {
 		return nil
 	}
-	if len(d.overlapBuffer) < Overlap {
-		buf := make([]celtSig, Overlap)
+	overlap := d.synthOverlapLen()
+	if len(d.overlapBuffer) < overlap {
+		buf := make([]celtSig, overlap)
 		copy(buf, d.overlapBuffer)
 		d.overlapBuffer = buf
 	}
 
-	outF32 := imdctOverlapWithPrevScratchF32Output32(coeffs, d.overlapBuffer[:Overlap], Overlap, &d.scratchIMDCTF32)
-	if len(outF32) < len(coeffs)+Overlap {
+	outF32 := imdctOverlapWithPrevScratchF32Output32(coeffs, d.overlapBuffer[:overlap], overlap, &d.scratchIMDCTF32)
+	if len(outF32) < len(coeffs)+overlap {
 		return nil
 	}
-	if Overlap > 0 {
-		copy(d.overlapBuffer[:Overlap], outF32[len(coeffs):len(coeffs)+Overlap])
+	if overlap > 0 {
+		copy(d.overlapBuffer[:overlap], outF32[len(coeffs):len(coeffs)+overlap])
 	}
 	return outF32[:len(coeffs)]
 }
@@ -252,20 +264,21 @@ func (d *Decoder) synthesizeStereoPlanarLongToFloat32(coeffsL, coeffsR []float32
 	if len(coeffsL) == 0 || len(coeffsR) == 0 {
 		return nil, nil
 	}
-	if len(d.overlapBuffer) < Overlap*2 {
-		d.overlapBuffer = make([]celtSig, Overlap*2)
+	overlap := d.synthOverlapLen()
+	if len(d.overlapBuffer) < overlap*2 {
+		d.overlapBuffer = make([]celtSig, overlap*2)
 	}
-	overlapL := d.overlapBuffer[:Overlap]
-	overlapR := d.overlapBuffer[Overlap : Overlap*2]
+	overlapL := d.overlapBuffer[:overlap]
+	overlapR := d.overlapBuffer[overlap : overlap*2]
 
-	outLFull := imdctOverlapWithPrevScratchF32Output32(coeffsL, overlapL, Overlap, &d.scratchIMDCTF32)
-	outRFull := imdctOverlapWithPrevScratchF32Output32(coeffsR, overlapR, Overlap, &d.scratchIMDCTF32R)
-	if len(outLFull) < len(coeffsL)+Overlap || len(outRFull) < len(coeffsR)+Overlap {
+	outLFull := imdctOverlapWithPrevScratchF32Output32(coeffsL, overlapL, overlap, &d.scratchIMDCTF32)
+	outRFull := imdctOverlapWithPrevScratchF32Output32(coeffsR, overlapR, overlap, &d.scratchIMDCTF32R)
+	if len(outLFull) < len(coeffsL)+overlap || len(outRFull) < len(coeffsR)+overlap {
 		return nil, nil
 	}
-	if Overlap > 0 {
-		copy(overlapL, outLFull[len(coeffsL):len(coeffsL)+Overlap])
-		copy(overlapR, outRFull[len(coeffsR):len(coeffsR)+Overlap])
+	if overlap > 0 {
+		copy(overlapL, outLFull[len(coeffsL):len(coeffsL)+overlap])
+		copy(overlapR, outRFull[len(coeffsR):len(coeffsR)+overlap])
 	}
 	return outLFull[:len(coeffsL)], outRFull[:len(coeffsR)]
 }
@@ -274,26 +287,27 @@ func (d *Decoder) synthesizeStereoPlanar(coeffsL, coeffsR []float32, transient b
 	if len(coeffsL) == 0 && len(coeffsR) == 0 {
 		return nil, nil
 	}
-	if len(d.overlapBuffer) < Overlap*2 {
-		d.overlapBuffer = make([]celtSig, Overlap*2)
+	overlap := d.synthOverlapLen()
+	if len(d.overlapBuffer) < overlap*2 {
+		d.overlapBuffer = make([]celtSig, overlap*2)
 	}
-	overlapL := d.overlapBuffer[:Overlap]
-	overlapR := d.overlapBuffer[Overlap : Overlap*2]
+	overlapL := d.overlapBuffer[:overlap]
+	overlapR := d.overlapBuffer[overlap : overlap*2]
 
-	bufL := ensureFloat32Slice(&d.scratchSynthF32, len(coeffsL)+Overlap)
-	bufR := ensureFloat32Slice(&d.scratchSynthRF32, len(coeffsR)+Overlap)
+	bufL := ensureFloat32Slice(&d.scratchSynthF32, len(coeffsL)+overlap)
+	bufR := ensureFloat32Slice(&d.scratchSynthRF32, len(coeffsR)+overlap)
 	shortCoeffs := ensureFloat32Slice(&d.scratchShortCoeffsF32, max(len(coeffsL), len(coeffsR)))
-	outLFull := synthesizeChannelWithOverlapScratchF32(coeffsL, overlapL, Overlap, transient, shortBlocks, bufL, &d.scratchIMDCTF32, shortCoeffs)
-	outRFull := synthesizeChannelWithOverlapScratchF32(coeffsR, overlapR, Overlap, transient, shortBlocks, bufR, &d.scratchIMDCTF32R, shortCoeffs)
+	outLFull := synthesizeChannelWithOverlapScratchF32(coeffsL, overlapL, overlap, transient, shortBlocks, bufL, &d.scratchIMDCTF32, shortCoeffs)
+	outRFull := synthesizeChannelWithOverlapScratchF32(coeffsR, overlapR, overlap, transient, shortBlocks, bufR, &d.scratchIMDCTF32R, shortCoeffs)
 	if len(outLFull) == 0 || len(outRFull) == 0 {
 		return nil, nil
 	}
 
-	if Overlap > 0 && len(outLFull) >= len(coeffsL)+Overlap {
-		copy(overlapL, outLFull[len(coeffsL):len(coeffsL)+Overlap])
+	if overlap > 0 && len(outLFull) >= len(coeffsL)+overlap {
+		copy(overlapL, outLFull[len(coeffsL):len(coeffsL)+overlap])
 	}
-	if Overlap > 0 && len(outRFull) >= len(coeffsR)+Overlap {
-		copy(overlapR, outRFull[len(coeffsR):len(coeffsR)+Overlap])
+	if overlap > 0 && len(outRFull) >= len(coeffsR)+overlap {
+		copy(overlapR, outRFull[len(coeffsR):len(coeffsR)+overlap])
 	}
 
 	return outLFull[:len(coeffsL)], outRFull[:len(coeffsR)]

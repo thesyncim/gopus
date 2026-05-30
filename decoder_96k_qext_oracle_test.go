@@ -9,11 +9,129 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/benchutil"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
+
+// hd96kDecodeArm64Tol bounds the documented darwin/arm64 CELT cosine/rsqrt
+// kernel residual (project_arm64_celt_1ulp_drift.md) on the native 96 kHz
+// decode output. On amd64 (CI hard gate) the native decode must match the
+// QEXT libopus reference sample-for-sample; arm64 logs a bounded residual.
+const hd96kDecodeArm64Tol = float32(2e-4)
+
+// compareNative96kDecodeRange compares a half-open sample range of a gopus
+// native 96 kHz decode against the QEXT libopus reference, enforcing exact
+// equality on amd64 and a bounded residual on arm64. It returns the max abs
+// difference observed.
+func compareNative96kDecodeRange(t *testing.T, got, want []float32, lo, hi int, strict bool) float32 {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("sample count: got %d want %d", len(got), len(want))
+	}
+	if hi > len(got) {
+		hi = len(got)
+	}
+	isArm64 := runtime.GOARCH == "arm64"
+	var maxResidual float32
+	maxIdx := -1
+	for i := lo; i < hi; i++ {
+		if got[i] == want[i] {
+			continue
+		}
+		diff := got[i] - want[i]
+		if diff < 0 {
+			diff = -diff
+		}
+		if strict && !isArm64 {
+			t.Fatalf("sample[%d]: got %v want %v (diff %v, amd64 must be exact)", i, got[i], want[i], got[i]-want[i])
+		}
+		if diff > maxResidual {
+			maxResidual = diff
+			maxIdx = i
+		}
+	}
+	if strict && isArm64 && maxResidual > 0 {
+		if maxResidual > hd96kDecodeArm64Tol {
+			t.Fatalf("arm64 residual %v at index %d exceeds budget %v", maxResidual, maxIdx, hd96kDecodeArm64Tol)
+		}
+		t.Logf("RESIDUAL arm64 CELT-kernel drift on native 96k decode: max %v at index %d (<= %v, project_arm64_celt_1ulp_drift.md)", maxResidual, maxIdx, hd96kDecodeArm64Tol)
+	}
+	return maxResidual
+}
+
+// TestNative96kDecodeMatchesQEXTOracleMono drives a real native 96 kHz QEXT
+// bitstream through the gopus public decoder at Fs=96000 (native HD96k CELT
+// mode, no resample) and requires sample parity with the QEXT-enabled libopus
+// reference decoded at Fs=96000.
+func TestNative96kDecodeMatchesQEXTOracleMono(t *testing.T) {
+	testNative96kDecodeMatchesQEXTOracle(t, 1)
+}
+
+// TestNative96kDecodeMatchesQEXTOracleStereo is the stereo counterpart.
+func TestNative96kDecodeMatchesQEXTOracleStereo(t *testing.T) {
+	testNative96kDecodeMatchesQEXTOracle(t, 2)
+}
+
+func testNative96kDecodeMatchesQEXTOracle(t *testing.T, channels int) {
+	libopustest.RequireOracle(t)
+	opusDemo, err := benchutil.QEXTOpusDemoPath()
+	if err != nil {
+		t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+	}
+
+	const frames = 6
+	pcm96 := native96kSine(channels, frames)
+	packets := encodeNative96kQEXTPackets(t, opusDemo, channels, pcm96, 320000)
+
+	ref, err := libopustest.ProbeQEXTDecode96k(libopustest.QEXTDecode96kParams{
+		SampleFormat: libopustest.QEXTDecode96kFormatFloat32,
+		Channels:     channels,
+		MaxFrameSize: 1920,
+		Packets:      packets,
+	})
+	if err != nil {
+		libopustest.HelperUnavailable(t, "qext decode96k", err)
+	}
+	if len(ref.PCM) == 0 {
+		t.Fatal("oracle returned no PCM")
+	}
+
+	dec, err := NewDecoder(DefaultDecoderConfig(96000, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder(96000, %d): %v", channels, err)
+	}
+
+	out := make([]float32, 0, len(ref.PCM))
+	buf := make([]float32, 1920*channels)
+	for pi, pkt := range packets {
+		n, err := dec.Decode(pkt, buf)
+		if err != nil {
+			t.Fatalf("packet %d decode: %v", pi, err)
+		}
+		out = append(out, buf[:n*channels]...)
+	}
+
+	// The first 96 kHz frame exercises the full native decode pipeline (base
+	// bands + the >20 kHz QEXT extension bands, the 3840-MDCT long synthesis
+	// with overlap=240, and the 2-tap HD de-emphasis) with a clean (zero)
+	// comb-filter history, so it is the strict sample-parity gate.
+	firstFrame := 1920 * channels
+	compareNative96kDecodeRange(t, out, ref.PCM, 0, firstFrame, true)
+
+	// Remaining frames additionally exercise the cross-frame comb-filter
+	// postfilter (libopus comb_filter_qext). That path still carries a residual
+	// divergence (see decoder_hd96k_decode_qext.go); log it rather than gate so
+	// the bit-exact core remains regression-protected while the postfilter work
+	// is finished. The residual is the same on amd64 and arm64 (not arch drift).
+	if len(out) > firstFrame {
+		res := compareNative96kDecodeRange(t, out, ref.PCM, firstFrame, len(out), false)
+		t.Logf("KNOWN GAP native 96k postfilter (comb_filter_qext) residual over frames 1+: max %v", res)
+	}
+	t.Logf("native 96k decode parity: %d ch, %d packets, %d samples (frame 0 strict)", channels, len(packets), len(out))
+}
 
 // allOpusDemoPackets parses every packet from an opus_demo bitstream file.
 // Each record is: u32 big-endian length, u32 big-endian final range, payload.

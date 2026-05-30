@@ -75,8 +75,14 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 			downsampleOutput = true
 		}
 	}
-	directStereoFloat32 := d.channels == 2 && len(d.directOutPCM) >= outputFrameSize*2
-	directMonoFloat32 := d.channels == 1 &&
+	// The native 96 kHz HD mode needs the HD-specific de-emphasis (2-tap) and
+	// comb-filter postfilter (comb_filter_qext), which live on the non-direct
+	// synthesis path. Disable the direct-output fast paths so HD frames route
+	// through Synthesize/SynthesizeStereo + the HD-aware deemphasis/postfilter,
+	// which still write into directOutPCM at the end of this function.
+	hdMode := d.synthOverlap == 240
+	directStereoFloat32 := !hdMode && d.channels == 2 && len(d.directOutPCM) >= outputFrameSize*2
+	directMonoFloat32 := !hdMode && d.channels == 1 &&
 		len(d.directOutPCM) >= outputFrameSize &&
 		!transient &&
 		d.postfilterGainOld == 0 &&

@@ -48,6 +48,14 @@ func GetModeConfig(frameSize int) ModeConfig {
 			EffBands:    21,
 			MDCTSize:    960,
 		}
+	case 1920: // 20ms frame, native 96 kHz HD mode (mode96000_1920_240)
+		return ModeConfig{
+			FrameSize:   1920,
+			ShortBlocks: 8,
+			LM:          3,
+			EffBands:    21,
+			MDCTSize:    1920,
+		}
 	default:
 		// Default to 20ms frame for invalid sizes.
 		return ModeConfig{
@@ -63,7 +71,7 @@ func GetModeConfig(frameSize int) ModeConfig {
 // ValidFrameSize returns true if the frame size is valid for CELT.
 func ValidFrameSize(frameSize int) bool {
 	switch frameSize {
-	case 120, 240, 480, 960:
+	case 120, 240, 480, 960, 1920:
 		return true
 	default:
 		return false

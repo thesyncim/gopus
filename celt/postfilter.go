@@ -575,15 +575,15 @@ func (d *Decoder) applyPostfilterNoGainStereoPlanarFromFloat32(left, right []flo
 	d.commitPostfilterStateNoGain(lm, newPeriod, newGain, newTapset)
 }
 
-func applyPostfilterChannelInPlaceFloat32(samples []float32, hist []celtSig, frameSize, history, lm int, t0, t1, t1b, t2 int, g0, g1, g2 float32, tap0, tap1, tap1b, tap2 int, window, windowSq []float32) {
+func applyPostfilterChannelInPlaceFloat32(samples []float32, hist []celtSig, frameSize, history, lm int, t0, t1, t1b, t2 int, g0, g1, g2 float32, tap0, tap1, tap1b, tap2 int, window, windowSq []float32, overlap int) {
 	shortMdctSize := frameSize >> uint(lm)
 	if shortMdctSize <= 0 || shortMdctSize > frameSize {
 		shortMdctSize = frameSize
 	}
 
-	combFilterWithSquarePlanarFloat32(samples, hist, history, 0, t0, t1, shortMdctSize, g0, g1, tap0, tap1, window, windowSq, Overlap)
+	combFilterWithSquarePlanarFloat32(samples, hist, history, 0, t0, t1, shortMdctSize, g0, g1, tap0, tap1, window, windowSq, overlap)
 	if lm != 0 && shortMdctSize < frameSize {
-		combFilterWithSquarePlanarFloat32(samples, hist, history, shortMdctSize, t1b, t2, frameSize-shortMdctSize, g1, g2, tap1b, tap2, window, windowSq, Overlap)
+		combFilterWithSquarePlanarFloat32(samples, hist, history, shortMdctSize, t1b, t2, frameSize-shortMdctSize, g1, g2, tap1b, tap2, window, windowSq, overlap)
 	}
 }
 
@@ -632,12 +632,13 @@ func (d *Decoder) applyPostfilterStereoPlanarFromFloat32(left, right []float32, 
 	t1b, t2, tap1b, tap2 := sanitizePostfilterParams(t1, t2, g1, g2, tap1, tap2)
 	d.materializePostfilterHistorySuffixFromPLC(postfilterHistoryNeed(t0, t1, t1b, t2))
 
-	window := GetWindowBufferF32(Overlap)
-	windowSq := d.postfilterWindowSquareF32(Overlap)
+	overlap := d.synthOverlapLen()
+	window := GetWindowBufferF32(overlap)
+	windowSq := d.postfilterWindowSquareF32(overlap)
 	histL := d.postfilterMem[:history]
 	histR := d.postfilterMem[history : 2*history]
-	applyPostfilterChannelInPlaceFloat32(left, histL, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq)
-	applyPostfilterChannelInPlaceFloat32(right, histR, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq)
+	applyPostfilterChannelInPlaceFloat32(left, histL, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq, overlap)
+	applyPostfilterChannelInPlaceFloat32(right, histR, frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq, overlap)
 
 	d.updatePLCDecodeHistoryStereoPlanarFromFloat32(left, right, frameSize, plcDecodeBufferSize)
 	d.markPostfilterHistoryFromPLC()
@@ -660,6 +661,10 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 	}
 	if lm < 0 {
 		lm = 0
+	}
+	if d.hd96kPostfilterActive() {
+		d.applyHD96kPostfilterInterleaved(samples, frameSize, lm, newPeriod, newGain, newTapset)
+		return
 	}
 	if d.channels == 1 {
 		if d.postfilterGainOld == 0 && d.postfilterGain == 0 && newGain == 0 {
@@ -685,9 +690,10 @@ func (d *Decoder) applyPostfilterFloat32(samples []float32, frameSize, lm int, n
 		t0, t1, tap0, tap1 = sanitizePostfilterParams(t0, t1, g0, g1, tap0, tap1)
 		t1b, t2, tap1b, tap2 := sanitizePostfilterParams(t1, t2, g1, g2, tap1, tap2)
 		d.materializePostfilterHistorySuffixFromPLC(postfilterHistoryNeed(t0, t1, t1b, t2))
-		window := GetWindowBufferF32(Overlap)
-		windowSq := d.postfilterWindowSquareF32(Overlap)
-		applyPostfilterChannelInPlaceFloat32(samples[:frameSize], d.postfilterMem[:history], frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq)
+		overlap := d.synthOverlapLen()
+		window := GetWindowBufferF32(overlap)
+		windowSq := d.postfilterWindowSquareF32(overlap)
+		applyPostfilterChannelInPlaceFloat32(samples[:frameSize], d.postfilterMem[:history], frameSize, history, lm, t0, t1, t1b, t2, g0, g1, g2, tap0, tap1, tap1b, tap2, window, windowSq, overlap)
 		d.updatePLCDecodeHistoryMonoFromFloat32(samples[:frameSize], frameSize, plcDecodeBufferSize)
 		d.markPostfilterHistoryFromPLC()
 		d.postfilterPeriodOld = d.postfilterPeriod

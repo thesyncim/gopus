@@ -14,8 +14,63 @@ func (d *Decoder) applyDeemphasis(samples []float32) {
 	d.applyDeemphasisAndScale(samples, 1.0)
 }
 
+// deemphCoefficient returns the first-order de-emphasis coefficient for the
+// active mode. Zero d.deemphCoef selects the 48 kHz fullband PreemphCoef, so
+// the 48 kHz decode path is numerically identical to the prior constant; the
+// native 96 kHz HD mode threads its own coefficient via d.deemphCoef.
+func (d *Decoder) deemphCoefficient() float32 {
+	if d.deemphCoef != 0 {
+		return d.deemphCoef
+	}
+	return float32(PreemphCoef)
+}
+
+// applyDeemphasis2TapInterleaved runs the libopus 2-tap de-emphasis used when
+// mode->preemph[1] != 0 (custom/QEXT modes such as native 96 kHz HD):
+//
+//	tmp = x[j] + m + VERY_SMALL
+//	m   = coef0*tmp - coef1*x[j]
+//	y   = coef3*tmp        (SHL32 is a no-op in the float build)
+//
+// per channel (interleaved stride = channels). dst and samples may alias.
+// Reference: celt/celt_decoder.c deemphasis(), coef[1]!=0 branch.
+func (d *Decoder) applyDeemphasis2TapInterleaved(dst, samples []float32, scale float32) {
+	channels := int(d.channels)
+	if channels < 1 {
+		channels = 1
+	}
+	n := len(samples)
+	if len(dst) < n {
+		n = len(dst)
+	}
+	frames := n / channels
+	if frames <= 0 {
+		return
+	}
+	const verySmall float32 = 1e-30
+	coef0 := d.deemphCoef
+	coef1 := d.deemphCoef1
+	// coef3 folded with the SIG2RES scale (the caller's 1/32768).
+	out := noFMA32Mul(d.deemphCoef3, scale)
+	for c := 0; c < channels; c++ {
+		m := float32(d.preemphState[c])
+		for j := 0; j < frames; j++ {
+			idx := j*channels + c
+			x := samples[idx]
+			tmp := x + m + verySmall
+			m = noFMA32Mul(coef0, tmp) - noFMA32Mul(coef1, x)
+			dst[idx] = noFMA32Mul(out, tmp)
+		}
+		d.preemphState[c] = celtSig(m)
+	}
+}
+
 func (d *Decoder) applyDeemphasisAndScale(samples []float32, scale float32) {
 	if len(samples) == 0 {
+		return
+	}
+	if d.deemphCoef1 != 0 {
+		d.applyDeemphasis2TapInterleaved(samples, samples, scale)
 		return
 	}
 	// Silence fast path: when de-emphasis state is zero and all samples are zero,
@@ -53,7 +108,7 @@ func (d *Decoder) applyDeemphasisAndScale(samples []float32, scale float32) {
 	const verySmall float32 = 1e-30
 
 	// Use float32 for filter coefficient to match libopus
-	const coef float32 = float32(PreemphCoef)
+	coef := d.deemphCoefficient()
 	scale32 := scale
 	if d.channels == 1 {
 		// Mono de-emphasis - use float32 precision for state
@@ -382,6 +437,11 @@ func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []floa
 	}
 	dst = dst[:n]
 
+	if d.deemphCoef1 != 0 {
+		d.applyDeemphasis2TapInterleaved(dst, samples, scale)
+		return
+	}
+
 	if d.channels == 1 {
 		if d.preemphState[0] == 0 {
 			allZero := true
@@ -411,7 +471,7 @@ func (d *Decoder) applyDeemphasisAndScaleToFloat32(dst []float32, samples []floa
 	}
 
 	const verySmall float32 = 1e-30
-	const coef float32 = float32(PreemphCoef)
+	coef := d.deemphCoefficient()
 	if d.channels == 1 {
 		state := d.preemphState[0]
 		_ = samples[n-1]

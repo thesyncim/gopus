@@ -70,8 +70,23 @@ type Decoder struct {
 	backgroundEnergy []celtGLog
 
 	// Synthesis state (persists for overlap-add)
-	overlapBuffer []celtSig // Previous frame overlap tail [Overlap * channels]
+	overlapBuffer []celtSig // Previous frame overlap tail [overlap * channels]
 	preemphState  []celtSig // De-emphasis filter state [channels]
+
+	// Mode dimensions for the synthesis/deemphasis tail. Zero selects the
+	// 48 kHz fullband defaults (Overlap=120, PreemphCoef). The native 96 kHz
+	// HD mode (gopus_qext) sets synthOverlap=240 and deemphCoef to the HD
+	// preemphasis coefficient. Keeping them zero leaves the 48 kHz path
+	// byte-identical to before this field existed.
+	//
+	// deemphCoef1/deemphCoef3 are the additional de-emphasis taps libopus uses
+	// when mode->preemph[1] != 0 (the custom/QEXT 2-tap deemphasis path,
+	// celt_decoder.c deemphasis()). They are zero for the 48 kHz mode, which
+	// keeps the single-tap filter and leaves the 48 kHz path unchanged.
+	synthOverlap int
+	deemphCoef   float32
+	deemphCoef1  float32
+	deemphCoef3  float32
 
 	// Postfilter state (pitch-based comb filter)
 	postfilterPeriod int32   // libopus CELTDecoder.postfilter_period
