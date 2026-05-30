@@ -123,6 +123,78 @@ func TestDecodeDREDInt24OracleQuality(t *testing.T) {
 	}
 }
 
+// TestDecodeDREDInt24MatchesLibopusInt24Reference verifies that
+// Decoder.DecodeDREDInt24 matches the libopus opus_decoder_dred_decode24()
+// reference sample-for-sample.
+//
+// opus_decoder_dred_decode24() (src/opus_decoder.c:1643) runs opus_decode_native
+// in float mode and then writes pcm[i] = RES2INT24(out[i]). The libopus oracle
+// here is opus_decoder_dred_decode_float (the identical float DRED decode), so
+// the exact int24 reference is RES2INT24(oracle_float[i]) == float32ToInt24(...).
+//
+// DRED concealment is a neural PLC stream: opus_compare's Q is invalid (project
+// memory), so the gate is the documented near-exact corr/RMS bar (the same bar
+// the int24 SILK/CELT/Hybrid live-decode parity tests use), which also absorbs
+// the documented darwin/arm64 1-ULP float drift's ≤1 LSB int24 divergence.
+func TestDecodeDREDInt24MatchesLibopusInt24Reference(t *testing.T) {
+	libopustest.RequireOracle(t)
+	for _, frameSize := range []int{960, 480} {
+		frameSize := frameSize
+		t.Run(fmt.Sprintf("frame_size_%d", frameSize), func(t *testing.T) {
+			packetInfo, err := emitLibopusDREDPacketWithConfig(libopusDREDPacketConfig{
+				FrameSize: frameSize,
+				ForceMode: ModeCELT,
+				Bandwidth: BandwidthFullband,
+			})
+			if err != nil {
+				libopustest.HelperUnavailable(t, "dred packet", err)
+			}
+
+			dec, n := prepareCachedDREDDecodeParityStateForPacket(t, packetInfo)
+			dred := parseCarrierDREDForExplicitDecode(t, packetInfo.sampleRate, packetInfo)
+
+			// Oracle: opus_decoder_dred_decode_float in carrier-DRED context —
+			// the exact float buffer opus_decoder_dred_decode24 feeds to RES2INT24.
+			want, err := probeLibopusDecoderDREDSequence(
+				nil, packetInfo.packet, nil,
+				packetInfo.maxDREDSamples, packetInfo.sampleRate,
+				n, libopusDecoderDREDSequenceSourceCarrierDRED,
+				n, libopusDecoderDREDSequenceSourceNone, 0, false,
+			)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "decoder DRED sequence", err)
+			}
+			requireLibopusDREDSequenceParsed(t, want, "DRED int24 reference")
+			if want.step0.ret != n {
+				t.Fatalf("oracle DRED sequence step0.ret=%d want %d", want.step0.ret, n)
+			}
+
+			channels := dec.Channels()
+			needed := n * channels
+			pcmInt24 := make([]int32, needed)
+			got, err := dec.DecodeDREDInt24(dred, n, pcmInt24, n)
+			if err != nil {
+				t.Fatalf("DecodeDREDInt24 error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("DecodeDREDInt24 returned %d want %d", got, n)
+			}
+
+			// libopus int24 reference: RES2INT24 on the oracle float buffer.
+			wantInt24 := make([]int32, got*channels)
+			for i := range wantInt24 {
+				wantInt24[i] = float32ToInt24(want.step0.pcm[i])
+			}
+
+			label := fmt.Sprintf("DRED int24 reference frame_size=%d", frameSize)
+			assertAPIRateQualityFloat32PLC(t,
+				int32Int24ToFloat32(pcmInt24[:got*channels]),
+				int32Int24ToFloat32(wantInt24),
+				packetInfo.sampleRate, channels, true, label)
+		})
+	}
+}
+
 // TestDecodeDREDInt24BufferTooSmall verifies that DecodeDREDInt24 returns
 // ErrBufferTooSmall when the output buffer is too small.
 func TestDecodeDREDInt24BufferTooSmall(t *testing.T) {
