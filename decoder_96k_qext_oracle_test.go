@@ -117,20 +117,20 @@ func testNative96kDecodeMatchesQEXTOracle(t *testing.T, channels int) {
 	// The first 96 kHz frame exercises the full native decode pipeline (base
 	// bands + the >20 kHz QEXT extension bands, the 3840-MDCT long synthesis
 	// with overlap=240, and the 2-tap HD de-emphasis) with a clean (zero)
-	// comb-filter history, so it is the strict sample-parity gate.
+	// comb-filter history.
 	firstFrame := 1920 * channels
 	compareNative96kDecodeRange(t, out, ref.PCM, 0, firstFrame, true)
 
 	// Remaining frames additionally exercise the cross-frame comb-filter
-	// postfilter (libopus comb_filter_qext). That path still carries a residual
-	// divergence (see decoder_hd96k_decode_qext.go); log it rather than gate so
-	// the bit-exact core remains regression-protected while the postfilter work
-	// is finished. The residual is the same on amd64 and arm64 (not arch drift).
+	// postfilter and the cross-frame QEXT extension-band allocation balance,
+	// which carries forward the (signed) leftover ext-coder budget into the
+	// next frame's band bit allocation. These frames are a strict sample-parity
+	// gate: amd64 must match the QEXT libopus reference exactly, arm64 within
+	// the documented CELT-kernel residual budget.
 	if len(out) > firstFrame {
-		res := compareNative96kDecodeRange(t, out, ref.PCM, firstFrame, len(out), false)
-		t.Logf("KNOWN GAP native 96k postfilter (comb_filter_qext) residual over frames 1+: max %v", res)
+		compareNative96kDecodeRange(t, out, ref.PCM, firstFrame, len(out), true)
 	}
-	t.Logf("native 96k decode parity: %d ch, %d packets, %d samples (frame 0 strict)", channels, len(packets), len(out))
+	t.Logf("native 96k decode parity: %d ch, %d packets, %d samples (all frames strict)", channels, len(packets), len(out))
 }
 
 // allOpusDemoPackets parses every packet from an opus_demo bitstream file.

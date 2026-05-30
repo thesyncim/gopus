@@ -131,7 +131,7 @@ func (d *Decoder) ensureEnergyState(channels int) {
 }
 
 func (d *Decoder) ensureQEXTOldBandE() []celtGLog {
-	needed := MaxBands * int(d.channels)
+	needed := nbQEXTBands * int(d.channels)
 	qextState := d.ensureQEXTState()
 	if len(qextState.oldBandE) < needed {
 		prev := make([]celtGLog, needed)

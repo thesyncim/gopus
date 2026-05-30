@@ -116,13 +116,10 @@ func (d *Decoder) storeQEXTEnergyState(energies []celtGLog, nbBands int) {
 	}
 	oldBandE := d.ensureQEXTOldBandE()
 	for c := 0; c < channels; c++ {
-		base := c * MaxBands
+		base := c * nbQEXTBands
 		src := energies[c*nbBands : c*nbBands+nbBands]
 		for band, energy := range src {
 			oldBandE[base+band] = energy
-		}
-		for band := nbBands; band < MaxBands; band++ {
-			oldBandE[base+band] = 0
 		}
 	}
 }
@@ -177,7 +174,7 @@ func (d *Decoder) prepareQEXTDecodeRange(payload []byte, mainRD *rangecoding.Dec
 				qext.energies = ensureGLogSlice(&qextState.scratchEnergies, qext.end*channels)
 				qext.energies = qext.energies[:qext.end*channels]
 				intra := extDec.Tell()+3 <= extDec.StorageBits() && extDec.DecodeBit(3) == 1
-				qext.energies = d.decodeCoarseEnergyIntoWithPrevState(qext.energies, qext.end, intra, lm, d.ensureQEXTOldBandE(), MaxBands, extDec)
+				qext.energies = d.decodeCoarseEnergyIntoWithPrevState(qext.energies, qext.end, intra, lm, d.ensureQEXTOldBandE(), nbQEXTBands, extDec)
 				qextMode = &qext.cfg
 			}
 		}
@@ -207,9 +204,6 @@ func (d *Decoder) decodeQEXTBands(frameSize, lm, shortBlocks, spread int, disabl
 		idx := MaxBands + i
 		extBalance -= int(qext.extraPulses[idx])
 		extBalance -= fineQ3
-	}
-	if extBalance < 0 {
-		extBalance = 0
 	}
 
 	d.decodeFineEnergyGLogWithDecoder(qext.dec, qext.energies, qext.end, qext.extraQuant[MaxBands:MaxBands+qext.end])
