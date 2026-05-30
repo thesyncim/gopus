@@ -61,6 +61,16 @@ func (d *Decoder) modeConfig(frameSize int) ModeConfig {
 // the custom effEBands when a custom mode is active.
 func (d *Decoder) effectiveEndBand(frameSize int) int {
 	mode := d.modeConfig(frameSize)
+	// A per-mode custom layout decodes the full effEBands range (libopus
+	// opus_custom_decode sets st->end = mode->effEBands directly); there is no
+	// Opus TOC bandwidth to clamp against.
+	if d.perMode != nil {
+		end := mode.EffBands
+		if end < 1 {
+			end = 1
+		}
+		return end
+	}
 	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
 	if end > mode.EffBands {
 		end = mode.EffBands

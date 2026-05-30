@@ -237,8 +237,15 @@ func TestRoundTripNonStandard44100(t *testing.T) {
 	if _, err := enc.EncodeFloat(pcm, 100); !errors.Is(err, custom.ErrNonStandard) {
 		t.Fatalf("EncodeFloat: err = %v, want ErrNonStandard", err)
 	}
-	if _, err := dec.DecodeFloat(make([]byte, 8), 440); !errors.Is(err, custom.ErrNonStandard) {
-		t.Fatalf("DecodeFloat: err = %v, want ErrNonStandard", err)
+	// The decoder now decodes genuinely custom band layouts via the per-mode
+	// CELT tables; it returns a frame of the requested size (against the libopus
+	// custom-modes oracle this is sample-exact, see TestOracleParityNonStandardModes).
+	decoded, err := dec.DecodeFloat(make([]byte, 8), 440)
+	if err != nil {
+		t.Fatalf("DecodeFloat: %v", err)
+	}
+	if len(decoded) != 440 {
+		t.Fatalf("decoded length = %d, want 440", len(decoded))
 	}
 }
 

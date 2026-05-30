@@ -85,7 +85,11 @@ func (d *Decoder) DecodeFrame(data []byte, frameSize int) ([]float32, error) {
 	coeffsL := spectrum.coeffsL
 	coeffsR := spectrum.coeffsR
 	if spectrum.antiCollapseOn {
-		antiCollapseGLog(coeffsL, coeffsR, spectrum.collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+		if pm := d.perMode; pm != nil {
+			antiCollapseGLogMode(coeffsL, coeffsR, spectrum.collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng, pm.eBands, pm.nbEBands)
+		} else {
+			antiCollapseGLog(coeffsL, coeffsR, spectrum.collapse, lm, channels, start, end, energies, prev1LogE, prev2LogE, pulses, d.rng)
+		}
 	}
 	d.applyPendingPLCPrefilterAndFold()
 	samples := d.synthesizeDecodedFrame(frameSize, mode.LM, end, lm, shortBlocks, transient, postfilterPeriod, postfilterGain, postfilterTapset, energies, coeffsL, coeffsR, qext)

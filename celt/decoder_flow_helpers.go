@@ -108,8 +108,8 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 		} else {
 			specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
 			specR = ensureFloat32Slice(&d.scratchSpecRF32, len(coeffsR))
-			denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, 0, end, lm, EBands[:], downsample)
-			denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, 0, end, lm, EBands[:], downsample)
+			denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energiesL, 0, end, lm, d.modeEdges(), downsample)
+			denormalizeBandsPackedDownsampleIntoFloat32(specR, coeffsR, energiesR, 0, end, lm, d.modeEdges(), downsample)
 		}
 		if directStereoFloat32 && !transient {
 			if d.synthTrace != nil {
@@ -160,7 +160,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 			}
 		} else {
 			specL = ensureFloat32Slice(&d.scratchStereoF32, len(coeffsL))
-			denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energies, 0, end, lm, EBands[:], downsample)
+			denormalizeBandsPackedDownsampleIntoFloat32(specL, coeffsL, energies, 0, end, lm, d.modeEdges(), downsample)
 		}
 		if directMonoFloat32 {
 			samplesF32 := d.synthesizeMonoLongToFloat32(specL)
@@ -225,6 +225,10 @@ func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, trans
 }
 
 func (d *Decoder) clearFrameHistoryOutsideRange(start, end, channels int) {
+	// libopus clears the energy/log history outside [start,end) up to nbEBands.
+	// For a per-mode custom layout that is the mode's band count; the buffers
+	// keep the MaxBands per-channel stride used everywhere else (mono-identical).
+	nbEBands := d.modeNbEBands()
 	for c := 0; c < channels; c++ {
 		base := c * MaxBands
 		for band := 0; band < start; band++ {
@@ -232,7 +236,7 @@ func (d *Decoder) clearFrameHistoryOutsideRange(start, end, channels int) {
 			d.prevLogE[base+band] = -28.0
 			d.prevLogE2[base+band] = -28.0
 		}
-		for band := end; band < MaxBands; band++ {
+		for band := end; band < nbEBands; band++ {
 			d.prevEnergy[base+band] = 0
 			d.prevLogE[base+band] = -28.0
 			d.prevLogE2[base+band] = -28.0

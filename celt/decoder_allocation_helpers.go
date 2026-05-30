@@ -32,13 +32,19 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 
 	cap := ensureInt32Slice(&d.scratchCaps, end)
 	channels := int(d.channels)
-	initCapsInto(cap, end, lm, channels)
+	pm := d.perMode
+	if pm != nil {
+		initCapsIntoMode(cap, end, lm, channels, pm)
+	} else {
+		initCapsInto(cap, end, lm, channels)
+	}
+	edges := d.modeEdges()
 	offsets := ensureInt32Slice(&d.scratchOffsets, end)
 	dynallocLogp := 6
 	totalBitsQ3 := totalBits << bitRes
 	tellFrac := rd.TellFrac()
 	for i := start; i < end; i++ {
-		width := channels * (EBands[i+1] - EBands[i]) << lm
+		width := channels * (edges[i+1] - edges[i]) << lm
 		quanta := min(width<<bitRes, max(6<<bitRes, width))
 		dynallocLoopLogp := dynallocLogp
 		boost := 0
@@ -77,8 +83,13 @@ func (d *Decoder) decodeBandAllocation(rd *rangecoding.Decoder, totalBits, start
 	allocation.fineQuant = ensureInt32Slice(&d.scratchFineQuant, end)
 	allocation.finePriority = ensureInt32Slice(&d.scratchFinePriority, end)
 	allocScratch := d.allocationScratch()
-	allocation.codedBands = cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &allocation.intensity, &allocation.dualStereo,
-		bitsQ3, &allocation.balance, allocation.pulses, allocation.fineQuant, allocation.finePriority, channels, lm, rd, allocScratch)
+	if pm != nil {
+		allocation.codedBands = cltComputeAllocationWithScratchMode(start, end, offsets, cap, allocTrim, &allocation.intensity, &allocation.dualStereo,
+			bitsQ3, &allocation.balance, allocation.pulses, allocation.fineQuant, allocation.finePriority, channels, lm, rd, allocScratch, pm)
+	} else {
+		allocation.codedBands = cltComputeAllocationWithScratch(start, end, offsets, cap, allocTrim, &allocation.intensity, &allocation.dualStereo,
+			bitsQ3, &allocation.balance, allocation.pulses, allocation.fineQuant, allocation.finePriority, channels, lm, rd, allocScratch)
+	}
 
 	return allocation
 }

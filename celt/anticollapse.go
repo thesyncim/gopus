@@ -11,19 +11,43 @@ func antiCollapseGLog(
 	pulses []int32,
 	seed uint32,
 ) {
+	antiCollapseGLogMode(coeffsL, coeffsR, collapse, lm, channels, start, end, logE, prev1LogE, prev2LogE, pulses, seed, EBands[:], MaxBands)
+}
+
+// antiCollapseGLogMode is antiCollapseGLog parameterized by the per-mode band
+// edges and band count. With edges==EBands[:] and nbEBands==MaxBands it is the
+// static 48 kHz path verbatim. The prev1LogE/prev2LogE arrays keep the MaxBands
+// per-channel stride the rest of the decoder uses to size them.
+func antiCollapseGLogMode(
+	coeffsL, coeffsR []celtNorm,
+	collapse []byte,
+	lm int,
+	channels int,
+	start, end int,
+	logE []celtGLog,
+	prev1LogE, prev2LogE []celtGLog,
+	pulses []int32,
+	seed uint32,
+	edges []int,
+	nbEBands int,
+) {
 	if channels < 1 || channels > 2 {
 		return
+	}
+	if len(edges) < 2 || nbEBands <= 0 {
+		edges = EBands[:]
+		nbEBands = MaxBands
 	}
 	if start < 0 {
 		start = 0
 	}
-	if end > MaxBands {
-		end = MaxBands
+	if end > nbEBands {
+		end = nbEBands
 	}
 	if end <= start {
 		return
 	}
-	if len(collapse) < channels*MaxBands {
+	if len(collapse) < channels*nbEBands {
 		return
 	}
 
@@ -41,7 +65,7 @@ func antiCollapseGLog(
 	}
 
 	for band := start; band < end; band++ {
-		N0 := EBands[band+1] - EBands[band]
+		N0 := edges[band+1] - edges[band]
 		if N0 <= 0 {
 			continue
 		}
@@ -52,7 +76,7 @@ func antiCollapseGLog(
 		depth := celtUdiv(1+int(pulses[band]), N0) >> lm
 		thresh := float32(0.5) * celtExp2(float32(-0.125)*float32(depth))
 		sqrt1 := celtRSqrt(float32(N0 << lm))
-		bandOffset := EBands[band] << lm
+		bandOffset := edges[band] << lm
 		bandLen := N0 << lm
 
 		for c := 0; c < channels; c++ {

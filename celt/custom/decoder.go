@@ -55,9 +55,19 @@ func NewDecoder(mode *CustomMode, channels int) (*CustomDecoder, error) {
 	}
 	// Non-standard modes in the Fs==400*shortMdctSize family drive the native
 	// CELT decode data plane parameterized by the mode overlap, short-MDCT
-	// scaling base, effEBands clamp and per-rate de-emphasis.
+	// scaling base, effEBands clamp and per-rate de-emphasis. They reuse the
+	// static 21-band 48 kHz tables (computeEBands returns the 5 ms table for
+	// them).
+	//
+	// Non-standard modes OUTSIDE that family (e.g. 48000/640, NbEBands=19) have a
+	// genuinely custom band layout. They drive the same overlap/scale/de-emphasis
+	// machinery PLUS the per-mode band tables (edges, widths, logN, allocVectors,
+	// pulse cache) installed via EnablePerModeTables.
 	if mode.InScaledBandFamily() {
 		dec.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph)
+	} else if !mode.isStandard {
+		dec.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph)
+		dec.EnablePerModeTables(mode.NbEBands, mode.ShortMdctSize, mode.EBands, mode.LogN, mode.AllocVectors, mode.CacheIndex, mode.CacheBits, mode.CacheCaps)
 	}
 	return cd, nil
 }
@@ -83,13 +93,13 @@ func (cd *CustomDecoder) Channels() int { return cd.channels }
 //
 // Returns frameSize*channels float32 samples, interleaved for stereo.
 //
-// Standard modes (48 kHz, 120/240/480/960 samples) and the
-// Fs==400*shortMdctSize family decode sample-identical to libopus
-// --enable-custom-modes (within the documented arm64 1-ULP CELT drift). Other
-// non-standard (Fs, frame_size) pairs return ErrNonStandard for the same reason
-// as CustomEncoder.EncodeFloat: their genuinely custom band layout (eBands,
-// allocVectors and compute_pulse_cache tables, all computed exactly by NewMode)
-// is not yet threaded through the gopus CELT decode data plane.
+// DecodeFloat decodes sample-identically to libopus --enable-custom-modes
+// (within the documented arm64 1-ULP CELT drift) for the standard 48 kHz modes,
+// the Fs==400*shortMdctSize family, and genuinely custom band layouts such as
+// 48000/640 (NbEBands=19): the per-mode band tables (eBands, allocVectors,
+// compute_pulse_cache) computed by NewMode are threaded through the CELT decode
+// data plane. The encoder still declines genuinely custom layouts with
+// ErrNonStandard.
 //
 // Reference: libopus include/opus_custom.h opus_custom_decode_float().
 func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, error) {
@@ -101,9 +111,6 @@ func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, err
 	}
 	if !cd.mode.isValidDecodeSize(frameSize) {
 		return nil, ErrInvalidFrameSize
-	}
-	if !cd.mode.isStandard && !cd.mode.InScaledBandFamily() {
-		return nil, ErrNonStandard
 	}
 	return cd.dec.DecodeFrame(data, frameSize)
 }

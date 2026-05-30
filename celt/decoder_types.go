@@ -97,6 +97,16 @@ type Decoder struct {
 	customScaleBase int
 	customEffBands  int
 
+	// perMode carries the per-mode CELT tables (band edges, widths, logN,
+	// allocation matrix, pulse cache) for a non-standard Opus Custom mode whose
+	// band layout differs from the static 21-band 48 kHz tables (e.g. 48000/640
+	// with nbEBands=19). It is nil for the default build, the standard 48 kHz
+	// modes, the Fs==400*shortMdctSize family (which reuse the 21-band tables)
+	// and hybrid/QEXT, leaving every one of those paths byte-identical. When
+	// non-nil the decode data plane (energy stride, allocation, band core,
+	// anti-collapse, denormalisation) is driven by these tables.
+	perMode *perModeTables
+
 	// Postfilter state (pitch-based comb filter)
 	postfilterPeriod int32   // libopus CELTDecoder.postfilter_period
 	postfilterGain   float32 // Comb filter gain
