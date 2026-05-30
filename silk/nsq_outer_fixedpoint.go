@@ -147,6 +147,270 @@ func silkNSQFixed(
 	copy(nsq.sLTPShpQ14[:ltpMemLength], nsq.sLTPShpQ14[frameLength:frameLength+ltpMemLength])
 }
 
+// silkNSQDelDecFixed is the bit-exact Go port of the libopus FIXED_POINT
+// silk_NSQ_del_dec_c outer driver (silk/NSQ_del_dec.c). It manages the
+// nStatesDelayedDecision survivor states, the per-subframe LTP/gain/coefficient
+// setup, the voiced rewhitening (silk_LPC_analysis_filter), the smpl_buf_idx
+// ring buffer carried across subframes, the k==2 mid-frame delayed-decision
+// reset, and the final winner selection / state writeback. The per-sample inner
+// kernel and the state scaler are silkNoiseShapeQuantizerDelDecFixed and
+// silkNSQDelDecScaleStatesFixed.
+//
+// The encoder-state fields the C function reads from silk_encoder_state are
+// passed explicitly: ltpMemLength, frameLength, subfrLength, nbSubfr,
+// predictLPCOrder, shapingLPCOrder, warpingQ16, nStatesDelayedDecision. The
+// SideInfoIndices fields are seed, signalType, quantOffsetType,
+// nlsfInterpCoefQ2. The chosen dither seed (psIndices->Seed in C) is returned.
+func silkNSQDelDecFixed(
+	nsq *NSQState,
+	seed int,
+	signalType int,
+	quantOffsetType int,
+	nlsfInterpCoefQ2 int,
+	x16 []int16,
+	pulses []int8,
+	predCoefQ12 []int16,
+	ltpCoefQ14 []int16,
+	arQ13 []int16,
+	harmShapeGainQ14 []int32,
+	tiltQ14 []int32,
+	lfShpQ14 []int32,
+	gainsQ16 []int32,
+	pitchL []int32,
+	lambdaQ10 int32,
+	ltpScaleQ14 int32,
+	ltpMemLength int,
+	frameLength int,
+	subfrLength int,
+	nbSubfr int,
+	predictLPCOrder int,
+	shapingLPCOrder int,
+	warpingQ16 int32,
+	nStatesDelayedDecision int,
+) int {
+	// Set unvoiced lag to the previous one, overwrite later for voiced.
+	lag := int(nsq.lagPrev)
+
+	// Initialize delayed decision states.
+	psDelDec := make([]nsqDelDecStateFixed, nStatesDelayedDecision)
+	for k := 0; k < nStatesDelayedDecision; k++ {
+		psDD := &psDelDec[k]
+		psDD.seed = int32((k + seed) & 3)
+		psDD.seedInit = psDD.seed
+		psDD.rdQ10 = 0
+		psDD.lfARQ14 = nsq.sLFARShpQ14
+		psDD.diffQ14 = nsq.sDiffShpQ14
+		psDD.shapeQ14[0] = nsq.sLTPShpQ14[ltpMemLength-1]
+		copy(psDD.sLPCQ14[:nsqLpcBufLength], nsq.sLPCQ14[:nsqLpcBufLength])
+		psDD.sAR2Q14 = nsq.sAR2Q14
+	}
+
+	offsetQ10 := int(quantOffsets[signalType>>1][quantOffsetType])
+	smplBufIdx := 0 // index of oldest samples
+
+	decisionDelayActive := decisionDelay
+	if subfrLength < decisionDelayActive {
+		decisionDelayActive = subfrLength
+	}
+
+	// For voiced frames limit the decision delay to lower than the pitch lag.
+	if signalType == typeVoiced {
+		for k := 0; k < nbSubfr; k++ {
+			tmp := int(pitchL[k]) - ltpOrderConst/2 - 1
+			if tmp < decisionDelayActive {
+				decisionDelayActive = tmp
+			}
+		}
+	} else if lag > 0 {
+		tmp := lag - ltpOrderConst/2 - 1
+		if tmp < decisionDelayActive {
+			decisionDelayActive = tmp
+		}
+	}
+
+	lsfInterpolationFlag := 1
+	if nlsfInterpCoefQ2 == 4 {
+		lsfInterpolationFlag = 0
+	}
+
+	sLTPQ15 := make([]int32, ltpMemLength+frameLength)
+	sLTP := make([]int16, ltpMemLength+frameLength)
+	xScQ10 := make([]int32, subfrLength)
+	var delayedGainQ10 [decisionDelay]int32
+
+	// Set up pointers to start of sub frame. In libopus pulses and pxq are
+	// distinct pointers (pxq = &NSQ->xq[ltp_mem_length]) that both advance by
+	// subfr_length and are indexed at [i-decisionDelay] (reaching into the prior
+	// subframe when subfr>0). pxq is passed here as the frame-length view
+	// nsq.xq[ltp_mem_length:ltp_mem_length+frame_length] so its index 0 aligns
+	// with pulses index 0; subfrOffset = k*subfr_length is the shared running
+	// base both share.
+	pxq := nsq.xq[ltpMemLength : ltpMemLength+frameLength]
+	subfrOffset := 0
+	nsq.sLTPShpBufIdx = ltpMemLength
+	nsq.sLTPBufIdx = ltpMemLength
+	subfr := 0
+	for k := 0; k < nbSubfr; k++ {
+		aQ12Off := ((k >> 1) | (1 - lsfInterpolationFlag)) * maxLPCOrder
+		aQ12 := predCoefQ12[aQ12Off : aQ12Off+predictLPCOrder]
+		bQ14 := ltpCoefQ14[k*ltpOrderConst : (k+1)*ltpOrderConst]
+		arShpQ13 := arQ13[k*maxShapeLpcOrder : k*maxShapeLpcOrder+shapingLPCOrder]
+
+		// Noise shape parameters: pack the symmetric FIR coefficients.
+		harmShapeFIRPackedQ14 := silk_RSHIFT(harmShapeGainQ14[k], 2)
+		harmShapeFIRPackedQ14 |= silk_LSHIFT32(silk_RSHIFT(harmShapeGainQ14[k], 1), 16)
+
+		nsq.rewhiteFlag = 0
+		if signalType == typeVoiced {
+			lag = int(pitchL[k])
+
+			// Re-whitening.
+			if (k & (3 - (lsfInterpolationFlag << 1))) == 0 {
+				if k == 2 {
+					// Reset delayed decisions: find winner, penalize the rest, and
+					// flush the decision-delayed tail of the winner to the output.
+					rdMinQ10 := psDelDec[0].rdQ10
+					winnerInd := 0
+					for i := 1; i < nStatesDelayedDecision; i++ {
+						if psDelDec[i].rdQ10 < rdMinQ10 {
+							rdMinQ10 = psDelDec[i].rdQ10
+							winnerInd = i
+						}
+					}
+					for i := 0; i < nStatesDelayedDecision; i++ {
+						if i != winnerInd {
+							psDelDec[i].rdQ10 = silk_ADD32(psDelDec[i].rdQ10, silk_int32_MAX>>4)
+						}
+					}
+
+					// Copy final part of signals from winner state to output and
+					// long-term filter states.
+					psDD := &psDelDec[winnerInd]
+					lastSmplIdx := smplBufIdx + decisionDelayActive
+					for i := 0; i < decisionDelayActive; i++ {
+						lastSmplIdx = (lastSmplIdx - 1) % decisionDelay
+						if lastSmplIdx < 0 {
+							lastSmplIdx += decisionDelay
+						}
+						outIdx := subfrOffset + i - decisionDelayActive
+						pulses[outIdx] = int8(silk_RSHIFT_ROUND(psDD.qQ10[lastSmplIdx], 10))
+						pxq[outIdx] = int16(silk_SAT16(silk_RSHIFT_ROUND(
+							silk_SMULWW(psDD.xqQ14[lastSmplIdx], gainsQ16[1]), 14)))
+						nsq.sLTPShpQ14[nsq.sLTPShpBufIdx-decisionDelayActive+i] = psDD.shapeQ14[lastSmplIdx]
+					}
+
+					subfr = 0
+				}
+
+				// Rewhiten with new A coefs.
+				startIdx := ltpMemLength - lag - predictLPCOrder - ltpOrderConst/2
+				silkLPCAnalysisFilterFixed(
+					sLTP[startIdx:],
+					nsq.xq[startIdx+k*subfrLength:],
+					aQ12[:predictLPCOrder],
+					ltpMemLength-startIdx,
+					predictLPCOrder,
+				)
+
+				nsq.sLTPBufIdx = ltpMemLength
+				nsq.rewhiteFlag = 1
+			}
+		}
+
+		silkNSQDelDecScaleStatesFixed(
+			nsq,
+			psDelDec,
+			x16[k*subfrLength:],
+			xScQ10,
+			sLTP,
+			sLTPQ15,
+			k,
+			nStatesDelayedDecision,
+			ltpScaleQ14,
+			gainsQ16,
+			pitchL,
+			signalType,
+			decisionDelayActive,
+			subfrLength,
+			ltpMemLength,
+		)
+
+		silkNoiseShapeQuantizerDelDecFixed(
+			nsq,
+			psDelDec,
+			signalType,
+			xScQ10,
+			pulses,
+			pxq,
+			sLTPQ15,
+			delayedGainQ10[:],
+			aQ12,
+			bQ14,
+			arShpQ13,
+			lag,
+			harmShapeFIRPackedQ14,
+			tiltQ14[k],
+			lfShpQ14[k],
+			gainsQ16[k],
+			lambdaQ10,
+			offsetQ10,
+			subfrLength,
+			subfr,
+			shapingLPCOrder,
+			predictLPCOrder,
+			warpingQ16,
+			nStatesDelayedDecision,
+			&smplBufIdx,
+			decisionDelayActive,
+			subfrOffset,
+		)
+		subfr++
+
+		subfrOffset += subfrLength
+	}
+
+	// Find winner.
+	rdMinQ10 := psDelDec[0].rdQ10
+	winnerInd := 0
+	for k := 1; k < nStatesDelayedDecision; k++ {
+		if psDelDec[k].rdQ10 < rdMinQ10 {
+			rdMinQ10 = psDelDec[k].rdQ10
+			winnerInd = k
+		}
+	}
+
+	// Copy final part of signals from winner state to output and long-term
+	// filter states.
+	psDD := &psDelDec[winnerInd]
+	seedOut := int(psDD.seedInit)
+	lastSmplIdx := smplBufIdx + decisionDelayActive
+	gainQ10 := silk_RSHIFT(gainsQ16[nbSubfr-1], 6)
+	for i := 0; i < decisionDelayActive; i++ {
+		lastSmplIdx = (lastSmplIdx - 1) % decisionDelay
+		if lastSmplIdx < 0 {
+			lastSmplIdx += decisionDelay
+		}
+		outIdx := subfrOffset + i - decisionDelayActive
+		pulses[outIdx] = int8(silk_RSHIFT_ROUND(psDD.qQ10[lastSmplIdx], 10))
+		pxq[outIdx] = int16(silk_SAT16(silk_RSHIFT_ROUND(
+			silk_SMULWW(psDD.xqQ14[lastSmplIdx], gainQ10), 8)))
+		nsq.sLTPShpQ14[nsq.sLTPShpBufIdx-decisionDelayActive+i] = psDD.shapeQ14[lastSmplIdx]
+	}
+	copy(nsq.sLPCQ14[:nsqLpcBufLength], psDD.sLPCQ14[subfrLength:subfrLength+nsqLpcBufLength])
+	nsq.sAR2Q14 = psDD.sAR2Q14
+
+	// Update states.
+	nsq.sLFARShpQ14 = psDD.lfARQ14
+	nsq.sDiffShpQ14 = psDD.diffQ14
+	nsq.lagPrev = pitchL[nbSubfr-1]
+
+	// Save quantized speech signal.
+	copy(nsq.xq[:ltpMemLength], nsq.xq[frameLength:frameLength+ltpMemLength])
+	copy(nsq.sLTPShpQ14[:ltpMemLength], nsq.sLTPShpQ14[frameLength:frameLength+ltpMemLength])
+
+	return seedOut
+}
+
 // silkNSQScaleStatesFixed is the bit-exact port of silk_nsq_scale_states
 // (silk/NSQ.c). It scales the subframe input by 1/Gain into xScQ10, rescales
 // the re-whitened LTP state after rewhitening, and applies the changing-gain
