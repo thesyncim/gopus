@@ -715,7 +715,18 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	var normL, normR []celtNorm
 	var bandE []celtEner
 	var normBandEScratch []celtEner
-	if codedChannels == 1 {
+	if e.hd96kOverlap > 0 {
+		// Native 96 kHz HD mode: band edges are eBands[i]*M with M=1<<LM
+		// (compute_band_energies/normalise_bands), not frameSize/120, which would
+		// double the per-band bin reach and corrupt the normalised spectrum used
+		// by tf_analysis/spreading_decision/alloc_trim and quant_all_bands.
+		if codedChannels == 1 {
+			normL, bandE = e.normalizeBandsMonoBinMulF32(mdctCoeffs, nbBands, 1<<lm)
+			normBandEScratch = bandE
+		} else {
+			normL, normR, bandE = e.normalizeBandsStereoBinMulF32(mdctLeft, mdctRight, nbBands, 1<<lm)
+		}
+	} else if codedChannels == 1 {
 		normL, bandE = e.NormalizeBandsToArrayMonoWithBandEF32(mdctCoeffs, nbBands, frameSize)
 		normBandEScratch = bandE
 	} else {

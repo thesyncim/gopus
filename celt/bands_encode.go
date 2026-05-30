@@ -181,16 +181,25 @@ func ComputeLinearBandAmplitudesInto(mdctCoeffs []float32, nbBands, frameSize in
 // ComputeLinearBandAmplitudesIntoF32 computes float-build linear band
 // amplitudes into the provided buffer.
 func ComputeLinearBandAmplitudesIntoF32(mdctCoeffs []float32, nbBands, frameSize int, bandE []celtEner) {
+	computeLinearBandAmplitudesIntoF32BinMul(mdctCoeffs, nbBands, frameSize/Overlap, bandE)
+}
+
+// computeLinearBandAmplitudesIntoF32BinMul computes per-band linear amplitudes
+// using an explicit bin multiplier M (libopus M=1<<LM). The band edges are
+// eBands[i]*M, matching compute_band_energies(). For the 48 kHz mode M equals
+// frameSize/Overlap; for the native 96 kHz HD mode (frameSize 1920, overlap 240)
+// M=1<<LM=8 rather than frameSize/120=16, so callers thread the real M.
+func computeLinearBandAmplitudesIntoF32BinMul(mdctCoeffs []float32, nbBands, binMul int, bandE []celtEner) {
 	if nbBands <= 0 || nbBands > MaxBands {
 		return
 	}
-	if frameSize <= 0 {
+	if binMul <= 0 {
 		return
 	}
 	offset := 0
 
 	for band := 0; band < nbBands; band++ {
-		n := ScaledBandWidth(band, frameSize)
+		n := eBandWidths[band] * binMul
 		if n <= 0 {
 			bandE[band] = celtEner(1e-27)
 			continue
@@ -270,6 +279,18 @@ func NormalizeBandsToArrayIntoF32(mdctCoeffs []float32, nbBands, frameSize int, 
 	normalizeBandsWithBandEIntoF32(mdctCoeffs, nbBands, frameSize, norm, bandE)
 }
 
+// NormalizeBandsToArrayIntoF32BinMul normalizes float-build MDCT coefficients
+// using an explicit bin multiplier M=1<<LM. Band edges are eBands[i]*M, matching
+// compute_band_energies()/normalise_bands(). The 48 kHz path uses M=frameSize/120
+// via NormalizeBandsToArrayIntoF32; the native 96 kHz HD mode uses M=1<<LM.
+func NormalizeBandsToArrayIntoF32BinMul(mdctCoeffs []float32, nbBands, binMul int, norm []celtNorm, bandE []celtEner) {
+	if nbBands <= 0 || nbBands > MaxBands || binMul <= 0 {
+		return
+	}
+	computeLinearBandAmplitudesIntoF32BinMul(mdctCoeffs, nbBands, binMul, bandE)
+	normalizeBandsWithBandEIntoF32BinMul(mdctCoeffs, nbBands, binMul, norm, bandE)
+}
+
 func normalizeBandsWithBandEInto(mdctCoeffs []float32, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
 	offset := 0
 	for band := 0; band < nbBands; band++ {
@@ -304,9 +325,16 @@ func normalizeBandsWithBandEInto(mdctCoeffs []float32, nbBands, frameSize int, n
 }
 
 func normalizeBandsWithBandEIntoF32(mdctCoeffs []float32, nbBands, frameSize int, norm []celtNorm, bandE []celtEner) {
+	normalizeBandsWithBandEIntoF32BinMul(mdctCoeffs, nbBands, frameSize/Overlap, norm, bandE)
+}
+
+func normalizeBandsWithBandEIntoF32BinMul(mdctCoeffs []float32, nbBands, binMul int, norm []celtNorm, bandE []celtEner) {
+	if binMul <= 0 {
+		return
+	}
 	offset := 0
 	for band := 0; band < nbBands; band++ {
-		n := ScaledBandWidth(band, frameSize)
+		n := eBandWidths[band] * binMul
 		if n <= 0 {
 			continue
 		}

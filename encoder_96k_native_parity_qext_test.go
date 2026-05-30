@@ -105,15 +105,24 @@ func refMainCELTPayload(t *testing.T, pkt []byte) (main, qext []byte) {
 //   - the coarse-energy intra decision now matches (stereo intra=1), and stereo
 //     coarse band energies decode bit-identically to the reference.
 //
+// The band-data analysis front-end normalises with the libopus bin multiplier
+// M=1<<LM (band edges eBands[i]*M), not frameSize/120, which doubled the per-band
+// bin reach at the HD scale and corrupted the normalised spectrum feeding
+// tf_analysis/spreading_decision/alloc_trim/quant_all_bands. With that fixed the
+// TF resolution, spreading, alloc-trim, intensity, dual-stereo and coded-band
+// allocation now match the reference, and the stereo PVQ band data is bit-exact
+// through band 15.
+//
 // Remaining native-96k encode divergences:
-//   - mono: bandLogE2 for the 6 kHz-tone band (15) is ~0.4 dB off the reference
-//     because the comb prefilter (postfilter on for mono) feeds a slightly
-//     different filtered signal into the MDCT; this perturbs that band's dynalloc
-//     boost and the main payload diverges at byte 7. This is the same HD-scale
-//     comb_filter residual documented on the decode side.
-//   - stereo (postfilter off, analysis bit-exact through coarse energy): the
-//     main payload diverges at byte 24, i.e. after coarse energy, in the
-//     TF/spread/allocation/PVQ band-data region.
+//   - mono: the 6 kHz-tone band (15) unquantised bandLogE is a fraction of a dB
+//     off the reference (the comb prefilter feeds a slightly different filtered
+//     signal into the MDCT), which flips that band's dynalloc boost by one quantum
+//     so the main payload diverges at byte 14. This is the documented HD-scale
+//     comb_filter analysis residual; the quantised coarse energy still matches.
+//   - stereo: the band-data region is bit-exact through band 15; the main payload
+//     first diverges at byte 296 inside band 16's high-complexity stereo theta-RDO
+//     decision, a float-precision knife-edge consistent with the documented
+//     arm64 1-ULP CELT drift.
 //
 // The test is kept as an executable diagnostic: it logs the precise divergence
 // and skips rather than failing, so the suite stays green while those residuals

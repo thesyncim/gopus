@@ -69,6 +69,43 @@ func (e *Encoder) NormalizeBandsToArrayStereoWithBandEF32(mdctLeft, mdctRight []
 	return normL, normR, bandE
 }
 
+// normalizeBandsMonoBinMulF32 normalizes float-build mono MDCT coefficients
+// using an explicit bin multiplier M=1<<LM (band edges eBands[i]*M). It mirrors
+// NormalizeBandsToArrayMonoWithBandEF32 but takes the libopus M directly, for the
+// native 96 kHz HD mode where M != frameSize/120.
+func (e *Encoder) normalizeBandsMonoBinMulF32(mdctCoeffs []float32, nbBands, binMul int) (norm []celtNorm, bandE []celtEner) {
+	frameSize := len(mdctCoeffs)
+	norm = ensureNormSlice(&e.scratch.normL, frameSize)
+	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands)
+	NormalizeBandsToArrayIntoF32BinMul(mdctCoeffs, nbBands, binMul, norm, bandE)
+	if e.lfe {
+		applyLFELinearBandEClamp(bandE, nbBands, 1)
+		normalizeBandsWithBandEIntoF32BinMul(mdctCoeffs, nbBands, binMul, norm, bandE)
+	}
+	return norm, bandE
+}
+
+// normalizeBandsStereoBinMulF32 normalizes float-build stereo MDCT coefficients
+// using an explicit bin multiplier M=1<<LM. The bandE layout is [L bands][R bands].
+func (e *Encoder) normalizeBandsStereoBinMulF32(mdctLeft, mdctRight []float32, nbBands, binMul int) (normL, normR []celtNorm, bandE []celtEner) {
+	frameSize := len(mdctLeft)
+	normL = ensureNormSlice(&e.scratch.normL, frameSize)
+	normR = ensureNormSlice(&e.scratch.normR, frameSize)
+	bandEL := ensureEnerSlice(&e.scratch.bandEL, nbBands)
+	bandER := ensureEnerSlice(&e.scratch.bandER, nbBands)
+	NormalizeBandsToArrayIntoF32BinMul(mdctLeft, nbBands, binMul, normL, bandEL)
+	NormalizeBandsToArrayIntoF32BinMul(mdctRight, nbBands, binMul, normR, bandER)
+	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands*2)
+	copy(bandE[:nbBands], bandEL)
+	copy(bandE[nbBands:], bandER)
+	if e.lfe {
+		applyLFELinearBandEClamp(bandE, nbBands, 2)
+		normalizeBandsWithBandEIntoF32BinMul(mdctLeft, nbBands, binMul, normL, bandE[:nbBands])
+		normalizeBandsWithBandEIntoF32BinMul(mdctRight, nbBands, binMul, normR, bandE[nbBands:])
+	}
+	return normL, normR, bandE
+}
+
 // TFResScratch returns a scratch TF resolution slice sized for nbBands.
 func (e *Encoder) TFResScratch(nbBands int) []int32 {
 	return ensureInt32Slice(&e.scratch.tfRes, nbBands)
