@@ -9,23 +9,27 @@ import (
 
 // This file assembles the FIXED_POINT celt_encode_with_ec driver
 // (celt/celt_encoder.c) for the static 48000/960 custom mode, orchestrating the
-// already-ported integer kernels into a full CBR frame encode that is bit-exact
-// with the reference MODE_ENCODE oracle (the produced packet bytes).
+// already-ported integer kernels into a full frame encode that is bit-exact
+// with the reference MODE_ENCODE / MODE_ENCODE_SEQ oracles (the produced packet
+// bytes), for CBR, VBR and constrained-VBR (CVBR).
 //
-// Scope of this increment: a fresh (or sequential) CBR encode with signalling
-// disabled, the float analysis invalid, surround masking off and LFE off,
-// matching a plain celt_encoder_init + OPUS_SET_VBR(0) + CELT_SET_SIGNALLING(0)
-// encoder. VBR/CVBR (vbr_rate>0) and QEXT are out of scope.
+// Scope: a fresh or sequential encode with signalling disabled, the float
+// analysis invalid, surround masking off and LFE off, matching a plain
+// celt_encoder_init + CELT_SET_SIGNALLING(0) encoder under OPUS_SET_VBR(0/1) and
+// OPUS_SET_VBR_CONSTRAINT(0/1). Hybrid (start>0), QEXT and LFE/surround remain
+// out of scope.
 
 // spreadICDFEnc / trimICDFEnc mirror celt/celt.c spread_icdf[4] and trim_icdf[11].
 var spreadICDFEnc = []uint8{25, 23, 2, 0}
 var trimICDFEnc = []uint8{126, 124, 119, 109, 87, 41, 19, 9, 4, 2, 0}
 
-// EncodeWithEC ports celt_encode_with_ec for a CBR frame on the static 48000/960
-// mode. pcm is channels*frameSize interleaved int16 PCM, frameSize the 48k-core
-// per-channel sample count (shortMdctSize<<LM). enc must be initialised against a
-// buffer of nbCompressedBytes. It returns the number of packet bytes produced
-// (the caller reads enc.Done()). The encoder's cross-frame state is advanced.
+// EncodeWithEC ports celt_encode_with_ec for one frame on the static 48000/960
+// mode (CBR, VBR or constrained-VBR per SetVBR/SetConstrainedVBR). pcm is
+// channels*frameSize interleaved int16 PCM, frameSize the 48k-core per-channel
+// sample count (shortMdctSize<<LM). enc must be initialised against a buffer of
+// nbCompressedBytes (the max payload size; the VBR rate control resizes the
+// stream below that). It returns the number of packet bytes produced (the caller
+// reads enc.Done()). The encoder's cross-frame state is advanced.
 func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.Encoder, nbCompressedBytes int) int {
 	nbEBands := celtNbEBands
 	overlap := celtOverlap
@@ -52,32 +56,61 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 	tell := enc.Tell()
 	nbFilledBytes := (tell + 4) >> 3
 
-	if nbCompressedBytes > 1275 {
-		nbCompressedBytes = 1275
+	const packetSizeCap = 1275
+	if nbCompressedBytes > packetSizeCap {
+		nbCompressedBytes = packetSizeCap
 	}
 
-	// CBR (vbr==0). Recompute nbCompressedBytes from the bitrate.
-	tmp := e.bitrate * frameSize
-	if tell > 1 {
-		tmp += tell * 48000
-	}
-	if e.bitrate != opusBitrateMax {
-		v := (tmp + 4*48000) / (8 * 48000)
-		if v < nbCompressedBytes {
-			nbCompressedBytes = v
+	vbrRate := 0
+	var effectiveBytes int
+	if e.vbr && e.bitrate != opusBitrateMax {
+		vbrRate = bitrateToBits(e.bitrate, frameSize) << bitRes
+		effectiveBytes = vbrRate >> (3 + bitRes)
+	} else {
+		vbrRate = 0
+		tmp := e.bitrate * frameSize
+		if tell > 1 {
+			tmp += tell * 48000
 		}
-		if nbCompressedBytes < 2 {
-			nbCompressedBytes = 2
+		if e.bitrate != opusBitrateMax {
+			v := (tmp + 4*48000) / (8 * 48000)
+			if v < nbCompressedBytes {
+				nbCompressedBytes = v
+			}
+			if nbCompressedBytes < 2 {
+				nbCompressedBytes = 2
+			}
+			enc.Shrink(uint32(nbCompressedBytes))
 		}
-		enc.Shrink(uint32(nbCompressedBytes))
+		effectiveBytes = nbCompressedBytes - nbFilledBytes
 	}
-	effectiveBytes := nbCompressedBytes - nbFilledBytes
 	nbAvailableBytes := nbCompressedBytes - nbFilledBytes
 
 	equivRate := nbCompressedBytes*8*50<<(3-LM) - (40*C+20)*((400>>LM)-50)
 	if e.bitrate != opusBitrateMax {
 		if v := e.bitrate - (40*C+20)*((400>>LM)-50); v < equivRate {
 			equivRate = v
+		}
+	}
+
+	// Constrained-VBR up-front max_allowed clamp (bust prevention).
+	if vbrRate > 0 && e.constrainedVBR {
+		vbrBound := vbrRate
+		maxAllowedLo := 0
+		if tell == 1 {
+			maxAllowedLo = 2
+		}
+		maxAllowed := (vbrRate + vbrBound - int(e.vbrReservoir)) >> (bitRes + 3)
+		if maxAllowedLo > maxAllowed {
+			maxAllowed = maxAllowedLo
+		}
+		if nbAvailableBytes < maxAllowed {
+			maxAllowed = nbAvailableBytes
+		}
+		if maxAllowed < nbAvailableBytes {
+			nbCompressedBytes = nbFilledBytes + maxAllowed
+			nbAvailableBytes = maxAllowed
+			enc.Shrink(uint32(nbCompressedBytes))
 		}
 	}
 
@@ -109,6 +142,15 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 		silence = false
 	}
 	if silence {
+		if vbrRate > 0 {
+			if v := nbFilledBytes + 2; v < nbCompressedBytes {
+				nbCompressedBytes = v
+			}
+			effectiveBytes = nbCompressedBytes
+			totalBits = nbCompressedBytes * 8
+			nbAvailableBytes = 2
+			enc.Shrink(uint32(nbCompressedBytes))
+		}
 		tell = nbCompressedBytes * 8
 		enc.SkipToTell(tell)
 	}
@@ -144,6 +186,13 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 	pitchIndex := pfRes.PitchIndex
 	gain1 := pfRes.Gain
 	prefilterTapset := pfRes.Tapset
+	// pitch_change (analysis invalid here so the tonality test is always true).
+	pitchChange := false
+	if (gain1 > 13107 || e.prefilterGain > 13107) &&
+		(float64(pitchIndex) > 1.26*float64(e.prefilterPeriod) ||
+			float64(pitchIndex) < 0.79*float64(e.prefilterPeriod)) {
+		pitchChange = true
+	}
 	EmitPrefilterParams(enc, pfRes, hybrid, tell, totalBits)
 
 	shortBlocks := 0
@@ -185,7 +234,7 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 
 	// surround_dynalloc all zero (no energy_mask), temporal_vbr maintained.
 	surroundDynalloc := make([]int32, C*nbEBands)
-	e.temporalVBR(bandLogE, start, end, nbEBands, C, shortBlocks, LM)
+	temporalVBRValue := e.temporalVBR(bandLogE, start, end, nbEBands, C, shortBlocks, LM)
 
 	if !secondMdct {
 		copy(bandLogE2, bandLogE[:C*nbEBands])
@@ -223,10 +272,9 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 
 	var totBoost int
 	maxDepth := DynallocAnalysis(bandLogE, bandLogE2, e.oldBandE, nbEBands, start, end, C,
-		offsets, e.lsbDepth, e.logN, isTransient, false, true,
+		offsets, e.lsbDepth, e.logN, isTransient, e.vbr, e.constrainedVBR,
 		eBands, LM, effectiveBytes, false, surroundDynalloc,
 		importance, spreadWeight, toneFreq, toneishness, &totBoost)
-	_ = maxDepth
 
 	tfRes := make([]int, nbEBands)
 	tfSelect := 0
@@ -338,6 +386,86 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 		}
 		enc.EncodeICDF(allocTrim, trimICDFEnc, 7)
 		tellFrac = enc.TellFrac()
+	}
+
+	// min_allowed: the frame must not shrink so far the encoder runs out of bits.
+	minAllowed := ((tellFrac + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3)) + 2
+	if hybrid {
+		if v := (tell0Frac + (37 << bitRes) + totalBoost + (1 << (bitRes + 3)) - 1) >> (bitRes + 3); v > minAllowed {
+			minAllowed = v
+		}
+	}
+
+	// Variable bitrate rate control.
+	if vbrRate > 0 {
+		lmDiff := celtMaxLM - LM
+		if v := packetSizeCap >> (3 - LM); v < nbCompressedBytes {
+			nbCompressedBytes = v
+		}
+		var baseTarget int
+		if !hybrid {
+			baseTarget = vbrRate - ((40*C + 20) << bitRes)
+		} else {
+			baseTarget = imax(0, vbrRate-((9*C+4)<<bitRes))
+		}
+		if e.constrainedVBR {
+			baseTarget += int(e.vbrOffset) >> lmDiff
+		}
+
+		var target int
+		if !hybrid {
+			target = computeVBR(eBands, baseTarget, LM, equivRate, e.lastCodedBands, C, e.intensity,
+				e.constrainedVBR, e.stereoSaving, totBoost, tfEstimate, pitchChange,
+				maxDepth, temporalVBRValue, nbEBands)
+		} else {
+			target = baseTarget
+			target += int(mult16x16Q14(int32(tfEstimate)-gconstQ(0.25, 14), int32(50<<bitRes)))
+			if tfEstimate > 11469 { // QCONST16(.7f,14)
+				target = imax(target, 50<<bitRes)
+			}
+		}
+
+		// tell here is ec_tell_frac(enc) (1/8-bit units), matching the C reuse of
+		// the tell variable after alloc_trim coding.
+		target += tellFrac
+		nbAvailableBytes = (target + (1 << (bitRes + 2))) >> (bitRes + 3)
+		nbAvailableBytes = imax(minAllowed, nbAvailableBytes)
+		nbAvailableBytes = imin(nbCompressedBytes, nbAvailableBytes)
+
+		delta := int32(target - vbrRate)
+		target = nbAvailableBytes << (bitRes + 3)
+
+		if silence {
+			nbAvailableBytes = 2
+			target = 2 * 8 << bitRes
+			delta = 0
+		}
+
+		var alpha int32
+		if e.vbrCount < 970 {
+			e.vbrCount++
+			alpha = CeltRcp(shl32(e.vbrCount+20, 16))
+		} else {
+			alpha = 33 // QCONST16(.001f,15)
+		}
+		if e.constrainedVBR {
+			e.vbrReservoir += int32(target - vbrRate)
+		}
+		if e.constrainedVBR {
+			e.vbrDrift += mult16x32Q15(int16(alpha), (delta*(1<<lmDiff))-e.vbrOffset-e.vbrDrift)
+			e.vbrOffset = -e.vbrDrift
+		}
+		if e.constrainedVBR && e.vbrReservoir < 0 {
+			adjust := int(-e.vbrReservoir) / (8 << bitRes)
+			if !silence {
+				nbAvailableBytes += adjust
+			}
+			e.vbrReservoir = 0
+		}
+		if nbAvailableBytes < nbCompressedBytes {
+			nbCompressedBytes = nbAvailableBytes
+		}
+		enc.Shrink(uint32(nbCompressedBytes))
 	}
 
 	// Bit allocation.
@@ -556,9 +684,9 @@ func (e *CELTEncoder) runPrefilter(in []int32, CC, N, overlap int, enabled bool,
 }
 
 // temporalVBR ports the temporal-VBR spec_avg update from celt_encode_with_ec
-// (the !lfe branch). It maintains st->spec_avg used by compute_vbr; for CBR the
-// computed temporal_vbr is discarded but spec_avg must still advance.
-func (e *CELTEncoder) temporalVBR(bandLogE []int32, start, end, nbEBands, C, shortBlocks, LM int) {
+// (the !lfe branch). It maintains st->spec_avg and returns the computed
+// temporal_vbr (celt_glog) for compute_vbr.
+func (e *CELTEncoder) temporalVBR(bandLogE []int32, start, end, nbEBands, C, shortBlocks, LM int) int32 {
 	follow := -gconstQ(10, dbShift-5)
 	frameAvg := int32(0)
 	var offset int32
@@ -576,6 +704,83 @@ func (e *CELTEncoder) temporalVBR(bandLogE []int32, start, end, nbEBands, C, sho
 	temporalVBR := shl32(frameAvg, 5) - e.specAvg
 	temporalVBR = min32(gconstF(3), max32(-gconstF(1.5), temporalVBR))
 	e.specAvg += mult16x32Q15(655, temporalVBR) // QCONST16(.02f,15)=655
+	return temporalVBR
+}
+
+// bitrateToBits ports celt.h bitrate_to_bits for the 48000 Hz core:
+// bitrate*6/(6*48000/frame_size), with the inner division evaluated first.
+func bitrateToBits(bitrate, frameSize int) int {
+	return bitrate * 6 / (6*48000/frameSize)
+}
+
+// computeVBR ports celt/celt_encoder.c compute_vbr for the FIXED_POINT,
+// non-QEXT build with the float analysis invalid, surround masking off and LFE
+// off (the only paths the static 48000/960 CELT-only encoder exercises). It
+// returns the target rate in 8th-bits per frame.
+func computeVBR(eBands []int16, baseTarget, LM, equivRate, lastCodedBands, C, intensity int,
+	constrainedVBR bool, stereoSaving int16, totBoost int, tfEstimate int16,
+	pitchChange bool, maxDepth, temporalVBR int32, nbEBands int) int {
+
+	codedBands := lastCodedBands
+	if codedBands == 0 {
+		codedBands = nbEBands
+	}
+	codedBins := int(eBands[codedBands]) << LM
+	if C == 2 {
+		codedBins += int(eBands[imin(intensity, codedBands)]) << LM
+	}
+
+	target := baseTarget
+
+	if C == 2 {
+		codedStereoBands := imin(intensity, codedBands)
+		codedStereoDof := (int(eBands[codedStereoBands]) << LM) - codedStereoBands
+		maxFrac := div32_16(mult16x16(26214, int32(codedStereoDof)), int16(codedBins)) // QCONST16(0.8f,15)
+		ss := stereoSaving
+		if ss > 256 { // QCONST16(1.f,8)
+			ss = 256
+		}
+		a := mult16x32Q15(maxFrac, int32(target))
+		b := shr32(mult16x16(int32(ss)-26, int32(codedStereoDof<<bitRes)), 8) // QCONST16(0.1f,8)=26
+		target -= int(min32(a, b))
+	}
+
+	target += totBoost - (19 << LM)
+
+	const tfCalibration = 721 // QCONST16(0.044f,14)
+	target += int(shl32(mult16x32Q15(int16(int32(tfEstimate)-tfCalibration), int32(target)), 1))
+
+	// floor_depth
+	bins := int(eBands[nbEBands-2]) << LM
+	floorDepth := int(shr32(mult16x32Q15(int16((C*bins)<<bitRes), maxDepth), dbShift-15))
+	if v := target >> 2; v > floorDepth {
+		floorDepth = v
+	}
+	if floorDepth < target {
+		target = floorDepth
+	}
+
+	if constrainedVBR {
+		target = baseTarget + int(mult16x32Q15(21955, int32(target-baseTarget))) // QCONST16(0.67f,15)
+	}
+
+	// Temporal VBR (no surround mask). pitch_change is unused on this path but
+	// kept in the signature to mirror compute_vbr.
+	_ = pitchChange
+	if tfEstimate < 3277 { // QCONST16(.2f,14)
+		clamp := 96000 - equivRate
+		if clamp > 32000 {
+			clamp = 32000
+		}
+		if clamp < 0 {
+			clamp = 0
+		}
+		amount := mult16x16Q15(3329, int32(clamp)) // QCONST16(.0000031f,30)=3329
+		tvbrFactor := shr32(mult16x16(shr32(temporalVBR, dbShift-10), amount), 10)
+		target += int(mult16x32Q15(int16(tvbrFactor), int32(target)))
+	}
+
+	return imin(2*baseTarget, target)
 }
 
 // maxabsRes ports celt_maxabs_res for ENABLE_RES24 int16 input: the maximum

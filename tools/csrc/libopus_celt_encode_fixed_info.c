@@ -40,7 +40,8 @@
 
 enum {
   MODE_ENCODE = 0,
-  MODE_FRONTEND = 1
+  MODE_FRONTEND = 1,
+  MODE_ENCODE_SEQ = 2
 };
 
 static int set_binary_stdio(void) {
@@ -174,6 +175,96 @@ done:
   return ok;
 }
 
+/* MODE_ENCODE_SEQ wire format (after the GCEI header, version 1, mode and
+ * unused count word):
+ *   u32 channels, u32 frame_size, u32 start, u32 end, u32 bitrate,
+ *   u32 complexity, u32 vbr, u32 constrained_vbr, u32 max_bytes,
+ *   u32 nframes, u32 nsamples (= channels*frame_size*nframes)
+ *   nsamples x i16 pcm (padded to a 4-byte boundary on the wire)
+ * One CELTEncoder is created and configured (OPUS_SET_VBR / VBR_CONSTRAINT),
+ * then the nframes consecutive frames are encoded in sequence so all
+ * cross-frame state (VBR reservoir/drift, oldBandE/oldLogE, spec_avg,
+ * consec_transient, prefilter_mem) carries over.
+ * Output (after the GCEO header, version 1, count = nframes):
+ *   for each frame: u32 packet_len, packet_len x u8 packet bytes
+ *     (each packet padded to a 4-byte boundary on the wire) */
+static int eval_encode_seq(void) {
+  uint32_t channels, frame_size, start, end, bitrate, complexity;
+  uint32_t vbr, constrained_vbr, max_bytes, nframes, nsamples;
+  uint32_t i, f, padded;
+  int per_frame, ret, err;
+  int16_t *pcm16 = NULL;
+  opus_res *pcm = NULL;
+  unsigned char *packet = NULL;
+  CELTEncoder *enc = NULL;
+  CELTMode *mode = NULL;
+  int ok = 0;
+
+  if (!read_u32(&channels) || !read_u32(&frame_size) || !read_u32(&start) ||
+      !read_u32(&end) || !read_u32(&bitrate) || !read_u32(&complexity) ||
+      !read_u32(&vbr) || !read_u32(&constrained_vbr) || !read_u32(&max_bytes) ||
+      !read_u32(&nframes) || !read_u32(&nsamples)) {
+    return 0;
+  }
+
+  pcm16 = (int16_t *)malloc((nsamples ? nsamples : 1) * sizeof(*pcm16));
+  pcm = (opus_res *)malloc((nsamples ? nsamples : 1) * sizeof(*pcm));
+  if (!pcm16 || !pcm) goto done;
+  if (nsamples && !read_exact(pcm16, nsamples * sizeof(*pcm16))) goto done;
+  padded = ((nsamples * 2u) + 3u) & ~3u;
+  for (i = nsamples * 2u; i < padded; i++) {
+    unsigned char pad;
+    if (!read_exact(&pad, 1)) goto done;
+  }
+  for (i = 0; i < nsamples; i++)
+    pcm[i] = INT16TORES(pcm16[i]);
+
+  mode = (CELTMode *)opus_custom_mode_create(48000, 960, &err);
+  if (!mode || err != OPUS_OK) goto done;
+  enc = (CELTEncoder *)malloc(celt_encoder_get_size((int)channels));
+  if (!enc) goto done;
+  if (celt_encoder_init(enc, 48000, (int)channels, 0) != OPUS_OK) goto done;
+  celt_encoder_ctl(enc, CELT_SET_START_BAND_REQUEST, (int)start);
+  celt_encoder_ctl(enc, CELT_SET_END_BAND_REQUEST, (int)end);
+  celt_encoder_ctl(enc, OPUS_SET_BITRATE_REQUEST, (opus_int32)(int32_t)bitrate);
+  celt_encoder_ctl(enc, OPUS_SET_COMPLEXITY_REQUEST, (int)complexity);
+  celt_encoder_ctl(enc, OPUS_SET_VBR_REQUEST, (int)vbr);
+  celt_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT_REQUEST, (int)constrained_vbr);
+  celt_encoder_ctl(enc, CELT_SET_SIGNALLING_REQUEST, 0);
+
+  packet = (unsigned char *)malloc(max_bytes ? max_bytes : 1);
+  if (!packet) goto done;
+
+  per_frame = (int)channels * (int)frame_size;
+
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(nframes)) {
+    goto done;
+  }
+
+  for (f = 0; f < nframes; f++) {
+    ec_enc ec;
+    ec_enc_init(&ec, packet, max_bytes);
+    ret = celt_encode_with_ec(enc, pcm + (size_t)f * per_frame,
+                              (int)frame_size, packet, (int)max_bytes, &ec);
+    if (ret < 0) goto done;
+    if (!write_u32((uint32_t)ret)) goto done;
+    if (ret && !write_exact(packet, (size_t)ret)) goto done;
+    padded = ((uint32_t)ret + 3u) & ~3u;
+    for (i = (uint32_t)ret; i < padded; i++) {
+      unsigned char pad = 0;
+      if (!write_exact(&pad, 1)) goto done;
+    }
+  }
+  ok = 1;
+
+done:
+  free(pcm16);
+  free(pcm);
+  free(packet);
+  free(enc);
+  return ok;
+}
+
 /* MODE_FRONTEND wire format (after the GCEI header, version 1, mode and unused
  * count word):
  *   u32 channels, u32 frame_size, u32 start, u32 end, u32 isTransient,
@@ -296,6 +387,8 @@ int main(void) {
       return eval_encode() ? 0 : 1;
     case MODE_FRONTEND:
       return eval_frontend() ? 0 : 1;
+    case MODE_ENCODE_SEQ:
+      return eval_encode_seq() ? 0 : 1;
   }
   return 1;
 }

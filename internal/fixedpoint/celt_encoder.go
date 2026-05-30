@@ -35,13 +35,24 @@ type CELTEncoder struct {
 	start int
 	end   int
 
-	// complexity / lsbDepth mirror st->complexity / st->lsb_depth. CBR-only here,
-	// so vbr stays false and constrainedVBR mirrors the init default (1).
+	// complexity / lsbDepth mirror st->complexity / st->lsb_depth.
 	complexity int
 	lsbDepth   int
 
 	// bitrate is st->bitrate (bits/s), OPUS_BITRATE_MAX when unset.
 	bitrate int
+
+	// vbr / constrainedVBR mirror st->vbr and st->constrained_vbr. constrainedVBR
+	// defaults to 1 (the celt_encoder_init default).
+	vbr            bool
+	constrainedVBR bool
+
+	// VBR rate-control reservoir state (celt_encoder.c): st->vbr_reservoir,
+	// st->vbr_drift, st->vbr_offset, st->vbr_count.
+	vbrReservoir int32
+	vbrDrift     int32
+	vbrOffset    int32
+	vbrCount     int32
 
 	// preemphMemE mirrors st->preemph_memE: the per-channel pre-emphasis filter
 	// state carried between frames.
@@ -111,6 +122,7 @@ func NewCELTEncoder(channels int) *CELTEncoder {
 	e.delayedIntra = 1
 	e.spreadDecision = spreadNormal
 	e.spreading = SpreadingState{TonalAverage: 256, HFAverage: 0, TapsetDecision: 0}
+	e.constrainedVBR = true
 	return e
 }
 
@@ -122,6 +134,12 @@ func (e *CELTEncoder) SetComplexity(c int) { e.complexity = c }
 
 // SetBitrate sets st->bitrate in bits/s (OPUS_SET_BITRATE_REQUEST).
 func (e *CELTEncoder) SetBitrate(b int) { e.bitrate = b }
+
+// SetVBR enables/disables variable bitrate (OPUS_SET_VBR_REQUEST).
+func (e *CELTEncoder) SetVBR(v bool) { e.vbr = v }
+
+// SetConstrainedVBR sets st->constrained_vbr (OPUS_SET_VBR_CONSTRAINT_REQUEST).
+func (e *CELTEncoder) SetConstrainedVBR(v bool) { e.constrainedVBR = v }
 
 // SetBandRange sets the active band range (st->start / st->end), matching the
 // CELT_SET_START_BAND_REQUEST / CELT_SET_END_BAND_REQUEST controls.

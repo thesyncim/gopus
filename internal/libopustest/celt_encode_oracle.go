@@ -11,6 +11,10 @@ const (
 	// (celt_preemphasis + compute_mdcts + compute_band_energies +
 	// normalise_bands), dumping freq, bandE and the normalised X.
 	CELTEncodeModeFrontend = uint32(1)
+	// CELTEncodeModeEncodeSeq encodes N consecutive frames on a single encoder
+	// (VBR/CVBR/CBR), dumping every produced packet so cross-frame state can be
+	// validated.
+	CELTEncodeModeEncodeSeq = uint32(2)
 
 	// celtEncodeNbEBands mirrors the static 48000/960 mode nbEBands.
 	celtEncodeNbEBands = 21
@@ -148,4 +152,65 @@ func ProbeCELTFixedEncode(pcm []int16, channels, frameSize, start, end, bitrate,
 		return nil, err
 	}
 	return out, nil
+}
+
+// ProbeCELTFixedEncodeSeq creates one FIXED_POINT CELT encoder, configures it
+// for the given VBR/constrained-VBR/CBR mode and bitrate, and encodes nframes
+// consecutive frames of interleaved int16 PCM (channels*frameSize*nframes
+// samples) in sequence. It returns the produced packet bytes for each frame so
+// cross-frame state (VBR reservoir/drift, energy histories, spec_avg,
+// consec_transient, prefilter_mem) can be validated. maxBytes is the per-frame
+// output buffer size (the VBR/CBR cap).
+func ProbeCELTFixedEncodeSeq(pcm []int16, channels, frameSize, start, end, bitrate, complexity int,
+	vbr, constrainedVBR bool, maxBytes, nframes int) ([][]byte, error) {
+	binPath, err := getCELTEncodeHelperPath()
+	if err != nil {
+		return nil, err
+	}
+
+	b2u := func(b bool) uint32 {
+		if b {
+			return 1
+		}
+		return 0
+	}
+
+	nsamples := channels * frameSize * nframes
+	payload := NewOraclePayload(celtEncodeInputMagic, CELTEncodeModeEncodeSeq, 0)
+	payload.U32(uint32(channels))
+	payload.U32(uint32(frameSize))
+	payload.U32(uint32(start))
+	payload.U32(uint32(end))
+	payload.U32(uint32(bitrate))
+	payload.U32(uint32(complexity))
+	payload.U32(b2u(vbr))
+	payload.U32(b2u(constrainedVBR))
+	payload.U32(uint32(maxBytes))
+	payload.U32(uint32(nframes))
+	payload.U32(uint32(nsamples))
+	for _, s := range pcm {
+		payload.I16(s)
+	}
+	if pad := (4 - (nsamples*2)%4) % 4; pad > 0 {
+		payload.Raw(make([]byte, pad))
+	}
+
+	reader, err := RunOracle(binPath, payload.Bytes(), "celt fixed encode seq", celtEncodeOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	nf := reader.Count(nframes)
+	packets := make([][]byte, nf)
+	for f := 0; f < nf; f++ {
+		count := int(reader.U32())
+		pad := (4 - count%4) % 4
+		packets[f] = append([]byte(nil), reader.Bytes(count)...)
+		if pad > 0 {
+			reader.Bytes(pad)
+		}
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	return packets, nil
 }
