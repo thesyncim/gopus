@@ -30,6 +30,15 @@ func FixedRefPath(elem ...string) string {
 	return filepath.Join(append(base, elem...)...)
 }
 
+// CustomRefPath returns a path under the pinned custom-modes (--enable-custom-modes)
+// libopus reference tree. Its config.h defines CUSTOM_MODES and the Opus Custom
+// API, so C oracle helpers built against it can call opus_custom_mode_create /
+// opus_custom_encoder_create / opus_custom_decoder_create.
+func CustomRefPath(elem ...string) string {
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-custom"}
+	return filepath.Join(append(base, elem...)...)
+}
+
 // ReadRefFileOrSkip reads a pinned libopus reference file. Missing references
 // skip local tests unless GOPUS_STRICT_LIBOPUS_REF asks for hard failures.
 func ReadRefFileOrSkip(t testing.TB, label string, elem ...string) []byte {

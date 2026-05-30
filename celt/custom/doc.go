@@ -28,9 +28,17 @@
 // Build tag: gopus_custom (mirrors libopus CUSTOM_MODES compile guard).
 // Default builds exclude this package entirely; zero build cost when unset.
 //
-// Oracle parity status: the pinned libopus 1.6.1 reference tree
-// (tmp_check/opus-1.6.1) was NOT built with --enable-custom-modes, so byte-exact
-// oracle tests are gated to a separate custom-modes libopus build. Self-consistency
-// (encode→decode roundtrip) and basic API contract tests run unconditionally under
-// the gopus_custom tag. See custom_oracle_test.go for oracle parity tests.
+// Oracle parity status: oracle_test.go compares encode+decode against a libopus
+// build configured with --enable-custom-modes. That reference tree is produced
+// on demand by tools/ensure_libopus.sh LIBOPUS_ENABLE_CUSTOM=1 (->
+// tmp_check/opus-1.6.1-custom) and linked through
+// libopustest.CHelperConfig{CustomRef: true}.
+//
+//   - Standard 48 kHz modes (120/240/480/960) are byte- and sample-exact against
+//     the libopus custom-modes encoder/decoder.
+//   - Non-standard rates/frame sizes are NOT yet libopus-correct: EncodeFloat /
+//     DecodeFloat fall back to the nearest standard 48 kHz frame size and resample,
+//     so the CustomMode band/preemph tables NewMode computes are not used by the
+//     CELT core. These modes are only self-consistent (gopus encode -> gopus
+//     decode); the oracle test records the first divergence from libopus.
 package custom

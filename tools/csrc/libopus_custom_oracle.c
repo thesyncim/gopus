@@ -1,8 +1,17 @@
 /*
  * libopus_custom_oracle.c — binary-protocol oracle for Opus Custom encode/decode.
  *
- * Requires a libopus build with --enable-custom-modes; link against its
- * .libs/libopus.a.
+ * Requires a libopus build with --enable-custom-modes (CUSTOM_MODES + the
+ * Opus Custom API); link against its .libs/libopus.a. The gopus harness builds
+ * that tree via LIBOPUS_ENABLE_CUSTOM=1 tools/ensure_libopus.sh
+ * (-> tmp_check/opus-1.6.1-custom) and compiles this file against it through
+ * libopustest.BuildCHelper(CHelperConfig{CustomRef: true, ...}).
+ *
+ * Each case creates an OpusCustomMode for the requested (Fs, frame_size),
+ * encodes one frame with opus_custom_encode_float, then decodes the produced
+ * packet back with opus_custom_decode_float. It returns both the packet bytes
+ * and the decoded PCM so the Go side can assert bit/sample-exact parity against
+ * gopus celt/custom.
  *
  * Protocol (little-endian):
  *   STDIN:
@@ -20,10 +29,15 @@
  *     "GCCO"           4 bytes magic
  *     uint32 N         number of results
  *     for each result:
+ *       int32  status    (>=0 packet length, <0 libopus error code)
+ *       uint32 encRange  encoder final range (OPUS_GET_FINAL_RANGE)
+ *       uint32 decRange  decoder final range (OPUS_GET_FINAL_RANGE)
  *       uint32 packetLen
  *       packetLen bytes
+ *       uint32 nDecoded  (= frame_size * channels, 0 on failure)
+ *       nDecoded * float32  decoded PCM
  *
- * Reference: libopus include/opus_custom.h, celt/celt_encoder.c.
+ * Reference: libopus include/opus_custom.h, celt/celt_encoder.c, celt/celt_decoder.c.
  */
 
 #include <stdint.h>
@@ -38,6 +52,9 @@
 
 #include "opus_custom.h"
 #include "opus_defines.h"
+/* celt.h provides CELT_SET_SIGNALLING, which is an internal (non-public) CTL.
+ * The helper build adds -I <ref>/celt via CHelperConfig.RefIncludes. */
+#include "celt.h"
 
 #define INPUT_MAGIC  "GCCO"
 #define OUTPUT_MAGIC "GCCO"
@@ -62,6 +79,7 @@ static int write_exact(const void *src, size_t n) {
 
 static int read_u32(uint32_t *out) { return read_exact(out, 4); }
 static int write_u32(uint32_t v)   { return write_exact(&v, 4); }
+static int write_i32(int32_t v)    { return write_exact(&v, 4); }
 
 static int read_f32(float *out) {
     uint32_t bits;
@@ -70,10 +88,24 @@ static int read_f32(float *out) {
     return 1;
 }
 
+static int write_f32(float v) {
+    uint32_t bits;
+    memcpy(&bits, &v, 4);
+    return write_u32(bits);
+}
+
+/* Emit a failure result: negative status, empty packet, no decoded PCM. */
+static void emit_failure(int32_t status) {
+    write_i32(status);
+    write_u32(0); /* encRange */
+    write_u32(0); /* decRange */
+    write_u32(0); /* packetLen */
+    write_u32(0); /* nDecoded */
+}
+
 int main(void) {
     if (!set_binary_stdio()) { fprintf(stderr, "binary stdio failed\n"); return 1; }
 
-    /* Read and verify input magic. */
     char magic[4];
     if (!read_exact(magic, 4) || memcmp(magic, INPUT_MAGIC, 4) != 0) {
         fprintf(stderr, "bad input magic\n"); return 1;
@@ -82,7 +114,6 @@ int main(void) {
     uint32_t n_cases;
     if (!read_u32(&n_cases)) { fprintf(stderr, "read N\n"); return 1; }
 
-    /* Write output header. */
     if (!write_exact(OUTPUT_MAGIC, 4)) { fprintf(stderr, "write magic\n"); return 1; }
     if (!write_u32(n_cases))           { fprintf(stderr, "write N\n"); return 1; }
 
@@ -105,48 +136,76 @@ int main(void) {
             }
         }
 
-        /* Create mode. */
         int err = OPUS_OK;
         OpusCustomMode *mode = opus_custom_mode_create((opus_int32)Fs, (int)frame_size, &err);
         if (!mode || err != OPUS_OK) {
             fprintf(stderr, "case %u: opus_custom_mode_create(%u,%u) error %d\n",
                     c, Fs, frame_size, err);
-            /* Emit zero-length packet so the Go side can detect the failure. */
-            write_u32(0);
+            emit_failure(err != OPUS_OK ? err : OPUS_INTERNAL_ERROR);
             continue;
         }
 
-        /* Create encoder. */
         OpusCustomEncoder *enc = opus_custom_encoder_create(mode, (int)channels, &err);
         if (!enc || err != OPUS_OK) {
             fprintf(stderr, "case %u: encoder create error %d\n", c, err);
             opus_custom_mode_destroy(mode);
-            write_u32(0);
+            emit_failure(err != OPUS_OK ? err : OPUS_INTERNAL_ERROR);
             continue;
         }
 
-        /* Configure: CBR, complexity 9, LSB depth 16 (match gopus defaults). */
+        /* Configure to match gopus celt/custom encoder defaults: CBR,
+         * complexity 9, LSB depth 16, no implicit signalling. */
         opus_custom_encoder_ctl(enc, OPUS_SET_VBR(0));
         opus_custom_encoder_ctl(enc, OPUS_SET_VBR_CONSTRAINT(0));
         opus_custom_encoder_ctl(enc, OPUS_SET_COMPLEXITY(9));
         opus_custom_encoder_ctl(enc, OPUS_SET_LSB_DEPTH(16));
         opus_custom_encoder_ctl(enc, CELT_SET_SIGNALLING(0));
 
-        /* Encode. */
         unsigned char packet[MAX_PACKET];
         int sz = opus_custom_encode_float(enc, pcm, (int)frame_size,
                                           packet, (int)maxBytes);
+        opus_uint32 encRange = 0;
+        opus_custom_encoder_ctl(enc, OPUS_GET_FINAL_RANGE(&encRange));
         opus_custom_encoder_destroy(enc);
-        opus_custom_mode_destroy(mode);
 
         if (sz < 0) {
             fprintf(stderr, "case %u: encode error %d\n", c, sz);
-            write_u32(0);
+            opus_custom_mode_destroy(mode);
+            emit_failure(sz);
             continue;
         }
 
+        /* Decode the packet we just produced. */
+        OpusCustomDecoder *dec = opus_custom_decoder_create(mode, (int)channels, &err);
+        float decoded[MAX_FRAME * 2];
+        uint32_t nDecoded = 0;
+        opus_uint32 decRange = 0;
+        if (!dec || err != OPUS_OK) {
+            fprintf(stderr, "case %u: decoder create error %d\n", c, err);
+        } else {
+            /* The encoder disabled implicit frame-size signalling, so the
+             * decoder must too, otherwise it infers the wrong frame size. */
+            opus_custom_decoder_ctl(dec, CELT_SET_SIGNALLING(0));
+            int dn = opus_custom_decode_float(dec, packet, sz, decoded, (int)frame_size);
+            opus_custom_decoder_ctl(dec, OPUS_GET_FINAL_RANGE(&decRange));
+            opus_custom_decoder_destroy(dec);
+            if (dn > 0) {
+                nDecoded = (uint32_t)dn * channels;
+            }
+        }
+        opus_custom_mode_destroy(mode);
+
+        write_i32(sz);
+        write_u32((uint32_t)encRange);
+        write_u32((uint32_t)decRange);
         if (!write_u32((uint32_t)sz) || !write_exact(packet, (size_t)sz)) {
             fprintf(stderr, "case %u: write packet\n", c); return 1;
+        }
+        write_u32(nDecoded);
+        for (uint32_t i = 0; i < nDecoded; i++) {
+            if (!write_f32(decoded[i])) {
+                fprintf(stderr, "case %u: write decoded[%u]\n", c, i); return 1;
+            }
         }
     }
 

@@ -26,6 +26,7 @@ type CHelperConfig struct {
 	RefIncludes  []string
 	QEXTRef      bool
 	FixedRef     bool
+	CustomRef    bool
 	IncludeDirs  []string
 	RefSources   []string
 	Sources      []string
@@ -115,6 +116,10 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if cfg.FixedRef {
 		ensureRef = libopustooling.EnsureLibopusFixed
 		flavor = "fixed"
+	}
+	if cfg.CustomRef {
+		ensureRef = libopustooling.EnsureLibopusCustom
+		flavor = "custom"
 	}
 	if helperNeedsConfig(cfg.CFlags) {
 		if _, err := os.Stat(filepath.Join(refDir, "config.h")); err != nil {
@@ -247,6 +252,9 @@ func helperRefDir(cfg CHelperConfig) string {
 	if cfg.QEXTRef {
 		return QEXTRefPath()
 	}
+	if cfg.CustomRef {
+		return CustomRefPath()
+	}
 	return RefPath()
 }
 
@@ -276,6 +284,7 @@ func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
 	helperHashString(h, fmt.Sprintf("dead-strip=%t", cfg.DeadStrip))
 	helperHashString(h, fmt.Sprintf("qext-ref=%t", cfg.QEXTRef))
 	helperHashString(h, fmt.Sprintf("fixed-ref=%t", cfg.FixedRef))
+	helperHashString(h, fmt.Sprintf("custom-ref=%t", cfg.CustomRef))
 	helperHashStrings(h, "cflags", cfg.CFlags)
 	helperHashStrings(h, "ref-includes", cfg.RefIncludes)
 	helperHashStrings(h, "include-dirs", cfg.IncludeDirs)

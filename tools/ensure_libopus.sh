@@ -7,6 +7,7 @@ LIBOPUS_VERSION="${LIBOPUS_VERSION:-1.6.1}"
 TARBALL="${TMP_DIR}/opus-${LIBOPUS_VERSION}.tar.gz"
 LIBOPUS_ENABLE_QEXT="${LIBOPUS_ENABLE_QEXT:-0}"
 LIBOPUS_ENABLE_FIXED="${LIBOPUS_ENABLE_FIXED:-0}"
+LIBOPUS_ENABLE_CUSTOM="${LIBOPUS_ENABLE_CUSTOM:-0}"
 LIBOPUS_CFLAGS="${LIBOPUS_CFLAGS:--O3 -DNDEBUG}"
 LIBOPUS_CPPFLAGS="${LIBOPUS_CPPFLAGS:-}"
 
@@ -20,9 +21,11 @@ normalize_bool() {
 
 ENABLE_QEXT="$(normalize_bool "${LIBOPUS_ENABLE_QEXT}" LIBOPUS_ENABLE_QEXT)"
 ENABLE_FIXED="$(normalize_bool "${LIBOPUS_ENABLE_FIXED}" LIBOPUS_ENABLE_FIXED)"
+ENABLE_CUSTOM="$(normalize_bool "${LIBOPUS_ENABLE_CUSTOM}" LIBOPUS_ENABLE_CUSTOM)"
 
-if [[ "${ENABLE_QEXT}" == "1" && "${ENABLE_FIXED}" == "1" ]]; then
-  echo "error: LIBOPUS_ENABLE_QEXT and LIBOPUS_ENABLE_FIXED are mutually exclusive" >&2
+VARIANT_COUNT=$((ENABLE_QEXT + ENABLE_FIXED + ENABLE_CUSTOM))
+if [[ "${VARIANT_COUNT}" -gt 1 ]]; then
+  echo "error: LIBOPUS_ENABLE_QEXT, LIBOPUS_ENABLE_FIXED, and LIBOPUS_ENABLE_CUSTOM are mutually exclusive" >&2
   exit 1
 fi
 
@@ -33,6 +36,12 @@ if [[ "${ENABLE_QEXT}" == "1" ]]; then
 elif [[ "${ENABLE_FIXED}" == "1" ]]; then
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-fixed"
   CONFIGURE_FLAGS+=(--enable-fixed-point)
+elif [[ "${ENABLE_CUSTOM}" == "1" ]]; then
+  # --enable-custom-modes defines CUSTOM_MODES and exposes the Opus Custom API
+  # (opus_custom_mode_create / opus_custom_encoder_create / ...). This is the
+  # only build that can serve as an oracle for non-standard-rate custom modes.
+  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-custom"
+  CONFIGURE_FLAGS+=(--enable-custom-modes)
 else
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}"
 fi
@@ -65,7 +74,7 @@ CC_PATH="$(command -v "${LIBOPUS_CC_DRIVER}" 2>/dev/null || printf "%s" "${LIBOP
 CC_TARGET="$("${LIBOPUS_CC_ARGV[@]}" -dumpmachine 2>/dev/null || true)"
 CC_VERSION="$("${LIBOPUS_CC_ARGV[@]}" --version 2>/dev/null | sed -n '1p' || true)"
 CONFIGURE_STAMP="${CONFIGURE_FLAGS[*]}"
-BUILD_STAMP=$'gopus libopus helper build v5\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${ENABLE_QEXT}"$'\nfixed='"${ENABLE_FIXED}"$'\nhost_os='"${HOST_OS}"$'\nhost_arch='"${HOST_ARCH}"$'\nhost_bits='"${HOST_BITS}"$'\ncc='"${LIBOPUS_CC}"$'\ncc_path='"${CC_PATH}"$'\ncc_target='"${CC_TARGET}"$'\ncc_version='"${CC_VERSION}"$'\nconfigure='"${CONFIGURE_STAMP}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\nLDFLAGS='"${LIBOPUS_LDFLAGS}"$'\n'
+BUILD_STAMP=$'gopus libopus helper build v5\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${ENABLE_QEXT}"$'\nfixed='"${ENABLE_FIXED}"$'\ncustom='"${ENABLE_CUSTOM}"$'\nhost_os='"${HOST_OS}"$'\nhost_arch='"${HOST_ARCH}"$'\nhost_bits='"${HOST_BITS}"$'\ncc='"${LIBOPUS_CC}"$'\ncc_path='"${CC_PATH}"$'\ncc_target='"${CC_TARGET}"$'\ncc_version='"${CC_VERSION}"$'\nconfigure='"${CONFIGURE_STAMP}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\nLDFLAGS='"${LIBOPUS_LDFLAGS}"$'\n'
 LOCK_DIR="${SRC_DIR}.lock"
 
 sha256_for_version() {

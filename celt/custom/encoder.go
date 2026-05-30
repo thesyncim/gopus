@@ -8,6 +8,10 @@ import (
 	"github.com/thesyncim/gopus/celt"
 )
 
+// bitrateMax mirrors libopus OPUS_BITRATE_MAX (celt SetBitrate sentinel for
+// "use the full per-frame byte budget").
+const bitrateMax = -1
+
 // encoderErrors for the CustomEncoder.
 var (
 	ErrEncoderNil       = errors.New("opus custom: nil encoder")
@@ -63,10 +67,14 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 	enc.SetVBR(false)
 
 	ce := &CustomEncoder{
-		mode:       mode,
-		channels:   channels,
-		enc:        enc,
-		bitrate:    64000,
+		mode:     mode,
+		channels: channels,
+		enc:      enc,
+		// libopus opus_custom_encoder_init() defaults bitrate to OPUS_BITRATE_MAX
+		// (celt/celt_encoder.c). In CBR mode the maxBytes argument to
+		// opus_custom_encode then becomes the per-frame budget that the encoder
+		// fills, rather than a bitrate-derived size. Mirror that with -1.
+		bitrate:    bitrateMax,
 		complexity: 9,
 		lsbDepth:   16,
 		vbr:        false,

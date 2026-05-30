@@ -363,6 +363,13 @@ func EnsureLibopusFixed(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "fixed")
 }
 
+// EnsureLibopusCustom invokes tools/ensure_libopus.sh with ENABLE_CUSTOM enabled
+// (libopus configured with --enable-custom-modes, defining CUSTOM_MODES and the
+// Opus Custom API) from the first matching root.
+func EnsureLibopusCustom(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom")
+}
+
 func ensureLibopus(version string, roots []string, qext bool) bool {
 	variant := "float"
 	if qext {
@@ -402,6 +409,8 @@ func ensureLibopusVariant(version string, roots []string, variant string) bool {
 			env = append(env, "LIBOPUS_ENABLE_QEXT=1")
 		case "fixed":
 			env = append(env, "LIBOPUS_ENABLE_FIXED=1")
+		case "custom":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM=1")
 		}
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
