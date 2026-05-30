@@ -21,6 +21,9 @@ func primeWidebandEncoder(enc *Encoder) {
 }
 
 func TestEncodePacketWithFECWithVADStatesUsesPerFrameState(t *testing.T) {
+	if silkFixedEncodeBuild {
+		t.Skip("FIXED_POINT SILK encode runs silk_VAD_GetSA_Q8 internally; injected VAD state does not drive the bitstream")
+	}
 	frame := 320 // 20ms at 16kHz (WB)
 	pcm := makeMonoPacketSignal(16000, frame*2)
 	vadFlags := []bool{true, true}

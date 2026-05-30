@@ -2,6 +2,9 @@
 
 package encoder
 
+// fixedPointBuild is false in the default (float) build.
+const fixedPointBuild = false
+
 // encoderFixedCELTFields is empty in the default (float) build, keeping the
 // Encoder struct byte-unchanged.
 type encoderFixedCELTFields struct{}

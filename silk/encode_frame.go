@@ -177,6 +177,15 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		}
 	}
 
+	// Under the gopus_fixedpoint build the SILK analysis + rate-control body is
+	// driven by the bit-exact FIXED_POINT chain instead of the float analysis.
+	// The surrounding orchestration (range-coder init, LBRR header, multi-frame
+	// loop, VAD/FEC header patch) is shared with the float path.
+	if e.fixedEncodeActive() {
+		return e.encodeFrameFixedBody(pcm, frameSamples, numSubframes, subframeSamples,
+			payloadSizeMs, condCoding, vadFlag, firstFrameAfterReset, useSharedEncoder, blockUseCBR)
+	}
+
 	// Step 1: Determine activity and defaults
 	var signalType, quantOffset int
 	speechActivityQ8 := int32(0)
@@ -752,6 +761,14 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 		copy(e.pitchAnalysisBuf[start:], framePCM[:pitchBufFrameLen])
 	}
 
+	return e.finalizeEncodeFrame(frameSamples, payloadSizeMs, vadFlag, useSharedEncoder)
+}
+
+// finalizeEncodeFrame performs the per-frame buffer shift and the shared
+// packet-finalization tail (header patch, byte count, nBitsExceeded, bandwidth
+// switch). It is shared between the float analysis path and the FIXED_POINT
+// driver so both produce identical packet bookkeeping.
+func (e *Encoder) finalizeEncodeFrame(frameSamples, payloadSizeMs int, vadFlag, useSharedEncoder bool) []byte {
 	// Shift input buffer at end of frame (matches libopus memmove timing)
 	e.shiftInputBuffer(frameSamples)
 

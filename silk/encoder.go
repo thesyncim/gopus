@@ -22,6 +22,11 @@ type VADFrameAnalyzer func(frame []float32, frameSamples, fsKHz int) (VADFrameSt
 //
 // Reference: RFC 6716 Section 5.2, draft-vos-silk-01
 type Encoder struct {
+	// silkEncoderFixedFields carries the FIXED_POINT integer SILK encode state
+	// added under the gopus_fixedpoint build. It is empty (zero-size) in the
+	// default build, keeping the Encoder struct byte-unchanged.
+	silkEncoderFixedFields
+
 	// Range encoder reference (set per frame)
 	rangeEncoder *rangecoding.Encoder
 
@@ -396,6 +401,7 @@ func NewEncoder(bandwidth Bandwidth) *Encoder {
 
 // Reset clears encoder state for a new stream.
 func (e *Encoder) Reset() {
+	e.resetFixedState()
 	e.haveEncoded = false
 	e.previousLogGain = 0
 	e.previousGainIndex = 0

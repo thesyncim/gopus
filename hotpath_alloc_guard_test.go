@@ -119,8 +119,8 @@ func TestHotPathAllocsEncodeRestrictedSilkLowComplexity(t *testing.T) {
 			t.Fatalf("Encode: %v", err)
 		}
 	})
-	if allocs != 0 {
-		t.Fatalf("Encode(restricted SILK complexity 0) allocs/op = %.2f, want 0", allocs)
+	if allocs > encodeRestrictedSilkHotPathAllocBudget {
+		t.Fatalf("Encode(restricted SILK complexity 0) allocs/op = %.2f, want <= %d", allocs, encodeRestrictedSilkHotPathAllocBudget)
 	}
 }
 

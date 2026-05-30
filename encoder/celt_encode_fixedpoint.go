@@ -10,6 +10,12 @@ import (
 	"github.com/thesyncim/gopus/types"
 )
 
+// fixedPointBuild reports whether the gopus_fixedpoint integer codec paths are
+// compiled in. Golden-fixture tests calibrated against the float SILK encode
+// path gate on it (the FIXED_POINT SILK encode produces byte-exact-to-libopus
+// payloads that differ from the float golden bytes).
+const fixedPointBuild = true
+
 // encoderFixedCELTFields carries the integer (FIXED_POINT) CELT encoder state
 // added under the gopus_fixedpoint build. It is empty in the default build.
 type encoderFixedCELTFields struct {

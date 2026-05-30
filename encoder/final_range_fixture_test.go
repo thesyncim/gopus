@@ -36,6 +36,9 @@ type finalRangeVariantFixturePacket struct {
 }
 
 func TestSILKFinalRangeUsesLastPacketModeWithCELTSidecar(t *testing.T) {
+	if fixedPointBuild {
+		t.Skip("golden fixture is float-encoded; the FIXED_POINT SILK encode produces a byte-exact-to-libopus payload that differs from the float golden bytes")
+	}
 	if runtime.GOOS == "windows" && !finalRangePlatformFixtureExists() {
 		t.Skip("exact final-range fixture needs a Windows-generated libopus fixture")
 	}

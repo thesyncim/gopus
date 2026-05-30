@@ -6,6 +6,9 @@ import (
 )
 
 func TestEncodeFrameQuantizesInputPCM(t *testing.T) {
+	if silkFixedEncodeBuild {
+		t.Skip("inspects the float x_buf; the FIXED_POINT encode path maintains a separate int16 x_buf")
+	}
 	enc := NewEncoder(BandwidthWideband)
 	config := GetBandwidthConfig(BandwidthWideband)
 	frameSamples := config.SampleRate * 20 / 1000

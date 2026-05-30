@@ -109,6 +109,9 @@ func TestNB10msEncoderDownsamplerAmplitudeRegression(t *testing.T) {
 }
 
 func TestNB10msNativeDecodePathRegression(t *testing.T) {
+	if silkFixedEncodeBuild {
+		t.Skip("calibrated against the float SILK encode path; FIXED_POINT encode produces a different (byte-exact-to-libopus) packet")
+	}
 	for _, tc := range []struct {
 		name string
 		bw   Bandwidth
