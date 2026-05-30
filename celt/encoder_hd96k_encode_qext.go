@@ -51,9 +51,13 @@ package celt
 //   - Downstream TF/allocation/PVQ band-data parity at the HD scale (stereo's
 //     analysis is bit-exact through coarse energy but the main payload still
 //     diverges in the band-data region).
-//   - The top-level Opus packet framing of the reserved extension payload
-//     (encoder_96k_qext.go) still resamples 2:1 rather than emitting a native
-//     96 kHz QEXT packet.
+//
+// The top-level Opus packet framing of the reserved extension payload is wired:
+// the public Encode at Fs=96000 (with QEXT enabled) emits a native 96 kHz QEXT
+// packet whose TOC, frame-count byte, padding-length field, main-payload byte
+// budget and 0xF8 QEXT extension layout are byte-exact vs the reference (see
+// encoder.EncodeNativeHD96k); only the main CELT payload bytes still carry the
+// comb / band-data residual above.
 
 // EnableHD96kMode reconfigures the encoder analysis state for the native 96 kHz
 // HD mode. It is idempotent and must be called before encoding 96 kHz frames.

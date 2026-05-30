@@ -12,16 +12,23 @@ package gopus
 // Native 96 kHz CELT encode is wired at the CELT layer: celt.Encoder
 // EnableHD96kMode threads overlap=240, the 2-tap HD pre-emphasis and the
 // Fs=96000 bitrate/QEXT-reservation budget through EncodeFrame(pcm, 1920), and
-// drives the >20 kHz extension-band encode into the secondary range coder. The
-// early frame structure (silence/postfilter/transient/intra flags, the CBR
-// main-payload byte budget) is bit-exact vs the QEXT reference; full byte parity
-// additionally needs the analysis comb prefilter at the HD scale
-// (max_period = QEXT_SCALE(COMBFILTER_MAXPERIOD) = 2048) and the top-level Opus
-// packet framing of the reserved extension payload in packet padding. Until
-// those land, the public Encode at Fs=96000 stays on the proven 2:1 resample
-// wrapper below so the shipped 96 kHz packets remain valid. SILK/Hybrid modes
-// are not supported at 96 kHz (no 8/12 kHz resampler path in libopus at
-// Fs=96000).
+// drives the >20 kHz extension-band encode into the secondary range coder.
+//
+// When QEXT is enabled, the public Encode at Fs=96000 runs that native HD96k
+// CELT-only path and assembles the full Opus packet via the encoder package's
+// top-level QEXT framing (TOC code 3, padding-length field, main CELT payload
+// and the reserved 0xF8 QEXT extension) byte-for-byte like libopus
+// --enable-qext at Fs=96000: see tryEncodeNative96k and
+// encoder.EncodeNativeHD96k. The TOC, frame-count byte, padding-length field,
+// main-payload byte budget and the QEXT extension layout are bit-exact vs the
+// QEXT reference; the main CELT payload bytes still carry the HD-scale comb
+// prefilter residual (mono) / band-data divergence (stereo) tracked in
+// celt/encoder_hd96k_encode_qext.go.
+//
+// When QEXT is disabled the public Encode at Fs=96000 falls back to the proven
+// 2:1 resample wrapper below so the shipped 96 kHz packets remain valid.
+// SILK/Hybrid modes are not supported at 96 kHz (no 8/12 kHz resampler path in
+// libopus at Fs=96000).
 type encoderHD96kFields struct {
 	apiIs96kHz bool
 	scratch96k []float32 // downsampled 48 kHz scratch for 96 kHz input path
@@ -69,6 +76,35 @@ func (e *Encoder) checkAndDownsample96k(pcm []float32) ([]float32, int, error) {
 		}
 	}
 	return dst, frameSize48, nil
+}
+
+// tryEncodeNative96k routes the 96 kHz encode through the native HD96k CELT
+// path when QEXT is enabled. The native path runs a CELT-only fullband encode
+// at the 1920-sample (20 ms) frame size and assembles the full Opus packet
+// (TOC code 3, padding-length field, main CELT payload and the reserved QEXT
+// extension) byte-for-byte like libopus --enable-qext at Fs=96000.
+//
+// Returns handled=false when QEXT is disabled or the requested frame size is
+// not the native 1920-sample frame, so the caller falls back to the 2:1
+// decimate path.
+func (e *Encoder) tryEncodeNative96k(pcm []float32, data []byte) (int, bool, error) {
+	if !e.enc.QEXT() {
+		return 0, false, nil
+	}
+	// Native HD96k operates on 20 ms / 1920-sample frames only.
+	const nativeFrameSize = 1920
+	if e.apiFrameSize() != nativeFrameSize {
+		return 0, false, nil
+	}
+	if len(pcm) != nativeFrameSize*int(e.channels) {
+		return 0, true, ErrInvalidFrameSize
+	}
+	n, err := e.enc.EncodeNativeHD96k(pcm, nativeFrameSize, data)
+	if err != nil {
+		return 0, true, err
+	}
+	e.encodedOnce = true
+	return n, true, nil
 }
 
 // init96kEncoder initialises the 96 kHz API flag on a newly-created Encoder.

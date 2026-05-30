@@ -39,10 +39,17 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 }
 
 // encode96k handles Encode for a 96 kHz API-rate Encoder.
-// It downsamples 2:1 then encodes via the 48 kHz internal pipeline.
+//
+// When QEXT is enabled the native 96 kHz CELT-only HD path runs (1920-sample
+// frames, >20 kHz extension bands carried in the QEXT padding extension) and
+// the full Opus packet is assembled by the encoder package's HD96k framing.
+// Otherwise it falls back to a 2:1 decimate + 48 kHz internal encode.
 func (e *Encoder) encode96k(pcm []float32, data []byte) (int, error) {
 	if len(data) == 0 {
 		return 0, ErrBufferTooSmall
+	}
+	if n, handled, err := e.tryEncodeNative96k(pcm, data); handled {
+		return n, err
 	}
 	pcm48, frameSize48, err := e.checkAndDownsample96k(pcm)
 	if err != nil {

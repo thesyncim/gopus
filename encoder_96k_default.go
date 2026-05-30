@@ -12,5 +12,9 @@ func (e *Encoder) checkAndDownsample96k(_ []float32) ([]float32, int, error) {
 	panic("checkAndDownsample96k called without gopus_qext build tag")
 }
 
+func (e *Encoder) tryEncodeNative96k(_ []float32, _ []byte) (int, bool, error) {
+	return 0, false, nil
+}
+
 func init96kEncoder(_ *Encoder) {}
 
