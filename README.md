@@ -39,12 +39,22 @@ PitchDNN/FARGAN), `gopus_qext` = `--enable-qext`/`ENABLE_QEXT`, `gopus_custom` =
 extension framing, and Opus Custom standard modes are parity-complete and
 SUPPORTED under their build tag — none are experimental.
 
-Two efforts are still in progress and honestly marked as such: native 96 kHz
-(Opus HD) bitstream parity (the `-tags gopus_qext` 96 kHz path is a resampling
-wrapper over the 48 kHz CELT core, not native-bitstream byte parity with
-libopus's 96 kHz CELT mode), and the full fixed-point pipeline. Default-build
-API sample rates are 8/12/16/24/48 kHz; 96 kHz is accepted only under
-`-tags gopus_qext`.
+Under `-tags gopus_fixedpoint` (mirroring libopus `FIXED_POINT`), the public
+DECODE path is bit-exact with the `--enable-fixed-point` libopus oracle:
+`DecodeInt16`/`DecodeInt24` are byte-/sample-exact for CELT-only, SILK-only, and
+Hybrid, and the integer CELT encode+decode codec is assembled and exact (subject
+to the documented per-arch arm64 ≤1-ULP CELT tail; amd64/CI is hard-exact).
+
+Two efforts remain partial and are honestly marked as such. Native 96 kHz
+(Opus HD) **decode** under `-tags gopus_qext` is native and sample-exact vs the
+QEXT-enabled libopus reference (native HD96k CELT mode, no resample); native
+96 kHz **encode** has its HD-scale analysis MDCT and band-energy scaling wired
+but is not yet byte-identical to libopus (documented residuals in the comb
+prefilter, downstream stereo allocation, and top-level framing). The remaining
+fixed-point work is the Opus-level decode fallbacks (redundancy / mode-transition
+/ PLC still use the float conversion) and the SILK encode-frame driver.
+Default-build API sample rates are 8/12/16/24/48 kHz; 96 kHz is accepted only
+under `-tags gopus_qext`.
 
 Reference behavior comes from `tmp_check/opus-1.6.1/`. When behavior is
 uncertain, match libopus unless fixture evidence says otherwise.

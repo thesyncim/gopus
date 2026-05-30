@@ -1,12 +1,49 @@
 # Fixed-point pipeline
 
-Scope, oracle recipe, ported kernels, and staged roadmap toward a full
-`gopus_fixedpoint` integer CELT/SILK encode+decode pipeline.
+Scope, current status, oracle recipe, ported kernels, and remaining work for the
+`gopus_fixedpoint` integer CELT/SILK pipeline.
 
-The full fixed-point pipeline is the approved goal: it mirrors libopus
-`FIXED_POINT` and lives behind the `gopus_fixedpoint` build tag, with zero cost
-to the default (float) build. The default build does not import the fixed-point
-packages, so there is no code-size or runtime impact when the tag is absent.
+The full fixed-point pipeline mirrors libopus `FIXED_POINT` and lives behind the
+`gopus_fixedpoint` build tag, with zero cost to the default (float) build. The
+default build does not import the fixed-point packages, so there is no code-size
+or runtime impact when the tag is absent.
+
+---
+
+## Status (current)
+
+Under `-tags gopus_fixedpoint`, the public **DECODE** path is bit-exact with the
+`--enable-fixed-point` libopus oracle:
+
+- **CELT-only** `DecodeInt16` / `DecodeInt24` — byte-/sample-exact
+  (`TestDecoderFixedPointCELTParity`).
+- **SILK-only** `DecodeInt16` / `DecodeInt24` — byte-/sample-exact
+  (`TestDecoderFixedPointSILKParity`); gopus SILK decode is inherently integer
+  (int16 native samples + int16 resampler), so the existing path is already
+  FIXED_POINT-exact.
+- **Hybrid** `DecodeInt16` / `DecodeInt24` — byte-/sample-exact
+  (`TestDecoderFixedPointHybridParity`): the integer SILK lowband (`INT16TORES`)
+  is combined with the integer CELT highband (start band 17, `celt_accum`) from
+  the shared range decoder.
+
+All three are hard-exact on amd64/CI and bound the documented per-arch ≤1-ULP
+CELT drift on arm64 (`project_arm64_celt_1ulp_drift.md`).
+
+The integer FFT/MDCT/bands/PVQ/mathops kernels are **assembled into a full
+integer CELT codec** that is byte-/sample-exact vs FIXED_POINT, covering encode
+(CBR/VBR/CVBR, LM0–3, complexity 0/5/8/10, 6–510 kb/s, multi-frame stateful) and
+decode (mono/stereo, normal/transient, LM1–3, 32k–128k, sub-48k downsample,
+periodic+noise PLC).
+
+**Remaining (partial):**
+
+- Opus-level decode fallbacks: the public `DecodeInt16`/`DecodeInt24` wrappers
+  still drop to the float conversion (rather than the integer path) for
+  Hybrid-with-redundancy, CELT↔SILK / mode-transition crossfades, CELT-burst PLC,
+  and a non-zero decode gain. Output is correct (float) but not the integer-exact
+  bytes for those packets.
+- Encode-frame glue: the SILK `silk_encode_frame` driver, and CELT
+  hybrid(start>0)/LFE/surround/QEXT encode.
 
 ---
 
@@ -39,22 +76,24 @@ defined via the float build; the fixed-point build is a mobile/embedded profile.
 | CELT CWRS encode/decode (`celt/cwrs.go`) | Integer-exact; oracle-tested. |
 | CELT alloc tables, modes, spread counts | Integer constants / tables. |
 
-### Float in gopus, integer in libopus FIXED_POINT build
+### Float in the default build; bit-exact integer under `gopus_fixedpoint`
 
-| Module | gopus implementation | libopus FIXED_POINT equivalent |
+The default (float) build keeps these modules in float32 — the float pipeline is
+the RFC-conforming reference and stays untouched. Under `-tags gopus_fixedpoint`,
+`internal/fixedpoint` provides bit-exact integer counterparts (oracle-verified
+against `--enable-fixed-point` libopus) and assembles them into the full integer
+CELT codec described under "Status".
+
+| Module | default-build (float) implementation | integer counterpart under `gopus_fixedpoint` |
 |---|---|---|
-| CELT log2 / exp2 | `celt/log2_approx.go`, `celt/exp2_approx.go` — float32 FLOAT_APPROX polynomial | `celt/mathops.h` `celt_log2(int32)→int16`, `celt_exp2(int16)→int32` — integer polynomial |
-| CELT rsqrt / rcp | `celt/pvq.go`, `celt/bands.go` — `1/sqrt(x)` via `math.Sqrt` | `celt/mathops.c` `celt_rsqrt_norm`, `celt_rcp` — integer Newton iteration |
-| CELT MDCT / KissFFT | `celt/kissfft32.go`, `celt/mdct.go` — `float32` arrays and twiddles | `celt/kiss_fft.c` + `celt/mdct.c` — `kiss_fft_scalar = int32`, twiddles from `static_modes_fixed.h` |
-| CELT band energy quant / normalization | `celt/energy.go`, `celt/bands.go` — `float32` | Uses integer log2/exp2 via `celt_ener` (Q14) and `celt_sig` (Q27) |
-| CELT PVQ search | `celt/pvq_search.go` — `float32` inner products | `celt/vq.c` FIXED_POINT path — `celt_norm` (int32 Q24) inner products |
-| SILK encoder analysis | `silk/pitch_detect.go`, `silk/lpc_analysis.go`, `silk/noise_shape_analysis.go`, etc. — `float32`/`float64` | `silk/fixed/` — 20+ files replacing every encoder analysis step with integer equivalents |
-| SILK LPC synthesis output | `silk/lpc.go` — converts int32 excitation to `float32` normalized output | `silk/decode_core.c` keeps everything in int16 until final `silk_SMULWW(…, Gain_Q10)>>8` into `opus_int16` |
-
-**Rough line count of float-domain work in gopus signal path** (non-test files):
-- `celt/`: ~2 700 float references
-- `silk/` encoder: ~740 float references
-- `silk/` decoder output stage: ~60 float references (output conversion, LPC synthesis, resampler)
+| CELT log2 / exp2 | `celt/log2_approx.go`, `celt/exp2_approx.go` — float32 FLOAT_APPROX polynomial | integer `celt_log2`/`celt_exp2`/`celt_exp2_frac` — bit-exact |
+| CELT rsqrt / rcp / sqrt | `celt/pvq.go`, `celt/bands.go` — via `math.Sqrt` | integer `celt_rsqrt_norm`/`celt_rcp`/`celt_sqrt`/`sqrt32`/`cos_norm`/`frac_div32` — bit-exact |
+| CELT MDCT / KissFFT | `celt/kissfft32.go`, `celt/mdct.go` — `float32` arrays and twiddles | integer KISS-FFT `kf_bfly2/3/4/5` + driver and integer MDCT fwd/bwd (`kiss_fft_scalar = int32`, fixed twiddles) — bit-exact |
+| CELT band energy quant / normalization | `celt/energy.go`, `celt/bands.go` — `float32` | integer `compute_band_energies`/`normalise_bands`/`denormalise_bands`/`anti_collapse`/`renormalise_vector`/`amp2Log2` (`celt_ener` Q14, `celt_sig` Q27) — bit-exact |
+| CELT PVQ search | `celt/pvq_search.go` — `float32` inner products | integer `op_pvq_search` + `alg_quant`/`alg_unquant` (`celt_norm` int32 Q24; range-coder byte-exact) — bit-exact |
+| CELT comb filter | `celt/prefilter.go` — `float32` | integer `comb_filter` — bit-exact |
+| SILK encoder analysis | `silk/pitch_detect.go`, `silk/lpc_analysis.go`, `silk/noise_shape_analysis.go`, etc. — `float32`/`float64` | integer encoder-analysis kernels (autocorr/Burg LPC, `schur`/`k2a`(+`_Q16`/64), `find_LTP`, `process_gains`, warped autocorr/gain, sine window, residual energy, pitch `calc_energy_st3`, NSQ noise-shape quantizer) — bit-exact (kernel-level; encode-frame driver glue still pending) |
+| SILK LPC synthesis output | `silk/lpc.go` — converts int32 excitation to `float32` | gopus SILK decode is inherently integer; SILK-only `DecodeInt16`/`DecodeInt24` are already FIXED_POINT-exact |
 
 ---
 
@@ -118,58 +157,52 @@ sanity layer; the oracle test is the bit-exact gate.
 
 ---
 
-## Staged roadmap
+## Roadmap (status)
 
-### Stage 0 (done)
-- `internal/fixedpoint`: CELT integer math kernels, property tests.
+### Stage 0 — CELT integer math kernels (done)
+- `internal/fixedpoint`: CELT integer math kernels + property tests.
 
 ### Stage 1 — CELT fixed-point oracle (done)
 - `FIXED_POINT` libopus reference build wired into the oracle infrastructure
   (`make ensure-libopus-fixed`, `FixedRefPath`, `CHelperConfig.FixedRef`).
-- `celt_sqrt` ported (`CeltSqrt`) and covered by a bit-exact oracle test.
-- Remaining within this stage: wire `celt_log2`, `celt_exp2`,
-  `celt_rsqrt_norm`, `celt_rcp` into the same fixed oracle helper to replace
-  their accuracy-only tests with bit-exact ones.
+- `celt_sqrt`/`celt_log2`/`celt_exp2`/`celt_rsqrt_norm`/`celt_rcp` covered by
+  bit-exact oracle tests.
 
-### Stage 2 — SILK decoder integer output (medium)
-- Replace `silk/lpc.go`'s float32 synthesis with a direct Q14 accumulation that
-  stays in int32 until the final `>>8` (matching `silk/decode_core.c`).
-- Replace the float32 output buffer with an int16 buffer matching libopus's
-  `outBuf [maxFrameLength + 2*maxSubFrameLength]int16`.
-- Remove float normalization from `silk/decode.go` (or keep as a thin wrapper
-  for the public float32 API).
-- Effort: ~2–3 days.  Risk: the OSCE/DeepPLC hooks pass `[]float32` to the PLC
-  bridge; the boundary needs careful handling.
+### Stage 2 — SILK decoder integer output (done)
+- gopus SILK decode is inherently integer; SILK-only `DecodeInt16`/`DecodeInt24`
+  are FIXED_POINT-exact (`TestDecoderFixedPointSILKParity`).
 
-### Stage 3 — CELT MDCT / KissFFT integer (large)
-- Replace the `float32` twiddle tables with the fixed-point tables from
-  `celt/static_modes_fixed.h`.
-- Rewrite the butterfly kernels to use `MULT16_32_Q15` style integer arithmetic.
-- This is the most invasive CELT change: ~1 000 lines across `kissfft32.go` and
-  `mdct.go`, plus assembly paths on arm64 and amd64.
-- Effort: 1–2 weeks.
+### Stage 3 — CELT MDCT / KissFFT integer (done)
+- Integer KISS-FFT butterflies (`kf_bfly2/3/4/5`) + driver and integer MDCT
+  fwd/bwd, oracle-verified bit-exact.
 
-### Stage 4 — CELT band processing integer (large)
-- Convert band energy, normalization, PVQ search, alloc-trim, and spread to use
-  `celt_norm` (int32 Q24) and `celt_ener` (int32 Q14) types.
-- Effort: 2–3 weeks.
+### Stage 4 — CELT band processing integer (done)
+- Integer band energy, normalization, PVQ search, `alg_quant`/`alg_unquant`,
+  anti-collapse, renormalise — assembled into the full integer CELT codec
+  (encode CBR/VBR/CVBR + decode incl. PLC), oracle-verified bit-exact.
 
-### Stage 5 — SILK encoder analysis integer (very large)
-- Port `silk/fixed/` (~20 files: autocorr_FIX, burg_modified_FIX,
-  pitch_analysis_core_FIX, noise_shape_analysis_FIX, find_LPC_FIX, etc.).
-- These are structurally independent of the decoder; they only affect the
-  encoder side.
-- Effort: 3–4 weeks.
+### Stage 5 — Public DECODE integer-exact (done)
+- `DecodeInt16`/`DecodeInt24` are bit-exact vs FIXED_POINT for CELT-only,
+  SILK-only, and Hybrid (`TestDecoderFixedPoint{CELT,SILK,Hybrid}Parity`).
 
-Full fixed-point parity (all five stages complete) is a 6–8 week effort.
+### Remaining (partial)
+- **Opus-level decode fallbacks**: the int16/int24 wrappers still use the float
+  conversion for Hybrid-with-redundancy, CELT↔SILK / mode-transition crossfades,
+  CELT-burst PLC, and a non-zero decode gain.
+- **SILK encoder-analysis integer driver**: the kernels are ported and
+  oracle-verified, but the `silk_encode_frame` glue (and CELT
+  hybrid(start>0)/LFE/surround/QEXT encode) is not yet assembled into a bit-exact
+  fixed-point encode path. gopus's default SILK is already integer.
 
 ---
 
 ## Approach
 
-The full fixed-point pipeline is the approved goal. It is built incrementally,
-each step gated by a bit-exact `FIXED_POINT` oracle, behind the
-`gopus_fixedpoint` tag so the default float build stays untouched and zero-cost.
+The fixed-point pipeline is built incrementally, each step gated by a bit-exact
+`FIXED_POINT` oracle, behind the `gopus_fixedpoint` tag so the default float
+build stays untouched and zero-cost. Public decode is bit-exact today; the
+remaining encode-frame glue and Opus-level decode fallbacks follow the same
+discipline.
 
 Build discipline:
 

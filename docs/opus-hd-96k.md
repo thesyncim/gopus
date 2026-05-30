@@ -1,7 +1,9 @@
 # Native 96 kHz Opus HD (QEXT)
 
-How gopus targets byte-parity with libopus 1.6.1's native 96 kHz CELT mode, and
-what the foundation layer under the `gopus_qext` build tag currently provides.
+How gopus implements libopus 1.6.1's native 96 kHz CELT mode under the
+`gopus_qext` build tag. Native **decode** is sample-exact vs the QEXT oracle;
+native **encode** has its HD-scale analysis wired but is not yet byte-identical
+(documented residuals below).
 
 ## libopus reference (QEXT oracle)
 
@@ -73,7 +75,7 @@ The MDCT twiddle table laid out in `mdct_lookup.trig` is the concatenation of th
 per-shift segments, length `N - (N2 >> maxshift) = 3840 - (1920>>3) = 3600`,
 matching `mdct_twiddles1920[3600]`.
 
-## What the foundation provides
+## The mode definition
 
 `celt/mode_hd96k_qext.go` (`//go:build gopus_qext`) defines `HD96kMode` and
 `NewHD96kMode()`: the scalar fields above, the shared `eBands`/`logN`, the
@@ -88,16 +90,53 @@ the documented darwin/arm64 cosine-kernel residual (see
 
 The mode is `gopus_qext`-gated and imported by nothing in the default build.
 
-## Remaining work (not in this layer)
+## Decode: native and sample-exact
 
-This is the mode definition only. Still to come for full native-96k byte parity:
+The native 96 kHz mode is wired through the public decoder. At `Fs=96000`,
+`decoder_96k_qext.go` routes decode to the native HD96k CELT driver
+(`celtDecoder.EnableHD96kMode()` + `DecodeFrame` at frameSize=1920): overlap 240,
+the 3840-sample MDCT, the HD pre-emphasis, and the larger KISS-FFT states. **No
+resampling.** A real native 96 kHz QEXT bitstream decodes to genuine 96 kHz PCM
+carrying >24 kHz energy, sample-exact against the QEXT-enabled libopus reference:
 
-1. Wire the 3840-point forward/inverse MDCT and the larger KISS-FFT states
-   (nfft up to 960) into the CELT encode/decode pipelines at 96 kHz.
-2. Route the public API at `Fs=96000` to the native mode instead of the current
-   2:1 resampling wrapper (`sample_rate_qext.go`, `encoder_96k_qext.go`,
-   `decoder_96k_qext.go`), which decimates to 48 kHz today.
-3. The QEXT extension bitstream (>20 kHz bands, `compute_qext_mode` /
-   `qext_cache`, extension framing) layered on top of the base 96 kHz mode.
-4. Full-packet encode/decode parity against `opus_demo`/`qext_compare` from the
-   QEXT build.
+- `TestNative96kDecodeMatchesQEXTOracleMono` / `…Stereo` — strict per-frame sample
+  parity (amd64/CI hard gate; arm64 bounds the documented ≤1-ULP CELT-kernel tail).
+- `TestQEXTDecode96kOracleProducesNative96k` — confirms the decoded output is true
+  native 96 kHz (30 kHz energy a 2:1-resampled 48 kHz decode could not produce).
+
+## Encode: native analysis wired, public path still resamples
+
+Native 96 kHz CELT **encode** is wired at the CELT layer (`encoder_96k_qext.go`,
+`celt.Encoder.EnableHD96kMode`): the HD-scale analysis MDCT (3840/480), the
+band-energy bin scaling (`ScaledBandStart = eBand*frameSize/120`), the HD-scale
+comb prefilter (`run_prefilter` max_period = `QEXT_SCALE(COMBFILTER_MAXPERIOD)` =
+2048), the 2-tap HD pre-emphasis, the Fs=96000 bitrate/QEXT-reservation budget,
+and the >20 kHz extension-band encode into the secondary range coder. The early
+frame structure and the mono CBR main-payload byte budget — through coarse
+energy, which decodes bit-identically (stereo coarse energy is bit-identical
+too) — match the QEXT reference (`TestHD96kNativeEncodeMainPayloadParity`).
+
+Native 96 kHz encode is **not yet byte-identical** to libopus. The
+documented remaining encode residuals:
+
+1. The mono main payload diverges within the postfilter/comb-filter region: the
+   HD comb prefilter feeds a slightly different excitation than the reference
+   (the same `comb_filter` QEXT residual documented on the decode side).
+2. Stereo (postfilter off, analysis bit-exact through coarse energy) diverges
+   after coarse energy, in the downstream allocation.
+3. Top-level Opus packet framing of the reserved extension payload in packet
+   padding.
+
+Until those close, the **public** `Encode` at `Fs=96000` stays on the proven 2:1
+resample wrapper so shipped 96 kHz packets remain valid; the native encode path
+is exercised directly by the parity test, which documents and skips each residual
+rather than failing.
+
+## Remaining work for full native-96k encode byte parity
+
+1. Close the mono comb-filter / postfilter excitation residual.
+2. Close the downstream stereo allocation divergence after coarse energy.
+3. Top-level framing of the reserved extension payload.
+4. Route the public `Encode` at `Fs=96000` to the native mode once the above are
+   byte-exact, and add full-packet encode parity against `opus_demo` /
+   `qext_compare` from the QEXT build.
