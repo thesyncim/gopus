@@ -78,7 +78,7 @@ static int write_u32(uint32_t value) {
  * upsample scaling branch is omitted. */
 static void frontend_compute_mdcts(const CELTMode *mode, int shortBlocks,
                                    celt_sig *in, celt_sig *out, int C, int CC,
-                                   int LM) {
+                                   int LM, int upsample) {
   const int overlap = mode->overlap;
   int N, B, shift;
   int i, b, c;
@@ -101,6 +101,16 @@ static void frontend_compute_mdcts(const CELTMode *mode, int shortBlocks,
   if (CC == 2 && C == 1) {
     for (i = 0; i < B * N; i++)
       out[i] = ADD32(HALF32(out[i]), HALF32(out[B * N + i]));
+  }
+  if (upsample != 1) {
+    c = 0;
+    do {
+      int bound = B * N / upsample;
+      for (i = 0; i < bound; i++)
+        out[c * B * N + i] *= upsample;
+      for (i = bound; i < B * N; i++)
+        out[c * B * N + i] = 0;
+    } while (++c < C);
   }
 }
 
@@ -273,16 +283,18 @@ done:
 /* MODE_FRONTEND wire format (after the GCEI header, version 1, mode and unused
  * count word):
  *   u32 channels, u32 frame_size, u32 start, u32 end, u32 isTransient,
- *   u32 nsamples (= channels*frame_size)
+ *   u32 upsample, u32 nsamples (= channels*frame_size, at the API rate)
  *   nsamples x i16 pcm (padded to a 4-byte boundary on the wire)
  * Output (after the GCEO header, version 1, count = C*N):
  *   C*N x i32 freq (celt_sig)
  *   C*nbEBands x i32 bandE (celt_ener)
- *   C*N x i32 X (celt_norm) */
+ *   C*N x i32 X (celt_norm)
+ * frame_size is the API-rate per-channel count; the 48 kHz core is frame_size*upsample. */
 static int eval_frontend(void) {
-  uint32_t channels, frame_size, start, end, isTransient, nsamples;
+  uint32_t channels, frame_size, start, end, isTransient, upsample, nsamples;
   uint32_t i, padded;
   int C, CC, LM, M, N, overlap, nbEBands, effEnd, effEBands, shortBlocks, c;
+  int Nu;
   int16_t *pcm16 = NULL;
   opus_res *pcm = NULL;
   celt_sig *in = NULL;
@@ -295,9 +307,11 @@ static int eval_frontend(void) {
   int ok = 0;
 
   if (!read_u32(&channels) || !read_u32(&frame_size) || !read_u32(&start) ||
-      !read_u32(&end) || !read_u32(&isTransient) || !read_u32(&nsamples)) {
+      !read_u32(&end) || !read_u32(&isTransient) || !read_u32(&upsample) ||
+      !read_u32(&nsamples)) {
     return 0;
   }
+  if (upsample == 0) upsample = 1;
 
   pcm16 = (int16_t *)malloc((nsamples ? nsamples : 1) * sizeof(*pcm16));
   pcm = (opus_res *)malloc((nsamples ? nsamples : 1) * sizeof(*pcm));
@@ -320,8 +334,9 @@ static int eval_frontend(void) {
   nbEBands = mode->nbEBands;
   effEBands = mode->effEBands;
 
+  Nu = (int)frame_size * (int)upsample;
   for (LM = 0; LM <= mode->maxLM; LM++) {
-    if ((mode->shortMdctSize << LM) == (int)frame_size) break;
+    if ((mode->shortMdctSize << LM) == Nu) break;
   }
   M = 1 << LM;
   N = M * mode->shortMdctSize;
@@ -338,17 +353,18 @@ static int eval_frontend(void) {
 
   /* Mirror the fresh-encoder frame-0 in-buffer construction: overlap prefix
      comes from prefilter_mem (all zero), and celt_preemphasis runs with
-     preemph_memE == 0. upsample == 1, clip == 0 for the 48k core. */
+     preemph_memE == 0 and clip == 0. The API-rate pcm is zero-stuffed up to
+     the 48 kHz core by celt_preemphasis (upsample > 1). */
   for (c = 0; c < CC; c++) {
     int j;
     preemph_mem = 0;
-    celt_preemphasis(pcm + c, in + c * (N + overlap) + overlap, N, CC, 1,
-                     mode->preemph, &preemph_mem, 0);
+    celt_preemphasis(pcm + c, in + c * (N + overlap) + overlap, N, CC,
+                     (int)upsample, mode->preemph, &preemph_mem, 0);
     for (j = 0; j < overlap; j++)
       in[c * (N + overlap) + j] = 0;
   }
 
-  frontend_compute_mdcts(mode, shortBlocks, in, freq, C, CC, LM);
+  frontend_compute_mdcts(mode, shortBlocks, in, freq, C, CC, LM, (int)upsample);
   compute_band_energies(mode, freq, bandE, effEnd, C, LM, 0);
   normalise_bands(mode, freq, X, bandE, effEnd, C, M);
 
@@ -380,15 +396,18 @@ done:
  * unused count word):
  *   u32 channels, u32 frame_size, u32 start, u32 end, u32 bitrate,
  *   u32 complexity, u32 nbCompressedBytes, u32 vbr, u32 constrained_vbr,
- *   u32 lfe, u32 has_mask, u32 nsamples (= channels*frame_size)
+ *   u32 lfe, u32 has_mask, u32 sample_rate, u32 nsamples
+ *      (frame_size and nsamples are at the API sample_rate; nsamples = channels*frame_size)
  *   nsamples x i16 pcm (padded to a 4-byte boundary on the wire)
  *   if has_mask: channels*nbEBands x i32 energy_mask (celt_glog)
  * Runs one celt_encode_with_ec frame with CELT_SET_LFE and/or
  * CELT_SET_ENERGY_MASK applied, dumping the produced packet bytes.
- * Output mirrors MODE_ENCODE. */
+ * sample_rate (48000/24000/16000/12000/8000) sets st->upsample via
+ * celt_encoder_init; the CELT mode is always 48000/960. Output mirrors
+ * MODE_ENCODE. */
 static int eval_encode_ext(void) {
   uint32_t channels, frame_size, start, end, bitrate, complexity;
-  uint32_t nbCompressedBytes, vbr, constrained_vbr, lfe, has_mask, nsamples;
+  uint32_t nbCompressedBytes, vbr, constrained_vbr, lfe, has_mask, sample_rate, nsamples;
   uint32_t i, padded;
   int nbEBands;
   int16_t *pcm16 = NULL;
@@ -405,7 +424,7 @@ static int eval_encode_ext(void) {
       !read_u32(&end) || !read_u32(&bitrate) || !read_u32(&complexity) ||
       !read_u32(&nbCompressedBytes) || !read_u32(&vbr) ||
       !read_u32(&constrained_vbr) || !read_u32(&lfe) || !read_u32(&has_mask) ||
-      !read_u32(&nsamples)) {
+      !read_u32(&sample_rate) || !read_u32(&nsamples)) {
     return 0;
   }
 
@@ -438,7 +457,8 @@ static int eval_encode_ext(void) {
 
   enc = (CELTEncoder *)malloc(celt_encoder_get_size((int)channels));
   if (!enc) goto done;
-  if (celt_encoder_init(enc, 48000, (int)channels, 0) != OPUS_OK) goto done;
+  if (sample_rate == 0) sample_rate = 48000;
+  if (celt_encoder_init(enc, (opus_int32)sample_rate, (int)channels, 0) != OPUS_OK) goto done;
   celt_encoder_ctl(enc, CELT_SET_START_BAND_REQUEST, (int)start);
   celt_encoder_ctl(enc, CELT_SET_END_BAND_REQUEST, (int)end);
   celt_encoder_ctl(enc, OPUS_SET_BITRATE_REQUEST, (opus_int32)(int32_t)bitrate);

@@ -32,6 +32,12 @@ func res2sig(a int32) int32 {
 type CELTEncoder struct {
 	channels int
 
+	// upsample mirrors st->upsample = resampling_factor(API sample rate): 1 at
+	// 48 kHz, 2/3/4/6 at 24/16/12/8 kHz. celt_encode_with_ec multiplies the
+	// passed frame_size by upsample and celt_preemphasis zero-stuffs the input to
+	// the 48 kHz core rate.
+	upsample int
+
 	start int
 	end   int
 
@@ -106,8 +112,18 @@ type CELTEncoder struct {
 // static 48000/960 mode with the given channel count (1 or 2). All cross-frame
 // state (pre-emphasis memory) starts at zero, matching celt_encoder_init.
 func NewCELTEncoder(channels int) *CELTEncoder {
+	return NewCELTEncoderRate(channels, 48000)
+}
+
+// NewCELTEncoderRate allocates and resets an integer CELT encoder front-end for
+// the static 48000/960 mode at the given API sample rate (48000/24000/16000/
+// 12000/8000), mirroring celt_encoder_init: the mode is always 48 kHz and only
+// st->upsample = resampling_factor(rate) differs. The caller passes API-rate
+// frame sizes (frameSize*upsample == the 48 kHz core N).
+func NewCELTEncoderRate(channels, sampleRate int) *CELTEncoder {
 	e := &CELTEncoder{
 		channels:    channels,
+		upsample:    resamplingFactor(sampleRate),
 		start:       0,
 		end:         celtNbEBands,
 		complexity:  5,
@@ -219,15 +235,35 @@ func (e *CELTEncoder) FrontEnd(pcm []int16, frameSize int, isTransient bool) (fr
 	return freq, bandE, X
 }
 
-// preemphasis ports the fast path of libopus celt_preemphasis for the static
-// 48000/960 mode (coef[1]==0, upsample==1, !clip): inp[i] = x - m and
-// m = MULT16_32_Q15(coef0, x), where x = RES2SIG(INT16TORES(pcmp[CC*i])). It
-// advances st->preemph_memE[c].
+// preemphasis ports libopus celt_preemphasis for the static 48000/960 mode
+// (coef[1]==0, !clip). With upsample==1 it takes the fast path: inp[i] = x - m
+// and m = MULT16_32_Q15(coef0, x), where x = RES2SIG(INT16TORES(pcmp[CC*i])).
+// With upsample>1 (sub-48 kHz API rate) it zero-stuffs the input up to the 48
+// kHz core rate: inp is cleared, the Nu input samples are scattered into
+// inp[i*upsample], then the same pre-emphasis recurrence runs over all N
+// (zero-stuffed) samples. It advances st->preemph_memE[c].
 func (e *CELTEncoder) preemphasis(pcmp []int16, inp []int32, N, CC, c int) {
 	coef0 := staticMDCT48000Preemph0
 	m := e.preemphMemE[c]
+	upsample := e.upsample
+	if upsample <= 1 {
+		for i := 0; i < N; i++ {
+			x := res2sig(int16ToRes(pcmp[CC*i]))
+			inp[i] = x - m
+			m = mult16x32q15(coef0, x)
+		}
+		e.preemphMemE[c] = m
+		return
+	}
 	for i := 0; i < N; i++ {
-		x := res2sig(int16ToRes(pcmp[CC*i]))
+		inp[i] = 0
+	}
+	Nu := N / upsample
+	for i := 0; i < Nu; i++ {
+		inp[i*upsample] = res2sig(int16ToRes(pcmp[CC*i]))
+	}
+	for i := 0; i < N; i++ {
+		x := inp[i]
 		inp[i] = x - m
 		m = mult16x32q15(coef0, x)
 	}
@@ -235,9 +271,11 @@ func (e *CELTEncoder) preemphasis(pcmp []int16, inp []int32, N, CC, c int) {
 }
 
 // computeMDCTs ports the (static) compute_mdcts from celt_encoder.c for the
-// FIXED_POINT non-QEXT, upsample==1 build: it windows/forward-MDCTs every
-// sub-frame for each channel into the interleaved out, then for a downmixed
-// CC==2,C==1 frame averages the two channels' MDCTs.
+// FIXED_POINT non-QEXT build: it windows/forward-MDCTs every sub-frame for each
+// channel into the interleaved out, then for a downmixed CC==2,C==1 frame
+// averages the two channels' MDCTs. With st->upsample>1 (sub-48 kHz API rate)
+// it then scales the lowest B*N/upsample bins per channel by upsample and zeros
+// the upper bins, dropping the spectral images introduced by zero-stuffing.
 func (e *CELTEncoder) computeMDCTs(shortBlocks int, in, out []int32, C, CC, LM int) {
 	overlap := celtOverlap
 	var N, B, shift int
@@ -261,6 +299,19 @@ func (e *CELTEncoder) computeMDCTs(shortBlocks int, in, out []int32, C, CC, LM i
 	if CC == 2 && C == 1 {
 		for i := 0; i < B*N; i++ {
 			out[i] = add32(half32(out[i]), half32(out[B*N+i]))
+		}
+	}
+	upsample := e.upsample
+	if upsample > 1 {
+		bound := B * N / upsample
+		for c := 0; c < C; c++ {
+			base := c * B * N
+			for i := 0; i < bound; i++ {
+				out[base+i] *= int32(upsample)
+			}
+			for i := bound; i < B*N; i++ {
+				out[base+i] = 0
+			}
 		}
 	}
 }

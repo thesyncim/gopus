@@ -44,6 +44,15 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 
 	maxPeriod := combFilterMaxPeriod
 
+	upsample := e.upsample
+	if upsample < 1 {
+		upsample = 1
+	}
+	// frame_size *= st->upsample: the public frame_size is at the API rate; the
+	// CELT core always runs at 48 kHz, so the MDCT layout is sized from the
+	// upsampled count and all bitrate/Fs arithmetic below uses mode->Fs==48000.
+	frameSize *= upsample
+
 	LM := 0
 	for LM = 0; LM <= celtMaxLM; LM++ {
 		if shortMdctSize<<LM == frameSize {
@@ -126,12 +135,16 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 	// pre-emphasised input.
 	in := make([]int32, CC*(N+overlap))
 
-	// sample_max / silence over the res-domain input.
+	// sample_max / silence over the res-domain (API-rate) input. The pcm buffer
+	// holds C*(N/upsample) samples, so the overlap split uses /upsample counts to
+	// match celt_maxabs_res(pcm, C*(N-overlap)/st->upsample) and the trailing
+	// celt_maxabs_res(pcm + C*(N-overlap)/upsample, C*overlap/upsample).
+	bodyLen := C * (N - overlap) / upsample
 	sampleMax := e.overlapMax
-	if v := maxabsRes(pcm, C*(N-overlap)); v > sampleMax {
+	if v := maxabsRes(pcm, bodyLen); v > sampleMax {
 		sampleMax = v
 	}
-	e.overlapMax = maxabsRes(pcm[C*(N-overlap):], C*overlap)
+	e.overlapMax = maxabsRes(pcm[bodyLen:], C*overlap/upsample)
 	if e.overlapMax > sampleMax {
 		sampleMax = e.overlapMax
 	}
@@ -527,7 +540,7 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 	for i := range offsets32 {
 		offsets32[i] = int32(offsets[i])
 	}
-	alloc := celt.ComputeAllocationWithEncoderStart(enc, start, int(bits), nbEBands, C, cap, offsets32,
+	alloc := celt.ComputeAllocationWithEncoderStart(enc, start, int(bits), end, C, cap, offsets32,
 		allocTrim, e.intensity, dualStereo != 0, LM, e.lastCodedBands, signalBandwidth)
 	codedBands := alloc.CodedBands
 	e.intensity = alloc.Intensity
@@ -543,7 +556,7 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 	copy(fineQuant, alloc.FineBits)
 	copy(finePriority, alloc.FinePriority)
 	pulses := make([]int, nbEBands)
-	for i := 0; i < nbEBands; i++ {
+	for i := 0; i < len(alloc.BandBits) && i < nbEBands; i++ {
 		pulses[i] = int(alloc.BandBits[i])
 	}
 

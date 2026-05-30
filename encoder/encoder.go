@@ -784,6 +784,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	}
 	isSilence := isDigitalSilenceRes(inputPCM, e.lsbDepth)
 	e.hasCELTPrefill = false
+	e.clearFixedCELTUsed()
 	defer func() {
 		e.analysisReadBakSet = false
 		e.celtForceIntra = false
@@ -1056,6 +1057,11 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		if actualMode == ModeSILK && packetBW > types.BandwidthWideband {
 			packetBW = types.BandwidthWideband
 		}
+		// The TOC config table indexes by the 48 kHz-equivalent frame size
+		// (libopus gen_toc derives the period from Fs/frame_size, which is the
+		// same duration). For a sub-48 kHz API rate scale the API-rate frameSize
+		// up to its 48 kHz core count.
+		tocFrameSize := e.packetTOCFrameSize(frameSize)
 		if e.dredEncodingActive() {
 			if dredPacket, ok, dredErr := e.maybeBuildSingleFrameDREDPacket(frameData, actualMode, packetBW, frameSize, stereo, qextExtensions); dredErr != nil {
 				return nil, dredErr
@@ -1074,7 +1080,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 				frameData,
 				modeToTypes(actualMode),
 				packetBW,
-				frameSize,
+				tocFrameSize,
 				stereo,
 				qextExtensionID,
 				qextPayload,
@@ -1085,7 +1091,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			targetSize := targetBytesForBitrate(int(e.bitrate), frameSize)
 			if e.bitrateMode == ModeCBR && targetSize >= 2+len(frameData) {
 				if targetSize == 2+len(frameData) {
-					config := configFromParams(modeToTypes(actualMode), packetBW, frameSize)
+					config := configFromParams(modeToTypes(actualMode), packetBW, tocFrameSize)
 					if config < 0 || len(e.scratchPacket) < targetSize {
 						pktErr = ErrInvalidConfig
 					} else {
@@ -1100,7 +1106,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 						frameData,
 						modeToTypes(actualMode),
 						packetBW,
-						frameSize,
+						tocFrameSize,
 						stereo,
 						nil,
 						targetSize,
@@ -1108,7 +1114,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 					)
 				}
 			} else {
-				packetLen, pktErr = BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, frameSize, stereo)
+				packetLen, pktErr = BuildPacketInto(e.scratchPacket, frameData, modeToTypes(actualMode), packetBW, tocFrameSize, stereo)
 			}
 		}
 		if packet == nil && pktErr != nil {
@@ -1144,7 +1150,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 				frameData,
 				modeToTypes(actualMode),
 				packetBW,
-				frameSize,
+				e.packetTOCFrameSize(frameSize),
 				stereo,
 				qextExtensionID,
 				qextPayload,
@@ -1189,7 +1195,7 @@ func (e *Encoder) buildDTXPacketForMode(frameSize int, actualMode Mode) ([]byte,
 	stereo := e.packetStereoForMode(actualMode)
 
 	// Build TOC-only packet (no frame data) into scratch buffer.
-	n, err := BuildPacketInto(e.scratchPacket, nil, modeToTypes(actualMode), packetBW, frameSize, stereo)
+	n, err := BuildPacketInto(e.scratchPacket, nil, modeToTypes(actualMode), packetBW, e.packetTOCFrameSize(frameSize), stereo)
 	if err != nil {
 		return nil, err
 	}
@@ -2476,6 +2482,24 @@ func (e *Encoder) effectiveBandwidth() types.Bandwidth {
 		return types.BandwidthNarrowband
 	}
 	return e.bandwidth
+}
+
+// packetTOCFrameSize maps the per-frame size to the 48 kHz-equivalent count used
+// to index the TOC config table. libopus gen_toc derives the TOC period from
+// Fs/frame_size, so the duration (and therefore the period) is identical to the
+// 48 kHz frame size frameSize*48000/Fs.
+//
+// The conversion is applied only for frames produced by the integer (fixedpoint)
+// CELT path, which consumes API-rate frame sizes (matching libopus
+// opus_encode + celt_encode_with_ec at sub-48 kHz API rates). The legacy float
+// path treats frameSize as a 48 kHz-equivalent count, so it is left unchanged
+// (a no-op at 48 kHz either way).
+func (e *Encoder) packetTOCFrameSize(frameSize int) int {
+	fs := int(e.sampleRate)
+	if fs <= 0 || fs == 48000 || !e.fixedCELTUsedForTOC() {
+		return frameSize
+	}
+	return frameSize * 48000 / fs
 }
 
 func (e *Encoder) celtPredictionMode() int {

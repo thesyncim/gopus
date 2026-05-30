@@ -60,9 +60,20 @@ type CELTFrontendResult struct {
 // freq, bandE and normalised X exactly as celt_encode_with_ec would compute
 // them on a fresh encoder's first frame.
 func ProbeCELTFixedEncodeFrontend(pcm []int16, channels, frameSize, start, end int, isTransient bool) (*CELTFrontendResult, error) {
+	return ProbeCELTFixedEncodeFrontendRate(pcm, channels, frameSize, start, end, 1, isTransient)
+}
+
+// ProbeCELTFixedEncodeFrontendRate runs the FIXED_POINT encode front-end with an
+// explicit upsample factor (1/2/3/4/6). frameSize is the API-rate per-channel
+// count; the 48 kHz core is frameSize*upsample. The front-end zero-stuffs the
+// input and applies the spectral upsample scaling, matching celt_encode_with_ec.
+func ProbeCELTFixedEncodeFrontendRate(pcm []int16, channels, frameSize, start, end, upsample int, isTransient bool) (*CELTFrontendResult, error) {
 	binPath, err := getCELTEncodeHelperPath()
 	if err != nil {
 		return nil, err
+	}
+	if upsample < 1 {
+		upsample = 1
 	}
 
 	tr := uint32(0)
@@ -76,6 +87,7 @@ func ProbeCELTFixedEncodeFrontend(pcm []int16, channels, frameSize, start, end i
 	payload.U32(uint32(start))
 	payload.U32(uint32(end))
 	payload.U32(tr)
+	payload.U32(uint32(upsample))
 	payload.U32(uint32(nsamples))
 	for _, s := range pcm {
 		payload.I16(s)
@@ -89,7 +101,7 @@ func ProbeCELTFixedEncodeFrontend(pcm []int16, channels, frameSize, start, end i
 		return nil, err
 	}
 
-	n := frameSize // N == frameSize for the 48k core
+	n := frameSize * upsample // N == frameSize*upsample (48k core count)
 	cn := channels * n
 	reader.Count(cn)
 	reader.ExpectRemaining(4 * (2*cn + channels*celtEncodeNbEBands))
@@ -164,6 +176,18 @@ func ProbeCELTFixedEncode(pcm []int16, channels, frameSize, start, end, bitrate,
 // OPUS_SET_ENERGY_MASK.
 func ProbeCELTFixedEncodeExt(pcm []int16, channels, frameSize, start, end, bitrate, complexity, nbCompressedBytes int,
 	vbr, constrainedVBR, lfe bool, mask []int32) ([]byte, error) {
+	return ProbeCELTFixedEncodeRate(pcm, channels, frameSize, start, end, bitrate, complexity,
+		nbCompressedBytes, 48000, vbr, constrainedVBR, lfe, mask)
+}
+
+// ProbeCELTFixedEncodeRate runs the full FIXED_POINT celt_encode_with_ec for a
+// CELT encoder created at the given API sampleRate (48000/24000/16000/12000/
+// 8000). The CELT mode is always 48000/960; sampleRate sets st->upsample via
+// celt_encoder_init, so the supplied frameSize and pcm are at the API rate
+// (frameSize*upsample == the 48 kHz core N). Other arguments match
+// ProbeCELTFixedEncodeExt.
+func ProbeCELTFixedEncodeRate(pcm []int16, channels, frameSize, start, end, bitrate, complexity, nbCompressedBytes, sampleRate int,
+	vbr, constrainedVBR, lfe bool, mask []int32) ([]byte, error) {
 	binPath, err := getCELTEncodeHelperPath()
 	if err != nil {
 		return nil, err
@@ -190,6 +214,7 @@ func ProbeCELTFixedEncodeExt(pcm []int16, channels, frameSize, start, end, bitra
 	payload.U32(b2u(constrainedVBR))
 	payload.U32(b2u(lfe))
 	payload.U32(b2u(hasMask))
+	payload.U32(uint32(sampleRate))
 	payload.U32(uint32(nsamples))
 	for _, s := range pcm {
 		payload.I16(s)

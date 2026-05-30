@@ -35,6 +35,16 @@ func (e *Encoder) fixedCELTFinalRange() (uint32, bool) {
 	return 0, false
 }
 
+// fixedCELTUsedForTOC reports whether the last frame was produced by the integer
+// CELT path, gating the API-rate -> 48 kHz TOC frame-size conversion (the integer
+// path consumes API-rate frame sizes, the float path 48 kHz-equivalent ones).
+func (e *Encoder) fixedCELTUsedForTOC() bool { return e.fixedCELTUsed }
+
+// clearFixedCELTUsed resets the integer-CELT-used flag at the start of each
+// packet so a stale value from a previous CELT frame cannot mis-gate the TOC
+// frame-size conversion for a subsequent SILK/Hybrid frame.
+func (e *Encoder) clearFixedCELTUsed() { e.fixedCELTUsed = false }
+
 // fixedCELTState holds the integer (FIXED_POINT) CELT encoder used under the
 // gopus_fixedpoint build to produce byte-exact CELT-mode packets. It is created
 // lazily and carries all CELT cross-frame state, so once a CELT-mode packet is
@@ -46,12 +56,49 @@ type fixedCELTState struct {
 	rng      *rangecoding.Encoder
 }
 
+// celtFixedUpsample mirrors celt_encoder_init's st->upsample =
+// resampling_factor(API sample rate): 1 at 48 kHz and 2/3/4/6 at 24/16/12/8 kHz.
+// 0 means an unsupported API rate.
+func (e *Encoder) celtFixedUpsample() int {
+	switch e.sampleRate {
+	case 48000:
+		return 1
+	case 24000:
+		return 2
+	case 16000:
+		return 3
+	case 12000:
+		return 4
+	case 8000:
+		return 6
+	}
+	return 0
+}
+
+// celtFixedEndBand maps the (already-clamped) effective bandwidth to the CELT
+// end band, matching the endband switch in opus_encoder.c celt_encode_with_ec
+// setup: NB=13, MB/WB=17, SWB=19, FB=21.
+func celtFixedEndBand(bw types.Bandwidth) int {
+	switch bw {
+	case types.BandwidthNarrowband:
+		return 13
+	case types.BandwidthMediumband, types.BandwidthWideband:
+		return 17
+	case types.BandwidthSuperwideband:
+		return 19
+	case types.BandwidthFullband:
+		return 21
+	}
+	return 21
+}
+
 // celtFixedEncodeInScope reports whether the integer CELT encoder can produce a
 // byte-exact packet for this frame. Its scope matches
-// fixedpoint.CELTEncoder.EncodeWithEC: the static 48 kHz mode, full-band
-// (start==0, end==21), single 2.5/5/10/20 ms frame (frameSize<=960), 1 or 2
-// channels, no hybrid (SILK present), no LFE, no QEXT, no surround energy mask.
-// Anything else falls back to the float CELT encoder.
+// fixedpoint.CELTEncoder.EncodeWithEC: the static 48 kHz CELT mode at any
+// supported API rate (48/24/16/12/8 kHz, where the API-rate frameSize upsamples
+// to a valid 2.5/5/10/20 ms 48 kHz core block), start band 0, 1 or 2 channels,
+// no hybrid (SILK present), no LFE, no QEXT, no surround energy mask. Anything
+// else falls back to the float CELT encoder.
 //
 // It also requires a pure-CELT stream (restricted-low-delay or forced ModeCELT):
 // the integer encoder carries no SILK->CELT transition-prefill state, so a stream
@@ -64,21 +111,19 @@ func (e *Encoder) celtFixedEncodeInScope(frameSize int) bool {
 	if e.lfe {
 		return false
 	}
-	if frameSize <= 0 || frameSize > 960 {
+	upsample := e.celtFixedUpsample()
+	if upsample == 0 {
 		return false
 	}
+	// The API-rate frameSize must upsample to a valid 48 kHz core block
+	// (shortMdctSize<<LM for LM 0..3, i.e. 120/240/480/960).
 	const shortMdctSize = 120
-	if frameSize%shortMdctSize != 0 {
+	core := frameSize * upsample
+	if core <= 0 || core > 960 || core%shortMdctSize != 0 {
 		return false
 	}
 	c := int(e.channels)
 	if c != 1 && c != 2 {
-		return false
-	}
-	if e.sampleRate != 48000 {
-		return false
-	}
-	if e.effectiveBandwidth() != types.BandwidthFullband {
 		return false
 	}
 	if extsupport.QEXT && e.qextActive() {
@@ -105,7 +150,7 @@ func (e *Encoder) encodeCELTFrameFixed(pcm []opusRes, frameSize, bitrate, maxPay
 	}
 
 	st := e.ensureFixedCELT(channels)
-	st.enc.SetBandRange(0, 21)
+	st.enc.SetBandRange(0, celtFixedEndBand(e.effectiveBandwidth()))
 	st.enc.SetComplexity(int(e.complexity))
 	st.enc.SetBitrate(bitrate)
 	switch e.bitrateMode {
@@ -169,7 +214,7 @@ func (e *Encoder) LastFixedCELTInput16() []int16 {
 func (e *Encoder) ensureFixedCELT(channels int) *fixedCELTState {
 	if e.fixedCELT == nil || e.fixedCELT.channels != channels {
 		e.fixedCELT = &fixedCELTState{
-			enc:      fixedpoint.NewCELTEncoder(channels),
+			enc:      fixedpoint.NewCELTEncoderRate(channels, int(e.sampleRate)),
 			channels: channels,
 			rng:      &rangecoding.Encoder{},
 		}
@@ -178,10 +223,11 @@ func (e *Encoder) ensureFixedCELT(channels int) *fixedCELTState {
 }
 
 // resetFixedCELT clears the integer CELT cross-frame state, mirroring the float
-// celtEncoder.Reset() done on a CELT mode transition.
+// celtEncoder.Reset() done on a CELT mode transition. The API-rate upsample is
+// preserved by recreating at the encoder's sample rate.
 func (e *Encoder) resetFixedCELT() {
 	if e.fixedCELT != nil {
-		e.fixedCELT.enc = fixedpoint.NewCELTEncoder(e.fixedCELT.channels)
+		e.fixedCELT.enc = fixedpoint.NewCELTEncoderRate(e.fixedCELT.channels, int(e.sampleRate))
 	}
 }
 
