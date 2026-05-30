@@ -20,6 +20,10 @@ import "math"
 //   - CorpusSpeechInNoiseV1: voiced speech mixed with band noise at ~10 dB SNR
 //   - CorpusStereoDecorrelatedV1: independent per-channel content (wide image)
 //   - CorpusBellClusterV1: dense inharmonic partials (metallic / bell-like)
+//   - CorpusSilenceBurstsV1: speech alternating with true-silence gaps (DTX/VAD path)
+//   - CorpusBandwidthSweepV1: tone whose frequency ramps NB->FB (mode/bandwidth switching)
+//   - CorpusToneInNoiseV1: a single tone buried in white noise (tone+noise edge case)
+//   - CorpusChannelPanSweepV1: a source panned hard L->R->L (inter-channel up/down-mix)
 
 const (
 	CorpusCleanSpeechV1      = "corpus_clean_speech_v1"
@@ -34,6 +38,10 @@ const (
 	CorpusSpeechInNoiseV1    = "corpus_speech_in_noise_v1"
 	CorpusStereoDecorrelatedV1 = "corpus_stereo_decorrelated_v1"
 	CorpusBellClusterV1      = "corpus_bell_cluster_v1"
+	CorpusSilenceBurstsV1    = "corpus_silence_bursts_v1"
+	CorpusBandwidthSweepV1   = "corpus_bandwidth_sweep_v1"
+	CorpusToneInNoiseV1      = "corpus_tone_in_noise_v1"
+	CorpusChannelPanSweepV1  = "corpus_channel_pan_sweep_v1"
 )
 
 // CorpusSignalClasses returns the signal-class tags backed by the committed
@@ -63,6 +71,10 @@ func CorpusExtendedSignalClasses() []string {
 		CorpusSpeechInNoiseV1,
 		CorpusStereoDecorrelatedV1,
 		CorpusBellClusterV1,
+		CorpusSilenceBurstsV1,
+		CorpusBandwidthSweepV1,
+		CorpusToneInNoiseV1,
+		CorpusChannelPanSweepV1,
 	}
 }
 
@@ -93,6 +105,14 @@ func GenerateCorpusSignal(class string, sampleRate, samples, channels int) ([]fl
 		return generateCorpusStereoDecorrelated(sampleRate, samples, channels), nil
 	case CorpusBellClusterV1:
 		return generateCorpusBellCluster(sampleRate, samples, channels), nil
+	case CorpusSilenceBurstsV1:
+		return generateCorpusSilenceBursts(sampleRate, samples, channels), nil
+	case CorpusBandwidthSweepV1:
+		return generateCorpusBandwidthSweep(sampleRate, samples, channels), nil
+	case CorpusToneInNoiseV1:
+		return generateCorpusToneInNoise(sampleRate, samples, channels), nil
+	case CorpusChannelPanSweepV1:
+		return generateCorpusChannelPanSweep(sampleRate, samples, channels), nil
 	default:
 		return GenerateEncoderSignalVariant(class, sampleRate, samples, channels)
 	}
@@ -431,6 +451,107 @@ func generateCorpusBellCluster(sampleRate, samples, channels int) []float32 {
 			val += amp * env * math.Sin(2*math.Pi*f*t)
 		}
 		out[i] = float32(clipSample(0.6 * val))
+	}
+	return out
+}
+
+// generateCorpusSilenceBursts alternates 250 ms of voiced speech with 250 ms of
+// true digital silence. The hard active/silent transitions stress the encoder's
+// VAD/DTX decision and the decoder's recovery from silence frames, exercising a
+// path the steady-energy corpus cases never reach.
+func generateCorpusSilenceBursts(sampleRate, samples, channels int) []float32 {
+	speech := generateCorpusCleanSpeech(sampleRate, samples, channels)
+	out := make([]float32, samples)
+	const burst = 0.25 // seconds per active/silent half-cycle
+	for i := 0; i < samples; i++ {
+		si := i / channels
+		t := float64(si) / float64(sampleRate)
+		// Active during the first half of each 0.5 s cycle, silent in the second.
+		if math.Mod(t, 2*burst) < burst {
+			out[i] = speech[i]
+		} else {
+			out[i] = 0
+		}
+	}
+	return out
+}
+
+// generateCorpusBandwidthSweep produces a single tone whose frequency ramps from
+// ~250 Hz up to ~18 kHz and back over the clip, plus a faint harmonic. The moving
+// top edge of the spectrum forces the encoder through successive audio-bandwidth
+// decisions (NB -> MB -> WB -> SWB -> FB) and the SILK/Hybrid/CELT mode boundaries
+// that depend on them, which the fixed-band corpus cases do not.
+func generateCorpusBandwidthSweep(sampleRate, samples, channels int) []float32 {
+	out := make([]float32, samples)
+	phase := make([]float64, channels)
+	const fLo, fHi = 250.0, 18000.0
+	totalPerChannel := samples / channels
+	for ch := 0; ch < channels; ch++ {
+		for si := 0; si < totalPerChannel; si++ {
+			t := float64(si) / float64(sampleRate)
+			// Triangular log-frequency sweep at 0.5 Hz so the top edge moves
+			// smoothly through every bandwidth tier within the clip.
+			frac := 2.0 * math.Abs(math.Mod(0.5*t, 1.0)-0.5) // 0..1 triangle
+			f := fLo * math.Pow(fHi/fLo, frac)
+			f *= 1.0 + 0.004*float64(ch)
+			if f > float64(sampleRate)/2*0.98 {
+				f = float64(sampleRate) / 2 * 0.98
+			}
+			phase[ch] += 2 * math.Pi * f / float64(sampleRate)
+			if phase[ch] > 2*math.Pi {
+				phase[ch] -= 2 * math.Pi
+			}
+			val := 0.45*math.Sin(phase[ch]) + 0.12*math.Sin(2*phase[ch])
+			out[si*channels+ch] = float32(clipSample(val))
+		}
+	}
+	return out
+}
+
+// generateCorpusToneInNoise buries a steady 2 kHz tone in white noise at roughly
+// 0 dB tone-to-noise (equal RMS). The tonal+stochastic mixture is an awkward case
+// for spectral-envelope and PVQ allocation: neither the tone-only nor the noise-only
+// corpus cases reach the regime where the codec must split bits between the two.
+func generateCorpusToneInNoise(sampleRate, samples, channels int) []float32 {
+	out := make([]float32, samples)
+	const freq = 2000.0
+	const toneAmp = 0.30
+	for i := 0; i < samples; i++ {
+		ch := i % channels
+		si := i / channels
+		t := float64(si) / float64(sampleRate)
+		tone := toneAmp * math.Sin(2*math.Pi*freq*t+0.1*float64(ch))
+		noise := deterministicNoise(si, ch, 487)
+		out[i] = float32(clipSample(tone + toneAmp*noise))
+	}
+	return out
+}
+
+// generateCorpusChannelPanSweep takes one mono source (the bell cluster) and pans
+// it hard left -> right -> left with an equal-power law. For stereo this drives the
+// inter-channel level balance the encoder must track and code; for mono it collapses
+// to the down-mixed source, exercising the channel up/down-mix paths directly.
+func generateCorpusChannelPanSweep(sampleRate, samples, channels int) []float32 {
+	if channels < 2 {
+		// Mono request: return the (down-mixed) source so the class still produces
+		// meaningful audio rather than a single hard-panned channel.
+		return generateCorpusBellCluster(sampleRate, samples, channels)
+	}
+	mono := generateCorpusBellCluster(sampleRate, samples/channels, 1)
+	out := make([]float32, samples)
+	totalPerChannel := samples / channels
+	for si := 0; si < totalPerChannel; si++ {
+		t := float64(si) / float64(sampleRate)
+		// Pan position 0..1 with a 0.7 Hz triangle, equal-power cos/sin law.
+		pan := 2.0 * math.Abs(math.Mod(0.7*t, 1.0)-0.5)
+		gl := math.Cos(0.5 * math.Pi * pan)
+		gr := math.Sin(0.5 * math.Pi * pan)
+		s := float64(mono[si])
+		out[si*channels+0] = float32(clipSample(gl * s))
+		out[si*channels+1] = float32(clipSample(gr * s))
+		for ch := 2; ch < channels; ch++ {
+			out[si*channels+ch] = float32(clipSample(0.5 * s))
+		}
 	}
 	return out
 }

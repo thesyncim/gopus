@@ -35,11 +35,16 @@ type corpusQualityModeCfg struct {
 }
 
 // corpusQualityModeConfigs drives one SILK, one Hybrid, and one CELT config so the
-// new classes are exercised across all three codec modes at both channel counts.
+// new classes are exercised across all three codec modes at both channel counts,
+// plus the two extreme-bitrate endpoints (lowest practical SILK rate and maximum
+// CELT rate). Every config decodes identical packets on the gopus and libopus
+// sides, so the same near-exact bar holds across the whole matrix.
 var corpusQualityModeConfigs = []corpusQualityModeCfg{
 	{name: "silk_16k", mode: gopus.EncoderModeSILK, app: gopus.ApplicationVoIP, bitrate: 16000},
 	{name: "hybrid_48k", mode: gopus.EncoderModeHybrid, app: gopus.ApplicationAudio, bitrate: 48000},
 	{name: "celt_96k", mode: gopus.EncoderModeCELT, app: gopus.ApplicationAudio, bitrate: 96000},
+	{name: "silk_6k", mode: gopus.EncoderModeSILK, app: gopus.ApplicationVoIP, bitrate: 6000},
+	{name: "celt_510k", mode: gopus.EncoderModeCELT, app: gopus.ApplicationAudio, bitrate: 510000},
 }
 
 // TestCorpusSignalQualityParity gates gopus-vs-libopus decode parity on the newly
