@@ -188,6 +188,13 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 		return frameSize, nil
 	}
 
+	if handled, err := d.fixedDecodeInt16(data, pcm, frameSize); err != nil {
+		return 0, err
+	} else if handled {
+		d.lastFrameSize = int32(frameSize)
+		return frameSize, nil
+	}
+
 	samples, err := d.dec.DecodeToFloat32(data, frameSize)
 	if err != nil {
 		return 0, err
@@ -227,6 +234,13 @@ func (d *MultistreamDecoder) DecodeInt24(data []byte, pcm []int32) (int, error) 
 		if err := d.decodePLCInt24Into(pcm[:needed], frameSize); err != nil {
 			return 0, err
 		}
+		return frameSize, nil
+	}
+
+	if handled, err := d.fixedDecodeInt24(data, pcm, frameSize); err != nil {
+		return 0, err
+	} else if handled {
+		d.lastFrameSize = int32(frameSize)
 		return frameSize, nil
 	}
 

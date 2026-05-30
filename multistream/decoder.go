@@ -131,6 +131,7 @@ type streamState struct {
 	complexity         int32
 
 	streamOSCEFields
+	streamFixedFields
 }
 
 func newStreamDecoder(sampleRate, channels int) *streamState {
