@@ -46,7 +46,7 @@ func (d *Decoder) markFixedUnhandled()        {}
 func (d *Decoder) fixedInt16Ready(_ int) bool { return false }
 
 // finishInt16Output / finishInt24Output always use the shared float conversion
-// in the default build, matching the previous behavior exactly.
+// in the default build.
 func (d *Decoder) finishInt16Output(pcm []int16, scratch []float32, n, channels int) bool {
 	softClipAndFloat32ToInt16(pcm, scratch, n, channels, d.softClipMem[:])
 	return false
