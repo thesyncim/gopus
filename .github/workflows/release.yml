@@ -109,7 +109,7 @@ jobs:
           echo "summary=${tagged_summary}" >> "$GITHUB_OUTPUT"
 
       - name: Upload release evidence artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: release-evidence-${{ steps.meta.outputs.tag }}
           path: |
