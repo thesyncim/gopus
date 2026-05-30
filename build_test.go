@@ -186,21 +186,23 @@ func TestDefaultBuildIsZeroCostForGatedFeatures(t *testing.T) {
 		t.Skip("skipping dep-graph check in short mode")
 	}
 
-	// Public packages whose default build must stay neural/feature free.
-	publicPkgs := []string{".", "./multistream", "./encoder"}
+	// Public packages whose default build must stay neural/feature free. This
+	// covers the root package plus every importable sub-package a consumer can
+	// pull in directly.
+	publicPkgs := []string{".", "./encoder", "./multistream", "./hybrid", "./silk", "./celt"}
 
 	// Packages that mirror libopus code gated behind a compile flag. None may
 	// appear in the default (untagged) import graph of any public package.
 	const modulePrefix = "github.com/thesyncim/gopus/"
 	gatedPkgs := []string{
-		modulePrefix + "internal/dred",          // ENABLE_DRED (RDOVAE driver)
-		modulePrefix + "internal/dred/rdovae",    // ENABLE_DRED neural codec
-		modulePrefix + "internal/lpcnetplc",      // ENABLE_DEEP_PLC (PitchDNN / FARGAN)
-		modulePrefix + "internal/osce",           // ENABLE_OSCE
-		modulePrefix + "internal/osce/lace",      // ENABLE_OSCE (LACE / NoLACE)
-		modulePrefix + "internal/osce/bwe",       // ENABLE_OSCE_BWE
-		modulePrefix + "celt/custom",             // CUSTOM_MODES
-		modulePrefix + "internal/fixedpoint",     // gopus_fixedpoint (integer CELT codec)
+		modulePrefix + "internal/dred",        // ENABLE_DRED (RDOVAE driver)
+		modulePrefix + "internal/dred/rdovae", // ENABLE_DRED neural codec
+		modulePrefix + "internal/lpcnetplc",   // ENABLE_DEEP_PLC (PitchDNN / FARGAN)
+		modulePrefix + "internal/osce",        // ENABLE_OSCE
+		modulePrefix + "internal/osce/lace",   // ENABLE_OSCE (LACE / NoLACE)
+		modulePrefix + "internal/osce/bwe",    // ENABLE_OSCE_BWE
+		modulePrefix + "celt/custom",          // CUSTOM_MODES
+		modulePrefix + "internal/fixedpoint",  // gopus_fixedpoint (integer CELT codec)
 	}
 
 	for _, pkg := range publicPkgs {
@@ -227,26 +229,21 @@ func TestDefaultBuildIsZeroCostForGatedFeatures(t *testing.T) {
 	}
 }
 
-// TestDefaultBinaryHasNoFixedPointSymbols compiles a tiny program that imports
-// the public package under the DEFAULT (untagged) build and inspects the linked
-// binary's symbol table. It asserts that no gopus_fixedpoint-only symbol made it
-// in: neither any internal/fixedpoint symbol, nor the package-local shims that
-// now live in //go:build gopus_fixedpoint files. This is a stronger guarantee
-// than the import-graph check because it inspects the actual link output.
-func TestDefaultBinaryHasNoFixedPointSymbols(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping symbol check in short mode")
-	}
+// defaultBuildSymbols builds a probe binary that blank-imports every public
+// gopus package under the DEFAULT (untagged) build and returns its symbol
+// table. The probe lives in a temp subdirectory of THIS module so it shares
+// the module's go.mod and resolves all in-tree imports without a separate
+// module / replace directive. It returns ("", true) with t.Skip already
+// invoked when the host toolchain cannot produce a symbol table.
+func defaultBuildSymbols(t *testing.T) string {
+	t.Helper()
 
 	goBin, err := exec.LookPath("go")
 	if err != nil {
 		t.Skipf("go toolchain unavailable: %v", err)
 	}
 
-	// Place the probe in a temp subdirectory of THIS module so it shares the
-	// module's go.mod and resolves all in-tree imports without a separate
-	// module / replace directive.
-	probeDir, err := os.MkdirTemp(".", "fixedpointprobe")
+	probeDir, err := os.MkdirTemp(".", "zerocostprobe")
 	if err != nil {
 		t.Fatalf("create probe dir: %v", err)
 	}
@@ -256,7 +253,11 @@ func TestDefaultBinaryHasNoFixedPointSymbols(t *testing.T) {
 		"import (\n" +
 		"\t_ \"github.com/thesyncim/gopus\"\n" +
 		"\t_ \"github.com/thesyncim/gopus/celt\"\n" +
+		"\t_ \"github.com/thesyncim/gopus/encoder\"\n" +
+		"\t_ \"github.com/thesyncim/gopus/hybrid\"\n" +
+		"\t_ \"github.com/thesyncim/gopus/multistream\"\n" +
 		"\t_ \"github.com/thesyncim/gopus/rangecoding\"\n" +
+		"\t_ \"github.com/thesyncim/gopus/silk\"\n" +
 		")\n\n" +
 		"func main() {}\n"
 	if err := os.WriteFile(filepath.Join(probeDir, "main.go"), []byte(src), 0o644); err != nil {
@@ -265,7 +266,7 @@ func TestDefaultBinaryHasNoFixedPointSymbols(t *testing.T) {
 
 	binPath := filepath.Join(t.TempDir(), "probe.bin")
 	// Default build: no build tags. GOFLAGS cleared so the host environment
-	// cannot inject -tags=gopus_fixedpoint.
+	// cannot inject -tags=gopus_fixedpoint (or any other gated tag).
 	build := exec.Command(goBin, "build", "-tags", "", "-o", binPath, "./"+filepath.Base(probeDir))
 	build.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
 	if out, err := build.CombinedOutput(); err != nil {
@@ -278,12 +279,25 @@ func TestDefaultBinaryHasNoFixedPointSymbols(t *testing.T) {
 	if err != nil {
 		t.Skipf("go tool nm unavailable on this platform: %v\n%s", err, out)
 	}
-	syms := string(out)
+	return string(out)
+}
+
+// TestDefaultBinaryHasNoFixedPointSymbols inspects the linked symbol table of a
+// default-build probe and asserts that no gopus_fixedpoint-only symbol made it
+// in: neither any internal/fixedpoint symbol, nor the package-local shims that
+// live in //go:build gopus_fixedpoint files. This is a stronger guarantee than
+// the import-graph check because it inspects the actual link output.
+func TestDefaultBinaryHasNoFixedPointSymbols(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping symbol check in short mode")
+	}
+
+	syms := defaultBuildSymbols(t)
 
 	// Substrings that must never appear in a default-build symbol table.
 	forbidden := []string{
 		"github.com/thesyncim/gopus/internal/fixedpoint",
-		// Package-local shims moved into //go:build gopus_fixedpoint files.
+		// Package-local shims that live in //go:build gopus_fixedpoint files.
 		"github.com/thesyncim/gopus/celt.MaxPulsesBitsExport",
 		"github.com/thesyncim/gopus/celt.DecodeCELTAllocation",
 		"github.com/thesyncim/gopus/celt.TFDecode",
@@ -295,6 +309,61 @@ func TestDefaultBinaryHasNoFixedPointSymbols(t *testing.T) {
 	for _, sym := range forbidden {
 		if strings.Contains(syms, sym) {
 			t.Errorf("zero-cost contract violation: default-build binary contains gopus_fixedpoint-only symbol %q", sym)
+		}
+	}
+}
+
+// TestDefaultBinaryHasNoGatedFeatureSymbols extends the symbol-table check to
+// EVERY gated feature, not just fixed-point. It asserts the default-build
+// binary contains no symbol from a gated internal package (DRED / deep-PLC /
+// OSCE / custom modes / fixed-point) and none of the representative
+// package-local shims those features add to the shared public packages
+// (celt / the root gopus package) behind their build tags.
+func TestDefaultBinaryHasNoGatedFeatureSymbols(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping symbol check in short mode")
+	}
+
+	syms := defaultBuildSymbols(t)
+
+	// Whole gated packages: no symbol from any of these may be linked.
+	const modulePrefix = "github.com/thesyncim/gopus/"
+	forbiddenPkgs := map[string]string{
+		"internal/dred":        "gopus_dred",
+		"internal/dred/rdovae": "gopus_dred",
+		"internal/lpcnetplc":   "gopus_extra_controls (ENABLE_DEEP_PLC)",
+		"internal/osce":        "gopus_extra_controls (ENABLE_OSCE)",
+		"internal/osce/lace":   "gopus_extra_controls (ENABLE_OSCE)",
+		"internal/osce/bwe":    "gopus_extra_controls (ENABLE_OSCE_BWE)",
+		"celt/custom":          "gopus_custom (CUSTOM_MODES)",
+		"internal/fixedpoint":  "gopus_fixedpoint",
+	}
+	for pkg, tag := range forbiddenPkgs {
+		needle := modulePrefix + pkg + "."
+		// Guard against substring overlap (e.g. internal/dred vs
+		// internal/dred/rdovae): only count a hit whose next char after the
+		// package path is a method/identifier separator, which the trailing
+		// "." enforces.
+		if strings.Contains(syms, needle) {
+			t.Errorf("zero-cost contract violation: default-build binary contains a symbol from gated package %q (tag %s)", pkg, tag)
+		}
+	}
+
+	// Representative package-local shims that the gated features add to the
+	// shared public packages. Each lives in a file behind the noted build tag
+	// and must be dead-code-eliminated / absent from the default link.
+	forbiddenShims := map[string]string{
+		// gopus_qext: native 96 kHz / extension-band CELT shims.
+		"github.com/thesyncim/gopus/celt.(*Decoder).SetQEXTPayload": "gopus_qext",
+		"github.com/thesyncim/gopus/celt.(*Encoder).SetQEXTEnabled": "gopus_qext",
+		"github.com/thesyncim/gopus/celt.(*Encoder).QEXTEnabled":    "gopus_qext",
+		// gopus_dred / gopus_extra_controls: neural conceal entry points.
+		"github.com/thesyncim/gopus/celt.(*Decoder).ConcealDRED48kToFloat32":      "gopus_dred",
+		"github.com/thesyncim/gopus/celt.(*Decoder).ConcealPLCNeural48kToFloat32": "gopus_extra_controls",
+	}
+	for sym, tag := range forbiddenShims {
+		if strings.Contains(syms, sym) {
+			t.Errorf("zero-cost contract violation: default-build binary contains %s-only shim %q", tag, sym)
 		}
 	}
 }
