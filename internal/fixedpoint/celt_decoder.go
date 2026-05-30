@@ -14,8 +14,9 @@ import (
 // non-PLC frame decode that is bit-exact with the reference MODE_DECODE oracle.
 //
 // Scope of this increment: a fresh (loss_duration==0), non-PLC, non-QEXT decode
-// of the static 48000/960 mode. PLC (data==NULL || len<=1), sub-48k downsample
-// and DRED are out of scope and not driven here.
+// of the static 48000/960 mode, including the st->downsample > 1 path that emits
+// 24k/16k/12k/8k output from the 48k core. PLC (data==NULL || len<=1) and DRED
+// are out of scope and not driven here.
 
 const (
 	// celtDecodeBufferSize mirrors DECODE_BUFFER_SIZE == DEC_PITCH_BUF_SIZE.
@@ -36,6 +37,10 @@ const (
 // region of libopus OpusCustomDecoder.
 type CELTDecoder struct {
 	channels int
+
+	// downsample mirrors st->downsample (resampling_factor of the output rate):
+	// 1 for 48k, 2 for 24k, 3 for 16k, 4 for 12k, 6 for 8k.
+	downsample int
 
 	start int
 	end   int
@@ -68,13 +73,21 @@ type CELTDecoder struct {
 // 48000/960 mode with the given channel count (1 or 2), matching
 // celt_decoder_init: oldLogE/oldLogE2 are seeded to -GCONST(28.f).
 func NewCELTDecoder(channels int) *CELTDecoder {
+	return NewCELTDecoderRate(channels, 48000)
+}
+
+// NewCELTDecoderRate allocates and resets an integer CELT decoder for the static
+// 48000/960 core with output sampling rate sampleRate (48000/24000/16000/12000/
+// 8000), matching celt_decoder_init: st->downsample = resampling_factor(rate).
+func NewCELTDecoderRate(channels, sampleRate int) *CELTDecoder {
 	d := &CELTDecoder{
-		channels: channels,
-		start:    0,
-		end:      celtNbEBands,
-		mdct:     NewStaticMDCTLookup48000(),
-		window:   staticMDCT48000Window[:],
-		eBands:   staticMDCT48000EBands[:],
+		channels:   channels,
+		downsample: resamplingFactor(sampleRate),
+		start:      0,
+		end:        celtNbEBands,
+		mdct:       NewStaticMDCTLookup48000(),
+		window:     staticMDCT48000Window[:],
+		eBands:     staticMDCT48000EBands[:],
 	}
 	d.decodeMem = make([]int32, channels*(celtDecodeBufferSize+celtOverlap))
 	d.oldBandE = make([]int32, 2*celtNbEBands)
@@ -97,9 +110,10 @@ func (d *CELTDecoder) SetBandRange(start, end int) {
 }
 
 // DecodeWithEC ports celt_decode_with_ec for a fresh non-PLC frame on the static
-// 48000/960 mode. data is the CELT packet, frameSize the per-channel sample
-// count (shortMdctSize<<LM). It writes channels*frameSize interleaved int16 PCM
-// into out and returns the number of per-channel samples decoded.
+// 48000/960 mode. data is the CELT packet, frameSize the 48k-core per-channel
+// sample count (shortMdctSize<<LM). With st->downsample > 1 the emitted output is
+// decimated, so it writes channels*(frameSize/downsample) interleaved int16 PCM
+// into out and returns the number of per-channel output samples decoded.
 func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int {
 	nbEBands := celtNbEBands
 	overlap := celtOverlap
@@ -249,7 +263,7 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 	CeltSynthesis(d.mdct, d.window, d.eBands,
 		nbEBands, shortMdctSize, celtMaxLM, overlap,
 		X, outSyn, d.oldBandE,
-		start, effEnd, C, CC, LM, 1, isTransient, silence)
+		start, effEnd, C, CC, LM, d.downsample, isTransient, silence)
 
 	for c := 0; c < CC; c++ {
 		pp := d.postfilterPeriod
@@ -322,15 +336,36 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 	}
 	d.rng = dec.Range()
 
-	// deemphasis(out_syn, pcm, N, CC, downsample=1, preemph, preemph_memD, accum=0).
-	resPCM := make([]int32, CC*N)
-	Deemphasis(outSyn, resPCM, staticMDCT48000Preemph0, d.preemphMemD, N, 1, false)
+	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=0).
+	outSamples := N / d.downsample
+	resPCM := make([]int32, CC*outSamples)
+	Deemphasis(outSyn, resPCM, staticMDCT48000Preemph0, d.preemphMemD, N, d.downsample, false)
 	for i := range resPCM {
 		out[i] = Res2Int16(resPCM[i])
 	}
 
 	d.lossDuration = 0
-	return frameSize
+	return outSamples
+}
+
+// resamplingFactor mirrors celt/celt.c resampling_factor for the non-QEXT,
+// non-CUSTOM_MODES build: the integer decimation factor from the 48k core to the
+// requested output rate. Unknown rates fall back to 1 (48k passthrough).
+func resamplingFactor(rate int) int {
+	switch rate {
+	case 48000:
+		return 1
+	case 24000:
+		return 2
+	case 16000:
+		return 3
+	case 12000:
+		return 4
+	case 8000:
+		return 6
+	default:
+		return 1
+	}
 }
 
 // gconst001 is GCONST(0.001f) = round(0.5 + 0.001*(1<<DB_SHIFT)).

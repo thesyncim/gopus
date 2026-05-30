@@ -9,6 +9,9 @@ const (
 	CELTDecodeModeEnergy = uint32(0)
 	// CELTDecodeModeDecode selects the full FIXED_POINT celt_decode_with_ec.
 	CELTDecodeModeDecode = uint32(1)
+	// CELTDecodeModeDecodeSeq decodes a sequence of packets through one
+	// FIXED_POINT decoder (cross-frame state + downsample output path).
+	CELTDecodeModeDecodeSeq = uint32(2)
 )
 
 var celtDecodeHelper HelperCache
@@ -130,6 +133,74 @@ func ProbeCELTFixedDecode(packet []byte, channels, frameSize, start, end int) ([
 		return nil, err
 	}
 	return out, nil
+}
+
+// ProbeCELTFixedDecodeSeq creates ONE FIXED_POINT libopus CELT decoder at the
+// given output samplingRate (48000/24000/16000/12000/8000) and decodes the
+// supplied sequence of CELT packets in order through it, returning one int16 PCM
+// slice per packet. frameSize is the 48k-core per-channel sample count; each
+// returned frame has channels*(frameSize/downsample) interleaved samples, where
+// downsample = resampling_factor(samplingRate). This exercises the cross-frame
+// decode_mem/post-filter/energy-prediction carry and the downsample output path.
+func ProbeCELTFixedDecodeSeq(packets [][]byte, channels, frameSize, start, end, samplingRate int) ([][]int16, error) {
+	binPath, err := getCELTDecodeHelperPath()
+	if err != nil {
+		return nil, err
+	}
+	downsample := resamplingFactorRef(samplingRate)
+	outPerFrame := channels * (frameSize / downsample)
+
+	payload := NewOraclePayload(celtDecodeInputMagic, CELTDecodeModeDecodeSeq, 0)
+	payload.U32(uint32(channels))
+	payload.U32(uint32(frameSize))
+	payload.U32(uint32(start))
+	payload.U32(uint32(end))
+	payload.U32(uint32(samplingRate))
+	payload.U32(uint32(len(packets)))
+	for _, pkt := range packets {
+		payload.U32(uint32(len(pkt)))
+		payload.Raw(pkt)
+		if pad := (4 - len(pkt)%4) % 4; pad > 0 {
+			payload.Raw(make([]byte, pad))
+		}
+	}
+
+	reader, err := RunOracle(binPath, payload.Bytes(), "celt fixed decode seq", celtDecodeOutputMagic)
+	if err != nil {
+		return nil, err
+	}
+	want := len(packets) * outPerFrame
+	count := reader.Count(want)
+	reader.ExpectRemaining(2 * count)
+	flat := make([]int16, count)
+	for i := range flat {
+		flat[i] = reader.I16()
+	}
+	if err := reader.ExpectConsumed(); err != nil {
+		return nil, err
+	}
+	out := make([][]int16, len(packets))
+	for p := range out {
+		out[p] = flat[p*outPerFrame : (p+1)*outPerFrame]
+	}
+	return out, nil
+}
+
+// resamplingFactorRef mirrors celt/celt.c resampling_factor for the rates the
+// oracle accepts.
+func resamplingFactorRef(rate int) int {
+	switch rate {
+	case 24000:
+		return 2
+	case 16000:
+		return 3
+	case 12000:
+		return 4
+	case 8000:
+		return 6
+	default:
+		return 1
+	}
 }
 
 func padInt32(src []int32, n int) []int32 {

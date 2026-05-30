@@ -27,14 +27,22 @@
  * (only nbEBands matters to the unquantizers) and a real ec_dec over the bytes.
  *
  * MODE_DECODE runs the full celt_decode_with_ec on a real CELT packet using the
- * static 48000/960 custom mode and dumps the decoded int16 PCM. */
+ * static 48000/960 custom mode and dumps the decoded int16 PCM.
+ *
+ * MODE_DECODE_SEQ creates ONE decoder at a chosen output sampling rate and
+ * decodes a SEQUENCE of N consecutive real CELT packets, dumping each frame's
+ * int16 PCM in order. This exercises the cross-frame state carry (decode_mem
+ * overlap, post-filter _old, energy prediction oldBandE/oldLogE/oldLogE2/
+ * backgroundLogE) and the st->downsample > 1 decimating output path that the
+ * single-shot MODE_DECODE cannot. */
 
 #define INPUT_MAGIC "GCDI"
 #define OUTPUT_MAGIC "GCDO"
 
 enum {
   MODE_ENERGY = 0,
-  MODE_DECODE = 1
+  MODE_DECODE = 1,
+  MODE_DECODE_SEQ = 2
 };
 
 int celt_decode_with_ec(CELTDecoder *st, const unsigned char *data, int len,
@@ -218,6 +226,92 @@ done:
   return ok;
 }
 
+/* MODE_DECODE_SEQ wire format (after the GCDI header, version 1, mode and unused
+ * count word):
+ *   u32 channels, u32 frame_size (48k core), u32 start, u32 end,
+ *   u32 sampling_rate (48000/24000/16000/12000/8000), u32 num_packets
+ *   for each packet:
+ *     u32 nbytes
+ *     nbytes x u8 packet (padded to a 4-byte boundary on the wire)
+ * One CELTDecoder is created at sampling_rate and reused across the sequence, so
+ * decode_mem overlap, post-filter and energy-prediction carry are exercised.
+ * Output (after the GCDO header, version 1, count = num_packets * channels *
+ * frame_size/downsample):
+ *   num_packets blocks, each channels*(frame_size/downsample) x i16 pcm */
+static int eval_decode_seq(void) {
+  uint32_t channels, frame_size, start, end, sampling_rate, num_packets;
+  uint32_t p, i, padded, out_per_frame;
+  int downsample, out_frame_size;
+  unsigned char *packet = NULL;
+  opus_res *pcm = NULL;
+  int16_t *out = NULL;
+  CELTDecoder *dec = NULL;
+  int ok = 0;
+
+  if (!read_u32(&channels) || !read_u32(&frame_size) || !read_u32(&start) ||
+      !read_u32(&end) || !read_u32(&sampling_rate) || !read_u32(&num_packets)) {
+    return 0;
+  }
+
+  dec = (CELTDecoder *)malloc(celt_decoder_get_size((int)channels));
+  if (!dec) goto done;
+  if (celt_decoder_init(dec, (int)sampling_rate, (int)channels) != OPUS_OK) goto done;
+  celt_decoder_ctl(dec, CELT_SET_START_BAND_REQUEST, (int)start);
+  celt_decoder_ctl(dec, CELT_SET_END_BAND_REQUEST, (int)end);
+
+  downsample = resampling_factor((opus_int32)sampling_rate);
+  if (downsample <= 0) goto done;
+  out_frame_size = (int)frame_size / downsample;
+  out_per_frame = channels * (uint32_t)out_frame_size;
+
+  pcm = (opus_res *)malloc((out_per_frame ? out_per_frame : 1) * sizeof(*pcm));
+  out = (int16_t *)malloc((out_per_frame ? out_per_frame : 1) * sizeof(*out));
+  if (!pcm || !out) goto done;
+
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) ||
+      !write_u32(num_packets * out_per_frame)) {
+    goto done;
+  }
+
+  for (p = 0; p < num_packets; p++) {
+    uint32_t nbytes;
+    ec_dec ec;
+    int ret;
+
+    if (!read_u32(&nbytes)) goto done;
+    packet = (unsigned char *)malloc(nbytes ? nbytes : 1);
+    if (!packet) goto done;
+    if (nbytes && !read_exact(packet, nbytes)) goto done;
+    padded = (nbytes + 3u) & ~3u;
+    for (i = nbytes; i < padded; i++) {
+      unsigned char pad;
+      if (!read_exact(&pad, 1)) goto done;
+    }
+
+    ec_dec_init(&ec, packet, nbytes);
+    ret = celt_decode_with_ec(dec, packet, (int)nbytes, pcm, out_frame_size, &ec, 0);
+    if (ret < 0) goto done;
+
+    for (i = 0; i < out_per_frame; i++) {
+      out[i] = RES2INT16(pcm[i]);
+    }
+    for (i = 0; i < out_per_frame; i++) {
+      if (!write_exact(&out[i], sizeof(out[i]))) goto done;
+    }
+
+    free(packet);
+    packet = NULL;
+  }
+  ok = 1;
+
+done:
+  free(dec);
+  free(packet);
+  free(pcm);
+  free(out);
+  return ok;
+}
+
 int main(void) {
   char magic[4];
   uint32_t version;
@@ -234,6 +328,8 @@ int main(void) {
       return eval_energy() ? 0 : 1;
     case MODE_DECODE:
       return eval_decode() ? 0 : 1;
+    case MODE_DECODE_SEQ:
+      return eval_decode_seq() ? 0 : 1;
   }
   return 1;
 }
