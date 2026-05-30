@@ -715,6 +715,35 @@ func (e *Encoder) allocateSurroundRates(rates []int, frameSize int) {
 	}
 }
 
+// bitsToBitrate mirrors libopus celt.h bits_to_bitrate(): the bitrate implied
+// by a per-frame bit budget at the configured sample rate.
+func bitsToBitrate(bits, fs, frameSize int) int {
+	if frameSize <= 0 || fs <= 0 {
+		return 0
+	}
+	return bits * (6 * fs / frameSize) / 6
+}
+
+// bitrateToBits mirrors libopus celt.h bitrate_to_bits(): the number of bits a
+// given bitrate yields for one frame at the configured sample rate.
+func bitrateToBits(bitrate, fs, frameSize int) int {
+	if frameSize <= 0 || fs <= 0 {
+		return 0
+	}
+	return bitrate * 6 / (6 * fs / frameSize)
+}
+
+// allocatedRateSum returns the sum of the per-stream allocation, matching the
+// rate_sum returned by libopus rate_allocation() (each rate floored at 500).
+func (e *Encoder) allocatedRateSum(frameSize int) int {
+	rates := e.allocateRates(frameSize)
+	sum := 0
+	for i := 0; i < e.streams && i < len(rates); i++ {
+		sum += rates[i]
+	}
+	return sum
+}
+
 func (e *Encoder) allocateRates(frameSize int) []int {
 	if frameSize <= 0 {
 		frameSize = 960
@@ -1342,6 +1371,28 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 	// Mirror libopus per-stream rate/control policy ahead of stream encodes.
 	e.applyPerStreamPolicy(frameSize, pcm)
 
+	// For CBR, libopus shrinks the total caller budget to the bitrate-implied
+	// packet size before deriving each stream's curr_max
+	// (opus_multistream_encoder.c opus_multistream_encode_native(), lines
+	// 918-928). rate_sum is the sum of the per-stream allocation that feeds the
+	// OPUS_AUTO branch.
+	fs := int(e.sampleRate)
+	if !e.VBR() {
+		smallestPacket := e.streams*2 - 1
+		if frameSize > 0 && fs/frameSize == 10 {
+			smallestPacket += e.streams
+		}
+		switch e.bitrate {
+		case encoder.BitrateAuto:
+			rateSum := e.allocatedRateSum(frameSize)
+			maxDataBytes = minInt(maxDataBytes, (bitrateToBits(rateSum, fs, frameSize)+4)/8)
+		case encoder.BitrateMax:
+			// No shrinking: keep the full caller budget.
+		default:
+			maxDataBytes = minInt(maxDataBytes, maxInt(smallestPacket, (bitrateToBits(e.bitrate, fs, frameSize)+4)/8))
+		}
+	}
+
 	// Route input channels to stream buffers
 	streamBuffers := e.routeInputToStreams(pcm, frameSize)
 	analysisStreamBuffers := streamBuffers
@@ -1394,6 +1445,12 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 			} else {
 				currMax--
 			}
+		}
+		// For CBR, the last stream gets exactly the remaining budget so the
+		// total packet matches the requested constant rate
+		// (opus_multistream_encoder.c lines 1025-1026).
+		if !e.VBR() && i == e.streams-1 {
+			enc.SetAllocatedBitrate(bitsToBitrate(currMax*8, fs, frameSize))
 		}
 
 		packet, err := enc.EncodeFloat32WithAnalysisMaxBytes(streamBuffers[i], frameSize, analysisStreamBuffers[i], currMax)

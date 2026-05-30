@@ -1003,7 +1003,17 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			if encodingBitrate != originalBitrate {
 				e.bitrate = encodingBitrate
 			}
-			frameData, err = e.encodeCELTFrame(celtPCM, frameSize)
+			// libopus opus_encode_frame_native() bounds the CELT range coder by
+			// nb_compr_bytes = max_data_bytes-1 (opus_encoder.c line 2392;
+			// redundancy_bytes==0 for CELT-only). Thread the caller budget as the
+			// payload cap so per-stream curr_max ceilings (multistream LFE/last
+			// stream) are honored. Standalone callers pass a large budget, leaving
+			// behavior unchanged.
+			celtMaxPayload := 0
+			if maxDataBytes > 1 {
+				celtMaxPayload = maxDataBytes - 1
+			}
+			frameData, err = e.encodeCELTFrameWithBitrateAndMaxPayload(celtPCM, frameSize, int(e.bitrate), celtMaxPayload)
 			if encodingBitrate != originalBitrate {
 				e.bitrate = originalBitrate
 			}
