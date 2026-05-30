@@ -1,5 +1,7 @@
 package celt
 
+import "github.com/thesyncim/gopus/internal/extsupport"
+
 const (
 	combFilterMinPeriod = 15
 	combFilterMaxPeriod = 1024
@@ -961,6 +963,14 @@ func combFilterWithSquarePlanarFloat32(samples []float32, hist []celtSig, histor
 
 func combFilterWithInputSig(dst, src []celtSig, start int, t0, t1, n int, g0, g1 float32, tapset0, tapset1 int, window []float32, overlap int) {
 	if n <= 0 {
+		return
+	}
+	// Native 96 kHz HD mode: comb_filter dispatches to comb_filter_qext when
+	// overlap==240 (libopus celt.c). The window is non-nil only on the
+	// pitch-transition segment; the segment-0 (offset) call passes window==nil,
+	// overlap==0, but libopus still routes it through comb_filter_qext.
+	if extsupport.QEXT && overlap == 240 {
+		combFilterWithInputSigQEXT(dst, src, start, t0, t1, n, g0, g1, tapset0, tapset1, window, overlap)
 		return
 	}
 	if g0 == 0 && g1 == 0 {

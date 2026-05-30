@@ -28,7 +28,12 @@ package celt
 // QEXT_SCALE(COMBFILTER_MAXPERIOD) = 2048, min_period = 2*COMBFILTER_MINPERIOD,
 // with pitch_index /= qext_scale before comb_filter (celt/prefilter.go via
 // Encoder.combScale/combMaxPeriod/combMinPeriod), so the encoded postfilter
-// pitch parameters are bit-exact vs the reference.
+// pitch parameters are bit-exact vs the reference. The comb itself dispatches to
+// comb_filter_qext when overlap==240 (combFilterWithInputSig ->
+// combFilterWithInputSigQEXT in prefilter_hd96k_qext.go): each even/odd sample
+// phase is filtered independently at N/2 with a half-rate window and
+// 2*COMBFILTER_MAXPERIOD history reach, so the filtered signal fed into the MDCT
+// matches libopus.
 //
 // The native HD96k analysis MDCT is wired into EncodeFrame: the long/short
 // forward MDCT runs at overlap=240 and the native 3840/480 transform lengths
@@ -43,10 +48,6 @@ package celt
 // What is NOT yet wired here (the remaining native-encode increments, tracked
 // against the native 96 kHz encode oracle in
 // internal/libopustest/qext_encode96k_oracle.go):
-//   - The HD-scale comb prefilter feeds a slightly different filtered signal into
-//     the MDCT (mono, postfilter on), perturbing one band's analysis energy and
-//     its dynalloc boost; this is the same comb_filter residual documented on the
-//     decode side.
 //   - Downstream TF/allocation/PVQ band-data parity at the HD scale (stereo's
 //     analysis is bit-exact through coarse energy but the main payload still
 //     diverges in the band-data region).

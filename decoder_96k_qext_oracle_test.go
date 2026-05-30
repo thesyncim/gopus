@@ -14,6 +14,7 @@ import (
 
 	"github.com/thesyncim/gopus/internal/benchutil"
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/rangecoding"
 )
 
 // hd96kDecodeArm64Tol bounds the documented darwin/arm64 CELT cosine/rsqrt
@@ -259,6 +260,120 @@ func TestQEXTDecode96kOracleProducesNative96k(t *testing.T) {
 	}
 	t.Logf("native 96k decode: %d frames, %d samples/ch, 30kHz mag=%.4g, finalRanges=%v",
 		samplesPerCh/1920, samplesPerCh, mag, res.FinalRanges)
+}
+
+// TestNative96kDecodeCrossFramePostfilterParity pins the native 96 kHz
+// comb-filter postfilter (libopus comb_filter_qext) across frames. It requires
+// the decoded stream to genuinely exercise an active pitch comb (postfilter flag
+// set on at least one frame after the first, so the cross-frame comb history is
+// loaded) and then enforces that every frame after the first matches the QEXT
+// libopus reference sample-for-sample on amd64 (the documented arm64 CELT-kernel
+// budget otherwise). A non-zero comb-filter scale defect shows up here as a
+// large cross-frame residual once a prior frame's pitch comb is active.
+func TestNative96kDecodeCrossFramePostfilterParity(t *testing.T) {
+	for _, ch := range []int{1, 2} {
+		ch := ch
+		t.Run(map[int]string{1: "mono", 2: "stereo"}[ch], func(t *testing.T) {
+			libopustest.RequireOracle(t)
+			opusDemo, err := benchutil.QEXTOpusDemoPath()
+			if err != nil {
+				t.Skipf("QEXT-enabled opus_demo unavailable: %v", err)
+			}
+
+			const frames = 6
+			pcm96 := native96kSine(ch, frames)
+			packets := encodeNative96kQEXTPackets(t, opusDemo, ch, pcm96, 320000)
+
+			// Confirm the comb is actually exercised: at least one frame after the
+			// first must carry an active postfilter, otherwise this test would pass
+			// trivially without touching comb_filter_qext.
+			activeAfterFirst := 0
+			for i, pkt := range packets {
+				if celtFramePostfilterActive(pkt) {
+					if i > 0 {
+						activeAfterFirst++
+					}
+				}
+			}
+			if activeAfterFirst == 0 {
+				t.Skipf("no cross-frame active postfilter in %d packets; comb path not exercised", len(packets))
+			}
+
+			ref, err := libopustest.ProbeQEXTDecode96k(libopustest.QEXTDecode96kParams{
+				SampleFormat: libopustest.QEXTDecode96kFormatFloat32,
+				Channels:     ch,
+				MaxFrameSize: 1920,
+				Packets:      packets,
+			})
+			if err != nil {
+				libopustest.HelperUnavailable(t, "qext decode96k", err)
+			}
+			if len(ref.PCM) == 0 {
+				t.Fatal("oracle returned no PCM")
+			}
+
+			dec, err := NewDecoder(DefaultDecoderConfig(96000, ch))
+			if err != nil {
+				t.Fatalf("NewDecoder(96000, %d): %v", ch, err)
+			}
+			out := make([]float32, 0, len(ref.PCM))
+			buf := make([]float32, 1920*ch)
+			for pi, pkt := range packets {
+				n, derr := dec.Decode(pkt, buf)
+				if derr != nil {
+					t.Fatalf("packet %d decode: %v", pi, derr)
+				}
+				out = append(out, buf[:n*ch]...)
+			}
+
+			firstFrame := 1920 * ch
+			if len(out) <= firstFrame {
+				t.Fatalf("decoded only %d samples; need cross-frame coverage", len(out))
+			}
+			res := compareNative96kDecodeRange(t, out, ref.PCM, firstFrame, len(out), true)
+			t.Logf("cross-frame postfilter parity: %d ch, %d active-comb frames after first, max residual %v",
+				ch, activeAfterFirst, res)
+		})
+	}
+}
+
+// celtFramePostfilterActive reports whether the CELT main payload of a native
+// 96 kHz code-3 single-frame packet has its postfilter flag set (silence=0,
+// postfilter=1). It mirrors the leading CELT header bit decode.
+func celtFramePostfilterActive(pkt []byte) bool {
+	if len(pkt) < 2 || pkt[0]&0x03 != 3 {
+		return false
+	}
+	fc := pkt[1]
+	hasPad := fc&0x40 != 0
+	if int(fc&0x3f) != 1 {
+		return false
+	}
+	offset := 2
+	padding := 0
+	if hasPad {
+		for offset < len(pkt) {
+			b := int(pkt[offset])
+			offset++
+			if b == 255 {
+				padding += 254
+				continue
+			}
+			padding += b
+			break
+		}
+	}
+	end := len(pkt) - padding
+	if end <= offset {
+		return false
+	}
+	main := pkt[offset:end]
+	var d rangecoding.Decoder
+	d.Init(main)
+	if d.DecodeBit(15) != 0 { // silence
+		return false
+	}
+	return d.DecodeBit(1) != 0 // postfilter
 }
 
 func goertzelMag(x []float64, freq, fs float64) float64 {

@@ -19,15 +19,12 @@ package celt
 // parametric kernels.
 //
 // Parity status: the base bands, the >20 kHz QEXT extension bands, the
-// 3840-MDCT long synthesis (overlap=240) and the 2-tap HD de-emphasis are
-// sample-exact vs the QEXT libopus reference (mono and stereo) on a clean
-// comb-filter history, i.e. the first decoded frame matches bit-for-bit (amd64;
-// arm64 within the documented 1-ULP CELT budget). The cross-frame comb-filter
-// postfilter (libopus comb_filter_qext, postfilter_hd96k_qext.go) still carries
-// a residual once a previous frame's pitch comb is active; that residual is
-// present on amd64 and arm64 alike (it is not arch float drift). Finishing the
-// comb_filter_qext parity, the native 96 kHz encode routing, and the top-level
-// Opus packet framing of the reserved extension payload remain.
+// 3840-MDCT long synthesis (overlap=240), the 2-tap HD de-emphasis and the
+// cross-frame comb-filter postfilter (libopus comb_filter_qext,
+// postfilter_hd96k_qext.go) are sample-exact vs the QEXT libopus reference (mono
+// and stereo) on amd64; arm64 stays within the documented 1-ULP CELT budget. The
+// native 96 kHz encode routing and the top-level Opus packet framing of the
+// reserved extension payload remain.
 
 // EnableHD96kMode reconfigures the decoder for the native 96 kHz HD mode.
 // It is idempotent and must be called before decoding 96 kHz frames. The
