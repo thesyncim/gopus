@@ -153,6 +153,7 @@ type Encoder struct {
 	celtEnergyMask []float32
 
 	encoderQEXTFields
+	encoderFixedCELTFields
 
 	// dnnBlob retains a validated USE_WEIGHTS_FILE blob for future optional
 	// extension paths (DRED/OSCE). Keeping it here mirrors libopus ctl lifetime.
@@ -410,6 +411,7 @@ func (e *Encoder) Reset() {
 		e.celtEncoder.SetPrediction(e.celtPredictionMode())
 		e.syncQEXTToCELT()
 	}
+	e.resetFixedCELT()
 	if len(e.celtEnergyMask) > 0 {
 		clear(e.celtEnergyMask)
 		e.celtEnergyMask = e.celtEnergyMask[:0]
@@ -545,6 +547,9 @@ func (e *Encoder) currentFinalRange(mode Mode) uint32 {
 	case ModeHybrid, ModeCELT:
 		if mode == ModeHybrid {
 			return e.hybridFinalRange
+		}
+		if r, ok := e.fixedCELTFinalRange(); ok {
+			return r
 		}
 		if e.celtEncoder != nil {
 			return e.celtEncoder.FinalRange()
@@ -2789,6 +2794,9 @@ func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []opusRes, fra
 		e.celtEncoder.SetConstrainedVBR(false)
 	}
 	defer e.celtEncoder.SetMaxPayloadBytes(0)
+	if out, ok, err := e.encodeCELTFrameFixed(pcm, frameSize, bitrate, maxPayloadBytes); ok || err != nil {
+		return out, err
+	}
 	return e.celtEncoder.EncodeFrame(pcm, frameSize)
 }
 
