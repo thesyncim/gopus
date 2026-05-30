@@ -200,6 +200,7 @@ func TestDefaultBuildIsZeroCostForGatedFeatures(t *testing.T) {
 		modulePrefix + "internal/osce/lace",      // ENABLE_OSCE (LACE / NoLACE)
 		modulePrefix + "internal/osce/bwe",       // ENABLE_OSCE_BWE
 		modulePrefix + "celt/custom",             // CUSTOM_MODES
+		modulePrefix + "internal/fixedpoint",     // gopus_fixedpoint (integer CELT codec)
 	}
 
 	for _, pkg := range publicPkgs {
@@ -222,6 +223,78 @@ func TestDefaultBuildIsZeroCostForGatedFeatures(t *testing.T) {
 					"(libopus gates the equivalent C code behind a compile flag); it must be reachable "+
 					"only under the matching build tag", pkg, gated)
 			}
+		}
+	}
+}
+
+// TestDefaultBinaryHasNoFixedPointSymbols compiles a tiny program that imports
+// the public package under the DEFAULT (untagged) build and inspects the linked
+// binary's symbol table. It asserts that no gopus_fixedpoint-only symbol made it
+// in: neither any internal/fixedpoint symbol, nor the package-local shims that
+// now live in //go:build gopus_fixedpoint files. This is a stronger guarantee
+// than the import-graph check because it inspects the actual link output.
+func TestDefaultBinaryHasNoFixedPointSymbols(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping symbol check in short mode")
+	}
+
+	goBin, err := exec.LookPath("go")
+	if err != nil {
+		t.Skipf("go toolchain unavailable: %v", err)
+	}
+
+	// Place the probe in a temp subdirectory of THIS module so it shares the
+	// module's go.mod and resolves all in-tree imports without a separate
+	// module / replace directive.
+	probeDir, err := os.MkdirTemp(".", "fixedpointprobe")
+	if err != nil {
+		t.Fatalf("create probe dir: %v", err)
+	}
+	defer os.RemoveAll(probeDir)
+
+	src := "package main\n\n" +
+		"import (\n" +
+		"\t_ \"github.com/thesyncim/gopus\"\n" +
+		"\t_ \"github.com/thesyncim/gopus/celt\"\n" +
+		"\t_ \"github.com/thesyncim/gopus/rangecoding\"\n" +
+		")\n\n" +
+		"func main() {}\n"
+	if err := os.WriteFile(filepath.Join(probeDir, "main.go"), []byte(src), 0o644); err != nil {
+		t.Fatalf("write probe main: %v", err)
+	}
+
+	binPath := filepath.Join(t.TempDir(), "probe.bin")
+	// Default build: no build tags. GOFLAGS cleared so the host environment
+	// cannot inject -tags=gopus_fixedpoint.
+	build := exec.Command(goBin, "build", "-tags", "", "-o", binPath, "./"+filepath.Base(probeDir))
+	build.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
+	if out, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build default probe binary: %v\n%s", err, out)
+	}
+
+	nm := exec.Command(goBin, "tool", "nm", binPath)
+	nm.Env = append(os.Environ(), "GOWORK=off")
+	out, err := nm.CombinedOutput()
+	if err != nil {
+		t.Skipf("go tool nm unavailable on this platform: %v\n%s", err, out)
+	}
+	syms := string(out)
+
+	// Substrings that must never appear in a default-build symbol table.
+	forbidden := []string{
+		"github.com/thesyncim/gopus/internal/fixedpoint",
+		// Package-local shims moved into //go:build gopus_fixedpoint files.
+		"github.com/thesyncim/gopus/celt.MaxPulsesBitsExport",
+		"github.com/thesyncim/gopus/celt.DecodeCELTAllocation",
+		"github.com/thesyncim/gopus/celt.TFDecode",
+		"github.com/thesyncim/gopus/rangecoding.(*Decoder).SkipToTell",
+		"github.com/thesyncim/gopus/rangecoding.(*Encoder).SkipToTell",
+		"github.com/thesyncim/gopus/rangecoding.(*Encoder).Snapshot",
+		"github.com/thesyncim/gopus/rangecoding.(*Encoder).Restore",
+	}
+	for _, sym := range forbidden {
+		if strings.Contains(syms, sym) {
+			t.Errorf("zero-cost contract violation: default-build binary contains gopus_fixedpoint-only symbol %q", sym)
 		}
 	}
 }

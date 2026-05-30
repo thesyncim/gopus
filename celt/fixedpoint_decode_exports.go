@@ -1,3 +1,5 @@
+//go:build gopus_fixedpoint
+
 package celt
 
 import "github.com/thesyncim/gopus/rangecoding"
