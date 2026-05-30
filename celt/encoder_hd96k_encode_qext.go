@@ -27,15 +27,21 @@ package celt
 // What is NOT yet wired here (the remaining native-encode increments, tracked
 // against the native 96 kHz encode oracle in
 // internal/libopustest/qext_encode96k_oracle.go):
+// The pre-filter comb (run_prefilter) runs at the HD scale: max_period =
+// QEXT_SCALE(COMBFILTER_MAXPERIOD) = 2048, min_period = 2*COMBFILTER_MINPERIOD,
+// with pitch_index /= qext_scale before comb_filter (celt/prefilter.go via
+// Encoder.combScale/combMaxPeriod/combMinPeriod), so the encoded postfilter
+// pitch parameters are bit-exact vs the reference.
+//
+// What is NOT yet wired here (the remaining native-encode increments, tracked
+// against the native 96 kHz encode oracle in
+// internal/libopustest/qext_encode96k_oracle.go):
 //   - The full EncodeFrame driver still threads the 48 kHz overlap constant
-//     through transient analysis, the pre-filter and the MDCT-history helpers;
-//     HD96k needs overlap=240 wired through all of those.
-//   - The pre-filter comb (run_prefilter / comb_filter_qext) at the HD scale is
-//     the analysis counterpart of the decode-side comb_filter_qext, which still
-//     carries a cross-frame residual (postfilter_hd96k_qext.go).
-//   - The >20 kHz QEXT extension-band ENCODE (qext.go / qext_alloc.go /
-//     qext_energy.go / qext_header.go encode paths) is not yet driven into the
-//     secondary range coder from the HD encode.
+//     through transient analysis and the MDCT-history helpers; HD96k needs
+//     overlap=240 wired through all of those.
+//   - The QEXT packet-space reservation (computeQEXTReservation) over-reserves
+//     the extension payload for mono CBR, so the main payload size diverges
+//     (mono 237 vs reference 616; stereo already matches).
 //   - The top-level Opus packet framing of the reserved extension payload
 //     (encoder_96k_qext.go) still resamples 2:1 rather than emitting a native
 //     96 kHz QEXT packet.
@@ -60,6 +66,15 @@ func (e *Encoder) EnableHD96kMode() {
 	}
 	for i := range e.overlapBuffer {
 		e.overlapBuffer[i] = 0
+	}
+
+	// Grow the comb-filter history to QEXT_SCALE(COMBFILTER_MAXPERIOD)=2048
+	// per channel (run_prefilter max_period at Fs=96000) and clear it.
+	if need := e.combMaxPeriod() * channels; len(e.prefilterMem) < need {
+		e.prefilterMem = make([]celtSig, need)
+	}
+	for i := range e.prefilterMem {
+		e.prefilterMem[i] = 0
 	}
 	for i := range e.preemphState {
 		e.preemphState[i] = 0

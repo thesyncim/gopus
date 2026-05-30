@@ -48,7 +48,7 @@ func (e *Encoder) fillTransientHistoryFromPrefilterF32(overlap int, dst []float3
 	if len(dst) < need {
 		return
 	}
-	maxPeriod := combFilterMaxPeriod
+	maxPeriod := e.combMaxPeriod()
 	if len(e.prefilterMem) < maxPeriod*channels {
 		clear(dst[:need])
 		return
@@ -1388,9 +1388,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			qextBalance -= int(qextExtraBits[MaxBands+i])
 			qextBalance -= fineQ3
 		}
-		if qextBalance < 0 {
-			qextBalance = 0
-		}
+		// Pass the signed ext_balance to quant_all_bands (no clamp at 0),
+		// mirroring the decode-side QEXT path (decodeQEXTBands).
 		// Match libopus: extra-band quant_all_bands() still receives a real
 		// secondary coder context, but that nested coder is a zero-sized dummy
 		// and the per-band extension budgets are all zero.

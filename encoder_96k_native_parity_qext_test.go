@@ -83,24 +83,30 @@ func refMainCELTPayload(t *testing.T, pkt []byte) (main, qext []byte) {
 // main payload (and QEXT extension payload) against the QEXT libopus reference.
 //
 // Status: the threaded overlap=240 analysis MDCT, the 2-tap HD pre-emphasis and
-// the Fs=96000 bitrate/QEXT-reservation budget now reproduce the reference's
-// early frame structure: the CBR main-payload byte budget matches exactly (616
-// bytes), and for mono the silence / postfilter-decision / transient / intra
-// flags and the first range-coder byte are bit-exact.
+// the Fs=96000 bitrate/QEXT-reservation budget reproduce the reference's early
+// frame structure. The analysis-side comb prefilter now runs at the HD scale
+// (run_prefilter max_period = QEXT_SCALE(COMBFILTER_MAXPERIOD) = 2048,
+// min_period = 2*COMBFILTER_MINPERIOD, pitch_index /= qext_scale; see
+// celt/prefilter.go), so the encoded postfilter octave/pitch/qg/tapset are now
+// bit-exact vs the reference (mono: silence/postfilter flags + pitch params all
+// match through ec_tell=12). The extra-band quant_all_bands now also receives
+// the signed ext_balance (no clamp), mirroring the decode side.
 //
-// The remaining divergence is the analysis-side comb prefilter at the HD scale.
-// libopus run_prefilter() uses max_period = QEXT_SCALE(COMBFILTER_MAXPERIOD) =
-// 2*1024 = 2048 and min_period = 2*COMBFILTER_MINPERIOD for the 96 kHz mode
-// (celt_encoder.c:1423), so the pitch search, remove_doubling and comb_filter
-// all run at 2x period. gopus's runPrefilter still uses the unscaled 48 kHz
-// combFilterMaxPeriod=1024, so the encoded postfilter pitch parameters diverge
-// (mono: from byte 1, exactly where the postfilter octave/pitch/qg/tapset are
-// written) and the comb-filtered signal that feeds the MDCT differs. This is the
-// analysis counterpart of the decode-side comb_filter_qext residual.
+// Remaining native-96k encode increments (not the prefilter):
+//   - QEXT packet-space reservation for mono CBR: computeQEXTReservation()
+//     over-reserves the extension payload for mono (main shrinks to 237 vs the
+//     reference 616), so everything after the postfilter params cascades. The
+//     reference reserves only qext_bytes=21 (payload 20) for both mono and
+//     stereo at 256 kb/s. The CBR compute_vbr() pivot (cbrVBRTargetBytes) and/or
+//     its byte rounding diverges for mono (stereo already reserves 616/20
+//     correctly). This is the top-level Opus extension-payload framing budget.
+//   - Coarse-energy intra decision at the HD scale: with the stereo budget
+//     correct (616), the main payload still diverges at the intra flag (got=0,
+//     ref=1) before any band data, independent of the (off) prefilter.
 //
 // The test is kept as an executable diagnostic: it logs the precise divergence
-// and skips rather than failing, so the suite stays green while the HD-scale
-// prefilter remains the documented remaining native-96k encode increment.
+// and skips rather than failing, so the suite stays green while the reservation
+// budget and coarse-energy intra decision remain the documented increments.
 func TestHD96kNativeEncodeMainPayloadParity(t *testing.T) {
 	const frameSize = 1920
 	const bitrate = 256000
@@ -157,7 +163,7 @@ func TestHD96kNativeEncodeMainPayloadParity(t *testing.T) {
 				anyDiverged = true
 			}
 			if firstMainDiff >= 0 {
-				t.Logf("ch=%d main payload diverges at byte %d (got len=%d ref len=%d) -- HD-scale prefilter pending",
+				t.Logf("ch=%d main payload diverges at byte %d (got len=%d ref len=%d) -- QEXT reservation / coarse-energy intra pending",
 					ch, firstMainDiff, len(gotMain), len(refMain))
 				dumpAround(t, "main", gotMain, refMain, firstMainDiff)
 			}
@@ -169,7 +175,7 @@ func TestHD96kNativeEncodeMainPayloadParity(t *testing.T) {
 		})
 	}
 	if anyDiverged {
-		t.Skip("native 96k CELT encode pending HD-scale comb prefilter (max_period=2048); see test doc")
+		t.Skip("native 96k CELT encode pending QEXT reservation budget + coarse-energy intra; HD-scale prefilter and signed ext_balance done (see test doc)")
 	}
 }
 

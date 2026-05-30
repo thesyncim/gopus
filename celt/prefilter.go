@@ -30,14 +30,19 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		tapset = len(combFilterGains) - 1
 	}
 
-	maxPeriod := combFilterMaxPeriod
-	minPeriod := combFilterMinPeriod
+	qextScale := e.combScale()
+	maxPeriod := e.combMaxPeriod()
+	minPeriod := e.combMinPeriod()
+	// e.prefilterPeriod is stored at the unscaled COMBFILTER range (the comb
+	// filter runs at that scale; only the analysis buffers/search use the
+	// QEXT-scaled period). Clamp it the same way libopus clamps
+	// st->prefilter_period inside run_prefilter.
 	prevPeriod := e.prefilterPeriod
-	if prevPeriod < minPeriod {
-		prevPeriod = minPeriod
+	if prevPeriod < combFilterMinPeriod {
+		prevPeriod = combFilterMinPeriod
 	}
-	if prevPeriod > maxPeriod-2 {
-		prevPeriod = maxPeriod - 2
+	if prevPeriod > combFilterMaxPeriod-2 {
+		prevPeriod = combFilterMaxPeriod - 2
 	}
 	prevTapset := e.prefilterTapset
 	if prevTapset < 0 {
@@ -69,28 +74,32 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 			preR[maxPeriod+i] = celtSig(preemph[2*i+1])
 		}
 	}
-	pitchIndex := minPeriod
+	pitchIndex := combFilterMinPeriod
 	gain1 := float32(0)
 	qg := 0
 	pfOn := false
 
 	if enabled && toneishness > 0.99 {
+		// Aliased postfilter above 24 kHz: compare/scale the detected tone
+		// frequency through QEXT_SCALE (2 at native 96 kHz). The resulting pitch
+		// index stays at the unscaled COMBFILTER_MAXPERIOD range (libopus does
+		// not /= qext_scale on this branch).
 		freq := toneFreq
 		const pi32 = float32(3.14159265358979323846)
-		if freq >= pi32 {
+		if freq*float32(qextScale) >= pi32 {
 			freq = pi32 - freq
 		}
 		multiple := 1
-		for freq >= float32(multiple)*0.39 {
+		for freq*float32(qextScale) >= float32(multiple)*0.39 {
 			multiple++
 		}
-		if freq > 0.006148 {
-			pitchIndex = int(0.5 + 2*pi32*float32(multiple)/freq)
-			if pitchIndex > maxPeriod-2 {
-				pitchIndex = maxPeriod - 2
+		if freq*float32(qextScale) > 0.006148 {
+			pitchIndex = int(0.5 + 2*pi32*float32(multiple)/(freq*float32(qextScale)))
+			if pitchIndex > combFilterMaxPeriod-2 {
+				pitchIndex = combFilterMaxPeriod - 2
 			}
 		} else {
-			pitchIndex = minPeriod
+			pitchIndex = combFilterMinPeriod
 		}
 		gain1 = 0.75
 	} else if enabled && e.complexity >= 5 {
@@ -108,9 +117,12 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		pitchIndex = searchOut
 		pitchIndex = maxPeriod - pitchIndex
 		gain1 = removeDoubling(pitchBuf, maxPeriod, minPeriod, frameSize, &pitchIndex, e.prefilterPeriod, e.prefilterGain, &e.scratch)
-		if pitchIndex > maxPeriod-2 {
-			pitchIndex = maxPeriod - 2
+		if pitchIndex > maxPeriod-2*qextScale {
+			pitchIndex = maxPeriod - 2*qextScale
 		}
+		// Bring the pitch index back to the unscaled COMBFILTER range used by
+		// the comb filter (libopus: pitch_index /= qext_scale under ENABLE_QEXT).
+		pitchIndex /= qextScale
 		gain1 *= 0.7
 		if e.packetLoss > 2 {
 			gain1 *= 0.5
@@ -123,7 +135,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		}
 	} else {
 		gain1 = 0
-		pitchIndex = minPeriod
+		pitchIndex = combFilterMinPeriod
 	}
 	// Match libopus run_prefilter() scaling by analysis->max_pitch_ratio.
 	if maxPitchRatio < 0 {
@@ -315,7 +327,7 @@ func (e *Encoder) updatePrefilterNoopState(pre []celtSig, perChanLen, frameSize,
 	if channels <= 0 || frameSize <= 0 || len(pre) < perChanLen*channels {
 		return
 	}
-	maxPeriod := combFilterMaxPeriod
+	maxPeriod := e.combMaxPeriod()
 	if overlap > 0 {
 		need := channels * overlap
 		if len(e.overlapBuffer) < need {

@@ -1185,6 +1185,26 @@ type encoderScratch struct {
 	coarseOldStart   []celtGLog
 }
 
+// combScale returns the comb-filter period scale for the active mode. It is
+// QEXT_SCALE (2) at the native 96 kHz HD mode and 1 otherwise. In the default
+// build hd96kOverlap is always 0, so this is a constant 1 (zero-cost).
+//
+// C ref: celt_encoder.c run_prefilter() max_period = QEXT_SCALE(COMBFILTER_MAXPERIOD).
+func (e *Encoder) combScale() int {
+	if e.hd96kOverlap > 0 && e.sampleRate == 96000 {
+		return 2
+	}
+	return 1
+}
+
+// combMaxPeriod returns the comb-filter max period for the active mode
+// (QEXT_SCALE(COMBFILTER_MAXPERIOD)).
+func (e *Encoder) combMaxPeriod() int { return combFilterMaxPeriod * e.combScale() }
+
+// combMinPeriod returns the comb-filter min period for the active mode
+// (QEXT_SCALE(COMBFILTER_MINPERIOD)).
+func (e *Encoder) combMinPeriod() int { return combFilterMinPeriod * e.combScale() }
+
 // EnsureScratch ensures all scratch buffers are properly sized for the given frame size.
 // Call this before using the encoder's scratch-aware methods from an external path
 // (e.g., hybrid encoding) that does not go through EncodeFrame.
@@ -1221,9 +1241,9 @@ func (e *Encoder) ensureScratch(frameSize int) {
 	s.transientInput = ensureFloat32Slice(&s.transientInput, transientLen)
 
 	// Prefilter scratch buffers
-	maxPeriod := combFilterMaxPeriod
-	if maxPeriod < combFilterMinPeriod {
-		maxPeriod = combFilterMinPeriod
+	maxPeriod := e.combMaxPeriod()
+	if maxPeriod < e.combMinPeriod() {
+		maxPeriod = e.combMinPeriod()
 	}
 	prefilterLen := (maxPeriod + frameSize) * channels
 	s.prefilterPre = ensureSigSlice(&s.prefilterPre, prefilterLen)
@@ -1233,7 +1253,7 @@ func (e *Encoder) ensureScratch(frameSize int) {
 		pitchBufLen = 1
 	}
 	s.prefilterPitchBuf = ensureFloat32Slice(&s.prefilterPitchBuf, pitchBufLen)
-	maxPitch := maxPeriod - 3*combFilterMinPeriod
+	maxPitch := maxPeriod - 3*e.combMinPeriod()
 	if maxPitch < 1 {
 		maxPitch = 1
 	}
