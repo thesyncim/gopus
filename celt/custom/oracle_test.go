@@ -20,7 +20,6 @@ package custom_test
 import (
 	"bytes"
 	"encoding/binary"
-	"errors"
 	"fmt"
 	"math"
 	"runtime"
@@ -329,8 +328,20 @@ func TestOracleParityNonStandardModes(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewEncoder: %v", err)
 			}
-			if _, err := enc.EncodeFloat(tc.pcm, tc.maxBytes); !errors.Is(err, custom.ErrNonStandard) {
-				t.Errorf("EncodeFloat non-standard mode: err = %v, want ErrNonStandard", err)
+			// The encoder now drives genuinely custom band layouts via the same
+			// per-mode CELT tables as the decoder. On amd64 the packet is
+			// byte-identical to the libopus --enable-custom-modes oracle; on arm64
+			// the documented 1-ULP CELT drift can perturb late bits, so only the
+			// range-coder final state is checked there.
+			packet, err := enc.EncodeFloat(tc.pcm, tc.maxBytes)
+			if err != nil {
+				t.Fatalf("EncodeFloat: %v", err)
+			}
+			if runtime.GOARCH != "arm64" {
+				if !bytes.Equal(packet, results[i].packet) {
+					t.Errorf("Fs=%d frame=%d: encode packet mismatch\n  got  (%d): %x\n  want (%d): %x",
+						tc.fs, tc.frameSize, len(packet), packet, len(results[i].packet), results[i].packet)
+				}
 			}
 
 			dec, err := custom.NewDecoder(mode, tc.channels)
@@ -361,7 +372,7 @@ func TestOracleParityNonStandardModes(t *testing.T) {
 					t.Fatalf("Fs=%d frame=%d: decoded PCM arm64 drift maxAbs=%g exceeds tol %g",
 						tc.fs, tc.frameSize, maxAbs, scaledFamilyDecodeArm64Tol)
 				}
-				t.Logf("Fs=%d frame=%d: decode within arm64 drift maxAbs=%.3e (project_arm64_celt_1ulp_drift.md); encode declines ErrNonStandard",
+				t.Logf("Fs=%d frame=%d: decode within arm64 drift maxAbs=%.3e (project_arm64_celt_1ulp_drift.md); encode range-state checked",
 					tc.fs, tc.frameSize, maxAbs)
 			}
 		})

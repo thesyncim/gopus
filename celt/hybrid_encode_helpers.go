@@ -77,6 +77,14 @@ func (e *Encoder) normalizeBandsMonoBinMulF32(mdctCoeffs []float32, nbBands, bin
 	frameSize := len(mdctCoeffs)
 	norm = ensureNormSlice(&e.scratch.normL, frameSize)
 	bandE = ensureEnerSlice(&e.scratch.bandE, nbBands)
+	if pm := e.perMode; pm != nil {
+		normalizeBandsToArrayIntoF32BinMulWidths(mdctCoeffs, nbBands, binMul, norm, bandE, pm.eBandWidths, pm.nbEBands)
+		if e.lfe {
+			applyLFELinearBandEClamp(bandE, nbBands, 1)
+			normalizeBandsWithBandEIntoF32BinMulWidths(mdctCoeffs, nbBands, binMul, norm, bandE, pm.eBandWidths)
+		}
+		return norm, bandE
+	}
 	NormalizeBandsToArrayIntoF32BinMul(mdctCoeffs, nbBands, binMul, norm, bandE)
 	if e.lfe {
 		applyLFELinearBandEClamp(bandE, nbBands, 1)

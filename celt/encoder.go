@@ -57,6 +57,13 @@ type Encoder struct {
 	// customEffBands is the effEBands clamp for the active custom mode (0 selects
 	// the standard 21-band clamp).
 	customEffBands int
+	// perMode carries the per-mode CELT tables (band edges, widths, logN,
+	// allocVectors, pulse cache) for a non-standard Opus Custom mode whose band
+	// layout differs from the static 21-band 48 kHz tables (e.g. 48000/640,
+	// nbEBands=19). It is nil for the standard, family, hybrid and QEXT paths,
+	// which then stay byte-identical. Populated only by EnablePerModeTables,
+	// called from the gopus_custom celt<->custom plumbing.
+	perMode *perModeTables
 	// overlapMax mirrors libopus st->overlap_max for CELT silence detection.
 	// It tracks max absolute amplitude over the last overlap region.
 	overlapMax opusVal32
@@ -1270,6 +1277,19 @@ type encoderScratch struct {
 	// Coarse-energy two-pass scratch
 	coarseStartState rangecoding.EncoderState
 	coarseOldStart   []celtGLog
+
+	// Per-mode allocation work buffer (non-standard custom modes only).
+	allocWork []int32
+}
+
+// allocationScratch returns the per-mode allocation work buffer, sized for the
+// active band count. Used only by the non-standard custom-mode encode path.
+func (e *Encoder) allocationScratch() []int32 {
+	nb := MaxBands
+	if e.perMode != nil {
+		nb = e.perMode.nbEBands
+	}
+	return ensureInt32Slice(&e.scratch.allocWork, nb*4)
 }
 
 // combScale returns the comb-filter period scale for the active mode. It is
@@ -1497,8 +1517,12 @@ func (e *Encoder) ensureScratch(frameSize int) {
 // computeAllocationScratch computes bit allocation using scratch buffers (zero-alloc).
 // This is the zero-allocation version of ComputeAllocationWithEncoder.
 func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3, nbBands int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	maxNb := MaxBands
+	if e.perMode != nil {
+		maxNb = e.perMode.nbEBands
+	}
+	if nbBands > maxNb {
+		nbBands = maxNb
 	}
 	if nbBands < 0 {
 		nbBands = 0
@@ -1541,7 +1565,12 @@ func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3,
 	}
 
 	if cap == nil || len(cap) < nbBands {
-		cap = initCaps(nbBands, lm, channels)
+		if e.perMode != nil {
+			cap = ensureInt32Slice(&e.scratch.allocCaps, nbBands)[:nbBands]
+			initCapsIntoMode(cap, nbBands, lm, channels, e.perMode)
+		} else {
+			cap = initCaps(nbBands, lm, channels)
+		}
 	}
 	copy(result.Caps, cap[:nbBands])
 
@@ -1562,8 +1591,14 @@ func (e *Encoder) computeAllocationScratch(re *rangecoding.Encoder, totalBitsQ3,
 	fineBits := result.FineBits
 	finePriority := result.FinePriority
 
-	codedBands := cltComputeAllocationEncode(re, 0, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
-		totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
+	var codedBands int
+	if e.perMode != nil {
+		codedBands = cltComputeAllocationWithScratchModeEncode(re, 0, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
+			totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth, e.allocationScratch(), e.perMode)
+	} else {
+		codedBands = cltComputeAllocationEncode(re, 0, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
+			totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
+	}
 
 	result.CodedBands = codedBands
 	result.Balance = balance

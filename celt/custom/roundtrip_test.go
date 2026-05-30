@@ -3,7 +3,6 @@
 package custom_test
 
 import (
-	"errors"
 	"math"
 	"testing"
 
@@ -234,13 +233,17 @@ func TestRoundTripNonStandard44100(t *testing.T) {
 	}
 
 	pcm := generateSine(440, 44100, 440)
-	if _, err := enc.EncodeFloat(pcm, 100); !errors.Is(err, custom.ErrNonStandard) {
-		t.Fatalf("EncodeFloat: err = %v, want ErrNonStandard", err)
+	// The encoder and decoder both drive genuinely custom band layouts via the
+	// per-mode CELT tables (see TestOracleParityNonStandardModes for byte/sample
+	// parity against the libopus --enable-custom-modes oracle on 48000/640).
+	packet, err := enc.EncodeFloat(pcm, 100)
+	if err != nil {
+		t.Fatalf("EncodeFloat: %v", err)
 	}
-	// The decoder now decodes genuinely custom band layouts via the per-mode
-	// CELT tables; it returns a frame of the requested size (against the libopus
-	// custom-modes oracle this is sample-exact, see TestOracleParityNonStandardModes).
-	decoded, err := dec.DecodeFloat(make([]byte, 8), 440)
+	if len(packet) == 0 {
+		t.Fatal("EncodeFloat produced an empty packet")
+	}
+	decoded, err := dec.DecodeFloat(packet, 440)
 	if err != nil {
 		t.Fatalf("DecodeFloat: %v", err)
 	}

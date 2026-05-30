@@ -136,11 +136,26 @@ func computeBandEnergiesGLogInto(mdctCoeffs []float32, nbBands, frameSize, chann
 // modes (shortMdctSize 120) and the native 96 kHz HD mode (shortMdctSize 240),
 // where frameSize/120 would otherwise mis-scale the bin edges by 2x.
 func computeBandEnergiesGLogF32Into(mdctCoeffs []float32, nbBands, frameSize, channels, binMul int, dst []celtGLog) {
+	computeBandEnergiesGLogF32IntoEdges(mdctCoeffs, nbBands, frameSize, channels, binMul, dst, EBands[:], MaxBands)
+}
+
+// computeBandEnergiesGLogF32IntoEdges is the band-edge-parameterized form of
+// computeBandEnergiesGLogF32Into. The standard, family, hybrid and QEXT paths
+// pass the static EBands table (maxBands == MaxBands); a non-standard Opus
+// Custom mode passes its per-mode edges (length nbBands+1) and nbEBands.
+func computeBandEnergiesGLogF32IntoEdges(mdctCoeffs []float32, nbBands, frameSize, channels, binMul int, dst []celtGLog, edges []int, maxBands int) {
 	if binMul <= 0 {
 		binMul = 1
 	}
-	if nbBands > MaxBands {
-		nbBands = MaxBands
+	if len(edges) < 2 {
+		edges = EBands[:]
+		maxBands = MaxBands
+	}
+	if maxBands <= 0 || maxBands > len(edges)-1 {
+		maxBands = len(edges) - 1
+	}
+	if nbBands > maxBands {
+		nbBands = maxBands
 	}
 	if nbBands < 0 {
 		nbBands = 0
@@ -175,8 +190,8 @@ func computeBandEnergiesGLogF32Into(mdctCoeffs []float32, nbBands, frameSize, ch
 		channelCoeffs := mdctCoeffs[channelStart:channelEnd]
 
 		for band := 0; band < nbBands; band++ {
-			start := EBands[band] * binMul
-			end := EBands[band+1] * binMul
+			start := edges[band] * binMul
+			end := edges[band+1] * binMul
 
 			if start >= len(channelCoeffs) {
 				energy := silence

@@ -43,8 +43,34 @@ type perModeTables struct {
 // (row-major in allocVectors); cacheCaps is (maxLM+1)*2*nbEBands; cacheIndex /
 // cacheBits are the pulse cache. scaleBase is the mode short-MDCT size.
 func (d *Decoder) EnablePerModeTables(nbEBands, scaleBase int, eBands []int16, logN []int16, allocVectors []uint8, cacheIndex []int16, cacheBits, cacheCaps []uint8) {
+	if pm := buildPerModeTables(nbEBands, scaleBase, eBands, logN, allocVectors, cacheIndex, cacheBits, cacheCaps); pm != nil {
+		d.perMode = pm
+	}
+}
+
+// modeNbEBands returns the active band count: the per-mode table's nbEBands when
+// a per-mode custom layout is installed, otherwise the static MaxBands.
+func (d *Decoder) modeNbEBands() int {
+	if d.perMode != nil {
+		return d.perMode.nbEBands
+	}
+	return MaxBands
+}
+
+// modeEdges returns the active band-edge slice (length modeNbEBands()+1).
+func (d *Decoder) modeEdges() []int {
+	if d.perMode != nil {
+		return d.perMode.eBands
+	}
+	return EBands[:]
+}
+
+// buildPerModeTables converts the libopus-exact CELTMode members supplied by the
+// custom plumbing into the internal perModeTables carrier shared by the encode
+// and decode data planes.
+func buildPerModeTables(nbEBands, scaleBase int, eBands []int16, logN []int16, allocVectors []uint8, cacheIndex []int16, cacheBits, cacheCaps []uint8) *perModeTables {
 	if nbEBands <= 0 || len(eBands) < nbEBands+1 {
-		return
+		return nil
 	}
 	edges := make([]int, nbEBands+1)
 	for i := range edges {
@@ -69,7 +95,7 @@ func (d *Decoder) EnablePerModeTables(nbEBands, scaleBase int, eBands []int16, l
 		}
 		alloc[r] = row
 	}
-	d.perMode = &perModeTables{
+	return &perModeTables{
 		nbEBands:    nbEBands,
 		scaleBase:   scaleBase,
 		eBands:      edges,
@@ -82,19 +108,51 @@ func (d *Decoder) EnablePerModeTables(nbEBands, scaleBase int, eBands []int16, l
 	}
 }
 
+// EnablePerModeTables installs the per-mode CELT tables on the encoder for a
+// non-standard Opus Custom mode whose band layout differs from the static
+// 21-band 48 kHz tables. It mirrors Decoder.EnablePerModeTables and must be
+// called only for a mode that is neither standard nor in the
+// Fs==400*shortMdctSize family; the standard, family, hybrid and QEXT encode
+// paths leave perMode nil and stay byte-identical.
+func (e *Encoder) EnablePerModeTables(nbEBands, scaleBase int, eBands []int16, logN []int16, allocVectors []uint8, cacheIndex []int16, cacheBits, cacheCaps []uint8) {
+	e.perMode = buildPerModeTables(nbEBands, scaleBase, eBands, logN, allocVectors, cacheIndex, cacheBits, cacheCaps)
+}
+
 // modeNbEBands returns the active band count: the per-mode table's nbEBands when
 // a per-mode custom layout is installed, otherwise the static MaxBands.
-func (d *Decoder) modeNbEBands() int {
-	if d.perMode != nil {
-		return d.perMode.nbEBands
+func (e *Encoder) modeNbEBands() int {
+	if e.perMode != nil {
+		return e.perMode.nbEBands
 	}
 	return MaxBands
 }
 
 // modeEdges returns the active band-edge slice (length modeNbEBands()+1).
-func (d *Decoder) modeEdges() []int {
-	if d.perMode != nil {
-		return d.perMode.eBands
+func (e *Encoder) modeEdges() []int {
+	if e.perMode != nil {
+		return e.perMode.eBands
 	}
 	return EBands[:]
+}
+
+// modeBandWidth returns the active band width (eBands[i+1]-eBands[i]) for band i.
+func (e *Encoder) modeBandWidth(band int) int {
+	if e.perMode != nil {
+		if band >= 0 && band < len(e.perMode.eBandWidths) {
+			return e.perMode.eBandWidths[band]
+		}
+		return 0
+	}
+	return BandWidth(band)
+}
+
+// computeBandEnergiesGLogActive computes per-band log2 amplitudes for the active
+// mode, selecting the per-mode band edges when a non-standard custom layout is
+// installed and the static EBands table otherwise.
+func (e *Encoder) computeBandEnergiesGLogActive(mdctCoeffs []float32, nbBands, frameSize, channels, binMul int, dst []celtGLog) {
+	if e.perMode != nil {
+		computeBandEnergiesGLogF32IntoEdges(mdctCoeffs, nbBands, frameSize, channels, binMul, dst, e.perMode.eBands, e.perMode.nbEBands)
+		return
+	}
+	computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, channels, binMul, dst)
 }

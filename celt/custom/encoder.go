@@ -89,9 +89,19 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 
 	// Non-standard modes in the Fs==400*shortMdctSize family drive the native
 	// CELT data plane parameterized by the mode overlap, short-MDCT scaling base,
-	// effEBands clamp and per-rate pre-emphasis.
+	// effEBands clamp and per-rate pre-emphasis. They reuse the static 21-band
+	// 48 kHz tables.
+	//
+	// Non-standard modes OUTSIDE that family (e.g. 48000/640, NbEBands=19) have a
+	// genuinely custom band layout. They drive the same overlap/scale/pre-emphasis
+	// machinery PLUS the per-mode band tables (edges, widths, logN, allocVectors,
+	// pulse cache) installed via EnablePerModeTables. This mirrors the symmetric
+	// decode wiring in NewDecoder.
 	if mode.InScaledBandFamily() {
 		ce.enc.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph)
+	} else if !mode.isStandard {
+		ce.enc.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph)
+		ce.enc.EnablePerModeTables(mode.NbEBands, mode.ShortMdctSize, mode.EBands, mode.LogN, mode.AllocVectors, mode.CacheIndex, mode.CacheBits, mode.CacheCaps)
 	}
 	return ce, nil
 }
@@ -117,16 +127,13 @@ func (ce *CustomEncoder) Channels() int { return ce.channels }
 // The caller supplies pcm with exactly frameSize*channels samples.
 // maxBytes controls the maximum packet size (CBR budget for standard modes).
 //
-// Standard modes (48 kHz, 120/240/480/960 samples) and the
-// Fs==400*shortMdctSize family (e.g. 16000/320, 24000/480) produce output
-// byte-identical to libopus --enable-custom-modes. Other non-standard
-// (Fs, frame_size) pairs whose band layout is genuinely custom (compute_ebands
-// derives a non-48 kHz table) return ErrNonStandard: the gopus CELT encode core
-// does not yet thread those per-mode band/allocation/cache tables through its
-// data plane. NewMode does compute the full, libopus-exact mode tables for such
-// rates (eBands, logN, allocVectors and the compute_pulse_cache index/bits/caps),
-// so the remaining native-encode wiring only needs to feed those tables into the
-// CELT control plane rather than re-derive them.
+// Standard modes (48 kHz, 120/240/480/960 samples), the Fs==400*shortMdctSize
+// family (e.g. 16000/320, 24000/480) and genuinely custom band layouts such as
+// 48000/640 (NbEBands=19) produce output byte-identical to libopus
+// --enable-custom-modes. For the custom layouts the per-mode band/allocation/
+// cache tables computed by NewMode (eBands, logN, allocVectors and the
+// compute_pulse_cache index/bits/caps) are threaded through the CELT encode data
+// plane, mirroring the symmetric decode path.
 //
 // Reference: libopus include/opus_custom.h opus_custom_encode_float().
 func (ce *CustomEncoder) EncodeFloat(pcm []float32, maxBytes int) ([]byte, error) {
@@ -140,9 +147,6 @@ func (ce *CustomEncoder) EncodeFloat(pcm []float32, maxBytes int) ([]byte, error
 	}
 	if maxBytes <= 0 {
 		return nil, ErrMaxBytes
-	}
-	if !ce.mode.isStandard && !ce.mode.InScaledBandFamily() {
-		return nil, ErrNonStandard
 	}
 	ce.enc.SetMaxPayloadBytes(maxBytes)
 	return ce.enc.EncodeFrame(pcm, frameSize)

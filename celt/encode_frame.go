@@ -459,7 +459,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			mdctLong := computeMDCTWithHistoryScratchOverlap(preemph, hist, 1, overlap, &e.scratch)
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
 			bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
-			computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, codedChannels, 1<<lm, bandLogE2)
+			e.computeBandEnergiesGLogActive(mdctLong, nbBands, frameSize, codedChannels, 1<<lm, bandLogE2)
 		} else {
 			left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 			// Use scratch for hist buffers
@@ -494,7 +494,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			}
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
 			bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
-			computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, codedChannels, 1<<lm, bandLogE2)
+			e.computeBandEnergiesGLogActive(mdctLong, nbBands, frameSize, codedChannels, 1<<lm, bandLogE2)
 		}
 		if bandLogE2 != nil {
 			offset := celtGLog(0.5 * float32(lm))
@@ -544,7 +544,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 	// Step 6: Compute band energies
 	energies := ensureGLogSlice(&e.scratch.energies, nbBands*codedChannels)
-	computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, codedChannels, 1<<lm, energies)
+	e.computeBandEnergiesGLogActive(mdctCoeffs, nbBands, frameSize, codedChannels, 1<<lm, energies)
 	if e.lfe {
 		applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 	}
@@ -614,7 +614,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 			// Recompute band energies with short block coefficients
 			energies = ensureGLogSlice(&e.scratch.energies, nbBands*codedChannels)
-			computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, codedChannels, 1<<lm, energies)
+			e.computeBandEnergiesGLogActive(mdctCoeffs, nbBands, frameSize, codedChannels, 1<<lm, energies)
 			if e.lfe {
 				applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 			}
@@ -959,7 +959,11 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	}
 	// Step 11.3: Initialize caps for allocation (zero-alloc)
 	caps := ensureInt32Slice(&e.scratch.caps, nbBands)
-	initCapsInto(caps, nbBands, lm, codedChannels)
+	if pm := e.perMode; pm != nil {
+		initCapsIntoMode(caps, nbBands, lm, codedChannels, pm)
+	} else {
+		initCapsInto(caps, nbBands, lm, codedChannels)
+	}
 
 	// Step 11.4: Encode dynamic allocation
 	// Reference: libopus celt/celt_encoder.c lines 2356-2389
@@ -990,7 +994,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		// Compute band width and quanta (how many bits per boost step)
 		// Reference: libopus lines 2366-2369
 		// width = C*(eBands[i+1]-eBands[i])<<LM
-		width := codedChannels * ScaledBandWidth(i, 120<<lm)
+		var width int
+		if pm := e.perMode; pm != nil {
+			width = codedChannels * (e.modeBandWidth(i) << lm)
+		} else {
+			width = codedChannels * ScaledBandWidth(i, 120<<lm)
+		}
 		if width <= 0 {
 			width = 1
 		}
@@ -1354,33 +1363,67 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		dualStereoVal = 1
 	}
 	tapset := e.TapsetDecision()
-	quantAllBandsEncodeScratch(
-		re,
-		codedChannels,
-		frameSize,
-		lm,
-		start,
-		end,
-		normL,
-		normR,
-		allocResult.BandBits,
-		shortBlocks,
-		spread, // Spreading parameter for PVQ rotation
-		tapset, // Tapset decision for comb filter taper (tracked for state)
-		dualStereoVal,
-		allocResult.Intensity,
-		tfRes,
-		totalBitsAllQ3,
-		allocResult.Balance,
-		allocResult.CodedBands,
-		e.phaseInversionDisabled,
-		&e.rng,
-		int(e.complexity),
-		bandE,
-		qextEnc,
-		qextExtraBits,
-		&e.bandEncScratch,
-	)
+	if pm := e.perMode; pm != nil {
+		quantAllBandsEncodeScratchWithMode(
+			re,
+			codedChannels,
+			frameSize,
+			lm,
+			start,
+			end,
+			normL,
+			normR,
+			allocResult.BandBits,
+			shortBlocks,
+			spread,
+			tapset,
+			dualStereoVal,
+			allocResult.Intensity,
+			tfRes,
+			totalBitsAllQ3,
+			allocResult.Balance,
+			allocResult.CodedBands,
+			e.phaseInversionDisabled,
+			&e.rng,
+			int(e.complexity),
+			bandE,
+			qextEnc,
+			qextExtraBits,
+			&e.bandEncScratch,
+			pm.eBands,
+			pm.logN,
+			pm.cacheIndex,
+			pm.cacheBits,
+		)
+	} else {
+		quantAllBandsEncodeScratch(
+			re,
+			codedChannels,
+			frameSize,
+			lm,
+			start,
+			end,
+			normL,
+			normR,
+			allocResult.BandBits,
+			shortBlocks,
+			spread, // Spreading parameter for PVQ rotation
+			tapset, // Tapset decision for comb filter taper (tracked for state)
+			dualStereoVal,
+			allocResult.Intensity,
+			tfRes,
+			totalBitsAllQ3,
+			allocResult.Balance,
+			allocResult.CodedBands,
+			e.phaseInversionDisabled,
+			&e.rng,
+			int(e.complexity),
+			bandE,
+			qextEnc,
+			qextExtraBits,
+			&e.bandEncScratch,
+		)
+	}
 	if qextActive {
 		qextBandBits := qextFineBits[MaxBands : MaxBands+qextEnd]
 		e.encodeFineEnergyFromErrorWithEncoder(qextEnc, qextQuantized, qextEnd, qextBandBits, qextError)

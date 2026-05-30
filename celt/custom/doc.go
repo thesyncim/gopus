@@ -43,11 +43,11 @@
 //     (maxLM, nbShortMdcts, shortMdctSize, overlap, eBands, effEBands, logN and
 //     per-rate pre-emphasis) against opus_custom_mode_create, plus the
 //     band-bin scaling celt.ScaledBandStartBase/EndBase == eBands[i]<<LM.
-//   - Non-standard rates/frame sizes still return ErrNonStandard from
-//     EncodeFloat / DecodeFloat: the CELT data plane (overlap-add MDCT
-//     analysis/synthesis, windowing) is keyed to the 48 kHz overlap (120) and
-//     the static band-bin scaling (eBand*frameSize/120), so it cannot yet
-//     reproduce a libopus --enable-custom-modes bitstream for these modes.
-//     NewMode computes the full mode tables (eBands, allocVectors, logN, window,
-//     preemph) for them, mirroring opus_custom_mode_create.
+//   - Genuinely custom band layouts outside that family (e.g. 48000/640,
+//     NbEBands=19) are also encoded and decoded byte/sample-identically to
+//     libopus --enable-custom-modes: the per-mode band tables (eBands, widths,
+//     logN, allocVectors and the compute_pulse_cache index/bits/caps) computed by
+//     NewMode are threaded through both halves of the CELT data plane. The
+//     exported ErrNonStandard remains for API stability but is no longer returned
+//     by the standard, family or custom-layout paths.
 package custom
