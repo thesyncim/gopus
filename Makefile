@@ -1,6 +1,6 @@
 FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-exactness test-exhaustive test-provenance
 
-.PHONY: lint lint-fix test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-libopus-fixed test-fixedpoint-parity ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom test-fixedpoint-parity test-custom-parity test-corpus-quality ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -332,6 +332,25 @@ ensure-libopus-fixed:
 test-fixedpoint-parity: ensure-libopus-fixed
 	GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
 		go test -tags 'gopus_fixedpoint gopus_libopus_oracle' -count=1 ./internal/fixedpoint/...
+
+# Ensure tmp_check/opus-$(LIBOPUS_VERSION)-custom/opus_demo exists, built with
+# --enable-custom-modes (config.h defines CUSTOM_MODES). This is the oracle for
+# the gopus celt/custom Opus Custom API standard-mode byte-exact tests.
+ensure-libopus-custom:
+	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_CUSTOM=1 ./tools/ensure_libopus.sh
+
+# Byte/sample-exact parity for the gopus celt/custom standard 48 kHz modes
+# against the --enable-custom-modes libopus oracle. Non-standard custom band
+# layouts self-skip until a real custom-mode CELT path lands.
+test-custom-parity: ensure-libopus-custom
+	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+		$(GO) test -tags 'gopus_custom gopus_libopus_oracle' -count=1 ./celt/custom/...
+
+# Live (fixture-free) gopus-vs-libopus decode parity on the extended synthetic
+# corpus signal classes across SILK/Hybrid/CELT mono+stereo configs.
+test-corpus-quality: ensure-libopus
+	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+		$(GO) test -tags gopus_libopus_oracle -count=1 ./testvectors -run '^TestCorpusSignalQualityParity$$'
 
 # Ensure the downloaded official RFC 8251 test-vector cache exists.
 ensure-testvectors:

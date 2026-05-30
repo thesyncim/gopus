@@ -461,6 +461,60 @@ jobs:
       - name: Run supported QEXT feature-tag parity gate
         run: make test-qext-parity
 
+  test-linux-custom-parity:
+    name: test-linux-custom-parity
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned custom-modes libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-custom
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-custom-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Run Opus Custom --enable-custom-modes C-oracle parity gate
+        run: make test-custom-parity
+
+  test-linux-corpus-quality:
+    name: test-linux-corpus-quality
+    needs:
+      - changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Cache pinned libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
+      - name: Run extended corpus signal-quality parity gate
+        run: make test-corpus-quality
+
   test-linux-extra-controls-parity:
     name: test-linux-extra-controls-parity
     needs:
@@ -581,6 +635,8 @@ jobs:
       - test-linux-dnn-blob-parity
       - test-linux-dred-tag
       - test-linux-qext-parity
+      - test-linux-custom-parity
+      - test-linux-corpus-quality
       - test-linux-extra-controls
       - test-linux-extra-controls-parity
       - test-linux-build-config-matrix
@@ -601,6 +657,8 @@ jobs:
           echo "test-linux-dnn-blob-parity: ${{ needs.test-linux-dnn-blob-parity.result }}"
           echo "test-linux-dred-tag: ${{ needs.test-linux-dred-tag.result }}"
           echo "test-linux-qext-parity: ${{ needs.test-linux-qext-parity.result }}"
+          echo "test-linux-custom-parity: ${{ needs.test-linux-custom-parity.result }}"
+          echo "test-linux-corpus-quality: ${{ needs.test-linux-corpus-quality.result }}"
           echo "test-linux-extra-controls: ${{ needs.test-linux-extra-controls.result }}"
           echo "test-linux-extra-controls-parity: ${{ needs.test-linux-extra-controls-parity.result }}"
           echo "test-linux-build-config-matrix: ${{ needs.test-linux-build-config-matrix.result }}"
@@ -637,6 +695,12 @@ jobs:
             exit 1
           fi
           if [ "${{ needs.test-linux-qext-parity.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-custom-parity.result }}" != "success" ]; then
+            exit 1
+          fi
+          if [ "${{ needs.test-linux-corpus-quality.result }}" != "success" ]; then
             exit 1
           fi
           if [ "${{ needs.test-linux-extra-controls.result }}" != "success" ]; then
@@ -717,6 +781,14 @@ jobs:
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
           key: libopus-fixed-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
+      - name: Cache pinned custom-modes libopus build
+        uses: actions/cache@v5
+        with:
+          path: |
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-custom
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
+          key: libopus-custom-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+
       - name: Install codec tools (if missing)
         run: |
           if command -v ffmpeg >/dev/null 2>&1 && command -v opusdec >/dev/null 2>&1; then
@@ -736,6 +808,12 @@ jobs:
 
       - name: Run fixed-point libopus C-oracle parity gate
         run: make test-fixedpoint-parity
+
+      - name: Run Opus Custom --enable-custom-modes C-oracle parity gate
+        run: make test-custom-parity
+
+      - name: Run extended corpus signal-quality parity gate
+        run: make test-corpus-quality
 
       - name: Generate native libopus fixtures
         run: make fixtures-gen-platform
