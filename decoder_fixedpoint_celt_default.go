@@ -24,6 +24,18 @@ func (d *Decoder) resetFixedCELT() {}
 func (d *Decoder) prepareFixedHybrid(_ []byte, _ celt.CELTBandwidth, _ bool) bool { return false }
 func (d *Decoder) finishFixedHybrid() error                                       { return nil }
 
+// The integer Hybrid redundancy / transition helpers are no-ops in the default
+// build; the int16/int24 wrappers there always use the float conversion for
+// redundancy / transition frames.
+func (d *Decoder) fixedDecodeRedundantCELT(_ []byte, _ celt.CELTBandwidth, _ bool) {}
+func (d *Decoder) fixedDecodeTransitionPLC(_ int)                                  {}
+func (d *Decoder) fixedApplyRedundancySilkToCelt(_, _ int)                         {}
+func (d *Decoder) fixedApplyRedundancyCeltToSilk(_, _ int)                         {}
+func (d *Decoder) fixedApplyTransition(_, _, _ int)                                {}
+func (d *Decoder) fixedClearHybridFrame()                                          {}
+func (d *Decoder) fixedSnapshotHandled() bool                                      { return false }
+func (d *Decoder) fixedRestoreHandled(_ bool)                                      {}
+
 // The integer-output accumulation helpers are no-ops in the default build; the
 // int16/int24 wrappers there always use the float conversion.
 func (d *Decoder) beginFixedPacket()          {}

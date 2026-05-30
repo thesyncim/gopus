@@ -50,4 +50,33 @@ type decoderFixedFields struct {
 	// reset before the in-flight hybrid frame (mirroring the float OPUS_RESET_STATE
 	// on a mode transition), set before the hybrid decode.
 	fixedHybridReset bool
+
+	// fixedRedundantRes holds the integer (opus_res) redundancy frame decoded by
+	// the integer CELT decoder for a Hybrid packet carrying CELT redundancy. It is
+	// F5*channels interleaved samples, mirroring the float redundant_audio buffer.
+	fixedRedundantRes []int32
+	// fixedRedundantValid reports that fixedRedundantRes holds a usable integer
+	// redundancy frame for the in-flight Hybrid frame.
+	fixedRedundantValid bool
+	// fixedTransitionRes holds the integer (opus_res) 5 ms CELT PLC transition
+	// frame decoded by the integer CELT decoder for a Hybrid frame whose previous
+	// frame was CELT-only, mirroring the float pcm_transition buffer.
+	fixedTransitionRes []int32
+	// fixedTransitionValid reports that fixedTransitionRes holds a usable integer
+	// transition frame for the in-flight Hybrid frame.
+	fixedTransitionValid bool
+	// fixedRedundantScratch is reusable int16 scratch for the integer redundancy /
+	// transition CELT decodes (whose opus_res output is read via LastRes).
+	fixedRedundantScratch []int16
+	// fixedHybridFrameActive is true between prepareFixedHybrid and the end of the
+	// frame's redundancy / transition post-processing, so the integer redundancy /
+	// transition helpers run even after the highband hook is disarmed.
+	fixedHybridFrameActive bool
+
+	// fixedRedundancyApplied / fixedTransitionApplied count the frames whose
+	// integer output was finished by the opus_res-domain redundancy / transition
+	// crossfade. They are diagnostic counters used by the parity gate to confirm
+	// the paths are exercised.
+	fixedRedundancyApplied int
+	fixedTransitionApplied int
 }

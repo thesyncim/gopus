@@ -348,6 +348,10 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	celtToSilk := false
 	redundancyBytes := 0
 	mainLen := len(data)
+	// fixedHybridFrame records that this frame was decoded by the integer Hybrid
+	// path (gopus_fixedpoint), so the redundancy / transition post-processing runs
+	// its opus_res-domain equivalent and keeps the int16/int24 output bit-exact.
+	fixedHybridFrame := false
 	var redundantAudio []float32
 	var redundantRng uint32 // Captured final range from redundancy decoding
 
@@ -389,6 +393,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			if !extsupport.QEXT {
 				fixedHybridArmed = d.prepareFixedHybrid(data, celtBW, needCeltReset)
 			}
+			fixedHybridFrame = fixedHybridArmed
 			if !fixedHybridArmed {
 				d.markFixedUnhandled()
 			}
@@ -416,6 +421,11 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 
 				if redundancy && celtToSilk && redundancyBytes > 0 && mainLen >= 0 && mainLen+redundancyBytes <= len(data) {
 					redundantData := data[mainLen : mainLen+redundancyBytes]
+					// Mirror the reference: the integer CELT->SILK redundancy
+					// frame is decoded (start band 0, no reset) on the same
+					// integer CELT decoder before the main hybrid accum, so the
+					// shared decode_mem / energy state stays bit-identical.
+					d.fixedDecodeRedundantCELT(redundantData, celtBW, false)
 					decoded, err := decodeRedundantCELT(redundantData)
 					if err != nil {
 						return err
@@ -425,7 +435,18 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 
 				if transition && !redundancy && len(pcmTransition) == 0 {
 					transSize := min(F5, audiosize)
+					// Mirror the reference transition decode on the integer CELT
+					// decoder (5 ms CELT PLC, start band 0) before the main hybrid
+					// accum; the accum's OPUS_RESET_STATE then discards its
+					// decode_mem, exactly as in opus_decode_frame.
+					d.fixedDecodeTransitionPLC(transSize)
+					// The recursive float PLC decode declines the integer
+					// accumulation; preserve the main hybrid frame's integer
+					// status across it, since the integer transition crossfade
+					// recovers the frame bit-exact.
+					handled := d.fixedSnapshotHandled()
 					n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
+					d.fixedRestoreHandled(handled)
 					if err != nil {
 						return err
 					}
@@ -662,10 +683,14 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	}
 
 	if redundancy {
-		// Redundancy post-processing rewrites the float out buffer after the
-		// main decode, so the integer-exact accumulation no longer matches; the
-		// int16/int24 wrappers must use the float conversion for this packet.
-		d.markFixedUnhandled()
+		// Redundancy post-processing rewrites the output after the main decode.
+		// For a Hybrid frame handled by the integer path the equivalent
+		// opus_res-domain redundancy decode + smooth_fade below keeps the
+		// int16/int24 output bit-exact; otherwise the int16/int24 wrappers must
+		// use the float conversion for this packet.
+		if !fixedHybridFrame {
+			d.markFixedUnhandled()
+		}
 		transition = false
 		pcmTransition = nil
 	}
@@ -693,6 +718,10 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		d.celtDecoder.Reset()
 		d.celtDecoder.SetBandwidth(celtBW)
 		redundantData := data[mainLen : mainLen+redundancyBytes]
+		// Mirror the reference on the integer CELT decoder: OPUS_RESET_STATE,
+		// start band 0, decode the SILK->CELT redundancy frame, then the integer
+		// opus_res smooth_fade onto the in-flight Hybrid frame.
+		d.fixedDecodeRedundantCELT(redundantData, celtBW, true)
 		decoded, err := decodeRedundantCELT(redundantData)
 		if err != nil {
 			return 0, err
@@ -702,17 +731,27 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if start >= 0 && start < len(out) && len(redundantAudio) >= F5*channels {
 			smoothFade(out[start:], redundantAudio[F2_5*channels:], out[start:], F2_5, channels, fs)
 		}
+		if fixedHybridFrame {
+			d.fixedApplyRedundancySilkToCelt(frameSize, fs)
+		}
 	}
 
 	if redundancy && celtToSilk && (d.prevMode != ModeSILK || d.prevRedundancy) && len(redundantAudio) >= F5*channels {
 		copy(out[:F2_5*channels], redundantAudio[:F2_5*channels])
 		smoothFade(redundantAudio[F2_5*channels:], out[F2_5*channels:], out[F2_5*channels:], F2_5, channels, fs)
+		if fixedHybridFrame {
+			d.fixedApplyRedundancyCeltToSilk(frameSize, fs)
+		}
 	}
 
 	if transition && len(pcmTransition) > 0 {
-		// The transition crossfade rewrites the float out buffer after the main
-		// decode, so the integer-exact accumulation no longer matches.
-		d.markFixedUnhandled()
+		if fixedHybridFrame {
+			d.fixedApplyTransition(frameSize, audiosize, fs)
+		} else {
+			// The transition crossfade rewrites the float out buffer after the
+			// main decode, so the integer-exact accumulation no longer matches.
+			d.markFixedUnhandled()
+		}
 		if audiosize >= F5 {
 			copy(out[:F2_5*channels], pcmTransition[:F2_5*channels])
 			smoothFade(pcmTransition[F2_5*channels:], out[F2_5*channels:], out[F2_5*channels:], F2_5, channels, fs)
@@ -726,6 +765,10 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	d.haveDecoded = true
 	d.redundantRng = redundantRng
 	// Note: d.lastDataLen is set at packet level in Decode(), not here
+
+	if data != nil {
+		d.fixedClearHybridFrame()
+	}
 
 	return audiosize, nil
 }

@@ -144,6 +144,14 @@ func (d *CELTDecoder) SetBandRange(start, end int) {
 	d.end = end
 }
 
+// SetStartBand sets only the active start band (st->start), preserving the end
+// band, matching a lone CELT_SET_START_BAND_REQUEST control. The transition PLC
+// decode uses this because opus_decode_frame skips CELT_SET_END_BAND when
+// bandwidth==0 (the PLC case), keeping the previous frame's end band.
+func (d *CELTDecoder) SetStartBand(start int) {
+	d.start = start
+}
+
 // Reset clears the cross-frame decode state, matching the OPUS_RESET_STATE
 // region of OpusCustomDecoder (decode_mem, energy histories, post-filter and
 // loss state) while preserving the channel count, output downsample factor and

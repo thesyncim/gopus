@@ -106,8 +106,211 @@ func (d *Decoder) prepareFixedHybrid(data []byte, celtBW celt.CELTBandwidth, nee
 	d.fixedHybridEnd = celtBW.EffectiveBands()
 	d.fixedHybridReset = needCeltReset
 	d.fixedHybridErr = nil
+	d.fixedRedundantValid = false
+	d.fixedTransitionValid = false
+	d.fixedHybridFrameActive = true
 	d.hybridDecoder.SetFixedHighband(d)
 	return true
+}
+
+// fixedHybridArmed reports whether the in-flight frame is being decoded by the
+// integer hybrid path (set by prepareFixedHybrid). It stays true across the
+// redundancy / transition post-processing, after the highband hook is disarmed.
+func (d *Decoder) fixedHybridArmed() bool {
+	return d.fixedPacketActive && d.fixedHybridFrameActive
+}
+
+// fixedDecodeRedundantCELT decodes the integer (opus_res) CELT redundancy frame
+// for a Hybrid packet, mirroring the libopus opus_decode_frame
+// celt_decode_with_ec(celt_dec, data+len, redundancy_bytes, redundant_audio, F5,
+// NULL, 0) calls. reset mirrors the OPUS_RESET_STATE applied before the
+// SILK->CELT redundancy decode; start band is always 0. The decoded F5*channels
+// opus_res output is captured in d.fixedRedundantRes. It runs on the same integer
+// CELT decoder as the main hybrid highband, in the same order as the reference,
+// so the shared decode_mem / energy state stays bit-identical.
+func (d *Decoder) fixedDecodeRedundantCELT(redundantData []byte, celtBW celt.CELTBandwidth, reset bool) {
+	if !d.fixedHybridArmed() || d.fixedCELT == nil {
+		return
+	}
+	channels := int(d.channels)
+	downsample := 48000 / int(d.sampleRate)
+	if downsample <= 0 {
+		downsample = 1
+	}
+	f5API := int(d.sampleRate) / 200
+	needed := f5API * channels
+	coreFrameSize := f5API * downsample
+
+	if reset {
+		d.fixedCELT.Reset()
+	}
+	d.fixedCELT.SetBandRange(0, celtBW.EffectiveBands())
+
+	if cap(d.fixedRedundantScratch) < needed {
+		d.fixedRedundantScratch = make([]int16, needed)
+	}
+	scratch := d.fixedRedundantScratch[:needed]
+	d.fixedCELT.DecodeWithEC(redundantData, coreFrameSize, scratch)
+	res := d.fixedCELT.LastRes()
+
+	if cap(d.fixedRedundantRes) < needed {
+		d.fixedRedundantRes = make([]int32, needed)
+	}
+	d.fixedRedundantRes = d.fixedRedundantRes[:needed]
+	copy(d.fixedRedundantRes, res[:needed])
+	d.fixedRedundantValid = true
+}
+
+// fixedDecodeTransitionPLC decodes the integer (opus_res) 5 ms CELT PLC transition
+// frame for a Hybrid frame whose previous frame was CELT-only, mirroring the
+// libopus opus_decode_frame(NULL) transition decode with mode == MODE_CELT_ONLY.
+// It runs on the integer CELT decoder (start band 0) before the main hybrid
+// accum, whose OPUS_RESET_STATE then discards the PLC decode_mem — matching the
+// reference. The transSizeAPI*channels opus_res output is captured in
+// d.fixedTransitionRes.
+func (d *Decoder) fixedDecodeTransitionPLC(transSizeAPI int) {
+	if !d.fixedHybridArmed() || d.fixedCELT == nil {
+		return
+	}
+	channels := int(d.channels)
+	downsample := 48000 / int(d.sampleRate)
+	if downsample <= 0 {
+		downsample = 1
+	}
+	needed := transSizeAPI * channels
+	coreFrameSize := transSizeAPI * downsample
+
+	// opus_decode_frame skips CELT_SET_END_BAND for the PLC (bandwidth==0) path,
+	// so the transition PLC keeps the previous CELT frame's end band; only the
+	// start band is forced to 0.
+	d.fixedCELT.SetStartBand(0)
+	if cap(d.fixedRedundantScratch) < needed {
+		d.fixedRedundantScratch = make([]int16, needed)
+	}
+	scratch := d.fixedRedundantScratch[:needed]
+	// data == nil selects the PLC path inside DecodeWithEC.
+	d.fixedCELT.DecodeWithEC(nil, coreFrameSize, scratch)
+	res := d.fixedCELT.LastRes()
+
+	if cap(d.fixedTransitionRes) < needed {
+		d.fixedTransitionRes = make([]int32, needed)
+	}
+	d.fixedTransitionRes = d.fixedTransitionRes[:needed]
+	copy(d.fixedTransitionRes, res[:needed])
+	d.fixedTransitionValid = true
+}
+
+// fixedSnapshotHandled returns the current fixedAllHandled flag, and
+// fixedRestoreHandled restores it. They bracket the recursive float PLC decode of
+// a Hybrid transition frame so its markFixedUnhandled (the data==nil CELT PLC
+// path declines the integer accumulation) does not clobber the integer status of
+// the main hybrid frame, which the integer transition crossfade still recovers
+// bit-exact.
+func (d *Decoder) fixedSnapshotHandled() bool { return d.fixedAllHandled }
+
+func (d *Decoder) fixedRestoreHandled(v bool) {
+	if d.fixedHybridArmed() {
+		d.fixedAllHandled = v
+	}
+}
+
+// fixedLastFrameRes returns the most recently appended frame's opus_res and int16
+// slices within the running packet accumulation (length needed interleaved
+// samples), or nil if the integer accumulation is not active / too short.
+func (d *Decoder) fixedLastFrameRes(needed int) ([]int32, []int16) {
+	if !d.fixedPacketActive || d.fixedCursor < needed {
+		return nil, nil
+	}
+	start := d.fixedCursor - needed
+	if len(d.fixedRes) < d.fixedCursor || len(d.fixedInt16) < d.fixedCursor {
+		return nil, nil
+	}
+	return d.fixedRes[start:d.fixedCursor], d.fixedInt16[start:d.fixedCursor]
+}
+
+// fixedRefreshInt16 re-derives the int16 view (Res2Int16) of the opus_res slice
+// after an in-place integer post-processing step (redundancy copy / smooth_fade /
+// transition crossfade) rewrote res.
+func fixedRefreshInt16(res []int32, int16Out []int16) {
+	for i := range res {
+		int16Out[i] = fixedpoint.Res2Int16(res[i])
+	}
+}
+
+// fixedApplyRedundancySilkToCelt applies the integer SILK->CELT redundancy
+// crossfade onto the in-flight Hybrid frame, mirroring opus_decoder.c:644-645:
+// smooth_fade(pcm+C*(frame_size-F2_5), redundant_audio+C*F2_5,
+// pcm+C*(frame_size-F2_5), F2_5, C, window, Fs).
+func (d *Decoder) fixedApplyRedundancySilkToCelt(frameSize, fs int) {
+	channels := int(d.channels)
+	f2_5 := fs / 400
+	f5 := fs / 200
+	needed := frameSize * channels
+	res, int16Out := d.fixedLastFrameRes(needed)
+	if res == nil || !d.fixedRedundantValid || len(d.fixedRedundantRes) < f5*channels {
+		d.markFixedUnhandled()
+		return
+	}
+	start := (frameSize - f2_5) * channels
+	if start < 0 || start > len(res) {
+		d.markFixedUnhandled()
+		return
+	}
+	fixedpoint.SmoothFadeRes(res[start:], d.fixedRedundantRes[f2_5*channels:], res[start:], f2_5, channels, fs)
+	fixedRefreshInt16(res, int16Out)
+	d.fixedRedundancyApplied++
+}
+
+// fixedApplyRedundancyCeltToSilk applies the integer CELT->SILK redundancy
+// crossfade onto the in-flight Hybrid frame, mirroring opus_decoder.c:650-658:
+// the first F2_5 samples are overwritten by redundant_audio, then
+// smooth_fade(redundant_audio+C*F2_5, pcm+C*F2_5, pcm+C*F2_5, F2_5, C, window, Fs).
+func (d *Decoder) fixedApplyRedundancyCeltToSilk(frameSize, fs int) {
+	channels := int(d.channels)
+	f2_5 := fs / 400
+	f5 := fs / 200
+	needed := frameSize * channels
+	res, int16Out := d.fixedLastFrameRes(needed)
+	if res == nil || !d.fixedRedundantValid || len(d.fixedRedundantRes) < f5*channels {
+		d.markFixedUnhandled()
+		return
+	}
+	for c := 0; c < channels; c++ {
+		for i := 0; i < f2_5; i++ {
+			res[channels*i+c] = d.fixedRedundantRes[channels*i+c]
+		}
+	}
+	fixedpoint.SmoothFadeRes(d.fixedRedundantRes[f2_5*channels:], res[f2_5*channels:], res[f2_5*channels:], f2_5, channels, fs)
+	fixedRefreshInt16(res, int16Out)
+	d.fixedRedundancyApplied++
+}
+
+// fixedApplyTransition applies the integer CELT->SILK transition crossfade onto
+// the in-flight Hybrid frame, mirroring opus_decoder.c:660-678 with
+// pcm_transition being the integer 5 ms CELT PLC frame.
+func (d *Decoder) fixedApplyTransition(frameSize, audiosize, fs int) {
+	channels := int(d.channels)
+	f2_5 := fs / 400
+	f5 := fs / 200
+	needed := frameSize * channels
+	res, int16Out := d.fixedLastFrameRes(needed)
+	if res == nil || !d.fixedTransitionValid || len(d.fixedTransitionRes) < f2_5*channels {
+		d.markFixedUnhandled()
+		return
+	}
+	trans := d.fixedTransitionRes
+	if audiosize >= f5 {
+		if len(trans) < f2_5*channels || len(res) < 2*f2_5*channels {
+			d.markFixedUnhandled()
+			return
+		}
+		copy(res[:f2_5*channels], trans[:f2_5*channels])
+		fixedpoint.SmoothFadeRes(trans[f2_5*channels:], res[f2_5*channels:], res[f2_5*channels:], f2_5, channels, fs)
+	} else {
+		fixedpoint.SmoothFadeRes(trans, res, res, f2_5, channels, fs)
+	}
+	fixedRefreshInt16(res, int16Out)
+	d.fixedTransitionApplied++
 }
 
 // finishFixedHybrid disarms the hook and reports whether the integer hybrid
@@ -181,6 +384,16 @@ func (d *Decoder) beginFixedPacket() {
 	d.fixedCursor = 0
 	d.fixedInt16 = d.fixedInt16[:0]
 	d.fixedRes = d.fixedRes[:0]
+	d.fixedHybridFrameActive = false
+}
+
+// fixedClearHybridFrame clears the per-frame integer hybrid flags after a frame's
+// redundancy / transition post-processing completes, so a following non-hybrid
+// frame in the same packet does not inherit them.
+func (d *Decoder) fixedClearHybridFrame() {
+	d.fixedHybridFrameActive = false
+	d.fixedRedundantValid = false
+	d.fixedTransitionValid = false
 }
 
 // endFixedPacket disarms the accumulation. fixedAllHandled stays valid for the
