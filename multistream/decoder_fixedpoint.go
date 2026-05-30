@@ -8,6 +8,7 @@ import (
 	"github.com/thesyncim/gopus/internal/fixedpoint"
 	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/plc"
+	"github.com/thesyncim/gopus/rangecoding"
 )
 
 // DecodeToResFixed decodes a multistream packet and returns the libopus
@@ -134,15 +135,16 @@ func applyChannelMappingRes(streamRes [][]int32, mapping []byte, coupledStreams,
 
 // fixedHandleableStreamPacket reports whether the integer multistream decode
 // can reproduce a stream packet bit-exactly: a single received frame that is
-// CELT-only (decoded by the integer CELT decoder) or SILK-only (integer-exact
-// through the lossless float->int16 round-trip). Hybrid frames, multi-frame
-// packets, and degenerate (DTX/PLC) frames are not covered.
+// CELT-only (decoded by the integer CELT decoder), SILK-only (integer-exact
+// through the lossless float->int16 round-trip), or Hybrid (integer SILK
+// opus_res lowband plus integer CELT highband, start band 17, celt_accum).
+// Multi-frame packets and degenerate (DTX/PLC) frames are not covered.
 func fixedHandleableStreamPacket(data []byte) bool {
 	if len(data) <= 1 {
 		return false
 	}
 	toc := parseStreamTOC(data[0])
-	if toc.mode != streamModeCELT && toc.mode != streamModeSILK {
+	if toc.mode != streamModeCELT && toc.mode != streamModeSILK && toc.mode != streamModeHybrid {
 		return false
 	}
 	parsed, err := parseOpusPacket(data, false)
@@ -170,7 +172,25 @@ func fixedHandleableStreamPacket(data []byte) bool {
 func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int32, bool, error) {
 	channels := int(d.channels)
 
+	toc := parseStreamTOC(data[0])
+
+	// A Hybrid frame must arm the integer highband hook on the stream's hybrid
+	// decoder before the float decode runs, so the float hybrid decode also drives
+	// the integer CELT highband (start band 17, celt_accum) onto the integer SILK
+	// opus_res lowband. The hook stashes the combined opus_res output in
+	// fixedHybridRes; the CELT-only / SILK paths capture their integer output after
+	// the float decode instead.
+	hybridArmed := false
+	if toc.mode == streamModeHybrid {
+		if parsed, perr := parseOpusPacket(data, false); perr == nil && len(parsed.frames) == 1 {
+			hybridArmed = d.prepareFixedHybridStream(toc, len(parsed.frames[0]))
+		}
+	}
+
 	floatOut, err := d.decodePacketToFloat32(data, frameSize)
+	if hybridArmed {
+		d.finishFixedHybridStream()
+	}
 	if err != nil {
 		return nil, false, err
 	}
@@ -181,7 +201,6 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 	}
 	res := d.fixedRes[:needed]
 
-	toc := parseStreamTOC(data[0])
 	parsed, perr := parseOpusPacket(data, false)
 	if perr != nil || len(parsed.frames) != 1 {
 		return nil, false, nil
@@ -196,9 +215,107 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 			return res, true, nil
 		}
 		return nil, false, nil
+	case streamModeHybrid:
+		if hybridArmed && d.fixedHybridHandled && len(d.fixedHybridRes) >= needed {
+			copy(res, d.fixedHybridRes[:needed])
+			return res, true, nil
+		}
+		return nil, false, nil
 	default:
 		return nil, false, nil
 	}
+}
+
+// prepareFixedHybridStream arms the integer Hybrid highband hook on the stream's
+// hybrid decoder for the in-flight frame, mirroring the single-stream
+// prepareFixedHybrid. The integer CELT decoder is created lazily and shared with
+// the CELT-only path. It records the CELT end band from the packet bandwidth.
+// The multistream float Hybrid decode never resets its CELT decoder mid-session,
+// so the integer CELT decoder is likewise never reset here; the two stay in
+// lockstep across frames. frameLen is the Opus frame byte length, used by the
+// hook to bound the hybrid redundancy-flag parse. It returns true once the hook
+// is armed.
+func (d *streamState) prepareFixedHybridStream(toc streamTOC, frameLen int) bool {
+	if d.fixedCELT == nil {
+		d.fixedCELT = fixedpoint.NewCELTDecoderRate(int(d.channels), int(d.sampleRate))
+	}
+	if d.fixedHybridHook == nil {
+		d.fixedHybridHook = &streamFixedHybridHook{st: d}
+	}
+	d.fixedHybridEnd = celt.BandwidthFromOpusConfig(toc.bandwidth).EffectiveBands()
+	d.fixedHybridFrameLen = frameLen
+	d.fixedHybridHandled = false
+	d.hybridDec.SetFixedHighband(d.fixedHybridHook)
+	return true
+}
+
+// finishFixedHybridStream disarms the integer Hybrid highband hook after the
+// float Hybrid decode completes.
+func (d *streamState) finishFixedHybridStream() {
+	d.hybridDec.SetFixedHighband(nil)
+}
+
+// streamFixedHybridHook implements hybrid.FixedHybridHighband for one elementary
+// stream, building the integer Hybrid frame's opus_res output exactly as the
+// single-stream gopus.Decoder.DecodeHybridHighband does.
+type streamFixedHybridHook struct {
+	st *streamState
+}
+
+// DecodeHybridHighband builds the opus_res SILK lowband (INT16TORES: int16 <<
+// RES_SHIFT) from the resampled int16 SILK output, consumes the hybrid
+// redundancy flag, then accumulates the integer CELT highband (start band 17)
+// onto it from the cloned shared range decoder, matching libopus
+// celt_decode_with_ec with celt_accum=1. The combined opus_res output is stashed
+// in the stream's fixedHybridRes for decodePacketToResFixed.
+//
+// The multistream float Hybrid decode path (DecodeToFloat32WithPacketStereo)
+// does not parse the Opus-layer redundancy flag, so the clone arrives positioned
+// before it. Mirroring opus_decode_frame, the flag is consumed here so the CELT
+// highband reads from the correct bit position. Redundancy (a set flag) drives a
+// distinct decode the integer hybrid path does not reproduce, so it declines.
+func (h *streamFixedHybridHook) DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) {
+	d := h.st
+	channels := int(d.channels)
+	needed := frameSizeAPI * channels
+
+	if cap(d.fixedHybridRes) < needed {
+		d.fixedHybridRes = make([]int32, needed)
+	}
+	res := d.fixedHybridRes[:needed]
+	// INT16TORES(a) = SHL32(EXTEND32(a), RES_SHIFT); RES_SHIFT == 8.
+	for i := 0; i < needed; i++ {
+		var s int16
+		if i < filled && i < len(silkInt16) {
+			s = silkInt16[i]
+		}
+		res[i] = int32(s) << 8
+	}
+
+	// Consume the hybrid redundancy flag (opus_decode_frame, opus_decoder.c).
+	// A clone is consumed so the float decode's own range decoder is unaffected.
+	rdClone := *rd
+	if rdClone.Tell()+17+20 <= 8*d.fixedHybridFrameLen {
+		if rdClone.DecodeBit(12) == 1 {
+			// Redundancy present: the integer hybrid path does not reproduce the
+			// redundancy frame decode and crossfade, so decline this frame.
+			d.fixedHybridHandled = false
+			return
+		}
+	}
+
+	d.fixedCELT.SetBandRange(celt.HybridCELTStartBand, d.fixedHybridEnd)
+
+	downsample := 48000 / int(d.sampleRate)
+	if downsample <= 0 {
+		downsample = 1
+	}
+	coreFrameSize := frameSizeAPI * downsample
+
+	d.fixedCELT.DecodeHybridAccum(&rdClone, coreFrameSize, res)
+
+	d.fixedHybridRes = res
+	d.fixedHybridHandled = true
 }
 
 // celtFixedRes runs the FIXED_POINT integer CELT decoder for a CELT-only frame

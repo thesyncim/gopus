@@ -130,9 +130,11 @@ func buildMultistreamPacket(t *testing.T, streamPackets [][]byte) []byte {
 // integer domain (RES2INT16 / RES2INT24), matching
 // opus_multistream_decode_native built FIXED_POINT (no soft clip).
 //
-// Layouts cover mono streams, coupled (stereo) streams, and a 5.1-style
-// 4-stream/2-coupled surround mapping, multi-frame. Bit-exact on amd64; subject
-// to the documented per-arch 1-ULP CELT drift budget on arm64.
+// Layouts cover mono streams, coupled (stereo) streams, a 5.1-style
+// 4-stream/2-coupled surround mapping, and Hybrid streams (a Hybrid stereo
+// coupled stream and a coupled layout mixing Hybrid streams), multi-frame.
+// Bit-exact on amd64; subject to the documented per-arch 1-ULP CELT drift
+// budget on arm64.
 func TestMultistreamDecodeFixedPointParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 
@@ -150,27 +152,43 @@ func TestMultistreamDecodeFixedPointParity(t *testing.T) {
 		mapping  []byte
 		// streamChans gives the channel count of each stream (2 for coupled).
 		streamChans []int
+		// streamMode selects the per-stream packet mode (ModeCELT default, or
+		// ModeHybrid). nil means all CELT.
+		streamMode []Mode
 	}
 	layouts := []layout{
-		{"mono_2streams", 2, 2, 0, []byte{0, 1}, []int{1, 1}},
-		{"stereo_coupled", 2, 1, 1, []byte{0, 1}, []int{2}},
-		{"quad_2coupled", 4, 2, 2, []byte{0, 1, 2, 3}, []int{2, 2}},
-		{"surround51", 6, 4, 2, []byte{0, 4, 1, 2, 3, 5}, []int{2, 2, 1, 1}},
+		{"mono_2streams", 2, 2, 0, []byte{0, 1}, []int{1, 1}, nil},
+		{"stereo_coupled", 2, 1, 1, []byte{0, 1}, []int{2}, nil},
+		{"quad_2coupled", 4, 2, 2, []byte{0, 1, 2, 3}, []int{2, 2}, nil},
+		{"surround51", 6, 4, 2, []byte{0, 4, 1, 2, 3, 5}, []int{2, 2, 1, 1}, nil},
+		{"hybrid_stereo_coupled", 2, 1, 1, []byte{0, 1}, []int{2}, []Mode{ModeHybrid}},
+		{"hybrid_mono_2streams", 2, 2, 0, []byte{0, 1}, []int{1, 1}, []Mode{ModeHybrid, ModeHybrid}},
+		{"hybrid_quad_2coupled", 4, 2, 2, []byte{0, 1, 2, 3}, []int{2, 2}, []Mode{ModeHybrid, ModeHybrid}},
+		{"mixed_hybrid_celt_coupled", 4, 2, 2, []byte{0, 1, 2, 3}, []int{2, 2}, []Mode{ModeHybrid, ModeCELT}},
 	}
 
 	for _, lo := range layouts {
 		t.Run(lo.name, func(t *testing.T) {
-			// Build `frames` multistream packets, each composed of one CELT-only
-			// frame per stream (distinct payloads per frame so cross-frame integer
-			// CELT state is exercised).
+			// Build `frames` multistream packets, each composed of one frame per
+			// stream (distinct payloads per frame so cross-frame integer CELT/Hybrid
+			// state is exercised).
 			msPackets := make([][]byte, 0, frames)
 			for f := 0; f < frames; f++ {
 				streamPackets := make([][]byte, lo.streams)
 				for s := 0; s < lo.streams; s++ {
 					ch := lo.streamChans[s]
-					pkt := encodeAPIRateCELTPacketFrameSizeVariant(t, ch, frameSize48, 128000, f*8+s+1)
-					if toc := ParseTOC(pkt[0]); toc.Mode != ModeCELT {
-						t.Skipf("stream %d frame %d: encoder produced mode %v, want CELT", s, f, toc.Mode)
+					mode := ModeCELT
+					if lo.streamMode != nil {
+						mode = lo.streamMode[s]
+					}
+					var pkt []byte
+					if mode == ModeHybrid {
+						pkt = encodeAPIRateHybridPacketFrameSizeVariant(t, ch, frameSize48, f*8+s+1)
+					} else {
+						pkt = encodeAPIRateCELTPacketFrameSizeVariant(t, ch, frameSize48, 128000, f*8+s+1)
+					}
+					if toc := ParseTOC(pkt[0]); toc.Mode != mode {
+						t.Skipf("stream %d frame %d: encoder produced mode %v, want %v", s, f, toc.Mode, mode)
 					}
 					streamPackets[s] = pkt
 				}
