@@ -218,61 +218,75 @@ func TestDecoderFixedPointSILKParity(t *testing.T) {
 	}
 }
 
-// TestDecoderFixedPointHybridDivergence measures the public DecodeInt16 /
-// DecodeInt24 of Hybrid packets against the libopus FIXED_POINT opus_decode /
-// opus_decode24 reference. gopus' integer SILK lowband is combined with a FLOAT
-// CELT highband (bands 17-21), so the int16 output is near-exact while the int24
-// output diverges by a few LSBs where the float CELT contribution differs from
-// the FIXED_POINT integer CELT bands. Bit-exact Hybrid int24 requires routing
-// the CELT highband through internal/fixedpoint.CELTDecoder with a shared range
-// decoder and celt_accum, which is out of scope for the root package. This test
-// records the divergence (it does not gate) so the gap is tracked.
-func TestDecoderFixedPointHybridDivergence(t *testing.T) {
+// TestDecoderFixedPointHybridParity gates that the public DecodeInt16 /
+// DecodeInt24 of Hybrid packets is bit-exact with the libopus FIXED_POINT
+// opus_decode / opus_decode24 reference. The integer SILK lowband
+// (INT16TORES of the resampled int16 SILK output) is combined with the integer
+// FIXED_POINT CELT highband (bands 17-21) via internal/fixedpoint.CELTDecoder
+// driven from the shared range decoder with celt_accum, mirroring
+// opus_decode_frame (start_band=17, celt_accum=1). Multi-frame packets exercise
+// the cross-frame integer CELT state (decode_mem, energy histories, post-filter,
+// preemph). Bit-exact on amd64; subject to the documented per-arch 1-ULP CELT
+// drift budget on arm64.
+func TestDecoderFixedPointHybridParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 
 	type tc struct {
 		name      string
 		channels  int
 		frameSize int
+		frames    int
 	}
 	cases := []tc{
-		{"mono_960", 1, 960},
-		{"stereo_960", 2, 960},
-		{"mono_480", 1, 480},
+		{"mono_960", 1, 960, 1},
+		{"stereo_960", 2, 960, 1},
+		{"mono_480", 1, 480, 1},
+		{"mono_960_multi", 1, 960, 4},
+		{"stereo_960_multi", 2, 960, 4},
+		{"mono_480_multi", 1, 480, 6},
 	}
 
 	const sampleRate = 48000
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			pkt := encodeAPIRateHybridPacketFrameSize(t, c.channels, c.frameSize)
-			if toc := ParseTOC(pkt[0]); toc.Mode != ModeHybrid {
-				t.Skipf("encoder produced mode %v, want Hybrid", toc.Mode)
+			packets := make([][]byte, 0, c.frames)
+			for f := 0; f < c.frames; f++ {
+				pkt := encodeAPIRateHybridPacketFrameSize(t, c.channels, c.frameSize)
+				if toc := ParseTOC(pkt[0]); toc.Mode != ModeHybrid {
+					t.Skipf("encoder produced mode %v, want Hybrid", toc.Mode)
+				}
+				packets = append(packets, pkt)
 			}
 
-			refInt16, err := decodeWithLibopusFixedInt16(sampleRate, c.channels, c.frameSize, [][]byte{pkt})
+			refInt16, err := decodeWithLibopusFixedInt16(sampleRate, c.channels, c.frameSize, packets)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "fixed reference decode int16", err)
 				return
 			}
-			refInt24, err := decodeWithLibopusFixedInt24(sampleRate, c.channels, c.frameSize, [][]byte{pkt})
+			refInt24, err := decodeWithLibopusFixedInt24(sampleRate, c.channels, c.frameSize, packets)
 			if err != nil {
 				libopustest.HelperUnavailable(t, "fixed reference decode int24", err)
 				return
 			}
 
 			dec16, _ := NewDecoder(DefaultDecoderConfig(sampleRate, c.channels))
-			o16 := make([]int16, c.frameSize*c.channels)
-			if _, err := dec16.DecodeInt16(pkt, o16); err != nil {
-				t.Fatalf("DecodeInt16: %v", err)
-			}
 			dec24, _ := NewDecoder(DefaultDecoderConfig(sampleRate, c.channels))
-			o24 := make([]int32, c.frameSize*c.channels)
-			if _, err := dec24.DecodeInt24(pkt, o24); err != nil {
-				t.Fatalf("DecodeInt24: %v", err)
+			var got16, got24 []int32
+			for p, pkt := range packets {
+				o16 := make([]int16, c.frameSize*c.channels)
+				if _, err := dec16.DecodeInt16(pkt, o16); err != nil {
+					t.Fatalf("packet %d DecodeInt16: %v", p, err)
+				}
+				got16 = append(got16, int16ToInt32(o16)...)
+				o24 := make([]int32, c.frameSize*c.channels)
+				if _, err := dec24.DecodeInt24(pkt, o24); err != nil {
+					t.Fatalf("packet %d DecodeInt24: %v", p, err)
+				}
+				got24 = append(got24, o24...)
 			}
 
-			logDivergence(t, "int16", int16ToInt32(o16), int16ToInt32(refInt16))
-			logDivergence(t, "int24", o24, refInt24)
+			assertFixedExact(t, "int16", got16, int16ToInt32(refInt16))
+			assertFixedExact(t, "int24", got24, refInt24)
 		})
 	}
 }
@@ -321,16 +335,3 @@ func assertFixedExact(t *testing.T, label string, got, want []int32) {
 		label, diffs, len(got), maxAbs, firstIdx, got[firstIdx], want[firstIdx])
 }
 
-func logDivergence(t *testing.T, label string, got, want []int32) {
-	t.Helper()
-	if len(got) != len(want) {
-		t.Fatalf("%s: length got=%d want=%d", label, len(got), len(want))
-	}
-	diffs, maxAbs, firstIdx := divergence(got, want)
-	if diffs == 0 {
-		t.Logf("%s: bit-exact (%d samples)", label, len(got))
-		return
-	}
-	t.Logf("%s: %d/%d samples differ, maxAbs=%d, first at %d: gopus=%d libopus=%d",
-		label, diffs, len(got), maxAbs, firstIdx, got[firstIdx], want[firstIdx])
-}

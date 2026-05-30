@@ -365,13 +365,13 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 
 	switch mode {
 	case ModeHybrid:
-		// Hybrid output is not produced by the integer CELT path; the int16/int24
-		// wrappers must use the float conversion for this packet.
-		d.markFixedUnhandled()
 		if data != nil && d.haveDecoded && d.prevMode == ModeCELT {
 			d.silkDecoder.Reset()
 		}
 		if data == nil {
+			// PLC hybrid output is not produced by the integer CELT path; the
+			// int16/int24 wrappers must use the float conversion for this packet.
+			d.markFixedUnhandled()
 			samples, err := d.hybridDecoder.DecodeToFloat32WithPacketStereo(nil, frameSize, packetStereoLocal)
 			if err != nil {
 				return 0, err
@@ -380,6 +380,18 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			// Capture FinalRange for PLC
 			d.mainDecodeRng = d.hybridDecoder.FinalRange()
 		} else {
+			// Under -tags gopus_fixedpoint with an active integer-output packet,
+			// arm the integer CELT highband hook so the hybrid decode also produces
+			// libopus-exact int16/int24 output (start band 17, celt_accum onto the
+			// SILK opus_res lowband). prepareFixedHybrid is a no-op in the default
+			// build and on the float Decode path, where the float conversion is used.
+			fixedHybridArmed := false
+			if !extsupport.QEXT {
+				fixedHybridArmed = d.prepareFixedHybrid(data, celtBW, needCeltReset)
+			}
+			if !fixedHybridArmed {
+				d.markFixedUnhandled()
+			}
 			d.hybridDecoder.SetPrevPacketStereo(d.prevPacketStereo)
 			afterSilk := func(rd *rangecoding.Decoder) error {
 				if rd == nil {
@@ -431,7 +443,15 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			}
 
 			if err := d.hybridDecoder.DecodeWithDecoderHookToFloat32(rd, frameSize, packetStereoLocal, afterSilk, out); err != nil {
+				if fixedHybridArmed {
+					d.finishFixedHybrid()
+				}
 				return 0, err
+			}
+			if fixedHybridArmed {
+				if ferr := d.finishFixedHybrid(); ferr != nil {
+					return 0, ferr
+				}
 			}
 			// Capture the main decode's FinalRange before any redundancy post-processing
 			d.mainDecodeRng = d.hybridDecoder.FinalRange()

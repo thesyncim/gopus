@@ -33,4 +33,21 @@ type decoderFixedFields struct {
 	// fixedPacketActive guards the accumulation: it is true only between
 	// beginFixedPacket and the int16/int24 wrapper consuming the result.
 	fixedPacketActive bool
+
+	// fixedHybridRes is the per-frame interleaved opus_res scratch that holds the
+	// SILK lowband (INT16TORES) before the integer CELT highband accumulates onto
+	// it; it then carries the combined hybrid opus_res output.
+	fixedHybridRes []int32
+	// fixedHybridInt16 is the per-frame int16 view (Res2Int16) of fixedHybridRes.
+	fixedHybridInt16 []int16
+	// fixedHybridEnd is the CELT end band (CELT_SET_END_BAND) for the in-flight
+	// hybrid frame, captured before the hybrid decode invokes the highband hook.
+	fixedHybridEnd int
+	// fixedHybridErr captures an error from the highband hook (the hook signature
+	// is void to match the hybrid float path; the dispatch checks it afterwards).
+	fixedHybridErr error
+	// fixedHybridReset records whether the integer CELT cross-frame state must be
+	// reset before the in-flight hybrid frame (mirroring the float OPUS_RESET_STATE
+	// on a mode transition), set before the hybrid decode.
+	fixedHybridReset bool
 }

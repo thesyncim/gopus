@@ -5,6 +5,7 @@ package gopus
 import (
 	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/internal/fixedpoint"
+	"github.com/thesyncim/gopus/rangecoding"
 )
 
 // celtDecodeFixedAPIRate runs the FIXED_POINT integer CELT decoder
@@ -50,6 +51,81 @@ func (d *Decoder) celtDecodeFixedAPIRate(data []byte, apiFrameSize int, packetSt
 	// Stash the integer-exact output for the int16/int24 wrappers.
 	d.appendFixedOutput(int16Out[:needed], res[:needed])
 	return true, nil
+}
+
+// prepareFixedHybrid arms the integer hybrid highband hook for the in-flight
+// frame and records the CELT end band and reset policy, mirroring the libopus
+// opus_decode_frame hybrid CELT path. It is called from the Hybrid dispatch
+// before the float hybrid decode runs (which drives the SILK lowband and then
+// invokes the hook). It returns false when the integer path is declined (no
+// active integer packet, or a degenerate/PLC frame), in which case the caller
+// marks the packet unhandled and uses the float conversion.
+func (d *Decoder) prepareFixedHybrid(data []byte, celtBW celt.CELTBandwidth, needCeltReset bool) bool {
+	if !d.fixedPacketActive || len(data) <= 1 {
+		return false
+	}
+	if d.fixedCELT == nil {
+		d.fixedCELT = fixedpoint.NewCELTDecoderRate(int(d.channels), int(d.sampleRate))
+	}
+	d.fixedHybridEnd = celtBW.EffectiveBands()
+	d.fixedHybridReset = needCeltReset
+	d.fixedHybridErr = nil
+	d.hybridDecoder.SetFixedHighband(d)
+	return true
+}
+
+// finishFixedHybrid disarms the hook and reports whether the integer hybrid
+// highband decode produced a frame the int16/int24 wrappers can read directly.
+func (d *Decoder) finishFixedHybrid() error {
+	d.hybridDecoder.SetFixedHighband(nil)
+	return d.fixedHybridErr
+}
+
+// DecodeHybridHighband implements hybrid.FixedHybridHighband. It builds the
+// opus_res SILK lowband (INT16TORES: int16 << RES_SHIFT) from the resampled int16
+// SILK output, then accumulates the integer CELT highband (start band 17) onto it
+// from the cloned shared range decoder, matching libopus celt_decode_with_ec_dred
+// with celt_accum=1. The combined opus_res / int16 output is stashed for the
+// DecodeInt16 / DecodeInt24 wrappers.
+func (d *Decoder) DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) {
+	channels := int(d.channels)
+	needed := frameSizeAPI * channels
+
+	if cap(d.fixedHybridRes) < needed {
+		d.fixedHybridRes = make([]int32, needed)
+	}
+	res := d.fixedHybridRes[:needed]
+	// INT16TORES(a) = SHL32(EXTEND32(a), RES_SHIFT); RES_SHIFT == 8.
+	for i := 0; i < needed; i++ {
+		var s int16
+		if i < filled && i < len(silkInt16) {
+			s = silkInt16[i]
+		}
+		res[i] = int32(s) << 8
+	}
+
+	if d.fixedHybridReset {
+		d.fixedCELT.Reset()
+	}
+	d.fixedCELT.SetBandRange(celt.HybridCELTStartBand, d.fixedHybridEnd)
+
+	downsample := 48000 / int(d.sampleRate)
+	if downsample <= 0 {
+		downsample = 1
+	}
+	coreFrameSize := frameSizeAPI * downsample
+
+	d.fixedCELT.DecodeHybridAccum(rd, coreFrameSize, res)
+
+	if cap(d.fixedHybridInt16) < needed {
+		d.fixedHybridInt16 = make([]int16, needed)
+	}
+	int16Out := d.fixedHybridInt16[:needed]
+	for i := 0; i < needed; i++ {
+		int16Out[i] = fixedpoint.Res2Int16(res[i])
+	}
+
+	d.appendFixedOutput(int16Out, res)
 }
 
 // beginFixedPacket arms the per-packet integer-output accumulation used by the

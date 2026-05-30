@@ -73,6 +73,43 @@ type Decoder struct {
 	scratchSilkUpsampled []float32 // SILK upsampled output (max 960*2 for stereo 20ms)
 	scratchCELT48        []float32
 	scratchCELTAPI       []float32
+
+	// fixedHighband, when set, drives the FIXED_POINT integer CELT highband
+	// decode for the in-flight integer-output (DecodeInt16 / DecodeInt24) packet.
+	// It is nil on the float Decode path and in the default build, so the float
+	// hybrid decode is unchanged. When set, decodeFrameWithHookFloat32 captures
+	// the resampled int16 SILK lowband and, once the shared range decoder is
+	// positioned at the CELT start band, hands a clone of it (plus the SILK
+	// lowband) to the hook for the integer accum decode.
+	fixedHighband    FixedHybridHighband
+	scratchSilkInt16 []int16
+	scratchSilkL     []int16
+	scratchSilkR     []int16
+	filledSilkInt16  int
+}
+
+// FixedHybridHighband receives the data needed to run the FIXED_POINT integer
+// CELT highband decode for a hybrid frame, mirroring the libopus
+// opus_decode_frame hybrid path (start_band=17, celt_accum=1 onto the SILK
+// opus_res lowband). It is implemented in the gopus_fixedpoint build by the
+// root decoder.
+type FixedHybridHighband interface {
+	// DecodeHybridHighband is called after the SILK lowband has been decoded and
+	// resampled and the shared range decoder rd has been positioned at the CELT
+	// start band (after any hybrid redundancy-flag bits, with storage shrunk to
+	// exclude trailing redundancy bytes). silkInt16 holds the resampled int16
+	// SILK lowband output interleaved by channel (length filled samples). rd is a
+	// clone of the shared decoder safe to consume independently of the float CELT
+	// decode. frameSizeAPI / frameSize48 are the per-channel API-rate and 48k-core
+	// sample counts.
+	DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool)
+}
+
+// SetFixedHighband installs (or clears, with nil) the integer hybrid highband
+// hook for the next decode. It is a no-op in effect on the float path because
+// the root decoder only sets it while an integer-output packet is active.
+func (d *Decoder) SetFixedHighband(h FixedHybridHighband) {
+	d.fixedHighband = h
 }
 
 // NewDecoder creates a new Hybrid decoder with the given number of channels.
@@ -328,6 +365,18 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 	scratchF32L := d.silkDecoder.GetResamplerScratch(frameSizeAPI)
 	scratchF32R := d.silkDecoder.GetResamplerScratchR(frameSizeAPI)
 
+	// When the FIXED_POINT integer hybrid path is active, capture the resampled
+	// int16 SILK lowband (the pre-INT16TORES value libopus' silk_Decode emits)
+	// interleaved by channel, so the integer CELT highband can accumulate onto
+	// the exact opus_res lowband. The per-channel int16 resampler output is
+	// produced for free alongside the float32 conversion.
+	captureFixed := d.fixedHighband != nil
+	var i16L, i16R []int16
+	if captureFixed {
+		i16L, i16R = d.fixedSilkInt16Scratch(frameSizeAPI)
+		d.filledSilkInt16 = 0
+	}
+
 	filledSilkSamples := 0
 	if packetStereo {
 		if d.channels == 1 {
@@ -341,11 +390,19 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 				return nil, err
 			}
 			resamplerInput := d.silkDecoder.BuildMonoResamplerInput(mid)
-			nL := leftResampler.ProcessInto(resamplerInput, scratchF32L)
+			var nL int
+			if captureFixed {
+				nL = leftResampler.ProcessIntoBoth(resamplerInput, scratchF32L, i16L)
+			} else {
+				nL = leftResampler.ProcessInto(resamplerInput, scratchF32L)
+			}
 			for i := 0; i < nL && i < totalSamples; i++ {
 				silkUpsampled[i] = scratchF32L[i]
 			}
 			filledSilkSamples = min(nL, totalSamples)
+			if captureFixed {
+				d.filledSilkInt16 = copyInterleaveMono(d.scratchSilkInt16, i16L, filledSilkSamples)
+			}
 		} else {
 			silkOutputL, silkOutputR, ok := d.silkDecoder.GetStereoInt16Scratch(silkSamples)
 			if !ok {
@@ -362,8 +419,14 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 			if err != nil {
 				return nil, err
 			}
-			nL := leftResampler.ProcessInt16Into(silkOutputL[:nNative], scratchF32L)
-			nR := rightResampler.ProcessInt16Into(silkOutputR[:nNative], scratchF32R)
+			var nL, nR int
+			if captureFixed {
+				nL = leftResampler.ProcessInt16IntoBoth(silkOutputL[:nNative], scratchF32L, i16L)
+				nR = rightResampler.ProcessInt16IntoBoth(silkOutputR[:nNative], scratchF32R, i16R)
+			} else {
+				nL = leftResampler.ProcessInt16Into(silkOutputL[:nNative], scratchF32L)
+				nR = rightResampler.ProcessInt16Into(silkOutputR[:nNative], scratchF32R)
+			}
 			n := nL
 			if nR < n {
 				n = nR
@@ -373,6 +436,9 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 				silkUpsampled[i*2+1] = scratchF32R[i]
 			}
 			filledSilkSamples = min(n*2, totalSamples)
+			if captureFixed {
+				d.filledSilkInt16 = copyInterleaveStereo(d.scratchSilkInt16, i16L, i16R, filledSilkSamples)
+			}
 		}
 	} else {
 		// Use int16-native SILK decode/resampler path for hot hybrid decode.
@@ -386,10 +452,20 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 			return nil, err
 		}
 		resamplerInput := d.silkDecoder.BuildMonoResamplerInputInt16(silkOutput)
-		nL := leftResampler.ProcessInt16Into(resamplerInput, scratchF32L)
+		var nL int
+		if captureFixed {
+			nL = leftResampler.ProcessInt16IntoBoth(resamplerInput, scratchF32L, i16L)
+		} else {
+			nL = leftResampler.ProcessInt16Into(resamplerInput, scratchF32L)
+		}
 		if d.channels == 2 {
 			if stereoToMono {
-				nR := rightResampler.ProcessInt16Into(resamplerInput, scratchF32R)
+				var nR int
+				if captureFixed {
+					nR = rightResampler.ProcessInt16IntoBoth(resamplerInput, scratchF32R, i16R)
+				} else {
+					nR = rightResampler.ProcessInt16Into(resamplerInput, scratchF32R)
+				}
 				n := nL
 				if nR < n {
 					n = nR
@@ -399,6 +475,9 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 					silkUpsampled[i*2+1] = scratchF32R[i]
 				}
 				filledSilkSamples = min(n*2, totalSamples)
+				if captureFixed {
+					d.filledSilkInt16 = copyInterleaveStereo(d.scratchSilkInt16, i16L, i16R, filledSilkSamples)
+				}
 			} else {
 				for i := 0; i < nL && i*2+1 < totalSamples; i++ {
 					val := scratchF32L[i]
@@ -406,12 +485,18 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 					silkUpsampled[i*2+1] = val
 				}
 				filledSilkSamples = min(nL*2, totalSamples)
+				if captureFixed {
+					d.filledSilkInt16 = copyInterleaveStereoDup(d.scratchSilkInt16, i16L, filledSilkSamples)
+				}
 			}
 		} else {
 			for i := 0; i < nL && i < totalSamples; i++ {
 				silkUpsampled[i] = scratchF32L[i]
 			}
 			filledSilkSamples = min(nL, totalSamples)
+			if captureFixed {
+				d.filledSilkInt16 = copyInterleaveMono(d.scratchSilkInt16, i16L, filledSilkSamples)
+			}
 		}
 	}
 	if filledSilkSamples < totalSamples {
@@ -422,6 +507,15 @@ func (d *Decoder) decodeFrameWithHookFloat32(rd *rangecoding.Decoder, frameSize 
 		if err := afterSilk(rd); err != nil {
 			return nil, err
 		}
+	}
+
+	// Drive the FIXED_POINT integer CELT highband from a clone of the shared range
+	// decoder, now positioned at the CELT start band (after any hybrid redundancy
+	// flags and with storage shrunk by afterSilk). The clone lets the integer
+	// decode consume the bitstream independently of the float CELT decode below.
+	if captureFixed {
+		rdClone := *rd
+		d.fixedHighband.DecodeHybridHighband(d.scratchSilkInt16, d.filledSilkInt16, &rdClone, frameSizeAPI, frameSize48, packetStereo)
 	}
 
 	// Step 3: Use SILK output directly
@@ -468,6 +562,70 @@ func combineHybridBands(out, celtAPI, silkUpsampled []float32, totalSamples int)
 	for ; i < totalSamples; i++ {
 		out[i] = celtAPI[i] + silkUpsampled[i]
 	}
+}
+
+// fixedSilkInt16Scratch returns per-channel int16 resampler-output scratch
+// buffers (left, right) sized for frameSizeAPI API-rate samples, and ensures
+// d.scratchSilkInt16 can hold the interleaved result for all channels.
+func (d *Decoder) fixedSilkInt16Scratch(frameSizeAPI int) (left, right []int16) {
+	channels := int(d.channels)
+	if cap(d.scratchSilkInt16) < frameSizeAPI*channels {
+		d.scratchSilkInt16 = make([]int16, frameSizeAPI*channels)
+	}
+	d.scratchSilkInt16 = d.scratchSilkInt16[:frameSizeAPI*channels]
+	if cap(d.scratchSilkL) < frameSizeAPI {
+		d.scratchSilkL = make([]int16, frameSizeAPI)
+	}
+	d.scratchSilkL = d.scratchSilkL[:frameSizeAPI]
+	if channels == 2 {
+		if cap(d.scratchSilkR) < frameSizeAPI {
+			d.scratchSilkR = make([]int16, frameSizeAPI)
+		}
+		d.scratchSilkR = d.scratchSilkR[:frameSizeAPI]
+		return d.scratchSilkL, d.scratchSilkR
+	}
+	return d.scratchSilkL, nil
+}
+
+// copyInterleaveMono writes the first filled mono samples from src into dst and
+// returns filled.
+func copyInterleaveMono(dst, src []int16, filled int) int {
+	if filled > len(src) {
+		filled = len(src)
+	}
+	if filled > len(dst) {
+		filled = len(dst)
+	}
+	copy(dst[:filled], src[:filled])
+	return filled
+}
+
+// copyInterleaveStereo interleaves filled (total, L+R) samples from the
+// per-channel left/right slices into dst and returns filled.
+func copyInterleaveStereo(dst, left, right []int16, filled int) int {
+	n := filled / 2
+	for i := 0; i < n; i++ {
+		if i >= len(left) || i >= len(right) || 2*i+1 >= len(dst) {
+			return 2 * i
+		}
+		dst[2*i] = left[i]
+		dst[2*i+1] = right[i]
+	}
+	return 2 * n
+}
+
+// copyInterleaveStereoDup interleaves a duplicated-mono lowband (left used for
+// both channels) into dst for filled total samples and returns filled.
+func copyInterleaveStereoDup(dst, left []int16, filled int) int {
+	n := filled / 2
+	for i := 0; i < n; i++ {
+		if i >= len(left) || 2*i+1 >= len(dst) {
+			return 2 * i
+		}
+		dst[2*i] = left[i]
+		dst[2*i+1] = left[i]
+	}
+	return 2 * n
 }
 
 func (d *Decoder) decodeCELTHybridToAPI(rd *rangecoding.Decoder, frameSizeAPI, frameSize48 int, packetStereo bool) ([]float32, error) {

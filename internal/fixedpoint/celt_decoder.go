@@ -189,6 +189,50 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 	if len(data) <= 1 {
 		return d.DecodeLost(frameSize, out)
 	}
+	dec := &rangecoding.Decoder{}
+	dec.Init(data)
+	outSyn, N := d.decodeReceivedFrame(dec, len(data), frameSize)
+
+	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=0).
+	outSamples := N / d.downsample
+	resPCM := d.resScratch(d.channels * outSamples)
+	Deemphasis(outSyn, resPCM, staticMDCT48000Preemph0, d.preemphMemD, N, d.downsample, false)
+	for i := range resPCM {
+		out[i] = Res2Int16(resPCM[i])
+	}
+	return outSamples
+}
+
+// DecodeHybridAccum decodes a hybrid CELT highband frame from the caller-provided
+// range decoder, which must already be positioned after the SILK portion (and any
+// redundancy-flag bits) of the packet, with its storage shrunk to exclude trailing
+// redundancy bytes (matching libopus opus_decode_frame). The active band range must
+// have been set via SetBandRange(start, end) with start = HybridCELTStartBand (17).
+//
+// It mirrors the libopus opus_decode_frame hybrid path, where
+// celt_decode_with_ec_dred is called with the shared ec_dec and celt_accum=1: the
+// CELT highband is accumulated (ADD_RES) onto the opus_res samples already written
+// by SILK. accumPCM is the interleaved opus_res lowband buffer of length
+// channels*(coreFrameSize/downsample); on return it holds the combined hybrid
+// opus_res output (RES2INT24(a)==a, int16 via Res2Int16). It returns the number of
+// per-channel output samples decoded.
+func (d *CELTDecoder) DecodeHybridAccum(dec *rangecoding.Decoder, coreFrameSize int, accumPCM []int32) int {
+	dataLen := dec.StorageBits() / 8
+	outSyn, N := d.decodeReceivedFrame(dec, dataLen, coreFrameSize)
+
+	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=1).
+	Deemphasis(outSyn, accumPCM, staticMDCT48000Preemph0, d.preemphMemD, N, d.downsample, true)
+	return N / d.downsample
+}
+
+// decodeReceivedFrame ports the body of celt_decode_with_ec_dred for a received
+// (non-PLC) frame, driving the already-positioned range decoder dec through the
+// energy/PVQ/synthesis pipeline and advancing all cross-frame state (decode_mem,
+// energy histories, post-filter, st->rng). dataLen is the effective packet length
+// in bytes (len) used for total_bits; frameSize is the 48k-core per-channel sample
+// count. It returns the per-channel synthesis buffers and N; the caller applies
+// deemphasis (with or without accumulation).
+func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, frameSize int) ([][]int32, int) {
 	nbEBands := celtNbEBands
 	overlap := celtOverlap
 	shortMdctSize := celtShortMdctSize
@@ -225,16 +269,13 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 		d.skipPLC = false
 	}
 
-	dec := &rangecoding.Decoder{}
-	dec.Init(data)
-
 	if C == 1 {
 		for i := 0; i < nbEBands; i++ {
 			d.oldBandE[i] = max32(d.oldBandE[i], d.oldBandE[nbEBands+i])
 		}
 	}
 
-	totalBits := len(data) * 8
+	totalBits := dataLen * 8
 	tell := dec.Tell()
 
 	silence := false
@@ -342,7 +383,7 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 	}
 
 	seed := d.rng
-	totalBitsQ3 := len(data)*(8<<bitRes) - alloc.AntiCollapseRsv
+	totalBitsQ3 := dataLen*(8<<bitRes) - alloc.AntiCollapseRsv
 	left, right, collapse := QuantAllBandsDecode(dec, C, N, LM, start, end,
 		pulses, tfRes, shortBlocks, alloc.Spread, alloc.DualStereo, alloc.Intensity,
 		totalBitsQ3, alloc.Balance, alloc.CodedBands, false, &seed)
@@ -454,19 +495,11 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 	}
 	d.rng = dec.Range()
 
-	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=0).
-	outSamples := N / d.downsample
-	resPCM := d.resScratch(CC * outSamples)
-	Deemphasis(outSyn, resPCM, staticMDCT48000Preemph0, d.preemphMemD, N, d.downsample, false)
-	for i := range resPCM {
-		out[i] = Res2Int16(resPCM[i])
-	}
-
 	d.lossDuration = 0
 	d.plcDuration = 0
 	d.lastFrameType = frameNormal
 	d.prefilterAndFold = false
-	return outSamples
+	return outSyn, N
 }
 
 // resamplingFactor mirrors celt/celt.c resampling_factor for the non-QEXT,

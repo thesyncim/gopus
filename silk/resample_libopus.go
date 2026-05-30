@@ -536,6 +536,29 @@ func (r *LibopusResampler) ProcessInto(samples []float32, out []float32) int {
 	return written
 }
 
+// ProcessIntoBoth resamples float32 input, writing the resampler output to outF32
+// (identical to ProcessInto) and copying the native int16 resampler output to
+// outI16. See ProcessInt16IntoBoth for why the int16 output is needed by the
+// FIXED_POINT integer hybrid path.
+func (r *LibopusResampler) ProcessIntoBoth(samples []float32, outF32 []float32, outI16 []int16) int {
+	if len(samples) == 0 {
+		return 0
+	}
+	if r.down != nil {
+		return r.down.ProcessInto(samples, outF32)
+	}
+
+	in, inLen := r.prepareInputFromFloat32(samples)
+	outInt16 := r.processInt16Core(in, inLen)
+	written := writeInt16AsFloat32(outF32, outInt16)
+	n := written
+	if n > len(outI16) {
+		n = len(outI16)
+	}
+	copy(outI16[:n], outInt16[:n])
+	return written
+}
+
 // ProcessInt16Into resamples int16 input samples into float32 output.
 // This avoids float32->int16 conversion when the caller already has native int16 samples.
 func (r *LibopusResampler) ProcessInt16Into(samples []int16, out []float32) int {
@@ -549,6 +572,35 @@ func (r *LibopusResampler) ProcessInt16Into(samples []int16, out []float32) int 
 	in, inLen := r.prepareInputFromInt16(samples)
 	outInt16 := r.processInt16Core(in, inLen)
 	written := writeInt16AsFloat32(out, outInt16)
+	return written
+}
+
+// ProcessInt16IntoBoth resamples int16 input samples, writing the resampler's
+// int16 output to outF32 (as float32, identical to ProcessInt16Into) and also
+// copying the native int16 resampler output to outI16. The int16 output is the
+// pre-INT16TORES value libopus' FIXED_POINT silk_Decode emits before the
+// `INT16TORES(x) = x << RES_SHIFT` opus_res conversion, so callers driving the
+// integer hybrid path can recover the exact opus_res SILK lowband without a
+// second resampler pass (which would corrupt the stateful delay buffers).
+// Returns the number of samples written.
+func (r *LibopusResampler) ProcessInt16IntoBoth(samples []int16, outF32 []float32, outI16 []int16) int {
+	if len(samples) == 0 {
+		return 0
+	}
+	if r.down != nil {
+		// The < 16 kHz API downsample path is not exercised by hybrid decode
+		// (hybrid SILK is always WB -> >=16k API); fall back to float-only.
+		return r.down.ProcessInt16Into(samples, outF32)
+	}
+
+	in, inLen := r.prepareInputFromInt16(samples)
+	outInt16 := r.processInt16Core(in, inLen)
+	written := writeInt16AsFloat32(outF32, outInt16)
+	n := written
+	if n > len(outI16) {
+		n = len(outI16)
+	}
+	copy(outI16[:n], outInt16[:n])
 	return written
 }
 

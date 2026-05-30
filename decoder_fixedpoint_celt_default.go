@@ -15,6 +15,11 @@ func (d *Decoder) celtDecodeFixedAPIRate(_ []byte, _ int, _ bool, _ celt.CELTBan
 // resetFixedCELT is a no-op in the default build.
 func (d *Decoder) resetFixedCELT() {}
 
+// prepareFixedHybrid / finishFixedHybrid are no-ops in the default build: the
+// Hybrid int16/int24 wrappers always use the float conversion there.
+func (d *Decoder) prepareFixedHybrid(_ []byte, _ celt.CELTBandwidth, _ bool) bool { return false }
+func (d *Decoder) finishFixedHybrid() error                                       { return nil }
+
 // The integer-output accumulation helpers are no-ops in the default build; the
 // int16/int24 wrappers there always use the float conversion.
 func (d *Decoder) beginFixedPacket()          {}
