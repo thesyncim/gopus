@@ -35,22 +35,6 @@ const (
 // half16 implements libopus HALF16(x) = SHR16(x, 1) on int16.
 func half16(x int16) int16 { return x >> 1 }
 
-// max16 implements libopus MAX16(a,b) on int16.
-func max16(a, b int16) int16 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-// min16 implements libopus MIN16(a,b) on int16.
-func min16(a, b int16) int16 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // celtFir5 ports celt_fir5 (celt/pitch.c, FIXED_POINT): an in-place order-5 FIR
 // with a SIG_SHIFT-scaled accumulator and ROUND16 output. x is modified in
 // place over its first n samples.
