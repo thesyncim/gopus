@@ -20,9 +20,9 @@ package custom_test
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
-	"os"
 	"testing"
 
 	"github.com/thesyncim/gopus/celt/custom"
@@ -230,25 +230,26 @@ func nonStandardCases() []oracleCase {
 	return cases
 }
 
-// TestOracleParityNonStandardModes is the core validation: it compares gopus
-// celt/custom encode (and decode of the libopus packet) against a libopus
-// custom-modes build for genuinely non-standard rates and reports the precise
-// first divergence.
+// TestOracleParityNonStandardModes documents the non-standard custom-mode gap.
 //
-// gopus celt/custom does NOT yet implement non-standard band layouts: for any
-// mode that is not one of the four 48 kHz static modes, EncodeFloat/DecodeFloat
-// fall back to the nearest standard 48 kHz frame size (encoder.go
-// standardFrameForLM) and linearly resample. The CustomMode band/preemph tables
-// computed by NewMode are never fed to the CELT core. Consequently these modes
-// are only self-consistent (gopus encode -> gopus decode) and diverge from a
-// libopus --enable-custom-modes build at the first coded symbol.
+// For each non-standard (Fs, frame_size) it confirms that:
+//  1. libopus --enable-custom-modes accepts the mode and produces a packet
+//     (the oracle status is non-negative), and
+//  2. gopus celt/custom correctly declines the mode with ErrNonStandard rather
+//     than silently emitting a non-conformant bitstream.
 //
-// This test records that gap: by default it reports the first divergence and
-// skips (so the gated suite stays green). Set GOPUS_CUSTOM_NONSTANDARD_STRICT=1
-// to turn divergence into a hard failure — that flips on automatically once a
-// real custom-mode CELT path lands and starts matching libopus.
+// gopus does not yet reproduce a libopus custom-modes bitstream for arbitrary
+// (Fs, frame_size): the CELT core threads the 48 kHz frame-size grid through
+// band-bin scaling (celt.ScaledBandStart = eBand*frameSize/120), the mode config
+// (celt.GetModeConfig / celt.ValidFrameSize accept only 120/240/480/960/1920),
+// the overlap constant, and pre-emphasis. So even the Fs==400*shortMdctSize
+// family (which shares the 48 kHz eBands/logN/cache/allocVectors tables) needs
+// the overlap, MDCT length, effEBands clamp and per-rate pre-emphasis wired
+// through the whole encode+decode driver before it can match libopus.
+//
+// To make the gap concrete, the subtest logs the libopus reference packet so a
+// future native path can diff against it.
 func TestOracleParityNonStandardModes(t *testing.T) {
-	strict := os.Getenv("GOPUS_CUSTOM_NONSTANDARD_STRICT") == "1"
 	cases := nonStandardCases()
 	results := runCustomOracle(t, cases)
 
@@ -258,68 +259,37 @@ func TestOracleParityNonStandardModes(t *testing.T) {
 				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
 			}
 
-			report := func(format string, args ...any) {
-				if strict {
-					t.Errorf(format, args...)
-				} else {
-					t.Logf(format, args...)
-				}
+			mode, err := custom.NewMode(tc.fs, tc.frameSize)
+			if err != nil {
+				t.Fatalf("NewMode(%d,%d): %v", tc.fs, tc.frameSize, err)
+			}
+			if mode.IsStandard() {
+				t.Fatalf("mode Fs=%d frame=%d unexpectedly flagged standard", tc.fs, tc.frameSize)
 			}
 
-			diverged := false
-
-			// Encode parity.
-			got, _ := gopusEncode(t, tc)
-			if !bytes.Equal(got, results[i].packet) {
-				diverged = true
-				off := firstByteDivergence(got, results[i].packet)
-				report("encode packet diverges from libopus custom (first diff at byte %d)\n  gopus  (%d bytes): %x\n  libopus(%d bytes): %x",
-					off, len(got), got, len(results[i].packet), results[i].packet)
+			enc, err := custom.NewEncoder(mode, tc.channels)
+			if err != nil {
+				t.Fatalf("NewEncoder: %v", err)
+			}
+			if _, err := enc.EncodeFloat(tc.pcm, tc.maxBytes); !errors.Is(err, custom.ErrNonStandard) {
+				t.Errorf("EncodeFloat non-standard mode: err = %v, want ErrNonStandard", err)
 			}
 
-			// Decode parity: feed the libopus packet through the gopus decoder.
-			mode, _ := custom.NewMode(tc.fs, tc.frameSize)
 			dec, err := custom.NewDecoder(mode, tc.channels)
 			if err != nil {
 				t.Fatalf("NewDecoder: %v", err)
 			}
-			decoded, err := dec.DecodeFloat(results[i].packet, tc.frameSize)
-			if err != nil {
-				t.Fatalf("DecodeFloat libopus packet: %v", err)
-			}
-			if len(decoded) != len(results[i].decoded) {
-				diverged = true
-				report("decoded length %d, libopus %d", len(decoded), len(results[i].decoded))
-			} else if d := firstSampleDivergence(decoded, results[i].decoded); d >= 0 {
-				diverged = true
-				report("decoded PCM diverges from libopus custom at sample %d (gopus=%v libopus=%v)",
-					d, decoded[d], results[i].decoded[d])
+			if _, err := dec.DecodeFloat(results[i].packet, tc.frameSize); !errors.Is(err, custom.ErrNonStandard) {
+				t.Errorf("DecodeFloat non-standard mode: err = %v, want ErrNonStandard", err)
 			}
 
-			if diverged && !strict {
-				t.Skip("known gap: gopus celt/custom does not implement non-standard band layouts (see test doc); set GOPUS_CUSTOM_NONSTANDARD_STRICT=1 to enforce")
-			}
+			t.Logf("libopus custom reference (Fs=%d frame=%d): %d-byte packet, %d decoded samples (gopus declines: ErrNonStandard)",
+				tc.fs, tc.frameSize, len(results[i].packet), len(results[i].decoded))
 		})
 	}
 }
 
 // --- helpers ------------------------------------------------------------------
-
-func firstByteDivergence(a, b []byte) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	for i := 0; i < n; i++ {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	if len(a) != len(b) {
-		return n
-	}
-	return -1
-}
 
 func firstSampleDivergence(a, b []float32) int {
 	n := len(a)

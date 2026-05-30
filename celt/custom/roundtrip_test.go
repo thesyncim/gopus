@@ -3,6 +3,7 @@
 package custom_test
 
 import (
+	"errors"
 	"math"
 	"testing"
 
@@ -158,8 +159,9 @@ func TestRoundTripStandardAllFrameSizes(t *testing.T) {
 	}
 }
 
-// TestRoundTripNonStandardMono verifies self-consistent encode→decode for a
-// non-standard mode (16 kHz, 160 samples = 10ms).
+// TestRoundTripNonStandardMono verifies that a non-standard mode (16 kHz, 160
+// samples = 10ms) builds a valid CustomMode but declines encode/decode with
+// ErrNonStandard, rather than silently producing a non-conformant bitstream.
 func TestRoundTripNonStandardMono(t *testing.T) {
 	// 16 kHz, 160 samples = 10ms frame.
 	mode, err := custom.NewMode(16000, 160)
@@ -182,26 +184,11 @@ func TestRoundTripNonStandardMono(t *testing.T) {
 	}
 
 	pcm := generateSine(300, 16000, 160)
-	data, err := enc.EncodeFloat(pcm, 80)
-	if err != nil {
-		t.Fatalf("EncodeFloat: %v", err)
+	if _, err := enc.EncodeFloat(pcm, 80); !errors.Is(err, custom.ErrNonStandard) {
+		t.Fatalf("EncodeFloat: err = %v, want ErrNonStandard", err)
 	}
-	if len(data) == 0 {
-		t.Fatal("encoded data is empty")
-	}
-	t.Logf("16kHz/160 encoded %d samples → %d bytes", 160, len(data))
-
-	decoded, err := dec.DecodeFloat(data, 160)
-	if err != nil {
-		t.Fatalf("DecodeFloat: %v", err)
-	}
-	if len(decoded) != 160 {
-		t.Fatalf("decoded length %d, want 160", len(decoded))
-	}
-	// Non-standard modes: we only check that decode produces some output
-	// (roundtrip self-consistency), not the exact signal reconstruction.
-	if len(decoded) == 0 {
-		t.Error("decoded audio is empty")
+	if _, err := dec.DecodeFloat(make([]byte, 8), 160); !errors.Is(err, custom.ErrNonStandard) {
+		t.Fatalf("DecodeFloat: err = %v, want ErrNonStandard", err)
 	}
 }
 
@@ -231,18 +218,11 @@ func TestRoundTripNonStandard44100(t *testing.T) {
 	}
 
 	pcm := generateSine(440, 44100, 440)
-	data, err := enc.EncodeFloat(pcm, 100)
-	if err != nil {
-		t.Fatalf("EncodeFloat: %v", err)
+	if _, err := enc.EncodeFloat(pcm, 100); !errors.Is(err, custom.ErrNonStandard) {
+		t.Fatalf("EncodeFloat: err = %v, want ErrNonStandard", err)
 	}
-	t.Logf("44.1kHz/440 encoded → %d bytes", len(data))
-
-	decoded, err := dec.DecodeFloat(data, 440)
-	if err != nil {
-		t.Fatalf("DecodeFloat: %v", err)
-	}
-	if len(decoded) != 440 {
-		t.Fatalf("decoded length %d, want 440", len(decoded))
+	if _, err := dec.DecodeFloat(make([]byte, 8), 440); !errors.Is(err, custom.ErrNonStandard) {
+		t.Fatalf("DecodeFloat: err = %v, want ErrNonStandard", err)
 	}
 }
 

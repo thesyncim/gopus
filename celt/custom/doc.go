@@ -36,9 +36,14 @@
 //
 //   - Standard 48 kHz modes (120/240/480/960) are byte- and sample-exact against
 //     the libopus custom-modes encoder/decoder.
-//   - Non-standard rates/frame sizes are NOT yet libopus-correct: EncodeFloat /
-//     DecodeFloat fall back to the nearest standard 48 kHz frame size and resample,
-//     so the CustomMode band/preemph tables NewMode computes are not used by the
-//     CELT core. These modes are only self-consistent (gopus encode -> gopus
-//     decode); the oracle test records the first divergence from libopus.
+//   - Non-standard rates/frame sizes return ErrNonStandard from EncodeFloat /
+//     DecodeFloat. The gopus CELT core threads the 48 kHz frame-size grid through
+//     band-bin scaling (ScaledBandStart = eBand*frameSize/120), the mode config
+//     (GetModeConfig/ValidFrameSize accept only 120/240/480/960/1920), the
+//     overlap constant, and pre-emphasis, so it cannot reproduce a libopus
+//     --enable-custom-modes bitstream for arbitrary (Fs, frame_size). NewMode
+//     still computes the full mode tables (eBands, allocVectors, logN, window,
+//     preemph) for those rates, mirroring opus_custom_mode_create, so the native
+//     non-standard encode/decode path can be wired without re-deriving them. The
+//     oracle test pins the exact first divergence per non-standard mode.
 package custom

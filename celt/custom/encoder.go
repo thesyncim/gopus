@@ -111,11 +111,12 @@ func (ce *CustomEncoder) Channels() int { return ce.channels }
 // maxBytes controls the maximum packet size (CBR budget for standard modes).
 //
 // Standard modes (48 kHz, 120/240/480/960 samples) produce output byte-identical
-// to libopus. Non-standard modes use the same CELT encoder pipeline with the
-// equivalent standard frame size (derived from maxLM); the bitstream will decode
-// with this package's CustomDecoder (self-consistent) but will differ from a
-// libopus custom-modes build because the band layout and pre-emphasis depend on
-// the target sample rate.
+// to libopus. Non-standard modes return ErrNonStandard: the gopus CELT core is
+// keyed to the 48 kHz frame-size grid (band-bin scaling, overlap, MDCT length and
+// pre-emphasis), so it cannot yet reproduce a libopus --enable-custom-modes
+// bitstream for arbitrary (Fs, frame_size). NewMode still computes the full
+// mode tables for such rates so the remaining native-encode wiring can be added
+// without re-deriving them.
 //
 // Reference: libopus include/opus_custom.h opus_custom_encode_float().
 func (ce *CustomEncoder) EncodeFloat(pcm []float32, maxBytes int) ([]byte, error) {
@@ -130,24 +131,11 @@ func (ce *CustomEncoder) EncodeFloat(pcm []float32, maxBytes int) ([]byte, error
 	if maxBytes <= 0 {
 		return nil, ErrMaxBytes
 	}
+	if !ce.mode.isStandard {
+		return nil, ErrNonStandard
+	}
 	ce.enc.SetMaxPayloadBytes(maxBytes)
-	if ce.mode.isStandard {
-		return ce.enc.EncodeFrame(pcm, frameSize)
-	}
-	// Non-standard modes: map the frame to the nearest standard CELT frame size
-	// that shares the same maxLM (and thus the same short-block structure).
-	// The standard sizes indexed by maxLM are: 120 (LM=0), 240 (LM=1),
-	// 480 (LM=2), 960 (LM=3).
-	// This allows the existing 48 kHz encoder core to produce a self-consistent
-	// bitstream that our CustomDecoder can decode.
-	stdFrameSize := standardFrameForLM(ce.mode.MaxLM)
-	if len(pcm) != stdFrameSize*ce.channels {
-		// Resize if needed (the custom frame has the same LM but different
-		// total sample count due to different Fs).
-		resized := resizePCM(pcm, ce.channels, frameSize, stdFrameSize)
-		return ce.enc.EncodeFrame(resized, stdFrameSize)
-	}
-	return ce.enc.EncodeFrame(pcm, stdFrameSize)
+	return ce.enc.EncodeFrame(pcm, frameSize)
 }
 
 // Encode encodes frameSize samples per channel from pcm (int16, native-endian,
@@ -325,46 +313,3 @@ func (ce *CustomEncoder) FinalRange() uint32 {
 	return ce.enc.FinalRange()
 }
 
-// standardFrameForLM returns the standard 48 kHz frame size (in samples) for
-// the given maxLM value: LM=0→120, LM=1→240, LM=2→480, LM=3→960.
-func standardFrameForLM(maxLM int) int {
-	switch maxLM {
-	case 0:
-		return 120
-	case 1:
-		return 240
-	case 2:
-		return 480
-	case 3:
-		return 960
-	default:
-		return 960
-	}
-}
-
-// resizePCM resamples (via linear interpolation) pcm from srcFrames to dstFrames
-// per channel.  This is a placeholder that allows non-standard modes to produce
-// a valid bitstream without the full sample-rate conversion pipeline.
-// For production use at a non-standard sample rate, the caller should perform
-// proper sample-rate conversion before calling EncodeFloat.
-func resizePCM(pcm []float32, channels, srcFrames, dstFrames int) []float32 {
-	out := make([]float32, dstFrames*channels)
-	for ch := 0; ch < channels; ch++ {
-		for i := 0; i < dstFrames; i++ {
-			// Map output position to input position via linear interpolation.
-			pos := float64(i) * float64(srcFrames) / float64(dstFrames)
-			lo := int(pos)
-			hi := lo + 1
-			frac := float32(pos - float64(lo))
-			var loSample, hiSample float32
-			if lo < srcFrames {
-				loSample = pcm[lo*channels+ch]
-			}
-			if hi < srcFrames {
-				hiSample = pcm[hi*channels+ch]
-			}
-			out[i*channels+ch] = loSample*(1-frac) + hiSample*frac
-		}
-	}
-	return out
-}

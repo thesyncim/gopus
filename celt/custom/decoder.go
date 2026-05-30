@@ -76,10 +76,11 @@ func (cd *CustomDecoder) Channels() int { return cd.channels }
 //
 // Returns frameSize*channels float32 samples, interleaved for stereo.
 //
-// For non-standard modes, the packet was encoded using the equivalent standard
-// frame size (standardFrameForLM(mode.MaxLM)), so this decoder uses that standard
-// size internally and returns the decoded samples. The output length matches the
-// mode's FrameSize to maintain the API contract.
+// Standard modes (48 kHz, 120/240/480/960 samples) decode byte/sample-identical
+// to libopus. Non-standard modes return ErrNonStandard for the same reason as
+// CustomEncoder.EncodeFloat: the gopus CELT core is keyed to the 48 kHz
+// frame-size grid and cannot yet decode a libopus --enable-custom-modes packet
+// for arbitrary (Fs, frame_size).
 //
 // Reference: libopus include/opus_custom.h opus_custom_decode_float().
 func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, error) {
@@ -92,62 +93,10 @@ func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, err
 	if !cd.mode.isValidDecodeSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
-	if cd.mode.isStandard {
-		return cd.dec.DecodeFrame(data, frameSize)
+	if !cd.mode.isStandard {
+		return nil, ErrNonStandard
 	}
-	// Non-standard mode: the packet was produced with the standard frame size
-	// corresponding to maxLM. Decode using that size and resample back to
-	// the caller's requested frameSize.
-	stdFrameSize := standardFrameForLMDec(cd.mode.MaxLM)
-	decoded, err := cd.dec.DecodeFrame(data, stdFrameSize)
-	if err != nil {
-		return nil, err
-	}
-	// Resample to the requested frameSize if different.
-	if stdFrameSize == frameSize {
-		return decoded, nil
-	}
-	channels := cd.channels
-	return resizePCMDec(decoded, channels, stdFrameSize, frameSize), nil
-}
-
-// standardFrameForLMDec mirrors encoder.standardFrameForLM for the decode path.
-func standardFrameForLMDec(maxLM int) int {
-	switch maxLM {
-	case 0:
-		return 120
-	case 1:
-		return 240
-	case 2:
-		return 480
-	case 3:
-		return 960
-	default:
-		return 960
-	}
-}
-
-// resizePCMDec resamples pcm from srcFrames to dstFrames per channel using
-// linear interpolation. Mirrors the encoder-side resizePCM for the decode path.
-func resizePCMDec(pcm []float32, channels, srcFrames, dstFrames int) []float32 {
-	out := make([]float32, dstFrames*channels)
-	for ch := 0; ch < channels; ch++ {
-		for i := 0; i < dstFrames; i++ {
-			pos := float64(i) * float64(srcFrames) / float64(dstFrames)
-			lo := int(pos)
-			hi := lo + 1
-			frac := float32(pos - float64(lo))
-			var loSample, hiSample float32
-			if lo < srcFrames {
-				loSample = pcm[lo*channels+ch]
-			}
-			if hi < srcFrames {
-				hiSample = pcm[hi*channels+ch]
-			}
-			out[i*channels+ch] = loSample*(1-frac) + hiSample*frac
-		}
-	}
-	return out
+	return cd.dec.DecodeFrame(data, frameSize)
 }
 
 // Decode decodes a compressed frame and returns int16 PCM samples.
