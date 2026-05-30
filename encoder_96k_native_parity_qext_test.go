@@ -114,11 +114,11 @@ func refMainCELTPayload(t *testing.T, pkt []byte) (main, qext []byte) {
 // through band 15.
 //
 // Remaining native-96k encode divergences:
-//   - mono: the 6 kHz-tone band (15) unquantised bandLogE is a fraction of a dB
-//     off the reference (the comb prefilter feeds a slightly different filtered
-//     signal into the MDCT), which flips that band's dynalloc boost by one quantum
-//     so the main payload diverges at byte 14. This is the documented HD-scale
-//     comb_filter analysis residual; the quantised coarse energy still matches.
+//   - mono: byte-exact. The HD-scale comb prefilter (comb_filter_qext, x!=y)
+//     filters the even/odd phases with the input delay line (mem_buf) and the
+//     output buffer kept SEPARATE, so an already-written output sample is never
+//     read back as comb input. Aliasing input and output had perturbed band 15's
+//     unquantised bandLogE enough to flip its dynalloc boost by one quantum.
 //   - stereo: the band-data region is bit-exact through band 15; the main payload
 //     first diverges at byte 296 inside band 16's high-complexity stereo theta-RDO
 //     decision, a float-precision knife-edge consistent with the documented
@@ -181,6 +181,20 @@ func TestHD96kNativeEncodeMainPayloadParity(t *testing.T) {
 			firstQextDiff := firstByteDiff(gotQext, refQext)
 			if firstMainDiff >= 0 || firstQextDiff >= 0 {
 				anyDiverged = true
+			}
+			if ch == 1 {
+				// Mono is fully byte-exact (main + QEXT). Lock it in: any regression
+				// here is a real correctness failure, not a documented residual.
+				if firstMainDiff >= 0 {
+					dumpAround(t, "main", gotMain, refMain, firstMainDiff)
+					t.Fatalf("mono main payload regressed: diverges at byte %d (got len=%d ref len=%d)",
+						firstMainDiff, len(gotMain), len(refMain))
+				}
+				if firstQextDiff >= 0 {
+					dumpAround(t, "qext", gotQext, refQext, firstQextDiff)
+					t.Fatalf("mono qext payload regressed: diverges at byte %d (got len=%d ref len=%d)",
+						firstQextDiff, len(gotQext), len(refQext))
+				}
 			}
 			if firstMainDiff >= 0 {
 				t.Logf("ch=%d main payload diverges at byte %d (got len=%d ref len=%d) -- QEXT reservation / coarse-energy intra pending",
