@@ -7,12 +7,16 @@ package gopus
 // to 48 kHz internally and upsample the output back to 96 kHz.
 //
 // C ref: opus_decoder.c opus_decoder_init() ENABLE_QEXT gate (Fs != 96000).
-// The internal CELT layer in libopus runs a native 96 kHz mode when Fs=96000;
-// gopus's CELT pipeline is 48 kHz-only, so we apply a 2x linear-interpolation
-// upsample at the public API boundary instead.
+// The internal CELT layer in libopus runs a native 96 kHz mode when Fs=96000.
+// This path is the 2x linear-interpolation upsample wrapper over the 48 kHz
+// core. The native-mode decode scaffolding lives in
+// celt/decoder_hd96k_qext.go (HD96kSynthesizeMono, overlap=240, N=3840) and is
+// validated against the native 96 kHz QEXT decode oracle
+// (internal/libopustest/qext_decode96k_oracle.go). Routing Fs=96000 to the
+// native HD96k CELT decode driver is increment 2b.
 type decoderHD96kFields struct {
-	apiIs96kHz  bool
-	scratch96k  []float32 // 48 kHz scratch buffer for 96 kHz output path
+	apiIs96kHz bool
+	scratch96k []float32 // 48 kHz scratch buffer for 96 kHz output path
 }
 
 func (d *Decoder) is96kHz() bool { return d.apiIs96kHz }
