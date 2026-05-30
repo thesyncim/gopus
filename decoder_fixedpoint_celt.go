@@ -53,6 +53,42 @@ func (d *Decoder) celtDecodeFixedAPIRate(data []byte, apiFrameSize int, packetSt
 	return true, nil
 }
 
+// celtDecodeLostFixedAPIRate runs the integer FIXED_POINT celt_decode_lost for a
+// CELT-only packet-loss frame so the DecodeInt16 / DecodeInt24 wrappers can read
+// libopus-exact concealment output, matching opus_decode(NULL,...). apiFrameSize
+// is the per-channel output sample count of this concealed chunk (already clamped
+// to one 20 ms core block by the caller).
+//
+// The integer decoder's cross-frame state (decode_mem, energy histories,
+// post-filter, loss_duration) must have been advanced by the prior received CELT
+// frames -- exactly the same `celt_dec` libopus reuses across the loss. When the
+// integer decoder was never primed (no preceding integer CELT frame) it declines
+// so the caller falls back to the float conversion. It returns true when it
+// produced and stashed a concealed frame.
+func (d *Decoder) celtDecodeLostFixedAPIRate(apiFrameSize int) bool {
+	if !d.fixedPacketActive || d.fixedCELT == nil {
+		return false
+	}
+	// The integer celt_decode_lost concealment runs the synthesis and deemphasis
+	// at the 48 kHz core rate only; sub-48k output decimation is not reproduced
+	// on the loss path, so decline there and let the float conversion conceal.
+	if int(d.sampleRate) != 48000 {
+		return false
+	}
+	channels := int(d.channels)
+
+	// celt_decode_lost retains the band range (st->start / st->end) set by the
+	// last received frame, so it is left untouched here.
+	needed := apiFrameSize * channels
+
+	int16Out := d.fixedCELTScratch(needed)
+	d.fixedCELT.DecodeLost(apiFrameSize, int16Out)
+	res := d.fixedCELT.LastRes()
+
+	d.appendFixedOutput(int16Out[:needed], res[:needed])
+	return true
+}
+
 // prepareFixedHybrid arms the integer hybrid highband hook for the in-flight
 // frame and records the CELT end band and reset policy, mirroring the libopus
 // opus_decode_frame hybrid CELT path. It is called from the Hybrid dispatch
@@ -207,6 +243,32 @@ func (d *Decoder) finishInt24Output(pcm []int32, scratch []float32, n, channels 
 	}
 	float32ToInt24Slice(pcm, scratch, n, channels)
 	return false
+}
+
+// fixedInt16PLCOutput copies the integer FIXED_POINT concealment output (Res2Int16
+// of each opus_res sample) into pcm when the just-concealed PLC frame was produced
+// entirely by the integer CELT path. It returns false (leaving pcm untouched) when
+// the integer path did not handle the loss, so the caller applies its own float
+// fallback (float32ToInt16NoSoftClip, no soft clip on concealed audio).
+func (d *Decoder) fixedInt16PLCOutput(pcm []int16, n, channels int) bool {
+	needed := n * channels
+	if !d.fixedInt16Ready(needed) {
+		return false
+	}
+	copy(pcm[:needed], d.fixedInt16[:needed])
+	return true
+}
+
+// fixedInt24PLCOutput copies the integer FIXED_POINT concealment opus_res output
+// (RES2INT24(a)==a) into pcm when the PLC frame was produced entirely by the
+// integer CELT path; otherwise it returns false for the float fallback.
+func (d *Decoder) fixedInt24PLCOutput(pcm []int32, n, channels int) bool {
+	needed := n * channels
+	if !d.fixedInt16Ready(needed) || len(d.fixedRes) < needed {
+		return false
+	}
+	copy(pcm[:needed], d.fixedRes[:needed])
+	return true
 }
 
 // resetFixedCELT clears the integer CELT decoder cross-frame state on a CELT

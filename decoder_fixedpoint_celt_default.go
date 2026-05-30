@@ -12,6 +12,10 @@ func (d *Decoder) celtDecodeFixedAPIRate(_ []byte, _ int, _ bool, _ celt.CELTBan
 	return false, nil
 }
 
+// celtDecodeLostFixedAPIRate is a no-op in the default build: CELT packet loss
+// always uses the float concealment + conversion there.
+func (d *Decoder) celtDecodeLostFixedAPIRate(_ int) bool { return false }
+
 // resetFixedCELT is a no-op in the default build.
 func (d *Decoder) resetFixedCELT() {}
 
@@ -38,3 +42,8 @@ func (d *Decoder) finishInt24Output(pcm []int32, scratch []float32, n, channels 
 	float32ToInt24Slice(pcm, scratch, n, channels)
 	return false
 }
+
+// fixedInt16PLCOutput / fixedInt24PLCOutput never handle concealment in the
+// default build; the int16/int24 PLC wrappers always use the float fallback.
+func (d *Decoder) fixedInt16PLCOutput(_ []int16, _, _ int) bool { return false }
+func (d *Decoder) fixedInt24PLCOutput(_ []int32, _, _ int) bool { return false }

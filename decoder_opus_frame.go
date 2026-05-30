@@ -647,6 +647,15 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			if !handled {
 				d.markFixedUnhandled()
 			}
+		} else if data == nil && !extsupport.QEXT {
+			// CELT-only packet loss: run the integer FIXED_POINT celt_decode_lost
+			// so the int16/int24 PLC output is bit-exact with opus_decode(NULL).
+			// The integer decoder's cross-frame state was primed by the prior
+			// received CELT frames; if it was not (no integer CELT history yet)
+			// the helper declines and the float conversion is used.
+			if !d.celtDecodeLostFixedAPIRate(min(F20, frameSize)) {
+				d.markFixedUnhandled()
+			}
 		} else {
 			d.markFixedUnhandled()
 		}

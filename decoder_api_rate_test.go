@@ -412,6 +412,9 @@ func TestDecodeInt16CELTRequestedPLCDurationMatchesLibopus(t *testing.T) {
 			}
 			for _, requestedFrameSize := range []int{sampleRate / 25, sampleRate * 3 / 50} {
 				t.Run("ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate)+"_request_"+itoaSmall(requestedFrameSize), func(t *testing.T) {
+					if celtIntegerPLCActive && sampleRate == 48000 {
+						t.Skip("48k CELT PLC routes to the integer decoder under gopus_fixedpoint (vs float oracle); see TestDecoderFixedPointCELTPLCParity")
+					}
 					sequence := [][]byte{packet, nil}
 					want, err := decodeWithLibopusReferenceAPIRateInt16(sampleRate, channels, requestedFrameSize, sequence)
 					if err != nil {
@@ -997,6 +1000,9 @@ func TestDecodeInt16OverlongPLCRequestAPIRatePCMMatchesLibopus(t *testing.T) {
 		requestedFrameSize := overlongAPIRateRequestedFrameSize(sampleRate)
 
 		t.Run("ch_"+itoaSmall(channels), func(t *testing.T) {
+			if celtIntegerPLCActive {
+				t.Skip("48k CELT PLC routes to the integer decoder under gopus_fixedpoint (vs float oracle); see TestDecoderFixedPointCELTPLCParity")
+			}
 			sequence := [][]byte{packet, nil}
 			want, err := decodeWithLibopusReferenceAPIRateInt16(sampleRate, channels, requestedFrameSize, sequence)
 			if err != nil {
@@ -1236,6 +1242,9 @@ func TestDecodeInt16APIRatePCMMatchesLibopus(t *testing.T) {
 			packet := tc.packet(t, channels)
 			for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
 				t.Run(tc.name+"_ch_"+itoaSmall(channels)+"_fs_"+itoaSmall(sampleRate), func(t *testing.T) {
+					if celtIntegerPLCActive && tc.name == "celt" && sampleRate == 48000 {
+						t.Skip("48k CELT PLC (sequence ends in a lost frame) routes to the integer decoder under gopus_fixedpoint (vs float oracle); see TestDecoderFixedPointCELTPLCParity")
+					}
 					frameSize, err := packetSamplesAtRate(packet, sampleRate)
 					if err != nil {
 						t.Fatalf("packetSamplesAtRate: %v", err)
@@ -1270,6 +1279,9 @@ func TestDecodeInt16APIRatePCMMatchesLibopus(t *testing.T) {
 }
 
 func TestDecodeInt16PacketAfterShortPLCAPIRateMatchesLibopus(t *testing.T) {
+	if celtIntegerPLCActive {
+		t.Skip("CELT decode + PLC route to the integer FIXED_POINT decoder under gopus_fixedpoint, diverging from this float oracle; bit-exact CELT PLC is gated by TestDecoderFixedPointCELTPLCParity")
+	}
 	libopustest.RequireOracle(t)
 	for _, channels := range []int{1, 2} {
 		packet := encodeAPIRateCELTPacket(t, channels)

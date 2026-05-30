@@ -316,7 +316,14 @@ func TestDecodeInt24InvalidFrameSize(t *testing.T) {
 // TestDecodeInt24PLCMatchesLibopus verifies that Decoder.DecodeInt24 with
 // a nil packet (PLC) matches libopus opus_decode24(NULL, ...) within the
 // trusted near-exact bar.
+//
+// Under -tags gopus_fixedpoint the CELT loss is concealed by the integer
+// celt_decode_lost (different from the float concealment this float-oracle bar
+// expects); that path is gated bit-exact by TestDecoderFixedPointCELTPLCParity.
 func TestDecodeInt24PLCMatchesLibopus(t *testing.T) {
+	if celtIntegerPLCActive {
+		t.Skip("CELT PLC routes to the integer decoder under gopus_fixedpoint; see TestDecoderFixedPointCELTPLCParity")
+	}
 	libopustest.RequireOracle(t)
 	for _, channels := range []int{1, 2} {
 		packet := encodeAPIRateCELTPacket(t, channels)

@@ -161,6 +161,9 @@ func TestDecodeInt16PLCModeChannelLossMatrixMatchesLibopus(t *testing.T) {
 				name := mc.mode + "_ch" + itoaSmall(channels) + "_" + pat.name
 
 				t.Run(name, func(t *testing.T) {
+					if celtIntegerPLCActive && mc.mode == "celt" && pat.name != "leading" {
+						t.Skip("CELT PLC routes to the integer decoder under gopus_fixedpoint (vs float oracle); see TestDecoderFixedPointCELTPLCParity")
+					}
 					// Oracle: libopus int16.
 					libSteps := plcInt16DecodeSteps(steps)
 					want, err := decodeWithLibopusReferenceAPIRateInt16Steps(sampleRate, channels, frameSize, libSteps)
@@ -233,6 +236,9 @@ func TestDecodeInt16PLCEqualsFloat32PLCQuantized(t *testing.T) {
 				name := mc.mode + "_ch" + itoaSmall(channels) + "_" + pat.name
 
 				t.Run(name, func(t *testing.T) {
+					if celtIntegerPLCActive && mc.mode == "celt" {
+						t.Skip("CELT PLC routes to the integer decoder under gopus_fixedpoint, diverging from float; see TestDecoderFixedPointCELTPLCParity")
+					}
 					decF := mustNewTestDecoder(t, sampleRate, channels)
 					dec16 := mustNewTestDecoder(t, sampleRate, channels)
 
@@ -338,6 +344,9 @@ func TestDecodeInt16PLCBurstMatchesLibopus(t *testing.T) {
 			}
 
 			t.Run(mc.mode+"_ch"+itoaSmall(channels), func(t *testing.T) {
+				if celtIntegerPLCActive && mc.mode == "celt" {
+					t.Skip("CELT burst PLC routes to the integer decoder under gopus_fixedpoint (vs float oracle); the bit-exact strict gate is TestDecoderFixedPointCELTPLCParity")
+				}
 				// Warm up then 3-frame burst loss then recovery.
 				libSteps := []libopusAPIRateDecodeStep{
 					{packet: pkt},
@@ -453,6 +462,9 @@ func TestDecodeInt16PLCTrailingMatchesLibopus(t *testing.T) {
 			}
 
 			t.Run(mc.mode+"_ch"+itoaSmall(channels), func(t *testing.T) {
+				if celtIntegerPLCActive && mc.mode == "celt" {
+					t.Skip("CELT trailing PLC routes to the integer decoder under gopus_fixedpoint (vs float oracle); see TestDecoderFixedPointCELTPLCParity")
+				}
 				libSteps := []libopusAPIRateDecodeStep{
 					{packet: pkt},
 					{packet: nil},
@@ -585,6 +597,9 @@ func TestDecodeInt16PLCSelfConsistencyWarmupN(t *testing.T) {
 		for _, warmup := range []int{1, 3, 6} {
 			name := mc.mode + "_warmup" + itoaSmall(warmup)
 			t.Run(name, func(t *testing.T) {
+				if celtIntegerPLCActive && mc.mode == "celt" {
+					t.Skip("CELT PLC routes to the integer decoder under gopus_fixedpoint, diverging from float; see TestDecoderFixedPointCELTPLCParity")
+				}
 				decF := mustNewTestDecoder(t, sampleRate, channels)
 				dec16 := mustNewTestDecoder(t, sampleRate, channels)
 
