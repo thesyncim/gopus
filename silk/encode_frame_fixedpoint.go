@@ -168,6 +168,284 @@ type silkEncodeFrameFIXResult struct {
 	lastGainIndex int8
 }
 
+// sEncCtrlFIX is a flattened view of the silk_encoder_control_FIX fields that
+// silk_encode_frame_FIX's rate-control loop reads after the analysis chain. It
+// is the Go equivalent of the C sEncCtrl that survives between
+// silk_process_gains_FIX and the gain/Lambda iteration.
+type sEncCtrlFIX struct {
+	// Per-subframe coefficient/shaping parameters consumed by NSQ.
+	predCoefQ12      [2][]int16
+	ltpCoefQ14       []int16
+	arQ13            []int16
+	harmShapeGainQ14 []int32
+	tiltQ14          []int32
+	lfShpQ14         []int32
+	gainsQ16         []int32 // mutated by the rate-control loop
+	gainsUnqQ16      []int32
+	pitchL           []int32
+	lambdaQ10        int32
+	ltpScaleQ14      int32
+	ltpredCodGainQ7  int32
+
+	// Side-info indices produced by the analysis chain (the parts that do not
+	// change inside the rate loop; gains/Seed are updated per iteration).
+	signalType       int8
+	quantOffsetType  int8
+	nlsfInterpCoefQ2 int8
+	perIndex         int8
+	ltpScaleIndex    int8
+	lagIndex         int16
+	contourIndex     int8
+	nlsfIndices      []int8
+	ltpIndex         [maxNbSubfr]int8
+
+	// gainsIndices is the gain-index vector from process_gains (iteration 0
+	// of the rate loop uses these directly; later iterations re-quantize).
+	gainsIndices []int8
+
+	// lastGainIndexPrev is psShapeSt->LastGainIndex captured before the first
+	// gains_quant in process_gains, used to re-quantize each loop iteration.
+	lastGainIndexPrev int8
+
+	vadFlag int
+}
+
+// silkEncodeFrameFIXAnalyze runs the bit-exact analysis chain of
+// silk_encode_frame_FIX (VAD, pitch, noise-shape, pred-coefs, process-gains)
+// WITHOUT the NSQ pass or the rate-control loop. It mutates st in place
+// (frame counter, VAD/shape state, previous NLSFs, etc.) and returns the
+// encoder-control struct that the rate loop iterates over.
+func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtrlFIX {
+	var ctrl sEncCtrlFIX
+
+	// x_frame = x_buf + ltp_mem_length.
+	xFrame := st.ltpMemLength
+
+	/****************************/
+	/* Voice Activity Detection */
+	/****************************/
+	ctrl.vadFlag = e.silkEncodeDoVADFIX(st)
+
+	/*****************************************/
+	/* Find pitch lags, initial LPC analysis */
+	/*****************************************/
+	bufLen := st.laPitch + st.frameLength + st.ltpMemLength
+	pitch := &silkFindPitchLagsInput{
+		laPitch:                 st.laPitch,
+		frameLength:             st.frameLength,
+		ltpMemLength:            st.ltpMemLength,
+		pitchLPCWinLength:       st.pitchLPCWinLength,
+		pitchEstimationLPCOrder: st.pitchEstimationLPCOrder,
+		x:                       st.xBuf[xFrame-st.ltpMemLength : xFrame-st.ltpMemLength+bufLen],
+	}
+	pitchFE := silkFindPitchLagsFIXFrontEnd(pitch)
+	resPitch := pitchFE.res
+	resPitchFrame := st.ltpMemLength
+
+	var pitchL [maxNbSubfr]int
+	var lagIndex int16
+	var contourIndex int8
+
+	if st.indicesSignalType != int8(typeNoVoiceActivity) && !st.firstFrameAfterReset {
+		thrhldQ13 := int32(silkFixConst(0.6, 13))
+		thrhldQ13 = silkSMLABB(thrhldQ13, int32(silkFixConst(-0.004, 13)), int32(st.pitchEstimationLPCOrder))
+		thrhldQ13 = silkSMLAWB(thrhldQ13, int32(silkFixConst(-0.1, 21)), st.speechActivityQ8)
+		thrhldQ13 = silkSMLABB(thrhldQ13, int32(silkFixConst(-0.15, 13)), silkRSHIFT(st.prevSignalType, 1))
+		thrhldQ13 = silkSMLAWB(thrhldQ13, int32(silkFixConst(-0.1, 14)), st.inputTiltQ15)
+		thrhldQ13 = int32(silkSAT16(thrhldQ13))
+
+		var pitchOut [maxNbSubfr]int
+		ltpCorr := st.ltpCorrQ15
+		li, ci, voicing := silkPitchAnalysisCoreFixed(
+			resPitch,
+			pitchOut[:st.nbSubfr],
+			&ltpCorr,
+			int(st.prevLag),
+			st.pitchEstimationThresholdQ16,
+			int(thrhldQ13),
+			st.fsKHz,
+			st.complexity,
+			st.nbSubfr,
+		)
+		st.ltpCorrQ15 = ltpCorr
+		copy(pitchL[:st.nbSubfr], pitchOut[:st.nbSubfr])
+		lagIndex = li
+		contourIndex = ci
+		if voicing == 0 {
+			st.indicesSignalType = int8(typeVoiced)
+		} else {
+			st.indicesSignalType = int8(typeUnvoiced)
+		}
+	} else {
+		st.ltpCorrQ15 = 0
+	}
+	signalType := int32(st.indicesSignalType)
+
+	/************************/
+	/* Noise shape analysis */
+	/************************/
+	nsaIn := &silkNoiseShapeAnalysisInput{
+		laShape:              st.laShape,
+		snrDBQ7:              st.snrDBQ7,
+		inputQualityBandsQ15: [2]int32{st.inputQualityBandsQ15[0], st.inputQualityBandsQ15[1]},
+		useCBR:               st.useCBR,
+		speechActivityQ8:     st.speechActivityQ8,
+		signalType:           int(signalType),
+		fsKHz:                st.fsKHz,
+		nbSubfr:              st.nbSubfr,
+		subfrLength:          st.subfrLength,
+		warpingQ16:           st.warpingQ16,
+		shapeWinLength:       st.shapeWinLength,
+		shapingLPCOrder:      st.shapingLPCOrder,
+		ltpCorrQ15:           st.ltpCorrQ15,
+		predGainQ16:          pitchFE.predGainQ16,
+		harmShapeGainSmthQ16: st.harmShapeGainSmthQ16,
+		tiltSmthQ16:          st.tiltSmthQ16,
+		pitchRes:             resPitch[resPitchFrame : resPitchFrame+st.frameLength],
+		x:                    st.xBuf[xFrame-st.laShape:],
+	}
+	for k := 0; k < st.nbSubfr; k++ {
+		nsaIn.pitchL[k] = pitchL[k]
+	}
+	nsa := silkNoiseShapeAnalysisFIX(nsaIn)
+	st.harmShapeGainSmthQ16 = nsaIn.harmShapeGainSmthQ16
+	st.tiltSmthQ16 = nsaIn.tiltSmthQ16
+
+	/***************************************************/
+	/* Find linear prediction coefficients (LPC + LTP) */
+	/***************************************************/
+	fpIn := &silkFindPredCoefsInput{
+		predictLPCOrder:      st.predictLPCOrder,
+		subfrLength:          st.subfrLength,
+		nbSubfr:              st.nbSubfr,
+		frameLength:          st.frameLength,
+		signalType:           signalType,
+		useInterpolatedNLSFs: 0,
+		firstFrameAfterReset: st.firstFrameAfterReset,
+		speechActivityQ8:     st.speechActivityQ8,
+		nlsfMSVQSurvivors:    st.nlsfMSVQSurvivors,
+		packetLossPerc:       st.packetLossPerc,
+		nFramesPerPacket:     st.nFramesPerPacket,
+		lbrrFlag:             st.lbrrFlag,
+		snrDBQ7:              st.snrDBQ7,
+		condCoding:           st.condCoding,
+		codingQualityQ14:     nsa.codingQualityQ14,
+		sumLogGainQ7:         st.sumLogGainQ7,
+		prevNLSFqQ15:         st.prevNLSFqQ15,
+		cb:                   nlsfCBForPredOrder(st.predictLPCOrder),
+		resPitch:             resPitch,
+		resPitchStart:        resPitchFrame,
+		x:                    st.xBuf,
+		xStart:               xFrame,
+	}
+	for k := 0; k < st.nbSubfr; k++ {
+		fpIn.gainsQ16[k] = nsa.gainsQ16[k]
+		fpIn.pitchL[k] = pitchL[k]
+	}
+	fp := e.silkFindPredCoefsFIX(fpIn)
+	st.sumLogGainQ7 = fp.sumLogGainQ7
+	st.prevNLSFqQ15 = fp.prevNLSFqQ15
+
+	/****************************************/
+	/* Process gains                        */
+	/****************************************/
+	resNrgQ := make([]int32, st.nbSubfr)
+	for k := 0; k < st.nbSubfr; k++ {
+		resNrgQ[k] = int32(fp.resNrgQ[k])
+	}
+	gainsQ16 := make([]int32, st.nbSubfr)
+	copy(gainsQ16, nsa.gainsQ16[:st.nbSubfr])
+	pgParams := &silkProcessGainsParams{
+		signalType:             signalType,
+		nbSubfr:                st.nbSubfr,
+		subfrLength:            int32(st.subfrLength),
+		snrDBQ7:                st.snrDBQ7,
+		inputTiltQ15:           st.inputTiltQ15,
+		nStatesDelayedDecision: int32(st.nStatesDelayedDecision),
+		speechActivityQ8:       st.speechActivityQ8,
+		quantOffsetType:        int32(nsa.quantOffsetType),
+		ltpredCodGainQ7:        fp.ltpredCodGainQ7,
+		inputQualityQ14:        nsa.inputQualityQ14,
+		codingQualityQ14:       nsa.codingQualityQ14,
+		gainsQ16:               gainsQ16,
+		resNrg:                 fp.resNrg,
+		resNrgQ:                resNrgQ,
+		lastGainIndex:          st.lastGainIndex,
+		condCoding:             st.condCoding,
+	}
+	pg := silkProcessGainsFixed(pgParams)
+	st.lastGainIndex = pg.lastGainIndex
+	st.indicesQuantOffset = int8(pg.quantOffsetType)
+
+	// Build the per-subframe NSQ coefficient inputs.
+	predCoefFlat := make([]int16, 2*maxLPCOrder)
+	for i := 0; i < st.predictLPCOrder && i < len(fp.predCoefQ12[0]); i++ {
+		predCoefFlat[i] = fp.predCoefQ12[0][i]
+	}
+	for i := 0; i < st.predictLPCOrder && i < len(fp.predCoefQ12[1]); i++ {
+		predCoefFlat[maxLPCOrder+i] = fp.predCoefQ12[1][i]
+	}
+
+	arQ13 := make([]int16, st.nbSubfr*maxShapeLpcOrder)
+	copy(arQ13, nsa.arQ13[:st.nbSubfr*maxShapeLpcOrder])
+
+	ltpCoefQ14 := make([]int16, st.nbSubfr*ltpOrderConst)
+	copy(ltpCoefQ14, fp.ltpCoefQ14)
+
+	harmShapeGainQ14 := make([]int32, st.nbSubfr)
+	tiltQ14 := make([]int32, st.nbSubfr)
+	lfShpQ14 := make([]int32, st.nbSubfr)
+	pitchLQ := make([]int32, st.nbSubfr)
+	for k := 0; k < st.nbSubfr; k++ {
+		harmShapeGainQ14[k] = nsa.harmShapeGainQ14[k]
+		tiltQ14[k] = nsa.tiltQ14[k]
+		lfShpQ14[k] = nsa.lfShpQ14[k]
+		pitchLQ[k] = int32(pitchL[k])
+	}
+
+	ltpScaleQ14 := int32(0)
+	if signalType == typeVoiced {
+		ltpScaleQ14 = fp.ltpScaleQ14
+	}
+
+	ctrl.predCoefQ12 = fp.predCoefQ12
+	ctrl.predCoefQ12[0] = predCoefFlat[:st.predictLPCOrder]
+	ctrl.predCoefQ12[1] = predCoefFlat[maxLPCOrder : maxLPCOrder+st.predictLPCOrder]
+	ctrl.ltpCoefQ14 = ltpCoefQ14
+	ctrl.arQ13 = arQ13
+	ctrl.harmShapeGainQ14 = harmShapeGainQ14
+	ctrl.tiltQ14 = tiltQ14
+	ctrl.lfShpQ14 = lfShpQ14
+	ctrl.gainsQ16 = gainsQ16
+	ctrl.gainsUnqQ16 = pg.gainsUnqQ16
+	ctrl.pitchL = pitchLQ
+	ctrl.lambdaQ10 = pg.lambdaQ10
+	ctrl.ltpScaleQ14 = ltpScaleQ14
+	ctrl.ltpredCodGainQ7 = fp.ltpredCodGainQ7
+
+	ctrl.signalType = int8(signalType)
+	ctrl.quantOffsetType = st.indicesQuantOffset
+	ctrl.nlsfInterpCoefQ2 = fp.nlsfInterpCoefQ2
+	ctrl.perIndex = fp.perIndex
+	if signalType == typeVoiced {
+		ltpScaleIdx, _ := silkLTPScaleCtrlFixed(fp.ltpredCodGainQ7, st.packetLossPerc,
+			st.nFramesPerPacket, st.lbrrFlag, st.snrDBQ7, st.condCoding)
+		ctrl.ltpScaleIndex = int8(ltpScaleIdx)
+	}
+	ctrl.lagIndex = lagIndex
+	ctrl.contourIndex = contourIndex
+	ctrl.nlsfIndices = fp.nlsfIndices
+	ctrl.ltpIndex = fp.ltpIndex
+	ctrl.gainsIndices = pg.gainsIndices
+	ctrl.lastGainIndexPrev = pg.lastGainIndexPrev
+
+	// Parameters needed for next frame.
+	st.prevLag = pitchLQ[st.nbSubfr-1]
+	st.prevSignalType = signalType
+
+	return ctrl
+}
+
 // silkEncodeFrameFIX is the bit-exact Go port of the analysis chain of
 // silk_encode_frame_FIX. It runs the VAD, pitch analysis, noise-shape analysis,
 // prediction-coefficient search, gain processing and NSQ in the exact libopus
