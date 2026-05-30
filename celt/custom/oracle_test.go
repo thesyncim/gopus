@@ -25,6 +25,7 @@ import (
 	"math"
 	"testing"
 
+	"github.com/thesyncim/gopus/celt"
 	"github.com/thesyncim/gopus/celt/custom"
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
@@ -57,6 +58,17 @@ type oracleResult struct {
 	decRange uint32
 	packet   []byte
 	decoded  []float32
+
+	// Mode geometry from opus_custom_mode_create (see oracle protocol).
+	overlap       int32
+	nbEBands      int32
+	effEBands     int32
+	maxLM         int32
+	nbShortMdcts  int32
+	shortMdctSize int32
+	preemph       [4]float32
+	eBands        []int32
+	logN          []int32
 }
 
 // runCustomOracle drives the libopus custom-modes oracle. Protocol matches
@@ -132,7 +144,39 @@ func runCustomOracle(t *testing.T, cases []oracleCase) []oracleResult {
 			}
 			dec[j] = math.Float32frombits(bits)
 		}
-		results[i] = oracleResult{status: status, encRange: encRange, decRange: decRange, packet: pkt, decoded: dec}
+
+		res := oracleResult{status: status, encRange: encRange, decRange: decRange, packet: pkt, decoded: dec}
+		readI32 := func(field string) int32 {
+			var v int32
+			if err := binary.Read(r, binary.LittleEndian, &v); err != nil {
+				t.Fatalf("oracle result[%d] %s: %v", i, field, err)
+			}
+			return v
+		}
+		res.overlap = readI32("overlap")
+		res.nbEBands = readI32("nbEBands")
+		res.effEBands = readI32("effEBands")
+		res.maxLM = readI32("maxLM")
+		res.nbShortMdcts = readI32("nbShortMdcts")
+		res.shortMdctSize = readI32("shortMdctSize")
+		for j := range res.preemph {
+			var bits uint32
+			if err := binary.Read(r, binary.LittleEndian, &bits); err != nil {
+				t.Fatalf("oracle result[%d] preemph[%d]: %v", i, j, err)
+			}
+			res.preemph[j] = math.Float32frombits(bits)
+		}
+		nEdges := readI32("nEBandEdges")
+		res.eBands = make([]int32, nEdges)
+		for j := range res.eBands {
+			res.eBands[j] = readI32("eBands")
+		}
+		nLogN := readI32("nLogN")
+		res.logN = make([]int32, nLogN)
+		for j := range res.logN {
+			res.logN[j] = readI32("logN")
+		}
+		results[i] = res
 	}
 	return results
 }
@@ -285,6 +329,108 @@ func TestOracleParityNonStandardModes(t *testing.T) {
 
 			t.Logf("libopus custom reference (Fs=%d frame=%d): %d-byte packet, %d decoded samples (gopus declines: ErrNonStandard)",
 				tc.fs, tc.frameSize, len(results[i].packet), len(results[i].decoded))
+		})
+	}
+}
+
+// TestOracleControlPlaneScaledBandFamily verifies that, for the
+// Fs==400*shortMdctSize family, the gopus celt/custom control plane reproduces
+// the libopus opus_custom_mode_create geometry exactly: the same short-MDCT
+// decomposition (maxLM, nbShortMdcts, shortMdctSize), overlap, band edges
+// (eBands), effEBands, logN and per-rate pre-emphasis. It also checks the new
+// celt.ScaledBandStartBase / ScaledBandEndBase band-bin scaling against the
+// libopus invariant eBands[i] << LM for the full (long-block) frame.
+//
+// This is the control-plane slice of the native Opus Custom path: the
+// data-plane (overlap-add MDCT analysis/synthesis, windowing) is not yet wired,
+// so EncodeFloat/DecodeFloat still decline these modes with ErrNonStandard.
+func TestOracleControlPlaneScaledBandFamily(t *testing.T) {
+	const maxBytes = 200
+	// Family members: Fs == 400*shortMdctSize, all non-standard.
+	specs := []struct{ fs, frameSize int }{
+		{32000, 640},
+		{24000, 480},
+		{16000, 320},
+		{12000, 240},
+		{8000, 160},
+	}
+	var cases []oracleCase
+	for _, s := range specs {
+		cases = append(cases, oracleCase{s.fs, s.frameSize, 1, maxBytes, generateSine(440.0, float64(s.fs), s.frameSize)})
+	}
+
+	results := runCustomOracle(t, cases)
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("Fs%d_frame%d", tc.fs, tc.frameSize), func(t *testing.T) {
+			if results[i].status < 0 {
+				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
+			}
+			mode, err := custom.NewMode(tc.fs, tc.frameSize)
+			if err != nil {
+				t.Fatalf("NewMode(%d,%d): %v", tc.fs, tc.frameSize, err)
+			}
+			if !mode.InScaledBandFamily() {
+				t.Fatalf("mode Fs=%d frame=%d not flagged in scaled-band family", tc.fs, tc.frameSize)
+			}
+
+			r := results[i]
+			if int32(mode.ShortMdctSize) != r.shortMdctSize {
+				t.Errorf("shortMdctSize: gopus=%d libopus=%d", mode.ShortMdctSize, r.shortMdctSize)
+			}
+			if int32(mode.NbShortMdcts) != r.nbShortMdcts {
+				t.Errorf("nbShortMdcts: gopus=%d libopus=%d", mode.NbShortMdcts, r.nbShortMdcts)
+			}
+			if int32(mode.MaxLM) != r.maxLM {
+				t.Errorf("maxLM: gopus=%d libopus=%d", mode.MaxLM, r.maxLM)
+			}
+			if int32(mode.Overlap) != r.overlap {
+				t.Errorf("overlap: gopus=%d libopus=%d", mode.Overlap, r.overlap)
+			}
+			if int32(mode.NbEBands) != r.nbEBands {
+				t.Errorf("nbEBands: gopus=%d libopus=%d", mode.NbEBands, r.nbEBands)
+			}
+			if int32(mode.EffEBands) != r.effEBands {
+				t.Errorf("effEBands: gopus=%d libopus=%d", mode.EffEBands, r.effEBands)
+			}
+			for j := range mode.Preemph {
+				if mode.Preemph[j] != r.preemph[j] {
+					t.Errorf("preemph[%d]: gopus=%v libopus=%v", j, mode.Preemph[j], r.preemph[j])
+				}
+			}
+			if len(mode.EBands) != len(r.eBands) {
+				t.Fatalf("eBands length: gopus=%d libopus=%d", len(mode.EBands), len(r.eBands))
+			}
+			for j := range mode.EBands {
+				if int32(mode.EBands[j]) != r.eBands[j] {
+					t.Errorf("eBands[%d]: gopus=%d libopus=%d", j, mode.EBands[j], r.eBands[j])
+				}
+			}
+			if len(mode.LogN) != len(r.logN) {
+				t.Fatalf("logN length: gopus=%d libopus=%d", len(mode.LogN), len(r.logN))
+			}
+			for j := range mode.LogN {
+				if int32(mode.LogN[j]) != r.logN[j] {
+					t.Errorf("logN[%d]: gopus=%d libopus=%d", j, mode.LogN[j], r.logN[j])
+				}
+			}
+
+			// Band-bin scaling: the long-block coefficient index for band edge j
+			// must equal eBands[j] << LM (== eBands[j] * nbShortMdcts), matching
+			// libopus celt/bands.c. ScaledBandStartBase reproduces this when fed
+			// the family's base short-MDCT size.
+			lm := mode.MaxLM
+			for band := 0; band < mode.NbEBands; band++ {
+				wantStart := int(r.eBands[band]) << lm
+				wantEnd := int(r.eBands[band+1]) << lm
+				gotStart := celt.ScaledBandStartBase(band, mode.FrameSize, mode.ShortMdctSize)
+				gotEnd := celt.ScaledBandEndBase(band, mode.FrameSize, mode.ShortMdctSize)
+				if gotStart != wantStart {
+					t.Errorf("ScaledBandStartBase(band=%d): got %d want %d", band, gotStart, wantStart)
+				}
+				if gotEnd != wantEnd {
+					t.Errorf("ScaledBandEndBase(band=%d): got %d want %d", band, gotEnd, wantEnd)
+				}
+			}
 		})
 	}
 }

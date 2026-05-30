@@ -78,6 +78,60 @@ func ValidFrameSize(frameSize int) bool {
 	}
 }
 
+// CustomModeConfig parameterizes the CELT control plane for a non-standard
+// Opus Custom mode in the Fs==400*shortMdctSize family. These modes share the
+// 48 kHz eBands/logN/allocVectors tables, so only the base short-MDCT size
+// (which sets band-bin scaling and overlap) and the per-rate pre-emphasis
+// differ from the four static 48 kHz modes.
+//
+// The base short-MDCT size replaces the hardwired 48 kHz value (120) so that
+// band-edge bins scale as eBands[i] * (frameSize / ShortMdctSize) == eBands[i]
+// << LM, matching libopus celt/bands.c, rather than the static eBands[i] *
+// (frameSize/120). For standard 48 kHz modes ShortMdctSize == 120 and the two
+// expressions coincide, so the static path is byte-unchanged.
+//
+// Reference: libopus celt/modes.c opus_custom_mode_create() (CUSTOM_MODES).
+type CustomModeConfig struct {
+	Fs            int
+	FrameSize     int
+	ShortMdctSize int
+	NbShortMdcts  int
+	LM            int
+	Overlap       int
+	EffBands      int
+	Preemph       [4]float32
+}
+
+// ModeConfig derives the frame-size-dependent ModeConfig for this custom mode.
+func (c CustomModeConfig) ModeConfig() ModeConfig {
+	return ModeConfig{
+		FrameSize:   c.FrameSize,
+		ShortBlocks: c.NbShortMdcts,
+		LM:          c.LM,
+		EffBands:    c.EffBands,
+		MDCTSize:    c.FrameSize,
+	}
+}
+
+// ScaledBandStartBase returns the MDCT bin index for the start of a band given
+// an explicit base short-MDCT size. With base == 120 this matches
+// ScaledBandStart for the static 48 kHz modes.
+func ScaledBandStartBase(band, frameSize, base int) int {
+	if band < 0 || band > MaxBands || base <= 0 {
+		return 0
+	}
+	return EBands[band] * (frameSize / base)
+}
+
+// ScaledBandEndBase returns the MDCT bin index for the end of a band given an
+// explicit base short-MDCT size.
+func ScaledBandEndBase(band, frameSize, base int) int {
+	if band < 0 || band >= MaxBands || base <= 0 {
+		return 0
+	}
+	return EBands[band+1] * (frameSize / base)
+}
+
 // FrameSizeFromDuration returns the frame size in samples for a given duration
 // in milliseconds. Valid durations: 2.5, 5, 10, 20ms.
 func FrameSizeFromDuration(durationMs float32) (int, error) {

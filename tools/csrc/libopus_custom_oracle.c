@@ -36,6 +36,18 @@
  *       packetLen bytes
  *       uint32 nDecoded  (= frame_size * channels, 0 on failure)
  *       nDecoded * float32  decoded PCM
+ *       --- mode geometry (opus_custom_mode_create result) ---
+ *       int32  overlap
+ *       int32  nbEBands
+ *       int32  effEBands
+ *       int32  maxLM
+ *       int32  nbShortMdcts
+ *       int32  shortMdctSize
+ *       4 * float32  preemph[0..3]
+ *       int32  nEBandEdges (= nbEBands+1)
+ *       nEBandEdges * int32  eBands[]
+ *       int32  nLogN (= nbEBands)
+ *       nLogN * int32  logN[]
  *
  * Reference: libopus include/opus_custom.h, celt/celt_encoder.c, celt/celt_decoder.c.
  */
@@ -53,8 +65,11 @@
 #include "opus_custom.h"
 #include "opus_defines.h"
 /* celt.h provides CELT_SET_SIGNALLING, which is an internal (non-public) CTL.
+ * modes.h provides the full OpusCustomMode (CELTMode) struct so the oracle can
+ * report the mode geometry opus_custom_mode_create() derives.
  * The helper build adds -I <ref>/celt via CHelperConfig.RefIncludes. */
 #include "celt.h"
+#include "modes.h"
 
 #define INPUT_MAGIC  "GCCO"
 #define OUTPUT_MAGIC "GCCO"
@@ -94,13 +109,20 @@ static int write_f32(float v) {
     return write_u32(bits);
 }
 
-/* Emit a failure result: negative status, empty packet, no decoded PCM. */
+/* Emit a failure result: negative status, empty packet, no decoded PCM,
+ * and zeroed mode geometry (so the per-result frame stays fixed-shape). */
 static void emit_failure(int32_t status) {
     write_i32(status);
     write_u32(0); /* encRange */
     write_u32(0); /* decRange */
     write_u32(0); /* packetLen */
     write_u32(0); /* nDecoded */
+    /* mode geometry: overlap, nbEBands, effEBands, maxLM, nbShortMdcts,
+     * shortMdctSize, preemph[4], nEBandEdges, nLogN — all zero. */
+    for (int i = 0; i < 6; i++) write_i32(0);
+    for (int i = 0; i < 4; i++) write_f32(0.0f);
+    write_i32(0); /* nEBandEdges */
+    write_i32(0); /* nLogN */
 }
 
 int main(void) {
@@ -193,6 +215,25 @@ int main(void) {
                 nDecoded = (uint32_t)dn * channels;
             }
         }
+        /* Snapshot the mode geometry before destroying the mode. These are the
+         * tables opus_custom_mode_create() derives for this (Fs, frame_size),
+         * which the gopus celt/custom control plane must reproduce. */
+        int g_overlap       = mode->overlap;
+        int g_nbEBands      = mode->nbEBands;
+        int g_effEBands     = mode->effEBands;
+        int g_maxLM         = mode->maxLM;
+        int g_nbShortMdcts  = mode->nbShortMdcts;
+        int g_shortMdctSize = mode->shortMdctSize;
+        float g_preemph[4];
+        for (int i = 0; i < 4; i++) g_preemph[i] = (float)mode->preemph[i];
+        int g_nEdges = g_nbEBands + 1;
+        opus_int16 g_eBands[64];
+        opus_int16 g_logN[64];
+        if (g_nEdges > 64) g_nEdges = 64;
+        for (int i = 0; i < g_nEdges; i++) g_eBands[i] = mode->eBands[i];
+        int g_nLogN = g_nbEBands < 64 ? g_nbEBands : 64;
+        for (int i = 0; i < g_nLogN; i++) g_logN[i] = mode->logN[i];
+
         opus_custom_mode_destroy(mode);
 
         write_i32(sz);
@@ -207,6 +248,18 @@ int main(void) {
                 fprintf(stderr, "case %u: write decoded[%u]\n", c, i); return 1;
             }
         }
+
+        write_i32(g_overlap);
+        write_i32(g_nbEBands);
+        write_i32(g_effEBands);
+        write_i32(g_maxLM);
+        write_i32(g_nbShortMdcts);
+        write_i32(g_shortMdctSize);
+        for (int i = 0; i < 4; i++) write_f32(g_preemph[i]);
+        write_i32(g_nEdges);
+        for (int i = 0; i < g_nEdges; i++) write_i32((int32_t)g_eBands[i]);
+        write_i32(g_nLogN);
+        for (int i = 0; i < g_nLogN; i++) write_i32((int32_t)g_logN[i]);
     }
 
     fflush(stdout);

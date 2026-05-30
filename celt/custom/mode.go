@@ -5,6 +5,8 @@ package custom
 import (
 	"errors"
 	"math"
+
+	"github.com/thesyncim/gopus/celt"
 )
 
 // Error values returned by the Custom API.
@@ -99,22 +101,22 @@ const maxBands5ms = 21
 //
 // Reference: libopus celt/modes.h CELTMode, celt/modes.c opus_custom_mode_create().
 type CustomMode struct {
-	Fs           int     // Sample rate in Hz (8000–96000)
-	FrameSize    int     // Samples per frame per channel
-	ShortMdctSize int    // frameSize / nbShortMdcts (= frameSize >> maxLM)
-	NbShortMdcts int     // 1 << maxLM
-	MaxLM        int     // log2(nbShortMdcts)
-	Overlap      int     // MDCT overlap window size = (shortMdctSize >> 2) << 2
-	NbEBands     int     // Number of frequency bands
-	EffEBands    int     // Effective band count (bands within shortMdctSize)
-	EBands       []int16 // Band edge positions (NbEBands+1 values)
-	AllocVectors []uint8 // 11 × NbEBands allocation table
-	Window       []float32 // Overlap window values (length = Overlap)
-	LogN         []int16 // log2(band_width) in Q3 per band (NbEBands values)
+	Fs            int       // Sample rate in Hz (8000–96000)
+	FrameSize     int       // Samples per frame per channel
+	ShortMdctSize int       // frameSize / nbShortMdcts (= frameSize >> maxLM)
+	NbShortMdcts  int       // 1 << maxLM
+	MaxLM         int       // log2(nbShortMdcts)
+	Overlap       int       // MDCT overlap window size = (shortMdctSize >> 2) << 2
+	NbEBands      int       // Number of frequency bands
+	EffEBands     int       // Effective band count (bands within shortMdctSize)
+	EBands        []int16   // Band edge positions (NbEBands+1 values)
+	AllocVectors  []uint8   // 11 × NbEBands allocation table
+	Window        []float32 // Overlap window values (length = Overlap)
+	LogN          []int16   // log2(band_width) in Q3 per band (NbEBands values)
 	// Preemphasis / de-emphasis coefficients, matching libopus mode->preemph[0..3].
 	// [0] = coef_a (pre-emphasis), [1] = coef_b, [2] = scale (1/preemph[3]),
 	// [3] = inverse scale.
-	Preemph      [4]float32
+	Preemph [4]float32
 	// isStandard is true when this mode maps to one of the four libopus static
 	// modes (48 kHz, 120/240/480/960 samples). Standard modes can be encoded
 	// and decoded with byte-exact libopus parity using the existing celt package.
@@ -380,26 +382,53 @@ func computeAllocVectors(m *CustomMode) []uint8 {
 	return alloc
 }
 
-// log2Frac computes floor(log2(x) * (1 << fracBits) + 0.5) matching libopus
-// log2_frac() used in mode->logN computation.
-// Reference: libopus celt/mathops.h log2_frac().
-func log2Frac(x, fracBits int) int {
-	if x <= 0 {
+// log2Frac is a bit-exact port of libopus log2_frac(): an integer fixed-point
+// base-2 logarithm in Q(frac), used for mode->logN.
+// Reference: libopus celt/cwrs.c log2_frac().
+func log2Frac(val, frac int) int {
+	if val <= 0 {
 		return 0
 	}
-	// Integer part: position of highest set bit.
-	intPart := 0
-	tmp := x
-	for tmp > 1 {
-		tmp >>= 1
-		intPart++
+	v := uint32(val)
+	l := ecILOG(v)
+	if v&(v-1) != 0 {
+		// Round up before the shift; guaranteed to round up.
+		if l > 16 {
+			v = ((v - 1) >> (l - 16)) + 1
+		} else {
+			v <<= 16 - l
+		}
+		l = (l - 1) << frac
+		// At least one iteration always runs (frac-- post-decrement).
+		for {
+			b := int(v >> 16)
+			l += b << frac
+			v = (v + uint32(b)) >> uint(b)
+			v = (v*v + 0x7FFF) >> 15
+			if frac <= 0 {
+				break
+			}
+			frac--
+		}
+		if v > 0x8000 {
+			l++
+		}
+		return l
 	}
-	result := intPart << fracBits
-	// Fractional part via Newton-Raphson-like refinement (libopus uses a lookup
-	// table; we replicate the approximation in double precision for correctness).
-	frac := math.Log2(float64(x)) - float64(intPart)
-	result += int(math.Round(frac * float64(int(1)<<fracBits)))
-	return result
+	// Exact power of two: no rounding.
+	return (l - 1) << frac
+}
+
+// ecILOG returns the number of bits needed to represent v (EC_ILOG): the
+// position of the most-significant set bit plus one, or 0 for v == 0.
+// Reference: libopus celt/ecintrin.h EC_ILOG.
+func ecILOG(v uint32) int {
+	l := 0
+	for v != 0 {
+		v >>= 1
+		l++
+	}
+	return l
 }
 
 // IsStandard reports whether the mode corresponds to a standard Opus 48 kHz
@@ -435,4 +464,35 @@ func (m *CustomMode) PreemphCoef() float32 {
 		return 0
 	}
 	return m.Preemph[0]
+}
+
+// InScaledBandFamily reports whether this mode belongs to the
+// Fs==400*shortMdctSize family. Members of this family share the 48 kHz
+// eBands/logN/allocVectors tables (computeEBands returns the 5 ms table for
+// them), so the CELT control plane can be parameterized purely by the base
+// short-MDCT size, overlap and per-rate pre-emphasis without re-deriving the
+// allocation/cache tables.
+//
+// The four standard 48 kHz modes also satisfy Fs==400*shortMdctSize; they are
+// excluded here because they already take the static-mode path.
+func (m *CustomMode) InScaledBandFamily() bool {
+	if m == nil {
+		return false
+	}
+	return !m.isStandard && m.Fs == 400*m.ShortMdctSize
+}
+
+// celtConfig derives the celt.CustomModeConfig that parameterizes the CELT
+// control plane for this family member.
+func (m *CustomMode) celtConfig() celt.CustomModeConfig {
+	return celt.CustomModeConfig{
+		Fs:            m.Fs,
+		FrameSize:     m.FrameSize,
+		ShortMdctSize: m.ShortMdctSize,
+		NbShortMdcts:  m.NbShortMdcts,
+		LM:            m.MaxLM,
+		Overlap:       m.Overlap,
+		EffBands:      m.EffEBands,
+		Preemph:       m.Preemph,
+	}
 }

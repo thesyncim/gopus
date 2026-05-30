@@ -36,14 +36,18 @@
 //
 //   - Standard 48 kHz modes (120/240/480/960) are byte- and sample-exact against
 //     the libopus custom-modes encoder/decoder.
-//   - Non-standard rates/frame sizes return ErrNonStandard from EncodeFloat /
-//     DecodeFloat. The gopus CELT core threads the 48 kHz frame-size grid through
-//     band-bin scaling (ScaledBandStart = eBand*frameSize/120), the mode config
-//     (GetModeConfig/ValidFrameSize accept only 120/240/480/960/1920), the
-//     overlap constant, and pre-emphasis, so it cannot reproduce a libopus
-//     --enable-custom-modes bitstream for arbitrary (Fs, frame_size). NewMode
-//     still computes the full mode tables (eBands, allocVectors, logN, window,
-//     preemph) for those rates, mirroring opus_custom_mode_create, so the native
-//     non-standard encode/decode path can be wired without re-deriving them. The
-//     oracle test pins the exact first divergence per non-standard mode.
+//   - The control plane of the Fs==400*shortMdctSize family (e.g. 8k/160,
+//     12k/240, 16k/320, 24k/480, 32k/640) is now parameterized and proven exact:
+//     CustomMode.InScaledBandFamily reports membership, and
+//     TestOracleControlPlaneScaledBandFamily verifies the full mode geometry
+//     (maxLM, nbShortMdcts, shortMdctSize, overlap, eBands, effEBands, logN and
+//     per-rate pre-emphasis) against opus_custom_mode_create, plus the
+//     band-bin scaling celt.ScaledBandStartBase/EndBase == eBands[i]<<LM.
+//   - Non-standard rates/frame sizes still return ErrNonStandard from
+//     EncodeFloat / DecodeFloat: the CELT data plane (overlap-add MDCT
+//     analysis/synthesis, windowing) is keyed to the 48 kHz overlap (120) and
+//     the static band-bin scaling (eBand*frameSize/120), so it cannot yet
+//     reproduce a libopus --enable-custom-modes bitstream for these modes.
+//     NewMode computes the full mode tables (eBands, allocVectors, logN, window,
+//     preemph) for them, mirroring opus_custom_mode_create.
 package custom
