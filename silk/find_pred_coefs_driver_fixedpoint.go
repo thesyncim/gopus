@@ -60,7 +60,7 @@ type silkFindPredCoefsInput struct {
 
 	// psEncCtrl input.
 	gainsQ16 [maxNbSubfr]int32
-	pitchL   [maxNbSubfr]int
+	pitchL   [maxNbSubfr]int32
 
 	// res_pitch: residual from pitch analysis (voiced LTP search). resPitchStart
 	// is the index of r_ptr for the first subframe; it must have enough leading

@@ -74,6 +74,12 @@ issues:
       text: "SA9003:"
       linters:
         - staticcheck
+    # CELT parity trace hooks deliberately return unexported instrumentation
+    # types consumed only by in-package libopus parity tests.
+    - path: ^celt/(plc|synthesis)_stage_trace\.go$
+      text: "unexported-return:"
+      linters:
+        - revive
     - path: ^celt/(bands|dynalloc|encode_frame|pvq_search|qext_alloc)\.go$
       text: "SA4006:"
       linters:

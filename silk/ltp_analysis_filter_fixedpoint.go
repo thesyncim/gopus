@@ -26,7 +26,7 @@ func silkLTPAnalysisFilterFixed(
 	x []int16,
 	xStart int,
 	ltpCoefQ14 []int16,
-	pitchL []int,
+	pitchL []int32,
 	invGainsQ16 []int32,
 	subfrLength int,
 	nbSubfr int,
@@ -39,7 +39,7 @@ func silkLTPAnalysisFilterFixed(
 	xPtr := xStart // index of x_ptr in x
 	ltpResPtr := 0 // index of LTP_res_ptr in ltpRes
 	for k := 0; k < nbSubfr; k++ {
-		xLagPtr := xPtr - pitchL[k] // index of x_lag_ptr in x
+		xLagPtr := xPtr - int(pitchL[k]) // index of x_lag_ptr in x
 
 		btmpQ14[0] = ltpCoefQ14[k*order]
 		btmpQ14[1] = ltpCoefQ14[k*order+1]

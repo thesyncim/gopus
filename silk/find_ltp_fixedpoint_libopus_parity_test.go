@@ -89,7 +89,7 @@ type silkFixedFindLTPCase struct {
 	name        string
 	residual    []int16
 	resStart    int
-	lag         []int
+	lag         []int32
 	subfrLength int
 	nbSubfr     int
 }
@@ -169,11 +169,15 @@ func TestSILKFindLTPFixedLibopusParity(t *testing.T) {
 		// Last subframe r_ptr = resStart + (nbSubfr-1)*subfrLength; it reads up
 		// to r_ptr + subfrLength + LTP_ORDER.
 		resLen := resStart + nbSubfr*subfrLength + ltpOrder
+		lag := make([]int32, len(lags))
+		for i, l := range lags {
+			lag[i] = int32(l)
+		}
 		return silkFixedFindLTPCase{
 			name:        name,
 			residual:    randSignal(resLen, amp),
 			resStart:    resStart,
-			lag:         lags,
+			lag:         lag,
 			subfrLength: subfrLength,
 			nbSubfr:     nbSubfr,
 		}

@@ -58,7 +58,7 @@ type silkNoiseShapeAnalysisInput struct {
 
 	// psEncCtrl inputs.
 	predGainQ16 int32
-	pitchL      [maxNbSubfr]int
+	pitchL      [maxNbSubfr]int32
 
 	// Shape-state smoothing accumulators (psEnc->sShape), updated in place.
 	harmShapeGainSmthQ16 int32
@@ -298,7 +298,7 @@ func silkNoiseShapeAnalysisFIX(in *silkNoiseShapeAnalysisInput) silkNoiseShapeAn
 		// depending on pitch lag.
 		fsKHzInv := silkDiv32_16(int32(silkFixConst(0.2, 14)), int32(in.fsKHz))
 		for k = 0; k < in.nbSubfr; k++ {
-			bQ14 = int(fsKHzInv + silkDiv32_16(int32(silkFixConst(3.0, 14)), int32(in.pitchL[k])))
+			bQ14 = int(fsKHzInv + silkDiv32_16(int32(silkFixConst(3.0, 14)), in.pitchL[k]))
 			// Pack two coefficients in one int32.
 			out.lfShpQ14[k] = silkLSHIFT(int32(silkFixConst(1.0, 14))-int32(bQ14)-silkSMULWB(strengthQ16, int32(bQ14)), 16)
 			out.lfShpQ14[k] |= int32(uint16(int32(bQ14) - int32(silkFixConst(1.0, 14))))

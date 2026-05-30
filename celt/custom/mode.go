@@ -396,7 +396,7 @@ func log2Frac(x, fracBits int) int {
 	}
 	result := intPart << fracBits
 	// Fractional part via Newton-Raphson-like refinement (libopus uses a lookup
-	// table; we replicate the approximation with float64 for correctness).
+	// table; we replicate the approximation in double precision for correctness).
 	frac := math.Log2(float64(x)) - float64(intPart)
 	result += int(math.Round(frac * float64(int(1)<<fracBits)))
 	return result

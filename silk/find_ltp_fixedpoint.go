@@ -25,7 +25,7 @@ func silkFindLTPFixed(
 	xXLTPQ17 []int32,
 	residual []int16,
 	resStart int,
-	lag []int,
+	lag []int32,
 	subfrLength int,
 	nbSubfr int,
 ) {
@@ -38,7 +38,7 @@ func silkFindLTPFixed(
 	XXIdx := 0
 	rPtr := resStart
 	for k := 0; k < nbSubfr; k++ {
-		lagPtr := rPtr - (lag[k] + order/2)
+		lagPtr := rPtr - (int(lag[k]) + order/2)
 
 		// xx in Q(-xxShifts).
 		xx, xxShifts := silkSumSqrShiftFixed(residual[rPtr:], subfrLength+order)

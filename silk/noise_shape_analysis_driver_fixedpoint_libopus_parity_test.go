@@ -225,7 +225,7 @@ func TestSILKNoiseShapeAnalysisFixedLibopusParity(t *testing.T) {
 			x:                    randSignal(xLen, amp),
 		}
 		for k := 0; k < nbSubfr; k++ {
-			in.pitchL[k] = 40 + rng.Intn(280)
+			in.pitchL[k] = int32(40 + rng.Intn(280))
 		}
 		return in
 	}

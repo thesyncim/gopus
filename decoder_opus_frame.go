@@ -471,7 +471,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 
 			if err := d.hybridDecoder.DecodeWithDecoderHookToFloat32(rd, frameSize, packetStereoLocal, afterSilk, out); err != nil {
 				if fixedHybridArmed {
-					d.finishFixedHybrid()
+					_ = d.finishFixedHybrid()
 				}
 				return 0, err
 			}

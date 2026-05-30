@@ -90,7 +90,7 @@ type silkFixedLTPAnalysisCase struct {
 	x            []int16
 	xStart       int
 	ltpCoefQ14   []int16
-	pitchL       []int
+	pitchL       []int32
 	invGainsQ16  []int32
 	subfrLength  int
 	nbSubfr      int
@@ -198,12 +198,17 @@ func TestSILKLTPAnalysisFilterFixedLibopusParity(t *testing.T) {
 			coefs[i] = int16(rng.Int31n(2*coefAmp+1) - coefAmp)
 		}
 
+		pitchL := make([]int32, len(lags))
+		for i, l := range lags {
+			pitchL[i] = int32(l)
+		}
+
 		return silkFixedLTPAnalysisCase{
 			name:         name,
 			x:            randSignal(xLen, xAmp),
 			xStart:       xStart,
 			ltpCoefQ14:   coefs,
-			pitchL:       lags,
+			pitchL:       pitchL,
 			invGainsQ16:  invGains,
 			subfrLength:  subfrLength,
 			nbSubfr:      nbSubfr,

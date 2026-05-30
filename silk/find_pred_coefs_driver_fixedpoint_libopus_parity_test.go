@@ -275,7 +275,7 @@ func TestSILKFindPredCoefsFixedLibopusParity(t *testing.T) {
 		}
 		minLag := 2 * fsKHz
 		for k := 0; k < nbSubfr; k++ {
-			in.pitchL[k] = minLag + rng.Intn(maxLag-minLag+1)
+			in.pitchL[k] = int32(minLag + rng.Intn(maxLag-minLag+1))
 		}
 
 		// res_pitch buffer: r_ptr starts at res_start; lag_ptr reaches back
@@ -283,8 +283,8 @@ func TestSILKFindPredCoefsFixedLibopusParity(t *testing.T) {
 		// res_start + (nbSubfr-1)*subfrLength + subfrLength + LTP_ORDER.
 		maxPitch := 0
 		for k := 0; k < nbSubfr; k++ {
-			if in.pitchL[k] > maxPitch {
-				maxPitch = in.pitchL[k]
+			if int(in.pitchL[k]) > maxPitch {
+				maxPitch = int(in.pitchL[k])
 			}
 		}
 		resStart := maxPitch + ltpOrder/2

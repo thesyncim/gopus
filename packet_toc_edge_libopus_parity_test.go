@@ -665,11 +665,9 @@ func assertParsePacketParity(t *testing.T, cases []libopusPacketParseCase, want 
 			// TOC byte
 			if len(tc.packet) > 0 {
 				wantTOCByte := byte(w.parseTOC)
-				gotTOCByte := tc.packet[0] & 0xFC // libopus strips the frame code from toc
-				// Actually libopus out_toc preserves the full TOC byte:
+				// libopus out_toc preserves the full TOC byte:
 				// toc = *data++; ... if (out_toc) *out_toc = toc;
-				// So compare the full TOC byte.
-				gotTOCByte = tc.packet[0]
+				gotTOCByte := tc.packet[0]
 				if gotTOCByte != wantTOCByte {
 					t.Errorf("TOC byte: got 0x%02x want 0x%02x", gotTOCByte, wantTOCByte)
 				}

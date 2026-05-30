@@ -242,7 +242,7 @@ func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtr
 	resPitch := pitchFE.res
 	resPitchFrame := st.ltpMemLength
 
-	var pitchL [maxNbSubfr]int
+	var pitchL [maxNbSubfr]int32
 	var lagIndex int16
 	var contourIndex int8
 
@@ -268,7 +268,9 @@ func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtr
 			st.nbSubfr,
 		)
 		st.ltpCorrQ15 = ltpCorr
-		copy(pitchL[:st.nbSubfr], pitchOut[:st.nbSubfr])
+		for k := 0; k < st.nbSubfr; k++ {
+			pitchL[k] = int32(pitchOut[k])
+		}
 		lagIndex = li
 		contourIndex = ci
 		if voicing == 0 {
@@ -490,7 +492,7 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 	// Mirrors silk_find_pitch_lags_FIX exactly: the core runs only when
 	// signalType != TYPE_NO_VOICE_ACTIVITY && first_frame_after_reset == 0;
 	// otherwise pitchL/lagIndex/contourIndex/LTPCorr_Q15 are zeroed.
-	var pitchL [maxNbSubfr]int
+	var pitchL [maxNbSubfr]int32
 	var lagIndex int16
 	var contourIndex int8
 
@@ -521,7 +523,9 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 			st.nbSubfr,
 		)
 		st.ltpCorrQ15 = ltpCorr
-		copy(pitchL[:st.nbSubfr], pitchOut[:st.nbSubfr])
+		for k := 0; k < st.nbSubfr; k++ {
+			pitchL[k] = int32(pitchOut[k])
+		}
 		lagIndex = li
 		contourIndex = ci
 		if voicing == 0 {
