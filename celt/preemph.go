@@ -219,6 +219,13 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 		split = total
 	}
 
+	// Native 96 kHz HD mode uses libopus's 2-tap pre-emphasis
+	// (celt_preemphasis() coef[1] != 0 path). hd96kPreemph[1] == 0 selects the
+	// single-tap 48 kHz path below, keeping it byte-identical.
+	if e.hd96kPreemph[1] != 0 {
+		return e.applyPreemphasis2TapAndSilenceCore(pcm, output, total, split, channels)
+	}
+
 	coef := float32(PreemphCoef)
 	var firstMaxBits, overlapMaxBits uint32
 	if channels == 1 {
@@ -274,6 +281,82 @@ func (e *Encoder) applyPreemphasisWithScalingAndSilenceCore(pcm []float32, outpu
 		}
 		e.preemphState[0] = celtSig(stateL)
 		e.preemphState[1] = celtSig(stateR)
+	}
+
+	e.overlapMax = float32(0)
+	if overlapMaxBits != 0 {
+		e.overlapMax = math.Float32frombits(overlapMaxBits)
+	}
+	sampleMax := e.overlapMax
+	firstMax := math.Float32frombits(firstMaxBits)
+	if firstMax > sampleMax {
+		sampleMax = firstMax
+	}
+	silenceThreshold := float32(math.Ldexp(1, -int(e.lsbDepth)))
+	return sampleMax <= silenceThreshold
+}
+
+// applyPreemphasis2TapAndSilenceCore applies libopus's 2-tap CELT pre-emphasis
+// (celt_preemphasis() coef[1] != 0 path) used by the native 96 kHz HD mode,
+// while tracking the overlap-region silence max exactly as the single-tap path.
+//
+// Float build (SIG_SHIFT=0, RES2SIG = CELT_SIG_SCALE*x):
+//
+//	x      = CELT_SIG_SCALE * pcm[i]
+//	tmp    = coef2 * x
+//	out[i] = tmp + m
+//	m      = coef1*out[i] - coef0*tmp
+//
+// with coef = HD96kMode.Preemph = {coef0, coef1, coef2, coef3}.
+func (e *Encoder) applyPreemphasis2TapAndSilenceCore(pcm, output []float32, total, split, channels int) bool {
+	coef0 := e.hd96kPreemph[0]
+	coef1 := e.hd96kPreemph[1]
+	coef2 := e.hd96kPreemph[2]
+
+	var firstMaxBits, overlapMaxBits uint32
+	if channels == 1 {
+		m := float32(e.preemphState[0])
+		for i := 0; i < total; i++ {
+			v := pcm[i]
+			if i < split {
+				firstMaxBits = updateMaxAbsBitsF32(firstMaxBits, v)
+			} else {
+				overlapMaxBits = updateMaxAbsBitsF32(overlapMaxBits, v)
+			}
+			x := v * float32(CELTSigScale)
+			tmp := noFMA32Mul(coef2, x)
+			y := noFMA32Add(tmp, m)
+			output[i] = y
+			m = noFMA32Sub(noFMA32Mul(coef1, y), noFMA32Mul(coef0, tmp))
+		}
+		e.preemphState[0] = celtSig(m)
+	} else {
+		mL := float32(e.preemphState[0])
+		mR := float32(e.preemphState[1])
+		i := 0
+		for ; i+1 < total; i += 2 {
+			vL := pcm[i]
+			vR := pcm[i+1]
+			if i < split {
+				firstMaxBits = updateMaxAbsBitsF32(firstMaxBits, vL)
+				firstMaxBits = updateMaxAbsBitsF32(firstMaxBits, vR)
+			} else {
+				overlapMaxBits = updateMaxAbsBitsF32(overlapMaxBits, vL)
+				overlapMaxBits = updateMaxAbsBitsF32(overlapMaxBits, vR)
+			}
+			xL := vL * float32(CELTSigScale)
+			xR := vR * float32(CELTSigScale)
+			tmpL := noFMA32Mul(coef2, xL)
+			tmpR := noFMA32Mul(coef2, xR)
+			yL := noFMA32Add(tmpL, mL)
+			yR := noFMA32Add(tmpR, mR)
+			output[i] = yL
+			output[i+1] = yR
+			mL = noFMA32Sub(noFMA32Mul(coef1, yL), noFMA32Mul(coef0, tmpL))
+			mR = noFMA32Sub(noFMA32Mul(coef1, yR), noFMA32Mul(coef0, tmpR))
+		}
+		e.preemphState[0] = celtSig(mL)
+		e.preemphState[1] = celtSig(mR)
 	}
 
 	e.overlapMax = float32(0)

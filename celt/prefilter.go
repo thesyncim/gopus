@@ -176,7 +176,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		pfOn = true
 	}
 
-	overlap := Overlap
+	overlap := e.analysisOverlap()
 	if overlap > frameSize {
 		overlap = frameSize
 	}
@@ -196,7 +196,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 	if offset < 0 {
 		offset = 0
 	}
-	window := GetWindowBufferF32(Overlap)
+	window := GetWindowBufferF32(overlap)
 
 	var before [2]opusVal32
 	var after [2]opusVal32

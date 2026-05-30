@@ -1103,6 +1103,11 @@ type encoderScratch struct {
 	leftHist  []float32
 	rightHist []float32
 
+	// MDCT overlap-history snapshots (sized to the active analysis overlap:
+	// Overlap at 48 kHz, 240 in the native 96 kHz HD mode).
+	mdctPrevL []float32
+	mdctPrevR []float32
+
 	// Range encoder buffer
 	reBuf []byte
 
@@ -1192,7 +1197,7 @@ func (e *Encoder) EnsureScratch(frameSize int) {
 func (e *Encoder) ensureScratch(frameSize int) {
 	channels := int(e.channels)
 	expectedLen := frameSize * channels
-	overlap := Overlap
+	overlap := e.analysisOverlap()
 	if overlap > frameSize {
 		overlap = frameSize
 	}

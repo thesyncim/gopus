@@ -265,15 +265,15 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// - Previous frame's pre-emphasized overlap samples (indices 0 to overlap-1)
 	// - Current frame's pre-emphasized samples (indices overlap to overlap+N-1)
 	// Reference: libopus celt_encoder.c line 2030
-	overlap := Overlap
+	overlap := e.analysisOverlap()
 	if overlap > frameSize {
 		overlap = frameSize
 	}
-	var mdctPrevL [Overlap]float32
-	var mdctPrevR [Overlap]float32
-	e.fillMDCTHistoryFromPrefilter(0, overlap, mdctPrevL[:])
+	mdctPrevL := ensureFloat32Slice(&e.scratch.mdctPrevL, overlap)[:overlap]
+	mdctPrevR := ensureFloat32Slice(&e.scratch.mdctPrevR, overlap)[:overlap]
+	e.fillMDCTHistoryFromPrefilter(0, overlap, mdctPrevL)
 	if e.channels == 2 {
-		e.fillMDCTHistoryFromPrefilter(1, overlap, mdctPrevR[:])
+		e.fillMDCTHistoryFromPrefilter(1, overlap, mdctPrevR)
 	}
 
 	// Build combined signal for transient analysis: [overlap from previous frame] + [current frame]
@@ -448,10 +448,6 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	var bandLogE2 []celtGLog
 	if secondMdct {
 		if e.channels == 1 {
-			overlap := Overlap
-			if overlap > frameSize {
-				overlap = frameSize
-			}
 			// Use scratch for hist buffer
 			hist := e.scratch.leftHist
 			if len(hist) < overlap {
@@ -460,16 +456,12 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			}
 			hist = hist[:overlap]
 			copy(hist, mdctPrevL[:overlap])
-			mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
+			mdctLong := computeMDCTWithHistoryScratchOverlap(preemph, hist, 1, overlap, &e.scratch)
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
 			bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
 			computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
 		} else {
 			left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
-			overlap := Overlap
-			if overlap > frameSize {
-				overlap = frameSize
-			}
 			// Use scratch for hist buffers
 			leftHist := e.scratch.leftHist
 			rightHist := e.scratch.rightHist
@@ -485,8 +477,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			rightHist = rightHist[:overlap]
 			copy(leftHist, mdctPrevL[:overlap])
 			copy(rightHist, mdctPrevR[:overlap])
-			mdctLeftLong := computeMDCTWithHistoryScratchStereoL(left, leftHist, 1, &e.scratch)
-			mdctRightLong := computeMDCTWithHistoryScratchStereoR(right, rightHist, 1, &e.scratch)
+			mdctLeftLong := computeMDCTWithHistoryScratchStereoLOverlap(left, leftHist, 1, overlap, &e.scratch)
+			mdctRightLong := computeMDCTWithHistoryScratchStereoROverlap(right, rightHist, 1, overlap, &e.scratch)
 			mdctLong := e.scratch.mdctCoeffsF32
 			if codedChannels == 1 {
 				mdctLong = foldStereoMDCTToMonoF32(mdctLong, mdctLeftLong, mdctRightLong)
@@ -519,15 +511,10 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		hist := ensureFloat32Slice(&e.scratch.leftHist, overlap)
 		hist = hist[:overlap]
 		copy(hist, mdctPrevL[:overlap])
-		mdctCoeffs = computeMDCTWithHistoryScratch(preemph, hist, shortBlocks, &e.scratch)
+		mdctCoeffs = computeMDCTWithHistoryScratchOverlap(preemph, hist, shortBlocks, overlap, &e.scratch)
 	} else {
 		// Stereo: MDCT Left and Right directly - use scratch buffers
 		left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
-
-		overlap := Overlap
-		if overlap > frameSize {
-			overlap = frameSize
-		}
 
 		leftHistory := ensureFloat32Slice(&e.scratch.leftHist, overlap)
 		rightHistory := ensureFloat32Slice(&e.scratch.rightHist, overlap)
@@ -536,8 +523,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		copy(leftHistory, mdctPrevL[:overlap])
 		copy(rightHistory, mdctPrevR[:overlap])
 		// Use overlap-aware MDCT for both channels with scratch buffers
-		mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHistory, shortBlocks, &e.scratch)
-		mdctRight = computeMDCTWithHistoryScratchStereoR(right, rightHistory, shortBlocks, &e.scratch)
+		mdctLeft = computeMDCTWithHistoryScratchStereoLOverlap(left, leftHistory, shortBlocks, overlap, &e.scratch)
+		mdctRight = computeMDCTWithHistoryScratchStereoROverlap(right, rightHistory, shortBlocks, overlap, &e.scratch)
 
 		mdctCoeffs = e.scratch.mdctCoeffsF32
 		if codedChannels == 1 {
@@ -586,21 +573,13 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 			// Recompute MDCT with short blocks
 			if e.channels == 1 {
-				overlap := Overlap
-				if overlap > frameSize {
-					overlap = frameSize
-				}
 				hist := ensureFloat32Slice(&e.scratch.leftHist, overlap)
 				hist = hist[:overlap]
 				copy(hist, mdctPrevL[:overlap])
-				mdctCoeffs = computeMDCTWithHistoryScratch(preemph, hist, shortBlocks, &e.scratch)
+				mdctCoeffs = computeMDCTWithHistoryScratchOverlap(preemph, hist, shortBlocks, overlap, &e.scratch)
 			} else {
 				// For stereo, recompute both channels - use scratch buffers
 				left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
-				overlap := Overlap
-				if overlap > frameSize {
-					overlap = frameSize
-				}
 				leftHist := e.scratch.leftHist
 				rightHist := e.scratch.rightHist
 				if len(leftHist) < overlap {
@@ -615,8 +594,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 				rightHist = rightHist[:overlap]
 				copy(leftHist, mdctPrevL[:overlap])
 				copy(rightHist, mdctPrevR[:overlap])
-				mdctLeft = computeMDCTWithHistoryScratchStereoL(left, leftHist, shortBlocks, &e.scratch)
-				mdctRight = computeMDCTWithHistoryScratchStereoR(right, rightHist, shortBlocks, &e.scratch)
+				mdctLeft = computeMDCTWithHistoryScratchStereoLOverlap(left, leftHist, shortBlocks, overlap, &e.scratch)
+				mdctRight = computeMDCTWithHistoryScratchStereoROverlap(right, rightHist, shortBlocks, overlap, &e.scratch)
 				mdctCoeffs = e.scratch.mdctCoeffsF32
 				if codedChannels == 1 {
 					mdctCoeffs = foldStereoMDCTToMonoF32(mdctCoeffs, mdctLeft, mdctRight)
@@ -1137,7 +1116,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			if tf2 > 1.0 {
 				tf2 = 1.0
 			}
-			offsetBytes := (codedChannels * 80000 * frameSize) / (48000 * 8)
+			offsetBytes := (codedChannels * 80000 * frameSize) / (e.celtModeFs() * 8)
 			initialQextBytes := max(targetBytes-1275, max(0, (targetBytes-offsetBytes)*4/5))
 			overheadQ3 := (40*codedChannels + 20) << bitRes
 			baseQ3 := (targetBytes-initialQextBytes/3)*8<<bitRes - overheadQ3
@@ -1151,7 +1130,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 				cbrVBRTargetBytes = 0
 			}
 		}
-		mainBytes, payloadBytes, _ := computeQEXTReservation(targetBytes, minAllowed, frameSize, codedChannels, toneishness, cbrVBRTargetBytes)
+		mainBytes, payloadBytes, _ := computeQEXTReservation(targetBytes, minAllowed, frameSize, codedChannels, e.celtModeFs(), toneishness, cbrVBRTargetBytes)
 		qextPayloadBytes = payloadBytes
 		if qextPayloadBytes > 0 && mainBytes > 0 {
 			qs := e.scratch.ensureQEXTScratch()
@@ -1679,11 +1658,17 @@ func ComputeMDCTWithHistoryInto(scratch, samples, history []float32, shortBlocks
 // computeMDCTWithHistoryScratch computes MDCT using a history buffer with scratch buffers.
 // This is the zero-allocation version that uses pre-allocated buffers.
 func computeMDCTWithHistoryScratch(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float32 {
+	return computeMDCTWithHistoryScratchOverlap(samples, history, shortBlocks, Overlap, scratch)
+}
+
+// computeMDCTWithHistoryScratchOverlap is the overlap-parametric form of
+// computeMDCTWithHistoryScratch. The 48 kHz path passes overlap=Overlap and is
+// byte-identical; the native 96 kHz HD mode passes overlap=240.
+func computeMDCTWithHistoryScratchOverlap(samples, history []float32, shortBlocks, overlap int, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
 
-	overlap := Overlap
 	if overlap > len(samples) {
 		overlap = len(samples)
 	}
@@ -1727,11 +1712,14 @@ func computeMDCTWithHistoryScratch(samples, history []float32, shortBlocks int, 
 // computeMDCTWithHistoryScratchStereoL computes MDCT for the left channel with scratch buffers.
 // Uses mdctLeft scratch buffer for output.
 func computeMDCTWithHistoryScratchStereoL(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float32 {
+	return computeMDCTWithHistoryScratchStereoLOverlap(samples, history, shortBlocks, Overlap, scratch)
+}
+
+func computeMDCTWithHistoryScratchStereoLOverlap(samples, history []float32, shortBlocks, overlap int, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
 
-	overlap := Overlap
 	if overlap > len(samples) {
 		overlap = len(samples)
 	}
@@ -1779,11 +1767,14 @@ func computeMDCTWithHistoryScratchStereoL(samples, history []float32, shortBlock
 // computeMDCTWithHistoryScratchStereoR computes MDCT for the right channel with scratch buffers.
 // Uses mdctRight scratch buffer for output.
 func computeMDCTWithHistoryScratchStereoR(samples, history []float32, shortBlocks int, scratch *encoderScratch) []float32 {
+	return computeMDCTWithHistoryScratchStereoROverlap(samples, history, shortBlocks, Overlap, scratch)
+}
+
+func computeMDCTWithHistoryScratchStereoROverlap(samples, history []float32, shortBlocks, overlap int, scratch *encoderScratch) []float32 {
 	if len(samples) == 0 {
 		return nil
 	}
 
-	overlap := Overlap
 	if overlap > len(samples) {
 		overlap = len(samples)
 	}
@@ -1943,13 +1934,23 @@ func (e *Encoder) bitrateToBits(frameSize int) int {
 	if bitrate > 510000 {
 		bitrate = 510000
 	}
-	return bitrate * frameSize / 48000
+	return bitrate * frameSize / e.celtModeFs()
+}
+
+// celtModeFs returns the CELT mode sample rate used by the bitrate<->bytes
+// conversions (libopus mode->Fs). It is 48000 for the standard modes and 96000
+// for the native 96 kHz HD mode. The 48 kHz path is unchanged.
+func (e *Encoder) celtModeFs() int {
+	if e.hd96kOverlap > 0 && e.sampleRate == 96000 {
+		return 96000
+	}
+	return 48000
 }
 
 // cbrPayloadBytes computes the CBR payload size (excluding TOC).
 // This matches libopus's CBR byte formula and subtracts the TOC byte.
 func (e *Encoder) cbrPayloadBytes(frameSize int) int {
-	const fs = 48000
+	fs := e.celtModeFs()
 	bitrate := int(e.targetBitrate)
 	if bitrate == opusBitrateMax {
 		packetSizeCap := 1275
@@ -2414,7 +2415,7 @@ func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstim
 	// Reference: libopus celt_encoder.c lines 1703-1710.
 	// In float domain: target += temporal_vbr * 0.0000031 * clamp(96000-bitrate,0,32000) * target
 	if len(e.energyMask) == 0 && tfEstimate < 0.2 {
-		bitrate := e.bitrateToBits(frameSize) * (48000 / frameSize) // approximate bps
+		bitrate := e.bitrateToBits(frameSize) * (e.celtModeFs() / frameSize) // approximate bps
 		clampedBR := 96000 - bitrate
 		if clampedBR < 0 {
 			clampedBR = 0

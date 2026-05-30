@@ -8,12 +8,23 @@ package gopus
 //
 // C ref: opus_encoder.c opus_encoder_init() ENABLE_QEXT gate (Fs != 96000).
 // At 96 kHz, libopus uses a native 96 kHz CELT mode (1920-sample frames).
-// gopus's CELT pipeline is 48 kHz-only; we decimate 2:1 at the public API
-// boundary and encode the 48 kHz signal. SILK/Hybrid modes are not supported
-// at 96 kHz (no 8/12 kHz resampler path in libopus at Fs=96000).
+//
+// Native 96 kHz CELT encode is wired at the CELT layer: celt.Encoder
+// EnableHD96kMode threads overlap=240, the 2-tap HD pre-emphasis and the
+// Fs=96000 bitrate/QEXT-reservation budget through EncodeFrame(pcm, 1920), and
+// drives the >20 kHz extension-band encode into the secondary range coder. The
+// early frame structure (silence/postfilter/transient/intra flags, the CBR
+// main-payload byte budget) is bit-exact vs the QEXT reference; full byte parity
+// additionally needs the analysis comb prefilter at the HD scale
+// (max_period = QEXT_SCALE(COMBFILTER_MAXPERIOD) = 2048) and the top-level Opus
+// packet framing of the reserved extension payload in packet padding. Until
+// those land, the public Encode at Fs=96000 stays on the proven 2:1 resample
+// wrapper below so the shipped 96 kHz packets remain valid. SILK/Hybrid modes
+// are not supported at 96 kHz (no 8/12 kHz resampler path in libopus at
+// Fs=96000).
 type encoderHD96kFields struct {
-	apiIs96kHz  bool
-	scratch96k  []float32 // downsampled 48 kHz scratch for 96 kHz input path
+	apiIs96kHz bool
+	scratch96k []float32 // downsampled 48 kHz scratch for 96 kHz input path
 }
 
 func (e *Encoder) is96kHz() bool { return e.apiIs96kHz }

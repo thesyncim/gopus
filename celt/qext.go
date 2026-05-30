@@ -115,12 +115,15 @@ func qextShortMDCTSize(frameSize int) int {
 // tf_estimate2=min(1,2*tf) plus ec_tell_frac). Pass 0 for VBR/CVBR mode,
 // where nbCompressedBytes is already the VBR target. Reference:
 // celt/celt_encoder.c lines 2539-2558.
-func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels int, toneishness float32, cbrVBRTargetBytes int) (mainBytes, payloadBytes, paddingBytes int) {
+func computeQEXTReservation(nbCompressedBytes, minAllowed, frameSize, channels, fs int, toneishness float32, cbrVBRTargetBytes int) (mainBytes, payloadBytes, paddingBytes int) {
 	if nbCompressedBytes <= 0 {
 		return nbCompressedBytes, 0, 0
 	}
+	if fs <= 0 {
+		fs = 48000
+	}
 
-	offsetBytes := (channels * 80000 * frameSize) / (48000 * 8)
+	offsetBytes := (channels * 80000 * frameSize) / (fs * 8)
 	qextBytes := max(nbCompressedBytes-1275, max(0, (nbCompressedBytes-offsetBytes)*4/5))
 	if qextBytes <= 20 {
 		return nbCompressedBytes, 0, 0
