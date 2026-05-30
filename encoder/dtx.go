@@ -189,6 +189,57 @@ func (e *Encoder) shouldUseDTXRes(pcm []opusRes) (bool, bool) {
 	return false, false
 }
 
+// frameSizeMsQ1 returns the Q1-millisecond duration of a frame, matching
+// libopus's 2*1000*frame_size/st->Fs integer arithmetic (opus_encoder.c:2567).
+func (e *Encoder) frameSizeMsQ1(frameSize int) int32 {
+	fs := int(e.sampleRate)
+	if fs <= 0 {
+		fs = 48000
+	}
+	return int32(2 * 1000 * frameSize / fs)
+}
+
+// decideDTXSuppress runs libopus decide_dtx_mode (opus_encoder.c:1115-1140),
+// called after the frame has been fully encoded so that the encoder state is
+// advanced exactly as libopus does before discarding the payload for a DTX
+// continuation packet (opus_encoder.c:2564-2572).
+//
+// activity is the resolved opus_int activity for this frame: for the SILK
+// VAD_NO_DECISION path libopus resolves it to signalType != TYPE_NO_VOICE_ACTIVITY
+// before this point (opus_encoder.c:2235).
+//
+// Returns true if the frame should be emitted as a 1-byte TOC-only DTX packet.
+func (e *Encoder) decideDTXSuppress(activity bool, frameSize int) bool {
+	if !e.dtxEnabled || e.dtx == nil {
+		if e.dtx != nil {
+			e.dtx.noActivityMsQ1 = 0
+			e.dtx.inDTXMode = false
+		}
+		return false
+	}
+
+	if activity {
+		e.dtx.noActivityMsQ1 = 0
+		e.dtx.inDTXMode = false
+		return false
+	}
+
+	e.dtx.noActivityMsQ1 += e.frameSizeMsQ1(frameSize)
+
+	thresholdMsQ1 := int32(NBSpeechFramesBeforeDTX * 20 * 2)
+	maxDTXMsQ1 := int32((NBSpeechFramesBeforeDTX + MaxConsecutiveDTX) * 20 * 2)
+
+	if e.dtx.noActivityMsQ1 > thresholdMsQ1 {
+		if e.dtx.noActivityMsQ1 <= maxDTXMsQ1 {
+			e.dtx.inDTXMode = true
+			return true
+		}
+		e.dtx.noActivityMsQ1 = thresholdMsQ1
+		e.dtx.inDTXMode = false
+	}
+	return false
+}
+
 // InDTX returns whether the encoder is currently in DTX mode.
 // This matches OPUS_GET_IN_DTX from libopus.
 func (e *Encoder) InDTX() bool {

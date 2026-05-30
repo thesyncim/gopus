@@ -29,6 +29,7 @@
  *   GOPUS_DTX_APPLICATION  "audio","voip"        default "audio"
  *   GOPUS_DTX_MAX_FRAMES   default 50
  *   GOPUS_DTX_PCM_STDIN    1 = read float32 LE from stdin; default 1
+ *   GOPUS_DTX_CBR          1 = constant bitrate (OPUS_SET_VBR(0)); default 0 (VBR)
  */
 
 #include <stdint.h>
@@ -123,6 +124,7 @@ int main(void) {
   int bitrate        = env_int("GOPUS_DTX_BITRATE", 24000);
   int max_frames     = env_int("GOPUS_DTX_MAX_FRAMES", 50);
   int use_pcm_stdin  = env_int("GOPUS_DTX_PCM_STDIN", 1);
+  int use_cbr        = env_int("GOPUS_DTX_CBR", 0);
   int bandwidth      = parse_bandwidth(getenv("GOPUS_DTX_BANDWIDTH"));
   int force_mode     = parse_mode(getenv("GOPUS_DTX_MODE"));
   int application    = OPUS_APPLICATION_AUDIO;
@@ -151,6 +153,8 @@ int main(void) {
 
   if (app_env != NULL && strcmp(app_env, "voip") == 0) {
     application = OPUS_APPLICATION_VOIP;
+  } else if (app_env != NULL && strcmp(app_env, "rsilk") == 0) {
+    application = OPUS_APPLICATION_RESTRICTED_SILK;
   }
 
   pcm = (float *)calloc((size_t)frame_size * (size_t)channels, sizeof(float));
@@ -173,6 +177,12 @@ int main(void) {
   if (opus_encoder_ctl(enc, OPUS_SET_BITRATE(bitrate)) != OPUS_OK) {
     fprintf(stderr, "OPUS_SET_BITRATE failed\n");
     opus_encoder_destroy(enc); free(pcm); return 1;
+  }
+  if (use_cbr) {
+    if (opus_encoder_ctl(enc, OPUS_SET_VBR(0)) != OPUS_OK) {
+      fprintf(stderr, "OPUS_SET_VBR(0) failed\n");
+      opus_encoder_destroy(enc); free(pcm); return 1;
+    }
   }
   if (opus_encoder_ctl(enc, OPUS_SET_BANDWIDTH(bandwidth)) != OPUS_OK) {
     fprintf(stderr, "OPUS_SET_BANDWIDTH failed\n");

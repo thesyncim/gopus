@@ -879,46 +879,26 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	}
 
 	// DTX activity detection matches libopus opus_encoder.c:1246+1911-1930:
-	// is_digital_silence() and compute_frame_energy() both run on the original
-	// unfiltered PCM (before hp_cutoff/dc_reject). Pass inputPCM so that
-	// literal-zero silence is detected correctly even when the dc-reject filter
-	// state carries residual energy from preceding speech frames.
-	suppressFrame, _ := e.shouldUseDTXRes(inputPCM)
-	if suppressFrame {
-		if !directFrameInput {
-			remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
-			e.inputBuffer = e.inputBuffer[:remaining]
-		}
-		if isConcreteMode(actualMode) {
-			e.prevPacketMode = actualMode
-		}
-		if isConcreteMode(prevModeNext) {
-			e.prevMode = prevModeNext
-			if e.mode == ModeAuto {
-				e.prevAutoMode = prevModeNext
-			}
-		}
-		e.first = false
-		e.prevChannels = e.streamChannels
-		e.finalRange = 0
-		// Match libopus: return a 1-byte TOC-only packet for DTX frames.
-		// The decoder triggers its own CNG when it sees a TOC with no frame data.
-		// Returning nil here would cause WebRTC to see missing packets and apply
-		// degrading PLC instead of smooth comfort noise.
-		return e.buildDTXPacketForMode(frameSize, actualMode)
+	// is_digital_silence() and compute_frame_energy() run on the original
+	// unfiltered PCM (before hp_cutoff/dc_reject). The Opus-level VAD/peak-energy
+	// activity is computed below (updateOpusVADRes / CELT noise-energy branch);
+	// the decide_dtx_mode() counter update runs AFTER the frame is fully encoded
+	// so the encoder state advances exactly as libopus does before discarding the
+	// payload for a 1-byte DTX continuation packet (opus_encoder.c:2564-2572).
+	if actualMode == ModeCELT {
+		e.updateCELTOnlyOpusVADRes(inputPCM, frameSize)
 	}
 
 	if (actualMode == ModeSILK && frameSize <= 2880) || (actualMode == ModeHybrid && frameSize <= 960) {
-		// Match libopus application semantics:
-		// explicit ModeSILK mirrors restricted-silk, where Opus-level activity
-		// stays VAD_NO_DECISION except true digital-silence input, which libopus
-		// still forwards as VAD_NO_ACTIVITY before SILK VAD runs.
-		if actualMode == ModeSILK && e.mode == ModeSILK {
-			e.updateRestrictedSilkOpusVADRes(vadPCM, frameSize)
-		} else {
-			// Audio/VoIP SILK and short hybrid lanes still use Opus-level activity.
-			e.updateOpusVADRes(vadPCM, frameSize)
-		}
+		// Opus-level activity mirrors libopus opus_encoder.c:1888-1930. The
+		// analysis-driven path (updateOpusVADRes) already reproduces the
+		// VAD_NO_DECISION behaviour when the tonality analysis did not run
+		// (lastAnalysisValid==false, e.g. restricted-silk application,
+		// complexity<7, or out-of-range Fs): it leaves lastOpusVADValid false so
+		// resolveDTXActivity() falls back to the SILK signal type just like
+		// libopus resolves VAD_NO_DECISION from signalType at line 2235. Peak
+		// signal energy is tracked there in every case, matching line 1312.
+		e.updateOpusVADRes(vadPCM, frameSize)
 	}
 
 	encodingBitrate := e.bitrate
@@ -1033,6 +1013,32 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
 		e.inputBuffer = e.inputBuffer[:remaining]
 	}
+
+	// DTX decision (libopus opus_encoder.c:2564-2572): runs decide_dtx_mode AFTER
+	// the frame is fully encoded so the encoder state (SILK NSQ/LPC history, CELT
+	// energy memory) is advanced exactly as libopus does. When DTX fires the
+	// already-encoded payload is discarded and only the 1-byte TOC is emitted; the
+	// decoder runs its own comfort-noise generation when it sees a TOC with no
+	// frame data.
+	if e.dtxEnabled && e.dtx != nil {
+		activity := e.resolveDTXActivity()
+		if e.decideDTXSuppress(activity, frameSize) {
+			if isConcreteMode(actualMode) {
+				e.prevPacketMode = actualMode
+			}
+			if isConcreteMode(prevModeNext) {
+				e.prevMode = prevModeNext
+				if e.mode == ModeAuto {
+					e.prevAutoMode = prevModeNext
+				}
+			}
+			e.first = false
+			e.prevChannels = e.streamChannels
+			e.finalRange = 0
+			return e.buildDTXPacketForMode(frameSize, actualMode)
+		}
+	}
+
 	qextPayload := []byte(nil)
 	if extsupport.QEXT && actualMode == ModeCELT && e.celtEncoder != nil {
 		qextPayload = e.lastQEXTPayload()
@@ -3214,11 +3220,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 		subPCM := pcm[start:end]
 		subVADPCM := vadPCM[start:end]
 
-		if e.mode == ModeSILK {
-			e.updateRestrictedSilkOpusVADRes(subVADPCM, encFrameSize)
-		} else {
-			e.updateOpusVADRes(subVADPCM, encFrameSize)
-		}
+		e.updateOpusVADRes(subVADPCM, encFrameSize)
 		dredNoDecision := !e.lastOpusVADValid
 		if dredActive {
 			e.processDREDLatentsWithActivity(subPCM, dredExtraDelay, e.lastOpusVADActive)
@@ -3450,14 +3452,87 @@ func (e *Encoder) clearOpusVADDecision() {
 	e.lastOpusVADProb = 1.0
 }
 
-func (e *Encoder) updateRestrictedSilkOpusVADRes(pcm []opusRes, frameSize int) {
-	if frameSize > 0 && len(pcm) > 0 && isDigitalSilenceRes(pcm, e.lsbDepth) {
+// updateCELTOnlyOpusVADRes computes the Opus-level activity for CELT-only frames,
+// matching libopus opus_encoder.c:1888-1930. When the tonality analysis is valid
+// it uses the analysis_info.activity_probability path (with the pseudo-SNR safety
+// net); otherwise it uses the CELT-only noise-energy branch (line 1927):
+//
+//	activity = st->peak_signal_energy < (PSEUDO_SNR_THRESHOLD * HALF32(noise_energy))
+//
+// Peak signal energy tracking mirrors line 1312-1318.
+func (e *Encoder) updateCELTOnlyOpusVADRes(pcm []opusRes, frameSize int) {
+	if frameSize <= 0 || len(pcm) == 0 {
+		e.clearOpusVADDecision()
+		return
+	}
+	isSilence := isDigitalSilenceRes(pcm, e.lsbDepth)
+	if isSilence {
 		e.lastOpusVADProb = 0
 		e.lastOpusVADValid = true
 		e.lastOpusVADActive = false
 		return
 	}
-	e.clearOpusVADDecision()
+
+	analysisValid := false
+	analysisProb := float32(1.0)
+	if e.lastAnalysisFresh {
+		e.lastAnalysisFresh = false
+		analysisValid = e.lastAnalysisValid
+		analysisProb = e.lastAnalysisInfo.VADProb
+	} else if e.lastAnalysisValid {
+		analysisValid = true
+		analysisProb = e.lastAnalysisInfo.VADProb
+	}
+
+	// Peak signal energy tracking (opus_encoder.c:1312-1318): update when analysis
+	// is invalid or clearly active (> threshold), skipping digital silence.
+	if e.dtx != nil && (!analysisValid || analysisProb > DTXActivityThreshold) {
+		frameEnergy := computeFrameEnergyRes(pcm)
+		e.dtx.peakSignalEnergy = maxf(0.999*e.dtx.peakSignalEnergy, frameEnergy)
+	}
+
+	e.lastOpusVADProb = analysisProb
+	e.lastOpusVADValid = true
+	if analysisValid {
+		active := analysisProb >= DTXActivityThreshold
+		if !active {
+			frameEnergy := computeFrameEnergyRes(pcm)
+			peak := opusVal32(0)
+			if e.dtx != nil {
+				peak = e.dtx.peakSignalEnergy
+			}
+			active = peak < pseudoSNRThreshold*frameEnergy
+		}
+		e.lastOpusVADActive = active
+		return
+	}
+
+	// CELT-only noise-energy branch (opus_encoder.c:1927-1929):
+	// activity = peak_signal_energy < (PSEUDO_SNR_THRESHOLD * HALF32(noise_energy)).
+	frameEnergy := computeFrameEnergyRes(pcm)
+	peak := opusVal32(0)
+	if e.dtx != nil {
+		peak = e.dtx.peakSignalEnergy
+	}
+	e.lastOpusVADActive = peak < pseudoSNRThreshold*(frameEnergy*0.5)
+}
+
+// resolveDTXActivity resolves the libopus opus_int activity for the just-encoded
+// frame (opus_encoder.c:2235). When the Opus-level VAD made no decision
+// (VAD_NO_DECISION, lastOpusVADValid==false) libopus resolves activity from the
+// SILK signal type: activity = (signalType != TYPE_NO_VOICE_ACTIVITY).
+func (e *Encoder) resolveDTXActivity() bool {
+	if e.lastOpusVADValid {
+		return e.lastOpusVADActive
+	}
+	if e.silkEncoder != nil {
+		silkSignalType, _ := e.silkEncoder.LastEncodedSignalInfo()
+		return silkSignalType != 0
+	}
+	// VAD_NO_DECISION with no SILK result resolves to active (true), matching the
+	// libopus default where activity stays VAD_NO_DECISION (-1, truthy) and
+	// decide_dtx_mode treats !activity as false.
+	return true
 }
 
 func computeSilkVADFrameState(state *VADState, mono []float32, frameSamples, fsKHz int) (silk.VADFrameState, bool) {
