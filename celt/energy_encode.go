@@ -50,7 +50,7 @@ func (e *Encoder) ComputeBandEnergiesInto(mdctCoeffs []float32, nbBands, frameSi
 // ComputeBandEnergiesF32Into computes CELT band energies into celt_glog-width
 // scratch for callers that already carry float-build MDCT coefficients.
 func (e *Encoder) ComputeBandEnergiesF32Into(mdctCoeffs []float32, nbBands, frameSize int, dst []celtGLog) {
-	computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, int(e.channels), dst)
+	computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, int(e.channels), 1<<GetModeConfig(frameSize).LM, dst)
 }
 
 // ComputeBandEnergiesFloat32Into computes CELT band energies in libopus
@@ -128,7 +128,17 @@ func computeBandEnergiesGLogInto(mdctCoeffs []float32, nbBands, frameSize, chann
 	}
 }
 
-func computeBandEnergiesGLogF32Into(mdctCoeffs []float32, nbBands, frameSize, channels int, dst []celtGLog) {
+// computeBandEnergiesGLogF32Into computes the per-band log2 amplitudes
+// (amp2Log2 minus eMeans) for the encoder analysis. The band bin edges are
+// eBands[i]*M where M = 1<<LM is the MDCT bin multiplier (libopus
+// compute_band_energies: bins run from M*eBands[i] to M*eBands[i+1]). The
+// caller passes binMul = 1<<lm so the same routine drives both the 48 kHz
+// modes (shortMdctSize 120) and the native 96 kHz HD mode (shortMdctSize 240),
+// where frameSize/120 would otherwise mis-scale the bin edges by 2x.
+func computeBandEnergiesGLogF32Into(mdctCoeffs []float32, nbBands, frameSize, channels, binMul int, dst []celtGLog) {
+	if binMul <= 0 {
+		binMul = 1
+	}
 	if nbBands > MaxBands {
 		nbBands = MaxBands
 	}
@@ -165,8 +175,8 @@ func computeBandEnergiesGLogF32Into(mdctCoeffs []float32, nbBands, frameSize, ch
 		channelCoeffs := mdctCoeffs[channelStart:channelEnd]
 
 		for band := 0; band < nbBands; band++ {
-			start := ScaledBandStart(band, frameSize)
-			end := ScaledBandEnd(band, frameSize)
+			start := EBands[band] * binMul
+			end := EBands[band+1] * binMul
 
 			if start >= len(channelCoeffs) {
 				energy := silence

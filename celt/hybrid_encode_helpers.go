@@ -477,7 +477,7 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands,
 		copySigToFloat32(hist, e.overlapBuffer[:overlap])
 		mdctLong := computeMDCTWithHistoryScratch(preemph, hist, 1, &e.scratch)
 		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*channels)
-		computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, channels, bandLogE2)
+		computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, channels, 1<<lm, bandLogE2)
 	} else {
 		left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 		if len(e.overlapBuffer) < 2*overlap {
@@ -513,7 +513,7 @@ func (e *Encoder) TransientAnalysisHybrid(preemph []float32, frameSize, nbBands,
 		copy(mdctLong, mdctLeftLong)
 		copy(mdctLong[len(mdctLeftLong):], mdctRightLong)
 		bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*channels)
-		computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, channels, bandLogE2)
+		computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, channels, 1<<lm, bandLogE2)
 	}
 
 	if bandLogE2 != nil {

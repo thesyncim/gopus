@@ -92,21 +92,32 @@ func refMainCELTPayload(t *testing.T, pkt []byte) (main, qext []byte) {
 // match through ec_tell=12). The extra-band quant_all_bands now also receives
 // the signed ext_balance (no clamp), mirroring the decode side.
 //
-// Remaining native-96k encode increments (not the prefilter):
-//   - QEXT packet-space reservation for mono CBR: computeQEXTReservation()
-//     over-reserves the extension payload for mono (main shrinks to 237 vs the
-//     reference 616), so everything after the postfilter params cascades. The
-//     reference reserves only qext_bytes=21 (payload 20) for both mono and
-//     stereo at 256 kb/s. The CBR compute_vbr() pivot (cbrVBRTargetBytes) and/or
-//     its byte rounding diverges for mono (stereo already reserves 616/20
-//     correctly). This is the top-level Opus extension-payload framing budget.
-//   - Coarse-energy intra decision at the HD scale: with the stereo budget
-//     correct (616), the main payload still diverges at the intra flag (got=0,
-//     ref=1) before any band data, independent of the (off) prefilter.
+// The native HD96k analysis MDCT and band-energy bin scaling are now wired into
+// the encode path: EncodeFrame drives the overlap=240 long/short forward MDCT at
+// the native 3840/480 transform lengths (computeMDCTWithHistory* now honour the
+// passed overlap instead of the 48 kHz package constant), and band energies use
+// the libopus bin multiplier M=1<<LM (eBands[i]*M) instead of frameSize/120,
+// which mis-scaled the HD bin edges by 2x. With those in place:
+//   - the QEXT packet-space reservation now reserves qext_bytes=21 (payload 20)
+//     for both mono and stereo CBR @256k (mono main payload is 616 like stereo),
+//     because the corrected analysis feeds the right tell/tot_boost into the CBR
+//     compute_vbr() pivot, and
+//   - the coarse-energy intra decision now matches (stereo intra=1), and stereo
+//     coarse band energies decode bit-identically to the reference.
+//
+// Remaining native-96k encode divergences:
+//   - mono: bandLogE2 for the 6 kHz-tone band (15) is ~0.4 dB off the reference
+//     because the comb prefilter (postfilter on for mono) feeds a slightly
+//     different filtered signal into the MDCT; this perturbs that band's dynalloc
+//     boost and the main payload diverges at byte 7. This is the same HD-scale
+//     comb_filter residual documented on the decode side.
+//   - stereo (postfilter off, analysis bit-exact through coarse energy): the
+//     main payload diverges at byte 24, i.e. after coarse energy, in the
+//     TF/spread/allocation/PVQ band-data region.
 //
 // The test is kept as an executable diagnostic: it logs the precise divergence
-// and skips rather than failing, so the suite stays green while the reservation
-// budget and coarse-energy intra decision remain the documented increments.
+// and skips rather than failing, so the suite stays green while those residuals
+// remain.
 func TestHD96kNativeEncodeMainPayloadParity(t *testing.T) {
 	const frameSize = 1920
 	const bitrate = 256000

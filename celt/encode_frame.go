@@ -459,7 +459,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			mdctLong := computeMDCTWithHistoryScratchOverlap(preemph, hist, 1, overlap, &e.scratch)
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
 			bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
-			computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
+			computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, codedChannels, 1<<lm, bandLogE2)
 		} else {
 			left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
 			// Use scratch for hist buffers
@@ -494,7 +494,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			}
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
 			bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
-			computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, codedChannels, bandLogE2)
+			computeBandEnergiesGLogF32Into(mdctLong, nbBands, frameSize, codedChannels, 1<<lm, bandLogE2)
 		}
 		if bandLogE2 != nil {
 			offset := celtGLog(0.5 * float32(lm))
@@ -544,7 +544,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 	// Step 6: Compute band energies
 	energies := ensureGLogSlice(&e.scratch.energies, nbBands*codedChannels)
-	computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
+	computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, codedChannels, 1<<lm, energies)
 	if e.lfe {
 		applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 	}
@@ -614,7 +614,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 
 			// Recompute band energies with short block coefficients
 			energies = ensureGLogSlice(&e.scratch.energies, nbBands*codedChannels)
-			computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, codedChannels, energies)
+			computeBandEnergiesGLogF32Into(mdctCoeffs, nbBands, frameSize, codedChannels, 1<<lm, energies)
 			if e.lfe {
 				applyLFEBandLogEClamp(energies, nbBands, codedChannels)
 			}
@@ -1703,9 +1703,9 @@ func computeMDCTWithHistoryScratchOverlap(samples, history []float32, shortBlock
 	}
 
 	if shortBlocks > 1 {
-		return mdctShortScratchF32Coeffs(input, shortBlocks, scratch)
+		return mdctForwardShortOverlapScratchF32Coeffs(input, overlap, shortBlocks, scratch)
 	}
-	return mdctScratchF32Coeffs(input, scratch)
+	return mdctForwardOverlapScratchF32Coeffs(input, overlap, scratch)
 }
 
 // computeMDCTWithHistoryScratchStereoL computes MDCT for the left channel with scratch buffers.
@@ -1758,9 +1758,11 @@ func computeMDCTWithHistoryScratchStereoLOverlap(samples, history []float32, sho
 	coeffs := ensureFloat32Slice(&scratch.mdctLeftF32, frameSize)
 
 	if shortBlocks > 1 {
-		return mdctShortScratchIntoF32Coeffs(input, shortBlocks, coeffs, scratch)
+		return mdctForwardShortOverlapScratchIntoF32Coeffs(input, overlap, shortBlocks, coeffs[:frameSize], scratch)
 	}
-	return mdctScratchIntoF32Coeffs(input, coeffs, scratch)
+	mdctForwardOverlapF32Scratch(input, overlap, coeffs[:frameSize],
+		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+	return coeffs[:frameSize]
 }
 
 // computeMDCTWithHistoryScratchStereoR computes MDCT for the right channel with scratch buffers.
@@ -1813,9 +1815,11 @@ func computeMDCTWithHistoryScratchStereoROverlap(samples, history []float32, sho
 	coeffs := ensureFloat32Slice(&scratch.mdctRightF32, frameSize)
 
 	if shortBlocks > 1 {
-		return mdctShortScratchIntoF32Coeffs(input, shortBlocks, coeffs, scratch)
+		return mdctForwardShortOverlapScratchIntoF32Coeffs(input, overlap, shortBlocks, coeffs[:frameSize], scratch)
 	}
-	return mdctScratchIntoF32Coeffs(input, coeffs, scratch)
+	mdctForwardOverlapF32Scratch(input, overlap, coeffs[:frameSize],
+		scratch.mdctF, scratch.mdctFFTIn, scratch.mdctFFTOut, scratch.mdctFFTTmp)
+	return coeffs[:frameSize]
 }
 
 func (e *Encoder) finishEncodedSilenceFrame(re *rangecoding.Encoder, frameSize, targetBytes int) ([]byte, error) {

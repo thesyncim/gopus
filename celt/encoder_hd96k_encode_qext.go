@@ -24,24 +24,32 @@ package celt
 // grows/clears the overlap-history buffer for overlap=240, exactly as the
 // decoder grows its synthesis overlap.
 //
-// What is NOT yet wired here (the remaining native-encode increments, tracked
-// against the native 96 kHz encode oracle in
-// internal/libopustest/qext_encode96k_oracle.go):
 // The pre-filter comb (run_prefilter) runs at the HD scale: max_period =
 // QEXT_SCALE(COMBFILTER_MAXPERIOD) = 2048, min_period = 2*COMBFILTER_MINPERIOD,
 // with pitch_index /= qext_scale before comb_filter (celt/prefilter.go via
 // Encoder.combScale/combMaxPeriod/combMinPeriod), so the encoded postfilter
 // pitch parameters are bit-exact vs the reference.
 //
+// The native HD96k analysis MDCT is wired into EncodeFrame: the long/short
+// forward MDCT runs at overlap=240 and the native 3840/480 transform lengths
+// (computeMDCTWithHistory* honour the passed overlap rather than the 48 kHz
+// package constant), and band energies use the libopus bin multiplier M=1<<LM
+// (eBands[i]*M) instead of frameSize/120, which mis-scaled the HD bin edges by
+// 2x. With the correct analysis, the QEXT packet-space reservation reserves
+// qext_bytes=21 (payload 20) for both mono and stereo CBR @256k (mono main
+// payload is 616 like stereo), and the coarse-energy intra decision matches the
+// reference (stereo intra=1; stereo coarse band energies decode bit-identically).
+//
 // What is NOT yet wired here (the remaining native-encode increments, tracked
 // against the native 96 kHz encode oracle in
 // internal/libopustest/qext_encode96k_oracle.go):
-//   - The full EncodeFrame driver still threads the 48 kHz overlap constant
-//     through transient analysis and the MDCT-history helpers; HD96k needs
-//     overlap=240 wired through all of those.
-//   - The QEXT packet-space reservation (computeQEXTReservation) over-reserves
-//     the extension payload for mono CBR, so the main payload size diverges
-//     (mono 237 vs reference 616; stereo already matches).
+//   - The HD-scale comb prefilter feeds a slightly different filtered signal into
+//     the MDCT (mono, postfilter on), perturbing one band's analysis energy and
+//     its dynalloc boost; this is the same comb_filter residual documented on the
+//     decode side.
+//   - Downstream TF/allocation/PVQ band-data parity at the HD scale (stereo's
+//     analysis is bit-exact through coarse energy but the main payload still
+//     diverges in the band-data region).
 //   - The top-level Opus packet framing of the reserved extension payload
 //     (encoder_96k_qext.go) still resamples 2:1 rather than emitting a native
 //     96 kHz QEXT packet.
