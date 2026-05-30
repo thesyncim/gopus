@@ -152,6 +152,12 @@ type Encoder struct {
 	// celtEnergyMask carries per-band surround masking into CELT dynalloc control.
 	celtEnergyMask []float32
 
+	// celtPayloadCeilingActive makes the CELT-only path bound the range coder by
+	// nb_compr_bytes = max_data_bytes-1 (opus_encoder.c line 2392). The multistream
+	// encoder sets this so per-stream curr_max ceilings (LFE/last stream) are
+	// honored; standalone single-stream encode leaves it false and is unaffected.
+	celtPayloadCeilingActive bool
+
 	encoderQEXTFields
 	encoderFixedCELTFields
 
@@ -1003,14 +1009,13 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			if encodingBitrate != originalBitrate {
 				e.bitrate = encodingBitrate
 			}
-			// libopus opus_encode_frame_native() bounds the CELT range coder by
+			// The multistream encoder bounds the CELT range coder by
 			// nb_compr_bytes = max_data_bytes-1 (opus_encoder.c line 2392;
-			// redundancy_bytes==0 for CELT-only). Thread the caller budget as the
-			// payload cap so per-stream curr_max ceilings (multistream LFE/last
-			// stream) are honored. Standalone callers pass a large budget, leaving
-			// behavior unchanged.
+			// redundancy_bytes==0 for CELT-only) so per-stream curr_max ceilings
+			// (LFE/last stream) are honored. Single-stream encode leaves
+			// celtPayloadCeilingActive false and uses the unbounded budget.
 			celtMaxPayload := 0
-			if maxDataBytes > 1 {
+			if e.celtPayloadCeilingActive && maxDataBytes > 1 {
 				celtMaxPayload = maxDataBytes - 1
 			}
 			frameData, err = e.encodeCELTFrameWithBitrateAndMaxPayload(celtPCM, frameSize, int(e.bitrate), celtMaxPayload)
@@ -3820,6 +3825,13 @@ func (e *Encoder) SetCELTSurroundTrim(trim opusVal32) {
 // CELTSurroundTrim returns the current CELT alloc-trim surround bias.
 func (e *Encoder) CELTSurroundTrim() opusVal32 {
 	return e.celtSurroundTrim
+}
+
+// SetCELTPayloadCeilingActive enables bounding the CELT-only range coder by
+// max_data_bytes-1, used by the multistream encoder to honor per-stream
+// curr_max ceilings. Single-stream encoders leave this unset.
+func (e *Encoder) SetCELTPayloadCeilingActive(active bool) {
+	e.celtPayloadCeilingActive = active
 }
 
 // SetCELTEnergyMask sets per-band CELT surround masking (21 mono, 42 stereo).

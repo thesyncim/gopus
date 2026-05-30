@@ -1165,6 +1165,7 @@ func (e *Encoder) applyPerStreamPolicy(frameSize int, pcm []float32) {
 		enc.SetAllocatedBitrate(rates[i])
 		enc.SetLFE(i == e.lfeStream)
 		enc.SetCELTCVBRBoundScale(cvbrBoundScale)
+		enc.SetCELTPayloadCeilingActive(true)
 
 		switch {
 		case e.isSurroundMapping():
