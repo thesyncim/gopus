@@ -513,6 +513,8 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	if d.is96kHz() {
 		return d.decodeInt1696k(data, pcm)
 	}
+	d.beginFixedPacket()
+	defer d.endFixedPacket()
 	channels := int(d.channels)
 	sampleRate := int(d.sampleRate)
 	if data == nil || len(data) == 0 {
@@ -541,7 +543,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		softClipAndFloat32ToInt16(pcm, d.scratchPCM, n, channels, d.softClipMem[:])
+		d.finishInt16Output(pcm, d.scratchPCM, n, channels)
 		return n, nil
 	}
 
@@ -567,7 +569,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	softClipAndFloat32ToInt16(pcm, d.scratchPCM, n, channels, d.softClipMem[:])
+	d.finishInt16Output(pcm, d.scratchPCM, n, channels)
 	return n, nil
 }
 
@@ -583,6 +585,8 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 	if d.is96kHz() {
 		return d.decodeInt2496k(data, pcm)
 	}
+	d.beginFixedPacket()
+	defer d.endFixedPacket()
 	channels := int(d.channels)
 	sampleRate := int(d.sampleRate)
 	if data == nil || len(data) == 0 {
@@ -611,7 +615,7 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 		if err != nil {
 			return 0, err
 		}
-		float32ToInt24Slice(pcm, d.scratchPCM, n, channels)
+		d.finishInt24Output(pcm, d.scratchPCM, n, channels)
 		return n, nil
 	}
 
@@ -637,7 +641,7 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	float32ToInt24Slice(pcm, d.scratchPCM, n, channels)
+	d.finishInt24Output(pcm, d.scratchPCM, n, channels)
 	return n, nil
 }
 

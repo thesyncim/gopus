@@ -728,7 +728,7 @@ func (d *CELTDecoder) DecodeLost(frameSize int, out []int16) int {
 	d.lastFrameType = currFrameType
 
 	// deemphasis(out_syn, pcm, N, CC, downsample=1, preemph, preemph_memD, 0).
-	resPCM := make([]int32, C*N)
+	resPCM := d.resScratch(C * N)
 	Deemphasis(outSyn, resPCM, staticMDCT48000Preemph0, d.preemphMemD, N, 1, false)
 	for i := range resPCM {
 		out[i] = Res2Int16(resPCM[i])

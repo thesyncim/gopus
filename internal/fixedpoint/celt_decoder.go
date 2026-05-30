@@ -77,6 +77,31 @@ type CELTDecoder struct {
 	mdct   *MDCTLookup
 	window []int16
 	eBands []int16
+
+	// res holds the opus_res output of the most recent decode (the value
+	// libopus writes via RES2INT24(a)=(a) for the FIXED_POINT ENABLE_RES24
+	// build). int16 output derives from it via Res2Int16; int24 output is the
+	// value itself. Reused across frames to avoid per-frame allocation.
+	res []int32
+}
+
+// resScratch returns d.res resized to n, growing the backing array as needed.
+func (d *CELTDecoder) resScratch(n int) []int32 {
+	if cap(d.res) < n {
+		d.res = make([]int32, n)
+		return d.res
+	}
+	d.res = d.res[:n]
+	return d.res
+}
+
+// LastRes returns the opus_res output of the most recent DecodeWithEC /
+// DecodeLost call. For the FIXED_POINT ENABLE_RES24 build these int32 values
+// are exactly the int24 PCM samples libopus emits (RES2INT24(a) == a), and the
+// int16 output is Res2Int16 of each. The slice aliases internal scratch and is
+// valid until the next decode.
+func (d *CELTDecoder) LastRes() []int32 {
+	return d.res
 }
 
 // NewCELTDecoder allocates and resets an integer CELT decoder for the static
@@ -117,6 +142,41 @@ func NewCELTDecoderRate(channels, sampleRate int) *CELTDecoder {
 func (d *CELTDecoder) SetBandRange(start, end int) {
 	d.start = start
 	d.end = end
+}
+
+// Reset clears the cross-frame decode state, matching the OPUS_RESET_STATE
+// region of OpusCustomDecoder (decode_mem, energy histories, post-filter and
+// loss state) while preserving the channel count, output downsample factor and
+// active band range. oldLogE/oldLogE2 are reseeded to -GCONST(28.f).
+func (d *CELTDecoder) Reset() {
+	clear(d.decodeMem)
+	clear(d.oldBandE)
+	clear(d.backgroundLogE)
+	clear(d.preemphMemD)
+	for i := range d.oldLogE {
+		d.oldLogE[i] = -gconst(28)
+		d.oldLogE2[i] = -gconst(28)
+	}
+	d.rng = 0
+	d.lossDuration = 0
+	d.lastPitchIndex = 0
+	d.plcDuration = 0
+	d.lastFrameType = 0
+	d.skipPLC = false
+	d.prefilterAndFold = false
+	d.lpc = nil
+	d.postfilterPeriod = 0
+	d.postfilterPeriodOld = 0
+	d.postfilterGain = 0
+	d.postfilterGainOld = 0
+	d.postfilterTapset = 0
+	d.postfilterTapsetOld = 0
+}
+
+// FinalRange returns the range coder state captured after the most recent
+// decode (st->rng), matching the CELT_GET_FINAL_RANGE control.
+func (d *CELTDecoder) FinalRange() uint32 {
+	return d.rng
 }
 
 // DecodeWithEC ports celt_decode_with_ec for a fresh non-PLC frame on the static
@@ -396,7 +456,7 @@ func (d *CELTDecoder) DecodeWithEC(data []byte, frameSize int, out []int16) int 
 
 	// deemphasis(out_syn, pcm, N, CC, st->downsample, preemph, preemph_memD, accum=0).
 	outSamples := N / d.downsample
-	resPCM := make([]int32, CC*outSamples)
+	resPCM := d.resScratch(CC * outSamples)
 	Deemphasis(outSyn, resPCM, staticMDCT48000Preemph0, d.preemphMemD, N, d.downsample, false)
 	for i := range resPCM {
 		out[i] = Res2Int16(resPCM[i])

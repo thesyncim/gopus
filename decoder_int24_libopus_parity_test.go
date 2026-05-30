@@ -220,6 +220,16 @@ func TestDecodeInt24HybridAPIRatePCMMatchesLibopus(t *testing.T) {
 // confirming that DecodeInt24 shares the same decode path and differs only in
 // the final sample format conversion.
 func TestDecodeInt24TracksFloat32Decode(t *testing.T) {
+	// This test asserts that DecodeInt24 derives its samples from the same
+	// float32 decode as Decode (default build). Under -tags gopus_fixedpoint,
+	// DecodeInt24 routes CELT-only frames directly to the integer decoder's
+	// libopus-exact opus_res int24, which is produced by a different (fixed)
+	// decode than the float path, so the "tracks float" relationship no longer
+	// holds. The int24 path's correctness is covered there by
+	// TestDecoderFixedPointCELTParity instead.
+	if decodeInt24TracksFloat32Skip {
+		t.Skip("DecodeInt24 routes CELT directly to the integer decoder under gopus_fixedpoint")
+	}
 	for _, channels := range []int{1, 2} {
 		packet := encodeAPIRateCELTPacket(t, channels)
 		const sampleRate = 48000

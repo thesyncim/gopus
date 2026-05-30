@@ -365,6 +365,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 
 	switch mode {
 	case ModeHybrid:
+		// Hybrid output is not produced by the integer CELT path; the int16/int24
+		// wrappers must use the float conversion for this packet.
+		d.markFixedUnhandled()
 		if data != nil && d.haveDecoded && d.prevMode == ModeCELT {
 			d.silkDecoder.Reset()
 		}
@@ -435,6 +438,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		}
 
 	case ModeSILK:
+		// SILK output is not produced by the integer CELT path; the int16/int24
+		// wrappers must use the float conversion for this packet.
+		d.markFixedUnhandled()
 		if d.haveDecoded && d.prevMode == ModeCELT {
 			d.silkDecoder.Reset()
 		}
@@ -592,6 +598,7 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	case ModeCELT:
 		if needCeltReset {
 			d.celtDecoder.Reset()
+			d.resetFixedCELT()
 			if data != nil {
 				d.celtDecoder.SetBandwidth(celtBW)
 			}
@@ -599,15 +606,37 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 		if extsupport.QEXT {
 			d.setCELTQEXTPayload(qextPayload)
 		}
-		err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32AtAPIRate(data, min(F20, frameSize), packetStereoLocal, out)
-		if err != nil {
+		// The float CELT decoder always runs: it fills the float out buffer
+		// (the exact float Decode path) and advances the float cross-frame state
+		// that a subsequent PLC frame depends on.
+		if err := d.celtDecoder.DecodeFrameWithPacketStereoToFloat32AtAPIRate(data, min(F20, frameSize), packetStereoLocal, out); err != nil {
 			return 0, err
 		}
 		// Capture the main decode's FinalRange (no redundancy post-processing for CELT-only)
 		d.mainDecodeRng = d.celtDecoder.FinalRange()
+
+		// Under -tags gopus_fixedpoint, an active integer-output packet
+		// (DecodeInt16 / DecodeInt24) additionally runs the integer FIXED_POINT
+		// CELT decoder to accumulate libopus-exact int16/int24 output. The
+		// dispatch is a no-op in the default build and on the float Decode path.
+		if data != nil && !extsupport.QEXT {
+			handled, fixedErr := d.celtDecodeFixedAPIRate(data, min(F20, frameSize), packetStereoLocal, celtBW, out)
+			if fixedErr != nil {
+				return 0, fixedErr
+			}
+			if !handled {
+				d.markFixedUnhandled()
+			}
+		} else {
+			d.markFixedUnhandled()
+		}
 	}
 
 	if redundancy {
+		// Redundancy post-processing rewrites the float out buffer after the
+		// main decode, so the integer-exact accumulation no longer matches; the
+		// int16/int24 wrappers must use the float conversion for this packet.
+		d.markFixedUnhandled()
 		transition = false
 		pcmTransition = nil
 	}
@@ -652,6 +681,9 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	}
 
 	if transition && len(pcmTransition) > 0 {
+		// The transition crossfade rewrites the float out buffer after the main
+		// decode, so the integer-exact accumulation no longer matches.
+		d.markFixedUnhandled()
 		if audiosize >= F5 {
 			copy(out[:F2_5*channels], pcmTransition[:F2_5*channels])
 			smoothFade(pcmTransition[F2_5*channels:], out[F2_5*channels:], out[F2_5*channels:], F2_5, channels, fs)
