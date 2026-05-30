@@ -505,13 +505,25 @@ func runVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 		// silk.UpdateVariableHPCutoff) makes the SILK input track libopus.
 		//
 		// linux/amd64 (CI): HARD per-frame size-parity gate. On darwin/arm64 a
-		// residual ≤1-ULP float-contraction difference in the hp_cutoff biquad and
-		// the warped-shaping-AR kernels (auto_corr differs ~1.3e-5 on bit-identical
-		// windowed input, flipping occasional int16 resampler-input boundaries and
-		// then cascading through the NSQ/gain feedback into a multi-byte size delta)
-		// remains. This is the same darwin/arm64-only float-FMA-tail class as the
-		// documented CELT 1-ULP drift (CI/amd64 is the hard gate); the per-frame
-		// size sequence is bounded and reported, not silently ignored.
+		// residual ≤1-ULP float-contraction difference in the SILK FLP shaping
+		// chain remains. Root cause (verified): libopus is built with clang, which
+		// emits scalar FMA (fmadd/fmsub) for the double-precision multiply-adds in
+		// the SILK FLP kernels (warped_autocorrelation_FLP, find_LPC/Burg,
+		// hp_cutoff biquad) on arm64 but plain mulsd+addsd on x86_64 baseline.
+		// Go's backend matches that exactly per-arch (FMADDD on arm64, MULSD+ADDSD
+		// on amd64), but clang and the Go SSA scheduler choose *different* fusion
+		// groupings for the same multi-term expression on arm64 (e.g. which of the
+		// two `warping*x` products is absorbed into the surrounding add). The
+		// isolated warped_autocorrelation_FLP kernel is in fact bit-identical to the
+		// clang arm64 reference; the divergence enters the cascade as a 1-ULP delta
+		// downstream that crosses a silk_float2int rounding boundary in the shaping
+		// AR_Q13 coefficients (silk ctrl oracle: AR_Q13 off by exactly one quant
+		// step), then feeds NSQ/gain and flips an occasional per-frame byte count.
+		// On x86_64 neither compiler fuses, so the IEEE double mul-then-add is
+		// identical and amd64 is byte-exact. This is the same darwin/arm64-only
+		// float-FMA-tail class as the documented CELT 1-ULP drift (CI/amd64 is the
+		// hard gate); the per-frame size sequence is bounded and reported, not
+		// silently ignored.
 		if isDarwinARM64 {
 			maxDelta := 0
 			for i := range refLens {
