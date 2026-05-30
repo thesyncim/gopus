@@ -35,6 +35,8 @@ func (d *Decoder) fixedApplyTransition(_, _, _ int)                             
 func (d *Decoder) fixedClearHybridFrame()                                          {}
 func (d *Decoder) fixedSnapshotHandled() bool                                      { return false }
 func (d *Decoder) fixedRestoreHandled(_ bool)                                      {}
+func (d *Decoder) fixedSuppressCELTPLC(_ bool) bool                                { return false }
+func (d *Decoder) fixedCELTPLCHookSuppressed() bool                                { return false }
 
 // The integer-output accumulation helpers are no-ops in the default build; the
 // int16/int24 wrappers there always use the float conversion.

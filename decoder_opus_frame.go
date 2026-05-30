@@ -443,9 +443,15 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					// The recursive float PLC decode declines the integer
 					// accumulation; preserve the main hybrid frame's integer
 					// status across it, since the integer transition crossfade
-					// recovers the frame bit-exact.
+					// recovers the frame bit-exact. Suppress the integer
+					// celt_decode_lost hook for the recursive data==nil decode:
+					// fixedDecodeTransitionPLC already advanced the integer CELT
+					// PLC state, so the recursive decode must only fill the float
+					// pcmTransition buffer.
 					handled := d.fixedSnapshotHandled()
+					suppressed := d.fixedSuppressCELTPLC(true)
 					n, err := d.decodeOpusFrameInto(d.scratchTransition, nil, transSize, packetFrameSize, d.prevMode, d.lastBandwidth, packetStereoLocal)
+					d.fixedSuppressCELTPLC(suppressed)
 					d.fixedRestoreHandled(handled)
 					if err != nil {
 						return err
@@ -668,12 +674,18 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			if !handled {
 				d.markFixedUnhandled()
 			}
-		} else if data == nil && !extsupport.QEXT {
+		} else if data == nil && !extsupport.QEXT && !d.fixedCELTPLCHookSuppressed() {
 			// CELT-only packet loss: run the integer FIXED_POINT celt_decode_lost
 			// so the int16/int24 PLC output is bit-exact with opus_decode(NULL).
 			// The integer decoder's cross-frame state was primed by the prior
 			// received CELT frames; if it was not (no integer CELT history yet)
 			// the helper declines and the float conversion is used.
+			//
+			// When this CELT frame is the recursive scratch decode of a Hybrid
+			// transition (fixedCELTPLCHookSuppressed), the integer 5 ms CELT PLC
+			// frame was already produced by fixedDecodeTransitionPLC; here we only
+			// fill the float pcmTransition buffer and must not advance the integer
+			// CELT PLC state again, so the hook is skipped and the frame declines.
 			if !d.celtDecodeLostFixedAPIRate(min(F20, frameSize)) {
 				d.markFixedUnhandled()
 			}

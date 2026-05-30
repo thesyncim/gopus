@@ -73,6 +73,14 @@ type decoderFixedFields struct {
 	// transition helpers run even after the highband hook is disarmed.
 	fixedHybridFrameActive bool
 
+	// fixedSuppressCELTPLCHook suppresses the integer FIXED_POINT celt_decode_lost
+	// hook on a recursive data==nil CELT frame. The Hybrid transition path already
+	// produced the integer 5 ms CELT PLC frame via fixedDecodeTransitionPLC; the
+	// recursive float PLC decode that follows it only fills the float pcmTransition
+	// buffer and must not advance the integer CELT PLC state a second time. It is
+	// set around that recursive decode and cleared afterwards.
+	fixedSuppressCELTPLCHook bool
+
 	// fixedRedundancyApplied / fixedTransitionApplied count the frames whose
 	// integer output was finished by the opus_res-domain redundancy / transition
 	// crossfade. They are diagnostic counters used by the parity gate to confirm

@@ -214,6 +214,20 @@ func (d *Decoder) fixedRestoreHandled(v bool) {
 	}
 }
 
+// fixedSuppressCELTPLC sets fixedSuppressCELTPLCHook to v and returns the prior
+// value, so callers can bracket the recursive Hybrid-transition float PLC decode
+// without letting the data==nil CELT branch run celtDecodeLostFixedAPIRate a
+// second time over the integer CELT decoder.
+func (d *Decoder) fixedSuppressCELTPLC(v bool) bool {
+	prev := d.fixedSuppressCELTPLCHook
+	d.fixedSuppressCELTPLCHook = v
+	return prev
+}
+
+// fixedCELTPLCHookSuppressed reports whether the integer celt_decode_lost hook is
+// currently suppressed for a recursive transition scratch decode.
+func (d *Decoder) fixedCELTPLCHookSuppressed() bool { return d.fixedSuppressCELTPLCHook }
+
 // fixedLastFrameRes returns the most recently appended frame's opus_res and int16
 // slices within the running packet accumulation (length needed interleaved
 // samples), or nil if the integer accumulation is not active / too short.
