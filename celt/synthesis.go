@@ -17,6 +17,68 @@ func (d *Decoder) synthOverlapLen() int {
 	return Overlap
 }
 
+// customModeActive reports whether a non-standard Opus Custom mode is driving
+// the decoder. Always false in the default build (customScaleBase stays zero).
+func (d *Decoder) customModeActive() bool { return d.customScaleBase > 0 }
+
+// scaleBase returns the short-MDCT base used to scale band-bin edges. It is
+// Overlap (120) for the 48 kHz modes and the custom mode's short-MDCT size for
+// the Fs==400*shortMdctSize family.
+func (d *Decoder) scaleBase() int {
+	if d.customScaleBase > 0 {
+		return d.customScaleBase
+	}
+	return Overlap
+}
+
+// modeConfig returns the frame-size-dependent ModeConfig for the active mode.
+// For a custom mode in the Fs==400*shortMdctSize family it derives LM from the
+// short-block decomposition (frameSize/customScaleBase), so 20 ms family frames
+// (e.g. 24000/480) get LM=3/ShortBlocks=8 like libopus.
+func (d *Decoder) modeConfig(frameSize int) ModeConfig {
+	if d.customScaleBase > 0 {
+		nbShort := frameSize / d.customScaleBase
+		lm := 0
+		for (1 << lm) < nbShort {
+			lm++
+		}
+		eff := MaxBands
+		if d.customEffBands > 0 {
+			eff = d.customEffBands
+		}
+		return ModeConfig{
+			FrameSize:   frameSize,
+			ShortBlocks: nbShort,
+			LM:          lm,
+			EffBands:    eff,
+			MDCTSize:    frameSize,
+		}
+	}
+	return GetModeConfig(frameSize)
+}
+
+// effectiveEndBand returns the decode end band for the active mode, clamped to
+// the custom effEBands when a custom mode is active.
+func (d *Decoder) effectiveEndBand(frameSize int) int {
+	mode := d.modeConfig(frameSize)
+	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
+	if end > mode.EffBands {
+		end = mode.EffBands
+	}
+	if end < 1 {
+		end = 1
+	}
+	return end
+}
+
+// validFrameSize reports whether frameSize is acceptable for the active mode.
+func (d *Decoder) validFrameSize(frameSize int) bool {
+	if d.customScaleBase > 0 {
+		return frameSize > 0 && frameSize%d.customScaleBase == 0
+	}
+	return ValidFrameSize(frameSize)
+}
+
 // OverlapAdd combines the current frame with the previous overlap.
 // This is the core operation for continuous audio reconstruction in CELT.
 //

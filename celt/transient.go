@@ -489,9 +489,9 @@ func (e *Encoder) toneDetectOnlyF32(pcm []float32, frameSize int) TransientAnaly
 		return result
 	}
 	if channels == 1 {
-		result.ToneFreq, result.Toneishness = toneDetectFloat32Mono(pcm[:samplesPerChannel], 48000, false)
+		result.ToneFreq, result.Toneishness = toneDetectFloat32Mono(pcm[:samplesPerChannel], e.toneDetectFs(), false)
 	} else {
-		result.ToneFreq, result.Toneishness = toneDetectScratchF32(pcm, channels, 48000, nil)
+		result.ToneFreq, result.Toneishness = toneDetectScratchF32(pcm, channels, e.toneDetectFs(), nil)
 	}
 	return result
 }
@@ -512,7 +512,7 @@ func (e *Encoder) transientAnalysisMonoFloat32(pcm []float32, frameSize int, all
 		return result
 	}
 
-	toneFreq, toneishness := toneDetectFloat32Mono(pcm[:samplesPerChannel], 48000, false)
+	toneFreq, toneishness := toneDetectFloat32Mono(pcm[:samplesPerChannel], e.toneDetectFs(), false)
 	result.ToneFreq = toneFreq
 	result.Toneishness = toneishness
 
@@ -672,7 +672,7 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 	if deferMonoToneDetect {
 		monoToneX = toneBuf[:samplesPerChannel]
 	} else if !deferStereoToneDetect {
-		toneFreq, toneishness := toneDetectScratchF32(pcm, channels, 48000, toneBuf)
+		toneFreq, toneishness := toneDetectScratchF32(pcm, channels, e.toneDetectFs(), toneBuf)
 		result.ToneFreq = toneFreq
 		result.Toneishness = toneishness
 	}
@@ -830,7 +830,7 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 			maxMaskMetric = maskMetricR
 		}
 		if deferStereoToneDetect {
-			toneFreq, toneishness := toneDetectFloat32Mono(toneBuf[:samplesPerChannel], 48000, toneLPCStereoLane4)
+			toneFreq, toneishness := toneDetectFloat32Mono(toneBuf[:samplesPerChannel], e.toneDetectFs(), toneLPCStereoLane4)
 			result.ToneFreq = toneFreq
 			result.Toneishness = toneishness
 		}
@@ -969,7 +969,7 @@ func (e *Encoder) transientAnalysisScratchF32(pcm []float32, frameSize int, allo
 	}
 
 	if deferMonoToneDetect {
-		toneFreq, toneishness := toneDetectFloat32Mono(monoToneX, 48000, false)
+		toneFreq, toneishness := toneDetectFloat32Mono(monoToneX, e.toneDetectFs(), false)
 		result.ToneFreq = toneFreq
 		result.Toneishness = toneishness
 	}

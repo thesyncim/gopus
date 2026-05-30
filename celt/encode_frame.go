@@ -222,7 +222,7 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 // Reference: RFC 6716 Section 4.3, libopus celt/celt_encoder.c
 func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	// Step 1: Validate inputs
-	if !ValidFrameSize(frameSize) {
+	if !e.validFrameSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
 
@@ -233,7 +233,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	}
 
 	// Step 2: Get mode configuration
-	mode := GetModeConfig(frameSize)
+	mode := e.modeConfig(frameSize)
 	nbBands := e.effectiveBandCount(frameSize)
 	lm := mode.LM
 	codedChannels := e.codedChannels()
@@ -2012,7 +2012,7 @@ func (e *Encoder) cbrPayloadBytes(frameSize int) int {
 }
 
 func (e *Encoder) vbrMaxPayloadBytes(frameSize int) int {
-	mode := GetModeConfig(frameSize)
+	mode := e.modeConfig(frameSize)
 	lm := mode.LM
 	packetSizeCap := 1275
 	if extsupport.QEXT && e.qextActive() && !e.hybrid {
@@ -2057,7 +2057,7 @@ func (e *Encoder) computeInitialTargetBytes(frameSize int) int {
 }
 
 func (e *Encoder) computeFinalVBRTargetBytes(frameSize int, tfEstimate float32, pitchChange bool, tellFrac, totalBoost, limitBytes int) int {
-	mode := GetModeConfig(frameSize)
+	mode := e.modeConfig(frameSize)
 	lm := mode.LM
 	lmDiff := 3 - lm
 	if lmDiff < 0 {
@@ -2151,7 +2151,7 @@ func (e *Encoder) computeTargetBits(frameSize int, tfEstimate float32, pitchChan
 		return targetBits
 	}
 
-	mode := GetModeConfig(frameSize)
+	mode := e.modeConfig(frameSize)
 	lm := mode.LM
 	lmDiff := 3 - lm
 	if lmDiff < 0 {
@@ -2304,7 +2304,7 @@ func (e *Encoder) computeVBRTarget(baseTargetQ3, frameSize int, tfEstimate float
 }
 
 func (e *Encoder) computeVBRTargetWithBoost(baseTargetQ3, frameSize int, tfEstimate float32, pitchChange bool, totalBoost int) int {
-	mode := GetModeConfig(frameSize)
+	mode := e.modeConfig(frameSize)
 	lm := mode.LM
 	nbBands := e.effectiveBandCount(frameSize)
 	channels := e.codedChannels()

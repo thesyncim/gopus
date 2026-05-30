@@ -86,6 +86,13 @@ func NewEncoder(mode *CustomMode, channels int) (*CustomEncoder, error) {
 	ce.enc.SetComplexity(ce.complexity)
 	ce.enc.SetBitrate(ce.bitrate)
 	ce.enc.SetLSBDepth(ce.lsbDepth)
+
+	// Non-standard modes in the Fs==400*shortMdctSize family drive the native
+	// CELT data plane parameterized by the mode overlap, short-MDCT scaling base,
+	// effEBands clamp and per-rate pre-emphasis.
+	if mode.InScaledBandFamily() {
+		ce.enc.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph)
+	}
 	return ce, nil
 }
 
@@ -110,11 +117,12 @@ func (ce *CustomEncoder) Channels() int { return ce.channels }
 // The caller supplies pcm with exactly frameSize*channels samples.
 // maxBytes controls the maximum packet size (CBR budget for standard modes).
 //
-// Standard modes (48 kHz, 120/240/480/960 samples) produce output byte-identical
-// to libopus. Non-standard modes return ErrNonStandard: the gopus CELT core is
-// keyed to the 48 kHz frame-size grid (band-bin scaling, overlap, MDCT length and
-// pre-emphasis), so it cannot yet reproduce a libopus --enable-custom-modes
-// bitstream for arbitrary (Fs, frame_size). NewMode still computes the full
+// Standard modes (48 kHz, 120/240/480/960 samples) and the
+// Fs==400*shortMdctSize family (e.g. 16000/320, 24000/480) produce output
+// byte-identical to libopus --enable-custom-modes. Other non-standard
+// (Fs, frame_size) pairs whose band layout is genuinely custom (compute_ebands
+// derives a non-48 kHz table) return ErrNonStandard: the gopus CELT core does
+// not yet carry those allocation/cache tables. NewMode still computes the full
 // mode tables for such rates so the remaining native-encode wiring can be added
 // without re-deriving them.
 //
@@ -131,7 +139,7 @@ func (ce *CustomEncoder) EncodeFloat(pcm []float32, maxBytes int) ([]byte, error
 	if maxBytes <= 0 {
 		return nil, ErrMaxBytes
 	}
-	if !ce.mode.isStandard {
+	if !ce.mode.isStandard && !ce.mode.InScaledBandFamily() {
 		return nil, ErrNonStandard
 	}
 	ce.enc.SetMaxPayloadBytes(maxBytes)
@@ -312,4 +320,3 @@ func (ce *CustomEncoder) FinalRange() uint32 {
 	}
 	return ce.enc.FinalRange()
 }
-

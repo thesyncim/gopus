@@ -22,8 +22,15 @@ func buildMDCTTrigF32(n int) []float32 {
 	n2 := n / 2
 	trig := make([]float32, n2)
 	for i := 0; i < n2; i++ {
-		angle := float32(2.0*math.Pi) * (float32(i) + 0.125) / float32(n)
-		trig[i] = opusmath.CosF32(angle)
+		// libopus celt/mdct.c clt_mdct_init float build:
+		//   trig[i] = (float)cos(2*PI*(i+.125)/N)
+		// computed in double precision and rounded to float. The float32
+		// polynomial cosine does not match libm here, which matters for the
+		// non-standard MDCT lengths of the Opus Custom Fs==400*shortMdctSize
+		// family (e.g. N=120 short blocks at 24000/480). The standard 48 kHz
+		// lengths take precomputed tables in getMDCTTrigF32 and are unaffected.
+		angle := 2.0 * math.Pi * (float64(i) + 0.125) / float64(n)
+		trig[i] = float32(math.Cos(angle))
 	}
 	return trig
 }

@@ -88,6 +88,15 @@ type Decoder struct {
 	deemphCoef1  float32
 	deemphCoef3  float32
 
+	// customScaleBase / customEffBands parameterize a non-standard Opus Custom
+	// mode in the Fs==400*shortMdctSize family. Zero selects the 48 kHz base
+	// (Overlap=120) and the standard effEBands clamp, keeping the default and
+	// 48 kHz paths byte-identical. When set the band-bin scale is
+	// frameSize/customScaleBase == 1<<LM (libopus eBands[i]<<LM) and the decode
+	// end band is customEffBands.
+	customScaleBase int
+	customEffBands  int
+
 	// Postfilter state (pitch-based comb filter)
 	postfilterPeriod int32   // libopus CELTDecoder.postfilter_period
 	postfilterGain   float32 // Comb filter gain

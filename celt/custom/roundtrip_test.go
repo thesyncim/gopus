@@ -159,9 +159,11 @@ func TestRoundTripStandardAllFrameSizes(t *testing.T) {
 	}
 }
 
-// TestRoundTripNonStandardMono verifies that a non-standard mode (16 kHz, 160
-// samples = 10ms) builds a valid CustomMode but declines encode/decode with
-// ErrNonStandard, rather than silently producing a non-conformant bitstream.
+// TestRoundTripNonStandardMono verifies that a non-standard mode in the
+// Fs==400*shortMdctSize family (16 kHz, 160 samples = 10ms; 400*40==16000)
+// encodes and decodes natively through the parameterized CELT data plane,
+// producing audio with energy. Byte/sample parity against the libopus
+// custom-modes oracle is asserted in TestOracleParityScaledBandFamily.
 func TestRoundTripNonStandardMono(t *testing.T) {
 	// 16 kHz, 160 samples = 10ms frame.
 	mode, err := custom.NewMode(16000, 160)
@@ -170,6 +172,9 @@ func TestRoundTripNonStandardMono(t *testing.T) {
 	}
 	if mode.IsStandard() {
 		t.Fatal("16000/160 must not be standard")
+	}
+	if !mode.InScaledBandFamily() {
+		t.Fatal("16000/160 must be in the scaled-band family")
 	}
 	t.Logf("mode: Fs=%d frameSize=%d maxLM=%d nbEBands=%d overlap=%d",
 		mode.Fs, mode.FrameSize, mode.MaxLM, mode.NbEBands, mode.Overlap)
@@ -184,11 +189,22 @@ func TestRoundTripNonStandardMono(t *testing.T) {
 	}
 
 	pcm := generateSine(300, 16000, 160)
-	if _, err := enc.EncodeFloat(pcm, 80); !errors.Is(err, custom.ErrNonStandard) {
-		t.Fatalf("EncodeFloat: err = %v, want ErrNonStandard", err)
+	packet, err := enc.EncodeFloat(pcm, 80)
+	if err != nil {
+		t.Fatalf("EncodeFloat: %v", err)
 	}
-	if _, err := dec.DecodeFloat(make([]byte, 8), 160); !errors.Is(err, custom.ErrNonStandard) {
-		t.Fatalf("DecodeFloat: err = %v, want ErrNonStandard", err)
+	if len(packet) == 0 {
+		t.Fatal("EncodeFloat produced empty packet")
+	}
+	decoded, err := dec.DecodeFloat(packet, 160)
+	if err != nil {
+		t.Fatalf("DecodeFloat: %v", err)
+	}
+	if len(decoded) != 160 {
+		t.Fatalf("decoded length = %d, want 160", len(decoded))
+	}
+	if !hasEnergy(decoded, 1e-4) {
+		t.Error("decoded audio has no energy")
 	}
 }
 

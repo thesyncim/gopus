@@ -80,7 +80,7 @@ func (d *Decoder) synthesizeDecodedFrame(frameSize, modeLM, end, lm, shortBlocks
 	// synthesis path. Disable the direct-output fast paths so HD frames route
 	// through Synthesize/SynthesizeStereo + the HD-aware deemphasis/postfilter,
 	// which still write into directOutPCM at the end of this function.
-	hdMode := d.synthOverlap == 240
+	hdMode := d.synthOverlap == 240 || d.customScaleBase > 0
 	directStereoFloat32 := !hdMode && d.channels == 2 && len(d.directOutPCM) >= outputFrameSize*2
 	directMonoFloat32 := !hdMode && d.channels == 1 &&
 		len(d.directOutPCM) >= outputFrameSize &&

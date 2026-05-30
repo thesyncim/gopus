@@ -48,6 +48,15 @@ type Encoder struct {
 	// unchanged. Set by EnableHD96kMode (gopus_qext).
 	hd96kOverlap int
 	hd96kPreemph [4]float32
+	// customScaleBase is the mode short-MDCT size used to scale band-bin edges
+	// for a non-standard Opus Custom mode in the Fs==400*shortMdctSize family.
+	// Zero selects the 48 kHz base (Overlap=120), keeping the default and 48 kHz
+	// paths byte-identical. When non-zero the band-bin scale is
+	// frameSize/customScaleBase == 1<<LM, matching libopus eBands[i]<<LM.
+	customScaleBase int
+	// customEffBands is the effEBands clamp for the active custom mode (0 selects
+	// the standard 21-band clamp).
+	customEffBands int
 	// overlapMax mirrors libopus st->overlap_max for CELT silence detection.
 	// It tracks max absolute amplitude over the last overlap region.
 	overlapMax opusVal32
@@ -890,8 +899,86 @@ func (e *Encoder) Bandwidth() CELTBandwidth {
 	return e.bandwidth
 }
 
+// scaleBase returns the short-MDCT base used to scale band-bin edges. It is
+// Overlap (120) for the 48 kHz modes and the custom mode's short-MDCT size for
+// the Fs==400*shortMdctSize family. The default build leaves customScaleBase at
+// zero, so this is a constant Overlap (zero-cost).
+func (e *Encoder) scaleBase() int {
+	if e.customScaleBase > 0 {
+		return e.customScaleBase
+	}
+	return Overlap
+}
+
+// binScaleFrameSize returns a synthetic frame size V such that the package
+// ScaledBand* helpers (which compute eBands[i]*(V/120)) yield the libopus
+// eBands[i]<<LM bin edges for the active mode. For the 48 kHz modes V==frameSize
+// (scaleBase==120). For the family V = 120 * (frameSize/scaleBase) = 120<<LM, so
+// the band-bin scaling is corrected while buffer sizes keep using frameSize.
+func (e *Encoder) binScaleFrameSize(frameSize int) int {
+	base := e.scaleBase()
+	if base == Overlap {
+		return frameSize
+	}
+	return Overlap * (frameSize / base)
+}
+
+// customModeActive reports whether a non-standard Opus Custom mode is driving
+// the encoder. Always false in the default build.
+func (e *Encoder) customModeActive() bool { return e.customScaleBase > 0 }
+
+// modeConfig returns the frame-size-dependent ModeConfig for the active mode.
+// For a custom mode in the Fs==400*shortMdctSize family it derives LM from the
+// short-block decomposition (frameSize/customScaleBase) rather than the 48 kHz
+// grid, so 20 ms family frames (e.g. 24000/480) get LM=3/ShortBlocks=8 like
+// libopus instead of the 48 kHz LM=2.
+func (e *Encoder) modeConfig(frameSize int) ModeConfig {
+	if e.customScaleBase > 0 {
+		nbShort := frameSize / e.customScaleBase
+		lm := 0
+		for (1 << lm) < nbShort {
+			lm++
+		}
+		eff := MaxBands
+		if e.customEffBands > 0 {
+			eff = e.customEffBands
+		}
+		return ModeConfig{
+			FrameSize:   frameSize,
+			ShortBlocks: nbShort,
+			LM:          lm,
+			EffBands:    eff,
+			MDCTSize:    frameSize,
+		}
+	}
+	return GetModeConfig(frameSize)
+}
+
+// toneDetectFs returns the sample rate tone_detect()/transient_analysis() must
+// use (libopus mode->Fs): 48000 for the standard 48 kHz modes, and the custom
+// mode's Fs for the Fs==400*shortMdctSize family (which sets maxDelay=Fs/3000
+// and the tone-frequency normalisation). The default build keeps e.sampleRate
+// at 48000, so this is a constant 48000.
+func (e *Encoder) toneDetectFs() int {
+	if e.customScaleBase > 0 && e.sampleRate > 0 {
+		return int(e.sampleRate)
+	}
+	return 48000
+}
+
+// validFrameSize reports whether frameSize is acceptable for the active mode.
+func (e *Encoder) validFrameSize(frameSize int) bool {
+	if e.customScaleBase > 0 {
+		return frameSize > 0 && frameSize%e.customScaleBase == 0
+	}
+	return ValidFrameSize(frameSize)
+}
+
 func (e *Encoder) effectiveBandCount(frameSize int) int {
-	nbBands := GetModeConfig(frameSize).EffBands
+	nbBands := e.modeConfig(frameSize).EffBands
+	if e.customEffBands > 0 && e.customEffBands < nbBands {
+		nbBands = e.customEffBands
+	}
 	bwBands := EffectiveBandsForFrameSize(e.bandwidth, frameSize)
 	if bwBands < nbBands {
 		nbBands = bwBands

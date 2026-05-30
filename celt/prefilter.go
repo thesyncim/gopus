@@ -202,7 +202,7 @@ func (e *Encoder) runPrefilter(preemph []float32, frameSize int, tapset int, ena
 		return result
 	}
 
-	mode := GetModeConfig(frameSize)
+	mode := e.modeConfig(frameSize)
 	shortMdctSize := frameSize / mode.ShortBlocks
 	offset := shortMdctSize - overlap
 	if offset < 0 {

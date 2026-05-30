@@ -47,12 +47,19 @@ func NewDecoder(mode *CustomMode, channels int) (*CustomDecoder, error) {
 	// native rate directly.
 	_ = dec.SetAPISampleRate(48000)
 
-	return &CustomDecoder{
+	cd := &CustomDecoder{
 		mode:       mode,
 		channels:   channels,
 		dec:        dec,
 		complexity: 9,
-	}, nil
+	}
+	// Non-standard modes in the Fs==400*shortMdctSize family drive the native
+	// CELT decode data plane parameterized by the mode overlap, short-MDCT
+	// scaling base, effEBands clamp and per-rate de-emphasis.
+	if mode.InScaledBandFamily() {
+		dec.EnableScaledCustomMode(mode.Fs, mode.Overlap, mode.ShortMdctSize, mode.EffEBands, mode.Preemph)
+	}
+	return cd, nil
 }
 
 // Reset resets the decoder state (equivalent to OPUS_RESET_STATE CTL).
@@ -76,11 +83,12 @@ func (cd *CustomDecoder) Channels() int { return cd.channels }
 //
 // Returns frameSize*channels float32 samples, interleaved for stereo.
 //
-// Standard modes (48 kHz, 120/240/480/960 samples) decode byte/sample-identical
-// to libopus. Non-standard modes return ErrNonStandard for the same reason as
-// CustomEncoder.EncodeFloat: the gopus CELT core is keyed to the 48 kHz
-// frame-size grid and cannot yet decode a libopus --enable-custom-modes packet
-// for arbitrary (Fs, frame_size).
+// Standard modes (48 kHz, 120/240/480/960 samples) and the
+// Fs==400*shortMdctSize family decode sample-identical to libopus
+// --enable-custom-modes (within the documented arm64 1-ULP CELT drift). Other
+// non-standard (Fs, frame_size) pairs return ErrNonStandard for the same reason
+// as CustomEncoder.EncodeFloat: their genuinely custom band layout is not yet
+// carried by the gopus CELT core.
 //
 // Reference: libopus include/opus_custom.h opus_custom_decode_float().
 func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, error) {
@@ -93,7 +101,7 @@ func (cd *CustomDecoder) DecodeFloat(data []byte, frameSize int) ([]float32, err
 	if !cd.mode.isValidDecodeSize(frameSize) {
 		return nil, ErrInvalidFrameSize
 	}
-	if !cd.mode.isStandard {
+	if !cd.mode.isStandard && !cd.mode.InScaledBandFamily() {
 		return nil, ErrNonStandard
 	}
 	return cd.dec.DecodeFrame(data, frameSize)

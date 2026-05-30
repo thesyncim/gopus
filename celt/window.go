@@ -1,6 +1,6 @@
 package celt
 
-import "github.com/thesyncim/gopus/internal/opusmath"
+import "math"
 
 //go:generate go run ../tools/gen_window_tables.go -out window_tables_static.go
 
@@ -50,11 +50,17 @@ func VorbisWindow(i, overlap int) float32 {
 			return windowBuffer960F32[i]
 		}
 	}
-	const halfPi = float32(1.5707963267948966)
-	x := float32(i) + 0.5
-	sinArg := halfPi * x / float32(overlap)
-	s := opusmath.SinF32(sinArg)
-	return opusmath.SinF32(halfPi * s * s)
+	// Non-standard overlaps (e.g. the Fs==400*shortMdctSize Opus Custom family:
+	// overlap 20/28/40/60/80) are computed in double precision and rounded to
+	// float32, exactly as libopus celt/modes.c opus_custom_mode_create():
+	//   window[i] = Q15ONE * sin(.5*pi * sin(.5*pi*(i+.5)/overlap)^2)
+	// with Q15ONE == 1.0f in the float build and sin() the libm double routine.
+	// A float32 polynomial sine does NOT match libm to the last bit here, so the
+	// standard sizes above stay on their precomputed tables and only the
+	// custom-family sizes take this double-precision path.
+	x := float64(i) + 0.5
+	s := math.Sin(0.5 * math.Pi * x / float64(overlap))
+	return float32(math.Sin(0.5 * math.Pi * s * s))
 }
 
 // GetWindowBuffer returns the precomputed window buffer for the given overlap size.

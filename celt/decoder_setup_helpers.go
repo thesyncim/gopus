@@ -13,7 +13,7 @@ type preparedDecodeFrame struct {
 }
 
 func (d *Decoder) prepareDecodeFrame(data []byte, frameSize int) (preparedDecodeFrame, error) {
-	if !ValidFrameSize(frameSize) {
+	if !d.validFrameSize(frameSize) {
 		return preparedDecodeFrame{}, ErrInvalidFrameSize
 	}
 
@@ -24,15 +24,9 @@ func (d *Decoder) prepareDecodeFrame(data []byte, frameSize int) (preparedDecode
 	rd.Init(data)
 	d.SetRangeDecoder(rd)
 
-	mode := GetModeConfig(frameSize)
+	mode := d.modeConfig(frameSize)
 	lm := mode.LM
-	end := EffectiveBandsForFrameSize(d.bandwidth, frameSize)
-	if end > mode.EffBands {
-		end = mode.EffBands
-	}
-	if end < 1 {
-		end = 1
-	}
+	end := d.effectiveEndBand(frameSize)
 
 	prev1Energy, prev1LogE, prev2LogE := d.snapshotDecodeHistory()
 

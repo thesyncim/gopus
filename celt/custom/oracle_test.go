@@ -23,6 +23,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/celt"
@@ -274,25 +275,18 @@ func nonStandardCases() []oracleCase {
 	return cases
 }
 
-// TestOracleParityNonStandardModes documents the non-standard custom-mode gap.
+// TestOracleParityNonStandardModes documents the remaining non-standard
+// custom-mode gap: (Fs, frame_size) pairs OUTSIDE the Fs==400*shortMdctSize
+// family (e.g. 48000/640, 44100/882), whose band layout is genuinely custom
+// (compute_ebands derives a non-48 kHz eBands/allocVectors table). For those it
+// confirms that:
+//  1. libopus --enable-custom-modes accepts the mode and produces a packet, and
+//  2. gopus celt/custom declines with ErrNonStandard rather than emitting a
+//     non-conformant bitstream.
 //
-// For each non-standard (Fs, frame_size) it confirms that:
-//  1. libopus --enable-custom-modes accepts the mode and produces a packet
-//     (the oracle status is non-negative), and
-//  2. gopus celt/custom correctly declines the mode with ErrNonStandard rather
-//     than silently emitting a non-conformant bitstream.
-//
-// gopus does not yet reproduce a libopus custom-modes bitstream for arbitrary
-// (Fs, frame_size): the CELT core threads the 48 kHz frame-size grid through
-// band-bin scaling (celt.ScaledBandStart = eBand*frameSize/120), the mode config
-// (celt.GetModeConfig / celt.ValidFrameSize accept only 120/240/480/960/1920),
-// the overlap constant, and pre-emphasis. So even the Fs==400*shortMdctSize
-// family (which shares the 48 kHz eBands/logN/cache/allocVectors tables) needs
-// the overlap, MDCT length, effEBands clamp and per-rate pre-emphasis wired
-// through the whole encode+decode driver before it can match libopus.
-//
-// To make the gap concrete, the subtest logs the libopus reference packet so a
-// future native path can diff against it.
+// The Fs==400*shortMdctSize family (16000/320, 24000/480, etc.) IS now natively
+// byte/sample-exact and is covered by TestOracleParityScaledBandFamily; those
+// members are skipped here.
 func TestOracleParityNonStandardModes(t *testing.T) {
 	cases := nonStandardCases()
 	results := runCustomOracle(t, cases)
@@ -309,6 +303,9 @@ func TestOracleParityNonStandardModes(t *testing.T) {
 			}
 			if mode.IsStandard() {
 				t.Fatalf("mode Fs=%d frame=%d unexpectedly flagged standard", tc.fs, tc.frameSize)
+			}
+			if mode.InScaledBandFamily() {
+				t.Skipf("Fs=%d frame=%d is in the scaled-band family (covered by TestOracleParityScaledBandFamily)", tc.fs, tc.frameSize)
 			}
 
 			enc, err := custom.NewEncoder(mode, tc.channels)
@@ -430,6 +427,103 @@ func TestOracleControlPlaneScaledBandFamily(t *testing.T) {
 				if gotEnd != wantEnd {
 					t.Errorf("ScaledBandEndBase(band=%d): got %d want %d", band, gotEnd, wantEnd)
 				}
+			}
+		})
+	}
+}
+
+// scaledBandFamilyCases enumerates the Fs==400*shortMdctSize non-standard
+// custom modes that gopus reproduces natively (20 ms frames sharing the 48 kHz
+// eBands/logN/allocVectors tables). All are mono CBR at the full per-frame
+// budget, matching the oracle configuration.
+func scaledBandFamilyCases() []oracleCase {
+	const maxBytes = 200
+	specs := []struct{ fs, frameSize int }{
+		{32000, 640},
+		{24000, 480},
+		{16000, 320},
+		{12000, 240},
+		{8000, 160},
+	}
+	var cases []oracleCase
+	for _, s := range specs {
+		cases = append(cases, oracleCase{s.fs, s.frameSize, 1, maxBytes, generateSine(440.0, float64(s.fs), s.frameSize)})
+	}
+	return cases
+}
+
+// scaledFamilyDecodeArm64Tol bounds the residual darwin/arm64-only CELT decode
+// drift (project_arm64_celt_1ulp_drift.md): the size-driven IMDCT/de-emphasis
+// kernels accumulate a single-ULP cosine/FMA difference per step that CI (amd64)
+// does not exhibit. On amd64 the decoded PCM is required to be sample-exact.
+const scaledFamilyDecodeArm64Tol = 2e-4
+
+// TestOracleParityScaledBandFamily proves that the native Opus Custom data plane
+// reproduces libopus --enable-custom-modes byte-for-byte (encode) and
+// sample-for-sample (decode) for the Fs==400*shortMdctSize family. The encoded
+// packet must match exactly on every architecture; the decoded PCM matches
+// exactly on amd64 and within the documented arm64 1-ULP CELT drift on
+// darwin/arm64.
+//
+// Reference: libopus celt/celt_encoder.c opus_custom_encode_float /
+// celt/celt_decoder.c opus_custom_decode_float with a custom CELTMode.
+func TestOracleParityScaledBandFamily(t *testing.T) {
+	cases := scaledBandFamilyCases()
+	results := runCustomOracle(t, cases)
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("Fs%d_frame%d", tc.fs, tc.frameSize), func(t *testing.T) {
+			if results[i].status < 0 {
+				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d) status=%d", tc.fs, tc.frameSize, results[i].status)
+			}
+			mode, err := custom.NewMode(tc.fs, tc.frameSize)
+			if err != nil {
+				t.Fatalf("NewMode(%d,%d): %v", tc.fs, tc.frameSize, err)
+			}
+			if !mode.InScaledBandFamily() {
+				t.Fatalf("Fs=%d frame=%d not flagged in scaled-band family", tc.fs, tc.frameSize)
+			}
+
+			got, enc := gopusEncode(t, tc)
+			if !bytes.Equal(got, results[i].packet) {
+				t.Fatalf("Fs=%d frame=%d: packet mismatch\n  got  (%d): %x\n  want (%d): %x",
+					tc.fs, tc.frameSize, len(got), got, len(results[i].packet), results[i].packet)
+			}
+			if enc.FinalRange() != results[i].encRange {
+				t.Errorf("Fs=%d frame=%d: encoder final range gopus=%08x libopus=%08x",
+					tc.fs, tc.frameSize, enc.FinalRange(), results[i].encRange)
+			}
+
+			dec, err := custom.NewDecoder(mode, tc.channels)
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			decoded, err := dec.DecodeFloat(results[i].packet, tc.frameSize)
+			if err != nil {
+				t.Fatalf("DecodeFloat: %v", err)
+			}
+			if len(decoded) != len(results[i].decoded) {
+				t.Fatalf("Fs=%d frame=%d: decoded length gopus=%d libopus=%d",
+					tc.fs, tc.frameSize, len(decoded), len(results[i].decoded))
+			}
+			if runtime.GOARCH != "arm64" {
+				if d := firstSampleDivergence(decoded, results[i].decoded); d >= 0 {
+					t.Fatalf("Fs=%d frame=%d: decoded PCM diverges at sample %d (gopus=%v libopus=%v)",
+						tc.fs, tc.frameSize, d, decoded[d], results[i].decoded[d])
+				}
+			} else {
+				var maxAbs float64
+				for k := range decoded {
+					if d := math.Abs(float64(decoded[k]) - float64(results[i].decoded[k])); d > maxAbs {
+						maxAbs = d
+					}
+				}
+				if maxAbs > scaledFamilyDecodeArm64Tol {
+					t.Fatalf("Fs=%d frame=%d: decoded PCM arm64 drift maxAbs=%g exceeds tol %g",
+						tc.fs, tc.frameSize, maxAbs, scaledFamilyDecodeArm64Tol)
+				}
+				t.Logf("Fs=%d frame=%d: packet byte-exact (%d bytes); decode within arm64 drift maxAbs=%.3e (project_arm64_celt_1ulp_drift.md)",
+					tc.fs, tc.frameSize, len(got), maxAbs)
 			}
 		})
 	}

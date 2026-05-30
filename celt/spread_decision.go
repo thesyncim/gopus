@@ -55,19 +55,25 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 	if nbBands <= 0 || len(normX) == 0 {
 		return spreadNormal
 	}
-	// M is the time resolution multiplier (frameSize / shortMdctSize)
-	// shortMdctSize is 120 for 48kHz
-	M := frameSize / 120
+	// M is the time resolution multiplier (frameSize / shortMdctSize). For the
+	// 48 kHz modes shortMdctSize is 120; for the Fs==400*shortMdctSize custom
+	// family it is the mode's short-MDCT size (e.scaleBase()).
+	base := e.scaleBase()
+	M := frameSize / base
 	if M < 1 {
 		M = 1
 	}
 
-	// N0 = total MDCT coefficients per channel (M * shortMdctSize)
-	N0 := M * 120
+	// N0 = total MDCT coefficients per channel (== frameSize).
+	N0 := frameSize
+
+	// binFS drives the package ScaledBand* helpers to the libopus eBands[i]<<LM
+	// bin edges for the active mode. For the 48 kHz modes binFS == frameSize.
+	binFS := Overlap * M
 
 	// Check if the last band is too narrow for spread decision
 	// libopus: if (M*(eBands[end]-eBands[end-1]) <= 8) return SPREAD_NONE
-	lastBandWidth := ScaledBandWidth(nbBands-1, frameSize)
+	lastBandWidth := ScaledBandWidth(nbBands-1, binFS)
 	if lastBandWidth <= 8 {
 		return spreadNone
 	}
@@ -80,8 +86,8 @@ func (e *Encoder) SpreadingDecisionWithWeights(normX []celtNorm, nbBands, channe
 		// Process each band
 		for band := 0; band < nbBands; band++ {
 			// Get band boundaries
-			bandStart := ScaledBandStart(band, frameSize)
-			bandEnd := ScaledBandEnd(band, frameSize)
+			bandStart := ScaledBandStart(band, binFS)
+			bandEnd := ScaledBandEnd(band, binFS)
 			N := bandEnd - bandStart
 
 			if N <= 8 {
