@@ -538,6 +538,9 @@ func TestEncoder_SetBandwidth(t *testing.T) {
 		t.Fatalf("NewEncoder error: %v", err)
 	}
 
+	// SetBandwidth records the user request; Bandwidth() (libopus
+	// OPUS_GET_BANDWIDTH = st->bandwidth) keeps the FULLBAND init default until
+	// an encode decides the bandwidth, so it does not echo the SET value.
 	for _, bw := range []Bandwidth{
 		BandwidthNarrowband,
 		BandwidthMediumband,
@@ -548,8 +551,8 @@ func TestEncoder_SetBandwidth(t *testing.T) {
 		if err := enc.SetBandwidth(bw); err != nil {
 			t.Fatalf("SetBandwidth(%d) error: %v", bw, err)
 		}
-		if got := enc.Bandwidth(); got != bw {
-			t.Fatalf("Bandwidth()=%d want=%d", got, bw)
+		if got := enc.Bandwidth(); got != BandwidthFullband {
+			t.Fatalf("Bandwidth()=%d want=%d (FULLBAND init default before encode)", got, BandwidthFullband)
 		}
 	}
 
@@ -637,8 +640,11 @@ func TestEncoder_SetApplicationPreservesControls(t *testing.T) {
 	if got := enc.Signal(); got != SignalMusic {
 		t.Fatalf("Signal()=%v want %v", got, SignalMusic)
 	}
-	if got := enc.Bandwidth(); got != BandwidthSuperwideband {
-		t.Fatalf("Bandwidth()=%v want %v", got, BandwidthSuperwideband)
+	// SetApplication preserves the user bandwidth request (userBandwidth);
+	// Bandwidth() reports st->bandwidth which stays at the FULLBAND init default
+	// until an encode decides it.
+	if got := enc.Bandwidth(); got != BandwidthFullband {
+		t.Fatalf("Bandwidth()=%v want %v (FULLBAND init default before encode)", got, BandwidthFullband)
 	}
 	if got := enc.ForceChannels(); got != 1 {
 		t.Fatalf("ForceChannels()=%d want 1", got)

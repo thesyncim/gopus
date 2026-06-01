@@ -683,12 +683,14 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 		t.Errorf("SetPacketLoss(101) error = %v, want ErrInvalidPacketLoss", err)
 	}
 
-	// Test bandwidth control
+	// Test bandwidth control. Bandwidth() mirrors libopus OPUS_GET_BANDWIDTH
+	// (st->bandwidth): it stays at the FULLBAND init default until an encode
+	// decides the bandwidth and does not echo the SET request.
 	if err := enc.SetBandwidth(BandwidthWideband); err != nil {
 		t.Errorf("SetBandwidth(BandwidthWideband) error: %v", err)
 	}
-	if got := enc.Bandwidth(); got != BandwidthWideband {
-		t.Errorf("Bandwidth() = %v, want %v", got, BandwidthWideband)
+	if got := enc.Bandwidth(); got != BandwidthFullband {
+		t.Errorf("Bandwidth() = %v, want %v (FULLBAND init default before encode)", got, BandwidthFullband)
 	}
 	if err := enc.SetBandwidth(Bandwidth(255)); err != ErrInvalidBandwidth {
 		t.Errorf("SetBandwidth(invalid) error = %v, want %v", err, ErrInvalidBandwidth)
@@ -696,8 +698,8 @@ func TestMultistreamEncoder_Controls(t *testing.T) {
 	if err := enc.SetBandwidthAuto(); err != nil {
 		t.Errorf("SetBandwidthAuto error: %v", err)
 	}
-	if got := enc.Bandwidth(); got != BandwidthWideband {
-		t.Errorf("Bandwidth() after SetBandwidthAuto = %v, want last concrete bandwidth %v", got, BandwidthWideband)
+	if got := enc.Bandwidth(); got != BandwidthFullband {
+		t.Errorf("Bandwidth() after SetBandwidthAuto = %v, want %v", got, BandwidthFullband)
 	}
 	if err := enc.SetMaxBandwidth(BandwidthWideband); err != nil {
 		t.Errorf("SetMaxBandwidth(BandwidthWideband) error: %v", err)
@@ -1012,8 +1014,11 @@ func TestMultistreamEncoder_SetApplicationPreservesControls(t *testing.T) {
 	if got := enc.Signal(); got != SignalMusic {
 		t.Fatalf("Signal() after SetApplication = %v, want %v", got, SignalMusic)
 	}
-	if got := enc.Bandwidth(); got != BandwidthSuperwideband {
-		t.Fatalf("Bandwidth() after SetApplication = %v, want %v", got, BandwidthSuperwideband)
+	// Bandwidth() reports st->bandwidth (FULLBAND init default before encode);
+	// SetApplication preserves the user bandwidth request but does not change
+	// the decided value reported here.
+	if got := enc.Bandwidth(); got != BandwidthFullband {
+		t.Fatalf("Bandwidth() after SetApplication = %v, want %v (FULLBAND init default before encode)", got, BandwidthFullband)
 	}
 	if got := enc.ForceChannels(); got != 1 {
 		t.Fatalf("ForceChannels() after SetApplication = %d, want 1", got)

@@ -321,6 +321,17 @@ func (e *Encoder) Mode() Mode {
 	return e.mode
 }
 
+// FirstFrameCoded reports whether a frame has been committed since the encoder
+// was created or reset, mirroring libopus !st->first.
+//
+// C ref: opus_encoder.c clears st->first = 0 only after a frame reaches the end
+// of opus_encode_native (line 2562), AFTER the SILK nBytes==0 early return
+// (line 2242) which leaves st->first = 1. OPUS_SET_APPLICATION uses
+// !st->first to reject an application change once a frame has been coded.
+func (e *Encoder) FirstFrameCoded() bool {
+	return !e.first
+}
+
 // SetLowDelay toggles low-delay application behavior.
 //
 // When enabled, CELT delay compensation is disabled to match restricted
@@ -365,7 +376,10 @@ func (e *Encoder) VoiceRatio() int {
 
 // SetBandwidth sets the target audio bandwidth.
 func (e *Encoder) SetBandwidth(bandwidth types.Bandwidth) {
-	e.bandwidth = bandwidth
+	// C ref: opus_encoder.c OPUS_SET_BANDWIDTH writes only st->user_bandwidth;
+	// st->bandwidth (the decided value reported by OPUS_GET_BANDWIDTH) is left
+	// untouched and recomputed during encode. Keep e.bandwidth as the decided
+	// value so the getter mirrors libopus get-after-set.
 	e.userBandwidth = bandwidth
 	e.userBandwidthSet = true
 	if e.celtEncoder != nil {
@@ -456,6 +470,13 @@ func (e *Encoder) Reset() {
 	e.intMode = ModeHybrid
 	e.intBandwidth = types.BandwidthFullband
 	e.detectedBandwidth = 0
+	// C ref: opus_encoder.c OPUS_RESET_STATE sets st->bandwidth =
+	// OPUS_BANDWIDTH_FULLBAND. st->bandwidth (the decided bandwidth reported by
+	// OPUS_GET_BANDWIDTH) sits after OPUS_ENCODER_RESET_START, so the reset
+	// region clears it and the handler re-seeds it to FULLBAND. The user
+	// bandwidth request (userBandwidth/userBandwidthSet) is before the reset
+	// start and is preserved.
+	e.bandwidth = types.BandwidthFullband
 	e.streamChannels = int32(e.channels)
 	e.prevChannels = int32(e.channels)
 	e.autoBandwidth = types.BandwidthFullband
@@ -1264,6 +1285,12 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		}
 	}
 	e.prevChannels = e.streamChannels
+	// C ref: opus_encode_native sets st->first = 0 here (line 2562), after a
+	// frame is committed for every mode (auto, forced SILK/Hybrid/CELT). The
+	// low-space and SILK nBytes==0 early returns happen earlier and leave
+	// st->first = 1; gopus mirrors that by returning before this point for
+	// those cases (emitLowSpacePacket / DTX-suppress set first explicitly).
+	e.first = false
 	if silkBusted {
 		// Match libopus opus_encoder.c: a busted SILK frame signals PLC and
 		// zeroes the reported final range.

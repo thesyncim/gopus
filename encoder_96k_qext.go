@@ -103,7 +103,6 @@ func (e *Encoder) tryEncodeNative96k(pcm []float32, data []byte) (int, bool, err
 	if err != nil {
 		return 0, true, err
 	}
-	e.encodedOnce = true
 	return n, true, nil
 }
 

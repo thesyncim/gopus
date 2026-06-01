@@ -547,18 +547,22 @@ func TestMSEncoderCTL_BandwidthBroadcast(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewEncoderDefault: %v", err)
 	}
+	// SetBandwidth broadcasts the user request to every per-stream encoder, but
+	// Bandwidth() mirrors libopus OPUS_GET_BANDWIDTH (st->bandwidth) which holds
+	// the FULLBAND init default until an encode decides it. The request itself is
+	// applied at encode time via each stream's bandwidth clamp.
 	for _, bw := range []types.Bandwidth{
 		types.BandwidthNarrowband,
 		types.BandwidthWideband,
 		types.BandwidthFullband,
 	} {
 		enc.SetBandwidth(bw)
-		if got := enc.Bandwidth(); got != bw {
-			t.Fatalf("Bandwidth()=%v want %v", got, bw)
+		if got := enc.Bandwidth(); got != types.BandwidthFullband {
+			t.Fatalf("Bandwidth()=%v want %v (FULLBAND init default before encode)", got, types.BandwidthFullband)
 		}
 		for i, e := range enc.encoders {
-			if got := e.Bandwidth(); got != bw {
-				t.Fatalf("stream %d Bandwidth()=%v want %v (broadcast)", i, got, bw)
+			if got := e.Bandwidth(); got != types.BandwidthFullband {
+				t.Fatalf("stream %d Bandwidth()=%v want %v (FULLBAND init default before encode)", i, got, types.BandwidthFullband)
 			}
 		}
 	}

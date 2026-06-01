@@ -1,6 +1,7 @@
 package encoder_test
 
 import (
+	"fmt"
 	"math"
 	"math/rand"
 	"testing"
@@ -135,26 +136,28 @@ func TestEncoderVoiceRatioControl(t *testing.T) {
 	}
 }
 
-// TestEncoderSetBandwidth verifies bandwidth setting works correctly.
+// TestEncoderSetBandwidth verifies SetBandwidth records the user request without
+// disturbing the decided bandwidth reported by Bandwidth().
+//
+// C ref: opus_encoder.c OPUS_SET_BANDWIDTH writes only st->user_bandwidth;
+// OPUS_GET_BANDWIDTH returns st->bandwidth, which stays at its init default
+// (OPUS_BANDWIDTH_FULLBAND) until an encode decides it. The user request is
+// applied at encode time via the bandwidth clamp.
 func TestEncoderSetBandwidth(t *testing.T) {
-	enc := encoder.NewEncoder(48000, 1)
-
-	tests := []struct {
-		bw   types.Bandwidth
-		name string
-	}{
-		{types.BandwidthNarrowband, "Narrowband"},
-		{types.BandwidthMediumband, "Mediumband"},
-		{types.BandwidthWideband, "Wideband"},
-		{types.BandwidthSuperwideband, "Superwideband"},
-		{types.BandwidthFullband, "Fullband"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			enc.SetBandwidth(tt.bw)
-			if enc.Bandwidth() != tt.bw {
-				t.Errorf("Bandwidth() = %d, want %d", enc.Bandwidth(), tt.bw)
+	for _, bw := range []types.Bandwidth{
+		types.BandwidthNarrowband,
+		types.BandwidthMediumband,
+		types.BandwidthWideband,
+		types.BandwidthSuperwideband,
+		types.BandwidthFullband,
+	} {
+		t.Run(fmt.Sprintf("bw%d", bw), func(t *testing.T) {
+			enc := encoder.NewEncoder(48000, 1)
+			enc.SetBandwidth(bw)
+			// No encode yet: Bandwidth() (st->bandwidth) is still the FULLBAND
+			// init default regardless of the user request.
+			if got := enc.Bandwidth(); got != types.BandwidthFullband {
+				t.Errorf("Bandwidth() before encode = %d, want %d (FULLBAND init default)", got, types.BandwidthFullband)
 			}
 		})
 	}

@@ -33,7 +33,6 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	e.encodedOnce = true
 
 	return copyEncodedPacket(packet, data)
 }
@@ -65,7 +64,7 @@ func (e *Encoder) encode96k(pcm []float32, data []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	e.encodedOnce = true
+
 	return copyEncodedPacket(packet, data)
 }
 
@@ -131,7 +130,6 @@ func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	e.encodedOnce = true
 
 	return copyEncodedPacket(packet, data)
 }

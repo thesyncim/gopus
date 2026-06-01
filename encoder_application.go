@@ -4,7 +4,12 @@ package gopus
 //
 // Valid values are ApplicationVoIP, ApplicationAudio, and ApplicationLowDelay.
 func (e *Encoder) SetApplication(application Application) error {
-	if err := validateMutableApplication(e.application, e.encodedOnce, application); err != nil {
+	// libopus OPUS_SET_APPLICATION rejects an application change once a frame
+	// has been committed (!st->first). st->first stays 1 through the SILK
+	// nBytes==0 silence early return, so derive the gate from the encoder's
+	// authoritative first-frame state rather than a wrapper-side "encoded once"
+	// flag that flips on every Encode call.
+	if err := validateMutableApplication(e.application, e.enc.FirstFrameCoded(), application); err != nil {
 		return err
 	}
 	previousApplication := e.application

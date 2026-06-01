@@ -83,6 +83,10 @@ func (e *Encoder) EncodeNativeHD96k(pcm []float32, frameSize int, dst []byte) (i
 	}
 	qextPayload := ce.LastQEXTPayload()
 
+	// C ref: opus_encode_native clears st->first once a frame is committed.
+	// The native 96 kHz CELT path always produces a frame, so mark it coded.
+	e.first = false
+
 	stereo := channels == 2
 	return assembleHD96kPacket(dst, mainPayload, qextPayload, stereo)
 }

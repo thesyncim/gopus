@@ -208,8 +208,9 @@ func (e *Encoder) FrameSize() int {
 // Reset clears the encoder state for a new stream.
 // Call this when starting to encode a new audio stream.
 func (e *Encoder) Reset() {
+	// e.enc.Reset() sets the encoder's first-frame flag, so SetApplication's
+	// FirstFrameCoded() gate is released; no separate wrapper flag is needed.
 	e.enc.Reset()
-	e.encodedOnce = false
 }
 
 // Channels returns the number of audio channels (1 or 2).

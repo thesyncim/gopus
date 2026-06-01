@@ -665,7 +665,10 @@ var encoderCTLTable = []encoderCTLRow{
 		testFn: func(t *testing.T) {
 			enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
-			// Round-trip explicit bandwidths.
+			// libopus OPUS_SET_BANDWIDTH writes st->user_bandwidth only;
+			// OPUS_GET_BANDWIDTH returns st->bandwidth, which is the FULLBAND
+			// init default until an encode decides it. SET accepts every valid
+			// bandwidth but GET does not echo the request.
 			for _, bw := range []Bandwidth{
 				BandwidthNarrowband, BandwidthMediumband, BandwidthWideband,
 				BandwidthSuperwideband, BandwidthFullband,
@@ -673,8 +676,8 @@ var encoderCTLTable = []encoderCTLRow{
 				if err := enc.SetBandwidth(bw); err != nil {
 					t.Fatalf("SetBandwidth(%v) error: %v", bw, err)
 				}
-				if got := enc.Bandwidth(); got != bw {
-					t.Errorf("OPUS_GET_BANDWIDTH after SET(%v) = %v, want %v", bw, got, bw)
+				if got := enc.Bandwidth(); got != BandwidthFullband {
+					t.Errorf("OPUS_GET_BANDWIDTH after SET(%v) = %v, want BandwidthFullband (st->bandwidth init default before encode)", bw, got)
 				}
 			}
 

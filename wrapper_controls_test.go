@@ -457,11 +457,14 @@ func lookaheadTestCases() []lookaheadCase {
 func restrictedApplicationTestCases() []restrictedApplicationCase {
 	return []restrictedApplicationCase{
 		{
-			name:          "restricted_silk",
-			application:   ApplicationRestrictedSilk,
-			wantMode:      encodercore.ModeSILK,
-			wantLowDelay:  false,
-			wantBandwidth: BandwidthWideband,
+			name:         "restricted_silk",
+			application:  ApplicationRestrictedSilk,
+			wantMode:     encodercore.ModeSILK,
+			wantLowDelay: false,
+			// Bandwidth() reports st->bandwidth (FULLBAND init default) before any
+			// encode regardless of application; the per-application bandwidth bias
+			// lives in the user request and is applied at encode time.
+			wantBandwidth: BandwidthFullband,
 			wantLookahead: 48000/400 + 48000/250,
 		},
 		{

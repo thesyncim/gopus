@@ -115,7 +115,6 @@ type Encoder struct {
 	frameSize           int32
 	expertFrameDuration ExpertFrameDuration
 	application         Application
-	encodedOnce         bool
 	modeSet             bool
 
 	// Scratch buffers for zero-allocation encoding

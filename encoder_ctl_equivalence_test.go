@@ -301,12 +301,16 @@ func TestEncoderCTL_SignalBoundaryReject(t *testing.T) {
 	}
 }
 
-// TestEncoderCTL_BandwidthRoundTrip verifies OPUS_SET/GET_BANDWIDTH for all
-// five bandwidths plus the auto sentinel.
+// TestEncoderCTL_BandwidthAcceptsAllValid verifies OPUS_SET_BANDWIDTH accepts
+// all five bandwidths plus the auto sentinel, and that OPUS_GET_BANDWIDTH
+// returns the DECIDED bandwidth (not the user request).
 //
-// C ref: opus_encoder_ctl OPUS_SET_BANDWIDTH_REQUEST –
-//   "(value < OPUS_BANDWIDTH_NARROWBAND || value > OPUS_BANDWIDTH_FULLBAND) && value != OPUS_AUTO"
-func TestEncoderCTL_BandwidthRoundTrip(t *testing.T) {
+// C ref: opus_encoder_ctl OPUS_SET_BANDWIDTH_REQUEST validates
+//   "(value < OPUS_BANDWIDTH_NARROWBAND || value > OPUS_BANDWIDTH_FULLBAND) &&
+//    value != OPUS_AUTO" and writes only st->user_bandwidth. OPUS_GET_BANDWIDTH
+//   returns st->bandwidth, which holds the FULLBAND init default until an encode
+//   decides it — it does NOT echo the SET value.
+func TestEncoderCTL_BandwidthAcceptsAllValid(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
 	for _, bw := range []Bandwidth{
@@ -319,8 +323,10 @@ func TestEncoderCTL_BandwidthRoundTrip(t *testing.T) {
 		if err := enc.SetBandwidth(bw); err != nil {
 			t.Fatalf("SetBandwidth(%v) error: %v", bw, err)
 		}
-		if got := enc.Bandwidth(); got != bw {
-			t.Errorf("Bandwidth() = %v after SetBandwidth(%v), want %v", got, bw, bw)
+		// GET returns the decided bandwidth (FULLBAND) before any encode,
+		// independent of the user request just set.
+		if got := enc.Bandwidth(); got != BandwidthFullband {
+			t.Errorf("Bandwidth() after SetBandwidth(%v) = %v, want BandwidthFullband (libopus st->bandwidth init default before encode)", bw, got)
 		}
 	}
 

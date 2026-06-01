@@ -631,10 +631,10 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 	// Step 16: Mode fixup based on final bandwidth (lines 1692-1695).
 	mode = autoModeFixup(mode, e.bandwidth)
 
-	// Update first-frame flag.
-	e.first = false
-
-	// Track previous channels for stereo→mono transition.
+	// Track previous channels for stereo→mono transition. st->first is cleared
+	// later, at the common commit point in encodeOpusResWithAnalysisMaxBytes
+	// (libopus opus_encode_native line 2562), so the low-space / SILK nBytes==0
+	// early returns correctly leave it set.
 	e.prevChannels = e.streamChannels
 
 	return mode
