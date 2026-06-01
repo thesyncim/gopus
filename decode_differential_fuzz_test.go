@@ -26,11 +26,7 @@
 // Scope: this harness hardens the DECODE path. Strategy (a) drives gopus's own
 // encoder to produce inputs; an encoder error or panic means no valid packet can
 // be generated for that config, so the spec is logged as an encoder-side finding
-// and skipped (it is not a decode divergence). One such finding exists today:
-// SILK LBRR (in-band FEC) with stereo NB/MB and >=40 ms frames can produce a
-// delta-gain index outside silk_delta_gain_iCDF, which panics gopus encode
-// (libopus only silk_assert()s this, disabled in release). That is an encoder
-// bug, tracked separately; it does not affect decode parity.
+// and skipped (it is not a decode divergence).
 
 package gopus
 
@@ -464,8 +460,7 @@ func encodePackets(t *testing.T, spec encodeSweepSpec, rng *rand.Rand, nFrames i
 			// This harness validates the DECODE path. An encoder error/panic is an
 			// encoder-side finding (it cannot generate a valid packet to decode), so
 			// it is reported and the spec is skipped rather than failing the decode
-			// sweep. See the file header note on the known SILK LBRR gain-index
-			// encoder bug surfaced here.
+			// sweep.
 			t.Logf("encoder finding (%s frame %d): %v — skipping spec for decode sweep", spec.name, f, err)
 			return nil, false
 		}

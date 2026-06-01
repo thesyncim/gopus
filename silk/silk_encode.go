@@ -372,7 +372,12 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 				sideEnc.SetVADState(speechActivityDTXThresholdQ8-1, 0, [4]int32{-1, -1, -1, -1})
 			}
 			sideEnc.stereoCondMid = enc
-			sideEnc.stereoCondMidFramesEncoded = midFramesEncodedInPacket
+			// libopus enc_API.c selects the side channel's conditional-coding
+			// type from state_Fxx[0].nFramesEncoded - n with n = 1. The mid
+			// channel (n = 0) has already encoded this 20 ms block and
+			// incremented its nFramesEncoded by the time the side channel is
+			// coded, so the side channel sees the post-increment mid count.
+			sideEnc.stereoCondMidFramesEncoded = enc.nFramesEncoded
 			sideEnc.stereoChannelIdx = 1
 			sideEnc.stereoPrevDecodeOnlyMiddle = int32(prevDecodeOnlyMiddle)
 			if sideMaxBits > 0 {
