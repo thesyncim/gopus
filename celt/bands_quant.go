@@ -1,7 +1,6 @@
 package celt
 
 import (
-	"math"
 	"runtime"
 
 	"github.com/thesyncim/gopus/internal/opusmath"
@@ -1942,56 +1941,25 @@ func celtInnerProdSSEStyleNormGo(x, y []celtNorm) float32 {
 	return sum
 }
 
+// celtInnerProdNeonStyle reproduces libopus arm/pitch_neon_intr.c
+// celt_inner_prod_neon: a 4-lane vfmaq_f32 accumulator over 8-element groups,
+// a 4-element tail, the (acc0+acc2)+(acc1+acc3) reduction, and a scalar tail.
+// celtInnerProd8FMA32 implements this in NEON asm on arm64 and a bit-identical
+// math.FMA fallback under the purego tag.
 func celtInnerProdNeonStyle(x, y []celtNorm) float32 {
-	var acc [4]float32
-	i := 0
-	for ; i < len(x)-7; i += 8 {
-		for lane := 0; lane < 4; lane++ {
-			acc[lane] = celtFloatMulAdd(float32(x[i+lane]), float32(y[i+lane]), acc[lane])
-		}
-		for lane := 0; lane < 4; lane++ {
-			acc[lane] = celtFloatMulAdd(float32(x[i+4+lane]), float32(y[i+4+lane]), acc[lane])
-		}
+	n := len(x)
+	if len(y) < n {
+		n = len(y)
 	}
-	if len(x)-i >= 4 {
-		for lane := 0; lane < 4; lane++ {
-			acc[lane] = celtFloatMulAdd(float32(x[i+lane]), float32(y[i+lane]), acc[lane])
-		}
-		i += 4
-	}
-	sum0 := math.Float32frombits(math.Float32bits(acc[0] + acc[2]))
-	sum1 := math.Float32frombits(math.Float32bits(acc[1] + acc[3]))
-	sum := math.Float32frombits(math.Float32bits(sum0 + sum1))
-	for ; i < len(x); i++ {
-		sum = celtFloatMulAdd(float32(x[i]), float32(y[i]), sum)
-	}
-	return sum
+	return celtInnerProd8FMA32(x[:n:n], y[:n:n], n)
 }
 
 func celtInnerProdNeonStyleNorm(x, y []celtNorm) float32 {
-	var acc [4]float32
-	i := 0
-	for ; i < len(x)-7; i += 8 {
-		for lane := 0; lane < 4; lane++ {
-			acc[lane] = celtFloatMulAdd(float32(x[i+lane]), float32(y[i+lane]), acc[lane])
-		}
-		for lane := 0; lane < 4; lane++ {
-			acc[lane] = celtFloatMulAdd(float32(x[i+4+lane]), float32(y[i+4+lane]), acc[lane])
-		}
+	n := len(x)
+	if len(y) < n {
+		n = len(y)
 	}
-	if len(x)-i >= 4 {
-		for lane := 0; lane < 4; lane++ {
-			acc[lane] = celtFloatMulAdd(float32(x[i+lane]), float32(y[i+lane]), acc[lane])
-		}
-		i += 4
-	}
-	sum0 := math.Float32frombits(math.Float32bits(acc[0] + acc[2]))
-	sum1 := math.Float32frombits(math.Float32bits(acc[1] + acc[3]))
-	sum := math.Float32frombits(math.Float32bits(sum0 + sum1))
-	for ; i < len(x); i++ {
-		sum = celtFloatMulAdd(float32(x[i]), float32(y[i]), sum)
-	}
-	return sum
+	return celtInnerProd8FMA32(x[:n:n], y[:n:n], n)
 }
 
 func celtInnerProdLibopusOrder(x, y []celtNorm) float32 {

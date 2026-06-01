@@ -848,51 +848,14 @@ func prefilterDualInnerProdF32SSEOrder(x, y1, y2 []float32, length int) (float32
 	return sum1, sum2
 }
 
+// prefilterDualInnerProdF32NeonOrder reproduces libopus
+// arm/pitch_neon_intr.c dual_inner_prod_neon: two 4-lane vfmaq_f32 accumulators
+// over 8-element groups, a 4-element tail, the (acc0+acc2)+(acc1+acc3)
+// reductions, and a fused multiply-add scalar tail. prefilterDualInnerProdAsm
+// implements this in NEON asm on arm64 and a bit-identical math.FMA fallback
+// under the purego tag.
 func prefilterDualInnerProdF32NeonOrder(x, y1, y2 []float32, length int) (float32, float32) {
-	var acc1 [4]float32
-	var acc2 [4]float32
-	i := 0
-	for ; i < length-7; i += 8 {
-		acc1[0] = fma32(x[i], y1[i], acc1[0])
-		acc1[1] = fma32(x[i+1], y1[i+1], acc1[1])
-		acc1[2] = fma32(x[i+2], y1[i+2], acc1[2])
-		acc1[3] = fma32(x[i+3], y1[i+3], acc1[3])
-		acc2[0] = fma32(x[i], y2[i], acc2[0])
-		acc2[1] = fma32(x[i+1], y2[i+1], acc2[1])
-		acc2[2] = fma32(x[i+2], y2[i+2], acc2[2])
-		acc2[3] = fma32(x[i+3], y2[i+3], acc2[3])
-
-		acc1[0] = fma32(x[i+4], y1[i+4], acc1[0])
-		acc1[1] = fma32(x[i+5], y1[i+5], acc1[1])
-		acc1[2] = fma32(x[i+6], y1[i+6], acc1[2])
-		acc1[3] = fma32(x[i+7], y1[i+7], acc1[3])
-		acc2[0] = fma32(x[i+4], y2[i+4], acc2[0])
-		acc2[1] = fma32(x[i+5], y2[i+5], acc2[1])
-		acc2[2] = fma32(x[i+6], y2[i+6], acc2[2])
-		acc2[3] = fma32(x[i+7], y2[i+7], acc2[3])
-	}
-	if length-i >= 4 {
-		acc1[0] = fma32(x[i], y1[i], acc1[0])
-		acc1[1] = fma32(x[i+1], y1[i+1], acc1[1])
-		acc1[2] = fma32(x[i+2], y1[i+2], acc1[2])
-		acc1[3] = fma32(x[i+3], y1[i+3], acc1[3])
-		acc2[0] = fma32(x[i], y2[i], acc2[0])
-		acc2[1] = fma32(x[i+1], y2[i+1], acc2[1])
-		acc2[2] = fma32(x[i+2], y2[i+2], acc2[2])
-		acc2[3] = fma32(x[i+3], y2[i+3], acc2[3])
-		i += 4
-	}
-	xy10 := acc1[0] + acc1[2]
-	xy11 := acc1[1] + acc1[3]
-	xy20 := acc2[0] + acc2[2]
-	xy21 := acc2[1] + acc2[3]
-	sum1 := xy10 + xy11
-	sum2 := xy20 + xy21
-	for ; i < length; i++ {
-		sum1 += x[i] * y1[i]
-		sum2 += x[i] * y2[i]
-	}
-	return sum1, sum2
+	return prefilterDualInnerProdAsm(x, y1, y2, length)
 }
 
 func computePitchGain(xy, xx, yy float32) float32 {
