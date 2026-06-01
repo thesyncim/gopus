@@ -141,13 +141,13 @@ func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection, p
 		return output, err
 	}
 
-	packets, err := parseMultistreamPacketInto(d.packetsScratch, data, d.streams)
+	packets, err := parseMultistreamPacketScratch(d.packetsScratch, &d.packetParser, &d.reframeArena, data, d.streams)
 	if err != nil {
 		return nil, fmt.Errorf("multistream: parse error: %w", err)
 	}
 	d.packetsScratch = packets
 
-	duration, err := validateStreamDurationsAtRate(packets, int(d.sampleRate))
+	duration, err := validateStreamDurationsAtRateScratch(&d.packetParser, packets, int(d.sampleRate))
 	if err != nil {
 		return nil, err
 	}

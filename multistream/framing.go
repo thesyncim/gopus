@@ -18,10 +18,48 @@ type parsedOpusPacket struct {
 	consumed          int
 }
 
+// packetScratch holds reusable parse/build working buffers so the multistream
+// hot paths can split and reframe packets without per-call allocation. The
+// returned parsedOpusPacket.frames aliases frames here, so a parse result is
+// only valid until the next parseInto on the same scratch; the hot-path callers
+// parse-then-build atomically before reusing it.
+type packetScratch struct {
+	frameSizes []int
+	frames     [][]byte
+	lengths    []int // build-side frame length scratch
+}
+
+func (p *packetScratch) sizes(n int) []int {
+	if cap(p.frameSizes) < n {
+		p.frameSizes = make([]int, n)
+	}
+	return p.frameSizes[:n]
+}
+
+func (p *packetScratch) frameSlots(n int) [][]byte {
+	if cap(p.frames) < n {
+		p.frames = make([][]byte, n)
+	}
+	return p.frames[:n]
+}
+
+func (p *packetScratch) lengthSlots(n int) []int {
+	if cap(p.lengths) < n {
+		p.lengths = make([]int, n)
+	}
+	return p.lengths[:n]
+}
+
 // parseOpusPacket parses one Opus packet from data.
 // If selfDelimited is true, data may contain trailing bytes for subsequent
 // packets and this function consumes exactly one self-delimited packet.
 func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) {
+	return parseOpusPacketInto(nil, data, selfDelimited)
+}
+
+// parseOpusPacketInto is parseOpusPacket with caller-provided reusable scratch.
+// When scratch is nil it allocates fresh working buffers (the legacy behavior).
+func parseOpusPacketInto(scratch *packetScratch, data []byte, selfDelimited bool) (parsedOpusPacket, error) {
 	if len(data) < 1 {
 		if selfDelimited {
 			return parsedOpusPacket{}, ErrInvalidPacket
@@ -34,7 +72,12 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 	offset := 1
 	padding := 0
 	frameCount := 1
-	frameSizes := make([]int, 0, 2)
+	var frameSizes []int
+	if scratch != nil {
+		frameSizes = scratch.sizes(2)[:0]
+	} else {
+		frameSizes = make([]int, 0, 2)
+	}
 
 	switch code {
 	case 0:
@@ -125,7 +168,11 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 			return parsedOpusPacket{}, ErrInvalidPacket
 		}
 
-		frameSizes = make([]int, frameCount)
+		if scratch != nil {
+			frameSizes = scratch.sizes(frameCount)
+		} else {
+			frameSizes = make([]int, frameCount)
+		}
 		if hasPadding {
 			for {
 				if offset >= len(data) {
@@ -225,7 +272,12 @@ func parseOpusPacket(data []byte, selfDelimited bool) (parsedOpusPacket, error) 
 		return parsedOpusPacket{}, ErrInvalidPacket
 	}
 
-	frames := make([][]byte, frameCount)
+	var frames [][]byte
+	if scratch != nil {
+		frames = scratch.frameSlots(frameCount)
+	} else {
+		frames = make([][]byte, frameCount)
+	}
 	frameOffset := offset
 	frameEnd := offset + frameBytes
 	for i := 0; i < frameCount; i++ {
@@ -293,12 +345,21 @@ func writePaddingLength(dst []byte, length int) int {
 // buildOpusPacketFromFrames assembles an Opus packet from frames.
 // When selfDelimited is true, it writes RFC 6716 Appendix B self-delimited framing.
 func buildOpusPacketFromFrames(tocBase byte, frames [][]byte, selfDelimited bool, dst []byte) (int, error) {
+	return buildOpusPacketFromFramesInto(nil, tocBase, frames, selfDelimited, dst)
+}
+
+func buildOpusPacketFromFramesInto(scratch *packetScratch, tocBase byte, frames [][]byte, selfDelimited bool, dst []byte) (int, error) {
 	count := len(frames)
 	if count < 1 || count > 48 {
 		return 0, ErrInvalidPacket
 	}
 
-	lengths := make([]int, count)
+	var lengths []int
+	if scratch != nil {
+		lengths = scratch.lengthSlots(count)
+	} else {
+		lengths = make([]int, count)
+	}
 	totalFrameBytes := 0
 	for i := 0; i < count; i++ {
 		lengths[i] = len(frames[i])
@@ -405,8 +466,12 @@ func buildOpusPacketFromFrames(tocBase byte, frames [][]byte, selfDelimited bool
 }
 
 func buildOpusPacketFromFramesAndPadding(tocBase byte, frames [][]byte, padding []byte, selfDelimited bool, dst []byte) (int, error) {
+	return buildOpusPacketFromFramesAndPaddingInto(nil, tocBase, frames, padding, selfDelimited, dst)
+}
+
+func buildOpusPacketFromFramesAndPaddingInto(scratch *packetScratch, tocBase byte, frames [][]byte, padding []byte, selfDelimited bool, dst []byte) (int, error) {
 	if len(padding) == 0 {
-		return buildOpusPacketFromFrames(tocBase, frames, selfDelimited, dst)
+		return buildOpusPacketFromFramesInto(scratch, tocBase, frames, selfDelimited, dst)
 	}
 
 	count := len(frames)
@@ -414,7 +479,12 @@ func buildOpusPacketFromFramesAndPadding(tocBase byte, frames [][]byte, padding 
 		return 0, ErrInvalidPacket
 	}
 
-	lengths := make([]int, count)
+	var lengths []int
+	if scratch != nil {
+		lengths = scratch.lengthSlots(count)
+	} else {
+		lengths = make([]int, count)
+	}
 	totalFrameBytes := 0
 	vbr := false
 	for i := 0; i < count; i++ {
@@ -772,22 +842,38 @@ func buildOpusPacketFromFramesAndExtensions(tocBase byte, frames [][]byte, exten
 }
 
 func makeSelfDelimitedPacket(packet []byte) ([]byte, error) {
-	parsed, err := parseOpusPacket(packet, false)
-	if err != nil {
-		return nil, err
-	}
-	extensions, err := parsePacketExtensionList(parsed.padding, parsed.paddingFrameCount)
-	if err != nil {
-		return nil, err
-	}
-
 	// Self-delimiting framing adds at most 2 bytes.
 	dst := make([]byte, len(packet)+2)
-	n, err := buildOpusPacketFromFramesAndExtensions(parsed.tocBase, parsed.frames, extensions, true, dst)
+	n, err := makeSelfDelimitedPacketInto(nil, dst, packet)
 	if err != nil {
 		return nil, err
 	}
 	return dst[:n], nil
+}
+
+// makeSelfDelimitedPacketInto reframes a standard packet to self-delimited form
+// into dst (which must hold at least len(packet)+2 bytes) and returns the number
+// of bytes written. scratch may be nil. Ordinary (non-extension) padding is
+// dropped, matching makeSelfDelimitedPacket; only opaque packet extensions are
+// re-emitted. The common path (no padding, or padding carrying no extensions)
+// is allocation-free.
+func makeSelfDelimitedPacketInto(scratch *packetScratch, dst, packet []byte) (int, error) {
+	parsed, err := parseOpusPacketInto(scratch, packet, false)
+	if err != nil {
+		return 0, err
+	}
+	if len(parsed.padding) == 0 {
+		return buildOpusPacketFromFramesInto(scratch, parsed.tocBase, parsed.frames, true, dst)
+	}
+	extensions, err := parsePacketExtensionList(parsed.padding, parsed.paddingFrameCount)
+	if err != nil {
+		return 0, err
+	}
+	if len(extensions) == 0 {
+		// Ordinary padding carries no extensions; drop it entirely.
+		return buildOpusPacketFromFramesInto(scratch, parsed.tocBase, parsed.frames, true, dst)
+	}
+	return buildOpusPacketFromFramesAndExtensions(parsed.tocBase, parsed.frames, extensions, true, dst)
 }
 
 func decodeSelfDelimitedPacket(data []byte) ([]byte, int, error) {
@@ -802,4 +888,20 @@ func decodeSelfDelimitedPacket(data []byte) ([]byte, int, error) {
 		return nil, 0, err
 	}
 	return dst[:n], parsed.consumed, nil
+}
+
+// decodeSelfDelimitedPacketInto reframes the leading self-delimited packet of
+// data into standard form written to dst (which must hold at least the consumed
+// byte count). It returns the bytes written, the bytes consumed from data, and
+// any error. scratch may be nil for the legacy allocating parser behavior.
+func decodeSelfDelimitedPacketInto(scratch *packetScratch, dst, data []byte) (written, consumed int, err error) {
+	parsed, perr := parseOpusPacketInto(scratch, data, true)
+	if perr != nil {
+		return 0, 0, perr
+	}
+	n, berr := buildOpusPacketFromFramesAndPaddingInto(scratch, parsed.tocBase, parsed.frames, parsed.padding, false, dst)
+	if berr != nil {
+		return 0, 0, berr
+	}
+	return n, parsed.consumed, nil
 }

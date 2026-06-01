@@ -118,28 +118,47 @@ func (e *Encoder) routeProjectionMixingToStreams(scratch [][]float32, pcm []floa
 //   - First N-1 packets use self-delimited packet framing
 //   - Last packet uses standard framing
 func (e *Encoder) assembleMultistreamPacket(streamPackets [][]byte) ([]byte, error) {
-	if len(streamPackets) == 0 {
+	n := len(streamPackets)
+	if n == 0 {
 		return nil, nil
 	}
 
 	encoded := e.assembleScratch
-	if cap(encoded) < len(streamPackets) {
-		encoded = make([][]byte, len(streamPackets))
+	if cap(encoded) < n {
+		encoded = make([][]byte, n)
 	}
-	encoded = encoded[:len(streamPackets)]
+	encoded = encoded[:n]
 	e.assembleScratch = encoded
+
+	// The first N-1 packets are reframed to self-delimited form, each growing by
+	// at most 2 bytes; carve them from one reusable arena so they coexist until
+	// the final copy below without per-packet allocation.
+	arenaNeed := 0
+	for i := 0; i < n-1; i++ {
+		if len(streamPackets[i]) == 0 {
+			return nil, ErrInvalidPacket
+		}
+		arenaNeed += len(streamPackets[i]) + 2
+	}
+	if cap(e.assembleArena) < arenaNeed {
+		e.assembleArena = make([]byte, arenaNeed)
+	}
+	arena := e.assembleArena[:arenaNeed]
+
+	arenaOff := 0
 	totalSize := 0
 	for i, packet := range streamPackets {
 		if len(packet) == 0 {
 			return nil, ErrInvalidPacket
 		}
 
-		if i < len(streamPackets)-1 {
-			var err error
-			packet, err = makeSelfDelimitedPacket(packet)
+		if i < n-1 {
+			written, err := makeSelfDelimitedPacketInto(&e.packetParser, arena[arenaOff:], packet)
 			if err != nil {
 				return nil, err
 			}
+			packet = arena[arenaOff : arenaOff+written]
+			arenaOff += written
 		}
 		encoded[i] = packet
 		totalSize += len(packet)

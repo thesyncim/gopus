@@ -127,6 +127,13 @@ type Encoder struct {
 	analysisInputScratch [][]float32 // routed per-stream analysis buffers (distinct length)
 	streamPacketsScratch [][]byte    // per-stream encoded packets
 	assembleScratch      [][]byte    // self-delimited framing slices for assembly
+
+	// packetParser holds reusable parse/build working buffers and assembleArena
+	// backs the self-delimited reframing of the first N-1 stream packets during
+	// assembly. The arena slices coexist until the final packet copy but never
+	// escape the assemble call.
+	packetParser  packetScratch
+	assembleArena []byte
 }
 
 const surroundBands = 21

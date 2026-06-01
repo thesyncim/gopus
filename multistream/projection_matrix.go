@@ -3,39 +3,45 @@ package multistream
 import "github.com/thesyncim/gopus/internal/opusmath"
 
 func applyProjectionDemixingMatrix32(dst, src []float32, matrix []int16, frame []float32, frameSize, rows, cols int) {
+	frame = frame[:cols]
 	for s := 0; s < frameSize; s++ {
 		inBase := s * rows
 		outBase := s * rows
+		in := src[inBase : inBase+rows]
+		out := dst[outBase : outBase+rows]
 		for col := 0; col < cols; col++ {
-			frame[col] = src[inBase+col]
+			frame[col] = in[col]
 		}
-		for row := 0; row < rows; row++ {
-			dst[outBase+row] = 0
+		for row := range out {
+			out[row] = 0
 		}
 		for col := 0; col < cols; col++ {
 			inputSample := frame[col]
+			mcol := matrix[col*rows : col*rows+rows]
 			for row := 0; row < rows; row++ {
-				tmp := float32(matrix[col*rows+row]) * inputSample * (1.0 / 32768.0)
-				idx := outBase + row
-				dst[idx] += tmp
+				tmp := float32(mcol[row]) * inputSample * (1.0 / 32768.0)
+				out[row] += tmp
 			}
 		}
 	}
 }
 
 func applyProjectionDemixingMatrixInt16(dst []int16, src []float32, matrix []int16, frame []float32, frameSize, rows, cols int) {
+	frame = frame[:cols]
 	for s := 0; s < frameSize; s++ {
 		inBase := s * rows
 		outBase := s * rows
+		in := src[inBase : inBase+rows]
+		out := dst[outBase : outBase+rows]
 		for col := 0; col < cols; col++ {
-			frame[col] = src[inBase+col]
+			frame[col] = in[col]
 		}
 		for col := 0; col < cols; col++ {
 			inputSample := int32(opusmath.Float32ToInt16(frame[col]))
+			mcol := matrix[col*rows : col*rows+rows]
 			for row := 0; row < rows; row++ {
-				tmp := int32(matrix[col*rows+row]) * inputSample
-				idx := outBase + row
-				dst[idx] = int16(int32(dst[idx]) + ((tmp + 16384) >> 15))
+				tmp := int32(mcol[row]) * inputSample
+				out[row] = int16(int32(out[row]) + ((tmp + 16384) >> 15))
 			}
 		}
 	}

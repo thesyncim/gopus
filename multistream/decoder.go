@@ -626,6 +626,13 @@ type Decoder struct {
 	// the channel-mapped result within the same call.
 	packetsScratch        [][]byte
 	decodedStreamsScratch [][]float32
+
+	// packetParser holds reusable parse/build working buffers, and reframeArena
+	// backs the N-1 self-delimited packets reframed to standard form for the
+	// elementary decoders. The arena slices coexist across the per-stream decode
+	// loop but never escape the decode call.
+	packetParser packetScratch
+	reframeArena []byte
 }
 
 // NewDecoder creates a new multistream decoder.
