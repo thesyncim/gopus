@@ -764,6 +764,18 @@ func (e *Encoder) OverlapBuffer() []float32 {
 	return out
 }
 
+// OverlapBufferInto copies the overlap buffer into dst as float32 samples and
+// returns the number of samples written. It performs the same conversion as
+// OverlapBuffer without allocating, for the hot multi-frame encode path.
+func (e *Encoder) OverlapBufferInto(dst []float32) int {
+	n := len(e.overlapBuffer)
+	if n > len(dst) {
+		n = len(dst)
+	}
+	copySigToFloat32(dst[:n], e.overlapBuffer[:n])
+	return n
+}
+
 // SetOverlapBuffer copies the given samples to the overlap buffer.
 func (e *Encoder) SetOverlapBuffer(samples []float32) {
 	copyFloat32ToSig(e.overlapBuffer, samples)

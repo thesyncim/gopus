@@ -218,17 +218,21 @@ type Encoder struct {
 	scratchSilkAligned  []float32
 
 	// Scratch buffers for zero-allocation encoding
-	scratchDCPCM      []opusRes // DC rejected PCM buffer
-	scratchInputPCM   []opusRes // Public PCM rounded into the libopus opus_res domain
-	scratchPCM32      []float32 // Reusable float32 analysis/SILK scratch
-	scratchLeft       []float32 // Left channel deinterleave buffer
-	scratchRight      []float32 // Right channel deinterleave buffer
-	scratchMono       []float32 // Mono mix buffer (VAD)
-	scratchVADFlags   [silk.MaxFramesPerPacket]bool
-	scratchVADStates  [silk.MaxFramesPerPacket]silk.VADFrameState
-	scratchPacket     []byte    // Output packet buffer
-	scratchDelayedPCM []opusRes // Delay-compensated CELT input
-	scratchDelayState []opusRes // Packet-local delay history for transition-prefill replay
+	scratchDCPCM     []opusRes // DC rejected PCM buffer
+	scratchInputPCM  []opusRes // Public PCM rounded into the libopus opus_res domain
+	scratchPCM32     []float32 // Reusable float32 analysis/SILK scratch
+	scratchLeft      []float32 // Left channel deinterleave buffer
+	scratchRight     []float32 // Right channel deinterleave buffer
+	scratchMono      []float32 // Mono mix buffer (VAD)
+	scratchVADFlags  [silk.MaxFramesPerPacket]bool
+	scratchVADStates [silk.MaxFramesPerPacket]silk.VADFrameState
+	scratchPacket    []byte // Output packet buffer
+	// Reusable long-packet assembly scratch (40/60/80/100/120 ms paths).
+	scratchFrameSlots       [6][]byte // Per-subframe slice headers for long packets
+	scratchFrameBytes       []byte    // Backing storage for kept subframe payloads
+	scratchQEXTPayloadBytes []byte    // Backing storage for kept QEXT payloads
+	scratchDelayedPCM       []opusRes // Delay-compensated CELT input
+	scratchDelayState       []opusRes // Packet-local delay history for transition-prefill replay
 	// Snapshot of libopus delay-history CELT transition prefill window (Fs/400).
 	scratchTransitionPrefill []opusRes
 	scratchSilkPrefill       []opusRes
@@ -241,8 +245,9 @@ type Encoder struct {
 
 // NewEncoder creates a new unified Opus encoder.
 func NewEncoder(sampleRate, channels int) *Encoder {
-	validRates := map[int]bool{8000: true, 12000: true, 16000: true, 24000: true, 48000: true}
-	if !validRates[sampleRate] {
+	switch sampleRate {
+	case 8000, 12000, 16000, 24000, 48000:
+	default:
 		sampleRate = 48000
 	}
 	if channels < 1 {
@@ -2880,6 +2885,50 @@ func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []opusRes, fra
 	return e.celtEncoder.EncodeFrame(pcm, frameSize)
 }
 
+// maxLongPacketFrameBytes bounds the combined size of all subframe payloads
+// kept by keepFrame within a single long packet. Each of the <=6 internal
+// subframes is independently capped by at most a full Opus packet, so this
+// covers any realisable sum while letting resetPacketFrameScratch pre-grow the
+// backing buffer once, keeping earlier keepFrame subslices stable.
+const maxLongPacketFrameBytes = 6 * maxSilkPacketBytes
+
+// resetPacketFrameScratch prepares the reusable long-packet assembly scratch at
+// the top of each long-packet encode. It pre-grows scratchFrameBytes so that the
+// per-frame keepFrame appends never reallocate (which would invalidate earlier
+// returned subslices).
+func (e *Encoder) resetPacketFrameScratch() {
+	if cap(e.scratchFrameBytes) < maxLongPacketFrameBytes {
+		e.scratchFrameBytes = make([]byte, 0, maxLongPacketFrameBytes)
+	}
+	e.scratchFrameBytes = e.scratchFrameBytes[:0]
+	if cap(e.scratchQEXTPayloadBytes) < maxLongPacketFrameBytes {
+		e.scratchQEXTPayloadBytes = make([]byte, 0, maxLongPacketFrameBytes)
+	}
+	e.scratchQEXTPayloadBytes = e.scratchQEXTPayloadBytes[:0]
+}
+
+// keepFrame copies frame into the reusable scratchFrameBytes backing buffer and
+// returns a length-capped subslice. The range coder output buffer is reused
+// across subframes, so the copy gives each kept frame stable storage. The
+// returned subslice is 3-index sliced so a stray append cannot reach into the
+// next frame's bytes.
+func (e *Encoder) keepFrame(frame []byte) []byte {
+	start := len(e.scratchFrameBytes)
+	e.scratchFrameBytes = append(e.scratchFrameBytes, frame...)
+	end := len(e.scratchFrameBytes)
+	return e.scratchFrameBytes[start:end:end]
+}
+
+// keepQEXTPayload copies a QEXT extension payload into the reusable
+// scratchQEXTPayloadBytes backing buffer, giving it stable storage for the
+// duration of packet assembly without a per-frame heap allocation.
+func (e *Encoder) keepQEXTPayload(payload []byte) []byte {
+	start := len(e.scratchQEXTPayloadBytes)
+	e.scratchQEXTPayloadBytes = append(e.scratchQEXTPayloadBytes, payload...)
+	end := len(e.scratchQEXTPayloadBytes)
+	return e.scratchQEXTPayloadBytes[start:end:end]
+}
+
 // encodeCELTMultiFramePacket encodes long CELT packets by splitting into
 // 20ms CELT frames and packing them with Opus multi-frame framing.
 func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRes, celtPCM []opusRes, frameSize, originalBitrate, encodingBitrate, dredBitrate, dredExtraDelay int) ([]byte, error) {
@@ -2899,8 +2948,9 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 		e.analyzer.ReadSubframe = e.analysisSubframeBak
 	}
 
+	e.resetPacketFrameScratch()
 	frameStride := 960 * channels
-	frames := make([][]byte, frameCount)
+	frames := e.scratchFrameSlots[:frameCount]
 	sameSize := true
 	prevSize := -1
 	packetTargetBytes := targetBytesForBitrate(originalBitrate, frameSize)
@@ -2991,14 +3041,14 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 		}
 		totSize += len(frameData) + 1
 		// Keep a stable copy because the range coder output buffer is reused.
-		frameCopy := append([]byte(nil), frameData...)
+		frameCopy := e.keepFrame(frameData)
 		frames[i] = frameCopy
 		if extsupport.QEXT && e.celtEncoder != nil {
 			qextPayload := e.lastQEXTPayload()
 			if len(qextPayload) > 0 {
 				qextExtensions[qextExtensionCount] = packetExtension{
 					ID:    qextExtensionID,
-					Data:  append([]byte(nil), qextPayload...),
+					Data:  e.keepQEXTPayload(qextPayload),
 					Frame: i,
 				}
 				qextExtensionCount++
@@ -3037,7 +3087,8 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 		}
 		return e.scratchPacket[:packetLen], nil
 	}
-	return BuildMultiFramePacket(
+	packetLen, err := buildMultiFramePacketInto(
+		e.scratchPacket,
 		frames,
 		types.ModeCELT,
 		e.effectiveBandwidth(),
@@ -3045,6 +3096,10 @@ func (e *Encoder) encodeCELTMultiFramePacket(framePCM []opusRes, vadPCM []opusRe
 		e.packetStereoForMode(ModeCELT),
 		!sameSize,
 	)
+	if err != nil {
+		return nil, err
+	}
+	return e.scratchPacket[:packetLen], nil
 }
 
 // encodeHybridMultiFramePacket encodes long hybrid packets by splitting into
@@ -3074,8 +3129,9 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes,
 		}()
 	}
 
+	e.resetPacketFrameScratch()
 	frameStride := 960 * channels
-	frames := make([][]byte, frameCount)
+	frames := e.scratchFrameSlots[:frameCount]
 	sameSize := true
 	prevSize := -1
 	packetTargetBytes := targetBytesForBitrate(originalBitrate, frameSize)
@@ -3183,7 +3239,7 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes,
 			e.snapshotDREDPacketState()
 		}
 		// Keep a stable copy because encoder scratch buffers are reused.
-		frameCopy := append([]byte(nil), frameData...)
+		frameCopy := e.keepFrame(frameData)
 		frames[i] = frameCopy
 		totSize += len(frameCopy) + 1
 		if len(e.delayBuffer) > 0 {
@@ -3206,7 +3262,11 @@ func (e *Encoder) encodeHybridMultiFramePacket(pcm []opusRes, celtPCM []opusRes,
 			return dredPacket, nil
 		}
 	}
-	return BuildMultiFramePacket(frames, types.ModeHybrid, packetBW, 960, e.packetStereoForMode(ModeHybrid), !sameSize)
+	packetLen, err := buildMultiFramePacketInto(e.scratchPacket, frames, types.ModeHybrid, packetBW, 960, e.packetStereoForMode(ModeHybrid), !sameSize)
+	if err != nil {
+		return nil, err
+	}
+	return e.scratchPacket[:packetLen], nil
 }
 
 // encodeSILKMultiFramePacket encodes 80/100/120ms SILK packets by splitting
@@ -3230,7 +3290,11 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 	}
 
 	frameCount := frameSize / encFrameSize
-	frames := make([][]byte, frameCount)
+	if frameCount < 1 || frameCount > 6 {
+		return nil, ErrInvalidFrameSize
+	}
+	e.resetPacketFrameScratch()
+	frames := e.scratchFrameSlots[:frameCount]
 	sameSize := true
 	prevSize := -1
 	frameStride := encFrameSize * channels
@@ -3324,7 +3388,7 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 		if dredActive && i == 0 {
 			e.snapshotDREDPacketState()
 		}
-		frameCopy := append([]byte(nil), trimSilkTrailingZeros(frameData)...)
+		frameCopy := e.keepFrame(trimSilkTrailingZeros(frameData))
 		frames[i] = frameCopy
 		totSize += len(frameCopy) + 1
 		if prevSize >= 0 && len(frameCopy) != prevSize {
@@ -3346,7 +3410,11 @@ func (e *Encoder) encodeSILKMultiFramePacket(pcm []opusRes, vadPCM []opusRes, fr
 			return dredPacket, nil
 		}
 	}
-	return BuildMultiFramePacket(frames, types.ModeSILK, packetBW, encFrameSize, e.packetStereoForMode(ModeSILK), !sameSize)
+	packetLen, err := buildMultiFramePacketInto(e.scratchPacket, frames, types.ModeSILK, packetBW, encFrameSize, e.packetStereoForMode(ModeSILK), !sameSize)
+	if err != nil {
+		return nil, err
+	}
+	return e.scratchPacket[:packetLen], nil
 }
 
 // ensureSILKEncoder creates the SILK encoder if it doesn't exist.

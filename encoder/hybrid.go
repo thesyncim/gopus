@@ -1548,7 +1548,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 	}
 	mdctHistory = mdctHistory[:mdctHistLen]
 	if mdctHistLen > 0 {
-		copy(mdctHistory, e.celtEncoder.OverlapBuffer()[:mdctHistLen])
+		e.celtEncoder.OverlapBufferInto(mdctHistory)
 	}
 
 	// Transient analysis (pre-MDCT) to decide short blocks and tf metrics.

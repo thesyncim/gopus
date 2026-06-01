@@ -339,6 +339,88 @@ func BuildPacket(frameData []byte, mode types.Mode, bandwidth types.Bandwidth, f
 	return packet, nil
 }
 
+// buildMultiFramePacketInto writes the same packet bytes as BuildMultiFramePacket
+// into dst, returning the number of bytes written. It mirrors BuildMultiFramePacket's
+// frame-code selection (code 0 for a single frame, codes 1/2 for two frames, code 3
+// otherwise) so the emitted bytes are identical, but takes a caller-owned buffer to
+// avoid a per-packet allocation on the long-packet hot path.
+func buildMultiFramePacketInto(dst []byte, frames [][]byte, mode types.Mode, bandwidth types.Bandwidth, frameSize int, stereo bool, vbr bool) (int, error) {
+	if len(frames) == 0 || len(frames) > 48 {
+		return 0, ErrInvalidFrameCount
+	}
+
+	config := configFromParams(mode, bandwidth, frameSize)
+	if config < 0 {
+		return 0, ErrInvalidConfig
+	}
+
+	if len(frames) == 1 {
+		return BuildPacketInto(dst, frames[0], mode, bandwidth, frameSize, stereo)
+	}
+	if len(frames) == 2 {
+		if len(frames[0]) == len(frames[1]) {
+			need := 1 + len(frames[0]) + len(frames[1])
+			if len(dst) < need {
+				return 0, ErrInvalidConfig
+			}
+			dst[0] = generateTOC(uint8(config), stereo, 1)
+			copy(dst[1:], frames[0])
+			copy(dst[1+len(frames[0]):], frames[1])
+			return need, nil
+		}
+		headerSize := 1 + frameLengthBytes(len(frames[0]))
+		need := headerSize + len(frames[0]) + len(frames[1])
+		if len(dst) < need {
+			return 0, ErrInvalidConfig
+		}
+		dst[0] = generateTOC(uint8(config), stereo, 2)
+		offset := 1
+		offset += writeFrameLength(dst[offset:], len(frames[0]))
+		copy(dst[offset:], frames[0])
+		offset += len(frames[0])
+		copy(dst[offset:], frames[1])
+		return need, nil
+	}
+
+	var countByte byte
+	if vbr {
+		countByte |= 0x80
+	}
+	countByte |= byte(len(frames) & 0x3F)
+
+	headerSize := 2
+	if vbr {
+		for i := 0; i < len(frames)-1; i++ {
+			headerSize += frameLengthBytes(len(frames[i]))
+		}
+	}
+
+	totalFrameSize := 0
+	for _, f := range frames {
+		totalFrameSize += len(f)
+	}
+
+	need := headerSize + totalFrameSize
+	if len(dst) < need {
+		return 0, ErrInvalidConfig
+	}
+	dst[0] = generateTOC(uint8(config), stereo, 3)
+	dst[1] = countByte
+
+	offset := 2
+	if vbr {
+		for i := 0; i < len(frames)-1; i++ {
+			offset += writeFrameLength(dst[offset:], len(frames[i]))
+		}
+	}
+	for _, f := range frames {
+		copy(dst[offset:], f)
+		offset += len(f)
+	}
+
+	return need, nil
+}
+
 // BuildMultiFramePacket creates a packet with multiple frames.
 // frames: slice of encoded frame data
 // vbr: true for variable bitrate (different frame sizes), false for CBR
@@ -528,9 +610,10 @@ func generatePacketExtensions(dst []byte, length int, extensions []packetExtensi
 		return 0, ErrInvalidConfig
 	}
 
-	frameMinIdx := make([]int, nbFrames)
-	frameMaxIdx := make([]int, nbFrames)
-	frameRepeatIdx := make([]int, nbFrames)
+	var frameMinIdxBak, frameMaxIdxBak, frameRepeatIdxBak [48]int
+	frameMinIdx := frameMinIdxBak[:nbFrames]
+	frameMaxIdx := frameMaxIdxBak[:nbFrames]
+	frameRepeatIdx := frameRepeatIdxBak[:nbFrames]
 	for f := 0; f < nbFrames; f++ {
 		frameMinIdx[f] = len(extensions)
 	}

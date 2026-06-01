@@ -375,6 +375,74 @@ func TestHotPathAllocsMultistreamDecode(t *testing.T) {
 	}
 }
 
+// longPacketAllocCase covers a multi-frame (40/60/80/100/120 ms) caller-buffer
+// encode path that must stay at 0 allocs/op after warmup.
+type longPacketAllocCase struct {
+	name      string
+	frameSize int
+}
+
+var longPacketAllocCases = []longPacketAllocCase{
+	{"40ms", 1920},
+	{"60ms", 2880},
+	{"80ms", 3840},
+	{"100ms", 4800},
+	{"120ms", 5760},
+}
+
+func runLongPacketAllocGuard(t *testing.T, app Application, mode EncoderMode, bw Bandwidth, bitrate, channels int) {
+	t.Helper()
+	for _, c := range longPacketAllocCases {
+		t.Run(c.name, func(t *testing.T) {
+			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: channels, Application: app})
+			if err != nil {
+				t.Fatalf("NewEncoder: %v", err)
+			}
+			if err := enc.SetMode(mode); err != nil {
+				t.Fatalf("SetMode: %v", err)
+			}
+			if err := enc.SetFrameSize(c.frameSize); err != nil {
+				t.Fatalf("SetFrameSize: %v", err)
+			}
+			if err := enc.SetBandwidth(bw); err != nil {
+				t.Fatalf("SetBandwidth: %v", err)
+			}
+			if err := enc.SetBitrate(bitrate); err != nil {
+				t.Fatalf("SetBitrate: %v", err)
+			}
+
+			pcm := testSineFrame(c.frameSize * channels)
+			packet := make([]byte, 4000)
+			for i := 0; i < 5; i++ {
+				if _, err := enc.Encode(pcm, packet); err != nil {
+					t.Fatalf("warmup Encode: %v", err)
+				}
+			}
+
+			allocs := testing.AllocsPerRun(200, func() {
+				if _, err := enc.Encode(pcm, packet); err != nil {
+					t.Fatalf("Encode: %v", err)
+				}
+			})
+			if allocs != 0 {
+				t.Fatalf("long-packet Encode allocs/op = %.2f, want 0", allocs)
+			}
+		})
+	}
+}
+
+func TestHotPathAllocsEncodeLongPacketCELT(t *testing.T) {
+	runLongPacketAllocGuard(t, ApplicationAudio, EncoderModeCELT, BandwidthFullband, 128000, 1)
+}
+
+func TestHotPathAllocsEncodeLongPacketHybrid(t *testing.T) {
+	runLongPacketAllocGuard(t, ApplicationAudio, EncoderModeHybrid, BandwidthFullband, 64000, 1)
+}
+
+func TestHotPathAllocsEncodeLongPacketSILK(t *testing.T) {
+	runLongPacketAllocGuard(t, ApplicationVoIP, EncoderModeSILK, BandwidthWideband, 24000, 1)
+}
+
 func TestHotPathAllocsStreamWriterFloat32(t *testing.T) {
 	writer, err := NewWriter(48000, 2, nopPacketSink{}, FormatFloat32LE, ApplicationAudio)
 	if err != nil {

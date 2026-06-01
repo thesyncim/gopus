@@ -769,3 +769,76 @@ func (m *mockPacketReader) ReadPacketInto(dst []byte) (int, uint64, error) {
 	m.index++
 	return n, uint64(m.index), nil
 }
+
+// longPacketDurations lists the multi-frame packet durations (40/60/80/100/120 ms)
+// whose caller-buffer encode paths target 0 allocs/op.
+var longPacketDurations = []struct {
+	name      string
+	frameSize int
+}{
+	{"40ms", 1920},
+	{"60ms", 2880},
+	{"80ms", 3840},
+	{"100ms", 4800},
+	{"120ms", 5760},
+}
+
+func benchmarkLongPacketEncode(b *testing.B, app Application, mode EncoderMode, bw Bandwidth, bitrate, channels int) {
+	for _, d := range longPacketDurations {
+		b.Run(d.name, func(b *testing.B) {
+			enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: channels, Application: app})
+			if err != nil {
+				b.Fatalf("NewEncoder: %v", err)
+			}
+			if err := enc.SetMode(mode); err != nil {
+				b.Fatalf("SetMode: %v", err)
+			}
+			if err := enc.SetFrameSize(d.frameSize); err != nil {
+				b.Fatalf("SetFrameSize: %v", err)
+			}
+			if err := enc.SetBandwidth(bw); err != nil {
+				b.Fatalf("SetBandwidth: %v", err)
+			}
+			if err := enc.SetBitrate(bitrate); err != nil {
+				b.Fatalf("SetBitrate: %v", err)
+			}
+
+			pcm := generateBenchSineWave(d.frameSize * channels)
+			packet := make([]byte, 4000)
+
+			for i := 0; i < 5; i++ {
+				if _, err := enc.Encode(pcm, packet); err != nil {
+					b.Fatalf("Encode warmup: %v", err)
+				}
+			}
+
+			b.ResetTimer()
+			b.ReportAllocs()
+
+			for i := 0; i < b.N; i++ {
+				if _, err := enc.Encode(pcm, packet); err != nil {
+					b.Fatalf("Encode: %v", err)
+				}
+			}
+		})
+	}
+}
+
+// BenchmarkEncoderEncode_LongPacketCELT measures the long CELT multi-frame
+// caller-buffer encode path. Target: 0 allocs/op.
+func BenchmarkEncoderEncode_LongPacketCELT(b *testing.B) {
+	benchmarkLongPacketEncode(b, ApplicationAudio, EncoderModeCELT, BandwidthFullband, 128000, 1)
+}
+
+// BenchmarkEncoderEncode_LongPacketHybrid measures the long hybrid multi-frame
+// caller-buffer encode path. Target: 0 allocs/op.
+func BenchmarkEncoderEncode_LongPacketHybrid(b *testing.B) {
+	benchmarkLongPacketEncode(b, ApplicationAudio, EncoderModeHybrid, BandwidthFullband, 64000, 1)
+}
+
+// BenchmarkEncoderEncode_LongPacketSILK measures the long SILK multi-frame
+// caller-buffer encode path (80/100/120 ms split into 20/40/60 ms SILK frames).
+// Target: 0 allocs/op.
+func BenchmarkEncoderEncode_LongPacketSILK(b *testing.B) {
+	benchmarkLongPacketEncode(b, ApplicationVoIP, EncoderModeSILK, BandwidthWideband, 24000, 1)
+}
