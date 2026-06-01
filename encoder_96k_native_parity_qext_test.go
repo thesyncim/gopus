@@ -113,24 +113,19 @@ func refMainCELTPayload(t *testing.T, pkt []byte) (main, qext []byte) {
 // allocation now match the reference, and the stereo PVQ band data is bit-exact
 // through band 15.
 //
-// Remaining native-96k encode divergences:
-//   - mono: byte-exact. The HD-scale comb prefilter (comb_filter_qext, x!=y)
-//     filters the even/odd phases with the input delay line (mem_buf) and the
-//     output buffer kept SEPARATE, so an already-written output sample is never
-//     read back as comb input. Aliasing input and output had perturbed band 15's
-//     unquantised bandLogE enough to flip its dynalloc boost by one quantum.
-//   - stereo: the band-data region is bit-exact through band 15; the main payload
-//     first diverges at byte 296 inside band 16's high-complexity stereo theta-RDO
-//     decision, a float-precision knife-edge consistent with the documented
-//     arm64 1-ULP CELT drift.
+// Native-96k encode is byte-exact for both mono and stereo. The HD-scale comb
+// prefilter (comb_filter_qext, x!=y) filters the even/odd phases with the input
+// delay line (mem_buf) and the output buffer kept SEPARATE, so an already-written
+// output sample is never read back as comb input. The forward MDCT folds the
+// 1/nfft FFT scale into the post-rotation twiddles under the ENABLE_QEXT scale
+// placement (mdctQEXTScalePlacement), matching the QEXT clt_mdct_forward(); the
+// pre-rotation placement of the default build rounds the >20 kHz extension bins
+// by tens of ULP, which had flipped the band-16 stereo PVQ fold leaf.
 //
-// The test is kept as an executable diagnostic: it logs the precise divergence
-// and skips rather than failing, so the suite stays green while those residuals
-// remain.
+// The test logs the first divergence and fails on any byte mismatch.
 func TestHD96kNativeEncodeMainPayloadParity(t *testing.T) {
 	const frameSize = 1920
 	const bitrate = 256000
-	var anyDiverged bool
 	for _, ch := range []int{1, 2} {
 		ch := ch
 		t.Run(map[int]string{1: "mono", 2: "stereo"}[ch], func(t *testing.T) {
@@ -179,37 +174,19 @@ func TestHD96kNativeEncodeMainPayloadParity(t *testing.T) {
 
 			firstMainDiff := firstByteDiff(gotMain, refMain)
 			firstQextDiff := firstByteDiff(gotQext, refQext)
-			if firstMainDiff >= 0 || firstQextDiff >= 0 {
-				anyDiverged = true
-			}
-			if ch == 1 {
-				// Mono is fully byte-exact (main + QEXT). Lock it in: any regression
-				// here is a real correctness failure, not a documented residual.
-				if firstMainDiff >= 0 {
-					dumpAround(t, "main", gotMain, refMain, firstMainDiff)
-					t.Fatalf("mono main payload regressed: diverges at byte %d (got len=%d ref len=%d)",
-						firstMainDiff, len(gotMain), len(refMain))
-				}
-				if firstQextDiff >= 0 {
-					dumpAround(t, "qext", gotQext, refQext, firstQextDiff)
-					t.Fatalf("mono qext payload regressed: diverges at byte %d (got len=%d ref len=%d)",
-						firstQextDiff, len(gotQext), len(refQext))
-				}
-			}
+			// Both mono and stereo native-96k encode are byte-exact (main + QEXT);
+			// any mismatch is a real correctness regression.
 			if firstMainDiff >= 0 {
-				t.Logf("ch=%d main payload diverges at byte %d (got len=%d ref len=%d) -- QEXT reservation / coarse-energy intra pending",
-					ch, firstMainDiff, len(gotMain), len(refMain))
 				dumpAround(t, "main", gotMain, refMain, firstMainDiff)
+				t.Fatalf("ch=%d main payload diverges at byte %d (got len=%d ref len=%d)",
+					ch, firstMainDiff, len(gotMain), len(refMain))
 			}
 			if firstQextDiff >= 0 {
-				t.Logf("ch=%d qext payload diverges at byte %d (got len=%d ref len=%d)",
-					ch, firstQextDiff, len(gotQext), len(refQext))
 				dumpAround(t, "qext", gotQext, refQext, firstQextDiff)
+				t.Fatalf("ch=%d qext payload diverges at byte %d (got len=%d ref len=%d)",
+					ch, firstQextDiff, len(gotQext), len(refQext))
 			}
 		})
-	}
-	if anyDiverged {
-		t.Skip("native 96k CELT encode pending QEXT reservation budget + coarse-energy intra; HD-scale prefilter and signed ext_balance done (see test doc)")
 	}
 }
 

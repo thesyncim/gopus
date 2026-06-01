@@ -571,6 +571,15 @@ func TestOpusdecCrossvalFixtureCoverage(t *testing.T) {
 }
 
 func TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec(t *testing.T) {
+	if mdctQEXTScalePlacement {
+		// The committed opusdec crossval fixtures are keyed by the sha256 of the
+		// gopus-encoded ogg produced by the default (non-QEXT) encoder. Under
+		// gopus_qext the forward MDCT uses the ENABLE_QEXT scale placement, so the
+		// encoder emits different (QEXT-correct) oggs whose hashes are absent from
+		// the default-build fixture set. QEXT encode is byte-validated against the
+		// QEXT libopus oracle by the TestQEXT* full-packet parity tests instead.
+		t.Skip("crossval fixtures are keyed to the default-build encoder; QEXT encode covered by TestQEXT* parity tests")
+	}
 	if testing.Short() || strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_TEST_TIER"))) == "fast" {
 		t.Skip("live opusdec fixture honesty requires parity tier")
 	}

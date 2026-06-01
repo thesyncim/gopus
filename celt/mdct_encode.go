@@ -348,6 +348,14 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 
 	// Match libopus st->scale initialization in float builds (1.f/nfft).
 	scale := float32(1.0) / float32(n4)
+	// QEXT clt_mdct_forward() applies the FFT scale to the post-rotation twiddles
+	// instead of the pre-rotation, so split the scale into pre/post factors.
+	preScale := scale
+	postScale := float32(1.0)
+	if mdctQEXTScalePlacement {
+		preScale = 1.0
+		postScale = scale
+	}
 	var fftStage []kissCpx
 	if useDirectKissCpx {
 		fftStage = fftTmp[:n4]
@@ -363,7 +371,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				im := mdctMulSubMixWith(useNativeMul, float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
+				mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], preScale, re, im, t0, t1)
 				xp1 += 2
 				xp2 -= 2
 				wp1 += 2
@@ -377,7 +385,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				im := float32(samples[xp1])
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
+				mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], preScale, re, im, t0, t1)
 				xp1 += 2
 				xp2 -= 2
 			}
@@ -387,7 +395,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				im := mdctMulAddMixWith(useNativeMul, float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
+				mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], preScale, re, im, t0, t1)
 				xp1 += 2
 				xp2 -= 2
 				wp1 += 2
@@ -399,7 +407,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				im := mdctMulSubMixWith(useNativeMul, float32(samples[xp1]), float32(samples[xp2-n2]), window[wp1], window[wp2])
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
+				mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], preScale, re, im, t0, t1)
 				xp1 += 2
 				xp2 -= 2
 				wp1 += 2
@@ -413,7 +421,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				im := float32(samples[xp1])
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
+				mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], preScale, re, im, t0, t1)
 				xp1 += 2
 				xp2 -= 2
 			}
@@ -423,7 +431,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 				im := mdctMulAddMixWith(useNativeMul, float32(samples[xp1]), float32(samples[xp2+n2]), window[wp2], window[wp1])
 				t0 := trig[i]
 				t1 := trig[n4+i]
-				mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
+				mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], preScale, re, im, t0, t1)
 				xp1 += 2
 				xp2 -= 2
 				wp1 += 2
@@ -477,7 +485,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 					im := f[2*i+1]
 					t0 := trig[i]
 					t1 := trig[n4+i]
-					mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
+					mdctStoreDirectStageFMALikeWith(useNativeMul, fftStage, bitrev[i], preScale, re, im, t0, t1)
 				}
 			} else {
 				for i = 0; i < n4; i++ {
@@ -485,7 +493,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 					im := f[2*i+1]
 					t0 := trig[i]
 					t1 := trig[n4+i]
-					mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], scale, re, im, t0, t1)
+					mdctStoreDirectStageWith(useNativeMul, fftStage, bitrev[i], preScale, re, im, t0, t1)
 				}
 			}
 		}
@@ -501,7 +509,7 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			t1 := trig[n4+i]
 			yr := mdctMulWith(useNativeMul, re, t0) - mdctMulWith(useNativeMul, im, t1)
 			yi := mdctMulWith(useNativeMul, im, t0) + mdctMulWith(useNativeMul, re, t1)
-			fftIn[i] = complex(yr*scale, yi*scale)
+			fftIn[i] = complex(yr*preScale, yi*preScale)
 		}
 		kissFFT32To(fftOut, fftIn[:n4], fftTmp)
 	}
@@ -518,6 +526,10 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			im := fftStage[i].i
 			t0 := trig[i]
 			t1 := trigHi[i]
+			if mdctQEXTScalePlacement {
+				t0 *= postScale
+				t1 *= postScale
+			}
 			yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
 			yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
 			coeffs[lo] = yr
@@ -535,6 +547,10 @@ func mdctForwardOverlapF32Scratch(samples []float32, overlap int, coeffs []float
 			im := imag(fftOut[i])
 			t0 := trig[i]
 			t1 := trigHi[i]
+			if mdctQEXTScalePlacement {
+				t0 *= postScale
+				t1 *= postScale
+			}
 			yr := mdctMulWith(useNativeMul, im, t1) - mdctMulWith(useNativeMul, re, t0)
 			yi := mdctMulWith(useNativeMul, re, t1) + mdctMulWith(useNativeMul, im, t0)
 			coeffs[lo] = yr

@@ -320,6 +320,13 @@ func TestIMDCTTransientInPlaceScratchF32MatchesLibopusC(t *testing.T) {
 }
 
 func TestMDCTForwardOverlapF32MatchesLibopusC(t *testing.T) {
+	if mdctQEXTScalePlacement {
+		// Under gopus_qext the forward MDCT folds the 1/nfft FFT scale into the
+		// post-rotation twiddles (ENABLE_QEXT clt_mdct_forward()), so it does not
+		// match this non-QEXT oracle. The QEXT forward MDCT is covered by
+		// TestHD96kMDCTMatchesLibopusQEXT against the QEXT-built libopus.
+		t.Skip("forward MDCT uses ENABLE_QEXT scale placement; covered by TestHD96kMDCTMatchesLibopusQEXT")
+	}
 	libopustest.RequireOracle(t)
 
 	testCases := []struct {
@@ -352,6 +359,13 @@ func TestMDCTForwardOverlapF32MatchesLibopusC(t *testing.T) {
 }
 
 func TestMDCTForwardOverlapF32CELTSignalScaleMatchesLibopusC(t *testing.T) {
+	if mdctQEXTScalePlacement {
+		// Under gopus_qext the forward MDCT folds the 1/nfft FFT scale into the
+		// post-rotation twiddles (ENABLE_QEXT clt_mdct_forward()), so it does not
+		// match this non-QEXT oracle. The QEXT forward MDCT is covered by
+		// TestHD96kMDCTMatchesLibopusQEXT against the QEXT-built libopus.
+		t.Skip("forward MDCT uses ENABLE_QEXT scale placement; covered by TestHD96kMDCTMatchesLibopusQEXT")
+	}
 	libopustest.RequireOracle(t)
 
 	const (
