@@ -1048,7 +1048,9 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 	framesPerPacket, nbSubfr, err := frameParams(duration)
 	if err != nil || framesPerPacket <= 0 {
 		resampler := d.GetResampler(bandwidth)
-		return resampler.ProcessInto(d.BuildMonoResamplerInput(concealed), output), nil
+		n := resampler.ProcessInto(d.BuildMonoResamplerInput(concealed), output)
+		d.captureMonoPLCLowband(output[:n])
+		return n, nil
 	}
 	frameLength := nbSubfr * subFrameLengthMs * config.SampleRate / 1000
 	if frameLength <= 0 || frameLength*framesPerPacket != len(concealed) {
@@ -1057,6 +1059,7 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 
 	resampler := d.GetResampler(bandwidth)
 	outputOffset := 0
+	captureI16 := d.plcLowbandCaptureArm && len(d.plcLowbandCapture) > 0
 	for f := 0; f < framesPerPacket; f++ {
 		start := f * frameLength
 		end := start + frameLength
@@ -1066,7 +1069,24 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 		if dredHooksEnabled && usedDeepPLCHook && len(d.scratchOutInt16) >= end {
 			frameQ0 := d.scratchOutInt16[start:end]
 			resamplerInput := d.BuildMonoResamplerInputInt16(frameQ0)
-			outputOffset += resampler.ProcessInt16Into(resamplerInput, output[outputOffset:])
+			if captureI16 {
+				outputOffset += d.resamplePLCFrameCaptureInt16(resampler, resamplerInput, output[outputOffset:], outputOffset)
+			} else {
+				outputOffset += resampler.ProcessInt16Into(resamplerInput, output[outputOffset:])
+			}
+			continue
+		}
+		if captureI16 {
+			// Resample the int16-recovered concealment (float concealed = q/32768,
+			// so float32ToInt16 recovers q exactly) so the captured lowband is the
+			// integer-exact resampler output the FIXED_POINT path needs, while the
+			// float output is bit-identical to the float-input resampler path.
+			frameI16 := d.plcConcealInt16Scratch(end - start)
+			for i := start; i < end; i++ {
+				frameI16[i-start] = float32ToInt16(concealed[i])
+			}
+			resamplerInput := d.BuildMonoResamplerInputInt16(frameI16)
+			outputOffset += d.resamplePLCFrameCaptureInt16(resampler, resamplerInput, output[outputOffset:], outputOffset)
 			continue
 		}
 		frame := concealed[start:end]
@@ -1074,7 +1094,42 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 		outputOffset += resampler.ProcessInto(resamplerInput, output[outputOffset:])
 	}
 
+	if captureI16 {
+		d.plcLowbandCaptured = min(outputOffset, len(d.plcLowbandCapture))
+	}
 	return outputOffset, nil
+}
+
+// plcConcealInt16Scratch returns a reusable int16 scratch buffer of length n for
+// converting the mono PLC concealment to int16 before resampling.
+func (d *Decoder) plcConcealInt16Scratch(n int) []int16 {
+	if cap(d.plcConcealI16) < n {
+		d.plcConcealI16 = make([]int16, n)
+	}
+	d.plcConcealI16 = d.plcConcealI16[:n]
+	return d.plcConcealI16
+}
+
+// resamplePLCFrameCaptureInt16 resamples one int16 PLC frame, writing the float
+// output to out and the native int16 resampler output into the armed
+// plcLowbandCapture buffer at outputOffset. It returns the sample count written.
+func (d *Decoder) resamplePLCFrameCaptureInt16(resampler *LibopusResampler, resamplerInput []int16, out []float32, outputOffset int) int {
+	dst := d.plcLowbandCapture[outputOffset:]
+	return resampler.ProcessInt16IntoBoth(resamplerInput, out, dst)
+}
+
+// captureMonoPLCLowband captures a fallback mono PLC lowband (the degenerate
+// frameParams<=0 path) by re-deriving the int16 from the float output (out =
+// int16/32768, so float32ToInt16 recovers it). Only runs when capture is armed.
+func (d *Decoder) captureMonoPLCLowband(out []float32) {
+	if !d.plcLowbandCaptureArm || len(d.plcLowbandCapture) == 0 {
+		return
+	}
+	n := min(len(out), len(d.plcLowbandCapture))
+	for i := 0; i < n; i++ {
+		d.plcLowbandCapture[i] = float32ToInt16(out[i])
+	}
+	d.plcLowbandCaptured = n
 }
 
 // RecordPLCLossMono records a mono SILK PLC loss event for glue-frame tracking.
@@ -1361,8 +1416,18 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
 	leftUp := d.plcStereoFloatScratch(&d.plcLeftUp, frameSizeSamples)
 	rightUp := d.plcStereoFloatScratch(&d.plcRightUp, frameSizeSamples)
-	nLeft := leftResampler.ProcessInt16Into(midFrame[1:nativeSamples+1], leftUp)
-	nRight := rightResampler.ProcessInt16Into(sideFrame[1:nativeSamples+1], rightUp)
+	captureI16 := d.plcLowbandCaptureArm && len(d.plcLowbandCapture) > 0
+	var leftI16, rightI16 []int16
+	var nLeft, nRight int
+	if captureI16 {
+		leftI16 = d.plcStereoLeftI16Scratch(frameSizeSamples)
+		rightI16 = d.plcStereoRightI16Scratch(frameSizeSamples)
+		nLeft = leftResampler.ProcessInt16IntoBoth(midFrame[1:nativeSamples+1], leftUp, leftI16)
+		nRight = rightResampler.ProcessInt16IntoBoth(sideFrame[1:nativeSamples+1], rightUp, rightI16)
+	} else {
+		nLeft = leftResampler.ProcessInt16Into(midFrame[1:nativeSamples+1], leftUp)
+		nRight = rightResampler.ProcessInt16Into(sideFrame[1:nativeSamples+1], rightUp)
+	}
 	if nRight < nLeft {
 		nLeft = nRight
 	}
@@ -1373,6 +1438,15 @@ func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int,
 	for i := 0; i < nLeft; i++ {
 		output[i*2] = leftUp[i]
 		output[i*2+1] = rightUp[i]
+	}
+	if captureI16 {
+		filled := 0
+		for i := 0; i < nLeft && 2*i+1 < len(d.plcLowbandCapture); i++ {
+			d.plcLowbandCapture[2*i] = leftI16[i]
+			d.plcLowbandCapture[2*i+1] = rightI16[i]
+			filled = 2 * (i + 1)
+		}
+		d.plcLowbandCaptured = filled
 	}
 
 	return nLeft * 2, nil
@@ -1392,6 +1466,22 @@ func (d *Decoder) plcStereoFloatScratch(buf *[]float32, n int) []float32 {
 	s := (*buf)[:n]
 	clear(s)
 	return s
+}
+
+func (d *Decoder) plcStereoLeftI16Scratch(n int) []int16 {
+	if cap(d.plcStereoLI16) < n {
+		d.plcStereoLI16 = make([]int16, n)
+	}
+	d.plcStereoLI16 = d.plcStereoLI16[:n]
+	return d.plcStereoLI16
+}
+
+func (d *Decoder) plcStereoRightI16Scratch(n int) []int16 {
+	if cap(d.plcStereoRI16) < n {
+		d.plcStereoRI16 = make([]int16, n)
+	}
+	d.plcStereoRI16 = d.plcStereoRI16[:n]
+	return d.plcStereoRI16
 }
 
 func float32ToInt16(v float32) int16 {

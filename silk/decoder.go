@@ -176,7 +176,41 @@ type Decoder struct {
 	lastFrameCtrl       [2]decoderControl
 	lastFrameCtrlSignal [2]int32 // signalType from st.indices for the corresponding ctrl.
 	lastFrameCtrlValid  [2]bool
+
+	// plcLowbandCapture, when non-nil, receives the resampled int16 SILK PLC
+	// lowband (interleaved by channel) produced by the next decodePLC /
+	// decodePLCStereo call. The FIXED_POINT integer hybrid PLC path arms it so
+	// the integer CELT highband concealment can accumulate onto the exact
+	// opus_res SILK lowband (INT16TORES of this int16), matching libopus'
+	// celt_decode_with_ec_dred(NULL, celt_accum=1) on a lost hybrid frame. The
+	// captured int16 is the same value the float PLC resamples to (the float
+	// output is int16/32768), so arming it does not change the float PLC output.
+	plcLowbandCapture    []int16
+	plcLowbandCaptured   int
+	plcLowbandCaptureArm bool
+	// plcConcealI16 is reusable scratch for converting a mono float PLC
+	// concealment frame to int16 before int16 resampling on the capture path.
+	plcConcealI16 []int16
+	// plcStereoLI16 / plcStereoRI16 are reusable per-channel int16 scratch for
+	// the stereo PLC lowband capture path.
+	plcStereoLI16 []int16
+	plcStereoRI16 []int16
 }
+
+// ArmPLCLowbandCapture arms (or, with buf==nil, disarms) capture of the next
+// decodePLC / decodePLCStereo call's resampled int16 SILK lowband into buf
+// (interleaved by channel, length frameSize*channels). After the PLC decode the
+// caller reads PLCLowbandCaptured for the number of interleaved samples filled.
+// It is used only by the FIXED_POINT integer hybrid PLC path.
+func (d *Decoder) ArmPLCLowbandCapture(buf []int16) {
+	d.plcLowbandCapture = buf
+	d.plcLowbandCaptured = 0
+	d.plcLowbandCaptureArm = buf != nil
+}
+
+// PLCLowbandCaptured returns the number of interleaved int16 samples written to
+// the capture buffer armed via ArmPLCLowbandCapture by the most recent PLC decode.
+func (d *Decoder) PLCLowbandCaptured() int { return d.plcLowbandCaptured }
 
 // NewDecoder creates a new SILK decoder with proper initial state.
 // The decoder is ready to process SILK frames after creation.

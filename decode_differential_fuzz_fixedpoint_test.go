@@ -328,15 +328,12 @@ func maxFixedInt(a, b int) int {
 // are both checked bit-exact against the FIXED_POINT reference, including the
 // recovered frame after a burst.
 //
-// Scope: CELT-only and SILK modes. Hybrid is excluded from this stage — see the
-// in-loop comment: a lost Hybrid frame conceals via the float PLC (the integer
-// path declines len(data)<=1 frames), and gopus does not yet advance the integer
-// CELT cross-frame state through a Hybrid loss the way libopus' integer
-// concealment does, so the post-loss recovery frame's integer Hybrid decode
-// diverges (a real, still-open fixed-point gap this harness SURFACED; tracked as a
-// finding rather than silenced — the int16/int24 magnitudes are logged when the
-// excluded specs are sampled). Hybrid non-PLC decode is fully gated by the
-// EncodeThenDecode and MultiSampleRate stages.
+// Scope: CELT-only, SILK, and Hybrid modes are all hard-gated. A lost Hybrid frame
+// advances the integer CELT highband cross-frame state through the loss and
+// accumulates the concealed highband onto the integer SILK lowband (see
+// armFixedHybridLost / finishFixedHybridLost), mirroring opus_decode_frame's
+// celt_decode_with_ec_dred(NULL, celt_accum=1), so both the lost frame and the
+// post-loss recovery frame stay bit-exact in the integer path.
 func TestDecodeDifferentialFixedPointPLC(t *testing.T) {
 	libopustest.RequireOracle(t)
 	if _, err := getFixedRefdecodeHelperPath(); err != nil {
@@ -362,16 +359,6 @@ func TestDecodeDifferentialFixedPointPLC(t *testing.T) {
 		// DTX produces empty packets which are already a concealment path; layering
 		// PLC drops on top conflates the two. The non-DTX specs cover PLC cleanly.
 		if spec.dtx {
-			continue
-		}
-		// Hybrid PLC: lost frames conceal via the float PLC and the integer CELT
-		// cross-frame state is not advanced through the loss the way libopus'
-		// integer concealment advances it, so the post-loss recovery diverges in the
-		// integer path (open fixed-point gap; CELT-only loss IS integer-exact via
-		// celtDecodeLostFixedAPIRate). Probe the gap as a logged finding so it is not
-		// silently dropped, then skip the hard gate for Hybrid here.
-		if spec.mode == EncoderModeHybrid {
-			plcProbeHybridGap(t, spec, idx, framesPerSpec)
 			continue
 		}
 		tested++
@@ -415,47 +402,7 @@ func TestDecodeDifferentialFixedPointPLC(t *testing.T) {
 			}
 		})
 	}
-	t.Logf("fixed PLC sweep (CELT-only + SILK): %d specs × %d frames (int16+int24)", tested, framesPerSpec)
-}
-
-// hybridPLCGapProbed ensures the Hybrid-PLC fixed-point gap is documented exactly
-// once per run (probing every Hybrid spec would be slow and redundant).
-var hybridPLCGapProbed bool
-
-// plcProbeHybridGap decodes one Hybrid PLC sequence and logs the int16/int24
-// divergence magnitude from the FIXED_POINT reference, documenting the open
-// integer-Hybrid-PLC-concealment gap so it is visible (not silently skipped). It
-// never fails: the gap is a known, tracked limitation.
-func plcProbeHybridGap(t *testing.T, spec encodeSweepSpec, idx, framesPerSpec int) {
-	if hybridPLCGapProbed {
-		return
-	}
-	hybridPLCGapProbed = true
-	const sampleRate = 48000
-	specRng := rand.New(rand.NewSource(int64(idx)*40503 + 11))
-	encoded, ok := encodePackets(t, spec, specRng, framesPerSpec)
-	if !ok {
-		return
-	}
-	loss := plcDropPattern(specRng, framesPerSpec)
-	steps := make([][]byte, framesPerSpec)
-	for i := 0; i < framesPerSpec; i++ {
-		if !loss[i] {
-			steps[i] = encoded[i]
-		}
-	}
-	frameSamples := spec.frameSamples48k()
-	ref16, ref24, err := fixedOracleDecodeSequence(sampleRate, spec.channels, frameSamples, steps)
-	if err != nil {
-		return
-	}
-	got16, got24, err := fixedDecodeGopusSequence(t, sampleRate, spec.channels, frameSamples, steps)
-	if err != nil {
-		return
-	}
-	_, _, m16, _ := withinFixedTol(got16, ref16)
-	_, _, m24, _ := withinFixedTol(got24, ref24)
-	t.Logf("KNOWN-GAP (integer Hybrid PLC concealment unimplemented): %s/plc int16 maxAbs=%d int24 maxAbs=%d (loss=%v). Hybrid lost-frame concealment falls back to the float PLC and does not advance the integer CELT cross-frame state through the loss, so the post-loss recovery diverges. CELT-only PLC is integer-exact; Hybrid non-PLC is gated by the other stages. Tracked as an open fixed-point gap.", spec.name, m16, m24, loss)
+	t.Logf("fixed PLC sweep (CELT-only + SILK + Hybrid): %d specs × %d frames (int16+int24)", tested, framesPerSpec)
 }
 
 // TestDecodeDifferentialFixedPointMultiSampleRate decodes the same packets at the

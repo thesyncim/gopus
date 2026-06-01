@@ -87,4 +87,19 @@ type decoderFixedFields struct {
 	// the paths are exercised.
 	fixedRedundancyApplied int
 	fixedTransitionApplied int
+
+	// fixedHybridPLCSilk receives the resampled int16 SILK PLC lowband captured
+	// during the float hybrid PLC decode (armed via the SILK decoder), used to
+	// build the opus_res lowband the integer CELT highband concealment accumulates
+	// onto for a lost hybrid frame.
+	fixedHybridPLCSilk []int16
+	// fixedHybridPLCRes / fixedHybridPLCInt16 hold the combined opus_res / int16
+	// integer hybrid PLC output stashed for the int16/int24 wrappers.
+	fixedHybridPLCRes   []int32
+	fixedHybridPLCInt16 []int16
+	// fixedHybridPLCStereo records whether the captured SILK PLC lowband is stereo
+	// (interleaved L/R) or mono (one channel); fixedHybridPLCChannels is the output
+	// channel count for the in-flight lost hybrid frame.
+	fixedHybridPLCStereo   bool
+	fixedHybridPLCChannels int
 }

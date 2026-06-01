@@ -24,6 +24,11 @@ func (d *Decoder) resetFixedCELT() {}
 func (d *Decoder) prepareFixedHybrid(_ []byte, _ celt.CELTBandwidth, _ bool) bool { return false }
 func (d *Decoder) finishFixedHybrid() error                                       { return nil }
 
+// armFixedHybridLost / finishFixedHybridLost are no-ops in the default build:
+// lost hybrid frames always use the float PLC + conversion there.
+func (d *Decoder) armFixedHybridLost(_ int, _ bool) bool { return false }
+func (d *Decoder) finishFixedHybridLost(_ int) bool      { return false }
+
 // The integer Hybrid redundancy / transition helpers are no-ops in the default
 // build; the int16/int24 wrappers there always use the float conversion for
 // redundancy / transition frames.

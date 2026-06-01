@@ -373,16 +373,37 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			d.silkDecoder.Reset()
 		}
 		if data == nil {
-			// PLC hybrid output is not produced by the integer CELT path; the
-			// int16/int24 wrappers must use the float conversion for this packet.
-			d.markFixedUnhandled()
+			// A lost hybrid frame conceals via the float PLC (SILK PLC + float CELT
+			// PLC). Under -tags gopus_fixedpoint with an active integer-output packet,
+			// also advance the integer CELT (highband) cross-frame state through the
+			// loss and accumulate the concealed highband onto the integer SILK
+			// lowband, mirroring opus_decode_frame's celt_decode_with_ec_dred(NULL,
+			// celt_accum=1) for a lost hybrid frame -- so the integer output of this
+			// frame AND the post-loss recovery frame stay bit-exact. When the integer
+			// path is declined (no active packet, integer CELT not yet primed, or a
+			// rate below 48 kHz) the int16/int24 wrappers use the float conversion.
+			fixedHybridPLCArmed := false
+			if !extsupport.QEXT {
+				fixedHybridPLCArmed = d.armFixedHybridLost(frameSize, packetStereoLocal)
+			}
+			if !fixedHybridPLCArmed {
+				d.markFixedUnhandled()
+			}
 			samples, err := d.hybridDecoder.DecodeToFloat32WithPacketStereo(nil, frameSize, packetStereoLocal)
 			if err != nil {
+				if fixedHybridPLCArmed {
+					d.silkDecoder.ArmPLCLowbandCapture(nil)
+				}
 				return 0, err
 			}
 			copyFloat32(out, samples)
 			// Capture FinalRange for PLC
 			d.mainDecodeRng = d.hybridDecoder.FinalRange()
+			if fixedHybridPLCArmed {
+				if !d.finishFixedHybridLost(frameSize) {
+					d.markFixedUnhandled()
+				}
+			}
 		} else {
 			// Under -tags gopus_fixedpoint with an active integer-output packet,
 			// arm the integer CELT highband hook so the hybrid decode also produces

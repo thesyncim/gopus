@@ -40,6 +40,12 @@ func TestDefaultBuildGatedDispatchIsCompileTimeNoOp(t *testing.T) {
 	if d.celtDecodeLostFixedAPIRate(0) {
 		t.Error("Decoder.celtDecodeLostFixedAPIRate() must be a constant false in the default build")
 	}
+	if d.armFixedHybridLost(0, false) {
+		t.Error("Decoder.armFixedHybridLost() must be a constant false in the default build")
+	}
+	if d.finishFixedHybridLost(0) {
+		t.Error("Decoder.finishFixedHybridLost() must be a constant false in the default build")
+	}
 
 	e := &Encoder{}
 	if e.is96kHz() {

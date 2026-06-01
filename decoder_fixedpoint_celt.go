@@ -89,6 +89,126 @@ func (d *Decoder) celtDecodeLostFixedAPIRate(apiFrameSize int) bool {
 	return true
 }
 
+// fixedHybridLostApplicable reports whether the integer FIXED_POINT hybrid PLC
+// path can conceal the in-flight lost hybrid frame bit-exact. It mirrors the
+// prepareFixedHybrid gating: an active integer packet, the integer CELT decoder
+// already primed by a prior received hybrid frame (so its cross-frame state is
+// the same celt_dec libopus reuses across the loss), and the 48 kHz API rate
+// (the integer concealment synthesis/deemphasis runs at the 48 kHz core only;
+// sub-48k output decimation on the loss path is not reproduced). When false the
+// caller marks the packet unhandled and the float PLC conversion is used.
+func (d *Decoder) fixedHybridLostApplicable() bool {
+	return d.fixedPacketActive && d.fixedCELT != nil && int(d.sampleRate) == 48000
+}
+
+// armFixedHybridLost arms the SILK PLC int16-lowband capture for a lost hybrid
+// frame so the integer CELT highband concealment can later accumulate onto the
+// exact opus_res SILK lowband. frameSizeAPI is the per-channel output sample
+// count. It returns true when capture was armed (the caller must pair it with
+// finishFixedHybridLost after the float PLC decode); false declines the integer
+// path. silkStereo reports whether the SILK PLC runs in stereo (capture is
+// interleaved L/R) or mono (capture is one channel, duplicated to stereo output
+// by finishFixedHybridLost).
+func (d *Decoder) armFixedHybridLost(frameSizeAPI int, silkStereo bool) bool {
+	if !d.fixedHybridLostApplicable() {
+		return false
+	}
+	channels := int(d.channels)
+	capLen := frameSizeAPI
+	if silkStereo {
+		capLen = frameSizeAPI * 2
+	}
+	if cap(d.fixedHybridPLCSilk) < capLen {
+		d.fixedHybridPLCSilk = make([]int16, capLen)
+	}
+	d.fixedHybridPLCSilk = d.fixedHybridPLCSilk[:capLen]
+	d.silkDecoder.ArmPLCLowbandCapture(d.fixedHybridPLCSilk)
+	d.fixedHybridPLCStereo = silkStereo
+	d.fixedHybridPLCChannels = channels
+	return true
+}
+
+// finishFixedHybridLost completes the integer FIXED_POINT hybrid PLC after the
+// float PLC decode has run the SILK PLC (filling the armed int16 lowband
+// capture) and the float CELT PLC. It builds the interleaved opus_res SILK
+// lowband (INT16TORES: int16 << RES_SHIFT) for the output channel layout, then
+// runs the integer celt_decode_lost (start band 17, accum=1) which advances the
+// integer CELT cross-frame state through the loss and accumulates the concealed
+// highband onto the lowband, mirroring opus_decode_frame's
+// celt_decode_with_ec_dred(NULL, celt_accum=1) on a lost hybrid frame. The
+// combined opus_res / int16 output is stashed for the DecodeInt16 / DecodeInt24
+// wrappers. It returns true when the integer concealment produced a frame.
+func (d *Decoder) finishFixedHybridLost(frameSizeAPI int) bool {
+	filled := d.silkDecoder.PLCLowbandCaptured()
+	d.silkDecoder.ArmPLCLowbandCapture(nil)
+	if d.fixedCELT == nil {
+		return false
+	}
+	channels := d.fixedHybridPLCChannels
+	needed := frameSizeAPI * channels
+
+	if cap(d.fixedHybridPLCRes) < needed {
+		d.fixedHybridPLCRes = make([]int32, needed)
+	}
+	res := d.fixedHybridPLCRes[:needed]
+	src := d.fixedHybridPLCSilk
+
+	// Build the interleaved opus_res lowband (INT16TORES(a) = a << RES_SHIFT,
+	// RES_SHIFT == 8) from the captured int16 SILK PLC lowband, applying the same
+	// mono->stereo duplication the float hybrid PLC uses (mono SILK, stereo out).
+	switch {
+	case channels == 2 && d.fixedHybridPLCStereo:
+		for i := 0; i < needed; i++ {
+			var s int16
+			if i < filled && i < len(src) {
+				s = src[i]
+			}
+			res[i] = int32(s) << 8
+		}
+	case channels == 2:
+		// Mono SILK lowband duplicated to both output channels.
+		for i := 0; i < frameSizeAPI; i++ {
+			var s int16
+			if i < filled && i < len(src) {
+				s = src[i]
+			}
+			v := int32(s) << 8
+			res[2*i] = v
+			res[2*i+1] = v
+		}
+	default:
+		for i := 0; i < needed; i++ {
+			var s int16
+			if i < filled && i < len(src) {
+				s = src[i]
+			}
+			res[i] = int32(s) << 8
+		}
+	}
+
+	downsample := 48000 / int(d.sampleRate)
+	if downsample <= 0 {
+		downsample = 1
+	}
+	coreFrameSize := frameSizeAPI * downsample
+
+	// opus_decode_frame sets the CELT start band to 17 for hybrid (start_band=17)
+	// and keeps the previous frame's end band (CELT_SET_END_BAND is skipped on the
+	// PLC bandwidth==0 path), exactly as celt_decode_lost reads st->start / st->end.
+	d.fixedCELT.SetStartBand(celt.HybridCELTStartBand)
+	d.fixedCELT.DecodeLostAccum(coreFrameSize, res)
+
+	if cap(d.fixedHybridPLCInt16) < needed {
+		d.fixedHybridPLCInt16 = make([]int16, needed)
+	}
+	int16Out := d.fixedHybridPLCInt16[:needed]
+	for i := 0; i < needed; i++ {
+		int16Out[i] = fixedpoint.Res2Int16(res[i])
+	}
+	d.appendFixedOutput(int16Out, res)
+	return true
+}
+
 // prepareFixedHybrid arms the integer hybrid highband hook for the in-flight
 // frame and records the CELT end band and reset policy, mirroring the libopus
 // opus_decode_frame hybrid CELT path. It is called from the Hybrid dispatch

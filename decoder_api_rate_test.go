@@ -1245,6 +1245,9 @@ func TestDecodeInt16APIRatePCMMatchesLibopus(t *testing.T) {
 					if celtIntegerPLCActive && tc.name == "celt" && sampleRate == 48000 {
 						t.Skip("48k CELT PLC (sequence ends in a lost frame) routes to the integer decoder under gopus_fixedpoint (vs float oracle); see TestDecoderFixedPointCELTPLCParity")
 					}
+					if hybridIntegerPLCActive && tc.name == "hybrid" && sampleRate == 48000 {
+						t.Skip("48k Hybrid PLC (sequence ends in a lost frame) routes to the integer decoder under gopus_fixedpoint (vs float oracle); see TestDecodeDifferentialFixedPointPLC")
+					}
 					frameSize, err := packetSamplesAtRate(packet, sampleRate)
 					if err != nil {
 						t.Fatalf("packetSamplesAtRate: %v", err)
