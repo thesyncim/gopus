@@ -190,8 +190,17 @@ type Encoder struct {
 	prevMode            Mode
 	prevPacketMode      Mode
 	prevAutoMode        Mode
-	inputBuffer         []opusRes
-	delayBuffer         []opusRes
+	// intMode / intBandwidth mirror libopus opus_encoder.c st->mode / st->bandwidth:
+	// the internal selected mode/bandwidth state carried between frames. They are
+	// initialized to MODE_HYBRID / OPUS_BANDWIDTH_FULLBAND (opus_encoder.c:319-320)
+	// and updated to the actual selected values after every full encode. The
+	// low-rate "PLC frame" early-exit (opus_encoder.c:1340) reads these STALE values
+	// to build its minimal TOC-only packet, before the per-frame mode/bandwidth
+	// selection would overwrite them.
+	intMode      Mode
+	intBandwidth types.Bandwidth
+	inputBuffer  []opusRes
+	delayBuffer  []opusRes
 
 	// Auto-mode state (matching libopus OpusEncoder fields)
 	voiceRatio        int32           // Persistent voice ratio (-1 = unset, 0-100)
@@ -292,6 +301,8 @@ func NewEncoder(sampleRate, channels int) *Encoder {
 		prevMode:               ModeAuto,
 		prevPacketMode:         ModeAuto,
 		prevAutoMode:           ModeAuto,
+		intMode:                ModeHybrid,
+		intBandwidth:           types.BandwidthFullband,
 		voiceRatio:             -1,
 		streamChannels:         int32(channels),
 		prevChannels:           int32(channels),
@@ -442,6 +453,8 @@ func (e *Encoder) Reset() {
 	e.prevMode = ModeAuto
 	e.prevPacketMode = ModeAuto
 	e.prevAutoMode = ModeAuto
+	e.intMode = ModeHybrid
+	e.intBandwidth = types.BandwidthFullband
 	e.detectedBandwidth = 0
 	e.streamChannels = int32(e.channels)
 	e.prevChannels = int32(e.channels)
@@ -1107,6 +1120,10 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 					e.prevAutoMode = prevModeNext
 				}
 			}
+			// Track libopus st->mode / st->bandwidth so the next frame's low-rate
+			// early-exit reads the same stale internal state libopus would.
+			e.intMode = actualMode
+			e.intBandwidth = e.bandwidth
 			e.first = false
 			e.prevChannels = e.streamChannels
 			e.finalRange = 0
@@ -1207,6 +1224,10 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 			e.prevAutoMode = prevModeNext
 		}
 	}
+	// Track libopus st->mode / st->bandwidth (the internal selected state) so the
+	// next frame's low-rate early-exit reads the same stale values libopus would.
+	e.intMode = actualMode
+	e.intBandwidth = e.bandwidth
 	switch e.bitrateMode {
 	case ModeCBR:
 		if dredPacketBuilt {
@@ -1272,17 +1293,23 @@ func (e *Encoder) emitLowSpacePacket(frameSize, outDataBytes, cbrMaxDataBytes, e
 		frameRate = 1
 	}
 
-	// tocmode = st->mode (the previously decided mode; libopus inits it to HYBRID).
-	tocmode := e.prevPacketMode
+	// tocmode = st->mode: the internal selected mode carried between frames, seeded
+	// to MODE_HYBRID at init (opus_encoder.c:319). libopus maps an unset st->mode
+	// (==0) to MODE_SILK_ONLY (opus_encoder.c:1349); intMode is always concrete here,
+	// so that fallback is only defensive.
+	tocmode := e.intMode
 	if !isConcreteMode(tocmode) {
-		tocmode = ModeHybrid
+		tocmode = ModeSILK
 	}
 	if frameRate > 100 {
 		tocmode = ModeCELT
 	}
 
-	// bw = st->bandwidth==0 ? NB : st->bandwidth.
-	bw := e.bandwidth
+	// bw = st->bandwidth==0 ? NB : st->bandwidth (opus_encoder.c:1345). intBandwidth
+	// mirrors st->bandwidth: seeded to FULLBAND at init (opus_encoder.c:320) and
+	// updated only after a full encode, so the early-exit reads the same stale value
+	// libopus would (OPUS_SET_BANDWIDTH writes user_bandwidth, not st->bandwidth).
+	bw := e.intBandwidth
 	if bw < types.BandwidthNarrowband {
 		bw = types.BandwidthNarrowband
 	}

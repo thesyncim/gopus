@@ -304,25 +304,64 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 
 	for idx := 0; idx < len(specs) && tested < budget; idx += stride {
 		spec := specs[idx]
-		// Skip the libopus low-rate "PLC frame" early-exit corner. When
+		// The libopus low-rate "PLC frame" early-exit corner. When
 		// st->bitrate_bps < 3*frame_rate*8 (opus_encoder.c:1340), libopus
 		// opus_encode() short-circuits and emits a 1-2 byte minimal TOC-only
 		// packet WITHOUT running the bandwidth selection or the inner CELT/SILK
-		// encoder at all, using the encoder's stale/default st->bandwidth
-		// (FULLBAND on the first frame) for the TOC. This is a top-level Opus-API
-		// behavior that gopus does not implement (it runs a full integer CELT
-		// encode at the requested bandwidth instead). It is NOT an integer-encode
-		// divergence — it is an arch-independent gap SHARED with the float build
-		// (verified: the FLOAT libopus opus_encode emits the identical FB
-		// early-exit packet at 6 kbps / 2.5 ms), and so is out of scope for this
-		// fixed-point inner-encode byte-exactness gate. At 48 kHz CELT the only
-		// case the sweep reaches is 6 kbps / 2.5 ms (frame_rate 400 →
-		// 3*400*8 = 9600 > 6000); 5 ms+ at 6 kbps and every higher bitrate clear
-		// the threshold. Comparing either the TOC or the inner payload here would
-		// compare gopus's real CELT packet against libopus's minimal PLC stub, so
-		// the spec is excluded outright and counted separately.
+		// encoder at all, using the encoder's stale/default st->mode/st->bandwidth
+		// (MODE_HYBRID / FULLBAND on the first frame) for the TOC. gopus reproduces
+		// this exact early-exit (emitLowSpacePacket), so the corner is now
+		// hard-asserted: the gopus minimal packet must equal the FIXED opus_encode()
+		// minimal packet BYTE-FOR-BYTE (no inner CELT payload is produced on either
+		// side). This is an arch-independent gap shared with the float build, so the
+		// assertion holds on every arch. The check runs in its own branch because
+		// there is no inner-CELT payload to compare against the CELT sequence/rate
+		// oracle — the whole packet is the comparison.
 		if encFixLowRatePLC(spec.rate, spec.frameSize, spec.bitrate, spec.mode) {
 			lowRatePLC++
+			tested++
+			t.Run(spec.name+"_plc", func(t *testing.T) {
+				vbr := spec.mode != ModeCBR
+				cvbr := spec.mode == ModeCVBR
+				enc := configureFixCELT(spec)
+				pcm := genFixFrame(spec, 0, 1)
+				pkt, err := enc.Encode(pcm, spec.frameSize)
+				if err != nil {
+					t.Fatalf("public Encode: %v", err)
+				}
+				if len(pkt) < 1 {
+					t.Fatalf("empty packet")
+				}
+				topPackets, err := libopustest.ProbeOpusEncodeFixed(libopustest.OpusEncodeFixedParams{
+					SampleRate:    spec.rate,
+					Channels:      spec.channels,
+					ForceMode:     libopustest.OpusForceModeCELTOnly,
+					Bandwidth:     spec.oracleBW,
+					Bitrate:       spec.bitrate,
+					Complexity:    spec.complexity,
+					VBR:           vbr,
+					VBRConstraint: cvbr,
+					ForceChannels: spec.channels,
+					FrameSize:     spec.frameSize,
+					FrameCount:    1,
+					PCM:           make([]int16, spec.frameSize*spec.channels),
+				})
+				if err != nil {
+					libopustest.HelperUnavailable(t, "opus encode fixed", err)
+					return
+				}
+				if len(topPackets) != 1 {
+					t.Fatalf("FIXED opus_encode packet count=%d want 1", len(topPackets))
+				}
+				if !bytes.Equal(pkt, topPackets[0]) {
+					payloadFails++
+					fb := firstByteDiffFix(pkt, topPackets[0])
+					t.Errorf("%s: LOW-RATE PLC MINIMAL-PACKET BYTE MISMATCH at byte %d "+
+						"(len gopus=%d FIXED=%d) br=%d %v — early-exit divergence (HARD FAIL all arch)\n"+
+						" gopus=% x\n FIXED=% x",
+						spec.name, fb, len(pkt), len(topPackets[0]), spec.bitrate, spec.mode, pkt, topPackets[0])
+				}
+			})
 			continue
 		}
 		tested++
@@ -511,7 +550,7 @@ func TestEncodeDifferentialFuzzFixedPoint(t *testing.T) {
 	}
 
 	t.Logf("fixed-point encode differential sweep: %d/%d specs tested "+
-		"(CELT-in-scope=%d out-of-scope-skips=%d low-rate-PLC-excluded=%d; "+
+		"(CELT-in-scope=%d out-of-scope-skips=%d low-rate-PLC-asserted=%d; "+
 		"stateful-48k-streams=%d frames-compared=%d); TOC-fails=%d inner-payload-fails=%d",
 		tested, len(specs), celtCases, outOfScope, lowRatePLC, stateful48k, subRateFrames, tocFails, payloadFails)
 }

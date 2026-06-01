@@ -56,9 +56,9 @@ import (
 // encDiffSpec is one point in the encoder configuration space.
 type encDiffSpec struct {
 	name      string
-	forceMode int        // libopus FORCE_MODE code (0 = auto)
+	forceMode int         // libopus FORCE_MODE code (0 = auto)
 	gmode     EncoderMode // gopus equivalent (EncoderModeAuto = leave auto)
-	bwCode    int        // libopus OPUS_BANDWIDTH_* (0 = auto)
+	bwCode    int         // libopus OPUS_BANDWIDTH_* (0 = auto)
 	gbw       Bandwidth
 	autoBW    bool
 	frameMs   ExpertFrameDuration
@@ -137,6 +137,20 @@ func buildEncDiffSweep() []encDiffSpec {
 		{"auto_voice", libopustest.EncodeDiffForceModeAuto, EncoderModeAuto, libopustest.EncodeDiffBandwidthAuto, BandwidthFullband, autoFrames, []int{12000, 16000, 20000, 24000, 32000, 48000}, false, libopustest.EncodeDiffSignalVoice, SignalVoice, testsignal.CorpusCleanSpeechV1},
 		{"auto_music", libopustest.EncodeDiffForceModeAuto, EncoderModeAuto, libopustest.EncodeDiffBandwidthAuto, BandwidthFullband, autoFrames, []int{16000, 24000, 32000, 48000, 64000, 96000}, false, libopustest.EncodeDiffSignalMusic, SignalMusic, testsignal.CorpusMusicV1},
 		{"auto_mixed", libopustest.EncodeDiffForceModeAuto, EncoderModeAuto, libopustest.EncodeDiffBandwidthAuto, BandwidthFullband, autoFrames, []int{16000, 20000, 24000, 28000, 32000, 40000}, false, libopustest.EncodeDiffSignalAuto, SignalAuto, testsignal.CorpusMixedV1},
+		// Low-rate "PLC frame" early-exit floor (opus_encoder.c:1340). When the
+		// per-frame budget is too small (max_data_bytes<3, or bitrate_bps below
+		// 3*frame_rate*8, with the CBR cbr_bytes recompute applied first) libopus
+		// emits a 1-2 byte TOC-only minimal packet built from the STALE internal
+		// mode/bandwidth (MODE_HYBRID/FULLBAND on a fresh encoder) instead of running
+		// the encoder; gopus reproduces it byte-for-byte (the encoder's low-space
+		// minimal-packet fast path).
+		// These rows pin configs that fall under the floor across ALL THREE rate
+		// modes: 6 kbps at 2.5 ms CELT (VBR 6000<9600; CBR cbr_bytes=2<3) and 1 kbps
+		// at 10 ms auto (VBR 1000<2400; CBR cbr_bytes=1<3). The minimal packet is
+		// hard-asserted byte-exact on every arch (the early-exit runs no float
+		// analysis, so there is no arm64 1-ULP residual to excuse a divergence).
+		{"celt_floor_fb", libopustest.EncodeDiffForceModeCELTOnly, EncoderModeCELT, libopustest.EncodeDiffBandwidthFullband, BandwidthFullband, []ExpertFrameDuration{ExpertFrameDuration2_5Ms}, []int{6000}, false, libopustest.EncodeDiffSignalMusic, SignalMusic, testsignal.CorpusMusicV1},
+		{"auto_floor", libopustest.EncodeDiffForceModeAuto, EncoderModeAuto, libopustest.EncodeDiffBandwidthAuto, BandwidthFullband, []ExpertFrameDuration{ExpertFrameDuration10Ms}, []int{1000}, false, libopustest.EncodeDiffSignalVoice, SignalVoice, testsignal.CorpusCleanSpeechV1},
 	}
 
 	vbrModes := []BitrateMode{BitrateModeVBR, BitrateModeCVBR, BitrateModeCBR}
@@ -341,11 +355,11 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 
 	// Aggregate stats so the verdict on mode-classification is explicit.
 	var (
-		tested         int
-		tocFlips       int
-		silkByteFails  int // amd64-only hard failures
-		silkResiduals  int // arm64 documented float-boundary SILK frames
-		celtResiduals  int // arm64 documented float-boundary CELT/Hybrid frames
+		tested             int
+		tocFlips           int
+		silkByteFails      int // amd64-only hard failures
+		silkResiduals      int // arm64 documented float-boundary SILK frames
+		celtResiduals      int // arm64 documented float-boundary CELT/Hybrid frames
 		packetCountMis     int
 		framingDiffs       int // packet-framing (TOC code field) divergence
 		rangeOnlyResiduals int // arm64 byte-equal but final_range differs
