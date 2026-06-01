@@ -11,6 +11,21 @@ committed `default.pgo`). Absolute ns differ by host; the **gopus/libopus ratio
 
 `g/l < 1.00x` => gopus is FASTER than libopus. `g/l > 1.00x` => gopus is slower.
 
+> **⚠️ FAIRNESS CAVEAT — the `g/l` ratios below are NOT a real-world comparison.**
+> The libopus side links the pinned `tmp_check/opus-1.6.1/.libs/libopus.a`, which is
+> the bit-exact **parity reference**: its `config.h` has every SIMD path disabled
+> (`OPUS_ARM_MAY_HAVE_NEON`/`PRESUME_NEON`, `OPUS_ARM_ASM`, `OPUS_X86_*`, `OPUS_HAVE_RTCD`
+> all `#undef`) so its math is deterministic scalar C. gopus, by contrast, runs its
+> hand-written arm64 NEON / amd64 asm kernels. So these numbers compare
+> **gopus-with-SIMD vs libopus-with-no-SIMD** and OVERSTATE gopus — the apparent
+> "decode faster" result does not hold against a real libopus. A default
+> `./configure` on aarch64 enables `OPUS_ARM_PRESUME_NEON_INTR`; a fair comparison
+> must link a SIMD-enabled libopus build (kept separate from the scalar parity lib).
+> Byte-parity is anchored in the pure-Go (`purego`) build vs the scalar reference;
+> performance must be measured vs the SIMD build. **Re-benchmark against a NEON/SSE
+> libopus before quoting any `g/l` figure.** The gopus-side absolute ns/op and the
+> hot-path profile below remain valid (they are pure-gopus measurements).
+
 ## Harness
 
 - Go benchmarks: `benchmark_libopus_scoreboard_test.go` (build tag
@@ -19,7 +34,9 @@ committed `default.pgo`). Absolute ns differ by host; the **gopus/libopus ratio
 - libopus reference: `tools/csrc/libopus_codec_bench.c`, a self-timing
   encode/decode helper built once against the pinned static `libopus.a`. It times
   the codec work inside one process, so its `ns/packet` excludes process spawn,
-  file I/O, and decoder/encoder construction.
+  file I/O, and decoder/encoder construction. **NOTE:** that pinned `libopus.a` is
+  the SIMD-disabled parity reference (see the fairness caveat above) — the fair
+  build links a separately-configured NEON/SSE libopus, not this one.
 - Matched work: both sides encode/decode the same frame count at the same
   duration. gopus frame sizes are 48 kHz-relative (`F ∈ {120,480,960,2880}` =
   2.5/10/20/60 ms) and gopus consumes `F` samples of 48 kHz-rate PCM per frame;
