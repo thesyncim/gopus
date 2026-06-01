@@ -190,13 +190,25 @@ type scoreboardLibopusBench struct {
 
 func (s *scoreboardLibopusBench) helper() (string, error) {
 	s.once.Do(func() {
+		// By default the bench links the pinned libopus.a, which is the
+		// SIMD-DISABLED parity reference — comparing gopus (with arm64 NEON / amd64
+		// asm) against it OVERSTATES gopus (see PERF_BASELINE.md fairness caveat).
+		// For a FAIR comparison set GOPUS_BENCH_LIBOPUS_A to a separately-built
+		// SIMD (NEON/SSE) libopus.a; the parity lib must stay scalar for bit-exact
+		// determinism, so it cannot double as the perf reference.
+		libPath := libopustest.RefPath(".libs", "libopus.a")
+		outBase := "gopus_libopus_codec_bench"
+		if p := os.Getenv("GOPUS_BENCH_LIBOPUS_A"); p != "" {
+			libPath = p
+			outBase = "gopus_libopus_codec_bench_simd"
+		}
 		s.path, s.err = libopustest.BuildCHelper(libopustest.CHelperConfig{
 			Label:       "libopus codec scoreboard bench",
-			OutputBase:  "gopus_libopus_codec_bench",
+			OutputBase:  outBase,
 			SourceFile:  "libopus_codec_bench.c",
 			CFlags:      []string{"-DHAVE_CONFIG_H", "-O3", "-DNDEBUG"},
 			RefIncludes: []string{"celt", "silk", "src"},
-			Libs:        []string{libopustest.RefPath(".libs", "libopus.a"), "-lm"},
+			Libs:        []string{libPath, "-lm"},
 			DeadStrip:   true,
 		})
 	})

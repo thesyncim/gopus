@@ -26,6 +26,25 @@ committed `default.pgo`). Absolute ns differ by host; the **gopus/libopus ratio
 > libopus before quoting any `g/l` figure.** The gopus-side absolute ns/op and the
 > hot-path profile below remain valid (they are pure-gopus measurements).
 
+> **FAIR RESULT (measured, M4 Max darwin/arm64, vs a NEON-enabled libopus).** With a
+> SIMD libopus linked via `GOPUS_BENCH_LIBOPUS_A`, the honest reset+batch aggregates
+> over 56 configs are **DECODE geomean g/l ≈ 1.35× (median 1.27×)** and **ENCODE
+> geomean g/l ≈ 1.60× (median 1.60×)** — gopus is ~35 % slower on decode and ~60 %
+> slower on encode, and slower than NEON libopus on **every** config tested (0 wins).
+> The earlier "decode ~17 % faster" was purely the SIMD-disabled artifact (NEON
+> libopus decode is ~1.6× the scalar reference, flipping the sign). Closest: SILK
+> decode (~1.05–1.24×) and SILK-8k encode (~1.05×); worst: CELT (decode up to ~2.1×,
+> encode up to ~2.5×). The bit-exact asm + zero-alloc work narrowed specific kernels
+> but did not close the gap to hand-tuned SIMD C.
+>
+> **Reproduce the fair comparison** (the pinned parity lib must stay scalar, so build
+> a separate SIMD libopus): `cp -R tmp_check/opus-1.6.1 /tmp/opus-neon && cd
+> /tmp/opus-neon && ./configure CFLAGS="-O3 -DNDEBUG"` then `make -j ACLOCAL=true
+> AUTOCONF=true AUTOMAKE=true AUTOHEADER=true MAKEINFO=true` (the `cp` breaks autotools
+> timestamps; the tool-overrides no-op the regen since autoconf/automake aren't
+> installed), then `GOPUS_BENCH_LIBOPUS_A=/tmp/opus-neon/.libs/libopus.a go test -tags
+> gopus_libopus_bench -run TestScoreboardSummary -v .`
+
 ## Harness
 
 - Go benchmarks: `benchmark_libopus_scoreboard_test.go` (build tag
