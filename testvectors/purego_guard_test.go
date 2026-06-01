@@ -10,6 +10,7 @@ import (
 )
 
 func TestNoCBindingsUsageInRepositoryTests(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierFast)
 
 	root := filepath.Join("..")

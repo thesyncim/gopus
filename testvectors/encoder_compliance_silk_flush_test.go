@@ -10,6 +10,7 @@ import (
 )
 
 func TestEncoderVariantSilkFinalFlushMatchesLibopusFixture(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	c, ok := findEncoderVariantsFixtureCase(

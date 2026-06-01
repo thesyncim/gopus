@@ -84,6 +84,7 @@ func celtShortFrameByteParityCases() []celtShortFrameCase {
 // amd64: hard gate (zero diffs required).
 // arm64: FMA residual documented per cell above; CI (amd64) is the authoritative gate.
 func TestEncoderCELTShortFrameVariantByteParityAgainstLibopusFixture(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	requireStrictLibopusReference(t)
 

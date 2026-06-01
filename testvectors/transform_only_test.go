@@ -10,6 +10,7 @@ import (
 // TestTransformOnlyRoundTrip tests MDCT→IMDCT without any encoding/decoding.
 // This isolates the transform from the range coding.
 func TestTransformOnlyRoundTrip(t *testing.T) {
+	t.Parallel()
 	N := 960
 	overlap := 120
 
@@ -63,6 +64,7 @@ func TestTransformOnlyRoundTrip(t *testing.T) {
 
 // TestCELTEncoderBandEnergies tests band energy computation.
 func TestCELTEncoderBandEnergies(t *testing.T) {
+	t.Parallel()
 	N := 960
 	N2 := N * 2
 
@@ -110,6 +112,7 @@ func TestCELTEncoderBandEnergies(t *testing.T) {
 
 // TestMDCTScaling checks MDCT/IMDCT scaling behavior
 func TestMDCTScaling(t *testing.T) {
+	t.Parallel()
 	N := 960
 	N2 := N * 2
 

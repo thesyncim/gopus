@@ -85,6 +85,7 @@ func decodeWithLibopusReferencePacketsSingleInt16(channels, frameSize int, packe
 }
 
 func TestLibopusReferenceDecodeInt16Helper(t *testing.T) {
+	t.Parallel()
 	libopustest.RequireOracle(t)
 	for _, tc := range []struct {
 		name     string
@@ -126,6 +127,7 @@ func TestLibopusReferenceDecodeInt16Helper(t *testing.T) {
 }
 
 func TestDecodeInt16ColdPLCMatchesLibopusReference(t *testing.T) {
+	t.Parallel()
 	libopustest.RequireOracle(t)
 	for _, tc := range []struct {
 		name     string
@@ -164,6 +166,7 @@ func TestDecodeInt16ColdPLCMatchesLibopusReference(t *testing.T) {
 }
 
 func TestDecodeInt16WarmedSILKPLCMatchesLibopusReference(t *testing.T) {
+	t.Parallel()
 	libopustest.RequireOracle(t)
 	for _, tc := range []struct {
 		name     string

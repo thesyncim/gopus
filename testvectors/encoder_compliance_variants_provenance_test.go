@@ -37,6 +37,7 @@ func provenanceGapFloorQ(mode string) float64 {
 }
 
 func TestEncoderVariantProfileProvenanceAudit(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
 	fixture, err := loadEncoderComplianceVariantsFixture()

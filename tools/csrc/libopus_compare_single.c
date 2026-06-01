@@ -140,10 +140,119 @@ static float *pcm16_to_float(const int16_t *src, size_t n) {
   return dst;
 }
 
-static int compare_quality_float_48k(const float *x, const float *y, size_t frames, int nchannels, double *out_q) {
+/*
+ * A bandCache memoizes the raw band_energy output of one PCM side keyed by its
+ * start offset within the request. band_energy frame xi depends only on the
+ * window at (start + xi*TEST_WIN_STEP), so the first F frames of a result
+ * computed for F_max >= F frames are bit-identical to a fresh F-frame compute.
+ * We therefore compute each distinct start once at the maximum frame count and
+ * slice the prefix per delay candidate. This removes the dominant cost of
+ * re-running the band_energy DFT for every delay candidate while keeping every
+ * floating-point operation (and hence every Q value) identical to upstream.
+ */
+typedef struct {
+  const float *base; /* PCM base pointer of this side */
+  int with_xb;       /* whether xb (masking energy) is also cached */
+  size_t cap;        /* number of cached start slots */
+  size_t count;
+  int *starts;
+  size_t *nframes; /* frames computed (== max needed for this start) */
+  float **xb;      /* cached xb, NULL when with_xb==0 */
+  float **ps;      /* cached raw band_energy ps (X or Y) */
+} bandCache;
+
+static void band_cache_init(bandCache *c, const float *base, int with_xb, size_t cap) {
+  c->base = base;
+  c->with_xb = with_xb;
+  c->cap = cap;
+  c->count = 0;
+  c->starts = (int *)malloc(cap * sizeof(*c->starts));
+  c->nframes = (size_t *)malloc(cap * sizeof(*c->nframes));
+  c->xb = (float **)calloc(cap, sizeof(*c->xb));
+  c->ps = (float **)calloc(cap, sizeof(*c->ps));
+}
+
+static void band_cache_free(bandCache *c) {
+  for (size_t i = 0; i < c->count; i++) {
+    free(c->xb[i]);
+    free(c->ps[i]);
+  }
+  free(c->starts);
+  free(c->nframes);
+  free(c->xb);
+  free(c->ps);
+}
+
+/* band_cache_get returns cached raw band energies for (start) covering at least
+   nframes, computing them on first use. If an entry for start exists but covers
+   fewer frames, it is recomputed at the larger frame count (a band_energy result
+   for F_max frames contains every shorter prefix bit-for-bit, so a re-grown entry
+   yields identical values for any earlier candidate). Returns 0 on allocation
+   failure. */
+static int band_cache_get(bandCache *c, int nchannels, size_t start, size_t nframes, float **out_xb, float **out_ps) {
+  size_t slot = c->count;
+  for (size_t i = 0; i < c->count; i++) {
+    if (c->starts[i] == (int)start) {
+      if (c->nframes[i] >= nframes) {
+        if (out_xb) {
+          *out_xb = c->xb[i];
+        }
+        *out_ps = c->ps[i];
+        return 1;
+      }
+      slot = i; /* grow this entry to the larger frame count */
+      break;
+    }
+  }
+
+  float *xb = NULL;
+  float *ps = (float *)opus_malloc(nframes * NFREQS * nchannels * sizeof(*ps));
+  if (ps == NULL) {
+    return 0;
+  }
+  if (c->with_xb) {
+    xb = (float *)opus_malloc(nframes * NBANDS * nchannels * sizeof(*xb));
+    if (xb == NULL) {
+      free(ps);
+      return 0;
+    }
+  }
+  band_energy(xb, ps, BANDS, NBANDS, c->base + start, nchannels, nframes, TEST_WIN_SIZE, TEST_WIN_STEP, 1);
+
+  if (slot == c->count) {
+    if (c->count >= c->cap) {
+      free(xb);
+      free(ps);
+      return 0;
+    }
+    c->count++;
+  } else {
+    free(c->xb[slot]);
+    free(c->ps[slot]);
+  }
+  c->starts[slot] = (int)start;
+  c->nframes[slot] = nframes;
+  c->xb[slot] = xb;
+  c->ps[slot] = ps;
+  if (out_xb) {
+    *out_xb = xb;
+  }
+  *out_ps = ps;
+  return 1;
+}
+
+/* compare_quality_cached scores one delay candidate reusing cached raw band
+   energies for the reference (xb+X) and decoded (Y) sides. The arithmetic is a
+   faithful copy of opus_compare.c's 48 kHz path; only the redundant per-band
+   DFT has been hoisted into the caches. */
+static int compare_quality_cached(bandCache *refCache, bandCache *decCache, size_t ref_start, size_t dec_start,
+                                  size_t frames, int nchannels, double *out_q) {
   float *xb;
   float *X;
   float *Y;
+  const float *xb_raw;
+  const float *X_raw;
+  const float *Y_raw;
   double err;
   size_t nframes;
   size_t xi;
@@ -158,12 +267,36 @@ static int compare_quality_float_48k(const float *x, const float *y, size_t fram
   }
 
   nframes = (frames - TEST_WIN_SIZE + TEST_WIN_STEP) / TEST_WIN_STEP;
+
+  {
+    float *ref_xb;
+    float *ref_ps;
+    float *dec_ps;
+    if (!band_cache_get(refCache, nchannels, ref_start, nframes, &ref_xb, &ref_ps)) {
+      return 0;
+    }
+    if (!band_cache_get(decCache, nchannels, dec_start, nframes, NULL, &dec_ps)) {
+      return 0;
+    }
+    xb_raw = ref_xb;
+    X_raw = ref_ps;
+    Y_raw = dec_ps;
+  }
+
+  /* Copy the cached raw energies into per-candidate scratch the masking steps
+     mutate in place. These memcpys are cheap relative to the band_energy DFT. */
   xb = (float *)opus_malloc(nframes * NBANDS * nchannels * sizeof(*xb));
   X = (float *)opus_malloc(nframes * NFREQS * nchannels * sizeof(*X));
   Y = (float *)opus_malloc(nframes * NFREQS * nchannels * sizeof(*Y));
-
-  band_energy(xb, X, BANDS, NBANDS, x, nchannels, nframes, TEST_WIN_SIZE, TEST_WIN_STEP, 1);
-  band_energy(NULL, Y, BANDS, NBANDS, y, nchannels, nframes, TEST_WIN_SIZE, TEST_WIN_STEP, 1);
+  if (xb == NULL || X == NULL || Y == NULL) {
+    free(xb);
+    free(X);
+    free(Y);
+    return 0;
+  }
+  memcpy(xb, xb_raw, nframes * NBANDS * nchannels * sizeof(*xb));
+  memcpy(X, X_raw, nframes * NFREQS * nchannels * sizeof(*X));
+  memcpy(Y, Y_raw, nframes * NFREQS * nchannels * sizeof(*Y));
 
   for (xi = 0; xi < nframes; xi++) {
     for (bi = 1; bi < NBANDS; bi++) {
@@ -347,7 +480,13 @@ static int handle_request(void) {
     best_delay = delays[0];
     found = 1;
   } else {
-    for (uint32_t i = 0; i < delay_count; i++) {
+    bandCache refCache;
+    bandCache decCache;
+    int cache_failed = 0;
+    band_cache_init(&refCache, reference, 1, delay_count);
+    band_cache_init(&decCache, decoded, 0, delay_count);
+
+    for (uint32_t i = 0; i < delay_count && !cache_failed; i++) {
       size_t ref_start = 0;
       size_t dec_start = 0;
       size_t n;
@@ -375,20 +514,26 @@ static int handle_request(void) {
       if (frames < TEST_WIN_SIZE) {
         continue;
       }
-      if (!compare_quality_float_48k(reference + ref_start, decoded + dec_start, frames, (int)channels, &q)) {
-        fprintf(stderr, "failed to evaluate opus_compare request\n");
-        free(reference_pcm);
-        free(decoded_pcm);
-        free(reference);
-        free(decoded);
-        free(delays);
-        return -1;
+      if (!compare_quality_cached(&refCache, &decCache, ref_start, dec_start, frames, (int)channels, &q)) {
+        cache_failed = 1;
+        break;
       }
       if (!found || q > best_q || (q == best_q && abs_i32(delays[i]) < abs_i32(best_delay))) {
         best_q = q;
         best_delay = delays[i];
         found = 1;
       }
+    }
+    band_cache_free(&refCache);
+    band_cache_free(&decCache);
+    if (cache_failed) {
+      fprintf(stderr, "failed to evaluate opus_compare request\n");
+      free(reference_pcm);
+      free(decoded_pcm);
+      free(reference);
+      free(decoded);
+      free(delays);
+      return -1;
     }
   }
 

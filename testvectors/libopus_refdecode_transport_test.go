@@ -8,6 +8,7 @@ import (
 )
 
 func TestLibopusReferenceSingleDecodeBinaryTransport(t *testing.T) {
+	t.Parallel()
 	libopustest.RequireOracle(t)
 	if _, err := getLibopusRefdecodeSinglePath(); err != nil {
 		libopustest.HelperUnavailable(t, "reference decode", err)

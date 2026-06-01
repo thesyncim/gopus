@@ -3,6 +3,7 @@ package testvectors
 import "testing"
 
 func TestQualityDelaySearchWindowKeepsShortFramesWideEnough(t *testing.T) {
+	t.Parallel()
 	if got := qualityDelaySearchWindow(120); got != 240 {
 		t.Fatalf("2.5 ms window mismatch: got %d want 240", got)
 	}

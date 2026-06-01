@@ -57,6 +57,7 @@ func firstHybridToCELTFrameIndex(c libopusDecoderMatrixCaseFile) (int, error) {
 var transitionPostBar = QualityBar{MinQ: 90.0, Desc: "post-transition celt frame (Q>=90)"}
 
 func TestDecoderHybridToCELT10msTransitionParity(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	fixture, err := loadLibopusDecoderMatrixFixture()
@@ -125,6 +126,7 @@ func TestDecoderHybridToCELT10msTransitionParity(t *testing.T) {
 }
 
 func TestDecoderHybridToCELT20msTransitionParity(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	fixture, err := loadLibopusDecoderMatrixFixture()

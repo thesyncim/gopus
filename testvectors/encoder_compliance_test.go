@@ -175,6 +175,7 @@ func encoderComplianceSummaryCases() []encoderComplianceSummaryCase {
 
 // TestEncoderComplianceCELT tests CELT mode encoding at various frame sizes.
 func TestEncoderComplianceCELT(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	logEncoderComplianceStatus(t)
@@ -201,6 +202,7 @@ func TestEncoderComplianceCELT(t *testing.T) {
 
 // TestEncoderComplianceSILK tests SILK mode encoding at various bandwidths.
 func TestEncoderComplianceSILK(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	logEncoderComplianceStatus(t)
@@ -228,6 +230,7 @@ func TestEncoderComplianceSILK(t *testing.T) {
 
 // TestEncoderComplianceHybrid tests Hybrid mode encoding.
 func TestEncoderComplianceHybrid(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	logEncoderComplianceStatus(t)
@@ -255,6 +258,7 @@ func TestEncoderComplianceHybrid(t *testing.T) {
 
 // TestEncoderComplianceBitrates tests encoding at various bitrate targets.
 func TestEncoderComplianceBitrates(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	logEncoderComplianceStatus(t)
@@ -270,6 +274,7 @@ func TestEncoderComplianceBitrates(t *testing.T) {
 
 // TestEncoderComplianceSummary runs all configurations and outputs a summary table.
 func TestEncoderComplianceSummary(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	logEncoderComplianceStatus(t)
@@ -866,6 +871,7 @@ func getOpusdecPathEncoder() string {
 
 // TestEncoderComplianceInfo logs info about the encoder compliance test setup.
 func TestEncoderComplianceInfo(t *testing.T) {
+	t.Parallel()
 	if !checkOpusdecAvailableEncoder() {
 		t.Log("opusdec not available - encoder compliance tests will be skipped")
 		t.Log("To enable compliance tests, install opus-tools:")

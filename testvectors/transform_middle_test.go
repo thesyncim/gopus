@@ -10,6 +10,7 @@ import (
 // TestTransformMiddleRegion verifies MDCT/IMDCT on the middle region only.
 // The middle region is unaffected by short-overlap windowing and should reconstruct perfectly.
 func TestTransformMiddleRegion(t *testing.T) {
+	t.Parallel()
 	N := 960
 	overlap := 120
 
@@ -100,6 +101,7 @@ func TestTransformMiddleRegion(t *testing.T) {
 
 // TestMultiFrameOverlapAdd tests proper multi-frame reconstruction with overlap-add.
 func TestMultiFrameOverlapAdd(t *testing.T) {
+	t.Parallel()
 	N := 960
 	overlap := 120
 	totalFrames := 3

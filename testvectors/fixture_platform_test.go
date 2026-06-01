@@ -62,6 +62,7 @@ func TestPlatformFixtureRequireEnvDisablesGenericFallback(t *testing.T) {
 }
 
 func TestRequiredPlatformFixturesPresent(t *testing.T) {
+	t.Parallel()
 	if os.Getenv(requirePlatformFixturesEnv) == "" {
 		t.Skipf("%s not set", requirePlatformFixturesEnv)
 	}

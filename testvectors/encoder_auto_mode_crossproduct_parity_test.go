@@ -378,6 +378,7 @@ func makeCrossProductCases() ([]crossProductCase, []crossProductKey) {
 // single-frame hysteresis at decision boundaries; the first-frame decision
 // must be exact.
 func TestEncoderAutoModeCrossProductParity(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	requireStrictLibopusReference(t)
 	libopustest.RequireOracle(t)

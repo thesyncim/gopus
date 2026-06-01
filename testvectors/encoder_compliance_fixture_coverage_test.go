@@ -19,6 +19,7 @@ const (
 )
 
 func TestEncoderComplianceReferenceFixtureCoverage(t *testing.T) {
+	t.Parallel()
 	fixture, err := loadEncoderComplianceReferenceQFixture()
 	if err != nil {
 		t.Fatalf("load encoder compliance reference fixture: %v", err)
@@ -81,6 +82,7 @@ func TestEncoderComplianceReferenceFixtureCoverage(t *testing.T) {
 }
 
 func TestLongFrameReferenceFixtureCoverage(t *testing.T) {
+	t.Parallel()
 	fixture, err := loadLongFrameFixtureCached()
 	if err != nil {
 		t.Fatalf("load long-frame fixture: %v", err)
@@ -104,6 +106,7 @@ func TestLongFrameReferenceFixtureCoverage(t *testing.T) {
 }
 
 func TestLongFrameReferenceFixtureHonestyWithLiveOpusdec(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
 	if !checkOpusdecAvailableEncoder() {
@@ -140,6 +143,7 @@ func TestLongFrameReferenceFixtureHonestyWithLiveOpusdec(t *testing.T) {
 }
 
 func TestEncoderComplianceReferenceQFixtureHonestyWithLiveOpusdec(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
 	if !checkOpusdecAvailableEncoder() {

@@ -190,6 +190,7 @@ func runSILKCtrlOracle(helperPath string, req []byte, nFrames int) (*silkCtrlOra
 // TestSILKCtrlOracle bisects the first diverging SILK control quantity vs
 // libopus for the pure-SILK unconstrained-VBR mono case.
 func TestSILKCtrlOracle(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
 

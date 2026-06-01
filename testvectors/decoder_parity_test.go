@@ -79,6 +79,7 @@ func decoderParityStats(a, b []float32) (corr, rmsRatio float64) {
 }
 
 func TestDecoderParityLibopusMatrix(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	fixture, err := loadLibopusDecoderMatrixFixture()
@@ -130,6 +131,7 @@ func TestDecoderParityLibopusMatrix(t *testing.T) {
 }
 
 func TestDecoderParityMatrixCoverage(t *testing.T) {
+	t.Parallel()
 	fixture, err := loadLibopusDecoderMatrixFixture()
 	if err != nil {
 		t.Fatalf("load decoder matrix fixture: %v", err)
@@ -205,6 +207,7 @@ func decodeRawFloat32LE(raw []byte) ([]float32, error) {
 }
 
 func TestDecoderParityMatrixFixtureHonestyWithOpusDemo(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
 	opusDemo, ok := getFixtureOpusDemoPath()

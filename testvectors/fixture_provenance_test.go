@@ -82,6 +82,7 @@ func isLowerHexSHA256(s string) bool {
 }
 
 func TestGeneratedLibopusFixturesCarryProvenance(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierFast)
 
 	paths := []string{

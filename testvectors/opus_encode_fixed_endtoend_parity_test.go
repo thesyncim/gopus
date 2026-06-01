@@ -144,6 +144,7 @@ func driveFixedCELT(t *testing.T, channels, lm, bitrate int, mode encoder.Bitrat
 // so cross-frame integer CELT state (energy histories, VBR reservoir, prefilter
 // memory) is exercised end-to-end through the public dispatch.
 func TestOpusEncodeFixedCELTByteExact(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
 
@@ -257,6 +258,7 @@ func TestOpusEncodeFixedCELTByteExact(t *testing.T) {
 // comparison to byte-equality, which is unachievable until the Opus API wrapper
 // itself is ported to integer under gopus_fixedpoint.
 func TestOpusEncodeFixedCELTLayerBoundary(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
 
@@ -329,6 +331,7 @@ func TestOpusEncodeFixedCELTLayerBoundary(t *testing.T) {
 // whose wrapper performs non-trivial float arithmetic (resampler for SILK/Hybrid;
 // dc_reject for CELT, see TestOpusEncodeFixedCELTLayerBoundary).
 func TestOpusEncodeFixedSILKHybridResamplerCaveat(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
 

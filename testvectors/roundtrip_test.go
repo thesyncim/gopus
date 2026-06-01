@@ -10,6 +10,7 @@ import (
 
 // TestGopusRoundTrip tests encoding and decoding with our own encoder/decoder.
 func TestGopusRoundTrip(t *testing.T) {
+	t.Parallel()
 	// Generate simple 440Hz sine wave
 	pcm := make([]float64, 960*5) // 5 frames
 	for i := range pcm {
@@ -114,6 +115,7 @@ func TestGopusRoundTrip(t *testing.T) {
 
 // TestSimpleDecodeEncode tests a minimal encode-decode cycle.
 func TestSimpleDecodeEncode(t *testing.T) {
+	t.Parallel()
 	// Generate DC signal (simplest possible)
 	pcm := make([]float64, 960)
 	for i := range pcm {

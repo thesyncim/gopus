@@ -18,6 +18,7 @@ import (
 // TestAudioAudibility encodes audio with gopus, decodes with libopus,
 // and measures quality. Run with: go test -v -run TestAudioAudibility ./internal/testvectors/
 func TestAudioAudibility(t *testing.T) {
+	t.Parallel()
 	// Generate a 0.1-second test signal: A major chord + sweep
 	sampleRate := 48000
 	duration := 0.1

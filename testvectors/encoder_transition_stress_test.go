@@ -44,6 +44,7 @@ func encodeFramesForSignal(t *testing.T, enc *encoder.Encoder, signal []float32,
 }
 
 func TestEncoderModeSwitchStreamQuality(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	const (
@@ -150,6 +151,7 @@ func TestEncoderModeSwitchStreamQuality(t *testing.T) {
 }
 
 func TestLongFrameAbove960StabilityMatrix(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	cases := []struct {

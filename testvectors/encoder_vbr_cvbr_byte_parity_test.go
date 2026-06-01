@@ -375,6 +375,7 @@ func makeVBRCVBRTestPCM(nFrames, frameSize, channels int) []float32 {
 // SILK and Hybrid residuals are reported as non-fatal log messages with
 // exact evidence. CELT mono parity is a hard assertion.
 func TestVBRByteParityAgainstLibopus(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
 
@@ -601,6 +602,7 @@ func runVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 //   - Aggregate statistics (mean, p95, max).
 //   - Final-range values (full parity where deterministic).
 func TestCVBRSizeDistributionAgainstLibopus(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
 
@@ -774,6 +776,7 @@ func runCVBRParityCase(t *testing.T, tc vbrCVBRCase, helperPath string) {
 // against opus_demo (the libopus reference encoder CLI) at the exhaustive tier.
 // This is a second opinion on top of the C oracle test.
 func TestVBRByteParityViaOpusDemoExhaustive(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
 	opusDemo, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())
@@ -885,6 +888,7 @@ func runVBRParityCaseViaOpusDemo(t *testing.T, tc vbrCVBRCase, opusDemo, tmpDir 
 // TestCVBRSizeDistributionViaOpusDemoExhaustive cross-validates gopus CVBR
 // packet sizes against opus_demo at the exhaustive tier.
 func TestCVBRSizeDistributionViaOpusDemoExhaustive(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
 	opusDemo, ok := libopustooling.FindOrEnsureOpusDemo(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots())

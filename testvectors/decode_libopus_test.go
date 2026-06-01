@@ -12,6 +12,7 @@ import (
 )
 
 func TestDecodeLibopusPacket(t *testing.T) {
+	t.Parallel()
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping test: %v", err)
 	}

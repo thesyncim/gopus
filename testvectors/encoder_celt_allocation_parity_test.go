@@ -62,6 +62,7 @@ func allocationMismatchCeilingForCase(c encoderComplianceVariantsFixtureCase) fl
 }
 
 func TestEncoderVariantCELTAllocationParityAgainstFixture(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	requireStrictLibopusReference(t)
 

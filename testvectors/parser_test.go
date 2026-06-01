@@ -33,6 +33,7 @@ func createTestBitstream(packets [][]byte, finalRanges []uint32) []byte {
 }
 
 func TestParseOpusDemoBitstream_SinglePacket(t *testing.T) {
+	t.Parallel()
 	// Create a single packet with known data
 	packetData := []byte{0xFC, 0x01, 0x02, 0x03} // TOC + some data
 	finalRange := uint32(0x12345678)
@@ -64,6 +65,7 @@ func TestParseOpusDemoBitstream_SinglePacket(t *testing.T) {
 }
 
 func TestParseOpusDemoBitstream_MultiplePackets(t *testing.T) {
+	t.Parallel()
 	packets := [][]byte{
 		{0xFC, 0x01},                   // 2 bytes
 		{0xFC, 0x02, 0x03},             // 3 bytes
@@ -94,6 +96,7 @@ func TestParseOpusDemoBitstream_MultiplePackets(t *testing.T) {
 }
 
 func TestParseOpusDemoBitstream_LargePacket(t *testing.T) {
+	t.Parallel()
 	// Test with packet larger than 255 bytes
 	packetData := make([]byte, 500)
 	packetData[0] = 0xFC // TOC byte
@@ -128,6 +131,7 @@ func TestParseOpusDemoBitstream_LargePacket(t *testing.T) {
 }
 
 func TestParseOpusDemoBitstream_EmptyFile(t *testing.T) {
+	t.Parallel()
 	packets, err := ParseOpusDemoBitstream([]byte{})
 	if err != nil {
 		t.Fatalf("unexpected error for empty data: %v", err)
@@ -138,6 +142,7 @@ func TestParseOpusDemoBitstream_EmptyFile(t *testing.T) {
 }
 
 func TestParseOpusDemoBitstream_TruncatedHeader(t *testing.T) {
+	t.Parallel()
 	// Only 4 bytes (missing finalRange)
 	data := []byte{0x04, 0x00, 0x00, 0x00}
 
@@ -149,6 +154,7 @@ func TestParseOpusDemoBitstream_TruncatedHeader(t *testing.T) {
 }
 
 func TestParseOpusDemoBitstream_TruncatedPacketData(t *testing.T) {
+	t.Parallel()
 	// Header says 100 bytes, but only provide 10
 	data := make([]byte, 8+10)
 	binary.BigEndian.PutUint32(data[0:], 100) // packet length = 100
@@ -162,6 +168,7 @@ func TestParseOpusDemoBitstream_TruncatedPacketData(t *testing.T) {
 }
 
 func TestParseOpusDemoBitstream_ZeroLengthPacket(t *testing.T) {
+	t.Parallel()
 	// Packet with 0 bytes of data (valid edge case)
 	data := createTestBitstream([][]byte{{}}, []uint32{0x12345678})
 
@@ -180,6 +187,7 @@ func TestParseOpusDemoBitstream_ZeroLengthPacket(t *testing.T) {
 }
 
 func TestReadBitstreamFile(t *testing.T) {
+	t.Parallel()
 	// Create a temporary test file
 	tmpDir := t.TempDir()
 	tmpFile := filepath.Join(tmpDir, "test.bit")
@@ -207,6 +215,7 @@ func TestReadBitstreamFile(t *testing.T) {
 }
 
 func TestReadBitstreamFile_NotExists(t *testing.T) {
+	t.Parallel()
 	_, err := ReadBitstreamFile("/nonexistent/file.bit")
 	if err == nil {
 		t.Fatal("expected error for non-existent file, got nil")
@@ -215,6 +224,7 @@ func TestReadBitstreamFile_NotExists(t *testing.T) {
 }
 
 func TestGetBitstreamInfo(t *testing.T) {
+	t.Parallel()
 	// Create packets with CELT FB 20ms TOC (config 31)
 	// TOC = (31 << 3) | 0x00 = 0xF8
 	packets := []Packet{
@@ -246,6 +256,7 @@ func TestGetBitstreamInfo(t *testing.T) {
 }
 
 func TestGetBitstreamInfo_Empty(t *testing.T) {
+	t.Parallel()
 	info := GetBitstreamInfo(nil)
 	if info.PacketCount != 0 {
 		t.Errorf("expected PacketCount 0 for nil, got %d", info.PacketCount)
@@ -258,6 +269,7 @@ func TestGetBitstreamInfo_Empty(t *testing.T) {
 }
 
 func TestGetFrameSizeFromConfig(t *testing.T) {
+	t.Parallel()
 	testCases := []struct {
 		config       byte
 		expectedSize int

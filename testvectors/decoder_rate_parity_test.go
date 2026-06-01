@@ -66,6 +66,7 @@ func decodeWithInternalDecoderAtRate(t *testing.T, packets [][]byte, channels, a
 // correlation and RMS ratio are used instead; the thresholds are set to the
 // same values that the 48 kHz rows consistently achieve in practice.
 func TestDecoderParityRateMatrix(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	fixture, err := loadLibopusDecoderRateMatrixFixture()
@@ -161,6 +162,7 @@ func TestDecoderParityRateMatrix(t *testing.T) {
 // represented in the rate-matrix fixture across all three codec modes (SILK,
 // Hybrid, CELT) with both mono and stereo cases.
 func TestDecoderParityMatrixRateCoverage(t *testing.T) {
+	t.Parallel()
 	fixture, err := loadLibopusDecoderRateMatrixFixture()
 	if err != nil {
 		t.Fatalf("load decoder rate matrix fixture: %v", err)

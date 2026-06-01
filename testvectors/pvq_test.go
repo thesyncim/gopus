@@ -17,6 +17,7 @@ func float64sToCeltNorms(in []float64) []celt.CeltNorm {
 }
 
 func TestPVQRoundTrip(t *testing.T) {
+	t.Parallel()
 	// Create a simple unit-norm shape (mimics what encoder produces)
 	n := 8  // Band width
 	k := 10 // Number of pulses

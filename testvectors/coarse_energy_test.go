@@ -9,6 +9,7 @@ import (
 )
 
 func TestCoarseEnergyRoundTrip(t *testing.T) {
+	t.Parallel()
 	// Create simple test energies
 	nbBands := 5
 	energies := []float32{0.0, 12.0, 18.0, -3.0, -6.0}

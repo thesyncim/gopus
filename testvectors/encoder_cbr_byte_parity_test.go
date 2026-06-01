@@ -470,6 +470,7 @@ func assertCBRByteParityForCase(t *testing.T, tc cbrTestCase, oraclePath string)
 // TestEncoderCBRByteParitySILK asserts byte-exact CBR packets for all SILK cells.
 // SILK uses fixed-point arithmetic only; all platforms must produce identical output.
 func TestEncoderCBRByteParitySILK(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
 
@@ -495,6 +496,7 @@ func TestEncoderCBRByteParitySILK(t *testing.T) {
 // On amd64 (CI) all CELT cells must be byte-exact.
 // On arm64 diffs within the CELT float FMA residual budget are reported but not fatal.
 func TestEncoderCBRByteParityCELT(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
 
@@ -520,6 +522,7 @@ func TestEncoderCBRByteParityCELT(t *testing.T) {
 // On amd64 (CI) Hybrid must be byte-exact (SILK part is exact; CELT part is exact on amd64).
 // On arm64 the CELT sub-band may show ≤1 ULP drift.
 func TestEncoderCBRByteParityHybrid(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
 
@@ -543,6 +546,7 @@ func TestEncoderCBRByteParityHybrid(t *testing.T) {
 
 // TestEncoderCBRByteParitySummary runs the full CBR matrix and prints a summary table.
 func TestEncoderCBRByteParitySummary(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
 

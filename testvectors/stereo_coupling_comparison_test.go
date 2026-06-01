@@ -14,6 +14,7 @@ import (
 // TestStereoCouplingVsLibopus compares stereo decoding with libopus per-frame.
 // This test decodes stereo CELT packets and compares the PCM output with libopus.
 func TestStereoCouplingVsLibopus(t *testing.T) {
+	t.Parallel()
 	// Ensure test vectors are available
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping test: %v", err)
@@ -160,6 +161,7 @@ func quantizeTo16(x float32) float32 {
 
 // TestStereoCouplingTestvector07 specifically tests testvector07 which has mixed content.
 func TestStereoCouplingTestvector07(t *testing.T) {
+	t.Parallel()
 	// Ensure test vectors are available
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping test: %v", err)

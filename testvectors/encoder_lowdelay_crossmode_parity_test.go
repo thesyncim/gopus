@@ -233,6 +233,7 @@ func ldGeneratePCM(nFrames, frameSize, channels int, sig types.Signal) []float32
 // ApplicationLowDelay has a CELT-only TOC byte (cfg >= 16).
 // This exercises the CELT-only mode assertion (a) without needing the oracle.
 func TestLowDelayModeIsCELTOnly(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	for _, tc := range ldTestMatrix() {
@@ -260,6 +261,7 @@ func TestLowDelayModeIsCELTOnly(t *testing.T) {
 //	    st->application != OPUS_APPLICATION_RESTRICTED_CELT)
 //	    *value += st->delay_compensation;  // st->delay_compensation = Fs/250
 func TestLowDelayLookahead(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	for _, sampleRate := range []int{8000, 12000, 16000, 24000, 48000} {
@@ -320,6 +322,7 @@ func TestLowDelayLookahead(t *testing.T) {
 //      drift (≤1 ULP per operation) is reported as residual per
 //      project_arm64_celt_1ulp_drift.md.
 func TestLowDelayCrossModeParity(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	requireStrictLibopusReference(t)
 	libopustest.RequireOracle(t)

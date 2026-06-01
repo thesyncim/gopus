@@ -183,6 +183,7 @@ func frameSizeSamplesToArg(frameSize int) (string, error) {
 }
 
 func TestEncoderCompliancePacketsFixtureCoverage(t *testing.T) {
+	t.Parallel()
 	fixture, err := loadEncoderCompliancePacketsFixture()
 	if err != nil {
 		t.Fatalf("load encoder packets fixture: %v", err)
@@ -227,6 +228,7 @@ func TestEncoderCompliancePacketsFixtureCoverage(t *testing.T) {
 }
 
 func TestEncoderCompliancePacketsFixtureHonestyWithOpusDemo(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
 	opusDemo, ok := getFixtureOpusDemoPathForEncoder()

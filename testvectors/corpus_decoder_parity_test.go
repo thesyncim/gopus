@@ -41,6 +41,7 @@ func corpusDominantMode(hist map[string]int) string {
 // TestCorpusDecoderParity decodes each corpus fixture case with gopus and gates
 // quality against the frozen libopus reference with qualitycompare.AssertParity.
 func TestCorpusDecoderParity(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	fixture, err := loadCorpusFixture()
@@ -93,6 +94,7 @@ func TestCorpusDecoderParity(t *testing.T) {
 // both mono and stereo cases are present. Skips when the fixture has not been
 // generated yet; use gen_corpus_decoder_parity_fixture.go to generate it.
 func TestCorpusSignalClassCoverage(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierFast)
 
 	fixture, err := loadCorpusFixture()
@@ -172,6 +174,7 @@ func TestCorpusSignalClassCoverage(t *testing.T) {
 // TestCorpusFixtureGeneratorReferenced checks that the corpus fixture generator
 // script exists and carries the correct //go:build ignore guard.
 func TestCorpusFixtureGeneratorReferenced(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierFast)
 
 	generatorPath := "../tools/gen_corpus_decoder_parity_fixture.go"
@@ -187,6 +190,7 @@ func TestCorpusFixtureGeneratorReferenced(t *testing.T) {
 // TestCorpusFixtureProvenance checks that the fixture carries valid provenance.
 // Skips when the fixture has not been generated yet.
 func TestCorpusFixtureProvenance(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierFast)
 
 	fixture, err := loadCorpusFixture()

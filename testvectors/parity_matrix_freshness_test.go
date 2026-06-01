@@ -14,6 +14,7 @@ import (
 // same change or this test fails. This is the doc-contract counterpart that keeps
 // the public status doc honest as features ship.
 func TestParityMatrixFreshness(t *testing.T) {
+	t.Parallel()
 	data, err := os.ReadFile(filepath.Join("..", "PARITY_MATRIX.md"))
 	if err != nil {
 		t.Fatalf("read PARITY_MATRIX.md: %v", err)

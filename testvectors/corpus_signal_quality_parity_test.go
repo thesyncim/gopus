@@ -51,6 +51,7 @@ var corpusQualityModeConfigs = []corpusQualityModeCfg{
 // added synthetic signal classes, encoded live with gopus and decoded by both
 // gopus and the libopus reference. No fixtures, no new thresholds.
 func TestCorpusSignalQualityParity(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
 

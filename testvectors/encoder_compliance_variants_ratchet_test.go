@@ -3,6 +3,7 @@ package testvectors
 import "testing"
 
 func TestEncoderVariantRatchetGapFloorClampsPositiveStretchTargets(t *testing.T) {
+	t.Parallel()
 	if got := encoderVariantRatchetGapFloor(12.5); got != 0 {
 		t.Fatalf("positive stretch floor should clamp to parity: got %.2f want 0", got)
 	}
@@ -12,6 +13,7 @@ func TestEncoderVariantRatchetGapFloorClampsPositiveStretchTargets(t *testing.T)
 }
 
 func TestEncoderVariantRatchetMissesTreatParityAsPassingAgainstPositiveBaseline(t *testing.T) {
+	t.Parallel()
 	baseline := encoderVariantsBaselineTC{
 		MinGapQ:          7.5,
 		MaxMeanAbsPacket: 0,
@@ -35,6 +37,7 @@ func TestEncoderVariantRatchetMissesTreatParityAsPassingAgainstPositiveBaseline(
 }
 
 func TestBuildBaselineCaseCapsPositiveGapFloorAtParity(t *testing.T) {
+	t.Parallel()
 	got := buildBaselineCase(
 		encoderComplianceVariantsFixtureCase{
 			Name:    "SILK-WB-20ms-stereo-48k",
@@ -50,6 +53,7 @@ func TestBuildBaselineCaseCapsPositiveGapFloorAtParity(t *testing.T) {
 }
 
 func TestEncoderVariantThresholdForArchAppliesAMD64Overrides(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		tc   encoderComplianceVariantsFixtureCase

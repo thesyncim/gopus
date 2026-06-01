@@ -12,6 +12,7 @@ import (
 // TestNarrowband10msChirpNoBurst guards against NB 10ms frame bursts that
 // previously produced clipped/over-amplified output on chirps.
 func TestNarrowband10msChirpNoBurst(t *testing.T) {
+	t.Parallel()
 	const (
 		sampleRate = 48000
 		channels   = 1

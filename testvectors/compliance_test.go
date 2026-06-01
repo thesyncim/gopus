@@ -68,6 +68,7 @@ func logDecoderComplianceStatus(t *testing.T) {
 //   - Compute opus_compare quality against both references
 //   - Pass if either Q >= 0 (RFC 8251 allows either reference)
 func TestDecoderCompliance(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	logDecoderComplianceStatus(t)
@@ -279,6 +280,7 @@ func extractTarGz(r io.Reader) error {
 
 // TestParseTestVectorBitstreams validates that all test vector .bit files can be parsed.
 func TestParseTestVectorBitstreams(t *testing.T) {
+	t.Parallel()
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping: %v", err)
 		return
@@ -307,6 +309,7 @@ func TestParseTestVectorBitstreams(t *testing.T) {
 
 // TestReadReferenceFiles validates that all .dec reference files can be read.
 func TestReadReferenceFiles(t *testing.T) {
+	t.Parallel()
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping: %v", err)
 		return
@@ -351,6 +354,7 @@ type vectorResult struct {
 // TestComplianceSummary runs all vectors and prints a summary table.
 // This provides an overview of compliance status and verifies the hybrid mode assumption.
 func TestComplianceSummary(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	if err := ensureTestVectors(t); err != nil {
@@ -448,6 +452,7 @@ func formatFrameSizes(sizes []int) string {
 // TestMonoCELTReferenceFormat verifies that testvector07 stores stereo output
 // for its mono CELT source, matching opus_demo reference behavior.
 func TestMonoCELTReferenceFormat(t *testing.T) {
+	t.Parallel()
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping: %v", err)
 		return

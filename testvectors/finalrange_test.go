@@ -43,6 +43,7 @@ var finalRangeVectors = []finalRangeVector{
 // the expected FinalRange stored in the test vector packets.
 // This is a critical compliance test per RFC 6716.
 func TestFinalRangeVerification(t *testing.T) {
+	t.Parallel()
 	if err := ensureTestVectors(t); err != nil {
 		t.Skipf("Skipping FinalRange verification: %v", err)
 		return
@@ -157,6 +158,7 @@ func expectedFinalRangeForBuild(filename string, packet int, defaultRange uint32
 // TestFinalRangeNonZero verifies that FinalRange returns non-zero after decoding.
 // This is a basic sanity check.
 func TestFinalRangeNonZero(t *testing.T) {
+	t.Parallel()
 	testVectorDir := "testdata/opus_testvectors"
 
 	if _, err := os.Stat(testVectorDir); os.IsNotExist(err) {
@@ -198,6 +200,7 @@ func TestFinalRangeNonZero(t *testing.T) {
 
 // TestFinalRangeModeTransitions verifies FinalRange works across mode transitions.
 func TestFinalRangeModeTransitions(t *testing.T) {
+	t.Parallel()
 	testVectorDir := "testdata/opus_testvectors"
 
 	if _, err := os.Stat(testVectorDir); os.IsNotExist(err) {
@@ -245,6 +248,7 @@ func TestFinalRangeModeTransitions(t *testing.T) {
 
 // TestFinalRangeAllVectors provides a summary of FinalRange accuracy across all vectors.
 func TestFinalRangeAllVectors(t *testing.T) {
+	t.Parallel()
 	testVectorDir := "testdata/opus_testvectors"
 
 	if _, err := os.Stat(testVectorDir); os.IsNotExist(err) {

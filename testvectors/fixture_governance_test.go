@@ -12,6 +12,7 @@ import (
 )
 
 func TestFixtureGeneratorScriptsBuildIgnore(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierFast)
 
 	paths := []string{
@@ -44,6 +45,7 @@ func TestFixtureGeneratorScriptsBuildIgnore(t *testing.T) {
 }
 
 func TestGeneratedFilesDeclareGeneratedMarkerBeforePackage(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierFast)
 
 	paths := []string{
@@ -81,6 +83,7 @@ func TestGeneratedFilesDeclareGeneratedMarkerBeforePackage(t *testing.T) {
 }
 
 func TestEncoderVariantsFixtureStableOrdering(t *testing.T) {
+	t.Parallel()
 	fixture, err := loadEncoderComplianceVariantsFixture()
 	if err != nil {
 		t.Fatalf("load variants fixture: %v", err)
@@ -96,6 +99,7 @@ func TestEncoderVariantsFixtureStableOrdering(t *testing.T) {
 }
 
 func TestEncoderPacketFixtureStableOrdering(t *testing.T) {
+	t.Parallel()
 	fixture, err := loadEncoderCompliancePacketsFixture()
 	if err != nil {
 		t.Fatalf("load packets fixture: %v", err)
@@ -111,6 +115,7 @@ func TestEncoderPacketFixtureStableOrdering(t *testing.T) {
 }
 
 func TestFixtureGeneratorsUseLibopusOpusDemo(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierFast)
 
 	variants, err := loadEncoderComplianceVariantsFixture()

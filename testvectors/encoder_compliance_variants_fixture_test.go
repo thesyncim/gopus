@@ -173,6 +173,7 @@ func findEncoderVariantsFixtureCase(mode encoder.Mode, bandwidth types.Bandwidth
 }
 
 func TestEncoderVariantsFixtureCoverage(t *testing.T) {
+	t.Parallel()
 	fixture, err := loadEncoderComplianceVariantsFixture()
 	if err != nil {
 		t.Fatalf("load encoder variants fixture: %v", err)
@@ -230,6 +231,7 @@ func TestEncoderVariantsFixtureCoverage(t *testing.T) {
 }
 
 func TestEncoderVariantsFixtureSignalHash(t *testing.T) {
+	t.Parallel()
 	fixture, err := loadEncoderComplianceVariantsFixture()
 	if err != nil {
 		t.Fatalf("load encoder variants fixture: %v", err)
@@ -252,6 +254,7 @@ func TestEncoderVariantsFixtureSignalHash(t *testing.T) {
 }
 
 func TestEncoderVariantsFixtureHonestyWithOpusDemo(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
 	opusDemo, ok := getFixtureOpusDemoPathForEncoder()
@@ -847,6 +850,7 @@ func qualityFromPacketsLibopusReferenceDetailed(packets [][]byte, original []flo
 }
 
 func TestEncoderVariantProfileParityAgainstLibopusFixture(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	fixture, err := loadEncoderComplianceVariantsFixture()

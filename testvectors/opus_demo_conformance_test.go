@@ -361,6 +361,7 @@ func abs(x int) int {
 //     decoded-quality floor (the two encoders' auto-mode per-frame decisions are
 //     not required to be byte-identical).
 func TestOpusDemoEndToEndConformance(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	requireStrictLibopusReference(t)
 

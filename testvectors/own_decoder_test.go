@@ -8,6 +8,7 @@ import (
 )
 
 func TestOwnEncoderDecoder(t *testing.T) {
+	t.Parallel()
 	// Generate a short multi-frame sine wave so CELT can warm up overlap/history.
 	sampleRate := 48000
 	frameSize := 960

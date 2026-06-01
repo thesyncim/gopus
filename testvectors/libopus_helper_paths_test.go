@@ -7,6 +7,7 @@ import (
 )
 
 func TestHelperBinaryPathUsesWindowsExeSuffix(t *testing.T) {
+	t.Parallel()
 	got := helperBinaryPath("gopus_helper", "windows", "amd64")
 	if !strings.HasSuffix(got, ".exe") {
 		t.Fatalf("expected windows helper path to end with .exe, got %q", got)
@@ -17,6 +18,7 @@ func TestHelperBinaryPathUsesWindowsExeSuffix(t *testing.T) {
 }
 
 func TestHelperBinaryPathLeavesUnixPathsUnsuffixed(t *testing.T) {
+	t.Parallel()
 	got := helperBinaryPath("gopus_helper", "linux", "amd64")
 	if strings.HasSuffix(got, ".exe") {
 		t.Fatalf("expected unix helper path without .exe, got %q", got)

@@ -252,6 +252,7 @@ func runFECOracleEncode(oraclePath string, c fecParityCase, pcm []float32) ([][]
 // TestEncoderFECLBRRByteParitySILK asserts no panic + byte-exact packets for
 // the SILK NB/MB stereo in-band-FEC configurations that formerly panicked.
 func TestEncoderFECLBRRByteParitySILK(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	libopustest.RequireOracle(t)
 

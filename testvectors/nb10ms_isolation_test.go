@@ -12,6 +12,7 @@ import (
 // TestNB10msIsolation compares NB-10ms and NB-20ms at the Opus level
 // with per-frame RMS analysis to find exactly when/where the inflation starts.
 func TestNB10msIsolation(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name      string
 		bandwidth types.Bandwidth
@@ -99,6 +100,7 @@ func TestNB10msIsolation(t *testing.T) {
 // TestNB10msConstantSignal tests with a constant amplitude signal
 // to more easily spot gain errors.
 func TestNB10msConstantSignal(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name      string
 		bandwidth types.Bandwidth

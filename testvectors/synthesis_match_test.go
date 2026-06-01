@@ -10,6 +10,7 @@ import (
 // TestSynthesisMatch verifies that the short-overlap IMDCT path matches
 // the encoder MDCT when overlap-add is applied.
 func TestSynthesisMatch(t *testing.T) {
+	t.Parallel()
 	N := 960 // Frame size (MDCT coefficients)
 	overlap := 120
 
@@ -43,6 +44,7 @@ func TestSynthesisMatch(t *testing.T) {
 
 // TestEncoderDecoderWithStandardIMDCT tests if using standard IMDCT fixes the amplitude issue.
 func TestEncoderDecoderWithStandardIMDCT(t *testing.T) {
+	t.Parallel()
 	N := 960
 	overlap := 120
 

@@ -18,6 +18,7 @@ type celtPostfilterHeader struct {
 }
 
 func TestEncoderVariantCELTHeaderParityAgainstFixture(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 	requireStrictLibopusReference(t)
 

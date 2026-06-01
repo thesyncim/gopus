@@ -1,6 +1,55 @@
 package qualitycompare
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
+
+// TestOpusCompareHelperCacheMatchesSingleCandidate guards the band_energy cache
+// in the compare helper: the best Q returned for a multi-delay request must be
+// bit-identical to the Q returned for a request carrying only that winning
+// delay. A prefix-slicing or start-offset bug in the cache would shift the
+// energies and perturb Q, so this catches such regressions exactly.
+func TestOpusCompareHelperCacheMatchesSingleCandidate(t *testing.T) {
+	for _, channels := range []int{1, 2} {
+		ref := makeAperiodicSignal(48000)
+		// A perceptibly different decoded side so Q is finite and delay-sensitive.
+		decShift := shiftSignal(ref, 3)
+		var refPCM, decPCM []int16
+		if channels == 2 {
+			refPCM = float32ToPCM16(interleaveStereo(ref, ref))
+			decPCM = float32ToPCM16(interleaveStereo(decShift, ref))
+		} else {
+			refPCM = float32ToPCM16(ref)
+			decPCM = float32ToPCM16(decShift)
+		}
+
+		delays := opusCompareDelayCandidates(pcm16ToFloat32(decPCM), pcm16ToFloat32(refPCM), channels, 240)
+		q, best, err := runOpusCompareHelper(refPCM, decPCM, 48000, channels, delays)
+		if err != nil {
+			t.Skipf("compare helper unavailable: %v", err)
+		}
+		qSingle, bestSingle, err := runOpusCompareHelper(refPCM, decPCM, 48000, channels, []int{best})
+		if err != nil {
+			t.Fatalf("single-candidate helper: %v", err)
+		}
+		if bestSingle != best {
+			t.Fatalf("ch=%d single-candidate delay %d != multi best %d", channels, bestSingle, best)
+		}
+		if math.Float64bits(q) != math.Float64bits(qSingle) {
+			t.Fatalf("ch=%d cache Q mismatch: multi=%v single=%v (bits %x vs %x)",
+				channels, q, qSingle, math.Float64bits(q), math.Float64bits(qSingle))
+		}
+	}
+}
+
+func pcm16ToFloat32(in []int16) []float32 {
+	out := make([]float32, len(in))
+	for i, v := range in {
+		out[i] = float32(v) / 32768.0
+	}
+	return out
+}
 
 func TestOpusCompareDelayCandidatesIncludeSymmetricNeighborhood(t *testing.T) {
 	ref := makeAperiodicSignal(4096)

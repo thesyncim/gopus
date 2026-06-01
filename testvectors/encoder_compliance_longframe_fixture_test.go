@@ -76,6 +76,7 @@ func longFrameFixtureWritePathForArch() string {
 // quality against frozen libopus reference packets. This keeps parity coverage
 // available without requiring live libopus bindings.
 func TestLongFrameLibopusReferenceParityFromFixture(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	fixture, err := loadLongFrameFixtureCached()
@@ -134,6 +135,7 @@ func longFrameLibopusGapFloorForArch(caseName, goarch string) float64 {
 }
 
 func TestLongFrameLibopusGapFloorUsesTightSpeechFloor(t *testing.T) {
+	t.Parallel()
 	// Precision floors are arch-independent and tighter than the speech floor, so
 	// the long-frame floor is -EncoderLibopusSpeechGapTightQ on every arch.
 	cases := []struct {
@@ -248,6 +250,7 @@ func loadLongFrameFixtureCached() (longFrameFixtureFile, error) {
 }
 
 func TestLongFrameReferenceFixtureHonestyWithLiveOpusDemo(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
 	opusDemo, ok := getFixtureOpusDemoPathForEncoder()

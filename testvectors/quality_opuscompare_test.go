@@ -7,6 +7,7 @@ import (
 )
 
 func TestQualityFloat32ToPCM16UsesOpusRounding(t *testing.T) {
+	t.Parallel()
 	libopustest.RequireOracle(t)
 	samples := []float32{
 		-2, -1.5, -1, -0.9999695,

@@ -267,6 +267,7 @@ func buildDecoderLossStressPatterns(frames int) []decoderLossPattern {
 }
 
 func TestDecoderLossParityLibopusFixture(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	fixture, err := loadLibopusDecoderLossFixture()
@@ -340,6 +341,7 @@ func TestDecoderLossParityLibopusFixture(t *testing.T) {
 }
 
 func TestDecoderLossStressPatternsAgainstOpusDemo(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
 	opusDemo, ok := getFixtureOpusDemoPath()
@@ -491,6 +493,7 @@ func writeLossBitsFile(path, bits string) error {
 }
 
 func TestDecoderLossFixtureHonestyWithOpusDemo(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierExhaustive)
 
 	opusDemo, ok := getFixtureOpusDemoPath()

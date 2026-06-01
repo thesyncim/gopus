@@ -12,6 +12,7 @@ import (
 // TestSILK10msOpusLevel tests SILK 10ms encoding at the Opus level using
 // the gopus decoder to isolate whether the issue is in encoding or in opusdec.
 func TestSILK10msOpusLevel(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name      string
 		bw        types.Bandwidth

@@ -114,6 +114,7 @@ func encoderComplianceReferenceStatusForPlatform(caseName string, gapQ float64, 
 }
 
 func TestEncoderCompliancePrecisionGuard(t *testing.T) {
+	t.Parallel()
 	if !libopusComplianceReferenceAvailable() {
 		t.Fatal("libopus reference fixture is required for precision guard")
 	}
@@ -142,6 +143,7 @@ func TestEncoderCompliancePrecisionGuard(t *testing.T) {
 }
 
 func TestEncoderCompliancePrecisionFloorCoverage(t *testing.T) {
+	t.Parallel()
 	seen := make(map[string]struct{}, len(encoderComplianceSummaryCases()))
 	for _, tc := range encoderComplianceSummaryCases() {
 		seen[tc.name] = struct{}{}
@@ -175,6 +177,7 @@ func TestEncoderCompliancePrecisionFloorCoverage(t *testing.T) {
 }
 
 func TestEncoderComplianceReferenceStatusForArch(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		caseName  string
@@ -266,6 +269,7 @@ func TestEncoderComplianceReferenceStatusForArch(t *testing.T) {
 }
 
 func TestEncoderComplianceReferenceStatusForPlatform(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		caseName  string

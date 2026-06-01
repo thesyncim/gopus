@@ -10,6 +10,7 @@ import (
 // TestMDCTShortOverlapRoundTrip tests MDCT/IMDCT with CELT short overlap (120 samples).
 // CELT uses short overlap instead of standard 50% overlap.
 func TestMDCTShortOverlapRoundTrip(t *testing.T) {
+	t.Parallel()
 	N := 960 // Frame size (MDCT coefficients)
 	overlap := 120
 
@@ -81,6 +82,7 @@ func TestMDCTShortOverlapRoundTrip(t *testing.T) {
 
 // TestMDCT50PercentOverlapRoundTrip tests with standard 50% overlap for comparison.
 func TestMDCT50PercentOverlapRoundTrip(t *testing.T) {
+	t.Parallel()
 	N := 960
 	N2 := N * 2
 

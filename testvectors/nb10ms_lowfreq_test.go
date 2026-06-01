@@ -12,6 +12,7 @@ import (
 // TestNB10msLowFreqSine tests NB-10ms with a low frequency sine that matches
 // the chirp's frequency range where inflation occurs (frames 5-14).
 func TestNB10msLowFreqSine(t *testing.T) {
+	t.Parallel()
 	for _, freq := range []float64{200, 300, 440, 1000, 2000} {
 		for _, tc := range []struct {
 			name      string

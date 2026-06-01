@@ -71,6 +71,7 @@ func celtSameArchByteExactCases() []celtSameArchByteExactCase {
 // celtSameArchByteExactCases. It demonstrates (not masks) genuine same-arch
 // byte parity for the CELT forward float path.
 func TestEncoderCELTSameArchByteExact(t *testing.T) {
+	t.Parallel()
 	requireTestTier(t, testTierParity)
 
 	opusDemo, ok := getFixtureOpusDemoPathForEncoder()
