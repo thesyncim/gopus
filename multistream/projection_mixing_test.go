@@ -76,7 +76,7 @@ func TestApplyProjectionMixingSwapsChannels(t *testing.T) {
 	}
 
 	in := []float32{1, 2, 3, 4}
-	streams := enc.routeProjectionMixingToStreams(in, 2)
+	streams := enc.routeProjectionMixingToStreams(nil, in, 2)
 	out := streams[0]
 	scale := float32(32767.0 / 32768.0)
 	want := []float32{2 * scale, 1 * scale, 4 * scale, 3 * scale}

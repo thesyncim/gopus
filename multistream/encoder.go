@@ -117,6 +117,16 @@ type Encoder struct {
 
 	// surroundAnalysisEncoder computes CELT band energies for surround analysis.
 	surroundAnalysisEncoder *celt.Encoder
+
+	// Per-call encode scratch reused across Encode calls to reduce the
+	// steady-state encode allocation footprint. These slice headers and their
+	// element buffers are intra-call scratch consumed before the assembled
+	// packet is produced; they never escape the encoder. The assembled output
+	// bytes are freshly allocated because the caller may retain them.
+	streamInputScratch   [][]float32 // routed per-stream input buffers
+	analysisInputScratch [][]float32 // routed per-stream analysis buffers (distinct length)
+	streamPacketsScratch [][]byte    // per-stream encoded packets
+	assembleScratch      [][]byte    // self-delimited framing slices for assembly
 }
 
 const surroundBands = 21
@@ -1403,11 +1413,13 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 	}
 
 	// Route input channels to stream buffers
-	streamBuffers := e.routeInputToStreams(pcm, frameSize)
+	streamBuffers := e.routeInputToStreams(e.streamInputScratch, pcm, frameSize)
+	e.streamInputScratch = streamBuffers
 	analysisStreamBuffers := streamBuffers
 	if len(analysisPCM) != len(pcm) {
 		analysisFrameSize := len(analysisPCM) / e.inputChannels
-		analysisStreamBuffers = e.routeInputToStreams(analysisPCM, analysisFrameSize)
+		analysisStreamBuffers = e.routeInputToStreams(e.analysisInputScratch, analysisPCM, analysisFrameSize)
+		e.analysisInputScratch = analysisStreamBuffers
 	}
 
 	// Encode each stream.
@@ -1427,7 +1439,12 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 	//
 	// tot_size accumulates the self-delimited size of the already-emitted streams,
 	// matching opus_repacketizer_out_range_impl()'s returned len (line 1048).
-	streamPackets := make([][]byte, e.streams)
+	streamPackets := e.streamPacketsScratch
+	if cap(streamPackets) < e.streams {
+		streamPackets = make([][]byte, e.streams)
+	}
+	streamPackets = streamPackets[:e.streams]
+	e.streamPacketsScratch = streamPackets
 	allDTX := true
 	totSize := 0
 	hundredMs := frameSize > 0 && int(e.sampleRate)/frameSize == 10
@@ -1490,7 +1507,7 @@ func (e *Encoder) EncodeFloat32WithAnalysisMaxBytes(pcm []float32, frameSize int
 	}
 
 	// Assemble multistream packet with RFC 6716 Appendix B framing.
-	packet, err := assembleMultistreamPacket(streamPackets)
+	packet, err := e.assembleMultistreamPacket(streamPackets)
 	if err != nil {
 		return nil, err
 	}

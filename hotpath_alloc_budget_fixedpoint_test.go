@@ -17,3 +17,12 @@ const decodeInt16HotPathAllocBudget = 80
 // allocations and exists only in the gated build (the default build remains
 // strictly zero-alloc).
 const encodeRestrictedSilkHotPathAllocBudget = 64
+
+// Multistream wrapper budgets under -tags gopus_fixedpoint. The float Decode
+// path matches the default build; the integer DecodeInt16/Int24 paths run the
+// FIXED_POINT elementary decoders, which are not yet zero-alloc. These bounds
+// are measured ceilings for the default stereo configuration.
+const (
+	multistreamEncodeHotPathAllocBudget = 1
+	multistreamDecodeHotPathAllocBudget = 8
+)

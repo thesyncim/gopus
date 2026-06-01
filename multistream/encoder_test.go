@@ -294,7 +294,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 		mapping := []byte{0}
 		frameSize := 4
 
-		streams := routeChannelsToStreams(input, mapping, 0, frameSize, 1, 1)
+		streams := routeChannelsToStreams(nil, input, mapping, 0, frameSize, 1, 1)
 
 		if len(streams) != 1 {
 			t.Fatalf("expected 1 stream, got %d", len(streams))
@@ -324,7 +324,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 		mapping := []byte{0, 1} // L->0, R->1
 		frameSize := 4
 
-		streams := routeChannelsToStreams(input, mapping, 1, frameSize, 2, 1)
+		streams := routeChannelsToStreams(nil, input, mapping, 1, frameSize, 2, 1)
 
 		if len(streams) != 1 {
 			t.Fatalf("expected 1 stream, got %d", len(streams))
@@ -363,7 +363,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 		}
 		mapping := []byte{0, 4, 1, 2, 3, 5}
 
-		streams := routeChannelsToStreams(input, mapping, 2, frameSize, 6, 4)
+		streams := routeChannelsToStreams(nil, input, mapping, 2, frameSize, 6, 4)
 
 		if len(streams) != 4 {
 			t.Fatalf("expected 4 streams, got %d", len(streams))
@@ -428,7 +428,7 @@ func TestRouteChannelsToStreams(t *testing.T) {
 		mapping := []byte{0, 255} // First to stream 0, second silent
 		frameSize := 2
 
-		streams := routeChannelsToStreams(input, mapping, 0, frameSize, 2, 1)
+		streams := routeChannelsToStreams(nil, input, mapping, 0, frameSize, 2, 1)
 
 		if len(streams) != 1 {
 			t.Fatalf("expected 1 stream, got %d", len(streams))
@@ -473,7 +473,7 @@ func TestRouteChannelsToStreams_RoundTrip(t *testing.T) {
 			}
 
 			// Route to streams (encoding direction)
-			streamBuffers := routeChannelsToStreams(input, cfg.mapping, cfg.coupledStreams, frameSize, cfg.channels, cfg.streams)
+			streamBuffers := routeChannelsToStreams(nil, input, cfg.mapping, cfg.coupledStreams, frameSize, cfg.channels, cfg.streams)
 
 			// Apply channel mapping (decoding direction)
 			output := applyChannelMapping32(streamBuffers, cfg.mapping, cfg.coupledStreams, frameSize, cfg.channels)
@@ -549,7 +549,7 @@ func TestWriteSelfDelimitedLength(t *testing.T) {
 func TestAssembleMultistreamPacket(t *testing.T) {
 	t.Run("single stream", func(t *testing.T) {
 		packets := [][]byte{{0xF8, 1, 2, 3}}
-		result, err := assembleMultistreamPacket(packets)
+		result, err := (&Encoder{}).assembleMultistreamPacket(packets)
 		if err != nil {
 			t.Fatalf("assembleMultistreamPacket error: %v", err)
 		}
@@ -569,7 +569,7 @@ func TestAssembleMultistreamPacket(t *testing.T) {
 			{0xF8, 1, 2, 3},
 			{0xF8, 4, 5, 6},
 		}
-		result, err := assembleMultistreamPacket(packets)
+		result, err := (&Encoder{}).assembleMultistreamPacket(packets)
 		if err != nil {
 			t.Fatalf("assembleMultistreamPacket error: %v", err)
 		}
@@ -595,7 +595,7 @@ func TestAssembleMultistreamPacket(t *testing.T) {
 			{0xF8, 6, 7},
 			{0xF8, 8, 9, 10},
 		}
-		result, err := assembleMultistreamPacket(packets)
+		result, err := (&Encoder{}).assembleMultistreamPacket(packets)
 		if err != nil {
 			t.Fatalf("assembleMultistreamPacket error: %v", err)
 		}
@@ -622,7 +622,7 @@ func TestAssembleMultistreamPacket(t *testing.T) {
 		largePacket := append([]byte{0xF8}, largeFrame...)
 		packets := [][]byte{largePacket, {0xF8, 1, 2, 3}}
 
-		result, err := assembleMultistreamPacket(packets)
+		result, err := (&Encoder{}).assembleMultistreamPacket(packets)
 		if err != nil {
 			t.Fatalf("assembleMultistreamPacket error: %v", err)
 		}
@@ -649,7 +649,7 @@ func TestAssembleMultistreamPacket(t *testing.T) {
 	})
 
 	t.Run("invalid packet returns error", func(t *testing.T) {
-		_, err := assembleMultistreamPacket([][]byte{
+		_, err := (&Encoder{}).assembleMultistreamPacket([][]byte{
 			{0x01, 0x02},
 			{0xF8, 4, 5, 6},
 		})

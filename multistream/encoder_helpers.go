@@ -1,11 +1,36 @@
 package multistream
 
+// ensureStreamBuffers grows dst to hold numStreams per-stream buffers of the
+// required width (frameSize*channels) and zeroes the active prefix so the
+// routing pass below behaves identically to freshly allocated buffers. The
+// backing slices are reused across calls to keep the encode hot path
+// allocation-free; only growth past previous capacity allocates.
+func ensureStreamBuffers(dst [][]float32, frameSize, coupledStreams, numStreams int) [][]float32 {
+	if cap(dst) < numStreams {
+		dst = make([][]float32, numStreams)
+	}
+	dst = dst[:numStreams]
+	for i := 0; i < numStreams; i++ {
+		need := frameSize * streamChannels(i, coupledStreams)
+		if cap(dst[i]) < need {
+			dst[i] = make([]float32, need)
+		} else {
+			dst[i] = dst[i][:need]
+			for j := range dst[i] {
+				dst[i][j] = 0
+			}
+		}
+	}
+	return dst
+}
+
 // routeChannelsToStreams routes interleaved input to stream buffers.
 // This is the inverse of applyChannelMapping in multistream.go.
 //
 // Input format: sample-interleaved [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ...]
 // Output: slice of buffers, one per stream (stereo streams interleaved)
 func routeChannelsToStreams(
+	scratch [][]float32,
 	input []float32,
 	mapping []byte,
 	coupledStreams int,
@@ -13,12 +38,7 @@ func routeChannelsToStreams(
 	inputChannels int,
 	numStreams int,
 ) [][]float32 {
-	// Create buffer for each stream
-	streamBuffers := make([][]float32, numStreams)
-	for i := 0; i < numStreams; i++ {
-		chans := streamChannels(i, coupledStreams)
-		streamBuffers[i] = make([]float32, frameSize*chans)
-	}
+	streamBuffers := ensureStreamBuffers(scratch, frameSize, coupledStreams, numStreams)
 
 	// Route input channels to appropriate streams
 	// Key insight: mapping[outCh] tells us which stream channel feeds outCh
@@ -46,33 +66,24 @@ func routeChannelsToStreams(
 	return streamBuffers
 }
 
-func makeStreamBuffers(frameSize, coupledStreams, numStreams int) [][]float32 {
-	streamBuffers := make([][]float32, numStreams)
-	for i := 0; i < numStreams; i++ {
-		chans := streamChannels(i, coupledStreams)
-		streamBuffers[i] = make([]float32, frameSize*chans)
-	}
-	return streamBuffers
-}
-
-func (e *Encoder) routeInputToStreams(pcm []float32, frameSize int) [][]float32 {
+func (e *Encoder) routeInputToStreams(scratch [][]float32, pcm []float32, frameSize int) [][]float32 {
 	if e.mappingFamily == 3 {
-		return e.routeProjectionMixingToStreams(pcm, frameSize)
+		return e.routeProjectionMixingToStreams(scratch, pcm, frameSize)
 	}
-	return routeChannelsToStreams(pcm, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
+	return routeChannelsToStreams(scratch, pcm, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
 }
 
-func (e *Encoder) routeProjectionMixingToStreams(pcm []float32, frameSize int) [][]float32 {
+func (e *Encoder) routeProjectionMixingToStreams(scratch [][]float32, pcm []float32, frameSize int) [][]float32 {
 	rows := e.projectionRows
 	cols := e.projectionCols
 	if len(e.projectionMixing) == 0 || rows <= 0 || cols <= 0 {
-		return routeChannelsToStreams(pcm, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
+		return routeChannelsToStreams(scratch, pcm, e.mapping, e.coupledStreams, frameSize, e.inputChannels, e.streams)
 	}
 	if cap(e.projectionFrame) < cols {
 		e.projectionFrame = make([]float32, cols)
 	}
 	frame := e.projectionFrame[:cols]
-	streamBuffers := makeStreamBuffers(frameSize, e.coupledStreams, e.streams)
+	streamBuffers := ensureStreamBuffers(scratch, frameSize, e.coupledStreams, e.streams)
 
 	for s := 0; s < frameSize; s++ {
 		inBase := s * cols
@@ -106,12 +117,17 @@ func (e *Encoder) routeProjectionMixingToStreams(pcm []float32, frameSize int) [
 // Per RFC 6716 Appendix B:
 //   - First N-1 packets use self-delimited packet framing
 //   - Last packet uses standard framing
-func assembleMultistreamPacket(streamPackets [][]byte) ([]byte, error) {
+func (e *Encoder) assembleMultistreamPacket(streamPackets [][]byte) ([]byte, error) {
 	if len(streamPackets) == 0 {
 		return nil, nil
 	}
 
-	encoded := make([][]byte, len(streamPackets))
+	encoded := e.assembleScratch
+	if cap(encoded) < len(streamPackets) {
+		encoded = make([][]byte, len(streamPackets))
+	}
+	encoded = encoded[:len(streamPackets)]
+	e.assembleScratch = encoded
 	totalSize := 0
 	for i, packet := range streamPackets {
 		if len(packet) == 0 {
@@ -129,6 +145,9 @@ func assembleMultistreamPacket(streamPackets [][]byte) ([]byte, error) {
 		totalSize += len(packet)
 	}
 
+	// The assembled bytes are returned directly to the caller and may be
+	// retained (e.g. building a packet sequence), so this buffer is freshly
+	// allocated rather than reused.
 	output := make([]byte, totalSize)
 	offset := 0
 	for _, packet := range encoded {

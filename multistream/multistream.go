@@ -13,6 +13,22 @@ import (
 	"github.com/thesyncim/gopus/plc"
 )
 
+// ensureDecodedStreamsScratch returns a reusable [][]float32 header sized to
+// d.streams, clearing any stale per-stream references so a decode failure or
+// short stream cannot leak a previous frame's buffer into the channel mapping.
+func (d *Decoder) ensureDecodedStreamsScratch() [][]float32 {
+	s := d.decodedStreamsScratch
+	if cap(s) < d.streams {
+		s = make([][]float32, d.streams)
+	}
+	s = s[:d.streams]
+	for i := range s {
+		s[i] = nil
+	}
+	d.decodedStreamsScratch = s
+	return s
+}
+
 func applyChannelMapping32(decodedStreams [][]float32, mapping []byte, coupledStreams, frameSize, outputChannels int) []float32 {
 	output := make([]float32, frameSize*outputChannels)
 
@@ -122,10 +138,11 @@ func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection bo
 		return output, err
 	}
 
-	packets, err := parseMultistreamPacket(data, d.streams)
+	packets, err := parseMultistreamPacketInto(d.packetsScratch, data, d.streams)
 	if err != nil {
 		return nil, fmt.Errorf("multistream: parse error: %w", err)
 	}
+	d.packetsScratch = packets
 
 	duration, err := validateStreamDurationsAtRate(packets, int(d.sampleRate))
 	if err != nil {
@@ -136,7 +153,7 @@ func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection bo
 	}
 	decodeFrameSize := duration
 
-	decodedStreams := make([][]float32, d.streams)
+	decodedStreams := d.ensureDecodedStreamsScratch()
 	for i := 0; i < d.streams; i++ {
 		var endDREDCapture func()
 		if extsupport.DREDRuntime && d.dredPayloadScannerActive() {

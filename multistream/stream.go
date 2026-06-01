@@ -59,11 +59,23 @@ func parseSelfDelimitedLength(data []byte) (length, consumed int, err error) {
 //   - packets: slice of N standard-framed Opus packets, one per stream
 //   - err: parsing error if data is malformed
 func parseMultistreamPacket(data []byte, numStreams int) ([][]byte, error) {
+	return parseMultistreamPacketInto(nil, data, numStreams)
+}
+
+// parseMultistreamPacketInto is parseMultistreamPacket with a caller-provided
+// slice header reused across calls. The returned sub-slices alias data and the
+// internal self-delimited reframing buffers; callers must not retain them past
+// the next decode call.
+func parseMultistreamPacketInto(scratch [][]byte, data []byte, numStreams int) ([][]byte, error) {
 	if numStreams < 1 {
 		return nil, ErrInvalidStreamCount
 	}
 
-	packets := make([][]byte, numStreams)
+	packets := scratch
+	if cap(packets) < numStreams {
+		packets = make([][]byte, numStreams)
+	}
+	packets = packets[:numStreams]
 	offset := 0
 
 	// Parse first N-1 packets with self-delimited framing and convert them

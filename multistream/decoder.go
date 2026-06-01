@@ -547,6 +547,14 @@ type Decoder struct {
 	pitchDNNLoaded    bool
 	plcModelLoaded    bool
 	farganModelLoaded bool
+
+	// Per-call decode scratch reused across Decode calls to reduce the
+	// steady-state decode allocation footprint. These slice headers are
+	// intra-call scratch that never escape the decoder; their element buffers
+	// alias packet data / elementary-decoder-owned outputs that are copied into
+	// the channel-mapped result within the same call.
+	packetsScratch        [][]byte
+	decodedStreamsScratch [][]float32
 }
 
 // NewDecoder creates a new multistream decoder.

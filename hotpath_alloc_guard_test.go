@@ -219,6 +219,162 @@ func TestHotPathAllocsDecodeStereo(t *testing.T) {
 	}
 }
 
+// encodeFrameForDecodeGuard warms an encoder and returns a steady-state packet
+// for the requested configuration so the decode guard exercises a real SILK /
+// Hybrid bitstream rather than a synthetic CELT TOC.
+func encodeFrameForDecodeGuard(t *testing.T, app Application, channels int, bw Bandwidth, bitrate int) []byte {
+	t.Helper()
+	enc, err := NewEncoder(EncoderConfig{SampleRate: 48000, Channels: channels, Application: app})
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+	if bw != 0 {
+		if err := enc.SetBandwidth(bw); err != nil {
+			t.Fatalf("SetBandwidth: %v", err)
+		}
+	}
+	if bitrate != 0 {
+		if err := enc.SetBitrate(bitrate); err != nil {
+			t.Fatalf("SetBitrate: %v", err)
+		}
+	}
+	pcm := testSineFrame(960 * channels)
+	packet := make([]byte, 4000)
+	var n int
+	for i := 0; i < 6; i++ {
+		if n, err = enc.Encode(pcm, packet); err != nil {
+			t.Fatalf("warmup Encode: %v", err)
+		}
+	}
+	out := make([]byte, n)
+	copy(out, packet[:n])
+	return out
+}
+
+func TestHotPathAllocsDecodeSILKMono(t *testing.T) {
+	packet := encodeFrameForDecodeGuard(t, ApplicationVoIP, 1, BandwidthWideband, 24000)
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	pcm := make([]float32, 960)
+	for i := 0; i < 3; i++ {
+		if _, err := dec.Decode(packet, pcm); err != nil {
+			t.Fatalf("warmup Decode: %v", err)
+		}
+	}
+	allocs := testing.AllocsPerRun(200, func() {
+		if _, err := dec.Decode(packet, pcm); err != nil {
+			t.Fatalf("Decode: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("Decode(SILK mono) allocs/op = %.2f, want 0", allocs)
+	}
+}
+
+func TestHotPathAllocsDecodeHybridMono(t *testing.T) {
+	packet := encodeFrameForDecodeGuard(t, ApplicationAudio, 1, BandwidthFullband, 64000)
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	pcm := make([]float32, 960)
+	for i := 0; i < 3; i++ {
+		if _, err := dec.Decode(packet, pcm); err != nil {
+			t.Fatalf("warmup Decode: %v", err)
+		}
+	}
+	allocs := testing.AllocsPerRun(200, func() {
+		if _, err := dec.Decode(packet, pcm); err != nil {
+			t.Fatalf("Decode: %v", err)
+		}
+	})
+	if allocs != 0 {
+		t.Fatalf("Decode(Hybrid mono) allocs/op = %.2f, want 0", allocs)
+	}
+}
+
+func TestHotPathAllocsDecodeInt24(t *testing.T) {
+	dec, err := NewDecoder(DefaultDecoderConfig(48000, 1))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	packet := testCELTPacket()
+	pcm := make([]int32, 960)
+	if _, err := dec.DecodeInt24(packet, pcm); err != nil {
+		t.Fatalf("warmup DecodeInt24: %v", err)
+	}
+	allocs := testing.AllocsPerRun(200, func() {
+		if _, err := dec.DecodeInt24(packet, pcm); err != nil {
+			t.Fatalf("DecodeInt24: %v", err)
+		}
+	})
+	// Default (float) build is strictly zero-alloc; the fixed-point build reuses
+	// the int16 integer-decoder budget.
+	if allocs > decodeInt16HotPathAllocBudget {
+		t.Fatalf("DecodeInt24 allocs/op = %.2f, want <= %d", allocs, decodeInt16HotPathAllocBudget)
+	}
+}
+
+func TestHotPathAllocsMultistreamEncode(t *testing.T) {
+	enc, err := NewMultistreamEncoderDefault(48000, 2, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault: %v", err)
+	}
+	pcm := testSineFrame(960 * 2)
+	packet := make([]byte, 4000)
+	for i := 0; i < 6; i++ {
+		if _, err := enc.Encode(pcm, packet); err != nil {
+			t.Fatalf("warmup Encode: %v", err)
+		}
+	}
+	allocs := testing.AllocsPerRun(200, func() {
+		if _, err := enc.Encode(pcm, packet); err != nil {
+			t.Fatalf("Encode: %v", err)
+		}
+	})
+	if allocs > multistreamEncodeHotPathAllocBudget {
+		t.Fatalf("Multistream Encode allocs/op = %.2f, want <= %d", allocs, multistreamEncodeHotPathAllocBudget)
+	}
+}
+
+func TestHotPathAllocsMultistreamDecode(t *testing.T) {
+	enc, err := NewMultistreamEncoderDefault(48000, 2, ApplicationAudio)
+	if err != nil {
+		t.Fatalf("NewMultistreamEncoderDefault: %v", err)
+	}
+	pcmIn := testSineFrame(960 * 2)
+	scratch := make([]byte, 4000)
+	var n int
+	for i := 0; i < 6; i++ {
+		if n, err = enc.Encode(pcmIn, scratch); err != nil {
+			t.Fatalf("warmup Encode: %v", err)
+		}
+	}
+	packet := make([]byte, n)
+	copy(packet, scratch[:n])
+
+	dec, err := NewMultistreamDecoderDefault(48000, 2)
+	if err != nil {
+		t.Fatalf("NewMultistreamDecoderDefault: %v", err)
+	}
+	pcm := make([]float32, 960*2)
+	for i := 0; i < 3; i++ {
+		if _, err := dec.Decode(packet, pcm); err != nil {
+			t.Fatalf("warmup Decode: %v", err)
+		}
+	}
+	allocs := testing.AllocsPerRun(200, func() {
+		if _, err := dec.Decode(packet, pcm); err != nil {
+			t.Fatalf("Decode: %v", err)
+		}
+	})
+	if allocs > multistreamDecodeHotPathAllocBudget {
+		t.Fatalf("Multistream Decode allocs/op = %.2f, want <= %d", allocs, multistreamDecodeHotPathAllocBudget)
+	}
+}
+
 func TestHotPathAllocsStreamWriterFloat32(t *testing.T) {
 	writer, err := NewWriter(48000, 2, nopPacketSink{}, FormatFloat32LE, ApplicationAudio)
 	if err != nil {
