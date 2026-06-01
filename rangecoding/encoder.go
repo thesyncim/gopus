@@ -125,16 +125,31 @@ func (e *Encoder) carryOut(c int) {
 // normalize handles range renormalization and byte output.
 // This follows libopus celt/entenc.c ec_enc_normalize exactly.
 //
-// The encoder outputs the high bits of val, and the decoder reconstructs
-// by reading those bytes and applying the inverse operation (255 &^ sym).
+// The body is split so the common no-renormalization case (rng already above
+// EC_CODE_BOT) stays small enough to inline into the encode entry points; the
+// rare renormalization loop lives in normalizeSlow. Behavior is identical to a
+// single while loop because the loop predicate is checked here first.
 func (e *Encoder) normalize() {
-	for e.rng <= EC_CODE_BOT {
+	if e.rng <= EC_CODE_BOT {
+		e.normalizeSlow()
+	}
+}
+
+// normalizeSlow runs the renormalization loop once the range has dropped to or
+// below EC_CODE_BOT. The encoder outputs the high bits of val, and the decoder
+// reconstructs by reading those bytes and applying the inverse operation
+// (255 &^ sym).
+func (e *Encoder) normalizeSlow() {
+	for {
 		// Extract high bits to output via carry propagation
 		e.carryOut(int(e.val >> EC_CODE_SHIFT))
 		// Shift out 8 bits
 		e.val = (e.val << EC_SYM_BITS) & (EC_CODE_TOP - 1)
 		e.rng <<= EC_SYM_BITS
 		e.nbitsTotal += int32(EC_SYM_BITS)
+		if e.rng > EC_CODE_BOT {
+			return
+		}
 	}
 }
 
