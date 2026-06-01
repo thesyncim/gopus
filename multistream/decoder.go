@@ -131,8 +131,34 @@ type streamState struct {
 	ignoreExtensions   bool
 	complexity         int32
 
+	// softClipMem is the per-stream soft-clip filter memory (one entry per stream
+	// channel), mirroring the per-decoder softclip_mem[2] in libopus
+	// opus_decode_native. It is used only on the int16 decode path that requests
+	// OPTIONAL_CLIP (the projection int16 demix soft-clips each per-stream output
+	// before the mapping-matrix multiply); the float path leaves it cleared.
+	softClipMem [2]float32
+
 	streamOSCEFields
 	streamFixedFields
+}
+
+// softClipStreamOutput applies the libopus opus_pcm_soft_clip to one stream's
+// interleaved decoded output in place, advancing the per-stream soft-clip
+// memory. It mirrors opus_decode_native's soft_clip step (applied per stream
+// before the multistream copy/demix callback). channels is this stream's decoded
+// channel count (1 mono, 2 coupled).
+func (d *streamState) softClipStreamOutput(samples []float32, frameSize, channels int) {
+	if channels < 1 || channels > 2 || frameSize < 1 {
+		return
+	}
+	opusmath.PCMSoftClip(samples, frameSize, channels, d.softClipMem[:channels])
+}
+
+// clearSoftClipMem zeroes the per-stream soft-clip memory, matching the
+// libopus opus_decode_native behaviour when soft_clip is disabled.
+func (d *streamState) clearSoftClipMem() {
+	d.softClipMem[0] = 0
+	d.softClipMem[1] = 0
 }
 
 func newStreamDecoder(sampleRate, channels int) *streamState {
@@ -386,6 +412,17 @@ func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc stream
 func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, toc streamTOC, qextPayload []byte) ([]float32, error) {
 	var out []float32
 	var err error
+
+	// A frame of <= 1 byte is a DTX/PLC frame: libopus opus_decode_frame sets
+	// data = NULL for len <= 1 and conceals using the PREVIOUS mode (zeros until
+	// any packet has been decoded), regardless of this packet's TOC mode. Decode
+	// it as PLC rather than feeding the empty payload to the TOC-mode decoder,
+	// which would run concealment in the wrong mode and emit noise instead of the
+	// libopus silence. This deliberately does not record the TOC, so prev_mode is
+	// left unchanged exactly as libopus leaves it after a concealed frame.
+	if len(frame) <= 1 {
+		return d.decodePLCToFloat32(frameSize)
+	}
 
 	// transSize mirrors libopus IMIN(F5, audiosize): the transition crossfade
 	// spans at most 5 ms.

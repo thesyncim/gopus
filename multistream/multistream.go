@@ -78,7 +78,7 @@ func (d *Decoder) decodeStreamToFloat32(stream int, packet []byte, frameSize int
 // All elementary streams within the packet must have the same frame duration.
 // If durations differ, ErrDurationMismatch is returned.
 func (d *Decoder) Decode(data []byte, frameSize int) ([]float32, error) {
-	return d.decodeToFloat32(data, frameSize, true)
+	return d.decodeToFloat32(data, frameSize, true, false)
 }
 
 // DecodeToInt16 decodes a multistream packet and converts to int16 PCM.
@@ -92,7 +92,10 @@ func (d *Decoder) Decode(data []byte, frameSize int) ([]float32, error) {
 // The output format is: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]
 func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 	if len(d.projectionDemixing) != 0 && d.projectionCols > 0 {
-		samples, err := d.decodeToFloat32(data, frameSize, false)
+		// libopus opus_projection_decode passes OPTIONAL_CLIP, so each per-stream
+		// decoded buffer is soft-clipped before the int16 mapping-matrix multiply.
+		// Request that here (the float demix path in DecodeToFloat32 does not).
+		samples, err := d.decodeToFloat32(data, frameSize, false, true)
 		if err != nil {
 			return nil, err
 		}
@@ -122,16 +125,16 @@ func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 // Returns sample-interleaved float32 samples in approximate range [-1, 1].
 // The output format is: [ch0_s0, ch1_s0, ..., chN_s0, ch0_s1, ch1_s1, ...]
 func (d *Decoder) DecodeToFloat32(data []byte, frameSize int) ([]float32, error) {
-	return d.decodeToFloat32(data, frameSize, true)
+	return d.decodeToFloat32(data, frameSize, true, false)
 }
 
-func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection bool) ([]float32, error) {
+func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection, perStreamSoftClip bool) ([]float32, error) {
 	if extsupport.DREDRuntime && data != nil && len(data) > 0 && d.dredSidecarActive() {
 		d.invalidateDREDPayloadState()
 	}
 
 	if data == nil {
-		output, err := d.decodePLCToFloat32(frameSize, applyProjection)
+		output, err := d.decodePLCToFloat32(frameSize, applyProjection, perStreamSoftClip)
 		if err == nil && extsupport.DREDRuntime && d.dredSidecarActive() {
 			d.markDREDConcealedAll()
 		}
@@ -169,6 +172,10 @@ func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection bo
 		if decodeErr != nil {
 			return nil, fmt.Errorf("multistream: stream %d decode error: %w", i, decodeErr)
 		}
+		// libopus opus_decode_native soft-clips each stream's output (sized to the
+		// stream's channels) when soft_clip is requested, before the copy/demix
+		// callback; otherwise it clears the per-stream soft-clip memory.
+		d.applyPerStreamSoftClip(i, decoded, decodeFrameSize, perStreamSoftClip)
 		decodedStreams[i] = decoded
 	}
 	if extsupport.DREDRuntime && d.dredPayloadScannerActive() {
@@ -193,7 +200,7 @@ func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection bo
 	return output, nil
 }
 
-func (d *Decoder) decodePLCToFloat32(frameSize int, applyProjection bool) ([]float32, error) {
+func (d *Decoder) decodePLCToFloat32(frameSize int, applyProjection, perStreamSoftClip bool) ([]float32, error) {
 	fadeFactor := d.plcState.RecordLoss()
 	totalSamples := frameSize * d.outputChannels
 	if fadeFactor < 0.001 {
@@ -210,7 +217,7 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, applyProjection bool) ([]flo
 			if remaining < chunk {
 				chunk = remaining
 			}
-			decoded, err := d.decodePLCChunkToFloat32(chunk, applyProjection)
+			decoded, err := d.decodePLCChunkToFloat32(chunk, applyProjection, perStreamSoftClip)
 			if err != nil {
 				return nil, err
 			}
@@ -225,16 +232,17 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, applyProjection bool) ([]flo
 		return output, nil
 	}
 
-	return d.decodePLCChunkToFloat32(frameSize, applyProjection)
+	return d.decodePLCChunkToFloat32(frameSize, applyProjection, perStreamSoftClip)
 }
 
-func (d *Decoder) decodePLCChunkToFloat32(frameSize int, applyProjection bool) ([]float32, error) {
+func (d *Decoder) decodePLCChunkToFloat32(frameSize int, applyProjection, perStreamSoftClip bool) ([]float32, error) {
 	decodedStreams := make([][]float32, d.streams)
 	for i := 0; i < d.streams; i++ {
 		if extsupport.DREDRuntime {
 			if decoded, ok, err := d.decodeDREDPLCStream(i, frameSize); err != nil {
 				return nil, err
 			} else if ok {
+				d.applyPerStreamSoftClip(i, decoded, frameSize, perStreamSoftClip)
 				decodedStreams[i] = decoded
 				continue
 			}
@@ -244,6 +252,7 @@ func (d *Decoder) decodePLCChunkToFloat32(frameSize int, applyProjection bool) (
 			channels := streamChannels(i, d.coupledStreams)
 			decoded = make([]float32, frameSize*channels)
 		}
+		d.applyPerStreamSoftClip(i, decoded, frameSize, perStreamSoftClip)
 		decodedStreams[i] = decoded
 	}
 
@@ -252,6 +261,25 @@ func (d *Decoder) decodePLCChunkToFloat32(frameSize int, applyProjection bool) (
 		d.applyProjectionDemixing32(output, frameSize)
 	}
 	return output, nil
+}
+
+// applyPerStreamSoftClip soft-clips stream i's interleaved decoded buffer in
+// place when enabled (the int16 OPTIONAL_CLIP path), advancing that stream's
+// soft-clip memory; when disabled it clears the memory. This mirrors libopus
+// opus_decode_native's per-stream soft_clip step, run before the multistream
+// copy/demix callback. A no-op when the stream is not a *streamState (e.g. a
+// stub/test decoder).
+func (d *Decoder) applyPerStreamSoftClip(i int, decoded []float32, frameSize int, perStreamSoftClip bool) {
+	st, ok := d.decoders[i].(*streamState)
+	if !ok {
+		return
+	}
+	channels := streamChannels(i, d.coupledStreams)
+	if !perStreamSoftClip {
+		st.clearSoftClipMem()
+		return
+	}
+	st.softClipStreamOutput(decoded, frameSize, channels)
 }
 
 func float32ToInt16(samples []float32) []int16 {
