@@ -55,6 +55,9 @@ type libopusDREDPacketConfig struct {
 	Bitrate       int
 	CBR           bool
 	Multistream   bool
+	// DREDDuration is the OPUS_SET_DRED_DURATION value passed to libopus. Zero
+	// selects the helper default (80).
+	DREDDuration int
 }
 
 var libopusDREDEmitPacketHelper libopustest.HelperCache
@@ -117,6 +120,9 @@ func emitLibopusDREDPacketWithConfig(cfg libopusDREDPacketConfig) (libopusDREDPa
 	}
 	if cfg.Multistream {
 		env = append(env, "GOPUS_DRED_MULTISTREAM=1")
+	}
+	if cfg.DREDDuration != 0 {
+		env = append(env, fmt.Sprintf("GOPUS_DRED_DURATION=%d", cfg.DREDDuration))
 	}
 	out, err := libopustest.RunHelperEnv(binPath, libopusDREDPacketPCMInput(cfg, libopusDREDPacketMaxFramesToTry), env)
 	if err != nil {

@@ -191,10 +191,12 @@ int main(void) {
   const char *bitrate_env = getenv("GOPUS_DRED_BITRATE");
   const char *cbr_env = getenv("GOPUS_DRED_CBR");
   const char *pcm_stdin_env = getenv("GOPUS_DRED_PCM_STDIN");
+  const char *dred_duration_env = getenv("GOPUS_DRED_DURATION");
   int force_channels = 0;
   int use_multistream = 0;
   int use_cbr = 0;
   int use_pcm_stdin = 0;
+  int dred_duration = 80;
 
   if (frame_size_env != NULL && frame_size_env[0] != '\0') {
     char *end = NULL;
@@ -271,6 +273,15 @@ int main(void) {
       return 1;
     }
   }
+  if (dred_duration_env != NULL && dred_duration_env[0] != '\0') {
+    char *end = NULL;
+    long parsed = strtol(dred_duration_env, &end, 10);
+    if (end == NULL || *end != '\0' || parsed < 0 || parsed > 104) {
+      fprintf(stderr, "invalid GOPUS_DRED_DURATION=%s\n", dred_duration_env);
+      return 1;
+    }
+    dred_duration = (int)parsed;
+  }
 
   if (force_mode_enabled && force_mode == MODE_HYBRID && bandwidth <= OPUS_BANDWIDTH_WIDEBAND) {
     fprintf(stderr, "hybrid DRED packet helper requires swb/fb bandwidth, got %d\n", bandwidth);
@@ -346,7 +357,7 @@ int main(void) {
     }
     opus_encoder_ctl(enc, OPUS_SET_PACKET_LOSS_PERC(20));
   }
-  opus_encoder_ctl(enc, OPUS_SET_DRED_DURATION(80));
+  opus_encoder_ctl(enc, OPUS_SET_DRED_DURATION(dred_duration));
 
   for (frame_idx = 0; frame_idx < max_frames_to_try; frame_idx++) {
     int dred_end = 0;

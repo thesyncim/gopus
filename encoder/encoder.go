@@ -675,6 +675,21 @@ func bitrateToBits(bitrate int, frameSize int) int {
 	return (bitrate * frameSize) / 48000
 }
 
+// bitrateToBitsFs mirrors libopus celt.h bitrate_to_bits():
+// bitrate*6/(6*Fs/frame_size).
+func bitrateToBitsFs(bitrate, fs, frameSize int) int {
+	d := 6 * fs / frameSize
+	if d == 0 {
+		return 0
+	}
+	return bitrate * 6 / d
+}
+
+// bitsToBitrateFs mirrors libopus celt.h bits_to_bitrate(): bits*(6*Fs/frame_size)/6.
+func bitsToBitrateFs(bits, fs, frameSize int) int {
+	return bits * (6 * fs / frameSize) / 6
+}
+
 // silkInputBitrate mirrors the Opus bits_target reservation before SILK allocation.
 // Opus reserves 8 bits for TOC/signaling before deriving the SILK bitrate.
 func (e *Encoder) silkInputBitrate(frameSize int) int {
@@ -828,6 +843,49 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		}
 		framePCM = e.inputBuffer[:frameEnd]
 		lookaheadSlice = e.inputBuffer[frameEnd:samplesNeeded]
+	}
+
+	// libopus "too little space" fast path (opus_encoder.c:1340). The resolved
+	// bitrate is already in e.bitrate; derive the CBR-clamped budget and effective
+	// bitrate, then emit a minimal TOC-only packet when neither the byte budget
+	// nor the bitrate can support a real encode. This mirrors the per-stream
+	// curr_max squeeze the multistream encoder applies to high-channel layouts.
+	frameRate := sampleRate / frameSize
+	if frameRate <= 0 {
+		frameRate = 1
+	}
+	cbrMaxDataBytes := maxDataBytes
+	effBitrate := int(e.bitrate)
+	if e.bitrateMode == ModeCBR {
+		cbrBytes := (bitrateToBitsFs(int(e.bitrate), sampleRate, frameSize) + 4) / 8
+		if cbrBytes > maxDataBytes {
+			cbrBytes = maxDataBytes
+		}
+		effBitrate = bitsToBitrateFs(cbrBytes*8, sampleRate, frameSize)
+		if cbrBytes < 1 {
+			cbrBytes = 1
+		}
+		cbrMaxDataBytes = cbrBytes
+	}
+	if e.dredEncodingActive() {
+		if plan, ok := e.computeDREDEmissionPlan(frameSize); ok {
+			effBitrate -= int(plan.bitrate)
+			if effBitrate < 0 {
+				effBitrate = 0
+			}
+		}
+	}
+	if cbrMaxDataBytes < 3 || effBitrate < 3*frameRate*8 ||
+		(frameRate < 50 && (cbrMaxDataBytes*frameRate < 300 || effBitrate < 2400)) {
+		pkt, err := e.emitLowSpacePacket(frameSize, maxDataBytes, cbrMaxDataBytes, effBitrate)
+		if err != nil {
+			return nil, err
+		}
+		if !directFrameInput {
+			remaining := copy(e.inputBuffer, e.inputBuffer[frameEnd:])
+			e.inputBuffer = e.inputBuffer[:remaining]
+		}
+		return pkt, nil
 	}
 
 	var requestedMode Mode
@@ -1193,6 +1251,136 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		e.finalRange = e.currentFinalRange(actualMode)
 	}
 	return packet, nil
+}
+
+// emitLowSpacePacket reproduces the libopus opus_encoder.c "too little space to
+// do something useful" fast path (lines 1340-1406). When the per-frame byte
+// budget or bitrate is too small to run a real encode, libopus emits a minimal
+// TOC-only "PLC" packet (1 or 2 bytes), padding it to the CBR budget. The
+// multistream encoder squeezes the trailing streams of a high-channel-count
+// layout (e.g. third-order ambisonics) down to a 1-2 byte curr_max, which is
+// exactly this path; without it gopus errored ("max_data_bytes <= 0") on streams
+// that libopus emits as 1-byte minimal packets.
+//
+// effBitrate is st->bitrate_bps after the CBR cbr_bytes clamp and the DRED
+// reservation; cbrMaxDataBytes is the CBR-clamped max_data_bytes (== outDataBytes
+// for VBR). outDataBytes is the original caller budget (curr_max).
+func (e *Encoder) emitLowSpacePacket(frameSize, outDataBytes, cbrMaxDataBytes, effBitrate int) ([]byte, error) {
+	sampleRate := int(e.sampleRate)
+	frameRate := sampleRate / frameSize
+	if frameRate <= 0 {
+		frameRate = 1
+	}
+
+	// tocmode = st->mode (the previously decided mode; libopus inits it to HYBRID).
+	tocmode := e.prevPacketMode
+	if !isConcreteMode(tocmode) {
+		tocmode = ModeHybrid
+	}
+	if frameRate > 100 {
+		tocmode = ModeCELT
+	}
+
+	// bw = st->bandwidth==0 ? NB : st->bandwidth.
+	bw := e.bandwidth
+	if bw < types.BandwidthNarrowband {
+		bw = types.BandwidthNarrowband
+	}
+
+	packetCode := 0
+	numMultiframes := 0
+
+	// 40 ms -> 2 x 20 ms if in CELT_ONLY or HYBRID mode.
+	if frameRate == 25 && tocmode != ModeSILK {
+		frameRate = 50
+		packetCode = 1
+	}
+	// >= 60 ms frames.
+	if frameRate <= 16 {
+		if outDataBytes == 1 || (tocmode == ModeSILK && frameRate != 10) {
+			tocmode = ModeSILK
+			if frameRate <= 12 {
+				packetCode = 1
+			} else {
+				packetCode = 0
+			}
+			if frameRate == 12 {
+				frameRate = 25
+			} else {
+				frameRate = 16
+			}
+		} else {
+			numMultiframes = 50 / frameRate
+			frameRate = 50
+			packetCode = 3
+		}
+	}
+
+	// Per-mode bandwidth clamps (libopus lines 1379-1384).
+	switch {
+	case tocmode == ModeSILK && bw > types.BandwidthWideband:
+		bw = types.BandwidthWideband
+	case tocmode == ModeCELT && bw == types.BandwidthMediumband:
+		bw = types.BandwidthNarrowband
+	case tocmode == ModeHybrid && bw <= types.BandwidthSuperwideband:
+		bw = types.BandwidthSuperwideband
+	}
+
+	stereo := e.packetStereoForMode(tocmode)
+	tocByte := lowSpaceTOC(tocmode, frameRate, bw, stereo)
+	tocByte |= byte(packetCode)
+
+	ret := 1
+	if packetCode > 1 {
+		ret = 2
+	}
+	// libopus pads to IMAX(cbr_max_data_bytes, ret) for CBR.
+	padTarget := cbrMaxDataBytes
+	if padTarget < ret {
+		padTarget = ret
+	}
+
+	pkt := make([]byte, ret)
+	pkt[0] = tocByte
+	if packetCode == 3 {
+		pkt[1] = byte(numMultiframes)
+	}
+
+	if e.bitrateMode != ModeCBR {
+		return pkt, nil
+	}
+	// CBR: pad to the budget (opus_packet_pad).
+	if padTarget <= ret {
+		return pkt, nil
+	}
+	padded := padToSize(pkt, padTarget)
+	return padded, nil
+}
+
+// lowSpaceTOC reproduces libopus gen_toc(mode, framerate, bandwidth, channels).
+func lowSpaceTOC(mode Mode, framerate int, bw types.Bandwidth, stereo bool) byte {
+	period := 0
+	for framerate < 400 {
+		framerate <<= 1
+		period++
+	}
+	var toc byte
+	switch mode {
+	case ModeSILK:
+		toc = byte((int(bw)-int(types.BandwidthNarrowband))<<5) | byte((period-2)<<3)
+	case ModeCELT:
+		tmp := int(bw) - int(types.BandwidthMediumband)
+		if tmp < 0 {
+			tmp = 0
+		}
+		toc = 0x80 | byte(tmp<<5) | byte(period<<3)
+	default: // Hybrid
+		toc = 0x60 | byte((int(bw)-int(types.BandwidthSuperwideband))<<4) | byte((period-2)<<3)
+	}
+	if stereo {
+		toc |= 1 << 2
+	}
+	return toc
 }
 
 // buildDTXPacket generates a 1-byte TOC-only Opus packet for DTX frames.

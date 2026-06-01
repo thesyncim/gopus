@@ -121,12 +121,13 @@ func encodeUntilDREDPacketWithFrameIndex(t *testing.T, mode encpkg.Mode, bandwid
 }
 
 type encoderDREDPacketSettings struct {
-	mode      encpkg.Mode
-	bandwidth Bandwidth
-	frameSize int
-	channels  int
-	bitrate   int
-	cbr       bool
+	mode         encpkg.Mode
+	bandwidth    Bandwidth
+	frameSize    int
+	channels     int
+	bitrate      int
+	cbr          bool
+	dredDuration int // 0 selects the default 80
 }
 
 func encodeUntilDREDPacketWithSettings(t *testing.T, settings encoderDREDPacketSettings) ([]byte, []byte, int, int) {
@@ -173,7 +174,11 @@ func encodeUntilDREDPacketWithSettings(t *testing.T, settings encoderDREDPacketS
 	if err := enc.SetDNNBlob(requireLibopusEncoderNeuralModelBlob(t)); err != nil {
 		t.Fatalf("SetDNNBlob error: %v", err)
 	}
-	if err := enc.SetDREDDuration(80); err != nil {
+	dredDuration := settings.dredDuration
+	if dredDuration == 0 {
+		dredDuration = 80
+	}
+	if err := enc.SetDREDDuration(dredDuration); err != nil {
 		t.Fatalf("SetDREDDuration error: %v", err)
 	}
 	enc.enc.SetMode(settings.mode)
