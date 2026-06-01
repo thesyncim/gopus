@@ -84,14 +84,19 @@ func (d *Decoder) DecodeFEC(
 	frameLength := int(stMid.frameLength)
 	totalLen := framesPerPacket * frameLength
 
-	outInt16 := d.int16OutputBuffer(totalLen)
+	// The FEC output accumulator must not alias scratchOutInt16: concealed
+	// sub-frames (LBRR_flags[i]==0) run recordPLCLossForState, which writes its
+	// int16 concealment + per-frame state updates through scratchOutInt16. If the
+	// accumulator shared that buffer, concealing a later sub-frame would clobber
+	// the already-decoded LBRR output of earlier sub-frames in the same packet.
+	outInt16 := d.fecOutputBuffer(totalLen)
 	clear(outInt16)
 	lastFrameLost := false
 
 	// Decode each frame using LBRR when present, otherwise run PLC.
 	for i := 0; i < framesPerPacket; i++ {
+		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
 		if stMid.LBRRFlags[i] == 0 {
-			frameOut := outInt16[i*frameLength : (i+1)*frameLength]
 			d.decodeFECLostFrameInto(0, stMid, frameOut)
 			d.syncLegacyPLCState(stMid, frameOut)
 			stMid.nFramesDecoded++
@@ -99,7 +104,6 @@ func (d *Decoder) DecodeFEC(
 			continue
 		}
 
-		frameOut := outInt16[i*frameLength : (i+1)*frameLength]
 		d.decodeLBRRFrameInto(0, stMid, &rd, i, frameOut, true)
 		d.syncLegacyPLCState(stMid, frameOut)
 		lastFrameLost = false

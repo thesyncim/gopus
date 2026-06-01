@@ -48,6 +48,17 @@ func (d *Decoder) int16OutputBuffer(length int) []int16 {
 	return make([]int16, length)
 }
 
+// fecOutputBuffer returns the multi-frame output accumulator for DecodeFEC. It
+// is intentionally distinct from int16OutputBuffer (scratchOutInt16) so that a
+// concealed sub-frame's recordPLCLossForState (which writes through
+// scratchOutInt16) cannot clobber earlier sub-frames' decoded output.
+func (d *Decoder) fecOutputBuffer(length int) []int16 {
+	if d.scratchFECOut != nil && len(d.scratchFECOut) >= length {
+		return d.scratchFECOut[:length]
+	}
+	return make([]int16, length)
+}
+
 func (d *Decoder) float32OutputBuffer(length int) []float32 {
 	if d.scratchOutput != nil && len(d.scratchOutput) >= length {
 		return d.scratchOutput[:length]

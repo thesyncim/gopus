@@ -84,6 +84,12 @@ type Decoder struct {
 	scratchOutInt16 []int16   // Size: maxFramesPerPacket * maxFrameLength = 960
 	scratchPulses   []int16   // Size: roundUpShellFrame(maxFrameLength) = 320
 	scratchOutput   []float32 // Size: maxFramesPerPacket * maxFrameLength = 960
+	// scratchFECOut is the multi-frame output accumulator for DecodeFEC. It is
+	// kept distinct from scratchOutInt16 because a no-LBRR sub-frame in an FEC
+	// packet runs concealment (recordPLCLossForState) that writes through
+	// scratchOutInt16; sharing the buffer would corrupt earlier sub-frames'
+	// already-decoded LBRR output.
+	scratchFECOut []int16 // Size: maxFramesPerPacket * maxFrameLength = 960
 
 	// Scratch buffers for silkDecodeIndices
 	scratchEcIx   []int16 // Size: maxLPCOrder = 16
@@ -210,6 +216,7 @@ func NewDecoder() *Decoder {
 		scratchSLTPQ15:  make([]int32, maxSLTPQ15Size),
 		scratchPresQ14:  make([]int32, maxPresQ14Size),
 		scratchOutInt16: make([]int16, maxOutInt16Size),
+		scratchFECOut:   make([]int16, maxOutInt16Size),
 		scratchPulses:   make([]int16, maxPulsesSize),
 		scratchOutput:   make([]float32, maxOutputSize),
 
@@ -360,6 +367,9 @@ func (d *Decoder) Reset() {
 	}
 	for i := range d.scratchOutInt16 {
 		d.scratchOutInt16[i] = 0
+	}
+	for i := range d.scratchFECOut {
+		d.scratchFECOut[i] = 0
 	}
 	if nativeLowbandCaptureEnabled {
 		d.lastNativeMonoLen = 0
