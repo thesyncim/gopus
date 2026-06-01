@@ -926,6 +926,7 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 	var frameData []byte
 	var packet []byte
 	var err error
+	silkBusted := false
 	switch actualMode {
 	case ModeSILK:
 		e.maybePrefillSILKOnModeTransition(actualMode)
@@ -942,9 +943,19 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 				e.bitrate = originalBitrate
 			}
 			if err == nil {
-				// Match libopus opus_encoder.c SILK-only behavior:
-				// strip trailing zero bytes after range coder finalization.
-				frameData = trimSilkTrailingZeros(frameData)
+				// Match libopus opus_encoder.c: when the SILK encoder busts the
+				// target (ec_tell > (max_data_bytes-1)*8), tell the decoder to run
+				// the PLC by emitting a single zero payload byte. Otherwise strip
+				// trailing zero bytes after range coder finalization. These are
+				// mutually exclusive (opus_encoder.c lines 2580-2599); the bust
+				// check uses the SILK byte count before stripping.
+				if mdb := e.silkBustMaxDataBytes(frameSize, maxDataBytes); mdb > 0 && len(frameData) > mdb-1 {
+					frameData = frameData[:1]
+					frameData[0] = 0
+					silkBusted = true
+				} else {
+					frameData = trimSilkTrailingZeros(frameData)
+				}
 				if dredNoDecision {
 					silkSignalType, _ := e.silkEncoder.LastEncodedSignalInfo()
 					e.backfillDREDActivityForFrame(frameSize, silkSignalType != 0)
@@ -1169,7 +1180,13 @@ func (e *Encoder) encodeOpusResWithAnalysisMaxBytes(inputPCM []opusRes, frameSiz
 		}
 	}
 	e.prevChannels = e.streamChannels
-	e.finalRange = e.currentFinalRange(actualMode)
+	if silkBusted {
+		// Match libopus opus_encoder.c: a busted SILK frame signals PLC and
+		// zeroes the reported final range.
+		e.finalRange = 0
+	} else {
+		e.finalRange = e.currentFinalRange(actualMode)
+	}
 	return packet, nil
 }
 
@@ -2731,6 +2748,24 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 	}
 	res := e.silkEncoder.EncodeFrame(pcm32, lookaheadOut, vadFlag)
 	return res, nil
+}
+
+// silkBustMaxDataBytes returns the libopus opus_encoder.c max_data_bytes used by
+// the SILK-busted-target check (ec_tell > (max_data_bytes-1)*8). In CBR this is
+// the cbr_bytes clamp (bitrate_to_bits(bitrate)+4)/8); otherwise it is the
+// caller's packet budget, which is large enough that the check never fires.
+func (e *Encoder) silkBustMaxDataBytes(frameSize, maxDataBytes int) int {
+	if e.bitrateMode != ModeCBR {
+		return maxDataBytes
+	}
+	cbrBytes := targetBytesForBitrate(int(e.bitrate), frameSize)
+	if cbrBytes > maxDataBytes {
+		cbrBytes = maxDataBytes
+	}
+	if cbrBytes < 1 {
+		cbrBytes = 1
+	}
+	return cbrBytes
 }
 
 func (e *Encoder) silkMaxBits(frameSize, silkBitrate, originalBitrate, dredBitrate int) int {

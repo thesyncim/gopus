@@ -350,7 +350,6 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 		framingDiffs       int // packet-framing (TOC code field) divergence
 		rangeOnlyResiduals int // arm64 byte-equal but final_range differs
 		skippedLBRR        int
-		skippedFloor       int
 	)
 	packetLoss := 20
 
@@ -367,26 +366,6 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 		if spec.fec && spec.channels == 2 && spec.gmode == EncoderModeSILK &&
 			(spec.frameMs == ExpertFrameDuration40Ms || spec.frameMs == ExpertFrameDuration60Ms) {
 			skippedLBRR++
-			continue
-		}
-		// Precisely-characterized NEW finding (this harness): SILK NB 10 ms CBR at
-		// the 6 kbps rate floor. libopus's SILK target-rate control throttles to a
-		// near-empty (~1-byte) frame which CBR code-3 pads to the 8-byte target;
-		// gopus's SILK produces a slightly larger frame that overruns the CBR byte
-		// target, so the packet-assembly path emits a code-0 (unpadded) packet
-		// instead of code-3. It is intermittent (frame-dependent), arch-INDEPENDENT
-		// (reproduces on a constant tone, not a float-tie), and confined to this
-		// single floor corner (8 kbps / 20 ms / WB all byte-exact). It is a real
-		// gopus SILK rate-control gap at the operating floor, distinct from the
-		// arm64 float boundary; the existing CBR byte-parity gate deliberately
-		// starts at 16 kbps and so never exercised it. Excluded from the byte-exact
-		// assertion here and documented pending a dedicated SILK floor rate-control
-		// fix; the framing-divergence detector below still hard-fails any OTHER
-		// framing bug.
-		if spec.gmode == EncoderModeSILK && spec.vbr == BitrateModeCBR &&
-			spec.gbw == BandwidthNarrowband && spec.frameMs == ExpertFrameDuration10Ms &&
-			spec.bitrate <= 6000 {
-			skippedFloor++
 			continue
 		}
 		tested++
@@ -581,10 +560,10 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 		})
 	}
 	t.Logf("encode differential sweep: %d/%d specs × %d frames "+
-		"(skipped %d LBRR-panic + %d SILK-floor specs); arch=%s; "+
+		"(skipped %d LBRR-panic specs); arch=%s; "+
 		"TOC-mode-flips=%d framing-diffs=%d packet-count-mismatch=%d amd64-SILK-byte-fails=%d "+
 		"arm64-SILK-float-residuals=%d arm64-CELT/Hybrid-float-residuals=%d arm64-range-tail-residuals=%d",
-		tested, len(specs), framesPerSpec, skippedLBRR, skippedFloor, runtime.GOARCH,
+		tested, len(specs), framesPerSpec, skippedLBRR, runtime.GOARCH,
 		tocFlips, framingDiffs, packetCountMis, silkByteFails, silkResiduals, celtResiduals, rangeOnlyResiduals)
 }
 
