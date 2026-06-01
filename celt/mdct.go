@@ -131,16 +131,7 @@ func imdctPreRotateF32Spectrum(fftIn []complex64, spectrum []float32, trig []flo
 		// product on its own and fuses the first multiply into the add/sub. The
 		// fully non-fused form drifts by ~1 ULP across the IMDCT, seeding the
 		// host-only parity cluster on the transient short-block frame.
-		for i := 0; i < n4; i++ {
-			x1 := spectrum[2*i]
-			x2 := spectrum[n2-1-2*i]
-			t0 := trig[i]
-			t1 := trig[n4+i]
-			fftIn[i] = complex(
-				mdctFMA32(x1, t0, -noFMA32Mul(x2, t1)),
-				mdctFMA32(x2, t0, noFMA32Mul(x1, t1)),
-			)
-		}
+		imdctPreRotateFMA32Kiss(fftIn, spectrum, trig, n2, n4)
 		return
 	}
 	for i := 0; i < n4; i++ {
@@ -210,35 +201,19 @@ func imdctOverlapWithPrevScratchF32Output32[S ~float32](spectrum []float32, prev
 		wp1 := 0
 		wp2 := overlap - 1
 		limit := overlap / 2
-		i := 0
-		for ; i+1 < limit; i += 2 {
-			x1 := outF32[xp1]
-			x2 := outF32[yp1]
-			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
-			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-
-			x1 = outF32[xp1]
-			x2 = outF32[yp1]
-			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
-			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-		}
-		for ; i < limit; i++ {
-			x1 := outF32[xp1]
-			x2 := outF32[yp1]
-			outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
-			outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
-			yp1++
-			xp1--
-			wp1++
-			wp2--
+		if mdctUseFMALikeMixEnabled && limit > 0 {
+			imdctTDACWindowFMA32(outF32, outF32, windowF32, yp1, xp1, xp1, wp2, limit)
+		} else {
+			for i := 0; i < limit; i++ {
+				x1 := outF32[xp1]
+				x2 := outF32[yp1]
+				outF32[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+				outF32[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
+				yp1++
+				xp1--
+				wp1++
+				wp2--
+			}
 		}
 	}
 
@@ -287,38 +262,20 @@ func imdctInPlaceScratchF32Spectrum(spectrum []float32, out []float32, blockStar
 		wp1 := 0
 		wp2 := overlap - 1
 		limit := overlap / 2
-		i := 0
-		for ; i+1 < limit; i += 2 {
-			bufIdx := xp1 - start
-			x1 := buf[bufIdx]
-			x2 := out[yp1]
-			out[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
-			out[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-
-			bufIdx = xp1 - start
-			x1 = buf[bufIdx]
-			x2 = out[yp1]
-			out[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
-			out[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
-			yp1++
-			xp1--
-			wp1++
-			wp2--
-		}
-		for ; i < limit; i++ {
-			bufIdx := xp1 - start
-			x1 := buf[bufIdx]
-			x2 := out[yp1]
-			out[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
-			out[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
-			yp1++
-			xp1--
-			wp1++
-			wp2--
+		if mdctUseFMALikeMixEnabled && limit > 0 {
+			imdctTDACWindowFMA32(out, buf, windowF32, yp1, xp1, xp1-start, wp2, limit)
+		} else {
+			for i := 0; i < limit; i++ {
+				bufIdx := xp1 - start
+				x1 := buf[bufIdx]
+				x2 := out[yp1]
+				out[yp1] = mdctMulSubMix(x2, x1, windowF32[wp2], windowF32[wp1])
+				out[xp1] = mdctMulAddMix(x2, x1, windowF32[wp1], windowF32[wp2])
+				yp1++
+				xp1--
+				wp1++
+				wp2--
+			}
 		}
 	}
 
