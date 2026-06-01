@@ -443,8 +443,11 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	if nBytesOut > len(raw) {
 		nBytesOut = len(raw)
 	}
-	result := make([]byte, nBytesOut)
-	copy(result, raw[:nBytesOut])
+	// Return a view into the range encoder's own buffer (enc.scratchOutput),
+	// matching the mono finalizeEncodeFrame path. The caller copies the bytes
+	// into the packet buffer before the next encode reinitialises this buffer,
+	// so no defensive copy is needed.
+	result := raw[:nBytesOut]
 
 	// Match libopus packet-level nBitsExceeded update.
 	payloadSizeMs := (nFrames * frameLength20ms * 1000) / config.SampleRate
