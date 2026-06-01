@@ -3905,7 +3905,7 @@ func (e *Encoder) resolveDTXActivity() bool {
 }
 
 func computeSilkVADFrameState(state *VADState, mono []float32, frameSamples, fsKHz int) (silk.VADFrameState, bool) {
-	if state == nil || frameSamples <= 0 || fsKHz <= 0 || len(mono) < frameSamples {
+	if state == nil || frameSamples < VADMinFrameLength || fsKHz <= 0 || len(mono) < frameSamples {
 		return silk.VADFrameState{}, false
 	}
 	activityQ8, active := state.GetSpeechActivity(mono, frameSamples, fsKHz)

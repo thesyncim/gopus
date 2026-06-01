@@ -30,6 +30,13 @@ const (
 	// VADInternalSubframes is the number of internal subframes (1 << 2 = 4).
 	VADInternalSubframes = 1 << VADInternalSubframesLog2
 
+	// VADMinFrameLength is the smallest frame the band decimation can analyse.
+	// The lowest band decimates the frame by 8 (>>3) and then splits it into
+	// VADInternalSubframes subframes (>>VADInternalSubframesLog2), so the
+	// per-subframe length is frameLength >> (3+VADInternalSubframesLog2). That
+	// quotient must be at least 1, which requires frameLength >= 1<<5.
+	VADMinFrameLength = 1 << (3 + VADInternalSubframesLog2)
+
 	// VADNoiseLevelSmoothCoefQ16 is the noise level smoothing coefficient.
 	// Must be < 4096.
 	VADNoiseLevelSmoothCoefQ16 = 1024
@@ -181,8 +188,11 @@ func (v *VADState) GetSpeechActivity(pcm []float32, frameLength int, fsKHz int) 
 // getSpeechActivityFast is the hot path used by normal VAD callers.
 // It keeps the fixed-point math identical to getSpeechActivity.
 func (v *VADState) getSpeechActivityFast(pcm []float32, frameLength int, fsKHz int) (int, bool) {
-	// Safety checks
-	if frameLength == 0 || len(pcm) < frameLength {
+	// The band decimation needs at least VADMinFrameLength samples (otherwise a
+	// band subframe length collapses to zero). libopus only ever calls the VAD
+	// with full SILK frames, which always satisfy this; reject anything shorter
+	// rather than indexing past the start of a zero-length subframe.
+	if frameLength < VADMinFrameLength || len(pcm) < frameLength {
 		return 0, false
 	}
 
