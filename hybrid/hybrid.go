@@ -223,7 +223,16 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 		return nil, ErrInvalidFrameSize
 	}
 
-	// Get fade factor for this loss
+	// Advance the PLC loss-fade cadence. libopus has no fade-exhausted
+	// shortcut: silk_PLC and celt_decode_lost run unconditionally on every lost
+	// hybrid frame. The SILK lowband fades through silk_PLC and the CELT highband
+	// energy floors at the background estimate, so the concealed frame decays
+	// without ever being short-circuited to silence. Critically, celt_decode_lost
+	// always advances the CELT range-coder state (st->rng, the noise LCG) on each
+	// lost frame, and that state is what an in-band FEC (decode_fec=1) recovery
+	// reports as the final range. Returning early here would freeze st->rng and
+	// desync the range coder on the next FEC step, so the CELT PLC must run on
+	// every lost frame regardless of how decayed the energy is.
 	fadeFactor := d.plcState.RecordLoss()
 
 	// Total samples for output
@@ -239,11 +248,6 @@ func (d *Decoder) decodePLCToFloat32(frameSize int, stereo bool) ([]float32, err
 	}
 	if plcSilkFrameSize < minSilkFrameSize {
 		plcSilkFrameSize = minSilkFrameSize
-	}
-
-	// If fade is exhausted, return silence
-	if fadeFactor < 0.001 {
-		return make([]float32, totalSamples), nil
 	}
 
 	// Generate SILK PLC through the SILK decoder's native nil-packet path.

@@ -20,6 +20,7 @@ package gopus
 // silk/lbrr_decode.go (DecodeFEC), decoder_fec.go (DecodeWithFEC).
 
 import (
+	"math"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -171,8 +172,8 @@ func TestDecodeWithFECStereoWarmLBRRMatchesLibopus(t *testing.T) {
 // and there is no spurious FEC decoding on non-LBRR packets.
 func TestDecodeWithFECMonoFirstPacketNoLBRRFallbackMatchesPLC(t *testing.T) {
 	const (
-		channels  = 1
-		frameSize = 960
+		channels   = 1
+		frameSize  = 960
 		sampleRate = 48000
 	)
 
@@ -318,5 +319,155 @@ func TestDecodeWithFECMonoFirstPacketByteExact(t *testing.T) {
 			assertAPIRateQualityFloat32(t, fecBuf[:cmpLen], wantFEC[:cmpLen], sampleRate, channels,
 				"mono first-packet LBRR byte-exact")
 		})
+	}
+}
+
+// TestDecodeWithFECStereoHybridAfterLongLossRangeExact pins the final
+// range-coder state on a stereo Hybrid in-band FEC (decode_fec=1) recovery that
+// follows a long packet-loss burst.
+//
+// In a Hybrid FEC step libopus decodes the SILK LBRR (lost_flag=2) and then runs
+// the CELT decoder in PLC mode (celt_decode_with_ec(NULL); opus_decoder.c:606),
+// reporting the CELT decoder's post-PLC st->rng as the frame's final range
+// (opus_decoder.c:612, 697-700). celt_decode_lost advances that range-coder
+// state (the noise LCG) on EVERY lost Hybrid frame, no matter how far the
+// concealment energy has decayed. A long loss burst before the FEC step must not
+// freeze that state: the hybrid PLC path must keep advancing the CELT rng even
+// once its loss-fade is exhausted, or the FEC final range desyncs from libopus.
+//
+// This regression covers a fade-exhausted FEC recovery; the bit-exact per-step
+// final-range assertion is the load-bearing entropy check (a desync here means
+// gopus consumed a different number of bits than libopus on the FEC path).
+func TestDecodeWithFECStereoHybridAfterLongLossRangeExact(t *testing.T) {
+	libopustest.RequireOracle(t)
+	requireLibopusAPIRateRefdecodeHelper(t)
+
+	const (
+		sampleRate = 48000
+		channels   = 2
+		frameSize  = 480 // 10 ms
+		bitrate    = 64000
+		warmUp     = 4
+		lossBurst  = 16 // long enough to exhaust the PLC loss-fade before recovery
+	)
+
+	enc, err := NewEncoder(EncoderConfig{
+		SampleRate:  sampleRate,
+		Channels:    channels,
+		Application: ApplicationVoIP,
+	})
+	if err != nil {
+		t.Fatalf("NewEncoder: %v", err)
+	}
+	for _, set := range []struct {
+		name string
+		fn   func() error
+	}{
+		{"SetMode", func() error { return enc.SetMode(EncoderModeHybrid) }},
+		{"SetFrameSize", func() error { return enc.SetFrameSize(frameSize) }},
+		{"SetExpertFrameDuration", func() error { return enc.SetExpertFrameDuration(ExpertFrameDuration10Ms) }},
+		{"SetBandwidth", func() error { return enc.SetBandwidth(BandwidthFullband) }},
+		{"SetBitrate", func() error { return enc.SetBitrate(bitrate * channels) }},
+		{"SetSignal", func() error { return enc.SetSignal(SignalVoice) }},
+		{"SetPacketLoss", func() error { return enc.SetPacketLoss(30) }},
+		{"SetForceChannels", func() error { return enc.SetForceChannels(2) }},
+	} {
+		if err := set.fn(); err != nil {
+			t.Skipf("%s: %v", set.name, err)
+		}
+	}
+	enc.SetFEC(true)
+
+	// Encode a stateful stream and locate an LBRR-carrying recovery packet that
+	// arrives after the loss burst (so SILK LBRR state is warm).
+	const nFrames = 30
+	packets := make([][]byte, 0, nFrames)
+	recoveryIdx := -1
+	for f := 0; f < nFrames; f++ {
+		pcm := make([]float32, frameSize*channels)
+		for i := 0; i < frameSize; i++ {
+			tm := float64(f*frameSize+i) / sampleRate
+			f0 := 180.0 * (1.0 + 0.02*math.Sin(2*math.Pi*3.0*tm))
+			pcm[i*channels] = 0.40*float32(math.Sin(2*math.Pi*f0*tm)) +
+				0.16*float32(math.Sin(2*math.Pi*2*f0*tm+0.21))
+			pcm[i*channels+1] = 0.36*float32(math.Sin(2*math.Pi*f0*tm+0.13)) +
+				0.14*float32(math.Sin(2*math.Pi*2*f0*tm+0.34))
+		}
+		pkt, err := enc.EncodeFloat32(pcm)
+		if err != nil || len(pkt) == 0 {
+			t.Skipf("encode frame %d: %v len=%d", f, err, len(pkt))
+		}
+		if ParseTOC(pkt[0]).Mode != ModeHybrid {
+			t.Skipf("frame %d not hybrid", f)
+		}
+		packets = append(packets, append([]byte(nil), pkt...))
+		if recoveryIdx < 0 && f > warmUp+lossBurst && packetHasInBandFEC(t, pkt) {
+			recoveryIdx = f
+		}
+	}
+	if recoveryIdx < 0 {
+		t.Skip("no warm LBRR-carrying hybrid recovery packet emitted")
+	}
+
+	// Decode plan: warm-up normal decodes, a long PLC burst (Decode(nil)) that
+	// drives the loss-fade to zero, then the FEC recovery (decode_fec=1) of the
+	// most recent lost frame, then a normal decode of the recovery packet. This
+	// mirrors the opus_demo loss-recovery model for a long burst.
+	type step struct {
+		packet []byte
+		fec    bool
+	}
+	plan := make([]step, 0, warmUp+lossBurst+2)
+	for i := 0; i < warmUp; i++ {
+		plan = append(plan, step{packet: packets[i]})
+	}
+	for i := 0; i < lossBurst; i++ {
+		plan = append(plan, step{packet: nil}) // PLC
+	}
+	plan = append(plan, step{packet: packets[recoveryIdx], fec: true}) // FEC after fade exhaustion
+	plan = append(plan, step{packet: packets[recoveryIdx]})            // normal decode
+
+	oracleSteps := make([]libopusAPIRateDecodeStep, len(plan))
+	for i, s := range plan {
+		oracleSteps[i] = libopusAPIRateDecodeStep{packet: s.packet, fec: s.fec}
+	}
+	_, wantRanges, err := decodeWithLibopusReferenceAPIRateFloat32StepsRanges(sampleRate, channels, frameSize, oracleSteps)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "stereo hybrid long-loss FEC range reference", err)
+	}
+
+	dec, err := NewDecoder(DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		t.Fatalf("NewDecoder: %v", err)
+	}
+	buf := make([]float32, frameSize*channels)
+	fecStep := -1
+	for i, s := range plan {
+		var de error
+		switch {
+		case s.fec:
+			fecStep = i
+			_, de = dec.DecodeWithFEC(s.packet, buf, true)
+		case s.packet == nil:
+			_, de = dec.Decode(nil, buf)
+		default:
+			_, de = dec.Decode(s.packet, buf)
+		}
+		if de != nil {
+			t.Fatalf("step %d (fec=%t plc=%t): %v", i, s.fec, s.packet == nil, de)
+		}
+		got := dec.FinalRange()
+		if got != wantRanges[i] {
+			t.Errorf("step %d final-range mismatch: gopus=0x%08x libopus=0x%08x (fec=%t plc=%t)",
+				i, got, wantRanges[i], s.fec, s.packet == nil)
+		}
+	}
+	if fecStep < 0 {
+		t.Fatal("no FEC step in plan; test setup error")
+	}
+	// The FEC step must report a non-zero range (it decodes real LBRR/CELT-PLC
+	// state, not a PLC sentinel) and must equal libopus exactly.
+	if wantRanges[fecStep] == 0 {
+		t.Fatalf("libopus reported zero final range on the FEC step %d; test setup error", fecStep)
 	}
 }
