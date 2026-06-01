@@ -1,6 +1,6 @@
 FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-conformance test-exactness test-exhaustive test-provenance
 
-.PHONY: lint lint-fix test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom test-fixedpoint-parity test-custom-parity test-corpus-quality ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-rfc-conformance test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom test-fixedpoint-parity test-custom-parity test-corpus-quality ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -102,6 +102,14 @@ update-type-parity-baseline:
 # intentionally evidence-only: do not weaken fixture thresholds to make it pass.
 test-byte-parity-focus:
 	$(RUNNABLE_PARITY) ./testvectors -run '^TestEncoderVariantProfileParityAgainstLibopusFixture/cases/CELT-FB-20ms-stereo-128k-' -count=1 -v
+
+# Official RFC 6716 / RFC 8251 test-vector conformance gate: decode each
+# testvectorNN.bit with gopus and validate against the reference decoded output
+# with the reference opus_compare tool (the canonical conformance bar, mirroring
+# libopus tests/run_vectors.sh). Vectors are fetched into the gitignored cache by
+# ensure-testvectors; opus_compare comes from the pinned libopus build.
+test-rfc-conformance: ensure-libopus ensure-testvectors
+	$(RUNNABLE_PARITY) ./testvectors -run '^TestRFCConformanceOpusCompare$$' -count=1 -v
 
 # Fuzz smoke run for packet/fixture parsers and container formats.
 test-fuzz-smoke:

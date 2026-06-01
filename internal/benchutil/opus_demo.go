@@ -31,6 +31,22 @@ func opusDemoIsExecutable(path string) bool {
 	return err == nil && !info.IsDir() && info.Mode()&0o111 != 0
 }
 
+// OpusComparePath resolves the pinned libopus reference opus_compare binary, the
+// canonical RFC 6716/8251 conformance comparator. OPUS_COMPARE_PATH overrides
+// the pinned build.
+func OpusComparePath() (string, error) {
+	if p := os.Getenv("OPUS_COMPARE_PATH"); p != "" {
+		if opusDemoIsExecutable(p) {
+			return p, nil
+		}
+		return "", fmt.Errorf("OPUS_COMPARE_PATH=%q is not an executable file", p)
+	}
+	if p, ok := libopustooling.FindOrEnsureOpusCompare(libopustooling.DefaultVersion, libopustooling.DefaultSearchRoots()); ok {
+		return p, nil
+	}
+	return "", fmt.Errorf("opus_compare not found under tmp_check/opus-%s (run: make ensure-libopus)", libopustooling.DefaultVersion)
+}
+
 // OpusDemoSupportsQEXT reports whether the selected opus_demo binary was built
 // with ENABLE_QEXT and exposes the `-qext` CLI flag.
 func OpusDemoSupportsQEXT(path string) (bool, error) {
