@@ -25,80 +25,32 @@ func (d *Decoder) DecodeStereoParams(nbBands int) (intensity, dualStereo int) {
 	return intensity, dualStereo
 }
 
+// synthesizeSilenceMono synthesizes a mono CELT silence frame.
+//
+// libopus celt_decode_with_ec() does NOT special-case the silence frame: it
+// zeroes the spectrum (denormalise_bands with silence=1 sets bound=0) and runs
+// the full celt_synthesis -> clt_mdct_backward overlap-add against the carried
+// decode_mem, so the frame still emits the windowed tail of the previous frame
+// before fading to silence. Mirror that here by synthesizing a zero spectrum
+// through the same overlap-add path used by a normal frame, which both produces
+// the correct cross-frame overlap and updates d.overlapBuffer with the (zero)
+// tail exactly as libopus's out_syn buffer does.
 func (d *Decoder) synthesizeSilenceMono(frameSize int) []float32 {
 	if frameSize <= 0 {
 		return nil
 	}
-	out := ensureFloat32Slice(&d.scratchSynthF32, frameSize)
-	clear(out)
-
-	if Overlap <= 0 {
-		return out
-	}
-	if len(d.overlapBuffer) < Overlap {
-		buf := make([]celtSig, Overlap)
-		copy(buf, d.overlapBuffer)
-		d.overlapBuffer = buf
-	}
-	prev := d.overlapBuffer[:Overlap]
-	window := GetWindowBufferF32(Overlap)
-	half := Overlap >> 1
-	if half > frameSize {
-		half = frameSize
-	}
-	for i := 0; i < half; i++ {
-		x2 := float32(prev[i])
-		out[i] = x2 * window[Overlap-1-i]
-		j := Overlap - 1 - i
-		if j < frameSize {
-			out[j] = x2 * window[i]
-		}
-	}
-	clear(prev)
-	return out
+	spec := ensureFloat32Slice(&d.scratchSilenceSpec, frameSize)
+	clear(spec)
+	return d.Synthesize(spec, false, 1)
 }
 
 func (d *Decoder) synthesizeSilenceStereo(frameSize int) []float32 {
 	if frameSize <= 0 {
 		return nil
 	}
-	if len(d.overlapBuffer) < Overlap*2 {
-		buf := make([]celtSig, Overlap*2)
-		copy(buf, d.overlapBuffer)
-		d.overlapBuffer = buf
-	}
-
-	out := ensureFloat32Slice(&d.scratchStereoF32, frameSize*2)
-	clear(out)
-	if Overlap <= 0 {
-		return out
-	}
-
-	overlapL := d.overlapBuffer[:Overlap]
-	overlapR := d.overlapBuffer[Overlap : Overlap*2]
-	window := GetWindowBufferF32(Overlap)
-	half := Overlap >> 1
-	if half > frameSize {
-		half = frameSize
-	}
-	for i := 0; i < half; i++ {
-		j := Overlap - 1 - i
-
-		x2L := float32(overlapL[i])
-		out[2*i] = x2L * window[Overlap-1-i]
-		if j < frameSize {
-			out[2*j] = x2L * window[i]
-		}
-
-		x2R := float32(overlapR[i])
-		out[2*i+1] = x2R * window[Overlap-1-i]
-		if j < frameSize {
-			out[2*j+1] = x2R * window[i]
-		}
-	}
-	clear(overlapL)
-	clear(overlapR)
-	return out
+	spec := ensureFloat32Slice(&d.scratchSilenceSpec, frameSize)
+	clear(spec)
+	return d.SynthesizeStereo(spec, spec, false, 1)
 }
 
 // decodeSilenceFrame synthesizes a CELT silence frame from overlap state.
@@ -118,10 +70,13 @@ func (d *Decoder) decodeSilenceFrame(frameSize int, newPeriod int, newGain float
 	d.applyPostfilterFloat32(samples, frameSize, mode.LM, newPeriod, newGain, newTapset)
 	if len(d.directOutPCM) >= len(samples) {
 		d.applyDeemphasisAndScaleToFloat32(d.directOutPCM[:len(samples)], samples, 1.0/32768.0)
-	} else {
-		d.applyDeemphasisAndScale(samples, 1.0/32768.0)
+		// The scaled, deemphasized PCM has already been written to directOutPCM
+		// (matching the normal synthesizeHybridDecodedFrame direct-out path). Return
+		// nil so the hybrid wrapper does not overwrite it with the raw, unscaled
+		// celt_sig synthesis buffer.
+		return nil
 	}
-
+	d.applyDeemphasisAndScale(samples, 1.0/32768.0)
 	return samples
 }
 

@@ -140,22 +140,25 @@ func mutatePacket(rng *rand.Rand, src []byte) []byte {
 	}
 }
 
-// knownMalformedPCMDivergences pins the corrupt packets for which gopus and
-// libopus both ACCEPT (same return code, same sample count, no panic) but the
-// decoded PCM values differ. These are NOT accept/reject or safety divergences
-// (those are hard-failed below); they are byte-value differences on deliberately
-// corrupted input where neither decoder's output is "correct".
+// knownMalformedPCMDivergences pins corrupt packets for which gopus and libopus
+// both ACCEPT (same return code, same sample count, no panic) but the decoded
+// PCM values differ by more than malformedPCMGrossTol. These would be byte-value
+// differences on deliberately corrupted input where neither decoder's output is
+// "correct"; they are NOT accept/reject or safety divergences (those are always
+// hard-failed below).
 //
-// Currently one entry: a mode-crossed packet (a multi-frame CELT payload whose
-// TOC was rewritten to Hybrid config 14, code 3, VBR). Each sub-frame decodes
-// bit-exactly when decoded standalone through a fresh decoder; the divergence
-// only appears for the 2nd frame decoded in sequence, localized to its ~120
-// sample MDCT overlap region, where gopus' CELT cross-frame synthesis state
-// produces a louder (but finite, non-NaN) overlap than libopus on this garbage.
-// Tracked as an open CELT-hybrid cross-frame robustness gap on corrupt input.
-var knownMalformedPCMDivergences = map[string]bool{
-	"73822e0dfbd19557d6eb45b1ab3a3afa38f40cc6336e613f1b7866db563fa9bf0890a9925c5a91a1cf2d82c71b43639216c08b6eaf05fabc112229568c940d3f360e8bb1cce3ba3234c13ef63a92": true,
-}
+// The map is currently empty: the previously allow-listed mode-crossed packet (a
+// multi-frame CELT payload whose TOC was rewritten to Hybrid config 14, code 3,
+// VBR) is now bit-exact. Its 2nd in-sequence frame is a CELT silence frame
+// (SILK over-consumed the corrupt payload, so the CELT range coder sees tell >=
+// storage); the hybrid silence path wrote the scaled, deemphasized PCM into the
+// caller's celt_accum output buffer but ALSO returned the raw, unscaled celt_sig
+// synthesis buffer, which the hybrid wrapper then copied over the scaled output.
+// On clean silence the carried MDCT overlap tail is near zero so the bug was
+// invisible; this corrupt cross-frame state left a large overlap tail, surfacing
+// it as a ~60x output. Fixed in celt.decodeSilenceFrame (return nil on the
+// direct-out path, matching synthesizeHybridDecodedFrame).
+var knownMalformedPCMDivergences = map[string]bool{}
 
 // malformedPCMGrossTol is the float32-scale per-sample bound above which a PCM
 // difference on a corrupt-but-accepted packet is treated as a real decode

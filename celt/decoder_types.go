@@ -191,6 +191,7 @@ type Decoder struct {
 	scratchIMDCTF32         imdctScratchF32
 	scratchIMDCTF32R        imdctScratchF32
 	scratchSynthF32         []float32
+	scratchSilenceSpec      []float32
 	scratchSynthRF32        []float32
 	scratchSpecRF32         []float32
 	scratchStereoF32        []float32
