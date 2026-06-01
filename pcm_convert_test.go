@@ -27,12 +27,10 @@ func TestConvertFloat32ToInt16Unit(t *testing.T) {
 	if !ok {
 		t.Fatal("arm64 conversion rejected in-range samples")
 	}
-	blocks := len(src) &^ 15
 	for i, v := range src {
+		// The arm64 NEON block kernel uses FCVTNS (round to nearest, ties to
+		// even), matching libopus float2int (lrintf) and the scalar tail.
 		want := float32ToInt16(v)
-		if i < blocks {
-			want = celtDispatchBlockFloat32ToInt16Ref(v)
-		}
 		if dst[i] != want {
 			t.Fatalf("dst[%d] = %d, want %d", i, dst[i], want)
 		}
@@ -43,17 +41,6 @@ func TestConvertFloat32ToInt16Unit(t *testing.T) {
 	if convertFloat32ToInt16Unit(make([]int16, len(outOfRange)), outOfRange, len(outOfRange)) {
 		t.Fatal("arm64 conversion accepted out-of-range samples")
 	}
-}
-
-func celtDispatchBlockFloat32ToInt16Ref(v float32) int16 {
-	y := v * 32768.0
-	if y > 32767.0 {
-		y = 32767.0
-	}
-	if y >= 0 {
-		return int16(math.Floor(float64(y + 0.5)))
-	}
-	return int16(math.Ceil(float64(y - 0.5)))
 }
 
 func TestFloat32ToInt16OpusRoundingFixture(t *testing.T) {

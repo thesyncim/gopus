@@ -38,7 +38,7 @@ convert_vector16_loop:
 	BNE    convert_fallback
 
 	WORD   $0x6e24dc00             // FMUL V0.4S, V0.4S, V4.4S
-	WORD   $0x4e21c805             // FCVTAS V5.4S, V0.4S
+	WORD   $0x4e21a805             // FCVTNS V5.4S, V0.4S
 	WORD   $0x4ea86ca5             // SMIN V5.4S, V5.4S, V8.4S
 	WORD   $0x0e6148a9             // SQXTN V9.4H, V5.4S
 	VST1.P [V9.H4], 8(R0)
@@ -54,7 +54,7 @@ convert_vector16_loop:
 	BNE    convert_fallback
 
 	WORD   $0x6e24dc00             // FMUL V0.4S, V0.4S, V4.4S
-	WORD   $0x4e21c805             // FCVTAS V5.4S, V0.4S
+	WORD   $0x4e21a805             // FCVTNS V5.4S, V0.4S
 	WORD   $0x4ea86ca5             // SMIN V5.4S, V5.4S, V8.4S
 	WORD   $0x0e6148a9             // SQXTN V9.4H, V5.4S
 	VST1.P [V9.H4], 8(R0)
@@ -70,7 +70,7 @@ convert_vector16_loop:
 	BNE    convert_fallback
 
 	WORD   $0x6e24dc00             // FMUL V0.4S, V0.4S, V4.4S
-	WORD   $0x4e21c805             // FCVTAS V5.4S, V0.4S
+	WORD   $0x4e21a805             // FCVTNS V5.4S, V0.4S
 	WORD   $0x4ea86ca5             // SMIN V5.4S, V5.4S, V8.4S
 	WORD   $0x0e6148a9             // SQXTN V9.4H, V5.4S
 	VST1.P [V9.H4], 8(R0)
@@ -86,7 +86,7 @@ convert_vector16_loop:
 	BNE    convert_fallback
 
 	WORD   $0x6e24dc00             // FMUL V0.4S, V0.4S, V4.4S
-	WORD   $0x4e21c805             // FCVTAS V5.4S, V0.4S
+	WORD   $0x4e21a805             // FCVTNS V5.4S, V0.4S
 	WORD   $0x4ea86ca5             // SMIN V5.4S, V5.4S, V8.4S
 	WORD   $0x0e6148a9             // SQXTN V9.4H, V5.4S
 	VST1.P [V9.H4], 8(R0)
@@ -106,8 +106,9 @@ convert_fallback:
 
 // func convertFloat32ToInt16SaturatingBlocks(dst []int16, src []float32, n int)
 //
-// Converts complete 16-sample blocks with the same block rounding and
-// saturation used by libopus' celt_float2int16_neon path.
+// Converts complete 16-sample blocks with round-to-nearest-even (FCVTNS) and
+// saturation, matching libopus float2int (lrintf) under the default IEEE
+// rounding mode used by celt_float2int16_c.
 TEXT ·convertFloat32ToInt16SaturatingBlocks(SB), NOSPLIT, $0-56
 	MOVD  dst_base+0(FP), R0
 	MOVD  src_base+24(FP), R1
@@ -123,25 +124,25 @@ TEXT ·convertFloat32ToInt16SaturatingBlocks(SB), NOSPLIT, $0-56
 saturating_vector16_loop:
 	VLD1.P 16(R1), [V0.S4]
 	WORD   $0x6e24dc00             // FMUL V0.4S, V0.4S, V4.4S
-	WORD   $0x4e21c805             // FCVTAS V5.4S, V0.4S
+	WORD   $0x4e21a805             // FCVTNS V5.4S, V0.4S
 	WORD   $0x0e6148a9             // SQXTN V9.4H, V5.4S
 	VST1.P [V9.H4], 8(R0)
 
 	VLD1.P 16(R1), [V0.S4]
 	WORD   $0x6e24dc00             // FMUL V0.4S, V0.4S, V4.4S
-	WORD   $0x4e21c805             // FCVTAS V5.4S, V0.4S
+	WORD   $0x4e21a805             // FCVTNS V5.4S, V0.4S
 	WORD   $0x0e6148a9             // SQXTN V9.4H, V5.4S
 	VST1.P [V9.H4], 8(R0)
 
 	VLD1.P 16(R1), [V0.S4]
 	WORD   $0x6e24dc00             // FMUL V0.4S, V0.4S, V4.4S
-	WORD   $0x4e21c805             // FCVTAS V5.4S, V0.4S
+	WORD   $0x4e21a805             // FCVTNS V5.4S, V0.4S
 	WORD   $0x0e6148a9             // SQXTN V9.4H, V5.4S
 	VST1.P [V9.H4], 8(R0)
 
 	VLD1.P 16(R1), [V0.S4]
 	WORD   $0x6e24dc00             // FMUL V0.4S, V0.4S, V4.4S
-	WORD   $0x4e21c805             // FCVTAS V5.4S, V0.4S
+	WORD   $0x4e21a805             // FCVTNS V5.4S, V0.4S
 	WORD   $0x0e6148a9             // SQXTN V9.4H, V5.4S
 	VST1.P [V9.H4], 8(R0)
 
