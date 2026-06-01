@@ -411,8 +411,13 @@ func (d *CELTDecoder) decodeReceivedFrame(dec *rangecoding.Decoder, dataLen, fra
 	UnquantEnergyFinalise(dec, d.oldBandE, start, end, nbEBands, C, fineQuant, finePriority, totalBits-dec.Tell())
 
 	if antiCollapseOn {
+		// libopus passes &st->rng to quant_all_bands, which advances it (the shape
+		// decode's spreading seed), then anti_collapse uses that updated st->rng as
+		// its pseudo-random seed (celt_decoder.c). seed holds that advanced value;
+		// using the pre-decode d.rng instead would desync the anti-collapse noise
+		// fill from the reference on collapsed transient bands.
 		AntiCollapse(X, collapse, LM, C, N, start, end,
-			d.oldBandE, d.oldLogE, d.oldLogE2, pulses, d.eBands, nbEBands, d.rng, false)
+			d.oldBandE, d.oldLogE, d.oldLogE2, pulses, d.eBands, nbEBands, seed, false)
 	}
 
 	if silence {
