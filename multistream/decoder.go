@@ -123,6 +123,7 @@ type streamState struct {
 	lastBandwidth      int32
 	lastPacketStereo   bool
 	haveDecoded        bool
+	prevRedundancy     bool
 	lastFrameSize      int32
 	lastPacketDuration int32
 	lastDataLen        int32
@@ -139,7 +140,7 @@ func newStreamDecoder(sampleRate, channels int) *streamState {
 	silkDec.SetAPISampleRate(sampleRate)
 	celtDec := celt.NewDecoder(channels)
 	celtDec.SetDownsample(48000 / sampleRate)
-	hybridDec := hybrid.NewDecoder(channels)
+	hybridDec := hybrid.NewDecoderWithSharedDecoders(channels, silkDec, celtDec)
 	hybridDec.SetAPISampleRate(sampleRate)
 	return &streamState{
 		sampleRate:    int32(sampleRate),
@@ -172,6 +173,7 @@ func (d *streamState) Reset() {
 	d.lastBandwidth = int32(types.BandwidthFullband)
 	d.lastPacketStereo = false
 	d.haveDecoded = false
+	d.prevRedundancy = false
 	d.lastFrameSize = d.sampleRate / 50
 	d.lastPacketDuration = 0
 	d.lastDataLen = 0
@@ -392,7 +394,7 @@ func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, t
 		if !hybrid.ValidHybridFrameSize(d.frameSize48FromAPI(frameSize)) {
 			return nil, fmt.Errorf("multistream: invalid hybrid frame size %d", frameSize)
 		}
-		out, err = d.hybridDec.DecodeToFloat32WithPacketStereo(frame, frameSize, toc.stereo)
+		out, err = d.decodeHybridToFloat32(frame, frameSize, toc)
 	case streamModeCELT:
 		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(toc.bandwidth))
 		if extsupport.QEXT {
