@@ -100,6 +100,15 @@ func (d *Decoder) prepareFixedHybrid(data []byte, celtBW celt.CELTBandwidth, nee
 	if !d.fixedPacketActive || len(data) <= 1 {
 		return false
 	}
+	// Hybrid SILK is always wideband (16 kHz internal). At an API rate below
+	// 16 kHz the SILK lowband is produced by the float downsampling resampler,
+	// which has no integer int16 output for INT16TORES, so the integer hybrid
+	// highband cannot reproduce the FIXED_POINT lowband. Decline so the float
+	// conversion handles the packet -- it is bit-exact with the FIXED_POINT
+	// opus_decode reference for these rates.
+	if int(d.sampleRate) < 16000 {
+		return false
+	}
 	if d.fixedCELT == nil {
 		d.fixedCELT = fixedpoint.NewCELTDecoderRate(int(d.channels), int(d.sampleRate))
 	}

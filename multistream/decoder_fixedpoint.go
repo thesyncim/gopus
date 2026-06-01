@@ -68,7 +68,7 @@ func (d *Decoder) DecodeToResFixed(data []byte, frameSize int) ([]int32, bool, e
 		if _, ok := d.decoders[i].(*streamState); !ok {
 			return nil, false, nil
 		}
-		if !fixedHandleableStreamPacket(packets[i]) {
+		if !fixedHandleableStreamPacket(packets[i], int(d.sampleRate)) {
 			return nil, false, nil
 		}
 	}
@@ -138,13 +138,20 @@ func applyChannelMappingRes(streamRes [][]int32, mapping []byte, coupledStreams,
 // CELT-only (decoded by the integer CELT decoder), SILK-only (integer-exact
 // through the lossless float->int16 round-trip), or Hybrid (integer SILK
 // opus_res lowband plus integer CELT highband, start band 17, celt_accum).
-// Multi-frame packets and degenerate (DTX/PLC) frames are not covered.
-func fixedHandleableStreamPacket(data []byte) bool {
+// Multi-frame packets and degenerate (DTX/PLC) frames are not covered. A Hybrid
+// stream at an API rate below 16 kHz is also declined: its wideband SILK lowband
+// is produced by the float downsampling resampler, which has no integer int16
+// output for INT16TORES, so the integer hybrid path cannot reproduce it (the
+// float conversion is bit-exact with the FIXED_POINT reference for those rates).
+func fixedHandleableStreamPacket(data []byte, sampleRate int) bool {
 	if len(data) <= 1 {
 		return false
 	}
 	toc := parseStreamTOC(data[0])
 	if toc.mode != streamModeCELT && toc.mode != streamModeSILK && toc.mode != streamModeHybrid {
+		return false
+	}
+	if toc.mode == streamModeHybrid && sampleRate < 16000 {
 		return false
 	}
 	parsed, err := parseOpusPacket(data, false)
@@ -236,6 +243,15 @@ func (d *streamState) decodePacketToResFixed(data []byte, frameSize int) ([]int3
 // hook to bound the hybrid redundancy-flag parse. It returns true once the hook
 // is armed.
 func (d *streamState) prepareFixedHybridStream(toc streamTOC, frameLen int) bool {
+	// Hybrid SILK is always wideband (16 kHz internal). At an API rate below
+	// 16 kHz the SILK lowband is produced by the float downsampling resampler,
+	// which has no integer int16 output for INT16TORES, so the integer hybrid
+	// highband cannot reproduce the FIXED_POINT lowband. Decline so the stream's
+	// float conversion handles the frame (bit-exact with the FIXED_POINT
+	// reference for these rates).
+	if int(d.sampleRate) < 16000 {
+		return false
+	}
 	if d.fixedCELT == nil {
 		d.fixedCELT = fixedpoint.NewCELTDecoderRate(int(d.channels), int(d.sampleRate))
 	}
