@@ -15,18 +15,18 @@ func prefilterDualInnerProdAsm(x, y1, y2 []float32, length int) (float32, float3
 	i := 0
 	for ; i < length-7; i += 8 {
 		for lane := 0; lane < 4; lane++ {
-			acc1[lane] = float32(math.FMA(float64(x[i+lane]), float64(y1[i+lane]), float64(acc1[lane])))
-			acc2[lane] = float32(math.FMA(float64(x[i+lane]), float64(y2[i+lane]), float64(acc2[lane])))
+			acc1[lane] = mdctFMA32(x[i+lane], y1[i+lane], acc1[lane])
+			acc2[lane] = mdctFMA32(x[i+lane], y2[i+lane], acc2[lane])
 		}
 		for lane := 0; lane < 4; lane++ {
-			acc1[lane] = float32(math.FMA(float64(x[i+4+lane]), float64(y1[i+4+lane]), float64(acc1[lane])))
-			acc2[lane] = float32(math.FMA(float64(x[i+4+lane]), float64(y2[i+4+lane]), float64(acc2[lane])))
+			acc1[lane] = mdctFMA32(x[i+4+lane], y1[i+4+lane], acc1[lane])
+			acc2[lane] = mdctFMA32(x[i+4+lane], y2[i+4+lane], acc2[lane])
 		}
 	}
 	if length-i >= 4 {
 		for lane := 0; lane < 4; lane++ {
-			acc1[lane] = float32(math.FMA(float64(x[i+lane]), float64(y1[i+lane]), float64(acc1[lane])))
-			acc2[lane] = float32(math.FMA(float64(x[i+lane]), float64(y2[i+lane]), float64(acc2[lane])))
+			acc1[lane] = mdctFMA32(x[i+lane], y1[i+lane], acc1[lane])
+			acc2[lane] = mdctFMA32(x[i+lane], y2[i+lane], acc2[lane])
 		}
 		i += 4
 	}
@@ -37,8 +37,8 @@ func prefilterDualInnerProdAsm(x, y1, y2 []float32, length int) (float32, float3
 	sum1 := math.Float32frombits(math.Float32bits(xy10 + xy11))
 	sum2 := math.Float32frombits(math.Float32bits(xy20 + xy21))
 	for ; i < length; i++ {
-		sum1 = float32(math.FMA(float64(x[i]), float64(y1[i]), float64(sum1)))
-		sum2 = float32(math.FMA(float64(x[i]), float64(y2[i]), float64(sum2)))
+		sum1 = mdctFMA32(x[i], y1[i], sum1)
+		sum2 = mdctFMA32(x[i], y2[i], sum2)
 	}
 	return sum1, sum2
 }

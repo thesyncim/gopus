@@ -13,15 +13,15 @@ func celtInnerProd8FMA32(x, y []float32, n int) float32 {
 	i := 0
 	for ; i < n-7; i += 8 {
 		for lane := 0; lane < 4; lane++ {
-			acc[lane] = float32(math.FMA(float64(x[i+lane]), float64(y[i+lane]), float64(acc[lane])))
+			acc[lane] = mdctFMA32(x[i+lane], y[i+lane], acc[lane])
 		}
 		for lane := 0; lane < 4; lane++ {
-			acc[lane] = float32(math.FMA(float64(x[i+4+lane]), float64(y[i+4+lane]), float64(acc[lane])))
+			acc[lane] = mdctFMA32(x[i+4+lane], y[i+4+lane], acc[lane])
 		}
 	}
 	if n-i >= 4 {
 		for lane := 0; lane < 4; lane++ {
-			acc[lane] = float32(math.FMA(float64(x[i+lane]), float64(y[i+lane]), float64(acc[lane])))
+			acc[lane] = mdctFMA32(x[i+lane], y[i+lane], acc[lane])
 		}
 		i += 4
 	}
@@ -29,7 +29,7 @@ func celtInnerProd8FMA32(x, y []float32, n int) float32 {
 	sum1 := math.Float32frombits(math.Float32bits(acc[1] + acc[3]))
 	sum := math.Float32frombits(math.Float32bits(sum0 + sum1))
 	for ; i < n; i++ {
-		sum = float32(math.FMA(float64(x[i]), float64(y[i]), float64(sum)))
+		sum = mdctFMA32(x[i], y[i], sum)
 	}
 	return sum
 }
