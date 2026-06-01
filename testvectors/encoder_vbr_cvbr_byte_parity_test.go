@@ -290,6 +290,9 @@ func vbrTestCases() []vbrCVBRCase {
 		{name: "silk-nb-mono-10ms-12k", application: gopus.ApplicationVoIP, frameSize: 480, channels: 1, bitrate: 12000, bandwidth: types.BandwidthNarrowband, setBandwidth: true, signal: types.SignalVoice, nFrames: 50},
 		{name: "silk-wb-mono-20ms-24k", application: gopus.ApplicationVoIP, frameSize: 960, channels: 1, bitrate: 24000, bandwidth: types.BandwidthWideband, setBandwidth: true, signal: types.SignalVoice, nFrames: 50},
 		{name: "silk-wb-stereo-20ms-32k", application: gopus.ApplicationVoIP, frameSize: 960, channels: 2, bitrate: 32000, bandwidth: types.BandwidthWideband, setBandwidth: true, signal: types.SignalVoice, nFrames: 50},
+		// Higher-rate stereo SILK VBR keeps full stereo width, exercising the
+		// stereo_LR_to_MS side-rate split / width decision (not just mid-only).
+		{name: "silk-wb-stereo-20ms-64k", application: gopus.ApplicationVoIP, frameSize: 960, channels: 2, bitrate: 64000, bandwidth: types.BandwidthWideband, setBandwidth: true, signal: types.SignalVoice, nFrames: 50},
 
 		// Hybrid (SILK+CELT)
 		{name: "hybrid-swb-mono-20ms-32k", application: gopus.ApplicationAudio, frameSize: 960, channels: 1, bitrate: 32000, bandwidth: types.BandwidthSuperwideband, setBandwidth: true, signal: types.SignalVoice, nFrames: 50},

@@ -606,12 +606,11 @@ func (e *Encoder) StereoLRToMSWithRates(
 	predQ13 := [2]int32{predLP, predHP}
 
 	// frac = min(1, HP_ratio + 3*LP_ratio), in Q16 for libopus parity.
+	// stereoFindPredictorQ13WithRatioQ14 clamps each ratio to [0, 32767], so the
+	// sum is non-negative; libopus stereo_LR_to_MS.c applies only the upper clamp.
 	fracQ16 := silkSMLABB(ratioHPQ14, ratioLPQ14, 3)
 	if fracQ16 > (1 << 16) {
 		fracQ16 = 1 << 16
-	}
-	if fracQ16 < 0 {
-		fracQ16 = 0
 	}
 	// Rate split and width decision.
 	total := totalRateBps
