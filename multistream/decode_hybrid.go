@@ -83,6 +83,11 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 				}
 			}
 		}
+		// Hand the final redundancy decision to the gopus_fixedpoint integer
+		// highband hook (which runs next, against a clone of this same decoder
+		// positioned at the CELT start band) so it can decline redundant frames it
+		// does not reproduce. A no-op in the default build.
+		d.setFixedHybridRedundancy(redundancy)
 		// pcm_transition for a CELT->Hybrid mode change: decode the 5 ms PLC frame
 		// in the previous CELT mode now that redundancy is known to be absent and
 		// before the CELT decoder is reset (opus_decode_frame lines ~540-543).

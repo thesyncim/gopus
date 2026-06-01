@@ -18,9 +18,21 @@ type streamFixedFields struct {
 	// Hybrid highband decode (start band 17, celt_accum onto the SILK opus_res
 	// lowband). It is armed on the stream's hybrid decoder only while an integer
 	// Hybrid frame is in flight and shares fixedCELT with the CELT-only path.
-	fixedHybridHook     *streamFixedHybridHook
-	fixedHybridRes      []int32
-	fixedHybridEnd      int
-	fixedHybridFrameLen int
-	fixedHybridHandled  bool
+	fixedHybridHook *streamFixedHybridHook
+	fixedHybridRes  []int32
+	fixedHybridEnd  int
+	// fixedHybridRedundant records the Opus-layer redundancy decision the float
+	// Hybrid afterSilk callback already read from the shared range decoder. The
+	// integer highband hook reads it (rather than re-parsing the flag, which the
+	// shared decoder has already advanced past) to decline redundant frames.
+	fixedHybridRedundant bool
+	fixedHybridHandled   bool
+}
+
+// setFixedHybridRedundancy records the Opus-layer redundancy decision the float
+// Hybrid afterSilk callback read from the shared range decoder, so the integer
+// highband hook (which runs after afterSilk) can decline a redundant frame
+// without re-parsing the already-consumed flag.
+func (d *streamState) setFixedHybridRedundancy(redundant bool) {
+	d.fixedHybridRedundant = redundant
 }
