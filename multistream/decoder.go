@@ -387,23 +387,23 @@ func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, t
 	var out []float32
 	var err error
 
+	// transSize mirrors libopus IMIN(F5, audiosize): the transition crossfade
+	// spans at most 5 ms.
+	transSize := frameSize
+	if f5 := int(d.sampleRate) / 50 / 2; transSize > f5 {
+		transSize = f5
+	}
+
 	switch toc.mode {
 	case streamModeSILK:
-		out, err = d.decodeSILKToFloat32(frame, frameSize, toc.stereo, toc.bandwidth)
+		out, err = d.decodeSILKModeWithTransition(frame, frameSize, transSize, toc)
 	case streamModeHybrid:
 		if !hybrid.ValidHybridFrameSize(d.frameSize48FromAPI(frameSize)) {
 			return nil, fmt.Errorf("multistream: invalid hybrid frame size %d", frameSize)
 		}
-		out, err = d.decodeHybridToFloat32(frame, frameSize, toc)
+		out, err = d.decodeHybridModeWithTransition(frame, frameSize, transSize, toc)
 	case streamModeCELT:
-		d.celtDec.SetBandwidth(celt.BandwidthFromOpusConfig(toc.bandwidth))
-		if extsupport.QEXT {
-			d.setCELTQEXTPayload(qextPayload)
-		}
-		channels := int(d.channels)
-		outLen := frameSize * channels
-		out = make([]float32, outLen)
-		err = d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(frame, frameSize, toc.stereo, out)
+		out, err = d.decodeCELTModeWithTransition(frame, frameSize, transSize, toc, qextPayload)
 	default:
 		return nil, ErrInvalidPacket
 	}
@@ -415,6 +415,38 @@ func (d *streamState) decodeFramePayloadToFloat32(frame []byte, frameSize int, t
 		d.markOSCEInactiveIfModeIneligible(toc, nil, frameSize)
 	}
 	d.recordDecodedTOC(toc)
+	return out, nil
+}
+
+// decodeCELTModeWithTransition decodes a CELT-only frame, resetting the shared
+// CELT decoder on a mode change (libopus OPUS_RESET_STATE) and applying the 5 ms
+// pcm_transition crossfade from the previous SILK/Hybrid mode.
+func (d *streamState) decodeCELTModeWithTransition(frame []byte, frameSize, transSize int, toc streamTOC, qextPayload []byte) ([]float32, error) {
+	celtBW := celt.BandwidthFromOpusConfig(toc.bandwidth)
+
+	ts, err := d.beginModeTransition(toc, transSize)
+	if err != nil {
+		return nil, err
+	}
+
+	// libopus resets the CELT decoder on any mode change that did not come from
+	// a redundancy frame before decoding the CELT-only frame.
+	if d.haveDecoded && int(d.lastMode) != streamModeCELT && !d.prevRedundancy {
+		d.celtDec.Reset()
+	}
+	d.celtDec.SetBandwidth(celtBW)
+	if extsupport.QEXT {
+		d.setCELTQEXTPayload(qextPayload)
+	}
+
+	channels := int(d.channels)
+	out := make([]float32, frameSize*channels)
+	if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(frame, frameSize, toc.stereo, out); err != nil {
+		return nil, err
+	}
+
+	d.applyModeTransition(&ts, out, frameSize)
+	d.prevRedundancy = false
 	return out, nil
 }
 

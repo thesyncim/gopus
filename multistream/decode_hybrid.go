@@ -5,17 +5,39 @@ import (
 	"github.com/thesyncim/gopus/rangecoding"
 )
 
+// decodeHybridModeWithTransition wraps the Hybrid decode with the libopus
+// pcm_transition crossfade for a CELT->Hybrid mode change. The transition PLC
+// frame (decoded in the previous CELT mode) is produced inside the Hybrid decode
+// hook once redundancy is known to be absent, mirroring opus_decode_frame, then
+// crossfaded onto the front of the decoded Hybrid frame.
+func (d *streamState) decodeHybridModeWithTransition(frame []byte, frameSize, transSize int, toc streamTOC) ([]float32, error) {
+	var ts transitionState
+	if d.haveDecoded && int(d.lastMode) == streamModeCELT {
+		ts.active = true
+		ts.prevMode = streamModeCELT
+		ts.prevBW = int(d.lastBandwidth)
+		ts.prevStereo = d.lastPacketStereo
+		ts.pendingTransSize = transSize
+	}
+	out, err := d.decodeHybridToFloat32(frame, frameSize, toc, &ts)
+	if err != nil {
+		return nil, err
+	}
+	d.applyModeTransition(&ts, out, frameSize)
+	return out, nil
+}
+
 // decodeHybridToFloat32 decodes one Hybrid (SILK+CELT) frame mirroring libopus
 // opus_decode_frame: after SILK fills the low band, the shared range decoder is
 // advanced past the hybrid redundancy flags before the CELT highband reads bands
-// 17..21, then any SILK<->CELT redundancy and mode-transition crossfades are
-// applied. Skipping the redundancy-flag read leaves the CELT highband reading
-// from the wrong bit position, which is what produced the coupled-stereo Hybrid
-// float divergence vs libopus.
+// 17..21, then any SILK<->CELT redundancy and the CELT->Hybrid mode-transition
+// crossfade (via ts) are applied. Skipping the redundancy-flag read leaves the
+// CELT highband reading from the wrong bit position, which is what produced the
+// coupled-stereo Hybrid float divergence vs libopus.
 //
 // Reference: src/opus_decoder.c opus_decode_frame (redundancy handling at
 // start_band=17, celt_accum=1; redundant 5 ms CELT frame + smooth_fade).
-func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc streamTOC) ([]float32, error) {
+func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc streamTOC, ts *transitionState) ([]float32, error) {
 	channels := int(d.channels)
 	celtBW := celt.BandwidthFromOpusConfig(toc.bandwidth)
 
@@ -60,6 +82,19 @@ func (d *streamState) decodeHybridToFloat32(frame []byte, frameSize int, toc str
 					rd.ShrinkStorage(redundancyBytes)
 				}
 			}
+		}
+		// pcm_transition for a CELT->Hybrid mode change: decode the 5 ms PLC frame
+		// in the previous CELT mode now that redundancy is known to be absent and
+		// before the CELT decoder is reset (opus_decode_frame lines ~540-543).
+		if ts != nil && ts.active && ts.pendingTransSize > 0 && !redundancy && len(ts.pcm) == 0 {
+			pcm, perr := d.transitionPLCToFloat32(ts.pendingTransSize, ts.prevMode, ts.prevBW, ts.prevStereo)
+			if perr != nil {
+				return perr
+			}
+			ts.pcm = pcm
+		}
+		if ts != nil && redundancy {
+			ts.active = false
 		}
 		// 5 ms CELT->SILK redundant frame: decoded on the shared CELT decoder at
 		// start band 0 BEFORE the main hybrid highband, so the main decode reads
