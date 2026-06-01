@@ -22,12 +22,17 @@ func NewDecoder(channels int) *Decoder {
 		sampleRate: 48000, // CELT always operates at 48kHz internally
 		downsample: 1,
 
-		// Allocate energy arrays for all bands and channels
-		prevEnergy:       make([]celtGLog, MaxBands*channels),
-		prevEnergy2:      make([]celtGLog, MaxBands*channels),
-		prevLogE:         make([]celtGLog, MaxBands*channels),
-		prevLogE2:        make([]celtGLog, MaxBands*channels),
-		backgroundEnergy: make([]celtGLog, MaxBands*channels),
+		// Energy-prediction history is sized to two channels regardless of the
+		// decoder channel count, matching libopus, which always allocates
+		// oldBandE/oldLogE/oldLogE2/backgroundLogE as 2*nbEBands. A mono stream
+		// keeps the right-channel slot as a shadow copy of the left (libopus
+		// `if (C==1) OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)`), which the
+		// loss-recovery prediction folds back in after a concealed gap.
+		prevEnergy:       make([]celtGLog, MaxBands*2),
+		prevEnergy2:      make([]celtGLog, MaxBands*2),
+		prevLogE:         make([]celtGLog, MaxBands*2),
+		prevLogE2:        make([]celtGLog, MaxBands*2),
+		backgroundEnergy: make([]celtGLog, MaxBands*2),
 
 		// Overlap buffer for CELT (full overlap per channel)
 		overlapBuffer: make([]celtSig, Overlap*channels),
@@ -85,11 +90,13 @@ func (d *Decoder) Reset() {
 	phaseInversionDisabled := d.phaseInversionDisabled
 	complexity := d.complexity
 
-	prevEnergy := ensureGLogSlice(&d.prevEnergy, MaxBands*channels)
-	prevEnergy2 := ensureGLogSlice(&d.prevEnergy2, MaxBands*channels)
-	prevLogE := ensureGLogSlice(&d.prevLogE, MaxBands*channels)
-	prevLogE2 := ensureGLogSlice(&d.prevLogE2, MaxBands*channels)
-	backgroundEnergy := ensureGLogSlice(&d.backgroundEnergy, MaxBands*channels)
+	// Energy-prediction history is always two channels wide (libopus 2*nbEBands),
+	// even for mono, so the right-channel shadow survives a concealed loss gap.
+	prevEnergy := ensureGLogSlice(&d.prevEnergy, MaxBands*2)
+	prevEnergy2 := ensureGLogSlice(&d.prevEnergy2, MaxBands*2)
+	prevLogE := ensureGLogSlice(&d.prevLogE, MaxBands*2)
+	prevLogE2 := ensureGLogSlice(&d.prevLogE2, MaxBands*2)
+	backgroundEnergy := ensureGLogSlice(&d.backgroundEnergy, MaxBands*2)
 	overlapBuffer := ensureSigSlice(&d.overlapBuffer, Overlap*channels)
 	preemphState := ensureSigSlice(&d.preemphState, channels)
 	postfilterMem := ensureSigSlice(&d.postfilterMem, combFilterHistory*channels)

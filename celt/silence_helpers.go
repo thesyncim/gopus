@@ -87,6 +87,7 @@ func (d *Decoder) handleDecodedSilenceFrame(frameSize, lm int, prev1Energy []cel
 	fillSilenceGLog(silenceE)
 	d.updateLogEGLog(silenceE, MaxBands, false)
 	d.setPrevEnergyGLogWithPrev(prev1Energy, silenceE)
+	d.replicateMonoEnergyToSecondChannel()
 	d.updateBackgroundEnergy(lm)
 	d.resetPLCCadence(frameSize, channels)
 	d.rng = rd.Range()

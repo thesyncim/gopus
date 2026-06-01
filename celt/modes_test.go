@@ -74,8 +74,12 @@ func TestNewDecoder(t *testing.T) {
 	if len(dec.OverlapBuffer()) != Overlap {
 		t.Errorf("mono overlap buffer length = %d, want %d", len(dec.OverlapBuffer()), Overlap)
 	}
-	if len(dec.PrevEnergy()) != MaxBands {
-		t.Errorf("mono prevEnergy length = %d, want %d", len(dec.PrevEnergy()), MaxBands)
+	// Energy-prediction history is always two channels wide, matching libopus,
+	// which allocates oldBandE/oldLogE/oldLogE2/backgroundLogE as 2*nbEBands
+	// regardless of channel count. The mono decoder keeps the right-channel slot
+	// as a per-frame shadow of the left so loss recovery can fold it back in.
+	if len(dec.PrevEnergy()) != MaxBands*2 {
+		t.Errorf("mono prevEnergy length = %d, want %d", len(dec.PrevEnergy()), MaxBands*2)
 	}
 
 	// Test stereo decoder

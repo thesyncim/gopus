@@ -204,11 +204,22 @@ func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, trans
 	// Update energy state for next frame.
 	d.updateLogEGLog(energies, end, transient)
 	d.setPrevEnergyGLogWithPrev(prev1Energy, energies)
+	// libopus mirrors the left channel into the right slot on every mono frame
+	// (`if (C==1) OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)`), keeping
+	// oldBandE/oldLogE/oldLogE2 two-channel-symmetric. This must happen before the
+	// background-floor and outside-range updates so the right shadow stays a true
+	// copy: after a concealed loss the noise PLC only decays the left channel, and
+	// the recovery frame folds the (undecayed) right shadow back in.
+	d.replicateMonoEnergyToSecondChannel()
 	d.updateBackgroundEnergy(lm)
 
-	// Mirror libopus: clear energies/logs outside [start,end).
+	// Mirror libopus: clear energies/logs outside [start,end) for both channels.
 	channels := int(d.channels)
-	d.clearFrameHistoryOutsideRange(start, end, channels)
+	clearChannels := channels
+	if channels == 1 && len(d.prevEnergy) >= d.predStride()*2 {
+		clearChannels = 2
+	}
+	d.clearFrameHistoryOutsideRange(start, end, clearChannels)
 	if extsupport.QEXT && qext != nil && qext.dec.Tell() > qext.dec.StorageBits() {
 		return ErrInvalidFrame
 	}
@@ -222,6 +233,36 @@ func (d *Decoder) finalizeDecodedFrameState(frameSize, start, end, lm int, trans
 	// Reset PLC state after successful decode.
 	d.resetPLCCadence(frameSize, channels)
 	return nil
+}
+
+// replicateMonoEnergyToSecondChannel copies the left-channel energy-prediction
+// history (prevEnergy/prevLogE/prevLogE2) into the right-channel slot for a mono
+// decoder, matching libopus celt_decode_with_ec()'s per-frame mono shadow update
+// (`if (C==1) OPUS_COPY(&oldBandE[nbEBands], oldBandE, nbEBands)` followed by the
+// two-channel oldLogE/oldLogE2 refresh). backgroundLogE is left to
+// updateBackgroundEnergy, which preserves the two-channel symmetry once the
+// prediction history is symmetric. For a stereo decoder this is a no-op.
+func (d *Decoder) replicateMonoEnergyToSecondChannel() {
+	if d.channels != 1 {
+		return
+	}
+	stride := d.predStride()
+	if stride <= 0 || len(d.prevEnergy) < stride*2 {
+		return
+	}
+	nbEBands := d.modeNbEBands()
+	if nbEBands > stride {
+		nbEBands = stride
+	}
+	for band := 0; band < nbEBands; band++ {
+		d.prevEnergy[stride+band] = d.prevEnergy[band]
+		if len(d.prevLogE) >= stride*2 {
+			d.prevLogE[stride+band] = d.prevLogE[band]
+		}
+		if len(d.prevLogE2) >= stride*2 {
+			d.prevLogE2[stride+band] = d.prevLogE2[band]
+		}
+	}
 }
 
 func (d *Decoder) clearFrameHistoryOutsideRange(start, end, channels int) {
