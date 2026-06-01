@@ -18,6 +18,15 @@ const decodeInt16HotPathAllocBudget = 80
 // strictly zero-alloc).
 const encodeRestrictedSilkHotPathAllocBudget = 64
 
+// SILK packet-loss-concealment budgets under -tags gopus_fixedpoint. SILK PLC
+// runs the same float concealment path as the default build, so the residual
+// allocations are identical: the decode entry is zero-alloc and only the SILK
+// PLC kernel (plc.ConcealSILKWithLTP) allocates its working buffers.
+const (
+	silkPLCMonoHotPathAllocBudget   = 4
+	silkPLCStereoHotPathAllocBudget = 7
+)
+
 // Multistream wrapper budgets under -tags gopus_fixedpoint. The float Decode
 // path matches the default build; the integer DecodeInt16/Int24 paths run the
 // FIXED_POINT elementary decoders, which are not yet zero-alloc. These bounds

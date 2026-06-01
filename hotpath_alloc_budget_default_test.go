@@ -10,6 +10,19 @@ const decodeInt16HotPathAllocBudget = 0
 // Encode in restricted-SILK mode in the default (float) build: strictly zero.
 const encodeRestrictedSilkHotPathAllocBudget = 0
 
+// SILK packet-loss-concealment budgets. The gopus decode entry (decoder.go /
+// decoder_opus_frame.go) is strictly zero-alloc for SILK PLC: the concealment
+// output is written into decoder-owned scratch and copied to the caller buffer.
+// The residual allocations come solely from the SILK PLC concealment kernel
+// (plc.ConcealSILKWithLTP), which allocates its own working buffers per call
+// (output, sLTP, sLTPQ15, sLPC). These ceilings bound that kernel footprint
+// (one ConcealSILKWithLTP call for mono, two for stereo) and guard against
+// regressions reintroducing per-call allocations in the decode entry.
+const (
+	silkPLCMonoHotPathAllocBudget   = 4
+	silkPLCStereoHotPathAllocBudget = 7
+)
+
 // Multistream wrapper budgets (default float build). The single-stream
 // Decoder/Encoder hot paths are strictly zero-alloc; the multistream wrappers
 // retain a small bounded per-frame footprint:

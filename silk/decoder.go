@@ -121,6 +121,18 @@ type Decoder struct {
 	stereoMidFrame    []int16 // Size: maxFrameLength + 2
 	stereoSideFrame   []int16 // Size: maxFrameLength + 2
 
+	// Scratch buffers for stereo SILK packet-loss concealment (decodePLCStereo).
+	// These mirror the stereo good-frame scratch so PLC stays allocation-free.
+	plcMidNative  []float32 // concealed mid at native rate
+	plcSideNative []float32 // concealed side at native rate
+	plcLeftUp     []float32 // resampled left at API rate
+	plcRightUp    []float32 // resampled right at API rate
+	plcPredQ13    [2]int32  // stereo predictor coefficients for MS->LR
+
+	// Cached per-channel PLC views passed into the concealment kernel; created
+	// lazily and reused so packet-loss concealment stays allocation-free.
+	plcViews [2]*silkPLCChannelView
+
 	// Length of the most recent native-rate int16 mono decode written to
 	// scratchOutInt16. Exposed via LatestNativeMono so optional decoder-side
 	// post-processing (e.g. OSCE BWE) can read the pre-resample SILK output
@@ -218,6 +230,10 @@ func NewDecoder() *Decoder {
 		stereoRightNative:      make([]int16, maxOutInt16Size),
 		stereoMidFrame:         make([]int16, maxFrameLength+2),
 		stereoSideFrame:        make([]int16, maxFrameLength+2),
+		plcMidNative:           make([]float32, maxOutInt16Size),
+		plcSideNative:          make([]float32, maxOutInt16Size),
+		plcLeftUp:              make([]float32, maxOutInt16Size),
+		plcRightUp:             make([]float32, maxOutInt16Size),
 		plcState:               plc.NewState(),
 	}
 	if nativeLowbandCaptureEnabled {

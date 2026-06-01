@@ -58,6 +58,7 @@ type Decoder struct {
 	scratchFrame48     []float32
 	scratchTransition  []float32
 	scratchRedundant   []float32
+	scratchSilkPLC     []float32 // SILK PLC concealment output (one chunk at API rate)
 	lastFrameSize      int32
 	lastPacketDuration int32
 	prevMode           Mode // Track last mode for PLC
@@ -166,6 +167,7 @@ func NewDecoder(cfg DecoderConfig) (*Decoder, error) {
 		scratchFrame48:    make([]float32, scratchFrame48Samples*cfg.Channels),
 		scratchTransition: make([]float32, transitionSamples*cfg.Channels),
 		scratchRedundant:  make([]float32, transitionSamples*cfg.Channels),
+		scratchSilkPLC:    make([]float32, maxPacketSamples*cfg.Channels),
 		lastFrameSize:     int32(internalRate / 50), // Default 20ms at the internal rate
 		prevMode:          ModeHybrid,               // Default for PLC until first decode
 		lastPacketMode:    ModeHybrid,

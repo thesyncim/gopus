@@ -938,6 +938,25 @@ func BandwidthFromOpus(opusBandwidth int) (Bandwidth, bool) {
 
 // decodePLC generates concealment audio for a lost mono packet.
 func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
+	output := make([]float32, frameSizeSamples)
+	n, err := d.DecodePLCInto(bandwidth, frameSizeSamples, output)
+	if err != nil {
+		return nil, err
+	}
+	return output[:n], nil
+}
+
+// DecodePLCInto generates mono SILK concealment audio for a lost packet and
+// writes the resampled API-rate PCM into output. It is the zero-allocation
+// counterpart of decodePLC: the caller owns the destination buffer, which must
+// hold at least frameSizeSamples samples. Returns the number of samples written.
+func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, output []float32) (int, error) {
+	if bandwidth > BandwidthWideband {
+		return 0, ErrInvalidBandwidth
+	}
+	if len(output) < frameSizeSamples {
+		return 0, ErrDecodeFailed
+	}
 	// Get fade factor for this loss
 	fadeFactor := d.plcState.RecordLoss()
 	// Match libopus silk_PLC_conceal() input cadence: use decoder-state lossCnt.
@@ -1029,7 +1048,7 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	framesPerPacket, nbSubfr, err := frameParams(duration)
 	if err != nil || framesPerPacket <= 0 {
 		resampler := d.GetResampler(bandwidth)
-		return resampler.Process(d.BuildMonoResamplerInput(concealed)), nil
+		return resampler.ProcessInto(d.BuildMonoResamplerInput(concealed), output), nil
 	}
 	frameLength := nbSubfr * subFrameLengthMs * config.SampleRate / 1000
 	if frameLength <= 0 || frameLength*framesPerPacket != len(concealed) {
@@ -1037,7 +1056,6 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 	}
 
 	resampler := d.GetResampler(bandwidth)
-	output := make([]float32, frameSizeSamples)
 	outputOffset := 0
 	for f := 0; f < framesPerPacket; f++ {
 		start := f * frameLength
@@ -1056,7 +1074,7 @@ func (d *Decoder) decodePLC(bandwidth Bandwidth, frameSizeSamples int) ([]float3
 		outputOffset += resampler.ProcessInto(resamplerInput, output[outputOffset:])
 	}
 
-	return output[:outputOffset], nil
+	return outputOffset, nil
 }
 
 // RecordPLCLossMono records a mono SILK PLC loss event for glue-frame tracking.
@@ -1222,6 +1240,26 @@ func (d *Decoder) syncLegacyPLCState(st *decoderState, recent []int16) {
 
 // decodePLCStereo generates concealment audio for a lost stereo packet.
 func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]float32, error) {
+	output := make([]float32, frameSizeSamples*2)
+	n, err := d.DecodePLCStereoInto(bandwidth, frameSizeSamples, output)
+	if err != nil {
+		return nil, err
+	}
+	return output[:n], nil
+}
+
+// DecodePLCStereoInto generates stereo SILK concealment audio for a lost packet
+// and writes the interleaved [L0,R0,L1,R1,...] API-rate PCM into output. It is
+// the zero-allocation counterpart of decodePLCStereo: the caller owns the
+// destination buffer, which must hold at least 2*frameSizeSamples samples.
+// Returns the number of interleaved samples written.
+func (d *Decoder) DecodePLCStereoInto(bandwidth Bandwidth, frameSizeSamples int, output []float32) (int, error) {
+	if bandwidth > BandwidthWideband {
+		return 0, ErrInvalidBandwidth
+	}
+	if len(output) < frameSizeSamples*2 {
+		return 0, ErrDecodeFailed
+	}
 	// Get fade factor for this loss
 	fadeFactor := d.plcState.RecordLoss()
 	// Match libopus silk_PLC_conceal() input cadence: use decoder-state lossCnt.
@@ -1235,8 +1273,8 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	// back to left/right through silk_stereo_MS_to_LR before resampling.
 	// Our decoder states 0/1 track mid/side, not left/right.
 	hasSide := d.prevDecodeOnlyMiddle == 0
-	mid := make([]float32, nativeSamples)
-	side := make([]float32, nativeSamples)
+	mid := d.plcStereoFloatScratch(&d.plcMidNative, nativeSamples)
+	side := d.plcStereoFloatScratch(&d.plcSideNative, nativeSamples)
 
 	midState := d.ensureSILKPLCState(0)
 	sideState := d.ensureSILKPLCState(1)
@@ -1301,22 +1339,28 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 	}
 
 	// Convert concealed mid/side to left/right using the saved stereo predictor.
-	midFrame := make([]int16, nativeSamples+2)
-	sideFrame := make([]int16, nativeSamples+2)
+	midFrame, sideFrame, ok := d.stereoFrameScratch(nativeSamples)
+	if !ok {
+		midFrame = make([]int16, nativeSamples+2)
+		sideFrame = make([]int16, nativeSamples+2)
+	}
+	clear(midFrame[:nativeSamples+2])
+	clear(sideFrame[:nativeSamples+2])
 	for i := 0; i < nativeSamples; i++ {
 		midFrame[i+2] = float32ToInt16(mid[i])
 		if hasSide {
 			sideFrame[i+2] = float32ToInt16(side[i])
 		}
 	}
-	predQ13 := []int32{int32(d.stereo.predPrevQ13[0]), int32(d.stereo.predPrevQ13[1])}
-	silkStereoMSToLR(&d.stereo, midFrame, sideFrame, predQ13, config.SampleRate/1000, nativeSamples)
+	d.plcPredQ13[0] = int32(d.stereo.predPrevQ13[0])
+	d.plcPredQ13[1] = int32(d.stereo.predPrevQ13[1])
+	silkStereoMSToLR(&d.stereo, midFrame, sideFrame, d.plcPredQ13[:], config.SampleRate/1000, nativeSamples)
 
 	// Resample left/right channels to API rate.
 	leftResampler := d.GetResamplerForChannel(bandwidth, 0)
 	rightResampler := d.GetResamplerForChannel(bandwidth, 1)
-	leftUp := make([]float32, frameSizeSamples)
-	rightUp := make([]float32, frameSizeSamples)
+	leftUp := d.plcStereoFloatScratch(&d.plcLeftUp, frameSizeSamples)
+	rightUp := d.plcStereoFloatScratch(&d.plcRightUp, frameSizeSamples)
 	nLeft := leftResampler.ProcessInt16Into(midFrame[1:nativeSamples+1], leftUp)
 	nRight := rightResampler.ProcessInt16Into(sideFrame[1:nativeSamples+1], rightUp)
 	if nRight < nLeft {
@@ -1326,13 +1370,28 @@ func (d *Decoder) decodePLCStereo(bandwidth Bandwidth, frameSizeSamples int) ([]
 		nLeft = 0
 	}
 
-	output := make([]float32, nLeft*2)
 	for i := 0; i < nLeft; i++ {
 		output[i*2] = leftUp[i]
 		output[i*2+1] = rightUp[i]
 	}
 
-	return output, nil
+	return nLeft * 2, nil
+}
+
+// plcStereoFloatScratch returns a zeroed slice of length n backed by *buf,
+// growing the backing buffer if necessary. The clear matches the freshly
+// allocated make([]float32, n) the PLC path previously used so concealment
+// output that only partially fills the buffer keeps the libopus zero tail.
+func (d *Decoder) plcStereoFloatScratch(buf *[]float32, n int) []float32 {
+	if n < 0 {
+		n = 0
+	}
+	if cap(*buf) < n {
+		*buf = make([]float32, n)
+	}
+	s := (*buf)[:n]
+	clear(s)
+	return s
 }
 
 func float32ToInt16(v float32) int16 {

@@ -546,14 +546,21 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 			d.prepareStereoTransition(packetStereoLocal, silkBW)
 			switch {
 			case packetStereoLocal && channels == 2:
-				var silkOut []float32
-				silkOut, err = d.silkDecoder.DecodeStereo(nil, silkBW, silkDecodeSize, true)
+				// Zero-allocation stereo SILK PLC: conceal interleaved L/R into
+				// decoder-owned scratch (sized once at NewDecoder) and copy the
+				// requested frame into out.
+				if cap(d.scratchSilkPLC) < silkDecodeSize*channels {
+					d.scratchSilkPLC = make([]float32, silkDecodeSize*channels)
+				}
+				plcBuf := d.scratchSilkPLC[:silkDecodeSize*channels]
+				var n int
+				n, err = d.silkDecoder.DecodePLCStereoInto(silkBW, silkDecodeSize, plcBuf)
 				if err == nil {
-					silkSamples = len(silkOut) / channels
+					silkSamples = n / channels
 					if frameSize < silkDecodeSize {
 						silkSamples = frameSize
 					}
-					copyFloat32(out, silkOut[:silkSamples*channels])
+					copyFloat32(out, plcBuf[:silkSamples*channels])
 				}
 			case packetStereoLocal && channels == 1:
 				var silkOut []float32
@@ -576,14 +583,20 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 					copyFloat32(out, silkOut[:silkSamples*channels])
 				}
 			default:
-				var silkOut []float32
-				silkOut, err = d.silkDecoder.Decode(nil, silkBW, silkDecodeSize, true)
+				// Zero-allocation mono SILK PLC: conceal into decoder-owned scratch
+				// (sized once at NewDecoder) and copy the requested frame into out.
+				if cap(d.scratchSilkPLC) < silkDecodeSize {
+					d.scratchSilkPLC = make([]float32, silkDecodeSize)
+				}
+				plcBuf := d.scratchSilkPLC[:silkDecodeSize]
+				var n int
+				n, err = d.silkDecoder.DecodePLCInto(silkBW, silkDecodeSize, plcBuf)
 				if err == nil {
-					silkSamples = len(silkOut) / channels
+					silkSamples = n / channels
 					if frameSize < silkDecodeSize {
 						silkSamples = frameSize
 					}
-					copyFloat32(out, silkOut[:silkSamples*channels])
+					copyFloat32(out, plcBuf[:silkSamples*channels])
 				}
 			}
 		}

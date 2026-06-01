@@ -130,7 +130,15 @@ func (d *Decoder) plcDecoderView(channel int) *silkPLCChannelView {
 	if channel < 0 || channel >= len(d.state) {
 		return nil
 	}
-	return &silkPLCChannelView{d: d, ch: channel}
+	// The view only wraps the decoder and an immutable channel index, so it is
+	// cached per channel to keep the PLC concealment path allocation-free.
+	if channel >= len(d.plcViews) {
+		return &silkPLCChannelView{d: d, ch: channel}
+	}
+	if d.plcViews[channel] == nil {
+		d.plcViews[channel] = &silkPLCChannelView{d: d, ch: channel}
+	}
+	return d.plcViews[channel]
 }
 
 func (v *silkPLCChannelView) state() *decoderState {
