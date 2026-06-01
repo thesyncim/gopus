@@ -29,7 +29,15 @@ func roundUpShellFrame(length int) int {
 	return (length + shellCodecFrameLength - 1) & ^(shellCodecFrameLength - 1)
 }
 
-func decodeVADAndLBRRFlags(rd *rangecoding.Decoder, st *decoderState, framesPerPacket int) {
+// decodeVADFlagsAndLBRRFlag decodes one channel's VAD flags and its single
+// LBRR-present flag. This is libopus dec_API.c's first flag-decode loop. The
+// per-frame LBRR_flags symbol is NOT decoded here: libopus decodes every
+// channel's (VAD + LBRR flag) for the whole packet before decoding any LBRR
+// symbol, so stereo callers must run this phase for both channels first, then
+// decodeLBRRFlagsSymbol for both. Decoding them together would interleave the
+// side channel's flags with the mid channel's LBRR symbol and desync the range
+// decoder on stereo LBRR packets.
+func decodeVADFlagsAndLBRRFlag(rd *rangecoding.Decoder, st *decoderState, framesPerPacket int) {
 	for i := range st.VADFlags {
 		st.VADFlags[i] = 0
 	}
@@ -40,16 +48,32 @@ func decodeVADAndLBRRFlags(rd *rangecoding.Decoder, st *decoderState, framesPerP
 		st.VADFlags[i] = int32(rd.DecodeBit(1))
 	}
 	st.LBRRFlag = int32(rd.DecodeBit(1))
-	if st.LBRRFlag != 0 {
-		if framesPerPacket == 1 {
-			st.LBRRFlags[0] = 1
-		} else {
-			symbol := rd.DecodeICDF8Unchecked(silk_LBRR_flags_iCDF_ptr[framesPerPacket-2]) + 1
-			for i := 0; i < framesPerPacket; i++ {
-				st.LBRRFlags[i] = int32((symbol >> i) & 1)
-			}
-		}
+}
+
+// decodeLBRRFlagsSymbol decodes the per-frame LBRR flags symbol for one channel,
+// libopus dec_API.c's second flag-decode loop. It must be called after
+// decodeVADFlagsAndLBRRFlag has run for every channel in the packet.
+func decodeLBRRFlagsSymbol(rd *rangecoding.Decoder, st *decoderState, framesPerPacket int) {
+	if st.LBRRFlag == 0 {
+		return
 	}
+	if framesPerPacket == 1 {
+		st.LBRRFlags[0] = 1
+		return
+	}
+	symbol := rd.DecodeICDF8Unchecked(silk_LBRR_flags_iCDF_ptr[framesPerPacket-2]) + 1
+	for i := 0; i < framesPerPacket; i++ {
+		st.LBRRFlags[i] = int32((symbol >> i) & 1)
+	}
+}
+
+// decodeVADAndLBRRFlags decodes one channel's VAD flags, LBRR flag, and LBRR
+// flags symbol in a single pass. This is correct only for mono (a single
+// channel): the two flag-decode phases are adjacent there, so combining them
+// matches libopus. Stereo must use the split phases above.
+func decodeVADAndLBRRFlags(rd *rangecoding.Decoder, st *decoderState, framesPerPacket int) {
+	decodeVADFlagsAndLBRRFlag(rd, st, framesPerPacket)
+	decodeLBRRFlagsSymbol(rd, st, framesPerPacket)
 }
 
 func resetSideChannelState(st *decoderState) {

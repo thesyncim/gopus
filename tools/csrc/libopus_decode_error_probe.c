@@ -8,7 +8,7 @@
  * -----------
  * Input (stdin):
  *   magic[4]       "GDEI"
- *   version        u32 = 1
+ *   version        u32 = 1 or 2
  *   channels       u32 (1 or 2)
  *   sample_rate    u32 (8000/12000/16000/24000/48000)
  *   count          u32  -- number of probe cases
@@ -21,10 +21,17 @@
  *
  * Output (stdout):
  *   magic[4]       "GDEO"
- *   version        u32 = 1
+ *   version        u32 = 1 or 2 (echoes input version)
  *   count          u32
  *   For each case:
  *     error_code   i32   (negative libopus error, or positive sample count on success)
+ *     -- version 2 only, additionally emits the decoded PCM on success:
+ *     pcm_bytes    u32   (number of raw PCM bytes that follow; 0 when error_code<=0)
+ *     pcm[pcm_bytes] raw little-endian samples (float32 / int16 / int32)
+ *
+ * Each probe case is decoded through a FRESH decoder so packet results are
+ * independent and reproducible (no cross-case state leak). This makes the
+ * helper a per-packet differential oracle for fuzzing.
  */
 
 #include <stdint.h>
@@ -92,7 +99,7 @@ int main(void) {
   if (!read_exact(magic, 4) || memcmp(magic, INPUT_MAGIC, 4) != 0) {
     fprintf(stderr, "bad input magic\n"); return 1;
   }
-  if (!read_u32(&version) || version != 1) {
+  if (!read_u32(&version) || (version != 1 && version != 2)) {
     fprintf(stderr, "bad version\n"); return 1;
   }
   if (!read_u32(&channels) || channels < 1 || channels > 2) {
@@ -110,8 +117,8 @@ int main(void) {
     fprintf(stderr, "opus_decoder_create failed: %d\n", err); return 1;
   }
 
-  /* --- write output header --- */
-  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(1) || !write_u32(count)) {
+  /* --- write output header (echo input version) --- */
+  if (!write_exact(OUTPUT_MAGIC, 4) || !write_u32(version) || !write_u32(count)) {
     fprintf(stderr, "write header failed\n");
     opus_decoder_destroy(dec);
     return 1;
@@ -154,6 +161,9 @@ int main(void) {
       /* Allocate a generously-sized PCM buffer */
       int buf_samples = frame_size > 0 ? frame_size : 5760;
       int total = buf_samples * (int)channels;
+      size_t item_size = sample_format == SAMPLE_FORMAT_INT16 ? sizeof(opus_int16) :
+                         sample_format == SAMPLE_FORMAT_INT24 ? sizeof(opus_int32) :
+                         sizeof(float);
       void *pcm_buf = calloc((size_t)total, 4); /* 4 bytes covers float, int16, int32 */
       if (!pcm_buf) {
         fprintf(stderr, "alloc pcm_buf case %u\n", i);
@@ -184,15 +194,30 @@ int main(void) {
                                             buf_samples,
                                             (int)decode_fec_u32);
       }
+
+      free(packet);
+
+      if (!write_i32(result)) {
+        fprintf(stderr, "write result case %u failed\n", i);
+        free(pcm_buf);
+        opus_decoder_destroy(dec);
+        return 1;
+      }
+      if (version == 2) {
+        /* Emit decoded PCM bytes on success; nothing on error. */
+        uint32_t pcm_bytes = 0;
+        if (result > 0) {
+          pcm_bytes = (uint32_t)((size_t)result * (size_t)channels * item_size);
+        }
+        if (!write_u32(pcm_bytes) ||
+            (pcm_bytes > 0 && !write_exact(pcm_buf, pcm_bytes))) {
+          fprintf(stderr, "write pcm case %u failed\n", i);
+          free(pcm_buf);
+          opus_decoder_destroy(dec);
+          return 1;
+        }
+      }
       free(pcm_buf);
-    }
-
-    free(packet);
-
-    if (!write_i32(result)) {
-      fprintf(stderr, "write result case %u failed\n", i);
-      opus_decoder_destroy(dec);
-      return 1;
     }
   }
 

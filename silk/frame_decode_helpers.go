@@ -100,8 +100,13 @@ func (d *Decoder) prepareStereoFramePacket(
 	stSide = &d.state[1]
 	initFrameDecodeState(stMid, fsKHz, framesPerPacket, nbSubfr)
 	initFrameDecodeState(stSide, fsKHz, framesPerPacket, nbSubfr)
-	decodeVADAndLBRRFlags(rd, stMid, framesPerPacket)
-	decodeVADAndLBRRFlags(rd, stSide, framesPerPacket)
+	// libopus dec_API.c decodes VAD + LBRR-present flags for BOTH channels
+	// first, then the per-frame LBRR flags symbol for both channels. The two
+	// phases must not be interleaved per channel or the range decoder desyncs.
+	decodeVADFlagsAndLBRRFlag(rd, stMid, framesPerPacket)
+	decodeVADFlagsAndLBRRFlag(rd, stSide, framesPerPacket)
+	decodeLBRRFlagsSymbol(rd, stMid, framesPerPacket)
+	decodeLBRRFlagsSymbol(rd, stSide, framesPerPacket)
 	d.skipStereoLBRRFrames(rd, stMid, stSide, framesPerPacket)
 	return stMid, stSide, framesPerPacket, int(stMid.frameLength), fsKHz, nil
 }

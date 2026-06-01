@@ -67,8 +67,12 @@ func (d *Decoder) DecodeFEC(
 	if stereo {
 		stSide := &d.state[1]
 		initFrameDecodeState(stSide, fsKHz, framesPerPacket, nbSubfr)
-		decodeVADAndLBRRFlags(&rd, stMid, framesPerPacket)
-		decodeVADAndLBRRFlags(&rd, &d.state[1], framesPerPacket)
+		// libopus order: both channels' VAD + LBRR-present flags, then both
+		// channels' per-frame LBRR flags symbol (see decodeVADFlagsAndLBRRFlag).
+		decodeVADFlagsAndLBRRFlag(&rd, stMid, framesPerPacket)
+		decodeVADFlagsAndLBRRFlag(&rd, stSide, framesPerPacket)
+		decodeLBRRFlagsSymbol(&rd, stMid, framesPerPacket)
+		decodeLBRRFlagsSymbol(&rd, stSide, framesPerPacket)
 		return d.decodeStereoFECFrames(&rd, stMid, stSide, bandwidth, framesPerPacket, frameSizeSamples, outputChannels)
 	}
 
