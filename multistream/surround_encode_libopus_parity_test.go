@@ -235,6 +235,43 @@ func TestSurroundEncodeMatchesLibopusByteExact(t *testing.T) {
 	}
 }
 
+// TestSurroundEncodeUnconstrainedVBRMatchesLibopus checks byte-exact parity for
+// surround encode in UNCONSTRAINED VBR mode (SetVBR(true) + SetVBRConstraint(false)).
+// The pre-existing surround parity tests only exercise constrained VBR
+// (vbrConstraint=true); single-stream unconstrained VBR is already byte-exact
+// (testvectors/encoder_vbr_cvbr_byte_parity_test.go), so the surround per-stream
+// path should be too. This test fills that coverage gap directly against
+// opus_multistream_surround_encoder_create + opus_multistream_encode_float.
+func TestSurroundEncodeUnconstrainedVBRMatchesLibopus(t *testing.T) {
+	libopustest.RequireOracle(t)
+
+	const (
+		sampleRate = 48000
+		frameSize  = 960
+	)
+	layouts := []struct {
+		name     string
+		channels int
+	}{
+		{"stereo", 2},
+		{"surround_5_1", 6},
+		{"surround_7_1", 8},
+	}
+	bitrates := []int{96000, 256000}
+
+	for _, layout := range layouts {
+		layout := layout
+		for _, bitrate := range bitrates {
+			bitrate := bitrate
+			name := fmt.Sprintf("%s/br%d", layout.name, bitrate)
+			t.Run(name, func(t *testing.T) {
+				// vbr=true, vbrConstraint=false → unconstrained VBR.
+				runSurroundEncodeParity(t, sampleRate, layout.channels, frameSize, 6, bitrate, 10, true, false)
+			})
+		}
+	}
+}
+
 // TestSurroundEncodeComplexityMatchesLibopus checks byte-exact parity across the
 // complexity sweep for the LFE-bearing 5.1 layout, which exercises the LFE-stream
 // rate carve-out and the surround masking allocation.
