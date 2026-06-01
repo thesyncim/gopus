@@ -157,7 +157,13 @@ func ValidateAmbisonicsFamily3(channels int) (streams, coupledStreams int, err e
 		return 0, 0, ErrProjectionOrderUnsupported
 	}
 
-	// Family 3: maximum coupling.
+	// Family 3 (projection): maximum coupling. The projection encoder pairs the
+	// post-mixing channels into stereo streams, with a trailing mono stream for
+	// an odd channel count. The mixing/demixing matrix carries the inter-channel
+	// energy.
+	// Reference: libopus src/opus_projection_encoder.c get_streams_from_channels():
+	//   streams = (channels + 1) / 2
+	//   coupled_streams = channels / 2
 	streams = (channels + 1) / 2
 	coupledStreams = channels / 2
 

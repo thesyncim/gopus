@@ -50,9 +50,19 @@ func assertNewEncoderAmbisonics(t *testing.T, family int, channels, wantStreams,
 func assertAmbisonicsPerStreamControlPolicy(t *testing.T, enc *Encoder) {
 	t.Helper()
 
+	// Mapping family 2 initializes its multistream encoder with
+	// MAPPING_TYPE_AMBISONICS, which forces every per-stream encoder to
+	// MODE_CELT_ONLY (opus_multistream_encoder.c opus_multistream_encode_native).
+	// Mapping family 3 (projection) uses MAPPING_TYPE_NONE
+	// (opus_projection_encoder.c -> opus_multistream_encoder_init), so it does NOT
+	// force CELT and lets each per-stream encoder pick its own mode.
+	forcesCELT := enc.MappingFamily() == 2
+
 	for i := 0; i < enc.Streams(); i++ {
-		if got := enc.encoders[i].Mode(); got != encpkg.ModeCELT {
-			t.Fatalf("stream %d mode = %v, want ModeCELT", i, got)
+		if forcesCELT {
+			if got := enc.encoders[i].Mode(); got != encpkg.ModeCELT {
+				t.Fatalf("stream %d mode = %v, want ModeCELT", i, got)
+			}
 		}
 		if got := enc.encoders[i].ForceChannels(); got != -1 {
 			t.Fatalf("stream %d force channels = %d, want -1", i, got)

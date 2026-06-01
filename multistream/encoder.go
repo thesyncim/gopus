@@ -598,8 +598,16 @@ func (e *Encoder) isSurroundMapping() bool {
 	return e.mappingFamily == 1 && e.inputChannels > 2
 }
 
+// isAmbisonicsMapping reports the MAPPING_TYPE_AMBISONICS behaviour: forced
+// CELT-only per-stream encoders and the ambisonics_rate_allocation() bit split.
+//
+// Only mapping family 2 takes this path. Family 3 (projection) initializes its
+// internal multistream encoder with MAPPING_TYPE_NONE
+// (opus_projection_encoder.c -> opus_multistream_encoder_init), so it uses the
+// generic surround_rate_allocation() and lets each per-stream encoder pick its
+// own mode; the projection mixing matrix carries the spatial image instead.
 func (e *Encoder) isAmbisonicsMapping() bool {
-	return e.mappingFamily == 2 || e.mappingFamily == 3
+	return e.mappingFamily == 2
 }
 
 func (e *Encoder) bitrateForAllocation(frameSize int) int {
