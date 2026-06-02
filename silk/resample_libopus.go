@@ -223,21 +223,49 @@ const resamplerMaxBatchSizeMs = 10
 const resamplerMaxFrameMs = 60
 
 // NewLibopusResampler creates a new resampler matching libopus behavior.
+//
+// This is the decoder-side constructor (forEnc=0 in silk_resampler_init): the
+// input delay comes from delay_matrix_dec and downsampling uses the decoder
+// down_FIR. For the encoder input resampler (API_fs_Hz -> fs_kHz) use
+// NewLibopusResamplerEnc, which selects delay_matrix_enc and the encoder
+// down_FIR.
 func NewLibopusResampler(fsIn, fsOut int) *LibopusResampler {
+	return newLibopusResampler(fsIn, fsOut, false)
+}
+
+// NewLibopusResamplerEnc creates the encoder-side SILK input resampler, matching
+// silk_resampler_init(..., forEnc=1): API sample rate fsIn (8/12/16/24/48/96 kHz)
+// to internal rate fsOut (8/12/16 kHz), using delay_matrix_enc and the encoder
+// down_FIR. It supports the copy (Fs_in==Fs_out), direct 2x (Fs_out==2*Fs_in),
+// IIR/FIR (other upsample) and down_FIR (downsample) paths.
+func NewLibopusResamplerEnc(fsIn, fsOut int) *LibopusResampler {
+	return newLibopusResampler(fsIn, fsOut, true)
+}
+
+func newLibopusResampler(fsIn, fsOut int, forEnc bool) *LibopusResampler {
 	r := &LibopusResampler{
 		fsInKHz:  int32(fsIn / 1000),
 		fsOutKHz: int32(fsOut / 1000),
 	}
 
-	// Delay compensation from libopus
-	inIdx := rateID(fsIn)
-	outIdx := rateID(fsOut)
-	if inIdx < 3 && outIdx < 5 {
-		r.inputDelay = int32(delayMatrixDec[inIdx][outIdx])
+	// Delay compensation from libopus (delay_matrix_enc for the encoder input
+	// resampler, delay_matrix_dec for the decoder output resampler).
+	if forEnc {
+		inIdx := rateIDEnc(fsIn)
+		outIdx := rateIDEnc(fsOut)
+		if inIdx >= 0 && inIdx < 6 && outIdx >= 0 && outIdx < 3 {
+			r.inputDelay = int32(delayMatrixEnc[inIdx][outIdx])
+		}
+	} else {
+		inIdx := rateID(fsIn)
+		outIdx := rateID(fsOut)
+		if inIdx < 3 && outIdx < 5 {
+			r.inputDelay = int32(delayMatrixDec[inIdx][outIdx])
+		}
 	}
 
 	if fsOut < fsIn {
-		r.down = newDecoderDownsamplingResampler(fsIn, fsOut)
+		r.down = newDownsamplingResampler(fsIn, fsOut, forEnc)
 		return r
 	}
 	if fsOut == fsIn {
