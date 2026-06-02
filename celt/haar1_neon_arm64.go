@@ -20,3 +20,11 @@ func haar1Stride1NEON(x []float32, n0 int)
 //
 //go:noescape
 func haar1Stride2NEON(x []float32, n0 int)
+
+// haar1Stride4NEON applies the stride==4 Hadamard butterfly to n0 per-outer
+// pairs (n0 8-element groups) in place. Each group's low four lanes butterfly
+// directly against its high four lanes, so no shuffle is needed. Same lane math
+// and bit-exactness posture as the other haar1 NEON kernels.
+//
+//go:noescape
+func haar1Stride4NEON(x []float32, n0 int)

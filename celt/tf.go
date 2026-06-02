@@ -243,6 +243,11 @@ func haar1Norm(x []celtNorm, n0, stride int) {
 			haar1Stride2NEON(x[:4*n0:4*n0], n0)
 		}
 		return
+	case 4:
+		if 8*n0 <= len(x) {
+			haar1Stride4NEON(x[:8*n0:8*n0], n0)
+		}
+		return
 	}
 	for i := 0; i < stride; i++ {
 		idx0 := i

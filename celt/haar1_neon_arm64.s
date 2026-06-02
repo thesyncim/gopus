@@ -135,3 +135,41 @@ h2_tail:
 
 h2_done:
 	RET
+
+// func haar1Stride4NEON(x []float32, n0 int)
+//
+// stride==4 case of haar1: each 8-element group {x0..x7} pairs the four low
+// lanes {x0,x1,x2,x3} with the four high lanes {x4,x5,x6,x7} (step 8 over four
+// outer passes), so it is a direct 4-lane butterfly with no shuffles:
+//   lo = c*{x0..x3} + c*{x4..x7}  -> x0..x3
+//   hi = c*{x0..x3} - c*{x4..x7}  -> x4..x7
+// where c = 1/sqrt(2). n0 is the per-outer pair count = the group count.
+//
+// Register map:
+//   R0 = x base; R1 = n0; R2 = group count
+//   V3 = invSqrt2 broadcast; V0 = lows, V1 = highs; V4 = c*lo, V5 = c*hi
+TEXT ·haar1Stride4NEON(SB), NOSPLIT, $0-32
+	MOVD x_base+0(FP), R0
+	MOVD n0+24(FP), R1
+
+	CBZ  R1, h4_done
+
+	FMOVS $0.70710678118654752440, F3
+	VDUP  V3.S[0], V3.S4
+
+	MOVD R1, R2
+
+h4_loop:
+	VLD1 (R0), [V0.S4, V1.S4]   // V0={x0..x3} V1={x4..x7}
+	WORD $0x6E23DC04           // FMUL V4.4S, V0.4S, V3.4S  (c*lo)
+	WORD $0x6E23DC25           // FMUL V5.4S, V1.4S, V3.4S  (c*hi)
+	WORD $0x4E25D486          // FADD V6.4S, V4.4S, V5.4S  (out lo)
+	WORD $0x4EA5D487         // FSUB V7.4S, V4.4S, V5.4S  (out hi)
+	VST1 [V6.S4, V7.S4], (R0)
+	ADD  $32, R0
+
+	SUBS $1, R2
+	BNE  h4_loop
+
+h4_done:
+	RET
