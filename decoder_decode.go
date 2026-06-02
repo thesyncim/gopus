@@ -560,6 +560,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		// FIXED_POINT path under -tags gopus_fixedpoint; otherwise the float PLC
 		// output is quantized without soft clip (concealed audio is never
 		// clipped), matching the default build.
+		d.fixedApplyDecodeGain(n * channels)
 		if !d.fixedInt16PLCOutput(pcm, n, channels) {
 			float32ToInt16NoSoftClip(pcm, d.scratchPCM, n, channels)
 		}
@@ -576,6 +577,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		d.fixedApplyDecodeGain(n * channels)
 		d.finishInt16Output(pcm, d.scratchPCM, n, channels)
 		return n, nil
 	}
@@ -602,6 +604,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	d.fixedApplyDecodeGain(n * channels)
 	d.finishInt16Output(pcm, d.scratchPCM, n, channels)
 	return n, nil
 }
@@ -634,6 +637,7 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		d.fixedApplyDecodeGain(n * channels)
 		if !d.fixedInt24PLCOutput(pcm, n, channels) {
 			float32ToInt24Slice(pcm, d.scratchPCM, n, channels)
 		}
@@ -650,6 +654,7 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 		if err != nil {
 			return 0, err
 		}
+		d.fixedApplyDecodeGain(n * channels)
 		d.finishInt24Output(pcm, d.scratchPCM, n, channels)
 		return n, nil
 	}
@@ -676,6 +681,7 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	d.fixedApplyDecodeGain(n * channels)
 	d.finishInt24Output(pcm, d.scratchPCM, n, channels)
 	return n, nil
 }

@@ -35,13 +35,21 @@ integer CELT codec** that is byte-/sample-exact vs FIXED_POINT, covering encode
 decode (mono/stereo, normal/transient, LM1–3, 32k–128k, sub-48k downsample,
 periodic+noise PLC).
 
+The public **DECODE** path is now integer-exact for the previously
+float-fallback cases as well: Hybrid-with-redundancy and the CELT↔SILK /
+mode-transition crossfades (`TestDecoderFixedPointHybridRedundancyTransitionParity`,
+`TestDecoderFixedPointHybridTransitionParity`,
+`TestDecoderFixedPointStereoRedundancyBothDirectionsParity`,
+`TestDecoderFixedPointStereoCELTTransitionParity`), CELT-burst PLC
+(`TestDecoderFixedPointCELTPLCParity`, `TestDecoderFixedPointStereoCELTRecoveryParity`,
+`TestDecoderFixedPointStereoLongPLCChurnParity`), and a non-zero decode gain
+(`TestDecoderFixedPointDecodeGainParity`): the FIXED_POINT decode-gain stage
+(`celt_exp2(MULT16_16_P15(QCONST16(6.48814081e-4f,25), decode_gain))` ->
+`MULT32_32_Q16` -> `SATURATE`) is applied to the integer opus_res accumulation
+(`fixedpoint.DecodeGainQ16` / `ApplyDecodeGainRes`).
+
 **Remaining (partial):**
 
-- Opus-level decode fallbacks: the public `DecodeInt16`/`DecodeInt24` wrappers
-  still drop to the float conversion (rather than the integer path) for
-  Hybrid-with-redundancy, CELT↔SILK / mode-transition crossfades, CELT-burst PLC,
-  and a non-zero decode gain. Output is correct (float) but not the integer-exact
-  bytes for those packets.
 - Encode-frame glue: the SILK `silk_encode_frame` driver, and CELT
   hybrid(start>0)/LFE/surround/QEXT encode.
 

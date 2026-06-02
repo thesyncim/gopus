@@ -49,6 +49,7 @@ func (d *Decoder) beginFixedPacket()          {}
 func (d *Decoder) endFixedPacket()            {}
 func (d *Decoder) markFixedUnhandled()        {}
 func (d *Decoder) fixedInt16Ready(_ int) bool { return false }
+func (d *Decoder) fixedApplyDecodeGain(_ int) {}
 
 // finishInt16Output / finishInt24Output always use the shared float conversion
 // in the default build.

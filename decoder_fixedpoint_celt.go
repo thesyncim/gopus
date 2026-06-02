@@ -514,20 +514,38 @@ func (d *Decoder) DecodeHybridHighband(silkInt16 []int16, filled int, rd *rangec
 // DecodeInt16 / DecodeInt24 wrappers. It must be paired with a read of
 // fixedAllHandled / fixedInt16 / fixedRes after the float decode completes.
 func (d *Decoder) beginFixedPacket() {
-	// A non-zero decode gain is applied to the float output only; the integer
-	// path does not reimplement the FIXED_POINT gain stage, so decline the
-	// direct accumulation and let the float conversion handle these packets.
-	if d.decodeGainQ8 != 0 {
-		d.fixedPacketActive = false
-		d.fixedAllHandled = false
-		return
-	}
 	d.fixedPacketActive = true
 	d.fixedAllHandled = true
 	d.fixedCursor = 0
 	d.fixedInt16 = d.fixedInt16[:0]
 	d.fixedRes = d.fixedRes[:0]
 	d.fixedHybridFrameActive = false
+}
+
+// fixedApplyDecodeGain applies the FIXED_POINT decode-gain stage to the integer
+// accumulation of the just-decoded packet, mirroring opus_decode_frame
+// (st->decode_gain != 0): x = MULT32_32_Q16(pcm[i], gain); pcm[i] =
+// SATURATE(x, 32767), with gain = celt_exp2(MULT16_16_P15(QCONST16(6.48814081e-4f,
+// 25), st->decode_gain)). It runs on the accumulated opus_res buffer (the
+// FIXED_POINT pcm is opus_res) and re-derives the int16 view, so the int16/int24
+// wrappers read the gained, integer-exact output. It is a no-op when no integer
+// frame was accumulated or the gain is zero.
+//
+// libopus applies the gain per opus_decode_frame on frame_size*channels samples;
+// the gain is a constant and SATURATE is per-sample, so applying it once over the
+// whole packet's accumulation is identical.
+func (d *Decoder) fixedApplyDecodeGain(needed int) {
+	if d.decodeGainQ8 == 0 {
+		return
+	}
+	if !d.fixedInt16Ready(needed) || len(d.fixedRes) < needed {
+		return
+	}
+	gain := fixedpoint.DecodeGainQ16(d.decodeGainQ8)
+	fixedpoint.ApplyDecodeGainRes(d.fixedRes[:needed], gain)
+	for i := 0; i < needed; i++ {
+		d.fixedInt16[i] = fixedpoint.Res2Int16(d.fixedRes[i])
+	}
 }
 
 // fixedClearHybridFrame clears the per-frame integer hybrid flags after a frame's
