@@ -2,7 +2,6 @@ package gopus
 
 import (
 	"math"
-	"runtime"
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
@@ -110,15 +109,14 @@ func TestSILKLowBitrateDTXConcealmentSharedPathParity(t *testing.T) {
 			}
 
 			// Finding (1) HARD assertion: every ACTIVE frame strictly before the
-			// first concealment frame must be bit-exact (per-arch float budget),
-			// and its per-packet final range bit-identical.
-			activeTol := float32(0)
-			if runtime.GOARCH != "amd64" {
-				// Documented darwin/arm64 ≤few-LSB CELT/Hybrid FMA budget; SILK is
-				// integer so this is normally 0, but keep the same budget the rest
-				// of the suite uses for the shared float path.
-				activeTol = 4.0 / 32768.0
-			}
+			// first concealment frame must be bit-exact, and its per-packet final
+			// range bit-identical. The whole path here — SILK active decode, the
+			// silk_PLC_conceal synthesis, and the native->API-rate resampler — is
+			// integer Q-domain (no CELT/Hybrid float FMA), so it is bit-reproducible
+			// on every architecture, including darwin/arm64. The tolerance is
+			// therefore a strict 0 on all arches, not the few-LSB FMA budget the
+			// shared float path carries.
+			const activeTol = float32(0)
 			activeLimit := firstPLC * frameSize * c.channels
 			var worstActive float32
 			for i := 0; i < activeLimit; i++ {
@@ -152,9 +150,10 @@ func TestSILKLowBitrateDTXConcealmentSharedPathParity(t *testing.T) {
 
 			// Finding (2) HARD assertion: the concealment synthesis and every
 			// active frame that follows it are bit-exact vs the libopus float
-			// oracle (per-arch budget). The SILK PLC path is integer Q-domain, so
-			// the concealed frame and the recovered active frames must match
-			// sample-for-sample once the PLC runs at the frame's true LPC order.
+			// oracle. The SILK PLC path is integer Q-domain, so the concealed frame
+			// and the recovered active frames match the oracle sample-for-sample
+			// (strict 0, every architecture) once the PLC runs at the frame's true
+			// LPC order.
 			var worstFull float32
 			worstIdx := 0
 			for i := range gPCM {
