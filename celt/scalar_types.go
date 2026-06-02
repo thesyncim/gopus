@@ -63,17 +63,14 @@ func interleaveSigToFloat32(left, right []celtSig, dst []float32) {
 }
 
 func copyFloat32ToSig(dst []celtSig, src []float32) {
-	n := min(len(dst), len(src))
-	for i := 0; i < n; i++ {
-		dst[i] = celtSig(src[i])
-	}
+	// celtSig is float32, so this is a plain element copy; copy() lowers to a
+	// SIMD-optimized memmove instead of a scalar per-element loop.
+	copy(dst, src)
 }
 
 func copySigToFloat32(dst []float32, src []celtSig) {
-	n := min(len(dst), len(src))
-	for i := 0; i < n; i++ {
-		dst[i] = float32(src[i])
-	}
+	// celtSig is float32; copy() is the memmove-backed equivalent of the cast.
+	copy(dst, src)
 }
 
 func ensureNormSlice(buf *[]celtNorm, n int) []celtNorm {

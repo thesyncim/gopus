@@ -51,10 +51,28 @@ func denormalizeBandsPackedDownsampleIntoFloat32(dst []float32, src []celtNorm, 
 			bandEnd = len(src)
 		}
 		gain := denormalizeBandGain(energies, band)
-		for ; j < bandEnd && f < len(dst); j++ {
-			dst[f] = float32(src[j]) * gain
-			f++
+		count := bandEnd - j
+		if room := len(dst) - f; count > room {
+			count = room
 		}
+		if count <= 0 {
+			if f >= len(dst) {
+				break
+			}
+			continue
+		}
+		// Low bands are only a few bins wide; their NEON call/setup cost beats the
+		// per-lane win, so keep them on the tight inline loop and vector only the
+		// wide bands. Each product is bare, so the result matches on every build.
+		if count < 8 {
+			for ; j < bandEnd && f < len(dst); j++ {
+				dst[f] = float32(src[j]) * gain
+				f++
+			}
+			continue
+		}
+		scaleFloat32IntoNEON(dst[f:f+count], src[j:j+count], gain)
+		f += count
 	}
 	if bound < len(dst) {
 		clear(dst[bound:])
