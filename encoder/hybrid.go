@@ -116,6 +116,10 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		e.ensureSILKSideEncoder()
 	}
 	e.ensureCELTEncoder()
+	// Hybrid CELT highband runs at the native API rate (SWB=24k, FB=48k); the
+	// CELT encoder upsamples sub-48k input to the 48 kHz core, matching libopus
+	// celt_encode_with_ec frame_size *= st->upsample.
+	e.celtEncoder.SetUpsample(e.celtUpsampleFactor())
 	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeHybrid))
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
@@ -634,6 +638,9 @@ func (e *Encoder) encodeCELTTransitionRedundancy(celtPCM []opusRes, frameSize, r
 	}
 
 	e.ensureCELTEncoder()
+	// The transition-redundancy CELT frame is a fixed 48 kHz-relative block, so it
+	// uses no input upsampling regardless of the API rate.
+	e.celtEncoder.SetUpsample(1)
 	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeHybrid))
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetHybrid(false)

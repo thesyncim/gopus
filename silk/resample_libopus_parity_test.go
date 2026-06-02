@@ -6,7 +6,27 @@ import (
 	"testing"
 
 	"github.com/thesyncim/gopus/internal/libopustest"
+	"github.com/thesyncim/gopus/internal/testsignal"
 )
+
+// makeSILKResamplerCorpusFrames quantizes a corpus signal to int16 (the encoder
+// pre-resample quantization) and splits it into frames, so the resampler oracle
+// exercises the exact input the encoder feeds at sub-48 kHz.
+func makeSILKResamplerCorpusFrames(class string, fs, frameSamples, frameCount int) ([][]int16, error) {
+	src, err := testsignal.GenerateCorpusSignal(class, fs, frameSamples*frameCount, 1)
+	if err != nil {
+		return nil, err
+	}
+	frames := make([][]int16, frameCount)
+	for f := 0; f < frameCount; f++ {
+		frame := make([]int16, frameSamples)
+		for i := range frame {
+			frame[i] = float32ToInt16(src[f*frameSamples+i])
+		}
+		frames[f] = frame
+	}
+	return frames, nil
+}
 
 const (
 	libopusSILKResamplerInputMagic  = "GSRI"
@@ -125,6 +145,69 @@ func TestSILKEncoderDownsamplingResamplerMatchesLibopusOracle(t *testing.T) {
 					}
 				}
 				wantOffset += frameOut
+			}
+			if wantOffset != len(want[recIdx]) {
+				t.Fatalf("checked %d output samples want %d", wantOffset, len(want[recIdx]))
+			}
+		})
+	}
+}
+
+// TestSILKEncoderUpsampleResamplerMatchesLibopusOracle covers the encoder-side
+// copy / up2 / IIR-FIR paths (silk_resampler_init forEnc=1) where API_fs <= the
+// internal fs_kHz, i.e. native sub-48 kHz SILK input at API rates at or below
+// the bandwidth's internal rate. These select delay_matrix_enc (not _dec).
+func TestSILKEncoderUpsampleResamplerMatchesLibopusOracle(t *testing.T) {
+	libopustest.RequireOracle(t)
+	records := []libopusSILKResamplerRecord{
+		{fsIn: 8000, fsOut: 8000, forEnc: true, frames: makeSILKResamplerFrames(160, 6, 0x0a0b0c0d)},   // copy
+		{fsIn: 8000, fsOut: 16000, forEnc: true, frames: makeSILKResamplerFrames(160, 6, 0x1a2b3c4d)},  // up2
+		{fsIn: 8000, fsOut: 12000, forEnc: true, frames: makeSILKResamplerFrames(160, 6, 0x2a3b4c5d)},  // IIR-FIR
+		{fsIn: 12000, fsOut: 12000, forEnc: true, frames: makeSILKResamplerFrames(240, 6, 0x3a4b5c6d)}, // copy
+		{fsIn: 12000, fsOut: 16000, forEnc: true, frames: makeSILKResamplerFrames(240, 6, 0x4a5b6c7d)}, // IIR-FIR
+		{fsIn: 16000, fsOut: 16000, forEnc: true, frames: makeSILKResamplerFrames(320, 6, 0x5a6b7c8d)}, // copy
+		{fsIn: 12000, fsOut: 16000, forEnc: true, frames: makeSILKResamplerFrames(720, 4, 0x6a7b8c9d)}, // IIR-FIR 60ms
+		{fsIn: 24000, fsOut: 8000, forEnc: true, frames: makeSILKResamplerFrames(1440, 4, 0x7a8b9cad)}, // down 60ms
+	}
+	// Exercise the resampler on the exact corpus signal + frame layout the
+	// sub-48k encode parity gate uses for the two 60 ms residual configs, so any
+	// resampler divergence on real data is caught here (not just synthetic).
+	// silk_wb_60ms_mono at API 12 kHz clamps to MB (Nyquist), so the SILK input
+	// resampler is the 12->12 copy; silk_nb_60ms_stereo at API 24 kHz is 24->8.
+	if cf, err := makeSILKResamplerCorpusFrames(testsignal.CorpusSpeechInNoiseV1, 12000, 720, 6); err == nil {
+		records = append(records, libopusSILKResamplerRecord{fsIn: 12000, fsOut: 12000, forEnc: true, frames: cf})
+	}
+	if cf, err := makeSILKResamplerCorpusFrames(testsignal.CorpusCleanSpeechV1, 24000, 1440, 6); err == nil {
+		records = append(records, libopusSILKResamplerRecord{fsIn: 24000, fsOut: 8000, forEnc: true, frames: cf})
+	}
+	want, err := probeLibopusSILKResampler(records)
+	if err != nil {
+		libopustest.HelperUnavailable(t, "silk encoder upsample resampler", err)
+	}
+
+	for recIdx, record := range records {
+		t.Run(fmt.Sprintf("%d_to_%d_%dms", record.fsIn, record.fsOut, len(record.frames[0])*1000/record.fsIn), func(t *testing.T) {
+			resampler := NewLibopusResamplerEnc(record.fsIn, record.fsOut)
+			frameOut := len(record.frames[0]) * record.fsOut / record.fsIn
+			out := make([]float32, frameOut)
+			wantOffset := 0
+			for frameIdx, frame := range record.frames {
+				n := resampler.ProcessInt16Into(frame, out)
+				if n != frameOut {
+					t.Fatalf("frame %d output samples=%d want %d", frameIdx, n, frameOut)
+				}
+				for i := 0; i < n; i++ {
+					wantSample := want[recIdx][wantOffset+i]
+					wantFloat := float32(wantSample) * (1.0 / 32768.0)
+					if math.Float32bits(out[i]) != math.Float32bits(wantFloat) {
+						t.Fatalf("frame %d sample %d got %08x(%0.10g) want %08x(%0.10g) from int16 %d",
+							frameIdx, i,
+							math.Float32bits(out[i]), out[i],
+							math.Float32bits(wantFloat), wantFloat,
+							wantSample)
+					}
+				}
+				wantOffset += n
 			}
 			if wantOffset != len(want[recIdx]) {
 				t.Fatalf("checked %d output samples want %d", wantOffset, len(want[recIdx]))

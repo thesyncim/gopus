@@ -220,16 +220,74 @@ func (e *Encoder) computeSurroundDynallocFromMask(nbBands int, out []celtGLog) (
 // 15. Finalize and return bytes
 //
 // Reference: RFC 6716 Section 4.3, libopus celt/celt_encoder.c
-func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
-	// Step 1: Validate inputs
-	if !e.validFrameSize(frameSize) {
-		return nil, ErrInvalidFrameSize
+// upsampleZeroStuff produces a core-length (apiFrameSize*upsample) interleaved
+// PCM buffer with each native sample placed at stride `upsample` and zeros
+// elsewhere, mirroring libopus celt_preemphasis() zero-stuffing (inp[i*upsample]
+// = RES2SIG(pcmp[CC*i]); OPUS_CLEAR(inp,N)). The subsequent scaling pre-emphasis
+// then matches the 48 kHz path exactly because scaling a zero stays zero.
+func (e *Encoder) upsampleZeroStuff(apiPCM []float32, apiFrameSize, channels, upsample int) []float32 {
+	core := apiFrameSize * upsample
+	buf := ensureFloat32Slice(&e.scratch.upsampleStuff, core*channels)[:core*channels]
+	for i := range buf {
+		buf[i] = 0
 	}
+	for i := 0; i < apiFrameSize; i++ {
+		dst := i * upsample * channels
+		src := i * channels
+		for c := 0; c < channels; c++ {
+			buf[dst+c] = apiPCM[src+c]
+		}
+	}
+	return buf
+}
 
+// applyUpsampleMDCTScaling mirrors libopus compute_mdcts() upsample post-step:
+// for upsample != 1 it scales the lower B*N/upsample MDCT bins by upsample and
+// zeros the upper bins (removing the spectral images created by zero-stuffing).
+// coeffs holds one channel's B*N bins (length == core frameSize).
+func applyUpsampleMDCTScaling(coeffs []float32, upsample int) {
+	if upsample <= 1 || len(coeffs) == 0 {
+		return
+	}
+	bound := len(coeffs) / upsample
+	up := float32(upsample)
+	for i := 0; i < bound; i++ {
+		coeffs[i] *= up
+	}
+	for i := bound; i < len(coeffs); i++ {
+		coeffs[i] = 0
+	}
+}
+
+func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 	channels := int(e.channels)
-	expectedLen := frameSize * channels
-	if len(pcm) != expectedLen {
-		return nil, ErrInvalidInputLength
+
+	// At sub-48 kHz API rates the caller passes a native-Fs frame size and
+	// native-length PCM; the CELT core block is frameSize*upsample (libopus
+	// celt_encode_with_ec frame_size *= st->upsample). The input is zero-stuffed
+	// to the core size in pre-emphasis below. At 48 kHz upsample==1 so this is the
+	// identity and the frame size / input length checks are unchanged.
+	upsample := e.effectiveUpsample()
+	apiFrameSize := frameSize
+	apiPCM := pcm
+	if upsample > 1 {
+		core := frameSize * upsample
+		if !e.validFrameSize(core) {
+			return nil, ErrInvalidFrameSize
+		}
+		if len(pcm) != apiFrameSize*channels {
+			return nil, ErrInvalidInputLength
+		}
+		frameSize = core
+		pcm = e.upsampleZeroStuff(apiPCM, apiFrameSize, channels, upsample)
+	} else {
+		// Step 1: Validate inputs
+		if !e.validFrameSize(frameSize) {
+			return nil, ErrInvalidFrameSize
+		}
+		if len(pcm) != frameSize*channels {
+			return nil, ErrInvalidInputLength
+		}
 	}
 
 	// Step 2: Get mode configuration
@@ -457,6 +515,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			hist = hist[:overlap]
 			copy(hist, mdctPrevL[:overlap])
 			mdctLong := computeMDCTWithHistoryScratchOverlap(preemph, hist, 1, overlap, &e.scratch)
+			applyUpsampleMDCTScaling(mdctLong, upsample)
 			// Use bandLogE2 scratch buffer to avoid aliasing with energies
 			bandLogE2 = ensureGLogSlice(&e.scratch.bandLogE2, nbBands*codedChannels)
 			e.computeBandEnergiesGLogActive(mdctLong, nbBands, frameSize, codedChannels, 1<<lm, bandLogE2)
@@ -479,6 +538,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 			copy(rightHist, mdctPrevR[:overlap])
 			mdctLeftLong := computeMDCTWithHistoryScratchStereoLOverlap(left, leftHist, 1, overlap, &e.scratch)
 			mdctRightLong := computeMDCTWithHistoryScratchStereoROverlap(right, rightHist, 1, overlap, &e.scratch)
+			applyUpsampleMDCTScaling(mdctLeftLong, upsample)
+			applyUpsampleMDCTScaling(mdctRightLong, upsample)
 			mdctLong := e.scratch.mdctCoeffsF32
 			if codedChannels == 1 {
 				mdctLong = foldStereoMDCTToMonoF32(mdctLong, mdctLeftLong, mdctRightLong)
@@ -512,6 +573,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		hist = hist[:overlap]
 		copy(hist, mdctPrevL[:overlap])
 		mdctCoeffs = computeMDCTWithHistoryScratchOverlap(preemph, hist, shortBlocks, overlap, &e.scratch)
+		applyUpsampleMDCTScaling(mdctCoeffs, upsample)
 	} else {
 		// Stereo: MDCT Left and Right directly - use scratch buffers
 		left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
@@ -525,6 +587,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 		// Use overlap-aware MDCT for both channels with scratch buffers
 		mdctLeft = computeMDCTWithHistoryScratchStereoLOverlap(left, leftHistory, shortBlocks, overlap, &e.scratch)
 		mdctRight = computeMDCTWithHistoryScratchStereoROverlap(right, rightHistory, shortBlocks, overlap, &e.scratch)
+		applyUpsampleMDCTScaling(mdctLeft, upsample)
+		applyUpsampleMDCTScaling(mdctRight, upsample)
 
 		mdctCoeffs = e.scratch.mdctCoeffsF32
 		if codedChannels == 1 {
@@ -577,6 +641,7 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 				hist = hist[:overlap]
 				copy(hist, mdctPrevL[:overlap])
 				mdctCoeffs = computeMDCTWithHistoryScratchOverlap(preemph, hist, shortBlocks, overlap, &e.scratch)
+				applyUpsampleMDCTScaling(mdctCoeffs, upsample)
 			} else {
 				// For stereo, recompute both channels - use scratch buffers
 				left, right := deinterleaveStereoScratchF32(preemph, &e.scratch.deintLeft, &e.scratch.deintRight)
@@ -596,6 +661,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, frameSize int) ([]byte, error) {
 				copy(rightHist, mdctPrevR[:overlap])
 				mdctLeft = computeMDCTWithHistoryScratchStereoLOverlap(left, leftHist, shortBlocks, overlap, &e.scratch)
 				mdctRight = computeMDCTWithHistoryScratchStereoROverlap(right, rightHist, shortBlocks, overlap, &e.scratch)
+				applyUpsampleMDCTScaling(mdctLeft, upsample)
+				applyUpsampleMDCTScaling(mdctRight, upsample)
 				mdctCoeffs = e.scratch.mdctCoeffsF32
 				if codedChannels == 1 {
 					mdctCoeffs = foldStereoMDCTToMonoF32(mdctCoeffs, mdctLeft, mdctRight)

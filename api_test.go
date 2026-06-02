@@ -312,8 +312,9 @@ func TestRoundTrip_AllSampleRates(t *testing.T) {
 				t.Fatalf("NewDecoder(%d) error: %v", sampleRate, err)
 			}
 
-			// Frame size at 48kHz is 960 (20ms), scale for other rates
-			frameSize := 960 // Opus frame size is always specified at 48kHz
+			// Opus frame size is in native-Fs samples (opus_encode(Fs)):
+			// 20 ms = Fs/50.
+			frameSize := sampleRate / 50
 
 			pcmIn := generateSineWaveFloat32(sampleRate, 440, frameSize, 1)
 

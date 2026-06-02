@@ -33,6 +33,12 @@ type Encoder struct {
 	sampleRate     int32         // Always 48000
 	lsbDepth       int32         // Input LSB depth (8-24 bits)
 	bandwidth      CELTBandwidth // Active bandwidth cap (NB..FB)
+	// upsample mirrors libopus CELTEncoder.upsample = resampling_factor(Fs):
+	// 1 at 48 kHz, 2/3/4/6 at 24/16/12/8 kHz. EncodeFrame multiplies the API-rate
+	// frame size by upsample to the 48 kHz core block and zero-stuffs the input in
+	// pre-emphasis (celt_encode_with_ec frame_size *= st->upsample; celt_preemphasis
+	// with Nu = N/upsample). 0/1 both mean no upsampling.
+	upsample int32
 
 	// Energy state (persists across frames, mirrors decoder)
 	prevEnergy  []celtGLog // Previous frame band energies [MaxBands * channels]
@@ -915,6 +921,26 @@ func (e *Encoder) SetBandwidth(bw CELTBandwidth) {
 	e.bandwidth = bw
 }
 
+// SetUpsample sets the CELT input upsample factor, mirroring libopus
+// CELTEncoder.upsample = resampling_factor(Fs). At sub-48 kHz API rates the
+// encoder consumes native-Fs frame sizes and the CELT core block is
+// frameSize*upsample (the input is zero-stuffed in pre-emphasis). Factor 1 (or
+// 0) is the 48 kHz path.
+func (e *Encoder) SetUpsample(factor int) {
+	if factor < 1 {
+		factor = 1
+	}
+	e.upsample = int32(factor)
+}
+
+// effectiveUpsample returns the CELT input upsample factor (>=1).
+func (e *Encoder) effectiveUpsample() int {
+	if e.upsample <= 0 {
+		return 1
+	}
+	return int(e.upsample)
+}
+
 // Bandwidth returns the active CELT bandwidth cap.
 func (e *Encoder) Bandwidth() CELTBandwidth {
 	return e.bandwidth
@@ -1182,6 +1208,9 @@ type encoderScratch struct {
 
 	// Pre-emphasized signal buffer
 	preemph []float32
+
+	// Sub-48 kHz API-rate zero-stuffed core input (frameSize*upsample).
+	upsampleStuff []float32
 
 	// Transient analysis input buffer (overlap + frame)
 	transientInput []float32

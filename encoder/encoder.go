@@ -2210,7 +2210,7 @@ func (e *Encoder) runSilkTransitionPrefill(prefill []opusRes, preserveLP bool, c
 	quantizeFloat32ToInt16LibopusInPlace(pcm32)
 
 	silkIn := pcm32
-	if targetRate != int(e.sampleRate) {
+	{
 		targetSamples := prefillFrameSize * targetRate / int(e.sampleRate)
 		if targetSamples <= 0 {
 			return
@@ -2259,7 +2259,7 @@ func (e *Encoder) runSilkStereoTransitionPrefill(prefill []opusRes, prefillFrame
 	quantizeFloat32ToInt16LibopusInPlace(left)
 	quantizeFloat32ToInt16LibopusInPlace(right)
 
-	if targetRate != int(e.sampleRate) {
+	{
 		targetSamples := prefillFrameSize * targetRate / int(e.sampleRate)
 		if targetSamples <= 0 {
 			return
@@ -2844,9 +2844,10 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 
 	cfg := silk.GetBandwidthConfig(e.silkBandwidth())
 	targetRate := cfg.SampleRate
-	if targetRate != int(e.sampleRate) {
-		e.ensureSILKResampler(targetRate)
-	}
+	// libopus always runs the SILK input resampler (silk_resampler), even when
+	// API_fs == fs_kHz (it applies the inputDelay via the copy path), so the
+	// resampler runs unconditionally.
+	e.ensureSILKResampler(targetRate)
 	targetSamples := frameSize * targetRate / int(e.sampleRate)
 	if targetSamples <= 0 {
 		targetSamples = len(pcm32)
@@ -2905,7 +2906,7 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 		quantizeFloat32ToInt16LibopusInPlace(right)
 		quantizeFloat32ToInt16LibopusInPlace(leftLookahead)
 		quantizeFloat32ToInt16LibopusInPlace(rightLookahead)
-		if targetRate != int(e.sampleRate) {
+		{
 			leftOut := e.ensureSilkResampled(targetSamples)
 			rightOut := e.ensureSilkResampledR(targetSamples)
 			nL := e.silkResampler.ProcessInto(left, leftOut)
@@ -2960,7 +2961,7 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 		}
 	}
 	var lookaheadOut []float32
-	if targetRate != int(e.sampleRate) {
+	{
 		out := e.ensureSilkResampled(targetSamples)
 		n := e.silkResampler.ProcessInto(pcm32, out)
 		if e.channels == 2 && internalChannels == 1 && e.prevChannels == 2 && e.silkResamplerRight != nil {
@@ -2985,8 +2986,6 @@ func (e *Encoder) encodeSILKFrameWithDREDAndMax(pcm []opusRes, lookahead []opusR
 			e.silkResampler.ProcessInto(lookahead32, lookaheadOut)
 			e.silkResampler.SetState(state)
 		}
-	} else {
-		lookaheadOut = lookahead32
 	}
 	// Match libopus mono SILK buffering path (enc_API.c):
 	// mono internal channels use sStereo.sMid history across frames.
@@ -3130,6 +3129,9 @@ func (e *Encoder) celtDREDPayloadCap(maxPayloadBytes, dredBitrate, frameSize int
 
 func (e *Encoder) encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm []opusRes, frameSize int, bitrate int, maxPayloadBytes int, dredBitrate int) ([]byte, error) {
 	e.ensureCELTEncoder()
+	// CELT-only consumes native-Fs frame sizes; the float CELT encoder upsamples
+	// to the 48 kHz core (libopus celt_encode_with_ec frame_size *= st->upsample).
+	e.celtEncoder.SetUpsample(e.celtUpsampleFactor())
 	e.syncQEXTToCELT()
 	e.syncCELTAnalysisToCELT()
 	e.celtEncoder.SetStreamChannels(e.celtInternalChannelsForMode(ModeCELT))
@@ -4086,6 +4088,24 @@ func (e *Encoder) ensureSilkResampledR(size int) []float32 {
 }
 
 // ensureCELTEncoder creates the CELT encoder if it doesn't exist.
+// celtUpsampleFactor mirrors libopus resampling_factor(Fs): the CELT input
+// upsample factor for the native API rate (1 at 48 kHz, 2/3/4/6 at
+// 24/16/12/8 kHz). The float CELT encoder consumes native-Fs frame sizes and
+// upsamples to the 48 kHz core internally.
+func (e *Encoder) celtUpsampleFactor() int {
+	switch e.sampleRate {
+	case 24000:
+		return 2
+	case 16000:
+		return 3
+	case 12000:
+		return 4
+	case 8000:
+		return 6
+	}
+	return 1
+}
+
 func (e *Encoder) ensureCELTEncoder() {
 	if e.celtEncoder == nil {
 		e.celtEncoder = celt.NewEncoder(int(e.channels))
@@ -4107,6 +4127,10 @@ func (e *Encoder) ensureCELTEncoder() {
 	e.celtEncoder.SetStreamChannels(int(e.streamChannels))
 	e.celtEncoder.SetBandwidth(celtBandwidthFromTypes(e.effectiveBandwidth()))
 	e.celtEncoder.SetPacketLoss(int(e.packetLoss))
+	// Default the CELT input upsample to the API rate's resampling_factor so the
+	// CELT prefill (Fs/400 native) and CELT-only frames consume native-Fs sizes.
+	// The redundancy CELT path overrides this to 1 (fixed 48 kHz block).
+	e.celtEncoder.SetUpsample(e.celtUpsampleFactor())
 }
 
 // silkBandwidth converts the Opus bandwidth to SILK bandwidth.

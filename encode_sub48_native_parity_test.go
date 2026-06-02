@@ -1,59 +1,48 @@
-// encode_sub48_native_parity_test.go — CHARACTERIZING gate for sub-48 kHz
-// native SILK + Hybrid ENCODE parity vs the same-arch libopus float
-// opus_encode_float oracle at Fs ∈ {8000,12000,16000,24000}.
+// encode_sub48_native_parity_test.go — sub-48 kHz native SILK + Hybrid ENCODE
+// byte-parity gate vs the same-arch libopus float opus_encode_float oracle at
+// Fs ∈ {8000,12000,16000,24000}.
 //
-// CONTEXT / WHY THIS GATE EXISTS
+// CONTRACT
 //
-// gopus encode is byte-exact vs libopus at 48 kHz (proven by
-// TestEncodeDifferentialFuzz). It DIVERGES at native sub-48 kHz SILK/Hybrid.
-// The root cause is an input-rate contract mismatch:
+// gopus encode is byte-exact vs libopus at 48 kHz (TestEncodeDifferentialFuzz)
+// and now consumes NATIVE-Fs PCM at sub-48 kHz, exactly like libopus
+// opus_encode(Fs): at Fs=16000 a 20 ms frame is 320 native samples, and rate
+// control / framing is computed against Fs. The SILK input resampler runs
+// API_fs_Hz -> fs_kHz (silk_setup_resamplers forEnc=1) and the public
+// Encode/EncodeFloat32 demands frameSize*channels NATIVE-Fs samples.
 //
-//   - libopus opus_encode(Fs) consumes NATIVE-Fs PCM: at Fs=16000 a 20 ms frame
-//     is 320 native samples, and rate control / framing is computed against Fs.
+// WHAT THIS GATE DOES
 //
-//   - gopus's public Encoder ALWAYS runs the internal pipeline at 48 kHz
-//     (encoder.NewEncoder forces sampleRate=48000 for any non-48k API rate) and
-//     resamples the input down to the target rate inside the SILK path
-//     (silk.NewDownsamplingResampler(48000, rate)). The public Encode /
-//     EncodeFloat32 therefore demands frameSize*channels samples where frameSize
-//     is interpreted as a 48 kHz-RELATIVE count, NOT a native-Fs count. A
-//     native-Fs-length frame (320 samples at 16 kHz / 20 ms) is REJECTED with
-//     ErrInvalidFrameSize; only the 48 kHz-relative length (960) is accepted, and
-//     those samples are then treated as 48 kHz input and downsampled internally.
+//   1. TestSub48NativeInputRateContract HARD-asserts the native-Fs contract: at
+//      every sub-48k rate, a native-Fs-length frame is ACCEPTED and the legacy
+//      48 kHz-relative length is REJECTED.
 //
-// The mode/bandwidth DECISION is already correct at sub-48k (the TOC config byte
-// matches libopus); the divergence is in the SILK payload + packet length,
-// because the per-frame bit budget / rate control is computed at the wrong rate.
+//   2. TestSub48NativeEncodeParity feeds BOTH encoders the same native-Fs frames
+//      and applies the SAME arch-aware policy as the 48 kHz lock in
+//      TestEncodeDifferentialFuzz:
+//        * SILK payload: integer/range-coded, byte-exact same-arch on every arch
+//          -> HARD FAIL on any divergence (at 48k and every sub-48k rate).
+//        * Hybrid/CELT payload: the float MDCT/band-energy/pitch analysis carries
+//          the documented <=1-ULP float boundary (project_arm64_celt_1ulp_drift)
+//          and the separately tracked amd64 Hybrid-FB cross-arch libopus
+//          instability (project_amd64_encoder_precision_regression), so a
+//          Hybrid/CELT byte divergence is LOGGED, not failed.
+//        * TOC mode-class match and gopus accept/no-panic are HARD at every rate.
 //
-// WHAT THIS GATE DOES (and why it is CI-green today)
-//
-//   1. TestSub48NativeInputRateContract HARD-asserts the documented contract: at
-//      every sub-48k rate, a native-Fs-length frame is rejected and the
-//      48 kHz-relative-length frame is accepted. This is the contract pinned as a
-//      test so the FIX agent knows exactly what behaviour must change.
-//
-//   2. TestSub48NativeEncodeParity is the differential harness:
-//        * Fs == 48000: byte-exact lock, with the SAME arch-aware policy as
-//          TestEncodeDifferentialFuzz — SILK payload is HARD byte-exact (integer/
-//          range-coded, same-arch exact on every arch), while a Hybrid/CELT
-//          payload divergence is the documented float-analysis boundary
-//          (project_arm64_celt_1ulp_drift on arm64, and the separately tracked
-//          amd64 Hybrid-FB cross-arch libopus instability,
-//          project_amd64_encoder_precision_regression) and is LOGGED, not failed.
-//          This locks the working SILK path without duplicating the already-tracked
-//          Hybrid cross-arch residual.
-//        * Fs ∈ {8000,12000,16000,24000}: feeds the libopus oracle NATIVE-Fs
-//          frames (the correctness target) and feeds gopus the 48 kHz-relative
-//          frames drawn from the SAME native-Fs source (the only thing gopus
-//          accepts today). It HARD-asserts gopus accepts the frame / does not
-//          panic and that the TOC MODE CLASS matches (the decision is correct),
-//          then LOGS the precise first divergence (frame index, first differing
-//          byte, gopus-vs-libopus TOC + length) as the documented sub-48k gap.
-//
-// This is the LOCK the FIX agent flips: once the input-rate contract is fixed so
-// gopus consumes native-Fs PCM byte-exactly, the t.Logf documented-gap lines in
-// TestSub48NativeEncodeParity become t.Errorf (and the contract test's
-// "native rejected" expectation inverts to "native accepted").
+// KNOWN RED RESIDUAL (2 of 260 configs, left failing on purpose):
+//   silk_wb_60ms_mono/fs12000 and silk_nb_60ms_stereo/fs24000 fail the SILK
+//   byte-exact lock. Root cause is NOT the input rate or the resampler: the SILK
+//   input resampler is byte-exact to libopus on these exact corpus signals/frame
+//   layouts (TestSILKEncoderUpsampleResamplerMatchesLibopusOracle drives the
+//   12->12 copy and 24->8 down corpus cases), and every SILK-encode parameter
+//   (bitrate, maxBits, payloadSize_ms, nFrames) is rate-independent. The same MB
+//   60 ms config is byte-exact on a different signal (corpus_clean_speech) and on
+//   the 48 kHz down-resampled feed of the SAME signal; only the native copy/down
+//   feed of corpus_speech_in_noise diverges, starting deep in the payload (frame
+//   2 byte 2 / frame 1 byte 135). This isolates a genuine SILK NSQ/gain-quant
+//   marginal in the 60 ms (3x20 ms internal) integer encode that this byte-exact
+//   sub-48k input exposes — a real (very narrow) SILK-core bug, not a sub-48k
+//   wiring gap. It is left RED (not relaxed) for a dedicated SILK-NSQ trace.
 //
 // Run with:
 //   GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
@@ -134,19 +123,26 @@ func sub48BuildSweep() []sub48Spec {
 	}
 	silkDurs := []ExpertFrameDuration{ExpertFrameDuration10Ms, ExpertFrameDuration20Ms, ExpertFrameDuration40Ms, ExpertFrameDuration60Ms}
 	hybridDurs := []ExpertFrameDuration{ExpertFrameDuration10Ms, ExpertFrameDuration20Ms}
+	celtDurs := []ExpertFrameDuration{ExpertFrameDuration2_5Ms, ExpertFrameDuration5Ms, ExpertFrameDuration10Ms, ExpertFrameDuration20Ms}
 	modes := []modeDef{
 		{"silk_nb", EncoderModeSILK, libopustest.EncodeDiffForceModeSILKOnly, BandwidthNarrowband, libopustest.EncodeDiffBandwidthNarrowband, silkDurs, testsignal.CorpusCleanSpeechV1},
 		{"silk_mb", EncoderModeSILK, libopustest.EncodeDiffForceModeSILKOnly, BandwidthMediumband, libopustest.EncodeDiffBandwidthMediumband, silkDurs, testsignal.CorpusCleanSpeechV1},
 		{"silk_wb", EncoderModeSILK, libopustest.EncodeDiffForceModeSILKOnly, BandwidthWideband, libopustest.EncodeDiffBandwidthWideband, silkDurs, testsignal.CorpusSpeechInNoiseV1},
 		{"hybrid_swb", EncoderModeHybrid, libopustest.EncodeDiffForceModeHybrid, BandwidthSuperwideband, libopustest.EncodeDiffBandwidthSuperwideband, hybridDurs, testsignal.CorpusMixedV1},
+		{"celt_nb", EncoderModeCELT, libopustest.EncodeDiffForceModeCELTOnly, BandwidthNarrowband, libopustest.EncodeDiffBandwidthNarrowband, celtDurs, testsignal.CorpusMusicV1},
+		{"celt_wb", EncoderModeCELT, libopustest.EncodeDiffForceModeCELTOnly, BandwidthWideband, libopustest.EncodeDiffBandwidthWideband, celtDurs, testsignal.CorpusMusicV1},
+		{"celt_fb", EncoderModeCELT, libopustest.EncodeDiffForceModeCELTOnly, BandwidthFullband, libopustest.EncodeDiffBandwidthFullband, celtDurs, testsignal.CorpusMusicV1},
 	}
 	rcModes := []BitrateMode{BitrateModeVBR, BitrateModeCVBR, BitrateModeCBR}
 	complexities := []int{0, 5, 10}
 
 	for _, m := range modes {
 		bitrate := 24000
-		if m.name == "hybrid_swb" {
+		switch {
+		case m.name == "hybrid_swb":
 			bitrate = 48000
+		case m.mode == EncoderModeCELT:
+			bitrate = 64000
 		}
 		ci := 0
 		for _, dur := range m.durs {
@@ -183,8 +179,8 @@ func sub48ChName(ch int) string {
 }
 
 // sub48ConfigureGopus builds and configures a gopus Encoder for one spec at the
-// given API sample rate. The frame size is the 48 kHz-RELATIVE count (the only
-// thing the public Encode accepts), per the documented input-rate contract.
+// given API sample rate. The frame size is the NATIVE-Fs count, matching the
+// libopus opus_encode(Fs) input contract.
 func sub48ConfigureGopus(t *testing.T, spec sub48Spec, fs int) (*Encoder, bool) {
 	t.Helper()
 	enc, err := NewEncoder(EncoderConfig{SampleRate: fs, Channels: spec.channels, Application: ApplicationAudio})
@@ -221,7 +217,7 @@ func sub48ConfigureGopus(t *testing.T, spec sub48Spec, fs int) (*Encoder, bool) 
 			return nil, false
 		}
 	}
-	if err := enc.SetFrameSize(encFrameSamples48k(spec.dur)); err != nil {
+	if err := enc.SetFrameSize(sub48NativeFrameSamples(fs, spec.dur)); err != nil {
 		return nil, false
 	}
 	if err := enc.SetExpertFrameDuration(spec.dur); err != nil {
@@ -230,13 +226,10 @@ func sub48ConfigureGopus(t *testing.T, spec sub48Spec, fs int) (*Encoder, bool) 
 	return enc, true
 }
 
-// TestSub48NativeInputRateContract HARD-pins the documented sub-48k input-rate
-// contract of the public Encoder: frame size is interpreted as a 48 kHz-relative
-// sample count regardless of the configured SampleRate, so a native-Fs-length
-// frame is REJECTED and only the 48 kHz-relative length is accepted.
-//
-// This is the contract the FIX agent must invert (native-Fs PCM should be the
-// accepted input). It runs without the libopus oracle (pure API behaviour).
+// TestSub48NativeInputRateContract HARD-pins the native-Fs input contract of the
+// public Encoder: frame size is in native-Fs samples (libopus opus_encode(Fs)),
+// so a native-Fs-length frame is ACCEPTED and the legacy 48 kHz-relative length
+// is REJECTED. It runs without the libopus oracle (pure API behaviour).
 func TestSub48NativeInputRateContract(t *testing.T) {
 	for _, fs := range sub48NativeRates {
 		for _, dur := range []ExpertFrameDuration{ExpertFrameDuration10Ms, ExpertFrameDuration20Ms} {
@@ -252,37 +245,36 @@ func TestSub48NativeInputRateContract(t *testing.T) {
 				enc.SetMaxBandwidth(BandwidthWideband)
 				enc.SetBitrate(24000)
 				enc.SetForceChannels(1)
-				if err := enc.SetFrameSize(encFrameSamples48k(dur)); err != nil {
-					t.Fatalf("SetFrameSize(%d): %v", encFrameSamples48k(dur), err)
+				nativeSamples := sub48NativeFrameSamples(fs, dur)
+				if err := enc.SetFrameSize(nativeSamples); err != nil {
+					t.Fatalf("SetFrameSize(native %d): %v", nativeSamples, err)
 				}
 				if err := enc.SetExpertFrameDuration(dur); err != nil {
 					t.Fatalf("SetExpertFrameDuration: %v", err)
 				}
 
-				// FrameSize() reports the 48 kHz-relative count, NOT the native count.
-				rel := encFrameSamples48k(dur)
-				if got := enc.FrameSize(); got != rel {
-					t.Fatalf("fs=%d FrameSize()=%d want 48k-relative %d", fs, got, rel)
+				// FrameSize() reports the native-Fs count.
+				if got := enc.FrameSize(); got != nativeSamples {
+					t.Fatalf("fs=%d FrameSize()=%d want native %d", fs, got, nativeSamples)
 				}
 
-				nativeSamples := sub48NativeFrameSamples(fs, dur)
+				rel := encFrameSamples48k(dur)
 				if nativeSamples == rel {
 					t.Fatalf("test bug: native (%d) == 48k-relative (%d) at fs=%d", nativeSamples, rel, fs)
 				}
 
-				// CONTRACT (current): native-Fs-length frame is REJECTED.
+				// CONTRACT: native-Fs-length frame is ACCEPTED.
 				nativeFrame := make([]float32, nativeSamples)
-				if _, err := enc.EncodeFloat32(nativeFrame); err != ErrInvalidFrameSize {
-					t.Errorf("fs=%d %dms: EncodeFloat32(native %d samples) err=%v, want ErrInvalidFrameSize "+
-						"(documented sub-48k contract: input is 48k-relative). If this now ACCEPTS native-Fs PCM, "+
-						"the input-rate FIX landed — invert this expectation and flip the parity gap to t.Errorf.",
+				if _, err := enc.EncodeFloat32(nativeFrame); err != nil {
+					t.Errorf("fs=%d %dms: EncodeFloat32(native %d samples) err=%v, want accepted",
 						fs, sub48DurationMs(dur), nativeSamples, err)
 				}
 
-				// CONTRACT (current): 48 kHz-relative-length frame is ACCEPTED.
+				// CONTRACT: legacy 48 kHz-relative-length frame is REJECTED.
 				relFrame := make([]float32, rel)
-				if _, err := enc.EncodeFloat32(relFrame); err != nil {
-					t.Errorf("fs=%d %dms: EncodeFloat32(48k-relative %d samples) err=%v, want accepted",
+				if _, err := enc.EncodeFloat32(relFrame); err != ErrInvalidFrameSize {
+					t.Errorf("fs=%d %dms: EncodeFloat32(48k-relative %d samples) err=%v, want ErrInvalidFrameSize "+
+						"(native-Fs contract: input is native-Fs)",
 						fs, sub48DurationMs(dur), rel, err)
 				}
 			})
@@ -336,18 +328,12 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 			spec := spec
 			caseName := fmt.Sprintf("%s/fs%d", spec.name, fs)
 			t.Run(caseName, func(t *testing.T) {
-				rel48 := encFrameSamples48k(spec.dur) // gopus per-channel frame length (48k-relative)
-
-				// Native-Fs per-channel frame length the libopus oracle consumes.
+				// Both encoders consume the SAME native-Fs frames (libopus
+				// opus_encode(Fs) and gopus public Encode now share the native-Fs
+				// input contract).
 				nativeSamples := sub48NativeFrameSamples(fs, spec.dur)
-				if fs == 48000 {
-					nativeSamples = rel48
-				}
 
-				// Build ONE native-Fs source long enough for the gopus 48k-relative
-				// views (the longer of the two), so both encoders read the same
-				// underlying native-Fs waveform from sample 0.
-				srcSamples := rel48 * nFrames * spec.channels
+				srcSamples := nativeSamples * nFrames * spec.channels
 				src, err := testsignal.GenerateCorpusSignal(spec.sigClass, fs, srcSamples, spec.channels)
 				if err != nil {
 					t.Fatalf("GenerateCorpusSignal(%s @ %d): %v", spec.sigClass, fs, err)
@@ -355,10 +341,7 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 
 				vbr, constraint := vbrFlags(spec.vbr)
 
-				// libopus oracle: native-Fs frames (a prefix of the shared source;
-				// gopus reads the wider 48k-relative stride from the same source so
-				// both encoders align on the frame-0 waveform).
-				oraclePCM := src[:nativeSamples*nFrames*spec.channels]
+				oraclePCM := src
 				recs, err := libopustest.ProbeEncodeDiff(libopustest.EncodeDiffParams{
 					SampleRate:    fs,
 					Channels:      spec.channels,
@@ -388,7 +371,7 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 
 				res := sub48ParityResult{name: spec.name, fs: fs, firstDivFr: -1}
 				for f := 0; f < nFrames; f++ {
-					gFrame := src[f*rel48*spec.channels : (f+1)*rel48*spec.channels]
+					gFrame := src[f*nativeSamples*spec.channels : (f+1)*nativeSamples*spec.channels]
 					gpkt, gerr := encDiffEncodeOneFrame(enc, gFrame)
 					// HARD: gopus must accept the frame / not panic at every rate.
 					if gerr != nil {
@@ -443,62 +426,41 @@ func TestSub48NativeEncodeParity(t *testing.T) {
 					}
 				}
 
-				if fs == 48000 {
-					// LOCK: 48 kHz byte-exactness. Policy mirrors TestEncodeDifferentialFuzz:
-					//   - SILK payload: integer/range-coded, byte-exact SAME-ARCH on every
-					//     arch → HARD FAIL on any divergence.
-					//   - Hybrid/CELT payload: the float MDCT/band-energy/pitch analysis
-					//     carries the documented ≤1-ULP float boundary
-					//     (project_arm64_celt_1ulp_drift) AND the separately tracked amd64
-					//     Hybrid-FB cross-arch instability (project_amd64_encoder_precision_
-					//     regression: libopus itself differs by ~9 Q across arches on
-					//     knife-edge signals). So a Hybrid/CELT byte divergence is the
-					//     documented per-arch residual, not a same-arch logic bug — LOGGED,
-					//     not failed, exactly as the sibling encode fuzz harness does.
-					lock48kChecked++
-					if res.firstDivFr >= 0 && !res.tocFlip {
-						if res.firstDivCls == 0 {
-							t.Errorf("%s: 48 kHz SILK byte-exact LOCK BROKEN — first divergence frame %d byte %d "+
-								"(gopus toc=%02x len=%d, libopus toc=%02x len=%d). SILK 48k must be byte-exact same-arch.",
-								caseName, res.firstDivFr, res.firstDivByte, res.gTOC, res.gLen, res.oTOC, res.oLen)
-						} else {
-							t.Logf("%s: 48 kHz %s payload differs at frame %d byte %d "+
-								"(gopus toc=%02x len=%d, libopus toc=%02x len=%d) — documented float-analysis "+
-								"boundary (project_arm64_celt_1ulp_drift / project_amd64_encoder_precision_regression), "+
-								"not a same-arch logic bug.",
-								caseName, modeClassName(res.firstDivCls), res.firstDivFr, res.firstDivByte,
-								res.gTOC, res.gLen, res.oTOC, res.oLen)
-						}
-					}
-					return
-				}
-
-				// sub-48k: CHARACTERIZE (do not fail on payload/length divergence).
+				// Unified arch-aware policy at every rate (48k lock + native sub-48k):
+				//   - SILK payload: integer/range-coded, byte-exact SAME-ARCH on every
+				//     arch → HARD FAIL on any divergence.
+				//   - Hybrid/CELT payload: the float MDCT/band-energy/pitch analysis
+				//     carries the documented ≤1-ULP float boundary
+				//     (project_arm64_celt_1ulp_drift) AND the separately tracked amd64
+				//     Hybrid-FB cross-arch instability (project_amd64_encoder_precision_
+				//     regression). So a Hybrid/CELT byte divergence is the documented
+				//     per-arch residual, not a same-arch logic bug — LOGGED, not failed.
+				lock48kChecked++
 				if res.firstDivFr < 0 {
 					sub48ByteExact++
-					t.Logf("%s: BYTE-EXACT across %d frames (sub-48k native parity already holds for this config)",
-						caseName, nFrames)
-				} else {
-					sub48Diverged++
-					if res.tocFlip {
-						sub48TOCFlips++
+				}
+				if res.firstDivFr >= 0 && !res.tocFlip {
+					if res.firstDivCls == 0 {
+						sub48Diverged++
+						t.Errorf("%s: SILK byte-exact LOCK BROKEN — first divergence frame %d byte %d "+
+							"(gopus toc=%02x len=%d, libopus native-%dk toc=%02x len=%d). SILK must be byte-exact same-arch.",
+							caseName, res.firstDivFr, res.firstDivByte, res.gTOC, res.gLen, fs/1000, res.oTOC, res.oLen)
+					} else {
+						t.Logf("%s: %s payload differs at frame %d byte %d "+
+							"(gopus toc=%02x len=%d, libopus native-%dk toc=%02x len=%d) — documented float-analysis "+
+							"boundary (project_arm64_celt_1ulp_drift / project_amd64_encoder_precision_regression), "+
+							"not a same-arch logic bug.",
+							caseName, modeClassName(res.firstDivCls), res.firstDivFr, res.firstDivByte,
+							res.gTOC, res.gLen, fs/1000, res.oTOC, res.oLen)
 					}
-					t.Logf("%s: DOCUMENTED SUB-48k GAP — first divergence frame %d byte %d "+
-						"(gopus toc=%02x len=%d | libopus native-%dk toc=%02x len=%d). "+
-						"Root cause: public Encoder consumes 48k-relative PCM + resamples internally instead of "+
-						"native-Fs opus_encode(Fs). FIX agent: flip this to t.Errorf once native-Fs encode is byte-exact.",
-						caseName, res.firstDivFr, res.firstDivByte,
-						res.gTOC, res.gLen, fs/1000, res.oTOC, res.oLen)
 				}
 			})
 		}
 	}
 
-	t.Logf("sub-48k native encode parity gate: 48k-lock specs checked=%d; "+
-		"sub-48k results: byte-exact=%d diverged=%d (of which TOC-mode-flips=%d). "+
-		"Per-config first-divergence map logged above. This gate is CHARACTERIZING: "+
-		"sub-48k payload/length divergence is the documented input-rate gap (t.Logf), "+
-		"48k SILK stays byte-exact (HARD) while 48k Hybrid/CELT residuals are documented (logged), "+
-		"and gopus accept/no-panic + TOC-mode-class match are HARD at every rate.",
+	t.Logf("sub-48k native encode parity gate: specs checked=%d; byte-exact=%d "+
+		"SILK-diverged(FAIL)=%d TOC-mode-flips=%d. SILK is HARD byte-exact same-arch "+
+		"at every native rate; Hybrid/CELT residuals are the documented float boundary "+
+		"(logged); gopus accept/no-panic + TOC-mode-class match are HARD.",
 		lock48kChecked, sub48ByteExact, sub48Diverged, sub48TOCFlips)
 }

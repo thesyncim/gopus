@@ -42,6 +42,7 @@ func TestHybridBitAllocation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			e := &Encoder{
+				sampleRate: 48000,
 				bitrate:    int32(tc.totalBitrate),
 				channels:   int32(tc.channels),
 				fecEnabled: tc.fecEnabled,
@@ -83,8 +84,9 @@ func TestHybridBitAllocation(t *testing.T) {
 
 func TestHybridBitAllocationDoesNotClampCELTRate(t *testing.T) {
 	e := &Encoder{
-		bitrate:  8000,
-		channels: 1,
+		sampleRate: 48000,
+		bitrate:    8000,
+		channels:   1,
 	}
 	silkBitrate, celtBitrate, celtBitrateHBGain := e.computeHybridBitAllocation(true)
 	if silkBitrate != 6333 || celtBitrate != 1667 || celtBitrateHBGain != 1267 {
