@@ -42,6 +42,9 @@ func ensureSigSlice(buf *[]celtSig, n int) []celtSig {
 }
 
 func absSumSig(x []celtSig) opusVal32 {
+	if celtAbsSumUsesNeon {
+		return l1AbsSumNeon(x, len(x))
+	}
 	var sum opusVal32
 	for _, v := range x {
 		if v < 0 {
