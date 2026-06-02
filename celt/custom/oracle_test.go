@@ -20,6 +20,7 @@ package custom_test
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"math"
 	"runtime"
@@ -295,8 +296,8 @@ func nonStandardCases() []oracleCase {
 // 44100/882), whose band layout is genuinely custom (compute_ebands derives a
 // non-48 kHz eBands/allocVectors table). For those it confirms that:
 //  1. libopus --enable-custom-modes accepts the mode and produces a packet,
-//  2. the gopus encoder still declines with ErrNonStandard (encode is a separate
-//     increment), and
+//  2. the gopus encoder produces a byte-identical packet on amd64 (range-state
+//     checked on arm64), and
 //  3. the gopus decoder reproduces the libopus PCM sample-for-sample (amd64) or
 //     within the documented arm64 1-ULP CELT drift, driven by the per-mode band
 //     tables threaded through the CELT decode data plane.
@@ -473,9 +474,9 @@ func TestOracleParityNonStandardStereo(t *testing.T) {
 // celt.ScaledBandStartBase / ScaledBandEndBase band-bin scaling against the
 // libopus invariant eBands[i] << LM for the full (long-block) frame.
 //
-// This is the control-plane slice of the native Opus Custom path: the
-// data-plane (overlap-add MDCT analysis/synthesis, windowing) is not yet wired,
-// so EncodeFloat/DecodeFloat still decline these modes with ErrNonStandard.
+// This is the control-plane slice of the native Opus Custom path; the matching
+// data-plane encode/decode byte/sample parity for the family is covered by
+// TestOracleParityScaledBandFamily.
 func TestOracleControlPlaneScaledBandFamily(t *testing.T) {
 	const maxBytes = 200
 	// Family members: Fs == 400*shortMdctSize, all non-standard.
@@ -744,6 +745,155 @@ func assertI32EqI16(t *testing.T, name string, got []int16, want []int32) {
 		if int32(got[k]) != want[k] {
 			t.Errorf("%s[%d]: gopus=%d oracle=%d", name, k, got[k], want[k])
 		}
+	}
+}
+
+// wideBandCapCases enumerates non-standard custom modes whose compute_ebands
+// band count exceeds the native gopus capacity (maxNativeBands == 21). At high
+// sample rates with a small short-MDCT, compute_ebands yields 22+ bands; the
+// static gopus energy/history buffers are sized by MaxBands, so these are
+// declined with ErrNonStandard rather than crashing or emitting a non-conformant
+// bitstream. libopus accepts them (its CELTMode buffers are sized by the mode's
+// own nbEBands), so this records the precise gopus-side capacity boundary.
+func wideBandCapCases() []struct{ fs, frame int } {
+	return []struct{ fs, frame int }{
+		{32000, 100}, // nbEBands 22
+		{32000, 200}, // nbEBands 22 (LM split)
+		{44100, 120}, // nbEBands 22
+		{44100, 240}, // nbEBands 22
+	}
+}
+
+// TestOracleNonStandardBandCapDeclined verifies that, for non-standard custom
+// modes whose band layout exceeds the native data-plane capacity (nbEBands > 21),
+// libopus --enable-custom-modes accepts the mode and produces a packet, while the
+// gopus celt/custom encoder and decoder both decline with ErrNonStandard. This is
+// the documented gopus-side boundary: such wide-band modes are not yet driven
+// byte-exact, so gopus refuses them rather than emitting a divergent bitstream.
+func TestOracleNonStandardBandCapDeclined(t *testing.T) {
+	const maxBytes = 200
+	specs := wideBandCapCases()
+	var cases []oracleCase
+	for _, s := range specs {
+		cases = append(cases, oracleCase{s.fs, s.frame, 1, maxBytes, generateSine(440.0, float64(s.fs), s.frame)})
+	}
+	results := runCustomOracle(t, cases)
+
+	for i, s := range specs {
+		t.Run(fmt.Sprintf("Fs%d_frame%d", s.fs, s.frame), func(t *testing.T) {
+			if results[i].status < 0 {
+				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d) status=%d", s.fs, s.frame, results[i].status)
+			}
+			mode, err := custom.NewMode(s.fs, s.frame)
+			if err != nil {
+				t.Fatalf("NewMode(%d,%d): %v", s.fs, s.frame, err)
+			}
+			if mode.NbEBands <= 21 {
+				t.Fatalf("Fs=%d frame=%d expected nbEBands>21, got %d", s.fs, s.frame, mode.NbEBands)
+			}
+			if int32(mode.NbEBands) != int32(len(results[i].eBands)-1) {
+				t.Errorf("nbEBands gopus=%d libopus=%d", mode.NbEBands, len(results[i].eBands)-1)
+			}
+			if _, err := custom.NewEncoder(mode, 1); !errors.Is(err, custom.ErrNonStandard) {
+				t.Errorf("NewEncoder: want ErrNonStandard, got %v", err)
+			}
+			if _, err := custom.NewDecoder(mode, 1); !errors.Is(err, custom.ErrNonStandard) {
+				t.Errorf("NewDecoder: want ErrNonStandard, got %v", err)
+			}
+		})
+	}
+}
+
+// broadDecodeSweepCases enumerates a wide grid of non-standard custom modes
+// within the native band-cap (nbEBands <= 21), spanning all four short-block
+// decompositions (LM 0..3), the Fs==400*shortMdctSize family and genuinely
+// custom band layouts, several sample rates (8k..96k) and both channel counts.
+// Every entry is a mode libopus --enable-custom-modes accepts.
+func broadDecodeSweepCases() []oracleCase {
+	const maxBytes = 200
+	specs := []struct{ fs, frame int }{
+		// LM=0 (no short blocks).
+		{24000, 40}, {32000, 40}, {44100, 100}, {48000, 100}, {96000, 240},
+		// LM=1.
+		{12000, 40}, {16000, 60}, {24000, 80}, {44100, 200}, {96000, 480},
+		// LM=2.
+		{12000, 80}, {16000, 120}, {24000, 160}, {48000, 360}, {96000, 800},
+		// LM=3 (20 ms equivalents and other non-power-of-two long frames).
+		{16000, 320}, {24000, 480}, {32000, 640}, {48000, 640}, {44100, 720},
+	}
+	var cases []oracleCase
+	for _, s := range specs {
+		for _, ch := range []int{1, 2} {
+			var pcm []float32
+			if ch == 1 {
+				pcm = generateSine(440.0, float64(s.fs), s.frame)
+			} else {
+				pcm = generateSineStereo(440.0, 523.25, float64(s.fs), s.frame)
+			}
+			cases = append(cases, oracleCase{s.fs, s.frame, ch, maxBytes, pcm})
+		}
+	}
+	return cases
+}
+
+// TestOracleDecodeParityBroadSweep proves that the native Opus Custom DECODE data
+// plane reproduces libopus --enable-custom-modes sample-for-sample across a broad
+// grid of non-standard modes within the native band-cap: every short-block
+// decomposition (LM 0..3), scaled-band-family and genuinely custom band layouts,
+// 8k..96k sample rates, mono and stereo. The per-mode band tables (eBands, logN,
+// allocVectors, compute_pulse_cache index/bits/caps) and the size-driven
+// IMDCT/de-emphasis kernels are threaded through the decode path; libopus's own
+// packet is decoded and compared. PCM is sample-exact on amd64 and within the
+// documented arm64 1-ULP CELT drift on darwin/arm64
+// (project_arm64_celt_1ulp_drift.md).
+func TestOracleDecodeParityBroadSweep(t *testing.T) {
+	cases := broadDecodeSweepCases()
+	results := runCustomOracle(t, cases)
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("Fs%d_frame%d_ch%d", tc.fs, tc.frameSize, tc.channels), func(t *testing.T) {
+			if results[i].status < 0 {
+				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d ch=%d) status=%d",
+					tc.fs, tc.frameSize, tc.channels, results[i].status)
+			}
+			mode, err := custom.NewMode(tc.fs, tc.frameSize)
+			if err != nil {
+				t.Fatalf("NewMode(%d,%d): %v", tc.fs, tc.frameSize, err)
+			}
+			if mode.NbEBands > 21 {
+				t.Fatalf("Fs=%d frame=%d unexpectedly exceeds native band-cap (nbEBands=%d)",
+					tc.fs, tc.frameSize, mode.NbEBands)
+			}
+			dec, err := custom.NewDecoder(mode, tc.channels)
+			if err != nil {
+				t.Fatalf("NewDecoder: %v", err)
+			}
+			decoded, err := dec.DecodeFloat(results[i].packet, tc.frameSize)
+			if err != nil {
+				t.Fatalf("DecodeFloat: %v", err)
+			}
+			if len(decoded) != len(results[i].decoded) {
+				t.Fatalf("Fs=%d frame=%d ch=%d: decoded length gopus=%d libopus=%d",
+					tc.fs, tc.frameSize, tc.channels, len(decoded), len(results[i].decoded))
+			}
+			if runtime.GOARCH != "arm64" {
+				if d := firstSampleDivergence(decoded, results[i].decoded); d >= 0 {
+					t.Fatalf("Fs=%d frame=%d ch=%d: decoded PCM diverges at sample %d (gopus=%v libopus=%v)",
+						tc.fs, tc.frameSize, tc.channels, d, decoded[d], results[i].decoded[d])
+				}
+			} else {
+				var maxAbs float64
+				for k := range decoded {
+					if d := math.Abs(float64(decoded[k]) - float64(results[i].decoded[k])); d > maxAbs {
+						maxAbs = d
+					}
+				}
+				if maxAbs > scaledFamilyDecodeArm64Tol {
+					t.Fatalf("Fs=%d frame=%d ch=%d: decoded PCM arm64 drift maxAbs=%g exceeds tol %g",
+						tc.fs, tc.frameSize, tc.channels, maxAbs, scaledFamilyDecodeArm64Tol)
+				}
+			}
+		})
 	}
 }
 
