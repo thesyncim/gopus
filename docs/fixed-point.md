@@ -191,16 +191,26 @@ sanity layer; the oracle test is the bit-exact gate.
 
 ### Stage 5 — Public DECODE integer-exact (done)
 - `DecodeInt16`/`DecodeInt24` are bit-exact vs FIXED_POINT for CELT-only,
-  SILK-only, and Hybrid (`TestDecoderFixedPoint{CELT,SILK,Hybrid}Parity`).
+  SILK-only, and Hybrid (`TestDecoderFixedPoint{CELT,SILK,Hybrid}Parity`),
+  including Hybrid-with-redundancy, CELT↔SILK / mode-transition crossfades,
+  CELT-burst PLC, and a non-zero decode gain (no float fallback remains for these).
+
+### Stage 6 — Public ENCODE integer-exact (done)
+- The `silk_encode_frame` integer driver (analysis + payload + stereo) is
+  assembled and byte-exact vs FIXED_POINT
+  (`TestSILKEncodeFrameFIXLibopusParity`,
+  `TestSILKEncodeFramePayloadFIXLibopusParity`,
+  `TestPublicSILKEncodeFrameFixedByteExact`,
+  `TestPublicStereoSILKEncodeFixedByteExact`).
+- CELT encode covers the full-band path, the hybrid CELT band subset
+  (start>0), LFE and surround energy_mask, oracle-verified
+  (`TestCELTEncode{WithEC,StartBand,LFE,EnergyMask}Oracle`,
+  `TestCELTEncodeWithECVBROracle`, `TestCELTEncodeWithECCBRSeqOracle`).
 
 ### Remaining (partial)
-- **Opus-level decode fallbacks**: the int16/int24 wrappers still use the float
-  conversion for Hybrid-with-redundancy, CELT↔SILK / mode-transition crossfades,
-  CELT-burst PLC, and a non-zero decode gain.
-- **SILK encoder-analysis integer driver**: the kernels are ported and
-  oracle-verified, but the `silk_encode_frame` glue (and CELT
-  hybrid(start>0)/LFE/surround/QEXT encode) is not yet assembled into a bit-exact
-  fixed-point encode path. gopus's default SILK is already integer.
+- **QEXT encode** under the fixed-point pipeline remains out of scope, mirroring
+  the libopus compile-flag boundary (`ENABLE_QEXT` is mutually exclusive with the
+  FIXED_POINT reference build).
 
 ---
 
@@ -208,9 +218,9 @@ sanity layer; the oracle test is the bit-exact gate.
 
 The fixed-point pipeline is built incrementally, each step gated by a bit-exact
 `FIXED_POINT` oracle, behind the `gopus_fixedpoint` tag so the default float
-build stays untouched and zero-cost. Public decode is bit-exact today; the
-remaining encode-frame glue and Opus-level decode fallbacks follow the same
-discipline.
+build stays untouched and zero-cost. Public decode and encode are bit-exact
+today; QEXT encode follows the same discipline if/when its compile-flag boundary
+is brought in.
 
 Build discipline:
 
