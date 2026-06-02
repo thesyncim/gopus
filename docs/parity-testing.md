@@ -29,11 +29,12 @@ exactly one implementation with the correct fusion behavior.
 
 Decoded/encoded audio is judged by the metric **RFC 8251** defines conformance
 with: libopus's own `opus_compare` Q, delay-searched, plus waveform correlation
-and RMS ratio. The single authority is `internal/qualitycompare`. This tier is
-**build-invariant**: Q, correlation, and RMS are statistical/perceptual, so a
-1-ULP FMA difference between build configs moves them far below their bars — they
-do not break across arch/tags the way bit-exact comparison does. That is why
-end-to-end parity is judged here, not by bytes.
+and RMS ratio. The single authority is `internal/qualitycompare`. The bars hold
+**across build configs**: Q, correlation, and RMS are statistical/perceptual, so a
+1-ULP FMA difference between configs moves them far below their bars rather than
+breaking the gate the way bit-exact comparison does. That is why end-to-end parity
+is judged here, not by bytes — but the comparison is still kept like-with-like (see
+[Tier-matched reference](#tier-matched-reference)).
 
 `opus_compare`'s Q is valid **only** for coded audio at 48 kHz with at least
 10 ms of content. It is invalid on resampled (sub-48 kHz), too-short, or
@@ -67,6 +68,35 @@ Every threshold is anchored to an external reference, never hand-picked:
    libopus-amd64 differs from libopus-generic on a 2.5 ms chirp). The near-exact
    envelope (`IntentNearExact`: Q ≥ 20, corr ≥ 0.997, RMS ∈ [0.98, 1.02]) is that
    measured cross-build agreement, met by SILK/CELT/Hybrid on every covered case.
+
+## Tier-matched reference
+
+Quality must compare **like-with-like**: an asm gopus build (the default, NEON on
+arm64 / SSE-AVX on amd64) is compared against a SIMD libopus reference, and a
+pure-Go gopus build (`-tags purego`) against the scalar libopus reference. The
+gopus build tier is selected by `gopusBuildIsAsm` (`testvectors/build_tier_*.go`),
+and `decodeWithMatchedTierReferencePacketsSingle` links the matching libopus tree
+via `CHelperConfig.SIMDRef` — `tmp_check/opus-1.6.1-simd` (built by
+`make ensure-libopus-simd`) for the asm tier, `tmp_check/opus-1.6.1` for the
+pure-Go tier. The live corpus quality gates (`TestCorpusSignalQualityParity`,
+`TestCorpusFrameSizeQualityParity`) use it.
+
+Why the pairing matters even though the bars hold across configs: comparing
+asm-gopus against scalar-libopus would conflate two unrelated error sources —
+gopus's own asm-vs-scalar 1-ULP envelope and libopus's scalar-vs-SIMD envelope.
+Matching the tier isolates the gopus-vs-libopus residual.
+
+Measured envelope on the corpus gates (both tiers, every cell): SILK is bit-exact
+(Q = 100.00); CELT/Hybrid decode sits at Q ≥ 99.77 with corr = 1.0, RMS = 1.0 —
+the pure-Go residual is the documented arm64 IMDCT FMADD contraction (the bare
+`fma32` body carries no anti-fusion barrier), the asm residual the matched
+NEON-vs-SIMD 1-ULP tail. Both are far inside the near-exact bar; neither is an
+algorithmic gap.
+
+The bit-exact int16-PLC oracles
+(`TestDecodeInt16{Cold,WarmedSILK}PLCMatchesLibopusReference`) deliberately keep
+using the scalar reference (`decodeWithLibopusReferencePacketsSingle`): their job
+is byte-exact concealment, which is the scalar oracle's tier.
 
 ## Rules
 
