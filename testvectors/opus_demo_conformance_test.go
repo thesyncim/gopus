@@ -112,27 +112,27 @@ type conformanceCell struct {
 
 // decodeSampleExactExpected reports whether decoding the given reference
 // packets with the gopus decoder is expected to be sample-identical to the
-// opus_demo decode on the current architecture.
+// opus_demo decode.
 //
 // The decision is driven by the *actual* per-packet mode in the reference
 // bitstream rather than the requested bandwidth, because opus_demo's auto-mode
 // encoder may emit hybrid (SILK+CELT) packets for e.g. WB/VoIP. The SILK decode
-// path is pure fixed point and sample-exact on every platform; the CELT and
-// hybrid decode paths are sample-exact on amd64 (integer + non-FMA float) but
-// carry a ≤1-ULP FMA residual on darwin/arm64 (project_arm64_celt_1ulp_drift.md),
-// so a bitstream containing any CELT/hybrid packet falls back to a very high
-// quality floor on arm64.
+// path is pure fixed point and sample-exact on every platform. The CELT and
+// hybrid decode paths carry a ~1-ULP float residual against opus_demo's decode
+// on every platform: on darwin/arm64 the documented FMA drift
+// (project_arm64_celt_1ulp_drift.md), and on amd64 the float CELT synthesis
+// versus opus_demo's -f32 (opus_decode24) integer-decode path -- libopus's own
+// opus_decode_float and opus_decode24 already differ by ~1 ULP there. So a
+// bitstream containing any CELT/hybrid packet falls back to a very high quality
+// floor; only pure-SILK bitstreams are gated sample-exact.
 func decodeSampleExactExpected(packets [][]byte) bool {
-	if runtime.GOARCH == "amd64" {
-		return true
-	}
 	for _, pkt := range packets {
 		info, err := gopus.ParsePacket(pkt)
 		if err != nil {
 			return false
 		}
 		if info.TOC.Mode != gopus.ModeSILK {
-			return false // CELT/hybrid packet engages the arm64 FMA path
+			return false // CELT/hybrid packet carries the ~1-ULP float residual
 		}
 	}
 	return true
@@ -441,16 +441,17 @@ func assertDecodeParity(t *testing.T, c conformanceCell, refPackets [][]byte, go
 		t.Errorf("DECODE sample parity FAILED (expected sample-exact on %s)", runtime.GOARCH)
 		return
 	}
-	// arm64 CELT/hybrid: ≤1-ULP FMA residual; hold a very high quality floor.
-	const arm64DecodeQualityFloor = 99.0
+	// CELT/hybrid: ~1-ULP float residual vs opus_demo's decode; hold a very high
+	// quality floor (≤1-ULP can never move opus_compare's Q materially below 99).
+	const celtHybridDecodeQualityFloor = 99.0
 	q, _, err := ComputeOpusCompareQualityFloat32WithDelay(got, ref, conformanceSampleRate, c.channels, 960)
 	if err != nil {
 		t.Fatalf("opus_compare quality: %v", err)
 	}
-	if q < arm64DecodeQualityFloor {
-		t.Errorf("DECODE quality below arm64 floor: Q=%.3f (< %.2f)", q, arm64DecodeQualityFloor)
+	if q < celtHybridDecodeQualityFloor {
+		t.Errorf("DECODE quality below floor: Q=%.3f (< %.2f)", q, celtHybridDecodeQualityFloor)
 	} else {
-		t.Logf("DECODE arm64 residual OK: Q=%.3f", q)
+		t.Logf("DECODE CELT/hybrid residual OK: Q=%.3f", q)
 	}
 }
 
