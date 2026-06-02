@@ -571,6 +571,7 @@ func TestOpusdecCrossvalFixtureCoverage(t *testing.T) {
 }
 
 func TestOpusdecCrossvalFixtureHonestyAgainstLiveOpusdec(t *testing.T) {
+	requireBitExactFloat(t)
 	if mdctQEXTScalePlacement {
 		// The committed opusdec crossval fixtures are keyed by the sha256 of the
 		// gopus-encoded ogg produced by the default (non-QEXT) encoder. Under

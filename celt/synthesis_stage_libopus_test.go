@@ -119,6 +119,7 @@ func assertFloat32BitExact(t *testing.T, label string, got, want []float32) (fir
 // pinpointing the first stage that diverges on darwin/arm64.
 func TestCELTSynthesisStagesMatchLibopusC(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 
 	const (
 		sampleRate = 48000

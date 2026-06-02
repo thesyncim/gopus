@@ -240,6 +240,7 @@ func readCELTPLCFloat32Vector(t *testing.T, reader *libopustest.OracleReader) []
 
 func TestConcealPeriodicPLCMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 
 	for _, tc := range []struct {
 		name      string
@@ -283,6 +284,7 @@ func TestConcealPeriodicPLCMatchesLibopus(t *testing.T) {
 
 func TestPitchDownsampleSigMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 
 	for _, channels := range []int{1, 2} {
 		t.Run(map[int]string{1: "mono", 2: "stereo"}[channels], func(t *testing.T) {
@@ -299,6 +301,7 @@ func TestPitchDownsampleSigMatchesLibopus(t *testing.T) {
 
 func TestPitchDownsampleFloatInputMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 
 	for _, channels := range []int{1, 2} {
 		t.Run(map[int]string{1: "mono", 2: "stereo"}[channels], func(t *testing.T) {
@@ -346,6 +349,7 @@ func TestPitchSearchPLCMatchesLibopus(t *testing.T) {
 
 func TestRemoveDoublingMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 
 	cases := []struct {
 		name       string

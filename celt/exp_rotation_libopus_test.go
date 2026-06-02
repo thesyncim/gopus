@@ -1358,6 +1358,7 @@ func TestStereoIthetaMatchesLibopusFloatPath(t *testing.T) {
 
 func TestThetaRDODistortionMatchesLibopusFloatPath(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 	cases := []thetaDistOracleCase{
 		{
 			ex: 1, ey: 1,
@@ -1420,6 +1421,7 @@ func TestThetaRDODistortionMatchesLibopusFloatPath(t *testing.T) {
 
 func TestRenormalizeVectorMatchesLibopusFloatPath(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 	cases := []renormaliseOracleCase{
 		{fixtureExpRotationVector(8, 0x10203040), 1},
 		{fixtureExpRotationVector(21, 0x50607080), 0.5},

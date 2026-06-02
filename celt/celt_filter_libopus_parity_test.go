@@ -90,6 +90,7 @@ func probeLibopusDeemphasis(t *testing.T, channels int, samples [][]float32, mem
 
 func TestApplyDeemphasisAndScaleToFloat32MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 
 	const n = 67
 	samples32 := make([]float32, n)
@@ -119,6 +120,7 @@ func TestApplyDeemphasisAndScaleToFloat32MatchesLibopus(t *testing.T) {
 
 func TestApplyDeemphasisAndScaleToFloat32StereoMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 
 	const n = 61
 	left, right := makeStereoDeemphasisSamples(n)
@@ -142,6 +144,7 @@ func TestApplyDeemphasisAndScaleToFloat32StereoMatchesLibopus(t *testing.T) {
 
 func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 
 	const n = 73
 	samples := make([]float32, n)
@@ -170,6 +173,7 @@ func TestApplyDeemphasisAndScaleMonoFloat32ToFloat32MatchesLibopus(t *testing.T)
 
 func TestApplyDeemphasisAndScaleInPlaceMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 
 	const n = 59
 	left, right := makeStereoDeemphasisSamples(n)

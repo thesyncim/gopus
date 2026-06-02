@@ -9,6 +9,7 @@ import (
 
 func TestStereoMergeVsLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 	makeVector := func(n int, seed uint32) ([]float32, []float32) {
 		x := make([]float32, n)
 		y := make([]float32, n)

@@ -20,6 +20,7 @@ const seedCELTMonoSWBPacketHex = "d89f87b2aece4cbf34b16796cca502229c79dd139415a2
 // localising the SWB-specific decode drift that seeds the DRED PLC history.
 func TestCELTSynthesisStagesSWBMatchLibopusC(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 
 	const (
 		sampleRate = 48000

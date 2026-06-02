@@ -186,6 +186,7 @@ func TestDecodeFrameWithPacketStereoToFloat32OneByteUsesPLC(t *testing.T) {
 }
 
 func TestDecodeFrameWithPacketStereoToFloat32MatchesDecodeFrame(t *testing.T) {
+	requireBitExactFloat(t)
 	const frameSize = 960
 
 	testCases := []struct {

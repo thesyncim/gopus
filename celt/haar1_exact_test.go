@@ -29,6 +29,7 @@ func haar1ReferenceNorm(x []celtNorm, n0, stride int) {
 
 func TestHaar1MatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 	makeInput := func(n int, seed uint32) []float32 {
 		x := make([]float32, n)
 		for i := range x {
@@ -74,6 +75,7 @@ func TestHaar1MatchesLibopus(t *testing.T) {
 
 func TestHaar1NormMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 	cases := []haar1OracleCase{
 		{nameHaarCase(8, 1), []float32{0.25, -0.5, 0.75, -1, 0.125, -0.25, 0.5, -0.75}, 8, 1},
 		{nameHaarCase(16, 2), makeHaarNormInput(32, 0x5012), 16, 2},

@@ -136,6 +136,7 @@ func traceLibopusCELTPLCStage(t *testing.T, sampleRate, channels, frameSize, req
 // comparing each bit-exactly against the libopus C reference.
 func TestCELTPLCStagesMatchLibopusC(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 
 	const (
 		sampleRate         = 48000

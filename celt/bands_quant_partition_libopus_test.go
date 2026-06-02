@@ -101,6 +101,7 @@ func makeZeroPulseLowband(n int, seed uint32) []float32 {
 
 func TestQuantPartitionZeroPulseMatchesLibopus(t *testing.T) {
 	libopustest.RequireOracle(t)
+	requireBitExactFloat(t)
 	cases := []zeroPulsePartitionOracleCase{
 		{name: "noise_lm0_b1", n: 3, blocks: 1, lm: 0, band: 3, fill: 1, seed: 0x13579bdf, gain: 1},
 		{name: "noise_lm1_b2_partial_fill", n: 8, blocks: 2, lm: 1, band: 6, fill: 1, seed: 0x2468ace0, gain: 0.75},
