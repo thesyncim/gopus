@@ -8,6 +8,7 @@ TARBALL="${TMP_DIR}/opus-${LIBOPUS_VERSION}.tar.gz"
 LIBOPUS_ENABLE_QEXT="${LIBOPUS_ENABLE_QEXT:-0}"
 LIBOPUS_ENABLE_FIXED="${LIBOPUS_ENABLE_FIXED:-0}"
 LIBOPUS_ENABLE_CUSTOM="${LIBOPUS_ENABLE_CUSTOM:-0}"
+LIBOPUS_ENABLE_SIMD="${LIBOPUS_ENABLE_SIMD:-0}"
 LIBOPUS_CFLAGS="${LIBOPUS_CFLAGS:--O3 -DNDEBUG}"
 LIBOPUS_CPPFLAGS="${LIBOPUS_CPPFLAGS:-}"
 
@@ -22,10 +23,11 @@ normalize_bool() {
 ENABLE_QEXT="$(normalize_bool "${LIBOPUS_ENABLE_QEXT}" LIBOPUS_ENABLE_QEXT)"
 ENABLE_FIXED="$(normalize_bool "${LIBOPUS_ENABLE_FIXED}" LIBOPUS_ENABLE_FIXED)"
 ENABLE_CUSTOM="$(normalize_bool "${LIBOPUS_ENABLE_CUSTOM}" LIBOPUS_ENABLE_CUSTOM)"
+ENABLE_SIMD="$(normalize_bool "${LIBOPUS_ENABLE_SIMD}" LIBOPUS_ENABLE_SIMD)"
 
-VARIANT_COUNT=$((ENABLE_QEXT + ENABLE_FIXED + ENABLE_CUSTOM))
+VARIANT_COUNT=$((ENABLE_QEXT + ENABLE_FIXED + ENABLE_CUSTOM + ENABLE_SIMD))
 if [[ "${VARIANT_COUNT}" -gt 1 ]]; then
-  echo "error: LIBOPUS_ENABLE_QEXT, LIBOPUS_ENABLE_FIXED, and LIBOPUS_ENABLE_CUSTOM are mutually exclusive" >&2
+  echo "error: LIBOPUS_ENABLE_QEXT, LIBOPUS_ENABLE_FIXED, LIBOPUS_ENABLE_CUSTOM, and LIBOPUS_ENABLE_SIMD are mutually exclusive" >&2
   exit 1
 fi
 
@@ -42,6 +44,19 @@ elif [[ "${ENABLE_CUSTOM}" == "1" ]]; then
   # only build that can serve as an oracle for non-standard-rate custom modes.
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-custom"
   CONFIGURE_FLAGS+=(--enable-custom-modes)
+elif [[ "${ENABLE_SIMD}" == "1" ]]; then
+  # SIMD/RTCD-enabled PERFORMANCE reference. This is libopus's native default
+  # (intrinsics + run-time CPU detection ON): NEON on arm64, SSE/AVX RTCD on
+  # amd64. It is explicitly NOT bit-reproducible across hosts, so it must NEVER
+  # be used as a parity oracle — the scalar parity reference (opus-1.6.1, built
+  # WITH --disable-asm/--disable-rtcd/--disable-intrinsics) stays the bit-exact
+  # lib. This variant exists only so the perf scoreboard can compare gopus asm
+  # kernels against a SIMD libopus (fair asm-vs-asm). We pass the enabling flags
+  # explicitly (rather than relying on autoconf defaults) so the produced
+  # config.h reliably DEFINES the SIMD macros even if a future autotools change
+  # alters the default.
+  SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}-simd"
+  CONFIGURE_FLAGS+=(--enable-rtcd --enable-intrinsics)
 else
   SRC_DIR="${TMP_DIR}/opus-${LIBOPUS_VERSION}"
 fi
@@ -74,6 +89,12 @@ CC_PATH="$(command -v "${LIBOPUS_CC_DRIVER}" 2>/dev/null || printf "%s" "${LIBOP
 CC_TARGET="$("${LIBOPUS_CC_ARGV[@]}" -dumpmachine 2>/dev/null || true)"
 CC_VERSION="$("${LIBOPUS_CC_ARGV[@]}" --version 2>/dev/null | sed -n '1p' || true)"
 CONFIGURE_STAMP="${CONFIGURE_FLAGS[*]}"
+# The SIMD variant is disambiguated from other variants by its own SRC_DIR and by
+# the configure= line (it carries --enable-rtcd --enable-intrinsics), so it is NOT
+# added to the stamp body here: changing the shared stamp format would mark the
+# already-built scalar parity reference stale and force a reconfigure (which would
+# turn SIMD back ON and destroy the bit-exact parity build). The stamp format is
+# therefore frozen for the existing variants.
 BUILD_STAMP=$'gopus libopus helper build v5\nversion='"${LIBOPUS_VERSION}"$'\nqext='"${ENABLE_QEXT}"$'\nfixed='"${ENABLE_FIXED}"$'\ncustom='"${ENABLE_CUSTOM}"$'\nhost_os='"${HOST_OS}"$'\nhost_arch='"${HOST_ARCH}"$'\nhost_bits='"${HOST_BITS}"$'\ncc='"${LIBOPUS_CC}"$'\ncc_path='"${CC_PATH}"$'\ncc_target='"${CC_TARGET}"$'\ncc_version='"${CC_VERSION}"$'\nconfigure='"${CONFIGURE_STAMP}"$'\nCFLAGS='"${LIBOPUS_CFLAGS}"$'\nCPPFLAGS='"${LIBOPUS_CPPFLAGS}"$'\nLDFLAGS='"${LIBOPUS_LDFLAGS}"$'\n'
 LOCK_DIR="${SRC_DIR}.lock"
 

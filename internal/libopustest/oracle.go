@@ -27,6 +27,10 @@ type CHelperConfig struct {
 	QEXTRef      bool
 	FixedRef     bool
 	CustomRef    bool
+	// SIMDRef links the SIMD/RTCD-enabled libopus PERFORMANCE reference
+	// (opus-1.6.1-simd). It is NOT bit-reproducible, so it must only be used for
+	// performance comparisons, never for parity oracles.
+	SIMDRef bool
 	IncludeDirs  []string
 	RefSources   []string
 	Sources      []string
@@ -120,6 +124,10 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if cfg.CustomRef {
 		ensureRef = libopustooling.EnsureLibopusCustom
 		flavor = "custom"
+	}
+	if cfg.SIMDRef {
+		ensureRef = libopustooling.EnsureLibopusSIMD
+		flavor = "simd"
 	}
 	if helperNeedsConfig(cfg.CFlags) {
 		if _, err := os.Stat(filepath.Join(refDir, "config.h")); err != nil {
@@ -255,6 +263,9 @@ func helperRefDir(cfg CHelperConfig) string {
 	if cfg.CustomRef {
 		return CustomRefPath()
 	}
+	if cfg.SIMDRef {
+		return SIMDRefPath()
+	}
 	return RefPath()
 }
 
@@ -285,6 +296,7 @@ func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
 	helperHashString(h, fmt.Sprintf("qext-ref=%t", cfg.QEXTRef))
 	helperHashString(h, fmt.Sprintf("fixed-ref=%t", cfg.FixedRef))
 	helperHashString(h, fmt.Sprintf("custom-ref=%t", cfg.CustomRef))
+	helperHashString(h, fmt.Sprintf("simd-ref=%t", cfg.SIMDRef))
 	helperHashStrings(h, "cflags", cfg.CFlags)
 	helperHashStrings(h, "ref-includes", cfg.RefIncludes)
 	helperHashStrings(h, "include-dirs", cfg.IncludeDirs)

@@ -370,6 +370,15 @@ func EnsureLibopusCustom(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "custom")
 }
 
+// EnsureLibopusSIMD invokes tools/ensure_libopus.sh with ENABLE_SIMD enabled
+// (libopus configured with its native --enable-rtcd --enable-intrinsics, so
+// config.h DEFINES the platform SIMD macros) from the first matching root. This
+// is the PERFORMANCE reference only — it is not bit-reproducible and must not be
+// used as a parity oracle.
+func EnsureLibopusSIMD(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "simd")
+}
+
 func ensureLibopus(version string, roots []string, qext bool) bool {
 	variant := "float"
 	if qext {
@@ -411,6 +420,8 @@ func ensureLibopusVariant(version string, roots []string, variant string) bool {
 			env = append(env, "LIBOPUS_ENABLE_FIXED=1")
 		case "custom":
 			env = append(env, "LIBOPUS_ENABLE_CUSTOM=1")
+		case "simd":
+			env = append(env, "LIBOPUS_ENABLE_SIMD=1")
 		}
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()

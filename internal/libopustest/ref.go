@@ -30,6 +30,16 @@ func FixedRefPath(elem ...string) string {
 	return filepath.Join(append(base, elem...)...)
 }
 
+// SIMDRefPath returns a path under the SIMD/RTCD-enabled libopus PERFORMANCE
+// reference tree (built by `make ensure-libopus-simd`). Its config.h DEFINES the
+// platform SIMD macros (NEON on arm64, SSE/AVX RTCD on amd64), so it is NOT
+// bit-reproducible and must never be used as a parity oracle — it exists only so
+// the perf scoreboard can compare the gopus asm kernels against a SIMD libopus.
+func SIMDRefPath(elem ...string) string {
+	base := []string{repoRoot(), "tmp_check", "opus-" + libopustooling.DefaultVersion + "-simd"}
+	return filepath.Join(append(base, elem...)...)
+}
+
 // CustomRefPath returns a path under the pinned custom-modes (--enable-custom-modes)
 // libopus reference tree. Its config.h defines CUSTOM_MODES and the Opus Custom
 // API, so C oracle helpers built against it can call opus_custom_mode_create /

@@ -1,49 +1,69 @@
 # gopus vs libopus performance baseline
 
 Performance scoreboard comparing gopus encode+decode throughput against the
-pinned libopus 1.6.1 reference (`tmp_check/opus-1.6.1`), plus a CPU-profile
-ranking of the gopus encode/decode hot paths. This is a **measurement baseline**
-for the perf-optimization agents — nothing here is optimized.
+pinned libopus 1.6.1 reference, plus a CPU-profile ranking of the gopus
+encode/decode hot paths. This is a **measurement baseline** for the
+perf-optimization agents — nothing here is optimized.
 
-Captured on Apple M4 Max, `darwin/arm64`, Go default (no PGO override beyond the
-committed `default.pgo`). Absolute ns differ by host; the **gopus/libopus ratio
-(`g/l`)** is the portable figure.
+Absolute ns differ by host; the **gopus/libopus ratio (`g/l`)** is the portable
+figure. `g/l < 1.00x` => gopus is FASTER than libopus; `g/l > 1.00x` => gopus is
+slower.
 
-`g/l < 1.00x` => gopus is FASTER than libopus. `g/l > 1.00x` => gopus is slower.
+## Methodology: parity vs perf use DIFFERENT libopus builds
 
-> **⚠️ FAIRNESS CAVEAT — the `g/l` ratios below are NOT a real-world comparison.**
-> The libopus side links the pinned `tmp_check/opus-1.6.1/.libs/libopus.a`, which is
-> the bit-exact **parity reference**: its `config.h` has every SIMD path disabled
-> (`OPUS_ARM_MAY_HAVE_NEON`/`PRESUME_NEON`, `OPUS_ARM_ASM`, `OPUS_X86_*`, `OPUS_HAVE_RTCD`
-> all `#undef`) so its math is deterministic scalar C. gopus, by contrast, runs its
-> hand-written arm64 NEON / amd64 asm kernels. So these numbers compare
-> **gopus-with-SIMD vs libopus-with-no-SIMD** and OVERSTATE gopus — the apparent
-> "decode faster" result does not hold against a real libopus. A default
-> `./configure` on aarch64 enables `OPUS_ARM_PRESUME_NEON_INTR`; a fair comparison
-> must link a SIMD-enabled libopus build (kept separate from the scalar parity lib).
-> Byte-parity is anchored in the pure-Go (`purego`) build vs the scalar reference;
-> performance must be measured vs the SIMD build. **Re-benchmark against a NEON/SSE
-> libopus before quoting any `g/l` figure.** The gopus-side absolute ns/op and the
-> hot-path profile below remain valid (they are pure-gopus measurements).
+There are two libopus reference builds, and they exist for different reasons:
 
-> **FAIR RESULT (measured, M4 Max darwin/arm64, vs a NEON-enabled libopus).** With a
-> SIMD libopus linked via `GOPUS_BENCH_LIBOPUS_A`, the honest reset+batch aggregates
-> over 56 configs are **DECODE geomean g/l ≈ 1.35× (median 1.27×)** and **ENCODE
-> geomean g/l ≈ 1.60× (median 1.60×)** — gopus is ~35 % slower on decode and ~60 %
-> slower on encode, and slower than NEON libopus on **every** config tested (0 wins).
-> The earlier "decode ~17 % faster" was purely the SIMD-disabled artifact (NEON
-> libopus decode is ~1.6× the scalar reference, flipping the sign). Closest: SILK
-> decode (~1.05–1.24×) and SILK-8k encode (~1.05×); worst: CELT (decode up to ~2.1×,
-> encode up to ~2.5×). The bit-exact asm + zero-alloc work narrowed specific kernels
-> but did not close the gap to hand-tuned SIMD C.
->
-> **Reproduce the fair comparison** (the pinned parity lib must stay scalar, so build
-> a separate SIMD libopus): `cp -R tmp_check/opus-1.6.1 /tmp/opus-neon && cd
-> /tmp/opus-neon && ./configure CFLAGS="-O3 -DNDEBUG"` then `make -j ACLOCAL=true
-> AUTOCONF=true AUTOMAKE=true AUTOHEADER=true MAKEINFO=true` (the `cp` breaks autotools
-> timestamps; the tool-overrides no-op the regen since autoconf/automake aren't
-> installed), then `GOPUS_BENCH_LIBOPUS_A=/tmp/opus-neon/.libs/libopus.a go test -tags
-> gopus_libopus_bench -run TestScoreboardSummary -v .`
+| reference dir | configure | SIMD | used for |
+|---|---|---|---|
+| `tmp_check/opus-1.6.1` | scalar (asm/rtcd/intrinsics OFF) | **disabled** | **PARITY** (bit-exact oracle) |
+| `tmp_check/opus-1.6.1-simd` | `--enable-rtcd --enable-intrinsics` | **enabled** (NEON / SSE-AVX) | **PERF** (fair perf opponent) |
+
+**Parity MUST be scalar-vs-scalar.** A SIMD libopus is not bit-reproducible
+(NEON/SSE reorder floating-point ops vs scalar C), so it cannot be a byte-exact
+oracle. Byte parity is therefore anchored in the gopus pure-Go (`purego`) build
+vs the scalar `opus-1.6.1` reference. The scalar reference's `config.h` has every
+SIMD path `#undef`'d (`OPUS_ARM_MAY_HAVE_NEON_INTR`, `OPUS_ARM_PRESUME_NEON_INTR`,
+`OPUS_X86_*`, `OPUS_HAVE_RTCD`). Do **not** repurpose it for perf — comparing the
+gopus asm build against scalar libopus is apples-to-oranges and overstates gopus.
+
+**Perf has two FAIR tiers**, each pairing like with like:
+
+- **asm-vs-asm** (`make perf-asm`): gopus DEFAULT build (arm64 NEON / amd64 asm
+  kernels) vs **libopus-SIMD** (`opus-1.6.1-simd`). The real-world comparison —
+  both sides use their best native code. `config.h` of the SIMD build DEFINES
+  `OPUS_ARM_MAY_HAVE_NEON_INTR 1` / `OPUS_ARM_PRESUME_NEON_INTR 1` on arm64 (and
+  the `OPUS_X86_*` RTCD macros on amd64), the exact opposite of the parity build;
+  `nm` shows 34 NEON symbols in the SIMD `.a` vs 0 in the parity `.a`.
+- **purego-vs-noasm** (`make perf-purego`): gopus `-tags purego` (scalar Go, no
+  asm) vs **libopus-no-asm** (the scalar `opus-1.6.1`). Fair scalar-vs-scalar.
+
+The scoreboard harness selects the tier via `GOPUS_BENCH_TIER` (`asm` | `purego`)
+and prints the tier + which gopus build + which libopus reference it linked at the
+top of `TestScoreboardSummary`, and warns if the gopus build tag and the tier
+disagree. `GOPUS_BENCH_LIBOPUS_A` still overrides the linked `.a` for manual
+experiments.
+
+### Re-capture the numbers on a QUIET host
+
+The tables below are the OLD apples-to-oranges run (gopus asm vs scalar libopus)
+and are **STALE/MISLEADING** — they are kept only to show the artifact. Do NOT
+quote them. Re-capture both fair tiers on an unloaded host:
+
+```
+make perf-asm      # asm-vs-asm  : gopus default vs libopus-SIMD
+make perf-purego   # purego-vs-noasm : gopus -tags purego vs libopus-no-asm
+make perf-fair     # both tiers
+```
+
+Each prints a per-config + aggregate g/l table. Replace the stale tables below
+with the perf-asm (real-world) figures, and keep perf-purego as the
+scalar-vs-scalar sanity tier.
+
+> **HISTORICAL ARTIFACT (do not quote).** The "DECODE geomean g/l ≈ 0.83×
+> (gopus ~17 % faster)" figure once published here was the SIMD-disabled artifact:
+> the libopus side linked the scalar parity lib while gopus ran NEON. Against a
+> NEON-enabled libopus that sign flips (NEON libopus decode is ~1.6× faster than
+> the scalar reference). Use `make perf-asm` for the honest number.
 
 ## Harness
 
@@ -51,11 +71,14 @@ committed `default.pgo`). Absolute ns differ by host; the **gopus/libopus ratio
   `gopus_libopus_bench`; the default build never compiles it and never links the
   reference toolchain).
 - libopus reference: `tools/csrc/libopus_codec_bench.c`, a self-timing
-  encode/decode helper built once against the pinned static `libopus.a`. It times
-  the codec work inside one process, so its `ns/packet` excludes process spawn,
-  file I/O, and decoder/encoder construction. **NOTE:** that pinned `libopus.a` is
-  the SIMD-disabled parity reference (see the fairness caveat above) — the fair
-  build links a separately-configured NEON/SSE libopus, not this one.
+  encode/decode helper built once against a static `libopus.a`. It times the codec
+  work inside one process, so its `ns/packet` excludes process spawn, file I/O,
+  and decoder/encoder construction. Which `.a` it links depends on the tier:
+  `GOPUS_BENCH_TIER=asm` links the SIMD build (`opus-1.6.1-simd`),
+  `GOPUS_BENCH_TIER=purego` (default) links the scalar build (`opus-1.6.1`). The
+  SIMD reference is produced by `make ensure-libopus-simd`
+  (`LIBOPUS_ENABLE_SIMD=1 tools/ensure_libopus.sh`); the scalar parity reference
+  is produced by `make ensure-libopus` and must stay SIMD-disabled.
 - Matched work: both sides encode/decode the same frame count at the same
   duration. gopus frame sizes are 48 kHz-relative (`F ∈ {120,480,960,2880}` =
   2.5/10/20/60 ms) and gopus consumes `F` samples of 48 kHz-rate PCM per frame;
@@ -63,15 +86,21 @@ committed `default.pgo`). Absolute ns differ by host; the **gopus/libopus ratio
   use the same `testsignal` corpus class and duration (audio is the same signal
   class, not bit-identical). Complexity 10, CBR, forced mode per row.
 
-Reproduce:
+Reproduce (prefer the make targets — they pick the matching libopus reference
+and gopus build tag for each fair tier):
 
 ```
-# Per-config Go benchmarks (gopus ns/op + libopus_ns/pkt + g/l ratio metrics):
-go test -tags gopus_libopus_bench -run XXX -bench BenchmarkScoreboardEncode -benchtime 200x .
-go test -tags gopus_libopus_bench -run XXX -bench BenchmarkScoreboardDecode -benchtime 200x .
+# Both fair tiers (run on a QUIET host):
+make perf-fair      # = perf-asm + perf-purego
+make perf-asm       # asm-vs-asm     : gopus default vs libopus-SIMD
+make perf-purego    # purego-vs-noasm: gopus -tags purego vs libopus-no-asm
 
-# Full matrix scoreboard table in one shot (self-timed both sides):
-go test -tags gopus_libopus_bench -run TestScoreboardSummary -v .
+# Raw equivalents (asm tier shown; for purego add `purego` tag + TIER=purego):
+GOPUS_BENCH_TIER=asm go test -tags gopus_libopus_bench -run TestScoreboardSummary -v .
+
+# Per-config Go benchmarks (gopus ns/op + libopus_ns/pkt + g/l ratio metrics):
+GOPUS_BENCH_TIER=asm go test -tags gopus_libopus_bench -run XXX -bench BenchmarkScoreboardEncode -benchtime 200x .
+GOPUS_BENCH_TIER=asm go test -tags gopus_libopus_bench -run XXX -bench BenchmarkScoreboardDecode -benchtime 200x .
 
 # CPU profiles (pure gopus, default build, no cgo):
 go test -run XXX -bench 'BenchmarkEncoderEncode_(CallerBuffer|Stereo|VoIP|LongPacketCELT|LongPacketSILK)$' \
@@ -82,7 +111,13 @@ go tool pprof -top -nodecount=20 enc.test enc.prof
 go tool pprof -top -nodecount=20 dec.test dec.prof
 ```
 
-## Scoreboard (matched configs, M4 Max)
+## Scoreboard (matched configs, M4 Max) — STALE, RE-CAPTURE via `make perf-fair`
+
+> **The table and aggregate in this section are the OLD apples-to-oranges run**
+> (gopus asm vs SIMD-disabled scalar libopus) and OVERSTATE gopus. They are
+> retained only as the documented artifact. RE-CAPTURE on a quiet host with
+> `make perf-asm` (real-world) and `make perf-purego` (scalar-vs-scalar), then
+> replace these numbers. Do not quote the figures below.
 
 Config matrix gated to combos both encoders accept:
 CELT 8/16/24/48 kHz × 2.5/10/20 ms; SILK 8/16/24/48 kHz × 10/20/60 ms;
@@ -147,12 +182,16 @@ Hybrid 24/48 kHz × 10/20 ms; each × mono/stereo. `ns` columns are per-packet.
 | Hybrid/stereo/48k/10ms | 3520833 | 1962420 | 1.79x | 153488 | 228438 | 0.67x |
 | Hybrid/stereo/48k/20ms | 5466782 | 3693880 | 1.48x | 453469 | 500192 | 0.91x |
 
-### Aggregate (n = 56 configs each direction)
+### Aggregate (n = 56 configs each direction) — STALE artifact
 
-| direction | geomean g/l | median g/l | verdict |
+> These aggregates are from the apples-to-oranges run (gopus asm vs scalar
+> libopus). The DECODE "0.830x / gopus ~17% FASTER" is the SIMD-disabled artifact
+> and flips against a NEON libopus. RE-CAPTURE via `make perf-asm`.
+
+| direction | geomean g/l | median g/l | verdict (artifact) |
 |---|--:|--:|---|
-| ENCODE | 1.338x | 1.352x | gopus ~34% SLOWER than libopus |
-| DECODE | 0.830x | 0.818x | gopus ~17% FASTER than libopus |
+| ENCODE | 1.338x | 1.352x | gopus ~34% SLOWER than scalar libopus |
+| DECODE | 0.830x | 0.818x | artifact: vs scalar libopus only — flips vs SIMD |
 
 ### Where gopus already ≥ libopus (g/l ≤ 1.00x) vs behind
 
