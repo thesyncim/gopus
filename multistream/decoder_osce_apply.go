@@ -259,7 +259,9 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 		if state.prevBWEActive {
 			d.applyOSCEBWEFadeOut(out, frameSize, packetStereo)
 		}
+		// SILK frame fell back to the standard resampler (mode == SILK_ONLY).
 		state.prevBWEActive = false
+		state.prevExtendedMode = bweModeSilkOnly
 		return false
 	}
 	if d.complexity < 4 || d.sampleRate != 48000 || silkBW != silk.BandwidthWideband {
@@ -267,6 +269,7 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 			d.applyOSCEBWEFadeOut(out, frameSize, packetStereo)
 		}
 		state.prevBWEActive = false
+		state.prevExtendedMode = bweModeSilkOnly
 		return false
 	}
 	in48Per := frameSize
@@ -275,16 +278,23 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 			d.applyOSCEBWEFadeOut(out, frameSize, packetStereo)
 		}
 		state.prevBWEActive = false
+		state.prevExtendedMode = bweModeSilkOnly
 		return false
 	}
 	in16Per := in48Per / 3
 	if !state.prevBWEActive {
+		// libopus calls osce_bwe_reset when prev_osce_extended_mode is not
+		// OSCE_MODE_SILK_BBWE.
 		for i := range state.bweRuntime {
 			state.bweRuntime[i].Reset()
 			state.bweFeatures[i].Reset()
 		}
+		state.bweMonoPrevNativeLast = 0
 	}
-	transitionIntoBWE := !state.prevBWEActive
+	// libopus only cross-fades into BWE when the preceding frame was
+	// OSCE_MODE_SILK_ONLY or OSCE_MODE_HYBRID (silk/dec_API.c); a cold start or
+	// CELT->SILK_BBWE transition emits the BWE output directly.
+	fadeInIntoBWE := state.prevExtendedMode == bweModeSilkOnly || state.prevExtendedMode == bweModeHybrid
 	if packetStereo && d.channels == 2 {
 		if !state.bweRuntime[0].Loaded() || !state.bweRuntime[1].Loaded() {
 			return false
@@ -310,7 +320,7 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 		); err != nil {
 			return false
 		}
-		if transitionIntoBWE {
+		if fadeInIntoBWE {
 			for i := 0; i < in48Per; i++ {
 				state.bweFadeout48[i] = out[2*i]
 			}
@@ -338,7 +348,7 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 			state.prevBWEActive = true
 			return true
 		}
-		if transitionIntoBWE {
+		if fadeInIntoBWE {
 			for i := 0; i < in48Per; i++ {
 				state.bweFadeout48[i] = out[2*i+1]
 			}
@@ -348,6 +358,7 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 			out[2*i+1] = state.bweOut48[i]
 		}
 		state.prevBWEActive = true
+		state.prevExtendedMode = bweModeSilkBBWE
 		return true
 	}
 
@@ -357,12 +368,21 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 	native, fsKHz := d.silkDec.LatestNativeMono()
 	if native == nil || fsKHz != 16 || len(native) < in16Per {
 		state.prevBWEActive = false
+		state.prevExtendedMode = bweModeSilkOnly
 		return false
 	}
-	for i := 0; i < in16Per; i++ {
-		state.bweIn16Int[i] = native[i]
-		state.bweIn16[i] = float32(native[i]) / 32768.0
+	// libopus drives osce_bwe from &samplesOut1_tmp[n][1] -- the 16 kHz lowband
+	// shifted one sample earlier than the freshly decoded frame, with index 0
+	// carrying the previous frame's final sample. LatestNativeMono returns the
+	// raw decoded frame at [0], so prepend the previous frame's last sample and
+	// carry the final decoded sample into the next call.
+	state.bweIn16Int[0] = state.bweMonoPrevNativeLast
+	state.bweIn16[0] = float32(state.bweMonoPrevNativeLast) / 32768.0
+	for i := 1; i < in16Per; i++ {
+		state.bweIn16Int[i] = native[i-1]
+		state.bweIn16[i] = float32(native[i-1]) / 32768.0
 	}
+	state.bweMonoPrevNativeLast = native[in16Per-1]
 	numFrames := in16Per / 160
 	state.bweFeatures[0].CalculateFeatures(
 		state.bweFeatBuf[:numFrames*osceBWE.FeatureDim],
@@ -374,9 +394,10 @@ func (d *streamState) applyOSCEBWE(out []float32, frameSize int, silkBW silk.Ban
 		state.bweFeatBuf[:numFrames*osceBWE.FeatureDim],
 	); err != nil {
 		state.prevBWEActive = false
+		state.prevExtendedMode = bweModeSilkOnly
 		return false
 	}
-	if transitionIntoBWE {
+	if fadeInIntoBWE {
 		if d.channels == 1 {
 			streamOSCEBWECrossFade10ms(state.bweOut48[:in48Per], out[:in48Per], 480)
 		} else {
@@ -407,6 +428,17 @@ func (d *streamState) markOSCEInactiveIfModeIneligible(toc streamTOC, out []floa
 		return
 	}
 	d.resetOSCEInactiveState(toc.stereo)
+	// Record the libopus osce_extended_mode so the next BWE frame reproduces
+	// the fade-in gating: a Hybrid or SILK-only predecessor arms the fade-in,
+	// a CELT-only predecessor suppresses it.
+	switch toc.mode {
+	case streamModeCELT:
+		d.osceState.prevExtendedMode = bweModeCeltOnly
+	case streamModeHybrid:
+		d.osceState.prevExtendedMode = bweModeHybrid
+	default:
+		d.osceState.prevExtendedMode = bweModeSilkOnly
+	}
 }
 
 func (d *streamState) resetOSCEInactiveState(packetStereo bool) {
@@ -434,13 +466,25 @@ func (d *streamState) applyOSCEBWEFadeOut(out []float32, frameSize int, packetSt
 	state := d.osceState
 	numFrames := in16Per / 160
 
-	runChannel := func(native []int16, channelIdx int) bool {
+	// stage applies the libopus &samplesOut1_tmp[n][1] one-sample input delay
+	// for mono; the stereo accessor already returns [1]-aligned slices.
+	runChannel := func(native []int16, channelIdx int, stage bool) bool {
 		if channelIdx < 0 || channelIdx > 1 || !state.bweRuntime[channelIdx].Loaded() || len(native) < in16Per {
 			return false
 		}
-		for i := 0; i < in16Per; i++ {
-			state.bweIn16Int[i] = native[i]
-			state.bweIn16[i] = float32(native[i]) / 32768.0
+		if stage {
+			state.bweIn16Int[0] = state.bweMonoPrevNativeLast
+			state.bweIn16[0] = float32(state.bweMonoPrevNativeLast) / 32768.0
+			for i := 1; i < in16Per; i++ {
+				state.bweIn16Int[i] = native[i-1]
+				state.bweIn16[i] = float32(native[i-1]) / 32768.0
+			}
+			state.bweMonoPrevNativeLast = native[in16Per-1]
+		} else {
+			for i := 0; i < in16Per; i++ {
+				state.bweIn16Int[i] = native[i]
+				state.bweIn16[i] = float32(native[i]) / 32768.0
+			}
 		}
 		state.bweFeatures[channelIdx].CalculateFeatures(
 			state.bweFeatBuf[:numFrames*osceBWE.FeatureDim],
@@ -458,7 +502,7 @@ func (d *streamState) applyOSCEBWEFadeOut(out []float32, frameSize int, packetSt
 		if !ok || fsKHz != 16 || samplesPerChannel < in16Per {
 			return
 		}
-		if runChannel(leftNative, 0) {
+		if runChannel(leftNative, 0, false) {
 			for i := 0; i < in48Per; i++ {
 				state.bweFadeout48[i] = out[2*i]
 			}
@@ -467,7 +511,7 @@ func (d *streamState) applyOSCEBWEFadeOut(out []float32, frameSize int, packetSt
 				out[2*i] = state.bweFadeout48[i]
 			}
 		}
-		if runChannel(rightNative, 1) {
+		if runChannel(rightNative, 1, false) {
 			for i := 0; i < in48Per; i++ {
 				state.bweFadeout48[i] = out[2*i+1]
 			}
@@ -480,7 +524,7 @@ func (d *streamState) applyOSCEBWEFadeOut(out []float32, frameSize int, packetSt
 	}
 
 	native, fsKHz := d.silkDec.LatestNativeMono()
-	if native == nil || fsKHz != 16 || !runChannel(native, 0) {
+	if native == nil || fsKHz != 16 || !runChannel(native, 0, true) {
 		return
 	}
 	if d.channels == 1 {

@@ -51,4 +51,26 @@ type streamOSCEState struct {
 	bweFadeout48  [3 * 320]float32
 	bweFeatBuf    [2 * osceBWE.FeatureDim]float32
 	prevBWEActive bool
+
+	// prevExtendedMode and bweMonoPrevNativeLast mirror the single-stream
+	// gopus decoder's OSCE BWE bookkeeping (see package gopus
+	// decoder_osce_bwe_apply.go). prevExtendedMode tracks the libopus
+	// DecControl.prev_osce_extended_mode so the fade-in into BWE only fires
+	// after an OSCE_MODE_SILK_ONLY / OSCE_MODE_HYBRID frame (not on a cold
+	// start or CELT->BBWE transition). bweMonoPrevNativeLast carries the
+	// previous mono frame's final 16 kHz sample, reproducing libopus'
+	// &samplesOut1_tmp[n][1] one-sample input delay for osce_bwe.
+	prevExtendedMode      int
+	bweMonoPrevNativeLast int16
 }
+
+// OSCE extended-mode values mirror libopus dnn/osce.h OSCE_MODE_*. bweModeNone
+// is the zero value matching a cold-started decoder, deliberately not one of
+// SILK_ONLY/HYBRID so the first BWE frame is emitted without a fade-in.
+const (
+	bweModeNone     = 0
+	bweModeSilkOnly = 1000
+	bweModeHybrid   = 1001
+	bweModeCeltOnly = 1002
+	bweModeSilkBBWE = 1003
+)

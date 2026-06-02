@@ -139,8 +139,8 @@ func TestOSCEEndToEndSampleParity(t *testing.T) {
 	mergedLACE = append(mergedLACE, laceBlob...)
 
 	const (
-		frameSize  = 960   // 20 ms @ 48 kHz
-		numPackets = 6     // enough for LACE fade-in + steady-state
+		frameSize  = 960 // 20 ms @ 48 kHz
+		numPackets = 6   // enough for LACE fade-in + steady-state
 		sampleRate = 48000
 	)
 
@@ -236,20 +236,11 @@ func TestOSCEEndToEndSampleParity(t *testing.T) {
 		return out[:offset]
 	}
 
-	// qualityBarOSCEBWE is anchored to measured BWE parity. OSCE BWE
-	// introduces a 21-sample delay buffer (7 samples at 16 kHz, 21 at 48 kHz
-	// via 3x upsampling) that shifts the waveform correlation below the
-	// near-exact LACE/SILK floor. opus_compare Q=41.59 (well above Q=20)
-	// confirms genuine spectral equivalence; the corr floor is set at 0.995
-	// to match the measured 0.9955 value with a small headroom.
-	qualityBarOSCEBWE := qualitycompare.QualityBar{
-		MinQ:    20.0,
-		MinCorr: 0.994,
-		RMSLo:   0.97,
-		RMSHi:   1.03,
-		Desc:    "near-exact vs libopus (OSCE BWE bar, delay-adjusted)",
-	}
-
+	// OSCE BWE is sample-aligned with libopus: the BBWENet forward pass is fed
+	// the same &samplesOut1_tmp[n][1] one-sample-delayed lowband libopus uses
+	// and the fade-in into BWE follows libopus' prev_osce_extended_mode gating
+	// (no cold-start / CELT->BBWE cross-fade), so the output meets the same
+	// near-exact bar as LACE/NoLACE/SILK (measured Q~99.8, delay=0, corr=1.0).
 	subtests := []struct {
 		name       string
 		channels   int
@@ -275,7 +266,7 @@ func TestOSCEEndToEndSampleParity(t *testing.T) {
 			name: "bwe_mono", channels: 1, complexity: 4,
 			enableBWE: true, enableLACE: false,
 			mergedBlob: func() []byte { return mergedAll },
-			qualBar:    qualityBarOSCEBWE,
+			qualBar:    qualitycompare.QualityBarNearExact,
 		},
 		{
 			name: "lace_stereo", channels: 2, complexity: 6,
@@ -287,7 +278,7 @@ func TestOSCEEndToEndSampleParity(t *testing.T) {
 			name: "nolace_bwe_stereo", channels: 2, complexity: 7,
 			enableBWE: true, enableLACE: true,
 			mergedBlob: func() []byte { return mergedAll },
-			qualBar:    qualityBarOSCEBWE,
+			qualBar:    qualitycompare.QualityBarNearExact,
 		},
 	}
 

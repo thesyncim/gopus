@@ -143,4 +143,6 @@ func (d *streamState) resetOSCEPostfilterState() {
 		d.osceState.bweFeatures[ch].Reset()
 	}
 	d.osceState.prevBWEActive = false
+	d.osceState.prevExtendedMode = bweModeNone
+	d.osceState.bweMonoPrevNativeLast = 0
 }

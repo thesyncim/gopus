@@ -6,6 +6,19 @@ import (
 	osceBWE "github.com/thesyncim/gopus/internal/osce/bwe"
 )
 
+// OSCE extended-mode values mirror the libopus dnn/osce.h OSCE_MODE_* enum that
+// silk/dec_API.c keys the BWE cross-fade transitions on. bweModeNone is the
+// zero value: it matches libopus' zero-initialised DecControl.prev_osce_extended_mode
+// on a cold-started decoder (no preceding frame), which is deliberately NOT one
+// of SILK_ONLY/HYBRID so the first BWE frame is emitted without a fade-in.
+const (
+	bweModeNone     = 0
+	bweModeSilkOnly = 1000 // OSCE_MODE_SILK_ONLY
+	bweModeHybrid   = 1001 // OSCE_MODE_HYBRID
+	bweModeCeltOnly = 1002 // OSCE_MODE_CELT_ONLY
+	bweModeSilkBBWE = 1003 // OSCE_MODE_SILK_BBWE
+)
+
 // decoderOSCEBWEState carries decoder-side OSCE BWE runtime bookkeeping under
 // the explicit extra-controls build. The `osceBWEModel` field follows the same
 // pattern as the FARGAN / Predictor bindings: it is non-nil once
@@ -38,4 +51,25 @@ type decoderOSCEBWEState struct {
 	// cross-fade between the BWE output and the standard silk_resampler
 	// output. This mirrors osce_bwe_cross_fade_10ms in libopus dec_API.c.
 	prevBWEActive bool
+
+	// prevExtendedMode tracks the full libopus DecControl.prev_osce_extended_mode
+	// (one of the bweMode* values) across decoded frames. libopus only
+	// cross-fades INTO BWE when the preceding frame was OSCE_MODE_SILK_ONLY or
+	// OSCE_MODE_HYBRID (silk/dec_API.c): on a cold start (bweModeNone) or a
+	// CELT->SILK_BBWE transition (bweModeCeltOnly, set by opus_decoder.c when
+	// prev_mode == MODE_CELT_ONLY) the first BWE frame is emitted without a
+	// fade-in. prevBWEActive alone cannot distinguish those cases.
+	prevExtendedMode int
+
+	// monoPrevNativeLast carries the last native (16 kHz) SILK sample of the
+	// previous mono BWE frame. libopus feeds osce_bwe (both the BBWENet
+	// forward pass and osce_bwe_calculate_features) from
+	// &samplesOut1_tmp[n][1] -- the 16 kHz lowband shifted one sample earlier
+	// than the freshly decoded frame, with samplesOut1_tmp[n][1] holding the
+	// previous frame's final sample (the SILK sStereo.sMid[1] history). The
+	// gopus mono lowband accessor (LatestNativeMono) returns the raw decoded
+	// frame at [0]; staging this one-sample history reproduces libopus' BWE
+	// input exactly. The stereo path already captures midFrame[1:] (the same
+	// [1]-aligned slice) so it needs no separate history.
+	monoPrevNativeLast int16
 }
