@@ -81,9 +81,12 @@ func TestCorpusSignalQualityParity(t *testing.T) {
 						t.Fatal("gopus decoded empty output")
 					}
 
-					refDecoded, err := decodeWithLibopusReferencePacketsSingle(channels, frameSize, packets)
+					// Tier-matched reference: SIMD libopus for the asm gopus
+					// build, scalar libopus for the pure-Go build, so the Q
+					// comparison is like-with-like.
+					refDecoded, err := decodeWithMatchedTierReferencePacketsSingle(channels, frameSize, packets)
 					if err != nil {
-						libopustest.HelperUnavailable(t, "single reference decode", err)
+						libopustest.HelperUnavailable(t, "matched-tier reference decode", err)
 					}
 					if len(refDecoded) == 0 {
 						t.Fatal("libopus reference decoded empty output")
