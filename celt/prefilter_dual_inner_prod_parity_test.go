@@ -6,53 +6,58 @@ import (
 	"testing"
 )
 
-// prefilterDualInnerProdF32Ref is the original prefilterDualInnerProdF32NeonOrder
-// body, kept verbatim so the asm/purego kernel can be proven bit-identical to
-// the libopus-matching reference it replaced. On arm64 fma32 and the scalar
-// tail multiply-add both contract to FMADDS, matching the asm kernel.
+// prefilterDualInnerProdF32Ref is an independent reference for the
+// prefilterDualInnerProdF32NeonOrder kernel, kept so the asm/purego kernel can
+// be proven bit-identical to the libopus-matching reference it replaced. It
+// fuses every lane and the scalar tail through mdctFMA32 (single-rounding
+// math.FMA) and applies the same float32 rounding barriers on the horizontal
+// reduction as the kernel, so the comparison holds on every architecture. The
+// kernel is reached in production only on arm64, where mdctFMA32 maps to FMADDS
+// and the asm path emits the matching vfmaq_f32 accumulation. fma32 is not used
+// here because it drops to non-fused a*b+c on non-arm64 hosts.
 func prefilterDualInnerProdF32Ref(x, y1, y2 []float32, length int) (float32, float32) {
 	var acc1 [4]float32
 	var acc2 [4]float32
 	i := 0
 	for ; i < length-7; i += 8 {
-		acc1[0] = fma32(x[i], y1[i], acc1[0])
-		acc1[1] = fma32(x[i+1], y1[i+1], acc1[1])
-		acc1[2] = fma32(x[i+2], y1[i+2], acc1[2])
-		acc1[3] = fma32(x[i+3], y1[i+3], acc1[3])
-		acc2[0] = fma32(x[i], y2[i], acc2[0])
-		acc2[1] = fma32(x[i+1], y2[i+1], acc2[1])
-		acc2[2] = fma32(x[i+2], y2[i+2], acc2[2])
-		acc2[3] = fma32(x[i+3], y2[i+3], acc2[3])
+		acc1[0] = mdctFMA32(x[i], y1[i], acc1[0])
+		acc1[1] = mdctFMA32(x[i+1], y1[i+1], acc1[1])
+		acc1[2] = mdctFMA32(x[i+2], y1[i+2], acc1[2])
+		acc1[3] = mdctFMA32(x[i+3], y1[i+3], acc1[3])
+		acc2[0] = mdctFMA32(x[i], y2[i], acc2[0])
+		acc2[1] = mdctFMA32(x[i+1], y2[i+1], acc2[1])
+		acc2[2] = mdctFMA32(x[i+2], y2[i+2], acc2[2])
+		acc2[3] = mdctFMA32(x[i+3], y2[i+3], acc2[3])
 
-		acc1[0] = fma32(x[i+4], y1[i+4], acc1[0])
-		acc1[1] = fma32(x[i+5], y1[i+5], acc1[1])
-		acc1[2] = fma32(x[i+6], y1[i+6], acc1[2])
-		acc1[3] = fma32(x[i+7], y1[i+7], acc1[3])
-		acc2[0] = fma32(x[i+4], y2[i+4], acc2[0])
-		acc2[1] = fma32(x[i+5], y2[i+5], acc2[1])
-		acc2[2] = fma32(x[i+6], y2[i+6], acc2[2])
-		acc2[3] = fma32(x[i+7], y2[i+7], acc2[3])
+		acc1[0] = mdctFMA32(x[i+4], y1[i+4], acc1[0])
+		acc1[1] = mdctFMA32(x[i+5], y1[i+5], acc1[1])
+		acc1[2] = mdctFMA32(x[i+6], y1[i+6], acc1[2])
+		acc1[3] = mdctFMA32(x[i+7], y1[i+7], acc1[3])
+		acc2[0] = mdctFMA32(x[i+4], y2[i+4], acc2[0])
+		acc2[1] = mdctFMA32(x[i+5], y2[i+5], acc2[1])
+		acc2[2] = mdctFMA32(x[i+6], y2[i+6], acc2[2])
+		acc2[3] = mdctFMA32(x[i+7], y2[i+7], acc2[3])
 	}
 	if length-i >= 4 {
-		acc1[0] = fma32(x[i], y1[i], acc1[0])
-		acc1[1] = fma32(x[i+1], y1[i+1], acc1[1])
-		acc1[2] = fma32(x[i+2], y1[i+2], acc1[2])
-		acc1[3] = fma32(x[i+3], y1[i+3], acc1[3])
-		acc2[0] = fma32(x[i], y2[i], acc2[0])
-		acc2[1] = fma32(x[i+1], y2[i+1], acc2[1])
-		acc2[2] = fma32(x[i+2], y2[i+2], acc2[2])
-		acc2[3] = fma32(x[i+3], y2[i+3], acc2[3])
+		acc1[0] = mdctFMA32(x[i], y1[i], acc1[0])
+		acc1[1] = mdctFMA32(x[i+1], y1[i+1], acc1[1])
+		acc1[2] = mdctFMA32(x[i+2], y1[i+2], acc1[2])
+		acc1[3] = mdctFMA32(x[i+3], y1[i+3], acc1[3])
+		acc2[0] = mdctFMA32(x[i], y2[i], acc2[0])
+		acc2[1] = mdctFMA32(x[i+1], y2[i+1], acc2[1])
+		acc2[2] = mdctFMA32(x[i+2], y2[i+2], acc2[2])
+		acc2[3] = mdctFMA32(x[i+3], y2[i+3], acc2[3])
 		i += 4
 	}
-	xy10 := acc1[0] + acc1[2]
-	xy11 := acc1[1] + acc1[3]
-	xy20 := acc2[0] + acc2[2]
-	xy21 := acc2[1] + acc2[3]
-	sum1 := xy10 + xy11
-	sum2 := xy20 + xy21
+	xy10 := math.Float32frombits(math.Float32bits(acc1[0] + acc1[2]))
+	xy11 := math.Float32frombits(math.Float32bits(acc1[1] + acc1[3]))
+	xy20 := math.Float32frombits(math.Float32bits(acc2[0] + acc2[2]))
+	xy21 := math.Float32frombits(math.Float32bits(acc2[1] + acc2[3]))
+	sum1 := math.Float32frombits(math.Float32bits(xy10 + xy11))
+	sum2 := math.Float32frombits(math.Float32bits(xy20 + xy21))
 	for ; i < length; i++ {
-		sum1 += x[i] * y1[i]
-		sum2 += x[i] * y2[i]
+		sum1 = mdctFMA32(x[i], y1[i], sum1)
+		sum2 = mdctFMA32(x[i], y2[i], sum2)
 	}
 	return sum1, sum2
 }

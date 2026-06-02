@@ -5,18 +5,28 @@ import (
 	"testing"
 )
 
-// imdctTDACWindowFMA32ScalarRef is an independent scalar reference for the
-// FMA-like TDAC windowing. It rounds the standalone product to float32 and
-// fuses the first multiply into the add/sub via math.FMA, matching the purego
-// fallback and the arm64 assembly bit-for-bit.
+// imdctTDACWindowFMA32ScalarRef is an independent scalar reference for the TDAC
+// windowing kernel. It re-derives the mdctMulSubMix/mdctMulAddMix formulas the
+// kernel applies, selecting the same rounding shape as the production flags:
+// when mdctUseFMALikeMixEnabled is set (arm64) it rounds the standalone product
+// to float32 and fuses the first multiply into the add/sub via math.FMA,
+// matching the purego fallback and the arm64 assembly bit-for-bit; otherwise it
+// keeps both products separately rounded and non-fused, matching the kernel on
+// non-arm64 hosts where the kernel is built but only reached on arm64.
 func imdctTDACWindowFMA32ScalarRef(out, xsrc, window []float32, yOut0, xOut0, xSrc0, wBwd0, count int) {
 	for i := 0; i < count; i++ {
-		x1 := float64(xsrc[xSrc0-i])
-		x2 := float64(out[yOut0+i])
-		w1 := float64(window[i])
-		w2 := float64(window[wBwd0-i])
-		yOut := float32(math.FMA(x2, w2, -float64(float32(x1*w1))))
-		xOut := float32(math.FMA(x2, w1, float64(float32(x1*w2))))
+		x1 := xsrc[xSrc0-i]
+		x2 := out[yOut0+i]
+		w1 := window[i]
+		w2 := window[wBwd0-i]
+		var yOut, xOut float32
+		if mdctUseFMALikeMixEnabled {
+			yOut = float32(math.FMA(float64(x2), float64(w2), -float64(x1*w1)))
+			xOut = float32(math.FMA(float64(x2), float64(w1), float64(x1*w2)))
+		} else {
+			yOut = x2*w2 - x1*w1
+			xOut = x2*w1 + x1*w2
+		}
 		out[yOut0+i] = yOut
 		out[xOut0-i] = xOut
 	}
