@@ -29,8 +29,7 @@
 //     (Reset only at batch wrap), so their "g/l" is an APPROXIMATE per-op ratio
 //     (gopus skips most stream resets that the libopus self-timed pass includes).
 //     For the authoritative apples-to-apples ratio use TestScoreboardSummary,
-//     which times a full reset+batch pass on BOTH sides; PERF_BASELINE.md is built
-//     from that test.
+//     which times a full reset+batch pass on BOTH sides.
 //   - Matched work: both encode the same number of frames of the same duration.
 //     gopus frame sizes are 48 kHz-relative (F in {120,480,960,2880} = 2.5/10/20/
 //     60 ms) and gopus consumes F samples of 48 kHz-rate PCM per frame; libopus

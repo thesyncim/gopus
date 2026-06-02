@@ -2,8 +2,8 @@ package testvectors
 
 // corpus_decoder_parity_test.go — broader signal-class decoder parity corpus.
 //
-// This file gates gopus decoder parity against libopus across the full set of
-// signal classes required by PARITY_MATRIX "Broader corpus than summary cases":
+// This file gates gopus decoder parity against libopus across a broad set of
+// signal classes beyond the summary cases:
 //
 //   Signal classes: clean speech, music, mixed, noise, transient (castanet),
 //                   pure tone, near-silence

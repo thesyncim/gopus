@@ -1,7 +1,7 @@
 // CELT short-frame (2.5 ms / 5 ms) variant byte-parity test.
 //
-// This file closes the "Variant-byte ratchet surface incomplete" gap in
-// PARITY_MATRIX.md for the 2.5 ms and 5 ms CELT FB frame-size rows. It asserts
+// This file covers the variant-byte ratchet surface for the 2.5 ms and 5 ms
+// CELT FB frame sizes. It asserts
 // byte-identical packets between gopus and the pinned libopus 1.6.1 variant
 // fixture across all four signal variants × both channel counts.
 //

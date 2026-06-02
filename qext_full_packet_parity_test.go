@@ -7,8 +7,8 @@
 // byte 0xF8, and payload byte count) must match libopus exactly for CBR CELT
 // and Hybrid packets that are large enough to activate QEXT.  The main CELT
 // frame bytes inside a QEXT packet differ from libopus by a pre-existing
-// encoder-level delta that is tracked separately (see PARITY_MATRIX.md,
-// Byte-exact encode row).  Multistream QEXT roundtrip and the absence of QEXT
+// encoder-level delta that is tracked separately by the byte-exact encode
+// parity tests.  Multistream QEXT roundtrip and the absence of QEXT
 // on sub-threshold packets are also covered.
 //
 // Reference fix: celt/celt_encoder.c lines 2543–2556 – for CBR mode the

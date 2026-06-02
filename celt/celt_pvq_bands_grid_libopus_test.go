@@ -1,7 +1,6 @@
 // Package celt — exhaustive PVQ/bands byte-parity grid vs libopus 1.6.1.
 //
-// This test file closes the "full PVQ/bands byte grid" gap noted in
-// PARITY_MATRIX.md (CELT row, Gaps column). It drives the gopus standalone
+// This test file covers the full PVQ/bands byte grid. It drives the gopus standalone
 // CELT encoder and the pinned libopus C oracle (libopus_celt_encode_info.c,
 // GCGI/GCGO magic) across the full configuration space:
 //

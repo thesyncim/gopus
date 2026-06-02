@@ -12,7 +12,7 @@ import (
 // trust in these comparisons does not depend on gopus: it is the same tool and
 // metric the whole Opus ecosystem (and the spec) uses.
 //
-// Design (see PARITY_MATRIX.md "Quality comparison policy"):
+// Quality comparison policy:
 //   - opus_compare Q (0..100, higher == closer) is the primary, trusted metric,
 //     delay-searched against the reference (libopus-decoded PCM or packets).
 //   - Waveform correlation and RMS ratio are reported as secondary diagnostics.

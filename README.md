@@ -1,71 +1,132 @@
 # gopus
 
-Pure-Go Opus targeting RFC 6716 and parity with pinned libopus 1.6.1.
+Pure-Go Opus codec — RFC 6716 / RFC 8251, bit-exact and quality parity with
+pinned libopus 1.6.1, drop-in for the C library.
 
-Primary caller-buffer API:
+No cgo, no dependencies. Encoder, decoder, multistream, projection/ambisonics,
+Ogg and RTP RED — with caller-owned, zero-allocation hot paths.
 
-```go
-func (d *Decoder) Decode(data []byte, pcm []float32) (int, error)
-func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)
+## Install
+
+```sh
+go get github.com/thesyncim/gopus
 ```
 
-Encode/decode hot paths are guarded for zero allocations.
+Requires Go 1.25+.
 
-## Current State
+## Quick start
 
-Released version: none yet.
+The hot-path API takes caller-owned buffers and returns the number of bytes /
+samples written, so the encode and decode loops allocate nothing:
 
-`v0.1.0` is not a release until the tag and GitHub Release are both published.
+```go
+func (e *Encoder) Encode(pcm []float32, data []byte) (int, error)
+func (d *Decoder) Decode(data []byte, pcm []float32) (int, error)
+```
 
-Latest release evidence: none yet.
+Encode one 20 ms stereo frame at 48 kHz, then decode it back:
 
-Stable pre-release surface: `Encoder`, `Decoder`, multistream encode/decode
-(including projection/ambisonics via `NewProjectionEncoder`/`NewProjectionDecoder`),
-`container/ogg`, `container/red` (RFC 2198 RED parse/build/recover), and
-caller-owned `Encode`/`Decode`. The `float32`, `int16`, and `int24`
-(`EncodeInt24`/`DecodeInt24`) PCM forms are all available on the single-stream
-and multistream encode/decode paths.
+```go
+package main
 
-Scope: the default build is core encode/decode/multistream/Ogg/RED, matching a
-default libopus `./configure`. Optional features are exposed exactly the way
-libopus exposes them — behind a compile flag in libopus, behind the matching Go
-build tag here — and the default build links ZERO of their code (enforced by
-`TestDefaultBuildIsZeroCostForGatedFeatures`). The tag <-> libopus-flag mapping:
-`gopus_dred` = `--enable-dred`/`ENABLE_DRED`, `gopus_extra_controls` =
-`--enable-osce`/`ENABLE_OSCE` plus the deep-PLC family (`ENABLE_DEEP_PLC`:
-PitchDNN/FARGAN), `gopus_qext` = `--enable-qext`/`ENABLE_QEXT`, `gopus_custom` =
-`--enable-custom-modes`/`CUSTOM_MODES`, `gopus_fixedpoint` =
-`--enable-fixed-point`/`FIXED_POINT`. DRED, OSCE (BWE/LACE/NoLACE), QEXT
-extension framing, and Opus Custom standard modes are parity-complete and
-SUPPORTED under their build tag — none are experimental.
+import (
+	"log"
 
-Under `-tags gopus_fixedpoint` (mirroring libopus `FIXED_POINT`), both the public
-DECODE and ENCODE paths are bit-exact with the `--enable-fixed-point` libopus
-oracle. `DecodeInt16`/`DecodeInt24` are byte-/sample-exact for CELT-only,
-SILK-only, and Hybrid, including the redundancy, mode-transition, and PLC paths;
-the integer CELT encode+decode codec and the integer SILK encode-frame driver are
-exact (subject to the documented per-arch arm64 ≤1-ULP CELT tail; amd64/CI is
-hard-exact).
+	"github.com/thesyncim/gopus"
+)
 
-Native 96 kHz (Opus HD) encode and decode are supported under `-tags gopus_qext`
-against the QEXT-enabled libopus reference, using the native HD96k CELT mode with
-no resampling. Decode is sample-exact; the public `Encode` at `Fs=96000` runs the
-native HD96k path and produces byte-exact Opus packets — TOC, padding, main CELT
-payload, and the reserved QEXT extension all match libopus `--enable-qext`.
-Default-build API sample rates are 8/12/16/24/48 kHz; 96 kHz is accepted only
-under `-tags gopus_qext`.
+func main() {
+	const (
+		sampleRate = 48000
+		channels   = 2
+		frameSize  = 960 // 20 ms at 48 kHz
+	)
 
-Reference behavior comes from `tmp_check/opus-1.6.1/`. When behavior is
-uncertain, match libopus unless fixture evidence says otherwise.
+	enc, err := gopus.NewEncoder(gopus.EncoderConfig{
+		SampleRate:  sampleRate,
+		Channels:    channels,
+		Application: gopus.ApplicationAudio,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
 
-## Optional Extensions
+	dec, err := gopus.NewDecoder(gopus.DefaultDecoderConfig(sampleRate, channels))
+	if err != nil {
+		log.Fatal(err)
+	}
 
-Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op returning `ErrOptionalExtensionUnavailable`.
-This matches a default libopus build, where `LPCNET_SOURCES` (the DNN / PitchDNN
-/ FARGAN / RDOVAE neural code) is empty and none of it is compiled. gopus mirrors
-that exactly: the neural packages (`internal/dred`, `internal/dred/rdovae`,
-`internal/lpcnetplc`, `internal/osce`) are absent from the default import graph.
-DNN blob loading (USE_WEIGHTS_FILE model loading) requires `-tags gopus_dred` or
+	pcm := make([]float32, frameSize*channels) // your interleaved input
+	packet := make([]byte, 4000)               // reusable encode buffer
+	out := make([]float32, frameSize*channels) // reusable decode buffer
+
+	n, err := enc.Encode(pcm, packet) // n = bytes written to packet
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	samples, err := dec.Decode(packet[:n], out) // samples = per-channel samples
+	if err != nil {
+		log.Fatal(err)
+	}
+	_ = out[:samples*channels]
+}
+```
+
+See [examples/](examples/) for Ogg files, ffmpeg interop, RED loss recovery,
+WebRTC control, and benchmarks.
+
+## Features
+
+- SILK, CELT, and Hybrid coding, with automatic mode selection.
+- Sample rates 8, 12, 16, 24, and 48 kHz (native sub-48 kHz encode, no upsampling).
+- Mono, stereo, multistream, and projection/ambisonics
+  (`NewProjectionEncoder` / `NewProjectionDecoder`, mapping families 0/1/3/255).
+- Frame sizes 2.5–120 ms.
+- CBR, VBR, CVBR, low-delay, and DTX.
+- Packet loss concealment, in-band FEC / LBRR.
+- `container/ogg` (Ogg read/write) and `container/red` (RFC 2198 RTP RED
+  parse / build / recover).
+- `float32`, `int16`, and `int24` PCM (`EncodeInt24` / `DecodeInt24`) on both the
+  single-stream and multistream paths.
+- The full libopus public surface: 50 CTLs, packet parsing, soft clipping, and
+  matching error codes.
+
+## Optional features behind build tags
+
+The default build is core encode/decode/multistream/Ogg/RED — matching a default
+libopus `./configure`. Optional features are exposed exactly the way libopus
+exposes them: behind a compile flag in libopus, behind the matching Go build tag
+here. The default build links ZERO of their code (enforced by
+`TestDefaultBuildIsZeroCostForGatedFeatures`).
+
+| gopus build tag | libopus flag |
+| --- | --- |
+| `gopus_dred` | `--enable-dred` |
+| `gopus_extra_controls` | `--enable-osce` (+ `ENABLE_DEEP_PLC`) |
+| `gopus_qext` | `--enable-qext` |
+| `gopus_custom` | `--enable-custom-modes` |
+| `gopus_fixedpoint` | `--enable-fixed-point` |
+
+Under their tag these are parity-complete — none are experimental:
+
+- **`gopus_dred`** — DRED (RDOVAE), control + standalone surfaces.
+- **`gopus_extra_controls`** — OSCE BWE / LACE / NoLACE plus the deep-PLC family
+  (PitchDNN / FARGAN), exactly as `--enable-osce`.
+- **`gopus_qext`** — QEXT framing and native 96 kHz (Opus HD): decode is
+  sample-exact, and the public `Encode` at `Fs=96000` is byte-exact (TOC, padding,
+  main CELT payload, reserved QEXT extension) vs libopus `--enable-qext`. 96 kHz is
+  CELT-only fullband (mirroring libopus) and accepted only under this tag;
+  default-build API rates stay 8/12/16/24/48 kHz.
+- **`gopus_custom`** — Opus Custom standard modes.
+- **`gopus_fixedpoint`** — integer CELT/SILK pipeline (libopus `FIXED_POINT`);
+  public decode and encode are bit-exact vs the `--enable-fixed-point` oracle.
+
+Default builds expose no optional extensions; `SetDNNBlob(...)` is a no-op
+returning `ErrOptionalExtensionUnavailable`. This matches a default libopus build,
+where the DNN / PitchDNN / FARGAN / RDOVAE neural code is empty and none of it is
+compiled; gopus keeps those packages out of the default import graph. DNN blob
+loading (USE_WEIGHTS_FILE model loading) requires `-tags gopus_dred` or
 `-tags gopus_extra_controls`; QEXT requires `-tags gopus_qext`; DRED
 control/standalone surfaces require `-tags gopus_dred`; OSCE BWE/LACE/NoLACE
 require `-tags gopus_extra_controls`. Under their build tag these are
@@ -79,6 +140,10 @@ corresponding compile flag.
 | DRED | Supported under `gopus_dred` (control + standalone) | `OptionalExtensionDRED` |
 | OSCE BWE | Supported under `gopus_extra_controls` | `OptionalExtensionOSCEBWE` |
 
+The `gopus_extra_controls` tag enables the OSCE and deep-PLC family exactly as
+libopus's `--enable-osce` does. These features are supported under the tag and
+link zero code into the default build.
+
 ```sh
 go test -tags gopus_qext ./...
 go test -tags gopus_dred ./...
@@ -87,17 +152,33 @@ go test -tags gopus_extra_controls ./...
 
 ```sh
 make test-dnn-blob-parity
-make test-core-oracles-parity
 make test-qext-parity
 make test-dred-tag
 make test-extra-controls-parity
 make test-custom-parity
-make test-corpus-quality
 ```
 
-The `gopus_extra_controls` tag enables the OSCE and deep-PLC family exactly as
-libopus's `--enable-osce` does. These features are supported under the tag and
-link zero code into the default build.
+## Status / parity
+
+gopus is codec-complete against libopus 1.6.1: the full public API and 50 CTLs,
+plus the optional surface mirrored tag-for-flag (above). The pinned
+`tmp_check/opus-1.6.1/` is the reference — when behavior is uncertain, gopus
+matches libopus unless fixture evidence says otherwise.
+
+Parity is proven on two tiers: isolated kernels (range coder, NLSF/LPC/gain,
+PVQ/bands, MDCT/KISS-FFT, resamplers, DNN matmuls) are compared **bit-for-bit**
+against a live libopus C oracle, and every public decode entry point is two-sided
+differential-fuzzed against it. End-to-end audio is judged by libopus's own
+`opus_compare` (RFC 8251's conformance metric), tier-matched so gopus tracks the
+reference at least as closely as libopus tracks itself across builds. SILK decode
+is bit-exact; CELT/Hybrid sit inside the near-exact envelope.
+
+One residual is documented: a few CELT float kernels drift by ≤1 ULP on
+darwin/arm64 (a per-arch float budget). amd64/CI is bit-exact; the default arm64
+build is quality-gated for that tail, exactly as libopus's NEON path is relative
+to its own scalar build.
+
+Pre-v1: no release tagged yet (see below).
 
 ## Verification
 
@@ -118,11 +199,14 @@ make release-evidence
 ```
 
 `make release-evidence` must produce a PASS summary before a tag is published.
-Current focused gates cover tagged DRED/QEXT seams, RED recovery ordering,
-CELT/range-coder math oracles, and SILK NLSF/LPC/gain/stereo/LTP internals.
-Core libopus oracles run in normal `go test`; strict gates only make setup failures fatal.
 
 ## Trust And Verification
+
+Released version: none yet.
+
+`v0.1.0` is not a release until the tag and GitHub Release are both published.
+
+Latest release evidence: none yet.
 
 Required branch checks:
 
@@ -140,13 +224,9 @@ on Linux, macOS, and Windows; the tagged DRED and `--enable-fixed-point` oracle
 gates (`make test-dred-tag`, `make test-fixedpoint-parity`) run on Linux and
 macOS; the QEXT (`make test-qext-parity`), Opus Custom `--enable-custom-modes`
 (`make test-custom-parity`), extended corpus signal-quality
-(`make test-corpus-quality`), and extra-controls oracle gates run on Linux. The
-corpus gate is tier-matched (asm gopus vs SIMD libopus, pure-Go vs scalar), so it
-builds both the scalar and SIMD libopus trees. Each lane builds the pinned libopus
-C reference first (`make ensure-libopus*`) under
-`GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1`. Windows keeps the
-core float oracle plus the `gopus_libopus_oracle` decoder/encoder fixture parity
-smoke; the broad tagged bash focus-gate sweeps are not run under MSYS2/mingw.
+(`make test-corpus-quality`), and extra-controls oracle gates run on Linux. Each
+lane builds the pinned libopus C reference first under
+`GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1`.
 
 Release checklist:
 
@@ -169,11 +249,13 @@ Supply-chain controls:
 Security reports: [SECURITY.md](SECURITY.md).
 Consumer smoke test: [examples/external-consumer-smoke/smoke_test.go](examples/external-consumer-smoke/smoke_test.go).
 
-## Public Docs
+## Docs
 
-- [PARITY_MATRIX.md](PARITY_MATRIX.md) — libopus 1.6.1 coverage and remaining gaps
-- [docs/parity-testing.md](docs/parity-testing.md) — how parity is tested (bit-exact kernels + self-selecting quality tiers)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [SECURITY.md](SECURITY.md)
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - [examples/README.md](examples/README.md)
+
+## License
+
+See [LICENSE](LICENSE).

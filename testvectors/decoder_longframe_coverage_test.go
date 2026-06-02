@@ -13,8 +13,8 @@ const (
 )
 
 // TestDecoderMatrixLongFrameCoverage asserts that the decoder matrix fixture
-// keeps the long/short-frame edge rows that close the PARITY_MATRIX
-// "100 ms matrix row" and "Hybrid 60 ms decode" gaps: explicit 80/100/120 ms
+// keeps the long/short-frame edge rows (the 100 ms matrix row and Hybrid 60 ms
+// decode): explicit 80/100/120 ms
 // rows and at least one Hybrid row at >= 40 ms (mode histogram carries hybrid).
 //
 // This runs against whichever platform fixture is active (the darwin/arm64
@@ -71,7 +71,7 @@ func TestDecoderMatrixLongFrameCoverage(t *testing.T) {
 }
 
 // TestDecoderLossLongFrameCoverage asserts that the loss/PLC fixture extends
-// beyond 60 ms, closing the PARITY_MATRIX "loss fixtures beyond 60 ms" gap.
+// beyond 60 ms.
 // It requires explicit 80/100/120 ms PLC cases (the libopus opus_decode(NULL)
 // concealment path at long frame sizes), each carrying decoded results.
 func TestDecoderLossLongFrameCoverage(t *testing.T) {
