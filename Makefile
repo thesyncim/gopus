@@ -361,10 +361,11 @@ test-custom-parity: ensure-libopus-custom
 		$(GO) test -tags 'gopus_custom gopus_libopus_oracle' -count=1 ./celt/custom/...
 
 # Live (fixture-free) gopus-vs-libopus decode parity on the extended synthetic
-# corpus signal classes across SILK/Hybrid/CELT mono+stereo configs.
+# corpus signal classes across SILK/Hybrid/CELT mono+stereo configs, plus the
+# frame-duration axis (2.5/5/10/40/60 ms) over a representative class slice.
 test-corpus-quality: ensure-libopus
 	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
-		$(GO) test -tags gopus_libopus_oracle -count=1 ./testvectors -run '^TestCorpusSignalQualityParity$$'
+		$(GO) test -tags gopus_libopus_oracle -count=1 ./testvectors -run '^(TestCorpusSignalQualityParity|TestCorpusFrameSizeQualityParity)$$'
 
 # Ensure the downloaded official RFC 8251 test-vector cache exists.
 ensure-testvectors:
