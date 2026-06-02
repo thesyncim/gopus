@@ -312,7 +312,7 @@ func TestResamplerContinuity(t *testing.T) {
 			samples[i] = opusRes(math.Sin(2 * math.Pi * freq * t))
 		}
 
-		output := e.downsample48to16Hybrid(samples, frameSize)
+		output := e.resampleHybridSILKLowband(samples, frameSize)
 
 		if frame > 0 && len(output) > 0 {
 			// Check continuity between frames
@@ -411,7 +411,7 @@ func TestHybridVBRPacketSizeCap(t *testing.T) {
 		t.Fatalf("expected packet, got 0 bytes")
 	}
 
-	baseBytes := targetBytesForBitrate(64000, 960)
+	baseBytes := enc.targetBytesForBitrate(64000, 960)
 	maxAllowed := int(float64(baseBytes) * 2.0)
 	if len(packet) > maxAllowed {
 		t.Fatalf("hybrid VBR packet too large: got %d bytes, max %d", len(packet), maxAllowed)
@@ -439,6 +439,6 @@ func BenchmarkDownsample48to16(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		e.downsample48to16Hybrid(samples, 960)
+		e.resampleHybridSILKLowband(samples, 960)
 	}
 }

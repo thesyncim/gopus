@@ -16,11 +16,13 @@ func (e *Encoder) Downsample48to16Hybrid(samples []float64, frameSize int) []flo
 	for i, sample := range samples {
 		samplesRes[i] = opusRes(sample)
 	}
-	return e.downsample48to16Hybrid(samplesRes, frameSize)
+	return e.resampleHybridSILKLowband(samplesRes, frameSize)
 }
 
-// TargetBytesForBitrate exports targetBytesForBitrate for testing.
-var TargetBytesForBitrate = targetBytesForBitrate
+// TargetBytesForBitrate exports targetBytesForBitrate for testing at 48 kHz.
+func TargetBytesForBitrate(bitrate, frameSize int) int {
+	return NewEncoder(48000, 1).targetBytesForBitrate(bitrate, frameSize)
+}
 
 // ResolveUserBitrate exports resolveUserBitrate for testing.
 var ResolveUserBitrate = resolveUserBitrate

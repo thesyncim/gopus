@@ -320,15 +320,22 @@ func newLibopusResampler(fsIn, fsOut int, forEnc bool) *LibopusResampler {
 	return r
 }
 
-// ResamplerState holds the internal state of the resampler.
+// ResamplerState holds the internal state of the resampler. For downsampling
+// configurations the work happens in the delegated down_FIR resampler, so the
+// snapshot carries that state too.
 type ResamplerState struct {
 	sIIR     [6]int32
 	sFIR     [8]int16
 	delayBuf []int16
+	down     DownsamplingResamplerState
+	hasDown  bool
 }
 
 // State returns a snapshot of the current resampler state.
 func (r *LibopusResampler) State() ResamplerState {
+	if r.down != nil {
+		return ResamplerState{down: r.down.State(), hasDown: true}
+	}
 	s := ResamplerState{
 		sIIR: r.sIIR,
 		sFIR: r.sFIR,
@@ -342,15 +349,32 @@ func (r *LibopusResampler) State() ResamplerState {
 
 // SetState restores the resampler state from a snapshot.
 func (r *LibopusResampler) SetState(s ResamplerState) {
+	if r.down != nil {
+		if s.hasDown {
+			r.down.SetState(s.down)
+		} else {
+			r.down.SetState(DownsamplingResamplerState{})
+		}
+		return
+	}
 	r.sIIR = s.sIIR
 	r.sFIR = s.sFIR
-	if len(s.delayBuf) > 0 && len(r.delayBuf) >= len(s.delayBuf) {
+	if len(s.delayBuf) == 0 {
+		for i := range r.delayBuf {
+			r.delayBuf[i] = 0
+		}
+		return
+	}
+	if len(r.delayBuf) >= len(s.delayBuf) {
 		copy(r.delayBuf, s.delayBuf)
 	}
 }
 
 // Reset clears the resampler state.
 func (r *LibopusResampler) Reset() {
+	if r.down != nil {
+		r.down.SetState(DownsamplingResamplerState{})
+	}
 	for i := range r.sIIR {
 		r.sIIR[i] = 0
 	}

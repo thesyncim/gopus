@@ -14,7 +14,7 @@ func (e *MultistreamEncoder) Encode(pcm []float32, data []byte) (int, error) {
 	if len(pcm) != expected {
 		return 0, ErrInvalidFrameSize
 	}
-	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application)
+	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, int(e.sampleRate))
 	if err != nil {
 		return 0, err
 	}

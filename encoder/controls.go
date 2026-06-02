@@ -87,9 +87,8 @@ func clampAllocatedBitrate(bitrate, channels int) int {
 }
 
 // targetBytesForBitrate computes target packet size in bytes.
-func targetBytesForBitrate(bitrate, frameSize int) int {
-	const sampleRate = 48000
-	unitsPerFrame := 6 * sampleRate / frameSize
+func (e *Encoder) targetBytesForBitrate(bitrate, frameSize int) int {
+	unitsPerFrame := 6 * int(e.sampleRate) / frameSize
 	if unitsPerFrame <= 0 {
 		return 0
 	}

@@ -2,18 +2,20 @@ package gopus
 
 import "github.com/thesyncim/gopus/types"
 
-// SetFrameSize sets the frame size in samples at 48kHz.
+// SetFrameSize sets the frame size in native-Fs samples.
 //
-// Valid sizes are 120, 240, 480, 960, 1920, 2880, 3840, 4800, and 5760.
+// Valid sizes are the per-rate Opus frame sizes: (Fs/400)<<n (2.5/5/10 ms) and
+// n*Fs/50 (20/40/60/80/100/120 ms). At 48 kHz these are 120, 240, 480, 960,
+// 1920, 2880, 3840, 4800, and 5760.
 func (e *MultistreamEncoder) SetFrameSize(samples int) error {
-	if err := validateFrameSize(samples, e.application); err != nil {
+	if err := validateFrameSize(samples, int(e.sampleRate), e.application); err != nil {
 		return err
 	}
 	e.frameSize = int32(samples)
 	return nil
 }
 
-// FrameSize returns the current frame size in samples at 48kHz.
+// FrameSize returns the current frame size in native-Fs samples.
 func (e *MultistreamEncoder) FrameSize() int {
 	return int(e.frameSize)
 }

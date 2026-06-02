@@ -111,7 +111,7 @@ func NewMultistreamEncoder(sampleRate, channels, streams, coupledStreams int, ma
 		enc:                 enc,
 		sampleRate:          int32(sampleRate),
 		channels:            int32(channels),
-		frameSize:           960, // Default 20ms at 48kHz
+		frameSize:           int32(sampleRate / 50), // Default 20ms at the native rate
 		expertFrameDuration: ExpertFrameDurationArg,
 		application:         application,
 		scratchPCM32:        make([]float32, 5760*channels),
@@ -162,7 +162,7 @@ func NewMultistreamEncoderDefault(sampleRate, channels int, application Applicat
 		enc:                 enc,
 		sampleRate:          int32(sampleRate),
 		channels:            int32(channels),
-		frameSize:           960, // Default 20ms at 48kHz
+		frameSize:           int32(sampleRate / 50), // Default 20ms at the native rate
 		expertFrameDuration: ExpertFrameDurationArg,
 		application:         application,
 		scratchPCM32:        make([]float32, 5760*channels),

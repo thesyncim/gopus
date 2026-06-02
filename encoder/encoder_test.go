@@ -57,9 +57,10 @@ func TestNewEncoder(t *testing.T) {
 				t.Errorf("Bandwidth() = %d, want Fullband", enc.Bandwidth())
 			}
 
-			// Default frame size should be 960 (20ms)
-			if enc.FrameSize() != 960 {
-				t.Errorf("FrameSize() = %d, want 960", enc.FrameSize())
+			// Default frame size is 20ms at the native rate (Fs/50).
+			wantFrameSize := tt.wantRate / 50
+			if enc.FrameSize() != wantFrameSize {
+				t.Errorf("FrameSize() = %d, want %d", enc.FrameSize(), wantFrameSize)
 			}
 		})
 	}

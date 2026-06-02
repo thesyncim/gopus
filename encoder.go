@@ -156,7 +156,7 @@ func NewEncoder(cfg EncoderConfig) (*Encoder, error) {
 		enc:                 encoder.NewEncoder(internalRate, cfg.Channels),
 		sampleRate:          int32(cfg.SampleRate),
 		channels:            int32(cfg.Channels),
-		frameSize:           960, // Default 20ms at 48kHz (internal rate)
+		frameSize:           int32(internalRate / 50), // Default 20ms at the internal rate
 		expertFrameDuration: ExpertFrameDurationArg,
 		application:         cfg.Application,
 		scratchPCM32:        make([]float32, maxSamples),

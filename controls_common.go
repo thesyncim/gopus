@@ -120,20 +120,34 @@ func validateLSBDepth(depth int) error {
 	return nil
 }
 
-func validFrameSize(samples int) bool {
-	switch samples {
-	case 120, 240, 480, 960, 1920, 2880, 3840, 4800, 5760:
-		return true
-	default:
+// validFrameSize reports whether samples is a legal Opus frame size at the
+// native sample rate fs. libopus frame_size_select accepts the short durations
+// (fs/400)<<n for n in 0..2 (2.5/5/10 ms) and the long durations n*fs/50 for
+// n in 1..6 (20/40/60/80/100/120 ms). At 48 kHz this is the legacy
+// {120,240,480,960,1920,2880,3840,4800,5760} set.
+func validFrameSize(samples, fs int) bool {
+	if fs <= 0 {
 		return false
 	}
+	short := fs / 400
+	for n := 0; n < 3; n++ {
+		if samples == short<<n {
+			return true
+		}
+	}
+	for n := 1; n <= 6; n++ {
+		if samples == n*fs/50 {
+			return true
+		}
+	}
+	return false
 }
 
-func validateFrameSize(samples int, application Application) error {
-	if !validFrameSize(samples) {
+func validateFrameSize(samples, fs int, application Application) error {
+	if !validFrameSize(samples, fs) {
 		return ErrInvalidFrameSize
 	}
-	if application == ApplicationRestrictedSilk && samples < 480 {
+	if application == ApplicationRestrictedSilk && samples < fs/100 {
 		return ErrInvalidFrameSize
 	}
 	return nil
@@ -157,26 +171,29 @@ func validExpertFrameDuration(duration ExpertFrameDuration) bool {
 	}
 }
 
-func expertFrameDurationFrameSize(duration ExpertFrameDuration) int {
+// expertFrameDurationFrameSize returns the native-Fs frame size for an expert
+// frame duration. At 48 kHz this is the legacy 120..5760 set; at sub-48 kHz it
+// scales by fs (e.g. 20 ms at 16 kHz = 320).
+func expertFrameDurationFrameSize(duration ExpertFrameDuration, fs int) int {
 	switch duration {
 	case ExpertFrameDuration2_5Ms:
-		return 120
+		return fs / 400
 	case ExpertFrameDuration5Ms:
-		return 240
+		return fs / 200
 	case ExpertFrameDuration10Ms:
-		return 480
+		return fs / 100
 	case ExpertFrameDuration20Ms:
-		return 960
+		return fs / 50
 	case ExpertFrameDuration40Ms:
-		return 1920
+		return 2 * fs / 50
 	case ExpertFrameDuration60Ms:
-		return 2880
+		return 3 * fs / 50
 	case ExpertFrameDuration80Ms:
-		return 3840
+		return 4 * fs / 50
 	case ExpertFrameDuration100Ms:
-		return 4800
+		return 5 * fs / 50
 	case ExpertFrameDuration120Ms:
-		return 5760
+		return 6 * fs / 50
 	default:
 		return 0
 	}
@@ -195,8 +212,8 @@ func setMultistreamExpertFrameDuration(duration ExpertFrameDuration, current *Ex
 	return nil
 }
 
-func selectExpertFrameSize(inputFrameSize int, duration ExpertFrameDuration, application Application) (int, error) {
-	if inputFrameSize < 120 {
+func selectExpertFrameSize(inputFrameSize int, duration ExpertFrameDuration, application Application, fs int) (int, error) {
+	if inputFrameSize < fs/400 {
 		return 0, ErrInvalidFrameSize
 	}
 	selected := inputFrameSize
@@ -204,12 +221,12 @@ func selectExpertFrameSize(inputFrameSize int, duration ExpertFrameDuration, app
 		if !validExpertFrameDuration(duration) {
 			return 0, ErrInvalidFrameSize
 		}
-		selected = expertFrameDurationFrameSize(duration)
+		selected = expertFrameDurationFrameSize(duration, fs)
 	}
-	if selected > inputFrameSize || !validFrameSize(selected) {
+	if selected > inputFrameSize || !validFrameSize(selected, fs) {
 		return 0, ErrInvalidFrameSize
 	}
-	if application == ApplicationRestrictedSilk && selected < 480 {
+	if application == ApplicationRestrictedSilk && selected < fs/100 {
 		return 0, ErrInvalidFrameSize
 	}
 	return selected, nil

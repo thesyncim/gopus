@@ -105,8 +105,8 @@ type HybridState struct {
 // to gate CELT transition redundancy/prefill to the correct 20ms subframe,
 // matching libopus multi-frame cadence.
 func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, celtPCM []opusRes, lookahead []opusRes, frameSize int, maxPacketBytes int, maxDataBytes int, dredBitrate int, hardMaxPacketBytes bool, allowTransitionRedundancy bool, transitionToCELT bool, runCELTTransitionPrefill bool) ([]byte, error) {
-	// Validate: only 480 (10ms) or 960 (20ms) for hybrid
-	if frameSize != 480 && frameSize != 960 {
+	// Validate: only 10ms (Fs/100) or 20ms (Fs/50) for hybrid
+	if frameSize != int(e.sampleRate)/100 && frameSize != e.frame20ms() {
 		return nil, ErrInvalidHybridFrameSize
 	}
 
@@ -153,7 +153,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	// buffer (clamped to 1276), NOT the nominal bitrate-derived size. SILK rate control
 	// stays nominal because compute_silk_rate_for_hybrid clamps bits_target to
 	// bitrate_to_bits() regardless of the larger byte budget (line 1960).
-	baseTargetBytes := targetBytesForBitrate(int(e.bitrate), frameSize)
+	baseTargetBytes := e.targetBytesForBitrate(int(e.bitrate), frameSize)
 	// When DRED is carried, libopus reserves dred_bytes*3/4 out of nb_compr_bytes for
 	// the CELT part (opus_encoder.c lines 2399-2412) and lets the carried DRED payload
 	// absorb the remaining slack, so the primary CELT frame tracks the nominal
@@ -185,7 +185,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 
 	// Transition redundancy reserves bytes and adjusts SILK/CELT budgeting.
 	// CELT->Hybrid uses celt_to_silk=1; SILK/Hybrid->CELT uses celt_to_silk=0.
-	frameRate := 48000 / frameSize
+	frameRate := int(e.sampleRate) / frameSize
 	prevPacketMode := e.prevPacketMode
 	transitionCeltToHybrid := allowTransitionRedundancy && !transitionToCELT && !e.lowDelay && isConcreteMode(prevPacketMode) && prevPacketMode == ModeCELT
 	transitionSilkToCELT := allowTransitionRedundancy && transitionToCELT && !e.lowDelay
@@ -207,7 +207,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 
 	// Compute bit allocation between SILK and CELT using the full packet budget
 	// (max_data_bytes, including any reserved transition redundancy).
-	frame20ms := frameSize == 960
+	frame20ms := frameSize == e.frame20ms()
 	silkBitrate, celtBitrate, celtBitrateHBGain := e.computeHybridBitAllocationWithBudget(frameSize, baseTargetBytes, redundancyBytes)
 
 	// Compute HB_gain based on TOC-adjusted CELT bitrate (matching libopus line 2060).
@@ -268,8 +268,8 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		re.Limit(uint32(maxTargetBytes))
 	}
 
-	// Step 1: Downsample 48kHz -> 16kHz for SILK using libopus-matching resampler
-	silkInput := e.downsample48to16Hybrid(pcm, frameSize)
+	// Step 1: Resample native-Fs input to the 16 kHz SILK lowband.
+	silkInput := e.resampleHybridSILKLowband(pcm, frameSize)
 
 	// Resample lookahead if available (save/restore state)
 	var silkLookahead []float32
@@ -283,7 +283,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		copy(lookahead32, lookahead)
 
 		lookaheadFrames := len(lookahead) / int(e.channels)
-		targetLaSamples := lookaheadFrames / 3
+		targetLaSamples := lookaheadFrames * 16000 / int(e.sampleRate)
 		internalSilkChannels := e.silkInternalChannels()
 		neededOut := targetLaSamples * internalSilkChannels
 		if cap(e.hybridState.scratchSilkLookahead) < neededOut {
@@ -381,7 +381,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	if e.bitrateMode == ModeCBR {
 		// Hybrid CBR: switch SILK to VBR with cap (libopus behavior)
 		e.silkEncoder.SetVBR(true)
-		otherBits := silkMaxBits - silkBitrate*frameSize/48000
+		otherBits := silkMaxBits - silkBitrate*frameSize/int(e.sampleRate)
 		if otherBits < 0 {
 			otherBits = 0
 		}
@@ -392,9 +392,9 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 	} else {
 		// Hybrid VBR/CVBR: constrain SILK maxBits using the rate table.
 		e.silkEncoder.SetVBR(true)
-		maxBitsAsBitrate := silkMaxBits * 48000 / frameSize
+		maxBitsAsBitrate := silkMaxBits * int(e.sampleRate) / frameSize
 		maxSilkRate := e.computeSilkRateForMax(maxBitsAsBitrate, frame20ms)
-		silkMaxBits = maxSilkRate * frameSize / 48000
+		silkMaxBits = maxSilkRate * frameSize / int(e.sampleRate)
 	}
 	e.silkEncoder.SetMaxBits(silkMaxBits)
 	if e.silkInternalChannels() == 2 {
@@ -446,7 +446,7 @@ func (e *Encoder) encodeHybridFrameWithMaxPacketAndTransition(pcm []opusRes, cel
 		}
 	}
 	if dredBitrate > 0 {
-		dredBytes := bitrateToBits(dredBitrate, frameSize) / 8
+		dredBytes := e.bitrateToBits(dredBitrate, frameSize) / 8
 		if dredBytes > 0 {
 			maxCELTBytes := maxTargetBytes - dredBytes*3/4
 			minCELTBytes := (re.Tell()+7)/8 + 5
@@ -761,11 +761,11 @@ func (e *Encoder) prepareCELTTransitionRedundancyInput(celtPCM []opusRes, hbGain
 // computeHybridBitAllocation computes SILK/CELT bitrates using the default packet
 // budget for the current frame size (no transition redundancy reservation).
 func (e *Encoder) computeHybridBitAllocation(frame20ms bool) (silkBitrate, celtBitrate, celtBitrateHBGain int) {
-	frameSize := 480
+	frameSize := int(e.sampleRate) / 100
 	if frame20ms {
-		frameSize = 960
+		frameSize = e.frame20ms()
 	}
-	maxDataBytes := targetBytesForBitrate(int(e.bitrate), frameSize)
+	maxDataBytes := e.targetBytesForBitrate(int(e.bitrate), frameSize)
 	if maxDataBytes < 2 {
 		maxDataBytes = 2
 	}
@@ -791,7 +791,7 @@ func (e *Encoder) computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 
 	// Match libopus bits_target:
 	// bits_target = min(8*(max_data_bytes-redundancy_bytes), bitrate_to_bits(...)) - 8
 	bitsTarget := 8 * (maxDataBytes - redundancyBytes)
-	bitrateBits := bitrateToBits(int(e.bitrate), frameSize)
+	bitrateBits := e.bitrateToBits(int(e.bitrate), frameSize)
 	if bitsTarget > bitrateBits {
 		bitsTarget = bitrateBits
 	}
@@ -799,7 +799,7 @@ func (e *Encoder) computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 
 	if bitsTarget < 0 {
 		bitsTarget = 0
 	}
-	totalRate := bitsTarget * 48000 / frameSize // bits_to_bitrate()
+	totalRate := bitsTarget * int(e.sampleRate) / frameSize // bits_to_bitrate()
 	channels := e.silkInternalChannels()
 	if channels < 1 {
 		channels = 1
@@ -810,7 +810,7 @@ func (e *Encoder) computeHybridBitAllocationWithBudget(frameSize, maxDataBytes, 
 
 	// Determine table entry based on frame size and FEC.
 	entry := 1 // 10ms no FEC
-	if frameSize == 960 {
+	if frameSize == e.frame20ms() {
 		entry = 2 // 20ms no FEC
 	}
 	if e.lbrrCoded {
@@ -930,14 +930,15 @@ func celtExp2Approx(x float32) float32 {
 	return opusmath.CeltExp2(x)
 }
 
-// downsample48to16Hybrid downsamples from 48kHz to 16kHz using the
-// libopus-matching SILK downsampler (AR2 + FIR).
-func (e *Encoder) downsample48to16Hybrid(samples []opusRes, frameSize int) []float32 {
+// resampleHybridSILKLowband resamples the native-Fs input to the SILK hybrid
+// lowband rate (always 16 kHz) using the libopus-matching SILK input resampler.
+// At 48 kHz API it downsamples 1:3; at 24 kHz native it downsamples 2:3.
+func (e *Encoder) resampleHybridSILKLowband(samples []opusRes, frameSize int) []float32 {
 	if len(samples) == 0 || frameSize <= 0 {
 		return nil
 	}
 
-	targetSamples := frameSize / 3 // 48kHz -> 16kHz
+	targetSamples := frameSize * 16000 / int(e.sampleRate)
 	if targetSamples <= 0 {
 		return nil
 	}
@@ -1202,8 +1203,8 @@ func (e *Encoder) encodeSILKHybrid(pcm []float32, lookahead []float32, frameSize
 	// For hybrid mode, SILK always operates at WB (16kHz)
 	// The input is already downsampled to 16kHz
 
-	// Calculate samples at 16kHz (input is at 16kHz after downsampling)
-	silkSamples := frameSize / 3 // 48kHz -> 16kHz (160 for 10ms, 320 for 20ms)
+	// Calculate samples at 16kHz (input is at 16kHz after resampling)
+	silkSamples := frameSize * 16000 / int(e.sampleRate) // native Fs -> 16kHz (160 for 10ms, 320 for 20ms)
 
 	if e.silkInternalChannels() == 1 {
 		// Mono encoding

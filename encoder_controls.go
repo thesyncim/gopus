@@ -186,17 +186,28 @@ func (e *Encoder) ExpertFrameDuration() ExpertFrameDuration {
 // Default is 960 (20ms).
 func (e *Encoder) SetFrameSize(samples int) error {
 	// At 96 kHz API rate, frame sizes are in 96 kHz samples (2x the 48 kHz size).
-	// Convert to the 48 kHz internal frame size before validation.
+	// Convert to the 48 kHz internal frame size before validation. At sub-48 kHz
+	// native rates the frame size is already in native (internal) samples.
 	internal := samples
 	if e.is96kHz() {
 		internal = samples / 2
 	}
-	if err := validateFrameSize(internal, e.application); err != nil {
+	if err := validateFrameSize(internal, e.internalSampleRate(), e.application); err != nil {
 		return err
 	}
 	e.frameSize = int32(internal)
 	e.enc.SetFrameSize(internal)
 	return nil
+}
+
+// internalSampleRate returns the sample rate of the internal encode pipeline:
+// the native API rate for 8/12/16/24/48 kHz, and 48 kHz for the 96 kHz API
+// (which decimates 2:1 at the input boundary).
+func (e *Encoder) internalSampleRate() int {
+	if e.is96kHz() {
+		return 48000
+	}
+	return int(e.sampleRate)
 }
 
 // FrameSize returns the current frame size in samples at the API sample rate.

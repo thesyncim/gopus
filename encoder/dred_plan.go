@@ -205,7 +205,7 @@ func (e *Encoder) hybridDREDPrimaryBudget(originalBitrate, frameSize int, plan d
 	if payloadLen == 0 {
 		return 0
 	}
-	targetSize := targetBytesForBitrate(originalBitrate, frameSize)
+	targetSize := e.targetBytesForBitrate(originalBitrate, frameSize)
 	paddingAmount := packetExtensionPaddingAmount(internaldred.ExtensionID, payloadLen)
 	// maxPacketBytes is the primary packet budget including its TOC. The hybrid
 	// VBR path applies the final range shrink after this soft budget, so leave
@@ -237,7 +237,7 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 		return nil, false, nil
 	}
 
-	targetSize := targetBytesForBitrate(int(e.bitrate), frameSize)
+	targetSize := e.targetBytesForBitrate(int(e.bitrate), frameSize)
 	baseLen := 1 + len(frameData)
 	withPadding := e.bitrateMode == ModeCBR
 	// In CBR we must fit DRED within the bitrate-based target; in VBR/CVBR the
@@ -293,7 +293,7 @@ func (e *Encoder) maybeBuildSingleFrameDREDPacket(frameData []byte, actualMode M
 		frameData,
 		modeToTypes(actualMode),
 		packetBW,
-		frameSize,
+		e.packetTOCFrameSize(frameSize),
 		stereo,
 		extensions[:extCount],
 		targetSize,
@@ -314,7 +314,7 @@ func (e *Encoder) maybeBuildMultiFrameDREDPacket(frames [][]byte, actualMode Mod
 		return nil, false, nil
 	}
 
-	targetSize := targetBytesForBitrate(int(e.bitrate), packetFrameSize)
+	targetSize := e.targetBytesForBitrate(int(e.bitrate), packetFrameSize)
 	baseLen := 2
 	if vbr {
 		for i := 0; i < len(frames)-1; i++ {

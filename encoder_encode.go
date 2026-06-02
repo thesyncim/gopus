@@ -23,7 +23,7 @@ func (e *Encoder) Encode(pcm []float32, data []byte) (int, error) {
 	if len(data) == 0 {
 		return 0, ErrBufferTooSmall
 	}
-	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application)
+	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, e.internalSampleRate())
 	if err != nil {
 		return 0, err
 	}
@@ -54,7 +54,7 @@ func (e *Encoder) encode96k(pcm []float32, data []byte) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	frameSize, err := selectExpertFrameSize(frameSize48, e.expertFrameDuration, e.application)
+	frameSize, err := selectExpertFrameSize(frameSize48, e.expertFrameDuration, e.application, 48000)
 	if err != nil {
 		return 0, err
 	}
@@ -120,7 +120,7 @@ func (e *Encoder) EncodeInt24(pcm []int32, data []byte) (int, error) {
 	}
 
 	frameSizeArg := int(e.frameSize)
-	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application)
+	frameSize, err := selectExpertFrameSize(frameSizeArg, e.expertFrameDuration, e.application, e.internalSampleRate())
 	if err != nil {
 		return 0, err
 	}
