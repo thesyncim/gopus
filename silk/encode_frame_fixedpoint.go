@@ -217,6 +217,7 @@ type sEncCtrlFIX struct {
 // encoder-control struct that the rate loop iterates over.
 func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtrlFIX {
 	var ctrl sEncCtrlFIX
+	sc := e.fixedScratch()
 
 	// x_frame = x_buf + ltp_mem_length.
 	xFrame := st.ltpMemLength
@@ -238,7 +239,7 @@ func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtr
 		pitchEstimationLPCOrder: st.pitchEstimationLPCOrder,
 		x:                       st.xBuf[xFrame-st.ltpMemLength : xFrame-st.ltpMemLength+bufLen],
 	}
-	pitchFE := silkFindPitchLagsFIXFrontEnd(pitch)
+	pitchFE := silkFindPitchLagsFIXFrontEnd(sc, pitch)
 	resPitch := pitchFE.res
 	resPitchFrame := st.ltpMemLength
 
@@ -257,6 +258,7 @@ func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtr
 		var pitchOut [maxNbSubfr]int
 		ltpCorr := st.ltpCorrQ15
 		li, ci, voicing := silkPitchAnalysisCoreFixed(
+			sc,
 			resPitch,
 			pitchOut[:st.nbSubfr],
 			&ltpCorr,
@@ -309,7 +311,7 @@ func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtr
 	for k := 0; k < st.nbSubfr; k++ {
 		nsaIn.pitchL[k] = pitchL[k]
 	}
-	nsa := silkNoiseShapeAnalysisFIX(nsaIn)
+	nsa := silkNoiseShapeAnalysisFIX(sc, nsaIn)
 	st.harmShapeGainSmthQ16 = nsaIn.harmShapeGainSmthQ16
 	st.tiltSmthQ16 = nsaIn.tiltSmthQ16
 
@@ -351,11 +353,11 @@ func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtr
 	/****************************************/
 	/* Process gains                        */
 	/****************************************/
-	resNrgQ := make([]int32, st.nbSubfr)
+	resNrgQ := ensureInt32Slice(&sc.resNrgQ, st.nbSubfr)
 	for k := 0; k < st.nbSubfr; k++ {
 		resNrgQ[k] = int32(fp.resNrgQ[k])
 	}
-	gainsQ16 := make([]int32, st.nbSubfr)
+	gainsQ16 := ensureInt32Slice(&sc.gainsQ16, st.nbSubfr)
 	copy(gainsQ16, nsa.gainsQ16[:st.nbSubfr])
 	pgParams := &silkProcessGainsParams{
 		signalType:             signalType,
@@ -375,12 +377,15 @@ func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtr
 		lastGainIndex:          st.lastGainIndex,
 		condCoding:             st.condCoding,
 	}
-	pg := silkProcessGainsFixed(pgParams)
+	pg := silkProcessGainsFixed(sc, pgParams)
 	st.lastGainIndex = pg.lastGainIndex
 	st.indicesQuantOffset = int8(pg.quantOffsetType)
 
 	// Build the per-subframe NSQ coefficient inputs.
-	predCoefFlat := make([]int16, 2*maxLPCOrder)
+	predCoefFlat := ensureInt16Slice(&sc.predCoefFlat, 2*maxLPCOrder)
+	for i := range predCoefFlat {
+		predCoefFlat[i] = 0
+	}
 	for i := 0; i < st.predictLPCOrder && i < len(fp.predCoefQ12[0]); i++ {
 		predCoefFlat[i] = fp.predCoefQ12[0][i]
 	}
@@ -388,16 +393,16 @@ func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtr
 		predCoefFlat[maxLPCOrder+i] = fp.predCoefQ12[1][i]
 	}
 
-	arQ13 := make([]int16, st.nbSubfr*maxShapeLpcOrder)
+	arQ13 := ensureInt16Slice(&sc.arQ13, st.nbSubfr*maxShapeLpcOrder)
 	copy(arQ13, nsa.arQ13[:st.nbSubfr*maxShapeLpcOrder])
 
-	ltpCoefQ14 := make([]int16, st.nbSubfr*ltpOrderConst)
+	ltpCoefQ14 := ensureInt16Slice(&sc.ltpCoefQ14, st.nbSubfr*ltpOrderConst)
 	copy(ltpCoefQ14, fp.ltpCoefQ14)
 
-	harmShapeGainQ14 := make([]int32, st.nbSubfr)
-	tiltQ14 := make([]int32, st.nbSubfr)
-	lfShpQ14 := make([]int32, st.nbSubfr)
-	pitchLQ := make([]int32, st.nbSubfr)
+	harmShapeGainQ14 := ensureInt32Slice(&sc.harmShapeGainQ14, st.nbSubfr)
+	tiltQ14 := ensureInt32Slice(&sc.tiltQ14, st.nbSubfr)
+	lfShpQ14 := ensureInt32Slice(&sc.lfShpQ14, st.nbSubfr)
+	pitchLQ := ensureInt32Slice(&sc.pitchLQ, st.nbSubfr)
 	for k := 0; k < st.nbSubfr; k++ {
 		harmShapeGainQ14[k] = nsa.harmShapeGainQ14[k]
 		tiltQ14[k] = nsa.tiltQ14[k]
@@ -456,6 +461,7 @@ func (e *Encoder) silkEncodeFrameFIXAnalyze(st *silkEncodeFrameFIXState) sEncCtr
 // and excitation pulses.
 func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFrameFIXResult {
 	var res silkEncodeFrameFIXResult
+	sc := e.fixedScratch()
 
 	// silk_encode_frame_FIX: indices.Seed = frameCounter++ & 3.
 	st.indicesSeed = int8(st.frameCounter & 3)
@@ -484,7 +490,7 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 		pitchEstimationLPCOrder: st.pitchEstimationLPCOrder,
 		x:                       st.xBuf[xFrame-st.ltpMemLength : xFrame-st.ltpMemLength+bufLen],
 	}
-	pitchFE := silkFindPitchLagsFIXFrontEnd(pitch)
+	pitchFE := silkFindPitchLagsFIXFrontEnd(sc, pitch)
 	resPitch := pitchFE.res // bufLen samples
 	resPitchFrame := st.ltpMemLength
 
@@ -512,6 +518,7 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 		// (PE_LTP_MEM_LENGTH_MS + nb_subfr*PE_SUBFR_LENGTH_MS)*fs_kHz =
 		// ltp_mem_length + frame_length samples plus la_pitch lookahead.
 		li, ci, voicing := silkPitchAnalysisCoreFixed(
+			sc,
 			resPitch,
 			pitchOut[:st.nbSubfr],
 			&ltpCorr,
@@ -567,7 +574,7 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 	for k := 0; k < st.nbSubfr; k++ {
 		nsaIn.pitchL[k] = pitchL[k]
 	}
-	nsa := silkNoiseShapeAnalysisFIX(nsaIn)
+	nsa := silkNoiseShapeAnalysisFIX(sc, nsaIn)
 	st.harmShapeGainSmthQ16 = nsaIn.harmShapeGainSmthQ16
 	st.tiltSmthQ16 = nsaIn.tiltSmthQ16
 
@@ -611,11 +618,11 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 	/****************************************/
 	/* Process gains                        */
 	/****************************************/
-	resNrgQ := make([]int32, st.nbSubfr)
+	resNrgQ := ensureInt32Slice(&sc.resNrgQ, st.nbSubfr)
 	for k := 0; k < st.nbSubfr; k++ {
 		resNrgQ[k] = int32(fp.resNrgQ[k])
 	}
-	gainsQ16 := make([]int32, st.nbSubfr)
+	gainsQ16 := ensureInt32Slice(&sc.gainsQ16, st.nbSubfr)
 	copy(gainsQ16, nsa.gainsQ16[:st.nbSubfr])
 	pgParams := &silkProcessGainsParams{
 		signalType:             signalType,
@@ -635,7 +642,7 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 		lastGainIndex:          st.lastGainIndex,
 		condCoding:             st.condCoding,
 	}
-	pg := silkProcessGainsFixed(pgParams)
+	pg := silkProcessGainsFixed(sc, pgParams)
 	st.lastGainIndex = pg.lastGainIndex
 	st.indicesQuantOffset = int8(pg.quantOffsetType)
 
@@ -649,7 +656,10 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 	}
 
 	// Build the per-subframe NSQ coefficient inputs.
-	predCoefFlat := make([]int16, 2*maxLPCOrder)
+	predCoefFlat := ensureInt16Slice(&sc.predCoefFlat, 2*maxLPCOrder)
+	for i := range predCoefFlat {
+		predCoefFlat[i] = 0
+	}
 	for i := 0; i < st.predictLPCOrder && i < len(fp.predCoefQ12[0]); i++ {
 		predCoefFlat[i] = fp.predCoefQ12[0][i]
 	}
@@ -657,16 +667,16 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 		predCoefFlat[maxLPCOrder+i] = fp.predCoefQ12[1][i]
 	}
 
-	arQ13 := make([]int16, st.nbSubfr*maxShapeLpcOrder)
+	arQ13 := ensureInt16Slice(&sc.arQ13, st.nbSubfr*maxShapeLpcOrder)
 	copy(arQ13, nsa.arQ13[:st.nbSubfr*maxShapeLpcOrder])
 
-	ltpCoefQ14 := make([]int16, st.nbSubfr*ltpOrderConst)
+	ltpCoefQ14 := ensureInt16Slice(&sc.ltpCoefQ14, st.nbSubfr*ltpOrderConst)
 	copy(ltpCoefQ14, fp.ltpCoefQ14)
 
-	harmShapeGainQ14 := make([]int32, st.nbSubfr)
-	tiltQ14 := make([]int32, st.nbSubfr)
-	lfShpQ14 := make([]int32, st.nbSubfr)
-	pitchLQ := make([]int32, st.nbSubfr)
+	harmShapeGainQ14 := ensureInt32Slice(&sc.harmShapeGainQ14, st.nbSubfr)
+	tiltQ14 := ensureInt32Slice(&sc.tiltQ14, st.nbSubfr)
+	lfShpQ14 := ensureInt32Slice(&sc.lfShpQ14, st.nbSubfr)
+	pitchLQ := ensureInt32Slice(&sc.pitchLQ, st.nbSubfr)
 	for k := 0; k < st.nbSubfr; k++ {
 		harmShapeGainQ14[k] = nsa.harmShapeGainQ14[k]
 		tiltQ14[k] = nsa.tiltQ14[k]
@@ -678,6 +688,7 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 	// silk_encode_frame_FIX selects silk_NSQ when nStatesDelayedDecision <= 1
 	// and warping_Q16 == 0. The del-dec outer loop is not yet ported.
 	silkNSQFixed(
+		sc,
 		&st.nsq,
 		int(st.indicesSeed),
 		int(signalType),
@@ -751,7 +762,7 @@ func (e *Encoder) silkEncodeFrameFIX(st *silkEncodeFrameFIXState) silkEncodeFram
 func (e *Encoder) silkEncodeDoVADFIX(st *silkEncodeFrameFIXState) int {
 	const activityThreshold = speechActivityDTXThresholdQ8 // SILK_FIX_CONST(SPEECH_ACTIVITY_DTX_THRES, 8)
 
-	vadRes := silkVADGetSAQ8(&st.vad, st.vadInput, st.frameLength, st.fsKHz)
+	vadRes := silkVADGetSAQ8(e.fixedScratch(), &st.vad, st.vadInput, st.frameLength, st.fsKHz)
 	st.speechActivityQ8 = vadRes.speechActivityQ8
 	st.inputTiltQ15 = vadRes.inputTiltQ15
 	st.inputQualityBandsQ15 = vadRes.inputQualityBandsQ15

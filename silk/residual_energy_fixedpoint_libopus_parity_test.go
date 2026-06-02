@@ -239,7 +239,7 @@ func TestSILKResidualEnergyFixedLibopusParity(t *testing.T) {
 	for i, tc := range cases {
 		nrgs := make([]int32, tc.nbSubfr)
 		nrgsQ := make([]int, tc.nbSubfr)
-		silkResidualEnergyFixed(nrgs, nrgsQ, tc.x, tc.aQ12, tc.gains,
+		silkResidualEnergyFixed(&silkFixedEncodeScratch{}, nrgs, nrgsQ, tc.x, tc.aQ12, tc.gains,
 			tc.subfrLength, tc.nbSubfr, tc.lpcOrder)
 		for j := 0; j < tc.nbSubfr; j++ {
 			if nrgs[j] != want[i].nrgs[j] {

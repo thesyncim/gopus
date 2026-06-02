@@ -91,7 +91,7 @@ type silkNoiseShapeAnalysisOutput struct {
 // silkNoiseShapeAnalysisFIX is a bit-exact port of silk_noise_shape_analysis_FIX
 // from silk/fixed/noise_shape_analysis_FIX.c. It returns the computed shaping
 // parameters and writes the updated smoothing accumulators back into in.
-func silkNoiseShapeAnalysisFIX(in *silkNoiseShapeAnalysisInput) silkNoiseShapeAnalysisOutput {
+func silkNoiseShapeAnalysisFIX(sc *silkFixedEncodeScratch, in *silkNoiseShapeAnalysisInput) silkNoiseShapeAnalysisOutput {
 	var out silkNoiseShapeAnalysisOutput
 
 	var (
@@ -101,10 +101,10 @@ func silkNoiseShapeAnalysisFIX(in *silkNoiseShapeAnalysisInput) silkNoiseShapeAn
 		BWExpQ16, gainMultQ16, gainAddQ16, strengthQ16, bQ8  int32
 	)
 
-	autoCorr := make([]int32, maxShapeLpcOrder+1)
-	reflCoefQ16 := make([]int32, maxShapeLpcOrder)
-	arQ24 := make([]int32, maxShapeLpcOrder)
-	xWindowed := make([]int16, in.shapeWinLength)
+	autoCorr := ensureInt32Slice(&sc.nsAutoCorr, maxShapeLpcOrder+1)
+	reflCoefQ16 := ensureInt32Slice(&sc.nsReflCoefQ16, maxShapeLpcOrder)
+	arQ24 := ensureInt32Slice(&sc.nsArQ24, maxShapeLpcOrder)
+	xWindowed := ensureInt16Slice(&sc.nsXWindowed, in.shapeWinLength)
 
 	// in.x is the buffer beginning at the start of the first LPC analysis
 	// block (the libopus x - la_shape pointer); xBase indexes from there.
@@ -228,7 +228,7 @@ func silkNoiseShapeAnalysisFIX(in *silkNoiseShapeAnalysisInput) silkNoiseShapeAn
 			silkWarpedAutocorrelationFIX(autoCorr, &scale, xWindowed, int32(warpingQ16), in.shapeWinLength, in.shapingLPCOrder)
 		} else {
 			// Calculate regular auto correlation.
-			silkAutocorrFixed(autoCorr, &scale, xWindowed, in.shapeWinLength, in.shapingLPCOrder+1)
+			silkAutocorrFixed(sc, autoCorr, &scale, xWindowed, in.shapeWinLength, in.shapingLPCOrder+1)
 		}
 
 		// Add white noise, as a fraction of energy.

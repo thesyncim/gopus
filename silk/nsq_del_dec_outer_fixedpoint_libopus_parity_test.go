@@ -410,6 +410,7 @@ func TestSILKNSQDelDecFixedLibopusParity(t *testing.T) {
 		pulses := make([]int8, tc.frameLength)
 
 		seedOut := silkNSQDelDecFixed(
+			&silkFixedEncodeScratch{},
 			nsq,
 			tc.seed,
 			tc.signalType,

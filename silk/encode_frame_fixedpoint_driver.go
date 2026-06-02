@@ -43,6 +43,10 @@ type silkEncoderFixedFields struct {
 type silkFixedEncodeState struct {
 	initialized bool
 
+	// scratch holds the reusable per-frame working buffers for the integer
+	// encode path, grown once and reused across every frame of a packet.
+	scratch *silkFixedEncodeScratch
+
 	// fs_kHz this state was configured for; a change forces re-init.
 	fsKHz int
 

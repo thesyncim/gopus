@@ -34,7 +34,7 @@ type silkFindLPCResult struct {
 }
 
 // silkFindLPCFIX is the bit-exact Go port of silk_find_LPC_FIX.
-func silkFindLPCFIX(in *silkFindLPCInput) silkFindLPCResult {
+func silkFindLPCFIX(sc *silkFixedEncodeScratch, in *silkFindLPCInput) silkFindLPCResult {
 	var res silkFindLPCResult
 
 	order := in.predictLPCOrder
@@ -68,9 +68,9 @@ func silkFindLPCFIX(in *silkFindLPCInput) silkFindLPCResult {
 		}
 
 		// Convert to NLSFs.
-		silkA2NLSF(res.nlsfQ15[:order], aTmpQ16[:order], order)
+		silkA2NLSFInto(res.nlsfQ15[:order], aTmpQ16[:order], order, sc.a2nlsfP[:], sc.a2nlsfQ[:])
 
-		lpcRes := make([]int16, 2*subfrLength)
+		lpcRes := ensureInt16Slice(&sc.findLPCRes, 2*subfrLength)
 
 		// Search over interpolation indices to find the one with lowest residual energy.
 		for k := 3; k >= 0; k-- {
@@ -124,7 +124,7 @@ func silkFindLPCFIX(in *silkFindLPCInput) silkFindLPCResult {
 	if res.nlsfInterpCoefQ2 == 4 {
 		// NLSF interpolation is currently inactive, calculate NLSFs from full
 		// frame AR coefficients.
-		silkA2NLSF(res.nlsfQ15[:order], aQ16[:order], order)
+		silkA2NLSFInto(res.nlsfQ15[:order], aQ16[:order], order, sc.a2nlsfP[:], sc.a2nlsfQ[:])
 	}
 
 	return res

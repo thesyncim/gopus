@@ -10,16 +10,16 @@ package silk
 // NOTE(dedup): a standalone integer autocorrelation living entirely in the
 // silk package; the float path uses autocorrelationF32 and the celt
 // _celt_autocorr is in a separate package that this workstream may not touch.
-func silkAutocorrFixed(results []int32, scale *int, inputData []int16, inputDataSize, correlationCount int) {
+func silkAutocorrFixed(sc *silkFixedEncodeScratch, results []int32, scale *int, inputData []int16, inputDataSize, correlationCount int) {
 	corrCount := silkMinInt(inputDataSize, correlationCount)
-	*scale = celtAutocorrFixed(inputData, results, corrCount-1, inputDataSize)
+	*scale = celtAutocorrFixed(sc, inputData, results, corrCount-1, inputDataSize)
 }
 
 // celtAutocorrFixed is the FIXED_POINT _celt_autocorr scalar reference with no
 // window. lag is corrCount-1 and n is the input length. The unrolled
 // celt_pitch_xcorr only reorders integer MAC accumulation, so the scalar sum
 // here is bit-exact to the production kernel.
-func celtAutocorrFixed(x []int16, ac []int32, lag, n int) int {
+func celtAutocorrFixed(sc *silkFixedEncodeScratch, x []int16, ac []int32, lag, n int) int {
 	shift := 0
 
 	// FIXED_POINT pre-scaling of the input.
@@ -39,9 +39,8 @@ func celtAutocorrFixed(x []int16, ac []int32, lag, n int) int {
 	shift = shift / 2
 
 	xptr := x
-	var xx []int16
 	if shift > 0 {
-		xx = make([]int16, n)
+		xx := ensureInt16Slice(&sc.acXX, n)
 		for i := 0; i < n; i++ {
 			xx[i] = int16(pshr32(int32(x[i]), shift))
 		}

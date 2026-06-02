@@ -70,6 +70,7 @@ func silkInsertionSortDecreasingInt16(a []int16, idx []int, L, K int) {
 // frame's final lag (0 if unvoiced). Returns lagIndex, contourIndex and the
 // voicing flag (0 voiced, 1 unvoiced).
 func silkPitchAnalysisCoreFixed(
+	sc *silkFixedEncodeScratch,
 	frameUnscaled []int16,
 	pitchOut []int,
 	ltpCorrQ15 *int32,
@@ -90,7 +91,7 @@ func silkPitchAnalysisCoreFixed(
 	// Downscale input if necessary.
 	energy, shift := silkSumSqrShiftFixed(frameUnscaled, frameLength)
 	shift += 3 - int(silkCLZ32(energy)) // at least two bits headroom
-	frameScaled := make([]int16, frameLength)
+	frameScaled := ensureInt16Slice(&sc.paFrameScaled, frameLength)
 	var frame []int16
 	if shift > 0 {
 		shift = int(silkRSHIFT(int32(shift+1), 1))
@@ -106,14 +107,14 @@ func silkPitchAnalysisCoreFixed(
 	var frame8kHz []int16
 	switch fsKHz {
 	case 16:
-		frame8kHzBuf := make([]int16, frameLength8kHz)
+		frame8kHzBuf := ensureInt16Slice(&sc.paFrame8kHzBuf, frameLength8kHz)
 		var filtState [2]int32
 		n := resamplerDown2(&filtState, frame8kHzBuf, frame[:frameLength])
 		frame8kHz = frame8kHzBuf[:n]
 	case 12:
-		frame8kHzBuf := make([]int16, frameLength8kHz)
+		frame8kHzBuf := ensureInt16Slice(&sc.paFrame8kHzBuf, frameLength8kHz)
 		var filtState [6]int32
-		scratch := make([]int32, frameLength+4)
+		scratch := ensureInt32Slice(&sc.paResScratch, frameLength+4)
 		n := resamplerDown2_3(&filtState, frame8kHzBuf, frame[:frameLength], scratch)
 		frame8kHz = frame8kHzBuf[:n]
 	default: // 8 kHz
@@ -121,7 +122,7 @@ func silkPitchAnalysisCoreFixed(
 	}
 
 	// Decimate again to 4 kHz.
-	frame4kHz := make([]int16, frameLength4kHz)
+	frame4kHz := ensureInt16Slice(&sc.paFrame4kHz, frameLength4kHz)
 	var filtState4 [2]int32
 	resamplerDown2(&filtState4, frame4kHz, frame8kHz[:frameLength8kHz])
 
@@ -133,8 +134,8 @@ func silkPitchAnalysisCoreFixed(
 	/*****************************************************************************
 	 * FIRST STAGE, operating in 4 kHz
 	 *****************************************************************************/
-	c := make([]int16, nbSubfr*peCStride8kHz)
-	xcorr32 := make([]int32, peMaxLag4kHz-peMinLag4kHz+1)
+	c := ensureInt16Slice(&sc.paC, nbSubfr*peCStride8kHz)
+	xcorr32 := ensureInt32Slice(&sc.paXcorr32, peMaxLag4kHz-peMinLag4kHz+1)
 
 	target := silkLSHIFT(peSFLength4kHz, 2) // pointer into frame4kHz (middle of frame)
 	targetIdx := int(target)
@@ -181,7 +182,7 @@ func silkPitchAnalysisCoreFixed(
 
 	// Sort.
 	lengthDSrch := 4 + silkLSHIFT(int32(complexity), 1)
-	dSrch := make([]int, peDSrchLength)
+	dSrch := ensureIntSlice(&sc.paDSrch, peDSrchLength)
 	silkInsertionSortDecreasingInt16(c, dSrch, peCStride4kHz, int(lengthDSrch))
 
 	// Escape if correlation is very low already here.
@@ -206,7 +207,10 @@ func silkPitchAnalysisCoreFixed(
 		}
 	}
 
-	dComp := make([]int16, peDCompStride)
+	dComp := ensureInt16Slice(&sc.paDComp, peDCompStride)
+	for i := range dComp {
+		dComp[i] = 0
+	}
 	for i := 0; i < ldSrch; i++ {
 		dComp[dSrch[i]-peDCompMin] = 1
 	}
@@ -317,7 +321,7 @@ func silkPitchAnalysisCoreFixed(
 		}
 
 		// Bias towards shorter lags.
-		lagLog2Q7 := silkLin2Log(int32(d)) // Q7
+		lagLog2Q7 := silkLin2Log(int32(d))                                                                            // Q7
 		cCmaxNewB := cCmaxNew - silkRSHIFT(silkSMULBB(int32(nbSubfr*silkFixConst(peShortlagBias, 13)), lagLog2Q7), 7) // Q13
 
 		// Bias towards previous lag.
@@ -385,8 +389,8 @@ func silkPitchAnalysisCoreFixed(
 		}
 
 		// Calculate the correlations and energies needed in stage 3.
-		energiesSt3 := make([][peNbStage3Lags]int32, nbSubfr*nbCbkSearch)
-		crossCorrSt3 := make([][peNbStage3Lags]int32, nbSubfr*nbCbkSearch)
+		energiesSt3 := ensureStage3LagSlice(&sc.paEnergiesSt3, nbSubfr*nbCbkSearch)
+		crossCorrSt3 := ensureStage3LagSlice(&sc.paCrossCorrSt3, nbSubfr*nbCbkSearch)
 		silkPAnaCalcCorrSt3Fixed(crossCorrSt3, frame, startLag, sfLength, nbSubfr, complexity)
 		silkPAnaCalcEnergySt3Fixed(energiesSt3, frame, startLag, sfLength, nbSubfr, complexity)
 
@@ -408,7 +412,7 @@ func silkPitchAnalysisCoreFixed(
 					cCmaxNew = silk_DIV32_varQ(crossCorr, energyAcc, 13+1) // Q13
 					// Reduce depending on flatness of contour.
 					diff := silkInt16MAX - silkMUL(contourBiasQ15, int32(j)) // Q15
-					cCmaxNew = silkSMULWB(cCmaxNew, diff)                     // Q14
+					cCmaxNew = silkSMULWB(cCmaxNew, diff)                    // Q14
 				} else {
 					cCmaxNew = 0
 				}

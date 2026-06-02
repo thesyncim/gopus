@@ -408,6 +408,7 @@ func TestSILKNSQFixedLibopusParity(t *testing.T) {
 		pulses := make([]int8, tc.frameLength)
 
 		silkNSQFixed(
+			&silkFixedEncodeScratch{},
 			nsq,
 			tc.seed,
 			tc.signalType,

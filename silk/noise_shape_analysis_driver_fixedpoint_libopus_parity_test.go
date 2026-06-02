@@ -258,9 +258,10 @@ func TestSILKNoiseShapeAnalysisFixedLibopusParity(t *testing.T) {
 		return
 	}
 
+	sc := &silkFixedEncodeScratch{}
 	for i := range cases {
 		in := cases[i] // copy: driver mutates smoothing accumulators
-		got := silkNoiseShapeAnalysisFIX(&in)
+		got := silkNoiseShapeAnalysisFIX(sc, &in)
 		w := want[i]
 
 		fail := func(field string, g, e interface{}) {

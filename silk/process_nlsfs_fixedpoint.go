@@ -47,24 +47,24 @@ type silkProcessNLSFsResult struct {
 // silkProcessNLSFsFixed is the bit-exact Go port of silk_process_NLSFs. It
 // mutates p.nlsfQ15 in place (matching the C, which writes pNLSF_Q15) and
 // returns the two halves of PredCoef_Q12 plus the chosen NLSF indices.
-func (e *Encoder) silkProcessNLSFsFixed(p *silkProcessNLSFsParams) silkProcessNLSFsResult {
+func (e *Encoder) silkProcessNLSFsFixed(sc *silkFixedEncodeScratch, p *silkProcessNLSFsParams) silkProcessNLSFsResult {
 	order := p.predictLPCOrder
 
 	// NLSF_mu = 0.003 - 0.0015 * speech_activity (Q20), x1.5 for 10 ms packets.
 	nlsfMuQ20 := computeNLSFMuQ20(int(p.speechActivityQ8), p.nbSubfr)
 
 	// Calculate NLSF weights.
-	pNLSFWQW := make([]int16, order)
+	pNLSFWQW := ensureInt16Slice(&sc.nlsfWQW, order)
 	silkNLSFWeightsLaroia(pNLSFWQW, p.nlsfQ15[:order], order)
 
 	doInterpolate := p.useInterpolatedNLSFs == 1 && p.nlsfInterpCoefQ2 < 4
 	if doInterpolate {
 		// Interpolated NLSF vector for the first half.
-		pNLSF0TempQ15 := make([]int16, order)
+		pNLSF0TempQ15 := ensureInt16Slice(&sc.nlsf0TempQ15, order)
 		interpolateNLSF(pNLSF0TempQ15, p.prevNLSFQ15[:order], p.nlsfQ15[:order], int(p.nlsfInterpCoefQ2), order)
 
 		// First-half NLSF weights for the interpolated NLSFs.
-		pNLSFW0TempQW := make([]int16, order)
+		pNLSFW0TempQW := ensureInt16Slice(&sc.nlsfW0TempQW, order)
 		silkNLSFWeightsLaroia(pNLSFW0TempQW, pNLSF0TempQ15, order)
 
 		// Update NLSF weights with contribution from the first half.
@@ -82,20 +82,20 @@ func (e *Encoder) silkProcessNLSFsFixed(p *silkProcessNLSFsParams) silkProcessNL
 	var res silkProcessNLSFsResult
 	res.doInterpolate = doInterpolate
 	res.nlsfQ15 = p.nlsfQ15
-	res.nlsfIndices = make([]int8, order+1)
+	res.nlsfIndices = ensureInt8Slice(&sc.nlsfIndices, order+1)
 	res.nlsfIndices[0] = int8(bestStage1)
 	for i := 0; i < order; i++ {
 		res.nlsfIndices[i+1] = int8(residuals[i])
 	}
 
 	// Convert quantized NLSFs back to LPC coefficients (second half).
-	res.predCoefQ12[1] = make([]int16, order)
+	res.predCoefQ12[1] = ensureInt16Slice(&sc.predCoefQ12_1, order)
 	silkNLSF2A(res.predCoefQ12[1], p.nlsfQ15[:order], order)
 
-	res.predCoefQ12[0] = make([]int16, order)
+	res.predCoefQ12[0] = ensureInt16Slice(&sc.predCoefQ12_0, order)
 	if doInterpolate {
 		// Interpolated, quantized LSF vector for the first half.
-		pNLSF0TempQ15 := make([]int16, order)
+		pNLSF0TempQ15 := ensureInt16Slice(&sc.nlsf0TempQ15, order)
 		interpolateNLSF(pNLSF0TempQ15, p.prevNLSFQ15[:order], p.nlsfQ15[:order], int(p.nlsfInterpCoefQ2), order)
 		silkNLSF2A(res.predCoefQ12[0], pNLSF0TempQ15, order)
 	} else {

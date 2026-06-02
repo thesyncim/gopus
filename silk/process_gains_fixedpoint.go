@@ -105,7 +105,7 @@ type silkProcessGainsResult struct {
 // silkProcessGainsFixed is the bit-exact Go port of silk_process_gains_FIX.
 // It mutates p.gainsQ16 in place (matching the C which writes Gains_Q16) and
 // returns the derived indices, unquantized gains and Lambda_Q10.
-func silkProcessGainsFixed(p *silkProcessGainsParams) silkProcessGainsResult {
+func silkProcessGainsFixed(sc *silkFixedEncodeScratch, p *silkProcessGainsParams) silkProcessGainsResult {
 	nb := p.nbSubfr
 
 	// Gain reduction when LTP coding gain is high.
@@ -157,12 +157,12 @@ func silkProcessGainsFixed(p *silkProcessGainsParams) silkProcessGainsResult {
 	var res silkProcessGainsResult
 
 	// Save unquantized gains and gain index.
-	res.gainsUnqQ16 = make([]int32, nb)
+	res.gainsUnqQ16 = ensureInt32Slice(&sc.pgGainsUnqQ16, nb)
 	copy(res.gainsUnqQ16, p.gainsQ16[:nb])
 	res.lastGainIndexPrev = p.lastGainIndex
 
 	// Quantize gains.
-	res.gainsIndices = make([]int8, nb)
+	res.gainsIndices = ensureInt8Slice(&sc.pgGainsIndices, nb)
 	res.lastGainIndex = silkGainsQuantInto(res.gainsIndices, p.gainsQ16,
 		p.lastGainIndex, p.condCoding == codeConditionally, nb)
 

@@ -54,7 +54,7 @@ type silkFindPitchLagsResult struct {
 // silkFindPitchLagsFIXFrontEnd is the bit-exact Go port of the LPC-whitening
 // front-end of silk_find_pitch_lags_FIX (everything up to and including the
 // silk_LPC_analysis_filter call that produces res).
-func silkFindPitchLagsFIXFrontEnd(in *silkFindPitchLagsInput) silkFindPitchLagsResult {
+func silkFindPitchLagsFIXFrontEnd(sc *silkFixedEncodeScratch, in *silkFindPitchLagsInput) silkFindPitchLagsResult {
 	bufLen := in.laPitch + in.frameLength + in.ltpMemLength
 	order := in.pitchEstimationLPCOrder
 
@@ -74,7 +74,7 @@ func silkFindPitchLagsFIXFrontEnd(in *silkFindPitchLagsInput) silkFindPitchLagsR
 	}
 
 	// Calculate windowed signal.
-	wsig := make([]int16, winLength)
+	wsig := ensureInt16Slice(&sc.flWsig, winLength)
 	xOff := bufLen - winLength
 
 	// silk_apply_sine_window requires a positive length (it indexes
@@ -96,9 +96,9 @@ func silkFindPitchLagsFIXFrontEnd(in *silkFindPitchLagsInput) silkFindPitchLagsR
 	}
 
 	// Calculate autocorrelation sequence.
-	autoCorr := make([]int32, maxFindPitchLPCOrder+1)
+	autoCorr := ensureInt32Slice(&sc.flAutoCorr, maxFindPitchLPCOrder+1)
 	var scale int
-	silkAutocorrFixed(autoCorr, &scale, wsig, winLength, order+1)
+	silkAutocorrFixed(sc, autoCorr, &scale, wsig, winLength, order+1)
 
 	// Add white noise, as fraction of energy.
 	autoCorr[0] = silkSMLAWB(autoCorr[0], autoCorr[0], findPitchWhiteNoiseFractionQ16) + 1
@@ -124,7 +124,7 @@ func silkFindPitchLagsFIXFrontEnd(in *silkFindPitchLagsInput) silkFindPitchLagsR
 	silkBwExpander(aQ12[:order], findPitchBandwidthExpansionQ16)
 
 	// LPC analysis filtering, producing the whitened residual.
-	res := make([]int16, bufLen)
+	res := ensureInt16Slice(&sc.flRes, bufLen)
 	silkLPCAnalysisFilterFixed(res, in.x, aQ12[:order], bufLen, order)
 
 	return silkFindPitchLagsResult{

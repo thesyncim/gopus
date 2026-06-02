@@ -67,6 +67,7 @@ func silkSMLABBovflwU(a uint32, b, c int32) uint32 {
 // coefficients (Q12) for each frame half ([2][LPCOrder]). gains holds the
 // per-subframe quantization gains.
 func silkResidualEnergyFixed(
+	sc *silkFixedEncodeScratch,
 	nrgs []int32, // O: residual energy per subframe
 	nrgsQ []int, // O: Q value per subframe
 	x []int16, // I: input signal
@@ -81,7 +82,7 @@ func silkResidualEnergyFixed(
 	offset := lpcOrder + subfrLength
 
 	// LPC residual buffer for one frame half (including preceding samples).
-	lpcRes := make([]int16, halfNbSubfr*offset)
+	lpcRes := ensureInt16Slice(&sc.reLpcRes, halfNbSubfr*offset)
 
 	xOff := 0
 	for i := 0; i < nbSubfr>>1; i++ {

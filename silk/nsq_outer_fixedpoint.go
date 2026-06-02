@@ -23,6 +23,7 @@ package silk
 // LTP_ORDER per subframe, arQ13 is MAX_SHAPE_LPC_ORDER per subframe, and the
 // HarmShapeGain/Tilt/LFShp/Gains/pitchL arrays are one entry per subframe.
 func silkNSQFixed(
+	sc *silkFixedEncodeScratch,
 	nsq *NSQState,
 	seed int,
 	signalType int,
@@ -59,9 +60,9 @@ func silkNSQFixed(
 		lsfInterpolationFlag = 0
 	}
 
-	sLTPQ15 := make([]int32, ltpMemLength+frameLength)
-	sLTP := make([]int16, ltpMemLength+frameLength)
-	xScQ10 := make([]int32, subfrLength)
+	sLTPQ15 := ensureInt32Slice(&sc.nsqSLTPQ15, ltpMemLength+frameLength)
+	sLTP := ensureInt16Slice(&sc.nsqSLTP, ltpMemLength+frameLength)
+	xScQ10 := ensureInt32Slice(&sc.nsqXScQ10, subfrLength)
 
 	// Set up pointers to start of sub frame.
 	nsq.sLTPShpBufIdx = ltpMemLength
@@ -162,6 +163,7 @@ func silkNSQFixed(
 // SideInfoIndices fields are seed, signalType, quantOffsetType,
 // nlsfInterpCoefQ2. The chosen dither seed (psIndices->Seed in C) is returned.
 func silkNSQDelDecFixed(
+	sc *silkFixedEncodeScratch,
 	nsq *NSQState,
 	seed int,
 	signalType int,
@@ -191,8 +193,13 @@ func silkNSQDelDecFixed(
 	// Set unvoiced lag to the previous one, overwrite later for voiced.
 	lag := int(nsq.lagPrev)
 
-	// Initialize delayed decision states.
-	psDelDec := make([]nsqDelDecStateFixed, nStatesDelayedDecision)
+	// Initialize delayed decision states. The reused backing array is cleared so
+	// every survivor starts from the same zero state the original per-call
+	// allocation provided (the init below sets only a subset of the fields).
+	psDelDec := ensureNSQDelDecSlice(&sc.nsqDelDec, nStatesDelayedDecision)
+	for k := range psDelDec {
+		psDelDec[k] = nsqDelDecStateFixed{}
+	}
 	for k := 0; k < nStatesDelayedDecision; k++ {
 		psDD := &psDelDec[k]
 		psDD.seed = int32((k + seed) & 3)
@@ -233,9 +240,9 @@ func silkNSQDelDecFixed(
 		lsfInterpolationFlag = 0
 	}
 
-	sLTPQ15 := make([]int32, ltpMemLength+frameLength)
-	sLTP := make([]int16, ltpMemLength+frameLength)
-	xScQ10 := make([]int32, subfrLength)
+	sLTPQ15 := ensureInt32Slice(&sc.nsqSLTPQ15, ltpMemLength+frameLength)
+	sLTP := ensureInt16Slice(&sc.nsqSLTP, ltpMemLength+frameLength)
+	xScQ10 := ensureInt32Slice(&sc.nsqXScQ10, subfrLength)
 	var delayedGainQ10 [decisionDelay]int32
 
 	// Set up pointers to start of sub frame. In libopus pulses and pxq are
@@ -336,6 +343,7 @@ func silkNSQDelDecFixed(
 		)
 
 		silkNoiseShapeQuantizerDelDecFixed(
+			sc,
 			nsq,
 			psDelDec,
 			signalType,

@@ -301,8 +301,9 @@ func TestSILKVADGetSAQ8FixedLibopusParity(t *testing.T) {
 				i, tc.name, tc.fsKHz, tc.frameLength, field, got, exp)
 		}
 
+		sc := &silkFixedEncodeScratch{}
 		for f, frame := range tc.frames {
-			res := silkVADGetSAQ8(&state, frame, tc.frameLength, tc.fsKHz)
+			res := silkVADGetSAQ8(sc, &state, frame, tc.frameLength, tc.fsKHz)
 			w := want[i].frames[f]
 			if res.speechActivityQ8 != w.speechActivityQ8 {
 				fail(fmt.Sprintf("frame %d speech_activity_Q8", f), res.speechActivityQ8, w.speechActivityQ8)

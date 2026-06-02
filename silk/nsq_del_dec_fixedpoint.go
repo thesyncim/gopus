@@ -63,6 +63,7 @@ type nsqSamplePairFixed [2]nsqSampleStateFixed
 // pulseOffset carries that running base: writes land at pulses[pulseOffset +
 // i - decisionDelay], matching the C pointer arithmetic.
 func silkNoiseShapeQuantizerDelDecFixed(
+	sc *silkFixedEncodeScratch,
 	nsq *NSQState,
 	psDelDec []nsqDelDecStateFixed,
 	signalType int,
@@ -91,7 +92,7 @@ func silkNoiseShapeQuantizerDelDecFixed(
 	decisionDelayActive int,
 	pulseOffset int,
 ) {
-	psSampleState := make([]nsqSamplePairFixed, nStatesDelayedDecision)
+	psSampleState := ensureNSQSamplePairSlice(&sc.nsqSampleState, nStatesDelayedDecision)
 
 	shpLagPtr := nsq.sLTPShpBufIdx - lag + harmShapeFirTaps/2
 	predLagPtr := nsq.sLTPBufIdx - lag + ltpOrderConst/2

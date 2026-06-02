@@ -169,7 +169,7 @@ type silkVADResult struct {
 // silkVADGetSAQ8 ports silk_VAD_GetSA_Q8_c (silk/VAD.c): the speech-activity
 // estimator. frameLength must be a multiple of 8 and <= 512; fsKHz is the
 // internal sampling rate in kHz. The VAD state s is updated in place.
-func silkVADGetSAQ8(s *silkVADState, pIn []int16, frameLength, fsKHz int) silkVADResult {
+func silkVADGetSAQ8(sc *silkFixedEncodeScratch, s *silkVADState, pIn []int16, frameLength, fsKHz int) silkVADResult {
 	var res silkVADResult
 
 	// The band decimation collapses a sub-vadMinFrameLength frame to a
@@ -192,7 +192,7 @@ func silkVADGetSAQ8(s *silkVADState, pIn []int16, frameLength, fsKHz int) silkVA
 	xOffset[1] = decimatedFramelength + decimatedFramelength2
 	xOffset[2] = xOffset[1] + decimatedFramelength
 	xOffset[3] = xOffset[2] + decimatedFramelength2
-	X := make([]int16, xOffset[3]+decimatedFramelength1)
+	X := ensureInt16Slice(&sc.vadX, xOffset[3]+decimatedFramelength1)
 
 	// 0-8 kHz to 0-4 kHz and 4-8 kHz.
 	silkAnaFiltBank1(pIn, s.AnaState[:], X, X[xOffset[3]:], frameLength)

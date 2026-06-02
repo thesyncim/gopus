@@ -304,7 +304,7 @@ func TestSILKProcessNLSFsFixedLibopusParity(t *testing.T) {
 			nlsfQ15:              nlsf,
 			prevNLSFQ15:          prev,
 		}
-		res := enc.silkProcessNLSFsFixed(&p)
+		res := enc.silkProcessNLSFsFixed(&silkFixedEncodeScratch{}, &p)
 
 		fail := func(field string, got, exp interface{}) {
 			t.Fatalf("case %d (%s order=%d nb=%d st=%d useInterp=%d coef=%d): %s=%v want %v",

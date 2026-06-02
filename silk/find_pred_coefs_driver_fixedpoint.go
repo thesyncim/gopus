@@ -111,6 +111,7 @@ type silkFindPredCoefsResult struct {
 func (e *Encoder) silkFindPredCoefsFIX(in *silkFindPredCoefsInput) silkFindPredCoefsResult {
 	const order = ltpOrder // LTP_ORDER == 5
 	var res silkFindPredCoefsResult
+	sc := e.fixedScratch()
 
 	predOrder := in.predictLPCOrder
 	subfrLength := in.subfrLength
@@ -143,14 +144,17 @@ func (e *Encoder) silkFindPredCoefsFIX(in *silkFindPredCoefsInput) silkFindPredC
 	// LPC_in_pre holds nb_subfr blocks of (subfr_length + predictLPCOrder)
 	// samples followed by frame_length; the C allocates
 	// nb_subfr*predictLPCOrder + frame_length.
-	lpcInPre := make([]int16, nbSubfr*predOrder+in.frameLength)
+	lpcInPre := ensureInt16Slice(&sc.lpcInPre, nbSubfr*predOrder+in.frameLength)
 
-	res.ltpCoefQ14 = make([]int16, nbSubfr*order)
+	res.ltpCoefQ14 = ensureInt16Slice(&sc.fpLTPCoefQ14, nbSubfr*order)
+	for i := range res.ltpCoefQ14 {
+		res.ltpCoefQ14[i] = 0
+	}
 
 	if in.signalType == typeVoiced {
 		/* VOICED */
-		xXLTPQ17 := make([]int32, nbSubfr*order)
-		XXLTPQ17 := make([]int32, nbSubfr*order*order)
+		xXLTPQ17 := ensureInt32Slice(&sc.xXLTPQ17, nbSubfr*order)
+		XXLTPQ17 := ensureInt32Slice(&sc.XXLTPQ17, nbSubfr*order*order)
 
 		// LTP analysis.
 		lag := in.pitchL[:nbSubfr]
@@ -197,7 +201,7 @@ func (e *Encoder) silkFindPredCoefsFIX(in *silkFindPredCoefsInput) silkFindPredC
 
 	// LPC_in_pre contains the LTP-filtered input for voiced, and the unfiltered
 	// (gain-scaled) input for unvoiced.
-	var nlsfQ15 [maxLPCOrder]int16
+	nlsfQ15 := ensureInt16Slice(&sc.fpNLSFQ15, predOrder)
 	lpcIn := &silkFindLPCInput{
 		predictLPCOrder:      predOrder,
 		subfrLength:          subfrLength,
@@ -208,11 +212,15 @@ func (e *Encoder) silkFindPredCoefsFIX(in *silkFindPredCoefsInput) silkFindPredC
 		minInvGainQ30:        minInvGainQ30,
 		x:                    lpcInPre,
 	}
-	lpcRes := silkFindLPCFIX(lpcIn)
+	lpcRes := silkFindLPCFIX(sc, lpcIn)
 	copy(nlsfQ15[:predOrder], lpcRes.nlsfQ15[:predOrder])
 	res.nlsfInterpCoefQ2 = lpcRes.nlsfInterpCoefQ2
 
-	// Quantize LSFs.
+	// Quantize LSFs. The previous-frame NLSFs are copied into reusable scratch so
+	// that slicing them does not pin the silkFindPredCoefsInput pointer to the
+	// heap (it embeds prev_NLSFq_Q15 as a fixed array).
+	prevNLSFQ15 := ensureInt16Slice(&sc.fpPrevNLSFQ15, predOrder)
+	copy(prevNLSFQ15, in.prevNLSFqQ15[:predOrder])
 	nlsfParams := &silkProcessNLSFsParams{
 		predictLPCOrder:      predOrder,
 		nbSubfr:              nbSubfr,
@@ -223,17 +231,17 @@ func (e *Encoder) silkFindPredCoefsFIX(in *silkFindPredCoefsInput) silkFindPredC
 		nlsfMSVQSurvivors:    in.nlsfMSVQSurvivors,
 		cb:                   in.cb,
 		nlsfQ15:              nlsfQ15[:predOrder],
-		prevNLSFQ15:          in.prevNLSFqQ15[:predOrder],
+		prevNLSFQ15:          prevNLSFQ15,
 	}
-	nlsfRes := e.silkProcessNLSFsFixed(nlsfParams)
+	nlsfRes := e.silkProcessNLSFsFixed(sc, nlsfParams)
 	res.predCoefQ12 = nlsfRes.predCoefQ12
 	res.nlsfIndices = nlsfRes.nlsfIndices
 
 	// Calculate residual energy using quantized LPC coefficients.
-	res.resNrg = make([]int32, nbSubfr)
-	res.resNrgQ = make([]int, nbSubfr)
+	res.resNrg = ensureInt32Slice(&sc.fpResNrg, nbSubfr)
+	res.resNrgQ = ensureIntSlice(&sc.fpResNrgQ, nbSubfr)
 	aQ12 := [][]int16{res.predCoefQ12[0], res.predCoefQ12[1]}
-	silkResidualEnergyFixed(res.resNrg, res.resNrgQ, lpcInPre, aQ12, localGains[:nbSubfr],
+	silkResidualEnergyFixed(sc, res.resNrg, res.resNrgQ, lpcInPre, aQ12, localGains[:nbSubfr],
 		subfrLength, nbSubfr, predOrder)
 
 	// Copy quantized NLSFs to prev for next-frame interpolation.

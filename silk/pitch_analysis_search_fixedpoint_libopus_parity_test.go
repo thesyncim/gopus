@@ -259,11 +259,12 @@ func TestSILKPitchAnalysisSearchFixedLibopusParity(t *testing.T) {
 		return
 	}
 
+	sc := &silkFixedEncodeScratch{}
 	for i, tc := range cases {
 		pitchOut := make([]int, tc.nbSubfr)
 		ltp := tc.ltpInQ15
 		lagIdx, contourIdx, voicing := silkPitchAnalysisCoreFixed(
-			tc.frame, pitchOut, &ltp, tc.prevLag, tc.thres1Q16, tc.thres2Q13,
+			sc, tc.frame, pitchOut, &ltp, tc.prevLag, tc.thres1Q16, tc.thres2Q13,
 			tc.fsKHz, tc.complexity, tc.nbSubfr)
 
 		w := want[i]

@@ -441,7 +441,7 @@ func TestSILKNoiseShapeQuantizerDelDecFixedLibopusParity(t *testing.T) {
 		copy(states, tc.states)
 
 		smplBufIdx := tc.smplBufIdx
-		silkNoiseShapeQuantizerDelDecFixed(nsq, states, tc.signalType, tc.xQ10, pulsesBuf, xqBuf, sLTPQ15,
+		silkNoiseShapeQuantizerDelDecFixed(&silkFixedEncodeScratch{}, nsq, states, tc.signalType, tc.xQ10, pulsesBuf, xqBuf, sLTPQ15,
 			delayedGainQ10[:], tc.aQ12[:], tc.bQ14[:], tc.arShpQ13[:], tc.lag, tc.harmShapeFIR,
 			tc.tilt, tc.lfShp, tc.gain, tc.lambda, tc.offset, tc.length, tc.subfr,
 			tc.shapingLPCOrder, tc.predictLPCOrder, tc.warping, tc.nStates, &smplBufIdx, tc.decisionDelay, decisionDelay)

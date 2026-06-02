@@ -197,9 +197,10 @@ func TestSILKFindPitchLagsFixedLibopusParity(t *testing.T) {
 		return
 	}
 
+	sc := &silkFixedEncodeScratch{}
 	for i := range cases {
 		in := cases[i]
-		got := silkFindPitchLagsFIXFrontEnd(&in)
+		got := silkFindPitchLagsFIXFrontEnd(sc, &in)
 		w := want[i]
 
 		fail := func(field string, g, e interface{}) {

@@ -282,7 +282,7 @@ func TestSILKProcessGainsFixedLibopusParity(t *testing.T) {
 			lastGainIndex:          tc.lastGainIndex,
 			condCoding:             tc.condCoding,
 		}
-		res := silkProcessGainsFixed(&p)
+		res := silkProcessGainsFixed(&silkFixedEncodeScratch{}, &p)
 
 		fail := func(field string, got, exp interface{}) {
 			t.Fatalf("case %d (%s st=%d nb=%d cond=%d): %s=%v want %v",

@@ -186,6 +186,7 @@ func (e *Encoder) silkEncodeIndices(
 // silk_encode_frame_FIX (del-dec when nStatesDelayedDecision > 1 or warping >
 // 0). It writes pulses and updates the indices seed for the del-dec path.
 func silkRunNSQFIX(
+	sc *silkFixedEncodeScratch,
 	st *silkEncodeFrameFIXState,
 	nsq *NSQState,
 	indices *sideInfoIndices,
@@ -195,6 +196,7 @@ func silkRunNSQFIX(
 ) {
 	if st.nStatesDelayedDecision > 1 || st.warpingQ16 > 0 {
 		seedOut := silkNSQDelDecFixed(
+			sc,
 			nsq,
 			int(indices.Seed),
 			int(indices.signalType),
@@ -224,6 +226,7 @@ func silkRunNSQFIX(
 		indices.Seed = int8(seedOut)
 	} else {
 		silkNSQFixed(
+			sc,
 			nsq,
 			int(indices.Seed),
 			int(indices.signalType),
@@ -281,6 +284,7 @@ func ctrlToIndices(ctrl *sEncCtrlFIX, gainIndices []int8, seed int8) sideInfoInd
 // struct. It returns the LBRR indices and pulses for the current frame, and
 // whether LBRR was produced.
 func (e *Encoder) silkLBRREncodeFIX(
+	sc *silkFixedEncodeScratch,
 	ps *silkEncodeFramePayloadFIXState,
 	ctrl *sEncCtrlFIX,
 	x16 []int16,
@@ -298,7 +302,7 @@ func (e *Encoder) silkLBRREncodeFIX(
 	indicesLBRR := ctrlToIndices(ctrl, gainIndices, seed)
 
 	// Save original gains.
-	tempGainsQ16 := make([]int32, st.nbSubfr)
+	tempGainsQ16 := ensureInt32Slice(&sc.lbrrTempGainsQ16, st.nbSubfr)
 	copy(tempGainsQ16, ctrl.gainsQ16[:st.nbSubfr])
 
 	if ps.nFramesEncoded == 0 || !ps.lbrrPrevFrameHadLBRR {
@@ -326,10 +330,10 @@ func (e *Encoder) silkLBRREncodeFIX(
 	}
 
 	// NSQ with LBRR gains.
-	lbrrPulses := make([]int8, st.frameLength)
+	lbrrPulses := ensureInt8Slice(&sc.lbrrPulses, st.frameLength)
 	var lbrrCtrl sEncCtrlFIX = *ctrl
 	lbrrCtrl.gainsQ16 = gainsQ16[:st.nbSubfr]
-	silkRunNSQFIX(st, &sNSQLBRR, &indicesLBRR, &lbrrCtrl, x16, lbrrPulses)
+	silkRunNSQFIX(sc, st, &sNSQLBRR, &indicesLBRR, &lbrrCtrl, x16, lbrrPulses)
 
 	// Original gains are restored implicitly (we operated on a copy).
 	_ = tempGainsQ16
@@ -343,6 +347,7 @@ func (e *Encoder) silkLBRREncodeFIX(
 func (e *Encoder) silkEncodeFramePayloadFIX(ps *silkEncodeFramePayloadFIXState) silkEncodeFramePayloadFIXResult {
 	st := &ps.silkEncodeFrameFIXState
 	var out silkEncodeFramePayloadFIXResult
+	sc := e.fixedScratch()
 
 	// indices.Seed = frameCounter++ & 3.
 	seed := int8(st.frameCounter & 3)
@@ -359,12 +364,12 @@ func (e *Encoder) silkEncodeFramePayloadFIX(ps *silkEncodeFramePayloadFIXState) 
 	// process_gains already produced the iteration-0 gain indices and the
 	// dequantized Gains_Q16 (ctrl.gainsQ16). Use them directly; later
 	// iterations re-quantize after the gainMult adjustment.
-	gainIndices := make([]int8, st.nbSubfr)
+	gainIndices := ensureInt8Slice(&sc.gainIndices, st.nbSubfr)
 	copy(gainIndices, ctrl.gainsIndices)
 	lastGainIndexPrev := ctrl.lastGainIndexPrev
 
 	// LBRR encoding (before the bitrate loop, like libopus).
-	lbrrIndices, lbrrPulses, lbrrFlag := e.silkLBRREncodeFIX(ps, &ctrl, x16, gainIndices, seed)
+	lbrrIndices, lbrrPulses, lbrrFlag := e.silkLBRREncodeFIX(sc, ps, &ctrl, x16, gainIndices, seed)
 	if lbrrFlag {
 		out.lbrrFlag = 1
 		out.lbrrIndices = lbrrIndices
@@ -403,7 +408,7 @@ func (e *Encoder) silkEncodeFramePayloadFIX(ps *silkEncodeFramePayloadFIXState) 
 	rangeCopy2 := *re
 	var nsqCopy1 NSQState
 	var lastGainIndexCopy2 int8
-	ecBufCopy := make([]byte, len(re.Buffer()))
+	ecBufCopy := ensureByteSlice(&sc.ecBufCopy, len(re.Buffer()))
 
 	var nBits, nBitsLower, nBitsUpper int
 	var gainMultLower, gainMultUpper int32
@@ -431,10 +436,10 @@ func (e *Encoder) silkEncodeFramePayloadFIX(ps *silkEncodeFramePayloadFIXState) 
 
 			// Noise shaping quantization.
 			if pulses == nil {
-				pulses = make([]int8, st.frameLength)
+				pulses = ensureInt8Slice(&sc.pulses, st.frameLength)
 			}
 			idx := ctrlToIndices(&ctrl, gainIndices, frameSeed)
-			silkRunNSQFIX(st, &st.nsq, &idx, &ctrl, x16, pulses)
+			silkRunNSQFIX(sc, st, &st.nsq, &idx, &ctrl, x16, pulses)
 			frameSeed = idx.Seed
 
 			if iter == maxIter && !foundLower {
@@ -575,7 +580,7 @@ func (e *Encoder) silkEncodeFramePayloadFIX(ps *silkEncodeFramePayloadFIXState) 
 
 		// Quantize gains.
 		st.lastGainIndex = lastGainIndexPrev
-		gq := make([]int32, st.nbSubfr)
+		gq := ensureInt32Slice(&sc.gq, st.nbSubfr)
 		copy(gq, ctrl.gainsQ16[:st.nbSubfr])
 		currentPrevInd = silkGainsQuantInto(gainIndices, gq, lastGainIndexPrev, condCoding == codeConditionally, st.nbSubfr)
 		copy(ctrl.gainsQ16[:st.nbSubfr], gq)
