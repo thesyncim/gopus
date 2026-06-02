@@ -132,7 +132,17 @@ func (d *Decoder) decodeNoLBRRFECFallback(
 // extractFirstFramePayload extracts the first Opus frame payload bytes from
 // a packet. This excludes packet-level TOC and framing headers.
 func extractFirstFramePayload(data []byte, toc TOC) ([]byte, error) {
-	if len(data) <= 1 {
+	if len(data) < 1 {
+		return nil, ErrPacketTooShort
+	}
+	// A 1-byte code-0 packet is a valid empty (DTX/silence) frame: its first frame
+	// payload is the empty byte slice, not an error. libopus opus_packet_has_lbrr
+	// reports no LBRR for it, and decode_fec falls through to PLC. The other framing
+	// codes need at least their frame-count / length bytes, handled below.
+	if len(data) == 1 {
+		if toc.FrameCode == 0 {
+			return data[1:], nil
+		}
 		return nil, ErrPacketTooShort
 	}
 

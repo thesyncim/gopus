@@ -133,7 +133,10 @@ func (d *Decoder) decodeToFloat32(data []byte, frameSize int, applyProjection, p
 		d.invalidateDREDPayloadState()
 	}
 
-	if data == nil {
+	// A nil OR zero-length packet is packet loss: libopus opus_multistream_decode
+	// sets do_plc=1 for len==0 (opus_multistream_decoder.c:213), concealing the
+	// requested frame size exactly as for a NULL packet.
+	if len(data) == 0 {
 		output, err := d.decodePLCToFloat32(frameSize, applyProjection, perStreamSoftClip)
 		if err == nil && extsupport.DREDRuntime && d.dredSidecarActive() {
 			d.markDREDConcealedAll()

@@ -10,6 +10,7 @@ import (
 	"github.com/thesyncim/gopus/internal/extsupport"
 	"github.com/thesyncim/gopus/internal/opusmath"
 	"github.com/thesyncim/gopus/plc"
+	"github.com/thesyncim/gopus/rangecoding"
 	"github.com/thesyncim/gopus/silk"
 	"github.com/thesyncim/gopus/types"
 )
@@ -405,6 +406,44 @@ func (d *streamState) decodeSILKToFloat32(data []byte, frameSize int, packetSter
 	return out32, nil
 }
 
+// decodeSILKWithDecoder decodes a SILK-only frame through a shared,
+// caller-supplied range decoder (already initialized on the frame bytes) so the
+// bits remaining after the SILK payload (the redundancy flag and the SILK<->CELT
+// redundant frame) can be read by the caller from the same decoder, exactly as
+// opus_decode_frame does. It is the shared-decoder sibling of decodeSILKToFloat32's
+// data!=nil branch.
+func (d *streamState) decodeSILKWithDecoder(rd *rangecoding.Decoder, frameSize int, packetStereo bool, bw silk.Bandwidth) ([]float32, error) {
+	if extsupport.OSCERuntime {
+		restoreOSCELACEHook := d.installOSCELACESilkPostfilterHook(bw, packetStereo)
+		defer restoreOSCELACEHook()
+	}
+
+	channels := int(d.channels)
+	var out32 []float32
+	var err error
+	switch {
+	case packetStereo && channels == 2:
+		out32 = make([]float32, frameSize*channels)
+		_, err = d.silkDec.DecodeStereoWithDecoderInto(rd, bw, frameSize, true, out32)
+	case packetStereo && channels == 1:
+		out32, err = d.silkDec.DecodeStereoToMonoWithDecoder(rd, bw, frameSize, true)
+	case !packetStereo && channels == 2:
+		out32 = make([]float32, frameSize*channels)
+		_, err = d.silkDec.DecodeMonoToStereoWithDecoderInto(rd, bw, frameSize, true, d.lastPacketStereo, out32)
+	default:
+		out32 = make([]float32, frameSize*channels)
+		_, err = d.silkDec.DecodeWithDecoderInto(rd, bw, frameSize, true, out32)
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	if extsupport.OSCERuntime {
+		d.applyOSCEPostSilk(out32, frameSize, bw, packetStereo)
+	}
+	return out32, nil
+}
+
 func (d *streamState) decodeFramePayload(frame []byte, frameSize int, toc streamTOC, qextPayload []byte) ([]float32, error) {
 	return d.decodeFramePayloadToFloat32(frame, frameSize, toc, qextPayload)
 }
@@ -487,7 +526,40 @@ func (d *streamState) decodeCELTModeWithTransition(frame []byte, frameSize, tran
 	return out, nil
 }
 
+// decodePLCToFloat32 conceals frameSize samples for a lost or degenerate
+// (<=1-byte) frame. It mirrors opus_decode_frame's concealment loop
+// (src/opus_decoder.c:345): when the requested size exceeds F20 (20 ms) the
+// concealment is produced F20 samples at a time, each chunk advancing the
+// per-stream concealment state. SILK comfort-noise generation is sized to one
+// <=20 ms frame, so an unchunked >20 ms request would otherwise overrun its
+// scratch; chunking here matches libopus and keeps every concealer within bounds.
 func (d *streamState) decodePLCToFloat32(frameSize int) ([]float32, error) {
+	f20 := int(d.sampleRate) / 50
+	if f20 <= 0 || frameSize <= f20 {
+		return d.decodePLCChunkToFloat32(frameSize)
+	}
+
+	channels := int(d.channels)
+	out := make([]float32, 0, frameSize*channels)
+	remaining := frameSize
+	for remaining > 0 {
+		chunk := f20
+		if remaining < chunk {
+			chunk = remaining
+		}
+		decoded, err := d.decodePLCChunkToFloat32(chunk)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, decoded...)
+		remaining -= chunk
+	}
+	return out, nil
+}
+
+// decodePLCChunkToFloat32 conceals a single <=F20 frame in the stream's last
+// decoded mode.
+func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) {
 	d.recordDecodeCall(frameSize, 0)
 
 	if !d.haveDecoded {

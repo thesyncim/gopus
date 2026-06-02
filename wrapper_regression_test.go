@@ -2,8 +2,6 @@ package gopus
 
 import (
 	"testing"
-
-	"github.com/thesyncim/gopus/multistream"
 )
 
 func assertEncodeInt16InvalidFrameSizeNoPanic(t *testing.T, name string, fn func() (int, error)) {
@@ -163,12 +161,20 @@ func TestMultistreamDecoderTracksPacketDurationChanges(t *testing.T) {
 	}
 }
 
-func TestMultistreamDecoderEmptyPacketRejected(t *testing.T) {
+// TestMultistreamDecoderEmptyPacketConceals verifies a zero-length packet is
+// treated as packet loss, matching libopus opus_multistream_decode (do_plc=1 for
+// len==0). It conceals the requested output frame size, exactly as a nil packet.
+func TestMultistreamDecoderEmptyPacketConceals(t *testing.T) {
 	dec := mustNewDefaultMultistreamDecoder(t, 48000, 3)
-	pcm := make([]float32, 960*dec.Channels())
+	const frameSize = 960
+	pcm := make([]float32, frameSize*dec.Channels())
 
-	if _, err := dec.Decode([]byte{}, pcm); err != multistream.ErrPacketTooShort {
-		t.Fatalf("Decode(empty) error = %v, want %v", err, multistream.ErrPacketTooShort)
+	n, err := dec.Decode([]byte{}, pcm)
+	if err != nil {
+		t.Fatalf("Decode(empty) error = %v, want nil (PLC)", err)
+	}
+	if n != frameSize {
+		t.Fatalf("Decode(empty) = %d samples, want %d (PLC frame size)", n, frameSize)
 	}
 }
 

@@ -33,11 +33,11 @@ func (d *MultistreamDecoder) requestedOutputFrameSize(sampleCount int) (int, err
 }
 
 func (d *MultistreamDecoder) decodeFrameSize(data []byte, sampleCount int) (int, error) {
-	if data == nil {
-		return d.requestedOutputFrameSize(sampleCount)
-	}
+	// A nil OR zero-length packet is packet loss: libopus opus_multistream_decode
+	// sets do_plc=1 for len==0 (opus_multistream_decoder.c:213) and conceals the
+	// requested output frame size, exactly as for a NULL packet.
 	if len(data) == 0 {
-		return 0, multistream.ErrPacketTooShort
+		return d.requestedOutputFrameSize(sampleCount)
 	}
 	return multistream.PacketDurationAtRate(data, d.dec.Streams(), int(d.sampleRate))
 }
@@ -143,7 +143,7 @@ func (d *MultistreamDecoder) Decode(data []byte, pcm []float32) (int, error) {
 		return 0, ErrBufferTooSmall
 	}
 
-	if data == nil {
+	if len(data) == 0 {
 		if err := d.decodePLCFloat32Into(pcm[:needed], frameSize); err != nil {
 			return 0, err
 		}
@@ -181,7 +181,7 @@ func (d *MultistreamDecoder) DecodeInt16(data []byte, pcm []int16) (int, error) 
 		return 0, ErrBufferTooSmall
 	}
 
-	if data == nil {
+	if len(data) == 0 {
 		if err := d.decodePLCInt16Into(pcm[:needed], frameSize); err != nil {
 			return 0, err
 		}
@@ -230,7 +230,7 @@ func (d *MultistreamDecoder) DecodeInt24(data []byte, pcm []int32) (int, error) 
 		return 0, ErrBufferTooSmall
 	}
 
-	if data == nil {
+	if len(data) == 0 {
 		if err := d.decodePLCInt24Into(pcm[:needed], frameSize); err != nil {
 			return 0, err
 		}

@@ -1,7 +1,11 @@
 package multistream
 
 import (
+	"fmt"
+
 	"github.com/thesyncim/gopus/celt"
+	"github.com/thesyncim/gopus/rangecoding"
+	"github.com/thesyncim/gopus/silk"
 )
 
 // celtSilenceFrame2B is the all-ones 2-byte CELT frame libopus decodes to let
@@ -79,9 +83,17 @@ func (d *streamState) applyModeTransition(ts *transitionState, out []float32, fr
 }
 
 // decodeSILKModeWithTransition decodes a SILK-only frame with the libopus
-// CELT->SILK SILK-state reset, the Hybrid->SILK CELT fade-out, and the
-// pcm_transition crossfade from a previous CELT frame (opus_decode_frame).
+// CELT->SILK SILK-state reset, the Hybrid->SILK CELT fade-out, the SILK<->CELT
+// redundancy handling, and the pcm_transition crossfade from a previous CELT
+// frame (opus_decode_frame). The SILK payload is decoded through a shared range
+// decoder so the trailing redundancy flag and the redundant 5 ms CELT frame can
+// be read from the same decoder, exactly as opus_decode_frame does.
 func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, transSize int, toc streamTOC) ([]float32, error) {
+	bw, ok := silk.BandwidthFromOpus(toc.bandwidth)
+	if !ok {
+		return nil, fmt.Errorf("multistream: invalid SILK bandwidth: %d", toc.bandwidth)
+	}
+
 	ts, err := d.beginModeTransition(toc, transSize)
 	if err != nil {
 		return nil, err
@@ -94,20 +106,112 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 		d.silkDec.Reset()
 	}
 
-	out, err := d.decodeSILKToFloat32(frame, frameSize, toc.stereo, toc.bandwidth)
+	channels := int(d.channels)
+	celtBW := celt.BandwidthFromOpusConfig(toc.bandwidth)
+	fs := int(d.sampleRate)
+	f10 := fs / 100
+	f5 := f10 >> 1
+	f2_5 := f5 >> 1
+
+	// libopus decodes the SILK frame at IMAX(F10, audiosize) and trims to the
+	// requested size (opus_decode_frame silk_frame_size); SILK's minimum is 10 ms,
+	// so this only matters if a caller ever requests less than F10.
+	silkDecodeSize := frameSize
+	if silkDecodeSize < f10 {
+		silkDecodeSize = f10
+	}
+
+	var rd rangecoding.Decoder
+	rd.Init(frame)
+	out, err := d.decodeSILKWithDecoder(&rd, silkDecodeSize, toc.stereo, bw)
 	if err != nil {
 		return nil, err
 	}
-
-	// Hybrid->SILK fade-out: decode a 2.5 ms CELT silence frame and add it so
-	// the CELT MDCT history rings down cleanly (opus_decode_frame MODE_SILK_ONLY
-	// else branch).
-	if err := d.addHybridToSilkFadeOut(out); err != nil {
-		return nil, err
+	if frameSize < silkDecodeSize {
+		out = out[:frameSize*channels]
 	}
 
-	// pcm_transition for a CELT->SILK mode change: decode the 5 ms PLC frame in
-	// the previous CELT mode and crossfade it onto the front of this SILK frame.
+	// After the SILK payload, libopus reads the redundancy flag from the same
+	// range decoder: for SILK-only mode redundancy is implied (no logp(12) bit)
+	// when at least 17 bits remain, and the redundant frame occupies the trailing
+	// bytes (opus_decode_frame, MODE_SILK_ONLY redundancy block).
+	redundancy := false
+	celtToSilk := false
+	redundancyBytes := 0
+	mainLen := len(frame)
+	var redundantAudio []float32
+	if rd.Tell()+17 <= 8*len(frame) {
+		redundancy = true
+		celtToSilk = rd.DecodeBit(1) == 1
+		redundancyBytes = len(frame) - ((rd.Tell() + 7) >> 3)
+		mainLen = len(frame) - redundancyBytes
+		if mainLen*8 < rd.Tell() {
+			mainLen = 0
+			redundancyBytes = 0
+			redundancy = false
+			celtToSilk = false
+		} else {
+			rd.ShrinkStorage(redundancyBytes)
+		}
+	}
+
+	redundancyValid := redundancy && redundancyBytes > 0 && mainLen >= 0 && mainLen+redundancyBytes <= len(frame)
+
+	// A CELT->SILK redundant frame is decoded BEFORE the Hybrid->SILK fade-out so
+	// the fade-out gate sees the redundancy decision (opus_decode_frame ordering).
+	// The redundant frame is band-limited to the SILK bandwidth (libopus sets
+	// CELT_SET_END_BAND for the bandwidth, then CELT_SET_START_BAND(0), before the
+	// celt_decode_with_ec call) and the CELT decoder keeps its prior state (no
+	// reset) so the main frame reads the redundancy-updated state.
+	if redundancyValid && celtToSilk {
+		d.celtDec.SetBandwidth(celtBW)
+		redundantData := frame[mainLen : mainLen+redundancyBytes]
+		redundantAudio = make([]float32, f5*channels)
+		if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(redundantData, f5, toc.stereo, redundantAudio); err != nil {
+			return nil, err
+		}
+	}
+
+	// Hybrid->SILK fade-out: decode a 2.5 ms CELT silence frame and add it so the
+	// CELT MDCT history rings down cleanly (opus_decode_frame MODE_SILK_ONLY else
+	// branch), skipped when a CELT->SILK redundant frame continues a redundancy run.
+	if !(redundancy && celtToSilk && d.prevRedundancy) {
+		if err := d.addHybridToSilkFadeOut(out); err != nil {
+			return nil, err
+		}
+	}
+
+	// SILK->CELT redundancy: reset CELT, decode the redundant full-band 5 ms frame,
+	// then fade its tail onto the end of the main SILK frame.
+	if redundancyValid && !celtToSilk {
+		d.celtDec.Reset()
+		d.celtDec.SetBandwidth(celtBW)
+		redundantData := frame[mainLen : mainLen+redundancyBytes]
+		redundantAudio = make([]float32, f5*channels)
+		if err := d.celtDec.DecodeFrameWithPacketStereoToFloat32AtAPIRate(redundantData, f5, toc.stereo, redundantAudio); err != nil {
+			return nil, err
+		}
+		start := (frameSize - f2_5) * channels
+		if start >= 0 && start < len(out) && len(redundantAudio) >= f5*channels {
+			streamSmoothFade(out[start:], redundantAudio[f2_5*channels:], out[start:], f2_5, channels, fs)
+		}
+	}
+
+	// CELT->SILK redundancy: copy the redundant head and fade it into the main
+	// frame (only on the first redundant frame of a SILK run). On a fresh stream
+	// there is no previous mode (libopus prev_mode==0 != MODE_SILK_ONLY), so the
+	// crossfade applies; !d.haveDecoded mirrors that.
+	if redundancyValid && celtToSilk && (!d.haveDecoded || int(d.lastMode) != streamModeSILK || d.prevRedundancy) && len(redundantAudio) >= f5*channels {
+		copy(out[:f2_5*channels], redundantAudio[:f2_5*channels])
+		streamSmoothFade(redundantAudio[f2_5*channels:], out[f2_5*channels:], out[f2_5*channels:], f2_5, channels, fs)
+	}
+
+	// pcm_transition for a CELT->SILK mode change is zeroed when redundancy is
+	// present (opus_decode_frame); otherwise decode the 5 ms PLC frame in the
+	// previous CELT mode and crossfade it onto the front of this SILK frame.
+	if ts.active && redundancy {
+		ts.active = false
+	}
 	if ts.active && len(ts.pcm) == 0 {
 		pcm, perr := d.transitionPLCToFloat32(transSize, ts.prevMode, ts.prevBW, ts.prevStereo)
 		if perr != nil {
@@ -117,7 +221,7 @@ func (d *streamState) decodeSILKModeWithTransition(frame []byte, frameSize, tran
 	}
 
 	d.applyModeTransition(&ts, out, frameSize)
-	d.prevRedundancy = false
+	d.prevRedundancy = redundancy && !celtToSilk
 	return out, nil
 }
 

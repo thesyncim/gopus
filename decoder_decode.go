@@ -467,6 +467,15 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 	sampleRate := int(d.sampleRate)
 
 	if data != nil && len(data) > 0 {
+		// libopus opus_decode runs opus_packet_parse_impl on the packet before the
+		// decode_fec branch (src/opus_decoder.c:781) and returns its error on a
+		// malformed packet, exactly as the plain decode path does. Validate the
+		// full frame structure here so DecodeWithFEC rejects the same packets as
+		// Decode (e.g. an odd-length code-1 packet) rather than running FEC/PLC on
+		// a structurally invalid bitstream.
+		if _, err := ParsePacket(data); err != nil {
+			return 0, err
+		}
 		toc, frameCount, err := packetFrameCount(data)
 		if err != nil {
 			return 0, err
