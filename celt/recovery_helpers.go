@@ -847,10 +847,33 @@ func pitchXCorrFloat32(x, y, xcorr []float32, length, maxPitch int) {
 		pitchXCorrFloat32SSEOrder(x, y, xcorr, length, maxPitch)
 		return
 	}
+	if pitchXcorrUsesNeonFMA {
+		pitchXCorrFloat32NeonFMA(x, y, xcorr, length, maxPitch)
+		return
+	}
 	i := 0
 	for ; i < maxPitch-3; i += 4 {
 		var sum [4]float32
 		xcorrKernel4Float32(x, y[i:], &sum, length)
+		xcorr[i] = sum[0]
+		xcorr[i+1] = sum[1]
+		xcorr[i+2] = sum[2]
+		xcorr[i+3] = sum[3]
+	}
+	for ; i < maxPitch; i++ {
+		xcorr[i] = innerProdFloat32(x, y[i:], length)
+	}
+}
+
+// pitchXCorrFloat32NeonFMA is the fused arm64 pitch cross-correlation. The
+// 4-lag blocks use the NEON FMLA kernel; the scalar tail uses celtInnerProd's
+// fused arm64 path so the whole correlation runs single-rounding. Only reached
+// when pitchXcorrUsesNeonFMA is set (arm64 && !purego).
+func pitchXCorrFloat32NeonFMA(x, y, xcorr []float32, length, maxPitch int) {
+	i := 0
+	for ; i < maxPitch-3; i += 4 {
+		var sum [4]float32
+		xcorrKernel4Float32Neon(x, y[i:], &sum, length)
 		xcorr[i] = sum[0]
 		xcorr[i+1] = sum[1]
 		xcorr[i+2] = sum[2]
