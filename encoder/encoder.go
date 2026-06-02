@@ -1457,9 +1457,33 @@ func (e *Encoder) buildDTXPacketForMode(frameSize int, actualMode Mode) ([]byte,
 		packetBW = types.BandwidthWideband
 	}
 	stereo := e.packetStereoForMode(actualMode)
+	mode := modeToTypes(actualMode)
+
+	// CELT and Hybrid have no single-frame TOC config beyond 20 ms, so a 40/60 ms
+	// (>20 ms) packet in those modes is assembled as N=frameSize/960 internal 20 ms
+	// frames (encodeCELTMultiFramePacket / encodeHybridMultiFramePacket). When DTX
+	// fires for such a frame, libopus' per-sub-frame encode returns tmp_len==1 for
+	// every sub-frame and the repacketizer collapses them to a TOC-only packet:
+	// code 1 for 2 sub-frames (1 byte) or code 3 with a frame-count byte for 3
+	// sub-frames (2 bytes). Mirror that with a multi-frame TOC-only packet built
+	// from N zero-length sub-frames at the 20 ms sub-frame config. SILK keeps the
+	// single-frame path below because it has native 40/60 ms configs (code 0).
+	if (mode == types.ModeCELT || mode == types.ModeHybrid) && frameSize > 960 && frameSize%960 == 0 {
+		frameCount := frameSize / 960
+		e.resetPacketFrameScratch()
+		frames := e.scratchFrameSlots[:0]
+		for i := 0; i < frameCount; i++ {
+			frames = append(frames, e.keepFrame(nil))
+		}
+		n, err := buildMultiFramePacketInto(e.scratchPacket, frames, mode, packetBW, 960, stereo, false)
+		if err != nil {
+			return nil, err
+		}
+		return e.scratchPacket[:n], nil
+	}
 
 	// Build TOC-only packet (no frame data) into scratch buffer.
-	n, err := BuildPacketInto(e.scratchPacket, nil, modeToTypes(actualMode), packetBW, e.packetTOCFrameSize(frameSize), stereo)
+	n, err := BuildPacketInto(e.scratchPacket, nil, mode, packetBW, e.packetTOCFrameSize(frameSize), stereo)
 	if err != nil {
 		return nil, err
 	}

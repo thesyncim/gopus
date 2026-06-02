@@ -79,6 +79,39 @@ func TestAutoModeResetsVoiceRatioOnNonSilentFrame(t *testing.T) {
 	}
 }
 
+// TestAutoModeDTXGuardGatedByAnalysisValidity pins that the DTX-favours-SILK
+// guard (opus_encoder.c:1519-1522) keys off silk_mode.useDTX — DTX enabled AND
+// the generalized DTX unusable (analysis invalid / silence) — NOT the raw
+// use_dtx flag. With voiced content at a rate that would otherwise pick CELT,
+// the guard must force SILK only when silkUseDTX is true; when the tonality
+// analysis is valid (silkUseDTX false) the mode stays CELT. This is the
+// regression for the auto+stereo+DTX+complexity-10 Hybrid-vs-CELT mode flip
+// found by the stateful-transition fuzz.
+func TestAutoModeDTXGuardGatedByAnalysisValidity(t *testing.T) {
+	enc := NewEncoder(48000, 1)
+	enc.SetMode(ModeAuto)
+	enc.SetBitrate(70000)
+	enc.SetBitrateMode(ModeVBR)
+	enc.SetDTX(true)
+
+	const (
+		frameSize    = 960
+		voiceEst     = 128   // > 100, so the guard's voice_est condition is met
+		stereoWidth  = 0     // mono interpolation: threshold == 64000
+		equivRate    = 70000 // >= 64000 threshold, so the base decision is CELT
+		maxDataBytes = 4000  // well above the low-rate CELT fallback threshold
+	)
+
+	// Analysis valid (silkUseDTX == false): generalized DTX usable, guard skipped.
+	if got := enc.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes, false); got != ModeCELT {
+		t.Fatalf("autoModeDecision(silkUseDTX=false) = %v, want %v (DTX guard must NOT fire when analysis is valid)", got, ModeCELT)
+	}
+	// silkUseDTX == true: generalized DTX unusable, voiced -> guard forces SILK.
+	if got := enc.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes, true); got != ModeSILK {
+		t.Fatalf("autoModeDecision(silkUseDTX=true) = %v, want %v (DTX guard must fire for voiced content)", got, ModeSILK)
+	}
+}
+
 func TestAutoClampBandwidthUsesPacketBudgetMaxRate(t *testing.T) {
 	enc := NewEncoder(48000, 1)
 	enc.SetBandwidthAuto()
@@ -109,10 +142,10 @@ func TestAutoModeLowRateCELTFallbackUsesPacketBudget(t *testing.T) {
 		t.Fatalf("lowRateCELTByteThreshold(20ms) = %d, want 15", threshold)
 	}
 
-	if got := enc.autoModeDecision(monoStereoWidth, voiceEst, silkEquivRate, frameSize, threshold-1); got != ModeCELT {
+	if got := enc.autoModeDecision(monoStereoWidth, voiceEst, silkEquivRate, frameSize, threshold-1, false); got != ModeCELT {
 		t.Fatalf("autoModeDecision(low packet budget) = %v, want %v", got, ModeCELT)
 	}
-	if got := enc.autoModeDecision(monoStereoWidth, voiceEst, silkEquivRate, frameSize, threshold); got != ModeSILK {
+	if got := enc.autoModeDecision(monoStereoWidth, voiceEst, silkEquivRate, frameSize, threshold, false); got != ModeSILK {
 		t.Fatalf("autoModeDecision(exact packet budget) = %v, want %v", got, ModeSILK)
 	}
 }

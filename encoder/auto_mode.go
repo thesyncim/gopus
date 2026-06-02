@@ -335,7 +335,13 @@ func (e *Encoder) updateStreamChannelsForFrame(frameSize int) {
 
 // autoModeDecision selects SILK-only vs CELT-only using interpolated thresholds.
 // Matches libopus opus_encoder.c lines 1492-1527.
-func (e *Encoder) autoModeDecision(stereoWidth opusVal16, voiceEst, equivRate int32, frameSize, maxDataBytes int) Mode {
+//
+// silkUseDTX mirrors libopus st->silk_mode.useDTX (opus_encoder.c:1461):
+// use_dtx && !(analysis_info.valid || is_silence). The DTX-favours-SILK guard
+// below keys off this, NOT the raw use_dtx flag, so at a complexity where the
+// tonality analysis is valid the guard does not fire and the mode stays whatever
+// the rate/threshold picked (commonly CELT for music-like stereo content).
+func (e *Encoder) autoModeDecision(stereoWidth opusVal16, voiceEst, equivRate int32, frameSize, maxDataBytes int, silkUseDTX bool) Mode {
 	// Interpolate mode thresholds based on stereo width.
 	modeVoiceF := (1.0-stereoWidth)*opusVal16(autoModeThresholds[0][0]) +
 		stereoWidth*opusVal16(autoModeThresholds[1][0])
@@ -369,8 +375,10 @@ func (e *Encoder) autoModeDecision(stereoWidth opusVal16, voiceEst, equivRate in
 		mode = ModeSILK
 	}
 
-	// DTX guard: voiced content with DTX uses SILK for its DTX feature.
-	if e.dtxEnabled && voiceEst > 100 {
+	// DTX guard: voiced content with DTX uses SILK for its DTX feature, but only
+	// when the generalized (CELT) DTX cannot be used — i.e. silk_mode.useDTX, which
+	// is false once the tonality analysis is valid. Matches opus_encoder.c:1519-1522.
+	if silkUseDTX && voiceEst > 100 {
 		mode = ModeSILK
 	}
 
@@ -580,7 +588,10 @@ func (e *Encoder) autoModeAndBandwidthDecision(pcm []opusRes, frameSize, maxData
 		ModeAuto, e.complexity, e.packetLoss)
 
 	// Step 9: Mode selection with interpolated thresholds (lines 1492-1527).
-	mode := e.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes)
+	// silk_mode.useDTX (opus_encoder.c:1461): DTX favours SILK only when the
+	// generalized DTX is unusable, i.e. DTX on AND the analysis is invalid/silent.
+	silkUseDTX := e.dtxEnabled && !(e.lastAnalysisValid || isSilence)
+	mode := e.autoModeDecision(stereoWidth, voiceEst, equivRate, frameSize, maxDataBytes, silkUseDTX)
 
 	// Step 10: Frame size constraint (lines 1533-1537).
 	if mode != ModeCELT && frameSize < int(e.sampleRate)/100 {
