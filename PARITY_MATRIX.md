@@ -80,6 +80,14 @@ transcendental/platform rounding, and each carries a documented, proven root
 cause. Decode parity (SILK/CELT/Hybrid) meets the near-exact bar (Q ≥ 20,
 corr ≥ 0.997); encoder quality matches libopus (gapQ ≈ 0) per arch.
 
+The end-to-end quality comparison is **tier-matched**: an asm gopus build is
+compared against a SIMD libopus reference and a pure-Go build (`-tags purego`)
+against the scalar reference, so the residual is purely gopus-vs-libopus and not
+libopus's own scalar-vs-SIMD spread (see
+[docs/parity-testing.md](docs/parity-testing.md#tier-matched-reference)). Across
+the live corpus gates SILK is bit-exact in both tiers (Q = 100.00) and CELT/Hybrid
+sit at Q ≥ 99.77 (corr/RMS = 1.0), well inside the near-exact bar.
+
 The full design — self-selecting metric tiers, the coded-vs-concealment split,
 externally anchored bars, and the build-config matrix that keeps bit-exact
 kernels honest across `purego`/arch — is in [docs/parity-testing.md](docs/parity-testing.md).
@@ -219,7 +227,7 @@ requires `-tags gopus_dred` or `-tags gopus_extra_controls`.
 | --- | --- | --- | --- |
 | Ogg Opus read/write (`container/ogg`, `stream`) | Y | Demux/mux, projection headers | Fuzz corpus vs libopus ogg decode |
 | RFC 6716 / libopus vectors (`testvectors/`) | Y | Decoder matrix (29 cases incl. 100 ms + true Hybrid 40/60 ms rows), per-rate matrix (8/12/16/24/48 kHz byte-exact), loss (to 120 ms), compliance, variants, RED RFC 2198 vectors | Broader real-content corpus (speech/music/noise) |
-| `opus_compare` quality oracle | Y | Primary encoder/decoder quality gate + 24-case signal-class corpus (speech/music/mixed/noise/transient/tone/near-silence × modes × bitrates, Q≥99.6) | — |
+| `opus_compare` quality oracle | Y | Primary encoder/decoder quality gate + tier-matched live corpus (signal classes × mono/stereo × SILK/Hybrid/CELT × bitrate/frame-size; asm-gopus↔SIMD-libopus, purego-gopus↔scalar-libopus; SILK Q=100.00, CELT/Hybrid Q≥99.77) | — |
 | `opusdec` crossval fixture | Y | CELT cross-validation (`celt/testdata/opusdec_crossval_fixture.json`) | Regenerate when scenario Ogg hashes change (`GOPUS_UPDATE_OPUSDEC_CROSSVAL_FIXTURE=1`) |
 | libopus C oracles (`tools/csrc`, `make test-*-parity`) | Y | Numerical probes built against the pinned libopus C reference | CI mandatory: core float oracle on Linux + macOS + Windows; tagged DRED + fixed-point + Opus Custom `--enable-custom-modes` oracle gates and the extended corpus signal-quality gate on Linux + macOS; QEXT/extra-controls oracle gates on Linux (Windows tagged sweeps stay off the MSYS2 lane) |
 
