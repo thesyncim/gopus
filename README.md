@@ -39,20 +39,19 @@ PitchDNN/FARGAN), `gopus_qext` = `--enable-qext`/`ENABLE_QEXT`, `gopus_custom` =
 extension framing, and Opus Custom standard modes are parity-complete and
 SUPPORTED under their build tag — none are experimental.
 
-Under `-tags gopus_fixedpoint` (mirroring libopus `FIXED_POINT`), the public
-DECODE path is bit-exact with the `--enable-fixed-point` libopus oracle:
-`DecodeInt16`/`DecodeInt24` are byte-/sample-exact for CELT-only, SILK-only, and
-Hybrid, and the integer CELT encode+decode codec is assembled and exact (subject
-to the documented per-arch arm64 ≤1-ULP CELT tail; amd64/CI is hard-exact).
+Under `-tags gopus_fixedpoint` (mirroring libopus `FIXED_POINT`), both the public
+DECODE and ENCODE paths are bit-exact with the `--enable-fixed-point` libopus
+oracle. `DecodeInt16`/`DecodeInt24` are byte-/sample-exact for CELT-only,
+SILK-only, and Hybrid, including the redundancy, mode-transition, and PLC paths;
+the integer CELT encode+decode codec and the integer SILK encode-frame driver are
+exact (subject to the documented per-arch arm64 ≤1-ULP CELT tail; amd64/CI is
+hard-exact).
 
-Two efforts remain partial and are honestly marked as such. Native 96 kHz
-(Opus HD) **decode** under `-tags gopus_qext` is native and sample-exact vs the
-QEXT-enabled libopus reference (native HD96k CELT mode, no resample); native
-96 kHz **encode** has its HD-scale analysis MDCT and band-energy scaling wired
-but is not yet byte-identical to libopus (documented residuals in the comb
-prefilter, downstream stereo allocation, and top-level framing). The remaining
-fixed-point work is the Opus-level decode fallbacks (redundancy / mode-transition
-/ PLC still use the float conversion) and the SILK encode-frame driver.
+Native 96 kHz (Opus HD) encode and decode are supported under `-tags gopus_qext`
+against the QEXT-enabled libopus reference, using the native HD96k CELT mode with
+no resampling. Decode is sample-exact; the public `Encode` at `Fs=96000` runs the
+native HD96k path and produces byte-exact Opus packets — TOC, padding, main CELT
+payload, and the reserved QEXT extension all match libopus `--enable-qext`.
 Default-build API sample rates are 8/12/16/24/48 kHz; 96 kHz is accepted only
 under `-tags gopus_qext`.
 

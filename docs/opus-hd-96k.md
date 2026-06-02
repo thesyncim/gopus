@@ -1,9 +1,9 @@
 # Native 96 kHz Opus HD (QEXT)
 
 How gopus implements libopus 1.6.1's native 96 kHz CELT mode under the
-`gopus_qext` build tag. Native **decode** is sample-exact vs the QEXT oracle;
-native **encode** has its HD-scale analysis wired but is not yet byte-identical
-(documented residuals below).
+`gopus_qext` build tag. Native **decode** is sample-exact vs the QEXT oracle, and
+native **encode** is byte-exact: the public `Encode` at `Fs=96000` runs the
+native HD96k path and emits packets identical to libopus `--enable-qext`.
 
 ## libopus reference (QEXT oracle)
 
@@ -104,39 +104,31 @@ carrying >24 kHz energy, sample-exact against the QEXT-enabled libopus reference
 - `TestQEXTDecode96kOracleProducesNative96k` — confirms the decoded output is true
   native 96 kHz (30 kHz energy a 2:1-resampled 48 kHz decode could not produce).
 
-## Encode: native analysis wired, public path still resamples
+## Encode: native and byte-exact
 
 Native 96 kHz CELT **encode** is wired at the CELT layer (`encoder_96k_qext.go`,
 `celt.Encoder.EnableHD96kMode`): the HD-scale analysis MDCT (3840/480), the
 band-energy bin scaling (`ScaledBandStart = eBand*frameSize/120`), the HD-scale
 comb prefilter (`run_prefilter` max_period = `QEXT_SCALE(COMBFILTER_MAXPERIOD)` =
 2048), the 2-tap HD pre-emphasis, the Fs=96000 bitrate/QEXT-reservation budget,
-and the >20 kHz extension-band encode into the secondary range coder. The early
-frame structure and the mono CBR main-payload byte budget — through coarse
-energy, which decodes bit-identically (stereo coarse energy is bit-identical
-too) — match the QEXT reference (`TestHD96kNativeEncodeMainPayloadParity`).
+and the >20 kHz extension-band encode into the secondary range coder.
 
-Native 96 kHz encode is **not yet byte-identical** to libopus. The
-documented remaining encode residuals:
+The public `Encode` at `Fs=96000` routes to this native HD96k path
+(`tryEncodeNative96k` -> `encoder.EncodeNativeHD96k`) and assembles the full Opus
+packet — TOC code 3, padding-length field, main CELT payload, and the reserved
+0xF8 QEXT extension — byte-for-byte like libopus `--enable-qext` at Fs=96000.
+Both mono and stereo are byte-exact for the main and QEXT payloads
+(`TestHD96kNativeEncodeMainPayloadParity` fails on any byte mismatch).
 
-1. The mono main payload diverges within the postfilter/comb-filter region: the
-   HD comb prefilter feeds a slightly different excitation than the reference
-   (the same `comb_filter` QEXT residual documented on the decode side).
-2. Stereo (postfilter off, analysis bit-exact through coarse energy) diverges
-   after coarse energy, in the downstream allocation.
-3. Top-level Opus packet framing of the reserved extension payload in packet
-   padding.
+Two implementation details carried the last divergences to zero:
 
-Until those close, the **public** `Encode` at `Fs=96000` stays on the proven 2:1
-resample wrapper so shipped 96 kHz packets remain valid; the native encode path
-is exercised directly by the parity test, which documents and skips each residual
-rather than failing.
+- The HD comb prefilter (`comb_filter_qext`, x!=y) filters the even/odd phases
+  with the input delay line (`mem_buf`) and the output buffer kept **separate**,
+  so an already-written output sample is never read back as comb input.
+- The forward MDCT folds the `1/nfft` FFT scale into the post-rotation twiddles
+  under the ENABLE_QEXT scale placement (`mdctQEXTScalePlacement`), matching the
+  QEXT `clt_mdct_forward()`; the pre-rotation placement of the default build
+  rounds the >20 kHz extension bins by tens of ULP.
 
-## Remaining work for full native-96k encode byte parity
-
-1. Close the mono comb-filter / postfilter excitation residual.
-2. Close the downstream stereo allocation divergence after coarse energy.
-3. Top-level framing of the reserved extension payload.
-4. Route the public `Encode` at `Fs=96000` to the native mode once the above are
-   byte-exact, and add full-packet encode parity against `opus_demo` /
-   `qext_compare` from the QEXT build.
+SILK/Hybrid modes are not supported at 96 kHz — libopus has no 8/12 kHz resampler
+path at Fs=96000, so the native mode is CELT-only fullband.

@@ -1,7 +1,8 @@
 # Fixed-point pipeline
 
-Scope, current status, oracle recipe, ported kernels, and remaining work for the
-`gopus_fixedpoint` integer CELT/SILK pipeline.
+Scope, status, oracle recipe, and ported kernels for the `gopus_fixedpoint`
+integer CELT/SILK pipeline. Public decode and encode are bit-exact vs the
+`--enable-fixed-point` libopus oracle.
 
 The full fixed-point pipeline mirrors libopus `FIXED_POINT` and lives behind the
 `gopus_fixedpoint` build tag, with zero cost to the default (float) build. The
@@ -48,10 +49,16 @@ mode-transition crossfades (`TestDecoderFixedPointHybridRedundancyTransitionPari
 `MULT32_32_Q16` -> `SATURATE`) is applied to the integer opus_res accumulation
 (`fixedpoint.DecodeGainQ16` / `ApplyDecodeGainRes`).
 
-**Remaining (partial):**
+The public **ENCODE** path is integer-exact too: the integer SILK
+`silk_encode_frame` driver (analysis + payload + stereo) and the CELT encode path
+(full-band, the hybrid CELT band subset with start>0, LFE, and surround
+energy_mask) are assembled and byte-exact vs FIXED_POINT
+(`TestPublicSILKEncodeFrameFixedByteExact`,
+`TestPublicStereoSILKEncodeFixedByteExact`, `TestCELTEncode*Oracle`).
 
-- Encode-frame glue: the SILK `silk_encode_frame` driver, and CELT
-  hybrid(start>0)/LFE/surround/QEXT encode.
+QEXT encode under the fixed-point pipeline is out of scope, mirroring the libopus
+compile-flag boundary: `ENABLE_QEXT` and the FIXED_POINT reference build are
+mutually exclusive.
 
 ---
 
@@ -100,7 +107,7 @@ CELT codec described under "Status".
 | CELT band energy quant / normalization | `celt/energy.go`, `celt/bands.go` — `float32` | integer `compute_band_energies`/`normalise_bands`/`denormalise_bands`/`anti_collapse`/`renormalise_vector`/`amp2Log2` (`celt_ener` Q14, `celt_sig` Q27) — bit-exact |
 | CELT PVQ search | `celt/pvq_search.go` — `float32` inner products | integer `op_pvq_search` + `alg_quant`/`alg_unquant` (`celt_norm` int32 Q24; range-coder byte-exact) — bit-exact |
 | CELT comb filter | `celt/prefilter.go` — `float32` | integer `comb_filter` — bit-exact |
-| SILK encoder analysis | `silk/pitch_detect.go`, `silk/lpc_analysis.go`, `silk/noise_shape_analysis.go`, etc. — `float32`/`float64` | integer encoder-analysis kernels (autocorr/Burg LPC, `schur`/`k2a`(+`_Q16`/64), `find_LTP`, `process_gains`, warped autocorr/gain, sine window, residual energy, pitch `calc_energy_st3`, NSQ noise-shape quantizer) — bit-exact (kernel-level; encode-frame driver glue still pending) |
+| SILK encoder analysis | `silk/pitch_detect.go`, `silk/lpc_analysis.go`, `silk/noise_shape_analysis.go`, etc. — `float32`/`float64` | integer encoder-analysis kernels (autocorr/Burg LPC, `schur`/`k2a`(+`_Q16`/64), `find_LTP`, `process_gains`, warped autocorr/gain, sine window, residual energy, pitch `calc_energy_st3`, NSQ noise-shape quantizer) — bit-exact, assembled into the byte-exact `silk_encode_frame` driver |
 | SILK LPC synthesis output | `silk/lpc.go` — converts int32 excitation to `float32` | gopus SILK decode is inherently integer; SILK-only `DecodeInt16`/`DecodeInt24` are already FIXED_POINT-exact |
 
 ---
@@ -207,10 +214,10 @@ sanity layer; the oracle test is the bit-exact gate.
   (`TestCELTEncode{WithEC,StartBand,LFE,EnergyMask}Oracle`,
   `TestCELTEncodeWithECVBROracle`, `TestCELTEncodeWithECCBRSeqOracle`).
 
-### Remaining (partial)
-- **QEXT encode** under the fixed-point pipeline remains out of scope, mirroring
-  the libopus compile-flag boundary (`ENABLE_QEXT` is mutually exclusive with the
-  FIXED_POINT reference build).
+### Out of scope
+- **QEXT encode** under the fixed-point pipeline mirrors the libopus compile-flag
+  boundary: `ENABLE_QEXT` is mutually exclusive with the FIXED_POINT reference
+  build.
 
 ---
 
