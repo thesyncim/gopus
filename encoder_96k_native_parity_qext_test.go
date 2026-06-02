@@ -202,22 +202,6 @@ func diagFlags(t *testing.T, label string, payload []byte) {
 		label, silence, pf, transient, intra, d.Tell())
 }
 
-func firstByteDiff(a, b []byte) int {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	for i := 0; i < n; i++ {
-		if a[i] != b[i] {
-			return i
-		}
-	}
-	if len(a) != len(b) {
-		return n
-	}
-	return -1
-}
-
 func dumpAround(t *testing.T, label string, got, ref []byte, at int) {
 	t.Helper()
 	lo := at - 4
