@@ -7,6 +7,24 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustest"
 )
 
+// isHalfIntegerTie reports whether x, scaled by 32768 in float32 (the libopus
+// FLOAT2INT16 scale), lands exactly on a half-integer k+0.5. Such inputs are the
+// only ones where round-half-to-even and round-half-away disagree, and they
+// disagree by exactly one ULP of the integer result.
+func isHalfIntegerTie(x float32) bool {
+	y := x * 32768.0
+	frac := y - float32(int32(y))
+	return frac == 0.5 || frac == -0.5
+}
+
+func abs16Diff(a, b int16) int {
+	d := int(a) - int(b)
+	if d < 0 {
+		return -d
+	}
+	return d
+}
+
 func assertSoftClipFloat32BitsEqual(t *testing.T, got, want []float32, label string) {
 	t.Helper()
 	if len(got) != len(want) {
@@ -156,9 +174,21 @@ func TestSoftClipAndFloat32ToInt16MatchesLibopus(t *testing.T) {
 			softClipAndFloat32ToInt16(got, gotSrc, tc.n, tc.channels, gotMem)
 
 			for i := range want {
-				if got[i] != want[i] {
-					t.Fatalf("sample[%d]=%d want %d", i, got[i], want[i])
+				if got[i] == want[i] {
+					continue
 				}
+				// gopus rounds float->int16 half-to-even (FCVTNS / lrintf under the
+				// default IEEE rounding mode), matching scalar libopus. At an input
+				// that scales to an exact half-integer (k+0.5)*1/32768, ties-to-even
+				// and ties-away both produce a valid result one ULP apart. Apple's
+				// NEON libm flips at that exact half-way point, so the macOS oracle
+				// can return the ties-away neighbour for a tie input. Tolerate a
+				// strict ±1 difference, but ONLY at an exact half-integer tie; every
+				// non-tie sample must still match bit-for-bit.
+				if isHalfIntegerTie(wantFloat[i]) && abs16Diff(got[i], want[i]) <= 1 {
+					continue
+				}
+				t.Fatalf("sample[%d]=%d want %d (input=%0.10g)", i, got[i], want[i], wantFloat[i])
 			}
 			assertSoftClipFloat32BitsEqual(t, gotSrc, wantFloat, "softclipped pcm")
 			assertSoftClipFloat32BitsEqual(t, gotMem, wantMem, "mem")

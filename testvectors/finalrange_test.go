@@ -2,7 +2,6 @@ package testvectors
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"testing"
 
@@ -50,11 +49,6 @@ func TestFinalRangeVerification(t *testing.T) {
 	}
 
 	testVectorDir := "testdata/opus_testvectors"
-
-	// Check if test vectors exist
-	if _, err := os.Stat(testVectorDir); os.IsNotExist(err) {
-		t.Skip("Test vectors not found at", testVectorDir)
-	}
 
 	for _, tv := range finalRangeVectors {
 		t.Run(tv.filename, func(t *testing.T) {
@@ -159,11 +153,11 @@ func expectedFinalRangeForBuild(filename string, packet int, defaultRange uint32
 // This is a basic sanity check.
 func TestFinalRangeNonZero(t *testing.T) {
 	t.Parallel()
-	testVectorDir := "testdata/opus_testvectors"
-
-	if _, err := os.Stat(testVectorDir); os.IsNotExist(err) {
-		t.Skip("Test vectors not found")
+	if err := ensureTestVectors(t); err != nil {
+		t.Skipf("Skipping: %v", err)
+		return
 	}
+	testVectorDir := "testdata/opus_testvectors"
 
 	// Use testvector01 (SILK NB mono) as a simple test case
 	packets, err := ReadBitstreamFile(filepath.Join(testVectorDir, "testvector01.bit"))
@@ -201,11 +195,11 @@ func TestFinalRangeNonZero(t *testing.T) {
 // TestFinalRangeModeTransitions verifies FinalRange works across mode transitions.
 func TestFinalRangeModeTransitions(t *testing.T) {
 	t.Parallel()
-	testVectorDir := "testdata/opus_testvectors"
-
-	if _, err := os.Stat(testVectorDir); os.IsNotExist(err) {
-		t.Skip("Test vectors not found")
+	if err := ensureTestVectors(t); err != nil {
+		t.Skipf("Skipping: %v", err)
+		return
 	}
+	testVectorDir := "testdata/opus_testvectors"
 
 	// Test with a vector that has mode transitions (testvector10 - CELT WB mono)
 	packets, err := ReadBitstreamFile(filepath.Join(testVectorDir, "testvector10.bit"))
@@ -249,11 +243,11 @@ func TestFinalRangeModeTransitions(t *testing.T) {
 // TestFinalRangeAllVectors provides a summary of FinalRange accuracy across all vectors.
 func TestFinalRangeAllVectors(t *testing.T) {
 	t.Parallel()
-	testVectorDir := "testdata/opus_testvectors"
-
-	if _, err := os.Stat(testVectorDir); os.IsNotExist(err) {
-		t.Skip("Test vectors not found")
+	if err := ensureTestVectors(t); err != nil {
+		t.Skipf("Skipping: %v", err)
+		return
 	}
+	testVectorDir := "testdata/opus_testvectors"
 
 	results := make(map[string]struct {
 		passed, failed, total int
