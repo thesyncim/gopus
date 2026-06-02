@@ -155,19 +155,21 @@ func tocMode(toc byte) diffMode {
 // pcmExactTolerance returns the max absolute per-sample float32 difference
 // tolerated for a packet, in the shared float32 comparison scale.
 //
-// On amd64 the requirement is bit-exact for every mode and format (tolerance 0);
-// CI runs amd64, so exactness vs libopus is the gate there.
+// On the amd64 asm/SIMD build the requirement is bit-exact for every mode and
+// format (tolerance 0): gopus's SSE/AVX kernels are tuned to match the SIMD
+// libopus the default oracle build links on amd64, so exactness is the gate.
 //
-// On darwin/arm64 the documented ≤1-ULP float drift
-// (project_arm64_celt_1ulp_drift) applies. Against a native-arm64 libopus
-// reference it surfaces in every mode (the SILK stereo MS→LR multiply drifts a
-// few ULP, CELT synthesis/deemphasis a few LSB at the ~1/32768 quantum), so the
-// per-arch budget is applied uniformly: a few /32768 for float32/int16 and a
-// matching int24 band. This is the documented per-arch budget, not a mask —
-// amd64 stays exact, and the bound (~1.2e-4) is three orders of magnitude below
-// any real divergence (the fixed SILK LBRR desync produced ~1.0-2.0).
+// On every pure-Go (-tags purego) build and on darwin/arm64 the documented
+// ≤1-ULP float drift (project_arm64_celt_1ulp_drift) applies. The pure-Go float
+// path does not reproduce the SIMD libopus reference bit-for-bit (CELT/hybrid
+// IMDCT, synthesis, and deemphasis round a few LSB at the ~1/32768 quantum;
+// the SILK stereo MS->LR multiply drifts a few ULP), so the same per-arch budget
+// is applied uniformly there: a few /32768 for float32/int16 and a matching
+// int24 band. This is the documented per-arch budget, not a mask -- the amd64
+// asm build stays exact, and the bound (~1.2e-4) is three orders of magnitude
+// below any real divergence (the fixed SILK LBRR desync produced ~1.0-2.0).
 func pcmExactTolerance(toc byte, format uint32) float32 {
-	if runtime.GOARCH == "amd64" {
+	if runtime.GOARCH == "amd64" && !testPuregoBuild {
 		return 0
 	}
 	switch format {
