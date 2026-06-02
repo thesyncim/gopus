@@ -229,7 +229,14 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	maxFrame := fs / 25 * 3
 	frameSize = min(frameSize, maxFrame)
 
-	if len(data) <= 1 {
+	// libopus opus_decode_frame: a frame whose coded length is <= 1 (0 or just a
+	// ToC byte) triggers PLC/DTX, and its final range is forced to 0 (the
+	// `if (len <= 1) st->rangeFinal = 0` at the end of opus_decode_frame). This
+	// is a PER-FRAME condition on the frame's own size, so for a multi-frame
+	// packet whose last frame is DTX the packet's OPUS_GET_FINAL_RANGE is 0 even
+	// though the whole packet length is > 1.
+	frameLenLE1 := len(data) <= 1
+	if frameLenLE1 {
 		data = nil
 		if packetFrameSize > 0 {
 			frameSize = min(frameSize, packetFrameSize)
@@ -810,6 +817,16 @@ func (d *Decoder) decodeOpusFrameIntoWithStatePolicyAndQEXT(
 	d.prevRedundancy = redundancy && !celtToSilk
 	d.haveDecoded = true
 	d.redundantRng = redundantRng
+	if frameLenLE1 {
+		// Mirror opus_decode_frame's `if (len <= 1) st->rangeFinal = 0`: a PLC/DTX
+		// frame contributes a zero final range regardless of any stale range-coder
+		// state left over from the previous frame (the PLC path never re-inits the
+		// range decoder). Zeroing both components keeps FinalRange()'s
+		// mainDecodeRng ^ redundantRng at 0 for this frame, which is what
+		// OPUS_GET_FINAL_RANGE reports for the last frame of the packet.
+		d.mainDecodeRng = 0
+		d.redundantRng = 0
+	}
 	// Note: d.lastDataLen is set at packet level in Decode(), not here
 
 	if data != nil {
