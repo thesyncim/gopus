@@ -51,6 +51,12 @@
 #include <stdlib.h>
 #include <string.h>
 
+/* M_PI is an X/Open extension, not in ISO C99 <math.h>; the helper is compiled
+ * with -std=c99, so define it when the platform headers do not. */
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
 #ifdef _WIN32
 #include <fcntl.h>
 #include <io.h>
