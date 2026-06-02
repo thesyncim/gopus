@@ -973,7 +973,12 @@ func (d *Decoder) DecodePLCInto(bandwidth Bandwidth, frameSizeSamples int, outpu
 	hookLagPrev := 0
 	usedDeepPLCHook := false
 	if state := d.ensureSILKPLCState(0); state != nil && d.state[0].nbSubfr > 0 {
-		concealedQ0 := plc.ConcealSILKWithLTP(d, state, int(lossCnt), nativeSamples)
+		// Use the per-channel decoder view so the PLC reads the SILK frame's
+		// actual LPC order (10 for NB/MB, 16 for WB) and its exact integer
+		// sLPC_Q14_buf history, matching libopus silk_PLC_conceal. The
+		// Decoder-level accessor reports a stale order and would force the
+		// float-derived LPC fallback, corrupting unvoiced concealment.
+		concealedQ0 := plc.ConcealSILKWithLTP(d.plcDecoderView(0), state, int(lossCnt), nativeSamples)
 		if d.scratchOutput != nil && len(d.scratchOutput) >= nativeSamples {
 			concealed = d.scratchOutput[:nativeSamples]
 		} else {
