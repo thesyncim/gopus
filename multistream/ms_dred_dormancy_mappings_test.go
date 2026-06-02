@@ -135,11 +135,11 @@ func assertMappingDREDDormancyOnLoss(
 
 // runDREDDormancyAcrossMappingCase is the shared dormancy assertion for a given
 // explicit channel layout.  It:
-//   1. Creates a multistream packet with DRED only on targetStream.
-//   2. Decodes it with a fully armed decoder (model loaded).
-//   3. Asserts that only targetStream got its cache populated.
-//   4. Calls Decode(nil) for PLC.
-//   5. Asserts that only targetStream advanced dredRecovery.
+//  1. Creates a multistream packet with DRED only on targetStream.
+//  2. Decodes it with a fully armed decoder (model loaded).
+//  3. Asserts that only targetStream got its cache populated.
+//  4. Calls Decode(nil) for PLC.
+//  5. Asserts that only targetStream advanced dredRecovery.
 func runDREDDormancyAcrossMappingCase(
 	t *testing.T,
 	label string,

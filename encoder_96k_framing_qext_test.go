@@ -24,17 +24,17 @@ import (
 // hd96kPacketLayout decomposes a native 96 kHz CELT-only code-3 Opus packet
 // into its framing fields and payload regions.
 type hd96kPacketLayout struct {
-	toc          byte
-	code         int
-	countByte    byte
-	hasPadding   bool
-	nbFrames     int
-	paddingLen   int // decoded total padding (= qext_bytes for the native path)
-	padFieldLen  int // bytes consumed by the padding-length field
-	main         []byte
-	extIDByte    byte // first byte of the extension region (0xF8 for QEXT)
-	extID        int  // extIDByte >> 1
-	qextPayload  []byte
+	toc         byte
+	code        int
+	countByte   byte
+	hasPadding  bool
+	nbFrames    int
+	paddingLen  int // decoded total padding (= qext_bytes for the native path)
+	padFieldLen int // bytes consumed by the padding-length field
+	main        []byte
+	extIDByte   byte // first byte of the extension region (0xF8 for QEXT)
+	extID       int  // extIDByte >> 1
+	qextPayload []byte
 }
 
 func parseHD96kLayout(t *testing.T, pkt []byte) hd96kPacketLayout {

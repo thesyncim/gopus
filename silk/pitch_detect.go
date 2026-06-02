@@ -389,7 +389,6 @@ func (e *Encoder) detectPitch(pcm []float32, numSubframes int, searchThres1, sea
 	}
 	for i := 0; i < lengthDSrch; i++ {
 		if cSlice[i] <= threshold {
-			lengthDSrch = i
 			break
 		}
 		d := (int(dSrch[i]) + minLag4kHz) * 2

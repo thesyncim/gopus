@@ -32,6 +32,7 @@ const (
 //   - decode: the elementary CELT/SILK/Hybrid per-stream output buffers and the
 //     opus framing parse (parseOpusPacket, invoked for the duration probe and
 //     the decode) allocate; the channel-mapped output is returned to the caller.
+//
 // These bounds catch regressions while documenting the residual.
 const (
 	multistreamEncodeHotPathAllocBudget = 1

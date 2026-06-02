@@ -19,27 +19,27 @@ const libopusDecoderRateMatrixFixturePath = "testdata/libopus_decoder_rate_matri
 // at each of the five Opus API sample rates (8000, 12000, 16000, 24000, 48000
 // Hz) using libopus 1.6.1 opus_demo -d <rate>.
 type libopusDecoderRateMatrixFixtureFile struct {
-	Version    int                                    `json:"version"`
-	Generator  string                                 `json:"generator"`
-	Provenance libopusFixtureProvenance               `json:"provenance"`
-	Signal     string                                 `json:"signal"`
-	Cases      []libopusDecoderRateMatrixCaseFile     `json:"cases"`
+	Version    int                                `json:"version"`
+	Generator  string                             `json:"generator"`
+	Provenance libopusFixtureProvenance           `json:"provenance"`
+	Signal     string                             `json:"signal"`
+	Cases      []libopusDecoderRateMatrixCaseFile `json:"cases"`
 }
 
 // libopusDecoderRateMatrixCaseFile is one (encode-config, api_rate) row.
 type libopusDecoderRateMatrixCaseFile struct {
-	Name          string                            `json:"name"`
-	Application   string                            `json:"application"`
-	Bandwidth     string                            `json:"bandwidth"`
-	FrameSize     int                               `json:"frame_size"`
-	Channels      int                               `json:"channels"`
-	Bitrate       int                               `json:"bitrate"`
-	Frames        int                               `json:"frames"`
-	APIRate       int                               `json:"api_rate"`
-	ModeHistogram map[string]int                    `json:"mode_histogram"`
-	Packets       []libopusDecoderRateMatrixPacket  `json:"packets"`
-	DecodedLen    int                               `json:"decoded_len"`
-	DecodedF32B64 string                            `json:"decoded_f32_le_b64"`
+	Name          string                           `json:"name"`
+	Application   string                           `json:"application"`
+	Bandwidth     string                           `json:"bandwidth"`
+	FrameSize     int                              `json:"frame_size"`
+	Channels      int                              `json:"channels"`
+	Bitrate       int                              `json:"bitrate"`
+	Frames        int                              `json:"frames"`
+	APIRate       int                              `json:"api_rate"`
+	ModeHistogram map[string]int                   `json:"mode_histogram"`
+	Packets       []libopusDecoderRateMatrixPacket `json:"packets"`
+	DecodedLen    int                              `json:"decoded_len"`
+	DecodedF32B64 string                           `json:"decoded_f32_le_b64"`
 
 	decodedPackets [][]byte
 	decodedSamples []float32

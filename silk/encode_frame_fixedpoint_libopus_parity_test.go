@@ -288,10 +288,10 @@ func wbFrameCase(name string, rng *rand.Rand, genIdx int) silkFixedEncodeFrameCa
 		laShapeMs   = 5
 		laPitchMs   = 2
 	)
-	frameLength := nbSubfr * subfrLength      // 320
-	ltpMemLength := 20 * fsKHz                // 320
-	laPitch := laPitchMs * fsKHz              // 32
-	laShape := laShapeMs * fsKHz              // 80
+	frameLength := nbSubfr * subfrLength // 320
+	ltpMemLength := 20 * fsKHz           // 320
+	laPitch := laPitchMs * fsKHz         // 32
+	laShape := laShapeMs * fsKHz         // 80
 	pitchLPCWinLength := (20 + (laPitchMs << 1)) * fsKHz
 	shapeWinLength := 5*fsKHz + 2*laShape // SUB_FRAME_LENGTH_MS*fs + 2*la_shape
 

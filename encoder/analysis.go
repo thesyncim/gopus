@@ -9,13 +9,13 @@ import (
 )
 
 const (
-	NbFrames               = 8
-	NbTBands               = 18
-	NbTonalSkipBands       = 9
-	AnalysisBufSize        = 720 // 30ms at 24kHz
-	DetectSize             = 100
-	transitionPenalty      = float32(10.0)
-	celtSigScale           = float32(32768.0)
+	NbFrames          = 8
+	NbTBands          = 18
+	NbTonalSkipBands  = 9
+	AnalysisBufSize   = 720 // 30ms at 24kHz
+	DetectSize        = 100
+	transitionPenalty = float32(10.0)
+	celtSigScale      = float32(32768.0)
 	// The FFT output is now normalised by 1/480 inside fft480 (matching
 	// libopus opus_fft), so SCALE_ENER reduces to libopus' (1/32768/32768);
 	// the 1/480^2 is no longer folded in here.

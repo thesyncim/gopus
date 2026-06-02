@@ -26,22 +26,22 @@ import "math"
 //   - CorpusChannelPanSweepV1: a source panned hard L->R->L (inter-channel up/down-mix)
 
 const (
-	CorpusCleanSpeechV1      = "corpus_clean_speech_v1"
-	CorpusMusicV1            = "corpus_music_v1"
-	CorpusMixedV1            = "corpus_mixed_v1"
-	CorpusWhiteNoiseV1       = "corpus_white_noise_v1"
-	CorpusCastanetTransientV1 = "corpus_castanet_transient_v1"
-	CorpusPureToneV1         = "corpus_pure_tone_v1"
-	CorpusNearSilenceV1      = "corpus_near_silence_v1"
-	CorpusPinkNoiseV1        = "corpus_pink_noise_v1"
-	CorpusFormantSweepV1     = "corpus_formant_sweep_v1"
-	CorpusSpeechInNoiseV1    = "corpus_speech_in_noise_v1"
+	CorpusCleanSpeechV1        = "corpus_clean_speech_v1"
+	CorpusMusicV1              = "corpus_music_v1"
+	CorpusMixedV1              = "corpus_mixed_v1"
+	CorpusWhiteNoiseV1         = "corpus_white_noise_v1"
+	CorpusCastanetTransientV1  = "corpus_castanet_transient_v1"
+	CorpusPureToneV1           = "corpus_pure_tone_v1"
+	CorpusNearSilenceV1        = "corpus_near_silence_v1"
+	CorpusPinkNoiseV1          = "corpus_pink_noise_v1"
+	CorpusFormantSweepV1       = "corpus_formant_sweep_v1"
+	CorpusSpeechInNoiseV1      = "corpus_speech_in_noise_v1"
 	CorpusStereoDecorrelatedV1 = "corpus_stereo_decorrelated_v1"
-	CorpusBellClusterV1      = "corpus_bell_cluster_v1"
-	CorpusSilenceBurstsV1    = "corpus_silence_bursts_v1"
-	CorpusBandwidthSweepV1   = "corpus_bandwidth_sweep_v1"
-	CorpusToneInNoiseV1      = "corpus_tone_in_noise_v1"
-	CorpusChannelPanSweepV1  = "corpus_channel_pan_sweep_v1"
+	CorpusBellClusterV1        = "corpus_bell_cluster_v1"
+	CorpusSilenceBurstsV1      = "corpus_silence_bursts_v1"
+	CorpusBandwidthSweepV1     = "corpus_bandwidth_sweep_v1"
+	CorpusToneInNoiseV1        = "corpus_tone_in_noise_v1"
+	CorpusChannelPanSweepV1    = "corpus_channel_pan_sweep_v1"
 )
 
 // CorpusSignalClasses returns the signal-class tags backed by the committed
@@ -188,8 +188,7 @@ func generateCorpusMusic(sampleRate, samples, channels int) []float32 {
 			pluckOffset := float64(fi) * 0.05
 			pluckT := math.Mod(t+pluckOffset, 1.0)
 			stringEnv := math.Exp(-pluckT * 2.5)
-			val += amp * stringEnv * (
-				math.Sin(2*math.Pi*fd*t) +
+			val += amp * stringEnv * (math.Sin(2*math.Pi*fd*t) +
 				0.4*math.Sin(4*math.Pi*fd*t) +
 				0.2*math.Sin(6*math.Pi*fd*t))
 		}
@@ -281,7 +280,7 @@ func generateCorpusPureTone(sampleRate, samples, channels int) []float32 {
 		si := i / channels
 		t := float64(si) / float64(sampleRate)
 		// Tiny channel phase offset so stereo isn't identical
-		phase := 2 * math.Pi * freq * t + 0.1*float64(ch)
+		phase := 2*math.Pi*freq*t + 0.1*float64(ch)
 		out[i] = float32(amp * math.Sin(phase))
 	}
 	return out

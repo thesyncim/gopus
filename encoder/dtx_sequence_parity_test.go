@@ -404,8 +404,8 @@ func TestDTXSequenceParity_SilkMono_MaxConsecutiveReset(t *testing.T) {
 		bitrate       = 24000
 		bw            = "wb"
 		mode          = "silk"
-		speechFrames  = 15  // pre-silence
-		silenceFrames = 40  // covers NB_SPEECH_FRAMES_BEFORE_DTX+MAX_CONSECUTIVE_DTX+extras = 30 frames + wrap
+		speechFrames  = 15 // pre-silence
+		silenceFrames = 40 // covers NB_SPEECH_FRAMES_BEFORE_DTX+MAX_CONSECUTIVE_DTX+extras = 30 frames + wrap
 		resumeFrames  = 5
 	)
 	pcm := dtxSeqPCMSequence(frameSize, channels, speechFrames, silenceFrames, resumeFrames)

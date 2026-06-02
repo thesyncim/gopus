@@ -27,17 +27,6 @@ import (
 	"github.com/thesyncim/gopus/internal/testsignal"
 )
 
-// corpusDominantMode returns the dominant codec mode for a corpus case.
-func corpusDominantMode(hist map[string]int) string {
-	best, bestCount := "unknown", -1
-	for _, mode := range []string{"silk", "hybrid", "celt"} {
-		if hist[mode] > bestCount {
-			best, bestCount = mode, hist[mode]
-		}
-	}
-	return best
-}
-
 // TestCorpusDecoderParity decodes each corpus fixture case with gopus and gates
 // quality against the frozen libopus reference with qualitycompare.AssertParity.
 func TestCorpusDecoderParity(t *testing.T) {

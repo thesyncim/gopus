@@ -20,9 +20,9 @@ import (
 // code self-documenting and lets the loader fail loudly if a future libopus
 // upgrade changes a layer shape.
 const (
-	FeatureDim    = 114
-	FrameSize16   = 80
-	CondDim       = 128
+	FeatureDim  = 114
+	FrameSize16 = 80
+	CondDim     = 128
 
 	FNetConv1In  = 342 // BBWENET_FNET_CONV1_IN_SIZE * 3 (libopus conv1d_init)
 	FNetConv1Out = 128

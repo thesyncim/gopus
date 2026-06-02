@@ -15,9 +15,9 @@ package silk
 // silkLin2Log, ...) are reused from libopus_fixed.go / process_gains_fixedpoint.go.
 
 const (
-	vadNBands               = 4
+	vadNBands                = 4
 	vadInternalSubframesLog2 = 2
-	vadInternalSubframes    = 1 << vadInternalSubframesLog2
+	vadInternalSubframes     = 1 << vadInternalSubframesLog2
 
 	vadNoiseLevelSmoothCoefQ16 = 1024 // Must be < 4096
 	vadNoiseLevelsBias         = 50
@@ -45,16 +45,16 @@ var vadTiltWeights = [vadNBands]int32{30000, 6000, -12000, -12000}
 
 // silkVADState mirrors the libopus silk_VAD_state struct (silk/structs.h).
 type silkVADState struct {
-	AnaState        [2]int32          // Analysis filterbank state: 0-8 kHz
-	AnaState1       [2]int32          // Analysis filterbank state: 0-4 kHz
-	AnaState2       [2]int32          // Analysis filterbank state: 0-2 kHz
-	XnrgSubfr       [vadNBands]int32  // Subframe energies
-	NrgRatioSmthQ8  [vadNBands]int32  // Smoothed energy level in each band
-	HPstate         int16             // State of differentiator in the lowest band
-	NL              [vadNBands]int32  // Noise energy level in each band
-	invNL           [vadNBands]int32  // Inverse noise energy level in each band
-	NoiseLevelBias  [vadNBands]int32  // Noise level estimator bias/offset
-	counter         int32             // Frame counter used in the initial phase
+	AnaState       [2]int32         // Analysis filterbank state: 0-8 kHz
+	AnaState1      [2]int32         // Analysis filterbank state: 0-4 kHz
+	AnaState2      [2]int32         // Analysis filterbank state: 0-2 kHz
+	XnrgSubfr      [vadNBands]int32 // Subframe energies
+	NrgRatioSmthQ8 [vadNBands]int32 // Smoothed energy level in each band
+	HPstate        int16            // State of differentiator in the lowest band
+	NL             [vadNBands]int32 // Noise energy level in each band
+	invNL          [vadNBands]int32 // Inverse noise energy level in each band
+	NoiseLevelBias [vadNBands]int32 // Noise level estimator bias/offset
+	counter        int32            // Frame counter used in the initial phase
 }
 
 // silkVADInit ports silk_VAD_Init (silk/VAD.c): initializes the VAD state with
@@ -161,8 +161,8 @@ func silkVADGetNoiseLevels(pX *[vadNBands]int32, s *silkVADState) {
 
 // silkVADResult holds the per-frame outputs of silk_VAD_GetSA_Q8.
 type silkVADResult struct {
-	speechActivityQ8    int32
-	inputTiltQ15        int32
+	speechActivityQ8     int32
+	inputTiltQ15         int32
 	inputQualityBandsQ15 [vadNBands]int32
 }
 

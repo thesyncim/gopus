@@ -96,4 +96,3 @@ func (d *MultistreamDecoder) SetIgnoreExtensions(ignore bool) {
 func (d *MultistreamDecoder) IgnoreExtensions() bool {
 	return d.ignoreExtensions
 }
-

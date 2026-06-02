@@ -25,9 +25,9 @@ import (
 
 // libopusPacketParseResult holds all oracle outputs for one packet test case.
 type libopusPacketParseResult struct {
-	bandwidth      int32 // OPUS_BANDWIDTH_* (1101-1105) or error code
-	nbChannels     int32 // 1 or 2
-	nbFrames       int32 // >=1 or OPUS_BAD_ARG(-1) / OPUS_INVALID_PACKET(-4)
+	bandwidth       int32 // OPUS_BANDWIDTH_* (1101-1105) or error code
+	nbChannels      int32 // 1 or 2
+	nbFrames        int32 // >=1 or OPUS_BAD_ARG(-1) / OPUS_INVALID_PACKET(-4)
 	samplesPerFrame int32 // at 48000
 	nbSamples       int32 // at 48000 or error
 	parseRet        int32 // frame count or error from opus_packet_parse
@@ -82,15 +82,15 @@ func probeLibopusPacketParse(cases []libopusPacketParseCase) ([]libopusPacketPar
 	out := make([]libopusPacketParseResult, len(cases))
 	for i := range out {
 		r := &out[i]
-		r.bandwidth      = reader.I32()
-		r.nbChannels     = reader.I32()
-		r.nbFrames       = reader.I32()
+		r.bandwidth = reader.I32()
+		r.nbChannels = reader.I32()
+		r.nbFrames = reader.I32()
 		r.samplesPerFrame = reader.I32()
-		r.nbSamples       = reader.I32()
-		r.parseRet        = reader.I32()
-		r.parseTOC        = reader.I32()
-		r.payloadOffset   = reader.I32()
-		r.nFrameSizes     = reader.I32()
+		r.nbSamples = reader.I32()
+		r.parseRet = reader.I32()
+		r.parseTOC = reader.I32()
+		r.payloadOffset = reader.I32()
+		r.nFrameSizes = reader.I32()
 		if r.nFrameSizes > 0 {
 			r.frameSizes = make([]int16, r.nFrameSizes)
 			for j := range r.frameSizes {

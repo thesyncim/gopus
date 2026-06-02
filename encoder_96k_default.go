@@ -17,4 +17,3 @@ func (e *Encoder) tryEncodeNative96k(_ []float32, _ []byte) (int, bool, error) {
 }
 
 func init96kEncoder(_ *Encoder) {}
-

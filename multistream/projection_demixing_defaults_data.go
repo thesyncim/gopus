@@ -385,4 +385,3 @@ var projectionDemixingDefaults = map[int]projectionDemixingDefault{
 		0, 0, 0, 32767,
 	}},
 }
-

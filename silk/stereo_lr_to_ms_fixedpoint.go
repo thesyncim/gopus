@@ -219,8 +219,8 @@ func silkStereoLRToMS(
 		ip1Q13 += delta1Q13
 		wQ24 += deltawQ24
 		sum := silkLSHIFT(silkADD_LSHIFT32(int32(mid[n])+int32(mid[n+2]), int32(mid[n+1]), 1), 9) // Q11
-		sum = silkSMLAWB(silkSMULWB(wQ24, int32(side[n+1])), sum, ip0Q13)                          // Q8
-		sum = silkSMLAWB(sum, silkLSHIFT(int32(mid[n+1]), 11), ip1Q13)                             // Q8
+		sum = silkSMLAWB(silkSMULWB(wQ24, int32(side[n+1])), sum, ip0Q13)                         // Q8
+		sum = silkSMLAWB(sum, silkLSHIFT(int32(mid[n+1]), 11), ip1Q13)                            // Q8
 		// x2[n-1] => side[n+1]
 		side[n+1] = silkSAT16(silkRSHIFT_ROUND(sum, 8))
 	}

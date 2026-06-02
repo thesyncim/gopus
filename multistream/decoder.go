@@ -590,7 +590,7 @@ func (d *streamState) decodePLCChunkToFloat32(frameSize int) ([]float32, error) 
 }
 
 func (d *streamState) decodePacketToFloat32(data []byte, frameSize int) ([]float32, error) {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return d.decodePLCToFloat32(frameSize)
 	}
 	if len(data) < 1 {

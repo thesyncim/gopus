@@ -162,10 +162,6 @@ func getFrameDuration(packet []byte) int {
 	return opusSamplesPerFrame48k(packet[0]) * len(parsed.frames)
 }
 
-func getFrameDurationAtRate(packet []byte, sampleRate int) int {
-	return getFrameDurationAtRateScratch(nil, packet, sampleRate)
-}
-
 func getFrameDurationAtRateScratch(parser *packetScratch, packet []byte, sampleRate int) int {
 	if len(packet) == 0 {
 		return 0

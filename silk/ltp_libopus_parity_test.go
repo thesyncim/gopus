@@ -51,12 +51,12 @@ type libopusSILKLTPFindRecord struct {
 
 func buildLibopusSILKLTPHelper() (string, error) {
 	return libopustest.BuildCHelper(libopustest.CHelperConfig{
-		Label:          "silk ltp",
-		OutputBase:     "gopus_libopus_silk_ltp",
-		SourceFile:     "libopus_silk_ltp_info.c",
-		ProbeRelPath:   "silk/float/main_FLP.h",
-		CFlags:         []string{"-DHAVE_CONFIG_H", "-ffp-contract=off"},
-		RefIncludes:    []string{"celt", "silk", "silk/float"},
+		Label:        "silk ltp",
+		OutputBase:   "gopus_libopus_silk_ltp",
+		SourceFile:   "libopus_silk_ltp_info.c",
+		ProbeRelPath: "silk/float/main_FLP.h",
+		CFlags:       []string{"-DHAVE_CONFIG_H", "-ffp-contract=off"},
+		RefIncludes:  []string{"celt", "silk", "silk/float"},
 		// Compiles a subset of SILK .c files (no libopus.a link) that reach
 		// silk_inner_product_FLP / silk_VQ_WMat_EC. Force the scalar _c kernels so
 		// the SSE/AVX RTCD dispatch tables (absent from this subset) are not

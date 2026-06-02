@@ -38,10 +38,10 @@ import (
 func TestMSDecoderCTL_GainBroadcast(t *testing.T) {
 	libopustest.RequireOracle(t)
 	const (
-		channels  = 3
+		channels   = 3
 		sampleRate = 48000
-		gainQ8    = 8192 // 32 dB Q8 ≈ +4 dB
-		bitrate   = 192000
+		gainQ8     = 8192 // 32 dB Q8 ≈ +4 dB
+		bitrate    = 192000
 	)
 	frameSize := sampleRate / 50
 

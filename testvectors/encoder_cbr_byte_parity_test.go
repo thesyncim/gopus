@@ -37,10 +37,10 @@ import (
 
 // cbrEncoderOracle application codes (map to libopus OPUS_APPLICATION_* constants)
 const (
-	cbrOracleAppAudio           = uint32(0) // OPUS_APPLICATION_AUDIO
-	cbrOracleAppVoIP            = uint32(1) // OPUS_APPLICATION_VOIP
-	cbrOracleAppRestrictedSilk  = uint32(2) // OPUS_APPLICATION_RESTRICTED_SILK
-	cbrOracleAppRestrictedCELT  = uint32(3) // OPUS_APPLICATION_RESTRICTED_CELT
+	cbrOracleAppAudio          = uint32(0) // OPUS_APPLICATION_AUDIO
+	cbrOracleAppVoIP           = uint32(1) // OPUS_APPLICATION_VOIP
+	cbrOracleAppRestrictedSilk = uint32(2) // OPUS_APPLICATION_RESTRICTED_SILK
+	cbrOracleAppRestrictedCELT = uint32(3) // OPUS_APPLICATION_RESTRICTED_CELT
 )
 
 // cbrEncoderOracle bandwidth codes (match libopus OPUS_BANDWIDTH_* values)
@@ -128,9 +128,9 @@ func parseCBROracleOutput(data []byte) ([][]byte, error) {
 
 // cbrTestCase describes one cell in the CBR parity matrix.
 type cbrTestCase struct {
-	name      string
+	name string
 	// gopus encoding parameters
-	gopusMode encoder.Mode    // mode to force in gopus (ModeHybrid uses ModeAuto)
+	gopusMode encoder.Mode // mode to force in gopus (ModeHybrid uses ModeAuto)
 	bandwidth types.Bandwidth
 	channels  int
 	bitrate   int
@@ -152,49 +152,49 @@ func cbrTestMatrix() []cbrTestCase {
 		// --- SILK ---
 		// SILK is pure fixed-point arithmetic; identical on all platforms.
 		{
-			name: "SILK-NB-10ms-mono-16k",
+			name:      "SILK-NB-10ms-mono-16k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthNarrowband,
 			channels: 1, bitrate: 16000, frameSize: 480,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWNarrowband,
 			strictArm64: true,
 		},
 		{
-			name: "SILK-NB-20ms-mono-16k",
+			name:      "SILK-NB-20ms-mono-16k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthNarrowband,
 			channels: 1, bitrate: 16000, frameSize: 960,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWNarrowband,
 			strictArm64: true,
 		},
 		{
-			name: "SILK-MB-20ms-mono-24k",
+			name:      "SILK-MB-20ms-mono-24k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthMediumband,
 			channels: 1, bitrate: 24000, frameSize: 960,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWMediumband,
 			strictArm64: true,
 		},
 		{
-			name: "SILK-WB-10ms-mono-32k",
+			name:      "SILK-WB-10ms-mono-32k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthWideband,
 			channels: 1, bitrate: 32000, frameSize: 480,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWWideband,
 			strictArm64: true,
 		},
 		{
-			name: "SILK-WB-20ms-mono-32k",
+			name:      "SILK-WB-20ms-mono-32k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthWideband,
 			channels: 1, bitrate: 32000, frameSize: 960,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWWideband,
 			strictArm64: true,
 		},
 		{
-			name: "SILK-WB-40ms-mono-32k",
+			name:      "SILK-WB-40ms-mono-32k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthWideband,
 			channels: 1, bitrate: 32000, frameSize: 1920,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWWideband,
 			strictArm64: true,
 		},
 		{
-			name: "SILK-WB-20ms-stereo-48k",
+			name:      "SILK-WB-20ms-stereo-48k",
 			gopusMode: encoder.ModeSILK, bandwidth: types.BandwidthWideband,
 			channels: 2, bitrate: 48000, frameSize: 960,
 			oracleApp: cbrOracleAppRestrictedSilk, oracleBW: cbrOracleBWWideband,
@@ -205,7 +205,7 @@ func cbrTestMatrix() []cbrTestCase {
 		// On arm64 the CELT sub-band FMA differs from clang -ffp-contract=on by
 		// at most 1 ULP per operation; diffs are reported as honest residuals.
 		{
-			name: "CELT-FB-2p5ms-mono-64k",
+			name:      "CELT-FB-2p5ms-mono-64k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 120,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
@@ -213,42 +213,42 @@ func cbrTestMatrix() []cbrTestCase {
 		},
 		// Stereo 2.5/5ms CBR byte parity — covers the variant-byte ratchet surface.
 		{
-			name: "CELT-FB-2p5ms-stereo-128k",
+			name:      "CELT-FB-2p5ms-stereo-128k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 2, bitrate: 128000, frameSize: 120,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
 			strictArm64: false,
 		},
 		{
-			name: "CELT-FB-5ms-mono-64k",
+			name:      "CELT-FB-5ms-mono-64k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 240,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
 			strictArm64: false,
 		},
 		{
-			name: "CELT-FB-5ms-stereo-128k",
+			name:      "CELT-FB-5ms-stereo-128k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 2, bitrate: 128000, frameSize: 240,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
 			strictArm64: false,
 		},
 		{
-			name: "CELT-FB-10ms-mono-64k",
+			name:      "CELT-FB-10ms-mono-64k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 480,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
 			strictArm64: false,
 		},
 		{
-			name: "CELT-FB-20ms-mono-64k",
+			name:      "CELT-FB-20ms-mono-64k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 960,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
 			strictArm64: false,
 		},
 		{
-			name: "CELT-FB-20ms-stereo-128k",
+			name:      "CELT-FB-20ms-stereo-128k",
 			gopusMode: encoder.ModeCELT, bandwidth: types.BandwidthFullband,
 			channels: 2, bitrate: 128000, frameSize: 960,
 			oracleApp: cbrOracleAppRestrictedCELT, oracleBW: cbrOracleBWFullband,
@@ -258,35 +258,35 @@ func cbrTestMatrix() []cbrTestCase {
 		// Hybrid uses ModeAuto (audio application) to match opus_demo -e audio.
 		// The CELT sub-band carries the same arm64 FMA residual as CELT-only.
 		{
-			name: "Hybrid-SWB-10ms-mono-48k",
+			name:      "Hybrid-SWB-10ms-mono-48k",
 			gopusMode: encoder.ModeHybrid, bandwidth: types.BandwidthSuperwideband,
 			channels: 1, bitrate: 48000, frameSize: 480,
 			oracleApp: cbrOracleAppAudio, oracleBW: cbrOracleBWSuperWideband,
 			strictArm64: false,
 		},
 		{
-			name: "Hybrid-SWB-20ms-mono-48k",
+			name:      "Hybrid-SWB-20ms-mono-48k",
 			gopusMode: encoder.ModeHybrid, bandwidth: types.BandwidthSuperwideband,
 			channels: 1, bitrate: 48000, frameSize: 960,
 			oracleApp: cbrOracleAppAudio, oracleBW: cbrOracleBWSuperWideband,
 			strictArm64: false,
 		},
 		{
-			name: "Hybrid-FB-10ms-mono-64k",
+			name:      "Hybrid-FB-10ms-mono-64k",
 			gopusMode: encoder.ModeHybrid, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 480,
 			oracleApp: cbrOracleAppAudio, oracleBW: cbrOracleBWFullband,
 			strictArm64: false,
 		},
 		{
-			name: "Hybrid-FB-20ms-mono-64k",
+			name:      "Hybrid-FB-20ms-mono-64k",
 			gopusMode: encoder.ModeHybrid, bandwidth: types.BandwidthFullband,
 			channels: 1, bitrate: 64000, frameSize: 960,
 			oracleApp: cbrOracleAppAudio, oracleBW: cbrOracleBWFullband,
 			strictArm64: false,
 		},
 		{
-			name: "Hybrid-FB-20ms-stereo-96k",
+			name:      "Hybrid-FB-20ms-stereo-96k",
 			gopusMode: encoder.ModeHybrid, bandwidth: types.BandwidthFullband,
 			channels: 2, bitrate: 96000, frameSize: 960,
 			oracleApp: cbrOracleAppAudio, oracleBW: cbrOracleBWFullband,
@@ -556,11 +556,11 @@ func TestEncoderCBRByteParitySummary(t *testing.T) {
 	}
 
 	type rowResult struct {
-		name      string
-		total     int
-		diffs     int
-		skipped   bool
-		isArm64   bool
+		name        string
+		total       int
+		diffs       int
+		skipped     bool
+		isArm64     bool
 		strictArm64 bool
 	}
 	results := make([]rowResult, len(cbrTestMatrix()))

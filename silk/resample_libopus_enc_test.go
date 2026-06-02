@@ -17,25 +17,25 @@ func TestNewLibopusResamplerEncFunctionSelect(t *testing.T) {
 		w           want
 	}{
 		// in 8k
-		{8000, 8000, want{copy: true}},          // C
-		{8000, 12000, want{}},                    // UF (IIR/FIR, not copy/up2/down)
-		{8000, 16000, want{up2: true}},           // U
+		{8000, 8000, want{copy: true}}, // C
+		{8000, 12000, want{}},          // UF (IIR/FIR, not copy/up2/down)
+		{8000, 16000, want{up2: true}}, // U
 		// in 12k
-		{12000, 8000, want{down: true}},          // AF -> down_FIR
-		{12000, 12000, want{copy: true}},         // C
-		{12000, 16000, want{}},                   // UF
+		{12000, 8000, want{down: true}},  // AF -> down_FIR
+		{12000, 12000, want{copy: true}}, // C
+		{12000, 16000, want{}},           // UF
 		// in 16k
-		{16000, 8000, want{down: true}},          // AF
-		{16000, 12000, want{down: true}},         // AF
-		{16000, 16000, want{copy: true}},         // C
+		{16000, 8000, want{down: true}},  // AF
+		{16000, 12000, want{down: true}}, // AF
+		{16000, 16000, want{copy: true}}, // C
 		// in 24k
-		{24000, 8000, want{down: true}},          // AF (1:3)
-		{24000, 12000, want{down: true}},         // AF (1:2)
-		{24000, 16000, want{down: true}},         // AF (2:3)
+		{24000, 8000, want{down: true}},  // AF (1:3)
+		{24000, 12000, want{down: true}}, // AF (1:2)
+		{24000, 16000, want{down: true}}, // AF (2:3)
 		// in 48k
-		{48000, 8000, want{down: true}},          // AF (1:6)
-		{48000, 12000, want{down: true}},         // AF (1:4)
-		{48000, 16000, want{down: true}},         // AF (1:3)
+		{48000, 8000, want{down: true}},  // AF (1:6)
+		{48000, 12000, want{down: true}}, // AF (1:4)
+		{48000, 16000, want{down: true}}, // AF (1:3)
 	}
 	for _, c := range cases {
 		r := NewLibopusResamplerEnc(c.fsIn, c.fsOut)

@@ -109,7 +109,7 @@ func (d *Decoder) DecodeToInt16(data []byte, frameSize int) ([]int16, error) {
 		return nil, err
 	}
 
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return float32ToInt16(samples), nil
 	}
 	return float32ToInt16SoftClip(samples, len(samples)/d.outputChannels, d.outputChannels, d.softClipMem), nil

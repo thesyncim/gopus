@@ -9,18 +9,18 @@
 //
 // Three assertions per cell:
 //
-//  (a) Mode is CELT-only: every emitted packet must carry a CELT TOC byte
-//      (cfg ≥ 16). libopus forces MODE_CELT_ONLY unconditionally for
-//      RESTRICTED_LOWDELAY (opus_encoder.c line 1470–1472).
+//	(a) Mode is CELT-only: every emitted packet must carry a CELT TOC byte
+//	    (cfg ≥ 16). libopus forces MODE_CELT_ONLY unconditionally for
+//	    RESTRICTED_LOWDELAY (opus_encoder.c line 1470–1472).
 //
-//  (b) Byte-exact packet parity against the pinned libopus 1.6.1 oracle.
-//      Hard gate on amd64; arm64 CELT FMA drift (≤1 ULP) reported as
-//      residual per project_arm64_celt_1ulp_drift.md.
+//	(b) Byte-exact packet parity against the pinned libopus 1.6.1 oracle.
+//	    Hard gate on amd64; arm64 CELT FMA drift (≤1 ULP) reported as
+//	    residual per project_arm64_celt_1ulp_drift.md.
 //
-//  (c) Lookahead() == sampleRate/400 for RESTRICTED_LOWDELAY (no delay
-//      compensation added). libopus opus_encoder.c OPUS_GET_LOOKAHEAD
-//      (line 3082–3091): *value = st->Fs/400; if application !=
-//      RESTRICTED_LOWDELAY && != RESTRICTED_CELT: *value += st->delay_compensation.
+//	(c) Lookahead() == sampleRate/400 for RESTRICTED_LOWDELAY (no delay
+//	    compensation added). libopus opus_encoder.c OPUS_GET_LOOKAHEAD
+//	    (line 3082–3091): *value = st->Fs/400; if application !=
+//	    RESTRICTED_LOWDELAY && != RESTRICTED_CELT: *value += st->delay_compensation.
 //
 // Oracle: reuses libopus_vbr_cvbr_encode_info.c (GVCI/GVCO wire format) with
 // VBR mode 0 (OPUS_SET_VBR(1), OPUS_SET_VBR_CONSTRAINT(0)) and
@@ -317,10 +317,10 @@ func TestLowDelayLookahead(t *testing.T) {
 // (OPUS_APPLICATION_RESTRICTED_LOWDELAY, VBR) across the full low-delay
 // matrix, asserting:
 //
-//  (a) Each packet has a CELT-only TOC byte (cfg >= 16).
-//  (b) Packet bytes are identical on amd64 (hard gate); arm64 CELT FMA
-//      drift (≤1 ULP per operation) is reported as residual per
-//      project_arm64_celt_1ulp_drift.md.
+//	(a) Each packet has a CELT-only TOC byte (cfg >= 16).
+//	(b) Packet bytes are identical on amd64 (hard gate); arm64 CELT FMA
+//	    drift (≤1 ULP per operation) is reported as residual per
+//	    project_arm64_celt_1ulp_drift.md.
 func TestLowDelayCrossModeParity(t *testing.T) {
 	t.Parallel()
 	requireTestTier(t, testTierParity)
@@ -363,7 +363,7 @@ func runLDParityCase(t *testing.T, tc ldMatrixCase, helperPath string) {
 	// Build oracle request: mode=0 (VBR), application=2051 (RESTRICTED_LOWDELAY).
 	opusSig := gopusSignalToOpus(tc.signal)
 	req := buildVBRCVBRRequest(
-		oracleModeVBR,          // OPUS_SET_VBR(1), OPUS_SET_VBR_CONSTRAINT(0)
+		oracleModeVBR, // OPUS_SET_VBR(1), OPUS_SET_VBR_CONSTRAINT(0)
 		uint32(opusApplicationRestrictedLowDelay), // 2051
 		48000, tc.channels, tc.frameSize, tc.bitrate,
 		opusBandwidthFB, // OPUS_BANDWIDTH_FULLBAND — let oracle auto-select from FB

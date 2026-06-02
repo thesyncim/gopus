@@ -44,7 +44,7 @@ func (d *Decoder) DecodeFEC(
 	stereo bool,
 	outputChannels int,
 ) ([]float32, error) {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return nil, ErrDecodeFailed
 	}
 
@@ -344,7 +344,7 @@ func (d *Decoder) decodeFECLostFrameInto(channel int, st *decoderState, frameOut
 // HasLBRR checks if the given packet contains LBRR (FEC) data.
 // This can be used to check if FEC recovery is possible before attempting it.
 func (d *Decoder) HasLBRR(data []byte, bandwidth Bandwidth, frameSizeSamples int) bool {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return false
 	}
 

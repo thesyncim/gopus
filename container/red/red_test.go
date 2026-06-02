@@ -65,9 +65,9 @@ func TestParseRFC2198Vector_OneRedundantBlock(t *testing.T) {
 
 	var buf []byte
 	buf = append(buf, makeRedundantHeader(opusPT, offset, len(redPayload))...)
-	buf = append(buf, opusPT)             // primary header
-	buf = append(buf, redPayload...)      // data region: redundant first
-	buf = append(buf, primary...)         // then primary
+	buf = append(buf, opusPT)        // primary header
+	buf = append(buf, redPayload...) // data region: redundant first
+	buf = append(buf, primary...)    // then primary
 
 	gotPrimary, blocks, err := red.Parse(buf, opusPT)
 	if err != nil {
@@ -94,7 +94,7 @@ func TestParseRFC2198Vector_OneRedundantBlock(t *testing.T) {
 // that the example engine uses in its buildREDPayload round-trip tests.
 func TestParseRFC2198Vector_TwoRedundantBlocks(t *testing.T) {
 	red1 := []byte{0x33, 0x44, 0x55} // oldest redundant (2 frames back)
-	red2 := []byte{0x11, 0x22}        // newer redundant (1 frame back)
+	red2 := []byte{0x11, 0x22}       // newer redundant (1 frame back)
 	primary := []byte{0xaa, 0xbb, 0xcc}
 	offset1 := 1920 // 2 frames * 960
 	offset2 := 960  // 1 frame * 960
@@ -103,8 +103,8 @@ func TestParseRFC2198Vector_TwoRedundantBlocks(t *testing.T) {
 	var buf []byte
 	buf = append(buf, makeRedundantHeader(opusPT, offset1, len(red1))...)
 	buf = append(buf, makeRedundantHeader(opusPT, offset2, len(red2))...)
-	buf = append(buf, opusPT)   // primary header
-	buf = append(buf, red1...)  // data region: oldest first
+	buf = append(buf, opusPT)  // primary header
+	buf = append(buf, red1...) // data region: oldest first
 	buf = append(buf, red2...)
 	buf = append(buf, primary...)
 

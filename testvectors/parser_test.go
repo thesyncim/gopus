@@ -136,7 +136,7 @@ func TestParseOpusDemoBitstream_EmptyFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error for empty data: %v", err)
 	}
-	if packets != nil && len(packets) != 0 {
+	if len(packets) != 0 {
 		t.Errorf("expected nil or empty slice for empty data, got %d packets", len(packets))
 	}
 }

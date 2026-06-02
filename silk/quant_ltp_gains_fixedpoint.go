@@ -178,18 +178,18 @@ func silkQuantLTPGainsFixed(
 			var resNrgQ15Subfr, rateDistQ7Subfr, gainQ7 int32
 			var idx int8
 			silkVQWMatECFixed(
-				&idx,            // index of best codebook vector
-				&resNrgQ15Subfr, // residual energy
+				&idx,             // index of best codebook vector
+				&resNrgQ15Subfr,  // residual energy
 				&rateDistQ7Subfr, // best weighted quantization error + mu * rate
-				&gainQ7,         // sum of absolute LTP coefficients
-				XXQ17Ptr,        // correlation matrix
-				xXQ17Ptr,        // correlation vector
-				cbkPtrQ7,        // codebook
-				cbkGainPtrQ7,    // codebook effective gains
-				clPtrQ5,         // code length for each codebook vector
-				subfrLen,        // number of samples per subframe
-				maxGainQ7,       // maximum sum of absolute LTP coefficients
-				cbkSize,         // number of vectors in codebook
+				&gainQ7,          // sum of absolute LTP coefficients
+				XXQ17Ptr,         // correlation matrix
+				xXQ17Ptr,         // correlation vector
+				cbkPtrQ7,         // codebook
+				cbkGainPtrQ7,     // codebook effective gains
+				clPtrQ5,          // code length for each codebook vector
+				subfrLen,         // number of samples per subframe
+				maxGainQ7,        // maximum sum of absolute LTP coefficients
+				cbkSize,          // number of vectors in codebook
 			)
 
 			resNrgQ15 = silkAddPosSat32(resNrgQ15, resNrgQ15Subfr)

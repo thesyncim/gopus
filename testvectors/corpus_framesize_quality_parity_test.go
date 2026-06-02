@@ -108,9 +108,9 @@ var corpusFrameModeConfigs = []corpusFrameModeCfg{
 // spectral/temporal regimes against every frame duration.
 func corpusFrameSizeSignalClasses() []string {
 	return []string{
-		testsignal.CorpusMusicV1,            // harmonic / tonal
-		testsignal.CorpusCastanetTransientV1, // sharp transients (short-block path)
-		testsignal.CorpusPinkNoiseV1,         // tilted broadband noise
+		testsignal.CorpusMusicV1,              // harmonic / tonal
+		testsignal.CorpusCastanetTransientV1,  // sharp transients (short-block path)
+		testsignal.CorpusPinkNoiseV1,          // tilted broadband noise
 		testsignal.CorpusStereoDecorrelatedV1, // wide stereo image
 	}
 }

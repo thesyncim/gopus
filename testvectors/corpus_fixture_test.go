@@ -25,11 +25,11 @@ import (
 const corpusFixturePath = "testdata/corpus_decoder_parity_fixture.json"
 
 type corpusFixtureFileData struct {
-	Version    int                          `json:"version"`
-	SampleRate int                          `json:"sample_rate"`
-	Generator  string                       `json:"generator"`
-	Provenance libopusFixtureProvenance     `json:"provenance"`
-	Cases      []corpusFixtureCaseData      `json:"cases"`
+	Version    int                      `json:"version"`
+	SampleRate int                      `json:"sample_rate"`
+	Generator  string                   `json:"generator"`
+	Provenance libopusFixtureProvenance `json:"provenance"`
+	Cases      []corpusFixtureCaseData  `json:"cases"`
 }
 
 type corpusFixtureCaseData struct {

@@ -19,4 +19,3 @@ func (d *Decoder) decodeInt2496k(_ []byte, _ []int32) (int, error) {
 }
 
 func init96kDecoder(_ *Decoder) {}
-

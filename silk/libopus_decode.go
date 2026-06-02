@@ -90,12 +90,12 @@ func silkDecodeIndices(st *decoderState, rd *rangecoding.Decoder, vadFlag bool, 
 	// Use pre-allocated scratch buffers if available
 	var ecIx []int16
 	var predQ8 []uint8
-	if st.scratchEcIx != nil && len(st.scratchEcIx) >= maxLPCOrder {
+	if len(st.scratchEcIx) >= maxLPCOrder {
 		ecIx = st.scratchEcIx[:maxLPCOrder]
 	} else {
 		ecIx = make([]int16, maxLPCOrder)
 	}
-	if st.scratchPredQ8 != nil && len(st.scratchPredQ8) >= maxLPCOrder {
+	if len(st.scratchPredQ8) >= maxLPCOrder {
 		predQ8 = st.scratchPredQ8[:maxLPCOrder]
 	} else {
 		predQ8 = make([]uint8, maxLPCOrder)
@@ -718,7 +718,7 @@ func silkDecodeCore(st *decoderState, ctrl *decoderControl, out []int16, pulses 
 
 		if signalType == typeVoiced {
 			lag := int(ctrl.pitchL[k])
-			invGainQ31 = processLTPVoiced(st, ctrl, out, A_Q12, sLTP, sLTP_Q15, sLTPBufIdx, lag, k, interpFlag, invGainQ31, gainAdjQ16)
+			processLTPVoiced(st, ctrl, out, A_Q12, sLTP, sLTP_Q15, sLTPBufIdx, lag, k, interpFlag, invGainQ31, gainAdjQ16)
 		}
 
 		var presQ14 []int32

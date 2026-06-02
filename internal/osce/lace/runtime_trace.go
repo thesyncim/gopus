@@ -31,18 +31,18 @@ const (
 
 // NoLACE-only trace stages. Numbered to match the C helper enum values 30..41.
 const (
-	TraceStageNLPreemph    TraceStage = 30
-	TraceStageNLLatent     TraceStage = 31
-	TraceStageNLPostCF1    TraceStage = 32
-	TraceStageNLPostCF2    TraceStage = 33
-	TraceStageNLPostAF1    TraceStage = 34
-	TraceStageNLTDShape1   TraceStage = 35
-	TraceStageNLPostAF2    TraceStage = 36
-	TraceStageNLTDShape2   TraceStage = 37
-	TraceStageNLPostAF3    TraceStage = 38
-	TraceStageNLTDShape3   TraceStage = 39
-	TraceStageNLPostAF4    TraceStage = 40
-	TraceStageNLDeemph     TraceStage = 41
+	TraceStageNLPreemph  TraceStage = 30
+	TraceStageNLLatent   TraceStage = 31
+	TraceStageNLPostCF1  TraceStage = 32
+	TraceStageNLPostCF2  TraceStage = 33
+	TraceStageNLPostAF1  TraceStage = 34
+	TraceStageNLTDShape1 TraceStage = 35
+	TraceStageNLPostAF2  TraceStage = 36
+	TraceStageNLTDShape2 TraceStage = 37
+	TraceStageNLPostAF3  TraceStage = 38
+	TraceStageNLTDShape3 TraceStage = 39
+	TraceStageNLPostAF4  TraceStage = 40
+	TraceStageNLDeemph   TraceStage = 41
 )
 
 // TraceRecord captures one opt-in LACE diagnostic checkpoint. These records are

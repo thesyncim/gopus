@@ -35,10 +35,10 @@ const findPitchBandwidthExpansionQ16 = 64881
 // silkFindPitchLagsInput collects the silk_encoder_state fields read by the
 // front-end of silk_find_pitch_lags_FIX together with the input speech signal.
 type silkFindPitchLagsInput struct {
-	laPitch                int // psEnc->sCmn.la_pitch
-	frameLength            int // psEnc->sCmn.frame_length
-	ltpMemLength           int // psEnc->sCmn.ltp_mem_length
-	pitchLPCWinLength      int // psEnc->sCmn.pitch_LPC_win_length
+	laPitch                 int // psEnc->sCmn.la_pitch
+	frameLength             int // psEnc->sCmn.frame_length
+	ltpMemLength            int // psEnc->sCmn.ltp_mem_length
+	pitchLPCWinLength       int // psEnc->sCmn.pitch_LPC_win_length
 	pitchEstimationLPCOrder int // psEnc->sCmn.pitchEstimationLPCOrder
 	// x holds buf_len = la_pitch + frame_length + ltp_mem_length samples.
 	x []int16

@@ -17,7 +17,7 @@ func TestCeltILog2(t *testing.T) {
 		{4, 2},
 		{7, 2},
 		{8, 3},
-		{16384, 14},  // Q14 representation of 1.0
+		{16384, 14}, // Q14 representation of 1.0
 		{32768, 15},
 		{65536, 16},
 		{1 << 30, 30},
@@ -35,8 +35,8 @@ func TestCeltILog2(t *testing.T) {
 // output must equal k*1024.
 func TestCeltLog2ExactPowersOf2(t *testing.T) {
 	cases := []struct {
-		exp  int // actual exponent
-		xQ14 int32
+		exp     int // actual exponent
+		xQ14    int32
 		wantQ10 int16
 	}{
 		// Q14 of 0.5 = 8192; log2(0.5) = -1; Q10 = -1024

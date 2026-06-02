@@ -29,10 +29,11 @@ import (
 // match libopus opus_decoder_init() defaults.
 //
 // C ref: opus_decoder.c opus_decoder_init()
-//   st->complexity = 0
-//   st->decode_gain = 0 (OPUS_CLEAR zeroes the struct)
-//   st->frame_size = Fs/400  (last_packet_duration starts at 0 before any decode)
-//   st->bandwidth = 0 → reported as 0 (no packet decoded yet)
+//
+//	st->complexity = 0
+//	st->decode_gain = 0 (OPUS_CLEAR zeroes the struct)
+//	st->frame_size = Fs/400  (last_packet_duration starts at 0 before any decode)
+//	st->bandwidth = 0 → reported as 0 (no packet decoded yet)
 func TestDecoderCTL_Defaults(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 
@@ -174,7 +175,8 @@ func TestDecoderCTL_ComplexityBoundaryReject(t *testing.T) {
 // OPUS_SET/GET_PHASE_INVERSION_DISABLED on a stereo decoder.
 //
 // C ref: opus_decoder_ctl OPUS_SET_PHASE_INVERSION_DISABLED_REQUEST –
-//   "if(value<0 || value>1) goto bad_arg"
+//
+//	"if(value<0 || value>1) goto bad_arg"
 func TestDecoderCTL_PhaseInversionDisabledRoundTrip(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 2)
 
@@ -193,7 +195,8 @@ func TestDecoderCTL_PhaseInversionDisabledRoundTrip(t *testing.T) {
 // OPUS_SET/GET_IGNORE_EXTENSIONS round-trip.
 //
 // C ref: opus_decoder_ctl OPUS_SET_IGNORE_EXTENSIONS_REQUEST –
-//   "if(value<0 || value>1) goto bad_arg"
+//
+//	"if(value<0 || value>1) goto bad_arg"
 func TestDecoderCTL_IgnoreExtensionsRoundTrip(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 
@@ -268,7 +271,8 @@ func TestDecoderCTL_FinalRangeZeroBeforeDecode(t *testing.T) {
 // non-zero value after successfully decoding a real packet.
 //
 // C ref: opus_decoder.c – "st->rangeFinal" is set from the range coder state
-//   after opus_decode_frame (celt_decoder_ctl OPUS_GET_FINAL_RANGE).
+//
+//	after opus_decode_frame (celt_decoder_ctl OPUS_GET_FINAL_RANGE).
 func TestDecoderCTL_FinalRangeNonZeroAfterDecode(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 	pcm := make([]float32, 960)
@@ -286,7 +290,8 @@ func TestDecoderCTL_FinalRangeNonZeroAfterDecode(t *testing.T) {
 // its reset because st->complexity is inside the preserved region).
 //
 // C ref: opus_decoder.c OPUS_RESET_STATE case – OPUS_CLEAR starts at
-//   &st->OPUS_DECODER_RESET_START, which is after st->complexity.
+//
+//	&st->OPUS_DECODER_RESET_START, which is after st->complexity.
 func TestDecoderCTL_ResetPreservesComplexity(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 	if err := dec.SetComplexity(7); err != nil {
@@ -302,9 +307,10 @@ func TestDecoderCTL_ResetPreservesComplexity(t *testing.T) {
 // decode gain, matching libopus OPUS_RESET_STATE behavior.
 //
 // C ref: opus_decoder.c struct layout – decode_gain is at line 71, before
-//   "OPUS_DECODER_RESET_START stream_channels" (line 80).  OPUS_RESET_STATE
-//   clears only from stream_channels onward, so decode_gain survives reset.
-//   Complexity (line 72) is likewise preserved (see TestDecoderCTL_ResetPreservesComplexity).
+//
+//	"OPUS_DECODER_RESET_START stream_channels" (line 80).  OPUS_RESET_STATE
+//	clears only from stream_channels onward, so decode_gain survives reset.
+//	Complexity (line 72) is likewise preserved (see TestDecoderCTL_ResetPreservesComplexity).
 func TestDecoderCTL_ResetPreservesGain(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 	if err := dec.SetGain(256); err != nil {
@@ -344,12 +350,13 @@ func TestDecoderCTL_ResetClearsLastPacketDuration(t *testing.T) {
 // byte slice returns ErrInvalidPacket.
 //
 // C ref: opus_decode_native – non-nil data with len==0 takes the PLC branch,
-//   but when called from opus_decode_float with data!=nil it would have
-//   attempted get_nb_samples first; however gopus (like libopus float path)
-//   treats an empty non-nil slice as a zero-length data → PLC, not an error.
-//   A truly absent packet (nil) is PLC.  A single-byte (TOC-only) packet with
-//   no frame data is handled by opus_packet_parse_impl returning count≥0, and
-//   the single frame has zero bytes, which is valid for the CELT/SILK layer.
+//
+//	but when called from opus_decode_float with data!=nil it would have
+//	attempted get_nb_samples first; however gopus (like libopus float path)
+//	treats an empty non-nil slice as a zero-length data → PLC, not an error.
+//	A truly absent packet (nil) is PLC.  A single-byte (TOC-only) packet with
+//	no frame data is handled by opus_packet_parse_impl returning count≥0, and
+//	the single frame has zero bytes, which is valid for the CELT/SILK layer.
 //
 // gopus mirrors libopus: empty non-nil data decodes as PLC (no error).
 func TestDecodeErrorCode_ZeroLengthPacket(t *testing.T) {
@@ -373,7 +380,8 @@ func TestDecodeErrorCode_ZeroLengthPacket(t *testing.T) {
 // only 1 byte (missing the frame-count byte) is rejected.
 //
 // C ref: opus_packet_parse_impl – code==3 requires at least 2 bytes; returns
-//   OPUS_INVALID_PACKET when len<2.
+//
+//	OPUS_INVALID_PACKET when len<2.
 func TestDecodeErrorCode_TruncatedCode3(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 	pcm := make([]float32, 5760)
@@ -421,7 +429,8 @@ func TestDecodeErrorCode_Code3ExcessiveFrames(t *testing.T) {
 // total duration exceeds 120ms is rejected.
 //
 // C ref: opus_packet_get_nb_samples – "if (samples*25 > Fs*3) return
-//   OPUS_INVALID_PACKET"
+//
+//	OPUS_INVALID_PACKET"
 func TestDecodeErrorCode_TotalDurationOver120ms(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 	// Config 31 = CELT FB 20ms; code 3 with M=7 → 140ms > 120ms.
@@ -438,7 +447,8 @@ func TestDecodeErrorCode_TotalDurationOver120ms(t *testing.T) {
 // output PCM buffer is shorter than the packet requires.
 //
 // C ref: opus_decode_native – "if (count*packet_frame_size > frame_size)
-//   return OPUS_BUFFER_TOO_SMALL"
+//
+//	return OPUS_BUFFER_TOO_SMALL"
 func TestDecodeErrorCode_BufferTooSmall(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 	// minimalHybridTestPacket20ms() is 960 samples; give only 480.
@@ -454,7 +464,8 @@ func TestDecodeErrorCode_BufferTooSmall(t *testing.T) {
 // total payload).
 //
 // C ref: opus_packet_parse_impl code==1 branch – "if (framesize & 1)
-//   return OPUS_INVALID_PACKET"
+//
+//	return OPUS_INVALID_PACKET"
 func TestDecodeErrorCode_Code1OddPayload(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 	pcm := make([]float32, 960*2)
@@ -471,7 +482,8 @@ func TestDecodeErrorCode_Code1OddPayload(t *testing.T) {
 // insufficient bytes for the first frame length is rejected.
 //
 // C ref: opus_packet_parse_impl code==2 branch checks parsed frame1Len
-//   against the remaining packet bytes.
+//
+//	against the remaining packet bytes.
 func TestDecodeErrorCode_Code2ShortPacket(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 	pcm := make([]float32, 960*2)
@@ -489,7 +501,8 @@ func TestDecodeErrorCode_Code2ShortPacket(t *testing.T) {
 // rejected.
 //
 // C ref: opus_packet_parse_impl code==2 – frame2 length becomes negative →
-//   OPUS_INVALID_PACKET.
+//
+//	OPUS_INVALID_PACKET.
 func TestDecodeErrorCode_Code2Frame1TooLarge(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 	pcm := make([]float32, 960*2)
@@ -506,7 +519,8 @@ func TestDecodeErrorCode_Code2Frame1TooLarge(t *testing.T) {
 // total frame bytes are not divisible by M is rejected.
 //
 // C ref: opus_packet_parse_impl code==3 CBR branch –
-//   "if (framesize % count) return OPUS_INVALID_PACKET"
+//
+//	"if (framesize % count) return OPUS_INVALID_PACKET"
 func TestDecodeErrorCode_Code3CBRUneven(t *testing.T) {
 	dec := mustNewTestDecoder(t, 48000, 1)
 	pcm := make([]float32, 960*3)

@@ -40,12 +40,12 @@ func (d *Decoder) decodeFloat32(data []byte, pcm []float32, clearSoftClipOnPacke
 	dredPossible := false
 	if extsupport.DREDRuntime {
 		dredPossible = d.dredDecodeSidecarPossible()
-		if data != nil && len(data) > 0 && dredPossible && d.dredCachedPayloadActive() {
+		if len(data) > 0 && dredPossible && d.dredCachedPayloadActive() {
 			d.invalidateDREDPayloadState()
 		}
 	}
 
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		frameSize, err := d.plcOutputFrameSize(len(pcm))
 		if err != nil {
 			return 0, err
@@ -466,7 +466,7 @@ func (d *Decoder) DecodeWithFEC(data []byte, pcm []float32, fec bool) (int, erro
 	}
 	sampleRate := int(d.sampleRate)
 
-	if data != nil && len(data) > 0 {
+	if len(data) > 0 {
 		// libopus opus_decode runs opus_packet_parse_impl on the packet before the
 		// decode_fec branch (src/opus_decoder.c:781) and returns its error on a
 		// malformed packet, exactly as the plain decode path does. Validate the
@@ -544,7 +544,7 @@ func (d *Decoder) DecodeInt16(data []byte, pcm []int16) (int, error) {
 	defer d.endFixedPacket()
 	channels := int(d.channels)
 	sampleRate := int(d.sampleRate)
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		frameSize, err := d.plcOutputFrameSize(len(pcm))
 		if err != nil {
 			return 0, err
@@ -625,7 +625,7 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 	defer d.endFixedPacket()
 	channels := int(d.channels)
 	sampleRate := int(d.sampleRate)
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		frameSize, err := d.plcOutputFrameSize(len(pcm))
 		if err != nil {
 			return 0, err
@@ -694,7 +694,7 @@ func (d *Decoder) DecodeInt24(data []byte, pcm []int32) (int, error) {
 func (d *Decoder) DecodeInt24Slice(data []byte) ([]int32, error) {
 	channels := int(d.channels)
 	var frameSize int
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		frameSize = d.maxPacketSamples
 		if int(d.lastPacketDuration) > 0 {
 			frameSize = int(d.lastPacketDuration)

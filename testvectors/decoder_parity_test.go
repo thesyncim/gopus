@@ -16,7 +16,6 @@ import (
 	"github.com/thesyncim/gopus/internal/libopustooling"
 )
 
-
 func decoderDominantMode(hist map[string]int) string {
 	bestMode := "unknown"
 	bestCount := -1
@@ -38,44 +37,6 @@ func decoderMatrixCaseMode(c libopusDecoderMatrixCaseFile) string {
 		return "hybrid"
 	}
 	return decoderDominantMode(c.ModeHistogram)
-}
-
-func decoderParityStats(a, b []float32) (corr, rmsRatio float64) {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	if n == 0 {
-		return 0, 0
-	}
-	var sumA, sumB, sumASq, sumBSq float64
-	for i := 0; i < n; i++ {
-		fa := float64(a[i])
-		fb := float64(b[i])
-		sumA += fa
-		sumB += fb
-		sumASq += fa * fa
-		sumBSq += fb * fb
-	}
-	meanA := sumA / float64(n)
-	meanB := sumB / float64(n)
-	var cov, varA, varB float64
-	for i := 0; i < n; i++ {
-		da := float64(a[i]) - meanA
-		db := float64(b[i]) - meanB
-		cov += da * db
-		varA += da * da
-		varB += db * db
-	}
-	if varA > 0 && varB > 0 {
-		corr = cov / math.Sqrt(varA*varB)
-	}
-	rmsA := math.Sqrt(sumASq / float64(n))
-	rmsB := math.Sqrt(sumBSq / float64(n))
-	if rmsA > 0 {
-		rmsRatio = rmsB / rmsA
-	}
-	return corr, rmsRatio
 }
 
 func TestDecoderParityLibopusMatrix(t *testing.T) {

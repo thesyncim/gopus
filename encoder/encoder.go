@@ -3103,11 +3103,6 @@ func (e *Encoder) silkMaxBitsForPacketBytes(frameSize, silkBitrate, maxPacketByt
 	return maxBits
 }
 
-// encodeCELTFrame encodes a frame using CELT-only mode.
-func (e *Encoder) encodeCELTFrame(pcm []opusRes, frameSize int) ([]byte, error) {
-	return e.encodeCELTFrameWithBitrateAndMaxPayload(pcm, frameSize, int(e.bitrate), 0)
-}
-
 func (e *Encoder) encodeCELTFrameWithBitrateAndMaxPayload(pcm []opusRes, frameSize int, bitrate int, maxPayloadBytes int) ([]byte, error) {
 	return e.encodeCELTFrameWithBitrateMaxPayloadAndDRED(pcm, frameSize, bitrate, maxPayloadBytes, 0)
 }
@@ -4009,7 +4004,7 @@ func (e *Encoder) computeSilkVADSide(mono []float32, frameSamples, fsKHz int) bo
 	}
 	e.ensureSilkVADSide()
 	state, active := computeSilkVADFrameState(e.silkVADSide, mono, frameSamples, fsKHz)
-	state, active = e.applyOpusVADToSilkState(state, active)
+	_, active = e.applyOpusVADToSilkState(state, active)
 	return active
 }
 

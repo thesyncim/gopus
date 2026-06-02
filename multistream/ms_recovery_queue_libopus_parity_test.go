@@ -12,7 +12,6 @@
 package multistream
 
 import (
-	"math"
 	"testing"
 
 	internalenc "github.com/thesyncim/gopus/encoder"
@@ -565,36 +564,4 @@ func TestLibopus_MSRecovery_PerStreamIsolation(t *testing.T) {
 		cmpTail := compareWaveformF32(got[skipSamples:], want[skipSamples:])
 		qualitycompare.AssertQuality(t, cmpTail, qualityBarWaveformNearExact, "5.1-CELT-per-stream-isolation-resumed-tail")
 	}
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-// energyF32 returns mean-square energy of a float32 slice.
-func energyF32(s []float32) float64 {
-	if len(s) == 0 {
-		return 0
-	}
-	var sum float64
-	for _, v := range s {
-		sum += float64(v) * float64(v)
-	}
-	return sum / float64(len(s))
-}
-
-// maxAbsDiffF32 returns the maximum absolute difference between two slices.
-func maxAbsDiffF32(a, b []float32) float64 {
-	n := len(a)
-	if len(b) < n {
-		n = len(b)
-	}
-	var maxD float64
-	for i := 0; i < n; i++ {
-		d := math.Abs(float64(a[i] - b[i]))
-		if d > maxD {
-			maxD = d
-		}
-	}
-	return maxD
 }

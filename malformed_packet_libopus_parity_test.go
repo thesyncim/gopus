@@ -26,10 +26,10 @@ import (
 
 // Libopus raw error codes (opus_defines.h).
 const (
-	libopusOK              = int32(0)
-	libopusErrBadArg       = int32(-1)
-	libopusErrBufTooSmall  = int32(-2)
-	libopusErrInvalidPkt   = int32(-4)
+	libopusOK             = int32(0)
+	libopusErrBadArg      = int32(-1)
+	libopusErrBufTooSmall = int32(-2)
+	libopusErrInvalidPkt  = int32(-4)
 )
 
 // malformedDecodeFormat selects the PCM decode API to probe.
@@ -43,11 +43,11 @@ const (
 
 // malformedPacketCase describes one malformed-packet probe.
 type malformedPacketCase struct {
-	name      string
-	packet    []byte // nil or empty → PLC / len-0 packet
-	format    malformedDecodeFormat
+	name       string
+	packet     []byte // nil or empty → PLC / len-0 packet
+	format     malformedDecodeFormat
 	sampleRate int
-	channels  int
+	channels   int
 	// wantGopusErr is the gopus error we expect when libopus returns a
 	// negative code.  If nil and libopus returns negative, the test only
 	// checks that gopus also returned non-nil.
@@ -139,8 +139,9 @@ func probeMalformedDecodeErrors(cases []malformedPacketCase) ([]libopusDecodeErr
 // semantically equivalent to libopus OPUS_INVALID_PACKET.
 //
 // References:
-//   packet_parse.go ErrPacketTooShort, ErrInvalidFrameCount, ErrInvalidPacket
-//   decoder_misc.go packetFrameCount
+//
+//	packet_parse.go ErrPacketTooShort, ErrInvalidFrameCount, ErrInvalidPacket
+//	decoder_misc.go packetFrameCount
 func isGopusInvalidPacketErr(err error) bool {
 	return errors.Is(err, ErrInvalidPacket) ||
 		errors.Is(err, ErrPacketTooShort) ||
@@ -156,15 +157,6 @@ func isGopusInvalidPacketErr(err error) bool {
 // TOC byte 0x60 = CELT FB 20 ms mono code-0 (config 12, 0x60).
 // TOC byte 0x78 = Hybrid FB 20 ms mono code-0 (config 15, 0x78).
 
-// silkNB10msMonoCode0 is a valid minimal SILK NB 10ms packet used as a
-// building block for multi-frame tests that need to survive parse.
-// TOC = 0x00 (config 0 = SILK NB 10ms, mono, code-0).
-var silkNB10msMonoCode0 = []byte{0x00, 0xFF}
-
-// celtFB20msMonoCode0 is a valid minimal CELT FB 20ms packet (config 12,
-// code 0).  TOC = 0x60.
-var celtFB20msMonoCode0 = []byte{0x60, 0xFF, 0xFF, 0xFF, 0xFF}
-
 func malformedCorpus48k1ch() []malformedPacketCase {
 	var cases []malformedPacketCase
 
@@ -178,11 +170,11 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 	// PLC branch and returns positive samples — not an error.  We assert
 	// gopus also succeeds.
 	cases = append(cases, malformedPacketCase{
-		name:        "empty_nil_packet",
-		packet:      nil,
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "empty_nil_packet",
+		packet:       nil,
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: nil, // libopus PLC → success
 	})
 
@@ -190,11 +182,11 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 	// Code 0: TOC only, no frame data.  parse succeeds (frame size = 0).
 	// opus_decode_frame gets len=0 which means PLC — not an error.
 	cases = append(cases, malformedPacketCase{
-		name:        "code0_toc_only",
-		packet:      []byte{0x00},
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code0_toc_only",
+		packet:       []byte{0x00},
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: nil, // libopus treats len=0/1 as PLC
 	})
 
@@ -202,21 +194,21 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 	// Code 1: payload length must be even; odd length → OPUS_INVALID_PACKET.
 	// src/opus.c opus_packet_parse_impl case 1: if (len&0x1) return OPUS_INVALID_PACKET
 	cases = append(cases, malformedPacketCase{
-		name:        "code1_odd_payload_len",
-		packet:      []byte{0x01, 0xAA, 0xBB, 0xCC}, // 3-byte payload (odd)
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code1_odd_payload_len",
+		packet:       []byte{0x01, 0xAA, 0xBB, 0xCC}, // 3-byte payload (odd)
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrInvalidPacket,
 	})
 
 	// Code 1: zero payload → both frames are size 0 → PLC, not error.
 	cases = append(cases, malformedPacketCase{
-		name:        "code1_zero_payload",
-		packet:      []byte{0x01},
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code1_zero_payload",
+		packet:       []byte{0x01},
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: nil, // parse OK, empty → treated as PLC
 	})
 
@@ -225,11 +217,11 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 	// src/opus.c case 2: if (size[0]<0 || size[0] > len) return OPUS_INVALID_PACKET
 	cases = append(cases, malformedPacketCase{
 		// frame1 length byte claims 10, but only 3 bytes follow
-		name:        "code2_frame1_len_overflow",
-		packet:      []byte{0x02, 10, 0xAA, 0xBB, 0xCC}, // 3 payload bytes, frame1_len=10
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code2_frame1_len_overflow",
+		packet:       []byte{0x02, 10, 0xAA, 0xBB, 0xCC}, // 3 payload bytes, frame1_len=10
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrInvalidPacket,
 	})
 
@@ -238,11 +230,11 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 	// libopus parse_size: len<1 → size=-1, returns -1, caller sees size[0]<0 → OPUS_INVALID_PACKET.
 	// Both signal "packet is malformed"; gopus uses ErrPacketTooShort.
 	cases = append(cases, malformedPacketCase{
-		name:        "code2_truncated_size_field",
-		packet:      []byte{0x02}, // no size field after TOC
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code2_truncated_size_field",
+		packet:       []byte{0x02}, // no size field after TOC
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrPacketTooShort,
 	})
 
@@ -250,11 +242,11 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 	// gopus parseFrameLength: offset+1 >= len(data) → ErrPacketTooShort.
 	// libopus parse_size: len<2 → size=-1 → OPUS_INVALID_PACKET.
 	cases = append(cases, malformedPacketCase{
-		name:        "code2_size_2byte_partial",
-		packet:      []byte{0x02, 0xFC}, // first size byte ≥ 252, second byte missing
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code2_size_2byte_partial",
+		packet:       []byte{0x02, 0xFC}, // first size byte ≥ 252, second byte missing
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrPacketTooShort,
 	})
 
@@ -262,11 +254,11 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 	// Code 3: frame count M (bits 0-5 of byte 2) == 0 → OPUS_INVALID_PACKET.
 	// src/opus.c default case: if (count <= 0 ...) return OPUS_INVALID_PACKET
 	cases = append(cases, malformedPacketCase{
-		name:        "code3_M_zero",
-		packet:      []byte{0x03, 0x00}, // M=0
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code3_M_zero",
+		packet:       []byte{0x03, 0x00}, // M=0
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrInvalidFrameCount,
 	})
 
@@ -274,19 +266,19 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 	// Frame count in bits 0-5 can be at most 48 (0x30); 49 overflows.
 	// Note: bits 0-5 of 0x31 = 49.
 	cases = append(cases, malformedPacketCase{
-		name:        "code3_M_49",
-		packet:      []byte{0x03, 0x31}, // M=49 (>48)
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code3_M_49",
+		packet:       []byte{0x03, 0x31}, // M=49 (>48)
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrInvalidFrameCount,
 	})
 	cases = append(cases, malformedPacketCase{
-		name:        "code3_M_63",
-		packet:      []byte{0x03, 0x3F}, // M=63
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code3_M_63",
+		packet:       []byte{0x03, 0x3F}, // M=63
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrInvalidFrameCount,
 	})
 
@@ -298,10 +290,10 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		name: "code3_over_120ms",
 		// config 0 (SILK NB) = 10ms/frame at 48kHz → 480 samples/frame
 		// 13 frames × 480 = 6240 > 5760 → OPUS_INVALID_PACKET
-		packet:      []byte{0x03, 0x0D}, // code-3, M=13 (bits 0-5 = 0x0D)
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		packet:       []byte{0x03, 0x0D}, // code-3, M=13 (bits 0-5 = 0x0D)
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrInvalidPacket,
 	})
 
@@ -310,21 +302,21 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 	// src/opus.c CBR case: if (last_size*count!=len) return OPUS_INVALID_PACKET
 	cases = append(cases, malformedPacketCase{
 		// M=3, CBR (bit7=0), no padding (bit6=0): 4 payload bytes → 4/3 not integer
-		name:        "code3_cbr_uneven_payload",
-		packet:      []byte{0x03, 0x03, 0xAA, 0xBB, 0xCC, 0xDD}, // 4 bytes payload, M=3
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code3_cbr_uneven_payload",
+		packet:       []byte{0x03, 0x03, 0xAA, 0xBB, 0xCC, 0xDD}, // 4 bytes payload, M=3
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrInvalidPacket,
 	})
 
 	// CBR: zero payload divided by M=3 is fine (0/3=0)
 	cases = append(cases, malformedPacketCase{
-		name:        "code3_cbr_zero_payload",
-		packet:      []byte{0x03, 0x03}, // M=3, no payload
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code3_cbr_zero_payload",
+		packet:       []byte{0x03, 0x03}, // M=3, no payload
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: nil, // 0/3 = 0 bytes/frame → parse OK, PLC-like
 	})
 
@@ -333,11 +325,11 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 	// src/opus.c VBR loop: if (size[i]<0 || size[i] > len) return OPUS_INVALID_PACKET
 	cases = append(cases, malformedPacketCase{
 		// M=2, VBR (bit7=1), no padding: size[0] claims 100 but only 2 bytes follow
-		name:        "code3_vbr_size_overflow",
-		packet:      []byte{0x03, 0x82, 100, 0xAA, 0xBB}, // M=2,VBR,size[0]=100
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code3_vbr_size_overflow",
+		packet:       []byte{0x03, 0x82, 100, 0xAA, 0xBB}, // M=2,VBR,size[0]=100
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrInvalidPacket,
 	})
 
@@ -348,11 +340,11 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		// M=1, no VBR, padding flag set (bit6), but pad byte follows with 255
 		// meaning 254 pad bytes needed; len after count byte is 2 → immediately
 		// runs out: padding loop: len--; tmp=254; len-=254 → len<0
-		name:        "code3_padding_overflow",
-		packet:      []byte{0x03, 0x41, 0xFF, 0x01}, // M=1, padding=1, pad=255→need254
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code3_padding_overflow",
+		packet:       []byte{0x03, 0x41, 0xFF, 0x01}, // M=1, padding=1, pad=255→need254
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrInvalidPacket,
 	})
 
@@ -361,22 +353,22 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 	// libopus: len<=0 inside padding loop → OPUS_INVALID_PACKET.
 	// Both signal "malformed packet"; gopus uses ErrPacketTooShort.
 	cases = append(cases, malformedPacketCase{
-		name:        "code3_padding_byte_missing",
-		packet:      []byte{0x03, 0x41}, // M=1, padding flag set, no pad-length byte
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code3_padding_byte_missing",
+		packet:       []byte{0x03, 0x41}, // M=1, padding flag set, no pad-length byte
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrPacketTooShort,
 	})
 
 	// ---- Code-3 len<1 after TOC (missing frame-count byte) ----------------
 	// src/opus.c default: if (len<1) return OPUS_INVALID_PACKET
 	cases = append(cases, malformedPacketCase{
-		name:        "code3_missing_frame_count_byte",
-		packet:      []byte{0x03}, // code-3 but no frame-count byte
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code3_missing_frame_count_byte",
+		packet:       []byte{0x03}, // code-3 but no frame-count byte
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrPacketTooShort,
 	})
 
@@ -390,11 +382,11 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		bigPayload[i] = 0xFF
 	}
 	cases = append(cases, malformedPacketCase{
-		name:        "code0_frame_exceeds_1275",
-		packet:      bigPayload,
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code0_frame_exceeds_1275",
+		packet:       bigPayload,
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrInvalidPacket,
 	})
 
@@ -420,11 +412,11 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 		oversizedCode2[i] = 0xAA
 	}
 	cases = append(cases, malformedPacketCase{
-		name:        "code2_frame2_exceeds_1275",
-		packet:      oversizedCode2,
-		format:      malformedFormatFloat32,
-		sampleRate:  48000,
-		channels:    1,
+		name:         "code2_frame2_exceeds_1275",
+		packet:       oversizedCode2,
+		format:       malformedFormatFloat32,
+		sampleRate:   48000,
+		channels:     1,
 		wantGopusErr: ErrInvalidPacket,
 	})
 
@@ -437,29 +429,29 @@ func malformedCorpus48k1ch() []malformedPacketCase {
 func bufferTooSmallCases48k1ch() []bufferTooSmallProbeCase {
 	return []bufferTooSmallProbeCase{
 		{
-			name:      "buf_too_small_code0_20ms",
-			packet:    []byte{0x60, 0xFF, 0xFF, 0xFF, 0xFF}, // CELT FB 20ms
-			frameSize: 480,                                   // only 480, packet needs 960
+			name:       "buf_too_small_code0_20ms",
+			packet:     []byte{0x60, 0xFF, 0xFF, 0xFF, 0xFF}, // CELT FB 20ms
+			frameSize:  480,                                  // only 480, packet needs 960
 			sampleRate: 48000,
-			channels:  1,
+			channels:   1,
 		},
 		{
-			name:      "buf_too_small_code1_2x20ms",
+			name: "buf_too_small_code1_2x20ms",
 			// code-1: 2 frames × 960 = 1920 samples needed; give 960
-			packet:    []byte{0x61, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
-			frameSize: 960,
+			packet:     []byte{0x61, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF},
+			frameSize:  960,
 			sampleRate: 48000,
-			channels:  1,
+			channels:   1,
 		},
 	}
 }
 
 type bufferTooSmallProbeCase struct {
-	name      string
-	packet    []byte
-	frameSize int
+	name       string
+	packet     []byte
+	frameSize  int
 	sampleRate int
-	channels  int
+	channels   int
 }
 
 func probeBufTooSmallCases(cases []bufferTooSmallProbeCase) ([]int32, error) {
@@ -518,11 +510,13 @@ func ensureMalformedHelper(t testing.TB) {
 // class gopus returns the same error classification as libopus.
 //
 // For OPUS_INVALID_PACKET:
-//   gopus must return one of ErrInvalidPacket / ErrPacketTooShort /
-//   ErrInvalidFrameCount (all are OPUS_INVALID_PACKET equivalents).
+//
+//	gopus must return one of ErrInvalidPacket / ErrPacketTooShort /
+//	ErrInvalidFrameCount (all are OPUS_INVALID_PACKET equivalents).
 //
 // For success (positive libopus result):
-//   gopus must also succeed (return nil error).
+//
+//	gopus must also succeed (return nil error).
 func TestMalformedPacketErrorCodeParity(t *testing.T) {
 	libopustest.RequireOracle(t)
 	ensureMalformedHelper(t)
@@ -610,7 +604,8 @@ func TestMalformedPacketErrorCodeParity(t *testing.T) {
 // TestMalformedPacketBufferTooSmallParity verifies OPUS_BUFFER_TOO_SMALL parity.
 //
 // libopus opus_decode_native: if (count*packet_frame_size > frame_size)
-//   return OPUS_BUFFER_TOO_SMALL;                  (src/opus_decoder.c:835)
+//
+//	return OPUS_BUFFER_TOO_SMALL;                  (src/opus_decoder.c:835)
 //
 // The libopus oracle is called with a deliberately small frame_size so that
 // count*packet_frame_size > frame_size.  gopus must return ErrBufferTooSmall.
@@ -660,35 +655,35 @@ func TestMalformedPacketInt16Parity(t *testing.T) {
 
 	int16Cases := []malformedPacketCase{
 		{
-			name:        "int16_code1_odd_payload",
-			packet:      []byte{0x01, 0xAA, 0xBB, 0xCC},
-			format:      malformedFormatInt16,
-			sampleRate:  48000,
-			channels:    1,
+			name:         "int16_code1_odd_payload",
+			packet:       []byte{0x01, 0xAA, 0xBB, 0xCC},
+			format:       malformedFormatInt16,
+			sampleRate:   48000,
+			channels:     1,
 			wantGopusErr: ErrInvalidPacket,
 		},
 		{
-			name:        "int16_code3_M_zero",
-			packet:      []byte{0x03, 0x00},
-			format:      malformedFormatInt16,
-			sampleRate:  48000,
-			channels:    1,
+			name:         "int16_code3_M_zero",
+			packet:       []byte{0x03, 0x00},
+			format:       malformedFormatInt16,
+			sampleRate:   48000,
+			channels:     1,
 			wantGopusErr: ErrInvalidFrameCount,
 		},
 		{
-			name:        "int16_code3_missing_frame_count",
-			packet:      []byte{0x03},
-			format:      malformedFormatInt16,
-			sampleRate:  48000,
-			channels:    1,
+			name:         "int16_code3_missing_frame_count",
+			packet:       []byte{0x03},
+			format:       malformedFormatInt16,
+			sampleRate:   48000,
+			channels:     1,
 			wantGopusErr: ErrPacketTooShort,
 		},
 		{
-			name:        "int16_code2_frame1_overflow",
-			packet:      []byte{0x02, 10, 0xAA, 0xBB, 0xCC},
-			format:      malformedFormatInt16,
-			sampleRate:  48000,
-			channels:    1,
+			name:         "int16_code2_frame1_overflow",
+			packet:       []byte{0x02, 10, 0xAA, 0xBB, 0xCC},
+			format:       malformedFormatInt16,
+			sampleRate:   48000,
+			channels:     1,
 			wantGopusErr: ErrInvalidPacket,
 		},
 	}
@@ -731,27 +726,27 @@ func TestMalformedPacketInt24Parity(t *testing.T) {
 
 	int24Cases := []malformedPacketCase{
 		{
-			name:        "int24_code1_odd_payload",
-			packet:      []byte{0x01, 0xAA, 0xBB, 0xCC},
-			format:      malformedFormatInt24,
-			sampleRate:  48000,
-			channels:    1,
+			name:         "int24_code1_odd_payload",
+			packet:       []byte{0x01, 0xAA, 0xBB, 0xCC},
+			format:       malformedFormatInt24,
+			sampleRate:   48000,
+			channels:     1,
 			wantGopusErr: ErrInvalidPacket,
 		},
 		{
-			name:        "int24_code3_M_63",
-			packet:      []byte{0x03, 0x3F},
-			format:      malformedFormatInt24,
-			sampleRate:  48000,
-			channels:    1,
+			name:         "int24_code3_M_63",
+			packet:       []byte{0x03, 0x3F},
+			format:       malformedFormatInt24,
+			sampleRate:   48000,
+			channels:     1,
 			wantGopusErr: ErrInvalidFrameCount,
 		},
 		{
-			name:        "int24_code3_cbr_uneven",
-			packet:      []byte{0x03, 0x03, 0xAA, 0xBB, 0xCC, 0xDD},
-			format:      malformedFormatInt24,
-			sampleRate:  48000,
-			channels:    1,
+			name:         "int24_code3_cbr_uneven",
+			packet:       []byte{0x03, 0x03, 0xAA, 0xBB, 0xCC, 0xDD},
+			format:       malformedFormatInt24,
+			sampleRate:   48000,
+			channels:     1,
 			wantGopusErr: ErrInvalidPacket,
 		},
 	}
@@ -802,11 +797,11 @@ func TestMalformedPacketAllRatesAndChannels(t *testing.T) {
 			name := fmt.Sprintf("fs%d_ch%d_code1_odd", rate, ch)
 			t.Run(name, func(t *testing.T) {
 				tc := malformedPacketCase{
-					name:        name,
-					packet:      []byte{0x01, 0xAA, 0xBB, 0xCC}, // code-1, odd payload
-					format:      malformedFormatFloat32,
-					sampleRate:  rate,
-					channels:    ch,
+					name:         name,
+					packet:       []byte{0x01, 0xAA, 0xBB, 0xCC}, // code-1, odd payload
+					format:       malformedFormatFloat32,
+					sampleRate:   rate,
+					channels:     ch,
 					wantGopusErr: ErrInvalidPacket,
 				}
 				res, err := probeMalformedDecodeErrors([]malformedPacketCase{tc})

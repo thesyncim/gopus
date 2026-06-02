@@ -323,12 +323,12 @@ func TestSILKStereoLRToMSFixedLibopusParity(t *testing.T) {
 
 	for i, tc := range cases {
 		st := stereoEncState{
-			predPrevQ13:  tc.predPrevQ13,
-			sMid:         tc.sMid,
-			sSide:        tc.sSide,
-			midSideAmpQ0: tc.midSideAmpQ0,
-			smthWidthQ14: tc.smthWidthQ14,
-			widthPrevQ14: tc.widthPrevQ14,
+			predPrevQ13:   tc.predPrevQ13,
+			sMid:          tc.sMid,
+			sSide:         tc.sSide,
+			midSideAmpQ0:  tc.midSideAmpQ0,
+			smthWidthQ14:  tc.smthWidthQ14,
+			widthPrevQ14:  tc.widthPrevQ14,
 			silentSideLen: tc.silentSide,
 		}
 

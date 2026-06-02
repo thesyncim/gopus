@@ -37,10 +37,10 @@ import (
 var celtShortFrameByteParityArm64MaxResidualRate = map[string]float64{
 	// 2.5 ms — 401 frames (48000/120 + 1 flush).
 	// measured: am_multisine 1.75%, chirp 20.45%, impulse 0.00%, speech 0.00%
-	"CELT-FB-2.5ms-mono-64k|am_multisine_v1":    0.07,
-	"CELT-FB-2.5ms-mono-64k|chirp_sweep_v1":     0.30, // chirp alloc_trim half-density + libopus SSE drift
-	"CELT-FB-2.5ms-mono-64k|impulse_train_v1":   0.05,
-	"CELT-FB-2.5ms-mono-64k|speech_like_v1":     0.05,
+	"CELT-FB-2.5ms-mono-64k|am_multisine_v1":  0.07,
+	"CELT-FB-2.5ms-mono-64k|chirp_sweep_v1":   0.30, // chirp alloc_trim half-density + libopus SSE drift
+	"CELT-FB-2.5ms-mono-64k|impulse_train_v1": 0.05,
+	"CELT-FB-2.5ms-mono-64k|speech_like_v1":   0.05,
 	// measured: am_multisine 0.75%, chirp 27.68%, impulse 0.00%, speech 0.50%
 	"CELT-FB-2.5ms-stereo-128k|am_multisine_v1":  0.05,
 	"CELT-FB-2.5ms-stereo-128k|chirp_sweep_v1":   0.35, // chirp half-density alloc_trim (see allocationMismatchRateCeilingArm64Override)
@@ -48,10 +48,10 @@ var celtShortFrameByteParityArm64MaxResidualRate = map[string]float64{
 	"CELT-FB-2.5ms-stereo-128k|speech_like_v1":   0.05,
 	// 5 ms — 201 frames (48000/240 + 1 flush).
 	// measured: am_multisine 0.00%, chirp 7.46%, impulse 1.00%, speech 3.98%
-	"CELT-FB-5ms-mono-64k|am_multisine_v1":   0.05,
-	"CELT-FB-5ms-mono-64k|chirp_sweep_v1":    0.14, // chirp half-density alloc_trim
-	"CELT-FB-5ms-mono-64k|impulse_train_v1":  0.05,
-	"CELT-FB-5ms-mono-64k|speech_like_v1":    0.09,
+	"CELT-FB-5ms-mono-64k|am_multisine_v1":  0.05,
+	"CELT-FB-5ms-mono-64k|chirp_sweep_v1":   0.14, // chirp half-density alloc_trim
+	"CELT-FB-5ms-mono-64k|impulse_train_v1": 0.05,
+	"CELT-FB-5ms-mono-64k|speech_like_v1":   0.09,
 	// measured: am_multisine 21.89%, chirp 5.97%, impulse 4.48%, speech 4.48%
 	"CELT-FB-5ms-stereo-128k|am_multisine_v1":  0.27, // FMA cascade on stereo mid/side path
 	"CELT-FB-5ms-stereo-128k|chirp_sweep_v1":   0.10,

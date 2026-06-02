@@ -232,7 +232,7 @@ func TestCELTEncodeEnergyMaskOracle(t *testing.T) {
 			lo := -gconstF(3.0)
 			hi := gconstF(0.5)
 			span := hi - lo
-			mask[i] = lo + int32((int64(uint32(v))%int64(uint32(span)+1)))
+			mask[i] = lo + int32((int64(uint32(v)) % int64(uint32(span)+1)))
 		}
 		return mask
 	}

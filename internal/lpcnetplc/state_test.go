@@ -284,8 +284,7 @@ func TestPredictorBackedConcealmentStepsDoNotAllocate(t *testing.T) {
 	st.SyncPredictor(predictor)
 
 	allocs := testing.AllocsPerRun(200, func() {
-		var local State
-		local = st
+		local := st
 		predictor.Reset()
 		local.SyncPredictor(predictor)
 		local.PrimeFirstLossPrefill(predictor)

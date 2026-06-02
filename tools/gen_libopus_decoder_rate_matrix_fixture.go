@@ -52,18 +52,18 @@ type rateMatrixFixtureFile struct {
 }
 
 type rateMatrixFixtureCase struct {
-	Name          string                       `json:"name"`
-	Application   string                       `json:"application"`
-	Bandwidth     string                       `json:"bandwidth"`
-	FrameSize     int                          `json:"frame_size"`
-	Channels      int                          `json:"channels"`
-	Bitrate       int                          `json:"bitrate"`
-	Frames        int                          `json:"frames"`
-	APIRate       int                          `json:"api_rate"`
-	ModeHistogram map[string]int               `json:"mode_histogram"`
-	Packets       []rateMatrixFixturePacket    `json:"packets"`
-	DecodedLen    int                          `json:"decoded_len"`
-	DecodedF32B64 string                       `json:"decoded_f32_le_b64"`
+	Name          string                    `json:"name"`
+	Application   string                    `json:"application"`
+	Bandwidth     string                    `json:"bandwidth"`
+	FrameSize     int                       `json:"frame_size"`
+	Channels      int                       `json:"channels"`
+	Bitrate       int                       `json:"bitrate"`
+	Frames        int                       `json:"frames"`
+	APIRate       int                       `json:"api_rate"`
+	ModeHistogram map[string]int            `json:"mode_histogram"`
+	Packets       []rateMatrixFixturePacket `json:"packets"`
+	DecodedLen    int                       `json:"decoded_len"`
+	DecodedF32B64 string                    `json:"decoded_f32_le_b64"`
 }
 
 type rateMatrixFixturePacket struct {

@@ -563,10 +563,8 @@ func (e *Encoder) EncodeFrame(pcm []float32, lookahead []float32, vadFlag bool) 
 				e.ecPrevLagIndex = ecPrevLagIndexCopy
 				e.ecPrevSignalType = ecPrevSignalTypeCopy
 				currentPrevInd = lastGainIndexPrev
-				if pulses != nil {
-					for i := range pulses {
-						pulses[i] = 0
-					}
+				for i := range pulses {
+					pulses[i] = 0
 				}
 
 				e.encodeFrameType(vadFlag, signalType, int(frameIndices.quantOffsetType))

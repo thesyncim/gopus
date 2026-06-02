@@ -334,4 +334,3 @@ func assertFixedExact(t *testing.T, label string, got, want []int32) {
 	t.Errorf("%s: %d/%d samples differ, maxAbs=%d, first at %d: gopus=%d libopus=%d",
 		label, diffs, len(got), maxAbs, firstIdx, got[firstIdx], want[firstIdx])
 }
-

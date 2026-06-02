@@ -1708,8 +1708,7 @@ func (e *Encoder) encodeCELTHybridImproved(pcm []opusRes, frameSize int, targetP
 	// for hybrid mode (!hybrid flag). Instead, use fixed TF patterns based on
 	// transient detection and signal type.
 	// Reference: libopus celt_encoder.c lines 2261-2279.
-	var tfRes []int32
-	tfRes = e.celtEncoder.TFResScratch(nbBands)
+	tfRes := e.celtEncoder.TFResScratch(nbBands)
 	tfSelect := celt.FillHybridTFResolution(tfRes, end, transient, weakTransient, allowWeakTransients)
 	// Match libopus pre-coarse stabilization before intra/coarse energy coding.
 	// Apply only on coded bands [start,end).

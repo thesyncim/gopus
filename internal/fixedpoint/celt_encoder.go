@@ -88,19 +88,19 @@ type CELTEncoder struct {
 	energyError []int32
 
 	// Decision state carried between frames.
-	prefilterPeriod  int
-	prefilterGain    int16
-	prefilterTapset  int
-	consecTransient  int
-	delayedIntra     int32
-	specAvg          int32
-	intensity        int
-	lastCodedBands   int
-	stereoSaving     int16
-	spreading        SpreadingState
-	spreadDecision   int
-	overlapMax       int32
-	rng              uint32
+	prefilterPeriod int
+	prefilterGain   int16
+	prefilterTapset int
+	consecTransient int
+	delayedIntra    int32
+	specAvg         int32
+	intensity       int
+	lastCodedBands  int
+	stereoSaving    int16
+	spreading       SpreadingState
+	spreadDecision  int
+	overlapMax      int32
+	rng             uint32
 
 	mdct   *MDCTLookup
 	window []int16

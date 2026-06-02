@@ -37,8 +37,8 @@ const (
 
 // EncodeDiff application codes (OPUS_APPLICATION_*).
 const (
-	EncodeDiffApplicationVoIP        = 2048
-	EncodeDiffApplicationAudio       = 2049
+	EncodeDiffApplicationVoIP         = 2048
+	EncodeDiffApplicationAudio        = 2049
 	EncodeDiffApplicationRestrictedLD = 2051
 )
 

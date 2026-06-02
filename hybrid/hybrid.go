@@ -41,7 +41,7 @@ func (d *Decoder) decodeAndFinishPacket(
 	packetStereo bool,
 	lastFrameChannels int,
 ) ([]float32, error) {
-	if data == nil || len(data) == 0 {
+	if len(data) == 0 {
 		return d.decodePLCToFloat32(frameSize, packetStereo)
 	}
 	if !ValidHybridFrameSize(d.frameSize48FromAPI(frameSize)) {

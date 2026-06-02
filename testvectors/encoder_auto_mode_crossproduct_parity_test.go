@@ -34,8 +34,8 @@ const (
 
 // OPUS_APPLICATION_* numeric values from opus_defines.h.
 const (
-	opusApplicationVoIP              = 2048
-	opusApplicationAudio             = 2049
+	opusApplicationVoIP               = 2048
+	opusApplicationAudio              = 2049
 	opusApplicationRestrictedLowDelay = 2051
 )
 
@@ -243,12 +243,12 @@ func newCrossProductEncoder(sampleRate, channels, bitrate, application int, sign
 // ── test matrix ──────────────────────────────────────────────────────────────
 
 type crossProductKey struct {
-	application  int
-	bitrate      int
-	frameSize    int
-	signal       uint32
-	channels     int
-	signalClass  string
+	application int
+	bitrate     int
+	frameSize   int
+	signal      uint32
+	channels    int
+	signalClass string
 }
 
 var (
@@ -298,12 +298,12 @@ func makeCrossProductCases() ([]crossProductCase, []crossProductKey) {
 	// Representative bitrates covering low / mid / high decision regions.
 	// libopus mode_thresholds: mono-voice=64000, mono-music=10000.
 	bitrates := []int{
-		6000,   // below music threshold → always CELT (low-rate fallback)
-		12000,  // near music threshold
-		24000,  // SILK territory for voice
-		40000,  // hybrid boundary for mono-voice
-		64000,  // CELT territory for most signals
-		96000,  // high-rate CELT
+		6000,  // below music threshold → always CELT (low-rate fallback)
+		12000, // near music threshold
+		24000, // SILK territory for voice
+		40000, // hybrid boundary for mono-voice
+		64000, // CELT territory for most signals
+		96000, // high-rate CELT
 	}
 
 	// Frame sizes at 48 kHz: 2.5 ms (120), 5 ms (240), 10 ms (480), 20 ms (960).

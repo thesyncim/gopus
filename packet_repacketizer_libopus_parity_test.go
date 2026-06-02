@@ -32,13 +32,13 @@ type repacketizerOracleCase struct {
 }
 
 type repacketizerOracleResult struct {
-	catRet    int32
-	nbFrames  int32
-	outRet    int32
-	outBytes  []byte
-	padRet    int32
-	padBytes  []byte
-	unpadRet  int32
+	catRet     int32
+	nbFrames   int32
+	outRet     int32
+	outBytes   []byte
+	padRet     int32
+	padBytes   []byte
+	unpadRet   int32
 	unpadBytes []byte
 }
 

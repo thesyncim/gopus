@@ -28,17 +28,18 @@ import (
 // the same defaults as libopus opus_encoder_init().
 //
 // C ref: src/opus_encoder.c opus_encoder_init():
-//   st->silk_mode.complexity = 9
-//   st->use_vbr = 1, st->vbr_constraint = 1
-//   st->user_bitrate_bps = OPUS_AUTO
-//   st->signal_type = OPUS_AUTO (-1000)
-//   st->user_bandwidth = OPUS_AUTO (-1000)
-//   st->max_bandwidth = OPUS_BANDWIDTH_FULLBAND (1105)
-//   st->force_channels = OPUS_AUTO (-1000)
-//   st->lsb_depth = 24
-//   st->variable_duration = OPUS_FRAMESIZE_ARG (5000)
-//   st->silk_mode.useInBandFEC = 0, st->silk_mode.useDTX = 0
-//   st->silk_mode.packetLossPercentage = 0
+//
+//	st->silk_mode.complexity = 9
+//	st->use_vbr = 1, st->vbr_constraint = 1
+//	st->user_bitrate_bps = OPUS_AUTO
+//	st->signal_type = OPUS_AUTO (-1000)
+//	st->user_bandwidth = OPUS_AUTO (-1000)
+//	st->max_bandwidth = OPUS_BANDWIDTH_FULLBAND (1105)
+//	st->force_channels = OPUS_AUTO (-1000)
+//	st->lsb_depth = 24
+//	st->variable_duration = OPUS_FRAMESIZE_ARG (5000)
+//	st->silk_mode.useInBandFEC = 0, st->silk_mode.useDTX = 0
+//	st->silk_mode.packetLossPercentage = 0
 func TestEncoderCTL_Defaults(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
@@ -237,7 +238,8 @@ func TestEncoderCTL_InBandFECBoundaryReject(t *testing.T) {
 // TestEncoderCTL_PacketLossRoundTrip verifies OPUS_SET/GET_PACKET_LOSS_PERC.
 //
 // C ref: opus_encoder_ctl OPUS_SET_PACKET_LOSS_PERC_REQUEST –
-//   "if (value < 0 || value > 100) goto bad_arg"
+//
+//	"if (value < 0 || value > 100) goto bad_arg"
 func TestEncoderCTL_PacketLossRoundTrip(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
@@ -255,7 +257,8 @@ func TestEncoderCTL_PacketLossRoundTrip(t *testing.T) {
 // rejected.
 //
 // C ref: opus_encoder_ctl OPUS_SET_PACKET_LOSS_PERC_REQUEST –
-//   "if (value < 0 || value > 100) goto bad_arg"
+//
+//	"if (value < 0 || value > 100) goto bad_arg"
 func TestEncoderCTL_PacketLossBoundaryReject(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 	if err := enc.SetPacketLoss(10); err != nil {
@@ -275,7 +278,8 @@ func TestEncoderCTL_PacketLossBoundaryReject(t *testing.T) {
 // TestEncoderCTL_SignalRoundTrip verifies OPUS_SET/GET_SIGNAL.
 //
 // C ref: opus_encoder_ctl OPUS_SET_SIGNAL_REQUEST –
-//   "if(value!=OPUS_AUTO && value!=OPUS_SIGNAL_VOICE && value!=OPUS_SIGNAL_MUSIC) goto bad_arg"
+//
+//	"if(value!=OPUS_AUTO && value!=OPUS_SIGNAL_VOICE && value!=OPUS_SIGNAL_MUSIC) goto bad_arg"
 func TestEncoderCTL_SignalRoundTrip(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
@@ -306,10 +310,11 @@ func TestEncoderCTL_SignalBoundaryReject(t *testing.T) {
 // returns the DECIDED bandwidth (not the user request).
 //
 // C ref: opus_encoder_ctl OPUS_SET_BANDWIDTH_REQUEST validates
-//   "(value < OPUS_BANDWIDTH_NARROWBAND || value > OPUS_BANDWIDTH_FULLBAND) &&
-//    value != OPUS_AUTO" and writes only st->user_bandwidth. OPUS_GET_BANDWIDTH
-//   returns st->bandwidth, which holds the FULLBAND init default until an encode
-//   decides it — it does NOT echo the SET value.
+//
+//	"(value < OPUS_BANDWIDTH_NARROWBAND || value > OPUS_BANDWIDTH_FULLBAND) &&
+//	 value != OPUS_AUTO" and writes only st->user_bandwidth. OPUS_GET_BANDWIDTH
+//	returns st->bandwidth, which holds the FULLBAND init default until an encode
+//	decides it — it does NOT echo the SET value.
 func TestEncoderCTL_BandwidthAcceptsAllValid(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
@@ -339,7 +344,8 @@ func TestEncoderCTL_BandwidthAcceptsAllValid(t *testing.T) {
 // TestEncoderCTL_MaxBandwidthRoundTrip verifies OPUS_SET/GET_MAX_BANDWIDTH.
 //
 // C ref: opus_encoder_ctl OPUS_SET_MAX_BANDWIDTH_REQUEST –
-//   "if (value < OPUS_BANDWIDTH_NARROWBAND || value > OPUS_BANDWIDTH_FULLBAND) goto bad_arg"
+//
+//	"if (value < OPUS_BANDWIDTH_NARROWBAND || value > OPUS_BANDWIDTH_FULLBAND) goto bad_arg"
 func TestEncoderCTL_MaxBandwidthRoundTrip(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
@@ -377,7 +383,8 @@ func TestEncoderCTL_MaxBandwidthBoundaryReject(t *testing.T) {
 // TestEncoderCTL_ForceChannelsRoundTrip verifies OPUS_SET/GET_FORCE_CHANNELS.
 //
 // C ref: opus_encoder_ctl OPUS_SET_FORCE_CHANNELS_REQUEST –
-//   "if((value<1 || value>st->channels) && value != OPUS_AUTO) goto bad_arg"
+//
+//	"if((value<1 || value>st->channels) && value != OPUS_AUTO) goto bad_arg"
 func TestEncoderCTL_ForceChannelsRoundTrip(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
 
@@ -395,7 +402,8 @@ func TestEncoderCTL_ForceChannelsRoundTrip(t *testing.T) {
 // values outside [-1, channels] are rejected.
 //
 // C ref: opus_encoder_ctl OPUS_SET_FORCE_CHANNELS_REQUEST –
-//   "if((value<1 || value>st->channels) && value != OPUS_AUTO) goto bad_arg"
+//
+//	"if((value<1 || value>st->channels) && value != OPUS_AUTO) goto bad_arg"
 func TestEncoderCTL_ForceChannelsBoundaryReject(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
@@ -441,7 +449,8 @@ func TestEncoderCTL_LSBDepthBoundaryReject(t *testing.T) {
 // OPUS_SET/GET_EXPERT_FRAME_DURATION for all valid values.
 //
 // C ref: opus_encoder_ctl OPUS_SET_EXPERT_FRAME_DURATION_REQUEST – must be
-//   one of the OPUS_FRAMESIZE_* constants.
+//
+//	one of the OPUS_FRAMESIZE_* constants.
 func TestEncoderCTL_ExpertFrameDurationRoundTrip(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
@@ -470,7 +479,8 @@ func TestEncoderCTL_ExpertFrameDurationRoundTrip(t *testing.T) {
 // frame-duration enum value is rejected.
 //
 // C ref: opus_encoder_ctl OPUS_SET_EXPERT_FRAME_DURATION_REQUEST – must be
-//   one of the OPUS_FRAMESIZE_* constants; otherwise goto bad_arg.
+//
+//	one of the OPUS_FRAMESIZE_* constants; otherwise goto bad_arg.
 func TestEncoderCTL_ExpertFrameDurationBoundaryReject(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
@@ -485,7 +495,8 @@ func TestEncoderCTL_ExpertFrameDurationBoundaryReject(t *testing.T) {
 // OPUS_SET/GET_PREDICTION_DISABLED.
 //
 // C ref: opus_encoder_ctl OPUS_SET_PREDICTION_DISABLED_REQUEST –
-//   "if (value > 1 || value < 0) goto bad_arg"
+//
+//	"if (value > 1 || value < 0) goto bad_arg"
 func TestEncoderCTL_PredictionDisabledRoundTrip(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
@@ -504,7 +515,8 @@ func TestEncoderCTL_PredictionDisabledRoundTrip(t *testing.T) {
 // OPUS_SET/GET_PHASE_INVERSION_DISABLED on a stereo encoder.
 //
 // C ref: opus_encoder_ctl OPUS_SET_PHASE_INVERSION_DISABLED_REQUEST –
-//   "if(value<0 || value>1) goto bad_arg"
+//
+//	"if(value<0 || value>1) goto bad_arg"
 func TestEncoderCTL_PhaseInversionDisabledRoundTrip(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 2, ApplicationAudio)
 
@@ -547,10 +559,11 @@ func TestEncoderCTL_ChannelsGetter(t *testing.T) {
 // sample rates and the three standard application values.
 //
 // C ref: opus_encoder_ctl OPUS_GET_LOOKAHEAD_REQUEST:
-//   *value = st->Fs/400;
-//   if (st->application != OPUS_APPLICATION_RESTRICTED_LOWDELAY &&
-//       st->application != OPUS_APPLICATION_RESTRICTED_CELT)
-//       *value += st->delay_compensation; // delay_compensation = Fs/250
+//
+//	*value = st->Fs/400;
+//	if (st->application != OPUS_APPLICATION_RESTRICTED_LOWDELAY &&
+//	    st->application != OPUS_APPLICATION_RESTRICTED_CELT)
+//	    *value += st->delay_compensation; // delay_compensation = Fs/250
 func TestEncoderCTL_LookaheadMatchesFormula(t *testing.T) {
 	cases := []struct {
 		rate int
@@ -600,8 +613,9 @@ func TestEncoderCTL_FinalRangeNonZeroAfterEncode(t *testing.T) {
 // TestEncoderCTL_ApplicationRoundTrip verifies OPUS_SET/GET_APPLICATION.
 //
 // C ref: opus_encoder_ctl OPUS_SET_APPLICATION_REQUEST – only
-//   OPUS_APPLICATION_VOIP, OPUS_APPLICATION_AUDIO, and
-//   OPUS_APPLICATION_RESTRICTED_LOWDELAY are valid after first encode.
+//
+//	OPUS_APPLICATION_VOIP, OPUS_APPLICATION_AUDIO, and
+//	OPUS_APPLICATION_RESTRICTED_LOWDELAY are valid after first encode.
 func TestEncoderCTL_ApplicationRoundTrip(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
@@ -629,7 +643,8 @@ func TestEncoderCTL_ApplicationRoundTrip(t *testing.T) {
 // application value would change.
 //
 // C ref: opus_encoder_ctl OPUS_SET_APPLICATION_REQUEST –
-//   "if (!st->first && st->application != value) { ret = OPUS_BAD_ARG; break; }"
+//
+//	"if (!st->first && st->application != value) { ret = OPUS_BAD_ARG; break; }"
 func TestEncoderCTL_ApplicationLockedAfterFirstEncode(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 	pcm := generateSineWave(48000, 440, 960)
@@ -689,7 +704,8 @@ func TestEncoderCTL_BitrateGetResidual(t *testing.T) {
 // bitrate values are rejected.
 //
 // C ref: opus_encoder_ctl OPUS_SET_BITRATE_REQUEST –
-//   "if (value <= 0) goto bad_arg" (after OPUS_AUTO / OPUS_BITRATE_MAX check)
+//
+//	"if (value <= 0) goto bad_arg" (after OPUS_AUTO / OPUS_BITRATE_MAX check)
 func TestEncoderCTL_BitrateBoundaryReject(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 
@@ -704,8 +720,9 @@ func TestEncoderCTL_BitrateBoundaryReject(t *testing.T) {
 // the libopus default values that are cleared by OPUS_RESET_STATE.
 //
 // C ref: opus_encoder_ctl OPUS_RESET_STATE case – clears from
-//   st->OPUS_ENCODER_RESET_START through the end of the struct; sets
-//   st->first=1, st->mode=MODE_HYBRID, st->bandwidth=OPUS_BANDWIDTH_FULLBAND.
+//
+//	st->OPUS_ENCODER_RESET_START through the end of the struct; sets
+//	st->first=1, st->mode=MODE_HYBRID, st->bandwidth=OPUS_BANDWIDTH_FULLBAND.
 func TestEncoderCTL_ResetRestoresDefaults(t *testing.T) {
 	enc := mustNewTestEncoder(t, 48000, 1, ApplicationAudio)
 

@@ -388,18 +388,6 @@ func TestDecodeInt16PLCBurstMatchesLibopus(t *testing.T) {
 	}
 }
 
-// plcInt16FloatEnergy returns the mean-square energy of a float32 slice.
-func plcInt16FloatEnergy(s []float32) float64 {
-	if len(s) == 0 {
-		return 0
-	}
-	var sum float64
-	for _, v := range s {
-		sum += float64(v) * float64(v)
-	}
-	return sum / float64(len(s))
-}
-
 // TestDecodeInt16PLCPeriodicDecaysMatchesLibopus exercises the periodic loss
 // pattern (loss every 3rd frame) and verifies energy behaviour matches the
 // documented PLC decay while also asserting libopus int16 parity.

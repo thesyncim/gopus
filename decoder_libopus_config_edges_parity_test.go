@@ -415,7 +415,7 @@ func TestDecodeLibopusModeTransitionsMatchesLibopus(t *testing.T) {
 			name:     "silk_celt_stereo",
 			channels: 2,
 			segments: []transitionSegment{
-				seg(cbrAppVoIP, cbrBWWideband, 2, 32000, fs20, 3),  // SILK WB stereo
+				seg(cbrAppVoIP, cbrBWWideband, 2, 32000, fs20, 3),   // SILK WB stereo
 				seg(cbrAppAudio, cbrBWFullband, 2, 128000, fs20, 3), // CELT/Hybrid FB stereo
 				seg(cbrAppRestrictedCELT, cbrBWFullband, 2, 192000, fs20, 3),
 			},

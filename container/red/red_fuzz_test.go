@@ -192,14 +192,14 @@ func FuzzREDParse(f *testing.F) {
 // (or correctly bypassed for depth=0 / empty primary).
 func FuzzREDBuildRoundTrip(f *testing.F) {
 	type buildArgs struct {
-		primary        []byte
-		primaryTS      uint32
-		hist0Ts        uint32
-		hist0Payload   []byte
-		hist1Ts        uint32
-		hist1Payload   []byte
-		depth          uint8
-		frameSamples   uint32
+		primary      []byte
+		primaryTS    uint32
+		hist0Ts      uint32
+		hist0Payload []byte
+		hist1Ts      uint32
+		hist1Payload []byte
+		depth        uint8
+		frameSamples uint32
 	}
 
 	// wrapTS480: uint32 modular subtraction 480 - 960 wraps to 0xFFFFFC80.
