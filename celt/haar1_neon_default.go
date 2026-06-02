@@ -17,3 +17,22 @@ func haar1Stride1NEON(x []float32, n0 int) {
 		idx += 2
 	}
 }
+
+// haar1Stride2NEON is the portable fallback for the stride==2 arm64 kernel,
+// running the same two-outer-pass butterfly with idx step 4 and noFMA32 ops.
+func haar1Stride2NEON(x []float32, n0 int) {
+	const invSqrt2 = float32(0.7071067811865476)
+	const step = 4
+	for i := 0; i < 2; i++ {
+		idx0 := i
+		idx1 := i + 2
+		for j := 0; j < n0; j++ {
+			tmp1 := noFMA32Mul(invSqrt2, x[idx0])
+			tmp2 := noFMA32Mul(invSqrt2, x[idx1])
+			x[idx0] = noFMA32Add(tmp1, tmp2)
+			x[idx1] = noFMA32Sub(tmp1, tmp2)
+			idx0 += step
+			idx1 += step
+		}
+	}
+}

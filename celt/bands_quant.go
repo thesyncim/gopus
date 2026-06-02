@@ -663,8 +663,12 @@ func haar1(x []celtNorm, n0, stride int) {
 		return
 	}
 	_ = x[maxIdx]
-	if stride == 1 {
+	switch stride {
+	case 1:
 		haar1Stride1NEON(x[:2*n0:2*n0], n0)
+		return
+	case 2:
+		haar1Stride2NEON(x[:4*n0:4*n0], n0)
 		return
 	}
 	for i := 0; i < stride; i++ {

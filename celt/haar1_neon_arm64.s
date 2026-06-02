@@ -73,3 +73,65 @@ h1_tail1:
 
 h1_done:
 	RET
+
+// func haar1Stride2NEON(x []float32, n0 int)
+//
+// stride==2 case of haar1: the butterfly pairs index i with i+2 (step 4) over
+// two outer passes (i in {0,1}), i.e. each 4-element group {a,b,c,d} yields
+//   out = {c*a+c*c2, c*b+c*d, c*a-c*c2, c*b-c*d}   (pairs (a,group[2]),(b,group[3]))
+// where c = 1/sqrt(2). n0 is the per-outer pair count, so there are n0 such
+// 4-element groups. UZP1/UZP2 on .2D gather the low pair-halves into A and the
+// high halves into B across two groups (8 elements), and ZIP1/ZIP2 scatter the
+// sum/difference back; an odd trailing group is handled with a .2S tail.
+//
+// Register map:
+//   R0 = x base; R1 = n0
+//   R2 = 8-element iterations (n0/2); R3 = trailing 4-element group (n0&1)
+//   V3 = invSqrt2 broadcast
+//   V8 = A (low halves), V9 = B (high halves); V4 = c*A, V5 = c*B
+TEXT ·haar1Stride2NEON(SB), NOSPLIT, $0-32
+	MOVD x_base+0(FP), R0
+	MOVD n0+24(FP), R1
+
+	CBZ  R1, h2_done
+
+	FMOVS $0.70710678118654752440, F3
+	VDUP  V3.S[0], V3.S4
+
+	LSR  $1, R1, R2              // R2 = n0/2 (two groups / 8 elems per iter)
+	AND  $1, R1, R3             // R3 = n0&1 (one trailing 4-elem group)
+	CBZ  R2, h2_tail
+
+h2_body:
+	VLD1  (R0), [V0.D2, V1.D2]  // V0={x0..x3} V1={x4..x7}
+	VUZP1 V1.D2, V0.D2, V8.D2   // A = {x0,x1,x4,x5}
+	VUZP2 V1.D2, V0.D2, V9.D2   // B = {x2,x3,x6,x7}
+
+	WORD $0x6E23DD04           // FMUL V4.4S, V8.4S, V3.4S  (c*A)
+	WORD $0x6E23DD25           // FMUL V5.4S, V9.4S, V3.4S  (c*B)
+	WORD $0x4E25D486          // FADD V6.4S, V4.4S, V5.4S  (lo = c*A + c*B)
+	WORD $0x4EA5D487         // FSUB V7.4S, V4.4S, V5.4S  (hi = c*A - c*B)
+
+	VZIP1 V7.D2, V6.D2, V10.D2  // {out0,out1,out2,out3}
+	VZIP2 V7.D2, V6.D2, V11.D2  // {out4,out5,out6,out7}
+	VST1  [V10.D2, V11.D2], (R0)
+	ADD   $32, R0
+
+	SUBS $1, R2
+	BNE  h2_body
+
+h2_tail:
+	CBZ  R3, h2_done
+	// trailing 4-elem group {x0,x1,x2,x3}: lo={x0,x1}=V0.2S, hi={x2,x3}=V0.D[1]
+	VLD1 (R0), [V0.S4]
+	VMOV V0.D[1], V1.D[0]
+	WORD $0x0E23DC04           // FMUL V4.2S, V0.2S, V3.2S
+	WORD $0x0E23DC25           // FMUL V5.2S, V1.2S, V3.2S
+	WORD $0x0E25D486          // FADD V6.2S, V4.2S, V5.2S
+	WORD $0x0EA5D487         // FSUB V7.2S, V4.2S, V5.2S
+	VMOV V6.D[0], V8.D[0]
+	VMOV V7.D[0], V8.D[1]
+	VST1 [V8.S4], (R0)
+
+h2_done:
+	RET

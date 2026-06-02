@@ -232,9 +232,15 @@ func haar1Norm(x []celtNorm, n0, stride int) {
 	}
 	const invSqrt2 = float32(0.7071067811865476)
 	step := stride * 2
-	if stride == 1 {
+	switch stride {
+	case 1:
 		if 2*n0 <= len(x) {
 			haar1Stride1NEON(x[:2*n0:2*n0], n0)
+		}
+		return
+	case 2:
+		if 4*n0 <= len(x) {
+			haar1Stride2NEON(x[:4*n0:4*n0], n0)
 		}
 		return
 	}
