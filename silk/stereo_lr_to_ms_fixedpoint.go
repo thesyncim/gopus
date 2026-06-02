@@ -207,8 +207,14 @@ func silkStereoLRToMS(
 	delta1Q13 := -silkRSHIFT_ROUND(silkSMULBB(predQ13[1]-int32(state.predPrevQ13[1]), denomQ16), 16)
 	deltawQ24 := silkLSHIFT(silkSMULWB(widthQ14-int32(state.widthPrevQ14), denomQ16), 10)
 
+	// libopus only ever calls silk_stereo_LR_to_MS with a full 10 ms or 20 ms
+	// SILK block (frame_length >= 10*fs_kHz > STEREO_INTERP_LEN_MS*fs_kHz), so
+	// this interpolation loop never reads past mid[frame_length+1]. The n <
+	// frameLength bound preserves that invariant for the degenerate short frames
+	// the sub-48 kHz API resampler can hand to the front-end, matching the
+	// equivalent guard on the float StereoLRToMSWithRates path.
 	interp := stereoInterpLenMs * fsKHz
-	for n := 0; n < interp; n++ {
+	for n := 0; n < interp && n < frameLength; n++ {
 		ip0Q13 += delta0Q13
 		ip1Q13 += delta1Q13
 		wQ24 += deltawQ24

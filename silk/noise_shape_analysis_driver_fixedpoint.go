@@ -154,6 +154,18 @@ func silkNoiseShapeAnalysisFIX(in *silkNoiseShapeAnalysisInput) silkNoiseShapeAn
 		logEnergyPrevQ7 = 0
 		resOff := 0
 		nSegs = int(silkSMULBB(int32(nsaSubFrameLengthMs), int32(in.nbSubfr))) / 2
+		// libopus relies on nSegs*nSamples == frame_length (the residual frame is
+		// exactly nb_subfr 5 ms subframes). The sub-48 kHz API resampler can shrink
+		// pitchRes below that; clamp the segment count to the samples actually
+		// available so the loop never reads past the residual, matching the float
+		// computeSparsenessQuantOffset maxSegs clamp.
+		if nSamples > 0 {
+			if maxSegs := len(in.pitchRes) / nSamples; nSegs > maxSegs {
+				nSegs = maxSegs
+			}
+		} else {
+			nSegs = 0
+		}
 		for k = 0; k < nSegs; k++ {
 			var sc int
 			nrg, sc = silkSumSqrShiftInt(in.pitchRes[resOff:resOff+nSamples], nSamples)

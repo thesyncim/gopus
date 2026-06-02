@@ -22,6 +22,14 @@ const (
 	vadNoiseLevelSmoothCoefQ16 = 1024 // Must be < 4096
 	vadNoiseLevelsBias         = 50
 
+	// vadMinFrameLength is the smallest frame the band decimation can analyse.
+	// The lowest band decimates by 8 (>>3) and is then split into
+	// vadInternalSubframes (>>vadInternalSubframesLog2); the per-subframe length
+	// frame_length >> (3 + vadInternalSubframesLog2) must be >= 1, which requires
+	// frame_length >= 1 << (3 + vadInternalSubframesLog2). libopus only ever calls
+	// the VAD with a full SILK frame, which always satisfies this.
+	vadMinFrameLength = 1 << (3 + vadInternalSubframesLog2)
+
 	vadNegativeOffsetQ5 = 128 // sigmoid is 0 at -128
 	vadSNRFactorQ16     = 45000
 
@@ -163,6 +171,14 @@ type silkVADResult struct {
 // internal sampling rate in kHz. The VAD state s is updated in place.
 func silkVADGetSAQ8(s *silkVADState, pIn []int16, frameLength, fsKHz int) silkVADResult {
 	var res silkVADResult
+
+	// The band decimation collapses a sub-vadMinFrameLength frame to a
+	// zero-length lowest band, which indexes X[-1] below. libopus never feeds
+	// the VAD such a frame; report no speech activity instead of reading past
+	// the start of the band, matching the float VADState.getSpeechActivity guard.
+	if frameLength < vadMinFrameLength || len(pIn) < frameLength {
+		return res
+	}
 
 	// Filter and decimate.
 	decimatedFramelength1 := int(silkRSHIFT(int32(frameLength), 1))

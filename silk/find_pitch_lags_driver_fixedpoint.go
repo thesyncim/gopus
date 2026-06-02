@@ -58,29 +58,47 @@ func silkFindPitchLagsFIXFrontEnd(in *silkFindPitchLagsInput) silkFindPitchLagsR
 	bufLen := in.laPitch + in.frameLength + in.ltpMemLength
 	order := in.pitchEstimationLPCOrder
 
+	// libopus asserts buf_len >= pitch_LPC_win_length (find_pitch_lags_FIX.c):
+	// the SILK encoder setup keeps frame_length large enough that this always
+	// holds. The sub-48 kHz API resampler can hand the encode body a degenerate
+	// short frame; clamp the analysis window into the available buffer (and
+	// la_pitch to half the window) so x_ptr = buf_len - win_length stays >= 0,
+	// matching the float computePitchResidual guard.
+	winLength := in.pitchLPCWinLength
+	if winLength > bufLen {
+		winLength = bufLen
+	}
+	laPitch := in.laPitch
+	if laPitch<<1 > winLength {
+		laPitch = winLength >> 1
+	}
+
 	// Calculate windowed signal.
-	wsig := make([]int16, in.pitchLPCWinLength)
+	wsig := make([]int16, winLength)
+	xOff := bufLen - winLength
 
-	// First LA_LTP samples: sine window onset.
-	xOff := bufLen - in.pitchLPCWinLength
-	wOff := 0
-	silkApplySineWindowFIX(wsig[wOff:], in.x[xOff:], 1, in.laPitch)
+	// silk_apply_sine_window requires a positive length (it indexes
+	// freqTableQ16[(length>>2)-4] and steps four samples at a time). For a
+	// degenerate window that collapses la_pitch to zero, copy the buffer
+	// verbatim, matching the float computePitchResidual la_pitch==0 branch.
+	if laPitch > 0 {
+		// First LA_LTP samples: sine window onset.
+		silkApplySineWindowFIX(wsig, in.x[xOff:], 1, laPitch)
 
-	// Middle un-windowed samples.
-	wOff += in.laPitch
-	xOff += in.laPitch
-	midLen := in.pitchLPCWinLength - in.laPitch<<1
-	copy(wsig[wOff:wOff+midLen], in.x[xOff:xOff+midLen])
+		// Middle un-windowed samples.
+		midLen := winLength - laPitch<<1
+		copy(wsig[laPitch:laPitch+midLen], in.x[xOff+laPitch:xOff+laPitch+midLen])
 
-	// Last LA_LTP samples: sine window decay.
-	wOff += midLen
-	xOff += midLen
-	silkApplySineWindowFIX(wsig[wOff:], in.x[xOff:], 2, in.laPitch)
+		// Last LA_LTP samples: sine window decay.
+		silkApplySineWindowFIX(wsig[winLength-laPitch:], in.x[xOff+winLength-laPitch:], 2, laPitch)
+	} else {
+		copy(wsig, in.x[xOff:xOff+winLength])
+	}
 
 	// Calculate autocorrelation sequence.
 	autoCorr := make([]int32, maxFindPitchLPCOrder+1)
 	var scale int
-	silkAutocorrFixed(autoCorr, &scale, wsig, in.pitchLPCWinLength, order+1)
+	silkAutocorrFixed(autoCorr, &scale, wsig, winLength, order+1)
 
 	// Add white noise, as fraction of energy.
 	autoCorr[0] = silkSMLAWB(autoCorr[0], autoCorr[0], findPitchWhiteNoiseFractionQ16) + 1
