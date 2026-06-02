@@ -31,12 +31,22 @@ type CHelperConfig struct {
 	// (opus-1.6.1-simd). It is NOT bit-reproducible, so it must only be used for
 	// performance comparisons, never for parity oracles.
 	SIMDRef bool
-	IncludeDirs  []string
-	RefSources   []string
-	Sources      []string
-	Libs         []string
-	LDFlags      []string
-	DeadStrip    bool
+	// ForceScalarRef compiles every RefSource (and the helper itself) with the
+	// libopus x86 SSE/AVX feature macros cleared, so SILK/CELT kernels expand to
+	// their scalar _c forms instead of the RTCD dispatch tables. Helpers that
+	// compile a hand-picked subset of libopus .c files (no libopus.a link) and
+	// reach silk_inner_product_FLP / silk_VQ_WMat_EC (or other x86-dispatched
+	// kernels) need this: otherwise the default RTCD/intrinsics config routes
+	// them through SILK_*_IMPL tables defined only in silk/x86/x86_silk_map.c +
+	// the AVX2/SSE impls, which are not in the subset and fail to link on amd64
+	// and Windows. The scalar _c path is the bit-reproducible reference.
+	ForceScalarRef bool
+	IncludeDirs    []string
+	RefSources     []string
+	Sources        []string
+	Libs           []string
+	LDFlags        []string
+	DeadStrip      bool
 }
 
 // HelperCache caches a lazily built helper binary path for oracle tests.
@@ -187,6 +197,16 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	for _, inc := range cfg.IncludeDirs {
 		args = append(args, "-I", inc)
 	}
+	if cfg.ForceScalarRef {
+		// libopus's config.h has no include guard, so each compiled .c re-defines
+		// the x86 feature macros (OPUS_X86_MAY_HAVE_SSE4_1, ...) -- clearing them
+		// via -include is undone. Instead pre-define the SIMD headers' own include
+		// guards so their bodies are skipped: silk/main.h then falls through to the
+		// scalar silk_inner_product_FLP / silk_VQ_WMat_EC macros (the _c kernels),
+		// which is the bit-reproducible reference and avoids referencing the RTCD
+		// dispatch tables that are absent from a hand-picked RefSource subset.
+		args = append(args, forceScalarRefDefines()...)
+	}
 	args = append(args, srcPath)
 	for _, rel := range cfg.RefSources {
 		args = append(args, filepath.Join(refDir, filepath.FromSlash(rel)))
@@ -287,6 +307,16 @@ func helperReferenceLibMissing(libs []string, refDir string) bool {
 	return false
 }
 
+// forceScalarRefDefines pre-defines the libopus SIMD headers' include guards so
+// their bodies (which override the SILK/CELT kernel macros with RTCD dispatch
+// tables) are skipped, leaving the scalar _c kernel macros from silk/main.h and
+// celt headers in effect. MAIN_SSE_H guards silk/x86/main_sse.h (the SILK FLP
+// inner-product / VQ_WMat_EC dispatch). This works even though config.h lacks an
+// include guard and is re-included per translation unit.
+func forceScalarRefDefines() []string {
+	return []string{"-DMAIN_SSE_H=1"}
+}
+
 func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
 	h := sha256.New()
 	helperHashString(h, "v2")
@@ -297,6 +327,7 @@ func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
 	helperHashString(h, fmt.Sprintf("fixed-ref=%t", cfg.FixedRef))
 	helperHashString(h, fmt.Sprintf("custom-ref=%t", cfg.CustomRef))
 	helperHashString(h, fmt.Sprintf("simd-ref=%t", cfg.SIMDRef))
+	helperHashString(h, fmt.Sprintf("force-scalar-ref=%t", cfg.ForceScalarRef))
 	helperHashStrings(h, "cflags", cfg.CFlags)
 	helperHashStrings(h, "ref-includes", cfg.RefIncludes)
 	helperHashStrings(h, "include-dirs", cfg.IncludeDirs)
