@@ -49,9 +49,12 @@ var encodeAllocGuardCases = []encodeAllocGuardCase{
 
 // TestEncodeHotPathAllocs locks the steady-state per-call allocation count of
 // the internal Encode hot path. The default (float) build is strictly
-// zero-alloc; the gated fixed-point build runs the integer SILK/CELT encode
-// drivers, which retain a bounded per-frame footprint (see
-// encodeHotPathAllocBudget).
+// zero-alloc across every case. The gated fixed-point build's integer CELT
+// encode driver is likewise zero-alloc (encoder-owned scratch threaded through
+// the whole frame), while the integer SILK encode bodies retain a bounded
+// per-frame footprint; the budget is therefore a per-case ceiling supplied by
+// encodeHotPathCaseBudget so the CELT cases are guarded at strict zero and the
+// SILK/Hybrid cases catch regressions against their measured baseline.
 func TestEncodeHotPathAllocs(t *testing.T) {
 	for _, c := range encodeAllocGuardCases {
 		t.Run(c.name, func(t *testing.T) {
@@ -70,13 +73,14 @@ func TestEncodeHotPathAllocs(t *testing.T) {
 				}
 			}
 
+			budget := encodeHotPathCaseBudget(c)
 			allocs := testing.AllocsPerRun(100, func() {
 				if _, err := e.EncodeFloat32WithAnalysisMaxBytes(pcm, c.frameSize, pcm, 4000); err != nil {
 					t.Fatalf("Encode: %v", err)
 				}
 			})
-			if allocs > encodeHotPathAllocBudget {
-				t.Fatalf("Encode allocs/op = %.2f, want <= %d", allocs, encodeHotPathAllocBudget)
+			if allocs > float64(budget) {
+				t.Fatalf("Encode allocs/op = %.2f, want <= %d", allocs, budget)
 			}
 		})
 	}

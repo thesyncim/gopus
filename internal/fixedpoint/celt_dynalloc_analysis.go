@@ -82,11 +82,19 @@ func medianOf3(x []int32) int32 {
 func DynallocAnalysis(bandLogE, bandLogE2, oldBandE []int32, nbEBands, start, end, C int,
 	offsets []int, lsbDepth int, logN []int16, isTransient, vbr, constrainedVBR bool,
 	eBands []int16, lm, effectiveBytes int, lfe bool, surroundDynalloc []int32,
-	importance, spreadWeight []int, toneFreq int16, toneishness int32, totBoost *int) int32 {
+	importance, spreadWeight []int, toneFreq int16, toneishness int32, totBoost *int,
+	scratch *celtEncodeScratch) int32 {
 
-	follower := make([]int32, C*nbEBands)
-	noiseFloor := make([]int32, C*nbEBands)
-	bandLogE3 := make([]int32, nbEBands)
+	var follower, noiseFloor, bandLogE3 []int32
+	if scratch != nil {
+		follower = ensureInt32(&scratch.daFollower, C*nbEBands)
+		noiseFloor = ensureInt32(&scratch.daNoise, C*nbEBands)
+		bandLogE3 = ensureInt32(&scratch.daBandLogE3, nbEBands)
+	} else {
+		follower = make([]int32, C*nbEBands)
+		noiseFloor = make([]int32, C*nbEBands)
+		bandLogE3 = make([]int32, nbEBands)
+	}
 
 	for i := 0; i < nbEBands; i++ {
 		offsets[i] = 0
@@ -110,8 +118,14 @@ func DynallocAnalysis(bandLogE, bandLogE2, oldBandE []int32, nbEBands, start, en
 	}
 	{
 		// Simple masking model for the spreading decision.
-		mask := make([]int32, nbEBands)
-		sig := make([]int32, nbEBands)
+		var mask, sig []int32
+		if scratch != nil {
+			mask = ensureInt32(&scratch.daMask, nbEBands)
+			sig = ensureInt32(&scratch.daSig, nbEBands)
+		} else {
+			mask = make([]int32, nbEBands)
+			sig = make([]int32, nbEBands)
+		}
 		for i := 0; i < end; i++ {
 			mask[i] = bandLogE[i] - noiseFloor[i]
 		}

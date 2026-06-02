@@ -244,9 +244,14 @@ func xcorrKernelI16(x, y []int16, sum *[4]int32, length int) {
 // windowed input of n samples; window (length overlap) is applied symmetrically
 // when overlap>0. It writes lag+1 autocorrelation values to ac and returns the
 // scaling shift.
-func plcCeltAutocorr(x []int16, ac []int32, window []int16, overlap, lag, n int) int {
+func plcCeltAutocorr(x []int16, ac []int32, window []int16, overlap, lag, n int, scratch *celtEncodeScratch) int {
 	fastN := n - lag
-	xx := make([]int16, n)
+	var xx []int16
+	if scratch != nil {
+		xx = ensureInt16(&scratch.pitchXX, n)
+	} else {
+		xx = make([]int16, n)
+	}
 	var xptr []int16
 	if overlap == 0 {
 		xptr = x
@@ -465,7 +470,7 @@ func plcPitchDownsample(x [][]int32, xLP []int16, length, C int) {
 		xLP[0] += int16(shr(x[1][offset], shift+2) + shr(x[1][0], shift+1))
 	}
 	ac := make([]int32, 5)
-	plcCeltAutocorr(xLP, ac, nil, 0, 4, length)
+	plcCeltAutocorr(xLP, ac, nil, 0, 4, length, nil)
 	ac[0] += ac[0] >> 13
 	for i := 1; i <= 4; i++ {
 		ac[i] -= mult16x32q15(int16(2*i*i), ac[i])
@@ -869,7 +874,7 @@ func (d *CELTDecoder) decodeLostPeriodic(N, LM int, decodeMem [][]int32) {
 
 		if d.lastFrameType != framePLCPeriodic {
 			ac := make([]int32, celtLPCOrder+1)
-			plcCeltAutocorr(exc[excOff:], ac, window, overlap, celtLPCOrder, maxPeriod)
+			plcCeltAutocorr(exc[excOff:], ac, window, overlap, celtLPCOrder, maxPeriod, nil)
 			ac[0] += ac[0] >> 13
 			for i := 1; i <= celtLPCOrder; i++ {
 				ac[i] -= mult16x32q15(int16(2*i*i), ac[i])

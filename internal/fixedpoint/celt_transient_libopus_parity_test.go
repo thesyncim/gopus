@@ -145,7 +145,7 @@ func TestTransientAnalysisMatchesLibopusFixed(t *testing.T) {
 							t.Fatalf("oracle %s len=%d C=%d weak=%v freq=%d tone=%d: %v",
 								sig.name, length, c, weak, tn.freq, tn.tone, err)
 						}
-						got := TransientAnalysis(in, length, c, weak, tn.freq, tn.tone)
+						got := TransientAnalysis(in, length, c, weak, tn.freq, tn.tone, nil)
 						if got.IsTransient != want.IsTransient ||
 							got.TFEstimate != want.TFEstimate ||
 							got.TFChan != want.TFChan ||

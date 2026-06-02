@@ -139,7 +139,7 @@ func TestQuantEnergyEncodeOracle(t *testing.T) {
 
 							QuantCoarseEnergy(enc, eBands, gotOld, gotErr,
 								b.start, b.end, b.end, nbEBands, C, LM, budget,
-								nbAvailableBytes, forceIntra, twoPass, 0, false, &gotDelayed)
+								nbAvailableBytes, forceIntra, twoPass, 0, false, &gotDelayed, nil)
 							QuantFineEnergy(enc, gotOld, gotErr,
 								b.start, b.end, nbEBands, C, nil, extraQuant)
 							QuantEnergyFinalise(enc, gotOld, gotErr,

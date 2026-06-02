@@ -105,10 +105,17 @@ func toneLPC(x []int16, length, delay int, lpc []int32) bool {
 // pre-emphasised signal (celt_sig, int32), laid out interleaved per channel at
 // stride length (in[c*length+i]); CC is the channel count, length is N+overlap,
 // Fs is the mode sample rate. It returns tone_freq (Q13) and toneishness (Q29).
-func ToneDetect(in []int32, CC, length, Fs int) (toneFreq int16, toneishness int32) {
+func ToneDetect(in []int32, CC, length, Fs int, scratch *celtEncodeScratch) (toneFreq int16, toneishness int32) {
 	delay := 1
-	lpc := make([]int32, 2)
-	x := make([]int16, length)
+	var lpc []int32
+	var x []int16
+	if scratch != nil {
+		lpc = ensureInt32(&scratch.toneLPC, 2)
+		x = ensureInt16(&scratch.toneX, length)
+	} else {
+		lpc = make([]int32, 2)
+		x = make([]int16, length)
+	}
 	// Shift by SIG_SHIFT+2 (+3 for stereo).
 	if CC == 2 {
 		for i := 0; i < length; i++ {

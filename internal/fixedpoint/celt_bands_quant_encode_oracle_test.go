@@ -229,7 +229,7 @@ func TestQuantAllBandsEncodeOracle(t *testing.T) {
 			collapse := QuantAllBandsEncode(enc, c.channels, frameSize, lm, start, end,
 				goLeft, goRight, bandE, pulsesI, tfResI, c.shortBlocks, c.spread,
 				c.dualStereo, c.intensity, int(totalBits), int(balance), codedBands,
-				c.complexity, false, &goSeed)
+				c.complexity, false, &goSeed, nil)
 			// Match the libopus oracle buffer layout: ec_enc_done leaves the
 			// range-coded bytes at the front, the raw/end bytes at the very end,
 			// and a zeroed gap between. Shrink(nbytes) keeps that in-place layout

@@ -62,6 +62,8 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 	M := 1 << LM
 	N := M * shortMdctSize
 
+	sc := e.ensureScratch()
+
 	tell0Frac := enc.TellFrac()
 	tell := enc.Tell()
 	nbFilledBytes := (tell + 4) >> 3
@@ -133,7 +135,7 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 
 	// in buffer (CC*(N+overlap)): overlap prefix from prefilter_mem, body from
 	// pre-emphasised input.
-	in := make([]int32, CC*(N+overlap))
+	in := ensureInt32(&sc.in, CC*(N+overlap))
 
 	// sample_max / silence over the res-domain (API-rate) input. The pcm buffer
 	// holds C*(N/upsample) samples, so the overlap split uses /upsample counts to
@@ -176,7 +178,7 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 			e.prefilterMem[(1+c)*maxPeriod-overlap:(1+c)*maxPeriod])
 	}
 
-	toneFreq, toneishness := ToneDetect(in, CC, N+overlap, 48000)
+	toneFreq, toneishness := ToneDetect(in, CC, N+overlap, 48000, sc)
 
 	isTransient := false
 	tfEstimate := int16(0)
@@ -187,7 +189,7 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 		// The CELT-only encoder leaves silk_info.signalType at 0, so the type test
 		// holds whenever hybrid && effectiveBytes < 15.
 		allowWeak := hybrid && effectiveBytes < 15
-		ta := TransientAnalysis(in, N+overlap, CC, allowWeak, toneFreq, toneishness)
+		ta := TransientAnalysis(in, N+overlap, CC, allowWeak, toneFreq, toneishness, sc)
 		isTransient = ta.IsTransient
 		tfEstimate = ta.TFEstimate
 		tfChan = ta.TFChan
@@ -229,12 +231,12 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 		transientGotDisabled = true
 	}
 
-	freq := make([]int32, CC*N)
-	bandE := make([]int32, nbEBands*CC)
-	bandLogE := make([]int32, nbEBands*CC)
+	freq := ensureInt32(&sc.freq, CC*N)
+	bandE := ensureInt32(&sc.bandE, nbEBands*CC)
+	bandLogE := ensureInt32(&sc.bandLogE, nbEBands*CC)
 
 	secondMdct := shortBlocks != 0 && e.complexity >= 8
-	bandLogE2 := make([]int32, C*nbEBands)
+	bandLogE2 := ensureInt32(&sc.bandLogE2, C*nbEBands)
 	if secondMdct {
 		e.computeMDCTs(0, in, freq, C, CC, LM)
 		ComputeBandEnergies(freq, eBands, e.logN, bandE, nbEBands, shortMdctSize, effEnd, C, LM)
@@ -261,7 +263,10 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 	Amp2Log2(bandE, bandLogE, nbEBands, effEnd, end, C)
 
 	// surround_dynalloc / surround_masking / surround_trim from energy_mask.
-	surroundDynalloc := make([]int32, C*nbEBands)
+	// surroundMasking only writes surroundDynalloc when the energy mask is
+	// active; otherwise it must stay all-zero, so clear the reused buffer.
+	surroundDynalloc := ensureInt32(&sc.surroundDynalloc, C*nbEBands)
+	clearInt32(surroundDynalloc)
 	var surroundMasking, surroundTrim int32
 	if !hybrid && e.energyMask != nil && !e.lfe {
 		surroundMasking, surroundTrim = e.surroundMasking(surroundDynalloc, eBands, nbEBands, end, C)
@@ -297,26 +302,26 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 		enc.EncodeBit(boolToInt(isTransient), 3)
 	}
 
-	X := make([]int32, C*N)
+	X := ensureInt32(&sc.bandX, C*N)
 	NormaliseBands(freq, X, bandE, eBands, nbEBands, shortMdctSize, effEnd, C, M)
 
 	enableTFAnalysis := effectiveBytes >= 15*C && !hybrid && e.complexity >= 2 && !e.lfe && toneishness < gconstQ(0.98, 29)
 
-	offsets := make([]int, nbEBands)
-	importance := make([]int, nbEBands)
-	spreadWeight := make([]int, nbEBands)
+	offsets := ensureInt(&sc.offsets, nbEBands)
+	importance := ensureInt(&sc.importance, nbEBands)
+	spreadWeight := ensureInt(&sc.spreadWeight, nbEBands)
 
 	var totBoost int
 	maxDepth := DynallocAnalysis(bandLogE, bandLogE2, e.oldBandE, nbEBands, start, end, C,
 		offsets, e.lsbDepth, e.logN, isTransient, e.vbr, e.constrainedVBR,
 		eBands, LM, effectiveBytes, e.lfe, surroundDynalloc,
-		importance, spreadWeight, toneFreq, toneishness, &totBoost)
+		importance, spreadWeight, toneFreq, toneishness, &totBoost, sc)
 
-	tfRes := make([]int, nbEBands)
+	tfRes := ensureInt(&sc.tfRes, nbEBands)
 	tfSelect := 0
 	if enableTFAnalysis {
 		lambda := imax(80, 20480/effectiveBytes+2)
-		tfSelect = TFAnalysis(eBands, effEnd, isTransient, tfRes, lambda, X, N, LM, tfEstimate, tfChan, importance)
+		tfSelect = TFAnalysis(eBands, effEnd, isTransient, tfRes, lambda, X, N, LM, tfEstimate, tfChan, importance, sc)
 		for i := effEnd; i < end; i++ {
 			tfRes[i] = tfRes[effEnd-1]
 		}
@@ -340,7 +345,7 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 	}
 
 	// Energy-error bias before coarse energy.
-	error := make([]int32, C*nbEBands)
+	errBuf := ensureInt32(&sc.energyErr, C*nbEBands)
 	for c := 0; c < C; c++ {
 		for i := start; i < end; i++ {
 			if abs32(bandLogE[i+c*nbEBands]-e.oldBandE[i+c*nbEBands]) < gconst(2) {
@@ -348,8 +353,8 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 			}
 		}
 	}
-	QuantCoarseEnergy(enc, bandLogE, e.oldBandE, error, start, end, effEnd, nbEBands, C, LM,
-		totalBits, nbAvailableBytes, false, e.complexity >= 4, 0, e.lfe, &e.delayedIntra)
+	QuantCoarseEnergy(enc, bandLogE, e.oldBandE, errBuf, start, end, effEnd, nbEBands, C, LM,
+		totalBits, nbAvailableBytes, false, e.complexity >= 4, 0, e.lfe, &e.delayedIntra, sc)
 
 	TFEncode(start, end, isTransient, tfRes, LM, tfSelect, enc)
 
@@ -536,11 +541,11 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 		signalBandwidth = 1
 	}
 
-	offsets32 := make([]int32, nbEBands)
+	offsets32 := ensureInt32(&sc.offsets32, nbEBands)
 	for i := range offsets32 {
 		offsets32[i] = int32(offsets[i])
 	}
-	alloc := celt.ComputeAllocationWithEncoderStart(enc, start, int(bits), end, C, cap, offsets32,
+	alloc := celt.ComputeAllocationWithEncoderStartInto(&sc.allocScratch, enc, start, int(bits), end, C, cap, offsets32,
 		allocTrim, e.intensity, dualStereo != 0, LM, e.lastCodedBands, signalBandwidth)
 	codedBands := alloc.CodedBands
 	e.intensity = alloc.Intensity
@@ -551,16 +556,16 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 		e.lastCodedBands = codedBands
 	}
 
-	fineQuant := make([]int32, nbEBands)
-	finePriority := make([]int32, nbEBands)
+	fineQuant := ensureInt32(&sc.fineQuant, nbEBands)
+	finePriority := ensureInt32(&sc.finePriority, nbEBands)
 	copy(fineQuant, alloc.FineBits)
 	copy(finePriority, alloc.FinePriority)
-	pulses := make([]int, nbEBands)
+	pulses := ensureInt(&sc.pulses, nbEBands)
 	for i := 0; i < len(alloc.BandBits) && i < nbEBands; i++ {
 		pulses[i] = int(alloc.BandBits[i])
 	}
 
-	QuantFineEnergy(enc, e.oldBandE, error, start, end, nbEBands, C, nil, fineQuant)
+	QuantFineEnergy(enc, e.oldBandE, errBuf, start, end, nbEBands, C, nil, fineQuant)
 	for i := 0; i < nbEBands*CC; i++ {
 		e.energyError[i] = 0
 	}
@@ -574,7 +579,7 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 	collapse := QuantAllBandsEncode(enc, C, N, LM, start, end, X, y, bandE,
 		pulses, tfRes, shortBlocks, e.spreadDecision, dualStereo, e.intensity,
 		nbCompressedBytes*(8<<bitRes)-antiCollapseRsv, alloc.Balance, codedBands,
-		e.complexity, false, &seed)
+		e.complexity, false, &seed, sc)
 	e.rng = seed
 	_ = collapse
 
@@ -584,11 +589,11 @@ func (e *CELTEncoder) EncodeWithEC(pcm []int16, frameSize int, enc *rangecoding.
 		enc.EncodeRawBits(uint32(boolToInt(antiCollapseOn)), 1)
 	}
 
-	QuantEnergyFinalise(enc, e.oldBandE, error, start, end, nbEBands, C, fineQuant, finePriority, nbCompressedBytes*8-enc.Tell())
+	QuantEnergyFinalise(enc, e.oldBandE, errBuf, start, end, nbEBands, C, fineQuant, finePriority, nbCompressedBytes*8-enc.Tell())
 
 	for c := 0; c < C; c++ {
 		for i := start; i < end; i++ {
-			ee := error[i+c*nbEBands]
+			ee := errBuf[i+c*nbEBands]
 			ee = max32(-gconstF(0.5), min32(gconstF(0.5), ee))
 			e.energyError[i+c*nbEBands] = ee
 		}
@@ -651,9 +656,27 @@ func (e *CELTEncoder) runPrefilter(in []int32, CC, N, overlap int, enabled bool,
 	maxPeriod := combFilterMaxPeriod
 	offset := celtShortMdctSize - overlap
 
-	pre := make([][]int32, CC)
+	sc := e.scratch
+	row := N + maxPeriod
+	var pre [][]int32
+	if sc != nil {
+		store := ensureInt32(&sc.preStorage, CC*row)
+		if cap(sc.prePeriodic) < CC {
+			sc.prePeriodic = make([][]int32, CC)
+		} else {
+			sc.prePeriodic = sc.prePeriodic[:CC]
+		}
+		pre = sc.prePeriodic
+		for c := 0; c < CC; c++ {
+			pre[c] = store[c*row : (c+1)*row]
+		}
+	} else {
+		pre = make([][]int32, CC)
+		for c := 0; c < CC; c++ {
+			pre[c] = make([]int32, row)
+		}
+	}
 	for c := 0; c < CC; c++ {
-		pre[c] = make([]int32, N+maxPeriod)
 		copy(pre[c][:maxPeriod], e.prefilterMem[c*maxPeriod:(c+1)*maxPeriod])
 		copy(pre[c][maxPeriod:], in[c*(N+overlap)+overlap:c*(N+overlap)+overlap+N])
 	}
@@ -672,14 +695,22 @@ func (e *CELTEncoder) runPrefilter(in []int32, CC, N, overlap int, enabled bool,
 		LossRate:                0,
 		AnalysisValid:           false,
 		MaxPitchRatio:           0,
-	})
+	}, sc)
 
 	prefilterPeriod := imax(e.prefilterPeriod, combFilterMinPeriod)
 	pitchIndex := res.PitchIndex
 	gain1 := res.Gain
 
-	before := make([]int32, CC)
-	after := make([]int32, CC)
+	var before, after []int32
+	if sc != nil {
+		before = ensureInt32(&sc.prefBefore, CC)
+		after = ensureInt32(&sc.prefAfter, CC)
+		clearInt32(before)
+		clearInt32(after)
+	} else {
+		before = make([]int32, CC)
+		after = make([]int32, CC)
+	}
 	for c := 0; c < CC; c++ {
 		base := c * (N + overlap)
 		copy(in[base:base+overlap], e.inMem[c*overlap:(c+1)*overlap])
@@ -769,7 +800,7 @@ func (e *CELTEncoder) temporalVBR(bandLogE []int32, start, end, nbEBands, C, sho
 // bitrateToBits ports celt.h bitrate_to_bits for the 48000 Hz core:
 // bitrate*6/(6*48000/frame_size), with the inner division evaluated first.
 func bitrateToBits(bitrate, frameSize int) int {
-	return bitrate * 6 / (6*48000/frameSize)
+	return bitrate * 6 / (6 * 48000 / frameSize)
 }
 
 // surroundMasking ports the energy_mask-driven surround masking block of

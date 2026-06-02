@@ -121,7 +121,7 @@ func (l *MDCTLookup) trigForShift(shift int) (trig []int16, n int) {
 // the N4-point complex FFT with the MDCT headroom downshift, then post-rotates
 // into out at the given output stride. window holds overlap int16 Q15
 // coefficients; out must hold stride*(N2-1)+1 elements.
-func (l *MDCTLookup) MDCTForward(in, out []int32, window []int16, overlap, shift, stride int) {
+func (l *MDCTLookup) MDCTForward(in, out []int32, window []int16, overlap, shift, stride int, scratch *celtEncodeScratch) {
 	st := l.kfft[shift]
 	scale := st.scale
 	scaleShift := st.scaleShift - 1
@@ -130,8 +130,15 @@ func (l *MDCTLookup) MDCTForward(in, out []int32, window []int16, overlap, shift
 	n2 := n >> 1
 	n4 := n >> 2
 
-	f := make([]int32, n2)
-	f2 := make([]FFTCpx, n4)
+	var f []int32
+	var f2 []FFTCpx
+	if scratch != nil {
+		f = ensureInt32(&scratch.mdctF, n2)
+		f2 = ensureFFTCpx(&scratch.mdctF2, n4)
+	} else {
+		f = make([]int32, n2)
+		f2 = make([]FFTCpx, n4)
+	}
 
 	// Window, shuffle, fold the four blocks [a, b, c, d] into f.
 	{

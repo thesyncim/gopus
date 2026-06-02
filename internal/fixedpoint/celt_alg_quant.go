@@ -149,13 +149,18 @@ func extractCollapseMask(iy []int, n, b int) uint32 {
 // resulting codeword into enc via the CWRS pulse coder, and (when resynth is
 // set) reconstructs the unit-norm shaped vector back into X. It returns the
 // anti-collapse mask. X is modified in place.
-func AlgQuant(x []int32, n, k, spread, b int, enc *rangecoding.Encoder, gain int32, resynth bool) uint32 {
+func AlgQuant(x []int32, n, k, spread, b int, enc *rangecoding.Encoder, gain int32, resynth bool, scratch *celtEncodeScratch) uint32 {
 	// iy needs N+3 slots for the search's vectorisation headroom.
-	iy := make([]int, n+3)
+	var iy []int
+	if scratch != nil {
+		iy = ensureInt(&scratch.pvqIy, n+3)
+	} else {
+		iy = make([]int, n+3)
+	}
 
 	expRotation(x, n, 1, b, k, spread)
 
-	yy := OpPvqSearch(x, iy, k, n)
+	yy := OpPvqSearch(x, iy, k, n, scratch)
 	collapseMask := extractCollapseMask(iy, n, b)
 	encodePulses(iy[:n], n, k, enc)
 	if resynth {

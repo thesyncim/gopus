@@ -65,7 +65,7 @@ func TestOpPvqSearchMatchesLibopusFixed(t *testing.T) {
 				}
 
 				iy := make([]int, c.n)
-				gotYY := OpPvqSearch(xGo, iy, c.k, c.n)
+				gotYY := OpPvqSearch(xGo, iy, c.k, c.n, nil)
 
 				if gotYY != wantYY {
 					t.Fatalf("OpPvqSearch yy N=%d K=%d range=%s trial=%d got=%d want=%d",
@@ -110,7 +110,7 @@ func TestOpPvqSearchSilencePathsMatchLibopusFixed(t *testing.T) {
 		}
 
 		iy := make([]int, len(in.x))
-		gotYY := OpPvqSearch(xGo, iy, in.k, len(in.x))
+		gotYY := OpPvqSearch(xGo, iy, in.k, len(in.x), nil)
 
 		if gotYY != wantYY {
 			t.Fatalf("OpPvqSearch[%s] yy got=%d want=%d", in.name, gotYY, wantYY)

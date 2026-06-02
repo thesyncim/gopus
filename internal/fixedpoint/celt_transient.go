@@ -88,7 +88,7 @@ type TransientAnalysisResult struct {
 // allowWeakTransients enables the conservative forward-masking decay and the
 // weak-transient reclassification used at low bitrates. toneFreq is Q13 and
 // toneishness is Q29; they suppress false transients from very low tones.
-func TransientAnalysis(in []int32, length, c int, allowWeakTransients bool, toneFreq int16, toneishness int32) TransientAnalysisResult {
+func TransientAnalysis(in []int32, length, c int, allowWeakTransients bool, toneFreq int16, toneishness int32, scratch *celtEncodeScratch) TransientAnalysisResult {
 	const forwardShiftDefault = 4
 	forwardShift := uint(forwardShiftDefault)
 
@@ -104,7 +104,12 @@ func TransientAnalysis(in []int32, length, c int, allowWeakTransients bool, tone
 	}
 
 	len2 := length / 2
-	tmp := make([]int16, length)
+	var tmp []int16
+	if scratch != nil {
+		tmp = ensureInt16(&scratch.transientTmp, length)
+	} else {
+		tmp = make([]int16, length)
+	}
 
 	tfChan := 0
 	var maskMetric int32

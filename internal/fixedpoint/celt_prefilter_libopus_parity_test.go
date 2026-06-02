@@ -118,7 +118,7 @@ func TestPrefilterAnalysisMatchesLibopusFixed(t *testing.T) {
 				Toneishness:             c.toneishness,
 				AnalysisValid:           c.analysisValid,
 				MaxPitchRatio:           c.maxPitchRatio,
-			})
+			}, nil)
 
 			if got.PitchIndex != want.PitchIndex {
 				t.Fatalf("pitch_index=%d want %d", got.PitchIndex, want.PitchIndex)

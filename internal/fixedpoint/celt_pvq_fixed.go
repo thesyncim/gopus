@@ -68,9 +68,16 @@ func mult16x32Q16(a, b int32) int32 {
 // in place: it is first scaled down to the int16 working range, then its
 // absolute value is taken. iy must have length >= N (alg_quant allocates N+3
 // for vectorisation headroom; this search only touches indices [0,N)).
-func OpPvqSearch(x []int32, iy []int, k, n int) int32 {
-	y := make([]int32, n)
-	signx := make([]bool, n)
+func OpPvqSearch(x []int32, iy []int, k, n int, scratch *celtEncodeScratch) int32 {
+	var y []int32
+	var signx []bool
+	if scratch != nil {
+		y = ensureInt32(&scratch.pvqY, n)
+		signx = ensureBool(&scratch.pvqSignx, n)
+	} else {
+		y = make([]int32, n)
+		signx = make([]bool, n)
+	}
 
 	{
 		shift := (int(CeltILog2(1+celtInnerProdNormShift(x, x, n))) + 1) / 2

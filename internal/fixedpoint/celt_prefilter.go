@@ -65,7 +65,7 @@ func celtFir5(x []int16, num []int16, n int) {
 // channel pointers, each into a celt_sig (int32) buffer with at least len*factor
 // samples; xLP receives len downsampled, LPC-shaped opus_val16 samples. factor
 // is the decimation factor (2 in the prefilter).
-func pitchDownsample(x [][]int32, xLP []int16, length, c, factor int) {
+func pitchDownsample(x [][]int32, xLP []int16, length, c, factor int, scratch *celtEncodeScratch) {
 	offset := factor / 2
 
 	maxabs := CeltMaxabs32(x[0][:length*factor])
@@ -100,7 +100,7 @@ func pitchDownsample(x [][]int32, xLP []int16, length, c, factor int) {
 	}
 
 	var ac [5]int32
-	plcCeltAutocorr(xLP[:length], ac[:], nil, 0, 4, length)
+	plcCeltAutocorr(xLP[:length], ac[:], nil, 0, 4, length, scratch)
 
 	// Noise floor -40 dB: ac[0] += SHR32(ac[0], 13).
 	ac[0] += shr32(ac[0], 13)
@@ -176,12 +176,20 @@ func findBestPitch(xcorr []int32, y []int16, length, maxPitch int, yshift int, m
 // pitchSearch ports pitch_search (celt/pitch.c, FIXED_POINT). xLP holds the
 // downsampled analysis signal (len samples plus history); y is the reference
 // buffer (len+maxPitch samples). It writes the refined pitch lag into *pitch.
-func pitchSearch(xLP, y []int16, length, maxPitch int) int {
+func pitchSearch(xLP, y []int16, length, maxPitch int, scratch *celtEncodeScratch) int {
 	lag := length + maxPitch
 
-	xLP4 := make([]int16, length>>2)
-	yLP4 := make([]int16, lag>>2)
-	xcorr := make([]int32, maxPitch>>1)
+	var xLP4, yLP4 []int16
+	var xcorr []int32
+	if scratch != nil {
+		xLP4 = ensureInt16(&scratch.pitchXLP4, length>>2)
+		yLP4 = ensureInt16(&scratch.pitchYLP4, lag>>2)
+		xcorr = ensureInt32(&scratch.pitchXcor, maxPitch>>1)
+	} else {
+		xLP4 = make([]int16, length>>2)
+		yLP4 = make([]int16, lag>>2)
+		xcorr = make([]int32, maxPitch>>1)
+	}
 
 	// Downsample by 2 again.
 	for j := 0; j < length>>2; j++ {
@@ -278,7 +286,7 @@ var removeDoublingSecondCheck = [16]int{0, 0, 3, 2, 3, 2, 5, 2, 3, 2, 3, 2, 5, 2
 // (libopus advances x by maxperiod, so xBase = maxperiod here). It refines the
 // pitch period (*t0) and returns the pitch gain (opus_val16, Q15). Indices
 // x[-i] map to x[xBase-i].
-func removeDoubling(x []int16, xBase, maxperiod, minperiod, n int, t0 *int, prevPeriod int, prevGain int16) int16 {
+func removeDoubling(x []int16, xBase, maxperiod, minperiod, n int, t0 *int, prevPeriod int, prevGain int16, scratch *celtEncodeScratch) int16 {
 	minperiod0 := minperiod
 	maxperiod /= 2
 	minperiod /= 2
@@ -292,7 +300,12 @@ func removeDoubling(x []int16, xBase, maxperiod, minperiod, n int, t0 *int, prev
 
 	T := *t0
 	T0 := *t0
-	yyLookup := make([]int32, maxperiod+1)
+	var yyLookup []int32
+	if scratch != nil {
+		yyLookup = ensureInt32(&scratch.pitchYY, maxperiod+1)
+	} else {
+		yyLookup = make([]int32, maxperiod+1)
+	}
 
 	xx, xy := DualInnerProd(x[xb:], x[xb:], x[xb-T0:], n)
 	yyLookup[0] = xx
@@ -434,7 +447,7 @@ type PrefilterResult struct {
 // This does NOT perform the comb_filter prefiltering of the input or the CC==2
 // cancel-pitch energy check; those operate on the time-domain signal and are
 // wired by the caller using CombFilter/CombFilterConst.
-func PrefilterAnalysis(pre [][]int32, cc, n int, p PrefilterParams) PrefilterResult {
+func PrefilterAnalysis(pre [][]int32, cc, n int, p PrefilterParams, scratch *celtEncodeScratch) PrefilterResult {
 	maxPeriod := combFilterMaxPeriod
 	minPeriod := combFilterMinPeriod
 
@@ -457,12 +470,17 @@ func PrefilterAnalysis(pre [][]int32, cc, n int, p PrefilterParams) PrefilterRes
 		}
 		gain1 = int16(24576) // QCONST16(.75f, 15)
 	} else if p.Enabled && p.Complexity >= 5 {
-		pitchBuf := make([]int16, (maxPeriod+n)>>1)
-		pitchDownsample(pre, pitchBuf, (maxPeriod+n)>>1, cc, 2)
-		pitchIndex = pitchSearch(pitchBuf[maxPeriod>>1:], pitchBuf, n, maxPeriod-3*minPeriod)
+		var pitchBuf []int16
+		if scratch != nil {
+			pitchBuf = ensureInt16(&scratch.pitchBuf, (maxPeriod+n)>>1)
+		} else {
+			pitchBuf = make([]int16, (maxPeriod+n)>>1)
+		}
+		pitchDownsample(pre, pitchBuf, (maxPeriod+n)>>1, cc, 2, scratch)
+		pitchIndex = pitchSearch(pitchBuf[maxPeriod>>1:], pitchBuf, n, maxPeriod-3*minPeriod, scratch)
 		pitchIndex = maxPeriod - pitchIndex
 
-		gain1 = removeDoubling(pitchBuf, 0, maxPeriod, minPeriod, n, &pitchIndex, p.PrefilterPeriod, p.PrefilterGain)
+		gain1 = removeDoubling(pitchBuf, 0, maxPeriod, minPeriod, n, &pitchIndex, p.PrefilterPeriod, p.PrefilterGain, scratch)
 		if pitchIndex > maxPeriod-2 {
 			pitchIndex = maxPeriod - 2
 		}

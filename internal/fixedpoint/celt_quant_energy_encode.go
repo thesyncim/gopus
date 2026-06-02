@@ -170,7 +170,8 @@ func quantCoarseEnergyImpl(enc *rangecoding.Encoder, eBands, oldEBands, errOut [
 // fewer bits under the intra_bias tie-break).
 func QuantCoarseEnergy(enc *rangecoding.Encoder, eBands, oldEBands, errOut []int32,
 	start, end, effEnd, nbEBands, C, LM, budget, nbAvailableBytes int,
-	forceIntra, twoPass bool, lossRate int, lfe bool, delayedIntra *int32) {
+	forceIntra, twoPass bool, lossRate int, lfe bool, delayedIntra *int32,
+	scratch *celtEncodeScratch) {
 
 	intra := forceIntra || (!twoPass && *delayedIntra > int32(2*C*(end-start)) && nbAvailableBytes > (end-start)*C)
 	intraBias := int32((int64(budget) * int64(*delayedIntra) * int64(lossRate)) / int64(C*512))
@@ -190,10 +191,20 @@ func QuantCoarseEnergy(enc *rangecoding.Encoder, eBands, oldEBands, errOut []int
 		maxDecay = gconst(3)
 	}
 
-	encStartState := enc.SaveState()
-
-	oldEBandsIntra := make([]int32, C*nbEBands)
-	errorIntra := make([]int32, C*nbEBands)
+	var oldEBandsIntra, errorIntra []int32
+	var encStartState, encIntraState *rangecoding.EncoderState
+	if scratch != nil {
+		oldEBandsIntra = ensureInt32(&scratch.qceOldIntra, C*nbEBands)
+		errorIntra = ensureInt32(&scratch.qceErrIntra, C*nbEBands)
+		encStartState = &scratch.qceEncStart
+		encIntraState = &scratch.qceEncIntra
+	} else {
+		oldEBandsIntra = make([]int32, C*nbEBands)
+		errorIntra = make([]int32, C*nbEBands)
+		encStartState = &rangecoding.EncoderState{}
+		encIntraState = &rangecoding.EncoderState{}
+	}
+	enc.SaveStateInto(encStartState)
 	copy(oldEBandsIntra, oldEBands)
 
 	var badness1 int
@@ -204,7 +215,7 @@ func QuantCoarseEnergy(enc *rangecoding.Encoder, eBands, oldEBands, errOut []int
 
 	if !intra {
 		tellIntra := int32(enc.TellFrac())
-		encIntraState := enc.SaveState()
+		enc.SaveStateInto(encIntraState)
 
 		enc.RestoreState(encStartState)
 

@@ -67,7 +67,7 @@ func mac16x32Q15(c, a, b int32) int32 {
 //	tfChan     channel index selected by transient_analysis.
 //	importance per-band importance weights (length len).
 //	tfRes      output decisions, length len.
-func TFAnalysis(eBands []int16, length int, isTransient bool, tfRes []int, lambda int, x []int32, n0, lm int, tfEstimate int16, tfChan int, importance []int) int {
+func TFAnalysis(eBands []int16, length int, isTransient bool, tfRes []int, lambda int, x []int32, n0, lm int, tfEstimate int16, tfChan int, importance []int, scratch *celtEncodeScratch) int {
 	// bias = MULT16_16_Q14(QCONST16(.04f,15), MAX16(-QCONST16(.25f,14), QCONST16(.5f,14)-tf_estimate))
 	const q04Q15 = int16(1311) // QCONST16(.04f,15)  = .5+.04*32768
 	const q25Q14 = int16(4096) // QCONST16(.25f,14)
@@ -75,11 +75,22 @@ func TFAnalysis(eBands []int16, length int, isTransient bool, tfRes []int, lambd
 	inner := max16(-q25Q14, q05Q14-tfEstimate)
 	bias := int16(mult16x16Q14(int32(q04Q15), int32(inner)))
 
-	metric := make([]int, length)
-	tmp := make([]int32, (int(eBands[length])-int(eBands[length-1]))<<lm)
-	tmp1 := make([]int32, len(tmp))
-	path0 := make([]int, length)
-	path1 := make([]int, length)
+	tmpLen := (int(eBands[length]) - int(eBands[length-1])) << lm
+	var metric, path0, path1 []int
+	var tmp, tmp1 []int32
+	if scratch != nil {
+		metric = ensureInt(&scratch.tfMetric, length)
+		tmp = ensureInt32(&scratch.tfTmp, tmpLen)
+		tmp1 = ensureInt32(&scratch.tfTmp1, tmpLen)
+		path0 = ensureInt(&scratch.tfPath0, length)
+		path1 = ensureInt(&scratch.tfPath1, length)
+	} else {
+		metric = make([]int, length)
+		tmp = make([]int32, tmpLen)
+		tmp1 = make([]int32, tmpLen)
+		path0 = make([]int, length)
+		path1 = make([]int, length)
+	}
 
 	itr := 0
 	if isTransient {

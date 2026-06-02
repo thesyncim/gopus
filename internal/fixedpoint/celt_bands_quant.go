@@ -304,9 +304,15 @@ func orderyForStride(stride int) []int {
 }
 
 // deinterleaveHadamard ports celt/bands.c deinterleave_hadamard over int32.
-func deinterleaveHadamard(x []int32, n0, stride int, hadamard bool) {
+// When scratch is non-nil the encoder-owned transpose buffer is reused.
+func deinterleaveHadamard(x []int32, n0, stride int, hadamard bool, scratch *celtEncodeScratch) {
 	n := n0 * stride
-	tmp := make([]int32, n)
+	var tmp []int32
+	if scratch != nil {
+		tmp = ensureInt32(&scratch.hadamardTmp, n)
+	} else {
+		tmp = make([]int32, n)
+	}
 	if hadamard {
 		ordery := orderyForStride(stride)
 		for i := 0; i < stride; i++ {
@@ -325,9 +331,15 @@ func deinterleaveHadamard(x []int32, n0, stride int, hadamard bool) {
 }
 
 // interleaveHadamard ports celt/bands.c interleave_hadamard over int32.
-func interleaveHadamard(x []int32, n0, stride int, hadamard bool) {
+// When scratch is non-nil the encoder-owned transpose buffer is reused.
+func interleaveHadamard(x []int32, n0, stride int, hadamard bool, scratch *celtEncodeScratch) {
 	n := n0 * stride
-	tmp := make([]int32, n)
+	var tmp []int32
+	if scratch != nil {
+		tmp = ensureInt32(&scratch.hadamardTmp, n)
+	} else {
+		tmp = make([]int32, n)
+	}
 	if hadamard {
 		ordery := orderyForStride(stride)
 		for i := 0; i < stride; i++ {
@@ -543,7 +555,7 @@ func quantBandDecode(ctx *bandDecCtx, x []int32, n, b, B int, lowband []int32, l
 
 	if B0 > 1 {
 		if lowband != nil {
-			deinterleaveHadamard(lowband, nB>>recombine, B0<<recombine, longBlocks)
+			deinterleaveHadamard(lowband, nB>>recombine, B0<<recombine, longBlocks, nil)
 		}
 	}
 
@@ -551,7 +563,7 @@ func quantBandDecode(ctx *bandDecCtx, x []int32, n, b, B int, lowband []int32, l
 
 	// Resynthesis (decode is always resynth=1).
 	if B0 > 1 {
-		interleaveHadamard(x, nB>>recombine, B0<<recombine, longBlocks)
+		interleaveHadamard(x, nB>>recombine, B0<<recombine, longBlocks, nil)
 	}
 	nB = nB0
 	B = B0

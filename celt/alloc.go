@@ -565,6 +565,94 @@ func ComputeAllocationWithEncoderStart(re *rangecoding.Encoder, start, totalBits
 	return result
 }
 
+// AllocEncodeScratch holds the reusable output slices for
+// ComputeAllocationWithEncoderStartInto so a caller can run the encode-side bit
+// allocation without per-call allocation. The per-band working buffers inside
+// cltComputeAllocationEncode are fixed-size and stack-allocated, so only these
+// four result slices need to be owned by the caller.
+type AllocEncodeScratch struct {
+	bandBits     []int32
+	fineBits     []int32
+	finePriority []int32
+	caps         []int32
+	result       AllocationResult
+}
+
+// ComputeAllocationWithEncoderStartInto is the allocation-free counterpart to
+// ComputeAllocationWithEncoderStart: it writes the result into caller-owned
+// scratch slices (grown once) and returns a pointer into that scratch. It is
+// byte-identical to ComputeAllocationWithEncoderStart; only the result storage
+// differs.
+func ComputeAllocationWithEncoderStartInto(sc *AllocEncodeScratch, re *rangecoding.Encoder, start, totalBitsQ3, nbBands, channels int, cap, offsets []int32, trim int, intensity int, dualStereo bool, lm int, prev int, signalBandwidth int) *AllocationResult {
+	if nbBands > MaxBands {
+		nbBands = MaxBands
+	}
+	if nbBands < 0 {
+		nbBands = 0
+	}
+	if channels < 1 {
+		channels = 1
+	}
+	if channels > 2 {
+		channels = 2
+	}
+	if lm < 0 {
+		lm = 0
+	}
+	if lm > 3 {
+		lm = 3
+	}
+
+	result := &sc.result
+	result.BandBits = ensureInt32Slice(&sc.bandBits, nbBands)
+	result.FineBits = ensureInt32Slice(&sc.fineBits, nbBands)
+	result.FinePriority = ensureInt32Slice(&sc.finePriority, nbBands)
+	result.Caps = ensureInt32Slice(&sc.caps, nbBands)
+	result.Balance = 0
+	result.CodedBands = nbBands
+	result.Intensity = 0
+	result.DualStereo = false
+	for i := 0; i < nbBands; i++ {
+		result.BandBits[i] = 0
+		result.FineBits[i] = 0
+		result.FinePriority[i] = 0
+		result.Caps[i] = 0
+	}
+
+	if nbBands == 0 || totalBitsQ3 <= 0 {
+		return result
+	}
+
+	if cap == nil || len(cap) < nbBands {
+		cap = initCaps(nbBands, lm, channels)
+	}
+	copy(result.Caps, cap[:nbBands])
+
+	if offsets == nil {
+		offsets = make([]int32, nbBands)
+	}
+
+	intensityVal := intensity
+	dualVal := 0
+	if dualStereo {
+		dualVal = 1
+	}
+	balance := 0
+	pulses := result.BandBits
+	fineBits := result.FineBits
+	finePriority := result.FinePriority
+
+	codedBands := cltComputeAllocationEncode(re, start, nbBands, offsets, cap, trim, &intensityVal, &dualVal,
+		totalBitsQ3, &balance, pulses, fineBits, finePriority, channels, lm, prev, signalBandwidth)
+
+	result.CodedBands = codedBands
+	result.Balance = balance
+	result.Intensity = intensityVal
+	result.DualStereo = dualVal != 0
+
+	return result
+}
+
 // ComputeAllocationHybrid computes bit allocation for hybrid mode CELT encoding.
 // In hybrid mode, CELT only encodes bands 17-21 (start=HybridCELTStartBand).
 // This properly sets bits for bands 0-16 to 0.

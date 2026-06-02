@@ -39,6 +39,27 @@ func (e *Encoder) Snapshot(startOffs uint32) EncoderSnapshot {
 	return EncoderSnapshot{enc: *e, start: startOffs, bytes: bytes}
 }
 
+// SnapshotInto captures the current encoder state into a caller-owned snapshot,
+// reusing the snapshot's byte buffer instead of allocating. It is the
+// allocation-free counterpart to Snapshot for hot paths that take many
+// speculative snapshots (the CELT stereo theta-RDO). The captured bytes are the
+// output region [startOffs, storage).
+func (e *Encoder) SnapshotInto(s *EncoderSnapshot, startOffs uint32) {
+	s.enc = *e
+	s.start = startOffs
+	if startOffs < e.storage {
+		n := int(e.storage - startOffs)
+		if cap(s.bytes) < n {
+			s.bytes = make([]byte, n)
+		} else {
+			s.bytes = s.bytes[:n]
+		}
+		copy(s.bytes, e.buf[startOffs:e.storage])
+	} else {
+		s.bytes = s.bytes[:0]
+	}
+}
+
 // Restore rolls the encoder back to a previously taken snapshot, restoring both
 // the scalar state and the output bytes captured at snapshot time.
 func (e *Encoder) Restore(s EncoderSnapshot) {

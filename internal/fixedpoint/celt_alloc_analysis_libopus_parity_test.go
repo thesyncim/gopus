@@ -47,7 +47,7 @@ func TestCELTTFAnalysisParity(t *testing.T) {
 					tfEstimate := int16(rng.Intn(1 << 14))
 
 					tfResGo := make([]int, length)
-					selGo := TFAnalysis(eBands, length, isTransient, tfResGo, lambda, x, n0, lm, tfEstimate, tfChan, importance)
+					selGo := TFAnalysis(eBands, length, isTransient, tfResGo, lambda, x, n0, lm, tfEstimate, tfChan, importance, nil)
 
 					selC, tfResC, err := libopustest.ProbeCELTTFAnalysis(eBands, length, isTransient, lambda, x, n0, lm, tfEstimate, tfChan, importance)
 					if err != nil {

@@ -89,7 +89,7 @@ func TestMDCTForwardOracle(t *testing.T) {
 		// libopus trashes its input copy; give the Go side its own copy.
 		goIn := append([]int32(nil), in...)
 		out := make([]int32, len(ref))
-		l.MDCTForward(goIn, out, window, overlap, shift, 1)
+		l.MDCTForward(goIn, out, window, overlap, shift, 1, nil)
 
 		for i := range out {
 			if out[i] != ref[i] {

@@ -84,7 +84,7 @@ func TestAlgQuantMatchesLibopusFixed(t *testing.T) {
 				var enc rangecoding.Encoder
 				enc.Init(make([]byte, bufBytes))
 				goX := append([]int32(nil), x...)
-				goMask := AlgQuant(goX, c.n, c.k, spread, c.b, &enc, gain, true)
+				goMask := AlgQuant(goX, c.n, c.k, spread, c.b, &enc, gain, true, nil)
 				// Done() returns the compacted packet (range bytes at the front,
 				// raw/end bytes appended) matching the C oracle's compact_packet.
 				goBytes := enc.Done()

@@ -2,7 +2,7 @@
 
 package encoder
 
-// encodeHotPathAllocBudget is the per-call allocation ceiling for the steady-
-// state Encode hot path in the default (float) build: strictly zero across
+// encodeHotPathCaseBudget is the per-call allocation ceiling for one steady-
+// state Encode hot-path case in the default (float) build: strictly zero across
 // mono+stereo and CELT/SILK/Hybrid, single-frame and long/multi-frame packets.
-const encodeHotPathAllocBudget = 0
+func encodeHotPathCaseBudget(encodeAllocGuardCase) int { return 0 }

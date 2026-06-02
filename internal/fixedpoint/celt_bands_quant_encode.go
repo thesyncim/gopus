@@ -40,6 +40,10 @@ type bandEncCtx struct {
 	avoidSplitNoise bool
 	resynth         bool
 	thetaRound      int
+
+	// Reusable per-band scratch (encoder-owned). When non-nil, AlgQuant and the
+	// Hadamard (de)interleave borrow these buffers instead of allocating.
+	scratch *celtEncodeScratch
 }
 
 const minStereoEnergy = int32(2) // MIN_STEREO_ENERGY (FIXED_POINT)
@@ -402,7 +406,7 @@ func quantPartitionEncode(ctx *bandEncCtx, x []int32, n, b, B int, lowband []int
 
 	if q != 0 {
 		k := celt.GetPulsesExport(q)
-		return uint(AlgQuant(x[:n], n, k, ctx.spread, B, ctx.enc, gain, ctx.resynth))
+		return uint(AlgQuant(x[:n], n, k, ctx.spread, B, ctx.enc, gain, ctx.resynth, ctx.scratch))
 	}
 
 	// No pulse: fill the band anyway (only matters when resynth is on).
@@ -485,9 +489,9 @@ func quantBandEncode(ctx *bandEncCtx, x []int32, n, b, B int, lowband []int32, l
 	nB0 := nB
 
 	if B0 > 1 {
-		deinterleaveHadamard(x, nB>>recombine, B0<<recombine, longBlocks)
+		deinterleaveHadamard(x, nB>>recombine, B0<<recombine, longBlocks, ctx.scratch)
 		if lowband != nil {
-			deinterleaveHadamard(lowband, nB>>recombine, B0<<recombine, longBlocks)
+			deinterleaveHadamard(lowband, nB>>recombine, B0<<recombine, longBlocks, ctx.scratch)
 		}
 	}
 
@@ -495,7 +499,7 @@ func quantBandEncode(ctx *bandEncCtx, x []int32, n, b, B int, lowband []int32, l
 
 	if ctx.resynth {
 		if B0 > 1 {
-			interleaveHadamard(x, nB>>recombine, B0<<recombine, longBlocks)
+			interleaveHadamard(x, nB>>recombine, B0<<recombine, longBlocks, ctx.scratch)
 		}
 		nB = nB0
 		B = B0
@@ -649,7 +653,7 @@ func computeChannelWeights(ex, ey int32) (int16, int16) {
 func QuantAllBandsEncode(enc *rangecoding.Encoder, channels, frameSize, lm, start, end int,
 	x, y []int32, bandE []int32,
 	pulses, tfRes []int, shortBlocks, spread, dualStereo, intensity, totalBitsQ3, balance, codedBands int,
-	complexity int, disableInv bool, seed *uint32) (collapse []byte) {
+	complexity int, disableInv bool, seed *uint32, scratch *celtEncodeScratch) (collapse []byte) {
 
 	eBands := celt.EBands
 	nbEBands := celt.MaxBands // 21
@@ -665,32 +669,43 @@ func QuantAllBandsEncode(enc *rangecoding.Encoder, channels, frameSize, lm, star
 	thetaRdo := y != nil && dualStereo == 0 && complexity >= 8
 	resynth := thetaRdo
 
-	collapse = make([]byte, channels*nbEBands)
-
 	normOffset := M * eBands[start]
 	normLen := M*eBands[nbEBands-1] - normOffset
 	if normLen < 0 {
 		normLen = 0
 	}
-	norm := make([]int32, channels*normLen)
+	resynthAlloc := M * (eBands[end] - eBands[end-1])
+
+	var norm, lowbandScratch []int32
+	var xSave, ySave, xSave2, ySave2, normSave2 []int32
+	if scratch != nil {
+		collapse = ensureByteScratch(&scratch.qCollapse, channels*nbEBands)
+		norm = ensureInt32(&scratch.qNorm, channels*normLen)
+		lowbandScratch = ensureInt32(&scratch.qLowbandScratch, resynthAlloc)
+		if thetaRdo {
+			xSave = ensureInt32(&scratch.qXSave, resynthAlloc)
+			ySave = ensureInt32(&scratch.qYSave, resynthAlloc)
+			xSave2 = ensureInt32(&scratch.qXSave2, resynthAlloc)
+			ySave2 = ensureInt32(&scratch.qYSave2, resynthAlloc)
+			normSave2 = ensureInt32(&scratch.qNormSave2, resynthAlloc)
+		}
+	} else {
+		collapse = make([]byte, channels*nbEBands)
+		norm = make([]int32, channels*normLen)
+		// libopus aliases lowband_scratch into X when resynth is off (it is never
+		// written in that case); a dedicated buffer is equivalent and simpler.
+		lowbandScratch = make([]int32, resynthAlloc)
+		if thetaRdo {
+			xSave = make([]int32, resynthAlloc)
+			ySave = make([]int32, resynthAlloc)
+			xSave2 = make([]int32, resynthAlloc)
+			ySave2 = make([]int32, resynthAlloc)
+			normSave2 = make([]int32, resynthAlloc)
+		}
+	}
 	var norm2 []int32
 	if channels == 2 {
 		norm2 = norm[normLen:]
-	}
-
-	resynthAlloc := M * (eBands[end] - eBands[end-1])
-	// libopus aliases lowband_scratch into X when resynth is off (it is never
-	// written in that case); a dedicated buffer is equivalent and simpler.
-	lowbandScratch := make([]int32, resynthAlloc)
-
-	// theta_rdo save buffers (only used in the stereo theta_rdo path).
-	var xSave, ySave, xSave2, ySave2, normSave2 []int32
-	if thetaRdo {
-		xSave = make([]int32, resynthAlloc)
-		ySave = make([]int32, resynthAlloc)
-		xSave2 = make([]int32, resynthAlloc)
-		ySave2 = make([]int32, resynthAlloc)
-		normSave2 = make([]int32, resynthAlloc)
 	}
 
 	ctx := bandEncCtx{
@@ -702,6 +717,7 @@ func QuantAllBandsEncode(enc *rangecoding.Encoder, channels, frameSize, lm, star
 		disableInv:      disableInv,
 		resynth:         resynth,
 		avoidSplitNoise: B > 1,
+		scratch:         scratch,
 	}
 	if seed != nil {
 		ctx.seed = *seed
@@ -859,7 +875,13 @@ func quantBandStereoThetaRDO(ctx *bandEncCtx, x, y []int32, n, b, B int, lowband
 
 	startOffs := enc.Offs()
 	ctxSave := *ctx
-	snapPre := enc.Snapshot(startOffs)
+	var snapPre, snap2 rangecoding.EncoderSnapshot
+	if ctx.scratch != nil {
+		enc.SnapshotInto(&ctx.scratch.rdoSnapPre, startOffs)
+		snapPre = ctx.scratch.rdoSnapPre
+	} else {
+		snapPre = enc.Snapshot(startOffs)
+	}
 	copy(xSave[:n], x[:n])
 	copy(ySave[:n], y[:n])
 
@@ -871,7 +893,12 @@ func quantBandStereoThetaRDO(ctx *bandEncCtx, x, y []int32, n, b, B int, lowband
 
 	// Save attempt-1 result so we can restore it if it wins.
 	ctxSave2 := *ctx
-	snap2 := enc.Snapshot(startOffs)
+	if ctx.scratch != nil {
+		enc.SnapshotInto(&ctx.scratch.rdoSnap2, startOffs)
+		snap2 = ctx.scratch.rdoSnap2
+	} else {
+		snap2 = enc.Snapshot(startOffs)
+	}
 	copy(xSave2[:n], x[:n])
 	copy(ySave2[:n], y[:n])
 	var normOutStart int

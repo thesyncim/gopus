@@ -106,6 +106,10 @@ type CELTEncoder struct {
 	window []int16
 	eBands []int16
 	logN   []int16
+
+	// scratch holds the reusable per-frame/per-band encode working buffers,
+	// grown once and reused across every frame of a packet.
+	scratch *celtEncodeScratch
 }
 
 // NewCELTEncoder allocates and resets an integer CELT encoder front-end for the
@@ -288,12 +292,13 @@ func (e *CELTEncoder) computeMDCTs(shortBlocks int, in, out []int32, C, CC, LM i
 		N = celtShortMdctSize << LM
 		shift = celtMaxLM - LM
 	}
+	sc := e.scratch
 	for c := 0; c < CC; c++ {
 		for b := 0; b < B; b++ {
 			e.mdct.MDCTForward(
 				in[c*(B*N+overlap)+b*N:],
 				out[b+c*N*B:],
-				e.window, overlap, shift, B)
+				e.window, overlap, shift, B, sc)
 		}
 	}
 	if CC == 2 && C == 1 {
