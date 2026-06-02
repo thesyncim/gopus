@@ -101,15 +101,28 @@ kernels honest across `purego`/arch — is in [docs/parity-testing.md](docs/pari
 
 | Rate | Encode API | Decode API | Resample / PLC | Parity evidence | Gaps for 100% |
 | --- | --- | --- | --- | --- | --- |
-| 48 kHz | Y | Y | Y | Decoder matrix, compliance, DRED 48 kHz oracles | — |
-| 24 kHz | Y | Y | Y | Per-rate decoder matrix (byte-exact), compliance (SILK MB), DRED convert16k | — |
-| 16 kHz | Y | Y | Y | Per-rate decoder matrix (byte-exact), SILK NB, 16 kHz hybrid/SILK explicit DRED grid | — |
-| 12 kHz | Y | Y | Y | Per-rate decoder matrix (byte-exact), DRED convert16k oracle | — |
-| 8 kHz | Y | Y | Y | Per-rate decoder matrix (byte-exact), DRED convert16k, SILK NB | — |
+| 48 kHz | Y | Y | Y | Decoder matrix, compliance, DRED 48 kHz oracles; encode byte-exact | — |
+| 24 kHz | Y (native) | Y | Y | Per-rate decoder matrix (byte-exact); native encode byte-exact (SILK NB/MB/WB, CELT, Hybrid SWB) vs `opus_encode(Fs)` oracle | 60 ms SILK NSQ marginal (1 stereo config) |
+| 16 kHz | Y (native) | Y | Y | Per-rate decoder matrix (byte-exact); native encode byte-exact (SILK NB/MB/WB, CELT WB) | — |
+| 12 kHz | Y (native) | Y | Y | Per-rate decoder matrix (byte-exact); native encode byte-exact (SILK NB/MB, CELT) | 60 ms SILK NSQ marginal (1 mono config) |
+| 8 kHz | Y (native) | Y | Y | Per-rate decoder matrix (byte-exact); native encode byte-exact (SILK NB, CELT NB) | — |
 
-Internal PCM is handled at 48 kHz; API rates use encoder/decoder resamplers. The
-per-rate decoder matrix (`decoder_rate_parity_test`, 26 configs × 5 rates) is
-byte-exact vs libopus at every sub-48k API rate.
+ENCODE is now native-Fs: the public `Encode(pcm, frameSize)` consumes native-Fs
+frame sizes exactly like libopus `opus_encode(Fs)` (20 ms = Fs/50; 320 samples at
+16 kHz). The SILK input resampler runs `API_fs_Hz → fs_kHz`
+(`silk_setup_resamplers` forEnc=1) and the float CELT encoder upsamples sub-48k
+input to the 48 kHz core (`celt_encode_with_ec` `st->upsample`). 48 kHz encode is
+unchanged byte-for-byte. The native-encode byte-parity gate is
+`encode_sub48_native_parity_test.go` (SILK HARD byte-exact at every native rate;
+Hybrid/CELT logged as the documented float-analysis boundary). DECODE is
+unchanged: the per-rate decoder matrix (`decoder_rate_parity_test`, 26 configs ×
+5 rates) is byte-exact vs libopus at every sub-48k API rate.
+
+Two 60 ms SILK configs remain non-byte-exact (`silk_wb_60ms_mono` @ 12 kHz,
+`silk_nb_60ms_stereo` @ 24 kHz): a SILK NSQ marginal on the native-resampled
+input (the SILK input resampler is byte-exact, all rate-control params are
+rate-independent, and the same config is byte-exact on other signals / on the
+48 kHz down-resampled feed), tracked for a dedicated SILK-NSQ trace.
 
 ---
 
