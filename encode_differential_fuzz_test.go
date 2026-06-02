@@ -473,17 +473,20 @@ func TestEncodeDifferentialFuzz(t *testing.T) {
 					// post-encode final_range is the range coder's internal accumulated
 					// state, which the float CELT analysis can perturb by an amount that
 					// rounds away in the emitted bytes. On short CELT frames (2.5 ms) the
-					// arm64 float tail leaves identical bytes but a different final_range;
-					// since the bitstream is identical this is a documented residual, not
-					// a divergence. On amd64 the float path is exact so it must match.
+					// pure-Go float tail leaves identical bytes but a different
+					// final_range; since the bitstream is identical this is a documented
+					// residual, not a divergence. The amd64 asm build's float path
+					// matches the SIMD libopus exactly, so it must match there; both
+					// pure-Go builds (arm64 always, amd64 vs the scalar libopus) carry
+					// the documented range-tail residual.
 					if g.FinalRange != o.FinalRange {
-						if runtime.GOARCH == "amd64" {
+						if runtime.GOARCH == "amd64" && !testPuregoBuild {
 							t.Errorf("%s: packets byte-equal but final_range differs gopus=%08x libopus=%08x (UNEXPECTED on amd64)",
 								label, g.FinalRange, o.FinalRange)
 						} else {
 							rangeOnlyResiduals++
 							t.Logf("%s: packets byte-equal, final_range differs gopus=%08x libopus=%08x — "+
-								"documented arm64 CELT range-tail residual (bytes match)",
+								"documented pure-Go CELT range-tail residual (bytes match)",
 								label, g.FinalRange, o.FinalRange)
 						}
 					}
