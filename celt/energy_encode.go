@@ -3,11 +3,7 @@
 
 package celt
 
-import (
-	"math"
-
-	"github.com/thesyncim/gopus/rangecoding"
-)
+import "github.com/thesyncim/gopus/rangecoding"
 
 const (
 	lfeBandClamp     = 1e-4
@@ -19,10 +15,9 @@ const (
 // energies[c*nbBands + band] = log2(amplitude) - eMeans[band]
 //
 // The energy computation extracts loudness per frequency band:
-//  1. For each band, sum squares of MDCT coefficients
-//  2. Convert to log2 scale: energy = celt_log2(celt_sqrt(sumSq)) (see
-//     celtBandEnergyLog2 for the per-tier rounding)
-//  3. Subtract eMeans to make values mean-relative (like libopus amp2Log2)
+// 1. For each band, sum squares of MDCT coefficients
+// 2. Convert to log2 scale: energy = 0.5 * log2(sumSq)
+// 3. Subtract eMeans to make values mean-relative (like libopus amp2Log2)
 //
 // The decoder adds eMeans back during denormalization, recovering the original.
 // This ensures encoder and decoder use matching gain values.
@@ -91,7 +86,7 @@ func computeBandEnergiesGLogInto(mdctCoeffs []float32, nbBands, frameSize, chann
 		return
 	}
 
-	silence := celtBandEnergyLog2(float32(1e-27))
+	silence := float32(0.5) * celtLog2(float32(1e-27))
 	for c := 0; c < channels; c++ {
 		channelStart := c * coeffsPerChannel
 		channelEnd := channelStart + coeffsPerChannel
@@ -185,7 +180,7 @@ func computeBandEnergiesGLogF32IntoEdges(mdctCoeffs []float32, nbBands, frameSiz
 		return
 	}
 
-	silence := celtBandEnergyLog2(float32(1e-27))
+	silence := float32(0.5) * celtLog2(float32(1e-27))
 	for c := 0; c < channels; c++ {
 		channelStart := c * coeffsPerChannel
 		channelEnd := channelStart + coeffsPerChannel
@@ -254,7 +249,7 @@ func computeBandEnergiesFloat32Into(mdctCoeffs []float32, nbBands, frameSize, ch
 		return
 	}
 
-	silence := celtBandEnergyLog2(float32(1e-27))
+	silence := float32(0.5) * celtLog2(float32(1e-27))
 	for c := 0; c < channels; c++ {
 		channelStart := c * coeffsPerChannel
 		channelEnd := channelStart + coeffsPerChannel
@@ -337,7 +332,7 @@ func applyLFEBandLogEClamp(energies []celtGLog, nbBands, channels int) {
 // This matches libopus compute_band_energies() + amp2Log2() (float path).
 func computeBandRMS(coeffs []float32, start, end int) float32 {
 	if end <= start || start < 0 || end > len(coeffs) {
-		return celtBandEnergyLog2(float32(1e-27))
+		return float32(0.5) * celtLog2(float32(1e-27))
 	}
 
 	// Compute sum of squares with the same accumulation order libopus uses
@@ -345,46 +340,18 @@ func computeBandRMS(coeffs []float32, start, end int) float32 {
 	c := coeffs[start:end:end]
 	sumSq := float32(1e-27) + celtInnerProdF32LibopusOrder(c)
 
-	return celtBandEnergyLog2(sumSq)
+	// Keep the existing float32 shortcut: strict libopus-backed quality
+	// fixtures regress on this tree when using sqrt(sumSq) before celtLog2.
+	return float32(0.5) * celtLog2(sumSq)
 }
 
 func computeBandRMSFloat32(coeffs []float32, start, end int) float32 {
 	if end <= start || start < 0 || end > len(coeffs) {
-		return celtBandEnergyLog2(float32(1e-27))
+		return float32(0.5) * celtLog2(float32(1e-27))
 	}
 	c := coeffs[start:end:end]
 	sumSq := float32(1e-27) + celtInnerProdF32LibopusOrder(c)
-	return celtBandEnergyLog2(sumSq)
-}
-
-// celtSqrt mirrors libopus celt_sqrt in the float build: (float)sqrt((double)x).
-// C promotes the float argument to double, takes the double-precision sqrt, then
-// narrows the result back to float, so the Go equivalent must round through
-// float64 the same way.
-func celtSqrt(x float32) float32 {
-	return float32(math.Sqrt(float64(x)))
-}
-
-// celtBandEnergyLog2 converts a band energy sum-of-squares to the mean-relative
-// log2 amplitude bandLogE, matching libopus compute_band_energies()+amp2Log2().
-//
-// libopus stores bandE = celt_sqrt(sum) then amp2Log2() takes celt_log2(bandE),
-// i.e. celt_log2(celt_sqrt(sum)). That two-step single-precision rounding is what
-// the bit-exact (scalar) reference produces; the algebraically-equal
-// 0.5*celt_log2(sum) shortcut rounds 1 ULP away from it on some bands, which can
-// flip a downstream dynalloc boost decision and cost audible quality.
-//
-// The exact celt_log2(celt_sqrt(sum)) form is used on the bit-exact tiers
-// (celtFusedFloat==false: purego and amd64), which track scalar libopus. The
-// quality-gated fused arm64 tier (celtFusedFloat==true) keeps the
-// 0.5*celt_log2(sum) form: its inner-product sum already rides the FMA lane order
-// rather than the scalar order, so it is judged against the fused/NEON reference
-// by opus_compare, not bit-exactly.
-func celtBandEnergyLog2(sumSq float32) float32 {
-	if celtFusedFloat {
-		return float32(0.5) * celtLog2(sumSq)
-	}
-	return celtLog2(celtSqrt(sumSq))
+	return float32(0.5) * celtLog2(sumSq)
 }
 
 func celtInnerProdF32LibopusOrder(x []float32) float32 {
