@@ -394,7 +394,9 @@ test-custom-parity: ensure-libopus-custom
 # Live (fixture-free) gopus-vs-libopus decode parity on the extended synthetic
 # corpus signal classes across SILK/Hybrid/CELT mono+stereo configs, plus the
 # frame-duration axis (2.5/5/10/40/60 ms) over a representative class slice.
-test-corpus-quality: ensure-libopus
+# Uses a tier-matched libopus reference (asm gopus vs SIMD libopus, pure-Go
+# gopus vs scalar libopus), so it needs both reference trees built.
+test-corpus-quality: ensure-libopus ensure-libopus-simd
 	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
 		$(GO) test -tags gopus_libopus_oracle -count=1 ./testvectors -run '^(TestCorpusSignalQualityParity|TestCorpusFrameSizeQualityParity)$$'
 
