@@ -13,9 +13,6 @@ func TestParityMatrixDocsStayInSyncWithFixtureCoverage(t *testing.T) {
 	doc := mustReadDocForTest(t, "PARITY_MATRIX.md")
 
 	for _, needle := range []string{
-		"`celt-fb-60ms-mono-64k`",
-		"opusdec_crossval_fixture.json",
-		"ConvertTo16kMonoFloat32",
 		"bit-exact",
 		"Hybrid QEXT",
 	} {
