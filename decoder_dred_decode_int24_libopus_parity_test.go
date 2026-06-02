@@ -195,6 +195,209 @@ func TestDecodeDREDInt24MatchesLibopusInt24Reference(t *testing.T) {
 	}
 }
 
+// TestDecodeDREDInt24MatrixMatchesLibopusInt24Reference extends the int24 DRED
+// recovery parity coverage from the single CELT-FB fixture exercised by
+// TestDecodeDREDInt24MatchesLibopusInt24Reference to the full DRED mode/rate/
+// channel matrix already gated for the float DRED decode path: SILK-WB, CELT-FB
+// and Hybrid-SWB/FB, mono and stereo, at 48 kHz and 16 kHz decoder rates.
+//
+// For every config the gopus DecodeDREDInt24 output (decodeExplicitDREDFloat
+// followed by RES2INT24) is compared against the libopus int24 DRED reference,
+// which is opus_decoder_dred_decode24() == RES2INT24 applied to the
+// opus_decoder_dred_decode_float() oracle buffer (src/opus_decoder.c:1643-1664
+// vs :1677-1682 differ only by the trailing RES2INT24). This is the exact same
+// wiring opus_decode24 + DRED uses, so it locks the int24 DRED recovery path to
+// the libopus int24 DRED reference across the whole matrix.
+//
+// DRED concealment is a neural PLC stream (FARGAN/LPCNet float ops): opus_compare's
+// Q is invalid (project memory) and the float DRED tests gate on the documented
+// near-exact corr/RMS bar, which also absorbs the documented darwin/arm64 1-ULP
+// float drift's ≤1 LSB int24 divergence. The int24 reference gate mirrors that
+// bar exactly via assertAPIRateQualityFloat32PLC(plcDominated=true).
+func TestDecodeDREDInt24MatrixMatchesLibopusInt24Reference(t *testing.T) {
+	libopustest.RequireOracle(t)
+	tests := []struct {
+		name         string
+		decoderRate  int
+		cfg          libopusDREDPacketConfig
+		wantChannels int
+	}{
+		{
+			name:        "celt_fb_mono_48k_20ms",
+			decoderRate: 48000,
+			cfg:         libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeCELT, Bandwidth: BandwidthFullband},
+		},
+		{
+			name:        "celt_fb_mono_48k_10ms",
+			decoderRate: 48000,
+			cfg:         libopusDREDPacketConfig{FrameSize: 480, ForceMode: ModeCELT, Bandwidth: BandwidthFullband},
+		},
+		{
+			name:         "celt_fb_stereo_48k_20ms",
+			decoderRate:  48000,
+			cfg:          libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeCELT, Bandwidth: BandwidthFullband, Channels: 2, ForceChannels: 2},
+			wantChannels: 2,
+		},
+		{
+			name:        "celt_fb_mono_16k_20ms",
+			decoderRate: 16000,
+			cfg:         libopusDREDPacketConfig{FrameSize: 480, ForceMode: ModeCELT, Bandwidth: BandwidthFullband},
+		},
+		{
+			name:         "celt_fb_stereo_16k_20ms",
+			decoderRate:  16000,
+			cfg:          libopusDREDPacketConfig{FrameSize: 480, ForceMode: ModeCELT, Bandwidth: BandwidthFullband, Channels: 2, ForceChannels: 2},
+			wantChannels: 2,
+		},
+		{
+			name:        "silk_wb_mono_48k_20ms",
+			decoderRate: 48000,
+			cfg:         libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeSILK, Bandwidth: BandwidthWideband},
+		},
+		{
+			name:        "silk_wb_mono_16k_20ms",
+			decoderRate: 16000,
+			cfg:         libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeSILK, Bandwidth: BandwidthWideband},
+		},
+		{
+			name:         "silk_wb_stereo_48k_20ms",
+			decoderRate:  48000,
+			cfg:          libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeSILK, Bandwidth: BandwidthWideband, Channels: 2, ForceChannels: 2},
+			wantChannels: 2,
+		},
+		{
+			name:        "hybrid_swb_mono_48k_20ms",
+			decoderRate: 48000,
+			cfg:         libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeHybrid, Bandwidth: BandwidthSuperwideband},
+		},
+		{
+			name:        "hybrid_fb_mono_48k_20ms",
+			decoderRate: 48000,
+			cfg:         libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeHybrid, Bandwidth: BandwidthFullband},
+		},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			dec, dred, packetInfo, seedPacket, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, tc.decoderRate, tc.cfg)
+
+			wantChannels := tc.wantChannels
+			if wantChannels == 0 {
+				wantChannels = 1
+			}
+			if dec.Channels() != wantChannels {
+				t.Fatalf("int24 DRED matrix got decoder channels=%d, want %d", dec.Channels(), wantChannels)
+			}
+
+			// Oracle: opus_decoder_dred_decode_float in carrier-DRED context — the
+			// exact float buffer opus_decoder_dred_decode24 feeds to RES2INT24.
+			want, err := probeLibopusDecoderDREDDecodeFloatForDecoder(seedPacket, packetInfo, tc.decoderRate, -1, n, n)
+			if err != nil {
+				libopustest.HelperUnavailable(t, "decoder DRED decode", err)
+			}
+			requireLibopusDREDDecodeParsed(t, want, "libopus int24 DRED matrix")
+			if want.ret != n {
+				t.Fatalf("libopus int24 DRED matrix decode ret=%d want %d", want.ret, n)
+			}
+			if want.channels != wantChannels {
+				t.Fatalf("libopus int24 DRED matrix channels=%d want %d", want.channels, wantChannels)
+			}
+
+			channels := dec.Channels()
+			needed := n * channels
+			pcmInt24 := make([]int32, needed)
+			got, err := dec.DecodeDREDInt24(dred, n, pcmInt24, n)
+			if err != nil {
+				t.Fatalf("DecodeDREDInt24 error: %v", err)
+			}
+			if got != n {
+				t.Fatalf("DecodeDREDInt24 returned %d want %d", got, n)
+			}
+
+			// libopus int24 reference: RES2INT24 on the oracle float buffer.
+			wantInt24 := make([]int32, got*channels)
+			for i := range wantInt24 {
+				wantInt24[i] = float32ToInt24(want.pcm[i])
+			}
+
+			label := "DRED int24 matrix reference " + tc.name
+			assertAPIRateQualityFloat32PLC(t,
+				int32Int24ToFloat32(pcmInt24[:got*channels]),
+				int32Int24ToFloat32(wantInt24),
+				tc.decoderRate, channels, true, label)
+		})
+	}
+}
+
+// TestDecodeDREDInt24MatrixTracksDecodeDREDFloat verifies that across the full
+// DRED mode/rate/channel matrix DecodeDREDInt24 equals RES2INT24 applied to the
+// gopus float DRED decode (DecodeDRED) sample-for-sample. Both run the identical
+// decodeExplicitDREDFloat float compute on the same host, so this is a strict
+// byte/sample-exact equality on every architecture — it is independent of the
+// libopus oracle and of the documented arm64 1-ULP float drift. It locks the
+// int24 quantisation wiring (float32ToInt24Slice == per-sample RES2INT24) for
+// the whole matrix rather than only the CELT-FB fixture.
+func TestDecodeDREDInt24MatrixTracksDecodeDREDFloat(t *testing.T) {
+	libopustest.RequireOracle(t)
+	tests := []struct {
+		name        string
+		decoderRate int
+		cfg         libopusDREDPacketConfig
+	}{
+		{name: "celt_fb_mono_48k_20ms", decoderRate: 48000, cfg: libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeCELT, Bandwidth: BandwidthFullband}},
+		{name: "celt_fb_stereo_48k_20ms", decoderRate: 48000, cfg: libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeCELT, Bandwidth: BandwidthFullband, Channels: 2, ForceChannels: 2}},
+		{name: "celt_fb_mono_16k_20ms", decoderRate: 16000, cfg: libopusDREDPacketConfig{FrameSize: 480, ForceMode: ModeCELT, Bandwidth: BandwidthFullband}},
+		{name: "silk_wb_mono_48k_20ms", decoderRate: 48000, cfg: libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeSILK, Bandwidth: BandwidthWideband}},
+		{name: "silk_wb_mono_16k_20ms", decoderRate: 16000, cfg: libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeSILK, Bandwidth: BandwidthWideband}},
+		{name: "silk_wb_stereo_48k_20ms", decoderRate: 48000, cfg: libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeSILK, Bandwidth: BandwidthWideband, Channels: 2, ForceChannels: 2}},
+		{name: "hybrid_swb_mono_48k_20ms", decoderRate: 48000, cfg: libopusDREDPacketConfig{FrameSize: 960, ForceMode: ModeHybrid, Bandwidth: BandwidthSuperwideband}},
+	}
+
+	for _, tc := range tests {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			// Two decoders seeded identically advance through the same DRED parse
+			// and process steps; DecodeDRED produces the float reference,
+			// DecodeDREDInt24 must equal float32ToInt24(floatPCM) sample-for-sample.
+			decFloat, dredFloat, _, _, n := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, tc.decoderRate, tc.cfg)
+			decInt24, dredInt24, _, _, n2 := prepareExplicitDREDDecodeParityStateForDecoderRateAndPacketConfig(t, tc.decoderRate, tc.cfg)
+			if n != n2 {
+				t.Fatalf("seed frame count mismatch: float=%d int24=%d", n, n2)
+			}
+
+			channels := decFloat.Channels()
+			needed := n * channels
+
+			pcmFloat := make([]float32, needed)
+			gotFloat, err := decFloat.DecodeDRED(dredFloat, n, pcmFloat, n)
+			if err != nil {
+				t.Fatalf("DecodeDRED float error: %v", err)
+			}
+			if gotFloat != n {
+				t.Fatalf("DecodeDRED float returned %d want %d", gotFloat, n)
+			}
+
+			pcmInt24 := make([]int32, needed)
+			gotInt24, err := decInt24.DecodeDREDInt24(dredInt24, n, pcmInt24, n)
+			if err != nil {
+				t.Fatalf("DecodeDREDInt24 error: %v", err)
+			}
+			if gotInt24 != n {
+				t.Fatalf("DecodeDREDInt24 returned %d want %d", gotInt24, n)
+			}
+
+			for i := 0; i < gotFloat*channels; i++ {
+				want := float32ToInt24(pcmFloat[i])
+				if pcmInt24[i] != want {
+					t.Fatalf("%s: pcmInt24[%d]=%d want float32ToInt24(%g)=%d",
+						tc.name, i, pcmInt24[i], pcmFloat[i], want)
+				}
+			}
+		})
+	}
+}
+
 // TestDecodeDREDInt24BufferTooSmall verifies that DecodeDREDInt24 returns
 // ErrBufferTooSmall when the output buffer is too small.
 func TestDecodeDREDInt24BufferTooSmall(t *testing.T) {
