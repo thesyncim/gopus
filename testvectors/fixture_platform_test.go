@@ -70,6 +70,7 @@ func TestRequiredPlatformFixturesPresent(t *testing.T) {
 	paths := []string{
 		libopusDecoderMatrixFixturePath,
 		libopusDecoderLossFixturePath,
+		libopusDecoderRateMatrixFixturePath,
 		encoderCompliancePacketsFixturePath,
 		encoderComplianceVariantsFixturePath,
 	}

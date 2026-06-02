@@ -529,6 +529,7 @@ fixtures-gen-platform: ensure-libopus
 	echo "Generating native libopus fixtures for $${suffix}"; \
 	GOPUS_DECODER_MATRIX_FIXTURE_OUT="testvectors/testdata/libopus_decoder_matrix_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_decoder_matrix_fixture.go; \
 	GOPUS_DECODER_LOSS_FIXTURE_OUT="testvectors/testdata/libopus_decoder_loss_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_decoder_loss_fixture.go; \
+	GOPUS_DECODER_RATE_MATRIX_FIXTURE_OUT="testvectors/testdata/libopus_decoder_rate_matrix_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_decoder_rate_matrix_fixture.go; \
 	GOPUS_ENCODER_PACKETS_FIXTURE_OUT="testvectors/testdata/encoder_compliance_libopus_packets_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_encoder_packet_fixture.go; \
 	GOPUS_ENCODER_VARIANTS_FIXTURE_OUT="testvectors/testdata/encoder_compliance_libopus_variants_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_libopus_encoder_variants_fixture.go; \
 	GOPUS_OPUSDEC_CROSSVAL_FIXTURE_OUT="celt/testdata/opusdec_crossval_fixture_$${suffix}.json" $(GO_WORK_ENV) $(GO) run tools/gen_opusdec_crossval_fixture.go; \
@@ -542,6 +543,7 @@ fixtures-assert-platform:
 	for path in \
 		"testvectors/testdata/libopus_decoder_matrix_fixture_$${suffix}.json" \
 		"testvectors/testdata/libopus_decoder_loss_fixture_$${suffix}.json" \
+		"testvectors/testdata/libopus_decoder_rate_matrix_fixture_$${suffix}.json" \
 		"testvectors/testdata/encoder_compliance_libopus_packets_fixture_$${suffix}.json" \
 		"testvectors/testdata/encoder_compliance_libopus_variants_fixture_$${suffix}.json" \
 		"celt/testdata/opusdec_crossval_fixture_$${suffix}.json"; do \
