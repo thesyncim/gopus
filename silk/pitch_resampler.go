@@ -27,9 +27,7 @@ func floatToInt16SliceScaled(out []int16, in []float32, scale float32) {
 	}
 	_ = in[n-1]  // BCE hint
 	_ = out[n-1] // BCE hint
-	for i := 0; i < n; i++ {
-		out[i] = opusmath.Float32ToInt16Raw(in[i] * scale)
-	}
+	floatToInt16Scaled(out, in, scale, n)
 }
 
 func int16ToFloat32Slice(out []float32, in []int16) {
