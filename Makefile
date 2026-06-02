@@ -1,6 +1,6 @@
 FOCUS_GATE_TARGETS := test-doc-contract test-dnn-blob-parity test-core-oracles-parity test-dred-tag test-qext-parity test-extra-controls-tag test-extra-controls-parity test-quality test-conformance test-exactness test-exhaustive test-provenance
 
-.PHONY: lint lint-fix test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-rfc-conformance test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom ensure-libopus-simd test-fixedpoint-parity test-custom-parity test-corpus-quality ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
+.PHONY: lint lint-fix test test-fast test-race test-type-parity update-type-parity-baseline test-byte-parity-focus test-rfc-conformance test-fuzz-smoke test-fuzz-safety test-consumer-smoke test-examples-smoke $(FOCUS_GATE_TARGETS) quality-report test-assembly-safety test-soak-safety bench-guard bench-libopus-guard bench-decoder-libopus-guard bench-encoder-libopus-guard bench-testvectors bench-testvectors-compare bench-testvectors-report verify-production verify-production-exhaustive verify-safety test-build-config-matrix release-evidence release-preflight ensure-libopus ensure-libopus-qext ensure-libopus-fixed ensure-libopus-custom ensure-libopus-custom-scalar ensure-libopus-simd ensure-libopus-scalar test-fixedpoint-parity test-custom-parity test-corpus-quality ensure-testvectors fixtures-gen fixtures-gen-decoder fixtures-gen-decoder-loss fixtures-gen-encoder fixtures-gen-variants fixtures-gen-platform fixtures-assert-platform fixtures-gen-linux-amd64 docker-buildx-bootstrap docker-build docker-build-exhaustive docker-test docker-test-exhaustive docker-shell build build-nopgo pgo-generate pgo-build clean clean-vectors bench-kernels
 
 GO ?= go
 GO_WORK_ENV ?= GOWORK=off
@@ -328,8 +328,14 @@ verify-safety: ensure-libopus
 # libopus. This gate reruns the libopus oracle suite under purego so that class of
 # regression fails here. The default arm64 build is covered by the normal parity
 # run; amd64 is covered by CI.
-test-build-config-matrix: ensure-libopus
-	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 $(GO) test -tags purego ./... -count=1 -timeout=25m
+#
+# The pure-Go build has no assembly/SIMD, so the C oracle must link the scalar
+# (generic-C) libopus reference, NOT the default tree (which autotools-enables
+# RTCD + SSE/AVX on amd64 and NEON on Linux arm64). GOPUS_LIBOPUS_REF_SCALAR=1
+# routes RefPath() to opus-$(LIBOPUS_VERSION)-scalar so the comparison is
+# scalar-Go vs scalar-C and can stay bit-exact.
+test-build-config-matrix: ensure-libopus-scalar
+	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_REF_SCALAR=1 $(GO) test -tags purego ./... -count=1 -timeout=25m
 
 # Generate a release evidence bundle (gates + key benchmarks).
 release-evidence: ensure-libopus
@@ -376,19 +382,37 @@ test-fixedpoint-parity: ensure-libopus-fixed
 ensure-libopus-custom:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_CUSTOM=1 ./tools/ensure_libopus.sh
 
+# Ensure tmp_check/opus-$(LIBOPUS_VERSION)-custom-scalar/.libs/libopus.a exists,
+# built with --enable-custom-modes on the scalar generic-C kernels (--disable-asm
+# --disable-rtcd --disable-intrinsics). Bit-reproducible Opus Custom oracle for the
+# celt/custom parity gate, whose gopus encode path is scalar.
+ensure-libopus-custom-scalar:
+	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_CUSTOM_SCALAR=1 ./tools/ensure_libopus.sh
+
 # Ensure tmp_check/opus-$(LIBOPUS_VERSION)-simd/.libs/libopus.a exists, built
 # with libopus's native SIMD path (--enable-rtcd --enable-intrinsics): NEON on
 # arm64, SSE/AVX RTCD on amd64. This is the PERFORMANCE reference only — it is
 # NOT bit-reproducible, so it MUST NOT replace the scalar parity reference
-# (opus-$(LIBOPUS_VERSION)). Used by the asm-vs-asm perf tier.
+# (opus-$(LIBOPUS_VERSION)-scalar). Used by the asm-vs-asm perf tier.
 ensure-libopus-simd:
 	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_SIMD=1 ./tools/ensure_libopus.sh
 
-# Byte/sample-exact parity for the gopus celt/custom standard 48 kHz modes
-# against the --enable-custom-modes libopus oracle. Non-standard custom band
-# layouts self-skip until a real custom-mode CELT path lands.
-test-custom-parity: ensure-libopus-custom
-	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 \
+# Ensure tmp_check/opus-$(LIBOPUS_VERSION)-scalar/.libs/libopus.a exists, built
+# with the scalar generic-C kernels (--disable-asm --disable-rtcd
+# --disable-intrinsics). Its config.h leaves the platform SIMD macros undefined,
+# so it is the bit-reproducible parity reference for the pure-Go gopus build (no
+# assembly/SIMD). The default tree autotools-enables SIMD on amd64 / Linux arm64,
+# so it is NOT a valid pure-Go oracle there.
+ensure-libopus-scalar:
+	LIBOPUS_VERSION=$(LIBOPUS_VERSION) LIBOPUS_ENABLE_SCALAR=1 ./tools/ensure_libopus.sh
+
+# Byte/sample-exact parity for the gopus celt/custom modes against the
+# --enable-custom-modes libopus oracle. The gopus custom encode/decode path is
+# scalar (the SSE/NEON CELT kernels are not on the custom-mode path), so the oracle
+# links the scalar custom build (GOPUS_LIBOPUS_REF_SCALAR=1 -> custom-scalar tree)
+# for a like-with-like scalar-Go vs scalar-C comparison.
+test-custom-parity: ensure-libopus-custom-scalar
+	$(GO_WORK_ENV) GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1 GOPUS_LIBOPUS_REF_SCALAR=1 \
 		$(GO) test -tags 'gopus_custom gopus_libopus_oracle' -count=1 ./celt/custom/...
 
 # Live (fixture-free) gopus-vs-libopus decode parity on the extended synthetic

@@ -121,8 +121,17 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 
 	root := repoRoot()
 	refDir := helperRefDir(cfg)
+	scalarRef := ScalarRefRequested()
 	ensureRef := libopustooling.EnsureLibopus
 	flavor := "ref"
+	if scalarRef {
+		// The default tree autotools-enables SIMD on amd64 / Linux arm64. The
+		// pure-Go build and the custom parity gate need the bit-reproducible scalar
+		// tree so the comparison is scalar-Go vs scalar-C. SIMDRef/FixedRef/QEXTRef
+		// select a deliberately different tree and are left untouched.
+		ensureRef = libopustooling.EnsureLibopusScalar
+		flavor = "scalar"
+	}
 	if cfg.QEXTRef {
 		ensureRef = libopustooling.EnsureLibopusQEXT
 		flavor = "qext"
@@ -134,6 +143,10 @@ func BuildCHelper(cfg CHelperConfig) (string, error) {
 	if cfg.CustomRef {
 		ensureRef = libopustooling.EnsureLibopusCustom
 		flavor = "custom"
+		if scalarRef {
+			ensureRef = libopustooling.EnsureLibopusCustomScalar
+			flavor = "custom-scalar"
+		}
 	}
 	if cfg.SIMDRef {
 		ensureRef = libopustooling.EnsureLibopusSIMD
@@ -328,6 +341,7 @@ func helperConfigDigest(cfg CHelperConfig, refDir, srcPath string) string {
 	helperHashString(h, fmt.Sprintf("custom-ref=%t", cfg.CustomRef))
 	helperHashString(h, fmt.Sprintf("simd-ref=%t", cfg.SIMDRef))
 	helperHashString(h, fmt.Sprintf("force-scalar-ref=%t", cfg.ForceScalarRef))
+	helperHashString(h, fmt.Sprintf("scalar-ref-tree=%t", ScalarRefRequested()))
 	helperHashStrings(h, "cflags", cfg.CFlags)
 	helperHashStrings(h, "ref-includes", cfg.RefIncludes)
 	helperHashStrings(h, "include-dirs", cfg.IncludeDirs)

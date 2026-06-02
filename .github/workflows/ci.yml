@@ -517,9 +517,9 @@ jobs:
         uses: actions/cache@v5
         with:
           path: |
-            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-custom
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-custom-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
-          key: libopus-custom-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+          key: libopus-custom-scalar-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
       - name: Run Opus Custom --enable-custom-modes C-oracle parity gate
         run: make test-custom-parity
@@ -590,13 +590,13 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Cache pinned libopus build
+      - name: Cache pinned scalar libopus build
         uses: actions/cache@v5
         with:
           path: |
-            tmp_check/opus-${{ env.LIBOPUS_VERSION }}
+            tmp_check/opus-${{ env.LIBOPUS_VERSION }}-scalar
             tmp_check/opus-${{ env.LIBOPUS_VERSION }}.tar.gz
-          key: libopus-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
+          key: libopus-scalar-${{ runner.os }}-${{ runner.arch }}-${{ env.LIBOPUS_VERSION }}-${{ hashFiles('tools/ensure_libopus.sh') }}
 
       - name: Run build-config matrix gate (purego ./...)
         run: make test-build-config-matrix

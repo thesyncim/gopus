@@ -147,8 +147,22 @@ func libopusToolIsRunnable(st os.FileInfo, goos string) bool {
 	return (st.Mode() & 0o111) != 0
 }
 
+// OpusToolScalarRequested reports whether the libopus reference tools (opus_demo
+// / opus_compare) must be the scalar (generic-C, no SIMD/RTCD/intrinsics) build.
+// The pure-Go (-tags purego) gopus build and the celt/custom parity gate set
+// GOPUS_LIBOPUS_REF_SCALAR=1 so opus_demo-driven byte/quality comparisons use the
+// bit-reproducible scalar tree instead of the default tree (which autotools-enables
+// SIMD on amd64 and Linux arm64).
+func OpusToolScalarRequested() bool {
+	v := strings.TrimSpace(strings.ToLower(os.Getenv("GOPUS_LIBOPUS_REF_SCALAR")))
+	return v == "1" || v == "true" || v == "yes"
+}
+
 // FindOpusDemo returns the first executable opus_demo found under tmp_check.
 func FindOpusDemo(version string, roots []string) (string, bool) {
+	if OpusToolScalarRequested() {
+		return findLibopusToolInSourceForOS(version, roots, "-scalar", "opus_demo", runtime.GOOS)
+	}
 	return findLibopusTool(version, roots, "opus_demo")
 }
 
@@ -160,6 +174,9 @@ func FindQEXTOpusDemo(version string, roots []string) (string, bool) {
 
 // FindOpusCompare returns the first executable opus_compare found under tmp_check.
 func FindOpusCompare(version string, roots []string) (string, bool) {
+	if OpusToolScalarRequested() {
+		return findLibopusToolInSourceForOS(version, roots, "-scalar", "opus_compare", runtime.GOOS)
+	}
 	return findLibopusTool(version, roots, "opus_compare")
 }
 
@@ -379,6 +396,22 @@ func EnsureLibopusSIMD(version string, roots []string) bool {
 	return ensureLibopusVariant(version, roots, "simd")
 }
 
+// EnsureLibopusScalar invokes tools/ensure_libopus.sh with ENABLE_SCALAR enabled
+// (libopus configured with --disable-asm --disable-rtcd --disable-intrinsics, so
+// config.h leaves the platform SIMD macros undefined) from the first matching
+// root. This is the bit-reproducible parity reference for the pure-Go gopus build.
+func EnsureLibopusScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "scalar")
+}
+
+// EnsureLibopusCustomScalar invokes tools/ensure_libopus.sh with
+// ENABLE_CUSTOM_SCALAR enabled (--enable-custom-modes on the scalar generic-C
+// kernels) from the first matching root. This is the bit-reproducible Opus Custom
+// oracle for the pure-Go celt/custom parity gate.
+func EnsureLibopusCustomScalar(version string, roots []string) bool {
+	return ensureLibopusVariant(version, roots, "custom-scalar")
+}
+
 func ensureLibopus(version string, roots []string, qext bool) bool {
 	variant := "float"
 	if qext {
@@ -420,8 +453,12 @@ func ensureLibopusVariant(version string, roots []string, variant string) bool {
 			env = append(env, "LIBOPUS_ENABLE_FIXED=1")
 		case "custom":
 			env = append(env, "LIBOPUS_ENABLE_CUSTOM=1")
+		case "custom-scalar":
+			env = append(env, "LIBOPUS_ENABLE_CUSTOM_SCALAR=1")
 		case "simd":
 			env = append(env, "LIBOPUS_ENABLE_SIMD=1")
+		case "scalar":
+			env = append(env, "LIBOPUS_ENABLE_SCALAR=1")
 		}
 		cmd.Env = env
 		out, err := cmd.CombinedOutput()
@@ -448,6 +485,12 @@ func tailForLog(s string, max int) string {
 // opus_demo. The validation step matters for fixture generation: an existing
 // executable can be from a stale host/compiler build even when it is runnable.
 func FindOrEnsureOpusDemo(version string, roots []string) (string, bool) {
+	if OpusToolScalarRequested() {
+		if !EnsureLibopusScalar(version, roots) {
+			return "", false
+		}
+		return FindOpusDemo(version, roots)
+	}
 	if !EnsureLibopus(version, roots) && !stampedLibopusBuildPresent(version, roots, false) {
 		return "", false
 	}
@@ -470,6 +513,12 @@ func FindOrEnsureOpusCompare(version string, roots []string) (string, bool) {
 }
 
 func findOrEnsureOpusCompareForPlatform(version string, roots []string, goos, goarch string) (string, bool) {
+	if OpusToolScalarRequested() {
+		if !EnsureLibopusScalar(version, roots) {
+			return "", false
+		}
+		return findLibopusToolInSourceForOS(version, roots, "-scalar", "opus_compare", goos)
+	}
 	if !EnsureLibopus(version, roots) && !stampedLibopusBuildPresentForPlatform(version, roots, false, goos, goarch) {
 		return "", false
 	}

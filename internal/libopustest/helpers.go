@@ -323,7 +323,11 @@ func floatQuantHelper() (string, error) {
 		root := repoRoot()
 		libopusStatic := RefPath(".libs", "libopus.a")
 		if _, err := os.Stat(libopusStatic); err != nil {
-			libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{root})
+			if ScalarRefRequested() {
+				libopustooling.EnsureLibopusScalar(libopustooling.DefaultVersion, []string{root})
+			} else {
+				libopustooling.EnsureLibopus(libopustooling.DefaultVersion, []string{root})
+			}
 		}
 		floatQuantHelperPath, floatQuantHelperErr = BuildCHelper(CHelperConfig{
 			Label:       "float quant",

@@ -78,6 +78,24 @@ func TestHelperRefDirSelectsQEXTTree(t *testing.T) {
 	}
 }
 
+func TestHelperRefDirSelectsScalarTreeWhenRequested(t *testing.T) {
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "1")
+	defaultDir := helperRefDir(CHelperConfig{})
+	if filepath.Base(defaultDir) != "opus-1.6.1-scalar" {
+		t.Fatalf("default helper ref dir under scalar mode=%q want opus-1.6.1-scalar", defaultDir)
+	}
+	customDir := helperRefDir(CHelperConfig{CustomRef: true})
+	if filepath.Base(customDir) != "opus-1.6.1-custom-scalar" {
+		t.Fatalf("custom helper ref dir under scalar mode=%q want opus-1.6.1-custom-scalar", customDir)
+	}
+	// An explicit SIMD reference must NOT be redirected to the scalar tree even
+	// when scalar mode is requested: the perf/asm-tier oracles still need SIMD.
+	simdDir := helperRefDir(CHelperConfig{SIMDRef: true})
+	if filepath.Base(simdDir) != "opus-1.6.1-simd" {
+		t.Fatalf("SIMD helper ref dir under scalar mode=%q want opus-1.6.1-simd", simdDir)
+	}
+}
+
 func TestHelperNeedsConfigFollowsConfigFlag(t *testing.T) {
 	if !helperNeedsConfig([]string{"-O2", "-DHAVE_CONFIG_H"}) {
 		t.Fatal("helperNeedsConfig missed -DHAVE_CONFIG_H")
