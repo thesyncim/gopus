@@ -1401,35 +1401,10 @@ func stereoMerge(x, y []celtNorm, mid opusVal16) {
 	}
 	lgain := celtRSqrt(el)
 	rgain := celtRSqrt(er)
-	i := 0
-	for ; i+3 < n; i += 4 {
-		// libopus rounds l before ADD32/SUB32; keep arm64 from contracting mid*x +/- r.
-		l0 := noFMA32Mul(mid32, float32(x[i]))
-		r0 := float32(y[i])
-		x[i] = celtNorm(noFMA32Mul(lgain, noFMA32Sub(l0, r0)))
-		y[i] = celtNorm(noFMA32Mul(rgain, noFMA32Add(l0, r0)))
-
-		l1 := noFMA32Mul(mid32, float32(x[i+1]))
-		r1 := float32(y[i+1])
-		x[i+1] = celtNorm(noFMA32Mul(lgain, noFMA32Sub(l1, r1)))
-		y[i+1] = celtNorm(noFMA32Mul(rgain, noFMA32Add(l1, r1)))
-
-		l2 := noFMA32Mul(mid32, float32(x[i+2]))
-		r2 := float32(y[i+2])
-		x[i+2] = celtNorm(noFMA32Mul(lgain, noFMA32Sub(l2, r2)))
-		y[i+2] = celtNorm(noFMA32Mul(rgain, noFMA32Add(l2, r2)))
-
-		l3 := noFMA32Mul(mid32, float32(x[i+3]))
-		r3 := float32(y[i+3])
-		x[i+3] = celtNorm(noFMA32Mul(lgain, noFMA32Sub(l3, r3)))
-		y[i+3] = celtNorm(noFMA32Mul(rgain, noFMA32Add(l3, r3)))
-	}
-	for ; i < n; i++ {
-		l := noFMA32Mul(mid32, float32(x[i]))
-		r := float32(y[i])
-		x[i] = celtNorm(noFMA32Mul(lgain, noFMA32Sub(l, r)))
-		y[i] = celtNorm(noFMA32Mul(rgain, noFMA32Add(l, r)))
-	}
+	// libopus rounds l before ADD32/SUB32; the kernel keeps every op a bare
+	// FMUL/FADD/FSUB (no mid*x +/- r contraction) so it stays bit-exact on the
+	// fused arm64 build too.
+	stereoMergeRescaleNEON(x, y, mid32, lgain, rgain)
 }
 
 func specialHybridFoldingWithEdges(norm, norm2 []celtNorm, edges []int, start, M int, dualStereo bool) {
