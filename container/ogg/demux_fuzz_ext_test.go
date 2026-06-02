@@ -1183,6 +1183,12 @@ func FuzzOggExt_DifferentialOpusfilePCM(f *testing.F) {
 			f.Add(s)
 		}
 	}
+	// libopus-authored streams (opusenc, the pinned reference): real libopus Ogg
+	// byte layouts whose page/lacing/granule packing differs from the gopus Writer.
+	// Demuxing these proves gopus interoperates with the reference container writer.
+	for _, s := range buildLibopusOggSeeds(f) {
+		f.Add(s)
+	}
 	// Structural / synthetic streams exercise lacing and header edge cases.
 	if s := buildValidOpusStream(1, 6); len(s) > 0 {
 		f.Add(s)
