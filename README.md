@@ -141,8 +141,10 @@ on Linux, macOS, and Windows; the tagged DRED and `--enable-fixed-point` oracle
 gates (`make test-dred-tag`, `make test-fixedpoint-parity`) run on Linux and
 macOS; the QEXT (`make test-qext-parity`), Opus Custom `--enable-custom-modes`
 (`make test-custom-parity`), extended corpus signal-quality
-(`make test-corpus-quality`), and extra-controls oracle gates run on Linux. Each
-lane builds the pinned libopus C reference first (`make ensure-libopus*`) under
+(`make test-corpus-quality`), and extra-controls oracle gates run on Linux. The
+corpus gate is tier-matched (asm gopus vs SIMD libopus, pure-Go vs scalar), so it
+builds both the scalar and SIMD libopus trees. Each lane builds the pinned libopus
+C reference first (`make ensure-libopus*`) under
 `GOWORK=off GOPUS_TEST_TIER=parity GOPUS_STRICT_LIBOPUS_REF=1`. Windows keeps the
 core float oracle plus the `gopus_libopus_oracle` decoder/encoder fixture parity
 smoke; the broad tagged bash focus-gate sweeps are not run under MSYS2/mingw.
