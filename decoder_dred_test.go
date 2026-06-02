@@ -394,13 +394,17 @@ func makeValidMono16kPacketForDREDTest(t *testing.T) []byte {
 	enc.SetBandwidth(types.BandwidthWideband)
 	enc.SetBitrate(24000)
 
-	pcm := make([]float32, 960)
+	// One 20 ms frame at the native 16 kHz rate (320 samples). The encoder
+	// honours the native-Fs frame-size contract, so the input length selects
+	// the packet duration directly.
+	const frameSize = 16000 / 50
+	pcm := make([]float32, frameSize)
 	for i := range pcm {
-		phase := 2 * math.Pi * 613 * float64(i) / 48000.0
+		phase := 2 * math.Pi * 613 * float64(i) / 16000.0
 		pcm[i] = float32(0.42 * math.Sin(phase))
 	}
 
-	packet, err := enc.Encode(pcm, 960)
+	packet, err := enc.Encode(pcm, frameSize)
 	if err != nil {
 		t.Fatalf("Encode(16k mono): %v", err)
 	}

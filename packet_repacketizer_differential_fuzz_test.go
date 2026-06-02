@@ -179,7 +179,8 @@ func mutateFuzzPacket(rng *rand.Rand, src []byte) []byte {
 		}
 		return append(p, extra...)
 	case 9: // force code 0 with an oversized payload (> maxOpusFrameBytes)
-		head := byte(p[0]&0xFC) | 0x00
+		// Clearing the low two TOC bits selects frame-count code 0.
+		head := p[0] & 0xFC
 		over := make([]byte, 1+maxOpusFrameBytes+1+rng.Intn(4))
 		over[0] = head
 		return over
