@@ -137,6 +137,15 @@ func TestHaar1SpecializedMatchesGeneric(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			if tc.stride == 1 {
+				// stride==1 routes haar1 to the NEON kernel, which uses the same
+				// separate-FMUL/FADD/FSUB lane math as libopus's NEON path. That
+				// is bit-exact with the scalar reference on the non-fused oracle
+				// builds, but the fused arm64 build contracts the reference's
+				// a*b+c into FMA, so a byte-for-byte match no longer holds there
+				// (it is opus_compare-gated instead).
+				requireBitExactFloat(t)
+			}
 			n := tc.n0 * tc.stride
 			input := make([]celtNorm, n)
 			for i := range input {
