@@ -757,10 +757,17 @@ func assertI32EqI16(t *testing.T, name string, got []int16, want []int32) {
 // own nbEBands), so this records the precise gopus-side capacity boundary.
 func wideBandCapCases() []struct{ fs, frame int } {
 	return []struct{ fs, frame int }{
-		{32000, 100}, // nbEBands 22
-		{32000, 200}, // nbEBands 22 (LM split)
-		{44100, 120}, // nbEBands 22
-		{44100, 240}, // nbEBands 22
+		{32000, 100},  // nbEBands 22, LM 0
+		{32000, 200},  // nbEBands 22, LM 1
+		{32000, 800},  // nbEBands 22, LM 3
+		{44100, 120},  // nbEBands 22, LM 0
+		{44100, 240},  // nbEBands 22, LM 1
+		{44100, 480},  // nbEBands 22, LM 2
+		{44100, 960},  // nbEBands 22, LM 3
+		{44100, 1024}, // nbEBands 22, LM 3 (max frame)
+		{48000, 1024}, // nbEBands 22, LM 3
+		{96000, 600},  // nbEBands 23 (widest valid layout)
+		{96000, 1024}, // nbEBands 22, LM 2
 	}
 }
 
@@ -816,10 +823,13 @@ func broadDecodeSweepCases() []oracleCase {
 		{24000, 40}, {32000, 40}, {44100, 100}, {48000, 100}, {96000, 240},
 		// LM=1.
 		{12000, 40}, {16000, 60}, {24000, 80}, {44100, 200}, {96000, 480},
+		{48000, 200}, {96000, 360},
 		// LM=2.
 		{12000, 80}, {16000, 120}, {24000, 160}, {48000, 360}, {96000, 800},
+		{48000, 320}, {44100, 360}, {96000, 720},
 		// LM=3 (20 ms equivalents and other non-power-of-two long frames).
 		{16000, 320}, {24000, 480}, {32000, 640}, {48000, 640}, {44100, 720},
+		{16000, 240}, {32000, 480}, {48000, 720}, {48000, 800},
 	}
 	var cases []oracleCase
 	for _, s := range specs {
@@ -892,6 +902,63 @@ func TestOracleDecodeParityBroadSweep(t *testing.T) {
 					t.Fatalf("Fs=%d frame=%d ch=%d: decoded PCM arm64 drift maxAbs=%g exceeds tol %g",
 						tc.fs, tc.frameSize, tc.channels, maxAbs, scaledFamilyDecodeArm64Tol)
 				}
+			}
+		})
+	}
+}
+
+// TestOracleEncodeParityBroadSweep proves that the native Opus Custom ENCODE data
+// plane reproduces libopus --enable-custom-modes across the same broad grid of
+// non-standard modes within the native band-cap (nbEBands <= 21) that
+// TestOracleDecodeParityBroadSweep covers on the decode side: every short-block
+// decomposition (LM 0..3), the Fs==400*shortMdctSize family and genuinely custom
+// band layouts, 8k..96k sample rates, mono and stereo. The per-mode band tables
+// (eBands, logN, allocVectors, compute_pulse_cache index/bits/caps) and the
+// size-driven MDCT/pre-emphasis kernels are threaded through the encode path.
+//
+// The encoded packet is byte-identical to the libopus oracle on amd64. On
+// darwin/arm64 the documented 1-ULP CELT drift (project_arm64_celt_1ulp_drift.md)
+// can perturb the raw bits at the tail of the packet, so only the range-coder
+// final state is required to match there — the same arm64 contract as
+// TestOracleParityNonStandardModes and TestOracleParityNonStandardStereo. The
+// range-coder final state matching while only late raw bits differ confirms the
+// encoder made bit-identical coding decisions.
+func TestOracleEncodeParityBroadSweep(t *testing.T) {
+	cases := broadDecodeSweepCases()
+	results := runCustomOracle(t, cases)
+
+	for i, tc := range cases {
+		t.Run(fmt.Sprintf("Fs%d_frame%d_ch%d", tc.fs, tc.frameSize, tc.channels), func(t *testing.T) {
+			if results[i].status < 0 {
+				t.Skipf("libopus rejected custom mode (Fs=%d frame=%d ch=%d) status=%d",
+					tc.fs, tc.frameSize, tc.channels, results[i].status)
+			}
+			mode, err := custom.NewMode(tc.fs, tc.frameSize)
+			if err != nil {
+				t.Fatalf("NewMode(%d,%d): %v", tc.fs, tc.frameSize, err)
+			}
+			if mode.NbEBands > 21 {
+				t.Fatalf("Fs=%d frame=%d unexpectedly exceeds native band-cap (nbEBands=%d)",
+					tc.fs, tc.frameSize, mode.NbEBands)
+			}
+
+			got, enc := gopusEncode(t, tc)
+			if len(got) != len(results[i].packet) {
+				t.Fatalf("Fs=%d frame=%d ch=%d: packet length gopus=%d libopus=%d",
+					tc.fs, tc.frameSize, tc.channels, len(got), len(results[i].packet))
+			}
+			if enc.FinalRange() != results[i].encRange {
+				t.Fatalf("Fs=%d frame=%d ch=%d: encoder final range gopus=%08x libopus=%08x",
+					tc.fs, tc.frameSize, tc.channels, enc.FinalRange(), results[i].encRange)
+			}
+			if runtime.GOARCH != "arm64" {
+				if !bytes.Equal(got, results[i].packet) {
+					t.Fatalf("Fs=%d frame=%d ch=%d: encode packet mismatch\n  got  (%d): %x\n  want (%d): %x",
+						tc.fs, tc.frameSize, tc.channels, len(got), got, len(results[i].packet), results[i].packet)
+				}
+			} else if !bytes.Equal(got, results[i].packet) {
+				t.Logf("Fs=%d frame=%d ch=%d: range-state exact; packet within arm64 drift (project_arm64_celt_1ulp_drift.md)",
+					tc.fs, tc.frameSize, tc.channels)
 			}
 		})
 	}
