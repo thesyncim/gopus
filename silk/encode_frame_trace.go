@@ -48,6 +48,8 @@ type encodeFrameTrace struct {
 	ctrlQuantOffset  int
 	ctrlNbSubfr      int
 	ctrlLambdaQ10    int32
+	ctrlCodingQual   float32
+	ctrlInputQual    float32
 	ctrlGainsQ16     [maxNbSubfr]int32
 	ctrlTiltQ14      [maxNbSubfr]int32
 	ctrlHarmShapeQ14 [maxNbSubfr]int32
@@ -66,6 +68,8 @@ func fillCtrlTrace(tr *encodeFrameTrace, signalType, quantOffset, numSubframes i
 	tr.ctrlNbSubfr = numSubframes
 	if params != nil {
 		tr.ctrlLambdaQ10 = params.LambdaQ10
+		tr.ctrlCodingQual = params.CodingQuality
+		tr.ctrlInputQual = params.InputQuality
 	}
 	for i := 0; i < numSubframes && i < maxNbSubfr; i++ {
 		if i < len(gainsQ16) {

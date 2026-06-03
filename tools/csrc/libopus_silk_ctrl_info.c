@@ -137,6 +137,9 @@ typedef struct {
   float    Lambda;
   float    input_quality;
   float    coding_quality;
+  int32_t  SNR_dB_Q7;
+  int32_t  input_quality_bands_Q15[4];
+  int32_t  speech_activity_Q8;
   int32_t  GainsUnq_Q16[MAX_NB_SUBFR];
   float    Gains[MAX_NB_SUBFR];
   float    AR[MAX_NB_SUBFR * MAX_SHAPE_LPC_ORDER];
@@ -188,6 +191,9 @@ void gopus_silk_ctrl_dump(
   r->Lambda           = psEncCtrl->Lambda;
   r->input_quality    = psEncCtrl->input_quality;
   r->coding_quality   = psEncCtrl->coding_quality;
+  r->SNR_dB_Q7        = psEnc->sCmn.SNR_dB_Q7;
+  for (i = 0; i < 4; i++) r->input_quality_bands_Q15[i] = psEnc->sCmn.input_quality_bands_Q15[i];
+  r->speech_activity_Q8 = psEnc->sCmn.speech_activity_Q8;
   for (i = 0; i < MAX_NB_SUBFR; i++) {
     r->GainsUnq_Q16[i] = psEncCtrl->GainsUnq_Q16[i];
     r->Gains[i]        = psEncCtrl->Gains[i];
@@ -337,7 +343,10 @@ int main(void) {
           !write_i32(r->useCBR) || !write_i32(r->nBytes) ||
           !write_f32(r->predGain) || !write_f32(r->LTPredCodGain) ||
           !write_f32(r->Lambda) || !write_f32(r->input_quality) ||
-          !write_f32(r->coding_quality)) { fprintf(stderr, "write ctrl head failed\n"); return 1; }
+          !write_f32(r->coding_quality) || !write_i32(r->SNR_dB_Q7) ||
+          !write_i32(r->input_quality_bands_Q15[0]) || !write_i32(r->input_quality_bands_Q15[1]) ||
+          !write_i32(r->input_quality_bands_Q15[2]) || !write_i32(r->input_quality_bands_Q15[3]) ||
+          !write_i32(r->speech_activity_Q8)) { fprintf(stderr, "write ctrl head failed\n"); return 1; }
       for (k = 0; k < MAX_NB_SUBFR; k++) if (!write_i32(r->GainsUnq_Q16[k])) return 1;
       for (k = 0; k < MAX_NB_SUBFR; k++) if (!write_f32(r->Gains[k])) return 1;
       for (k = 0; k < MAX_NB_SUBFR * MAX_SHAPE_LPC_ORDER; k++) if (!write_f32(r->AR[k])) return 1;

@@ -796,24 +796,33 @@ func (e *Encoder) finalizeEncodeFrame(frameSamples, payloadSizeMs int, vadFlag, 
 
 	// Capture nBytesOut BEFORE ec_enc_done, matching libopus encode_frame_FLP.c:381:
 	//   *pnBytesOut = silk_RSHIFT( ec_tell( psRangeEnc ) + 7, 3 );
+	// This is the value libopus stores in *pnBytesOut and feeds into the
+	// packet-level nBitsExceeded reservoir update (enc_API.c). ec_tell counts the
+	// pre-flush bit position, so (ec_tell+7)>>3 can be one byte larger than the
+	// buffer ec_enc_done() actually emits; libopus uses this larger pre-flush
+	// estimate for the reservoir, NOT the flushed length.
 	nBytesOut := (e.rangeEncoder.Tell() + 7) >> 3
-
-	raw := e.rangeEncoder.Done()
 	if nBytesOut < 0 {
 		nBytesOut = 0
 	}
-	if nBytesOut > len(raw) {
-		nBytesOut = len(raw)
+
+	raw := e.rangeEncoder.Done()
+	resultLen := nBytesOut
+	if resultLen > len(raw) {
+		resultLen = len(raw)
 	}
 
 	// Match libopus: return exactly ec_tell() byte count for the frame.
-	result := raw[:nBytesOut]
+	result := raw[:resultLen]
 
 	if e.targetRateBps > 0 && payloadSizeMs > 0 {
 		// Match libopus enc_API.c nBitsExceeded update exactly:
 		//   psEnc->nBitsExceeded += *nBytesOut * 8;
 		//   psEnc->nBitsExceeded -= silk_DIV32_16(silk_MUL(bitRate, payloadSize_ms), 1000);
 		//   psEnc->nBitsExceeded = silk_LIMIT(psEnc->nBitsExceeded, 0, 10000);
+		// *nBytesOut is the pre-flush (ec_tell+7)>>3 estimate, not the flushed
+		// buffer length, so the reservoir tracks libopus even when ec_enc_done
+		// emits one fewer byte than the bit position implies.
 		e.nBitsExceeded += int32(nBytesOut * 8)
 		e.nBitsExceeded -= (e.targetRateBps * int32(payloadSizeMs)) / 1000
 		if e.nBitsExceeded < 0 {
@@ -1142,15 +1151,18 @@ func (e *Encoder) EncodePacketWithFECWithVADStates(pcm []float32, lookahead []fl
 	e.rangeEncoder.PatchInitialBits(flags, uint(nFrames+1))
 	e.lastRng = e.rangeEncoder.Range()
 	// Capture nBytesOut BEFORE ec_enc_done, matching libopus encode_frame_FLP.c:381.
+	// As in the single-frame path, this pre-flush (ec_tell+7)>>3 estimate is what
+	// libopus feeds into the reservoir; it can exceed the flushed buffer length.
 	nBytesOut := (e.rangeEncoder.Tell() + 7) >> 3
-	raw := e.rangeEncoder.Done()
 	if nBytesOut < 0 {
 		nBytesOut = 0
 	}
-	if nBytesOut > len(raw) {
-		nBytesOut = len(raw)
+	raw := e.rangeEncoder.Done()
+	resultLen := nBytesOut
+	if resultLen > len(raw) {
+		resultLen = len(raw)
 	}
-	result := raw[:nBytesOut]
+	result := raw[:resultLen]
 	if e.targetRateBps > 0 {
 		payloadSizeMs := (nFrames * frameSamples * 1000) / config.SampleRate
 		if payloadSizeMs > 0 {

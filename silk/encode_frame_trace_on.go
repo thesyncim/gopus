@@ -37,13 +37,25 @@ type SILKCtrlSnapshot struct {
 	LFShpQ14     [4]int32
 	ARShpQ13     [4 * maxShapeLpcOrder]int16
 	PitchL       [4]int32
+
+	// Frame-level SILK rate-control inputs that drive the residual-quantizer SNR
+	// and Lambda, captured so a parity test can bisect a per-frame size delta to
+	// the rate-control stage (SNR_dB_Q7 / coding_quality) rather than the shaping
+	// or NSQ stages.
+	SNRdBQ7       int32
+	InQBandsQ15   [4]int32
+	SpeechActivQ8 int32
+	CodingQuality float32
+	InputQuality  float32
+	TargetRateBps int32
+	NBitsExceeded int32
 }
 
 // WithSILKCtrlSnapshotHook installs a per-frame snapshot callback for the
 // duration of fn. The callback fires once per SILK frame at the iter==0
 // AfterPulses trace point.
 func WithSILKCtrlSnapshotHook(cb func(SILKCtrlSnapshot), fn func()) {
-	withEncodeFrameTraceHook(func(_ *Encoder, tr encodeFrameTrace) {
+	withEncodeFrameTraceHook(func(e *Encoder, tr encodeFrameTrace) {
 		if tr.iter != 0 || tr.stage != encodeFrameTraceAfterPulses {
 			return
 		}
@@ -58,6 +70,13 @@ func WithSILKCtrlSnapshotHook(cb func(SILKCtrlSnapshot), fn func()) {
 		s.LFShpQ14 = tr.ctrlLFShpQ14
 		s.ARShpQ13 = tr.ctrlARShpQ13
 		s.PitchL = tr.ctrlPitchL
+		s.SNRdBQ7 = e.snrDBQ7
+		s.InQBandsQ15 = e.inputQualityBandsQ15
+		s.SpeechActivQ8 = e.lastSpeechActivityQ8
+		s.CodingQuality = tr.ctrlCodingQual
+		s.InputQuality = tr.ctrlInputQual
+		s.TargetRateBps = e.lastControlTargetRateBps
+		s.NBitsExceeded = e.nBitsExceeded
 		cb(s)
 	}, fn)
 }

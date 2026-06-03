@@ -432,22 +432,25 @@ func EncodeStereoWithEncoderVADAnalyzersWithSide(
 	// Capture final range state.
 	enc.lastRng = re.Range()
 
-	// Capture nBytesOut before ec_enc_done, matching libopus.
+	// Capture nBytesOut before ec_enc_done, matching libopus. This pre-flush
+	// (ec_tell+7)>>3 estimate is the value libopus feeds into the reservoir and
+	// can exceed the flushed buffer length; only the returned slice is clamped.
 	nBytesOut := (re.Tell() + 7) >> 3
-
-	// Finalize the range encoder.
-	raw := re.Done()
 	if nBytesOut < 0 {
 		nBytesOut = 0
 	}
-	if nBytesOut > len(raw) {
-		nBytesOut = len(raw)
+
+	// Finalize the range encoder.
+	raw := re.Done()
+	resultLen := nBytesOut
+	if resultLen > len(raw) {
+		resultLen = len(raw)
 	}
 	// Return a view into the range encoder's own buffer (enc.scratchOutput),
 	// matching the mono finalizeEncodeFrame path. The caller copies the bytes
 	// into the packet buffer before the next encode reinitialises this buffer,
 	// so no defensive copy is needed.
-	result := raw[:nBytesOut]
+	result := raw[:resultLen]
 
 	// Match libopus packet-level nBitsExceeded update.
 	payloadSizeMs := (nFrames * frameLength20ms * 1000) / config.SampleRate

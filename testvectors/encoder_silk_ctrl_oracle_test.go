@@ -88,6 +88,9 @@ type silkCtrlRecord struct {
 	lambda        float32
 	inputQuality  float32
 	codingQuality float32
+	snrDBQ7       int32
+	inQBandsQ15   [4]int32
+	speechActQ8   int32
 	gainsUnqQ16   [silkCtrlMaxNbSubfr]int32
 	gains         [silkCtrlMaxNbSubfr]float32
 	ar            [silkCtrlMaxNbSubfr * silkCtrlMaxShapeLPC]float32
@@ -151,6 +154,11 @@ func runSILKCtrlOracle(helperPath string, req []byte, nFrames int) (*silkCtrlOra
 		r.lambda = rf()
 		r.inputQuality = rf()
 		r.codingQuality = rf()
+		r.snrDBQ7 = ri()
+		for k := range r.inQBandsQ15 {
+			r.inQBandsQ15[k] = ri()
+		}
+		r.speechActQ8 = ri()
 		for k := range r.gainsUnqQ16 {
 			r.gainsUnqQ16[k] = ri()
 		}
@@ -199,18 +207,42 @@ func TestSILKCtrlOracle(t *testing.T) {
 		return
 	}
 
-	const (
-		channels  = 1
-		frameSize = 480 // 10ms @ 48k -> NB
-		bitrate   = 12000
-		nFrames   = 8
-	)
+	type silkCtrlKase struct {
+		name      string
+		channels  int
+		frameSize int
+		bitrate   int
+		bandwidth types.Bandwidth
+		opusBW    uint32
+		nFrames   int
+		cvbr      bool
+	}
+	kases := []silkCtrlKase{
+		{"nb-mono-10ms-12k-vbr", 1, 480, 12000, types.BandwidthNarrowband, opusBandwidthNB, 8, false},
+		// The failing build-config-matrix case: pure-SILK WB mono CVBR over a long
+		// stream. Divergence first appears around frame 38, so run the full 100.
+		{"wb-mono-20ms-24k-cvbr", 1, 960, 24000, types.BandwidthWideband, opusBandwidthWB, 100, true},
+		{"wb-mono-20ms-24k-vbr", 1, 960, 24000, types.BandwidthWideband, opusBandwidthWB, 100, false},
+	}
+	for _, k := range kases {
+		k := k
+		t.Run(k.name, func(t *testing.T) {
+			runSILKCtrlBisect(t, helperPath, k.channels, k.frameSize, k.bitrate, k.bandwidth, k.opusBW, k.nFrames, k.cvbr)
+		})
+	}
+}
+
+func runSILKCtrlBisect(t *testing.T, helperPath string, channels, frameSize, bitrate int, bandwidth types.Bandwidth, opusBW uint32, nFrames int, cvbr bool) {
 	pcm := makeVBRCVBRTestPCM(nFrames, frameSize, channels)
 
+	oracleMode := oracleModeVBR
+	if cvbr {
+		oracleMode = oracleModeCVBR
+	}
 	req := buildVBRCVBRRequest(
-		oracleModeVBR, opusApplicationVoIP,
+		oracleMode, opusApplicationVoIP,
 		48000, channels, frameSize, bitrate,
-		opusBandwidthNB, opusSignalVoice,
+		opusBW, opusSignalVoice,
 		pcm, nFrames,
 	)
 	// Reuse the GVCI builder but rewrite the magic to GSCI.
@@ -233,11 +265,11 @@ func TestSILKCtrlOracle(t *testing.T) {
 	}
 	mustNoErr(t, enc.SetFrameSize(frameSize))
 	mustNoErr(t, enc.SetBitrate(bitrate))
-	mustNoErr(t, enc.SetBandwidth(types.BandwidthNarrowband))
+	mustNoErr(t, enc.SetBandwidth(bandwidth))
 	mustNoErr(t, enc.SetSignal(types.SignalVoice))
 	mustNoErr(t, enc.SetComplexity(10))
 	enc.SetVBR(true)
-	enc.SetVBRConstraint(false)
+	enc.SetVBRConstraint(cvbr)
 
 	buf := make([]byte, 4000)
 	goLens := make([]int, nFrames)
@@ -275,6 +307,23 @@ func TestSILKCtrlOracle(t *testing.T) {
 		s := snaps[i]
 		nbs := int(r.nbSubfr)
 		var diffs []string
+		if r.snrDBQ7 != s.SNRdBQ7 {
+			diffs = append(diffs, fmt.Sprintf("SNR_dB_Q7 ref=%d go=%d", r.snrDBQ7, s.SNRdBQ7))
+		}
+		if r.speechActQ8 != s.SpeechActivQ8 {
+			diffs = append(diffs, fmt.Sprintf("speechAct_Q8 ref=%d go=%d", r.speechActQ8, s.SpeechActivQ8))
+		}
+		for k := 0; k < 4; k++ {
+			if r.inQBandsQ15[k] != s.InQBandsQ15[k] {
+				diffs = append(diffs, fmt.Sprintf("inQBand_Q15[%d] ref=%d go=%d", k, r.inQBandsQ15[k], s.InQBandsQ15[k]))
+			}
+		}
+		if r.codingQuality != s.CodingQuality {
+			diffs = append(diffs, fmt.Sprintf("codingQuality ref=%.9g go=%.9g", r.codingQuality, s.CodingQuality))
+		}
+		if r.inputQuality != s.InputQuality {
+			diffs = append(diffs, fmt.Sprintf("inputQuality ref=%.9g go=%.9g", r.inputQuality, s.InputQuality))
+		}
 		if int(r.signalType) != s.SignalType {
 			diffs = append(diffs, fmt.Sprintf("signalType ref=%d go=%d", r.signalType, s.SignalType))
 		}
@@ -320,6 +369,7 @@ func TestSILKCtrlOracle(t *testing.T) {
 			t.Logf("FRAME %d FIRST DIVERGENCE (ref nBytes=%d): %v", i, r.nBytes, diffs)
 			t.Logf("  ref: sig=%d qoff=%d lambda=%.6f gainsUnq=%v predGain=%.4f ltpCG=%.4f inQ=%.6f cdQ=%.6f",
 				r.signalType, r.quantOffset, r.lambda, r.gainsUnqQ16[:nbs], r.predGain, r.ltpredCodGain, r.inputQuality, r.codingQuality)
+			t.Logf("  go rate-control: SNR_dB_Q7=%d targetRateBps=%d nBitsExceeded=%d", s.SNRdBQ7, s.TargetRateBps, s.NBitsExceeded)
 			return
 		}
 	}
