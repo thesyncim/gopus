@@ -174,6 +174,14 @@ func TestLibopusToolIsRunnableUsesPlatformSemantics(t *testing.T) {
 }
 
 func TestDefaultSearchRootsIncludeGitHubWorkspace(t *testing.T) {
+	// This test stubs the default (opus-<ver>) tree under GITHUB_WORKSPACE and
+	// asserts the search roots resolve to it. The build-config-matrix lane runs
+	// with GOPUS_LIBOPUS_REF_SCALAR=1, which redirects FindOpusCompare to the
+	// opus-<ver>-scalar tree and would otherwise resolve to the real scalar tree
+	// in the source root instead of this stub. Clear the scalar/strict ref env so
+	// the default-tree search path under test is exercised regardless of lane.
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
+	t.Setenv("GOPUS_STRICT_LIBOPUS_REF", "")
 	root := t.TempDir()
 	toolPath := filepath.Join(root, "tmp_check", "opus-"+DefaultVersion, "opus_compare")
 	if err := os.MkdirAll(filepath.Dir(toolPath), 0o755); err != nil {
@@ -252,6 +260,11 @@ func TestDefaultSearchRootsIncludeGitHubWorkspace(t *testing.T) {
 }
 
 func TestFindOrEnsureOpusDemoValidatesBeforeReturningExistingTool(t *testing.T) {
+	// Stubs the default opus-<ver> tree; clear the scalar/strict ref env so the
+	// build-config-matrix lane (GOPUS_LIBOPUS_REF_SCALAR=1) does not redirect
+	// FindOrEnsureOpusDemo to the opus-<ver>-scalar tree and miss this stub.
+	t.Setenv("GOPUS_LIBOPUS_REF_SCALAR", "")
+	t.Setenv("GOPUS_STRICT_LIBOPUS_REF", "")
 	if runtime.GOOS == "windows" {
 		t.Skip("shell validation hook is Unix-only")
 	}
